@@ -516,6 +516,8 @@ Pages has `https_enforced` on.
   open a page to unregister only the root scope, clear `blog-*` plus legacy
   caches, and refresh once if the current page is controlled by the root worker;
   `/moments/sw.js` and `moments-post-*` are left alone.
+  Cross-origin CDN requests in CORS mode must ignore cached opaque responses
+  and fetch a readable response instead.
   Explicit article copies live in `blog-saved-v1`, are managed by
   `js/offline-save.js`, and are listed in the saved-cache manifest.
 - `_includes/comments.html` — comment section (GitHub Discussions), used by

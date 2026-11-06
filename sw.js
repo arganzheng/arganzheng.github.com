@@ -204,13 +204,14 @@ function navigationResponse(request, event) {
 
 function cacheFirstCdn(request) {
   return caches.open(CACHE_CDN).then(async cache => {
+    const cors = request.mode === 'cors';
     const cached = await cache.match(request);
-    if (cached) return cached;
+    if (cached && (!cors || cached.type !== 'opaque')) return cached;
     const saved = await (await caches.open(CACHE_SAVED)).match(request);
-    if (saved) return saved;
+    if (saved && (!cors || saved.type !== 'opaque')) return saved;
 
     const response = await fetch(request);
-    if (response.ok || response.type === 'opaque') {
+    if (response.ok || (!cors && response.type === 'opaque')) {
       try { await cache.put(request, response.clone()); } catch (_) {}
     }
     return response;
