@@ -332,7 +332,7 @@
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
   var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null;
-  var copyMarkdown = null, copyRich = null, downloadMarkdown = null, downloadMarkdownZip = null;
+  var copyMarkdown = null, copyRich = null, downloadMarkdown = null, downloadMarkdownZip = null, downloadDocx = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -426,7 +426,8 @@
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-copy" title="复制 Markdown（图片链接改为完整地址）"><i class="fa fa-copy"></i>复制 Markdown</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="rich" title="复制富文本（带图片）"><i class="fa fa-copy"></i>复制富文本（带图片）</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 文件"><i class="fa fa-file-lines"></i>下载 Markdown</button>' +
-      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-zip" title=".md + images/ 文件夹（相对路径），用于导入 Markdown"><i class="fa fa-download"></i>下载 Markdown 压缩包</button>';
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-zip" title=".md + images/ 文件夹（相对路径），用于导入 Markdown"><i class="fa fa-download"></i>下载 Markdown 压缩包</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="docx" title=".docx，图片和公式嵌在文件里，用于导入 Word"><i class="fa fa-file-lines"></i>下载 Word（.docx）</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
       var item = e.target.closest('.pa-sp-item');
@@ -441,6 +442,7 @@
       else if (kind === 'rich' && copyRich) copyRich(item);
       else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
       else if (kind === 'md-zip' && downloadMarkdownZip) downloadMarkdownZip(item);
+      else if (kind === 'docx' && downloadDocx) downloadDocx(item);
     });
     bindMenuDismissal();
     return exportPop;
@@ -807,6 +809,41 @@
         }
       }).catch(function (err) {
         toast(bar, '失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
+    downloadDocx = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      toast(bar, '正在准备 Word…', 60000);
+      var sourcePath = bar.getAttribute('data-source') || '';
+      var filename = sourcePath.split(/[\\/]/).pop() || 'article.md';
+      var ready = window.DocxExport ? Promise.resolve() : loadScript('/js/docx-export.js');
+      ready.then(function () {
+        if (!window.DocxExport || !window.DocxExport.build) throw new Error('DOCX export module unavailable');
+        return window.DocxExport.build({
+          url: bar.getAttribute('data-url') || location.href,
+          title: bar.getAttribute('data-title') || '',
+          subtitle: bar.getAttribute('data-subtitle') || '',
+          filename: filename
+        });
+      }).then(function (result) {
+        var objectUrl = URL.createObjectURL(result.blob);
+        var link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = result.name;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        try {
+          link.click();
+          var message = '已下载 ' + result.name + '（' + result.images + ' 张图片、' + result.formulas + ' 个公式）';
+          if (result.failed > 0) message += '，' + result.failed + ' 张没带上';
+          toast(bar, message, 5000);
+        } finally {
+          if (link.parentNode) link.parentNode.removeChild(link);
+          setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1000);
+        }
+      }).catch(function (err) {
+        toast(bar, '导出失败：' + (err && err.message || err), 4000);
       }).then(function () { item.disabled = false; });
     };
     if (downloadBtn) {

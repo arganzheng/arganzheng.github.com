@@ -585,14 +585,16 @@ Pages has `https_enforced` on.
   only verified by pasting.
   The author-only `.pa-download` 「导出」 button opens a lazy body-level
   `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」, 「复制为公众号格式」,
-  「HTML」, 「复制 Markdown」, 「复制富文本（带图片）」, 「下载 Markdown」
-  and 「下载 Markdown 压缩包」. Markdown copy strips front matter, adds the
+  「HTML」, 「复制 Markdown」, 「复制富文本（带图片）」, 「下载 Markdown」,
+  「下载 Markdown 压缩包」 and 「下载 Word（.docx）」. Markdown copy strips front matter, adds the
   title/subtitle, absolutizes root-relative body URLs, and writes only
   `text/plain`, keeping formulas in their source `\(...\)` / `\[...\]` syntax.
   Rich copy writes HTML with embedded images and formula PNGs, plus readable
   `text/plain`. Markdown download keeps the front matter and absolute URLs; the
   ZIP uses the same title/subtitle header, bundles one `.md` plus `images/` with
   relative image paths, and keeps formulas in their source syntax.
+  Word export converts the rich HTML to OOXML and embeds images and formula
+  PNGs for importing into Word.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
   Markdown is fetched from GitHub; download keeps the source filename and
