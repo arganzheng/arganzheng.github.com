@@ -304,7 +304,7 @@ $$
 
 把三种方法对每个维度对的缩放比 $$\theta_i / \theta_i'$$ 画在同一张图上（base 10000、$$d_{head} = 128$$、$$L = 8192$$、factor 4），三条曲线的形状就是三种方法的全部区别：
 
-![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 是水平线 4，NTK-aware 从 1 指数过渡到 4，YaRN 在 λ<256 不动、λ>8192 完全插值、中间线性混合](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg)
+![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 是水平线 4，NTK-aware 从 1 指数过渡到 4，YaRN 在 \(\lambda<256\) 不动、\(\lambda>8192\) 完全插值、中间线性混合](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg)
 
 PI 对所有维度一刀切；NTK-aware 用一条指数曲线让高频端少动、低频端多动，但 $$i = 40$$ 附近（波长约 2000、训练中转过 4 圈）仍被缩了 2.4 倍；YaRN 把这条曲线"拉直"成三段，$$i \le 25$$ 严格不动。
 
