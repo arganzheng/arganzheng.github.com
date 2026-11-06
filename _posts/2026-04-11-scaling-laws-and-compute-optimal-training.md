@@ -114,7 +114,7 @@ Table: 7 个字符级小模型：参数越多 loss 越低——但每一步降�
 
 参数从 14K 到 889K 翻了 62 倍，loss 从 2.00 降到 1.34。降是一定的，问题是**按什么规律降**。把 $$N$$ 画在对数轴上，loss 减去一个常数后也取对数，7 个点几乎在一条**直线**上：
 
-![loss 随 N：左为 CPU 实验的拟合与外推——6 个点拟出一条线，第 7 个点落在延长线附近；右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg)
+![loss 随 \(N\)：左为 CPU 实验的拟合与外推——6 个点拟出一条线，第 7 个点落在延长线附近；右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg)
 
 "双对数坐标下是直线"有一个专门的名字：**幂律**（power law），$$L = E + A / N^{\alpha}$$。它的意思用一句话说：**$$N$$ 每翻 10 倍，可以降的那部分 loss 就乘以一个固定的比例**。用拟出来的常数（$$E = 0.618$$、$$A = 6.78$$、$$\alpha = 0.166$$）算一遍：
 
@@ -388,7 +388,7 @@ FLOPs 还低估了推理这一项。训练跑在 40% MFU，而 decode 是 memory
 
 Table: 固定算力下缩小模型的 loss 代价与推理收益
 
-![loss 随 N：左为 CPU 实验的拟合与外推，右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg)
+![loss 随 \(N\)：左为 CPU 实验的拟合与外推，右为固定算力下的 IsoFLOP 曲线](/img/in-post/scaling-laws-loss-vs-n.svg)
 
 右图是这张表的曲线：谷底附近极平，$$k = 2$$ 几乎免费，$$k = 10$$ 付 0.053 nats 换推理成本降到十分之一。谷底为什么平？在最优点两项弹性相等，偏离 $$k$$ 倍时一项乘 $$k^\alpha$$、另一项乘 $$k^{-\beta}$$，一阶变化抵消，只剩二阶——$$\Delta L \approx \frac{1}{2}(\alpha + \beta)\alpha \frac{A}{N^\alpha} (\ln k)^2$$ 量级，$$k = 2$$ 时 $$(\ln 2)^2 = 0.48$$，$$k = 10$$ 时 5.3，与表里 0.005 → 0.053 的比例一致。
 
