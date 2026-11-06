@@ -655,8 +655,8 @@
       });
       function reportSuccess(result) {
         if (result.rich) {
-          var message = '已复制 Markdown（' + result.rich.images + ' 张图片、' + result.rich.formulas +
-            ' 个公式已附带；粘到知乎、飞书、语雀会自动上传）';
+          var message = '已复制 Markdown（' + result.rich.images +
+            ' 张图片已附带；粘到知乎、飞书、语雀会自动上传）';
           if (result.rich.failed > 0) message += '，' + result.rich.failed + ' 张没带上';
           toast(bar, message, 5000);
         } else if (result.richError) {
