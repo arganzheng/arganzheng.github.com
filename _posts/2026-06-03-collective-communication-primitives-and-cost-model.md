@@ -371,7 +371,7 @@ $$
 
 把 $$T_{\text{ring}}(S)$$ 画在双对数坐标上，两项各自是一条直线（延迟项水平、带宽项斜率 1），曲线就是两条渐近线的"圆角拼接"，拐点是它们的交点：
 
-![ring all_reduce 的 T(S) 双对数曲线：延迟项水平渐近线与带宽项斜线在 S* = nαβ 处相交；n 变大整条曲线左端抬高、拐点右移，链路变快只压低右半段](/img/in-post/collective-communication-primitives-and-cost-model-alpha-beta-regimes.svg)
+![ring all_reduce 的 \(T(S)\) 双对数曲线：延迟项水平渐近线与带宽项斜线在 \(S^*=n\alpha\beta\) 处相交；n 变大整条曲线左端抬高、拐点右移，链路变快只压低右半段](/img/in-post/collective-communication-primitives-and-cost-model-alpha-beta-regimes.svg)
 
 三条曲线的差别正是两本账的差别：n 从 8 到 64，左端平台抬高 9 倍（步数 ×9）、拐点从 2 MB 右移到 16 MB，而右端几乎不动（$$\frac{2(n-1)}{n}$$ 只从 1.75 到 1.97）；换成 NVLink，右半段整体下压 8 倍（β ×8），左端平台只降到 42 µs（α 从 10 µs 到 3 µs）——所以 64 KB 的消息在两种链路上都在平台段，链路带宽对它无关紧要。
 
