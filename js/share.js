@@ -11,7 +11,7 @@
  *     can additionally provide a PNG card generator and a long-press / download
  *     overlay.
  *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, copy Markdown
- *     with absolute URLs, and download Markdown.
+ *     with absolute URLs plus embedded rich HTML, and download Markdown.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -649,36 +649,85 @@
     copyMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
       item.disabled = true;
+      toast(bar, '正在准备图片…', 60000);
       var payloadPromise = fetchMarkdownSource(bar).then(function (source) {
         return copyMarkdownPayload(source, bar);
       });
-      function reportSuccess(payload) {
-        toast(bar, '已复制 Markdown（' + payload.imageCount + ' 张图片已换成完整地址）', 4000);
+      function reportSuccess(result) {
+        if (result.rich) {
+          var message = '已复制 Markdown（' + result.rich.images +
+            ' 张图片已附带；粘到知乎、飞书、语雀会自动上传）';
+          if (result.rich.failed > 0) message += '，' + result.rich.failed + ' 张没带上';
+          toast(bar, message, 5000);
+        } else if (result.richError) {
+          toast(bar, '已复制 Markdown（富文本准备失败，已复制纯文本）', 5000);
+        } else {
+          toast(bar, '已复制 Markdown（仅纯文本）', 4000);
+        }
       }
       function reportFailure(err) {
         toast(bar, '失败：' + (err && err.message || err), 4000);
       }
+      var plainBlobPromise = payloadPromise.then(function (payload) {
+        return new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
+      });
+      function writePlainClipboard() {
+        if (!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem) {
+          return Promise.reject(new Error('ClipboardItem unavailable'));
+        }
+        try {
+          return navigator.clipboard.write([new window.ClipboardItem({
+            'text/plain': plainBlobPromise
+          })]);
+        } catch (err) {
+          return Promise.reject(err);
+        }
+      }
       function fallbackCopy() {
-        return payloadPromise.then(function (payload) {
-          return copyText(payload.text).then(function () { return payload; });
+        return writePlainClipboard().then(function () {
+          return payloadPromise;
+        }).catch(function () {
+          return payloadPromise.then(function (payload) {
+            return copyText(payload.text).then(function () { return payload; });
+          });
         });
       }
       var copyPromise;
       if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+        var richPromise = (window.RichExport ? Promise.resolve() : loadScript('/js/rich-export.js'))
+          .then(function () {
+            return window.RichExport.articleHtml({
+              url: bar.getAttribute('data-url') || location.href,
+              title: bar.getAttribute('data-title') || '',
+              subtitle: bar.getAttribute('data-subtitle') || ''
+            });
+          });
+        var htmlBlobPromise = richPromise.then(function (result) {
+          return new Blob([result.html], { type: 'text/html;charset=utf-8' });
+        });
+        htmlBlobPromise.catch(function () {});
         try {
           copyPromise = navigator.clipboard.write([new window.ClipboardItem({
-            'text/plain': payloadPromise.then(function (payload) {
-              return new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
-            })
+            'text/plain': plainBlobPromise,
+            'text/html': htmlBlobPromise
           })]);
         } catch (err) {
           copyPromise = Promise.reject(err);
         }
-        copyPromise.then(function () { return payloadPromise; }, fallbackCopy)
-          .then(reportSuccess, reportFailure)
+        copyPromise.then(function () {
+          return Promise.all([payloadPromise, richPromise]).then(function (values) {
+            return { payload: values[0], rich: values[1] };
+          });
+        }).catch(function (err) {
+          return fallbackCopy().then(function (payload) {
+            return { payload: payload, rich: null, richError: err };
+          });
+        }).then(reportSuccess, reportFailure)
           .then(function () { item.disabled = false; });
       } else {
-        fallbackCopy().then(reportSuccess, reportFailure)
+        fallbackCopy().then(function (payload) {
+          return { payload: payload, rich: null };
+        }).then(reportSuccess, reportFailure)
           .then(function () { item.disabled = false; });
       }
     };

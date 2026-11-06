@@ -15,6 +15,7 @@
  *   - Mermaid SVG -> PNG and .webp images -> JPEG data URLs via canvas (WeChat
  *     takes neither SVG nor WebP); other images -> absolute URLs
  * window.WechatExport.copy({url, title, target: 'wechat'|'zhihu'}) -> Promise<{images, refs}>
+ * SVG / Mermaid / WebP rasterizers and REMOVE are also shared with rich-export.js.
  */
 (function () {
   'use strict';
@@ -386,6 +387,10 @@
 
   window.WechatExport = {
     build: build,
+    REMOVE: REMOVE,
+    svgToPng: svgToPng,
+    mermaidToPng: mermaidToPng,
+    imgToJpeg: imgToJpeg,
     copy: function (opts) {
       return build(opts || {}).then(function (out) {
         return writeClipboard(out.html, out.text).then(function () { return out; });

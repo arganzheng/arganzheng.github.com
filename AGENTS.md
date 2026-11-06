@@ -586,6 +586,9 @@ Pages has `https_enforced` on.
   「下载 Markdown」. Copy strips front matter, adds the title/subtitle, and
   absolutizes root-relative body URLs; download keeps the front matter while
   absolutizing root-relative body URLs.
+  Copy also writes a `text/html` flavor with embedded images; formulas keep
+  their source `\(...\)` / `\[...\]` syntax. `text/plain` remains the
+  absolute-URL Markdown.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
   Markdown is fetched from GitHub; download keeps the source filename and
