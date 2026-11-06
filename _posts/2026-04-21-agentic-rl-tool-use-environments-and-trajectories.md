@@ -71,7 +71,7 @@ Table: 本文的章节安排
 
 一条 $$T$$ 轮的轨迹：
 
-![T 轮轨迹与第 t 轮开始时的上下文布局](/img/in-post/agentic-rl-tool-use-environments-and-trajectories-context-layout.svg)
+![\(T\) 轮轨迹与第 \(t\) 轮开始时的上下文布局](/img/in-post/agentic-rl-tool-use-environments-and-trajectories-context-layout.svg)
 
 底行的 mask 就是第六章的全部内容：**只有 $$a_t$$ 是策略的输出**，loss 与对数概率只在它们上面算。
 
