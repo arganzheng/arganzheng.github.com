@@ -1,18 +1,20 @@
 /*!
- * rich-export.js — rich clipboard HTML for author-only Markdown copy.
+ * rich-export.js — rich clipboard HTML with embedded images and formula images.
  * window.RichExport.articleHtml({url, title, subtitle}) ->
- *   Promise<{html, images, failed}>
+ *   Promise<{html, images, formulas, failed}>
  */
 (function () {
   'use strict';
 
+  var MATHJAX_URL = 'https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js';
   var scriptVersion = (document.currentScript && (document.currentScript.src.match(/[?&]v=([^&]+)/) || [])[1]) || '';
   var wechatPromise = null;
+  var mathJaxPromise = null;
 
-  function loadScript(src) {
+  function loadScript(src, versioned) {
     return new Promise(function (resolve, reject) {
       var script = document.createElement('script');
-      script.src = src + (scriptVersion ? '?v=' + scriptVersion : '');
+      script.src = src + (versioned !== false && scriptVersion ? '?v=' + scriptVersion : '');
       script.onload = resolve;
       script.onerror = function () { reject(new Error('failed to load ' + src)); };
       document.head.appendChild(script);
@@ -39,6 +41,34 @@
       });
     }
     return wechatPromise;
+  }
+
+  function ensureMathJax() {
+    if (window.MathJax && typeof window.MathJax.tex2svg === 'function') {
+      return Promise.resolve(window.MathJax);
+    }
+    if (mathJaxPromise) return mathJaxPromise;
+    if (!window.MathJax) {
+      window.MathJax = { startup: { typeset: false }, svg: { fontCache: 'none' } };
+    } else {
+      window.MathJax.startup = window.MathJax.startup || {};
+      if (window.MathJax.startup.typeset == null) window.MathJax.startup.typeset = false;
+      window.MathJax.svg = window.MathJax.svg || {};
+      if (!window.MathJax.svg.fontCache) window.MathJax.svg.fontCache = 'none';
+    }
+    mathJaxPromise = loadScript(MATHJAX_URL, false).then(function () {
+      var mathJax = window.MathJax;
+      return Promise.resolve(mathJax && mathJax.startup && mathJax.startup.promise).then(function () {
+        if (!window.MathJax || typeof window.MathJax.tex2svg !== 'function') {
+          throw new Error('MathJax tex2svg unavailable');
+        }
+        return window.MathJax;
+      });
+    }).catch(function (error) {
+      mathJaxPromise = null;
+      throw error;
+    });
+    return mathJaxPromise;
   }
 
   function unwrap(node) {
@@ -79,6 +109,67 @@
     });
   }
 
+  function svgLength(value) {
+    var match = /^\s*([\d.]+)\s*(ex|em|px|pt)?/i.exec(String(value || ''));
+    if (!match) return 0;
+    var number = parseFloat(match[1]);
+    var unit = (match[2] || 'px').toLowerCase();
+    if (unit === 'ex') return number * 8;
+    if (unit === 'em') return number * 16;
+    if (unit === 'pt') return number * 96 / 72;
+    return number;
+  }
+
+  function rasterizeSvg(svg, width, height) {
+    return new Promise(function (resolve, reject) {
+      var clone = svg.cloneNode(true);
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', width);
+      clone.setAttribute('height', height);
+      if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      var blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' });
+      var objectUrl = URL.createObjectURL(blob);
+      var image = new Image();
+      image.onload = function () {
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width * 2));
+        canvas.height = Math.max(1, Math.round(height * 2));
+        var context = canvas.getContext('2d');
+        if (!context) {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('canvas unavailable'));
+          return;
+        }
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(objectUrl);
+        try { resolve(canvas.toDataURL('image/png')); }
+        catch (error) { reject(error); }
+      };
+      image.onerror = function () {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('formula svg render failed'));
+      };
+      image.src = objectUrl;
+    });
+  }
+
+  function mathSvgToPng(svg) {
+    var width = svgLength(svg.getAttribute('width'));
+    var height = svgLength(svg.getAttribute('height'));
+    var viewBox = (svg.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
+    if ((!width || !height) && viewBox.length === 4) {
+      width = width || viewBox[2];
+      height = height || viewBox[3];
+    }
+    width = Math.max(1, Math.round(width || 100));
+    height = Math.max(1, Math.round(height || 32));
+    return rasterizeSvg(svg, width, height).then(function (dataUrl) {
+      return { src: dataUrl, width: width, height: height };
+    });
+  }
+
   function fetchImage(url, crossOrigin) {
     return fetch(url, crossOrigin ? { mode: 'cors' } : undefined).then(function (response) {
       if (!response.ok) throw new Error('image HTTP ' + response.status);
@@ -90,7 +181,7 @@
     node.replaceWith(document.createTextNode(text));
   }
 
-  function stripAndStyle(root) {
+  function stripAndStyle(root, formulaRecords) {
     var nodes = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
     nodes.forEach(function (node) {
       var tag = node.tagName.toLowerCase();
@@ -119,6 +210,10 @@
       else if (tag === 'table') node.setAttribute('style', 'border-collapse:collapse;border:1px solid #bbb;');
       else if (tag === 'th' || tag === 'td') node.setAttribute('style', 'border:1px solid #bbb;padding:6px 8px;');
       else if (tag === 'img') node.setAttribute('style', 'max-width:100%;height:auto;');
+    });
+    formulaRecords.forEach(function (record) {
+      record.image.setAttribute('style', 'max-width:100%;height:auto;width:' + record.width + 'px;vertical-align:middle;');
+      if (record.display) record.wrapper.setAttribute('style', 'text-align:center;margin:1em 0;');
     });
   }
 
@@ -180,7 +275,9 @@
       wrapper.appendChild(root);
 
       var images = 0;
+      var formulas = 0;
       var failed = 0;
+      var formulaFallbacks = 0;
       var imageJobs = [];
       root.querySelectorAll('img').forEach(function (image) {
         var source = image._richExportSource || image.getAttribute('src') || '';
@@ -226,21 +323,58 @@
         });
       });
 
+      var formulaRecords = [];
+      var mathPromise = null;
       Array.prototype.forEach.call(root.querySelectorAll('.katex-display, .katex'), function (formula) {
         if (!root.contains(formula)) return;
         if (!formula.classList.contains('katex-display') && formula.closest('.katex-display')) return;
         var annotation = formula.querySelector('annotation[encoding="application/x-tex"]');
         var tex = annotation ? annotation.textContent.trim() : formula.textContent.trim();
-        if (formula.classList.contains('katex-display')) {
-          var paragraph = document.createElement('p');
-          paragraph.appendChild(document.createTextNode('\\[' + tex + '\\]'));
-          formula.replaceWith(paragraph);
-        } else replaceWithText(formula, '\\(' + tex + '\\)');
+        var display = formula.classList.contains('katex-display');
+        if (!mathPromise) mathPromise = ensureMathJax();
+        var job = mathPromise.then(function (mathJax) {
+          var output = mathJax.tex2svg(tex, { display: display });
+          var svg = output.querySelector && output.querySelector('svg');
+          if (!svg) throw new Error('MathJax produced no SVG');
+          return mathSvgToPng(svg);
+        }).then(function (rendered) {
+          var image = document.createElement('img');
+          image.setAttribute('src', rendered.src);
+          image.setAttribute('alt', tex);
+          image.setAttribute('width', rendered.width);
+          image.setAttribute('height', rendered.height);
+          var wrapperNode = null;
+          if (display) {
+            wrapperNode = document.createElement('p');
+            wrapperNode.appendChild(image);
+            formula.replaceWith(wrapperNode);
+          } else formula.replaceWith(image);
+          formulaRecords.push({
+            image: image,
+            wrapper: wrapperNode,
+            display: display,
+            width: rendered.width,
+            height: rendered.height
+          });
+          formulas++;
+        }, function () {
+          var text = display ? '\\[' + tex + '\\]' : '\\(' + tex + '\\)';
+          if (display) {
+            var paragraph = document.createElement('p');
+            paragraph.appendChild(document.createTextNode(text));
+            formula.replaceWith(paragraph);
+          } else replaceWithText(formula, text);
+          formulaFallbacks++;
+        });
+        imageJobs.push(job);
       });
 
       return Promise.all(imageJobs.concat([mermaidChain])).then(function () {
-        stripAndStyle(wrapper);
-        return { html: wrapper.outerHTML, images: images, failed: failed };
+        stripAndStyle(wrapper, formulaRecords);
+        if (formulaFallbacks && window.console && window.console.warn) {
+          window.console.warn('RichExport kept ' + formulaFallbacks + ' formula(s) as TeX text.');
+        }
+        return { html: wrapper.outerHTML, images: images, formulas: formulas, failed: failed };
       });
     });
   }

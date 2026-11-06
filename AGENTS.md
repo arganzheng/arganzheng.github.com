@@ -582,13 +582,13 @@ Pages has `https_enforced` on.
   not localhost. Whether the WeChat editor accepts base64 images on paste is
   only verified by pasting.
   The author-only `.pa-download` 「导出」 button opens a lazy body-level
-  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」, 「复制 Markdown」 and
-  「下载 Markdown」. Copy strips front matter, adds the title/subtitle, and
-  absolutizes root-relative body URLs; download keeps the front matter while
-  absolutizing root-relative body URLs.
-  Copy also writes a `text/html` flavor with embedded images; formulas keep
-  their source `\(...\)` / `\[...\]` syntax. `text/plain` remains the
-  absolute-URL Markdown.
+  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」, 「复制为公众号格式」,
+  「HTML」, 「复制 Markdown」, 「复制富文本（带图片）」 and
+  「下载 Markdown」. Markdown copy strips front matter, adds the title/subtitle,
+  and absolutizes root-relative body URLs; it writes only `text/plain`, keeping
+  formulas in their source `\(...\)` / `\[...\]` syntax. Rich copy writes HTML
+  with embedded images and formula PNGs, plus readable `text/plain`. Download
+  keeps the front matter while absolutizing root-relative body URLs.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
   Markdown is fetched from GitHub; download keeps the source filename and

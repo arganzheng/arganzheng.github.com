@@ -10,8 +10,8 @@
  *     Every completed share is one POST /shares; Moments and passage shares
  *     can additionally provide a PNG card generator and a long-press / download
  *     overlay.
- *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, copy Markdown
- *     with absolute URLs plus embedded rich HTML, and download Markdown.
+ *   - author-only 「导出」 menu: PDF, WeChat copy, offline HTML, plain Markdown,
+ *     rich HTML with embedded images/formula images, and download Markdown.
  *   - stats: list pages get everything from one GET /stats?paths=…; on the post
  *     page 点赞 / 分享 come from GET /votes and views / comment count arrive from
  *     js/annotations.js as `blog:stats` events ({views} / {comments}).
@@ -289,10 +289,27 @@
     text += transformed.text.replace(/^(?:\r?\n)+/, '');
     return { text: text, imageCount: transformed.imageCount };
   }
+  function richPlainText(html) {
+    var doc = new DOMParser().parseFromString(html, 'text/html');
+    function text(node) {
+      if (node.nodeType === 3) return node.nodeValue;
+      if (node.nodeType !== 1) return '';
+      var tag = node.tagName.toLowerCase();
+      if (tag === 'br') return '\n';
+      if (tag === 'img') return node.getAttribute('alt') || '';
+      var value = Array.prototype.map.call(node.childNodes, text).join('');
+      if (tag === 'td' || tag === 'th') return value + '\t';
+      if (/^(address|article|aside|blockquote|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tr|ul)$/.test(tag)) {
+        return '\n' + value + '\n';
+      }
+      return value;
+    }
+    return text(doc.body).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
 
   // ---------------------------------------------------------- share popover
   var pop = null, popFor = null, exportPop = null, exportPopBtn = null;
-  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, copyMarkdown = null, downloadMarkdown = null;
+  var menuDismissalBound = false, printPdf = null, copyWechat = null, downloadHtml = null, copyMarkdown = null, copyRich = null, downloadMarkdown = null;
   var cardOverlay = null, cardObjectUrl = null;
   function bindMenuDismissal() {
     if (menuDismissalBound) return;
@@ -384,6 +401,7 @@
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="wechat"><i class="fa fa-brands fa-weixin"></i>复制为公众号格式</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="html"><i class="fa fa-file-code"></i>HTML</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md-copy" title="复制 Markdown（图片链接改为完整地址）"><i class="fa fa-copy"></i>复制 Markdown</button>' +
+      '<button type="button" class="pa-sp-item" role="menuitem" data-k="rich" title="复制富文本（带图片）"><i class="fa fa-copy"></i>复制富文本（带图片）</button>' +
       '<button type="button" class="pa-sp-item" role="menuitem" data-k="md" title="下载 Markdown 文件"><i class="fa fa-file-lines"></i>下载 Markdown</button>';
     document.body.appendChild(exportPop);
     exportPop.addEventListener('click', function (e) {
@@ -396,6 +414,7 @@
       else if (kind === 'wechat' && copyWechat) copyWechat(item);
       else if (kind === 'html' && downloadHtml) downloadHtml(item);
       else if (kind === 'md-copy' && copyMarkdown) copyMarkdown(item);
+      else if (kind === 'rich' && copyRich) copyRich(item);
       else if (kind === 'md' && downloadMarkdown) downloadMarkdown(item);
     });
     bindMenuDismissal();
@@ -649,87 +668,58 @@
     copyMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
       item.disabled = true;
-      toast(bar, '正在准备图片…', 60000);
-      var payloadPromise = fetchMarkdownSource(bar).then(function (source) {
-        return copyMarkdownPayload(source, bar);
-      });
-      function reportSuccess(result) {
-        if (result.rich) {
-          var message = '已复制 Markdown（' + result.rich.images +
-            ' 张图片已附带；粘到知乎、飞书、语雀会自动上传）';
-          if (result.rich.failed > 0) message += '，' + result.rich.failed + ' 张没带上';
-          toast(bar, message, 5000);
-        } else if (result.richError) {
-          toast(bar, '已复制 Markdown（富文本准备失败，已复制纯文本）', 5000);
-        } else {
-          toast(bar, '已复制 Markdown（仅纯文本）', 4000);
-        }
+      toast(bar, '正在准备 Markdown…', 60000);
+      fetchMarkdownSource(bar).then(function (source) {
+        return copyText(copyMarkdownPayload(source, bar).text);
+      }).then(function () {
+        toast(bar, '已复制 Markdown（图片为完整链接）', 4000);
+      }, function (err) {
+        toast(bar, '复制失败：' + (err && err.message || err), 4000);
+      }).then(function () { item.disabled = false; });
+    };
+    copyRich = function (item) {
+      if (!isAuthor || item.disabled) return;
+      item.disabled = true;
+      toast(bar, '正在准备图片和公式…', 60000);
+      if (!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem) {
+        toast(bar, '复制失败：浏览器不支持富文本剪贴板', 4000);
+        item.disabled = false;
+        return;
       }
-      function reportFailure(err) {
-        toast(bar, '失败：' + (err && err.message || err), 4000);
-      }
-      var plainBlobPromise = payloadPromise.then(function (payload) {
-        return new Blob([payload.text], { type: 'text/plain;charset=utf-8' });
-      });
-      function writePlainClipboard() {
-        if (!navigator.clipboard || !navigator.clipboard.write || !window.ClipboardItem) {
-          return Promise.reject(new Error('ClipboardItem unavailable'));
-        }
-        try {
-          return navigator.clipboard.write([new window.ClipboardItem({
-            'text/plain': plainBlobPromise
-          })]);
-        } catch (err) {
-          return Promise.reject(err);
-        }
-      }
-      function fallbackCopy() {
-        return writePlainClipboard().then(function () {
-          return payloadPromise;
-        }).catch(function () {
-          return payloadPromise.then(function (payload) {
-            return copyText(payload.text).then(function () { return payload; });
+      var richPromise = (window.RichExport ? Promise.resolve() : loadScript('/js/rich-export.js'))
+        .then(function () {
+          return window.RichExport.articleHtml({
+            url: bar.getAttribute('data-url') || location.href,
+            title: bar.getAttribute('data-title') || '',
+            subtitle: bar.getAttribute('data-subtitle') || ''
           });
         });
+      var htmlBlobPromise = richPromise.then(function (result) {
+        return new Blob([result.html], { type: 'text/html;charset=utf-8' });
+      });
+      var plainBlobPromise = richPromise.then(function (result) {
+        return new Blob([richPlainText(result.html)], { type: 'text/plain;charset=utf-8' });
+      });
+      htmlBlobPromise.catch(function () {});
+      plainBlobPromise.catch(function () {});
+      var writePromise;
+      try {
+        writePromise = navigator.clipboard.write([new window.ClipboardItem({
+          'text/html': htmlBlobPromise,
+          'text/plain': plainBlobPromise
+        })]);
+      } catch (err) {
+        writePromise = Promise.reject(err);
       }
-      var copyPromise;
-      if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
-        var richPromise = (window.RichExport ? Promise.resolve() : loadScript('/js/rich-export.js'))
-          .then(function () {
-            return window.RichExport.articleHtml({
-              url: bar.getAttribute('data-url') || location.href,
-              title: bar.getAttribute('data-title') || '',
-              subtitle: bar.getAttribute('data-subtitle') || ''
-            });
-          });
-        var htmlBlobPromise = richPromise.then(function (result) {
-          return new Blob([result.html], { type: 'text/html;charset=utf-8' });
-        });
-        htmlBlobPromise.catch(function () {});
-        try {
-          copyPromise = navigator.clipboard.write([new window.ClipboardItem({
-            'text/plain': plainBlobPromise,
-            'text/html': htmlBlobPromise
-          })]);
-        } catch (err) {
-          copyPromise = Promise.reject(err);
-        }
-        copyPromise.then(function () {
-          return Promise.all([payloadPromise, richPromise]).then(function (values) {
-            return { payload: values[0], rich: values[1] };
-          });
-        }).catch(function (err) {
-          return fallbackCopy().then(function (payload) {
-            return { payload: payload, rich: null, richError: err };
-          });
-        }).then(reportSuccess, reportFailure)
-          .then(function () { item.disabled = false; });
-      } else {
-        fallbackCopy().then(function (payload) {
-          return { payload: payload, rich: null };
-        }).then(reportSuccess, reportFailure)
-          .then(function () { item.disabled = false; });
-      }
+      Promise.all([writePromise, richPromise]).then(function (values) {
+        var result = values[1];
+        var message = '已复制富文本（' + result.images + ' 张图片、' +
+          result.formulas + ' 个公式已嵌入，粘贴时编辑器会自动上传）';
+        if (result.failed > 0) message += '，' + result.failed + ' 张没带上';
+        toast(bar, message, 5000);
+      }, function () {
+        toast(bar, '复制失败：浏览器不支持富文本剪贴板', 4000);
+      }).then(function () { item.disabled = false; });
     };
     downloadMarkdown = function (item) {
       if (!isAuthor || item.disabled) return;
