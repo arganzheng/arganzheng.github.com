@@ -19,10 +19,24 @@ const getJSON = (url, method = 'GET') => new Promise((res, rej) => {
 const CHECK = `(() => {
   const svg=document.querySelector('svg'); if(!svg) return JSON.stringify({err:'no svg'});
   const vb=svg.viewBox.baseVal;
-  const bb=e=>{try{const b=e.getBBox();return{x0:b.x,y0:b.y,x1:b.x+b.width,y1:b.y+b.height};}catch{return null;}};
+  const inv=svg.getScreenCTM().inverse();
+  const mm=e=>{try{return inv.multiply(e.getScreenCTM())}catch{return null}};
+  const xf=(m,px,py)=>[px*m.a+py*m.c+m.e,px*m.b+py*m.d+m.f];
+  const bb=e=>{try{
+    const b=e.getBBox(),m=mm(e);
+    if(!m)return{x0:b.x,y0:b.y,x1:b.x+b.width,y1:b.y+b.height};
+    const xs=[],ys=[];
+    for(const[px,py]of[[b.x,b.y],[b.x+b.width,b.y],[b.x,b.y+b.height],[b.x+b.width,b.y+b.height]]){
+      const t=xf(m,px,py);xs.push(t[0]);ys.push(t[1]);
+    }
+    return{x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+  }catch{return null;}};
   const hit=(a,b,p=2)=>a.x0<b.x1+p&&a.x1>b.x0-p&&a.y0<b.y1+p&&a.y1>b.y0-p;
-  const texts=[...svg.querySelectorAll('text')].map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})).filter(t=>t.t&&t.b);
-  const rects=[...svg.querySelectorAll('rect')].map(r=>bb(r)).filter(Boolean);
+  const texts=[
+    ...[...svg.querySelectorAll('text')].map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})),
+    ...[...svg.querySelectorAll('g.mathtext')].map(g=>({t:(g.getAttribute('aria-label')||g.getAttribute('data-tex')||'?').replace(/\\s+/g,' ').slice(0,40),b:bb(g),cls:'mathtext'}))
+  ].filter(t=>t.t&&t.b);
+  const rects=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band')).map(r=>bb(r)).filter(Boolean);
   const errs=[];
   for(const t of texts){
     if(t.b.x0<vb.x-1||t.b.y0<vb.y-1||t.b.x1>vb.x+vb.width+1||t.b.y1>vb.y+vb.height+1) errs.push('viewBox 越界: '+t.t);
@@ -50,12 +64,12 @@ const CHECK = `(() => {
     }
   }
   const segs=[];
-  [...svg.querySelectorAll('line')].forEach(l=>{if(l.getAttribute('stroke-dasharray')||/lifeline/.test(l.getAttribute('class')||'')) return; const x1=+l.getAttribute('x1'),y1=+l.getAttribute('y1'),x2=+l.getAttribute('x2'),y2=+l.getAttribute('y2');segs.push([[x1,y1],[x2,y2]]);});
+  [...svg.querySelectorAll('line')].forEach(l=>{if(l.getAttribute('stroke-dasharray')||/lifeline/.test(l.getAttribute('class')||'')) return; const m=mm(l); if(!m) return; const a=xf(m,+l.getAttribute('x1'),+l.getAttribute('y1')),b=xf(m,+l.getAttribute('x2'),+l.getAttribute('y2'));segs.push([a,b]);});
   [...svg.querySelectorAll('path')].forEach(p=>{
-    if(p.closest('defs')||p.closest('marker')) return;
+    if(p.closest('defs')||p.closest('marker')||p.closest('g.mathtext')) return;
     const L=p.getTotalLength(); if(!L) return;
-    const n=Math.max(2,Math.ceil(L/20)); let prev=null;
-    for(let k=0;k<=n;k++){const pt=p.getPointAtLength(L*k/n); const cur=[pt.x,pt.y]; if(prev) segs.push([prev,cur]); prev=cur;}
+    const m=mm(p); const n=Math.max(2,Math.ceil(L/20)); let prev=null;
+    for(let k=0;k<=n;k++){const pt=p.getPointAtLength(L*k/n); const cur=m?xf(m,pt.x,pt.y):[pt.x,pt.y]; if(prev) segs.push([prev,cur]); prev=cur;}
   });
   const cls=(a,b,c,d)=>{ // segment a-b vs rect c-d (Liang-Barsky)
     const dx=b[0]-a[0], dy=b[1]-a[1]; let t0=0,t1=1;

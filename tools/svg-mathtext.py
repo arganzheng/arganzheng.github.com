@@ -40,9 +40,15 @@ CJK_FAMILY = ["Hiragino Sans GB", "Heiti SC", "Arial Unicode MS", "DejaVu Sans"]
 MONO_FAMILY = ["Menlo", "Courier New", "monospace"]
 
 
-def _css_classes(root):
-    """class name -> {prop: value} from every <style> block's `.cls {k:v}` rules."""
-    rules = {}
+def _css_rules(root):
+    """[(compound selector, {prop: value})] from every <style> block.
+
+    Compound selector = optional element name + .class / #id parts, e.g.
+    `text`, `.t`, `text.t`, `g.annot text`. Only the rightmost compound must
+    match the element itself; earlier compounds (if any) must match ancestors
+    in order (descendant combinator).
+    """
+    rules = []
     for style in root.iter(f"{NS}style"):
         for sel, body in re.findall(r"([^{}]+)\{([^}]*)\}", style.text or ""):
             props = dict(p.split(":", 1) for p in
@@ -50,9 +56,51 @@ def _css_classes(root):
             _expand_font(props)
             for s in sel.split(","):
                 s = s.strip()
-                if s.startswith("."):
-                    rules[s[1:]] = props
+                if s and ":" not in s:  # skip pseudo selectors we can't match
+                    rules.append((s, props))
     return rules
+
+
+def _match_compound(el, compound):
+    """Does a compound selector like `text`, `.t`, `text.t`, `#id`, `g.a` match
+    this element?"""
+    tag = el.tag.rsplit("}", 1)[-1]
+    m = re.fullmatch(r"(\*|[\w-]+)?((?:[.#][\w-]+)*)", compound)
+    if not m or compound == "":
+        return False
+    name, rest = m.group(1), m.group(2)
+    if name and name != "*" and name != tag:
+        return False
+    classes = set((el.get("class") or "").split())
+    for tok in re.findall(r"[.#][\w-]+", rest):
+        if tok.startswith(".") and tok[1:] not in classes:
+            return False
+        if tok.startswith("#") and tok[1:] != el.get("id"):
+            return False
+    return bool(name or rest)
+
+
+def _selector_matches(el, selector, parent_map):
+    parts = selector.split()
+    if not _match_compound(el, parts[-1]):
+        return False
+    node = parent_map.get(el)
+    for part in reversed(parts[:-1]):
+        while node is not None and not _match_compound(node, part):
+            node = parent_map.get(node)
+        if node is None:
+            return False
+        node = parent_map.get(node)
+    return True
+
+
+def _rule_props(el, rules, parent_map):
+    """Merged props from all matching rules, in stylesheet order (later wins)."""
+    out = {}
+    for sel, props in rules:
+        if _selector_matches(el, sel, parent_map):
+            out.update(props)
+    return out
 
 
 def _expand_font(props):
@@ -77,21 +125,20 @@ def _style_props(el):
     return out
 
 
-def _resolve(el, parent_map, prop, classes):
-    """Resolve a CSS-ish property: attr > inline style > class rule > ancestor
-    attr > None."""
-    if el.get(prop) is not None:
-        return el.get(prop)
-    inline = _style_props(el)
-    if prop in inline:
-        return inline[prop]
-    for cls in (el.get("class") or "").split():
-        if prop in classes.get(cls, {}):
-            return classes[cls][prop]
-    node = parent_map.get(el)
+def _resolve(el, parent_map, prop, rules):
+    """Resolve a CSS-ish property: attr > inline style > matching <style> rule,
+    then the same three sources on each ancestor (SVG text properties
+    inherit), else None."""
+    node = el
     while node is not None:
         if node.get(prop) is not None:
             return node.get(prop)
+        inline = _style_props(node)
+        if prop in inline:
+            return inline[prop]
+        rp = _rule_props(node, rules, parent_map)
+        if prop in rp:
+            return rp[prop]
         node = parent_map.get(node)
     return None
 
@@ -186,7 +233,7 @@ def _make_group(tex, x, y, size, anchor, fill, family, weight, original=None):
 def process(path):
     tree = ET.parse(path)
     root = tree.getroot()
-    classes = _css_classes(root)
+    rules = _css_rules(root)
     parent_map = {c: p for p in root.iter() for c in p}
     changed = 0
 
@@ -217,14 +264,14 @@ def process(path):
         tex = text.get("data-tex")
         x = float(text.get("x", "0"))
         y = float(text.get("y", "0"))
-        size_value = (_resolve(text, parent_map, "font-size", classes) or "12").strip()
+        size_value = (_resolve(text, parent_map, "font-size", rules) or "12").strip()
         size = float(re.sub(r"(?:px|pt)$", "", size_value))
         if size_value.endswith("pt"):
             size *= 96 / 72
-        anchor = _resolve(text, parent_map, "text-anchor", classes) or "start"
-        fill = _resolve(text, parent_map, "fill", classes) or "#222222"
-        weight = _resolve(text, parent_map, "font-weight", classes) or "normal"
-        family = _resolve(text, parent_map, "font-family", classes)
+        anchor = _resolve(text, parent_map, "text-anchor", rules) or "start"
+        fill = _resolve(text, parent_map, "fill", rules) or "#222222"
+        weight = _resolve(text, parent_map, "font-weight", rules) or "normal"
+        family = _resolve(text, parent_map, "font-family", rules)
         try:
             new = _make_group(tex, x, y, size, anchor, fill, family, weight, text)
         except ValueError as e:

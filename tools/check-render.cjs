@@ -174,7 +174,7 @@ async function check(slug) {
   // dark pass: contrast < 4.5 on visible text -> FAIL (decks only; posts keep their own theme handling)
   let contrast = [];
   if (slug.startsWith('slides/')) {
-    await send('Runtime.evaluate', { expression: `document.documentElement.setAttribute('data-theme','dark');document.body&&document.body.setAttribute('data-theme','dark');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/black')})` });
+    await send('Runtime.evaluate', { expression: `const __s=document.createElement('style');__s.id='cr-notrans';__s.textContent='*{transition:none!important}';document.head.appendChild(__s);document.documentElement.setAttribute('data-theme','dark');document.body&&document.body.setAttribute('data-theme','dark');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/black')})` });
     // the swapped-in black.css needs a beat to load and apply
     for (let i = 0; i < 20; i++) {
       await new Promise(r => setTimeout(r, 400));
@@ -183,7 +183,7 @@ async function check(slug) {
     }
     const r = await send('Runtime.evaluate', { expression: DARK, returnByValue: true });
     try { contrast = JSON.parse(r.result.value) || []; } catch { contrast = []; }
-    await send('Runtime.evaluate', { expression: `document.documentElement.setAttribute('data-theme','light');document.body&&document.body.setAttribute('data-theme','light');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/white')})` });
+    await send('Runtime.evaluate', { expression: `document.getElementById('cr-notrans')&&document.getElementById('cr-notrans').remove();document.documentElement.setAttribute('data-theme','light');document.body&&document.body.setAttribute('data-theme','light');document.querySelectorAll('link[rel=stylesheet]').forEach(l=>{if(/theme\\/(white|black)\\.css/.test(l.href)) l.href=l.href.replace(/theme\\/(white|black)/,'theme/white')})` });
   }
   ws.close();
   await getJSON(`${CDP}/json/close/${t.id}`);
