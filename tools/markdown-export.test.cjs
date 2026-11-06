@@ -2,7 +2,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
@@ -21,6 +23,9 @@ vm.runInNewContext(source, {
 }, { filename: 'js/share.js' });
 
 const absolutizeMarkdown = shareModule.exports.absolutizeMarkdown;
+const rewriteMarkdownUrls = shareModule.exports.rewriteMarkdownUrls;
+const buildMarkdownPayload = shareModule.exports.buildMarkdownPayload;
+const { zipImageName, zipStore } = require('../js/md-zip-export.js');
 const site = 'https://arganzheng.life';
 const realPosts = [
   ['SVG figures', '_posts/2026-07-17-parallelism-strategies-which-state-to-shard.md'],
@@ -104,6 +109,23 @@ test('normalizes a site value with a trailing base-path slash', () => {
   assert.equal(result.imageCount, 1);
 });
 
+test('shares the copy Markdown front-matter and title header', () => {
+  const result = buildMarkdownPayload(
+    '---\ntitle: Source title\n---\n\n![figure](/img/figure.svg)',
+    site,
+    'Page title',
+    'First line\nSecond line'
+  );
+  assert.equal(result.text, [
+    '# Page title',
+    '',
+    '> First line',
+    '> Second line',
+    '',
+    '![figure](https://arganzheng.life/img/figure.svg)'
+  ].join('\n'));
+});
+
 test('absolutizes an SVG-figure post', () => {
   const result = absolutizeMarkdown(readPost(realPosts[0][1]), site);
   assert.ok(result.imageCount > 0);
@@ -119,6 +141,107 @@ test('absolutizes an HTML img src in a real post', () => {
 test('leaves a real Liquid glossary include unchanged', () => {
   const result = absolutizeMarkdown(readPost(realPosts[2][1]), site);
   assert.match(result.text, /\{% include glossary-table\.html series="deep-dive-into-vllm" %\}/);
+});
+
+test('reports image and link kinds for Markdown references and HTML URLs', () => {
+  const markdown = [
+    '![image](/img/markdown.png)',
+    '[link](/guide/start)',
+    '[image-ref]: /img/reference.png',
+    '![reference][image-ref]',
+    '[link-ref]: /guide/reference',
+    '[reference][link-ref]',
+    '<img src="/img/html.png">',
+    '<img srcset="/img/one.png 1x, /img/two.png 2x">',
+    '<video poster="/img/poster.png"></video>',
+    '<a href="/about.html">about</a>',
+    '<svg><image href="/img/embedded.svg"></image></svg>'
+  ].join('\n');
+  const seen = [];
+  const result = rewriteMarkdownUrls(markdown, (url, kind) => {
+    seen.push({ url, kind });
+    return '/rewritten' + url;
+  });
+
+  assert.equal(result.imageCount, 7);
+  assert.equal(result.urlCount, 10);
+  assert.equal(seen.filter((entry) => entry.kind === 'image').length, 7);
+  assert.equal(seen.filter((entry) => entry.kind === 'link').length, 3);
+  assert.deepEqual(seen.map((entry) => `${entry.kind}:${entry.url}`).sort(), [
+    'image:/img/embedded.svg',
+    'image:/img/html.png',
+    'image:/img/markdown.png',
+    'image:/img/one.png',
+    'image:/img/poster.png',
+    'image:/img/reference.png',
+    'image:/img/two.png',
+    'link:/about.html',
+    'link:/guide/reference',
+    'link:/guide/start'
+  ]);
+  assert.match(result.text, /!\[image\]\(\/rewritten\/img\/markdown\.png\)/);
+  assert.match(result.text, /\[image-ref\]: \/rewritten\/img\/reference\.png/);
+  assert.match(result.text, /poster="\/rewritten\/img\/poster\.png"/);
+});
+
+test('leaves protected Markdown regions unchanged during URL rewriting', () => {
+  const protectedMarkdown = [
+    '`![inline](/img/inline.png)`',
+    '````md',
+    '![fenced](/img/fenced.png)',
+    '```',
+    '````',
+    '{% include glossary-table.html %}',
+    '<!-- <img src="/img/comment.png"> -->'
+  ].join('\n');
+  const seen = [];
+  const result = rewriteMarkdownUrls(protectedMarkdown, (url, kind) => {
+    seen.push([url, kind]);
+    return '/rewritten' + url;
+  });
+
+  assert.deepEqual(seen, []);
+  assert.equal(result.text, protectedMarkdown);
+  assert.equal(result.imageCount, 0);
+  assert.equal(result.urlCount, 0);
+});
+
+test('maps image names, conversions, collisions, deduplication, and encoded names', () => {
+  const used = new Map();
+  assert.equal(zipImageName('/img/plot.svg?width=800', used), 'plot.png');
+  assert.equal(zipImageName('/img/photo.webp#preview', used), 'photo.jpg');
+  assert.equal(zipImageName('/other/plot.svg?width=400', used), 'plot-2.png');
+  assert.equal(zipImageName('/third/plot.svg', used), 'plot-3.png');
+  assert.equal(zipImageName('/img/plot.svg?width=800', used), 'plot.png');
+  assert.equal(zipImageName('/img/%E4%B8%AD%E6%96%87.webp', used), '中文.jpg');
+});
+
+test('writes a valid UTF-8 STORE ZIP archive', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-zip-test-'));
+  const archivePath = path.join(directory, 'test.zip');
+  const archive = zipStore([
+    { name: 'article.md', data: new TextEncoder().encode('# ZIP test\n') },
+    { name: 'images/photo.png', data: new Uint8Array([0, 1, 2, 255]) },
+    { name: '中文.md', data: new TextEncoder().encode('你好\n') }
+  ]);
+  fs.writeFileSync(archivePath, Buffer.from(archive));
+  const python = [
+    'import sys, zipfile',
+    'z = zipfile.ZipFile(sys.argv[1])',
+    'assert z.testzip() is None',
+    'assert z.namelist() == ["article.md", "images/photo.png", "中文.md"]',
+    'assert z.read("article.md") == b"# ZIP test\\n"',
+    'assert z.read("images/photo.png") == bytes([0, 1, 2, 255])',
+    'assert z.read("中文.md") == "你好\\n".encode()',
+    'print("ZIP round-trip ok")'
+  ].join('; ');
+  try {
+    const result = childProcess.spawnSync('python3', ['-c', python, archivePath], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /ZIP round-trip ok/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 if (process.env.MARKDOWN_EXPORT_REPORT) {

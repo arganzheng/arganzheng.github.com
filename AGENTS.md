@@ -582,18 +582,18 @@ Pages has `https_enforced` on.
   not localhost. Whether the WeChat editor accepts base64 images on paste is
   only verified by pasting.
   The author-only `.pa-download` 「导出」 button opens a lazy body-level
-  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」, 「复制 Markdown」 and
-  「下载 Markdown」. Copy strips front matter, adds the title/subtitle, and
-  absolutizes root-relative body URLs; download keeps the front matter while
-  absolutizing root-relative body URLs.
+  `.pa-share-pop.pa-export-pop` menu with 「存为 PDF」, 「复制为公众号格式」,
+  HTML, 「复制 Markdown」, 「下载 Markdown」 and 「下载 Markdown 压缩包」.
+  Copy strips front matter and adds the title/subtitle; Markdown download keeps
+  front matter, while the ZIP uses the same header and bundles one `.md` plus
+  `images/` with relative image paths and absolute site links.
   Copy also writes a `text/html` flavor with embedded images; formulas keep
   their source `\(...\)` / `\[...\]` syntax. `text/plain` remains the
   absolute-URL Markdown.
   The PDF action temporarily sets the light theme and `html.print-export`,
   calls `window.print()`, then restores the previous state on `afterprint`;
   Markdown is fetched from GitHub; download keeps the source filename and
-  front matter, while copy adds the title/subtitle and both actions
-  absolutize root-relative body URLs.
+  front matter, and the ZIP uses the source basename for its `.zip` name.
   Both author menus are hidden unless
   `blog:viewer` matches `site.github_username`; opening one closes the other.
 

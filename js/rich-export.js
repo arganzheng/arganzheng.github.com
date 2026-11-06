@@ -245,5 +245,5 @@
     });
   }
 
-  window.RichExport = { articleHtml: articleHtml };
+  window.RichExport = { articleHtml: articleHtml, svgUrlToPng: svgUrlToPng };
 })();
