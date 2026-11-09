@@ -123,7 +123,9 @@ async function run() {
       assert.ok(result.files.every((file) => file.type === 'image/png' && file.name.endsWith('.png')), editor + ' images converted to PNG');
 
       await page.screenshot({ path: path.join(shotDir, editor + '.png'), fullPage: true });
-      console.log(editor + ': text via insertText fallback; images via paste File handler; 3 PNG uploads confirmed');
+      const textPath = editor === 'codemirror6' ?
+        'text via CodeMirror paste handler' : 'text via insertText fallback';
+      console.log(editor + ': ' + textPath + '; images via paste File handler; 3 PNG uploads confirmed');
     }
   } finally {
     await context.close();
