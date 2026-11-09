@@ -167,6 +167,11 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   希腊字母、\top、\hat、\sqrt、\partial、\odot 等；普通字母、数字和
   符号直接写 Unicode 正文（`p = 0.659`、`K = 64`、`128×784`、`a = f(z)`、
   负号用 `−`）——`check_math_needed` 会拒绝只有 ASCII 的 `$...$`。
+  希腊字母一旦是变量就必须走 mathtext（`$\tau/2$`、`$\delta/\tau$`、
+  `$\theta$`），不要平写成 Unicode——无衬线希腊字母旁边是 CM 数学时
+  字体混杂；`μ` 等单位前缀例外。含 `\` 的串一律用 raw string——非 raw
+  串里 `$\tau$` 的 `\t` 会被 Python 吃成 TAB。`_ParamAndGradBuffer` 这类
+  `_` 开头的代码标识符按平文本写；`d_g`、`e^2` 这种漏排会被检查拦住。
   例如 `'dW1 = X^T G_H'` → `r'$dW_1 = X^\top G_H$'`,
   `v_hat` → `$\hat v_t$`, `g^2` → `$g^2$`, `sqrt(2L)` → `$\sqrt{2L}$`,
   `[128,256]` shapes → `$128\times256$`, Greek letters as `$\beta$`, `$\lambda$`.
