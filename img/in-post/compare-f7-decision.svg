@@ -39,7 +39,7 @@ Q 188.786681 50.303952 188.786681 50.303952
 L 188.786681 86.801886
 Q 188.786681 86.801886 188.786681 86.801886
 z
-" clip-path="url(#pd2779bf52c)" style="fill: #ffffff; stroke: #555555; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p6bd25c7a85)" style="fill: #ffffff; stroke: #555555; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 49.926278 159.797754
@@ -52,7 +52,7 @@ Q 49.926278 126.617814 49.926278 126.617814
 L 49.926278 159.797754
 Q 49.926278 159.797754 49.926278 159.797754
 z
-" clip-path="url(#pd2779bf52c)" style="fill: #f7f9fc; stroke: #3b6fb6; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p6bd25c7a85)" style="fill: #f7f9fc; stroke: #3b6fb6; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 316.965515 164.442946
@@ -65,7 +65,7 @@ Q 316.965515 119.318227 316.965515 119.318227
 L 316.965515 164.442946
 Q 316.965515 164.442946 316.965515 164.442946
 z
-" clip-path="url(#pd2779bf52c)" style="fill: #fff3e8; stroke: #e0812c; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p6bd25c7a85)" style="fill: #fff3e8; stroke: #e0812c; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 21.442093 265.309963
@@ -78,7 +78,7 @@ Q 21.442093 220.185245 21.442093 220.185245
 L 21.442093 265.309963
 Q 21.442093 265.309963 21.442093 265.309963
 z
-" clip-path="url(#pd2779bf52c)" style="fill: #eef4fb; stroke: #3b6fb6; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p6bd25c7a85)" style="fill: #eef4fb; stroke: #3b6fb6; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 203.028774 265.309963
@@ -91,7 +91,7 @@ Q 203.028774 220.185245 203.028774 220.185245
 L 203.028774 265.309963
 Q 203.028774 265.309963 203.028774 265.309963
 z
-" clip-path="url(#pd2779bf52c)" style="fill: #eff8f0; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p6bd25c7a85)" style="fill: #eff8f0; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 模型能否改写成框架自己的层？ -->
@@ -5137,7 +5137,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pd2779bf52c">
+  <clipPath id="p6bd25c7a85">
    <rect x="7.2" y="23.76" width="541.19952" height="265.43952"/>
   </clipPath>
  </defs>
