@@ -73,7 +73,7 @@ v ← β₂v + (1−β₂)g²
 
 抽象归抽象，放到一个具体梯度上走一遍就一目了然了。同一个标量参数 $$\theta = 1.0$$、同一个梯度 $$g = 0.5$$、$$\eta = 0.1$$，四种优化器第一步的中间量（[`case_06_optimizer_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_optimizer_toys.py) 的 `one-step`）：
 
-![同一个梯度 \(g=0.5\) 下四种优化器的第一步：SGD 与 Momentum 都是 \(-0.05\)；Adam 先算 \(m=0.050\)、\(v=2.5\times10^{-4}\)，偏差修正后 \(\hat m=g\)、\(\hat v=g^2\)，更新量 \(-0.100\approx-\eta\,\mathrm{sign}(g)\) 与 \(g\) 大小无关；AdamW 在 Adam 项 \(-0.100\) 之外加一条不进矩的 wd 支路 \(-\eta\lambda\theta=-0.010\)，合计 \(-0.110\)](/img/in-post/dl-opt-one-step.svg)
+![同一个梯度 \\(g=0.5\\) 下四种优化器的第一步：SGD 与 Momentum 都是 \\(-0.05\\)；Adam 先算 \\(m=0.050\\)、\\(v=2.5\times10^{-4}\\)，偏差修正后 \\(\hat m=g\\)、\\(\hat v=g^2\\)，更新量 \\(-0.100\approx-\eta\,\mathrm{sign}(g)\\) 与 \\(g\\) 大小无关；AdamW 在 Adam 项 \\(-0.100\\) 之外加一条不进矩的 wd 支路 \\(-\eta\lambda\theta=-0.010\\)，合计 \\(-0.110\\)](/img/in-post/dl-opt-one-step.svg)
 
 读法：同一个 $$g$$，SGD 走 $$-\eta g = -0.05$$，Adam 走 $$-\eta \cdot \text{sign}(g) \approx -0.10$$——步长与 $$g$$ 的大小无关，这正是第四章要展开的差别；AdamW 的 $$-0.11$$ 里那 $$-0.01$$ 来自不经过任何矩的 weight decay 支路。四步的完整中间量（能看出 Momentum 的 $$m$$ 在梯度方向一致时累积、反向时抵消，Adam 的 $$\hat v$$ 收敛后更新量也停在 $$\approx \eta$$）：
 
@@ -255,7 +255,7 @@ $$
 
 不修正会有多偏？常数梯度下 $$v_t = g^2(1 - \beta_2^t)$$，可以直接画出来（`case_06_optimizer_toys.py` 的 `bias-correction`）：
 
-![\(\beta_2=0.999\)、常数梯度 \(g\) 下前 20 步：未修正的 \(v_t\) 从 \(0.001g^2\) 慢慢爬（\(t=20\) 也只有 \(0.02g^2\)），修正后的 \(\hat v_t\) 始终等于真值 \(g^2\)](/img/in-post/dl-opt-bias-correction.svg)
+![\\(\beta_2=0.999\\)、常数梯度 \\(g\\) 下前 20 步：未修正的 \\(v_t\\) 从 \\(0.001g^2\\) 慢慢爬（\\(t=20\\) 也只有 \\(0.02g^2\\)），修正后的 \\(\hat v_t\\) 始终等于真值 \\(g^2\\)](/img/in-post/dl-opt-bias-correction.svg)
 
 $$t = 1$$ 时未修正的 $$v$$ 只有 $$0.001\, g^2$$——偏小 1000 倍，直接拿去归一化会把步长放大 $$1/\sqrt{0.001} \approx 31.6$$ 倍；$$\beta_2 = 0.999$$ 下 $$v$$ 要近千步才爬到真值附近，偏差修正是开头几百步里不可省的一行。各步的比值：
 
