@@ -412,6 +412,125 @@
     });
   }
 
+  function positiveTableSpan(value) {
+    var span = parseInt(value, 10);
+    return isFinite(span) && span > 0 ? span : 1;
+  }
+
+  function tableGrid(sourceRows) {
+    sourceRows = Array.isArray(sourceRows) ? sourceRows : [];
+    var carries = [];
+    var rows = [];
+    var columnCount = 0;
+
+    function nextCarryColumn(start) {
+      for (var column = start; column < carries.length; column += 1) {
+        if (carries[column] && carries[column].remaining > 0) return column;
+      }
+      return -1;
+    }
+
+    function overlapsCarry(start, end) {
+      for (var column = 0; column < carries.length; column += 1) {
+        var carry = carries[column];
+        if (carry && carry.remaining > 0 && column < end && column + carry.span > start) return true;
+      }
+      return false;
+    }
+
+    for (var rowIndex = 0; rowIndex < sourceRows.length; rowIndex += 1) {
+      var sourceRow = Array.isArray(sourceRows[rowIndex]) ? sourceRows[rowIndex] : [];
+      var sourceIndex = 0;
+      var column = 0;
+      var cells = [];
+
+      while (sourceIndex < sourceRow.length || nextCarryColumn(column) >= 0) {
+        var carry = carries[column];
+        if (carry && carry.remaining > 0) {
+          cells.push({ kind: 'continuation', column: column, span: carry.span });
+          carry.remaining -= 1;
+          if (!carry.remaining) carries[column] = null;
+          column += carry.span;
+          continue;
+        }
+
+        if (sourceIndex < sourceRow.length) {
+          var source = sourceRow[sourceIndex] || {};
+          var span = positiveTableSpan(source.colspan);
+          if (overlapsCarry(column, column + span)) {
+            cells.push({ kind: 'padding', column: column, span: 1 });
+            column += 1;
+            continue;
+          }
+
+          var rowspan = Math.min(positiveTableSpan(source.rowspan), sourceRows.length - rowIndex);
+          cells.push({
+            kind: 'source',
+            column: column,
+            span: span,
+            rowspan: rowspan,
+            header: !!source.header,
+            sourceIndex: sourceIndex
+          });
+          if (rowspan > 1) carries[column] = { remaining: rowspan - 1, span: span };
+          sourceIndex += 1;
+          column += span;
+          continue;
+        }
+
+        if (nextCarryColumn(column) >= 0) {
+          cells.push({ kind: 'padding', column: column, span: 1 });
+          column += 1;
+        }
+      }
+
+      columnCount = Math.max(columnCount, column);
+      rows.push({ cells: cells });
+    }
+
+    if (sourceRows.length && !columnCount) columnCount = 1;
+    rows.forEach(function (row) {
+      var byColumn = Object.create(null);
+      row.cells.forEach(function (cell) { byColumn[cell.column] = cell; });
+      var cells = [];
+      for (var column = 0; column < columnCount;) {
+        var cell = byColumn[column];
+        if (cell) {
+          cells.push(cell);
+          column += cell.span;
+        } else {
+          cells.push({ kind: 'padding', column: column, span: 1 });
+          column += 1;
+        }
+      }
+      row.cells = cells;
+    });
+
+    return { columnCount: columnCount, rows: rows };
+  }
+
+  function tableRowsXml(grid, cellContents, gridWidth) {
+    gridWidth = Number(gridWidth);
+    if (!isFinite(gridWidth) || gridWidth < 1) gridWidth = 1;
+    return grid.rows.map(function (row, rowIndex) {
+      var cells = row.cells.map(function (cell) {
+        var width = gridWidth * cell.span;
+        var properties = '<w:tcW w:w="' + width + '" w:type="dxa"/>';
+        if (cell.span > 1) properties += '<w:gridSpan w:val="' + cell.span + '"/>';
+        if (cell.kind === 'source' && cell.rowspan > 1) properties += '<w:vMerge w:val="restart"/>';
+        else if (cell.kind === 'continuation') properties += '<w:vMerge/>';
+        if (cell.kind === 'source' && cell.header) properties += '<w:shd w:val="clear" w:fill="E7E6E6"/>';
+        properties += '<w:vAlign w:val="center"/>';
+
+        var content = cell.kind === 'source' && cellContents &&
+          cellContents[rowIndex] && cellContents[rowIndex][cell.sourceIndex] || '<w:p/>';
+        if (!/(?:<\/w:p>|<w:p\/>)\s*$/.test(content)) content += '<w:p/>';
+        return '<w:tc><w:tcPr>' + properties + '</w:tcPr>' + content + '</w:tc>';
+      }).join('');
+      return '<w:tr>' + cells + '</w:tr>';
+    }).join('');
+  }
+
   async function buildDocument(richResult, options, zipApi) {
     var baseUrl = options.url || location.href;
     var parsed = new DOMParser().parseFromString(richResult.html, 'text/html');
@@ -651,13 +770,22 @@
         }
       });
       if (!rows.length) return '';
-      var columnCount = Math.max(1, Array.prototype.reduce.call(
-        Array.prototype.filter.call(rows[0].children, function (cell) { return /^(td|th)$/.test(tagName(cell)); }),
-        function (total, cell) { return total + Math.max(1, parseInt(cell.getAttribute('colspan'), 10) || 1); }, 0
-      ));
+      var rowCells = rows.map(function (row) {
+        return Array.prototype.filter.call(row.children, function (cell) { return /^(td|th)$/.test(tagName(cell)); });
+      });
+      var grid = tableGrid(rowCells.map(function (cells) {
+        return cells.map(function (cell) {
+          return {
+            colspan: cell.getAttribute('colspan'),
+            rowspan: cell.getAttribute('rowspan'),
+            header: tagName(cell) === 'th'
+          };
+        });
+      }));
+      var columnCount = Math.max(1, grid.columnCount);
       var gridWidth = Math.floor(CONTENT_WIDTH_TWIPS / columnCount);
-      var grid = '';
-      for (var column = 0; column < columnCount; column += 1) grid += '<w:gridCol w:w="' + gridWidth + '"/>';
+      var gridXml = '';
+      for (var column = 0; column < columnCount; column += 1) gridXml += '<w:gridCol w:w="' + gridWidth + '"/>';
       var tableIndent = context && context.extraIndent ?
         '<w:tblInd w:w="' + context.extraIndent + '" w:type="dxa"/>' : '';
       var tableProperties = '<w:tblPr><w:tblW w:w="5000" w:type="pct"/>' + tableIndent + '<w:tblLayout w:type="fixed"/>' +
@@ -667,25 +795,18 @@
         '<w:insideV w:val="single" w:sz="4" w:color="B7B7B7"/></w:tblBorders>' +
         '<w:tblCellMar><w:top w:w="80" w:type="dxa"/><w:left w:w="100" w:type="dxa"/>' +
         '<w:bottom w:w="80" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr>';
-      var tableRows = '';
+      var cellContents = [];
       for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
-        var cells = Array.prototype.filter.call(rows[rowIndex].children, function (cell) { return /^(td|th)$/.test(tagName(cell)); });
-        var cellXml = '';
-        for (var cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
-          var cell = cells[cellIndex];
-          var span = Math.max(1, parseInt(cell.getAttribute('colspan'), 10) || 1);
+        var contents = [];
+        for (var cellIndex = 0; cellIndex < rowCells[rowIndex].length; cellIndex += 1) {
+          var cell = rowCells[rowIndex][cellIndex];
           var isHeader = tagName(cell) === 'th';
-          var cellProperties = '<w:tcW w:w="' + (gridWidth * span) + '" w:type="dxa"/>' +
-            (span > 1 ? '<w:gridSpan w:val="' + span + '"/>' : '') +
-            (isHeader ? '<w:shd w:val="clear" w:fill="E7E6E6"/>' : '') +
-            '<w:vAlign w:val="center"/>';
-          var cellContent = await renderBlocks(cell, stylesForContext(context, { bold: isHeader, quote: false }));
-          if (!cellContent) cellContent = '<w:p><w:pPr><w:pStyle w:val="Normal"/></w:pPr></w:p>';
-          cellXml += '<w:tc><w:tcPr>' + cellProperties + '</w:tcPr>' + cellContent + '</w:tc>';
+          contents.push(await renderBlocks(cell, stylesForContext(context, { bold: isHeader, quote: false })));
         }
-        tableRows += '<w:tr>' + cellXml + '</w:tr>';
+        cellContents.push(contents);
       }
-      return '<w:tbl>' + tableProperties + '<w:tblGrid>' + grid + '</w:tblGrid>' + tableRows + '</w:tbl>';
+      return '<w:tbl>' + tableProperties + '<w:tblGrid>' + gridXml + '</w:tblGrid>' +
+        tableRowsXml(grid, cellContents, gridWidth) + '</w:tbl>';
     }
 
     async function renderFigure(node, context) {
@@ -822,6 +943,8 @@
       xmlEscape: xmlEscape,
       imageExtent: imageExtent,
       numberingXml: numberingXml,
+      tableGrid: tableGrid,
+      tableRowsXml: tableRowsXml,
       maxImageWidthEmu: MAX_IMAGE_WIDTH_EMU
     });
   }
