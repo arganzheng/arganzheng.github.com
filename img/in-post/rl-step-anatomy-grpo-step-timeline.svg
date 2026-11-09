@@ -38,7 +38,8 @@
       .seg-d { fill: #f5e9f7; stroke: #40566f; stroke-width: 1.2; }
       .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
       .white { fill: #fff; }
-    </style>
+g.mathtext text{fill:inherit}
+</style>
  </defs>
  <text x="24" y="18" text-anchor="start" class="small">时间</text>
  <line x1="96" y1="14" x2="756" y2="14" class="axis" />
