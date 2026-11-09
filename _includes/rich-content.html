@@ -158,6 +158,13 @@
         var text = walker.currentNode.nodeValue;
         if (text.indexOf('\\(') !== -1 || text.indexOf('\\[') !== -1) return true;
       }
+      // math that lives only in image alts becomes the caption's text node once
+      // figures.js decorates it — but hasMath may run before that decoration
+      var imgs = root.querySelectorAll ? root.querySelectorAll('img[alt]') : [];
+      for (var i = 0; i < imgs.length; i++) {
+        var alt = imgs[i].getAttribute('alt');
+        if (alt.indexOf('\\(') !== -1 || alt.indexOf('\\[') !== -1) return true;
+      }
       return false;
     }
 

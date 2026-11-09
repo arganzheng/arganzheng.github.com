@@ -72,6 +72,10 @@
     var num = document.createElement('span'); num.className = 'fig-no'; num.textContent = (kind || '图') + ' ' + no + (title ? '：' : '');
     cap.appendChild(num);
     if (title) { var t = document.createElement('span'); t.className = 'fig-title'; t.textContent = title; cap.appendChild(t); }
+    // caption titles carry \( ... \) from kramdown image alts / mermaid titles;
+    // render now when KaTeX is already loaded — otherwise the root pass in
+    // rich-content.html covers captions created before it runs.
+    if (title && (title.indexOf('\\(') !== -1 || title.indexOf('\\[') !== -1) && window.renderRichMath) window.renderRichMath(cap);
     return cap;
   }
 
