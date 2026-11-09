@@ -254,7 +254,7 @@ db=sum_rows(G)=[1.2 0.2]
 逐样本外积之和误差=0.0e+00
 ```
 
-![Linear 权重梯度由两个样本的外积相加得到 \(dW=X^\top G\)](/img/in-post/backprop-linear-outer-products.svg)
+![Linear 权重梯度由两个样本的外积相加得到 \\(dW=X^\top G\\)](/img/in-post/backprop-linear-outer-products.svg)
 
 三条公式是 $$dW=X^TG$$、$$dX=GW^T$$、$$db=\sum_iG_{i,:}$$。每个样本贡献一个外积，沿 batch 维求和正是分叉梯度汇合的矩阵版本。
 
@@ -361,7 +361,7 @@ $$dX=G_HW_1^T$$ 在数学上存在，但图片输入不是参数，无需它的�
 
 前向矩阵乘 $$XW$$ 的 FLOPs 为 $$2mkn$$。反向要算 $$X^TG$$ 得到 $$dW$$，还要算 $$GW^T$$ 得到 $$dX$$，各为 $$2mkn$$。反向合计 $$4mkn$$，是前向的两倍。
 
-![一个 Linear 的三次矩阵乘：前向 \(XW\)、反向 \(X^\top G\) 和 \(GW^\top\)，各标出形状与 \(2mkn\)](/img/in-post/backprop-linear-flops.svg)
+![一个 Linear 的三次矩阵乘：前向 \\(XW\\)、反向 \\(X^\top G\\) 和 \\(GW^\top\\)，各标出形状与 \\(2mkn\\)](/img/in-post/backprop-linear-flops.svg)
 
 代入本文网络，batch 128：
 
