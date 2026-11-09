@@ -41,7 +41,7 @@ CFG 的 $$w = 7.5$$ 意味着**每一步**用的分数被换成了 $$(1-w)\,s_\e
 
 把输出换成分数或速度时，公式里会用到哪些量，容易一眼看混。把上篇的噪声参数化、Tweedie 估计和直线路径的速度放在一张图里。一般的高斯路径写成 $$x_t = \alpha_t x_0 + \sigma_t \epsilon$$；速度 $$v = \epsilon - x_0$$ 则特指 flow matching 的线性路径 $$\alpha_t = 1-t,\ \sigma_t=t$$。
 
-![在高斯路径 x_t = α_t x_0 + σ_t ε 下，噪声、分数与 Tweedie 的 x̂_0 可线性换算；在线性 flow path α_t=1−t、σ_t=t 下，v=ε−x_0，并可由 x_t 与 v 还原噪声和数据](/img/in-post/score-matching-flow-matching-and-classifier-free-guidance-parameterizations.svg)
+![在高斯路径 \\(x_t = \alpha_t x_0 + \sigma_t \epsilon\\) 下，噪声、分数与 Tweedie 的 \\(\hat{x}_0\\) 可线性换算；在线性 flow path \\(\alpha_t=1-t\\)、\\(\sigma_t=t\\) 下，\\(v=\epsilon-x_0\\)，并可由 \\(x_t\\) 与 \\(v\\) 还原噪声和数据](/img/in-post/score-matching-flow-matching-and-classifier-free-guidance-parameterizations.svg)
 
 ### 3. 本文的章节安排
 
@@ -81,7 +81,7 @@ $$
 
 更一般地，分布 $$p(x)$$ 的分数写作 $$s(x)=\nabla_x\log p(x)$$，也就是对数密度的梯度；梯度指向函数上升最快的方向（《[LLM 时代的经典机器学习（03）：逻辑回归与奖励模型——每个分类头的原型](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)》）。到了二维，分数就是一个向量，每个位置都有一个箭头，箭头长度表示密度上升的快慢。上篇训好的 DDPM 模型可以直接画成这样的箭头图（第 2 节会说明为什么它就是分数）：
 
-![三张箭头图，灰点是缩放后的数据：t = 600（σ = 0.99）箭头几乎全部指向中心，均匀而短；t = 300（σ = 0.78）箭头开始朝两个月牙的位置弯；t = 80（σ = 0.26）箭头密集地指向两个月牙的轮廓，离数据越远箭头越长](/img/in-post/multimodal-07-score-field.svg)
+![三张箭头图，灰点是缩放后的数据：\\(t = 600\\)（\\(\sigma = 0.99\\)）箭头几乎全部指向中心，均匀而短；\\(t = 300\\)（\\(\sigma = 0.78\\)）箭头开始朝两个月牙的位置弯；\\(t = 80\\)（\\(\sigma = 0.26\\)）箭头密集地指向两个月牙的轮廓，离数据越远箭头越长](/img/in-post/multimodal-07-score-field.svg)
 
 怎么读：每个网格点画的是网络在那里算出的分数向量。噪声大（$$t = 600$$）时，带噪分布接近一个大高斯，分数就是"指向原点"；噪声小（$$t = 80$$）时，分数精确地指向月牙。**采样就是顺着箭头走**——知道分数就能采样：Langevin 动力学 $$x \leftarrow x + \frac{\delta}{2} \nabla_x \log p(x) + \sqrt{\delta}\, z$$ 反复迭代收敛到 $$p$$。分数**不需要归一化常数**（$$\nabla \log(p / Z) = \nabla \log p$$），这是它相对于直接建模密度的优势。
 
