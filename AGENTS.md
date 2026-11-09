@@ -76,6 +76,15 @@ clients (the IDE's push button) run hooks with a bare PATH, so `bundle`,
 `lychee`, `node`, `rg` were not found and every push from the IDE failed
 while the terminal passed (2026-09-16).
 
+### Author Markdown paste extension
+
+`tools/md-paste-extension/` is a standalone MV3 extension for pasting blog
+Markdown into an editor that uploads pasted image files. Run its parser test
+with `node tools/md-paste-extension/test/split.test.cjs`; the Playwright
+textarea/CodeMirror/contenteditable harness is
+`tools/md-paste-extension/test/harness/run.cjs` (requires Playwright and its
+Chromium outside the site dependencies).
+
 ### Revising posts: commit to `master` by default; PR only on request
 
 Since 2026-09-29 content revisions by an agent (fixing a post after reader
