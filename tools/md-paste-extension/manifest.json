@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "粘贴博客 Markdown（上传图片）",
+  "version": "1.0.0",
+  "description": "把博客 Markdown 粘贴到编辑器，并让编辑器上传博客图片。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "contextMenus",
+    "offscreen",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "https://arganzheng.life/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "粘贴博客 Markdown（上传图片）"
+  },
+  "commands": {
+    "paste-md": {
+      "suggested_key": {
+        "default": "Alt+Shift+V"
+      },
+      "description": "粘贴博客 Markdown（上传图片）"
+    }
+  }
+}
