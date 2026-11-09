@@ -1,16 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" width="760" height="256" role="img" aria-labelledby="t d">
-  <title id="t">一步 decode 读的权重字节与 KV 字节</title>
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}]]></style>
+<title id="t">一步 decode 读的权重字节与 KV 字节</title>
   <desc id="d">一步 decode 必须从 HBM 读的字节，Llama-3-8B，BF16，A100 2.0 TB/s。权重每步都是 16 GB（约 8 ms）。batch×s = 4k 时 KV 0.5 GB，占 3%；32k 时 KV 4 GB，占 20%；131k 时 KV 16 GB，两者各占一半；262k 时 KV 32 GB，KV 成为主项。</desc>
   <defs>
-    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="ah" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f" /></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 600; }
-      .h { font-size: 15px; font-weight: 700; }
+      text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #111; font-weight: 400; }
+      .h { font-size: 15px; font-weight: 500; }
       .b { font-size: 14px; }
-      .bb { font-size: 14px; font-weight: 700; }
+      .bb { font-size: 14px; font-weight: 500; }
       .s { font-size: 13px; }
-      .m { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 600; }
-      .ms { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 600; }
+      .m { font-family:'SvgMono', "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 400; }
+      .ms { font-family:'SvgMono', "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; font-weight: 400; }
       .red { fill: #a3271f; }
       .blue { fill: #dbe8fb; stroke: #40566f; stroke-width: 1.2; }
       .dblue { fill: #9fc0ec; stroke: #40566f; stroke-width: 1.2; }
@@ -27,86 +28,86 @@
       .mark { stroke: #c0392b; stroke-width: 2.2; fill: none; }
     </style>
   </defs>
-  <rect x="0" y="0" width="760" height="256" fill="#fff"/>
+  <rect x="0" y="0" width="760" height="256" fill="#fff" />
   <text class="bb" x="20" y="24">一步 decode 必须从 HBM 读的字节（Llama-3-8B，BF16，A100 2.0 TB/s）</text>
-  <text class="ms" x="118" y="70" text-anchor="end">batch×s = 4k</text>
-  <rect class="blue" x="130" y="50" width="160" height="30"/>
-  <text class="s" x="210" y="70" text-anchor="middle">权重 16 GB（8 ms）</text>
-  <rect class="green" x="290" y="50" width="5.0" height="30"/>
+  <text class="ms" x="118" y="70" text-anchor="end" style="font-family:'SvgSans', Noto Sans SC"><tspan>batch</tspan><tspan font-family="'SvgSans', Noto Sans SC">×</tspan><tspan>s = 4k</tspan></text>
+  <rect class="blue" x="130" y="50" width="160" height="30" />
+  <text class="s" x="210" y="70" text-anchor="middle" transform="translate(0 0.500)">权重 16 GB（8 ms）</text>
+  <rect class="green" x="290" y="50" width="5.0" height="30" />
   <text class="s" x="303.0" y="70">KV 0.5 GB  → KV 占 3%</text>
-  <text class="ms" x="118" y="112" text-anchor="end">batch×s = 32k</text>
-  <rect class="blue" x="130" y="92" width="160" height="30"/>
-  <text class="s" x="210" y="112" text-anchor="middle">权重 16 GB</text>
-  <rect class="green" x="290" y="92" width="40" height="30"/>
+  <text class="ms" x="118" y="112" text-anchor="end" style="font-family:'SvgSans', Noto Sans SC"><tspan>batch</tspan><tspan font-family="'SvgSans', Noto Sans SC">×</tspan><tspan>s = 32k</tspan></text>
+  <rect class="blue" x="130" y="92" width="160" height="30" />
+  <text class="s" x="210" y="112" text-anchor="middle" transform="translate(0 0.500)">权重 16 GB</text>
+  <rect class="green" x="290" y="92" width="40" height="30" />
   <text class="s" x="338" y="112">KV 4 GB  → 20%</text>
-  <text class="ms" x="118" y="154" text-anchor="end">batch×s = 131k</text>
-  <rect class="blue" x="130" y="134" width="160" height="30"/>
-  <text class="s" x="210" y="154" text-anchor="middle">权重 16 GB</text>
-  <rect class="green" x="290" y="134" width="160" height="30"/>
-  <text class="s" x="370.0" y="154" text-anchor="middle">KV 16 GB</text>
+  <text class="ms" x="118" y="154" text-anchor="end" style="font-family:'SvgSans', Noto Sans SC"><tspan>batch</tspan><tspan font-family="'SvgSans', Noto Sans SC">×</tspan><tspan>s = 131k</tspan></text>
+  <rect class="blue" x="130" y="134" width="160" height="30" />
+  <text class="s" x="210" y="154" text-anchor="middle" transform="translate(0 0.500)">权重 16 GB</text>
+  <rect class="green" x="290" y="134" width="160" height="30" />
+  <text class="s" x="370.0" y="154" text-anchor="middle" transform="translate(0 0.500)">KV 16 GB</text>
   <text class="s" x="460" y="154">→ 各占一半</text>
-  <text class="ms" x="118" y="196" text-anchor="end">batch×s = 262k</text>
-  <rect class="blue" x="130" y="176" width="160" height="30"/>
-  <text class="s" x="210" y="196" text-anchor="middle">权重 16 GB</text>
-  <rect class="green" x="290" y="176" width="320" height="30"/>
-  <text class="s" x="450.0" y="196" text-anchor="middle">KV 32 GB</text>
+  <text class="ms" x="118" y="196" text-anchor="end" style="font-family:'SvgSans', Noto Sans SC"><tspan>batch</tspan><tspan font-family="'SvgSans', Noto Sans SC">×</tspan><tspan>s = 262k</tspan></text>
+  <rect class="blue" x="130" y="176" width="160" height="30" />
+  <text class="s" x="210" y="196" text-anchor="middle" transform="translate(0 0.500)">权重 16 GB</text>
+  <rect class="green" x="290" y="176" width="320" height="30" />
+  <text class="s" x="450.0" y="196" text-anchor="middle" transform="translate(0 0.500)">KV 32 GB</text>
   <text class="s" x="620" y="196">→ KV 成为主项</text>
-  <line class="ln" x1="130" y1="222" x2="610" y2="222"/>
-  <line class="ln" x1="130" y1="222" x2="130" y2="229"/>
-  <text class="ms" x="130" y="244" text-anchor="middle">0</text>
-  <line class="ln" x1="140" y1="222" x2="140" y2="226"/>
-  <line class="ln" x1="150" y1="222" x2="150" y2="226"/>
-  <line class="ln" x1="160" y1="222" x2="160" y2="226"/>
-  <line class="ln" x1="170" y1="222" x2="170" y2="226"/>
-  <line class="ln" x1="180" y1="222" x2="180" y2="226"/>
-  <line class="ln" x1="190" y1="222" x2="190" y2="226"/>
-  <line class="ln" x1="200" y1="222" x2="200" y2="226"/>
-  <line class="ln" x1="210" y1="222" x2="210" y2="229"/>
-  <text class="ms" x="210" y="244" text-anchor="middle">8</text>
-  <line class="ln" x1="220" y1="222" x2="220" y2="226"/>
-  <line class="ln" x1="230" y1="222" x2="230" y2="226"/>
-  <line class="ln" x1="240" y1="222" x2="240" y2="226"/>
-  <line class="ln" x1="250" y1="222" x2="250" y2="226"/>
-  <line class="ln" x1="260" y1="222" x2="260" y2="226"/>
-  <line class="ln" x1="270" y1="222" x2="270" y2="226"/>
-  <line class="ln" x1="280" y1="222" x2="280" y2="226"/>
-  <line class="ln" x1="290" y1="222" x2="290" y2="229"/>
-  <text class="ms" x="290" y="244" text-anchor="middle">16</text>
-  <line class="ln" x1="300" y1="222" x2="300" y2="226"/>
-  <line class="ln" x1="310" y1="222" x2="310" y2="226"/>
-  <line class="ln" x1="320" y1="222" x2="320" y2="226"/>
-  <line class="ln" x1="330" y1="222" x2="330" y2="226"/>
-  <line class="ln" x1="340" y1="222" x2="340" y2="226"/>
-  <line class="ln" x1="350" y1="222" x2="350" y2="226"/>
-  <line class="ln" x1="360" y1="222" x2="360" y2="226"/>
-  <line class="ln" x1="370" y1="222" x2="370" y2="229"/>
-  <text class="ms" x="370" y="244" text-anchor="middle">24</text>
-  <line class="ln" x1="380" y1="222" x2="380" y2="226"/>
-  <line class="ln" x1="390" y1="222" x2="390" y2="226"/>
-  <line class="ln" x1="400" y1="222" x2="400" y2="226"/>
-  <line class="ln" x1="410" y1="222" x2="410" y2="226"/>
-  <line class="ln" x1="420" y1="222" x2="420" y2="226"/>
-  <line class="ln" x1="430" y1="222" x2="430" y2="226"/>
-  <line class="ln" x1="440" y1="222" x2="440" y2="226"/>
-  <line class="ln" x1="450" y1="222" x2="450" y2="229"/>
-  <text class="ms" x="450" y="244" text-anchor="middle">32</text>
-  <line class="ln" x1="460" y1="222" x2="460" y2="226"/>
-  <line class="ln" x1="470" y1="222" x2="470" y2="226"/>
-  <line class="ln" x1="480" y1="222" x2="480" y2="226"/>
-  <line class="ln" x1="490" y1="222" x2="490" y2="226"/>
-  <line class="ln" x1="500" y1="222" x2="500" y2="226"/>
-  <line class="ln" x1="510" y1="222" x2="510" y2="226"/>
-  <line class="ln" x1="520" y1="222" x2="520" y2="226"/>
-  <line class="ln" x1="530" y1="222" x2="530" y2="229"/>
-  <text class="ms" x="530" y="244" text-anchor="middle">40</text>
-  <line class="ln" x1="540" y1="222" x2="540" y2="226"/>
-  <line class="ln" x1="550" y1="222" x2="550" y2="226"/>
-  <line class="ln" x1="560" y1="222" x2="560" y2="226"/>
-  <line class="ln" x1="570" y1="222" x2="570" y2="226"/>
-  <line class="ln" x1="580" y1="222" x2="580" y2="226"/>
-  <line class="ln" x1="590" y1="222" x2="590" y2="226"/>
-  <line class="ln" x1="600" y1="222" x2="600" y2="226"/>
-  <line class="ln" x1="610" y1="222" x2="610" y2="229"/>
-  <text class="ms" x="610" y="244" text-anchor="middle">48</text>
+  <line class="ln" x1="130" y1="222" x2="610" y2="222" />
+  <line class="ln" x1="130" y1="222" x2="130" y2="229" />
+  <text class="ms" x="130" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">0</text>
+  <line class="ln" x1="140" y1="222" x2="140" y2="226" />
+  <line class="ln" x1="150" y1="222" x2="150" y2="226" />
+  <line class="ln" x1="160" y1="222" x2="160" y2="226" />
+  <line class="ln" x1="170" y1="222" x2="170" y2="226" />
+  <line class="ln" x1="180" y1="222" x2="180" y2="226" />
+  <line class="ln" x1="190" y1="222" x2="190" y2="226" />
+  <line class="ln" x1="200" y1="222" x2="200" y2="226" />
+  <line class="ln" x1="210" y1="222" x2="210" y2="229" />
+  <text class="ms" x="210" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">8</text>
+  <line class="ln" x1="220" y1="222" x2="220" y2="226" />
+  <line class="ln" x1="230" y1="222" x2="230" y2="226" />
+  <line class="ln" x1="240" y1="222" x2="240" y2="226" />
+  <line class="ln" x1="250" y1="222" x2="250" y2="226" />
+  <line class="ln" x1="260" y1="222" x2="260" y2="226" />
+  <line class="ln" x1="270" y1="222" x2="270" y2="226" />
+  <line class="ln" x1="280" y1="222" x2="280" y2="226" />
+  <line class="ln" x1="290" y1="222" x2="290" y2="229" />
+  <text class="ms" x="290" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">16</text>
+  <line class="ln" x1="300" y1="222" x2="300" y2="226" />
+  <line class="ln" x1="310" y1="222" x2="310" y2="226" />
+  <line class="ln" x1="320" y1="222" x2="320" y2="226" />
+  <line class="ln" x1="330" y1="222" x2="330" y2="226" />
+  <line class="ln" x1="340" y1="222" x2="340" y2="226" />
+  <line class="ln" x1="350" y1="222" x2="350" y2="226" />
+  <line class="ln" x1="360" y1="222" x2="360" y2="226" />
+  <line class="ln" x1="370" y1="222" x2="370" y2="229" />
+  <text class="ms" x="370" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">24</text>
+  <line class="ln" x1="380" y1="222" x2="380" y2="226" />
+  <line class="ln" x1="390" y1="222" x2="390" y2="226" />
+  <line class="ln" x1="400" y1="222" x2="400" y2="226" />
+  <line class="ln" x1="410" y1="222" x2="410" y2="226" />
+  <line class="ln" x1="420" y1="222" x2="420" y2="226" />
+  <line class="ln" x1="430" y1="222" x2="430" y2="226" />
+  <line class="ln" x1="440" y1="222" x2="440" y2="226" />
+  <line class="ln" x1="450" y1="222" x2="450" y2="229" />
+  <text class="ms" x="450" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">32</text>
+  <line class="ln" x1="460" y1="222" x2="460" y2="226" />
+  <line class="ln" x1="470" y1="222" x2="470" y2="226" />
+  <line class="ln" x1="480" y1="222" x2="480" y2="226" />
+  <line class="ln" x1="490" y1="222" x2="490" y2="226" />
+  <line class="ln" x1="500" y1="222" x2="500" y2="226" />
+  <line class="ln" x1="510" y1="222" x2="510" y2="226" />
+  <line class="ln" x1="520" y1="222" x2="520" y2="226" />
+  <line class="ln" x1="530" y1="222" x2="530" y2="229" />
+  <text class="ms" x="530" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">40</text>
+  <line class="ln" x1="540" y1="222" x2="540" y2="226" />
+  <line class="ln" x1="550" y1="222" x2="550" y2="226" />
+  <line class="ln" x1="560" y1="222" x2="560" y2="226" />
+  <line class="ln" x1="570" y1="222" x2="570" y2="226" />
+  <line class="ln" x1="580" y1="222" x2="580" y2="226" />
+  <line class="ln" x1="590" y1="222" x2="590" y2="226" />
+  <line class="ln" x1="600" y1="222" x2="600" y2="226" />
+  <line class="ln" x1="610" y1="222" x2="610" y2="229" />
+  <text class="ms" x="610" y="244" text-anchor="middle" style="font-family:'SvgSans', Noto Sans SC">48</text>
   <text class="s" x="624" y="244">GB（每格 1 GB）</text>
 </svg>
