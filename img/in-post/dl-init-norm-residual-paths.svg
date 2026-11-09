@@ -39,7 +39,7 @@ Q 197.411884 219.230087 197.411884 221.831683
 L 197.411884 247.847645
 Q 197.411884 250.449241 203.69988 250.449241
 z
-" clip-path="url(#pec5defcb5b)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#pf47e58ebe8)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 533.819678 250.449241
@@ -52,7 +52,7 @@ Q 527.531682 219.230087 527.531682 221.831683
 L 527.531682 247.847645
 Q 527.531682 250.449241 533.819678 250.449241
 z
-" clip-path="url(#pec5defcb5b)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#pf47e58ebe8)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- $x_0$ -->
@@ -300,18 +300,18 @@ z
     <path d="M 95.151686 148.952301
 Q 235.141646 24.289765 373.294721 147.319674
 " style="fill: none; stroke: #009e73; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 371.803333 143.581257
+    <path d="M 371.554769 142.958188
 L 373.294721 147.319674
-L 369.409155 146.269735
+L 368.761561 146.094745
 " style="fill: none; stroke: #009e73; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="patch_5">
     <path d="M 425.271485 148.952301
 Q 565.261444 24.289765 703.41452 147.319674
 " style="fill: none; stroke: #009e73; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 701.923132 143.581257
+    <path d="M 701.674567 142.958188
 L 703.41452 147.319674
-L 699.528953 146.269735
+L 698.881359 146.094745
 " style="fill: none; stroke: #009e73; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="text_6">
@@ -365,36 +365,36 @@ z
     <path d="M 95.657045 176.243772
 Q 163.781607 174.629434 197.490289 231.002572
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 197.187627 226.989045
+    <path d="M 197.137184 226.320124
 L 197.490289 231.002572
-L 194.097871 228.836585
+L 193.532468 228.475587
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="patch_7">
     <path d="M 271.524285 233.118358
 Q 306.493944 174.631735 372.158179 176.185458
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 368.601766 174.300804
+    <path d="M 368.00903 173.986695
 L 372.158179 176.185458
-L 368.516608 177.899796
+L 367.909679 178.185519
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="patch_8">
     <path d="M 425.776843 176.243772
 Q 493.901406 174.629434 527.610087 231.002572
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 527.307426 226.989045
+    <path d="M 527.256982 226.320124
 L 527.610087 231.002572
-L 524.217669 228.836585
+L 523.652266 228.475587
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="patch_9">
     <path d="M 601.644083 233.118358
 Q 636.613742 174.631735 702.277978 176.185458
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
-    <path d="M 698.721564 174.300804
+    <path d="M 698.128828 173.986695
 L 702.277978 176.185458
-L 698.636406 177.899796
+L 698.029477 178.185519
 " style="fill: none; stroke: #7f7f7f; stroke-width: 2.2; stroke-linecap: round"/>
    </g>
    <g id="text_8">
@@ -1108,7 +1108,7 @@ z
    </g>
    <g id="text_12">
     <!-- the green term is pure identity: a path that reaches $x_0$ without multiplying any $J$ -->
-    <g style="fill: #009e73" transform="translate(191.69476 319.391539) scale(0.11 -0.11)">
+    <g style="fill: #009e73" transform="translate(172.73976 319.391539) scale(0.12 -0.12)">
      <defs>
       <path id="STHeitiSC-Medium-49" d="M 3930 1203
 Q 3930 512 3811 179
@@ -1275,7 +1275,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pec5defcb5b">
+  <clipPath id="pf47e58ebe8">
    <rect x="7.2" y="7.2" width="785.99952" height="325.19952"/>
   </clipPath>
  </defs>
