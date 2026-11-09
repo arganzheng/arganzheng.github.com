@@ -26,7 +26,7 @@ date: 2026-03-30 12:00:00
 
 先把"大模型"这个词祛魅：一个语言模型做的事只有一件——**给定前面的 token，输出下一个 token 是词表里每一个词的概率**（[《算法工程师的数学（04）：概率入门——语言模型是一个条件分布》](/probability-basics-language-model-as-conditional-distribution.html)讲过它为什么是一个条件分布）。输入是一串整数（token 编号），输出是一张长度为词表大小 $$V$$ 的概率表。Transformer 就是从这串整数到那张概率表之间的那台机器。
 
-![decoder-only Transformer 的整体结构（GPT-2 small 的数字）。左：数据自下而上流动——token 编号查 embedding 表得到 768 维向量、加位置 embedding、经过 12 个相同的 block、最后一次 LayerNorm、lm_head 投影到 50257 个词的分数、softmax 得到概率；一个 block 展开为 LayerNorm → 多头 causal self-attention → 残差相加 → LayerNorm → FFN → 残差相加。右：attention 子层的内部——同一个输入乘 \(W_Q\)、\(W_K\)、\(W_V\) 得到 \(Q\)、\(K\)、\(V\)，\(QK^\top/\sqrt{64}\) 打分、加 causal mask、softmax、乘 \(V\)，12 个头拼接后乘 \(W_O\)](/img/in-post/transformer-01-decoder-only-stack.svg)
+![decoder-only Transformer 的整体结构（GPT-2 small 的数字）。左：数据自下而上流动——token 编号查 embedding 表得到 768 维向量、加位置 embedding、经过 12 个相同的 block、最后一次 LayerNorm、lm_head 投影到 50257 个词的分数、softmax 得到概率；一个 block 展开为 LayerNorm → 多头 causal self-attention → 残差相加 → LayerNorm → FFN → 残差相加。右：attention 子层的内部——同一个输入乘 \\(W_Q\\)、\\(W_K\\)、\\(W_V\\) 得到 \\(Q\\)、\\(K\\)、\\(V\\)，\\(QK^\top/\sqrt{64}\\) 打分、加 causal mask、softmax、乘 \\(V\\)，12 个头拼接后乘 \\(W_O\\)](/img/in-post/transformer-01-decoder-only-stack.svg)
 
 图分左右两半，自下而上读：
 
@@ -95,7 +95,7 @@ Table: 本文的章节安排
 
 encoder 每层由**双向 self-attention + FFN**组成，不加 causal mask，源句子的每个位置都能利用整句上下文。decoder 每层依次做**因果 self-attention + cross-attention + FFN**：因果 mask 保证预测目标位置时看不到未来；cross-attention 的 query 来自 decoder，key/value 读取 encoder 的输出。
 
-![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，\(Q\) 来自 decoder、\(K\) 和 \(V\) 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
+![原始 Transformer（encoder-decoder）与 GPT（decoder-only）的对照。左两列是 2017 年的结构：encoder 的 block 是双向 self-attention + FFN，各接 Add & Norm；decoder 的 block 多一个 cross-attention 子层，\\(Q\\) 来自 decoder、\\(K\\) 和 \\(V\\) 来自 encoder 的输出。右列是 GPT：去掉整个 encoder（红色虚线框），cross-attention 随之消失，只保留带 causal mask 的 decoder，LayerNorm 改到子层之前](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg)
 
 图分三列，每列都自下而上：
 
@@ -259,7 +259,7 @@ $$
 
 这就是六步里的第 ① 步；后面五步全是在 $$Q$$、$$K$$、$$V$$ 上算：
 
-![一个 attention 头的六步手算，\(d=4\)、\(T=3\)：① 输入 \(x\) 乘三个矩阵得到 \(Q\)、\(K\)、\(V\)；② \(S=QK^\top\) 得 \(3\times3\) 分数表；③ 除以 \(\sqrt{4}=2\)；④ causal mask 把右上角填成 \(-\infty\)；⑤ 逐行 softmax 得权重 \(P\)（每行和为 1，被 mask 的位置恰好为 0）；⑥ \(out=PV\)，\(t_2\) 那一行 \(=0.27v_0+0.27v_1+0.45v_2=(0.73,0.73,0.27,0.27)\)](/img/in-post/transformer-01-attention-by-hand.svg)
+![一个 attention 头的六步手算，\\(d=4\\)、\\(T=3\\)：① 输入 \\(x\\) 乘三个矩阵得到 \\(Q\\)、\\(K\\)、\\(V\\)；② \\(S=QK^\top\\) 得 \\(3\times3\\) 分数表；③ 除以 \\(\sqrt{4}=2\\)；④ causal mask 把右上角填成 \\(-\infty\\)；⑤ 逐行 softmax 得权重 \\(P\\)（每行和为 1，被 mask 的位置恰好为 0）；⑥ \\(out=PV\\)，\\(t_2\\) 那一行 \\(=0.27v_0+0.27v_1+0.45v_2=(0.73,0.73,0.27,0.27)\\)](/img/in-post/transformer-01-attention-by-hand.svg)
 
 逐步读：
 
