@@ -40,7 +40,7 @@ C 126.714894 162.451855 134.080519 180.939359 147.189576 194.568372
 C 160.298633 208.197385 178.080826 215.85516 196.619832 215.85516
 L 196.619832 215.85516
 z
-" clip-path="url(#p7a898b8da5)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #999999; stroke-linejoin: miter"/>
+" clip-path="url(#p7f9a9662d5)" style="fill: none; stroke-dasharray: 3.7,1.6; stroke-dashoffset: 0; stroke: #999999; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 全局范数裁剪：方向不变，整体缩到阈值（§三.1，max_norm=1.0） -->
@@ -1601,7 +1601,7 @@ z
    </g>
    <g id="text_2">
     <!-- ‖g‖ = 1.0 -->
-    <g style="fill: #555555" transform="translate(219.700489 198.697569) scale(0.095 -0.095)">
+    <g style="fill: #555555" transform="translate(218.266231 198.865577) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-6b" d="M 3667 -493
 L 3955 -493
@@ -2432,7 +2432,7 @@ z
    </g>
    <g id="text_7">
     <!-- 每个参数张量被 -->
-    <g style="fill: #555555" transform="translate(393.379628 151.4764) scale(0.095 -0.095)">
+    <g style="fill: #555555" transform="translate(391.629628 151.6664) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-ac4" d="M 5523 1792
 C 5805 1792 5971 1786 6150 1766
@@ -2771,7 +2771,7 @@ z
    </g>
    <g id="text_8">
     <!-- 同一个标量缩放 -->
-    <g style="fill: #555555" transform="translate(393.379628 167.88748) scale(0.095 -0.095)">
+    <g style="fill: #555555" transform="translate(391.629628 168.07748) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-e5d" d="M 531 256
 C 531 -45 518 -275 493 -506
@@ -3110,7 +3110,7 @@ z
    </g>
    <g id="text_10">
     <!-- 范数 ‖g‖ 是全模型的：各卡先算自己分片的平方和， -->
-    <g style="fill: #111111" transform="translate(162.099408 223.736188) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(156.009916 223.904196) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-d5e" d="M 3629 947
 L 4915 947
@@ -3937,7 +3937,7 @@ z
    </g>
    <g id="text_11">
     <!-- 在恰好覆盖所有分片一次的组上 all-reduce 再开方（§三.1 三框架实现）。 -->
-    <g style="fill: #111111" transform="translate(114.68476 240.56512) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(106.09976 240.75512) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-111d" d="M 5325 3923
 C 5645 3923 5888 3910 6093 3885
@@ -5133,7 +5133,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p7a898b8da5">
+  <clipPath id="p7f9a9662d5">
    <rect x="7.2" y="7.2" width="541.19952" height="253.19952"/>
   </clipPath>
  </defs>
