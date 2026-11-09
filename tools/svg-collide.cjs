@@ -33,7 +33,7 @@ const CHECK = `(() => {
   }catch{return null;}};
   const hit=(a,b,p=2)=>a.x0<b.x1+p&&a.x1>b.x0-p&&a.y0<b.y1+p&&a.y1>b.y0-p;
   const texts=[
-    ...[...svg.querySelectorAll('text')].map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})),
+    ...[...svg.querySelectorAll('text')].filter(t=>!t.closest('g.mathtext')).map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})),
     ...[...svg.querySelectorAll('g.mathtext')].map(g=>({t:(g.getAttribute('aria-label')||g.getAttribute('data-tex')||'?').replace(/\\s+/g,' ').slice(0,40),b:bb(g),cls:'mathtext'}))
   ].filter(t=>t.t&&t.b);
   const rects=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band')).map(r=>bb(r)).filter(Boolean);
@@ -49,6 +49,9 @@ const CHECK = `(() => {
       const full=rects.find(r=>r===host)||host;
       const isbg=full.x0<=vb.x+2&&full.y0<=vb.y+2&&full.x1>=vb.x+vb.width-2&&full.y1>=vb.y+vb.height-2;
       if(!isbg&&(t.b.x0<host.x0+3||t.b.x1>host.x1-3||t.b.y0<host.y0+3||t.b.y1>host.y1-3)) errs.push('文字出框: '+t.t);
+      // label vertically centered in its box (text bbox centre vs rect centre ≤1.5px)
+      if(!isbg&&Math.abs(cy-(host.y0+host.y1)/2)>1.5&&(host.y1-host.y0)>=(t.b.y1-t.b.y0)+4)
+        errs.push('文字未垂直居中: '+t.t);
     }
   }
   for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++)
@@ -86,6 +89,22 @@ const CHECK = `(() => {
       if(cls(a,b,pad)) errs.push('线段穿文字: '+t.t);
     }
   }
+  // arrows: visible shaft (drawn length minus head) ≥16px
+  [...svg.querySelectorAll('line,path')].forEach(p=>{
+    if(p.closest('defs')||p.closest('marker')||p.closest('g.mathtext')) return;
+    const mend=p.getAttribute('marker-end'), mstart=p.getAttribute('marker-start');
+    if(!mend&&!mstart&&!/url\\(#/.test(p.getAttribute('style')||'')) return;
+    let L=0; try{L=p.getTotalLength()}catch{return;}
+    let head=0;
+    for(const mref of[mend,mstart]){
+      if(!mref) continue;
+      const id=(mref.match(/#([^')"]+)/)||[])[1]; if(!id) continue;
+      const mk=svg.querySelector('marker#'+CSS.escape(id)); if(!mk) continue;
+      const w=+(mk.getAttribute('markerWidth')||3), mh=+(mk.getAttribute('markerHeight')||3);
+      head=Math.max(head,Math.max(w,mh)*2);
+    }
+    if(L-head<16) errs.push('箭头杆过短('+Math.round(L-head)+'px): '+(p.getAttribute('id')||(p.getAttribute('d')||'').slice(0,30)||p.outerHTML.slice(0,30)));
+  });
   return JSON.stringify({errs:[...new Set(errs)],ntexts:texts.length});
 })()`;
 async function check(file) {
@@ -101,6 +120,11 @@ async function check(file) {
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 400));
     const r = await send('Runtime.evaluate', { expression: CHECK, returnByValue: true });
+    if (r.exceptionDetails) {
+      const t = r.exceptionDetails.exception && r.exceptionDetails.exception.description;
+      out = { err: 'eval: ' + (t || r.exceptionDetails.text || 'error') };
+      continue;
+    }
     out = JSON.parse(r.result.value);
     if (out.ntexts || out.err) break;
   }

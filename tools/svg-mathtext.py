@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Typeset `data-tex` text elements in a hand-written SVG as LaTeX-style paths.
+"""Typeset `data-tex` text elements in a hand-written SVG as real text.
 
 In place:
 
@@ -7,18 +7,29 @@ In place:
 
 Every `<text data-tex="…">` is replaced by `<g class="mathtext" data-tex="…"
 data-x data-y data-size data-anchor data-fill data-family>` whose children are
-`<path>`s rendered by matplotlib (Computer Modern mathtext for `$...$` parts,
-the CJK/system font for the rest — same look as the posts' KaTeX). The
-`data-tex` string is the editable source: rerunning the tool re-renders every
+real `<text>`/`<tspan>` runs positioned per glyph (Computer Modern mathtext for
+`$...$` parts, the CJK/system font for the rest — same look as the posts'
+KaTeX), plus `<rect>`s for fraction bars. The `data-tex` string is the
+editable source: rerunning the tool re-renders every
 `<g class="mathtext" data-tex>` from its stored attributes, so edit the string,
-not the paths. A `$...$` that doesn't parse aborts the file with an error.
+not the markup. A `$...$` that doesn't parse aborts the file with an error.
+
+After typesetting, every font file actually used (cmr10/cmmi10/cmsy10/cmex10/
+STIX from matplotlib's mpl-data, plus the prose font) is subset to the used
+glyphs and embedded as WOFF2 in a `<style id="embedded-fonts">` @font-face
+block — the file renders without the reader's fonts. CM/STIX glyphs get a
+same-colour ~0.3px stroke (scaled from the viewBox) to match KaTeX weight.
+Reruns are idempotent: the embedded block is rebuilt from the current glyphs.
 
 Baseline sits at the original `y`; `text-anchor` start/middle/end is honored.
 Fill comes from the text's `fill`, inline style, `<style>` class rule, or
 ancestor/parent `fill` (default #222). Non-math text uses the resolved
 font-family (mono classes → monospace stack; CJK → Hiragino Sans GB etc.).
 """
+import base64
 import copy
+import io
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -27,8 +38,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib import font_manager  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
-from matplotlib.textpath import TextPath  # noqa: E402
+from matplotlib.mathtext import MathTextParser  # noqa: E402
 
 plt.rcParams.update({"mathtext.fontset": "cm"})
 
@@ -38,6 +50,9 @@ NS = f"{{{SVG}}}"
 
 CJK_FAMILY = ["Hiragino Sans GB", "Heiti SC", "Arial Unicode MS", "DejaVu Sans"]
 MONO_FAMILY = ["Menlo", "Courier New", "monospace"]
+_PARSER = MathTextParser("path")
+_MATH_FONT_HINT = ("cmmi", "cmr", "cmsy", "cmex", "cmss", "cmti", "cmtt",
+                   "cmb", "STIX")
 
 
 def _css_rules(root):
@@ -143,42 +158,18 @@ def _resolve(el, parent_map, prop, rules):
     return None
 
 
-def _path_d(tp):
-    """matplotlib Path -> SVG path data (vertex space is typographic points;
-    flip y since SVG y grows downward)."""
-    from matplotlib.path import Path as MplPath
-    parts, i = [], 0
-    verts, codes = tp.vertices, tp.codes
-    n = len(codes)
-    while i < n:
-        c, v = codes[i], verts[i]
-        if c == MplPath.MOVETO:
-            parts.append(f"M {v[0]:.3f} {-v[1]:.3f}")
-            i += 1
-        elif c == MplPath.LINETO:
-            parts.append(f"L {v[0]:.3f} {-v[1]:.3f}")
-            i += 1
-        elif c == MplPath.CURVE3:
-            v2 = verts[i + 1]
-            parts.append(f"Q {v[0]:.3f} {-v[1]:.3f} {v2[0]:.3f} {-v2[1]:.3f}")
-            i += 2
-        elif c == MplPath.CURVE4:
-            v2, v3 = verts[i + 1], verts[i + 2]
-            parts.append(f"C {v[0]:.3f} {-v[1]:.3f} {v2[0]:.3f} {-v2[1]:.3f} "
-                         f"{v3[0]:.3f} {-v3[1]:.3f}")
-            i += 3
-        elif c == MplPath.CLOSEPOLY:
-            parts.append("z")
-            i += 1
-        else:
-            i += 1
-    return "\n".join(parts)
+def _font_name(ft2font):
+    """@font-face family name for a matplotlib FT2Font — stable, quoted in CSS."""
+    return os.path.splitext(os.path.basename(ft2font.fname))[0]
 
 
-def _render(tex, size, weight, family):
-    """Mixed CJK/$...$ string -> (path-d list, total advance width in px).
+def _render(tex, size, weight, family, used):
+    """Mixed CJK/$...$ string -> (children for a <g>, total advance px).
 
-    TextPath units are points at dpi=72 → treat as SVG px 1:1.
+    Children are one <text> holding <tspan>s (one per glyph, grouped by font
+    style — same trick as matplotlib's svg backend) plus <rect>s for fraction
+    bars. `used` accumulates {font_file: {codepoint}} for later subsetting.
+    MathTextParser units are points at dpi=72 → treat as SVG px 1:1.
     """
     fams = MONO_FAMILY if family and "mono" in family else CJK_FAMILY
     prop = FontProperties(family=fams)
@@ -190,15 +181,94 @@ def _render(tex, size, weight, family):
     tex = re.sub(r"\\ge(?![A-Za-z])", r"\\geq", tex)
     tex = re.sub(r"\\le(?![A-Za-z])", r"\\leq", tex)
     try:
-        tp = TextPath((0, 0), tex, size=size, prop=prop)
+        _w, _h, _d, glyphs, rects = _PARSER.parse(tex, 72, prop)
     except Exception as e:
         raise ValueError(f"mathtext parse failed for {tex!r}: {e}")
-    ext = tp.get_extents()
-    return _path_d(tp), ext.width
+    spans = {}   # style-attr dict key -> [(x, y, ccode)]
+    meta = {}    # style key -> (fontfile, name, font_style_dict)
+    for font, fontsize, ccode, _gidx, gx, gy in glyphs:
+        if ccode == 32:
+            ccode = 0xa0
+        entry = font_manager.ttfFontProperty(font)
+        fs = {"font-size": f"{fontsize:g}px",
+              "font-family": f"'{_font_name(font)}'"}
+        if entry.style != "normal":
+            fs["font-style"] = entry.style
+        if entry.weight != 400:
+            fs["font-weight"] = f"{entry.weight}"
+        if entry.variant != "normal":
+            fs["font-variant"] = entry.variant
+        if entry.stretch != "normal":
+            fs["font-stretch"] = entry.stretch
+        key = ";".join(f"{k}:{v}" for k, v in sorted(fs.items()))
+        spans.setdefault(key, []).append((gx, -gy, ccode))
+        meta[key] = font.fname
+        used.setdefault(font.fname, set()).add(chr(ccode))
+    children = []
+    text_el = ET.Element(f"{NS}text")
+    for key, chars in spans.items():
+        chars.sort()
+        for gx, gy, ccode in chars:
+            ts = ET.SubElement(text_el, f"{NS}tspan",
+                               {"x": f"{gx:.3f}", "y": f"{gy:.3f}",
+                                "style": key})
+            ts.text = chr(ccode)
+    children.append(text_el)
+    for rx, ry, rw, rh in rects:
+        children.append(ET.Element(f"{NS}rect", {
+            "x": f"{rx:.3f}", "y": f"{-ry - 1:.3f}",
+            "width": f"{rw:.3f}", "height": f"{rh:.3f}"}))
+    return children, _w
 
 
-def _make_group(tex, x, y, size, anchor, fill, family, weight, original=None):
-    d, width = _render(tex, size, weight, family)
+def _embed_style(used, stroke_px):
+    """{font_file: {chars}} -> <style> with WOFF2 subsets; math fonts get
+    a same-colour stroke via CSS on their tspans? No — stroke is applied
+    per-tspan in _render instead. Returns ET <style> element."""
+    from fontTools import subset
+    from fontTools.ttLib import TTFont
+    def _open(f):
+        try:
+            return TTFont(f)
+        except Exception:
+            from fontTools.ttLib import TTCollection
+            return TTCollection(f).fonts[0]
+
+    faces = []
+    for f, chars in sorted(used.items()):
+        font = _open(f)
+        cmap = font.getBestCmap()
+        missing = {c for c in chars if ord(c) not in cmap}
+        if missing:
+            raise SystemExit(f"{os.path.basename(f)} 缺字形 {sorted(missing)!r}")
+        name = os.path.splitext(os.path.basename(f))[0]
+        opts = subset.Options(flavor="woff2")
+        ss = subset.Subsetter(opts)
+        ss.populate(text="".join(sorted(chars)))
+        try:
+            ss.subset(font)
+        except Exception:
+            opts.flavor = "woff"
+            font = _open(f)
+            ss = subset.Subsetter(opts)
+            ss.populate(text="".join(sorted(chars)))
+            ss.subset(font)
+        buf = io.BytesIO()
+        font.save(buf)
+        mime = "woff2" if opts.flavor == "woff2" else "woff"
+        faces.append(
+            f"@font-face{{font-family:'{name}';"
+            f"src:url(data:font/{mime};base64,"
+            f"{base64.b64encode(buf.getvalue()).decode()})}}")
+    st = ET.Element(f"{NS}style", {"id": "mathtext-fonts",
+                                   "type": "text/css"})
+    st.text = "".join(faces)
+    return st
+
+
+def _make_group(tex, x, y, size, anchor, fill, family, weight, used,
+                original=None):
+    children, width = _render(tex, size, weight, family, used)
     g = ET.Element(f"{NS}g", {
         "class": "mathtext",
         "data-tex": tex,
@@ -223,19 +293,48 @@ def _make_group(tex, x, y, size, anchor, fill, family, weight, original=None):
             if child.tag == f"{NS}title":
                 g.append(copy.deepcopy(child))
     x0 = x if anchor == "start" else x - width / 2 if anchor == "middle" else x - width
-    p = ET.SubElement(g, f"{NS}path", {
-        "d": d,
-        "transform": f"translate({x0:.3f} {y:.3f})",
-    })
+    wrap = ET.SubElement(g, f"{NS}g",
+                         {"transform": f"translate({x0:.3f} {y:.3f})"})
+    for c in children:
+        wrap.append(c)
     return g
+
+
+def _apply_stroke(group, stroke_px, fill):
+    """CM/STIX glyphs are thinner than Noto — add a same-colour stroke."""
+    if stroke_px <= 0:
+        return
+    for ts in group.iter(f"{NS}tspan"):
+        st = ts.get("style", "")
+        fam = re.search(r"font-family:\s*'([^']+)'", st)
+        if fam and any(h in fam.group(1) for h in _MATH_FONT_HINT):
+            ts.set("style", st + f";stroke:{fill};stroke-width:{stroke_px:.3f}px;"
+                                f"paint-order:stroke fill")
+
+
+def _stroke_width(root):
+    vb = root.get("viewBox") or ""
+    m = re.split(r"[\s,]+", vb.strip())
+    try:
+        w = float(m[2])
+    except Exception:
+        return 0.3
+    return 0.3 * w / 741
 
 
 def process(path):
     tree = ET.parse(path)
     root = tree.getroot()
+    # drop our previous font block → idempotent
+    parent_map0 = {c: p for p in root.iter() for c in p}
+    for st in list(root.iter(f"{NS}style")):
+        if st.get("id") == "mathtext-fonts":
+            parent_map0[st].remove(st)
     rules = _css_rules(root)
     parent_map = {c: p for p in root.iter() for c in p}
     changed = 0
+    used = {}
+    sw = _stroke_width(root)
 
     # pass 1: re-render existing mathtext groups (idempotent source of truth)
     for g in list(root.iter(f"{NS}g")):
@@ -247,14 +346,16 @@ def process(path):
         anchor = g.get("data-anchor", "middle")
         fill = g.get("data-fill", "#222222")
         family, weight = g.get("data-family"), g.get("data-weight")
-        titles = [copy.deepcopy(child) for child in list(g) if child.tag == f"{NS}title"]
         for child in list(g):
             if child.tag != f"{NS}title":
                 g.remove(child)
-        d, width = _render(tex, size, weight, family)
+        children, width = _render(tex, size, weight, family, used)
         x0 = x if anchor == "start" else x - width / 2 if anchor == "middle" else x - width
-        ET.SubElement(g, f"{NS}path", {
-            "d": d, "transform": f"translate({x0:.3f} {y:.3f})"})
+        wrap = ET.SubElement(g, f"{NS}g",
+                             {"transform": f"translate({x0:.3f} {y:.3f})"})
+        for c in children:
+            wrap.append(c)
+        _apply_stroke(g, sw, fill)
         changed += 1
 
     # pass 2: <text data-tex> -> mathtext group, in place
@@ -273,9 +374,11 @@ def process(path):
         weight = _resolve(text, parent_map, "font-weight", rules) or "normal"
         family = _resolve(text, parent_map, "font-family", rules)
         try:
-            new = _make_group(tex, x, y, size, anchor, fill, family, weight, text)
+            new = _make_group(tex, x, y, size, anchor, fill, family, weight,
+                              used, text)
         except ValueError as e:
             sys.exit(f"{path}: {e}")
+        _apply_stroke(new, sw, fill)
         parent = parent_map[text]
         idx = list(parent).index(text)
         if text.get("transform"):
@@ -288,10 +391,13 @@ def process(path):
             parent.insert(idx, new)
         changed += 1
 
-    if changed:
+    if used:
+        root.insert(0, _embed_style(used, sw))
+    if changed or used:
         ET.indent(tree, space=" ")
         tree.write(path, encoding="unicode", xml_declaration=False)
-    print(f"{path}: {changed} mathtext group(s)")
+    print(f"{path}: {changed} mathtext group(s), "
+          f"{len(used)} embedded font file(s)")
 
 
 def main():

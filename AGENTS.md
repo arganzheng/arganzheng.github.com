@@ -198,13 +198,28 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   `patch._no_center = True`。Do not clip data to fake a y-range; set `ylim`
   and let the axes clip.
 - Hand-written SVGs: formulas use `<text data-tex="…">` and
-  `tools/svg-mathtext.py` to render editable mixed Chinese/mathtext labels as
-  paths (Computer Modern math); rerunning is idempotent from the stored
-  `data-tex` source. Code identifiers stay monospace.
+  `tools/svg-mathtext.py` to typeset them as real `<text>`/`<tspan>` runs
+  (Computer Modern mathtext for `$...$`, fraction bars as `<rect>`, ~0.3px
+  same-colour stroke on CM/STIX glyphs); used fonts are subset-embedded as
+  WOFF2 in `<style id="mathtext-fonts">` — rerunning is idempotent from the
+  stored `data-tex` source. Code identifiers stay monospace.
+- Hand-written SVGs also get fonts embedded so `<img>` doesn't depend on the
+  reader's OS: `tools/svg-embed-fonts.py img/in-post/<name>.svg` classifies
+  each `<text>` by effective family (sans/mono — attributes, inline style,
+  `<style>` rules, ancestors) and weight (400 → Regular; 500/600/700/bold →
+  500 Medium), subsets Noto Sans SC Regular/Medium + DejaVuSansMono to WOFF2
+  and injects `<style id="embedded-fonts">`, prepending `'SvgSans'`/`'SvgMono'`
+  to every font-family. It needs `fontTools`+`brotli` and the Noto fonts:
+  a sibling `arganzheng/ai-learning-labs` clone's `fonts/` dir, or
+  `FIGTEXT_FONTS=<dir>` / `DEJAVU_MONO=<path>`; it exits with a clear message
+  if they're missing. Run `svg-mathtext.py` first, `svg-embed-fonts.py` second
+  (it skips `g.mathtext` subtrees).
 - Hand-written SVGs have no `collide()` — run `node tools/svg-collide.cjs
   img/in-post/<name>.svg` (same CDP/Chrome setup as check-render; flags text
-  leaving its enclosing rect or the viewBox, text–text overlap, and
-  non-dashed lines/paths crossing text) and make it pass.
+  leaving its enclosing rect or the viewBox, text–text overlap, non-dashed
+  lines/paths crossing text, labels off-centre inside their box by >1.5px,
+  and marker-end arrows whose visible shaft is <16px) and make it pass —
+  fix layout by hand (widen rect / shorten label), never weaken the checks.
 - Check light and dark rendering in a real browser before pushing
   (`node tools/check-render.cjs` + screenshots).
 
