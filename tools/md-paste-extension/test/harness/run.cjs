@@ -127,6 +127,47 @@ async function run() {
         'text via CodeMirror paste handler' : 'text via insertText fallback';
       console.log(editor + ': ' + textPath + '; images via paste File handler; 3 PNG uploads confirmed');
     }
+
+    const page = context.pages()[0] || await context.newPage();
+    await page.goto('https://arganzheng.life' + prefix + '?editor=textarea', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.__mdPasteHarnessReady);
+    await page.evaluate(() => window.__mdPasteHarness.focus());
+    const richHtml = '<p>Rich-copy prose without Markdown images.</p>' +
+      '<img src="data:image/png;base64,iVBORw0KGgo=">';
+    await page.evaluate(async ({ plain, html }) => {
+      const clipboardItem = new ClipboardItem({
+        'text/plain': new Blob([plain], { type: 'text/plain' }),
+        'text/html': new Blob([html], { type: 'text/html' })
+      });
+      await navigator.clipboard.write([clipboardItem]);
+    }, { plain: 'Rich-copy prose without Markdown images.', html: richHtml });
+    const richResult = await worker.evaluate(async () => globalThis.__mdPasteExtension.runOnActiveTab());
+    const richReply = (richResult.replies || []).find((reply) => reply && reply.status !== 'ignored');
+    assert.equal(richReply && richReply.status, 'rich-text');
+    assert.equal(await page.locator('#textarea').inputValue(), '');
+    const richToast = '剪贴板里是富文本，图片不在 Markdown 里。请在博客导出菜单点「复制 Markdown」后再试。';
+    await page.waitForFunction((expected) => {
+      const host = document.getElementById('md-paste-extension-toast');
+      return host && host.shadowRoot.querySelector('.toast').textContent === expected;
+    }, richToast);
+    await page.screenshot({
+      path: path.join(shotDir, 'rich-text-hint.png'),
+      fullPage: true
+    });
+    console.log('rich-text hint: no insertion; HTML image detected; toast confirmed');
+
+    const plainMarkdown = '# Plain Markdown\n\nNo blog images here.';
+    await page.evaluate((text) => navigator.clipboard.writeText(text), plainMarkdown);
+    const plainResult = await worker.evaluate(async () => globalThis.__mdPasteExtension.runOnActiveTab());
+    const plainReply = (plainResult.replies || []).find((reply) => reply && reply.status !== 'ignored');
+    assert.equal(plainReply && plainReply.status, 'text-only');
+    assert.equal(await page.locator('#textarea').inputValue(), plainMarkdown);
+    const plainToast = await page.evaluate(() => {
+      const host = document.getElementById('md-paste-extension-toast');
+      return host && host.shadowRoot.querySelector('.toast').textContent;
+    });
+    assert.ok(plainToast.startsWith('已粘贴 '), plainToast);
+    console.log('image-less Markdown: text inserted; informational toast confirmed');
   } finally {
     await context.close();
     server.close();

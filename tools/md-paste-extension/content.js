@@ -174,8 +174,12 @@
     return /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~)|\[[^\]]+\]\([^)]*\)|`[^`]+`|(?:\*\*|__|~~)|!\[|<img\b[^>]*\bsrc\s*=/i.test(text);
   }
 
-  async function pasteMarkdown(target, text) {
+  async function pasteMarkdown(target, text, hasHtmlImages) {
     if (!parser || typeof text !== 'string' || !text.trim() || !looksLikeMarkdown(text)) {
+      if (hasHtmlImages) {
+        showToast('剪贴板里是富文本，图片不在 Markdown 里。请在博客导出菜单点「复制 Markdown」后再试。', 8000);
+        return { status: 'rich-text' };
+      }
       showToast('剪贴板里没有可粘贴的 Markdown。', 5000);
       return { status: 'empty' };
     }
@@ -187,6 +191,16 @@
     }).length;
     var tokens = parser.splitMarkdown(text, parser.isAllowedBlogImageUrl);
     var imageCount = tokens.filter(function (token) { return token.type === 'image'; }).length;
+    if (!imageCount && !externalCount) {
+      if (hasHtmlImages) {
+        showToast('剪贴板里是富文本，图片不在 Markdown 里。请在博客导出菜单点「复制 Markdown」后再试。', 8000);
+        return { status: 'rich-text' };
+      }
+      insertText(target, text);
+      showToast('已粘贴 ' + text.length + ' 字，里面没有博客图片链接。原文有图的话，请用博客的「复制 Markdown」。', 8000);
+      return { status: 'text-only', chars: text.length };
+    }
+
     var uploaded = 0;
     var unconfirmed = 0;
     var retained = externalCount;
@@ -266,7 +280,7 @@
       sendResponse({ status: 'clipboard-error' });
       return false;
     }
-    pasteMarkdown(target, message.text).then(sendResponse).catch(function (error) {
+    pasteMarkdown(target, message.text, !!message.hasHtmlImages).then(sendResponse).catch(function (error) {
       showToast('粘贴失败：' + String(error && error.message || error), 6000);
       sendResponse({ status: 'error', error: String(error && error.message || error) });
     });

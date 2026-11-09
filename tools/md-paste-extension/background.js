@@ -69,10 +69,10 @@ async function askOffscreen(message) {
   return chrome.runtime.sendMessage(Object.assign({ target: 'md-paste-offscreen' }, message));
 }
 
-async function readClipboardText() {
+async function readClipboard() {
   var result = await askOffscreen({ action: 'read-clipboard' });
   if (!result || !result.ok) throw new Error(result && result.error || '无法读取剪贴板');
-  return result.text || '';
+  return { text: result.text || '', html: result.html || '' };
 }
 
 function normalizeFetchUrl(value) {
@@ -117,10 +117,10 @@ async function injectAndRun(tabId, frameId) {
   var frames = frameId == null ?
     Array.from(new Set(results.map(function (result) { return result.frameId; }))) :
     [frameId];
-  var clipboardText = '';
+  var clipboard = { text: '', html: '' };
   var clipboardError = '';
   try {
-    clipboardText = await readClipboardText();
+    clipboard = await readClipboard();
   } catch (error) {
     clipboardError = String(error && error.message || error);
   }
@@ -128,7 +128,8 @@ async function injectAndRun(tabId, frameId) {
   var replies = await Promise.all(frames.map(function (currentFrameId) {
     return chrome.tabs.sendMessage(tabId, {
       type: 'MD_PASTE_START',
-      text: clipboardText,
+      text: clipboard.text,
+      hasHtmlImages: /<img\b/i.test(clipboard.html),
       clipboardError: clipboardError
     }, { frameId: currentFrameId }).catch(function (error) {
       return { status: 'error', error: String(error && error.message || error) };

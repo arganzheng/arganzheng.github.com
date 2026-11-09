@@ -25,8 +25,11 @@ function readClipboard() {
   var textarea = document.getElementById('clipboard');
   textarea.value = '';
   var pastedText = null;
+  var pastedHtml = '';
   function onPaste(event) {
-    pastedText = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
+    var clipboard = event.clipboardData;
+    pastedText = clipboard ? clipboard.getData('text/plain') : '';
+    pastedHtml = clipboard ? clipboard.getData('text/html') || '' : '';
     event.preventDefault();
   }
   textarea.addEventListener('paste', onPaste, { once: true });
@@ -37,10 +40,14 @@ function readClipboard() {
 
   if (!executed && pastedText == null && navigator.clipboard && navigator.clipboard.readText) {
     return navigator.clipboard.readText().then(function (clipboardText) {
-      return { ok: true, text: clipboardText || '' };
+      return { ok: true, text: clipboardText || '', html: '' };
     });
   }
-  return Promise.resolve({ ok: pastedText != null || executed || !!text, text: text || '' });
+  return Promise.resolve({
+    ok: pastedText != null || executed || !!text,
+    text: text || '',
+    html: pastedHtml || ''
+  });
 }
 
 function convertImage(image) {
