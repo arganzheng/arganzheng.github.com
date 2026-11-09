@@ -163,10 +163,11 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   WOFF2（Noto Sans SC + cmr10/cmmi10/cmsy10/STIX），所以博客 `<img>`
   渲染不依赖读者机器的字体（路径轮廓文字在 `<img>` 里无 hinting，又细又
   锯齿）。`register_noto()` 必须在任何 Text 创建之前执行——`font.family`
-  在 Text 构造时就定死了。公式里的变量即使是单个字母也要走 mathtext
-  斜体——源串没写 LaTeX 也一样：`$p$ = 0.659`、`$K$ = 64`、
-  `$z=wx+b$`（整式一个 math run）、`$dL/dx$`、`$dW_1$` 这类梯度变量。
-  变量后面跟数值时写斜体变量 + 正体数字（`$p$` = 0.659）。
+  在 Text 构造时就定死了。字母只在公式里写斜体——即等式、表达式、
+  「变量 = 值」这些场合：`$p$ = 0.659`、`$K$ = 64`、`$z=wx+b$`
+  （整式一个 math run）、`$p-y$`、`$dL/dx$`、`$dW_1$` 这类梯度变量。
+  行文/标签里点名一个字母照常写正体（「逐层算 z、a」「输入 x（4×4）」
+  「每步在 V 类上推」）；卷积符号用 ∗（U+2217）。
   保持正体：数字、单位（s、ms、GB）、运算符、词（softmax、loss、max）、
   多字母缩写（TP、ReLU、GELU、MSE、CE）、代码标识符。数学里才需要
   `$...$` 的还有上下标 `^`/`_`、希腊字母、\top、\hat、\sqrt、\partial、
