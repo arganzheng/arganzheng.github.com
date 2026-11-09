@@ -50,7 +50,7 @@ updated: 2026-10-18
 3. 把 $$x_t$$、$$t$$ 和对应的文本条件交给同一网络，让它预测 $$\hat\epsilon_\theta$$。
 4. 把预测值与刚才抽到的 $$\epsilon$$ 做 MSE（第四章）。
 
-![上方是 Stable Diffusion 风格的采样流程：prompt 条件与高斯噪声进入去噪循环，最后经 VAE 解码；下方是训练流程：真实样本直接合成 x_t，网络预测噪声并用 MSE 训练](/img/in-post/diffusion-models-ddpm-score-matching-and-flow-matching-sampling-training-pipeline.svg)
+![上方是 Stable Diffusion 风格的采样流程：prompt 条件与高斯噪声进入去噪循环，最后经 VAE 解码；下方是训练流程：真实样本直接合成 \\(x_t\\)，网络预测噪声并用 MSE 训练](/img/in-post/diffusion-models-ddpm-score-matching-and-flow-matching-sampling-training-pipeline.svg)
 
 ### 3. 去掉噪声为什么等于学会了生成
 
@@ -134,7 +134,7 @@ t =  600: ᾱ_t = 0.0256，信号系数 sqrt(ᾱ) = 0.160，噪声系数 sqrt(1�
 t =  999: ᾱ_t = 0.0000，信号系数 sqrt(ᾱ) = 0.006，噪声系数 sqrt(1−ᾱ) = 1.000
 ```
 
-![五张散点图：t = 0 是两个清晰的月牙；t = 100 月牙略微发毛；t = 300 只剩模糊的两团；t = 600 与 t = 999 是圆形的高斯点云，看不出任何结构](/img/in-post/multimodal-06-forward-noising.svg)
+![五张散点图：\\(t = 0\\) 是两个清晰的月牙；\\(t = 100\\) 月牙略微发毛；\\(t = 300\\) 只剩模糊的两团；\\(t = 600\\) 与 \\(t = 999\\) 是圆形的高斯点云，看不出任何结构](/img/in-post/multimodal-06-forward-noising.svg)
 
 $$t = 100$$ 还看得出月牙，$$t = 300$$ 只剩大致的两团，$$t = 600$$ 以后与纯噪声无法区分。再验算闭式解：对同一个点 $$x_0 = (1.0, -0.5)$$ 复制 2 万份，一份逐步加噪 1000 次、一份用闭式一步到位：
 
@@ -238,7 +238,7 @@ t = 700：预测噪声的 MSE 0.005
 t = 990：预测噪声的 MSE 0.000
 ```
 
-![训练损失曲线：L_simple 从约 1 在几百步内降到 0.25 附近，之后缓慢下降到 0.21 并抖动](/img/in-post/multimodal-06-train-loss.svg)
+![训练损失曲线：\\(L_{\text{simple}}\\) 从约 1 在几百步内降到 0.25 附近，之后缓慢下降到 0.21 并抖动](/img/in-post/multimodal-06-train-loss.svg)
 
 按 $$t$$ 分开看很有意思：$$t = 990$$ 时 $$x_t$$ 几乎就是 $$\epsilon$$，网络把输入抄一遍就对，MSE 为 0；$$t = 50$$ 时噪声只有数据的 1/5 大小、藏在月牙的形状里，要猜出它必须知道"没加噪的月牙精确长什么样"——这正是模型学到数据分布的地方。$$\epsilon$$ 本身的方差是 1，所以 0.66 意味着还有 1/3 的噪声猜不出——这部分是本质上不可猜的（从一个带噪点无法确定它来自月牙上的哪一点）。
 
