@@ -39,7 +39,7 @@ Q 72.594942 60.470662 72.594942 61.021738
 L 72.594942 91.147216
 Q 72.594942 91.698292 73.136142 91.698292
 z
-" clip-path="url(#pb2d084115a)" style="fill: #dcefe2; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #dcefe2; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 458.7408 90.779832
@@ -52,7 +52,7 @@ Q 458.1996 61.389122 458.1996 61.940198
 L 458.1996 90.228756
 Q 458.1996 90.779832 458.7408 90.779832
 z
-" clip-path="url(#pb2d084115a)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #ffffff; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 73.136142 137.621276
@@ -65,7 +65,7 @@ Q 72.594942 106.393647 72.594942 106.944723
 L 72.594942 137.0702
 Q 72.594942 137.621276 73.136142 137.621276
 z
-" clip-path="url(#pb2d084115a)" style="fill: #fae6d6; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #fae6d6; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 458.7408 136.702817
@@ -78,7 +78,7 @@ Q 458.1996 107.312106 458.1996 107.863182
 L 458.1996 136.151741
 Q 458.1996 136.702817 458.7408 136.702817
 z
-" clip-path="url(#pb2d084115a)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #ffffff; stroke: #e0812c; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 73.136142 183.544261
@@ -91,7 +91,7 @@ Q 72.594942 152.316631 72.594942 152.867707
 L 72.594942 182.993185
 Q 72.594942 183.544261 73.136142 183.544261
 z
-" clip-path="url(#pb2d084115a)" style="fill: #f5dede; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #f5dede; stroke: #999999; stroke-width: 0.7; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 458.7408 182.625801
@@ -104,7 +104,7 @@ Q 458.1996 153.235091 458.1996 153.786167
 L 458.1996 182.074725
 Q 458.1996 182.625801 458.7408 182.625801
 z
-" clip-path="url(#pb2d084115a)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p95397ea77f)" style="fill: #ffffff; stroke: #c94c4c; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- micro-batch b 的两头约束（b = 1…4，候选 A） -->
@@ -1486,7 +1486,7 @@ z
    </g>
    <g id="text_4">
     <!-- 可行 -->
-    <g style="fill: #111111" transform="translate(479.142073 79.694477) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(478.642073 79.884477) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-956" d="M 5408 4467
 C 5741 4461 5907 4454 6125 4429
@@ -1993,7 +1993,7 @@ z
    </g>
    <g id="text_7">
     <!-- 勉强 -->
-    <g style="fill: #111111" transform="translate(479.142073 125.617462) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(478.642073 125.807462) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-ae8" d="M 1811 4960
 C 1875 5082 1875 5082 1888 5114
@@ -2498,7 +2498,7 @@ z
    </g>
    <g id="text_10">
     <!-- 不可行 -->
-    <g style="fill: #111111" transform="translate(474.392073 171.540446) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(473.642073 171.730446) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-482" d="M 5248 4358
 C 5523 4358 5824 4346 6080 4320
@@ -2850,7 +2850,7 @@ z
    </g>
    <g id="text_13">
     <!-- PP 下两头一夹，b 几乎总是 1 或 2；要大 M 只能减 p 或不用 PP。 -->
-    <g style="fill: #111111" transform="translate(130.557182 228.530778) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(122.807572 228.699021) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-31" d="M 1402 -77
 C 1363 166 1350 410 1350 755
@@ -3661,7 +3661,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pb2d084115a">
+  <clipPath id="p95397ea77f">
    <rect x="7.2" y="7.2" width="541.19952" height="238.79952"/>
   </clipPath>
  </defs>
