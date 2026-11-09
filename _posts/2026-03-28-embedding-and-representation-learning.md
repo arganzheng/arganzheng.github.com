@@ -149,7 +149,7 @@ loss = sum(emb[2]+emb[0]+emb[2])，对 W 反向：
 1. **文本 → token ID**：tokenizer 先把字符串切成 token 并编号。GPT-2 的 BPE 把 "Embedding" 切成 `Emb` `edd` `ing` 三段，编号 31567、6048、278——词表外的词不存在，只会被拆得更碎。
 2. **token ID → 向量**：embedding 层拿 ID 查表，每个 ID 取出一行 $$d$$ 维向量。
 
-![tokenizer 与 embedding 的流水线：一句文本先被 BPE 切成七个 token 并给出 ID，再拿 ID 去查一张 V 乘 d 的表，每行取出一个向量](/img/in-post/dl-emb-tokenizer-pipeline.svg)
+![tokenizer 与 embedding 的流水线：一句文本先被 BPE 切成七个 token 并给出 ID，再拿 ID 去查一张 \(V\times d\) 的表，每行取出一个向量](/img/in-post/dl-emb-tokenizer-pipeline.svg)
 
 几点容易混的地方：
 
@@ -414,7 +414,7 @@ Embedding 不只嵌入词。凡是「离散、数量大、需要被模型连续�
 
 “表示学习”不是一个固定网络结构，而是用某种训练目标，让向量保存对任务有用的信息。本文的方法按信号数其实有七种：第四章的**计数分解**不占梯度、不进这张表，位置的**固定公式**（正弦、RoPE）根本不学——剩下的五种都靠梯度训练，差别在监督从哪里来。五种信号的输入与目标画在一排：
 
-![五种监督信号的示意：预测用前文推下一个词或盖住中间猜回来；重建把 x 压进瓶颈再还原；对比让正例近、负例远；自蒸馏让同一输入的两个视图对齐，teacher 用 EMA；有监督用人工标签](/img/in-post/dl-emb-supervision-signals.svg)
+![五种监督信号的示意：预测用前文推下一个词或盖住中间猜回来；重建把 \(x\) 压进瓶颈再还原；对比让正例近、负例远；自蒸馏让同一输入的两个视图对齐，teacher 用 EMA；有监督用人工标签](/img/in-post/dl-emb-supervision-signals.svg)
 
 **1. 预测。** 给一部分，预测缺的那部分。自回归语言模型（GPT）预测下一个 token：$$-\log P(x_t\mid x_{<t})$$；掩码模型（BERT、MAE）盖住中间一块，用两侧内容预测被盖位置。模型为了完成预测，会把有助于区分目标的特征写进向量里。Word2Vec 与全部语言模型都在这一类。
 
