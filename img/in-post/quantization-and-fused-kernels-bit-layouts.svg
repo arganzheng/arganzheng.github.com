@@ -1,20 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 312" width="760" height="312" role="img" aria-labelledby="t d">
-  <title id="t">FP32 / BF16 / FP16 / E4M3 / E5M2 / INT8 / INT4 的位布局</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 468" width="760" height="468" role="img" aria-labelledby="t d" font-family="Noto Sans SC, sans-serif" font-weight="400">
+<style id="embedded-fonts" type="text/css">@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}</style>
+<title id="t">FP32 / BF16 / FP16 / E4M3 / E5M2 / INT8 / INT4 的位布局</title>
   <desc id="d">每种格式从最高位（左）画起，每格 1 bit：S 符号位、E 指数位、M 尾数位、I/U 整数位。FP32 是 1+8+23，BF16 是 FP32 砍掉低 16 位的 1+8+7，FP16 是 1+5+10，E4M3 是 1+4+3（最大 448，无 inf），E5M2 是 FP16 砍掉低 8 位的 1+5+2；INT8 与 INT4 的范围由外部 scale 决定。指数位决定动态范围，尾数位决定相对精度。</desc>
   <defs>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f" /></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
-      .head { font-size: 15px; font-weight: 700; }
+      text { font-family:'SvgSans', Noto Sans SC, sans-serif; fill: #243447; }
+      .head { font-size: 15px; font-weight: 500; }
       .body { font-size: 14px; }
-      .bold { font-size: 14px; font-weight: 700; }
+      .bold { font-size: 14px; font-weight: 500; }
       .small { font-size: 13px; }
       .tiny { font-size: 12px; }
-      .mono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; }
-      .monos { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; }
-      .monob { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 700; }
+      .mono { font-family:'SvgMono', DejaVu Sans Mono, monospace; font-size: 13px; }
+      .monos { font-family:'SvgMono', DejaVu Sans Mono, monospace; font-size: 12px; }
+      .monob { font-family:'SvgMono', DejaVu Sans Mono, monospace; font-size: 13px; font-weight: 500; }
       .muted { font-size: 13px; fill: #5b6b7c; }
-      .mutedmono { font-family: "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 12px; fill: #5b6b7c; }
+      .mutedmono { font-family:'SvgMono', DejaVu Sans Mono, monospace; font-size: 12px; fill: #5b6b7c; }
       .box { fill: #fff; stroke: #9fb3c8; stroke-width: 1.4; }
       .cell { stroke: #6f8399; stroke-width: 1.2; }
       .thin { stroke: #6f8399; stroke-width: 0.8; }
@@ -26,145 +27,145 @@
       .b0 { fill: #cfe2f3; } .b1 { fill: #fde0b8; } .b2 { fill: #cfeccf; } .b3 { fill: #e6d7f2; } .b4 { fill: #f9d5d3; }
     </style>
   </defs>
-<rect x="0" y="0" width="760" height="312" fill="#ffffff"/>
-<text x="24.0" y="37.0" class="monob">FP32</text>
-<rect x="92.0" y="20.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="37.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="20.0" width="88.0" height="24.0" class="c-e cell"/>
-<line x1="114.0" y1="24.0" x2="114.0" y2="40.0" class="thin"/>
-<line x1="125.0" y1="24.0" x2="125.0" y2="40.0" class="thin"/>
-<line x1="136.0" y1="24.0" x2="136.0" y2="40.0" class="thin"/>
-<line x1="147.0" y1="24.0" x2="147.0" y2="40.0" class="thin"/>
-<line x1="158.0" y1="24.0" x2="158.0" y2="40.0" class="thin"/>
-<line x1="169.0" y1="24.0" x2="169.0" y2="40.0" class="thin"/>
-<line x1="180.0" y1="24.0" x2="180.0" y2="40.0" class="thin"/>
-<text x="147.0" y="37.0" text-anchor="middle" class="bold">E</text>
-<rect x="191.0" y="20.0" width="253.0" height="24.0" class="c-m cell"/>
-<line x1="202.0" y1="24.0" x2="202.0" y2="40.0" class="thin"/>
-<line x1="213.0" y1="24.0" x2="213.0" y2="40.0" class="thin"/>
-<line x1="224.0" y1="24.0" x2="224.0" y2="40.0" class="thin"/>
-<line x1="235.0" y1="24.0" x2="235.0" y2="40.0" class="thin"/>
-<line x1="246.0" y1="24.0" x2="246.0" y2="40.0" class="thin"/>
-<line x1="257.0" y1="24.0" x2="257.0" y2="40.0" class="thin"/>
-<line x1="268.0" y1="24.0" x2="268.0" y2="40.0" class="thin"/>
-<line x1="279.0" y1="24.0" x2="279.0" y2="40.0" class="thin"/>
-<line x1="290.0" y1="24.0" x2="290.0" y2="40.0" class="thin"/>
-<line x1="301.0" y1="24.0" x2="301.0" y2="40.0" class="thin"/>
-<line x1="312.0" y1="24.0" x2="312.0" y2="40.0" class="thin"/>
-<line x1="323.0" y1="24.0" x2="323.0" y2="40.0" class="thin"/>
-<line x1="334.0" y1="24.0" x2="334.0" y2="40.0" class="thin"/>
-<line x1="345.0" y1="24.0" x2="345.0" y2="40.0" class="thin"/>
-<line x1="356.0" y1="24.0" x2="356.0" y2="40.0" class="thin"/>
-<line x1="367.0" y1="24.0" x2="367.0" y2="40.0" class="thin"/>
-<line x1="378.0" y1="24.0" x2="378.0" y2="40.0" class="thin"/>
-<line x1="389.0" y1="24.0" x2="389.0" y2="40.0" class="thin"/>
-<line x1="400.0" y1="24.0" x2="400.0" y2="40.0" class="thin"/>
-<line x1="411.0" y1="24.0" x2="411.0" y2="40.0" class="thin"/>
-<line x1="422.0" y1="24.0" x2="422.0" y2="40.0" class="thin"/>
-<line x1="433.0" y1="24.0" x2="433.0" y2="40.0" class="thin"/>
-<text x="317.5" y="37.0" text-anchor="middle" class="bold">M</text>
-<text x="464.0" y="37.0" class="mono">1 + 8 + 23</text>
-<text x="24.0" y="73.0" class="monob">BF16</text>
-<rect x="92.0" y="56.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="73.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="56.0" width="88.0" height="24.0" class="c-e cell"/>
-<line x1="114.0" y1="60.0" x2="114.0" y2="76.0" class="thin"/>
-<line x1="125.0" y1="60.0" x2="125.0" y2="76.0" class="thin"/>
-<line x1="136.0" y1="60.0" x2="136.0" y2="76.0" class="thin"/>
-<line x1="147.0" y1="60.0" x2="147.0" y2="76.0" class="thin"/>
-<line x1="158.0" y1="60.0" x2="158.0" y2="76.0" class="thin"/>
-<line x1="169.0" y1="60.0" x2="169.0" y2="76.0" class="thin"/>
-<line x1="180.0" y1="60.0" x2="180.0" y2="76.0" class="thin"/>
-<text x="147.0" y="73.0" text-anchor="middle" class="bold">E</text>
-<rect x="191.0" y="56.0" width="77.0" height="24.0" class="c-m cell"/>
-<line x1="202.0" y1="60.0" x2="202.0" y2="76.0" class="thin"/>
-<line x1="213.0" y1="60.0" x2="213.0" y2="76.0" class="thin"/>
-<line x1="224.0" y1="60.0" x2="224.0" y2="76.0" class="thin"/>
-<line x1="235.0" y1="60.0" x2="235.0" y2="76.0" class="thin"/>
-<line x1="246.0" y1="60.0" x2="246.0" y2="76.0" class="thin"/>
-<line x1="257.0" y1="60.0" x2="257.0" y2="76.0" class="thin"/>
-<text x="229.5" y="73.0" text-anchor="middle" class="bold">M</text>
-<text x="464.0" y="73.0" class="mono">1 + 8 + 7</text>
-<text x="556.0" y="73.0" class="small">← FP32 砍掉低 16 位</text>
-<text x="24.0" y="109.0" class="monob">FP16</text>
-<rect x="92.0" y="92.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="109.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="92.0" width="55.0" height="24.0" class="c-e cell"/>
-<line x1="114.0" y1="96.0" x2="114.0" y2="112.0" class="thin"/>
-<line x1="125.0" y1="96.0" x2="125.0" y2="112.0" class="thin"/>
-<line x1="136.0" y1="96.0" x2="136.0" y2="112.0" class="thin"/>
-<line x1="147.0" y1="96.0" x2="147.0" y2="112.0" class="thin"/>
-<text x="130.5" y="109.0" text-anchor="middle" class="bold">E</text>
-<rect x="158.0" y="92.0" width="110.0" height="24.0" class="c-m cell"/>
-<line x1="169.0" y1="96.0" x2="169.0" y2="112.0" class="thin"/>
-<line x1="180.0" y1="96.0" x2="180.0" y2="112.0" class="thin"/>
-<line x1="191.0" y1="96.0" x2="191.0" y2="112.0" class="thin"/>
-<line x1="202.0" y1="96.0" x2="202.0" y2="112.0" class="thin"/>
-<line x1="213.0" y1="96.0" x2="213.0" y2="112.0" class="thin"/>
-<line x1="224.0" y1="96.0" x2="224.0" y2="112.0" class="thin"/>
-<line x1="235.0" y1="96.0" x2="235.0" y2="112.0" class="thin"/>
-<line x1="246.0" y1="96.0" x2="246.0" y2="112.0" class="thin"/>
-<line x1="257.0" y1="96.0" x2="257.0" y2="112.0" class="thin"/>
-<text x="213.0" y="109.0" text-anchor="middle" class="bold">M</text>
-<text x="464.0" y="109.0" class="mono">1 + 5 + 10</text>
-<text x="556.0" y="109.0" class="small">← 指数少 3 位，65504 溢出</text>
-<text x="24.0" y="145.0" class="monob">E4M3</text>
-<rect x="92.0" y="128.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="145.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="128.0" width="44.0" height="24.0" class="c-e cell"/>
-<line x1="114.0" y1="132.0" x2="114.0" y2="148.0" class="thin"/>
-<line x1="125.0" y1="132.0" x2="125.0" y2="148.0" class="thin"/>
-<line x1="136.0" y1="132.0" x2="136.0" y2="148.0" class="thin"/>
-<text x="125.0" y="145.0" text-anchor="middle" class="bold">E</text>
-<rect x="147.0" y="128.0" width="33.0" height="24.0" class="c-m cell"/>
-<line x1="158.0" y1="132.0" x2="158.0" y2="148.0" class="thin"/>
-<line x1="169.0" y1="132.0" x2="169.0" y2="148.0" class="thin"/>
-<text x="163.5" y="145.0" text-anchor="middle" class="bold">M</text>
-<text x="464.0" y="145.0" class="mono">1 + 4 + 3</text>
-<text x="556.0" y="145.0" class="small">← 最大 448，无 inf</text>
-<text x="24.0" y="181.0" class="monob">E5M2</text>
-<rect x="92.0" y="164.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="181.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="164.0" width="55.0" height="24.0" class="c-e cell"/>
-<line x1="114.0" y1="168.0" x2="114.0" y2="184.0" class="thin"/>
-<line x1="125.0" y1="168.0" x2="125.0" y2="184.0" class="thin"/>
-<line x1="136.0" y1="168.0" x2="136.0" y2="184.0" class="thin"/>
-<line x1="147.0" y1="168.0" x2="147.0" y2="184.0" class="thin"/>
-<text x="130.5" y="181.0" text-anchor="middle" class="bold">E</text>
-<rect x="158.0" y="164.0" width="22.0" height="24.0" class="c-m cell"/>
-<line x1="169.0" y1="168.0" x2="169.0" y2="184.0" class="thin"/>
-<text x="169.0" y="181.0" text-anchor="middle" class="bold">M</text>
-<text x="464.0" y="181.0" class="mono">1 + 5 + 2</text>
-<text x="556.0" y="181.0" class="small">← FP16 砍掉低 8 位</text>
-<text x="24.0" y="217.0" class="monob">INT8</text>
-<rect x="92.0" y="200.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="217.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="200.0" width="77.0" height="24.0" class="c-i cell"/>
-<line x1="114.0" y1="204.0" x2="114.0" y2="220.0" class="thin"/>
-<line x1="125.0" y1="204.0" x2="125.0" y2="220.0" class="thin"/>
-<line x1="136.0" y1="204.0" x2="136.0" y2="220.0" class="thin"/>
-<line x1="147.0" y1="204.0" x2="147.0" y2="220.0" class="thin"/>
-<line x1="158.0" y1="204.0" x2="158.0" y2="220.0" class="thin"/>
-<line x1="169.0" y1="204.0" x2="169.0" y2="220.0" class="thin"/>
-<text x="141.5" y="217.0" text-anchor="middle" class="bold">I</text>
-<text x="464.0" y="217.0" class="small">范围由外部 scale 决定</text>
-<text x="24.0" y="253.0" class="monob">INT4</text>
-<rect x="92.0" y="236.0" width="11.0" height="24.0" class="c-s cell"/>
-<text x="97.5" y="253.0" text-anchor="middle" class="bold">S</text>
-<rect x="103.0" y="236.0" width="33.0" height="24.0" class="c-i cell"/>
-<line x1="114.0" y1="240.0" x2="114.0" y2="256.0" class="thin"/>
-<line x1="125.0" y1="240.0" x2="125.0" y2="256.0" class="thin"/>
-<text x="119.5" y="253.0" text-anchor="middle" class="bold">I</text>
-<text x="146.0" y="253.0" class="body">或</text>
-<rect x="170.0" y="236.0" width="44.0" height="24.0" class="c-i cell"/>
-<line x1="181.0" y1="240.0" x2="181.0" y2="256.0" class="thin"/>
-<line x1="192.0" y1="240.0" x2="192.0" y2="256.0" class="thin"/>
-<line x1="203.0" y1="240.0" x2="203.0" y2="256.0" class="thin"/>
-<text x="192.0" y="253.0" text-anchor="middle" class="bold">U</text>
-<text x="222.0" y="253.0" class="mono">+ zero point</text>
-<text x="464.0" y="253.0" class="small">16 个电平</text>
-<rect x="24.0" y="280.0" width="14.0" height="14.0" class="c-e cell"/>
-<text x="46.0" y="292.0" class="small">指数位 → 动态范围（BF16 与 FP32 相同）</text>
-<rect x="330.0" y="280.0" width="14.0" height="14.0" class="c-m cell"/>
-<text x="352.0" y="292.0" class="small">尾数位 → 相对精度（BF16 0.8%，E4M3 12.5%）</text>
+<rect x="0" y="0" width="760" height="468" fill="#ffffff" />
+<text x="24.0" y="55.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">FP32</text>
+<rect x="92.0" y="30" width="20" height="36" class="c-s cell" />
+<text x="102" y="55.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="30" width="88.0" height="36" class="c-e cell" />
+<line x1="123.0" y1="32.0" x2="123.0" y2="64.0" class="thin" />
+<line x1="134.0" y1="32.0" x2="134.0" y2="64.0" class="thin" />
+<line x1="145.0" y1="32.0" x2="145.0" y2="64.0" class="thin" />
+<line x1="156.0" y1="32" x2="156.0" y2="35" class="thin" /><line x1="156.0" y1="61" x2="156.0" y2="64" class="thin" />
+<line x1="167.0" y1="32.0" x2="167.0" y2="64.0" class="thin" />
+<line x1="178.0" y1="32.0" x2="178.0" y2="64.0" class="thin" />
+<line x1="189.0" y1="32.0" x2="189.0" y2="64.0" class="thin" />
+<text x="156.0" y="55.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">E</text>
+<rect x="200.0" y="30" width="253.0" height="36" class="c-m cell" />
+<line x1="211.0" y1="32.0" x2="211.0" y2="64.0" class="thin" />
+<line x1="222.0" y1="32.0" x2="222.0" y2="64.0" class="thin" />
+<line x1="233.0" y1="32.0" x2="233.0" y2="64.0" class="thin" />
+<line x1="244.0" y1="32.0" x2="244.0" y2="64.0" class="thin" />
+<line x1="255.0" y1="32.0" x2="255.0" y2="64.0" class="thin" />
+<line x1="266.0" y1="32.0" x2="266.0" y2="64.0" class="thin" />
+<line x1="277.0" y1="32.0" x2="277.0" y2="64.0" class="thin" />
+<line x1="288.0" y1="32.0" x2="288.0" y2="64.0" class="thin" />
+<line x1="299.0" y1="32.0" x2="299.0" y2="64.0" class="thin" />
+<line x1="310.0" y1="32.0" x2="310.0" y2="64.0" class="thin" />
+<line x1="321.0" y1="32" x2="321.0" y2="35" class="thin" /><line x1="321.0" y1="61" x2="321.0" y2="64" class="thin" />
+<line x1="332.0" y1="32" x2="332.0" y2="35" class="thin" /><line x1="332.0" y1="61" x2="332.0" y2="64" class="thin" />
+<line x1="343.0" y1="32.0" x2="343.0" y2="64.0" class="thin" />
+<line x1="354.0" y1="32.0" x2="354.0" y2="64.0" class="thin" />
+<line x1="365.0" y1="32.0" x2="365.0" y2="64.0" class="thin" />
+<line x1="376.0" y1="32.0" x2="376.0" y2="64.0" class="thin" />
+<line x1="387.0" y1="32.0" x2="387.0" y2="64.0" class="thin" />
+<line x1="398.0" y1="32.0" x2="398.0" y2="64.0" class="thin" />
+<line x1="409.0" y1="32.0" x2="409.0" y2="64.0" class="thin" />
+<line x1="420.0" y1="32.0" x2="420.0" y2="64.0" class="thin" />
+<line x1="431.0" y1="32.0" x2="431.0" y2="64.0" class="thin" />
+<line x1="442.0" y1="32.0" x2="442.0" y2="64.0" class="thin" />
+<text x="326.5" y="55.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">M</text>
+<text x="464.0" y="55.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">1 + 8 + 23</text>
+<text x="24.0" y="109.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">BF16</text>
+<rect x="92.0" y="84" width="20" height="36" class="c-s cell" />
+<text x="102" y="109.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="84" width="88.0" height="36" class="c-e cell" />
+<line x1="123.0" y1="86.0" x2="123.0" y2="118.0" class="thin" />
+<line x1="134.0" y1="86.0" x2="134.0" y2="118.0" class="thin" />
+<line x1="145.0" y1="86.0" x2="145.0" y2="118.0" class="thin" />
+<line x1="156.0" y1="86" x2="156.0" y2="89" class="thin" /><line x1="156.0" y1="115" x2="156.0" y2="118" class="thin" />
+<line x1="167.0" y1="86.0" x2="167.0" y2="118.0" class="thin" />
+<line x1="178.0" y1="86.0" x2="178.0" y2="118.0" class="thin" />
+<line x1="189.0" y1="86.0" x2="189.0" y2="118.0" class="thin" />
+<text x="156.0" y="109.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">E</text>
+<rect x="200.0" y="84" width="77.0" height="36" class="c-m cell" />
+<line x1="211.0" y1="86.0" x2="211.0" y2="118.0" class="thin" />
+<line x1="222.0" y1="86.0" x2="222.0" y2="118.0" class="thin" />
+<line x1="233.0" y1="86" x2="233.0" y2="89" class="thin" /><line x1="233.0" y1="115" x2="233.0" y2="118" class="thin" />
+<line x1="244.0" y1="86" x2="244.0" y2="89" class="thin" /><line x1="244.0" y1="115" x2="244.0" y2="118" class="thin" />
+<line x1="255.0" y1="86.0" x2="255.0" y2="118.0" class="thin" />
+<line x1="266.0" y1="86.0" x2="266.0" y2="118.0" class="thin" />
+<text x="238.5" y="109.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">M</text>
+<text x="464.0" y="109.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">1 + 8 + 7</text>
+<text x="556.0" y="109.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">← FP32 砍掉低 16 位</text>
+<text x="24.0" y="163.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">FP16</text>
+<rect x="92.0" y="138" width="20" height="36" class="c-s cell" />
+<text x="102" y="163.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="138" width="55.0" height="36" class="c-e cell" />
+<line x1="123.0" y1="140.0" x2="123.0" y2="172.0" class="thin" />
+<line x1="134.0" y1="140" x2="134.0" y2="143" class="thin" /><line x1="134.0" y1="169" x2="134.0" y2="172" class="thin" />
+<line x1="145.0" y1="140" x2="145.0" y2="143" class="thin" /><line x1="145.0" y1="169" x2="145.0" y2="172" class="thin" />
+<line x1="156.0" y1="140.0" x2="156.0" y2="172.0" class="thin" />
+<text x="139.5" y="163.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">E</text>
+<rect x="167.0" y="138" width="110.0" height="36" class="c-m cell" />
+<line x1="178.0" y1="140.0" x2="178.0" y2="172.0" class="thin" />
+<line x1="189.0" y1="140.0" x2="189.0" y2="172.0" class="thin" />
+<line x1="200.0" y1="140.0" x2="200.0" y2="172.0" class="thin" />
+<line x1="211.0" y1="140.0" x2="211.0" y2="172.0" class="thin" />
+<line x1="222.0" y1="140" x2="222.0" y2="143" class="thin" /><line x1="222.0" y1="169" x2="222.0" y2="172" class="thin" />
+<line x1="233.0" y1="140.0" x2="233.0" y2="172.0" class="thin" />
+<line x1="244.0" y1="140.0" x2="244.0" y2="172.0" class="thin" />
+<line x1="255.0" y1="140.0" x2="255.0" y2="172.0" class="thin" />
+<line x1="266.0" y1="140.0" x2="266.0" y2="172.0" class="thin" />
+<text x="222.0" y="163.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">M</text>
+<text x="464.0" y="163.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">1 + 5 + 10</text>
+<text x="556.0" y="163.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">← 指数少 3 位，65504 溢出</text>
+<text x="24.0" y="217.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">E4M3</text>
+<rect x="92.0" y="192" width="20" height="36" class="c-s cell" />
+<text x="102" y="217.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="192" width="44.0" height="36" class="c-e cell" />
+<line x1="123.0" y1="194.0" x2="123.0" y2="226.0" class="thin" />
+<line x1="134.0" y1="194" x2="134.0" y2="197" class="thin" /><line x1="134.0" y1="223" x2="134.0" y2="226" class="thin" />
+<line x1="145.0" y1="194.0" x2="145.0" y2="226.0" class="thin" />
+<text x="134.0" y="217.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">E</text>
+<rect x="156.0" y="192" width="33.0" height="36" class="c-m cell" />
+<line x1="167.0" y1="194" x2="167.0" y2="197" class="thin" /><line x1="167.0" y1="223" x2="167.0" y2="226" class="thin" />
+<line x1="178.0" y1="194" x2="178.0" y2="197" class="thin" /><line x1="178.0" y1="223" x2="178.0" y2="226" class="thin" />
+<text x="172.5" y="217.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">M</text>
+<text x="464.0" y="217.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">1 + 4 + 3</text>
+<text x="556.0" y="217.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">← 最大 448，无 inf</text>
+<text x="24.0" y="271.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">E5M2</text>
+<rect x="92.0" y="246" width="20" height="36" class="c-s cell" />
+<text x="102" y="271.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="246" width="55.0" height="36" class="c-e cell" />
+<line x1="123.0" y1="248.0" x2="123.0" y2="280.0" class="thin" />
+<line x1="134.0" y1="248" x2="134.0" y2="251" class="thin" /><line x1="134.0" y1="277" x2="134.0" y2="280" class="thin" />
+<line x1="145.0" y1="248" x2="145.0" y2="251" class="thin" /><line x1="145.0" y1="277" x2="145.0" y2="280" class="thin" />
+<line x1="156.0" y1="248.0" x2="156.0" y2="280.0" class="thin" />
+<text x="139.5" y="271.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">E</text>
+<rect x="167.0" y="246" width="22.0" height="36" class="c-m cell" />
+<line x1="178.0" y1="248" x2="178.0" y2="251" class="thin" /><line x1="178.0" y1="277" x2="178.0" y2="280" class="thin" />
+<text x="178.0" y="271.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">M</text>
+<text x="464.0" y="271.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">1 + 5 + 2</text>
+<text x="556.0" y="271.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">← FP16 砍掉低 8 位</text>
+<text x="24.0" y="325.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">INT8</text>
+<rect x="92.0" y="300" width="20" height="36" class="c-s cell" />
+<text x="102" y="325.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="300" width="77.0" height="36" class="c-i cell" />
+<line x1="123.0" y1="302.0" x2="123.0" y2="334.0" class="thin" />
+<line x1="134.0" y1="302.0" x2="134.0" y2="334.0" class="thin" />
+<line x1="145.0" y1="302.0" x2="145.0" y2="334.0" class="thin" />
+<line x1="156.0" y1="302.0" x2="156.0" y2="334.0" class="thin" />
+<line x1="167.0" y1="302.0" x2="167.0" y2="334.0" class="thin" />
+<line x1="178.0" y1="302.0" x2="178.0" y2="334.0" class="thin" />
+<text x="150.5" y="325.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">I</text>
+<text x="464.0" y="325.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">范围由外部 scale 决定</text>
+<text x="24.0" y="379.5" class="monob" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">INT4</text>
+<rect x="92.0" y="354" width="20" height="36" class="c-s cell" />
+<text x="102" y="379.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">S</text>
+<rect x="112.0" y="354" width="33.0" height="36" class="c-i cell" />
+<line x1="123.0" y1="356.0" x2="123.0" y2="388.0" class="thin" />
+<line x1="134.0" y1="356.0" x2="134.0" y2="388.0" class="thin" />
+<text x="128.5" y="379.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">I</text>
+<text x="155.0" y="379.5" class="body" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">或</text>
+<rect x="179.0" y="354" width="44.0" height="36" class="c-i cell" />
+<line x1="190.0" y1="356.0" x2="190.0" y2="388.0" class="thin" />
+<line x1="201.0" y1="356" x2="201.0" y2="359" class="thin" /><line x1="201.0" y1="385" x2="201.0" y2="388" class="thin" />
+<line x1="212.0" y1="356.0" x2="212.0" y2="388.0" class="thin" />
+<text x="201.0" y="379.5" text-anchor="middle" class="bold" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500" transform="translate(0 -3.000) translate(0 1.5) ">U</text>
+<text x="231.0" y="379.5" class="mono" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">+ zero point</text>
+<text x="464.0" y="379.5" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">16 个电平</text>
+<rect x="24.0" y="420" width="14.0" height="21" class="c-e cell" />
+<text x="46.0" y="438" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">指数位 → 动态范围（BF16 与 FP32 相同）</text>
+<rect x="330.0" y="420" width="14.0" height="21" class="c-m cell" />
+<text x="352.0" y="438" class="small" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">尾数位 → 相对精度（BF16 0.8%，E4M3 12.5%）</text>
 </svg>
