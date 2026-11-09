@@ -25,7 +25,8 @@
       .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
       .line { stroke: #40566f; stroke-width: 1.4; fill: none; }
       .wall { stroke: #d79a45; stroke-width: 1.4; stroke-dasharray: 5 4; fill: none; }
-    </style>
+g.mathtext text{fill:inherit}
+</style>
  </defs>
  <text x="16.0" y="45.0" text-anchor="start" class="bold">rollout 池 (42)</text>
  <text x="16.0" y="113.0" text-anchor="start" class="bold">训练池 (22)</text>
