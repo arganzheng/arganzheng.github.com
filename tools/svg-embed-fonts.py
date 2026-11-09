@@ -179,6 +179,16 @@ def _tspan_texts(el):
     return "".join(out)
 
 
+_CMAPS = {}
+
+
+def _cmap(path):
+    if path not in _CMAPS:
+        from fontTools.ttLib import TTFont
+        _CMAPS[path] = TTFont(path).getBestCmap()
+    return _CMAPS[path]
+
+
 def process(path):
     from fontTools import subset
     from fontTools.ttLib import TTFont
@@ -216,7 +226,21 @@ def process(path):
         fam = _resolve(el, parent_map, "font-family", rules) or ""
         weight = _norm_weight(_resolve(el, parent_map, "font-weight", rules))
         if _MONO_HINT.search(fam):
-            used["mono"].update(content)
+            mono = _cmap(MONO_FONT)
+            sans = _cmap(SANS_MED if weight >= 500 else SANS_REG)
+            slot = "sans500" if weight >= 500 else "sans400"
+            missing = []
+            for c in content:
+                if ord(c) in mono:
+                    used["mono"].add(c)
+                elif ord(c) in sans:
+                    used[slot].add(c)   # CJK etc. -> Noto subset via 'SvgSans'
+                else:
+                    missing.append(c)
+            if missing:
+                raise SystemExit(
+                    f"{os.path.basename(path)}: 字形在 DejaVu Sans Mono 和 "
+                    f"Noto Sans SC 都没有 {sorted(set(missing))!r}")
             affected.append((el, "SvgMono", "mono"))
         else:
             slot = "sans500" if weight >= 500 else "sans400"
@@ -262,35 +286,34 @@ def process(path):
     # prepend SvgSans / SvgMono to every resolved font-family:
     #   - inline font-family attr/style on text & tspan
     #   - <style> rules (non-embedded-fonts)
+    def _prefix(v):
+        """'SvgSans'/'SvgMono' for one family stack (mono also falls back to
+        'SvgSans' for CJK chars DejaVu lacks)."""
+        v = v.strip()
+        if v.lstrip().startswith(("'Svg", '"Svg')):
+            return v
+        return (f"'SvgMono','SvgSans', {v}" if _MONO_HINT.search(v)
+                else f"'SvgSans', {v}")
+
     for el in list(tree.iter()):
-        if el.tag not in (f"{NS}text", f"{NS}tspan", f"{NS}g"):
+        if el.tag not in (f"{NS}svg", f"{NS}text", f"{NS}tspan", f"{NS}g"):
             continue
         if _in_mathtext(el):
             continue
         fam = el.get("font-family")
         if fam and not fam.lstrip().startswith(("'Svg", '"Svg')):
-            tag_fam = "SvgMono" if _MONO_HINT.search(fam) else "SvgSans"
-            el.set("font-family", f"'{tag_fam}', {fam}")
+            el.set("font-family", _prefix(fam))
         st = el.get("style")
         if st and "font-family" in st:
-            def _rep(m):
-                v = m.group(1)
-                if v.lstrip().startswith(("'Svg", '"Svg')):
-                    return m.group(0)
-                tag_fam = "SvgMono" if _MONO_HINT.search(v) else "SvgSans"
-                return f"font-family:'{tag_fam}', {v}"
-            st = re.sub(r"font-family:\s*([^;]+)", _rep, st)
+            st = re.sub(r"font-family:\s*([^;]+)",
+                        lambda m: f"font-family:{_prefix(m.group(1))}", st)
             el.set("style", st)
     for st in tree.iter(f"{NS}style"):
         if st.get("id") in ("embedded-fonts", "mathtext-fonts") or not st.text:
             continue
-        def _rep(m):
-            v = m.group(1)
-            if v.lstrip().startswith(("'Svg", '"Svg')):
-                return m.group(0)
-            tag_fam = "SvgMono" if _MONO_HINT.search(v) else "SvgSans"
-            return f"font-family:'{tag_fam}', {v}"
-        st.text = re.sub(r"font-family:\s*([^;}]+)", _rep, st.text)
+        st.text = re.sub(r"font-family:\s*([^;}]+)",
+                         lambda m: f"font-family:{_prefix(m.group(1))}",
+                         st.text)
 
     new_src = ET.tostring(tree, encoding="unicode")
     style = (f'<style id="embedded-fonts" type="text/css"><![CDATA['

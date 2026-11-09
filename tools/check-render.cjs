@@ -152,7 +152,16 @@ const DARK = `(() => {
 
 async function check(slug) {
   const url = `${SITE}/${slug}.html`;
-  const t = await getJSON(`${CDP}/json/new?${encodeURIComponent(url)}`, 'PUT');
+  let t;
+  try { t = await getJSON(`${CDP}/json/new?${encodeURIComponent(url)}`, 'PUT'); }
+  catch (e) {
+    console.log(`== ${slug} [FAIL] cannot reach Chrome at ${CDP} — start Chrome with --remote-debugging-port or set CDP=<url>`);
+    return false;
+  }
+  if (!t || !t.webSocketDebuggerUrl) {
+    console.log(`== ${slug} [FAIL] cannot reach ${SITE} via Chrome at ${CDP} — start jekyll serve or set SITE=<url> (and CDP=<url>)`);
+    return false;
+  }
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   let id = 0; const pending = {};
   const send = (method, params = {}) => new Promise(r => { pending[++id] = r; ws.send(JSON.stringify({ id, method, params })); });
@@ -203,6 +212,7 @@ async function check(slug) {
   }
   const status = out.href.endsWith(`/${slug}.html`) && !out.errs && !out.pending && out.ok === out.mermaid && !out.brokenImgs.length && !out.zeroImgs.length && !out.katexErrors.length && !out.rawMd.length && !out.overflow.length && !out.hoverflow.length && !out.overlap.length && !out.smalltext.length && !(out.gap||[]).length && !contrast.length && !mlint.length ? 'PASS' : 'FAIL';
   console.log(`\n== ${slug} [${status}]`);
+  if (!out.href.endsWith(`/${slug}.html`)) console.log(`page never loaded (${out.href || 'blank'}) — is ${SITE} up? start jekyll serve or set SITE=<url>`);
   console.log(`mermaid=${out.mermaid} ok=${out.ok} errs=${out.errs} pending=${out.pending} brokenImgs=${out.brokenImgs.length} zeroImgs=${out.zeroImgs.length} katexErrors=${out.katexErrors.length}`);
   // reveal.js decks (slides/<name>/play): a slide taller than the 1280×720 canvas is cut off when presenting
   if (out.hoverflow.length) console.log('hoverflow (element wider than its slide — shorten the line or wrap it):', JSON.stringify(out.hoverflow));

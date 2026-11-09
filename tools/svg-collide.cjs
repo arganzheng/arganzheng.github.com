@@ -67,9 +67,10 @@ const CHECK = `(() => {
     }
   }
   const segs=[];
-  [...svg.querySelectorAll('line')].forEach(l=>{if(l.getAttribute('stroke-dasharray')||/lifeline/.test(l.getAttribute('class')||'')) return; const m=mm(l); if(!m) return; const a=xf(m,+l.getAttribute('x1'),+l.getAttribute('y1')),b=xf(m,+l.getAttribute('x2'),+l.getAttribute('y2'));segs.push([a,b]);});
+  const dashed=e=>getComputedStyle(e).strokeDasharray!=='none';
+  [...svg.querySelectorAll('line')].forEach(l=>{if(dashed(l)||/lifeline/.test(l.getAttribute('class')||'')) return; const m=mm(l); if(!m) return; const a=xf(m,+l.getAttribute('x1'),+l.getAttribute('y1')),b=xf(m,+l.getAttribute('x2'),+l.getAttribute('y2'));segs.push([a,b]);});
   [...svg.querySelectorAll('path')].forEach(p=>{
-    if(p.closest('defs')||p.closest('marker')||p.closest('g.mathtext')) return;
+    if(p.closest('defs')||p.closest('marker')||p.closest('g.mathtext')||dashed(p)) return;
     const L=p.getTotalLength(); if(!L) return;
     const m=mm(p); const n=Math.max(2,Math.ceil(L/20)); let prev=null;
     for(let k=0;k<=n;k++){const pt=p.getPointAtLength(L*k/n); const cur=m?xf(m,pt.x,pt.y):[pt.x,pt.y]; if(prev) segs.push([prev,cur]); prev=cur;}
@@ -109,7 +110,16 @@ const CHECK = `(() => {
 })()`;
 async function check(file) {
   const url = 'file://' + path.resolve(file);
-  const t = await getJSON(`${CDP}/json/new?${encodeURIComponent(url)}`, 'PUT');
+  let t;
+  try { t = await getJSON(`${CDP}/json/new?${encodeURIComponent(url)}`, 'PUT'); }
+  catch (e) {
+    console.log(`== ${file} [FAIL] cannot reach Chrome at ${CDP} — start Chrome with --remote-debugging-port or set CDP=<url>`);
+    return false;
+  }
+  if (!t || !t.webSocketDebuggerUrl) {
+    console.log(`== ${file} [FAIL] no debuggable tab from ${CDP} — set CDP=<url> (and SITE=<url> if the SVG is served, not a file)`);
+    return false;
+  }
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   let id = 0; const pending = {};
   const send = (m, p = {}) => new Promise(r => { pending[++id] = r; ws.send(JSON.stringify({ id, method: m, params: p })); });

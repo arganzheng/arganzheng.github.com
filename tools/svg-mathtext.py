@@ -312,6 +312,33 @@ def _render(tex, size, weight, family, used):
     return children, adv
 
 
+# cmr10 vertical metrics, per upem — browsers size a <text> line box from
+# the font's ascent/descent, and cmsy10/cmex10 ship descenders of ~2em/~6em
+# (the big delimiters), inflating every math run's getBBox until svg-collide
+# flags neighbours. Normalise embedded math subsets to cmr10's proportions;
+# glyph outlines are untouched, so rendered pixels don't change.
+_CMR10_UPEM = 2048
+_CMR10_METRICS = {"ascent": 1444, "descent": -442,
+                  "sTypoAscender": 1444, "sTypoDescender": -422,
+                  "usWinAscent": 1536, "usWinDescent": 512}
+
+
+def _normalise_metrics(font, fname):
+    name = os.path.basename(fname)
+    if not any(h in name for h in _MATH_FONT_HINT):
+        return
+    upem = font["head"].unitsPerEm
+    s = upem / _CMR10_UPEM
+    hhea = font["hhea"]
+    hhea.ascent = round(_CMR10_METRICS["ascent"] * s)
+    hhea.descent = round(_CMR10_METRICS["descent"] * s)
+    os2 = font["OS/2"]
+    os2.sTypoAscender = round(_CMR10_METRICS["sTypoAscender"] * s)
+    os2.sTypoDescender = round(_CMR10_METRICS["sTypoDescender"] * s)
+    os2.usWinAscent = round(_CMR10_METRICS["usWinAscent"] * s)
+    os2.usWinDescent = round(_CMR10_METRICS["usWinDescent"] * s)
+
+
 def _embed_style(used, stroke_px):
     """{font_file: {chars}} -> <style> with WOFF2 subsets; math fonts get
     a same-colour stroke via CSS on their tspans? No — stroke is applied
@@ -344,6 +371,7 @@ def _embed_style(used, stroke_px):
             ss = subset.Subsetter(opts)
             ss.populate(text="".join(sorted(chars)))
             ss.subset(font)
+        _normalise_metrics(font, f)
         buf = io.BytesIO()
         font.save(buf)
         mime = "woff2" if opts.flavor == "woff2" else "woff"
