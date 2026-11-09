@@ -48,11 +48,77 @@ SVG = "http://www.w3.org/2000/svg"
 ET.register_namespace("", SVG)
 NS = f"{{{SVG}}}"
 
-CJK_FAMILY = ["Hiragino Sans GB", "Heiti SC", "Arial Unicode MS", "DejaVu Sans"]
+def _fonts_dir():
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.environ.get("FIGTEXT_FONTS"),
+                 os.path.join(here, "..", "fonts"),
+                 os.path.join(here, "..", "..", "ai-learning-labs", "fonts")):
+        if cand and os.path.isfile(os.path.join(cand, "NotoSansSC-Regular.otf")):
+            return os.path.abspath(cand)
+    raise SystemExit(
+        "找不到 Noto Sans SC 字体：需要 arganzheng/ai-learning-labs 仓库 "
+        "fonts/NotoSansSC-{Regular,Medium}.otf，或设置 FIGTEXT_FONTS=<dir>")
+
+
+_FONTS_DIR = _fonts_dir()
+for _f in ("NotoSansSC-Regular.otf", "NotoSansSC-Medium.otf"):
+    font_manager.fontManager.addfont(os.path.join(_FONTS_DIR, _f))
+
+CJK_FAMILY = ["Noto Sans SC", "Hiragino Sans GB", "Heiti SC",
+              "Arial Unicode MS", "DejaVu Sans"]
+CJK_MEDIUM = ["Noto Sans SC Medium", "Noto Sans SC"]
 MONO_FAMILY = ["Menlo", "Courier New", "monospace"]
 _PARSER = MathTextParser("path")
 _MATH_FONT_HINT = ("cmmi", "cmr", "cmsy", "cmex", "cmss", "cmti", "cmtt",
                    "cmb", "STIX")
+MATH_SCALE = 1.21   # KaTeX .katex{font-size:1.21em} — CM math runs larger
+
+# KaTeX inter-atom spacing: \; (5/18em) around relations, \: (4/18em) around
+# binary operators. Applied by rewriting the $...$ source before parsing.
+_REL = re.compile(
+    r"\\(?:leq?|geq?|neq|approx|propto|parallel|perp|simeq|cong|equiv|"
+    r"subseteq|supseteq|subset|supset|ni|to|rightarrow|leftarrow|mapsto|"
+    r"ll|gg|in)(?![A-Za-z])|(?<!\\)[<>]|=")
+_BIN = re.compile(
+    r"\\(?:times|cdot|div|pm|mp|oplus|ominus|otimes|odot|cup|cap|setminus|"
+    r"wedge|vee|circ|ast|star|oplus|otimes)(?![A-Za-z])|(?<![\\\ue000])[+*]")
+_UNARY_PREV = set("^_({[=,:;/+-*<>")   # chars after which +-*/ are unary/arg
+
+
+def _space_math(seg):
+    """Insert KaTeX-style spacing inside one $...$ segment (dollars kept)."""
+    body = seg[1:-1]
+    # unary +,-,* first — mark with a private-use guard so the later passes
+    # can't touch them. An operator right after an opening token is unary
+    # (start, or after ^ _ { ( [ = , : ; / + - * < > or a space after those).
+    out = []
+    for i, c in enumerate(body):
+        if c in "+-*":
+            j = i - 1
+            while j >= 0 and body[j] == " ":
+                j -= 1
+            prev = body[j] if j >= 0 else ""
+            if j < 0 or prev in _UNARY_PREV:
+                out.append("\ue000" + c)   # private-use sentinel
+                continue
+        out.append(c)
+    body = "".join(out)
+    # TeX inserts no inter-atom spacing in sub/superscripts — shield them.
+    scripts = []
+    def _stash(m):
+        scripts.append(m.group(0))
+        return f"\ue001{len(scripts)-1}\ue002"
+    body = re.sub(r"[_^](?:\{[^{}]*\}|[A-Za-z0-9\\]+)", _stash, body)
+    body = _REL.sub(lambda m: "\\;" + m.group(0) + "\\;", body)
+    body = _BIN.sub(lambda m: "\\:" + m.group(0) + "\\:", body)
+    # binary - / + (not marked unary, not after an opening token or an
+    # already-inserted \; \:): medium space both sides
+    body = re.sub(r"(?<![\ue000^_{(\[=,:;/+\-*<>\\;])-", r"\\:-\\:", body)
+    body = re.sub(r"(?<![\ue000^_{(\[=,:;/+\-*<>\\;])\+", r"\\:+\\:", body)
+    body = body.replace("\ue000", "")
+    body = re.sub(r"\ue001(\d+)\ue002",
+                  lambda m: scripts[int(m.group(1))], body)
+    return "$" + body + "$"
 
 
 def _css_rules(root):
@@ -163,30 +229,57 @@ def _font_name(ft2font):
     return os.path.splitext(os.path.basename(ft2font.fname))[0]
 
 
-def _render(tex, size, weight, family, used):
-    """Mixed CJK/$...$ string -> (children for a <g>, total advance px).
-
-    Children are one <text> holding <tspan>s (one per glyph, grouped by font
-    style — same trick as matplotlib's svg backend) plus <rect>s for fraction
-    bars. `used` accumulates {font_file: {codepoint}} for later subsetting.
-    MathTextParser units are points at dpi=72 → treat as SVG px 1:1.
-    """
-    fams = MONO_FAMILY if family and "mono" in family else CJK_FAMILY
-    prop = FontProperties(family=fams)
-    if weight and weight not in ("normal", "400"):
+def _prop(size, weight, family):
+    heavy = bool(weight) and weight not in ("normal", "400")
+    fams = MONO_FAMILY if family and "mono" in family else (
+        CJK_MEDIUM if heavy else CJK_FAMILY)
+    prop = FontProperties(family=fams, size=size)
+    if heavy:
         try:
             prop.set_weight(int(weight) if str(weight).isdigit() else weight)
         except Exception:
             prop.set_weight("bold")
-    tex = re.sub(r"\\ge(?![A-Za-z])", r"\\geq", tex)
-    tex = re.sub(r"\\le(?![A-Za-z])", r"\\leq", tex)
+    return prop
+
+
+def _parse_seg(seg, prop):
+    seg = re.sub(r"\\ge(?![A-Za-z])", r"\\geq", seg)
+    seg = re.sub(r"\\le(?![A-Za-z])", r"\\leq", seg)
     try:
-        _w, _h, _d, glyphs, rects = _PARSER.parse(tex, 72, prop)
+        return _PARSER.parse(seg, 72, prop)
     except Exception as e:
-        raise ValueError(f"mathtext parse failed for {tex!r}: {e}")
-    spans = {}   # style-attr dict key -> [(x, y, ccode)]
-    meta = {}    # style key -> (fontfile, name, font_style_dict)
-    for font, fontsize, ccode, _gidx, gx, gy in glyphs:
+        raise ValueError(f"mathtext parse failed for {seg!r}: {e}")
+
+
+def _render(tex, size, weight, family, used):
+    """Mixed CJK/$...$ string -> (children for a <g>, total advance px).
+
+    One <text font-size="0"> (its own size is irrelevant — every tspan carries
+    its own font-size; the 0 keeps the element's bbox at the real glyph
+    extents) holding <tspan>s, plus <rect>s for fraction bars. The string is
+    split on $...$ and each segment typeset separately so CM math runs at
+    1.21× the prose size (KaTeX's convention) and KaTeX-style inter-atom
+    spacing can be injected into math source before parsing.
+    `used` accumulates {font_file: {codepoint}} for later subsetting.
+    """
+    text_prop = _prop(size, weight, family)
+    math_prop = FontProperties(family="DejaVu Sans", size=size * MATH_SCALE)
+    glyphs, rects, adv = [], [], 0.0
+    for seg in re.split(r"(\$[^$]*\$)", tex):
+        if not seg:
+            continue
+        is_math = seg.startswith("$") and seg.endswith("$")
+        src = _space_math(seg) if is_math else seg
+        w, _h, _d, gl, rc = _parse_seg(src, math_prop if is_math else text_prop)
+        for font, fontsize, ccode, _gidx, gx, gy in gl:
+            glyphs.append((font, fontsize, ccode, gx + adv, gy))
+            used.setdefault(font.fname, set()).add(
+                chr(0xa0) if ccode == 32 else chr(ccode))
+        for rx, ry, rw, rh in rc:
+            rects.append((rx + adv, ry, rw, rh))
+        adv += w
+    spans = {}   # style key -> [(x, y, ccode)]
+    for font, fontsize, ccode, gx, gy in glyphs:
         if ccode == 32:
             ccode = 0xa0
         entry = font_manager.ttfFontProperty(font)
@@ -202,10 +295,8 @@ def _render(tex, size, weight, family, used):
             fs["font-stretch"] = entry.stretch
         key = ";".join(f"{k}:{v}" for k, v in sorted(fs.items()))
         spans.setdefault(key, []).append((gx, -gy, ccode))
-        meta[key] = font.fname
-        used.setdefault(font.fname, set()).add(chr(ccode))
     children = []
-    text_el = ET.Element(f"{NS}text")
+    text_el = ET.Element(f"{NS}text", {"font-size": "0"})
     for key, chars in spans.items():
         chars.sort()
         for gx, gy, ccode in chars:
@@ -218,7 +309,7 @@ def _render(tex, size, weight, family, used):
         children.append(ET.Element(f"{NS}rect", {
             "x": f"{rx:.3f}", "y": f"{-ry - 1:.3f}",
             "width": f"{rw:.3f}", "height": f"{rh:.3f}"}))
-    return children, _w
+    return children, adv
 
 
 def _embed_style(used, stroke_px):
