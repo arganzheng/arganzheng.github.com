@@ -39,7 +39,7 @@ Q 34.259976 42.518127 34.259976 43.083217
 L 34.259976 81.980248
 Q 34.259976 82.545338 34.801176 82.545338
 z
-" clip-path="url(#p29da7a5671)" style="fill: #dce9f7; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #dce9f7; stroke: #3b6fb6; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 104.383971 82.545338
@@ -52,7 +52,7 @@ Q 103.842771 42.518127 103.842771 43.083217
 L 103.842771 81.980248
 Q 103.842771 82.545338 104.383971 82.545338
 z
-" clip-path="url(#p29da7a5671)" style="fill: #dcefe2; stroke: #4a9a5b; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #dcefe2; stroke: #4a9a5b; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 243.549562 82.545338
@@ -65,7 +65,7 @@ Q 243.008362 42.518127 243.008362 43.083217
 L 243.008362 81.980248
 Q 243.008362 82.545338 243.549562 82.545338
 z
-" clip-path="url(#p29da7a5671)" style="fill: #fae6d6; stroke: #e0812c; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #fae6d6; stroke: #e0812c; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 382.715153 82.545338
@@ -78,7 +78,7 @@ Q 382.173953 42.518127 382.173953 43.083217
 L 382.173953 81.980248
 Q 382.173953 82.545338 382.715153 82.545338
 z
-" clip-path="url(#p29da7a5671)" style="fill: #eee1f3; stroke: #7b5ea7; stroke-width: 0.8; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #eee1f3; stroke: #7b5ea7; stroke-width: 0.8; stroke-linejoin: miter"/>
    </g>
    <g id="patch_6">
     <path d="M 34.801176 221.463305
@@ -91,7 +91,7 @@ Q 34.259976 150.827051 34.259976 151.392141
 L 34.259976 220.898215
 Q 34.259976 221.463305 34.801176 221.463305
 z
-" clip-path="url(#p29da7a5671)" style="fill: #f5dede; stroke: #c94c4c; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #f5dede; stroke: #c94c4c; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="patch_7">
     <path d="M 285.105954 221.463305
@@ -104,7 +104,7 @@ Q 284.564754 150.827051 284.564754 151.392141
 L 284.564754 220.898215
 Q 284.564754 221.463305 285.105954 221.463305
 z
-" clip-path="url(#p29da7a5671)" style="fill: #dcefe2; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
+" clip-path="url(#p60db180592)" style="fill: #dcefe2; stroke: #4a9a5b; stroke-width: 0.9; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- 405B 一次 checkpoint 的 5.7 TB：四类状态（§三.1） -->
@@ -2844,7 +2844,7 @@ z
    </g>
    <g id="text_13">
     <!-- 单写入者 1–5 GB/s → 19–95 min -->
-    <g style="fill: #111111" transform="translate(70.422018 189.489702) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(66.035026 189.29396) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-586" d="M 2803 1574
 L 2803 1158
@@ -3097,7 +3097,7 @@ z
      <use xlink:href="#HiraginoSansGB-W6-4f" transform="translate(1687.5 0)"/>
     </g>
     <!-- 主机内存要装 5.7 TB -->
-    <g style="fill: #111111" transform="translate(107.115026 204.147905) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(104.659245 204.723647) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-80f" d="M 1210 3571
 C 954 2720 646 2131 173 1581
@@ -3553,7 +3553,7 @@ z
    </g>
    <g id="text_15">
     <!-- 聚合 500 GB/s → 11 s；1 TB/s → 6 s -->
-    <g style="fill: #111111" transform="translate(311.929648 189.489702) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(307.079648 189.29396) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-90a" d="M 4525 2669
 C 4134 2445 2835 2266 1203 2214
@@ -3735,7 +3735,7 @@ z
      <use xlink:href="#HiraginoSansGB-W6-54" transform="translate(1880.703125 0)"/>
     </g>
     <!-- GPU→主机 &lt;10 ms 可忽略 -->
-    <g style="fill: #111111" transform="translate(342.823945 204.147905) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(339.59996 204.723647) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-31" d="M 1402 -77
 C 1363 166 1350 410 1350 755
@@ -3970,7 +3970,7 @@ z
    </g>
    <g id="text_16">
     <!-- 汇总的路在三个地方同时撞墙：内存、接收带宽、写入带宽—— -->
-    <g style="fill: #111111" transform="translate(144.79976 253.327807) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(137.79976 253.517807) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-111d" d="M 5325 3923
 C 5645 3923 5888 3910 6093 3885
@@ -4876,7 +4876,7 @@ z
    </g>
    <g id="text_17">
     <!-- δ 从分钟级压到秒级后，Young 公式的浪费才压得下去（§九）。 -->
-    <g style="fill: #111111" transform="translate(134.673354 274.100832) scale(0.095 -0.095)">
+    <g style="fill: #111111" transform="translate(127.140385 274.26884) scale(0.1 -0.1)">
      <defs>
       <path id="HiraginoSansGB-W6-228" d="M 5248 4992
 C 4768 5056 4403 5082 3968 5082
@@ -5941,7 +5941,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p29da7a5671">
+  <clipPath id="p60db180592">
    <rect x="7.2" y="7.2" width="541.19952" height="310.79952"/>
   </clipPath>
  </defs>
