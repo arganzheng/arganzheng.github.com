@@ -1,116 +1,110 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="940" height="506" viewBox="0 0 940 506" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="12">
-<rect width="100%" height="100%" fill="#fff"/>
-<text x="470.0" y="26" fill="#222" font-size="14" text-anchor="middle" font-weight="600">MHA / GQA / MQA：第 i 个 Q head 读第 ⌊i / g⌋ 组 K/V（n_h = 8，g = n_h / n_kv）</text>
-<text x="30" y="78" fill="#222" font-size="16" text-anchor="start" font-weight="600">MHA</text>
-<text x="30" y="100" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = n_h = 8，g = 1</text>
-<text x="30" y="120" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每个 Q head 独占一组 K/V</text>
-<text x="30" y="140" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 8 × d_head</text>
-<text x="278" y="78" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
-<text x="278" y="158" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
-<line x1="323.0" y1="86" x2="323.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="295.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="323.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
-<line x1="389.0" y1="86" x2="389.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="361.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="389.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 1</text>
-<line x1="455.0" y1="86" x2="455.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="427.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="455.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 2</text>
-<line x1="521.0" y1="86" x2="521.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="493.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="521.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 3</text>
-<line x1="587.0" y1="86" x2="587.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="559.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="587.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 4</text>
-<line x1="653.0" y1="86" x2="653.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="625.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="653.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 5</text>
-<line x1="719.0" y1="86" x2="719.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="691.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="719.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 6</text>
-<line x1="785.0" y1="86" x2="785.0" y2="140" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="757.0" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="785.0" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 7</text>
-<rect x="295" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="323.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
-<rect x="361" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="389.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
-<rect x="427" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="455.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
-<rect x="493" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="521.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
-<rect x="559" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="587.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
-<rect x="625" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="653.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
-<rect x="691" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="719.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
-<rect x="757" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="785.0" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
-<text x="30" y="228" fill="#222" font-size="16" text-anchor="start" font-weight="600">GQA</text>
-<text x="30" y="250" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = 2，g = 4</text>
-<text x="30" y="270" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每 4 个 Q head 共用一组 K/V</text>
-<text x="30" y="290" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 2 × d_head</text>
-<text x="278" y="228" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
-<text x="278" y="308" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
-<line x1="323.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="389.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="455.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="521.0" y1="236" x2="422.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="362.0" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="422.0" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
-<line x1="587.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="653.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="719.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="785.0" y1="236" x2="686.0" y2="290" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="626.0" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="686.0" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 1</text>
-<rect x="295" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="323.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
-<rect x="361" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="389.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
-<rect x="427" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="455.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
-<rect x="493" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="521.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
-<rect x="559" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="587.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
-<rect x="625" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="653.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
-<rect x="691" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="719.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
-<rect x="757" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="785.0" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
-<text x="30" y="378" fill="#222" font-size="16" text-anchor="start" font-weight="600">MQA</text>
-<text x="30" y="400" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">n_kv = 1，g = 8</text>
-<text x="30" y="420" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">所有 Q head 共用一组 K/V</text>
-<text x="30" y="440" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="600">每 token 缓存 K、V 各 1 × d_head</text>
-<text x="278" y="378" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
-<text x="278" y="458" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
-<line x1="323.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="389.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="455.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="521.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="587.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="653.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="719.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<line x1="785.0" y1="386" x2="554.0" y2="440" stroke="#9bb8d6" stroke-width="1.3"/>
-<rect x="494.0" y="440" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4"/>
-<text x="554.0" y="458" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">K/V 0</text>
-<rect x="295" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="323.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 0</text>
-<rect x="361" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="389.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 1</text>
-<rect x="427" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="455.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 2</text>
-<rect x="493" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="521.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 3</text>
-<rect x="559" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="587.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 4</text>
-<rect x="625" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="653.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 5</text>
-<rect x="691" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="719.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 6</text>
-<rect x="757" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4"/>
-<text x="785.0" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">Q 7</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="506" viewBox="0 0 980 506" font-family="'SvgSans',-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="12">
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}]]></style>
+<rect width="980" height="506" fill="#fff" />
+ <text x="490" y="26" fill="#222" font-size="14" text-anchor="middle" font-weight="500" data-tex="MHA / GQA / MQA：第 i 个 Q head 读第 $\lfloor i/g\rfloor$ 组 K/V（$n_h$ = 8，$g=n_h/n_{\mathrm{kv}}$）">MHA / GQA / MQA：第 i 个 Q head 读第 ⌊i / g⌋ 组 K/V（n_h = 8，g = n_h / n_kv）</text><text x="30" y="78" fill="#222" font-size="16" text-anchor="start" font-weight="500">MHA</text>
+ <text x="30" y="104" fill="#444" font-size="11.5" text-anchor="start" font-weight="400" data-tex="$n_{\mathrm{kv}}=n_h$ = 8，$g$ = 1">n_kv = n_h = 8，g = 1</text><text x="30" y="132" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每个 Q head 独占一组 K/V</text>
+ <text x="30" y="156" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="400" data-tex="每 token 缓存 K、V 各 $8\times d_{\mathrm{head}}$">每 token 缓存 K、V 各 8 × d_head</text><text x="318" y="78" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+ <text x="318" y="158" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+ <line x1="363" y1="86" x2="363" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="335" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="363" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 0</text>
+ <line x1="429" y1="86" x2="429" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="401" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="429" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 1</text>
+ <line x1="495" y1="86" x2="495" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="467" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="495" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 2</text>
+ <line x1="561" y1="86" x2="561" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="533" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="561" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 3</text>
+ <line x1="627" y1="86" x2="627" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="599" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="627" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 4</text>
+ <line x1="693" y1="86" x2="693" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="665" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="693" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 5</text>
+ <line x1="759" y1="86" x2="759" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="731" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="759" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 6</text>
+ <line x1="825" y1="86" x2="825" y2="140" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="797" y="140" width="56" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="825" y="158" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 7</text>
+ <rect x="335" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="363" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 0</text>
+ <rect x="401" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="429" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 1</text>
+ <rect x="467" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="495" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 2</text>
+ <rect x="533" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="561" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 3</text>
+ <rect x="599" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="627" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 4</text>
+ <rect x="665" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="693" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 5</text>
+ <rect x="731" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="759" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 6</text>
+ <rect x="797" y="60" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="825" y="78" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 7</text>
+ <text x="30" y="228" fill="#222" font-size="16" text-anchor="start" font-weight="500">GQA</text>
+ <text x="30" y="254" fill="#444" font-size="11.5" text-anchor="start" font-weight="400" data-tex="$n_{\mathrm{kv}}$ = 2，$g$ = 4">n_kv = 2，g = 4</text><text x="30" y="282" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">每 4 个 Q head 共用一组 K/V</text>
+ <text x="30" y="306" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="400" data-tex="每 token 缓存 K、V 各 $2\times d_{\mathrm{head}}$">每 token 缓存 K、V 各 2 × d_head</text><text x="318" y="228" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+ <text x="318" y="308" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+ <line x1="363" y1="236" x2="462" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="429" y1="236" x2="462" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="495" y1="236" x2="462" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="561" y1="236" x2="462" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="402" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="462" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 0</text>
+ <line x1="627" y1="236" x2="726" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="693" y1="236" x2="726" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="759" y1="236" x2="726" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="825" y1="236" x2="726" y2="290" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="666" y="290" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="726" y="308" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 1</text>
+ <rect x="335" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="363" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 0</text>
+ <rect x="401" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="429" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 1</text>
+ <rect x="467" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="495" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 2</text>
+ <rect x="533" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="561" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 3</text>
+ <rect x="599" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="627" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 4</text>
+ <rect x="665" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="693" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 5</text>
+ <rect x="731" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="759" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 6</text>
+ <rect x="797" y="210" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="825" y="228" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 7</text>
+ <text x="30" y="378" fill="#222" font-size="16" text-anchor="start" font-weight="500">MQA</text>
+ <text x="30" y="404" fill="#444" font-size="11.5" text-anchor="start" font-weight="400" data-tex="$n_{\mathrm{kv}}$ = 1，$g$ = 8">n_kv = 1，g = 8</text><text x="30" y="432" fill="#444" font-size="11.5" text-anchor="start" font-weight="normal">所有 Q head 共用一组 K/V</text>
+ <text x="30" y="456" fill="#c98a00" font-size="11.5" text-anchor="start" font-weight="400" data-tex="每 token 缓存 K、V 各 $1\times d_{\mathrm{head}}$">每 token 缓存 K、V 各 1 × d_head</text><text x="318" y="378" fill="#888" font-size="11" text-anchor="end" font-weight="normal">Q head</text>
+ <text x="318" y="458" fill="#888" font-size="11" text-anchor="end" font-weight="normal">KV head</text>
+ <line x1="363" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="429" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="495" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="561" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="627" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="693" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="759" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <line x1="825" y1="386" x2="594" y2="440" stroke="#9bb8d6" stroke-width="1.3" />
+ <rect x="534" y="440" width="120" height="26" fill="#fff4e0" stroke="#c98a00" stroke-width="1.2" rx="4" />
+ <text x="594" y="458" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">K/V 0</text>
+ <rect x="335" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="363" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 0</text>
+ <rect x="401" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="429" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 1</text>
+ <rect x="467" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="495" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 2</text>
+ <rect x="533" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="561" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 3</text>
+ <rect x="599" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="627" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 4</text>
+ <rect x="665" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="693" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 5</text>
+ <rect x="731" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="759" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 6</text>
+ <rect x="797" y="360" width="56" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1.2" rx="4" />
+ <text x="825" y="378" fill="#222" font-size="12" text-anchor="middle" font-weight="normal" transform=" translate(0 0.500)">Q 7</text>
 </svg>
