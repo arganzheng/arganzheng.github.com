@@ -70,10 +70,10 @@
 <text x="602.0" y="240.8" text-anchor="middle" class="small" fill="#fff" style="fill:#fff" transform="translate(0.000 -1.000)">Prefill′</text>
 <rect class="seg-a" x="634" y="201.6" width="76" height="64.4"/>
 <text x="672.0" y="240.8" text-anchor="middle" class="small" transform="translate(0.000 -1.000)">Decode</text>
-<rect class="seg-a" x="118" y="281.4" width="22" height="19.6"/>
-<text x="148" y="296.8" text-anchor="start" class="small">这个请求的 KV 占着 HBM</text>
-<rect class="seg-wait" x="308" y="281.4" width="22" height="19.6"/>
-<text x="338" y="296.8" text-anchor="start" class="small">HBM 空出</text>
-<rect class="seg-used" x="418" y="281.4" width="22" height="19.6"/>
-<text x="448" y="296.8" text-anchor="start" class="small">重新 Prefill（多付一次算力与 TTFT）</text>
+<rect class="seg-a" x="30" y="281.4" width="22" height="19.6"/>
+<text x="60" y="296.8" text-anchor="start" class="small">这个请求的 KV 占着 HBM</text>
+<rect class="seg-wait" x="247.078125" y="281.4" width="22" height="19.6"/>
+<text x="277.078125" y="296.8" text-anchor="start" class="small">HBM 空出</text>
+<rect class="seg-used" x="370.984375" y="281.4" width="22" height="19.6"/>
+<text x="400.984375" y="296.8" text-anchor="start" class="small">重新 Prefill（多付一次算力与 TTFT）</text>
 </svg>
