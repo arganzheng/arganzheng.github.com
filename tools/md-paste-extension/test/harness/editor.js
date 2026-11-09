@@ -5,7 +5,12 @@ const contenteditable = document.getElementById('contenteditable');
 const preview = document.getElementById('preview');
 const fileLabel = document.getElementById('file-label');
 const uploadedFiles = [];
+const pasteEvents = [];
 let codeMirror = null;
+
+function isTextareaEditor() {
+  return ['textarea', 'trusted-only', 'async-unprevent', 'prevented-no-change'].includes(editorKind);
+}
 
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -44,7 +49,7 @@ function serializeEditable(node) {
 }
 
 function getSource() {
-  if (editorKind === 'textarea') return textarea.value;
+  if (isTextareaEditor()) return textarea.value;
   if (editorKind === 'codemirror6') return codeMirror.state.doc.toString();
   return serializeEditable(contenteditable).replace(/\n+$/, '');
 }
@@ -64,7 +69,7 @@ function setRangeText(element, text) {
   element.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-function insertFileMarker(element, file) {
+function insertFileMarker(element, file, delay) {
   const marker = '![上传中…]()';
   const start = element.selectionStart;
   setRangeText(element, marker);
@@ -75,14 +80,38 @@ function insertFileMarker(element, file) {
     element.setRangeText(replacement, position, position + marker.length, 'end');
     element.dispatchEvent(new Event('input', { bubbles: true }));
     updatePreview();
-  }, 600);
+  }, delay || 600);
 }
 
 function onTextareaPaste(event) {
   const file = event.clipboardData && event.clipboardData.files[0];
+  pasteEvents.push({
+    type: 'paste',
+    isTrusted: event.isTrusted,
+    files: event.clipboardData ? event.clipboardData.files.length : 0
+  });
+  if (editorKind === 'trusted-only' && !event.isTrusted) return;
+  if (editorKind === 'prevented-no-change') {
+    event.preventDefault();
+    return;
+  }
+  if (!file) return;
+  if (editorKind !== 'async-unprevent') event.preventDefault();
+  uploadedFiles.push({ name: file.name, type: file.type, isTrusted: event.isTrusted });
+  insertFileMarker(textarea, file, editorKind === 'async-unprevent' ? 500 : 600);
+}
+
+function onTextareaDrop(event) {
+  const file = event.dataTransfer && event.dataTransfer.files[0];
+  pasteEvents.push({
+    type: event.type,
+    isTrusted: event.isTrusted,
+    files: event.dataTransfer ? event.dataTransfer.files.length : 0
+  });
+  if (editorKind === 'trusted-only' && !event.isTrusted) return;
   if (!file) return;
   event.preventDefault();
-  uploadedFiles.push({ name: file.name, type: file.type });
+  uploadedFiles.push({ name: file.name, type: file.type, isTrusted: event.isTrusted });
   insertFileMarker(textarea, file);
 }
 
@@ -130,11 +159,18 @@ async function initialize() {
     editorKind === 'codemirror6' ? 'CodeMirror 6' :
       editorKind === 'contenteditable' ? 'ProseMirror-like contenteditable' : 'textarea';
 
-  if (editorKind === 'textarea') {
+  if (isTextareaEditor()) {
     textarea.hidden = false;
     textarea.addEventListener('paste', onTextareaPaste);
+    if (editorKind === 'trusted-only') textarea.addEventListener('drop', onTextareaDrop);
     textarea.addEventListener('input', updatePreview);
-    fileLabel.textContent = '文本：粘贴事件未处理时使用 insertText；图片：paste 文件事件由编辑器处理';
+    fileLabel.textContent = editorKind === 'trusted-only' ?
+      '图片：只接受可信的 paste/drop 事件' :
+      editorKind === 'async-unprevent' ?
+        '图片：异步处理 paste 文件，不调用 preventDefault' :
+        editorKind === 'prevented-no-change' ?
+          '图片：阻止 paste 但不修改编辑器' :
+        '文本：粘贴事件未处理时使用 insertText；图片：paste 文件事件由编辑器处理';
   } else if (editorKind === 'codemirror6') {
     textarea.hidden = true;
     cmHost.hidden = false;
@@ -199,8 +235,9 @@ async function initialize() {
   window.__mdPasteHarness = {
     getSource,
     getUploadedFiles: () => uploadedFiles.slice(),
+    getPasteEvents: () => pasteEvents.slice(),
     focus: () => {
-      if (editorKind === 'textarea') textarea.focus();
+      if (isTextareaEditor()) textarea.focus();
       else if (editorKind === 'codemirror6') codeMirror.focus();
       else contenteditable.focus();
     }

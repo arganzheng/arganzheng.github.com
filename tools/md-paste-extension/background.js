@@ -98,7 +98,7 @@ async function fetchImage(value) {
     name: imageName(value, mime)
   };
 
-  if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/gif') {
+  if (mime !== 'image/png') {
     var converted = await askOffscreen({ action: 'convert-image', image: image });
     if (!converted || !converted.ok) throw new Error(converted && converted.error || '图片转换失败');
     image = converted.image;

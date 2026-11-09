@@ -52,7 +52,7 @@ function readClipboard() {
 
 function convertImage(image) {
   var mime = String(image.mime || '').toLowerCase();
-  if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/gif') {
+  if (mime === 'image/png') {
     return Promise.resolve({ base64: image.base64, mime: mime, name: image.name });
   }
 

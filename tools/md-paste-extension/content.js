@@ -90,6 +90,7 @@
     var started = Date.now();
     var observer = null;
     var interval = null;
+    var closed = false;
     var onInput = function () {
       changed = true;
       lastChange = Date.now();
@@ -117,18 +118,49 @@
     root.addEventListener('input', onInput, true);
     interval = setInterval(checkValue, 100);
 
+    function cleanup() {
+      if (closed) return;
+      closed = true;
+      if (interval) clearInterval(interval);
+      if (observer) observer.disconnect();
+      root.removeEventListener('input', onInput, true);
+    }
+
     return {
-      wait: function () {
+      waitForChange: function (timeout) {
+        return new Promise(function (resolve) {
+          var deadline = Date.now() + timeout;
+          function tick() {
+            if (closed) {
+              resolve(false);
+              return;
+            }
+            checkValue();
+            if (changed) {
+              resolve(true);
+            } else if (Date.now() >= deadline) {
+              resolve(false);
+            } else {
+              setTimeout(tick, 50);
+            }
+          }
+          tick();
+        });
+      },
+      waitForQuiet: function () {
         return new Promise(function (resolve) {
           function tick() {
+            if (closed) {
+              resolve('unconfirmed');
+              return;
+            }
             checkValue();
-            var elapsed = Date.now() - started;
-            if (!changed && elapsed >= 8000) {
-              finish('unconfirmed', resolve);
-            } else if (elapsed >= 30000) {
-              finish('unconfirmed', resolve);
+            if (Date.now() - started >= 30000) {
+              cleanup();
+              resolve('unconfirmed');
             } else if (changed && Date.now() - lastChange >= 1500) {
-              finish('confirmed', resolve);
+              cleanup();
+              resolve('confirmed');
             } else {
               setTimeout(tick, 100);
             }
@@ -137,9 +169,7 @@
         });
       },
       cancel: function () {
-        if (interval) clearInterval(interval);
-        if (observer) observer.disconnect();
-        root.removeEventListener('input', onInput, true);
+        cleanup();
       }
     };
   }
@@ -157,7 +187,8 @@
   }
 
   function dispatchDrop(target, transfer) {
-    var events = ['dragenter', 'dragover', 'drop'].map(function (type) {
+    var dropEvent = null;
+    ['dragenter', 'dragover', 'drop'].forEach(function (type) {
       var event = new DragEvent(type, {
         dataTransfer: transfer,
         bubbles: true,
@@ -165,9 +196,104 @@
         composed: true
       });
       target.dispatchEvent(event);
-      return event;
+      if (type === 'drop') dropEvent = event;
     });
-    return events.some(function (event) { return event.defaultPrevented; });
+    return !!(dropEvent && dropEvent.defaultPrevented);
+  }
+
+  async function tryImageDispatch(target, dispatch) {
+    var watcher = observeEditor(target);
+    var prevented = false;
+    var error = '';
+    try {
+      target.focus({ preventScroll: true });
+      prevented = dispatch();
+    } catch (dispatchError) {
+      error = String(dispatchError && dispatchError.message || dispatchError);
+    }
+    var changed = await watcher.waitForChange(8000);
+    if (prevented || changed) {
+      if (changed) return { handled: true, result: await watcher.waitForQuiet(), error: error };
+      watcher.cancel();
+      return { handled: true, result: 'unconfirmed', error: error };
+    }
+    watcher.cancel();
+    return { handled: false, error: error };
+  }
+
+  async function tryTrustedPaste(target, file) {
+    var clipboardWritten = false;
+    try {
+      if (!navigator.clipboard || typeof navigator.clipboard.write !== 'function') {
+        throw new Error('浏览器不支持图片剪贴板写入');
+      }
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': file })]);
+      clipboardWritten = true;
+    } catch (error) {
+      return {
+        handled: false,
+        clipboardWritten: clipboardWritten,
+        blockedError: String(error && error.message || error)
+      };
+    }
+
+    var watcher = null;
+    var executed = false;
+    var error = '';
+    var pasteEvent = null;
+    function captureTrustedPaste(event) {
+      if (event.isTrusted) pasteEvent = event;
+    }
+    try {
+      target.focus({ preventScroll: true });
+      watcher = observeEditor(target);
+      target.addEventListener('paste', captureTrustedPaste, true);
+      executed = document.execCommand('paste');
+    } catch (pasteError) {
+      error = String(pasteError && pasteError.message || pasteError);
+    } finally {
+      target.removeEventListener('paste', captureTrustedPaste, true);
+    }
+    if (!watcher) {
+      return {
+        handled: false,
+        clipboardWritten: clipboardWritten,
+        blockedError: error || '无法聚焦编辑器执行粘贴'
+      };
+    }
+    var changed = await watcher.waitForChange(8000);
+    if (changed) {
+      return {
+        handled: true,
+        clipboardWritten: clipboardWritten,
+        result: await watcher.waitForQuiet(),
+        error: error
+      };
+    }
+    if (pasteEvent && pasteEvent.defaultPrevented) {
+      watcher.cancel();
+      return {
+        handled: true,
+        clipboardWritten: clipboardWritten,
+        result: 'unconfirmed',
+        error: error
+      };
+    }
+    watcher.cancel();
+    return {
+      handled: false,
+      clipboardWritten: clipboardWritten,
+      blockedError: error || (!executed ? '浏览器拒绝执行 document.execCommand("paste")' : '')
+    };
+  }
+
+  function logImage(token, path, result, error) {
+    console.info('[md-paste]', {
+      url: token.url,
+      path: path,
+      result: result,
+      error: error || ''
+    });
   }
 
   function looksLikeMarkdown(text) {
@@ -189,6 +315,11 @@
     var externalCount = allImageTokens.filter(function (token) {
       return !parser.isAllowedBlogImageUrl(token.url);
     }).length;
+    allImageTokens.filter(function (token) {
+      return !parser.isAllowedBlogImageUrl(token.url);
+    }).forEach(function (token) {
+      logImage(token, 'failed', 'retained', '非博客图片');
+    });
     var tokens = parser.splitMarkdown(text, parser.isAllowedBlogImageUrl);
     var imageCount = tokens.filter(function (token) { return token.type === 'image'; }).length;
     if (!imageCount && !externalCount) {
@@ -205,6 +336,14 @@
     var unconfirmed = 0;
     var retained = externalCount;
     var imageIndex = 0;
+    var usedTrustedPaste = false;
+    var reasons = {
+      download: 0,
+      downloadError: '',
+      blocked: 0,
+      blockedError: '',
+      unhandled: 0
+    };
 
     for (var index = 0; index < tokens.length; index += 1) {
       var token = tokens[index];
@@ -225,35 +364,89 @@
       if (!result || !result.ok || !result.image) {
         insertText(target, token.raw);
         retained += 1;
+        reasons.download += 1;
+        var downloadError = String(result && result.error || '图片下载失败');
+        if (!reasons.downloadError) {
+          reasons.downloadError = downloadError;
+        }
+        logImage(token, 'failed', 'retained', downloadError);
         continue;
       }
 
-      var watcher = observeEditor(target);
       var transfer;
-      var handled = false;
+      var file;
       try {
-        transfer = makeDataTransfer('', fileFromImage(result.image));
-        handled = dispatchPaste(target, transfer);
-        if (!handled) handled = dispatchDrop(target, transfer);
-      } catch (_) {
-        handled = false;
-      }
-
-      if (!handled) {
-        watcher.cancel();
+        file = fileFromImage(result.image);
+        transfer = makeDataTransfer('', file);
+      } catch (error) {
+        var fileError = String(error && error.message || error);
         insertText(target, token.raw);
         retained += 1;
+        reasons.blocked += 1;
+        if (!reasons.blockedError) reasons.blockedError = fileError;
+        logImage(token, 'failed', 'retained', fileError);
         continue;
       }
 
-      if (await watcher.wait() === 'confirmed') uploaded += 1;
-      else unconfirmed += 1;
+      var attempt = await tryImageDispatch(target, function () {
+        return dispatchPaste(target, transfer);
+      });
+      if (attempt.handled) {
+        logImage(token, 'synthetic-paste', attempt.result === 'confirmed' ? 'uploaded' : 'unconfirmed', attempt.error);
+        if (attempt.result === 'confirmed') uploaded += 1;
+        else unconfirmed += 1;
+        continue;
+      }
+
+      attempt = await tryImageDispatch(target, function () {
+        return dispatchDrop(target, transfer);
+      });
+      if (attempt.handled) {
+        logImage(token, 'drop', attempt.result === 'confirmed' ? 'uploaded' : 'unconfirmed', attempt.error);
+        if (attempt.result === 'confirmed') uploaded += 1;
+        else unconfirmed += 1;
+        continue;
+      }
+
+      var trustedAttempt = await tryTrustedPaste(target, file);
+      if (trustedAttempt.clipboardWritten) usedTrustedPaste = true;
+      if (trustedAttempt.handled) {
+        logImage(token, 'trusted-paste', trustedAttempt.result === 'confirmed' ? 'uploaded' : 'unconfirmed', trustedAttempt.error);
+        if (trustedAttempt.result === 'confirmed') uploaded += 1;
+        else unconfirmed += 1;
+        continue;
+      }
+
+      if (trustedAttempt.blockedError) {
+        reasons.blocked += 1;
+        if (!reasons.blockedError) reasons.blockedError = trustedAttempt.blockedError;
+      } else {
+        reasons.unhandled += 1;
+      }
+      var retainedError = trustedAttempt.blockedError || '编辑器没有接收';
+      insertText(target, token.raw);
+      retained += 1;
+      logImage(token, 'failed', 'retained', retainedError);
     }
 
-    showToast(
-      '完成：' + uploaded + ' 张已上传，' + unconfirmed + ' 张未确认，' + retained + ' 张保留外链',
-      6000
-    );
+    if (usedTrustedPaste && navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); } catch (_) {}
+    }
+
+    var toast = '完成：' + uploaded + ' 张已上传，' + unconfirmed + ' 张未确认，' + retained + ' 张保留外链';
+    if (retained > 0) {
+      var reasonParts = [];
+      if (reasons.download) {
+        reasonParts.push('下载失败 ' + reasons.download + ' 张（' + reasons.downloadError + '）');
+      }
+      if (reasons.blocked) {
+        reasonParts.push('浏览器不允许插件粘贴 ' + reasons.blocked + ' 张（' + reasons.blockedError + '）');
+      }
+      if (reasons.unhandled) reasonParts.push('编辑器没有接收 ' + reasons.unhandled + ' 张');
+      if (externalCount) reasonParts.push('非博客图片 ' + externalCount + ' 张');
+      toast += '\n保留外链原因：' + reasonParts.join('；');
+    }
+    showToast(toast, 6000);
     return {
       status: 'done',
       uploaded: uploaded,
