@@ -220,7 +220,7 @@ Table: α-β 模型预测的几种场景的拐点
 
 把这些预测线叠在实测曲线上，就是第十章 `sweep.sh` 画的图。预测与实测的三种偏差各有含义：**平台低**是 β 的问题（路径、GDR、channel）；**左端整体偏低**（小消息 time 偏大）是 α 的问题（协议、跨 NUMA、proxy）；**中段偏离**是算法/协议切换的问题。下图用 ring 模型把三种偏差画在同一张对数坐标图上（8×H100 的典型参数，非实测）——α 的问题只动左半段，β 的问题只动右半段，切换点的问题只在拐点附近出现：
 
-![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 \(\alpha\) 翻倍、\(\beta\) 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg)
+![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 \\(\alpha\\) 翻倍、\\(\beta\\) 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg)
 
 ### 3. 三条参考线
 
