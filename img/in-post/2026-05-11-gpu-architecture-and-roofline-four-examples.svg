@@ -83,8 +83,8 @@ text { font-family:'SvgSans', "Noto Sans SC",sans-serif; fill: #243447; }
 <path d="M92.00 253.94 L493.06 62.35" class="bandwidth"/>
  <line x1="493.06" y1="62.35" x2="720.0" y2="62.35" class="roof-bf16"/>
  <line x1="341.82" y1="134.60" x2="720.0" y2="134.60" class="roof-fp32" stroke-dasharray="8px, 5px"/>
- <line x1="493.06" y1="62.35" x2="493.06" y2="272.0" class="guide" stroke-dasharray="5px, 4px"/>
- <line x1="341.82" y1="134.60" x2="341.82" y2="272.0" class="guide" stroke-dasharray="5px, 4px"/>
+ <line x1="493.06" y1="62.35" x2="493.06" y2="272" class="guide" stroke-dasharray="5px, 4px"/>
+ <line x1="341.82" y1="134.6" x2="341.82" y2="154.125" class="guide" stroke-dasharray="5px, 4px"/><line x1="341.82" y1="214.125" x2="341.82" y2="272" class="guide" stroke-dasharray="5px, 4px"/>
  <text class="small" x="349.82" y="261" text-anchor="start">ridge ≈ 10</text>
  <text class="small" x="501.06" y="83" text-anchor="start">ridge 156</text>
  <text class="roof-bf16-label" x="710" y="50.35" text-anchor="end">BF16 Tensor Core 屋顶 312 TFLOPS</text>
