@@ -91,7 +91,7 @@ Minsky 与 Papert 1969 年的《Perceptrons》把感知机能力边界作为几�
 
 把感知机学习规则真的跑一遍，这条边界看得更直观：标签取 $$\pm 1$$，当 $$y\,(w\cdot x+b)\le 0$$ 时更新 $$w \mathrel{+}= y\,x$$、$$b \mathrel{+}= y$$（分数恰为 0 也算错），学习率 1、权重从零开始，固定顺序逐点更新——
 
-![感知机与 XOR：AND 第 9 轮、OR 第 6 轮就学到一条分隔线；XOR 画不出一条直线；加一层 OR+NAND 隐藏层后，四个点在 (h1,h2) 空间里变成线性可分](/img/in-post/dl-evo-perceptron-xor.svg)
+![感知机与 XOR：AND 第 9 轮、OR 第 6 轮就学到一条分隔线；XOR 画不出一条直线；加一层 OR+NAND 隐藏层后，四个点在 \((h_1,h_2)\) 空间里变成线性可分](/img/in-post/dl-evo-perceptron-xor.svg)
 
 ```text title='感知机学习规则与手工隐藏层（case_01_history_toys.py perceptron-xor）'
  AND  第 9 epoch 首次零误分，最终 w=(3,2), b=-4
