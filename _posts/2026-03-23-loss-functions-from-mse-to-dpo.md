@@ -34,7 +34,7 @@ Table: 任务 → loss → 概率假设
 
 上表还能往右再延两列：每种任务输出层怎么配、loss 对输出 logit 的梯度长什么样——后者正是反向传播的起点（下一篇）。一张图把五类任务各配一个正文里的具体数字例：
 
-![横排五行：任务 → 输出层 → loss → 对 logit 的梯度，每行一个数字例——回归 \(e=2.0\) 给 grad \(4.0\)，分类 \(-\log 0.62=0.478\) 对应 \(p-y\)，LM 初始 \(\ln V=10.82\)，InfoNCE 5.96，DPO \(-\log 0.532=0.630\)](/img/in-post/dl-loss-overview.svg)
+![横排五行：任务 → 输出层 → loss → 对 logit 的梯度，每行一个数字例——回归 \\(e=2.0\\) 给 grad \\(4.0\\)，分类 \\(-\log 0.62=0.478\\) 对应 \\(p-y\\)，LM 初始 \\(\ln V=10.82\\)，InfoNCE 5.96，DPO \\(-\log 0.532=0.630\\)](/img/in-post/dl-loss-overview.svg)
 
 读法：左边「输出层」一列决定梯度的形状——softmax 家族（分类 / LM / InfoNCE）的梯度全是「行内概率 − 目标」的形式，连续输出与偏好的两条不走 softmax，各自是 $$2e$$ 和 $$\pm\beta(1-\sigma)$$。
 
@@ -97,7 +97,7 @@ Table: 损失函数的来龙去脉
 - CE：$$\partial L/\partial z = p - 1$$，错了多少梯度就是多少，永远有力气往对的方向拉；
 - MSE：$$\partial L/\partial z = \sigma'(z)\,(p - 1)$$，多乘了一个 $$\sigma'(z) \le 0.25$$——在最需要梯度的饱和区（$$z$$ 很负时）$$\sigma'$$ 近似为 0，梯度被扼杀。
 
-![左图：\(y=1\) 时 MSE 与 CE 的损失曲线；右图：对 logit 的梯度——MSE 在饱和区只剩 CE 的 \(\sigma'\) 倍](/img/in-post/dl-loss-classification-gradient.svg)
+![左图：\\(y=1\\) 时 MSE 与 CE 的损失曲线；右图：对 logit 的梯度——MSE 在饱和区只剩 CE 的 \\(\sigma'\\) 倍](/img/in-post/dl-loss-classification-gradient.svg)
 
 **效果**：$$z = -6$$ 时 MSE 的梯度是 CE 的 $$1/405$$（$$\sigma'(-6)\approx0.0025$$）。第九章的 MNIST 对照里，CE 一个 epoch 到 94.5%，MSE 只到 91.4%，前 50 步平均梯度范数差 3 倍。
 
@@ -113,7 +113,7 @@ Table: 损失函数的来龙去脉
 - **focal loss**（Lin 等 2017）：$$L = -(1-p_t)^\gamma \log p_t$$。不区分类别，区分**难易**：$$p_t$$ 已经很高的样本，loss 被 $$(1-p_t)^\gamma$$ 压下去。$$\gamma=0$$ 就是 CE。
 - **label smoothing**：把 one-hot 换成"正确类 $$1-\epsilon$$、其余类均分 $$\epsilon$$"，给 logit 差一个有限的最优点。机制与推导见《[深度学习基础（07）：正则化与泛化——为什么参数比样本多却不过拟合](/regularization-and-generalization.html#4-label-smoothing-与数据增强)》「五、4. Label smoothing 与数据增强」，本篇不重复。
 
-![focal loss：\(\gamma\) 越大，高置信样本的 loss 被压得越狠](/img/in-post/dl-loss-focal.svg)
+![focal loss：\\(\gamma\\) 越大，高置信样本的 loss 被压得越狠](/img/in-post/dl-loss-focal.svg)
 
 **效果**：$$\gamma=2$$ 时，$$p_t = 0.9$$ 的样本对 $$p_t = 0.5$$ 的样本的相对 loss 权重从 1 降到 0.04——简单样本几乎不再贡献梯度。第九章的类不均衡实验里，focal 把只占 0.2% 的少数类召回从 7.4% 拉到 21.6%。
 
@@ -144,7 +144,7 @@ $$-\log(1/V) = \ln V$$ 的结论可以真跑一遍验证：拿两组接近均匀
 
 理论值与实测在小数点后两位内吻合——第一屏 loss 不是这个量级就该查初始化。再拆到单句层面：loss 就是逐位置 $$-\log p$$ 的平均：
 
-![一句话 4 个 token：每个位置模型给正确 token 的概率 \(p_i\) 取 \(-\log\) 后求平均得 \(loss=0.536\)，标出 \(perplexity=e^{loss}=1.71\)](/img/in-post/dl-loss-lm-tokens.svg)
+![一句话 4 个 token：每个位置模型给正确 token 的概率 \\(p_i\\) 取 \\(-\log\\) 后求平均得 \\(loss=0.536\\)，标出 \\(perplexity=e^{loss}=1.71\\)](/img/in-post/dl-loss-lm-tokens.svg)
 
 ```text
   位置 1: p = 0.65   -log p = 0.431
@@ -167,7 +167,7 @@ $$-\log(1/V) = \ln V$$ 的结论可以真跑一遍验证：拿两组接近均匀
 - **triplet loss**（FaceNet 2015）：锚点 $$a$$、正例 $$p$$、负例 $$n$$，$$L = \max(d(a,p) - d(a,n) + m, 0)$$——让正例距离比负例至少小一个 margin $$m$$。
 - **InfoNCE**（CPC 2018，CLIP / SimCLR 沿用）：把一个锚点的所有正例与 batch 内全部负例放进同一个 softmax，$$L = -\log \frac{e^{\text{sim}(a,p)/\tau}}{\sum_j e^{\text{sim}(a,j)/\tau}}$$——温度 $$\tau$$ 控 softmax 的锐度，batch 里的所有其他样本都是负例。
 
-![in-batch 相似度矩阵 \(\times 1/\tau\)：红字是正例对；InfoNCE 对每一行做一次 softmax，要求正例格的 logit 相对整行最大](/img/in-post/dl-loss-infonce.svg)
+![in-batch 相似度矩阵 \\(\times 1/\tau\\)：红字是正例对；InfoNCE 对每一行做一次 softmax，要求正例格的 logit 相对整行最大](/img/in-post/dl-loss-infonce.svg)
 
 **效果**：一个 8 样本 2 类的具体例子（脚本输出）：$$\tau = 0.1$$，$$z_0$$ 一行的 logsumexp = 10.06，三个正例的相似度 logit 之和 12.30，InfoNCE loss = 5.96。负例越多分母越大，正例必须赢过整行。
 
@@ -188,7 +188,7 @@ $$L_{DPO} = -\log \sigma\!\left(\beta\big[\log \tfrac{\pi_\theta(y_w|x)}{\pi_{re
 
 拿一对自定的 log p 代进去走一遍：chosen 在 policy 下比 reference 高（$$-1.2$$ vs $$-1.5$$），rejected 相反（$$-2.0$$ vs $$-1.0$$），$$\beta = 0.1$$：
 
-![DPO 一对样本：两条回答各自 \(\log\pi_\theta-\log\pi_{ref}\) 得 ratio \(0.30\) / \(-1.00\)，差 \(1.30\) 乘 \(\beta\) 进 sigmoid 得 \(0.532\)，\(loss=-\log\sigma=0.630\)；梯度符号把 chosen 推高、rejected 压低](/img/in-post/dl-loss-dpo.svg)
+![DPO 一对样本：两条回答各自 \\(\log\pi_\theta-\log\pi_{ref}\\) 得 ratio \\(0.30\\) / \\(-1.00\\)，差 \\(1.30\\) 乘 \\(\beta\\) 进 sigmoid 得 \\(0.532\\)，\\(loss=-\log\sigma=0.630\\)；梯度符号把 chosen 推高、rejected 压低](/img/in-post/dl-loss-dpo.svg)
 
 ```text
 == DPO：一对 (chosen y_w, rejected y_l) ==
