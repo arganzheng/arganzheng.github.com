@@ -1,4 +1,939 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" font-size="13">
-<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
-<text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="600">多头 attention 的形状变化：拆头只是"换个读法"，数值一个都没动</text><text x="95" y="52" fill="#333" font-size="12" text-anchor="start" font-weight="600">Q = X W_Q　[T=3, d=4]</text><rect x="95" y="60" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="112.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q00</text><rect x="129" y="60" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="146.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q01</text><rect x="163" y="60" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="180.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q02</text><rect x="197" y="60" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="214.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q03</text><rect x="95" y="86" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="112.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q10</text><rect x="129" y="86" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="146.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q11</text><rect x="163" y="86" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="180.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q12</text><rect x="197" y="86" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="214.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q13</text><rect x="95" y="112" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="112.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q20</text><rect x="129" y="112" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="146.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q21</text><rect x="163" y="112" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="180.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q22</text><rect x="197" y="112" width="34" height="26" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0"/><text x="214.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q23</text><text x="89" y="77" fill="#666" font-size="10" text-anchor="end" font-weight="normal">token 0</text><text x="89" y="103" fill="#666" font-size="10" text-anchor="end" font-weight="normal">token 1</text><text x="89" y="129" fill="#666" font-size="10" text-anchor="end" font-weight="normal">token 2</text><text x="163" y="154" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">一行 = 一个 token 的 4 个数</text><line x1="245" y1="99" x2="295" y2="99" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/><text x="270" y="90" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">reshape</text><text x="305" y="52" fill="#333" font-size="12" text-anchor="start" font-weight="600">reshape　[T=3, h=2, d_h=2]</text><rect x="305" y="60" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="322.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q00</text><rect x="339" y="60" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="356.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q01</text><rect x="377" y="60" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="394.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q02</text><rect x="411" y="60" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="428.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q03</text><rect x="305" y="86" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="322.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q10</text><rect x="339" y="86" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="356.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q11</text><rect x="377" y="86" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="394.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q12</text><rect x="411" y="86" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="428.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q13</text><rect x="305" y="112" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="322.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q20</text><rect x="339" y="112" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="356.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q21</text><rect x="377" y="112" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="394.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q22</text><rect x="411" y="112" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="428.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q23</text><text x="339" y="154" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="600">头 0</text><text x="411" y="154" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="600">头 1</text><text x="375" y="170" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">同一行的 4 个数按顺序分给 2 个头</text><line x1="455" y1="99" x2="505" y2="99" stroke="#555" stroke-width="1.5" marker-end="url(#ar)"/><text x="480" y="90" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">转置 (1,2)</text><text x="515" y="52" fill="#333" font-size="12" text-anchor="start" font-weight="600">转置　[h=2, T=3, d_h=2]</text><rect x="515" y="60" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="532.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q00</text><rect x="549" y="60" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="566.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q01</text><rect x="515" y="86" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="532.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q10</text><rect x="549" y="86" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="566.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q11</text><rect x="515" y="112" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="532.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q20</text><rect x="549" y="112" width="34" height="26" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="566.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q21</text><rect x="605" y="60" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="622.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q02</text><rect x="639" y="60" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="656.0" y="76.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q03</text><rect x="605" y="86" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="622.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q12</text><rect x="639" y="86" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="656.0" y="102.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q13</text><rect x="605" y="112" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="622.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q22</text><rect x="639" y="112" width="34" height="26" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0"/><text x="656.0" y="128.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q23</text><text x="549" y="154" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="600">头 0 的 Q [3, 2]</text><text x="639" y="154" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="600">头 1 的 Q [3, 2]</text><text x="595" y="170" fill="#666" font-size="10" text-anchor="middle" font-weight="normal">每个头拿到自己的 [T, d_h] 小矩阵</text><line x1="40" y1="193" x2="720" y2="193" stroke="#ddd" stroke-width="1"/><text x="40" y="213" fill="#333" font-size="12" text-anchor="start" font-weight="600">然后每个头各自做一次小的矩阵乘法：</text><rect x="60" y="227" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="75.0" y="241.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q00</text><rect x="90" y="227" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="105.0" y="241.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q01</text><rect x="60" y="249" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="75.0" y="263.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q10</text><rect x="90" y="249" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="105.0" y="263.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q11</text><rect x="60" y="271" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="75.0" y="285.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q20</text><rect x="90" y="271" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="105.0" y="285.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">q21</text><text x="128" y="267" fill="#333" font-size="14" text-anchor="middle" font-weight="normal">×</text><rect x="140" y="235" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="155.0" y="249.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k00</text><rect x="170" y="235" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="185.0" y="249.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k10</text><rect x="200" y="235" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="215.0" y="249.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k20</text><rect x="140" y="257" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="155.0" y="271.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k01</text><rect x="170" y="257" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="185.0" y="271.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k11</text><rect x="200" y="257" width="30" height="22" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0"/><text x="215.0" y="271.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">k21</text><text x="240" y="267" fill="#333" font-size="14" text-anchor="middle" font-weight="normal">=</text><rect x="252" y="227" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="267.0" y="241.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s00</text><rect x="282" y="227" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="297.0" y="241.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s01</text><rect x="312" y="227" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="327.0" y="241.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s02</text><rect x="252" y="249" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="267.0" y="263.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s10</text><rect x="282" y="249" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="297.0" y="263.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s11</text><rect x="312" y="249" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="327.0" y="263.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s12</text><rect x="252" y="271" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="267.0" y="285.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s20</text><rect x="282" y="271" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="297.0" y="285.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s21</text><rect x="312" y="271" width="30" height="22" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0"/><text x="327.0" y="285.5" fill="#333" font-size="10" text-anchor="middle" font-weight="normal">s22</text><text x="60" y="313" fill="#333" font-size="11" text-anchor="start" font-weight="normal">头 0：Q₀ [T, d_h] × K₀ᵀ [d_h, T] = 分数表 [T, T]，s_ij = 第 i 个 token 看第 j 个 token 的分</text><text x="60" y="331" fill="#333" font-size="11" text-anchor="start" font-weight="normal">头 1 同样来一遍；B 句话 × h 个头 = B·h 个这样的小乘法。FLOPs 每个 2·T·T·d_h，与参数量无关、随 T 平方增长</text><text x="380" y="361" fill="#666" font-size="11" text-anchor="middle" font-weight="normal">Llama-3-8B：d = 4096 拆成 h = 32 个头，每头 d_h = 128；本图用 T=3、d=4、h=2 只为看清形状</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="460" viewBox="0 0 760 460" font-family="'SvgSans', Noto Sans SC, sans-serif" font-size="13">
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgMono';font-weight:400;src:url(data:font/woff2;base64,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V/4DVv4DVRsZBVUyA1T+A1P+A1L+A1F9A1D+A08UA07+A00BLQVN/gNMuwNLKANKSRgFSjcDSUMSBUkYA0hFGAVI/gNHQxIFR2QDRkUYBUa7A0UYA0RDEgVENwNDQhEFQxIDQ7gCQEAJBEJBDwVCEQNCuAIAQAkEQUAOBUEPA0G4AcBACQRAPwwFQA4DQLgBgEAJBD8MCQU/DAM/uAFAQGQEPv4DPQEtBT36Azz+AzsoAzr+AzkRQgU5ZAM4MRoFOEsDN/4DNi0UBTb+AzVLAzQwGgU0SwMzMBoFM/4DMhFCBTL+AzEtFAUxGgMwGgMvLRQFLxgDLgkWBS67Ay0sEwUtFAMtuAKAQAkELBARBSwTAyy4AkBAlgQrKiUFK/4DKgkWBSolAykCOgUp/gMo/gMn/gMmDwMlFkIFJUUDJA8DI/4DIg8PBSL+AyEgLQUhfQMgLQMfSwMeEUIFHv4DHf4DHBsZBRz+AxsAEAUbGQMa/gMZ/gMY/gMXFkIFF0YDFhUtBRZCAxUUEAUVLQMUEAMTABAFExQDEhFCBRL+AxEBLQURQgMQDw8FEBEDELgCAEAJBA8ODAUPDwMPuAHAQAkEDg0KBQ4MAw64AYBACQQNDAkFDQoDDbgBQLQEDAkDDLgBAEA3BAv+AwoJFgUK/gMJFgMIEAMH/gMGAS0FBv4DBRQDAwI6BQP6AwIBLQUCOgMBABAFAS0DABADAbgBZIWNASsrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrACsrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKysr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)}]]></style>
+ <style id="mathtext-fonts" type="text/css">@font-face{font-family:'cmmi10';src:url(data:font/woff2;base64,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)}@font-face{font-family:'cmr10';src:url(data:font/woff2;base64,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V72MARLUfH3W/vaRjf701DtbZWpMBwwbk/ZHbZA7HzsvWGlJMDRDdy1QMXNiM4uZq1aO+mRZbWtbZvqM2v6bSioAAAEAZgAAA5gFVAAyAERAOy4pGAMNKwkSEAINIiAMBAgxAQMBKxQACREHAgQpAQkVCTEBMjAuA08kCQkFGwEqEAMDSBUBAwYCNA8DKysxACsrMDM1NDcBPgM1NCYmIyIGBzYzMhYVFAYjIiY1ND4CMzIWFhUUDgIHBzMyNjc2NzMDZgQBPkhaWDM+e1dZjh0IDi5BQS4wQTptiU11ynZOer4e6MWRwwYYGTw6NwUGAWBOaoqPUFSZXGtVAj4xL0FDLU2HaThjtXlZoIOmHN8FBRqj/pMAAQDy/gACCgYAAAcAIEAZHwIDAAYAHwUHAAgCBAcDAmcFARAFAQkPAysxACswExEhFSMRMxXyARjGxv4ACABS+KRSAAABAC3+AAFGBgAABwAgQBkfBgMABgAfAQcACAIEBQECZwcDBAUBCQ8DKzEAKzATNTMRIzUhES3HxwEZ/gBSB1xS+AAAAAEAsgAAA14FVAARACRAHQoBBAEiBwYRBgEEAAkRBwEDEgkBWg0EAQUBEw8DKys/KzAzNSA1EQYjNTI3MzIWFREUIRW+AQBqovuAHQcNAQBIQQQzM0iDCwf7R0FIAAABAFb/0wOoBVQASwBQQEclARkSRAACCwMCCR8cAhklLAwECDUBJBILAQYDIz0JAAcDBBIRAhYiCUo5BgAFNQFOMRYEBhwPAANLIigBBkdIQQAGBE0PAysrMQArKjA3FhYzMjY1NC4CIyMiNTU0MzcyNjY1NCYjIgYHNjYzMhYVFAYjIiY1NDY2MzIeAhUUBgYHHgIVFAYGIyImJjU0NjMyFhYVFAYjwzCiXXdkFTJXP4gSEnFIXyxcXk6OKgQGBC4+Pi4tQGqnVD6KcEdNhlBZoGF8ynBgwXtEMyE3H0YxnkZEy4E6dGQ8ExIQCWybRmJ+OzwBAUAtLEBALFiCQyVFbEVWkmoaEWScWnG3Z0mSZjNEHzggMkQAAAAHAFoAAwABBAkAAAC+AAAAAwABBAkAAQAKAL4AAwABBAkAAgAOAMgAAwABBAkAAwAgANYAAwABBAkABAAKAL4AAwABBAkABQAaAPYAAwABBAkABgAKARAAQwBvAHAAeQByAGkAZwBoAHQAIAAoAEMAKQAgADEAOQA5ADQALAAgAEIAYQBzAGkAbAAgAEsALgAgAE0AYQBsAHkAcwBoAGUAdgAuACAAQQBsAGwAIABSAGkAZwBoAHQAcwAgAFIAZQBzAGUAcgB2AGUAZAAuADAAMQAyAEIAYQBLAG8ATQBhACAARgBvAG4AdABzACAAQwBvAGwAbABlAGMAdABpAG8AbgAsACAATABlAHYAZQBsAC0AQgAuAGMAbQByADEAMABSAGUAZwB1AGwAYQByAEYAbwBuAHQATQBvAG4AZwBlAHIAOgBjAG0AcgAxADAAMQAuADEALwAxADIALQBOAG8AdgAtADkANABDAG0AcgAxADAAAwAAAAAAAP97ABQAAAAAAAAAAAAAAAAAAAAAAAAAAA==)}@font-face{font-family:'cmsy10';src:url(data:font/woff2;base64,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)}@font-face{font-family:'NotoSansSC-Medium';src:url(data:font/woff2;base64,T1RUTwAPAIAAAwBwQkFTRWlCe0IAAA1QAAAA0kNGRiDaExJoAAAEIAAACS5HUE9T4MfFPgAADiQAAAEqR1NVQtngvM8AAA9QAAAAdE9TLzJipfQYAAABYAAAAGBWT1JHA3EAAAAAD8QAAAAIY21hcIGZkq4AAANsAAAAlGhlYWQmttheAAAA/AAAADZoaGVhCGEC2QAAATQAAAAkaG10eCiaA8EAAA/MAAAATG1heHAAFFAAAAABWAAAAAZuYW1lHgI5vwAAAcAAAAGscG9zdP+GADIAAAQAAAAAIHZoZWEGaxGOAAAQGAAAACR2bXR4DQoJdQAAEDwAAAAqAAEAAAACAQb15worXw889QADA+gAAAAA3LCSkQAAAADnGAF6ABT/IQPCA0wAAAADAAIAAAAAAAAAAQAABIj+4AAAA+gAFP/+A8IAAQAAAAAAAAAAAAAAAAAAABIAAFAAABQAAAADA90B9AAFAAACigJYAAAASwKKAlgAAAFeADIBRQAAAgsGAAAAAAAAAAAAAAMIAAAAAAAAAAAAAABHT09HAAAALI9sA3D/iAAABIgBIAAAAAEAAAAAAh8C3QAAACAABgAAAAcAWgADAAEECQAAAFQAAAADAAEECQABACYAVAADAAEECQACAA4AegADAAEECQADAEQAiAADAAEECQAEACYAVAADAAEECQAFAGQAzAADAAEECQAGACIBMACpACAAMgAwADEANAAtADIAMAAyADEAIABBAGQAbwBiAGUAIAAoAGgAdAB0AHAAOgAvAC8AdwB3AHcALgBhAGQAbwBiAGUALgBjAG8AbQAvACkALgBOAG8AdABvACAAUwBhAG4AcwAgAFMAQwAgAE0AZQBkAGkAdQBtAFIAZQBnAHUAbABhAHIAMgAuADAAMAA0ADsARwBPAE8ARwA7AE4AbwB0AG8AUwBhAG4AcwBTAEMALQBNAGUAZABpAHUAbQA7AEEARABPAEIARQBWAGUAcgBzAGkAbwBuACAAMgAuADAAMAA0ADsAaABvAHQAYwBvAG4AdgAgADEALgAwAC4AMQAxADgAOwBtAGEAawBlAG8AdABmAGUAeABlACAAMgAuADUALgA2ADUANgAwADMATgBvAHQAbwBTAGEAbgBzAFMAQwAtAE0AZQBkAGkAdQBtAAAAAgAAAAMAAAAUAAMAAQAAABQABACAAAAAHAAQAAMADAAsADQAPQBbAF0AYQBlAGgAcABzAKB/bo9s//8AAAAsADIAPQBbAF0AYQBlAGgAcAByAKB/bo9s////1v/R/8n/rP+r/6j/pf+j/5z/m/9hgKFwpAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAA/4MAMgAAAAAAAAAAAAAAAAAAAAAAAAAAAQAEAgABAQESTm90b1NhbnNTQy1NZWRpdW0AAQEBPvgb+ByLDB74HQH4HgL4HwP4FwT7KgwDn/tz+lb54AUeKgA5mZ8MHx0AAP/5DCL4TA/4cwwlHAbjDCT4hBEACQEBBg5idYGattT4QWRvYmVJZGVudGl0eUNvcHlyaWdodDIwMTQtMjAyMSBBZG9iZSAoaHR0cDovL3d3dy5hZG9iZS5jb20vKS4gTm90byBpcyBhIHRyYWRlbWFyayBvZiBHb29nbGUgSW5jLk5vdG8gU2FucyBTQyBNZWRpdW1Ob3RvIFNhbnMgU0NOb3RvU2Fuc1NDLU1lZGl1bS1HZW5lcmljTm90b1NhbnNTQy1NZWRpdW0tSWRlb2dyYXBoc05vdG9TYW5zU0MtTWVkaXVtLVByb3BvcnRpb25hbE5vdG9TYW5zU0MtTWVkaXVtLVByb3BvcnRpb25hbERpZ2l0cwAKAQEFCQ0RFRkdIzlL+x8GC/saBgv7GAYL+yIGC/slBgv7cQYLFfccC/8AYoAACxL3SPdLlfcJLvcJE/T3oH0V9xv3Aws4P1Wwtl8fU0EFVL3VXPcIGw4AAAEADQATABQAFQAeADwAPgBCAEYASQBRAFMAVHzMm/j2s/a09rUDAAQAAAAAAQIADwEAEQMAFAAUAgABAAIABQAwAHoAxQEFASUBUgGAAaMBtwHYAdsCHgJ6AyMD9QQ+BIgExw78Pg779Yz3KAH3NtwD2vtcFfOyx9z0GthrulJfZ25eXK9wtB6WjAVPYlpHbx4OOovu+MLoAfgI9wUDtxb4cO77TQZnXYeHZR/3MPcp9wb3J/ciGvcZNOP7GypKYkZMHsxLBbmzu67EG960VTv7DfsD+yP7bftUHw46fev3lOH3fegoHdr3Ge5IyzehH48HE/jZqLzG4Br3DS3Q+xg2SGZXUB7HQwW0trqmxBvRtmNKQVtV+yUfE/Q1B/c6vlY6PlNeKR06oHb3WuX34/cGAffn9wAD9+cW9wD3WujlLvhVIR37ufxiBT730wflBPteBvck93GgsZ+xnbEZjwaJYohNYxoOOvdi3/c43gGx+IIDsfhaFfiC3vyCBvvfBPiC3/yCBg77u/s/y/ncyxLz4TX3aBPg8/s/FRPQ92jLBhPg+xL53AYT0PcSywYT4PtoBg77u/s/y/ncyxKz92g04hPgs/s/FRPQ92j6XAYT4PtoSwYT0PcR/dwGE+D7EQYOPyQKEsL3A/duIgoTuPdtfRUTtCEKE3SUTAUTeCcKE7ggCg42fSsK95vvE/QmChPsJQoT9CMKDm2gdvhk7wHi9wf3d/cHAzMKQFRjXFsekPcBBfdn+wcHDnYyCvuGoHb4YfJ+d6F3LAoTlOIW9wf36gYTxOOtwaq4G6KYiIWfHxOUn/AFE8iSenqPcBtPUWFFZB+JBhOoge4FE6QtBg77P33j+CbjAcf3Afc69wID94B9Jh3U1+jyNq0/qB9OolWduRqxp6nJt7J3b7IewNIFrmBNqUIb+w5BRi8u3GTUbx/HdMh1WRphbGtKUFukslseVEAFX8DZatcbDlPQvr++vry/u8e+0r7N18wS9wTlduTS4pnrq+LO6HzrE/9s+SX5ehUTA6r3JT8kHft51xX3Ij8jHft21xX3Hz8gHROOVHb7gxX8MvsTRvoT0PsY+DL7yAeWvgX4J9L8GQaTvgUTD5L3+Pdj/ab7Y/fhBoVYBfwIRPf+BoJYBRP4RPsq/DIVvvhaWAf8WveSFfhaWvxaBvAEu/haWwf8WvssFfhaWPxaBg73oON44K3j8OIS93/mE3jYIAqsG94iHftcbZ4v90mtBfta5vdrB/cRoofd+w14BfcJ5eAx9ygw+yg5B6nNqdil2wj3SeL7MAaUq5OrkqounBiGZoRlgmYI+xk09wMGdj51TYJ0eWB8bHmGIQr38vdyFTP3GwcTuHZEd0p4Vwj3rAZrX2ZZZ1xqoGmfa51PThjzT/cQLshQydUYbaZhq1usy97Q577WSKwYfIUFJR2o7wX3w+P7qgam8AX3bOL7VQak7y2WcPsDBftCNPcrBnAmBQ6L7viv5wH4CPcFA7cW+HDu+1AGZ1yHh2Uf9y73NPcM9xj3Fxr3FjTh+xsqSmJGTB7MSwW4s7uwxBvetFc9+wT7D/sU+2H7XR8Ofev3ieH3decoHdj3FexIyTegH5AHE/jYqL3C3hr3Ci3P+xg2SGZWUB7HQwW1trqnxBvRtmRLRltW+yUfE/Q1B/c6vlk8Q1NfKR2gdvdR5ffZ9wQB9+f3AAP35xb3APdR6OUu+EkhHfu5/FUFPffTB+UE+14G9yT3bqCwn62drxmPBoljiEpkGg4ABAEBChMcJfggDCalHAcPEvghDCapHAcpEvgiDCavHAddEvgjDCahHAkYEvuOixwFRosGswqzC7PbDAyz2wwNjAwR+nwU+46LHAVGiwbTCtoLuaWlDAzApaUMDYwMEfp8FKkTAAIBAQkR99YVlJSskQuVdJlij3kIC36Y+LqZ90CZBvuLowfhCvcCC+GWmgwM36WpDA34+xT5HxWvEwAVAgABAB4AJwAxAFIAVgBtAIEAogCoAK8AuAC9AMQAywDWAOAA6ADwAT4BXgFpKs5M6h6u5xVaZqHCyMK19zeeH/saB2FeZHRbGwvNxq22vR+PBgv3B///nYAAJx0L+xT7D/sC+0f7SvcKIPcrH/sx9+cV65bIv9Ab27ZVLR8LfS0KCyxJyvSCH/f5Bo6ZjqGiGvcvPPT7Jh4L99F9FdLLpK29H2PUBXFjYXxaGwvp998G9ydM4fsdMz5nZ1IeKArBpcUb3KJTTIwf+3kpCgu2PQWpugtyJ077CxoLErv3BPsE9wULMQoqCgsS4u4o9wcL51J2+GrpC/cQ9wX3AfdR9z4L+15292Xs+BXrC+L3B/eX9wsL5vc82/co5gsvCn53EjAKE+w0CukFY7m9dLsbLgo99wL7H01PaWNbH4kGE9yByAUtBvd+/GgVamCYr2AfE+z3oQe3ubSithvnsET7Bx8T3PsUT0Q7Hg7iFvcH+BoGvLytpL4bzKdmLB/74PcH9+4H9yBX2fsJC+L7cxX3B/dGBogLfpj5YJkG3gryC96WnwwM8pcMDfjOFAAAAAEAAAAIAGIAXgAEAAZERkxUACZjeXJsADhncmVrADhoYW5pACZrYW5hACZsYXRuADgABgAAAAAAAgAEAB4AIgAmAJIABgAAAAAAAwAEAAwAEAAUAIAAAf+zAAEDRQAB/4gABAAWAARpY2ZiaWNmdGlkZW9yb21uAAZERkxUACZjeXJsADhncmVrADhoYW5pACZrYW5hACZsYXRuADgABgAAAAAAAgAEAB4AIgAmACoABgAAAAAAAwAEAAwAEAAUABgAAQArAAEDvQABAAAAAQB4AAAAAQAAAAoAPABKAAZERkxUACZjeXJsACZncmVrACZoYW5pACZrYW5hACZsYXRuACYABAAAAAD//wABAAAAAWtlcm4ACAAAAAEAAAABAAQAAgAAAAEACAACAIAABAAAAJQAtAAIAAcAAAAAAAAAAAAAAAAAAAAA//EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/xAAD/9QAA//0AAAAA/+T/9f+1AAD/+gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/8wAAAAAAAAAAAAEACAACAAcACQAKAAsADAANAA4AAQACAA0ABwAAAAAAAAAAAAYAAAAAAAEAAgADAAQABQABAAIADQADAAAAAAAAAAAAAAAEAAEAAgAAAAYABgAFAAAAAQAAAAoASgBYAAZERkxUACZjeXJsADRncmVrADRoYW5pADBrYW5hADBsYXRuADQABAAAAAD//wAAAAAAAAAEAAAAAP//AAEAAAABbG9jbAAIAAAAAQAAAAEABAABAAAAAQAIAAEABgAOAAEAAwADAAQABQABAAADcAAAA+gAZADhAAABKgA1AjoAJgI6ABwCOgAUAjoAJgFkAGgBZAAoAj8ANwI2ADACbQBXAnYAVwGZAFcB4AAdA+gANgPoACMCOgAmABwAFAABEAAB9P4MAAAD6AAk/5kETwAAAAEAAAAAAAAAAAAAAAAAAQPoAAADcALbAIIAggCPAVcAUwBTATwBPABTATwBPAE8AEkAJACWAJYApAAA)}@font-face{font-family:'NotoSansSC-Regular';src:url(data:font/woff2;base64,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)}</style>
+ <defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+   <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
+  </marker>
+ </defs>
+ <text x="380" y="22" fill="#222" font-size="14" text-anchor="middle" font-weight="500">多头 attention 的形状变化：拆头只是“换个读法”，数值一个都没动</text>
+ <g class="mathtext" data-tex="$Q = XW_\mathrm{Q}$ [$T$ = 3, $d$ = 4]" data-x="95" data-y="52" data-size="12" data-anchor="start" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="500" aria-label="$Q = XW_\mathrm{Q}$ [$T$ = 3, $d$ = 4]">
+  <g transform="translate(95.000 52.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.766" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">Q</tspan>
+    <tspan x="36.619" y="-0.766" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">X</tspan>
+    <tspan x="48.640" y="-0.766" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">W</tspan>
+    <tspan x="79.000" y="-0.078" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="114.000" y="-0.922" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="18.405" y="-0.766" style="font-family:'cmr10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">=</tspan>
+    <tspan x="62.341" y="1.412" style="font-family:'cmr10';font-size:10.164px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">Q</tspan>
+    <tspan x="72.000" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="74.700" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">[</tspan>
+    <tspan x="88.000" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="90.700" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="97.540" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="100.240" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">3</tspan>
+    <tspan x="107.080" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">,</tspan>
+    <tspan x="110.656" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="122.000" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="124.700" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="131.540" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="134.240" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">4</tspan>
+    <tspan x="141.080" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">]</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="95" y="60" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{00}$" data-x="112" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{00}$">
+  <g transform="translate(104.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="129" y="60" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{01}$" data-x="146" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{01}$">
+  <g transform="translate(138.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="163" y="60" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{02}$" data-x="180" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{02}$">
+  <g transform="translate(172.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="197" y="60" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{03}$" data-x="214" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{03}$">
+  <g transform="translate(206.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="95" y="88" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{10}$" data-x="112" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{10}$">
+  <g transform="translate(104.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="129" y="88" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{11}$" data-x="146" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{11}$">
+  <g transform="translate(138.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="163" y="88" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{12}$" data-x="180" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{12}$">
+  <g transform="translate(172.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="197" y="88" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{13}$" data-x="214" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{13}$">
+  <g transform="translate(206.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="95" y="116" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{20}$" data-x="112" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{20}$">
+  <g transform="translate(104.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="129" y="116" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{21}$" data-x="146" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{21}$">
+  <g transform="translate(138.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="163" y="116" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{22}$" data-x="180" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{22}$">
+  <g transform="translate(172.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="197" y="116" width="34" height="28" fill="#eef4fb" stroke="#7a9cc6" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{23}$" data-x="214" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{23}$">
+  <g transform="translate(206.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="89" y="77" fill="#666" font-size="10" text-anchor="end" font-weight="400">token 0</text>
+ <text x="89" y="105" fill="#666" font-size="10" text-anchor="end" font-weight="400">token 1</text>
+ <text x="89" y="133" fill="#666" font-size="10" text-anchor="end" font-weight="400">token 2</text>
+ <text x="163" y="166" fill="#666" font-size="10" text-anchor="middle" font-weight="400">一行 = 一个 token 的 4 个数</text>
+ <line x1="245" y1="99" x2="295" y2="99" stroke="#555" stroke-width="1.5" marker-end="url(#ar)" />
+ <text x="270" y="90" fill="#333" font-size="10" text-anchor="middle" font-weight="400" font-family="'SvgMono', DejaVu Sans Mono, monospace">reshape</text>
+ <g class="mathtext" data-tex="reshape [$T$ = 3, $h$ = 2, $d_h$ = 2]" data-x="305" data-y="52" data-size="12" data-anchor="start" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="500" aria-label="reshape [$T$ = 3, $h$ = 2, $d_h$ = 2]">
+  <g transform="translate(305.000 52.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">r</tspan>
+    <tspan x="4.908" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">e</tspan>
+    <tspan x="11.700" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">s</tspan>
+    <tspan x="17.460" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">h</tspan>
+    <tspan x="24.912" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">a</tspan>
+    <tspan x="31.812" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">p</tspan>
+    <tspan x="39.372" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">e</tspan>
+    <tspan x="46.164" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="48.864" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">[</tspan>
+    <tspan x="63.000" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="65.700" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="72.540" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="75.240" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">3</tspan>
+    <tspan x="82.080" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">,</tspan>
+    <tspan x="85.656" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="98.000" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="100.700" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="107.540" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="110.240" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">2</tspan>
+    <tspan x="117.080" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">,</tspan>
+    <tspan x="120.656" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="139.000" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="141.700" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="148.540" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="151.240" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">2</tspan>
+    <tspan x="158.080" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">]</tspan>
+    <tspan x="54.000" y="-0.078" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="89.000" y="-0.922" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="124.000" y="-0.922" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="131.548" y="1.256" style="font-family:'cmmi10';font-size:10.164px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="305" y="60" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{00}$" data-x="322" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{00}$">
+  <g transform="translate(314.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="339" y="60" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{01}$" data-x="356" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{01}$">
+  <g transform="translate(348.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="377" y="60" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{02}$" data-x="394" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{02}$">
+  <g transform="translate(386.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="411" y="60" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{03}$" data-x="428" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{03}$">
+  <g transform="translate(420.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="305" y="88" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{10}$" data-x="322" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{10}$">
+  <g transform="translate(314.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="339" y="88" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{11}$" data-x="356" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{11}$">
+  <g transform="translate(348.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="377" y="88" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{12}$" data-x="394" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{12}$">
+  <g transform="translate(386.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="411" y="88" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{13}$" data-x="428" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{13}$">
+  <g transform="translate(420.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="305" y="116" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{20}$" data-x="322" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{20}$">
+  <g transform="translate(314.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="339" y="116" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{21}$" data-x="356" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{21}$">
+  <g transform="translate(348.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="377" y="116" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{22}$" data-x="394" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{22}$">
+  <g transform="translate(386.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="411" y="116" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{23}$" data-x="428" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{23}$">
+  <g transform="translate(420.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="339" y="166" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="500">头 0</text>
+ <text x="411" y="166" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="500">头 1</text>
+ <text x="375" y="190" fill="#666" font-size="10" text-anchor="middle" font-weight="400">同一行的 4 个数按顺序分给 2 个头</text>
+ <line x1="455" y1="99" x2="505" y2="99" stroke="#555" stroke-width="1.5" marker-end="url(#ar)" />
+ <text x="480" y="90" fill="#333" font-size="10" text-anchor="middle" font-weight="400">转置 <tspan font-family="'SvgMono', DejaVu Sans Mono, monospace">(1,2)</tspan>
+ </text>
+ <g class="mathtext" data-tex="转置 [$h$ = 2, $T$ = 3, $d_h$ = 2]" data-x="515" data-y="52" data-size="12" data-anchor="start" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="500" aria-label="转置 [$h$ = 2, $T$ = 3, $d_h$ = 2]">
+  <g transform="translate(515.000 52.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">转</tspan>
+    <tspan x="12.000" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">置</tspan>
+    <tspan x="24.000" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="26.700" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">[</tspan>
+    <tspan x="40.000" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="42.700" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="49.540" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="52.240" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">2</tspan>
+    <tspan x="59.080" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">,</tspan>
+    <tspan x="62.656" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="75.000" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="77.700" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="84.540" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="87.240" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">3</tspan>
+    <tspan x="94.080" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">,</tspan>
+    <tspan x="97.656" y="-0.000" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="116.000" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="118.700" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">=</tspan>
+    <tspan x="125.540" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
+    <tspan x="128.240" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">2</tspan>
+    <tspan x="135.080" y="-0.438" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">]</tspan>
+    <tspan x="31.000" y="-0.922" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="66.000" y="-0.078" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="101.000" y="-0.922" style="font-family:'cmmi10';font-size:14.52px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="108.548" y="1.256" style="font-family:'cmmi10';font-size:10.164px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="515" y="60" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{00}$" data-x="532" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{00}$">
+  <g transform="translate(524.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="549" y="60" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{01}$" data-x="566" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{01}$">
+  <g transform="translate(558.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="515" y="88" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{10}$" data-x="532" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{10}$">
+  <g transform="translate(524.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="549" y="88" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{11}$" data-x="566" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{11}$">
+  <g transform="translate(558.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="515" y="116" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{20}$" data-x="532" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{20}$">
+  <g transform="translate(524.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="549" y="116" width="34" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{21}$" data-x="566" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{21}$">
+  <g transform="translate(558.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="605" y="60" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{02}$" data-x="622" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{02}$">
+  <g transform="translate(614.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="639" y="60" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{03}$" data-x="656" data-y="77.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{03}$">
+  <g transform="translate(648.500 77.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="605" y="88" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{12}$" data-x="622" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{12}$">
+  <g transform="translate(614.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="639" y="88" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{13}$" data-x="656" data-y="105.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{13}$">
+  <g transform="translate(648.500 105.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="605" y="116" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{22}$" data-x="622" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{22}$">
+  <g transform="translate(614.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="639" y="116" width="34" height="28" fill="#fdeeee" stroke="#c0392b" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{23}$" data-x="656" data-y="133.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{23}$">
+  <g transform="translate(648.500 133.249)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">3</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="549" y="166" fill="#1f6fb2" font-size="10" text-anchor="middle" font-weight="500">头 0 的 Q [3, 2]</text>
+ <text x="639" y="166" fill="#c0392b" font-size="10" text-anchor="middle" font-weight="500">头 1 的 Q [3, 2]</text>
+ <g class="mathtext" data-tex="每个头拿到自己的 $[T,d_h]$ 小矩阵" data-x="595" data-y="190" data-size="10" data-anchor="middle" data-fill="#666" fill="#666" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="每个头拿到自己的 $[T,d_h]$ 小矩阵">
+  <g transform="translate(521.000 190.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">每</tspan>
+    <tspan x="10.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">个</tspan>
+    <tspan x="20.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">头</tspan>
+    <tspan x="30.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">拿</tspan>
+    <tspan x="40.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">到</tspan>
+    <tspan x="50.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">自</tspan>
+    <tspan x="60.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">己</tspan>
+    <tspan x="70.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px">的</tspan>
+    <tspan x="80.000" y="-0.406" style="font-family:'NotoSansSC-Regular';font-size:10px"> </tspan>
+    <tspan x="115.000" y="-0.594" style="font-family:'NotoSansSC-Regular';font-size:10px"> </tspan>
+    <tspan x="117.240" y="-0.594" style="font-family:'NotoSansSC-Regular';font-size:10px">小</tspan>
+    <tspan x="127.240" y="-0.594" style="font-family:'NotoSansSC-Regular';font-size:10px">矩</tspan>
+    <tspan x="137.240" y="-0.594" style="font-family:'NotoSansSC-Regular';font-size:10px">阵</tspan>
+    <tspan x="83.000" y="-0.922" style="font-family:'cmr10';font-size:12.1px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">[</tspan>
+    <tspan x="111.038" y="-0.922" style="font-family:'cmr10';font-size:12.1px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">]</tspan>
+    <tspan x="86.348" y="-0.922" style="font-family:'cmmi10';font-size:12.1px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="93.411" y="-0.922" style="font-family:'cmmi10';font-size:12.1px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">;</tspan>
+    <tspan x="99.179" y="-0.922" style="font-family:'cmmi10';font-size:12.1px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="105.468" y="0.893" style="font-family:'cmmi10';font-size:8.47px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+   </text>
+  </g>
+ </g>
+ <line x1="40" y1="193" x2="720" y2="193" stroke="#ddd" stroke-width="1" />
+ <text x="40" y="234" fill="#333" font-size="12" text-anchor="start" font-weight="500">然后每个头各自做一次小的矩阵乘法：</text>
+ <rect x="60" y="256" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{00}$" data-x="75" data-y="273.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{00}$">
+  <g transform="translate(67.500 273.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="90" y="256" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{01}$" data-x="105" data-y="273.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{01}$">
+  <g transform="translate(97.500 273.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="60" y="284" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{10}$" data-x="75" data-y="301.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{10}$">
+  <g transform="translate(67.500 301.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="90" y="284" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{11}$" data-x="105" data-y="301.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{11}$">
+  <g transform="translate(97.500 301.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="60" y="312" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{20}$" data-x="75" data-y="329.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{20}$">
+  <g transform="translate(67.500 329.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="90" y="312" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$q_{21}$" data-x="105" data-y="329.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$q_{21}$">
+  <g transform="translate(97.500 329.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">q</tspan>
+    <tspan x="5.391" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.624" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="128" y="294" fill="#333" font-size="14" text-anchor="middle" font-weight="400">×</text>
+ <rect x="140" y="264" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{00}$" data-x="155" data-y="281.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{00}$">
+  <g transform="translate(147.000 281.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="170" y="264" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{10}$" data-x="185" data-y="281.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{10}$">
+  <g transform="translate(177.000 281.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="200" y="264" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{20}$" data-x="215" data-y="281.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{20}$">
+  <g transform="translate(207.000 281.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="140" y="292" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{01}$" data-x="155" data-y="309.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{01}$">
+  <g transform="translate(147.000 309.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="170" y="292" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{11}$" data-x="185" data-y="309.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{11}$">
+  <g transform="translate(177.000 309.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="200" y="292" width="30" height="28" fill="#eef4fb" stroke="#1f6fb2" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$k_{21}$" data-x="215" data-y="309.2015" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$k_{21}$">
+  <g transform="translate(207.000 309.202)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.609" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">k</tspan>
+    <tspan x="6.289" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="10.522" y="1.206" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="240" y="294" fill="#333" font-size="14" text-anchor="middle" font-weight="400">=</text>
+ <rect x="252" y="256" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{00}$" data-x="267" data-y="273.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{00}$">
+  <g transform="translate(259.500 273.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="282" y="256" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{01}$" data-x="297" data-y="273.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{01}$">
+  <g transform="translate(289.500 273.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="312" y="256" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{02}$" data-x="327" data-y="273.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{02}$">
+  <g transform="translate(319.500 273.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="252" y="284" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{10}$" data-x="267" data-y="301.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{10}$">
+  <g transform="translate(259.500 301.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="282" y="284" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{11}$" data-x="297" data-y="301.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{11}$">
+  <g transform="translate(289.500 301.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="312" y="284" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{12}$" data-x="327" data-y="301.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{12}$">
+  <g transform="translate(319.500 301.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="252" y="312" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{20}$" data-x="267" data-y="329.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{20}$">
+  <g transform="translate(259.500 329.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="282" y="312" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{21}$" data-x="297" data-y="329.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{21}$">
+  <g transform="translate(289.500 329.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect x="312" y="312" width="30" height="28" fill="#f3f0fa" stroke="#8a6bd1" stroke-width="1" rx="0" />
+ <g class="mathtext" data-tex="$s_{22}$" data-x="327" data-y="329.2485" data-size="10" data-anchor="middle" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="$s_{22}$">
+  <g transform="translate(319.500 329.248)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.656" style="font-family:'cmmi10';font-size:12.1px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="5.657" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="9.890" y="1.159" style="font-family:'cmr10';font-size:8.47px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+   </text>
+  </g>
+ </g>
+ <g class="mathtext" data-tex="头 0：$Q_0[T,d_h]\times K_0^\top[d_h,T]$ = 分数表 $[T,T]$，$s_{ij}$ = 第 i 个 token 看第 j 个 token 的分" data-x="60" data-y="370" data-size="11" data-anchor="start" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="头 0：$Q_0[T,d_h]\times K_0^\top[d_h,T]$ = 分数表 $[T,T]$，$s_{ij}$ = 第 i 个 token 看第 j 个 token 的分">
+  <g transform="translate(60.000 370.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.875" style="font-family:'NotoSansSC-Regular';font-size:11px">头</tspan>
+    <tspan x="11.000" y="-0.875" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="13.464" y="-0.875" style="font-family:'NotoSansSC-Regular';font-size:11px">0</tspan>
+    <tspan x="19.569" y="-0.875" style="font-family:'NotoSansSC-Regular';font-size:11px">：</tspan>
+    <tspan x="158.000" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="160.464" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="166.569" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="169.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">分</tspan>
+    <tspan x="180.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">数</tspan>
+    <tspan x="191.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">表</tspan>
+    <tspan x="202.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="235.000" y="-0.422" style="font-family:'NotoSansSC-Regular';font-size:11px">，</tspan>
+    <tspan x="261.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="263.464" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="269.569" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="272.033" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">第</tspan>
+    <tspan x="283.033" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="285.497" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">i</tspan>
+    <tspan x="288.522" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="290.986" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="301.986" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="304.450" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">t</tspan>
+    <tspan x="308.597" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">o</tspan>
+    <tspan x="315.263" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">k</tspan>
+    <tspan x="321.335" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">e</tspan>
+    <tspan x="327.429" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">n</tspan>
+    <tspan x="334.139" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="336.602" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">看</tspan>
+    <tspan x="347.602" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">第</tspan>
+    <tspan x="358.602" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="361.066" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">j</tspan>
+    <tspan x="364.091" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="366.555" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="377.555" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="380.019" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">t</tspan>
+    <tspan x="384.166" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">o</tspan>
+    <tspan x="390.832" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">k</tspan>
+    <tspan x="396.904" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">e</tspan>
+    <tspan x="402.998" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">n</tspan>
+    <tspan x="409.708" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="412.172" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">的</tspan>
+    <tspan x="423.172" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">分</tspan>
+    <tspan x="31.000" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">Q</tspan>
+    <tspan x="50.602" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="58.367" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">;</tspan>
+    <tspan x="64.710" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="97.676" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">K</tspan>
+    <tspan x="126.537" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="139.576" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">;</tspan>
+    <tspan x="145.919" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="208.681" y="-0.031" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="216.446" y="-0.031" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">;</tspan>
+    <tspan x="222.790" y="-0.031" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="246.000" y="-0.125" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">s</tspan>
+    <tspan x="41.505" y="1.694" style="font-family:'cmr10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="108.966" y="3.731" style="font-family:'cmr10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">0</tspan>
+    <tspan x="46.920" y="-0.303" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">[</tspan>
+    <tspan x="77.749" y="-0.303" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">]</tspan>
+    <tspan x="122.855" y="-0.303" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">[</tspan>
+    <tspan x="153.684" y="-0.303" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">]</tspan>
+    <tspan x="205.000" y="-0.031" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">[</tspan>
+    <tspan x="230.555" y="-0.031" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">]</tspan>
+    <tspan x="71.625" y="1.694" style="font-family:'cmmi10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="133.451" y="1.694" style="font-family:'cmmi10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="252.220" y="1.871" style="font-family:'cmmi10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">i</tspan>
+    <tspan x="255.424" y="1.871" style="font-family:'cmmi10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">j</tspan>
+    <tspan x="84.388" y="-0.303" style="font-family:'cmsy10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">£</tspan>
+    <tspan x="113.000" y="-5.798" style="font-family:'cmsy10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">&gt;</tspan>
+   </text>
+  </g>
+ </g>
+ <g class="mathtext" data-tex="头 1 同样来一遍； $B$ 句话 × $h$ 个头 = $B\cdot h$ 个小乘法。FLOPs 每个 $2T^2d_h$，与参数量无关、随 $T$ 平方增长" data-x="60" data-y="406" data-size="11" data-anchor="start" data-fill="#333" fill="#333" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="头 1 同样来一遍； $B$ 句话 × $h$ 个头 = $B\cdot h$ 个小乘法。FLOPs 每个 $2T^2d_h$，与参数量无关、随 $T$ 平方增长">
+  <g transform="translate(60.000 406.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">头</tspan>
+    <tspan x="11.000" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="13.464" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">1</tspan>
+    <tspan x="19.569" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="22.033" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">同</tspan>
+    <tspan x="33.033" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">样</tspan>
+    <tspan x="44.033" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">来</tspan>
+    <tspan x="55.033" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">一</tspan>
+    <tspan x="66.033" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">遍</tspan>
+    <tspan x="77.032" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px">；</tspan>
+    <tspan x="88.032" y="-0.734" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="102.000" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="104.464" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">句</tspan>
+    <tspan x="115.464" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">话</tspan>
+    <tspan x="126.464" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="128.928" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">×</tspan>
+    <tspan x="139.928" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="151.000" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="153.464" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="164.464" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">头</tspan>
+    <tspan x="175.464" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="177.928" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="184.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="215.000" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="217.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="228.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">小</tspan>
+    <tspan x="239.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">乘</tspan>
+    <tspan x="250.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">法</tspan>
+    <tspan x="261.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">。</tspan>
+    <tspan x="272.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">F</tspan>
+    <tspan x="278.536" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">L</tspan>
+    <tspan x="284.509" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">O</tspan>
+    <tspan x="292.670" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">P</tspan>
+    <tspan x="299.633" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">s</tspan>
+    <tspan x="304.781" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="307.245" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">每</tspan>
+    <tspan x="318.245" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="329.245" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="368.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">，</tspan>
+    <tspan x="379.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">与</tspan>
+    <tspan x="390.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">参</tspan>
+    <tspan x="401.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">数</tspan>
+    <tspan x="412.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">量</tspan>
+    <tspan x="423.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">无</tspan>
+    <tspan x="434.000" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">关</tspan>
+    <tspan x="444.999" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">、</tspan>
+    <tspan x="455.999" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px">随</tspan>
+    <tspan x="466.999" y="-0.703" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="478.000" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="480.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">平</tspan>
+    <tspan x="491.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">方</tspan>
+    <tspan x="502.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">增</tspan>
+    <tspan x="513.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">长</tspan>
+    <tspan x="91.000" y="-0.922" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">B</tspan>
+    <tspan x="143.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="187.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">B</tspan>
+    <tspan x="206.673" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="338.648" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="353.999" y="-0.303" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="470.000" y="-0.922" style="font-family:'cmmi10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="200.034" y="-0.781" style="font-family:'cmsy10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">¢</tspan>
+    <tspan x="332.000" y="-0.303" style="font-family:'cmr10';font-size:13.31px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="348.584" y="-5.798" style="font-family:'cmr10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">2</tspan>
+    <tspan x="360.914" y="1.694" style="font-family:'cmmi10';font-size:9.317px;stroke:#333;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+   </text>
+  </g>
+ </g>
+ <g class="mathtext" data-tex="Llama-3-8B：$d$ = 4096 拆成 $h$ = 32 个头，每头 $d_h$ = 128；本图用 $T$ = 3、$d$ = 4、$h$ = 2 只为看清形状" data-x="380" data-y="442" data-size="11" data-anchor="middle" data-fill="#666" fill="#666" data-family="'SvgSans', Noto Sans SC, sans-serif" data-weight="400" aria-label="Llama-3-8B：$d$ = 4096 拆成 $h$ = 32 个头，每头 $d_h$ = 128；本图用 $T$ = 3、$d$ = 4、$h$ = 2 只为看清形状">
+  <g transform="translate(135.500 442.000)">
+   <text font-size="0">
+    <tspan x="0.000" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">L</tspan>
+    <tspan x="5.973" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">l</tspan>
+    <tspan x="9.097" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">a</tspan>
+    <tspan x="15.290" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">m</tspan>
+    <tspan x="25.476" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">a</tspan>
+    <tspan x="31.669" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">-</tspan>
+    <tspan x="35.486" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">3</tspan>
+    <tspan x="41.591" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">-</tspan>
+    <tspan x="45.408" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">8</tspan>
+    <tspan x="51.513" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">B</tspan>
+    <tspan x="58.740" y="-0.250" style="font-family:'NotoSansSC-Regular';font-size:11px">：</tspan>
+    <tspan x="77.000" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="79.464" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="85.569" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="88.033" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">4</tspan>
+    <tspan x="94.138" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">0</tspan>
+    <tspan x="100.243" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">9</tspan>
+    <tspan x="106.348" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">6</tspan>
+    <tspan x="112.453" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="114.917" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">拆</tspan>
+    <tspan x="125.917" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">成</tspan>
+    <tspan x="136.917" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="148.000" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="150.464" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="156.569" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="159.033" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">3</tspan>
+    <tspan x="165.138" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">2</tspan>
+    <tspan x="171.243" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="173.707" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">个</tspan>
+    <tspan x="184.707" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">头</tspan>
+    <tspan x="195.707" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">，</tspan>
+    <tspan x="206.707" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">每</tspan>
+    <tspan x="217.707" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">头</tspan>
+    <tspan x="228.706" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="246.000" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="248.464" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="254.569" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="257.033" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">1</tspan>
+    <tspan x="263.138" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">2</tspan>
+    <tspan x="269.243" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">8</tspan>
+    <tspan x="275.348" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">；</tspan>
+    <tspan x="286.348" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">本</tspan>
+    <tspan x="297.348" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">图</tspan>
+    <tspan x="308.348" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px">用</tspan>
+    <tspan x="319.347" y="-0.766" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="330.000" y="-0.797" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="332.464" y="-0.797" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="338.569" y="-0.797" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="341.033" y="-0.797" style="font-family:'NotoSansSC-Regular';font-size:11px">3</tspan>
+    <tspan x="347.138" y="-0.797" style="font-family:'NotoSansSC-Regular';font-size:11px">、</tspan>
+    <tspan x="366.000" y="-0.938" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="368.464" y="-0.938" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="374.569" y="-0.938" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="377.033" y="-0.938" style="font-family:'NotoSansSC-Regular';font-size:11px">4</tspan>
+    <tspan x="383.138" y="-0.938" style="font-family:'NotoSansSC-Regular';font-size:11px">、</tspan>
+    <tspan x="403.000" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="405.464" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">=</tspan>
+    <tspan x="411.569" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="414.033" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">2</tspan>
+    <tspan x="420.138" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px"> </tspan>
+    <tspan x="422.602" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">只</tspan>
+    <tspan x="433.602" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">为</tspan>
+    <tspan x="444.602" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">看</tspan>
+    <tspan x="455.602" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">清</tspan>
+    <tspan x="466.602" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">形</tspan>
+    <tspan x="477.601" y="-0.750" style="font-family:'NotoSansSC-Regular';font-size:11px">状</tspan>
+    <tspan x="70.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="140.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="232.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="322.000" y="-0.922" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">T</tspan>
+    <tspan x="359.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">d</tspan>
+    <tspan x="395.000" y="-0.781" style="font-family:'cmmi10';font-size:13.31px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+    <tspan x="238.915" y="1.215" style="font-family:'cmmi10';font-size:9.317px;stroke:#666;stroke-width:0.308px;paint-order:stroke fill">h</tspan>
+   </text>
+  </g>
+ </g>
 </svg>
