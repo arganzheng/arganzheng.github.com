@@ -24,7 +24,7 @@ $$L$$ 层网络的前向是 $$L$$ 个函数的复合 $$f_L\circ\cdots\circ f_1$$
 
 **1、前向方差逐层相乘。** 先看一层怎么放大方差。前提是权重和输入相互独立、均值为 0，这就是「方差传播的近似」。一层分两步，下图把这两步画在一起：
 
-![一层的方差是怎么被放大的：左边 \(n_{in}\) 个输入，每个方差 \(\sigma_x^2\)；每条连线乘一个权重，每一项的方差是 \(\sigma_w^2\sigma_x^2\)；\(n_{in}\) 项在求和节点相加，方差变成 \(n_{in}\sigma_w^2\sigma_x^2\)，这是第一步 Linear，放大 \(n_{in}\sigma_w^2\) 倍；再过激活函数，二阶矩乘 \(c_\varphi\)，ReLU 是 \(1/2\)，这是第二步；两步合起来就是 \(a_l\)](/img/in-post/dl-init-norm-one-layer-steps.svg)
+![一层的方差是怎么被放大的：左边 \\(n_{in}\\) 个输入，每个方差 \\(\sigma_x^2\\)；每条连线乘一个权重，每一项的方差是 \\(\sigma_w^2\sigma_x^2\\)；\\(n_{in}\\) 项在求和节点相加，方差变成 \\(n_{in}\sigma_w^2\sigma_x^2\\)，这是第一步 Linear，放大 \\(n_{in}\sigma_w^2\\) 倍；再过激活函数，二阶矩乘 \\(c_\varphi\\)，ReLU 是 \\(1/2\\)，这是第二步；两步合起来就是 \\(a_l\\)](/img/in-post/dl-init-norm-one-layer-steps.svg)
 
 第一步是 Linear。输出的一个分量是 $$z_i=\sum_{j=1}^{n_{in}}W_{ij}x_j$$，$$n_{in}$$ 是输入维度，也就是图里左边那一列有多少个输入。每一项 $$W_{ij}x_j$$ 是两个独立、均值为 0 的数相乘，方差是 $$\sigma_w^2\sigma_x^2$$，$$\sigma_w^2$$ 是权重的方差，$$\sigma_x^2$$ 是输入的方差。$$n_{in}$$ 项相互独立，方差直接相加，所以 $$\text{Var}(z_i)=n_{in}\sigma_w^2\sigma_x^2$$，比输入放大了 $$n_{in}\sigma_w^2$$ 倍。
 
@@ -74,7 +74,7 @@ Table: 三种方案各动了连乘链的哪一环
 
 把这条链分前向、反向两段画出来，三种方案各作用在哪一环就清楚了：
 
-![深网络的前向链和反向链：前向方差逐层乘 \(a_l\)，初始化定 \(a_l\) 的起点，归一化每层把方差拉回 1；反向梯度是 Jacobian 连乘，残差给出一条恒等通路](/img/in-post/dl-init-norm-chain.svg)
+![深网络的前向链和反向链：前向方差逐层乘 \\(a_l\\)，初始化定 \\(a_l\\) 的起点，归一化每层把方差拉回 1；反向梯度是 Jacobian 连乘，残差给出一条恒等通路](/img/in-post/dl-init-norm-chain.svg)
 
 图分上下两块，上面是前向，下面是反向，每块各有两行对照着看：
 
@@ -160,7 +160,7 @@ $$
 
 这里 $$x_l$$ 是第 $$l$$ 层的输入，也就是第一章的 $$h_{l-1}$$。矩阵 $$J$$ 的谱范数 $$\lVert J\rVert_2$$ 是它把一个向量拉长的最大倍数，等于最大奇异值（见《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的「四、秩与 SVD · 2. SVD：任何矩阵都能这样分解」）。梯度向量每过一层最多被拉长 $$\lVert J_l\rVert_2$$ 倍，所以它的范数不超过 $$\prod_l \lVert J_l\rVert_2 \cdot \lVert \partial L/\partial x_{L+1}\rVert$$。每层因子 $$a$$ 的微小偏离都会被深度指数放大，画出来就是几条直线：
 
-![每层因子 \(a\) 的 \(a^L\) 随深度 \(L\) 的曲线（对数纵轴）：\(a=0.5\) 在 64 层落到 \(5\times10^{-20}\)，\(a=0.9\) 在 128 层落到 \(1.4\times10^{-6}\)，\(a=1.0\) 持平，\(a=1.1\) 与 \(a=2\) 指数上行](/img/in-post/dl-init-norm-product.svg)
+![每层因子 \\(a\\) 的 \\(a^L\\) 随深度 \\(L\\) 的曲线（对数纵轴）：\\(a=0.5\\) 在 64 层落到 \\(5\times10^{-20}\\)，\\(a=0.9\\) 在 128 层落到 \\(1.4\times10^{-6}\\)，\\(a=1.0\\) 持平，\\(a=1.1\\) 与 \\(a=2\\) 指数上行](/img/in-post/dl-init-norm-product.svg)
 
 ## 三、方案一：初始化
 
@@ -178,7 +178,7 @@ $$
 
 这是 **Kaiming 初始化**（He 等 2015）。差一个因子 2 看起来无关紧要，连乘之后不是：用 $$1/n_{in}$$ 初始化一个 ReLU 网络，每层方差乘 0.5、标准差乘 $$0.707$$，64 层后标准差是 $$2^{-32} \approx 2.3 \times 10^{-10}$$。下面的模拟把这个因子 2 画出来——64 层 Linear + ReLU、宽 256、batch 1024、固定种子，三种初始化方差下逐层激活的标准差：
 
-![NumPy 模拟：64 层 Linear+ReLU（宽 256、batch 1024）在 \(\sigma_w^2=1/n\)、\(2/n\)、\(3/n\) 下逐层激活 std（对数轴）——\(1/n\) 一条直线掉到 \(2\times10^{-10}\)，\(2/n\) 贴着 1，\(3/n\) 指数冲到 \(10^5\)](/img/in-post/dl-init-norm-init-variance.svg)
+![NumPy 模拟：64 层 Linear+ReLU（宽 256、batch 1024）在 \\(\sigma_w^2=1/n\\)、\\(2/n\\)、\\(3/n\\) 下逐层激活 std（对数轴）——\\(1/n\\) 一条直线掉到 \\(2\times10^{-10}\\)，\\(2/n\\) 贴着 1，\\(3/n\\) 指数冲到 \\(10^5\\)](/img/in-post/dl-init-norm-init-variance.svg)
 
 模拟值与理论对得上：$$\sigma_w^2 = 1/n$$ 时第 64 层 std 实测 $$2.2 \times 10^{-10}$$，理论 $$2^{-32} = 2.3 \times 10^{-10}$$（初始层略有差异）；$$\sigma_w^2 = 2/n$$ 时第 64 层是 1.05；$$\sigma_w^2 = 3/n$$ 时到了 $$3 \times 10^{5}$$。第九章实测 plain-naive（就是 $$1/n$$ 那条线）第 64 块 std $$7.2 \times 10^{-10}$$，loss 停在 $$\ln 10 = 2.303$$ 一步不动——logits 全是零，梯度全是零。
 
@@ -235,7 +235,7 @@ BatchNorm 的统计量来自 batch，带来三个问题：
 2. **padding 混进统计量。** 序列模型里每个特征在 batch × 位置上统计，长度 6/4/2 的句子 pad 到 6 后，有三分之一的位置是 padding，也被算进均值和方差（图左）；"同一特征"的样本数还随序列长度变；
 3. **推理时没有 batch。** 自回归生成是 batch = 1、逐 token 前向，没法现算统计量，只能用训练期的滑动平均——训练与推理行为不一致。
 
-![左：3 条长度 6/4/2 的句子 pad 到 6 的 token 网格，BatchNorm 对 batch×位置（含 padding）统计、LayerNorm 每个 token 各自统计；右：batch 均值估计的 std 随 batch size \(m\) 按 \(1/\sqrt{m}\) 下降（模拟与理论），自回归推理 \(m=1\) 时噪声最大](/img/in-post/dl-init-norm-bn-sequence.svg)
+![左：3 条长度 6/4/2 的句子 pad 到 6 的 token 网格，BatchNorm 对 batch×位置（含 padding）统计、LayerNorm 每个 token 各自统计；右：batch 均值估计的 std 随 batch size \\(m\\) 按 \\(1/\sqrt{m}\\) 下降（模拟与理论），自回归推理 \\(m=1\\) 时噪声最大](/img/in-post/dl-init-norm-bn-sequence.svg)
 
 LayerNorm 沿特征统计，每个 token 自己归一，三个问题都不存在。这就是 CNN 用 BatchNorm、Transformer 用 LayerNorm 的原因。
 
@@ -301,7 +301,7 @@ $$
 
 四条路径里有一条全是 $$I$$——梯度从 loss 到任何一层都有一条不经过任何 Jacobian 的直达通路：
 
-![两个残差块展开成的 4 条梯度路径：\((I+J_2)(I+J_1)=I+J_1+J_2+J_2J_1\)，其中恒等路径（绿色）不乘任何 \(J\)](/img/in-post/dl-init-norm-residual-paths.svg)
+![两个残差块展开成的 4 条梯度路径：\\((I+J_2)(I+J_1)=I+J_1+J_2+J_2J_1\\)，其中恒等路径（绿色）不乘任何 \\(J\\)](/img/in-post/dl-init-norm-residual-paths.svg)
 
 只要 $$J_{f_l}$$ 的范数不太大，这条通路就保证梯度不会指数级衰减。He 等 2015（ResNet）用它把 152 层训了起来；Transformer 每层有两个残差块（attention 与 FFN），Llama-3-70B 的 80 层就是 160 个残差块。第九章实测：有残差的配置（Pre-Norm）各层梯度范数在 0.12–0.15 之间，均匀得像同一层。
 
@@ -315,7 +315,7 @@ $$
 
 把三种接法在同一个 64 块、宽 256 的网络上逐块量一遍（`case_05_init_toys.py residual-var`，配置与第九章实验相同），三条曲线就是三个公式：
 
-![64 个残差块残差流标准差的对数纵轴曲线：无归一化一条直线冲上去（方差每层翻倍，块 64 达 \(6\times10^9\)）；Pre-Norm 缓慢线性上抬到 8.1；Pre-Norm 加 GPT-2 缩放贴着 1.3–1.5 几乎水平](/img/in-post/dl-init-residual-var.svg)
+![64 个残差块残差流标准差的对数纵轴曲线：无归一化一条直线冲上去（方差每层翻倍，块 64 达 \\(6\times10^9\\)）；Pre-Norm 缓慢线性上抬到 8.1；Pre-Norm 加 GPT-2 缩放贴着 1.3–1.5 几乎水平](/img/in-post/dl-init-residual-var.svg)
 
 <details markdown="1"><summary>实测输出</summary>
 
@@ -391,7 +391,7 @@ Table: 训练诊断：三条曲线的健康形状与病态
 
 第一条对应第[二](#二一条链前向的方差与反向的-jacobian)、[五](#五方案三残差连接)章，第二条对应第[二](#二一条链前向的方差与反向的-jacobian)、[三](#三方案一初始化)、[六](#六pre-norm-与-post-norm)章，第三条是《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》的内容。三条曲线加起来，第一章那张表里的每一种失败都能在几百步之内被定位到具体的层与具体的原因。把第九章那批数据画出来，健康与病态的差别一眼可见：
 
-![三个小图：激活 RMS vs 层（prenorm 贴着 1、res-nonorm 冲到 \(10^9\)）；梯度范数 vs 层（prenorm 平坦、ln 无残差从 0.26 升到 1.48）；同一 Pre-Norm 下 \(\max\,\Delta W/W\) vs 步（lr 0.005 贴着 \(10^{-3}\) 虚线、lr 0.5 高一个量级并冲到 1 以上）](/img/in-post/dl-init-diagnosis.svg)
+![三个小图：激活 RMS vs 层（prenorm 贴着 1、res-nonorm 冲到 \\(10^9\\)）；梯度范数 vs 层（prenorm 平坦、ln 无残差从 0.26 升到 1.48）；同一 Pre-Norm 下 \\(\max\,\Delta W/W\\) vs 步（lr 0.005 贴着 \\(10^{-3}\\) 虚线、lr 0.5 高一个量级并冲到 1 以上）](/img/in-post/dl-init-diagnosis.svg)
 
 读法：左图红线（res-nonorm）指数抬升对应表里的「随深度指数增长 → 残差没有归一化」；中图红线（ln 无残差）从底层到顶层 6 倍对应「随深度变化几个量级 → 没有残差」；右图是同一个 Pre-Norm 换学习率：lr 0.005 贴着 $$10^{-3}$$ 虚线（健康量级），lr 0.5 系统性高一个量级并多次冲到 1 以上——就是表里「远大于 $$10^{-3}$$ → 学习率太大」的样子。
 
@@ -437,7 +437,7 @@ Table: 初始时刻逐层激活标准差与梯度范数
 
 画成曲线（[`case_02_deep_mlp.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_02_deep_mlp.py)）：
 
-![左：七种配置逐块的激活标准差（对数刻度）——plain-naive 一条直线掉到 \(10^{-9}\)，res-nonorm 一条直线冲到 \(10^9\)，其余五种贴着 1；右：逐块的权重梯度范数——res-nonorm 在 \(10^{10}\)，plain-naive 在 \(10^{-10}\)，其余在 0.1–10 之间](/img/in-post/dl-case-02-init-stats.svg)
+![左：七种配置逐块的激活标准差（对数刻度）——plain-naive 一条直线掉到 \\(10^{-9}\\)，res-nonorm 一条直线冲到 \\(10^9\\)，其余五种贴着 1；右：逐块的权重梯度范数——res-nonorm 在 \\(10^{10}\\)，plain-naive 在 \\(10^{-10}\\)，其余在 0.1–10 之间](/img/in-post/dl-case-02-init-stats.svg)
 
 对数坐标上两条**直线**——plain-naive 往下、res-nonorm 往上——就是"每层乘一个固定因子"的指数增长 / 衰减，第二章和第五章推的两个公式画出来就是这两条线的斜率。其余五种前向都贴着 1，但右图的梯度告诉你它们不一样：ln 和 postnorm 从底层到顶层升了 4–6 倍，prenorm 和 res-nonorm-scaled 几乎是水平的。
 

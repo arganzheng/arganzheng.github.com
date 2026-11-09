@@ -39,7 +39,7 @@ Q 197.411884 219.230087 197.411884 221.831683
 L 197.411884 247.847645
 Q 197.411884 250.449241 203.69988 250.449241
 z
-" clip-path="url(#pf47e58ebe8)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#pcd02cd2733)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 533.819678 250.449241
@@ -52,7 +52,7 @@ Q 527.531682 219.230087 527.531682 221.831683
 L 527.531682 247.847645
 Q 527.531682 250.449241 533.819678 250.449241
 z
-" clip-path="url(#pf47e58ebe8)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
+" clip-path="url(#pcd02cd2733)" style="fill: #f4f7fb; stroke: #7a8ca5; stroke-width: 1.1; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- $x_0$ -->
@@ -1275,7 +1275,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="pf47e58ebe8">
+  <clipPath id="pcd02cd2733">
    <rect x="7.2" y="7.2" width="785.99952" height="325.19952"/>
   </clipPath>
  </defs>
