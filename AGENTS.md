@@ -163,10 +163,20 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   WOFF2（Noto Sans SC + cmr10/cmmi10/cmsy10/STIX），所以博客 `<img>`
   渲染不依赖读者机器的字体（路径轮廓文字在 `<img>` 里无 hinting，又细又
   锯齿）。`register_noto()` 必须在任何 Text 创建之前执行——`font.family`
-  在 Text 构造时就定死了。数学只在需要排版时用 `$...$`：上下标 `^`/`_`、
-  希腊字母、\top、\hat、\sqrt、\partial、\odot 等；普通字母、数字和
-  符号直接写 Unicode 正文（`p = 0.659`、`K = 64`、`128×784`、`a = f(z)`、
-  负号用 `−`）——`check_math_needed` 会拒绝只有 ASCII 的 `$...$`。
+  在 Text 构造时就定死了。公式里的变量即使是单个字母也要走 mathtext
+  斜体——源串没写 LaTeX 也一样：`$p$ = 0.659`、`$K$ = 64`、
+  `$z=wx+b$`（整式一个 math run）、`$dL/dx$`、`$dW_1$` 这类梯度变量。
+  变量后面跟数值时写斜体变量 + 正体数字（`$p$` = 0.659）。
+  保持正体：数字、单位（s、ms、GB）、运算符、词（softmax、loss、max）、
+  多字母缩写（TP、ReLU、GELU、MSE、CE）、代码标识符。数学里才需要
+  `$...$` 的还有上下标 `^`/`_`、希腊字母、\top、\hat、\sqrt、\partial、
+  \odot 等；科学计数法写 `$10^{-3}$` 或 `$2.5\times10^{-4}$`，绝不写
+  ASCII `e-`；负号用 `−`；平文本 `=` 两边要空格（`check_plain_text`
+  会拦 `\S=` / `=\S`，代码式 `==`/`:=`/`_`-前缀标识符豁免）；算式里
+  `×` 带空格（`4 × 3 = 12`），形状写法 `128×784` 保持紧凑；向量写
+  `[0.6, −1.2]`，不要 numpy repr。`check_math_needed` 会拒绝只有
+  ASCII 纯数字/运算符的 `$...$`，也拒绝 `$K=64$` 这种「变量+值」整体
+  math run——拆成 `$K$ = 64`；整组变量等式（`$z=wx+b$`）合法。
   希腊字母一旦是变量就必须走 mathtext（`$\tau/2$`、`$\delta/\tau$`、
   `$\theta$`），不要平写成 Unicode——无衬线希腊字母旁边是 CM 数学时
   字体混杂；`μ` 等单位前缀例外。含 `\` 的串一律用 raw string——非 raw
@@ -180,8 +190,12 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   what mathtext is for. The missing-glyph check only scans non-ASCII
   characters outside `$...$`.
 - `collide()` must pass: text–text, text–segment, box–box, text–data-line,
-  text inside the canvas. Do not clip data to fake a y-range; set `ylim` and
-  let the axes clip.
+  text inside the canvas. `center_in_rects`（在 collide 之前跑）把一个
+  矩形内的全部文字按墨迹并集整体居中（|上下边距差| ≤ 1.5px，ha=center
+  时横向同样）；居中引起的布局冲突要改布局解决，不许放宽检查。
+  `check_arrows` 要求箭头可见杆长 ≥16px。容器框不居中时给 patch 设
+  `patch._no_center = True`。Do not clip data to fake a y-range; set `ylim`
+  and let the axes clip.
 - Hand-written SVGs: formulas use `<text data-tex="…">` and
   `tools/svg-mathtext.py` to render editable mixed Chinese/mathtext labels as
   paths (Computer Modern math); rerunning is idempotent from the stored
