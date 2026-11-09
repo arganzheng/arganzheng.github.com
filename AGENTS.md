@@ -157,10 +157,17 @@ Series figures are drawn with matplotlib in `ai-learning-labs`
 and written to `img/in-post/*.svg`. Math in a figure must look like the
 post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
 
-- `_plot.py` sets `mathtext.fontset = 'cm'` (Computer Modern) and
-  `svg.fonttype = 'path'`; write every formula, symbol, subscript and
-  superscript as mathtext `$...$` in the same string as the Chinese text
-  (Hiragino Sans GB W6), e.g. `'dW1 = X^T G_H'` → `r'$dW_1 = X^\top G_H$'`,
+- `_plot.py` sets `mathtext.fontset = 'cm'` (Computer Modern),
+  `svg.fonttype = 'none'` and registers Noto Sans SC — SVG 里输出真
+  `<text>`，`save()` 用 fontTools 把用到的字符子集内嵌为 `@font-face`
+  WOFF2（Noto Sans SC + cmr10/cmmi10/cmsy10/STIX），所以博客 `<img>`
+  渲染不依赖读者机器的字体（路径轮廓文字在 `<img>` 里无 hinting，又细又
+  锯齿）。`register_noto()` 必须在任何 Text 创建之前执行——`font.family`
+  在 Text 构造时就定死了。数学只在需要排版时用 `$...$`：上下标 `^`/`_`、
+  希腊字母、\top、\hat、\sqrt、\partial、\odot 等；普通字母、数字和
+  符号直接写 Unicode 正文（`p = 0.659`、`K = 64`、`128×784`、`a = f(z)`、
+  负号用 `−`）——`check_math_needed` 会拒绝只有 ASCII 的 `$...$`。
+  例如 `'dW1 = X^T G_H'` → `r'$dW_1 = X^\top G_H$'`,
   `v_hat` → `$\hat v_t$`, `g^2` → `$g^2$`, `sqrt(2L)` → `$\sqrt{2L}$`,
   `[128,256]` shapes → `$128\times256$`, Greek letters as `$\beta$`, `$\lambda$`.
 - Never fall back to `x^T`, `_hat`, `^2`, `sqrt()` or `*` because the CJK font
