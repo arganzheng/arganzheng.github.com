@@ -190,9 +190,15 @@ def _rule_props(el, rules, parent_map):
 
 
 def _expand_font(props):
+    """CSS `font:` shorthand -> longhands: [style] [weight] size[/line-height]
+    family-list. A later longhand wins per normal cascade (callers merge rules
+    in document order), so setdefault only fills what the shorthand gives."""
     font = props.get("font")
     if font:
-        m = re.match(r"(?:(normal|bold|[1-9]00)\s+)?([0-9.]+(?:px|pt))\s+(.+)", font.strip())
+        m = re.match(r"(?:(?:normal|italic|oblique)\s+)?"
+                     r"(?:(normal|bold|bolder|lighter|[1-9]00)\s+)?"
+                     r"([0-9.]+(?:px|pt))(?:\s*/\s*[\w.%]+)?\s+(.+)",
+                     font.strip())
         if m:
             if m.group(1):
                 props.setdefault("font-weight", m.group(1))
@@ -343,13 +349,16 @@ def _render(tex, size, weight, family, used):
         key = ";".join(f"{k}:{v}" for k, v in sorted(fs.items()))
         spans.setdefault(key, []).append((gx, -gy, ccode))
     children = []
-    text_el = ET.Element(f"{NS}text", {"font-size": "0"})
+    # explicit start anchoring: an inherited text-anchor (ancestor <g>, CSS)
+    # must not re-anchor the absolute-x tspans
+    text_el = ET.Element(f"{NS}text", {"font-size": "0",
+                                      "text-anchor": "start"})
     for key, chars in spans.items():
         chars.sort()
         for gx, gy, ccode in chars:
             ts = ET.SubElement(text_el, f"{NS}tspan",
                                {"x": f"{gx:.3f}", "y": f"{gy:.3f}",
-                                "style": key})
+                                "style": key, "text-anchor": "start"})
             ts.text = chr(ccode)
     children.append(text_el)
     for rx, ry, rw, rh in rects:
