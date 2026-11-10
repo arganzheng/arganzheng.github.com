@@ -27,101 +27,101 @@
       .tb { fill: #a8641a; }
     </style>
   </defs>
-<rect class="frame" x="14" y="14" width="176" height="268" />
+<rect class="frame" x="14" y="14" width="176" height="268" data-no-center="" />
 <rect class="cellh" x="24" y="16" width="156" height="28" />
 <text x="102" y="35" text-anchor="middle" class="bold">节点 0</text>
 <rect class="proc-c" x="24" y="46" width="156" height="28" />
 <text x="102" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
 <path d="M32 74 V250" class="line" />
 <path d="M32 106 H40" class="line" />
-<rect class="proc-a" x="40" y="86" width="142" height="46" />
+<rect class="proc-a" x="40" y="83" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="111" y="104">worker RANK 0</tspan>
-  <tspan x="111" y="125">GPU 0</tspan>
+  <tspan x="111" y="101">worker RANK 0</tspan>
+  <tspan x="111" y="122">GPU 0</tspan>
 </text>
 <path d="M32 154 H40" class="line" />
-<rect class="proc-a" x="40" y="134" width="142" height="46" />
+<rect class="proc-a" x="40" y="131" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="111" y="152">worker RANK 1</tspan>
-  <tspan x="111" y="173">GPU 1</tspan>
+  <tspan x="111" y="149">worker RANK 1</tspan>
+  <tspan x="111" y="170">GPU 1</tspan>
 </text>
 <path d="M32 202 H44" class="line" />
 <rect class="frame" x="48" y="188" width="24" height="28" />
 <text x="52" y="207" text-anchor="start" class="small">…</text>
 <path d="M32 250 H40" class="line" />
-<rect class="proc-a" x="40" y="230" width="142" height="46" />
+<rect class="proc-a" x="40" y="227" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="111" y="248">worker RANK 7</tspan>
-  <tspan x="111" y="269">GPU 7</tspan>
+  <tspan x="111" y="245">worker RANK 7</tspan>
+  <tspan x="111" y="266">GPU 7</tspan>
 </text>
-<rect class="frame" x="199" y="14" width="176" height="268" />
+<rect class="frame" x="199" y="14" width="176" height="268" data-no-center="" />
 <rect class="cellh" x="209" y="16" width="156" height="28" />
 <text x="287" y="35" text-anchor="middle" class="bold">节点 1</text>
 <rect class="proc-c" x="209" y="46" width="156" height="28" />
 <text x="287" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
 <path d="M217 74 V250" class="line" />
 <path d="M217 106 H225" class="line" />
-<rect class="proc-a" x="225" y="86" width="142" height="46" />
+<rect class="proc-a" x="225" y="83" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="296" y="104">worker RANK 8</tspan>
-  <tspan x="296" y="125">GPU 0</tspan>
+  <tspan x="296" y="101">worker RANK 8</tspan>
+  <tspan x="296" y="122">GPU 0</tspan>
 </text>
 <path d="M217 154 H225" class="line" />
-<rect class="proc-a" x="225" y="134" width="142" height="46" />
+<rect class="proc-a" x="225" y="131" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="296" y="152">worker RANK 9</tspan>
-  <tspan x="296" y="173">GPU 1</tspan>
+  <tspan x="296" y="149">worker RANK 9</tspan>
+  <tspan x="296" y="170">GPU 1</tspan>
 </text>
 <path d="M217 202 H229" class="line" />
 <rect class="frame" x="233" y="188" width="24" height="28" />
 <text x="237" y="207" text-anchor="start" class="small">…</text>
 <path d="M217 250 H225" class="line" />
-<rect class="proc-a" x="225" y="230" width="142" height="46" />
+<rect class="proc-a" x="225" y="227" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="296" y="248">worker RANK 15</tspan>
-  <tspan x="296" y="269">GPU 7</tspan>
+  <tspan x="296" y="245">worker RANK 15</tspan>
+  <tspan x="296" y="266">GPU 7</tspan>
 </text>
-<rect class="frame" x="384" y="14" width="176" height="268" />
+<rect class="frame" x="384" y="14" width="176" height="268" data-no-center="" />
 <rect class="cellh" x="394" y="16" width="156" height="28" />
 <text x="472" y="35" text-anchor="middle" class="bold">节点 2</text>
 <rect class="proc-c" x="394" y="46" width="156" height="28" />
 <text x="472" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
 <path d="M402 74 V250" class="line" />
 <path d="M402 106 H410" class="line" />
-<rect class="proc-a" x="410" y="86" width="142" height="46" />
+<rect class="proc-a" x="410" y="83" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="481" y="104">worker RANK 16</tspan>
-  <tspan x="481" y="125">GPU 0</tspan>
+  <tspan x="481" y="101">worker RANK 16</tspan>
+  <tspan x="481" y="122">GPU 0</tspan>
 </text>
 <path d="M402 154 H414" class="line" />
-<rect class="frame" x="418" y="140" width="24" height="28" />
+<rect class="frame" x="418" y="131" width="24" height="46" />
 <text x="422" y="159" text-anchor="start" class="small">…</text>
 <path d="M402 250 H410" class="line" />
-<rect class="proc-a" x="410" y="230" width="142" height="46" />
+<rect class="proc-a" x="410" y="227" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="481" y="248">worker RANK 23</tspan>
-  <tspan x="481" y="269">GPU 7</tspan>
+  <tspan x="481" y="245">worker RANK 23</tspan>
+  <tspan x="481" y="266">GPU 7</tspan>
 </text>
-<rect class="frame" x="569" y="14" width="176" height="268" />
+<rect class="frame" x="569" y="14" width="176" height="268" data-no-center="" />
 <rect class="cellh" x="579" y="16" width="156" height="28" />
 <text x="657" y="35" text-anchor="middle" class="bold">节点 3</text>
 <rect class="proc-c" x="579" y="46" width="156" height="28" />
 <text x="657" y="63.7" text-anchor="middle" class="mono">torchrun (agent)</text>
 <path d="M587 74 V250" class="line" />
 <path d="M587 106 H595" class="line" />
-<rect class="proc-a" x="595" y="86" width="142" height="46" />
+<rect class="proc-a" x="595" y="83" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="666" y="104">worker RANK 24</tspan>
-  <tspan x="666" y="125">GPU 0</tspan>
+  <tspan x="666" y="101">worker RANK 24</tspan>
+  <tspan x="666" y="122">GPU 0</tspan>
 </text>
 <path d="M587 154 H599" class="line" />
-<rect class="frame" x="603" y="140" width="24" height="28" />
+<rect class="frame" x="603" y="131" width="24" height="46" />
 <text x="607" y="159" text-anchor="start" class="small">…</text>
 <path d="M587 250 H595" class="line" />
-<rect class="proc-a" x="595" y="230" width="142" height="46" />
+<rect class="proc-a" x="595" y="227" width="142" height="46" />
 <text text-anchor="middle" class="small">
-  <tspan x="666" y="248">worker RANK 31</tspan>
-  <tspan x="666" y="269">GPU 7</tspan>
+  <tspan x="666" y="245">worker RANK 31</tspan>
+  <tspan x="666" y="266">GPU 7</tspan>
 </text>
 <rect class="proc-b" x="40" y="326" width="680" height="50" />
 <text text-anchor="middle" class="small">
