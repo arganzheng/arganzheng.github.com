@@ -92,12 +92,17 @@ def _css_rules(root):
 
 
 def _expand_font(props):
+    """CSS `font:` shorthand -> longhands: [style] [weight] size[/line-height]
+    family-list (see svg-mathtext._expand_font)."""
     font = props.get("font")
     if font:
-        m = re.match(r"(?:(normal|bold|[1-9]00)\s+)?([0-9.]+(?:px|pt))\s+(.+)",
+        m = re.match(r"(?:(?:normal|italic|oblique)\s+)?"
+                     r"(?:(normal|bold|bolder|lighter|[1-9]00)\s+)?"
+                     r"([0-9.]+(?:px|pt))(?:\s*/\s*[\w.%]+)?\s+(.+)",
                      font.strip())
         if m:
-            props.setdefault("font-weight", m.group(1))
+            if m.group(1):
+                props.setdefault("font-weight", m.group(1))
             props.setdefault("font-size", m.group(2))
             props.setdefault("font-family", m.group(3))
 
@@ -220,11 +225,11 @@ def process(path):
             continue
         if el.get("data-tex") is not None or _in_mathtext(el):
             continue  # mathtext groups keep their own fonts
-        # a <text>'s visible chars = its own text + descendant tspan text +
-        # tails (el.text alone drops everything after a child tspan);
-        # tspan elements are still visited on their own too (own family/weight)
-        content = ("".join(el.itertext()) if el.tag == f"{NS}text"
-                   else (el.text or ""))
+        # el.text is collected under THIS element's family/weight; each
+        # child's .tail too (it belongs to the parent's text run). Descendant
+        # elements' own .text is collected when they are visited on their own,
+        # under their own resolved family/weight.
+        content = (el.text or "") + "".join(c.tail or "" for c in el)
         if not content.strip():
             continue
         fam = _resolve(el, parent_map, "font-family", rules) or ""
