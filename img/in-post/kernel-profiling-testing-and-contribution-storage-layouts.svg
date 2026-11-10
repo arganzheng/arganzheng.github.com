@@ -45,11 +45,11 @@ text { font-family:'SvgSans', "Noto Sans SC",sans-serif; fill: #111; font-weight
  </defs>
  <rect width="760" height="352" fill="#fff" />
  <text x="20.0" y="18.0" class="h"><tspan style="font-family:'SvgMono', monospace">x[i][j]</tspan><tspan> 落在 storage 的哪个格子</tspan></text>
- <rect x="20.0" y="30.0" width="18.0" height="18.0" class="r0" />
+ <rect x="20.0" y="26.0" width="18.0" height="26.0" class="r0" />
  <text x="44.0" y="44.0" class="n">属于 x，第 0 行（r0）</text>
- <rect x="202.5" y="30.0" width="18.0" height="18.0" class="r1" />
+ <rect x="202.5" y="26.0" width="18.0" height="26.0" class="r1" />
  <text x="226.5" y="44.0" class="n">属于 x，第 1 行（r1）</text>
- <rect x="384" y="25" width="20" height="28" class="nx" />
+ <rect x="384" y="26" width="20" height="26" class="nx" />
  <text x="394.0" y="44.0" class="b" text-anchor="middle" transform="translate(0 0.500) ">·</text>
  <text x="409.0" y="44.0" class="n">storage 里不属于 x 的元素</text>
  <text x="20.0" y="76.0" class="s">storage 下标</text>
