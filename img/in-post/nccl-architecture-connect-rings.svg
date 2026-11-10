@@ -12,8 +12,8 @@ text{font-family:'SvgSans', 'Noto Sans CJK SC','PingFang SC','Hiragino Sans GB',
 <rect width="660" height="400" fill="#fff" />
 <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333" /></marker></defs>
 <defs><marker id="ahib" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c26a12" /></marker></defs>
-<path class="cont" d="M20,20 h624 v130 h-624 Z" />
-<path class="cont" d="M20,250 h624 v130 h-624 Z" />
+<rect class="cont" x="20" y="20" width="624" height="130" data-no-center="" />
+<rect class="cont" x="20" y="250" width="624" height="130" data-no-center="" />
 <text class="s14" x="32" y="44" font-weight="500">节点 A</text>
 <text class="s12 sub" x="32" y="64.0">节点内 NVLink</text>
 <text class="s14" x="32" y="350" font-weight="500">节点 B</text>
