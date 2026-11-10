@@ -33,28 +33,28 @@
 .head, .bold, .l {font-weight:500}
 </style>
   </defs>
-<path class="l0" d="M10.0,10.0 h740.0 v288.0 h-740.0 Z" />
+<rect class="l0" x="10.0" y="10.0" width="740.0" height="288.0" data-no-center="" />
 <text x="24.0" y="32.0" class="monob">ibv_device</text>
 <text x="112.0" y="32.0" class="" font-size="12"><tspan font-family="'SvgMono', DejaVu Sans Mono">ibv_get_device_list()  </tspan>网卡（<tspan font-family="'SvgMono', DejaVu Sans Mono">HCA</tspan>），如<tspan font-family="'SvgMono', DejaVu Sans Mono"> mlx5_0</tspan></text>
-<path class="l1" d="M26.0,46.0 h708.0 v236.0 h-708.0 Z" />
+<rect class="l1" x="26.0" y="46.0" width="708.0" height="236.0" data-no-center="" />
 <text x="40.0" y="68.0" class="monob">ibv_context</text>
 <text x="135.8" y="68.0" class="mono">ibv_open_device()</text>
-<path class="l2" d="M42.0,84.0 h442.0 v182.0 h-442.0 Z" />
+<rect class="l2" x="42.0" y="84.0" width="442.0" height="182.0" data-no-center="" />
 <text x="56.0" y="106.0" class="monob">ibv_pd</text>
 <text x="112.8" y="106.0" class="mono">ibv_alloc_pd()  <tspan font-family="'SvgSans', Noto Sans SC">Protection Domain</tspan></text>
-<path class="box" d="M58.0,122.0 h196.0 v128.0 h-196.0 Z" />
+<rect class="box" x="58.0" y="122.0" width="196.0" height="128.0" data-no-center="" />
 <text x="72.0" y="144.0" class="monob">ibv_mr</text>
 <text x="72.0" y="164.0" class="mono">ibv_reg_mr()</text>
 <text x="72.0" y="184.0" class="small">Memory Region</text>
 <text x="72.0" y="204.0" class="mono">lkey / rkey</text>
-<path class="box" d="M274.0,122.0 h194.0 v128.0 h-194.0 Z" />
+<rect class="box" x="274.0" y="122.0" width="194.0" height="128.0" data-no-center="" />
 <text x="288.0" y="144.0" class="monob">ibv_qp</text>
 <text x="288.0" y="164.0" class="mono">ibv_create_qp()</text>
 <rect x="288.0" y="174.0" width="166.0" height="26.0" class="hcell" />
 <text x="296.0" y="192.0" class="small">SQ（发送队列）</text>
 <rect x="288.0" y="210.0" width="166.0" height="26.0" class="hcell" />
 <text x="296.0" y="228.0" class="small">RQ（接收队列）</text>
-<path class="box" d="M592.0,122.0 h130.0 v128.0 h-130.0 Z" />
+<rect class="box" x="592.0" y="122.0" width="130.0" height="128.0" data-no-center="" />
 <text x="606.0" y="144.0" class="monob">ibv_cq</text>
 <text x="606.0" y="164.0" class="mono">ibv_create_cq()</text>
 <text x="606.0" y="186.0" class="small">可被多个 QP</text>
