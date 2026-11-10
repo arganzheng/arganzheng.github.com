@@ -1,19 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 186" width="760" height="186" role="img" aria-labelledby="t d">
-  <title id="t">MoE Dispatch / Expert / Combine 的流水线</title>
-  <desc id="d">把 Token 分成 Batch₁–Batch₃：Dispatch 完 Batch₁ 就开始算它的 GEMM，同时 Dispatch Batch₂；GEMM₁ 算完进入 Combine₁，同时算 GEMM₂。三行错开一格，通信和计算就重叠起来了。</desc>
-  <defs>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
-    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
-    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
-    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
-    <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}]]></style>
+ <style id="mathtext-fonts" type="text/css">@font-face{font-family:'cmr10';src:url(data:font/woff2;base64,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)}</style>
+ <title id="t">MoE Dispatch / Expert / Combine 的流水线</title>
+ <desc id="d">把 Token 分成 Batch₁–Batch₃：Dispatch 完 Batch₁ 就开始算它的 GEMM，同时 Dispatch Batch₂；GEMM₁ 算完进入 Combine₁，同时算 GEMM₂。三行错开一格，通信和计算就重叠起来了。</desc>
+ <defs>
+  <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+   <path d="M0,0 L8,4 L0,8 Z" fill="#40566f" />
+  </marker>
+  <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+   <path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf" />
+  </marker>
+  <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+   <path d="M0,0 L8,4 L0,8 Z" fill="#c0392b" />
+  </marker>
+  <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+   <path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c" />
+  </marker>
+  <style>
+      text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
       .head { font-size: 16px; font-weight: 700; }
       .body { font-size: 14px; }
       .bold { font-size: 14px; font-weight: 700; }
       .small { font-size: 13px; }
-      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
-      .formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
+      .mono { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .formula { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
       .math { font-size: 14px; }
       .mute { font-size: 13px; fill: #5b6b7c; }
       .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
@@ -39,28 +49,130 @@
       .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow-axis); }
       .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
     </style>
-  </defs>
-<text x="20" y="42.0" text-anchor="start" class="body">Dispatch</text>
-<rect class="seg-o" x="100" y="20" width="120" height="34"/>
-<text x="160.0" y="42.0" text-anchor="middle" class="small">Batch₁</text>
-<rect class="seg-o" x="220" y="20" width="120" height="34"/>
-<text x="280.0" y="42.0" text-anchor="middle" class="small">Batch₂</text>
-<rect class="seg-o" x="340" y="20" width="120" height="34"/>
-<text x="400.0" y="42.0" text-anchor="middle" class="small">Batch₃</text>
-<text x="20" y="88.0" text-anchor="start" class="body">Expert</text>
-<rect class="seg-a" x="220" y="66" width="120" height="34"/>
-<text x="280.0" y="88.0" text-anchor="middle" class="small">GEMM₁</text>
-<rect class="seg-a" x="340" y="66" width="120" height="34"/>
-<text x="400.0" y="88.0" text-anchor="middle" class="small">GEMM₂</text>
-<rect class="seg-a" x="460" y="66" width="120" height="34"/>
-<text x="520.0" y="88.0" text-anchor="middle" class="small">GEMM₃</text>
-<text x="20" y="134.0" text-anchor="start" class="body">Combine</text>
-<rect class="seg-o" x="340" y="112" width="120" height="34"/>
-<text x="400.0" y="134.0" text-anchor="middle" class="small">Combine₁</text>
-<rect class="seg-o" x="460" y="112" width="120" height="34"/>
-<text x="520.0" y="134.0" text-anchor="middle" class="small">Combine₂</text>
-<rect class="seg-o" x="580" y="112" width="120" height="34"/>
-<text x="640.0" y="134.0" text-anchor="middle" class="small">Combine₃</text>
-<line x1="100" y1="162" x2="720" y2="162" class="axis"/>
-<text x="726" y="167" text-anchor="start" class="mute">时间</text>
+ </defs>
+ <text x="20" y="42.0" text-anchor="start" class="body">Dispatch</text>
+ <rect class="seg-o" x="100" y="20" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Batch}_1$" data-x="160" data-y="40.4" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Batch₁">
+  <g transform="translate(136.000 40.400)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">B</tspan>
+    <tspan x="11.129" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">a</tspan>
+    <tspan x="18.988" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">t</tspan>
+    <tspan x="25.090" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">c</tspan>
+    <tspan x="32.067" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">h</tspan>
+    <tspan x="41.423" y="2.266" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-o" x="220" y="20" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Batch}_2$" data-x="280" data-y="40.4" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Batch₂">
+  <g transform="translate(256.000 40.400)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">B</tspan>
+    <tspan x="11.129" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">a</tspan>
+    <tspan x="18.988" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">t</tspan>
+    <tspan x="25.090" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">c</tspan>
+    <tspan x="32.067" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">h</tspan>
+    <tspan x="41.423" y="2.266" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-o" x="340" y="20" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Batch}_3$" data-x="400" data-y="40.4" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Batch₃">
+  <g transform="translate(376.000 40.400)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">B</tspan>
+    <tspan x="11.129" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">a</tspan>
+    <tspan x="18.988" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">t</tspan>
+    <tspan x="25.090" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">c</tspan>
+    <tspan x="32.067" y="-0.094" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">h</tspan>
+    <tspan x="41.423" y="2.266" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">3</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="20" y="88.0" text-anchor="start" class="body">Expert</text>
+ <rect class="seg-a" x="220" y="66" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{GEMM}_1$" data-x="280" data-y="88" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="GEMM₁">
+  <g transform="translate(250.500 88.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">G</tspan>
+    <tspan x="12.326" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">E</tspan>
+    <tspan x="23.018" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="37.416" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="52.445" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-a" x="340" y="66" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{GEMM}_2$" data-x="400" data-y="88" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="GEMM₂">
+  <g transform="translate(370.500 88.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">G</tspan>
+    <tspan x="12.326" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">E</tspan>
+    <tspan x="23.018" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="37.416" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="52.445" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-a" x="460" y="66" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{GEMM}_3$" data-x="520" data-y="88" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="GEMM₃">
+  <g transform="translate(490.500 88.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">G</tspan>
+    <tspan x="12.326" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">E</tspan>
+    <tspan x="23.018" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="37.416" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">M</tspan>
+    <tspan x="52.445" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">3</tspan>
+   </text>
+  </g>
+ </g>
+ <text x="20" y="134.0" text-anchor="start" class="body">Combine</text>
+ <rect class="seg-o" x="340" y="112" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Combine}_1$" data-x="400" data-y="134" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Combine₁">
+  <g transform="translate(365.500 134.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">C</tspan>
+    <tspan x="11.352" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">o</tspan>
+    <tspan x="19.211" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">m</tspan>
+    <tspan x="32.305" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">b</tspan>
+    <tspan x="41.031" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">i</tspan>
+    <tspan x="45.383" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">n</tspan>
+    <tspan x="54.110" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">e</tspan>
+    <tspan x="61.717" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">1</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-o" x="460" y="112" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Combine}_2$" data-x="520" data-y="134" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Combine₂">
+  <g transform="translate(485.500 134.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">C</tspan>
+    <tspan x="11.352" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">o</tspan>
+    <tspan x="19.211" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">m</tspan>
+    <tspan x="32.305" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">b</tspan>
+    <tspan x="41.031" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">i</tspan>
+    <tspan x="45.383" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">n</tspan>
+    <tspan x="54.110" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">e</tspan>
+    <tspan x="61.717" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">2</tspan>
+   </text>
+  </g>
+ </g>
+ <rect class="seg-o" x="580" y="112" width="120" height="34" />
+ <g class="mathtext" data-tex="$\mathrm{Combine}_3$" data-x="640" data-y="134" data-size="13" data-anchor="middle" data-fill="#243447" fill="#243447" data-family="-apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="Combine₃">
+  <g transform="translate(605.500 134.000)">
+   <text font-size="0" text-anchor="start" style="text-anchor:start">
+    <tspan x="0.000" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">C</tspan>
+    <tspan x="11.352" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">o</tspan>
+    <tspan x="19.211" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">m</tspan>
+    <tspan x="32.305" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">b</tspan>
+    <tspan x="41.031" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">i</tspan>
+    <tspan x="45.383" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">n</tspan>
+    <tspan x="54.110" y="-0.922" style="font-family:'cmr10';font-size:15.73px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">e</tspan>
+    <tspan x="61.717" y="1.438" style="font-family:'cmr10';font-size:11.011px;text-anchor:start;stroke:#243447;stroke-width:0.308px;paint-order:stroke fill" text-anchor="start">3</tspan>
+   </text>
+  </g>
+ </g>
+ <line x1="100" y1="162" x2="720" y2="162" class="axis" />
+ <text x="726" y="167" text-anchor="start" class="mute">时间</text>
 </svg>

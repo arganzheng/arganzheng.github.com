@@ -1,19 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 230" width="760" height="230" role="img" aria-labelledby="t d">
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}]]></style>
   <title id="t">不同 Chunk 处于不同阶段</title>
   <desc id="d">Chunk 视角：Chunk 0 到 Chunk 3 各自依次经历 Dispatch、Compute、Combine，后一个 Chunk 比前一个晚一拍开始，于是同一时刻不同 Chunk 处于不同阶段。</desc>
   <defs>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
-    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
-    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
-    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f" /></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf" /></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b" /></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c" /></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
       .head { font-size: 16px; font-weight: 700; }
       .body { font-size: 14px; }
       .bold { font-size: 14px; font-weight: 700; }
       .small { font-size: 13px; }
-      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
-      .formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
+      .mono { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .formula { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
       .math { font-size: 14px; }
       .mute { font-size: 13px; fill: #5b6b7c; }
       .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
@@ -40,34 +41,34 @@
       .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
     </style>
   </defs>
-<line x1="90" y1="24" x2="690" y2="24" class="axis"/>
+<line x1="90" y1="24" x2="690" y2="24" class="axis" />
 <text x="696" y="29" text-anchor="start" class="mute">时间</text>
 <text x="20" y="61.0" text-anchor="start" class="body">Chunk 0</text>
-<rect class="seg-a" x="90" y="40" width="100" height="32"/>
+<rect class="seg-a" x="90" y="40" width="100" height="32" />
 <text x="140.0" y="61.0" text-anchor="middle" class="small">Dispatch</text>
-<rect class="seg-a" x="190" y="40" width="100" height="32"/>
+<rect class="seg-a" x="190" y="40" width="100" height="32" />
 <text x="240.0" y="61.0" text-anchor="middle" class="small">Compute</text>
-<rect class="seg-a" x="290" y="40" width="100" height="32"/>
+<rect class="seg-a" x="290" y="40" width="100" height="32" />
 <text x="340.0" y="61.0" text-anchor="middle" class="small">Combine</text>
 <text x="20" y="103.0" text-anchor="start" class="body">Chunk 1</text>
-<rect class="seg-b" x="190" y="82" width="100" height="32"/>
+<rect class="seg-b" x="190" y="82" width="100" height="32" />
 <text x="240.0" y="103.0" text-anchor="middle" class="small">Dispatch</text>
-<rect class="seg-b" x="290" y="82" width="100" height="32"/>
+<rect class="seg-b" x="290" y="82" width="100" height="32" />
 <text x="340.0" y="103.0" text-anchor="middle" class="small">Compute</text>
-<rect class="seg-b" x="390" y="82" width="100" height="32"/>
+<rect class="seg-b" x="390" y="82" width="100" height="32" />
 <text x="440.0" y="103.0" text-anchor="middle" class="small">Combine</text>
 <text x="20" y="145.0" text-anchor="start" class="body">Chunk 2</text>
-<rect class="seg-c" x="290" y="124" width="100" height="32"/>
+<rect class="seg-c" x="290" y="124" width="100" height="32" />
 <text x="340.0" y="145.0" text-anchor="middle" class="small">Dispatch</text>
-<rect class="seg-c" x="390" y="124" width="100" height="32"/>
+<rect class="seg-c" x="390" y="124" width="100" height="32" />
 <text x="440.0" y="145.0" text-anchor="middle" class="small">Compute</text>
-<rect class="seg-c" x="490" y="124" width="100" height="32"/>
+<rect class="seg-c" x="490" y="124" width="100" height="32" />
 <text x="540.0" y="145.0" text-anchor="middle" class="small">Combine</text>
 <text x="20" y="187.0" text-anchor="start" class="body">Chunk 3</text>
-<rect class="seg-d" x="390" y="166" width="100" height="32"/>
+<rect class="seg-d" x="390" y="166" width="100" height="32" />
 <text x="440.0" y="187.0" text-anchor="middle" class="small">Dispatch</text>
-<rect class="seg-d" x="490" y="166" width="100" height="32"/>
+<rect class="seg-d" x="490" y="166" width="100" height="32" />
 <text x="540.0" y="187.0" text-anchor="middle" class="small">Compute</text>
-<rect class="seg-d" x="590" y="166" width="100" height="32"/>
+<rect class="seg-d" x="590" y="166" width="100" height="32" />
 <text x="640.0" y="187.0" text-anchor="middle" class="small">Combine</text>
 </svg>
