@@ -115,9 +115,13 @@ def _space_math(seg):
     # already-inserted \; \:): medium space both sides
     body = re.sub(r"(?<![\ue000^_{(\[=,:;/+\-*<>\\;])-", r"\\:-\\:", body)
     body = re.sub(r"(?<![\ue000^_{(\[=,:;/+\-*<>\\;])\+", r"\\:+\\:", body)
-    body = body.replace("\ue000", "")
+    # restore protected scripts BEFORE stripping \ue000: stashed script
+    # text can itself carry the unary marker (e.g. `^{-4}` -> `{\ue000-4}`),
+    # which must still be removed below
     body = re.sub(r"\ue001(\d+)\ue002",
                   lambda m: scripts[int(m.group(1))], body)
+    body = body.replace("\ue000", "")
+    assert "\ue000" not in body, f"U+E000 left in {body!r}"
     return "$" + body + "$"
 
 
