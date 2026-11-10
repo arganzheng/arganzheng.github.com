@@ -1,19 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 236" width="760" height="236" role="img" aria-labelledby="t d">
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,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)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}]]></style>
   <title id="t">同机 NVLink 与跨机网络的拓扑</title>
   <desc id="d">每台机器里 4 张 GPU 之间用 NVLink 两两直连（双线）；两台机器之间只有一条 InfiniBand / RoCE 网络链路，带宽低、延迟高。</desc>
   <defs>
-    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f"/></marker>
-    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf"/></marker>
-    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b"/></marker>
-    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c"/></marker>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#40566f" /></marker>
+    <marker id="arrow-light" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#b7c3cf" /></marker>
+    <marker id="arrow-hi" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#c0392b" /></marker>
+    <marker id="arrow-axis" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0,0 L8,4 L0,8 Z" fill="#7a8b9c" /></marker>
     <style>
-      text { font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
+      text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #243447; }
       .head { font-size: 16px; font-weight: 700; }
       .body { font-size: 14px; }
       .bold { font-size: 14px; font-weight: 700; }
       .small { font-size: 13px; }
-      .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
-      .formula { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
+      .mono { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+      .formula { font-family:'SvgMono','SvgSans', "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-style: italic; }
       .math { font-size: 14px; }
       .mute { font-size: 13px; fill: #5b6b7c; }
       .frame { fill: #f8fafc; stroke: #bcc9d6; stroke-width: 1.4; }
@@ -40,54 +41,54 @@
       .brk { stroke: #40566f; stroke-width: 1.4; fill: none; }
     </style>
   </defs>
-<rect class="frame" x="20" y="30" width="250" height="170"/>
+<rect class="frame" x="20" y="30" width="250" height="170" data-no-center="" />
 <text x="32" y="52" text-anchor="start" class="bold">Node 0</text>
-<line x1="80" y1="80" x2="210" y2="80" class="dbl"/>
-<line x1="80" y1="80" x2="210" y2="80" class="dbl-in"/>
-<line x1="80" y1="160" x2="210" y2="160" class="dbl"/>
-<line x1="80" y1="160" x2="210" y2="160" class="dbl-in"/>
-<line x1="80" y1="80" x2="80" y2="160" class="dbl"/>
-<line x1="80" y1="80" x2="80" y2="160" class="dbl-in"/>
-<line x1="210" y1="80" x2="210" y2="160" class="dbl"/>
-<line x1="210" y1="80" x2="210" y2="160" class="dbl-in"/>
-<line x1="80" y1="80" x2="210" y2="160" class="dbl"/>
-<line x1="80" y1="80" x2="210" y2="160" class="dbl-in"/>
-<line x1="210" y1="80" x2="80" y2="160" class="dbl"/>
-<line x1="210" y1="80" x2="80" y2="160" class="dbl-in"/>
-<rect class="gpu" x="46" y="65" width="68" height="30"/>
+<line x1="80" y1="80" x2="210" y2="80" class="dbl" />
+<line x1="80" y1="80" x2="210" y2="80" class="dbl-in" />
+<line x1="80" y1="160" x2="210" y2="160" class="dbl" />
+<line x1="80" y1="160" x2="210" y2="160" class="dbl-in" />
+<line x1="80" y1="80" x2="80" y2="160" class="dbl" />
+<line x1="80" y1="80" x2="80" y2="160" class="dbl-in" />
+<line x1="210" y1="80" x2="210" y2="160" class="dbl" />
+<line x1="210" y1="80" x2="210" y2="160" class="dbl-in" />
+<line x1="80" y1="80" x2="210" y2="160" class="dbl" />
+<line x1="80" y1="80" x2="210" y2="160" class="dbl-in" />
+<line x1="210" y1="80" x2="80" y2="160" class="dbl" />
+<line x1="210" y1="80" x2="80" y2="160" class="dbl-in" />
+<rect class="gpu" x="46" y="65" width="68" height="30" />
 <text x="80.0" y="85.0" text-anchor="middle" class="small">GPU 0</text>
-<rect class="gpu" x="176" y="65" width="68" height="30"/>
+<rect class="gpu" x="176" y="65" width="68" height="30" />
 <text x="210.0" y="85.0" text-anchor="middle" class="small">GPU 1</text>
-<rect class="gpu" x="46" y="145" width="68" height="30"/>
+<rect class="gpu" x="46" y="145" width="68" height="30" />
 <text x="80.0" y="165.0" text-anchor="middle" class="small">GPU 2</text>
-<rect class="gpu" x="176" y="145" width="68" height="30"/>
+<rect class="gpu" x="176" y="145" width="68" height="30" />
 <text x="210.0" y="165.0" text-anchor="middle" class="small">GPU 3</text>
-<rect class="frame" x="490" y="30" width="250" height="170"/>
+<rect class="frame" x="490" y="30" width="250" height="170" data-no-center="" />
 <text x="502" y="52" text-anchor="start" class="bold">Node 1</text>
-<line x1="550" y1="80" x2="680" y2="80" class="dbl"/>
-<line x1="550" y1="80" x2="680" y2="80" class="dbl-in"/>
-<line x1="550" y1="160" x2="680" y2="160" class="dbl"/>
-<line x1="550" y1="160" x2="680" y2="160" class="dbl-in"/>
-<line x1="550" y1="80" x2="550" y2="160" class="dbl"/>
-<line x1="550" y1="80" x2="550" y2="160" class="dbl-in"/>
-<line x1="680" y1="80" x2="680" y2="160" class="dbl"/>
-<line x1="680" y1="80" x2="680" y2="160" class="dbl-in"/>
-<line x1="550" y1="80" x2="680" y2="160" class="dbl"/>
-<line x1="550" y1="80" x2="680" y2="160" class="dbl-in"/>
-<line x1="680" y1="80" x2="550" y2="160" class="dbl"/>
-<line x1="680" y1="80" x2="550" y2="160" class="dbl-in"/>
-<rect class="gpu" x="516" y="65" width="68" height="30"/>
+<line x1="550" y1="80" x2="680" y2="80" class="dbl" />
+<line x1="550" y1="80" x2="680" y2="80" class="dbl-in" />
+<line x1="550" y1="160" x2="680" y2="160" class="dbl" />
+<line x1="550" y1="160" x2="680" y2="160" class="dbl-in" />
+<line x1="550" y1="80" x2="550" y2="160" class="dbl" />
+<line x1="550" y1="80" x2="550" y2="160" class="dbl-in" />
+<line x1="680" y1="80" x2="680" y2="160" class="dbl" />
+<line x1="680" y1="80" x2="680" y2="160" class="dbl-in" />
+<line x1="550" y1="80" x2="680" y2="160" class="dbl" />
+<line x1="550" y1="80" x2="680" y2="160" class="dbl-in" />
+<line x1="680" y1="80" x2="550" y2="160" class="dbl" />
+<line x1="680" y1="80" x2="550" y2="160" class="dbl-in" />
+<rect class="gpu" x="516" y="65" width="68" height="30" />
 <text x="550.0" y="85.0" text-anchor="middle" class="small">GPU 0</text>
-<rect class="gpu" x="646" y="65" width="68" height="30"/>
+<rect class="gpu" x="646" y="65" width="68" height="30" />
 <text x="680.0" y="85.0" text-anchor="middle" class="small">GPU 1</text>
-<rect class="gpu" x="516" y="145" width="68" height="30"/>
+<rect class="gpu" x="516" y="145" width="68" height="30" />
 <text x="550.0" y="165.0" text-anchor="middle" class="small">GPU 2</text>
-<rect class="gpu" x="646" y="145" width="68" height="30"/>
+<rect class="gpu" x="646" y="145" width="68" height="30" />
 <text x="680.0" y="165.0" text-anchor="middle" class="small">GPU 3</text>
-<line x1="270" y1="115" x2="490" y2="115" class="line"/>
+<line x1="270" y1="115" x2="490" y2="115" class="line" />
 <text x="380" y="106" text-anchor="middle" class="small">InfiniBand / RoCE</text>
 <text x="380" y="134" text-anchor="middle" class="mute">跨机网络</text>
-<line x1="60" y1="218" x2="100" y2="218" class="dbl"/>
-<line x1="60" y1="218" x2="100" y2="218" class="dbl-in"/>
+<line x1="60" y1="218" x2="100" y2="218" class="dbl" />
+<line x1="60" y1="218" x2="100" y2="218" class="dbl-in" />
 <text x="108" y="223" text-anchor="start" class="mute">NVLink（同机）</text>
 </svg>
