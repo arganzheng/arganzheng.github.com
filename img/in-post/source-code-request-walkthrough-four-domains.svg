@@ -40,16 +40,16 @@
  </defs>
  <rect class="dom-req" x="20" y="21.6" width="660" height="369.0" data-no-center="" />
  <text x="32" y="59.4" text-anchor="start" class="bold">请求域</text>
- <rect class="card" x="36" y="82.8" width="290" height="286.2" />
- <text x="48" y="118.8" text-anchor="start" class="monob" transform="translate(0.000 -0.900) ">EngineCoreRequest</text>
- <text x="48" y="151.20000000000002" text-anchor="start" class="small" transform="translate(0.000 -0.900) ">IPC 传输对象（msgspec 可序列化）</text>
- <text x="60" y="190.8" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· request_id</text>
- <text x="60" y="221.4" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· prompt_token_ids</text>
- <text x="60" y="252.0" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· sampling_params</text>
- <text x="60" y="282.6" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· lora_request</text>
- <text x="60" y="313.2" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· arrival_time</text>
- <text x="60" y="343.8" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· priority</text>
- <rect class="card" x="374" y="82.8" width="290" height="286.2" />
+ <rect class="card" x="36" y="82.8" width="290" height="286.2" data-no-center="" />
+ <text x="48" y="118.8" text-anchor="start" class="monob" transform="translate(0.000 -0.932)">EngineCoreRequest</text>
+ <text x="48" y="151.20000000000002" text-anchor="start" class="small" transform="translate(0.000 -0.932)">IPC 传输对象（msgspec 可序列化）</text>
+ <text x="60" y="190.8" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· request_id</text>
+ <text x="60" y="221.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· prompt_token_ids</text>
+ <text x="60" y="252.0" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· sampling_params</text>
+ <text x="60" y="282.6" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· lora_request</text>
+ <text x="60" y="313.2" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· arrival_time</text>
+ <text x="60" y="343.8" text-anchor="start" class="mono" transform="translate(0.000 -0.932)">· priority</text>
+ <rect class="card" x="374" y="82.8" width="290" height="286.2" data-no-center="" />
  <text x="386" y="118.8" text-anchor="start" class="monob" transform="translate(0.000 -0.932) ">Request</text>
  <text x="386" y="151.20000000000002" text-anchor="start" class="small" transform="translate(0.000 -0.932) ">调度器内部的活对象</text>
  <text x="398" y="190.8" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· status（状态机）</text>
@@ -63,7 +63,7 @@
  <text x="350.0" y="258.3" text-anchor="middle" class="small">跨进程</text>
  <rect class="dom-sched" x="20" y="412.2" width="660" height="338.40000000000003" data-no-center="" />
  <text x="32" y="450.0" text-anchor="start" class="bold">调度域</text>
- <rect class="card" x="36" y="473.40000000000003" width="290" height="255.6" />
+ <rect class="card" x="36" y="473.40000000000003" width="290" height="255.6" data-no-center="" />
  <text x="48" y="509.40000000000003" text-anchor="start" class="monob" transform="translate(0.000 -0.932) ">SchedulerOutput</text>
  <text x="48" y="541.8000000000001" text-anchor="start" class="small" transform="translate(0.000 -0.932) ">本步调度决策</text>
  <text x="60" y="581.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· scheduled_new_reqs</text>
@@ -71,7 +71,7 @@
  <text x="60" y="642.6" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· num_scheduled_tokens</text>
  <text x="60" y="673.2" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· finished_req_ids</text>
  <text x="60" y="703.8000000000001" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· preempted_req_ids</text>
- <rect class="card" x="374" y="473.40000000000003" width="290" height="255.6" />
+ <rect class="card" x="374" y="473.40000000000003" width="290" height="255.6" data-no-center="" />
  <text x="386" y="509.40000000000003" text-anchor="start" class="monob" transform="translate(0.000 -0.932) ">ModelRunnerOutput</text>
  <text x="386" y="541.8000000000001" text-anchor="start" class="small" transform="translate(0.000 -0.932) ">本步模型执行结果</text>
  <text x="398" y="581.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· req_ids</text>
@@ -81,13 +81,13 @@
  <text x="398" y="703.8000000000001" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· prompt_logprobs_dict</text>
  <rect class="dom-mem" x="20" y="772.2" width="660" height="459.0" data-no-center="" />
  <text x="32" y="810.0" text-anchor="start" class="bold">显存域</text>
- <rect class="card" x="36" y="833.4" width="290" height="194.4" />
+ <rect class="card" x="36" y="833.4" width="290" height="194.4" data-no-center="" />
  <text x="48" y="869.4" text-anchor="start" class="monob" transform="translate(0.000 -0.932) ">KVCacheBlock</text>
  <text x="48" y="901.8000000000001" text-anchor="start" class="small" transform="translate(0.000 -0.932) ">物理块元数据（只在调度进程）</text>
  <text x="60" y="941.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· block_id</text>
  <text x="60" y="972.0" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· ref_cnt</text>
  <text x="60" y="1002.6" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· block_hash</text>
- <rect class="card" x="374" y="833.4" width="290" height="194.4" />
+ <rect class="card" x="374" y="833.4" width="290" height="194.4" data-no-center="" />
  <text x="386" y="869.4" text-anchor="start" class="monob" transform="translate(0.000 -0.932) ">BlockTable</text>
  <text x="386" y="901.8000000000001" text-anchor="start" class="small" transform="translate(0.000 -0.932) ">虚拟 → 物理映射（Worker 进程）</text>
  <text x="398" y="941.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· block_table[row, j] = block_id</text>
@@ -104,17 +104,17 @@
  <text x="60" y="1184.4" text-anchor="start" class="mono" transform="translate(0.000 -0.932) ">· kv_cache[block_id] 就是一个物理块</text>
  <rect class="dom-model" x="20" y="1252.8" width="660" height="307.8" data-no-center="" />
  <text x="32" y="1290.6000000000001" text-anchor="start" class="bold">模型域</text>
- <rect class="card" x="36" y="1314.0" width="290" height="225.0" />
- <text x="48" y="1350.0" text-anchor="start" class="monob" transform="translate(0.000 14.400) ">Model Weights</text>
- <text x="48" y="1382.4" text-anchor="start" class="small" transform="translate(0.000 14.400) ">参数，常驻 GPU</text>
- <text x="60" y="1422.0" text-anchor="start" class="mono" transform="translate(0.000 14.400) ">· Linear.weight</text>
- <text x="60" y="1452.6000000000001" text-anchor="start" class="mono" transform="translate(0.000 14.400) ">· RMSNorm.weight</text>
- <text x="60" y="1483.2" text-anchor="start" class="mono" transform="translate(0.000 14.400) ">· Embedding.weight</text>
- <rect class="card" x="374" y="1314.0" width="290" height="225.0" />
+ <rect class="card" x="36" y="1314.0" width="290" height="225.0" data-no-center="" />
+ <text x="48" y="1350.0" text-anchor="start" class="monob" transform="translate(0.000 -0.900)">Model Weights</text>
+ <text x="48" y="1382.4" text-anchor="start" class="small" transform="translate(0.000 -0.900)">参数，常驻 GPU</text>
+ <text x="60" y="1422.0" text-anchor="start" class="mono" transform="translate(0.000 -0.900)">· Linear.weight</text>
+ <text x="60" y="1452.6000000000001" text-anchor="start" class="mono" transform="translate(0.000 -0.900)">· RMSNorm.weight</text>
+ <text x="60" y="1483.2" text-anchor="start" class="mono" transform="translate(0.000 -0.900)">· Embedding.weight</text>
+ <rect class="card" x="374" y="1314.0" width="290" height="225.0" data-no-center="" />
  <text x="386" y="1350.0" text-anchor="start" class="monob" transform="translate(0.000 -0.900) ">Activations</text>
  <text x="386" y="1382.4" text-anchor="start" class="small" transform="translate(0.000 -0.900) ">激活，前向中生成与销毁</text>
  <text x="398" y="1422.0" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· hidden_states</text>
  <text x="398" y="1452.6000000000001" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· Q, K, V tensors</text>
  <text x="398" y="1483.2" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· attention_output</text>
  <text x="398" y="1513.8" text-anchor="start" class="mono" transform="translate(0.000 -0.900) ">· logits</text>
-<rect x="39.99999999999999" y="101.89995384216304" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="130.2999248504638" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="173.89996147155756" width="281.99999999999994" height="23.063671112060547" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="204.49995231628412" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="235.09995841979975" width="281.99999999999994" height="23.063671112060547" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="265.6999645233153" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="296.29997062683094" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="326.89994621276844" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="101.86816978454586" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="130.26814079284662" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="173.86817741394037" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="204.46816825866694" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="235.06817436218256" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="265.66818046569813" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="296.26818656921375" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="326.86816215515125" width="281.99999999999994" height="23.06368637084961" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="492.46818733215326" width="281.99999999999994" height="23.000118255615178" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="520.8681507110595" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="564.4681873321532" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="595.0681629180907" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="625.6681385040282" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="656.268175125122" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="686.8681507110595" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="492.46818733215326" width="281.99999999999994" height="23.000118255615178" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="520.8681507110595" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="564.4681873321532" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="595.0681629180907" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="625.6681385040282" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="656.268175125122" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="686.8681507110595" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="852.4682178497312" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="880.8681201934812" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="924.4682178497312" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="955.0681934356687" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="985.6681690216062" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="852.4682178497312" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="880.8681201934812" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="924.4682178497312" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="955.0681934356687" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="985.6681690216062" width="281.99999999999994" height="23.063655853271484" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1064.868204116821" width="619.9999999999999" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1086.268106460571" width="619.9999999999999" height="50.0001220703125" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1167.468301773071" width="619.9999999999999" height="23.063594818115234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1133.1652011871336" width="619.9999999999999" height="27.047149658203125" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1348.3999652862547" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1376.7999897003172" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1420.3999652862547" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1450.9999408721922" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1481.5999164581297" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1333.0999164581297" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1361.4999408721922" width="281.99999999999994" height="28.00015640258789" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1405.0999164581297" width="281.99999999999994" height="23.063594818115234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1435.6998920440672" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1466.2998676300047" width="281.99999999999994" height="23.063594818115234" fill="transparent" stroke="none" /><rect x="377.99999999999994" y="1496.8999652862547" width="281.99999999999994" height="23.000118255615234" fill="transparent" stroke="none" /></svg>
+<rect x="39.99999999999999" y="1064.868204116821" width="619.9999999999999" height="23.000118255615234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1086.268106460571" width="619.9999999999999" height="50.0001220703125" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1167.468301773071" width="619.9999999999999" height="23.063594818115234" fill="transparent" stroke="none" /><rect x="39.99999999999999" y="1133.1652011871336" width="619.9999999999999" height="27.047149658203125" fill="transparent" stroke="none" /></svg>
