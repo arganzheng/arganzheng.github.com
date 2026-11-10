@@ -44,11 +44,11 @@
  <text class="mono" x="195.0" y="64.5" text-anchor="middle">Square.apply(x)</text>
  <rect class="seg k-c" x="350" y="44" width="380" height="32"/>
  <text class="mono" x="540.0" y="64.5" text-anchor="middle">y.backward()</text>
- <rect class="seg k-f" x="100.00" y="99.78" width="190.00" height="40.22"/>
+ <rect class="seg k-f" x="100" y="108" width="190" height="32"/>
  <g id="forward-label">
-  <text class="body" x="127.8" y="125.400">forward：</text>
-  <g class="mathtext" data-tex="$y = x \times x$" data-x="193.644" data-y="124.058" data-size="13" data-anchor="start" data-fill=" #243447" fill=" #243447" data-family="'SvgSans', -apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="y = x × x">
-   <g transform="translate(193.6439971923828 124.05805969238281)">
+  <text class="body" x="127.8" y="129.500">forward：</text>
+  <g class="mathtext" data-tex="$y = x \times x$" data-x="193.644" data-y="128.168" data-size="13" data-anchor="start" data-fill=" #243447" fill=" #243447" data-family="'SvgSans', -apple-system, BlinkMacSystemFont, &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, &quot;Noto Sans CJK SC&quot;, sans-serif" data-weight="normal" aria-label="y = x × x">
+   <g transform="translate(193.6439971923828 128.1680596923828)">
     <text font-size="0">
      <tspan x="0.000" y="-0.281" style="font-family:'cmmi10';font-size:15.73px;stroke: #243447;stroke-width:0.308px;paint-order:stroke fill">y</tspan>
      <tspan x="34.948" y="-0.281" style="font-family:'cmmi10';font-size:15.73px;stroke: #243447;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
