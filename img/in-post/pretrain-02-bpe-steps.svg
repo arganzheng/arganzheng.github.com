@@ -1,457 +1,462 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="468" viewBox="0 0 800 468" font-family="-apple-system,PingFang SC,Helvetica,Arial,sans-serif" font-size="12">
-<rect width="800" height="468" fill="#fff"/>
-<text x="400.0" y="20.0" font-size="12.5" text-anchor="middle" font-weight="bold" fill="#222">BPE 训练：每一步把语料里最常相邻的一对合并成一个新 token（语料只有四个词型，各出现 5 / 2 / 6 / 3 次）</text>
-<text x="20.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">第几步 · 合并了谁 · 相邻次数 = 含这一对的词的出现次数之和</text>
-<text x="310.0" y="44.0" font-size="11" text-anchor="start" font-weight="normal" fill="#555">合并之后四个词各切成什么样（␣ 是词前的空格；列头是每个词在语料里出现的次数）</text>
-<rect x="310.0" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="318.2" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="327.9" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="335.9" y="72.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="345.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="353.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="363.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="371.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<text x="344.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">low ×5</text>
-<rect x="391.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="399.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="409.0" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="417.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="426.5" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="434.7" y="72.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="444.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="452.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="462.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="470.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="480.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="488.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<text x="443.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">lower ×2</text>
-<rect x="508.0" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="516.2" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="525.9" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="534.1" y="72.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="543.8" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="552.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="561.7" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="569.9" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="579.6" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="587.8" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="597.4" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="605.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="615.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="623.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="569.9" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">newest ×6</text>
-<rect x="643.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="651.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="661.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="669.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="679.0" y="60.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="687.0" y="72.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="696.5" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="704.6" y="72.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="714.3" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="722.5" y="72.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="732.2" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="740.4" y="72.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="750.1" y="60.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="758.3" y="72.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="704.8" y="96.0" font-size="11" text-anchor="middle" font-weight="bold" fill="#3b6fb6">widest ×3</text>
-<text x="20.0" y="122.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">初始：每个字符一个 token</text>
-<rect x="310.0" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="318.2" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="327.9" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="335.9" y="121.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="345.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="353.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="363.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="371.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="391.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="399.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="409.0" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="417.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="426.5" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="434.7" y="121.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="444.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="452.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="462.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="470.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="480.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="488.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="508.0" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="516.2" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="525.9" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="534.1" y="121.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="543.8" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="552.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="561.7" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="569.9" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="579.6" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="587.8" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="597.4" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="605.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="615.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="623.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="643.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="651.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="661.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="669.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="679.0" y="109.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="687.0" y="121.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="696.5" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="704.6" y="121.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="714.3" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="722.5" y="121.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="732.2" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="740.4" y="121.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="750.1" y="109.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="758.3" y="121.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="20.0" y="158.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 1 步：</text>
-<rect x="70.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="88.4" y="145.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="145.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">s</text>
-<rect x="125.1" y="145.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="133.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.5" y="145.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="154.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<text x="298.0" y="158.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次 = 6 + 3</text>
-<rect x="310.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="318.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="327.9" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="335.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="345.4" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="353.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="363.3" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="371.4" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="391.1" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="399.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="409.0" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="417.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="426.5" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="434.7" y="157.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="444.4" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="452.6" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="462.3" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="470.5" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="480.2" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="488.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="508.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="516.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="525.9" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="534.1" y="157.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="543.8" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="552.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="561.7" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="569.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="579.6" y="145.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="590.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="603.8" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="612.0" y="157.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="631.7" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="639.9" y="157.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="649.6" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="657.8" y="157.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="667.5" y="145.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="675.5" y="157.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="685.0" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="693.1" y="157.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="702.8" y="145.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="714.2" y="157.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="727.1" y="145.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="735.3" y="157.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<text x="20.0" y="194.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 2 步：</text>
-<rect x="70.0" y="181.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="81.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">es</text>
-<rect x="94.8" y="181.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="102.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="113.1" y="181.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="121.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">t</text>
-<rect x="131.5" y="181.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="139.7" y="193.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="149.9" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="164.5" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="298.0" y="194.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">9 次 = 6 + 3</text>
-<rect x="310.0" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="318.2" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="327.9" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="335.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="345.4" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="353.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="363.3" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="371.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="391.1" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="399.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="409.0" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="417.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="426.5" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="434.7" y="193.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="444.4" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="452.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="462.3" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="470.5" y="193.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="480.2" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="488.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="508.0" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="516.2" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="525.9" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="534.1" y="193.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="543.8" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="552.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="561.7" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="569.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="579.6" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="594.1" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="620.2" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="628.4" y="193.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="638.1" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="646.3" y="193.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="656.0" y="181.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="664.0" y="193.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="673.5" y="181.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="681.6" y="193.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="691.3" y="181.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="705.9" y="193.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="230.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 3 步：</text>
-<rect x="70.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="88.4" y="217.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="217.0" width="16.0" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">l</text>
-<rect x="124.8" y="217.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="132.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.1" y="217.0" width="20.3" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="153.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<text x="298.0" y="230.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
-<rect x="310.0" y="217.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="320.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="331.8" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="340.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="349.7" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="357.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="377.6" y="217.0" width="20.3" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="387.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="399.4" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="407.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="417.3" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="425.5" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="435.2" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="443.4" y="229.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="453.1" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="461.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="481.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="489.1" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="498.8" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="507.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="516.7" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="524.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="534.6" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="542.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="552.5" y="217.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="567.0" y="229.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="593.1" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="601.3" y="229.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="611.0" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="619.2" y="229.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="628.9" y="217.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="636.9" y="229.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="646.4" y="217.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="654.6" y="229.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="664.3" y="217.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="678.8" y="229.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="266.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 4 步：</text>
-<rect x="70.0" y="253.0" width="20.3" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="80.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣l</text>
-<rect x="92.3" y="253.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="100.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="110.7" y="253.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="118.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">o</text>
-<rect x="129.1" y="253.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="137.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="147.5" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="160.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<text x="298.0" y="266.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
-<rect x="310.0" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="323.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="338.2" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="346.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="366.1" y="253.0" width="26.7" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="379.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="394.3" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="402.5" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="412.2" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="420.4" y="265.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="430.1" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="438.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="458.0" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="466.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="475.8" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="484.0" y="265.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="493.7" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="501.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="511.6" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="519.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="529.5" y="253.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="544.1" y="265.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="570.1" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="578.3" y="265.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="588.0" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="596.2" y="265.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="605.9" y="253.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="613.9" y="265.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="623.4" y="253.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="631.6" y="265.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="641.3" y="253.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="655.8" y="265.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="302.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 5 步：</text>
-<rect x="70.0" y="289.0" width="26.7" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="83.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
-<rect x="98.7" y="289.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="106.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="117.1" y="289.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="125.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="135.5" y="289.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="143.7" y="301.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="153.9" y="289.0" width="33.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="170.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<text x="298.0" y="302.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">7 次 = 5 + 2</text>
-<rect x="310.0" y="289.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="326.6" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="354.6" y="289.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="371.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="389.2" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="397.4" y="301.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="407.1" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="415.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="435.0" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="443.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="452.8" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="461.0" y="301.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="470.7" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="478.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="488.6" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="496.8" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="506.5" y="289.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="521.1" y="301.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="547.1" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="555.3" y="301.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="565.0" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="573.2" y="301.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="582.9" y="289.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="590.9" y="301.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="600.4" y="289.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="608.6" y="301.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="618.3" y="289.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="632.8" y="301.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="338.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 6 步：</text>
-<rect x="70.0" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="78.2" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="88.4" y="325.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="96.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="106.8" y="325.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="114.9" y="337.9" font-size="11" text-anchor="middle" fill="#222">n</text>
-<rect x="125.1" y="325.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="133.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="143.5" y="325.0" width="22.8" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="154.9" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<text x="298.0" y="338.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
-<rect x="310.0" y="325.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="326.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="354.6" y="325.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="371.2" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="389.2" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="397.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="407.1" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="415.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="435.0" y="325.0" width="22.8" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="446.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<rect x="459.2" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="467.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="477.1" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="485.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="495.0" y="325.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="509.6" y="337.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="535.6" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="543.8" y="337.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="553.5" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="561.7" y="337.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="571.4" y="325.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="579.4" y="337.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="588.9" y="325.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="597.1" y="337.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="606.8" y="325.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="621.3" y="337.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="374.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 7 步：</text>
-<rect x="70.0" y="361.0" width="22.8" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="81.4" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣n</text>
-<rect x="94.8" y="361.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="102.9" y="373.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="113.1" y="361.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="121.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="131.5" y="361.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="139.7" y="373.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="149.9" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="164.5" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<text x="298.0" y="374.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
-<rect x="310.0" y="361.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="326.6" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="354.6" y="361.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="371.2" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="389.2" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="397.4" y="373.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="407.1" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="415.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="435.0" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="449.5" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<rect x="465.6" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="473.8" y="373.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="483.5" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="498.1" y="373.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="524.1" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="532.3" y="373.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="542.0" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="550.2" y="373.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="559.9" y="361.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="567.9" y="373.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="577.4" y="361.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="585.6" y="373.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="595.3" y="361.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="609.8" y="373.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="410.0" font-size="11.5" text-anchor="start" font-weight="bold" fill="#222">第 8 步：</text>
-<rect x="70.0" y="397.0" width="29.1" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="84.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
-<rect x="101.1" y="397.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="109.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">+</text>
-<rect x="119.5" y="397.0" width="16.4" height="19" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8"/>
-<text x="127.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="137.9" y="397.0" width="16.4" height="19" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8"/>
-<text x="146.1" y="409.9" font-size="11" text-anchor="middle" fill="#222">→</text>
-<rect x="156.3" y="397.0" width="35.5" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="174.0" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
-<text x="298.0" y="410.0" font-size="10.5" text-anchor="end" font-weight="normal" fill="#555">6 次 = 6</text>
-<rect x="310.0" y="397.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="326.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="354.6" y="397.0" width="33.1" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="371.2" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣low</text>
-<rect x="389.2" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="397.4" y="409.9" font-size="11" text-anchor="middle" fill="#222">e</text>
-<rect x="407.1" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="415.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">r</text>
-<rect x="435.0" y="397.0" width="35.5" height="19" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8"/>
-<text x="452.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣new</text>
-<rect x="472.0" y="397.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="486.6" y="409.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<rect x="512.6" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="520.8" y="409.9" font-size="11" text-anchor="middle" fill="#222">␣</text>
-<rect x="530.5" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="538.7" y="409.9" font-size="11" text-anchor="middle" fill="#222">w</text>
-<rect x="548.4" y="397.0" width="16.0" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="556.4" y="409.9" font-size="11" text-anchor="middle" fill="#222">i</text>
-<rect x="565.9" y="397.0" width="16.4" height="19" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8"/>
-<text x="574.1" y="409.9" font-size="11" text-anchor="middle" fill="#222">d</text>
-<rect x="583.8" y="397.0" width="29.1" height="19" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8"/>
-<text x="598.3" y="409.9" font-size="11" text-anchor="middle" fill="#222">est</text>
-<text x="20.0" y="440.0" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">次数按词频加权：e+s 只在 newest、widest 两个词型里相邻，但两词共出现 6 + 3 = 9 次，比任何别的对都多，所以第 1 步合并它。</text>
-<text x="20.0" y="456.0" font-size="10.5" text-anchor="start" font-weight="normal" fill="#555">颜色 = token 的长度（1 个字符最浅）。8 步之后 low、est、␣new 各成了一个 token；训练的产物就是这 8 条合并规则，编码新词时按同样顺序再走一遍。</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="558" viewBox="0 0 800 558" font-family="'SvgSans', Noto Sans SC, sans-serif" font-weight="400" font-size="12">
+<style id="embedded-fonts" type="text/css"><![CDATA[@font-face{font-family:'SvgSans';font-weight:400;src:url(data:font/woff2;base64,T1RUTwAPAIAAAwBwQkFTRWlCe0IAAFaUAAAA0kNGRiCzBI/wAAAG6AAAT6tHUE9TiWFwnAAAV2gAAAJ0R1NVQhisBGsAAFncAAAAvk9TLzJiRmMIAAABYAAAAGBWT1JHA3EAAAAAWpwAAAAIY21hcKV4Xz4AAANkAAADZGhlYWQmxOj3AAAA/AAAADZoaGVhCG8DRQAAATQAAAAkaG10eMFRKNQAAFqkAAACBm1heHAAhVAAAAABWAAAAAZuYW1lHUM4kwAAAcAAAAGicG9zdP+GADIAAAbIAAAAIHZoZWEGDRHMAABcrAAAACR2bXR4Idsg7gAAXNAAAAEMAAEAAAACAQbUSLn6Xw889QADA+gAAAAA3LCSVAAAAADnGBHyABP/XwPRA2wAAAADAAIAAAAAAAAAAQAABIj+4AAAA+gAE//+A9EAAQAAAAAAAAAAAAAAAAAAAH4AAFAAAIUAAAADA90BkAAFAAACigJYAAAASwKKAlgAAAFeADIBRQAAAgsFAAAAAAAAAAAAAAMIAQAAAAAAEAAAAABHT09HAEAAIP8bA3D/iAAABIgBIAAAAAEAAAAAAh8C3QAAACAABgAAAAcAWgADAAEECQAAAFQAAAADAAEECQABABgAVAADAAEECQACAA4AbAADAAEECQADAEYAegADAAEECQAEABgAVAADAAEECQAFAGQAwAADAAEECQAGACQBJACpACAAMgAwADEANAAtADIAMAAyADEAIABBAGQAbwBiAGUAIAAoAGgAdAB0AHAAOgAvAC8AdwB3AHcALgBhAGQAbwBiAGUALgBjAG8AbQAvACkALgBOAG8AdABvACAAUwBhAG4AcwAgAFMAQwBSAGUAZwB1AGwAYQByADIALgAwADAANAA7AEcATwBPAEcAOwBOAG8AdABvAFMAYQBuAHMAUwBDAC0AUgBlAGcAdQBsAGEAcgA7AEEARABPAEIARQBWAGUAcgBzAGkAbwBuACAAMgAuADAAMAA0ADsAaABvAHQAYwBvAG4AdgAgADEALgAwAC4AMQAxADgAOwBtAGEAawBlAG8AdABmAGUAeABlACAAMgAuADUALgA2ADUANgAwADMATgBvAHQAbwBTAGEAbgBzAFMAQwAtAFIAZQBnAHUAbABhAHIAAAAAAAIAAAADAAAAFAADAAEAAAAUAAQDUAAAANAAgAAGAFAAIAArADMAOQA9AGUAaQBsAG8AdAB3ALchkiQjMAJOAE4kTipOSE5LToZOp07ATuVO+09GT1VRcVGNUeBR+lIHUhdSGVIrUk1SoFPqVARUCFQMVA5UK1SMVttXKFeLWRpZNFtXW4Nb+VwxXnZej16mYhBiQGMJZXBlmWWwZfZmL2cAZ0NnYWg3aDxrIWtla89r1G1FcmlzsHaEdvh4AXp6eyZ7LH7DfxaCconEi62LzYvtjAGNcI/ZkE2Qu5D9kcyVf5h6mJGYnP8J/wz/G///AAAAIAArADEANQA9AGQAaQBrAG4AcgB3ALchkiQjMAFOAE4kTipOSE5LToZOp07ATuVO+09GT1VRcVGNUeBR+lIHUhdSGVIrUk1SoFPqVARUCFQMVA5UK1SMVttXKFeLWRpZNFtXW4Nb+VwxXnZej16mYhBiQGMJZXBlmWWwZfZmL2cAZ0NnYWg3aDxrIWtla89r1G1FcmlzsHaEdvh4AXp6eyZ7LH7DfxaCconEi62LzYvtjAGNcI/ZkE2Qu5D9kcyVf5h6mJGYnP8I/wz/Gv///+H/1//S/9H/zv+o/6X/pP+j/6H/n/9k3oXb9dAYshyx+bH0sdex1bGbsXuxY7E/sSqw4LDSrreunK5KrjGuJa4WrhWuBK3jrZGsSKwvrCysKaworAyrrKleqRKosKcipwmk56S8pEekEKHMobShnp41ngadPprYmrCamppVmh2ZTZkLmO6YGZgVlTGU7pSFlIGTEY3ujKiJ1YliiFqF4oU3hTKBnIFKfe92nnS2dJd0eHRlcvdwj3Acb69vbm6gau5n9GfeZ9QBcAFuAWEAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAP+DADIAAAAAAAAAAAAAAAAAAAAAAAAAAAEABAIAAQEBE05vdG9TYW5zU0MtUmVndWxhcgABAQE++Bv4HIsMHvgdAfgeAvgfA/gYBPsqDAOe+zX6ZfoABR4qADmZnwwfHQAA//kMIvnUD/rdDCUcR10MJPr0EQAKAgABAAYADgBjAHcAgwCeALgA1QD0ARlBZG9iZUlkZW50aXR5Q29weXJpZ2h0IDIwMTQtMjAyMSBBZG9iZSAoaHR0cDovL3d3dy5hZG9iZS5jb20vKS4gTm90byBpcyBhIHRyYWRlbWFyayBvZiBHb29nbGUgSW5jLk5vdG8gU2FucyBTQyBSZWd1bGFyTm90byBTYW5zIFNDTm90b1NhbnNTQy1SZWd1bGFyLURpbmdiYXRzTm90b1NhbnNTQy1SZWd1bGFyLUdlbmVyaWNOb3RvU2Fuc1NDLVJlZ3VsYXItSWRlb2dyYXBoc05vdG9TYW5zU0MtUmVndWxhci1Qcm9wb3J0aW9uYWxOb3RvU2Fuc1NDLVJlZ3VsYXItUHJvcG9ydGlvbmFsRGlnaXRzAC8CAAEABQAJAA0AEgAWABoAHgAiACYAKgAuADIANgA6AD4AQgBGAEsATwBTAFcAWwBfAGQAaABsAHAAdQB6AIAAhQCKAJAAlgCbAKEApwCsALIAuAC+AMYBBgEdATEBQgFQ+dwVC/dVBwuLmRsLGH+IBQv3XQcL+x8GC/sNBgv7FwYL+woGC/s2Bgv7EAYL+zkGC/ciBwv7CAYL+zsGC/cWBwv7PgYLGH+HBQsV9xQL+4MGCxX3DAsV9woL97gHCxh+hwULFfccCxX3MgsV9wYLGH6IBQsYfYcFC/8APYAACxh8hwULBhMRAAsegYpqiwv/AEmAAAsHE+/AC5VvjngIC4aHfYoeCwgT24AL//+wgAAL/wBPgAAL//+5gAALEudHHUYd5wugdvhx2313SR33j+YTzOcW5/geBsLBsafDG9OqYCUf++Dm9+wH9x5X1vsGHhPUQVJiV1gfiQYTtILaBROsQAYLzxK53F3e94XZTuIT5PesfhX3Hefe9QvVEvdG9zqw6EfoE/T3m34V9xf0C/sQ+wv7AftF+0f3ByL3JR8LAfgt6AP3mn4V9w/3CQsAAAEADAASABMAFAAWABcAGAAZABoAHgBFAEYASgBMAE0ATwBQAFMAVABVAFgDHAOVBXUFdgZsJQklPCVEJWslbyW9JfImHCZUJnMm2SbwKqYqyytTK3QriiucK58rtyvlLHYuhi6oLq0usS61LuEvcDNMM8c0VDbiNw08BTxaPVI9qUHcQgxCMkhXSKZJ3U4YTmJOjU8RT21QxFE5UWNSq1KyV+BYYFk3WUNbeGT7ZwZsM2zobp5y3XRedG177nxBg0iSOpYqlkqWapZ+mKacuZ3lnuifSaEFp1qseayQrJvmY+Zk5mXmZuZn5nLmc+au5q/msvau9q/2svaz9rT2tva39rj2ufa6AwAGAAABAAEDABcAABwCAHEAAH0EAIUAhQIAAQACAAUAJwBOAJYA8AE5AaQB0gJCAq0CzQMOAxIDOgNqA40DkQOVA9QELgR5BNsE6QUdBTwFcwWMBZ4GZwa3By4HtAgICH0IyAlICbsKKAqwCyALswwZDGUNEw25DkMPFw/fEIQQ3hGJEg0SexLuE4IUEhSMFQYVwRZ8FwYXqhhBGPIaPhq+G4EcSx1DHf0e9CA3IOAh/yKQIyQkBiStJYUl/ybdJ5AoECkjKawqrSuiLFctFi2BLe0ucy9rMGMxhTIVMssztDQMNJo1WTX3Nm03SDhyOSU6MTqoOyI71DyfPdI94T4DPjw+UD5iPm0+pj7iPx4/Kz9UP3o/oD/oQEFAiUDuQRtBikHvDvwdDk33488B94XUA/eF9wgV1Pdv92DP+2D3b0L7b/tfR/dfBg5Ni9f4t/cCAfeQ5gPjFvgm1/sn+SVFBmN0XHpKfwhR9xf8t/s4Bw5Ni9r45dUB+BDlA7cW+GHa+18GZl6HiGUf90D3N/cI9yn3Jxr3Fjjg+xcuS2FKUB7AVwW8tL6vxxvmt043+xIh+yb7evtdHw5Nftf3r9H3lEwd2fcX8EbLNaAfkAcT+Nmmv8fkGvcIMc77EDdKZllUHrxRBbW1vqjGG9i6XUU8WE77LB9FBxP09z7FUTI3TlczOFSzt2AfXFAFVrvTW/cGGw5Nftf36ND3S9lOHeb3NPc2J9P7DV9qgHlqH573aAX3qNn7+AZz++q8bAWntaqavBvnx00iIEZJNDZVsrViH11PBVq90Vv3BxsOTX7T99zP92zWEsPhNeP3reIT9PfBfjod7Ov3IvcuO9f7EFJLalReH/d3j97Y8Ru3t3Vppx+/wwW3YlSqPxv7IvsV+wH7s/uG9PsN9yAfE+z7MffHFc+7w6S4G+S2TCgnVUlFL1Te9yyBHw5NoHb5I9kB91rqA/daFuoGl/ezqvc/90D3cAjC/F899/gH+yT7XFn7RX77qggOTX7P+QFLHfBQwkuwH5AHE9i2rcHN2Br3BT/b+xH7BjRA+wM+uVTAZh6HBxPkSGdIRika+wXtOfccHhPYvfgvFTStPLLiGtK8us/ZuVJCVXFZWl8eE+Ra++sVM0nE2dG1xcaxH/Nh5WcoGkJTWDYeDk1+1/drz/fd0hK34few4jXhE/T3f34V9x33FfcG9733fSH3B/sh+wYrLPsj+yvbPPcOyMquwbgf+3eEOT4tG1tfoK5rH1lSBWC0w2vbGxP490f4XRVFWlRvWhs0X8vt8MHN0ujDO/srlR8OTfdrz/dAzwGx+HQDsfhbFfh0z/x0BvvIBPh0z/x0Bg6Ofthgdvh02BLA6fe15zzaE7j3qX4VE7TMxa61tR+OBhN0k0sFE3jW+bAv+2UyCvsC+0QfE7j7SeMk9xwen9gtCkwpCg776qB2+LN39xj3DBLZ9w0g5xPoKAoT8Ln3BC8Ko2dnc3NoZqNzrx8OSqB2+LN3AeflA+cW5fcjBvH3C/cz+5oF7gb7YffY90n3bwUlBvt6+7IFh/ivMQYO++F+1wHn5wP3UH4VpJo0CoYbfYCWpx/5Si/9RAc+p1/PHg6ESh0OgCoKDvt5oHb4b919d6EzChPE5xbn9/EG56/CrbgbopeIhZ0fE5Sc2gUTyJR6eo5zG09TX0ZlH4kGE6iC7gUTpEAGDvspftL4QNIByeL3V+ID935+Mh3Q1OPyNas8qR9OolOfvhq2q6/Qu7F2cLAet8QFrWJPp0gb+wtHRzUu3WfXbx/HdctxVBpcaGVDSlulslseX04FYL7Va9gbDvuEftX4LNUS9wDmOtwT4PeafhWtr5WVqh950AWDeXOEdxtMdrHNH/fE9yjV+yj3LQcT0D8GgfstBRPgNYYFRtz7wQf7AbJD9wceDvdNi9n4B+kBpvmBA/dGFvUG2Pe3mb+WvpfCGZAGmFSVWZlY2fu5GPcDBvcn+LMFMwY8+85/V4FagFkZhgZ+vX+8fr82984YMgY2+85+V39agFkZhgaAvYG8gL86984YLgYO9+7PAbP6MQP5v/gyJQonsmT3YxL3FLP5LbMTcPn99hVjBhOw+xyLa4seZvzki2cbE3CLi6v3HBpjBhOw+2P5fQcOU/esAb/3tQP3pVMVz8VN1DHmQ8UZSlLSUeE1yzwZDk6+91++AbW+91++A/dW94gVOEZHNzbQR97gz8/g30fPNh/7kgRUXbjEwrm5wsS4XVRSXl5SHw4sCviI+HoVUFxcUFC6XMbGurrGxly6UB8O9/HdAbf6KAO3+EMVOfoo3QcOOtb4g9H3H9MS8Nb3MMpN1PdKyk3U9zjWE/WA8PjDFf0U1vjOBxP6gPcwBob7CnL7KPsG+wGcf6Nzl3vT07Tfot+qYapem2u4xxh3sV/EYryQro6ujasI90sGhvsKcvso+wf7AZ1/o3OXe9TUtOGi4MBJwUCnWbjFGGvER+NM0pCtjq2Nqwj3OfxtBnuFhXgeeIpHikSOlnaWao91COXHjJevH66YlqK6Gvi0BxP1gPuD9x/3rNP+BkP3pSUd1PcfFfdL+x/7SwYOPPosAfhg2QP4YPi2Ff0F2fkFB2v3uxUn+zv7Svsm+1E5oHmhbph19y7W9yj3CPcA9x73Gfsw9xgr9yg9l6Oip5+b+y7W+yLp+xT3Lae3GA5H+hUByPoKA/hP+dEVOvsg+y77PvsnIpx9pXKZfPcq9wX3LfdA7vcvCPcH/IwVuVO8SLZK/JdiGPc09x33PPdJ9y33ZD6xGPss+277YvtmSFNOVGBobISWdZtlkHqxmcaM+N+9omSgZ5ls0rMYW+wk9ykt9wQIDljUs9L4R9UBvPolA/d+9xkVV0lVQUgfw0cFzbq6xqwboatpcrMfYM/cgPcOG+z3QJCQ1R+MoZizk58IgCv7KYP7Chv7AziStEwfcZz3YvcU93T3ZfcO900ZU7B8hwX9TUH5FQb7Bvss+1v7SPtJIgj3PPk7FbJYukKeX9KzGHW1W9BkvwgOO9b5SdVkshL4ZNoT0Oz5jhVB+RwHQET7Aj0rWwj8bQd6hYV1HnSJPos4jpd1mWuPdQjxzYyWsh+zl5iivRr4SAcTsPcRz/cc9OTsCBPQULZ6hwUO+BrV90zTAfcQ2QP3m/j4FaxesE6aY8+qGHuyZMdqtgj3/YYVeVhoQ25cCPx3+x0GIYL7KDv7AR6cgqxwl3wI4/cKnPdD9wsazPlq1fuJB6e1q8Cmugj77fdrFaJto2SZawj8DEP5rNP73gaOjH2tbL1trxkO+DjVAfdR1Pft2QP3t/nYFVH7Liv7LSYpmXmhZJJ6sbKwuK69CPzN1PlBB7HNrdKm0gj3ipoV++T7rEH3rPyI2fiI96LV+6L35AcONfoLAfc02/id2wP4CvlcFcVDzCWnSs6zGG3LSuxQ1Aj318EVdfxRRPuN+9b7FJ18qGmVe/ccyejbzPbbO94rs0vNvBhb0ij0Nd3N9yOn902Z94QI/VD9nhWkorCh97b3H4WbgayHoPt9+wEY+Oo7/OIHXWRrdn4el32hbZJ5CA5i0/fJ0wH3TtX36dcD9+uqFUP47dP7n/fJ96/T+6/3qwflnOCgz6JTyhj7D177bmT7TnKTepZvjnnZlN6W3JkI+537vUP3vfvJB/vG+b0VTPsxJfsu+wApmXmjZJN5s7KzubG+CPzQ1fk/B7TPsNSo1AgOPfcBRdH3FdH3XdH3WdIS90DV9yfY99/cE3/3yKoVRfkn0Qf8hfgkFfff+1373wb4aAT33/tZ+98GPvegFfz1+H349Qf88M4VUvssLPsqJyuZeaJiknmurq21rLgIE7/8xdX5Nwez0K/VqNUIDjzY907N92nO9yHTAfdB1fcO0vdB0fcX1gP36Pl7FUP4bv0bB3eFhXYedYlBizuOl3SXao51CO3OjZavH7CYmKLAGvkc1dMH/J/7rBX3Qftp+0EGRPesFfw00tH3h/fuB/w098kVV/spNfsqLyuZeqFjknqrrqq0qbcI/M3V+UkHrs2p0KTQCA73idT3gtMB96zY97LYA/jf9yoV6kX3DifHT9K5GErI+xHqL84I+9iJFVNA+wU0KVacfqZzmnvwxfcF6NPiCPvS+GsVQ/dT+4L7fEL6INT7gPeC91zT+1z3Xz77X/uy918++18H2PvKFfeC97L7ggcOOtP3P9H3EM33DNDt0QH3MtX3dtf3fdUD9zL49xX8D/sKRfcK+4jV94j4q/spB3qFhniKHnqKSopJjpd3lmuQdwjhw4yXrB+sl5ahuRr3KvcN0fsN+A/7x+34G9H95EX4ESkH98n8DxX7ffcQ930G/Kv7EBX3EPd2+xAH98n3UhX7ffcM930G/Kv7DDQd93b7DAcOUdX5SdUB95LZ99HZ9zrTA/eS+aMV+8YH+zd3+177UvseHpt/qW6WfAj3XvcnqPd/90Ma93730f0VByijcNcem9uLmhvbnMb3PpMfdZFtmXeaCPsrh4dkbXpMi30bboaStx/5YAcOdtb38tQS895m2fd53fd/3GLcE+rz9+kV+/75WlLc+Dc6+7P7p/fyBxPc99D37jr7pft/9/45+/77efekPfvt98f78gYT6vui97MGDknS+TfTAfcz0/fy1vdj1wP4OPmEFUP3NQeG+7V6+6b7jPsdnn6jcJd495n3LaL3upH3zAj3YwZ+/Fh9+zxqZgh8gIGIeRt1VoyQUB+YdZRqjHXBiMKKrI6tj6GVoaqzvpf3Ppn4kwiWjKqLHv2q/UEVoJ6rnfeC9oaahamIoPtYOBj3wwf3Xrd/zvtSYwX3fUP7jAf7F2+XRvcLpQX7pwdjcXV5gR6Xe51qkHgIDj/T+IbQ9yuVgdMS+RbV9xjXE+z5FvloFfzE1fjEB/cY9wMV/cYHe4WGex57ileLVI2VdpdrjncI2LuNlqgfqZeXoboa+cUH/Xv8qRW+aMlasmZHKzRHKGSbfJ9ulHj3aOr3L/dXvffvXTwK+3UGE9ybu5m+l78I96TT/JJD9zcGaPstU/siOy6cgKhyl326xrPVreAI93cGeC1uOGVFZK1OuFqqCA5A1/lhzwHy0fbS9wPU9wTS9wjVA/fW9wYVyljbQrFeu8IYZLY60E28CPue+QUV/PPR+K/3tfys1PjwB/e/uhX9uwd4g4V4YQpqj3UI58KNl60fqpiZor4a+bsH+5k4Ffzr0vjrB/xKJxX7sAf7HXL7K/tmJB6Zf6Nvk3sI93T3Aa/3S/ctGveyBw4610rP97XP9wTQ91TPEujQ/wBGgADS/wB0gADTUNb3CtT3H9YTv2D5BvlkFfy/1Pi/B/cf8BX9twd5hYZ4ih55ilGLR42XdZZpj3cI5MCNmKsfqZeYor0a+bYH/YMuFfeW+1T7lgZG95gV+934I/fdB/uV+/YVhjQF+0JH9zsGefsfXvsC+xNJm3+hcZR59yPavfcWoPc2CBN+4PcfBoL7UIFDe3kIgoOCiXwbe2SLj2Afl3eTbox0t4m3i6KOpo2ckpygpamV5Zb3hVAK+2QGkOIFDj/NSdL3Jsbwxu7L5dAS9wjS93LU9w7R9xnVQfcgE3/A+PD4lhX8LtH4Lgf3GakV/KYHfIaHex56ilWLTo2Wd5drj3fYir6NqZcIqpeWoLYa+KcH+zL3wRV1WmVJaVsI+8AGvJ14s2DGZbUZRXKvYrBVnmQZ+4tGBhO/IPoS0Pt9Bqi0q72nuQj8HvyaFSb7cvAH93LGFfty7vdyBvu5yxX86tL3bPdy+xoHfiEKXYtYjZV4lm6QeAjOuIyXph+nlpOfsRr4mQcOS9WK0/iE1ITUEvdUYAr3KdTd0/dW1hNbgPjQ+WAV/aHT1fdWSdb5mQf7of0PFfjG91b8xgcTZ4D9F/l+FYr7RQX7IUIGE6uA9x8GhPuQbPty+xL7GJ5/pnSXevcb9yeu94SU96MI9ywGg/wVgvsddm6CfoGHfIwIeWCLj1wfmHaSa411uIi5iqePqI+elJ2lqraS9yaT+FEsChNngPtzBo33RQUO98vT98rUAfcy2Pim2gP45fdKFfA99xD7BMVDz7gYTdT7EfcAJ9YI+9eIFVA1+wom+wBOnH6nc5l79wPO9wv01u4I+0b4jRX4pvvK/KYGPvgTFfxb+UL4WwcOZs73R9D4G80B91/W+EvaA/df96oV+/7WuvhLX9r3+wf8mvuMFfdH+Ev7Rwf76/nGFUT7D/sN+wT7EkWcf6dul33BrcK1vry6VcNayF/7FEb7J1j7GXCYe5xsknf3Jaz3McT3HtoI9xA/9yNT9ydqlp+gq5yb+x+m+x28+wrL8M7h3MboV603HfwHBqGnoKmdqQj7Efs3FZOUBfgHBllOR1U+W0O5TL9awwgOddH3ZM/3DNB4nhL3WNdzqPhh2hPq+Jn53xUT1iX7L/tN+xr7UkCgeqBul3e/or+mvaoIE+ZZ+I3OB79qwW7EcJajoqaenPszzvsi3vsJ9xCruBj7xvu8FeDD2s7M1dc720ziVQgT6vy9+1EV/CbXw/hmV9r4Igf8tfuoFfdk+Gb7ZAcOOtP3Gcv3Usv0zPTSAePU9x7Q95zR9x7VA/eM+PgVSviQzAf8GPt+Ffec+1L7nAZG95IV/BvQ1Pfi99IH/Pr37hX9+tT5s/k7/VEHeYWFeYoeelGKjUwfl3iWaY93COG+jZepH6qXlqO5GvmZBw5u0feB0fcj0/cQygH3K9fg1vgz2gP3K/mCFfuXB/svgPtq+wD7LB6dgatxmHsI9wf3N5z3h/c7Gvlr0/1r9xAG93ma95Om90K1S8gY+y5k+6tu+4F9CPc1/CYV/EHWv/gzWdr4Pwf8gvvHFfeB+DP7gQcObM33Ms33GM4B90bX+H3ZA/gk+NwVwWvMXKtqw7gYaatIuFapCPun/AEV++bXu/h9Xdn35PtIB8HGxMu3v1SoGH+GBfyySPhzBmZiX1pjYQj7t/t0OR34ffsyB/uG+b0VLPsk+0r7CftQTp14oW+Wd/czxvcr6/b3CvP7CPcyJfcrXJefoqmcm/sztfs/7y31o6wYDrrT9/fR9xfTAfeL1fdm1Pdz1wP4p/l/Ff2i1N33c0DX+ZsH+7/9CBX4wPdz/MAH/Bj5XBUzZ/sybfsZeZN6lXGOesCRxJPDlQj7O/tZRfdGB137Ejv7HT8+mHiebpR1zNDN9we89woI/FDV+E0HtlLDP6JluckYc6og9xJmsQik90PR+0P3SgfKmMWaup0IDqjU9y/L9/zTAePX91DU9yDS91jYA+P5hRX9tNfX+TBH2PmsB/19/R8V+Nf3UAeG+4p5+xT7LUObfqFvk3n3QeCk9ymQ96MI9yD7zgY9nGvRHpvUi58boqWMj5cfiZ2JpYmfCId+b4p7ekqLext2h5erH/fQ91j81wcOP+VF0few0feJ0xL3Vdb33tYTfPgbIB19WHlWdlgI+6dD94YGS/sUM/sL+wc7l3qea5N3tamyra6wCBO8/B7W+HcHusu00a3TCPi50/yaBp24m7mZuAj3FfuYFftV+3VF93UHE3z7sPudRfjx0fud97D3d9H7d/dVBw5e0fcT0NvQUp73WM73Hr1ZzRL3V9D3ENKT2ObQ9wrSE+2w+Q/5oxX749D34wf3Cr4V/FMHfjcKfIpZi1KNlneVbo93CNK8jJepH6mWk561GvhUBxPbsPyNJhX7HvsQkQf3GAf7WfseFUj3DgeASGpHNVaZgaRvlX3xyrHlluII9xX7a9L3a/cGzvsG9x7ozfxYSeonHYQHE9vw96T7mxX7A/vQRvfQ+xP8OEX6HdH8LPcT98TQ+8T3AwcO9+DP97HPAdb5+QP4XPneFUw4+w0p+zVInH+ic5d65rXYvM3ACPeuBllNRlU8XmepWa5ho1RkGLN0t2usbSBX+wpn+wR3mHubbJJ395nC97n3GvcU93NaqTsd+5kGo6Kho5+jCNv73xVDKPsk+wP7X0JSCvcRvfTI3s8I96UGWT1DTDRaaKxasmOnTWcYsm64Zaxq+yFL+zxo+z97l3iZapB29/e19+v3CPcg971ZIAr7iAajpKGkn6QIDvfL0gH4pdgD+K33OTgdSfcfMtw/vcUYONT7JOT7H8wI/BX4nhXcbe5Xu2K3yBhZsya7O6cI+xf7gBXca+1Uu2K7xhhZtCe+O6kIMft6FUT4PgdV+y37CPsB+5VNm3qfb5N597DT9xD3GML3Swj4E9L8Agak9xWL9yqM9z0IPgaK+0KN+ylv+xEIDjzU937T90jSaK5192ND0xLb1ffG2vfE2BPngPhg9/8VTPwbQ/gb+2oHfYaGeYoeeUqLjUgfmHeZaZB2CODAjJauH6+YlqG3Gvds+BvT/BuwBxPXgOO65c/JywgT54BYsnqHBfxyRPgmBlhfSl9Qbghn+GEVnnGeaphuCPwfBhPLgPtj1QcT54D3G/lFBxPLgPsb2AcT54D3Y/v5B32scbhxrAgOU9X4c7Bm92ND0xLh1szZ+KXZE973dviqFfxaB/sAtW/3Ih6q94uLrRv3GKe49zCaH3SQa5h3mAj7GIF+cTxV+2qLYBszepa/H/cwB/c+uPdOxfcVyU3GGChU+zpS+zJgCPd4B/cO97gVoWWhW5hnCPwhBhOu+2PWBxPe9xv5NAcTrvsb2QcT3vdj+/oHmI+AsG3GcLYZDjzY+KXTr9IS+ZHVQfdWE/D4ivgeFbpEuCybT82sGHvHW+da0Aj8bKoVyFTMSsVJT/sUPCowUJ18om+XeefN2efI9w+4U7BWo17Hwhhuv1zJVMq59wes9x2c9zZaPAr73ET3yAZ8+wBzKms1VsJTwVW6CPkB9+gV+4X7r0P3r/yNB3mEhnqKHnpTio5MH5V0lmiPdgjgvo2YqR+qmJeivRr4jQcT6PcM0wYT8PsM94UGDkHKXsT32sj3DMlRxVHQ0M4S9wDN38/U0fdI9x/7FcyIzvcQxhNxTPdC+JAV93X7DPt1Bvi3txX8EAdMknubfh5/m6SHoJiwIh2eo42TmR+bkZWYkp+Qn4/Ajbh3kXKYfZiKWIpiiHqIe4eChIgIh4V+ioB+douCG4GDjY6EH4aPiZigGvgYB/0a+zIVeDhsOGFTmoOmeJeBtMix6aHlCPc1jBWrVKhAllrEphiAu2zUasII9/D4cxW0XrZLnGLBrRh4s1/JYrYIE6vQ/Vv7cxX7h/cq+9kHgUYKlXmVcY54ZQqWkZ6sGvfb9yP3hwf7i/eUFZtqnWKWaAj7aUj4Xc77OgZ/r3W9d7II+ASHFRMEEDuLM4YyHvsaOQpG9xUHevtoWftm+yX7Ep6Ao3iXfPct9x/B93ef93cI938GEwQQ0Pt6B5DkjOKM3AgO96TT923UAfex2fer2QP5FvjFFftt+6ukB/dUB/fp964VdkxlNmlOCPyeQvdY+1MGcft9Q/d3B337Alj7APs0Opx+pW6WefdL6cH3F5n3Ggj3r/v02ff093nT+3n3bfda1Pt1BqvCrc+pyAj8z4YVtVS4QJta1awYeLxd02DACA460feuzPdRyWqs0tES9wzU9/HWE+74B/hJFc5u22XMaQj79Ur3zPubBnyGh3eKHniKSItBjZV2l2+Pdgjlx4uWrx+wlpaguBr3nPdsB2ldZVxra8dtGL+9w9q/01UrCvtNBpOTd5dwmW6ZGRPe3rjhy8bICBPuWrB6hwX8i034SAZdY1BiVG9ZolaiXp4IwvfrFZpunWeYbAj8IfuqSAo5+yMenIOsdph+COH3LJj3dvcvGvdk+YrR+/AHfaxyu3avCA73X8nLx/XJ9wXSAfcS1vdN0/eH1QP4FvkYFTT7NU33Nfs6+Bn3Ovc2yfs24kE0+4fiB/eH+ykVIfuH9Qf3v/u4FV9XTWJDa0SsUbVhvQj7PckVTS8daX20U8JczWQZLW0ieSGClnqZbpB59xGZ9w6k9rXuX/cJb/cSfJSenqmbm/sClSSfMqrjutTLueFcNAr74vjGFZlxmmuWbwj8F/ulBvsphPtqOfsrHp6FrHuafwjf9zKY93v3NBr3Xfl/0vvyB3+rd7N5qwgOQtjLzPea0fcY1BL3FNn3S9Td2UfX95zME/6A+LT52xVSjVKOVB78OfutBvsWgvtBOPsPHp2Cq3GYfAjn9xia9173IRqS90sHh/tAhkt+fAiCg4KJfBt6YIuQXT4KvIi5i6WNpo6ckpueoKaQ4JD3dS8K+5X3GAYT/YD38AaX+zaj+yix+wdJPz5NMlybfKZsl3vYudDCyM0IJLnHTdgb2Ke99z+YH3eSb5x6nAj7GYV/V24bWF7E7WYf1evG9wa29xdAnhhrJmAwVTtx7Hj3C4D3Ggj31dQGE/6A+9kGiMKKw8UavFoVy2rYWLFnur8YZK08vEyqCA73uc/P05/PEu3TQ9X3WtPn2Pcv1kD3VBPPAPiq+XcV++EH+x+A+0T7C/sPHpuBqnKWfAj3FfcWn/dj9ysaovcv/I7W+I4HE86A9wnT++/3Swb3B533FKXgr1jLGBPPADll+ydr+xF4CPv+/A4VqQcT7wD3Fvda+zQH0vheFTxn+yRw+wx8CPvyB/sWhvtBS/sOHhP3AJuCq3KYfcTznfclkPcSCPek97wGE+8A+6LrBvcEmfcQodyuCA47z/gbz/cN0pHOEvdF00P3SImcltL4N9MT2YD5mPgPFXosa0FbUFWoVahYpKG2o72hvwj7O/s9Fcxr0mTRY0lVNGf7BHKYe51rkXr3EKvruNTM4FjYWL1iwcUYVrM+vDa8ws+w4qH3Agj1z/vvBp69nb2Zuj+WGH1ad1R1VUUd+0RH9ycGE9mAb0ttUHBdCGn4ihX7V9L3FPg3+xPT91b7fgeBs3q+e7VAfRiYZ5lelWUI/Fn3FBUT64D7XfsbRPcb+40H+ydhnUL3FbMF+4F4CpZtjXkIzbRiCveYB/cUtYHO+wpnBfd4BxPlgPcA0gYT6YD7ADIK95jK95HRVckS95XRE7D4T/nJFXlka1ByaLxzGKWsrb2ouQj8NhalYaZUlGjEpBiCr3DBb7II95/8vxV0V2tfZWVlnmSeZpuZo5ummagI+x0gFbx4wnK9cUtdPms5eJh9m3GSeeek4LLTxax3qXiieru8GHSbbp1qncDEtdGk4mI7Cvs4BqG/SJeEd4F1gXUZ+xxM9AZ2Y3Rmdm0I9yf5RBX7T/tjTfdMB1tKPk1FbVEKyKzNw73GCPsO0fccB7toyFykdLXBGHOcM8NaqQj3Ucn7YPdPBvfCghVy+0Re+zw9IpuBqHOXf6WwobefvKEpqDCwPFMsPUL7AVaZfKBtknvxwtjQxuMIvTbJR9lcPwo3uEnUWOcIE9DA8q33EaH3KgjP0fuxBpnDl8aUxwj3A/uJFXv7B3MnZzZl5W/xePcACA74RtFkshK69w1Px7PR+HvTE5zB+Y5WCvegjhV9R24odE+8exilxKvppNYI1F0VxWjQVKpls8QYarFGvlGtCBNIMvvEFcZr1FeuZ7DHGGivQbpPqQgTrPxZfRVwCrzOvvcCsfcACPww0fgxB7BRuT+dZb3GGHWsJ/cabqsImfc40fs49+FF++EH93z7wRWYRvfMxAX7otP3rwf3FaJ/0PsJdgX4yUP81gcOUMv3oM3o0VDL9znKErn3TErMoND3fdH3LNRC90sT2cD3/PdpFalZr0ebX8CrGHy1Z8xqvQj7qIYVd05qTWJfmoKleJeBsrqz1KLRCPf5+KAV++wH+xmD+0A2+wwem4KpdJd9CBMgwOf3Fpj3WfckGqv3LPyP1PiPBxMgoPcC0fvj91QG9Zv3BqXfqk7CGBPZwENt+xVt+wR5CPvn3hWbb5tpl20I+1lM+E7KLh1+rHW2eKwI6vtFFX9ddEd4XQgTFAD7qUsGE9EA92Ej+11J9137kwaBiYiBHoCKbItojJV5lW+NeQi8rYyWoh+ilpKdrhr3lPdPzftP8/dby/sUB561nsGdvAgTCgD71YoVn16aT49kzJ0YhrF6xna2CA5F1+/P93jO7NW7zxLc0/c/0fgG1z/3WhP/APhu+FgVwD7PIatOzbEYachG8VXXCPtoOBX7ePs/93gH9z/OFfs/92/3Pwb7h88V/W/T3PeF+R4H+AbaFftX+9hB99j8qQd3g4R3HnWJQYs9jpZ1l2mQdgjvy4yYrx+vl5mhwhr4qQcT/oD3DtUGE/8A+w73VwYOT9L3I833BM7QxN3B3MQB9zjT93/W92fXA/eA+PMV+J05/J0G920E+J06/J0GQ/ceFfvf+TH33wf87vyIFXH7Jkv7BSFGnICob5Z+zbq/y7HaCPse3fcVbPdeG/emBo+gl6yXnVeK+2WKZYwIYWOMj2cf9x734M374PcE+CHO/ghI+DD7wwc0oUu6ZOeVqpOskq4IDjvF/wAzgAA9Hb7D0clOw87Kw8DSvdHAEvcl0GXT9yjT97HWEw+494z5DxX4jUT8jQb3UwT4jUX8jQZD9w8V+735IPe9B/xE/DQVSAcTzFD7Ss4G+zv78RWSSPfqtAUq0/UHwZIFyAdVhQX3xPh1yv4YTOv76AcTkBD3/veqFU3HB3eFqUK0SsBVGVRiTWxMd5h+nXGSe86jza3FuMNdzmjXdUEKQp1KqlSzzcu/26ruYJ4xCvuOTRX3bwZxUGRXXV9dt2e/ccYIEyhQ+22MFUT7StIH90r7ExVNB/tKdgXeBw74wtG61AH3aNUD+en5NxVr+0JP+yU7+wZA9whd9x9r90YIItQVQq4Hr/tivvsy4/sXPjEwSShinH2fbZV57rnlzNjiyEDYSexMlqGipJ+aJsc9zU3XCPD3HdT3TK33gFw4Cv0r5xX7aPs6RfcoB2f7H0X7M0Y3mXifapV1w9PB9w+y9xAI/IjV+JEHtlTEPqJluM4Yc6j7BPcVa6oItfca0fsa92gHDj/M93vOSPdB97bMEvhh1xPY98D3ShVbTjFCSWWbf6Fyl3vPt+jewNII96GBFdFS3DmxVsS2GGTBN9pGwgh7+IcVYFdTXkllTLBVtmK+j49uCsKxu7SyXbliv2j7DFL7IGf7HHiZeppskXj3KaP3Lbb3FtAI9wtL9yNg9y91lZ+eqpub+ySd+xqt+wS/4sPU0bvgWSAK+80GoKWdpZulCBO4jPxFFRPYIfvOSPfO+20HgIeIgB6AimOLZY2VeEMdxbKLlqUfppaSnrEa9233z877zwcTuPUHDvc00vch0Pcc0UfQEvdL0/gF1hPcbAr3z5JtCvsh+5tE95v7g9b3g/eM0vuM9yH3WND7WPce93nQJh2pvazKp8MI/V+iFRPs+1X7FEX3FAdu+xxO+zRNIwq0yLPrqvAI/GHT+JsHplmqUZhqusMYeqdB9wdwrwi2LgoOZs33VcxypHqc96DStMwS917S9wabxtH3q9QTz8D40/kvFfdvBm1MYlFbWVu8Zr9wvgj7/fdUSgr4jAeqX65Vm2+4xBh5pTnucKkIt/cGB3N3nH+ocZh+Ga2pra+qs6Zcrlu2XggTr8A2QidVJ2uafJ5vlHmllaWVpZcI++vRt/erY9QHE5/A9+8HuXmWnqCompoZKKk3ukfE0dTE46/yXKExCvtsBpuomamXqkOeGGQlSilARAjD+xb3agf3l/2/FRPPwPdV96v7VQf7wPeWFcaqwrG+uLxgxGTMawgO+OjVAfjN2wPE+WEVz2XgT7Niu8gYYbQ1wkevCE/9ThXQV8nl1/cIxvEZUb1K+wE2+xBRQhn4MPmTFWv7NFP7MD4pn4Kwdpp/s8Sv1KrdCPgFBnhGbD9zW52DqXybgq7Qt/Wl7VSpPh38BQabvZm/lsAIrvuqFU0H+yN1+277x/sqHp5+pXCXefdZ7uL3FLL3DsP7NOX7CfclTpWfoqqcmvtCyiz3Ll73XQiMpYyjohrKBw74Y9P3FNFF90US92bX90faQ9oT2Pe3+DgVXDk7OkBWnH6mbpd82Mnh6cLoCPst+AIV+3f7KkP4KfvR0wf7EkD7Nlz7WnCbd5ttknX4E8b3k/ca9xf3mESsGFT7Ajo1+wBKCPfN+B3TBxPU/Bb3FPe70fu7BhO09jz7xftO93cHDj7C1M5Jzfc1z0jM9zLO8M8S+XnJTdVH2ROuQPgb+F4Vym7WXLJmCPu/BqD3MgX4YAaF+zIFMB21t2SwPLlLpxkTtkD8G/stFUcsHX42fjp+Tgi0BvipioVshXmDghl/goKIeRt3XYyPWR+VepJxjHq8iL6KqI2qjqCTnqUIE85Al5qUp5O9CPcVBhOvAM77DQcTtoCQto7Aj8wI9yTPBhO2QPshBpL3TgWVjKaLHvzvBoRIgT2APQgTroD4qvt5FSsdrrFiszu+RqwZ9+AGiEiHVYZiCPwA9wwVy2zVWrVjCPvKBqT3NgX3Jgb7G/jKFVb7EzX7FS47noCsdZp/wcHD1LzaCPkoz/0BBpqnmaeYqAgOVdP4StYB9xXa99rY95fTA/cRQxWinLCb96bkh52JrYyj+4o/GPgq94zW+4z3vjz9jAdgc3R6gR6YfJ1rkXkI+C36HxX9gAf7A6Zt6x6e9weLnxvxn9D3XJQfdpBrmniaCPtNhIRcWXEsi3cbXoKVxB82HfcDyvcL1+LVTM0YTkwqPitQCPgOBw461hL4ithO1vfByhPQ+RT5oBW/actaqmq5vBhqrEq5WKsI/ORfFchr1FiuZrjDGGevQLtPqQgq+9YVyW3VW7Bot8UYZq0+uU6mCHr82RXNX77pxfcSuPYZULda+wdK+xpcPRn5wvgMFVlGR007V3a9ech9zvfYthiAzgUTsPvbYoS1hLmGuhn30rGBzwUT0PvOZgWF0InT1Ro+Bow/jkCRQ/tWdBiVRQUTsPdSopBckl6SXxn7gW2WRfeDqps9oESkTxksVvsAYfsEbp15nm+VePWq8LXnvwguvstU2hvZp7v3O5kfeJJvm3ucCPsXhH1aaxtaXrTTZR/ox9vTxt0IDkfR+MXTatES7czG0UX3Qfh11hO6+Kr53BVq+yxP+yM3MJyBqHaXf7e+sc2s1QjhBl37NTL7PCE3n4CjeZp89wLr5vdQufdBCN0GV/uR+wD7jfs5+wqggaZ3mnz3OvcY9wP3ob73nAi6Bnf8I3X7KV4Kj14fl3aSa411t4i2i6aOqY+fk5+ns7yh9zGh+FwIjJWMp4sa/B0GnLybwJfACPyNXhV/+w93+xNmN5uEqHmXgggT2py0mr+Xwwjn+3YGRXdJeFh+n0MY9zu/Bfvt0fgDB/cSs4HN+whoBfdhBxPW8tMGE9ok92BF+2A9BpK4krmQuQgOVcT3hKz3HdH3b9FczRLR91ND00P3Rc3T9wXRcNHY1ZjIE6rQ+ET5qxX8qNP4ZvfD/GbV+KgH/dr9RxWcQuqo9xOx9wuuGYLR+xdkBfeRBxOp0PTRBhOy0CL3b/cR0fvfRfca+28GE6zQ+wtFBhOq0PcL+6YGVHxZfWKBCPjS+LAV+1UH+zFr+1H7kfsWHpqAo2+TfAgT6rj3OuLa9wuv9wwI+2doChPq0E4GmcWPxcAa91cHDlDNnc/3hs33Z85J0BLi0Pdm0Pg51BNv+Lz4OxXCQs8nqU7LsxhqxkbsUtII/Ab4FhUTd4Nbekl7Wgj7BP1x0Nr3q/kiLh2ctp7DnL0I+zn7bBX3Zvtn+2YG+8gE94b3ZvuGB/d8+YMVa/seVfseRjKdgap2mX8IE++tu6vIp88I95QGf/wle/sua2kIfX+AiHcbdE+MkEkfmXiUa412w4jGia2Or4+hk6Kps7yZ9y+a+F8oCvvCBpu6mr2XvAgOf9D3QtD3Qs+X09/SEvdq1PdO1PfE1xPv+Lb4bhX3xPtC+8QG94YE9zz3xPs8B/vE+8sV98T7QvvEBkL5aBX96tTI98RR1/nnB/1cxhUT/2kKsVq4TZ5qucgYdaYw9miuCOX3I9P7I/dqBw5Cy8LOo8/3GMuVz/d90EzQEvcIzPcKzfcS0fdt2RO14Pgu92EVR/gSzwf7wfhRFYQofvsafjsInwb4FUwK+/BG9+NECvtkBpTVlemQ1wgT++D8kvciQwrM2/dM+EX7SzYK9ynQBvtp/AxPCg5dz/eRz/dC911G0BLX1ffJ2vfL2BPe+Mj4rRXxVvccPM5bvcUYRLr7HtYovQj7d44VPkgjR/sKYbdKGPcJvfcC19vRCPv7/J4VR/nmz/wZ95H3s8/9F0f3qfuRB2j5thWba55jmWkI/CH7dtX3MflPBhPu+xjYBxPe9137/Qd8sHG/dbIIDj3U+ATQRvdG9x/LEvdS1Phr1BPc+B/3qRW3S8M1pVjLshhvvFLeX8kIE7z3qvd8FRPc+wH8IUb4IfvvB3qFh3eKHnmKSItEjZZ2lmyPdgjlxoyWrR+tl5ehuhr38Pcc0PscBxO89wEH/LeUFVj7ATj7ATZEm3ylbJV8rKisrqqyCPwT1Ph5B6SzorOftAj7KffRFWwnVidNSp2CqnaZf6yyq72owgi/BqFdpFSZac6iGH+ndbd3swj3MMv7kAaXppanlKYI99WcFW0nVCxJTUIKrrCtuqjACNAGp2KqWplszaYYfqR0rnOtCPdcy/vRBpamlaaUpwgOZ8v3LMvoy+jL9x7FEvhd1fec1FzcE/73PPglFYNDfDJ9Twj3nwY4NPsTP/sKZJx9oHCWefcLuvcX4OPvCPt71feYBxP997YGgTCAZH19ZAqKXIxakJZ4lG6Mdr+IvIukjaiNnZGcnKWkmMiZ9yAzCvwH6AYT/vfl93H9dUv32i4G+3ZLFfd2LvuEBvfO944V95wu+5wG+9P4UBVoK08wRE+egql6mYCxr7C5q8AIwgagY59alGvNoxiEpHuxea0I9zXF+5ZOCvfRnBVxL1wzTlGegqt4moCqram3pb0IzwasZKpZmWrMpxh/pXSvcasI90jF+8NjCg49z/fHz/cQ0OvRAfkM0wO5xBWdQdyt87bwtRl/xfsCY/sBY0J0Gflu9ysVt0LBKKRSy6sYb8RV617SCPwDjBVvQlIvUFCbgaR4l37Jy8ftst4I/G/3ZBWZkqGQ8plmTGhYfHdwZ3ZydycKnparlfd3vYmai6eMn/tHaRjP5M33AcD2TK8Ye2Z5ZnhoIoEYweO/9wWw9kSqGGv7DUv7GHhpd2l8c3mGlHiXZ498CPfM9xsVRuEHd1p2WXtoeIYZKgqUlKyRuhv3Gfu1WQpbio1YH5V3lW6OdwjQuYyWqB+nl5SftRr3tfdkz/tk91X7Jgeq6wX369H71waVr5Wvk69AmBiEY4FigWMI+0RF9zEGbSsFh/tVFZyxnLWctwju+xAGDlcK9ssS+DJNChN90LPBFZ1G3az0tvC1GX3H+wFh+wFhQXIZoPgFFZmSopD2mmVLaFh7eG5ldnF2KQp9npeqlfdxvoibiKaMnvs7aBjS59D3BMT3A06uGHpkdmR3ZvsEfxjE48P3BbT3AUOkGGf7DUj7GHZqd2l7c3qGk3mWaI98CPjHQkkKE75QUwoTDiBLCkzQ94XT90HS9w7OEvc+1Pd71PeD1qjUE/74bviAFftB+3v3QQf3xBb3g/tBMx2++AIVbmFlXWZpCPudBrKxr7Sstgic9zIVRfsb+w77DfsPP5l7oGWSe6mfqaKopAj8QAf7Cbxw9zMer/fLi7MbE//3Kaq49zCdH3WPbJd3lwj7GIB7byhH+6KLVhv7AneZxx/3OwcT/vizXtb3/fuoBrq7ucWtwFquGHyGBfudBpmhmKGXoQgOUMf3lqrc0vc20b7NEvdgz0vS91nT89FnztLWisgT+6D4cPmrFfyo0/hm96j8Ztb4qAf9R7IV+zD7I0X3IygHikwF+zhEBhP9oPc1BoH7HGf7LPsOJ51+pHKWfOrgu/cDovcFt1TGPqNjv8MYc6om9w1itJHCGPct0gYT+6D7KgaMywXt9x3R+x33MAf4CftSFftUB/sva/tR+5D7FR6agKJvlHwIE/tQ9y3a2vcAsvcBCPtSB0ikeMwe3Abdl7P3MJMfeY9ylnmZCPsfh4ZxaxtEBnKDkqYf95MHE/ugXQaWwY/BvBohHQ74WdQB90rT90TV9x3R9x7WA/kV+Y4V/V3R+V0H9x7AFf4G1voGB/yChxX77wf7RoD7Qyz7Jx6hg6t2m30I7vcylvdU91Qa9/AH/CtgZwp0CpiAn3CTewgOO9X3IM33UcyL06jM79ES91jR9zvO9zbP9w3TE+/A9vmOFcFczUqrYL7AGGu0RspVtwj3gvtQFUr4FcwHE5ZA/XAtFUP3Kvv0B1hnZnh8HpeAonKTfJmepZ/3PPcRhJmBqIafI0EY+D0H8fecFUX4d1sKE2GA/Dv8JRX3NvtRKR1I95IV/BfOzvd699QHDmLN90fO3s+r1KvM9wXOErj3ZUXR9ynT97rSUthf1RP9kO35k3IK94n7URVK9xUHgFp/W4BjCPs6R/kSzwYTIED7CgYTLCCTy5PVj8pWkDEd+00Go/cFBfe2zvzNSPdeBnT7BQWp+14Vq/cdBfdPBhPgwIhhhlmFXgj8AvsrFfvz07IHE9GQ9+ln1ffwBvwz+4oV90f36ftHB/0KQBWanm8KExIA+2VCPx33H/v/BmJ2dHyBHhPRkJh7nmqReQgOPQqB08zPEvdM1Pc/0vdG0hPv+RX5uRWmXqdQlmPNqhh/sW/EbbcI/OpQVQr4n/w6FfsV+0b3FQeT+EsVZvsJQfsoNC+afZ9wlnulpqOqoqwI/OXS1Phf0ftm9x33M8/7M/cV9zPP+zP3E/dLz/w1B6W/osGdvQjr+/MV+0b3E/dGJgr7RvcdBxMU/Fz321wKeQqZfaiFniU9GPg2Bw5I0/dpz/cz0fce0UX3ThL4X9gT9Pdv+BQVfPsnW/tF+w4unH+ldJh90sO73azlCPtD7/c3Zfdrawr3Wffjz/vj9zP4JNH8JPce99vR+9sHE+z3CD4HE/T7CPvJRffJ+x78IEX4IPwlBzmsS8Zg8Je5lLmRuAgOT9f4DdH3KtJhtRK8915D0xPkyPmJFRPUwFzISKdeybcYbrhMzFW3CPcY++EVE+j7XkUGE+T3Fvu3Bl97WWVaXMBCGMS7vL+tG6GqcHS1H2bQ4IH3Cxvw9z+RkNofjKOYsZShCH8m+zKE+wUb+wAyka5MH2eedZx2lQjW+C0V2lXiSt9KQD8tU/sJYpl7omqTevcMu+7K2t7iRdlHv1bFwxhTwDnPMdDG17nmrPcACPcT0vvZBr2dfrJqx264GUN0pmCoUphkGfu9RPhQBm8xZD9ZSjjJNsk/vggOR9TCwm6o9xLE9sRs0azC68IStfdcQtTxzUnOksnjwOTCz9FbyhO7ToDb+Z4VulXFQaZdybMYb7hQ01u/CBMEQADy+8wVEwSAAPtcRQYThVAA9xP70gZgeVhdWE/BRhjRvLrKq3UK906RkNIfjKKYsZSfCIEm+y2C+xEb+wk0krZIH2ajdJ93lwjx+QkV+zMH+w+C+0ZI+xceEwMhAJqEqHeXfs33EJz3P473Fgj4gfdi+3cGgKl3tXupRncYl3KYbZVwCBM4DoD7RfuqFfwmyfdJ4/svwPcv5Psvwvcv5fsIMAqEinaLcowIE1gOgJN7k3SNewizpYyUnR+flo+apxr35gf78vs4FTP24wbAIBX25CAHwhb25SAHEwMRAPxQ+BcV+Dor/DoGDsvP90/O9+DQAfkF0Pc/0QP3lvi4Fa5mtlifasKxGHerYbplrwj3zvdjFf310Pmw9zR3CmiFa3d/HoCEfF8KdpJsjHioiauLpF0KMeketei69wau6EAK/MvBFVT7DSL7FvsONpx/pHKXfefQ3OTK7dtE5zG4ULrGGFzGKOY30Ka/GPuX/EYVSPfIB2dFVjdfUWyobKhuo1dkGNdI5y22TsO6GHmjcKlsqsXZ2/cNt/BaOgoOe8qO06rH7cnszvcMzkj3Q/sM0hL3Kc+l0fcKk4/T49X3XdQTvOz4kPm6FXdbdF5xYAjB+xIHE7rc9wBFBxO83PsA+y5I9y77DPtcSPeEBz4/M0wqWwgTvJyZfaNslHunmqabpZ0I++7Pxvd2XtP4Rvt+B62pq6yprQj3S877FQbE1rves+UIE7zs+5v7FDUdBnFhbmNrZQhsBhO5nCv8fhX193YhB/t29zoV7fd2KQf3NPjOFf3z1fms908Hajte+wBeNggTeZz0NKs/SxqMZ4NudH0IhH57h3kbdYltjGqOmHaTa4x2q4mui6aOpY6ik56XCK+imrrJGtJw2iHoHrzowvcHtOpVrSMdDljR9yTR9wjO9xTK9xHPEvcu1vd+3D/T94fZE/2A93n4tBX3g/sUMx33y/cUFfeH+xT7hwb7y/fQFfeD+xEzHffL9xEV94f7EfuHBvw2/AoVRQcT/oD36fsk/C1F+hLR/Cj3JPfy0fvy9wj30fhX/Vf8V/fJLR0O+ArWAfeM2QP5lfnGFTQj+yYs+yFRnn2pbZl69xvO9yzz7vcHCP2o++UVQPdU+9MHY3R8eYQel3uZapB5o5qxl/em1QiHm4iroRr7hVAF9+T3MQfc+2P3Ivso92RFlqKjqp2c+1TC+yD3E0H3QAj4E9b8/vgWPfwWBg5Wofji0PHNSdgS58vXxtfN28/t0O3SE9/A+AP5uxX98M358Af7XUAV/THG+TEH+1vTFfwoB/s3hPsnVPsPHpuCpXSWfQjM9xuT9zX3Sxr4KAf3+ftEFfxyz/gt9538K9L4cPtcQh2YqpivmK4I91vN/GlJ91IGg2qAZYBsCKz7IDUKJ3b7H/tjPB6cfZ9zlXz3C77KzqzR0FPbP7JYwLsYYb4z2UbCa3EYoMGPw70aJB0O+GHPoMa2y4nOEvcGydPPWc/3ZsvoyuXPE13A+VH4iRWJ+/KA+wj7hkqYfp1zkXv3mNWe9x6N+AgIZ/w1Fc5Z4UO1X7i7GGC2M9BIuwj76veYFVf7ZPsH+xz7aEiafJxyknn3d9v3D/cnwvd3CPv8pRV3QWpAYFicg6Z6l4G1wrLfod0I9/D3dhX8bMv4MfeK/C/P+Gr7SAez9AX3PM78REj3UwaBaX5jfWwI/ML3JBUTjAB2ChOqAPs89w/3Jcv7JfcRR/vMMfd0Bg73HZ730MqcxM/KdccS5MhOzvgQx/HG6coTy8D5TviOFYn7+3/7BfuQS5d+nHORfPeg1J/3G434EAj7+VwVVFolXTZxnH6edpZ85aryv8vICGz7jBVPOvsLRvsMZ5t9nnSWevcUtvcN1tHoCPeHPBXMXthIr162uRhmuDzLTLYIE6lA+4r4fxX8bMf4M/eT/DHK+Gr7UQeYq5qymLEI90nH/EVP91EGgWh8YX1rCBNSAPxH92sVmHKXa5RwCPtXTPhAyikdgql6tHqqCPcQ/JgVUEz7AlEragiQwIy/txr3K/flyiYHn62ht56zTJsYfGRxU3RkCCcdwJ6Dq3S9dK4ZUHihZ6Bbk2oZKvtpBiCG+ypX+wIeE0QAnIWpeZh/rNOc5pPim32cdpV78rP3A83P1wgO+XH3IwH5otAD+Tr4qiAK+Ln3pwH5KvewA/oE+LkVzcRO0zLkRcQZS1PRUt83yz0ZDviXvfdbvgH5Ib33W74D+bf5wxU4SEc5OM5I3t7Ozt7dSM84H/uOBFRet8PCuLfCwrdfVFNfX1QfDvcU9yv35/cqAfkc9ywD+Wj4/iQK91IiCvkc9yxW0BPg+Wj4/ioK9wTUKQr4iPdNIwr409QpCviI+NMV91f3M9r3DPcOH2zHBfsH+wv7KET7Rhv7Rvso0vcH+wsfbE8F+wz3DvczPPdXGw4r+kwB+UvUA/lL+BAV+1fa+zP3DPsOHseqBfsH9wtE9yj3Rhr3RtL3KPcH9wseT6oF+wz7Djz7M/tXGg4r+kwB93zUA/fF+BAV91c89zP7DPcOHk9sBfcH+wvS+yj7Rhr7RkT7KPsH+wsex2wF9wz3Dtr3M/dXGg7n9yMB95nQA/cxICAKh/cq9+j3KgH3QvcsA/eO+HoVs6+oKwpusx/8fgSzr6m4IQper22zHw7FIgr3QvcsVtAT4PeO+HoVs6+ouLlnqWNjZ21dXicKPGBWOmYZDovX+KL3AwH3kOYD4xb4Jtf7J/kRRQZjc1x6Sn8IUfcX/KL7OAcOi9r40dUB+BDlA7cW+GHa+2MGZl6HiGUf9z33RfcP9xr3Ghr3Ejje+xcuS2FJUB7AWAW6tL6xxxvmt1E6+wn7DfsU+2v7ah8Oftf3pNL3ikwd1/cT7UbKNaAfjwcT+NinwMLiGvcGMc37EDdKZVhUHrxRBba1vqnGG9i6X0ZAWFH7LB9EBxP09z7FUzY6TlkzOFSzt2AfXFAFVrvTW/cGGw5+1/fUz/dL2k4d4vcu9y4n0PsNX2qBeGofnvdoBfeo2vv4BnP767xsBae1qpu8G+fHUCgoRkw0NlWytWIfXU8FWr3RW/cHGw5+0/fIz/dr1wHB4fex4AP3wH46Hevn9xz3JjvV+xBSS2lSXh/3eI/f2fAbuLd2aKcfvsQFtmNUqz4b+yL7FfsC+7L7efT7BvchH/sy97EV0bzCpLkb47hQLi1UTUQxVNX3H38fDqB2+Q7aAfda6gP3WhbqBpf3qq73N/c892wIw/xfPPf4B/sh+1dW+z5++6EIDn7P+O9LHetPvkyxH48HE9i2rMHL1hr3Aj/a+xH7BjRC+wFAuVbAZh6HBxPkSWdHSy4a+wXtOfccHhPYvfglFTWtO6/hGtC8uM/ZuVNFVnBcW18eE+Ra++EVM0nE2c62v8WwH/Jh5mwtGkJTWDYeDn7X92vO98rSAbfh97HhA/d5fhX3IvcW9wL3svd5IfcG+yH7Bisv+x37JdtB9w/Gyq3DuR/7eIc2PicbX16grm4fWVIFYLHDa9gb90z4WxVFWlNwXhsyX8bo6sHK0uXDQPselx8OAAUBAQoTHCUu+CAMJqscR5MS+CEMJqUcSLkS+CIMJqkcSNMS+CMMJq4cTjkS+CQMJqAcT5YS/uCLHAu4iwbNCtALq5OlDAyrlqUMDYwMEfp8FPYVqxMADQEBICkxYXl8hafIzt/r9hX0sM/d9wAa0W24VGJoclxcrXO0HpyNhkZfXD5rGQ65Z6hjY2duXQv3JPew9yoSCxX7V/szPPsM+w4fqk8F9wf3C/co0vdGG/dG9yhE+wf3Cx+qxwX3DPsO+zPa+1cbDhWzr6i5IQpdr26zH/x+BLOvqSsKbbMfDiYKDhX9l0f5lygKC69usx86/RsVE9D2tM3f9wga1my6VGNnclxbrXO0Hp2NiAsGWGRJTF5Nx2gYzuPv4+TEMsQn40jjT2gYuE3NTL5kCAsBo/pMAwsVs6+ouSEKXScKPWBWOmYZDri5Z6ljY2dtXV6vC/em92gB+B73aAML+46LHAVGiwazCrMLs9sMDLPbDA2MDBH6fBT7joscBUaLBsUKygvFkp4MDMqVmwwNjAwR+nwUqRMAWgIAAQAFAAwAFAAcACAAKAAvADcAPwBGAE4AUgBZAF8AZgBtAHQAeQB9AIIAhgCLAJQAmgCeAKMAqQCtALEAugDCAMkA0ADXAN4A5ADuAPcA/wEGAQ0BNQFZAXMBgwGPAZgBnwGmAa0BtAHjAgwCHgIwAj0CRwJNAlwCbgKCApQCoQKtArMCvgLJAtIC2wLkAxYDPwNnA4YDlAOtA7QDyQPeA/IEAQQTBCUENwRIBFgEaAR3BIYEkKo8HQuHh30efooLCIyWjKGLGgs3mHmeapN1C5ExHQsHeoWGeooeCwb8HAT7HQuHk3iWaY98CwiMlYunixoLh5N5lmmPC5R4lmmPfAgLojcdCwiWi6aLHguVjJ+LGgv10SH3VQcLCJWMoYseCweEiYiDHgsYfYgFC/ddBg4IjC0KC6Q7HQsV+10HCwel1qDcm94IC4eHe4oeC5o7HQsGEwggC6kYfocFC5wjHQuZOx0Lg9H3Hc/3Fc8LH5d4k22MdguXnqGlnJkLWKwYf4gFC5WdnqabmQudgap2mX8LFWoK+/8LBoMzfvsOfyYICxWbb5tnlm0IC4iIgUAdZowLmHida5N1Cwb7JYT7XwsV+yg49ygH9xoW0vsoRAb7VvdmFfx4x/dr3vtSvvdS0vtRvvdR1QcLFftq+ypE9yEHbPseSPsxSDaYep5ukne9zbv3AbD3BQj8cNIL+En3fvtTBn+sd7l1rgj7VPtGFfgDIPwDBg5mCiodm/cQm/cqk/NWJAoL0InH3r7SvsDRWsYLBpejlqSUpAgLNR37vigdCwiWjKGLHguafZxxlHoLm32gcZV6C1QKQU0V1fsoQQb7VPkERQr7fvttBvsugvtyMPs0HpqEqnWXfuj3Npz3gIz3NwgL+yoHhIiJhIoehHmLjHUfk3uSc416CK+ijZSdH52Vj5ymGvg5B1CKBQsVwV3OSKlfwMAYa7VHy1S3CAsVpUWjL49Px5oYhMd0527RCAtCw26o9zTG9yjJ4coLB2j7HkT7MkU4CwZ+RB19C2/7LV77IkQsl3ecYZB4C/1TJQp5T4qOTh+VdpZoj3MKCxVD9yH77wdWZ2R3ex6ZgKNylHwLjqOOoZGblgisopi7xhrQddoLa2cIfoCBiHobeGOMC4h8igh3b4uObh+XC9RIHUEdCx54ikyKRI6XdZcLjZalH6WXlJ+1GgsGlaOUpJKkCAsIhIOBinkbeQsIv62MlaIfoguKePtvdTJxcRmBgYGJeYwIeV6LkFsfl3iSbo12u4i5i6WNqY2ekp6hr6+i9KL3oiIKCxXHWtZEr1+9wxhntz3OT7oIqv4CFYwHmaCmo/c39xyBmX6ng58tPxgLB0eledEe5wbhl7P3MpQfeI9zlnmaCPsjhoVvaBs5Bm+Dkqgf94EHC/tq+zZD9y1YCpd5nm2Td8HQwPcDsvcHCPx11PhdBwtG9w4HWgqepJ2mm6kICxv3bAaPoJitlp0Iil/7OItqG0hMj5dSHwv4Tfm/cQoLFXVQZTtpUwj73Ub3dfse+1ZG91YLGKn3MxVXMCQj+ylDnICjcZh5yq0LpZ/3O/cIhZqBqIee+ww8GPhKBwtF9yEHZ/sDTPsYUUVHCgsVrVivR5lg0agYfLZlzGi9CAsVwVzMSKtgvsEYbLRGylW4CAt3CN3BjJeqH6qYlqO6GvmZBwv4NvtqQvci+/4HWm1qeXweCxuhrWdvtR9d0+CA9xYb8Av7dEBH92X7w8/3w/dOzwcLB3A8ZCFlNgjlMaRBTRoLB3yFh34efopii12MlXcLmp+mofc/9xqCC36Y+LOZ90SZBvuOoAfQCuAL0JWUDAzglZsMDfl6FPj9Fa4TABUCAAEABQALAB8AJAA8AEUASgBmAG4AfwCJAJEAmQC0ALwAxADaAO0A/AEAAQx+LgoLftf4NdgL98x+FdTFo6q6H2vIBXBiYXtWGwtNHTEKCyRE1fcIhR/4AgaNmY2dnxr3Lz3v+x8eCxK/5DLl97bbC+gDJwoL98N+FSwK90n7CvT7GSsK+0j3CiP3GR/XBDAKC+cW5/izLwYLIAolChP0IgoT7CQKE/QjCgshCgG/6ffPJgoL+xn7CiL7SQv3GfcK8/dICxUsVNj3F/cQ0d/iuLV7Yrgf+7EHWV5fc1kbDtT3Usz3PdQLFa+ko7CucgstTN73EfcRyt/p6cs3+xH7EUs4LR8L+z/33BX3AJbPyNgb4L1Q+wIfCwaQLgWyW2KjSxv7EPsDC3dJHQuPj5gfftEFiYGHiwt+mPldmAbRCt0L0ZQMDN2TDA34vxQAAAEAAAAIAGIAXgAEAAZERkxUACZjeXJsADhncmVrADhoYW5pACZrYW5hACZsYXRuADgABgAAAAAAAgAEAB4AIgAmAJIABgAAAAAAAwAEAAwAEAAUAIAAAf+2AAEDQgAB/4gABAAWAARpY2ZiaWNmdGlkZW9yb21uAAZERkxUACZjeXJsADhncmVrADhoYW5pACZrYW5hACZsYXRuADgABgAAAAAAAgAEAB4AIgAmACoABgAAAAAAAwAEAAwAEAAUABgAAQAuAAEDugABAAAAAQB4AAAAAQAAAAoARACCAAZERkxUACZjeXJsACZncmVrACZoYW5pACZrYW5hACZsYXRuACYABAAAAAD//wAFAAAAAQACAAMABAAFaGFsdAAga2VybgAmcGFsdAAsdmhhbAAydnBhbAA4AAAAAQAAAAAAAQABAAAAAQACAAAAAQADAAAAAQAEAAUADABKASIBeAG4AAEAAAADAAwAHAAmAAEACgAF/gz+DAABAAEAeAABAXoABf8G/gwAAQAIAAT+DAABAAYAGQAaAHkAegB7AHwAAgAAAAEACAACAI4ABAAAAJ4AtAAJAAcAAAAAAAD/9QAFAAAAAAAAAAD/7P/pAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/t//wAAAAAAAAAAP/1AAAAFf/8AAAAAAAAAAD/6gAAAAAAAAAAAAD/8f/qAAD/9QAAAAAAAP/8AAAAAAAAAAAAAgACAA0ADQAAAA8AFgABAAEADwAIAAEAAgADAAQABQAGAAcACAABAAwACwACAAIAAQAAAAAABgACAAYABQADAAQAAQAAAAMADAA2AEYAAgAcAAUABf/3/gz/Bv4M/jD+DP/c/gz/wP4MAAEABQAZABsAeAB5AHoAAQAIAAT+DAABAAIAewB8AAEACgAFAAv+DAABAAEAGgABAAAAAwAMACAAMAABAAgACP4MAAEABABxAHIAcwB3AAEACgAKAPr+DAABAAEAGwABAAoACgH0/gwAAQABAHYAAQAAAAIACgAcAAEACAAI/gwAAQADAHEAcgBzAAIAFAAKAAMA+v4MAdD+DAAk/gwAAQADABsAdgB3AAEAAAAKAFQAdAAGREZMVAAmY3lybAAqZ3JlawAqaGFuaQAma2FuYQAmbGF0bgAqABoAAAAKAAFaSFMgABYAAP//AAMAAAABAAIAAP//AAIAAQACAANsb2NsABR2ZXJ0ABp2cnQyABoAAAABAAAAAAABAAEAAgAGAB4AAQAAAAEACAABAAYAegACAAEAAwAKAAAAAQAAAAEACAACABQABwByAHMAdgB3AHEAdAB1AAIAAgAZABoAAAB4AHwAAgAAAAEAAANwAAAD6ABkAOAAAAIrACYCKwBYAisAKAIrAB0CKwAbAisAOAIrADECKwAuAisALAIrACYCbAA1AioANAETAE4CKABcARwAXAJiAFwCXgA0AYQAXAHUACABeQAbAyIAGwPoACgD6ACAA+gANAPoACoD6AGKA+gALAPoADwD6AAjA+gAPQPoADED6ABhA+gAIwPoACQD6ABkA+gAFgPoABoD6AAlA+gAMAPoACgD6AAsA+gAaAPoABwD6AA1A+gALQPoACED6AA1A+gAHAPoADED6AAdA+gAKAPoAFgD6AAgA+gAJAPoABoD6ABYA+gAJgPoAC8D6ABLA+gAOAPoAEUD6ABWA+gALQPoADID6AA0A+gAHwPoACUD6AAkA+gAHQPoAB4D6AAnA+gAHwPoACkD6ABRA+gAIwPoAC8D6AATA+gAIwPoAB8D6AAcA+gAKgPoADMD6AAnA+gAWAPoACYD6AAdA+gAKwPoAFcD6AAdA+gAHQPoAEwD6AAkA+gALgPoACcD6AAmA+gAJwPoACQD6AAoA+gALgPoAC0D6AArA+gAIgPoACQD6AAYA+gAIwPoABUD6AA2A+gAOAPoAB4D6AAlA+gAIAPoApAD6AKWA+gCjQPoAogD6AJsA+gAGAPoABgD6AK3A+gALgPoAIcD6ACuA+gAkgIrAFgAKAAdABsANgAxAC4ALAAAAAEQAAH0/gwAAAPoAAT/1wQRAAAAAQAAAAAAAAAAAAAAAAABA+gAAANwAQIAkwCGAIYAkwCGAJMAiACGAWUAVAFDAGkAVABUAUMBQwFDAUMAuAFRAQsDBQKQAnwBigHBAG4AJwAzACMAcgAnACwATwAoACwAKQAxAGUAYQApAE8ALQAvADsAIwA1AHIAIAAlAFwAMAAkADEAfwAoAC4AJgAyACEAIQAoACYAJQAjACMAKQA0ACMAJwAoACQALQBRAEgAKAAmACUAJwAoACgAIgAtACoAKABZACQAKABdACIAJQAjACMAIgAlADIAPgBIAEMALQApACIAJgAnADAAUAAtAEkAJwAmAAQAOABBAHAAcAK3AC4AGAAYAoUA9AD0AKcAmgCaAKcAmgCnAJoAmg==)}@font-face{font-family:'SvgSans';font-weight:500;src:url(data:font/woff2;base64,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)}]]></style>
+<rect width="800" height="558" fill="#fff" />
+<text x="400.0" y="20.000" font-size="12.5" text-anchor="middle" font-weight="500" fill="#222">BPE 训练：每一步把语料里最常相邻的一对合并成一个新 token（语料只有四个词型，各出现 5 / 2 / 6 / 3 次）</text>
+<text x="20.0" y="44.000" font-size="11" text-anchor="start" font-weight="400" fill="#555">第几步 · 合并了谁</text>
+<text x="20.0" y="66.000" font-size="11" text-anchor="start" font-weight="400" fill="#555">相邻次数 = 含这一对的词频之和</text>
+<text x="310.0" y="44.000" font-size="11" text-anchor="start" font-weight="400" fill="#555">合并之后四个词各切成什么样</text>
+<text x="310.0" y="66.000" font-size="11" text-anchor="start" font-weight="400" fill="#555">␣ 是词前的空格；列头是每个词在语料里出现的次数</text>
+<rect x="310.000" y="84" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="319.500" y="101.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="330.500" y="84" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="338.500" y="101.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="348.000" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="356.200" y="101.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="365.900" y="84" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="374.314" y="101.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<text x="344.8" y="124.000" font-size="11" text-anchor="middle" font-weight="500" fill="#3b6fb6">low × 5</text>
+<rect x="391.100" y="84" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="400.600" y="101.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="411.600" y="84" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.600" y="101.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="429.100" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="437.300" y="101.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="447.000" y="84" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="455.414" y="101.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="465.328" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="473.528" y="101.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="483.228" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="491.428" y="101.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<text x="443.8" y="124.000" font-size="11" text-anchor="middle" font-weight="500" fill="#3b6fb6">lower × 2</text>
+<rect x="508.000" y="84" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="517.500" y="101.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="528.500" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="536.700" y="101.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="546.400" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="554.600" y="101.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="564.300" y="84" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="572.714" y="101.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="582.628" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="590.828" y="101.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="600.528" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="608.728" y="101.000" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="618.428" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="626.628" y="101.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="569.9" y="124.000" font-size="11" text-anchor="middle" font-weight="500" fill="#3b6fb6">newest × 6</text>
+<rect x="643.200" y="84" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="652.700" y="101.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="663.700" y="84" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="672.114" y="101.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="682.028" y="84" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="690.028" y="101.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="699.528" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="707.728" y="101.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="717.428" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="725.628" y="101.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="735.328" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="743.528" y="101.000" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="753.228" y="84" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="761.428" y="101.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="704.8" y="124.000" font-size="11" text-anchor="middle" font-weight="500" fill="#3b6fb6">widest × 3</text>
+<text x="20.0" y="150.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">初始：每个字符一个 token</text>
+<rect x="310.000" y="133" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="319.500" y="150.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="330.500" y="133" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="338.500" y="150.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="348.000" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="356.200" y="150.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="365.900" y="133" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="374.314" y="150.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.100" y="133" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="400.600" y="150.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="411.600" y="133" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.600" y="150.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="429.100" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="437.300" y="150.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="447.000" y="133" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="455.414" y="150.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="465.328" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="473.528" y="150.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="483.228" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="491.428" y="150.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.000" y="133" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="517.500" y="150.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="528.500" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="536.700" y="150.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="546.400" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="554.600" y="150.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="564.300" y="133" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="572.714" y="150.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="582.628" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="590.828" y="150.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="600.528" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="608.728" y="150.000" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="618.428" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="626.628" y="150.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="643.200" y="133" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="652.700" y="150.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="663.700" y="133" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="672.114" y="150.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="682.028" y="133" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="690.028" y="150.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="699.528" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="707.728" y="150.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="717.428" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="725.628" y="150.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="735.328" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="743.528" y="150.000" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="753.228" y="133" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="761.428" y="150.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="20.0" y="186.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 1 步：</text>
+<rect x="70.000" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="78.200" y="186.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="88.400" y="169" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="96.600" y="186.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="106.800" y="169" width="16.400" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="115.000" y="186.000" font-size="11" text-anchor="middle" fill="#222">s</text>
+<rect x="125.100" y="169" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="134.600" y="186.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="145.600" y="169" width="22.800" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="157.000" y="186.000" font-size="11" text-anchor="middle" fill="#222">es</text>
+<text x="298.0" y="186.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">9 次 = 6 + 3</text>
+<rect x="310.000" y="169" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="319.500" y="186.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="330.500" y="169" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="338.500" y="186.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="348.000" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="356.200" y="186.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="365.900" y="169" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="374.314" y="186.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.100" y="169" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="400.600" y="186.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="411.600" y="169" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.600" y="186.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="429.100" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="437.300" y="186.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="447.000" y="169" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="455.414" y="186.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="465.328" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="473.528" y="186.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="483.228" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="491.428" y="186.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.000" y="169" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="517.500" y="186.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="528.500" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="536.700" y="186.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="546.400" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="554.600" y="186.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="564.300" y="169" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="572.714" y="186.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="582.628" y="169" width="22.800" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="594.028" y="186.000" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="606.928" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="615.128" y="186.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="631.700" y="169" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="641.200" y="186.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="652.200" y="169" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="660.614" y="186.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="670.528" y="169" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="678.528" y="186.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="688.028" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="696.228" y="186.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="705.928" y="169" width="22.800" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="717.328" y="186.000" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="730.228" y="169" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="738.428" y="186.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<text x="20.0" y="222.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 2 步：</text>
+<rect x="70.000" y="205" width="22.800" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="81.400" y="222.000" font-size="11" text-anchor="middle" fill="#222">es</text>
+<rect x="94.800" y="205" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="103.000" y="222.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="113.100" y="205" width="16.400" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="121.300" y="222.000" font-size="11" text-anchor="middle" fill="#222">t</text>
+<rect x="131.500" y="205" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="141.000" y="222.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="152.000" y="205" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="166.550" y="222.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="298.0" y="222.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">9 次 = 6 + 3</text>
+<rect x="310.000" y="205" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="319.500" y="222.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="330.500" y="205" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="338.500" y="222.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="348.000" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="356.200" y="222.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="365.900" y="205" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="374.314" y="222.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="391.100" y="205" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="400.600" y="222.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="411.600" y="205" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.600" y="222.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="429.100" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="437.300" y="222.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="447.000" y="205" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="455.414" y="222.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="465.328" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="473.528" y="222.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="483.228" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="491.428" y="222.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="508.000" y="205" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="517.500" y="222.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="528.500" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="536.700" y="222.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="546.400" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="554.600" y="222.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="564.300" y="205" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="572.714" y="222.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="582.628" y="205" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="597.178" y="222.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="620.200" y="205" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="629.700" y="222.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="640.700" y="205" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="649.114" y="222.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="659.028" y="205" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="667.028" y="222.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="676.528" y="205" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="684.728" y="222.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="694.428" y="205" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="708.978" y="222.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="258.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 3 步：</text>
+<rect x="70.000" y="241" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="79.500" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="90.500" y="241" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="98.700" y="258.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="108.400" y="241" width="16.000" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="116.400" y="258.000" font-size="11" text-anchor="middle" fill="#222">l</text>
+<rect x="125.900" y="241" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="135.400" y="258.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="146.400" y="241" width="22.125" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="157.463" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<text x="298.0" y="258.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.000" y="241" width="22.125" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="321.063" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="333.625" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="341.825" y="258.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="351.525" y="241" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="359.939" y="258.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="377.600" y="241" width="22.125" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="388.663" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="401.225" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="409.425" y="258.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="419.125" y="241" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="427.539" y="258.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="437.453" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="445.653" y="258.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="455.353" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="463.553" y="258.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="481.000" y="241" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="490.500" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="501.500" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="509.700" y="258.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="519.400" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="527.600" y="258.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="537.300" y="241" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="545.714" y="258.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="555.628" y="241" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="570.178" y="258.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="593.100" y="241" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="602.600" y="258.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="613.600" y="241" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="622.014" y="258.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="631.928" y="241" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="639.928" y="258.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="649.428" y="241" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="657.628" y="258.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="667.328" y="241" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="681.878" y="258.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="294.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 4 步：</text>
+<rect x="70.000" y="277" width="22.125" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="81.063" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣l</text>
+<rect x="93.625" y="277" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="101.825" y="294.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="111.525" y="277" width="16.400" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="119.725" y="294.000" font-size="11" text-anchor="middle" fill="#222">o</text>
+<rect x="129.425" y="277" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="138.925" y="294.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="149.925" y="277" width="28.797" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="164.323" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<text x="298.0" y="294.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.000" y="277" width="28.797" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="324.398" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="340.297" y="277" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="348.711" y="294.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="366.100" y="277" width="28.797" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="380.498" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="396.397" y="277" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="404.811" y="294.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="414.725" y="277" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="422.925" y="294.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="432.625" y="277" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="440.825" y="294.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="458.000" y="277" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="467.500" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="478.500" y="277" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="486.700" y="294.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="496.400" y="277" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="504.600" y="294.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="514.300" y="277" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="522.714" y="294.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="532.628" y="277" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="547.178" y="294.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="570.100" y="277" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="579.600" y="294.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="590.600" y="277" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="599.014" y="294.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="608.928" y="277" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="616.928" y="294.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="626.428" y="277" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="634.628" y="294.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="644.328" y="277" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="658.878" y="294.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="330.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 5 步：</text>
+<rect x="70.000" y="313" width="28.797" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="84.398" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣lo</text>
+<rect x="100.297" y="313" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="108.497" y="330.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="118.197" y="313" width="16.828" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="126.611" y="330.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="136.525" y="313" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="146.025" y="330.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="157.025" y="313" width="37.578" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="175.814" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<text x="298.0" y="330.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">7 次 = 5 + 2</text>
+<rect x="310.000" y="313" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="328.789" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.600" y="313" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="373.389" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="393.678" y="313" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="401.878" y="330.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="411.578" y="313" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.778" y="330.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.000" y="313" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="444.500" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="455.500" y="313" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="463.700" y="330.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="473.400" y="313" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="481.600" y="330.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="491.300" y="313" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="499.714" y="330.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="509.628" y="313" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="524.178" y="330.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="547.100" y="313" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="556.600" y="330.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="567.600" y="313" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="576.014" y="330.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="585.928" y="313" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="593.928" y="330.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="603.428" y="313" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="611.628" y="330.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="621.328" y="313" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="635.878" y="330.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="366.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 6 步：</text>
+<rect x="70.000" y="349" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="79.500" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="90.500" y="349" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="98.700" y="366.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="108.400" y="349" width="16.400" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="116.600" y="366.000" font-size="11" text-anchor="middle" fill="#222">n</text>
+<rect x="126.300" y="349" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="135.800" y="366.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="146.800" y="349" width="25.719" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="159.659" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<text x="298.0" y="366.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">6 次 = 6</text>
+<rect x="310.000" y="349" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="328.789" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.600" y="349" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="373.389" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="393.678" y="349" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="401.878" y="366.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="411.578" y="349" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.778" y="366.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.000" y="349" width="25.719" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="447.859" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<rect x="462.219" y="349" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="470.419" y="366.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="480.119" y="349" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="488.533" y="366.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="498.447" y="349" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="512.997" y="366.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="535.600" y="349" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="545.100" y="366.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="556.100" y="349" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="564.514" y="366.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="574.428" y="349" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="582.428" y="366.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="591.928" y="349" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="600.128" y="366.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="609.828" y="349" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="624.378" y="366.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="402.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 7 步：</text>
+<rect x="70.000" y="385" width="25.719" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="82.859" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣n</text>
+<rect x="97.219" y="385" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="105.419" y="402.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="115.119" y="385" width="16.400" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="123.319" y="402.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="133.019" y="385" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="142.519" y="402.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="153.519" y="385" width="31.813" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="169.425" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<text x="298.0" y="402.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">6 次 = 6</text>
+<rect x="310.000" y="385" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="328.789" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.600" y="385" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="373.389" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="393.678" y="385" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="401.878" y="402.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="411.578" y="385" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.778" y="402.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.000" y="385" width="31.813" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="450.906" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<rect x="468.313" y="385" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="476.727" y="402.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="486.641" y="385" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="501.191" y="402.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="524.100" y="385" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="533.600" y="402.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="544.600" y="385" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="553.014" y="402.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="562.928" y="385" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="570.928" y="402.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="580.428" y="385" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="588.628" y="402.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="598.328" y="385" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="612.878" y="402.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="438.500" font-size="11.5" text-anchor="start" font-weight="500" fill="#222">第 8 步：</text>
+<rect x="70.000" y="421" width="31.813" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="85.906" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣ne</text>
+<rect x="103.313" y="421" width="16.400" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="111.513" y="438.000" font-size="11" text-anchor="middle" fill="#222">+</text>
+<rect x="121.213" y="421" width="16.828" height="24" rx="3" fill="#fde3c8" stroke="#e0812c" stroke-width="0.8" />
+<text x="129.627" y="438.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="139.541" y="421" width="19.000" height="24" rx="3" fill="#ecdccf" stroke="#a0724f" stroke-width="0.8" />
+<text x="149.041" y="438.000" font-size="11" text-anchor="middle" fill="#222">→</text>
+<rect x="160.041" y="421" width="40.688" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="180.384" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣new</text>
+<text x="298.0" y="438.500" font-size="10.5" text-anchor="end" font-weight="400" fill="#555">6 次 = 6</text>
+<rect x="310.000" y="421" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="328.789" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="354.600" y="421" width="37.578" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="373.389" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣low</text>
+<rect x="393.678" y="421" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="401.878" y="438.000" font-size="11" text-anchor="middle" fill="#222">e</text>
+<rect x="411.578" y="421" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="419.778" y="438.000" font-size="11" text-anchor="middle" fill="#222">r</text>
+<rect x="435.000" y="421" width="40.688" height="24" rx="3" fill="#f6d6d6" stroke="#c94c4c" stroke-width="0.8" />
+<text x="455.344" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣new</text>
+<rect x="477.188" y="421" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="491.738" y="438.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<rect x="512.600" y="421" width="19.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="522.100" y="438.000" font-size="11" text-anchor="middle" fill="#222">␣</text>
+<rect x="533.100" y="421" width="16.828" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="541.514" y="438.000" font-size="11" text-anchor="middle" fill="#222">w</text>
+<rect x="551.428" y="421" width="16.000" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="559.428" y="438.000" font-size="11" text-anchor="middle" fill="#222">i</text>
+<rect x="568.928" y="421" width="16.400" height="24" rx="3" fill="#dbe7f6" stroke="#3b6fb6" stroke-width="0.8" />
+<text x="577.128" y="438.000" font-size="11" text-anchor="middle" fill="#222">d</text>
+<rect x="586.828" y="421" width="29.100" height="24" rx="3" fill="#d9efdc" stroke="#4a9a5b" stroke-width="0.8" />
+<text x="601.378" y="438.000" font-size="11" text-anchor="middle" fill="#222">est</text>
+<text x="20.0" y="472.000" font-size="10.5" text-anchor="start" font-weight="400" fill="#555">次数按词频加权：e + s 只在 newest、widest 两个词型里相邻，但两词共出现 6 + 3 = 9 次，</text>
+<text x="20.0" y="494.000" font-size="10.5" text-anchor="start" font-weight="400" fill="#555">比任何别的对都多，所以第 1 步合并它。</text>
+<text x="20.0" y="516.000" font-size="10.5" text-anchor="start" font-weight="400" fill="#555">颜色 = token 的长度（1 个字符最浅）。8 步之后 low、est、␣new 各成了一个 token；</text>
+<text x="20.0" y="538.000" font-size="10.5" text-anchor="start" font-weight="400" fill="#555">训练的产物就是这 8 条合并规则，编码新词时按同样顺序再走一遍。</text>
 </svg>
