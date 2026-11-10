@@ -23,6 +23,8 @@
       .arrow { stroke: #40566f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
+  <path d="M196 10 H750 V598 H196 Z" class="frame" />
+  <rect x="196" y="10" width="554" height="35" class="frame" />
   <text x="473.0" y="34" class="head" text-anchor="middle">交付层（本篇范围）</text>
   <rect x="212" y="48" width="522" height="36" class="layer" />
   <text x="228" y="71" class="bold" text-anchor="start">InferencePool / Service</text>
