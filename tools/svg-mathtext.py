@@ -336,8 +336,11 @@ def _render(tex, size, weight, family, used):
         if ccode == 32:
             ccode = 0xa0
         entry = font_manager.ttfFontProperty(font)
+        # text-anchor inside the style key: a CSS rule matching text/tspan
+        # (e.g. `text{text-anchor:middle}`) must not re-anchor these runs
         fs = {"font-size": f"{fontsize:g}px",
-              "font-family": f"'{_font_name(font)}'"}
+              "font-family": f"'{_font_name(font)}'",
+              "text-anchor": "start"}
         if entry.style != "normal":
             fs["font-style"] = entry.style
         if entry.weight != 400:
@@ -352,7 +355,8 @@ def _render(tex, size, weight, family, used):
     # explicit start anchoring: an inherited text-anchor (ancestor <g>, CSS)
     # must not re-anchor the absolute-x tspans
     text_el = ET.Element(f"{NS}text", {"font-size": "0",
-                                      "text-anchor": "start"})
+                                      "text-anchor": "start",
+                                      "style": "text-anchor:start"})
     for key, chars in spans.items():
         chars.sort()
         for gx, gy, ccode in chars:
