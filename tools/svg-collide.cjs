@@ -36,21 +36,24 @@ const CHECK = `(() => {
     ...[...svg.querySelectorAll('text')].filter(t=>!t.closest('g.mathtext')).map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})),
     ...[...svg.querySelectorAll('g.mathtext')].map(g=>({t:(g.getAttribute('aria-label')||g.getAttribute('data-tex')||'?').replace(/\\s+/g,' ').slice(0,40),b:bb(g),cls:'mathtext'}))
   ].filter(t=>t.t&&t.b);
-  const rects=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band')).map(r=>bb(r)).filter(Boolean);
+  const rectEls=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band'));
+  const rects=rectEls.map(r=>bb(r)); rects.forEach((b,i)=>{if(!b) rectEls[i]=null}); const rects2=rects.map((b,i)=>({b,el:rectEls[i]})).filter(o=>o.b);
+  const rectList=rects2.map(o=>o.b);
   const errs=[];
   for(const t of texts){
     if(t.b.x0<vb.x-1||t.b.y0<vb.y-1||t.b.x1>vb.x+vb.width+1||t.b.y1>vb.y+vb.height+1) errs.push('viewBox 越界: '+t.t);
     // enclosing rect = smallest rect containing the text's centre (not the whole
     // bbox — text often overflows the box it labels, which is exactly what we catch)
     const cx=(t.b.x0+t.b.x1)/2, cy=(t.b.y0+t.b.y1)/2;
-    const host=rects.filter(r=>r.x0<=cx&&cx<=r.x1&&r.y0<=cy&&cy<=r.y1)
-      .sort((a,b)=>(a.x1-a.x0)*(a.y1-a.y0)-(b.x1-b.x0)*(b.y1-b.y0))[0];
+    const host=rects2.filter(o=>o.b.x0<=cx&&cx<=o.b.x1&&o.b.y0<=cy&&cy<=o.b.y1)
+      .sort((a,b)=>(a.b.x1-a.b.x0)*(a.b.y1-a.b.y0)-(b.b.x1-b.b.x0)*(b.b.y1-b.b.y0))[0];
     if(host){
-      const full=rects.find(r=>r===host)||host;
-      const isbg=full.x0<=vb.x+2&&full.y0<=vb.y+2&&full.x1>=vb.x+vb.width-2&&full.y1>=vb.y+vb.height-2;
-      if(!isbg&&(t.b.x0<host.x0+3||t.b.x1>host.x1-3||t.b.y0<host.y0+3||t.b.y1>host.y1-3)) errs.push('文字出框: '+t.t);
-      // label vertically centered in its box (text bbox centre vs rect centre ≤1.5px)
-      if(!isbg&&Math.abs(cy-(host.y0+host.y1)/2)>1.5&&(host.y1-host.y0)>=(t.b.y1-t.b.y0)+4)
+      const r=host.b;
+      const isbg=r.x0<=vb.x+2&&r.y0<=vb.y+2&&r.x1>=vb.x+vb.width-2&&r.y1>=vb.y+vb.height-2;
+      if(!isbg&&(t.b.x0<r.x0+3||t.b.x1>r.x1-3||t.b.y0<r.y0+3||t.b.y1>r.y1-3)) errs.push('文字出框: '+t.t);
+      // label vertically centered in its box (text bbox centre vs rect centre ≤1.5px);
+      // a container rect holding several independent labels opts out with data-no-center
+      if(!isbg&&!host.el.hasAttribute('data-no-center')&&Math.abs(cy-(r.y0+r.y1)/2)>1.5&&(r.y1-r.y0)>=(t.b.y1-t.b.y0)+4)
         errs.push('文字未垂直居中: '+t.t);
     }
   }
@@ -59,7 +62,7 @@ const CHECK = `(() => {
   // text overlapping a rect that is NOT its host (e.g. activation bars): depth >3px on any side
   for(const t of texts){
     const cx=(t.b.x0+t.b.x1)/2, cy=(t.b.y0+t.b.y1)/2;
-    for(const r of rects){
+    for(const r of rectList){
       const inside=cx>=r.x0&&cx<=r.x1&&cy>=r.y0&&cy<=r.y1;
       if(inside) continue;
       const dx=Math.min(t.b.x1,r.x1)-Math.max(t.b.x0,r.x0), dy=Math.min(t.b.y1,r.y1)-Math.max(t.b.y0,r.y0);

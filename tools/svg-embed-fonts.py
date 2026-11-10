@@ -220,7 +220,11 @@ def process(path):
             continue
         if el.get("data-tex") is not None or _in_mathtext(el):
             continue  # mathtext groups keep their own fonts
-        content = (el.text or "")
+        # a <text>'s visible chars = its own text + descendant tspan text +
+        # tails (el.text alone drops everything after a child tspan);
+        # tspan elements are still visited on their own too (own family/weight)
+        content = ("".join(el.itertext()) if el.tag == f"{NS}text"
+                   else (el.text or ""))
         if not content.strip():
             continue
         fam = _resolve(el, parent_map, "font-family", rules) or ""

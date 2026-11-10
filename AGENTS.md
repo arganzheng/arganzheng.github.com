@@ -220,6 +220,8 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   lines/paths crossing text, labels off-centre inside their box by >1.5px,
   and marker-end arrows whose visible shaft is <16px) and make it pass —
   fix layout by hand (widen rect / shorten label), never weaken the checks.
+  A container `<rect>` holding several independent labels opts out of the
+  centering check only with `data-no-center` (containment still applies).
 - Check light and dark rendering in a real browser before pushing
   (`node tools/check-render.cjs` + screenshots).
 
