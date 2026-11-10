@@ -34,8 +34,10 @@ flowchart TB
     FW -->|教育价值分类器 ≥ 2| E2["FineWeb-Edu<br/>5.4T · 36%"]
     E2 -->|同一评分收紧至 ≥ 3| E3["FineWeb-Edu 高分子集<br/>1.3T · 约 9%"]
 
+    classDef base fill:#f0f0f0,stroke:#888;
     classDef dclm fill:#e0e7ff,stroke:#4338ca;
     classDef fineweb fill:#dcfce7,stroke:#15803d;
+    class CC base;
     class DP,DF,DB dclm;
     class FH,FW,E2,E3 fineweb;
 ```
@@ -70,8 +72,10 @@ flowchart TB
     MIX --> DEC["污染检测"]
     DEC --> TOK["tokenize · 打包 · 分片"]
 
-    classDef cpu fill:#e0e7ff,stroke:#4338ca;
+    classDef base fill:#f0f0f0,stroke:#888;
+    classDef cpu fill:#dbeafe,stroke:#1d4ed8;
     classDef dec fill:#fde68a,stroke:#b45309;
+    class CC,URL,LID,PII,CUR,DEC,TOK base;
     class EX,DD cpu;
     class H,Q,MIX dec;
 ```
@@ -104,7 +108,9 @@ Table: 本文的章节安排
 
 这件事有实验证据。FineWeb 团队做了一组同样的实验：同样的模型（1.8B）、同样的算力（28B token），只换数据，看下游 benchmark 的平均分：
 
-![FineWeb 论文图 1、2：左图，同样的网页用 trafilatura 从 WARC（原始 HTML）重新抽正文，比直接用 Common Crawl 现成的 WET 文本训出的模型高约 2 分；右图，加一道基础过滤（URL 黑名单、语言、Gopher 重复度）再高约 2 分。横轴是训练 token 数（十亿），纵轴是几个 benchmark 的平均准确率。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig1-2.webp)
+![FineWeb 论文图 1：同样的网页用 trafilatura 从 WARC（原始 HTML）重新抽正文（蓝线），比直接用 Common Crawl 现成的 WET 文本（粉线）训出的模型高约 2 分。横轴是训练 token 数（十亿），纵轴是几个 benchmark 的平均准确率。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig1.webp)
+
+![FineWeb 论文图 2：在 WARC 重新抽取（蓝线）的基础上加一道基础过滤（URL 黑名单、语言、Gopher 重复度，橙线），再高约 2 分。坐标含义同论文图 1。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig2.webp)
 
 两条线的差距（各约 2 分）看着不大，但它是**免费的**——不加参数、不加算力、不加数据量，只是把垃圾去掉。而且它是可叠加的：抽取好一点 +2，过滤一道 +2，去重 +1，模型打分再 +2……FineWeb 的整条管线就是这样一道一道消融出来的，每一道都用这种曲线证明"有正收益"才留下。这也是为什么数据管线的每一步都要花人力：**没有一步是理论推出来的，全是实验试出来的**。
 
@@ -146,7 +152,7 @@ Table: 本文的章节安排
   © Copyright A1 Pro Roofing 2021.
 ```
 
-61 行里只有 10 行是句子，其余 51 行是菜单、电话、按钮、口号——**WET 的"正文抽取"只是把 HTML 标签剥掉了**，页面上所有可见文字都在。这就是上一节左图里 WET 比 WARC + trafilatura 差 2 分的原因：好的抽取器会用 HTML 结构判断哪块是正文、哪块是导航；WET 没有。FineWeb、DCLM 都放弃了现成的 WET，从原始 HTML 重新抽，这一步是整条管线里最贵的（第七章第 3 节：抽取的 CPU 时间远超去重与 tokenize）。
+61 行里只有 10 行是句子，其余 51 行是菜单、电话、按钮、口号——**WET 的"正文抽取"只是把 HTML 标签剥掉了**，页面上所有可见文字都在。这就是上一节论文图 1 里 WET 比 WARC + trafilatura 差 2 分的原因：好的抽取器会用 HTML 结构判断哪块是正文、哪块是导航；WET 没有。FineWeb、DCLM 都放弃了现成的 WET，从原始 HTML 重新抽，这一步是整条管线里最贵的（第七章第 3 节：抽取的 CPU 时间远超去重与 tokenize）。
 
 C4 的行级规则（Raffel 等 2020）是对 WET 这种文本的补救：只保留以句末标点结尾、至少 3 个词、不含 `javascript`、`cookie`、`lorem ipsum` 之类词的行。它删掉了 51 行，留下 10 行——但留下的 10 行里有两对**重复的句子**（页面把同一句话在两个板块各写了一遍），以及一行版权声明。前者交给下一道筛子（Gopher 重复度规则，这一页正是被它以"重复行 40%"删掉的）；后者是规则的漏网——规则只看形状，不看意思。第一篇 68,834 篇网页跑下来，这一道删掉 **50% 的字符**，被删最多的行是 `Home` 13,396 次、`Search` 9,362 次、`Contact Us` 8,635 次。
 
@@ -180,9 +186,11 @@ Table: 第一篇实跑的四道筛子：规则、删掉的数量、被删网页�
 
 那是不是去得越干净越好？FineWeb 团队做过这个实验，结果**反直觉**：
 
-![FineWeb 论文图 3、4：左图，把 96 个快照放在一起做全局 MinHash 去重（蓝线），训出的模型比只做基础过滤（粉线）几乎没有提升，远不如 RefinedWeb（橙线）；右图，在一个快照上，全局去重删掉的那部分数据（橙线）训出的模型反而比留下的那部分（蓝线）更好。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig3-4.webp)
+![FineWeb 论文图 3：把 96 个快照放在一起做全局 MinHash 去重（蓝线），训出的模型比只做基础过滤（粉线）几乎没有提升，远不如 RefinedWeb（橙线）。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig3.webp)
 
-右图是关键：全局去重**删掉的那部分**训出来的模型比**留下的那部分**好。为什么？被大量转载的往往是**好内容**——一篇好文章被几百个站转载，全局去重把它删到只剩一份，而只出现一次的低质量页面（内容农场、自动生成的商品页）全部留下。去重删的是"重复的"，不是"差的"；两者在网页上恰好负相关。FineWeb 的对策是**每个快照内部去重、快照之间不去重**——一篇好文章在 96 个快照里各留一份，重复的分布被控制而不是被消灭。第五章第 5 节讲这个发现的细节；它的教训适用于整条管线：**每一步都要用"训一个模型看看"来验证，直觉经常是错的**。
+![FineWeb 论文图 4：在一个快照上，全局去重删掉的那部分数据（橙线）训出的模型反而比留下的那部分（蓝线）更好。图片版权归原作者（Hugging Face），此处为教学评述引用](/img/in-post/pretrain-paper-fineweb-fig4.webp)
+
+论文图 4 是关键：全局去重**删掉的那部分**训出来的模型比**留下的那部分**好。为什么？被大量转载的往往是**好内容**——一篇好文章被几百个站转载，全局去重把它删到只剩一份，而只出现一次的低质量页面（内容农场、自动生成的商品页）全部留下。去重删的是"重复的"，不是"差的"；两者在网页上恰好负相关。FineWeb 的对策是**每个快照内部去重、快照之间不去重**——一篇好文章在 96 个快照里各留一份，重复的分布被控制而不是被消灭。第五章第 5 节讲这个发现的细节；它的教训适用于整条管线：**每一步都要用"训一个模型看看"来验证，直觉经常是错的**。
 
 ### 5. 配比是取舍：一个小实验
 
