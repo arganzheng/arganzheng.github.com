@@ -225,6 +225,8 @@ def process(path):
             continue
         fam = _resolve(el, parent_map, "font-family", rules) or ""
         weight = _norm_weight(_resolve(el, parent_map, "font-weight", rules))
+        content = "".join(c for c in content if ord(c) >= 0x20
+                          and ord(c) != 0x7f)
         if _MONO_HINT.search(fam):
             mono = _cmap(MONO_FONT)
             sans = _cmap(SANS_MED if weight >= 500 else SANS_REG)

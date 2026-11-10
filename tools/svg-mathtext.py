@@ -230,6 +230,7 @@ def _font_name(ft2font):
 
 
 def _prop(size, weight, family):
+    weight = (weight or "").strip()
     heavy = bool(weight) and weight not in ("normal", "400")
     fams = MONO_FAMILY if family and "mono" in family else (
         CJK_MEDIUM if heavy else CJK_FAMILY)
@@ -387,6 +388,10 @@ def _embed_style(used, stroke_px):
 
 def _make_group(tex, x, y, size, anchor, fill, family, weight, used,
                 original=None):
+    anchor = (anchor or "middle").strip()
+    fill = (fill or "#222222").strip()
+    family = family.strip() if family else None
+    weight = weight.strip() if weight else None
     children, width = _render(tex, size, weight, family, used)
     g = ET.Element(f"{NS}g", {
         "class": "mathtext",
@@ -462,9 +467,10 @@ def process(path):
         tex = g.get("data-tex")
         x, y = float(g.get("data-x")), float(g.get("data-y"))
         size = float(g.get("data-size"))
-        anchor = g.get("data-anchor", "middle")
-        fill = g.get("data-fill", "#222222")
-        family, weight = g.get("data-family"), g.get("data-weight")
+        anchor = (g.get("data-anchor") or "middle").strip()
+        fill = (g.get("data-fill") or "#222222").strip()
+        family = (g.get("data-family") or "").strip() or None
+        weight = (g.get("data-weight") or "").strip() or None
         for child in list(g):
             if child.tag != f"{NS}title":
                 g.remove(child)
@@ -488,10 +494,10 @@ def process(path):
         size = float(re.sub(r"(?:px|pt)$", "", size_value))
         if size_value.endswith("pt"):
             size *= 96 / 72
-        anchor = _resolve(text, parent_map, "text-anchor", rules) or "start"
-        fill = _resolve(text, parent_map, "fill", rules) or "#222222"
-        weight = _resolve(text, parent_map, "font-weight", rules) or "normal"
-        family = _resolve(text, parent_map, "font-family", rules)
+        anchor = (_resolve(text, parent_map, "text-anchor", rules) or "start").strip()
+        fill = (_resolve(text, parent_map, "fill", rules) or "#222222").strip()
+        weight = (_resolve(text, parent_map, "font-weight", rules) or "normal").strip()
+        family = (_resolve(text, parent_map, "font-family", rules) or "").strip() or None
         try:
             new = _make_group(tex, x, y, size, anchor, fill, family, weight,
                               used, text)
