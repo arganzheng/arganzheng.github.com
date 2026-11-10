@@ -145,10 +145,10 @@
    </text>
   </g>
  </g>
- <path class="draft" d="M126 190 H170 A8 8 0 0 1 178 198 V238 A8 8 0 0 1 170 246 H126 A8 8 0 0 1 118 238 V198 A8 8 0 0 1 126 190 Z" />
- <rect x="122" y="193.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
- <text class="label" x="148" y="213" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
- <g class="mathtext" data-tex="$\tilde x_1$" data-x="148" data-y="232" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_1$">
+ <path class="draft" d="M126 178 H170 A8 8 0 0 1 178 186 V250 A8 8 0 0 1 170 258 H126 A8 8 0 0 1 118 250 V186 A8 8 0 0 1 126 178 Z" />
+ <rect x="122" y="182.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
+ <text class="label" x="148" y="202" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
+ <g class="mathtext" data-tex="$\tilde x_1$" data-x="148" data-y="243" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_1$" transform="translate(0 11)" >
   <g transform="translate(140.500 232.000)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#52677c;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
@@ -158,10 +158,10 @@
   </g>
  </g>
  <path class="arrow" d="M180 218 H208" />
- <path class="draft" d="M222 190 H266 A8 8 0 0 1 274 198 V238 A8 8 0 0 1 266 246 H222 A8 8 0 0 1 214 238 V198 A8 8 0 0 1 222 190 Z" />
- <rect x="218" y="193.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
- <text class="label" x="244" y="213" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
- <g class="mathtext" data-tex="$\tilde x_2$" data-x="244" data-y="232" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_2$">
+ <path class="draft" d="M222 178 H266 A8 8 0 0 1 274 186 V250 A8 8 0 0 1 266 258 H222 A8 8 0 0 1 214 250 V186 A8 8 0 0 1 222 178 Z" />
+ <rect x="218" y="182.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
+ <text class="label" x="244" y="202" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
+ <g class="mathtext" data-tex="$\tilde x_2$" data-x="244" data-y="243" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_2$" transform="translate(0 11)" >
   <g transform="translate(236.500 232.000)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#52677c;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
@@ -171,10 +171,10 @@
   </g>
  </g>
  <path class="arrow" d="M276 218 H304" />
- <path class="draft" d="M318 190 H362 A8 8 0 0 1 370 198 V238 A8 8 0 0 1 362 246 H318 A8 8 0 0 1 310 238 V198 A8 8 0 0 1 318 190 Z" />
- <rect x="314" y="193.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
- <text class="label" x="340" y="213" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
- <g class="mathtext" data-tex="$\tilde x_3$" data-x="340" data-y="232" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_3$">
+ <path class="draft" d="M318 178 H362 A8 8 0 0 1 370 186 V250 A8 8 0 0 1 362 258 H318 A8 8 0 0 1 310 250 V186 A8 8 0 0 1 318 178 Z" />
+ <rect x="314" y="182.92" width="52" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
+ <text class="label" x="340" y="202" text-anchor="middle" style="font-weight:500" font-weight="500">Draft</text>
+ <g class="mathtext" data-tex="$\tilde x_3$" data-x="340" data-y="243" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="$\tilde x_3$" transform="translate(0 11)" >
   <g transform="translate(332.500 232.000)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#52677c;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
@@ -183,7 +183,7 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="每步成本 $c$，总计 $\gamma c$" data-x="244" data-y="267" data-size="11" data-anchor="middle" data-fill=" #536a80" fill=" #536a80" data-family="system-ui, sans-serif" data-weight="400" aria-label="每步成本 $c$，总计 $\gamma c$">
+ <g class="mathtext" data-tex="每步成本 $c$，总计 $\gamma c$" data-x="244" data-y="282" data-size="11" data-anchor="middle" data-fill=" #536a80" fill=" #536a80" data-family="system-ui, sans-serif" data-weight="400" aria-label="每步成本 $c$，总计 $\gamma c$" transform="translate(0 15)" >
   <g transform="translate(193.000 267.000)">
    <text font-size="0">
     <tspan x="0.000" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">每</tspan>
@@ -202,10 +202,10 @@
   </g>
  </g>
  <path class="arrow" d="M372 218 H402" />
- <path class="target" d="M416 183 H552 A8 8 0 0 1 560 191 V255 A8 8 0 0 1 552 263 H416 A8 8 0 0 1 408 255 V191 A8 8 0 0 1 416 183 Z" />
- <rect x="412" y="187.92" width="144" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
- <text class="label" x="484" y="207" text-anchor="middle" style="font-weight:500" font-weight="500">Target forward</text>
- <g class="mathtext" data-tex="并行计算 $p_1\ldots p_4$" data-x="484" data-y="230" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="并行计算 $p_1\ldots p_4$">
+ <path class="target" d="M416 178 H552 A8 8 0 0 1 560 186 V250 A8 8 0 0 1 552 258 H416 A8 8 0 0 1 408 250 V186 A8 8 0 0 1 416 178 Z" />
+ <rect x="412" y="182.92" width="144" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
+ <text class="label" x="484" y="202" text-anchor="middle" style="font-weight:500" font-weight="500">Target forward</text>
+ <g class="mathtext" data-tex="并行计算 $p_1\ldots p_4$" data-x="484" data-y="225" data-size="12" data-anchor="middle" data-fill=" #52677c" fill=" #52677c" data-family="system-ui, sans-serif" data-weight="400" aria-label="并行计算 $p_1\ldots p_4$" transform="translate(0 -5)" >
   <g transform="translate(438.000 230.000)">
    <text font-size="0">
     <tspan x="0.000" y="-0.859" style="font-family:'NotoSansSC-Regular';font-size:12px">并</tspan>
@@ -221,7 +221,7 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="一次验证 $\gamma$ 个位置" data-x="484" data-y="254" data-size="11" data-anchor="middle" data-fill=" #536a80" fill=" #536a80" data-family="system-ui, sans-serif" data-weight="400" aria-label="一次验证 $\gamma$ 个位置">
+ <g class="mathtext" data-tex="一次验证 $\gamma$ 个位置" data-x="484" data-y="249" data-size="11" data-anchor="middle" data-fill=" #536a80" fill=" #536a80" data-family="system-ui, sans-serif" data-weight="400" aria-label="一次验证 $\gamma$ 个位置" transform="translate(0 -5)" >
   <g transform="translate(439.000 254.000)">
    <text font-size="0">
     <tspan x="0.000" y="-0.688" style="font-family:'NotoSansSC-Regular';font-size:11px">一</tspan>
@@ -238,11 +238,11 @@
   </g>
  </g>
  <path class="arrow" d="M562 218 H588" />
- <path class="out" d="M602 183 H720 A8 8 0 0 1 728 191 V255 A8 8 0 0 1 720 263 H602 A8 8 0 0 1 594 255 V191 A8 8 0 0 1 602 183 Z" />
- <rect x="598" y="187.92" width="126" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
- <text class="label" x="661" y="207" text-anchor="middle" style="font-weight:500" font-weight="500">输出前缀</text>
- <text class="detail" x="661" y="230" text-anchor="middle">接受若干草稿</text>
- <text class="small" x="661" y="254" text-anchor="middle" style="font-size:10px">再加修正 / bonus token</text>
+ <path class="out" d="M602 178 H720 A8 8 0 0 1 728 186 V250 A8 8 0 0 1 720 258 H602 A8 8 0 0 1 594 250 V186 A8 8 0 0 1 602 178 Z" />
+ <rect x="598" y="182.92" width="126" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
+ <text class="label" x="661" y="202" text-anchor="middle" style="font-weight:500" font-weight="500">输出前缀</text>
+ <text class="detail" x="661" y="225" text-anchor="middle">接受若干草稿</text>
+ <text class="small" x="661" y="249" text-anchor="middle" style="font-size:10px">再加修正 / bonus token</text>
  <path class="call" d="M36 308 H360 A8 8 0 0 1 368 316 V372 A8 8 0 0 1 360 380 H36 A8 8 0 0 1 28 372 V316 A8 8 0 0 1 36 308 Z" />
  <rect x="32" y="314.92" width="332" height="26.824" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <g class="mathtext" data-tex="接受率 $\alpha$" data-x="198" data-y="334" data-size="13" data-anchor="middle" data-fill=" #20364b" fill=" #20364b" data-family="system-ui, sans-serif" data-weight="500" aria-label="接受率 $\alpha$">
