@@ -259,7 +259,7 @@ def process(path):
             affected.append((el, "SvgSans", slot))
 
     if not any(used.values()):
-        return 0, 0
+        return None
 
     faces = []
     plans = [("SvgSans", "400", SANS_REG, used["sans400"]),

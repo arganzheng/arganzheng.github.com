@@ -36,7 +36,7 @@ const CHECK = `(() => {
     ...[...svg.querySelectorAll('text')].filter(t=>!t.closest('g.mathtext')).map(t=>({t:t.textContent.trim().replace(/\\s+/g,' ').slice(0,40),b:bb(t),cls:t.getAttribute('class')||''})),
     ...[...svg.querySelectorAll('g.mathtext')].map(g=>({t:(g.getAttribute('aria-label')||g.getAttribute('data-tex')||'?').replace(/\\s+/g,' ').slice(0,40),b:bb(g),cls:'mathtext'}))
   ].filter(t=>t.t&&t.b);
-  const rectEls=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band'));
+  const rectEls=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band')&&!r.closest('g.mathtext'));
   const rects=rectEls.map(r=>bb(r)); rects.forEach((b,i)=>{if(!b) rectEls[i]=null}); const rects2=rects.map((b,i)=>({b,el:rectEls[i]})).filter(o=>o.b);
   const rectList=rects2.map(o=>o.b);
   const errs=[];
