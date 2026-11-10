@@ -32,6 +32,7 @@ import io
 import os
 import re
 import sys
+import unicodedata
 import xml.etree.ElementTree as ET
 
 import matplotlib
@@ -233,6 +234,46 @@ def _font_name(ft2font):
     return os.path.splitext(os.path.basename(ft2font.fname))[0]
 
 
+# Bakoma cmex10/cmsys cmaps situate some delimiter glyphs at codepoints
+# that are real but *invisible* Unicode characters — e.g. `\langle` is
+# emitted at U+00AD SOFT HYPHEN, which browsers never paint. Emit a visible
+# display character instead (the true Unicode delimiter when we can name
+# it, else a private-use alias) and add the alias to the embedded subset's
+# cmap so it still resolves to the same glyph.
+_REMAP = {}      # font file -> {display codepoint: source codepoint}
+_PUA_NEXT = {}   # font file -> next private-use codepoint
+_CMAPS = {}      # font file -> source cmap (lazy)
+_DELIM_UV = {"angbracketleftbig": 0x27E8, "angbracketrightbig": 0x27E9,
+             "bracketleftbig": 0x5B, "bracketrightbig": 0x5D,
+             "braceleftbig": 0x7B, "bracerightbig": 0x7D,
+             "parenleftBig": 0x28, "parenrightBig": 0x29,
+             "floorleftbig": 0x230A, "floorrightbig": 0x230B,
+             "ceilingleftbig": 0x2308, "ceilingrightbig": 0x2309,
+             "slashbig": 0x2F, "backslashbig": 0x5C,
+             "vextendsingle": 0x2223, "vextenddouble": 0x2225,
+             "integraldisplay": 0x222B, "integraltext": 0x222B}
+
+
+def _display_ccode(font, ccode):
+    """Visible codepoint to emit for a glyph the parser addressed via an
+    invisible/control codepoint (Cc/Cf); registers a cmap alias."""
+    if unicodedata.category(chr(ccode)) not in ("Cc", "Cf"):
+        return ccode
+    fname = font.fname
+    if fname not in _CMAPS:
+        from fontTools.ttLib import TTFont
+        try:
+            _CMAPS[fname] = TTFont(fname).getBestCmap() or {}
+        except Exception:
+            _CMAPS[fname] = {}
+    dst = _DELIM_UV.get(_CMAPS[fname].get(ccode) or "")
+    if dst is None:
+        dst = _PUA_NEXT.get(fname, 0xE4FF) + 1
+        _PUA_NEXT[fname] = dst
+    _REMAP.setdefault(fname, {})[dst] = ccode
+    return dst
+
+
 def _prop(size, weight, family):
     weight = (weight or "").strip()
     heavy = bool(weight) and weight not in ("normal", "400")
@@ -277,6 +318,7 @@ def _render(tex, size, weight, family, used):
         src = _space_math(seg) if is_math else seg
         w, _h, _d, gl, rc = _parse_seg(src, math_prop if is_math else text_prop)
         for font, fontsize, ccode, _gidx, gx, gy in gl:
+            ccode = _display_ccode(font, ccode)
             glyphs.append((font, fontsize, ccode, gx + adv, gy))
             used.setdefault(font.fname, set()).add(
                 chr(0xa0) if ccode == 32 else chr(ccode))
@@ -361,9 +403,15 @@ def _embed_style(used, stroke_px):
     for f, chars in sorted(used.items()):
         font = _open(f)
         cmap = font.getBestCmap()
-        missing = {c for c in chars if ord(c) not in cmap}
+        rem = _REMAP.get(f, {})
+        # display aliases are added to the cmap after subsetting; the
+        # subset itself must keep the *source* codepoint so the glyph and
+        # its cmap entry survive.
+        missing = {c for c in chars if ord(c) not in cmap
+                   and ord(c) not in rem}
         if missing:
             raise SystemExit(f"{os.path.basename(f)} 缺字形 {sorted(missing)!r}")
+        chars = chars | {chr(s) for s in rem.values()}
         name = os.path.splitext(os.path.basename(f))[0]
         opts = subset.Options(flavor="woff2")
         ss = subset.Subsetter(opts)
@@ -376,6 +424,14 @@ def _embed_style(used, stroke_px):
             ss = subset.Subsetter(opts)
             ss.populate(text="".join(sorted(chars)))
             ss.subset(font)
+        if rem:
+            best = font.getBestCmap() or {}
+            for t in font["cmap"].tables:
+                if t.isUnicode():
+                    for disp, src in rem.items():
+                        gn = best.get(src)
+                        if gn and disp not in t.cmap:
+                            t.cmap[disp] = gn
         _normalise_metrics(font, f)
         buf = io.BytesIO()
         font.save(buf)
