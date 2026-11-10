@@ -21,8 +21,8 @@ text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", 
 .port { fill: #555; }
   </style>
   <rect width="760" height="342" fill="#ffffff" />
-  <path d="M12.0,12.0 h500.0 v260.0 h-500.0 Z" class="frame" /><text x="24" y="34" text-anchor="start" class="b">节点 A</text>
-  <path d="M528.0,12.0 h220.0 v260.0 h-220.0 Z" class="frame" /><text x="540" y="34" text-anchor="start" class="b">节点 B</text>
+  <rect x="12.0" y="12.0" width="500.0" height="260.0" class="frame" data-no-center="" /><text x="24" y="34" text-anchor="start" class="b">节点 A</text>
+  <rect x="528.0" y="12.0" width="220.0" height="260.0" class="frame" data-no-center="" /><text x="540" y="34" text-anchor="start" class="b">节点 B</text>
   <rect x="40" y="46" width="72" height="30" class="mem" />
   <text x="76.0" y="65.5" text-anchor="middle">DRAM0</text>
   <rect x="130" y="46" width="72" height="30" class="cpu" />
