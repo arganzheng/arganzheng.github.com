@@ -40,59 +40,70 @@ Table: 本文的章节安排
 
 ## 二、逻辑视图：静态系统拓扑（自顶向下）
 
-vLLM V1 的整体架构遵循**控制面/数据面分离**的经典设计哲学。自顶向下，逐层解剖其系统拓扑。
+vLLM V1 把系统分成**控制面**和**数据面**两半：控制面在 CPU 上，只处理元数据——请求 id、token id、block id、每轮的调度决策；数据面在 GPU 上，只处理张量——模型权重、前向激活和 KV Cache。两半之间只有一个接口：EngineCore 把 `SchedulerOutput` 交给 Executor 下发，Worker 把 `ModelRunnerOutput` 交回来。
 
 ```mermaid
-%% 图：vLLM V1 的静态系统拓扑：API 层 → 引擎层 → 调度层 → 执行层，控制面与数据面分离
-graph TB
-    subgraph "API Layer (控制面入口)"
-        Client[Client / OpenAI SDK]
-        API[API Server<br/>FastAPI + uvicorn]
+%% 图：vLLM V1 的逻辑视图：CPU 上的控制面只处理元数据，GPU 上的数据面只处理张量，两者只经 SchedulerOutput / ModelRunnerOutput 交互
+flowchart TB
+    Client["Client / OpenAI SDK"]
+
+    subgraph CP["控制面 · CPU · 只处理元数据"]
+        direction TB
+        API["API Server<br/>FastAPI + uvicorn"]
+        AsyncLLM["AsyncLLM<br/>tokenize / detokenize、流式输出"]
+        EngineCore["EngineCore<br/>step() 主循环"]
+        Scheduler["Scheduler<br/>请求状态、每轮给谁几个 token"]
+        SOManager["StructuredOutputManager<br/>语法约束 bitmask"]
+        KVCacheManager["KVCacheManager<br/>请求 → block id 列表"]
+        BlockPool["BlockPool<br/>空闲块队列、引用计数、前缀哈希表"]
     end
 
-    subgraph "Engine Layer (异步引擎)"
-        AsyncLLM[AsyncLLM<br/>异步请求管理]
-        EngineCore[EngineCore<br/>核心调度循环]
+    EX["Executor（EngineCore 进程内的投递对象）<br/>共享内存 MessageQueue 广播 / 收回"]
+
+    subgraph DP["数据面 · GPU · 只处理张量"]
+        direction TB
+        Worker["GPU Worker × N（每个 TP / PP rank 一个）<br/>GPUModelRunner：block id → 输入张量、前向、采样"]
+        Attn["Attention backend<br/>FlashAttention / FlashInfer"]
+        Mem["GPU 显存<br/>权重分片 · KV Cache · 激活"]
+        NCCL["NCCL<br/>rank 之间 all-reduce / P2P 传激活"]
     end
 
-    subgraph "Scheduling Layer (调度层)"
-        Scheduler[Scheduler<br/>请求调度 + 资源管理]
-        KVCacheManager[KVCacheManager<br/>显存块管理]
-        BlockPool[BlockPool<br/>物理块池]
-        SOManager[StructuredOutputManager<br/>约束输出]
-    end
-
-    subgraph "Execution Layer (执行层)"
-        Executor[Executor<br/>分布式执行抽象]
-        Worker0[GPU Worker 0]
-        Worker1[GPU Worker 1]
-        WorkerN[GPU Worker N]
-    end
-
-    subgraph "Model Layer (模型层)"
-        MR0[ModelRunner<br/>模型前向 + 采样]
-        Attn[Attention Backend<br/>FlashAttn / FlashInfer]
-        KVCache[GPU KV Cache<br/>物理显存]
-    end
-
-    Client -->|HTTP/gRPC| API
-    API -->|add_request| AsyncLLM
-    AsyncLLM -->|EngineCoreRequest| EngineCore
+    Client -->|HTTP| API
+    API --> AsyncLLM
+    AsyncLLM -->|"EngineCoreRequest（ZMQ）"| EngineCore
     EngineCore --> Scheduler
+    Scheduler --> SOManager
     Scheduler --> KVCacheManager
     KVCacheManager --> BlockPool
-    EngineCore --> SOManager
-    EngineCore -->|SchedulerOutput| Executor
-    Executor --> Worker0
-    Executor --> Worker1
-    Executor --> WorkerN
-    Worker0 --> MR0
-    MR0 --> Attn
-    Attn --> KVCache
-    MR0 -->|ModelRunnerOutput| EngineCore
+    BlockPool ~~~ EX
+    EngineCore ==>|"↓ SchedulerOutput：请求 id、token 数、新 block id"| EX
+    EX ==>|广播给每个 rank| Worker
+    Worker ==>|"↑ ModelRunnerOutput：采样出的 token id"| EngineCore
+    Worker --> Attn
+    Attn --> Mem
+    Worker -.- NCCL
+
+    classDef cp fill:#eaf2fb,stroke:#5b8fd6,color:#1d3557
+    classDef dp fill:#fdf0e6,stroke:#d9822b,color:#5a2e0e
+    classDef edge fill:#f4f4f4,stroke:#888,color:#333
+    class API,AsyncLLM,EngineCore,Scheduler,SOManager,KVCacheManager,BlockPool cp
+    class Worker,Attn,Mem,NCCL dp
+    class EX,Client edge
 ```
 
-从这张图看，从 Client 到 EngineCore 是请求入队路径，传递的是"生成什么"；EngineCore 到 Worker 再到 ModelRunner 是执行路径，携带的是这一轮调度出来的 batch 和 block 布局；而 ModelRunner 返回的只是采样结果，不是下一次 forward 的完整状态。调度状态留在 EngineCore，模型侧负责的是单次前向计算。
+图中粗箭头就是控制面与数据面的边界。越过边界的东西如下：
+
+1. **向下**：`SchedulerOutput`（`vllm/v1/core/sched/output.py`）。首次调度的请求以 `NewRequestData` 下发 prompt token ids、采样参数和分到的 block ids；已在 Worker 上的请求以 `CachedRequestData` 只下发增量——新 block ids、`num_computed_tokens`；外加每个请求这一轮的 token 数 `num_scheduled_tokens`。全是 Python 的 int 和 list。Worker 侧的 `InputBatch` 常驻一份 block table（`BlockTable`，`vllm/v1/worker/block_table.py`），收到增量后 `append_row`，`commit_block_table` 拷到 GPU，再由 `compute_slot_mapping` 的 Triton kernel 在 GPU 上把 block id 换算成每个 token 在 KV Cache 里的槽位。
+2. **向上**：`ModelRunnerOutput`（`vllm/v1/outputs.py`），主体是 `req_ids` 和 `sampled_token_ids: list[list[int]]`，可选 logprobs。只有 `output_rank` 一个 Worker 回传。
+3. **例外**：直接传嵌入的请求（`NewRequestData.prompt_embeds`）和多模态请求（`mm_features`）会随首次调度带一次输入张量；结构化输出的语法 bitmask 是一块 int32 数组，随 `sample_tokens()` 下发；pooling 模型的 `pooler_output` 是张量。这些都在 CPU 内存里，不涉及显存。
+
+从不越过边界的是**权重、激活和 KV Cache**。KVCacheManager 管的"块"只是 `KVCacheBlock` 对象上的 `block_id`、`ref_cnt` 和一个可选哈希；真正的 KV 张量由 Worker 在初始化时按 `kv_cache_config` 一次性分配在显存里，block id 是它的下标。分配、释放、前缀复用、抢占在控制面都是整数运算，不发生任何显存拷贝。TP / PP 之间的激活由 Worker ranks 经 NCCL 直接交换，不经 EngineCore。
+
+这样分开有三个直接收益：
+
+1. **CPU 工作与 GPU 前向重叠。** `EngineCore.step()` 用 `execute_model(scheduler_output, non_block=True)` 发出前向后，不等结果就去算这一轮的语法 bitmask（`Scheduler.get_grammar_bitmask`），再 `sample_tokens()`；开启 async scheduling（v0.27.1 在没有不兼容选项时默认开启）后 `max_concurrent_batches = 2`，`step_with_batch_queue()` 在第 N 轮还在 GPU 上跑时就调度第 N+1 轮。
+2. **边界消息的大小与模型大小无关。** 一轮的 `SchedulerOutput` 只和 batch 里的请求数、新 block 数有关，7B 和 670B 的模型一样，所以 `MultiprocExecutor` 用一块共享内存环形缓冲就能广播给所有 rank。
+3. **调度状态只有一份。** Scheduler 和 KVCacheManager 只在 EngineCore 里存在，所有 rank 拿到同一份决定；换 Uni / Multiproc / Ray 部署，改的只是中间那个 Executor 对象。
 
 ### 1. API Server 与 AsyncLLM：异步并发处理的桥头堡
 
@@ -133,9 +144,60 @@ class EngineCore:
 
 ### 3. Scheduler 与 KVCacheManager：资源管理双核
 
-`Scheduler`（`vllm/v1/core/sched/scheduler.py`，约 3000 行）是调度的大脑，决定每一轮迭代中哪些请求参与推理、分配多少 token 预算。
+`Scheduler`（`vllm/v1/core/sched/scheduler.py`）持有每个请求的权威状态：running / waiting 两个队列，以及每个 `Request` 已算到第几个 token（`num_computed_tokens`）。`KVCacheManager`（`vllm/v1/core/kv_cache_manager.py`）记录每个请求占了哪些 KV block，底下的块池是 `BlockPool`（`vllm/v1/core/block_pool.py`）。三者都在 EngineCore 进程里，处理的全是整数。
 
-`KVCacheManager`（`vllm/v1/core/kv_cache_manager.py`）管理 GPU 显存上的 KV Cache 物理块——分配、释放、前缀缓存复用、驱逐。
+**每轮的两条上限。** `schedule()` 开头令 `token_budget = max_num_scheduled_tokens`（未单独设置时取 `max_num_batched_tokens`），同时在跑的请求数不超过 `max_num_running_reqs`（取自 `max_num_seqs`）。
+
+**没有 prefill / decode 两个阶段。** `schedule()` 开头的注释说得很直接：每个请求只有 `num_computed_tokens` 和 `num_tokens_with_spec`（prompt + 已生成 + 投机 token）两个数，调度器每轮给请求分若干 token，让前者追上后者。新请求一次分到几千个 token，就是 prefill；running 请求分到 1 个，就是 decode；预算不够时只分一部分、下一轮接着算，就是 chunked prefill（`long_prefill_token_threshold` 可再给单个请求封顶）。
+
+一轮 `schedule()` 的顺序：
+
+1. **先排 running 队列。** 对每个请求算出 `num_new_tokens`，截到剩余预算，再调 `kv_cache_manager.allocate_slots(request, num_new_tokens, ...)` 给这些 token 要 block。
+2. **块不够就抢占。** `allocate_slots` 返回 `None` 表示空闲块不够。默认 FCFS 策略弹出 running 队列尾部的请求（priority 策略选优先级最低的），`_preempt_request` 释放它的全部 block、把 `num_computed_tokens` 清零、放回 waiting 队首，然后重试分配。被抢占的请求下次调度时重新 prefill，前缀缓存里还没被驱逐的块可以直接复用。
+3. **再排 waiting 队列。** 本轮只要发生过抢占，就不接纳新请求。否则逐个取 waiting 请求：running 数到上限就停；`num_computed_tokens == 0` 的请求先调 `kv_cache_manager.get_computed_blocks(request)` 查前缀缓存，命中的 token 不再计算；剩下的 token 走 `allocate_slots`，失败就停止接纳。
+4. **打包 `SchedulerOutput`。** 首次调度的请求放进 `scheduled_new_reqs`（`NewRequestData`，带完整 prompt token ids、采样参数、block ids），已在 Worker 上的放进 `scheduled_cached_reqs`（`CachedRequestData`，只带新 block ids 等增量），再加上每个请求的 `num_scheduled_tokens`、总数 `total_num_scheduled_tokens`、`finished_req_ids` / `preempted_req_ids`，以及投机解码、多模态 encoder 输入等扩展字段。
+
+模型跑完后，`update_from_output()` 把采样出的 token 追加到请求上、检查停止条件；结束的请求经 `_free_request` 调 `kv_cache_manager.free(request)` 归还 block。
+
+`KVCacheManager` 自己不直接管块：它经 `KVCacheCoordinator`（`vllm/v1/core/kv_cache_coordinator.py`）为每个 KV cache group（例如全注意力层与滑动窗口层各一组）调对应的 `SingleTypeKVCacheManager`，这些 manager 共用一个 `BlockPool`。`BlockPool` 有三样东西：
+
+1. **`blocks`**：全部 `KVCacheBlock`。每个块只有 `block_id`、`ref_cnt` 和一个可选的 block hash，是显存里 KV 张量的下标，不是显存本身。
+2. **`free_block_queue`**（`FreeKVCacheBlockQueue`）：`ref_cnt` 为 0 的块，按驱逐顺序排列。`get_new_blocks` 从队头取；取出的块若还带哈希，先从哈希表删掉，这就是驱逐。`free_blocks` 让 `ref_cnt` 减 1，归零的块里没有哈希的放到队头（最先复用），有哈希的放到队尾（还留在前缀缓存里，最晚驱逐），整体是一个 LRU。
+3. **`cached_block_hash_to_block`**：block hash → 块。`get_computed_blocks` 按请求 token 逐块算出的哈希在这里查最长命中；`allocate_slots` 落实命中时调 `touch`，`ref_cnt` 加 1，块若正躺在空闲队列里就先摘出来。多个请求共享同一段前缀，就是同一组块的 `ref_cnt` 大于 1。
+
+```mermaid
+%% 图：一次 schedule() 里 Scheduler、KVCacheManager 与 BlockPool 的交互：先排 running、块不够就抢占，再接纳 waiting
+flowchart TB
+    S["Scheduler.schedule()<br/>token_budget = max_num_scheduled_tokens"]
+    R["取 running 队列下一个请求<br/>num_new_tokens 截到剩余预算"]
+    A["KVCacheManager.allocate_slots()<br/>BlockPool.get_new_blocks()：空闲块够吗？"]
+    P["Scheduler._preempt_request()<br/>KVCacheManager.free() → BlockPool.free_blocks()<br/>ref_cnt − 1，请求放回 waiting 队首"]
+    OK["记入本轮<br/>token_budget −= num_new_tokens"]
+    W["取 waiting 队首请求<br/>running 数未到 max_num_running_reqs"]
+    G["KVCacheManager.get_computed_blocks()<br/>查 BlockPool 的 hash → block 表，得到命中的块"]
+    A2["KVCacheManager.allocate_slots()<br/>命中块 touch：ref_cnt + 1<br/>其余 token 要新块：够吗？"]
+    OUT["打包 SchedulerOutput<br/>交给 Executor"]
+
+    S --> R
+    R --> A
+    A -->|够| OK
+    A -->|不够| P
+    P -->|重试| A
+    OK -->|还有 running 请求且有预算| R
+    OK -->|"running 排完，本轮无抢占"| W
+    OK -->|"running 排完，本轮有抢占"| OUT
+    W --> G
+    G --> A2
+    A2 -->|够，下一个 waiting 请求| W
+    A2 -->|不够 / 预算用完| OUT
+
+    classDef sched fill:#eaf2fb,stroke:#5b8fd6,color:#1d3557
+    classDef kv fill:#fdf0e6,stroke:#d9822b,color:#5a2e0e
+    class S,R,OK,W,OUT,P sched
+    class A,G,A2 kv
+```
+
+图里蓝色是 Scheduler 自己的步骤，橙色是对 KVCacheManager 的调用，节点里写出的 `BlockPool.*` 是这些调用最终落到的块池操作。调度策略（FCFS 与 priority、公平性、抢占代价）在[《Scheduler：GPU 这一轮到底给谁用？》](/scheduler-batch-and-fairness.html)里展开；块的布局、前缀缓存哈希和驱逐在[《KV Cache：LLM Serving 的第一号内存问题》](/kv-cache-memory-core.html)里展开。
 
 ### 4. Worker 与 Model Executor：模型执行的设备抽象
 
@@ -145,16 +207,19 @@ graph TB
     EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
     EX --> W0 & W1 & WN
     subgraph W0["Worker 0 (GPU 0)"]
+        direction TB
         M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph W1["Worker 1 (GPU 1)"]
+        direction TB
         M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph WN["Worker N (GPU N)"]
+        direction TB
         MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
     end
-    S0 <-.->|NCCL| S1
-    S1 <-.->|NCCL| SN
+    NC["NCCL：TP all-reduce / PP 激活收发"]
+    W0 & W1 & WN <-.-> NC
 ```
 
 常见 GPU 部署中，Executor 会把一次 `execute_model()` 调用分发给一个或多个 Worker；Worker 再调用本地的 `ModelRunner` 执行模型前向、采样和 KV Cache 读写。单卡、同机多进程、Ray 分布式和 external launcher 的进程/设备映射并不完全相同，因此不应把“一个 GPU 固定绑定一个 Worker 进程”写成绝对规则。
@@ -251,7 +316,7 @@ EngineCore 先发 `HELLO` 注册，启动器返回地址和配置；初始化完
 
 ![vLLM V1 一个 decode step 在 API Server、EngineCoreProc 与 WorkerProc 间的时序](/img/in-post/vllm-request-lifecycle-decode-step.svg)
 
-EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，交给进程内对象 `Executor`（默认 `MultiprocExecutor`）广播给所有 Worker——这条链路是 `EngineCore → Executor → WorkerProc`，图 3 里 Executor 画在进程 B 内部，图 5 里它是 B 侧时序上的一小段激活。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
+EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，交给进程内对象 `Executor`（默认 `MultiprocExecutor`）广播给所有 Worker——这条链路是 `EngineCore → Executor → WorkerProc`，进程视图那张图里 Executor 画在进程 B 内部，上面这张时序图里它是 B 侧的一小段激活。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
 
 这里的广播是一写多读：
 
