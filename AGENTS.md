@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## 交流语言
+
+用户用中文交流时，一律用中文回复：对话里的回复、总结与报告，以及划线评论 / Discussion / Issue 下的回复都用中文（2026-11-11：「以后如果我用中文跟你交互，你一律用中文回复我。包括划线评论也是一样」）。代码、命令、标识符照常保留原文。
+
 ## Build / preview
 
 Jekyll 4.4.1 is installed against Homebrew's Ruby.
