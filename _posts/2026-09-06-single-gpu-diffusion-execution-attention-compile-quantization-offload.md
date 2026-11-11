@@ -37,10 +37,10 @@ adaLN · QK-norm+RoPE · GELU epilogue"]
         T["VAE tiling / slicing"]
     end
     subgraph LEDGER["改账上的哪一项
-t_step = g · FLOPs_fwd / (峰值 · η)
+$$t_\text{step} = g \cdot \text{FLOPs}_\text{fwd} / (\text{峰值} \cdot \eta)$$
 显存 = 权重 + 激活 + VAE 峰值"]
         direction TB
-        ETA["η（MFU）"]
+        ETA["$$\eta$$（MFU）"]
         PEAK["峰值（Tensor Core 类型）"]
         W["权重字节"]
         VAEM["VAE 解码峰值"]
@@ -240,19 +240,22 @@ FP8 只对**线性层的 GEMM**（占 FLUX 每步的 80%）生效，attention �
 ```mermaid
 %% 图：SVDQuant：激活平滑后权重做 SVD，前 32 个奇异值走 16-bit 低秩分支吸收离群值，剩余走 INT4 Tensor Core
 flowchart LR
-    X["激活 X（有离群值）"] --> SM["平滑：X̂ = X / s
+    X["激活 X（有离群值）"] --> SM["平滑：$$\hat X = X / s$$
 离群值搬到权重"]
     SM --> SPLIT
-    subgraph W["权重 Ŵ = W · s（离群值集中）"]
+    subgraph W["权重 $$\hat W = W \cdot s$$（离群值集中）"]
         direction TB
-        SVD["SVD：Ŵ = L₁L₂ + R
-前 r=32 个奇异值 → L₁L₂（16-bit）
+        SVD["SVD：$$\hat W = L_1 L_2 + R$$
+前 r=32 个奇异值
+→ $$L_1 L_2$$（16-bit）
 剩余 R → INT4"]
     end
-    SPLIT["X̂"] --> LR["低秩分支
-X̂ L₁ L₂（16-bit，秩 32，FLOPs 可忽略）"]
+    SPLIT["$$\hat X$$"] --> LR["低秩分支
+$$\hat X L_1 L_2$$
+（16-bit，秩 32，FLOPs 可忽略）"]
     SPLIT --> Q4["低比特分支
-Q(X̂) · Q(R)（INT4 Tensor Core）"]
+$$Q(\hat X) \cdot Q(R)$$
+（INT4 Tensor Core）"]
     LR --> ADD["+"]
     Q4 --> ADD
     ADD --> Y["输出"]
