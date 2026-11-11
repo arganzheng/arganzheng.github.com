@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "粘贴博客 Markdown（上传图片）",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "把博客 Markdown 粘贴到编辑器，并让编辑器上传博客图片。",
   "permissions": [
     "activeTab",
     "scripting",
     "contextMenus",
     "offscreen",
-    "clipboardRead"
+    "clipboardRead",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://arganzheng.life/*"
