@@ -28,15 +28,15 @@ flowchart TB
 T5-XXL / CLIP / LLM
 一次前向，几百 token
 FLUX：4.7B，512 token，~5 TFLOPs，~20 ms`"]
-    TE -- "条件 c（[T_txt, d] 与池化向量）" --> DIT
-    Z["噪声 latent x_T
+    TE -- "条件 c（$$[N_\text{txt}, d_\text{txt}]$$ 与池化向量）" --> DIT
+    Z["噪声 latent $$x_T$$
 FLUX 1024²：128×128×16"] --> DIT["`**② 去噪网络 DiT**
 每步：整张 latent 切成 N 个 token，一次完整前向
 FLUX：N = 4096 + 512 = 4608，74 TFLOPs / 步
 × 步数（28）× CFG 分支（1 或 2）
 2.1 PFLOPs，~4.7 s`"]
-    DIT -- "x_{t-1}" --> DIT
-    DIT -- "x_0 latent" --> VAE["`**③ VAE 解码器**
+    DIT -- "$$x_{t-1}$$" --> DIT
+    DIT -- "$$x_0$$ latent" --> VAE["`**③ VAE 解码器**
 卷积，一次前向
 FLUX：~5 TFLOPs，~0.1 s
 但全分辨率 fp32 特征图：2 GiB 峰值`"]
@@ -147,13 +147,13 @@ Table: 扩散推理的五个事实与系统含义
 flowchart TB
     subgraph STEP["一个去噪步（FLUX，无 CFG）"]
         direction TB
-        IN["x_t, t, c"] --> EMB["时间步 embedding + adaLN 调制向量
+        IN["$$x_t, t, c$$"] --> EMB["时间步 embedding + adaLN 调制向量
 （1 个 token 的 MLP，忽略）"]
         EMB --> B1["block 1：attention + MLP（4 个 GEMM + 1 个 attention + 十几个小算子）"]
         B1 --> B2["block 2 … block 57：同上，共 57 层"]
-        B2 --> OUT["预测 ε / v：[N, c·p²]"]
+        B2 --> OUT["预测 $$\epsilon$$ / v：[N, c·p²]"]
         OUT --> SOLVER["采样器（逐元素，忽略）"]
-        SOLVER --> NEXT["x_{t-1}"]
+        SOLVER --> NEXT["$$x_{t-1}$$"]
     end
     NEXT -. "× 28" .-> IN
 
