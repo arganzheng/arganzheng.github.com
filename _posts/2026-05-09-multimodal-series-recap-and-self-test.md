@@ -5,6 +5,7 @@ title: "多模态（10）：系列总结与通关自测"
 subtitle: "Multimodal Models: Series Recap and Final Self-Test"
 tags: [AI, LLM, Multimodal, Diffusion]
 catalog: true
+updated: 2026-11-11
 date: 2026-05-09 20:00:00
 ---
 
@@ -513,6 +514,7 @@ Table: 掌握程度的判据
 - **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
 - **扩散模型的服务系统**（批处理、多 GPU 的步并行）属于 Infra 地图。
 - **应用层**（多模态 RAG、Agent 的截图操作）属于应用地图。
+- **PDF、Word、Excel、PPT 这类文件**不是一种模态，而是装着文本、表格和图片的容器。数字原生的文件解析成文本交给纯文本 LLM；扫描件和图表密集的页面渲染成图片交给 VLM，这一步依赖第二篇《VLM 的结构（下）》的动态分辨率。解析方式的选择、表格与阅读顺序的失败、分块与检索在[应用地图](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
 
 
 [^q0]: 七个：编码器为什么选对比学习、它看不到什么（目标函数决定保留的信息）；一张图怎么进 LLM、占多少 token（connector、注入、分辨率的信息 vs token 交换）；训练分几阶段、冻结谁、幻觉从哪来（新旧参数、数据形状、三源三治）；语音为什么主流用离散 token、全双工时延由什么决定（RVQ、四段时延）；DDPM / score / flow 为什么是一件事、CFG 在采样什么分布；为什么在 latent 做、DiT 赢在哪、一张图与一次 LLM 推理怎么比；AR 与扩散各赢在哪、理解与生成能不能共享表示。详见[第二章](#二逐篇回顾)。
