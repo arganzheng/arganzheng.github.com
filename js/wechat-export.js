@@ -100,9 +100,125 @@
   // Mermaid draws labels as <foreignObject> (htmlLabels), which taints a canvas
   // and makes toDataURL throw. Re-render the source with pure-SVG labels for the
   // export, then restore the page's config.
+  // $$…$$ in a label is typeset by KaTeX on the page (rich-content.html), but
+  // pure-SVG labels cannot hold KaTeX HTML. Fall back to readable Unicode text
+  // (N_{\text{opt}} → Nₒₚₜ, \sqrt{d_k} → √dₖ, \hat x → x̂) so the export never
+  // shows TeX source.
+  var TEX_SYM = {
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+    theta: 'θ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ',
+    sigma: 'σ', tau: 'τ', upsilon: 'υ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+    Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+    approx: '≈', ge: '≥', geq: '≥', le: '≤', leq: '≤', neq: '≠', ne: '≠', times: '×', cdot: '·', div: '÷',
+    pm: '±', mp: '∓', partial: '∂', nabla: '∇', ell: 'ℓ', infty: '∞', sum: 'Σ', prod: 'Π', int: '∫',
+    to: '→', rightarrow: '→', leftarrow: '←', Rightarrow: '⇒', mapsto: '↦', in: '∈', notin: '∉',
+    subset: '⊂', subseteq: '⊆', cup: '∪', cap: '∩', forall: '∀', exists: '∃', sim: '∼', propto: '∝',
+    equiv: '≡', ll: '≪', gg: '≫', top: 'ᵀ', circ: '∘', odot: '⊙', otimes: '⊗', oplus: '⊕',
+    ldots: '…', cdots: '⋯', dots: '…', lVert: '‖', rVert: '‖', Vert: '‖', lvert: '|', rvert: '|', mid: '|',
+    langle: '⟨', rangle: '⟩', lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉', log: 'log', exp: 'exp',
+    max: 'max', min: 'min', arg: 'arg', softmax: 'softmax', quad: '\u00a0', qquad: '\u00a0\u00a0', ',': '\u00a0', ';': '\u00a0', ':': '\u00a0', '!': ''
+  };
+  var SUP = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ', e: 'ᵉ', f: 'ᶠ',
+    g: 'ᵍ', h: 'ʰ', i: 'ⁱ', j: 'ʲ', k: 'ᵏ', l: 'ˡ', m: 'ᵐ', n: 'ⁿ', o: 'ᵒ', p: 'ᵖ', r: 'ʳ', s: 'ˢ', t: 'ᵗ',
+    u: 'ᵘ', v: 'ᵛ', w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ', T: 'ᵀ', 'ᵀ': 'ᵀ', 'α': 'ᵅ', 'β': 'ᵝ', 'γ': 'ᵞ', 'δ': 'ᵟ',
+    'φ': 'ᵠ', 'χ': 'ᵡ', ' ': '' };
+  var SUB = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    '+': '₊', '-': '₋', '−': '₋', '=': '₌', '(': '₍', ')': '₎', a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ', k: 'ₖ',
+    l: 'ₗ', m: 'ₘ', n: 'ₙ', o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ',
+    'β': 'ᵦ', 'γ': 'ᵧ', 'ρ': 'ᵨ', 'φ': 'ᵩ', 'χ': 'ᵪ', ' ': '' };
+  function script(s, table, mark) {
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      if (!(s[i] in table)) return s.length === 1 ? mark + s : mark + '(' + s + ')';
+      out += table[s[i]];
+    }
+    return out;
+  }
+  function texToText(tex) {
+    // the argument of a command: {…} (balanced) or one token
+    function arg(s, i) {
+      while (s[i] === ' ') i++;
+      if (s[i] === '{') {
+        var depth = 0;
+        for (var j = i; j < s.length; j++) {
+          if (s[j] === '{') depth++;
+          else if (s[j] === '}' && --depth === 0) return [s.slice(i + 1, j), j + 1];
+        }
+        return [s.slice(i + 1), s.length];
+      }
+      if (s[i] === '\\') {
+        var m = /^\\([A-Za-z]+|.)/.exec(s.slice(i));
+        return [m[0], i + m[0].length];
+      }
+      return [s[i] || '', i + 1];
+    }
+    function conv(s) {
+      var out = '';
+      for (var i = 0; i < s.length;) {
+        var c = s[i];
+        if (c === '\\') {
+          var m = /^\\([A-Za-z]+|.)/.exec(s.slice(i));
+          var name = m[1];
+          i += m[0].length;
+          // TeX drops the spaces after a control word: \partial \mu → ∂μ
+          if (/^[A-Za-z]/.test(name)) while (s[i] === ' ') i++;
+          if (name === 'left' || name === 'right' || name === 'big' || name === 'Big' || name === 'displaystyle' || name === 'textstyle') continue;
+          if (name === 'text' || name === 'textrm' || name === 'mbox') {
+            // text keeps its spaces; \u00a0 survives the space handling below
+            var tx = arg(s, i); i = tx[1]; out += tx[0].replace(/[{}]/g, '').replace(/ /g, '\u00a0'); continue;
+          }
+          if (/^(mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|operatorname|boldsymbol)$/.test(name)) {
+            var a = arg(s, i); i = a[1]; out += conv(a[0]); continue;
+          }
+          if (name === 'frac' || name === 'dfrac' || name === 'tfrac') {
+            var n1 = arg(s, i), d1 = arg(s, n1[1]); i = d1[1];
+            var num = conv(n1[0]), den = conv(d1[0]);
+            var wrap = function (x) { return /^[^\s+\-−=\/()]+$/.test(x) ? x : '(' + x + ')'; };
+            out += wrap(num) + '/' + wrap(den); continue;
+          }
+          if (name === 'sqrt') {
+            var r = arg(s, i); i = r[1]; var body = conv(r[0]);
+            // one symbol (with sub/superscripts) needs no parentheses: √dₖ, √(2L)
+            out += '√' + (/^[A-Za-z0-9\u0370-\u03ff][\u2070-\u209c\u1d62-\u1d6a\u00b2\u00b3\u00b9\u0300-\u036f]*$/.test(body) ? body : '(' + body + ')'); continue;
+          }
+          if (/^(hat|bar|tilde|vec|dot|overline)$/.test(name)) {
+            var h = arg(s, i); i = h[1];
+            var mark = { hat: '̂', bar: '̄', overline: '̄', tilde: '̃', vec: '⃗', dot: '̇' }[name];
+            out += conv(h[0]) + mark; continue;
+          }
+          out += name in TEX_SYM ? TEX_SYM[name] : name;
+          continue;
+        }
+        if (c === '^' || c === '_') {
+          var p = arg(s, i + 1); i = p[1];
+          var inner = conv(p[0]);
+          out += c === '^' ? script(inner, SUP, '^') : script(inner, SUB, '_');
+          continue;
+        }
+        if (c === '{' || c === '}' || c === ' ') { i++; continue; }
+        out += c === '-' ? '−' : c;
+        i++;
+      }
+      return out;
+    }
+    // math-mode spacing: spaces in the source mean nothing; relations and
+    // + − × get one space on each side, everything else is set tight
+    return conv(tex)
+      .replace(/\s*([=≈≥≤≠→←⇒∈∉∝≡∼<>+−×±])\s*/g, ' $1 ')
+      .replace(/([(\[{⁽₍]) ([+−]) /g, '$1$2')
+      .replace(/^ ([+−]) /, '$1')
+      .replace(/,(?=\S)/g, ', ')
+      .replace(/\u00a0/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  function plainMath(src) {
+    return src.replace(/\$\$([\s\S]+?)\$\$/g, function (m, tex) { return texToText(tex); });
+  }
+
   var mermaidSeq = 0;
   function mermaidToPng(container) {
-    var src = container.getAttribute('data-mermaid-source');
+    var src = plainMath(container.getAttribute('data-mermaid-source') || '');
     var live = container.querySelector('svg');
     if (!src || !window.mermaid || !mermaid.render) return live ? svgToPng(live) : Promise.reject(new Error('no mermaid'));
     var cfg = mermaid.mermaidAPI && mermaid.mermaidAPI.getConfig ? JSON.parse(JSON.stringify(mermaid.mermaidAPI.getConfig())) : null;
@@ -390,6 +506,7 @@
     REMOVE: REMOVE,
     svgToPng: svgToPng,
     mermaidToPng: mermaidToPng,
+    texToText: texToText,
     imgToJpeg: imgToJpeg,
     copy: function (opts) {
       return build(opts || {}).then(function (out) {
