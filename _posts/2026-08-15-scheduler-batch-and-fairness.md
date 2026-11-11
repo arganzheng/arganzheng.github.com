@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（04）：Scheduler：GPU 这一轮到底给谁用？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-11
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -319,9 +319,14 @@ vLLM 中有两个非常关键的量：
 
 它表示当前 Request 这一轮希望推进到的目标 token 位置。
 
-普通 Decode 情况下，通常只需要推进一个 token，`num_tokens_with_spec ≈ num_computed_tokens + 1`；而如果涉及 speculative decoding，则可能一次需要推进多个 token，`num_tokens_with_spec > num_computed_tokens + 1`。
+它的定义是 `len(prompt_token_ids) + len(output_token_ids) + len(spec_token_ids)`（`vllm/v1/request.py` 的 `Request.num_tokens_with_spec`）。两种情况下它与 `num_computed_tokens` 的关系都是精确的等式：
 
-因此，Scheduler 可以计算 `remaining_tokens = num_tokens_with_spec - num_computed_tokens`，也就是：
+1. **普通 Decode**：`num_tokens_with_spec = num_computed_tokens + 1`。上一轮采样出的 token 已经追加进 `output_token_ids`，但它的 KV 还没算，它正是这一轮的输入，所以差值恰好是 1。
+2. **投机解码**：`spec_token_ids` 里还有 $$k$$ 个草稿 token 要一起验证，`num_tokens_with_spec = num_computed_tokens + 1 + k`。
+
+v0.27.1 默认开启的异步调度（`AsyncScheduler`，pooling 模型等不兼容的配置除外）会让这个等式表面上变形。`_update_after_schedule` 在调度完成时就把 `num_computed_tokens` 加上本轮的 token 数，而采样结果要等 GPU 跑完才追加。为了不等上一轮结果就调度下一轮，`AsyncScheduler` 用 `num_output_placeholders` 记"已经调度、结果还没回来"的 token。上一轮还在 GPU 上时，`num_tokens_with_spec = num_computed_tokens`，`num_output_placeholders = 1`，加回占位数后仍然是同一个等式：`num_tokens_with_spec + num_output_placeholders = num_computed_tokens + 1`。
+
+因此，Scheduler 可以计算 `remaining_tokens = num_tokens_with_spec + num_output_placeholders - num_computed_tokens`（同步调度时占位数恒为 0，下文的概念代码省略这一项），也就是：
 
 > **这个 Request 当前还需要多少 token 的计算额度。**
 
@@ -576,6 +581,7 @@ flowchart TB
 ```python title='schedule() 里 num_new_tokens 的计算'
 num_new_tokens = (
     req.num_tokens_with_spec
+    + req.num_output_placeholders
     - req.num_computed_tokens
 )
 ```
