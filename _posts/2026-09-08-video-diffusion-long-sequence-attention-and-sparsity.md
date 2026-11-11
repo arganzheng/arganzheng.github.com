@@ -28,14 +28,14 @@ flowchart TB
     VAE --> LAT["latent 90×160×21"]
     LAT --> PATCH["patchify 1×2×2"]
     PATCH --> TOK["N = 45 × 80 × 21 = 75,600 token"]
-    TOK --> LIN["线性项 2·P_tok·N
+    TOK --> LIN["线性项 $$2 P_\text{tok} N$$
 = 2 × 12B × 75,600
 = 1.8 PFLOPs（28%）"]
-    TOK --> ATT["attention 4·L·N²·d
+    TOK --> ATT["attention $$4 L N^2 d$$
 = 4 × 40 × 75,600² × 5120
 = 4.7 PFLOPs（72%）"]
     LIN --> STEP["一步 6.5 PFLOPs × CFG 2
-H100 η=0.45：29 s
+H100 $$\eta = 0.45$$：29 s
 50 步：24 min"]
     ATT --> STEP
 
