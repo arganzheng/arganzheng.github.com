@@ -22,7 +22,7 @@ catalog: true
 ```mermaid
 %% 图：跨步缓存的一个决策、一份缓存：算一个便宜的信号并累积，超过阈值或首末步全算并更新残差，否则复用缓存残差
 flowchart TB
-    IN["第 t 步输入 x_t, t, c"] --> SIG["`**信号**：算一个便宜的量
+    IN["第 t 步输入 $$x_t, t, c$$"] --> SIG["`**信号**：算一个便宜的量
 TeaCache：调制后输入的相对 L1 差
 FBCache：第 1 个 block 的残差相对差
 MagCache：残差幅度比（离线校准）`"]
@@ -32,11 +32,11 @@ MagCache：残差幅度比（离线校准）`"]
 或首末步？"}
     DEC -- "是：全算" --> FULL["跑完 57 个 block
 输出 = 输入 + 残差
-**更新缓存：残差**"]
-    DEC -- "否：复用" --> HIT["输出 = 输入 + **缓存的残差**
+<b>更新缓存：残差</b>"]
+    DEC -- "否：复用" --> HIT["输出 = 输入 + <b>缓存的残差</b>
 （TaylorSeer：+ 一阶外推）
 成本 ≈ 0（FBCache：1 个 block）"]
-    FULL --> OUT["ε / v 预测 → 采样器 → x_{t-1}"]
+    FULL --> OUT["$$\epsilon$$ / v 预测 → 采样器 → $$x_{t-1}$$"]
     HIT --> OUT
 
     classDef sig fill:#eef6ff,stroke:#5b8fd6,color:#222
