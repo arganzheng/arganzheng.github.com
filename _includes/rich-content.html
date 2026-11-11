@@ -74,6 +74,8 @@
       var MATH_RE = /\$\$([\s\S]+?)\$\$/g;
       var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.18.7/dist/';
       var labelPx = document.querySelector('.reveal .slides') ? 20 : 16;
+      // Mermaid's default theme font (themeVariables.fontFamily), used by labels
+      var MERMAID_FONT = '"trebuchet ms", verdana, arial, sans-serif';
       var hasMath = blocks.some(function (code) { return code.textContent.indexOf('$$') !== -1; });
 
       function loadOnce(tag, attrs, ready) {
@@ -117,7 +119,13 @@
       // face made a \left(…\right)V label 5px too narrow and clipped the V.
       function mathPlaceholders(source, texts) {
         var probe = document.createElement('div');
-        probe.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;font-size:' + labelPx + 'px';
+        // line-height 1.5 = Mermaid's label div: the filled span inherits it,
+        // so a placeholder measured at the default line-height came out taller
+        // and lower, stretched every line, and left the box too tall
+        // and the label's font: the line box (strut) depends on its ascent /
+        // descent, so measuring in the article font shifted the baseline
+        probe.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;line-height:1.5;' +
+          'font-family:' + MERMAID_FONT + ';font-size:' + labelPx + 'px';
         document.body.appendChild(probe);
         var rows = [];
         source.replace(MATH_RE, function (m, tex) {
@@ -147,10 +155,11 @@
             var r = it.holder.getBoundingClientRect();
             var i = texts.push(tex) - 1;
             return "<span class='mm-math' data-i='" + i + "' style='display:inline-block;" +
-              // +4: 2px each side for italic overhang (a final V, f) that the
-              // KaTeX box does not include and the foreignObject would clip
-              'width:' + (Math.ceil(r.width) + 4) + 'px;height:' + Math.ceil(r.height) + 'px;' +
-              'vertical-align:' + (base - r.bottom).toFixed(1) + "px'></span>";
+              // +4: 2px on every side — italic overhang (a final V, f) and the
+              // tall glyphs of \sum / \lVert reach past the KaTeX box, and the
+              // foreignObject clips at its edge; fillMath pads the same 2px
+              'width:' + (Math.ceil(r.width) + 4) + 'px;height:' + (Math.ceil(r.height) + 4) + 'px;' +
+              'vertical-align:' + (base - r.bottom - 2).toFixed(1) + "px'></span>";
           });
           probe.remove();
           return out;
@@ -161,7 +170,7 @@
           var tex = texts[+el.getAttribute('data-i')];
           // nowrap: inline KaTeX may break after = / − once the label is
           // narrower than the formula; the placeholder was measured unbroken
-          el.setAttribute('style', 'display:inline-block;white-space:nowrap;padding:0 2px');
+          el.setAttribute('style', 'display:inline-block;white-space:nowrap;padding:2px');
           try { katex.render(tex, el, { throwOnError: false }); } catch (e) { el.textContent = tex; }
         });
       }
