@@ -177,9 +177,9 @@ def layer_norm_backward(x, gamma, dout, eps=1e-5):
 
 ```mermaid
 flowchart TB
-    A["$$d\hat{y} = \mathrm{dout} \odot \gamma$$<br>（如果 $$\mu$$、$$\sigma$$ 是常数，$$dx$$ 就是 $$d\hat{y} / \sigma$$）"] --> B["但 $$\mu$$ 依赖每个 $$x_i$$：$$\partial \mu / \partial x_i = 1/N$$<br>→ 修正项 $$-\text{mean}(d\hat{y})$$：把'平移'方向的梯度扣掉"]
-    B --> C["$$\sigma$$ 也依赖每个 $$x_i$$：$$\partial \sigma / \partial x_i = \hat{x}_i / N$$<br>→ 修正项 $$-\hat{x} \cdot \text{mean}(d\hat{y} \odot \hat{x})$$：把'缩放'方向的梯度扣掉"]
-    C --> D["$$dx = \frac{1}{\sigma} \left( d\hat{y} - \text{mean}(d\hat{y}) - \hat{x} \cdot \text{mean}(d\hat{y} \odot \hat{x}) \right)$$<br>性质：$$dx$$ 的均值为 0、与 $$\hat{x}$$ 正交——归一化对平移与缩放不敏感"]
+    A["$$d\hat{x} = \mathrm{dout} \odot \gamma$$<br>（如果 $$\mu$$、$$\sigma$$ 是常数，$$dx$$ 就是 $$d\hat{x} / \sigma$$）"] --> B["但 $$\mu$$ 依赖每个 $$x_i$$：$$\partial \mu / \partial x_i = 1/N$$<br>→ 修正项 $$-\text{mean}(d\hat{x})$$：把'平移'方向的梯度扣掉"]
+    B --> C["$$\sigma$$ 也依赖每个 $$x_i$$：$$\partial \sigma / \partial x_i = \hat{x}_i / N$$<br>→ 修正项 $$-\hat{x} \cdot \text{mean}(d\hat{x} \odot \hat{x})$$：把'缩放'方向的梯度扣掉"]
+    C --> D["$$dx = \frac{1}{\sigma} \left( d\hat{x} - \text{mean}(d\hat{x}) - \hat{x} \cdot \text{mean}(d\hat{x} \odot \hat{x}) \right)$$<br>性质：$$dx$$ 的均值为 0、与 $$\hat{x}$$ 正交——归一化对平移与缩放不敏感"]
 ```
 
 对拍：`F.layer_norm` 的 autograd，`dx`、`dgamma`、`dbeta` 三者误差都在 $$10^{-10}$$。
