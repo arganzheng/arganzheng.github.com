@@ -21,8 +21,8 @@ date: 2026-09-13 20:00:00
 %% 图：扩散推理基础设施全景：先算三本账，每一类优化在账上的哪一项做交换
 flowchart TB
     F1["01 负载画像：三段——文本编码 / DiT × 步数 × CFG / VAE；单请求就 compute-bound"]
-    F1 --> F2["02 单卡执行：换 attention 后端、编译、FP8 / INT4 → 提 MFU（η）"]
-    F2 --> F3["03 跨步冗余：TeaCache 一族 → 减有效步数（T_eff）"]
+    F1 --> F2["02 单卡执行：换 attention 后端、编译、FP8 / INT4 → 提 MFU（$$\eta$$）"]
+    F2 --> F3["03 跨步冗余：TeaCache 一族 → 减有效步数（$$T_\text{eff}$$）"]
     F1 --> F4["04 视频：attention 占七成之后的稀疏化（s）"]
     F4 --> F5["05 多卡并行：序列 / CFG / PipeFusion，切短单请求墙钟（p·e(p)）"]
     F1 --> F6["06 少步与自回归：把步数变成系统参数（T）"]
@@ -254,7 +254,7 @@ flowchart TB
     CB["单请求 compute-bound（01）"] --> NB["batch 不提吞吐；卡数 = QPS × GPU·秒（01 / 07）"]
     CB --> QP["量化收益来自 Tensor Core 峰值（02）"]
     CB --> SP["多卡为延迟：SP / CFG 并行而非 TP（05）"]
-    SIM["相邻步输出相似（03）"] --> CACHE["跨步缓存 T_eff（03）"]
+    SIM["相邻步输出相似（03）"] --> CACHE["跨步缓存 $$T_\text{eff}$$（03）"]
     SIM --> PF["PipeFusion / DistriFusion 的 stale K/V（05）"]
     SIM --> TOL["容忍近似计算：8-bit attention、稀疏（02 / 04）"]
     FEW["少步蒸馏（06）"] -. "失效" .-> CACHE
