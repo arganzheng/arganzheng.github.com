@@ -223,7 +223,7 @@ def ring_allreduce(chunks_per_rank):
 ```mermaid
 flowchart TB
     A["reduce-scatter：第 step 步，rank r 把块 (r−step) mod N 发给 r+1<br>接收方累加。N−1 步后 rank r 持有块 (r+1) mod N 的完整和"] --> B["all-gather：rank r 把刚完成的块发给 r+1<br>N−1 步后每个 rank 有全部 N 块的和"]
-    B --> C["每 rank 每步发 1 块 = V/N 字节<br>共 2(N−1) 步 → 2(N−1)/N · V ≈ 2V，与 N 无关"]
+    B --> C["每 rank 每步发 1 块 = $$V/N$$ 字节<br>共 $$2(N-1)$$ 步 → $$2(N-1)/N \cdot V \approx 2V$$，<br/>与 N 无关"]
 ```
 
 **通信量**：每个 rank 每步发一块（$$V / N$$ 字节），$$2(N - 1)$$ 步，合计 $$2 \frac{N - 1}{N} V < 2V$$——**与 rank 数无关**，这是 ring 的关键性质（参数服务器方案里 server 的入流量是 $$N \cdot V$$，随 $$N$$ 线性增长）。代价是延迟：$$2(N - 1)$$ 个串行步，$$N$$ 大时延迟主导，所以 NCCL 对小消息用 tree、大消息用 ring。配套脚本 $$N = 4$$：每 rank 发 6 块。
