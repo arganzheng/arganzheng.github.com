@@ -159,7 +159,9 @@
       function fillMath(container, texts) {
         Array.prototype.forEach.call(container.querySelectorAll('.mm-math[data-i]'), function (el) {
           var tex = texts[+el.getAttribute('data-i')];
-          el.setAttribute('style', 'display:inline-block;padding:0 2px');
+          // nowrap: inline KaTeX may break after = / − once the label is
+          // narrower than the formula; the placeholder was measured unbroken
+          el.setAttribute('style', 'display:inline-block;white-space:nowrap;padding:0 2px');
           try { katex.render(tex, el, { throwOnError: false }); } catch (e) { el.textContent = tex; }
         });
       }
