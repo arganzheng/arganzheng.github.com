@@ -5795,6 +5795,9 @@ html.ap-capturing .table-tools {
 .post-container .table-tools:hover {
   background: rgba(255, 255, 255, 0.85);
 }
+html:not(.author-ok) .post-container .fig-download {
+  display: none;
+}
 .post-container .fig-screenshot {
   display: none;
 }

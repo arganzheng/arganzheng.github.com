@@ -1176,6 +1176,8 @@ html.ap-capturing {
 		.code-copy { position: static; width: 32px; height: 32px; }
 		&:hover { background: rgba(255, 255, 255, 0.85); }
 	}
+	// 下载图片 (js/figures.js creates it only for the author); belt and braces
+	html:not(.author-ok) & .fig-download { display: none; }
 	.fig-screenshot { display: none; }
 	html.ap-screenshot-ready & .fig-screenshot { display: inline-flex; }
 	.fig-screenshot .fa-scissors { font-size: 16px; line-height: 1; }

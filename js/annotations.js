@@ -3921,8 +3921,12 @@
     var bar = document.querySelector('.post-actions');
     var title = (bar && bar.getAttribute('data-title')) || document.title;
     var context = passageCardContext(exact);
-    var screenshotBlock = supportsScreenshotCapture() && window.BlogPassageCard &&
-      typeof window.BlogPassageCard.renderScreenshot === 'function' ? blockForCaptionPassage(exact) : null;
+    var canShot = !!(window.BlogPassageCard && typeof window.BlogPassageCard.renderScreenshot === 'function');
+    // a picture / Mermaid caption: the card shows the whole figure, rendered off
+    // screen (js/figure-export.js) — a screen capture cuts a diagram taller than
+    // the window. Tables / code blocks (and a failed render) still use captureBlock.
+    var figureEl = canShot && window.BlogFigures ? figureForCaptionPassage(exact) : null;
+    var screenshotBlock = supportsScreenshotCapture() && canShot ? blockForCaptionPassage(exact) : null;
     var counted = function () { countPassageShare(exact); };
     if (!window.BlogShare) {
       copyText(url).then(function () { showToast('分享链接已复制：打开后会自动定位这段文字'); counted(); });
@@ -3935,6 +3939,13 @@
       onShared: counted,
       toast: showToast,
       card: function () {
+        var shotCard = function (blob) { return window.BlogPassageCard.renderScreenshot({ image: blob, title: title, url: url }); };
+        if (figureEl) {
+          return window.BlogFigures.loadExport().then(function (fx) { return fx.png(figureEl); }).then(shotCard, function () {
+            if (screenshotBlock) return captureBlock(screenshotBlock).then(function (shot) { return shot ? shotCard(shot.blob) : null; });
+            return window.BlogPassageCard.render({ before: context.before, quote: exact, after: context.after, title: title, url: url });
+          });
+        }
         if (screenshotBlock) {
           return captureBlock(screenshotBlock).then(function (shot) {
             if (!shot) return null;
@@ -3958,6 +3969,21 @@
     return !!title && title.textContent.replace(/\s+/g, ' ').trim() === exact;
   }
 
+  // the figure.post-figure / .mermaid whose caption title is `exact`
+  function figureForCaptionPassage(exact) {
+    exact = (exact || '').replace(/\s+/g, ' ').trim();
+    if (!exact) return null;
+    var captions = container.querySelectorAll('.post-figcaption:not(.table-caption)');
+    for (var i = 0; i < captions.length; i++) {
+      if (!captionPassageMatches(captions[i], exact)) continue;
+      var fig = captions[i].closest('figure.post-figure');
+      if (fig && fig.querySelector('.fig-media > img')) return fig;
+      var prev = captions[i].previousElementSibling;
+      if (prev && prev.matches('.mermaid') && prev.querySelector(':scope > .fig-media > svg')) return prev;
+    }
+    return null;
+  }
+
   function blockForCaptionPassage(exact) {
     exact = (exact || '').replace(/\s+/g, ' ').trim();
     if (!exact) return null;
@@ -3965,6 +3991,7 @@
     for (var i = 0; i < captions.length; i++) {
       if (!captionPassageMatches(captions[i], exact)) continue;
       var figure = captions[i].previousElementSibling;
+      if (figure && figure.matches('.fig-media')) return figure; // picture: <figure> > .fig-media + <figcaption>
       if (figure && figure.matches('figure.post-figure')) return figure.querySelector(':scope > .fig-media') || figure;
       if (figure && figure.matches('.mermaid')) return figure.querySelector(':scope > .fig-media') || figure;
     }
