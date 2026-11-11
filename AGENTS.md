@@ -955,7 +955,29 @@ exactly one thread on GitHub too. The editor has a small Markdown toolbar
     strip covered a table's header cells: 「拷贝和评论按钮总是覆盖住文字」) →
     back to the corner, hover-revealed (2026-09-28, the caption-row strip was
     「太隐晦了，也不好看」). Code blocks carry the strip in their header bar
-    (next bullet). Click handler stops propagation. `code-copy.js` marks the
+    (next bullet). Click handler stops propagation. **Author-only 下载图片**
+    (`.fig-download`, octicon download, 2026-11-11, 「只能我可以下载图片，避免盗图」):
+    `figures.js` adds it to picture / Mermaid strips only while `blog:viewer`
+    equals `.post-actions[data-author]` (removed on logout; CSS also hides it
+    without `html.author-ok`), and lazy-loads `js/figure-export.js` (not in
+    the bundle; its `asset_v` and wechat-export's ride on the bundle's
+    `<script data-figure-export-v data-wechat-export-v>` in `footer.html`),
+    whose menu re-checks `BlogFigures.isAuthor()`. `FigureExport.png(fig)` =
+    the whole figure at natural size regardless of viewport: Mermaid → the
+    *live* SVG cloned, computed styles of the `<foreignObject>` HTML inlined,
+    the KaTeX faces it uses fetched from jsDelivr and embedded as data-URL
+    `@font-face`, drawn at 2× via a `data:` URL (Chrome does not taint); on
+    any failure (Safari taints foreignObject) it falls back to
+    `WechatExport.mermaidToSvg` (the htmlLabels:false + `texToText`
+    re-render, factored out of `mermaidToPng`). 「下载 SVG」 for Mermaid is
+    that pure-SVG re-render (no foreignObject → opens in Figma / Keynote);
+    for an SVG `<img>` it is the file itself; raster `<img>` gets PNG + 原图.
+    Files are `<slug>-fig-<N>.<ext>`. The same `png()` feeds the passage
+    share card when the shared passage is a picture / Mermaid caption
+    (`figureForCaptionPassage` in annotations.js, for every reader, no
+    screen-capture permission needed; `captureBlock` stays the fallback and
+    the path for tables / code). Gating is client-side deterrence only — the
+    SVG is in the DOM. `code-copy.js` marks the
     anchor `data-code-copy` once it has added its button — without that the
     two MutationObservers would keep adding copy buttons to every diagram; the
     table copy menu is `position: fixed`, placed under its button on open

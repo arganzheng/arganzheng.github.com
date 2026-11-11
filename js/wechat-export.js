@@ -168,7 +168,7 @@
             // text keeps its spaces; \u00a0 survives the space handling below
             var tx = arg(s, i); i = tx[1]; out += tx[0].replace(/[{}]/g, '').replace(/ /g, '\u00a0'); continue;
           }
-          if (/^(mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|operatorname|boldsymbol)$/.test(name)) {
+          if (/^(mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathbb|operatorname|boldsymbol|mathrel|mathbin|mathop|mathord)$/.test(name)) {
             var a = arg(s, i); i = a[1]; out += conv(a[0]); continue;
           }
           if (name === 'frac' || name === 'dfrac' || name === 'tfrac') {
@@ -217,10 +217,15 @@
   }
 
   var mermaidSeq = 0;
-  function mermaidToPng(container) {
+  // Re-render a diagram with pure-SVG labels (htmlLabels:false, $$…$$ → Unicode
+  // via texToText) at its natural size and hand back the detached <svg>: no
+  // <foreignObject>, so it draws into a canvas without tainting it and opens in
+  // any SVG tool. Used by the export below and by js/figure-export.js (author
+  // 「下载 SVG」, and the PNG fallback when the live diagram cannot be rasterised).
+  function mermaidToSvg(container) {
     var src = plainMath(container.getAttribute('data-mermaid-source') || '');
     var live = container.querySelector('svg');
-    if (!src || !window.mermaid || !mermaid.render) return live ? svgToPng(live) : Promise.reject(new Error('no mermaid'));
+    if (!src || !window.mermaid || !mermaid.render) return Promise.reject(new Error('no mermaid'));
     var cfg = mermaid.mermaidAPI && mermaid.mermaidAPI.getConfig ? JSON.parse(JSON.stringify(mermaid.mermaidAPI.getConfig())) : null;
     mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose', htmlLabels: false, flowchart: { htmlLabels: false, useMaxWidth: false, curve: 'basis' }, sequence: { useMaxWidth: false }, gantt: { useMaxWidth: false }, mindmap: { useMaxWidth: false } });
     var host = document.createElement('div');
@@ -236,11 +241,23 @@
       if (live2 && w < live2.width) { h = h * live2.width / w; w = live2.width; }
       svg.setAttribute('width', w); svg.setAttribute('height', h);
       svg.style.maxWidth = 'none';
-      return svgToPng(svg);
-    }).then(function (png) {
-      host.remove(); if (cfg) mermaid.initialize(cfg); return png;
+      return svg;
+    }).then(function (svg) {
+      host.remove(); if (cfg) mermaid.initialize(cfg); return svg;
     }, function (e) {
       host.remove(); if (cfg) mermaid.initialize(cfg); throw e;
+    });
+  }
+  function mermaidToPng(container) {
+    var live = container.querySelector('svg');
+    var src = container.getAttribute('data-mermaid-source');
+    if (!src || !window.mermaid || !mermaid.render) return live ? svgToPng(live) : Promise.reject(new Error('no mermaid'));
+    // svgToPng measures the svg, so it must still be in the document while it draws
+    return mermaidToSvg(container).then(function (svg) {
+      var host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-10000px;top:0;';
+      host.appendChild(svg); document.body.appendChild(host);
+      return svgToPng(svg).then(function (png) { host.remove(); return png; }, function (e) { host.remove(); throw e; });
     });
   }
   // WebP -> JPEG (q 0.9, <= 1280 px wide, white behind any transparency): PNG
@@ -506,6 +523,7 @@
     REMOVE: REMOVE,
     svgToPng: svgToPng,
     mermaidToPng: mermaidToPng,
+    mermaidToSvg: mermaidToSvg,
     texToText: texToText,
     imgToJpeg: imgToJpeg,
     copy: function (opts) {

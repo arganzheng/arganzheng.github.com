@@ -85,7 +85,7 @@ def info_nce(q, k, temperature=0.07):                            # q, k 已 L2 �
 
 ```mermaid
 flowchart TB
-    A["q (N, d)、k (N, d) 各自 L2 归一化"] --> B["相似度矩阵 S = q kᵀ / τ：(N, N)<br>S[i][j] = cos(q_i, k_j) / τ"]
+    A["q (N, d)、k (N, d) 各自 L2 归一化"] --> B["相似度矩阵 $$S = qk^\top / \tau$$：(N, N)<br>$$S[i][j] = \cos(q_i, k_j) / \tau$$"]
     B --> C["第 i 行的正确类别是 j = i（对角线）"]
     C --> D["loss = CE(S, arange(N))<br>= −mean log softmax(S)[i, i]"]
 ```
@@ -132,10 +132,10 @@ def ppo_clip_loss(logp_new, logp_old, adv, eps=0.2):
 
 ```mermaid
 flowchart TB
-    A["ratio r = π_new(a) / π_old(a)，四种情况"] --> B1["A &gt; 0，r ≤ 1+ε：loss = −r·A<br>梯度推 r 变大（提高好动作的概率）"]
-    B1 --> B2["A &gt; 0，r &gt; 1+ε：min 取 clip 项 −(1+ε)A，是常数<br>梯度 0 → 不再奖励继续增大"]
-    B2 --> C1["A &lt; 0，r ≥ 1−ε：loss = −r·A = r|A|<br>梯度推 r 变小（压低坏动作的概率）"]
-    C1 --> C2["A &lt; 0，r &lt; 1−ε：clip 项 −(1−ε)A，常数<br>梯度 0 → 不再惩罚继续减小"]
+    A["ratio $$r = \pi_\text{new}(a) / \pi_\text{old}(a)$$，四种情况"] --> B1["$$A \gt 0$$，$$r \le 1 + \epsilon$$：$$\text{loss} = -rA$$<br>梯度推 r 变大（提高好动作的概率）"]
+    B1 --> B2["$$A \gt 0$$，$$r \gt 1 + \epsilon$$：min 取 clip 项 $$-(1 + \epsilon)A$$，是常数<br>梯度 0 → 不再奖励继续增大"]
+    B2 --> C1["$$A \lt 0$$，$$r \ge 1 - \epsilon$$：$$\text{loss} = -rA = r \lvert A \rvert$$<br>梯度推 r 变小（压低坏动作的概率）"]
+    C1 --> C2["$$A \lt 0$$，$$r \lt 1 - \epsilon$$：clip 项 $$-(1 - \epsilon)A$$，常数<br>梯度 0 → 不再惩罚继续减小"]
 ```
 
 **为什么是 min 而不是直接 clip**：`min` 让 clip 只在"改进方向越界"时生效——$$A > 0$$ 且 $$r$$ 已经大于 $$1 + \epsilon$$ 时不再给梯度（防止一步走太远），但 $$A > 0$$ 且 $$r < 1 - \epsilon$$ 时仍用原始项（允许把过低的概率拉回来）。是一个**悲观下界**。配套脚本：$$A = 1$$，`ratio` 从 1.0 到 1.65，loss 在 $$-1.2$$ 处截平。

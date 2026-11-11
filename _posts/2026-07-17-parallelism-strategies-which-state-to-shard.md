@@ -402,7 +402,7 @@ Table: Transformer 层六个线性层的切法
 
 前向每层两次 all-reduce（注意力后一次、MLP 后一次），每次的载荷是一个完整的激活张量 $$s \cdot b \cdot h$$ 个元素。反向也是两次：行切层前向的 all-reduce 在反向是恒等（梯度直接分发），而列切层前向的恒等（输入广播）在反向变成 all-reduce（各卡对 $$X$$ 的梯度要求和）——两者互为共轭，所以反向的 all-reduce 出现在与前向不同的位置，但次数相同。用 Megatron 论文的记法（$$f$$：前向恒等、反向 all-reduce；$$g$$：前向 all-reduce、反向恒等），一个 MLP 块的前向与反向是：
 
-![上：前向——X 完整经 f（恒等）进列切 W1i、GELU、行切 W2i，各卡得到部分和，经 g（all-reduce）得完整 Y；下：反向——dY 完整经 g（恒等）各卡取自己那块，经 W2i^T、GELU′、W1i^T 得到对 X 的部分梯度，经 f（all-reduce）求和得 dX](/img/in-post/parallelism-tp-conjugate-fg.svg)
+![张量并行 MLP 块中 f 与 g 的共轭：前向 f 恒等、g 做 all-reduce，反向 g 恒等、f 做 all-reduce](/img/in-post/parallelism-tp-conjugate-fg.svg)
 
 前向的 all-reduce 在块尾（$$g$$），反向的 all-reduce 在块头（$$f$$）；注意力块同理。每层四次，每次每卡 $$\frac{2(N_t-1)}{N_t} \cdot sbh \cdot 2$$ 字节。
 

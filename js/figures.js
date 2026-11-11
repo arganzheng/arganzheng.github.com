@@ -36,6 +36,11 @@
   // octicon screen-full: the 放大 button (js/diagram-zoom.js lightbox)
   var ZOOM_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M1.75 10a.75.75 0 0 1 .75.75v2.75h2.75a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75v-3.5a.75.75 0 0 1 .75-.75Zm12.5 0a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-.75.75h-3.5a.75.75 0 0 1 0-1.5h2.75v-2.75a.75.75 0 0 1 .75-.75ZM2.5 2.5v2.75a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 1.75 1h3.5a.75.75 0 0 1 0 1.5Zm8.25-.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V2.5h-2.75a.75.75 0 0 1-.75-.75Z"></path></svg>';
   var FIGURE_SELECTOR = 'figure.post-figure, .mermaid, code.language-mermaid';
+  // octicon download: the author's 「下载图片」 button (js/figure-export.js, lazy)
+  var DOWNLOAD_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"></path><path fill="currentColor" d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"></path></svg>';
+  // content hash of js/figure-export.js (footer.html puts it on the bundle's <script>)
+  var EXPORT_V = (document.currentScript && document.currentScript.getAttribute('data-figure-export-v')) || '';
+  var WECHAT_V = (document.currentScript && document.currentScript.getAttribute('data-wechat-export-v')) || '';
 
   var container;
 
@@ -119,6 +124,57 @@
     return b;
   }
 
+  // 下载图片 (PNG / SVG / 原图) is author-only (「只能我可以下载图片，避免盗图」):
+  // the button exists only while `blog:viewer` (js/annotations.js) is the
+  // site's GitHub user, is removed on logout, and figure-export.js checks
+  // isAuthor() again before it renders anything. The PNG itself (full diagram,
+  // not a screenshot) is also what a figure's share card uses, for everyone.
+  var authorOk = false, exportReady = null;
+  function siteAuthor() {
+    var bar = document.querySelector('.post-actions[data-author]');
+    return bar ? bar.getAttribute('data-author') : '';
+  }
+  function loadExport() {
+    if (window.FigureExport) return Promise.resolve(window.FigureExport);
+    if (!exportReady) {
+      exportReady = new Promise(function (resolve, reject) {
+        var s = document.createElement('script');
+        s.src = '/js/figure-export.js' + (EXPORT_V ? '?v=' + EXPORT_V : '');
+        s.onload = function () { resolve(window.FigureExport); };
+        s.onerror = function () { exportReady = null; reject(new Error('failed to load figure-export.js')); };
+        document.head.appendChild(s);
+      });
+    }
+    return exportReady;
+  }
+  function downloadButton(fig) {
+    var b = button('下载图片（PNG / SVG，仅作者可见）', function () {
+      if (!authorOk) return;
+      loadExport().then(function (fx) { fx.openMenu(b, fig); });
+    }, 'fig-download', DOWNLOAD_ICON);
+    b.setAttribute('aria-haspopup', 'menu');
+    return b;
+  }
+  function syncDownload(strip, fig) {
+    var have = strip.querySelector(':scope > .fig-download');
+    if (!authorOk || !fig) { if (have) have.remove(); return; }
+    if (have || (fig.matches('.mermaid') && !fig.querySelector(':scope > .fig-media > svg'))) return;
+    strip.insertBefore(downloadButton(fig), strip.querySelector(':scope > .fig-feedback'));
+  }
+  function syncDownloads() {
+    if (!container) return;
+    Array.prototype.forEach.call(container.querySelectorAll('.fig-media > .fig-tools'), function (strip) {
+      syncDownload(strip, strip.closest('figure.post-figure, .mermaid'));
+    });
+  }
+  document.addEventListener('blog:viewer', function (e) {
+    var a = siteAuthor();
+    authorOk = !!(e.detail && a && e.detail.login === a);
+    if (!authorOk && window.FigureExport) window.FigureExport.closeMenu();
+    syncDownloads();
+  });
+  window.BlogFigures = { loadExport: loadExport, isAuthor: function () { return authorOk; }, wechatVersion: WECHAT_V };
+
   var FIG_TITLE = '对这张图评论（会选中图题，再从工具条里选）';
   function figureButton(cap) {
     return button(FIG_TITLE, function () { pick(cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), cap); });
@@ -183,6 +239,7 @@
       var strip = tools(fig, mediaEl);
       strip.appendChild(zoomButton(img));
       strip.appendChild(figureButton(cap));
+      syncDownload(strip, fig);
       strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), mediaEl));
     });
   }
@@ -203,6 +260,7 @@
       d.classList.add('code-copy-anchor');
       if (svg) strip.appendChild(zoomButton(svg));
       strip.appendChild(figureButton(cap));
+      if (svg) syncDownload(strip, d);
       strip.appendChild(screenshotButton('截图评论这张图（⌥S / Alt+S）', cap.querySelector('.fig-title') || cap.querySelector('.fig-no'), d.querySelector(':scope > .fig-media') || d));
     });
   }

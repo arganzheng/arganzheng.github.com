@@ -1374,6 +1374,15 @@ nav.navbar-default:not(.navbar-custom) .nav li a:focus {
 svg[id^="mermaid-"] foreignObject > div {
   overflow-wrap: anywhere;
 }
+/* KaTeX in Mermaid labels (rich-content.html) draws \sqrt and stretchy
+   delimiters as inline <svg>s sized by KaTeX (height="1.08em", width="400em"
+   clipped by its wrapper). github-markdown.css's `.post-container .mermaid svg
+   { max-width: 100%; height: auto }` — meant for the diagram itself — also
+   matches them and outranks KaTeX's `.katex svg`, collapsing the root to 0px. */
+.post-container .mermaid .katex svg {
+  height: inherit;
+  max-width: none;
+}
 /* Mermaid / image lightbox, driven by js/diagram-zoom.js (opened from the figure's 放大 button) */
 .diagram-zoom {
   display: none;
@@ -5785,6 +5794,9 @@ html.ap-capturing .table-tools {
 .post-container .fig-tools:hover,
 .post-container .table-tools:hover {
   background: rgba(255, 255, 255, 0.85);
+}
+html:not(.author-ok) .post-container .fig-download {
+  display: none;
 }
 .post-container .fig-screenshot {
   display: none;

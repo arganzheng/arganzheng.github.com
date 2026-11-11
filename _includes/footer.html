@@ -110,7 +110,7 @@
      annotations.js  comments & highlight comments (划线评论), rendered from the post's GitHub Discussion
      share.js        action bar, share menu, .post-stats strip
      slides-player.js deck landing page (/slides/foo.html): bar driving the reveal.js iframe -->
-<script src="{{ "/js/blog.min.js" | prepend: site.baseurl }}?v={{ "/js/blog.min.js" | asset_v }}"></script>
+<script src="{{ "/js/blog.min.js" | prepend: site.baseurl }}?v={{ "/js/blog.min.js" | asset_v }}" data-figure-export-v="{{ "/js/figure-export.js" | asset_v }}" data-wechat-export-v="{{ "/js/wechat-export.js" | asset_v }}"></script>
 
 <!-- WeChat QR popover: toggle on icon click, close on any outside click -->
 <script>

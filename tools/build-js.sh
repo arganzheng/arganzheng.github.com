@@ -6,7 +6,7 @@
 #   npm run js -- --check # exit 1 if js/blog.min.js is not what js/*.js produce
 #
 # Kept separate on purpose: search.js (head, every page),
-# wechat-export.js + html-export.js + rich-export.js + md-zip-export.js + docx-export.js (lazy, author only),
+# figure-export.js (lazy, figures.js: full-figure PNG / SVG), wechat-export.js + html-export.js + rich-export.js + md-zip-export.js + docx-export.js (lazy, author only),
 # dashboard.js + feedback-brief.js (/admin/).
 set -euo pipefail
 cd "$(dirname "$0")/.."
