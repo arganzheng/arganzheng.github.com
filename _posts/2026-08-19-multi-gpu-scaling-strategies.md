@@ -113,20 +113,27 @@ Table: DP=2 与 TP=2 的对比
 ### 2. TP 怎么切？
 
 以矩阵乘法：
-$$Y=XW$$
+
+$$
+Y=XW
+$$
 
 为例，TP 最常见的两种切法是 **Column Parallel** 和 **Row Parallel**。
 
 ![Column Parallel 与 Row Parallel 的切法](/img/in-post/multi-gpu-scaling-strategies-column-row-parallel.svg)
 
-图里没写的三个数：每层 All-Reduce 两次（Attention 后一次、MLP 后一次）；通信量 2 × B × S × H × sizeof(dtype)；最合适的场景是 NVLink / NVSwitch 互联的同机多卡。
+图里只画了一次切分，放进整个 Transformer Layer 还有三点，后面几节逐一展开：
+
+1. **每层 All-Reduce 两次**：Attention 后一次、MLP 后一次。列切的输出分片正好是行切的输入分片，中间不用通信，只有行切算出的部分和要在末尾求和（[第 3 节](#3-为什么-column-和-row-可以配合而且经常成对出现)）；Attention 和 MLP 各有一对「列切 → 行切」，所以每层两次（[第 4 节](#4-tp-在-transformer-中怎么应用)）。
+2. **每层通信量 $$2V$$**：一次 All-Reduce 合并的是这一层输出的激活，逻辑量 $$V = B \times S \times H \times \text{sizeof(dtype)}$$，每层两次就是 $$2V$$（[第 5 节](#5-tp-的代价通信)给出 Decode 一步 80 层约 80 MiB 的算例）。
+3. **最适合 NVLink / NVSwitch 互联的同机多卡**：All-Reduce 在每层计算的关键路径上，所有卡要等它完成才能算下一层，对带宽和延迟都敏感，跨机网络的同步成本太高（[第 6 节](#6-为什么-tp-更适合机内高速互联场景)）。
 
 两者的核心区别：
 
 |      | Column Parallel | Row Parallel |
 | ---- | --------------- | ------------ |
 | 权重   | 按列切             | 按行切          |
-| 每卡计算 | (Y_i=XW_i)      | (Z_i=Y_iW_i) |
+| 每卡计算 | $$Y_i=XW_i$$      | $$Z_i=Y_iW_i$$ |
 | 结果   | 输出的不同分片         | 输出的部分和       |
 | 通信   | 无               | All-Reduce   |
 | 典型应用 | QKV、Gate/Up     | O、Down       |
@@ -143,7 +150,7 @@ Table: Column Parallel 与 Row Parallel 的区别
 可以用两个连续的 Linear Layer 来理解：
 
 $$
-X \rightarrow Linear_1 \rightarrow Y \rightarrow Linear_2 \rightarrow Z
+X \rightarrow \text{Linear}_1 \rightarrow Y \rightarrow \text{Linear}_2 \rightarrow Z
 $$
 
 假设 TP=4：
@@ -153,16 +160,16 @@ $$
 假设：
 
 $$
-X\in R^{B\times8}
+X\in \mathbb{R}^{B\times8}
 $$
 
 第一层：
 
 $$
-Y=XW_1,\qquad W_1\in R^{8\times8}
+Y=XW_1,\qquad W_1\in \mathbb{R}^{8\times8}
 $$
 
-采用 **Column Parallel**，把 (W_1) 按列切成 4 份：
+采用 **Column Parallel**，把 $$W_1$$ 按列切成 4 份：
 
 ![W₁ 按列切成 4 份](/img/in-post/multi-gpu-scaling-strategies-w1-column-split.svg)
 
@@ -175,16 +182,16 @@ Y_2=XW_{12},\quad
 Y_3=XW_{13}
 $$
 
-所以每张 GPU 得到 (Y) 的一部分：
+所以每张 GPU 得到 $$Y$$ 的一部分：
 
 $$
-Y_0,Y_1,Y_2,Y_3\in R^{B\times2}
+Y_0,Y_1,Y_2,Y_3\in \mathbb{R}^{B\times2}
 $$
 
 整体上：
 
 $$
-\boxed{Y=[Y_0|Y_1|Y_2|Y_3]}
+\boxed{Y=[Y_0\mid Y_1\mid Y_2\mid Y_3]}
 $$
 
 现在进入第二层：
@@ -193,17 +200,17 @@ $$
 Z=YW_2
 $$
 
-因为 (Y) 的维度是 8，所以：
+因为 $$Y$$ 的维度是 8，所以：
 
 $$
-W_2\in R^{8\times4}
+W_2\in \mathbb{R}^{8\times4}
 $$
 
-注意：**这里的 Row Parallel 并不是随便把 (W_2) 切几块，而是沿着上一层输出 (Y) 的这个维度切。**
+注意：**这里的 Row Parallel 并不是随便把 $$W_2$$ 切几块，而是沿着上一层输出 $$Y$$ 的这个维度切。**
 
 ![W₂ 沿 Y 的维度按行切](/img/in-post/multi-gpu-scaling-strategies-w2-row-split.svg)
 
-于是每张 GPU 可以**直接使用自己上一层得到的 (Y_i)**：
+于是每张 GPU 可以**直接使用自己上一层得到的 $$Y_i$$**：
 
 $$
 Z_0=Y_0W_{20}
@@ -228,14 +235,14 @@ $$
 $$
 \begin{aligned}
 Z
-&=YW_2\
-&=[Y_0|Y_1|Y_2|Y_3]
+&=YW_2\\
+&=[Y_0\mid Y_1\mid Y_2\mid Y_3]
 \begin{bmatrix}
-W_{20}\
-W_{21}\
-W_{22}\
+W_{20}\\
+W_{21}\\
+W_{22}\\
 W_{23}
-\end{bmatrix}\
+\end{bmatrix}\\
 &=Y_0W_{20}+Y_1W_{21}+Y_2W_{22}+Y_3W_{23}
 \end{aligned}
 $$
@@ -252,7 +259,7 @@ $$
 
 所以，**Column → Row 能够配合的关键**就是：
 
-> **Column Parallel 把上一层的输出 (Y) 按列切开；Row Parallel 再把下一层权重 (W_2) 按对应的行切开。这样每张 GPU 上的 (Y_i) 正好对应自己的 (W_{2i})，无需重新分发激活，只需要在最后 All-Reduce 合并部分结果。**
+> **Column Parallel 把上一层的输出 $$Y$$ 按列切开；Row Parallel 再把下一层权重 $$W_2$$ 按对应的行切开。这样每张 GPU 上的 $$Y_i$$ 正好对应自己的 $$W_{2i}$$，无需重新分发激活，只需要在最后 All-Reduce 合并部分结果。**
 
 可以把它记成：
 
@@ -318,14 +325,16 @@ $$
 
 这个模式在 **Attention 和 MLP 中各出现一次**，因此：**每个 Transformer Layer 通常需要 2 次 All-Reduce**：
 
-**Attention：** 
+**Attention：**
+
 $$
-QKV\rightarrow Attention\rightarrow O\rightarrow All\text{-}Reduce
+\text{QKV}\rightarrow \text{Attention}\rightarrow \text{O}\rightarrow \text{All-Reduce}
 $$
 
 **MLP：**
+
 $$
-Gate/Up\rightarrow Activation\rightarrow Down\rightarrow All\text{-}Reduce
+\text{Gate/Up}\rightarrow \text{Activation}\rightarrow \text{Down}\rightarrow \text{All-Reduce}
 $$
 
 ### 5. TP 的代价：通信
@@ -336,7 +345,7 @@ TP 的核心交换是：**用 GPU 间通信换取单卡计算和显存压力的�
 
 $$
 \boxed{
-V=B\times S\times H\times sizeof(dtype)
+V=B\times S\times H\times \text{sizeof(dtype)}
 }
 $$
 
@@ -346,7 +355,7 @@ $$
 * S：本轮每个序列处理的 token 数
 * H：Hidden Size
 
-**Decode 阶段通常 (S=1)**。
+**Decode 阶段通常 $$S=1$$**。
 
 以前面的例子为例：
 
@@ -378,7 +387,7 @@ $$
 2\frac{N-1}{N}V
 $$
 
-TP=8 时约为 (1.75V)。
+TP=8 时约为 $$1.75V$$。
 
 ### 6. 为什么 TP 更适合机内高速互联场景？
 
@@ -665,7 +674,7 @@ Table: 训练 PP 与推理 PP 的不同
 
 大模型推理的显存瓶颈通常在于 模型参数 + KV Cache。
 
-* 单卡纵向扩容：因为 PP 将模型层数均分到了不同卡上，单卡上需要缓存的 KV Cache 层数也变成了总层数的 1/PP_Size。
+* 单卡纵向扩容：因为 PP 将模型层数均分到了不同卡上，单卡上需要缓存的 KV Cache 层数也变成了总层数的 $$1/\text{PP}_{\text{size}}$$。
 * 释放长文本潜力：在处理超长文本（Context Length）或大 Batch 推理时，单卡因为只需要存 1/N 的层，从而能腾出更多显存来容纳更多的 Token，在一定程度上缓解了单卡显存因长文本而崩溃（OOM）的问题。
 
 **③ 动态管理难题：跨 Stage 的 Token 调度与绑定**
@@ -792,7 +801,7 @@ EP 的代价是：Token 不一定会被发送到当前 GPU 上的 Expert，因�
 
 **① Router 计算**
 
-对于输入 Token 的隐藏状态 \(x_t\)，Router 通常先计算每个 Expert 的打分：
+对于输入 Token 的隐藏状态 $$x_t$$，Router 通常先计算每个 Expert 的打分：
 
 $$
 s_t = W_r x_t
@@ -800,9 +809,9 @@ $$
 
 其中：
 
-- \(x_t\) 表示第 \(t\) 个 Token 的隐藏状态；
-- \(W_r\) 表示 Router 权重；
-- \(s_t\) 表示该 Token 对所有 Expert 的路由分数。
+- $$x_t$$ 表示第 $$t$$ 个 Token 的隐藏状态；
+- $$W_r$$ 表示 Router 权重；
+- $$s_t$$ 表示该 Token 对所有 Expert 的路由分数。
 
 经过 Softmax 后，得到路由概率：
 
@@ -1037,13 +1046,13 @@ $$
 
 其中：
 
-- \(T\)：Token 数量；
-- \(K\)：每个 Token 选择的 Expert 数量；
-- \(E\)：Expert 总数；
-- \(C\)：单个 Expert 的最大 Token 容量；
+- $$T$$：Token 数量；
+- $$K$$：每个 Token 选择的 Expert 数量；
+- $$E$$：Expert 总数；
+- $$C$$：单个 Expert 的最大 Token 容量；
 - Capacity Factor：容量因子。
 
-例如，Token 数量 T = 1024、Top-K K = 2、Expert 数量 E = 64、Capacity Factor = 1.25，则：
+例如，Token 数量 $$T$$ = 1024、Top-K $$K$$ = 2、Expert 数量 $$E$$ = 64、Capacity Factor = 1.25，则：
 
 $$
 C =
@@ -1187,9 +1196,9 @@ $$
 
 其中：
 
-- \(T\)：Token 数量；
-- \(K\)：Top-K；
-- \(H\)：隐藏层维度；
+- $$T$$：Token 数量；
+- $$K$$：Top-K；
+- $$H$$：隐藏层维度；
 - `ElementSize`：每个元素的字节数。
 
 因此，以下情况会显著增加通信量：
