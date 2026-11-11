@@ -36,13 +36,13 @@ Table: 预训练开工前的五个问题与 scaling law 的回答
 
 ```mermaid
 %% 图：scaling law 在一个预训练项目里的位置：三件事、五个决定
-flowchart LR
-  A["卡数 × 天数 × MFU<br/>→ 算力 C = 6ND"] --> B["① loss 是 N 与 D 的幂律<br/>L = E + A/N^α + B/D^β"]
-  B --> C["② 只算训练：<br/>最优 D/N ≈ 20"]
-  B --> D["③ 算上推理：<br/>N 更小、D 更大"]
-  C --> E["决定 N 与 D"]
+flowchart TB
+  A["卡数 × 天数 × MFU<br/>→ 算力 $$C = 6ND$$"] --> B["① loss 是 $$N$$ 与 $$D$$ 的幂律<br/>$$L = E + A/N^{\alpha} + B/D^{\beta}$$"]
+  B --> C["② 只算训练：<br/>最优 $$D/N \approx 20$$"]
+  B --> D["③ 算上推理：<br/>$$N$$ 更小、$$D$$ 更大"]
+  C --> E["决定 $$N$$ 与 $$D$$"]
   D --> E
-  E --> F["数据要多少<br/>（唯一 token ≥ D/4）"]
+  E --> F["数据要多少<br/>（唯一 token $$\ge D/4$$）"]
   E --> G["学习率、batch<br/>随规模走"]
   B --> H["小模型外推 loss<br/>训练中当健康检查"]
 ```
@@ -482,11 +482,11 @@ Scaling law 首先是一种实验方法：用几个便宜的点决定一个昂�
 ```mermaid
 %% 图：scaling law 的实验流程：扫一组小模型、逐尺寸调超参、拟合、留出最大点验证、再外推到目标算力
 flowchart TB
-    S["选定数据、tokenizer、结构族<br/>（全程固定）"] --> W["扫一组小模型<br/>N 跨 2–3 个数量级"]
-    W --> H["每个尺寸单独调超参<br/>或用 μP 迁移"]
-    H --> F["拟合 L(N, D) 或 N_opt(C)<br/>Huber 损失、对数空间"]
+    S["选定数据、tokenizer、结构族<br/>（全程固定）"] --> W["扫一组小模型<br/>$$N$$ 跨 2–3 个数量级"]
+    W --> H["每个尺寸单独调超参<br/>或用 $$\mu$$P 迁移"]
+    H --> F["拟合 $$L(N, D)$$ 或 $$N_{\text{opt}}(C)$$<br/>Huber 损失、对数空间"]
     F --> V["留出最大的点验证外推"]
-    V --> P["外推到目标算力<br/>决定 N、D、超参"]
+    V --> P["外推到目标算力<br/>决定 $$N$$、$$D$$、超参"]
     P --> R["训练；用中途 loss 对照预测"]
 
     classDef key fill:#fde68a,stroke:#b45309;
