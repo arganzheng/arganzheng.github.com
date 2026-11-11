@@ -32,13 +32,13 @@ updated: 2026-09-15
 
 ```mermaid
 flowchart TB
-    X["x：(B, T, D)"] --> LN1["LayerNorm₁"]
-    LN1 --> ATT["Multi-Head Attention<br>W_qkv (D, 3D)、W_o (D, D)"]
-    ATT --> ADD1["x + attn(LN₁(x))"]
+    X["x：(B, T, D)"] --> LN1["LayerNorm<sub>1</sub>"]
+    LN1 --> ATT["Multi-Head Attention<br>$$W_{qkv}$$ (D, 3D)、$$W_o$$ (D, D)"]
+    ATT --> ADD1["$$x + \mathrm{attn}(\mathrm{LN}_1(x))$$"]
     X --> ADD1
-    ADD1 --> LN2["LayerNorm₂"]
-    LN2 --> FFN["FFN：W_fc (D, 4D) → GELU → W_proj (4D, D)"]
-    FFN --> ADD2["h + ffn(LN₂(h))"]
+    ADD1 --> LN2["LayerNorm<sub>2</sub>"]
+    LN2 --> FFN["FFN：$$W_{fc}$$ (D, 4D) → GELU → $$W_{proj}$$ (4D, D)"]
+    FFN --> ADD2["$$h + \mathrm{ffn}(\mathrm{LN}_2(h))$$"]
     ADD1 --> ADD2
     ADD2 --> Y["y：(B, T, D)"]
 ```
@@ -177,9 +177,9 @@ def layer_norm_backward(x, gamma, dout, eps=1e-5):
 
 ```mermaid
 flowchart TB
-    A["dŷ = dout ⊙ γ<br>（如果 μ、σ 是常数，dx 就是 dŷ / σ）"] --> B["但 μ 依赖每个 x_i：∂μ/∂x_i = 1/N<br>→ 修正项 −mean(dŷ)：把'平移'方向的梯度扣掉"]
-    B --> C["σ 也依赖每个 x_i：∂σ/∂x_i = x̂_i / N<br>→ 修正项 −x̂ · mean(dŷ ⊙ x̂)：把'缩放'方向的梯度扣掉"]
-    C --> D["dx = (1/σ) · (dŷ − mean(dŷ) − x̂ · mean(dŷ ⊙ x̂))<br>性质：dx 的均值为 0、与 x̂ 正交——归一化对平移与缩放不敏感"]
+    A["$$d\hat{y} = \mathrm{dout} \odot \gamma$$<br>（如果 $$\mu$$、$$\sigma$$ 是常数，$$dx$$ 就是 $$d\hat{y} / \sigma$$）"] --> B["但 $$\mu$$ 依赖每个 $$x_i$$：$$\partial \mu / \partial x_i = 1/N$$<br>→ 修正项 $$-\text{mean}(d\hat{y})$$：把'平移'方向的梯度扣掉"]
+    B --> C["$$\sigma$$ 也依赖每个 $$x_i$$：$$\partial \sigma / \partial x_i = \hat{x}_i / N$$<br>→ 修正项 $$-\hat{x} \cdot \text{mean}(d\hat{y} \odot \hat{x})$$：把'缩放'方向的梯度扣掉"]
+    C --> D["$$dx = \frac{1}{\sigma} \left( d\hat{y} - \text{mean}(d\hat{y}) - \hat{x} \cdot \text{mean}(d\hat{y} \odot \hat{x}) \right)$$<br>性质：$$dx$$ 的均值为 0、与 $$\hat{x}$$ 正交——归一化对平移与缩放不敏感"]
 ```
 
 对拍：`F.layer_norm` 的 autograd，`dx`、`dgamma`、`dbeta` 三者误差都在 $$10^{-10}$$。
