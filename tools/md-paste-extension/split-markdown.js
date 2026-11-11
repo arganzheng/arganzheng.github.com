@@ -293,9 +293,225 @@
     return tokens;
   }
 
+  function relativeBlogUrl(value) {
+    if (!isAllowedBlogImageUrl(value)) return null;
+    var url = new URL(value);
+    return (url.pathname || '/') + url.search + url.hash;
+  }
+
+  function overlapsProtected(ranges, start, end) {
+    for (var index = 0; index < ranges.length; index += 1) {
+      if (ranges[index][0] >= end) return false;
+      if (ranges[index][1] > start) return true;
+    }
+    return false;
+  }
+
+  function parseLinkDestination(text, openParen) {
+    var index = openParen + 1;
+    while (/\s/.test(text[index] || '') && index < text.length) index += 1;
+
+    var start;
+    var end;
+    var url;
+    if (text[index] === '<') {
+      start = index + 1;
+      end = start;
+      while (end < text.length && (text[end] !== '>' || isEscaped(text, end))) end += 1;
+      if (text[end] !== '>') return null;
+      url = text.slice(start, end);
+      index = end + 1;
+    } else {
+      start = index;
+      var parentheses = 0;
+      while (index < text.length) {
+        var character = text[index];
+        if (character === '\\' && index + 1 < text.length) {
+          index += 2;
+          continue;
+        }
+        if (character === '(') parentheses += 1;
+        else if (character === ')') {
+          if (!parentheses) break;
+          parentheses -= 1;
+        } else if (/\s/.test(character) && !parentheses) {
+          break;
+        }
+        index += 1;
+      }
+      end = index;
+      url = text.slice(start, end);
+      if (!url) return null;
+    }
+
+    while (/\s/.test(text[index] || '') && index < text.length) index += 1;
+    if (text[index] !== ')') {
+      var titleOpen = text[index];
+      var titleClose = titleOpen === '(' ? ')' : titleOpen;
+      if (titleOpen !== '"' && titleOpen !== "'" && titleOpen !== '(') return null;
+      index += 1;
+      while (index < text.length && (text[index] !== titleClose || isEscaped(text, index))) index += 1;
+      if (text[index] !== titleClose) return null;
+      index += 1;
+      while (/\s/.test(text[index] || '') && index < text.length) index += 1;
+    }
+    if (text[index] !== ')') return null;
+    return { start: start, end: end, url: url };
+  }
+
+  function addInlineLinkEdits(text, ranges, edits) {
+    var rangeIndex = 0;
+    var index = 0;
+    while (index < text.length) {
+      while (rangeIndex < ranges.length && ranges[rangeIndex][1] <= index) rangeIndex += 1;
+      if (rangeIndex < ranges.length && index >= ranges[rangeIndex][0]) {
+        index = ranges[rangeIndex][1];
+        continue;
+      }
+      if (text[index] !== '[' || isEscaped(text, index) ||
+          (index > 0 && text[index - 1] === '!' && !isEscaped(text, index - 1))) {
+        index += 1;
+        continue;
+      }
+      var labelEnd = findBracketEnd(text, index + 1);
+      if (labelEnd < 0 || text[labelEnd + 1] !== '(') {
+        index += 1;
+        continue;
+      }
+      var destination = parseLinkDestination(text, labelEnd + 1);
+      if (!destination || overlapsProtected(ranges, destination.start, destination.end)) {
+        index += 1;
+        continue;
+      }
+      var replacement = relativeBlogUrl(destination.url);
+      if (replacement !== null) {
+        edits.push({
+          start: destination.start,
+          end: destination.end,
+          replacement: replacement
+        });
+      }
+      index += 1;
+    }
+  }
+
+  function addReferenceDefinitionEdits(text, ranges, edits) {
+    var lineStart = 0;
+    while (lineStart < text.length) {
+      var newline = text.indexOf('\n', lineStart);
+      var lineEnd = newline < 0 ? text.length : newline;
+      var line = text.slice(lineStart, lineEnd).replace(/\r$/, '');
+      var match = /^ {0,3}\[[^\]\r\n]+\]:[ \t]*(?:<([^>\r\n]*)>|(\S+))(?:[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*'|\([^)\r\n]*\)))?[ \t]*$/.exec(line);
+      if (match) {
+        var destination = match[1] === undefined ? match[2] : match[1];
+        var replacement = relativeBlogUrl(destination);
+        if (replacement !== null) {
+          var colon = line.indexOf(']:') + 1;
+          var destinationStart = match[1] === undefined ?
+            line.indexOf(destination, colon + 1) :
+            line.indexOf('<', colon + 1) + 1;
+          var start = lineStart + destinationStart;
+          var end = start + destination.length;
+          if (!overlapsProtected(ranges, start, end)) {
+            edits.push({ start: start, end: end, replacement: replacement });
+          }
+        }
+      }
+      if (newline < 0) break;
+      lineStart = newline + 1;
+    }
+  }
+
+  function addHtmlHrefEdits(text, ranges, edits) {
+    var rangeIndex = 0;
+    var index = 0;
+    while (index < text.length) {
+      while (rangeIndex < ranges.length && ranges[rangeIndex][1] <= index) rangeIndex += 1;
+      if (rangeIndex < ranges.length && index >= ranges[rangeIndex][0]) {
+        index = ranges[rangeIndex][1];
+        continue;
+      }
+      if (text[index] !== '<') {
+        index += 1;
+        continue;
+      }
+      var end = tagEnd(text, index + 1);
+      if (end < 0) {
+        index += 1;
+        continue;
+      }
+      var tag = text.slice(index, end);
+      if (!/^<\s*[A-Za-z][A-Za-z0-9:.-]*(?:\s|\/|>)/.test(tag)) {
+        index = end;
+        continue;
+      }
+
+      var cursor = 1;
+      while (/\s/.test(tag[cursor] || '') && cursor < tag.length) cursor += 1;
+      while (cursor < tag.length && !/[\s/>]/.test(tag[cursor])) cursor += 1;
+      while (cursor < tag.length - 1) {
+        while (/[\s/]/.test(tag[cursor] || '') && cursor < tag.length - 1) cursor += 1;
+        var nameStart = cursor;
+        while (cursor < tag.length && !/[\s=/>]/.test(tag[cursor])) cursor += 1;
+        if (cursor === nameStart) {
+          cursor += 1;
+          continue;
+        }
+        var name = tag.slice(nameStart, cursor).toLowerCase();
+        while (/\s/.test(tag[cursor] || '') && cursor < tag.length) cursor += 1;
+        if (tag[cursor] !== '=') continue;
+        cursor += 1;
+        while (/\s/.test(tag[cursor] || '') && cursor < tag.length) cursor += 1;
+        var quote = tag[cursor];
+        if (quote === '"' || quote === "'") {
+          var valueStart = cursor + 1;
+          var valueEnd = tag.indexOf(quote, valueStart);
+          if (valueEnd < 0) break;
+          if (name === 'href') {
+            var value = tag.slice(valueStart, valueEnd);
+            var relative = relativeBlogUrl(value);
+            var absoluteStart = index + valueStart;
+            var absoluteEnd = index + valueEnd;
+            if (relative !== null && !overlapsProtected(ranges, absoluteStart, absoluteEnd)) {
+              edits.push({ start: absoluteStart, end: absoluteEnd, replacement: relative });
+            }
+          }
+          cursor = valueEnd + 1;
+        } else {
+          while (cursor < tag.length && !/[\s>]/.test(tag[cursor])) cursor += 1;
+        }
+      }
+      index = end;
+    }
+  }
+
+  function relativizeBlogLinks(value) {
+    var text = String(value == null ? '' : value);
+    var ranges = protectedRanges(text);
+    var edits = [];
+    addInlineLinkEdits(text, ranges, edits);
+    addReferenceDefinitionEdits(text, ranges, edits);
+    addHtmlHrefEdits(text, ranges, edits);
+    edits.sort(function (left, right) {
+      return left.start - right.start || left.end - right.end;
+    });
+
+    var output = '';
+    var last = 0;
+    var count = 0;
+    edits.forEach(function (edit) {
+      if (edit.start < last) return;
+      output += text.slice(last, edit.start) + edit.replacement;
+      last = edit.end;
+      count += 1;
+    });
+    return { text: output + text.slice(last), count: count };
+  }
+
   return {
     isAllowedBlogImageUrl: isAllowedBlogImageUrl,
     isHttpUrl: isHttpUrl,
-    splitMarkdown: splitMarkdown
+    splitMarkdown: splitMarkdown,
+    relativizeBlogLinks: relativizeBlogLinks
   };
 });
