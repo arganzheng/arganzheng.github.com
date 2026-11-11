@@ -60,6 +60,110 @@
       );
       if (!blocks.length) return;
 
+      /*
+       * $$…$$ in a Mermaid label is typeset by the page's KaTeX (the same 0.18.7
+       * as the prose), not by Mermaid: Mermaid bundles KaTeX 0.16, whose class
+       * names the 0.18 stylesheet no longer matches (superscripts stay full
+       * size), and its math path drops <br/> and the spaces around a formula.
+       * Before layout each formula becomes an empty inline-block of the size
+       * KaTeX gives it (measured at the label font size, fonts loaded), so
+       * Mermaid sizes the box for the real formula; after layout the
+       * placeholder is filled with katex.render(). The source shown by the
+       * copy button (data-mermaid-source) keeps the $$…$$.
+       */
+      var MATH_RE = /\$\$([\s\S]+?)\$\$/g;
+      var KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.18.7/dist/';
+      var labelPx = document.querySelector('.reveal .slides') ? 20 : 16;
+      var hasMath = blocks.some(function (code) { return code.textContent.indexOf('$$') !== -1; });
+
+      function loadOnce(tag, attrs, ready) {
+        return new Promise(function (resolve) {
+          if (ready()) return resolve();
+          var sel = tag + '[' + (tag === 'link' ? 'href' : 'src') + '="' + (attrs.href || attrs.src) + '"]';
+          var el = document.querySelector(sel);
+          if (!el) {
+            el = document.createElement(tag);
+            for (var k in attrs) el.setAttribute(k, attrs[k]);
+            document.head.appendChild(el);
+          }
+          el.addEventListener('load', function () { resolve(); });
+          el.addEventListener('error', function () { resolve(); });
+          setTimeout(resolve, 10000);
+        });
+      }
+      function katexReady() {
+        if (!hasMath) return Promise.resolve(false);
+        return Promise.all([
+          loadOnce('link', { rel: 'stylesheet', href: KATEX + 'katex.min.css' }, function () {
+            return Array.prototype.some.call(document.styleSheets, function (s) { return s.href === KATEX + 'katex.min.css'; });
+          }),
+          loadOnce('script', { src: KATEX + 'katex.min.js' }, function () { return typeof katex !== 'undefined'; })
+        ]).then(function () {
+          if (typeof katex === 'undefined') return false;
+          if (!document.fonts || !document.fonts.load) return true;
+          var faces = ['16px KaTeX_Main', 'italic 16px KaTeX_Main', 'bold 16px KaTeX_Main',
+                       'italic 16px KaTeX_Math', '16px KaTeX_Size1', '16px KaTeX_AMS'];
+          return Promise.race([
+            Promise.all(faces.map(function (f) { return document.fonts.load(f, 'aN1'); })),
+            new Promise(function (r) { setTimeout(r, 8000); })
+          ]).then(function () { return true; }, function () { return true; });
+        });
+      }
+
+      // Replace every $$tex$$ by a placeholder span of the formula's size.
+      // Two passes: render all formulas off-screen first so the browser fetches
+      // whatever KaTeX faces they use (Size2 for \left( \right), AMS, …), wait
+      // for document.fonts.ready, then measure — measuring with a fallback
+      // face made a \left(…\right)V label 5px too narrow and clipped the V.
+      function mathPlaceholders(source, texts) {
+        var probe = document.createElement('div');
+        probe.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;font-size:' + labelPx + 'px';
+        document.body.appendChild(probe);
+        var rows = [];
+        source.replace(MATH_RE, function (m, tex) {
+          var row = document.createElement('div');
+          // the zero-size inline-block sits on the baseline
+          row.innerHTML = '<span style="display:inline-block;width:0;height:0"></span>';
+          // inline-block: an inline span's rect is one line of text tall,
+          // whatever the fraction or root inside it
+          var holder = document.createElement('span');
+          holder.style.display = 'inline-block';
+          row.appendChild(holder);
+          probe.appendChild(row);
+          var ok = true;
+          try { katex.render(tex, holder, { throwOnError: false }); } catch (e) { ok = false; }
+          rows.push({ row: row, holder: holder, ok: ok });
+          return m;
+        });
+        var fontsReady = document.fonts && document.fonts.ready
+          ? Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 8000); })])
+          : Promise.resolve();
+        return fontsReady.then(function () {
+          var k = 0;
+          var out = source.replace(MATH_RE, function (m, tex) {
+            var it = rows[k++];
+            if (!it.ok) return m;
+            var base = it.row.firstChild.getBoundingClientRect().bottom;
+            var r = it.holder.getBoundingClientRect();
+            var i = texts.push(tex) - 1;
+            return "<span class='mm-math' data-i='" + i + "' style='display:inline-block;" +
+              // +4: 2px each side for italic overhang (a final V, f) that the
+              // KaTeX box does not include and the foreignObject would clip
+              'width:' + (Math.ceil(r.width) + 4) + 'px;height:' + Math.ceil(r.height) + 'px;' +
+              'vertical-align:' + (base - r.bottom).toFixed(1) + "px'></span>";
+          });
+          probe.remove();
+          return out;
+        });
+      }
+      function fillMath(container, texts) {
+        Array.prototype.forEach.call(container.querySelectorAll('.mm-math[data-i]'), function (el) {
+          var tex = texts[+el.getAttribute('data-i')];
+          el.setAttribute('style', 'display:inline-block;padding:0 2px');
+          try { katex.render(tex, el, { throwOnError: false }); } catch (e) { el.textContent = tex; }
+        });
+      }
+
       var s = document.createElement('script');
       s.type = 'text/javascript';
       s.async = true;
@@ -103,13 +207,17 @@
           containers.push(container);
         });
 
-        var renderQueue = Promise.resolve();
+        var useKatex = false;
+        var renderQueue = katexReady().then(function (ok) { useKatex = ok; });
         containers.forEach(function (container, index) {
           renderQueue = renderQueue.then(function () {
             var source = container.textContent.trim();
             var id = 'mermaid-' + index + '-' + Date.now();
-            return mermaid.render(id, source).then(function (result) {
+            var texts = [];
+            var prep = useKatex && source.indexOf('$$') !== -1 ? mathPlaceholders(source, texts) : Promise.resolve(source);
+            return prep.then(function (input) { return mermaid.render(id, input); }).then(function (result) {
               container.innerHTML = result.svg;
+              if (texts.length) fillMath(container, texts);
               if (result.bindFunctions) result.bindFunctions(container);
               liftClusterLabels(container);
             }).catch(function (error) {

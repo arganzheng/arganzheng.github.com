@@ -509,6 +509,27 @@ Pages has `https_enforced` on.
   and they only look inside `.post-container`, `.reveal .slides`,
   `.side-catalog` and `.deck-thumbs` (the slide landing page's miniature
   rail, so thumbnails show rendered formulas / diagrams instead of source).
+  **Math in Mermaid labels**: write `$$…$$` inside a quoted label
+  (`A["算力 $$C = 6ND$$"]`), like math in prose. The loader never hands `$$`
+  to Mermaid: Mermaid 11 bundles KaTeX 0.16, whose unprefixed classes
+  (`sizing reset-size6`) the 0.18 stylesheet does not match (superscripts
+  stay full size), and its math path turns `<br/>` into a collapsed `\n`
+  inside a `nowrap` flex div that also eats the spaces around a formula.
+  Pre-rendering KaTeX HTML into the label does not work either: Mermaid's
+  DOMPurify drops the inline `<svg>` KaTeX draws `\sqrt` with. Instead
+  `mathPlaceholders()` loads the page's KaTeX 0.18.7, renders every formula
+  off-screen at the label font size, waits for `document.fonts.ready` (the
+  faces a formula needs — `KaTeX_Size2` for `\left( \right)` — load only
+  once used; measuring before that clipped a trailing `V`), measures it as an
+  `inline-block` (an inline span is one text line tall whatever the fraction)
+  and swaps it for an empty `span.mm-math` of that size + 2px each side for
+  italic overhang (the sanitizer keeps class / style / data-*). Mermaid lays
+  out around it, `fillMath()` then `katex.render()`s into the span.
+  `data-mermaid-source` keeps the `$$`. Exports: `WechatExport.mermaidToPng`
+  (公众号 / 富文本 / Word) re-renders with `htmlLabels: false`, so it first
+  runs `texToText()` — `$$N_{\text{opt}}(C)$$` → `Nₒₚₜ(C)`,
+  `\sqrt{d_k}` → `√dₖ`, `\hat x` → `x̂`, TeX math spacing — and never shows
+  TeX source; the HTML export clones the live SVG and keeps the KaTeX.
 - `_includes/analytics.html` — GA4 gtag (`ga_track_id: G-…`; the old
   `analytics.js` + `UA-` id only kept working through Google's UA→GA4
   "connected site tag" forwarding) + Baidu Tongji, shared by `footer.html` and
