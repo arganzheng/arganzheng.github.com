@@ -105,9 +105,9 @@ flowchart LR
     end
     subgraph fa["FlashAttention：一个 kernel，S/P 只存在于片上"]
         direction TB
-        q2["Q_i, K_j, V_j tile<br/>（HBM → smem / 寄存器）"] --> g3["GEMM #1 → S_ij<br/>寄存器（FP32）"]
-        g3 --> sm2["online softmax → P̃_ij<br/>寄存器，同时更新 m, l"]
-        sm2 --> g4["GEMM #2：O_i += P̃_ij V_j<br/>寄存器累加器"]
+        q2["$$Q_i, K_j, V_j$$ tile<br/>（HBM → smem / 寄存器）"] --> g3["GEMM #1 → $$S_{ij}$$<br/>寄存器（FP32）"]
+        g3 --> sm2["online softmax → $$\tilde P_{ij}$$<br/>寄存器，同时更新 m, l"]
+        sm2 --> g4["GEMM #2：$$O_i \mathrel{+}= \tilde P_{ij} V_j$$<br/>寄存器累加器"]
         g4 -- "遍历完所有 j 后写 1 次" --> o2["O（HBM，1 MiB）"]
     end
     std ~~~ fa
@@ -420,10 +420,10 @@ flowchart LR
     end
     subgraph v2["v2：grid (heads, seqs, partitions)，每 512 token 一个 block"]
         direction TB
-        p0["block (h, s, 0)<br/>token 0–511"] --> r0["(m₀, l₀, O₀)"]
-        p1["block (h, s, 1)<br/>token 512–1023"] --> r1["(m₁, l₁, O₁)"]
-        p2["block (h, s, 2)<br/>…"] --> r2["(m₂, l₂, O₂)"]
-        r0 & r1 & r2 --> red["reduce kernel<br/>m = max mᵢ<br/>l = Σ lᵢ·e^(mᵢ−m)<br/>O = Σ Oᵢ·lᵢ·e^(mᵢ−m) / l"]
+        p0["block (h, s, 0)<br/>token 0–511"] --> r0["$$(m_0, l_0, O_0)$$"]
+        p1["block (h, s, 1)<br/>token 512–1023"] --> r1["$$(m_1, l_1, O_1)$$"]
+        p2["block (h, s, 2)<br/>…"] --> r2["$$(m_2, l_2, O_2)$$"]
+        r0 & r1 & r2 --> red["reduce kernel<br/>$$m = \max m_i$$<br/>$$l = \sum l_i \cdot e^{m_i - m}$$<br/>$$O = \sum O_i \cdot l_i \cdot e^{m_i - m} / l$$"]
     end
     v1 ~~~ v2
 
