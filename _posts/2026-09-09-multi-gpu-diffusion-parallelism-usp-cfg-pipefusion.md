@@ -32,7 +32,7 @@ Ring 传 K/V（P2P 环）"]
     subgraph CFG["切 CFG：CFG 并行"]
         direction LR
         C1["卡组 A：条件分支"] ~~~ C2["卡组 B：无条件分支"]
-        CFGN["每步末交换一次预测 ε
+        CFGN["每步末交换一次预测 $$\epsilon$$
 [N, c·p²]：0.6 MB"]
     end
     subgraph PF["切层 + patch：PipeFusion"]
