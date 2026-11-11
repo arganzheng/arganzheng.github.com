@@ -25,7 +25,7 @@ flowchart TB
     A["`**多步双向**（第一至五篇）
 FLUX.1-dev 28 步 · Wan 50 步
 每步：整段序列一次前向
-优化：η、跨步缓存、稀疏、SP`"] -- "步数蒸馏 + guidance 蒸馏" --> B["`**少步双向**
+优化：$$\eta$$、跨步缓存、稀疏、SP`"] -- "步数蒸馏 + guidance 蒸馏" --> B["`**少步双向**
 FLUX.1-schnell 4 步 · FastWan 3 步
 每步仍是整段序列
 失效：跨步缓存、PipeFusion、CFG 并行
