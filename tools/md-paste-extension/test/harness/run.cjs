@@ -23,7 +23,8 @@ const sample = [
   '',
   '```markdown',
   '![Code sample](https://arganzheng.life/img/in-post/parallelism-mesh-8cards.svg)',
-  '```'
+  '```',
+  '[下一篇](https://arganzheng.life/foo.html#sec)'
 ].join('\n');
 
 function contentType(file) {
@@ -96,6 +97,7 @@ async function run() {
       assert.equal(response.uploaded, 3, editor + ' confirmed uploads');
       assert.equal(response.unconfirmed, 0, editor + ' uncertain uploads');
       assert.equal(response.retained, 0, editor + ' retained links');
+      assert.equal(response.relativeLinks, 1, editor + ' rewritten blog links');
 
       const result = await page.evaluate(() => ({
         source: window.__mdPasteHarness.getSource(),
@@ -108,6 +110,7 @@ async function run() {
       assert.equal(outsideCode.includes('https://arganzheng.life/img/in-post/dl-evolution-xor.webp'), false);
       assert.equal(outsideCode.includes('https://arganzheng.life/img/in-post/parallelism-zero-stages.svg'), false);
       assert.ok(result.source.includes('https://arganzheng.life/img/in-post/parallelism-mesh-8cards.svg'), editor + ' code fence preserved');
+      assert.ok(result.source.includes('[下一篇](/foo.html#sec)'), editor + ' blog link rewritten');
       assert.ok(
         result.source.indexOf('text-before-svg') < result.source.indexOf('parallelism-states-grid.png'),
         editor + ' text-before/image order: ' + JSON.stringify(result.source)
@@ -122,6 +125,11 @@ async function run() {
       assert.ok(result.source.indexOf('parallelism-zero-stages.png') < result.source.indexOf('text-after-images'));
       assert.equal(result.files.length, 3, editor + ' received three Files');
       assert.ok(result.files.every((file) => file.type === 'image/png' && file.name.endsWith('.png')), editor + ' images converted to PNG');
+      const toast = await page.evaluate(() => {
+        const host = document.getElementById('md-paste-extension-toast');
+        return host && host.shadowRoot.querySelector('.toast').textContent;
+      });
+      assert.match(toast, /1 个站内链接改成了相对路径/, editor + ' relative-link toast');
 
       await page.screenshot({ path: path.join(shotDir, editor + '.png'), fullPage: true });
       const textPath = editor === 'codemirror6' ?
@@ -157,17 +165,22 @@ async function run() {
     });
     console.log('rich-text hint: no insertion; HTML image detected; toast confirmed');
 
-    const plainMarkdown = '# Plain Markdown\n\nNo blog images here.';
+    const plainMarkdown = '# Plain Markdown\n\n[下一篇](https://arganzheng.life/foo.html#sec)\n\nNo blog images here.';
     await page.evaluate((text) => navigator.clipboard.writeText(text), plainMarkdown);
     const plainResult = await worker.evaluate(async () => globalThis.__mdPasteExtension.runOnActiveTab());
     const plainReply = (plainResult.replies || []).find((reply) => reply && reply.status !== 'ignored');
     assert.equal(plainReply && plainReply.status, 'text-only');
-    assert.equal(await page.locator('#textarea').inputValue(), plainMarkdown);
+    assert.equal(plainReply.relativeLinks, 1);
+    assert.equal(
+      await page.locator('#textarea').inputValue(),
+      '# Plain Markdown\n\n[下一篇](/foo.html#sec)\n\nNo blog images here.'
+    );
     const plainToast = await page.evaluate(() => {
       const host = document.getElementById('md-paste-extension-toast');
       return host && host.shadowRoot.querySelector('.toast').textContent;
     });
     assert.ok(plainToast.startsWith('已粘贴 '), plainToast);
+    assert.match(plainToast, /1 个站内链接改成了相对路径/);
     console.log('image-less Markdown: text inserted; informational toast confirmed');
 
     const trustedPage = context.pages()[0] || await context.newPage();

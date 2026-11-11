@@ -297,7 +297,7 @@
   }
 
   function looksLikeMarkdown(text) {
-    return /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~)|\[[^\]]+\]\([^)]*\)|`[^`]+`|(?:\*\*|__|~~)|!\[|<img\b[^>]*\bsrc\s*=/i.test(text);
+    return /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s|```|~~~|\[[^\]\n]+\]:\s*(?:<[^>\n]+>|\S+))|\[[^\]]+\]\([^)]*\)|\[[^\]]+\]\[[^\]]*\]|`[^`]+`|(?:\*\*|__|~~)|!\[|<img\b[^>]*\bsrc\s*=/i.test(text);
   }
 
   async function pasteMarkdown(target, text, hasHtmlImages) {
@@ -327,14 +327,18 @@
         showToast('剪贴板里是富文本，图片不在 Markdown 里。请在博客导出菜单点「复制 Markdown」后再试。', 8000);
         return { status: 'rich-text' };
       }
-      insertText(target, text);
-      showToast('已粘贴 ' + text.length + ' 字，里面没有博客图片链接。原文有图的话，请用博客的「复制 Markdown」。', 8000);
-      return { status: 'text-only', chars: text.length };
+      var rewrittenText = parser.relativizeBlogLinks(text);
+      insertText(target, rewrittenText.text);
+      var linkSuffix = rewrittenText.count ?
+        '，' + rewrittenText.count + ' 个站内链接改成了相对路径' : '';
+      showToast('已粘贴 ' + text.length + ' 字，里面没有博客图片链接。原文有图的话，请用博客的「复制 Markdown」。' + linkSuffix, 8000);
+      return { status: 'text-only', chars: text.length, relativeLinks: rewrittenText.count };
     }
 
     var uploaded = 0;
     var unconfirmed = 0;
     var retained = externalCount;
+    var relativeLinks = 0;
     var imageIndex = 0;
     var usedTrustedPaste = false;
     var reasons = {
@@ -349,7 +353,9 @@
       var token = tokens[index];
       target.focus({ preventScroll: true });
       if (token.type === 'text') {
-        insertText(target, token.text);
+        var rewrittenToken = parser.relativizeBlogLinks(token.text);
+        relativeLinks += rewrittenToken.count;
+        insertText(target, rewrittenToken.text);
         continue;
       }
 
@@ -434,6 +440,7 @@
     }
 
     var toast = '完成：' + uploaded + ' 张已上传，' + unconfirmed + ' 张未确认，' + retained + ' 张保留外链';
+    if (relativeLinks) toast += '，' + relativeLinks + ' 个站内链接改成了相对路径';
     if (retained > 0) {
       var reasonParts = [];
       if (reasons.download) {
@@ -452,7 +459,8 @@
       uploaded: uploaded,
       unconfirmed: unconfirmed,
       retained: retained,
-      images: imageCount
+      images: imageCount,
+      relativeLinks: relativeLinks
     };
   }
 
