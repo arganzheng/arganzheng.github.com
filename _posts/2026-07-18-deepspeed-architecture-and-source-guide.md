@@ -221,7 +221,7 @@ flowchart TB
         direction TB
         MG_S["schedules.py<br/>经 4 个回调驱动 DDP"]
         MG_D["DistributedDataParallel<br/>_ParamAndGradBuffer<br/>梯度 hook / reduce-scatter<br/>执行参数 all-gather"]
-        MG_O["DistributedOptimizer<br/>fp32 主参数 1/N_d 分片<br/>Adam 后发起 all-gather"]
+        MG_O["DistributedOptimizer<br/>fp32 主参数 $$1/N_d$$ 分片<br/>Adam 后发起 all-gather"]
         MG_M["模型层：core/transformer<br/>必须用它的层写"]
         MG_S --> MG_D
         MG_D <--> MG_O
@@ -324,7 +324,7 @@ sequenceDiagram
     participant Z3 as Stage3 优化器
     FW->>HK: _pre_forward_module_hook
     HK->>PC: fetch_sub_module(层 k, forward=True)
-    PC->>P: all_gather_coalesced：N_d 个碎片拼成完整
+    PC->>P: all_gather_coalesced：$$N_d$$ 个碎片拼成完整
     Note over P: NOT_AVAILABLE -> INFLIGHT -> AVAILABLE，param.data 指向完整张量
     PC-)PC: 按 trace 顺带预取层 k+1.. 的参数
     FW->>FW: GEMM 读完整 weight
