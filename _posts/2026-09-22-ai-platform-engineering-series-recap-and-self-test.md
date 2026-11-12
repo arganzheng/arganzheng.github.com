@@ -20,15 +20,15 @@ date: 2026-09-22 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：AI 平台工程系列全景：需求清单分出资源层与交付层两条链
 flowchart TB
-    P1["01 引擎的需求清单与整体架构<br/>K8s 的四个假设被 AI 负载逐条违背"]
+    P1["<b>01 引擎的需求清单与整体架构</b><br/>K8s 的四个假设被 AI 负载逐条违背"]
     subgraph RES["资源层：引擎之下"]
         direction TB
-        P2["02 容器里的 GPU<br/>驱动、CUDA、device plugin"] --> P3["03 AI 任务调度<br/>gang、队列、拓扑感知"] --> P4["04 GPU 共享与切分<br/>MIG、时间片、HAMi"]
-        P2 --> P5["05 网络与存储<br/>RDMA 进容器、checkpoint I/O"]
+        P2["<b>02 容器里的 GPU</b><br/>驱动、CUDA、device plugin"] --> P3["<b>03 AI 任务调度</b><br/>gang、队列、拓扑感知"] --> P4["<b>04 GPU 共享与切分</b><br/>MIG、时间片、HAMi"]
+        P2 --> P5["<b>05 网络与存储</b><br/>RDMA 进容器、checkpoint I/O"]
     end
     subgraph DEL["交付层：引擎之侧"]
         direction TB
-        P6["06 Serving 平台<br/>InferenceService → llm-d"] --> P7["07 模型网关与多租户"] --> P8["08 可观测、成本与 FinOps"]
+        P6["<b>06 Serving 平台</b><br/>InferenceService → llm-d"] --> P7["07 模型网关与多租户"] --> P8["08 可观测、成本与 FinOps"]
     end
     P1 --> P2
     P1 --> P6

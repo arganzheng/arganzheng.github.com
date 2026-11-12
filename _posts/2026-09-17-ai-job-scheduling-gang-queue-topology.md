@@ -149,11 +149,11 @@ Job controller（`volcano pkg/controllers/job/job_controller_actions.go` 的 `cr
 ```mermaid
 %% 图：PodGroup 的五个 Phase：Pending 卡住看队列配额，Inqueue 卡住看节点资源，Unknown 是部分运行的僵尸态
 flowchart TB
-    Create["Job controller 创建 PodGroup"] --> Pending["Pending<br/>队列还没接受"]
-    Pending -->|"enqueue action：JobEnqueueable<br/>队列配额放得下 minResources"| Inqueue["Inqueue<br/>配额已占，Job controller 此时才创建 Pod"]
+    Create["Job controller 创建 PodGroup"] --> Pending["<b>Pending</b><br/>队列还没接受"]
+    Pending -->|"enqueue action：JobEnqueueable<br/>队列配额放得下 minResources"| Inqueue["<b>Inqueue</b><br/>配额已占，Job controller 此时才创建 Pod"]
     Inqueue -->|"allocate 模拟分配不足 minMember<br/>Discard，写 Unschedulable condition"| Inqueue
-    Inqueue -->|"allocate 凑齐 ≥ minMember<br/>Statement.Commit 一次性绑定"| Running["Running<br/>≥ minMember 个 Pod 在跑"]
-    Running -->|"部分 Pod 失败 / 被 task 级抢占<br/>运行数掉到 minMember 以下"| Unknown["Unknown<br/>部分运行、部分调不上（僵尸态）"]
+    Inqueue -->|"allocate 凑齐 ≥ minMember<br/>Statement.Commit 一次性绑定"| Running["<b>Running</b><br/>≥ minMember 个 Pod 在跑"]
+    Running -->|"部分 Pod 失败 / 被 task 级抢占<br/>运行数掉到 minMember 以下"| Unknown["<b>Unknown</b><br/>部分运行、部分调不上（僵尸态）"]
     Unknown -->|"重建的 Pod 再次被分配"| Running
     Running -->|"gangpreempt / gangreclaim<br/>整组驱逐"| Pending
     Running -->|"policies 触发或全部 task 退出"| Completed["Completed"]
@@ -212,20 +212,20 @@ plugin 是"按什么规则"，`volcano pkg/scheduler/plugins/` 下每个目录�
 ```mermaid
 %% 图：allocate action 的骨架：选队列、选 Job，逐 task 过滤打分，在 Session 快照上 Allocate / Pipeline，凑齐 minMember 才 Commit
 flowchart TB
-    Pick["allocate：QueueOrderFn 选队列 → JobOrderFn 选 Job"] --> NewStmt["为该 Job 新建 Statement<br/>（在 Session 快照上操作，不碰 API server）"]
+    Pick["allocate：QueueOrderFn 选队列 → JobOrderFn 选 Job"] --> NewStmt["<b>为该 Job 新建 Statement</b><br/>（在 Session 快照上操作，不碰 API server）"]
     NewStmt --> NextTask["TaskOrderFn 取下一个待调度 task"]
-    NextTask --> Pred["PredicateFn 过滤节点<br/>NodeOrderFn 打分"]
+    NextTask --> Pred["<b>PredicateFn 过滤节点</b><br/>NodeOrderFn 打分"]
     Pred --> HasNode{"有可用节点？"}
-    HasNode -->|"是"| Alloc["Statement.Allocate<br/>快照上扣资源、记一笔操作"]
-    HasNode -->|"否，但有节点正在释放"| Pipe["Statement.Pipeline<br/>记为 pipelined，等资源释放"]
+    HasNode -->|"是"| Alloc["<b>Statement.Allocate</b><br/>快照上扣资源、记一笔操作"]
+    HasNode -->|"否，但有节点正在释放"| Pipe["<b>Statement.Pipeline</b><br/>记为 pipelined，等资源释放"]
     HasNode -->|"否"| Skip["该 task 本轮无处可放"]
     Alloc --> More{"还有 task？"}
     Pipe --> More
     Skip --> More
     More -->|"是"| NextTask
     More -->|"否"| Ready{"ssn.JobReady(job)？<br/>已分配数 ≥ minMember<br/>且各 task / subGroup 达阈值"}
-    Ready -->|"是"| Commit["Statement.Commit<br/>一次性发出全部绑定"]
-    Ready -->|"否"| Discard["Statement.Discard<br/>回滚快照，集群状态如同什么都没发生"]
+    Ready -->|"是"| Commit["<b>Statement.Commit</b><br/>一次性发出全部绑定"]
+    Ready -->|"否"| Discard["<b>Statement.Discard</b><br/>回滚快照，集群状态如同什么都没发生"]
     Commit --> Next["处理下一个 Job"]
     Discard --> Next
     classDef good fill:#e3f5e1,stroke:#2e7d32;
@@ -368,14 +368,14 @@ Table: ClusterQueuePreemption 的三个开关
 flowchart TB
     Start["待准入 Workload W 在 ClusterQueue 里放不下<br/>（flavorassigner 判定需要抢占）"] --> Q1{"CQ 已用 + W 请求<br/>≤ nominalQuota？"}
     Q1 -->|"是：在自己的配额内"| Q2{"cohort 里有别的 CQ<br/>借走了我的配额？"}
-    Q2 -->|"是"| R["reclaimWithinCohort<br/>Never / LowerPriority / Any"]
-    Q2 -->|"否：被本 CQ 已准入的 Workload 占着"| Wq["withinClusterQueue<br/>Never / LowerPriority /<br/>LowerOrNewerEqualPriority"]
+    Q2 -->|"是"| R["<b>reclaimWithinCohort</b><br/>Never / LowerPriority / Any"]
+    Q2 -->|"否：被本 CQ 已准入的 Workload 占着"| Wq["<b>withinClusterQueue</b><br/>Never / LowerPriority /<br/>LowerOrNewerEqualPriority"]
     Q1 -->|"否：要借用才放得下"| Q3{"cohort 里有空闲<br/>未用配额？"}
-    Q3 -->|"有"| Borrow["直接借用，不抢占<br/>（受 borrowingLimit / lendingLimit 限制）"]
-    Q3 -->|"没有"| B["borrowWithinCohort.policy<br/>Never / LowerPriority<br/>受害者优先级 ≤ maxPriorityThreshold"]
-    R --> Ev1["受害者 Evicted<br/>reason InCohortReclamation"]
-    Wq --> Ev2["受害者 Evicted<br/>reason InClusterQueue"]
-    B --> Ev3["受害者 Evicted<br/>reason InCohortReclaimWhileBorrowing"]
+    Q3 -->|"有"| Borrow["<b>直接借用，不抢占</b><br/>（受 borrowingLimit / lendingLimit 限制）"]
+    Q3 -->|"没有"| B["<b>borrowWithinCohort.policy</b><br/>Never / LowerPriority<br/>受害者优先级 ≤ maxPriorityThreshold"]
+    R --> Ev1["<b>受害者 Evicted</b><br/>reason InCohortReclamation"]
+    Wq --> Ev2["<b>受害者 Evicted</b><br/>reason InClusterQueue"]
+    B --> Ev3["<b>受害者 Evicted</b><br/>reason InCohortReclaimWhileBorrowing"]
     classDef sw fill:#fff4d6,stroke:#b7791f;
     classDef ev fill:#fde2e2,stroke:#c0392b;
     classDef okc fill:#e3f5e1,stroke:#2e7d32;

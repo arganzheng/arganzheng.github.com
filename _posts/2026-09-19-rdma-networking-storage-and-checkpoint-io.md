@@ -140,22 +140,22 @@ RDMA 网卡进 Pod 的第二张网卡有四种常见接法。它们决定的是*
 ```mermaid
 %% 图：RDMA 网卡进 Pod 的两条链：CNI 扩展点给 Pod eth0 与 net1 两个 IP 接口，device plugin 把 /dev/infiniband/* 挂进去
 flowchart TB
-    PodSpec["Pod spec<br/>annotations: k8s.v1.cni.cncf.io/networks: rdma-net<br/>resources.limits: rdma/rdma_shared_device_a: 1"]
+    PodSpec["<b>Pod spec</b><br/>annotations: k8s.v1.cni.cncf.io/networks: rdma-net<br/>resources.limits: rdma/rdma_shared_device_a: 1"]
     subgraph ipchain["IP 接口这条链（第三章，CNI 扩展点）"]
         Kubelet1["kubelet 调 CNI ADD"]
-        NAD["NAD rdma-net<br/>spec.config = CNI JSON<br/>注解 resourceName（host-device/sriov 才需要）"]
-        Multus["Multus 元插件<br/>读 networks 注解，取 NAD，逐个调 delegate"]
-        DefCNI["默认 CNI<br/>Calico / Cilium / Flannel"]
-        Delegate["delegate CNI<br/>ipoib / macvlan / host-device / sriov"]
-        Eth0["eth0：veth + overlay IP<br/>Service / NetworkPolicy / DNS 只认它<br/>数据走内核协议栈"]
-        Net1["net1：RDMA 侧 IP<br/>IPoIB 子接口 / macvlan / VF<br/>内核接口，只承担 OOB 握手与 RoCE GID"]
+        NAD["<b>NAD rdma-net</b><br/>spec.config = CNI JSON<br/>注解 resourceName（host-device/sriov 才需要）"]
+        Multus["<b>Multus 元插件</b><br/>读 networks 注解，取 NAD，逐个调 delegate"]
+        DefCNI["<b>默认 CNI</b><br/>Calico / Cilium / Flannel"]
+        Delegate["<b>delegate CNI</b><br/>ipoib / macvlan / host-device / sriov"]
+        Eth0["<b>eth0：veth + overlay IP</b><br/>Service / NetworkPolicy / DNS 只认它<br/>数据走内核协议栈"]
+        Net1["<b>net1：RDMA 侧 IP</b><br/>IPoIB 子接口 / macvlan / VF<br/>内核接口，只承担 OOB 握手与 RoCE GID"]
     end
     subgraph devchain["设备文件这条链（第四章，device plugin 扩展点）"]
         Kubelet2["kubelet 调 device plugin Allocate"]
         DP["rdma-shared-dev-plugin（一组 PF × rdmaHcaMax）<br/>或 SR-IOV device plugin（一 VF 一 Pod）"]
         DevFiles["/dev/infiniband/uverbsN umadN issmN rdma_cm<br/>以 rwm 挂进容器；需 IPC_LOCK"]
     end
-    Verbs["NCCL IB transport<br/>用户态 verbs 经 uverbsN 下发工作请求<br/>数据 GPU 显存 ⇄ HCA（GPUDirect RDMA），绕过内核协议栈"]
+    Verbs["<b>NCCL IB transport</b><br/>用户态 verbs 经 uverbsN 下发工作请求<br/>数据 GPU 显存 ⇄ HCA（GPUDirect RDMA），绕过内核协议栈"]
 
     PodSpec --> Kubelet1
     PodSpec --> Kubelet2
@@ -407,14 +407,14 @@ GPUDirect RDMA 需要 GPU 驱动侧的 `nvidia_peermem` 模块（把显存作为
 flowchart TB
     NCP["NicClusterPolicy.spec.ofedDriver<br/>（Network Operator）"]
     OFED["OFED / DOCA 驱动容器 DaemonSet<br/>加载 mlx5_core · ib_core · ib_uverbs · rdma_cm"]
-    Publish["驱动树发布到宿主机<br/>/run/mellanox/drivers"]
+    Publish["<b>驱动树发布到宿主机</b><br/>/run/mellanox/drivers"]
     WaitLabel["节点标签 network.nvidia.com/operator.mofed.wait<br/>OFED 就绪前存在，就绪后移除"]
     CP["ClusterPolicy.spec.driver.rdma.enabled = true<br/>（GPU Operator）"]
-    GPUDrv["GPU 驱动容器 DaemonSet<br/>nvidia / nvidia_uvm / nvidia_modeset"]
-    Peermem["nvidia-peermem-ctr sidecar<br/>挂 /run/mellanox/drivers（HostToContainer）<br/>reload_nvidia_peermem：针对当前 ib_core 编译并加载"]
+    GPUDrv["<b>GPU 驱动容器 DaemonSet</b><br/>nvidia / nvidia_uvm / nvidia_modeset"]
+    Peermem["<b>nvidia-peermem-ctr sidecar</b><br/>挂 /run/mellanox/drivers（HostToContainer）<br/>reload_nvidia_peermem：针对当前 ib_core 编译并加载"]
     Validator["validator：lsmod 有 nvidia_peermem<br/>→ 写 nvidia-peermem-ready 状态文件"]
     Ready["Pod 里 NCCL 日志出现 via NET/IB/N/GDRDMA"]
-    Upgrade["OFED 升级（upgradePolicy）<br/>drain 节点 → 重载 mlx5_core<br/>所有用着网卡的 Pod 断开"]
+    Upgrade["<b>OFED 升级（upgradePolicy）</b><br/>drain 节点 → 重载 mlx5_core<br/>所有用着网卡的 Pod 断开"]
 
     NCP --> OFED --> Publish
     OFED --> WaitLabel
@@ -557,7 +557,7 @@ Table: NCCL_DEBUG=INFO 里要看的几行
 flowchart TB
     Start["NCCL_DEBUG=INFO<br/>NCCL_DEBUG_SUBSYS=INIT,NET"]
     Q1{"Using network<br/>IB 还是 Socket？"}
-    Sock["Using network Socket：回落了<br/>前面必有 NET/IB : No device found.<br/>容器里没有 uverbs：没请求 rdma/… 资源、<br/>selector 没匹配到网卡、节点 Allocatable 为 0"]
+    Sock["<b>Using network Socket：回落了</b><br/>前面必有 NET/IB : No device found.<br/>容器里没有 uverbs：没请求 rdma/… 资源、<br/>selector 没匹配到网卡、节点 Allocatable 为 0"]
     Q2{"NET/IB : Using<br/>HCA 数够？"}
     FewHCA["NET/IB : Using 列出的 HCA 少于期望<br/>NCCL_IB_HCA 名字写成 netdev 名、^ 排除反了，<br/>或 shared plugin 的 selector 只选了部分网卡"]
     Q3{"OOB 接口<br/>是 net1？"}
@@ -691,16 +691,16 @@ spec:
 %% 图：缓存层文件系统里一次 read() 的路径：FUSE 客户端分元数据与数据两条路，数据再按本地缓存命中与否分两条
 flowchart TB
     subgraph podside["训练 Pod"]
-        DL["dataloader worker<br/>open / stat / read"]
+        DL["<b>dataloader worker</b><br/>open / stat / read"]
         Mount["PVC 挂载点（FUSE 文件系统）"]
     end
     subgraph nodeside["同一节点上的 CSI node 侧"]
-        FUSE["FUSE 客户端进程<br/>DaemonSet 或 per-PVC mount Pod<br/>占节点 CPU / 内存；重启时使用者 I/O 中断"]
+        FUSE["<b>FUSE 客户端进程</b><br/>DaemonSet 或 per-PVC mount Pod<br/>占节点 CPU / 内存；重启时使用者 I/O 中断"]
         Hit{"数据块在<br/>本地缓存？"}
         Cache["本地 NVMe 缓存目录 → 数据沿原路返回 Pod<br/>hostPath / local PV<br/>容量与驱逐策略决定命中率"]
     end
-    Meta["元数据引擎<br/>JuiceFS：Redis / TiKV 等；Alluxio：master<br/>open / stat 全走这里：小文件性能的来源，也是新的单点"]
-    Obj["对象存储（S3 / MinIO）<br/>数据集与权重的源"]
+    Meta["<b>元数据引擎</b><br/>JuiceFS：Redis / TiKV 等；Alluxio：master<br/>open / stat 全走这里：小文件性能的来源，也是新的单点"]
+    Obj["<b>对象存储（S3 / MinIO）</b><br/>数据集与权重的源"]
 
     DL --> Mount --> FUSE
     FUSE -- "元数据请求" --> Meta

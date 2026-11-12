@@ -138,14 +138,14 @@ Table: 驱动与 CUDA 版本的查法
 flowchart TB
     IN["输入：驱动 D（nvidia-smi 的 Driver Version，CUDA Version 上限）<br/>Toolkit T（torch.version.cuda / cudaRuntimeGetVersion）"]
     Q1{"D 原生支持的 CUDA 版本 ≥ T ?"}
-    R1["规则一：向后兼容<br/>无条件能跑"]
+    R1["<b>规则一：向后兼容</b><br/>无条件能跑"]
     Q2{"同一 CUDA 大版本，且<br/>D ≥ 该大版本基线 ?<br/>11.x 450.80.02 / 12.x 525.60.13 / 13.x 580.65.06"}
     R2["规则二：minor version compatibility<br/>能跑，kernel 走 SASS"]
-    R2a["例外一：只带 PTX 靠 JIT<br/>cudaErrorUnsupportedPtxVersion (222)"]
+    R2a["<b>例外一：只带 PTX 靠 JIT</b><br/>cudaErrorUnsupportedPtxVersion (222)"]
     R2b["例外二：调用 T 新增的驱动侧 API<br/>cudaErrorCallRequiresNewerDriver (36)"]
     Q3{"数据中心 GPU，且 D 在受支持分支，<br/>且镜像含 cuda-compat-T ?"}
     R3["规则三：forward compatibility<br/>compat 的 libcuda.so 经 ldconfig 生效<br/>ldconfig -p 指向 /usr/local/cuda/compat/"]
-    R4["不能跑<br/>容器创建期：NVIDIA_REQUIRE_CUDA 拒绝（unsatisfied condition）<br/>绕过后：cudaErrorInsufficientDriver (35)，is_available() 为 False"]
+    R4["<b>不能跑</b><br/>容器创建期：NVIDIA_REQUIRE_CUDA 拒绝（unsatisfied condition）<br/>绕过后：cudaErrorInsufficientDriver (35)，is_available() 为 False"]
     IN --> Q1
     Q1 -->|"是"| R1
     Q1 -->|"否"| Q2

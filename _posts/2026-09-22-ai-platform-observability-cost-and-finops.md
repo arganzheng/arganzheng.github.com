@@ -64,10 +64,10 @@ Table: 填补空缺的采集组件与数据流
 %% 图：四层采集汇到同一条管线：Prometheus 出指标与告警，OpenTelemetry 出 trace 与日志，成本引擎按 label 分摊后回流到配置
 flowchart TB
     L["四层采集：DCGM Exporter · kube-state-metrics / cAdvisor · vLLM / 训练进程 · EPP / 网关日志"]
-    P["Prometheus<br/>agent 模式采集 → 中心存储；recording rules 算三个数"]
-    O["OpenTelemetry Collector<br/>trace：网关 → EPP → 引擎；日志：NCCL / XID 模式匹配"]
-    G["Grafana 看板<br/>四层同屏"]
-    A["Alertmanager 告警<br/>XID · 队列 · TTFT p95"]
+    P["<b>Prometheus</b><br/>agent 模式采集 → 中心存储；recording rules 算三个数"]
+    O["<b>OpenTelemetry Collector</b><br/>trace：网关 → EPP → 引擎；日志：NCCL / XID 模式匹配"]
+    G["<b>Grafana 看板</b><br/>四层同屏"]
+    A["<b>Alertmanager 告警</b><br/>XID · 队列 · TTFT p95"]
     C["成本引擎（OpenCost / allocate.py）<br/>GPU 小时 × 单价 → 按 label / 队列分摊<br/>→ 每百万 token 成本 → 回流到配额 / 切分 / 扩缩容"]
     L --> P
     L --> O
@@ -156,16 +156,16 @@ DCGM Exporter 以 DaemonSet 跑在每个 GPU 节点上，通过 DCGM host engine
 %% 图：PodMapper 的三路 join：DCGM 的设备指标、kubelet pod-resources 的设备到 Pod 分配、API server 的 Pod label
 flowchart TB
     subgraph src["同一节点上的三个数据源"]
-        DCGM["DCGM host engine<br/>gpu=3 · UUID=GPU-… · SM_ACTIVE=0.41<br/>只知道卡，不知道给了谁"]
-        KUBELET["kubelet pod-resources API<br/>/var/lib/kubelet/pod-resources 的 socket<br/>List(): pod → container → 设备 ID 列表"]
-        API["kube-apiserver<br/>Pod 对象的 labels：team=a、queue-name=…"]
+        DCGM["<b>DCGM host engine</b><br/>gpu=3 · UUID=GPU-… · SM_ACTIVE=0.41<br/>只知道卡，不知道给了谁"]
+        KUBELET["<b>kubelet pod-resources API</b><br/>/var/lib/kubelet/pod-resources 的 socket<br/>List(): pod → container → 设备 ID 列表"]
+        API["<b>kube-apiserver</b><br/>Pod 对象的 labels：team=a、queue-name=…"]
     end
-    PM["PodMapper（--kubernetes）<br/>按 --kubernetes-gpu-id-type（uid / device-name）<br/>把 DCGM 的设备与 kubelet 的设备 ID 对上"]
+    PM["<b>PodMapper（--kubernetes）</b><br/>按 --kubernetes-gpu-id-type（uid / device-name）<br/>把 DCGM 的设备与 kubelet 的设备 ID 对上"]
     DCGM --> PM
     KUBELET -->|"设备 ID → pod / namespace / container"| PM
     API -->|"--kubernetes-enable-pod-labels<br/>经 podLabelAllowlistRegex 过滤、SanitizeLabelName 改名"| PM
     OUT["DCGM_FI_PROF_SM_ACTIVE#123;gpu=3, UUID=…, hostname=node-7,<br/>pod=train-ddp-0, namespace=team-a,<br/>container=pytorch, team=a#125; 0.41"]
-    NOPOD["pod-resources 里没有这张卡<br/>→ 指标带 pod 空标签：未分配<br/>（第三章分配率的分母 − 分子）"]
+    NOPOD["<b>pod-resources 里没有这张卡</b><br/>→ 指标带 pod 空标签：未分配<br/>（第三章分配率的分母 − 分子）"]
     PM --> OUT
     PM -.-> NOPOD
     classDef srcs fill:#eef5ff,stroke:#4a78b5;
@@ -417,16 +417,16 @@ Table: 成本分摊的维度
 %% 图：GPU 成本的分摊链路：资产成本分成已分配与未分配，已分配按 Pod label 归到团队或模型，模型再按 token 占比二次分摊到租户
 flowchart TB
     ASSET["集群全部 GPU 小时 × 单价 = 资产成本<br/>（64 卡 × 720 h，按卡型 / MIG profile 取价）"]
-    ASSET --> ALLOC["已分配：DCGM 指标带 pod 标签<br/>按 UUID + pod 积分 → 每段分配的 GPU 小时"]
-    ASSET --> UNALLOC["未分配：pod 标签为空<br/>1 − A：碎片 · 坏节点 · 配额过紧"]
-    UNALLOC --> IDLE["平台闲置成本<br/>OpenCost 的 gpuIdleCost<br/>shareIdle 时按 GPU 小时比例摊给各团队"]
-    ALLOC --> TRAINPOD["训练 Pod<br/>label: team · kueue queue-name"]
-    ALLOC --> SERVEPOD["推理副本 Pod<br/>label: app · model_name"]
-    ALLOC --> SHAREDPOD["平台自身的 GPU Pod<br/>（若有）"]
-    TRAINPOD --> TEAM["团队 / 队列账单<br/>按分配计费；闲置 (1 − U) 只作展示列"]
-    SERVEPOD --> MODEL["模型账单<br/>GPU 小时 → 每百万 token 成本（第八章）"]
-    MODEL -->|"按 fairness_id 的 token 占比二次分摊<br/>数据源：EPP 指标或网关日志"| TENANT["租户账单<br/>只有 token 数，没有 GPU 小时"]
-    SHAREDPOD --> SHARED["共享成本 SharedCost<br/>按各团队 GPU 小时比例摊，或单列"]
+    ASSET --> ALLOC["<b>已分配：DCGM 指标带 pod 标签</b><br/>按 UUID + pod 积分 → 每段分配的 GPU 小时"]
+    ASSET --> UNALLOC["<b>未分配：pod 标签为空</b><br/>1 − A：碎片 · 坏节点 · 配额过紧"]
+    UNALLOC --> IDLE["<b>平台闲置成本</b><br/>OpenCost 的 gpuIdleCost<br/>shareIdle 时按 GPU 小时比例摊给各团队"]
+    ALLOC --> TRAINPOD["<b>训练 Pod</b><br/>label: team · kueue queue-name"]
+    ALLOC --> SERVEPOD["<b>推理副本 Pod</b><br/>label: app · model_name"]
+    ALLOC --> SHAREDPOD["<b>平台自身的 GPU Pod</b><br/>（若有）"]
+    TRAINPOD --> TEAM["<b>团队 / 队列账单</b><br/>按分配计费；闲置 (1 − U) 只作展示列"]
+    SERVEPOD --> MODEL["<b>模型账单</b><br/>GPU 小时 → 每百万 token 成本（第八章）"]
+    MODEL -->|"按 fairness_id 的 token 占比二次分摊<br/>数据源：EPP 指标或网关日志"| TENANT["<b>租户账单</b><br/>只有 token 数，没有 GPU 小时"]
+    SHAREDPOD --> SHARED["<b>共享成本 SharedCost</b><br/>按各团队 GPU 小时比例摊，或单列"]
     SHARED -.-> TEAM
     IDLE -.-> TEAM
     classDef money fill:#fff4e0,stroke:#c98a1a;
@@ -517,14 +517,14 @@ Table: 成本回流到配置的观察与动作
 ```mermaid
 %% 图：成本回流到配置的月度闭环：四层指标 → recording rules → 账单与分解表 → 对账 → 改配额、切分、扩缩容或采购
 flowchart TB
-    M["四层指标<br/>DCGM · kube-state-metrics · Kueue · vllm:* · llm_d_epp_*"]
-    M --> R["recording rules<br/>A / U / E · 按团队 / 队列 · TTFT p95 · token 速率"]
-    R --> BILL["月初：账单 + 分解表<br/>allocate.py / OpenCost：GPU 小时 × 单价<br/>按团队 / 模型 / 租户；50 个点去了哪里"]
-    BILL --> REVIEW["月初：与各团队对账<br/>闲置列 · 排队成本 · 每百万 token 成本"]
-    REVIEW --> KQ["改配额（第三篇）<br/>ClusterQueue nominalQuota · cohort 借用"]
-    REVIEW --> KS["改切分（第四篇）<br/>MIG profile · HAMi 份额 · 时间片"]
-    REVIEW --> KA["改扩缩容（第六篇）<br/>KEDA 阈值 · minReplica · 缩零"]
-    REVIEW --> KP["改采购<br/>A 的 p95 → 预留；峰值 − p95 → 按需"]
+    M["<b>四层指标</b><br/>DCGM · kube-state-metrics · Kueue · vllm:* · llm_d_epp_*"]
+    M --> R["<b>recording rules</b><br/>A / U / E · 按团队 / 队列 · TTFT p95 · token 速率"]
+    R --> BILL["<b>月初：账单 + 分解表</b><br/>allocate.py / OpenCost：GPU 小时 × 单价<br/>按团队 / 模型 / 租户；50 个点去了哪里"]
+    BILL --> REVIEW["<b>月初：与各团队对账</b><br/>闲置列 · 排队成本 · 每百万 token 成本"]
+    REVIEW --> KQ["<b>改配额（第三篇）</b><br/>ClusterQueue nominalQuota · cohort 借用"]
+    REVIEW --> KS["<b>改切分（第四篇）</b><br/>MIG profile · HAMi 份额 · 时间片"]
+    REVIEW --> KA["<b>改扩缩容（第六篇）</b><br/>KEDA 阈值 · minReplica · 缩零"]
+    REVIEW --> KP["<b>改采购</b><br/>A 的 p95 → 预留；峰值 − p95 → 按需"]
     KQ --> APPLY["月中：PR 合并生效"]
     KS --> APPLY
     KA --> APPLY

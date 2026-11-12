@@ -112,16 +112,16 @@ LWS 的类型定义在 `lws api/leaderworkerset/v1/leaderworkerset_types.go`。`
 ```mermaid
 %% 图：LeaderWorkerSet 的对象模型：leader 由一个 StatefulSet 统一管理，每个 group 的 worker 各有自己的 StatefulSet，HPA 与 Service 只看见 leader
 flowchart TB
-    LWS["LeaderWorkerSet vllm<br/>replicas: 2 · size: 3"]
-    LSTS["leader StatefulSet vllm<br/>(replicas = 2)"]
-    SVC["headless Service vllm<br/>subdomainPolicy: Shared"]
+    LWS["<b>LeaderWorkerSet vllm</b><br/>replicas: 2 · size: 3"]
+    LSTS["<b>leader StatefulSet vllm</b><br/>(replicas = 2)"]
+    SVC["<b>headless Service vllm</b><br/>subdomainPolicy: Shared"]
     LWS --> LSTS
     LWS --> SVC
     subgraph g0["group 0（一个副本）"]
-        L0["leader Pod vllm-0<br/>worker-index=0<br/>API server + rank 0"]
+        L0["<b>leader Pod vllm-0</b><br/>worker-index=0<br/>API server + rank 0"]
         WS0["worker StatefulSet vllm-0"]
-        W01["Pod vllm-0-1<br/>--node-rank 1"]
-        W02["Pod vllm-0-2<br/>--node-rank 2"]
+        W01["<b>Pod vllm-0-1</b><br/>--node-rank 1"]
+        W02["<b>Pod vllm-0-2</b><br/>--node-rank 2"]
         L0 --> WS0
         WS0 --> W01
         WS0 --> W02
@@ -137,7 +137,7 @@ flowchart TB
     end
     LSTS --> L0
     LSTS --> L1
-    HPA["HPA / KEDA<br/>hpaPodSelector: worker-index=0"]
+    HPA["<b>HPA / KEDA</b><br/>hpaPodSelector: worker-index=0"]
     HPA -. "只统计 leader 的指标" .-> L0
     HPA -. " " .-> L1
     SVC -. "DNS: vllm-0.vllm / vllm-0-1.vllm<br/>= LWS_LEADER_ADDRESS" .-> W01
@@ -499,16 +499,16 @@ vllm serve /mnt/models
 %% 图：LLMInferenceService 的生成物与请求路径：spec 的三块字段生成 HTTPRoute、InferencePool、EPP 与 prefill / decode 的 LWS，实线是生成、虚线是请求流
 flowchart TB
     subgraph spec["LLMInferenceService llama-70b（用户写的）"]
-        Srouter["router:<br/>gateway #123;#125; · route #123;#125; · scheduler #123;#125;"]
-        Swork["model.uri pvc://…<br/>template(TP=4, replicas 2)<br/>prefill(TP=2, replicas 4)"]
-        Sscaling["scaling /<br/>prefill.scaling（可选）"]
+        Srouter["<b>router:</b><br/>gateway #123;#125; · route #123;#125; · scheduler #123;#125;"]
+        Swork["<b>model.uri pvc://…</b><br/>template(TP=4, replicas 2)<br/>prefill(TP=2, replicas 4)"]
+        Sscaling["<b>scaling /</b><br/>prefill.scaling（可选）"]
     end
-    HR["HTTPRoute<br/>parentRef → 默认 Gateway<br/>backendRef → InferencePool"]
-    IP["InferencePool llama-70b<br/>selector: llm-d 标签<br/>extensionRef → EPP"]
-    EPP["Deployment EPP<br/>llm-d-router-endpoint-picker<br/>--pool-name llama-70b"]
+    HR["<b>HTTPRoute</b><br/>parentRef → 默认 Gateway<br/>backendRef → InferencePool"]
+    IP["<b>InferencePool llama-70b</b><br/>selector: llm-d 标签<br/>extensionRef → EPP"]
+    EPP["<b>Deployment EPP</b><br/>llm-d-router-endpoint-picker<br/>--pool-name llama-70b"]
     PRE["Deployment prefill（有 worker 时为 LWS）<br/>4 × 2 GPU · kv_producer<br/>pvc 直挂 /mnt/models"]
     DEC["Deployment decode（有 worker 时为 LWS）<br/>2 × 4 GPU · kv_consumer<br/>pvc 直挂 /mnt/models"]
-    SO["HPA / KEDA ScaledObject<br/>decode 与 prefill 各一个"]
+    SO["<b>HPA / KEDA ScaledObject</b><br/>decode 与 prefill 各一个"]
     Srouter --> HR
     HR -- "backendRef" --> IP
     IP -- "extensionRef" --> EPP
@@ -745,18 +745,18 @@ KEDA 的工作方式是**生成并拥有一个 HPA**：它自己实现 `external
 ```mermaid
 %% 图：HPA + prometheus-adapter 与 KEDA 两条扩缩容链路：差别在谁拥有 HPA、PromQL 写在哪、0 ↔ 1 由谁做
 flowchart TB
-    VLLM["vLLM Pod /metrics<br/>vllm:num_requests_running …"]
-    PROM["Prometheus<br/>(抓取间隔 15–30 s)"]
+    VLLM["<b>vLLM Pod /metrics</b><br/>vllm:num_requests_running …"]
+    PROM["<b>Prometheus</b><br/>(抓取间隔 15–30 s)"]
     VLLM --> PROM
     subgraph hpaPath["路径 A：HPA + prometheus-adapter"]
-        AD["prometheus-adapter<br/>规则文件把 PromQL 映射成指标名<br/>实现 custom / external.metrics.k8s.io"]
-        HPA1["HPA（用户手写）<br/>metrics#91;#93;.type: Pods / External<br/>minReplicas ≥ 1"]
+        AD["<b>prometheus-adapter</b><br/>规则文件把 PromQL 映射成指标名<br/>实现 custom / external.metrics.k8s.io"]
+        HPA1["<b>HPA（用户手写）</b><br/>metrics#91;#93;.type: Pods / External<br/>minReplicas ≥ 1"]
         AD --> HPA1
     end
     subgraph kedaPath["路径 B：KEDA ScaledObject"]
-        SO["ScaledObject（用户手写）<br/>triggers#91;#93;: prometheus query / cron<br/>fallback · idleReplicaCount"]
+        SO["<b>ScaledObject（用户手写）</b><br/>triggers#91;#93;: prometheus query / cron<br/>fallback · idleReplicaCount"]
         KM["keda-operator + metrics-apiserver<br/>(pollingInterval 15 s)<br/>实现 external.metrics.k8s.io"]
-        HPA2["HPA（KEDA 生成并拥有）<br/>每个 trigger = 一个 External 指标<br/>behavior 原样拷入"]
+        HPA2["<b>HPA（KEDA 生成并拥有）</b><br/>每个 trigger = 一个 External 指标<br/>behavior 原样拷入"]
         SO --> KM
         SO -- "生成" --> HPA2
         KM --> HPA2
@@ -766,7 +766,7 @@ flowchart TB
     PROM --> KM
     HPA1 -- "desired = ceil(cur × metric / target)<br/>(同步周期 15 s)" --> SCALE
     HPA2 -- "多指标取最大值<br/>(同步周期 15 s)" --> SCALE
-    SCALE["/scale 子资源<br/>Deployment · LWS · DisaggregatedSetRoleScaler"]
+    SCALE["<b>/scale 子资源</b><br/>Deployment · LWS · DisaggregatedSetRoleScaler"]
     SCALE --> VLLM
     classDef src fill:#f1f5f9,stroke:#64748b;
     classDef a fill:#fef3c7,stroke:#b45309;

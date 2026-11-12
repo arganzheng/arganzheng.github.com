@@ -120,15 +120,15 @@ flowchart TB
     subgraph torch_side["torchrun 自己处理"]
         W["某个 worker 进程退出或不健康"] --> M["本机 agent _monitor_workers()<br/>看到 FAILED / UNHEALTHY"]
         M --> R{"已重启次数 < --max-restarts ?"}
-        R -- "是" --> K["_restart_workers()<br/>停掉本机整组 worker"]
-        K --> RZ["重新 rendezvous<br/>其他节点 agent 察觉，跟着停组重来"]
-        RZ --> RA["重新分配 RANK / WORLD_SIZE<br/>全部 worker 从上次 checkpoint 恢复"]
+        R -- "是" --> K["<b>_restart_workers()</b><br/>停掉本机整组 worker"]
+        K --> RZ["<b>重新 rendezvous</b><br/>其他节点 agent 察觉，跟着停组重来"]
+        RZ --> RA["<b>重新分配 RANK / WORLD_SIZE</b><br/>全部 worker 从上次 checkpoint 恢复"]
         R -- "否" --> F["agent 报告任务失败"]
     end
     subgraph plat_side["平台(任务管理器)处理"]
         A["agent 进程或整个节点消失"] --> P{"gang 语义还是补节点 ?"}
-        P -- "gang" --> FJ["整个任务失败<br/>释放全部 GPU，等重新排队"]
-        P -- "补节点" --> RP["调度一个新 Pod 顶替<br/>等它加入 rendezvous"]
+        P -- "gang" --> FJ["<b>整个任务失败</b><br/>释放全部 GPU，等重新排队"]
+        P -- "补节点" --> RP["<b>调度一个新 Pod 顶替</b><br/>等它加入 rendezvous"]
     end
     RP --> RZ
     classDef torch fill:#e8f0fe,stroke:#3b6fd1;

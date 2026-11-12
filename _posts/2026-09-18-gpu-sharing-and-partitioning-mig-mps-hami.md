@@ -120,9 +120,9 @@ flowchart TB
     end
     subgraph mps["MPS：所有进程合并到 server 的一个 context"]
         direction TB
-        mpsA["进程 A（客户端）<br/>独立 GPU 地址空间"] --> pipeA["CUDA_MPS_PIPE_DIRECTORY"]
-        mpsB["进程 B（客户端）<br/>独立 GPU 地址空间"] --> pipeA
-        pipeA --> server["nvidia-cuda-mps-server<br/>pinned mem limit / active thread %"]
+        mpsA["<b>进程 A（客户端）</b><br/>独立 GPU 地址空间"] --> pipeA["CUDA_MPS_PIPE_DIRECTORY"]
+        mpsB["<b>进程 B（客户端）</b><br/>独立 GPU 地址空间"] --> pipeA
+        pipeA --> server["<b>nvidia-cuda-mps-server</b><br/>pinned mem limit / active thread %"]
         server --> ctxS["单个 CUDA context"]
         ctxS --> mpsGPU["GPU（EXCLUSIVE_PROCESS，只对 server 开放）"]
         ctl["nvidia-cuda-mps-control -d"] -. "set_default_*" .-> server
@@ -428,16 +428,16 @@ HAMi 在容器内强制显存与算力上限的方式是 **CUDA 驱动 API 拦�
 ```mermaid
 %% 图：一次 CUDA 调用在 HAMi 容器里的路径：ld.so.preload 装入 libvgpu.so，cuMemAlloc 查显存配额，cuLaunchKernel 按利用率节流
 flowchart TB
-    app["容器内进程（vLLM / PyTorch）<br/>调用 cuMemAlloc、cuLaunchKernel、cuMemGetInfo"]
+    app["<b>容器内进程（vLLM / PyTorch）</b><br/>调用 cuMemAlloc、cuLaunchKernel、cuMemGetInfo"]
     preload["动态链接器读 /etc/ld.so.preload<br/>= /usr/local/vgpu/libvgpu.so"]
-    vgpu["libvgpu.so（HAMi-core）<br/>导出与 libcuda 同名的驱动 API 符号"]
+    vgpu["<b>libvgpu.so（HAMi-core）</b><br/>导出与 libcuda 同名的驱动 API 符号"]
     memchk{"cuMemAlloc：累计用量 +<br/>本次 ≤ CUDA_DEVICE_MEMORY_LIMIT_i ?"}
     oom["返回 CUDA_ERROR_OUT_OF_MEMORY<br/>只有本容器失败，邻居无感"]
     smchk{"cuLaunchKernel：利用率<br/>≤ CUDA_DEVICE_SM_LIMIT ?"}
     throttle["延迟提交（令牌式节流）"]
     query["cuMemGetInfo：按配额改写返回值<br/>vLLM 看到的总显存 = gpumem"]
     cache[("CUDA_DEVICE_MEMORY_SHARED_CACHE<br/>同卡多容器共享的用量记账文件")]
-    libcuda["真实 libcuda.so → 驱动 → GPU<br/>（时间片轮转，故障域仍是整卡）"]
+    libcuda["<b>真实 libcuda.so → 驱动 → GPU</b><br/>（时间片轮转，故障域仍是整卡）"]
 
     app --> preload --> vgpu
     vgpu --> memchk

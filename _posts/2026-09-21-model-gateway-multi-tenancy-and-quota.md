@@ -290,7 +290,7 @@ flowchart TB
     R429c["429 rejected-context-cancelled<br/>（排队中客户端断开）"]
     RADM["拒绝（未进引擎，未消耗 GPU）"]
     R503["503 无可用 endpoint"]
-    EVICT["evicted-*：已消耗部分 GPU<br/>（enableEviction 时被高优先级挤出）"]
+    EVICT["<b>evicted-*：已消耗部分 GPU</b><br/>（enableEviction 时被高优先级挤出）"]
 
     IN --> SAT
     SAT -- "否：直接放行（work-conserving）" --> ADM
@@ -827,7 +827,7 @@ flowchart TB
     REQ["请求 model=llama-70b 或 support-assistant<br/>IPP 都映射为 X-Gateway-Base-Model-Name: llama-70b"]
     subgraph route["HTTPRoute llama-70b —— 池间灰度（跨缓存边界）"]
         R1["rule 1：匹配 header x-canary=fp8<br/>或认证层注入的 x-tenant-tier=internal"]
-        R2["rule 2：无 header 条件<br/>weight 90 / 10，按请求随机"]
+        R2["<b>rule 2：无 header 条件</b><br/>weight 90 / 10，按请求随机"]
     end
     subgraph poolA["InferencePool llama-70b-bf16 —— 独立 EPP 与前缀索引"]
         EPPA["EPP-bf16"]
@@ -835,7 +835,7 @@ flowchart TB
             V1["→ support-assistant-v1（90）"]
             V2["→ support-assistant-v2（10）"]
         end
-        PA["bf16 Pod × 3<br/>两版 adapter 共享基础模型 KV"]
+        PA["<b>bf16 Pod × 3</b><br/>两版 adapter 共享基础模型 KV"]
     end
     subgraph poolB["InferencePool llama-70b-fp8 —— 独立 EPP 与前缀索引"]
         EPPB["EPP-fp8"]
