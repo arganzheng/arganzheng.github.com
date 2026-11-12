@@ -68,16 +68,16 @@ Table: EchoLeak 每一环能拦住的层
 ```mermaid
 %% 图：EchoLeak 的七环与每一环能拦住它的层——攻击邮件被检索进上下文（②③：来源标记与分区，分类器被绕过）→ 指令让 Copilot 读内部文件并编进链接（④：按任务最小权限、读过敏感数据的会话不能对外发）→ 引用式 Markdown 绕过链接脱敏、图片自动加载把数据带出去（⑤⑥：脱敏所有形态的链接与图片、不自动加载）→ 外联目标在 CSP 白名单里的 Teams 代理（⑦：白名单最小化）；任一环拦住数据就出不去
 flowchart TB
-    E1["① 攻击者发邮件<br/>指令伪装成正常内容"] --> E2["② Copilot 检索到该邮件<br/>用户在问别的事"]
-    E2 --> E3["③ 邮件进上下文<br/>XPIA 分类器被措辞绕过"]
-    E3 --> E4["④ 指令：读内部文件<br/>把内容编进一个 Markdown 链接"]
-    E4 --> E5["⑤ 引用式语法 [text][ref]<br/>绕过对普通链接的脱敏"]
-    E5 --> E6["⑥ 链接是图片：客户端自动加载<br/>请求带着数据发出"]
+    E1["<b>① 攻击者发邮件</b><br/>指令伪装成正常内容"] --> E2["<b>② Copilot 检索到该邮件</b><br/>用户在问别的事"]
+    E2 --> E3["<b>③ 邮件进上下文</b><br/>XPIA 分类器被措辞绕过"]
+    E3 --> E4["<b>④ 指令：读内部文件</b><br/>把内容编进一个 Markdown 链接"]
+    E4 --> E5["<b>⑤ 引用式语法 [text][ref]</b><br/>绕过对普通链接的脱敏"]
+    E5 --> E6["<b>⑥ 链接是图片：客户端自动加载</b><br/>请求带着数据发出"]
     E6 --> E7["⑦ 目标是 CSP 白名单里的 Teams 代理<br/>绕过内容安全策略"]
-    E2 -.- D1["拦：来源标记 + 分区<br/>外部邮件标为不可信数据"]
-    E4 -.- D2["拦：按任务最小权限<br/>读过敏感数据的会话不能对外发（数据流控制）"]
+    E2 -.- D1["<b>拦：来源标记 + 分区</b><br/>外部邮件标为不可信数据"]
+    E4 -.- D2["<b>拦：按任务最小权限</b><br/>读过敏感数据的会话不能对外发（数据流控制）"]
     E5 -.- D3["拦：渲染前脱敏所有形态的链接与图片<br/>图片不自动加载 / 只白名单域"]
-    E7 -.- D4["拦：CSP 白名单最小化<br/>代理不能成任意目标的跳板"]
+    E7 -.- D4["<b>拦：CSP 白名单最小化</b><br/>代理不能成任意目标的跳板"]
     classDef chain fill:#fdecea,stroke:#c0392b,color:#222
     classDef def_ fill:#eefaf0,stroke:#4d9a5c,color:#222
     class E1,E2,E3,E4,E5,E6,E7 chain
@@ -103,12 +103,12 @@ Table: Cursor 三组 CVE 的链与防线
 ```mermaid
 %% 图：Cursor 三次 CVE 的同一形状——读到的内容（MCP 描述 / 网页 / 搜索结果）里藏着指令 → agent 在「工作区可写」的权限下写了一个不该可写的文件（.cursor/mcp.json · 规则 · 沙箱配置）→ 文件被加载 → 配置生效：RCE 或沙箱被关掉；结构性的修法是 agent 的写权限排除一切影响它自身行为的文件，沙箱策略放在沙箱之外
 flowchart TB
-    R["读到的内容<br/>MCPoison：MCP 工具描述<br/>CurXecute：注入的文档<br/>DuneSlide：web 搜索结果"] --> I["藏着的指令：<br/>「把这段写进 .cursor/mcp.json」<br/>「改沙箱配置为 off」"]
+    R["<b>读到的内容</b><br/>MCPoison：MCP 工具描述<br/>CurXecute：注入的文档<br/>DuneSlide：web 搜索结果"] --> I["<b>藏着的指令：</b><br/>「把这段写进 .cursor/mcp.json」<br/>「改沙箱配置为 off」"]
     I --> W["agent：工作区可写 → 写了配置文件"]
     W --> L["配置被加载"]
-    L --> X["RCE · 沙箱关掉 · 任意命令<br/>零点击"]
+    L --> X["<b>RCE · 沙箱关掉 · 任意命令</b><br/>零点击"]
     W -.- F1["修：写权限排除影响自身行为的文件<br/>配置 · 规则 · hooks · MCP 清单 · 沙箱策略 → deny"]
-    L -.- F2["修：沙箱策略在沙箱之外<br/>沙箱内的进程改不了它"]
+    L -.- F2["<b>修：沙箱策略在沙箱之外</b><br/>沙箱内的进程改不了它"]
     R -.- F3["修：描述钉哈希 · 变更 diff 再批准<br/>只装可信 server"]
     classDef chain fill:#fdecea,stroke:#c0392b,color:#222
     classDef def_ fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -127,11 +127,11 @@ Microsoft 2026 年 6 月的披露：工具描述可以被悄悄修改（server �
 ```mermaid
 %% 图：五层防御：输入侧标记与分区，权限与沙箱让注入做不到，输出处理脱敏，数据流控制，监控与红队发现新链路
 flowchart TB
-    IN["① 输入侧：来源标记与分区<br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
+    IN["<b>① 输入侧：来源标记与分区</b><br/>外部内容标为数据 · 分区标记 · 过滤（只降概率）"] --> M["模型"]
     M --> P["② 权限与沙箱（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层）<br/>注入让模型想做 · 四层让它做不到"]
-    P --> O["③ 输出处理<br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
-    O --> D["④ 数据流控制<br/>读了敏感数据的会话不能对外发 · 跨资源边界要审批 · 工具间数据流"]
-    D --> R["⑤ 监控与红队<br/>异常动作检测 · 注入用例进评测集 · 持续红队"]
+    P --> O["<b>③ 输出处理</b><br/>渲染前脱敏链接 / 图片 / HTML · 执行前检查命令 / SQL · CSP"]
+    O --> D["<b>④ 数据流控制</b><br/>读了敏感数据的会话不能对外发 · 跨资源边界要审批 · 工具间数据流"]
+    D --> R["<b>⑤ 监控与红队</b><br/>异常动作检测 · 注入用例进评测集 · 持续红队"]
     R -.->|"发现新链路"| IN
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -167,7 +167,7 @@ flowchart LR
     end
     CTX --> CHK{"调用前检查：<br/>会话含机密 × 工具能外发？"}
     TOOLS --> CHK
-    CHK -->|"机密 → open_pr(public)"| DENY["禁止 / 需审批<br/>「私有内容要写到公开目标」"]
+    CHK -->|"机密 → open_pr(public)"| DENY["<b>禁止 / 需审批</b><br/>「私有内容要写到公开目标」"]
     CHK -->|"机密 → http POST 带这段内容作参数"| DENY
     CHK -->|"公开 → 任何工具 · 机密 → 本地读写"| OK["放行"]
     classDef c fill:#fff7e0,stroke:#c98a00,color:#222

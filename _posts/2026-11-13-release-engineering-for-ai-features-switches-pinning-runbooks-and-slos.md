@@ -23,7 +23,7 @@ catalog: true
 %%{init: {"flowchart": {"wrappingWidth": 270}}}%%
 %% 图：改动 = 发布：版本 → 门禁 → 灰度 → 生产 / 回滚，钉快照与 kill switch
 flowchart TB
-    C["任何会改变模型行为的改动<br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["不可变版本 + 标签<br/>staging / canary / production"]
+    C["<b>任何会改变模型行为的改动</b><br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["<b>不可变版本 + 标签</b><br/>staging / canary / production"]
     V --> G["门禁：评测集（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"]
     G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
     CN -- "在线指标正常" --> PR["production"]
@@ -254,11 +254,11 @@ Table: 四类 SLO
 flowchart LR
     subgraph SLO["四类 SLO（月度）"]
         direction TB
-        A["可用性：成功率 ≥ 99.9%<br/>（含 fallback 后）"] ~~~ L["延迟：TTFT p95 ≤ 1.5 s · 总时长 p95"] ~~~ Q["质量：在线 judge ≥ 4.0 / 5<br/>格式失败 ≤ 0.5% · 点踩率 ≤ 3%"] ~~~ C["成本：每任务 p95 ≤ 0.50 美元<br/>每功能日消耗"]
+        A["<b>可用性：成功率 ≥ 99.9%</b><br/>（含 fallback 后）"] ~~~ L["延迟：TTFT p95 ≤ 1.5 s · 总时长 p95"] ~~~ Q["<b>质量：在线 judge ≥ 4.0 / 5</b><br/>格式失败 ≤ 0.5% · 点踩率 ≤ 3%"] ~~~ C["<b>成本：每任务 p95 ≤ 0.50 美元</b><br/>每功能日消耗"]
     end
     SLO --> EB["错误预算：每类允许的月度违约量"]
     EB -->|"消耗 < 100%"| GO["正常发布节奏"]
-    EB -->|"耗尽"| FREEZE["冻结非紧急发布 · 先修<br/>（SRE 的老规则）"]
+    EB -->|"耗尽"| FREEZE["<b>冻结非紧急发布 · 先修</b><br/>（SRE 的老规则）"]
     A -.- N1["传统 SRE 已有"]
     L -.- N1
     Q -.- N2["AI 功能新增"]
