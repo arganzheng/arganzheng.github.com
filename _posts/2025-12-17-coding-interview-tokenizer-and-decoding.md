@@ -98,7 +98,7 @@ logits 到 token 的流水线：
 ```mermaid
 flowchart TB
     L["logits (V,)"] --> R["repetition penalty：已出现 token 的 logit 往'更不可能'推"]
-    R --> T["temperature：logits / T<br>T→0 贪心，T=1 原分布，T&gt;1 更平"]
+    R --> T["<b>temperature：logits / T</b><br>T→0 贪心，T=1 原分布，T&gt;1 更平"]
     T --> S["softmax → probs"]
     S --> K["top-k：只留概率最大的 k 个"]
     K --> P["top-p：按概率降序累加，超过 p 的部分丢掉（保留首个越界项）"]

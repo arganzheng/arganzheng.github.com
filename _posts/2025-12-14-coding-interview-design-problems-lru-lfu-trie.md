@@ -186,7 +186,7 @@ static class LRUCache {
 
 ```mermaid
 flowchart TB
-    A["put(1) put(2)：buckets = {1: [1, 2]}，min_freq=1"] --> B["get(1)：1 从桶 1 移到桶 2<br>buckets = {1: [2], 2: [1]}，min_freq 仍 1"]
+    A["put(1) put(2)：buckets = {1: [1, 2]}，min_freq=1"] --> B["<b>get(1)：1 从桶 1 移到桶 2</b><br>buckets = {1: [2], 2: [1]}，min_freq 仍 1"]
     B --> C["put(3)（满）：淘汰 buckets[1] 头部 = 2<br>buckets = {1: [3], 2: [1]}，min_freq=1"]
     C --> D["get(3)：3 到桶 2；桶 1 空且 == min_freq → min_freq=2<br>buckets = {2: [1, 3]}"]
     D --> E["put(4)（满）：淘汰 buckets[2] 头部 = 1（与 3 同频，但更久未用）"]
@@ -539,8 +539,8 @@ static class RandomizedSet {
 
 ```mermaid
 flowchart TB
-    A["tree[i] 覆盖 (i − lowbit(i), i]<br>tree[1]=(0,1] tree[2]=(0,2] tree[3]=(2,3] tree[4]=(0,4]<br>tree[5]=(4,5] tree[6]=(4,6] tree[7]=(6,7] tree[8]=(0,8]"] --> B["prefix(7)：7 → tree[7] (6,7]<br>7−1=6 → tree[6] (4,6]<br>6−2=4 → tree[4] (0,4]<br>4−4=0 停；三段不重叠拼成 (0,7]"]
-    B --> C["add(3, d)：3 → tree[3]<br>3+1=4 → tree[4]<br>4+4=8 → tree[8]<br>8+8 &gt; n 停；所有覆盖位置 3 的区间都更新了"]
+    A["tree[i] 覆盖 (i − lowbit(i), i]<br>tree[1]=(0,1] tree[2]=(0,2] tree[3]=(2,3] tree[4]=(0,4]<br>tree[5]=(4,5] tree[6]=(4,6] tree[7]=(6,7] tree[8]=(0,8]"] --> B["<b>prefix(7)：7 → tree[7] (6,7]</b><br>7−1=6 → tree[6] (4,6]<br>6−2=4 → tree[4] (0,4]<br>4−4=0 停；三段不重叠拼成 (0,7]"]
+    B --> C["<b>add(3, d)：3 → tree[3]</b><br>3+1=4 → tree[4]<br>4+4=8 → tree[8]<br>8+8 &gt; n 停；所有覆盖位置 3 的区间都更新了"]
 ```
 
 <div class="code-tabs" markdown="1">

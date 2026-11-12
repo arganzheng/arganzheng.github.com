@@ -182,7 +182,7 @@ static ListNode reverseListRecursive(ListNode head) {
 
 ```mermaid
 flowchart TB
-    A["1 → 2 → 3 → 4 → 5，left=2 right=4<br>pre=1，cur=2"] --> B["第 1 次：摘 3，插到 pre 后<br>1 → 3 → 2 → 4 → 5"]
+    A["1 → 2 → 3 → 4 → 5，left=2 right=4<br>pre=1，cur=2"] --> B["<b>第 1 次：摘 3，插到 pre 后</b><br>1 → 3 → 2 → 4 → 5"]
     B --> C["第 2 次：摘 4（cur.next），插到 pre 后<br>1 → 4 → 3 → 2 → 5"]
     C --> D["做了 right−left = 2 次，结束"]
 ```

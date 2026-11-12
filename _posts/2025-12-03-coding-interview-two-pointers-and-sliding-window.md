@@ -170,9 +170,9 @@ static int lengthOfLongestSubstring(String s) {
 
 ```mermaid
 flowchart TB
-    A["right 进一个字符 c<br>need[c] > 0 ? missing-- : 无<br>need[c]--"] --> B{"missing == 0 ?"}
+    A["<b>right 进一个字符 c</b><br>need[c] > 0 ? missing-- : 无<br>need[c]--"] --> B{"missing == 0 ?"}
     B -- 否 --> A
-    B -- 是 --> C["窗口覆盖 t：<br>while need[s[left]] < 0：丢左端多余字符，left++"]
+    B -- 是 --> C["<b>窗口覆盖 t：</b><br>while need[s[left]] < 0：丢左端多余字符，left++"]
     C --> D["记录 [left, right] 若更短"]
     D --> E["主动破坏：need[s[left]]++，missing++，left++"]
     E --> A

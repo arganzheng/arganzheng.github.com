@@ -212,9 +212,9 @@ def attention_online(q, k, v, block):            # q: (d,), k/v: (T, d)
 
 ```mermaid
 flowchart TB
-    A["块 1：$$\text{scores}_1 \to m_1 = \max(\text{scores}_1)$$<br>$$\ell_1 = \sum e^{s - m_1}$$，$$\text{acc}_1 = \sum e^{s - m_1} v$$"] --> B["块 2：$$m_2 = \max(m_1, \max \text{scores}_2)$$<br>旧值乘 $$e^{m_1 - m_2}$$ 归到新基准"]
-    B --> C["$$\ell_2 = \ell_1 \cdot e^{m_1 - m_2} + \sum e^{s - m_2}$$<br>$$\text{acc}_2 = \text{acc}_1 \cdot e^{m_1 - m_2} + \sum e^{s - m_2} v$$"]
-    C --> D["… 最后一块后：$$\text{out} = \text{acc} / \ell$$<br>与完整 softmax(scores) @ v 完全相等"]
+    A["<b>块 1：$$\text{scores}_1 \to m_1 = \max(\text{scores}_1)$$</b><br>$$\ell_1 = \sum e^{s - m_1}$$，$$\text{acc}_1 = \sum e^{s - m_1} v$$"] --> B["<b>块 2：$$m_2 = \max(m_1, \max \text{scores}_2)$$</b><br>旧值乘 $$e^{m_1 - m_2}$$ 归到新基准"]
+    B --> C["<b>$$\ell_2 = \ell_1 \cdot e^{m_1 - m_2} + \sum e^{s - m_2}$$</b><br>$$\text{acc}_2 = \text{acc}_1 \cdot e^{m_1 - m_2} + \sum e^{s - m_2} v$$"]
+    C --> D["<b>… 最后一块后：$$\text{out} = \text{acc} / \ell$$</b><br>与完整 softmax(scores) @ v 完全相等"]
 ```
 
 **为什么正确**：完整 softmax 的输出是 $$\frac{\sum_j e^{s_j - M} v_j}{\sum_j e^{s_j - M}}$$，$$M$$ 是全行最大。分块时每一步用当前的 $$m$$ 作基准，$$m$$ 变大时把旧的 $$\ell$$、$$\text{acc}$$ 乘 $$e^{m_\text{old} - m_\text{new}}$$ 换到新基准——这正是把 $$e^{s - m_\text{old}}$$ 改写成 $$e^{s - m_\text{new}} \cdot e^{m_\text{new} - m_\text{old}}$$ 的逆。最后 $$m = M$$，分子分母都与完整版一致。配套脚本 `block=2` 对 7 个 key 的输出与普通 attention 差 $$10^{-16}$$。

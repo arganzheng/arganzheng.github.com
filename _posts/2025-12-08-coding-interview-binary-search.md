@@ -203,7 +203,7 @@ static int findMinRotated(int[] nums) {
 
 ```mermaid
 flowchart TB
-    A["最优化：最小的 k 使得能吃完"] --> B["判定：给定 k，能吃完吗？<br>sum(ceil(p/k)) ≤ h"]
+    A["最优化：最小的 k 使得能吃完"] --> B["<b>判定：给定 k，能吃完吗？</b><br>sum(ceil(p/k)) ≤ h"]
     B --> C["k 越大越容易 → 谓词单调 假…假真…真"]
     C --> D["在 [1, max(p)] 上 first_true(feasible)"]
     D --> E["复杂度 O(n log max(p))"]
