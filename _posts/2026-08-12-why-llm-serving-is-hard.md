@@ -61,19 +61,19 @@ LLM Serving 则不同。一个请求通常要经历：
 
 ![一个 LLM 请求从进入、Prefill 到 Decode 结束的流程](/img/in-post/why-llm-serving-is-hard-request-flow.svg)
 
-它的输入和输出都具有动态性：
+输入长度不固定并不是 LLM 才有的问题：传统 Serving 里每张图片的大小、每句待翻译文本的长度同样各不相同，上面说的 padding、bucketing 就是为此准备的。LLM 的输入长度跨度更大——从几十个 token 到数万甚至更长，相差四个数量级——它决定 Prefill 的计算量和 KV Cache 的初始大小，是**量级**上的变化，不是一类新问题。真正改变服务对象的是另外两点：
 
-- **输入长度不固定**：可能是几十个 token，也可能是数万甚至更长的上下文；
-- **输出长度不确定**：模型何时生成 EOS，事先无法准确确定；
-- **服务时长不可直接预知**：请求可能只生成几个 token，也可能持续数千个 token；
-- **中间状态需要跨多个 step 保留**：Prefill 产生的 KV Cache 会被后续 Decode 持续访问。
+1. **一个请求要做多少工作，接纳时无法知道。** 请求是一个"Forward → 采样一个 token → 再 Forward"的循环，循环多少次取决于模型何时生成 EOS（或碰到 `max_tokens`、stop 条件），只有在生成过程中才见分晓：可能几个 token 就结束，也可能持续数千个 token。所以请求的计算量和服务时长无法在接纳时规划，系统只能一步一步推进，每一步重新决策。
+2. **中间状态要在请求的整个生命周期里保留，而且越长越大。** Prefill 为 prompt 的每个 token 写下 K/V，之后每个 Decode step 都要读全部历史 K/V，再追加一个位置。这份 KV Cache 从 Prefill 开始一直占着显存，直到请求结束才释放，不像传统推理的中间激活那样在一次 Forward 结束时就能丢掉。
+
+两点合在一起，请求就有了一个需要系统逐步管理的生命周期：接纳 → Prefill → 若干轮 Decode → 完成（或中途被抢占、换出、重算）。每一步系统都要决定这一轮推进哪些请求，以及显存还够不够让它们继续增长。
 
 因此，LLM Serving 的核心变化并不只是模型更大，而是服务对象从“一次性计算任务”变成了**带有动态生命周期和持久中间状态的生成任务**。
 
 | 维度 | 典型传统 DL Serving | LLM Serving |
 |---|---|---|
 | 服务单位 | 一次或少数几次 Forward | 多轮自回归生成 |
-| 输入长度 | 通常可规整为有限几种形态 | 可变，可能非常长 |
+| 输入长度 | 可变，常用 padding / bucketing 规整为有限几种形态 | 可变且跨度极大，决定 Prefill 计算量与 KV Cache 初始大小 |
 | 输出长度 | 通常较容易确定 | 由生成过程动态决定 |
 | 中间状态 | 多为临时激活 | KV Cache 跨 Decode Step 持续存在 |
 | Batch 语义 | 请求级静态或动态 Batch | 面向持续执行的 Continuous Batching |
@@ -268,7 +268,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 ## 八、本文小结
 
 - LLM Serving 的难点不在“模型更大”，而在服务对象变了：从一次性、静态、可预测的前向计算，变成持续进行、动态变化、状态不断增长的自回归生成过程。
-- 输入长度、输出长度、服务时长都不可预知，Prefill 产生的 KV Cache 要跨多个 Decode Step 保留——系统必须在显存预算、请求生命周期、生成进度和 SLO 之间持续做动态决策。
+- 输入长度只是跨度更大；真正的变化是输出长度和服务时长在接纳时不可预知，Prefill 产生的 KV Cache 要跨多个 Decode Step 保留——系统必须在显存预算、请求生命周期、生成进度和 SLO 之间持续做动态决策。
 - Prefill 与 Decode 是两种截然不同的 Workload：前者一次处理 N 个 token、偏 Compute-Bound；后者每步只处理 1 个 token、却要读全部历史 KV、偏 Memory-Bound。两者竞争同一组 GPU 资源，这是 Continuous Batching、Token Budget、Chunked Prefill、抢占与 PD 分离存在的原因。
 - 扩大 Batch 提升吞吐，但会抬高单请求延迟、尾延迟和 KV Cache 压力；目标不是最大 Batch，而是在 SLO 约束下选择合适的执行规模。
 - 归纳为三个根本变化：从静态计算到动态执行、从无状态推理到带状态推理、从单一 Workload 到 Prefill/Decode 混合 Workload。
@@ -316,5 +316,5 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
    </details>
 
-[^q0]: 因为服务对象变了：传统 DL 推理是一次前向、一次返回——输入形状已知、计算量确定、无状态、请求之间互不相干；LLM 推理是一个持续进行的自回归过程——输入长度、输出长度、服务时长在到达时都未知，Prefill 产生的 KV Cache 要跨几百个 Decode step 保留并逐步增长。系统必须每一步重新决定「这一轮谁跑、跑多少」。详见[第二章](#二范式转移服务对象从一次计算变成持续生成过程)、[第三章](#三prefill-与-decode两种完全不同的-gpu-workload)。
+[^q0]: 因为服务对象变了：传统 DL 推理是一次前向、一次返回——输入形状虽然可变但能规整、计算量在到达时就确定、无状态、请求之间互不相干；LLM 推理是一个持续进行的自回归过程——要跑多少轮前向（输出长度）和服务时长在到达时都未知，Prefill 产生的 KV Cache 要跨几百个 Decode step 保留并逐步增长。系统必须每一步重新决定「这一轮谁跑、跑多少」。详见[第二章](#二范式转移服务对象从一次计算变成持续生成过程)、[第三章](#三prefill-与-decode两种完全不同的-gpu-workload)。
 [^q1]: 三个变化。从静态计算到**动态执行**——每一步的 batch 组成都在变；从无状态到**带状态**——KV Cache 是唯一随时间增长的状态，Llama-3-70B 每 token 320 KB、一个 2K prompt + 300 输出的请求约 734 MB，它决定并发上限、上下文上限与抢占时机；从单一 workload 到 **Prefill / Decode 混合**——Prefill compute-bound、Decode memory-bound，两者竞争同一组 GPU。目标也变了：不是最大 batch，而是在 SLO 约束下选执行规模。这三个变化直接生出后面每一篇的机制：Continuous Batching、Chunked Prefill、PagedAttention、Prefix Cache、抢占、PD 分离。详见[第三](#三prefill-与-decode两种完全不同的-gpu-workload)至[五章](#五llm-serving-的三个根本变化)。
