@@ -153,16 +153,16 @@ $$
 flowchart TB
     subgraph w4["W4A16（weight-only）"]
         direction TB
-        h4["HBM：INT4 权重 + scale/zero<br/>读 1/4 的字节"] --> dq["SM 片上反量化 → BF16<br/>移位、掩码、× s、+ z<br/>每个权重元素做一次，与 m 无关"]
-        a4["HBM：BF16 activations #91;m, k#93;<br/>不量化"] --> tc4["BF16 Tensor Core GEMM<br/>FLOPs 不变 = 2mkn"]
+        h4["<b>HBM：INT4 权重 + scale/zero</b><br/>读 1/4 的字节"] --> dq["<b>SM 片上反量化 → BF16</b><br/>移位、掩码、× s、+ z<br/>每个权重元素做一次，与 m 无关"]
+        a4["HBM：BF16 activations #91;m, k#93;<br/>不量化"] --> tc4["<b>BF16 Tensor Core GEMM</b><br/>FLOPs 不变 = 2mkn"]
         dq --> tc4
         tc4 --> o4["BF16 输出"]
     end
     subgraph w8["W8A8（FP8 / INT8）"]
         direction TB
-        h8["HBM：FP8/INT8 权重 + scale<br/>读 1/2 的字节"] --> tc8["FP8/INT8 Tensor Core GEMM<br/>算力 2×，累加 FP32/INT32"]
-        a8["activations 在线量化<br/>per-token 算 max → FP8/INT8<br/>（SmoothQuant 先 ÷ s）"] --> tc8
-        tc8 --> ep["epilogue：× $$s_w$$ × $$s_a$$<br/>乘回 BF16"]
+        h8["<b>HBM：FP8/INT8 权重 + scale</b><br/>读 1/2 的字节"] --> tc8["<b>FP8/INT8 Tensor Core GEMM</b><br/>算力 2×，累加 FP32/INT32"]
+        a8["<b>activations 在线量化</b><br/>per-token 算 max → FP8/INT8<br/>（SmoothQuant 先 ÷ s）"] --> tc8
+        tc8 --> ep["<b>epilogue：× $$s_w$$ × $$s_a$$</b><br/>乘回 BF16"]
         ep --> o8["BF16 输出"]
     end
     w4 ~~~ w8
