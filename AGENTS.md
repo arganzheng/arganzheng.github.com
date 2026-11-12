@@ -1277,7 +1277,14 @@ numbers; details, code and failure modes go into `<!-- v -->` sub-slides)
 → the threads running through the series → misconceptions → next steps.
 Speaker notes carry the talking points and the post URL. Content is lifted
 from the overview / recap / per-post 小结 and existing `img/in-post`
-figures — no new experiments. `slides/2026-09-28-math-for-ai.md` is the
+figures — no new experiments. **Keep the deck in sync with its posts** (author, 2026-11-12:
+「以后改动文章，要同步刷新幻灯片」): any change to a series post — content,
+numbers, conclusions, figures (new or redrawn SVG, edited Mermaid source),
+renumbering or reordering — updates that series' deck in the same change
+(the slide's conclusion line, table / figure, speaker notes; Mermaid copied
+from the post's current source), then `check-render.cjs slides/<key>/play`.
+Same-name SVG edits reach the deck automatically, but its caption, numbers
+and notes still need checking. `slides/2026-09-28-math-for-ai.md` is the
 template.
 
 Pictures first: a slide is a figure (or one table) plus one or two lines

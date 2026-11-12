@@ -55,43 +55,37 @@ transition: slide
 
 ---
 
-## 全景：从请求问题到第二套系统
+## 全景：一个问题被不断放大
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 110}}}%%
-flowchart LR
-    A["01 为什么难"] --> B["02 衡量"] --> C["03 请求全景"] --> D["04 Scheduler"] --> E["05 KV Cache"] --> F["06 GPU 执行"] --> NX["07–15 扩展与适配<br/>（下图）"]
-```
-
-<!-- v -->
-
-### 07–08：扩展
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
-flowchart LR
-    H["07 Multi-GPU"] --> I["08 PD 分离"] --> J["09–15<br/>（下图）"]
-```
-
-<!-- v -->
-
-### 09–15：从变化到验收
-
-**先是请求级变化（输入、输出），再是部署级变化（模型、硬件），最后演进与对照**
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
-    subgraph R1["四种变化：请求级 → 部署级"]
+    subgraph S1["一台机器"]
         direction LR
-        J["09 输入：multi-LoRA / 多模态"] --> K["10 输出：采样参数 / 结构化输出"] --> L["11 模型适配"] --> L2["12 硬件解耦"]
+        A["01 为什么难<br/>02 怎么衡量"] --> B["03 一个请求的路径"] --> C["04 调度 · 05 KV Cache<br/>06 GPU 执行与投机解码"]
     end
-    subgraph R2["演进与验收"]
+    subgraph S2["扩展与变化"]
         direction LR
-        M["13 下一站"] --> N["14 源码中的一次请求"] --> O["15 对照 SGLang"]
+        D["07 Multi-GPU<br/>08 PD 分离"] ~~~ E["请求级：09 输入 · 10 输出"] --> F["部署级：11 模型 · 12 硬件"]
     end
-    R1 --> R2
+    subgraph S3["演进与验收"]
+        direction LR
+        G["13 下一站"] --> H["14 回到源码"] --> I["15 对照 SGLang"]
+    end
+    S1 --> S2 --> S3
 ```
+
+<!-- v -->
+
+### 单机段与变化段的分界：改不改输出
+
+| 机制 | 输出分布 | 归属 |
+|---|---|---|
+| 投机解码 | 不变（拒绝采样保证无损） | 06 执行效率 |
+| 采样参数、结构化输出 | 改变「输出什么」 | 10 输出在变 |
+| multi-LoRA、多模态 | 每个请求带进来的东西不同 | 09 输入在变 |
+
+**变化段按粒度排：请求级（09、10，同一 batch 逐请求不同）→ 部署级（11、12，实例启动时定下）。**
 
 <aside class="notes" markdown="1">
 01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；08 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；09 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；10 [/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)；11 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)；15 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
@@ -101,12 +95,12 @@ flowchart TB
 
 ## 01 · 为什么 LLM Serving 比传统推理难
 
-**Llama-3-70B、8×H100：每 token KV 320 KB、每请求约 734 MB**
+**接纳时不知道要跑几轮 forward，KV 又跨步常驻、越长越大——请求有了生命周期**
 
 ![LLM Serving 中一个请求的持续生成、状态与资源关系](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。难点从一次性静态前向，变成动态执行、带状态生成和 Prefill/Decode 混合 workload；同一组算账基于 Llama-3-70B、8×H100。
+原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。输入长度可变不是 LLM 独有的问题（传统 Serving 用 padding / bucketing 规整），LLM 只是跨度大了几个数量级。真正改变服务对象的是两点：一个请求要循环多少次「Forward → 采样」，要到生成 EOS / `max_tokens` / stop 才知道，接纳时无法规划；KV Cache 从 Prefill 起一直占着显存并逐步追加，直到请求结束才释放。两点合起来，请求就有了接纳 → Prefill → 若干轮 Decode → 完成（或被抢占、重算）的生命周期，系统每一步都要重新决策。由此引出三个变化：动态执行、带状态推理、Prefill / Decode 混合 workload。贯穿全系列的例子：Llama-3-70B、8×H100，每 token KV 320 KB，2050 token prompt + 300 token 输出约 734 MB。
 </aside>
 
 <!-- v -->
@@ -119,6 +113,23 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。Decode 从 batch 1 到 64，单步时间从 5.3 ms 到 7.0 ms；batch 256 时 KV 读取达到 24 GB。
+</aside>
+
+<!-- v -->
+
+### 四个核心问题与四个横切约束
+
+| 核心问题 | 主要机制 | 篇 |
+|---|---|---|
+| 这一轮谁执行、执行多少？ | Continuous Batching、Token Budget、Chunked Prefill、抢占 | 04 |
+| 历史状态放哪、如何复用？ | PagedAttention、Prefix Cache、GQA / MLA、KV 量化 | 05 |
+| 这一轮如何算得更快？ | FlashAttention、CUDA Graph、融合、量化、投机解码 | 06 |
+| 一张卡不够，如何扩展？ | TP、PP、EP、CP、DP；PD 分离 | 07 · 08 |
+
+**横切约束，从请求到芯片：输入在变 09 · 输出在变 10 · 模型在变 11 · 硬件在变 12**
+
+<aside class="notes" markdown="1">
+原文：[/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)。对应 01 的表 4。代码落点：Scheduler、KVCacheManager / BlockPool、ModelRunner / Attention Backend、Executor / distributed。横切约束：一个请求可以带自己的 LoRA、带图片（09）；每个请求有自己的采样参数、可能要求符合 JSON schema（10）；MLA、MoE、MTP 等新结构（11）；同一套 Serving 逻辑跑在不同芯片上（12）。
 </aside>
 
 ---
@@ -137,12 +148,77 @@ flowchart TB
 
 ## 03 · 鸟瞰 vLLM：4+1 视图落到一次请求
 
+**控制面在 CPU 只动元数据，数据面在 GPU 只动张量；边界上只过两条消息**
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+flowchart TB
+    subgraph CP["控制面 · CPU · 只处理元数据"]
+        direction LR
+        API["API Server + AsyncLLM<br/>tokenize、流式输出"]
+        EngineCore["EngineCore<br/>step() 主循环"]
+        Scheduler["Scheduler<br/>每轮给谁几个 token"]
+        KV["KVCacheManager + BlockPool<br/>请求 → block id"]
+        API --> EngineCore --> Scheduler --> KV
+    end
+    subgraph DP["数据面 · GPU · 只处理张量"]
+        direction LR
+        Worker["GPU Worker × N<br/>ModelRunner：准备输入、前向、采样"]
+        Mem["GPU 显存<br/>权重分片 · KV Cache · 激活"]
+        Worker --> Mem
+    end
+    CP <==>|"↓ SchedulerOutput：请求 id、token 数、新 block id<br/>↑ ModelRunnerOutput：采样出的 token id"| DP
+    classDef cp fill:#eaf2fb,stroke:#5b8fd6,color:#1d3557
+    classDef dp fill:#fdf0e6,stroke:#d9822b,color:#5a2e0e
+    class API,EngineCore,Scheduler,KV cp
+    class Worker,Mem dp
+```
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下](/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下)。向下的 `SchedulerOutput`：首次调度的请求以 `NewRequestData` 带 prompt token ids、采样参数和 block ids，已在 Worker 上的请求以 `CachedRequestData` 只带增量；向上的 `ModelRunnerOutput` 主体是 `req_ids` 与 `sampled_token_ids`，只有 `output_rank` 回传。从不过边界的是权重、激活和 KV Cache：KVCacheManager 管的「块」只是 `block_id`、`ref_cnt` 与可选哈希，是显存里 KV 张量的下标；分配、释放、前缀复用、抢占都是整数运算。收益三条：CPU 工作（如填语法 bitmask、异步调度下一轮）与 GPU 前向重叠；边界消息大小与模型大小无关；调度状态只有一份，换 Uni / Multiproc / Ray 只换中间的 Executor。Executor 不是进程，是 EngineCore 构造时创建的对象：`UniProc` 本进程直接调，`Multiproc` 经共享内存 MessageQueue 广播，`Ray` 走 actor。
+</aside>
+
+<!-- v -->
+
+### 4+1：进程视图
+
 **Executor 是引擎内对象：DP 定 EngineCoreProc 数、TP×PP 定 WorkerProc 数**
 
 ![进程视图：API Server、EngineCoreProc、Executor 与 WorkerProc 的职责和通信](/img/in-post/vllm-request-lifecycle-process-view.svg){: style="max-height: 390px"}
 
 <aside class="notes" markdown="1">
 原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。Kruchten 4+1：逻辑、开发、进程、部署/物理四个视图，加上串联它们的场景。vLLM v0.27.1：world_size=1 默认选 UniProcExecutor，Worker 在 EngineCore 进程内初始化，没有 WorkerProc；多进程模式下 Executor 进程内调度 WorkerProc。DP size 对应 EngineCoreProc 数；每个 EngineCoreProc 内按 TP×PP×PCP rank 启动 WorkerProc；EP 复用已有 rank、不新增进程。（版本提示：v0.29 起默认是 Model Runner V2，`vllm/v1/worker/gpu/`；本页讲的是 v0.27.1 的 V1 路径。）
+</aside>
+
+<!-- v -->
+
+### 执行层三层：Executor → Worker → ModelRunner
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+graph TB
+    EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
+    EX --> W0 & W1 & WN
+    subgraph W0["Worker 0 (GPU 0)"]
+        direction TB
+        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
+    end
+    subgraph W1["Worker 1 (GPU 1)"]
+        direction TB
+        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
+    end
+    subgraph WN["Worker N (GPU N)"]
+        direction TB
+        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
+    end
+    NC["NCCL：TP all-reduce / PP 激活收发"]
+    W0 & W1 & WN <-.-> NC
+```
+
+**Executor 定交给哪些 Worker，Worker 管一张卡，ModelRunner 跑完一轮。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#4-executorworker-与-modelrunner模型执行的设备抽象](/vllm-request-lifecycle-overview.html#4-executorworker-与-modelrunner模型执行的设备抽象)。Executor：`UniProcExecutor`、`MultiprocExecutor`、`RayDistributedExecutor`、`RayExecutorV2`（继承 `MultiprocExecutor`，只把进程拉起方式换成 Ray）、`ExecutorWithExternalLauncher`——用不用 Ray 是部署方式的差异，不是执行模型的差异。Worker：初始化设备与 TP / PP 通信组、加载权重分片、测显存余量并分配 KV Cache、把 `execute_model()` 转给 ModelRunner。ModelRunner（`GPUModelRunner`）常驻一份 `InputBatch`，每轮准备输入（`_prepare_inputs()`）、前向（能用 CUDA Graph 时走捕获好的图）、采样（`sample_tokens()`）。
 </aside>
 
 <!-- v -->
@@ -202,7 +278,7 @@ flowchart TB
 ![Scheduler 的统一资源调度模型与请求流转](/img/in-post/scheduler-overview.svg){: style="max-height: 410px"}
 
 <aside class="notes" markdown="1">
-原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。
+原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。没有 prefill / decode 两个阶段：每轮让 `num_computed_tokens` 追上 `num_tokens_with_spec`（prompt + 已生成 + 投机 token）。两者是精确等式：普通 decode 时 `num_tokens_with_spec = num_computed_tokens + 1`（上一轮采出的 token 正是这一轮的输入），带 k 个 draft 时是 `+ 1 + k`；默认开启的异步调度下用 `num_output_placeholders` 记已调度、结果未回的 token，`num_tokens_with_spec + num_output_placeholders = num_computed_tokens + 1`。
 </aside>
 
 ---
@@ -231,6 +307,23 @@ flowchart TB
 
 <!-- v -->
 
+### GPU 上的四种浪费
+
+| 浪费形态 | 症状 | 对策 |
+|---|---|---|
+| GPU 在等 CPU 发指令 | kernel 之间有气泡 | CUDA Graph |
+| GPU 在等 HBM 送数据 | 算力闲置、访存打满 | FlashAttention、算子融合 |
+| 搬的每个数太胖 | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 |
+| 轮次本身太多 | 每轮只产出 1 个 token | 投机解码 |
+
+**Prefill 2050 token ≈ 92 ms 占 3%，300 步 decode ≈ 3000 ms 占 97%——优化都冲着 Decode。**
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html#一总览四种浪费与一笔账](/gpu-execution-kernels-and-graphs.html#一总览四种浪费与一笔账)。TP=8 下每卡 17.6 GB 权重、3.35 TB/s，一次 decode 的权重读取下界约 5.3 ms；加上 KV 读取、80 层 × 2 次 All-Reduce 和 kernel 开销，实测一步约 10 ms。量化与减少搬运次数正交、可叠加。
+</aside>
+
+<!-- v -->
+
 ### 投机解码：少跑几轮 forward
 
 **无损：只改每步决定的位置数；batch 1、接受长度 2.5 约 2.1×，batch 128 每步慢 1.9 倍**
@@ -241,16 +334,78 @@ flowchart TB
 原文：[/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。（版本提示：v0.29 起 Model Runner V2 有自己的一套 speculator 与拒绝采样，`vllm/v1/worker/gpu/spec_decode/`，机制相同；Medusa 在 v0.33 预发布版中已删除。）
 </aside>
 
+<!-- v -->
+
+### 投机解码在调度器里：进预算、预留 lookahead、按接受数回滚
+
+![连续两步的 KV 槽位（K=3）](/img/in-post/decoding-extensions-spec-kv-slots.svg){: style="max-height: 400px"}
+
+**「KV 回滚」就是 `num_computed_tokens -= num_rejected`：被拒槽位不清理、不释放，下一步直接覆盖。**
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html#4-调度器与-kvdraft-进预算预留-lookahead-槽位按接受数回滚](/gpu-execution-kernels-and-graphs.html#4-调度器与-kvdraft-进预算预留-lookahead-槽位按接受数回滚)。① draft 进 token 预算：带 K 个 draft 的请求本轮推进 1+K 个 token，预算紧时 draft 被截断；chunked prefill 中的请求不调度 draft。② `allocate_slots(..., num_lookahead_tokens)` 为 draft 模型下一步写 KV 预留槽位：EAGLE / MTP / draft model 为 K，n-gram 为 0；例子里 K=3、每卡每 token 40 KB，只预留 120 KB，代价是更早碰到 watermark。③ step 后按接受数回滚，正确性靠 `num_computed_tokens` 这个游标，prefix cache 也以它为界，脏槽位不会被命中。EAGLE / MTP 开启时 prefix cache 命中的最后一块会被主动丢掉（125 块变 124 块），留一个位置真正跑 forward 产生 hidden state。model runner 一次 forward 算 K+1 个位置，`RejectionSampler` 得到 `[batch, K+1]`，被拒位置填 -1。
+</aside>
+
+<!-- v -->
+
+### 收益有临界点：每步约 300 token / 卡
+
+| batch | K | 每步 token | 验证免费？ | 每步（估） |
+|---:|---:|---:|---|---|
+| 1 | 3 | 4 | 是 | ≈ 10 ms |
+| 32 | 3 | 128 | 是 | ≈ 10–11 ms |
+| 64 | 3 | 256 | 接近临界 | ≈ 12 ms |
+| 128 | 3 | 512 | 否，≈ 1.7× 临界 | ≈ 17 ms |
+| 128 | 0（不开） | 128 | —— | ≈ 10 ms |
+
+**batch=128 时每步慢 1.9 倍、只换来 2.5 倍步数减少——系统吞吐反降。**
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html#7-收益与代价的量化](/gpu-execution-kernels-and-graphs.html#7-收益与代价的量化)。临界点 $$T_\text{ridge} \approx 295$$ token / 步 / 卡（989 TFLOPS 对 3.35 TB/s）；40% MFU 时还要更低。batch=1、300 个输出 token：EAGLE K=3 接受长度 2.5 → 120 步 × 12 ms ≈ 1450 ms，≈ 2.1×；接受长度 1.6 → 1.3×；n-gram 抄 RAG 原文、接受长度 3.5 → 3.5×。不该开：每步 token 已近临界、输出很短、请求需要 `min_p` / `logit_bias`（开投机时在前端被拒）、高温高熵文本。动态 K（`num_speculative_tokens_per_batch_size`）在大 batch 时降到 0，但 DP > 1 时被关掉；draft 只在最后一个 PP rank；PD 下异步拉 KV 的那一步不预留 lookahead。
+</aside>
+
 ---
 
 ## 07 · Multi-GPU：按瓶颈切分模型与请求
 
 **TP/PP/EP/CP 解决装不下，DP 解决要更多吞吐且在最外层**
 
-![TP、PP、EP、CP 与 DP 的 rank 布局及适用问题](/img/in-post/multi-gpu-scaling-strategies-tp-pp-dp-rank-layout.svg){: style="max-height: 400px"}
+| 遇到的问题 | 策略 | 切的是什么 |
+|---|---|---|
+| 单卡放不下一个 Linear 层 | TP | 层内的矩阵，按行 / 列切 |
+| 单层放得下，整个模型太大 | PP | 按层切，分段流水 |
+| MoE 的 Expert 太多 | EP | 按 Expert 切 |
+| 上下文太长，KV 装不下 | CP | 按 token 序列切 |
+| 装得下，但要更多吞吐 | DP | 不切，整个模型复制一份 |
 
 <aside class="notes" markdown="1">
-原文：[/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)。TP decode 每步每层需要同步，80 层共 160 次 all-reduce，通信在关键路径上；PP 只在 stage 边界传激活。
+原文：[/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)。TP / PP / EP / CP 是被迫拆分，DP 的前提恰恰是装得下；生产部署先用前四种把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份。
+</aside>
+
+<!-- v -->
+
+### rank 布局：TP=2 × PP=2 × DP=2，两台 4 卡机器
+
+![TP=2 × PP=2 × DP=2 在两台 4 卡机器上的 rank 布局](/img/in-post/multi-gpu-scaling-strategies-tp-pp-dp-rank-layout.svg){: style="max-height: 400px"}
+
+**TP 组是相邻的卡、走 NVLink；PP 组隔一个 TP 组；DP 组隔一整个副本、跨机。**
+
+<aside class="notes" markdown="1">
+原文：[/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)。vLLM 的 `initialize_model_parallel()` 按 DP × PP × PCP × TP 排布 rank，TP 在最内层。TP 组 [0,1] [2,3] [4,5] [6,7]：激活 All-Reduce，每层 2 次、在关键路径上；PP 组 [0,2] [1,3] [4,6] [5,7]：`hidden_states` 的 send / recv，每个 microbatch 1 次；DP 组 [0,4] [1,5] [2,6] [3,7]：不传激活，只在 MoE + EP 时 All-to-All 跨副本。每个 DP 副本一个 EngineCore，各自拉起 TP × PP = 4 个 WorkerProc。
+</aside>
+
+<!-- v -->
+
+### TP 的代价：All-Reduce 在每层的关键路径上
+
+![All-Reduce 位于每层的关键路径](/img/in-post/multi-gpu-scaling-strategies-all-reduce-critical-path.svg){: style="max-height: 300px"}
+
+1. 每层 All-Reduce 两次：Attention 后、MLP 后各一次
+2. 每层通信量 $$2V$$，$$V = B \times S \times H \times \text{sizeof(dtype)}$$
+3. 只适合 NVLink / NVSwitch 互联的同机多卡
+
+<aside class="notes" markdown="1">
+原文：[/multi-gpu-scaling-strategies.html#5-tp-的代价通信](/multi-gpu-scaling-strategies.html#5-tp-的代价通信)。列切的输出分片正好是行切的输入分片，中间不用通信，只有行切的部分和要在末尾求和；Attention 和 MLP 各一对「列切 → 行切」，所以每层两次。算例：batch 32、Decode $$S=1$$、$$H=8192$$、BF16，一次 512 KiB；80 层 × 2 次 = 160 次，一步约 80 MiB 逻辑通信量；Ring All-Reduce 单卡实际传输约 $$2\frac{N-1}{N}V$$，TP=8 时约 $$1.75V$$。所有卡要等 All-Reduce 完成才能算下一层，对带宽和延迟都敏感，跨机时改用 PP、DP、EP 减少高频同步。
 </aside>
 
 ---
@@ -274,7 +429,7 @@ flowchart TB
 ![一个 kernel 按排序后的 token 索引 gather 不同 LoRA adapter 的权重行](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg){: style="max-height: 390px"}
 
 <aside class="notes" markdown="1">
-原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。LoRA FLOPs 只多 0.2%，但每步多 1,120 次 kernel launch；图片贵在持续驻留的 KV，而不是短命的 encoder 输出。
+原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。变化段的第一篇，属于请求级变化：同一个 batch 里每个请求都可能带自己的 LoRA、带几张图片，引擎必须逐请求处理；模型类经 `SupportsLoRA` / `SupportsMultiModal` 声明能力，引擎据此启用对应路径（完整机制在 11）。LoRA FLOPs 只多 0.2%，但每步多 1,120 次 kernel launch；图片贵在持续驻留的 KV，而不是短命的 encoder 输出。
 </aside>
 
 <!-- v -->
@@ -301,6 +456,36 @@ flowchart TB
 原文：[/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)。采样参数改分布本身、结构化输出改分布的支撑集；参数按 batch 维张量向量化，penalties 每步搬历史输出；grammar 在调度器侧异步编译，与投机解码同开时逐个 draft 位置对账；TP 下每个 rank 都拿到完整 logits、各自采样，GrammarOutput 广播到所有 worker。（版本提示：v0.29 起默认的 Model Runner V2 有独立采样器 `vllm/v1/worker/gpu/sample/` 和新的 logits processor 接口；结构化输出的调度器侧不变。）
 </aside>
 
+<!-- v -->
+
+### 两类输出变化落在哪几层
+
+| 层 | 采样语义 | 结构化输出 |
+|---|---|---|
+| API | 校验参数；开投机时拒绝 `min_p` / `logit_bias` | 校验 schema、选后端 |
+| Scheduler | —— | 异步编译 grammar、每步填 bitmask、推进 FSM |
+| KV Cache | —— | —— |
+| ModelRunner / Sampler | 每请求参数按行向量化 | GPU 上按行打掩码 |
+| 多卡 | TP 每 rank 各自采样；PP 末 stage 采样 | `GrammarOutput` 广播给所有 worker |
+| PD 分离 | 参数随请求交接 | P、D 各编译一次，都落在 TTFT 上 |
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html#3-变化落在哪几层](/output-changes-sampling-and-structured-output.html#3-变化落在哪几层)。KV Cache 一行是空的，这本身就是结论：输出语义的变化不影响状态怎么存，不同参数、不同 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比 09：LoRA 和多模态都要往块哈希里加 `extra_keys`）。代价：采样语义几乎为零，值得算的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`；结构化输出几乎全在 CPU 与 TTFT——编译、每步填 bitmask、FSM 推进，GPU 只有一个掩码 kernel。batch=64 全开 JSON：每步 H2D 64 × 16 KB = 1 MB。
+</aside>
+
+<!-- v -->
+
+### 多卡与 PD 下：谁采样、grammar 在哪编译
+
+- **TP**：logits all-gather 到每个 rank，各 rank 用同一种子各自采样，只有 `output_rank` 回复
+- **PP**：只有末 stage 采样；异步调度下把采出的 token 广播回其他 stage
+- **DP**：每个 DP rank 自己的调度器编译 grammar，同一 schema 打到 4 个 rank 编译 4 次
+- **PD**：P、D 两侧各编译一次 grammar；D 上编译排在 KV 拉取之前，串行
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html#四多卡与-pd-分离下的适配](/output-changes-sampling-and-structured-output.html#四多卡与-pd-分离下的适配)。TP：`lm_head` 按词表切，`Platform.use_all_gather()` 默认 True，CUDA 平台每个 rank 都得到完整 `[num_tokens, V]`；`sample_tokens(grammar_output)` 经共享内存一次广播；各 rank 自己采是为了让下一步输入直接留在本 rank 的 `InputBatch`，省一次广播，前提是 `set_random_seed(model_config.seed)` 对齐随机状态。例子 batch=64、TP=8：完整 bf16 logits 约 16 MB、每卡贡献 2 MB，all-gather 在 NVLink 上几十微秒。`external_launcher` 下每个 TP rank 一个调度器，异步编译会让各 rank 状态转换时刻不同而死锁，所以改同步编译。PD（NIXL toy proxy）：P 收到 `max_tokens=1` 的请求，同样等 grammar 就绪才调度、用掩码采出一个会被丢弃的 token；P 上的编译落在 $$Q_P$$，D 上的串在 $$T_{\text{handoff}}$$ 前。缓解：xgrammar 缓存让重复 schema 几乎免费；proxy 可在发往 P 的请求里去掉结构化输出参数。
+</aside>
+
 ---
 
 ## 11 · 模型适配：变化落在哪一层
@@ -310,7 +495,7 @@ flowchart TB
 ![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。
+原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。四种外部变化里的第三种，进入部署级变化：模型在实例启动时就定下，引擎要在接口层把它隔离。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。09 用到的 `SupportsLoRA` / `SupportsMultiModal` 就是这里的能力声明。
 </aside>
 
 ---
@@ -322,7 +507,7 @@ flowchart TB
 ![Platform 按硬件与能力派发 Attention Backend、Worker 与算子实现](/img/in-post/hardware-abstraction-platform-dispatch.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)。Platform 是硬件能力中心，不是所有底层组件的唯一父类；Serving Core、抽象契约、平台实现、硬件运行时与 Kernel 形成多层边界。
+原文：[/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)。四种外部变化的最后一种：输入、输出、模型都还是软件侧的变化，硬件也是部署级、实例启动时定下。Platform 是硬件能力中心，不是所有底层组件的唯一父类；Serving Core、抽象契约、平台实现、硬件运行时与 Kernel 形成多层边界。
 </aside>
 
 ---
