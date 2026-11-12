@@ -23,11 +23,11 @@ agent 的核心机制不复杂：模型看上下文，决定调用什么工具�
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：agent 循环的五段、四个卫士与三个出口
 flowchart TB
-    A["① 组装上下文<br/>七层拼成一次请求，历史只追加"] --> B["② 调模型<br/>流式、带工具定义、有超时"]
+    A["<b>① 组装上下文</b><br/>七层拼成一次请求，历史只追加"] --> B["<b>② 调模型</b><br/>流式、带工具定义、有超时"]
     B --> C{"③ 解析输出"}
     C -- "最终回答" --> END1["出口一：正常结束"]
-    C -- "tool_call（模型的「决定」）" --> D["④ 权限 → 沙箱里执行<br/>要问人的先问人"]
-    D --> E["⑤ 写回<br/>每个 call_id 一条结果，错误也是结果"] --> A
+    C -- "tool_call（模型的「决定」）" --> D["<b>④ 权限 → 沙箱里执行</b><br/>要问人的先问人"]
+    D --> E["<b>⑤ 写回</b><br/>每个 call_id 一条结果，错误也是结果"] --> A
     G["四个卫士：步数 / token / 美元 / 时间预算<br/>+ 重复调用与连续失败检测"] -. 每一圈都检查 .-> A
     G -- "预算耗尽" --> END2["出口二：交付部分结果 + 未完成清单"]
     G -- "卫士触发" --> END3["出口三：降级给人"]
@@ -114,8 +114,8 @@ flowchart LR
         C1["每步读一个 5K 的文件"] --> C2["第 40 步：上下文 200K"] --> C3["每步 2 美元 × 越来越多步"]
     end
     D1 -.- G1["卫士：重复调用检测 + 步数上限<br/>→ 提醒换方法或交付部分结果"]
-    D2 -.- G2["卫士：单次工具超时<br/>→ 杀掉、把超时作为结果送回"]
-    D3 -.- G3["卫士：token / 美元预算<br/>→ 压缩或交付部分结果"]
+    D2 -.- G2["<b>卫士：单次工具超时</b><br/>→ 杀掉、把超时作为结果送回"]
+    D3 -.- G3["<b>卫士：token / 美元预算</b><br/>→ 压缩或交付部分结果"]
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
     class A1,A2,A3,A4,B1,B2,B3,C1,C2,C3 bad
@@ -154,7 +154,7 @@ flowchart TB
     end
     subgraph L2["第二层 turn loop：一次用户输入"]
         direction LR
-        T1["组装：系统指令 · AGENTS.md · 工具 · 历史"] --> T2["调 Responses API<br/>reasoning item 跨轮保留"] --> T3{"有工具调用？"}
+        T1["组装：系统指令 · AGENTS.md · 工具 · 历史"] --> T2["<b>调 Responses API</b><br/>reasoning item 跨轮保留"] --> T3{"有工具调用？"}
         T3 -->|"否"| T4["turn 结束（边界处可压缩）"]
         T3 -->|"是"| L3
     end
@@ -202,17 +202,17 @@ Table: DeepSeek Harness core 各包的职责
 flowchart TB
     subgraph CX["Codex：对象持有状态"]
         direction LR
-        C1["会话对象<br/>历史在内存里"] -->|"持久化"| C2["rollout 日志"]
+        C1["<b>会话对象</b><br/>历史在内存里"] -->|"持久化"| C2["rollout 日志"]
         C1 --> C3["组装请求"]
     end
     subgraph DS["DeepSeek Harness：日志即状态"]
         direction LR
-        D1["append-only 会话日志<br/>SessionEvent 唯一事实来源"] -->|"派生"| D2["历史视图"]
+        D1["<b>append-only 会话日志</b><br/>SessionEvent 唯一事实来源"] -->|"派生"| D2["历史视图"]
         D2 --> D3["组装请求"]
         D3 -->|"模型输出 · 工具结果 · 审批 · 压缩摘要<br/>每个模型可见的事实追加回日志"| D1
     end
     CX ~~~ DS
-    DS -.- INV["不变量：模型可见 ⟺ 已记录<br/>→ resume / fork / replay 都是重放同一条日志（第三篇）"]
+    DS -.- INV["<b>不变量：模型可见 ⟺ 已记录</b><br/>→ resume / fork / replay 都是重放同一条日志（第三篇）"]
     classDef c fill:#fff7e0,stroke:#c98a00,color:#222
     classDef d fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -245,8 +245,8 @@ Table: 工作流与 agent 的区分
 ```mermaid
 %% 图：工作流里嵌一段 agent——「读文档 → 抽字段 → 校验 → 入库」这类步骤事先知道的流程用代码写死；只有「校验失败时找出原因并修正」这一段步骤事先不知道，才放一个有四个卫士的循环；固定的入口与出口让不定的成本只花在那一段
 flowchart TB
-    W1["① 读文档<br/>（工作流）"] --> W2["② 模型抽字段<br/>（工作流：一次调用）"] --> W3{"③ 校验"}
-    W3 -->|"过"| W4["④ 入库<br/>（工作流）"]
+    W1["<b>① 读文档</b><br/>（工作流）"] --> W2["<b>② 模型抽字段</b><br/>（工作流：一次调用）"] --> W3{"③ 校验"}
+    W3 -->|"过"| W4["<b>④ 入库</b><br/>（工作流）"]
     W3 -->|"不过"| AG["agent 循环：找出为什么不过、改正<br/>四个卫士 · 两个出口 · 步数 ≤ 10"]
     AG -->|"修好 → 回校验"| W3
     AG -->|"预算耗尽 / 卫士触发"| H["转人工（第二出口）"]

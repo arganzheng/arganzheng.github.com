@@ -25,11 +25,11 @@ catalog: true
 flowchart TB
     R["agent 跑一个任务"] --> O{"结束方式"}
     O -- "模型给出最终回答" --> V["结果校验：文件真改了？测试真过了？<br/>（「已完成」要有佐证）"]
-    O -- "步数 / token / 美元 / 时间任一到顶" --> P["交付部分结果：<br/>done · pending · blocker"]
+    O -- "步数 / token / 美元 / 时间任一到顶" --> P["<b>交付部分结果：</b><br/>done · pending · blocker"]
     O -- "卫士：重复调用、连续失败" --> H["降级给人"]
     V & P & H --> TR["每一步进 trace（第五篇）"]
     TR --> C["失败打类（十类里只有一类是异常）<br/>分布进面板，每类有药"]
-    C --> E["坏轨迹 → 评测集用例<br/>轨迹评测：结果之外看过程<br/>（步数、越权、工具选择、成本）"]
+    C --> E["<b>坏轨迹 → 评测集用例</b><br/>轨迹评测：结果之外看过程<br/>（步数、越权、工具选择、成本）"]
     E -. "下次改动先过这一关" .-> R
 
 ```
@@ -83,8 +83,8 @@ xychart-beta
 ```mermaid
 %% 图：四种预算同时设、任一到顶走同一个出口——步数、token、美元（实时按价目算，含子 agent）、墙钟；出口是结构化的部分结果：status: partial、done 列表、remaining 列表、blocked_by；复述机制维护的 todo 让这个清单现成；子 agent 的预算从父任务里扣
 flowchart LR
-    T["任务预算（按类型定）<br/>研究任务大 · 分类任务小"] --> B1["步数 ≤ 40"] & B2["token ≤ 800K"] & B3["美元 ≤ 3.00<br/>实时按价目算，含子 agent"] & B4["墙钟 ≤ 20 min"]
-    B1 & B2 & B3 & B4 -->|"任一到顶"| OUT["同一个出口：部分结果<br/>status: partial<br/>done: [模块 A 迁移, 测试通过]<br/>remaining: [模块 B, 文档]<br/>blocked_by: 数据库凭据缺失"]
+    T["<b>任务预算（按类型定）</b><br/>研究任务大 · 分类任务小"] --> B1["步数 ≤ 40"] & B2["token ≤ 800K"] & B3["<b>美元 ≤ 3.00</b><br/>实时按价目算，含子 agent"] & B4["墙钟 ≤ 20 min"]
+    B1 & B2 & B3 & B4 -->|"任一到顶"| OUT["<b>同一个出口：部分结果</b><br/>status: partial<br/>done: [模块 A 迁移, 测试通过]<br/>remaining: [模块 B, 文档]<br/>blocked_by: 数据库凭据缺失"]
     TODO["复述的 todo / plan（第四篇）"] -.->|"清单现成"| OUT
     SUB["子 agent 的预算"] -.->|"从父预算里扣"| T
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
@@ -129,8 +129,8 @@ Table: 轨迹评测的维度与指标
 flowchart TB
     LOG["录制的轨迹：每步模型的完整输出 + 工具返回"]
     CH{"改了什么？"}
-    CH -->|"工具实现 · 解析 · 卫士阈值 · 权限规则 · 压缩逻辑"| RP["回放：喂录制的模型输出<br/>不调模型 · 免费 · 可复现 · 秒级<br/>看：解析对不对、卫士该触发的触发了没、权限判定变了没"]
-    CH -->|"prompt · 模型 · effort · 工具描述"| RR["重跑：模型输出会变<br/>轨迹评测集 × k 次 · 按分布比 · 贵"]
+    CH -->|"工具实现 · 解析 · 卫士阈值 · 权限规则 · 压缩逻辑"| RP["<b>回放：喂录制的模型输出</b><br/>不调模型 · 免费 · 可复现 · 秒级<br/>看：解析对不对、卫士该触发的触发了没、权限判定变了没"]
+    CH -->|"prompt · 模型 · effort · 工具描述"| RR["<b>重跑：模型输出会变</b><br/>轨迹评测集 × k 次 · 按分布比 · 贵"]
     LOG --> RP
     RP & RR --> GATE["门禁：逐条 diff → 灰度 → 回滚"]
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
@@ -177,14 +177,14 @@ Table: 三个 agent 基准
 ```mermaid
 %% 图：agent trace 的三级树——会话（用户 · 模型 / prompt / 工具集版本 · 权限档 · 总成本）→ 任务 / 轮次（输入 · 输出 · 状态：完成 / 部分 / 失败 · 成本）→ 步骤（每次模型调用的完整输入输出与 usage、每次工具调用的参数 / 结果 / 耗时 / 沙箱 / 审批、卫士触发、压缩与卸载事件、子会话 id）；子会话再挂一棵同样的树
 flowchart TB
-    S["会话 s-7f3<br/>用户 · Sonnet 5 快照 · prompt v12 · 工具集 v4 · workspace 档 · 总 2.4 美元"]
+    S["<b>会话 s-7f3</b><br/>用户 · Sonnet 5 快照 · prompt v12 · 工具集 v4 · workspace 档 · 总 2.4 美元"]
     S --> T1["轮次 1：「把模块 A 迁到新 API」<br/>状态：完成 · 0.9 美元"]
-    S --> T2["轮次 2：「顺便修一下测试」<br/>状态：部分 · 1.5 美元"]
-    T2 --> P1["步 1 模型调用<br/>完整输入 / 输出 · usage · effort high · 思考 2.1K"]
-    T2 --> P2["步 2 工具：run tests<br/>参数 · 结果（3 fail）· 4.2 s · 沙箱 ok"]
-    T2 --> P3["步 3 工具：edit file<br/>审批：allow 规则 · 结果 · 卸载 → spill://…"]
-    T2 --> P4["步 4 子 agent：explore<br/>子会话 s-7f3/c1 →（同样的一棵树）"]
-    T2 --> P5["步 9 卫士：预算耗尽<br/>→ 部分结果"]
+    S --> T2["<b>轮次 2：「顺便修一下测试」</b><br/>状态：部分 · 1.5 美元"]
+    T2 --> P1["<b>步 1 模型调用</b><br/>完整输入 / 输出 · usage · effort high · 思考 2.1K"]
+    T2 --> P2["<b>步 2 工具：run tests</b><br/>参数 · 结果（3 fail）· 4.2 s · 沙箱 ok"]
+    T2 --> P3["<b>步 3 工具：edit file</b><br/>审批：allow 规则 · 结果 · 卸载 → spill://…"]
+    T2 --> P4["<b>步 4 子 agent：explore</b><br/>子会话 s-7f3/c1 →（同样的一棵树）"]
+    T2 --> P5["<b>步 9 卫士：预算耗尽</b><br/>→ 部分结果"]
     P1 -.- D["决策点日志：选了哪个工具 · 为什么终止 · 权限判定 · 预算余量 · 卫士是否触发"]
     classDef s fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef t fill:#fff7e0,stroke:#c98a00,color:#222

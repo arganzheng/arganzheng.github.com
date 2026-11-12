@@ -85,13 +85,13 @@ Anthropic 2025 年 6 月公开了他们研究功能的架构：一个 lead agent
 ```mermaid
 %% 图：Anthropic 多 agent 研究系统的一次运行——lead agent 先思考再把问题拆成三个方向，写具体的派发指令（目标 · 输出格式 · 来源指引 · 边界），三个 subagent 并行各自搜索阅读十几次，返回带引用的摘要，lead 综合并引用；墙钟时间从几十分钟到几分钟，token 约 15 倍
 flowchart TB
-    Q["研究问题：2026 年三家推理模型的 effort 定价怎么比"] --> L["lead：先思考再规划<br/>拆成三个独立方向"]
-    L -->|"派发指令：目标 · 格式 · 来源 · 边界"| S1["subagent A<br/>OpenAI 定价页 · 12 次搜索阅读"]
-    L -->|"派发指令"| S2["subagent B<br/>Anthropic 定价页 · 9 次"]
-    L -->|"派发指令"| S3["subagent C<br/>Google 定价页 · 11 次"]
+    Q["研究问题：2026 年三家推理模型的 effort 定价怎么比"] --> L["<b>lead：先思考再规划</b><br/>拆成三个独立方向"]
+    L -->|"派发指令：目标 · 格式 · 来源 · 边界"| S1["<b>subagent A</b><br/>OpenAI 定价页 · 12 次搜索阅读"]
+    L -->|"派发指令"| S2["<b>subagent B</b><br/>Anthropic 定价页 · 9 次"]
+    L -->|"派发指令"| S3["<b>subagent C</b><br/>Google 定价页 · 11 次"]
     S1 & S2 & S3 -->|"各返回：结构化摘要 + 引用（不贴原文）"| C["lead：校验 · 综合 · 引用"]
     C --> R["报告"]
-    S1 -.- N["三个并行 → 墙钟几分钟<br/>三份系统提示 + 工具定义 + 读取内容 → token ≈ 15 倍聊天"]
+    S1 -.- N["<b>三个并行 → 墙钟几分钟</b><br/>三份系统提示 + 工具定义 + 读取内容 → token ≈ 15 倍聊天"]
     classDef lead fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef w fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -214,8 +214,8 @@ trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → �
 ```mermaid
 %% 图：多 agent 的三层评测——先单独评每个角色（worker 给定子任务能不能完成，便宜、可复用单 agent 评测集），再评协调（lead 的分解是否合理、综合是否忠实于 worker 的返回），最后端到端；一次退化先看哪一层掉了，与 L3「检索与生成分开评」同一思路
 flowchart TB
-    E1["① 角色能力<br/>每个 worker 单独跑子任务评测集<br/>便宜 · 单 agent 方法"] --> E2["② 协调<br/>给定同一任务：分解是否合理（覆盖 · 独立 · 粒度）<br/>给定同一批 worker 返回：综合是否忠实"]
-    E2 --> E3["③ 端到端<br/>全系统跑真实任务<br/>15 倍 token，少跑、按分布看"]
+    E1["<b>① 角色能力</b><br/>每个 worker 单独跑子任务评测集<br/>便宜 · 单 agent 方法"] --> E2["<b>② 协调</b><br/>给定同一任务：分解是否合理（覆盖 · 独立 · 粒度）<br/>给定同一批 worker 返回：综合是否忠实"]
+    E2 --> E3["<b>③ 端到端</b><br/>全系统跑真实任务<br/>15 倍 token，少跑、按分布看"]
     E3 -.->|"退化了？先看 ①，再看 ②"| E1
     classDef a fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef b fill:#fff7e0,stroke:#c98a00,color:#222

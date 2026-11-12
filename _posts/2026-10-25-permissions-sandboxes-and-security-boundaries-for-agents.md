@@ -22,14 +22,14 @@ catalog: true
 ```mermaid
 %% 图：工具调用要过的四层：权限档是静态范围，审批策略与执行策略是动态判断，沙箱是执行时的强制，被拦住后再看是否允许升级
 flowchart TB
-    CALL["模型返回一个工具调用<br/>shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7"] --> L1{"① 权限档<br/>这个会话能碰什么？"}
+    CALL["<b>模型返回一个工具调用</b><br/>shell: rm -rf ./build · write: src/x.py · http: DELETE /volumes/7"] --> L1{"① 权限档<br/>这个会话能碰什么？"}
     L1 -->|"超出档位：写只读区、访问网络"| DENY1["拒绝（不问人）"]
     L1 -->|"在档位内"| L2{"② 审批策略 + ③ 执行策略<br/>这类动作要问人吗？"}
     L2 -->|"forbidden"| DENY2["拒绝"]
-    L2 -->|"prompt / 需审批"| ASK["挂起，请求人批准（第三篇）<br/>可选：Guardian 模型先审"]
+    L2 -->|"prompt / 需审批"| ASK["<b>挂起，请求人批准（第三篇）</b><br/>可选：Guardian 模型先审"]
     ASK -->|"拒绝"| DENY3["拒绝，结果送回模型"]
     ASK -->|"批准"| SB
-    L2 -->|"allow / 自动"| SB["④ 沙箱<br/>在受限的文件系统 / 网络 / 进程里执行"]
+    L2 -->|"allow / 自动"| SB["<b>④ 沙箱</b><br/>在受限的文件系统 / 网络 / 进程里执行"]
     SB -->|"被沙箱拦住"| ESC{"允许升级？"}
     ESC -->|"never / on-request：不"| DENY4["返回沙箱拒绝说明"]
     ESC -->|"是：新审批"| ASK
@@ -118,7 +118,7 @@ prefix_rule(
 flowchart TB
     C["命令 → token 序列"] --> M{"按前缀匹配规则"}
     M -->|"git status<br/>无规则命中"| A["默认 allow"]
-    M -->|"git push origin main<br/>命中 [git, [push, reset]]"| P["prompt<br/>审批提示：「重写远端或本地历史，需要人确认」"]
+    M -->|"git push origin main<br/>命中 [git, [push, reset]]"| P["<b>prompt</b><br/>审批提示：「重写远端或本地历史，需要人确认」"]
     M -->|"rm -rf /<br/>命中 [rm, -rf]"| F["forbidden：不问人，直接拒"]
     M -->|"ls（实际是 /tmp/evil/ls）"| H["host_executable 不在允许的绝对路径 → 不走基名规则"]
     R["规则文件（Starlark，版本库里）"] -->|"加载时"| T["跑每条规则的 match / not_match 例子<br/>写错 → 加载失败，不进生产"]
@@ -219,14 +219,14 @@ flowchart TB
     H -->|"放行 / allow（不跳过后面）"| DN{"② deny 规则匹配？<br/>Bash(rm *)"}
     DN -->|"是：即使 bypassPermissions"| D1["拒绝（硬边界）"]
     DN -->|"否"| AS{"③ ask 规则匹配？"}
-    AS -->|"是"| CB["送 canUseTool 回调：人确认<br/>（dontAsk 模式下直接拒）"]
+    AS -->|"是"| CB["<b>送 canUseTool 回调：人确认</b><br/>（dontAsk 模式下直接拒）"]
     AS -->|"否"| MD{"④ 当前模式"}
     MD -->|"bypassPermissions"| OK1["放行"]
     MD -->|"acceptEdits 且是文件操作"| OK1
     MD -->|"plan 且是写操作"| CB
     MD -->|"其他"| AL{"⑤ allow 规则匹配？"}
     AL -->|"是"| OK2["放行"]
-    AL -->|"否"| CB2["⑥ canUseTool 回调决定<br/>（dontAsk：直接拒）"]
+    AL -->|"否"| CB2["<b>⑥ canUseTool 回调决定</b><br/>（dontAsk：直接拒）"]
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -276,13 +276,13 @@ agent "猜测删除 staging 卷只作用于 staging"、"在没被要求的情况
 ```mermaid
 %% 图：策略化授权把审批从「每条都问」变成「只问真正要判断的」——一个会话里 200 个工具调用：只读 140 个自动过、写工作区 40 个按规则自动过、Guardian 把 15 个「显然安全」放行、3 个「显然危险」自动拒，只有 2 个不可逆 / 对外的动作送人；人每次看到的都值得看
 flowchart TB
-    ALL["一个会话：200 个工具调用"] --> RO["只读 140<br/>read_only 档内 → 自动"]
-    ALL --> WR["写工作区 40<br/>acceptEdits / allow 规则 → 自动"]
+    ALL["一个会话：200 个工具调用"] --> RO["<b>只读 140</b><br/>read_only 档内 → 自动"]
+    ALL --> WR["<b>写工作区 40</b><br/>acceptEdits / allow 规则 → 自动"]
     ALL --> HI["不可逆 / 对外 20"]
     HI --> G{"Guardian 先筛"}
     G -->|"显然安全 15"| OK["自动过"]
     G -->|"显然危险 3<br/>rm -rf 生产路径 · force push"| NO["自动拒"]
-    G -->|"中间 2"| ASK["送人，带 justification<br/>「删除卷：不可逆，备份在同一卷上」"]
+    G -->|"中间 2"| ASK["<b>送人，带 justification</b><br/>「删除卷：不可逆，备份在同一卷上」"]
     ASK -.- MON["监控：prompt 比例 · 人的拒绝率<br/>拒绝率 ≈ 0 → 规则太松或人已疲劳<br/>≈ 100% → 规则太严"]
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222

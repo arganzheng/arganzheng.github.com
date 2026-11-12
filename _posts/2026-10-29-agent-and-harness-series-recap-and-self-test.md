@@ -20,12 +20,12 @@ date: 2026-10-29 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：Agent 与 harness 全景：循环之外的一切都是 harness
 flowchart TB
-    A1["01 最小循环<br/>40 行 + 四个卫士 + 出口"] --> A2["02 工具与 MCP<br/>工具从哪来、怎么被发现"]
-    A1 --> A3["03 运行时<br/>会话日志、durable execution"]
+    A1["<b>01 最小循环</b><br/>40 行 + 四个卫士 + 出口"] --> A2["<b>02 工具与 MCP</b><br/>工具从哪来、怎么被发现"]
+    A1 --> A3["<b>03 运行时</b><br/>会话日志、durable execution"]
     A1 --> A4["04 长任务的上下文与子 agent"]
-    A2 & A3 --> A5["05 权限与沙箱<br/>权限范围是错误的上限"]
-    A1 & A2 & A3 & A4 & A5 --> A6["06 源码对照<br/>Codex / DeepSeek Harness / Claude Code / OpenHarness"]
-    A4 --> A7["07 多 agent<br/>编排、handoff、A2A"]
+    A2 & A3 --> A5["<b>05 权限与沙箱</b><br/>权限范围是错误的上限"]
+    A1 & A2 & A3 & A4 & A5 --> A6["<b>06 源码对照</b><br/>Codex / DeepSeek Harness / Claude Code / OpenHarness"]
+    A4 --> A7["<b>07 多 agent</b><br/>编排、handoff、A2A"]
     A3 & A5 --> A8["08 记忆与 human-in-the-loop"]
     A5 & A7 & A8 --> A9["09 可靠性、评测与运营"]
 
@@ -134,7 +134,7 @@ flowchart TB
         A4["四 上下文：卸载 · 清理 · 压缩 · 复述 · 子 agent"] ~~~ A5["五 权限档 · 审批策略 · 执行策略 · 沙箱"] ~~~ A6["七 协调：orchestrator · handoff · 层级"]
         A7["八 记忆的写取忘 · 人的六级 · 本体"] ~~~ A8["九 幂等 · 预算 · 轨迹评测 · trace · 面板"] ~~~ A9["六 十二维表：Codex · DeepSeek Harness · Claude Code · OpenHarness"]
     end
-    M["模型：只做两件事<br/>① 决定下一步（返回 tool_call 或回答）<br/>② 读结果"]
+    M["<b>模型：只做两件事</b><br/>① 决定下一步（返回 tool_call 或回答）<br/>② 读结果"]
     H --> M --> H
     classDef m fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef h fill:#fff7e0,stroke:#c98a00,color:#222
@@ -175,7 +175,7 @@ flowchart TB
 ```mermaid
 %% 图：事件溯源的会话日志是九件事的底座——崩溃恢复、挂起唤醒、前端事件流（三）、压缩与卸载的记录（四）、审批与沙箱事件（五）、子会话追溯（四、七）、记忆与目标（八）、轨迹评测、录制回放、trace（九）都从同一条 append-only 日志派生；「模型可见 ⟺ 已记录」一条不变量换来它们的一致性
 flowchart LR
-    LOG["append-only 会话日志<br/>模型可见 ⟺ 已记录"]
+    LOG["<b>append-only 会话日志</b><br/>模型可见 ⟺ 已记录"]
     LOG --> R1["崩溃恢复 · 挂起唤醒 · 前端事件流（三）"]
     LOG --> R2["压缩摘要 · 卸载定位符（四）"]
     LOG --> R3["审批决定 · 沙箱拒绝 · Guardian 结论（五）"]

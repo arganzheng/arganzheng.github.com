@@ -57,9 +57,9 @@ Table: L2 的上下文策略在三个 harness 里的实现
 flowchart TB
     T["工具返回：30K token 的日志"] --> P{"spill-policy<br/>结果策略：超阈值？"}
     P -->|"否"| IN["原样进上下文"]
-    P -->|"是"| S["spill<br/>存储服务"]
-    S --> B["spill-local<br/>本地文件系统后端<br/>（可换：对象存储）"]
-    S --> LOC["上下文里只进定位符：<br/>spill://run-7/tool-12 · 共 4,210 行<br/>前 10 行预览 · 用 read 取回"]
+    P -->|"是"| S["<b>spill</b><br/>存储服务"]
+    S --> B["<b>spill-local</b><br/>本地文件系统后端<br/>（可换：对象存储）"]
+    S --> LOC["<b>上下文里只进定位符：</b><br/>spill://run-7/tool-12 · 共 4,210 行<br/>前 10 行预览 · 用 read 取回"]
     LOC -.->|"模型需要时 read(定位符, 范围)"| B
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -98,15 +98,15 @@ DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超
 flowchart LR
     subgraph CX["Codex"]
         direction TB
-        C1["会话记忆压缩<br/>结构化任务状态替代摘要，多数不调模型"] --> C2["compact.rs 本地摘要<br/>或 compact_remote_v2：服务端加密 item"] --> C3["compact_model_fallback<br/>压缩模型不可用时回退"]
+        C1["<b>会话记忆压缩</b><br/>结构化任务状态替代摘要，多数不调模型"] --> C2["compact.rs 本地摘要<br/>或 compact_remote_v2：服务端加密 item"] --> C3["<b>compact_model_fallback</b><br/>压缩模型不可用时回退"]
     end
     subgraph DS["DeepSeek Harness"]
         direction TB
-        D1["compaction-tool-result-pruner<br/>先修剪超大工具输出"] --> D2["compaction-basic 自动 / command-compact<br/>可读摘要事件进日志，有独立 token 上限"] --> D3["compaction-image-offload<br/>图片换占位符"]
+        D1["compaction-tool-result-pruner<br/>先修剪超大工具输出"] --> D2["compaction-basic 自动 / command-compact<br/>可读摘要事件进日志，有独立 token 上限"] --> D3["<b>compaction-image-offload</b><br/>图片换占位符"]
     end
     subgraph CC["Claude Code"]
         direction TB
-        K1["微压缩旧工具返回"] --> K2["83.5% 处 auto-compact<br/>结构化摘要替换历史"] --> K3["CLAUDE.md · 自动记忆从磁盘重注入"]
+        K1["微压缩旧工具返回"] --> K2["<b>83.5% 处 auto-compact</b><br/>结构化摘要替换历史"] --> K3["CLAUDE.md · 自动记忆从磁盘重注入"]
     end
     CX ~~~ DS ~~~ CC
     N["共同点：多步可组合 · 结果进日志 · 在思考链边界触发（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）"]
@@ -179,10 +179,10 @@ Table: DeepSeek Harness 的七种 subagent 后端
 ```mermaid
 %% 图：子 agent 的三种形态与 DeepSeek Harness 的七种后端——spawn 从零开始隔离的上下文（适合独立探索），fork 复制父会话的事件前缀继承历史（适合接着当前状态并行做一件事，事件溯源让它只是复制前缀），进程外经 SDK / ACP 起外部 agent，甚至把 Claude Code 或 Codex 拉起当子 agent；主 agent 拿回的只有摘要
 flowchart TB
-    M["主 agent<br/>会话日志：事件 1…k"] -->|"派发指令：任务 · 边界 · 返回格式"| SUB
+    M["<b>主 agent</b><br/>会话日志：事件 1…k"] -->|"派发指令：任务 · 边界 · 返回格式"| SUB
     subgraph SUB["subagent 接缝：七种后端"]
         direction LR
-        S1["spawn-in-process<br/>全新上下文，从零开始"] ~~~ S2["fork-in-process<br/>复制事件 1…k 再追加<br/>继承历史"] ~~~ S3["dsh-sdk / acp<br/>进程外起一个 dsh 或外部 agent"] ~~~ S4["claude-code / codex<br/>把另一家 harness 拉起当子 agent"]
+        S1["<b>spawn-in-process</b><br/>全新上下文，从零开始"] ~~~ S2["<b>fork-in-process</b><br/>复制事件 1…k 再追加<br/>继承历史"] ~~~ S3["<b>dsh-sdk / acp</b><br/>进程外起一个 dsh 或外部 agent"] ~~~ S4["<b>claude-code / codex</b><br/>把另一家 harness 拉起当子 agent"]
     end
     SUB -->|"返回：一段结构化摘要（主 agent 拿到的全部）"| M
     SUB -.- N["每个子 agent：自己的预算 · 卫士 · 权限（如只读）<br/>完整轨迹可从父会话追到（trace 是树）"]

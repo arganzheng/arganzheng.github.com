@@ -55,9 +55,9 @@ flowchart TB
         direction TB
         E1["1 用户消息"] --> E2["2 模型输出（含 tool_call）"] --> E3["3 工具结果"] --> E4["4 审批：通过"] --> E5["5 模型输出"] --> E6["6 压缩摘要"] --> E7["7 …"]
     end
-    E3 -. "重放 1–3" .-> D["第 3 步时模型看到的上下文<br/>（调试：它当时为什么这么做）"]
-    E4 -. "复制 1–4 再追加" .-> F["从第 4 步分叉的新会话<br/>（换一个审批结果试试）"]
-    E7 -. "重放 1–7" .-> C["当前上下文<br/>（派生出来的，不单独存）"]
+    E3 -. "重放 1–3" .-> D["<b>第 3 步时模型看到的上下文</b><br/>（调试：它当时为什么这么做）"]
+    E4 -. "复制 1–4 再追加" .-> F["<b>从第 4 步分叉的新会话</b><br/>（换一个审批结果试试）"]
+    E7 -. "重放 1–7" .-> C["<b>当前上下文</b><br/>（派生出来的，不单独存）"]
 ```
 
 三条虚线就是三个问题的答案：崩溃后从日志尾部重放就是恢复；调试时重放到第 3 步就能看到模型当时的输入；分叉就是复制一段前缀。状态永远不是"存"出来的，是"算"出来的。
@@ -176,7 +176,7 @@ flowchart LR
     subgraph RT["agent 运行时"]
         direction TB
         WK["worker：跑循环"] -->|"每步追加"| LOG["会话日志"]
-        LOG -->|"投影 / 事件流"| SRV["app-server<br/>JSON-RPC / WebSocket"]
+        LOG -->|"投影 / 事件流"| SRV["<b>app-server</b><br/>JSON-RPC / WebSocket"]
     end
     SRV --> UI1["TUI"]
     SRV --> UI2["IDE 插件"]
@@ -234,7 +234,7 @@ Table: 托管、库与自托管 harness 的选择判据
 flowchart LR
     subgraph H["托管：Agents API"]
         direction TB
-        H1["模型：OpenAI（绑定）"] ~~~ H2["harness：OpenAI 维护<br/>压缩 · 权限 · 子 agent · 恢复"] ~~~ H3["会话日志：OpenAI 侧"] ~~~ H4["沙箱：你选（托管 / 九家 / 自有）"] ~~~ H5["工具：你接"]
+        H1["模型：OpenAI（绑定）"] ~~~ H2["<b>harness：OpenAI 维护</b><br/>压缩 · 权限 · 子 agent · 恢复"] ~~~ H3["会话日志：OpenAI 侧"] ~~~ H4["沙箱：你选（托管 / 九家 / 自有）"] ~~~ H5["工具：你接"]
     end
     subgraph S["库：Agents SDK · Claude Agent SDK · LangGraph"]
         direction TB

@@ -25,7 +25,7 @@ catalog: true
 flowchart TB
     subgraph SRC["工具从哪来（模型眼里都是一组带 schema 的定义）"]
         direction LR
-        S1["应用自己写的函数"] --- S2["MCP server<br/>（别人写的，按协议接入）"] --- S3["供应商内置<br/>（web search 等）"] --- S4["技能 / 脚本<br/>（SKILL.md）"]
+        S1["应用自己写的函数"] --- S2["<b>MCP server</b><br/>（别人写的，按协议接入）"] --- S3["<b>供应商内置</b><br/>（web search 等）"] --- S4["<b>技能 / 脚本</b><br/>（SKILL.md）"]
     end
     SRC --> REG["工具注册表：名字 · 描述 · 参数 schema"]
     REG -- "全部塞进上下文<br/>几十个工具 = 几千到上万 token" --> CTX1["② 工具定义层（第一篇）"]
@@ -64,7 +64,7 @@ flowchart LR
         direction TB
         C1["Claude Code"] ~~~ C2["Codex"] ~~~ C3["Cursor"] ~~~ C4["你的应用"]
     end
-    P["MCP 协议<br/>tools · resources · prompts<br/>stdio / Streamable HTTP"]
+    P["<b>MCP 协议</b><br/>tools · resources · prompts<br/>stdio / Streamable HTTP"]
     subgraph SV["MCP server"]
         direction TB
         S1["文件系统"] ~~~ S2["GitHub"] ~~~ S3["数据库"] ~~~ S4["企业系统 / 你的业务工具"]
@@ -98,13 +98,13 @@ Table: MCP 2026-07-28 的变更
 flowchart TB
     subgraph OLD["2025 版：有状态会话"]
         direction LR
-        O1["initialize 握手<br/>协商版本 · 能力"] --> O2["拿到 Mcp-Session-Id"] --> O3["后续每个请求带 session id<br/>必须落到同一个 server 实例"]
+        O1["<b>initialize 握手</b><br/>协商版本 · 能力"] --> O2["拿到 Mcp-Session-Id"] --> O3["<b>后续每个请求带 session id</b><br/>必须落到同一个 server 实例"]
         O3 -.- OX["负载均衡 · 无状态函数：难"]
     end
     subgraph NEW["2026-07-28 版：无状态核心"]
         direction LR
-        N1["每个请求自带<br/>MCP-Protocol-Version 头 + _meta 里的能力"] --> N2["任何实例都能处理<br/>没有会话要黏住"]
-        N2 -.- NX["普通 HTTP 基础设施上横向扩展<br/>server 发起的请求改为多轮往返请求（MRTR）"]
+        N1["<b>每个请求自带</b><br/>MCP-Protocol-Version 头 + _meta 里的能力"] --> N2["<b>任何实例都能处理</b><br/>没有会话要黏住"]
+        N2 -.- NX["<b>普通 HTTP 基础设施上横向扩展</b><br/>server 发起的请求改为多轮往返请求（MRTR）"]
     end
     OLD ~~~ NEW
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -161,13 +161,13 @@ DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的
 flowchart TB
     subgraph ALL["全部常驻"]
         direction LR
-        A1["80 个工具的完整 schema<br/>≈ 9K token，每步都在前缀里"] --> A2["模型从 80 个里选"] --> A3["调用"]
+        A1["<b>80 个工具的完整 schema</b><br/>≈ 9K token，每步都在前缀里"] --> A2["模型从 80 个里选"] --> A3["调用"]
         A1 -.- AX["任一 server 变了 → 前缀全失效<br/>工具越多选错越多"]
     end
     subgraph LAZY["tool search：按需加载"]
         direction LR
-        L1["常驻：80 个名字 + 一行描述<br/>≈ 1K token"] --> L2["tool_search('订单 状态')<br/>→ 2 个工具的完整 schema（+600）"] --> L3["调用"]
-        L2 -.- LX["按需定义在历史中间，不进缓存<br/>多一步 · 依赖描述质量"]
+        L1["<b>常驻：80 个名字 + 一行描述</b><br/>≈ 1K token"] --> L2["<b>tool_search('订单 状态')</b><br/>→ 2 个工具的完整 schema（+600）"] --> L3["调用"]
+        L2 -.- LX["<b>按需定义在历史中间，不进缓存</b><br/>多一步 · 依赖描述质量"]
     end
     ALL ~~~ LAZY
     R["规则：工具 ≤ 10 且稳定 → 全部常驻（可缓存、无额外步）<br/>> 20 或 server 动态接入 → tool search"] -.-> LAZY
@@ -211,11 +211,11 @@ Table: 四家的程序化工具调用
 flowchart LR
     subgraph TRAD["传统：四轮，中间结果全进上下文"]
         direction TB
-        T1["模型：调 fetch_orders"] --> T2["500 条 JSON 进上下文<br/>≈ 30K token"] --> T3["模型读完，调 filter(overdue)"] --> T4["120 条进上下文"] --> T5["模型：调 group_by(customer)"] --> T6["汇总进上下文"] --> T7["模型：排序取前十，回答"]
+        T1["模型：调 fetch_orders"] --> T2["<b>500 条 JSON 进上下文</b><br/>≈ 30K token"] --> T3["模型读完，调 filter(overdue)"] --> T4["120 条进上下文"] --> T5["模型：调 group_by(customer)"] --> T6["汇总进上下文"] --> T7["模型：排序取前十，回答"]
     end
     subgraph PTC["程序化工具调用：一轮"]
         direction TB
-        P1["模型写程序：<br/>a = fetch_orders(); b = filter(a, overdue)<br/>c = group_by(b, customer); return top10(c)"] --> P2["沙箱运行<br/>fetch / filter / group 在程序内被调用<br/>中间结果留在程序里"] --> P3["只有 top10 进上下文<br/>≈ 300 token → 模型回答"]
+        P1["<b>模型写程序：</b><br/>a = fetch_orders(); b = filter(a, overdue)<br/>c = group_by(b, customer); return top10(c)"] --> P2["<b>沙箱运行</b><br/>fetch / filter / group 在程序内被调用<br/>中间结果留在程序里"] --> P3["<b>只有 top10 进上下文</b><br/>≈ 300 token → 模型回答"]
     end
     TRAD ~~~ PTC
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222

@@ -64,12 +64,12 @@ Table: 四个 harness 的十二维对照
 flowchart LR
     subgraph CX["Codex：单核大工作区（Rust）"]
         direction TB
-        CORE["codex-core<br/>循环 · 配置 · 模型客户端 · 沙箱管理器"]
+        CORE["<b>codex-core</b><br/>循环 · 配置 · 模型客户端 · 沙箱管理器"]
         CORE --- X1["execpolicy"] --- X2["sandboxing"] --- X3["rollout"] --- X4["codex-mcp"]
     end
     subgraph DS["DeepSeek Harness：一切皆插件（TS）"]
         direction TB
-        PROF["profile → bundle → patch<br/>三层配置组合"]
+        PROF["<b>profile → bundle → patch</b><br/>三层配置组合"]
         PROF --> P1["agent-loop 插件"] & P2["tools 插件"] & P3["sandbox 插件"] & P4["approval 插件"] & P5["compaction 插件"]
     end
     subgraph CC["Claude Code：闭源产品 + 开放 SDK（TS）"]
@@ -113,23 +113,23 @@ Codex 在四家里对沙箱投入最重：三个平台各一套原生实现（Se
 flowchart TB
     subgraph A1["状态在哪"]
         direction LR
-        A1a["对象持有历史<br/>Codex · Claude Code"] ~~~ A1b["日志即状态<br/>DeepSeek Harness"]
+        A1a["<b>对象持有历史</b><br/>Codex · Claude Code"] ~~~ A1b["<b>日志即状态</b><br/>DeepSeek Harness"]
     end
     subgraph A2["压缩摘要"]
         direction LR
-        A2a["加密 blob，绑供应商<br/>Codex 服务端"] ~~~ A2b["可读事件，可审计<br/>DeepSeek Harness · Claude Code"]
+        A2a["<b>加密 blob，绑供应商</b><br/>Codex 服务端"] ~~~ A2b["<b>可读事件，可审计</b><br/>DeepSeek Harness · Claude Code"]
     end
     subgraph A3["权限表达"]
         direction LR
-        A3a["策略语言 + 测试<br/>Codex execpolicy"] ~~~ A3b["规则 + 模式 + hooks<br/>Claude Code 六步"] ~~~ A3c["插件<br/>DeepSeek Harness"]
+        A3a["<b>策略语言 + 测试</b><br/>Codex execpolicy"] ~~~ A3b["<b>规则 + 模式 + hooks</b><br/>Claude Code 六步"] ~~~ A3c["<b>插件</b><br/>DeepSeek Harness"]
     end
     subgraph A4["沙箱"]
         direction LR
-        A4a["原生三平台<br/>Codex"] ~~~ A4b["接缝 + 可换后端<br/>DeepSeek Harness"] ~~~ A4c["靠云端 / 环境<br/>Claude Code"]
+        A4a["<b>原生三平台</b><br/>Codex"] ~~~ A4b["<b>接缝 + 可换后端</b><br/>DeepSeek Harness"] ~~~ A4c["<b>靠云端 / 环境</b><br/>Claude Code"]
     end
     subgraph A5["模型耦合"]
         direction LR
-        A5a["一家：深集成<br/>Codex · Claude Code"] ~~~ A5b["多家：不锁定<br/>DeepSeek Harness · OpenHarness"]
+        A5a["<b>一家：深集成</b><br/>Codex · Claude Code"] ~~~ A5b["<b>多家：不锁定</b><br/>DeepSeek Harness · OpenHarness"]
     end
     A1 ~~~ A2 ~~~ A3 ~~~ A4 ~~~ A5
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
@@ -152,10 +152,10 @@ DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard�
 %% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留 shell 与文件编辑器，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
 flowchart TB
     CORE["同一个核心：session · system-prompt · tools · agent · agent-loop · scope"]
-    CORE --> M1["Standard<br/>fs · shell · web · browser · lsp · mcp · subagent · guard…"]
-    CORE --> M2["Code<br/>工具经 Code Mode SDK 暴露<br/>+ ptc-runtime：模型写 TS 程序组合多步"]
-    CORE --> M3["Minimal<br/>只留 shell + 文件编辑器<br/>在最小环境里公平比较模型"]
-    CORE --> M4["Creator<br/>检视运行时 · 内存里测插件 · 组合新模式"]
+    CORE --> M1["<b>Standard</b><br/>fs · shell · web · browser · lsp · mcp · subagent · guard…"]
+    CORE --> M2["<b>Code</b><br/>工具经 Code Mode SDK 暴露<br/>+ ptc-runtime：模型写 TS 程序组合多步"]
+    CORE --> M3["<b>Minimal</b><br/>只留 shell + 文件编辑器<br/>在最小环境里公平比较模型"]
+    CORE --> M4["<b>Creator</b><br/>检视运行时 · 内存里测插件 · 组合新模式"]
     M1 -.->|"卸掉 guard/repeat-tool-reminder<br/>或换 sandbox 后端：改配置，不改源码"| M1
     classDef core fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef m fill:#eefaf0,stroke:#4d9a5c,color:#222
