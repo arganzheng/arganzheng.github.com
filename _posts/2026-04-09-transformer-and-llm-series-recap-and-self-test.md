@@ -240,9 +240,9 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：本系列共用的成本模型：结构与数值决定参数量、权重字节与 KV cache，运行点决定工作点，算术强度与 ridge 比较
 flowchart TB
-    S["结构：L、d、d_ff、n_kv、专家数与 top-k<br/>（第一、四、六篇）"]
+    S["结构：L、d、$$d_{ff}$$、$$n_{kv}$$、专家数与 top-k<br/>（第一、四、六篇）"]
     N["参数量 N、激活参数量<br/>（第一、六篇）"]
-    K["KV cache / token = 2 L n_kv d_head · bytes/elem<br/>（第四篇）"]
+    K["KV cache / token = $$2 L\, n_{kv} d_{head}$$ · bytes/elem<br/>（第四篇）"]
     D["数值：bytes/param、bytes/elem<br/>（第十篇与量化专题）"]
     W["权重字节 = N · bytes/param"]
     F["FLOPs / token ≈ 2N + 4dLs<br/>（第二、五篇）"]
