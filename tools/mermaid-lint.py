@@ -16,7 +16,7 @@ import re
 import sys
 
 KEYWORDS = {'subgraph', 'end', 'direction', 'classDef', 'class', 'style',
-            'linkStyle', 'flowchart', 'graph', 'click', 'invis', 'init'}
+            'linkStyle', 'flowchart', 'graph', 'click', 'invis'}
 
 ARROW_SPLIT = re.compile(r'-{1,}\.{0,}-{0,}\|?[^|]*\|?\.?-{0,}>|<-{1,}\.{0,}-{0,}\|?[^|]*\|?\.?-{0,}|===>|~~>|<-->|--x')
 # we use a simpler split below after normalisation
@@ -39,6 +39,23 @@ def lint_block(block, fname, idx):
     first = next((l for l in head if l.strip() and not l.strip().startswith('%%')), '')
     if not re.match(r'\s*(flowchart|graph)\b', first):
         return []
+
+    # A quoted label may span lines (`A["line 1` + newline + `line 2"]`); the
+    # per-line passes below would then read its second line as code and
+    # report words in it as bare ids / isolated nodes. Drop whole-line `%%`
+    # comments first (`%%{init: {"…"}}%%` has quotes of its own), then blank
+    # every quoted / backtick string across lines, keeping the empty quotes
+    # so `A[""]` still counts as a labelled node.
+    block = '\n'.join(l for l in block.split('\n') if not l.strip().startswith('%%'))
+    block = re.sub(r'"[^"]*"', '""', block)
+    block = re.sub(r'`[^`]*`', '``', block)
+    # `A["…"]:::cls` attaches a classDef; the class name is not a node
+    block = re.sub(r':::[\w-]+', '', block)
+    # unquoted text on an edge: `A -. sleep / wake .-> B`, `A -- text --> B`,
+    # `A == text ==> B` — the words are a label, not node ids
+    block = re.sub(r'(<?)-\.[ \t]+[^\n]*?[ \t]+\.->', r'\1-.->', block)
+    block = re.sub(r'(<?)--[ \t]+[^\n>]*?[ \t]+-->', r'\1-->', block)
+    block = re.sub(r'(<?)==[ \t]+[^\n>]*?[ \t]+==>', r'\1==>', block)
 
     labelled = set()
     decision = set()
