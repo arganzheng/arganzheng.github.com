@@ -157,14 +157,14 @@ flowchart TB
   end
   subgraph bwd["反向：2 个 GEMM，共 4mkn"]
     dY["dY  #91;m, n#93;<br/>下一层传回的梯度"]
-    dX["dX = dY·Wᵀ<br/>#91;m, n#93; × #91;n, k#93;，2mkn<br/>传给前一层"]
-    dW["dW = Xᵀ·dY<br/>#91;k, m#93; × #91;m, n#93;，2mkn<br/>交给优化器"]
+    dX["$$dX = dY \cdot W^\top$$<br/>#91;m, n#93; × #91;n, k#93;，2mkn<br/>传给前一层"]
+    dW["$$dW = X^\top \cdot dY$$<br/>#91;k, m#93; × #91;m, n#93;，2mkn<br/>交给优化器"]
     dY --> dX
     dY --> dW
   end
   Y -. "反向从 Y 的梯度开始" .-> dY
-  W -. "Wᵀ 复用权重" .-> dX
-  X -. "Xᵀ 需要保存到反向" .-> dW
+  W -. "$$W^\top$$ 复用权重" .-> dX
+  X -. "$$X^\top$$ 需要保存到反向" .-> dW
   classDef act fill:#fdebd0,stroke:#b9770e;
   classDef wt fill:#d6eaf8,stroke:#2e6da4;
   classDef grad fill:#fadbd8,stroke:#c0392b;
