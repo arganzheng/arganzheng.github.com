@@ -183,13 +183,13 @@ Java 工程师对"虚调用"的直觉是 JVM 的 `invokevirtual`，具体实现�
 flowchart LR
     subgraph objs["堆上的对象（通过 Shape* 访问）"]
         direction TB
-        C["Circle 对象<br/>[0] vptr<br/>[8] double r = 1.0"]
-        S["Square 对象<br/>[0] vptr<br/>[8] double s = 2.0"]
+        C["<b>Circle 对象</b><br/>[0] vptr<br/>[8] double r = 1.0"]
+        S["<b>Square 对象</b><br/>[0] vptr<br/>[8] double s = 2.0"]
     end
     subgraph vt["vtable（只读数据段，每个类一张）"]
         direction TB
-        VC["vtable for Circle<br/>[0] ~Circle<br/>[1] Circle::area<br/>[2] Circle::name"]
-        VS["vtable for Square<br/>[0] ~Square<br/>[1] Square::area<br/>[2] Shape::name（继承，未覆盖）"]
+        VC["<b>vtable for Circle</b><br/>[0] ~Circle<br/>[1] Circle::area<br/>[2] Circle::name"]
+        VS["<b>vtable for Square</b><br/>[0] ~Square<br/>[1] Square::area<br/>[2] Shape::name（继承，未覆盖）"]
     end
     subgraph fn["代码段"]
         direction TB
@@ -2018,17 +2018,17 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 ```mermaid
 %% 图：一次 at::add 调用的全景：从生成的 Functions.h 经 Dispatcher 查表到 kernel 的快慢两条路径
 flowchart TD
-    A["at::add(a, b)<br/>Functions.h（生成）"] --> B["at::_ops::add_Tensor::call<br/>static TypedOperatorHandle op"]
+    A["<b>at::add(a, b)</b><br/>Functions.h（生成）"] --> B["<b>at::_ops::add_Tensor::call</b><br/>static TypedOperatorHandle op"]
     B --> C["Dispatcher::call&lt;Return, Args...&gt;"]
     C --> D["DispatchKeyExtractor::getDispatchKeySetUnboxed<br/>从 Tensor 参数 + TLS 得到 DispatchKeySet"]
-    D --> E["OperatorEntry::lookup<br/>dispatchTable_[idx]（数组下标）"]
+    D --> E["<b>OperatorEntry::lookup</b><br/>dispatchTable_[idx]（数组下标）"]
     E --> F{"KernelFunction::call<br/>unboxed_kernel_func_ != nullptr ?"}
     F -->|是：快路径| G["reinterpret_cast 回 Return(*)(OperatorKernel*, DispatchKeySet, Args...)<br/>一次间接调用"]
     G --> H["wrap_kernel_functor_unboxed_::call<br/>static_cast&lt;Functor*&gt;"]
     H --> I["WrapFunctionIntoFunctor_::operator()<br/>编译期函数指针，内联"]
-    I --> J["wrapper_CPU_add_Tensor<br/>RegisterCPU.cpp（生成）"]
-    F -->|否：慢路径| K["BoxedKernelWrapper::call<br/>boxArgs → vector&lt;IValue&gt;"]
-    K --> L["BoxedKernel::callBoxed<br/>boxed_kernel_func_(functor_, op, ks, &amp;stack)"]
+    I --> J["<b>wrapper_CPU_add_Tensor</b><br/>RegisterCPU.cpp（生成）"]
+    F -->|否：慢路径| K["<b>BoxedKernelWrapper::call</b><br/>boxArgs → vector&lt;IValue&gt;"]
+    K --> L["<b>BoxedKernel::callBoxed</b><br/>boxed_kernel_func_(functor_, op, ks, &amp;stack)"]
     L --> M["boxed kernel（Python fallback / Conjugate fallback / ...）"]
     M --> N["PopResult&lt;Return&gt;：从栈顶 IValue 取回结果"]
 ```

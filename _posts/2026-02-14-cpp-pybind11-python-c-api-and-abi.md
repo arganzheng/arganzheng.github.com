@@ -1095,8 +1095,8 @@ PyTorch 2.x 中的变化：早期 2.x 版本里 `PyObjectSlot` 的 `PyInterprete
 ```mermaid
 %% 图：两个引用计数谁持有谁：THPVariable 经 cdata 强引用 TensorImpl，TensorImpl 经 pyobj_slot_ 回指
 flowchart LR
-    PY["THPVariable (PyObject)<br/>ob_refcnt<br/>at::Tensor cdata"]
-    IMPL["TensorImpl<br/>combined_refcount_ (kHasPyObject 位)<br/>PyObjectSlot pyobj_slot_"]
+    PY["<b>THPVariable (PyObject)</b><br/>ob_refcnt<br/>at::Tensor cdata"]
+    IMPL["<b>TensorImpl</b><br/>combined_refcount_ (kHasPyObject 位)<br/>PyObjectSlot pyobj_slot_"]
     PY -- "cdata：一个强引用（intrusive_ptr）" --> IMPL
     IMPL -- "pyobj_slot_：裸 PyObject*<br/>（C++ 计数 ≥ 2 时额外持有一个 Python 强引用）" --> PY
 ```
@@ -1597,12 +1597,12 @@ py::object toPyObject(IValue ivalue) {
 ```mermaid
 %% 图：一次 torch.ops 调用的汇总：从 pybind11 胶水到 kernel，标出每处引用计数与 GIL 的变化
 flowchart TD
-    A["Python: torch.ops.myops.scale(t, 2.0)<br/>GIL: 持有"] --> B["pybind11 cpp_function 胶水<br/>args/kwargs → py::args/py::kwargs（Py_INCREF）"]
-    B --> C["_maybe_handle_torch_function<br/>扫描 __torch_function__（borrowed 引用）"]
+    A["Python: torch.ops.myops.scale(t, 2.0)<br/>GIL: 持有"] --> B["<b>pybind11 cpp_function 胶水</b><br/>args/kwargs → py::args/py::kwargs（Py_INCREF）"]
+    B --> C["<b>_maybe_handle_torch_function</b><br/>扫描 __torch_function__（borrowed 引用）"]
     C --> D["createStackForSchema → toIValue<br/>① PyObject* → at::Tensor（type_caster::load / THPVariable_Unpack，C++ 计数 1→2，Py_INCREF）<br/>② at::Tensor → IValue"]
-    D --> E["gil_scoped_release<br/>GIL: 释放"]
+    D --> E["<b>gil_scoped_release</b><br/>GIL: 释放"]
     E --> F["Dispatcher::callBoxed → KernelFunction boxed 路径<br/>③ IValue → const Tensor&（引用，不改计数）<br/>kernel 运行，产出新 Tensor<br/>④ Tensor → IValue 压栈；输入 IValue 出栈，C++ 计数 2→1<br/>→ decref_pyobject：临时 gil_scoped_acquire，Py_DECREF(t)"]
-    F --> G["gil_scoped_release 析构<br/>GIL: 重新持有"]
+    F --> G["<b>gil_scoped_release 析构</b><br/>GIL: 重新持有"]
     G --> H["createPyObjectForStack → toPyObject<br/>⑤ IValue → Tensor → PyObject*（type_caster::cast / THPVariable_Wrap：tp_alloc + placement new cdata，设 kHasPyObject）"]
     H --> I["返回 py::object.release() 给解释器<br/>Python: y 得到新 torch.Tensor"]
 ```

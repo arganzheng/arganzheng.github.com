@@ -943,7 +943,7 @@ CPU kernel 的断点位置有三个层次，从 Python 到最底层：
 %% 图：CPU kernel 的断点层次：从 Python 入口经 Dispatcher、autograd、后端 wrapper 到 DispatchStub 的 kernel
 flowchart TD
     A["Python: torch.add(x, y)"] --> B["torch/csrc/autograd/generated/python_torch_functions_*.cpp<br/>THPVariable_add（参数解析）"]
-    B --> C["at::add → Dispatcher::call<br/>aten/src/ATen/core/dispatch/Dispatcher.h"]
+    B --> C["<b>at::add → Dispatcher::call</b><br/>aten/src/ATen/core/dispatch/Dispatcher.h"]
     C --> D["autograd 层：VariableType_*.cpp 里的 add_Tensor"]
     D --> E["后端注册函数：RegisterCPU.cpp 里的 wrapper"]
     E --> F["at::native 实现：aten/src/ATen/native/BinaryOps.cpp add_out"]

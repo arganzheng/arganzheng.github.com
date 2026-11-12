@@ -1261,11 +1261,11 @@ class VirtualGuardImpl final : public DeviceGuardImplInterface {
 ```mermaid
 %% 图：DeviceGuard 的两层结构：运行期确定设备类型走虚调用，编译期已知则内联去虚化
 flowchart TD
-    DG["c10::DeviceGuard<br/>（libc10，设备类型运行期确定）"] --> IDG_V["InlineDeviceGuard&lt;VirtualGuardImpl&gt;"]
-    IDG_V --> VGI["VirtualGuardImpl<br/>持有 const DeviceGuardImplInterface*"]
+    DG["<b>c10::DeviceGuard</b><br/>（libc10，设备类型运行期确定）"] --> IDG_V["InlineDeviceGuard&lt;VirtualGuardImpl&gt;"]
+    IDG_V --> VGI["<b>VirtualGuardImpl</b><br/>持有 const DeviceGuardImplInterface*"]
     VGI -->|虚调用| REG["device_guard_impl_registry[type]"]
     REG --> CGI["CUDAGuardImpl（libc10_cuda）"]
-    CG["c10::cuda::CUDAGuard<br/>（libc10_cuda，设备类型编译期已知）"] --> IDG_C["InlineDeviceGuard&lt;CUDAGuardImpl&gt;"]
+    CG["<b>c10::cuda::CUDAGuard</b><br/>（libc10_cuda，设备类型编译期已知）"] --> IDG_C["InlineDeviceGuard&lt;CUDAGuardImpl&gt;"]
     IDG_C -->|内联，去虚化| CGI
     CGI --> CUDA["cudaSetDevice / cudaGetDevice"]
 ```
@@ -1383,12 +1383,12 @@ class InlineStreamGuard : private InlineDeviceGuard<T> {
 ```mermaid
 %% 图：torch.no_grad() 从 Python 到 TLS：一路调到 thread_local 的 AutogradState
 flowchart TD
-    P1["Python: with torch.no_grad():"] --> P2["no_grad.__enter__()<br/>torch/autograd/grad_mode.py"]
+    P1["Python: with torch.no_grad():"] --> P2["<b>no_grad.__enter__()</b><br/>torch/autograd/grad_mode.py"]
     P2 --> P3["self.prev = torch.is_grad_enabled()<br/>torch.set_grad_enabled(False)"]
-    P3 --> P4["set_grad_enabled.__init__ →<br/>torch._C._set_grad_enabled(False)"]
-    P4 --> C1["torch/csrc/autograd/init.cpp<br/>set_grad_enabled(): GradMode::set_enabled(false)"]
-    C1 --> C2["c10/core/GradMode.cpp<br/>AutogradState::get_tls_state().set_grad_mode(false)"]
-    C2 --> C3["c10/core/AutogradState.cpp<br/>thread_local AutogradState autograd_state_tls<br/>grad_mode_ 位 = 0（仅当前线程）"]
+    P3 --> P4["<b>set_grad_enabled.__init__ →</b><br/>torch._C._set_grad_enabled(False)"]
+    P4 --> C1["<b>torch/csrc/autograd/init.cpp</b><br/>set_grad_enabled(): GradMode::set_enabled(false)"]
+    C1 --> C2["<b>c10/core/GradMode.cpp</b><br/>AutogradState::get_tls_state().set_grad_mode(false)"]
+    C2 --> C3["<b>c10/core/AutogradState.cpp</b><br/>thread_local AutogradState autograd_state_tls<br/>grad_mode_ 位 = 0（仅当前线程）"]
     C3 --> K["之后每个算子的 autograd kernel：<br/>compute_requires_grad() 首先检查 GradMode::is_enabled()<br/>为 false 则不建反向图"]
     P5["no_grad.__exit__()"] --> P6["torch.set_grad_enabled(self.prev)"] --> C1
 ```

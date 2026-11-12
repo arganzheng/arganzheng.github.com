@@ -22,17 +22,17 @@ date: 2026-02-15 20:00:00
 flowchart TB
     subgraph L["语言核心（前四篇）"]
         direction TB
-        C1a["01 上 编译模型<br/>四阶段、ODR、符号、.so"] --> C1b["01 下 工程布局<br/>命名空间、库分层、CMake"]
-        C1a --> C2["02 值、引用与所有权<br/>at::Tensor 是 8 字节句柄、RAII"]
-        C2 --> C3["03 模板与泛型<br/>AT_DISPATCH、编译期实例化"]
-        C2 --> C4["04 多态与类型擦除<br/>Dispatcher 怎么选实现"]
+        C1a["<b>01 上 编译模型</b><br/>四阶段、ODR、符号、.so"] --> C1b["<b>01 下 工程布局</b><br/>命名空间、库分层、CMake"]
+        C1a --> C2["<b>02 值、引用与所有权</b><br/>at::Tensor 是 8 字节句柄、RAII"]
+        C2 --> C3["<b>03 模板与泛型</b><br/>AT_DISPATCH、编译期实例化"]
+        C2 --> C4["<b>04 多态与类型擦除</b><br/>Dispatcher 怎么选实现"]
     end
     subgraph E["工程实践（后四篇）"]
         direction TB
-        C5["05 宏、静态注册与代码生成<br/>TORCH_LIBRARY 怎么把算子登记进去"]
-        C6["06 并发、内存模型、TLS<br/>no_grad 的 thread_local 位"]
-        C7["07 与 Python 之间<br/>pybind11、refcount、ABI"]
-        C8["08 构建、调试与测试<br/>CMake、ASan、gdb"]
+        C5["<b>05 宏、静态注册与代码生成</b><br/>TORCH_LIBRARY 怎么把算子登记进去"]
+        C6["<b>06 并发、内存模型、TLS</b><br/>no_grad 的 thread_local 位"]
+        C7["<b>07 与 Python 之间</b><br/>pybind11、refcount、ABI"]
+        C8["<b>08 构建、调试与测试</b><br/>CMake、ASan、gdb"]
     end
     C3 & C4 --> C5
     C2 --> C6

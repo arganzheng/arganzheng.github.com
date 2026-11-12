@@ -1806,14 +1806,14 @@ Table: TensorBase 开头逐行重读
 ```mermaid
 %% 图：Tensor 的持有链：共享对象、独占释放上下文与非拥有指针
 flowchart TB
-    T["at::Tensor<br/>(值类型，8 字节)"] -->|"intrusive_ptr&lt;TensorImpl&gt; impl_<br/>强引用，可多对一"| TI["TensorImpl<br/>(堆，引用计数)"]
+    T["<b>at::Tensor</b><br/>(值类型，8 字节)"] -->|"intrusive_ptr&lt;TensorImpl&gt; impl_<br/>强引用，可多对一"| TI["<b>TensorImpl</b><br/>(堆，引用计数)"]
     TI -->|"Storage storage_<br/>(值类型，8 字节)"| S["Storage"]
-    S -->|"intrusive_ptr&lt;StorageImpl&gt; storage_impl_<br/>强引用，可多对一"| SI["StorageImpl<br/>(堆，引用计数)"]
-    SI -->|"DataPtr data_ptr_<br/>独占"| DP["DataPtr<br/>= UniqueVoidPtr + Device"]
+    S -->|"intrusive_ptr&lt;StorageImpl&gt; storage_impl_<br/>强引用，可多对一"| SI["<b>StorageImpl</b><br/>(堆，引用计数)"]
+    SI -->|"DataPtr data_ptr_<br/>独占"| DP["<b>DataPtr</b><br/>= UniqueVoidPtr + Device"]
     DP -->|"void* data_<br/>访问数据，不负责释放"| MEM["原始内存 / 显存"]
-    DP -->|"unique_ptr&lt;void, DeleterFnPtr&gt; ctx_<br/>独占释放上下文"| CTX["释放上下文<br/>可与 data_ 指向同一地址"]
+    DP -->|"unique_ptr&lt;void, DeleterFnPtr&gt; ctx_<br/>独占释放上下文"| CTX["<b>释放上下文</b><br/>可与 data_ 指向同一地址"]
     CTX -.->|"deleter(ctx)<br/>释放 / 归还内存"| MEM
-    SI -.->|"Allocator* allocator_<br/>非拥有"| A["Allocator<br/>(全局单例)"]
+    SI -.->|"Allocator* allocator_<br/>非拥有"| A["<b>Allocator</b><br/>(全局单例)"]
     A -->|"allocate() 返回"| DP
 ```
 

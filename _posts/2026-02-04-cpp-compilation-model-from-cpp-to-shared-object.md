@@ -470,13 +470,13 @@ Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的�
 %% 同一个改动在两种语言里的重编范围：Java 增量编译到直接依赖就停，C++ 所有 #include 它的翻译单元全部重编
 flowchart LR
     subgraph J["Java：改 Half.java"]
-        JH["Half.java ✎"] --> JS["ScalarType.java<br/>直接引用了 Half"]
+        JH["Half.java ✎"] --> JS["<b>ScalarType.java</b><br/>直接引用了 Half"]
         JS -.->|"ABI 没变就不重编"| JA["add.java"]
         JS -.-> JB["mul.java"]
         JS -.-> JC["… 上千个用到 ScalarType 的类"]
     end
     subgraph C["C++：改 Half.h"]
-        CH["Half.h ✎"] --> CS["ScalarType.h<br/>#include &lt;Half.h&gt;"]
+        CH["Half.h ✎"] --> CS["<b>ScalarType.h</b><br/>#include &lt;Half.h&gt;"]
         CS --> CA["add.cpp ✎ 重编"]
         CS --> CB["mul.cpp ✎ 重编"]
         CS --> CC["… 上千个 #include 它的 .cpp 全部重编"]
@@ -538,12 +538,12 @@ ODR 的核心可以概括为两句话：
 ```mermaid
 %% inline 函数为什么可以有多份定义：每个翻译单元各编一份，链接器按逐字相同的假定合并
 flowchart LR
-    H["Device.h<br/>inline bool is_cuda() { return type_ == CUDA; }"]
-    H --> A["a.cpp → a.o<br/>含一份 is_cuda（W）"]
-    H --> B["b.cpp → b.o<br/>含一份 is_cuda（W）"]
-    A --> L["链接器：两份 W 逐字相同<br/>任选一份留下，另一份丢掉"]
+    H["<b>Device.h</b><br/>inline bool is_cuda() { return type_ == CUDA; }"]
+    H --> A["<b>a.cpp → a.o</b><br/>含一份 is_cuda（W）"]
+    H --> B["<b>b.cpp → b.o</b><br/>含一份 is_cuda（W）"]
+    A --> L["<b>链接器：两份 W 逐字相同</b><br/>任选一份留下，另一份丢掉"]
     B --> L
-    L --> OUT["libc10.so<br/>一份 is_cuda"]
+    L --> OUT["<b>libc10.so</b><br/>一份 is_cuda"]
     classDef box fill:#eef4fb,stroke:#5b8dc9,color:#222
     class H,A,B,L,OUT box
 ```

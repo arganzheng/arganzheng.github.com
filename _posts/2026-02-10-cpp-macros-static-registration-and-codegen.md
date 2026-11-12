@@ -956,8 +956,8 @@ void TORCH_LIBRARY_IMPL_init_myops_CPU_0(torch::Library& m) {
 flowchart TD
     A["Python: torch.ops.load_library('ext.so')<br/>或 import ext（若 ext.so 是 Python 扩展）"] --> B["ctypes.CDLL / dlopen"]
     B --> C["动态加载器 ld.so 映射 ext.so，<br/>解析依赖（libtorch_cpu.so 等）"]
-    C --> D["执行 ext.so 的 .init_array：<br/>每个 static 对象的构造函数"]
-    D --> E["TorchLibraryInit 构造函数<br/>→ Library 构造函数 → registerLibrary('myops')"]
+    C --> D["<b>执行 ext.so 的 .init_array：</b><br/>每个 static 对象的构造函数"]
+    D --> E["<b>TorchLibraryInit 构造函数</b><br/>→ Library 构造函数 → registerLibrary('myops')"]
     E --> F["调用 TORCH_LIBRARY_init_myops(m)<br/>→ m.def(...) → Dispatcher::registerDef"]
     D --> G["TorchLibraryInit（IMPL）构造函数<br/>→ TORCH_LIBRARY_IMPL_init_myops_CPU_0(m)<br/>→ m.impl(...) → Dispatcher::registerImpl"]
     F --> H["Dispatcher 的 OperatorEntry 表里<br/>多了一行 myops::scale_shift"]
@@ -1614,14 +1614,14 @@ m.def("bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
 ```mermaid
 %% 图：一个 native_functions.yaml 条目生成了什么：torchgen 产出的头文件、注册文件与 wrapper
 flowchart LR
-    Y["native_functions.yaml<br/>- func: bincount(...)<br/>dispatch: CPU: _bincount_cpu"] --> G[torchgen/gen.py]
-    G --> F["Functions.h / ops/bincount.h<br/>公开 C++ API：at::bincount(...)"]
+    Y["<b>native_functions.yaml</b><br/>- func: bincount(...)<br/>dispatch: CPU: _bincount_cpu"] --> G[torchgen/gen.py]
+    G --> F["<b>Functions.h / ops/bincount.h</b><br/>公开 C++ API：at::bincount(...)"]
     G --> O["Operators.h / Operators_N.cpp<br/>at::_ops::bincount::call → Dispatcher"]
-    G --> S["RegisterSchema.cpp<br/>TORCH_LIBRARY(aten, m) { m.def(...) }"]
-    G --> R["RegisterCPU.cpp<br/>wrapper_CPU__bincount + TORCH_LIBRARY_IMPL(aten, CPU, m)"]
+    G --> S["<b>RegisterSchema.cpp</b><br/>TORCH_LIBRARY(aten, m) { m.def(...) }"]
+    G --> R["<b>RegisterCPU.cpp</b><br/>wrapper_CPU__bincount + TORCH_LIBRARY_IMPL(aten, CPU, m)"]
     G --> N["NativeFunctions.h / ops/bincount_native.h<br/>声明 at::native::_bincount_cpu"]
-    G --> T["core/TensorBody.h<br/>Tensor::bincount() 方法"]
-    H["SummaryOps.cpp（手写）<br/>at::native::_bincount_cpu"] -.被 R 调用.-> R
+    G --> T["<b>core/TensorBody.h</b><br/>Tensor::bincount() 方法"]
+    H["<b>SummaryOps.cpp（手写）</b><br/>at::native::_bincount_cpu"] -.被 R 调用.-> R
 ```
 
 **`Functions.h`**（以及 `--per-operator-headers` 下的 `ops/bincount.h`）：用户调用的 `at::bincount`。由 `ComputeFunction` 生成：
