@@ -68,13 +68,13 @@ flowchart TB
     subgraph MAIN["主干（第一至九篇讲的 Transformer）"]
         direction TB
         IN["token $$t_1 \ldots t_T$$ → 共享 embedding"] --> L["L 个 block"] --> H["$$h_i$$：位置 i 的表示"]
-        H --> HEAD1["共享 lm_head → 预测 $$t_{i+1}$$<br/>主 loss $$L_{\text{main}}$$"]
+        H --> HEAD1["<b>共享 lm_head → 预测 $$t_{i+1}$$</b><br/>主 loss $$L_{\text{main}}$$"]
     end
     subgraph MTP["MTP 模块 k=1：自己的参数只有两个 RMSNorm、一个 2d→d 投影、一个 block"]
         direction TB
-        E["真实的 $$t_{i+1}$$ → 共享 embedding"] --> CAT["拼接 $$\text{RMSNorm}(h_i)$$ 与 $$\text{RMSNorm}(\text{Emb}(t_{i+1}))$$<br/>→ 线性 2d → d"]
+        E["真实的 $$t_{i+1}$$ → 共享 embedding"] --> CAT["<b>拼接 $$\text{RMSNorm}(h_i)$$ 与 $$\text{RMSNorm}(\text{Emb}(t_{i+1}))$$</b><br/>→ 线性 2d → d"]
         CAT --> B1["1 个 Transformer block（带 causal mask）"] --> H2["h'_i"]
-        H2 --> HEAD2["共享 lm_head → 预测 $$t_{i+2}$$<br/>MTP loss $$L_1$$"]
+        H2 --> HEAD2["<b>共享 lm_head → 预测 $$t_{i+2}$$</b><br/>MTP loss $$L_1$$"]
     end
     H -. "$$h_i$$" .-> CAT
 ```

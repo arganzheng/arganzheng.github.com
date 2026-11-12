@@ -27,7 +27,7 @@ flowchart TB
     end
     subgraph S2["现代 LLM 结构（01–10）"]
         direction TB
-        P5["01 读真实模型的配置<br/>Llama、DeepSeek、VLM"] --> P6["02 算量、访存与 Roofline<br/>（成本工具箱）"]
+        P5["<b>01 读真实模型的配置</b><br/>Llama、DeepSeek、VLM"] --> P6["<b>02 算量、访存与 Roofline</b><br/>（成本工具箱）"]
         P6 --> P7["03 位置编码与外推"] --> P8["04 Attention 与 KV"] --> P9["05 长上下文"]
         P6 --> P10["06 MoE"]
         P6 --> P11["07 MTP"] --> P12["08 投机解码"]
@@ -241,11 +241,11 @@ Table: 本文的章节安排
 %% 图：本系列共用的成本模型：结构与数值决定参数量、权重字节与 KV cache，运行点决定工作点，算术强度与 ridge 比较
 flowchart TB
     S["结构：L、d、$$d_{ff}$$、$$n_{kv}$$、专家数与 top-k<br/>（第一、四、六篇）"]
-    N["参数量 N、激活参数量<br/>（第一、六篇）"]
+    N["<b>参数量 N、激活参数量</b><br/>（第一、六篇）"]
     K["KV cache / token = $$2 L\, n_{kv} d_{head}$$ · bytes/elem<br/>（第四篇）"]
     D["数值：bytes/param、bytes/elem<br/>（第十篇与量化专题）"]
     W["权重字节 = N · bytes/param"]
-    F["FLOPs / token ≈ 2N + 4dLs<br/>（第二、五篇）"]
+    F["<b>FLOPs / token ≈ 2N + 4dLs</b><br/>（第二、五篇）"]
     R["运行点：batch B、上下文 s、prefill / decode<br/>（第二、五、六、八、九篇）"]
     H["每步字节 = 权重字节 + B · s · KV/token"]
     I["算术强度 I = FLOPs / 字节"]

@@ -76,13 +76,13 @@ decode 每步读 16 GB 权重、产出 $$B$$ 个 token。$$B = 1$$ 时，4.8 ms 
 ```mermaid
 %% 图：投机解码的一轮：草稿模型自回归 γ 步，目标模型一次前向验证，逐位置接受或拒绝后重采样
 flowchart TB
-    dr["草稿模型自回归 $$\gamma$$ 步<br/>$$x_1, \ldots, x_\gamma \sim q$$，成本 $$\gamma \cdot c \cdot T(B)$$"] --> vf["目标模型一次前向 $$\text{prefix}, x_1, \ldots, x_\gamma$$<br/>得到 $$p_1, \ldots, p_{\gamma+1}$$，成本 $$T(B(\gamma+1))$$"]
+    dr["<b>草稿模型自回归 $$\gamma$$ 步</b><br/>$$x_1, \ldots, x_\gamma \sim q$$，成本 $$\gamma \cdot c \cdot T(B)$$"] --> vf["<b>目标模型一次前向 $$\text{prefix}, x_1, \ldots, x_\gamma$$</b><br/>得到 $$p_1, \ldots, p_{\gamma+1}$$，成本 $$T(B(\gamma+1))$$"]
     vf --> i1["i = 1"]
     i1 --> acc{"以概率 $$\min(1, p_i(x_i) / q_i(x_i))$$<br/>接受 $$x_i$$？"}
     acc -->|"接受"| more{"$$i = \gamma$$？"}
     more -->|"否，i ← i + 1"| acc
-    more -->|"是，$$\gamma$$ 个全接受"| bonus["从 $$p_{\gamma+1}$$ 再采样 1 个<br/>本轮产出 $$\gamma + 1$$ 个"]
-    acc -->|"拒绝"| rs["从 $$\text{norm}(\max(0, p_i - q_i))$$ 重采样替代 $$x_i$$<br/>本轮产出 i 个"]
+    more -->|"是，$$\gamma$$ 个全接受"| bonus["<b>从 $$p_{\gamma+1}$$ 再采样 1 个</b><br/>本轮产出 $$\gamma + 1$$ 个"]
+    acc -->|"拒绝"| rs["<b>从 $$\text{norm}(\max(0, p_i - q_i))$$ 重采样替代 $$x_i$$</b><br/>本轮产出 i 个"]
     rs --> rb["回退：丢弃位置 i 及之后的草稿 token 与其 KV；<br/>位置 i 换成重采样的 token，<br/>它的 KV 下一轮才算"]
     rb --> nx["下一轮"]
     bonus --> nx

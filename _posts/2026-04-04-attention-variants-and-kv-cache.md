@@ -273,19 +273,19 @@ flowchart TB
         CQ["$$c^Q_t$$ (1536)"]
         UQ["$$W_{UQ} + W_{QR}$$: 1536 → 128 × 192"]
         QC["$$q^C_t$$: 128 head × 128"]
-        QR["$$q^R_t$$: 128 head × 64<br/>每 head 各自 RoPE"]
+        QR["<b>$$q^R_t$$: 128 head × 64</b><br/>每 head 各自 RoPE"]
         QC ~~~ QR
     end
     subgraph kvside["KV 侧"]
         direction TB
         DKV["$$W_{DKV} + W_{KR}$$: 7168 → 576"]
-        CKV["$$c^{KV}_t$$ (512)<br/>RMSNorm"]
-        KR["$$k^R_t$$ (64)<br/>RoPE，128 个 head 共享"]
+        CKV["<b>$$c^{KV}_t$$ (512)</b><br/>RMSNorm"]
+        KR["<b>$$k^R_t$$ (64)</b><br/>RoPE，128 个 head 共享"]
         UKV["$$W_{UK}$$ / $$W_{UV}$$: 512 → 128 × 128 各一份"]
         KVC["$$k^C_t$$ / $$v^C_t$$: 128 head × 128 各一份"]
     end
-    CAT["$$q_{t,h} = [q^C ; q^R]$$ (192)<br/>$$k_{j,h} = [k^C ; k^R]$$ (192)"]
-    ATT["$$\text{softmax}(q \cdot k / \sqrt{192}) \cdot v^C$$<br/>128 个 head，各得 128 维"]
+    CAT["<b>$$q_{t,h} = [q^C ; q^R]$$ (192)</b><br/>$$k_{j,h} = [k^C ; k^R]$$ (192)"]
+    ATT["<b>$$\text{softmax}(q \cdot k / \sqrt{192}) \cdot v^C$$</b><br/>128 个 head，各得 128 维"]
     WO["$$W_O$$: 16384 → 7168"]
     U["$$u_t$$ (7168)"]
 
@@ -408,9 +408,9 @@ flowchart TB
     subgraph naive["非吸收路径（字面公式，prefill 用）"]
         direction TB
         N0["cache: $$c^{KV}_j$$ (512), $$k^R_j$$ (64)"]
-        N1["$$W_{UK}$$, $$W_{UV}$$ 升维<br/>每个 cached token 2 × 512 × 32768 FLOPs"]
+        N1["<b>$$W_{UK}$$, $$W_{UV}$$ 升维</b><br/>每个 cached token 2 × 512 × 32768 FLOPs"]
         N2["$$k^C_j$$, $$v^C_j$$: 128 head × 128"]
-        N3["标准 attention<br/>q·k 192 维，p·v 128 维"]
+        N3["<b>标准 attention</b><br/>q·k 192 维，p·v 128 维"]
         N4["$$o_{t,h}$$ (128) × 128 head"]
         N5["$$W_O$$: 16384 → 7168"]
         N0 --> N1 --> N2 --> N3 --> N4 --> N5
@@ -418,10 +418,10 @@ flowchart TB
     subgraph absorb["吸收路径（decode 用）"]
         direction TB
         A0["$$q^C_{t,h}$$ (128)"]
-        A1["$$W_{UK,h}^T$$（可离线并入 $$W_{UQ}$$）<br/>每步 128 次 128 × 512 矩阵向量乘"]
+        A1["<b>$$W_{UK,h}^T$$（可离线并入 $$W_{UQ}$$）</b><br/>每步 128 次 128 × 512 矩阵向量乘"]
         A2["$$\tilde q_{t,h}$$ (512) 拼 $$q^R_{t,h}$$ (64) → 576"]
-        A3["cache: $$[c^{KV}_j ; k^R_j]$$ (576)<br/>直接点积，不升维"]
-        A4["$$p_{t,j,h} \to \sum_j p \cdot c^{KV}_j$$<br/>$$\tilde o_{t,h}$$ (512)"]
+        A3["<b>cache: $$[c^{KV}_j ; k^R_j]$$ (576)</b><br/>直接点积，不升维"]
+        A4["<b>$$p_{t,j,h} \to \sum_j p \cdot c^{KV}_j$$</b><br/>$$\tilde o_{t,h}$$ (512)"]
         A5["$$W_{O,h} \cdot W_{UV,h}$$（离线合并 7168 × 512）"]
         A0 --> A1 --> A2 --> A3 --> A4 --> A5
     end

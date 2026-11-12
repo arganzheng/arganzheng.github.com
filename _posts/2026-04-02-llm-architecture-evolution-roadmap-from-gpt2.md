@@ -172,28 +172,28 @@ timeline
 flowchart TB
     subgraph L1["线 1：更长的上下文"]
         direction LR
-        A0["位置表 1024 行"] -->|03| A1["RoPE"] -->|03| A2["base 调大 / YaRN<br/>Llama 3.1 scaling"] -->|05| A3["滑窗 / 交错 / sink<br/>稀疏 attention"]
-        A1 -->|04| A4["GQA → MLA<br/>压每 token 的 KV"]
+        A0["位置表 1024 行"] -->|03| A1["RoPE"] -->|03| A2["<b>base 调大 / YaRN</b><br/>Llama 3.1 scaling"] -->|05| A3["<b>滑窗 / 交错 / sink</b><br/>稀疏 attention"]
+        A1 -->|04| A4["<b>GQA → MLA</b><br/>压每 token 的 KV"]
     end
     subgraph L2["线 2：放大参数规模、压住每 token 成本"]
         direction LR
-        B0["dense FFN · MHA<br/>FP32 / BF16"] -->|本篇| B1["RMSNorm · SwiGLU<br/>去 bias"] -->|04| B2["GQA / MQA / MLA<br/>（与线 1 同一处）"] -->|06| B3["MoE：专家 + 路由"] -->|10| B4["FP8 训练与推理<br/>MXFP4 / INT4 发布"]
+        B0["<b>dense FFN · MHA</b><br/>FP32 / BF16"] -->|本篇| B1["<b>RMSNorm · SwiGLU</b><br/>去 bias"] -->|04| B2["<b>GQA / MQA / MLA</b><br/>（与线 1 同一处）"] -->|06| B3["MoE：专家 + 路由"] -->|10| B4["<b>FP8 训练与推理</b><br/>MXFP4 / INT4 发布"]
     end
     subgraph L3["线 3：让序列状态不随上下文增长"]
         direction LR
-        E0["Full attention<br/>逐 token K/V"] -->|05| E1["Mamba / Jamba<br/>SSM + attention"] -->|05| E2["MiniMax / Qwen3-Next<br/>混合 attention"] -->|05| E3["Kimi Linear<br/>KDA + full attention"]
+        E0["<b>Full attention</b><br/>逐 token K/V"] -->|05| E1["<b>Mamba / Jamba</b><br/>SSM + attention"] -->|05| E2["<b>MiniMax / Qwen3-Next</b><br/>混合 attention"] -->|05| E3["<b>Kimi Linear</b><br/>KDA + full attention"]
     end
     subgraph L4["线 4：更密的训练信号、更快的生成"]
         direction LR
-        C0["next-token · 逐 token 解码"] -->|07| C1["MTP"] -->|08| C2["投机解码<br/>（MTP 模块当草稿）"]
+        C0["next-token · 逐 token 解码"] -->|07| C1["MTP"] -->|08| C2["<b>投机解码</b><br/>（MTP 模块当草稿）"]
     end
     subgraph L5["线 5：输入理解 + 输出生成"]
         direction LR
-        D0["只有文本 token"] -->|09| D1["输入：vision encoder + connector<br/>拼进序列 / cross-attention 注入"] -->|09| D2["输出：图像 token / diffusion<br/>自回归语音"]
+        D0["只有文本 token"] -->|09| D1["输入：vision encoder + connector<br/>拼进序列 / cross-attention 注入"] -->|09| D2["<b>输出：图像 token / diffusion</b><br/>自回归语音"]
     end
     subgraph AUX["辅线：训练稳定性"]
         direction LR
-        S0["QK-norm · MuonClip<br/>aux-loss-free 负载均衡"] -->|10| S1["低精度格式<br/>BF16 / FP8 / MXFP4"]
+        S0["<b>QK-norm · MuonClip</b><br/>aux-loss-free 负载均衡"] -->|10| S1["<b>低精度格式</b><br/>BF16 / FP8 / MXFP4"]
     end
     L1 ~~~ L2 ~~~ L3 ~~~ L4 ~~~ L5 ~~~ AUX
     classDef base fill:#fef3c7,stroke:#b45309;
@@ -329,24 +329,24 @@ flowchart TB
 ```mermaid
 %% 图：Llama-3-8B 的结构与 config.json 六个数字的对应：vocab_size 决定 embedding / lm_head 的行数，hidden_size 是贯穿全模型的向量宽度，num_hidden_layers 是同样的层重复几次，num_attention_heads / num_key_value_heads 决定 Q 与 K、V 投影的输出宽度，intermediate_size 是 FFN 中间的宽度
 flowchart TB
-    IN["token 编号"] --> EMB["Embedding<br/>vocab_size × hidden_size = 128256 × 4096<br/>查一行 → 一个 4096 维向量"]
+    IN["token 编号"] --> EMB["<b>Embedding</b><br/>vocab_size × hidden_size = 128256 × 4096<br/>查一行 → 一个 4096 维向量"]
     EMB --> L
     subgraph L["× num_hidden_layers = 32 个相同的层"]
         direction TB
         subgraph ATT["attention 子层"]
             direction LR
-            Q["$$W_Q$$：4096 → 4096<br/>num_attention_heads 32 × head_dim 128"]
-            KV["$$W_K$$、$$W_V$$：4096 → 1024<br/>num_key_value_heads 8 × head_dim 128"]
+            Q["<b>$$W_Q$$：4096 → 4096</b><br/>num_attention_heads 32 × head_dim 128"]
+            KV["<b>$$W_K$$、$$W_V$$：4096 → 1024</b><br/>num_key_value_heads 8 × head_dim 128"]
             O["$$W_O$$：4096 → 4096"]
         end
         subgraph FFN["FFN 子层"]
             direction LR
-            G["$$W_{\text{gate}}$$、$$W_{\text{up}}$$：4096 → 14336<br/>intermediate_size"]
+            G["<b>$$W_{\text{gate}}$$、$$W_{\text{up}}$$：4096 → 14336</b><br/>intermediate_size"]
             D["$$W_{\text{down}}$$：14336 → 4096"]
         end
         ATT --> FFN
     end
-    L --> NORM["RMSNorm"] --> HEAD["lm_head<br/>hidden_size × vocab_size = 4096 × 128256<br/>→ 词表上每个 token 一个分数"]
+    L --> NORM["RMSNorm"] --> HEAD["<b>lm_head</b><br/>hidden_size × vocab_size = 4096 × 128256<br/>→ 词表上每个 token 一个分数"]
 ```
 
 图中有两点值得注意：

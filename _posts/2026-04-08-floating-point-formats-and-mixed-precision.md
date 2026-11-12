@@ -239,14 +239,14 @@ Micikevicius 等 2017 提出的混合精度训练包含三个部件，后来所�
 %% 图：混合精度一步迭代的精度标注：低精度只出现在环路中段，master weights 与更新始终留在 FP32
 flowchart TB
     master["FP32 master weights w"]
-    cast["cast 为 BF16/FP16 副本<br/>(FP32 → BF16 对低 16 位舍入)"]
-    fwd["前向 GEMM<br/>输入 BF16, Tensor Core 累加 FP32, 输出 BF16"]
+    cast["<b>cast 为 BF16/FP16 副本</b><br/>(FP32 → BF16 对低 16 位舍入)"]
+    fwd["<b>前向 GEMM</b><br/>输入 BF16, Tensor Core 累加 FP32, 输出 BF16"]
     loss["loss (FP32 标量)"]
     scale["× S  仅 FP16 需要 loss scaling"]
-    bwd["反向 GEMM<br/>激活梯度、权重梯度均为 BF16"]
+    bwd["<b>反向 GEMM</b><br/>激活梯度、权重梯度均为 BF16"]
     grad["低精度梯度 g·S"]
-    unscale["转 FP32, ÷ S<br/>检查 inf/NaN, 有则跳过本步"]
-    opt["Adam 更新 (全 FP32)<br/>m, v 更新, w ← w + Δw"]
+    unscale["<b>转 FP32, ÷ S</b><br/>检查 inf/NaN, 有则跳过本步"]
+    opt["<b>Adam 更新 (全 FP32)</b><br/>m, v 更新, w ← w + Δw"]
     master --> cast --> fwd --> loss --> scale --> bwd --> grad --> unscale --> opt --> master
     fwd -.->|"保存的激活 (BF16)"| bwd
     classDef fp32 fill:#d6eaf8,stroke:#2e6da4;
@@ -284,10 +284,10 @@ loss scaling 的做法是把 loss 乘 $$S$$（如 $$2^{16}$$）再反向，链�
 flowchart TB
     bwd["反向结束, 得到 FP16 梯度 g·S"]
     chk{"g·S 中有 inf / NaN ?"}
-    skip["跳过本步更新<br/>S ← S / 2<br/>连续正常步数 n ← 0"]
-    upd["g ← (g·S) / S, 在 FP32 中<br/>正常更新 master weights<br/>n ← n + 1"]
+    skip["<b>跳过本步更新</b><br/>S ← S / 2<br/>连续正常步数 n ← 0"]
+    upd["<b>g ← (g·S) / S, 在 FP32 中</b><br/>正常更新 master weights<br/>n ← n + 1"]
     grow{"n ≥ growth_interval<br/>(默认 2000) ?"}
-    dbl["S ← S × 2<br/>n ← 0"]
+    dbl["<b>S ← S × 2</b><br/>n ← 0"]
     keep["S 不变"]
     nxt["下一步迭代"]
     bwd --> chk
@@ -366,9 +366,9 @@ flowchart TB
     end
     subgraph ds["delayed scaling: 历史 amax"]
         direction TB
-        h["amax 历史窗口<br/>(最近 1024 步)"]
+        h["<b>amax 历史窗口</b><br/>(最近 1024 步)"]
         s2["$$s_t$$ = 448 / max(历史)<br/>不读 x 即可得到"]
-        q2["唯一一遍读 x:<br/>量化 + FP8 GEMM 融合"]
+        q2["<b>唯一一遍读 x:</b><br/>量化 + FP8 GEMM 融合"]
         e2["epilogue 顺便算出 amax_t"]
         h --> s2 --> q2 --> e2
         e2 -->|"写入历史, 供第 t+1 步用"| h

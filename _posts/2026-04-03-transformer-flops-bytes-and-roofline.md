@@ -157,8 +157,8 @@ flowchart TB
   end
   subgraph bwd["反向：2 个 GEMM，共 4mkn"]
     dY["dY  #91;m, n#93;<br/>下一层传回的梯度"]
-    dX["$$dX = dY \cdot W^\top$$<br/>#91;m, n#93; × #91;n, k#93;，2mkn<br/>传给前一层"]
-    dW["$$dW = X^\top \cdot dY$$<br/>#91;k, m#93; × #91;m, n#93;，2mkn<br/>交给优化器"]
+    dX["<b>$$dX = dY \cdot W^\top$$</b><br/>#91;m, n#93; × #91;n, k#93;，2mkn<br/>传给前一层"]
+    dW["<b>$$dW = X^\top \cdot dY$$</b><br/>#91;k, m#93; × #91;m, n#93;，2mkn<br/>交给优化器"]
     dY --> dX
     dY --> dW
   end

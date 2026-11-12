@@ -90,22 +90,22 @@ $$y = \sum_{i \in \text{TopK}(s)} g_i \cdot \text{FFN}_i(x) \ \big(+ \sum_{j=1}^
 %% 图：MoE 层的结构：router 打分、top-k 选择，只有选中的专家参与计算，共享专家绕过 router
 flowchart TB
     TOK["输入 token x（d 维）"]
-    RT["router：$$W_r x$$，$$W_r$$ 是 E × d<br/>softmax 或 sigmoid 得到 E 个分数 $$s_i$$"]
+    RT["<b>router：$$W_r x$$，$$W_r$$ 是 E × d</b><br/>softmax 或 sigmoid 得到 E 个分数 $$s_i$$"]
     TK["top-k 选择（k = 2）<br/>$$g_i = s_i / \sum s_j$$（$$i \in \text{TopK}$$），其余 $$g_i = 0$$"]
     TOK --> RT --> TK
     subgraph routed["E 个路由专家：结构相同、参数独立的 SwiGLU FFN，各 $$3 \cdot d \cdot d_{ff}$$ 参数"]
-        E1["$$\text{FFN}_1$$<br/>选中，$$g_1 > 0$$"]
-        E2["$$\text{FFN}_2$$<br/>未选中，不计算"]
-        EE["… $$\text{FFN}_E$$<br/>选中，$$g_E > 0$$"]
+        E1["<b>$$\text{FFN}_1$$</b><br/>选中，$$g_1 > 0$$"]
+        E2["<b>$$\text{FFN}_2$$</b><br/>未选中，不计算"]
+        EE["<b>… $$\text{FFN}_E$$</b><br/>选中，$$g_E > 0$$"]
     end
     subgraph shared["共享专家（DeepSeek 系列）"]
-        SH["$$\text{FFN}_{\text{shared}}$$<br/>不经 router，所有 token 都过"]
+        SH["<b>$$\text{FFN}_{\text{shared}}$$</b><br/>不经 router，所有 token 都过"]
     end
     TK -->|"x，权重 $$g_1$$"| E1
     TK -.->|"$$g_2 = 0$$"| E2
     TK -->|"x，权重 $$g_E$$"| EE
     TOK --> SH
-    SUM["$$y = g_1 \cdot \text{FFN}_1(x) + g_E \cdot \text{FFN}_E(x) + \text{FFN}_{\text{shared}}(x)$$<br/>这一层只算了 $$k + n_{\text{shared}}$$ 个 FFN，却持有 $$E + n_{\text{shared}}$$ 个"]
+    SUM["<b>$$y = g_1 \cdot \text{FFN}_1(x) + g_E \cdot \text{FFN}_E(x) + \text{FFN}_{\text{shared}}(x)$$</b><br/>这一层只算了 $$k + n_{\text{shared}}$$ 个 FFN，却持有 $$E + n_{\text{shared}}$$ 个"]
     E1 --> SUM
     EE --> SUM
     SH --> SUM
@@ -454,19 +454,19 @@ prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch
 flowchart TB
     T["token 的 hidden state（本节点 N0）<br/>先按节点亲和度选 4 个节点，再在其中取 top-8"]
     subgraph n0["节点 N0（本节点）"]
-        G0["本地 GPU<br/>专家 a"]
+        G0["<b>本地 GPU</b><br/>专家 a"]
     end
     subgraph n1["节点 N1：3 个专家"]
-        G1["入口 GPU<br/>专家 b"]
-        F1["NVLink 转发<br/>专家 c、d 所在 GPU"]
+        G1["<b>入口 GPU</b><br/>专家 b"]
+        F1["<b>NVLink 转发</b><br/>专家 c、d 所在 GPU"]
     end
     subgraph n2["节点 N2：2 个专家"]
-        G2["入口 GPU<br/>专家 e"]
-        F2["NVLink 转发<br/>专家 f 所在 GPU"]
+        G2["<b>入口 GPU</b><br/>专家 e"]
+        F2["<b>NVLink 转发</b><br/>专家 f 所在 GPU"]
     end
     subgraph n3["节点 N3：2 个专家"]
-        G3["入口 GPU<br/>专家 g"]
-        F3["NVLink 转发<br/>专家 h 所在 GPU"]
+        G3["<b>入口 GPU</b><br/>专家 g"]
+        F3["<b>NVLink 转发</b><br/>专家 h 所在 GPU"]
     end
     T -->|"NVLink"| G0
     T -->|"IB 1 份"| G1
