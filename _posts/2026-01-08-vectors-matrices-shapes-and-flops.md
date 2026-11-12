@@ -323,16 +323,16 @@ flowchart TB
     X["x　[1, 4096]"]
     subgraph ATTN["attention 部件：token 之间交流"]
         direction TB
-        P["× W_Q → [1, 4096]<br/>× W_K → [1, 1024]<br/>× W_V → [1, 1024]"]
-        A["attention：QKᵀ、softmax(·)V<br/>用自己的 Q 看其他 token 的 K、V<br/>无参数，FLOPs 随 T 增长"]
-        O["× W_O → [1, 4096]"]
+        P["× $$W_Q$$ → [1, 4096]<br/>× $$W_K$$ → [1, 1024]<br/>× $$W_V$$ → [1, 1024]"]
+        A["attention：$$QK^\top$$、softmax(·)V<br/>用自己的 Q 看其他 token 的 K、V<br/>无参数，FLOPs 随 T 增长"]
+        O["× $$W_O$$ → [1, 4096]"]
         P --> A --> O
     end
     subgraph MLP["MLP 部件：每个 token 各自变换"]
         direction TB
-        G["× W_gate → [1, 14336]<br/>× W_up → [1, 14336]"]
+        G["× $$W_{\text{gate}}$$ → [1, 14336]<br/>× $$W_{\text{up}}$$ → [1, 14336]"]
         S["silu(gate) ⊙ up　逐元素"]
-        D["× W_down → [1, 4096]"]
+        D["× $$W_{\text{down}}$$ → [1, 4096]"]
         G --> S --> D
     end
     X --> P
