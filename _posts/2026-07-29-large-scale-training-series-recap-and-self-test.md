@@ -303,10 +303,10 @@ flowchart TB
     C --> MFU["MFU"]
     B --> MFU
     S --> K["落盘字节 14N / 12N"]
-    K --> D["δ：同步写入或异步 staging"]
-    D --> T["τ_opt = √(2δM)"]
+    K --> D["$$\delta$$：同步写入或异步 staging"]
+    D --> T["$$\tau_{opt} = \sqrt{2\delta M}$$"]
     T --> G["有效训练时间 G"]
-    TD["检测时间 T_d（监控决定）"] --> G
+    TD["检测时间 $$T_d$$（监控决定）"] --> G
     MFU --> H["GPU 小时 / 美元"]
     G --> H
 ```
