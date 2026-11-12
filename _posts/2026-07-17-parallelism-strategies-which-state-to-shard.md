@@ -888,18 +888,18 @@ Table: 多维并行的组合顺序
 %% 图：并行组合顺序 TP → CP → PP → DP：每步都是「放得下吗」的判断，PP 气泡不可接受时改用 ZeRO-3 / FSDP
 flowchart TB
     S["给定模型 N、序列 s、集群 N 卡（节点内 8 卡 NVLink）"] --> Q1{"一层的参数 + 层内激活<br/>放得进一张卡？"}
-    Q1 -->|"否"| T["TP = 2..8，锁在节点内，SP 随手打开<br/>上限：8 卡 与 h/N_t 的 GEMM 效率"]
+    Q1 -->|"否"| T["TP = 2..8，锁在节点内，SP 随手打开<br/>上限：8 卡 与 $$h/N_t$$ 的 GEMM 效率"]
     Q1 -->|"是"| T1["TP = 1"]
     T --> Q2{"TP/SP 切完后一层激活<br/>仍放不下（s 很长）？"}
     T1 --> Q2
     Q2 -->|"是"| C["CP 由 s 决定，Ring 可跨节点<br/>GQA + TP 下 Ulysses 不可行"]
     Q2 -->|"否"| C1["CP = 1"]
-    C --> Q3{"16N/(N_t N_p) + 在途激活<br/>放得进每卡显存？"}
+    C --> Q3{"$$16N/(N_t N_p)$$ + 在途激活<br/>放得进每卡显存？"}
     C1 --> Q3
     Q3 -->|"否，且 m 仍远大于 p"| P["PP 加一档<br/>气泡 (p-1)/(vm) 随之上升"]
     P --> Q3
     Q3 -->|"否，且气泡已不可接受"| Z["改用 ZeRO-3 / FSDP（或 HSDP）<br/>代替一部分 PP"]
-    Q3 -->|"是"| D["DP = N / (N_t N_c N_p) 用满剩余的卡<br/>ZeRO-1 几乎总是打开（不花通信）"]
+    Q3 -->|"是"| D["DP = $$N / (N_t N_c N_p)$$ 用满剩余的卡<br/>ZeRO-1 几乎总是打开（不花通信）"]
     Z --> D
     classDef q fill:#fff3d6,stroke:#b58a1a;
     classDef act fill:#e3eefc,stroke:#3a6fb0;
