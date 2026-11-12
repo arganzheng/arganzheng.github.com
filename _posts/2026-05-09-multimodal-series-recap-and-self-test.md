@@ -23,14 +23,14 @@ date: 2026-05-09 20:00:00
 flowchart TB
     subgraph U["理解线：其他模态 → token → LLM"]
         direction TB
-        V1["01 视觉编码器<br/>CLIP / SigLIP / 自监督 ViT"] --> V2["02 VLM 的结构<br/>connector、注入、动态分辨率"] --> V3["03 VLM 的训练<br/>数据、阶段、评测"]
-        A4["04 语音（上）<br/>mel 谱、Whisper、codec"] --> A5["05 语音（下）<br/>理解、生成、全双工"]
+        V1["<b>01 视觉编码器</b><br/>CLIP / SigLIP / 自监督 ViT"] --> V2["<b>02 VLM 的结构</b><br/>connector、注入、动态分辨率"] --> V3["<b>03 VLM 的训练</b><br/>数据、阶段、评测"]
+        A4["<b>04 语音（上）</b><br/>mel 谱、Whisper、codec"] --> A5["<b>05 语音（下）</b><br/>理解、生成、全双工"]
     end
     subgraph G["生成线：从噪声去噪"]
         direction TB
-        G6["06 DDPM<br/>加噪、去噪、预测噪声"] --> G7["07 score / flow matching、CFG"] --> G8["08 Latent diffusion、DiT、文生图配方"]
+        G6["<b>06 DDPM</b><br/>加噪、去噪、预测噪声"] --> G7["07 score / flow matching、CFG"] --> G8["08 Latent diffusion、DiT、文生图配方"]
     end
-    V2 & G8 --> M9["09 自回归图像生成与统一模型<br/>两条线在这里交汇"]
+    V2 & G8 --> M9["<b>09 自回归图像生成与统一模型</b><br/>两条线在这里交汇"]
     V1 -. "encoder + connector 的范式" .-> A4
 
 ```

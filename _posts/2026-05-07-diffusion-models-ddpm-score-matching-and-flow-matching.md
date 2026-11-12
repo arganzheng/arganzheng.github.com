@@ -88,7 +88,7 @@ Table: 本文的章节安排
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：扩散的两条链：前向是固定的加噪 q，反向是学出来的去噪 p_θ，每步由同一个网络完成
 flowchart LR
-    X0["$$x_0$$<br/>数据"] -->|"$$q(x_1 \mid x_0)$$"| X1["$$x_1$$"] -->|"…"| XT1["$$x_{t-1}$$"] -->|"$$q(x_t \mid x_{t-1})$$<br/>加一点噪声"| XT["$$x_t$$"] -->|"…"| XN["$$x_T \approx \mathcal{N}(0, I)$$<br/>纯噪声"]
+    X0["<b>$$x_0$$</b><br/>数据"] -->|"$$q(x_1 \mid x_0)$$"| X1["$$x_1$$"] -->|"…"| XT1["$$x_{t-1}$$"] -->|"$$q(x_t \mid x_{t-1})$$<br/>加一点噪声"| XT["$$x_t$$"] -->|"…"| XN["<b>$$x_T \approx \mathcal{N}(0, I)$$</b><br/>纯噪声"]
     XN -.->|"$$p_\theta(x_{T-1} \mid x_T)$$"| XT -.->|"$$p_\theta(x_{t-1} \mid x_t)$$<br/>网络 $$\epsilon_\theta$$ 猜噪声、减掉一点"| XT1 -.->|"…"| X0
     classDef d fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef n fill:#f4f4f4,stroke:#999,color:#222
