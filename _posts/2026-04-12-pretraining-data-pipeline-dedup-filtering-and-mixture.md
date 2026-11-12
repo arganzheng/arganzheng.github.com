@@ -26,13 +26,13 @@ updated: 2026-09-14
 %% 图：Common Crawl 到 DCLM / FineWeb 的两条分支与量级
 flowchart TB
     CC["Common Crawl 原始网页（WARC）<br/>约 100 个快照 · 约 30+ PB 压缩"]
-    CC -->|resiliparse 正文抽取| DP["DCLM-Pool<br/>240T · 100%"]
+    CC -->|resiliparse 正文抽取| DP["<b>DCLM-Pool</b><br/>240T · 100%"]
     CC -->|trafilatura 正文抽取| FH["过滤 + 每快照 MinHash 去重"]
-    DP --> DF["启发式 + fastText 前 10%<br/>Bloom filter 去重"]
-    DF --> DB["DCLM-baseline<br/>3.8T · 1.6%"]
-    FH --> FW["FineWeb<br/>15T · 100%"]
-    FW -->|教育价值分类器 ≥ 2| E2["FineWeb-Edu<br/>5.4T · 36%"]
-    E2 -->|同一评分收紧至 ≥ 3| E3["FineWeb-Edu 高分子集<br/>1.3T · 约 9%"]
+    DP --> DF["<b>启发式 + fastText 前 10%</b><br/>Bloom filter 去重"]
+    DF --> DB["<b>DCLM-baseline</b><br/>3.8T · 1.6%"]
+    FH --> FW["<b>FineWeb</b><br/>15T · 100%"]
+    FW -->|教育价值分类器 ≥ 2| E2["<b>FineWeb-Edu</b><br/>5.4T · 36%"]
+    E2 -->|同一评分收紧至 ≥ 3| E3["<b>FineWeb-Edu 高分子集</b><br/>1.3T · 约 9%"]
 
     classDef base fill:#f0f0f0,stroke:#888;
     classDef dclm fill:#e0e7ff,stroke:#4338ca;
@@ -60,15 +60,15 @@ Llama 3 的 15T 训练集是 Meta 自己的管线，报告没有公布它的漏�
 ```mermaid
 %% 图：预训练数据管线全貌：从 Common Crawl 抓取到 tokenize 打包，中间是过滤、去重、打分、配比与污染检测
 flowchart TB
-    CC["Common Crawl WARC<br/>2500 亿次抓取"] --> URL["URL 过滤<br/>黑名单、成人站、垃圾域"]
-    URL --> EX["正文抽取<br/>trafilatura / resiliparse"]
-    EX --> LID["语言识别<br/>fastText ≥ 0.65"]
-    LID --> H["启发式规则<br/>Gopher 文档级 · C4 行级 · 重复度"]
-    H --> DD["去重<br/>URL → 文档 MinHash → 行 → 子串"]
+    CC["<b>Common Crawl WARC</b><br/>2500 亿次抓取"] --> URL["<b>URL 过滤</b><br/>黑名单、成人站、垃圾域"]
+    URL --> EX["<b>正文抽取</b><br/>trafilatura / resiliparse"]
+    EX --> LID["<b>语言识别</b><br/>fastText ≥ 0.65"]
+    LID --> H["<b>启发式规则</b><br/>Gopher 文档级 · C4 行级 · 重复度"]
+    H --> DD["<b>去重</b><br/>URL → 文档 MinHash → 行 → 子串"]
     DD --> PII["PII / 有害内容"]
-    PII --> Q["模型打分<br/>fastText / 线性回归"]
-    Q --> CUR["领域管线汇入<br/>代码 · 数学 · 多语言 · 书籍 · 百科"]
-    CUR --> MIX["配比 → epoch<br/>多阶段 · 退火"]
+    PII --> Q["<b>模型打分</b><br/>fastText / 线性回归"]
+    Q --> CUR["<b>领域管线汇入</b><br/>代码 · 数学 · 多语言 · 书籍 · 百科"]
+    CUR --> MIX["<b>配比 → epoch</b><br/>多阶段 · 退火"]
     MIX --> DEC["污染检测"]
     DEC --> TOK["tokenize · 打包 · 分片"]
 

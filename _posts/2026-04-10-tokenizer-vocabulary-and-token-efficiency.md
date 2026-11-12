@@ -322,10 +322,10 @@ Table: BPE、WordPiece 与 Unigram 的对照
 ```mermaid
 %% 图：tokenizer 的四段流水线：Normalizer → Pre-tokenizer → Model → Post-processor
 flowchart TB
-    T["原始文本"] --> N["Normalizer<br/>NFC/NFKC、小写、去重音<br/>（byte-level BPE 通常为空）"]
-    N --> P["Pre-tokenizer<br/>正则切段 + 字节映射"]
-    P --> M["Model<br/>BPE / WordPiece / Unigram<br/>在每段内切成 token"]
-    M --> PP["Post-processor<br/>加 BOS/EOS、特殊 token、模板"]
+    T["原始文本"] --> N["<b>Normalizer</b><br/>NFC/NFKC、小写、去重音<br/>（byte-level BPE 通常为空）"]
+    N --> P["<b>Pre-tokenizer</b><br/>正则切段 + 字节映射"]
+    P --> M["<b>Model</b><br/>BPE / WordPiece / Unigram<br/>在每段内切成 token"]
+    M --> PP["<b>Post-processor</b><br/>加 BOS/EOS、特殊 token、模板"]
     PP --> I["id 序列"]
 
     classDef hot fill:#fde68a,stroke:#b45309;

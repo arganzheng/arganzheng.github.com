@@ -23,15 +23,15 @@ catalog: true
 flowchart TB
     subgraph D["数据侧（本系列第四篇展开）"]
         direction LR
-        R["1 原料<br/>2 个 WET 文件<br/>68,834 网页"] --> F["2 过滤<br/>语言 · 质量 · 行级<br/>剩 11,295 篇"] --> X["3 去重<br/>精确 + MinHash<br/>剩 10,815 篇"]
+        R["<b>1 原料</b><br/>2 个 WET 文件<br/>68,834 网页"] --> F["<b>2 过滤</b><br/>语言 · 质量 · 行级<br/>剩 11,295 篇"] --> X["<b>3 去重</b><br/>精确 + MinHash<br/>剩 10,815 篇"]
     end
     subgraph T["token 侧（第二篇）"]
         direction LR
-        K["4 训 tokenizer<br/>BPE，词表 4096"] --> P["5 打包<br/>10.9M token<br/>256 一段"]
+        K["<b>4 训 tokenizer</b><br/>BPE，词表 4096"] --> P["<b>5 打包</b><br/>10.9M token<br/>256 一段"]
     end
     subgraph M["模型侧（第三、五篇）"]
         direction LR
-        S["6 选尺寸<br/>3 个预算 × 8 个 N"] --> TR["7 训练<br/>4 层 × 192 宽，N = 2.6M<br/>3 epoch，12 分钟"] --> E["8 评<br/>val loss 4.63<br/>1.88 bits/byte（GPT-2 1.06）"]
+        S["<b>6 选尺寸</b><br/>3 个预算 × 8 个 N"] --> TR["<b>7 训练</b><br/>4 层 × 192 宽，N = 2.6M<br/>3 epoch，12 分钟"] --> E["<b>8 评</b><br/>val loss 4.63<br/>1.88 bits/byte（GPT-2 1.06）"]
     end
     D --> T --> M
     classDef d fill:#e8f5e9,stroke:#2e7d32,color:#222

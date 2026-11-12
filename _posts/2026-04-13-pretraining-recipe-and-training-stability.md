@@ -384,13 +384,13 @@ Kimi K2 加了一个新开关 **QK-Clip**：训练中监控每个 head 的最大
 ```mermaid
 %% 图：loss spike 发生后的处理流程：停止、回退 checkpoint、跳过一段 batch、继续，再犯则降 lr 开更多开关
 flowchart TB
-    M["监控：loss / 梯度范数<br/>超出滑动均值 k 倍"] --> S["停止"]
-    S --> R["回退到 spike 前<br/>100–200 步的 checkpoint"]
-    R --> K["跳过接下来 200–500 个 batch<br/>（换数据顺序）"]
+    M["<b>监控：loss / 梯度范数</b><br/>超出滑动均值 k 倍"] --> S["停止"]
+    S --> R["<b>回退到 spike 前</b><br/>100–200 步的 checkpoint"]
+    R --> K["<b>跳过接下来 200–500 个 batch</b><br/>（换数据顺序）"]
     K --> C["继续"]
     C --> Q{"再次出现？"}
     Q -- 否 --> M
-    Q -- 是 --> L["降低 lr · 开更多开关<br/>· 检查数据与硬件"]
+    Q -- 是 --> L["<b>降低 lr · 开更多开关</b><br/>· 检查数据与硬件"]
     L --> C
 
     classDef warn fill:#fee2e2,stroke:#b91c1c;
