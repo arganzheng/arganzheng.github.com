@@ -434,7 +434,7 @@ GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查
 %% 图：一个 Transformer block 的数据流：残差流 x 进入，先 LayerNorm → 多头 causal self-attention → 加回 x，再 LayerNorm → FFN（768 → 3072 → GELU → 768）→ 加回 x；两条虚线是残差，输出形状与输入相同
 flowchart TB
     X["x　[T, 768]　残差流"] --> LN1["LayerNorm"]
-    LN1 --> ATT["多头 causal self-attention<br/>12 头 × 64 维 → 拼接 → $$W_O$$"]
+    LN1 --> ATT["<b>多头 causal self-attention</b><br/>12 头 × 64 维 → 拼接 → $$W_O$$"]
     ATT --> ADD1(("+"))
     X -. "残差" .-> ADD1
     ADD1 --> H["x'　[T, 768]"]

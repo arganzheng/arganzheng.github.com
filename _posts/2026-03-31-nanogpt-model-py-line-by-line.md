@@ -42,12 +42,12 @@ Table: nanoGPT model.py 的六个类与它们对应的结构
 flowchart TB
     CFG["GPTConfig：block_size · vocab_size · n_layer · n_head · n_embd · dropout · bias"]
     CFG -. 传给每个构造函数 .-> G["GPT"]
-    G --> EMB["transformer.wte / wpe<br/>两张 Embedding 表：vocab × d、block_size × d"]
-    G --> H["transformer.h<br/>ModuleList：n_layer × Block"]
-    G --> TAIL["transformer.ln_f → lm_head<br/>Linear(d, vocab)，weight 与 wte 共享"]
+    G --> EMB["<b>transformer.wte / wpe</b><br/>两张 Embedding 表：vocab × d、block_size × d"]
+    G --> H["<b>transformer.h</b><br/>ModuleList：n_layer × Block"]
+    G --> TAIL["<b>transformer.ln_f → lm_head</b><br/>Linear(d, vocab)，weight 与 wte 共享"]
     H --> B["Block"]
     B --> A1["ln_1 → attn: CausalSelfAttention<br/>c_attn (d → 3d) · c_proj (d → d)"]
-    B --> A2["ln_2 → mlp: MLP<br/>c_fc (d → 4d) · GELU · c_proj (4d → d)"]
+    B --> A2["<b>ln_2 → mlp: MLP</b><br/>c_fc (d → 4d) · GELU · c_proj (4d → d)"]
 ```
 
 属性名（`transformer.wte`、`h`、`ln_1`、`c_attn`、`c_proj`、`c_fc`）不是随便起的：它们与 HuggingFace `GPT2LMHeadModel` 的 `state_dict` 键名一一对应，所以 `from_pretrained`（第九章）能按名字把权重搬过来。读别的模型的 `modeling_*.py` 时，先找这几个名字的对应物（第十一章的表）。

@@ -24,12 +24,12 @@ catalog: true
 flowchart TB
     TXT["input.txt：莎士比亚全集 1.1 MB"] --> PREP["data/shakespeare_char/prepare.py<br/>字符 → 整数（65 个字符的词表）"]
     PREP --> BIN["train.bin / val.bin：uint16 数组，1.0M / 0.11M 个 token<br/>meta.pkl：字符表"]
-    BIN --> GB["train.py · get_batch<br/>随机切 batch_size 个长 block_size 的窗口"]
-    MODEL["model.py：GPTConfig / GPT（上一篇）"] --> INIT["train.py · 模型初始化<br/>scratch / resume / gpt2"]
-    GB --> LOOP["train.py · 训练循环<br/>lr → 评估 → 梯度累积 × 前向 / 反向 → clip → step"]
+    BIN --> GB["<b>train.py · get_batch</b><br/>随机切 batch_size 个长 block_size 的窗口"]
+    MODEL["model.py：GPTConfig / GPT（上一篇）"] --> INIT["<b>train.py · 模型初始化</b><br/>scratch / resume / gpt2"]
+    GB --> LOOP["<b>train.py · 训练循环</b><br/>lr → 评估 → 梯度累积 × 前向 / 反向 → clip → step"]
     INIT --> LOOP
-    LOOP --> CKPT["out_dir/ckpt.pt<br/>model + optimizer + iter_num + config"]
-    CKPT --> SAMPLE["sample.py<br/>加载 ckpt，model.generate() 续写"]
+    LOOP --> CKPT["<b>out_dir/ckpt.pt</b><br/>model + optimizer + iter_num + config"]
+    CKPT --> SAMPLE["<b>sample.py</b><br/>加载 ckpt，model.generate() 续写"]
 ```
 
 `train.py` 从上到下分九块。本文的章节安排就按这九块走：
