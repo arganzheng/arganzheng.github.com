@@ -320,8 +320,8 @@ flowchart TB
     LC -->|"又有节点来"| Q1
     LC -->|"last_call 超时"| DONE
     Q2 -->|"否，未到 join 超时：sleep 后 sync() 再看"| Q1
-    Q2 -->|"否，join 超时（默认 600 s）"| FAIL["RendezvousTimeoutError<br/>agent 返回 FAILED"]
-    DONE -->|"num_nodes_waiting > 0：有新节点在等"| RS["agent _restart_workers()<br/>成员变化不计入 max_restarts"] --> S
+    Q2 -->|"否，join 超时（默认 600 s）"| FAIL["<b>RendezvousTimeoutError</b><br/>agent 返回 FAILED"]
+    DONE -->|"num_nodes_waiting > 0：有新节点在等"| RS["<b>agent _restart_workers()</b><br/>成员变化不计入 max_restarts"] --> S
     classDef ok fill:#e8f5e9,stroke:#2e7d32;
     classDef bad fill:#ffebee,stroke:#c62828;
     classDef wait fill:#fff8e1,stroke:#f9a825;
@@ -396,14 +396,14 @@ flowchart TB
     T["训练函数运行中（被 Wrapper 包裹）<br/>MonitorThread · MonitorProcess · ProgressWatchdog 各自轮询"] --> E{"触发条件"}
     E -->|"本 rank 抛异常"| N["MonitorThread 经内部 TCPStore 通知全部 rank<br/>各 rank 主线程被注入 RankShouldRestart<br/>last_call_wait 1 s 合并并发故障"]
     E -->|"进度停滞 > soft_timeout 60 s<br/>或心跳丢失 > heartbeat_timeout 30 s"| N
-    E -->|"停滞 > hard_timeout 90 s"| K["直接终止该 rank<br/>（SIGTERM → 5 s → SIGKILL）"]
+    E -->|"停滞 > hard_timeout 90 s"| K["<b>直接终止该 rank</b><br/>（SIGTERM → 5 s → SIGKILL）"]
     N --> A["abort：AbortTorchDistributed / AbortTransformerEngine，解开卡住的集合通信<br/>finalize：ThreadedFinalize 限时清理（Megatron 的 destroy_state）"]
     A --> H{"health_check<br/>CudaHealthCheck + GPU / NVLink"}
-    H -->|"不健康"| I["该 rank 变为 inactive<br/>（返回 None，退出参与）"]
+    H -->|"不健康"| I["<b>该 rank 变为 inactive</b><br/>（返回 None，退出参与）"]
     H -->|"健康"| BR["内部 store 上 barrier 会合（barrier_timeout 120 s）<br/>rank_assignment：Tree / ShiftRanks / FillGaps<br/>算新 rank 与 world size，热备 rank 补位"]
     I --> BR
     BR --> Q{"活跃 rank ≥ min_world_size？"}
-    Q -->|"是"| INIT["initialize：RetryController<br/>重新调用训练函数（进程 / CUDA / import 全部保留）"] --> T
+    Q -->|"是"| INIT["<b>initialize：RetryController</b><br/>重新调用训练函数（进程 / CUDA / import 全部保留）"] --> T
     Q -->|"否"| NR["NestedRestarter 上报 RankMonitorServer<br/>由 ft_launcher 做进程级重启（外层兜底）"]
     classDef run fill:#e8f5e9,stroke:#2e7d32;
     classDef bad fill:#ffebee,stroke:#c62828;
@@ -452,14 +452,14 @@ flowchart TB
     LH["Lighthouse（Rust，torchft_lighthouse）<br/>LighthouseService：Quorum / Heartbeat<br/>每 quorum_tick_ms 100 ms 跑一次 quorum_compute"]
     subgraph rg0["副本组 0 = 一个 DP 副本"]
         direction TB
-        M0["rank 0：ManagerServer<br/>副本代表，发心跳与 quorum 请求"]
-        W0["rank 1..k：ManagerClient<br/>副本内 TP / PP / FSDP：普通 ProcessGroupNCCL"]
+        M0["<b>rank 0：ManagerServer</b><br/>副本代表，发心跳与 quorum 请求"]
+        W0["<b>rank 1..k：ManagerClient</b><br/>副本内 TP / PP / FSDP：普通 ProcessGroupNCCL"]
         M0 --- W0
     end
     subgraph rg1["副本组 1 … N-1（结构相同）"]
         direction TB
         M1["rank 0：ManagerServer"]
-        W1["rank 1..k：ManagerClient<br/>普通 ProcessGroupNCCL"]
+        W1["<b>rank 1..k：ManagerClient</b><br/>普通 ProcessGroupNCCL"]
         M1 --- W1
     end
     LH <-->|"Heartbeat（超时 5 s）<br/>Quorum RPC"| M0
@@ -723,20 +723,20 @@ optimizer.step()
 ```mermaid
 %% 图：RerunStateMachine 的状态转移：原地重跑比对一次，换卡重跑再比对一次，得出瞬时错误、持久错误或结果可疑
 flowchart TB
-    S0["NOT_RUNNING_YET"] --> S1["INITIAL_RUN<br/>保存 RNG 状态，包装 data iterator"]
+    S0["NOT_RUNNING_YET"] --> S1["<b>INITIAL_RUN</b><br/>保存 RNG 状态，包装 data iterator"]
     S1 --> V{"validate_result：rejection_func 为 True？<br/>（NaN / Inf / spiky loss / large grad）"}
     V -->|"否"| OK["正常：should_checkpoint_and_exit 返回 False<br/>optimizer.step()"]
-    V -->|"任一 rank 为是（_reduce_any）"| S2["RERUNNING_IN_PLACE<br/>恢复 RNG、rewind iterator<br/>同一张卡重跑本 step"]
+    V -->|"任一 rank 为是（_reduce_any）"| S2["<b>RERUNNING_IN_PLACE</b><br/>恢复 RNG、rewind iterator<br/>同一张卡重跑本 step"]
     S2 --> C1{"两次结果经 comparison_func<br/>在 tolerance 内一致？"}
-    C1 -->|"不一致"| TR["TRANSIENT_ERROR（瞬时错误）<br/>记录到 tracker 文件，fatal 则退出，否则继续"]
-    C1 -->|"一致"| S3["WILL_RERUN_FROM_CHECKPOINT<br/>should_checkpoint_and_exit → 存 checkpoint 并退出<br/>EXIT_CODE_RESUME_TO_DISAMBIGUATE"]
+    C1 -->|"不一致"| TR["<b>TRANSIENT_ERROR（瞬时错误）</b><br/>记录到 tracker 文件，fatal 则退出，否则继续"]
+    C1 -->|"一致"| S3["<b>WILL_RERUN_FROM_CHECKPOINT</b><br/>should_checkpoint_and_exit → 存 checkpoint 并退出<br/>EXIT_CODE_RESUME_TO_DISAMBIGUATE"]
     S3 --> SCHED["外部调度器重启任务"]
     SCHED --> SAME{"落回同一张卡？"}
     SAME -->|"是"| AGAIN["RERUNNING_AGAIN_FROM_CHECKPOINT<br/>再存盘退出"] --> SCHED
-    SAME -->|"否"| S4["RERUNNING_FROM_CHECKPOINT<br/>在另一张卡上重跑同一 step"]
+    SAME -->|"否"| S4["<b>RERUNNING_FROM_CHECKPOINT</b><br/>在另一张卡上重跑同一 step"]
     S4 --> C2{"与初次结果一致？"}
-    C2 -->|"不一致"| PE["PERSISTENT_ERROR<br/>原卡持久坏：记 suspicious_node / suspicious_device"]
-    C2 -->|"一致"| CR["CORRECT_RESULT<br/>不是硬件：数据或算法导致的真实 NaN / spike"]
+    C2 -->|"不一致"| PE["<b>PERSISTENT_ERROR</b><br/>原卡持久坏：记 suspicious_node / suspicious_device"]
+    C2 -->|"一致"| CR["<b>CORRECT_RESULT</b><br/>不是硬件：数据或算法导致的真实 NaN / spike"]
     classDef ok fill:#e8f5e9,stroke:#2e7d32;
     classDef bad fill:#ffebee,stroke:#c62828;
     classDef st fill:#e3f2fd,stroke:#1565c0;

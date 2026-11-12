@@ -369,7 +369,7 @@ Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：列切与行切的配对：Q/K/V 与 W1 列切，O 与 W2 行切，一个 Transformer 层只在两处 all-reduce
 flowchart LR
-    X1[X] --> QKV["列切 Q/K/V<br/>每卡 a/t 个头"] --> ATT["每卡自己头的注意力<br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
+    X1[X] --> QKV["<b>列切 Q/K/V</b><br/>每卡 a/t 个头"] --> ATT["<b>每卡自己头的注意力</b><br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
     X1 -.残差.-> R1
     R1 --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
     R1 -.残差.-> R2
@@ -892,11 +892,11 @@ flowchart TB
     Q1 -->|"是"| T1["TP = 1"]
     T --> Q2{"TP/SP 切完后一层激活<br/>仍放不下（s 很长）？"}
     T1 --> Q2
-    Q2 -->|"是"| C["CP 由 s 决定，Ring 可跨节点<br/>GQA + TP 下 Ulysses 不可行"]
+    Q2 -->|"是"| C["<b>CP 由 s 决定，Ring 可跨节点</b><br/>GQA + TP 下 Ulysses 不可行"]
     Q2 -->|"否"| C1["CP = 1"]
     C --> Q3{"$$16N/(N_t N_p)$$ + 在途激活<br/>放得进每卡显存？"}
     C1 --> Q3
-    Q3 -->|"否，且 m 仍远大于 p"| P["PP 加一档<br/>气泡 (p-1)/(vm) 随之上升"]
+    Q3 -->|"否，且 m 仍远大于 p"| P["<b>PP 加一档</b><br/>气泡 (p-1)/(vm) 随之上升"]
     P --> Q3
     Q3 -->|"否，且气泡已不可接受"| Z["改用 ZeRO-3 / FSDP（或 HSDP）<br/>代替一部分 PP"]
     Q3 -->|"是"| D["DP = $$N / (N_t N_c N_p)$$ 用满剩余的卡<br/>ZeRO-1 几乎总是打开（不花通信）"]

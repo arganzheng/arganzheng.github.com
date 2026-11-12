@@ -432,16 +432,16 @@ Table: 时间线上的各项开销与测法
 ```mermaid
 %% 图：一段空隙归到七项的判定树：先看计算 stream，再看通信 kernel 是 SendRecv 还是集合通信，GPU 全空时看 CPU 线程停在哪
 flowchart TB
-    S["取一段 step 内的时间片<br/>看三条泳道：计算 / 通信 / CPU"] --> Q1{"计算 stream 有 kernel 在跑？"}
+    S["<b>取一段 step 内的时间片</b><br/>看三条泳道：计算 / 通信 / CPU"] --> Q1{"计算 stream 有 kernel 在跑？"}
     Q1 -- "是" --> Q5{"反向区间 GEMM 时长<br/>超过前向的 2 倍？"}
     Q5 -- "是，超出部分" --> R3["③ 重计算"]
-    Q5 -- "否" --> R5["⑤ kernel 效率<br/>GEMM 达峰率 + 非 GEMM 时长"]
+    Q5 -- "否" --> R5["<b>⑤ kernel 效率</b><br/>GEMM 达峰率 + 非 GEMM 时长"]
     Q1 -- "否" --> Q2{"通信 stream 有 NCCL kernel？"}
     Q2 -- "是" --> Q3{"kernel 名是 SendRecv？"}
     Q3 -- "是" --> R1["① PP 气泡"]
     Q3 -- "否，集合通信" --> Q4{"时长 ≈ 字节数 / 带宽？"}
     Q4 -- "是" --> R2["② 未重叠通信"]
-    Q4 -- "否，远超" --> R7["⑦ straggler<br/>多 rank trace 比计算时长 max − median 确认"]
+    Q4 -- "否，远超" --> R7["<b>⑦ straggler</b><br/>多 rank trace 比计算时长 max − median 确认"]
     Q2 -- "否，GPU 全空" --> Q6{"CPU 线程停在 DataLoader？"}
     Q6 -- "是" --> R4["④ 数据等待"]
     Q6 -- "否，在 Python / aten 调度" --> R6["⑥ CPU 发射开销"]

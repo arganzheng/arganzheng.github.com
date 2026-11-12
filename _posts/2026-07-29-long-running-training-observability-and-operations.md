@@ -209,16 +209,16 @@ Table: DCGM 的字段分组与用途
 %% 图：三层指标的分工：训练进程写本地 JSONL，sidecar 暴露给 Prometheus，DCGM 不经训练进程；TensorBoard / W&B 看按 step 的曲线
 flowchart TB
   subgraph node1["每个节点上（×128）"]
-    RK["rank 0..7 训练进程<br/>训练循环算任务层指标<br/>memory_stats 等进程层指标"]
-    JS["本地 JSONL<br/>signals/ · structured_logs/<br/>每 rank 一个文件，追加写"]
+    RK["<b>rank 0..7 训练进程</b><br/>训练循环算任务层指标<br/>memory_stats 等进程层指标"]
+    JS["<b>本地 JSONL</b><br/>signals/ · structured_logs/<br/>每 rank 一个文件，追加写"]
     EXP["jsonl_exporter.py :9400（sidecar）<br/>tail 本节点 8 个文件<br/>gauge 带 rank 标签"]
-    DCGM["dcgm-exporter<br/>从驱动读 DCGM_FI_*（硬件层）<br/>不经过训练进程"]
+    DCGM["<b>dcgm-exporter</b><br/>从驱动读 DCGM_FI_*（硬件层）<br/>不经过训练进程"]
     RK -->|"每 step 追加一行"| JS --> EXP
   end
-  MR["metrics rank（全任务一个）<br/>print_rank_last / _get_metrics_rank"]
-  TBW["TensorBoard / W&B<br/>按 step 的曲线：loss · grad norm · MFU<br/>算法与训练工程师看"]
-  PROM["Prometheus<br/>每 15–60 s 抓取；标签 job / rank / host / gpu<br/>一个节点一个抓取目标"]
-  AM["Alertmanager<br/>group_by job · inhibit_rules"]
+  MR["<b>metrics rank（全任务一个）</b><br/>print_rank_last / _get_metrics_rank"]
+  TBW["<b>TensorBoard / W&B</b><br/>按 step 的曲线：loss · grad norm · MFU<br/>算法与训练工程师看"]
+  PROM["<b>Prometheus</b><br/>每 15–60 s 抓取；标签 job / rank / host / gpu<br/>一个节点一个抓取目标"]
+  AM["<b>Alertmanager</b><br/>group_by job · inhibit_rules"]
   PAGE["page → 值班的人"]
   GF["Grafana 面板（dash/panels.md）"]
   RK -.->|"loss 跨 DP 归约后<br/>仅一个 rank 写"| MR --> TBW
@@ -562,20 +562,20 @@ Table: hang 的常见成因、FR 表现与修法
 ```mermaid
 %% 图：从 step 停止到归因的决策树：先排除重启中，再看有没有 Watchdog 超时，无则 py-spy，有则等 FR dump
 flowchart TB
-  S["step 计数停止<br/>（TrainingStepStalled）"] --> Q1{"restarts 面板 +1 /<br/>torchrun 有 death signal？"}
-  Q1 -->|"是"| R["不是 hang，是重启中<br/>看第九篇的恢复链路"]
+  S["<b>step 计数停止</b><br/>（TrainingStepStalled）"] --> Q1{"restarts 面板 +1 /<br/>torchrun 有 death signal？"}
+  Q1 -->|"是"| R["<b>不是 hang，是重启中</b><br/>看第九篇的恢复链路"]
   Q1 -->|"否"| Q2{"stderr 里有<br/>Watchdog caught timeout？"}
   Q2 -->|"否（未到超时或<br/>卡在 NCCL 之外）"| PS["py-spy dump 全部 rank"]
   PS --> Q3{"多数 rank 停在 wait，<br/>少数停在别处？"}
-  Q3 -->|"少数在 .item / print<br/>/ 锁 / DataLoader"| C1["代码或数据问题<br/>去掉同步点 · 换 handler · 第十篇"]
-  Q3 -->|"全部在 ncclCommInitRank"| C2["通信初始化卡住<br/>TCPStore · SOCKET_IFNAME · 网卡"]
-  Q2 -->|"是"| FR["等 dump（60–75 s）<br/>收集 comm_traces/ → torchfrtrace"]
+  Q3 -->|"少数在 .item / print<br/>/ 锁 / DataLoader"| C1["<b>代码或数据问题</b><br/>去掉同步点 · 换 handler · 第十篇"]
+  Q3 -->|"全部在 ncclCommInitRank"| C2["<b>通信初始化卡住</b><br/>TCPStore · SOCKET_IFNAME · 网卡"]
+  Q2 -->|"是"| FR["<b>等 dump（60–75 s）</b><br/>收集 comm_traces/ → torchfrtrace"]
   FR --> Q4{"fr_trace 结论"}
   Q4 -->|"missing ranks /<br/>TYPE_MISMATCH"| C3["rank 相关分支 · dataloader 耗尽<br/>· micro-batch 数不一致"]
-  Q4 -->|"Culprit rank<br/>SIZE_OR_SYNTAX"| C4["变长输入未 pad<br/>PP 收发配对错"]
+  Q4 -->|"Culprit rank<br/>SIZE_OR_SYNTAX"| C4["<b>变长输入未 pad</b><br/>PP 收发配对错"]
   Q4 -->|"No errors found"| HW{"dmesg XID / DCGM DBE /<br/>IB 计数器异常？"}
-  HW -->|"有"| C5["硬件：隔离节点<br/>从 checkpoint 重启"]
-  HW -->|"无"| C6["网络或未知：查 IB 连通性<br/>无结论则整体重启"]
+  HW -->|"有"| C5["<b>硬件：隔离节点</b><br/>从 checkpoint 重启"]
+  HW -->|"无"| C6["<b>网络或未知：查 IB 连通性</b><br/>无结论则整体重启"]
   classDef q fill:#fff8e1,stroke:#c58a00;
   classDef code fill:#e3f2fd,stroke:#1e6bb8;
   classDef env fill:#fdecea,stroke:#c62828;
@@ -668,17 +668,17 @@ fi
 ```mermaid
 %% 图：step 变慢的时间分解：先看是否少数 rank 拖全体，再从 DCGM 时钟、温度、链路错误区分 straggler 类型，全体变慢看数据与分配器
 flowchart TB
-  S["step 时间变长 / MFU 下滑<br/>（无报错）"] --> Q1{"topk(3, step_time) by rank<br/>集中在少数 rank？"}
+  S["<b>step 时间变长 / MFU 下滑</b><br/>（无报错）"] --> Q1{"topk(3, step_time) by rank<br/>集中在少数 rank？"}
   Q1 -->|"是：少数 rank 拖全体"| Q2{"那几张卡的 DCGM<br/>SM_CLOCK 掉 / TEMP 高 /<br/>NVLINK_ERROR 增长？"}
-  Q2 -->|"时钟 / 温度"| A1["降频 straggler<br/>隔离节点 · 报机房"]
-  Q2 -->|"链路错误"| A2["链路 straggler<br/>换端口 / 线缆 · 隔离"]
-  Q2 -->|"都正常"| A3["软件侧 straggler<br/>该 rank 的 py-spy / Nsight<br/>（日志、GC、锁）"]
+  Q2 -->|"时钟 / 温度"| A1["<b>降频 straggler</b><br/>隔离节点 · 报机房"]
+  Q2 -->|"链路错误"| A2["<b>链路 straggler</b><br/>换端口 / 线缆 · 隔离"]
+  Q2 -->|"都正常"| A3["<b>软件侧 straggler</b><br/>该 rank 的 py-spy / Nsight<br/>（日志、GC、锁）"]
   Q1 -->|"否：全体一致变慢"| Q3{"data_loading(%) 涨？"}
-  Q3 -->|"是"| A4["数据源变慢<br/>预取 · worker · 离线 tokenize"]
+  Q3 -->|"是"| A4["<b>数据源变慢</b><br/>预取 · worker · 离线 tokenize"]
   Q3 -->|"否"| Q4{"inactive_split_bytes 涨<br/>且 num_alloc_retries 非 0？"}
-  Q4 -->|"是"| A5["显存碎片<br/>expandable_segments · 固定形状"]
+  Q4 -->|"是"| A5["<b>显存碎片</b><br/>expandable_segments · 固定形状"]
   Q4 -->|"否"| Q5{"stdout 字节 / step 涨<br/>或 checkpoint 时长涨？"}
-  Q5 -->|"是"| A6["日志过多 / 存储变慢<br/>限流 warning · 查存储"]
+  Q5 -->|"是"| A6["<b>日志过多 / 存储变慢</b><br/>限流 warning · 查存储"]
   Q5 -->|"否"| A7["两份 trace 用 mfu_breakdown 做差<br/>comm_exposed 涨 = 网络"]
   classDef q fill:#fff8e1,stroke:#c58a00;
   classDef hw fill:#fdecea,stroke:#c62828;
@@ -779,14 +779,14 @@ Prometheus 规则的形式（完整文件见第八章的 `dash/alerts.yml`）：
 ```mermaid
 %% 图：任务状态与告警的对应：红色会 page，蓝色是自动迁移，黄色必须有人决定
 flowchart TB
-    RUN["正常训练<br/>step 前进，restarts 计数不变"]
-    STALL["停滞<br/>TrainingStepStalled 触发（page）<br/>等 Watchdog 超时 → FR dump"]
-    NAN["数值异常<br/>TrainingLossNotFinite（page）<br/>框架内建停止或人工停"]
-    XID["单卡硬件异常<br/>GpuXidError（page）<br/>任务可能仍在跑"]
-    RESTART["自动重启中<br/>TrainingRestarting 活跃<br/>抑制同 job 的 StepStalled"]
-    RESUME["从 checkpoint 恢复<br/>加载 + 回退重算<br/>数据位置校验"]
-    ESC["升级到二线<br/>人工介入：排除节点 / 修代码 / 回退数据"]
-    STOP["停任务<br/>连续 K 次重启失败（page）<br/>或 checkpoint 无法保存"]
+    RUN["<b>正常训练</b><br/>step 前进，restarts 计数不变"]
+    STALL["<b>停滞</b><br/>TrainingStepStalled 触发（page）<br/>等 Watchdog 超时 → FR dump"]
+    NAN["<b>数值异常</b><br/>TrainingLossNotFinite（page）<br/>框架内建停止或人工停"]
+    XID["<b>单卡硬件异常</b><br/>GpuXidError（page）<br/>任务可能仍在跑"]
+    RESTART["<b>自动重启中</b><br/>TrainingRestarting 活跃<br/>抑制同 job 的 StepStalled"]
+    RESUME["<b>从 checkpoint 恢复</b><br/>加载 + 回退重算<br/>数据位置校验"]
+    ESC["<b>升级到二线</b><br/>人工介入：排除节点 / 修代码 / 回退数据"]
+    STOP["<b>停任务</b><br/>连续 K 次重启失败（page）<br/>或 checkpoint 无法保存"]
 
     RUN -->|"step N 分钟未前进"| STALL
     RUN -->|"loss NaN / Inf"| NAN

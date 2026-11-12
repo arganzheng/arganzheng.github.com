@@ -298,12 +298,12 @@ fully_shard([norm, lm_head], ..., reshard_after_forward=False)    最后几层�
 %% 图：FSDP2 的对象关系：fully_shard 装上 FSDPState，FSDPParamGroup 驱动 unshard / reshard，三条专用 stream 做集合通信
 flowchart TB
     FS["fully_shard(block, mesh, mp_policy)<br/>block 的类换成 FSDPTransformerBlock"]
-    ST["FSDPState<br/>注册 _pre_forward / _post_forward hook<br/>/ _pre_backward hook"]
-    PG["FSDPParamGroup<br/>unshard / reshard / post_backward"]
+    ST["<b>FSDPState</b><br/>注册 _pre_forward / _post_forward hook<br/>/ _pre_backward hook"]
+    PG["<b>FSDPParamGroup</b><br/>unshard / reshard / post_backward"]
     PR["FSDPParam × k（w1 / w2 / w3 ...）<br/>每个持有一个 DTensor Shard(0) fp32<br/>unshard 后临时挂上完整 bf16"]
-    AG["all_gather_stream<br/>foreach_all_gather：分片转 bf16、<br/>拷进连续 buffer、一次 all-gather"]
-    RS["reduce_scatter_stream<br/>foreach_reduce：bf16 梯度拷进<br/>buffer、fp32 reduce-scatter"]
-    AR["all_reduce_stream<br/>仅 HSDP：dp_replicate 维 all-reduce"]
+    AG["<b>all_gather_stream</b><br/>foreach_all_gather：分片转 bf16、<br/>拷进连续 buffer、一次 all-gather"]
+    RS["<b>reduce_scatter_stream</b><br/>foreach_reduce：bf16 梯度拷进<br/>buffer、fp32 reduce-scatter"]
+    AR["<b>all_reduce_stream</b><br/>仅 HSDP：dp_replicate 维 all-reduce"]
     FS --> ST --> PG --> PR
     PR ~~~ AG
     AG ~~~ RS

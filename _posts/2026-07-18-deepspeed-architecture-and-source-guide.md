@@ -219,10 +219,10 @@ DeepSpeedEngine.__init__
 flowchart TB
     subgraph MG["Megatron Core"]
         direction TB
-        MG_S["schedules.py<br/>经 4 个回调驱动 DDP"]
-        MG_D["DistributedDataParallel<br/>_ParamAndGradBuffer<br/>梯度 hook / reduce-scatter<br/>执行参数 all-gather"]
-        MG_O["DistributedOptimizer<br/>fp32 主参数 $$1/N_d$$ 分片<br/>Adam 后发起 all-gather"]
-        MG_M["模型层：core/transformer<br/>必须用它的层写"]
+        MG_S["<b>schedules.py</b><br/>经 4 个回调驱动 DDP"]
+        MG_D["<b>DistributedDataParallel</b><br/>_ParamAndGradBuffer<br/>梯度 hook / reduce-scatter<br/>执行参数 all-gather"]
+        MG_O["<b>DistributedOptimizer</b><br/>fp32 主参数 $$1/N_d$$ 分片<br/>Adam 后发起 all-gather"]
+        MG_M["<b>模型层：core/transformer</b><br/>必须用它的层写"]
         MG_S --> MG_D
         MG_D <--> MG_O
         MG_D --> MG_M
@@ -230,10 +230,10 @@ flowchart TB
     end
     subgraph DS["DeepSpeed"]
         direction TB
-        DS_E["DeepSpeedEngine<br/>forward / backward / step<br/>判断梯度累积边界"]
-        DS_Z["ZeRO 优化器包装类<br/>stage_1_and_2 / stage3<br/>分片 + hook + 全部通信"]
-        DS_U["用户 optimizer<br/>只看到 fp32 分区"]
-        DS_M["任意 nn.Module，零侵入<br/>Stage 3 下参数是空壳"]
+        DS_E["<b>DeepSpeedEngine</b><br/>forward / backward / step<br/>判断梯度累积边界"]
+        DS_Z["<b>ZeRO 优化器包装类</b><br/>stage_1_and_2 / stage3<br/>分片 + hook + 全部通信"]
+        DS_U["<b>用户 optimizer</b><br/>只看到 fp32 分区"]
+        DS_M["<b>任意 nn.Module，零侵入</b><br/>Stage 3 下参数是空壳"]
         DS_E --> DS_Z
         DS_Z --> DS_U
         DS_E --> DS_M
@@ -241,10 +241,10 @@ flowchart TB
     end
     subgraph TT["torchtitan"]
         direction TB
-        TT_T["Trainer.train_step<br/>无显式集合通信"]
-        TT_F["fully_shard（FSDP2）<br/>hook 内 unshard / reshard<br/>reduce-scatter，全部通信"]
-        TT_O["torch.optim.AdamW<br/>普通优化器，更新 fp32 分片"]
-        TT_M["Module 协议 + ShardingConfig<br/>参数是 DTensor"]
+        TT_T["<b>Trainer.train_step</b><br/>无显式集合通信"]
+        TT_F["<b>fully_shard（FSDP2）</b><br/>hook 内 unshard / reshard<br/>reduce-scatter，全部通信"]
+        TT_O["<b>torch.optim.AdamW</b><br/>普通优化器，更新 fp32 分片"]
+        TT_M["<b>Module 协议 + ShardingConfig</b><br/>参数是 DTensor"]
         TT_T --> TT_F
         TT_T --> TT_O
         TT_F --> TT_M

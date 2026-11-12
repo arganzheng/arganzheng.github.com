@@ -155,25 +155,25 @@ Table: 五种 spike 成因的信号指纹
 ```mermaid
 %% 图：loss spike 归因的决策树：先看是否发散，再依次看 logit 增长、param norm 增速、单 rank 的坏数据、优化器状态
 flowchart TB
-    S["loss 单步跳升<br/>grad norm 同步跳 > 3×"] --> Q0{"loss 已 NaN<br/>或持续上升不回头?"}
+    S["<b>loss 单步跳升</b><br/>grad norm 同步跳 > 3×"] --> Q0{"loss 已 NaN<br/>或持续上升不回头?"}
     Q0 -->|是| DIV["发散：先回退，再归因"]
     Q0 -->|否| Q1{"spike 前 max attention logit<br/>单调上升、越过 ~100?"}
     DIV --> Q1
     Q1 -->|是| C3["成因三：logit 增长"]
-    C3 --> A3["开 QK-LayerNorm / qk_clip<br/>回退到上升开始之前"]
+    C3 --> A3["<b>开 QK-LayerNorm / qk_clip</b><br/>回退到上升开始之前"]
     Q1 -->|否| Q2{"param norm 增速变快<br/>且 grad norm 缓升?"}
     Q2 -->|是| C1["成因一：学习率"]
     C1 --> A1["降 LR / 加长 warmup / 查调度拐点<br/>回退到异常开始之前重训"]
     Q2 -->|否| Q3{"global_max_loss 某个 rank<br/>远高于 avg?"}
     Q3 -->|是| C4["成因四：坏数据"]
-    C4 --> A4["反查该 rank 那一步的样本<br/>回退 + 跳过；特征加进过滤规则"]
+    C4 --> A4["<b>反查该 rank 那一步的样本</b><br/>回退 + 跳过；特征加进过滤规则"]
     Q3 -->|否| Q4{"spike 前 grad norm<br/>有一段低于正常的平台?"}
     Q4 -->|是| C5["成因五：优化器状态"]
     C5 --> A5["回退 ~100 步 + 跳过 200–500 batch<br/>让状态与数据错相"]
     Q4 -->|否| Q5{"单步跳、立刻回落<br/>num_zeros_in_grad 异常?"}
     Q5 -->|是| C2["成因二：bf16 精度"]
-    C2 --> A2["通常不处理<br/>核对第三章的精度纪律检查表"]
-    Q5 -->|否| W["瞬时 spike：观察窗内等待<br/>多数 50–100 步内自行回落"]
+    C2 --> A2["<b>通常不处理</b><br/>核对第三章的精度纪律检查表"]
+    Q5 -->|否| W["<b>瞬时 spike：观察窗内等待</b><br/>多数 50–100 步内自行回落"]
     classDef cause fill:#fde9d9,stroke:#c0504d;
     classDef action fill:#e2efda,stroke:#548235;
     classDef ask fill:#fff2cc,stroke:#bf9000;
@@ -423,21 +423,21 @@ Table: 每步都应记录的信号清单
 flowchart TB
     subgraph OFF["离线，一次性（CPU 集群）"]
         J["JSONL 文本"]
-        P["tools/preprocess_data.py<br/>tokenize + append EOD"]
-        BIN[".bin：token id 裸字节<br/>.idx：长度 / 偏移 / 文档边界"]
+        P["<b>tools/preprocess_data.py</b><br/>tokenize + append EOD"]
+        BIN["<b>.bin：token id 裸字节</b><br/>.idx：长度 / 偏移 / 文档边界"]
     end
     subgraph R0["启动时，仅 rank 0（helpers.cpp），其余 rank 等待"]
-        IDX["GPTDataset 三索引<br/>document / sample / shuffle"]
-        BL["BlendedDataset 两索引<br/>dataset_index / dataset_sample_index"]
-        CACHE["path_to_cache/*.npy<br/>文件名含全部配置的哈希"]
+        IDX["<b>GPTDataset 三索引</b><br/>document / sample / shuffle"]
+        BL["<b>BlendedDataset 两索引</b><br/>dataset_index / dataset_sample_index"]
+        CACHE["<b>path_to_cache/*.npy</b><br/>文件名含全部配置的哈希"]
     end
     subgraph ALL["每个 rank，启动时"]
         MM["numpy.load(mmap_mode=r) 索引<br/>+ memmap .bin，只读访问到的页"]
-        SMP["MegatronPretrainingSampler<br/>从 consumed_train_samples 起数<br/>切 #91;dp_rank×mbs, (dp_rank+1)×mbs) 给本 rank"]
+        SMP["<b>MegatronPretrainingSampler</b><br/>从 consumed_train_samples 起数<br/>切 #91;dp_rank×mbs, (dp_rank+1)×mbs) 给本 rank"]
     end
     subgraph WK["DataLoader worker（每 rank 2–8 个进程）"]
-        GI["GPTDataset.__getitem__<br/>三索引查表 → .bin O(1) 读 → mask / position_ids"]
-        Q["pin_memory 输出队列<br/>prefetch_factor × num_workers 个 batch 在飞"]
+        GI["<b>GPTDataset.__getitem__</b><br/>三索引查表 → .bin O(1) 读 → mask / position_ids"]
+        Q["<b>pin_memory 输出队列</b><br/>prefetch_factor × num_workers 个 batch 在飞"]
     end
     subgraph TR["训练进程（PP 首尾 stage 读，TP 组内 broadcast）"]
         GB["get_batch() → H2D → train_step"]

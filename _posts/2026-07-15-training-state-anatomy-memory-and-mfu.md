@@ -366,19 +366,19 @@ Table: 每层为反向保留的张量与每 token 字节
 %% 图：一层为反向保留的激活：橙色六项 10h 切不开，蓝色四个节点 24h 可按 TP 切开，softmax 一项是 5as
 flowchart TB
     subgraph attn["LayerNorm 1 + 注意力块：保留 13h + 5as"]
-        LN1["LayerNorm 1<br/>保留输入 2h"]
-        QKV["Q/K/V 投影<br/>保留输入 2h"]
-        SC["$$QK^T$$<br/>保留 Q、K 共 4h"]
-        SM["softmax + attn dropout<br/>保留 softmax 输出 2as、mask 1as、dropout 输出 2as"]
-        PV["PV → 输出投影<br/>保留 V 2h、输出投影的输入 2h"]
-        DO1["输出 dropout<br/>保留 mask 1h"]
+        LN1["<b>LayerNorm 1</b><br/>保留输入 2h"]
+        QKV["<b>Q/K/V 投影</b><br/>保留输入 2h"]
+        SC["<b>$$QK^T$$</b><br/>保留 Q、K 共 4h"]
+        SM["<b>softmax + attn dropout</b><br/>保留 softmax 输出 2as、mask 1as、dropout 输出 2as"]
+        PV["<b>PV → 输出投影</b><br/>保留 V 2h、输出投影的输入 2h"]
+        DO1["<b>输出 dropout</b><br/>保留 mask 1h"]
         LN1 --> QKV --> SC --> SM --> PV --> DO1
     end
     subgraph mlp["LayerNorm 2 + MLP 块：保留 21h"]
-        LN2["LayerNorm 2<br/>保留输入 2h"]
-        FC1["第一个线性层 h→4h<br/>保留输入 2h"]
-        GE["GELU → 第二个线性层 4h→h<br/>保留 GELU 输入 8h、第二个线性层的输入 8h"]
-        DO2["dropout<br/>保留 mask 1h"]
+        LN2["<b>LayerNorm 2</b><br/>保留输入 2h"]
+        FC1["<b>第一个线性层 h→4h</b><br/>保留输入 2h"]
+        GE["<b>GELU → 第二个线性层 4h→h</b><br/>保留 GELU 输入 8h、第二个线性层的输入 8h"]
+        DO2["<b>dropout</b><br/>保留 mask 1h"]
         LN2 --> FC1 --> GE --> DO2
     end
     DO1 -- "残差相加" --> LN2
@@ -537,8 +537,8 @@ flowchart TB
     end
     subgraph bwd["反向：2 个 GEMM，每参数 4 FLOP"]
         dY["上游梯度 $$\partial y$$ #91;tokens, k#93;"]
-        dX["dgrad：$$\partial x = \partial y \, W^T$$<br/>2nk FLOP / token，传给前一层"]
-        dW["wgrad：$$\partial W = x^T \partial y$$<br/>2nk FLOP / token，累加进梯度 buffer"]
+        dX["<b>dgrad：$$\partial x = \partial y \, W^T$$</b><br/>2nk FLOP / token，传给前一层"]
+        dW["<b>wgrad：$$\partial W = x^T \partial y$$</b><br/>2nk FLOP / token，累加进梯度 buffer"]
         dY --> dX
         dY --> dW
     end
