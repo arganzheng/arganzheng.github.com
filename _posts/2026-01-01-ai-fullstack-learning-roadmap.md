@@ -35,18 +35,18 @@ Table: 三张地图的分工：面向的人、一句话与已写成的系列
 flowchart LR
     subgraph ALGO["造模型 · 算法地图"]
         direction TB
-        DATA["数据工程<br/>采集 · 去重 · 配比 · tokenizer"]
-        PRE["预训练<br/>结构 · scaling law · 配方"]
-        POST["后训练<br/>SFT · RL · 蒸馏"]
-        EVAL["评测<br/>benchmark · judge · 污染"]
+        DATA["<b>数据工程</b><br/>采集 · 去重 · 配比 · tokenizer"]
+        PRE["<b>预训练</b><br/>结构 · scaling law · 配方"]
+        POST["<b>后训练</b><br/>SFT · RL · 蒸馏"]
+        EVAL["<b>评测</b><br/>benchmark · judge · 污染"]
         DATA --> PRE --> POST --> EVAL
     end
     subgraph INFRA["跑模型 · Infra 地图"]
         direction TB
         TRAIN["训练引擎<br/>并行 · checkpoint · 容错"]
-        SERVE["推理引擎<br/>调度 · KV · 多卡"]
-        PLAT["平台<br/>调度 · 切分 · 网关 · 成本"]
-        KERN["kernel 与通信<br/>CUDA · NCCL · RDMA"]
+        SERVE["<b>推理引擎</b><br/>调度 · KV · 多卡"]
+        PLAT["<b>平台</b><br/>调度 · 切分 · 网关 · 成本"]
+        KERN["<b>kernel 与通信</b><br/>CUDA · NCCL · RDMA"]
         KERN --> TRAIN
         KERN --> SERVE
         TRAIN --> PLAT
@@ -54,9 +54,9 @@ flowchart LR
     end
     subgraph APP["用模型 · 应用地图"]
         direction TB
-        CTX["上下文<br/>prompt · RAG · memory · 工具"]
-        AGENT["编排与运行时<br/>agent 循环 · 状态 · 人在环"]
-        PROD["产品与运营<br/>评测 · 成本 · 安全 · 反馈"]
+        CTX["<b>上下文</b><br/>prompt · RAG · memory · 工具"]
+        AGENT["<b>编排与运行时</b><br/>agent 循环 · 状态 · 人在环"]
+        PROD["<b>产品与运营</b><br/>评测 · 成本 · 安全 · 反馈"]
         CTX --> AGENT --> PROD
     end
     EVAL -- "模型权重" --> SERVE

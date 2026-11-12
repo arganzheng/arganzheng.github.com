@@ -70,9 +70,9 @@ tags: [Blog, Demo, Slides]
 ```mermaid
 %% 图：幻灯片与讲稿的关系：slides/ 下的 Markdown 生成播放页与全屏页，keynote 布局的文章用 iframe 嵌入全屏页
 flowchart LR
-    S["slides/my-talk.md"] -- "layout: slides" --> L["/slides/my-talk.html<br/>缩略图 + 播放器 + 评论"]
-    S -- "自动生成" --> D["/slides/my-talk/play.html<br/>全屏幻灯片"]
-    P["_posts/2026-xx-xx-my-talk.md"] -- "layout: keynote<br/>iframe: /slides/my-talk/play.html" --> K["/my-talk.html<br/>幻灯片 + 讲稿 + 评论"]
+    S["slides/my-talk.md"] -- "layout: slides" --> L["<b>/slides/my-talk.html</b><br/>缩略图 + 播放器 + 评论"]
+    S -- "自动生成" --> D["<b>/slides/my-talk/play.html</b><br/>全屏幻灯片"]
+    P["_posts/2026-xx-xx-my-talk.md"] -- "layout: keynote<br/>iframe: /slides/my-talk/play.html" --> K["<b>/my-talk.html</b><br/>幻灯片 + 讲稿 + 评论"]
     D -. 被嵌入 .-> L
     D -. 被嵌入 .-> K
     classDef c fill:#f6f8fa,stroke:#d0d7de,color:#24292f;
