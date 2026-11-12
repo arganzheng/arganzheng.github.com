@@ -162,7 +162,7 @@ flowchart TB
         direction TB
         h8["HBM：FP8/INT8 权重 + scale<br/>读 1/2 的字节"] --> tc8["FP8/INT8 Tensor Core GEMM<br/>算力 2×，累加 FP32/INT32"]
         a8["activations 在线量化<br/>per-token 算 max → FP8/INT8<br/>（SmoothQuant 先 ÷ s）"] --> tc8
-        tc8 --> ep["epilogue：× s_w × s_a<br/>乘回 BF16"]
+        tc8 --> ep["epilogue：× $$s_w$$ × $$s_a$$<br/>乘回 BF16"]
         ep --> o8["BF16 输出"]
     end
     w4 ~~~ w8
