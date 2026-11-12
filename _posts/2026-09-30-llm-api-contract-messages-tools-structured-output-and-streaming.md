@@ -61,11 +61,11 @@ Anthropic 的 `system` 也是块列表，这是它的 `cache_control` 能精确�
 flowchart LR
     subgraph IN["一条 user 消息"]
         direction TB
-        I1["文本块<br/>「这张发票的总额是多少？」"] ~~~ I2["图片块<br/>base64 / URL，折成几百到一千多 token"] ~~~ I3["文件块<br/>PDF"]
+        I1["<b>文本块</b><br/>「这张发票的总额是多少？」"] ~~~ I2["<b>图片块</b><br/>base64 / URL，折成几百到一千多 token"] ~~~ I3["<b>文件块</b><br/>PDF"]
     end
     subgraph OUT["一条 assistant 消息"]
         direction TB
-        O1["思考块<br/>thinking / reasoning（第三篇）"] ~~~ O2["文本块<br/>「我先查两个系统」"] ~~~ O3["工具调用块 #1<br/>tool_use / function_call：id · name · 参数"] ~~~ O4["工具调用块 #2<br/>并行调用 = 同一条消息里多个块"]
+        O1["<b>思考块</b><br/>thinking / reasoning（第三篇）"] ~~~ O2["<b>文本块</b><br/>「我先查两个系统」"] ~~~ O3["<b>工具调用块 #1</b><br/>tool_use / function_call：id · name · 参数"] ~~~ O4["工具调用块 #2<br/>并行调用 = 同一条消息里多个块"]
     end
     IN --> M["模型"] --> OUT
     classDef in fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -147,11 +147,11 @@ Table: 结构化输出的三个层次
 ```mermaid
 %% 图：约束解码怎么工作，以及它的保证边界——schema 编译成自动机，每一步采样前把不合法的 token 概率置零，所以形状是硬保证；但填进字段里的值仍是模型的续写，语义、拒答、推理质量都在保证之外
 flowchart TB
-    S["JSON schema<br/>refund_eligible: bool<br/>reason: string"] --> A["编译成自动机<br/>（首次使用有编译延迟）"]
-    A --> D["每一步采样：<br/>自动机不允许的 token 概率置零"]
-    D --> O["输出一定符合 schema<br/>{ refund_eligible: true,<br/>  reason: 购买 90 天内 }"]
+    S["<b>JSON schema</b><br/>refund_eligible: bool<br/>reason: string"] --> A["<b>编译成自动机</b><br/>（首次使用有编译延迟）"]
+    A --> D["<b>每一步采样：</b><br/>自动机不允许的 token 概率置零"]
+    D --> O["<b>输出一定符合 schema</b><br/>{ refund_eligible: true,<br/>  reason: 购买 90 天内 }"]
     O --> G1["保证了：字段齐 · 类型对 · 枚举在范围内"]
-    O --> G2["没保证：true 是不是对的？<br/>「90 天」是不是编的？<br/>该拒答时会不会填个默认值？"]
+    O --> G2["<b>没保证：true 是不是对的？</b><br/>「90 天」是不是编的？<br/>该拒答时会不会填个默认值？"]
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
@@ -200,15 +200,15 @@ Table: 四家流式接口的事件类型
 ```mermaid
 %% 图：一次流式响应的事件时间线与四层超时——连接超时管到连上、首事件超时管到第一个事件（TTFT）、事件间超时管生成卡住、总超时兜底；工具参数分片要等 done 事件再解析，用量只在末尾出现
 flowchart TB
-    C["建连接"] --> E0["开始事件<br/>message_start /<br/>response.created"]
-    E0 --> E1["文本增量 × n<br/>按增量拼接"]
-    E1 --> E2["工具参数增量 × m<br/>分片字符串，先攒着"]
-    E2 --> E3["工具参数 done<br/>此时才 json.loads"]
-    E3 --> E4["用量事件<br/>四类 token 在这里"]
+    C["建连接"] --> E0["<b>开始事件</b><br/>message_start /<br/>response.created"]
+    E0 --> E1["<b>文本增量 × n</b><br/>按增量拼接"]
+    E1 --> E2["<b>工具参数增量 × m</b><br/>分片字符串，先攒着"]
+    E2 --> E3["<b>工具参数 done</b><br/>此时才 json.loads"]
+    E3 --> E4["<b>用量事件</b><br/>四类 token 在这里"]
     E4 --> E5["结束事件"]
     T1["连接超时"] -.- C
-    T2["首事件超时<br/>（TTFT 异常 = 排队或长 prefill）"] -.- E0
-    T3["事件间超时<br/>（生成卡住）"] -.- E1
+    T2["<b>首事件超时</b><br/>（TTFT 异常 = 排队或长 prefill）"] -.- E0
+    T3["<b>事件间超时</b><br/>（生成卡住）"] -.- E1
     T4["总超时（兜底，不能是唯一的一层）"] -.- E5
     classDef ev fill:#fff7e0,stroke:#c98a00,color:#222
     classDef to fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -233,7 +233,7 @@ flowchart TB
     end
     subgraph SS["服务端状态：Responses · Interactions"]
         direction LR
-        S1["只送新内容 + previous_response_id"] --> S2["服务端拼历史<br/>默认 store: true，保留 30 天"] --> S3["模型读完整上下文"]
+        S1["只送新内容 + previous_response_id"] --> S2["<b>服务端拼历史</b><br/>默认 store: true，保留 30 天"] --> S3["模型读完整上下文"]
     end
     CS ~~~ SS
     SS -.- X["都要付完整输入的钱（缓存命中部分打折）<br/>差别只在谁传历史、谁存历史、能不能换供应商"]
@@ -296,13 +296,13 @@ Table: 适配层的五个职责
 ```mermaid
 %% 图：中间层的位置——业务代码只看到一种内部的消息、工具调用、流式事件和用量表示；四家适配器各一个文件，契约变更只改对应文件；原始请求与响应从这里记进 trace
 flowchart TB
-    B["业务代码 / agent 循环<br/>只认内部表示：Message · ToolCall · StreamEvent · Usage"] --> M
+    B["<b>业务代码 / agent 循环</b><br/>只认内部表示：Message · ToolCall · StreamEvent · Usage"] --> M
     subgraph M["中间层：五个职责"]
         direction LR
-        M1["归一化消息"] ~~~ M2["归一化工具协议<br/>字符串 ↔ 对象"] ~~~ M3["归一化流式事件"] ~~~ M4["归一化用量<br/>四类 token 分开记"] ~~~ M5["记录原始请求 / 响应 → trace"]
+        M1["归一化消息"] ~~~ M2["<b>归一化工具协议</b><br/>字符串 ↔ 对象"] ~~~ M3["归一化流式事件"] ~~~ M4["<b>归一化用量</b><br/>四类 token 分开记"] ~~~ M5["记录原始请求 / 响应 → trace"]
     end
-    M --> A1["OpenAI 适配器<br/>Responses"] & A2["Anthropic 适配器<br/>Messages"] & A3["Google 适配器<br/>Interactions"] & A4["DeepSeek 适配器<br/>OpenAI 格式"]
-    CH["2026 年的契约变更：<br/>outputs → steps · Assistants 关闭 · 强制工具调用报错"] -.->|"只改这一层"| A1 & A2 & A3
+    M --> A1["<b>OpenAI 适配器</b><br/>Responses"] & A2["<b>Anthropic 适配器</b><br/>Messages"] & A3["<b>Google 适配器</b><br/>Interactions"] & A4["<b>DeepSeek 适配器</b><br/>OpenAI 格式"]
+    CH["<b>2026 年的契约变更：</b><br/>outputs → steps · Assistants 关闭 · 强制工具调用报错"] -.->|"只改这一层"| A1 & A2 & A3
     classDef biz fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef mid fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ad fill:#eefaf0,stroke:#4d9a5c,color:#222

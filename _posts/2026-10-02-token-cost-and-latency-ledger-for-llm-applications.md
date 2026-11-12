@@ -71,7 +71,7 @@ prompt caching 缓存的是**前缀的 KV cache**：模型读过一段上下文�
 ```mermaid
 %% 图：缓存前缀的顺序与失效的连锁——tools → system → 历史消息 → 当前消息，前缀逐字节相同才命中；改动任何一段，它后面的全部失效；把时间戳写进 system 开头，等于每分钟从头失效一次
 flowchart TB
-    T["① tools<br/>工具定义"] --> S["② system<br/>指令 · few-shot"] --> H["③ 历史消息<br/>只追加"] --> U["④ 当前消息 + 检索结果<br/>每次都不同，本来就不缓存"]
+    T["<b>① tools</b><br/>工具定义"] --> S["<b>② system</b><br/>指令 · few-shot"] --> H["<b>③ 历史消息</b><br/>只追加"] --> U["<b>④ 当前消息 + 检索结果</b><br/>每次都不同，本来就不缓存"]
     T -.->|"改一个工具的描述"| X1["② ③ ④ 全部失效"]
     S -.->|"system 开头写「今天 14:23」"| X2["③ ④ 每分钟失效一次"]
     H -.->|"把中间一轮换成摘要"| X3["从那一轮起失效"]
@@ -145,7 +145,7 @@ flowchart TB
         direction TB
         O1["20 步 × 3,000 思考 + 300 调用 ≈ 6.6 万 token"] --> O2["不能缓存，全价"] --> O3["6.6 万 token × 输出价（= 5 × 输入价）"]
     end
-    I3 & O3 --> EQ["两边差不多：都要看<br/>输入侧靠缓存 + 压缩，输出侧靠 effort"]
+    I3 & O3 --> EQ["<b>两边差不多：都要看</b><br/>输入侧靠缓存 + 压缩，输出侧靠 effort"]
     classDef inp fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef outp fill:#fdecea,stroke:#c0392b,color:#222
     classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -235,10 +235,10 @@ xychart-beta
 %%{init: {"flowchart": {"wrappingWidth": 420}}}%%
 %% 图：一次调用的时间线：排队 → prefill → 思考 → 首个可见 token（TTFT 结束）→ decode → 最后一个 token
 flowchart TB
-    Q["排队<br/>供应商侧的负载 · 你的限流队列"] --> P["prefill<br/>读完整上下文，∝ 未缓存输入长度<br/>命中缓存的前缀跳过"]
-    P --> T["思考<br/>∝ 思考 token 数 × 每 token 时间<br/>由 effort 决定"]
+    Q["<b>排队</b><br/>供应商侧的负载 · 你的限流队列"] --> P["<b>prefill</b><br/>读完整上下文，∝ 未缓存输入长度<br/>命中缓存的前缀跳过"]
+    P --> T["<b>思考</b><br/>∝ 思考 token 数 × 每 token 时间<br/>由 effort 决定"]
     T --> F(["首个可见 token（TTFT 在此结束）"])
-    F --> D["decode<br/>每 token 一步，速度由内存带宽决定<br/>总时长 ∝ 输出 token 数"]
+    F --> D["<b>decode</b><br/>每 token 一步，速度由内存带宽决定<br/>总时长 ∝ 输出 token 数"]
     D --> E(["最后一个 token（总时长）"])
 
     classDef seg fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
@@ -279,12 +279,12 @@ p50 与 p99 的差通常来自排队与重试，不来自模型。一个 p50 = 2
 ```mermaid
 %% 图：从每 token 价到每任务成本——一次任务 = 不确定步数的调用，每次调用 = 五项 token × 价目；在 trace 里按任务聚合后看的是分布：p50 是正常轨迹，p95 是走了弯路的那 5%，常是 p50 的 5–10 倍
 flowchart TB
-    P["价目表<br/>每百万 token 的五个价"] --> C["一次调用的成本<br/>五项 usage × 单价"]
-    C --> T["一次任务<br/>= 模型决定的 N 次调用<br/>N 不确定"]
-    T --> A["trace 里按 task_id 聚合<br/>（L5）"]
-    A --> D1["p50：正常轨迹<br/>例：8 步，0.12 美元"]
-    A --> D2["p95：走弯路的轨迹<br/>例：40 步，0.9 美元"]
-    D1 & D2 --> B["预算与降级按 p95 定<br/>比模型时比每任务成本，不比每 token 价"]
+    P["<b>价目表</b><br/>每百万 token 的五个价"] --> C["<b>一次调用的成本</b><br/>五项 usage × 单价"]
+    C --> T["<b>一次任务</b><br/>= 模型决定的 N 次调用<br/>N 不确定"]
+    T --> A["<b>trace 里按 task_id 聚合</b><br/>（L5）"]
+    A --> D1["<b>p50：正常轨迹</b><br/>例：8 步，0.12 美元"]
+    A --> D2["<b>p95：走弯路的轨迹</b><br/>例：40 步，0.9 美元"]
+    D1 & D2 --> B["<b>预算与降级按 p95 定</b><br/>比模型时比每任务成本，不比每 token 价"]
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222

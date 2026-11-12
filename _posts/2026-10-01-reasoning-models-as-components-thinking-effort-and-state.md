@@ -35,10 +35,10 @@ Table: 四家的推理维度
 ```mermaid
 %% 图：一轮推理调用的解剖：思考阶段生成不可见的 thinking token，产物作为状态必须在下一轮携带，effort 控制思考的量级
 flowchart TB
-    IN["输入：完整历史（含上一轮的 thinking / reasoning 状态）+ 本轮 user 或 tool result"] --> THINK["思考阶段<br/>生成 thinking token：不可见 / 摘要<br/>按输出价计费 · 占 TTFT"]
-    THINK --> OUT["可见输出<br/>文本 或 tool_call"]
-    OUT --> STATE["返回给应用的状态<br/>thinking block（Anthropic）/ reasoning item（OpenAI）/ thought signature（Gemini）"]
-    STATE --> NEXT["下一轮请求必须携带它<br/>（DeepSeek 例外：不携带）"]
+    IN["输入：完整历史（含上一轮的 thinking / reasoning 状态）+ 本轮 user 或 tool result"] --> THINK["<b>思考阶段</b><br/>生成 thinking token：不可见 / 摘要<br/>按输出价计费 · 占 TTFT"]
+    THINK --> OUT["<b>可见输出</b><br/>文本 或 tool_call"]
+    OUT --> STATE["<b>返回给应用的状态</b><br/>thinking block（Anthropic）/ reasoning item（OpenAI）/ thought signature（Gemini）"]
+    STATE --> NEXT["<b>下一轮请求必须携带它</b><br/>（DeepSeek 例外：不携带）"]
     EFF["effort / thinking_level"] -.->|"控制思考 token 的量级"| THINK
     NEXT -.-> IN
 
@@ -97,11 +97,11 @@ xychart-beta
 flowchart TB
     subgraph A["非推理模型：max_tokens = 1024"]
         direction LR
-        A1["回答 ≈ 600 token<br/>JSON 完整"] --> A2["还剩 424，stop_reason = end_turn"]
+        A1["<b>回答 ≈ 600 token</b><br/>JSON 完整"] --> A2["还剩 424，stop_reason = end_turn"]
     end
     subgraph B["推理模型：同样的 max_tokens = 1024"]
         direction LR
-        B1["思考 900 token<br/>（不可见，但算在上限里）"] --> B2["回答只剩 124<br/>JSON 写到一半"] --> B3["stop_reason = max_tokens"]
+        B1["<b>思考 900 token</b><br/>（不可见，但算在上限里）"] --> B2["<b>回答只剩 124</b><br/>JSON 写到一半"] --> B3["stop_reason = max_tokens"]
     end
     A ~~~ B
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -200,11 +200,11 @@ Table: 四家推理状态的传递机制
 flowchart TB
     subgraph CHAIN["一条思考链：中间不能动"]
         direction TB
-        T1["思考块 ①<br/>（带签名）"] --> C1["工具调用"] --> R1["工具结果<br/>200 KB"] --> T2["思考块 ②<br/>校验①之前的历史未变"] --> ANS["最终回答"]
+        T1["<b>思考块 ①</b><br/>（带签名）"] --> C1["工具调用"] --> R1["<b>工具结果</b><br/>200 KB"] --> T2["<b>思考块 ②</b><br/>校验①之前的历史未变"] --> ANS["最终回答"]
     end
-    ANS --> CUT["✂ 边界：这里可以压缩<br/>对整段做摘要、开新链"]
+    ANS --> CUT["<b>✂ 边界：这里可以压缩</b><br/>对整段做摘要、开新链"]
     CUT --> NEXT["下一条思考链…"]
-    X["把 R1 换成摘要？<br/>→ ② 签名不匹配，被拒绝或丢弃"] -.-> R1
+    X["<b>把 R1 换成摘要？</b><br/>→ ② 签名不匹配，被拒绝或丢弃"] -.-> R1
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -231,9 +231,9 @@ prompt caching 缓存的是**输入前缀**（第四篇）。思考 token 是输
 flowchart TB
     subgraph R1["第 k 轮"]
         direction TB
-        H["历史（含前 k−1 轮的思考块）<br/>输入价 · 命中缓存打 0.1 折"] --> NEW["本轮新思考 3,000 token<br/>输出价 · 全价 · 不进任何缓存"] --> OUT["本轮回答 / tool_call<br/>输出价"]
+        H["<b>历史（含前 k−1 轮的思考块）</b><br/>输入价 · 命中缓存打 0.1 折"] --> NEW["<b>本轮新思考 3,000 token</b><br/>输出价 · 全价 · 不进任何缓存"] --> OUT["<b>本轮回答 / tool_call</b><br/>输出价"]
     end
-    R1 --> R2["第 k+1 轮：<br/>刚才的思考块并入历史，变成输入价"]
+    R1 --> R2["<b>第 k+1 轮：</b><br/>刚才的思考块并入历史，变成输入价"]
     E["只有一个办法减少它：调低 effort"] -.-> NEW
     classDef inp fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef outp fill:#fdecea,stroke:#c0392b,color:#222
