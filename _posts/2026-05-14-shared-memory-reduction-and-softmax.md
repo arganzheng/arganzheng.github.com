@@ -403,11 +403,11 @@ flowchart TB
     classDef r fill:#dcfce7,stroke:#15803d
     subgraph L1["级 1：每个 warp 用 5 步 shuffle 归约自己的 32 个值（无 shared、无 sync）"]
         direction LR
-        W0["warp 0<br/>32 → 1"]:::w ~~~ W1["warp 1<br/>32 → 1"]:::w ~~~ Wd["…"]:::w ~~~ W31["warp 31<br/>32 → 1"]:::w
+        W0["<b>warp 0</b><br/>32 → 1"]:::w ~~~ W1["<b>warp 1</b><br/>32 → 1"]:::w ~~~ Wd["…"]:::w ~~~ W31["<b>warp 31</b><br/>32 → 1"]:::w
     end
-    L1 -->|"lane 0 各写一个部分和"| SH["shared[32]：32 个部分和<br/>__syncthreads() ×1"]:::sh
-    SH -->|"warp 0 读 32 个值"| L2["级 2：warp 0 再 5 步 shuffle<br/>32 → 1"]:::w
-    L2 --> R["block 总和<br/>（warp 0 的所有 lane 都持有）"]:::r
+    L1 -->|"lane 0 各写一个部分和"| SH["<b>shared[32]：32 个部分和</b><br/>__syncthreads() ×1"]:::sh
+    SH -->|"warp 0 读 32 个值"| L2["<b>级 2：warp 0 再 5 步 shuffle</b><br/>32 → 1"]:::w
+    L2 --> R["<b>block 总和</b><br/>（warp 0 的所有 lane 都持有）"]:::r
 ```
 
 `__shfl_xor_sync` 的蝶形交换，以 8 个 lane 为例（实际 32 个 lane 5 步）：
@@ -728,12 +728,12 @@ flowchart TB
     classDef k fill:#dbeafe,stroke:#1d4ed8
     classDef k2 fill:#dcfce7,stroke:#15803d
     Q1{"dim_size ≤ 2048<br/>且 dim_size × sizeof(scalar_t) ≤ 8 KiB？"}:::q
-    Q1 -->|"是（BF16 到 2048，FP64 到 1024）"| WS["dispatch_softmax_forward<br/>warp-per-row：一行进一个 warp 的寄存器<br/>零 shared、零 __syncthreads()"]:::k2
+    Q1 -->|"是（BF16 到 2048，FP64 到 1024）"| WS["<b>dispatch_softmax_forward</b><br/>warp-per-row：一行进一个 warp 的寄存器<br/>零 shared、零 __syncthreads()"]:::k2
     Q1 -->|"否"| Q2{"每线程潜在寄存器数<br/>potential_reg_cnt < 10？"}:::q
-    Q2 -->|"是"| REG["cunn_SoftMaxForwardReg<br/>block-per-row，整行留在寄存器"]:::k
+    Q2 -->|"是"| REG["<b>cunn_SoftMaxForwardReg</b><br/>block-per-row，整行留在寄存器"]:::k
     Q2 -->|"否"| Q3{"整行放得进 shared？<br/>can_use_smem"}:::q
-    Q3 -->|"是"| SM["cunn_SoftMaxForwardSmem<br/>行暂存 shared，三遍在 shared 上做"]:::k
-    Q3 -->|"否"| GL["cunn_SoftMaxForward<br/>只用归约的 shared，三遍重读 global（L2 兜底）"]:::k
+    Q3 -->|"是"| SM["<b>cunn_SoftMaxForwardSmem</b><br/>行暂存 shared，三遍在 shared 上做"]:::k
+    Q3 -->|"否"| GL["<b>cunn_SoftMaxForward</b><br/>只用归约的 shared，三遍重读 global（L2 兜底）"]:::k
 ```
 
 **小行走 warp softmax**。`dispatch_softmax_forward`（`PersistentSoftmax.cuh`）在 `dim_size <= 2048` 且一行不超过 8 KiB 时被选中。它把 `dim_size` 向上取到 2 的幂 `next_power_of_two`，用 `log2_elements` 作为模板参数实例化 `softmax_warp_forward`：每个 warp 处理 `WARP_BATCH` 行（≤128 元素时 2 行，否则 1 行），每 lane 持有 `WARP_ITERATIONS = next_power_of_two / 32` 个元素在寄存器数组 `elements[WARP_BATCH][WARP_ITERATIONS]` 里；block 固定 128 线程 = 4 个 warp；max 和 sum 各用一次 `warp_reduce`：
@@ -815,10 +815,10 @@ flowchart TB
         direction LR
         B0["block y=0<br/>部分和 p0"]:::b ~~~ B1["block y=1<br/>部分和 p1"]:::b ~~~ Bd["…"]:::b ~~~ Bn["block y=n-1<br/>部分和 p(n-1)"]:::b
     end
-    blocks -->|"写 staging#91;y#93;，然后 __threadfence()"| ST["global staging buffer<br/>p0, p1, …, p(n-1)"]:::g
+    blocks -->|"写 staging#91;y#93;，然后 __threadfence()"| ST["<b>global staging buffer</b><br/>p0, p1, …, p(n-1)"]:::g
     ST --> AT["prev = atomicAdd(semaphores#91;x#93;, 1)<br/>原子只用来计数，不累加浮点"]:::g
-    AT -->|"prev < n-1"| EX["不是最后一个到达的 block<br/>直接退出"]:::gray
-    AT -->|"prev == n-1"| LAST["最后到达的 block<br/>读回全部 n 个部分和<br/>再做一次树形归约（顺序固定，结果确定）"]:::r
+    AT -->|"prev < n-1"| EX["<b>不是最后一个到达的 block</b><br/>直接退出"]:::gray
+    AT -->|"prev == n-1"| LAST["<b>最后到达的 block</b><br/>读回全部 n 个部分和<br/>再做一次树形归约（顺序固定，结果确定）"]:::r
     LAST --> OUT["写最终输出"]:::r
 ```
 

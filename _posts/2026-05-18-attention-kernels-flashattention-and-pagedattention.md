@@ -105,9 +105,9 @@ flowchart LR
     end
     subgraph fa["FlashAttention：一个 kernel，S/P 只存在于片上"]
         direction TB
-        q2["$$Q_i, K_j, V_j$$ tile<br/>（HBM → smem / 寄存器）"] --> g3["GEMM #1 → $$S_{ij}$$<br/>寄存器（FP32）"]
-        g3 --> sm2["online softmax → $$\tilde P_{ij}$$<br/>寄存器，同时更新 m, l"]
-        sm2 --> g4["GEMM #2：$$O_i \mathrel{+}= \tilde P_{ij} V_j$$<br/>寄存器累加器"]
+        q2["<b>$$Q_i, K_j, V_j$$ tile</b><br/>（HBM → smem / 寄存器）"] --> g3["<b>GEMM #1 → $$S_{ij}$$</b><br/>寄存器（FP32）"]
+        g3 --> sm2["<b>online softmax → $$\tilde P_{ij}$$</b><br/>寄存器，同时更新 m, l"]
+        sm2 --> g4["<b>GEMM #2：$$O_i \mathrel{+}= \tilde P_{ij} V_j$$</b><br/>寄存器累加器"]
         g4 -- "遍历完所有 j 后写 1 次" --> o2["O（HBM，1 MiB）"]
     end
     std ~~~ fa
@@ -416,14 +416,14 @@ v1 的并行度是 `num_seqs × num_heads` 个 block。decode 时 batch 8、32 h
 flowchart LR
     subgraph v1["v1：grid (heads, seqs)，一个 block 走完整个序列"]
         direction TB
-        a1["block (h, s)<br/>遍历 KV block 0 … n"] --> b1["整序列 logits 进 smem<br/>两级 reduction 得 m, l"] --> c1["PV 累加 → O"]
+        a1["<b>block (h, s)</b><br/>遍历 KV block 0 … n"] --> b1["<b>整序列 logits 进 smem</b><br/>两级 reduction 得 m, l"] --> c1["PV 累加 → O"]
     end
     subgraph v2["v2：grid (heads, seqs, partitions)，每 512 token 一个 block"]
         direction TB
-        p0["block (h, s, 0)<br/>token 0–511"] --> r0["$$(m_0, l_0, O_0)$$"]
-        p1["block (h, s, 1)<br/>token 512–1023"] --> r1["$$(m_1, l_1, O_1)$$"]
-        p2["block (h, s, 2)<br/>…"] --> r2["$$(m_2, l_2, O_2)$$"]
-        r0 & r1 & r2 --> red["reduce kernel<br/>$$m = \max m_i$$<br/>$$l = \sum l_i \cdot e^{m_i - m}$$<br/>$$O = \sum O_i \cdot l_i \cdot e^{m_i - m} / l$$"]
+        p0["<b>block (h, s, 0)</b><br/>token 0–511"] --> r0["$$(m_0, l_0, O_0)$$"]
+        p1["<b>block (h, s, 1)</b><br/>token 512–1023"] --> r1["$$(m_1, l_1, O_1)$$"]
+        p2["<b>block (h, s, 2)</b><br/>…"] --> r2["$$(m_2, l_2, O_2)$$"]
+        r0 & r1 & r2 --> red["<b>reduce kernel</b><br/>$$m = \max m_i$$<br/>$$l = \sum l_i \cdot e^{m_i - m}$$<br/>$$O = \sum O_i \cdot l_i \cdot e^{m_i - m} / l$$"]
     end
     v1 ~~~ v2
 
@@ -870,10 +870,10 @@ Table: attention 后端对照与 vLLM 的选择
 flowchart TB
     start["vLLM 启动：选 attention 后端"]
     user{"--attention-backend /<br/>VLLM_ATTENTION_BACKEND 指定了？"}
-    forced["用指定后端<br/>（不通过校验则报错）"]
+    forced["<b>用指定后端</b><br/>（不通过校验则报错）"]
     cap{"设备能力"}
-    order80["sm_80 / sm_90 优先级<br/>FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION"]
-    order100["sm_100+（Blackwell）优先级<br/>FLASHINFER → FLASH_ATTN → TRITON_ATTN → FLEX_ATTENTION"]
+    order80["<b>sm_80 / sm_90 优先级</b><br/>FLASH_ATTN → FLASHINFER → TRITON_ATTN → FLEX_ATTENTION"]
+    order100["<b>sm_100+（Blackwell）优先级</b><br/>FLASHINFER → FLASH_ATTN → TRITON_ATTN → FLEX_ATTENTION"]
     val["逐个调用 validate_configuration<br/>dtype · head size · block size · KV 量化 · ALiBi …"]
     pick["取第一个通过的后端"]
     fav{"FLASH_ATTN 内部：<br/>sm_90 且特性支持？"}

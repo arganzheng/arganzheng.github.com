@@ -57,11 +57,11 @@ flowchart TB
     Q["同一份晶体管预算，一条指令要等内存时怎么办？"]
     subgraph CPU["CPU 核心：面积买单线程的低延迟"]
         direction TB
-        C1["分支预测器"]:::cpu ~~~ C2["乱序执行：几百项重排缓冲<br/>寄存器重命名、推测执行"]:::cpu ~~~ C3["大缓存：私有 L1/L2<br/>+ 几十 MB 共享 L3"]:::cpu ~~~ C4["ALU：只占核心面积<br/>很小一部分"]:::cpu
+        C1["分支预测器"]:::cpu ~~~ C2["<b>乱序执行：几百项重排缓冲</b><br/>寄存器重命名、推测执行"]:::cpu ~~~ C3["<b>大缓存：私有 L1/L2</b><br/>+ 几十 MB 共享 L3"]:::cpu ~~~ C4["<b>ALU：只占核心面积</b><br/>很小一部分"]:::cpu
     end
     subgraph GPU["GPU SM：面积买总吞吐"]
         direction TB
-        G1["ALU：64 个 FP32<br/>+ 4 个 Tensor Core"]:::gpu ~~~ G2["寄存器文件 256 KiB / SM<br/>整卡 27 MiB，与 40 MB 的 L2 同量级"]:::gpu ~~~ G3["小缓存：L1/shared<br/>合计 192 KB"]:::gpu ~~~ G4["4 个顺序发射的 warp 调度器<br/>没有分支预测、没有乱序"]:::gpu
+        G1["<b>ALU：64 个 FP32</b><br/>+ 4 个 Tensor Core"]:::gpu ~~~ G2["<b>寄存器文件 256 KiB / SM</b><br/>整卡 27 MiB，与 40 MB 的 L2 同量级"]:::gpu ~~~ G3["<b>小缓存：L1/shared</b><br/>合计 192 KB"]:::gpu ~~~ G4["<b>4 个顺序发射的 warp 调度器</b><br/>没有分支预测、没有乱序"]:::gpu
     end
     Q -->|"猜它接下来要什么<br/>重排它后面的指令"| CPU
     Q -->|"不猜不排<br/>直接切到另一个线程"| GPU
@@ -85,7 +85,7 @@ flowchart TB
     subgraph CPUsw["CPU：线程 A 等内存，操作系统切到线程 B"]
         direction TB
         A1["线程 A 触发 cache miss / 时间片到"] --> A2["陷入内核：保存 A 的几十个寄存器、<br/>程序计数器、标志位到内存"] --> A3["切换页表、刷 TLB、<br/>选下一个线程"] --> A4["从内存恢复 B 的寄存器与状态"] --> A5["回到用户态执行 B"]
-        A5 -.- AN["≈ 1–数 µs，几千个周期<br/>远大于一次 100 ns 的 cache miss"]
+        A5 -.- AN["<b>≈ 1–数 µs，几千个周期</b><br/>远大于一次 100 ns 的 cache miss"]
     end
     subgraph GPUsw["GPU：warp 0 等内存，调度器切到 warp 1"]
         direction TB
@@ -136,22 +136,22 @@ flowchart TB
         direction TB
         subgraph P0["Partition 0"]
             direction TB
-            S0["warp 调度器"]:::sch --> E0["16 FP32 · 16 INT32 · 8 FP64<br/>1 Tensor Core"]:::exe
+            S0["warp 调度器"]:::sch --> E0["<b>16 FP32 · 16 INT32 · 8 FP64</b><br/>1 Tensor Core"]:::exe
             R0["寄存器 64 KB"]:::reg
         end
         subgraph P1["Partition 1"]
             direction TB
-            S1["warp 调度器"]:::sch --> E1["16 FP32 · 16 INT32 · 8 FP64<br/>1 Tensor Core"]:::exe
+            S1["warp 调度器"]:::sch --> E1["<b>16 FP32 · 16 INT32 · 8 FP64</b><br/>1 Tensor Core"]:::exe
             R1["寄存器 64 KB"]:::reg
         end
         subgraph P2["Partition 2"]
             direction TB
-            S2["warp 调度器"]:::sch --> E2["16 FP32 · 16 INT32 · 8 FP64<br/>1 Tensor Core"]:::exe
+            S2["warp 调度器"]:::sch --> E2["<b>16 FP32 · 16 INT32 · 8 FP64</b><br/>1 Tensor Core"]:::exe
             R2["寄存器 64 KB"]:::reg
         end
         subgraph P3["Partition 3"]
             direction TB
-            S3["warp 调度器"]:::sch --> E3["16 FP32 · 16 INT32 · 8 FP64<br/>1 Tensor Core"]:::exe
+            S3["warp 调度器"]:::sch --> E3["<b>16 FP32 · 16 INT32 · 8 FP64</b><br/>1 Tensor Core"]:::exe
             R3["寄存器 64 KB"]:::reg
         end
         P0 ~~~ P2
@@ -204,13 +204,13 @@ SM 调度的最小单位不是线程而是 **warp**：32 个线程在同一时�
 %% SIMT：一个 warp 的 32 个 lane 同一条指令、各自的数据；地址合并成一次事务
 flowchart TB
     I["warp 的一条指令：从 x 读一个元素，乘 2，写回 y"]
-    I --> T0["lane 0<br/>处理元素 0"]
-    I --> T1["lane 1<br/>处理元素 1"]
-    I --> T2["lane 2<br/>处理元素 2"]
-    I --> T3["lane 3<br/>处理元素 3"]
+    I --> T0["<b>lane 0</b><br/>处理元素 0"]
+    I --> T1["<b>lane 1</b><br/>处理元素 1"]
+    I --> T2["<b>lane 2</b><br/>处理元素 2"]
+    I --> T3["<b>lane 3</b><br/>处理元素 3"]
     I --> Td["…"]
-    I --> T31["lane 31<br/>处理元素 31"]
-    T0 --> M["32 个地址一起交给内存系统<br/>连续对齐的 128 字节 → 4 个 32 B sector，一次请求"]
+    I --> T31["<b>lane 31</b><br/>处理元素 31"]
+    T0 --> M["<b>32 个地址一起交给内存系统</b><br/>连续对齐的 128 字节 → 4 个 32 B sector，一次请求"]
     T1 --> M
     T2 --> M
     T3 --> M
@@ -278,11 +278,11 @@ flowchart TB
     classDef hw fill:#fef3c7,stroke:#b45309
     subgraph HW["芯片上有的（硬件位置）"]
         direction TB
-        G["整块 GPU<br/>108 个 SM"]:::hw --> S["SM<br/>4 个调度器、192 KB shared"]:::hw --> W["Warp<br/>32 线程，调度与发射的单位"]:::hw --> C["一个执行 lane<br/>CUDA Core 上的一次 FMA"]:::hw
+        G["<b>整块 GPU</b><br/>108 个 SM"]:::hw --> S["<b>SM</b><br/>4 个调度器、192 KB shared"]:::hw --> W["<b>Warp</b><br/>32 线程，调度与发射的单位"]:::hw --> C["<b>一个执行 lane</b><br/>CUDA Core 上的一次 FMA"]:::hw
     end
     subgraph SW["CUDA 编程模型里的名字"]
         direction TB
-        g["Grid<br/>一次 kernel launch 的全部 block"]:::sw --> b["Block<br/>128 / 256 / 512 线程"]:::sw --> w["（warp：代码里没有这个变量<br/>但硬件按 32 个线程切）"]:::sw --> t["Thread<br/>一份代码、一个编号"]:::sw
+        g["<b>Grid</b><br/>一次 kernel launch 的全部 block"]:::sw --> b["<b>Block</b><br/>128 / 256 / 512 线程"]:::sw --> w["（warp：代码里没有这个变量<br/>但硬件按 32 个线程切）"]:::sw --> t["<b>Thread</b><br/>一份代码、一个编号"]:::sw
     end
     G <-.->|"撒满整卡<br/>block 间无序、独立"| g
     S <-.->|"整块落到一个 SM，不迁移<br/>block 内共享 shared memory<br/>与硬件屏障"| b
@@ -348,8 +348,8 @@ flowchart TB
         direction LR
         w0["warp 0<br/>还差 ~400 周期"]:::wait ~~~ w1["warp 1<br/>还差 ~350 周期"]:::wait ~~~ w3["warp 3、4、6 …"]:::wait
     end
-    SCH["warp 调度器<br/>每周期从就绪者里挑一个发一条指令<br/>零切换开销：状态都在寄存器文件里"]
-    EX["执行单元<br/>FP32 / INT32 / Tensor Core / load-store"]
+    SCH["<b>warp 调度器</b><br/>每周期从就绪者里挑一个发一条指令<br/>零切换开销：状态都在寄存器文件里"]
+    EX["<b>执行单元</b><br/>FP32 / INT32 / Tensor Core / load-store"]
     RDY --> SCH --> EX
     EX -->|"发出 load 后进入等待"| WAIT
     WAIT -.->|"数据回来 → 重新就绪"| RDY
@@ -369,10 +369,10 @@ flowchart TB
 ```mermaid
 %% 驻留上限：一个 SM 最多 2048 线程 = 64 warp、32 block，受寄存器与 shared memory 共同限制
 flowchart LR
-    T["线程数上限<br/>2048 线程 = 64 warp"] --> MIN["取最紧的一项<br/>= 实际驻留 warp 数"]
-    B["block 数上限<br/>32 个 block"] --> MIN
-    R["寄存器<br/>65536 个 ÷（每线程 R × 每 block T）"] --> MIN
-    S["shared memory<br/>164 KB ÷ 每 block S 字节"] --> MIN
+    T["<b>线程数上限</b><br/>2048 线程 = 64 warp"] --> MIN["<b>取最紧的一项</b><br/>= 实际驻留 warp 数"]
+    B["<b>block 数上限</b><br/>32 个 block"] --> MIN
+    R["<b>寄存器</b><br/>65536 个 ÷（每线程 R × 每 block T）"] --> MIN
+    S["<b>shared memory</b><br/>164 KB ÷ 每 block S 字节"] --> MIN
     MIN --> O["occupancy = 驻留 warp 数 / 64"]
 ```
 
@@ -391,8 +391,8 @@ Tensor Core 不是独立于 SM 的另一块芯片，它就是 SM 每个 partitio
 %% Tensor Core 与 CUDA Core 在 partition 里并列，前者做小矩阵乘、后者做标量 FMA
 flowchart TB
     SCH["同一个 partition 的同一个 warp 调度器"]
-    SCH -->|"发一条 FFMA"| CC["16 个 FP32 CUDA Core<br/>32 个线程各做一次标量 FMA<br/>= 64 FLOP"]
-    SCH -->|"发一条 mma.sync m16n8k16"| TC["1 个 Tensor Core<br/>整个 warp 合作完成 16×8×16 矩阵乘加<br/>= 4096 FLOP"]
+    SCH -->|"发一条 FFMA"| CC["<b>16 个 FP32 CUDA Core</b><br/>32 个线程各做一次标量 FMA<br/>= 64 FLOP"]
+    SCH -->|"发一条 mma.sync m16n8k16"| TC["<b>1 个 Tensor Core</b><br/>整个 warp 合作完成 16×8×16 矩阵乘加<br/>= 4096 FLOP"]
 ```
 
 CUDA Core 的一条指令是"32 个线程各做一次标量 FMA"，Tensor Core 的一条指令是"整个 warp 合作完成一个小矩阵乘加"。Ampere 上 BF16 的主力形状是 `m16n8k16`：一条 `mma.sync` 指令做 $$16 \times 8 \times 16 = 2048$$ 次乘加，即 4096 FLOP。
@@ -427,11 +427,11 @@ flowchart TB
     end
     subgraph mem["存储层级（A100）：越往下越大、越慢"]
         direction TB
-        REG["寄存器<br/>256 KB / SM · ~0 周期"]:::m0
-        SHM["shared memory<br/>≤164 KB / SM · ~20–30 周期<br/>每 SM 每周期 128 B，整卡 ≈19 TB/s"]:::m1
-        L1["L1 cache<br/>与 shared 共用 192 KB SRAM，透明"]:::m1
-        L2["L2<br/>40 MB · ~200 周期 · 数 TB/s"]:::m2
-        HBM["HBM2e<br/>80 GB · ~400–800 周期 · 2.0 TB/s"]:::m3
+        REG["<b>寄存器</b><br/>256 KB / SM · ~0 周期"]:::m0
+        SHM["<b>shared memory</b><br/>≤164 KB / SM · ~20–30 周期<br/>每 SM 每周期 128 B，整卡 ≈19 TB/s"]:::m1
+        L1["<b>L1 cache</b><br/>与 shared 共用 192 KB SRAM，透明"]:::m1
+        L2["<b>L2</b><br/>40 MB · ~200 周期 · 数 TB/s"]:::m2
+        HBM["<b>HBM2e</b><br/>80 GB · ~400–800 周期 · 2.0 TB/s"]:::m3
         REG --- SHM --- L1 --> L2 --> HBM
     end
     REG <-.->|"私有，编译器分配"| t
@@ -714,11 +714,11 @@ FlashAttention-3、CUTLASS 3.x 的 Hopper GEMM、DeepGEMM 都建立在 TMA + wgm
 %% 工具链地图：nvcc、PTX、SASS、Nsight Systems、Nsight Compute 各看什么
 flowchart TB
     classDef tool fill:#f3f4f6,stroke:#6b7280,stroke-dasharray:4 3
-    CU[".cu 源码"] -->|"nvcc 前端"| PTX["PTX<br/>虚拟 ISA，与具体 GPU 无关"]
-    PTX -->|"ptxas"| SASS["SASS<br/>sm_80 真实机器码"]
-    SASS --> FAT["fat binary<br/>几代架构的 SASS + 一份 PTX"]
+    CU[".cu 源码"] -->|"nvcc 前端"| PTX["<b>PTX</b><br/>虚拟 ISA，与具体 GPU 无关"]
+    PTX -->|"ptxas"| SASS["<b>SASS</b><br/>sm_80 真实机器码"]
+    SASS --> FAT["<b>fat binary</b><br/>几代架构的 SASS + 一份 PTX"]
     FAT -->|"加载；遇到没有对应 SASS 的新 GPU<br/>驱动 JIT 编译 PTX"| RUN["在 GPU 上执行"]
-    PTX -.-> T1["nvcc -ptx<br/>编译器有没有发出想要的指令：<br/>ld.global.v4 / cp.async / mma.sync / ldmatrix"]:::tool
+    PTX -.-> T1["<b>nvcc -ptx</b><br/>编译器有没有发出想要的指令：<br/>ld.global.v4 / cp.async / mma.sync / ldmatrix"]:::tool
     SASS -.-> T2["-Xptxas -v：寄存器数、shared、spill 字节<br/>cuobjdump -sass / nvdisasm：最终指令序列、控制流图"]:::tool
     RUN -.-> T3["nsys：kernel 之间的间隙、launch 开销、CPU/GPU 重叠<br/>ncu：单 kernel 的带宽/算力利用率、occupancy、stall 原因<br/>compute-sanitizer：越界、未初始化读、竞争"]:::tool
 ```
@@ -768,15 +768,15 @@ flowchart TD
     classDef cb fill:#ffedd5,stroke:#c2410c
     classDef done fill:#dcfce7,stroke:#15803d
     classDef fix fill:#fef9c3,stroke:#a16207
-    A["1. 算 F（FLOPs）<br/>和 B（最小字节数）<br/>I = F / B"] --> R{"I 与 ridge 比"}
-    R -->|"I < ridge"| M["memory-bound<br/>目标：带宽利用率<br/>85–90%"]:::mb
-    R -->|"I > ridge"| C["compute-bound<br/>目标：Tensor Core<br/>利用率 70–85%"]:::cb
-    M --> T["2. 用 cudaEvent 测 T_actual<br/>（预热、中位数、L2 flush）<br/>算带宽利用率、算力利用率<br/>以及实际流量 / 理论流量"]
+    A["<b>1. 算 F（FLOPs）</b><br/>和 B（最小字节数）<br/>I = F / B"] --> R{"I 与 ridge 比"}
+    R -->|"I < ridge"| M["<b>memory-bound</b><br/>目标：带宽利用率<br/>85–90%"]:::mb
+    R -->|"I > ridge"| C["<b>compute-bound</b><br/>目标：Tensor Core<br/>利用率 70–85%"]:::cb
+    M --> T["<b>2. 用 cudaEvent 测 T_actual</b><br/>（预热、中位数、L2 flush）<br/>算带宽利用率、算力利用率<br/>以及实际流量 / 理论流量"]
     C --> T
-    T -->|"对应利用率<br/>已接近上限"| D1["到屋顶了<br/>只能减字节 / 减 FLOP<br/>融合、低精度<br/>不写中间结果"]:::done
-    T -->|"两个利用率<br/>都低"| D2["latency-bound<br/>提高 occupancy、ILP<br/>更多 block 填满 SM"]:::fix
-    T -->|"实际流量<br/>≫ 理论流量"| D3["访存模式问题<br/>coalescing、tile 复用<br/>L2 友好的 block 顺序"]:::fix
-    T -->|"算力利用率低<br/>但流量正常"| D4["搬运没藏在计算后面<br/>流水线、异步拷贝<br/>减少非 MMA 指令"]:::fix
+    T -->|"对应利用率<br/>已接近上限"| D1["<b>到屋顶了</b><br/>只能减字节 / 减 FLOP<br/>融合、低精度<br/>不写中间结果"]:::done
+    T -->|"两个利用率<br/>都低"| D2["<b>latency-bound</b><br/>提高 occupancy、ILP<br/>更多 block 填满 SM"]:::fix
+    T -->|"实际流量<br/>≫ 理论流量"| D3["<b>访存模式问题</b><br/>coalescing、tile 复用<br/>L2 友好的 block 顺序"]:::fix
+    T -->|"算力利用率低<br/>但流量正常"| D4["<b>搬运没藏在计算后面</b><br/>流水线、异步拷贝<br/>减少非 MMA 指令"]:::fix
 ```
 
 一句话：**先算字节数和 FLOPs，得到理论时间；再测；差距如果在带宽或算力利用率上，按对应的手段优化；如果两个利用率都低，先解决 latency**。

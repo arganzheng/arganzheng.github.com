@@ -183,9 +183,9 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, ...):
 flowchart TB
     invoke["调用 kernel#91;grid#93;(args)"]
     key{"(M, N, K) 这组 key<br/>进程内缓存里有吗？"}
-    prune["prune_configs_by<br/>early_config_prune / perf_model 剪枝"]
-    loop["对每个候选 config：<br/>编译（或命中 ~/.triton/cache）→ 跑若干次 → 取中位数"]
-    pick["选最快的 config<br/>写入进程内字典（不落盘）"]
+    prune["<b>prune_configs_by</b><br/>early_config_prune / perf_model 剪枝"]
+    loop["<b>对每个候选 config：</b><br/>编译（或命中 ~/.triton/cache）→ 跑若干次 → 取中位数"]
+    pick["<b>选最快的 config</b><br/>写入进程内字典（不落盘）"]
     launch["按选中的 constexpr / num_warps / num_stages 发射"]
     invoke --> key
     key -- "没有（首次遇到这组形状）" --> prune --> loop --> pick --> launch
@@ -464,12 +464,12 @@ Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇�
 ```mermaid
 %% 图：Triton 编译流水线的六层：Python 源码 → TTIR → TTGIR → LLVM IR → PTX → cubin
 flowchart TB
-    py["Python 源码<br/>@triton.jit 函数"]
-    ttir["TTIR（Triton IR）<br/>硬件无关的块级张量 IR<br/>tt.load / tt.store / tt.dot / tt.reduce / scf.for"]
-    ttgir["TTGIR（TritonGPU IR）<br/>每个张量带 layout<br/>#blocked / #shared / #mma / #dot_op"]
-    llir["LLVM IR（NVPTX）<br/>线程级标量/向量代码<br/>layout 已展开成线程索引运算"]
-    ptx["PTX<br/>mma.sync / cp.async / ldmatrix / ld.global.v4"]
-    cubin["cubin（SASS）<br/>缓存到 ~/.triton/cache/"]
+    py["<b>Python 源码</b><br/>@triton.jit 函数"]
+    ttir["<b>TTIR（Triton IR）</b><br/>硬件无关的块级张量 IR<br/>tt.load / tt.store / tt.dot / tt.reduce / scf.for"]
+    ttgir["<b>TTGIR（TritonGPU IR）</b><br/>每个张量带 layout<br/>#blocked / #shared / #mma / #dot_op"]
+    llir["<b>LLVM IR（NVPTX）</b><br/>线程级标量/向量代码<br/>layout 已展开成线程索引运算"]
+    ptx["<b>PTX</b><br/>mma.sync / cp.async / ldmatrix / ld.global.v4"]
+    cubin["<b>cubin（SASS）</b><br/>缓存到 ~/.triton/cache/"]
 
     py -- "AST 解析、constexpr 代入<br/>编译期分支删除" --> ttir
     ttir -- "为每个张量选初始 layout" --> ttgir
@@ -478,7 +478,7 @@ flowchart TB
     ptx -- "ptxas：寄存器分配、指令调度" --> cubin
 
     m1["≈ 模板实例化 / if constexpr"]
-    m2["≈ 第 3–6 篇手工做的全部：<br/>向量化、多 stage cp.async、ldmatrix<br/>bank conflict 消除、__syncthreads 位置"]
+    m2["<b>≈ 第 3–6 篇手工做的全部：</b><br/>向量化、多 stage cp.async、ldmatrix<br/>bank conflict 消除、__syncthreads 位置"]
     m3["≈ 手写线程索引、shfl、inline PTX"]
     m4["= nvcc 后端，与 CUDA 相同"]
     ttir ~~~ m1
@@ -559,11 +559,11 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 %% 图：一个 K 迭代里的 layout 流转：#blocked 加载、#shared 环形缓冲、#dot_op fragment、#mma 累加器、再经 #blocked 写回
 flowchart TB
     gA["全局内存：A、B 的 K-tile（BF16）"]
-    blk["#blocked（加载布局）<br/>sizePerThread=#91;1,8#93;：每线程连续 8 个 BF16 = 16 B<br/>只决定每个线程负责搬哪 16 B"]
+    blk["<b>#blocked（加载布局）</b><br/>sizePerThread=#91;1,8#93;：每线程连续 8 个 BF16 = 16 B<br/>只决定每个线程负责搬哪 16 B"]
     shr["#shared = swizzled_shared（shared memory）<br/>vec=8, perPhase=2, maxPhase=4<br/>num_stages 个 K-tile 的环形缓冲"]
     dop["#dot_op（寄存器：mma fragment）<br/>A、B 操作数在各线程里的片段"]
     mma["#mma = nvidia_mma（寄存器：FP32 累加器）<br/>warpsPerCTA=#91;2,2#93;, instrShape=#91;16,8#93;"]
-    blk2["#blocked（写回布局，寄存器）<br/>每线程连续 8 个 BF16，可合并写"]
+    blk2["<b>#blocked（写回布局，寄存器）</b><br/>每线程连续 8 个 BF16，可合并写"]
     gC["全局内存：C tile（BF16）"]
 
     gA -- "cp.async.cg.shared.global，每线程 16 B<br/>（Pipeline pass，绕过寄存器直写 smem）" --> shr
@@ -574,10 +574,10 @@ flowchart TB
     mma -- "acc.to(bf16) 后 ttg.convert_layout<br/>= st.shared + bar.sync + ld.shared" --> blk2
     blk2 -- "st.global.v4.b32 + c_mask 谓词" --> gC
 
-    n1["≈ 第 3 篇 uint4 向量化<br/>+ 第 5 篇多 stage cp.async"]
-    n2["≈ 第 6 篇 ldmatrix<br/>+ padding / XOR swizzle"]
-    n3["≈ 第 6 篇 fragment 循环<br/>+ __syncthreads 位置"]
-    n4["epilogue 固有开销：<br/>一次 smem 往返 + 两次 barrier"]
+    n1["<b>≈ 第 3 篇 uint4 向量化</b><br/>+ 第 5 篇多 stage cp.async"]
+    n2["<b>≈ 第 6 篇 ldmatrix</b><br/>+ padding / XOR swizzle"]
+    n3["<b>≈ 第 6 篇 fragment 循环</b><br/>+ __syncthreads 位置"]
+    n4["<b>epilogue 固有开销：</b><br/>一次 smem 往返 + 两次 barrier"]
     shr ~~~ n1
     dop ~~~ n2
     mma ~~~ n3
@@ -845,8 +845,8 @@ flowchart TB
     q1{"是 memory-bound 吗？<br/>elementwise / norm / softmax / gather"}
     q2{"是端到端热点吗？<br/>占比 ≥ 30%、形状固定、<br/>大规模长期运行"}
     q3{"目标是 Hopper 极限吗？<br/>warp specialization、ping-pong、<br/>Tensor Core 利用率 75%+"}
-    hand["手写 CUDA / CUTLASS / CuTe<br/>（FlashAttention、DeepGEMM、vLLM CUTLASS MoE）"]
-    triton["Triton<br/>30–60 行，手写的 90% 以上<br/>（torch.compile 融合 kernel、fused_moe、研究性 kernel）"]
+    hand["<b>手写 CUDA / CUTLASS / CuTe</b><br/>（FlashAttention、DeepGEMM、vLLM CUTLASS MoE）"]
+    triton["<b>Triton</b><br/>30–60 行，手写的 90% 以上<br/>（torch.compile 融合 kernel、fused_moe、研究性 kernel）"]
 
     q0 -- "是" --> hand
     q0 -- "否" --> q1

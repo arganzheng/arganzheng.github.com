@@ -27,12 +27,12 @@ GEMM 是这个系列的转折点。一个 4096×4096×4096 的矩阵乘法有 13
 ```mermaid
 %% 图：GEMM 六个版本的瓶颈迁移：从 naive 到 cp.async 流水，每解决一层瓶颈下一层浮出来
 flowchart TB
-    v1["v1 naive<br/>一线程一输出，操作数全从全局读<br/>I_HBM = 0.25 · ~1–3%"]
-    v2["v2 shared 分块<br/>32×32 tile 进 shared，block 内复用<br/>I_HBM = 8 · ~10–20%"]
-    v3["v3 寄存器分块<br/>每线程 8×8 外积，128×128 tile<br/>I_HBM = 32 · I_smem = 2 · ~40–60%"]
-    v4["v4 加载优化<br/>float4 LDG/LDS + A 转置存入<br/>~55–70%"]
-    v5["v5 cp.async 流水<br/>3-stage 环形 buffer，每 tile 1 次同步<br/>~70–80%"]
-    cublas["cuBLAS<br/>warp tile 重映射 · swizzle · epilogue 重排<br/>~85–95%"]
+    v1["<b>v1 naive</b><br/>一线程一输出，操作数全从全局读<br/>I_HBM = 0.25 · ~1–3%"]
+    v2["<b>v2 shared 分块</b><br/>32×32 tile 进 shared，block 内复用<br/>I_HBM = 8 · ~10–20%"]
+    v3["<b>v3 寄存器分块</b><br/>每线程 8×8 外积，128×128 tile<br/>I_HBM = 32 · I_smem = 2 · ~40–60%"]
+    v4["<b>v4 加载优化</b><br/>float4 LDG/LDS + A 转置存入<br/>~55–70%"]
+    v5["<b>v5 cp.async 流水</b><br/>3-stage 环形 buffer，每 tile 1 次同步<br/>~70–80%"]
+    cublas["<b>cuBLAS</b><br/>warp tile 重映射 · swizzle · epilogue 重排<br/>~85–95%"]
 
     v1 -- "瓶颈：L1/L2 请求数、load 延迟" --> v2
     v2 -- "瓶颈：shared 带宽（上限 25%）" --> v3
@@ -353,10 +353,10 @@ $$
 ```mermaid
 %% 图：三层复用的金字塔：HBM → shared → 寄存器 → 累加器，越靠近计算单元容量越小、复用越密
 flowchart TB
-    hbm["HBM / L2<br/>A: M×K　B: K×N　C: M×N<br/>每个元素被 BN（或 BM）个输出用到"]
-    smem["shared memory（block 级）<br/>As: BM×BK　Bs: BK×BN<br/>每次载入被 block 内所有线程复用<br/>I_HBM = BM·BN / 2(BM+BN) = 32"]
-    reg["寄存器（线程级）<br/>a_frag[TM]　b_frag[TN]<br/>每个 a 用 TN 次，每个 b 用 TM 次<br/>I_smem = TM·TN / 2(TM+TN) = 2"]
-    acc["累加器 acc[TM][TN]<br/>沿整个 K 累加，K 次 FMA 才写回一次"]
+    hbm["<b>HBM / L2</b><br/>A: M×K　B: K×N　C: M×N<br/>每个元素被 BN（或 BM）个输出用到"]
+    smem["<b>shared memory（block 级）</b><br/>As: BM×BK　Bs: BK×BN<br/>每次载入被 block 内所有线程复用<br/>I_HBM = BM·BN / 2(BM+BN) = 32"]
+    reg["<b>寄存器（线程级）</b><br/>a_frag[TM]　b_frag[TN]<br/>每个 a 用 TN 次，每个 b 用 TM 次<br/>I_smem = TM·TN / 2(TM+TN) = 2"]
+    acc["<b>累加器 acc[TM][TN]</b><br/>沿整个 K 累加，K 次 FMA 才写回一次"]
 
     hbm -- "cp.async / LDG.128，每 BK 一次" --> smem
     smem -- "LDS.128，每 k 一次" --> reg

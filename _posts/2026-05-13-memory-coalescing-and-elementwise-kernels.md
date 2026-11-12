@@ -257,9 +257,9 @@ $$
 %% 图：Little's law 算占用率：在飞字节 = 带宽 × 延迟，每 warp 加载宽度决定需要多少 warp / SM
 flowchart LR
     classDef k fill:#dbeafe,stroke:#1d4ed8
-    BW["带宽 2.0 TB/s"]:::k --> L["Little's law<br/>在飞字节 = 带宽 × 延迟"]
+    BW["带宽 2.0 TB/s"]:::k --> L["<b>Little's law</b><br/>在飞字节 = 带宽 × 延迟"]
     LAT["HBM 延迟 ~600 ns"]:::k --> L
-    L --> F["整卡需保持 ≈1.2 MB 在飞<br/>÷ 108 SM ≈ 11 KB / SM"]
+    L --> F["<b>整卡需保持 ≈1.2 MB 在飞</b><br/>÷ 108 SM ≈ 11 KB / SM"]
     F --> A["每 warp 一条 32-bit 加载 = 128 B<br/>→ 需要 ≈88 个 warp / SM<br/>超过 64 的硬件上限"]
     F --> B["每 warp 一条 128-bit 加载 = 512 B<br/>→ 需要 ≈22 个 warp / SM"]
     F --> C["每 warp 两条 128-bit 加载在飞（ILP）<br/>→ 需要 ≈11 个 warp / SM"]
@@ -372,13 +372,13 @@ flowchart TB
     classDef dec fill:#fef3c7,stroke:#b45309
     classDef k fill:#dbeafe,stroke:#1d4ed8
     OP["算子实现：gpu_kernel(iter, lambda)<br/>AT_DISPATCH 已把运行期 dtype 变成 scalar_t"]:::host
-    IMPL["gpu_kernel_impl_nocast<br/>data(0) = 输出，data(1..) = 输入"]:::host
+    IMPL["<b>gpu_kernel_impl_nocast</b><br/>data(0) = 输出，data(1..) = 输入"]:::host
     Q1{"iter.is_contiguous()<br/>所有操作数都连续？"}:::dec
-    LV["launch_vectorized_kernel<br/>vec_size = min(16 / sizeof, can_vectorize_up_to)<br/>非 sm_90 / sm_100 再压到 ≤ 4"]:::host
+    LV["<b>launch_vectorized_kernel</b><br/>vec_size = min(16 / sizeof, can_vectorize_up_to)<br/>非 sm_90 / sm_100 再压到 ≤ 4"]:::host
     Q2{"vec_size ≥ 2？<br/>输出与每个输入指针都对齐"}:::dec
     KV["vectorized_elementwise_kernel(vec_size)<br/>128 线程 × 8 元素 = 1024 元素 / block<br/>只有最后一个 block 走带边界检查的 unroll"]:::k
-    KU["unrolled_elementwise_kernel<br/>标量加载，每线程 4 元素<br/>TrivialOffsetCalculator + 每元素边界检查"]:::k
-    OC["make_offset_calculator(iter)<br/>逐维 divmod × stride，IntDivider 魔数除法"]:::host
+    KU["<b>unrolled_elementwise_kernel</b><br/>标量加载，每线程 4 元素<br/>TrivialOffsetCalculator + 每元素边界检查"]:::k
+    OC["<b>make_offset_calculator(iter)</b><br/>逐维 divmod × stride，IntDivider 魔数除法"]:::host
     KL["elementwise_kernel(128, 2 或 4)（legacy）<br/>标量加载 + OffsetCalculator::get(idx)"]:::k
     OP --> IMPL --> Q1
     Q1 -- "是" --> LV --> Q2
@@ -648,7 +648,7 @@ flowchart TB
     end
     subgraph B["融合 kernel：每个元素 3 读 1 写 = 8 B"]
         direction LR
-        x2["x, b, y"]:::hbm --> kf["add → silu → mul<br/>t1、t2 只在寄存器里"]:::reg --> o2["out"]:::hbm
+        x2["x, b, y"]:::hbm --> kf["<b>add → silu → mul</b><br/>t1、t2 只在寄存器里"]:::reg --> o2["out"]:::hbm
     end
     A ~~~ B
 ```

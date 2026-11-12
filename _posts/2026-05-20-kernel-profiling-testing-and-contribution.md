@@ -94,13 +94,13 @@ decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的
 ```mermaid
 %% 图：profiling 的分工与顺序：先算理论下界，torch.profiler 找算子，nsys 看时间线，最后才用 ncu 看 kernel 内部
 flowchart TB
-    theory["① 先算理论下界<br/>每个 kernel 的 bytes / BW、FLOPs / P_peak"]
-    tp["② torch.profiler<br/>哪个算子慢？（Python 栈 ↔ kernel）"]
-    nsys["③ Nsight Systems（nsys）<br/>时间线：kernel 之间有空隙吗？CPU 拖后腿吗？<br/>开销 ~几 %，可跑整个前向"]
+    theory["<b>① 先算理论下界</b><br/>每个 kernel 的 bytes / BW、FLOPs / P_peak"]
+    tp["<b>② torch.profiler</b><br/>哪个算子慢？（Python 栈 ↔ kernel）"]
+    nsys["<b>③ Nsight Systems（nsys）</b><br/>时间线：kernel 之间有空隙吗？CPU 拖后腿吗？<br/>开销 ~几 %，可跑整个前向"]
     gap{"时间在 kernel 之间<br/>还是 kernel 内部？"}
-    between["修 launch / 同步 / 分配器<br/>CUDA graph、去 .item()、算子融合<br/>（ncu 帮不上）"]
+    between["<b>修 launch / 同步 / 分配器</b><br/>CUDA graph、去 .item()、算子融合<br/>（ncu 帮不上）"]
     which["按 实测 / 理论下界 的比值排序<br/>比值最大的 kernel 是下一步对象"]
-    ncu["④ Nsight Compute（ncu）<br/>重放 40+ 次采硬件计数器<br/>只对 1–2 个 kernel 用 -k / -c 过滤"]
+    ncu["<b>④ Nsight Compute（ncu）</b><br/>重放 40+ 次采硬件计数器<br/>只对 1–2 个 kernel 用 -k / -c 过滤"]
     fix["⑤ 第五章的决策树 → 改 kernel → 回到 ①"]
 
     theory --> tp --> nsys --> gap
@@ -357,33 +357,33 @@ Table: 做对了与有问题两个版本的 SOL 与 occupancy 对照
 %% 图：ncu 的决策树：先用 SOL 把 kernel 分成 memory / compute / latency-bound 三类，再按类看 Tensor pipe 与 stall 原因
 flowchart TB
     sol["读 GPU Speed of Light"]
-    mem["Memory > 80%<br/><b>memory-bound</b>"]
-    comp["Compute > 80%<br/><b>compute-bound</b>"]
+    mem["<b>Memory > 80%</b><br/><b>memory-bound</b>"]
+    comp["<b>Compute > 80%</b><br/><b>compute-bound</b>"]
     lat["两者都 < 40–50%<br/><b>latency-bound</b>"]
     sol --> mem
     sol --> comp
     sol --> lat
 
-    memfix["已到带宽极限，只能减字节：<br/>· 融合相邻 kernel<br/>· 重算代替存储<br/>· 低精度存储 / 传输<br/>· 减少重复读（tile 复用）"]
+    memfix["<b>已到带宽极限，只能减字节：</b><br/>· 融合相邻 kernel<br/>· 重算代替存储<br/>· 低精度存储 / 传输<br/>· 减少重复读（tile 复用）"]
     mem --> memfix
 
     tensor{"Compute Workload：<br/>Tensor pipe 利用率？"}
     comp --> tensor
-    thi["高 → 已到算力极限<br/>换算法或换精度"]
-    tlo["低 → Tensor Core 没用上，或<br/>fragment 转换 / softmax / 地址计算太多：<br/>· 换 mma / wgmma 形状<br/>· ldmatrix / TMA<br/>· 交错 softmax 与 GEMM<br/>· 减少类型转换"]
+    thi["<b>高 → 已到算力极限</b><br/>换算法或换精度"]
+    tlo["<b>低 → Tensor Core 没用上，或</b><br/>fragment 转换 / softmax / 地址计算太多：<br/>· 换 mma / wgmma 形状<br/>· ldmatrix / TMA<br/>· 交错 softmax 与 GEMM<br/>· 减少类型转换"]
     tensor -- "高" --> thi
     tensor -- "低" --> tlo
 
     occ{"Occupancy 够吗？"}
     lat --> occ
-    occlo["occupancy 低 → 看限制因素：<br/>· 寄存器 → 减每线程工作量、__launch_bounds__、<br/>　-maxrregcount（盯住 spill）<br/>· shared → 减 tile、swizzle 代替 padding<br/>· grid 太小（waves < 1）→ split-K、更小 tile<br/>· tail（waves 非整数）→ 调 tile 让 wave 满"]
+    occlo["<b>occupancy 低 → 看限制因素：</b><br/>· 寄存器 → 减每线程工作量、__launch_bounds__、<br/>　-maxrregcount（盯住 spill）<br/>· shared → 减 tile、swizzle 代替 padding<br/>· grid 太小（waves < 1）→ split-K、更小 tile<br/>· tail（waves 非整数）→ 调 tile 让 wave 满"]
     stall{"occupancy 够 →<br/>看主导 stall"}
     occ -- "低" --> occlo
     occ -- "够" --> stall
 
-    s1["long scoreboard<br/>访存延迟未隐藏：<br/>ILP（多个独立加载在飞）、<br/>向量化、cp.async 流水"]
-    s2["MIO / short scoreboard<br/>shared 访问过多或 bank conflict：<br/>寄存器分块、swizzle、ldmatrix"]
-    s3["barrier<br/>同步太多：双缓冲减同步、<br/>warp 级独立工作、减小 block"]
+    s1["<b>long scoreboard</b><br/>访存延迟未隐藏：<br/>ILP（多个独立加载在飞）、<br/>向量化、cp.async 流水"]
+    s2["<b>MIO / short scoreboard</b><br/>shared 访问过多或 bank conflict：<br/>寄存器分块、swizzle、ldmatrix"]
+    s3["<b>barrier</b><br/>同步太多：双缓冲减同步、<br/>warp 级独立工作、减小 block"]
     s4["LG throttle → 访存指令太碎：向量化<br/>math pipe throttle → 其实 compute-bound<br/>no instruction → 展开过度，减代码体积"]
     stall --> s1
     stall --> s2
@@ -823,22 +823,22 @@ at::Tensor my_gemm(const at::Tensor& a, const at::Tensor& b) {
 ```mermaid
 %% 图：编译期与运行期的两级选择：nvcc 按 -gencode 编多份 SASS 进 fatbin，驱动挑 SASS，host 函数按 compute capability 挑入口
 flowchart TB
-    src["my_gemm.cu<br/>device 代码用 __CUDA_ARCH__ 在编译期分支<br/>host 代码看不到这个宏"]
-    nvcc["nvcc -gencode ×3<br/>device 阶段每个目标编一遍"]
+    src["<b>my_gemm.cu</b><br/>device 代码用 __CUDA_ARCH__ 在编译期分支<br/>host 代码看不到这个宏"]
+    nvcc["<b>nvcc -gencode ×3</b><br/>device 阶段每个目标编一遍"]
     subgraph fatbin["一个 fatbin（嵌在 .so 里）"]
-        s80["SASS sm_80<br/>cp.async + mma.sync 分支"]
-        s90["SASS sm_90<br/>TMA + wgmma 分支"]
-        ptx["PTX compute_90<br/>供更新架构 JIT"]
+        s80["<b>SASS sm_80</b><br/>cp.async + mma.sync 分支"]
+        s90["<b>SASS sm_90</b><br/>TMA + wgmma 分支"]
+        ptx["<b>PTX compute_90</b><br/>供更新架构 JIT"]
     end
     src --> nvcc
     nvcc --> s80
     nvcc --> s90
     nvcc --> ptx
 
-    host["运行期 host: my_gemm()<br/>cc = major × 10 + minor（运行时查询）<br/>cc ≥ 90 → my_gemm_sm90 · cc ≥ 80 → my_gemm_sm80 · 否则 TORCH_CHECK 报错"]
-    a100["A100（cc 8.0）<br/>驱动加载 sm_80 SASS"]
-    h100["H100（cc 9.0）<br/>驱动加载 sm_90 SASS"]
-    newer["更新架构（无匹配 SASS）<br/>驱动 JIT compute_90 PTX：首次启动慢，且用不上新特性"]
+    host["<b>运行期 host: my_gemm()</b><br/>cc = major × 10 + minor（运行时查询）<br/>cc ≥ 90 → my_gemm_sm90 · cc ≥ 80 → my_gemm_sm80 · 否则 TORCH_CHECK 报错"]
+    a100["<b>A100（cc 8.0）</b><br/>驱动加载 sm_80 SASS"]
+    h100["<b>H100（cc 9.0）</b><br/>驱动加载 sm_90 SASS"]
+    newer["<b>更新架构（无匹配 SASS）</b><br/>驱动 JIT compute_90 PTX：首次启动慢，且用不上新特性"]
     host --> a100
     host --> h100
     host --> newer
@@ -866,13 +866,13 @@ flowchart TB
 %% 图：为什么要注册成算子：schema、CUDA 实现与 fake kernel 各就各位，eager 与 torch.compile 走不同路径都不 graph break
 flowchart TB
     py["Python: torch.ops.my_ops.rms_norm(x, w, eps)"]
-    disp["Dispatcher<br/>按输入 tensor 的 device / 是否 Fake 选实现"]
-    schema["TORCH_LIBRARY(my_ops)<br/>schema: rms_norm(Tensor x, Tensor w, float eps) -> Tensor<br/>声明输入输出与可变性"]
+    disp["<b>Dispatcher</b><br/>按输入 tensor 的 device / 是否 Fake 选实现"]
+    schema["<b>TORCH_LIBRARY(my_ops)</b><br/>schema: rms_norm(Tensor x, Tensor w, float eps) -> Tensor<br/>声明输入输出与可变性"]
     cuda["TORCH_LIBRARY_IMPL(my_ops, CUDA)<br/>真正 launch kernel"]
-    fake["register_fake / Meta<br/>只算输出 shape · dtype · device，不碰数据"]
-    eager["eager 执行<br/>真实 CUDA tensor"]
-    compile["torch.compile / torch.export<br/>Dynamo 用 fake kernel 追踪形状，<br/>算子成为图中一个不透明节点（不 graph break）"]
-    check["torch.library.opcheck<br/>校验 schema、fake 与真实实现一致、<br/>autograd / 别名声明"]
+    fake["<b>register_fake / Meta</b><br/>只算输出 shape · dtype · device，不碰数据"]
+    eager["<b>eager 执行</b><br/>真实 CUDA tensor"]
+    compile["<b>torch.compile / torch.export</b><br/>Dynamo 用 fake kernel 追踪形状，<br/>算子成为图中一个不透明节点（不 graph break）"]
+    check["<b>torch.library.opcheck</b><br/>校验 schema、fake 与真实实现一致、<br/>autograd / 别名声明"]
 
     py --> disp
     schema -. "注册" .-> disp
@@ -1162,16 +1162,16 @@ kernel 注册进 `torch.ops._C` 只是让它可调用；决定"什么时候调�
 %% 图：一个 kernel PR 的完整流程：RFC → 实现 → 正确性测试 → benchmark → 数值行为变了则模型评测 → lint → review
 flowchart TB
     idea["动机：哪个模型 / shape / 现有 kernel 离 Roofline 差多少"]
-    rfc["① 开 issue / RFC<br/>方案、架构与 dtype 范围、benchmark 计划<br/>→ 等 maintainer 正面回应"]
-    impl["② 实现<br/>csrc/ kernel + ops.h + torch_bindings.cpp + CMakeLists<br/>+ _custom_ops.py + 层里的选择逻辑"]
-    test["③ 正确性<br/>tests/kernels/：FP32 参考、按 dtype 的 tolerance<br/>边界 shape、非连续输入、opcheck"]
-    bench["④ benchmark<br/>warmup、L2 flush、中位数<br/>多 shape × 多 GPU（≥ A100 + H100）的 before/after 表"]
+    rfc["<b>① 开 issue / RFC</b><br/>方案、架构与 dtype 范围、benchmark 计划<br/>→ 等 maintainer 正面回应"]
+    impl["<b>② 实现</b><br/>csrc/ kernel + ops.h + torch_bindings.cpp + CMakeLists<br/>+ _custom_ops.py + 层里的选择逻辑"]
+    test["<b>③ 正确性</b><br/>tests/kernels/：FP32 参考、按 dtype 的 tolerance<br/>边界 shape、非连续输入、opcheck"]
+    bench["<b>④ benchmark</b><br/>warmup、L2 flush、中位数<br/>多 shape × 多 GPU（≥ A100 + H100）的 before/after 表"]
     eval{"改变了数值行为？<br/>（量化、累加顺序）"}
-    lmeval["模型评测<br/>lm_eval GSM8K 等"]
-    lint["⑤ pre-commit run --all-files<br/>ruff / clang-format / mypy；git commit -s（DCO）"]
+    lmeval["<b>模型评测</b><br/>lm_eval GSM8K 等"]
+    lint["<b>⑤ pre-commit run --all-files</b><br/>ruff / clang-format / mypy；git commit -s（DCO）"]
     pr["⑥ PR：Purpose / Test Plan / Test Result<br/>+ AI 辅助声明"]
     review["⑦ review：该不该有 → 正确性边界 → 数值 →<br/>多架构 fallback → 编译时间与体积 → 复用 → benchmark 可信度"]
-    ci["⑧ CI 硬件矩阵<br/>Buildkite kernels.yaml：按 source_file_dependencies 触发，<br/>指定 device: h100 / b200"]
+    ci["<b>⑧ CI 硬件矩阵</b><br/>Buildkite kernels.yaml：按 source_file_dependencies 触发，<br/>指定 device: h100 / b200"]
     merge["合入"]
 
     idea --> rfc --> impl --> test --> bench --> eval

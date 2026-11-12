@@ -357,7 +357,7 @@ flowchart TB
         direction TB
         b1["载入第 b 块的 A_q, B_q（128 个 k）"]
         b2["wgmma：acc_tc += A_q · B_q"]
-        b3["promote（CUDA Core，FP32）：<br/>acc_fp32 += s_a(i,b) · s_b(b,j) · acc_tc<br/>acc_tc = 0"]
+        b3["<b>promote（CUDA Core，FP32）：</b><br/>acc_fp32 += s_a(i,b) · s_b(b,j) · acc_tc<br/>acc_tc = 0"]
         b4{"b 遍历完？"}
         b5["epilogue：D = acc_fp32 转 BF16 写出<br/>(不再乘 scale)"]
         b1 --> b2 --> b3 --> b4
@@ -458,14 +458,14 @@ flowchart TB
         s_r["HBM: residual'（写 2 B，再读 2 B）"]
         s_norm["RMSNorm kernel"]
         s_xn["HBM: xn BF16（写 2 B，再读 2 B）"]
-        s_q["动态量化 kernel<br/>absmax → scale → cvt"]
+        s_q["<b>动态量化 kernel</b><br/>absmax → scale → cvt"]
         s_out["HBM: x_fp8（写 1 B）+ scale"]
         s_in --> s_add --> s_r --> s_norm --> s_xn --> s_q --> s_out
     end
     subgraph fus["融合：1 次 launch，共 7 B/元素"]
         direction TB
         f_in["HBM: x, residual（读 2+2 B）"]
-        f_k["fused add + RMSNorm + quant<br/>z = x + r → rms → absmax → cvt<br/>z 留在寄存器 / L1"]
+        f_k["<b>fused add + RMSNorm + quant</b><br/>z = x + r → rms → absmax → cvt<br/>z 留在寄存器 / L1"]
         f_r["HBM: residual'（写 2 B）"]
         f_out["HBM: x_fp8（写 1 B）+ scale"]
         f_in --> f_k
@@ -703,17 +703,17 @@ GPU 上不能一个 token 一个 token 地算——要把走同一个 expert 的
 %% 图：vLLM fused MoE 流水线：topk_softmax → moe_align_block_size → grouped GEMM #1 → SiLU-and-mul → grouped GEMM #2 → 加权求和
 flowchart TB
     logits["router logits [T, E]"]
-    topk["topk_softmax<br/>每 token 选 top-k（可 renormalize）"]
-    ids["topk_weights [T, k]<br/>topk_ids [T, k]"]
-    align["moe_align_block_size<br/>按 expert 计数排序，每段 pad 到 BLOCK_M 倍数"]
-    meta["sorted_token_ids [T·k + pad]<br/>expert_ids [#M-tile]<br/>num_tokens_post_padded"]
+    topk["<b>topk_softmax</b><br/>每 token 选 top-k（可 renormalize）"]
+    ids["<b>topk_weights [T, k]</b><br/>topk_ids [T, k]"]
+    align["<b>moe_align_block_size</b><br/>按 expert 计数排序，每段 pad 到 BLOCK_M 倍数"]
+    meta["<b>sorted_token_ids [T·k + pad]</b><br/>expert_ids [#M-tile]<br/>num_tokens_post_padded"]
     g1["grouped GEMM #1（fused_moe_kernel）<br/>每个 M-tile: A 行 = gather(sorted_token_ids)，B = W1[expert_ids[tile]]"]
     gu["[T·k, 2·d_ff]（gate ‖ up）"]
     act["SiLU-and-mul"]
     h["[T·k, d_ff]"]
-    g2["grouped GEMM #2<br/>B = W2[e]，epilogue × topk_weights"]
+    g2["<b>grouped GEMM #2</b><br/>B = W2[e]，epilogue × topk_weights"]
     o["[T·k, d]"]
-    sum["moe_sum / unpermute<br/>每 token 把 k 份加起来"]
+    sum["<b>moe_sum / unpermute</b><br/>每 token 把 k 份加起来"]
     out["[T, d]"]
 
     logits --> topk --> ids --> align --> meta --> g1 --> gu --> act --> h --> g2 --> o --> sum --> out
@@ -1153,13 +1153,13 @@ Table: Llama 风格 decoder layer 的 10 步 kernel 序列
 %% 图：一个 decoder layer 前向的十次 launch：四个 GEMM、两处 attention 读写端、四个融合的 elementwise / row-wise kernel
 flowchart TB
     in["x [T,4096] + residual [T,4096]"]
-    n1["① fused_add_rms_norm<br/>residual += x；xn = norm(residual)·w"]
+    n1["<b>① fused_add_rms_norm</b><br/>residual += x；xn = norm(residual)·w"]
     qkv["② QKV GEMM [T,4096]×[6144,4096]ᵀ<br/>BF16 mma.sync（T 大）/ INT4 GEMV（T 小）"]
     rope["③ rope_neox（q, k 就地）"]
-    cache["④ reshape_and_cache<br/>k, v → paged KV cache"]
-    attn["⑤ attention<br/>prefill: flash / decode: paged"]
+    cache["<b>④ reshape_and_cache</b><br/>k, v → paged KV cache"]
+    attn["<b>⑤ attention</b><br/>prefill: flash / decode: paged"]
     og["⑥ O GEMM [T,4096]×[4096,4096]ᵀ"]
-    n2["⑦ fused_add_rms_norm<br/>residual += attn_out；xn2 = norm(residual)"]
+    n2["<b>⑦ fused_add_rms_norm</b><br/>residual += attn_out；xn2 = norm(residual)"]
     gu["⑧ gate_up GEMM [T,4096]×[28672,4096]ᵀ"]
     silu["⑨ silu_and_mul → h [T,14336]"]
     down["⑩ down GEMM [T,14336]×[4096,14336]ᵀ"]

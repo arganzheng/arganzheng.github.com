@@ -60,13 +60,13 @@ flowchart LR
     classDef d fill:#dbeafe,stroke:#1d4ed8
     subgraph HOST["host：CPU + 内存"]
         direction TB
-        CPU["CPU<br/>控制流在这里<br/>分配、拷贝、launch、等待"]:::h
-        HM["host 内存<br/>h_a、h_b、h_c"]:::h
+        CPU["<b>CPU</b><br/>控制流在这里<br/>分配、拷贝、launch、等待"]:::h
+        HM["<b>host 内存</b><br/>h_a、h_b、h_c"]:::h
     end
     subgraph DEV["device：GPU + HBM"]
         direction TB
-        SMs["108 个 SM<br/>执行 kernel"]:::d
-        DM["显存 HBM<br/>d_a、d_b、d_c"]:::d
+        SMs["<b>108 个 SM</b><br/>执行 kernel"]:::d
+        DM["<b>显存 HBM</b><br/>d_a、d_b、d_c"]:::d
     end
     HM ---|"cudaMemcpy（双向）<br/>经 PCIe / NVLink"| DM
     CPU -->|"kernel#lt;#lt;#lt;grid, block#gt;#gt;#gt;(d_a, d_b, d_c)<br/>只传 device 指针"| SMs
@@ -129,11 +129,11 @@ flowchart TB
     classDef hw fill:#fef3c7,stroke:#b45309
     subgraph HW["硬件位置（上一篇）"]
         direction TB
-        G["整块 GPU<br/>108 个 SM"]:::hw --> S["SM<br/>4 个调度器、192 KB shared"]:::hw --> W["Warp<br/>32 线程，调度与发射的单位"]:::hw --> C["一个执行 lane"]:::hw
+        G["<b>整块 GPU</b><br/>108 个 SM"]:::hw --> S["<b>SM</b><br/>4 个调度器、192 KB shared"]:::hw --> W["<b>Warp</b><br/>32 线程，调度与发射的单位"]:::hw --> C["一个执行 lane"]:::hw
     end
     subgraph SW["编程模型（本篇）"]
         direction TB
-        g["Grid<br/>gridDim 个 block<br/>launch 时给出"]:::sw --> b["Block<br/>blockDim 个线程<br/>launch 时给出"]:::sw --> w["（warp：无内建变量<br/>threadIdx.x / 32 自己算）"]:::sw --> t["Thread<br/>threadIdx / blockIdx 唯一标识"]:::sw
+        g["<b>Grid</b><br/>gridDim 个 block<br/>launch 时给出"]:::sw --> b["<b>Block</b><br/>blockDim 个线程<br/>launch 时给出"]:::sw --> w["<b>（warp：无内建变量</b><br/>threadIdx.x / 32 自己算）"]:::sw --> t["<b>Thread</b><br/>threadIdx / blockIdx 唯一标识"]:::sw
     end
     G <-.->|"block 间无序、独立<br/>无同步、无共享内存"| g
     S <-.->|"整块落到一个 SM<br/>共享 shared memory<br/>__syncthreads 对齐"| b
@@ -217,9 +217,9 @@ flowchart TB
     classDef dim fill:#f3f4f6,stroke:#9ca3af,color:#6b7280
     subgraph Block["一个 Block（blockDim.x = 256）= 8 个 warp"]
         direction LR
-        W0["Warp 0<br/>threadIdx.x 0 … 31"]:::w0 ~~~ W1["Warp 1<br/>32 … 63"]:::w1 ~~~ W2["Warp 2<br/>64 … 95"]:::w2 ~~~ W3["Warp 3<br/>96 … 127"]:::w3 ~~~ Wd["…"]:::dim ~~~ W7["Warp 7<br/>224 … 255"]:::dim
+        W0["<b>Warp 0</b><br/>threadIdx.x 0 … 31"]:::w0 ~~~ W1["<b>Warp 1</b><br/>32 … 63"]:::w1 ~~~ W2["<b>Warp 2</b><br/>64 … 95"]:::w2 ~~~ W3["<b>Warp 3</b><br/>96 … 127"]:::w3 ~~~ Wd["…"]:::dim ~~~ W7["<b>Warp 7</b><br/>224 … 255"]:::dim
     end
-    Block ==>|"整个 block 落到一个 SM 上"| SM["SM：4 个 warp 调度器<br/>轮流从驻留的所有 warp 里挑就绪者发射指令"]
+    Block ==>|"整个 block 落到一个 SM 上"| SM["<b>SM：4 个 warp 调度器</b><br/>轮流从驻留的所有 warp 里挑就绪者发射指令"]
 ```
 
 代码里没有 `warpIdx` 这样的内建变量，需要时用 `threadIdx.x / 32` 自己算（lane 号是 `threadIdx.x % 32`）。多维 block 先线性化：
@@ -429,8 +429,8 @@ nvcc 不是一个编译器，而是一个驱动程序。它把一个 `.cu` 文�
 ```mermaid
 %% 图：nvcc 把 .cu 拆成 host 与 device 两路
 flowchart LR
-    CU[".cu"] --> HOST["host 代码<br/>三尖括号改写成 cudaLaunchKernel 调用"]
-    HOST --> COMPILER["宿主 C++ 编译器<br/>(gcc / clang / MSVC)"]
+    CU[".cu"] --> HOST["<b>host 代码</b><br/>三尖括号改写成 cudaLaunchKernel 调用"]
+    HOST --> COMPILER["<b>宿主 C++ 编译器</b><br/>(gcc / clang / MSVC)"]
     COMPILER --> OBJECT["目标文件"]
     CU --> DEVICE["device 代码"]
     DEVICE --> FRONTEND["前端（基于 LLVM）"]
@@ -496,12 +496,12 @@ flowchart TD
     classDef ok fill:#dcfce7,stroke:#15803d
     classDef jit fill:#fef9c3,stroke:#a16207
     classDef bad fill:#fee2e2,stroke:#b91c1c
-    A["driver 打开 fatbin<br/>当前 GPU 是 sm_XX"] --> B{"有 sm_XX 的 SASS？"}
+    A["<b>driver 打开 fatbin</b><br/>当前 GPU 是 sm_XX"] --> B{"有 sm_XX 的 SASS？"}
     B -->|"有"| C["直接加载，零开销"]:::ok
     B -->|"没有"| D{"有同一大版本、更低小版本的 SASS？<br/>例如 sm_80 cubin 跑在 sm_86 上"}
     D -->|"有"| C
     D -->|"没有"| E{"有 compute_YY ≤ XX 的 PTX？"}
-    E -->|"有"| F["JIT 编译 PTX → SASS<br/>首次几秒到几十秒，缓存到 ~/.nv/ComputeCache<br/>可能不如离线 ptxas 的代码优"]:::jit
+    E -->|"有"| F["<b>JIT 编译 PTX → SASS</b><br/>首次几秒到几十秒，缓存到 ~/.nv/ComputeCache<br/>可能不如离线 ptxas 的代码优"]:::jit
     E -->|"没有"| G["cudaErrorNoKernelImageForDevice"]:::bad
 ```
 

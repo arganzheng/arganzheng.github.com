@@ -20,15 +20,15 @@ date: 2026-05-20 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 180}}}%%
 %% 图：GPU Kernel 工程全景：先算理论上界，再从 memory-bound 到 compute-bound 逐类 kernel 逼近它
 flowchart TB
-    G1["01 硬件结构与 Roofline<br/>字节数、FLOPs、ridge point"] --> G2["02 CUDA 编程模型与第一个 kernel<br/>怎么写、怎么测"]
-    G2 --> G3["03 访存合并与 elementwise<br/>把带宽用满"]
+    G1["<b>01 硬件结构与 Roofline</b><br/>字节数、FLOPs、ridge point"] --> G2["02 CUDA 编程模型与第一个 kernel<br/>怎么写、怎么测"]
+    G2 --> G3["<b>03 访存合并与 elementwise</b><br/>把带宽用满"]
     G3 --> G4["04 shared memory 与 reduction<br/>softmax、LayerNorm、online softmax"]
-    G3 --> G5["05 GEMM：naive → 分块<br/>复用让强度过 ridge"]
+    G3 --> G5["<b>05 GEMM：naive → 分块</b><br/>复用让强度过 ridge"]
     G5 --> G6["06 Tensor Core、CUTLASS、CuTe<br/>把分块接到 mma"]
-    G4 & G5 --> G7["07 Triton<br/>块级编程，编译器替你做前六篇的一半"]
-    G4 & G6 --> G8["08 Attention kernel<br/>FlashAttention、PagedAttention——前七篇的汇合点"]
-    G6 & G7 --> G9["09 量化与融合 kernel<br/>decoder layer 的其余部分"]
-    G8 & G9 --> G10["10 剖析、测试与贡献<br/>把 kernel 做成产品"]
+    G4 & G5 --> G7["<b>07 Triton</b><br/>块级编程，编译器替你做前六篇的一半"]
+    G4 & G6 --> G8["<b>08 Attention kernel</b><br/>FlashAttention、PagedAttention——前七篇的汇合点"]
+    G6 & G7 --> G9["<b>09 量化与融合 kernel</b><br/>decoder layer 的其余部分"]
+    G8 & G9 --> G10["<b>10 剖析、测试与贡献</b><br/>把 kernel 做成产品"]
 
 ```
 
@@ -281,11 +281,11 @@ Table: 本文的章节安排
 flowchart TB
     B["字节数 B（合并 · 融合 · 不物化 · 量化）"] --> I["算术强度 I = F / B"]
     F["FLOPs F"] --> I
-    tile["tile 尺寸与复用层次<br/>shared · 寄存器 · fragment · L2"] --> B
+    tile["<b>tile 尺寸与复用层次</b><br/>shared · 寄存器 · fragment · L2"] --> B
     ridge["ridge = P_peak / BW<br/>A100 BF16 156 · FP32 10 · H100 295"] --> cmp{"I 与 ridge 比"}
     I --> cmp
-    cmp -- "I < ridge" --> mem["memory-bound<br/>T = B / BW，目标 85–90% 带宽"]
-    cmp -- "I > ridge" --> comp["compute-bound<br/>T = F / P_peak，目标 Tensor pipe"]
+    cmp -- "I < ridge" --> mem["<b>memory-bound</b><br/>T = B / BW，目标 85–90% 带宽"]
+    cmp -- "I > ridge" --> comp["<b>compute-bound</b><br/>T = F / P_peak，目标 Tensor pipe"]
     cmp -- "两条屋顶都没碰到" --> lat["latency-bound"]
     mem --> lessB["只能减字节"]
     comp --> tc["Tensor Core + 更大的 tile"]

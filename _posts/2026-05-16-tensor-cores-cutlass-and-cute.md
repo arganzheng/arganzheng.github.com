@@ -40,20 +40,20 @@ updated: 2026-09-14
 flowchart LR
     subgraph cc["CUDA Core（第五篇）"]
         direction TB
-        g1["global"] -- "cp.async<br/>每线程 16 B" --> s1["shared<br/>（padding / 转置）"]
-        s1 -- "LDS.128<br/>任意布局" --> r1["寄存器<br/>a_frag / b_frag"]
-        r1 -- "FFMA ×64<br/>每线程 8×8 外积" --> acc1["acc[8][8]<br/>属于线程"]
+        g1["global"] -- "cp.async<br/>每线程 16 B" --> s1["<b>shared</b><br/>（padding / 转置）"]
+        s1 -- "LDS.128<br/>任意布局" --> r1["<b>寄存器</b><br/>a_frag / b_frag"]
+        r1 -- "FFMA ×64<br/>每线程 8×8 外积" --> acc1["<b>acc[8][8]</b><br/>属于线程"]
     end
     subgraph amp["Tensor Core · Ampere（本篇第四章）"]
         direction TB
-        g2["global"] -- "cp.async<br/>每线程 16 B" --> s2["shared<br/>（XOR swizzle）"]
-        s2 -- "ldmatrix.x4<br/>硬件规定布局" --> r2["fragment<br/>a[4] b[2]"]
-        r2 -- "mma.sync m16n8k16<br/>每 warp 一条 = 4096 FLOP" --> acc2["acc[4]<br/>属于 warp"]
+        g2["global"] -- "cp.async<br/>每线程 16 B" --> s2["<b>shared</b><br/>（XOR swizzle）"]
+        s2 -- "ldmatrix.x4<br/>硬件规定布局" --> r2["<b>fragment</b><br/>a[4] b[2]"]
+        r2 -- "mma.sync m16n8k16<br/>每 warp 一条 = 4096 FLOP" --> acc2["<b>acc[4]</b><br/>属于 warp"]
     end
     subgraph hop["Tensor Core · Hopper（第五章）"]
         direction TB
-        g3["global"] -- "TMA<br/>1 个线程发 1 条指令搬整个 tile" --> s3["shared<br/>（硬件 swizzle）"]
-        s3 -- "wgmma.mma_async<br/>经 descriptor 直接读 shared" --> acc3["acc[64+]<br/>属于 warpgroup"]
+        g3["global"] -- "TMA<br/>1 个线程发 1 条指令搬整个 tile" --> s3["<b>shared</b><br/>（硬件 swizzle）"]
+        s3 -- "wgmma.mma_async<br/>经 descriptor 直接读 shared" --> acc3["<b>acc[64+]</b><br/>属于 warpgroup"]
     end
     cc ~~~ amp ~~~ hop
 
@@ -797,13 +797,13 @@ CuTe：Layout / Tensor / Shape / Stride / local_tile / local_partition —— �
 flowchart TB
     subgraph cutlass["CUTLASS 3.x"]
         direction TB
-        dev["device::GemmUniversalAdapter<br/>参数检查、workspace、launch"]
-        ker["kernel::GemmUniversal<br/>__global__ 函数体、tile 坐标、warp 角色"]
-        ml["collective::CollectiveMma<br/>k 循环 + 多 stage 流水"]
+        dev["<b>device::GemmUniversalAdapter</b><br/>参数检查、workspace、launch"]
+        ker["<b>kernel::GemmUniversal</b><br/>__global__ 函数体、tile 坐标、warp 角色"]
+        ml["<b>collective::CollectiveMma</b><br/>k 循环 + 多 stage 流水"]
         ep["collective::CollectiveEpilogue<br/>写回 + EVT 融合"]
-        tm["TiledMma<br/>MMA_Atom 平铺成 warp tile"]
-        tc["TiledCopy<br/>Copy_Atom 平铺成 block 拷贝"]
-        cute["CuTe Layout / Tensor<br/>所有层共用的坐标代数"]
+        tm["<b>TiledMma</b><br/>MMA_Atom 平铺成 warp tile"]
+        tc["<b>TiledCopy</b><br/>Copy_Atom 平铺成 block 拷贝"]
+        cute["<b>CuTe Layout / Tensor</b><br/>所有层共用的坐标代数"]
         dev --> ker --> ml
         ker --> ep
         ml --> tm
@@ -812,8 +812,8 @@ flowchart TB
     end
     subgraph hand["第四章手写 kernel"]
         direction TB
-        h1["bf16_gemm_tn()<br/>host 函数"]
-        h2["bf16_gemm_tn_kernel<br/>blockIdx 解析、warp_m/warp_n"]
+        h1["<b>bf16_gemm_tn()</b><br/>host 函数"]
+        h2["<b>bf16_gemm_tn_kernel</b><br/>blockIdx 解析、warp_m/warp_n"]
         h3["for kt … cp_async_wait / __syncthreads / load_tile"]
         h4["acc → bf16x2 store"]
         h5["16 × mma_bf16_16816"]
@@ -1059,10 +1059,10 @@ flowchart TB
     entry["torch.matmul / torch.mm / nn.Linear<br/>→ addmm_out_cuda_impl"]
     dt{"输入 dtype？"}
     entry --> dt
-    bf["BF16 / FP16<br/>Tensor Core（mma.sync / wgmma）"]
-    tf32["TF32 Tensor Core<br/>m16n8k8，输入截断到 19 位"]
-    fp32["FP32 CUDA Core FFMA<br/>A100 上限 19.5 TFLOPS"]
-    i8["INT8 / FP8：不走 addmm<br/>torch._scaled_mm 或<br/>vLLM 的 CUTLASS kernel（下一节）"]
+    bf["<b>BF16 / FP16</b><br/>Tensor Core（mma.sync / wgmma）"]
+    tf32["<b>TF32 Tensor Core</b><br/>m16n8k8，输入截断到 19 位"]
+    fp32["<b>FP32 CUDA Core FFMA</b><br/>A100 上限 19.5 TFLOPS"]
+    i8["<b>INT8 / FP8：不走 addmm</b><br/>torch._scaled_mm 或<br/>vLLM 的 CUTLASS kernel（下一节）"]
     dt -- "BF16 / FP16" --> bf
     dt -- "FP32 且 allow_tf32=True" --> tf32
     dt -- "FP32（默认）" --> fp32
@@ -1071,8 +1071,8 @@ flowchart TB
     bf --> bias
     tf32 --> bias
     fp32 --> bias
-    lt["cuBLASLt cublasLtMatmul<br/>epilogue 融合 BIAS / RELU / GELU<br/>1 个 kernel"]
-    cb["cuBLAS cublasGemmEx<br/>alpha·AB + beta·C<br/>激活另跑 1 个 elementwise kernel"]
+    lt["<b>cuBLASLt cublasLtMatmul</b><br/>epilogue 融合 BIAS / RELU / GELU<br/>1 个 kernel"]
+    cb["<b>cuBLAS cublasGemmEx</b><br/>alpha·AB + beta·C<br/>激活另跑 1 个 elementwise kernel"]
     bias -- "是" --> lt
     bias -- "否" --> cb
     lt -. "Lt 启发式失败则回退" .-> cb
