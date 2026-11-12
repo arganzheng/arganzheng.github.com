@@ -7,7 +7,7 @@ catalog: true
 updated: 2026-10-18
 ---
 
-> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`，commit `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`，2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+> **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`，commit `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`，2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。文中的 **V1** 指引擎架构及其源码包 `vllm/v1/`，不是一个可选的版本：旧的 V0 引擎在 v0.11.0（2025-10-02）中被整体移除，release notes 原话是 “V1 is the only engine in the codebase now”，所以 v0.27.1 里只有这一套引擎，没有 “V2 引擎”。名字里带 V2 的只是两个组件——模型执行层的新 ModelRunner 和 Ray 后端的 `RayExecutorV2`，见[第二章第 4 节](#4-executorworker-与-modelrunner模型执行的设备抽象)。
 
 
 前两篇分别定义了问题（LLM Serving 为什么难）和尺子（用什么指标衡量）。在深入调度、KV Cache、GPU 执行等单个战场之前，需要先有一张全景图：一个请求进入 vLLM 之后，会经过哪些模块，以什么形式被传递，最后如何变成 token 返回给用户。
@@ -20,7 +20,7 @@ updated: 2026-10-18
 
 ### 1. Kruchten 4+1：五个视角看同一个系统
 
-借用软件架构里的 Kruchten 4+1 视图模型来看 vLLM V1。**逻辑视图**说明模块分工（第二章的静态拓扑）；**开发视图**把模块放回源码目录，说明去哪读代码（第三章）；**进程视图**说明模块在哪个进程、怎样交互（第四章）；**部署/物理视图**说明进程怎么落到 GPU 和节点上（第五章）。最后的 **+1 场景视图**沿时间轴追踪一次请求（第六章，含请求流与数据流两个子场景）——它把前四个视图串成一条线。
+借用软件架构里的 Kruchten 4+1 视图模型来看 vLLM。**逻辑视图**说明模块分工（第二章的静态拓扑）；**开发视图**把模块放回源码目录，说明去哪读代码（第三章）；**进程视图**说明模块在哪个进程、怎样交互（第四章）；**部署/物理视图**说明进程怎么落到 GPU 和节点上（第五章）。最后的 **+1 场景视图**沿时间轴追踪一次请求（第六章，含请求流与数据流两个子场景）——它把前四个视图串成一条线。
 
 这样可以分清谁保存请求状态、谁决定这一步跑什么，以及 token 和调度结果怎样跨进程移动。
 
@@ -28,7 +28,7 @@ updated: 2026-10-18
 
 | 章 | 视图 | 内容 |
 |---|---|---|
-| 二 | 逻辑视图 | 静态系统拓扑，自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Worker 与 Executor |
+| 二 | 逻辑视图 | 静态系统拓扑，自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Executor → Worker → ModelRunner |
 | 三 | 开发视图 | 模块 ↔ 源码目录 ↔ 所在进程的对照表 |
 | 四 | 进程视图 | API Server、EngineCoreProc、WorkerProc 的职责与 IPC |
 | 五 | 部署/物理视图 | 进程到 GPU、节点的映射；会改变进程图的部署方式 |
@@ -40,10 +40,10 @@ Table: 本文的章节安排
 
 ## 二、逻辑视图：静态系统拓扑（自顶向下）
 
-vLLM V1 把系统分成**控制面**和**数据面**两半：控制面在 CPU 上，只处理元数据——请求 id、token id、block id、每轮的调度决策；数据面在 GPU 上，只处理张量——模型权重、前向激活和 KV Cache。两半之间只有一个接口：EngineCore 把 `SchedulerOutput` 交给 Executor 下发，Worker 把 `ModelRunnerOutput` 交回来。
+vLLM 把系统分成**控制面**和**数据面**两半：控制面在 CPU 上，只处理元数据——请求 id、token id、block id、每轮的调度决策；数据面在 GPU 上，只处理张量——模型权重、前向激活和 KV Cache。两半之间只有一个接口：EngineCore 把 `SchedulerOutput` 交给 Executor 下发，Worker 把 `ModelRunnerOutput` 交回来。
 
 ```mermaid
-%% 图：vLLM V1 的逻辑视图：CPU 上的控制面只处理元数据，GPU 上的数据面只处理张量，两者只经 SchedulerOutput / ModelRunnerOutput 交互
+%% 图：vLLM 的逻辑视图：CPU 上的控制面只处理元数据，GPU 上的数据面只处理张量，两者只经 SchedulerOutput / ModelRunnerOutput 交互
 flowchart TB
     Client["Client / OpenAI SDK"]
 
@@ -112,14 +112,14 @@ flowchart TB
 `AsyncLLM`（`vllm/v1/engine/async_llm.py`）是面向外部的异步引擎接口。它自己不做重活，而是把工作交给三个同目录下的协作者：
 
 - `InputProcessor`（`input_processor.py`）：把文本 / 多模态输入 tokenize、校验采样参数，产出 `EngineCoreRequest`；
-- `EngineCoreClient`（`core_client.py`）：与 `EngineCore` 通信的客户端。默认部署下 `EngineCore` 运行在**独立进程**中，两者通过 ZMQ + msgspec 收发 `EngineCoreRequest` / `EngineCoreOutputs`（`AsyncMPClient`）；单进程调试时用 `InprocClient`。这条进程边界是 vLLM V1 让 HTTP 处理、tokenize / detokenize 与 GPU 调度循环互不阻塞的关键；
+- `EngineCoreClient`（`core_client.py`）：与 `EngineCore` 通信的客户端。默认部署下 `EngineCore` 运行在**独立进程**中，两者通过 ZMQ + msgspec 收发 `EngineCoreRequest` / `EngineCoreOutputs`（`AsyncMPClient`）；单进程调试时用 `InprocClient`。这条进程边界是 vLLM 让 HTTP 处理、tokenize / detokenize 与 GPU 调度循环互不阻塞的关键；
 - `OutputProcessor`（`output_processor.py`）：接收 `EngineCoreOutputs`，做 detokenize、stop 条件检查、logprobs 整理，产出 `RequestOutput` 交给 API 层流式返回。
 
 因此 `AsyncLLM` 的职责是：管理请求的异步生命周期、串起上述三者、支持 SSE 流式响应，以及数据并行（DP）场景下的多引擎协调。
 
 ### 2. EngineCore：推理系统的中央调度大脑
 
-`EngineCore`（`vllm/v1/engine/core.py`）是 vLLM V1 引擎的核心，它的 `step()` 方法驱动整个推理循环：
+`EngineCore`（`vllm/v1/engine/core.py`）是引擎的核心，它的 `step()` 方法驱动整个推理循环：
 
 ```python title='EngineCore 的 step()：调度、执行、更新'
 # vllm/v1/engine/core.py (简化)
@@ -199,7 +199,9 @@ flowchart TB
 
 图里蓝色是 Scheduler 自己的步骤，橙色是对 KVCacheManager 的调用，节点里写出的 `BlockPool.*` 是这些调用最终落到的块池操作。调度策略（FCFS 与 priority、公平性、抢占代价）在[《Scheduler：GPU 这一轮到底给谁用？》](/scheduler-batch-and-fairness.html)里展开；块的布局、前缀缓存哈希和驱逐在[《KV Cache：LLM Serving 的第一号内存问题》](/kv-cache-memory-core.html)里展开。
 
-### 4. Worker 与 Model Executor：模型执行的设备抽象
+### 4. Executor、Worker 与 ModelRunner：模型执行的设备抽象
+
+EngineCore 下面的执行层分三层，从外到内：**Executor** 决定一轮 batch 交给哪些 Worker、怎么交；**Worker** 管一个设备（一张 GPU、一个 TP / PP rank）；**ModelRunner** 在这个设备上真正把一轮 batch 跑完。
 
 ```mermaid
 %% 图：Executor 与 Worker：一次 execute_model() 分发给多个 GPU Worker，各自的 ModelRunner 持有分片权重与 KV Cache
@@ -224,19 +226,27 @@ graph TB
 
 常见 GPU 部署中，Executor 会把一次 `execute_model()` 调用分发给一个或多个 Worker；Worker 再调用本地的 `ModelRunner` 执行模型前向、采样和 KV Cache 读写。单卡、同机多进程、Ray 分布式和 external launcher 的进程/设备映射并不完全相同，因此不应把“一个 GPU 固定绑定一个 Worker 进程”写成绝对规则。
 
-每个 Worker 通常负责：
-- `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）：负责输入准备（`_prepare_inputs()`）、模型前向（`execute_model()`）、采样（`sample_tokens()`）。本系列图中简写为 ModelRunner。v0.27.1 另有一份新实现 `vllm/v1/worker/gpu/model_runner.py`，通过 `VLLM_USE_V2_MODEL_RUNNER=1` 启用，文中以默认实现为主线
-- 模型权重的分片（Tensor Parallel 下每卡持有一部分）
-- KV Cache 物理显存
-
-`Executor`（`vllm/v1/executor/abstract.py`）是模型执行抽象层，负责在一个设备或多个设备上执行模型，而不是 Scheduler 本身。v0.27.1 中可见的主要实现包括：
+**Executor。** `Executor`（`vllm/v1/executor/abstract.py`）是模型执行抽象层，负责在一个设备或多个设备上执行模型，而不是 Scheduler 本身。v0.27.1 中可见的主要实现包括：
 - `UniProcExecutor`：单进程单卡
 - `MultiprocExecutor`：多进程多卡（同机）
 - `RayDistributedExecutor`：Ray 分布式（直接继承 `Executor`）
-- `RayExecutorV2`：Ray 分布式的新实现，注意它继承的是 `MultiprocExecutor` 而非 `Executor`——即复用同一套 worker 进程管理逻辑，只把进程的**拉起方式**换成 Ray（`RayWorkerProc(WorkerProc)`）
+- `RayExecutorV2`：Ray 分布式的新实现（`distributed_executor_backend="ray"` 时默认用它，`VLLM_USE_RAY_V2_EXECUTOR_BACKEND=0` 才退回 `RayDistributedExecutor`），注意它继承的是 `MultiprocExecutor` 而非 `Executor`——即复用同一套 worker 进程管理逻辑，只把进程的**拉起方式**换成 Ray（`RayWorkerProc(WorkerProc)`）
 - `ExecutorWithExternalLauncher`：外部 launcher 场景（继承 `UniProcExecutor`）
 
-这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 V2 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
+这条继承链本身就说明了一件事：**"用不用 Ray"是部署方式的差异，不是执行模型的差异。** Executor 这层抽象的价值就在于把"进程怎么起、卡怎么分"和"一轮 batch 怎么执行"彻底分开，所以 `RayExecutorV2` 才能靠换掉进程拉起方式来复用同机多进程的全部逻辑。
+
+**Worker。** `Worker`（`vllm/v1/worker/gpu_worker.py`）是一个设备的管家，通常负责：
+- 初始化设备和本 rank 的分布式环境（TP / PP 通信组，`init_device()`）；
+- 加载模型权重的分片（Tensor Parallel 下每卡持有一部分，`load_model()`）；
+- 测显存余量（`determine_available_memory()`）、按 `kv_cache_config` 分配 KV Cache 物理显存（`initialize_from_config()`）；
+- 持有一个 ModelRunner，把 Executor 发来的 `execute_model()` 转给它。
+
+**ModelRunner。** `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`，本系列图中简写为 ModelRunner）是 Worker 里真正“跑一步”的对象。它常驻一份持久的 `InputBatch`（每个在跑请求一行：token ids、block table、采样参数），每轮做三件事：
+1. **准备输入**（`_prepare_inputs()`）：按 `SchedulerOutput` 的增量更新 `InputBatch`，算出这一轮的 input ids、positions 和 slot mapping，组成 attention backend 要的元数据；
+2. **前向**（`execute_model()`）：调模型和 attention backend，读写 KV Cache，能用 CUDA Graph 时走捕获好的图；
+3. **采样**（`sample_tokens()`）：从 logits 采出每个请求的下一个 token，打包成 `ModelRunnerOutput` 交回。
+
+Worker 管“这张卡上有什么”，ModelRunner 管“这一轮怎么算”，所以[《GPU 执行：如何让每个 Token 算得更快？》](/gpu-execution-kernels-and-graphs.html)展开的主要是 ModelRunner。v0.27.1 另有一份新实现 Model Runner V2（`vllm/v1/worker/gpu/model_runner.py`）：`VLLM_USE_V2_MODEL_RUNNER=1` 强制启用，未设置时只对少数架构（如 `DeepseekV2ForCausalLM`、`Qwen2MoeForCausalLM`）和 PCP、diffusion 等少数特性默认启用（`VllmConfig.use_v2_model_runner`，`vllm/config/vllm.py`）。文中以默认的 `GPUModelRunner` 为主线。
 
 ## 三、开发视图：模块在源码树的哪里
 
@@ -284,7 +294,7 @@ UML 的开发视图看的是子系统划分与包依赖。把上表按子系统�
 
 静态拓扑图画模块之间的调用；这张图把它们放回默认部署的进程和线程里。API Server 处理协议和文本，`EngineCoreProc` 管请求状态和调度，每个 `WorkerProc` rank 执行模型。
 
-![vLLM V1 默认多进程部署：API Server、EngineCoreProc 与 WorkerProc 的线程和 IPC](/img/in-post/vllm-request-lifecycle-process-view.svg)
+![vLLM 默认多进程部署：API Server、EngineCoreProc 与 WorkerProc 的线程和 IPC](/img/in-post/vllm-request-lifecycle-process-view.svg)
 
 ### 1. API Server：处理协议与文本
 
@@ -314,7 +324,7 @@ EngineCore 先发 `HELLO` 注册，启动器返回地址和配置；初始化完
 
 ### 6. 一个 decode step 怎样穿过三个进程
 
-![vLLM V1 一个 decode step 在 API Server、EngineCoreProc 与 WorkerProc 间的时序](/img/in-post/vllm-request-lifecycle-decode-step.svg)
+![vLLM 一个 decode step 在 API Server、EngineCoreProc 与 WorkerProc 间的时序](/img/in-post/vllm-request-lifecycle-decode-step.svg)
 
 EngineCore 收到请求后，主线程调度出这一轮的 `SchedulerOutput`，交给进程内对象 `Executor`（默认 `MultiprocExecutor`）广播给所有 Worker——这条链路是 `EngineCore → Executor → WorkerProc`，进程视图那张图里 Executor 画在进程 B 内部，上面这张时序图里它是 B 侧的一小段激活。Worker 执行模型并由 `output_rank` 返回结果；EngineCore 更新请求，再把 `EngineCoreOutputs` 交给输出线程。API Server 收到 token ids 后做 detokenize，最后由 HTTP handler 写成 SSE。图里只展开一个 decode step；prefill 也走同一组进程边界。
 
@@ -343,7 +353,7 @@ Table: 部署方式到进程、GPU、节点的映射
 
 部署方式怎么改变进程图，对应关系如下：
 
-![vLLM V1 的多 API Server 与 data parallel 部署变体](/img/in-post/vllm-request-lifecycle-deployment-variants.svg)
+![vLLM 的多 API Server 与 data parallel 部署变体](/img/in-post/vllm-request-lifecycle-deployment-variants.svg)
 
 - `UniProcExecutor` 在 EngineCore 进程内直接初始化并调用 Worker，不创建 `WorkerProc` 子进程。`InprocClient` 是另一层选择：它把 EngineCore 本身也放在调用方进程里。二者改变的是不同的进程边界（`vllm/v1/executor/uniproc_executor.py`、`vllm/v1/engine/core_client.py`）。
 - data parallel 会启动多个 EngineCore rank，各自有自己的 Scheduler 和 Executor。在线且配置需要协调时，rank 0 还会启动 `DPCoordinator`；它汇总队列统计、向 API frontends 发布负载信息，并在需要时协调 MoE request wave。它不是每个 token 的执行通道（`vllm/v1/engine/utils.py`、`vllm/v1/engine/coordinator.py`、`vllm/v1/engine/core.py`）。
@@ -510,7 +520,7 @@ Table: 入口与引擎循环的源码导航
 
 ## 八、自测
 
-1. vLLM V1 里 `AsyncLLM` 与 `EngineCore` 为什么分成两个进程？中间传什么？
+1. vLLM 里 `AsyncLLM` 与 `EngineCore` 为什么分成两个进程？中间传什么？
 
    <details markdown="1"><summary>答案</summary>
 
