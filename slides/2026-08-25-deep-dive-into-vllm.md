@@ -223,14 +223,88 @@ graph TB
 
 <!-- v -->
 
-### 4+1：部署视图
+### 4+1：开发视图与包依赖
 
-![API Server、数据并行 EngineCoreProc 与各自 Worker ranks 的部署变体](/img/in-post/vllm-request-lifecycle-deployment-variants.svg){: style="max-height: 410px"}
+![vLLM v0.27.1 的包依赖树](/img/in-post/vllm-request-lifecycle-package-view.svg){: style="max-height: 440px"}
 
-**DP rank 各有一个 EngineCoreProc；每个执行 rank 对应一个 WorkerProc。**
+**八个源码目录按 import 方向排成一棵树，依赖单向向下。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。源码版本 v0.27.1。EP 在既有 DP×TP rank 上执行，不额外创建进程。
+原文：[/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里](/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里)。entrypoints → v1.engine → v1.core 与 v1.executor；v1.executor → v1.worker → model_executor（含 v1/attention）与 distributed；model_executor → csrc。实际 import 不是严格的树（distributed 的 custom all-reduce 也调用 csrc 的 kernel），图里每个目录只画最主要的上游。
+</aside>
+
+<!-- v -->
+
+### 开发视图：源码与 wheel 制品
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：vLLM v0.27.1（CUDA）的源码与 wheel 制品：Python 源码原样打包，csrc 与 FlashAttention 经 CMake 编译成扩展模块
+flowchart LR
+    subgraph SRC["源码（vllm 仓库 + CMake 拉取的依赖）"]
+        PY["<b>vllm/ 下的 .py</b><br/>entrypoints · v1 · model_executor · distributed"]
+        CS["<b>csrc/libtorch_stable/</b><br/>layernorm · 量化 · cache · sampler · custom all-reduce"]
+        CM["<b>csrc/libtorch_stable/moe/</b><br/>moe_align_sum · topk_softmax"]
+        CA["<b>csrc/cumem_allocator.cpp</b><br/>sleep mode 的显存分配器"]
+        FA["<b>vllm-project/flash-attention</b><br/>CMake FetchContent，固定 commit"]
+    end
+    subgraph WHL["wheel 里的制品"]
+        W1["<b>vllm/ 下的 .py</b><br/>原样打包"]
+        W2["<b>vllm/_C_stable_libtorch.abi3.so</b><br/>注册 torch 自定义算子"]
+        W3["<b>vllm/_moe_C_stable_libtorch.abi3.so</b>"]
+        W4["<b>vllm/cumem_allocator.abi3.so</b>"]
+        W5["<b>vllm/vllm_flash_attn/</b><br/>_vllm_fa2_C · _vllm_fa3_C"]
+    end
+    PY -->|"setup.py 收集"| W1
+    CS -->|"CMake · nvcc"| W2
+    CM -->|"CMake · nvcc"| W3
+    CA -->|"CMake"| W4
+    FA -->|"CMake · nvcc"| W5
+    classDef src fill:#f4f4f4,stroke:#888,color:#333
+    classDef art fill:#f2eefb,stroke:#7a68a6,color:#2e2450
+    class PY,CS,CM,CA,FA src
+    class W1,W2,W3,W4,W5 art
+```
+
+**Python 源码原样打包；csrc 与 FlashAttention 经 CMake 编译成扩展模块。**
+
+<aside class="notes" markdown="1">
+原文同上，第四章第 2 节。CUDA 平台上是 `_C_stable_libtorch` / `_moe_C_stable_libtorch`，名字不带 `_stable_libtorch` 的 `vllm._C` 只在 ROCm 和 CPU 上构建。`vllm/platforms/cuda.py` 在模块顶层导入 `_C_stable_libtorch`，所以 API Server、EngineCoreProc 也会加载这个 .so；真正在 GPU 上调用 kernel 的只有 WorkerProc。
+</aside>
+
+<!-- v -->
+
+### 4+1：部署视图
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：两机 TP=8 × PP=2：节点 0 跑 API Server、EngineCoreProc 和 PP stage 0，节点 1 以 --headless 只拉起 PP stage 1 的 8 个 WorkerProc
+flowchart LR
+    subgraph N0["节点 0 · --node-rank 0"]
+        API["<b>API Server 进程</b>"]
+        ECP["<b>EngineCoreProc</b><br/>Scheduler · MultiprocExecutor"]
+        S0["<b>WorkerProc rank 0–7</b><br/>PP stage 0 · TP=8"]
+    end
+    subgraph N1["节点 1 · --node-rank 1 --headless"]
+        HL["<b>headless 启动进程</b><br/>只拉起本机 Worker"]
+        S1["<b>WorkerProc rank 8–15</b><br/>PP stage 1 · TP=8"]
+    end
+    API <--> ECP
+    ECP -->|"本机共享内存"| S0
+    ECP -->|"跨机 ZMQ"| S1
+    HL --> S1
+    S0 ==>|"PP 激活"| S1
+    S1 -.->|"output_rank = 8 回传"| ECP
+    classDef cp fill:#eaf2fb,stroke:#5b8fd6,color:#1d3557
+    classDef dp fill:#fdf0e6,stroke:#d9822b,color:#5a2e0e
+    class API,ECP,HL cp
+    class S0,S1 dp
+```
+
+**两机 TP=8 × PP=2：节点 0 有完整的控制面，节点 1 只有 WorkerProc。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#五部署物理视图进程怎样落到-gpu-和节点上](/vllm-request-lifecycle-overview.html#五部署物理视图进程怎样落到-gpu-和节点上)，文中按单卡、单机 TP=4、两机 TP×PP、单机 DP=2 × TP=2、多 API Server 各画了一张部署图。rank 按 TP 最内层编号，rank 0–7 是 PP stage 0、占满节点 0；output_rank = world_size − tp_size = 8 在节点 1。DP=2 时不指定 `--api-server-count` 默认起 2 个 API Server，另有一个 DPCoordinator 进程。EP 在既有 DP×TP rank 上执行，不额外创建进程。
 </aside>
 
 <!-- v -->
@@ -251,22 +325,10 @@ graph TB
 
 ![ModelRunner、EngineCore 主线程、输出线程、output_handler 与 SSE 的 token 回程](/img/in-post/vllm-request-lifecycle-token-return.svg){: style="max-height: 410px"}
 
-**主线程立即回到 schedule；序列化走输出线程，detokenize 与 stop 检查在进程 A。**
+**主线程立即回到 schedule；序列化走输出线程，detokenize 与 stop 检查在 API Server 进程。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。stop 字符命中后 abort_requests_async 回到 B；RequestOutputCollector 合并 deltas，再由 generate() 发 SSE。
-</aside>
-
-<!-- v -->
-
-### 4+1：开发视图与包依赖
-
-![vLLM v0.27.1 的源码子系统、依赖关系与构建产物](/img/in-post/vllm-request-lifecycle-package-view.svg){: style="max-height: 410px"}
-
-**包图沿实际 import 展开；csrc 经 CMake / setup.py 编译进 Python wheel。**
-
-<aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。模块覆盖 entrypoints、v1/engine、core、executor、worker、model_executor、attention、distributed 与 csrc；包图和构建说明以 v0.27.1 源码为准。
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。stop 字符命中后 abort_requests_async 回到 EngineCoreProc；RequestOutputCollector 合并 deltas，再由 generate() 发 SSE。
 </aside>
 
 ---
