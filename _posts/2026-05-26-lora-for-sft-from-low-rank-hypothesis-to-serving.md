@@ -55,8 +55,8 @@ adapter 存下来只有几十 MB，这个数字决定了 LoRA 在产品侧的价
 %%{init: {"flowchart": {"wrappingWidth": 240}}}%%
 %% 图：三篇正文的主线：01 讲低秩假设与四本账，02 用十三种配置的对照矩阵定每个旋钮，03 把训好的 adapter 送到服务
 flowchart TB
-    P1["01 为什么<br/>低秩假设 · W + (α/r)BA · 梯度手算<br/>参数 / 状态 / FLOPs / 激活四本账<br/>全量微调 ΔW 的奇异值谱"]
-    P2["02 怎么配<br/>r · target_modules · α 与 rsLoRA · lr 与 LoRA+<br/>PiSSA / DoRA / OLoRA / EVA / LoftQ<br/>QLoRA · 十二种配置的对照矩阵 · 选择表"]
+    P1["01 为什么<br/>低秩假设 · $$W + (\alpha/r)BA$$ · 梯度手算<br/>参数 / 状态 / FLOPs / 激活四本账<br/>全量微调 $$\Delta W$$ 的奇异值谱"]
+    P2["02 怎么配<br/>r · target_modules · $$\alpha$$ 与 rsLoRA · lr 与 LoRA+<br/>PiSSA / DoRA / OLoRA / EVA / LoftQ<br/>QLoRA · 十二种配置的对照矩阵 · 选择表"]
     P3["03 怎么上线<br/>adapter 文件 · 加载与合并 · 量化失配<br/>多 adapter · multi-LoRA 服务的账<br/>参考模型 · 新 token"]
     E["同一组实验<br/>Qwen2.5-0.5B · no_robots 800 条 · 80 步<br/>验证回复 loss · 普通文本 loss（遗忘）· s/步"]
     P1 --> P2 --> P3
