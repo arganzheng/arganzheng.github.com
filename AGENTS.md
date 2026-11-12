@@ -223,11 +223,31 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   `FIGTEXT_FONTS=<dir>` / `DEJAVU_MONO=<path>`; it exits with a clear message
   if they're missing. Run `svg-mathtext.py` first, `svg-embed-fonts.py` second
   (it skips `g.mathtext` subtrees).
+- **Simple box diagrams are Mermaid, not hand-written SVG** (author,
+  2026-11-12, on the Scheduler post: 「方框太大」「箭头没有连接上方框」「title
+  跟下面的文字没有区分度」「我发现所有的简单框图都有这个问题」). A figure that is
+  only boxes + arrows with no geometry (a flow, a fan-out, a state loop, a
+  list of steps) is a ` ```mermaid ` flowchart: Mermaid sizes each box to its
+  text, lands every arrow on a box edge, and gives the title / list styling
+  below for free. The 13 such SVGs of vLLM 04 were converted on 2026-11-12.
+  Hand SVG stays for geometry (time axes, memory / block layouts, tables
+  drawn row by row). When a hand SVG has boxes, the same rules hold:
+  1. **Compact boxes**: padding about 10–14 px around the text, no box wider
+     or taller than its text needs; sibling boxes may share one size.
+  2. **Title**: the line naming the box is bold (500–700) and one size up
+     (e.g. 15 / 13 px), with a few px more space below it.
+  3. **Multi-line body = a left-aligned list** (`•` or `1.`), line-height
+     1.2–1.5 — never centred lines spaced 2× apart.
+  4. **Arrows touch box edges** (arrowhead tip on the border, ≤ 4 px);
+     `svg-collide.cjs` now fails a dangling arrowhead (check (e)).
+  5. Several items inside one box that are separate things (Request A / B /
+     C in a batch) get their own small boxes.
 - Hand-written SVGs have no `collide()` — run `node tools/svg-collide.cjs
   img/in-post/<name>.svg` (same CDP/Chrome setup as check-render; flags text
   leaving its enclosing rect or the viewBox, text–text overlap, non-dashed
   lines/paths crossing text, labels off-centre inside their box by >1.5px,
-  and marker-end arrows whose visible shaft is <16px) and make it pass —
+  marker-end arrows whose visible shaft is <16px, and arrowheads that stop
+  4–60 px short of every box edge, line or label — dangling) and make it pass —
   fix layout by hand (widen rect / shorten label), never weaken the checks.
   A container `<rect>` holding several independent labels opts out of the
   centering check only with `data-no-center` (containment still applies).
@@ -563,6 +583,15 @@ Pages has `https_enforced` on.
   SVG-text export (`mermaidToSvg`: 公众号 / 富文本 / Word / 下载 SVG) drops
   `<b>` and other inline tags — Mermaid prints them literally there; the
   HTML export clones the live SVG and keeps the styled title.
+  **Node lists**: body lines that all start with `• ` or `1. `
+  (`A["<b>Scheduler.schedule()</b><br/>1. 计算 remaining tokens<br/>2. 分配
+  Token Budget"]`) become `span.mmd-list` / `.mmd-li` — left-aligned, hanging
+  indent, line-height 1.4. Write a box's steps / fields that way instead of
+  centred lines. Gotchas met on 2026-11-12: a subgraph with no edge to the
+  outside is laid out on its own and Mermaid flips its direction (TB → LR),
+  so give every such container `direction TB` / `LR` explicitly; class names
+  used by the loader must not collide with other site CSS (`.mm-title`
+  belonged to the mindmap, hence `mmd-`).
 - `_includes/analytics.html` — GA4 gtag (`ga_track_id: G-…`; the old
   `analytics.js` + `UA-` id only kept working through Google's UA→GA4
   "connected site tag" forwarding) + Baidu Tongji, shared by `footer.html` and
@@ -2329,6 +2358,12 @@ How it is built (`_plugins/moments.rb`):
 - **Box titles in hand-drawn SVGs** follow the Mermaid rule: the first line
   of a box that names it (a package path, a component) is bold and one size
   up with a few px more space below (vLLM 03 包图: `.pkg` 15px / 700).
+- **No invented letter codes for components** (author, 2026-11-12, vLLM 03:
+  「不要搞什么 A、B、C 缩写了……直接写完整的进程名称。整篇文章都扫一下」).
+  Write the real name every time — API Server / EngineCoreProc / WorkerProc,
+  not 进程 A / B / C, 「A 侧」, 「B → C」 — in prose, tables, figures and
+  slides. Letters are fine only for interchangeable examples (Request A / B
+  / C with different token counts).
 - **Table headers carry meaning**: no one-character headers (「错」 →
   「错误类型」, 「概念」 → 「对象」 when the column holds objects).
 - **Abbreviations get full name + Chinese on first use**: `peft（Parameter-

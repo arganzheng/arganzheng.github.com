@@ -65,7 +65,7 @@
  <rect x="64" y="241.20000000000002" width="40" height="111.60000000000001" fill="#d8ecdf" stroke="#4b9477" stroke-width="1.2" rx="5" />
  <text x="112" y="270.0" text-anchor="start" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">1 · 采样 + D2H</text>
  <text x="112" y="306.0" text-anchor="start" class="small" transform="translate(0.000 0.000) translate(0.000 0.000) ">token ids → Python list</text>
- <line x1="106" y1="388.8" x2="236" y2="388.8" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
+ <line x1="106" y1="388.8" x2="242" y2="388.8" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
  <text x="195" y="363.6" text-anchor="middle" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">
   <tspan>2 · </tspan>
   <tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono;font-size:13px">ModelRunnerOutput</tspan>
@@ -80,7 +80,7 @@
   <tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono;font-size:13px">update_from_output()</tspan>
  </text>
  <text x="222" y="532.8000000000001" text-anchor="end" class="small" transform="translate(0.000 0.000) translate(0.000 0.000) ">追加 token ids · 判 stop</text>
- <line x1="263" y1="615.6" x2="396" y2="615.6" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
+ <line x1="263" y1="615.6" x2="404" y2="615.6" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
  <text x="345" y="590.4" text-anchor="middle" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">
   <tspan>4 · </tspan>
   <tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono;font-size:13px">output_queue.put</tspan>
@@ -120,7 +120,7 @@
    </text>
   </g>
  </g>
- <line x1="420" y1="777.6" x2="553" y2="777.6" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
+ <line x1="420" y1="777.6" x2="561" y2="777.6" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
  <text x="487" y="752.4" text-anchor="middle" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">6 · msgspec 序列化 + ZMQ</text>
  <rect x="548" y="813.6" width="34" height="158.4" fill="#dbe7f5" stroke="#5880b4" stroke-width="1.2" rx="5" />
  <text x="540" y="849.6" text-anchor="end" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">7 · detokenize + stop 检查</text>
@@ -129,7 +129,7 @@
   <tspan> 增量文本</tspan>
  </text>
  <text x="540" y="914.4" text-anchor="end" class="small" transform="translate(0.000 0.000) translate(0.000 0.000) ">stop 字符串命中 → abort 回 EngineCoreProc</text>
- <line x1="584" y1="1000.8000000000001" x2="688" y2="1000.8000000000001" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
+ <line x1="584" y1="1000.8000000000001" x2="696" y2="1000.8000000000001" stroke="#40566f" stroke-width="2" marker-end="url(#arrow)" />
  <text x="668" y="975.6" text-anchor="middle" class="label" transform="translate(0.000 0.000) translate(0.000 0.000) ">
   <tspan>8 · </tspan>
   <tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono;font-size:13px">RequestOutput</tspan>

@@ -4,7 +4,8 @@
 //  (a) leaves its enclosing <rect> (smallest rect containing the text bbox),
 //  (b) intersects another <text> bbox,
 //  (c) is crossed by a <line>/<path> segment (sampled points),
-//  (d) leaves the viewBox.
+//  (d) leaves the viewBox,
+//  (e) ends an arrow 4–60px short of every box edge (dangling arrowhead).
 // Env: CDP (default http://localhost:9222).
 const http = require('http');
 const fs = require('fs');
@@ -39,6 +40,10 @@ const CHECK = `(() => {
   const rectEls=[...svg.querySelectorAll('rect')].filter(r=>!r.hasAttribute('data-band')&&!r.closest('g.mathtext'));
   const rects=rectEls.map(r=>bb(r)); rects.forEach((b,i)=>{if(!b) rectEls[i]=null}); const rects2=rects.map((b,i)=>({b,el:rectEls[i]})).filter(o=>o.b);
   const rectList=rects2.map(o=>o.b);
+  // boxes an arrow may land on: visible rects that are not the page background
+  const boxRects=rects2.filter(o=>{const f=(o.el.getAttribute('fill')||getComputedStyle(o.el).fill||'');
+    if(/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f)) return false;
+    return !((o.b.x1-o.b.x0)>=vb.width*0.95&&(o.b.y1-o.b.y0)>=vb.height*0.9);}).map(o=>o.b);
   const errs=[];
   for(const t of texts){
     if(t.b.x0<vb.x-1||t.b.y0<vb.y-1||t.b.x1>vb.x+vb.width+1||t.b.y1>vb.y+vb.height+1) errs.push('viewBox 越界: '+t.t);
@@ -93,10 +98,14 @@ const CHECK = `(() => {
       if(cls(a,b,pad)) errs.push('线段穿文字: '+t.t);
     }
   }
+  // marker-less <line>s (lifelines, axes, bus bars) an arrow may end on
+  const plainLines=[...svg.querySelectorAll('line')].filter(l=>!l.closest('defs,marker,g.mathtext')&&!l.getAttribute('marker-end')&&getComputedStyle(l).markerEnd==='none').map(l=>{const m=mm(l);if(!m)return null;
+    const a=xf(m,+l.getAttribute('x1'),+l.getAttribute('y1')),b=xf(m,+l.getAttribute('x2'),+l.getAttribute('y2'));return [a[0],a[1],b[0],b[1]];}).filter(Boolean);
   // arrows: visible shaft (drawn length minus head) ≥16px
   [...svg.querySelectorAll('line,path')].forEach(p=>{
     if(p.closest('defs')||p.closest('marker')||p.closest('g.mathtext')) return;
-    const mend=p.getAttribute('marker-end'), mstart=p.getAttribute('marker-start');
+    const cs=getComputedStyle(p), cssRef=v=>(v&&v!=='none')?v:null;
+    const mend=p.getAttribute('marker-end')||cssRef(cs.markerEnd), mstart=p.getAttribute('marker-start')||cssRef(cs.markerStart);
     if(!mend&&!mstart&&!/url\\(#/.test(p.getAttribute('style')||'')) return;
     let L=0; try{L=p.getTotalLength()}catch{return;}
     let head=0;
@@ -108,6 +117,26 @@ const CHECK = `(() => {
       head=Math.max(head,Math.max(w,mh)*2);
     }
     if(L-head<16) errs.push('箭头杆过短('+Math.round(L-head)+'px): '+(p.getAttribute('id')||(p.getAttribute('d')||'').slice(0,30)||p.outerHTML.slice(0,30)));
+    // (e) dangling arrow (2026-11-12, 「箭头没有连接上方框」): the arrowhead end
+    // must touch a box edge — within 4px of a visible rect's border — or a
+    // label it points at. 4–60px from the nearest box means a gap was left.
+    const m=mm(p); if(!m) return;
+    for(const [mref,at] of [[mend,L],[mstart,0]]){
+      if(!mref) continue;
+      const q=p.getPointAtLength(at); const [px,py]=xf(m,q.x,q.y);
+      let d=1e9;
+      for(const b of boxRects){
+        const ox=Math.max(b.x0-px,0,px-b.x1), oy=Math.max(b.y0-py,0,py-b.y1);
+        const inside=!ox&&!oy;
+        d=Math.min(d, inside?Math.min(px-b.x0,b.x1-px,py-b.y0,b.y1-py):Math.hypot(ox,oy));
+      }
+      const nearText=texts.some(t=>px>t.b.x0-8&&px<t.b.x1+8&&py>t.b.y0-8&&py<t.b.y1+8);
+      // sequence-style figures: an arrow may end on another line (a lifeline)
+      const onLine=plainLines.some(([x1,y1,x2,y2])=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy||1;
+        const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/l2));return Math.hypot(px-x1-t*dx,py-y1-t*dy)<=4;});
+      if(onLine) continue;
+      if(d>4&&d<60&&!nearText) errs.push('箭头悬空（端点离最近方框 '+Math.round(d)+'px）: '+((p.getAttribute('d')||'').slice(0,30)||p.outerHTML.slice(0,40)));
+    }
   });
   return JSON.stringify({errs:[...new Set(errs)],ntexts:texts.length});
 })()`;

@@ -156,6 +156,25 @@
           return open + "<span class='mmd-title'>" + title + '</span>';
         });
       }
+      // Body lines that start with `• ` or `1. ` are a list: left-aligned
+      // block lines with a hanging indent (span.mmd-list / .mmd-li), instead
+      // of centred lines spread out by the label's line-height (2026-11-12,
+      // 「多行文字改成有序或者无序列表左对齐更合适」). Opt-in by writing the
+      // markers in the source; all body lines must carry one.
+      var LABEL_RE = /([(\[{>\/\\]\s*")([^"]*)(")/g;
+      var ITEM_RE = /^\s*(?:•|\d+\.)\s/;
+      function nodeLists(source) {
+        return source.replace(LABEL_RE, function (m, open, body, close) {
+          var head = '', rest = body;
+          var t = body.match(/^<span class='mmd-title'>[\s\S]*?<\/span>/);
+          if (t) { head = t[0]; rest = body.slice(head.length); }
+          var lines = rest.split(/<br\s*\/?>/);
+          if (lines.length < 2 || !lines.every(function (l) { return ITEM_RE.test(l); })) return m;
+          return open + head + "<span class='mmd-list'>" + lines.map(function (l) {
+            return "<span class='mmd-li'>" + l.trim() + '</span>';
+          }).join('') + '</span>' + close;
+        });
+      }
       function inTitle(source, offset) {
         var open = source.lastIndexOf("<span class='mmd-title'>", offset);
         return open !== -1 && source.indexOf('</span>', open) > offset;
@@ -276,7 +295,7 @@
         var renderQueue = katexReady().then(function (ok) { useKatex = ok; });
         function renderOne(container, index) {
             var source = (container.getAttribute('data-mermaid-source') || container.textContent).trim();
-            if (isFlowchart(source)) source = nodeTitles(source);
+            if (isFlowchart(source)) source = nodeLists(nodeTitles(source));
             var id = 'mermaid-' + index + '-' + Date.now();
             var texts = [];
             var hasDollar = source.indexOf('$$') !== -1;

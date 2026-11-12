@@ -1398,6 +1398,20 @@ span.mmd-title {
   font-size: 1.1em;
   margin-bottom: 5px;
 }
+/* Node lists: body lines written `• …` / `1. …` (see nodeLists() in
+   rich-content.html) are left-aligned with a hanging indent and a tighter
+   line-height than the label's 1.5. No ancestor in the selector, for the same
+   measuring reason as span.mmd-title. */
+span.mmd-list {
+  display: block;
+  text-align: left;
+}
+span.mmd-li {
+  display: block;
+  line-height: 1.4;
+  padding-left: 1.1em;
+  text-indent: -1.1em;
+}
 /* KaTeX's 1.21em made a formula look larger than the label text (and the
    title) around it; inside diagrams 1.05em matches the label's x-height. */
 .mermaid .katex,
