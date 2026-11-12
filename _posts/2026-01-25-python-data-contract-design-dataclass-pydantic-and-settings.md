@@ -556,7 +556,7 @@ flowchart TB
     Q0{"这组数据从哪来？"}
     Q0 -->|"外部：HTTP / JSON / YAML / 环境变量"| Q1{"来自环境变量或 .env？"}
     Q1 -->|"是"| S["Pydantic BaseSettings"]
-    Q1 -->|"否"| M["Pydantic BaseModel<br/>进门时解析并校验一次"]
+    Q1 -->|"否"| M["<b>Pydantic BaseModel</b><br/>进门时解析并校验一次"]
     Q0 -->|"内部：模块之间传递"| Q2{"需要什么性质？"}
     Q2 -->|"不可变：可做 dict key、跨线程共享"| F["@dataclass(frozen=True) / NamedTuple"]
     Q2 -->|"可变状态"| D["@dataclass"]

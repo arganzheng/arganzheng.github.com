@@ -24,16 +24,16 @@ updated: 2026-09-20
 flowchart TB
     subgraph DEF["定义时（import 阶段）"]
         direction TB
-        D1["@register('qwen3')<br/>装饰器把类登记进注册表"] --> REG["注册表：{'qwen3': Qwen3Model, 'llama': …}<br/>（dict、或 __init_subclass__ / 元类自动收集）"]
+        D1["<b>@register('qwen3')</b><br/>装饰器把类登记进注册表"] --> REG["注册表：{'qwen3': Qwen3Model, 'llama': …}<br/>（dict、或 __init_subclass__ / 元类自动收集）"]
     end
     subgraph RUN["启动时（选择）"]
         direction TB
-        C["config: model_type = 'qwen3'"] --> L["按字符串查注册表 → 得到类<br/>没找到就 import_module('plugins.xxx') 再查"]
+        C["config: model_type = 'qwen3'"] --> L["<b>按字符串查注册表 → 得到类</b><br/>没找到就 import_module('plugins.xxx') 再查"]
         L --> I["实例化一次，拿到对象"]
     end
     subgraph HOT["运行时（热路径）"]
         direction TB
-        H["obj.forward(x)：普通方法调用<br/>不再有 getattr / 字符串 / 反射"]
+        H["<b>obj.forward(x)：普通方法调用</b><br/>不再有 getattr / 字符串 / 反射"]
     end
     DEF --> RUN --> HOT
     HOT -. "原则：动态机制只负责启动时「选择」，不负责运行时「执行」" .-> DEF
