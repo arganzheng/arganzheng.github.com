@@ -25,9 +25,9 @@ catalog: true
 flowchart TB
     T["会话 span（session）= 一条 trace 的根<br/>trace_id · 用户 · prompt 版本 · 模型快照 · 总成本"]
     T --> S1["任务 / 轮次 span：第 1 轮"] & S2["任务 / 轮次 span：第 2 轮"] & S3["任务 / 轮次 span：第 k 轮"]
-    S2 --> M["模型调用 span<br/>完整输入（或可重建的引用）、输出、<br/>usage 五项、effort、TTFT、stop_reason"]
-    S2 --> TO["工具调用 span<br/>名称、参数、结果引用、耗时、<br/>沙箱决定、审批人与时间"]
-    S2 --> RT["检索 span<br/>改写前后的查询、过滤条件、两路候选、<br/>RRF / rerank 排序、最终块 id"]
+    S2 --> M["<b>模型调用 span</b><br/>完整输入（或可重建的引用）、输出、<br/>usage 五项、effort、TTFT、stop_reason"]
+    S2 --> TO["<b>工具调用 span</b><br/>名称、参数、结果引用、耗时、<br/>沙箱决定、审批人与时间"]
+    S2 --> RT["<b>检索 span</b><br/>改写前后的查询、过滤条件、两路候选、<br/>RRF / rerank 排序、最终块 id"]
     M & TO & RT -. "评测集从这里采；bad case 带 trace_id；<br/>供应商静默升级从指标曲线看出来" .-> U["下游用途"]
 
 ```
@@ -84,7 +84,7 @@ flowchart TB
 ```mermaid
 %% 图：一条模型调用 span 的完整属性与它们各服务于谁——完整输入输出（或可重建的引用）服务录制回放与 bad case 复现；五项 usage 服务成本分析；模型快照与 effort 服务版本 diff 与 A/B 归因；stop_reason 与 TTFT 服务截断率与延迟排查；请求 id 服务向供应商报障；缺任何一项就有一件事做不了
 flowchart LR
-    S["模型调用 span<br/>gen_ai chat claude-sonnet-5"]
+    S["<b>模型调用 span</b><br/>gen_ai chat claude-sonnet-5"]
     S --> A1["完整输入（或 prompt 版本 + 历史事件 id）<br/>完整输出含思考块"] --> U1["录制回放 · bad case 复现 · 非确定性定位"]
     S --> A2["usage 五项：输入 · 输出 · 缓存读 · 缓存写 · 推理"] --> U2["成本核对 · 命中率 · 思考占比"]
     S --> A3["模型 id + 快照 · effort · temperature"] --> U3["版本 diff · A/B 归因 · 静默升级检测"]
@@ -143,12 +143,12 @@ Table: GenAI 约定 2026 年的现状
 ```mermaid
 %% 图：按 OTel GenAI 约定打点的价值——应用用 gen_ai.* 命名（gen_ai.provider.name · gen_ai.request.model · gen_ai.usage.*），业务属性放 app.*（prompt 版本、工具集版本、权限档）；经 Collector 做几代属性名的归一（gen_ai.system → gen_ai.provider.name），任何理解约定的后端（Langfuse · Phoenix · Datadog · 自建 ClickHouse + Grafana）都能读同一份 trace；换后端零成本
 flowchart TB
-    APP["应用打点<br/>gen_ai.provider.name = anthropic<br/>gen_ai.request.model = claude-sonnet-5<br/>gen_ai.usage.input_tokens · cache_read · reasoning<br/>app.prompt_version = v12 · app.toolset = v4"] --> COL["OTel Collector<br/>归一：gen_ai.system → gen_ai.provider.name<br/>脱敏 · 尾采样 · 路由"]
+    APP["<b>应用打点</b><br/>gen_ai.provider.name = anthropic<br/>gen_ai.request.model = claude-sonnet-5<br/>gen_ai.usage.input_tokens · cache_read · reasoning<br/>app.prompt_version = v12 · app.toolset = v4"] --> COL["<b>OTel Collector</b><br/>归一：gen_ai.system → gen_ai.provider.name<br/>脱敏 · 尾采样 · 路由"]
     COL --> B1["Langfuse"]
-    COL --> B2["Arize Phoenix<br/>（OpenInference 对齐）"]
+    COL --> B2["<b>Arize Phoenix</b><br/>（OpenInference 对齐）"]
     COL --> B3["Datadog / Honeycomb"]
     COL --> B4["自建：ClickHouse + 对象存储 + Grafana"]
-    N["约定全部还是 Development<br/>钉 OTEL_SEMCONV_STABILITY_OPT_IN<br/>改名当破坏性变更"] -.-> APP
+    N["<b>约定全部还是 Development</b><br/>钉 OTEL_SEMCONV_STABILITY_OPT_IN<br/>改名当破坏性变更"] -.-> APP
     classDef app fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef col fill:#fff7e0,stroke:#c98a00,color:#222
     classDef be fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -187,10 +187,10 @@ OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对�
 ```mermaid
 %% 图：会话日志与 trace 是一份数据的两种视图——运行时写 append-only 的事件日志（它是状态：恢复、重放、分叉靠它）；一个导出器把日志事件映射成 OTel span 与事件（模型调用事件 → gen_ai chat span，工具事件 → execute_tool span，压缩 / 审批 / 卫士 → span 事件），送进可观测后端做面板、告警、评测采样；不要让 agent 循环各写一份
 flowchart TB
-    LOOP["agent 循环"] -->|"每步追加"| LOG["会话日志（事件溯源）<br/>状态本身：恢复 · 重放 · 分叉"]
-    LOG --> EXP["导出器：事件 → span<br/>模型输出事件 → gen_ai chat span<br/>工具事件 → execute_tool span<br/>压缩 / 审批 / 卫士 → span 事件<br/>子会话 id → span 链接"]
-    EXP --> TR["trace 后端<br/>可观测投影：面板 · 告警 · 评测采样 · bad case 队列"]
-    X["✗ 循环里另写一套 trace 埋点<br/>两份数据、两处漂移"] -.-> LOOP
+    LOOP["agent 循环"] -->|"每步追加"| LOG["<b>会话日志（事件溯源）</b><br/>状态本身：恢复 · 重放 · 分叉"]
+    LOG --> EXP["<b>导出器：事件 → span</b><br/>模型输出事件 → gen_ai chat span<br/>工具事件 → execute_tool span<br/>压缩 / 审批 / 卫士 → span 事件<br/>子会话 id → span 链接"]
+    EXP --> TR["<b>trace 后端</b><br/>可观测投影：面板 · 告警 · 评测采样 · bad case 队列"]
+    X["<b>✗ 循环里另写一套 trace 埋点</b><br/>两份数据、两处漂移"] -.-> LOOP
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
     classDef log fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -216,9 +216,9 @@ trace 里有用户输入、模型输出、工具返回——含个人信息、�
 flowchart TB
     T["一条完成的 trace"] --> M["元数据：usage · 时长 · 状态 · 版本六元组 · 错误类型<br/>→ 全量 · 列式库 · 长保留（面板与告警）"]
     T --> D{"尾采样：是 bad case 吗？<br/>负反馈 · 错误 · 卫士触发 · 越权 · 拒答"}
-    D -->|"是"| BC["内容全量必存<br/>→ 脱敏 → 对象存储 + 引用 → bad case 队列"]
+    D -->|"是"| BC["<b>内容全量必存</b><br/>→ 脱敏 → 对象存储 + 引用 → bad case 队列"]
     D -->|"否"| P{"按比例 1–10%"}
-    P -->|"抽中"| C["内容采样存<br/>→ 脱敏 → 对象存储 · 短保留"]
+    P -->|"抽中"| C["<b>内容采样存</b><br/>→ 脱敏 → 对象存储 · 短保留"]
     P -->|"未抽中"| N["内容丢弃，只留元数据"]
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222

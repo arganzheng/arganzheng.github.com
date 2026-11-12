@@ -25,7 +25,7 @@ flowchart LR
     F --> RG["<b>RAG</b><br/>检索侧：recall@k、nDCG<br/>生成侧：faithfulness、引用准确<br/>（分开评，《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）"]
     F --> AG["<b>agent</b><br/>结果之外看过程：步数、越权、<br/>工具选择、部分结果、成本<br/>（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）"]
     F --> MT["<b>多轮</b><br/>策略遵循、轮数、目标达成、<br/>上下文丢失点"]
-    S & RG & AG & MT --> X["所有形态都并列报：<br/>成本 / 任务 · p95 延迟 · 安全（红队通过率）<br/>按分布看（跑 n 次），按类型分层"]
+    S & RG & AG & MT --> X["<b>所有形态都并列报：</b><br/>成本 / 任务 · p95 延迟 · 安全（红队通过率）<br/>按分布看（跑 n 次），按类型分层"]
 
 ```
 
@@ -98,11 +98,11 @@ flowchart TB
 flowchart TB
     subgraph G["结果对"]
         direction LR
-        A["过程对<br/>✓ 真的好"] ~~~ B["过程错<br/>花十倍成本 · 越权被拦 · 靠运气<br/>→ 下次可能翻车"]
+        A["<b>过程对</b><br/>✓ 真的好"] ~~~ B["<b>过程错</b><br/>花十倍成本 · 越权被拦 · 靠运气<br/>→ 下次可能翻车"]
     end
     subgraph R["结果错"]
         direction LR
-        C["过程对<br/>工具超时 · 环境缺依赖<br/>→ 不该算模型的账"] ~~~ D["过程错<br/>✗ 真的差"]
+        C["<b>过程对</b><br/>工具超时 · 环境缺依赖<br/>→ 不该算模型的账"] ~~~ D["<b>过程错</b><br/>✗ 真的差"]
     end
     G ~~~ R
     N["只看结果：B 被当成功、C 被当失败"] -.-> G
