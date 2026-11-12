@@ -191,7 +191,7 @@ print((Lf(2 + eps, 3) - Lf(2 - eps, 3)) / (2 * eps),     # 5.0000
 ```mermaid
 %% 图：反向传播就是逐层套用链式法则：实线前向，虚线反向，每过一层右乘一个 Jacobian
 flowchart LR
-    X["$$x$$<br/>$$[n_0]$$"] -->|"$$f_1$$"| H1["$$h_1$$<br/>$$[n_1]$$"] -->|"$$f_2$$"| H2["$$h_2$$<br/>$$[n_2]$$"] -->|"$$f_3$$"| LO["loss<br/>标量"]
+    X["<b>$$x$$</b><br/>$$[n_0]$$"] -->|"$$f_1$$"| H1["<b>$$h_1$$</b><br/>$$[n_1]$$"] -->|"$$f_2$$"| H2["<b>$$h_2$$</b><br/>$$[n_2]$$"] -->|"$$f_3$$"| LO["<b>loss</b><br/>标量"]
     LO -.->|"$$\partial \text{loss} / \partial h_2$$ $$[1, n_2]$$"| H2
     H2 -.->|"× $$\partial h_2 / \partial h_1$$ $$[n_2, n_1]$$ → $$\partial \text{loss} / \partial h_1$$ $$[1, n_1]$$"| H1
     H1 -.->|"× $$\partial h_1 / \partial x$$ $$[n_1, n_0]$$ → $$\partial \text{loss} / \partial x$$ $$[1, n_0]$$"| X

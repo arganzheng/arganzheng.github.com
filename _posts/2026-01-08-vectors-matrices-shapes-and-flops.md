@@ -324,7 +324,7 @@ flowchart TB
     subgraph ATTN["attention 部件：token 之间交流"]
         direction TB
         P["× $$W_Q$$ → [1, 4096]<br/>× $$W_K$$ → [1, 1024]<br/>× $$W_V$$ → [1, 1024]"]
-        A["attention：$$QK^\top$$、softmax(·)V<br/>用自己的 Q 看其他 token 的 K、V<br/>无参数，FLOPs 随 T 增长"]
+        A["<b>attention：$$QK^\top$$、softmax(·)V</b><br/>用自己的 Q 看其他 token 的 K、V<br/>无参数，FLOPs 随 T 增长"]
         O["× $$W_O$$ → [1, 4096]"]
         P --> A --> O
     end
