@@ -48,16 +48,16 @@ flowchart TB
     IMG["图像（任意尺寸、任意宽高比）"] --> RES["`**⓪ 分辨率策略**
 固定分辨率（缩放到 224 / 336）· tile（切成固定大小的块 + 缩略图）
 · 原生动态（按原图尺寸切 patch）
-决定 N_patch`"]
+决定 $$N_{patch}$$`"]
     RES --> ENC["`**① 视觉编码器**（ViT）（上篇）
 每个 patch 一个特征
-N_patch × d_v`"]
+$$N_{patch} \times d_v$$`"]
     ENC --> CON["`**② connector**
 MLP（不压缩）· 2×2 merge / pixel shuffle（4×）
 · resampler / Q-Former（固定 32–256 个 query）
-N_img × d_LLM`"]
+$$N_{img} \times d_{LLM}$$`"]
     CON -- "③ 注入方式 A：当作 token 拼进序列" --> SEQ["`**LLM decoder**
-[文本 token | N_img 个 image token | 文本 token]
+[文本 token | $$N_{img}$$ 个 image token | 文本 token]
 image token 与文本同价：同样的 attention、同样的 KV`"]
     CON -. "③ 注入方式 B：cross-attention（Flamingo、Llama 3.2 Vision）" .-> XA["`**LLM decoder**
 文本序列不变，每隔几层插一层 cross-attention 去读图像特征
