@@ -412,7 +412,7 @@ flowchart TB
     init["初始化：每个块的 in/out = 初值（⊥ 或 ∅）"]
     pick["取一个块 B"]
     join["in#91;B#93; = ⋀ out#91;P#93;，P 遍历 B 的前驱（汇合）"]
-    xfer["out#91;B#93; = f_B(in#91;B#93;)（传递函数）"]
+    xfer["out#91;B#93; = $$f_B$$(in#91;B#93;)（传递函数）"]
     changed{"out#91;B#93; 变了？"}
     more{"还有块要处理？"}
     done["不动点：结果是安全的最优解"]
