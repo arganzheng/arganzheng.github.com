@@ -95,11 +95,11 @@ $$
 ```mermaid
 %% 图：为什么退避要加抖动——一次过载让 1,000 个客户端同时收到 529；无抖动的指数退避让它们在 1 s、2 s、4 s 整点同时重试，形成一波波的第二次过载；full jitter 把每一轮的重试均匀撒在 0 到上限之间，供应商看到的是平滑的流量
 flowchart TB
-    subgraph NJ["无抖动：t = t₀ · 2ⁿ"]
+    subgraph NJ["无抖动：$$t = t_0 \cdot 2^n$$"]
         direction LR
         N0["1,000 个客户端<br/>同一秒收到 529"] --> N1["1 s 后：1,000 个同时重试<br/>→ 又一次过载"] --> N2["2 s 后：再来一波"] --> N3["4 s 后：再来一波…"]
     end
-    subgraph FJ["full jitter：t = random(0, t₀ · 2ⁿ)"]
+    subgraph FJ["full jitter：$$t$$ = random(0, $$t_0 \cdot 2^n$$)"]
         direction LR
         F0["1,000 个客户端<br/>同一秒收到 529"] --> F1["0–1 s 内均匀散开重试"] --> F2["失败的在 0–2 s 内散开"] --> F3["供应商看到的是平滑的流量<br/>加上 Retry-After 就更准"]
     end
