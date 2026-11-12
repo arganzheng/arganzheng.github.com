@@ -104,7 +104,7 @@ Table: `config.json` 主要字段的含义（Qwen2.5-0.5B）
 ```mermaid
 %% config.json 里的数字在 decoder-only 结构里的位置（Qwen2.5-0.5B）
 flowchart TB
-    E["Embedding：vocab × hidden<br/>151936 × 896"]
+    E["<b>Embedding：vocab × hidden</b><br/>151936 × 896"]
     subgraph L["× num_hidden_layers = 24 层，每层结构相同"]
         N1["RMSNorm（896）"]
         subgraph A["Attention：四个线性层"]
@@ -121,7 +121,7 @@ flowchart TB
         end
         N1 --> A --> N2 --> M
     end
-    E --> L --> NF["RMSNorm"] --> H["lm_head：896 → 151936<br/>tie_word_embeddings：与 Embedding 共用同一份权重"]
+    E --> L --> NF["RMSNorm"] --> H["<b>lm_head：896 → 151936</b><br/>tie_word_embeddings：与 Embedding 共用同一份权重"]
     classDef box fill:#eef4fb,stroke:#5b8dc9,color:#222
     class E,N1,N2,NF,H,Q,K,V,O,G,U,D box
 ```

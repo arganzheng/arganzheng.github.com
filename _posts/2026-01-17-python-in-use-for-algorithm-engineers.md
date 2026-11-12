@@ -89,7 +89,7 @@ flowchart TB
     end
     subgraph B["读法二：生成器（yield）"]
         direction TB
-        F2["train.jsonl（19 MB）"] --> G["一次只取出一行 → 一个 dict"] --> P2["处理完这一条，再取下一条<br/>内存常驻只有一条记录 + 统计量"]
+        F2["train.jsonl（19 MB）"] --> G["一次只取出一行 → 一个 dict"] --> P2["<b>处理完这一条，再取下一条</b><br/>内存常驻只有一条记录 + 统计量"]
         P2 -. "for 循环要下一个" .-> G
     end
 ```

@@ -20,11 +20,11 @@ date: 2026-01-22 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 %% 图：工具箱系列全景：Python → 三剑客 → PyTorch 上下 → Hugging Face → GPU 直觉
 flowchart TB
-    P1["01 Python 使用层<br/>生成器、dataclass、协议方法"] --> P2["02 NumPy / Pandas / Matplotlib<br/>形状、轴、广播；错误分析；看曲线"]
-    P2 --> P3["03 PyTorch（上）<br/>五个对象、二十行训练循环"]
-    P3 --> P4["04 PyTorch（下）<br/>混合精度、16 字节 / 参数、多卡"]
-    P3 & P4 --> P5["05 Hugging Face<br/>三个文件、六个库、六行 LoRA SFT"]
-    P4 --> P6["06 GPU 直觉与实验管理<br/>两个上限、四块显存、能复现"]
+    P1["<b>01 Python 使用层</b><br/>生成器、dataclass、协议方法"] --> P2["02 NumPy / Pandas / Matplotlib<br/>形状、轴、广播；错误分析；看曲线"]
+    P2 --> P3["<b>03 PyTorch（上）</b><br/>五个对象、二十行训练循环"]
+    P3 --> P4["<b>04 PyTorch（下）</b><br/>混合精度、16 字节 / 参数、多卡"]
+    P3 & P4 --> P5["<b>05 Hugging Face</b><br/>三个文件、六个库、六行 LoRA SFT"]
+    P4 --> P6["<b>06 GPU 直觉与实验管理</b><br/>两个上限、四块显存、能复现"]
     P1 -. "@dataclass 配置、协议方法" .-> P3
 
 ```

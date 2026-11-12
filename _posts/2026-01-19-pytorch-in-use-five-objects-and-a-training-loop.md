@@ -317,7 +317,7 @@ for batch in loader: ...
 ```mermaid
 %% DataLoader 的一步：Sampler 出下标 → worker 子进程取样本并 collate → 队列 → 主进程
 flowchart TB
-    S["Sampler：打乱后的下标序列<br/>[17, 3, 42, …]，每次给出 batch_size 个"]
+    S["<b>Sampler：打乱后的下标序列</b><br/>[17, 3, 42, …]，每次给出 batch_size 个"]
     subgraph W["worker 子进程 × num_workers（各自一个 Python 进程，不共享内存）"]
         G1["ds[17]"]
         G2["ds[3]"]

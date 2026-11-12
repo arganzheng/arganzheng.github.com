@@ -68,12 +68,12 @@ autocast 下: Linear 输出 torch.bfloat16, .float() 后 softmax torch.float32; 
 ```mermaid
 %% 图：混合精度下一步训练的数据流：fp32 主权重、bf16 副本与激活、fp32 的 loss 与优化器状态
 flowchart TB
-    W32["fp32 主权重 W<br/>（4 字节 / 参数，常驻）"]
-    W16["bf16 权重副本<br/>（2 字节 / 参数，前向时转出）"]
-    ACT["bf16 激活<br/>矩阵乘的输入与输出"]
-    LOSS["fp32 loss<br/>softmax / norm / loss 留在 fp32"]
-    G16["梯度 ∂L/∂W<br/>（原生 autocast 下 dtype 跟随 fp32 叶子参数：4 字节；<br/>Megatron 式配方才存 bf16 梯度 2 字节）"]
-    OPT["AdamW 状态 m、v<br/>（4 + 4 字节 / 参数，fp32 常驻）"]
+    W32["<b>fp32 主权重 W</b><br/>（4 字节 / 参数，常驻）"]
+    W16["<b>bf16 权重副本</b><br/>（2 字节 / 参数，前向时转出）"]
+    ACT["<b>bf16 激活</b><br/>矩阵乘的输入与输出"]
+    LOSS["<b>fp32 loss</b><br/>softmax / norm / loss 留在 fp32"]
+    G16["<b>梯度 ∂L/∂W</b><br/>（原生 autocast 下 dtype 跟随 fp32 叶子参数：4 字节；<br/>Megatron 式配方才存 bf16 梯度 2 字节）"]
+    OPT["<b>AdamW 状态 m、v</b><br/>（4 + 4 字节 / 参数，fp32 常驻）"]
     W32 -- "① autocast：转成 bf16" --> W16
     W16 -- "② 矩阵乘（Tensor Core）" --> ACT
     ACT -- "③ reduction 升回 fp32" --> LOSS
