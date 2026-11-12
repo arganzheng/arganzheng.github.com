@@ -337,7 +337,22 @@ flowchart LR
 
 **每轮结合 token budget、请求状态与 KV 空间，决定运行哪些请求、每个请求推进多少 token。**
 
-![Scheduler 的统一资源调度模型与请求流转](/img/in-post/scheduler-overview.svg){: style="max-height: 410px"}
+```mermaid
+%% 图：Scheduler 的全貌：Token Budget、KV Cache、Mixed Batch
+flowchart TB
+    S["<b>Scheduler</b>"] --> TB["<b>Token Budget</b>"]
+    TB --> A["<b>Request A</b><br/>256 · Prefill"] & B["<b>Request B</b><br/>1 · Decode"] & C["<b>Request C</b><br/>5 · Spec Decode"]
+    A & B & C --> M["<b>Mixed Batch</b>"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class S card
+    class TB compute
+    class A,B,C request
+    class M memory
+```
 
 <aside class="notes" markdown="1">
 原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。没有 prefill / decode 两个阶段：每轮让 `num_computed_tokens` 追上 `num_tokens_with_spec`（prompt + 已生成 + 投机 token）。两者是精确等式：普通 decode 时 `num_tokens_with_spec = num_computed_tokens + 1`（上一轮采出的 token 正是这一轮的输入），带 k 个 draft 时是 `+ 1 + k`；默认开启的异步调度下用 `num_output_placeholders` 记已调度、结果未回的 token，`num_tokens_with_spec + num_output_placeholders = num_computed_tokens + 1`。

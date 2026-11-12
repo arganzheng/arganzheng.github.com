@@ -18,7 +18,23 @@ updated: 2026-11-11
 
 传统深度学习推理通常以固定 Batch 为基本调度单位：
 
-![传统深度学习里的 Batch：一组请求进、一组结果出](/img/in-post/scheduler-traditional-batch.svg)
+```mermaid
+%% 图：传统深度学习里的 Batch：一组请求进、一组结果出
+flowchart TB
+    subgraph B["一个 Batch"]
+        direction LR
+        R1["Request A"] ~~~ R2["Request B"] ~~~ R3["Request C"]
+    end
+    B --> EX["执行完整 Batch"] --> DONE["所有 Request 完成"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class R1,R2,R3 request
+    class EX compute
+    class DONE card
+```
 
 这种模式对于 CNN、分类模型等输入输出长度相对固定的任务比较合适。
 
@@ -260,7 +276,26 @@ Chunked Prefill 又解决了：
 
 也就是说：
 
-![Scheduler 调度 Request、分配 Token](/img/in-post/scheduler-request-vs-token.svg)
+```mermaid
+%% 图：Scheduler 调度 Request、分配 Token
+flowchart LR
+    S["<b>Scheduler</b>"]
+    subgraph RQ["本轮被调度的 Request"]
+        direction TB
+        R1["req-3"] ~~~ R2["req-8"] ~~~ R3["req-15"]
+    end
+    N["<b>num_new_tokens</b><br/>每个 Request 一个数"]
+    S -->|"调度哪些 Request？"| RQ
+    RQ -->|"每个分配多少 token？"| N
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class S compute
+    class R1,R2,R3 request
+    class N memory
+```
 
 所以，Scheduler 并不是把 token 当成独立任务进行调度，而是：
 
@@ -360,7 +395,25 @@ token_budget -= num_new_tokens
 
 于是：
 
-![Token Budget 在请求间分配的示意](/img/in-post/scheduler-token-budget-split.svg)
+```mermaid
+%% 图：Token Budget 在请求间分配的示意
+flowchart TB
+    TB["<b>Token Budget</b><br/>512"]
+    A["<b>Req A</b><br/>400"]
+    B["<b>Req B</b><br/>1"]
+    C["<b>Req C</b><br/>1"]
+    L["<b>剩余</b><br/>512 − 400 − 1 − 1 = 110"]
+    TB --> A & B & C
+    A & B & C --> L
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class TB compute
+    class A,B,C request
+    class L memory
+```
 
 这就是 Scheduler 最核心的工作。
 
@@ -594,7 +647,20 @@ token_budget -= num_new_tokens
 
 它们共同构成了 Scheduler 的核心逻辑：
 
-![从 remaining_tokens 到 num_new_tokens 的判断链](/img/in-post/scheduler-num-new-tokens-chain.svg)
+```mermaid
+%% 图：从 remaining_tokens 到 num_new_tokens 的判断链
+flowchart TB
+    R["<b>remaining_tokens</b>"] --> C["与 Token Budget 比较"] --> N["<b>num_new_tokens</b>"] --> S["<b>allocate_slots()</b>"] --> U["消耗 Token Budget"] --> X["下一个 Request"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class R,N card
+    class C,U compute
+    class S memory
+    class X request
+```
 
 需要特别注意：
 
@@ -616,7 +682,21 @@ token_budget -= num_new_tokens
 
 Scheduler 同时受到两类资源约束：
 
-![Scheduler 的两类约束：计算资源与内存资源](/img/in-post/scheduler-two-constraints.svg)
+```mermaid
+%% 图：Scheduler 的两类约束：计算资源与内存资源
+flowchart TB
+    S["<b>Scheduler</b>"] --> CR["<b>Compute Resource</b><br/>Token Budget"] & MR["<b>Memory Resource</b><br/>KV Cache Blocks"]
+    CR --> CA["本轮最多算多少 token"]
+    MR --> MA["能否容纳这些 token"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class S,CA,MA card
+    class CR compute
+    class MR memory
+```
 
 Token Budget 回答：
 
@@ -630,13 +710,49 @@ KV Cache 回答：
 
 例如：
 
-![预算够但还要分到 KV Cache](/img/in-post/scheduler-budget-ok-kv-short.svg)
+```mermaid
+%% 图：预算够但还要分到 KV Cache
+flowchart TB
+    B["Token Budget 足够"] --> AL["需要分配 KV Cache"] --> BL["KV Cache Block 不够"] --> C["无法继续接纳，需要抢占"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class B compute
+    class AL card
+    class BL memory
+    class C waiting
+```
 
 这就是下一章 Admission Control 与 Preemption 要解决的问题。
 
 整体调度流程如下：
 
-![Token Budget 与 KV Cache 两层约束的全貌](/img/in-post/scheduler-two-layer-flow.svg)
+```mermaid
+%% 图：Token Budget 与 KV Cache 两层约束的全貌
+flowchart TB
+    subgraph CP["Compute"]
+        direction LR
+        TB["<b>Token Budget</b><br/>max_num_scheduled_tokens"] --> RD["Request token demand"] --> NT["<b>num_new_tokens</b>"]
+    end
+    subgraph MEM["Memory"]
+        direction TB
+        AS["<b>allocate_slots()</b>"] --> KV["KV Cache"]
+        KV -->|"足够"| OK["执行"]
+        KV -->|"不足"| NO["等待 / 抢占"]
+    end
+    CP -->|"通过计算约束后，检查内存是否可用"| MEM
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class TB,RD,NT compute
+    class AS,KV memory
+    class OK request
+    class NO waiting
+```
 
 ### 9. 另一个上限：`max_num_seqs`
 
@@ -775,7 +891,35 @@ Scheduler 算完这一轮给谁多少 token，并不会自己去跑模型。它�
 
 注意里面没有 token 序列，也没有 attention 相关的东西。它只是一份"这一轮算什么"的清单。
 
-![SchedulerOutput 装了什么，执行层拿它做什么](/img/in-post/scheduler-output-to-runner.svg)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：SchedulerOutput 装了什么，执行层拿它做什么
+flowchart TB
+    SO["<b>SchedulerOutput</b><br/>• num_scheduled_tokens = #123;A: 256, B: 1, C: 5#125;<br/>• total_num_scheduled_tokens = 262<br/>• scheduled_new_reqs / scheduled_cached_reqs（new_block_ids）<br/>• scheduled_spec_decode_tokens = #123;C: 4 个候选#125;<br/>• finished_req_ids"]
+    subgraph EM["GPUModelRunner.execute_model()"]
+        direction TB
+        U["<b>1. _update_states()</b><br/>按 SchedulerOutput 更新常驻的 InputBatch"]
+        P["<b>2. _prepare_inputs()</b><br/>拼扁平的 input_ids / positions 等，算 slot_mapping"]
+        BA["<b>3. _build_attention_metadata()</b><br/>打包成 attention backend 需要的 metadata"]
+        FW["<b>一次 forward → logits → sample</b>"]
+        IB["<b>InputBatch（常驻）</b><br/>• req_ids<br/>• token_ids_cpu<br/>• num_computed_tokens_cpu<br/>• block_table（含 slot_mapping）"]
+        AM["<b>attention metadata</b><br/>• query_start_loc · seq_lens<br/>• block_table · slot_mapping"]
+        U --> P --> BA --> FW
+        U -->|"更新"| IB
+        IB -->|"读取"| P
+        BA -->|"构造"| AM
+        AM --> FW
+    end
+    SO --> U
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class SO compute
+    class U,P,BA,AM card
+    class FW,IB memory
+```
 
 执行层拿到这份清单后，在 `execute_model()` 里做三件事：
 
@@ -843,7 +987,20 @@ A 的 256 个是长 Prompt 的一个 chunk，B 的 1 个是普通 Decode，C 的
 
 概念流程：
 
-![KV Cache 不够时：D 进不来，只能抢占 Running Request 腾出空间](/img/in-post/scheduler-admission-preemption.svg)
+```mermaid
+%% 图：KV Cache 不够时：D 进不来，只能抢占 Running Request 腾出空间
+flowchart TB
+    A["Token Budget 足够（D 分得到 token）"] --> B["D 需要 KV Cache（Prompt 4K）"] --> C["Free Blocks 不足"] --> D["无法接纳 D，需要释放 KV Cache"] --> E["选择一个 Running Request"]
+    E --> P["<b>Preemption</b><br/>1. 释放它的 KV Cache<br/>2. 状态变 PREEMPTED<br/>3. 重新进入 Waiting"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class A,P compute
+    class B,D,E card
+    class C waiting
+```
 
 vLLM V1 当前主要使用 **Recomputation** 思路：
 
@@ -1067,11 +1224,47 @@ required_blocks = (
 
 而 vLLM 更接近：
 
-![vLLM 的请求流：Waiting、Running、Preempted](/img/in-post/scheduler-request-flow.svg)
+```mermaid
+%% 图：vLLM 的请求流：Waiting、Running、Preempted
+flowchart TB
+    IN["Incoming Requests"] --> WQ["Waiting Queue"] --> SCH["<b>Scheduler</b>"]
+    SCH --> TBG["<b>Token Budget</b><br/>计算资源约束"] & KV["<b>KV Cache</b><br/>内存约束"]
+    TBG & KV --> RES["本轮调度结果"] --> SO["<b>SchedulerOutput</b>"] --> MR["ModelRunner"] --> GPU["GPU"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class IN,RES,SO card
+    class WQ waiting
+    class SCH,TBG,GPU compute
+    class KV memory
+    class MR request
+```
 
 从一个 Request 的生命周期来看：
 
-![一个 Request 的生命周期](/img/in-post/scheduler-request-lifecycle.svg)
+```mermaid
+%% 图：一个 Request 的生命周期
+flowchart TB
+    AR["Request 到达"] --> W["Waiting"] --> AC["<b>Admission Control</b><br/>检查 KV Cache"]
+    AC -->|"KV Cache 不足：回 Waiting"| W
+    AC --> RUN["<b>Running</b>"] --> SCH["<b>Scheduler.schedule()</b><br/>1. 计算 remaining tokens<br/>2. 分配 Token Budget<br/>3. allocate_slots()<br/>4. 生成 SchedulerOutput"]
+    SCH --> GPU["<b>GPU 执行</b><br/>• Prefill / Chunked Prefill<br/>• Decode / Speculative Decode"]
+    GPU --> UPD["num_computed_tokens 更新"]
+    UPD -->|"完成"| DONE["<b>完成</b><br/>释放 KV Cache"]
+    UPD -->|"未完成：进入下一轮"| SCH
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class AR,UPD card
+    class W waiting
+    class AC,SCH compute
+    class RUN request
+    class GPU,DONE memory
+```
 
 因此，本章最重要的结论可以概括为：
 
@@ -1079,7 +1272,22 @@ required_blocks = (
 
 而 Continuous Batching、Chunked Prefill 和 Mixed Batch，实际上都可以从这个统一的资源调度模型中自然推导出来：
 
-![Scheduler 的全貌：Token Budget、KV Cache、Mixed Batch](/img/in-post/scheduler-overview.svg)
+```mermaid
+%% 图：Scheduler 的全貌：Token Budget、KV Cache、Mixed Batch
+flowchart TB
+    S["<b>Scheduler</b>"] --> TB["<b>Token Budget</b>"]
+    TB --> A["<b>Request A</b><br/>256 · Prefill"] & B["<b>Request B</b><br/>1 · Decode"] & C["<b>Request C</b><br/>5 · Spec Decode"]
+    A & B & C --> M["<b>Mixed Batch</b>"]
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class S card
+    class TB compute
+    class A,B,C request
+    class M memory
+```
 
 最终形成一个非常重要的抽象：
 
@@ -1087,7 +1295,20 @@ required_blocks = (
 
 这也是为什么 vLLM 能够在同一轮中同时处理：
 
-![一轮 Mixed Batch 的组成](/img/in-post/scheduler-mixed-batch-parts.svg)
+```mermaid
+%% 图：一轮 Mixed Batch 的组成
+flowchart TB
+    subgraph F["同一轮 GPU forward"]
+        direction LR
+        L["长 Prompt Prefill"] ~~~ C["Chunked Prefill"] ~~~ D["普通 Decode"] ~~~ S["Speculative Decode"] ~~~ N["新 Request Admission"]
+    end
+    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
+    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
+    class L,C,D,S,N card
+```
 
 而不需要为每一种 workload 设计一套完全独立的 Scheduler。
 
