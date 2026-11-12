@@ -314,17 +314,17 @@ Table: torch.testing.assert_close 各 dtype 的默认容差
 flowchart TB
     IN["被测函数 y = f(x)<br/>x 为 float64 且 requires_grad=True"]
     subgraph num["数值 Jacobian：与实现无关的真值"]
-        N1["对每个输入元素 x_i：<br/>把 x_i 改成 x_i + eps 和 x_i − eps<br/>各跑一次前向（共 2 × 输入元素数 次）"]
+        N1["对每个输入元素 $$x_i$$：<br/>把 $$x_i$$ 改成 $$x_i$$ + eps 和 $$x_i$$ − eps<br/>各跑一次前向（共 2 × 输入元素数 次）"]
         N2["J_num#91;:, i#93; = (f(x+eps) − f(x−eps)) / 2eps<br/>eps 默认 1e-6，float32 的差分淹没在舍入里<br/>所以必须 float64"]
         N1 --> N2
     end
     subgraph ana["解析 Jacobian：被测的反向实现"]
-        A1["对每个输出元素 y_j：<br/>grad_output = one-hot 向量 e_j<br/>调用一次 backward（共 输出元素数 次）"]
-        A2["J_ana#91;j, :#93; = ∂y_j / ∂x<br/>来自 derivatives.yaml 或自定义 backward"]
+        A1["对每个输出元素 $$y_j$$：<br/>grad_output = one-hot 向量 $$e_j$$<br/>调用一次 backward（共 输出元素数 次）"]
+        A2["J_ana#91;j, :#93; = $$\partial y_j / \partial x$$<br/>来自 derivatives.yaml 或自定义 backward"]
         A1 --> A2
     end
     CMP["逐元素比较<br/>allclose(J_num, J_ana, atol=1e-5, rtol=1e-3)"]
-    FAST["快模式 fast_mode=True：取随机向量 u、v<br/>左边只算 vᵀ J u 的数值值，右边只算一次 vᵀ J 再点乘 u<br/>O(1) 次前向 + O(1) 次反向"]
+    FAST["快模式 fast_mode=True：取随机向量 u、v<br/>左边只算 $$v^\top J u$$ 的数值值，右边只算一次 $$v^\top J$$ 再点乘 u<br/>O(1) 次前向 + O(1) 次反向"]
     IN --> N1
     IN --> A1
     N2 --> CMP
