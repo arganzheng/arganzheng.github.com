@@ -45,21 +45,21 @@ Table: 在线 RL 方法的模型数、baseline 与采样数
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 %% 图：一步在线 RL 里四个模型的位置：策略 rollout，奖励模型与参考模型整形奖励，价值模型仅 PPO 有
 flowchart TB
-    X["一批 prompt x"] --> POL["`**策略 π_θ**（推理引擎里的副本）
+    X["一批 prompt x"] --> POL["`**策略 $$\pi_\theta$$**（推理引擎里的副本）
 rollout：每个 prompt 生成 1 条（PPO）或 G 条（GRPO）`"]
     POL -- "回答 y" --> RM["`**奖励模型 r**
 每条回答一个标量`"]
-    POL -- "回答 y" --> REF["`**参考模型 π_ref**
-每 token 的 log π_ref`"]
+    POL -- "回答 y" --> REF["`**参考模型 $$\pi_{ref}$$**
+每 token 的 $$\log \pi_{ref}$$`"]
     POL -- "回答 y" --> V["`**价值模型 V**（仅 PPO）
 每 token 预测还能拿多少奖励`"]
     RM --> SH["奖励整形
-r_T = RM 分，每 token −β·KL(π_θ ‖ π_ref)"]
+$$r_T$$ = RM 分，每 token $$-\beta \cdot \text{KL}(\pi_\theta \Vert \pi_{ref})$$"]
     REF --> SH
-    SH --> ADV{"优势 Â"}
+    SH --> ADV{"优势 $$\hat A$$"}
     V -- "GAE：逐 token" --> ADV
-    SH -. "GRPO：组内 (r_i − mean) / std，整条回答共享" .-> ADV
-    ADV --> UPD["`**更新策略 π_θ**（训练器里的副本）
+    SH -. "GRPO：组内 $$(r_i - \text{mean}) / \text{std}$$，整条回答共享" .-> ADV
+    ADV --> UPD["`**更新策略 $$\pi_\theta$$**（训练器里的副本）
 clip 目标 + KL 项，K 个 epoch`"]
     UPD -- "新权重同步回推理引擎" --> POL
 
