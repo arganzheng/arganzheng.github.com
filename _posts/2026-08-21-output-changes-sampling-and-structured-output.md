@@ -138,13 +138,13 @@ class Sampler(nn.Module):
 %% 图：Sampler 的流水线：先共用会改变 argmax 的处理，再分 greedy 与随机采样两路，最后按行 torch.where 合流
 flowchart TB
     L["logits #91;num_reqs, V#93; → float32<br/>（若要 logprobs，先留一份原始 logits）"]
-    PRE["会改变 argmax 的处理<br/>allowed_token_ids → bad_words<br/>→ min_tokens / logit_bias → penalties"]
+    PRE["<b>会改变 argmax 的处理</b><br/>allowed_token_ids → bad_words<br/>→ min_tokens / logit_bias → penalties"]
     L --> PRE
-    PRE --> GR["greedy 分支<br/>argmax(logits)，整张一起算"]
-    PRE --> TEMP["温度：logits / temperature<br/>（greedy 行的温度先换成 1）"]
-    TEMP --> MINP["argmax-invariant 处理器<br/>默认只有 min_p"]
-    MINP --> TKP["top_k / top_p<br/>Triton / FlashInfer / 逐行 sort"]
-    TKP --> RND["随机采样<br/>argmax(probs / Exp(1) 噪声)<br/>带 seed 的行单独覆盖噪声"]
+    PRE --> GR["<b>greedy 分支</b><br/>argmax(logits)，整张一起算"]
+    PRE --> TEMP["<b>温度：logits / temperature</b><br/>（greedy 行的温度先换成 1）"]
+    TEMP --> MINP["<b>argmax-invariant 处理器</b><br/>默认只有 min_p"]
+    MINP --> TKP["<b>top_k / top_p</b><br/>Triton / FlashInfer / 逐行 sort"]
+    TKP --> RND["<b>随机采样</b><br/>argmax(probs / Exp(1) 噪声)<br/>带 seed 的行单独覆盖噪声"]
     GR --> ALLG["all_greedy？直接返回 greedy"]
     GR --> WH["torch.where(temperature < eps, greedy, random)<br/>逐行选择，不拆 batch"]
     RND --> WH

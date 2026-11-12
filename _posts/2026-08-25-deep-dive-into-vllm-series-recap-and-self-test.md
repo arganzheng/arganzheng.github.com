@@ -24,7 +24,7 @@ flowchart TB
     V1["01 为什么 LLM Serving 难"] --> V2["02 怎么衡量：TTFT / TPOT / 吞吐"] --> V3["03 鸟瞰 vLLM：一个请求的路径"]
     subgraph ONE["单机三个战场"]
         direction LR
-        V4["04 Scheduler<br/>这一轮给谁用"] --- V5["05 KV Cache<br/>一切约束的源头"] --- V6["06 GPU 执行<br/>每个 token 算得更快、投机解码"]
+        V4["<b>04 Scheduler</b><br/>这一轮给谁用"] --- V5["<b>05 KV Cache</b><br/>一切约束的源头"] --- V6["<b>06 GPU 执行</b><br/>每个 token 算得更快、投机解码"]
     end
     V3 --> ONE
     subgraph SCALE["多卡与集群"]
@@ -309,7 +309,7 @@ Table: 贯穿十五篇的概念及其关系
 ```mermaid
 %% 图：KV Cache 是唯一随时间增长的状态：准入、并发上限、PD 交接、decode 每步时间都由它决定
 flowchart TB
-    KV["KV Cache<br/>唯一随时间增长的状态（一、五）"]
+    KV["<b>KV Cache</b><br/>唯一随时间增长的状态（一、五）"]
     ADM["准入 / 抢占 / Watermark（四）"]
     CAP["并发上限 = KV 池 ÷ 每请求 KV（一、五）"]
     XFER["PD 交接的数据量与就绪时机（八）"]

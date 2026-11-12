@@ -466,14 +466,14 @@ Table: 分层 KV Cache 的容量、带宽与适合存放的 KV
 ```mermaid
 %% 图：分层 KV Cache 的查找树：本机 HBM → 本机 DRAM / SSD → 远端副本，只有远端有副本时才比较传输与重算的代价
 flowchart TB
-    Q["某请求需要一段前缀的 KV<br/>（新一轮对话 / 工具返回后恢复 / 迁移到新 Worker）"] --> H{"本机 HBM 是否命中"}
-    H -->|"命中"| USE["直接复用<br/>代价 ≈ 0"]
+    Q["<b>某请求需要一段前缀的 KV</b><br/>（新一轮对话 / 工具返回后恢复 / 迁移到新 Worker）"] --> H{"本机 HBM 是否命中"}
+    H -->|"命中"| USE["<b>直接复用</b><br/>代价 ≈ 0"]
     H -->|"未命中"| L{"本机 DRAM / SSD 是否有副本"}
-    L -->|"有"| LOAD["换入 HBM<br/>代价 ≈ KV 字节数 / PCIe 或 SSD 带宽"]
+    L -->|"有"| LOAD["<b>换入 HBM</b><br/>代价 ≈ KV 字节数 / PCIe 或 SSD 带宽"]
     L -->|"无"| R{"远端 Worker / 分布式缓存是否有副本"}
-    R -->|"无"| RC["重新 Prefill<br/>代价 ≈ 2 × 参数量 × token 数 / 有效算力"]
+    R -->|"无"| RC["<b>重新 Prefill</b><br/>代价 ≈ 2 × 参数量 × token 数 / 有效算力"]
     R -->|"有"| CMP{"传输时间 + 建连与索引开销<br/>是否低于重算时间"}
-    CMP -->|"是"| TX["跨节点传输<br/>RDMA / 远程缓存 → HBM"]
+    CMP -->|"是"| TX["<b>跨节点传输</b><br/>RDMA / 远程缓存 → HBM"]
     CMP -->|"否"| RC
 
     classDef hit fill:#e8f5e9,stroke:#2e7d32;

@@ -118,21 +118,21 @@ Attention、通信、量化和模型执行路径中也不断加入类似分支�
 ```mermaid
 %% 图：硬件适配的理想依赖关系：Serving Core 只依赖 Platform 抽象层，CUDA / ROCm / Ascend / XPU 在其下各自实现
 graph TD
-    CORE["vLLM Serving Core<br/>Scheduler · KV Cache Manager · EngineCore<br/><br/>只依赖抽象能力，不包含芯片分支"]
+    CORE["<b>vLLM Serving Core</b><br/>Scheduler · KV Cache Manager · EngineCore<br/><br/>只依赖抽象能力，不包含芯片分支"]
 
     CORE --> PLATFORM
 
-    PLATFORM["Platform 抽象层<br/>设备能力 · 数据类型 · 通信 · 算子导入<br/>Attention Backend 选择"]
+    PLATFORM["<b>Platform 抽象层</b><br/>设备能力 · 数据类型 · 通信 · 算子导入<br/>Attention Backend 选择"]
 
     PLATFORM --> CUDA
     PLATFORM --> ROCM
     PLATFORM --> ASCEND
     PLATFORM --> XPU
 
-    CUDA["CudaPlatform<br/>CUDA / cuBLAS / FlashAttention<br/>FlashInfer / Triton"]
-    ROCM["RocmPlatform<br/>ROCm / HIP / AITER"]
-    ASCEND["AscendPlatform（OOT）<br/>CANN / ACL / NPU Kernel"]
-    XPU["XPU Platform<br/>oneAPI / XPU Kernel"]
+    CUDA["<b>CudaPlatform</b><br/>CUDA / cuBLAS / FlashAttention<br/>FlashInfer / Triton"]
+    ROCM["<b>RocmPlatform</b><br/>ROCm / HIP / AITER"]
+    ASCEND["<b>AscendPlatform（OOT）</b><br/>CANN / ACL / NPU Kernel"]
+    XPU["<b>XPU Platform</b><br/>oneAPI / XPU Kernel"]
 
     style CORE fill:#e8f3ff,stroke:#4a90e2
     style PLATFORM fill:#fff4d6,stroke:#d99a00
@@ -266,12 +266,12 @@ graph TD
     ATTENTION --> SELECTOR["get_attn_backend()"]
     SELECTOR --> CONFIG2["AttentionSelectorConfig"]
     CONFIG2 --> PLATFORM_SELECT["current_platform.get_attn_backend_cls()"]
-    PLATFORM_SELECT --> BACKEND["FlashAttention<br/>FlashInfer<br/>Triton<br/>AITER<br/>CANN Attention"]
+    PLATFORM_SELECT --> BACKEND["<b>FlashAttention</b><br/>FlashInfer<br/>Triton<br/>AITER<br/>CANN Attention"]
 
     KERNEL --> IMPORT["import_kernels()"]
     IMPORT --> EXT["CUDA / HIP / CANN / XPU 扩展"]
 
-    COMM --> COMM_IMPL["CudaCommunicator<br/>RCCL / HCCL / XCCL 等"]
+    COMM --> COMM_IMPL["<b>CudaCommunicator</b><br/>RCCL / HCCL / XCCL 等"]
 
     CONFIG --> CHECK["dtype、quantization、并行配置检查"]
     WORKER --> DEVICE["设备初始化、内存管理、执行上下文"]
@@ -384,11 +384,11 @@ flowchart TB
     OOTCLS["改为实例化插件用 register_oot<br/>注册的替代类（整类替换）"]
     INIT["__init__ → dispatch_forward()<br/>一次性绑定 self._forward_method"]
     ENABLED{"该算子是否启用？<br/>compilation_config.custom_ops"}
-    NATIVE["forward_native<br/>纯 PyTorch 实现，可被 torch.compile 融合"]
+    NATIVE["<b>forward_native</b><br/>纯 PyTorch 实现，可被 torch.compile 融合"]
     PLAT{"current_platform 是哪一种？"}
-    HIP["is_rocm → forward_hip<br/>未重写时默认转调 forward_cuda"]
+    HIP["<b>is_rocm → forward_hip</b><br/>未重写时默认转调 forward_cuda"]
     OTHERS["is_cpu / is_tpu / is_xpu / is_out_of_tree<br/>→ forward_cpu / _tpu / _xpu / _oot<br/>未重写时默认转调 forward_native"]
-    CUDA["其余 → forward_cuda<br/>调用 torch.ops._C.silu_and_mul<br/>（import_kernels() 加载的 _C 扩展）"]
+    CUDA["<b>其余 → forward_cuda</b><br/>调用 torch.ops._C.silu_and_mul<br/>（import_kernels() 加载的 _C 扩展）"]
 
     NEW -->|"未注册"| INIT
     NEW -->|"已注册"| OOTCLS
@@ -503,9 +503,9 @@ OOT 的核心思想是：
 ```mermaid
 %% 图：Out-of-Tree 插件架构：vllm-ascend 依赖 vLLM 主仓库的 Platform 接口与 CANN 运行时
 graph LR
-    VLLM["vLLM 主仓库<br/>Serving Core + Platform Interface"]
-    PLUGIN["vllm-ascend<br/>AscendPlatform + Worker + Backend"]
-    CANN["CANN / ACL / HCCL<br/>昇腾运行时与算子库"]
+    VLLM["<b>vLLM 主仓库</b><br/>Serving Core + Platform Interface"]
+    PLUGIN["<b>vllm-ascend</b><br/>AscendPlatform + Worker + Backend"]
+    CANN["<b>CANN / ACL / HCCL</b><br/>昇腾运行时与算子库"]
     USER["用户部署环境"]
 
     USER --> VLLM

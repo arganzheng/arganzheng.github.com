@@ -92,11 +92,11 @@ flowchart LR
     subgraph S["SGLang 的起点（2023-12）"]
         S1["问题：LM 程序的前缀重复计算"] --> S2["RadixAttention：基数树 + 缓存感知调度<br/>压缩 FSM · 前端 DSL"]
     end
-    V2 -->|"V1 默认开 prefix caching"| M["功能面重叠：<br/>chunked prefill · 投机解码 · 结构化输出 · PD 分离 · 多模态"]
+    V2 -->|"V1 默认开 prefix caching"| M["<b>功能面重叠：</b><br/>chunked prefill · 投机解码 · 结构化输出 · PD 分离 · 多模态"]
     S2 -->|"page_size · 分页 allocator · chunked prefill"| M
-    M --> D1["痕迹 1：复用单位<br/>块 vs token 序列"]
-    M --> D2["痕迹 2：调度看命中<br/>少算几块 vs 排序依据"]
-    M --> D3["痕迹 3：状态归属<br/>KVCacheManager / Scheduler 分开 vs RadixCache 一体"]
+    M --> D1["<b>痕迹 1：复用单位</b><br/>块 vs token 序列"]
+    M --> D2["<b>痕迹 2：调度看命中</b><br/>少算几块 vs 排序依据"]
+    M --> D3["<b>痕迹 3：状态归属</b><br/>KVCacheManager / Scheduler 分开 vs RadixCache 一体"]
 ```
 
 所以回答本章的问题：出发点为什么到今天还重要？[^q1]因为功能可以补，数据结构很难换——块哈希表与基数树各自决定了命中粒度、驱逐方式、锁定方式和调度器能看到什么，后面五、四两章会逐项看到。
@@ -127,10 +127,10 @@ SGLang 的 `Engine._launch_subprocesses()`（`entrypoints/engine.py`）起的进
 flowchart LR
     subgraph VL["vLLM"]
         direction LR
-        VA["API Server 进程<br/>AsyncLLM · InputProcessor（tokenize）<br/>OutputProcessor（detokenize）"]
-        VE["EngineCore 进程<br/>Scheduler · KVCacheManager · Executor"]
-        VW0["WorkerProc rank 0<br/>GPUModelRunner"]
-        VW1["WorkerProc rank 1<br/>GPUModelRunner"]
+        VA["<b>API Server 进程</b><br/>AsyncLLM · InputProcessor（tokenize）<br/>OutputProcessor（detokenize）"]
+        VE["<b>EngineCore 进程</b><br/>Scheduler · KVCacheManager · Executor"]
+        VW0["<b>WorkerProc rank 0</b><br/>GPUModelRunner"]
+        VW1["<b>WorkerProc rank 1</b><br/>GPUModelRunner"]
         VA -->|"ZMQ：EngineCoreRequest"| VE
         VE -->|"shm MessageQueue：SchedulerOutput"| VW0
         VE -->|"shm MessageQueue：SchedulerOutput"| VW1
@@ -139,10 +139,10 @@ flowchart LR
     end
     subgraph SG["SGLang"]
         direction LR
-        SA["HTTP Server 进程<br/>TokenizerManager（tokenize · rid_to_state）"]
-        SS0["Scheduler 进程 rank 0<br/>Scheduler · RadixCache · TpModelWorker · ModelRunner"]
-        SS1["Scheduler 进程 rank 1<br/>Scheduler · RadixCache · TpModelWorker · ModelRunner"]
-        SD["Detokenizer 进程<br/>DecodeStatus 增量 detokenize"]
+        SA["<b>HTTP Server 进程</b><br/>TokenizerManager（tokenize · rid_to_state）"]
+        SS0["<b>Scheduler 进程 rank 0</b><br/>Scheduler · RadixCache · TpModelWorker · ModelRunner"]
+        SS1["<b>Scheduler 进程 rank 1</b><br/>Scheduler · RadixCache · TpModelWorker · ModelRunner"]
+        SD["<b>Detokenizer 进程</b><br/>DecodeStatus 增量 detokenize"]
         SA -->|"ZMQ：TokenizedGenerateReqInput"| SS0
         SS0 -->|"broadcast_pyobj"| SS1
         SS0 -->|"ZMQ：token ids"| SD
@@ -265,15 +265,15 @@ SGLang 把同一件事拆成三个对象（`mem_cache/`）：
 flowchart LR
     subgraph VL["vLLM"]
         direction TB
-        VH["cached_block_hash_to_block<br/>hash(parent, tokens, extra) → KVCacheBlock"] --> VB["KVCacheBlock（16 token）<br/>ref_cnt · block_hash"]
-        VB --> VT["请求的 block table<br/>[blk 7, blk 21, blk 3, …]"]
-        VT --> VK["KV tensor<br/>[num_blocks, 16, …]"]
+        VH["<b>cached_block_hash_to_block</b><br/>hash(parent, tokens, extra) → KVCacheBlock"] --> VB["<b>KVCacheBlock（16 token）</b><br/>ref_cnt · block_hash"]
+        VB --> VT["<b>请求的 block table</b><br/>[blk 7, blk 21, blk 3, …]"]
+        VT --> VK["<b>KV tensor</b><br/>[num_blocks, 16, …]"]
     end
     subgraph SG["SGLang"]
         direction TB
-        SR["RadixCache<br/>TreeNode(key=token 段, value=槽号, lock_ref)"] --> SP["prefix_indices"]
-        SP --> ST["req_to_token[req_pool_idx]<br/>[槽 1042, 槽 7, 槽 7731, …]"]
-        ST --> SK["KV buffer<br/>[pool_size, heads, dim]"]
+        SR["<b>RadixCache</b><br/>TreeNode(key=token 段, value=槽号, lock_ref)"] --> SP["prefix_indices"]
+        SP --> ST["<b>req_to_token[req_pool_idx]</b><br/>[槽 1042, 槽 7, 槽 7731, …]"]
+        ST --> SK["<b>KV buffer</b><br/>[pool_size, heads, dim]"]
     end
 ```
 
@@ -375,13 +375,13 @@ SGLang 把 PD 分离做成了 `disaggregation/` 下的完整模块，`--disaggre
 flowchart LR
     subgraph VL["vLLM"]
         direction LR
-        VP["外部 proxy<br/>（示例脚本 / 第三方项目）"] --> VPP["P 实例：Scheduler + KVConnector<br/>save_kv_layer · get_finished"]
+        VP["<b>外部 proxy</b><br/>（示例脚本 / 第三方项目）"] --> VPP["P 实例：Scheduler + KVConnector<br/>save_kv_layer · get_finished"]
         VP --> VDD["D 实例：Scheduler + KVConnector<br/>start_load_kv · 匹配 ≠ 就绪"]
         VPP -.->|"NIXL / Mooncake / LMCache"| VDD
     end
     subgraph SG["SGLang"]
         direction LR
-        SGW["sgl-model-gateway（Rust）<br/>bootstrap_room 配对"] --> SPP["P 实例：Bootstrap Queue → Waiting → Inflight"]
+        SGW["<b>sgl-model-gateway（Rust）</b><br/>bootstrap_room 配对"] --> SPP["P 实例：Bootstrap Queue → Waiting → Inflight"]
         SGW --> SDD["D 实例：PreallocQueue → TransferQueue → PrebuiltExtendBatch → running"]
         SPP -.->|"Mooncake / NIXL / Mori"| SDD
     end

@@ -51,13 +51,13 @@ flowchart TB
 
     subgraph CP["控制面 · CPU · 只处理元数据"]
         direction TB
-        API["API Server<br/>FastAPI + uvicorn"]
-        AsyncLLM["AsyncLLM<br/>tokenize / detokenize、流式输出"]
-        EngineCore["EngineCore<br/>step() 主循环"]
-        Scheduler["Scheduler<br/>请求状态、每轮给谁几个 token"]
-        SOManager["StructuredOutputManager<br/>语法约束 bitmask"]
-        KVCacheManager["KVCacheManager<br/>请求 → block id 列表"]
-        BlockPool["BlockPool<br/>空闲块队列、引用计数、前缀哈希表"]
+        API["<b>API Server</b><br/>FastAPI + uvicorn"]
+        AsyncLLM["<b>AsyncLLM</b><br/>tokenize / detokenize、流式输出"]
+        EngineCore["<b>EngineCore</b><br/>step() 主循环"]
+        Scheduler["<b>Scheduler</b><br/>请求状态、每轮给谁几个 token"]
+        SOManager["<b>StructuredOutputManager</b><br/>语法约束 bitmask"]
+        KVCacheManager["<b>KVCacheManager</b><br/>请求 → block id 列表"]
+        BlockPool["<b>BlockPool</b><br/>空闲块队列、引用计数、前缀哈希表"]
     end
 
     EX["Executor（EngineCore 进程内的投递对象）<br/>共享内存 MessageQueue 广播 / 收回"]
@@ -65,9 +65,9 @@ flowchart TB
     subgraph DP["数据面 · GPU · 只处理张量"]
         direction TB
         Worker["GPU Worker × N（每个 TP / PP rank 一个）<br/>GPUModelRunner：block id → 输入张量、前向、采样"]
-        Attn["Attention backend<br/>FlashAttention / FlashInfer"]
-        Mem["GPU 显存<br/>权重分片 · KV Cache · 激活"]
-        NCCL["NCCL<br/>rank 之间 all-reduce / P2P 传激活"]
+        Attn["<b>Attention backend</b><br/>FlashAttention / FlashInfer"]
+        Mem["<b>GPU 显存</b><br/>权重分片 · KV Cache · 激活"]
+        NCCL["<b>NCCL</b><br/>rank 之间 all-reduce / P2P 传激活"]
     end
 
     Client -->|HTTP| API
@@ -170,15 +170,15 @@ class EngineCore:
 ```mermaid
 %% 图：一次 schedule() 里 Scheduler、KVCacheManager 与 BlockPool 的交互：先排 running、块不够就抢占，再接纳 waiting
 flowchart TB
-    S["Scheduler.schedule()<br/>token_budget = max_num_scheduled_tokens"]
-    R["取 running 队列下一个请求<br/>num_new_tokens 截到剩余预算"]
+    S["<b>Scheduler.schedule()</b><br/>token_budget = max_num_scheduled_tokens"]
+    R["<b>取 running 队列下一个请求</b><br/>num_new_tokens 截到剩余预算"]
     A["KVCacheManager.allocate_slots()<br/>BlockPool.get_new_blocks()：空闲块够吗？"]
-    P["Scheduler._preempt_request()<br/>KVCacheManager.free() → BlockPool.free_blocks()<br/>ref_cnt − 1，请求放回 waiting 队首"]
-    OK["记入本轮<br/>token_budget −= num_new_tokens"]
-    W["取 waiting 队首请求<br/>running 数未到 max_num_running_reqs"]
+    P["<b>Scheduler._preempt_request()</b><br/>KVCacheManager.free() → BlockPool.free_blocks()<br/>ref_cnt − 1，请求放回 waiting 队首"]
+    OK["<b>记入本轮</b><br/>token_budget −= num_new_tokens"]
+    W["<b>取 waiting 队首请求</b><br/>running 数未到 max_num_running_reqs"]
     G["KVCacheManager.get_computed_blocks()<br/>查 BlockPool 的 hash → block 表，得到命中的块"]
     A2["KVCacheManager.allocate_slots()<br/>命中块 touch：ref_cnt + 1<br/>其余 token 要新块：够吗？"]
-    OUT["打包 SchedulerOutput<br/>交给 Executor"]
+    OUT["<b>打包 SchedulerOutput</b><br/>交给 Executor"]
 
     S --> R
     R --> A
@@ -208,19 +208,19 @@ EngineCore 下面的执行层分三层，从外到内：**Executor** 决定一�
 ```mermaid
 %% 图：Executor 与 Worker：一次 execute_model() 分发给多个 GPU Worker，各自的 ModelRunner 持有分片权重与 KV Cache
 graph TB
-    EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
+    EX["<b>Executor</b><br/><i>执行抽象：单设备或多设备模型调用</i>"]
     EX --> W0 & W1 & WN
     subgraph W0["Worker 0 (GPU 0)"]
         direction TB
-        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
+        M0["ModelRunner"] --- S0["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     subgraph W1["Worker 1 (GPU 1)"]
         direction TB
-        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
+        M1["ModelRunner"] --- S1["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     subgraph WN["Worker N (GPU N)"]
         direction TB
-        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
+        MN["ModelRunner"] --- SN["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     NC["NCCL：TP all-reduce / PP 激活收发"]
     W0 & W1 & WN <-.-> NC

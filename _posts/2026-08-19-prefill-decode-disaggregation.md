@@ -643,20 +643,20 @@ D 成功读取后向 P 发送完成通知；P 侧完成反馈最终让 Scheduler
 %% 图：P 侧源块与 D 侧请求的两条状态机：只在「D 读源块」与「D 通知读完」两点耦合，各有租约过期与加载失败的分叉
 flowchart TB
     subgraph PSIDE["P 侧：源块生命周期"]
-        P1["计算中<br/>Prefill 写入源块"] --> P2["请求结束、响应已返回<br/>request_finished() 要求延迟释放<br/>附带 remote_block_ids 等交接参数"]
-        P2 --> P3["保留中<br/>等待远端读取，租约计时"]
+        P1["<b>计算中</b><br/>Prefill 写入源块"] --> P2["<b>请求结束、响应已返回</b><br/>request_finished() 要求延迟释放<br/>附带 remote_block_ids 等交接参数"]
+        P2 --> P3["<b>保留中</b><br/>等待远端读取，租约计时"]
         P3 -->|"收到 D 的读取完成通知"| P4["finished_sending"]
         P3 -->|"租约过期<br/>（未确认 D 已读完）"| P4
-        P4 --> P5["解除交接保留引用<br/>块可复用为本地缓存或回收"]
+        P4 --> P5["<b>解除交接保留引用</b><br/>块可复用为本地缓存或回收"]
     end
     subgraph DSIDE["D 侧：请求与目标块状态"]
-        D1["收到带 do_remote_prefill 的请求<br/>get_num_new_matched_tokens()<br/>报告外部可提供范围"] --> D2["分配目标块<br/>update_state_after_alloc()<br/>可寻址、不可读"]
-        D2 --> D3["WAITING_FOR_REMOTE_KVS<br/>Worker 握手、提交 READ"]
-        D3 -->|"finished_recving<br/>且无错误块"| D4["更新有效范围<br/>解除阻塞，回到可调度"]
+        D1["收到带 do_remote_prefill 的请求<br/>get_num_new_matched_tokens()<br/>报告外部可提供范围"] --> D2["<b>分配目标块</b><br/>update_state_after_alloc()<br/>可寻址、不可读"]
+        D2 --> D3["<b>WAITING_FOR_REMOTE_KVS</b><br/>Worker 握手、提交 READ"]
+        D3 -->|"finished_recving<br/>且无错误块"| D4["<b>更新有效范围</b><br/>解除阻塞，回到可调度"]
         D3 -->|"finished_recving<br/>带错误块"| D5{"kv_load_failure_policy"}
-        D5 -->|"fail"| D6["请求失败<br/>交由上层重试"]
-        D5 -->|"recompute"| D7["保留有效前缀<br/>缺失范围本地重算"]
-        D4 --> D8["末输入 token 前向<br/>进入普通 Decode"]
+        D5 -->|"fail"| D6["<b>请求失败</b><br/>交由上层重试"]
+        D5 -->|"recompute"| D7["<b>保留有效前缀</b><br/>缺失范围本地重算"]
+        D4 --> D8["<b>末输入 token 前向</b><br/>进入普通 Decode"]
         D7 --> D8
     end
     D3 -.->|"NIXL READ 读取源块"| P3

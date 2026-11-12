@@ -139,10 +139,10 @@ vLLM V1 的核心数据对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/s
 flowchart TB
     subgraph SB["EngineCore 进程：Scheduler / KVCacheManager"]
         direction TB
-        REQ["Request<br/>request_id, status, num_computed_tokens<br/>output_token_ids, block_hashes"]
+        REQ["<b>Request</b><br/>request_id, status, num_computed_tokens<br/>output_token_ids, block_hashes"]
         R2B["SingleTypeKVCacheManager.req_to_blocks<br/>request_id → list#91;KVCacheBlock#93;"]
-        BLK["KVCacheBlock<br/>block_id, ref_cnt, block_hash"]
-        POOL["BlockPool<br/>blocks#91;block_id#93; + cached_block_hash_to_block"]
+        BLK["<b>KVCacheBlock</b><br/>block_id, ref_cnt, block_hash"]
+        POOL["<b>BlockPool</b><br/>blocks#91;block_id#93; + cached_block_hash_to_block"]
     end
     SO["SchedulerOutput（每步一份, 走共享内存）<br/>NewRequestData.block_ids / CachedRequestData.new_block_ids<br/>只带 block_id 整数, 不带 KVCacheBlock 对象"]
     subgraph SC["Worker 进程：GPUModelRunner"]
@@ -151,7 +151,7 @@ flowchart TB
         IB["InputBatch（持久 batch, 按行组织）<br/>req_id_to_index: req_id → row<br/>token_ids_cpu#91;row, :#93;"]
         BT["BlockTable（每个 KV cache group 一张）<br/>block_table#91;row, j#93; = block_id"]
         SM["slot_mapping#91;token#93; = block_id × block_size + offset<br/>compute_slot_mapping() Triton kernel 在 GPU 上算"]
-        KV["KV Cache 张量（GPU HBM）<br/>kv_cache#91;block_id#93;#91;offset#93;"]
+        KV["<b>KV Cache 张量（GPU HBM）</b><br/>kv_cache#91;block_id#93;#91;offset#93;"]
     end
     REQ -- "request_id" --> R2B --> BLK
     BLK -- "block_id 下标" --> POOL

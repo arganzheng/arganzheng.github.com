@@ -245,16 +245,16 @@ vLLM 通过 `ModelConfig` 对外部参数和 Hugging Face 配置进行统一解�
 ```mermaid
 %% 图：ModelRegistry 的模型发现：按 architectures 查注册表，惰性注册项经子进程检查产出 _ModelInfo，load_model_cls 才 import 类
 flowchart TB
-    ARCH["hf_config.architectures<br/>例如 #91;LlamaForCausalLM#93;"] --> INTREE{"model_impl 与注册表<br/>(_VLLM_MODELS + register_model)"}
-    INTREE -->|"transformers, 或 auto 且未注册"| TF["_try_resolve_transformers<br/>Transformers backend 类"]
+    ARCH["<b>hf_config.architectures</b><br/>例如 #91;LlamaForCausalLM#93;"] --> INTREE{"model_impl 与注册表<br/>(_VLLM_MODELS + register_model)"}
+    INTREE -->|"transformers, 或 auto 且未注册"| TF["<b>_try_resolve_transformers</b><br/>Transformers backend 类"]
     INTREE -->|"vllm 且未注册"| ERR["_raise_for_unsupported"]
-    INTREE -->|"已注册"| NORM["_normalize_arch<br/>后缀变体回退到基础 arch"]
-    NORM -->|"内置表 / module:class 字符串"| LAZY["_LazyRegisteredModel<br/>只记 module_name + class_name<br/>主进程尚未 import"]
-    NORM -->|"register_model 传入类对象"| REGD["_RegisteredModel<br/>已 import, 直接持有类"]
+    INTREE -->|"已注册"| NORM["<b>_normalize_arch</b><br/>后缀变体回退到基础 arch"]
+    NORM -->|"内置表 / module:class 字符串"| LAZY["<b>_LazyRegisteredModel</b><br/>只记 module_name + class_name<br/>主进程尚未 import"]
+    NORM -->|"register_model 传入类对象"| REGD["<b>_RegisteredModel</b><br/>已 import, 直接持有类"]
     LAZY -->|"inspect_model_cls"| CACHE{"modelinfos 缓存命中<br/>且源码 hash 一致?"}
-    LAZY -->|"load_model_cls"| LOAD["importlib.import_module<br/>→ initialize_model<br/>model_cls(vllm_config, prefix)"]
-    CACHE -->|"是"| MI["_ModelInfo → ModelConfig<br/>runner_type / convert_type<br/>supports_pp / is_hybrid ..."]
-    CACHE -->|"否"| SUB["_run_in_subprocess<br/>子进程 import 并做 Protocol 检查<br/>主进程不初始化 CUDA"]
+    LAZY -->|"load_model_cls"| LOAD["<b>importlib.import_module</b><br/>→ initialize_model<br/>model_cls(vllm_config, prefix)"]
+    CACHE -->|"是"| MI["<b>_ModelInfo → ModelConfig</b><br/>runner_type / convert_type<br/>supports_pp / is_hybrid ..."]
+    CACHE -->|"否"| SUB["<b>_run_in_subprocess</b><br/>子进程 import 并做 Protocol 检查<br/>主进程不初始化 CUDA"]
     SUB -->|"写回缓存"| MI
     REGD --> MI
     classDef lazy fill:#fff3e0,stroke:#e65100;

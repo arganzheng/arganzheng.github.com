@@ -542,7 +542,7 @@ flowchart TB
         R1 --> R2["allocate_slots() 分配 KV block"]
         R2 -->|"成功"| R3["token_budget -= num_new_tokens<br/>加入 scheduled_running_reqs"]
         R2 -->|"失败"| R4["选牺牲者：FCFS 取 running 队尾<br/>PRIORITY 取 (priority, arrival) 最大者"]
-        R4 --> R5["_preempt_request(victim)<br/>释放 KV，进入 waiting 队头"]
+        R4 --> R5["<b>_preempt_request(victim)</b><br/>释放 KV，进入 waiting 队头"]
         R5 --> R6{"victim 就是<br/>当前请求？"}
         R6 -->|"否"| R2
         R6 -->|"是：确实没资源"| W0
@@ -553,7 +553,7 @@ flowchart TB
     W0 -->|"任一成立"| OUT
     W0 -->|"都不成立"| W1
     subgraph WaitLoop["2. 遍历 waiting 队列（新请求 / 被抢占请求）"]
-        W1["peek 队头请求<br/>get_computed_blocks() 查 Prefix Cache"] --> W2["num_new_tokens = min(prompt - 已命中,<br/>token_budget, long_prefill_threshold)"]
+        W1["<b>peek 队头请求</b><br/>get_computed_blocks() 查 Prefix Cache"] --> W2["num_new_tokens = min(prompt - 已命中,<br/>token_budget, long_prefill_threshold)"]
         W2 --> W3["allocate_slots() 分配 KV block<br/>需额外满足 watermark 余量"]
         W3 -->|"失败：KV 不够"| OUT
         W3 -->|"成功"| W4["status = RUNNING<br/>token_budget -= num_new_tokens<br/>移入 running"]
@@ -862,10 +862,10 @@ vLLM V1 当前主要使用 **Recomputation** 思路：
 ```mermaid
 %% 图：Request 在 Scheduler 眼里的状态机：WAITING → RUNNING → PREEMPTED 回到 waiting 队头，终态都排在 PREEMPTED 之后
 flowchart TB
-    NEW(("add_request()")) --> WAITING["WAITING<br/>在 waiting 队列排队<br/>num_computed_tokens = 0"]
-    WAITING -->|"waiting 循环：allocate_slots() 成功<br/>且未达 max_num_seqs"| RUNNING["RUNNING<br/>在 running 列表<br/>每轮拿 num_new_tokens"]
+    NEW(("add_request()")) --> WAITING["<b>WAITING</b><br/>在 waiting 队列排队<br/>num_computed_tokens = 0"]
+    WAITING -->|"waiting 循环：allocate_slots() 成功<br/>且未达 max_num_seqs"| RUNNING["<b>RUNNING</b><br/>在 running 列表<br/>每轮拿 num_new_tokens"]
     WAITING -->|"KV 不够 / 预算耗尽 / 名额已满"| WAITING
-    RUNNING -->|"running 循环：allocate_slots() 失败<br/>被选为牺牲者 _preempt_request()"| PREEMPTED["PREEMPTED<br/>KV block 已释放<br/>num_computed_tokens = 0<br/>放回 waiting 队头"]
+    RUNNING -->|"running 循环：allocate_slots() 失败<br/>被选为牺牲者 _preempt_request()"| PREEMPTED["<b>PREEMPTED</b><br/>KV block 已释放<br/>num_computed_tokens = 0<br/>放回 waiting 队头"]
     PREEMPTED -->|"下一轮 waiting 循环重新接纳<br/>Prefix Cache 命中部分可跳过"| RUNNING
     RUNNING -->|"生成 EOS / stop string"| FS["FINISHED_STOPPED"]
     RUNNING -->|"达到 max_tokens 或 max_model_len"| FL["FINISHED_LENGTH_CAPPED"]

@@ -61,9 +61,9 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：DP：每个 GPU 持有完整模型副本，各自处理不同请求
 graph LR
-    R["请求流"] --> G0["GPU 0<br/>完整模型副本<br/>请求 1–10"]
-    R --> G1["GPU 1<br/>完整模型副本<br/>请求 11–20"]
-    R --> G2["GPU 2<br/>完整模型副本<br/>请求 21–30"]
+    R["请求流"] --> G0["<b>GPU 0</b><br/>完整模型副本<br/>请求 1–10"]
+    R --> G1["<b>GPU 1</b><br/>完整模型副本<br/>请求 11–20"]
+    R --> G2["<b>GPU 2</b><br/>完整模型副本<br/>请求 21–30"]
 ```
 
 | | 说明 |
@@ -428,8 +428,8 @@ PP的基本思路是：模型沿层的方向切开多个连续的stage，并将�
 ```mermaid
 %% 图：PP 的数据流向：每个 GPU 负责一段层，边界激活经 P2P send 传给下一个 stage
 graph LR
-    A["GPU 0<br/>Layers 0–19"] -->|"P2P send<br/>hidden_states"| B["GPU 1<br/>Layers 20–39"]
-    B -->|"P2P send<br/>hidden_states"| C["GPU 2<br/>Layers 40–59<br/>→ logits"]
+    A["<b>GPU 0</b><br/>Layers 0–19"] -->|"P2P send<br/>hidden_states"| B["<b>GPU 1</b><br/>Layers 20–39"]
+    B -->|"P2P send<br/>hidden_states"| C["<b>GPU 2</b><br/>Layers 40–59<br/>→ logits"]
 ```
 
 对于一个 batch，输入首先经过 GPU 0 的层；GPU 0 产生边界激活后，将其发送给 GPU 1，依此类推。每个 stage 只保存自己负责的模型层，以及这些层对应的中间状态和 KV cache。
@@ -1124,10 +1124,10 @@ Capacity Factor 减小：
 %% 图：EP 的两次 All-to-All：dispatch 把 token 送到持有对应 Expert 的卡，combine 再送回来
 graph LR
     subgraph G0["GPU 0（持有 Expert 0–3）"]
-        A0["本地 token：<br/>去 E0–3 的 + 去 E4–7 的"] --> X0["Expert 0–3<br/>GEMM"]
+        A0["<b>本地 token：</b><br/>去 E0–3 的 + 去 E4–7 的"] --> X0["<b>Expert 0–3</b><br/>GEMM"]
     end
     subgraph G1["GPU 1（持有 Expert 4–7）"]
-        A1["本地 token：<br/>去 E4–7 的 + 去 E0–3 的"] --> X1["Expert 4–7<br/>GEMM"]
+        A1["<b>本地 token：</b><br/>去 E4–7 的 + 去 E0–3 的"] --> X1["<b>Expert 4–7</b><br/>GEMM"]
     end
     A0 <-.->|"All-to-All Dispatch"| A1
     X0 <-.->|"All-to-All Combine"| X1
@@ -1545,9 +1545,9 @@ Context Parallelism（CP）是一种面向长序列的并行技术，其核心�
 ```mermaid
 %% 图：Ring Attention：4 个 GPU 各持一段序列，K、V 沿环传递四步凑出全局注意力
 graph LR
-    G0["GPU 0<br/>$$t_1$$–$$t_{16000}$$"] -->|"$$K_0 V_0$$"| G1["GPU 1<br/>$$t_{16001}$$–$$t_{32000}$$"]
-    G1 -->|"$$K_1 V_1$$"| G2["GPU 2<br/>$$t_{32001}$$–$$t_{48000}$$"]
-    G2 -->|"$$K_2 V_2$$"| G3["GPU 3<br/>$$t_{48001}$$–$$t_{64000}$$"]
+    G0["<b>GPU 0</b><br/>$$t_1$$–$$t_{16000}$$"] -->|"$$K_0 V_0$$"| G1["<b>GPU 1</b><br/>$$t_{16001}$$–$$t_{32000}$$"]
+    G1 -->|"$$K_1 V_1$$"| G2["<b>GPU 2</b><br/>$$t_{32001}$$–$$t_{48000}$$"]
+    G2 -->|"$$K_2 V_2$$"| G3["<b>GPU 3</b><br/>$$t_{48001}$$–$$t_{64000}$$"]
     G3 -->|"$$K_3 V_3$$"| G0
 ```
 

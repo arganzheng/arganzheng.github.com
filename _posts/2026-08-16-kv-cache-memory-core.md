@@ -83,10 +83,10 @@ Table: 操作系统虚拟内存与 PagedAttention 的对应
 %% 图：页表思想的映射：逻辑块连续，Block Table 把它们映到不连续的物理 KV 块
 graph LR
     subgraph LOG["逻辑视图（连续）"]
-        B0["Blk 0<br/>$$t_1$$–$$t_{16}$$"] --- B1["Blk 1<br/>$$t_{17}$$–$$t_{32}$$"] --- B2["Blk 2<br/>$$t_{33}$$–$$t_{48}$$"]
+        B0["<b>Blk 0</b><br/>$$t_1$$–$$t_{16}$$"] --- B1["<b>Blk 1</b><br/>$$t_{17}$$–$$t_{32}$$"] --- B2["<b>Blk 2</b><br/>$$t_{33}$$–$$t_{48}$$"]
     end
     subgraph BT["Block Table"]
-        T["VB0 → PB7<br/>VB1 → PB13<br/>VB2 → PB21"]
+        T["<b>VB0 → PB7</b><br/>VB1 → PB13<br/>VB2 → PB21"]
     end
     subgraph PHY["物理 KV 块（不连续）"]
         P7["PB 7"]
@@ -364,7 +364,7 @@ MLA 的运作分两步——**存的时候压缩，用的时候还原**：
 %% 图：MLA 的两步：Prefill 时经 kv_a_proj 压成低维 latent 存进 KV Cache，Decode 时经 kv_b_proj 还原全维 K、V
 graph LR
     subgraph E["编码（Prefill）"]
-        H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("KV Cache<br/>只存 latent")]
+        H[hidden] -->|kv_a_proj| C["c_kv（低维 latent）"] --> KV[("<b>KV Cache</b><br/>只存 latent")]
     end
     subgraph D["解码（Decode，朴素做法）"]
         KV2[("KV Cache")] --> C2[c_kv] -->|kv_b_proj| KVF["K, V（恢复全维）"] --> AT[Attention]

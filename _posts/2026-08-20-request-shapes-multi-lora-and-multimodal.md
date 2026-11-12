@@ -301,20 +301,20 @@ Table: 有无 LoRA 时录的 CUDA graph
 %% 图：一张图从进门到变成 KV 的路径：API server 进程做输入处理与 processor cache，EngineCore 管 encoder cache，Worker 编码
 flowchart TB
   subgraph api["API server 进程：输入处理（第 1 节）"]
-    img["图片 + 文本 prompt<br/>MultiModalHasher 对原始像素算 mm_hash"] --> pcache{"processor cache 命中?"}
-    pcache -- "未命中" --> hf["HF processor<br/>resize / 切 patch → pixel_values"]
+    img["<b>图片 + 文本 prompt</b><br/>MultiModalHasher 对原始像素算 mm_hash"] --> pcache{"processor cache 命中?"}
+    pcache -- "未命中" --> hf["<b>HF processor</b><br/>resize / 切 patch → pixel_values"]
     pcache -- "命中" --> nodata["data = None<br/>张量不再过 IPC"]
-    hf --> ph["PromptReplacement<br/>image → N 个 image_token，产出 PlaceholderRange"]
+    hf --> ph["<b>PromptReplacement</b><br/>image → N 个 image_token，产出 PlaceholderRange"]
     nodata --> ph
   end
   ph -- "MultiModalFeatureSpec<br/>(mm_hash, mm_position, data)" --> ecm
   subgraph eng["EngineCore 进程：Scheduler（第 3、4 节）"]
-    ecm["EncoderCacheManager<br/>check_and_update_cache / can_allocate<br/>扣 encoder_compute_budget"] --> so["SchedulerOutput<br/>scheduled_encoder_inputs / free_encoder_mm_hashes"]
+    ecm["<b>EncoderCacheManager</b><br/>check_and_update_cache / can_allocate<br/>扣 encoder_compute_budget"] --> so["<b>SchedulerOutput</b><br/>scheduled_encoder_inputs / free_encoder_mm_hashes"]
   end
   subgraph wk["Worker 进程：GPUModelRunner.execute_model（第 2、3 节）"]
     so --> enc["_execute_mm_encoder()：ViT embed_multimodal()<br/>先于 decoder 单独跑，输出写入<br/>encoder_cache#91;mm_hash#93;（普通 dict，显存）"]
-    so --> emb["embed_input_ids()<br/>占位 token 查表：形状对、值错"]
-    enc --> merge["_gather_mm_embeddings()<br/>is_mm_embed 掩码就地覆盖"]
+    so --> emb["<b>embed_input_ids()</b><br/>占位 token 查表：形状对、值错"]
+    enc --> merge["<b>_gather_mm_embeddings()</b><br/>is_mm_embed 掩码就地覆盖"]
     emb --> merge
     merge --> dec["decoder forward → KV Cache"]
   end
@@ -421,13 +421,13 @@ Table: EncoderCacheManager 的字段
 ```mermaid
 %% 图：EncoderCacheManager 里一个 mm_hash 的状态迁移：不在 cache → 本步调度 → cached → freeable → freed
 flowchart TB
-  none["不在 cache<br/>（未编码，或已被 worker pop）"]
+  none["<b>不在 cache</b><br/>（未编码，或已被 worker pop）"]
   none -- "can_allocate() 通过 → allocate()<br/>扣 num_free_slots，引用 +1" --> sched["本步 scheduled_encoder_inputs<br/>worker _execute_mm_encoder() 写入 dict"]
   sched --> cached["cached#91;mm_hash#93;<br/>= 引用它的 request_id 集合<br/>引用数 > 0，不可驱逐"]
   cached -- "另一请求 check_and_update_cache()<br/>命中：引用 +1，不再调度 encoder" --> cached
-  cached -- "占位区间 prefill 完 /<br/>请求结束或被抢占<br/>free_encoder_input()，引用归零" --> freeable["freeable（FIFO）<br/>可被驱逐，但输出仍在 dict 里"]
+  cached -- "占位区间 prefill 完 /<br/>请求结束或被抢占<br/>free_encoder_input()，引用归零" --> freeable["<b>freeable（FIFO）</b><br/>可被驱逐，但输出仍在 dict 里"]
   freeable -- "新请求引用同一张图<br/>从 freeable 摘出，引用 +1" --> cached
-  freeable -- "别的图 can_allocate() 空间不够<br/>从 FIFO 头部驱逐" --> freed["freed 列表<br/>随 SchedulerOutput.<br/>free_encoder_mm_hashes 下发"]
+  freeable -- "别的图 can_allocate() 空间不够<br/>从 FIFO 头部驱逐" --> freed["<b>freed 列表</b><br/>随 SchedulerOutput.<br/>free_encoder_mm_hashes 下发"]
   freed -- "下一步 execute_model 开头<br/>encoder_cache.pop()" --> none
   classDef live fill:#e8f5e9,stroke:#2e7d32;
   classDef dying fill:#fff3cd,stroke:#b8860b;

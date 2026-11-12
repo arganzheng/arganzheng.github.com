@@ -166,7 +166,7 @@ flowchart TB
     subgraph SEG2["段 i+1：编译 → CUDA Graph"]
         OPJ["O Proj GEMM"] --> AR1["All-Reduce（TP）"] --> N2["Fused Add + RMSNorm"] --> MLP["Gate/Up GEMM → SiLU·Mul → Down GEMM"] --> AR2["All-Reduce（TP）"]
     end
-    SEG2 --> NEXT["下一层的段 i+2 …<br/>（段 i+1 与下一层的段 i+2 之间无 splitting_op，实际合为同一段）"]
+    SEG2 --> NEXT["<b>下一层的段 i+2 …</b><br/>（段 i+1 与下一层的段 i+2 之间无 splitting_op，实际合为同一段）"]
     classDef graphseg fill:#e8f5e9,stroke:#1b5e20;
     classDef eager fill:#fff3e0,stroke:#e65100;
     classDef plain fill:#f5f5f5,stroke:#616161;
