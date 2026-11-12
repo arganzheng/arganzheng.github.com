@@ -22,7 +22,7 @@ date: 2026-03-29 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 %% 图：深度学习基础全景：写出梯度、看激活、稳定训练、定步长、看泛化，再走过卷积、表示与循环
 flowchart TB
-    H["01 深度模型演进史<br/>感知机 → Transformer"] --> D0["02 损失函数<br/>「好」写成可求导的标量<br/>G_Z = (P - Y)/m 是反向起点"]
+    H["01 深度模型演进史<br/>感知机 → Transformer"] --> D0["02 损失函数<br/>「好」写成可求导的标量<br/>$$G_Z = (P - Y)/m$$ 是反向起点"]
     D0 --> D1["03 反向传播<br/>写出那串 Jacobian 的乘积"]
     D1 --> D2["04 激活函数<br/>非线性改变梯度与 FFN"]
     D2 --> D3["05 初始化 / 归一化 / 残差<br/>稳定深层训练"]
@@ -328,12 +328,12 @@ flowchart TB
     VAN --> INIT["初始化：t = 0 时因子期望为 1"]
     VAN --> NORM["归一化：前向方差拉回 1"]
     VAN --> RES["残差：I + J 的恒等通路"]
-    RES --> GROW["残差流方差增长 → 需归一化 + 1/√(2L)"]
-    RES --> LSTM["LSTM 遗忘门 = 时间上的残差，b_f = 1（第十篇）"]
+    RES --> GROW["残差流方差增长 → 需归一化 + $$1/\sqrt{2L}$$"]
+    RES --> LSTM["LSTM 遗忘门 = 时间上的残差，$$b_f = 1$$（第十篇）"]
     RES --> PRE["Pre-Norm / ResNet-v2 pre-activation（第五、八篇）"]
     NORM --> SCALE["尺度不变性 → 有效学习率由范数决定"]
     SCALE --> WD["AdamW weight decay = 范数平衡点（第六、七篇）"]
-    ADAM["Adam 步长 ≈ η、与梯度无关（第六篇）"] --> WARM["warmup、β₂ = 0.95、η 随宽度 ∝ 1/n_in"]
+    ADAM["Adam 步长 ≈ $$\eta$$、与梯度无关（第六篇）"] --> WARM["warmup、$$\beta_2 = 0.95$$、$$\eta$$ 随宽度 $$\propto 1/n_{in}$$"]
 ```
 
 ## 四、常见误区
