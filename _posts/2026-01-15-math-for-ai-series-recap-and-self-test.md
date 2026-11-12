@@ -251,17 +251,17 @@ Table: 贯穿各篇的概念及其关系
 ```mermaid
 %% 图：loss 这个数字的一生：八篇里的结论怎样一环套一环推出 DPO 与策略梯度
 flowchart TB
-    CD["语言模型 = 条件分布 / 策略 π（四）"]
+    CD["语言模型 = 条件分布 / 策略 $$\pi$$（四）"]
     MLE["MLE 三步 → 交叉熵 −log q（五）"]
     HKL["交叉熵 = 熵 + KL（六）"]
-    BT["Bradley-Terry σ(r_w − r_l)（六）"]
+    BT["Bradley-Terry $$\sigma(r_w - r_l)$$（六）"]
     LAG["拉格朗日乘子（七）"]
-    OPT["KL 约束的闭式解 π* ∝ π_ref e^(r/β)（六）"]
+    OPT["KL 约束的闭式解 $$\pi^* \propto \pi_{ref}\, e^{r/\beta}$$（六）"]
     DPO["DPO loss（六）"]
     CHIN["Chinchilla D/N ≈ 20（八）"]
     CHAIN["链式法则 / Jacobian（七）"]
     PY["softmax + CE 的梯度 p − y（七）"]
-    EXP["期望的梯度 ∇π = π∇log π（七）"]
+    EXP["期望的梯度 $$\nabla \pi = \pi \nabla \log \pi$$（七）"]
     PG["策略梯度 / GRPO 优势（七）"]
 
     CD --> MLE
