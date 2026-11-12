@@ -356,14 +356,14 @@ DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参�
 %% 图：Reducer 把 all_reduce 藏进反向：梯度 hook 通知 Reducer，桶满即对整个桶发起一次异步 all_reduce
 flowchart TB
     subgraph grads["反向传播：梯度按 layer 4 → 1 的顺序陆续就位"]
-        G4["grad(layer 4)<br/>post_accumulate_grad_hook"]
-        G3["grad(layer 3)<br/>post_accumulate_grad_hook"]
-        G2["grad(layer 2)<br/>post_accumulate_grad_hook"]
-        G1["grad(layer 1)<br/>post_accumulate_grad_hook"]
+        G4["<b>grad(layer 4)</b><br/>post_accumulate_grad_hook"]
+        G3["<b>grad(layer 3)</b><br/>post_accumulate_grad_hook"]
+        G2["<b>grad(layer 2)</b><br/>post_accumulate_grad_hook"]
+        G1["<b>grad(layer 1)</b><br/>post_accumulate_grad_hook"]
     end
     subgraph buckets["Reducer 的桶：按注册顺序逆序划分，每桶 ≈ 25 MB"]
-        B0["bucket 0<br/>layer 4 + layer 3 的梯度（连续内存）"]
-        B1["bucket 1<br/>layer 2 + layer 1 的梯度（连续内存）"]
+        B0["<b>bucket 0</b><br/>layer 4 + layer 3 的梯度（连续内存）"]
+        B1["<b>bucket 1</b><br/>layer 2 + layer 1 的梯度（连续内存）"]
     end
     G4 -- "hook 通知 Reducer" --> B0
     G3 -- "hook 通知 Reducer" --> B0
@@ -772,16 +772,16 @@ TP 下层的输入/输出激活是复制的。LayerNorm、Dropout、残差相加
 ```mermaid
 %% 图：Sequence Parallel 的一个子层：TP 区域外激活按序列维分片，f 处 all_gather、g 处 reduce_scatter
 flowchart TB
-    S0["LayerNorm / Dropout / 残差<br/>激活按序列维分片：每 rank 持有 S/N 个 token"]
-    F["f：all_gather（序列维）<br/>凑齐全部 S 个 token → 复制的输入"]
+    S0["<b>LayerNorm / Dropout / 残差</b><br/>激活按序列维分片：每 rank 持有 S/N 个 token"]
+    F["<b>f：all_gather（序列维）</b><br/>凑齐全部 S 个 token → 复制的输入"]
     subgraph tp["TP 区域（激活按 hidden 维 / head 维分片）"]
         COL["Column parallel（fc1 / wq wk wv）<br/>输出 #91;S, 4H/N#93;"]
-        LOCAL["gelu / attention<br/>本地计算，激活仍分片"]
-        ROW["Row parallel（fc2 / wo）<br/>输出 #91;S, H#93; 部分和"]
+        LOCAL["<b>gelu / attention</b><br/>本地计算，激活仍分片"]
+        ROW["<b>Row parallel（fc2 / wo）</b><br/>输出 #91;S, H#93; 部分和"]
         COL --> LOCAL --> ROW
     end
-    G["g：reduce_scatter（序列维）<br/>归约 + 分片：每 rank 只拿 S/N 个 token 的完整和"]
-    S1["下一段 LayerNorm / 残差<br/>激活按序列维分片"]
+    G["<b>g：reduce_scatter（序列维）</b><br/>归约 + 分片：每 rank 只拿 S/N 个 token 的完整和"]
+    S1["<b>下一段 LayerNorm / 残差</b><br/>激活按序列维分片"]
     REMARK["原来 g 处的一次 all_reduce = reduce_scatter + all_gather<br/>拆成两半后通信量不变，但 TP 区域外的激活按 TP 度切成 1/N<br/>反向：g 的反向是 all_gather，f 的反向是 reduce_scatter"]
     S0 --> F --> COL
     ROW --> G --> S1
@@ -1007,13 +1007,13 @@ MoE（Mixture of Experts）模型的 MLP 由 E 个 expert 组成，每个 token 
 ```mermaid
 %% 图：EP 中一批 token 的路径：router 选 expert，两次 all_to_all 分别做 dispatch 与 combine，都在关键路径上
 flowchart TB
-    T0["Rank 0 的 token<br/>hidden #91;B·S, H#93;"]
-    R0["router（本地）<br/>每个 token 选 top-k 个 expert 及权重"]
-    A2A1["第一次 all_to_all：dispatch<br/>把 token 的 hidden 发到所选 expert 所在的 rank<br/>每 token 发出 k 份 → 通信量 k·B·S·H"]
-    E0["Rank 0 本地 expert 0 ~ E/N-1<br/>grouped GEMM，每个 expert 一个小矩阵乘"]
+    T0["<b>Rank 0 的 token</b><br/>hidden #91;B·S, H#93;"]
+    R0["<b>router（本地）</b><br/>每个 token 选 top-k 个 expert 及权重"]
+    A2A1["<b>第一次 all_to_all：dispatch</b><br/>把 token 的 hidden 发到所选 expert 所在的 rank<br/>每 token 发出 k 份 → 通信量 k·B·S·H"]
+    E0["<b>Rank 0 本地 expert 0 ~ E/N-1</b><br/>grouped GEMM，每个 expert 一个小矩阵乘"]
     E1["Rank 1 本地 expert E/N ~ 2E/N-1<br/>grouped GEMM"]
-    A2A2["第二次 all_to_all：combine<br/>expert 输出按 token 归属送回原 rank<br/>每 token 收回 k 份 → 通信量 k·B·S·H"]
-    C0["Rank 0 combine<br/>按 router 权重加权求和，恢复 token 原顺序"]
+    A2A2["<b>第二次 all_to_all：combine</b><br/>expert 输出按 token 归属送回原 rank<br/>每 token 收回 k 份 → 通信量 k·B·S·H"]
+    C0["<b>Rank 0 combine</b><br/>按 router 权重加权求和，恢复 token 原顺序"]
     BOTTLE["两次 all_to_all 都在关键路径上：<br/>expert 计算要等 dispatch 到齐，combine 要等所有 expert 算完<br/>这就是 EP 的通信瓶颈——偏好 NVLink，跨节点靠分块流水重叠"]
     T0 --> R0 --> A2A1
     A2A1 --> E0
@@ -1079,11 +1079,11 @@ Table: 训练与推理在并行重心上的差别
 %% 图：并行策略决策顺序（前三步）：按需选 TP + SP、CP、EP，决定切计算的维度
 flowchart TB
     Q1{"单层参数 + 激活放不进一张卡？<br/>或 FSDP 的 3P 通信藏不住？"}
-    TP["TP + SP<br/>节点内，度 ≤ 8"]
+    TP["<b>TP + SP</b><br/>节点内，度 ≤ 8"]
     Q2{"序列太长，单卡放不下<br/>一个序列的激活？"}
-    CP["CP<br/>与 FSDP 共用维度，可跨节点"]
+    CP["<b>CP</b><br/>与 FSDP 共用维度，可跨节点"]
     Q3{"MoE 模型？"}
-    EP["EP<br/>优先节点内，EP × TP ≤ 节点内卡数"]
+    EP["<b>EP</b><br/>优先节点内，EP × TP ≤ 节点内卡数"]
     NEXT["继续：状态分片与跨节点（下图）"]
     Q1 -- "是" --> TP
     Q1 -- "否 / 已选定" --> Q2
@@ -1106,9 +1106,9 @@ flowchart TB
 flowchart TB
     Q4{"整个模型状态（16P）放不下？"}
     Q5{"跨节点带宽能藏住<br/>FSDP 的 3P 通信？"}
-    FSDP["FSDP<br/>节点内为主，带宽够时可跨节点"]
+    FSDP["<b>FSDP</b><br/>节点内为主，带宽够时可跨节点"]
     HSDP["HSDP：节点内分片 + 节点间复制<br/>或 PP：按层切、跨节点 send/recv，M ≥ 4K"]
-    DP["剩余的卡 → 数据并行维<br/>最外层，跨节点，扩吞吐"]
+    DP["<b>剩余的卡 → 数据并行维</b><br/>最外层，跨节点，扩吞吐"]
     Q4 -- "是" --> Q5
     Q4 -- "否" --> DP
     Q5 -- "能" --> FSDP
@@ -1304,10 +1304,10 @@ flowchart TB
     ONE["部分 rank 没卡：看它们在干什么<br/>提前 return / 异常被吞 / 已进入下一个 epoch 或退出"]
     Q2{"py-spy dump 各 rank 的栈：<br/>都停在同一处集合通信？"}
     Q3{"集合通信的调用次数 / 顺序 / shape<br/>各 rank 是否一致？"}
-    FIX1["找不一致的来源：<br/>if 分支、只在 rank 0 的 logging 里做通信、<br/>DDP 未使用参数（find_unused_parameters）"]
+    FIX1["<b>找不一致的来源：</b><br/>if 分支、只在 rank 0 的 logging 里做通信、<br/>DDP 未使用参数（find_unused_parameters）"]
     Q4{"各 rank 数据量相等？"}
-    FIX2["某 rank 多跑一步 backward：<br/>DistributedSampler 补齐 / drop_last / Join"]
-    NET["网络或 NCCL 环境：<br/>NCCL_DEBUG=INFO 看 ring 是否建立、走的是否 IB<br/>nvidia-smi 看卡是否掉了，nccl-tests 测裸带宽"]
+    FIX2["<b>某 rank 多跑一步 backward：</b><br/>DistributedSampler 补齐 / drop_last / Join"]
+    NET["<b>网络或 NCCL 环境：</b><br/>NCCL_DEBUG=INFO 看 ring 是否建立、走的是否 IB<br/>nvidia-smi 看卡是否掉了，nccl-tests 测裸带宽"]
     FR["工具：TORCH_DISTRIBUTED_DEBUG=DETAIL 逐次校验<br/>Flight Recorder（TORCH_NCCL_TRACE_BUFFER_SIZE +<br/>TORCH_NCCL_DUMP_ON_TIMEOUT）+ torchfrtrace 直接指出谁缺席"]
     S --> Q1
     Q1 -- "否" --> ONE

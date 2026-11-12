@@ -494,15 +494,15 @@ flowchart TB
     subgraph MAP["PyTorch 五层逻辑职责地图"]
         direction TB
 
-        L1["① 编程接口与应用表达<br/>Tensor、Autograd 接口、nn.Module<br/>Optimizer、DataLoader、状态管理"]
+        L1["<b>① 编程接口与应用表达</b><br/>Tensor、Autograd 接口、nn.Module<br/>Optimizer、DataLoader、状态管理"]
 
-        L2["② 图表示与编译<br/>TorchDynamo、FX、AOTAutograd、TorchInductor<br/>程序捕获、图变换、优化与代码生成"]
+        L2["<b>② 图表示与编译</b><br/>TorchDynamo、FX、AOTAutograd、TorchInductor<br/>程序捕获、图变换、优化与代码生成"]
 
-        L3["③ 算子与分发运行时<br/>Operator Schema、Dispatcher、ATen<br/>算子契约、实现注册与运行时分发"]
+        L3["<b>③ 算子与分发运行时</b><br/>Operator Schema、Dispatcher、ATen<br/>算子契约、实现注册与运行时分发"]
 
-        L4["④ 设备与通信支撑<br/>设备管理、内存分配、Stream 与 Event<br/>同步机制、进程组与通信后端"]
+        L4["<b>④ 设备与通信支撑</b><br/>设备管理、内存分配、Stream 与 Event<br/>同步机制、进程组与通信后端"]
 
-        L5["⑤ 计算内核与底层库<br/>原生 CPU 与 CUDA 内核、编译生成内核<br/>cuBLAS、cuDNN 等计算库"]
+        L5["<b>⑤ 计算内核与底层库</b><br/>原生 CPU 与 CUDA 内核、编译生成内核<br/>cuBLAS、cuDNN 等计算库"]
 
         L1 ~~~ L2
         L2 ~~~ L3
@@ -510,7 +510,7 @@ flowchart TB
         L4 ~~~ L5
     end
 
-    ENV["外部运行基础<br/>操作系统、驱动、CPU、GPU 与互连"]
+    ENV["<b>外部运行基础</b><br/>操作系统、驱动、CPU、GPU 与互连"]
 
     L5 ~~~ ENV
 ```
@@ -734,10 +734,10 @@ Table: PyTorch 架构的逻辑层次总结
 flowchart TB
     subgraph UP["统一的上层：与设备无关的调用接口"]
         direction TB
-        A["Python API<br/>torch.add / x + y / x.add(y)"]
-        B["Python Binding<br/>参数解析 · 重载匹配 · Tensor 句柄转换"]
-        C["ATen 算子接口<br/>aten::add.Tensor"]
-        S["Operator Schema<br/>参数、返回类型与默认值等调用契约"]
+        A["<b>Python API</b><br/>torch.add / x + y / x.add(y)"]
+        B["<b>Python Binding</b><br/>参数解析 · 重载匹配 · Tensor 句柄转换"]
+        C["<b>ATen 算子接口</b><br/>aten::add.Tensor"]
+        S["<b>Operator Schema</b><br/>参数、返回类型与默认值等调用契约"]
 
         A --> B --> C
         S -.->|定义调用契约| C
@@ -747,7 +747,7 @@ flowchart TB
         direction TB
         K["Tensor 分发键"]
         T["线程局部分发状态"]
-        D["Dispatcher<br/>按照 两论查表 选择已注册的处理者"]
+        D["<b>Dispatcher</b><br/>按照 两论查表 选择已注册的处理者"]
 
         K --> D
         T --> D
@@ -759,9 +759,9 @@ flowchart TB
         CUDA["CUDA 后端实现"]
         META["Meta / 其他后端实现"]
 
-        CK["CPU Kernel<br/>原生实现或底层计算库"]
-        GK["CUDA Kernel<br/>原生实现或底层计算库"]
-        MK["Meta：推导输出元数据<br/>不执行实际数据计算"]
+        CK["<b>CPU Kernel</b><br/>原生实现或底层计算库"]
+        GK["<b>CUDA Kernel</b><br/>原生实现或底层计算库"]
+        MK["<b>Meta：推导输出元数据</b><br/>不执行实际数据计算"]
 
         CPU --> CK
         CUDA --> GK
@@ -855,12 +855,12 @@ flowchart TB
     L["线程局部的分发上下文"]
     K["确定有效的 DispatchKeySet"]
 
-    D1["第一轮查表<br/>选中 AutogradCUDA 处理者"]
-    A["Autograd 包装层：前处理<br/>检查梯度需求，准备反向节点"]
-    R["Redispatch：重新分发<br/>使用面向下层的分发键集合"]
-    D2["第二轮查表<br/>选中 CUDA 后端实现"]
-    C["CUDA 后端实现<br/>准备输出，提交 Kernel 到当前 CUDA Stream"]
-    H["Autograd 包装层：后处理<br/>为输出关联梯度历史"]
+    D1["<b>第一轮查表</b><br/>选中 AutogradCUDA 处理者"]
+    A["<b>Autograd 包装层：前处理</b><br/>检查梯度需求，准备反向节点"]
+    R["<b>Redispatch：重新分发</b><br/>使用面向下层的分发键集合"]
+    D2["<b>第二轮查表</b><br/>选中 CUDA 后端实现"]
+    C["<b>CUDA 后端实现</b><br/>准备输出，提交 Kernel 到当前 CUDA Stream"]
+    H["<b>Autograd 包装层：后处理</b><br/>为输出关联梯度历史"]
     O["向上层返回结果 Tensor"]
 
     T --> K
@@ -962,11 +962,11 @@ CUDA 计算通常是异步提交的。Python 得到 `z` 时，加法 Kernel 可�
 ```mermaid
 %% 图：源码目录的四层：torch/ → torch/csrc/ → aten/ → c10/，每层只依赖它下面的层
 flowchart TB
-    L1["torch/<br/><br/>Python 层"]
-    L2["torch/csrc/<br/><br/>C++ 绑定与运行时引擎"]
-    L3["aten/src/ATen/<br/><br/>Tensor 算子库"]
-    L4["c10/<br/><br/>核心基础库"]
-    L5["系统库与硬件<br/><br/>CUDA Runtime · cuBLAS / cuDNN / oneDNN · NCCL"]
+    L1["<b>torch/</b><br/><br/>Python 层"]
+    L2["<b>torch/csrc/</b><br/><br/>C++ 绑定与运行时引擎"]
+    L3["<b>aten/src/ATen/</b><br/><br/>Tensor 算子库"]
+    L4["<b>c10/</b><br/><br/>核心基础库"]
+    L5["<b>系统库与硬件</b><br/><br/>CUDA Runtime · cuBLAS / cuDNN / oneDNN · NCCL"]
 
     L1 -- "torch._C 扩展模块（pybind11 / Python C API）" --> L2
     L2 -- "ATen C++ API：at::add(...) 进入 Dispatcher" --> L3
@@ -1124,12 +1124,12 @@ Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程�
 ```mermaid
 %% 图：torch.compile 的骨架：Dynamo 捕获成 FX Graph，捕获不了的地方 graph break，下次调用先查 guard
 flowchart TB
-    EAGER["Eager Python 代码<br/>model(x)"]
-    DYN["TorchDynamo<br/>在字节码层捕获 Tensor 操作"]
-    FX["可捕获部分 → FX Graph<br/>编译后执行，由 guard 守护"]
-    BRK["不可捕获处 → graph break<br/>该段回落到 Eager 逐算子执行"]
+    EAGER["<b>Eager Python 代码</b><br/>model(x)"]
+    DYN["<b>TorchDynamo</b><br/>在字节码层捕获 Tensor 操作"]
+    FX["<b>可捕获部分 → FX Graph</b><br/>编译后执行，由 guard 守护"]
+    BRK["<b>不可捕获处 → graph break</b><br/>该段回落到 Eager 逐算子执行"]
     NEXT["下次调用：先检查 guard"]
-    HIT["guard 通过<br/>直接运行已编译代码"]
+    HIT["<b>guard 通过</b><br/>直接运行已编译代码"]
     MISS["guard 失效（shape、类型、分支变了）<br/>重新捕获并编译"]
 
     EAGER --> DYN

@@ -812,12 +812,12 @@ x = x.to(device="cuda", dtype=torch.float16)
 %% 图：CPU 到 GPU 的数据搬运：pin_memory 与 non_blocking 决定 H2D 拷贝是同步点还是异步 DMA
 flowchart TB
     DISK["磁盘 / 数据集文件"]
-    PAGE["CPU pageable 内存<br/>DataLoader worker 进程读取、预处理"]
+    PAGE["<b>CPU pageable 内存</b><br/>DataLoader worker 进程读取、预处理"]
     PIN["CPU pinned 内存（页锁定，不会被换出）<br/>pin_memory=True 时由 DataLoader 主进程拷入"]
-    H2D_SYNC["H2D 拷贝：（近乎）同步<br/>来源是 pageable 内存，或 non_blocking=False<br/>pageable：先搬进驱动的 pinned 中转区，CPU 等这一步；<br/>non_blocking=False：CPU 等整个拷贝 —— 同步点"]
-    H2D_ASYNC["H2D 拷贝：异步 DMA<br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，第八篇）"]
+    H2D_SYNC["<b>H2D 拷贝：（近乎）同步</b><br/>来源是 pageable 内存，或 non_blocking=False<br/>pageable：先搬进驱动的 pinned 中转区，CPU 等这一步；<br/>non_blocking=False：CPU 等整个拷贝 —— 同步点"]
+    H2D_ASYNC["<b>H2D 拷贝：异步 DMA</b><br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，第八篇）"]
     GPU["GPU 显存中的 batch Tensor"]
-    KERNEL["Kernel 执行<br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
+    KERNEL["<b>Kernel 执行</b><br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
     IMPLICIT["隐式同步点：.item()、print(tensor)、.cpu()<br/>会让 CPU 等待 stream 上全部工作完成，<br/>把异步拷贝的收益吃掉"]
 
     DISK --> PAGE
@@ -1112,11 +1112,11 @@ flowchart TB
         direction TB
         subgraph ALLOCATED["memory_allocated()：当前被活跃 Tensor 占用的部分"]
             direction TB
-            PARAM["模型参数<br/>numel × itemsize，训练全程存活"]
-            GRAD["梯度 .grad<br/>与参数同形状，backward 后出现"]
-            OPT["Optimizer state<br/>Adam：每个参数额外 2 份 FP32 状态"]
-            ACT["前向保存的激活<br/>Autograd 为 backward 保留，随 batch / 序列长度增长"]
-            WS["Kernel 临时 workspace<br/>cuBLAS / cuDNN 的中间缓冲，用完即还给分配器"]
+            PARAM["<b>模型参数</b><br/>numel × itemsize，训练全程存活"]
+            GRAD["<b>梯度 .grad</b><br/>与参数同形状，backward 后出现"]
+            OPT["<b>Optimizer state</b><br/>Adam：每个参数额外 2 份 FP32 状态"]
+            ACT["<b>前向保存的激活</b><br/>Autograd 为 backward 保留，随 batch / 序列长度增长"]
+            WS["<b>Kernel 临时 workspace</b><br/>cuBLAS / cuDNN 的中间缓冲，用完即还给分配器"]
         end
         CACHE["已释放、仍被缓存的块（reserved 但未 allocated）<br/>del / 出作用域后 allocated 下降，reserved 不降<br/>供后续分配直接复用，empty_cache() 才归还 CUDA"]
     end
@@ -1424,17 +1424,17 @@ Tensor
 flowchart TB
     subgraph LOGIC["逻辑层：用户看到的"]
         direction LR
-        B["shape / sizes<br/>几行几列"]
-        E["dtype / device<br/>每个数怎么解释、在哪"]
+        B["<b>shape / sizes</b><br/>几行几列"]
+        E["<b>dtype / device</b><br/>每个数怎么解释、在哪"]
     end
     subgraph PHYS["物理层：内存里的"]
         direction LR
-        C["strides / storage_offset<br/>下标 → 存储位置"]
-        D["Storage<br/>一段底层数据"]
+        C["<b>strides / storage_offset</b><br/>下标 → 存储位置"]
+        D["<b>Storage</b><br/>一段底层数据"]
         C --> D
     end
     B -. "同一 shape 可对应不同 stride" .-> C
-    LOGIC --> F["算子执行<br/>按 shape 遍历，按 stride 取数，按 dtype 算，在 device 上跑"]
+    LOGIC --> F["<b>算子执行</b><br/>按 shape 遍历，按 stride 取数，按 dtype 算，在 device 上跑"]
     PHYS --> F
 ```
 

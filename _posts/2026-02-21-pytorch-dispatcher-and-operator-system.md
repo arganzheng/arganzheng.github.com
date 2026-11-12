@@ -293,7 +293,7 @@ Table: add.Tensor 在 Operator Table 中的一行
 ```mermaid
 %% 图：Operator Table 的物理结构：Dispatcher 单例持有 operatorLookupTable_（算子名 → OperatorEntry），每个 OperatorEntry 里 dispatchTable_ 是按 DispatchKey 下标的 KernelFunction 定长数组
 flowchart TB
-    D["Dispatcher（进程内单例）<br/>operatorLookupTable_: flat_hash_map&lt;OperatorName, OperatorHandle&gt;"]
+    D["<b>Dispatcher（进程内单例）</b><br/>operatorLookupTable_: flat_hash_map&lt;OperatorName, OperatorHandle&gt;"]
     D -->|"add.Tensor"| E1
     D -->|"mul.Tensor"| E2["OperatorEntry …"]
     D -->|"myops::scale"| E3["OperatorEntry …"]
@@ -376,14 +376,14 @@ Table: 实现内部的五种模式
 %% 图：算子实现的五种模式：按计算形态在 Meta、Composite、厂商库、TensorIterator、直接 Kernel 之间选
 flowchart TB
     Q0["一个算子实现该怎么写？"] --> Q1{"只需要推断 shape / dtype，<br/>不算数值？"}
-    Q1 -->|"是"| META["Meta 路径<br/>只构造输出元数据，不 launch Kernel"]
+    Q1 -->|"是"| META["<b>Meta 路径</b><br/>只构造输出元数据，不 launch Kernel"]
     Q1 -->|"否"| Q2{"能用已有 at:: 算子<br/>组合出语义？"}
-    Q2 -->|"是"| COMP["Composite 路径<br/>CompositeImplicit / ExplicitAutograd<br/>子算子重新进入 Dispatcher"]
+    Q2 -->|"是"| COMP["<b>Composite 路径</b><br/>CompositeImplicit / ExplicitAutograd<br/>子算子重新进入 Dispatcher"]
     Q2 -->|"否"| Q3{"矩阵乘 / 卷积等<br/>有成熟厂商库？"}
-    Q3 -->|"是"| LIB["厂商库路径<br/>cuBLAS / cuDNN / MKL / oneDNN"]
+    Q3 -->|"是"| LIB["<b>厂商库路径</b><br/>cuBLAS / cuDNN / MKL / oneDNN"]
     Q3 -->|"否"| Q4{"逐元素 / 广播 / 归约<br/>这类规则遍历？"}
-    Q4 -->|"是"| TI["TensorIterator 路径<br/>Kernel 只写 a + alpha * b"]
-    Q4 -->|"否，需要专用并行结构"| DK["直接 Kernel 路径<br/>自己写 launch 与索引逻辑"]
+    Q4 -->|"是"| TI["<b>TensorIterator 路径</b><br/>Kernel 只写 a + alpha * b"]
+    Q4 -->|"否，需要专用并行结构"| DK["<b>直接 Kernel 路径</b><br/>自己写 launch 与索引逻辑"]
     classDef nokernel fill:#eeeeee,stroke:#888888;
     classDef kernel fill:#e3f2fd,stroke:#1565c0;
     classDef reenter fill:#fff3e0,stroke:#ef6c00;
@@ -527,12 +527,12 @@ Table: no_grad 与 inference_mode 下 DispatchKeySet 的合并结果
 flowchart TB
     TX["x: CUDA Tensor, requires_grad=True<br/>KeySet = #123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
     TY["y: CUDA Tensor, requires_grad=False<br/>KeySet 相同（requires_grad 不在 KeySet 里）"]
-    TLS["线程局部状态 TLS<br/>普通状态 → included 含 ADInplaceOrView<br/>inference_mode → excluded 加入 Autograd 一族，included 去掉 ADInplaceOrView<br/>torch.func / tracing → included 加入相应 Key<br/>（no_grad 不在这里：它只改 GradMode 标志）"]
-    OR["OR 合并所有输入的 KeySet<br/>#123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
+    TLS["<b>线程局部状态 TLS</b><br/>普通状态 → included 含 ADInplaceOrView<br/>inference_mode → excluded 加入 Autograd 一族，included 去掉 ADInplaceOrView<br/>torch.func / tracing → included 加入相应 Key<br/>（no_grad 不在这里：它只改 GradMode 标志）"]
+    OR["<b>OR 合并所有输入的 KeySet</b><br/>#123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]
     MERGE["加上 TLS included，减去 TLS excluded<br/>普通 / no_grad：#123;AutogradCUDA, ADInplaceOrView, CUDA#125;<br/>inference_mode：#123;ADInplaceOrView, CUDA#125;"]
     MASK["掩掉 add 上的 fallthrough Key<br/>（ADInplaceOrView）"]
-    KS["本次调用的 DispatchKeySet<br/>普通 / no_grad：#123;AutogradCUDA, CUDA#125;<br/>inference_mode：#123;CUDA#125;"]
-    TOP["取最高优先级 Key<br/>AutogradCUDA（或 inference_mode 下的 CUDA）"]
+    KS["<b>本次调用的 DispatchKeySet</b><br/>普通 / no_grad：#123;AutogradCUDA, CUDA#125;<br/>inference_mode：#123;CUDA#125;"]
+    TOP["<b>取最高优先级 Key</b><br/>AutogradCUDA（或 inference_mode 下的 CUDA）"]
     TX --> OR
     TY --> OR
     OR --> MERGE

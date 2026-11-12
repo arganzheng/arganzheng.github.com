@@ -20,16 +20,16 @@ date: 2026-02-26 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 %% 图：PyTorch 系列全景：Tensor → Autograd → Module → Dispatcher → 扩展 / 编译 → 性能 → 分布式 → 工程体系
 flowchart TB
-    P1["01 整体介绍：三层运行时链路"] --> T2["02 Tensor 与内存布局<br/>Storage · shape · stride"]
+    P1["01 整体介绍：三层运行时链路"] --> T2["<b>02 Tensor 与内存布局</b><br/>Storage · shape · stride"]
     T2 --> A3["03 Autograd 与动态图"]
     A3 --> M4["04 nn.Module 与训练系统"]
-    T2 --> D5["05 Dispatcher 与算子系统<br/>一切能力建立在它之上"]
+    T2 --> D5["<b>05 Dispatcher 与算子系统</b><br/>一切能力建立在它之上"]
     A3 --> D5
     D5 --> X6["06 C++ 扩展与自定义算子"]
-    D5 --> C7["07 编译执行与图优化<br/>torch.compile"]
-    M4 & C7 --> P8["08 性能优化与调试<br/>profiler、Roofline"]
-    P8 --> D9["09 分布式 PyTorch<br/>DDP / FSDP / 并行"]
-    X6 & D9 --> E10["10 工程体系<br/>一次改动怎么到达用户"]
+    D5 --> C7["<b>07 编译执行与图优化</b><br/>torch.compile"]
+    M4 & C7 --> P8["<b>08 性能优化与调试</b><br/>profiler、Roofline"]
+    P8 --> D9["<b>09 分布式 PyTorch</b><br/>DDP / FSDP / 并行"]
+    X6 & D9 --> E10["<b>10 工程体系</b><br/>一次改动怎么到达用户"]
 
 ```
 

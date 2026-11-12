@@ -46,16 +46,16 @@ PyTorch 用 `nn.Module` 把这些对象组织起来，再通过 Optimizer、Data
 flowchart TB
     subgraph M["模型对象（二 ～ 五章）"]
         direction LR
-        A["nn.Module 树<br/>__init__ 定静态结构<br/>forward 定数据流"] --> B["注册机制<br/>__setattr__ 把 Parameter /<br/>子 Module / Buffer 登记进内部字典"] --> C["state_dict<br/>属性路径 → Tensor 的快照"]
+        A["<b>nn.Module 树</b><br/>__init__ 定静态结构<br/>forward 定数据流"] --> B["<b>注册机制</b><br/>__setattr__ 把 Parameter /<br/>子 Module / Buffer 登记进内部字典"] --> C["<b>state_dict</b><br/>属性路径 → Tensor 的快照"]
     end
     subgraph T["训练部件（六 ～ 九章）"]
         direction LR
-        D["train() / eval()<br/>no_grad / inference_mode"] --> E["Optimizer<br/>拿 parameters() 用 .grad 更新"]
+        D["<b>train() / eval()</b><br/>no_grad / inference_mode"] --> E["<b>Optimizer</b><br/>拿 parameters() 用 .grad 更新"]
         F["Dataset → Sampler → DataLoader<br/>→ pin_memory / non_blocking 搬到 GPU"]
     end
     M --> T
-    T --> G["完整训练循环（十章）<br/>取 batch → forward → loss → backward → step"]
-    G --> H["工程补丁（十一 ～ 十三章）<br/>autocast / GradScaler · Hook · checkpoint"]
+    T --> G["<b>完整训练循环（十章）</b><br/>取 batch → forward → loss → backward → step"]
+    G --> H["<b>工程补丁（十一 ～ 十三章）</b><br/>autocast / GradScaler · Hook · checkpoint"]
 ```
 
 ### 2. 本文的章节安排
@@ -400,8 +400,8 @@ flowchart TB
     M["_modules#91;name#93; = value<br/>子模块"]
     B["_buffers#91;name#93; = value<br/>模型状态 Buffer"]
     D["__dict__#91;name#93; = value<br/>普通属性"]
-    V["框架可见：<br/>parameters() / state_dict() / .to() / train()"]
-    I["框架不可见：<br/>不进 parameters()、state_dict()<br/>.to(device) 不会迁移"]
+    V["<b>框架可见：</b><br/>parameters() / state_dict() / .to() / train()"]
+    I["<b>框架不可见：</b><br/>不进 parameters()、state_dict()<br/>.to(device) 不会迁移"]
 
     S --> Q1
     Q1 -->|"是"| P
@@ -1111,19 +1111,19 @@ def collate_fn(batch):
 %% 图：DataLoader 的进程 / 线程链路：num_workers、prefetch_factor、pin_memory 各作用在哪一段
 flowchart TB
     subgraph main["DataLoader 主进程"]
-        SM["Sampler<br/>产生本 batch 的索引列表"]
-        IQ["index_queue<br/>把索引分发给 worker"]
+        SM["<b>Sampler</b><br/>产生本 batch 的索引列表"]
+        IQ["<b>index_queue</b><br/>把索引分发给 worker"]
         RQ["结果队列（worker_result_queue）<br/>深度 = num_workers × prefetch_factor"]
-        PIN["pin_memory 线程<br/>把 batch 复制到 pinned memory"]
+        PIN["<b>pin_memory 线程</b><br/>把 batch 复制到 pinned memory"]
         IT["for inputs, targets in loader:<br/>训练循环取走 batch"]
     end
     subgraph workers["worker 进程池（num_workers 个）"]
-        GI["Dataset.__getitem__(idx)<br/>读盘、解码、预处理（CPU 密集）"]
-        CO["collate_fn<br/>把样本堆叠成 batch Tensor"]
+        GI["<b>Dataset.__getitem__(idx)</b><br/>读盘、解码、预处理（CPU 密集）"]
+        CO["<b>collate_fn</b><br/>把样本堆叠成 batch Tensor"]
     end
     H2D["inputs.to(device, non_blocking=True)<br/>CPU -> GPU 复制（PCIe）"]
     GPU["GPU forward / backward / step"]
-    WAIT["瓶颈点：GPU 等 batch<br/>结果队列为空 -> GPU 空转"]
+    WAIT["<b>瓶颈点：GPU 等 batch</b><br/>结果队列为空 -> GPU 空转"]
 
     SM --> IQ
     IQ --> GI
@@ -1592,13 +1592,13 @@ start_epoch = checkpoint["epoch"] + 1
 %% 图：save 时收集的全部状态：模型、优化器、scheduler、scaler、进度、RNG 与 Sampler 位置
 flowchart TB
     subgraph trainer["训练器持有的状态（save 时收集）"]
-        S1["model.state_dict()<br/>参数 + 持久化 Buffer"]
-        S2["optimizer.state_dict()<br/>exp_avg / exp_avg_sq<br/>step / param_groups"]
-        S3["scheduler.state_dict()<br/>last_epoch、base_lrs"]
-        S4["scaler.state_dict()<br/>当前 scale、growth_tracker"]
-        S5["epoch + global_step<br/>训练进度"]
-        S6["RNG 状态<br/>random / numpy / torch / cuda"]
-        S7["DataLoader / Sampler 位置<br/>epoch 内已消费的 batch 数"]
+        S1["<b>model.state_dict()</b><br/>参数 + 持久化 Buffer"]
+        S2["<b>optimizer.state_dict()</b><br/>exp_avg / exp_avg_sq<br/>step / param_groups"]
+        S3["<b>scheduler.state_dict()</b><br/>last_epoch、base_lrs"]
+        S4["<b>scaler.state_dict()</b><br/>当前 scale、growth_tracker"]
+        S5["<b>epoch + global_step</b><br/>训练进度"]
+        S6["<b>RNG 状态</b><br/>random / numpy / torch / cuda"]
+        S7["<b>DataLoader / Sampler 位置</b><br/>epoch 内已消费的 batch 数"]
         S1 ~~~ S2
         S3 ~~~ S4
         S5 ~~~ S6

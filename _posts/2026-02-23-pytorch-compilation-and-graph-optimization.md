@@ -476,23 +476,23 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 ```mermaid
 %% 图：AOTAutograd 的 joint graph：前向与反向节点在同一张图上，切分器的割线决定哪些中间值成为 saved tensors
 flowchart TB
-    IN["Dynamo 的 torch 级前向图<br/>matmul → add → relu"]
+    IN["<b>Dynamo 的 torch 级前向图</b><br/>matmul → add → relu"]
     IN --> TR["FakeTensor 执行前向，Autograd 照常记录 grad_fn<br/>对输出调用反向，引擎回溯的每一步也被追踪成节点"]
     TR --> JG
     subgraph JG["joint graph：前向 + 反向在同一张 FX Graph 里"]
         direction TB
-        MM["aten.mm(x, weight)<br/>输入 x、weight 反向要用 → 保存"]
-        ADD["aten.add(mm, bias)<br/>反向不需要，体积大、重算便宜 → 不保存"]
-        RL["aten.relu(add)<br/>threshold_backward 需要 → 保存"]
+        MM["<b>aten.mm(x, weight)</b><br/>输入 x、weight 反向要用 → 保存"]
+        ADD["<b>aten.add(mm, bias)</b><br/>反向不需要，体积大、重算便宜 → 不保存"]
+        RL["<b>aten.relu(add)</b><br/>threshold_backward 需要 → 保存"]
         THB["aten.threshold_backward(tangent, relu, 0)"]
-        GR["三个梯度<br/>aten.mm(grad, weight.t) → grad_x<br/>aten.mm(x.t, grad) → grad_weight<br/>aten.sum(grad, 0) → grad_bias"]
+        GR["<b>三个梯度</b><br/>aten.mm(grad, weight.t) → grad_x<br/>aten.mm(x.t, grad) → grad_weight<br/>aten.sum(grad, 0) → grad_bias"]
         MM --> ADD --> RL --> THB --> GR
     end
-    JG --> CUT["min-cut 分区<br/>在前向节点与反向节点之间找一条割线<br/>目标：割线穿过的张量总体积最小<br/>体积小、重算贵 → 保存<br/>体积大、重算便宜 → 留给反向重算"]
-    CUT --> FW["前向图<br/>输出 relu<br/>额外输出 saved tensors:<br/>relu、x、weight"]
-    CUT --> BW["反向图<br/>输入 saved tensors + tangent<br/>输出三个梯度"]
+    JG --> CUT["<b>min-cut 分区</b><br/>在前向节点与反向节点之间找一条割线<br/>目标：割线穿过的张量总体积最小<br/>体积小、重算贵 → 保存<br/>体积大、重算便宜 → 留给反向重算"]
+    CUT --> FW["<b>前向图</b><br/>输出 relu<br/>额外输出 saved tensors:<br/>relu、x、weight"]
+    CUT --> BW["<b>反向图</b><br/>输入 saved tensors + tangent<br/>输出三个梯度"]
     FW -.->|"saved tensors"| BW
-    BW --> TRADE["权衡<br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
+    BW --> TRADE["<b>权衡</b><br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
     classDef saved fill:#e3f2e1,stroke:#2e7d32;
     classDef recomp fill:#fff3e0,stroke:#ef6c00;
     classDef bwd fill:#e8eaf6,stroke:#3949ab;
@@ -588,19 +588,19 @@ Inductor 是编译器意义上的后端：IR 进，目标代码出。它也是 `
 ```mermaid
 %% 图：Inductor 的内部步骤：ATen 节点 lowering 到循环级 IR，Scheduler 把相邻 pointwise 融合成一个 kernel
 flowchart TB
-    IN["ATen 级 FX Graph<br/>aten.mm → aten.add → aten.relu"]
-    IN --> LOW["lowering：降到 Inductor IR<br/>每个节点变成 “给定索引 i，如何算出该位置的值”"]
+    IN["<b>ATen 级 FX Graph</b><br/>aten.mm → aten.add → aten.relu"]
+    IN --> LOW["<b>lowering：降到 Inductor IR</b><br/>每个节点变成 “给定索引 i，如何算出该位置的值”"]
     LOW --> IR
     subgraph IR["Inductor IR"]
-        EK["mm：ExternKernel<br/>不生成代码，调 cuBLAS"]
-        PW1["add：Pointwise<br/>i → buf0#91;i#93; + bias#91;i % 64#93;"]
-        PW2["relu：Pointwise<br/>i → max(add(i), 0)"]
+        EK["<b>mm：ExternKernel</b><br/>不生成代码，调 cuBLAS"]
+        PW1["<b>add：Pointwise</b><br/>i → buf0#91;i#93; + bias#91;i % 64#93;"]
+        PW2["<b>relu：Pointwise</b><br/>i → max(add(i), 0)"]
         EK --> PW1 --> PW2
     end
-    IR --> SCH["Scheduler 融合决策<br/>相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>reduction 可吸收其前面的 pointwise 作为输入<br/>ExternKernel 是黑盒，不参与融合"]
-    SCH --> MEM["内存规划<br/>buf0 (mm 输出) 在 fused kernel 读完后不再被引用<br/>→ relu 输出原地写回：buf1 = buf0"]
-    MEM --> CG["codegen<br/>GPU：Triton kernel 源码 + Python call() wrapper<br/>CPU：C++ + OpenMP / SIMD"]
-    CG --> CC["编译缓存<br/>FX Graph 缓存（源码）→ Triton 缓存（cubin）<br/>命中则跳过生成与编译"]
+    IR --> SCH["<b>Scheduler 融合决策</b><br/>相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>reduction 可吸收其前面的 pointwise 作为输入<br/>ExternKernel 是黑盒，不参与融合"]
+    SCH --> MEM["<b>内存规划</b><br/>buf0 (mm 输出) 在 fused kernel 读完后不再被引用<br/>→ relu 输出原地写回：buf1 = buf0"]
+    MEM --> CG["<b>codegen</b><br/>GPU：Triton kernel 源码 + Python call() wrapper<br/>CPU：C++ + OpenMP / SIMD"]
+    CG --> CC["<b>编译缓存</b><br/>FX Graph 缓存（源码）→ Triton 缓存（cubin）<br/>命中则跳过生成与编译"]
     CC --> OUT["产物：extern mm + triton_poi_fused_add_relu_0<br/>2 次 launch，0 个新增中间 Tensor"]
     classDef ext fill:#eceff1,stroke:#546e7a;
     classDef pw fill:#e3f2fd,stroke:#1565c0;
@@ -864,10 +864,10 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
 %% 图：Dynamic Shape 的状态机：每次调用带来的转移，Guard 从 == 128 变成 s0 > 64 再变成 s0 ≤ 64
 flowchart TB
     S0["没有任何产物"]
-    S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["产物 A：relu 版<br/>128 / 64 / 8192 烧成常量<br/>Guard: size#91;0#93; == 128"]
-    SA -->|"② x: #91;256, 32#93;<br/>size#91;0#93; == 128 失败 → 自动动态化重编译<br/>第 0 维标为符号 s0，if s0 > 64 用 256 定为 True"| SB["产物 A + B<br/>B：relu 版，xnumel 为运行时参数<br/>Guard: s0 > 64（分支条件本身，而非 == 256）"]
+    S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["<b>产物 A：relu 版</b><br/>128 / 64 / 8192 烧成常量<br/>Guard: size#91;0#93; == 128"]
+    SA -->|"② x: #91;256, 32#93;<br/>size#91;0#93; == 128 失败 → 自动动态化重编译<br/>第 0 维标为符号 s0，if s0 > 64 用 256 定为 True"| SB["<b>产物 A + B</b><br/>B：relu 版，xnumel 为运行时参数<br/>Guard: s0 > 64（分支条件本身，而非 == 256）"]
     SB -->|"③ x: #91;512, 32#93;<br/>s0 > 64 通过 → 复用 B，流水线不运行"| SB
-    SB -->|"④ x: #91;32, 32#93;<br/>s0 > 64 失败 → 重编译，走 tanh 分支"| SC["产物 A + B + C<br/>C：tanh 版，Guard: s0 ≤ 64"]
+    SB -->|"④ x: #91;32, 32#93;<br/>s0 > 64 失败 → 重编译，走 tanh 分支"| SC["<b>产物 A + B + C</b><br/>C：tanh 版，Guard: s0 ≤ 64"]
     SC -->|"此后每次调用只查 Guard<br/>s0 > 64 → B，s0 ≤ 64 → C"| SC
     classDef st fill:#e8eaf6,stroke:#3949ab;
     class S0,SA,SB,SC st;
@@ -935,7 +935,7 @@ flowchart TB
     A[调用 compiled_f] --> B[帧钩子截获 f 的字节码]
     B --> C[Dynamo 符号求值<br/>FakeTensor 推断元数据]
     C --> D[torch 级 FX Graph<br/>matmul → add → relu<br/>if 已特化掉]
-    C --> G["Guard 列表<br/>size#91;0#93; == 128 / dtype / device / …"]
+    C --> G["<b>Guard 列表</b><br/>size#91;0#93; == 128 / dtype / device / …"]
     D --> E[AOTAutograd<br/>Fake 执行前向 + 反向]
     E --> F1[ATen 级前向图<br/>mm → add → relu]
     E --> F2[ATen 级反向图<br/>threshold_backward → mm × 2 → sum]
@@ -1013,11 +1013,11 @@ y = compiled_f(x4, weight, bias)      # x4: [32, 32]
 flowchart TB
     IN["调用 compiled_f(x4, weight, bias)，x4: #91;32, 32#93;<br/>帧钩子取出 f 的缓存条目列表（此时 2 条），逐条查 Guard"]
     IN --> E1["条目 1：type(x) is Tensor · dtype · device · size#91;0#93; == 128"]
-    E1 -->|"通过"| P1["运行产物 1<br/>relu 版，静态 128"]
+    E1 -->|"通过"| P1["<b>运行产物 1</b><br/>relu 版，静态 128"]
     E1 -->|"32 ≠ 128，失败"| E2["条目 2：同样的元数据检查 · s0 > 64"]
-    E2 -->|"通过"| P2["运行产物 2<br/>relu 版，符号 s0"]
-    E2 -->|"32 > 64 为假，失败"| RC["都不命中 → 触发编译器<br/>Dynamo：追踪到 tanh 分支，Guard s0 ≤ 64<br/>AOTAutograd：反向变为 1 - tanh²<br/>Inductor：triton_poi_fused_add_tanh_0<br/>追加为条目 3（上限 8，超限退回 Eager）"]
-    RC --> P3["运行产物 3<br/>tanh 版"]
+    E2 -->|"通过"| P2["<b>运行产物 2</b><br/>relu 版，符号 s0"]
+    E2 -->|"32 > 64 为假，失败"| RC["<b>都不命中 → 触发编译器</b><br/>Dynamo：追踪到 tanh 分支，Guard s0 ≤ 64<br/>AOTAutograd：反向变为 1 - tanh²<br/>Inductor：triton_poi_fused_add_tanh_0<br/>追加为条目 3（上限 8，超限退回 Eager）"]
+    RC --> P3["<b>运行产物 3</b><br/>tanh 版"]
     E2 -.->|"之后 batch ≤ 64 的调用：<br/>条目 3 的 Guard s0 ≤ 64 通过"| P3
     classDef hit fill:#e3f2e1,stroke:#2e7d32;
     classDef guard fill:#fafafa,stroke:#616161;

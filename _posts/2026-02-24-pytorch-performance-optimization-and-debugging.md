@@ -107,18 +107,18 @@ Table: 性能工具地图：每种工具能看到什么
 flowchart TB
     tl["采集时间线：torch.profiler / nsys"] --> q1{"GPU 泳道的形态？"}
     q1 -->|"稀疏，大段空闲"| q2{"CPU 在忙什么？"}
-    q1 -->|"与 CPU 泳道交替空洞"| sync["Sync-bound<br/>第七章"]
+    q1 -->|"与 CPU 泳道交替空洞"| sync["<b>Sync-bound</b><br/>第七章"]
     q1 -->|"密集，Kernel 首尾相接"| q3{"CUDA 时间被谁占？"}
-    q2 -->|"cudaLaunchKernel 占大头<br/>Kernel 多而短"| launch["Launch-bound<br/>第五章"]
-    q2 -->|"Python 函数 / 框架逻辑"| py["Python-bound<br/>第五章"]
-    q3 -->|"add / layer_norm<br/>softmax 等逐元素与归约"| mem["Memory-bound<br/>第六章"]
-    q3 -->|"mm / bmm / conv"| comp["Compute-bound<br/>第六章"]
-    launch --> launch_rx["增大 batch、融合<br/>fused 优化器<br/>CUDA Graphs"]
-    py --> py_rx["向量化、compile<br/>预处理移出循环"]
-    sync --> data["特例：数据加载<br/>GPU 大段空白，CPU 停在 DataLoader"]
-    data --> sync_rx["批量 .item()<br/>pinned + non_blocking<br/>num_workers、prefetch"]
-    mem --> mem_rx["融合 / SDPA<br/>bf16、数据布局"]
-    comp --> comp_rx["Tensor Core<br/>bf16 / TF32<br/>减少计算量"]
+    q2 -->|"cudaLaunchKernel 占大头<br/>Kernel 多而短"| launch["<b>Launch-bound</b><br/>第五章"]
+    q2 -->|"Python 函数 / 框架逻辑"| py["<b>Python-bound</b><br/>第五章"]
+    q3 -->|"add / layer_norm<br/>softmax 等逐元素与归约"| mem["<b>Memory-bound</b><br/>第六章"]
+    q3 -->|"mm / bmm / conv"| comp["<b>Compute-bound</b><br/>第六章"]
+    launch --> launch_rx["<b>增大 batch、融合</b><br/>fused 优化器<br/>CUDA Graphs"]
+    py --> py_rx["<b>向量化、compile</b><br/>预处理移出循环"]
+    sync --> data["<b>特例：数据加载</b><br/>GPU 大段空白，CPU 停在 DataLoader"]
+    data --> sync_rx["<b>批量 .item()</b><br/>pinned + non_blocking<br/>num_workers、prefetch"]
+    mem --> mem_rx["<b>融合 / SDPA</b><br/>bf16、数据布局"]
+    comp --> comp_rx["<b>Tensor Core</b><br/>bf16 / TF32<br/>减少计算量"]
     classDef cpu fill:#fde9d9,stroke:#c0392b;
     classDef gpu fill:#e8f5e9,stroke:#1e8449;
     classDef mid fill:#fff4d6,stroke:#b9770e;
@@ -996,20 +996,20 @@ y = checkpoint(transformer_block, x, use_reentrant=False)
 flowchart TB
     subgraph normal["默认：前向保存每层激活，显存 O(L)"]
         direction TB
-        n_in["输入 x"] --> n_l1["层 1 前向<br/>保存激活 a1"]
-        n_l1 --> n_l2["层 2 前向<br/>保存激活 a2"]
-        n_l2 --> n_l3["… 层 L 前向<br/>保存激活 aL"]
-        n_l3 --> n_bw["反向：直接读 aL … a1<br/>时间 = 1 次前向 + 1 次反向"]
+        n_in["输入 x"] --> n_l1["<b>层 1 前向</b><br/>保存激活 a1"]
+        n_l1 --> n_l2["<b>层 2 前向</b><br/>保存激活 a2"]
+        n_l2 --> n_l3["<b>… 层 L 前向</b><br/>保存激活 aL"]
+        n_l3 --> n_bw["<b>反向：直接读 aL … a1</b><br/>时间 = 1 次前向 + 1 次反向"]
     end
     subgraph ckpt["checkpoint：入口 O(L/k)，重算临时激活 O(k)"]
         direction TB
-        c_in["输入 x"] --> c_b1["block 1 前向（k 层）<br/>只保存入口 x1，内部激活即弃"]
-        c_b1 --> c_b2["… block L/k 前向<br/>只保存入口"]
+        c_in["输入 x"] --> c_b1["<b>block 1 前向（k 层）</b><br/>只保存入口 x1，内部激活即弃"]
+        c_b1 --> c_b2["<b>… block L/k 前向</b><br/>只保存入口"]
         c_b2 --> c_arrive["反向到达 block j"]
-        c_arrive --> c_re["用入口 xj 重算所需前向<br/>临时激活至多 k 层"]
-        c_re --> c_bw["对 block j 做 backward<br/>释放重算的激活"]
+        c_arrive --> c_re["<b>用入口 xj 重算所需前向</b><br/>临时激活至多 k 层"]
+        c_re --> c_bw["<b>对 block j 做 backward</b><br/>释放重算的激活"]
         c_bw -->|"下一个 block j-1"| c_arrive
-        c_bw -->|"全部 block 完成"| c_done["时间 ≈ 2 次前向 + 1 次反向<br/>完整重算估算约 +30%"]
+        c_bw -->|"全部 block 完成"| c_done["<b>时间 ≈ 2 次前向 + 1 次反向</b><br/>完整重算估算约 +30%"]
     end
     classDef save fill:#fde9d9,stroke:#c0392b;
     classDef light fill:#e8f5e9,stroke:#1e8449;

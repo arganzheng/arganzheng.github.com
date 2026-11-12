@@ -319,7 +319,7 @@ Table: TORCH_LIBRARY 宏族与三步的对应
 flowchart TB
     IMP["Python: import myops._C"] --> LOAD["动态链接器加载 .so"]
     LOAD --> INIT["执行静态初始化"]
-    INIT --> DEF["TORCH_LIBRARY(myops, m)<br/>m.def(...)"]
+    INIT --> DEF["<b>TORCH_LIBRARY(myops, m)</b><br/>m.def(...)"]
     INIT --> IMPL["TORCH_LIBRARY_IMPL(myops, CPU, m)<br/>m.impl(...)"]
     DEF -->|新增一行| OT[(Operator Table)]
     IMPL -->|填入 CPU 槽位| OT
@@ -1158,14 +1158,14 @@ Table: 完成后的 Operator Table
 flowchart TB
     IN["torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
     MODE{"真实执行还是元数据推断"}
-    KS["计算有效 DispatchKeySet<br/>Tensor KeySet + 当前线程 TLS 状态"]
-    AGS["Autograd 槽位<br/>register_autograd 生成的包装"]
-    STRIP["需要梯度时保存 ctx<br/>排除 Autograd Key，再分发"]
+    KS["<b>计算有效 DispatchKeySet</b><br/>Tensor KeySet + 当前线程 TLS 状态"]
+    AGS["<b>Autograd 槽位</b><br/>register_autograd 生成的包装"]
+    STRIP["<b>需要梯度时保存 ctx</b><br/>排除 Autograd Key，再分发"]
     SEL{"后端槽位"}
-    CPUS["CPU 槽位<br/>scale_shift_cpu"]
-    CUDAS["CUDA 槽位<br/>scale_shift_cuda"]
-    METAS["Fake / Meta 实现 _fake<br/>只描述 shape / dtype / device / stride"]
-    OUT["返回 out<br/>梯度模式开启且输入需要梯度时挂 grad_fn"]
+    CPUS["<b>CPU 槽位</b><br/>scale_shift_cpu"]
+    CUDAS["<b>CUDA 槽位</b><br/>scale_shift_cuda"]
+    METAS["<b>Fake / Meta 实现 _fake</b><br/>只描述 shape / dtype / device / stride"]
+    OUT["<b>返回 out</b><br/>梯度模式开启且输入需要梯度时挂 grad_fn"]
     OUT2["FakeTensor / torch.compile 图捕获<br/>不运行真实 Kernel"]
     IN --> MODE
     MODE -->|真实 Tensor| KS
@@ -1396,13 +1396,13 @@ Table: 自定义算子与原生算子各环节的对应
 ```mermaid
 %% 图：一个算子完成的七条标准：定义与注册、校验、Benchmark、构建与 ABI 检查
 flowchart TB
-    S1["1. Schema 定义<br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
-    S2["2. 后端实现并注册<br/>CPU / CUDA / Meta 槽位"]
-    S3["3. Autograd 注册<br/>register_autograd 或 Autograd Key"]
-    S4["4. Fake / abstract impl<br/>register_fake，供 FakeTensor 与 torch.compile"]
-    S5["5. 校验<br/>opcheck + gradcheck（float64）"]
-    S6["6. Benchmark 对比 native<br/>2.0 * x + 1.0 两个 Kernel vs 一个融合 Kernel"]
-    S7["7. 构建 / ABI 检查<br/>_GLIBCXX_USE_CXX11_ABI 一致<br/>torch 版本 pin，TORCH_CUDA_ARCH_LIST 覆盖目标 GPU"]
+    S1["<b>1. Schema 定义</b><br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
+    S2["<b>2. 后端实现并注册</b><br/>CPU / CUDA / Meta 槽位"]
+    S3["<b>3. Autograd 注册</b><br/>register_autograd 或 Autograd Key"]
+    S4["<b>4. Fake / abstract impl</b><br/>register_fake，供 FakeTensor 与 torch.compile"]
+    S5["<b>5. 校验</b><br/>opcheck + gradcheck（float64）"]
+    S6["<b>6. Benchmark 对比 native</b><br/>2.0 * x + 1.0 两个 Kernel vs 一个融合 Kernel"]
+    S7["<b>7. 构建 / ABI 检查</b><br/>_GLIBCXX_USE_CXX11_ABI 一致<br/>torch 版本 pin，TORCH_CUDA_ARCH_LIST 覆盖目标 GPU"]
     R["重新评估是否值得维护一份 C++/CUDA 代码"]
     S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
     S5 -->|失败，回头修实现或 Fake| S2

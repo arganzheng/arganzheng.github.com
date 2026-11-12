@@ -193,8 +193,8 @@ flowchart TB
         direction TB
         sm(["SumBackward0"])
         add(["AddBackward0"])
-        mul(["MulBackward0<br/>saved: x"])
-        acc(["AccumulateGrad<br/>把梯度写入 x.grad"])
+        mul(["<b>MulBackward0</b><br/>saved: x"])
+        acc(["<b>AccumulateGrad</b><br/>把梯度写入 x.grad"])
         sm -.->|"next_functions"| add
         add -.->|"next_functions<br/>(常数 3 对应 None)"| mul
         mul -.->|"next_functions"| acc
@@ -554,10 +554,10 @@ flowchart TB
         direction TB
         k_list["Python list losses"]
         k_loss["loss（Tensor）"]
-        k_fn["loss.grad_fn<br/>MseLossBackward0"]
-        k_sv1["saved tensors<br/>outputs, targets"]
-        k_fn2["next_functions →<br/>AddmmBackward0 / ReluBackward0 …"]
-        k_sv2["saved tensors<br/>每一层的激活值<br/>（backward 之前 / retain_graph 时）"]
+        k_fn["<b>loss.grad_fn</b><br/>MseLossBackward0"]
+        k_sv1["<b>saved tensors</b><br/>outputs, targets"]
+        k_fn2["<b>next_functions →</b><br/>AddmmBackward0 / ReluBackward0 …"]
+        k_sv2["<b>saved tensors</b><br/>每一层的激活值<br/>（backward 之前 / retain_graph 时）"]
         k_list -->|"引用"| k_loss
         k_loss -->|"引用"| k_fn
         k_fn -->|"持有"| k_sv1
@@ -568,8 +568,8 @@ flowchart TB
         direction TB
         f_list["Python list losses"]
         f_val["Python float"]
-        f_loss["loss（Tensor）<br/>没有外部引用"]
-        f_graph["grad_fn 与 saved tensors<br/>无引用，随 loss 一起回收"]
+        f_loss["<b>loss（Tensor）</b><br/>没有外部引用"]
+        f_graph["<b>grad_fn 与 saved tensors</b><br/>无引用，随 loss 一起回收"]
         f_list -->|"引用"| f_val
         f_val -.-|"item() 只取数值，不引用 Tensor"| f_loss
         f_loss -.-> f_graph
