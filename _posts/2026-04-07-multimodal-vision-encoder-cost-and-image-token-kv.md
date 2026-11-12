@@ -29,10 +29,10 @@ date: 2026-04-07 10:00:00
 %% 图：多模态 LLM 怎么把一张图接进来：图片切成 patch → vision encoder（ViT）把每个 patch 变成向量 → connector 压缩并投影成 decoder 的 embedding 维度 → 作为 image token 插进文字 token 序列 → decoder 照常做 attention 和生成
 flowchart TB
     IMG["一张图 1024 × 1024 像素"] --> P["patchify：切成 14 × 14 的小方块<br/>→ 约 5000 个 patch，每个先拉直成向量"]
-    P --> ENC["vision encoder（ViT，一个独立的 Transformer）<br/>每个 patch 变成一个 d_enc 维向量，patch 之间做 attention"]
-    ENC --> CON["connector：2×2 合并 + MLP<br/>÷4 变成约 1300 个向量，并投影到 decoder 的 d_model 维"]
+    P --> ENC["vision encoder（ViT，一个独立的 Transformer）<br/>每个 patch 变成一个 $$d_{enc}$$ 维向量，patch 之间做 attention"]
+    ENC --> CON["connector：2×2 合并 + MLP<br/>÷4 变成约 1300 个向量，并投影到 decoder 的 $$d_{model}$$ 维"]
     TXT["文字 prompt：请描述这张图"] --> TOK["tokenizer + embedding 表<br/>→ 文字 token 的 embedding"]
-    CON --> SEQ["拼成一个序列：[文字 token] [约 1300 个 image token] [文字 token]<br/>每个位置都是一个 d_model 维向量，decoder 分不出谁来自图"]
+    CON --> SEQ["拼成一个序列：[文字 token] [约 1300 个 image token] [文字 token]<br/>每个位置都是一个 $$d_{model}$$ 维向量，decoder 分不出谁来自图"]
     TOK --> SEQ
     SEQ --> DEC["decoder：照常 prefill、KV cache、逐 token 生成文字"]
 ```
