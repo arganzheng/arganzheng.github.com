@@ -108,13 +108,13 @@ Table: 产品形态的演进：2021–2026
 ```mermaid
 %% 图：2021–2026 形态的演进，每一步 = 模型能力 + 一个 harness 机制——补全需要代码模型能续写 + 建议可便宜拒绝；对话需要指令遵循 + 对话框这个最低成本集成；编辑器内同步 agent 需要工具调用协议成熟 + 能跑几十步 + diff 审阅；后台 agent 需要运行时（持久化 · 挂起 · 沙箱）+ 上下文管理 + PR 作为交付物 + 成本可接受
 flowchart LR
-    S1["2021–2023<br/>补全（copilot）<br/>GitHub Copilot"] --> S2["2023–2024<br/>对话（copilot）<br/>ChatGPT 形态进各产品"]
-    S2 --> S3["2024–2025<br/>编辑器内同步 agent<br/>Cursor Composer · Claude Code · Codex CLI"]
-    S3 --> S4["2025–2026<br/>后台 agent<br/>Codex cloud · Claude Code on the web · Devin · Agents API"]
-    S1 -.- M1["模型：代码续写<br/>harness：建议可便宜拒绝"]
-    S2 -.- M2["模型：指令遵循<br/>harness：对话框（最低成本集成）"]
-    S3 -.- M3["模型：能跑几十步<br/>harness：工具调用协议（L1 二）· diff 审阅"]
-    S4 -.- M4["模型：SWE-bench 七成以上<br/>harness：运行时（L4 三）· 上下文管理（L2 四）· PR 交付 · 成本"]
+    S1["<b>2021–2023</b><br/>补全（copilot）<br/>GitHub Copilot"] --> S2["<b>2023–2024</b><br/>对话（copilot）<br/>ChatGPT 形态进各产品"]
+    S2 --> S3["<b>2024–2025</b><br/>编辑器内同步 agent<br/>Cursor Composer · Claude Code · Codex CLI"]
+    S3 --> S4["<b>2025–2026</b><br/>后台 agent<br/>Codex cloud · Claude Code on the web · Devin · Agents API"]
+    S1 -.- M1["<b>模型：代码续写</b><br/>harness：建议可便宜拒绝"]
+    S2 -.- M2["<b>模型：指令遵循</b><br/>harness：对话框（最低成本集成）"]
+    S3 -.- M3["<b>模型：能跑几十步</b><br/>harness：工具调用协议（L1 二）· diff 审阅"]
+    S4 -.- M4["<b>模型：SWE-bench 七成以上</b><br/>harness：运行时（L4 三）· 上下文管理（L2 四）· PR 交付 · 成本"]
     classDef s fill:#fff7e0,stroke:#c98a00,color:#222
     classDef m fill:#eef6ff,stroke:#5b8fd6,color:#222
     class S1,S2,S3,S4 s
@@ -171,7 +171,7 @@ flowchart TB
     Q3 -->|"是"| Q4{"可自动验证 + 可回滚 + 错误代价低 + 高量？"}
     Q4 -->|"是"| F5["自动化：人看面板"]
     Q4 -->|"否"| Q5{"有审阅落点（PR / 草稿 / 提案）且用户可等？"}
-    Q5 -->|"是"| F4["后台 agent：交付物审阅<br/>不可逆动作止于提案"]
+    Q5 -->|"是"| F4["<b>后台 agent：交付物审阅</b><br/>不可逆动作止于提案"]
     Q5 -->|"否：人在场、几分钟内"| F3["同步 agent：步骤流 + diff + 关键步审批"]
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef f fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -198,13 +198,13 @@ Cursor：Tab 补全（copilot）、对话（copilot）、Composer / Agent（同�
 ```mermaid
 %% 图：一个产品里的四种形态与切换点——Tab 补全 → 用户开始问问题 → 对话 → 用户说「帮我改」→ 同步 agent → 任务超过几分钟或用户说「去做吧」→ 后台 agent → 评测集与在线指标证明某类任务稳定 → 自动化；每次切换用户可控可见，每一级有退回的路；新用户从左边起步，建立信任后逐级放开
 flowchart TB
-    F1["Tab 补全<br/>copilot"] -->|"用户开始问问题"| F2["对话<br/>copilot"]
-    F2 -->|"用户说「帮我改」"| F3["Composer / Agent<br/>同步 agent"]
-    F3 -->|"任务超过几分钟<br/>或用户说「去做吧」"| F4["后台 agent<br/>PR 交付"]
-    F4 -->|"评测集 + 在线指标：<br/>某类任务稳定"| F5["自动化<br/>auto 标签直接合并"]
+    F1["<b>Tab 补全</b><br/>copilot"] -->|"用户开始问问题"| F2["<b>对话</b><br/>copilot"]
+    F2 -->|"用户说「帮我改」"| F3["<b>Composer / Agent</b><br/>同步 agent"]
+    F3 -->|"任务超过几分钟<br/>或用户说「去做吧」"| F4["<b>后台 agent</b><br/>PR 交付"]
+    F4 -->|"评测集 + 在线指标：<br/>某类任务稳定"| F5["<b>自动化</b><br/>auto 标签直接合并"]
     F5 -.->|"完成率掉 · 成本涨 · 卫士频发"| F4
     F4 -.->|"用户想看过程"| F3
-    N["新用户从这里起步<br/>默认保守 · 按用户与任务类型逐级放开"] -.-> F1
+    N["<b>新用户从这里起步</b><br/>默认保守 · 按用户与任务类型逐级放开"] -.-> F1
     classDef f fill:#fff7e0,stroke:#c98a00,color:#222
     classDef a fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222
