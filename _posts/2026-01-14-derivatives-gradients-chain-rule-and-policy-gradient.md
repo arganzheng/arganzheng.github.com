@@ -191,10 +191,10 @@ print((Lf(2 + eps, 3) - Lf(2 - eps, 3)) / (2 * eps),     # 5.0000
 ```mermaid
 %% 图：反向传播就是逐层套用链式法则：实线前向，虚线反向，每过一层右乘一个 Jacobian
 flowchart LR
-    X["x<br/>[n₀]"] -->|"f₁"| H1["h₁<br/>[n₁]"] -->|"f₂"| H2["h₂<br/>[n₂]"] -->|"f₃"| LO["loss<br/>标量"]
-    LO -.->|"∂loss/∂h₂ [1, n₂]"| H2
-    H2 -.->|"× ∂h₂/∂h₁ [n₂, n₁] → ∂loss/∂h₁ [1, n₁]"| H1
-    H1 -.->|"× ∂h₁/∂x [n₁, n₀] → ∂loss/∂x [1, n₀]"| X
+    X["$$x$$<br/>$$[n_0]$$"] -->|"$$f_1$$"| H1["$$h_1$$<br/>$$[n_1]$$"] -->|"$$f_2$$"| H2["$$h_2$$<br/>$$[n_2]$$"] -->|"$$f_3$$"| LO["loss<br/>标量"]
+    LO -.->|"$$\partial \text{loss} / \partial h_2$$ $$[1, n_2]$$"| H2
+    H2 -.->|"× $$\partial h_2 / \partial h_1$$ $$[n_2, n_1]$$ → $$\partial \text{loss} / \partial h_1$$ $$[1, n_1]$$"| H1
+    H1 -.->|"× $$\partial h_1 / \partial x$$ $$[n_1, n_0]$$ → $$\partial \text{loss} / \partial x$$ $$[1, n_0]$$"| X
     classDef t fill:#e3f2fd,stroke:#1565c0,color:#222
     class X,H1,H2,LO t
 ```
