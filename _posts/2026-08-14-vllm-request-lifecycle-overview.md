@@ -8,6 +8,8 @@ updated: 2026-10-18
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`，commit `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`，2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。文中的 **V1** 指引擎架构及其源码包 `vllm/v1/`，不是一个可选的版本：旧的 V0 引擎在 v0.11.0（2025-10-02）中被整体移除，release notes 原话是 “V1 is the only engine in the codebase now”，所以 v0.27.1 里只有这一套引擎，没有 “V2 引擎”。名字里带 V2 的只是两个组件——模型执行层的新 ModelRunner 和 Ray 后端的 `RayExecutorV2`，见[第二章第 4 节](#4-executorworker-与-modelrunner模型执行的设备抽象)。
+>
+> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文第二章第 4 节里 ModelRunner 的部分讲的是 V1 路径；API Server → AsyncLLM → EngineCore → Executor → Worker 的分层与进程间通信不变。截至 v0.32.0 的其他变化见[总纲的版本与硬件基线](/deep-dive-into-vllm.html#版本与硬件基线)。
 
 
 前两篇分别定义了问题（LLM Serving 为什么难）和尺子（用什么指标衡量）。在深入调度、KV Cache、GPU 执行等单个战场之前，需要先有一张全景图：一个请求进入 vLLM 之后，会经过哪些模块，以什么形式被传递，最后如何变成 token 返回给用户。

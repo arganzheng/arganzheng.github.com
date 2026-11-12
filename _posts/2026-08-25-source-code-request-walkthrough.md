@@ -8,6 +8,8 @@ updated: 2026-10-01
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+>
+> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文执行侧的调用链走的是 V1 的 `GPUModelRunner`；在 v0.29 及以后的版本里调试时，断点要打在 `vllm/v1/worker/gpu/model_runner.py`。调度与 KV 管理一侧的调用链不变。
 
 
 > **前十三篇回答了「是什么」和「为什么」，这一篇回答「怎么实现」。**

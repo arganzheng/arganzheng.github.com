@@ -435,6 +435,13 @@ Table: 按目标选篇：问题 → 入口篇 → 需要补的前置
 
 - 源码：**vLLM v0.27.1**（tag `6e448d0`，2026-08-11）。全系列的文件路径、类名和函数名以此为准；vLLM 目录结构变动很快，读旧版本或新版本时请以本地源码对照。文中不引用行号。
 - 引擎：v0.27.1 只有 V1 引擎；`vllm/v1/worker/gpu_model_runner.py` 是默认的 Model Runner，`vllm/v1/worker/gpu/model_runner.py` 是可通过 `VLLM_USE_V2_MODEL_RUNNER` 启用的新实现，文中以前者为主线并在涉及处标注。
+- 版本提示 @2026-11-12：截至 v0.32.0（2026-10-18），以下变化与本系列有关，全系列整体升级前先按此对照：
+  - **Model Runner V2 成为默认**（v0.29.0）：V1 的 `GPUModelRunner` 被宣布弃用、只作回退。第三篇的 ModelRunner 一节、第六篇的 CUDA Graph 与投机解码、第十篇的采样器与 logits processor、第十四篇的执行侧调用链讲的都是 V1 路径。
+  - 调度（v0.31.0）：已经持有 KV 块的等待请求进入单独的 `kv_holding_waiting` 队列，优先于普通 `waiting` 调度（第四、八篇）。
+  - prefix cache（v0.29.0）：sha256 类哈希下 `NONE_HASH` 默认就是确定值，不再需要设置 `PYTHONHASHSEED`（第五篇）。
+  - 多卡（v0.29.0）：TP 的 all-reduce 默认改走 FlashInfer（第七篇）。
+  - 默认值（v0.28.0）：大显存卡上 `max_num_batched_tokens` 默认从 8192 提到 16384，文中以 8192 计算的数字按旧默认值理解。
+  - v0.33.0（预发布）删除了 Medusa 与旧的 Ray executor。
 - 硬件：默认以 **H100 SXM（80 GB，约 3.35 TB/s，BF16 约 989 TFLOPS）** 为估算基准，A100 随文标注。文中所有毫秒级、GB/s 级数字除明确注明"实测"外均为**理论下界或量级估算**，用于建立判断，不是 benchmark 结果。
 - 模型：示例以 Llama-3-8B / 70B 为主，MoE 与 MLA 以 DeepSeek-V3 为例。
 - 对照引擎：第十五篇对照 **SGLang v0.5.18**（tag `71de97b`，2026-08-20），路径与默认值以该版本为准。

@@ -11,6 +11,8 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+>
+> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文第二章的 `Sampler`、`LogitsProcessor` / `BatchUpdate` 接口与 `InputBatch` 讲的是 V1 路径：V2 有独立的采样器（`vllm/v1/worker/gpu/sample/`，Gumbel 采样、按槽位存请求状态）和新的 logits processor 接口；结构化输出的调度器侧（grammar 编译、bitmask）不变。
 
 
 上一篇讲的是输入在变：同一个 batch 里的请求各带不同的 LoRA、各带几张图。这一篇看另一端——**输出在变**。

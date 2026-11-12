@@ -8,6 +8,8 @@ updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
+>
+> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文 CUDA Graph 与投机解码两章的源码讲的是 V1 路径：V2 有自己的 CUDA Graph 管理（`cudagraph_utils.py`）、拒绝采样与整套 speculator（`vllm/v1/worker/gpu/spec_decode/`），机制与本文一致，类名和文件不同。Medusa 在 v0.33.0 的预发布版中已被删除。
 
 
 前面几篇解决的是"这一轮算哪些 token"（Scheduler）和"它们的状态放在哪里"（KV Cache）。这一篇的问题是：

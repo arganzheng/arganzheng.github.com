@@ -2008,6 +2008,16 @@ How it is built (`_plugins/moments.rb`):
   + `comments_path: /decoding-extensions-sampling-speculative-and-structured-output.html`;
   the other slugs are unchanged. Cross-series pointers updated: LoRA 01 / 03 /
   recap → 第九篇, 大规模训练 02 → 第七篇, 高效推理总纲 → 第六篇.
+  **Version plan (author, 2026-11-12)**: stay on v0.27.1 for now. Model Runner
+  V2 became the default in v0.29.0 and V1 (`gpu_model_runner.py`) is deprecated
+  but still present in v0.32.0, so 03 / 06 / 10 / 14 carry a
+  `> **版本提示 @2026-11-12**` line under the NOTE, and the overview's 版本与硬件基线
+  lists the other relevant changes up to v0.32.0 (two waiting queues v0.31,
+  deterministic `NONE_HASH` v0.29, FlashInfer all-reduce default v0.29,
+  `max_num_batched_tokens` 16384 v0.28, Medusa / old Ray executor removed in
+  v0.33 rc). Upgrade the whole series in one pass once V1 is actually removed
+  (est. 5–7 days: 06 / 10 / 14 rewritten on V2, the rest light edits, each post
+  gets the `> **更新 @…**` note per the version rule).
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
