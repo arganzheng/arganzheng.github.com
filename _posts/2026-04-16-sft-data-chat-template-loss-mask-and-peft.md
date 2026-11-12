@@ -76,17 +76,17 @@ Table: SFT 数据的三种来源
 flowchart LR
     subgraph P["prompt 侧"]
         direction TB
-        P1["真实用户 prompt<br/>（脱敏、去重、按能力分类）"]
-        P2["人写 prompt<br/>（按能力分桶定向补）"]
-        P3["合成 prompt<br/>（Self-Instruct / Evol / Magpie）"]
+        P1["<b>真实用户 prompt</b><br/>（脱敏、去重、按能力分类）"]
+        P2["<b>人写 prompt</b><br/>（按能力分桶定向补）"]
+        P3["<b>合成 prompt</b><br/>（Self-Instruct / Evol / Magpie）"]
     end
     subgraph R["回答侧"]
         direction TB
         R1["人写"]
         R2["强模型生成"]
-        R3["当前模型采样 K 条<br/>→ 奖励模型 / 验证器选最好"]
+        R3["<b>当前模型采样 K 条</b><br/>→ 奖励模型 / 验证器选最好"]
     end
-    P1 & P2 & P3 --> F["过滤：规则 · LLM 打分 · 去重<br/>· 对评测集去污染"]
+    P1 & P2 & P3 --> F["<b>过滤：规则 · LLM 打分 · 去重</b><br/>· 对评测集去污染"]
     R1 & R2 & R3 --> F
     F --> B["按能力分桶 → 配比 → SFT 集"]
 

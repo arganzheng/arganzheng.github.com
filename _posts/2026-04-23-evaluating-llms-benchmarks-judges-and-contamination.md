@@ -42,10 +42,10 @@ judge 的 80% 胜率：Zheng 等 2023 测出 GPT-4 作 judge 时对更长回答�
 %%{init: {"flowchart": {"wrappingWidth": 210}}}%%
 %% 图：一个 benchmark 分数的五步：题目集、协议、模型输出、评分、统计——每一步能改变分数的变量
 flowchart TB
-    A["① 题目集<br/>MMLU / GSM8K / HumanEval …"] --> B["② 协议<br/>few-shot 数、prompt 模板、<br/>温度、抽取答案的正则、k"]
-    B --> C["③ 模型输出<br/>采样一次还是 n 次"]
-    C --> D["④ 评分<br/>精确匹配 / 跑测试 / LLM-as-judge / 人"]
-    D --> E["⑤ 统计<br/>n 道题的正确率 ± 置信区间"]
+    A["<b>① 题目集</b><br/>MMLU / GSM8K / HumanEval …"] --> B["<b>② 协议</b><br/>few-shot 数、prompt 模板、<br/>温度、抽取答案的正则、k"]
+    B --> C["<b>③ 模型输出</b><br/>采样一次还是 n 次"]
+    C --> D["<b>④ 评分</b><br/>精确匹配 / 跑测试 / LLM-as-judge / 人"]
+    D --> E["<b>⑤ 统计</b><br/>n 道题的正确率 ± 置信区间"]
     E --> F["榜单上的一个数"]
     A -. "题目泄漏进训练集<br/>（污染，第七章）" .-> F
     B -. "换一个 few-shot 数<br/>差 3–5 个点（第三章）" .-> F

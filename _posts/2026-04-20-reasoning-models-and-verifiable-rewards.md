@@ -121,14 +121,14 @@ R1-Zero 引出了 2025 年的一个方法论争论：RL 让模型**学会**了�
 %% 图：R1 的四阶段：冷启动 SFT → 推理 RL → 全能力 SFT → 全场景 RL，80 万条 SFT 数据另出 R1-Distill
 flowchart TB
     B["DeepSeek-V3-Base"]
-    B -->|"几千条长思维链<br/>（R1-Zero 输出清洗 + few-shot 生成 + 人工整理）"| S1["阶段 1：冷启动 SFT<br/>修：可读性、格式、语言"]
-    S1 -->|"GRPO · 规则奖励 + 语言一致性奖励"| S2["阶段 2：推理 RL<br/>修：把推理能力训到顶，且不混语言"]
+    B -->|"几千条长思维链<br/>（R1-Zero 输出清洗 + few-shot 生成 + 人工整理）"| S1["<b>阶段 1：冷启动 SFT</b><br/>修：可读性、格式、语言"]
+    S1 -->|"GRPO · 规则奖励 + 语言一致性奖励"| S2["<b>阶段 2：推理 RL</b><br/>修：把推理能力训到顶，且不混语言"]
     S2 -->|"拒绝采样：60 万条推理（规则 + V3 判定过滤）<br/>+ 20 万条非推理（V3 的 SFT 数据与生成）"| D["80 万条 SFT 数据"]
-    B -->|"在 80 万条上 SFT 2 epoch"| S3["阶段 3：全能力 SFT<br/>修：推理与通用（写作、问答、翻译）合到一个模型"]
+    B -->|"在 80 万条上 SFT 2 epoch"| S3["<b>阶段 3：全能力 SFT</b><br/>修：推理与通用（写作、问答、翻译）合到一个模型"]
     D --> S3
-    S3 -->|"GRPO · 推理用规则、通用用 RM（V3 流水线的偏好数据）"| S4["阶段 4：全场景 RL<br/>修：有帮助、无害，同时保住推理"]
+    S3 -->|"GRPO · 推理用规则、通用用 RM（V3 流水线的偏好数据）"| S4["<b>阶段 4：全场景 RL</b><br/>修：有帮助、无害，同时保住推理"]
     S4 --> R1["DeepSeek-R1"]
-    D -->|"直接 SFT，不做 RL"| DIST["R1-Distill<br/>Qwen 1.5B–32B · Llama 8B / 70B"]
+    D -->|"直接 SFT，不做 RL"| DIST["<b>R1-Distill</b><br/>Qwen 1.5B–32B · Llama 8B / 70B"]
 
     classDef rl fill:#fde68a,stroke:#b45309;
     classDef sft fill:#e0e7ff,stroke:#4338ca;

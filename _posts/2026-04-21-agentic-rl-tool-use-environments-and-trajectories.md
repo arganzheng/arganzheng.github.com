@@ -283,15 +283,15 @@ Table: 20 轮轨迹的上下文增长账
 ```mermaid
 %% 图：agent loop 的一条轨迹：生成、解析工具调用、环境执行、渲染观察拼回上下文，直到最终回答交给验证器
 flowchart TB
-    S["构造 $$s_0$$<br/>system + schema + 任务"] --> G["推理引擎生成 $$a_t$$"]
+    S["<b>构造 $$s_0$$</b><br/>system + schema + 任务"] --> G["推理引擎生成 $$a_t$$"]
     G --> P{"解析：<br/>工具调用？"}
-    P -- 是 --> E["环境执行<br/>沙箱 / 检索 / 模拟用户"]
-    E --> O["渲染 $$o_t$$，拼回上下文<br/>标记 mask=0"]
+    P -- 是 --> E["<b>环境执行</b><br/>沙箱 / 检索 / 模拟用户"]
+    E --> O["<b>渲染 $$o_t$$，拼回上下文</b><br/>标记 mask=0"]
     O --> C{"超长 / 超步数？"}
     C -- 否 --> G
     C -- 是 --> V
     P -- 否：最终回答 --> V["验证器算 R"]
-    V --> T["轨迹 + mask + R<br/>交给训练器"]
+    V --> T["<b>轨迹 + mask + R</b><br/>交给训练器"]
 
     classDef env fill:#fee2e2,stroke:#b91c1c;
     classDef model fill:#e0e7ff,stroke:#4338ca;
