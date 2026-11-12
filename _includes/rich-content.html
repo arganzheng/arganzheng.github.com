@@ -117,6 +117,25 @@
       // whatever KaTeX faces they use (Size2 for \left( \right), AMS, …), wait
       // for document.fonts.ready, then measure — measuring with a fallback
       // face made a \left(…\right)V label 5px too narrow and clipped the V.
+      // Only flowcharts get placeholders: their labels are HTML. In a
+      // sequenceDiagram a message is SVG text, a span would show up as
+      // literal markup, so the $$…$$ is left to Mermaid, which renders such
+      // a message as HTML with MathML (browser math font, real sub- and
+      // superscripts). Its flex label drops the spaces around a formula, so
+      // they move inside the TeX as \  (control space), which Mermaid then
+      // measures with the formula.
+      function isFlowchart(source) {
+        var first = source.split('\n').filter(function (l) {
+          return l.trim() && l.trim().indexOf('%%') !== 0;
+        })[0] || '';
+        return /^\s*(flowchart|graph)\b/.test(first);
+      }
+      function keepMathSpaces(source) {
+        return source.replace(/( ?)\$\$([\s\S]+?)\$\$( ?)/g, function (m, pre, tex, post) {
+          return (pre ? ' ' : '') + '$$' + (pre ? '\\ ' : '') + tex + (post ? '\\ ' : '') + '$$' + (post ? ' ' : '');
+        });
+      }
+
       function mathPlaceholders(source, texts) {
         var probe = document.createElement('div');
         // line-height 1.5 = Mermaid's label div: the filled span inherits it,
@@ -225,7 +244,10 @@
             var source = container.textContent.trim();
             var id = 'mermaid-' + index + '-' + Date.now();
             var texts = [];
-            var prep = useKatex && source.indexOf('$$') !== -1 ? mathPlaceholders(source, texts) : Promise.resolve(source);
+            var hasDollar = source.indexOf('$$') !== -1;
+            var prep = !hasDollar ? Promise.resolve(source)
+              : isFlowchart(source) ? (useKatex ? mathPlaceholders(source, texts) : Promise.resolve(source))
+              : Promise.resolve(keepMathSpaces(source));
             return prep.then(function (input) { return mermaid.render(id, input); }).then(function (result) {
               container.innerHTML = result.svg;
               if (texts.length) fillMath(container, texts);

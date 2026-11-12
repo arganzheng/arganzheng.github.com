@@ -1383,6 +1383,13 @@ svg[id^="mermaid-"] foreignObject > div {
   height: inherit;
   max-width: none;
 }
+/* A sequenceDiagram message with $$…$$ is rendered by Mermaid as HTML in a
+   <foreignObject> (MathML for the formula); it inherits the body's
+   font-weight 450 while every other message is SVG text at 400, so the
+   math messages looked bold. Flowchart labels keep the body weight. */
+svg[aria-roledescription="sequence"] foreignObject {
+  font-weight: 400;
+}
 /* Mermaid / image lightbox, driven by js/diagram-zoom.js (opened from the figure's 放大 button) */
 .diagram-zoom {
   display: none;

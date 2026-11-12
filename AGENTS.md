@@ -529,7 +529,15 @@ Pages has `https_enforced` on.
   and swaps it for an empty `span.mm-math` of that size + 2px each side for
   italic overhang (the sanitizer keeps class / style / data-*). Mermaid lays
   out around it, `fillMath()` then `katex.render()`s into the span.
-  `data-mermaid-source` keeps the `$$`. Exports: `WechatExport.mermaidToPng`
+  `data-mermaid-source` keeps the `$$`. **sequenceDiagram** messages are SVG
+  text (a placeholder span or `<sub>` would print as markup), so the loader
+  (`isFlowchart()`) leaves their `$$…$$` to Mermaid, which renders such a
+  message as HTML + MathML (browser math font, not KaTeX; real sub- /
+  superscripts, `<br/>` kept); `keepMathSpaces()` moves the spaces around a
+  formula inside it as `\ `, because the flex label drops them, and
+  `less/theme-overrides.less` resets those HTML messages to font-weight 400
+  (they inherited the body's 450 and looked bold next to the SVG text).
+  Exports: `WechatExport.mermaidToPng`
   (公众号 / 富文本 / Word) re-renders with `htmlLabels: false`, so it first
   runs `texToText()` — `$$N_{\text{opt}}(C)$$` → `Nₒₚₜ(C)`,
   `\sqrt{d_k}` → `√dₖ`, `\hat x` → `x̂`, TeX math spacing — and never shows
