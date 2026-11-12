@@ -335,14 +335,14 @@ flowchart TB
         direction TB
         subgraph ATT["attention 子层"]
             direction LR
-            Q["W_Q：4096 → 4096<br/>num_attention_heads 32 × head_dim 128"]
-            KV["W_K、W_V：4096 → 1024<br/>num_key_value_heads 8 × head_dim 128"]
-            O["W_O：4096 → 4096"]
+            Q["$$W_Q$$：4096 → 4096<br/>num_attention_heads 32 × head_dim 128"]
+            KV["$$W_K$$、$$W_V$$：4096 → 1024<br/>num_key_value_heads 8 × head_dim 128"]
+            O["$$W_O$$：4096 → 4096"]
         end
         subgraph FFN["FFN 子层"]
             direction LR
-            G["W_gate、W_up：4096 → 14336<br/>intermediate_size"]
-            D["W_down：14336 → 4096"]
+            G["$$W_{\text{gate}}$$、$$W_{\text{up}}$$：4096 → 14336<br/>intermediate_size"]
+            D["$$W_{\text{down}}$$：14336 → 4096"]
         end
         ATT --> FFN
     end
