@@ -20,11 +20,11 @@ date: 2026-10-11 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 %% 图：上下文工程全景：解剖七层 → 写第一层 → 约束输出 → 预算与压缩 → 缓存排列 → 当代码管
 flowchart TB
-    X1["01 上下文的解剖<br/>七层、增长规律、注意力预算"] --> X2["02 prompt 设计<br/>第一层：稳定的模式与不稳定的措辞"]
-    X1 --> X3["03 结构化输出<br/>约束解码、schema 设计"]
-    X1 --> X4["04 预算与压缩<br/>隔离 → 卸载 → 清理 → 压缩"]
-    X1 & X4 --> X5["05 prompt caching 与排列<br/>前缀逐字节相同才命中"]
-    X2 & X3 & X5 --> X6["06 prompt 当代码管<br/>版本、评测门禁、A/B；上下文 vs 检索"]
+    X1["<b>01 上下文的解剖</b><br/>七层、增长规律、注意力预算"] --> X2["<b>02 prompt 设计</b><br/>第一层：稳定的模式与不稳定的措辞"]
+    X1 --> X3["<b>03 结构化输出</b><br/>约束解码、schema 设计"]
+    X1 --> X4["<b>04 预算与压缩</b><br/>隔离 → 卸载 → 清理 → 压缩"]
+    X1 & X4 --> X5["<b>05 prompt caching 与排列</b><br/>前缀逐字节相同才命中"]
+    X2 & X3 & X5 --> X6["<b>06 prompt 当代码管</b><br/>版本、评测门禁、A/B；上下文 vs 检索"]
 
 ```
 
@@ -126,11 +126,11 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：预算这条线在六篇里的落点——第一篇给物理基础（n² 注意力、Context Rot），第二篇精炼 system prompt，第三篇精炼 schema，第四篇给每层配额与处理顺序，第六篇把渐进披露做成 SKILL.md 标准；每一篇都在回答同一个问题：这一段值不值得占这份注意力
 flowchart LR
-    Q["这一段值不值得占这份注意力？"] --> P1["第一篇：为什么有限<br/>n² · 位置效应 · Context Rot"]
-    Q --> P2["第二篇：system prompt 精炼<br/>最小规则集 · 删「一步步想」· few-shot 只留格式"]
-    Q --> P3["第三篇：schema 精炼<br/>限深度 · 稳定 · 枚举"]
+    Q["这一段值不值得占这份注意力？"] --> P1["<b>第一篇：为什么有限</b><br/>n² · 位置效应 · Context Rot"]
+    Q --> P2["<b>第二篇：system prompt 精炼</b><br/>最小规则集 · 删「一步步想」· few-shot 只留格式"]
+    Q --> P3["<b>第三篇：schema 精炼</b><br/>限深度 · 稳定 · 枚举"]
     Q --> P4["第四篇：每层配额 + 隔离 → 卸载 → 清理 → 压缩"]
-    Q --> P6["第六篇：渐进披露成标准<br/>SKILL.md 只常驻 description"]
+    Q --> P6["<b>第六篇：渐进披露成标准</b><br/>SKILL.md 只常驻 description"]
     classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef p fill:#fff7e0,stroke:#c98a00,color:#222
     class Q q
@@ -179,7 +179,7 @@ flowchart LR
     R2 <-.-> E2
     R3 <-.-> E3
     R4 <-.-> E4
-    CTX -.- N["可恢复 → 几乎免费、无损<br/>摘要是唯一改写内容本身的手段 → 有损、放最后"]
+    CTX -.- N["<b>可恢复 → 几乎免费、无损</b><br/>摘要是唯一改写内容本身的手段 → 有损、放最后"]
     classDef ref fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef ext fill:#f0f0f0,stroke:#888,color:#222
     classDef n fill:#eef6ff,stroke:#5b8fd6,color:#222

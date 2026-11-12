@@ -228,14 +228,14 @@ flowchart TB
     Q["命中率低于预期"] --> A{"cache_creation 也是 0？"}
     A -->|"是"| A1["前缀不足最小长度（1,024）<br/>或 Anthropic 没放断点"]
     A -->|"否"| B{"每轮都是写入、没有读取？"}
-    B -->|"是"| B1["前缀每次不同：<br/>时间戳 · 随机 id · JSON 键序不定<br/>→ diff 连续两次请求体的前 N 字节"]
+    B -->|"是"| B1["<b>前缀每次不同：</b><br/>时间戳 · 随机 id · JSON 键序不定<br/>→ diff 连续两次请求体的前 N 字节"]
     B -->|"否"| C{"随会话长度下降？"}
     C -->|"是"| C1["半静态层每轮更新<br/>或检索结果放在历史前面"]
     C -->|"否"| D{"只有部分用户不命中？"}
-    D -->|"是"| D1["请求间隔超 TTL<br/>→ 统计间隔分布，考虑 1 小时 TTL"]
+    D -->|"是"| D1["<b>请求间隔超 TTL</b><br/>→ 统计间隔分布，考虑 1 小时 TTL"]
     D -->|"否"| E{"某天骤降？"}
     E -->|"是"| E1["部署改了 system / tools / schema<br/>或换模型（一次性失效，正常）"]
-    E -->|"否 · 多实例"| F1["路由到不同缓存节点<br/>→ 传 prompt_cache_key"]
+    E -->|"否 · 多实例"| F1["<b>路由到不同缓存节点</b><br/>→ 传 prompt_cache_key"]
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef fix fill:#fff7e0,stroke:#c98a00,color:#222
     class A,B,C,D,E dec

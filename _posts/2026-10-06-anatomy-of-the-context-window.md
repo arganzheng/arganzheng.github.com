@@ -67,15 +67,15 @@ Claude Code 的两个硬数字值得记：自动记忆上限 200 行 / 25 KB，�
 ```mermaid
 %% 图：一个 Claude Code 会话的上下文怎样填满——启动时 ①②③ 已占几千到上万 token；每读一个文件 ⑥ 加 2–5K；子 agent 的大量读取在另一个窗口里、主窗口只收摘要；到约 83.5% 处 auto-compact 把 ④⑥ 换成一段摘要，① 不动、③ 的根目录部分重注入、按需部分丢失
 flowchart TB
-    S0["启动：还没敲字<br/>① system 几千 · ② 工具名与技能描述行 · ③ CLAUDE.md + 自动记忆（≤ 25 KB）<br/>≈ 5–15K token"]
-    S0 --> S1["第一个 prompt<br/>⑦ 几十 token"]
-    S1 --> S2["工作中：每读一个文件<br/>⑥ +2–5K；十个文件就是几万"]
-    S2 --> S3["需要研究一个问题<br/>子 agent 在自己的窗口里读几十个文件<br/>主窗口只收到一段摘要"]
+    S0["<b>启动：还没敲字</b><br/>① system 几千 · ② 工具名与技能描述行 · ③ CLAUDE.md + 自动记忆（≤ 25 KB）<br/>≈ 5–15K token"]
+    S0 --> S1["<b>第一个 prompt</b><br/>⑦ 几十 token"]
+    S1 --> S2["<b>工作中：每读一个文件</b><br/>⑥ +2–5K；十个文件就是几万"]
+    S2 --> S3["<b>需要研究一个问题</b><br/>子 agent 在自己的窗口里读几十个文件<br/>主窗口只收到一段摘要"]
     S3 --> S2
     S2 --> S4{"窗口到 83.5%？<br/>（200K 窗口预留 33K 给摘要）"}
     S4 -->|"否"| S2
-    S4 -->|"是"| S5["auto-compact<br/>④⑥ → 一段摘要"]
-    S5 --> S6["压缩后的命运<br/>① 不变 · ③ 根目录 CLAUDE.md 从磁盘重注入 · ③ 带 paths: 的规则丢失 · ④⑥ 只剩摘要"]
+    S4 -->|"是"| S5["<b>auto-compact</b><br/>④⑥ → 一段摘要"]
+    S5 --> S6["<b>压缩后的命运</b><br/>① 不变 · ③ 根目录 CLAUDE.md 从磁盘重注入 · ③ 带 paths: 的规则丢失 · ④⑥ 只剩摘要"]
     S6 --> S2
     classDef res fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef grow fill:#fff7e0,stroke:#c98a00,color:#222
@@ -102,17 +102,17 @@ flowchart TB
 flowchart LR
     subgraph RES["常驻层 ②：每轮都传、在缓存前缀里"]
         direction TB
-        R1["工具名 + 一行描述 × 30<br/>≈ 1K token"]
-        R2["技能 description × n<br/>每个 ≤ 1,024 字符"]
+        R1["<b>工具名 + 一行描述 × 30</b><br/>≈ 1K token"]
+        R2["<b>技能 description × n</b><br/>每个 ≤ 1,024 字符"]
     end
     subgraph EXT["上下文之外：磁盘 / 注册表"]
         direction TB
-        E1["30 个完整的参数 schema<br/>≈ 9K token"]
-        E2["SKILL.md 正文 + 脚本<br/>几千到几万 token"]
+        E1["<b>30 个完整的参数 schema</b><br/>≈ 9K token"]
+        E2["<b>SKILL.md 正文 + 脚本</b><br/>几千到几万 token"]
     end
     subgraph LOAD["按需进入上下文：不在稳定缓存前缀里"]
         direction TB
-        L1["选中工具的参数 schema<br/>+300 token"]
+        L1["<b>选中工具的参数 schema</b><br/>+300 token"]
         L2["选中技能的 SKILL.md 正文"]
     end
     R1 -.->|"模型决定用某个工具"| E1

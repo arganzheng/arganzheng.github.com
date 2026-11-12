@@ -22,8 +22,8 @@ catalog: true
 ```mermaid
 %% 图：prompt 的生命周期：编辑出不可变版本，离线评测过门禁后打 staging，灰度 1% 再切 production，模型升级从评测重新触发
 flowchart TB
-    E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["新版本（不可变）<br/>version N"]
-    V --> T["离线评测：评测集 × k 次<br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
+    E["编辑：prompt 文本 · 变量模板 · 绑定的模型与参数"] --> V["<b>新版本（不可变）</b><br/>version N"]
+    V --> T["<b>离线评测：评测集 × k 次</b><br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
     T -->|"回归"| E
     T -->|"通过"| L1["打标签 staging"]
     L1 --> G["灰度：标签 prod-canary → 1% 流量<br/>在线指标 · trace 绑定版本"]
@@ -70,7 +70,7 @@ Table: prompt 放版本库与放注册表的对照
 flowchart LR
     subgraph V["不可变版本（只增不改）"]
         direction LR
-        V1["v1"] --> V2["v2"] --> V3["v3<br/>绑 Sonnet 5 · effort high · schema s2"] --> V4["v4<br/>同文本，换绑 Sonnet 5.1"] --> V5["v5"]
+        V1["v1"] --> V2["v2"] --> V3["<b>v3</b><br/>绑 Sonnet 5 · effort high · schema s2"] --> V4["<b>v4</b><br/>同文本，换绑 Sonnet 5.1"] --> V5["v5"]
     end
     P["production（默认）"] --> V3
     S["staging"] --> V4
@@ -104,12 +104,12 @@ flowchart LR
 %% 图：一个 prompt 版本工件里有什么，各来自前面哪一篇——模板与分区（第二篇的模式）、绑定的模型快照与 effort（L1）、schema 与字段顺序（第三篇）、工具集版本、缓存断点位置（第五篇）、变更说明与评测结果；它们一起决定行为，所以一起版本化
 flowchart LR
     W["prompt 版本 N（不可变）"]
-    W --> T["模板 + 分区结构 + 变量占位<br/>← 第二篇的六个部分"]
+    W --> T["<b>模板 + 分区结构 + 变量占位</b><br/>← 第二篇的六个部分"]
     W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← 《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》"]
     W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》"]
-    W --> C["缓存断点的位置<br/>← 第五篇"]
+    W --> C["<b>缓存断点的位置</b><br/>← 第五篇"]
     W --> N["变更说明：改了什么 · 为什么 · 评测结果"]
-    T & M & S & C --> B["一起决定行为：<br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]
+    T & M & S & C --> B["<b>一起决定行为：</b><br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]
     classDef root fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef part fill:#fff7e0,stroke:#c98a00,color:#222
     classDef n fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -190,14 +190,14 @@ SKILL.md 把第一篇的**渐进披露**做成了规范：常驻上下文的只�
 flowchart LR
     subgraph REPO["版本库"]
         direction TB
-        AG["AGENTS.md<br/>构建 / 测试命令 · 硬规则 · 目录结构"]
-        SK["skills/pdf-report/<br/>SKILL.md（name · description · 正文）<br/>scripts/ · references/"]
+        AG["<b>AGENTS.md</b><br/>构建 / 测试命令 · 硬规则 · 目录结构"]
+        SK["<b>skills/pdf-report/</b><br/>SKILL.md（name · description · 正文）<br/>scripts/ · references/"]
     end
     subgraph CTX["每轮的上下文"]
         direction TB
         C1["③ 长期记忆：AGENTS.md 全文常驻<br/>（几百到几千 token）"]
         C2["② 技能描述行：name + description<br/>（每个几十到几百 token）"]
-        C3["按需加载：SKILL.md 正文<br/>模型判断「这个技能适用」之后才进来"]
+        C3["<b>按需加载：SKILL.md 正文</b><br/>模型判断「这个技能适用」之后才进来"]
     end
     AG --> C1
     SK -->|"只有元数据"| C2
@@ -268,10 +268,10 @@ flowchart TB
     A -->|"是"| C{"变化频率低？<br/>变一次缓存失效一次"}
     C -->|"否：每天变"| B
     C -->|"是"| D{"查询需要全局视野？<br/>「总结这份合同」"}
-    D -->|"是"| FULL["全放上下文 + 缓存断点<br/>0.1× 读价，稳定"]
+    D -->|"是"| FULL["<b>全放上下文 + 缓存断点</b><br/>0.1× 读价，稳定"]
     D -->|"否：定位型"| B
-    B -->|"否：定位型「报销上限是多少」"| PIPE["流水线检索<br/>top-k 放动态段，几千 token / 请求"]
-    B -->|"是"| AGT["agentic retrieval<br/>模型自己决定查什么、查几轮；卸载控制每次读的量"]
+    B -->|"否：定位型「报销上限是多少」"| PIPE["<b>流水线检索</b><br/>top-k 放动态段，几千 token / 请求"]
+    B -->|"是"| AGT["<b>agentic retrieval</b><br/>模型自己决定查什么、查几轮；卸载控制每次读的量"]
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef out fill:#eefaf0,stroke:#4d9a5c,color:#222
     class A,B,C,D dec

@@ -52,11 +52,11 @@ vLLM 与 SGLang 都把这几种后端做成可选（vLLM 的 structured outputs 
 ```mermaid
 %% 图：从 schema 到自动机的两条路——Outlines 把 schema 转成正则再编译成有限状态机，允许的 token 集合预先算好、采样时查表，但表达不了递归；XGrammar / llguidance 用上下文无关文法和下推自动机处理嵌套，把 token 集合拆成预计算部分和依赖栈的部分；两者都要在字节层面与 tokenizer 对齐
 flowchart TB
-    S["JSON schema"] --> R["正则表达式<br/>（Outlines，2023）"] --> F["有限状态机 FSM<br/>每个状态的允许 token 集预先算好 → 采样时查表"]
-    S --> G["上下文无关文法 CFG<br/>（XGrammar 2024 · llguidance）"] --> P["下推自动机 + 栈<br/>预计算「与栈无关」的部分，运行时只算「依赖栈」的部分"]
+    S["JSON schema"] --> R["<b>正则表达式</b><br/>（Outlines，2023）"] --> F["<b>有限状态机 FSM</b><br/>每个状态的允许 token 集预先算好 → 采样时查表"]
+    S --> G["<b>上下文无关文法 CFG</b><br/>（XGrammar 2024 · llguidance）"] --> P["<b>下推自动机 + 栈</b><br/>预计算「与栈无关」的部分，运行时只算「依赖栈」的部分"]
     F -.->|"限制：递归结构只能展开到有限深度"| X1["嵌套任意深的对象 / 数组 ✗"]
     P -.->|"处理递归"| X2["嵌套任意深 ✓，每步微秒级"]
-    F & P --> B["字节层 ↔ token 表的对齐<br/>一个 token 可能是半个字符串、跨引号<br/>→ 同一 schema 换 tokenizer 要重编译"]
+    F & P --> B["<b>字节层 ↔ token 表的对齐</b><br/>一个 token 可能是半个字符串、跨引号<br/>→ 同一 schema 换 tokenizer 要重编译"]
     B --> D["每步采样：不合法 token 的 logit 置 −∞"]
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -85,7 +85,7 @@ flowchart TB
 ```mermaid
 %% 图：strict 模式三条限制背后的自动机原因——可选字段让状态数按 2 的字段数次方增长，所以要求全部 required；additionalProperties: true 意味着任意键名、状态空间失控，所以必须显式 false；minLength / 复杂 pattern 要在自动机里数字符并与 JSON 转义规则复合，实现成本高
 flowchart LR
-    L1["限制①：所有字段 required<br/>可选用 type: [string, null]"] --- R1["原因：n 个可选字段 = 2ⁿ 条分支<br/>全部 required 压成一条线"]
+    L1["<b>限制①：所有字段 required</b><br/>可选用 type: [string, null]"] --- R1["原因：n 个可选字段 = 2ⁿ 条分支<br/>全部 required 压成一条线"]
     L2["限制②：additionalProperties: false<br/>必须显式写"] --- R2["原因：允许任意键名 = 自动机要接受任意字符串作键<br/>状态空间失控"]
     L3["限制③：minLength · 复杂 pattern<br/>不支持或有条件支持"] --- R3["原因：要在自动机里数字符<br/>还要与 JSON 字符串的转义规则复合"]
     classDef lim fill:#fdecea,stroke:#c0392b,color:#222
@@ -134,11 +134,11 @@ Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约
 flowchart TB
     subgraph A["推理在前（推荐）"]
         direction LR
-        A1["evidence<br/>先写原文片段"] --> A2["reasoning<br/>从证据推两三句"] --> A3["category<br/>结论以前两项为条件"] --> A4["confidence"]
+        A1["<b>evidence</b><br/>先写原文片段"] --> A2["<b>reasoning</b><br/>从证据推两三句"] --> A3["<b>category</b><br/>结论以前两项为条件"] --> A4["confidence"]
     end
     subgraph B["结论在前"]
         direction LR
-        B1["category<br/>先给结论"] --> B2["reasoning<br/>为已给的结论找理由"] --> B3["evidence<br/>挑支持结论的片段"]
+        B1["<b>category</b><br/>先给结论"] --> B2["<b>reasoning</b><br/>为已给的结论找理由"] --> B3["<b>evidence</b><br/>挑支持结论的片段"]
     end
     A ~~~ B
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
