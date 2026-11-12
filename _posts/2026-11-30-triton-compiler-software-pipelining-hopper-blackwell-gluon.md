@@ -55,11 +55,11 @@ Triton 把这件事拆成四个 pass（`make_ttgir` 里 `add_assign_latencies �
 ```mermaid
 %% 图：软件流水的四个 pass：AssignLatencies 决定哪些 load 值得流水，ScheduleLoops 分 stage，LowerLoops 变成 async_copy 与缓冲，PipelineExpander 机械展开
 flowchart TB
-    L["AssignLatencies<br/>决定：哪些 load 值得流水、提前几个迭代<br/>输出：op 上的 tt.latency 属性"]
-    S["ScheduleLoops<br/>决定：每个 op 属于哪个 stage、stage 内的顺序（cluster）<br/>输出：op 上的 loop.stage / loop.cluster 属性"]
-    LL["LowerLoops<br/>决定：load 变成什么——async_copy 进几个缓冲、在哪里 wait<br/>输出：local_alloc、async_copy_global_to_local、async_wait、local_load、缓冲下标的 iter_args"]
-    E["PipelineExpander<br/>机械展开：按 stage 生成 prologue、稳态循环体、epilogue<br/>输出：最终的 scf.for"]
-    P["Prefetch<br/>把 dot 操作数从 shared memory 到寄存器的 local_load 提前一个子块"]
+    L["<b>AssignLatencies</b><br/>决定：哪些 load 值得流水、提前几个迭代<br/>输出：op 上的 tt.latency 属性"]
+    S["<b>ScheduleLoops</b><br/>决定：每个 op 属于哪个 stage、stage 内的顺序（cluster）<br/>输出：op 上的 loop.stage / loop.cluster 属性"]
+    LL["<b>LowerLoops</b><br/>决定：load 变成什么——async_copy 进几个缓冲、在哪里 wait<br/>输出：local_alloc、async_copy_global_to_local、async_wait、local_load、缓冲下标的 iter_args"]
+    E["<b>PipelineExpander</b><br/>机械展开：按 stage 生成 prologue、稳态循环体、epilogue<br/>输出：最终的 scf.for"]
+    P["<b>Prefetch</b><br/>把 dot 操作数从 shared memory 到寄存器的 local_load 提前一个子块"]
     L --> S --> LL --> E --> P
 ```
 

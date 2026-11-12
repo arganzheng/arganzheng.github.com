@@ -78,12 +78,12 @@ Table: MLIR 的基础设施与内容
 ```mermaid
 %% 图：MLIR 的包含关系：Operation 拥有 Region，Region 拥有 Block，Block 拥有 Operation，Value 是 OpResult 或 BlockArgument
 flowchart TB
-    op["Operation<br/>名字（dialect.mnemonic）· 操作数 Value* · 结果 OpResult<br/>属性字典 · Region 列表 · 后继 Block 列表 · Location"]
-    region["Region<br/>Block 的有序列表"]
-    block["Block<br/>Block 参数（BlockArgument）· Operation 的有序列表"]
-    value["Value<br/>= OpResult（某个 Op 的第 i 个结果）<br/>或 BlockArgument（某个 Block 的第 i 个参数）"]
-    type_["Type<br/>每个 Value 有且只有一个"]
-    attr["Attribute<br/>编译期常量数据：整数、字符串、数组、类型、layout……"]
+    op["<b>Operation</b><br/>名字（dialect.mnemonic）· 操作数 Value* · 结果 OpResult<br/>属性字典 · Region 列表 · 后继 Block 列表 · Location"]
+    region["<b>Region</b><br/>Block 的有序列表"]
+    block["<b>Block</b><br/>Block 参数（BlockArgument）· Operation 的有序列表"]
+    value["<b>Value</b><br/>= OpResult（某个 Op 的第 i 个结果）<br/>或 BlockArgument（某个 Block 的第 i 个参数）"]
+    type_["<b>Type</b><br/>每个 Value 有且只有一个"]
+    attr["<b>Attribute</b><br/>编译期常量数据：整数、字符串、数组、类型、layout……"]
     op -- "0..n 个" --> region
     region -- "1..n 个" --> block
     block -- "0..n 个" --> op

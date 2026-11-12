@@ -41,12 +41,12 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：LLVM IR 的四层容器：Module → Function → BasicBlock → Instruction，Instruction 与 Function 都是 Value
 flowchart TB
-    mod["Module<br/>target triple · datalayout · 全局变量 · 函数 · metadata"]
-    fn["Function<br/>签名 · 调用约定 · 属性 · 参数 · 基本块列表"]
-    bb["BasicBlock<br/>指令列表，以一条终结指令结束"]
-    inst["Instruction<br/>操作码 · 操作数（Value）· 类型 · flag · metadata"]
+    mod["<b>Module</b><br/>target triple · datalayout · 全局变量 · 函数 · metadata"]
+    fn["<b>Function</b><br/>签名 · 调用约定 · 属性 · 参数 · 基本块列表"]
+    bb["<b>BasicBlock</b><br/>指令列表，以一条终结指令结束"]
+    inst["<b>Instruction</b><br/>操作码 · 操作数（Value）· 类型 · flag · metadata"]
     mod --> fn --> bb --> inst
-    val["Value<br/>所有能被引用的东西的基类：<br/>Instruction · Argument · Constant · GlobalVariable · BasicBlock"]
+    val["<b>Value</b><br/>所有能被引用的东西的基类：<br/>Instruction · Argument · Constant · GlobalVariable · BasicBlock"]
     inst -. "是一个" .-> val
     fn -. "是一个" .-> val
 ```
@@ -208,10 +208,10 @@ mpm.run(*mod, mam);
 %% 图：后端的三件事：指令选择、指令调度、寄存器分配，前后夹着 IR 输入与机器码发射
 flowchart TB
     ir["LLVM IR（SSA，无限虚拟寄存器，与目标无关的指令）"]
-    isel["指令选择<br/>IR 指令 → 目标指令（仍是虚拟寄存器）<br/>SelectionDAG（每个基本块建 DAG，模式匹配）或 GlobalISel"]
+    isel["<b>指令选择</b><br/>IR 指令 → 目标指令（仍是虚拟寄存器）<br/>SelectionDAG（每个基本块建 DAG，模式匹配）或 GlobalISel"]
     sched["指令调度（选择前 / 分配后各一次）<br/>按依赖与延迟排序，隐藏延迟、减少寄存器压力"]
-    ra["寄存器分配<br/>虚拟寄存器 → 物理寄存器；装不下的 spill 到栈 / local memory<br/>φ 在此之前消除"]
-    emit["机器码发射<br/>MC 层：汇编文本或目标文件"]
+    ra["<b>寄存器分配</b><br/>虚拟寄存器 → 物理寄存器；装不下的 spill 到栈 / local memory<br/>φ 在此之前消除"]
+    emit["<b>机器码发射</b><br/>MC 层：汇编文本或目标文件"]
     ir --> isel --> sched --> ra --> emit
 
     classDef hot fill:#fdf1d6,stroke:#b9770e

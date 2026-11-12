@@ -58,13 +58,13 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：编译器的三段：前端产出 IR，中端做与目标无关的 IR → IR 优化，后端做指令选择、调度与寄存器分配
 flowchart LR
-    src["源码<br/>C / Python / …"]
-    fe["前端<br/>词法 · 语法 · 语义分析"]
+    src["<b>源码</b><br/>C / Python / …"]
+    fe["<b>前端</b><br/>词法 · 语法 · 语义分析"]
     ir1["IR"]
-    me["中端<br/>与目标无关的优化<br/>IR → IR"]
+    me["<b>中端</b><br/>与目标无关的优化<br/>IR → IR"]
     ir2["IR（优化后）"]
-    be["后端<br/>指令选择 · 调度 · 寄存器分配"]
-    mc["机器码<br/>x86 / ARM / PTX / …"]
+    be["<b>后端</b><br/>指令选择 · 调度 · 寄存器分配"]
+    mc["<b>机器码</b><br/>x86 / ARM / PTX / …"]
     src --> fe --> ir1 --> me --> ir2 --> be --> mc
 
     classDef ir fill:#dde9f7,stroke:#2e6da4
@@ -106,12 +106,12 @@ CUDA 的编译器 nvcc 在同一张图里是这样的：
 %% 图：nvcc 的两级后端：cudafe++ 前端 → NVVM IR → libnvvm 出 PTX 虚拟 ISA → ptxas 出真实机器码 SASS
 flowchart LR
     cu[".cu 源码"]
-    cudafe["前端<br/>cudafe++（EDG）"]
-    nvvm["NVVM IR<br/>（LLVM IR 的方言）"]
-    nvopt["中端 + 后端 1<br/>libnvvm（LLVM）"]
-    ptx["PTX<br/>虚拟 ISA"]
-    ptxas["后端 2<br/>ptxas"]
-    sass["SASS<br/>真实机器码"]
+    cudafe["<b>前端</b><br/>cudafe++（EDG）"]
+    nvvm["<b>NVVM IR</b><br/>（LLVM IR 的方言）"]
+    nvopt["<b>中端 + 后端 1</b><br/>libnvvm（LLVM）"]
+    ptx["<b>PTX</b><br/>虚拟 ISA"]
+    ptxas["<b>后端 2</b><br/>ptxas"]
+    sass["<b>SASS</b><br/>真实机器码"]
     cu --> cudafe --> nvvm --> nvopt --> ptx --> ptxas --> sass
 
     classDef ir fill:#dde9f7,stroke:#2e6da4
@@ -166,11 +166,11 @@ s  = s + t3
 ```mermaid
 %% 图：sum 函数的 CFG：entry、for.cond、for.body、for.inc、for.end 五个基本块，一条回边
 flowchart TB
-    entry["entry<br/>s = 0; i = 0"]
-    cond["for.cond<br/>i < n ?"]
-    body["for.body<br/>s = s + a#91;i#93; * 2"]
-    inc["for.inc<br/>i = i + 1"]
-    end_["for.end<br/>return s"]
+    entry["<b>entry</b><br/>s = 0; i = 0"]
+    cond["<b>for.cond</b><br/>i < n ?"]
+    body["<b>for.body</b><br/>s = s + a#91;i#93; * 2"]
+    inc["<b>for.inc</b><br/>i = i + 1"]
+    end_["<b>for.end</b><br/>return s"]
     entry --> cond
     cond -- "true" --> body
     cond -- "false" --> end_
@@ -717,11 +717,11 @@ Triton 的分层是这条原则的直接应用：
 ```mermaid
 %% 图：Triton 的渐进式下降：Python → TTIR（无 layout）→ TTGIR（带 layout）→ LLVM IR（每线程标量）→ PTX / SASS，每层能做什么、丢掉什么
 flowchart TB
-    py["Python 函数<br/>信息：源码结构、constexpr 实参值、整数实参的对齐"]
-    ttir["TTIR：块级张量 op，无 layout<br/>能做：代数简化、广播重排、AxisInfo 分析<br/>丢掉：Python 语法、函数边界（全内联）"]
-    ttgir["TTGIR：张量带 layout<br/>能做：layout 选择与传播、Tensor Core 匹配、软件流水<br/>丢掉：与线程映射无关的抽象——每个张量已被钉到具体的线程分布"]
+    py["<b>Python 函数</b><br/>信息：源码结构、constexpr 实参值、整数实参的对齐"]
+    ttir["<b>TTIR：块级张量 op，无 layout</b><br/>能做：代数简化、广播重排、AxisInfo 分析<br/>丢掉：Python 语法、函数边界（全内联）"]
+    ttgir["<b>TTGIR：张量带 layout</b><br/>能做：layout 选择与传播、Tensor Core 匹配、软件流水<br/>丢掉：与线程映射无关的抽象——每个张量已被钉到具体的线程分布"]
     llir["LLVM IR：每线程的标量 / 向量代码<br/>能做：标量优化、指令级调度<br/>丢掉：张量、layout、块级语义（融合已不可能）"]
-    ptx["PTX → SASS<br/>能做：寄存器分配、机器调度<br/>丢掉：类型、SSA"]
+    ptx["<b>PTX → SASS</b><br/>能做：寄存器分配、机器调度<br/>丢掉：类型、SSA"]
     py --> ttir --> ttgir --> llir --> ptx
 
     classDef ir fill:#dde9f7,stroke:#2e6da4
@@ -785,18 +785,18 @@ Table: 三类 ML 编译器
 ```mermaid
 %% 图：编译器家谱：LLVM → MLIR 提供基础设施，Halide → TVM 提供调度思想，Triton 从 LLVM 直出起步、2022 年重写到 MLIR
 flowchart TB
-    llvm["LLVM（2003）<br/>通用中端 + 多后端"]
+    llvm["<b>LLVM（2003）</b><br/>通用中端 + 多后端"]
     nvvm["nvcc / NVVM（2007 起，2012 转 LLVM）<br/>CUDA C++ → PTX"]
-    halide["Halide（2012）<br/>算法 / 调度分离"]
-    xla["XLA（2017）<br/>HLO 图编译器，TPU 的编译器"]
-    tvm["TVM（2017）<br/>Halide 的调度 + 自动调优 + 图层"]
-    tritonp["Triton 论文（2019）<br/>块级编程，LLVM 直出"]
-    mlir["MLIR（2019）<br/>多层 IR 基础设施"]
-    triton["Triton 2.x（2022–）<br/>重写为 MLIR 方言：TTIR / TTGIR"]
-    inductor["TorchInductor（2023）<br/>图层 + 生成 Triton"]
+    halide["<b>Halide（2012）</b><br/>算法 / 调度分离"]
+    xla["<b>XLA（2017）</b><br/>HLO 图编译器，TPU 的编译器"]
+    tvm["<b>TVM（2017）</b><br/>Halide 的调度 + 自动调优 + 图层"]
+    tritonp["<b>Triton 论文（2019）</b><br/>块级编程，LLVM 直出"]
+    mlir["<b>MLIR（2019）</b><br/>多层 IR 基础设施"]
+    triton["<b>Triton 2.x（2022–）</b><br/>重写为 MLIR 方言：TTIR / TTGIR"]
+    inductor["<b>TorchInductor（2023）</b><br/>图层 + 生成 Triton"]
     tir["TVM TensorIR / Relax（2022–）"]
     stablehlo["StableHLO / IREE / torch-mlir<br/>MLIR 上的图编译器"]
-    gluon["Gluon（2025）<br/>显式 layout 的 Triton 子语言"]
+    gluon["<b>Gluon（2025）</b><br/>显式 layout 的 Triton 子语言"]
 
     llvm --> nvvm
     llvm --> tritonp

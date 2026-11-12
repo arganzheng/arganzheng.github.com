@@ -230,9 +230,9 @@ tail call void asm sideeffect "cp.async.cg.shared.global [ $0 + 0 ], [ $1 + 0 ],
 ```mermaid
 %% 图：tt.reduce 的三级：线程内折叠 register 位，warp 内用 shfl.sync.bfly 蝶形规约 lane 位，跨 warp 经 shared memory 与 barrier 再规约
 flowchart LR
-    r1["① reduceWithinThreads<br/>规约维落在 register 位的部分：<br/>本线程持有的同一行元素直接用 combine 函数折叠"]
-    r2["② reduceWithinWarps<br/>规约维落在 lane 位的部分：<br/>每一位一次 shfl.sync.bfly + combine（蝶形）"]
-    r3["③ 跨 warp<br/>规约维落在 warp 位的部分：<br/>每个 warp 的部分结果写 shared memory → barrier →<br/>读回、再规约（线程内 + shuffle）→ 结果按 #slice layout 分发"]
+    r1["<b>① reduceWithinThreads</b><br/>规约维落在 register 位的部分：<br/>本线程持有的同一行元素直接用 combine 函数折叠"]
+    r2["<b>② reduceWithinWarps</b><br/>规约维落在 lane 位的部分：<br/>每一位一次 shfl.sync.bfly + combine（蝶形）"]
+    r3["<b>③ 跨 warp</b><br/>规约维落在 warp 位的部分：<br/>每个 warp 的部分结果写 shared memory → barrier →<br/>读回、再规约（线程内 + shuffle）→ 结果按 #slice layout 分发"]
     r1 --> r2 --> r3
 ```
 

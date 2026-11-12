@@ -91,9 +91,9 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：JITFunction 保存什么：源码文本、KernelParam、cache_key、按设备的缓存；kernel[grid] 走 __getitem__ 到 run，直接调用抛异常
 flowchart LR
-    src["Python 源码文本<br/>（def 开始，无装饰器）"]
-    params["KernelParam × 15<br/>名字 · 位置 · is_constexpr · do_not_specialize"]
-    hash["cache_key<br/>源码 + 依赖的哈希"]
+    src["<b>Python 源码文本</b><br/>（def 开始，无装饰器）"]
+    params["<b>KernelParam × 15</b><br/>名字 · 位置 · is_constexpr · do_not_specialize"]
+    hash["<b>cache_key</b><br/>源码 + 依赖的哈希"]
     caches["device_caches#91;device#93;<br/>kernel_cache · binder · backend"]
     jf["JITFunction"]
     jf --> src
@@ -131,7 +131,7 @@ Table: 运行时参数与 constexpr 参数
 %% 图：JITFunction.run 的流程：binder 算出每个参数的 (type_str, spec_key) → 缓存 key 命中则直接 launch，否则打包成 ASTSource 交给 triton.compile
 flowchart TB
     args["实参：a, b, c, 1024, 2048, 512, strides…, BLOCK_M=128, …, num_warps=4, num_stages=3"]
-    binder["binder(*args, **kwargs)<br/>对每个参数：(type_str, spec_key)<br/>constexpr 参数：(&quot;constexpr&quot;, 值)"]
+    binder["<b>binder(*args, **kwargs)</b><br/>对每个参数：(type_str, spec_key)<br/>constexpr 参数：(&quot;constexpr&quot;, 值)"]
     key["compute_cache_key(specialization, options)"]
     hit{"kernel_cache#91;key#93; 命中？"}
     pack["_pack_args → signature · constexprs · attrs"]
@@ -347,10 +347,10 @@ if (hasattr(fn, '__self__') and _is_triton_value(fn.__self__)) or language.core.
 ```mermaid
 %% 图：for 到 scf.for：先空跑循环体找出携带变量，删临时 block，建 scf.for 并把 lscope 指向 block 参数，真正遍历后 scf.yield
 flowchart TB
-    dry["空跑循环体到临时 block<br/>lscope 变化的名字 = 携带变量：acc, a_ptrs, b_ptrs"]
+    dry["<b>空跑循环体到临时 block</b><br/>lscope 变化的名字 = 携带变量：acc, a_ptrs, b_ptrs"]
     erase["删临时 block，恢复 lscope"]
     forop["create_for_op(lb, ub, step, init_args=#91;acc₀, a_ptrs₀, b_ptrs₀#93;)<br/>body block 参数：%k, %acc, %a_ptrs, %b_ptrs"]
-    real["第二次遍历循环体（真的）<br/>lscope#91;acc#93; = %acc（block 参数）"]
+    real["<b>第二次遍历循环体（真的）</b><br/>lscope#91;acc#93; = %acc（block 参数）"]
     yield_["scf.yield %acc_new, %a_ptrs_new, %b_ptrs_new"]
     after["lscope#91;acc#93; = for_op.result(0)"]
     dry --> erase --> forop --> real --> yield_ --> after

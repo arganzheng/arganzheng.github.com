@@ -280,8 +280,8 @@ Greedy rewrite 有一个隐含前提：**改写前后，被替换的值类型相
 ```mermaid
 %% 图：Dialect Conversion 的四个组件：ConversionTarget 定合法性，TypeConverter 定类型怎么变，ConversionPattern 定 op 怎么变，driver 全部成功才提交
 flowchart TB
-    target["ConversionTarget：合法性<br/>Legal：这些 op / 方言不用动<br/>Illegal：这些必须消失<br/>Dynamic：由谓词判断（如「所有 tensor 操作数都带 layout」）"]
-    tc["TypeConverter：类型怎么变<br/>addConversion：tensor&lt;…&gt; → tensor&lt;…, #blocked&gt;<br/>materialization：两个类型之间需要桥接时插什么 op"]
+    target["<b>ConversionTarget：合法性</b><br/>Legal：这些 op / 方言不用动<br/>Illegal：这些必须消失<br/>Dynamic：由谓词判断（如「所有 tensor 操作数都带 layout」）"]
+    tc["<b>TypeConverter：类型怎么变</b><br/>addConversion：tensor&lt;…&gt; → tensor&lt;…, #blocked&gt;<br/>materialization：两个类型之间需要桥接时插什么 op"]
     pats["ConversionPattern 集合：每种 op 怎么变<br/>matchAndRewrite(op, adaptor, rewriter)<br/>adaptor 里是「已经转换过的」操作数"]
     driver["applyPartialConversion / applyFullConversion<br/>按合法性挑出要转的 op，逐个应用 pattern<br/>记录所有改动，中间允许类型不一致<br/>全部成功才提交，任何一步失败则整体回滚"]
     target --> driver
@@ -540,11 +540,11 @@ func.func @g(%arg0: i1) -> i32 {
 %% 图：一个 Triton pass 从哪里来：Passes.td 用 TableGen 声明 → mlir-tblgen 生成 CRTP 基类与 create / register 函数 → .cpp 实现 runOnOperation
 flowchart TB
     td["include/triton/Dialect/TritonGPU/Transforms/Passes.td<br/>def TritonGPUCoalesce : Pass&lt;&quot;tritongpu-coalesce&quot;, &quot;mlir::ModuleOp&quot;&gt; { dependentDialects = [ttg] }"]
-    gen["mlir-tblgen -gen-pass-decls<br/>→ impl::TritonGPUCoalesceBase&lt;Derived&gt;（CRTP 基类：名字、选项、依赖方言）<br/>→ createTritonGPUCoalesce()<br/>→ registerTritonGPUCoalesce()"]
+    gen["<b>mlir-tblgen -gen-pass-decls</b><br/>→ impl::TritonGPUCoalesceBase&lt;Derived&gt;（CRTP 基类：名字、选项、依赖方言）<br/>→ createTritonGPUCoalesce()<br/>→ registerTritonGPUCoalesce()"]
     cpp["lib/Dialect/TritonGPU/Transforms/Coalesce.cpp<br/>struct CoalescePass : impl::TritonGPUCoalesceBase&lt;CoalescePass&gt; { void runOnOperation() override {…} }"]
-    py["python/src/passes.cc<br/>ADD_PASS_WRAPPER_0(&quot;add_coalesce&quot;, createTritonGPUCoalesce)<br/>= m.def(&quot;add_coalesce&quot;, [](PassManager &amp;pm){ pm.addPass(createTritonGPUCoalesce()); })"]
+    py["<b>python/src/passes.cc</b><br/>ADD_PASS_WRAPPER_0(&quot;add_coalesce&quot;, createTritonGPUCoalesce)<br/>= m.def(&quot;add_coalesce&quot;, [](PassManager &amp;pm){ pm.addPass(createTritonGPUCoalesce()); })"]
     compiler["third_party/nvidia/backend/compiler.py<br/>passes.ttgpuir.add_coalesce(pm)"]
-    opt["bin/RegisterTritonDialects.h<br/>registerTritonGPUPasses() → triton-opt --tritongpu-coalesce"]
+    opt["<b>bin/RegisterTritonDialects.h</b><br/>registerTritonGPUPasses() → triton-opt --tritongpu-coalesce"]
     td --> gen --> cpp
     gen --> py --> compiler
     gen --> opt

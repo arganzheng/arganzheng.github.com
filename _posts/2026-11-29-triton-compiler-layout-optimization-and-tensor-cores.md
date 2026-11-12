@@ -22,14 +22,14 @@ catalog: true
 ```mermaid
 %% 图：make_ttgir 里 layout 相关 pass 的实际顺序，以 convert_layout 数量为刻度：16 → 23 → 3 → 7 → 3 → 1
 flowchart LR
-    c0["ConvertTritonToTritonGPU<br/>16 个 convert"]
-    c1["Coalesce<br/>23 个"]
-    c2["RemoveLayoutConversions ①<br/>3 个"]
-    c3["OptimizeThreadLocality<br/>（本例无变化）"]
-    c4["AccelerateMatmul<br/>7 个"]
-    c5["RemoveLayoutConversions ②<br/>3 个"]
-    c6["OptimizeDotOperands<br/>（本例无变化）"]
-    c7["… Pipeline（第九篇）…<br/>1 个"]
+    c0["<b>ConvertTritonToTritonGPU</b><br/>16 个 convert"]
+    c1["<b>Coalesce</b><br/>23 个"]
+    c2["<b>RemoveLayoutConversions ①</b><br/>3 个"]
+    c3["<b>OptimizeThreadLocality</b><br/>（本例无变化）"]
+    c4["<b>AccelerateMatmul</b><br/>7 个"]
+    c5["<b>RemoveLayoutConversions ②</b><br/>3 个"]
+    c6["<b>OptimizeDotOperands</b><br/>（本例无变化）"]
+    c7["<b>… Pipeline（第九篇）…</b><br/>1 个"]
     c0 --> c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7
 
     classDef hot fill:#fdf1d6,stroke:#b9770e
