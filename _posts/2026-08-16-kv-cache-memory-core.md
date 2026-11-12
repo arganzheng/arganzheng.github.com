@@ -274,7 +274,7 @@ sequenceDiagram
     participant B as Request B<br/>[SysPrompt 2000] + "Bye"
 
     Note over A,P: 链式哈希：每块的 hash 依赖前驱块
-    A->>P: Prefill 2000 tokens<br/>Blk0=hash(t₁…t₁₆)=0xABC1<br/>Blk1=hash(0xABC1, t₁₇…t₃₂)=0xDEF2 …
+    A->>P: Prefill 2000 tokens<br/>Blk0=hash($$t_1 \dots t_{16}$$)=0xABC1<br/>Blk1=hash(0xABC1, $$t_{17} \dots t_{32}$$)=0xDEF2 …
     P-->>P: 125 个满块全部注册进缓存
     B->>P: get_computed_blocks()
     P-->>B: 0xABC1 命中 → 0xDEF2 命中 → … 125 块全中（ref_cnt++）
