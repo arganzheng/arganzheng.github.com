@@ -45,13 +45,13 @@ CLIP 文本塔 / T5-XXL / LLM`"]
     IMG["训练图像 1024²"] -. "训练时" .-> VE["`**VAE 编码器**（f8）
 1024² × 3 → 128² × 4（48× 更小）
 或 128² × 16（12× 更小）`"]
-    VE -. "加噪到 x_t" .-> NET
-    Z["噪声 latent x_T ~ N(0, I)
+    VE -. "加噪到 $$x_t$$" .-> NET
+    Z["噪声 latent $$x_T \sim \mathcal{N}(0, I)$$
 128² × 16"] -- "采样时" --> NET["`**去噪网络**
 U-Net + cross-attn 或 DiT / MMDiT
-每步：预测 ε 或 v，配 CFG 两次前向
+每步：预测 $$\epsilon$$ 或 v，配 CFG 两次前向
 × 20–50 步`"]
-    NET -- "x_0 latent" --> VD["`**VAE 解码器**
+    NET -- "$$x_0$$ latent" --> VD["`**VAE 解码器**
 一次前向重建像素细节`"]
     VD --> OUT["图像 1024²"]
 
