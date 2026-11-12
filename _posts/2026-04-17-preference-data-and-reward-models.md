@@ -37,17 +37,17 @@ Table: 奖励模型链条每一步的关键数字
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 %% 图：奖励模型的训练：一对偏好走两次同一个 RM，loss 只依赖分差 σ(r_w − r_l)
 flowchart TB
-    P["prompt x"] --> W["x + 更好的回答 y_w"]
-    P --> L["x + 较差的回答 y_l"]
+    P["prompt x"] --> W["x + 更好的回答 $$y_w$$"]
+    P --> L["x + 较差的回答 $$y_l$$"]
     W --> RM1["`**RM**
 基座去掉 lm_head，换标量头
 （两次前向共享同一组权重）`"]
     L --> RM1
-    RM1 -- "r_w" --> D["分差 r_w − r_l"]
-    RM1 -- "r_l" --> D
-    D --> S["σ(r_w − r_l)
-= P(y_w ≻ y_l)"]
-    S --> LOSS["loss = −log σ(r_w − r_l)
+    RM1 -- "$$r_w$$" --> D["分差 $$r_w - r_l$$"]
+    RM1 -- "$$r_l$$" --> D
+    D --> S["$$\sigma(r_w - r_l)$$
+$$= P(y_w \succ y_l)$$"]
+    S --> LOSS["$$\text{loss} = -\log \sigma(r_w - r_l)$$
 （就是逻辑回归）"]
 
     classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
