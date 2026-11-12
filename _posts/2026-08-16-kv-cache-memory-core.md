@@ -83,7 +83,7 @@ Table: 操作系统虚拟内存与 PagedAttention 的对应
 %% 图：页表思想的映射：逻辑块连续，Block Table 把它们映到不连续的物理 KV 块
 graph LR
     subgraph LOG["逻辑视图（连续）"]
-        B0["Blk 0<br/>t₁–t₁₆"] --- B1["Blk 1<br/>t₁₇–t₃₂"] --- B2["Blk 2<br/>t₃₃–t₄₈"]
+        B0["Blk 0<br/>$$t_1$$–$$t_{16}$$"] --- B1["Blk 1<br/>$$t_{17}$$–$$t_{32}$$"] --- B2["Blk 2<br/>$$t_{33}$$–$$t_{48}$$"]
     end
     subgraph BT["Block Table"]
         T["VB0 → PB7<br/>VB1 → PB13<br/>VB2 → PB21"]
