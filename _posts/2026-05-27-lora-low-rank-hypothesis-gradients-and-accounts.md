@@ -55,13 +55,13 @@ $$W$$ 冻结，$$A$$、$$B$$ 可训。$$\alpha / r$$ 是一个固定的缩放常
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：LoRA 的前向：冻结的 W 与可训的 A、B 并联，两路相加；训完可以把 (α/r)BA 加回 W
 flowchart TB
-    X["x<br/>$$d_{in}$$ 维"]
-    W["W（冻结）<br/>$$d_{out} \times d_{in}$$"]
-    A["A（可训）<br/>$$r \times d_{in}$$"]
-    B["B（可训，初始为 0）<br/>$$d_{out} \times r$$"]
+    X["<b>x</b><br/>$$d_{in}$$ 维"]
+    W["<b>W（冻结）</b><br/>$$d_{out} \times d_{in}$$"]
+    A["<b>A（可训）</b><br/>$$r \times d_{in}$$"]
+    B["<b>B（可训，初始为 0）</b><br/>$$d_{out} \times r$$"]
     S["× $$\alpha / r$$"]
     ADD(("+"))
-    Y["y<br/>$$d_{out}$$ 维"]
+    Y["<b>y</b><br/>$$d_{out}$$ 维"]
     X --> W --> ADD
     X --> A -->|"r 维"| B --> S --> ADD
     ADD --> Y
@@ -186,10 +186,10 @@ $$
 ```mermaid
 %% 图：LoRA 一层线性层的前向与反向：∂L/∂x 仍要算穿过每一层，∂L/∂W 被省掉
 flowchart TB
-    x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  $$d_{out} \times d_{in}$$<br/>BF16 一份：无梯度、无主权重、无 Adam"]
-    x --> A["A  $$r \times d_{in}$$<br/>可训练，高斯初始化"]
-    A --> B["B  $$d_{out} \times r$$<br/>可训练，初始为 0"]
-    W --> y["$$y = Wx + \frac{\alpha}{r} BAx$$<br/>额外 FLOPs ≈ $$r(d_{in} + d_{out}) / (d_{in} d_{out})$$，8B 上不到 1%"]
+    x["<b>输入 x</b><br/>（仍需保存供反向，激活值不省）"] --> W["<b>冻结 W  $$d_{out} \times d_{in}$$</b><br/>BF16 一份：无梯度、无主权重、无 Adam"]
+    x --> A["<b>A  $$r \times d_{in}$$</b><br/>可训练，高斯初始化"]
+    A --> B["<b>B  $$d_{out} \times r$$</b><br/>可训练，初始为 0"]
+    W --> y["<b>$$y = Wx + \frac{\alpha}{r} BAx$$</b><br/>额外 FLOPs ≈ $$r(d_{in} + d_{out}) / (d_{in} d_{out})$$，8B 上不到 1%"]
     B --> y
     y --> gy["$$\partial L/\partial y$$（来自上一层的反向）"]
     gy -.->|"$$\partial L/\partial x = W^\top \partial L/\partial y$$  仍要算，穿过每一层"| x
