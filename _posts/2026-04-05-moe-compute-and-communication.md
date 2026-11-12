@@ -90,22 +90,22 @@ $$y = \sum_{i \in \text{TopK}(s)} g_i \cdot \text{FFN}_i(x) \ \big(+ \sum_{j=1}^
 %% 图：MoE 层的结构：router 打分、top-k 选择，只有选中的专家参与计算，共享专家绕过 router
 flowchart TB
     TOK["输入 token x（d 维）"]
-    RT["router：W_r x，W_r 是 E × d<br/>softmax 或 sigmoid 得到 E 个分数 s_i"]
-    TK["top-k 选择（k = 2）<br/>g_i = s_i / Σ s_j（i ∈ TopK），其余 g_i = 0"]
+    RT["router：$$W_r x$$，$$W_r$$ 是 E × d<br/>softmax 或 sigmoid 得到 E 个分数 $$s_i$$"]
+    TK["top-k 选择（k = 2）<br/>$$g_i = s_i / \sum s_j$$（$$i \in \text{TopK}$$），其余 $$g_i = 0$$"]
     TOK --> RT --> TK
-    subgraph routed["E 个路由专家：结构相同、参数独立的 SwiGLU FFN，各 3·d·d_ff 参数"]
-        E1["FFN_1<br/>选中，g_1 > 0"]
-        E2["FFN_2<br/>未选中，不计算"]
-        EE["… FFN_E<br/>选中，g_E > 0"]
+    subgraph routed["E 个路由专家：结构相同、参数独立的 SwiGLU FFN，各 $$3 \cdot d \cdot d_{ff}$$ 参数"]
+        E1["$$\text{FFN}_1$$<br/>选中，$$g_1 > 0$$"]
+        E2["$$\text{FFN}_2$$<br/>未选中，不计算"]
+        EE["… $$\text{FFN}_E$$<br/>选中，$$g_E > 0$$"]
     end
     subgraph shared["共享专家（DeepSeek 系列）"]
-        SH["FFN_shared<br/>不经 router，所有 token 都过"]
+        SH["$$\text{FFN}_{\text{shared}}$$<br/>不经 router，所有 token 都过"]
     end
-    TK -->|"x，权重 g_1"| E1
-    TK -.->|"g_2 = 0"| E2
-    TK -->|"x，权重 g_E"| EE
+    TK -->|"x，权重 $$g_1$$"| E1
+    TK -.->|"$$g_2 = 0$$"| E2
+    TK -->|"x，权重 $$g_E$$"| EE
     TOK --> SH
-    SUM["y = g_1·FFN_1(x) + g_E·FFN_E(x) + FFN_shared(x)<br/>这一层只算了 k + n_shared 个 FFN，却持有 E + n_shared 个"]
+    SUM["$$y = g_1 \cdot \text{FFN}_1(x) + g_E \cdot \text{FFN}_E(x) + \text{FFN}_{\text{shared}}(x)$$<br/>这一层只算了 $$k + n_{\text{shared}}$$ 个 FFN，却持有 $$E + n_{\text{shared}}$$ 个"]
     E1 --> SUM
     EE --> SUM
     SH --> SUM
