@@ -401,17 +401,17 @@ Table: internode.cu dispatch 的五种 WarpRole
 %% 图：平坦 all_to_all 与 DeepEP normal kernel：前者三份各自过网卡，后者按节点去重网卡只过一份、节点内 NVLink 分发
 flowchart TB
     subgraph flat["平坦 all_to_all（NCCL send/recv、DeepEP low-latency）：3 份各自过网卡"]
-        S1["节点 0 · GPU 2<br/>token t 的 3 个目标专家分别在节点 1 的 GPU 1 / 3 / 5"]
+        S1["<b>节点 0 · GPU 2</b><br/>token t 的 3 个目标专家分别在节点 1 的 GPU 1 / 3 / 5"]
         S1 -- "RDMA ①" --> F1["节点 1 · GPU 1"]
         S1 -- "RDMA ②" --> F3["节点 1 · GPU 3"]
         S1 -- "RDMA ③" --> F5["节点 1 · GPU 5"]
     end
     subgraph dedup["DeepEP normal kernel：按节点去重，网卡只过 1 份，节点内 NVLink 分发"]
-        S2["节点 0 · GPU 2<br/>kRDMASender：写本地 RDMA 发送队列<br/>nvshmemi_ibgda_put_nbi_warp"]
-        S2 -- "RDMA ①（发往同号 GPU）" --> R2["节点 1 · GPU 2<br/>对称 RDMA buffer（rdma_channel_data）<br/>kRDMAAndNVLForwarder 读 SourceMeta 决定去向"]
-        R2 -- "NVLink 写 NVL buffer" --> D1["节点 1 · GPU 1<br/>kNVLReceivers → recv_x"]
-        R2 -- "NVLink 写 NVL buffer" --> D3["节点 1 · GPU 3<br/>kNVLReceivers → recv_x"]
-        R2 -- "NVLink 写 NVL buffer" --> D5["节点 1 · GPU 5<br/>kNVLReceivers → recv_x"]
+        S2["<b>节点 0 · GPU 2</b><br/>kRDMASender：写本地 RDMA 发送队列<br/>nvshmemi_ibgda_put_nbi_warp"]
+        S2 -- "RDMA ①（发往同号 GPU）" --> R2["<b>节点 1 · GPU 2</b><br/>对称 RDMA buffer（rdma_channel_data）<br/>kRDMAAndNVLForwarder 读 SourceMeta 决定去向"]
+        R2 -- "NVLink 写 NVL buffer" --> D1["<b>节点 1 · GPU 1</b><br/>kNVLReceivers → recv_x"]
+        R2 -- "NVLink 写 NVL buffer" --> D3["<b>节点 1 · GPU 3</b><br/>kNVLReceivers → recv_x"]
+        R2 -- "NVLink 写 NVL buffer" --> D5["<b>节点 1 · GPU 5</b><br/>kNVLReceivers → recv_x"]
     end
     F3 ~~~ S2
     classDef nic fill:#fde2e2,stroke:#c0392b;
@@ -469,17 +469,17 @@ if (return_recv_hook) recv_hook = [=]() { launcher(LOW_LATENCY_RECV_PHASE); };
 %% 图：一次 LL dispatch 的数据流：token warp 写发送槽，NVLink 可达则直写对端显存，否则 IBGDA 发 RDMA，最后原子加计数
 flowchart TB
     subgraph send["send 阶段：LOW_LATENCY_SEND_PHASE"]
-        A["token warp：读一行 BF16<br/>kUseFP8 时每 128 通道求 amax、转 FP8<br/>写本地发送槽（16 B 头 + 数据 + scale）"]
+        A["<b>token warp：读一行 BF16</b><br/>kUseFP8 时每 128 通道求 amax、转 FP8<br/>写本地发送槽（16 B 头 + 数据 + scale）"]
         B["前 top-k 个 warp 各管一个目标专家<br/>算 dst_rank、dst_expert_local_idx<br/>目标槽位 = recv_x#91;dst_expert#93;#91;src_rank#93;#91;slot#93;"]
         C{"nvshmemi_get_p2p_ptr 非零？"}
-        D["NVLink 可达<br/>UNROLLED_WARP_COPY 直写对端显存"]
-        E["nvshmemi_ibgda_put_nbi_warp<br/>warp 自己写 WQE、敲 doorbell<br/>qp_id = dst_expert_local_idx"]
+        D["<b>NVLink 可达</b><br/>UNROLLED_WARP_COPY 直写对端显存"]
+        E["<b>nvshmemi_ibgda_put_nbi_warp</b><br/>warp 自己写 WQE、敲 doorbell<br/>qp_id = dst_expert_local_idx"]
         F["最后一个 warp：本 rank 全部发完后<br/>对每个 (dst_rank, expert) 原子加<br/>rdma_recv_count = -num_sent - 1"]
         A --> B --> C
         C -- "是" --> D --> F
         C -- "否" --> E --> F
     end
-    G["kernel 退出，SM 全部释放<br/>RDMA 在网卡与对端显存之间继续<br/>return_recv_hook=True 时框架稍后调用 hook()"]
+    G["<b>kernel 退出，SM 全部释放</b><br/>RDMA 在网卡与对端显存之间继续<br/>return_recv_hook=True 时框架稍后调用 hook()"]
     subgraph recv["recv 阶段：LOW_LATENCY_RECV_PHASE（hook 再启动同一 kernel）"]
         H["每个 warp group 负责一个 (local_expert, src_rank)<br/>一个 lane 用 ld_acquire 自旋等 rdma_recv_count 非零<br/>clock64 计时累加进 dispatch_wait_recv_cost_stats"]
         I["解码 n = -count - 1<br/>atomicAdd(packed_recv_count#91;expert#93;, n) 领一段输出下标"]

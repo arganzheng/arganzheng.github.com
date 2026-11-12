@@ -21,13 +21,13 @@ date: 2026-06-27 20:00:00
 %% 图：通信与互联系列全景：先造 α-β 尺子，再给 β 与 α 填数，汇合到 NCCL
 flowchart TB
     N1["01 $$\alpha$$-$$\beta$$ 模型与 ring all-reduce<br/>造一把尺子：$$T = \alpha + S/\beta$$"]
-    N1 --> N2["02 硬件互联<br/>给 $$\beta$$ 填上真实数字：PCIe / NVLink / IB"]
-    N1 --> N3["03 RDMA 与 GPUDirect<br/>给 $$\alpha$$ 填上真实数字：绕过 CPU"]
-    N2 & N3 --> N4["04 NCCL 架构<br/>在探测到的拓扑上选 ring / tree、channel、协议"]
-    N4 --> N5["05 PyTorch 的通信栈<br/>ProcessGroupNCCL、stream、重叠"]
+    N1 --> N2["<b>02 硬件互联</b><br/>给 $$\beta$$ 填上真实数字：PCIe / NVLink / IB"]
+    N1 --> N3["<b>03 RDMA 与 GPUDirect</b><br/>给 $$\alpha$$ 填上真实数字：绕过 CPU"]
+    N2 & N3 --> N4["<b>04 NCCL 架构</b><br/>在探测到的拓扑上选 ring / tree、channel、协议"]
+    N4 --> N5["<b>05 PyTorch 的通信栈</b><br/>ProcessGroupNCCL、stream、重叠"]
     N5 --> N6["06 nccl-tests、调优与排障"]
-    N4 & N5 --> N7["07 推理侧的通信<br/>custom all-reduce、KV 传输"]
-    N4 & N5 --> N8["08 MoE 的通信<br/>all-to-all、DeepEP、GPU 发起"]
+    N4 & N5 --> N7["<b>07 推理侧的通信</b><br/>custom all-reduce、KV 传输"]
+    N4 & N5 --> N8["<b>08 MoE 的通信</b><br/>all-to-all、DeepEP、GPU 发起"]
 
 ```
 

@@ -483,12 +483,12 @@ flowchart TB
         C3 --> C4["kernel 带着 RankData* = 槽位 k 进入 graph"]
     end
     subgraph reg["捕获结束：capture() 退出 → register_graph_buffers"]
-        R1["get_graph_buffer_ipc_meta<br/>cuPointerGetAttribute 找分配块基址<br/>cudaIpcGetMemHandle 导出句柄 + 偏移"] --> R2["gloo group 上 broadcast_object_list<br/>每个 rank 拿到全部 rank 的句柄与偏移"]
+        R1["<b>get_graph_buffer_ipc_meta</b><br/>cuPointerGetAttribute 找分配块基址<br/>cudaIpcGetMemHandle 导出句柄 + 偏移"] --> R2["gloo group 上 broadcast_object_list<br/>每个 rank 拿到全部 rank 的句柄与偏移"]
         R2 --> R3["open_ipc_handle（ipc_handles_ 去重）+ 偏移<br/>得到全部对端地址"]
         R3 --> R4["cudaMemcpy 把 RankData 填进槽位 k"]
     end
     subgraph rep["回放"]
-        P1["graph.replay()：kernel 参数仍是槽位 k"] --> P2["读到完整的 n 个地址<br/>直接 ld.global 对端显存"]
+        P1["graph.replay()：kernel 参数仍是槽位 k"] --> P2["<b>读到完整的 n 个地址</b><br/>直接 ld.global 对端显存"]
     end
     C4 --> R1
     R4 --> P1

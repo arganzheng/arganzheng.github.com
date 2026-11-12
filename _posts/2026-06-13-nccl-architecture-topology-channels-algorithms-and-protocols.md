@@ -295,11 +295,11 @@ float sm90SpeedArrayInter[] = { 48.0, 45.0, 42.0, 40.0, 30.0, 24.0, 22.0, 20.0, 
 %% 图：拓扑搜索的循环：DFS 找 channel，不完美就按顺序放宽一项重搜，两个出口是完美解与用尽放宽项后的最优解
 flowchart TB
   S0["从 speedArray 取第一个 ≤ maxBw 的速度<br/>bwIntra = bwInter = speed，sameChannels = 1"]
-  S1["ncclTopoSearchRec：DFS 回溯<br/>沿 type ≤ typeIntra 且余量 ≥ speed 的链路走遍所有 GPU<br/>每找到一条就从链路上扣带宽、记一个 channel"]
+  S1["<b>ncclTopoSearchRec：DFS 回溯</b><br/>沿 type ≤ typeIntra 且余量 ≥ speed 的链路走遍所有 GPU<br/>每找到一条就从链路上扣带宽、记一个 channel"]
   Q1{"nChannels × speed ≥ totalBw?<br/>(完美解，time == -1)"}
   RL["第一个 pass：按顺序只放宽一项<br/>1 允许各 channel 不同 (sameChannels = 0)<br/>2 换更简单的 tree pattern<br/>3 放宽 typeIntra / typeInter<br/>4 允许 crossNic (进出不同 NIC)<br/>5 speed 降一档"]
   QANY{"放宽项用尽：<br/>有过任何解?"}
-  P2["第二个 pass<br/>bwIntra ≥ 25 时 ncclTopoDupChannels：channel ×2、带宽 ÷2<br/>再试升一档速度，能保持 channel 数就采用"]
+  P2["<b>第二个 pass</b><br/>bwIntra ≥ 25 时 ncclTopoDupChannels：channel ×2、带宽 ÷2<br/>再试升一档速度，能保持 channel 数就采用"]
   FB["退化：按 GPU 编号 1 条 ring，bw 0.1<br/>falling back to simple order"]
   OUT["ncclTopoGraph：nChannels、bwIntra/bwInter<br/>typeIntra/typeInter、intra#91;#93; GPU 顺序、inter#91;#93; NIC"]
   S0 --> S1 --> Q1

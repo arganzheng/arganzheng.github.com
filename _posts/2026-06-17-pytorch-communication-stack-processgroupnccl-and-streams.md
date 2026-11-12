@@ -193,12 +193,12 @@ comm->initialized_ = !comm->nonBlocking_;
 ```mermaid
 %% 图：WorkNCCL 的状态机：Enqueued → Started → Completed，超时与异步错误由 watchdog 轮询发现
 flowchart TB
-    Enq["Enqueued<br/>collective() 构造 WorkNCCL，workStartTime_ = now<br/>workEnqueue 放进 workMetaList_"]
-    Sta["Started<br/>ncclStartEvent_ 已触发<br/>（仅 TORCH_NCCL_ENABLE_TIMING 时存在）"]
-    Cmp["Completed<br/>ncclEndEvent_ 已触发 = isCompleted()"]
-    Tmo["TimedOut<br/>now - workStartTime_ ≥ opTimeout_"]
-    Err["Errored<br/>ncclCommGetAsyncError 返回错误"]
-    Ret["从 workMetaList_ 删除<br/>shelf 转移到 shelvesToUnstash_"]
+    Enq["<b>Enqueued</b><br/>collective() 构造 WorkNCCL，workStartTime_ = now<br/>workEnqueue 放进 workMetaList_"]
+    Sta["<b>Started</b><br/>ncclStartEvent_ 已触发<br/>（仅 TORCH_NCCL_ENABLE_TIMING 时存在）"]
+    Cmp["<b>Completed</b><br/>ncclEndEvent_ 已触发 = isCompleted()"]
+    Tmo["<b>TimedOut</b><br/>now - workStartTime_ ≥ opTimeout_"]
+    Err["<b>Errored</b><br/>ncclCommGetAsyncError 返回错误"]
+    Ret["<b>从 workMetaList_ 删除</b><br/>shelf 转移到 shelvesToUnstash_"]
     Hex["handleException(asyncErrorHandling_)<br/>第八章的四种处置"]
     Enq -->|"GPU 触发 start event"| Sta
     Sta -->|"GPU 触发 end event"| Cmp
@@ -247,15 +247,15 @@ flowchart TB
     Store["TCPStore（进程内唯一，控制面）<br/>各组用不同前缀的 PrefixStore 隔离 key"]
     subgraph pgdp["ProcessGroupNCCL 实例 1（DP 组）"]
         D1["devNCCLCommMap_#91;'0'#93; → NCCLComm（DP）"]
-        D2["ncclStreams_#91;'0'#93; → stream A<br/>ncclEvents_#91;'0'#93;"]
+        D2["<b>ncclStreams_#91;'0'#93; → stream A</b><br/>ncclEvents_#91;'0'#93;"]
         D3["workMetaList_ + Watchdog 线程<br/>+ HeartbeatMonitor 线程"]
     end
     subgraph pgtp["ProcessGroupNCCL 实例 2（TP 组）"]
         T1["devNCCLCommMap_#91;'0'#93; → NCCLComm（TP）"]
-        T2["ncclStreams_#91;'0'#93; → stream B<br/>ncclEvents_#91;'0'#93;"]
+        T2["<b>ncclStreams_#91;'0'#93; → stream B</b><br/>ncclEvents_#91;'0'#93;"]
         T3["workMetaList_ + Watchdog 线程<br/>+ HeartbeatMonitor 线程"]
     end
-    GPU["device 0<br/>stream A 与 stream B 之间没有任何 event 依赖<br/>两组的 kernel 可以并发读写同一块显存"]
+    GPU["<b>device 0</b><br/>stream A 与 stream B 之间没有任何 event 依赖<br/>两组的 kernel 可以并发读写同一块显存"]
     Store -->|"ncclUniqueId（key 前缀 default_pg）"| D1
     Store -->|"ncclUniqueId（key 前缀由 new_group 决定）"| T1
     D1 ~~~ D2 ~~~ D3
@@ -635,12 +635,12 @@ eager 模式下返回的是 `AsyncCollectiveTensor`，一个 tensor 子类，带
 ```mermaid
 %% 图：两条边线程：Watchdog 每 100 ms 遍历 workMetaList_ 并给 heartbeat_ 计数，HeartbeatMonitor 读心跳并轮询 TCPStore 的 dump 信号
 flowchart TB
-    Main["主线程<br/>collective() → workEnqueue(work)"]
-    List["workMetaList_<br/>WorkNCCL 拷贝列表（mutex 保护）"]
+    Main["<b>主线程</b><br/>collective() → workEnqueue(work)"]
+    List["<b>workMetaList_</b><br/>WorkNCCL 拷贝列表（mutex 保护）"]
     WD["Watchdog 线程 pt_nccl_watchdg<br/>每 100 ms（kWatchdogThreadSleepMillis）遍历一轮：<br/>查 NCCL 异步错误 → 查超时 → 查完成 → 清理<br/>每轮 heartbeat_++"]
     HB["heartbeat_ 计数器"]
     HM["HeartbeatMonitor 线程 pt_nccl_heartbt<br/>每 480 s（TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC）读一次 heartbeat_<br/>每 1 s 轮询 TCPStore 上的 dump 信号"]
-    Store["TCPStore<br/>exception_dump / remote_error 两个 key"]
+    Store["<b>TCPStore</b><br/>exception_dump / remote_error 两个 key"]
     Peers["其他 rank 的 HeartbeatMonitor"]
     Dump["dump Flight Recorder"]
     Exit["handleException → 抛异常退出<br/>或 terminateProcess → std::abort()"]

@@ -130,7 +130,7 @@ PCIe 的每次读写都是一个 TLP，带着目标地址。GPU0 要写 GPU1 的
 %% 图：三条 PCIe P2P 路径：PIX 在 switch 内转发，PHB 上行到 root complex，SYS 再跨 UPI；ACS 把 ① 改道成 ②
 flowchart TB
   subgraph cpu0["CPU0（NUMA 0）"]
-    RC0["root complex 0<br/>（IOMMU）"]
+    RC0["<b>root complex 0</b><br/>（IOMMU）"]
     SW0["PCIe switch 0"]
     SW1["PCIe switch 1"]
     G0["GPU0"]
@@ -245,7 +245,7 @@ flowchart TB
     N1["GPU1"]
     N2["GPU2"]
     N7["… GPU7"]
-    NS["NVSwitch 组<br/>DGX A100：6 颗，每卡 12 条<br/>DGX H100：4 颗，每卡 18 条"]
+    NS["<b>NVSwitch 组</b><br/>DGX A100：6 颗，每卡 12 条<br/>DGX H100：4 颗，每卡 18 条"]
     N0 -- "12 / 18 条" --- NS
     N1 -- "12 / 18 条" --- NS
     N2 -- "12 / 18 条" --- NS
@@ -574,12 +574,12 @@ NCCL 决定一次传输要不要经过主机内存，走的是下面这棵决策
 flowchart TB
   S["GPU A 要把数据送到 GPU B"] --> Q1{"B 在同一节点？"}
   Q1 -- "是" --> Q2{"A–B 路径等级 ≤ NCCL_P2P_LEVEL（默认 PXB）<br/>且 cudaDeviceCanAccessPeer = 1？"}
-  Q2 -- "是，路径为 NVL" --> P1["P2P transport 经 NVLink<br/>SM 直接 load/store 对端显存"]
-  Q2 -- "是，路径为 PIX / PXB" --> P2["P2P transport 经 PCIe switch<br/>DMA 直写对端 BAR"]
+  Q2 -- "是，路径为 NVL" --> P1["<b>P2P transport 经 NVLink</b><br/>SM 直接 load/store 对端显存"]
+  Q2 -- "是，路径为 PIX / PXB" --> P2["<b>P2P transport 经 PCIe switch</b><br/>DMA 直写对端 BAR"]
   Q2 -- "否：PHB / SYS、ACS、平台白名单外" --> P3["SHM transport（src/transport/shm.cc）<br/>A 写主机共享内存，B 再读回<br/>PCIe 走两遍，延迟约翻倍"]
   Q1 -- "否" --> Q3{"A–NIC 路径等级 ≤ NCCL_NET_GDR_LEVEL（默认 PXB）<br/>且 nvidia-peermem 已加载、网卡支持？"}
-  Q3 -- "是" --> N1["GPUDirect RDMA<br/>网卡直接 DMA 显存<br/>日志：via NET/IB/n/GDRDMA"]
-  Q3 -- "否" --> N2["host staging<br/>D2H 拷到 pinned buffer，网卡再从主机内存 DMA<br/>每方向多一次 PCIe 传输与 5–10 µs"]
+  Q3 -- "是" --> N1["<b>GPUDirect RDMA</b><br/>网卡直接 DMA 显存<br/>日志：via NET/IB/n/GDRDMA"]
+  Q3 -- "否" --> N2["<b>host staging</b><br/>D2H 拷到 pinned buffer，网卡再从主机内存 DMA<br/>每方向多一次 PCIe 传输与 5–10 µs"]
   classDef fast fill:#e3f2e1,stroke:#4a8a3a;
   classDef slow fill:#fbe9e7,stroke:#c0392b;
   class P1,P2,N1 fast;

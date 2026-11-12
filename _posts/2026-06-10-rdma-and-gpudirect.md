@@ -34,8 +34,8 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
 %% 图：从显存到对端显存的三条路径：A、B 都要上行经 root complex 进主机内存，GPUDirect RDMA 在 PCIe switch 内折返
 flowchart TB
   subgraph host["主机侧（root complex 之上）"]
-    CPU["CPU<br/>协议栈 + memcpy（仅路径 A 参与数据面）"]
-    MEM["主机内存<br/>A：staging + socket buffer<br/>B：pinned staging"]
+    CPU["<b>CPU</b><br/>协议栈 + memcpy（仅路径 A 参与数据面）"]
+    MEM["<b>主机内存</b><br/>A：staging + socket buffer<br/>B：pinned staging"]
   end
   RC["CPU 的 PCIe root complex"]
   subgraph sw["PCIe switch（GPU 与 NIC 同挂其下）"]
@@ -515,10 +515,10 @@ flowchart TB
   CUH --> REGD["ibv_reg_dmabuf_mr(pd, offset, len, iova = addr, fd)"]
   REGD --> ATT["ib_core / mlx5：dma_buf_attach + map<br/>拿到 BAR1 总线地址的 sg 表（内核主线 API）"]
   Q1 -- "否：FALL-THROUGH to nv_peermem" --> REGM["ibv_reg_mr(pd, 显存指针, len)<br/>与注册主机内存的调用完全一样"]
-  REGM --> IBC["ib_core：普通 pin 页失败<br/>查询已注册的 peer memory client"]
+  REGM --> IBC["<b>ib_core：普通 pin 页失败</b><br/>查询已注册的 peer memory client"]
   IBC --> PM["nvidia-peermem（out-of-tree 模块）<br/>nvidia_p2p_get_pages，2 MB 页粒度"]
   PM --> ATT2["BAR1 里的物理页列表"]
-  ATT --> MTT["写进 NIC 的 MPT / MTT<br/>返回 lkey / rkey"]
+  ATT --> MTT["<b>写进 NIC 的 MPT / MTT</b><br/>返回 lkey / rkey"]
   ATT2 --> MTT
   MTT --> DMA["之后 NIC DMA 直接对 BAR1 地址发 PCIe 读写<br/>不经 root complex，主机内存不在数据面"]
   classDef dmabuf fill:#e8f4fd,stroke:#3a7bd5;
