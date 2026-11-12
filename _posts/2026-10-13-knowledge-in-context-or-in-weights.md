@@ -59,12 +59,12 @@ Table: 知识类型与接入方式的决策表
 flowchart TB
     subgraph FT["微调：把事实训进权重"]
         direction LR
-        F1["3,000 条 FAQ<br/>问：产品 X 保修期？答：两年"] --> F2["SFT"] --> F3["学到的是分布：<br/>「保修问题 → 答一个年限」"]
+        F1["<b>3,000 条 FAQ</b><br/>问：产品 X 保修期？答：两年"] --> F2["SFT"] --> F3["<b>学到的是分布：</b><br/>「保修问题 → 答一个年限」"]
         F3 --> F4["问产品 Y（训练集里有）→ 多半对<br/>问产品 Z（没有）→ 「三年」，格式对、内容编"]
     end
     subgraph RT["检索：把事实放进上下文"]
         direction LR
-        R1["同一批 FAQ 建索引"] --> R2["查询 → 命中条目 #217"] --> R3["模型只能引用查到的：<br/>「保修期两年（条目 #217）」"]
+        R1["同一批 FAQ 建索引"] --> R2["查询 → 命中条目 #217"] --> R3["<b>模型只能引用查到的：</b><br/>「保修期两年（条目 #217）」"]
         R3 --> R4["问产品 Z → 查不到 → 「知识库里没有」"]
     end
     FT ~~~ RT
@@ -95,11 +95,11 @@ flowchart TB
 flowchart TB
     subgraph A["A 团队：FAQ → SFT"]
         direction LR
-        A1["第 1–2 周<br/>准备 3,000 条数据 · 训练 · 回归评测"] --> A2["上线"] --> A3["第 5 周：政策更新<br/>模型继续按旧政策答，答不出出处"] --> A4["重训一轮：又两周"]
+        A1["<b>第 1–2 周</b><br/>准备 3,000 条数据 · 训练 · 回归评测"] --> A2["上线"] --> A3["<b>第 5 周：政策更新</b><br/>模型继续按旧政策答，答不出出处"] --> A4["重训一轮：又两周"]
     end
     subgraph B["B 团队：FAQ → 检索"]
         direction LR
-        B1["第 1–2 天<br/>建索引 · 只允许引用检索到的条目"] --> B2["上线，每条回答带条目号"] --> B3["第 5 周：政策更新<br/>当天重建索引，回答同步"] --> B4["第 12 周：用「问法 → 正确条目」数据<br/>微调小模型做查询改写（行为）"]
+        B1["<b>第 1–2 天</b><br/>建索引 · 只允许引用检索到的条目"] --> B2["上线，每条回答带条目号"] --> B3["<b>第 5 周：政策更新</b><br/>当天重建索引，回答同步"] --> B4["第 12 周：用「问法 → 正确条目」数据<br/>微调小模型做查询改写（行为）"]
     end
     A ~~~ B
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -161,10 +161,10 @@ Table: 改知识的五步及其代价
 ```mermaid
 %% 图：改知识的五步梯子与每步的门——prompt → few-shot → 检索 / 工具 → 微调 → 继续预训练，代价每步上一个量级（分钟 → 分钟 → 小时 → 天 → 周），灵活性每步下一个量级；往右走一步的唯一理由是评测集证明当前这步不够；多数应用停在第三步
 flowchart TB
-    S1["prompt<br/>分钟 · 免费 · 可版本"] -->|"评测集：仍不够？"| S2["few-shot<br/>分钟 · token 成本"]
-    S2 -->|"评测集：仍不够？"| S3["检索 / 工具<br/>小时 · 可引用 · 可过滤<br/>多数应用停在这里"]
-    S3 -->|"评测集：几千条真实数据后仍差几个点？"| S4["微调 SFT / LoRA<br/>天 · 几十到几千美元 · 遗忘风险"]
-    S4 -->|"领域语言本身不熟？"| S5["继续预训练<br/>周 · GPU 集群 · 仍要配检索"]
+    S1["<b>prompt</b><br/>分钟 · 免费 · 可版本"] -->|"评测集：仍不够？"| S2["<b>few-shot</b><br/>分钟 · token 成本"]
+    S2 -->|"评测集：仍不够？"| S3["<b>检索 / 工具</b><br/>小时 · 可引用 · 可过滤<br/>多数应用停在这里"]
+    S3 -->|"评测集：几千条真实数据后仍差几个点？"| S4["<b>微调 SFT / LoRA</b><br/>天 · 几十到几千美元 · 遗忘风险"]
+    S4 -->|"领域语言本身不熟？"| S5["<b>继续预训练</b><br/>周 · GPU 集群 · 仍要配检索"]
     classDef cheap fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef mid fill:#fff7e0,stroke:#c98a00,color:#222
     classDef exp fill:#fdecea,stroke:#c0392b,color:#222
@@ -194,11 +194,11 @@ RAFT（Retrieval-Augmented Fine-Tuning，2024）的思路是：微调的目标�
 ```mermaid
 %% 图：微调在检索系统里的三个正确位置——都是行为、不是事实：RAFT 让模型学会在检索结果里找答案并忽略干扰文档；微调 embedding / rerank 让检索系统学会领域词汇（「逆向」= 退货）；微调查询改写小模型；事实始终留在检索库里
 flowchart TB
-    Q["查询"] --> RW["查询改写<br/>（可微调的小模型 ③）"]
-    RW --> EMB["embedding + BM25 召回<br/>（可微调 embedding ②）"]
-    EMB --> RR["rerank<br/>（可微调 rerank ②）"]
+    Q["查询"] --> RW["<b>查询改写</b><br/>（可微调的小模型 ③）"]
+    RW --> EMB["<b>embedding + BM25 召回</b><br/>（可微调 embedding ②）"]
+    EMB --> RR["<b>rerank</b><br/>（可微调 rerank ②）"]
     RR --> GEN["生成：在检索结果里找答案、引用、忽略干扰<br/>（RAFT 微调 ①）"]
-    KB["检索库：事实在这里<br/>会变 · 可引用 · 按权限过滤"] --> EMB
+    KB["<b>检索库：事实在这里</b><br/>会变 · 可引用 · 按权限过滤"] --> EMB
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ft fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef kb fill:#eefaf0,stroke:#4d9a5c,color:#222

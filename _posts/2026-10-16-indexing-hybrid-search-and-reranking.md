@@ -23,12 +23,12 @@ catalog: true
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：一次检索的路径：两路召回 → RRF 融合 → rerank → top-5 进 prompt
 flowchart TB
-    Q["查询 + 请求者的权限"] --> A["向量召回<br/>抓语义：同义 / 改述<br/>取 top-50"]
-    Q --> B["BM25 召回<br/>抓精确：型号 / 函数名 / 错误码<br/>取 top-50"]
-    P["权限与时间过滤<br/>在召回时就做，不能等到最后"] -.-> A & B
-    A & B --> R["RRF 融合<br/>两个排名合成一个（按名次不按分数）"]
-    R --> K["rerank（cross-encoder）<br/>对 RRF 后的 top-20 逐一精排——整条线上性价比最高的一步"]
-    K --> O["top-5 进 prompt<br/>最相关的放末尾（位置效应）"]
+    Q["查询 + 请求者的权限"] --> A["<b>向量召回</b><br/>抓语义：同义 / 改述<br/>取 top-50"]
+    Q --> B["<b>BM25 召回</b><br/>抓精确：型号 / 函数名 / 错误码<br/>取 top-50"]
+    P["<b>权限与时间过滤</b><br/>在召回时就做，不能等到最后"] -.-> A & B
+    A & B --> R["<b>RRF 融合</b><br/>两个排名合成一个（按名次不按分数）"]
+    R --> K["<b>rerank（cross-encoder）</b><br/>对 RRF 后的 top-20 逐一精排——整条线上性价比最高的一步"]
+    K --> O["<b>top-5 进 prompt</b><br/>最相关的放末尾（位置效应）"]
 
 ```
 
@@ -43,9 +43,9 @@ flowchart LR
         V["向量索引（ANN）"]
         I["倒排索引（BM25）"]
     end
-    V -->|top-50| R["两路合并<br/>RRF 融合"]
+    V -->|top-50| R["<b>两路合并</b><br/>RRF 融合"]
     I -->|top-50| R
-    R -->|top-20| K["rerank<br/>（cross-encoder）"]
+    R -->|top-20| K["<b>rerank</b><br/>（cross-encoder）"]
     K -->|top-5| C["进入上下文"]
 ```
 
@@ -131,10 +131,10 @@ Table: ANN 索引结构对照
 %% 图：HNSW 的多层图与贪心导航——上层稀疏、下层稠密，查询从顶层一个入口点开始，每层贪心走到离查询最近的节点再下一层，到底层做局部精搜；百万向量几次跳转就能到，代价是整张图驻留内存、构建慢
 flowchart TB
     Q["查询向量"] --> L2["第 2 层：几十个节点，稀疏长边<br/>从入口点贪心走到最近的节点"]
-    L2 --> L1["第 1 层：几千个节点<br/>从上一层落点继续贪心"]
+    L2 --> L1["<b>第 1 层：几千个节点</b><br/>从上一层落点继续贪心"]
     L1 --> L0["第 0 层：全部 100 万个节点，稠密短边<br/>局部精搜，返回 top-k"]
     L0 --> R["top-50 候选"]
-    F["元数据过滤（权限 · 时间）<br/>下推到图遍历：走图时跳过不满足的节点<br/>而不是搜完 50 个再过滤剩 3 个"] -.-> L0
+    F["<b>元数据过滤（权限 · 时间）</b><br/>下推到图遍历：走图时跳过不满足的节点<br/>而不是搜完 50 个再过滤剩 3 个"] -.-> L0
     classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef layer fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -214,12 +214,12 @@ flowchart TB
         direction LR
         Q1["查询"] --> E1["编码器"] --> QV["查询向量"]
         D1["文档（索引时已编码）"] --> DV["文档向量"]
-        QV --> DOT["点积 → 相似度<br/>百万文档毫秒级"]
+        QV --> DOT["<b>点积 → 相似度</b><br/>百万文档毫秒级"]
         DV --> DOT
     end
     subgraph CE["cross-encoder（rerank）：精确，逐个算"]
         direction LR
-        P["（查询，文档）拼在一起"] --> M["模型读着查询看文档"] --> S["相关性分数<br/>每个候选一次前向，只做 top-20"]
+        P["（查询，文档）拼在一起"] --> M["模型读着查询看文档"] --> S["<b>相关性分数</b><br/>每个候选一次前向，只做 top-20"]
     end
     BI -->|"top-50 → RRF → top-20"| CE
     classDef bi fill:#eef6ff,stroke:#5b8fd6,color:#222

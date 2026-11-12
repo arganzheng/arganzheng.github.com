@@ -27,7 +27,7 @@ flowchart TB
     W -- "有 schema 的业务表<br/>「华东区 Q3 营收」" --> S["text-to-SQL + <b>语义层</b><br/>业务概念定义一次、编译成 SQL、可审查"]
     W -- "对象、关系、还要<b>做动作</b><br/>「这个客户未完成订单的设备，改派」" --> O["<b>本体</b><br/>对象导航替代 join；动作与权限在本体里定义"]
     W -- "从大量文档里抽出来的实体关系<br/>「这批文档整体在说什么」" --> G["<b>GraphRAG</b><br/>抽实体与关系建图 + 社区摘要；贵，先用 LazyGraphRAG"]
-    S & O & G --> C["都不替代向量 / 词法检索：<br/>先用检索找到相关的对象与文档线索，再用结构精确导航"]
+    S & O & G --> C["<b>都不替代向量 / 词法检索：</b><br/>先用检索找到相关的对象与文档线索，再用结构精确导航"]
 
 ```
 
@@ -82,11 +82,11 @@ Table: 语义层里的业务概念定义
 flowchart TB
     subgraph RAW["✗ 对裸 schema 生成 SQL（Spider 2.0：约两成对）"]
         direction LR
-        Q1["华东区 Q3 营收"] --> M1["模型：猜 cust_stat_cd 是什么 · 营收要不要减退款 · 客户怎么 join 到订单"] --> S1["语法正确、业务错误的 SQL<br/>可能全表扫描几十亿行"]
+        Q1["华东区 Q3 营收"] --> M1["模型：猜 cust_stat_cd 是什么 · 营收要不要减退款 · 客户怎么 join 到订单"] --> S1["<b>语法正确、业务错误的 SQL</b><br/>可能全表扫描几十亿行"]
     end
     subgraph SEM["✓ 对语义层生成查询"]
         direction LR
-        Q2["华东区 Q3 营收"] --> M2["模型：指标 = 营收 · 维度 = 区域 · 时间 = 2026 Q3"] --> L["语义层编译：<br/>营收 = SUM(amount) WHERE paid AND type != internal<br/>区域 = customers.region · 客户 →(1:n) 订单"] --> S2["正确的 SQL + 权限检查（这个角色能看营收吗）"]
+        Q2["华东区 Q3 营收"] --> M2["模型：指标 = 营收 · 维度 = 区域 · 时间 = 2026 Q3"] --> L["<b>语义层编译：</b><br/>营收 = SUM(amount) WHERE paid AND type != internal<br/>区域 = customers.region · 客户 →(1:n) 订单"] --> S2["正确的 SQL + 权限检查（这个角色能看营收吗）"]
     end
     RAW ~~~ SEM
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -109,9 +109,9 @@ flowchart TB
 %% 图：生成的 SQL 执行前后的门——执行前过语法检查、只读权限、EXPLAIN 成本与行数上限、超时四道门；执行后把截断的结果与 SQL 一起回给模型自检（空结果？量级异常？）；这是 L4 工具调用循环在数据查询上的实例
 flowchart TB
     G["模型生成的查询"] --> D1{"语法"} -->|"过"| D2{"只读？"} -->|"过"| D3{"EXPLAIN：<br/>成本 · 行数上限"} -->|"过"| D4{"超时设置"} --> X["执行"]
-    D1 & D2 & D3 -->|"不过"| E["错误作为工具结果送回<br/>模型改写重试一次"]
+    D1 & D2 & D3 -->|"不过"| E["<b>错误作为工具结果送回</b><br/>模型改写重试一次"]
     X --> R["结果截断（前 20 行 + 总行数 + 统计）+ 原 SQL"]
-    R --> C["模型自检：空结果？量级异常？<br/>合理则回答，否则改查询"]
+    R --> C["<b>模型自检：空结果？量级异常？</b><br/>合理则回答，否则改查询"]
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef dec fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef bad fill:#fdecea,stroke:#c0392b,color:#222
@@ -142,15 +142,15 @@ flowchart TB
 flowchart TB
     subgraph ONT["本体"]
         direction LR
-        C["客户<br/>属性：区域 · 状态"] -->|"拥有"| O["订单<br/>属性：状态 · 金额"]
-        O -->|"关联"| D["设备<br/>属性：型号 · 位置"]
-        O -->|"发货自"| W["仓库<br/>属性：库存"]
+        C["<b>客户</b><br/>属性：区域 · 状态"] -->|"拥有"| O["<b>订单</b><br/>属性：状态 · 金额"]
+        O -->|"关联"| D["<b>设备</b><br/>属性：型号 · 位置"]
+        O -->|"发货自"| W["<b>仓库</b><br/>属性：库存"]
     end
     A["agent：给这个客户的未完成订单改派到华东仓"] -->|"导航：客户 → 订单（未完成）"| O
-    O -->|"动作：改派(订单, 仓库)"| ACT["校验：订单状态允许改派？<br/>华东仓有库存？<br/>发起人有权限？"]
+    O -->|"动作：改派(订单, 仓库)"| ACT["<b>校验：订单状态允许改派？</b><br/>华东仓有库存？<br/>发起人有权限？"]
     ACT -->|"全过"| DB["落库 + 审计记录"]
     ACT -->|"任一不过"| REJ["拒绝，原因回给 agent"]
-    N["裸 API / 裸表：agent 碰不到<br/>没有「删除卷」这个动作"] -.-> ONT
+    N["<b>裸 API / 裸表：agent 碰不到</b><br/>没有「删除卷」这个动作"] -.-> ONT
     classDef obj fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef act fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
@@ -193,7 +193,7 @@ Microsoft 2024 年 11 月的 **LazyGraphRAG** 把大部分工作推到查询时�
 flowchart TB
     subgraph G["GraphRAG（2024-07）：重索引、轻查询"]
         direction LR
-        G1["每个块过模型：抽实体与关系<br/>（每块一次生成调用）"] --> G2["建图 → Leiden 层次聚类"] --> G3["每个社区过模型：写摘要"] --> G4["查询：全局问题 map-reduce 社区摘要<br/>局部问题取实体邻域 + 原文"]
+        G1["<b>每个块过模型：抽实体与关系</b><br/>（每块一次生成调用）"] --> G2["建图 → Leiden 层次聚类"] --> G3["每个社区过模型：写摘要"] --> G4["查询：全局问题 map-reduce 社区摘要<br/>局部问题取实体邻域 + 原文"]
     end
     subgraph L["LazyGraphRAG（2024-11）：轻索引、重查询"]
         direction LR
@@ -237,10 +237,10 @@ Table: 结构化知识在不同场景下是否值得
 ```mermaid
 %% 图：「检索找对象，结构化查数据」的通用模式——用户的自然语言先经向量 / 词法检索找到相关的概念或对象（哪个指标、哪个客户），再用 SQL / 本体 / 图拿到精确的数据与关系，结构化结果聚合、截断、换业务字段名后再进上下文，模型看到的是「1.2 亿，同比 +8%，前五客户如下」而不是一万行订单
 flowchart TB
-    Q["华东区去年最大的客户<br/>最近有什么投诉？"] --> R["① 检索找对象<br/>向量 / 词法：概念「营收」「投诉工单」· 实体「华东区」"]
-    R --> S["② 结构化查数据<br/>SQL：华东区去年营收 top-1 客户<br/>本体：客户 → 工单（投诉，近 90 天）"]
-    S --> AGG["③ 聚合与整形<br/>前 20 行 + 总数 + 统计 · 业务字段名 · markdown 表<br/>大结果卸载留引用"]
-    AGG --> GEN["④ 生成<br/>「客户 X（1.2 亿），近 90 天 3 起投诉，涉及…（工单 #…）」"]
+    Q["<b>华东区去年最大的客户</b><br/>最近有什么投诉？"] --> R["<b>① 检索找对象</b><br/>向量 / 词法：概念「营收」「投诉工单」· 实体「华东区」"]
+    R --> S["<b>② 结构化查数据</b><br/>SQL：华东区去年营收 top-1 客户<br/>本体：客户 → 工单（投诉，近 90 天）"]
+    S --> AGG["<b>③ 聚合与整形</b><br/>前 20 行 + 总数 + 统计 · 业务字段名 · markdown 表<br/>大结果卸载留引用"]
+    AGG --> GEN["<b>④ 生成</b><br/>「客户 X（1.2 亿），近 90 天 3 起投诉，涉及…（工单 #…）」"]
     classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef step fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
