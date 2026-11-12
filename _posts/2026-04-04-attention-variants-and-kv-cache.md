@@ -266,28 +266,28 @@ $$W_O$$ 是 $$16384 \times 7168$$（$$16384 = 128 \times 128$$，value 的 head 
 ```mermaid
 %% 图：MLA 一层的数据流：只有 c^KV 与 k^R 进 KV cache，升维后的 k^C、v^C 与 query 侧即算即用
 flowchart TB
-    H["h_t (7168)"]
+    H["$$h_t$$ (7168)"]
     subgraph qside["Query 侧（不进 cache）"]
         direction TB
-        DQ["W_DQ: 7168 → 1536"]
-        CQ["c^Q_t (1536)"]
-        UQ["W_UQ + W_QR: 1536 → 128 × 192"]
-        QC["q^C_t: 128 head × 128"]
-        QR["q^R_t: 128 head × 64<br/>每 head 各自 RoPE"]
+        DQ["$$W_{DQ}$$: 7168 → 1536"]
+        CQ["$$c^Q_t$$ (1536)"]
+        UQ["$$W_{UQ} + W_{QR}$$: 1536 → 128 × 192"]
+        QC["$$q^C_t$$: 128 head × 128"]
+        QR["$$q^R_t$$: 128 head × 64<br/>每 head 各自 RoPE"]
         QC ~~~ QR
     end
     subgraph kvside["KV 侧"]
         direction TB
-        DKV["W_DKV + W_KR: 7168 → 576"]
-        CKV["c^KV_t (512)<br/>RMSNorm"]
-        KR["k^R_t (64)<br/>RoPE，128 个 head 共享"]
-        UKV["W_UK / W_UV: 512 → 128 × 128 各一份"]
-        KVC["k^C_t / v^C_t: 128 head × 128 各一份"]
+        DKV["$$W_{DKV} + W_{KR}$$: 7168 → 576"]
+        CKV["$$c^{KV}_t$$ (512)<br/>RMSNorm"]
+        KR["$$k^R_t$$ (64)<br/>RoPE，128 个 head 共享"]
+        UKV["$$W_{UK}$$ / $$W_{UV}$$: 512 → 128 × 128 各一份"]
+        KVC["$$k^C_t$$ / $$v^C_t$$: 128 head × 128 各一份"]
     end
-    CAT["q_t,h = #91;q^C ; q^R#93; (192)<br/>k_j,h = #91;k^C ; k^R#93; (192)"]
-    ATT["softmax(q·k / √192) · v^C<br/>128 个 head，各得 128 维"]
-    WO["W_O: 16384 → 7168"]
-    U["u_t (7168)"]
+    CAT["$$q_{t,h} = [q^C ; q^R]$$ (192)<br/>$$k_{j,h} = [k^C ; k^R]$$ (192)"]
+    ATT["$$\text{softmax}(q \cdot k / \sqrt{192}) \cdot v^C$$<br/>128 个 head，各得 128 维"]
+    WO["$$W_O$$: 16384 → 7168"]
+    U["$$u_t$$ (7168)"]
 
     H --> DQ --> CQ --> UQ
     UQ --> QC
@@ -298,10 +298,10 @@ flowchart TB
     CKV --> UKV --> KVC
     QC --> CAT
     QR --> CAT
-    KVC -->|"k^C"| CAT
+    KVC -->|"$$k^C$$"| CAT
     KR --> CAT
     CAT --> ATT
-    KVC -->|"v^C"| ATT
+    KVC -->|"$$v^C$$"| ATT
     ATT --> WO --> U
 
     classDef cache fill:#fde68a,stroke:#b45309,stroke-width:2px,stroke-dasharray:5 3;
@@ -407,25 +407,25 @@ $$
 flowchart TB
     subgraph naive["非吸收路径（字面公式，prefill 用）"]
         direction TB
-        N0["cache: c^KV_j (512), k^R_j (64)"]
-        N1["W_UK, W_UV 升维<br/>每个 cached token 2 × 512 × 32768 FLOPs"]
-        N2["k^C_j, v^C_j: 128 head × 128"]
+        N0["cache: $$c^{KV}_j$$ (512), $$k^R_j$$ (64)"]
+        N1["$$W_{UK}$$, $$W_{UV}$$ 升维<br/>每个 cached token 2 × 512 × 32768 FLOPs"]
+        N2["$$k^C_j$$, $$v^C_j$$: 128 head × 128"]
         N3["标准 attention<br/>q·k 192 维，p·v 128 维"]
-        N4["o_t,h (128) × 128 head"]
-        N5["W_O: 16384 → 7168"]
+        N4["$$o_{t,h}$$ (128) × 128 head"]
+        N5["$$W_O$$: 16384 → 7168"]
         N0 --> N1 --> N2 --> N3 --> N4 --> N5
     end
     subgraph absorb["吸收路径（decode 用）"]
         direction TB
-        A0["q^C_t,h (128)"]
-        A1["W_UK,h^T（可离线并入 W_UQ）<br/>每步 128 次 128 × 512 矩阵向量乘"]
-        A2["q~_t,h (512) 拼 q^R_t,h (64) → 576"]
-        A3["cache: #91;c^KV_j ; k^R_j#93; (576)<br/>直接点积，不升维"]
-        A4["p_t,j,h → Σ_j p · c^KV_j<br/>o~_t,h (512)"]
-        A5["W_O,h · W_UV,h（离线合并 7168 × 512）"]
+        A0["$$q^C_{t,h}$$ (128)"]
+        A1["$$W_{UK,h}^T$$（可离线并入 $$W_{UQ}$$）<br/>每步 128 次 128 × 512 矩阵向量乘"]
+        A2["$$\tilde q_{t,h}$$ (512) 拼 $$q^R_{t,h}$$ (64) → 576"]
+        A3["cache: $$[c^{KV}_j ; k^R_j]$$ (576)<br/>直接点积，不升维"]
+        A4["$$p_{t,j,h} \to \sum_j p \cdot c^{KV}_j$$<br/>$$\tilde o_{t,h}$$ (512)"]
+        A5["$$W_{O,h} \cdot W_{UV,h}$$（离线合并 7168 × 512）"]
         A0 --> A1 --> A2 --> A3 --> A4 --> A5
     end
-    OUT["u_t (7168)：两条路径数值相同"]
+    OUT["$$u_t$$ (7168)：两条路径数值相同"]
     N5 --> OUT
     A5 --> OUT
 
