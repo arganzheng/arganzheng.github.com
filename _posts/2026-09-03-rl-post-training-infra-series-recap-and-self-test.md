@@ -230,15 +230,15 @@ Table: 本文的章节安排
 ```mermaid
 %% 图：RL 系统几个量的依赖关系：回答长度决定在飞 KV 与长尾占比，进而决定并发、形态、配比与 staleness，最后落到 logprob 的份数与修正
 flowchart TB
-    L[回答长度 L̄ 与 L_max<br/>随训练变长] --> KV[在飞 KV 量]
+    L["回答长度 $$\bar L$$ 与 $$L_{max}$$<br/>随训练变长"] --> KV[在飞 KV 量]
     L --> F[长尾占比 f]
     KV --> C[单实例并发 c]
     U[gpu_memory_utilization<br/>与常驻部分] --> C
-    C --> TG[生成吞吐时间 T_thr]
+    C --> TG["生成吞吐时间 $$T_{thr}$$"]
     F --> TOPO[形态：sync / colocate_async / separate_async]
-    TG --> R[配比 n_r : n_t]
+    TG --> R["配比 $$n_r : n_t$$"]
     TOPO --> S[staleness 分布]
-    TS[同步时间 T_sync] --> K[parameter_sync_step k]
+    TS["同步时间 $$T_{sync}$$"] --> K[parameter_sync_step k]
     K --> S
     S --> LP[logprob 份数与修正<br/>2 份 / 3 份 · TIS / MIS · wait]
 ```
