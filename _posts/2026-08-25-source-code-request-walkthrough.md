@@ -440,8 +440,8 @@ Table: 派生指标在 batch=1 与 batch=32 下的量级
 | 五 | 它的 KV 被切成块存放；system prompt 那 125 个整块可被后续请求复用 | 147 块 / 734 MB |
 | 四 | 它没有"prefill 阶段"，只是被持续发放 token 额度，直到追平 2050 | 若 chunk=512 则分 5 段 |
 | 六 | 97% 的时间花在 300 次逐 token 的 decode 上 | 92 ms + 3000 ms |
-| 八 | 每个 token 每步在 8 张卡间同步约 2.5 MB | NVLink 上 ~0.09 ms |
-| 九 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
+| 七 | 每个 token 每步在 8 张卡间同步约 2.5 MB | NVLink 上 ~0.09 ms |
+| 八 | 若拆成 PD 两池，它的 641 MB KV 要跨节点搬一次 | ≈ 13 ms |
 
 Table: 贯穿全文的请求在各篇遭遇了什么
 

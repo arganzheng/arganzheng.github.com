@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（06）：GPU 执行：如何让每个 Token 算得更快？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-10-01
+updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -25,7 +25,7 @@ Decode 偏 memory-bound、Prefill 偏 compute-bound，但落到 GPU 上，浪费
 | GPU 在**等 CPU 发指令** | kernel 之间有气泡 | CUDA Graph | 
 | GPU 在**等 HBM 送数据** | 算力闲置、访存打满 | FlashAttention、算子融合 | 
 | 搬的**每个数太胖** | 带宽被低信息密度的数据占满 | FP8 / INT8 / INT4 量化 | 
-| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码 | 
+| **轮次本身太多** | 每轮只产出 1 个 token | 投机解码（不改输出分布，只改一次 forward 产出几个 token） |
 
 Table: GPU 上的四种浪费形态
 
@@ -55,7 +55,7 @@ Table: 贯穿全文例子的一笔时间账
 | 二 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
 | 三 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
 | 四 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
-| 五 | 能不能少跑几轮模型？ | 投机解码的原理、vLLM 中的工程实现，以及 EAGLE / Medusa / MTP 等变体 |
+| 五 | 能不能少跑几轮模型？ | 投机解码的原理与无损性<br/>Proposer 家族（Draft Model / n-gram / EAGLE / Medusa / MTP）<br/>调度器的预算、lookahead 槽位与回滚<br/>model runner 一次算 K+1 个位置与 CUDA Graph<br/>RejectionSampler<br/>收益的临界点<br/>多卡与 PD 下的约束 |
 | 六 | 本文小结 |  |
 | 七 | 自测 | 5 道题 |
 
@@ -177,7 +177,7 @@ flowchart TB
 
 两个常见误解要澄清。第一，FULL 模式录的是**一张包含全部 kernel 的图**，replay 时 GPU 按图里记录的顺序执行这些 kernel——它减少的是 CPU 侧 launch 开销和 kernel 间的空隙，**不是**把 forward 融合成一个"超级 kernel"，每个 kernel 内部的执行时间一点没变。第二，CUDA Graph 与 `torch.compile` 是两个正交的轴：docstring 明说 "the cudagraph logic is generally orthogonal to the compilation logic"——PIECEWISE 依赖 piecewise 编译，但 FULL 图在不开编译时也能录。`CompilationConfig.mode`（`NONE / STOCK_TORCH_COMPILE / DYNAMO_TRACE_ONCE / VLLM_COMPILE`）管的是"要不要让 Inductor 生成融合 kernel"，`cudagraph_mode` 管的是"生成好的 kernel 序列要不要录成图"。
 
-这组模式和第九篇的 PD 分离有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
+这组模式和第八篇的 PD 分离有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
 
 ## 三、数据为什么搬不动？—— 压缩 HBM 流量
 
@@ -525,7 +525,11 @@ Table: 混合精度组合的显存、延迟与质量
 
 ## 五、能不能少跑几轮模型？—— 投机解码
 
-前面三节都在优化"一轮怎么跑得更快"。这一节换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
+前面三章都在优化"一轮怎么跑得更快"。这一章换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
+
+先把投机解码的定位说清楚：它**不改变输出分布**（拒绝采样保证与直接用 Target 采样一致，greedy 下逐 token 相同），只改变"一次 Target forward 产出几个 token"。所以它和 CUDA Graph、量化一样是性能手段，归在本篇；而采样参数、结构化输出改变的是"输出什么"，放在第十篇。
+
+本章先讲原理和候选从哪来（第 1–3 节），再按 vLLM 里一步的走向讲调度器与 KV（第 4 节）、model runner（第 5 节）、拒绝采样（第 6 节），最后算账（第 7 节）并列出多卡与 PD 下的约束（第 8 节）。
 
 ### 1. Decode 的根本瓶颈
 
@@ -535,7 +539,7 @@ Decode 阶段的核心瓶颈是**逐 Token 串行**：每一步只生成 1 个 t
 
 算力利用率在小 batch 下可以低到个位数百分比——绝大部分时间在等 HBM。（batch 增大后同一份权重被多个请求摊薄，利用率会显著回升，这正是 Continuous Batching 有效的根本原因；但**单个请求的延迟**并不会因此变好，这才是投机解码要解决的问题。）
 
-### 2. Speculative Decoding 基本原理
+### 2. 基本原理：Draft 猜、Target 验、拒绝采样保证无损
 
 核心思想：用一个**小而快**的 Draft Model 一次性推测多个候选 token，然后用**大而准**的 Target Model 并行验证这些候选。
 
@@ -559,20 +563,35 @@ sequenceDiagram
 
     D->>D: 串行走 K=5 步（便宜）
     D->>T: 候选序列 [$$d_1\ d_2\ d_3\ d_4\ d_5$$]
-    Note over T: 一次 Forward 同时算出<br/>所有位置的真实分布 [$$p_1 \dots p_6$$]<br/>耗时 ≈ 1 次正常 Decode 步
-    T->>V: $$p_1 \dots p_6$$
-    V->>V: 位置1: $$P_t(d_1)/P_d(d_1)$$ > rand() → 接受 ✓
+    Note over T: 一次 Forward 同时算出<br/>所有位置的真实分布 [$$q_1 \dots q_6$$]<br/>耗时 ≈ 1 次正常 Decode 步
+    T->>V: $$q_1 \dots q_6$$
+    V->>V: 位置1: $$q(d_1)/p(d_1)$$ ≥ u → 接受 ✓
     V->>V: 位置2: 接受 ✓
-    V->>V: 位置3: 拒绝 ✗ → 从 $$P_\text{target}$$ 重采样得 $$t_3'$$
+    V->>V: 位置3: 拒绝 ✗ → 从残差分布重采样得 $$t_3'$$
     Note over V: 位置 4、5 的候选一并丢弃
     V-->>T: 本轮产出 3 个 token: $$d_1, d_2, t_3'$$
 ```
 
 三个要点：
 
-- **一次 Target Forward 产出了 3 个 token**，理想情况最多能到 K+1 个；
+- **一次 Target Forward 产出了 3 个 token**，理想情况最多能到 K+1 个（K 个都接受时，最后一个位置的分布再采一个 bonus token）；
 - **拒绝是"截断式"的**——位置 3 一旦被拒，后面的 4、5 全部作废，因为它们的前提已经不成立了。这也是接受率对收益影响巨大的原因；
-- **输出分布严格无损**：这套修正采样（rejection sampling）在数学上保证最终分布与直接用 Target Model 采样**完全一致**。投机解码不是近似加速，这一点和量化有本质区别。
+- **输出分布严格无损**：下面的修正采样在数学上保证最终分布与直接用 Target Model 采样**完全一致**。投机解码不是近似加速，这一点和量化有本质区别。
+
+**接受概率。** 设在某位置，Draft 与 Target 的分布分别为 $$p(x)$$ 和 $$q(x)$$。对 Draft 采出的候选 $$x^*$$，接受概率为：
+
+$$P(\text{接受 } x^*) = \min\left(1, \frac{q(x^*)}{p(x^*)}\right)$$
+
+- $$q(x^*) \ge p(x^*)$$：Target 比 Draft 更认可这个候选，100% 接受；
+- $$q(x^*) < p(x^*)$$：Draft 高估了它，以 $$q(x^*)/p(x^*)$$ 的概率接受。
+
+**拒绝后的残差分布。** 一旦第 $$M+1$$ 个位置被拒，链条在这里断开，Target 在这个位置从残差分布里重采一个 token：
+
+$$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(z)\right)}$$
+
+直观地说：Draft 在 $$x^*$$ 上多估的概率已经通过"拒绝"还回去了，重采时只从 Target 认为可能、而 Draft 低估了的那部分里挑。两步合起来，每个位置输出 token 的分布恰好是 $$q$$。
+
+一次具体的对比（batch=1、K=5，数字是示意量级）：
 
 | | 做法 | 耗时 | 产出 | 等效 TPOT |
 |---|---|---|---|---|
@@ -581,214 +600,281 @@ sequenceDiagram
 
 Table: 普通 Decode 与投机解码的一次对比
 
-约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**
+约 **2× 加速**。注意 Verify 那 18 ms 比普通 Decode 的 15 ms 略高——因为要一次算 6 个位置而不是 1 个，计算量确实增加了，只是在 memory-bound 区间这点额外计算几乎免费。**这正是投机解码的本质：拿闲置算力去换延迟。**"几乎免费"到哪里为止，第 7 节会算出临界点。
 
-### 3. 工程实现与核心算法：Scheduler、KV Cache 与 拒绝采样
+### 3. 候选从哪来：Proposer 家族
 
-投机解码（Speculative Decoding）在 vLLM 中的落地绝非简单的算法套用，其核心难点在于非确定性（Speculative）的显存管理与多模型流水线的数学对冲。
-
-**3.1 核心数据流拓扑图**
-
-在 vLLM 的实际工程实现中，Draft 模型（草稿模型）与 Target 模型（目标大模型）各自维护一套完全隔离的 KV Cache 空间。Target 模型在验证时，必须使用自己独立计算的 KV 矩阵。以下是 vLLM 投机解码的数据流向与组件交互图：
-
-```mermaid
-%% 图：vLLM 投机解码的数据流：Scheduler 预留插槽，Draft 与 Target 各写独立 KV Cache，验证后回滚
-graph TD
-    %% 样式定义
-    classDef scheduler fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
-    classDef runner fill:#efebe9,stroke:#4e342e,stroke-width:2px;
-    classDef model fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px;
-    
-    subgraph Scheduler [vLLM Scheduler 调度层]
-        A[为当前请求分配额外插槽<br>预留 num_lookahead_tokens 显存] --> B[生成包含 speculative_meta 的<br>SchedulerOutput]
-    end
-    class Scheduler scheduler;
-
-    subgraph DraftRunner [Draft ModelRunner 阶段]
-        B --> C[Draft Model Forward]
-        C --> D[自回归生成 K 个候选 Token<br>并写入 Draft 独立的 KV Cache]
-    end
-    class DraftRunner runner;
-
-    subgraph TargetRunner [Target ModelRunner 阶段]
-        D --> E[Target Model Verification Forward]
-        E --> F["独立计算: 仅输入 K 个候选 Token<br>计算对应的真实 KV 矩阵 (不复用Draft KV)"]
-        F --> G[写入 Target 独立的临时 KV Cache 槽位]
-    end
-    class TargetRunner runner;
-
-    subgraph Verification [验证与回滚阶段]
-        G --> H[Rejection Sampling 拒绝采样]
-        H -->|逐位比对概率分布| I{确定接受长度 M}
-        I -->|接受前 M 个| J[保留 Target KV Cache 前 M 个位置]
-        I -->|拒绝第 M+1 个起| K[触发回滚: 裁剪抹去 Target<br>与 Draft 对应位置的无效 Cache]
-    end
-    class Verification model;
-
-    J --> L[Scheduler.update_from_output]
-    K --> L
-    L --> M[释放被拒绝位置的物理 KV Block<br>更新推理步长与 Token 计数]
-```
-
-**3.2 关键工程痛点：显存管理的“时间回溯”**
-
-传统的自回归生成在工程上是单向递增的，显存管理器只需机械地分配新块。然而，投机解码给显存管理引入了“可能要回滚”的全新机制：
-
-* 维度与空间完全隔离：Draft 模型（如 1B）每 Token 的 KV 尺寸远小于 Target 模型（如 70B）。Target 模型在验证前向传播（Verification Forward）时，会将候选的 K 个 Token 作为输入，在自己的 Transformer Layer 中计算出大模型视角下的 KV 值并写入大模型的缓存中，两者的显存完全不共享、不复用。
-* 物理块的“裁剪（Truncate）”与释放：拒绝采样确定接受长度 `M（0 <= M <= K)` 后，未被接受的 `K-M` 个 Token 对应的 KV 空间便成了“脏数据”。vLLM 会调用显存管理器的回滚 API，强行将逻辑 Token ID 与物理块槽位的映射关系撤回到第 M 个 Token 处。这种“按位置撤销”的逻辑极大地增加了物理显存调度的复杂性。
-
-**3.3 核心算法：拒绝采样的数学对冲**
-
-投机采样之所以能做到数学上完全无损（Lossless），完全依赖于其精妙的拒绝采样（Rejection Sampling）与概率对冲机制。
-
-**接受概率公式**
-
-设在某位置，Draft 与 Target 模型的预测概率分布分别为 $$p(x)$$ 和 $$q(x)$$。对于 Draft 采样出的候选 Token $$x^*$$，Target 模型的接受概率为：
-
-$$P(\text{接受 } x^*) = \min\left(1, \frac{q(x^*)}{p(x^*)}\right)$$
-
-* $$q(x^*) \ge p(x^*)$$：大模型更认可该候选，100% 接受。
-* $$q(x^*) < p(x^*)$$：大模型认为小模型冒进了，以 $$\frac{q(x^*)}{p(x^*)}$$ 概率接受。
-
-**拒绝后的残差对冲**
-
-在多步投机中，验证是串行、逐字进行的。一旦某个候选 Token 在第 $$M+1$$ 个位置被拒绝，投机链条彻底断裂。大模型不仅要触发回滚、抹去该位置及之后的所有 KV Cache，还必须基于残差分布（Residual Distribution） $$q'(x)$$ 在当前位置重新采样出一个 Token 来拉回正轨：
-
-$$q'(x) = \frac{\max\left(0, q(x) - p(x)\right)}{\sum_{z} \max\left(0, q(z) - p(z)\right)}$$
-
-直观理解：当小模型在 $$x^*$$ 处过于自信（被拒绝）时，大模型在重新采样时会扣除小模型多估的概率空间。残差分布 $$q'(x)$$ 的本质，就是去专门采样那些大模型认为可能出现、但被小模型低估（残差部分）的 Token，从而在统计学上实现与大模型原生自回归的绝对一致。在每个 Step 结束时，调度器调用 update_from_output() 根据最终实际接受的 Token 数量校准步长，并将无用的物理显存块吐回给内存池。
-
-**3.4 Speculative Decoding 的变体**
-
-不同 Speculative Decoding 方法的核心区别，主要在于**“候选 token 如何生成”**。它们整体都遵循类似的流程：
+不同方法的核心区别在于**"候选 token 如何生成"**，验证、接受 / 拒绝和 KV 更新是同一套流程：
 
 ![Speculative Decoding 的通用流程](/img/in-post/gpu-execution-kernels-and-graphs-spec-decode-flow.svg)
 
-因此在 vLLM 中，这些不同的候选生成机制被统一抽象为 **Proposer（候选生成器）**，实现在 `vllm/v1/spec_decode/` 下。不同 Proposer 负责产生 speculative decoding 所需的候选 token，而后续的 Target 验证、接受/拒绝以及 KV Cache 更新等流程则可以复用统一的 speculative decoding 基础设施。
-
-但在看表之前要先做一个分类上的澄清，因为下表把六种方法平铺在一起，容易掩盖一件事：**它们并不都是"推理技巧"。**
+**先分类：它们并不都是"推理技巧"。**
 
 | 类别 | 方法 | 怎么产生候选 |
 |---|---|---|
 | 纯推理侧，不碰模型 | 独立 Draft Model | 另找一个小模型 |
-| | N-gram | 从 prompt 里抄 |
-| | Suffix Decoding | 从后缀树里抄 |
+| ^^ | N-gram | 从 prompt 里抄 |
+| ^^ | Suffix Decoding | 从后缀树里抄 |
 | 需要额外训练一个"头" | EAGLE | 训一个特征级 draft 头 |
-| | Medusa | 训若干并行 LM 头 |
+| ^^ | Medusa | 训若干并行 LM 头 |
 | 模型自带（Model-native） | MTP | 预训练阶段就已经有了 |
 
 Table: 六种 speculative decoding 方法的分类：推理侧还是模型侧
 
+由此有三种部署形态：
 
-其中，**MTP 和其他方法尤其值得区分**。
+1. Draft Model、N-gram、Suffix 是**部署时可以选择的推理策略**；
+2. EAGLE、Medusa 也在部署时启用，但要提前针对特定 Target Model 训练额外组件；
+3. MTP 要求模型 checkpoint 原生包含 MTP 结构和权重——vLLM 从模型配置里读 `num_nextn_predict_layers`，MTP 权重随 checkpoint 一起加载。**MTP 不是 vLLM 在部署时给普通模型外挂的能力，而是模型本身携带的能力。**
 
-N-gram、Suffix、Draft Model、EAGLE、Medusa，本质上都是为了在推理阶段获得更便宜的候选 token：有的方法依赖另一个小模型，有的方法依赖历史 token，有的方法在 Target Model 上增加额外的预测组件。
-
-而 **Multi-Token Prediction（MTP）首先是一种模型架构与训练目标**：模型在训练阶段不仅学习预测下一个 token，还学习预测多个未来位置的 token。这样得到的 MTP 层在推理阶段又可以天然用于生成 speculative decoding 所需要的候选 token。
-
-因此，MTP 与其他方法最大的区别在于：
-
-> **EAGLE、Medusa 等是在已有 Target Model 外部增加 speculative 组件；MTP 则要求 Target Model 本身原生具备 Multi-Token Prediction 能力。**
-
-这也带来了明显的工程差异：
-
-* Draft Model、N-gram、Suffix 等更多属于**部署阶段可以选择的推理策略**；
-* EAGLE、Medusa 虽然也可以在部署阶段启用，但需要提前针对特定 Target Model 训练相应的额外组件；
-* MTP 则要求模型 checkpoint 原生包含对应的 MTP 结构和权重。
-
-在 vLLM 中，这一点也体现在实现上：MTP 的相关配置会从模型配置中读取，例如 `num_nextn_predict_layers`；对应的 MTP 权重也作为模型 checkpoint 的一部分进行加载。换句话说，**MTP 不是 vLLM 在部署时临时给普通模型外挂的能力，而是模型本身携带的能力。**
-
-下表是对它们几个的对比：
-
-| 方法                  | 候选生成机制         | 核心原理                                                | 优势                               | 局限                                              |
-| ------------------- | -------------- | --------------------------------------------------- | -------------------------------- | ----------------------------------------------- |
-| **Draft Model**     | 独立小模型          | 用一个更小、更快的模型自回归生成候选                                  | 通用、与 Target 解耦                   | 需要额外模型、显存和计算                                    |
-| **N-gram**          | 历史 token 匹配    | 从已有上下文中查找重复 n-gram 并预测后续 token                      | 几乎零模型开销                          | 依赖文本中的重复模式                                      |
-| **Suffix Decoding** | 后缀匹配           | 利用后缀结构/匹配结果生成候选                                     | 无需额外训练模型                         | 对上下文中的可匹配模式依赖较强                                 |
-| **EAGLE**           | Target Feature | 利用 Target Model 的内部 feature，通过轻量 Draft Head 自回归生成候选 | 不需要完整 Draft Model，额外开销较低         | 需要针对 Target Model 训练 EAGLE 组件                   |
-| **Medusa**          | 多预测 Head       | 在 Target Model 上增加多个未来 token 预测 Head，并构造候选树         | 不需要独立 Draft Model，可并行产生多个候选      | 需要训练额外 Head，并涉及 Candidate Tree / Tree Attention |
-| **MTP**             | MTP Layers     | 利用模型原生的 Multi-Token Prediction 层生成未来 token          | 模型原生支持，天然适合 speculative decoding | 需要模型 checkpoint 原生支持 MTP                        |
+| 方法 | 候选生成机制 | 核心原理 | 优势 | 局限 |
+|---|---|---|---|---|
+| **Draft Model** | 独立小模型 | 用一个更小、更快的模型自回归生成候选 | 通用、与 Target 解耦 | 需要额外模型、显存和计算 |
+| **N-gram** | 历史 token 匹配 | 从已有上下文中查找重复 n-gram 并预测后续 token | 几乎零模型开销 | 依赖文本中的重复模式 |
+| **Suffix Decoding** | 后缀匹配 | 利用后缀结构 / 匹配结果生成候选 | 无需额外训练模型 | 对上下文中的可匹配模式依赖较强 |
+| **EAGLE** | Target Feature | 利用 Target 的内部 feature，通过轻量 Draft Head 自回归生成候选 | 不需要完整 Draft Model，额外开销较低 | 需要针对 Target 训练 EAGLE 组件 |
+| **Medusa** | 多预测 Head | 在 Target 上增加多个未来 token 预测 Head，并构造候选树 | 不需要独立 Draft Model，可并行产生多个候选 | 需要训练额外 Head，并涉及 Candidate Tree / Tree Attention |
+| **MTP** | MTP Layers | 利用模型原生的 Multi-Token Prediction 层生成未来 token | 模型原生支持 | 需要 checkpoint 原生支持 MTP |
 
 Table: 候选生成方法的对比
 
-
-**EAGLE：不再外挂完整 Draft Model，而是外挂轻量 Draft Head**
-
-EAGLE 的核心思想是：
-
-> **利用 Target Model 已经计算出来的内部 feature，再通过一个专门训练的轻量 Draft Network 生成候选，而不是再运行一个完整的 Draft Model。**
-
-可以粗略理解为：
+**EAGLE：不外挂完整 Draft Model，而是外挂轻量 Draft Head。** 它利用 Target 已经算出来的内部 feature，再通过一个专门训练的轻量网络生成候选：
 
 ![EAGLE：复用 target 的 hidden feature](/img/in-post/gpu-execution-kernels-and-graphs-eagle.svg)
 
-因此 EAGLE 与 Draft Model 的最大区别是：
+EAGLE Head 要针对特定 Target 训练，不能对任意模型直接通用；但相比维护一个完整的 Draft Model，它的额外参数量和计算开销小得多。
 
-- **Draft Model**
-  - Target Model + 完整 Draft Model
-- **EAGLE**
-  - Target Model + 轻量 EAGLE Draft Component
-
-EAGLE 并不是一个可以对任意模型直接通用的插件。EAGLE Head 需要针对特定 Target Model 进行训练和适配，但相比维护一个完整的 Draft Model，它的额外参数量和计算开销通常要小得多。
-
-**Medusa：多个 Head 同时预测未来位置**
-
-Medusa 的思路与 EAGLE 类似，也是在 Target Model 上增加额外的预测组件，但它采用的是**多 Head**设计。
+**Medusa：多个 Head 同时预测未来位置。**
 
 ![Medusa：多个 head 同时预测](/img/in-post/gpu-execution-kernels-and-graphs-medusa.svg)
 
-每个 Head 负责预测不同未来位置的 token，并可以产生多个候选。多个 Head 的结果进一步组织成 **Candidate Tree**，然后 Target Model 利用 Tree Attention 等机制一次验证多条候选路径。
+每个 Head 负责一个未来位置，多个 Head 的结果组织成 **Candidate Tree**，Target 用 Tree Attention 一次验证多条候选路径——关键不只是"多几个 LM Head"，而是候选树加一次验证多条路径。
 
-因此，Medusa 的关键并不只是“增加几个 LM Head”，而是：
-
-> **利用多个预测 Head 构造未来 token 的候选树，再通过一次 Target Model 执行验证多个候选路径。**
-
-这也是 Medusa 与简单的“多个并行 LM Head”之间的重要区别。
-
-**MTP：模型原生就拥有 Multi-Token Prediction 能力**
-
-MTP 与前面的 EAGLE / Medusa 最大的区别在于：
-
-> **MTP 不是部署时外挂到普通模型上的组件，而是模型架构和训练阶段就已经具备的能力。**
-
-可以理解为：
+**MTP：模型原生就有 Multi-Token Prediction 能力。**
 
 ![MTP：训练阶段就具备的多 token 预测](/img/in-post/gpu-execution-kernels-and-graphs-mtp.svg)
 
-因此，从部署形态上看：
-
-- **Draft Model**
-  - Target + 独立 Draft Model
-- **EAGLE**
-  - Target + EAGLE Draft Component
-- **Medusa**
-  - Target + 多个 Medusa Heads
-- **MTP**
-  - Target 本身就包含 MTP Layers
-
-这也是为什么 MTP 能否用于 speculative decoding，在很大程度上取决于**模型 checkpoint 是否原生支持 MTP**。
-
-在 vLLM 的工程实现中，MTP 并没有完全独立出一套 speculative decoding 框架，而是复用了已有的 proposer 基础设施。部分 MTP 模型会基于 `EagleProposer` 进行扩展，并由模型侧的 MTP predictor 负责具体的候选生成。
-
-这里需要特别注意：
-
-> **“代码上复用 `EagleProposer`”并不意味着“MTP 算法本质上是 EAGLE 的一种特例”。**
-
-二者在算法思想上仍然不同，只是在 vLLM 中，它们的候选生成和 speculative decoding 执行流程具有较强的共性，因此可以复用同一套工程抽象。
-
-
-**从“外挂程度”理解这些方法**
-
-如果从一个非常直观的工程视角来看（注意：这只是**工程上的理解框架，而不是严格的算法演进顺序**），可以把这些方法理解成 Target Model 的 speculative 能力逐渐与模型本身融合：
+模型在训练阶段就学习预测多个未来位置，这些 MTP 层在推理时天然可以用来出候选。从部署形态看，四种方法是 Target 与 speculative 组件逐渐融合的过程（这只是工程上的理解框架，不是算法演进顺序）：
 
 ![从“外挂程度”看四种方法](/img/in-post/gpu-execution-kernels-and-graphs-speculation-spectrum.svg)
 
-它们虽然实现方式不同，但最终都在解决同一个问题：
+**落到 vLLM 里。** 候选生成器统一叫 **Proposer**，实现在 `vllm/v1/spec_decode/` 下，但没有统一的抽象基类——不同 proposer 的输入根本不同（n-gram 只要 token 历史，EAGLE 要 target 的 hidden state，Medusa 要最后一层 hidden state），所以 `GPUModelRunner.propose_draft_token_ids()` 里是一段按 `speculative_config.method` 分发的代码，每种 proposer 有自己的 `propose()` 签名。按"要不要跑模型、要不要自己的 KV"分三档：
 
-> **Target Model 每生成一个 token 都需要执行昂贵的计算，而 speculative decoding 希望用更低成本的方法一次猜出多个 token，再让 Target Model 一次性验证，从而减少 Target Model 的逐 token 解码次数。**
+| 档 | 方法（`SpeculativeConfig.method`） | 类 / 文件 | 跑模型？ | 自己的 KV？ | `draft_probs` |
+|---|---|---|---|---|---|
+| 抄历史 | `ngram` | `NgramProposer`（`ngram_proposer.py`，numba 实现 `batch_propose_numba()`，`prompt_lookup_min/max` 控制 n-gram 长度） | 否，CPU | 否 | `None` |
+| ^^ | `ngram_gpu` | `NgramProposerGPU`（`ngram_proposer_gpu.py`） | 否，GPU kernel | 否 | `None` |
+| ^^ | `suffix` | `SuffixDecodingProposer`（`suffix_decoding.py`，调用 Arctic Inference 的 `SuffixDecodingCache`） | 否 | 否 | `None` |
+| 外挂头 | `medusa` | `MedusaProposer`（`medusa.py`）：对 target 的 hidden state 过若干 head，每个 head 取 argmax | 是，但一次 forward | 否 | 无（greedy） |
+| ^^ | `eagle` / `eagle3` | `EagleProposer`（`eagle.py`，只有二十来行：`SpecDecodeBaseProposer` + `pass_hidden_states_to_model=True`） | 是，串行 K 步 | **是**（一个独立的 KV cache group） | 可选 |
+| ^^ | `mtp`（含 `deepseek_mtp`、`qwen3_next_mtp` 等十几种 `*_mtp` 类型） | 同 `EagleProposer`，draft 结构是模型的一部分（`vllm/model_executor/models/*_mtp.py`） | 是 | 是 | 可选 |
+| ^^ | `dflash` / `dspark` / `gemma4_mtp` / `step3p5_mtp` | `DFlashProposer`、`Gemma4Proposer`、`Step3p5MTPProposer` 等变体 | 是 | 是 | —— |
+| 独立模型 | `draft_model` | `DraftModelProposer`（`draft_model.py`）：`SpecDecodeBaseProposer` + `pass_hidden_states_to_model=False`；支持异构词表（`VocabMapping`） | 是，一个完整小模型 | 是 | 可选 |
+| 自定义 | `custom_class` | `create_custom_proposer()`（`custom_class_proposer.py`） | —— | —— | —— |
 
-最后还需要注意一个反直觉现象：Speculative Decoding 在高并发、高 GPU 利用率场景下可能出现负收益。它通过增加 Draft 计算，换取 Target Model 更少的 autoregressive decoding iteration。当 GPU 已经处于较高利用率时，额外的 Draft 计算会与其他请求竞争计算、显存带宽以及执行资源，此时减少 Target iteration 带来的收益可能不足以抵消新增开销，甚至导致整体性能下降。因此，Speculative Decoding 更容易在 GPU 资源相对充裕、且对 Decode latency / ITL 敏感的场景中体现价值；对于高并发、吞吐优先的 Serving 场景，则需要结合 Acceptance Rate、Draft 成本、Batch Size 和 GPU 利用率进行实际评估。
+Table: vLLM 中投机解码 proposer 的家族
 
+MTP 在 vLLM 里复用 `EagleProposer`，这是工程抽象上的复用（候选生成与执行流程相同），**不等于 MTP 在算法上是 EAGLE 的特例**。几个实现细节决定了后面几节的形状：
+
+- **`SpecDecodeBaseProposer`**（`llm_base_proposer.py`，近 1900 行）是 EAGLE / MTP / draft model 的公共实现：`propose()` 里 `for token_index in range(self.num_speculative_tokens - 1)` 串行跑 draft 模型；`load_model()` 处理与 target 共享 embedding / lm_head（`_maybe_share_embeddings()`、`_maybe_share_lm_head()`，draft model 子类覆写为不共享）；它持有**自己的 `CudagraphDispatcher`**，`initialize_cudagraph_keys()` 只允许 PIECEWISE（draft 侧不录 FULL 图）。
+- **draft 有自己的 KV cache group**：Draft 与 Target 的 KV 不共享——Target 在验证 forward 里用自己的层为候选 token 算出自己的 KV。`SpecDecodeBaseProposer.kv_cache_gid` 在 `initialize_attn_backend()` 时找到 `is_eagle_group` 为真的那个 group；调度器在 `KVCacheManager` 构造时传入 `use_eagle`，`KVCacheCoordinator` 用它标记 `eagle_group_ids`。对 70B 的 target 来说，EAGLE 头只有一层，每 token 的 draft KV 是 `4 KB`（与 target 的一层相同），2350 token 的请求约 9 MB——相对 734 MB 的 target KV 可以忽略；但一个 16 层、8 KV head、`head_dim=64` 的独立 1B draft 模型，每 token 是 `2 × 8 × 64 × 2 B × 16 = 32 KB`，即 target 的 10%，这就得算进显存预算了。
+- **`draft_probs` 有没有**决定了拒绝采样用哪条规则（第 6 节）：`draft_sample_method="probabilistic"` 时 `take_last_draft_probs()` 会把 draft 的分布留给 `RejectionSampler`；n-gram 一族天然没有分布。
+
+整套机制在 vLLM 里落在四个对象上，后面三节依次展开：
+
+![投机解码在 vLLM 里涉及的四个组件](/img/in-post/decoding-extensions-spec-decode-roles.svg)
+
+此外有两处约束贯穿始终：**KV**（draft 模型如果有自己的 KV，要独立的 cache group；target 侧要为尚未验证的 token 预留位置）和 **CUDA Graph**（"纯 decode batch"的形状从每请求 1 个 token 变成 `1+K` 个）。
+
+### 4. 调度器与 KV：draft 进预算、预留 lookahead 槽位、按接受数回滚
+
+第四篇讲 `schedule()` 时反复出现的 `num_tokens_with_spec`，在这里落地：
+
+`num_tokens_with_spec = len(prompt_token_ids) + len(output_token_ids) + len(spec_token_ids)`
+
+调度器对一个 running 请求做几件和普通 decode 不同的事（`Scheduler.schedule()`，`vllm/v1/core/sched/scheduler.py`）：
+
+**① 把 draft 算进 token 预算。** `num_new_tokens = num_tokens_with_spec + num_output_placeholders - num_computed_tokens`，普通 decode 是 1，带 K 个 draft 就是 `1+K`。它和 prefill chunk 一样受 `token_budget` 约束，所以当预算紧张时 draft 会被**截断**：
+
+```python title="Scheduler.schedule()：draft 进预算并可截断"
+# Scheduler.schedule()（简化）
+if request.spec_token_ids:
+    num_scheduled_spec_tokens = (num_new_tokens + request.num_computed_tokens
+                                 - request.num_tokens - request.num_output_placeholders)
+    if num_scheduled_spec_tokens > 0:
+        spec_token_ids = request.spec_token_ids[:num_scheduled_spec_tokens]   # 预算不够就只验证前几个
+        scheduled_spec_decode_tokens[request.request_id] = spec_token_ids
+    request.spec_token_ids = []     # 下一步的 draft 由 update_draft_token_ids() 重新填
+```
+
+注意 `num_scheduled_spec_tokens > 0` 这个条件：一个还在 chunked prefill 中的请求，`num_computed_tokens + num_new_tokens` 追不到 `num_tokens`，这个量 ≤ 0，**draft 在 prefill 阶段根本不会被调度**——`update_draft_token_ids()` 里对 `is_prefill_chunk` 的请求也直接丢弃 draft。投机解码只在请求进入纯 decode 后才生效。
+
+另一条上界：`num_new_tokens ≤ max_model_len - num_computed_tokens - num_sampled_tokens_per_step`，源码注释写明 "This is necessary when using spec decoding"——验证 K 个 draft 后还要采一个 bonus，位置不能越界。
+
+**② 给 KV 预留 lookahead 槽位。** `allocate_slots(request, num_new_tokens, num_lookahead_tokens=self.num_lookahead_tokens)`。第五篇 `allocate_slots()` 注释里那个布局图最右边的 `lookahead` 一段就是它。`num_lookahead_tokens` 在 `Scheduler.__init__` 里按方法设定：EAGLE / MTP / draft model 为 `num_spec_tokens`；DFlash 因为要多一个 query 位置是 `num_spec_tokens + 1`；n-gram 一族为 0——它们不跑模型，不需要为 draft 写 KV。为什么 draft 模型需要 lookahead？因为 draft 模型在**这一步的 forward 之后**才跑，它要为下一步的 K 个候选写自己那份 KV，位置必须现在就分好。
+
+**回到前面的例子**：K=3，`num_lookahead_tokens=3`，每张卡每 token 40 KB，预留 120 KB；`block_size=16` 时绝大多数步骤这 3 个槽位落在当前块里，偶尔多占一块（每卡 640 KB）。对一个 734 MB 的请求来说是零头——**lookahead 的代价不在显存，而在它让 `allocate_slots()` 更早触碰 watermark**。
+
+**③ step 之后按接受数回滚。** `update_from_output()` 里：
+
+```python title="update_from_output()：按接受数回滚"
+num_draft_tokens = len(scheduled_spec_token_ids)
+num_accepted = max(len(generated_token_ids) - num_sampled, 0)   # 减掉 bonus
+num_rejected = num_draft_tokens - num_accepted
+request.num_computed_tokens -= num_rejected                    # 被拒的位置"当作没算过"
+```
+
+常说的"KV 回滚"，落到源码上**就是这一行减法**。vLLM 不调用任何"撤销"接口，也不释放被拒位置所在的物理块：被拒 token 占的槽位留在原地，下一步的 token 直接覆盖它们（`slot_mapping` 按 `num_computed_tokens` 算）。第十一篇讲 DeepSeek MTP 时说的"暂存状态 vs 提交状态"，在 vLLM 里的实现就是 `num_computed_tokens` 与实际写入 KV 的位置之间的这个差。
+
+用一个请求连续两步的 KV 槽位把这件事画出来（K=3，第一步接受 1 个、拒绝 2 个）：
+
+![连续两步的 KV 槽位（K=3）](/img/in-post/decoding-extensions-spec-kv-slots.svg)
+
+两点从图上一眼可见：`s` 这个"上一步采出的 token"在 step t 才写 KV，所以每步的输入总是 `1 + K` 个而不是 `K` 个；被拒位置的 KV 没有任何清理动作，正确性完全靠 `num_computed_tokens` 这个游标——prefix cache 的 `cache_blocks()` 也以它为界只缓存已计算的完整块，脏槽位因此不会被别的请求命中。
+
+同一处还调用 `make_spec_decoding_stats()` 累积 `SpecDecodingStats`（`vllm/v1/spec_decode/metrics.py`）：`num_drafts`、`num_draft_tokens`、`num_accepted_tokens`，以及**按位置**的 `num_accepted_tokens_per_pos` / `num_draft_tokens_per_pos`。它随 `SchedulerStats` 回到前端，`SpecDecodingLogging.log()` 定期打印一行：
+
+```text
+SpecDecoding metrics: Mean acceptance length: 2.71, Accepted throughput: ... tokens/s,
+Drafted throughput: ... tokens/s, Accepted: N tokens, Drafted: M tokens,
+Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61.0%
+```
+
+"Mean acceptance length" 按惯例含 bonus token（`1 + accepted / drafts`）；Prometheus 侧是 `SpecDecodingProm`。**按位置的接受率是调 K 的依据**：第 3 个位置只有 41% 时，第 4 个位置大概率不值得。
+
+**④ draft 从哪里来、何时回到调度器。** 同步调度下，`EngineCore.post_step()` 在一步结束后 `take_draft_token_ids()` → `Scheduler.update_draft_token_ids()` 写回 `request.spec_token_ids`；异步调度下调度器提前一步跑，拿不到 draft，于是 worker 侧在 `update_draft_token_ids_in_output()` 里把 `scheduled_spec_decode_tokens` 的占位换成真实 draft，**长度不够的位置补 `-1`**，并把每个请求补了几个记进 `num_invalid_spec_tokens`——`-1` 在 `RejectionSampler` 的 kernel 里被无条件拒绝。
+
+**⑤ 一个 prefix cache 的特例。** `HybridKVCacheCoordinator.find_longest_cache_hit()` 与 `SingleTypeKVCacheManager.find_longest_cache_hit()` 都有一个 `drop_eagle_block` 参数：EAGLE / MTP 开启时，**prefix cache 命中的最后一个块会被主动丢掉**（`hit_length -= min(alignment_tokens, block_size)`）。原因是 EAGLE 的 draft 需要 target 对"最后一个已计算 token"的 hidden state，而 prefix cache 只保留 KV、不保留 hidden state——全部命中的话就没有任何位置会真正跑 forward，draft 无从下手。所以第五篇算的"125 块全部命中"在开 EAGLE 时会变成 124 块命中、重算 16 个 token。相应地 `cache_blocks()` 会多缓存一块（`num_tokens_to_cache = aligned + block_size`），让下一个请求仍能用到。
+
+### 5. Model runner：一次 forward 算 K+1 个位置
+
+调度器交出的 `SchedulerOutput.scheduled_spec_decode_tokens` 在 model runner 里变成 `SpecDecodeMetadata`（`vllm/v1/spec_decode/metadata.py`）。`GPUModelRunner._calc_spec_decode_metadata()` 的注释自带一个例子，照抄：
+
+```python title="_calc_spec_decode_metadata 注释里的例子"
+# Inputs:
+# cu_num_scheduled_tokens:  [  4, 104, 107, 207, 209]   ← 5 个请求，本步各调度 4/100/3/100/2 个 token
+# num_draft_tokens:         [  3,   0,   2,   0,   1]   ← 请求 0 带 3 个 draft，请求 1 和 3 在 prefill
+# Outputs:
+# cu_num_draft_tokens:      [  3,   3,   5,   5,   6]
+# logits_indices:           [  0,   1,   2,   3, 103, 104, 105, 106, 206, 207, 208]
+# target_logits_indices:    [  0,   1,   2,   5,   6,   9]
+# bonus_logits_indices:     [  3,   4,   7,   8,  10]
+```
+
+看请求 0：它本步的 4 个 token 是 `[上一步采样的 token, d₁, d₂, d₃]`，forward 后需要 4 个位置的 logits——前 3 个（`target_logits_indices`）用来验证 `d₁ d₂ d₃`，第 4 个（`bonus_logits_indices`）是全部接受时的 bonus。请求 1 在 prefill，只要最后一个位置（104 → 全是 bonus）。于是 `logits_indices` 总长 `num_tokens + batch_size`，**logits 张量不再是 `[num_reqs, V]` 而是 `[num_reqs + Σ drafts, V]`**——采样一侧的 logits processor 因此不知道每一行属于哪个请求，第十篇会讲这带来的限制。`draft_token_ids` 直接从 `input_ids[logits_indices][target_logits_indices + 1]` 取出来：draft 已经作为输入 token 喂进了 forward。
+
+**这一步和 CUDA Graph 的关系**是最容易被忽略的约束。[第二章](#2-cuda-graph静态执行图捕获与重放)讲 `FULL_AND_PIECEWISE` 时说"纯 decode batch 形状规则、可以按 batch size 分桶录图"——投机解码把"规则"的定义改了：
+
+```python title="gpu_model_runner.py：uniform_decode_query_len"
+# vllm/v1/worker/gpu_model_runner.py
+self.uniform_decode_query_len = 1 + self.num_spec_tokens
+
+@staticmethod
+def _is_uniform_decode(max_num_scheduled_tokens, uniform_decode_query_len, num_tokens, num_reqs, ...):
+    return (max_num_scheduled_tokens == uniform_decode_query_len
+            and num_tokens == max_num_scheduled_tokens * num_reqs)
+```
+
+只有**每个请求恰好 `1+K` 个 token** 的 batch 才算 uniform decode、才走 FULL 图。`CudagraphDispatcher.initialize_cudagraph_keys()` 也据此只为 `≥ uniform_decode_query_len` 且能被它整除的 capture size 建 FULL 图的 key（第二章 key 里那个 `num_reqs = size / (1 + 投机 token 数)` 就是这么来的）。这带来两个后果：
+
+- 上一节说的"预算不够就截断 draft"一旦发生，那个请求就只有 `1 + K'` 个 token，整个 batch 不再 uniform，退回 PIECEWISE——**投机解码对 token 预算的敏感度比普通 decode 高**；
+- draft 模型自己那 K 步 forward 走 `SpecDecodeBaseProposer` 的独立 dispatcher，只有 PIECEWISE。
+
+采样之后紧接着就是下一轮的 draft（`GPUModelRunner.sample_tokens()` 内部的 `propose_draft_token_ids()`）。默认的 "padded drafter batch" 模式下，EAGLE / draft model 直接消费 GPU 上的 `sampled_token_ids`，不等 D2H 拷贝和 CPU 侧 bookkeeping；`disable_padded_drafter_batch=True` 则退回先同步再 draft。这是投机解码在 V1 里能与异步调度共存的前提——`VllmConfig` 里限制了异步调度只支持 EAGLE / MTP 系、`ngram_gpu`、`draft_model` 和 `dspark`，且不能与 `disable_padded_drafter_batch=True` 同开。
+
+### 6. RejectionSampler：验证的实现
+
+`RejectionSampler`（`vllm/v1/sample/rejection_sampler.py`）的 docstring 先给了术语表：**accepted tokens**（按 draft/target 概率比接受的）、**recovered tokens**（拒绝后从残差分布采出的）、**bonus tokens**（全部接受后额外的一个，用普通 `Sampler` 采）、**output tokens = accepted + recovered + bonus**。`forward()` 分四步：
+
+```python title="RejectionSampler.forward() 的四步"
+# RejectionSampler.forward()（简化）
+bonus_logits  = logits[metadata.bonus_logits_indices]            # [batch, V]
+bonus_token_ids = self.sampler(bonus_logits, sampling_metadata, predict_bonus_token=True)
+                                                                   # ① bonus 走完整的 Sampler：top-p、penalties 全都生效
+
+target_logits = logits[metadata.target_logits_indices].float()   # [num_drafts, V]
+target_logits = self.apply_logits_processors(target_logits, sampling_metadata, metadata)
+                                                                   # ② 投机版的处理器：penalties / bad_words / min_tokens / thinking budget
+target_logits = apply_sampling_constraints(target_logits, metadata.cu_num_draft_tokens, sampling_metadata)
+                                                                   # ③ 温度 + top_k/top_p，参数按 draft 数 expand 到每一行
+
+output_token_ids = rejection_sample(metadata.draft_token_ids, metadata.num_draft_tokens,
+                                    metadata.max_spec_len, metadata.cu_num_draft_tokens,
+                                    draft_probs, target_logits, bonus_token_ids, sampling_metadata, ...)
+                                                                   # ④ 两个 Triton kernel
+```
+
+①–③ 保证 target 行用的是"和不开投机时同一个请求会看到的"那个分布——拒绝采样只有在 $$q$$ 就是该请求真正的采样分布时才无损。这几步怎么把每请求的参数展开到每个 draft 行、哪些处理器因此被禁用，属于采样参数的适配，放在第十篇。
+
+第 ④ 步 `rejection_sample()`：
+
+- 输出缓冲 `output_token_ids = full((batch, max_spec_len + 1), PLACEHOLDER_TOKEN_ID=-1, int32)`，`MAX_SPEC_LEN = 128` 是编译期上限；
+- 若 batch 里有 greedy 请求，先跑 `rejection_greedy_sample_kernel`：逐位置比较 `draft_token_id == target_argmax`，第一个不等就写 target 的 argmax 并停止，全等则补 bonus——**greedy 下投机解码严格等价于逐 token greedy**；
+- 若有随机请求，`target_probs = softmax(target_logits)`，先用 `sample_recovered_tokens()` 为**每个位置**预采一个 recovered token（用第 2 节那个 `max(0, q - p)` 归一化的残差分布；用指数噪声技巧 `argmax(probs / q), q ~ Exp(1)` 代替 `torch.multinomial`，避免 CPU-GPU 同步），再跑 `rejection_random_sample_kernel`：位置 i 接受当且仅当 `draft_prob > 0 且 target_prob / draft_prob ≥ u_i`（`u_i` 由 `generate_uniform_probs()` 生成，尊重每请求的 seed）；第一个被拒的位置写入预采好的 recovered token 并停止；
+- `NO_DRAFT_PROBS` 为真（n-gram 一族）时 `draft_prob = 1`，接受条件退化为 `target_prob ≥ u_i`——即按 target 自己的概率接受这个具体 token。这仍然是一个合法的采样过程（等价于把 draft 视为确定性提议），但**接受率会比有 draft 分布时低**：一个 target 概率 0.6 的 token 只有 60% 机会被接受，即使它就是 target 最想要的那个；
+- 两个 kernel 都以 `batch_size` 为 grid，每个 program 顺序扫自己请求的 K 个位置——验证的并行度在请求间，不在位置间，因为位置间有"前一个被拒后面全作废"的依赖。
+
+`SpeculativeConfig.rejection_sample_method` 默认是 `"standard"`，另有两个值：`"synthetic"` 按给定的每位置接受率随机接受（benchmark 时模拟固定接受率），`"block"` 是块验证（把 K 个 draft 作为一个整体联合验证，而不是逐个）。
+
+`parse_output()` 把 `[batch, K+1]` 里 `-1` 之前的部分切成每请求的 token 列表，回到 `ModelRunnerOutput.sampled_token_ids`——这就是调度器 `update_from_output()` 里 `len(generated_token_ids)` 的来源。
+
+### 7. 收益与代价的量化
+
+第 2 节的例子是 batch=1、"验证 6 个位置比 1 个位置只多 3 ms"。这里推广到不同 batch，并给出临界点。
+
+**"验证几乎免费"的边界在哪里？** 一步 decode 的时间约等于 `max(权重读取时间, 计算时间)`。每张卡 17.6 GB 权重、3.35 TB/s → 读取 5.3 ms；每 token 每卡的计算量约 `2 × 8.75 GFLOP`，H100 BF16 稠密 989 TFLOPS。两者相等时的 token 数：
+
+$$T_\text{ridge} \approx \frac{989 \times 10^{12}\ \text{FLOP/s} \times 2\ \text{B/param}}{2 \times 3.35 \times 10^{12}\ \text{B/s}} \approx 295\ \text{token / 步 / 卡}$$
+
+也就是说，**一步里 `batch × (1+K)` 超过大约 300 个 token，这一步就从 memory-bound 转入 compute-bound，多算的位置开始真金白银地花时间**（40% MFU 的话临界点还要再低一些）。
+
+| batch | K | 每步 token 数 | 验证是否"免费" | 每步时间（估） |
+|---:|---:|---:|---|---|
+| 1 | 3 | 4 | 是 | ≈ 10 ms |
+| 8 | 3 | 32 | 是 | ≈ 10 ms |
+| 32 | 3 | 128 | 是 | ≈ 10–11 ms |
+| 64 | 3 | 256 | 接近临界 | ≈ 12 ms |
+| 128 | 3 | 512 | **否**，≈ 1.7× 临界 | ≈ 17 ms |
+| 128 | 0（不开） | 128 | —— | ≈ 10 ms |
+
+Table: 不同 batch 与 K 下验证是否免费
+
+**每步的总时间**再加上 draft：EAGLE 头一层、TP=8 下每卡权重不到 0.3 GB，一次 forward 的权重读取不到 0.1 ms，但 K 步串行、每步几十个 kernel，launch 与同步开销主导，估 0.5–1 ms/步；独立 1B draft model 大约 1–2 ms/步。
+
+**回到前面的例子**（batch=1，300 个输出 token）：
+
+| 配置 | 步数 | 每步 | Decode 总时间 | 相对 |
+|---|---:|---|---:|---|
+| 不开投机 | 300 | 10 ms | 3000 ms | 1.0× |
+| EAGLE，K=3，平均接受长度 2.5 | 120 | 10 + 3 × 0.7 ≈ 12 ms | ≈ 1450 ms | **≈ 2.1×** |
+| EAGLE，K=3，平均接受长度 1.6（难预测的文本） | 188 | 12 ms | ≈ 2250 ms | 1.3× |
+| n-gram，K=3，接受长度 1.2（几乎不重复的文本） | 250 | 10 ms（draft 在 CPU） | 2500 ms | 1.2× |
+| n-gram，K=3，接受长度 3.5（RAG 抄原文） | 86 | 10 ms | 860 ms | **3.5×** |
+| EAGLE，K=3，batch=128 | 每请求 120 步 | 17 + 2 ≈ 19 ms | ≈ 2280 ms | 1.3×（吞吐口径下还要再看：128 个请求同时慢了 1.9 倍） |
+
+Table: 贯穿全文例子在不同投机配置下的 Decode 时间
+
+最后一行是关键：**batch=128 时，投机解码把每一步拖慢 1.9 倍，只换来 2.5 倍的步数减少**——单请求延迟略好，系统吞吐反而下降（同样的 GPU 时间产出的 token 变少）。原因是额外的 draft 计算和多出来的验证位置，与其他请求竞争算力、显存带宽和执行资源；GPU 已经忙的时候，少跑几轮 Target 的收益抵不过这些开销。投机解码因此更适合 GPU 相对空闲、对 ITL 敏感的场景；吞吐优先的高并发服务要结合接受率、Draft 成本、batch size 实测。
+
+**什么时候不该开**：
+
+- 每步 token 数已接近或超过 $$T_\text{ridge}$$（高并发、吞吐优先）；
+- 输出很短（prefill 主导，投机对 prefill 无效——第 4 节说过 draft 在 prefill 阶段根本不调度）；
+- 请求普遍需要 `min_p`、`logit_bias` 或自定义 logits processor（开投机时它们被禁用，见第十篇）；
+- 采样温度高、文本高熵——接受率随之下降，而 draft 成本不变；
+- 需要异步调度但 proposer 不在支持列表里。
+
+`SpeculativeConfig.num_speculative_tokens_per_batch_size` 提供了一个折中：按 batch size 区间动态选 K（`build_dynamic_sd_schedule_lookup()`，`vllm/v1/spec_decode/dynamic/utils.py`），大 batch 时自动降到 0。
+
+### 8. 多卡与 PD 下的约束
+
+第七篇（多卡）和第八篇（PD 分离）没有专门讨论投机解码，这里把 v0.27.1 里与它们相关的几条约束列出来：
+
+1. **draft 的 TP。** `SpeculativeConfig.draft_tensor_parallel_size` 只能是 1 或等于 target 的 TP（`SpeculativeConfig._verify_and_get_draft_tp()`；不设时取 target 的 TP，`mlp_speculator` 取 1）。`draft_model` 方法更严格，`DraftModelProposer._raise_if_draft_tp_mismatch()` 要求两者相等——注释给的原因是 target TP > 1、draft TP = 1 时各 rank 都在 rank 0 上编译 draft，torch.compile 缓存会互相覆盖。EAGLE 头随 target 的 TP 切开时，每卡的矩阵很小，draft 的每一步都要付 target 一层的 all-reduce，却只换来一层的计算。
+2. **draft 在哪个 PP stage。** `GPUModelRunner.__init__` 只在最后一个 PP rank 上创建 `drafter`（注释："currently we put the entire draft model on the last PP rank"）——logits 只在末 stage 产生，draft 紧跟采样。
+3. **动态 K 与 DP 互斥。** `VllmConfig._maybe_disable_dynamic_sd_for_data_parallel()` 在 DP > 1 时关掉 `num_speculative_tokens_per_batch_size`、退回固定 K：不同 DP rank 若选了不同 K，各 rank 的 forward 形状对不上，集合通信会死锁。
+4. **PD 下的 lookahead 槽位。** D 侧异步拉取远端 KV 的那一步（`load_kv_async` 为真）不跑 forward，`Scheduler.schedule()` 里 `limit_lookahead_tokens` 把这一步的 `num_lookahead_tokens` 置 0，注释说是为了不让本地与远端的块数对不上；KV 到达、请求真正开始 decode 后再按正常规则预留。
+5. **PD 下 EAGLE 的第一个 draft。** EAGLE 需要 target 对 prompt 最后一个 token 的 hidden state，而 KV Transfer 只传 KV。第八篇走读的 NIXL toy proxy 下，D 本来就会[重算最后一个输入 token](/prefill-decode-disaggregation.html#1-一次请求的交接契约传什么何时可用何时释放)以得到采样所需的 logits，这一步的 hidden state 就在 D 上产生；和第 4 节的 `drop_eagle_block` 是同一件事——总要留一个位置真正跑 forward。
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
@@ -801,11 +887,28 @@ MTP 与前面的 EAGLE / Medusa 最大的区别在于：
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
-| 投机解码各 Proposer | `vllm/v1/spec_decode/`：公共基类 `SpecDecodeBaseProposer`（`llm_base_proposer.py`）、`EagleProposer`（`eagle.py`）、`MedusaProposer`、`NgramProposer`、`DraftModelProposer`；MTP 的 draft 结构是模型的一部分，在 `vllm/model_executor/models/*_mtp.py`（如 `deepseek_mtp.py`），运行时复用 `EagleProposer` |
 | 融合算子（CUDA） | `csrc/libtorch_stable/` |
 | 量化 | `vllm/model_executor/layers/quantization/`（FP8 见 `fp8.py`） |
 
 Table: GPU 执行源码导航
+
+**投机解码**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| 配置与方法枚举 | `vllm/config/speculative.py` → `SpeculativeConfig`、`SpeculativeMethod`、`use_eagle()`、`num_speculative_tokens_per_batch_size`、`draft_tensor_parallel_size`（`_verify_and_get_draft_tp()`） |
+| Proposer 家族 | `vllm/v1/spec_decode/`：`llm_base_proposer.py`（`SpecDecodeBaseProposer`）、`eagle.py`（`EagleProposer`，MTP 复用）、`draft_model.py`、`medusa.py`、`ngram_proposer.py`、`ngram_proposer_gpu.py`、`suffix_decoding.py`、`custom_class_proposer.py`；MTP 的 draft 结构在 `vllm/model_executor/models/*_mtp.py`（如 `deepseek_mtp.py`） |
+| **调度器侧** | `vllm/v1/core/sched/scheduler.py` → `Scheduler.__init__`（`num_lookahead_tokens`）、`schedule()`（`scheduled_spec_decode_tokens`、`limit_lookahead_tokens`）、`update_from_output()`（回滚与 stats）、`update_draft_token_ids()` / `update_draft_token_ids_in_output()` |
+| KV 预留 | `vllm/v1/core/kv_cache_manager.py` → `KVCacheManager.allocate_slots(num_lookahead_tokens=...)` |
+| EAGLE 与 prefix cache | `vllm/v1/core/kv_cache_coordinator.py`（`eagle_group_ids`）；`vllm/v1/core/single_type_kv_cache_manager.py` → `find_longest_cache_hit(drop_eagle_block=...)` |
+| **model runner 侧** | `vllm/v1/worker/gpu_model_runner.py` → `_calc_spec_decode_metadata()`、`_sample()`、`sample_tokens()`、`propose_draft_token_ids()`、`_is_uniform_decode()`、`uniform_decode_query_len` |
+| 元数据 | `vllm/v1/spec_decode/metadata.py` → `SpecDecodeMetadata` |
+| 拒绝采样 | `vllm/v1/sample/rejection_sampler.py` → `RejectionSampler.forward()`、`rejection_sample()`、`apply_sampling_constraints()`、`rejection_greedy_sample_kernel` / `rejection_random_sample_kernel`、`sample_recovered_tokens()` |
+| 指标 | `vllm/v1/spec_decode/metrics.py` → `SpecDecodingStats`、`SpecDecodingLogging`、`SpecDecodingProm` |
+| CUDA Graph 的 key | `vllm/v1/cudagraph_dispatcher.py` → `CudagraphDispatcher.initialize_cudagraph_keys(uniform_decode_query_len=...)` |
+| 与异步调度 / DP 的约束 | `vllm/config/vllm.py` → `VllmConfig` 中异步调度的方法白名单、`_maybe_disable_dynamic_sd_for_data_parallel()` |
+
+Table: 投机解码源码导航
 
 </details>
 
@@ -816,7 +919,9 @@ Table: GPU 执行源码导航
 - CUDA Graph 把一步 decode 的数百到上千次 kernel 提交合并为一次图重放，消除 Kernel Launch 气泡；代价是图内形状必须固定，因此要按 batch 形态捕获、按模式（如 `FULL_DECODE_ONLY`）取舍显存与收益。
 - FlashAttention 与 Kernel Fusion 优化的是同一个量——HBM 流量 = 搬运次数 × 每次搬运的数据量——前者是注意力内部的"算子内融合"（Tiling + Online Softmax，N×N 矩阵不落 HBM），后者是推理链路上的"算子间融合"；vLLM 通过 Attention Backend Selector 按硬件与 workload 路由到不同实现。
 - 低精度推理让每次搬运的数据本身变小，与减少搬运次数正交、可叠加；权重量化直接减半 decode 的权重读取带宽，FP8 / INT4 还能用上 Tensor Core 的特殊指令。
-- 投机解码用闲置算力换延迟：Draft 猜多个 token、Target 一次验证，拒绝采样保证分布与原生自回归一致；EAGLE、Medusa、MTP 是"外挂程度"逐步降低的变体。它在高并发、高利用率场景下可能出现负收益，需要结合接受率、Draft 成本与 Batch Size 实测。
+- 投机解码用闲置算力换延迟，且不改变输出分布：Draft 猜 K 个、Target 一次 forward 验证，拒绝采样（接受概率 $$\min(1, q/p)$$，被拒后从 $$\max(0, q-p)$$ 的残差分布重采）保证与直接用 Target 采样一致，greedy 下逐 token 相同。候选可以抄历史（n-gram、suffix）、外挂头（EAGLE、Medusa）、模型自带（MTP）或用独立小模型；vLLM 里统称 Proposer，EAGLE / MTP / draft model 共用 `SpecDecodeBaseProposer`，有自己的 KV cache group。
+- 在 vLLM 里，调度器把 `1+K` 算进 token 预算（预算紧时截断 draft，prefill 阶段不调度 draft），用 `num_lookahead_tokens` 为 draft 模型预留槽位，步后 `num_computed_tokens -= num_rejected` 就是全部的"KV 回滚"——物理槽位不清理、不释放；model runner 的 logits 变成 `[num_reqs + Σdrafts, V]`，"纯 decode batch"变成每请求 `1+K` 个 token，截断 draft 会让 batch 掉出 FULL 图；EAGLE 命中 prefix cache 时主动少算一块。
+- 收益有临界点：H100 上一步约 300 个 token 是 memory-bound 与 compute-bound 的分界，`batch × (1+K)` 超过它验证就不再免费。例子里 batch=1、接受长度 2.5 时约 2.1×；batch=128 时每步慢 1.9 倍、吞吐反降。按位置的接受率（`SpecDecodingStats`）是调 K 的依据；动态 K 在 DP > 1 时被关掉，PD 下异步拉 KV 的那一步不预留 lookahead。
 
 ## 七、自测
 
@@ -836,15 +941,7 @@ Table: GPU 执行源码导航
 
    </details>
 
-3. “当单个 kernel 的 GPU 时间 < CPU 提交时间时出现气泡”——一个 5 µs 的 kernel 与 10 µs 的 launch 开销，1000 个 kernel 的一步 GPU 忙多少、闲多少？
-
-   <details markdown="1"><summary>答案</summary>
-
-   GPU 只忙 5 ms、CPU 要 10 ms 才能提交完，GPU 一半时间在等——launch-bound；CUDA Graph 把 1000 次提交变 1 次，步时间回到约 5 ms。
-
-   </details>
-
-4. residual add + RMSNorm 融合、RoPE + reshape_and_cache 融合各省了什么？为什么对 prefill 收益小？
+3. residual add + RMSNorm 融合、RoPE + reshape_and_cache 融合各省了什么？为什么对 prefill 收益小？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -852,12 +949,20 @@ Table: GPU 执行源码导航
 
    </details>
 
-5. `torch.compile` 在 vLLM 里编译什么、不编译什么？piecewise 是什么意思？
+4. 投机解码 K = 4、方法是 EAGLE 时，调度器对一个 decode 请求要改哪三处？为什么要预留 lookahead 槽位，n-gram 为什么不用？
 
    <details markdown="1"><summary>答案</summary>
 
-   编译模型里 attention 之外的部分（线性层、norm、激活、RoPE）做融合并生成可进 CUDA Graph 的代码；attention 因为形状动态、调用自定义 kernel 而被切成图的边界——模型被切成 attention 之间的若干段（piece）各自编译与捕获。
+   token 预算按每请求 $$1 + K = 5$$ 计（预算紧时截断 draft）；`allocate_slots()` 额外预留 `num_lookahead_tokens = 4` 个槽位；步后 `num_computed_tokens -= num_rejected` 回滚。lookahead 是给 draft 模型用的：它在本步 forward 之后为下一步的 K 个候选写自己那份 KV，位置要提前分好；n-gram 不跑模型、不写 KV，所以是 0。
 
    </details>
 
-[^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第二章](#二gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第三章](#三数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第四章](#四能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码一步验证多个 token（[第五章](#五能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。
+5. H100 上一步约 300 个 token 是 memory-bound 与 compute-bound 的分界：batch 64、K = 4 时投机解码还划算吗？batch 1 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   64 × 5 = 320 > 300，验证步已进入 compute-bound，每步时间随 token 数增长，步数减少的收益被抵消甚至为负（文中 batch 128、K = 3 时每步慢 1.9 倍、吞吐下降）；batch 1 时每步 5 个 token，远在 memory-bound 区，验证几乎免费，接受长度 2.5 时约 2.1×。
+
+   </details>
+
+[^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第二章](#二gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第三章](#三数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第四章](#四能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码让 Draft 一次猜 K 个、Target 一次 forward 验证，拒绝采样保证输出分布不变；vLLM 里 draft 进 token 预算、为 draft 模型预留 lookahead 槽位、步后回滚 `num_computed_tokens`，一步里 `batch × (1+K)` 超过约 300 个 token 后验证不再免费（[第五章](#五能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。

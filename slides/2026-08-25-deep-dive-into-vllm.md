@@ -20,7 +20,7 @@ transition: slide
 ![一次请求从入口、调度、KV 到 GPU 执行的路径](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
-系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行 → 多卡和 PD → 模型、请求、硬件适配 → 未来、源码与 SGLang 对照。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来、源码与 SGLang 对照。
 </aside>
 
 ---
@@ -49,29 +49,36 @@ flowchart LR
 
 <!-- v -->
 
-### 07–09：扩展
+### 07–08：扩展
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 140}}}%%
 flowchart LR
-    G["07 解码扩展"] --> H["08 Multi-GPU"] --> I["09 PD 分离"] --> J["10–15<br/>（下图）"]
+    H["07 Multi-GPU"] --> I["08 PD 分离"] --> J["09–15<br/>（下图）"]
 ```
 
 <!-- v -->
 
-### 10–15：从适配到形态
+### 09–15：从变化到验收
 
-**后半程回答「一个引擎怎么长成一个系统」——适配模型、变体负载、异构硬件，最后对照同类**
+**先是请求级变化（输入、输出），再是部署级变化（模型、硬件），最后演进与对照**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    J["10 模型适配"] --> K["11 multi-LoRA / 多模态"] --> L["12 硬件解耦"]
-    L --> M["13 下一站"] --> N["14 源码中的一次请求"] --> O["15 对照 SGLang"]
+    subgraph R1["四种变化：请求级 → 部署级"]
+        direction LR
+        J["09 输入：multi-LoRA / 多模态"] --> K["10 输出：采样参数 / 结构化输出"] --> L["11 模型适配"] --> L2["12 硬件解耦"]
+    end
+    subgraph R2["演进与验收"]
+        direction LR
+        M["13 下一站"] --> N["14 源码中的一次请求"] --> O["15 对照 SGLang"]
+    end
+    R1 --> R2
 ```
 
 <aside class="notes" markdown="1">
-01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)；08 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；09 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；10 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；11 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)；15 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
+01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；08 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；09 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；10 [/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)；11 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)；15 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
 ---
@@ -206,21 +213,21 @@ flowchart TB
 原文：[/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)。Prefill 2,050 token 约 92 ms；300 步 decode 约 3,000 ms，占总时间 97%。四种浪费是 CPU launch、HBM 等待、数值过胖与解码轮次过多。
 </aside>
 
----
+<!-- v -->
 
-## 07 · 解码扩展：不只改 Sampler
+### 投机解码：少跑几轮 forward
 
-**接受长度 2.5、batch 1 时约 2.1×；batch 128 时每步慢 1.9 倍**
+**无损：只改每步决定的位置数；batch 1、接受长度 2.5 约 2.1×，batch 128 每步慢 1.9 倍**
 
 ![Proposer、Scheduler 与 Target 在投机解码中的角色和约束](/img/in-post/decoding-extensions-spec-decode-roles.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)。投机解码改变每步决定的位置数，并牵动预算、KV 预留和 CUDA Graph；结构化输出改变分布的支撑集与请求状态。
+原文：[/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。
 </aside>
 
 ---
 
-## 08 · Multi-GPU：按瓶颈切分模型与请求
+## 07 · Multi-GPU：按瓶颈切分模型与请求
 
 **TP/PP/EP/CP 解决装不下，DP 解决要更多吞吐且在最外层**
 
@@ -232,7 +239,7 @@ flowchart TB
 
 ---
 
-## 09 · PD 分离：状态交接需要明确契约
+## 08 · PD 分离：状态交接需要明确契约
 
 **匹配≠就绪、算完≠可回收；分离换来配置自由与交接成本**
 
@@ -244,19 +251,7 @@ flowchart TB
 
 ---
 
-## 10 · 模型适配：变化落在哪一层
-
-**模型层管结构，运行时层管调度/Cache/并行，算子层管 Kernel**
-
-![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
-
-<aside class="notes" markdown="1">
-原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。
-</aside>
-
----
-
-## 11 · 请求形态：multi-LoRA 与多模态
+## 09 · 输入在变：multi-LoRA 与多模态
 
 **8 个 rank-16 槽位静态占 1.44 GB/卡，与实际加载数无关**
 
@@ -276,6 +271,30 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。图片示例 576 或 1,369 个 token；encoder 输出短命，KV 在生成期间持续驻留。
+</aside>
+
+---
+
+## 10 · 输出在变：采样参数与结构化输出
+
+**同一 batch 每行按自己的采样参数；grammar 变成每步一张 16 KB / 行的 bitmask**
+
+![结构化输出生效的四个位置](/img/in-post/decoding-extensions-structured-output-positions.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)。采样参数改分布本身、结构化输出改分布的支撑集；参数按 batch 维张量向量化，penalties 每步搬历史输出；grammar 在调度器侧异步编译，与投机解码同开时逐个 draft 位置对账；TP 下每个 rank 都拿到完整 logits、各自采样，GrammarOutput 广播到所有 worker。
+</aside>
+
+---
+
+## 11 · 模型适配：变化落在哪一层
+
+**模型层管结构，运行时层管调度/Cache/并行，算子层管 Kernel**
+
+![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。
 </aside>
 
 ---
@@ -357,7 +376,7 @@ flowchart TB
 {: .fragments}
 
 <aside class="notes" markdown="1">
-对应原文：[/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)、[/kv-cache-memory-core.html](/kv-cache-memory-core.html)、[/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)、[/decoding-extensions-sampling-speculative-and-structured-output.html](/decoding-extensions-sampling-speculative-and-structured-output.html)、[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。
+对应原文：[/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)、[/kv-cache-memory-core.html](/kv-cache-memory-core.html)、[/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)、[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。
 </aside>
 
 ---

@@ -129,7 +129,7 @@ Table: 三篇正文的配套实验
 
 Table: 读本系列需要的前置
 
-三篇可以独立读：第二篇的每个旋钮都先重述它在公式里的位置；第三篇的每个实验都先说明它用的 adapter 是怎么训出来的。想读 `lora.Linear` 的实现，去 [HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)；想读 multi-LoRA 的 kernel 与调度，去 [vLLM 系列第十篇](/request-shapes-multi-lora-and-multimodal.html)——本系列只算账，不读那两处的源码。
+三篇可以独立读：第二篇的每个旋钮都先重述它在公式里的位置；第三篇的每个实验都先说明它用的 adapter 是怎么训出来的。想读 `lora.Linear` 的实现，去 [HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)；想读 multi-LoRA 的 kernel 与调度，去 [vLLM 系列第九篇](/request-shapes-multi-lora-and-multimodal.html)——本系列只算账，不读那两处的源码。
 
 ### 版本与基线
 

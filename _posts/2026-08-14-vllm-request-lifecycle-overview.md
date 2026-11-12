@@ -548,7 +548,7 @@ Table: 入口与引擎循环的源码导航
 
    <details markdown="1"><summary>答案</summary>
 
-   8 个 Worker 各算自己那 1/8 的权重，激活经 all-reduce 汇合；lm_head 的输出（logits）在所有 rank 都完整（或 gather 到 rank 0），采样在 rank 0（driver）做，其他 rank 的结果丢弃——所以采样相关的 CPU 工作只在一个进程上。
+   8 个 Worker 各算自己那 1/8 的权重，激活经 all-reduce 汇合；lm_head 的输出（logits）经 all-gather 后在每个 rank 都完整，每个 rank 都各自采样（同一个随机种子保证结果一致），只有 `output_rank`（rank 0）把结果回传给 EngineCore，其他 rank 的结果不回传。
 
    </details>
 

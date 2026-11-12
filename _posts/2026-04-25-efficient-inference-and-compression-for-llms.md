@@ -73,7 +73,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### Infra 工程师，想知道引擎里那些算法从哪来
 
-你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[（08）](/speculative-decoding-draft-verify-and-payoff.html)，以及 [vLLM 系列第七篇](/decoding-extensions-sampling-speculative-and-structured-output.html)，是本系列的系统侧对应。
+你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[（08）](/speculative-decoding-draft-verify-and-payoff.html)，以及 [vLLM 系列第六篇](/gpu-execution-kernels-and-graphs.html)（低精度推理与投机解码两章），是本系列的系统侧对应。
 
 
 ## 系列的整体主线

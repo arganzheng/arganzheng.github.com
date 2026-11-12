@@ -1,16 +1,16 @@
 ---
 layout: post
 series: deep-dive-into-vllm
-title: 大模型推理系统揭秘（10）：模型适配：如何跟上变化极快的模型世界？
+title: 大模型推理系统揭秘（11）：模型适配：如何跟上变化极快的模型世界？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-10-01
+updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-前面几篇解决的是一个固定模型如何被高效地调度、缓存、执行和扩展。但模型世界变化极快：MLA、MoE、MTP、Mamba、各种量化格式和权重布局层出不穷，而每一种差异都会往下捅穿好几层——Attention Kernel、KV Cache 布局、调度预算、并行与通信都可能被牵动。从这一篇起的三篇换一个方向：前面讲的是“一张卡不够”之后怎么扩展，这三篇讲引擎如何承受三种外部变化——模型变（本篇）、请求形态变（第十一篇）、硬件变（第十二篇）——以及每种变化应该停在哪一层。
+前面几篇先解决一个固定模型如何被高效地调度、缓存、执行和扩展，再看请求可见的契约怎样变——输入（第九篇：一个请求带自己的 LoRA、带几张图片）与输出（第十篇：采样参数与结构化输出）。这一篇换到模型本身。模型世界变化极快：MLA、MoE、MTP、Mamba、各种量化格式和权重布局层出不穷，而每一种差异都会往下捅穿好几层——Attention Kernel、KV Cache 布局、调度预算、并行与通信都可能被牵动。它是四种外部变化——输入在变（第九篇）、输出在变（第十篇）、模型在变（本篇）、硬件在变（第十二篇）——里的第三种：同样要问这种变化应该停在哪一层。
 
 本篇的核心问题是：
 
@@ -67,7 +67,7 @@ Table: 模型工程实现的异构维度
 
 - 换 Attention 变体 → 影响 Attention Kernel **和** KV Cache 布局
 - 换 KV Cache 格式 → 影响显存管理 **和** 调度策略（Mamba 的 state 根本不是块状的）
-- 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见第七章第 3 节 MTP 部分）
+- 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见本文第七章第 3 节 MTP 部分；投机解码的通用链路——proposer、lookahead 槽位、拒绝采样——在[第六篇](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)）
 - 引入 MoE → 影响路由、Token Dispatch、通信和负载均衡
 - 改变权重布局 → 影响加载、量化和张量并行
 
@@ -337,7 +337,7 @@ classDiagram
 
 **第二，能力可以组合。**
 
-一个模型可以同时支持生成、多模态和 speculative decoding，也可以只实现 pooling 或 embedding，而不必被迫继承一条包含无关方法的基类链。
+一个模型可以同时支持生成、多模态和 speculative decoding，也可以只实现 pooling 或 embedding，而不必被迫继承一条包含无关方法的基类链。第九篇里 multi-LoRA 与多模态用到的 `SupportsLoRA`、`SupportsMultiModal` 就是这套能力声明的实例：声明了 `SupportsLoRA`，线性层才会被换成 `*WithLoRA` 包装层；声明了 `SupportsMultiModal`，引擎才会为它跑 encoder、合并 embedding。
 
 因此，这里的统一并不一定意味着所有模型具有完全相同的 Python `forward` 签名。更准确地说，统一的是：
 
@@ -681,7 +681,7 @@ Tokenizer Registry 将 tokenizer 的特殊处理从模型执行路径中解耦�
 
 **9.3 MultiModal Registry**
 
-多模态模型的复杂性往往不只来自模型结构，还来自输入预处理链。MultiModal Registry 可以将模型类与具体 processor 松耦合，承接：
+多模态模型的复杂性往往不只来自模型结构，还来自输入预处理链。MultiModal Registry 可以将模型类与具体 processor 松耦合（第九篇的多模态输入处理流水线就是从这里按模型类找到 processor 的），承接：
 
 - 图片、视频、音频等输入处理；
 - 多模态特征提取；

@@ -1,16 +1,18 @@
 ---
 layout: post
 series: deep-dive-into-vllm
-title: 大模型推理系统揭秘（11）：请求形态的扩展：multi-LoRA 与多模态
+title: 大模型推理系统揭秘（09）：请求形态的扩展：multi-LoRA 与多模态
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-10-01
+updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-上一篇讲的是"一个新模型如何接进来"——`ModelConfig` 收敛意图、`ModelRegistry` 找到实现、`ModelLoader` 装配权重、`Worker + ModelRunner` 组织执行。整条链路有一个没有说出口的假设：**服务里只有一个模型、一份权重，每个请求就是一串 token id**。调度器按 token 分预算，KV Cache 按 token 分块，model runner 把所有请求的 token 拍平成一条 `input_ids` 送进同一个 forward。
+前八篇——调度、KV Cache、GPU 执行，再到多卡与 PD 分离——讲的都是一个固定的服务如何算得更快、扩得更大。从这一篇起的四篇换一个方向，看引擎如何承受四种外部变化，以及每种变化应该停在哪一层：先是请求级的变化——输入在变（本篇）、输出在变（第十篇），同一个 batch 里每个请求都可能不同，引擎必须逐请求处理；再是部署级的变化——模型在变（第十一篇）、硬件在变（第十二篇），一个实例启动时就定下，引擎要在接口层把它们隔离开。
+
+请求级变化的起点，是同一个 batch 里的请求不再长得一样。前八篇的执行链路（API 进程把请求变成 token id → Scheduler → `Worker + ModelRunner`）有一个没有说出口的假设：**服务里只有一个模型、一份权重，每个请求就是一串 token id**。调度器按 token 分预算，KV Cache 按 token 分块，model runner 把所有请求的 token 拍平成一条 `input_ids` 送进同一个 forward。
 
 这个假设在两种很常见的请求上破了：
 
@@ -32,7 +34,7 @@ updated: 2026-10-01
 
 ### 1. 三个隐含假设
 
-把上一篇那条执行链路上的隐含假设摆出来：
+把这条执行链路上的隐含假设摆出来：
 
 | 假设 | 它在哪里被依赖 | 谁打破它 |
 |---|---|---|
@@ -46,12 +48,14 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 ### 2. 两种扩展分别惊动了谁
 
-| | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | 模型适配（第十篇） |
+| | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | 模型侧 |
 |---|---|---|---|---|
 | multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel<br/>每个 LoRA 层多两次 kernel<br/>CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
 | 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）<br/>chunk 边界不能切开一张图<br/>prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
 
 Table: multi-LoRA 与多模态惊动的模块
+
+最后一列的 `SupportsLoRA`、`SupportsMultiModal` 是 vLLM 模型类的**能力声明**：模型类实现这些接口协议（Protocol），引擎在加载时检查，据此启用对应路径——声明了 `SupportsLoRA`，加载器才会把它的线性层替换成带 LoRA 分支的 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并在 `MultiModalRegistry` 里登记了输入处理器，引擎才会为它跑 encoder、合并 embedding。本篇只用到这两种声明的效果；能力声明与模型注册的完整机制见第十一篇。
 
 ### 3. 回到前面的例子
 
@@ -66,7 +70,7 @@ Table: multi-LoRA 与多模态惊动的模块
 |---|---|---|
 | 二 | multi-LoRA | 一段回顾<br/>同 batch 异构 adapter 的 Triton kernel<br/>槽位与 LRU<br/>显存账<br/>映射如何进入调度与执行<br/>动态加载<br/>CUDA graph<br/>量化 + LoRA |
 | 三 | 多模态 | 输入处理流水线与 processor 缓存<br/>占位符与 embedding 合并<br/>encoder 的独立执行与预算<br/>EncoderCacheManager<br/>多模态 prefix cache<br/>显存账<br/>视频与音频 |
-| 四 | 叠加与向后 | LoRA + 多模态<br/>留给硬件抽象（12）的问题<br/>放回 PD 分离（09）的问题<br/>两个扩展的开销对照 |
+| 四 | 叠加与向后 | LoRA + 多模态<br/>留给硬件抽象（12）的问题<br/>放回 PD 分离（08）的问题<br/>两个扩展的开销对照 |
 | 五 | 本文小结 |  |
 | 六 | 自测 | 5 道题 |
 
@@ -369,7 +373,7 @@ def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multim
 
 最后一步就是 `inputs_embeds[is_mm_embed] = mm_embeds_flat`——盖掉查表得到的占位 embedding。注意两点：位置 6 的换行虽然在占位区间内，但 `is_embed=0`，它保留查表 embedding，encoder 输出的下标也跳过它；chunk 2 的 `start_idx=4` 是"encoder 输出的第 4 个"而不是"占位区间的第 5 个位置"——`get_embeds_indices_in_range()` 做的正是这两个坐标系之间的换算。
 
-encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见第七篇的投机解码一章）。
+encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见[第六篇的投机解码一章](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)）。
 
 ### 3. encoder 的独立执行与预算
 
@@ -498,9 +502,9 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 - ViT 的注意力与 decoder 的 paged attention 是两套后端：`get_vit_attn_backend()`（`vllm/model_executor/models/vision.py`）与 `mm_encoder_attn_backend` 单独选择，`mm_encoder_attn_dtype="fp8"` 单独量化。硬件抽象层要同时覆盖两种注意力形态。
 - 视频解码可以走 GPU 硬解（PyNvVideoCodec），这是 NVIDIA 特有的能力——平台抽象要不要把"预处理"也纳入？
 
-### 3. 放回第九篇（PD 分离）的问题
+### 3. 放回第八篇（PD 分离）的问题
 
-第九篇讲 PD 分离时，隐含的仍是「一个模型、一串 token」。把本篇的两个扩展放回去，有三个它没有回答的问题：
+第八篇讲 PD 分离时，隐含的仍是「一个模型、一串 token」。把本篇的两个扩展放回去，有三个它没有回答的问题：
 
 - **encoder 放哪一侧？** 它的输出只在 prefill 时需要，自然属于 P 侧；但 P 侧的显存本来就要给大 batch 的 prefill 激活，ViT 的峰值激活会挤它。v0.27.1 已经有第三种选择的骨架：`ECTransferConfig`（`vllm/config/ec_transfer.py`）与 `vllm/distributed/ec_transfer/` 定义了 encoder cache 的 producer / consumer，`mm_encoder_only=True` 让一个实例只跑 encoder，调度器里 `_try_schedule_encoder_inputs()` 的 `external_load_encoder_input` 分支对应"encoder 输出从远端来"。E/P/D 三池分离的问题是：encoder 输出（每张图 9–22 MB）值不值得走一次网络？
 - **LoRA 在两个池怎么同步？** KV 的块哈希包含 `lora_name`，P 侧算出的 KV 只对同一个 adapter 有效；D 侧必须有同一个 adapter 且槽位可用，否则传过来的 KV 无法使用。两个池的 `max_loras`、adapter 集合、LRU 状态如何保持一致，是 PD 分离下 multi-LoRA 的新问题。
@@ -574,7 +578,7 @@ Table: 多模态源码导航
 - 多模态复用 HF processor 做预处理，用 `PlaceholderRange` 记录占位符，`MultiModalHasher` 对原始输入哈希以驱动两级缓存（processor cache 与 encoder cache）；embedding 阶段用 `is_mm_embed` 布尔掩码把 encoder 输出就地散射进去，chunk 边界可以切在一张图中间。
 - encoder 是 decoder forward 之前的一次独立计算，有自己的预算（`encoder_compute_budget`、`encoder_cache_size`，都等于 `max_num_batched_tokens`，单位是 embedding 数）；一张图必须整体编码，预算不够就把 `num_new_tokens` 截到图之前——这是 Token Budget 模型的第一个例外。`EncoderCacheManager` 只记账，输出在图 prefill 完后即可释放，驻留只有几步。
 - 显存上，一张图真正贵的是它的 KV（≈ 20× encoder 输出、活全程），encoder 输出本身小且短命；encoder 激活峰值靠 `profile_run()` 实测扣除。视频用 `is_embed` 掩码支持剪枝，音频的 encoder-decoder 结构让 chunked prefill 与 prefix cache 双双失效。
-- 两者都把问题留给了硬件抽象（第十二篇）与 PD 分离（第九篇）：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
+- 两者都把问题留给了硬件抽象（第十二篇）与 PD 分离（第八篇）：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
 
 ## 六、自测
 

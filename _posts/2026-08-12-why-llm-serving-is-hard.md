@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（01）：为什么 LLM Serving 比传统 DL 推理难？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-10-18
+updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -42,7 +42,7 @@ LLM Serving 则完全不同。一个请求可能携带几十个，也可能携�
 | 三 | Prefill 与 Decode | 两种完全不同的 GPU Workload：计算规模、瓶颈与优化手段 |
 | 四 | 吞吐与时延 | Batch 增大带来的收益与代价，SLO 约束下的权衡 |
 | 五 | 三个根本变化 | 动态执行、带状态推理、混合 Workload |
-| 六 | 阅读地图 | 后续内容围绕的四个核心问题与三个横切约束 |
+| 六 | 阅读地图 | 后续内容围绕的四个核心问题与四个横切约束 |
 | 七 | 一个贯穿全文的例子 | Llama-3-70B / 8×H100 / 2050+300 token 的基础算账 |
 | 八 | 本文小结 |  |
 | 九 | 自测 | 5 道题 |
@@ -216,14 +216,21 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 
 | # | 核心问题 | 主要机制 | 主要代码落点 | 后续章节 |
 |---|---|---|---|---|
-| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | 调度 |
-| 二 | 历史状态**放在哪里、如何复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | KV Cache |
-| 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 执行优化 |
-| 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | 多卡与集群 |   |
+| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | 第 4 篇 调度 |
+| 二 | 历史状态**放在哪里、如何复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | 第 5 篇 KV Cache |
+| 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 第 6 篇 执行优化（含投机解码） |
+| 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | 第 7 篇 多卡、第 8 篇 PD 分离 |
 
 Table: LLM Serving 的四个核心问题与代码落点
 
-四问之外还有三个**横切约束**：模型在变（第 10 篇）、请求形态在变（第 11 篇：一个请求可以带自己的 LoRA、带几张图片）、硬件在变（第 12 篇）——它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。
+四问之外还有四个**横切约束**，按从请求到芯片的顺序：
+
+1. 输入在变（第 9 篇）：一个请求可以带自己的 LoRA、带几张图片；
+2. 输出在变（第 10 篇）：每个请求有自己的采样参数，还可能要求输出必须符合 JSON schema 或语法；
+3. 模型在变（第 11 篇）：MLA、MoE、MTP 等新结构不断进来；
+4. 硬件在变（第 12 篇）：同一套 Serving 逻辑要跑在不同芯片上。
+
+它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。投机解码不在横切约束里：它不改变输出的分布，只改变一次 forward 产出几个 token，属于问题三「如何计算得更快」；采样参数与结构化输出改的是「输出什么」，才属于约束。
 
 ## 七、一个贯穿全文的例子
 
@@ -272,7 +279,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 - Prefill 与 Decode 是两种截然不同的 Workload：前者一次处理 N 个 token、偏 Compute-Bound；后者每步只处理 1 个 token、却要读全部历史 KV、偏 Memory-Bound。两者竞争同一组 GPU 资源，这是 Continuous Batching、Token Budget、Chunked Prefill、抢占与 PD 分离存在的原因。
 - 扩大 Batch 提升吞吐，但会抬高单请求延迟、尾延迟和 KV Cache 压力；目标不是最大 Batch，而是在 SLO 约束下选择合适的执行规模。
 - 归纳为三个根本变化：从静态计算到动态执行、从无状态推理到带状态推理、从单一 Workload 到 Prefill/Decode 混合 Workload。
-- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加模型、请求形态与硬件三个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
+- 后续各篇围绕四个核心问题展开——这一轮谁执行、状态放哪、如何算得更快、如何扩展——外加输入、输出、模型与硬件四个横切约束；并反复回到同一个 Llama-3-70B / 8×H100 的请求算账（每 token 320 KB KV，全请求约 734 MB）。
 
 ## 九、自测
 
@@ -312,7 +319,7 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
    <details markdown="1"><summary>答案</summary>
 
-   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加模型、请求形态与硬件三个横切约束。
+   这一轮谁执行、执行多少（Scheduler）；状态放哪、怎么复用（KVCacheManager / BlockPool）；怎么算得更快（ModelRunner / Attention Backend / Kernel）；怎么扩出去（Executor / Worker / 集合通信）。加输入（LoRA、多模态）、输出（采样参数、结构化输出）、模型与硬件四个横切约束。
 
    </details>
 

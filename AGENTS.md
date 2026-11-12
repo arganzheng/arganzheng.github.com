@@ -1898,7 +1898,7 @@ How it is built (`_plugins/moments.rb`):
   backend + `mp.spawn(…, nprocs=4)` runs real all-reduce / reduce-scatter /
   all-gather / all-to-all / isend-recv between 4 CPU processes (~1–2 s a
   spawn). `large-scale-training/02_parallelism_toys.py` (2026-09-21, for the
-  并行篇 after reader #74 asked to cross-pollinate with vLLM 08) does ZeRO /
+  并行篇 after reader #74 asked to cross-pollinate with vLLM Multi-GPU, then 08, now 07) does ZeRO /
   TP (f, g as `autograd.Function`) / Ring Attention / GPipe / EP (all-to-all
   whose backward is the split-swapped all-to-all) this way and checks each
   against a single-process reference; the article's 「亲手验证」 blocks quote
@@ -1975,7 +1975,7 @@ How it is built (`_plugins/moments.rb`):
   identical to the author's MPS run). 02_knobs writes `out/knobs.json`; the SVG
   charts under `img/in-post/lora-*.svg` are plotted from it. The six older
   LoRA passages (L0 03 §六, 工具箱 05 §四.2, L4 12 §五, 后训练 01 §五.2, HF 源码 04
-  §三, vLLM 11 §二) each open with a one-line pointer to the series — keep them
+  §三, vLLM 09 §二) each open with a one-line pointer to the series — keep them
   as summaries, do not grow them.
 - Series `deep-dive-into-vllm` (《大模型推理系统揭秘》, 08-11 overview, 01–15 at
   08-12 … 08-25 — 15 = vLLM vs SGLang at 08-25 12:00 — recap NN=16 at 08-25 20:00) was re-ordered on 2026-10-01 so the
@@ -1985,6 +1985,29 @@ How it is built (`_plugins/moments.rb`):
   title NN, in-text 第 X 篇 references, the recap, the deck and the two LoRA
   pointers were touched. The overview now has a 主线 Mermaid + 八段表 and a
   问题 → 篇 reading guide — keep them in sync if posts move again.
+  **Restructured again 2026-11-12** (author's 划线评论 on the overview: 「投机解码在第六章
+  执行效率已经有介绍，是不是有重叠？……第七章是关于变化还是性能？」). Rule that
+  decided it: **does it change the output?** Speculative decoding is lossless
+  (rejection sampling keeps the distribution), so it is performance and lives
+  entirely in 06 §五「能不能少跑几轮模型？—— 投机解码」 (principle, Proposer
+  family, scheduler budget / KV lookahead / rollback, model runner K+1,
+  RejectionSampler, cost). Sampling params + structured output change *what*
+  is output, so the old 07 became a 「输出在变」 post in the 变化 segment. New
+  order: 01–06 · 07 Multi-GPU (08-18) · 08 PD (08-19) · 09 输入：请求形态
+  multi-LoRA / 多模态 (08-20) · 10 输出：采样参数与结构化输出 (08-21) · 11 模型适配
+  (08-22) · 12 硬件 (08-23) · 13–16 unchanged. The 变化 segment is ordered by
+  granularity: request-level first (09 input, 10 output — every request in a
+  batch may differ, handled per request), then deployment-level (11 model,
+  12 hardware — fixed when an instance starts, isolated at interfaces); 09
+  uses `SupportsLoRA` / `SupportsMultiModal` and explains them in place with a
+  forward pointer to 11. 01's 表 4 lists four 横切约束 (输入 9 / 输出 10 /
+  模型 11 / 硬件 12). Old→new: 07→10 (anything about speculative decoding →
+  06, link `/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码`),
+  08→07, 09→08, 10→11, 11→09. The output post's slug changed to
+  `/output-changes-sampling-and-structured-output.html` with `redirect_from`
+  + `comments_path: /decoding-extensions-sampling-speculative-and-structured-output.html`;
+  the other slugs are unchanged. Cross-series pointers updated: LoRA 01 / 03 /
+  recap → 第九篇, 大规模训练 02 → 第七篇, 高效推理总纲 → 第六篇.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →

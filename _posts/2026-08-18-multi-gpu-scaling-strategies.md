@@ -1,10 +1,10 @@
 ---
 layout: post
 series: deep-dive-into-vllm
-title: 大模型推理系统揭秘（08）：Multi-GPU：一张卡不够时如何扩展？
+title: 大模型推理系统揭秘（07）：Multi-GPU：一张卡不够时如何扩展？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-09-21
+updated: 2026-11-12
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。

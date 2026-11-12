@@ -293,7 +293,7 @@ flowchart LR
 
 Table: KV 管理对照
 
-块哈希与基数树，谁的前缀命中更"强"？代价是什么？[^q5]基数树命中更细、更能被调度器利用——任意长度命中、同批检测、缓存感知排序；代价是一棵在 CPU 上维护的树（匹配、切分、锁、驱逐都是 Python 对象操作，前缀越多树越大），以及每个 TP rank 各维护一份（第三章）。块哈希表的命中按块取整，但查找是 O(块数) 的哈希，结构简单到可以把块的哈希与元数据通过 `KVConnector` 发给另一个进程或机器——第八篇与第十二篇的 PD 分离、第十三篇的分布式 KV 都建立在"块 + 哈希"这个可以序列化的单位上。SGLang 的 `HiRadixCache` 做同样的事时，节点要额外记 `host_value` 与 `hash_value`，相当于在树上再长出一套块哈希。
+块哈希与基数树，谁的前缀命中更"强"？代价是什么？[^q5]基数树命中更细、更能被调度器利用——任意长度命中、同批检测、缓存感知排序；代价是一棵在 CPU 上维护的树（匹配、切分、锁、驱逐都是 Python 对象操作，前缀越多树越大），以及每个 TP rank 各维护一份（第三章）。块哈希表的命中按块取整，但查找是 O(块数) 的哈希，结构简单到可以把块的哈希与元数据通过 `KVConnector` 发给另一个进程或机器——第八篇的 PD 分离、第十三篇的分布式 KV 都建立在"块 + 哈希"这个可以序列化的单位上。SGLang 的 `HiRadixCache` 做同样的事时，节点要额外记 `host_value` 与 `hash_value`，相当于在树上再长出一套块哈希。
 
 ## 六、GPU 执行
 
@@ -330,7 +330,7 @@ Table: GPU 执行层对照
 
 ### 1. 共同点
 
-TP / PP / EP / DP 四种并行两边都有（第八篇讲 vLLM 的实现）：TP 切权重、每层 all-reduce；PP 切层、微批流水；EP 把 MoE 专家分散到不同卡、all-to-all 路由 token；DP 复制整个引擎、各自调度。SGLang 的 PP 由 `scheduler_pp_mixin.py` 的 `event_loop_pp` 提供，DP 由 `DataParallelController` 分发。
+TP / PP / EP / DP 四种并行两边都有（第七篇讲 vLLM 的实现）：TP 切权重、每层 all-reduce；PP 切层、微批流水；EP 把 MoE 专家分散到不同卡、all-to-all 路由 token；DP 复制整个引擎、各自调度。SGLang 的 PP 由 `scheduler_pp_mixin.py` 的 `event_loop_pp` 提供，DP 由 `DataParallelController` 分发。
 
 ### 2. 分叉：DeepSeek 带来的那一组
 
@@ -339,7 +339,7 @@ DeepSeek-V3 / R1 这种"MLA + 数百专家 + 几十张卡"的部署让两边各�
 - **DP attention**（SGLang `--enable-dp-attention`，`layers/dp_attention.py`）：attention 部分按 DP 复制（MLA 的 KV 很小，复制比切分划算），FFN / MoE 部分按 TP / EP 切；要求 `dp_size == tp_size`，每个 DP rank 有自己的调度器与 KV 池。vLLM 对应的是 DP + EP 的组合（`data_parallel_size` + `enable_expert_parallel`），多个 EngineCore 各管一份 attention，MoE 层跨 DP rank 做 all-to-all。
 - **专家负载均衡**：两边都叫 EPLB——SGLang 在 `eplb/`，vLLM 在 `ParallelConfig.enable_eplb` + `EPLBConfig`。
 - **两个微批重叠通信与计算**：SGLang 叫 TBO（`--enable-two-batch-overlap`，`batch_overlap/two_batch_overlap.py`），vLLM 叫 DBO（`ParallelConfig.enable_dbo`，`dbo_decode_token_threshold` 默认 32）。
-- **all-to-all 的实现**：SGLang `moe_a2a_backend` 可选 `deepep` / `mooncake` / `nixl` / `mori`；vLLM 的 all-to-all 由 `all2all_backend`（第八篇）选择，同样支持 DeepEP。
+- **all-to-all 的实现**：SGLang `moe_a2a_backend` 可选 `deepep` / `mooncake` / `nixl` / `mori`；vLLM 的 all-to-all 由 `all2all_backend`（第七篇）选择，同样支持 DeepEP。
 
 | | vLLM | SGLang |
 |---|---|---|
@@ -359,7 +359,7 @@ Table: 并行能力对照
 
 ### 1. vLLM：一个抽象、多个实现
 
-第九篇讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
+第八篇讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
 
 ### 2. SGLang：两套队列、一个 bootstrap、一个原生网关
 
@@ -395,18 +395,18 @@ vLLM 的多级 KV 复用 `KVConnector` 这同一个抽象：`offloading_connecto
 |---|---|---|
 | PD 分离的形态 | `KVConnector` 钩子 + 普通实例 | `disaggregation/` 模块 + `--disaggregation-mode` |
 | P / D 配对与路由 | 外部 proxy | `sgl-model-gateway` 原生，`bootstrap_room` |
-| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第九篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
+| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第八篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
 | 传输实现 | NIXL、Mooncake、LMCache、<span class="inline-tip" data-tip="Modular RDMA Interface：AMD 的 MoE 通信库">MoRI</span> IO 等 connector | Mooncake（默认）、NIXL、Mori、Ascend |
 | CPU 卸载 | `offloading_connector.py` | `HiRadixCache`（L2） |
 | 外部存储 | LMCache、Mooncake、HF3FS connector | `mem_cache/storage/` 多个 backend（L3） |
 
 Table: PD 分离与多级缓存对照
 
-两套 PD 分离，谁承担"D 满了 P 收不收"的决定？[^q8]vLLM 把它留给外部：P 实例只知道自己的 KV 发没发完，D 实例只知道自己收没收到，是否放行一个新请求由 proxy 看两边的指标决定（第十二篇第四章的"P/D 协同"是对这层的要求，不是实现）。SGLang 把它内置到 P 侧：请求必须先在 Bootstrap Queue 里与 D 握手、等 D **预分配到 KV** 才能进 Waiting Queue，所以 D 满了的后果是 P 侧的请求停在 bootstrap 阶段，不占 P 的 KV 池。这个差别回到两边的定位：vLLM 更愿意做一个被编排的执行层，SGLang 更愿意把编排的一部分收进来。
+两套 PD 分离，谁承担"D 满了 P 收不收"的决定？[^q8]vLLM 把它留给外部：P 实例只知道自己的 KV 发没发完，D 实例只知道自己收没收到，是否放行一个新请求由 proxy 看两边的指标决定（第八篇第四章的"P/D 协同"是对这层的要求，不是实现）。SGLang 把它内置到 P 侧：请求必须先在 Bootstrap Queue 里与 D 握手、等 D **预分配到 KV** 才能进 Waiting Queue，所以 D 满了的后果是 P 侧的请求停在 bootstrap 阶段，不占 P 的 KV 池。这个差别回到两边的定位：vLLM 更愿意做一个被编排的执行层，SGLang 更愿意把编排的一部分收进来。
 
 ## 九、解码的扩展
 
-第七篇与第十一篇讲的几类扩展两边都有，差别在清单与默认值。
+第六篇（投机解码）、第九篇（multi-LoRA 与多模态）与第十篇（结构化输出）讲的几类扩展两边都有，差别在清单与默认值。
 
 | 能力 | vLLM | SGLang |
 |---|---|---|
@@ -415,8 +415,8 @@ Table: PD 分离与多级缓存对照
 | 结构化输出 backend | `auto`、`xgrammar`、`guidance`、`outlines`、`lm-format-enforcer`（`config/structured_outputs.py`） | `xgrammar`（默认）、`outlines`、`llguidance`、`none`（`constrained/`） |
 | 结构化输出的加速 | bitmask 由 `StructuredOutputManager` 异步编译，采样前应用 | 同样 bitmask；另有 jump-forward（`outlines_jump_forward.py`，一次写入多个确定 token） |
 | 推理模型的思维链 | reasoning parser 在 API 层 | `reasoner_grammar_backend.py`：思考段不施加语法，答案段才施加 |
-| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（第十一篇） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
-| 多模态 | 处理器注册表 + encoder cache（第十一篇） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
+| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（第九篇） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
+| 多模态 | 处理器注册表 + encoder cache（第九篇） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
 | 前端 DSL | 无（`LLM` 类是 Python API，不是程序语言） | `sglang.lang`：`gen` / `select` / `fork`，可运行在 SGLang 或 OpenAI backend 上 |
 
 Table: 解码扩展的清单对照
@@ -461,7 +461,7 @@ Table: 入口与生态对照
 |---|---|---|
 | 多轮对话、agent、长 system prompt、few-shot，前缀共享度高 | SGLang | 基数树 token 粒度命中 + `lpm` / `dfs-weight` 调度 + 网关 cache-aware 路由（五、十） |
 | DeepSeek 类大规模 MoE，几十张卡，需要 DP attention + EP + PD 一整套 | SGLang 起步快；vLLM 可达 | SGLang 把 DP attention、DeepEP、EPLB、TBO、PD、HiCache 集成在一个仓库并有成体系的文档（七、八）；vLLM 对应能力都有，但要自己拼编排层 |
-| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（第十、第十二篇） |
+| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（第十一、第十二篇） |
 | 模型 / 量化格式覆盖面、与 HF 生态的贴合 | 两者都快，vLLM 清单更长 | 模型文件数与量化方法清单（十） |
 | 需要 KV 多级缓存（CPU、外部存储）且不想引入第三方 | SGLang | `HiRadixCache` + `storage/` 内置（八） |
 | 已有 Ray / Kubernetes 编排与 vLLM 社区的部署栈 | vLLM | 外部生态围绕 vLLM 实例设计（十） |
@@ -532,7 +532,7 @@ Table: 全文对照与差异来源
 
    </details>
 
-5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应 vLLM 第九篇说的"匹配不等于就绪"？
+5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应 vLLM 第八篇说的"匹配不等于就绪"？
 
    <details markdown="1"><summary>答案</summary>
 
