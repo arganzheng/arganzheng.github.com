@@ -136,6 +136,16 @@
         });
       }
 
+      var mathKey = 0;
+      function mathSizes() {
+        var el = document.getElementById('mm-math-sizes');
+        if (!el) {
+          el = document.createElement('style');
+          el.id = 'mm-math-sizes';
+          document.head.appendChild(el);
+        }
+        return el;
+      }
       function mathPlaceholders(source, texts) {
         var probe = document.createElement('div');
         // line-height 1.5 = Mermaid's label div: the filled span inherits it,
@@ -173,12 +183,18 @@
             var base = it.row.firstChild.getBoundingClientRect().bottom;
             var r = it.holder.getBoundingClientRect();
             var i = texts.push(tex) - 1;
-            return "<span class='mm-math' data-i='" + i + "' style='display:inline-block;" +
-              // +4: 2px on every side — italic overhang (a final V, f) and the
-              // tall glyphs of \sum / \lVert reach past the KaTeX box, and the
-              // foreignObject clips at its edge; fillMath pads the same 2px
+            // the size goes into a stylesheet, not a style attribute: Mermaid's
+            // entity protection matches /style.*:\S*#.*;/ on the whole line and
+            // drops the `;` of a later `#93;` (out#91;B#93; → out[B#93)
+            var key = 'm' + (mathKey++);
+            // +4: 2px on every side — italic overhang (a final V, f) and the
+            // tall glyphs of \sum / \lVert reach past the KaTeX box, and the
+            // foreignObject clips at its edge; fillMath pads the same 2px
+            mathSizes().appendChild(document.createTextNode(
+              '.mm-math[data-k="' + key + '"]{display:inline-block;' +
               'width:' + (Math.ceil(r.width) + 4) + 'px;height:' + (Math.ceil(r.height) + 4) + 'px;' +
-              'vertical-align:' + (base - r.bottom - 2).toFixed(1) + "px'></span>";
+              'vertical-align:' + (base - r.bottom - 2).toFixed(1) + 'px}\n'));
+            return "<span class='mm-math' data-i='" + i + "' data-k='" + key + "'></span>";
           });
           probe.remove();
           return out;
@@ -189,6 +205,7 @@
           var tex = texts[+el.getAttribute('data-i')];
           // nowrap: inline KaTeX may break after = / − once the label is
           // narrower than the formula; the placeholder was measured unbroken
+          el.removeAttribute('data-k');
           el.setAttribute('style', 'display:inline-block;white-space:nowrap;padding:2px');
           try { katex.render(tex, el, { throwOnError: false }); } catch (e) { el.textContent = tex; }
         });
