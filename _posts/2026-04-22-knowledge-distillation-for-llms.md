@@ -43,11 +43,11 @@ Table: 两种 KL：期望取自谁的分布
 flowchart TB
     %% 三个子图之间没有连线时 dagre 会把它们横排；用不可见边把三块叠成一列
     subgraph C["on-policy"]
-        CS["`学生**采样** y ~ q_S`"] --> CT["教师前向
-p_T(· | 前缀)"]
+        CS["`学生**采样** $$y \sim q_S$$`"] --> CT["教师前向
+$$p_T(\cdot \mid \text{前缀})$$"]
         CS --> CS2["学生前向
-q_S(· | 前缀)"]
-        CT --> CK["D(p_T ‖ q_S)
+$$q_S(\cdot \mid \text{前缀})$$"]
+        CT --> CK["$$D(p_T \Vert q_S)$$
 在学生会去的地方纠正"]
         CS2 --> CK
     end
@@ -57,10 +57,10 @@ q_S(· | 前缀)"]
     end
     subgraph A["logits 级"]
         A1["数据 / 教师的序列 y"] --> AT["教师前向
-p_T(· | 前缀)"]
+$$p_T(\cdot \mid \text{前缀})$$"]
         A1 --> AS["学生前向
-q_S(· | 前缀)"]
-        AT --> AK["KL(p_T ‖ q_S)
+$$q_S(\cdot \mid \text{前缀})$$"]
+        AT --> AK["$$\text{KL}(p_T \Vert q_S)$$
 每位置完整分布"]
         AS --> AK
     end
