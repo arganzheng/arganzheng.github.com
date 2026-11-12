@@ -151,20 +151,20 @@ flowchart TB
 **控制面在 CPU 只动元数据，数据面在 GPU 只动张量；边界上只过两条消息**
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
 flowchart TB
     subgraph CP["控制面 · CPU · 只处理元数据"]
         direction LR
-        API["API Server + AsyncLLM<br/>tokenize、流式输出"]
-        EngineCore["EngineCore<br/>step() 主循环"]
-        Scheduler["Scheduler<br/>每轮给谁几个 token"]
-        KV["KVCacheManager + BlockPool<br/>请求 → block id"]
+        API["<b>API Server + AsyncLLM</b><br/>tokenize、流式输出"]
+        EngineCore["<b>EngineCore</b><br/>step() 主循环"]
+        Scheduler["<b>Scheduler</b><br/>每轮给谁几个 token"]
+        KV["<b>KVCacheManager + BlockPool</b><br/>请求 → block id"]
         API --> EngineCore --> Scheduler --> KV
     end
     subgraph DP["数据面 · GPU · 只处理张量"]
         direction LR
-        Worker["GPU Worker × N<br/>ModelRunner：准备输入、前向、采样"]
-        Mem["GPU 显存<br/>权重分片 · KV Cache · 激活"]
+        Worker["<b>GPU Worker × N</b><br/>ModelRunner：准备输入、前向、采样"]
+        Mem["<b>GPU 显存</b><br/>权重分片 · KV Cache · 激活"]
         Worker --> Mem
     end
     CP <==>|"↓ SchedulerOutput：请求 id、token 数、新 block id<br/>↑ ModelRunnerOutput：采样出的 token id"| DP
@@ -197,19 +197,19 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 graph TB
-    EX["Executor<br/><i>执行抽象：单设备或多设备模型调用</i>"]
+    EX["<b>Executor</b><br/><i>执行抽象：单设备或多设备模型调用</i>"]
     EX --> W0 & W1 & WN
     subgraph W0["Worker 0 (GPU 0)"]
         direction TB
-        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
+        M0["ModelRunner"] --- S0["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     subgraph W1["Worker 1 (GPU 1)"]
         direction TB
-        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
+        M1["ModelRunner"] --- S1["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     subgraph WN["Worker N (GPU N)"]
         direction TB
-        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
+        MN["ModelRunner"] --- SN["<b>Model Weights（分片）</b><br/>KV Cache"]
     end
     NC["NCCL：TP all-reduce / PP 激活收发"]
     W0 & W1 & WN <-.-> NC
