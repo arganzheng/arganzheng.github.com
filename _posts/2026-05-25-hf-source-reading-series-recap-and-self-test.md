@@ -18,10 +18,10 @@ date: 2026-05-25 20:00:00
 %%{init: {"flowchart": {"wrappingWidth": 230}}}%%
 %% 图：四篇的依赖：03 造 input_ids / labels 与 batch，01 的模型算前向与 ForCausalLMLoss，02 的 generate 反复调 01 的 forward，04 的 peft 改 01 的 nn.Linear、trl 用 03 的 apply_chat_template 与 map 造 labels、用 01 的 loss_function 算 SFT loss
 flowchart TB
-    T3["03 tokenizers · datasets<br/>tokenizer.json 五段 · chat template · Arrow · map · collate_fn"]
-    T1["01 transformers 模型侧<br/>from_pretrained 六步 · DecoderLayer · attention 注册表 · KV cache · ForCausalLMLoss"]
-    T2["02 generate<br/>GenerationConfig · LogitsProcessor · StoppingCriteria · _sample 循环"]
-    T4["04 peft · trl<br/>inject_adapter · lora.Linear · build_labels · dpo_loss · _compute_loss"]
+    T3["<b>03 tokenizers · datasets</b><br/>tokenizer.json 五段 · chat template · Arrow · map · collate_fn"]
+    T1["<b>01 transformers 模型侧</b><br/>from_pretrained 六步 · DecoderLayer · attention 注册表 · KV cache · ForCausalLMLoss"]
+    T2["<b>02 generate</b><br/>GenerationConfig · LogitsProcessor · StoppingCriteria · _sample 循环"]
+    T4["<b>04 peft · trl</b><br/>inject_adapter · lora.Linear · build_labels · dpo_loss · _compute_loss"]
     T3 -- "input_ids · labels · attention_mask" --> T1
     T1 -- "forward(past_key_values) 每步一次" --> T2
     T4 -- "setattr 换掉 nn.Linear" --> T1

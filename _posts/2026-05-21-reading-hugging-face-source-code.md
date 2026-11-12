@@ -64,9 +64,9 @@ transformers 有 518 个模型目录，但 decoder-only 语言模型几乎全是
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 %% 图：四篇沿一次 LoRA SFT 的数据流：第三篇的 tokenizers / datasets 造 input_ids 与 labels，第一篇的 transformers 模型算前向与 loss，第四篇的 peft 挂 LoRA、trl 给三种 Trainer，第二篇的 generate 是推理侧的出口
 flowchart LR
-    D["03 tokenizers · datasets<br/>messages → input_ids / labels<br/>Arrow 文件 → collate_fn"] --> M["01 transformers 模型侧<br/>from_pretrained → nn.Module<br/>forward → logits → ForCausalLMLoss"]
-    M --> G["02 generate<br/>LogitsProcessor 一串<br/>_sample 的 while 循环"]
-    P["04 peft · trl<br/>lora.Linear 的一行<br/>SFT 的 -100 · dpo_loss · GRPO"] --> M
+    D["<b>03 tokenizers · datasets</b><br/>messages → input_ids / labels<br/>Arrow 文件 → collate_fn"] --> M["<b>01 transformers 模型侧</b><br/>from_pretrained → nn.Module<br/>forward → logits → ForCausalLMLoss"]
+    M --> G["<b>02 generate</b><br/>LogitsProcessor 一串<br/>_sample 的 while 循环"]
+    P["<b>04 peft · trl</b><br/>lora.Linear 的一行<br/>SFT 的 -100 · dpo_loss · GRPO"] --> M
     D --> P
 ```
 
