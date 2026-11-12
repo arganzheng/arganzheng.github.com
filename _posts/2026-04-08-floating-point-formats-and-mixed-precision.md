@@ -359,7 +359,7 @@ flowchart TB
     subgraph pt["per-tensor scaling: 即时 amax"]
         direction TB
         p1["第 1 遍读 x: 求 amax_t"]
-        p2["s_t = 448 / amax_t"]
+        p2["$$s_t = 448 / \text{amax}_t$$"]
         p3["第 2 遍读 x: 量化为 E4M3"]
         p4["FP8 GEMM"]
         p1 --> p2 --> p3 --> p4
@@ -367,7 +367,7 @@ flowchart TB
     subgraph ds["delayed scaling: 历史 amax"]
         direction TB
         h["amax 历史窗口<br/>(最近 1024 步)"]
-        s2["s_t = 448 / max(历史)<br/>不读 x 即可得到"]
+        s2["$$s_t$$ = 448 / max(历史)<br/>不读 x 即可得到"]
         q2["唯一一遍读 x:<br/>量化 + FP8 GEMM 融合"]
         e2["epilogue 顺便算出 amax_t"]
         h --> s2 --> q2 --> e2
