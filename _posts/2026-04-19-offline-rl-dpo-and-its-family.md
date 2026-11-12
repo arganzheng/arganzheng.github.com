@@ -41,17 +41,17 @@ $$
 %% 图：DPO 推导的四步：闭式解 → 反解奖励 → 代入 Bradley-Terry → DPO loss，奖励模型在第三步消失
 flowchart TB
     A["`**RLHF 目标**（第三篇）
-max E[r(x,y)] − β·KL(π ‖ π_ref)`"] --> B["`**① 闭式解**
-π*(y|x) = π_ref(y|x)·exp(r/β) / Z(x)`"]
+$$\max \mathbb{E}[r(x,y)] - \beta \cdot \text{KL}(\pi \Vert \pi_{ref})$$`"] --> B["`**① 闭式解**
+$$\pi^*(y \mid x) = \pi_{ref}(y \mid x) \cdot \exp(r/\beta) / Z(x)$$`"]
     B --> C["`**② 反解奖励**
-r(x,y) = β·log(π*/π_ref) + β·log Z(x)`"]
+$$r(x,y) = \beta \log(\pi^*/\pi_{ref}) + \beta \log Z(x)$$`"]
     C --> D["`**③ 代入 Bradley-Terry**（第二篇）
-P(y_w ≻ y_l) = σ(r_w − r_l)
-同一 prompt 的两项相减，β·log Z(x) 抵消`"]
+$$P(y_w \succ y_l) = \sigma(r_w - r_l)$$
+同一 prompt 的两项相减，$$\beta \log Z(x)$$ 抵消`"]
     D --> E["`**④ DPO loss**
-−log σ(β·log π_θ(y_w)/π_ref(y_w) − β·log π_θ(y_l)/π_ref(y_l))
+$$-\log \sigma\left(\beta \log \frac{\pi_\theta(y_w)}{\pi_{ref}(y_w)} - \beta \log \frac{\pi_\theta(y_l)}{\pi_{ref}(y_l)}\right)$$
 只剩策略与参考，r 不再出现`"]
-    RM["显式奖励模型 r"] -. "被 β·log(π_θ/π_ref) 替代" .-> E
+    RM["显式奖励模型 r"] -. "被 $$\beta \log(\pi_\theta/\pi_{ref})$$ 替代" .-> E
 
     classDef step fill:#fff7e0,stroke:#c98a00,stroke-width:1px,color:#222
     classDef gone fill:#f0f0f0,stroke:#888,stroke-dasharray:5 3,color:#666
