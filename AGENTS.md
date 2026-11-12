@@ -215,7 +215,8 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   reader's OS: `tools/svg-embed-fonts.py img/in-post/<name>.svg` classifies
   each `<text>` by effective family (sans/mono — attributes, inline style,
   `<style>` rules, ancestors) and weight (400 → Regular; 500/600/700/bold →
-  500 Medium), subsets Noto Sans SC Regular/Medium + DejaVuSansMono to WOFF2
+  500 Medium; monospace >= 600 → DejaVu Sans Mono Bold, `DEJAVU_MONO_BOLD`
+  overrides its path), subsets Noto Sans SC Regular/Medium + DejaVuSansMono to WOFF2
   and injects `<style id="embedded-fonts">`, prepending `'SvgSans'`/`'SvgMono'`
   to every font-family. It needs `fontTools`+`brotli` and the Noto fonts:
   a sibling `arganzheng/ai-learning-labs` clone's `fonts/` dir, or
@@ -2318,6 +2319,16 @@ How it is built (`_plugins/moments.rb`):
   sub-sections (long items), never one sentence with the items joined by
   commas. Do not introduce an item the count did not announce (the 工具箱
   overview said 四块 and then produced a 「第五块」).
+- **Long items are paragraphs, not list items** (author, 2026-11-12, on
+  vLLM 03's 「向下 / 向上 / 例外」 list: 「太长的段落不要放有序无序列表了」).
+  When the items of an enumeration are several sentences each, write each
+  as a bold one-line lead `**1、向下：一句话概括。**` (「1、」, not `1.`, so
+  kramdown does not make a list) followed by ordinary paragraphs with the
+  detail; short sub-enumerations under it may still be a list. Lists stay
+  for short items.
+- **Box titles in hand-drawn SVGs** follow the Mermaid rule: the first line
+  of a box that names it (a package path, a component) is bold and one size
+  up with a few px more space below (vLLM 03 包图: `.pkg` 15px / 700).
 - **Table headers carry meaning**: no one-character headers (「错」 →
   「错误类型」, 「概念」 → 「对象」 when the column holds objects).
 - **Abbreviations get full name + Chinese on first use**: `peft（Parameter-

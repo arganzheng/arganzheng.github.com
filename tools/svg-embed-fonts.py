@@ -10,7 +10,9 @@ ancestors, collects the used characters and injects one
 
     'SvgSans'  400 -> Noto Sans SC Regular   (ordinary text)
                500 -> Noto Sans SC Medium    (500/600/700/bold -> Medium)
-    'SvgMono'  400 -> DejaVu Sans Mono       (mono bold also maps to regular)
+    'SvgMono'  400 -> DejaVu Sans Mono
+               700 -> DejaVu Sans Mono Bold  (mono weight >= 600; 500 stays
+                                             regular — it is the old default)
 
 'SvgSans' / 'SvgMono' is then prepended to every font-family, keeping the
 original stack as fallback. A character missing from its font aborts the file
@@ -67,6 +69,9 @@ def _mono_font():
         "找不到 DejaVuSansMono.ttf：装 matplotlib，或设置 DEJAVU_MONO=<path>")
 
 MONO_FONT = _mono_font()
+# same directory as the regular face (matplotlib ships both)
+MONO_BOLD = os.environ.get("DEJAVU_MONO_BOLD") or os.path.join(
+    os.path.dirname(MONO_FONT), "DejaVuSansMono-Bold.ttf")
 
 _MONO_HINT = re.compile(
     r"mono|menlo|courier|consol|sfmono|monaco|jetbrains|inconsolata|source\s*code",
@@ -218,7 +223,7 @@ def process(path):
         return False
 
     # (slot) -> chars;  slot: 'sans400'|'sans500'|'mono'
-    used = {"sans400": set(), "sans500": set(), "mono": set()}
+    used = {"sans400": set(), "sans500": set(), "mono": set(), "mono700": set()}
     affected = []
     for el in tree.iter():
         if el.tag not in (f"{NS}text", f"{NS}tspan"):
@@ -237,13 +242,18 @@ def process(path):
         content = "".join(c for c in content if ord(c) >= 0x20
                           and ord(c) != 0x7f)
         if _MONO_HINT.search(fam):
-            mono = _cmap(MONO_FONT)
+            bold = weight >= 600
+            if bold and not os.path.isfile(MONO_BOLD):
+                raise SystemExit(
+                    f"找不到 {MONO_BOLD}：设置 DEJAVU_MONO_BOLD=<path>")
+            mono = _cmap(MONO_BOLD if bold else MONO_FONT)
+            mslot = "mono700" if bold else "mono"
             sans = _cmap(SANS_MED if weight >= 500 else SANS_REG)
             slot = "sans500" if weight >= 500 else "sans400"
             missing = []
             for c in content:
                 if ord(c) in mono:
-                    used["mono"].add(c)
+                    used[mslot].add(c)
                 elif ord(c) in sans:
                     used[slot].add(c)   # CJK etc. -> Noto subset via 'SvgSans'
                 else:
@@ -264,7 +274,8 @@ def process(path):
     faces = []
     plans = [("SvgSans", "400", SANS_REG, used["sans400"]),
              ("SvgSans", "500", SANS_MED, used["sans500"]),
-             ("SvgMono", "400", MONO_FONT, used["mono"])]
+             ("SvgMono", "400", MONO_FONT, used["mono"]),
+             ("SvgMono", "700", MONO_BOLD, used["mono700"])]
     for fam_name, weight, f, chars in plans:
         if not chars:
             continue

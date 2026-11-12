@@ -95,9 +95,21 @@ flowchart TB
 
 图中粗箭头就是控制面与数据面的边界。越过边界的东西如下：
 
-1. **向下**：`SchedulerOutput`（`vllm/v1/core/sched/output.py`）。首次调度的请求以 `NewRequestData` 下发 prompt token ids、采样参数和分到的 block ids；已在 Worker 上的请求以 `CachedRequestData` 只下发增量——新 block ids、`num_computed_tokens`；外加每个请求这一轮的 token 数 `num_scheduled_tokens`。全是 Python 的 int 和 list。Worker 侧的 `InputBatch` 常驻一份 block table（`BlockTable`，`vllm/v1/worker/block_table.py`），收到增量后 `append_row`，`commit_block_table` 拷到 GPU，再由 `compute_slot_mapping` 的 Triton kernel 在 GPU 上把 block id 换算成每个 token 在 KV Cache 里的槽位。
-2. **向上**：`ModelRunnerOutput`（`vllm/v1/outputs.py`），主体是 `req_ids` 和 `sampled_token_ids: list[list[int]]`，可选 logprobs。只有 `output_rank` 一个 Worker 回传。
-3. **例外**：直接传嵌入的请求（`NewRequestData.prompt_embeds`）和多模态请求（`mm_features`）会随首次调度带一次输入张量；结构化输出的语法 bitmask 是一块 int32 数组，随 `sample_tokens()` 下发；pooling 模型的 `pooler_output` 是张量。这些都在 CPU 内存里，不涉及显存。
+**1、向下：`SchedulerOutput`（`vllm/v1/core/sched/output.py`），全是 Python 的 int 和 list。**
+
+首次调度的请求以 `NewRequestData` 下发 prompt token ids、采样参数和分到的 block ids。已在 Worker 上的请求以 `CachedRequestData` 只下发增量——新 block ids、`num_computed_tokens`。此外还有每个请求这一轮的 token 数 `num_scheduled_tokens`。
+
+Worker 侧的 `InputBatch` 常驻一份 block table（`BlockTable`，`vllm/v1/worker/block_table.py`），收到增量后 `append_row`，`commit_block_table` 拷到 GPU，再由 `compute_slot_mapping` 的 Triton kernel 在 GPU 上把 block id 换算成每个 token 在 KV Cache 里的槽位。
+
+**2、向上：`ModelRunnerOutput`（`vllm/v1/outputs.py`），只有 `output_rank` 一个 Worker 回传。**
+
+主体是 `req_ids` 和 `sampled_token_ids: list[list[int]]`，可选 logprobs。
+
+**3、例外：少数请求会带一次张量或数组，都在 CPU 内存里，不涉及显存。**
+
+- 直接传嵌入的请求（`NewRequestData.prompt_embeds`）和多模态请求（`mm_features`）随首次调度带一次输入张量。
+- 结构化输出的语法 bitmask 是一块 int32 数组，随 `sample_tokens()` 下发。
+- pooling 模型的 `pooler_output` 是张量。
 
 从不越过边界的是**权重、激活和 KV Cache**。KVCacheManager 管的"块"只是 `KVCacheBlock` 对象上的 `block_id`、`ref_cnt` 和一个可选哈希；真正的 KV 张量由 Worker 在初始化时按 `kv_cache_config` 一次性分配在显存里，block id 是它的下标。分配、释放、前缀复用、抢占在控制面都是整数运算，不发生任何显存拷贝。TP / PP 之间的激活由 Worker ranks 经 NCCL 直接交换，不经 EngineCore。
 
