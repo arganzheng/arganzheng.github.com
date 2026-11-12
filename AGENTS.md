@@ -59,7 +59,11 @@ silently keeps the previous output and the edit looks like it "didn't work".
 Before reporting a CSS change as done: run `jekyll build`, confirm it printed
 `done in …`, then `grep` the changed selector in `_site/css/argan-blog.min.css`
 (or `curl` it from the local server). Never conclude from `lessc` compiling or
-from the source file alone.
+from the source file alone. A headless checker that reuses a Chrome profile
+must also bypass the service worker (CDP `Network.setBypassServiceWorker`):
+`sw.js` serves `?v=`-fingerprinted CSS cache-first, so a CSS file swapped
+under an unchanged `?v=` keeps rendering the old rules (2026-11-12: a
+new Mermaid title rule looked as if Mermaid ignored it while measuring).
 
 ### `tools/check.sh` (= `npm run check` = the pre-push hook)
 
@@ -542,6 +546,22 @@ Pages has `https_enforced` on.
   runs `texToText()` — `$$N_{\text{opt}}(C)$$` → `Nₒₚₜ(C)`,
   `\sqrt{d_k}` → `√dₖ`, `\hat x` → `x̂`, TeX math spacing — and never shows
   TeX source; the HTML export clones the live SVG and keeps the KaTeX.
+  **Node titles** (2026-11-12, 「方框中的标题和下面的内容区别度太低」): a
+  multi-line flowchart box opens with its title written as
+  `A["<b>标题</b><br/>内容…"]`; `nodeTitles()` turns that leading
+  `<b>…</b><br/>` into `span.mmd-title` (bold 700, 1.1em, block with 5px
+  below — `less/theme-overrides.less`), and a formula inside a title is
+  measured at 1.1em too. KaTeX in diagrams is 1.05em (`.mermaid .katex`,
+  `.mm-probe .katex` for the measuring box), not KaTeX's 1.21em, which made
+  formulas look bigger than the title. The 2026-11-12 sweep marked ~1,950
+  first lines in 205 posts; it left plain the first lines that are not a
+  title — longer than ~14 CJK chars, a mid-sentence break (ends in `，、；`
+  or the next line starts with 且 / 或 / 并 …), code / trace steps with `=`,
+  parallel lines (`× W_Q` / `× W_K`), decision `{}` diamonds — keep those
+  plain in new diagrams too. Single-line boxes have no title. The
+  SVG-text export (`mermaidToSvg`: 公众号 / 富文本 / Word / 下载 SVG) drops
+  `<b>` and other inline tags — Mermaid prints them literally there; the
+  HTML export clones the live SVG and keeps the styled title.
 - `_includes/analytics.html` — GA4 gtag (`ga_track_id: G-…`; the old
   `analytics.js` + `UA-` id only kept working through Google's UA→GA4
   "connected site tag" forwarding) + Baidu Tongji, shared by `footer.html` and
@@ -2513,6 +2533,10 @@ How it is built (`_plugins/moments.rb`):
     also as `classDef` names (`classDef graph …` killed a diagram in 2026-09);
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
+  - **Every new multi-line flowchart box gets a title line**:
+    `A["<b>标题</b><br/>内容"]` — a short noun phrase (what the box is), the
+    detail on the following lines; formulas as `$$…$$`. See *Node titles*
+    under `_includes/rich-content.html` for what stays plain.
     Brief used for the diagram pass: `tools/diagram-brief.md`.
 
 ## Writing Popup Footnotes & Inline Tips

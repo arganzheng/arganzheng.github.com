@@ -146,6 +146,21 @@
         }
         return el;
       }
+      // `A["<b>标题</b><br/>内容"]` → the leading bold line becomes a block
+      // title (styled .mmd-title in less/theme-overrides.less); the <br/> is
+      // dropped because the block already ends the line. Only flowcharts, and
+      // only at the very start of a quoted label.
+      var TITLE_RE = /([(\[{>\/\\]\s*")\s*<b>((?:(?!<\/b>)[^"])*?)<\/b>\s*<br\s*\/?>/g;
+      function nodeTitles(source) {
+        return source.replace(TITLE_RE, function (m, open, title) {
+          return open + "<span class='mmd-title'>" + title + '</span>';
+        });
+      }
+      function inTitle(source, offset) {
+        var open = source.lastIndexOf("<span class='mmd-title'>", offset);
+        return open !== -1 && source.indexOf('</span>', open) > offset;
+      }
+
       function mathPlaceholders(source, texts) {
         var probe = document.createElement('div');
         // line-height 1.5 = Mermaid's label div: the filled span inherits it,
@@ -153,12 +168,15 @@
         // and lower, stretched every line, and left the box too tall
         // and the label's font: the line box (strut) depends on its ascent /
         // descent, so measuring in the article font shifted the baseline
+        probe.className = 'mm-probe';
         probe.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:nowrap;line-height:1.5;' +
           'font-family:' + MERMAID_FONT + ';font-size:' + labelPx + 'px';
         document.body.appendChild(probe);
         var rows = [];
-        source.replace(MATH_RE, function (m, tex) {
+        source.replace(MATH_RE, function (m, tex, offset) {
           var row = document.createElement('div');
+          // a formula in a node title is drawn at the title's 1.1em
+          if (inTitle(source, offset)) row.style.fontSize = '1.1em';
           // the zero-size inline-block sits on the baseline
           row.innerHTML = '<span style="display:inline-block;width:0;height:0"></span>';
           // inline-block: an inline span's rect is one line of text tall,
@@ -259,6 +277,7 @@
         containers.forEach(function (container, index) {
           renderQueue = renderQueue.then(function () {
             var source = container.textContent.trim();
+            if (isFlowchart(source)) source = nodeTitles(source);
             var id = 'mermaid-' + index + '-' + Date.now();
             var texts = [];
             var hasDollar = source.indexOf('$$') !== -1;

@@ -1383,6 +1383,27 @@ svg[id^="mermaid-"] foreignObject > div {
   height: inherit;
   max-width: none;
 }
+/* Node titles: a flowchart label written `A["<b>标题</b><br/>内容"]` has its
+   leading <b>…</b><br/> turned into span.mmd-title by the loader
+   (_includes/rich-content.html): bold, one size up and 5px above the body,
+   so a box's title stands apart from its content (2026-11-12). `.mm-probe`
+   is the loader's off-screen measuring box — it must get the same sizes, or
+   a formula would be measured smaller than it is drawn. No `.mermaid`
+   ancestor in the selector: Mermaid sizes each node in a scratch element
+   outside the container, and a box measured without the title's size and
+   margin came out one line short (2026-11-12). */
+span.mmd-title {
+  display: block;
+  font-weight: 700;
+  font-size: 1.1em;
+  margin-bottom: 5px;
+}
+/* KaTeX's 1.21em made a formula look larger than the label text (and the
+   title) around it; inside diagrams 1.05em matches the label's x-height. */
+.mermaid .katex,
+.mm-probe .katex {
+  font-size: 1.05em;
+}
 /* A sequenceDiagram message with $$…$$ is rendered by Mermaid as HTML in a
    <foreignObject> (MathML for the formula); it inherits the body's
    font-weight 450 while every other message is SVG text at 400, so the

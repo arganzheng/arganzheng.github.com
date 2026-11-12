@@ -223,7 +223,11 @@
   // any SVG tool. Used by the export below and by js/figure-export.js (author
   // 「下载 SVG」, and the PNG fallback when the live diagram cannot be rasterised).
   function mermaidToSvg(container) {
-    var src = plainMath(container.getAttribute('data-mermaid-source') || '');
+    // SVG-text labels cannot hold markup: Mermaid prints `<b>` literally and
+    // loses the label's closing quote (the next node's text runs into it), so
+    // the node-title `<b>…</b>` and other inline tags are dropped here
+    var src = plainMath(container.getAttribute('data-mermaid-source') || '')
+      .replace(/<\/?(?:b|strong|i|em|u|small|sub|sup)>/g, '');
     var live = container.querySelector('svg');
     if (!src || !window.mermaid || !mermaid.render) return Promise.reject(new Error('no mermaid'));
     var cfg = mermaid.mermaidAPI && mermaid.mermaidAPI.getConfig ? JSON.parse(JSON.stringify(mermaid.mermaidAPI.getConfig())) : null;
