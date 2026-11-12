@@ -37,6 +37,22 @@ transition: slide
 系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
+<!-- v -->
+
+### 版本：基于 vLLM v0.27.1，之后的变化
+
+| 变化 | 版本 | 涉及 |
+|---|---|---|
+| Model Runner V2 成为默认，V1 只作回退 | v0.29 | 03 · 06 · 10 · 14 |
+| 持有 KV 的等待请求单独排队、优先调度 | v0.31 | 04 · 08 |
+| TP all-reduce 默认走 FlashInfer | v0.29 | 07 |
+| `max_num_batched_tokens` 默认 8192 → 16384 | v0.28 | 04 · 09 |
+| 删除 Medusa 与旧 Ray executor | v0.33 rc | 03 · 06 |
+
+<aside class="notes" markdown="1">
+版本提示 @2026-11-12。全系列源码钉在 v0.27.1（2026-08-11）；截至 v0.32.0（2026-10-18），分层架构（API Server → AsyncLLM → EngineCore → Executor → Worker）与进程间通信不变，变化集中在 ModelRunner 层：v0.29.0 起 `vllm/v1/worker/gpu/` 的 Model Runner V2 是默认实现，有自己的 CUDA Graph 管理、采样器、logits processor 接口和投机解码子包；V1 的 `gpu_model_runner.py` 被宣布弃用，v0.32.0 中仍在。另有 prefix cache 的 `NONE_HASH` 默认改为确定值（v0.29，第 05 篇）。完整清单见总纲「版本与硬件基线」：[/deep-dive-into-vllm.html#版本与硬件基线](/deep-dive-into-vllm.html#版本与硬件基线)。
+</aside>
+
 ---
 
 ## 全景：从请求问题到第二套系统
@@ -126,7 +142,7 @@ flowchart TB
 ![进程视图：API Server、EngineCoreProc、Executor 与 WorkerProc 的职责和通信](/img/in-post/vllm-request-lifecycle-process-view.svg){: style="max-height: 390px"}
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。Kruchten 4+1：逻辑、开发、进程、部署/物理四个视图，加上串联它们的场景。vLLM v0.27.1：world_size=1 默认选 UniProcExecutor，Worker 在 EngineCore 进程内初始化，没有 WorkerProc；多进程模式下 Executor 进程内调度 WorkerProc。DP size 对应 EngineCoreProc 数；每个 EngineCoreProc 内按 TP×PP×PCP rank 启动 WorkerProc；EP 复用已有 rank、不新增进程。
+原文：[/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)。Kruchten 4+1：逻辑、开发、进程、部署/物理四个视图，加上串联它们的场景。vLLM v0.27.1：world_size=1 默认选 UniProcExecutor，Worker 在 EngineCore 进程内初始化，没有 WorkerProc；多进程模式下 Executor 进程内调度 WorkerProc。DP size 对应 EngineCoreProc 数；每个 EngineCoreProc 内按 TP×PP×PCP rank 启动 WorkerProc；EP 复用已有 rank、不新增进程。（版本提示：v0.29 起默认是 Model Runner V2，`vllm/v1/worker/gpu/`；本页讲的是 v0.27.1 的 V1 路径。）
 </aside>
 
 <!-- v -->
@@ -222,7 +238,7 @@ flowchart TB
 ![Proposer、Scheduler 与 Target 在投机解码中的角色和约束](/img/in-post/decoding-extensions-spec-decode-roles.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。
+原文：[/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。（版本提示：v0.29 起 Model Runner V2 有自己的一套 speculator 与拒绝采样，`vllm/v1/worker/gpu/spec_decode/`，机制相同；Medusa 在 v0.33 预发布版中已删除。）
 </aside>
 
 ---
@@ -282,7 +298,7 @@ flowchart TB
 ![结构化输出生效的四个位置](/img/in-post/decoding-extensions-structured-output-positions.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)。采样参数改分布本身、结构化输出改分布的支撑集；参数按 batch 维张量向量化，penalties 每步搬历史输出；grammar 在调度器侧异步编译，与投机解码同开时逐个 draft 位置对账；TP 下每个 rank 都拿到完整 logits、各自采样，GrammarOutput 广播到所有 worker。
+原文：[/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)。采样参数改分布本身、结构化输出改分布的支撑集；参数按 batch 维张量向量化，penalties 每步搬历史输出；grammar 在调度器侧异步编译，与投机解码同开时逐个 draft 位置对账；TP 下每个 rank 都拿到完整 logits、各自采样，GrammarOutput 广播到所有 worker。（版本提示：v0.29 起默认的 Model Runner V2 有独立采样器 `vllm/v1/worker/gpu/sample/` 和新的 logits processor 接口；结构化输出的调度器侧不变。）
 </aside>
 
 ---
@@ -330,7 +346,7 @@ flowchart TB
 ![一个请求从调度迭代到 GPU kernel 的源码调用与时间线](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)。完整数字来自正文汇总表：KV 147 块/734 MB；chunk=512 时 2,050 token 分 5 段；92 ms Prefill + 3,000 ms Decode；每 token 每步 8 卡同步约 2.5 MB；跨节点搬 KV 641 MB、约 13 ms。
+原文：[/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)。完整数字来自正文汇总表：KV 147 块/734 MB；chunk=512 时 2,050 token 分 5 段；92 ms Prefill + 3,000 ms Decode；每 token 每步 8 卡同步约 2.5 MB；跨节点搬 KV 641 MB、约 13 ms。（版本提示：执行侧调用链走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
 </aside>
 
 ---
