@@ -55,13 +55,13 @@ $$W$$ 冻结，$$A$$、$$B$$ 可训。$$\alpha / r$$ 是一个固定的缩放常
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：LoRA 的前向：冻结的 W 与可训的 A、B 并联，两路相加；训完可以把 (α/r)BA 加回 W
 flowchart TB
-    X["x<br/>d_in 维"]
-    W["W（冻结）<br/>d_out × d_in"]
-    A["A（可训）<br/>r × d_in"]
-    B["B（可训，初始为 0）<br/>d_out × r"]
-    S["× α / r"]
+    X["x<br/>$$d_{in}$$ 维"]
+    W["W（冻结）<br/>$$d_{out} \times d_{in}$$"]
+    A["A（可训）<br/>$$r \times d_{in}$$"]
+    B["B（可训，初始为 0）<br/>$$d_{out} \times r$$"]
+    S["× $$\alpha / r$$"]
     ADD(("+"))
-    Y["y<br/>d_out 维"]
+    Y["y<br/>$$d_{out}$$ 维"]
     X --> W --> ADD
     X --> A -->|"r 维"| B --> S --> ADD
     ADD --> Y
@@ -186,16 +186,16 @@ $$
 ```mermaid
 %% 图：LoRA 一层线性层的前向与反向：∂L/∂x 仍要算穿过每一层，∂L/∂W 被省掉
 flowchart TB
-    x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  d_out × d_in<br/>BF16 一份：无梯度、无主权重、无 Adam"]
-    x --> A["A  r × d_in<br/>可训练，高斯初始化"]
-    A --> B["B  d_out × r<br/>可训练，初始为 0"]
-    W --> y["y = Wx + (α/r) BAx<br/>额外 FLOPs ≈ r(d_in + d_out) / (d_in d_out)，8B 上不到 1%"]
+    x["输入 x<br/>（仍需保存供反向，激活值不省）"] --> W["冻结 W  $$d_{out} \times d_{in}$$<br/>BF16 一份：无梯度、无主权重、无 Adam"]
+    x --> A["A  $$r \times d_{in}$$<br/>可训练，高斯初始化"]
+    A --> B["B  $$d_{out} \times r$$<br/>可训练，初始为 0"]
+    W --> y["$$y = Wx + \frac{\alpha}{r} BAx$$<br/>额外 FLOPs ≈ $$r(d_{in} + d_{out}) / (d_{in} d_{out})$$，8B 上不到 1%"]
     B --> y
-    y --> gy["∂L/∂y（来自上一层的反向）"]
-    gy -.->|"∂L/∂x = Wᵀ ∂L/∂y  仍要算，穿过每一层"| x
-    gy -.->|"∂L/∂B = ∂L/∂y (Ax)ᵀ"| B
-    gy -.->|"∂L/∂A = Bᵀ ∂L/∂y xᵀ"| A
-    gy -.->|"∂L/∂W  不算：省掉反向约一半、省掉 14 B/参数状态"| W
+    y --> gy["$$\partial L/\partial y$$（来自上一层的反向）"]
+    gy -.->|"$$\partial L/\partial x = W^\top \partial L/\partial y$$  仍要算，穿过每一层"| x
+    gy -.->|"$$\partial L/\partial B = \partial L/\partial y\, (Ax)^\top$$"| B
+    gy -.->|"$$\partial L/\partial A = B^\top\, \partial L/\partial y\, x^\top$$"| A
+    gy -.->|"$$\partial L/\partial W$$  不算：省掉反向约一半、省掉 14 B/参数状态"| W
     classDef frozen fill:#eeeeee,stroke:#888;
     classDef train fill:#d5f5e3,stroke:#1e8449;
     classDef act fill:#fdebd0,stroke:#b9770e;
