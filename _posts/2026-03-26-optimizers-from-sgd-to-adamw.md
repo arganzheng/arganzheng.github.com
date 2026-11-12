@@ -44,24 +44,24 @@ Table: 两种训练策略（与优化器无关，套在任何优化器外面）
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 %% 图：一步 AdamW 更新的解剖：梯度经裁剪、两个矩、学习率调度，weight decay 走一条不经过矩的支路
 flowchart LR
-    G["梯度 g_t"] --> C["裁剪
-g ← g · min(1, c/‖g‖)"]
+    G["梯度 $$g_t$$"] --> C["裁剪
+$$g \leftarrow g \cdot \min(1, c/\lVert g \rVert)$$"]
     C --> M["`**一阶矩 m**
-m ← β₁m + (1−β₁)g
+$$m \leftarrow \beta_1 m + (1-\beta_1) g$$
 （Momentum：方向）`"]
     C --> V["`**二阶矩 v**
-v ← β₂v + (1−β₂)g²
+$$v \leftarrow \beta_2 v + (1-\beta_2) g^2$$
 （每参数的尺度）`"]
-    M --> D["m̂ / (√v̂ + ε)
+    M --> D["$$\hat m / (\sqrt{\hat v} + \epsilon)$$
 量级 ≈ 1，与 g 大小无关"]
     V --> D
-    D --> LR["× η_t
+    D --> LR["× $$\eta_t$$
 （warmup / cosine / WSD）"]
-    TH["参数 θ"] --> WD["`**weight decay**
-η_t · λ · θ`"]
+    TH["参数 $$\theta$$"] --> WD["`**weight decay**
+$$\eta_t \cdot \lambda \cdot \theta$$`"]
     LR --> UPD(("−"))
     WD --> UPD
-    UPD --> NEW["θ_new"]
+    UPD --> NEW["$$\theta_{\text{new}}$$"]
 
     classDef st fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
     classDef sched fill:#eef6ff,stroke:#5b8fd6,color:#222
