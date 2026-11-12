@@ -368,7 +368,7 @@ flowchart TB
     subgraph attn["LayerNorm 1 + 注意力块：保留 13h + 5as"]
         LN1["LayerNorm 1<br/>保留输入 2h"]
         QKV["Q/K/V 投影<br/>保留输入 2h"]
-        SC["QKᵀ<br/>保留 Q、K 共 4h"]
+        SC["$$QK^T$$<br/>保留 Q、K 共 4h"]
         SM["softmax + attn dropout<br/>保留 softmax 输出 2as、mask 1as、dropout 输出 2as"]
         PV["PV → 输出投影<br/>保留 V 2h、输出投影的输入 2h"]
         DO1["输出 dropout<br/>保留 mask 1h"]
@@ -536,14 +536,14 @@ flowchart TB
         W --> Y
     end
     subgraph bwd["反向：2 个 GEMM，每参数 4 FLOP"]
-        dY["上游梯度 ∂y #91;tokens, k#93;"]
-        dX["dgrad：∂x = ∂y Wᵀ<br/>2nk FLOP / token，传给前一层"]
-        dW["wgrad：∂W = xᵀ ∂y<br/>2nk FLOP / token，累加进梯度 buffer"]
+        dY["上游梯度 $$\partial y$$ #91;tokens, k#93;"]
+        dX["dgrad：$$\partial x = \partial y \, W^T$$<br/>2nk FLOP / token，传给前一层"]
+        dW["wgrad：$$\partial W = x^T \partial y$$<br/>2nk FLOP / token，累加进梯度 buffer"]
         dY --> dX
         dY --> dW
     end
     Y ~~~ dY
-    W -.->|"读 Wᵀ"| dX
+    W -.->|"读 $$W^T$$"| dX
     Xin -.->|"读保留的 x"| dW
     classDef act fill:#dbeafe,stroke:#1d4ed8;
     classDef wt fill:#ffedd5,stroke:#c2410c;
