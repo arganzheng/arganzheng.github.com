@@ -558,14 +558,14 @@ sequenceDiagram
     participant V as Rejection Sampling
 
     D->>D: 串行走 K=5 步（便宜）
-    D->>T: 候选序列 [d₁ d₂ d₃ d₄ d₅]
-    Note over T: 一次 Forward 同时算出<br/>所有位置的真实分布 [p₁…p₆]<br/>耗时 ≈ 1 次正常 Decode 步
-    T->>V: p₁…p₆
-    V->>V: 位置1: P_t(d₁)/P_d(d₁) > rand() → 接受 ✓
+    D->>T: 候选序列 [$$d_1\ d_2\ d_3\ d_4\ d_5$$]
+    Note over T: 一次 Forward 同时算出<br/>所有位置的真实分布 [$$p_1 \dots p_6$$]<br/>耗时 ≈ 1 次正常 Decode 步
+    T->>V: $$p_1 \dots p_6$$
+    V->>V: 位置1: $$P_t(d_1)/P_d(d_1)$$ > rand() → 接受 ✓
     V->>V: 位置2: 接受 ✓
-    V->>V: 位置3: 拒绝 ✗ → 从 P_target 重采样得 t₃′
+    V->>V: 位置3: 拒绝 ✗ → 从 $$P_\text{target}$$ 重采样得 $$t_3'$$
     Note over V: 位置 4、5 的候选一并丢弃
-    V-->>T: 本轮产出 3 个 token: d₁, d₂, t₃′
+    V-->>T: 本轮产出 3 个 token: $$d_1, d_2, t_3'$$
 ```
 
 三个要点：
