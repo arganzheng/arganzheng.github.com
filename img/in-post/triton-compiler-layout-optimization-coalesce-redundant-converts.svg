@@ -18,9 +18,9 @@
     <marker id="ac" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#d35400" /></marker>
     <marker id="au" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555" /></marker>
   </defs>
-  <line class="cvt" x1="16" y1="18" x2="48" y2="18" marker-end="url(#ac)" />
+  <line data-axis="" class="cvt" x1="16" y1="18" x2="48" y2="18" marker-end="url(#ac)" />
   <text class="leg" x="56" y="22"><tspan class="mono">convert_layout</tspan></text>
-  <line class="use" x1="168" y1="18" x2="200" y2="18" marker-end="url(#au)" />
+  <line data-axis="" class="use" x1="168" y1="18" x2="200" y2="18" marker-end="url(#au)" />
   <text class="leg" x="208" y="22">作为操作数 / 产出结果</text>
   <text class="rowt" x="16" y="58">A 的指针：为 load 服务</text>
   <rect class="val" x="16" y="66" width="120" height="54" />
