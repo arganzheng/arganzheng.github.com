@@ -43,18 +43,18 @@
     </style>
   </defs>
 <text x="20" y="24" text-anchor="start" class="head">① 各 rank 自己的 optimizer.state_dict()</text>
-<text x="360" y="24" text-anchor="start" class="head">② 直接按下标合并</text>
-<text x="560" y="24" text-anchor="start" class="head">③ 按 FQN 重新编址</text>
+<text x="368" y="24" text-anchor="start" class="head">② 直接按下标合并</text>
+<text x="568" y="24" text-anchor="start" class="head">③ 按 FQN 重新编址</text>
 <rect class="seg-a" x="20" y="44" width="310" height="108" />
 <text x="32" y="65.5"><tspan x="32" text-anchor="start" class="bold" dy="0">rank 0（PP stage 0，layers 0–3）</tspan><tspan x="32" text-anchor="start" class="mono12" dy="24">state[0]  = {exp_avg, exp_avg_sq, step}</tspan><tspan x="32" text-anchor="start" class="mono12 grey" dy="16">          -  实际是 layers.0.attention.wq.weight</tspan><tspan x="32" text-anchor="start" class="mono12" dy="20">state[1]  -  layers.0.attention.wk.weight</tspan><tspan x="32" text-anchor="start" class="mono12" dy="18">…</tspan></text>
 <rect class="seg-a" x="20" y="168" width="310" height="108" />
 <text x="32" y="189.5"><tspan x="32" text-anchor="start" class="bold" dy="0">rank 1（PP stage 1，layers 4–7）</tspan><tspan x="32" text-anchor="start" class="mono12" dy="24">state[0]  = {exp_avg, exp_avg_sq, step}</tspan><tspan x="32" text-anchor="start" class="mono12 grey" dy="16">          -  实际是 layers.4.attention.wq.weight</tspan><tspan x="32" text-anchor="start" class="mono12" dy="20">state[1]  -  layers.4.attention.wk.weight</tspan><tspan x="32" text-anchor="start" class="mono12" dy="18">…</tspan></text>
-<rect class="seg-hi" x="360" y="80" width="170" height="130" />
-<text x="445" y="106"><tspan x="445" text-anchor="middle" class="bold" dy="0">state[0] 有两份</tspan><tspan x="445" text-anchor="middle" class="small" dy="22">rank 0 的是第 0 层</tspan><tspan x="445" text-anchor="middle" class="small" dy="18">rank 1 的是第 4 层</tspan><tspan x="445" text-anchor="middle" class="bold red" dy="30">互相覆盖</tspan><tspan x="445" text-anchor="middle" class="small" dy="20">换了 PP 切法更对不上</tspan></text>
-<rect class="seg-b" x="560" y="44" width="290" height="232" />
-<text x="572" y="69.5"><tspan x="572" text-anchor="start" class="mono12" dy="0">state["layers.0.attention.wq.weight"]</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">  exp_avg / exp_avg_sq / step</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">state["layers.0.attention.wk.weight"]</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">  …</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">state["layers.4.attention.wq.weight"]</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">  exp_avg / exp_avg_sq / step</tspan><tspan x="572" text-anchor="start" class="mono12" dy="22">…</tspan><tspan x="572" text-anchor="start" class="small" dy="36">key 全局唯一，和 PP 怎么切无关</tspan><tspan x="572" text-anchor="start" class="small" dy="20">m、v 与参数同形状、同分片</tspan></text>
-<path d="M330 120 H358" class="arrow" />
-<path d="M330 220 C 345 220, 345 180, 358 180" class="arrow" />
-<path d="M530 145 H558" class="arrow" />
+<rect class="seg-hi" x="368" y="80" width="164" height="130" />
+<text x="450" y="106"><tspan x="450" text-anchor="middle" class="bold" dy="0">state[0] 有两份</tspan><tspan x="450" text-anchor="middle" class="small" dy="22">rank 0 的是第 0 层</tspan><tspan x="450" text-anchor="middle" class="small" dy="18">rank 1 的是第 4 层</tspan><tspan x="450" text-anchor="middle" class="bold red" dy="30">互相覆盖</tspan><tspan x="450" text-anchor="middle" class="small" dy="20">换了 PP 切法更对不上</tspan></text>
+<rect class="seg-b" x="566" y="44" width="290" height="232" />
+<text x="578" y="69.5"><tspan x="578" text-anchor="start" class="mono12" dy="0">state["layers.0.attention.wq.weight"]</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">  exp_avg / exp_avg_sq / step</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">state["layers.0.attention.wk.weight"]</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">  …</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">state["layers.4.attention.wq.weight"]</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">  exp_avg / exp_avg_sq / step</tspan><tspan x="578" text-anchor="start" class="mono12" dy="22">…</tspan><tspan x="578" text-anchor="start" class="small" dy="36">key 全局唯一，和 PP 怎么切无关</tspan><tspan x="578" text-anchor="start" class="small" dy="20">m、v 与参数同形状、同分片</tspan></text>
+<path d="M330 120 H368" class="arrow" />
+<path d="M330 220 C 350 220, 350 180, 368 180" class="arrow" />
+<path d="M532 145 H566" class="arrow" />
 <text x="20" y="306" text-anchor="start" class="small">参数的 key 本来就是 FQN；优化器状态的 key 是 param_groups 里的下标，只在一个进程的一个 optimizer 对象里有意义。</text>
 </svg>
