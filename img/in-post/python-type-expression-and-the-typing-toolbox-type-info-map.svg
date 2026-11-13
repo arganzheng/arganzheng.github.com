@@ -18,15 +18,15 @@
       .arrow { stroke: #40566f; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
     </style>
   </defs>
-  <rect class="layer" x="20" y="16" width="720" height="196" data-band="" />
+  <rect class="layer" x="20" y="16" width="720" height="196" data-no-center="" />
   <text class="lt" x="36" y="41">类型信息提供层</text>
   <rect class="grp cur" x="36" y="54" width="336" height="144" data-no-center="" />
   <rect class="grp" x="388" y="54" width="336" height="144" />
-  <rect class="layer" x="20" y="268" width="720" height="217" data-band="" />
+  <rect class="layer" x="20" y="268" width="720" height="217" data-no-center="" />
   <text class="lt" x="36" y="293">类型信息消费层</text>
   <rect class="grp" x="36" y="306" width="336" height="165" data-no-center="" />
   <rect class="grp" x="388" y="306" width="336" height="165" />
-  <rect class="layer" x="20" y="541" width="720" height="154" data-band="" />
+  <rect class="layer" x="20" y="541" width="720" height="154" data-no-center="" />
   <text class="lt" x="36" y="566">工程落地：数据契约</text>
   <rect class="grp" x="36" y="579" width="336" height="102" />
   <rect class="grp" x="388" y="579" width="336" height="102" />
