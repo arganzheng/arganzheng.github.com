@@ -77,7 +77,20 @@ Table: 千卡配置的自由度与约束
 
 ### 3. 决策流程
 
-![并行配置的决策流程](/img/in-post/thousand-gpu-configuration-parallel-config-decision-flow.svg)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 560}}}%%
+%% 图：并行配置的决策流程
+flowchart TB
+    IN["<b>输入</b><br/>• 模型规格 (N, L, h, a, s)<br/>• 集群规格：卡数、节点内卡数、每卡显存、NVLink / 网卡带宽"]
+    TP["<b>第一步：TP</b><br/>• 上限 = NVLink 域大小（8）；下限 = 让 $$N/(t \cdot p)$$ 的静态状态能放下<br/>• TP 通信量 $$\propto sbh$$ / 层，只在 NVLink 上可接受；能用 8 就用 8，否则 4<br/>• 开 SP（序列并行），激活除以 t"]
+    PP["<b>第二步：PP</b><br/>• 目标：$$N/(t \cdot p)$$ 的参数 + 梯度 + 优化器分片 + 在途激活 ≤ 显存预算<br/>• p 越大显存越松、气泡越大；每加一倍 p，m 要同倍增才保持气泡率<br/>• 优先用交错调度（v 个虚拟 stage）降气泡，而不是加 m"]
+    DP["<b>第三步：DP</b><br/>• $$d$$ = 卡数 / $$(t \cdot p \cdot c)$$；$$m = B/(d \cdot b)$$<br/>• 选 ZeRO-1（分布式优化器）还是 ZeRO-3 / FSDP：看每卡每 step 的 token 数<br/>• 每卡 token 少、m 多 → FSDP 的 $$3N \times m$$ 通信压不住，选 PP + ZeRO-1"]
+    CP["<b>第四步：CP</b><br/>• 仅当 s 大到单卡（TP 后）一层的激活或注意力放不下时启用<br/>• $$s$$ = 8192 不需要；$$s$$ ≥ 32K 开始需要；c 占用的卡从 d 里扣"]
+    MB["<b>micro-batch 与重计算</b><br/>• micro-batch b：显存允许下尽量大，但 $$m = B/(d \cdot b)$$ 要 ≥ $$4p$$ 才能压住气泡；通常 $$b$$ = 1 或 2<br/>• 重计算：先不开；放不下时按「选择性 → 按层 N → 全量」的顺序加"]
+    AC["<b>算账</b><br/>用账本算出每卡显存、每 step 各类通信量与时间、气泡率、理论 step 时间 → 两三个候选"]
+    BM["<b>跑基准</b><br/>各候选跑 100 step 基准 → profiler → 七项损失拆解（第六章）→ 定版并进版本控制"]
+    IN --> TP --> PP --> DP --> CP --> MB --> AC --> BM
+```
 
 ### 4. 三框架在"配置面"上的对照
 
@@ -85,11 +98,11 @@ Table: 千卡配置的自由度与约束
 
 | 配置项 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
 |---|---|---|---|
-| 并行度 | --tensor-model-parallel-size --pipeline-model-parallel-size --context-parallel-size | TP 需模型侧支持；PP 用 PipelineModule ZeRO stage 决定 DP 形态 data_parallel_replicate_degree / context_parallel_degree | ParallelismConfig.tensor_parallel_degree / pipeline_parallel_degree / data_parallel_shard_degree / |
-| micro-batch | --micro-batch-size / --global-batch-size m 由 num_microbatches_calculator 算 | train_micro_batch_size_per_gpu / gradient_accumulation_steps | TrainingConfig.local_batch_size / global_batch_size； PP 下再由 pipeline_parallel_microbatch_size 切 |
-| 重计算 | TransformerConfig.recompute_granularity / recompute_method / recompute_num_layers / recompute_modules | activation_checkpointing 段 (partition_activations, cpu_checkpointing) | activation_checkpoint 子命令：selective / full / memory-budget / none（activation_checkpoint.py） |
-| 重叠 | DistributedDataParallelConfig.overlap_grad_ reduce / overlap_param_gather； ModelParallelConfig.tp_comm_overlap / overlap_p2p_comm | ZeRO overlap_comm；stage3_prefetch_ bucket_size | FSDP2 隐式预取 + set_modules_to_forward_prefetch； CompileConfig.enable_async_tensor_parallel |
-| 编译 / 低精度 | --fp8 (TE)；cuda_graph_impl | 无原生 compile 集成 | CompileConfig.enable（per-block）；Float8LinearConverter |
+| 并行度 | `--tensor-model-parallel-size`<br/>`--pipeline-model-parallel-size`<br/>`--context-parallel-size` | TP 需模型侧支持；PP 用 `PipelineModule`<br/>ZeRO stage 决定 DP 形态 | `ParallelismConfig.tensor_parallel_degree` / `pipeline_parallel_degree` / `data_parallel_shard_degree` / `data_parallel_replicate_degree` / `context_parallel_degree` |
+| micro-batch | `--micro-batch-size` / `--global-batch-size`<br/>m 由 `num_microbatches_calculator` 算 | `train_micro_batch_size_per_gpu` / `gradient_accumulation_steps` | `TrainingConfig.local_batch_size` / `global_batch_size`<br/>PP 下再由 `pipeline_parallel_microbatch_size` 切 |
+| 重计算 | `TransformerConfig.recompute_granularity` / `recompute_method` / `recompute_num_layers` / `recompute_modules` | `activation_checkpointing` 段（`partition_activations`、`cpu_checkpointing`） | `activation_checkpoint` 子命令：selective / full / memory-budget / none（`activation_checkpoint.py`） |
+| 重叠 | `DistributedDataParallelConfig.overlap_grad_reduce` / `overlap_param_gather`<br/>`ModelParallelConfig.tp_comm_overlap` / `overlap_p2p_comm` | ZeRO `overlap_comm`<br/>`stage3_prefetch_bucket_size` | FSDP2 隐式预取 + `set_modules_to_forward_prefetch`<br/>`CompileConfig.enable_async_tensor_parallel` |
+| 编译 / 低精度 | `--fp8`（TE）<br/>`cuda_graph_impl` | 无原生 compile 集成 | `CompileConfig.enable`（per-block）<br/>`Float8LinearConverter` |
 
 Table: 三框架在配置面上的对照
 
@@ -374,7 +387,12 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 
 ![一个 step 内计算与通信两条 stream 的时间轴](/img/in-post/thousand-gpu-configuration-compute-comm-two-streams-timeline.svg)
 
-RS = reduce-scatter 梯度，AG = all-gather 更新后的参数；bucket 按反向顺序编号（b3 是最后几层，最先算完）。图里能看出三件事：前 $$m-1$$ 个 micro-batch 通信流是空的；最后一个 bucket（b0，最前面几层）算完时反向已经结束，它的 reduce-scatter 没有计算可以盖，是必然暴露的尾部（第六章第 3 节预算里的"DP 尾部 0.05–0.1 s"）；all-gather 要等优化器更新完，所以它盖住的是**下一个 step** 的前向，前向从第 1 层开始算、b0 恰好也是第 1 层附近的参数，顺序天然匹配。
+RS = reduce-scatter 梯度，AG = all-gather 更新后的参数；bucket 按反向顺序编号（b3 是最后几层，最先算完）。图里能看出四件事：
+
+1. 前 $$m-1$$ 个 micro-batch 通信流是空的。
+2. 最后一个 bucket（b0，最前面几层）算完时反向已经结束，它的 reduce-scatter 没有计算可以盖，是必然暴露的尾部（第六章第 3 节预算里的"DP 尾部 0.05–0.1 s"）。
+3. all-gather 要等优化器更新完，所以它盖住的是**下一个 step** 的前向：前向从第 1 层开始算，b0 恰好也是第 1 层附近的参数，顺序天然匹配。
+4. b0 自己的 all-gather 盖不住。默认配置（`overlap_param_gather` 打开、`align_param_gather` 不开）下，`DistributedOptimizer.step_with_ready_grads()` 不发 all-gather；下一 step 第一个模块的前向 pre-hook 调 `_ParamAndGradBucketGroup.finish_param_sync()`，发现 b0 还没发出，当场发出并等它完成，然后才异步发出 b1。所以头部也暴露一个 bucket 的 all-gather，从 b1 起才与前向重叠。
 
 ### 2. TP 通信与 GEMM 的重叠
 
