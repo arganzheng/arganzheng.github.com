@@ -48,7 +48,7 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
    </text>
   </g>
  </g>
- <line data-axis="" class="ln" x1="110.0" y1="270" x2="110.0" y2="214" marker-end="url(#ar)" />
+ <line class="ln" x1="110.0" y1="270" x2="110.0" y2="222" marker-end="url(#ar)" />
  <line class="ln" x1="200" y1="64" x2="260" y2="64" marker-end="url(#ar)" />
  <text class="head" x="350.0" y="30" text-anchor="middle">怎么配</text>
  <rect class="post" x="260" y="44" width="180" height="40" />
@@ -77,7 +77,7 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
   <tspan font-family="'SvgMono','SvgSans', DejaVu Sans Mono">lr</tspan> · 初始化 · DoRA</text>
  <text class="item" x="274" y="178">QLoRA · 选择表</text>
  <text class="item" x="274" y="206">十三种配置对照</text>
- <line data-axis="" class="ln" x1="350.0" y1="270" x2="350.0" y2="214" marker-end="url(#ar)" />
+ <line class="ln" x1="350.0" y1="270" x2="350.0" y2="222" marker-end="url(#ar)" />
  <line class="ln" x1="440" y1="64" x2="500" y2="64" marker-end="url(#ar)" />
  <text class="head" x="590.0" y="30" text-anchor="middle">怎么上线</text>
  <rect class="post" x="500" y="44" width="180" height="40" />
@@ -86,7 +86,7 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
  <text class="item" x="514" y="150">合并 · 量化失配</text>
  <text class="item" x="514" y="178">多 adapter · 服务账</text>
  <text class="item" x="514" y="206">参考模型 · 新 token</text>
- <line data-axis="" class="ln" x1="590.0" y1="270" x2="590.0" y2="214" marker-end="url(#ar)" />
+ <line class="ln" x1="590.0" y1="270" x2="590.0" y2="222" marker-end="url(#ar)" />
  <rect class="exp" x="20" y="270" width="660" height="60" />
  <text class="item" x="350" y="293" text-anchor="middle">
   <tspan font-weight="500">同一组实验：</tspan>Qwen2.5-0.5B · <tspan font-family="'SvgMono','SvgSans', DejaVu Sans Mono">no_robots</tspan> 800 条 · 80 步<tspan x="350" y="319">验证回复 loss（训练前 2.4936）· 普通文本 loss 变化 · s/步</tspan>

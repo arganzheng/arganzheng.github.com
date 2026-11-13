@@ -98,7 +98,9 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
    </text>
   </g>
  </g>
- <path class="arrow" d="M680,282 L680,310 L280,310 L280,235.5" />
+ <path d="M680,280 L680,296" style="fill: none; stroke: #465a70; stroke-width: 1.5" />
+ <circle cx="680" cy="296" r="3" fill="#465a70" />
+ <path class="arrow" d="M680,296 L680,310 L280,310 L280,284" />
  <g class="mathtext" data-tex="时间步递减，重复 $N$ 次" data-x="480" data-y="338" data-size="11.5" data-anchor="middle" data-fill="#233247" fill="#233247" data-family=" &quot;Noto Sans SC&quot;, sans-serif" data-weight="400" aria-label="时间步递减，重复 $N$ 次">
   <g transform="translate(419.000 338.000)">
    <text font-size="0">
@@ -117,7 +119,7 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
    </text>
   </g>
  </g>
- <path class="arrow" d="M680,282 L740,282 L740,370 L480,370 L480,388" />
+ <path class="arrow" d="M680,296 L740,296 L740,370 L480,370 L480,388" />
  <g class="mathtext" data-tex="$t$ = 0" data-x="710" data-y="353" data-size="11.5" data-anchor="middle" data-fill="#233247" fill="#233247" data-family=" &quot;Noto Sans SC&quot;, sans-serif" data-weight="400" aria-label="$t$ = 0">
   <g transform="translate(698.000 353.000)">
    <text font-size="0">

@@ -113,9 +113,9 @@
   <rect x="205" y="170" width="50" height="22" class="c3" />
   <text x="155" y="212" text-anchor="middle" class="m">每行一张卡：token 段 s/4，4 个头 → [s/4, b, a·d]</text>
  </g>
- <line x1="258" y1="120" x2="420" y2="120" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)" />
+ <line x1="270" y1="120" x2="420" y2="120" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)" />
  <text x="345" y="112" text-anchor="middle" class="m" fill="#b91c1c">all-to-all（Q、K、V 各一次）</text>
- <line x1="420" y1="150" x2="258" y2="150" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)" />
+ <line x1="420" y1="150" x2="270" y2="150" stroke="#b91c1c" stroke-width="2" marker-end="url(#a)" />
  <text x="345" y="166" text-anchor="middle" class="m" fill="#b91c1c">all-to-all（O 一次）</text>
  <g font-size="10">
   <text x="455" y="78" class="m">token 段 →</text>

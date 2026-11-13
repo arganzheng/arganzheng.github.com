@@ -17,7 +17,7 @@
   <tspan x="195" y="143.000" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">layout = strided　requires_grad = False</tspan>
   <tspan x="195" y="163.000" fill="#222" font-size="12" text-anchor="middle" font-weight="500">device = cpu</tspan>
  </text>
- <line x1="195" y1="174" x2="195" y2="228.8" stroke="#888" stroke-width="1.2" marker-end="url(#ar)" />
+ <line x1="195" y1="174" x2="195" y2="204" stroke="#888" stroke-width="1.2" marker-end="url(#ar)" />
  <text x="203" y="193" fill="#999" font-size="10" text-anchor="start" font-weight="normal">data_ptr()</text>
  <text x="42" y="222" fill="#555" font-size="11" text-anchor="start" font-weight="500">Storage（物理存储）</text>
  <rect x="60" y="230" width="45" height="30" fill="#fff4e0" stroke="#7a9cc6" stroke-width="1.2" rx="0" />
@@ -43,7 +43,7 @@
   <tspan x="565" y="143.000" fill="#222" font-size="12" text-anchor="middle" font-weight="normal">layout = strided　requires_grad = False</tspan>
   <tspan x="565" y="163.000" fill="#c0392b" font-size="12" text-anchor="middle" font-weight="500">device = meta</tspan>
  </text>
- <line x1="565" y1="174" x2="565" y2="228.8" stroke="#888" stroke-width="1.2" marker-end="url(#ar)" />
+ <line x1="565" y1="174" x2="565" y2="204" stroke="#888" stroke-width="1.2" marker-end="url(#ar)" />
  <text x="573" y="193" fill="#999" font-size="10" text-anchor="start" font-weight="normal">data_ptr()</text>
  <text x="412" y="222" fill="#555" font-size="11" text-anchor="start" font-weight="500">Storage（物理存储）</text>
  <rect x="430" y="230" width="270" height="30" fill="#ffffff" stroke="#bbb" stroke-width="1.2" rx="0" stroke-dasharray="4 3" />

@@ -50,7 +50,7 @@
 <rect class="card" x="24" y="156" width="338.34000000000003" height="50" />
 <text x="36" y="175.47"><tspan x="36" text-anchor="start" class="mono" dy="0">sample_index[2] = (doc_pos 1, offset 2)</tspan><tspan x="36" text-anchor="start" class="mono" dy="20">sample_index[3] = (doc_pos 2, offset 3)</tspan></text>
 <text x="374.34000000000003" y="180"><tspan x="374.34000000000003" text-anchor="start" class="small" dy="0">起点</tspan><tspan x="374.34000000000003" text-anchor="start" class="small" dy="20">终点（含）</tspan></text>
-<line x1="60" y1="206" x2="60" y2="266" class="arrow" />
+<line x1="60" y1="206" x2="60" y2="246" class="arrow" />
 <text x="74" y="231" text-anchor="start" class="small">document_index（每个 epoch 一份文档 id 的随机排列）</text>
 <text x="48.0" y="260" text-anchor="middle" class="small">0</text>
 <text x="96.0" y="260" text-anchor="middle" class="small">1</text>
@@ -70,7 +70,7 @@
 <text x="240.0" y="285.5" text-anchor="middle" class="mono">…</text>
 <text x="276" y="286" text-anchor="start" class="mono">document_index</text>
 <path d="M96.0 294 V306 H54 V342" class="arrow" />
-<path d="M144.0 294 V306 H320.0 V342" class="arrow" />
+<path d="M144.0 294 V308 H320.0 V342" class="arrow" />
 <text x="74" y="328" text-anchor="start" class="small halo">IndexedDataset.get(doc, offset, length)：sequence_pointers[doc] 定位</text>
 <rect class="seg-a" x="24" y="342" width="60" height="26" />
 <text x="54.0" y="359.5" text-anchor="middle" class="mono">doc 12</text>

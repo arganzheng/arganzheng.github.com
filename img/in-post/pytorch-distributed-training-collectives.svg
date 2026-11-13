@@ -48,7 +48,7 @@
  <text x="76.0" y="160.5" class="monos" text-anchor="middle" />
  <rect x="234" y="144.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
  <text x="250.0" y="160.000" class="monos" text-anchor="middle">A</text>
- <line x1="194.0" y1="117" x2="232" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="194.0" y1="117" x2="226" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
  <text x="388" y="58" class="bold">reduce：所有人的数据归约到一个人</text>
  <text x="388" y="83" class="monos" fill="#5b6b7c">rank 0</text>
  <rect x="438" y="66.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
@@ -114,7 +114,7 @@
  </g>
  <rect x="612" y="144.0" width="32" height="24" rx="0" fill="#ffffff" stroke="#8795a5" stroke-width="1.2" stroke-dasharray="4 3" />
  <text x="628.0" y="160.5" class="monos" text-anchor="middle" />
- <line x1="572.0" y1="117" x2="610" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="572.0" y1="117" x2="604" y2="117" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
  <text x="10" y="208" class="bold">all_reduce：归约后所有人都拿到结果</text>
  <text x="10" y="233" class="monos" fill="#5b6b7c">rank 0</text>
  <rect x="60" y="216.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
@@ -192,7 +192,7 @@
    </text>
   </g>
  </g>
- <line x1="194.0" y1="267" x2="232" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="194.0" y1="267" x2="226" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
  <text x="388" y="208" class="bold">all_gather：每人一片，拼成完整数据，所有人都拿到</text>
  <text x="388" y="233" class="monos" fill="#5b6b7c">rank 0</text>
  <rect x="438" y="216.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
@@ -378,7 +378,7 @@
    </text>
   </g>
  </g>
- <line x1="572.0" y1="267" x2="610" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="572.0" y1="267" x2="604" y2="267" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
  <text x="10" y="358" class="bold">reduce_scatter：归约后每人只拿自己负责的那一段</text>
  <text x="10" y="383" class="monos" fill="#5b6b7c">rank 0</text>
  <rect x="60" y="366.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
@@ -564,7 +564,7 @@
    </text>
   </g>
  </g>
- <line x1="194.0" y1="417" x2="232" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="194.0" y1="417" x2="226" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
  <text x="388" y="358" class="bold">all_to_all：矩阵转置，第 i 段发给 rank i</text>
  <text x="388" y="383" class="monos" fill="#5b6b7c">rank 0</text>
  <rect x="438" y="366.0" width="32" height="24" rx="0" fill="#dbe8f7" stroke="#4a78b0" stroke-width="1.2" />
@@ -858,5 +858,5 @@
    </text>
   </g>
  </g>
- <line x1="572.0" y1="417" x2="610" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
+ <line x1="572.0" y1="417" x2="604" y2="417" stroke="#40566f" stroke-width="1.4" marker-end="url(#ar)" />
 </svg>

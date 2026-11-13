@@ -81,9 +81,9 @@
 <text x="372.0" y="162" text-anchor="middle" class="bold">C</text>
 <text x="372.0" y="186" text-anchor="middle" class="small">24</text>
 <line x1="716.4" y1="90" x2="716.4" y2="170" class="dash" />
-<line x1="474" y1="156" x2="708.4" y2="156" class="dim" />
+<line x1="480.8" y1="156" x2="708.4" y2="156" class="dim" />
 <text x="594.6" y="132" text-anchor="middle" class="small">差 ≈ 30 min × 1024 卡 ≈ 512 GPU 小时</text>
-<line data-axis="" x1="36" y1="210" x2="756.4" y2="210" class="axis" />
+<line x1="36" y1="210" x2="756.4" y2="210" class="axis" />
 <line x1="36.0" y1="206" x2="36.0" y2="214" class="tick" />
 <text x="36.0" y="230" text-anchor="middle" class="small">0</text>
 <line x1="120.0" y1="206" x2="120.0" y2="214" class="tick" />

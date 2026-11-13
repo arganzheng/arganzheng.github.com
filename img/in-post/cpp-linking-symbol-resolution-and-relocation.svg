@@ -13,7 +13,7 @@
   <line x1="130" y1="154" x2="130" y2="198" stroke="#c98a00" stroke-width="1.5" marker-end="url(#a)" />
   <text x="16" y="344" class="m">① 符号解析：hello.o 的 U version_string ↔ Version.o 的 T version_string</text>
 
-  <line x1="256" y1="100" x2="428.3" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#a)" />
+  <line x1="256" y1="100" x2="420" y2="100" stroke="#555" stroke-width="1.5" marker-end="url(#a)" />
   <text x="338" y="92" text-anchor="middle" class="m">链接器：ld / lld / ld64</text>
 
   <text x="430" y="22" class="t">链接后：一个可执行文件，装进进程的虚拟地址空间</text>

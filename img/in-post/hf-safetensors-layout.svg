@@ -19,7 +19,7 @@
   <text x="16" y="144" class="mono"> "layers.0.self_attn.q_proj.bias":   {"dtype": "BF16", "shape": [896],      "data_offsets": [273874944, 273876736]},</text>
   <text x="16" y="160" class="mono"> ... ,  "__metadata__": {"format": "pt"}}</text>
   </g>
-  <line x1="232" y1="86" x2="232" y2="123" stroke="#5b8def" marker-end="url(#a)" />
+  <line x1="232" y1="86" x2="232" y2="118" stroke="#5b8def" marker-end="url(#a)" />
   <g transform="translate(0 24)">
 
   <rect x="336" y="190" width="200" height="26" fill="#e8f5e9" stroke="#4d9a5c" />

@@ -24,7 +24,8 @@
  <rect width="760" height="555.0" fill="#fff" />
  <rect x="89.6015625" y="17.5" width="580.796875" height="35" fill="#fff" stroke="none" />
  <text x="380" y="43.5" text-anchor="middle" class="title">一次请求的时间线：Queueing、Prefill、TTFT、ITL、TPOT 与 E2E</text>
- <text x="713" y="110" class="time">时间</text>
+ <rect x="26" y="92.5" width="36" height="28" fill="#fff" stroke="none" />
+ <text x="30" y="112.5" class="time">时间</text>
  <line x1="95" y1="105.0" x2="708" y2="105.0" stroke="#62758a" stroke-width="1.5" marker-end="url(#arrow)" />
  <rect x="80.71875" y="73.85900115966797" width="25" height="26.722999572753906" fill="#fff" stroke="none" />
  <rect x="180.71875" y="73.85900115966797" width="25" height="26.722999572753906" fill="#fff" stroke="none" />

@@ -105,10 +105,10 @@
   <rect x="40" y="150" width="60" height="30" class="q" />
   <text x="70" y="170" text-anchor="middle" class="n">卡 3：Q3</text>
  </g>
- <path d="M182,92 A80,80 0 0 1 228,148" fill="none" stroke="#555" marker-end="url(#a)" />
- <path d="M228,182 A80,80 0 0 1 182,238" fill="none" stroke="#555" marker-end="url(#a)" />
- <path d="M118,238 A80,80 0 0 1 72,182" fill="none" stroke="#555" marker-end="url(#a)" />
- <path d="M72,148 A80,80 0 0 1 118,92" fill="none" stroke="#555" marker-end="url(#a)" />
+ <path d="M185,95 A80,80 0 0 1 225,145" fill="none" stroke="#555" marker-end="url(#a)" />
+ <path d="M225,185 A80,80 0 0 1 185,235" fill="none" stroke="#555" marker-end="url(#a)" />
+ <path d="M115,235 A80,80 0 0 1 75,185" fill="none" stroke="#555" marker-end="url(#a)" />
+ <path d="M75,145 A80,80 0 0 1 115,95" fill="none" stroke="#555" marker-end="url(#a)" />
  <text x="150" y="160">
   <tspan x="150" text-anchor="middle" class="m" dy="0">K/V 块</tspan>
   <tspan x="150" text-anchor="middle" class="m" dy="16">顺时针传</tspan>

@@ -77,20 +77,7 @@ Table: 千卡配置的自由度与约束
 
 ### 3. 决策流程
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 560}}}%%
-%% 图：并行配置的决策流程
-flowchart TB
-    IN["<b>输入</b><br/>• 模型规格 (N, L, h, a, s)<br/>• 集群规格：卡数、节点内卡数、每卡显存、NVLink / 网卡带宽"]
-    TP["<b>第一步：TP</b><br/>• 上限 = NVLink 域大小（8）；下限 = 让 $$N/(t \cdot p)$$ 的静态状态能放下<br/>• TP 通信量 $$\propto sbh$$ / 层，只在 NVLink 上可接受；能用 8 就用 8，否则 4<br/>• 开 SP（序列并行），激活除以 t"]
-    PP["<b>第二步：PP</b><br/>• 目标：$$N/(t \cdot p)$$ 的参数 + 梯度 + 优化器分片 + 在途激活 ≤ 显存预算<br/>• p 越大显存越松、气泡越大；每加一倍 p，m 要同倍增才保持气泡率<br/>• 优先用交错调度（v 个虚拟 stage）降气泡，而不是加 m"]
-    DP["<b>第三步：DP</b><br/>• $$d$$ = 卡数 / $$(t \cdot p \cdot c)$$；$$m = B/(d \cdot b)$$<br/>• 选 ZeRO-1（分布式优化器）还是 ZeRO-3 / FSDP：看每卡每 step 的 token 数<br/>• 每卡 token 少、m 多 → FSDP 的 $$3N \times m$$ 通信压不住，选 PP + ZeRO-1"]
-    CP["<b>第四步：CP</b><br/>• 仅当 s 大到单卡（TP 后）一层的激活或注意力放不下时启用<br/>• $$s$$ = 8192 不需要；$$s$$ ≥ 32K 开始需要；c 占用的卡从 d 里扣"]
-    MB["<b>micro-batch 与重计算</b><br/>• micro-batch b：显存允许下尽量大，但 $$m = B/(d \cdot b)$$ 要 ≥ $$4p$$ 才能压住气泡；通常 $$b$$ = 1 或 2<br/>• 重计算：先不开；放不下时按「选择性 → 按层 N → 全量」的顺序加"]
-    AC["<b>算账</b><br/>用账本算出每卡显存、每 step 各类通信量与时间、气泡率、理论 step 时间 → 两三个候选"]
-    BM["<b>跑基准</b><br/>各候选跑 100 step 基准 → profiler → 七项损失拆解（第六章）→ 定版并进版本控制"]
-    IN --> TP --> PP --> DP --> CP --> MB --> AC --> BM
-```
+![并行配置的决策流程](/img/in-post/thousand-gpu-configuration-parallel-config-decision-flow.svg)
 
 ### 4. 三框架在"配置面"上的对照
 

@@ -369,17 +369,10 @@ Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：列切与行切的配对：Q/K/V 与 W1 列切，O 与 W2 行切，一个 Transformer 层只在两处 all-reduce
 flowchart LR
-    subgraph A["注意力块"]
-        direction TB
-        X1["X"] --> QKV["<b>列切 Q/K/V</b><br/>每卡 a/t 个头"] --> ATT["<b>每卡自己头的注意力</b><br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
-        X1 -.残差.-> R1
-    end
-    subgraph M["MLP 块"]
-        direction TB
-        X2["注意力块的输出"] --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
-        X2 -.残差.-> R2
-    end
-    A --> M
+    X1[X] --> QKV["<b>列切 Q/K/V</b><br/>每卡 a/t 个头"] --> ATT["<b>每卡自己头的注意力</b><br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
+    X1 -.残差.-> R1
+    R1 --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
+    R1 -.残差.-> R2
     classDef col fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef row fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ar fill:#fee2e2,stroke:#b91c1c,color:#222
