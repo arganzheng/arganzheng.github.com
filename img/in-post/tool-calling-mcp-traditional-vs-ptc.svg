@@ -59,7 +59,7 @@
   <text class="body" x="60.0" y="326.0" text-anchor="middle" transform=" translate(0 1.000)">模型</text>
   <line class="arrow" x1="100" y1="321.0" x2="140" y2="321.0" />
   <line class="arrow" x1="240.0" y1="370" x2="240.0" y2="406" />
-  <g transform="translate(0 14)"><rect class="sandbox" x="140" y="392" width="200" height="120" data-band="" />
+  <g transform="translate(0 14)"><rect class="sandbox" x="140" y="392" width="200" height="120" data-no-center="" />
   <text class="bold" x="152" y="412" text-anchor="start">沙箱运行</text>
   <rect class="tool" x="153.33333333333334" y="424" width="80" height="30" />
   <text class="body" x="193.33333333333334" y="444" text-anchor="middle" transform=" translate(0 1.000)">工具 A</text>
