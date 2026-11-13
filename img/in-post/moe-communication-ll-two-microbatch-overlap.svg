@@ -20,7 +20,7 @@ text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, "PingFang SC", 
 .axis { stroke: #7a8b9c; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
 </style></defs>
 <text class="lbl" x="118" y="31" text-anchor="end">时间</text>
-<line class="axis" x1="134" y1="26" x2="744" y2="26" />
+<line data-axis="" class="axis" x1="134" y1="26" x2="744" y2="26" />
 <text class="lbl" x="118" y="77.0" text-anchor="end">SM 上在跑</text>
 <text class="lbl" x="118" y="150" text-anchor="end">网卡 / RDMA</text>
 <text class="lbl" x="118" y="174" text-anchor="end">（无 kernel）</text>
