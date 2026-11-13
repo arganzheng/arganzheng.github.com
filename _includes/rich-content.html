@@ -160,7 +160,8 @@
       // block lines with a hanging indent (span.mmd-list / .mmd-li), instead
       // of centred lines spread out by the label's line-height (2026-11-12,
       // 「多行文字改成有序或者无序列表左对齐更合适」). Opt-in by writing the
-      // markers in the source; all body lines must carry one.
+      // markers in the source; all body lines must carry one (a single
+      // `• ` line counts too, so it lines up with its siblings' lists).
       var LABEL_RE = /([(\[{>\/\\]\s*")([^"]*)(")/g;
       var ITEM_RE = /^\s*(?:•|\d+\.)\s/;
       function nodeLists(source) {
@@ -169,7 +170,7 @@
           var t = body.match(/^<span class='mmd-title'>[\s\S]*?<\/span>/);
           if (t) { head = t[0]; rest = body.slice(head.length); }
           var lines = rest.split(/<br\s*\/?>/);
-          if (lines.length < 2 || !lines.every(function (l) { return ITEM_RE.test(l); })) return m;
+          if (!lines.every(function (l) { return ITEM_RE.test(l); })) return m;
           return open + head + "<span class='mmd-list'>" + lines.map(function (l) {
             return "<span class='mmd-li'>" + l.trim() + '</span>';
           }).join('') + '</span>' + close;
