@@ -240,12 +240,23 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   10's 「下一个 Request → remaining_tokens」 loop) — and check a decision
   against the source: a `min()` is a box, a branch is a `{}` diamond. When a
   hand SVG has boxes, the same rules hold:
-  1. **Compact boxes**: padding about 10–14 px around the text, no box wider
-     or taller than its text needs; sibling boxes may share one size.
-  2. **Title**: the line naming the box is bold (500–700) and one size up
-     (e.g. 15 / 13 px), with a few px more space below it.
-  3. **Multi-line body = a left-aligned list** (`•` or `1.`), line-height
-     1.2–1.5 — never centred lines spaced 2× apart.
+  1. **Compact boxes, sized from measured text**: padding about 14–18 px
+     around the text and equal on both sides; never size a box by counting
+     characters — estimates left 80 px on one side and let the text touch
+     the border on the author's Mac (2026-11-13). Generate twice: render the
+     texts with the embedded fonts, read each `getBBox().width` in Chrome,
+     then set box width = widest line × 1.04 + 2 × padding (the 4 % is for
+     readers' glyph differences; centre with the unpadded width). Sibling
+     boxes in one column may share one width.
+  2. **Title**: the line naming the box is bold (500–700), one size up
+     (e.g. 15 / 13 px), **centred**, with a few px more space below it.
+  3. **Body**: one line → centred under the title; several lines → a list
+     (`•` or `1.`), **left-aligned, the list block centred in the box** —
+     the author's chosen look, the same as Mermaid's `nodeLists()` (2026-11-13:
+     「我喜欢 mermaid 版方框文字的 title 居中，列表左对齐的效果」). Line height
+     about 1.4–1.6 (as tight as `svg-collide` allows for mixed CJK / code
+     lines). Inside a list item use 「、」 between names, not 「·」, which reads
+     as another bullet.
   4. **Arrows touch box edges** (arrowhead tip on the border, ≤ 4 px);
      `svg-collide.cjs` now fails a dangling arrowhead (check (e)).
   5. Several items inside one box that are separate things (Request A / B /
