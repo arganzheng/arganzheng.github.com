@@ -42,7 +42,7 @@
    </text>
   </g>
  </g>
- <line x1="226" y1="116" x2="278" y2="116" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)" />
+ <line x1="226" y1="116" x2="283.7" y2="116" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)" />
  <rect x="286" y="99" width="184" height="34" rx="10" fill="#ffffff" stroke="#e0812c" stroke-width="2" />
  <text x="378" y="122" text-anchor="middle" font-family="'SvgSans', Noto Sans SC, sans-serif" font-size="15" font-weight="500" fill="#9d5214">分数预测</text>
  <g class="mathtext" data-tex="$\hat s\approx\nabla_x\log p_t(x_t)$" data-x="378" data-y="168" data-size="19" data-anchor="middle" data-fill="#1f2937" fill="#1f2937" data-family="Noto Sans SC, sans-serif" data-weight="normal" aria-label="$\hat s\approx\nabla_x\log p_t(x_t)$">
@@ -65,7 +65,7 @@
    </text>
   </g>
  </g>
- <line x1="474" y1="116" x2="526" y2="116" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)" />
+ <line x1="474" y1="116" x2="531.7" y2="116" stroke="#34445a" stroke-width="1.8" marker-end="url(#arrow)" />
  <rect x="534" y="99" width="188" height="34" rx="10" fill="#ffffff" stroke="#4a9a5b" stroke-width="2" />
  <text x="628" y="122" text-anchor="middle" font-family="'SvgSans', Noto Sans SC, sans-serif" font-size="15" font-weight="500" fill="#2d6e3b">Tweedie 去噪估计</text>
  <g class="mathtext" data-tex="$\hat x_0$" data-x="628" data-y="168" data-size="19" data-anchor="middle" data-fill="#1f2937" fill="#1f2937" data-family="Noto Sans SC, sans-serif" data-weight="normal" aria-label="$\hat x_0$">
