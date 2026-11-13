@@ -9,7 +9,7 @@
     </marker>
   </defs>
   <rect width="760" height="303" fill="#fff" />
-  <line x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line data-axis="" x1="150" y1="47" x2="730" y2="47" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow)" />
   <text x="150" y="33" font-size="14" text-anchor="start" fill="#111827">时间 →（示意，非等比例）</text>
   <text x="20" y="112" font-size="15" text-anchor="start" fill="#111827">CPU 线程</text>
   <rect x="150" y="86" width="140" height="42" fill="#dceafb" stroke="#52657a" stroke-width="1.2" />
