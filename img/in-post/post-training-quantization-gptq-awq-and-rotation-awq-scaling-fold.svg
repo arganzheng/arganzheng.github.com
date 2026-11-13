@@ -79,7 +79,7 @@
    </text>
   </g>
  </g>
- <path class="line" d="M230 119 H278" />
+ <path class="line" d="M230 119 H283.5" />
  <text class="small" x="254" y="96" text-anchor="middle">折入</text>
  <path class="note" d="M66 183 H272 Q284 183 284 195 V227 Q284 239 272 239 H66 Q54 239 54 227 V195 Q54 183 66 183 Z" />
  <g class="mathtext" data-tex="$\gamma$ 或输出通道吸收 $\mathrm{diag}(s)^{-1}$" data-x="169" data-y="207" data-size="13" data-anchor="middle" data-fill=" #172033" fill=" #172033" data-family=" -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif" data-weight="400" aria-label="$\gamma$ 或输出通道吸收 $\mathrm{diag}(s)^{-1}$">
@@ -108,7 +108,7 @@
   </g>
  </g>
  <text class="small" x="169" y="232" text-anchor="middle">不增加运行时缩放 kernel</text>
- <path class="teal-line dash" d="M169 183 V166 H129 V160" />
+ <path class="teal-line dash" d="M169 183 V166 H129 V162" />
  <path class="box" d="M40 248 H218 Q230 248 230 260 V304 Q230 316 218 316 H40 Q28 316 28 304 V260 Q28 248 40 248 Z" data-no-center="" />
  <rect x="34" y="254.6" width="190" height="29.72" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" />
  <text class="label" x="129" y="276" text-anchor="middle" font-weight="500" style="font-weight:500">下一层权重 W</text>
@@ -132,7 +132,7 @@
   </g>
  </g>
  <text class="small" x="379" y="299" text-anchor="middle">显著通道对应列放大</text>
- <path class="line" d="M230 282 H278" />
+ <path class="line" d="M230 282 H283.5" />
  <path class="highlight" d="M538 248 H618 Q630 248 630 260 V304 Q630 316 618 316 H538 Q526 316 526 304 V260 Q526 248 538 248 Z" />
  <rect x="532" y="254.6" width="92" height="29.72" rx="4" fill="#ccfbf1" stroke="#76bbae" stroke-width="0.8" />
  <text class="label" x="578" y="276" text-anchor="middle" font-weight="500" style="font-weight:500">INT4</text>
@@ -147,7 +147,7 @@
    </text>
   </g>
  </g>
- <path class="line" d="M472 282 H518" />
+ <path class="line" d="M472 282 H523.5" />
  <path class="box" d="M668 78 H720 Q732 78 732 90 V304 Q732 316 720 316 H668 Q656 316 656 304 V90 Q656 78 668 78 Z" />
  <rect x="662" y="86.6" width="64" height="29.72" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" />
  <text class="label" x="694" y="108" text-anchor="middle" font-weight="500" style="font-weight:500">GEMM</text>
@@ -176,8 +176,8 @@
    </text>
   </g>
  </g>
- <path class="line" d="M472 119 H642" />
- <path class="line" d="M630 282 H642 V220 H648" />
+ <path class="line" d="M472 119 H653.5" />
+ <path class="line" d="M630 282 H642 V220 H653.5" />
  <text class="small" x="420" y="185" text-anchor="middle">未量化时两边缩放抵消：</text>
  <g class="mathtext" data-tex="$W'X'=WX$" data-x="420" data-y="214" data-size="13" data-anchor="middle" data-fill=" #172033" fill=" #172033" data-family="'SvgSans', -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif" data-weight="400" aria-label="$W'X'=WX$">
   <g transform="translate(372.000 214.000)">

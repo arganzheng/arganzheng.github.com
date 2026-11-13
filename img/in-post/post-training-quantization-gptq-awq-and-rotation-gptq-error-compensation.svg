@@ -48,13 +48,13 @@
   </g>
  </g>
  <text class="small" x="123" y="153" text-anchor="middle">样本输出 [1.20, 1.08]</text>
- <path class="line" d="M218 123 H265" />
+ <path class="line" d="M218 123 H270.5" />
  <path class="red" d="M285 74 H451 Q463 74 463 86 V160 Q463 172 451 172 H285 Q273 172 273 160 V86 Q273 74 285 74 Z" />
  <rect x="279" y="79.6" width="178" height="29.72" rx="4" fill="#fff1f2" stroke="#e9a4b5" stroke-width="0.8" />
  <text class="label" x="368" y="101" text-anchor="middle" font-weight="500" style="font-weight:500">量化第 1 列</text>
  <text class="label" x="368" y="128" text-anchor="middle" style="font-weight:400" font-weight="400">0.6 → 0.5</text>
  <text class="small" x="368" y="153" text-anchor="middle">未补偿误差平方和 0.0200</text>
- <path class="teal-line" d="M463 123 H510" />
+ <path class="teal-line" d="M463 123 H515.5" />
  <path class="teal" d="M530 74 H720 Q732 74 732 86 V160 Q732 172 720 172 H530 Q518 172 518 160 V86 Q518 74 530 74 Z" />
  <rect x="524" y="79.6" width="202" height="29.72" rx="4" fill="#ccfbf1" stroke="#76bbae" stroke-width="0.8" />
  <text class="label" x="625" y="101" text-anchor="middle" font-weight="500" style="font-weight:500">Hessian / OBS 补偿</text>
@@ -100,7 +100,7 @@
    </text>
   </g>
  </g>
- <path class="line" d="M625 172 V220 H502" />
+ <path class="line" d="M625 172 V220 H504" />
  <path class="box" d="M285 214 H490 Q502 214 502 226 V284 Q502 296 490 296 H285 Q273 296 273 284 V226 Q273 214 285 214 Z" />
  <rect x="279" y="219.6" width="217" height="29.72" rx="4" fill="#f1f5f9" stroke="#94a3b8" stroke-width="0.8" />
  <text class="label" x="387" y="241" text-anchor="middle" font-weight="500" style="font-weight:500">补偿后的输出</text>
@@ -128,7 +128,7 @@
   </g>
  </g>
  <text class="small" x="123" y="286" text-anchor="middle">     [1, 0.8]]</text>
- <path class="line" d="M218 255 H265" />
+ <path class="line" d="M218 255 H270.5" />
  <text class="small" x="624" y="238" text-anchor="middle">相关通道能抵消</text>
  <text class="small" x="624" y="260" text-anchor="middle">第 1 列的舍入误差</text>
  <text class="small" x="624" y="286" text-anchor="middle">下一步再量化第 2 列</text>

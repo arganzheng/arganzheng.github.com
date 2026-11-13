@@ -24,7 +24,7 @@
    </text>
   </g>
  </g>
- <line x1="130" y1="37" x2="626" y2="37" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)" />
+ <line data-axis="" x1="130" y1="37" x2="626" y2="37" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)" />
  <path fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" d="M25 56 H735 Q742 56 742 63 V165 Q742 172 735 172 H25 Q18 172 18 165 V63 Q18 56 25 56 Z" />
  <rect x="24" y="60" width="712" height="30" rx="4" fill="#eef2f6" stroke="#cbd5e1" />
  <text x="34" y="81" font-size="13" fill="#234b70" text-anchor="start" font-weight="500">per-tensor</text>
