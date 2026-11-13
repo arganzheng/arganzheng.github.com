@@ -544,7 +544,21 @@ Table: 各共享方案的资源份额与两个阶段的延迟
 
 ### 2. 决策树
 
-![切分方案决策树](/img/in-post/gpu-sharing-and-partitioning-mig-mps-hami-decision-tree.svg)
+```mermaid
+%% 图：切分方案决策树
+flowchart TB
+    Q1{"这个负载是训练<br/>或需要 NCCL？"}
+    Q1 -- "是" --> A1["<b>不切分</b><br/>整卡，且节点池不开 MIG（第三章第 4 节）"]
+    Q1 -- "否" --> Q2{"推理服务，还是<br/>开发 / notebook / 批处理？"}
+    Q2 -- "开发 / notebook / 批处理<br/>（对延迟不敏感、互不在乎）" --> A2["<b>时间片</b><br/>• sharing.timeSlicing，replicas 按并发人数<br/>• 提醒用户显存不隔离，或叠在 MIG 1g 实例上得到显存隔离"]
+    Q2 -- "推理服务" --> Q3{"硬件支持 MIG<br/>且需要 SLA 隔离？"}
+    Q3 -- "是" --> Q4{"模型大小与 profile 匹配，<br/>几何可按节点池固定？"}
+    Q4 -- "是" --> A3["<b>MIG</b><br/>• 支持 MIG 的卡：A30、A100、H100、H200、B200<br/>• GPU Operator MIG Manager 固定几何<br/>• mixed 策略让请求显式；多副本同 profile 时 single 也可"]
+    Q4 -- "否：需要按需分配显存、<br/>模型大小参差、几何会频繁变" --> A4["<b>HAMi（可选动态 MIG 模式）</b><br/>接受故障域是整卡"]
+    Q3 -- "否（非 MIG 卡，<br/>或不需要硬隔离）" --> Q5{"同一模型的<br/>相同副本共卡？"}
+    Q5 -- "是" --> A5["MPS（均分即可）或 HAMi"]
+    Q5 -- "否" --> A6["HAMi（按 gpumem 差异化分配）"]
+```
 
 一条横切的原则：**共享节点池与独占节点池分开**。时间片和 MPS 是节点级配置，MIG 是节点池级规划，HAMi 的 device plugin 与官方插件互斥——这三个事实都指向同一个结论：一台节点只能有一种共享策略，把策略绑在节点池标签上，让调度器（上一篇的 Kueue `ResourceFlavor` 或 Volcano 队列）按池分派。
 

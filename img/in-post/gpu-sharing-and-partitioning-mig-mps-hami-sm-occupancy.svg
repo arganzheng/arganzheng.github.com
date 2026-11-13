@@ -83,11 +83,11 @@
 <text x="590" y="322" text-anchor="middle" class="small">t</text>
 <text x="76" y="242" text-anchor="end" class="small">SM 高</text>
 <text x="76" y="300" text-anchor="end" class="small">SM 0</text>
-<line x1="598" y1="249" x2="570" y2="249" class="arrow" />
-<text x="604" y="253" text-anchor="start" class="small">B 的上限 50%</text>
-<line x1="598" y1="285" x2="570" y2="285" class="arrow" />
-<text x="604" y="289" text-anchor="start" class="small">A 的上限 50%：B 空闲时</text>
-<text x="604" y="311" text-anchor="start" class="small">A 也拿不到上面的 SM</text>
+<line x1="612" y1="249" x2="566" y2="249" class="arrow" />
+<text x="618" y="253" text-anchor="start" class="small">B 的上限 50%</text>
+<line x1="612" y1="285" x2="566" y2="285" class="arrow" />
+<text x="618" y="289" text-anchor="start" class="small">A 的上限 50%：B 空闲时</text>
+<text x="618" y="311" text-anchor="start" class="small">A 也拿不到上面的 SM</text>
 <text x="84" y="328" text-anchor="start" class="note">无切换；显存按 pinned mem limit 软限制；带宽与 L2 共享；server 崩则全崩</text>
 <text x="20" y="362" text-anchor="start" class="bold">MIG：两个 GI，各有独立的 SM、L2 slice、显存分区与带宽</text>
 <rect class="seg-b" x="84" y="382" width="72" height="36" />
@@ -110,8 +110,8 @@
 <text x="76" y="440.05" text-anchor="end" class="small" font-weight="500">GI-0 (3g)</text>
 
 <line x1="78" y1="418" x2="570" y2="418" class="hw" />
-<line x1="598" y1="418" x2="570" y2="418" class="arrowred" />
-<text x="604" y="422" text-anchor="start" class="red">硬件边界：</text>
-<text x="604" y="444" text-anchor="start" class="red">OOM / Xid 不越过</text>
+<line x1="612" y1="418" x2="572" y2="418" class="arrowred" />
+<text x="618" y="422" text-anchor="start" class="red">硬件边界：</text>
+<text x="618" y="444" text-anchor="start" class="red">OOM / Xid 不越过</text>
 <text x="84" y="480" text-anchor="start" class="note">A 的性能与 B 完全无关；B 空闲时它的 SM 与带宽也空着（无超卖）</text>
 </svg>
