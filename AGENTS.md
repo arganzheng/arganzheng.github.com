@@ -2095,15 +2095,20 @@ How it is built (`_plugins/moments.rb`):
   deterministic `NONE_HASH` v0.29, FlashInfer all-reduce default v0.29,
   `max_num_batched_tokens` 16384 v0.28, Medusa / old Ray executor removed in
   v0.33 rc). Upgrade the whole series in one pass once V1 is actually removed
-  (est. 5–7 days: 03's call chain and 06 / 10 rewritten on V2, the rest light edits, each post
+  (est. 5–7 days: 03's ModelRunner section and request-flow zoom, 04 §五.5, 06 §二 and 10 rewritten on V2, the rest light edits, each post
   gets the `> **更新 @…**` note per the version rule).
   **Post 14 dissolved 2026-11-13** (author): the standalone 「回到源码：一次请求在
   vLLM 内部的真实旅程」 (`source-code-request-walkthrough`) was deleted and its
-  content moved to where each concept is taught — 四个域 + 两把钥匙 → 03 §二.5
-  「核心数据对象：四个域」, the 十一步调用链 + 调用栈 → 03 §六.2 「下钻到函数」,
-  Python 怎样调到 kernel → 03 §四.2 「构建与打包」, the 翻译层 (`SchedulerOutput`
-  → `InputBatch` / `slot_mapping` / `block_table`, 一步之内 CPU / GPU 时序) → 06
-  §二 (06's chapters shifted: Kernel Launch 三, HBM 四, 低精度 五, 投机解码 六),
+  content moved to where each concept is taught (locations as of the 2026-11-13
+  restructure of 03) — 四个域 + 两把钥匙 (one Mermaid for the scheduler side,
+  one for the Worker side) → 03 §二.3 「核心数据对象：四个域」 (§二 is now 总图 →
+  1. 两个面 → 2. 四类核心组件 2.1–2.4 → 3. 四个域), the 调用链 → 03 §六.1's
+  「放大：同一条生命周期，落到组件和关键方法上」 subsection, the per-process
+  调用栈 → 04 §五.5 (EngineCoreProc 的三个线程与 `step()`) / 06 §二.4 (Worker
+  的常驻循环) / 10 §六.1 (API Server 的协程), the 四阶段源码位置 and CPU / GPU
+  时序 → 06 §二.3, Python 怎样调到 kernel → 06 §二.5, the 翻译层
+  (`SchedulerOutput` → `InputBatch` / `slot_mapping` / `block_table`) → 06 §二
+  (06's chapters shifted: Kernel Launch 三, HBM 四, 低精度 五, 投机解码 六),
   `RequestStatus` 状态机 → 04 §六.2, 各环节耗时量级 (Llama-2-7B / A100) + 五笔账
   → recap §三.1 「一个请求的五笔账与各环节耗时量级」 (its 自测 5 became recap C8).
   **The old URL deliberately has no redirect** (author: 不要给 14 的旧 URL 做跳转;
@@ -2113,7 +2118,26 @@ How it is built (`_plugins/moments.rb`):
   and 06 (翻译层) plus a 五笔账 slide. Numbering now: 01–14 body (14 = vLLM vs
   SGLang), recap NN=15; the overview's 主线 has 七段 (no 源码落地 segment).
   Instead of a standalone walkthrough, posts carry per-post 「本章源码导航」
-  tables (08 has one).
+  tables (08 has one). Decision 2026-11-13: **03 是鸟瞰，函数级源码细节放在各机制篇，
+  03 只留文末折叠的源码导航** — anchors into 03 are `#3-核心数据对象四个域`,
+  `#24-executorworker-与-modelrunner模型执行的设备抽象` and
+  `#放大同一条生命周期落到组件和关键方法上` (the old `#5-…四个域` /
+  `#2-下钻到函数…` ids no longer exist).
+  Additions 2026-11-13: 02 §五 从症状到参数 (22-parameter table with v0.27.1
+  defaults, symptom table, 排查顺序图, the token-budget / `max_num_seqs` trade-off
+  numbers) and §六 `/metrics` (name mapping, four 口径差异 vs `vllm bench`, no
+  server-side Goodput, 8-panel PromQL, alerts; `--swap-space` and
+  `vllm:gpu_cache_usage_perc` are gone in v0.27.1); 05 §四 Prefix Cache, §五
+  混合 KV (Gemma-3-27B 7 groups, 32K 15.5 → 2.98 GiB), §六.3 KV 量化 (FP8 block
+  pool 81,920 → 163,840); 09 §二 从 messages 到 token id (chat template, 232 / 132
+  token example, five template-mismatch failures); 10 §六 输出解析 (reasoning /
+  tool parsers in the API Server, `tool_choice` → structural tag); 11 rewritten
+  around figures and tables (change × layer matrix, `Supports*` protocols, 10-step
+  验收阶梯; MTP rollback = only `num_computed_tokens`; `WeightsMapper` /
+  `AutoWeightsLoader`, `LinearMethodBase`). The overview's 分章导读 / q-footnotes,
+  the recap and the deck were synced the same day; the deck's new diagrams are
+  simplified or re-oriented copies (20 px Mermaid text on a 1203 × 470 cap, see
+  the check-render `smalltext` rule), with the dropped detail in the notes.
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →
@@ -2350,7 +2374,7 @@ How it is built (`_plugins/moments.rb`):
     小结 is gone (2026-09); do not add it to new posts. All body posts of the
     algorithm and Infra series carry the footnotes; since 2026-10-01 the
     overviews and roadmaps do too.
-  - 自测: 3–5 questions per body post (overview posts have none), each with a
+  - 自测: 3–10 questions per body post (author, 2026-11-13: 「改成10道以内」; was 3–5; overview posts have none), each with a
     checkable answer (a number, a shape, a yes/no with one reason) — no open
     questions. Every answer sits in its own
     `<details markdown="1"><summary>答案</summary> … </details>` directly under

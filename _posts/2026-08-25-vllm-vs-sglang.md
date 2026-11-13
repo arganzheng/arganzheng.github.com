@@ -244,7 +244,7 @@ Table: 调度旋钮对照
 
 ### 1. vLLM：块、哈希链、引用计数
 
-第五篇与[第三篇的「四个域」](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)讲过的结构，这里列出对照要用的四个事实：
+第五篇与[第三篇的「四个域」](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)讲过的结构，这里列出对照要用的四个事实：
 
 - 物理单位是 `KVCacheBlock`，默认 16 个 token（`CacheConfig.DEFAULT_BLOCK_SIZE`），每层的 KV tensor 形如 `[num_blocks, block_size, …]`。
 - 复用索引是 `BlockPool.cached_block_hash_to_block`（`v1/core/block_pool.py`）：**哈希 → 块**。块的哈希是一条链——`hash_block_tokens(parent_hash, tokens, extra_keys)`（默认 `sha256`），所以相同 token 在不同前缀下得到不同的哈希，一个块只能被同一前缀链上的请求命中。

@@ -182,6 +182,86 @@ flowchart TB
 原文：[/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)。指标覆盖延迟（TTFT、TPOT、ITL、E2E）、吞吐（Tokens/s、Requests/s、Goodput）、效率和质量；对比 benchmark 前需先统一统计口径。
 </aside>
 
+<!-- v -->
+
+### 指标定位到哪一段，参数就动哪一个
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 10, "rankSpacing": 36, "padding": 10}}}%%
+%% 图：TTFT 变差时的排查顺序与第一个要试的参数
+flowchart LR
+    S{"TTFT 变差"}
+    S --> T{"queue_time 与 prefill_time<br/>谁占大头？"}
+    T -->|queue_time| Q{"waiting_by_reason<br/>与 KV 用量、running 数"}
+    Q -->|"capacity，KV 用量 ≈ 1"| Q1["<b>KV 池不够</b><br/>kv_cache_dtype=fp8 或扩副本"]
+    Q -->|"capacity，running = max_num_seqs"| Q2["<b>并发上限</b><br/>max_num_seqs ↑（先看 TPOT 余量）"]
+    Q -->|"capacity，KV 与 running 都有余量"| Q4["<b>预算被长 prompt 吃光</b><br/>long_prefill_token_threshold"]
+    T -->|prefill_time| P{"前缀命中率下降了？"}
+    P -->|是| P1["<b>前缀没复用上</b><br/>固定前缀、KV 容量 ↑"]
+    P -->|否| P2["<b>prefill 算量本身</b><br/>预算 ↑、TP ↑、PD 分离"]
+```
+
+**TTFT 先拆排队与 prefill：排队长是容量或预算，prefill 长是算得多或算得慢。**
+
+<aside class="notes" markdown="1">
+原文：[/how-to-measure-llm-serving.html#3-排查顺序先拆-ttft-和-itl再碰参数](/how-to-measure-llm-serving.html#3-排查顺序先拆-ttft-和-itl再碰参数)。两个分叉点：TTFT 先拆成排队（`request_queue_time_seconds`）和 prefill（`request_prefill_time_seconds`），两段原因不重叠——排队长是连第一次调度都没拿到，卡在 KV 池、并发上限或预算；prefill 长是要算的多或算得慢。ITL 先分均值和 P99——均值高是每一步都重（batch 与上下文），只有 P99 高是个别步突然变重（prefill 块或抢占）。第五章有 22 个参数（含 v0.27.1 默认值）与 14 行症状表。原图是一张树，这里按 TTFT、ITL 拆成两页；排队分支里还有一片叶子：`waiting_by_reason` 为 `deferred` 时是 LoRA 预算，`max_loras` ↑。
+</aside>
+
+<!-- v -->
+
+### ITL / TPOT：先分均值和 P99
+
+```mermaid
+%% 图：ITL / TPOT 变差时的排查顺序与第一个要试的参数
+flowchart LR
+    S{"ITL / TPOT 变差"}
+    S --> I{"均值高，还是只有 P99 高？"}
+    I -->|均值| I1["<b>每步太重</b><br/>max_num_seqs ↓<br/>KV fp8、TP ↑"]
+    I -->|P99| R{"抢占速率 > 0？"}
+    R -->|是| R1["<b>重算式抢占</b><br/>KV 容量 ↑、watermark"]
+    R -->|否| R2["<b>大 prefill 块混进 decode 步</b><br/>max_num_batched_tokens ↓<br/>或 PD 分离"]
+```
+
+**均值高是每步都重，只有 P99 高是个别步突然变重。**
+
+<aside class="notes" markdown="1">
+原文同上。均值高：batch 大、上下文长，每步读的 KV 多，`max_num_seqs` ↓、`kv_cache_dtype=fp8`、TP ↑，或低并发时开投机解码。P99 尖刺：先看 `num_preemptions` 速率；非零是重算式抢占（V1 没有 swap），加 KV 容量或 `--watermark 0.01–0.05`；为零是大 prefill 块和 decode 进了同一步，压 `max_num_batched_tokens` 或 PD 分离。
+</aside>
+
+<!-- v -->
+
+### 一个参数，两个方向
+
+| 调大 | 变好 | 变坏 |
+|---|---|---|
+| `max_num_batched_tokens` 2048 → 8192 | 总吞吐 20.3k → 21.4k tok/s（+5%） | 同一步 64 个 decode 流的 ITL 99 → 376 ms |
+| `max_num_seqs` 128 → 256 | Output tok/s +54% | TPOT 11.8 → 15.4 ms，越过 15 ms SLO 后 Goodput 断崖 |
+
+**每个参数都是在两个指标之间换：一步多装一点，摊薄权重读取，这一步也更长。**
+
+<aside class="notes" markdown="1">
+原文：[/how-to-measure-llm-serving.html#4-五组需要算账的取舍](/how-to-measure-llm-serving.html#4-五组需要算账的取舍)。算例：Llama-3-70B、8×H100、TP=8，每步 ≈ t_decode(B) + 45 µs × prefill token 数。预算那组的 Output Tokens/s 反而从 764 降到 329——"吞吐变高"要说清是哪个吞吐。H100 默认 `max_num_seqs` 1024 在 70B / TP=8 上碰不到，真正限制 batch 的是 KV 池：每卡约 51 GB、约 540 条 2350 token 的请求，那时 TPOT ≈ 23.5 ms；有 TPOT SLO 的服务应显式把 `max_num_seqs` 设到约 200–250。`kv_cache_dtype=fp8` 是少有的两个指标一起变好（B=256 时 TPOT 15.4 → 11.8 ms，容量翻倍），代价在精度。V1 只有重算式抢占，`--swap-space` / `--preemption-mode` 已不存在。
+</aside>
+
+<!-- v -->
+
+### 线上看什么：`/metrics` 的 8 个面板
+
+| # | 面板 |
+|---:|---|
+| 1 | 请求与 token 流量（按 `finished_reason`） |
+| 2 | TTFT 分位数与排队 |
+| 3 | ITL 与 TPOT（P99 / P50） |
+| 4 | 队列：running、`waiting_by_reason` |
+| 5 | KV 用量与抢占速率 |
+| 6 | Prefix cache 命中率 |
+| 7 | 每步 token 数与请求形状 |
+| 8 | 效率：MFU 估算、投机接受率 |
+
+<aside class="notes" markdown="1">
+原文：[/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么](/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么)。面板 2、3、4、5 就是排查顺序图的四个分叉点。服务端口径与 `vllm bench` 差四处：TTFT 偏小（不含回送首 token 的网络与 SSE）；ITL 按引擎步记，投机一步出 3 个 token 也只记一个样本；Queueing Time 只算第一次，抢占后的再等待算进 prefill / decode；服务端没有 Goodput，直方图回不到单个请求，只能逐指标估达标率，要真 Goodput 在网关或请求日志里逐请求算。旧名 `vllm:gpu_cache_usage_perc` 已换成 `vllm:kv_cache_usage_perc`。告警：SLO（TTFT P99 / TPOT P95 持续 5 分钟）、容量（`waiting_by_reason{capacity}` 持续非零）、抢占（速率 > 0 且 KV 用量 > 0.95）、前缀命中率低于前一天同时段 70%、错误与 abort 比例。
+</aside>
+
 ---
 
 ## 03 · 鸟瞰 vLLM：4+1 视图落到一次请求
@@ -256,7 +336,7 @@ graph TB
 **Executor 定交给哪些 Worker，Worker 管一张卡，ModelRunner 跑完一轮。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#4-executorworker-与-modelrunner模型执行的设备抽象](/vllm-request-lifecycle-overview.html#4-executorworker-与-modelrunner模型执行的设备抽象)。Executor：`UniProcExecutor`、`MultiprocExecutor`、`RayDistributedExecutor`、`RayExecutorV2`（继承 `MultiprocExecutor`，只把进程拉起方式换成 Ray）、`ExecutorWithExternalLauncher`——用不用 Ray 是部署方式的差异，不是执行模型的差异。Worker：初始化设备与 TP / PP 通信组、加载权重分片、测显存余量并分配 KV Cache、把 `execute_model()` 转给 ModelRunner。ModelRunner（`GPUModelRunner`）常驻一份 `InputBatch`，每轮准备输入（`_prepare_inputs()`）、前向（能用 CUDA Graph 时走捕获好的图）、采样（`sample_tokens()`）。
+原文：[/vllm-request-lifecycle-overview.html#24-executorworker-与-modelrunner模型执行的设备抽象](/vllm-request-lifecycle-overview.html#24-executorworker-与-modelrunner模型执行的设备抽象)。Executor：`UniProcExecutor`、`MultiprocExecutor`、`RayDistributedExecutor`、`RayExecutorV2`（继承 `MultiprocExecutor`，只把进程拉起方式换成 Ray）、`ExecutorWithExternalLauncher`——用不用 Ray 是部署方式的差异，不是执行模型的差异。Worker：初始化设备与 TP / PP 通信组、加载权重分片、测显存余量并分配 KV Cache、把 `execute_model()` 转给 ModelRunner。ModelRunner（`GPUModelRunner`）常驻一份 `InputBatch`，每轮准备输入（`_prepare_inputs()`）、前向（能用 CUDA Graph 时走捕获好的图）、采样（`sample_tokens()`）。
 </aside>
 
 <!-- v -->
@@ -354,7 +434,74 @@ flowchart LR
 **只有显存域跨请求共享；跨进程只传整数 `block_id`，`KVCacheBlock` 对象不出 EngineCore。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#5-核心数据对象四个域](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)。请求域 `Request`（token ids、采样参数、状态机状态、块哈希）；调度域 `SchedulerOutput` / `ModelRunnerOutput`；显存域 `KVCacheBlock`（`block_id`、`ref_cnt`、哈希）与 Worker 侧 `BlockTable`；模型域是权重与激活。两把钥匙：调度器进程里 `request_id` 找到块列表，跨进程只带 `block_id`，Worker 用它填 `BlockTable` 的一行，再派生 `slot_mapping`。所以 Prefix Cache 命中与否 Worker 完全不知情；`CachedRequestState` 是 `Request` 的只读镜像；`InputBatch` 的行号每步都可能变，`request_id` 才是稳定身份。
+原文：[/vllm-request-lifecycle-overview.html#3-核心数据对象四个域](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)。请求域 `Request`（token ids、采样参数、状态机状态、块哈希）；调度域 `SchedulerOutput` / `ModelRunnerOutput`；显存域 `KVCacheBlock`（`block_id`、`ref_cnt`、哈希）与 Worker 侧 `BlockTable`；模型域是权重与激活。下面两页是串起它们的两把钥匙：调度器一侧、Worker 一侧各一张图。
+</aside>
+
+<!-- v -->
+
+### 两把钥匙 · 调度器一侧
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+%% 图：调度器一侧：request_id 找到 KVCacheBlock，跨进程只剩 block_id
+flowchart LR
+    subgraph SB["EngineCoreProc：Scheduler / KVCacheManager"]
+        direction TB
+        REQ["<b>Request</b><br/>• request_id、status、num_computed_tokens<br/>• output_token_ids、block_hashes"]
+        R2B["<b>req_to_blocks</b><br/>request_id → list#91;KVCacheBlock#93;"]
+        BLK["<b>KVCacheBlock</b><br/>block_id、ref_cnt、block_hash"]
+        POOL["<b>BlockPool</b><br/>• blocks#91;block_id#93;：全部块<br/>• block hash → 块：前缀缓存表"]
+    end
+    SO["<b>SchedulerOutput</b><br/>• 每步一份，广播给每个 Worker<br/>• 只带 block_id 整数，不带 KVCacheBlock 对象"]
+    REQ -- "request_id" --> R2B --> BLK
+    BLK -- "block_id 是下标" --> POOL
+    REQ -. "block_hashes 查前缀命中" .-> POOL
+    R2B -- "只取出 block_id" --> SO
+    classDef state fill:#e8f1ff,stroke:#3b6fb6;
+    classDef msg fill:#fff4e0,stroke:#d9822b;
+    classDef mem fill:#e9f7e9,stroke:#3a8a3a;
+    class REQ,R2B state;
+    class SO msg;
+    class BLK,POOL mem;
+```
+
+<aside class="notes" markdown="1">
+原文同上，第二章第 3 节第 1 点。`request_id` 经 `req_to_blocks` 找到 `KVCacheBlock` 列表；`block_id` 就是 `BlockPool.blocks` 的下标；`block_hashes` 查前缀命中。`ref_cnt` 和 `block_hash` 只在这一侧有意义（能否复用、何时释放），写进 `SchedulerOutput` 的只有新请求分到的块号与老请求新增的块号——这就是"只传 `block_id` 整数"的那一刀，所以 Prefix Cache 命中与否 Worker 完全不知情。
+</aside>
+
+<!-- v -->
+
+### 两把钥匙 · Worker 一侧
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+%% 图：Worker 一侧：block_id 落到 InputBatch 的行与 BlockTable，派生出 slot_mapping
+flowchart LR
+    SO2["<b>SchedulerOutput</b><br/>• 新请求：prompt token ids + block_ids<br/>• 已有请求：new_block_ids 增量"]
+    subgraph WK["WorkerProc：GPUModelRunner"]
+        direction TB
+        CRS["<b>CachedRequestState</b><br/>• 每个请求一份<br/>• block_ids、num_computed_tokens、output_token_ids"]
+        IB["<b>InputBatch 的一行</b><br/>• req_id → 行号<br/>• token_ids_cpu#91;row, :#93;"]
+        BT["<b>BlockTable</b><br/>• 每个 KV cache group 一张<br/>• block_table#91;row, j#93; = block_id"]
+        SM["<b>slot_mapping</b><br/>• slot = block_id × block_size + offset<br/>• 由 Triton kernel 在 GPU 上算"]
+        KV["<b>KV Cache 张量（GPU HBM）</b><br/>kv_cache#91;block_id#93;#91;offset#93;"]
+    end
+    SO2 --> CRS
+    CRS --> IB
+    IB --> BT
+    BT --> SM
+    SM --> KV
+    BT -.-> KV
+    classDef state fill:#e8f1ff,stroke:#3b6fb6;
+    classDef msg fill:#fff4e0,stroke:#d9822b;
+    classDef mem fill:#e9f7e9,stroke:#3a8a3a;
+    class CRS,IB,BT state;
+    class SO2 msg;
+    class SM,KV mem;
+```
+
+<aside class="notes" markdown="1">
+原文同上，第二章第 3 节第 2 点。原图的边标注：`SchedulerOutput` 按请求更新增量 → `CachedRequestState` 占 `InputBatch` 一行 → 该行的块号进 `BlockTable` → 拷到 GPU 算出 `slot_mapping` → 写入新的 K、V；虚线是 attention kernel 按 `BlockTable` 的行读 KV。`CachedRequestState` 是 `Request` 的只读镜像，靠每步 `CachedRequestData` 的增量维护、从不反向同步；`InputBatch` 每个在跑的请求占一行，请求结束后尾行搬进空行，行号每步都可能变，`BlockTable` 与 token ids 跟着同步搬行——`request_id` 才是跨进程的稳定身份。`slot = block_id × block_size + offset` 由 Triton kernel 在 GPU 上算；每步的四个函数（`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()`、选图）见第六篇第二章。
 </aside>
 
 <!-- v -->
@@ -366,19 +513,19 @@ flowchart LR
 **schedule ~0.05 ms + prepare ~0.1 ms，对十毫秒量级的 forward 约 1%，且被流水线化。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下](/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下)。四个阶段：schedule（CPU，`Scheduler.schedule()`）→ prepare（CPU，`_update_states()` / `_prepare_inputs()`）→ model forward（GPU，纯 decode 时一次 CUDA Graph replay）→ sample（GPU → CPU）。GPU 跑第 N 步时 CPU 已在准备第 N+1 步。图中毫秒数是估算，不是源码常量。
+原文：[/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)。四个阶段：schedule（CPU）→ prepare（CPU）→ model forward（GPU，纯 decode 时一次 CUDA Graph replay）→ sample（GPU → CPU）。GPU 跑第 N 步时 CPU 已在准备第 N+1 步。图中毫秒数是估算，不是源码常量。四个阶段各落在哪些函数、一步之内谁等谁、唯一的同步点在哪，见[第六篇第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)；EngineCore 一侧的主循环见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
 </aside>
 
 <!-- v -->
 
-### 下钻到函数：从 HTTP 请求到 GPU kernel
+### 放大：同一条生命周期，落到组件和关键方法上
 
 ![从 HTTP 请求到 GPU kernel 的时间顺序链](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg){: style="max-height: 440px"}
 
 **十一步、三道边界：③ ZMQ 与 ⑤ 共享内存队列是进程边界，⑦ 是 Python → CUDA。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#2-下钻到函数从-http-请求到-gpu-kernel-的调用链](/vllm-request-lifecycle-overview.html#2-下钻到函数从-http-请求到-gpu-kernel-的调用链)。① `create_chat_completion()` → ② `AsyncLLM.add_request()` + `InputProcessor` tokenize → ③ ZMQ + msgspec 进 EngineCore → ④ `Scheduler.schedule()` → ⑤ `Executor.execute_model()` 经 `rpc_broadcast_mq` 到 Worker（也是控制面与数据面的边界；单卡 `UniProcExecutor` 时退化为函数调用）→ ⑥ `GPUModelRunner` 准备张量 → ⑦ `model(input_ids, positions)` → ⑧ attention kernel → ⑨ 可选 CUDA Graph 重放 → ⑩ 采样结果 D2H → ⑪ `update_from_output()`、detokenize、SSE。三段调用栈分别活在 API Server、EngineCoreProc、WorkerProc 里，栈与栈之间只靠消息队列衔接。（版本提示：执行侧走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
+原文：[/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上](/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上)。① `create_chat_completion()` → ② `AsyncLLM.add_request()` + `InputProcessor` tokenize → ③ ZMQ + msgspec 进 EngineCore → ④ `Scheduler.schedule()` → ⑤ `Executor.execute_model()` 经 `rpc_broadcast_mq` 到 Worker（也是控制面与数据面的边界；单卡 `UniProcExecutor` 时退化为函数调用）→ ⑥ `GPUModelRunner` 准备张量 → ⑦ `model(input_ids, positions)` → ⑧ attention kernel → ⑨ 可选 CUDA Graph 重放 → ⑩ 采样结果 D2H → ⑪ `update_from_output()`、detokenize、SSE。三段分别活在 API Server、EngineCoreProc、WorkerProc 里，彼此只靠消息队列衔接；每个进程里常驻的循环与调用栈在机制篇：API Server 的协程见[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程与 `step()` 见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环与 Python 怎样调到 kernel 见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。（版本提示：执行侧走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
 </aside>
 
 <!-- v -->
@@ -429,7 +576,7 @@ flowchart TB
 ```
 
 <aside class="notes" markdown="1">
-原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。没有 prefill / decode 两个阶段：每轮让 `num_computed_tokens` 追上 `num_tokens_with_spec`（prompt + 已生成 + 投机 token）。两者是精确等式：普通 decode 时 `num_tokens_with_spec = num_computed_tokens + 1`（上一轮采出的 token 正是这一轮的输入），带 k 个 draft 时是 `+ 1 + k`；默认开启的异步调度下用 `num_output_placeholders` 记已调度、结果未回的 token，`num_tokens_with_spec + num_output_placeholders = num_computed_tokens + 1`。
+原文：[/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)。Continuous Batching、Chunked Prefill 与 Mixed Batch 都是同一资源调度模型的结果；KV 不足时按策略抢占并重算。没有 prefill / decode 两个阶段：每轮让 `num_computed_tokens` 追上 `num_tokens_with_spec`（prompt + 已生成 + 投机 token）。两者是精确等式：普通 decode 时 `num_tokens_with_spec = num_computed_tokens + 1`（上一轮采出的 token 正是这一轮的输入），带 k 个 draft 时是 `+ 1 + k`；默认开启的异步调度下用 `num_output_placeholders` 记已调度、结果未回的 token，`num_tokens_with_spec + num_output_placeholders = num_computed_tokens + 1`。调度循环跑在 EngineCoreProc 的主线程里，另有输入、输出两个线程收发 ZMQ 消息，见[第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
 </aside>
 
 ---
@@ -441,7 +588,36 @@ flowchart TB
 ![KV Cache 从 Prefill 写入、Decode 追加到完成或抢占归还的生命周期](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/kv-cache-memory-core.html](/kv-cache-memory-core.html)。固定大小的块按需分配；请求持 block table。示例中 2,000 token 前缀对应 125 个整块，可由后续请求复用。
+原文：[/kv-cache-memory-core.html](/kv-cache-memory-core.html)。固定大小的块按需分配；请求持 block table。示例中 2,000 token 前缀对应 125 个整块，可由后续请求复用。Prefix Cache 两条容易忽略的规则：命中最多到 `num_tokens − 1`（最后一个 token 要重算出 logits，按块对齐后是最后一整块，2048 token 完全一致也只命中 127 块）；命中的块若还在空闲队列（`ref_cnt == 0`），也算进本次分配的容量，容量不够时一块都不 touch。驱逐：LRU，同一请求链尾先走，没写满的块插队首最先被分走。命中率塌掉的五种负载：前缀开头不稳定、工作集比块池大（LRU 轮转下接近零命中）、高负载、抢占与前缀无感的多实例路由、整块粒度。
+</aside>
+
+<!-- v -->
+
+### 混合 KV：滑窗组只留窗口里的块
+
+![同一个请求在全注意力组和滑窗组里的块表随时间的变化](/img/in-post/kv-cache-memory-core-hybrid-block-tables.svg){: style="max-height: 400px"}
+
+**Gemma-3-27B 一个 32K 请求：不区分窗口 15.5 GiB → 窗口感知约 3 GiB（5.2×）**
+
+<aside class="notes" markdown="1">
+原文：[/kv-cache-memory-core.html#五混合-kv一个模型里有几种注意力](/kv-cache-memory-core.html#五混合-kv一个模型里有几种注意力)。图里用 64 token 的窗口示意（Gemma-3 是 1024）。Gemma-3-27B 62 层：10 层全注意力 + 52 层滑窗 → 7 个 KV cache group（1 + 6，每个滑窗组 9 或 8 层，最多 15.38% 填充）、10 个 `KVCacheTensor`；页大小统一后所有组共用一个 `BlockPool`。滑窗组把窗口外的块换成 `null_block` 归还，哈希保留。15 GiB 的池：不区分窗口一个 32K 请求都放不下（0.97），窗口感知放 5 个。代价：分组填充、cascade attention 用不上、KV connector 要支持 HMA，否则自动关掉混合管理器。
+</aside>
+
+<!-- v -->
+
+### KV 量化：FP8 让同一块池装两倍
+
+| 场景（每卡约 50 GiB KV 池） | BF16 | FP8（E4M3） |
+|---|---:|---:|
+| 每卡块池 | 81,920 块 | 163,840 块 |
+| 2,350 token 的请求 | 557 | 1,114 → `max_num_seqs` 1,024 封顶 |
+| 8K 上下文 | 160 | 320 |
+| 32K 上下文 | 40 | 80 |
+
+**每 token 每卡 40 KiB → 20 KiB：并发翻倍，decode 每步读的 KV 也减半。**
+
+<aside class="notes" markdown="1">
+原文：[/kv-cache-memory-core.html#3-kv-量化每个元素占几个字节](/kv-cache-memory-core.html#3-kv-量化每个元素占几个字节)。Llama-3-70B / 8×H100、TP8 每卡 1 个 KV 头。scale：`fp8` 按张量，每层一对 `k_scale` / `v_scale` 标量从 checkpoint 读，没有就是 1.0 并告警（风险最大）；`*_per_token_head` 写 cache 时由 kernel 动态算，scale 从 KV 池里划（多约 3%）。后端：FlashAttention 只接受 `fp8` / `fp8_e4m3`（FA3 + Hopper 或 FA4 + Blackwell），FlashInfer 还有 `fp8_e5m2`、`nvfp4`，per-token-head 只有 Triton。PD 两端 `kv_cache_dtype` 必须一致。
 </aside>
 
 ---
@@ -482,7 +658,7 @@ flowchart TB
 **`slot_mapping` 说 KV 写去哪，`block_table` 说能读哪些块；整步唯一的同步点在采样结果 D2H。**
 
 <aside class="notes" markdown="1">
-原文：[/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。四步：① `_update_states()` 增量同步跨步常驻的 `InputBatch`；② `_prepare_inputs()` 拼 `input_ids` / `positions`、pinned buffer 异步 H2D，Triton kernel 由 block table 算 `slot_mapping`（Prefix Cache 命中的那段根本不在本轮 token 里）；③ `_build_attention_metadata()`；④ 选 FULL / PIECEWISE CUDA Graph 或 eager 并 pad。`execute_model()` 全程异步入队，同步点只有 `sample_tokens()` 里 `_bookkeeping_sync()` 的 `transfer_event.synchronize()`；async scheduling 把它也移到独立 copy stream 上。三个字段对应三处设计约束：分块存储、Prefix Cache 共享、CUDA Graph 形状固定。
+原文：[/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。四步：① `_update_states()` 增量同步跨步常驻的 `InputBatch`；② `_prepare_inputs()` 拼 `input_ids` / `positions`、pinned buffer 异步 H2D，Triton kernel 由 block table 算 `slot_mapping`（Prefix Cache 命中的那段根本不在本轮 token 里）；③ `_build_attention_metadata()`；④ 选 FULL / PIECEWISE CUDA Graph 或 eager 并 pad。`execute_model()` 全程异步入队，同步点只有 `sample_tokens()` 里 `_bookkeeping_sync()` 的 `transfer_event.synchronize()`；async scheduling 把它也移到独立 copy stream 上。三个字段对应三处设计约束：分块存储、Prefix Cache 共享、CUDA Graph 形状固定。同一章第 3–5 节还有：一步四个阶段的源码位置与 CPU / GPU 时序、WorkerProc 的常驻循环（`worker_busy_loop`，`execute_model` 只是一个方法名）、Python 怎样经编译扩展调到 C++ / CUDA / Triton kernel。
 </aside>
 
 <!-- v -->
@@ -607,6 +783,64 @@ flowchart TB
 原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。图片示例 576 或 1,369 个 token；encoder 输出短命，KV 在生成期间持续驻留。
 </aside>
 
+<!-- v -->
+
+### 从 messages 到 token id
+
+| 步 | 函数 | 做什么 |
+|---:|---|---|
+| 1 | `OnlineRenderer.render_chat()` | 校验 `tool_choice` 与启动参数 |
+| 2 | `parse_chat_messages()` | 图片进 `mm_data`，留下占位 |
+| 3 | `safe_apply_chat_template()` | 选模板，Jinja 渲染出文本 |
+| 4 | `tokenize_prompts_async()` | 文本 → token id |
+| 5 | `_process_multimodal()` | 一个图片占位 → N 个 |
+| 6 | `Parser.adjust_request()` | 按 `tool_choice` 写约束 |
+| 7 | `InputProcessor.process_inputs()` | 并入停止 token |
+
+**引擎只看到 `prompt_token_ids`；模板就是训练格式，配错不报错。**
+
+<aside class="notes" markdown="1">
+原文：[/request-shapes-multi-lora-and-multimodal.html#2-渲染流水线从-http-请求到-enginecorerequest](/request-shapes-multi-lora-and-multimodal.html#2-渲染流水线从-http-请求到-enginecorerequest)。全在 API Server 进程、用 CPU，`--api-server-count` 加的就是这一段的并行度。原文这里是一张九个方框的流程图，幻灯片上改成表。模板四级来源：`--chat-template` → 不带 `tools` 时的 processor 模板 → `tokenizer_config.json` → vLLM 兜底文件；都没有就报 `ChatTemplateResolutionError`。`add_special_tokens` 默认关（模板已写 BOS）；多模态处理器在分词之后把一个占位换成 N 个；`InputProcessor` 把 `generation_config.json` 的 `eos_token_id` 并进停止集合。
+</aside>
+
+<!-- v -->
+
+### 实例：工具段占 232 个 token 里的 132 个
+
+```text
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. ...
+# Tools
+<tools>{"type": "function", "function": {"name": "get_weather", ...}}</tools>
+...<|im_end|>
+<|im_start|>user
+深圳现在多少度？<|im_end|>
+<|im_start|>assistant
+<tool_call>{"name": "get_weather", "arguments": {"city": "深圳"}}</tool_call><|im_end|>
+...
+<|im_start|>assistant
+```
+
+**Qwen2.5-7B-Instruct 两轮对话加一个工具：232 token，不带 `tools` 只有 100。**
+
+<aside class="notes" markdown="1">
+原文：[/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么](/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么)。节选，完整渲染见原文。工具定义与格式说明在最前面，`tools` 相同的请求共享这段前缀；改一个工具描述或调换顺序，后面整段都要重算。`<|im_start|>` / `<|im_end|>` 是特殊 token；`<tool_call>` 是单个普通 token，所以 `skip_special_tokens` 不会删掉它。排查用 `POST /tokenize`（加 `"return_token_strs": true`）：它走同一个 `preprocess_chat()`，返回的就是引擎会看到的那串。
+</aside>
+
+<!-- v -->
+
+### 模板与模型不配：五种坏法
+
+1. 模板不渲染工具：工具从不被调用，HTTP 200
+2. 轮次标记属于别的家族：被切成普通 token，停不下来
+3. `add_generation_prompt=false`：模型替用户接着说
+4. 思考开关传给不认识它的模板：被静默丢掉
+5. 调用格式与 `--tool-call-parser` 不配：调了工具，客户端收不到
+
+<aside class="notes" markdown="1">
+原文：[/request-shapes-multi-lora-and-multimodal.html#5-模板与模型不配时会怎样](/request-shapes-multi-lora-and-multimodal.html#5-模板与模型不配时会怎样)。第 2 条：Llama 3 的 `<|eot_id|>` 在 Qwen2.5 词表里被切成 7 个普通 token；模板结束一轮的 token 不在停止集合里也一样停不下来。第 4 条：Qwen3 的 `enable_thinking` 只能经 `chat_template_kwargs` 进模板，`resolve_chat_template_kwargs()` 过滤掉模板不引用的变量。第 5 条：Qwen2.5 的模板教 `<tool_call>` 包 JSON，对应 `hermes`；配成 `llama3_json` 构造时找不到 `<|python_tag|>`，每个请求都失败。没打工具定义时用 `examples/tool_chat_template_*.jinja`。
+</aside>
+
 ---
 
 ## 10 · 输出在变：采样参数与结构化输出
@@ -649,16 +883,132 @@ flowchart TB
 原文：[/output-changes-sampling-and-structured-output.html#四多卡与-pd-分离下的适配](/output-changes-sampling-and-structured-output.html#四多卡与-pd-分离下的适配)。TP：`lm_head` 按词表切，`Platform.use_all_gather()` 默认 True，CUDA 平台每个 rank 都得到完整 `[num_tokens, V]`；`sample_tokens(grammar_output)` 经共享内存一次广播；各 rank 自己采是为了让下一步输入直接留在本 rank 的 `InputBatch`，省一次广播，前提是 `set_random_seed(model_config.seed)` 对齐随机状态。例子 batch=64、TP=8：完整 bf16 logits 约 16 MB、每卡贡献 2 MB，all-gather 在 NVLink 上几十微秒。`external_launcher` 下每个 TP rank 一个调度器，异步编译会让各 rank 状态转换时刻不同而死锁，所以改同步编译。PD（NIXL toy proxy）：P 收到 `max_tokens=1` 的请求，同样等 grammar 就绪才调度、用掩码采出一个会被丢弃的 token；P 上的编译落在 $$Q_P$$，D 上的串在 $$T_{\text{handoff}}$$ 前。缓解：xgrammar 缓存让重复 schema 几乎免费；proxy 可在发往 P 的请求里去掉结构化输出参数。
 </aside>
 
+<!-- v -->
+
+### 同一串 token → content / reasoning / tool_calls
+
+```mermaid
+%% 图：一步采出的 token 在 API Server 进程里变成 OpenAI 响应字段
+flowchart LR
+  core["<b>EngineCore</b><br/>新 token id"]
+  subgraph api["API Server 进程"]
+    direction LR
+    det["<b>OutputProcessor</b><br/>detokenize"]
+    rp{"推理已结束？"}
+    rs["<b>ReasoningParser</b><br/>切出 reasoning"]
+    tp["<b>ToolParser</b><br/>抠出 tool_calls"]
+    dm["<b>DeltaMessage</b><br/>三个字段"]
+    det --> rp
+    rp -- "否" --> rs
+    rp -- "是" --> tp
+    rs -- "标记之后" --> tp
+    rs --> dm
+    tp --> dm
+  end
+  core -- "ZMQ" --> det
+```
+
+**解析在 API Server；约束在前、解析在后。**
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html#2-一个-delta-怎么流过解析器](/output-changes-sampling-and-structured-output.html#2-一个-delta-怎么流过解析器)，图按原图简化（原图还列出各方框里的方法名，以及最后写成 SSE chunk 那一步）。`DelegatingParser` 把流分成推理阶段与工具阶段：reasoning parser 按 token id 找结束标记（`deepseek_r1` 找 `</think>`；prompt 末尾已有 `</think>`，如 Qwen3 关思考，则从第一个 token 起推理已结束），切换那一步工具解析器的累计文本从结束标记之后重新开始，所以思考里写的 `<tool_call>` 不算调用。工具解析要 `--enable-auto-tool-choice` 与 `--tool-call-parser` 一起开；`hermes` 遇到坏 JSON 整段退回 `content`、HTTP 200；响应字段是 `reasoning`，`reasoning_content` 是旧名。解析是 API Server 里的纯 Python，每个 delta 重扫全文。
+</aside>
+
+<!-- v -->
+
+### `tool_choice` 落在采样与解析两层
+
+| `tool_choice` | 采样时（EngineCore） | 解析时（API Server） |
+|---|---|---|
+| `none` | 不约束 | 全部是 `content` |
+| `auto` | 不约束 | 事后抠，坏了退回 `content` |
+| `auto` + `strict: true` | structural tag，`<tool_call>` 触发 | 调用部分已保证合法 |
+| `required` | structural tag，至少一个调用 | 同一个 `hermes` 解析器 |
+| 点名函数 | structural tag，恰好一个调用 | 同上，`finish_reason: stop` |
+
+**要格式保证就约束采样；`auto` 不标 `strict` 时格式全靠模型。**
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html#6-和结构化输出的关系约束在前解析在后](/output-changes-sampling-and-structured-output.html#6-和结构化输出的关系约束在前解析在后)。`Parser.adjust_request()` 在请求进引擎前把约束写进 `SamplingParams.structured_outputs`：解析器声明了 `structural_tag_model` 且 `VLLM_ENFORCE_STRICT_TOOL_CALLING` 为真（默认）时走 xgrammar structural tag，约束的就是模板教的格式；否则退回 JSON schema。约束一旦写上，就付结构化输出的全部成本（grammar 编译落在 TTFT 上、每步填 bitmask）。推理模型下约束与解析都从 `</think>` 之后开始，由同一个 `is_reasoning_end_streaming()` 定位。
+</aside>
+
+<!-- v -->
+
+### 流式输出一个工具调用：20 个 token
+
+| 步 | 新 token | 本步发出的 delta |
+|---:|---|---|
+| 1–8 | `<tool_call>` … `_weather` | 无：名字的右引号还没到 |
+| 9 | `",` | 函数名 `get_weather` + 调用 id |
+| 13–18 | ` {"` … `"}}\n` | 六段 `arguments` 片段，拼起来是 `{"city": "广州"}` |
+| 19 | `</tool_call>` | 无 |
+| 20 | <code>&lt;&#124;im_end&#124;&gt;</code> | 空 delta，`finish_reason: "tool_calls"` |
+
+**名字整块发，参数按文本差分发；客户端拼完才是合法 JSON。**
+
+<aside class="notes" markdown="1">
+原文：[/output-changes-sampling-and-structured-output.html#5-实例流式输出一个工具调用](/output-changes-sampling-and-structured-output.html#5-实例流式输出一个工具调用)。Qwen2.5-7B-Instruct，`--enable-auto-tool-choice --tool-call-parser hermes`，`tool_choice` 缺省为 `auto`，不开投机解码。第 10–12 步（` "` `arguments` `":`）不发：后面还没有值。第 18 步一个 token 同时收尾参数对象、外层对象和换行，JSON 完整后才剥掉外层的 `}`。停止 token `<|im_end|>` 不进任何字段；流里出现过工具调用且不是点名函数，`finish_reason` 从 `stop` 改写成 `tool_calls`。
+</aside>
+
 ---
 
 ## 11 · 模型适配：变化落在哪一层
 
-**模型层管结构，运行时层管调度/Cache/并行，算子层管 Kernel**
+**模型变化按「算什么 / 状态长什么样 / 怎么算」落到模型层、运行时层、算子层**
+
+| 模型变化 | 模型层 | 运行时层 | 算子层 |
+|---|---|---|---|
+| 激活、归一化 | 组合公共层 | 不动 | 缺算子时加 `CustomOp` |
+| MLA | MLA attention 层 | `MLAAttentionSpec` | MLA 专用后端 |
+| Mamba / 混合 | `IsHybrid` 声明 | `MambaSpec` 定长状态 | mamba 算子切图 |
+| MoE | `FusedMoE` + 路由 | EP 组、EPLB | fused MoE、All-to-All |
+| MTP | `DeepSeekMTP` 类 | 回退 `num_computed_tokens` | `RejectionSampler` |
+| 新量化 | 不改 | 只有 KV 量化要改 | `LinearMethodBase` 子类 |
+
+<aside class="notes" markdown="1">
+原文：[/model-adaptation-architecture.html#2-新模型差异如何向下游扩散](/model-adaptation-architecture.html#2-新模型差异如何向下游扩散)。四种外部变化里的第三种，进入部署级变化：模型在实例启动时就定下，引擎要在接口层把它隔离。表从上往下越来越贵：前两行停在模型层或只多一个后端选项；MLA、Mamba 改了"状态长什么样"，调度器算显存的方式跟着变；MoE、MTP 改了"一步怎么执行"，牵动并行和调度。MTP 不是事务式回滚：被拒位置的 KV 留在原地，下一步覆盖；MoE 也不往 `SchedulerOutput` 加字段。09 用到的 `SupportsLoRA` / `SupportsMultiModal` 就是这里的能力声明，在两个时间点检查：启动时注册表在子进程里查类、写进 `_ModelInfo`（不支持 PP 却开 PP 启动即报错），Worker 加载后对实例做 `isinstance`（要不要包 LoRA 层、挂 EPLB）。
+</aside>
+
+<!-- v -->
+
+### 接入链路：主进程只解析配置，Worker 才建模型
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：一个模型从 checkpoint 到第一次 forward：主进程只解析配置，Worker 进程才 import 模型、建结构、装权重
+flowchart TB
+    subgraph P1["引擎主进程：不 import 模型文件"]
+        direction LR
+        CFG["<b>ModelConfig</b><br/>读 config.json 与命令行"]
+        INS["<b>inspect_model_cls</b><br/>子进程里做 Protocol 检查"]
+        INFO["<b>_ModelInfo 能力位</b><br/>不支持 PP 却开 PP → 启动即报错"]
+        CFG --> INS --> INFO
+    end
+    subgraph P2["每个 Worker 进程：建模型、装权重"]
+        direction LR
+        INIT["<b>initialize_model</b><br/>这时才 import 模型文件"]
+        LW["<b>load_weights</b><br/>AutoWeightsLoader + WeightsMapper"]
+        WRAP["<b>按能力包装</b><br/>isinstance：LoRA、EPLB、CUDA Graph"]
+        SPEC["<b>get_kv_cache_spec</b><br/>逐层收集 KVCacheSpec"]
+        INIT --> LW --> WRAP --> SPEC
+    end
+    P1 --> P2
+```
+
+<aside class="notes" markdown="1">
+原文：[/model-adaptation-architecture.html#1-接入链路全景](/model-adaptation-architecture.html#1-接入链路全景)，原图每个方框还列了字段，这里只留方框标题与一句话。Worker 里在 `initialize_model` 之前是 `GPUModelRunner.load_model` → `get_model_loader`，`load_weights` 之后有加载后处理（`track_weights_loading`、`process_weights_after_loading`）。主进程按 `architectures` 查注册表，`_ModelInfo` 按源码 hash 缓存，未命中才在子进程里 import 模型类做 Protocol 检查；Worker 里 `resolve_model_cls` 才真正 import 模型文件，`load_weights` 经 `AutoWeightsLoader` + `WeightsMapper` 改名，每个参数的 `weight_loader` 切出本 rank 的一片；有参数没被加载就报错。新模型的验收阶梯 10 级，每级只加一个变量。
+</aside>
+
+<!-- v -->
+
+### MLA：状态表示变了，运行时层最贵
 
 ![模型适配中的 KV Cache 与 latent 表示变化](/img/in-post/model-adaptation-kv-vs-latent.svg){: style="max-height: 400px"}
 
+**MLA 每 token 存 512 维 latent + 64 维 RoPE key，`get_num_kv_heads()` 返回 1。**
+
 <aside class="notes" markdown="1">
-原文：[/model-adaptation-architecture.html](/model-adaptation-architecture.html)。四种外部变化里的第三种，进入部署级变化：模型在实例启动时就定下，引擎要在接口层把它隔离。适配分为模型、运行时和算子三层；运行时层往往最贵，因为新状态形状会影响调度、缓存布局与执行路径。09 用到的 `SupportsLoRA` / `SupportsMultiModal` 就是这里的能力声明。
+原文：[/model-adaptation-architecture.html#1-mla从注意力优化到-kv-cache-协议扩展](/model-adaptation-architecture.html#1-mla从注意力优化到-kv-cache-协议扩展)。MLA 落在三层：模型层的 `DeepseekV2MLAAttention` + `MultiHeadLatentAttentionWrapper`，运行时层的 `MLAAttentionSpec`（1 个"头" × 576 维），算子层的一族 MLA 后端，prefill、decode 两条计算路径。
 </aside>
 
 ---
