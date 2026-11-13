@@ -195,7 +195,7 @@ g.mathtext text{fill:inherit}
    <text x="0" y="104" class="mut">零成本：不复制数据，stride 变了</text>
   </g>
  </g>
- <line x1="220" y1="304" x2="400" y2="304" stroke="#555" stroke-width="1.5" marker-end="url(#arr)" />
+ <line x1="220" y1="304" x2="438.3" y2="304" stroke="#555" stroke-width="1.5" marker-end="url(#arr)" />
  <text x="310" y="284" text-anchor="middle" class="mut" style="font-family:'SvgMono','SvgSans', monospace">transpose(0, 2, 1, 3)</text>
  <g class="mathtext" data-tex="③ transpose → $[h, T, d_h]$" data-x="440" data-y="188" data-size="12" data-anchor="start" data-fill="#222" fill="#222" data-family="-apple-system, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif" data-weight="600" aria-label="③ transpose → $[h, T, d_h]$">
   <g transform="translate(440.000 188.000)">
