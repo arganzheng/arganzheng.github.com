@@ -38,8 +38,8 @@ PagedAttention 的核心思想，用一句话就能说完：
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | PagedAttention 的数学本质与源码实现 | 碎片灾难、页表思想的映射、核心数据结构关系 |
-| 三 | KV Cache 的写入、读取与生命周期 | 从 Prefill 批量写入、Decode 逐 slot 追加到完成/抢占时归还 |
+| 二 | PagedAttention 的数学本质与源码实现 | 碎片灾难、页表思想的映射、核心数据结构（对象关系、block_id 到显存） |
+| 三 | 一个 KV 块的完整生命周期 | 分配（BlockPool、allocate_slots）→ 写入 → 读取 → 归还与复用（空闲队列、引用计数、驱逐） |
 | 四 | KV Cache 还能更小吗 | Prefix Cache、GQA/MQA、MLA、KV 量化、Offloading 与 Swapping |
 | 五 | 本文小结 |  |
 | 六 | 自测 | 5 道题 |
@@ -109,15 +109,58 @@ kv_cache = torch.zeros(num_blocks, block_size, num_kv_heads, head_dim,
                         dtype=torch.float16, device="cuda")
 ```
 
-### 3. 源码解密：核心数据结构关系
+### 3. 源码解密：核心数据结构
 
-![KV Cache 核心数据结构关系](/img/in-post/kv-cache-memory-core-core-data-structures.svg)
+先看对象之间的关系：谁持有谁、分配结果以什么形式交给 Scheduler。
 
-顺着箭头从上到下跟踪：Request 只是逻辑层，不直接触及 GPU 显存；它通过 KVCacheManager 对应一个 KVCacheBlocks，里面按 KV Cache Group 存着物理块序列；block_id 直接当下标索引到 GPU HBM 中的一片连续显存，里面放的是一整块 block_size 个 token 的 K 和 V。每个 KVCacheBlock 还带着 ref_cnt、block_hash 和一对前后指针：块被持有时（ref_cnt > 0）只挂在请求的块序列里；ref_cnt 归零后靠这对指针串进 FreeBlockQueue 这条双向链表，等着被重新分配或被 Prefix Cache 命中。这三层映射是理解后面 Prefix Cache 复用和 Preemption 释放的基础。
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：KV Cache 的核心对象：Request 只记进度，KVCacheManager 按请求记块，BlockPool 持有全部块的元数据
+flowchart TB
+    REQ["<b>Request（逻辑层，不碰显存）</b><br/>• request_id<br/>• num_computed_tokens<br/>• block_hashes"]
+    KVM["<b>KVCacheManager</b><br/>Scheduler 经它分配、释放块"]
+    CO["<b>KVCacheCoordinator</b><br/>每个 KV Cache Group 配一个 SingleTypeKVCacheManager"]
+    STM["<b>SingleTypeKVCacheManager</b><br/>• req_to_blocks：request_id → #91;KVCacheBlock, …#93;"]
+    KCB["<b>KVCacheBlocks（分配结果）</b><br/>• blocks#91;i#93;#91;j#93;：第 i 个 Group 的第 j 块"]
+    BP["<b>BlockPool（全局一份）</b><br/>• blocks：全部 KVCacheBlock<br/>• free_block_queue：ref_cnt == 0 的块<br/>• cached_block_hash_to_block：hash → 块"]
+    BLK["<b>KVCacheBlock（只有元数据）</b><br/>• block_id<br/>• ref_cnt<br/>• block_hash（写满并缓存后才有）<br/>• prev_free_block / next_free_block"]
+    REQ -->|"按 request_id 记账"| STM
+    KVM --> CO
+    CO -->|"每个 Group 一个"| STM
+    CO -->|"共享"| BP
+    KVM -->|"allocate_slots() 返回"| KCB
+    STM -->|"引用"| BLK
+    KCB -->|"引用"| BLK
+    BP -->|"持有全部"| BLK
+    classDef logic fill:#ffffff,stroke:#a9b6c4,color:#243447
+    classDef mgr fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef data fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    class REQ logic
+    class KVM,CO,STM mgr
+    class KCB,BP,BLK data
+```
+
+Request 是逻辑层，只记 token 和进度，不直接碰显存。Scheduler 通过 KVCacheManager 给它分配块：KVCacheManager 内部经 KVCacheCoordinator，为每个 KV Cache Group 维护一个 SingleTypeKVCacheManager，用 `req_to_blocks` 记下每个请求持有哪些块（Group 是 KV 形状相同的一组层；普通模型只有一个 Group，混合了滑窗注意力或 Mamba 层的模型才有多个）。分配结果以 KVCacheBlocks 交给 Scheduler，`blocks[i][j]` 是第 i 个 Group 的第 j 块。
+
+所有 KVCacheBlock 对象由全局唯一的 BlockPool 持有，它们只是元数据：`block_id`、`ref_cnt`、写满并缓存之后才有的 `block_hash`，以及一对前后指针。块被持有时（`ref_cnt > 0`）只出现在请求的块序列里；`ref_cnt` 归零后靠这对指针串进 `free_block_queue`，等着被重新分配或被 Prefix Cache 命中（第三章第 4 节）。
+
+再看块和显存的关系：
+
+![block_id 直接当 kv_cache 的下标](/img/in-post/kv-cache-memory-core-block-id-to-hbm.svg)
+
+`block_id` 直接当下标，索引到 GPU HBM 上 `kv_cache` 的一格，每格放一整块 `block_size` 个 token 的 K 和 V。逻辑上相邻的块，物理上可以相隔很远。请求 → 块序列、`block_id` → 显存，这两层映射是后面 Prefix Cache 复用和 Preemption 释放的基础。
 
 > **回到前面的例子**：2050 个 prompt token，`block_size=16`，于是需要 `⌈2050/16⌉ = 129` 个块（前 128 块装满 2048 个 token，第 129 块只装 2 个）。生成完 300 个 token 后，序列长 2350，共占 **147 个块**。
 >
 > 注意一个巧合般的细节：**2000 个 token 的 system prompt 恰好是 125 个整块**。这不是偶然设计，但它揭示了 Prefix Cache 的一个硬约束——只有**装满**的块才会被缓存，所以可复用的边界永远对齐到 `block_size`。第四章的 Prefix Cache 一节就用这一点算账。
+
+## 三、一个 KV 块的完整生命周期：分配、写入、读取、归还
+
+这一章跟着一个块走完一生：从 BlockPool 里分配出来，被 Prefill 或 Decode 写入，被 attention kernel 读取，最后在请求完成或被抢占时归还，留在空闲队列里等待复用或被驱逐。写入、读取、归还三步的全景如下：
+
+![KV Cache 生命周期全景](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg)
+
+### 1. 分配：BlockPool 与 `allocate_slots()`
 
 `BlockPool`（`vllm/v1/core/block_pool.py`）管理所有物理块的分配和回收。它的设计有一个容易看漏的关键点：**没有单独的"缓存块"集合**。所有 `ref_cnt == 0` 的块——无论是从未用过的空块，还是刚被请求释放、但仍带着 block hash 的"缓存块"——都挂在同一条 `free_block_queue` 双向链表上，按释放时间排序。带 hash 的块同时还被 `cached_block_hash_to_block` 索引着，供 Prefix Cache 查找。
 
@@ -152,14 +195,6 @@ class BlockPool:
         ...
 ```
 
-于是 LRU 驱逐不是一个显式步骤，而是分配的副作用：空闲链表头部的块就是最久没被访问的块，把它分出去时顺手摘掉它的 hash，这块缓存就"被驱逐"了。反过来，Prefix Cache 命中一个 `ref_cnt == 0` 的块时，`touch()` 把它从链表中摘出——命中即续命。这套设计让"空闲块"和"缓存块"共享同一份容量：缓存永远填满所有当前没在用的显存，且不需要任何后台淘汰线程。
-
-用一个 6 块的小池子把这四个动作（`get_new_blocks` / `free_blocks` / 驱逐 / `touch`）在链表上走一遍，就能看清"空闲"和"缓存"是怎么共享同一条队列的：
-
-![6 块小池子上的 free_block_queue 演变](/img/in-post/kv-cache-memory-core-free-block-queue.svg)
-
-T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**反序**交给 `free_blocks()` 的，于是同一个请求里越靠后的块越靠近 head、越先被淘汰，而前缀块尽量留到最后——这和 Prefix Cache "命中总是从前缀开始"的访问模式是配套的。
-
 块分配的布局（引自 `allocate_slots()` 注释）：
 
 ![allocate_slots() 的块布局](/img/in-post/kv-cache-memory-core-allocate-slots-layout.svg)
@@ -186,13 +221,9 @@ Table: allocate_slots() 五种场景下各段的取值
 
 这个布局也揭示了 Scheduler 为什么不能按请求类型硬分类。一轮迭代中一个请求可能同时覆盖 computed（prefix cache 命中）、new（需要新计算）和 lookahead（spec decode 预留），不同请求在这个轴上的位置各不相同。token 预算模型统一处理这些区间，而不是按"prefill 请求"和"decode 请求"分开。
 
-## 三、KV Cache 的写入、读取与生命周期
+### 2. 写入：Prefill 批量写、Decode 逐 slot 追加
 
-上一章讲的是「块从哪来」，这一章讲「块怎么被用完再还回去」——一次请求从 Prefill 批量写入，到 Decode 逐 slot 追加，最后在完成或被抢占时归还，构成 KV Cache 的完整生命周期。
-
-![KV Cache 生命周期全景](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg)
-
-**① 写入**——两个阶段的写法完全不同：
+两个阶段的写法完全不同：
 
 | 阶段 | 写入方式 | 例子 |
 |---|---|---|
@@ -201,7 +232,9 @@ Table: allocate_slots() 五种场景下各段的取值
 
 Table: Prefill 与 Decode 阶段的 KV 写入方式
 
-**② 读取**——kernel 拿到的只有 Block Table 和 HBM 上的 `kv_cache`，没有"请求"这个概念。这带来两个直接后果：
+### 3. 读取：kernel 只认 Block Table
+
+kernel 拿到的只有 Block Table 和 HBM 上的 `kv_cache`，没有"请求"这个概念。这带来两个直接后果：
 
 - 读多少由上下文长度决定。一个 2050 token 的请求要遍历 129 个块，每块取出 16 个 token 的 K/V；Decode 每多一个 token，要读的块数最多加 1，所以 Decode 的显存读取量随上下文线性增长，这是 Decode 受带宽限制的直接来源。
 - 写和读走两套索引。写入用 `slot_mapping`（token → 物理 slot，每轮由执行层算好），读取用 `block_table`（请求 → 物理块列表）。kernel 不要求块连续，也不关心相邻的块属于谁，所以不同请求的块可以在同一次 forward 里混着读——这是 Continuous Batching 能把 Prefill 和 Decode 塞进一个 batch 的前提。
@@ -219,20 +252,30 @@ for each query position:
     attn_out = softmax(scores) @ V_blocks
 ```
 
-**③ 归还**——这一步决定了块能不能被别人复用：
+### 4. 归还与复用
+
+这一步决定了块能不能被别人复用：
 
 | 触发 | 动作 | 关键后果 |
 |---|---|---|
 | 请求完成 | `KVCacheManager.free(request)`：所有块 `ref_cnt--` | `ref_cnt == 0` 才真正归还 `free_block_queue` |
 | ↳ 块有 `block_hash` | 进入 LRU 缓存 | **留给 Prefix Cache 复用** |
-| ↳ 块无 hash（未写满） | 立即回收 | 无法复用 |
+| ↳ 块无 hash（未写满） | 插到 `free_block_queue` 头部 | 无法复用，最先被分走 |
 | 被抢占 | 释放所有块 + `num_computed_tokens = 0` | 需重算，但 Prefix Cache 命中可跳过大部分 |
 
 Table: KV 块归还的触发与后果
 
 注意倒数第二行：**块只有"写满"才会被缓存**。这解释了为什么 Prefix Cache 的命中粒度是 `block_size`，而不是单个 token。
 
-上表里的 `ref_cnt--` 之所以要"归零才真正归还"，是因为一个物理块可能同时被多个请求持有。沿着贯穿全文的例子，跟踪那 125 个 system prompt 块的引用计数怎样随事件变化：
+LRU 驱逐也不是一个显式步骤，而是分配的副作用：空闲链表头部的块就是最久没被访问的块，把它分出去时顺手摘掉它的 hash，这块缓存就"被驱逐"了。反过来，Prefix Cache 命中一个 `ref_cnt == 0` 的块时，`touch()` 把它从链表中摘出——命中即续命。这套设计让"空闲块"和"缓存块"共享同一份容量：缓存永远填满所有当前没在用的显存，且不需要任何后台淘汰线程。
+
+用一个 6 块的小池子把这四个动作（`get_new_blocks` / `free_blocks` / 驱逐 / `touch`）在链表上走一遍，就能看清"空闲"和"缓存"是怎么共享同一条队列的：
+
+![6 块小池子上的 free_block_queue 演变](/img/in-post/kv-cache-memory-core-free-block-queue.svg)
+
+T2 里有个容易忽略的细节：`KVCacheManager.free()` 是把请求的块**反序**交给 `free_blocks()` 的，于是同一个请求里越靠后的块越靠近 head、越先被淘汰，而前缀块尽量留到最后——这和 Prefix Cache "命中总是从前缀开始"的访问模式是配套的。块 2 也排在 head，原因却不同：它没写满、没有 hash，`free_blocks()` 把这类块直接插到 head，让它们最先被分走。
+
+归还表里的 `ref_cnt--` 之所以要"归零才真正归还"，是因为一个物理块可能同时被多个请求持有。沿着贯穿全文的例子，跟踪那 125 个 system prompt 块的引用计数怎样随事件变化：
 
 | 时刻 | 事件 | 125 个前缀块的 `ref_cnt` | 块此刻在哪 |
 |---|---|---|---|
@@ -517,4 +560,4 @@ Table: KV Cache 与 PagedAttention 源码导航
 
    </details>
 
-[^q0]: **放在哪里**：按块放。请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存会让有效数据不到三成；PagedAttention 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——`KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（[第二章](#二pagedattention-的数学本质与源码实现)）。**如何复用**：Prefix Cache——块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块；2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，复用粒度是块不是 token（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。**何时释放**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还；`ref_cnt` 为零的块进空闲队列尾、仍可被后来者命中（[第三章](#三kv-cache-的写入读取与生命周期)）。让 KV 更小的三个正交层面：系统管理层（分页、prefix cache）、模型架构层（MQA / GQA / MLA）、数值层（FP8 / INT8）；显存不够时 V1 主要用重算而不是 swap（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。
+[^q0]: **放在哪里**：按块放。请求到达时不知道它会生成 300 还是 20K 个 token，按最坏情况预留连续显存会让有效数据不到三成；PagedAttention 把每个请求的 KV 切成固定大小（`block_size`，如 16 token）的块，用多少申请多少、块之间不要求相邻——`KVCacheManager` 管每个请求的块列表、`BlockPool` 管空闲块与引用计数、Block Table 是逻辑块到物理块的映射，attention kernel 经它查地址（[第二章](#二pagedattention-的数学本质与源码实现)）。**如何复用**：Prefix Cache——块只有写满才进缓存，用链式哈希（前一块的哈希 + 本块 token）做键、`ref_cnt` 让多个请求共享同一物理块；2000 token 的 system prompt 是 125 个整块，第二个请求全部命中，复用粒度是块不是 token（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。**何时释放**：Prefill 批量写入 → Decode 每步追加一个 slot、块满了再申请 → 完成或被抢占时归还；`ref_cnt` 为零的块进空闲队列尾、仍可被后来者命中（[第三章](#三一个-kv-块的完整生命周期分配写入读取归还)）。让 KV 更小的三个正交层面：系统管理层（分页、prefix cache）、模型架构层（MQA / GQA / MLA）、数值层（FP8 / INT8）；显存不够时 V1 主要用重算而不是 swap（[第四章](#四kv-cache-还能更小吗复用压缩与分层存储)）。
