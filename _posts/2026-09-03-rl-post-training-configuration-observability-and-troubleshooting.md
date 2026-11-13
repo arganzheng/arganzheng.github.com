@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（08）：配置、可观测与排障——从�
 subtitle: "Configuration, Observability and Troubleshooting for RL Post-Training Systems"
 tags: [RL, verl, vLLM, Observability, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO，128 张卡，`separate_async`。可能的原因至少四个：staleness 涨了（回答变长、同步没跟上）；训推不一致变大了（某个实例的 vLLM 在上一次弹性扩容后版本不同）；某个沙箱池挂了、它上面的任务 reward 全是零；上一次权重同步漏了一部分参数（一个实例的 `update_weights` 超时，版本号却推进了）。它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
@@ -211,7 +211,7 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 
 从 100% 到实际值，8B 推理场景（64 卡、共置同步、810 秒）：
 
-这里扣的是**全步 MFU 的百分点**，每项都除以同一个 810 s。生成 602 s = 吞吐部分 406 s + 长尾 196 s；4% 是吞吐部分的 MFU，不是整个生成段的 MFU（第一篇第五章、第二篇第三章）。长尾按近似空转计，避免把它的损失又算进 decode 一次。
+这里扣的是**全步 MFU 的百分点**，每项都除以同一个 810 s。生成 602 s = 吞吐部分 406 s + 长尾 196 s；4% 是吞吐部分的 MFU，不是整个生成段的 MFU（[《负载画像》第五章「秒的账」](/rl-step-anatomy-rollout-reward-train.html#五秒的账为什么生成占四分之三)、[《系统形态》第三章「共置：时分复用」](/rl-system-topologies-colocate-disaggregate-async.html#三共置时分复用)）。长尾按近似空转计，避免把它的损失又算进 decode 一次。
 
 | 项 | 全步 MFU 的变化 | 计算口径 | 能动什么 |
 |---|---|---|---|

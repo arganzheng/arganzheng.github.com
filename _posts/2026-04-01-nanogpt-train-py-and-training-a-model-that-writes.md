@@ -5,6 +5,7 @@ title: "Transformer 原理与实现（04）：手搓 GPT（下）——nanoGPT t
 subtitle: "Building GPT by Hand, Part 2: train.py Line by Line, Then Train One on Shakespeare"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true
+updated: 2026-11-13
 ---
 
 > **本篇在系列中的位置。** 《Transformer 原理与实现》系列的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；本系列到此回答完「GPT-2 怎么工作、怎么写」。接下来读[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)，从今天的模型改了哪些结构开始。
@@ -213,8 +214,8 @@ def get_batch(split):
 工具箱第三篇用 `Dataset` + `DataLoader`，nanoGPT 用 18 行自己写。三件事：
 
 1. [`np.memmap`](#gb-memmap)：把 `train.bin` 映射进内存而不是读进来——OpenWebText 的 `train.bin` 有 17 GB，读不进 RAM；memmap 让操作系统按需换页（Infra Python 系列讲内存映射）。每次调用重新 memmap 是绕一个已知的内存泄漏。
-2. [随机窗口](#gb-window)：从数据里随机挑 `batch_size` 个起点，每个起点切 `block_size` 个 token 当 `x`，**右移一位**再切当 `y`——第二篇第二章的"目标 = 输入右移一位"就在这两行。`torch.stack` 把 `batch_size` 个一维张量叠成 `[B, T]`，叠出来的是**连续**张量，所以上一篇 `forward` 里的 `targets.view(-1)` 才不报错。没有 epoch 的概念：每步随机采样，训练多久由 `max_iters` 决定——预训练的数据量大到看不完一遍时，这是常见做法。
-3. [pinned memory + `non_blocking`](#gb-pin)：CUDA 上先把 `x`、`y` 放进页锁定内存再异步搬到 GPU，让下一批数据的传输和当前批的计算重叠（Infra PyTorch 第四篇第九章）。第九章会看到它怎么被用上。
+2. [随机窗口](#gb-window)：从数据里随机挑 `batch_size` 个起点，每个起点切 `block_size` 个 token 当 `x`，**右移一位**再切当 `y`——[《一个 token 的旅程》第二章「Teacher forcing」](/transformer-token-journey-training-and-inference.html#2-teacher-forcing一次前向t-个训练信号)的"目标 = 输入右移一位"就在这两行。`torch.stack` 把 `batch_size` 个一维张量叠成 `[B, T]`，叠出来的是**连续**张量，所以上一篇 `forward` 里的 `targets.view(-1)` 才不报错。没有 epoch 的概念：每步随机采样，训练多久由 `max_iters` 决定——预训练的数据量大到看不完一遍时，这是常见做法。
+3. [pinned memory + `non_blocking`](#gb-pin)：CUDA 上先把 `x`、`y` 放进页锁定内存再异步搬到 GPU，让下一批数据的传输和当前批的计算重叠（[《PyTorch 深度实践》的《nn.Module 与训练系统》第九章「CPU-GPU 数据传输与训练流水线」](/pytorch-module-and-training-system.html#九cpu-gpu-数据传输与训练流水线)）。第九章会看到它怎么被用上。
 
 ## 六、模型初始化：三种来源
 
@@ -298,7 +299,7 @@ model.to(device)
 - [`resume`](#mi-resume)：断点续训——从 `ckpt.pt` 里读回模型参数、`iter_num`、`best_val_loss`，结构超参**强制**用 checkpoint 里的（层数对不上就加载不了），第七章再读回优化器状态。那个 `_orig_mod.` 前缀是 `torch.compile` 包装模型后 `state_dict` 键名多出来的（Infra PyTorch 第七篇），存之前没剥干净这里就剥。真实的大规模训练里 checkpoint 与恢复是一门大学问（Infra 大规模训练系列第五篇），这 22 行是它的最小形态。
 - [`gpt2*`](#mi-gpt2)：从 OpenAI 权重出发**微调**——上一篇的 `from_pretrained`。
 
-[`crop_block_size`](#mi-crop)：加载的 GPT-2 上下文是 1024，想用更短的就切位置表（上一篇第九章）。最后 `model.to(device)` 把参数搬到 GPU。
+[`crop_block_size`](#mi-crop)：加载的 GPT-2 上下文是 1024，想用更短的就切位置表（[《手搓 GPT（上）》第九章「from_pretrained」](/nanogpt-model-py-line-by-line.html#九from_pretrained把-openai-的权重搬进来)）。最后 `model.to(device)` 把参数搬到 GPU。
 
 ## 七、四层包装：GradScaler、优化器、compile、DDP
 
@@ -333,10 +334,10 @@ if ddp:
 
 四件事各一句，机制都在别处讲过：
 
-- [`GradScaler`](#wrap-scaler)：只在 fp16 下启用。fp16 的指数位只有 5 位，小梯度会下溢成 0；scaler 先把 loss 乘一个大数再反向、更新前再除回来（工具箱第四篇第二章、第十三篇讲 bf16 为什么不需要）。`enabled=False` 时它的每个方法都是空操作，所以后面的代码不用写两套。
-- [优化器](#wrap-opt)：上一篇第十章的 `configure_optimizers`（二维参数才 decay）；续训时把优化器状态（Adam 的两个动量）也读回来——不读回来，恢复后前几百步会因为动量从零重新估计而抖动。读完把 `checkpoint` 置 `None` 释放那份内存。
+- [`GradScaler`](#wrap-scaler)：只在 fp16 下启用。fp16 的指数位只有 5 位，小梯度会下溢成 0；scaler 先把 loss 乘一个大数再反向、更新前再除回来（[《算法工程师的工具箱》的《PyTorch 使用层（下）》第二章「混合精度」](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html#二混合精度)；bf16 为什么不需要见[《现代 LLM 结构》的《浮点格式、数值稳定性与混合精度》第六章「混合精度训练」](/floating-point-formats-and-mixed-precision.html#六混合精度训练)）。`enabled=False` 时它的每个方法都是空操作，所以后面的代码不用写两套。
+- [优化器](#wrap-opt)：[《手搓 GPT（上）》第十章](/nanogpt-model-py-line-by-line.html#十configure_optimizers-与-estimate_mfu)的 `configure_optimizers`（二维参数才 decay）；续训时把优化器状态（Adam 的两个动量）也读回来——不读回来，恢复后前几百步会因为动量从零重新估计而抖动。读完把 `checkpoint` 置 `None` 释放那份内存。
 - [`torch.compile`](#wrap-compile)：Infra PyTorch 第七篇；A100 上给 GPT-2 提速约 1.3–1.5 倍，代价是启动多花一分钟。MacBook 上关掉（`--compile=False`）。
-- [DDP](#wrap-ddp)：多卡时把模型包进 `DistributedDataParallel`，反向时自动 all-reduce 梯度（Infra PyTorch 第九篇第三章）；下面训练循环里有一处专门为它写的优化。
+- [DDP](#wrap-ddp)：多卡时把模型包进 `DistributedDataParallel`，反向时自动 all-reduce 梯度（[《PyTorch 深度实践》的《分布式 PyTorch》第三章「DDP」](/pytorch-distributed-training.html#三并行策略1ddp复制模型切分数据同步梯度)）；下面训练循环里有一处专门为它写的优化。
 
 ## 八、`estimate_loss` 与 `get_lr`
 
@@ -375,7 +376,7 @@ def get_lr(it):
     return min_lr + coeff * (learning_rate - min_lr)
 ```
 
-[`estimate_loss`](#el-fn)：训练日志里每步的 loss 只来自一个 batch，抖得厉害；评估时在训练集和验证集上各取 `eval_iters` 个 batch 求平均，得到一个稳定的数。`model.eval()` / `model.train()` 切换 dropout（第二篇第七章的表）；`@torch.no_grad()` 不建图。**train loss 与 val loss 的差**就是过拟合的信号（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》）——第十章的实跑里能看到它逐渐拉开。
+[`estimate_loss`](#el-fn)：训练日志里每步的 loss 只来自一个 batch，抖得厉害；评估时在训练集和验证集上各取 `eval_iters` 个 batch 求平均，得到一个稳定的数。`model.eval()` / `model.train()` 切换 dropout（[《一个 token 的旅程》第七章「两侧的差别」](/transformer-token-journey-training-and-inference.html#七两侧的差别)那张表）；`@torch.no_grad()` 不建图。**train loss 与 val loss 的差**就是过拟合的信号（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》）——第十章的实跑里能看到它逐渐拉开。
 
 [`get_lr`](#lr-fn)：工具箱第三篇画过的那条曲线——前 `warmup_iters` 步从 0 线性升到 `learning_rate`，之后 cosine 衰减到 `min_lr`，超过 `lr_decay_iters` 后保持 `min_lr`。注意它是一个纯函数，每步算一个数再写进 `optimizer.param_groups`（下一章第一行），没有用 PyTorch 的 `LRScheduler`——效果一样，代码更直白。
 
@@ -480,15 +481,15 @@ if ddp:
 （删去了 wandb 的几行。）这就是工具箱第三篇那二十行的"生产版"。按执行顺序：
 
 1. [取第一个 batch](#loop-first)，之后每次迭代内部预取下一个（第 5 步）。`raw_model` 是剥掉 DDP 包装的原始模型——`estimate_mfu`、`state_dict` 都要在它上面调。
-2. [设学习率](#loop-lr)：每步算 `get_lr(iter_num)`，写进每个参数组——第二篇第四章"AdamW 走一步"里的 $$\eta$$ 就是它。
+2. [设学习率](#loop-lr)：每步算 `get_lr(iter_num)`，写进每个参数组——[《一个 token 的旅程》第四章「AdamW 走一步」](/transformer-token-journey-training-and-inference.html#四更新adamw-走一步)里的 $$\eta$$ 就是它。
 3. [评估与 checkpoint](#loop-eval)：每 `eval_interval` 步在 rank 0 上跑 `estimate_loss`；验证 loss 创新低（或 `always_save_checkpoint`）就存一份 checkpoint——**模型 + 优化器状态 + 结构超参 + 步数 + 配置**五样，缺一样都续不了训。第六章的 `resume` 读的就是这个字典。
-4. [梯度累积](#loop-accum)：想要每步 49 万 token 但显存放不下那么大的 batch，就分 `gradient_accumulation_steps` 个 micro-batch，每个[前向 + 反向](#loop-fwd)但**不更新**，梯度在 `.grad` 里累加（第二篇第三章：`.grad` 默认累加，正是为此），最后一起 `step`。[loss 除以累积步数](#loop-fwd)让累加后的梯度等于大 batch 的平均梯度。`with ctx` 是第四章的 autocast。
+4. [梯度累积](#loop-accum)：想要每步 49 万 token 但显存放不下那么大的 batch，就分 `gradient_accumulation_steps` 个 micro-batch，每个[前向 + 反向](#loop-fwd)但**不更新**，梯度在 `.grad` 里累加（`.grad` 默认累加而不是覆盖，正是为此），最后一起 `step`。[loss 除以累积步数](#loop-fwd)让累加后的梯度等于大 batch 的平均梯度。`with ctx` 是第四章的 autocast。
 5. [预取](#loop-prefetch)：前向刚提交给 GPU（异步，Infra PyTorch 第八篇），CPU 立刻去取下一个 batch——两件事重叠。第五章的 pinned memory 在这里派上用场。
 6. [DDP 的小优化](#loop-sync)：默认 DDP 每次 `backward` 都 all-reduce 梯度；累积 40 个 micro-batch 就通信 40 次，浪费。只在**最后一个** micro-step 同步——官方写法是 `model.no_sync()` 上下文，作者直接改那个内部标志。
 7. [反向](#loop-bwd)：`scaler.scale(loss)` 在 fp16 下放大 loss 再 `backward`；bf16 / fp32 下 scaler 是空操作。
 8. [梯度裁剪](#loop-clip)：先 `unscale_` 把梯度除回真实尺度，再把全部梯度的总范数裁到 1.0——工具箱第三篇说的"少一样迟早出事"的那一样，预训练系列第五篇讲它防的 loss spike。
 9. [更新](#loop-step)：`scaler.step` 在 fp16 下检查有没有 inf / NaN（有就跳过这步）再调 `optimizer.step`；`scaler.update` 调整放大倍数。然后 [`zero_grad(set_to_none=True)`](#loop-zero) 释放梯度显存。
-10. [日志](#loop-log)：`loss.item()` 是一次 CPU–GPU 同步（Infra PyTorch 第八篇第七章），所以只每 `log_interval` 步做一次；MFU 用上一篇第十章的公式，前 5 步不算（还没稳定），之后做指数平滑。
+10. [日志](#loop-log)：`loss.item()` 是一次 CPU–GPU 同步（[《PyTorch 深度实践》的《性能优化与调试》第七章「Sync-bound」](/pytorch-performance-optimization-and-debugging.html#七时间维度3两侧之间sync-bound)），所以只每 `log_interval` 步做一次；MFU 用[《手搓 GPT（上）》第十章的「MFU」](/nanogpt-model-py-line-by-line.html#2-mfu用了硬件几成算力)那个公式，前 5 步不算（还没稳定），之后做指数平滑。
 
 第 4–9 步合起来是一次"参数更新"；`iter_num` 数的是更新次数，不是 micro-batch 数。
 
@@ -553,7 +554,7 @@ Table: 只改层数：参数量、loss 与每步耗时（耗时按 mps 上单独
 
 读这张表：
 
-- **参数量**：每加一层多 0.20M（一层 = attention 4 个 $$128 \times 128$$ + FFN 两个 $$128 \times 512$$ ≈ 0.197M），embedding 那 $$65 \times 128 + 64 \times 128$$ 不随层数变——第一篇第六章的参数表在另一个模型上又对了一次。
+- **参数量**：每加一层多 0.20M（一层 = attention 4 个 $$128 \times 128$$ + FFN 两个 $$128 \times 512$$ ≈ 0.197M），embedding 那 $$65 \times 128 + 64 \times 128$$ 不随层数变——[《Transformer 长什么样》第十一章的参数表](/transformer-architecture-from-a-sentence-to-the-next-token.html#2-gpt-2-small-的-124-亿参数)在另一个模型上又对了一次。
 - **loss**：2 → 4 层降了 0.16，4 → 8 层只降了 0.07。翻倍的参数换来的收益在递减；而且 8 层的 train / val 差距（1.41 / 1.59）比 2 层（1.71 / 1.82）大——模型越大越容易把 1 MB 的数据背下来。
 - **每步耗时**：层是串行的（第 $$l$$ 层的输入是第 $$l-1$$ 层的输出），8 层的一步大约是 4 层的两倍。同样 7 分钟，2 层能跑 4000 步、8 层只能跑 1000 步——"更深"不是免费的。
 
@@ -608,7 +609,7 @@ Table: nanoGPT 有的与真实预训练多出来的
 
    <details markdown="1"><summary>答案</summary>
 
-   目标是输入右移一位（第二篇第二章）。`stack` 造出的是连续张量，`forward` 里 `targets.view(-1)` 才不会因不连续报错。见[第五章](#五get_batch穷人的-dataloader)。
+   目标是输入右移一位（[《一个 token 的旅程》第二章「Teacher forcing」](/transformer-token-journey-training-and-inference.html#2-teacher-forcing一次前向t-个训练信号)）。`stack` 造出的是连续张量，`forward` 里 `targets.view(-1)` 才不会因不连续报错。见[第五章](#五get_batch穷人的-dataloader)。
    </details>
 
 3. 梯度累积时为什么要 `loss = loss / gradient_accumulation_steps`？如果不除会怎样？

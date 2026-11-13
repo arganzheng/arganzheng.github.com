@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（05）：异步与 off-policy——把同步�
 subtitle: "Asynchrony and Off-Policy: What You Owe After Tearing Down the Synchronization Wall"
 tags: [RL, verl, AReaL, GRPO, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 <style>
@@ -165,7 +165,7 @@ Kimi k1.5 的报告（Kimi Team 2025）最早把它写清楚：每一轮 rollout
 
 ### 2. 代价一：重 prefill
 
-续接时，已生成的前缀在推理引擎里的 KV 是**旧权重**算的，不能用（权重换了、prefix cache 已清）。新请求要对"原 prompt + 已生成部分"重新 prefill：一条中断在 8K 处的序列，续接付 $$2N \times 8\text{K}$$ 的 prefill FLOP。一步里被中断的序列数 = 同步时刻的在飞序列数（8B 场景每实例 90 条 × 64 实例 ≈ 6000 条，平均已生成 4K）→ 约 $$2 \times 8 \times 10^9 \times 2.4 \times 10^7 = 0.4$$ EFLOP，是一步 FLOP 的 6%。prefill 是 compute-bound、MFU 高，时间上几秒到十几秒——**不大，但每次同步都付**，同步越频繁付得越多。这是"同步频率不能无限调细"的第二个原因（第一个是同步本身的空转，第四篇第八章）。
+续接时，已生成的前缀在推理引擎里的 KV 是**旧权重**算的，不能用（权重换了、prefix cache 已清）。新请求要对"原 prompt + 已生成部分"重新 prefill：一条中断在 8K 处的序列，续接付 $$2N \times 8\text{K}$$ 的 prefill FLOP。一步里被中断的序列数 = 同步时刻的在飞序列数（8B 场景每实例 90 条 × 64 实例 ≈ 6000 条，平均已生成 4K）→ 约 $$2 \times 8 \times 10^9 \times 2.4 \times 10^7 = 0.4$$ EFLOP，是一步 FLOP 的 6%。prefill 是 compute-bound、MFU 高，时间上几秒到十几秒——**不大，但每次同步都付**，同步越频繁付得越多。这是"同步频率不能无限调细"的第二个原因（第一个是同步本身的空转，见[《权重同步》第八章「一次同步多少秒」](/weight-sync-from-training-shards-to-inference-shards.html#八一次同步多少秒)）。
 
 ### 3. 代价二：分段的 π_old
 
@@ -230,7 +230,7 @@ Table: 训推不一致的来源与逐 token logprob 差
 
 ### 2. 为什么它在同步形态下也在
 
-第一篇第三章第 4 节的问题"旧策略要不要重算"就是这个：不重算，$$\rho = \pi_{train} / \pi_{rollout}$$ 在第一轮更新（$$\theta = \theta_{old}$$）时就不是 1，PPO 的 clip 在同步形态下也会因为不一致触发。重算把它藏起来了——$$\pi_{old}$$ 与 $$\pi_\theta$$ 同一实现，比值从 1 开始——但**采样分布仍然是推理引擎的**，训练在优化一个它没有真正采样过的分布，这是一种静默的 off-policy。同步形态下它小到可以忽略（dense、bf16）；FP8 推理、MoE、长序列三者叠加时不能。
+[《负载画像》第三章](/rl-step-anatomy-rollout-reward-train.html#4-旧策略要不要重算)的问题"旧策略要不要重算"就是这个：不重算，$$\rho = \pi_{train} / \pi_{rollout}$$ 在第一轮更新（$$\theta = \theta_{old}$$）时就不是 1，PPO 的 clip 在同步形态下也会因为不一致触发。重算把它藏起来了——$$\pi_{old}$$ 与 $$\pi_\theta$$ 同一实现，比值从 1 开始——但**采样分布仍然是推理引擎的**，训练在优化一个它没有真正采样过的分布，这是一种静默的 off-policy。同步形态下它小到可以忽略（dense、bf16）；FP8 推理、MoE、长序列三者叠加时不能。
 
 ### 3. 修正：TIS 与 MIS
 

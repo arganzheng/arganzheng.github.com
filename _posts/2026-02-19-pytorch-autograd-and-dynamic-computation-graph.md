@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（03）：自动求导与动态计算图"
 subtitle: "Autograd and Dynamic Computation Graphs in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
@@ -1242,7 +1242,7 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

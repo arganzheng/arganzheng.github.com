@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（07）：verl 源码导读——从一个 GRPO
 subtitle: "Reading verl: From One GRPO Config to Every Worker"
 tags: [RL, verl, Ray, vLLM, FSDP, Source Code, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 前六篇每讲一个机制都给了 verl 里的落点：一个目录、一个类、一个函数名。这一篇把落点串成线。线的起点是一条命令——`python -m verl.trainer.main_ppo algorithm.adv_estimator=grpo trainer.nnodes=1 trainer.n_gpus_per_node=8 ...`——终点是 8 张卡上各自的进程在做什么、一个训练步的数据怎样在它们之间流动、一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token 经过哪些函数。追完这条线，前六篇的"账"与"机制"就都有了代码的锚点；再看 slime 与 AReaL 在同一条线的哪几段做了不同的选择，就能分清哪些是这类系统的必然、哪些是 verl 的取舍。
@@ -135,7 +135,7 @@ main_ppo.main(config)
             └─ trainer.fit(agent_loop_manager)         # 训练循环
 ```
 
-`get_trainer_cls` 查的是 `@register_trainer("sync")` 注册表——`trainer_sync.py` / `trainer_colocate_async.py` / `trainer_separate_async.py` 三个文件各注册一个（第二篇第八章）。`TaskRunner` 自己也是 Ray actor，是为了让 driver 逻辑不占用启动命令所在的机器。
+`get_trainer_cls` 查的是 `@register_trainer("sync")` 注册表——`trainer_sync.py` / `trainer_colocate_async.py` / `trainer_separate_async.py` 三个文件各注册一个（[《系统形态》第八章「verl 的三种 trainer 模式」](/rl-system-topologies-colocate-disaggregate-async.html#八verl-的三种-trainer-模式)）。`TaskRunner` 自己也是 Ray actor，是为了让 driver 逻辑不占用启动命令所在的机器。
 
 ### 3. `PPOTrainer.__init__` 与 `init()`
 

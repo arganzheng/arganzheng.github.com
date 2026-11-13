@@ -5,7 +5,7 @@ title: "现代 LLM 结构（04）：Attention 变体与 KV cache"
 subtitle: "Attention Variants and the KV Cache: Deriving MHA, GQA, MQA and MLA"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 date: 2026-04-04 10:00:00
 ---
 
@@ -707,7 +707,7 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 - 并发数是**只算权重与 KV cache 的上界**。实际引擎还要留激活（prefill 一个 chunk 的中间张量）、CUDA graph、框架自身的显存，vLLM 默认 `gpu_memory_utilization=0.9` 一类的预留会再压掉 10% 左右，可以用 `reserve_frac` 模拟；
 - Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第二章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
-- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，第二篇第四章有说明；
+- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，见[《MoE 的路由、激活参数量与通信形态》第四章的「大规模 EP 的动机」](/moe-compute-and-communication.html#4-大规模-ep-的动机)；
 - FP8 KV 让每一格翻倍，且不改变模型结构，是所有优化中性价比最高的一项——前提是质量可接受。
 
 下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。

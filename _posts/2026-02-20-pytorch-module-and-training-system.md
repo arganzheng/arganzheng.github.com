@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（04）：nn.Module 与训练系统"
 subtitle: "nn.Module and Training Systems in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
@@ -1744,7 +1744,7 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

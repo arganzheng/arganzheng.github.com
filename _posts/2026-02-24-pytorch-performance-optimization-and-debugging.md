@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（08）：性能优化与调试"
 subtitle: "Performance Optimization and Debugging in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-10-28
+updated: 2026-11-13
 ---
 
 前面七篇建立了 PyTorch 的执行模型：Tensor 如何存储（第二篇），Autograd 如何记录反向（第三篇），算子如何分发到 Kernel（第五篇），编译器如何把多个算子融合成更少的 Kernel（第七篇）。每一篇都在某处留下一句"性能问题第八篇讨论"。
@@ -562,7 +562,7 @@ GPU 已经满负荷，问题变成：它在忙什么？GPU 执行一个 Kernel �
 
 ### 1. 一个 Kernel 的时间下界
 
-本章会用到 warp、SM、occupancy、shared memory 这几个 CUDA 执行模型的概念，第六篇第七章 §2 有一节最小集介绍；这里默认读者知道它们指什么。
+本章会用到 warp、SM、occupancy、shared memory 这几个 CUDA 执行模型的概念，[《C++ 扩展与自定义算子》第七章的「读懂一个 Kernel 需要的几个概念」](/pytorch-cpp-extension-and-custom-operators.html#2-读懂一个-kernel-需要的几个概念)有一节最小集介绍；这里默认读者知道它们指什么。
 
 从显存读入数据、写出结果是**访存**；对数据做算术是**计算**。两者在硬件上由不同单元执行，可以重叠。因此一个 Kernel 的时间下界是：
 
@@ -1354,7 +1354,7 @@ Table: 本篇各结论与前几篇机制的对应
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

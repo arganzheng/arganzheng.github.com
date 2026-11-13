@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（06）：C++ 扩展与自定义算子"
 subtitle: "C++ Extensions and Custom Operators in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
@@ -189,7 +189,7 @@ Python:  def scale_shift(x: torch.Tensor, alpha: float, beta: float) -> torch.Te
 C++:     at::Tensor scale_shift(const at::Tensor& x, double alpha, double beta)
 ```
 
-实现函数内部要处理的事情，就是第五篇第四章的“五种实现模式”中的某一种：直接循环、TensorIterator、调用厂商库、组合其他算子、只推断元数据。第六至八章会分别演示。
+实现函数内部要处理的事情，就是[《Dispatcher 与算子系统》第四章「编写实现」](/pytorch-dispatcher-and-operator-system.html#四开发态3编写实现)的“五种实现模式”中的某一种：直接循环、TensorIterator、调用厂商库、组合其他算子、只推断元数据。第六至八章会分别演示。
 
 ### 4. 三步的关系
 
@@ -885,7 +885,7 @@ NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 
 
 本系列聚焦在 PyTorch 尽量不涉及 CUDA 相关细节。但下面的 Kernel 代码，以及第八篇分析 GPU 瓶颈时用到的 occupancy、访存合并等词，都建立在几个 CUDA 执行模型的基本概念上。这里用最少的篇幅把它们讲清楚，够读懂本文和第八篇即可；写高性能 Kernel 需要的更多知识不在本系列范围内。
 
-**Host 与 Device**。CPU 及其内存是 host，GPU 及其显存是 device。两边地址空间独立：`x.data_ptr()` 对 CUDA Tensor 返回的是设备地址，在 CPU 代码里解引用会崩溃；反过来，Kernel 里也不能访问主机内存。数据在两边之间移动只能靠显式拷贝（`.to()`、`.cpu()`，第二篇第八章）。所以 Launch 函数的职责之一是：**只把设备指针和标量参数传给 Kernel**。
+**Host 与 Device**。CPU 及其内存是 host，GPU 及其显存是 device。两边地址空间独立：`x.data_ptr()` 对 CUDA Tensor 返回的是设备地址，在 CPU 代码里解引用会崩溃；反过来，Kernel 里也不能访问主机内存。数据在两边之间移动只能靠显式拷贝（`.to()`、`.cpu()`，见[《Tensor 与内存布局》第九章「Device：数据到底在哪里执行」](/pytorch-tensor-and-memory-layout.html#九device数据到底在哪里执行)）。所以 Launch 函数的职责之一是：**只把设备指针和标量参数传给 Kernel**。
 
 **Kernel、Thread、Block、Grid**。`__global__` 标记的函数是 Kernel，它描述**一个线程**做什么；launch 时用 `<<<blocks, threads>>>` 指定启动多少线程：`threads` 个线程组成一个 block，`blocks` 个 block 组成一个 grid。所有线程执行同一段代码，靠内建变量区分自己：
 
@@ -1417,7 +1417,7 @@ flowchart TB
 
 ### 6. 本篇涉及的源码位置
 
-本篇的注册、Autograd 与 Fake 分发按 [PyTorch v2.10.0](https://github.com/pytorch/pytorch/tree/v2.10.0) 核对。源码位置如下（对应第一篇第七章的代码地图）：
+本篇的注册、Autograd 与 Fake 分发按 [PyTorch v2.10.0](https://github.com/pytorch/pytorch/tree/v2.10.0) 核对。源码位置如下（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

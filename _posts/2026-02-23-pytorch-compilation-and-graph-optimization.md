@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（07）：编译执行与图优化"
 subtitle: "Compilation and Graph Optimization in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 前两篇讨论的是**单个算子**：第五篇解释一次 `torch.add` 调用如何经过入口、分发、执行；第六篇把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
@@ -1219,7 +1219,7 @@ Table: 训练/研究与部署/推理两条路径的入口与特点
 
 ### 6. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

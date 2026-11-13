@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（04）：权重同步——从训练分片到�
 subtitle: "Weight Synchronization: From Training Shards to Inference Shards"
 tags: [RL, verl, vLLM, Megatron, NCCL, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 每一步训练结束，优化器改完了参数，推理引擎里的那份权重就旧了。把新权重送过去听起来是一次拷贝——8B 模型 16 GB，NVLink 一秒、InfiniBand 几秒。但两边的权重**不是同一个形状的东西**：训练器里它是 FSDP 按第 0 维切成 64 份的 DTensor，或者 Megatron 的 TP = 4 × PP = 2 × EP = 8 分片，QKV 三个矩阵融合成一个、专家堆叠成一个大张量、名字是 `decoder.layers.3.self_attention.linear_qkv.weight`；推理引擎里它是 vLLM 按 TP = 8 切的列、专家按 EP = 4 分组、可能是 FP8 加一组 128 × 128 的块缩放、名字是 `model.layers.3.self_attn.qkv_proj.weight`。所以"同步"是两件事：**布局**（怎样从一种切法映射到另一种）和**传输**（字节从哪张卡到哪张卡、走哪条链路）。前者决定要不要在中间过一遍"完整张量"、由谁过；后者决定秒数。
@@ -355,7 +355,7 @@ $$T_{mb}$$ 是一个 mini-batch 的训练时间。$$k$$ 大同步少、staleness
 新权重写入时推理引擎不能在生成：一个 decode 步用到一半新一半旧的权重，输出是错的且不可复现。三种处理：
 
 - **排空**（drain）：停止接新请求，等在飞请求完成——长尾让这段等待可能很长，同步形态下这就是"训练器等 rollout"的那道墙；
-- **中断**（abort）：立刻中断在飞请求，保存已生成的 token 与状态，同步完成后用新权重续接——部分 rollout，verl 的 `abort_replicas → update_weights → resume_generation_replicas` 三步；续接时已生成的前缀要在新权重下**重新 prefill**（第三篇第六章）；
+- **中断**（abort）：立刻中断在飞请求，保存已生成的 token 与状态，同步完成后用新权重续接——部分 rollout，verl 的 `abort_replicas → update_weights → resume_generation_replicas` 三步；续接时已生成的前缀要在新权重下**重新 prefill**（[《共置》第六章的「prefix cache」](/colocated-trainer-and-rollout-engine-memory-handoff.html#3-prefix-cache)）；
 - **双缓冲**：推理引擎持有两份权重，写新的时用旧的生成，写完切换——显存翻倍，只在小模型上可行；vLLM / SGLang 都没有内置。
 
 verl 的 `CheckpointEngineManager.update_weights()` 的完整顺序：abort 全部实例 → （可选）释放 KV 池 → 建进程组 → 训练侧 `send` 与推理侧 `receive` 并行 → finalize → 恢复 KV 池 → resume 被中断的请求。中间还有 `reset_prefix_cache(reset_connector=True)`——连外挂的 KV 存储（Mooncake store 一类 connector）也要清，因为里面的 KV 是旧权重算的。

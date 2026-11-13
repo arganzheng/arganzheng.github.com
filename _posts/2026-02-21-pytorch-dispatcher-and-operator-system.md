@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（05）：Dispatcher 与算子系统"
 subtitle: "The Dispatcher and Operator System in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 上一篇讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
@@ -779,7 +779,7 @@ Table: 几个容易混淆的名字
 
 ### 4. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

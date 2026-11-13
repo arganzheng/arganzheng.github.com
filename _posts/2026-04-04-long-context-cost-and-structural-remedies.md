@@ -6,6 +6,7 @@ subtitle: "The Cost of Long Context: KV Cache, Quadratic Prefill and Structural 
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-04 14:00:00
+updated: 2026-11-13
 ---
 
 > **本篇在系列中的位置。** 现代 LLM 结构系列的第五篇。第 03 篇讲了位置能不能外推，第 04 篇讲了 KV cache 的账，本篇先算长上下文下 KV cache、prefill 与中间量各涨成什么函数，再比较线性 attention、SSM 与混合架构如何改变历史信息的保存方式。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
@@ -79,7 +80,7 @@ $$
 
 H100 BF16 989 TFLOPS，按 60% MFU 算 593 TFLOPS，$$6.5 \times 10^{15} / 593 \times 10^{12} \approx 11$$ s。同一个模型 8K 的 prefill 约 0.14 PFLOP、0.24 s；128K 是 8K 的 16 倍长度、46 倍算量、46 倍时间。二次项已经占了 70%。
 
-对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；第二篇第六章说明了两者的区别）。
+对 70B，128K prefill 约 41 PFLOP（权重 18.5 + attention 22.5），单卡 60% MFU 要 69 s；即便 8 卡 TP 完美线性，也接近 9 s。这就是 TTFT（time to first token）在长上下文下的量级：不是调度问题，是算量问题（60% 是经验效率，按峰值算的物理下界是 6.6 s / 41 s；[《前向的算量与访存量》第六章「时间下界」](/transformer-flops-bytes-and-roofline.html#六时间下界)说明了两者的区别）。
 
 ### 3. KV cache 的线性项
 
@@ -129,7 +130,7 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 这解释了为什么朴素的滑窗（丢掉最早的 token）会让 full attention 训练的模型崩溃：sink 被丢了，softmax 的概率没地方去。StreamingLLM 的做法是永远保留开头 4 个 token 的 K、V，再加一个滑动窗口。KV cache 是 $$b \cdot L \cdot (4 + \min(s, W))$$，与滑窗同阶。它使一个 full attention 训练的模型可以在不微调的情况下处理无限长的流式输入——但代价与滑窗一样，窗口之外的信息丢失了，它是"流式稳定"而非"长上下文理解"。
 
-对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到第三篇第四章的外推问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
+对位置编码有一个细节：保留 sink 并滑动窗口后，位置用的是**cache 内的相对位置**（sink 是 0–3，窗口内从 4 开始连续编号），而不是原始文本中的位置；否则 RoPE 的相对距离会超过训练长度，回到[《位置编码与外推》第四章的「为什么外推失败」](/positional-encoding-and-long-context.html#3-为什么外推失败)那个问题。以 $$W = 6$$、当前正在生成第 10003 个 token 为例，cache 里的内容与它们用的 RoPE 位置是：
 
 ![StreamingLLM：cache 槽与 RoPE 位置](/img/in-post/long-context-cost-streamingllm-rope-positions.svg)
 

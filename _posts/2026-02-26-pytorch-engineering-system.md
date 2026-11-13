@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（10）：PyTorch 的工程体系——一次改动
 subtitle: "The Engineering System of PyTorch: How a Change Travels Safely from Commit to Production"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
@@ -91,7 +91,7 @@ Table: 本文的章节安排
 
 ### 1. 仓库地图
 
-第一篇第七章按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
+[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
 
 - **pytorch/**
   - c10/                     核心基础库：TensorImpl、Storage（第二篇）、Device、ScalarType、DispatchKey（第五篇）、Allocator（第八篇）、intrusive_ptr
@@ -115,7 +115,7 @@ Table: 本文的章节安排
     - _dynamo/  _inductor/  _functorch/             编译栈（第七篇）
     - _refs/  _prims/  _decomp/                     参考实现与分解（第三章 §1）
     - _C/                  编译出的扩展模块的类型桩
-  - torchgen/                Codegen（第五篇第五章）
+  - torchgen/                Codegen（[《Dispatcher 与算子系统》第五章「Codegen」](/pytorch-dispatcher-and-operator-system.html#五开发态横向机制codegen)）
   - tools/                   构建脚本、autograd/derivatives.yaml、linter、测试基础设施
   - test/                    测试（第三章 §7）
   - benchmarks/              基准（第四章）
@@ -879,7 +879,7 @@ flowchart TB
 - **myops/**
   - pyproject.toml / setup.py       第一关：cpp_extension.CUDAExtension；把构建时的 torch 版本写进包元数据
   - myops/
-    - __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（第六篇第十章 §4）
+    - __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（[《C++ 扩展与自定义算子》第十章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）
     - _autograd.py                backward、setup_context、fake
     - ops.py                      面向用户的 Python 函数；弃用垫片放这里（第六关）
   - csrc/
@@ -976,7 +976,7 @@ def test_compile_matches_eager(self, device, dtype):
 
 `fullgraph=True` 是关键：第六篇注册的 Fake 实现如果缺失或 shape 推错，Dynamo 会 graph break 或报错，测试立刻失败，而不是静默退化成 eager。
 
-分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（第九篇第三章 §1 的数学等价）：
+分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（[《分布式 PyTorch》第三章的「只分片数据」](/pytorch-distributed-training.html#1-只分片数据)里的数学等价）：
 
 ```python title="test/test_distributed.py：DDP 与单进程梯度等价"
 # test/test_distributed.py
@@ -1076,7 +1076,7 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 
 ### 6. 第七关：作为使用者
 
-`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（第六篇第十章 §4）把 ABI 不匹配变成明确的 `ImportError`。
+`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（[《C++ 扩展与自定义算子》第十章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）把 ABI 不匹配变成明确的 `ImportError`。
 
 ### 7. 对照大纲的检查清单
 

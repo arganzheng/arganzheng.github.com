@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（09）：分布式 PyTorch"
 subtitle: "Distributed Training in PyTorch: Collectives, DDP, FSDP, TP, PP, CP and EP"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 前八篇都在一张卡上。第八篇末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，第八篇案例里那个 38M 参数的小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
@@ -28,7 +28,7 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 
 单卡训练有两个独立的上限：
 
-- **吞吐极限**：GPU 已饱和（第八篇第六章 §9），每秒处理的样本数到顶，训练时间只能靠加卡缩短
+- **吞吐极限**：GPU 已饱和（[《性能优化与调试》第六章的「何时停止」](/pytorch-performance-optimization-and-debugging.html#9-何时停止)），每秒处理的样本数到顶，训练时间只能靠加卡缩短
 - **容量极限**：模型状态 + 激活值超过显存，一张卡根本放不下
 
 两个极限需要不同的解法。吞吐极限只需要**更多的卡各算一部分数据**，模型本身不用动；容量极限则必须**把模型状态或计算切开放到多张卡上**。前者是数据并行，后者是各种形式的模型并行。真实的大模型训练两个极限同时碰到，所以两类策略要组合使用。
@@ -62,7 +62,7 @@ Table: 复制与分片各自的显存与通信含义
 
 后文的显存和通信量计算反复用到以下符号，集中声明一次：
 
-- **P**：模型参数量（个）。bf16 参数占 2P 字节，fp32 占 4P 字节；Adam + 混合精度的静态状态共 16P 字节（第八篇第八章 §2）
+- **P**：模型参数量（个）。bf16 参数占 2P 字节，fp32 占 4P 字节；Adam + 混合精度的静态状态共 16P 字节（[《性能优化与调试》第八章的「混合精度对显存的两面」](/pytorch-performance-optimization-and-debugging.html#2-混合精度对显存的两面)）
 - **N**：某个并行维度上的进程数（并行度）；只有一个维度时等于 world size
 - **B**：每个进程一次处理的序列数（per-rank batch）
 - **S**：序列长度（token 数）
@@ -393,7 +393,7 @@ flowchart TB
 
 DDP 复制了参数、梯度和优化器状态，每个 rank 的静态显存与单卡相同：
 
-- 每 rank 静态显存 = 16P 字节（Adam + 混合精度，第八篇第八章 §2）；
+- 每 rank 静态显存 = 16P 字节（Adam + 混合精度，[《性能优化与调试》第八章的「混合精度对显存的两面」](/pytorch-performance-optimization-and-debugging.html#2-混合精度对显存的两面)）；
 - 7B 模型 → 每卡 112 GB → 无论多少张卡，DDP 都放不下。
 
 DDP 解决的**只是吞吐极限**。它降低的是每卡的 batch，从而降低激活值显存，但静态部分一字节不少。
@@ -643,7 +643,7 @@ from torch.distributed.fsdp import CPUOffloadPolicy
 fully_shard(block, mesh=mesh, offload_policy=CPUOffloadPolicy())
 ```
 
-这是第八篇第八章 §9 提到的 ZeRO-Offload：GPU 显存降到只剩激活值和当前层参数，代价是每层参数经过 PCIe 往返，PCIe 带宽（64 GB/s）比 NVLink 低一个数量级，通常只在显存实在不够、又不能加卡时使用。
+这是[《性能优化与调试》第八章的「内存：CPU 侧的空间什么时候重要」](/pytorch-performance-optimization-and-debugging.html#9-内存cpu-侧的空间什么时候重要)提到的 ZeRO-Offload：GPU 显存降到只剩激活值和当前层参数，代价是每层参数经过 PCIe 往返，PCIe 带宽（64 GB/s）比 NVLink 低一个数量级，通常只在显存实在不够、又不能加卡时使用。
 
 ### 9. 混合精度策略
 
@@ -651,7 +651,7 @@ fully_shard(block, mesh=mesh, offload_policy=CPUOffloadPolicy())
 
 - **`param_dtype`**：all_gather 时把 fp32 分片 cast 成 bf16 再通信 → 通信量减半，计算用 bf16；
 - **`reduce_dtype`**：reduce_scatter 用的 dtype；fp32 更稳定，代价是梯度通信量翻倍；
-- **本地分片**：始终是 fp32 主参数，优化器在 fp32 上更新（第八篇第六章 §6 的理由）。
+- **本地分片**：始终是 fp32 主参数，优化器在 fp32 上更新（理由见[《性能优化与调试》第六章的「处方二的代价：数值稳定性」](/pytorch-performance-optimization-and-debugging.html#6-处方二的代价数值稳定性)）。
 
 它比 autocast 更彻底（不需要每个算子判断是否 cast），且与 FSDP 的通信天然结合。两者可以叠加。
 
@@ -1352,7 +1352,7 @@ torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺�
 
 - **通信时间**：带宽项 2βn 不随 N 减少；延迟项 2(N-1)α 随 N 增加；只有重叠部分是免费的
 - **同步等待**：BSP 模型下每步所有 rank 必须到齐，最慢的决定速度；rank 越多，出现慢 rank 的概率越大
-- **计算效率**：总 batch 不变时 per-rank batch = batch/N，Kernel 变小、GPU 利用率下降（第八篇第五章）；TP 度越大 GEMM 越小
+- **计算效率**：总 batch 不变时 per-rank batch = batch/N，Kernel 变小、GPU 利用率下降（[《性能优化与调试》第五章「CPU 侧——Python-bound 与 Launch-bound」](/pytorch-performance-optimization-and-debugging.html#五时间维度1cpu-侧python-bound-与-launch-bound)）；TP 度越大 GEMM 越小
 - **算法效率**：总 batch 随 N 增大时，超过临界 batch 后每步的收益递减，需要更多 step 才能收敛——这是优化理论问题，不是系统问题
 
 前三组是本文的范围，第四组是为什么"卡多了 loss 反而降得慢"的解释——分布式系统做到了线性吞吐，但每个样本的价值下降了。工程上用学习率缩放、warmup 和更长的训练来补偿。
@@ -1394,7 +1394,7 @@ fully_shard(model, mesh=mesh, mp_policy=mp)
 model.to_empty(device="cuda"); model.init_weights()
 ```
 
-先算显存。静态 16P/8 = 14 GB，prefetch 时两层完整 bf16 参数 0.8 GB。激活值：不做 checkpointing 时 Transformer 每层每 token 约 34 × H 字节（bf16，SDPA 不物化 score 矩阵），H=4096 时 136 KB；每卡 B=8、S=4096 共 32k token，32 层 → **143 GB**，远超显存。第八篇第八章 §7 说 checkpointing 在那个案例里"不值得"，这里结论反过来：每个 block 做 checkpointing，只保存 block 输入（每层每 token 2H = 8 KB），激活值降到约 8.6 GB，加上重算时一层的完整激活 4.5 GB，共约 13 GB。代价是前向多算一遍，约增加 33% 计算。
+先算显存。静态 16P/8 = 14 GB，prefetch 时两层完整 bf16 参数 0.8 GB。激活值：不做 checkpointing 时 Transformer 每层每 token 约 34 × H 字节（bf16，SDPA 不物化 score 矩阵），H=4096 时 136 KB；每卡 B=8、S=4096 共 32k token，32 层 → **143 GB**，远超显存。[《性能优化与调试》第八章的「用时间换空间：Activation Checkpointing」](/pytorch-performance-optimization-and-debugging.html#7-用时间换空间activation-checkpointing)说 checkpointing 在那个案例里"不值得"，这里结论反过来：每个 block 做 checkpointing，只保存 block 输入（每层每 token 2H = 8 KB），激活值降到约 8.6 GB，加上重算时一层的完整激活 4.5 GB，共约 13 GB。代价是前向多算一遍，约增加 33% 计算。
 
 ```text title="8 卡 FSDP 的结果：每卡峰值显存 31 GB"
 8 卡 FSDP   每卡 B=8    总 token 8 × 8 × 4096 = 262k / step
@@ -1548,7 +1548,7 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
 ### 5. 本篇涉及的源码位置
 
-本篇讨论的机制在源码中的位置（对应第一篇第七章的代码地图）：
+本篇讨论的机制在源码中的位置（对应[《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)的代码地图）：
 
 | 路径 | 内容 |
 |---|---|

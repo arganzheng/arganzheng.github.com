@@ -5,6 +5,7 @@ title: "Transformer 原理与实现（02）：一个 token 的旅程——训练
 subtitle: "The Dynamic View: What Happens to a Token During Training and During Inference"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
+updated: 2026-11-13
 ---
 
 > **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
@@ -102,10 +103,10 @@ $$T$$ 个 loss 的平均是 2.7583，两句话一起平均就是上面的 2.7805
 
 为什么一次前向能同时得到 5 个训练信号，而不是像推理那样一个一个来？两个条件：
 
-1. **causal mask**（上一篇第三章第 5 节）保证位置 $$i$$ 的输出只用了 token $$0..i$$ 的信息——所以位置 2 的预测"看到 [5, 3, 8] 预测下一个"，和推理时只有这三个 token 的情形**完全一样**，没有偷看答案。
+1. **causal mask**（[《Transformer 长什么样》第七章的「为什么 mask：只能看左边」](/transformer-architecture-from-a-sentence-to-the-next-token.html#5-为什么-mask只能看左边)）保证位置 $$i$$ 的输出只用了 token $$0..i$$ 的信息——所以位置 2 的预测"看到 [5, 3, 8] 预测下一个"，和推理时只有这三个 token 的情形**完全一样**，没有偷看答案。
 2. **目标用真实的下一个 token，而不是模型自己刚预测的那个**。如果位置 3 的输入要等位置 2 预测出来才知道，就串行了；直接把真实文本喂进去，5 个位置互不依赖，可以并行算。这个做法叫 **teacher forcing**（老师强制喂正确答案）。
 
-于是一句 $$T$$ 个 token 的话提供 $$T$$ 个训练样本，成本只是一次前向——这是 decoder-only 训练效率高的根本原因（上一篇第七章）。代价是训练时模型从没见过"自己刚犯的错"，推理时错一个字后面就可能越错越远（exposure bias），后训练系列的 RL 部分处理这个问题。
+于是一句 $$T$$ 个 token 的话提供 $$T$$ 个训练样本，成本只是一次前向——这是 decoder-only 训练效率高的根本原因（[《Transformer 长什么样》第七章的「为什么 mask」](/transformer-architecture-from-a-sentence-to-the-next-token.html#5-为什么-mask只能看左边)先给过一句话版本）。代价是训练时模型从没见过"自己刚犯的错"，推理时错一个字后面就可能越错越远（exposure bias），后训练系列的 RL 部分处理这个问题。
 
 ## 三、loss 与反向
 
