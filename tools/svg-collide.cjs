@@ -45,6 +45,10 @@ const CHECK = `(() => {
   const boxRects=rects2.filter(o=>{const f=(o.el.getAttribute('fill')||getComputedStyle(o.el).fill||'');
     if(/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f)) return false;
     return !((o.b.x1-o.b.x0)>=vb.width*0.95&&(o.b.y1-o.b.y0)>=vb.height*0.9);}).map(o=>o.b);
+  // closed, filled <path> shapes (rounded cards drawn as paths by generators) are boxes too
+  [...svg.querySelectorAll('path')].filter(p=>!p.closest('defs,marker,g.mathtext')&&/[Zz]\\s*$/.test(p.getAttribute('d')||'')
+    &&!/^(none|transparent)$/.test(getComputedStyle(p).fill)&&!/rgba\\(0, 0, 0, 0\\)/.test(getComputedStyle(p).fill))
+    .forEach(p=>{const b=bb(p);if(b&&(b.x1-b.x0)>12&&(b.y1-b.y0)>12&&!((b.x1-b.x0)>=vb.width*0.95&&(b.y1-b.y0)>=vb.height*0.9))boxRects.push(b);});
   const errs=[];
   for(const t of texts){
     if(t.b.x0<vb.x-1||t.b.y0<vb.y-1||t.b.x1>vb.x+vb.width+1||t.b.y1>vb.y+vb.height+1) errs.push('viewBox 越界: '+t.t);
@@ -115,7 +119,9 @@ const CHECK = `(() => {
       const id=(mref.match(/#([^')"]+)/)||[])[1]; if(!id) continue;
       const mk=svg.querySelector('marker#'+CSS.escape(id)); if(!mk) continue;
       const w=+(mk.getAttribute('markerWidth')||3), mh=+(mk.getAttribute('markerHeight')||3);
-      head=Math.max(head,Math.max(w,mh)*2);
+      // drawn head length: markerWidth in user units, × stroke-width unless markerUnits=userSpaceOnUse
+      const user=(mk.getAttribute('markerUnits')||'strokeWidth')==='userSpaceOnUse';
+      head=Math.max(head,Math.max(w,mh)*(user?1:(parseFloat(cs.strokeWidth)||1)));
     }
     if(L-head<16) {const a=p.getPointAtLength(0),z=p.getPointAtLength(L);errs.push('箭头杆过短('+Math.round(L-head)+'px): ('+Math.round(a.x)+','+Math.round(a.y)+')→('+Math.round(z.x)+','+Math.round(z.y)+')');}
     // (e) dangling arrow (2026-11-12, 「箭头没有连接上方框」): the arrowhead end
@@ -138,6 +144,13 @@ const CHECK = `(() => {
       const onLine=plainLines.some(([x1,y1,x2,y2])=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy||1;
         const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/l2));return Math.hypot(px-x1-t*dx,py-y1-t*dy)<=4;});
       if(onLine) continue;
+      // the head's tip overhangs the path end by (tip − refX) marker units
+      let ext=0;try{const id=(mref.match(/#([^')"]+)/)||[])[1];const mk=svg.querySelector('marker#'+CSS.escape(id));
+        const mw=+(mk.getAttribute('markerWidth')||3),rx=+(mk.getAttribute('refX')||0);const vbm=(mk.getAttribute('viewBox')||'').split(/[ ,]+/).map(Number);
+        const sw=parseFloat(cs.strokeWidth)||1;const shape=mk.querySelector('path,polygon');let tip=vbm.length===4?vbm[0]+vbm[2]:mw;
+        if(shape){const b2=shape.getBBox();tip=at?b2.x+b2.width:b2.x;}
+        ext=Math.abs(tip-rx)*(vbm.length===4?mw/vbm[2]:1)*((mk.getAttribute('markerUnits')||'strokeWidth')==='userSpaceOnUse'?1:sw);}catch{}
+      d-=ext;
       if(d>4&&d<60&&!nearText) errs.push('箭头悬空（端点离最近方框 '+Math.round(d)+'px）: 端点 ('+Math.round(q.x)+','+Math.round(q.y)+')');
     }
   });
