@@ -27,6 +27,7 @@
       .s-idle { fill: #f3f5f7; } .s-stage { fill: #fde0b8; } .s-host { fill: #fff0a8; }
     </style>
   </defs>
+<g transform="translate(-14,0)">
 <rect x="24.2" y="30.0" width="81.6" height="36.0" class="box" />
 <text x="65.0" y="53.0" text-anchor="middle" class="bold">GPU 显存</text>
 <line x1="105.8" y1="48" x2="191.8" y2="48" class="arrow" />
@@ -45,7 +46,8 @@
 <text x="558.8" y="40.0" text-anchor="middle" class="small">封装</text>
 <rect x="581.8" y="30.0" width="76.0" height="36.0" class="box" />
 <text x="619.8" y="53.0" text-anchor="middle" class="bold">物理网卡</text>
-<line x1="657.8" y1="48" x2="687.8" y2="48" class="arrow" />
+</g>
+<line x1="643.8" y1="48" x2="687.8" y2="48" class="arrow" />
 <rect x="687.8" y="30.0" width="48.0" height="36.0" class="box" />
 <text x="711.8" y="53.0" text-anchor="middle" class="bold">对端</text>
 <text x="735.8" y="86.0" text-anchor="end" class="muted">（反向再来一遍）</text>
