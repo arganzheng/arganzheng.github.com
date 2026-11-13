@@ -5,7 +5,8 @@
 //  (b) intersects another <text> bbox,
 //  (c) is crossed by a <line>/<path> segment (sampled points),
 //  (d) leaves the viewBox,
-//  (e) ends an arrow 4–60px short of every box edge (dangling arrowhead).
+//  (e) ends an arrow 4–60px short of every box edge (dangling arrowhead);
+//      axis / direction arrows that end in open space carry data-axis.
 // Env: CDP (default http://localhost:9222).
 const http = require('http');
 const fs = require('fs');
@@ -120,7 +121,9 @@ const CHECK = `(() => {
     // (e) dangling arrow (2026-11-12, 「箭头没有连接上方框」): the arrowhead end
     // must touch a box edge — within 4px of a visible rect's border — or a
     // label it points at. 4–60px from the nearest box means a gap was left.
-    const m=mm(p); if(!m) return;
+    // axis / direction arrows (a time axis, 「→ 分片组」 over a row) end in open
+    // space on purpose; they opt out with data-axis
+    const m=mm(p); if(!m||p.hasAttribute('data-axis')) return;
     for(const [mref,at] of [[mend,L],[mstart,0]]){
       if(!mref) continue;
       const q=p.getPointAtLength(at); const [px,py]=xf(m,q.x,q.y);

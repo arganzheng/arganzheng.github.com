@@ -71,7 +71,7 @@ Table: 六种并行各切哪种状态
 
 把表格画成图：每个格子是这一行对这一种状态的处理——实心圆是切分、空心圆是复制、橙色是"部分切分或临时拼全"；列底是这种并行的主要通信与链路。
 
-![四种状态 × 六种并行的格子图：实心圆表示切分，空心圆表示复制，橙色表示部分切分或运行时临时拼全；主通信一行按列标出各并行的通信原语与链路，图例在底部](/img/in-post/parallelism-states-grid.svg)
+![四种训练状态在六种并行下的切分与主通信](/img/in-post/parallelism-states-grid.svg)
 
 这张图还揭示了另一件事：**数据并行系（DP/ZeRO/FSDP）与模型并行系（TP/SP/PP/CP/EP）是正交的**，表里第一列就是这个分组：
 
@@ -116,7 +116,7 @@ Table: 各并行策略的通信量、形态与是否在关键路径上
 
 第七章会给出 TP → CP → PP → DP 的组合顺序；用最小的集群先感受一下这个顺序落到 rank 上的样子——2 个节点、各 4 卡，TP = DP = PP = 2：
 
-![8 张卡按 rank 连续排成两个节点，每节点 4 卡；TP 组和 DP 组都在节点内走 NVLink，PP 组跨节点走 IB；8 卡一节点且 TP=8 时，DP 组才会跨节点](/img/in-post/parallelism-mesh-8cards.svg)
+![两节点 8 卡上 TP、DP、PP 组的排布与链路](/img/in-post/parallelism-mesh-8cards.svg)
 
 rank 编号不是随手排的，而是 Megatron `parallel_state.py` 的默认顺序 `"tp-cp-ep-dp-pp"` 生成的（第七章细讲）：TP 维变化最快拿到相邻 rank，PP 最慢拿到最远的卡。`02_parallelism_toys.py mesh` 按同一套规则真算出各组：
 
@@ -230,11 +230,11 @@ Table: ZeRO-3 通信量从 2N 到 3N 的逐项
 
 把四级放到 4 张卡上画出来，哪一级切了哪种状态一眼可见：
 
-![四级 ZeRO 在 4 张卡上的每卡状态条：每张卡的 \\(P\\)、\\(G\\)、\\(O\\) 按字节比例排列，实色是本卡持有的片，虚线是其他卡持有的片；左侧列出每卡显存公式与通信量](/img/in-post/parallelism-zero-stages.svg)
+![四级 ZeRO 下每张卡持有的参数、梯度与优化器状态](/img/in-post/parallelism-zero-stages.svg)
 
 上图是静态的放置，只说明每张卡**常驻**什么。一个 step 里各卡还会临时拼出完整的状态。以 ZeRO-3 的一层为例（4 张卡），把四种状态都画上，每一步标出发生的通信：
 
-![ZeRO-3 一层在 4 张卡上的一个 step：每行一个阶段，每列一张 GPU，每张卡的 P 参数、G 梯度、O 优化器状态、A 激活各用四格表示；浅色是临时拼全或未归约梯度，红框是本步更新；下方对比 ZeRO-1/2 的 2N 与 ZeRO-3 的 3N 通信](/img/in-post/parallelism-zero3-layer-step.svg)
+![ZeRO-3 一层在 4 张卡上走完一个 step 的状态与通信](/img/in-post/parallelism-zero3-layer-step.svg)
 
 从图里能直接读出 $$2N \to 3N$$ 的来历：
 
@@ -273,7 +273,7 @@ Table: 70B、N_d = 64 下各 ZeRO 级别的每卡显存与通信
 
 FSDP 是 ZeRO-3 在 PyTorch 里的原生实现，有两代。两代的差别在"按什么切"，先看一个例子：一个 wrap 单元里只有两个参数，W 形状 [4, 4]、b 形状 [4]，切到 2 张卡上。
 
-![FSDP1 将 W 与 b 展平后在第 10 个元素处切开，GPU0 得到 W 前 10 个、GPU1 得到 W 后 6 个加整个 b；FSDP2 分别按 dim 0 切 W 的两行和 b 的两个元素，保留 per-parameter DTensor 形状](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
+![FSDP1 的 FlatParameter 切分与 FSDP2 的逐参数 Shard(0) 切分](/img/in-post/parallelism-fsdp1-vs-fsdp2.svg)
 
 **FSDP1：拍平再切**（`torch/distributed/fsdp/fully_sharded_data_parallel.py` 的 `FullyShardedDataParallel`）
 
@@ -317,7 +317,7 @@ Table: FSDP2 一个通信组在一个 step 里的通信
 
 ZeRO-3 的 $$3N$$ 通信全在 DP 组上；当 $$N_d$$ 跨越几十个节点时，这 $$3N$$ 走的是 InfiniBand，而且 all-gather 是在关键路径附近的（预取深度有限）。**HSDP**（Hybrid Sharded Data Parallel）把 DP 维拆成两层：在一个 $$N_s$$ 卡的分片组内做 ZeRO-3（通常 $$N_s = 8$$ 或几个节点），分片组之间做普通 DP 复制（$$N_r = N_d / N_s$$ 个副本）。把 $$N_d = 16$$ 张卡排成 $$N_r \times N_s = 2 \times 8$$ 的网格，两种通信各走网格的一个方向：
 
-![HSDP 的 2×8 网格：横向每节点 8 卡构成 Shard(0) 分片组，AG + AG + RS 约 3N 走 NVLink；纵向每列的两张卡持同一段，红箭头表示复制组间 all-reduce 约 2N/Ns，走 IB](/img/in-post/parallelism-hsdp-grid.svg)
+![HSDP 的 2 × 8 网格：节点内分片、节点间复制](/img/in-post/parallelism-hsdp-grid.svg)
 
 | 项 | HSDP（$$N_s$$ 卡一组） | 走哪条链路 | 备注 |
 |---|---|---|---|
@@ -335,7 +335,7 @@ Table: HSDP 的显存、通信与链路
 
 张量并行把一个线性层的权重矩阵切开。对 $$Y = XA$$（Megatron 的记法，$$X$$ 是 $$[\text{tokens}, h]$$ 的激活，$$A$$ 是 $$[h, h']$$ 的权重），有两种切法：
 
-![上：列切——A 被竖着切成四条，每卡持一条，输入 X 完整、输出 Yᵢ = X Aᵢ 是 Y 的第 i 列块，不需通信；下：行切——A 被横着切成四条，输入 X 必须按列切成 Xᵢ，每卡算出一个部分和 XᵢAᵢ，四个部分和要 all-reduce 相加](/img/in-post/parallelism-tp-column-row-split.svg)
+![张量并行的列切与行切](/img/in-post/parallelism-tp-column-row-split.svg)
 
 | 切法 | 每卡持有 | 输入 | 输出 | 通信 |
 |---|---|---|---|---|
@@ -369,10 +369,17 @@ Megatron-LM（Shoeybi et al. 2019）的洞见是把两者**配对**：MLP 的第
 %%{init: {"flowchart": {"wrappingWidth": 160}}}%%
 %% 图：列切与行切的配对：Q/K/V 与 W1 列切，O 与 W2 行切，一个 Transformer 层只在两处 all-reduce
 flowchart LR
-    X1[X] --> QKV["<b>列切 Q/K/V</b><br/>每卡 a/t 个头"] --> ATT["<b>每卡自己头的注意力</b><br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
-    X1 -.残差.-> R1
-    R1 --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
-    R1 -.残差.-> R2
+    subgraph A["注意力块"]
+        direction TB
+        X1["X"] --> QKV["<b>列切 Q/K/V</b><br/>每卡 a/t 个头"] --> ATT["<b>每卡自己头的注意力</b><br/>（头之间独立，无通信）"] --> O["行切 O"] --> AR1(("all-reduce")) --> R1["+ 残差 → LayerNorm"]
+        X1 -.残差.-> R1
+    end
+    subgraph M["MLP 块"]
+        direction TB
+        X2["注意力块的输出"] --> W1["列切 W1"] --> GELU --> W2["行切 W2"] --> AR2(("all-reduce")) --> R2["+ 残差 → LayerNorm"]
+        X2 -.残差.-> R2
+    end
+    A --> M
     classDef col fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef row fill:#fff7e0,stroke:#c98a00,color:#222
     classDef ar fill:#fee2e2,stroke:#b91c1c,color:#222
@@ -402,7 +409,7 @@ Table: Transformer 层六个线性层的切法
 
 前向每层两次 all-reduce（注意力后一次、MLP 后一次），每次的载荷是一个完整的激活张量 $$s \cdot b \cdot h$$ 个元素。反向也是两次：行切层前向的 all-reduce 在反向是恒等（梯度直接分发），而列切层前向的恒等（输入广播）在反向变成 all-reduce（各卡对 $$X$$ 的梯度要求和）——两者互为共轭，所以反向的 all-reduce 出现在与前向不同的位置，但次数相同。用 Megatron 论文的记法（$$f$$：前向恒等、反向 all-reduce；$$g$$：前向 all-reduce、反向恒等），一个 MLP 块的前向与反向是：
 
-![张量并行 MLP 块中 f 与 g 的共轭：前向 f 恒等、g 做 all-reduce，反向 g 恒等、f 做 all-reduce](/img/in-post/parallelism-tp-conjugate-fg.svg)
+![张量并行 MLP 块里 f 与 g 的前向、反向通信](/img/in-post/parallelism-tp-conjugate-fg.svg)
 
 前向的 all-reduce 在块尾（$$g$$），反向的 all-reduce 在块头（$$f$$）；注意力块同理。每层四次，每次每卡 $$\frac{2(N_t-1)}{N_t} \cdot sbh \cdot 2$$ 字节。
 
@@ -527,7 +534,7 @@ Ring 4 步合并后与完整注意力的最大误差（各卡）: ['6.0e-08', '1
 
 每一列四张卡用的块各不相同——同一时刻环上四个 K/V 块都在被用，没有一张卡在等；这就是下图右半那张表。
 
-![Ring Attention 的四张卡围成顺时针环并各自持有 Q 块，中心标 K/V 块 send/recv；右侧 4 步 × 4 卡表格按块来源着色，底部说明 online softmax 合并、重叠与通信量](/img/in-post/parallelism-ring-attention.svg)
+![Ring Attention：K/V 块沿环传递的四步](/img/in-post/parallelism-ring-attention.svg)
 
 通信是**点对点的 send/recv**，每步传一个 K/V 块。每卡每层：前向接收 $$N_c - 1$$ 个 K/V 块；反向再接收一遍 K/V（重算局部注意力需要）并传递累积的 dK/dV，约为前向的两倍。每个 K/V 块的大小是 $$\frac{s}{N_c} \cdot b \cdot 2 \cdot h_{kv} \cdot 2$$ 字节（K 和 V 各一份，$$h_{kv}$$ 是 K/V 的总维度：MHA 下等于 $$h$$，GQA 下是 $$\text{kv\_heads} \times \text{head\_dim}$$；再有 TP 时除以 $$N_t$$）。合计：
 
@@ -550,7 +557,7 @@ Table: 因果 mask 下 CP 两种分配方式的负载
 
 DeepSpeed-Ulysses（Jacobs et al. 2023）换一个思路：注意力对**头**是独立的。每张卡持有 $$s/N_c$$ 个 token 的全部头，算 Q/K/V 投影后做一次 **all-to-all**，变成持有全部 $$s$$ 个 token 的 $$a/N_c$$ 个头——这时每张卡可以对自己的头做完整的、不需要任何通信的注意力；算完再 all-to-all 回到按序列切的布局，进输出投影。
 
-![左：按序列切的 4×4 表，每行一张卡持自己那段 token 的全部 4 个头（四种颜色）；右：按头切，每行一张卡持全部 token 的一个头（一种颜色）；中间两条红箭头是 Q/K/V 的 all-to-all 与 O 的 all-to-all——把表转置](/img/in-post/parallelism-ulysses-all-to-all.svg)
+![Ulysses：all-to-all 把按序列切换成按头切](/img/in-post/parallelism-ulysses-all-to-all.svg)
 
 前向四次 all-to-all（Q、K、V、O），反向四次，每次载荷是一个激活张量 $$\frac{s}{N_c} b h$$：
 
@@ -618,7 +625,7 @@ $$
 
 把 $$\frac{p-1}{m}$$ 画出来（纵轴是相对理想时间的倍数）：三条实线是 $$p = 4, 8, 16$$，同色的虚线是 interleaved $$v = 2$$ 的 $$\frac{p-1}{2m}$$——同一个 $$m$$ 上虚线正好是实线的一半：
 
-![气泡率曲线：横轴 micro-batch 数 m，纵轴气泡占理想计算时间的倍数；p = 4、8、16 三条实线随 m 增大而下降，同色虚线是 interleaved v = 2 的曲线，约为实线一半](/img/in-post/parallelism-bubble-rate.svg)
+![流水线气泡率随 micro-batch 数的变化](/img/in-post/parallelism-bubble-rate.svg)
 
 `02_parallelism_toys.py bubble` 把正文用过的几组 $$p, m, v$$ 都算一遍，再用 PyTorch 自己的调度类生成 $$p = 4$$、$$m = 4$$ 的 1F1B 逐拍表（下图的时间表就是它）：
 
@@ -661,7 +668,7 @@ GPipe 的另一个问题是显存：stage 0 在开始反向前要保存全部 $$
 
 两种调度画在同一张图上对比（GPipe 里反向按 2 倍时长画，1F1B 按等长画以便看清交替）：
 
-![GPipe 与 1F1B 的流水线时间表：横轴按 t_b=2t_f 计，蓝色前向、绿色反向、灰色气泡，格内为 micro-batch；GPipe p=4,m=4 先填满再排空，1F1B p=4,m=8 由 Schedule1F1B.pipeline_order 生成，warm-up 后交替并有 trailing B](/img/in-post/parallelism-pipeline-gpipe-vs-1f1b.svg)
+![GPipe 与 1F1B 的流水线时间表](/img/in-post/parallelism-pipeline-gpipe-vs-1f1b.svg)
 
 气泡的总量没有变（仍是前向填充 $$p-1$$ 格、反向排空 $$p-1$$ 格，$$\frac{p-1}{m}$$），但任一时刻每个 stage 在途的 micro-batch 数不超过 $$p$$（stage $$i$$ 是 $$p - i$$），激活显存从 $$O(m)$$ 降到 $$O(p)$$，与 $$m$$ 无关——这让 $$m$$ 可以放大去压气泡。1F1B 是所有生产框架的默认调度。
 
@@ -710,7 +717,7 @@ MoE 把每层的 FFN 换成 $$E$$ 个专家，每个 token 由路由器选 $$k$$
 
 先把一个 MoE 层在 EP 下的完整流程走一遍，再算通信量。用最小的例子：$$N_e = 2$$ 张卡、$$E = 4$$ 个专家（卡 0 持 E0、E1，卡 1 持 E2、E3）、每卡 3 个 token、$$k = 1$$（每个 token 只去一个专家，便于看清；$$k = 2$$ 时每个 token 复制两份，其余不变）。
 
-![EP 的 dispatch 与 combine：N_e=2、E=4，两个虚线卡组各有 3 个 token t0–t5；红色箭头表示跨卡、灰色表示本卡 dispatch，到达后按 E0–E3 分组并标出来源，右侧虚线箭头表示 combine 原路送回，底部给出 dispatch 矩阵与每层 2+2 次 all-to-all](/img/in-post/parallelism-ep-dispatch-combine.svg)
+![EP 的 dispatch 与 combine：token 送到专家所在的卡再送回](/img/in-post/parallelism-ep-dispatch-combine.svg)
 
 | 步 | 做什么 | 例子里发生了什么 | 通信 |
 |---|---|---|---|
