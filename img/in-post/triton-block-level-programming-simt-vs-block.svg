@@ -28,29 +28,29 @@
   <text class="title" x="400.0" y="112" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">program 0</text>
   <rect class="cell" x="20.0" y="128.8" width="54.0" height="39.2" style="fill:#dbe8fb" />
   <text class="mono" x="47.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.500) ">t0</text>
-  <line class="arrow" x1="47.0" y1="168" x2="47.0" y2="210" />
+  <line class="arrow" x1="47.0" y1="168" x2="47" y2="211.5" />
   <rect class="cell" x="20.0" y="212.8" width="54.0" height="39.2" />
   <text class="mono" x="47.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -2.500) "><tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace">x[0]</tspan></text>
   <rect class="cell" x="78.0" y="128.8" width="54.0" height="39.2" style="fill:#dbe8fb" />
   <text class="mono" x="105.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.500) ">t1</text>
-  <line class="arrow" x1="105.0" y1="168" x2="105.0" y2="210" />
+  <line class="arrow" x1="105.0" y1="168" x2="105" y2="211.5" />
   <rect class="cell" x="78.0" y="212.8" width="54.0" height="39.2" />
   <text class="mono" x="105.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -2.500) "><tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace">x[1]</tspan></text>
   <rect class="cell" x="136.0" y="128.8" width="54.0" height="39.2" style="fill:#dbe8fb" />
   <text class="mono" x="163.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.500) ">t2</text>
-  <line class="arrow" x1="163.0" y1="168" x2="163.0" y2="210" />
+  <line class="arrow" x1="163.0" y1="168" x2="163" y2="211.5" />
   <rect class="cell" x="136.0" y="212.8" width="54.0" height="39.2" />
   <text class="mono" x="163.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -2.500) "><tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace">x[2]</tspan></text>
   <rect class="cell" x="194.0" y="128.8" width="54.0" height="39.2" style="fill:#dbe8fb" />
   <text class="mono" x="221.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.500) ">t3</text>
-  <line class="arrow" x1="221.0" y1="168" x2="221.0" y2="210" />
+  <line class="arrow" x1="221.0" y1="168" x2="221" y2="211.5" />
   <rect class="cell" x="194.0" y="212.8" width="54.0" height="39.2" />
   <text class="mono" x="221.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -2.500) "><tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace">x[3]</tspan></text>
   <text class="body" x="279.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">…</text>
   <text class="body" x="279.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">…</text>
   <rect class="cell" x="310.0" y="128.8" width="54.0" height="39.2" style="fill:#dbe8fb" />
   <text class="mono" x="337.0" y="155.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.500) ">t127</text>
-  <line class="arrow" x1="337.0" y1="168" x2="337.0" y2="210" />
+  <line class="arrow" x1="337.0" y1="168" x2="337" y2="211.5" />
   <rect class="cell" x="310.0" y="212.8" width="54.0" height="39.2" />
   <text class="mono" x="337.0" y="239.4" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -2.500) "><tspan style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace">x[127]</tspan></text>
   <rect class="box" x="400.0" y="128.8" width="340.0" height="41.06666666666667" />
@@ -61,7 +61,7 @@
   <text class="mono" x="412.0" y="197.06666666666666" style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace;font-weight:400" transform="translate(0 -2.167) ">mask = offs &lt; n</text>
   <text class="small" x="728.0" y="197.06666666666666" text-anchor="end" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400" transform="translate(0 -1.167) ">张量</text>
   <text class="mono" x="412.0" y="238.13333333333333" style="font-family:'SvgMono','SvgSans', DejaVu Sans Mono, monospace;font-weight:400" transform="translate(0 -2.198) ">x = tl.load(x_ptr + offs, mask)</text>
-  <line class="arrow" x1="570.0" y1="252" x2="570.0" y2="327.6" />
+  <line class="arrow" x1="570.0" y1="252" x2="570" y2="354.1" />
   <text class="title" x="580.0" y="298.2" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:500">编译器决定</text>
   <text class="monos" x="450.0" y="348.6" text-anchor="middle" style=";font-family:'SvgSans', Noto Sans SC, sans-serif;font-weight:400">t0</text>
   <rect class="cell" x="418.0" y="355.6" width="8.0" height="30.8" style="fill:#dbe8fb" />
