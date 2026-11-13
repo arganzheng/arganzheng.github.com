@@ -76,7 +76,7 @@ Table: 从五个问题到 vLLM 调度的定义
 | 二 | Continuous Batching | Static Batching 的问题，Batch 为什么必须动态变化 |
 | 三 | Chunked Prefill | 长 Prompt 为什么也要分块，代价与 `long_prefill_token_threshold` |
 | 四 | Token Budget | Request 是调度对象、Token 是调度资源；`schedule()` 的完整例子与核心源码 |
-| 五 | Mixed Batch | Prefill、Decode 与 Speculative 为什么可以共存；SchedulerOutput |
+| 五 | Mixed Batch | Prefill、Decode 与 Speculative 为什么可以共存；SchedulerOutput<br/>调度循环跑在哪里：EngineCoreProc 的三个线程与 `step()` |
 | 六 | Admission Control 与 Preemption | KV Cache 不够时：准入、抢占、重算 vs 换出、LIFO 与 Watermark |
 | 七 | 本文小结 | 从“Batch 调度”到“资源调度” |
 
@@ -926,6 +926,48 @@ Scheduler 算完这一轮给谁多少 token，并不会自己去跑模型。它�
 
 A 的 256 个是长 Prompt 的一个 chunk，B 的 1 个是普通 Decode，C 的 5 个是 1 个正常 token 加 4 个投机候选。拼在一起就是一条 262 个 token 的序列，`query_start_loc = [0, 256, 257, 262]` 记着谁从哪开始。对 GPU 来说没有"三种 Batch"，就是这一条序列跑一次 forward；attention 靠 `query_start_loc` 和 `seq_lens` 知道每段属于谁、各自要看多长的上下文。
 
+### 5. 调度循环跑在哪里：EngineCoreProc 的三个线程与 `step()`
+
+前面几节讲的是一轮 `schedule()` 内部怎么分额度。这一轮本身由谁触发、算完交给谁，要回到 Scheduler 所在的进程看。默认部署下 Scheduler 活在 `EngineCoreProc` 里（进程划分见[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)），这个进程常驻三个线程：
+
+1. **输入线程** `process_input_sockets()`：从 ZMQ 收 API Server 发来的 `EngineCoreRequest`，用 msgspec 解码；新请求在这里就调 `preprocess_add_request()`，经 `Request.from_engine_core_request()` 构造出调度器用的 `Request`（块哈希也在这时算好），再放进 `input_queue`。解码和构造都不占主线程。
+2. **主线程** `run_busy_loop()`：每圈先 `_process_input_queue()` 取空输入队列（没有活时阻塞在这里），把新请求交给 `Scheduler.add_request()`；再 `_process_engine_step()` 调一次 `step()`，把产出的 `EngineCoreOutputs` 放进 `output_queue`。
+3. **输出线程** `process_output_sockets()`：从 `output_queue` 取出结果，序列化后经 ZMQ 发回 API Server。
+
+源码注释说明了拆线程的理由：socket I/O 会释放 GIL，放在后台线程里，就能和 GPU 前向、以及主线程上的调度重叠。
+
+主线程的栈底永远是 `run_busy_loop() → step()`。把这一段调用栈展开（默认 `MultiprocExecutor`）：
+
+```text title="EngineCoreProc 里的调用栈"
+EngineCoreProc                               vllm/v1/engine/core.py
+├─ process_input_sockets() 输入线程          ◀─ ZMQ 收 EngineCoreRequest
+│  └─ preprocess_add_request() → Request.from_engine_core_request()
+├─ run_busy_loop() 主线程
+│  ├─ _process_input_queue() → Scheduler.add_request()
+│  └─ _process_engine_step() → step()
+│     ├─ Scheduler.schedule()                core/sched/scheduler.py
+│     │  ├─ KVCacheManager.get_computed_blocks()   core/kv_cache_manager.py
+│     │  └─ KVCacheManager.allocate_slots()
+│     ├─ MultiprocExecutor.execute_model()   executor/multiproc_executor.py
+│     │  └─ collective_rpc() → rpc_broadcast_mq.enqueue()   共享内存广播 ↓
+│     ├─ Scheduler.get_grammar_bitmask()     GPU 跑前向时，CPU 算语法掩码
+│     ├─ MultiprocExecutor.sample_tokens()   阻塞等 worker_response_mq ↑
+│     └─ Scheduler.update_from_output()      ◀─ ModelRunnerOutput
+└─ process_output_sockets() 输出线程         → ZMQ 发 EngineCoreOutputs ↑
+```
+
+`step()` 里的顺序有讲究：
+
+1. `schedule()` 产出 `SchedulerOutput`。
+2. `execute_model(scheduler_output, non_block=True)` 把它广播给每个 Worker，拿到一个 future 就返回，不等前向结束。
+3. 趁 GPU 在跑前向，`get_grammar_bitmask()` 在 CPU 上算这一轮结构化输出的掩码。
+4. `sample_tokens(grammar_output)` 把掩码发下去、等采样结果；只有 `output_rank` 回传 `ModelRunnerOutput`。
+5. `update_from_output()` 把采样出的 token 追加到各 `Request`、检查停止条件、释放结束请求的块，并产出发回前端的 `EngineCoreOutputs`。
+
+开启 async scheduling 时（v0.27.1 在没有不兼容选项时默认开启），`max_concurrent_batches` 为 2，`step` 换成 `step_with_batch_queue()`：发出一轮后只要队列没满，就直接返回去排下一轮，不等这一轮的结果；队列满了才阻塞取最早那一轮的结果，再 `update_from_output()`。于是 GPU 还在跑第 N 轮时，调度器已经在排第 N+1 轮——第三篇单步时间线下半部分画的流水线，就是这个队列。
+
+这一圈里调度器只碰整数：`execute_model()` 之后的事——`SchedulerOutput` 怎样在 Worker 里变成张量、`sample_tokens()` 在 Worker 那一侧等的是哪一个同步点——在[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+
 ## 六、Admission Control 与 Preemption：KV Cache 不够怎么办？
 
 到这里，Scheduler 已经解决了：
@@ -1400,6 +1442,8 @@ flowchart TB
 | **Prefix Cache**         | `vllm/v1/core/kv_cache_manager.py` / `block_pool.py`       |
 | **Preemption**           | `Scheduler._preempt_request()`                             |
 | **Scheduler → Executor** | `SchedulerOutput`                                          |
+| **调度循环与线程** | `vllm/v1/engine/core.py` → `EngineCoreProc.run_busy_loop()`、`_process_input_queue()`、`_process_engine_step()`、`process_input_sockets()` / `process_output_sockets()`、`preprocess_add_request()`；`EngineCore.step()` / `step_with_batch_queue()`；并发批数 `vllm/config/vllm.py` → `VllmConfig.max_concurrent_batches` |
+| **Scheduler → Worker 的投递** | `vllm/v1/executor/multiproc_executor.py` → `MultiprocExecutor.execute_model()` / `sample_tokens()` / `collective_rpc()` |
 | **执行层 InputBatch 构造** | `GPUModelRunner._update_states()` / `_prepare_inputs()`，见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量) |
 
 Table: Scheduler 源码导航
@@ -1461,6 +1505,14 @@ Table: Scheduler 源码导航
    <details markdown="1"><summary>答案</summary>
 
    Scheduler 在 `update_from_output()` 里由 `check_stop()` 把状态设成终态，把请求移出 running、生成输出；`_free_request` 调 `KVCacheManager.free` 把请求的块 `ref_cnt -= 1`，为 0 的块进空闲队列**尾部**并保留哈希——能被新请求作为空闲块取用（取走时才驱逐哈希），也可能先被 prefix cache 命中复用；共享块要等所有引用者完成。PD 分离下若 Connector 的 `request_finished()` 要求延迟释放，块要等 `finished_sending` 才还。
+
+   </details>
+
+8. 默认多进程部署下，一个新请求从 ZMQ 到进入 `Scheduler` 的 waiting 队列，经过 EngineCoreProc 的哪个线程、哪几步？`step()` 发出前向后为什么不立刻等结果？
+
+   <details markdown="1"><summary>答案</summary>
+
+   输入线程 `process_input_sockets()` 收 ZMQ、msgspec 解码，`preprocess_add_request()` 用 `Request.from_engine_core_request()` 构造 `Request`（顺带算好块哈希）后放进 `input_queue`；主线程 `run_busy_loop()` 的 `_process_input_queue()` 取出它，交给 `Scheduler.add_request()`。`execute_model(..., non_block=True)` 只拿一个 future，GPU 跑前向的这段时间里主线程先算 `get_grammar_bitmask()`，再调 `sample_tokens()` 等结果；开 async scheduling 时 `step_with_batch_queue()` 更进一步，在第 N 轮的结果回来之前就排第 N+1 轮。
 
    </details>
 

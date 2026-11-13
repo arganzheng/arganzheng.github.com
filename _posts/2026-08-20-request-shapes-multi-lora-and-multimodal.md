@@ -30,6 +30,8 @@ updated: 2026-11-13
 - 两者都要**隔离 prefix cache**：往 KV 块哈希里多加一个键（adapter 名 / 图片哈希 + 偏移），否则不同 adapter、不同图片会错误地复用同一份 KV。
 - **代价**：multi-LoRA 花的是显存（静态买断）与 kernel launch 次数，不是 FLOPs；多模态花的主要是图片占位 token 的 KV（比 encoder 输出大约 20 倍、且伴随请求全程），encoder 输出本身既小又短命。
 
+两种扩展之前还有一层逐请求的输入变化，比它们常见得多：每个 `/v1/chat/completions` 请求带着自己的对话轮次、自己的工具定义、自己的 `tool_choice` 和模板开关，这些在进引擎之前就要被 chat template 压成一串 token id。它不打破上面任何一个假设——它产出的正是那串 token——但模板与模型不配，是线上"模型答非所问、工具从来不被调用、生成停不下来"最常见的原因。第二章先把这一段打开，第三、四章再看 LoRA 和图片。
+
 ## 一、总览：假设在哪里破了
 
 ### 1. 三个隐含假设
@@ -46,14 +48,15 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 第五篇讲 `hash_block_tokens()` 时留了一个 `extra_keys` 参数，说它"是隔离用的"——本篇就是它存在的理由。
 
-### 2. 两种扩展分别惊动了谁
+### 2. 三种输入变化分别惊动了谁
 
 | | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | 模型侧 |
 |---|---|---|---|---|
 | multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel<br/>每个 LoRA 层多两次 kernel<br/>CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
 | 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）<br/>chunk 边界不能切开一张图<br/>prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
+| chat template 与工具定义 | 不惊动：只看渲染后的 token 数 | 不加新键；但渲染结果决定前缀能不能命中（工具定义渲染在 system 段里） | 不惊动 | `tokenizer_config.json` 里的 `chat_template`；它教给模型的工具调用格式要和 `--tool-call-parser` 配对 |
 
-Table: multi-LoRA 与多模态惊动的模块
+Table: 三种输入变化惊动的模块
 
 最后一列的 `SupportsLoRA`、`SupportsMultiModal` 是 vLLM 模型类的**能力声明**：模型类实现这些接口协议（Protocol），引擎在加载时检查，据此启用对应路径——声明了 `SupportsLoRA`，加载器才会把它的线性层替换成带 LoRA 分支的 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并在 `MultiModalRegistry` 里登记了输入处理器，引擎才会为它跑 encoder、合并 embedding。本篇只用到这两种声明的效果；能力声明与模型注册的完整机制见第十一篇。
 
@@ -68,15 +71,186 @@ Table: multi-LoRA 与多模态惊动的模块
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | multi-LoRA | 一段回顾<br/>同 batch 异构 adapter 的 Triton kernel<br/>槽位与 LRU<br/>显存账<br/>映射如何进入调度与执行<br/>动态加载<br/>CUDA graph<br/>量化 + LoRA |
-| 三 | 多模态 | 输入处理流水线与 processor 缓存<br/>占位符与 embedding 合并<br/>encoder 的独立执行与预算<br/>EncoderCacheManager<br/>多模态 prefix cache<br/>显存账<br/>视频与音频 |
-| 四 | 叠加与向后 | LoRA + 多模态<br/>留给硬件抽象（12）的问题<br/>放回 PD 分离（08）的问题<br/>两个扩展的开销对照 |
-| 五 | 本文小结 |  |
-| 六 | 自测 | 5 道题 |
+| 二 | 从 messages 到 token id | 渲染流水线：从 HTTP 请求到 `EngineCoreRequest`<br/>chat template 从哪来、content format<br/>实例：两轮对话加一个工具的渲染结果<br/>模板与模型不配时的五种故障 |
+| 三 | multi-LoRA | 一段回顾<br/>同 batch 异构 adapter 的 Triton kernel<br/>槽位与 LRU<br/>显存账<br/>映射如何进入调度与执行<br/>动态加载<br/>CUDA graph<br/>量化 + LoRA |
+| 四 | 多模态 | 输入处理流水线与 processor 缓存<br/>占位符与 embedding 合并<br/>encoder 的独立执行与预算<br/>EncoderCacheManager<br/>多模态 prefix cache<br/>显存账<br/>视频与音频 |
+| 五 | 叠加与向后 | LoRA + 多模态<br/>留给硬件抽象（12）的问题<br/>放回 PD 分离（08）的问题<br/>两个扩展的开销对照 |
+| 六 | 本文小结 |  |
+| 七 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
-## 二、multi-LoRA：同一个 batch，每一行乘不同的权重
+## 二、从 messages 到 token id：chat template 与工具定义
+
+> **一个 `/v1/chat/completions` 请求带着对话、工具定义和图片进门，它是怎么变成引擎看到的那串 token id 的？[^q2] 模板和模型不配时会坏在哪里？[^q3]**
+
+前八篇说"API Server 把请求变成 token id"时一笔带过。这一步全在 API Server 进程里，引擎侧（Scheduler、KV Cache、Worker）从头到尾只看到 `prompt_token_ids`；可模型能不能读懂这串 token，取决于它是不是按训练时的格式拼出来的。本章沿一个请求走一遍，再看拼错时的样子。
+
+### 1. 每个请求带进来什么
+
+和 LoRA、图片一样，下面这些都是**请求自己的**，同一个 batch 里的请求可以各不相同：
+
+| 请求字段 | 它影响什么 | 默认值（v0.27.1） |
+|---|---|---|
+| `messages` | 对话轮次：system / user / assistant / tool，assistant 轮里可以带历史 `tool_calls` | —— |
+| `tools` | 工具定义（函数名、描述、参数的 JSON schema），由模板渲染进 prompt | 无 |
+| `tool_choice` | `none` / `auto` / `required` / 点名某个函数；决定输出侧是否解析、是否加约束（第十篇） | 没有 `tools` 时 `none`，有 `tools` 时 `auto` |
+| `add_generation_prompt` | 是否在 prompt 末尾补上"助手轮开头"的标记 | `true` |
+| `continue_final_message` | 让最后一条 assistant 消息保持开放，模型接着写（预填回答开头）；与上一项互斥 | `false` |
+| `chat_template_kwargs` | 传给模板的额外变量，如 Qwen3 的 `enable_thinking` | 与 `--default-chat-template-kwargs` 合并，请求优先 |
+| `reasoning_effort` | 设了且没显式给 `enable_thinking` 时，换算成 `enable_thinking = (reasoning_effort != "none")` | 无 |
+| `chat_template` | 请求自带模板；只有服务端开了 `--trust-request-chat-template` 才接受，否则直接 400 | 无 |
+| `add_special_tokens` | 是否在模板之外再加 BOS 等特殊 token；模板通常已经写了 BOS，所以默认不加 | `false` |
+
+Table: chat 请求里影响渲染的字段
+
+这些字段的默认值都在 `ChatCompletionRequest`（`vllm/entrypoints/openai/chat_completion/protocol.py`）里，`build_chat_params()` 把其中和模板有关的几项收进一个 `ChatParams`（`vllm/renderers/params.py`）。
+
+### 2. 渲染流水线：从 HTTP 请求到 `EngineCoreRequest`
+
+```mermaid
+%% 图：一个 chat 请求在 API Server 进程里从 JSON 变成 EngineCoreRequest
+flowchart TB
+  subgraph api["API Server 进程"]
+    direction TB
+    req["<b>ChatCompletionRequest</b><br/>messages、tools、tool_choice<br/>chat_template_kwargs、图片 URL"]
+    chk["<b>OnlineRenderer.render_chat()</b><br/>• 校验 tool_choice 与启动参数<br/>• tools → tool_dicts<br/>• 拒绝未受信任的请求级模板"]
+    parse["<b>parse_chat_messages()</b><br/>• messages → ConversationMessage<br/>• 图片收进 mm_data，留下占位标记<br/>• 历史 tool_calls 的 arguments 转成 dict"]
+    tmpl["<b>safe_apply_chat_template()</b><br/>• resolve_chat_template() 选模板<br/>• Jinja 渲染出 prompt 文本<br/>• add_generation_prompt 补上助手轮开头"]
+    tok["<b>tokenize_prompts_async()</b><br/>• 文本 → token id<br/>• add_special_tokens=False"]
+    mm["<b>_process_multimodal()</b><br/>• HF processor：一个占位 → N 个<br/>• 产出 PlaceholderRange（第四章）"]
+    adj["<b>Parser.adjust_request()</b><br/>按 tool_choice 写入结构化输出约束（第十篇）"]
+    ip["<b>InputProcessor.process_inputs()</b><br/>• 合并 generation_config 的停止 token<br/>• 组装 mm_features"]
+    req --> chk --> parse --> tmpl --> tok --> mm --> adj --> ip
+  end
+  ip -- "EngineCoreRequest（ZMQ）" --> core["<b>EngineCore 进程</b><br/>Scheduler 只看到 prompt_token_ids"]
+```
+
+按代码走一遍（文件都在 v0.27.1 的 `vllm/` 下）：
+
+1. **入口与校验。** `OpenAIServingChat._create_chat_completion()`（`entrypoints/openai/chat_completion/serving.py`）调 `render_chat_request()`，后者把活交给 `OnlineRenderer.render_chat()`（`renderers/online_renderer.py`）。这里先拦掉启动参数不支持的请求：`tool_choice="auto"` 要求服务端同时开了 `--enable-auto-tool-choice` 和 `--tool-call-parser`，`required` 或点名函数要求有 tool parser，否则直接返回错误；`tools` 被 `model_dump()` 成普通 dict（`tool_choice="none"` 且开了 `--exclude-tools-when-tool-choice-none` 时置空，模板里就不会出现工具定义）；请求自带的 `chat_template` 在 `validate_chat_template()` 里被拒，除非开了 `--trust-request-chat-template`。
+2. **解析消息。** `OnlineRenderer.preprocess_chat()` → `HfRenderer.render_messages()`（`renderers/hf.py`）→ `parse_chat_messages()`（`entrypoints/chat_utils.py`）。OpenAI 格式的消息被整理成模板认识的 `ConversationMessage`：图片、音频这类内容块交给 `MultiModalItemTracker` 收进 `mm_data`，原位置留一个占位标记（下一节）；`_postprocess_messages()` 把历史 assistant 轮里 `tool_calls[].function.arguments` 从 JSON **字符串**解析成 **dict**——OpenAI 协议里它是字符串，而 HF 的工具模板约定它是对象，模板会再用 `tojson` 把它写回文本。
+3. **套模板。** `safe_apply_chat_template()`（`renderers/hf.py`）先用 `resolve_chat_template()` 选出模板，再调 `tokenizer.apply_chat_template(conversation, tools=..., chat_template=..., add_generation_prompt=..., **kwargs)`。HF tokenizer 默认先渲染出**文本**，下一步再分词（Mistral tokenizer 和 `--enable-prompt-embeds` 例外，直接出 token id）。`resolve_chat_template_kwargs()` 会过滤 kwargs：只留下模板里真正引用的变量和 HF `apply_chat_template` 的标准参数——给一个不认识 `enable_thinking` 的模板传这个开关，它被**静默丢掉**，不报错。
+4. **分词。** `BaseRenderer.tokenize_prompts_async()`（`renderers/base.py`）把文本切成 token id。chat 请求的 `add_special_tokens` 默认 `false`：模板自己已经写了 BOS 之类的开头，再加一次就是两个 BOS。
+5. **多模态展开。** `process_for_engine_async()` → `_process_tokens()` → `_process_multimodal()`：有图时调模型的 `BaseMultiModalProcessor.apply()`，把模板写下的一个占位换成 N 个、记下 `PlaceholderRange`——这是第四章第 1 节的流水线，它接在模板之后。
+6. **按工具设置改写请求。** 回到 `preprocess_chat()`，如果配了 tool / reasoning parser 且 `tool_choice` 不是 `none`，`Parser.adjust_request()` 有机会改写请求本身：`required` 或点名函数会被写成一个结构化输出约束，Hermes parser 还会把 `skip_special_tokens` 置为 `False`。这些改写影响的是输出，第十篇第六章再展开。
+7. **进引擎。** 回到 `_create_chat_completion()`：`to_sampling_params()` 生成 `SamplingParams`，`engine_client.generate()` → `AsyncLLM.add_request()`（`v1/engine/async_llm.py`）→ `InputProcessor.process_inputs()`（`v1/engine/input_processor.py`）组装 `EngineCoreRequest`。这里有一处和模板直接相关：`SamplingParams.update_from_generation_config()` 把 tokenizer 的 `eos_token_id` 和模型 `generation_config.json` 里的 `eos_token_id`（可以是一个列表）并成停止集合——模板用哪个 token 结束一轮，这个 token 就必须在集合里。组装好的 `EngineCoreRequest` 由 `AsyncMPClient.add_request_async()`（`v1/engine/core_client.py`）经 ZMQ 发往 EngineCore 进程；`generate()` 这个协程则留在 API Server 里，等这个请求的输出回来（[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)）。
+
+到第 7 步为止都在 API Server 进程里，用的是 CPU；`--api-server-count` 加的就是这一段的并行度（[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)）。
+
+### 3. chat template 从哪来：content format 与图片占位
+
+**chat template** 是一段 Jinja 模板，随模型权重一起发布，写在 `tokenizer_config.json` 的 `chat_template` 字段（或单独的 `chat_template.jinja`；多模态模型的 processor 还可以有自己的 `chat_template.json`）。它规定了这个模型训练时见过的对话格式：轮次用什么特殊 token 包起来、工具定义写在哪里、工具结果以什么角色回来、助手轮从哪里开始。vLLM 不解释这些格式，只负责找到模板、喂进去、拿回文本。
+
+**模板从哪来。** `resolve_chat_template()` 按四级优先级找：
+
+1. `--chat-template` 指定的文件路径或模板文本；
+2. 请求里没有 `tools` 时，`AutoProcessor` 的模板（多模态模型的 processor 模板）；
+3. `AutoTokenizer` 的模板，即 `tokenizer_config.json` 里那份；
+4. vLLM 为少数没发模板的模型准备的兜底文件（`get_chat_template_fallback_path()`）。
+
+四级都没有，`safe_apply_chat_template()` 抛 `ChatTemplateResolutionError`——transformers 4.44 起不再有"默认模板"。第 2 级的条件值得留意：带工具的请求跳过 processor 模板。以 Qwen2.5-VL-7B-Instruct 为例，它的 processor 模板（`chat_template.json`）里没有任何工具相关的分支，带 `tools` 的请求如果用它，工具定义就进不了 prompt。
+
+**content format。** OpenAI 协议里一条消息的 `content` 既可以是字符串，也可以是内容块列表 `[{"type": "text", ...}, {"type": "image_url", ...}]`；模板对这两种写法的期待不同。`resolve_chat_template_content_format()` 在 `--chat-template-content-format auto`（默认）时解析模板的 Jinja 语法树（`_detect_content_format()`）：模板里有遍历 `message['content']` 各个元素的循环，判为 `openai`，否则判为 `string`。判定结果决定 `parse_chat_messages()` 怎么处理图片：
+
+| | `string`（如 Qwen2.5-7B-Instruct 的模板） | `openai`（如 Qwen2.5-VL-7B-Instruct 的 processor 模板） |
+|---|---|---|
+| 交给模板的 `content` | 一个字符串 | 内容块列表，图片位置保留一个 `{"type": "image"}` |
+| 图片占位由谁写 | vLLM：`MultiModalItemTracker.add()` 取模型类的 `get_placeholder_str()`，`_get_full_multimodal_text_prompt()` 把缺的占位按 `\n` 拼在文本**前面** | 模板：循环到图片块时写下 <code>&lt;&#124;vision_start&#124;&gt;&lt;&#124;image_pad&#124;&gt;&lt;&#124;vision_end&#124;&gt;</code> |
+| 一张图在 prompt 文本里是 | <code>&lt;&#124;vision_start&#124;&gt;&lt;&#124;image_pad&#124;&gt;&lt;&#124;vision_end&#124;&gt;</code> 加换行，再接用户文字 | 同样一串，位置跟内容块的顺序一致 |
+
+Table: 两种 content format 下图片占位的写入方式
+
+Qwen2.5-VL 的 `get_placeholder_str("image", i)`（`model_executor/models/qwen2_5_vl.py`）返回的就是 `<|vision_start|><|image_pad|><|vision_end|>`——所以两条路写下的文本相同，区别只在位置：`string` 格式默认把图片集中放到文字前面（开了 `interleave_mm_strings` 才按原顺序交错），`openai` 格式由模板按内容块顺序摆。这时 prompt 里只有**一个** `<|image_pad|>`；分词之后、第 2 节的第 5 步里，Qwen2-VL 的处理器才按这张图的分辨率把它换成 N 个（1024×1024 → 1369 个），这正是第四章第 2 节"先占位、再覆盖"里那段占位区间的来历。
+
+### 4. 实例：两轮对话加一个工具，渲染出来是什么
+
+用 Qwen2.5-7B-Instruct（`tokenizer_config.json` 里的模板，`string` 格式）。请求带一个工具 `get_weather`，对话已经走过一轮完整的工具调用，现在是第二个问题：
+
+```json title="请求体（节选）"
+{
+  "model": "Qwen/Qwen2.5-7B-Instruct",
+  "tools": [{"type": "function", "function": {
+    "name": "get_weather",
+    "description": "查询城市当前气温",
+    "parameters": {"type": "object",
+                   "properties": {"city": {"type": "string"}},
+                   "required": ["city"]}}}],
+  "messages": [
+    {"role": "user", "content": "深圳现在多少度？"},
+    {"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function",
+      "function": {"name": "get_weather", "arguments": "{\"city\": \"深圳\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_1", "content": "{\"temp_c\": 26}"},
+    {"role": "assistant", "content": "深圳现在 26°C。"},
+    {"role": "user", "content": "那广州呢？"}
+  ]
+}
+```
+
+套上模板（`add_generation_prompt=true`）得到的 prompt 文本是：
+
+```text title="Qwen2.5-7B-Instruct 模板渲染出的 prompt"
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"type": "function", "function": {"name": "get_weather", "description": "查询城市当前气温", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call><|im_end|>
+<|im_start|>user
+深圳现在多少度？<|im_end|>
+<|im_start|>assistant
+<tool_call>
+{"name": "get_weather", "arguments": {"city": "深圳"}}
+</tool_call><|im_end|>
+<|im_start|>user
+<tool_response>
+{"temp_c": 26}
+</tool_response><|im_end|>
+<|im_start|>assistant
+深圳现在 26°C。<|im_end|>
+<|im_start|>user
+那广州呢？<|im_end|>
+<|im_start|>assistant
+
+```
+
+用这个模型的 tokenizer 切开是 **232 个 token**。逐段对照请求看：
+
+1. **系统段与工具定义。** 请求里没有 system 消息，模板补上默认的一句；因为有 `tools`，模板把每个工具 `tojson` 成一行放进 `<tools></tools>`，再写一段格式说明，教模型用 `<tool_call>` 包一个 `{"name": …, "arguments": …}` 的 JSON 来调用——**这段说明就是模型的工具调用格式**，输出侧的 `hermes` parser 认的正是它（第十篇第六章）。同一段对话不带 `tools` 渲染只有 100 个 token：工具定义和说明占了 132 个，而且放在 prompt 的最前面。
+2. **轮次标记。** `<|im_start|>`（id 151644）和 `<|im_end|>`（151645）在词表里是单个**特殊 token**，各轮次靠它们分隔；最后一行 `<|im_start|>assistant\n` 是 `add_generation_prompt` 补的，切成 `[151644, 77091, 198]` 三个 token，模型从这里开始写。
+3. **历史工具调用。** 第一轮助手的 `tool_calls` 被模板写回成 `<tool_call>…</tool_call>` 文本，`arguments` 是第 2 节第 2 步解析出来的 dict 再 `tojson`；工具结果没有专门的角色，模板把它包成 `<tool_response>` 放进一个 user 轮。`<tool_call>`（151657）、`</tool_call>`（151658）是词表里的单个 token，但**不是**特殊 token——这一点在输出侧决定 `skip_special_tokens` 会不会把它们删掉。
+4. **停止。** 这个模型的 tokenizer `eos_token` 是 `<|im_end|>`，`generation_config.json` 的 `eos_token_id` 是 `[151645, 151643]`；第 7 步把两者并进停止集合，所以模型写完一轮、吐出 `<|im_end|>` 时生成停止，这个 token 本身不进输出文本。
+
+两件和前面篇目有关的事：
+
+- **工具定义是前缀的一部分。** 132 个 token 的工具段在 system 里、在所有对话之前，`tools` 列表相同（顺序、描述逐字相同）的请求共享这段前缀，[第五篇的 prefix cache](/kv-cache-memory-core.html#四prefix-cache命中怎么找谁先被驱逐) 能命中；只要改一个工具的描述或调换两个工具的顺序，块哈希从工具段开始就对不上，后面整段对话都要重算。
+- **历史要"渲染得和生成时一样"才能复用。** 第五篇的 prefix cache 也缓存生成阶段写满的块。上一轮助手输出的 token 在下一轮会被模板从 `messages` **重新渲染**一次，两者逐 token 相同，上一轮的 KV 才能接着用。Qwen3 的模板是一个反例：它在重新渲染历史轮次时去掉上一个用户问题之前各轮的 `<think>…</think>` 推理内容，于是从那一轮起重新渲染的 token 与当时生成的不同，后面的块哈希都不命中。
+
+排查这一段不用猜：`vllm serve` 自带 `POST /tokenize`，请求体同样接受 `messages`、`tools`、`add_generation_prompt`，加上 `"return_token_strs": true` 就返回渲染并分词后的 token id 和每个 token 的字符串。它走的是同一个 `OnlineRenderer.preprocess_chat()`，拿到的就是引擎会看到的那串。
+
+### 5. 模板与模型不配时会怎样
+
+**1、模板不渲染工具：请求成功，工具从不被调用。** 用 `--chat-template` 换上一份没有 `tools` 分支的模板（常见于手写的通用 ChatML 模板），vLLM 照样把 `tools` 传给 `apply_chat_template()`，模板不引用它，prompt 里就没有那 132 个 token 的工具段。模型不知道有工具，按普通问答作答；输出侧 parser 找不到 `<tool_call>`，`tool_calls` 为空，HTTP 200。没有报错是这类问题难查的原因——`/tokenize` 一看就知道工具段在不在。HF 上发布的模板不支持工具调用的模型，vLLM 在 `examples/tool_chat_template_*.jinja` 里备了一批（Hermes、Llama 3.1 / 3.2 JSON、Mistral、DeepSeek V3 等），用 `--chat-template` 指过去。
+
+**2、轮次标记不是这个模型的：答非所问、续写下一轮、或者停不下来。** 把别的模型家族的模板套到 Qwen2.5 上，比如 Llama 3 的 `<|start_header_id|>` / `<|eot_id|>`：这些串在 Qwen2.5 的词表里不是单个 token，`<|eot_id|>` 被切成 `[27, 91, 68, 354, 842, 91, 29]` 七个普通 token（`<`、`|`、`e`、`ot`、`_id`、`|`、`>`）。模型看到的是一段从没见过的"文本"，轮次边界和"现在轮到你"的信号都没了；它结束一轮靠的 `<|im_end|>` 在上文里一次也没出现，不一定会吐出来，吐不出来就一直生成到 `max_tokens`。同一类问题的另一面是停止集合：模板用来结束一轮的 token 如果既不是 tokenizer 的 `eos_token`、也不在 `generation_config.json` 的 `eos_token_id` 里（或者服务端用了 `--generation-config vllm`，不加载这个文件），第 2 节第 7 步就不会把它放进停止集合，模型吐出它之后也照样往下写。
+
+**3、`add_generation_prompt=false`：模型替用户接着说。** prompt 停在用户轮的 `<|im_end|>\n` 上，没有 `<|im_start|>assistant\n`。模型下一个 token 要自己决定"现在是谁在说话"，可能先补出 `<|im_start|>assistant`，也可能接着写一个新的 user 轮。这个字段默认是 `true`，出问题的通常是直接调 `/v1/completions`、自己拼 prompt 又漏了助手轮开头的客户端。想预填回答开头时用 `continue_final_message=true`：最后一条 assistant 消息不闭合，模型从它的末尾接着写。
+
+**4、思考开关传错地方：推理模型不按预期思考。** Qwen3 的模板认 `enable_thinking`：为 `false` 时在助手轮开头直接写上一段空的 `<think>\n\n</think>\n\n`，模型跳过思考。这个开关只能经 `chat_template_kwargs`（或 `--default-chat-template-kwargs`、`reasoning_effort`）进模板；传给一个不引用这个变量的模板，会在第 2 节第 3 步被静默过滤，请求照常成功。它还会影响输出：prompt 末尾已经出现 `</think>`，API Server 据此判定"推理已结束"，结构化输出从第一个 token 就生效（第十篇第三章第 5 节、第六章第 3 节）。
+
+**5、工具格式和输出 parser 不配：模型调了工具，客户端收不到。** 模板教给模型的调用格式，必须是 `--tool-call-parser` 认的格式。Qwen2.5 的模板教的是 `<tool_call>` 包 JSON，对应 `hermes`；配成 `llama3_json`，parser 在构造时找不到它要的 `<|python_tag|>` token，每个 chat 请求都失败。更隐蔽的是格式对了一半：模型偶尔不包 `<tool_call>`、直接输出一段 JSON，`hermes` 不认，这段 JSON 就作为 `content` 原样返回。这一段在输出侧，第十篇第六章展开。
+
+## 三、multi-LoRA：同一个 batch，每一行乘不同的权重
 
 > LoRA 训练侧的原理与选参见算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；其[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)算了 multi-LoRA 与合并模型两种服务方案的账，本文讲 kernel 与调度。
 
@@ -289,13 +463,13 @@ Table: 有无 LoRA 时录的 CUDA graph
 
 基座量化不影响 LoRA 路径：`BaseLinearLayerWithLoRA._apply_sync()` 先调 `self._get_quant_method().apply(self.base_layer, x, bias)` 得到基座输出——这里的 `quant_method` 可以是 FP8、GPTQ、AWQ 任何一种——再把 `lora_dtype`（默认跟基座 dtype，量化基座时通常是 bf16）精度的 `B·A·x` 加上去。**LoRA 权重本身不量化**，所以第 4 节的显存账在 W4A16 基座上不变，只是相对占比更高（基座每卡从 17.6 GB 降到约 4.4 GB，8 个槽位的 1.44 GB 就成了显眼的一块）。
 
-两处延伸只点名：MoE 模型的 expert 权重也可以挂 LoRA（`FusedMoEWithLoRA`、`fused_moe_lora_op.py`，`enable_mixed_moe_lora_format` / `enable_moe_shared_loras` 控制格式）；多模态模型的视觉塔与 connector 也可以挂（`enable_tower_connector_lora`，`LoRAMappingType.TOWER / CONNECTOR`），第四章会回到它。
+两处延伸只点名：MoE 模型的 expert 权重也可以挂 LoRA（`FusedMoEWithLoRA`、`fused_moe_lora_op.py`，`enable_mixed_moe_lora_format` / `enable_moe_shared_loras` 控制格式）；多模态模型的视觉塔与 connector 也可以挂（`enable_tower_connector_lora`，`LoRAMappingType.TOWER / CONNECTOR`），第五章会回到它。
 
-## 三、多模态：一部分 embedding 不是查表得来的
+## 四、多模态：一部分 embedding 不是查表得来的
 
 ### 1. 输入处理流水线：HF processor 的复用与缓存
 
-文本请求的输入处理是 tokenizer 一步；多模态请求要先把图片变成像素张量、算出它会占多少 token、把占位符（placeholder：在 prompt 里替图片"占座"的 N 个特殊 token，N = 这张图会变成多少个 embedding）插进 prompt。先把一张图从进门到变成 KV 的完整路径摆出来——它跨了三个进程，两级缓存（processor cache、encoder cache）分别落在前两个进程的边界上，本章 1–4 节就是沿着这条路径展开：
+文本请求在第二章的渲染流水线里走到 tokenize 就结束了；多模态请求在那之后还要把图片变成像素张量、算出它会占多少 token、把占位符（placeholder：在 prompt 里替图片"占座"的 N 个特殊 token，N = 这张图会变成多少个 embedding）展开进 prompt——chat template 只写下了**一个**占位标记（[第二章第 3 节](#3-chat-template-从哪来content-format-与图片占位)），这里把它换成 N 个。先把一张图从进门到变成 KV 的完整路径摆出来——它跨了三个进程，两级缓存（processor cache、encoder cache）分别落在前两个进程的边界上，本章 1–4 节就是沿着这条路径展开：
 
 ```mermaid
 %% 图：一张图从进门到变成 KV 的路径：API server 进程做输入处理与 processor cache，EngineCore 管 encoder cache，Worker 编码
@@ -486,7 +660,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 
 还有一个角落：Qwen-Omni 类的 `use_audio_in_video`，同一段占位符同时属于视频和音频两个 feature，`_gather_mm_embeddings()` 里 `is_mm_embed` 用 `|=` 合并两个掩码——`MultiModalBudget` 的注释也为此专门过滤了"没有独立占位符的模态"。
 
-## 四、两个扩展叠加，以及它们留给硬件抽象与 PD 分离的问题
+## 五、两个扩展叠加，以及它们留给硬件抽象与 PD 分离的问题
 
 ### 1. LoRA + 多模态
 
@@ -512,7 +686,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 
 ### 4. 两个扩展的开销对照
 
-把第二章第 4 节和第三章第 6 节的账放到一张表里，回答开头问的"代价是多少"（数字仍是前面的例子：Llama-3-70B、8×H100、TP=8）：
+把第三章第 4 节和第四章第 6 节的账放到一张表里，回答开头问的"代价是多少"（数字仍是前面的例子：Llama-3-70B、8×H100、TP=8）：
 
 | | multi-LoRA | 多模态 |
 |---|---|---|
@@ -526,6 +700,24 @@ Table: multi-LoRA 与多模态的开销对照
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
+
+**chat template 与输入渲染（第二章）**
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| 入口 | `vllm/entrypoints/openai/chat_completion/serving.py` → `OpenAIServingChat._create_chat_completion()` / `render_chat_request()` |
+| 请求字段与 `ChatParams` | `vllm/entrypoints/openai/chat_completion/protocol.py` → `ChatCompletionRequest`（`add_generation_prompt`、`continue_final_message`、`chat_template_kwargs`、`add_special_tokens`）、`build_chat_params()`；`vllm/renderers/params.py` → `ChatParams` |
+| **校验与渲染编排** | `vllm/renderers/online_renderer.py` → `OnlineRenderer.render_chat()`（tool_choice 校验）、`validate_chat_template()`、`preprocess_chat()`（含 `adjust_request()`） |
+| 消息解析、图片占位 | `vllm/entrypoints/chat_utils.py` → `parse_chat_messages()`、`_parse_chat_message_content()`、`MultiModalItemTracker.add()`、`_get_full_multimodal_text_prompt()`、`_postprocess_messages()` |
+| **选模板、套模板** | `vllm/renderers/hf.py` → `resolve_chat_template()`、`safe_apply_chat_template()`、`resolve_chat_template_kwargs()`、`HfRenderer.render_messages()` |
+| content format 检测 | `vllm/renderers/hf.py` → `resolve_chat_template_content_format()`、`_detect_content_format()` |
+| 分词与多模态展开 | `vllm/renderers/base.py` → `BaseRenderer.render_chat_async()`、`tokenize_prompts_async()`、`process_for_engine_async()`、`_process_multimodal()`；按 tokenizer 模式选渲染器：`vllm/renderers/registry.py` |
+| 组装 `EngineCoreRequest` | `vllm/v1/engine/async_llm.py` → `AsyncLLM.add_request()`；`vllm/v1/engine/input_processor.py` → `InputProcessor.process_inputs()`；发往 EngineCore：`vllm/v1/engine/core_client.py` → `AsyncMPClient.add_request_async()`；停止 token：`vllm/sampling_params.py` → `SamplingParams.update_from_generation_config()` |
+| 启动参数 | `vllm/entrypoints/openai/cli_args.py` → `--chat-template`、`--chat-template-content-format`、`--trust-request-chat-template`、`--default-chat-template-kwargs`、`--enable-auto-tool-choice`、`--tool-call-parser`、`--exclude-tools-when-tool-choice-none` |
+| 带工具调用的模板样例 | `examples/tool_chat_template_*.jinja` |
+| 排查 | `vllm/entrypoints/serve/tokenize/`（`POST /tokenize`，`TokenizeChatRequest.return_token_strs`） |
+
+Table: chat template 与输入渲染源码导航
 
 **multi-LoRA**
 
@@ -569,8 +761,10 @@ Table: 多模态源码导航
 
 </details>
 
-## 五、本文小结
+## 六、本文小结
 
+- 在 LoRA 和图片之前，每个 chat 请求的对话、工具定义、`tool_choice` 和模板开关都要在 API Server 进程里被渲染成一串 token id：`OnlineRenderer.render_chat()` 校验，`parse_chat_messages()` 整理消息、收走图片留下占位，`safe_apply_chat_template()` 用四级优先级选出的 Jinja 模板渲染文本，分词后多模态处理器把一个占位展开成 N 个，`InputProcessor` 组装 `EngineCoreRequest` 并把 `generation_config` 的结束 token 并进停止集合。引擎侧只看到 `prompt_token_ids`。
+- 模板就是模型的训练格式。Qwen2.5-7B-Instruct 的例子里工具定义占 132 / 232 个 token、渲染在 system 段最前面，所以工具列表逐字相同的请求才共享前缀；`<tool_call>` 是普通 token 而轮次标记是特殊 token。模板配错的故障都不报错：工具段没渲染（工具从不被调用）、轮次标记不是这个模型的（答非所问或停不下来）、漏了助手轮开头、思考开关被静默过滤、工具格式与 `--tool-call-parser` 不配——用 `POST /tokenize` 看渲染结果排查。
 - 单模型 serving 隐含三个假设：batch 内所有 token 乘同一份权重、输入 embedding 是查表、相同 token 前缀有相同 KV。multi-LoRA 打破第一条，多模态打破第二条，两者都打破第三条——所以 `hash_block_tokens()` 的 `extra_keys` 里同时有 `lora_name` 和 `(mm_hash, 块内偏移)`。
 - multi-LoRA 的核心是一个 kernel 处理全部 adapter：Triton 的 `lora_shrink` / `lora_expand` 用 grid 的第三维遍历 adapter，用排序后的 token 索引 gather 各自的行，`lora_id == -1` 的 program 早退。每个 LoRA 层每步多两次 launch 和一块 fp32 缓冲；FLOPs 只多 0.2%。
 - adapter 权重按槽位静态堆在 GPU 上（`lora_a_stacked [max_loras, 1, r, in]`），大小由 `max_loras × max_lora_rank` 买断而与实际加载无关：例子里 8 个 rank-16 槽位 ≈ 1.44 GB/卡，等于 15 个请求的 KV。`LoRAModelManager` 用两层 LRU（CPU `max_cpu_loras`、GPU `max_loras`）换入换出，激活 = 逐层 H2D 拷贝；第一个用到新 adapter 的请求会让整个 batch 同步等磁盘。
@@ -580,7 +774,7 @@ Table: 多模态源码导航
 - 显存上，一张图真正贵的是它的 KV（≈ 20× encoder 输出、活全程），encoder 输出本身小且短命；encoder 激活峰值靠 `profile_run()` 实测扣除。视频用 `is_embed` 掩码支持剪枝，音频的 encoder-decoder 结构让 chunked prefill 与 prefix cache 双双失效。
 - 两者都把问题留给了硬件抽象（第十二篇）与 PD 分离（第八篇）：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
 
-## 六、自测
+## 七、自测
 
 1. `max_loras = 8`、`max_lora_rank = 16`、Llama-3-70B TP8 全部线性层挂 LoRA：每卡的 LoRA 槽位占多少显存？与实际加载几个 adapter 有关吗？
 
@@ -622,5 +816,15 @@ Table: 多模态源码导航
 
    </details>
 
-[^q0]: 单模型 serving 隐含三个假设：batch 内所有 token 乘同一份权重、输入 embedding 是查表、相同 token 前缀有相同 KV。multi-LoRA 打破第一条（每个请求要乘自己的 $$\Delta W = BA$$）；多模态打破第二条（image token 的 embedding 是 encoder 算出来的，一张图必须整体编码，Token Budget 的第一个例外）；两者都打破第三条（同样的前缀在不同 LoRA 或不同图片下 KV 不同）。详见[第一章](#一总览假设在哪里破了)、[第四章](#四两个扩展叠加以及它们留给硬件抽象与-pd-分离的问题)。
-[^q1]: **LoRA**：一个 kernel 处理全部 adapter——Triton 的 `lora_shrink` / `lora_expand` 用 grid 的第三维遍历 adapter、按排序后的 token 索引 gather；adapter 权重按槽位静态堆在 GPU 上，大小由 `max_loras × max_lora_rank` 买断（8 个 rank-16 槽位约 1.44 GB / 卡，等于 15 个请求的 KV）；`LoRAModelManager` 两层 LRU 换入换出；`max_loras` 成了调度器的新准入约束，CUDA Graph 按有无 LoRA 各录一套。代价：每个 LoRA 层每步多两次 launch 与一块 fp32 缓冲，FLOPs 只多 0.2%（[第二章](#二multi-lora同一个-batch每一行乘不同的权重)）。**多模态**：复用 HF processor 预处理、`PlaceholderRange` 记占位符、`MultiModalHasher` 对原始输入哈希驱动两级缓存；embedding 阶段用 `is_mm_embed` 掩码把 encoder 输出就地散射进序列；encoder 有自己的预算（`encoder_compute_budget` / `encoder_cache_size`）。显存上一张图真正贵的是它的 KV（约 20 倍于 encoder 输出、活全程）（[第三章](#三多模态一部分-embedding-不是查表得来的)）。**前缀**：`hash_block_tokens()` 的 `extra_keys` 里同时有 `lora_name` 与 `(mm_hash, 块内偏移)`（[第四章](#四两个扩展叠加以及它们留给硬件抽象与-pd-分离的问题)）。
+6. 同一个 Qwen2.5-7B-Instruct 服务，一批请求 `tools` 完全相同，另一批每个请求把工具顺序随机打乱。两批的 prefix cache 命中有什么区别？如果服务端用 `--chat-template` 换成一份不含 `tools` 分支的 ChatML 模板，带工具的请求会得到什么响应？
+
+   <details markdown="1"><summary>答案</summary>
+
+   第一批共享 system 段里那 132 个 token 的工具定义，前缀能命中；第二批工具段的 token 各不相同，块哈希从工具段开始就对不上，后面整段对话都要重算。换成不含 `tools` 分支的模板后，工具定义根本不进 prompt：请求照常返回 200，模型按普通问答作答，`tool_calls` 为空——用 `POST /tokenize` 看渲染结果就能发现工具段不见了。
+
+   </details>
+
+[^q0]: 单模型 serving 隐含三个假设：batch 内所有 token 乘同一份权重、输入 embedding 是查表、相同 token 前缀有相同 KV。multi-LoRA 打破第一条（每个请求要乘自己的 $$\Delta W = BA$$）；多模态打破第二条（image token 的 embedding 是 encoder 算出来的，一张图必须整体编码，Token Budget 的第一个例外）；两者都打破第三条（同样的前缀在不同 LoRA 或不同图片下 KV 不同）。详见[第一章](#一总览假设在哪里破了)、[第五章](#五两个扩展叠加以及它们留给硬件抽象与-pd-分离的问题)。
+[^q1]: **LoRA**：一个 kernel 处理全部 adapter——Triton 的 `lora_shrink` / `lora_expand` 用 grid 的第三维遍历 adapter、按排序后的 token 索引 gather；adapter 权重按槽位静态堆在 GPU 上，大小由 `max_loras × max_lora_rank` 买断（8 个 rank-16 槽位约 1.44 GB / 卡，等于 15 个请求的 KV）；`LoRAModelManager` 两层 LRU 换入换出；`max_loras` 成了调度器的新准入约束，CUDA Graph 按有无 LoRA 各录一套。代价：每个 LoRA 层每步多两次 launch 与一块 fp32 缓冲，FLOPs 只多 0.2%（[第三章](#三multi-lora同一个-batch每一行乘不同的权重)）。**多模态**：复用 HF processor 预处理、`PlaceholderRange` 记占位符、`MultiModalHasher` 对原始输入哈希驱动两级缓存；embedding 阶段用 `is_mm_embed` 掩码把 encoder 输出就地散射进序列；encoder 有自己的预算（`encoder_compute_budget` / `encoder_cache_size`）。显存上一张图真正贵的是它的 KV（约 20 倍于 encoder 输出、活全程）（[第四章](#四多模态一部分-embedding-不是查表得来的)）。**前缀**：`hash_block_tokens()` 的 `extra_keys` 里同时有 `lora_name` 与 `(mm_hash, 块内偏移)`（[第五章](#五两个扩展叠加以及它们留给硬件抽象与-pd-分离的问题)）。
+[^q2]: 全在 API Server 进程里，分七步：`OnlineRenderer.render_chat()` 校验 `tool_choice` 与启动参数、把 `tools` 转成 dict；`parse_chat_messages()` 把消息整理成模板认识的形式，图片收进 `mm_data` 并留下占位，历史 `tool_calls` 的 `arguments` 从字符串解析成 dict；`safe_apply_chat_template()` 按 `--chat-template` → processor 模板（仅无 `tools` 时）→ `tokenizer_config.json` → 兜底文件的顺序选模板，渲染出文本；分词（`add_special_tokens` 默认关）；多模态处理器把一个占位展开成 N 个；`Parser.adjust_request()` 按 `tool_choice` 改写请求；最后 `InputProcessor.process_inputs()` 组装 `EngineCoreRequest`，并把 `generation_config` 的结束 token 并进停止集合。详见[第二章第 2 节](#2-渲染流水线从-http-请求到-enginecorerequest)、[第 3 节](#3-chat-template-从哪来content-format-与图片占位)。
+[^q3]: 几乎都不报错，只是输出不对：模板不渲染工具时模型不知道有工具，响应 200 但 `tool_calls` 为空；轮次标记不是这个模型的（如 Qwen2.5 上套 Llama 3 模板，`<|eot_id|>` 被切成 7 个普通 token），模型答非所问或停不下来；结束一轮的 token 不在停止集合里也停不下来；`add_generation_prompt=false` 时模型可能替用户接着说；模板不认的 `chat_template_kwargs` 被静默过滤；工具格式和 `--tool-call-parser` 不配时，调用要么让每个请求失败、要么作为普通 `content` 返回。详见[第二章第 4 节](#4-实例两轮对话加一个工具渲染出来是什么)、[第 5 节](#5-模板与模型不配时会怎样)。

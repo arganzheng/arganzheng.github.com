@@ -54,13 +54,13 @@ Table: 贯穿全文例子的一笔时间账
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | forward 之前：SchedulerOutput 如何变成 GPU 张量 | `SchedulerOutput` 的字段<br/>`_update_states()`、`_prepare_inputs()`、attention metadata、执行模式选择四步翻译<br/>一步之内 CPU 与 GPU 在哪里等谁：`execute_model()` 与 `sample_tokens()`、唯一的同步点 |
+| 二 | forward 之前：SchedulerOutput 如何变成 GPU 张量 | `SchedulerOutput` 的字段<br/>`_update_states()`、`_prepare_inputs()`、attention metadata、执行模式选择四步翻译<br/>一步之内 CPU 与 GPU 在哪里等谁：`execute_model()` 与 `sample_tokens()`、唯一的同步点<br/>Worker 进程的常驻循环 `worker_busy_loop()`<br/>forward 里的 kernel 从哪来：`torch.ops._C.*` 与 `torch.ops.vllm.*` 两类注册 |
 | 三 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
 | 四 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
 | 五 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
 | 六 | 能不能少跑几轮模型？ | 投机解码的原理与无损性<br/>Proposer 家族（Draft Model / n-gram / EAGLE / Medusa / MTP）<br/>调度器的预算、lookahead 槽位与回滚<br/>model runner 一次算 K+1 个位置与 CUDA Graph<br/>RejectionSampler<br/>收益的临界点<br/>多卡与 PD 下的约束 |
 | 七 | 本文小结 |  |
-| 八 | 自测 | 7 道题 |
+| 八 | 自测 | 8 道题 |
 
 Table: 本文的章节安排
 
@@ -88,11 +88,11 @@ Table: SchedulerOutput 的字段
 
 ### 2. 四步翻译：从调度决策到 kernel 参数
 
-Worker 一侧常驻一份 `InputBatch`（`vllm/v1/worker/gpu_input_batch.py`，每个在跑的请求占一行）和每个 KV cache group 一张 `BlockTable`（`vllm/v1/worker/block_table.py`）。它们和调度器进程里的对象怎样靠 `request_id`、`block_id` 两个整数对上，见[第三篇“核心数据对象：四个域”](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)那张图。每一步，Worker 把 `SchedulerOutput` 翻译成 GPU 数据结构，分四步：
+Worker 一侧常驻一份 `InputBatch`（`vllm/v1/worker/gpu_input_batch.py`，每个在跑的请求占一行）和每个 KV cache group 一张 `BlockTable`（`vllm/v1/worker/block_table.py`）。它们和调度器进程里的对象怎样靠 `request_id`、`block_id` 两个整数对上，见[第三篇“核心数据对象：四个域”](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)那张图。每一步，Worker 把 `SchedulerOutput` 翻译成 GPU 数据结构，分四步：
 
 | 步骤 | 函数 | 做什么 | 细节 |
 |---|---|---|---|
-| ① 同步 `InputBatch` | `_update_states()` | 按 `SchedulerOutput` 删掉完成 / 抢占的行、加新请求、追加新块号、更新 `num_computed_tokens`；`InputBatch` 跨步常驻，只做增量 | Req A（已缓存 256、新推 256）→ 本轮 256 个 token<br/>Req B（decode）→ 1 个<br/>Req C（spec decode）→ 1+N 个 |
+| ① 同步 `InputBatch` | `_update_states()` | 按 `SchedulerOutput` 删掉完成 / 抢占的行、加新请求、追加新块号、更新 `num_computed_tokens`；`InputBatch` 跨步常驻，只做增量；删行留下的空洞由 `condense()` 把尾行搬进来，`BlockTable` 跟着 `move_row()` / `swap_row()` 同步搬行，所以行号每步都可能变 | Req A（已缓存 256、新推 256）→ 本轮 256 个 token<br/>Req B（decode）→ 1 个<br/>Req C（spec decode）→ 1+N 个 |
 | ② 拼输入与 `slot_mapping` | `_prepare_inputs()` | numpy 把各请求本轮的 token 扁平成一条 `input_ids` / `positions`，经 pinned buffer 异步 H2D；`block_table.compute_slot_mapping()` 用 Triton kernel 由 block table 算出每个 token 的 slot | 新块从头写<br/>已有块追加到尾部<br/>**Prefix Cache 命中的那段已计入 `num_computed_tokens`，根本不在本轮 token 里** |
 | ③ attention metadata | `_build_attention_metadata()` | 告诉 kernel 每个请求能读哪些块 | `block_table_tensor`、`slot_mapping`、`query_start_loc`、`seq_lens`、`max_query_len`；V1 没有 `is_prompt`，prefill 和 decode 只是 query 长度不同 |
 | ④ 执行模式选择 | `_determine_batch_execution_and_padding()` → `cudagraph_dispatcher.dispatch()` | 决定 FULL / PIECEWISE CUDA Graph 还是 eager，并把 batch pad 到捕获过的尺寸 | 纯 decode 且尺寸在捕获列表内 → 整张图 replay<br/>含 prefill / 超出尺寸 → piecewise graph 或 eager |
@@ -107,7 +107,14 @@ Table: SchedulerOutput 到 GPU 输入的四步翻译
 
 ### 3. 一步之内的时序：CPU 与 GPU 在哪里等谁
 
-上面讲的是“翻译什么”，还有一个问题是“翻译和计算在时间上怎么排”。[第三篇第二章](/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下)那张单步时间线说 CPU 准备 N+1 步时 GPU 在算 N 步，它成立的前提是**一步之内 CPU 几乎不等 GPU**。v0.27.1 把一步拆成 `execute_model()` 和 `sample_tokens()` 两次调用，下面按时间顺序标出每个动作发生在 CPU 还是 GPU、哪里是异步入队、哪里是真正的同步点：
+上面讲的是“翻译什么”，还有一个问题是“翻译和计算在时间上怎么排”。[第三篇的控制面与数据面](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)那张单步时间线把一步分成四段，落到源码是：
+
+1. **schedule（CPU，EngineCore 进程）**：`Scheduler.schedule()` 从 running / waiting 里按 token 预算分配本步额度，产出 `SchedulerOutput`（主循环见[第四篇](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)）。
+2. **prepare（CPU，Worker 进程）**：`GPUModelRunner._update_states()` 按 `SchedulerOutput` 增删 `InputBatch` 的行，`_prepare_inputs()` 拼 `input_ids` / `positions`、H2D 拷贝、算 `slot_mapping`。
+3. **model forward（GPU）**：`_model_forward()` 逐层 launch kernel，纯 decode 时整张 CUDA Graph 一次 replay。
+4. **sample（GPU → CPU）**：`_sample()` 采出 `sampled_token_ids`，`_bookkeeping_sync()` 拷回 CPU，打包成 `ModelRunnerOutput` 交回 Scheduler。
+
+那张图说 CPU 准备 N+1 步时 GPU 在算 N 步，它成立的前提是**一步之内 CPU 几乎不等 GPU**。v0.27.1 把一步拆成 `execute_model()` 和 `sample_tokens()` 两次调用，下面按时间顺序标出每个动作发生在 CPU 还是 GPU、哪里是异步入队、哪里是真正的同步点：
 
 ```mermaid
 %% 图：一步之内 CPU 与 GPU 在哪里等谁：execute_model 与 sample_tokens 两次调用，标出异步入队与真正的同步点
@@ -147,6 +154,48 @@ sequenceDiagram
 2. **同步点只有一个，且被推到最后。** `_bookkeeping_sync()` 里的 `_to_list()` 用 `transfer_event.synchronize()` 等采样结果落到 CPU；它用 CUDA event 而不是 `tolist()` 直接触发的全 stream 同步，是为了不阻塞其他 stream 上的拷贝（比如 PD 分离时的 KV 传输）。在这个点之前，GPU 上排着的是 forward + 采样整条队列，CPU 等的时间就是 GPU 真正的计算时间。
 3. **为什么拆成两次调用。** `execute_model()` 返回后、`sample_tokens()` 之前，EngineCore 有一个窗口可以做需要上一步结果的事（结构化输出的 grammar bitmask），而 GPU 此刻正在跑 forward——把 CPU 侧这段工作塞进 GPU 的空当。
 4. **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是第三篇说的“流水线化”在源码里更激进的形态。
+
+### 4. Worker 进程的常驻循环：execute_model 只是一个方法名
+
+上面的时序图从 `GPUModelRunner` 画起。消息是怎么到它手里的，要看 WorkerProc（默认 `MultiprocExecutor` 下每个 TP / PP rank 一个进程）里常驻的那个循环——`WorkerProc.worker_busy_loop()`（`vllm/v1/executor/multiproc_executor.py`）：
+
+1. 阻塞在 `rpc_broadcast_mq.dequeue()` 上，从共享内存环形缓冲里取出一条消息：方法名、参数和这次要谁回复（`output_rank`）。
+2. 方法名是字符串时，`getattr(self.worker, method)` 反射拿到 `Worker` 上的同名方法；是字节串时，说明 EngineCore 发来的是 cloudpickle 过的函数，反序列化后绑到 `Worker` 上。
+3. 调用它；本 rank 正是 `output_rank`（或者这次不指定回复者）时，`handle_output()` 把返回值放进自己的 `worker_response_mq`，其他 rank 算完就丢掉。出异常时同样只由该回复的 rank 把异常交回。
+
+所以 `execute_model` 和 `sample_tokens` 对这个循环来说只是两个字符串；EngineCore 一侧 `collective_rpc()` 发什么名字，Worker 就调什么方法。Worker 进程里的调用栈因此很浅——循环、`Worker` 上的一个方法、再转给 `GPUModelRunner`：
+
+```text title="WorkerProc 里的调用栈"
+WorkerProc（每个 TP/PP rank 一个）           vllm/v1/worker/
+└─ worker_busy_loop()                        executor/multiproc_executor.py
+   └─ Worker.execute_model() / sample_tokens()   gpu_worker.py
+      └─ GPUModelRunner                      gpu_model_runner.py
+         ├─ _update_states()      CPU: 同步 CachedRequestState / InputBatch
+         ├─ _prepare_inputs()     CPU → GPU: H2D 拷贝 + slot_mapping kernel
+         ├─ _model_forward()   ┐  Python → CUDA 边界（PyTorch dispatch）
+         ├─ compute_logits()   │  Attention → flash_attn / FlashInfer kernel
+         ├─ _sample()          │  或整段 CUDA Graph replay
+         └─ _bookkeeping_sync()┘  GPU → CPU: 整步唯一的 D2H 同步点
+```
+
+请求本身不在这个栈上：它只是 `SchedulerOutput` 里的一行，栈的形状是“死循环 + 一次方法调用”，每一步都一样。单卡时没有 WorkerProc，`UniProcExecutor` 在 EngineCore 进程里直接调 `Worker` 的方法，栈从 `Worker.execute_model()` 往下不变。
+
+### 5. forward 里的 kernel 从哪来：Python 怎样调到 C++ / CUDA / Triton
+
+`_model_forward()` 里那一串 kernel 是 Python 调起来的，中间隔着 PyTorch 的 dispatcher。vLLM 的 CUDA 扩展模块不是用 PyBind11 绑出一组 Python 函数：`csrc/libtorch_stable/torch_bindings.cpp` 用 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 向 dispatcher 声明算子 schema，用 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 挂上 CUDA 实现；文件末尾的 `REGISTER_EXTENSION(_C_stable_libtorch)`（`csrc/core/registration.h`）只生成一个空的 `PyInit_` 入口，好让 `import vllm._C_stable_libtorch` 能把 `.so` 装进进程、触发注册。之后 Python 一侧通过 `torch.ops._C.<算子名>` 调用，`vllm/_custom_ops.py` 再包一层同名函数（例如 `rms_norm()` 里就是 `torch.ops._C.rms_norm(...)`）。
+
+另一类算子用 Python 写：attention 层的 `unified_attention_with_output` 由 `direct_register_custom_op`（`vllm/utils/torch_utils.py`）注册成 `torch.ops.vllm.*`，这样 `torch.compile` 把它当成一个不可拆的节点——第三章 PIECEWISE 模式下留在图外、把图切成几段的，就是这类节点（`CompilationConfig.splitting_ops` 默认包含 `vllm::unified_attention_with_output`）；它内部再调 FlashAttention 扩展或 Triton kernel。许多算子（尤其是 Attention 和 MoE 相关）用 Triton 写，`.py` 文件在运行时 JIT 编译，不进 wheel 的 `.so`。
+
+| Python 一侧的调用 | 落到的实现 | GPU 硬件 |
+|---|---|---|
+| `vllm/_custom_ops.py` 的 `rms_norm()` → `torch.ops._C.rms_norm` | `csrc/libtorch_stable/layernorm_kernels.cu`，编进 `_C_stable_libtorch.abi3.so` | CUDA Cores |
+| `torch.ops.vllm.unified_attention_with_output`（`vllm/model_executor/layers/attention/attention.py`） | Attention backend：FlashAttention（`vllm_flash_attn` 扩展）或 Triton kernel（`.py`） | Tensor Cores |
+| `fused_moe()`（`vllm/model_executor/layers/fused_moe/`） | `csrc/libtorch_stable/moe/`（`_moe_C_stable_libtorch`）或 Triton experts（`.py`） | Tensor Cores |
+| `torch.matmul()` / 线性层 | PyTorch 自带的 cuBLAS GEMM | Tensor Cores |
+
+Table: 从 Python 调用到 GPU 硬件的对应
+
+这些 `.so` 由哪些进程加载、wheel 里有哪几个，见[第三篇的开发视图](/vllm-request-lifecycle-overview.html#2-构建与打包python-包--编译扩展)。
 
 翻译层本身不会让 GPU 空等：它的 CPU 工作全部异步入队，被 GPU 上一段 forward 盖住。真正可能让 GPU 等 CPU 的，是 `_model_forward()` 里那串 kernel launch——一步几百到上千次，单个 kernel 又短。这就是下一章的第一种浪费。
 
@@ -974,6 +1023,9 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 |---|---|
 | 输入翻译 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner._update_states()`、`_prepare_inputs()`、`_build_attention_metadata()`、`_determine_batch_execution_and_padding()`、`_bookkeeping_sync()`；`vllm/v1/worker/block_table.py` → `BlockTable.commit_block_table()` / `compute_slot_mapping()` |
 | **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu_model_runner.py`（默认）、`vllm/v1/worker/gpu_input_batch.py`；V2 实现在 `vllm/v1/worker/gpu/`（输入翻译见本文第二章） |
+| Worker 进程的常驻循环 | `vllm/v1/executor/multiproc_executor.py` → `WorkerProc.worker_busy_loop()`、`handle_output()`；EngineCore 一侧 `MultiprocExecutor.collective_rpc()`；`vllm/v1/worker/gpu_worker.py` → `Worker.execute_model()` / `sample_tokens()` |
+| C++ / CUDA 算子怎样注册给 Python | `csrc/libtorch_stable/torch_bindings.cpp`（`STABLE_TORCH_LIBRARY_FRAGMENT` / `STABLE_TORCH_LIBRARY_IMPL`）、`csrc/core/registration.h`（`REGISTER_EXTENSION`）、`vllm/_custom_ops.py`（`torch.ops._C.*` 的包装） |
+| Python 写的自定义算子 | `vllm/utils/torch_utils.py` → `direct_register_custom_op()`；`vllm/model_executor/layers/attention/attention.py` → `unified_attention_with_output`；图切分点 `vllm/config/compilation.py` → `CompilationConfig.splitting_ops` |
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
@@ -1069,6 +1121,14 @@ Table: 投机解码源码导航
    <details markdown="1"><summary>答案</summary>
 
    `_update_states()` 把新块号写进 `BlockTable` 的行，`_prepare_inputs()` 第一行 `commit_block_table()` 把它异步拷到 GPU，再由 `compute_slot_mapping()` 算出 `slot_mapping`（新 token 写到哪个 slot），连同 `seq_lens`、`query_start_loc` 由 `_build_attention_metadata()` 打包成 attention metadata；decode kernel 对每个请求按 block table 查 KV 块地址，逐块读 K、V 做 attention，新 K、V 按 `slot_mapping` 写入。
+
+   </details>
+
+8. `torch.ops._C.rms_norm` 和 `torch.ops.vllm.unified_attention_with_output` 分别是怎么注册进 PyTorch 的？attention 为什么要注册成一个自定义算子？
+
+   <details markdown="1"><summary>答案</summary>
+
+   前者在 C++ 里注册：`torch_bindings.cpp` 用 `STABLE_TORCH_LIBRARY_FRAGMENT` 声明 schema、`STABLE_TORCH_LIBRARY_IMPL` 挂 CUDA 实现，`import vllm._C_stable_libtorch` 装入 `.so` 时触发，Python 侧经 `_custom_ops.py` 的包装调用。后者在 Python 里用 `direct_register_custom_op` 注册成 `torch.ops.vllm.*`。注册成一个不可拆的算子，`torch.compile` 就不会把 attention 拆开追踪，PIECEWISE CUDA Graph 正好在它处切段，它内部再按 backend 调 FlashAttention 扩展或 Triton kernel。
 
    </details>
 
