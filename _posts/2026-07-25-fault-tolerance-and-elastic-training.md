@@ -61,7 +61,7 @@ Table: Llama 3 405B 预训练的中断统计（Dubey et al. 2024，§3.3.4）
 
 ### 3. 容错的四个环节与本篇的全局图
 
-![容错的四个环节：故障、检测、重启、加载](/img/in-post/fault-tolerance-four-stages.svg)
+![故障之后的四个环节：检测、重启、加载、回退](/img/in-post/fault-tolerance-four-stages.svg)
 
 平行于这条时间线的三件事：**坏卡隔离**（让同一张卡不要连续制造故障）、**straggler**（没有故障但有人拖慢所有人）、**SDC**（没有故障但结果是错的）。
 
