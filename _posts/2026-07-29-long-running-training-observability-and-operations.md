@@ -47,7 +47,23 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 
 一个在线服务有四件运维基本功：看得见（metrics / logs / traces）、叫得醒（alerting）、查得出（debugging）、有章法（runbook / postmortem）。训练任务与在线服务的差别只在于：它是一个进程组而不是一群独立进程，所以"一个 rank 的问题是全体的问题"；它有一个内在的进度量（step）而不是请求量；它的故障后果是回退到上一个 checkpoint 而不是丢几个请求。这三个差别决定了本篇与通用运维手册不同的地方——**按 rank 看、以 step 为时钟、以 checkpoint 为恢复点**。
 
-![四件运维基本功和三层指标](/img/in-post/long-running-training-observability-three-layers.svg)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 520}}}%%
+%% 图：四件运维基本功和三层指标
+flowchart TB
+    subgraph S1["① 看得见：三层指标（谁能采、谁来看）"]
+        direction TB
+        L1["<b>任务层</b><br/>• loss、grad norm、lr、token/s、MFU、step 时间、抖动<br/>• 训练循环自己算，一个任务一份"]
+        L2["<b>进程层</b><br/>• 每 rank 计算 / 等待时间、显存峰值与碎片、数据队列、CPU<br/>• 训练进程或旁路采集器采，每个 rank 一份"]
+        L3["<b>硬件层</b><br/>• 温度、功耗、频率、XID、ECC、行重映射、网卡错包重传<br/>• DCGM 守护进程从驱动读，一张卡一份"]
+        L1 ~~~ L2 ~~~ L3
+    end
+    S1 -- "写入" --> TBW["<b>TensorBoard / W&B</b><br/>曲线，按 step"]
+    S1 -- "写入" --> PROM["<b>Prometheus</b><br/>时序，按时间与 rank"]
+    PROM --> ALERT["<b>② 叫得醒</b><br/>告警规则（第五章）：建在 Prometheus 时序上，step 计数停住即 page"]
+    ALERT --> DBG["<b>③ 查得出：看不见的 hang 与变慢</b><br/>• hang：Flight Recorder dump → fr_trace → 哪个 rank 缺席哪次集合通信<br/>• hang：py-spy dump 全部 rank → Python 栈；TORCH_DISTRIBUTED_DEBUG<br/>• 变慢：profiler 时间线对比、少数 rank 上的 Nsight、硬件层指标对照"]
+    DBG --> RB["<b>④ 有章法</b><br/>开训检查清单、值班手册、复盘模板、成本换算决定优先级"]
+```
 
 ### 3. 三层指标表
 
