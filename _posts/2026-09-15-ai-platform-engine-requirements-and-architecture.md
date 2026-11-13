@@ -161,7 +161,17 @@ flowchart TB
 
 最后是时间维度。训练任务是**有限时长的批处理**：提交、排队、被调度、运行数小时到数周、结束或失败、释放全部资源。它的运行时间由数据量和算力决定，与外部请求无关；它在排队时不占资源，在运行时独占资源，中间没有"部分运行"的状态（弹性训练是例外，但改变 $$W$$ 要重新 rendezvous，是重启而非平滑扩缩）。
 
-![训练任务的生命周期](/img/in-post/ai-platform-engine-requirements-and-architecture-training-lifecycle.svg)
+```mermaid
+%% 图：训练任务的生命周期
+flowchart TB
+    SUB["提交"] --> Q["<b>排队</b><br/>等配额 / 等资源凑齐"]
+    Q --> SCH["全员调度"]
+    SCH --> RDZV["rendezvous"]
+    RDZV --> RUN["<b>运行</b><br/>每 T 分钟写一次 checkpoint"]
+    RUN -- "任一 Pod 失败：整组重建，从 checkpoint 恢复" --> SCH
+    RUN --> FIN["完成 / 失败"]
+    FIN --> REL["释放全部 GPU"]
+```
 
 这个生命周期对平台的含义是：**排队是正常状态**，需要队列、配额和公平性；**运行中被打断的代价可量化**——上次 checkpoint 之后的所有算力白费——所以抢占策略要知道这个代价；**结束后资源整体归还**，适合按任务而非按时间切片记账。
 
@@ -246,7 +256,15 @@ Table: vLLM 与扩缩容和路由直接相关的 Prometheus 指标
 
 与训练相反，推理服务是**长驻**的：它的运行时间由业务决定，负载随时间波动，副本数随负载变化，版本要在不停服的情况下更新。
 
-![推理服务的生命周期](/img/in-post/ai-platform-engine-requirements-and-architecture-inference-lifecycle.svg)
+```mermaid
+%% 图：推理服务的生命周期
+flowchart TB
+    DEP["部署"] --> READY["<b>副本就绪</b><br/>加载权重"]
+    READY --> SERVE["接流量"]
+    SERVE --> SCALE["<b>随负载扩缩</b><br/>低谷时缩到最少副本或零；高峰前提前扩容"]
+    SCALE --> UPG["<b>滚动升级</b><br/>新旧版本并存"]
+    UPG -. "…" .-> OFF["下线"]
+```
 
 它对平台的含义：**没有"结束"**，成本是持续的，空闲副本的费用与忙时一样；**扩缩是常态**，每一次扩容都是一次几分钟的冷启动；**升级是有状态的**——一个副本在处理流式请求时被终止，用户看到的是回复中断，所以替换副本要等在途请求完成。
 
