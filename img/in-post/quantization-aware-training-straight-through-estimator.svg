@@ -71,10 +71,10 @@
   </g>
  </g>
  <g stroke="#334155" stroke-width="1.8" marker-end="url(#arrow)">
-  <line x1="142.0" y1="107" x2="172.0" y2="107" />
-  <line x1="289.0" y1="107" x2="319.0" y2="107" />
-  <line x1="436.0" y1="107" x2="466.0" y2="107" />
-  <line x1="583.0" y1="107" x2="613.0" y2="107" />
+  <line x1="142.0" y1="107" x2="175.2" y2="107" />
+  <line x1="289.0" y1="107" x2="322.2" y2="107" />
+  <line x1="436.0" y1="107" x2="469.2" y2="107" />
+  <line x1="583.0" y1="107" x2="616.2" y2="107" />
  </g>
  <text x="24" y="180" fill="#334155" font-size="13" font-weight="500">反向：裁剪 STE 只把范围内的梯度传回去</text>
  <g fill="#e8f5f2" stroke="#238a83" stroke-width="1.5">
@@ -143,9 +143,9 @@
   </g>
  </g>
  <g stroke="#238a83" stroke-width="1.8" marker-end="url(#arrow)">
-  <line x1="612" y1="229" x2="576" y2="229" />
-  <line x1="365" y1="229" x2="198" y2="229" />
+  <line x1="612" y1="229" x2="571.8" y2="229" />
+  <line x1="365" y1="229" x2="193.8" y2="229" />
  </g>
- <line x1="674" y1="138" x2="674" y2="192" stroke="#238a83" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)" />
+ <line x1="674" y1="138" x2="674" y2="196.4" stroke="#238a83" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#arrow)" />
  <text x="380" y="294" fill="#5b6472" font-size="11" text-anchor="middle">前向的 clip → round → dequant 不变；STE 只替换反向梯度。</text>
 </svg>
