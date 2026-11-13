@@ -59,7 +59,7 @@
   <tspan x="462" text-anchor="start" class="small" dy="18">第 137,000 步各 rank 各拿了哪些样本？</tspan>
   <tspan x="462" text-anchor="start" class="small" dy="18">→ 管线每一步确定性、可回放</tspan>
  </text>
- <line x1="96" y1="160" x2="744" y2="160" class="arrow" />
+ <line data-axis="" x1="96" y1="160" x2="744" y2="160" class="arrow" />
  <line x1="240" y1="155" x2="240" y2="165" class="line" />
  <line x1="410.0" y1="155" x2="410.0" y2="165" class="line" />
  <text x="84" y="165" text-anchor="end" class="small">step / 样本号</text>

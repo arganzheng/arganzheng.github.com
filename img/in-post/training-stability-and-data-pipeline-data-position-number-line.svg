@@ -108,7 +108,7 @@
   </g>
  </g>
  <text x="131.0" y="42" text-anchor="middle" class="small">…已消费 T 步…</text>
- <line x1="178" y1="60" x2="542" y2="60" class="arrow2" />
+ <line data-axis="" x1="178" y1="60" x2="542" y2="60" class="arrow2" />
  <g class="mathtext" data-tex="step $T+1$ 的 global batch" data-x="360" data-y="42" data-size="13" data-anchor="middle" data-fill="#243447" fill=" #243447" data-family="'Hiragino Sans GB', 'PingFang SC', sans-serif" data-weight="400" aria-label="step T+1 的 global batch">
   <g transform="translate(279.000 42.000)">
    <text font-size="0">
@@ -149,7 +149,7 @@
    </text>
   </g>
  </g>
- <line x1="546" y1="60" x2="742" y2="60" class="arrow" />
+ <line data-axis="" x1="546" y1="60" x2="742" y2="60" class="arrow" />
  <line x1="86" y1="60" x2="174" y2="60" class="thin" />
  <text x="78" y="88" text-anchor="end" class="small">样本号</text>
  <rect class="seg-dim" x="86" y="70" width="90" height="26" />
