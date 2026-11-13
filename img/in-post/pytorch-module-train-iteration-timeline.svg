@@ -62,6 +62,6 @@ text{font-family:'SvgSans', "PingFang SC","Hiragino Sans GB","Noto Sans CJK SC",
   <text x="326" y="111.0" text-anchor="start" dominant-baseline="central" class="mono">inputs, targets</text>
   <path d="M700,301.0 H730 V340 H100 V301.0 H120" class="ln" marker-end="url(#ah)" />
   <text x="410" y="352" text-anchor="middle" dominant-baseline="central" class="small">下一个 batch</text>
-  <line x1="120" y1="380" x2="712" y2="380" class="ax" marker-end="url(#ahg)" />
+  <line data-axis="" x1="120" y1="380" x2="712" y2="380" class="ax" marker-end="url(#ahg)" />
   <text x="718" y="380" text-anchor="start" dominant-baseline="central" class="small">时间</text>
 </svg>
