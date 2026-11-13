@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（04）：Scheduler：GPU 这一轮到底给谁用？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-11
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -1014,7 +1014,7 @@ flowchart TB
     WAITING -->|"KV 不够 / 预算耗尽 / 名额已满"| WAITING
     RUNNING -->|"running 循环：allocate_slots() 失败<br/>被选为牺牲者 _preempt_request()"| PREEMPTED["<b>PREEMPTED</b><br/>KV block 已释放<br/>num_computed_tokens = 0<br/>放回 waiting 队头"]
     PREEMPTED -->|"下一轮 waiting 循环重新接纳<br/>Prefix Cache 命中部分可跳过"| RUNNING
-    RUNNING -->|"生成 EOS / stop string"| FS["FINISHED_STOPPED"]
+    RUNNING -->|"生成 EOS / stop token"| FS["FINISHED_STOPPED"]
     RUNNING -->|"达到 max_tokens 或 max_model_len"| FL["FINISHED_LENGTH_CAPPED"]
     RUNNING -->|"客户端取消 abort"| FA["FINISHED_ABORTED"]
     WAITING -->|"排队中被 abort"| FA
@@ -1031,7 +1031,84 @@ flowchart TB
     class FS,FL,FA fin;
 ```
 
-`RequestStatus` 是一个 `IntEnum`，`is_finished()` 的判断就是 `status > PREEMPTED`——所有终态（还包括 `FINISHED_ERROR`、`FINISHED_REPETITION` 等少见分支）都排在 PREEMPTED 之后。图中省略了 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`、`WAITING_FOR_REMOTE_KVS` 等几个"仍在等待但暂不可调度"的子状态，它们在 waiting 循环里会被跳过并挂到 `skipped_waiting` 队列，对本文关注的 Batch 组成没有影响。
+PREEMPTED 只有一条出路：被 waiting 循环重新接纳、回到 RUNNING。被抢占的请求已经交出了 KV 块，所以系统不能假设“已经开始跑的请求一定能跑完”，Scheduler 每轮都要同时面对新请求和恢复请求。
+
+`RequestStatus` 是一个 `IntEnum`，`is_finished()` 的判断就是 `status > PREEMPTED`——所有终态都排在 PREEMPTED 之后：
+
+```python title="request.py：RequestStatus 状态机"
+# vllm/v1/request.py
+class RequestStatus(enum.IntEnum):
+    WAITING = enum.auto()
+    WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR = enum.auto()
+    WAITING_FOR_REMOTE_KVS = enum.auto()
+    WAITING_FOR_STREAMING_REQ = enum.auto()
+    RUNNING = enum.auto()
+    PREEMPTED = enum.auto()
+    # Note: anything after PREEMPTED will be considered as a finished status.
+    FINISHED_STOPPED = enum.auto()
+    FINISHED_LENGTH_CAPPED = enum.auto()
+    FINISHED_ABORTED = enum.auto()
+    FINISHED_IGNORED = enum.auto()
+    FINISHED_ERROR = enum.auto()
+    FINISHED_REPETITION = enum.auto()
+```
+
+上图只画了最常见的三个终态。六个终态各由谁设置、对应客户端看到的哪个 `finish_reason`（`_FINISHED_REASON_MAP`）：
+
+| 终态 | 谁设置 | 触发条件 | `finish_reason` |
+|---|---|---|---|
+| `FINISHED_STOPPED` | `check_stop()`（`vllm/v1/core/sched/utils.py`），由 `update_from_output()` 调用 | 采样出 EOS 或 `stop_token_ids` 里的 token；pooling 模型一出结果就停 | stop |
+| `FINISHED_LENGTH_CAPPED` | `check_stop()` | 输出数到 `max_tokens`，或总长到 `max_model_len` | length |
+| `FINISHED_REPETITION` | `check_stop()` → `check_sequence_repetition()` | 请求开了 `repetition_detection`，输出尾部出现重复的 n-gram | repetition |
+| `FINISHED_ERROR` | `update_from_output()` | grammar 拒绝了采样出的 token、grammar 编译失败，或远端 KV 加载失败且未配置重算 | error |
+| `FINISHED_ABORTED` | `EngineCore.abort_requests()` → `Scheduler.finish_requests()` | 客户端断开或取消。stop **字符串**在 API Server 的 `OutputProcessor` 里检测，检测到后也是向 EngineCore 发 abort，客户端看到的仍是 stop | abort |
+| `FINISHED_IGNORED` | —— | 枚举里保留，源码注释说指 prompt 超过模型长度上限的请求 | length |
+
+Table: 六个终态的来源与 finish_reason
+
+另一头，WAITING 还有三个“仍在等待、但这一轮不能调度”的子状态。它们不进普通 waiting 队列，而是由 `_enqueue_waiting_request()` 放进 `skipped_waiting` 队列；waiting 循环每取到一个这样的请求，先调 `_try_promote_blocked_waiting_request()` 看能否解除阻塞，不能就挪到本轮的 `step_skipped_waiting` 跳过，能就当场恢复成 WAITING（或 PREEMPTED），在同一轮里接着走准入。FCFS 策略下 `_select_waiting_queue_for_scheduling()` 先看 `skipped_waiting`，所以被挡住的老请求一解除阻塞就排在新请求前面：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：WAITING 的三个阻塞子状态：放在 skipped_waiting 队列，由 _try_promote_blocked_waiting_request() 解除
+flowchart TB
+    ADD(("Request 构造"))
+    G["<b>WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR</b><br/>带结构化输出约束，语法还在后台编译"]
+    W["<b>WAITING</b><br/>普通 waiting 队列"]
+    P["<b>PREEMPTED</b><br/>waiting 队头"]
+    RK["<b>WAITING_FOR_REMOTE_KVS</b><br/>已为外部 KV 分好本地块<br/>等 KV Connector 收完"]
+    RUN["<b>RUNNING</b>"]
+    S["<b>WAITING_FOR_STREAMING_REQ</b><br/>可续写的流式会话停下<br/>仍占一个 running 名额"]
+    ERR["FINISHED_ERROR"]
+    ADD -->|"带 structured output"| G
+    ADD -->|"普通请求"| W
+    G -->|"grammar 编译完成"| W
+    G -->|"编译失败"| ERR
+    W -->|"connector 报告异步加载（load_kv_async）"| RK
+    P -->|"同上"| RK
+    RK -->|"finished_recving 含该请求<br/>_update_waiting_for_remote_kv()"| W
+    RK -->|"同上，且被抢占过"| P
+    W -->|"准入成功"| RUN
+    P -->|"准入成功"| RUN
+    RUN -->|"停止条件满足，但请求是 resumable 会话"| S
+    S -->|"新一段输入到达<br/>_update_request_as_session()"| W
+    classDef wait fill:#fdf1e0,stroke:#c9812a;
+    classDef block fill:#fff8e6,stroke:#c9a22a,stroke-dasharray:5 4;
+    classDef run fill:#e6f4ea,stroke:#3c8c4f;
+    classDef pre fill:#fbe4e4,stroke:#b94a48;
+    classDef fin fill:#ececec,stroke:#666;
+    class W wait;
+    class G,RK,S block;
+    class RUN run;
+    class P pre;
+    class ERR fin;
+```
+
+三个子状态对 batch 组成的影响各不相同：
+
+1. **`WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`** 只是把请求推迟到语法编译完，编译失败的请求在 `update_from_output()` 里以 `FINISHED_ERROR` 结束。
+2. **`WAITING_FOR_REMOTE_KVS`** 是 PD 分离里 Decode 实例的门槛：块已经分配、`num_computed_tokens` 也已预先记上，但 KV 没到齐之前不能进模型计算。到齐后若整个 prompt 都命中，`_update_waiting_for_remote_kv()` 把 `num_computed_tokens` 退一格，让最后一个输入 token 重算一次以得到采样用的 logits。它的完整交接流程在[第八篇第三章](/prefill-decode-disaggregation.html#三状态如何交接从请求契约到-kv-transfer)。
+3. **`WAITING_FOR_STREAMING_REQ`** 停下的会话不在 `running` 里，却仍占着 model runner 的一个请求槽位，所以 waiting 循环判断名额时用的是 `len(self.running) + self.num_waiting_for_streaming_input`，它们会挤占 `max_num_seqs`。
 
 
 ### 3. Recomputation vs Swapping
@@ -1317,13 +1394,13 @@ flowchart TB
 | 想看什么                     | 从哪开始                                                       |
 | ------------------------ | ---------------------------------------------------------- |
 | **Scheduler 核心调度逻辑**     | `vllm/v1/core/sched/scheduler.py` → `Scheduler.schedule()` |
-| **Request 状态与生命周期**      | `vllm/v1/core/sched/`                                      |
+| **Request 状态与生命周期** | `vllm/v1/request.py` → `RequestStatus`；终态判定 `vllm/v1/core/sched/utils.py` → `check_stop()`；阻塞子状态 `Scheduler._try_promote_blocked_waiting_request()` |
 | **Token Budget**         | `Scheduler.schedule()` → `max_num_scheduled_tokens`        |
 | **KV Cache 分配**          | `vllm/v1/core/kv_cache_manager.py` → `allocate_slots()`    |
 | **Prefix Cache**         | `vllm/v1/core/kv_cache_manager.py` / `block_pool.py`       |
 | **Preemption**           | `Scheduler._preempt_request()`                             |
 | **Scheduler → Executor** | `SchedulerOutput`                                          |
-| **执行层 InputBatch 构造**    | `ModelRunner`，见后续执行层章节                                     |
+| **执行层 InputBatch 构造** | `GPUModelRunner._update_states()` / `_prepare_inputs()`，见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量) |
 
 Table: Scheduler 源码导航
 
@@ -1343,7 +1420,7 @@ Table: Scheduler 源码导航
 
    <details markdown="1"><summary>答案</summary>
 
-   从 running 队列尾部（最晚来的）抢占，释放它全部块、状态回 WAITING，`num_computed_tokens` 清零；重算的代价在 prefix cache 存在时远低于理论最坏（前缀块大多还在缓存里），而 swap 到 CPU 要 PCIe 拷贝且管理复杂。
+   从 running 队列尾部（最晚来的）抢占，释放它全部块、状态设为 PREEMPTED 并放回 waiting 队首，`num_computed_tokens` 清零；重算的代价在 prefix cache 存在时远低于理论最坏（前缀块大多还在缓存里），而 swap 到 CPU 要 PCIe 拷贝且管理复杂。
 
    </details>
 
@@ -1368,6 +1445,22 @@ Table: Scheduler 源码导航
    <details markdown="1"><summary>答案</summary>
 
    它先到就先占 KV 与 budget，后面的短请求排队（TTFT 高）；优先级让高优先级请求插到 waiting 队首甚至抢占低优先级 running 请求，解决“谁先”，但不改变“长请求占 KV 久”这个事实——公平性最终受 KV 容量限制。
+
+   </details>
+
+6. 一个请求的状态机有哪几个主要状态？从 WAITING 到 RUNNING 要过哪些检查？哪三个等待子状态这一轮一定不会被调度？
+
+   <details markdown="1"><summary>答案</summary>
+
+   WAITING → RUNNING → FINISHED_*；KV 不够时 RUNNING 被抢占成 PREEMPTED（放回 waiting 队头），重新准入后直接回 RUNNING。准入要 token budget 有剩余、running 数（含停下的流式会话）未到 `max_num_seqs`、`allocate_slots()` 分得到块、（有 LoRA 时）`max_loras` 未满，且本轮没有发生过抢占。`WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`（语法没编译完）、`WAITING_FOR_REMOTE_KVS`（外部 KV 没收完）、`WAITING_FOR_STREAMING_REQ`（流式会话在等下一段输入）放在 `skipped_waiting`，`_try_promote_blocked_waiting_request()` 解除阻塞之前一律跳过。
+
+   </details>
+
+7. 一个请求完成时 `Scheduler` 与 `KVCacheManager` 各做什么？块立刻能被别的请求用吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   Scheduler 在 `update_from_output()` 里由 `check_stop()` 把状态设成终态，把请求移出 running、生成输出；`_free_request` 调 `KVCacheManager.free` 把请求的块 `ref_cnt -= 1`，为 0 的块进空闲队列**尾部**并保留哈希——能被新请求作为空闲块取用（取走时才驱逐哈希），也可能先被 prefix cache 命中复用；共享块要等所有引用者完成。PD 分离下若 Connector 的 `request_finished()` 要求延迟释放，块要等 `finished_sending` 才还。
 
    </details>
 

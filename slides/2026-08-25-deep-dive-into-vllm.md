@@ -1,12 +1,12 @@
 ---
 layout: slides
 title: "大模型推理系统揭秘：从 vLLM 看 LLM Serving 核心技术"
-subtitle: "系列精华 · 十五篇正文逐篇看图，第十六篇总结与自测"
+subtitle: "系列精华 · 十四篇正文逐篇看图，第十五篇总结与自测"
 permalink: /slides/deep-dive-into-vllm.html
 series: deep-dive-into-vllm
 date: 2026-08-25 23:30:00 +0800
 author: arganzheng
-description: "大模型推理系统揭秘系列分享：从 Serving 难点与指标，到调度、KV、GPU、多卡、PD、模型与请求适配、硬件抽象、未来架构、源码请求路径和 SGLang 对照。"
+description: "大模型推理系统揭秘系列分享：从 Serving 难点与指标，到调度、KV、GPU、多卡、PD、模型与请求适配、硬件抽象、未来架构、源码里的请求路径和 SGLang 对照。"
 theme: white
 transition: slide
 ---
@@ -15,7 +15,7 @@ transition: slide
 
 ### 从动态请求到推理操作系统
 
-**十五篇正文 · 一条请求路径 · 一切围绕动态请求、KV 状态与 GPU 资源**
+**十四篇正文 · 一条请求路径 · 一切围绕动态请求、KV 状态与 GPU 资源**
 
 ```mermaid
 %% 图：一个 LLM 请求：Prefill 之后逐步 Decode，直到 EOS 或长度上限
@@ -29,7 +29,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来、源码与 SGLang 对照。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 15 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来与 SGLang 对照；源码落在讲到它的那一篇里（03 的四个域与调用链、06 的翻译层）。
 </aside>
 
 ---
@@ -39,11 +39,11 @@ flowchart LR
 > 一个持续生成的请求，如何在 SLO、KV 显存与 GPU 算力之间被系统持续协调？
 
 - KV Cache 是随生成增长的状态；调度的单位是 token。
-- 01–15：定义问题、建立指标、逐层拆系统，再用源码和第二个引擎检验分析框架。
+- 01–14：定义问题、建立指标、逐层拆系统并落到源码，再用第二个引擎检验分析框架。
 - 目标不是最大 batch，而是在 SLO 约束下选择合适的执行规模。
 
 <aside class="notes" markdown="1">
-系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 15 篇：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
 <!-- v -->
@@ -52,7 +52,7 @@ flowchart LR
 
 | 变化 | 版本 | 涉及 |
 |---|---|---|
-| Model Runner V2 成为默认，V1 只作回退 | v0.29 | 03 · 06 · 10 · 14 |
+| Model Runner V2 成为默认，V1 只作回退 | v0.29 | 03 · 06 · 10 |
 | 持有 KV 的等待请求单独排队、优先调度 | v0.31 | 04 · 08 |
 | TP all-reduce 默认走 FlashInfer | v0.29 | 07 |
 | `max_num_batched_tokens` 默认 8192 → 16384 | v0.28 | 04 · 09 |
@@ -79,7 +79,7 @@ flowchart TB
     end
     subgraph S3["演进与验收"]
         direction LR
-        G["13 下一站"] --> H["14 回到源码"] --> I["15 对照 SGLang"]
+        G["13 下一站"] --> H["14 对照 SGLang"]
     end
     S1 --> S2 --> S3
 ```
@@ -97,7 +97,7 @@ flowchart TB
 **变化段按粒度排：请求级（09、10，同一 batch 逐请求不同）→ 部署级（11、12，实例启动时定下）。**
 
 <aside class="notes" markdown="1">
-01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；08 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；09 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；10 [/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)；11 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)；15 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
+01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；08 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；09 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；10 [/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)；11 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
 ---
@@ -347,6 +347,42 @@ flowchart LR
 
 <!-- v -->
 
+### 四个域：给源码里的每个对象定位
+
+![核心数据对象全景图：四个域](/img/in-post/source-code-request-walkthrough-four-domains.svg){: style="max-height: 440px"}
+
+**只有显存域跨请求共享；跨进程只传整数 `block_id`，`KVCacheBlock` 对象不出 EngineCore。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#5-核心数据对象四个域](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)。请求域 `Request`（token ids、采样参数、状态机状态、块哈希）；调度域 `SchedulerOutput` / `ModelRunnerOutput`；显存域 `KVCacheBlock`（`block_id`、`ref_cnt`、哈希）与 Worker 侧 `BlockTable`；模型域是权重与激活。两把钥匙：调度器进程里 `request_id` 找到块列表，跨进程只带 `block_id`，Worker 用它填 `BlockTable` 的一行，再派生 `slot_mapping`。所以 Prefix Cache 命中与否 Worker 完全不知情；`CachedRequestState` 是 `Request` 的只读镜像；`InputBatch` 的行号每步都可能变，`request_id` 才是稳定身份。
+</aside>
+
+<!-- v -->
+
+### 控制面开销：一步 decode 里 Python 占多少
+
+![单次 Decode 迭代：Python 控制面与 GPU 数据面](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 420px"}
+
+**schedule ~0.05 ms + prepare ~0.1 ms，对十毫秒量级的 forward 约 1%，且被流水线化。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下](/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下)。四个阶段：schedule（CPU，`Scheduler.schedule()`）→ prepare（CPU，`_update_states()` / `_prepare_inputs()`）→ model forward（GPU，纯 decode 时一次 CUDA Graph replay）→ sample（GPU → CPU）。GPU 跑第 N 步时 CPU 已在准备第 N+1 步。图中毫秒数是估算，不是源码常量。
+</aside>
+
+<!-- v -->
+
+### 下钻到函数：从 HTTP 请求到 GPU kernel
+
+![从 HTTP 请求到 GPU kernel 的时间顺序链](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg){: style="max-height: 440px"}
+
+**十一步、三道边界：③ ZMQ 与 ⑤ 共享内存队列是进程边界，⑦ 是 Python → CUDA。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#2-下钻到函数从-http-请求到-gpu-kernel-的调用链](/vllm-request-lifecycle-overview.html#2-下钻到函数从-http-请求到-gpu-kernel-的调用链)。① `create_chat_completion()` → ② `AsyncLLM.add_request()` + `InputProcessor` tokenize → ③ ZMQ + msgspec 进 EngineCore → ④ `Scheduler.schedule()` → ⑤ `Executor.execute_model()` 经 `rpc_broadcast_mq` 到 Worker（也是控制面与数据面的边界；单卡 `UniProcExecutor` 时退化为函数调用）→ ⑥ `GPUModelRunner` 准备张量 → ⑦ `model(input_ids, positions)` → ⑧ attention kernel → ⑨ 可选 CUDA Graph 重放 → ⑩ 采样结果 D2H → ⑪ `update_from_output()`、detokenize、SSE。三段调用栈分别活在 API Server、EngineCoreProc、WorkerProc 里，栈与栈之间只靠消息队列衔接。（版本提示：执行侧走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
+</aside>
+
+<!-- v -->
+
 ### 4+1：token 如何穿过 Serving 栈
 
 ![Client、API Server、EngineCore 与 GPU 之间的 token 数据流](/img/in-post/vllm-request-lifecycle-token-dataflow.svg){: style="max-height: 410px"}
@@ -439,6 +475,18 @@ flowchart TB
 
 <!-- v -->
 
+### forward 之前：SchedulerOutput 如何变成 GPU 张量
+
+![SchedulerOutput → GPU 输入的映射](/img/in-post/source-code-request-walkthrough-scheduler-output-to-gpu.svg){: style="max-height: 420px"}
+
+**`slot_mapping` 说 KV 写去哪，`block_table` 说能读哪些块；整步唯一的同步点在采样结果 D2H。**
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。四步：① `_update_states()` 增量同步跨步常驻的 `InputBatch`；② `_prepare_inputs()` 拼 `input_ids` / `positions`、pinned buffer 异步 H2D，Triton kernel 由 block table 算 `slot_mapping`（Prefix Cache 命中的那段根本不在本轮 token 里）；③ `_build_attention_metadata()`；④ 选 FULL / PIECEWISE CUDA Graph 或 eager 并 pad。`execute_model()` 全程异步入队，同步点只有 `sample_tokens()` 里 `_bookkeeping_sync()` 的 `transfer_event.synchronize()`；async scheduling 把它也移到独立 copy stream 上。三个字段对应三处设计约束：分块存储、Prefix Cache 共享、CUDA Graph 形状固定。
+</aside>
+
+<!-- v -->
+
 ### 投机解码：少跑几轮 forward
 
 **无损：只改每步决定的位置数；batch 1、接受长度 2.5 约 2.1×，batch 128 每步慢 1.9 倍**
@@ -446,7 +494,7 @@ flowchart TB
 ![Proposer、Scheduler 与 Target 在投机解码中的角色和约束](/img/in-post/decoding-extensions-spec-decode-roles.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。（版本提示：v0.29 起 Model Runner V2 有自己的一套 speculator 与拒绝采样，`vllm/v1/worker/gpu/spec_decode/`，机制相同；Medusa 在 v0.33 预发布版中已删除。）
+原文：[/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)。投机解码用拒绝采样保证输出分布不变，所以归在执行优化；它改变每步决定的位置数（1 → 1 + K），牵动调度预算、KV lookahead 预留、回滚与 CUDA Graph。batch × (1 + K) 超过约 300 token / 步 / 卡后验证不再免费。（版本提示：v0.29 起 Model Runner V2 有自己的一套 speculator 与拒绝采样，`vllm/v1/worker/gpu/spec_decode/`，机制相同；Medusa 在 v0.33 预发布版中已删除。）
 </aside>
 
 <!-- v -->
@@ -639,19 +687,7 @@ flowchart TB
 
 ---
 
-## 14 · 回到源码：一次请求的真实旅程
-
-**同一请求五笔账：734 MB KV、5 段 chunk、decode 3,000 ms**
-
-![一个请求从调度迭代到 GPU kernel 的源码调用与时间线](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 400px"}
-
-<aside class="notes" markdown="1">
-原文：[/source-code-request-walkthrough.html](/source-code-request-walkthrough.html)。完整数字来自正文汇总表：KV 147 块/734 MB；chunk=512 时 2,050 token 分 5 段；92 ms Prefill + 3,000 ms Decode；每 token 每步 8 卡同步约 2.5 MB；跨节点搬 KV 641 MB、约 13 ms。（版本提示：执行侧调用链走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
-</aside>
-
----
-
-## 15 · vLLM 与 SGLang：同一请求，两种状态组织
+## 14 · vLLM 与 SGLang：同一请求，两种状态组织
 
 | 维度 | vLLM v0.27.1 | SGLang v0.5.18 |
 |---|---|---|
@@ -668,15 +704,31 @@ flowchart TB
 
 ---
 
-## 两条判断贯穿十五篇
+## 同一个请求的五笔账
 
-![一个请求从 Scheduler、KV 管理与执行器进入 GPU 的完整路径](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg){: style="max-height: 400px"}
+| 篇 | 这个请求遭遇了什么 | 数字 |
+|---|---|---|
+| 05 | KV 切成块，125 个 system prompt 块可复用 | 147 块 / 734 MB |
+| 04 | 没有 prefill 阶段，被持续发放 token 额度 | chunk=512 分 5 段 |
+| 06 | 97% 的时间花在 300 步 decode 上 | 92 ms + 3,000 ms |
+| 07 | 每 token 每步在 8 卡间同步 | 约 2.5 MB、~0.09 ms |
+| 08 | 拆成 PD 两池，KV 跨节点搬一次 | 641 MB ≈ 13 ms |
+
+**没有哪一个数字能单独说明问题，合在一起才是系统。**
+
+<aside class="notes" markdown="1">
+系列总结第三章第 1 节：[/deep-dive-into-vllm-series-recap-and-self-test.html#1-一个请求的五笔账与各环节耗时量级](/deep-dive-into-vllm-series-recap-and-self-test.html#1-一个请求的五笔账与各环节耗时量级)。同一节还有一张 Llama-2-7B / A100 单卡口径的各环节耗时量级表：权重读取 13.5 GB ÷ 2.0 TB/s ≈ 6.6 ms；decode 一步 batch 1 为 8–12 ms、batch 32 为 10–18 ms（不是 ×32），吞吐 ~100 → ~2,000 tok/s；ITL 稳态下约等于 TPOT，反映的是波动。
+</aside>
+
+---
+
+## 两条判断贯穿十四篇
 
 - **KV 是一切约束的源头**：并发上限、抢占、前缀复用、Decode 带宽与 PD 交接。
 - **调度单位是 token**：budget、chunk、投机 lookahead 与 encoder 预算都围绕 token 推进。
 
 <aside class="notes" markdown="1">
-系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。第 16 篇回顾十五篇正文并提供通关自测。
+系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。第 15 篇回顾十四篇正文并提供通关自测。
 </aside>
 
 ---
@@ -699,11 +751,11 @@ flowchart TB
 
 ## 下一步
 
-- **系列总结**：第 16 篇 [/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)
+- **系列总结**：第 15 篇 [/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)
 - **往下**：《GPU Kernel 工程》与《通信与互联》——继续看 FlashAttention、PagedAttention、All-Reduce 与 KV 传输。
 - **往旁**：《扩散模型推理 Infra》与《RL 后训练 Infra》——比较另一种 Serving 工作负载及训练中的推理引擎。
 - **回看总纲**：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)
 
 <aside class="notes" markdown="1">
-正文顺序为 01–15；系列总结与自测编号为 16。所有结论与数字以对应正文为准。
+正文顺序为 01–14；系列总结与自测编号为 15。所有结论与数字以对应正文为准。
 </aside>

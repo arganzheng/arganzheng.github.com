@@ -4,7 +4,7 @@ title: AI-Infra 工程师学习地图：从后端工程师到基础设施贡献�
 subtitle: A Learning Roadmap for AI Infrastructure Engineers
 tags: [AI, AI-Infra, Roadmap]
 catalog: true
-updated: 2026-09-17
+updated: 2026-11-13
 ---
 
 
@@ -259,7 +259,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一个文本生成请求，为什么会逐渐演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统？**
 
-十五篇：问题定义 → 指标体系 → 请求生命周期 → 调度 → KV Cache → GPU 执行 → 解码的扩展 → 多卡扩展 → 模型适配 → 请求形态 → 硬件抽象 → PD 分离 → Serving Infra 的演进 → 源码走读 → 对照 SGLang。以 vLLM 为分析对象，建立一套可迁移到其他推理框架的分析方法，最后一篇用这套方法对照 SGLang。
+十四篇：问题定义 → 指标体系 → 请求生命周期与源码调用链 → 调度 → KV Cache → GPU 执行（含投机解码） → 多卡扩展 → PD 分离 → 输入在变（multi-LoRA 与多模态） → 输出在变（采样参数与结构化输出） → 模型适配 → 硬件抽象 → Serving Infra 的演进 → 对照 SGLang。以 vLLM 为分析对象，建立一套可迁移到其他推理框架的分析方法，最后一篇用这套方法对照 SGLang。
 
 #### 10 RL 后训练基础设施：rollout 与训练如何共享一组 GPU
 

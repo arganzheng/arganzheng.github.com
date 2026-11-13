@@ -2055,8 +2055,9 @@ How it is built (`_plugins/moments.rb`):
   LoRA passages (L0 03 §六, 工具箱 05 §四.2, L4 12 §五, 后训练 01 §五.2, HF 源码 04
   §三, vLLM 09 §二) each open with a one-line pointer to the series — keep them
   as summaries, do not grow them.
-- Series `deep-dive-into-vllm` (《大模型推理系统揭秘》, 08-11 overview, 01–15 at
-  08-12 … 08-25 — 15 = vLLM vs SGLang at 08-25 12:00 — recap NN=16 at 08-25 20:00) was re-ordered on 2026-10-01 so the
+- Series `deep-dive-into-vllm` (《大模型推理系统揭秘》, 08-11 overview, 01–14 at
+  08-12 … 08-25 — 14 = vLLM vs SGLang at 08-25 12:00 — recap NN=15 at 08-25 20:00; see
+  「Post 14 dissolved」 below) was re-ordered on 2026-10-01 so the
   body follows the overview's stated 主线 (… → 多卡与集群扩展 → 模型、请求与硬件适配
   → …): PD 分离 moved 12 → 09 (08-20), 模型适配 / 请求形态 / 硬件解耦 shifted to
   10 / 11 / 12 (08-21 … 08-23). Slugs are unchanged; only filenames, dates,
@@ -2067,20 +2068,20 @@ How it is built (`_plugins/moments.rb`):
   执行效率已经有介绍，是不是有重叠？……第七章是关于变化还是性能？」). Rule that
   decided it: **does it change the output?** Speculative decoding is lossless
   (rejection sampling keeps the distribution), so it is performance and lives
-  entirely in 06 §五「能不能少跑几轮模型？—— 投机解码」 (principle, Proposer
+  entirely in 06 §六「能不能少跑几轮模型？—— 投机解码」 (§五 until 2026-11-13, when the translation layer became §二) (principle, Proposer
   family, scheduler budget / KV lookahead / rollback, model runner K+1,
   RejectionSampler, cost). Sampling params + structured output change *what*
   is output, so the old 07 became a 「输出在变」 post in the 变化 segment. New
   order: 01–06 · 07 Multi-GPU (08-18) · 08 PD (08-19) · 09 输入：请求形态
   multi-LoRA / 多模态 (08-20) · 10 输出：采样参数与结构化输出 (08-21) · 11 模型适配
-  (08-22) · 12 硬件 (08-23) · 13–16 unchanged. The 变化 segment is ordered by
+  (08-22) · 12 硬件 (08-23) · 13–16 unchanged (since 2026-11-13: 13–15). The 变化 segment is ordered by
   granularity: request-level first (09 input, 10 output — every request in a
   batch may differ, handled per request), then deployment-level (11 model,
   12 hardware — fixed when an instance starts, isolated at interfaces); 09
   uses `SupportsLoRA` / `SupportsMultiModal` and explains them in place with a
   forward pointer to 11. 01's 表 4 lists four 横切约束 (输入 9 / 输出 10 /
   模型 11 / 硬件 12). Old→new: 07→10 (anything about speculative decoding →
-  06, link `/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码`),
+  06, link `/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码`),
   08→07, 09→08, 10→11, 11→09. The output post's slug changed to
   `/output-changes-sampling-and-structured-output.html` with `redirect_from`
   + `comments_path: /decoding-extensions-sampling-speculative-and-structured-output.html`;
@@ -2088,14 +2089,31 @@ How it is built (`_plugins/moments.rb`):
   recap → 第九篇, 大规模训练 02 → 第七篇, 高效推理总纲 → 第六篇.
   **Version plan (author, 2026-11-12)**: stay on v0.27.1 for now. Model Runner
   V2 became the default in v0.29.0 and V1 (`gpu_model_runner.py`) is deprecated
-  but still present in v0.32.0, so 03 / 06 / 10 / 14 carry a
+  but still present in v0.32.0, so 03 / 06 / 10 carry a
   `> **版本提示 @2026-11-12**` line under the NOTE, and the overview's 版本与硬件基线
   lists the other relevant changes up to v0.32.0 (two waiting queues v0.31,
   deterministic `NONE_HASH` v0.29, FlashInfer all-reduce default v0.29,
   `max_num_batched_tokens` 16384 v0.28, Medusa / old Ray executor removed in
   v0.33 rc). Upgrade the whole series in one pass once V1 is actually removed
-  (est. 5–7 days: 06 / 10 / 14 rewritten on V2, the rest light edits, each post
+  (est. 5–7 days: 03's call chain and 06 / 10 rewritten on V2, the rest light edits, each post
   gets the `> **更新 @…**` note per the version rule).
+  **Post 14 dissolved 2026-11-13** (author): the standalone 「回到源码：一次请求在
+  vLLM 内部的真实旅程」 (`source-code-request-walkthrough`) was deleted and its
+  content moved to where each concept is taught — 四个域 + 两把钥匙 → 03 §二.5
+  「核心数据对象：四个域」, the 十一步调用链 + 调用栈 → 03 §六.2 「下钻到函数」,
+  Python 怎样调到 kernel → 03 §四.2 「构建与打包」, the 翻译层 (`SchedulerOutput`
+  → `InputBatch` / `slot_mapping` / `block_table`, 一步之内 CPU / GPU 时序) → 06
+  §二 (06's chapters shifted: Kernel Launch 三, HBM 四, 低精度 五, 投机解码 六),
+  `RequestStatus` 状态机 → 04 §六.2, 各环节耗时量级 (Llama-2-7B / A100) + 五笔账
+  → recap §三.1 「一个请求的五笔账与各环节耗时量级」 (its 自测 5 became recap C8).
+  **The old URL deliberately has no redirect** (author: 不要给 14 的旧 URL 做跳转;
+  it had no Discussion, so no `comments_path` either) — every link to it was
+  rewritten to the new location; never link `/source-code-request-walkthrough.html`.
+  The deck's 14 slide became sub-slides under 03 (四个域, 控制面开销时间线, 调用链)
+  and 06 (翻译层) plus a 五笔账 slide. Numbering now: 01–14 body (14 = vLLM vs
+  SGLang), recap NN=15; the overview's 主线 has 七段 (no 源码落地 segment).
+  Instead of a standalone walkthrough, posts carry per-post 「本章源码导航」
+  tables (08 has one).
 - Post dates encode the reading order of the three roadmaps and were re-dated
   on 2026-09-14 (permalinks are `/:title.html`, so dates are free to move):
   01-01 《AI 全栈学习地图》(overview of the three, pinned) → 01-02 算法地图 →

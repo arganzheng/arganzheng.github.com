@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（08）：PD 分离：从资源混部走向计算解耦
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 > **版本说明**：实现分析以 vLLM v0.27.1（tag `6e448d0`）为准，重点走读 **NIXL pull + 示例 Proxy** 的交接路径。通用架构、其他 Connector 的选择和系统设计建议会分别说明，不把一种实现视为 PD 分离的唯一路径。文中算例均为注明假设的理论估算，不是本地 GPU 或网络实测。
@@ -1077,6 +1077,30 @@ Table: PD 分离中容易混淆的概念
 Table: PD 分离源码阅读顺序
 
 没有高速网络环境时，可以先读 `kv_connector/v1/example_connector.py` 和 `examples/disaggregated/example_connector/` 的共享文件示例，理解引擎如何接入外部状态，再去读 NIXL；不要把示例文件传输的性能视为生产方案。
+
+<details markdown="1">
+<summary><b>📂 本章源码导航</b></summary>
+
+上表是阅读顺序；这张表按“想看什么”查入口。缩写同上：`kv_connector/v1/` = `vllm/distributed/kv_transfer/kv_connector/v1/`。
+
+| 想看什么 | 从哪开始 |
+|---|---|
+| 实例角色与 Connector 的创建 | `vllm/config/kv_transfer.py` → `KVTransferConfig`（`kv_connector`、`kv_role`、`is_kv_producer` / `is_kv_consumer`）；`vllm/distributed/kv_transfer/kv_connector/factory.py` → `KVConnectorFactory.create_connector()` |
+| **Connector 契约** | `kv_connector/v1/base.py` → `KVConnectorBase_V1`、`KVConnectorRole`<br/>Scheduler 侧：`get_num_new_matched_tokens()`、`update_state_after_alloc()`、`build_connector_meta()`、`update_connector_output()`、`request_finished()`<br/>Worker 侧：`register_kv_caches()`、`start_load_kv()`、`wait_for_layer_load()`、`save_kv_layer()`、`wait_for_save()`、`get_finished()` |
+| **D 侧的调度门槛** | `vllm/v1/core/sched/scheduler.py` → `Scheduler.schedule()`（`load_kv_async` 分支设 `WAITING_FOR_REMOTE_KVS`）、`_try_promote_blocked_waiting_request()`、`_update_waiting_for_remote_kv()`、`_update_from_kv_xfer_finished()`、`_update_requests_with_invalid_blocks()` |
+| P 侧的延迟释放 | `Scheduler._connector_finished()`；`kv_connector/v1/nixl/pull_scheduler.py` → `NixlPullConnectorScheduler.request_finished()` |
+| Worker 接入点 | `vllm/v1/worker/kv_connector_model_runner_mixin.py` → `KVConnectorModelRunnerMixin.kv_connector_no_forward()`、`maybe_get_kv_connector_output()`；`vllm/distributed/kv_transfer/kv_transfer_state.py` → `ensure_kv_transfer_initialized()`、`get_kv_transfer_group()` |
+| 回传给 Scheduler 的结果 | `vllm/v1/outputs.py` → `KVConnectorOutput`（`finished_sending`、`finished_recving`、`invalid_block_ids`） |
+| NIXL 控制面 | `kv_connector/v1/nixl/connector.py` → `NixlPullConnector` / `NixlPushConnector`；`nixl/base_scheduler.py` → `NixlBaseConnectorScheduler`；`nixl/pull_scheduler.py` → `NixlPullConnectorScheduler.get_num_new_matched_tokens()`、`update_state_after_alloc()` |
+| NIXL 数据面 | `nixl/base_worker.py` → `NixlBaseConnectorWorker.register_kv_caches()`、`_nixl_handshake()`、`get_finished()`；`nixl/pull_worker.py` → `NixlPullConnectorWorker.start_load_kv()`、`_read_blocks()`；`nixl/metadata.py` → `NixlHandshakePayload`、`compute_nixl_compatibility_hash()` |
+| 异构 TP 映射 | `nixl/tp_mapping.py` → `compute_tp_mapping()`、`TPMapping` |
+| 逐层等待 / 保存 | `vllm/model_executor/layers/attention/kv_transfer_utils.py` → `maybe_transfer_kv_layer()` |
+| 传输指标 | `nixl/stats.py` → `NixlKVConnectorStats`、`NixlPromMetrics` |
+| 请求编排示例 | `tests/v1/kv_connector/nixl_integration/toy_proxy_server.py` |
+
+Table: PD 分离源码导航
+
+</details>
 
 本文从“把两个阶段拆开”出发，最后落到请求、计算资源与状态生命周期的共同管理。到这里，“一张卡不够”之后的两级扩展——多卡（第七篇）与多实例（本篇）——都已讲完。接下来四篇换一个方向：引擎如何承受输入、输出、模型与硬件四种外部变化；当这些边界不断外推，Serving Infra 会如何从一个模型执行器演进为更完整的系统，留到第十三篇。
 

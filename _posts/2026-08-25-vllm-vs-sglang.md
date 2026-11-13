@@ -1,18 +1,19 @@
 ---
 layout: post
 series: deep-dive-into-vllm
-title: "大模型推理系统揭秘（15）：vLLM 与 SGLang：同一个请求穿过两套 Serving 系统"
+title: "大模型推理系统揭秘（14）：vLLM 与 SGLang：同一个请求穿过两套 Serving 系统"
 subtitle: "vLLM vs SGLang: One Request Through Two LLM Serving Systems"
 tags: [AI, AI-Infra, Inference, vLLM, SGLang]
 catalog: true
 date: 2026-08-25 12:00:00
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文对照 vLLM v0.27.1（tag `6e448d0`，2026-08-11）与 SGLang v0.5.18（tag `71de97b`，2026-08-20）的源码。文中文件路径、类名、默认值均以这两个版本为准；两个项目都以周为单位迭代，阅读时请以你手上的版本对照。SGLang 的路径省略前缀 `python/sglang/srt/`，vLLM 的路径省略前缀 `vllm/`。
 
-前十四篇只拿一个系统做标本。读者最自然的追问是：**SGLang 呢？** 它和 vLLM 一样是今天最常被部署的开源 LLM Serving 引擎，大规模 DeepSeek 部署、Agent 多轮会话、长 system prompt 的场景里经常是它被选中。两边的社区各有一组 benchmark 图，各自领先。
+前十三篇只拿一个系统做标本。读者最自然的追问是：**SGLang 呢？** 它和 vLLM 一样是今天最常被部署的开源 LLM Serving 引擎，大规模 DeepSeek 部署、Agent 多轮会话、长 system prompt 的场景里经常是它被选中。两边的社区各有一组 benchmark 图，各自领先。
 
-本文不做排行榜。一组吞吐数字至少取决于七个变量——模型、硬件、输入 / 输出长度分布、并发、prefix cache 命中率、attention / 采样 backend、以及一长串默认值——换一个变量结论就可能翻转，而且两边每个版本都在变。本文做的是另一件事：**把前面十四篇建立的分析框架用到第二个系统上**。同一个请求，在 SGLang 里进的是哪个进程、排的是哪条队列、KV 存在哪张表、怎么被复用、什么时候被踢出去、GPU 上由谁执行、多卡怎么切、PD 怎么拆——每一处都和 vLLM 并排放，然后区分哪些差异来自两个项目**不同的出发点**、哪些只是**功能落地的时间差**。读完这一篇，你应该能在不看 benchmark 的情况下判断一个工作负载更适合谁，也应该能把这套方法用到第三个引擎上。
+本文不做排行榜。一组吞吐数字至少取决于七个变量——模型、硬件、输入 / 输出长度分布、并发、prefix cache 命中率、attention / 采样 backend、以及一长串默认值——换一个变量结论就可能翻转，而且两边每个版本都在变。本文做的是另一件事：**把前面十三篇建立的分析框架用到第二个系统上**。同一个请求，在 SGLang 里进的是哪个进程、排的是哪条队列、KV 存在哪张表、怎么被复用、什么时候被踢出去、GPU 上由谁执行、多卡怎么切、PD 怎么拆——每一处都和 vLLM 并排放，然后区分哪些差异来自两个项目**不同的出发点**、哪些只是**功能落地的时间差**。读完这一篇，你应该能在不看 benchmark 的情况下判断一个工作负载更适合谁，也应该能把这套方法用到第三个引擎上。
 
 本篇的核心问题是：
 
@@ -69,7 +70,7 @@ Table: 本文的章节安排
 
 ### 1. vLLM：显存碎片
 
-vLLM 的起点是 2023 年的 PagedAttention 论文（SOSP'23）。它看到的问题是第五篇讲过的：按最大长度预分配 KV cache 的系统，真正存放有效 KV 的显存只占两三成，其余被内部碎片、外部碎片和预留吃掉。答案借自操作系统的虚拟内存：KV 按固定大小的块分配，请求持一张 block table，attention kernel 按表查块。块一旦成为分配单位，continuous batching、抢占、prefix caching、PD 分离的 KV 交接就都以块为单位展开——这是前面十四篇反复看到的脉络。
+vLLM 的起点是 2023 年的 PagedAttention 论文（SOSP'23）。它看到的问题是第五篇讲过的：按最大长度预分配 KV cache 的系统，真正存放有效 KV 的显存只占两三成，其余被内部碎片、外部碎片和预留吃掉。答案借自操作系统的虚拟内存：KV 按固定大小的块分配，请求持一张 block table，attention kernel 按表查块。块一旦成为分配单位，continuous batching、抢占、prefix caching、PD 分离的 KV 交接就都以块为单位展开——这是前面十三篇反复看到的脉络。
 
 ### 2. SGLang：前缀复用
 
@@ -105,13 +106,13 @@ flowchart LR
 
 ### 1. vLLM：一个调度器、N 个 worker
 
-第三篇与第十四篇画过 vLLM 的三类进程，这里只重述和 SGLang 对照时要用的部分：
+[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)画过 vLLM 的三类进程，这里只重述和 SGLang 对照时要用的部分：
 
 - **API Server 进程**：FastAPI 路由 → `AsyncLLM`（`v1/engine/async_llm.py`）→ `InputProcessor` 在这里 **tokenize**，产出 `EngineCoreRequest`；输出侧 `OutputProcessor` 持每个请求的 `IncrementalDetokenizer`，**detokenize 也在这里**。
 - **EngineCore 进程**（`v1/engine/core.py` 的 `EngineCoreProc`）：经 ZMQ 收请求；`Scheduler` + `KVCacheManager` 做决策；通过 `Executor` 下发。
 - **Worker 进程**（`v1/executor/multiproc_executor.py` 的 `WorkerProc`，每个 TP / PP rank 一个）：`SchedulerOutput` 经共享内存 `MessageQueue`（`rpc_broadcast_mq`）广播到所有 worker；`GPUModelRunner` 翻译成张量、forward、采样；`ModelRunnerOutput` 回到 EngineCore。
 
-调度决策只做**一次**，然后作为数据跨两道边界传递。`SchedulerOutput` 因此是全系统最重要的契约（第十四篇第五章）。
+调度决策只做**一次**，然后作为数据跨两道边界传递。`SchedulerOutput` 因此是全系统最重要的契约（字段见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）。
 
 ### 2. SGLang：每个 TP rank 一份调度器
 
@@ -166,7 +167,7 @@ Table: 进程与边界对照
 
 这是两套系统最底层的结构差异，值得单独问一句：为什么 SGLang 让每个 TP rank 各跑一份 Scheduler？[^q2]
 
-两种做法各付一种代价。vLLM 只算一次，但要把结果**序列化并跨进程传**，worker 侧还要把它翻译成张量——第十四篇第五章的"翻译层"就是这个代价的体现；好处是 worker 完全被动，调度器可以任意复杂而不必关心确定性。SGLang 不传调度结果，但要求所有 rank **看到完全相同的输入、做出完全相同的决策**——`RequestReceiver` 先广播请求再调度就是为此，调度器里任何依赖本地状态的分支（时间、随机数、本地显存余量）都必须对所有 rank 一致；好处是 Scheduler 和 ModelRunner 之间没有进程边界，`ScheduleBatch` 直接变成 `ForwardBatch`，CPU 侧的准备工作可以与上一轮 GPU 执行紧密重叠（下一章的 overlap scheduler 建立在这上面）。
+两种做法各付一种代价。vLLM 只算一次，但要把结果**序列化并跨进程传**，worker 侧还要把它翻译成张量——[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)的"翻译层"就是这个代价的体现；好处是 worker 完全被动，调度器可以任意复杂而不必关心确定性。SGLang 不传调度结果，但要求所有 rank **看到完全相同的输入、做出完全相同的决策**——`RequestReceiver` 先广播请求再调度就是为此，调度器里任何依赖本地状态的分支（时间、随机数、本地显存余量）都必须对所有 rank 一致；好处是 Scheduler 和 ModelRunner 之间没有进程边界，`ScheduleBatch` 直接变成 `ForwardBatch`，CPU 侧的准备工作可以与上一轮 GPU 执行紧密重叠（下一章的 overlap scheduler 建立在这上面）。
 
 两边都在向对方靠近：vLLM 的 `async_scheduling` 让调度提前一步做；SGLang 的 `SGLANG_RUST_SERVER` 用一个嵌在调度进程里的 Rust 前端（`rust/sglang-server/`：API server → TokenizerManager → tokenizer / detokenizer）替代 Python 的 HTTP 与 tokenizer 进程，省掉两道 ZMQ。但"一个调度器"与"N 个相同的调度器"这个分法，两边都没有改。
 
@@ -174,7 +175,7 @@ Table: 进程与边界对照
 
 ### 1. vLLM：一个循环、一个预算
 
-第四篇与第十四篇讲过，vLLM V1 的 `Scheduler.schedule()`（`v1/core/sched/scheduler.py`）没有 prefill / decode 之分：
+第四篇讲过，vLLM V1 的 `Scheduler.schedule()`（`v1/core/sched/scheduler.py`）没有 prefill / decode 之分：
 
 - 一个 `token_budget = max_num_scheduled_tokens`；默认值随硬件：显存 ≥ 70 GB 且非 A100 时 API server 为 8192（`LLM` 类 16384），否则 2048（`LLM` 类 8192）；`max_num_seqs` 相应为 1024 或 256（`engine/arg_utils.py`）。
 - **先 `running` 后 `waiting`**：running 里每个请求推进 1 个 token（投机解码时 `1 + K`），chunked prefill 的请求推进预算剩余的那段；然后从 waiting 按 FCFS 或 `priority` 取新请求，`long_prefill_token_threshold` 限制单个长 prompt 一轮占多少预算。
@@ -200,7 +201,7 @@ SGLang 的 `Scheduler.get_next_batch_to_run()` 是另一种形状：
 
 ### 4. 两种 CPU / GPU 重叠
 
-两边都要解决第十四篇末尾的问题：GPU 跑这一轮时 CPU 在干什么。
+两边都要解决[第六篇第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)的问题：GPU 跑这一轮时 CPU 在干什么。
 
 - vLLM 的 `async_scheduling`（`v1/core/sched/async_scheduler.py`）：调度器在上一轮采样结果回来之前就排下一轮，用占位 token 代替还没出来的那个 token。v0.27.1 的默认是 `None`，由 `config/vllm.py` 决定——没有冲突选项（pooling 模型、不支持的投机方法、不支持的 executor 等）时**开启**。
 - SGLang 的 overlap scheduler（`Scheduler.event_loop_overlap()`，默认开，`--disable-overlap-schedule` 关闭）：`FutureMap`（`managers/overlap_utils.py`）给下一轮 batch 的 `input_ids` 填**负的 future 下标**，GPU 侧在 forward 入口 `resolve_forward_inputs` 时从 `output_tokens_buf` 取回上一轮刚采出的 token；调度线程维护一个 `result_queue`，GPU 跑第 N 轮时 CPU 处理第 N−1 轮的结果、准备第 N+1 轮。
@@ -243,7 +244,7 @@ Table: 调度旋钮对照
 
 ### 1. vLLM：块、哈希链、引用计数
 
-第五篇与第十四篇讲过的结构，这里列出对照要用的四个事实：
+第五篇与[第三篇的「四个域」](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)讲过的结构，这里列出对照要用的四个事实：
 
 - 物理单位是 `KVCacheBlock`，默认 16 个 token（`CacheConfig.DEFAULT_BLOCK_SIZE`），每层的 KV tensor 形如 `[num_blocks, block_size, …]`。
 - 复用索引是 `BlockPool.cached_block_hash_to_block`（`v1/core/block_pool.py`）：**哈希 → 块**。块的哈希是一条链——`hash_block_tokens(parent_hash, tokens, extra_keys)`（默认 `sha256`），所以相同 token 在不同前缀下得到不同的哈希，一个块只能被同一前缀链上的请求命中。
@@ -301,7 +302,7 @@ Table: KV 管理对照
 
 ### 1. runner 与 worker 的位置
 
-vLLM 的 `GPUModelRunner`（`v1/worker/gpu_model_runner.py`）在 worker 进程里，持久化的 `InputBatch` 跨步增量更新（第十四篇第五章）；SGLang 的 `ModelRunner` 在调度进程里，由 `TpModelWorker.forward_batch_generation()` 调用，`ScheduleBatch` → `ModelWorkerBatch` → `ForwardBatch` 三次转换都不出进程。overlap 时 `Scheduler.run_batch()` 在 `forward_stream` 上发起 forward，采样可以被 `delay_sample_func` 推迟、D2H 拷贝走单独的 `copy_stream`（`launch_batch_sample_if_needed`）。
+vLLM 的 `GPUModelRunner`（`v1/worker/gpu_model_runner.py`）在 worker 进程里，持久化的 `InputBatch` 跨步增量更新（[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）；SGLang 的 `ModelRunner` 在调度进程里，由 `TpModelWorker.forward_batch_generation()` 调用，`ScheduleBatch` → `ModelWorkerBatch` → `ForwardBatch` 三次转换都不出进程。overlap 时 `Scheduler.run_batch()` 在 `forward_stream` 上发起 forward，采样可以被 `delay_sample_func` 推迟、D2H 拷贝走单独的 `copy_stream`（`launch_batch_sample_if_needed`）。
 
 ### 2. attention backend 怎么选
 
@@ -480,7 +481,7 @@ Table: 按工作负载的选择倾向
 
 ## 十二、本文小结
 
-本文把前十四篇的分析框架用到了第二个系统上，得到的对照可以压成下面这张表。
+本文把前十三篇的分析框架用到了第二个系统上，得到的对照可以压成下面这张表。
 
 | 层 | vLLM v0.27.1 | SGLang v0.5.18 | 差异的来源 |
 |---|---|---|---|

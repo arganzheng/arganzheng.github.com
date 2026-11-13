@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（10）：输出在变：采样参数与结构化输出
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 redirect_from:
   - /decoding-extensions-sampling-speculative-and-structured-output.html
 comments_path: /decoding-extensions-sampling-speculative-and-structured-output.html
@@ -23,7 +23,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 > **当每个请求都对"输出"提出自己的要求——自己的温度和惩罚、必须是合法的 JSON——vLLM 在哪几层吸收这些变化？[^q0] 代价分别落在谁身上？[^q1]**
 
-投机解码不在本篇：它不改变输出分布，只改变一次 forward 产出几个 token，是性能手段，已经在[第六篇第五章](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)讲完。但它会改变 logits 的行数，和本篇的两类变化都有交叉，交叉点在各章里单独说明。
+投机解码不在本篇：它不改变输出分布，只改变一次 forward 产出几个 token，是性能手段，已经在[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)讲完。但它会改变 logits 的行数，和本篇的两类变化都有交叉，交叉点在各章里单独说明。
 
 ## 一、总览：输出契约与两类变化
 
@@ -268,7 +268,7 @@ Table: 不同采样参数的成本形态
 
 ### 6. 开投机解码时的采样参数
 
-投机解码（[第六篇第五章](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)）不改变输出分布，但它要求 target 在每个 draft 位置上的分布 $$q$$ 正是这个请求真正的采样分布——否则拒绝采样就不再无损。麻烦在于第一章第 1 节的第 1 条约定被打破了：logits 不再是每请求一行，而是 `[num_reqs + Σ drafts, V]`，一个带 3 个 draft 的请求就占 4 行（3 行 target + 1 行 bonus）。`RejectionSampler.forward()` 因此把采样语义拆成两份：
+投机解码（[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）不改变输出分布，但它要求 target 在每个 draft 位置上的分布 $$q$$ 正是这个请求真正的采样分布——否则拒绝采样就不再无损。麻烦在于第一章第 1 节的第 1 条约定被打破了：logits 不再是每请求一行，而是 `[num_reqs + Σ drafts, V]`，一个带 3 个 draft 的请求就占 4 行（3 行 target + 1 行 bonus）。`RejectionSampler.forward()` 因此把采样语义拆成两份：
 
 1. **bonus 行**（每请求一行）走完整的 `Sampler`，本章前几节的一切照常生效；
 2. **target 行**（每个 draft 一行）走一条投机版的处理链：
@@ -287,7 +287,7 @@ Table: 不同采样参数的成本形态
 
 ![结构化输出生效的四个位置](/img/in-post/decoding-extensions-structured-output-positions.svg)
 
-第 ② 步的**异步**是关键设计：JSON schema 编译成 grammar 可能要几十到几百毫秒，甚至更久，如果在调度循环里同步做，整个引擎会为一个请求停摆。所以编译进线程池，请求进一个专门的等待状态（第十四篇状态机里的 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 就是它）。调度器每步在 `_try_promote_blocked_waiting_request()` 里看一眼 `structured_output_req.grammar`——这个 property（`StructuredOutputRequest.grammar`，`vllm/v1/structured_output/request.py`）会以 **100 微秒**的超时去 poll Future，好了就把请求放回 `WAITING`，编译抛异常的请求记入 `grammar_compile_error_reqs` 单独失败。代价是这个请求的 TTFT 多了一段编译时间；收益是其他请求完全不受影响。`external_launcher` 模式是例外——各 TP rank 各有调度器，异步编译会让状态转换在不同 rank 上时序不一致，于是退回同步（见第四章第 3 节）。
+第 ② 步的**异步**是关键设计：JSON schema 编译成 grammar 可能要几十到几百毫秒，甚至更久，如果在调度循环里同步做，整个引擎会为一个请求停摆。所以编译进线程池，请求进一个专门的等待状态（[第四篇第六章第 2 节](/scheduler-batch-and-fairness.html#2-kv-cache-不够preemption)状态机里的 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 就是它）。调度器每步在 `_try_promote_blocked_waiting_request()` 里看一眼 `structured_output_req.grammar`——这个 property（`StructuredOutputRequest.grammar`，`vllm/v1/structured_output/request.py`）会以 **100 微秒**的超时去 poll Future，好了就把请求放回 `WAITING`，编译抛异常的请求记入 `grammar_compile_error_reqs` 单独失败。代价是这个请求的 TTFT 多了一段编译时间；收益是其他请求完全不受影响。`external_launcher` 模式是例外——各 TP rank 各有调度器，异步编译会让状态转换在不同 rank 上时序不一致，于是退回同步（见第四章第 3 节）。
 
 第 ③ 步里有一个时序细节值得看 `EngineCore.step()`（`vllm/v1/engine/core.py`）：
 
@@ -354,7 +354,7 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 
 ### 4. 与投机解码同时开启
 
-投机解码本身（proposer、调度器的预算与回滚、`RejectionSampler`）见[第六篇第五章](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)。这里只看它和 grammar 的交叉：投机解码让一步要决定 `1+K` 个位置，而每个位置的合法 token 集合取决于前面的位置，叠加时需要两层配合：
+投机解码本身（proposer、调度器的预算与回滚、`RejectionSampler`）见[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)。这里只看它和 grammar 的交叉：投机解码让一步要决定 `1+K` 个位置，而每个位置的合法 token 集合取决于前面的位置，叠加时需要两层配合：
 
 **① draft 先过一遍 grammar。** `Scheduler.update_draft_token_ids()` 拿到 proposer 的 draft 后，对结构化请求调 `grammar.validate_tokens(spec_token_ids)`——**不推进 FSM**，只返回合法的最长前缀。不合法的尾部直接扔掉（同步路径）或补 `-1`（异步路径 `update_draft_token_ids_in_output()`，因为 `scheduled_spec_decode_tokens` 的长度已经定了）。这是为什么 `StructuredOutputGrammar` 需要 `validate_tokens()` 这个"只看不动"的方法。
 

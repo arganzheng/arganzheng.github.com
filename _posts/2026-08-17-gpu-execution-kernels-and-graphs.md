@@ -4,12 +4,12 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（06）：GPU 执行：如何让每个 Token 算得更快？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 >
-> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文 CUDA Graph 与投机解码两章的源码讲的是 V1 路径：V2 有自己的 CUDA Graph 管理（`cudagraph_utils.py`）、拒绝采样与整套 speculator（`vllm/v1/worker/gpu/spec_decode/`），机制与本文一致，类名和文件不同。Medusa 在 v0.33.0 的预发布版中已被删除。
+> **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文第二章（`SchedulerOutput` 到 GPU 张量的翻译）、CUDA Graph 与投机解码三章的源码讲的是 V1 路径：V2 有自己的输入准备（`vllm/v1/worker/gpu/input_batch.py`、`block_table.py`、`attn_utils.py`）、CUDA Graph 管理（`cudagraph_utils.py`）、拒绝采样与整套 speculator（`vllm/v1/worker/gpu/spec_decode/`），机制与本文一致，类名和文件不同；在 v0.29 及以后的版本里调试输入准备，断点要打在 `vllm/v1/worker/gpu/model_runner.py`。Medusa 在 v0.33.0 的预发布版中已被删除。
 
 
 前面几篇解决的是"这一轮算哪些 token"（Scheduler）和"它们的状态放在哪里"（KV Cache）。这一篇的问题是：
@@ -50,20 +50,107 @@ Table: 贯穿全文例子的一笔时间账
 
 ### 3. 本文的章节安排
 
-后面四章按上表的顺序，每章对付一种浪费：
+四种浪费都发生在 forward 里，而 forward 的输入是 ModelRunner 每一步现做的：调度器交出来的只是“哪个请求本轮推进多少 token”，kernel 要的是扁平的 `input_ids`、每个 token 的 KV 写入位置和每个请求能读的块。所以第二章先讲这层翻译和一步之内 CPU 与 GPU 谁等谁——CUDA Graph 的分桶与 padding、attention metadata、投机解码一次算 K+1 个位置，都是在这层翻译里决定的。第三到第六章再按上表的顺序，每章对付一种浪费：
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
-| 三 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
-| 四 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
-| 五 | 能不能少跑几轮模型？ | 投机解码的原理与无损性<br/>Proposer 家族（Draft Model / n-gram / EAGLE / Medusa / MTP）<br/>调度器的预算、lookahead 槽位与回滚<br/>model runner 一次算 K+1 个位置与 CUDA Graph<br/>RejectionSampler<br/>收益的临界点<br/>多卡与 PD 下的约束 |
-| 六 | 本文小结 |  |
-| 七 | 自测 | 5 道题 |
+| 二 | forward 之前：SchedulerOutput 如何变成 GPU 张量 | `SchedulerOutput` 的字段<br/>`_update_states()`、`_prepare_inputs()`、attention metadata、执行模式选择四步翻译<br/>一步之内 CPU 与 GPU 在哪里等谁：`execute_model()` 与 `sample_tokens()`、唯一的同步点 |
+| 三 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
+| 四 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
+| 五 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
+| 六 | 能不能少跑几轮模型？ | 投机解码的原理与无损性<br/>Proposer 家族（Draft Model / n-gram / EAGLE / Medusa / MTP）<br/>调度器的预算、lookahead 槽位与回滚<br/>model runner 一次算 K+1 个位置与 CUDA Graph<br/>RejectionSampler<br/>收益的临界点<br/>多卡与 PD 下的约束 |
+| 七 | 本文小结 |  |
+| 八 | 自测 | 7 道题 |
 
 Table: 本文的章节安排
 
-## 二、GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
+## 二、forward 之前：SchedulerOutput 如何变成 GPU 张量
+
+> **调度器交出来的是“哪个请求本轮推进多少 token”，kernel 要的是“这个 token 的 KV 写到哪个 slot、这个请求能读哪些块”——中间这层翻译在哪做、做了什么，又为什么不让 GPU 等？[^q1]**
+
+第四篇的调度决策和本文后面四章的 GPU 执行之间，隔着这一层翻译。做翻译的是 `GPUModelRunner.execute_model()` 的前半段：`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()` 三个函数，再加一次执行模式选择。先看全貌，下面两张表再展开：
+
+![SchedulerOutput → GPU 输入的映射](/img/in-post/source-code-request-walkthrough-scheduler-output-to-gpu.svg)
+
+### 1. 输入：SchedulerOutput 交出来什么
+
+`SchedulerOutput`（`vllm/v1/core/sched/output.py`）经共享内存 `MessageQueue` 广播到每个 Worker 进程，里面全是 Python 的 int 和 list：
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `scheduled_new_reqs` | `list[NewRequestData]` | 首次调度的请求：带 `prompt_token_ids`、`sampling_params`、`block_ids`、`num_computed_tokens` |
+| `scheduled_cached_reqs` | `CachedRequestData` | 继续执行（或从抢占恢复）的请求，按列存：`req_ids`、`new_block_ids`、`num_computed_tokens` |
+| `num_scheduled_tokens` | `dict[str, int]` | 每个请求本轮推进多少 token；`total_num_scheduled_tokens` 是总和 |
+| `scheduled_spec_decode_tokens` | `dict[str, list[int]]` | 本轮要验证的草稿 token |
+| `finished_req_ids` / `preempted_req_ids` | `set[str]` | 状态通知，Worker 据此删 `InputBatch` 的行 |
+
+Table: SchedulerOutput 的字段
+
+### 2. 四步翻译：从调度决策到 kernel 参数
+
+Worker 一侧常驻一份 `InputBatch`（`vllm/v1/worker/gpu_input_batch.py`，每个在跑的请求占一行）和每个 KV cache group 一张 `BlockTable`（`vllm/v1/worker/block_table.py`）。它们和调度器进程里的对象怎样靠 `request_id`、`block_id` 两个整数对上，见[第三篇“核心数据对象：四个域”](/vllm-request-lifecycle-overview.html#5-核心数据对象四个域)那张图。每一步，Worker 把 `SchedulerOutput` 翻译成 GPU 数据结构，分四步：
+
+| 步骤 | 函数 | 做什么 | 细节 |
+|---|---|---|---|
+| ① 同步 `InputBatch` | `_update_states()` | 按 `SchedulerOutput` 删掉完成 / 抢占的行、加新请求、追加新块号、更新 `num_computed_tokens`；`InputBatch` 跨步常驻，只做增量 | Req A（已缓存 256、新推 256）→ 本轮 256 个 token<br/>Req B（decode）→ 1 个<br/>Req C（spec decode）→ 1+N 个 |
+| ② 拼输入与 `slot_mapping` | `_prepare_inputs()` | numpy 把各请求本轮的 token 扁平成一条 `input_ids` / `positions`，经 pinned buffer 异步 H2D；`block_table.compute_slot_mapping()` 用 Triton kernel 由 block table 算出每个 token 的 slot | 新块从头写<br/>已有块追加到尾部<br/>**Prefix Cache 命中的那段已计入 `num_computed_tokens`，根本不在本轮 token 里** |
+| ③ attention metadata | `_build_attention_metadata()` | 告诉 kernel 每个请求能读哪些块 | `block_table_tensor`、`slot_mapping`、`query_start_loc`、`seq_lens`、`max_query_len`；V1 没有 `is_prompt`，prefill 和 decode 只是 query 长度不同 |
+| ④ 执行模式选择 | `_determine_batch_execution_and_padding()` → `cudagraph_dispatcher.dispatch()` | 决定 FULL / PIECEWISE CUDA Graph 还是 eager，并把 batch pad 到捕获过的尺寸 | 纯 decode 且尺寸在捕获列表内 → 整张图 replay<br/>含 prefill / 超出尺寸 → piecewise graph 或 eager |
+
+Table: SchedulerOutput 到 GPU 输入的四步翻译
+
+最终**给 GPU 的**是 `input_ids`、`positions`（直接传给 `model()`）和 attention metadata（经 `forward_context` 交给各层 Attention），**从 GPU 拿回的**是 `hidden_states → logits → sampled_token_ids`。
+
+所以 `SchedulerOutput` 和 GPU 计算之间隔着的这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块，CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
+
+这一层为什么必须存在：`slot_mapping` 是第五篇分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块，第五篇），而“走 Graph 还是 Eager”则是本文第三章 CUDA Graph 那个约束的落地位置（图里的形状必须固定）。**三个字段，三处设计约束。**
+
+### 3. 一步之内的时序：CPU 与 GPU 在哪里等谁
+
+上面讲的是“翻译什么”，还有一个问题是“翻译和计算在时间上怎么排”。[第三篇第二章](/vllm-request-lifecycle-overview.html#二逻辑视图静态系统拓扑自顶向下)那张单步时间线说 CPU 准备 N+1 步时 GPU 在算 N 步，它成立的前提是**一步之内 CPU 几乎不等 GPU**。v0.27.1 把一步拆成 `execute_model()` 和 `sample_tokens()` 两次调用，下面按时间顺序标出每个动作发生在 CPU 还是 GPU、哪里是异步入队、哪里是真正的同步点：
+
+```mermaid
+%% 图：一步之内 CPU 与 GPU 在哪里等谁：execute_model 与 sample_tokens 两次调用，标出异步入队与真正的同步点
+sequenceDiagram
+    participant EC as EngineCore.step()<br/>(EngineCore 进程)
+    participant MR as GPUModelRunner<br/>(Worker 进程, CPU 侧)
+    participant GPU as GPU 默认 stream
+
+    EC->>MR: execute_model(SchedulerOutput) 经 rpc_broadcast_mq, non_block=True
+    Note over EC: 拿到 future 就返回, 转去算 get_grammar_bitmask()
+    activate MR
+    MR->>MR: _update_states(): 增删 CachedRequestState, InputBatch.condense()
+    MR->>GPU: commit_block_table(): block_table H2D (non_blocking, 先发以便重叠)
+    MR->>MR: _prepare_inputs(): numpy 拼 input_ids / positions / query_start_loc / seq_lens
+    MR->>GPU: copy_to_gpu(): pinned buffer → GPU (non_blocking)
+    MR->>GPU: compute_slot_mapping(): Triton kernel 由 block_table 算出 slot_mapping
+    MR->>GPU: _model_forward(): 逐层 launch kernel, 或 CUDA Graph 一次 replay
+    MR->>GPU: compute_logits()
+    Note over MR,GPU: 以上全部异步入队, CPU 提交完即返回, GPU 此时往往还在跑 forward
+    MR-->>EC: 返回 None (logits 等留在 execute_model_state)
+    deactivate MR
+    EC->>MR: sample_tokens(grammar_output)
+    activate MR
+    MR->>GPU: apply_grammar_bitmask() 与 _sample(): 采样 kernel 入队
+    MR->>GPU: _bookkeeping_sync(): sampled_token_ids D2H 到 pinned buffer
+    GPU-->>MR: transfer_event.synchronize() — 整步唯一的 CPU 等 GPU 点
+    MR->>MR: tolist() → ModelRunnerOutput(req_ids, sampled_token_ids)
+    MR-->>EC: ModelRunnerOutput 经 worker_response_mq
+    deactivate MR
+    EC->>EC: Scheduler.update_from_output()
+    Note over EC,GPU: 开启 async scheduling 时, D2H 改由 AsyncGPUModelRunnerOutput 在独立 copy stream 上做, 此处不再同步, 下一步 schedule() 不等本步的 token
+```
+
+图里有四点要看：
+
+1. **`execute_model()` 全程不同步。** 从 `_update_states()` 到 `compute_logits()`，CPU 做的只是填 pinned buffer、发 `non_blocking` 拷贝、launch kernel（或 replay 一张图）。`commit_block_table()` 被刻意放在 `_prepare_inputs()` 的第一行，让 block table 的 H2D 拷贝和后面的 numpy 计算重叠——源码注释明说这是一项优化（“Start copying the block table first”）。
+2. **同步点只有一个，且被推到最后。** `_bookkeeping_sync()` 里的 `_to_list()` 用 `transfer_event.synchronize()` 等采样结果落到 CPU；它用 CUDA event 而不是 `tolist()` 直接触发的全 stream 同步，是为了不阻塞其他 stream 上的拷贝（比如 PD 分离时的 KV 传输）。在这个点之前，GPU 上排着的是 forward + 采样整条队列，CPU 等的时间就是 GPU 真正的计算时间。
+3. **为什么拆成两次调用。** `execute_model()` 返回后、`sample_tokens()` 之前，EngineCore 有一个窗口可以做需要上一步结果的事（结构化输出的 grammar bitmask），而 GPU 此刻正在跑 forward——把 CPU 侧这段工作塞进 GPU 的空当。
+4. **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是第三篇说的“流水线化”在源码里更激进的形态。
+
+翻译层本身不会让 GPU 空等：它的 CPU 工作全部异步入队，被 GPU 上一段 forward 盖住。真正可能让 GPU 等 CPU 的，是 `_model_forward()` 里那串 kernel launch——一步几百到上千次，单个 kernel 又短。这就是下一章的第一种浪费。
+
+## 三、GPU 为什么在空转？—— Kernel Launch 与 CUDA Graph
 
 第一种浪费最反直觉：**GPU 并不慢，它只是在排队等 CPU 告诉它下一步做什么。** 这个问题在 Prefill 阶段几乎看不见（单个 kernel 算得久，提交开销被淹没），却会在 Decode 阶段被放大——因为 Decode 每步的计算量太小了。
 
@@ -181,7 +268,7 @@ flowchart TB
 
 这组模式和第八篇的 PD 分离有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
 
-## 三、数据为什么搬不动？—— 压缩 HBM 流量
+## 四、数据为什么搬不动？—— 压缩 HBM 流量
 
 第二种浪费才是大头。GPU 的算力增长速度远快于显存带宽，于是绝大多数推理 kernel 的真实瓶颈都不是"算不完"，而是"数据喂不上"。
 
@@ -439,7 +526,7 @@ Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一�
 * 少中间 tensor
 * 更高吞吐、更低延迟
 
-## 四、能不能少搬几个字节？—— 低精度推理
+## 五、能不能少搬几个字节？—— 低精度推理
 
 上一章在减少搬运**次数**，这一章换个方向：让每次搬运的**数据本身变小**。两者正交，可以叠加。
 
@@ -525,7 +612,7 @@ Table: 混合精度组合的显存、延迟与质量
 
 最后一句必须说在前面：**质量损失一定要用 eval benchmark 实测**（HumanEval、MMLU 等），不能靠"≈ 基准"这三个字就上生产。
 
-## 五、能不能少跑几轮模型？—— 投机解码
+## 六、能不能少跑几轮模型？—— 投机解码
 
 前面三章都在优化"一轮怎么跑得更快"。这一章换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
@@ -765,7 +852,7 @@ Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61
 
 看请求 0：它本步的 4 个 token 是 `[上一步采样的 token, d₁, d₂, d₃]`，forward 后需要 4 个位置的 logits——前 3 个（`target_logits_indices`）用来验证 `d₁ d₂ d₃`，第 4 个（`bonus_logits_indices`）是全部接受时的 bonus。请求 1 在 prefill，只要最后一个位置（104 → 全是 bonus）。于是 `logits_indices` 总长 `num_tokens + batch_size`，**logits 张量不再是 `[num_reqs, V]` 而是 `[num_reqs + Σ drafts, V]`**——采样一侧的 logits processor 因此不知道每一行属于哪个请求，第十篇会讲这带来的限制。`draft_token_ids` 直接从 `input_ids[logits_indices][target_logits_indices + 1]` 取出来：draft 已经作为输入 token 喂进了 forward。
 
-**这一步和 CUDA Graph 的关系**是最容易被忽略的约束。[第二章](#2-cuda-graph静态执行图捕获与重放)讲 `FULL_AND_PIECEWISE` 时说"纯 decode batch 形状规则、可以按 batch size 分桶录图"——投机解码把"规则"的定义改了：
+**这一步和 CUDA Graph 的关系**是最容易被忽略的约束。[第三章](#2-cuda-graph静态执行图捕获与重放)讲 `FULL_AND_PIECEWISE` 时说"纯 decode batch 形状规则、可以按 batch size 分桶录图"——投机解码把"规则"的定义改了：
 
 ```python title="gpu_model_runner.py：uniform_decode_query_len"
 # vllm/v1/worker/gpu_model_runner.py
@@ -885,7 +972,8 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 | 想看什么 | 从哪开始 |
 |---|---|
-| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu_model_runner.py`（默认）、`vllm/v1/worker/gpu_input_batch.py`；V2 实现在 `vllm/v1/worker/gpu/`（翻译层细节见第十四篇） |
+| 输入翻译 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner._update_states()`、`_prepare_inputs()`、`_build_attention_metadata()`、`_determine_batch_execution_and_padding()`、`_bookkeeping_sync()`；`vllm/v1/worker/block_table.py` → `BlockTable.commit_block_table()` / `compute_slot_mapping()` |
+| **一轮 batch 在 GPU 上怎么跑** | `vllm/v1/worker/gpu_model_runner.py`（默认）、`vllm/v1/worker/gpu_input_batch.py`；V2 实现在 `vllm/v1/worker/gpu/`（输入翻译见本文第二章） |
 | CUDA Graph 捕获与重放 | `vllm/v1/worker/gpu/cudagraph_utils.py`；模式枚举在 `vllm/config/compilation.py` |
 | Attention 后端选择 | `vllm/v1/attention/selector.py` → `get_attn_backend()` |
 | 各 Attention 后端实现 | `vllm/v1/attention/backends/`（MLA 变体在 `mla/`） |
@@ -914,10 +1002,11 @@ Table: 投机解码源码导航
 
 </details>
 
-## 六、本文小结
+## 七、本文小结
 
 - 落到 GPU 上，浪费只有四种形态：等 CPU 发指令、等 HBM 送数据、搬的每个数太胖、轮次本身太多；本篇的四类手段分别对应它们。
 - 在例子里（Llama-3-70B、8×H100、TP=8），一次 decode 的权重读取下界约 5.3 ms，实测一步约 10 ms；Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode 侧。
+- forward 之前，`GPUModelRunner` 把 `SchedulerOutput` 翻译成 GPU 数据结构：`_update_states()` 增量更新常驻的 `InputBatch`，`_prepare_inputs()` 拼出扁平的 `input_ids` / `positions` 并用 Triton kernel 算 `slot_mapping`（每个 token 的 KV 写去哪），`_build_attention_metadata()` 交出 `block_table`（每个请求能读哪些块）、`query_start_loc`、`seq_lens`，再由 dispatcher 选 CUDA Graph 还是 eager。`execute_model()` 全程异步入队，`sample_tokens()` 里 `transfer_event.synchronize()` 是一步唯一的同步点，async scheduling 连它也拿掉。
 - CUDA Graph 把一步 decode 的数百到上千次 kernel 提交合并为一次图重放，消除 Kernel Launch 气泡；代价是图内形状必须固定，因此要按 batch 形态捕获、按模式（如 `FULL_DECODE_ONLY`）取舍显存与收益。
 - FlashAttention 与 Kernel Fusion 优化的是同一个量——HBM 流量 = 搬运次数 × 每次搬运的数据量——前者是注意力内部的"算子内融合"（Tiling + Online Softmax，N×N 矩阵不落 HBM），后者是推理链路上的"算子间融合"；vLLM 通过 Attention Backend Selector 按硬件与 workload 路由到不同实现。
 - 低精度推理让每次搬运的数据本身变小，与减少搬运次数正交、可叠加；权重量化直接减半 decode 的权重读取带宽，FP8 / INT4 还能用上 Tensor Core 的特殊指令。
@@ -925,7 +1014,7 @@ Table: 投机解码源码导航
 - 在 vLLM 里，调度器把 `1+K` 算进 token 预算（预算紧时截断 draft，prefill 阶段不调度 draft），用 `num_lookahead_tokens` 为 draft 模型预留槽位，步后 `num_computed_tokens -= num_rejected` 就是全部的"KV 回滚"——物理槽位不清理、不释放；model runner 的 logits 变成 `[num_reqs + Σdrafts, V]`，"纯 decode batch"变成每请求 `1+K` 个 token，截断 draft 会让 batch 掉出 FULL 图；EAGLE 命中 prefix cache 时主动少算一块。
 - 收益有临界点：H100 上一步约 300 个 token 是 memory-bound 与 compute-bound 的分界，`batch × (1+K)` 超过它验证就不再免费。例子里 batch=1、接受长度 2.5 时约 2.1×；batch=128 时每步慢 1.9 倍、吞吐反降。按位置的接受率（`SpecDecodingStats`）是调 K 的依据；动态 K 在 DP > 1 时被关掉，PD 下异步拉 KV 的那一步不预留 lookahead。
 
-## 七、自测
+## 八、自测
 
 1. Llama-3-70B TP8、BF16：一步 decode 每卡读多少权重？H100 上时间下界多少？实测约 10 ms 的另一半去哪了？
 
@@ -967,4 +1056,21 @@ Table: 投机解码源码导航
 
    </details>
 
-[^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第二章](#二gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第三章](#三数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第四章](#四能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码让 Draft 一次猜 K 个、Target 一次 forward 验证，拒绝采样保证输出分布不变；vLLM 里 draft 进 token 预算、为 draft 模型预留 lookahead 槽位、步后回滚 `num_computed_tokens`，一步里 `batch × (1+K)` 超过约 300 个 token 后验证不再免费（[第五章](#五能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。
+6. `GPUModelRunner._update_states()` 做什么？为什么它是 `InputBatch` 持久化的关键？
+
+   <details markdown="1"><summary>答案</summary>
+
+   按 `SchedulerOutput` 把完成 / 抢占的请求从 `InputBatch` 移除（`condense()` 用尾部行填补空位）、新请求加入、更新每个请求的 `num_computed_tokens` 与 block table；`InputBatch` 跨步保留，所以每步只做增量更新而不是重建，LogitsProcessor 的状态也随之同步。
+
+   </details>
+
+7. block table 是怎么进到 attention kernel 的？decode 时 kernel 用它做什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `_update_states()` 把新块号写进 `BlockTable` 的行，`_prepare_inputs()` 第一行 `commit_block_table()` 把它异步拷到 GPU，再由 `compute_slot_mapping()` 算出 `slot_mapping`（新 token 写到哪个 slot），连同 `seq_lens`、`query_start_loc` 由 `_build_attention_metadata()` 打包成 attention metadata；decode kernel 对每个请求按 block table 查 KV 块地址，逐块读 K、V 做 attention，新 K、V 按 `slot_mapping` 写入。
+
+   </details>
+
+[^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第三章](#三gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第四章](#四数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第五章](#五能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码让 Draft 一次猜 K 个、Target 一次 forward 验证，拒绝采样保证输出分布不变；vLLM 里 draft 进 token 预算、为 draft 模型预留 lookahead 槽位、步后回滚 `num_computed_tokens`，一步里 `batch × (1+K)` 超过约 300 个 token 后验证不再免费（[第六章](#六能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。
+[^q1]: 在 Worker 里的 `GPUModelRunner.execute_model()` 前半段，分四步：`_update_states()` 按 `SchedulerOutput` 增删、更新常驻 `InputBatch` 的行与 block table；`_prepare_inputs()` 把各请求本轮的 token 扁平成 `input_ids` / `positions` 经 pinned buffer 异步 H2D，并用 Triton kernel 由 block table 算出每个 token 的 `slot_mapping`（Prefix Cache 命中的 token 已计入 `num_computed_tokens`，不在本轮里）；`_build_attention_metadata()` 交出 `block_table_tensor`、`slot_mapping`、`query_start_loc`、`seq_lens`；`_determine_batch_execution_and_padding()` 经 `cudagraph_dispatcher.dispatch()` 决定 FULL / PIECEWISE / eager 并 pad 到桶。GPU 不等它，是因为 `execute_model()` 里的拷贝和 kernel 全部 `non_blocking` 入队（`commit_block_table()` 还被提到最前与 numpy 计算重叠），整步唯一的 CPU 等 GPU 点是 `sample_tokens()` 里 `_bookkeeping_sync()` 的 `transfer_event.synchronize()`；开 async scheduling 后连这一点也移到独立 copy stream 上。详见[第二章](#二forward-之前scheduleroutput-如何变成-gpu-张量)。

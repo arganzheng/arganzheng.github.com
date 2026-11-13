@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（09）：请求形态的扩展：multi-LoRA 与多模态
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -373,7 +373,7 @@ def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multim
 
 最后一步就是 `inputs_embeds[is_mm_embed] = mm_embeds_flat`——盖掉查表得到的占位 embedding。注意两点：位置 6 的换行虽然在占位区间内，但 `is_embed=0`，它保留查表 embedding，encoder 输出的下标也跳过它；chunk 2 的 `start_idx=4` 是"encoder 输出的第 4 个"而不是"占位区间的第 5 个位置"——`get_embeds_indices_in_range()` 做的正是这两个坐标系之间的换算。
 
-encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见[第六篇的投机解码一章](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)）。
+encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见[第六篇的投机解码一章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）。
 
 ### 3. encoder 的独立执行与预算
 

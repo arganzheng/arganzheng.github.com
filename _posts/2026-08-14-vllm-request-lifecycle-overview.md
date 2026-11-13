@@ -306,6 +306,7 @@ Worker 管“这张卡上有什么”，ModelRunner 管“这一轮怎么算”�
 全景图按域列出了字段，但没有回答“这些对象之间靠什么串起来”。答案是两把钥匙——`request_id` 和 `block_id`——以及一次跨进程的复制：调度器进程里 `Request` 通过 `request_id` 找到它的 `KVCacheBlock` 列表，块对象只在这个进程存在；跨到 Worker 进程时，`SchedulerOutput` 只带整数 `block_id`，Worker 用它填 `BlockTable` 的一行，再由 `BlockTable` 派生出 kernel 真正读写 KV 张量所需的 `slot_mapping`：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
 %% 图：四个域里对象的两把钥匙：request_id 把 Request 连到 KVCacheBlock，跨进程只传 block_id 整数，Worker 用它填 BlockTable
 flowchart TB
     subgraph SB["EngineCore 进程：Scheduler / KVCacheManager"]
@@ -488,6 +489,29 @@ flowchart LR
 
 制品在运行时由谁加载：`vllm/platforms/cuda.py` 在模块顶层 `import vllm._C_stable_libtorch`，把 kernel 注册成 torch 自定义算子；`vllm/_custom_ops.py` 再调 `current_platform.import_kernels()` 加载 `_moe_C_stable_libtorch`。所以只要一个进程解析了 `current_platform`——API Server 和 EngineCoreProc 构造配置时都会——这个 `.so` 就会被装进内存；真正在 GPU 上调用这些 kernel 的只有执行模型的进程：WorkerProc，单卡时是 EngineCoreProc 里的 Worker。FlashAttention 扩展由 `vllm/v1/attention/backends/fa_utils.py` 导入，在 Worker 的 attention 前向里用。
 
+**Python 怎样调到这些 kernel。** 扩展模块不是用 PyBind11 绑出一组 Python 函数：`csrc/libtorch_stable/torch_bindings.cpp` 用 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 向 PyTorch 的 dispatcher 声明算子 schema，用 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 挂上 CUDA 实现；文件末尾的 `REGISTER_EXTENSION(_C_stable_libtorch)`（`csrc/core/registration.h`）只生成一个空的 `PyInit_` 入口，好让 `import vllm._C_stable_libtorch` 能把 `.so` 装进进程、触发注册。之后 Python 一侧通过 `torch.ops._C.<算子名>` 调用，`vllm/_custom_ops.py` 再包一层同名函数（例如 `rms_norm()` 里就是 `torch.ops._C.rms_norm(...)`）。另一类算子用 Python 写：attention 层的 `unified_attention_with_output` 由 `direct_register_custom_op`（`vllm/utils/torch_utils.py`）注册成 `torch.ops.vllm.*`，这样 `torch.compile` 把它当成一个不可拆的节点；它内部再调 FlashAttention 扩展或 Triton kernel。许多算子（尤其是 Attention 和 MoE 相关）用 Triton 写，`.py` 文件在运行时 JIT 编译，不进 wheel 的 `.so`。
+
+| Python 一侧的调用 | 落到的实现 | GPU 硬件 |
+|---|---|---|
+| `vllm/_custom_ops.py` 的 `rms_norm()` → `torch.ops._C.rms_norm` | `csrc/libtorch_stable/layernorm_kernels.cu`，编进 `_C_stable_libtorch.abi3.so` | CUDA Cores |
+| `torch.ops.vllm.unified_attention_with_output`（`vllm/model_executor/layers/attention/attention.py`） | Attention backend：FlashAttention（`vllm_flash_attn` 扩展）或 Triton kernel（`.py`） | Tensor Cores |
+| `fused_moe()`（`vllm/model_executor/layers/fused_moe/`） | `csrc/libtorch_stable/moe/`（`_moe_C_stable_libtorch`）或 Triton experts（`.py`） | Tensor Cores |
+| `torch.matmul()` / 线性层 | PyTorch 自带的 cuBLAS GEMM | Tensor Cores |
+
+Table: 从 Python 调用到 GPU 硬件的对应
+
+按层看，语言分工如下：
+
+| 层面 | 语言 | 职责 | 为什么选这个语言 |
+|------|------|------|----------------|
+| API + 调度 | Python | 请求管理、调度策略、KV 块分配 | 逻辑复杂多变，需要快速迭代 |
+| 输入准备 | Python + PyTorch | 张量构建、block table 更新 | 利用 PyTorch 的张量接口 |
+| 模型 Forward | C++ / CUDA（经 PyTorch） | GEMM、Attention、MLP | 极致性能 |
+| 自定义算子 | CUDA / Triton | RMSNorm、RoPE、Fused Attention | 硬件特化 |
+| 集合通信 | C++（NCCL） | All-Reduce、All-Gather | 零拷贝、内核级调度 |
+
+Table: Python 与 C++ 的核心分工
+
 ## 五、部署/物理视图：进程怎样落到 GPU 和节点上
 
 第三章说了有哪几类进程，第四章说了源码编译出哪些制品；部署视图把进程落到硬件上。先看决定进程图的规则，再看五种常见部署。
@@ -667,7 +691,7 @@ P/D 分离部署不在这五种里：它把 prefill 和 decode 拆到不同的 v
 
 ## 六、场景视图（+1）
 
-Kruchten 4+1 的“+1”就是场景视图：逻辑、进程、开发、物理四个视图各看一个切面，场景把四个切面串起来——沿时间轴走一遍真实发生的交互，验证前四张图能对上同一件事。这里放两个子场景：先看一条请求的完整生命周期（谁经手、什么顺序），再只看 token 这个对象在四个进程之间怎么变形（数据流）。
+Kruchten 4+1 的“+1”就是场景视图：逻辑、进程、开发、物理四个视图各看一个切面，场景把四个切面串起来——沿时间轴走一遍真实发生的交互，验证前四张图能对上同一件事。这里放三个子场景：先看一条请求的完整生命周期（谁经手、什么顺序），再把同一条路径下钻到函数（每一步调的是哪个函数、在哪个进程、跨了哪道边界），最后只看 token 这个对象在四个进程之间怎么变形（数据流）。
 
 ### 1. 请求流：一次请求的完整生命周期
 
@@ -751,7 +775,77 @@ sequenceDiagram
     API-->>C: SSE: data: [DONE]
 ```
 
-### 2. 数据流：Token 如何穿过整个 Serving 栈
+### 2. 下钻到函数：从 HTTP 请求到 GPU kernel 的调用链
+
+上面的时序图停在组件一级，回答的是“谁经手、什么顺序”。读源码、打断点时还要知道每一跳调的是**哪个函数**、这段代码是什么语言、中间跨了哪道边界。把同一条路径下钻到函数，可以看到三道边界——两道进程边界（③ ZMQ、⑤ 共享内存队列）和一道 Python → CUDA 边界（⑦）——落在哪几个位置：
+
+![从 HTTP 请求到 GPU kernel 的时间顺序链](/img/in-post/source-code-request-walkthrough-request-to-kernel-chain.svg)
+
+| # | 层 | 调用 | 语言 / 边界 |
+|---|---|---|---|
+| ① | HTTP 入口 | `chat_completion/api_router.py: create_chat_completion()` | Python（FastAPI） |
+| ② | 异步引擎 | `AsyncLLM.add_request()` → `InputProcessor.process_inputs()` tokenize → `[15496, 11, …]` → `EngineCoreRequest` | Python（async） |
+| ③ | 进程边界 | `EngineCore.add_request()` → `Scheduler.add_request()` | **Python IPC：ZMQ + msgspec** |
+| ④ | 调度 | `Scheduler.schedule()` → `SchedulerOutput` | Python（调度算法） |
+| ⑤ | 执行分发 | `Executor.execute_model()` → `Worker.execute_model()` | **进程边界：共享内存 `MessageQueue`（`rpc_broadcast_mq`）** |
+| ⑥ | 张量准备 | `GPUModelRunner.execute_model()` → `_update_states()` / `_prepare_inputs()`：拼 `input_ids`、`positions`，填 `block_table`，算 `slot_mapping` | Python |
+| ⑦ | 模型前向 | `model(input_ids, positions)`，KV cache 和 attention metadata 经 `forward_context` 传入；每层 RMSNorm → QKV → RoPE → Attention → O_proj → MLP | **Python → CUDA 边界（PyTorch dispatch）** |
+| ⑧ | Attention kernel | Attention Backend → `flash_attn_varlen_func()` 或 `BatchDecodeWithPagedKVCacheWrapper.run()` | **CUDA Kernel Launch（C++ runtime）** |
+| ⑨ | 图重放（可选） | `cudagraph_dispatcher.dispatch()` 选模式 → `CUDAGraphWrapper` 一次 replay 预捕获的整张图 | CUDA Graph，纯 decode 且尺寸命中捕获列表 |
+| ⑩ | 取回结果 | Sampling：`logits` → `sampled_token_ids`（GPU tensor → CPU list） | **GPU → CPU** |
+| ⑪ | 输出处理 | `ModelRunnerOutput` → `Scheduler.update_from_output()` → `OutputProcessor` detokenize → SSE Stream → Client | Python |
+
+Table: 从请求到 GPU kernel 的完整调用链
+
+三道边界（③⑤⑦）恰好把这条链切成了四段，而它们的位置不是随意的：
+
+- **③ 是进程边界**——API 层与引擎核心分离，为的是不让 HTTP 处理阻塞调度循环（第三章第 1、2 节）。
+- **⑤ 也是进程边界，同时是控制面与数据面的边界**——上游全是决策，下游全是计算（第二章开头）。EngineCore 只把 `SchedulerOutput` 序列化后经共享内存广播给 WorkerProc；单卡时 Executor 与 Worker 同进程（`UniProcExecutor`），这道边界退化为普通函数调用。
+- **⑦ 是 Python 与 GPU 的边界**——过了这里就再没有 Python 开销可言。
+
+第二章那张单步时间线说“Python 控制面只占 ~1%”，指的正是 ①–⑥ 这一段相对 ⑦–⑩ 的耗时占比。⑥ 到 ⑩ 在 Worker 里的细节（`InputBatch` 的增量更新、`slot_mapping`、attention metadata、执行模式选择、一步之内唯一的同步点）见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+
+上面那条链是“时间顺序”，下面换成“调用栈”再看一遍。区别在于嵌套关系：`step()` 是一个普通函数，`schedule()`、`execute_model()`、`update_from_output()` 都是它的直接子调用，⑪ 返回的地方就是 ④ 出发的地方；而三段栈分别活在三个进程里，栈与栈之间只靠消息队列衔接，没有任何一个 Python 帧同时横跨两道边界：
+
+```text title="同一条链的调用栈：三个进程"
+API Server 进程                              vllm/entrypoints/, vllm/v1/engine/
+└─ create_chat_completion()                  chat_completion/serving.py
+   └─ AsyncLLM.generate()                    async_llm.py
+      ├─ add_request()
+      │  ├─ InputProcessor.process_inputs()  input_processor.py   tokenize
+      │  └─ AsyncMPClient.add_request_async() core_client.py      ZMQ 发送 ↓
+      └─ await RequestOutputCollector.get()  ◀─ output_handler() 协程 ↑
+         └─ OutputProcessor.process_outputs() output_processor.py detokenize
+═══ API 边界：ZMQ + msgspec（EngineCoreRequest ↓ / EngineCoreOutputs ↑）═══════
+EngineCoreProc                               vllm/v1/engine/core.py
+├─ process_input_sockets() 输入线程          ◀─ ZMQ 收 EngineCoreRequest
+│  └─ preprocess_add_request() → Request.from_engine_core_request()
+├─ run_busy_loop() 主线程
+│  └─ step()
+│     ├─ Scheduler.schedule()                core/sched/scheduler.py
+│     │  ├─ KVCacheManager.get_computed_blocks()   core/kv_cache_manager.py
+│     │  └─ KVCacheManager.allocate_slots()
+│     ├─ MultiprocExecutor.execute_model()   executor/multiproc_executor.py
+│     │  └─ collective_rpc() → rpc_broadcast_mq.enqueue()   共享内存广播 ↓
+│     ├─ MultiprocExecutor.sample_tokens()   同上, 阻塞等 worker_response_mq ↑
+│     └─ Scheduler.update_from_output()      ◀─ ModelRunnerOutput
+└─ process_output_sockets() 输出线程         → ZMQ 发 EngineCoreOutputs ↑
+═══ 执行边界：共享内存 MessageQueue（SchedulerOutput ↓ / ModelRunnerOutput ↑）
+WorkerProc（每个 TP/PP rank 一个）           vllm/v1/worker/
+└─ worker_busy_loop()                        executor/multiproc_executor.py
+   └─ Worker.execute_model() / sample_tokens()   gpu_worker.py
+      └─ GPUModelRunner                      gpu_model_runner.py
+         ├─ _update_states()      CPU: 同步 CachedRequestState / InputBatch
+         ├─ _prepare_inputs()     CPU → GPU: H2D 拷贝 + slot_mapping kernel
+         ├─ _model_forward()   ┐  Python → CUDA 边界（PyTorch dispatch）
+         ├─ compute_logits()   │  Attention → flash_attn / FlashInfer kernel
+         ├─ _sample()          │  或整段 CUDA Graph replay
+         └─ _bookkeeping_sync()┘  GPU → CPU: 整步唯一的 D2H 同步点
+```
+
+这张树回答了一个链式图回答不了的问题：**每个进程里“常驻”的是什么。** API Server 进程常驻的是每个请求一个的 `generate()` 协程和一个全局 `output_handler()` 协程；EngineCoreProc 常驻的是三个线程，其中主线程的栈底永远是 `run_busy_loop() → step()`；WorkerProc 常驻的是 `worker_busy_loop()`，它从共享内存里取出方法名和参数、反射调用 `Worker` 上的同名方法、把返回值塞回响应队列——`execute_model` 和 `sample_tokens` 对它来说只是两个字符串。三段栈都是“死循环 + 一次调用”的形状，请求本身不在任何一个栈上，它只是三条消息队列里流过的数据。两道进程边界上各传什么，就是第三章第 4 节那张图。
+
+### 3. 数据流：Token 如何穿过整个 Serving 栈
 
 #### 放大：一个 token 的回程（流式输出）
 
@@ -798,6 +892,8 @@ Table: 一个请求在各层的对象
 
 Table: 四问与承担模块
 
+按数据对象看是同一副骨架：请求域（`Request`）是四问的输入，调度域（`SchedulerOutput` / `ModelRunnerOutput`）和显存域（`KVCacheBlock` / `BlockTable`）是前两问的产物，模型域是第三问的战场；它们之间只靠 `request_id` 和 `block_id` 两个整数串起来（第二章第 5 节）。
+
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
@@ -815,6 +911,8 @@ Table: 四问与承担模块
 | 调度器给执行层的"订单" | `vllm/v1/core/sched/output.py` → `SchedulerOutput` / `NewRequestData` / `CachedRequestData` |
 | 执行抽象与各种部署形态 | `vllm/v1/executor/abstract.py` |
 | 一轮 batch 在 GPU 上怎么跑 | `vllm/v1/worker/gpu_model_runner.py` → `GPUModelRunner.execute_model()` / `sample_tokens()` |
+| 四个域的核心对象 | `vllm/v1/request.py` → `Request`；`vllm/v1/core/kv_cache_utils.py` → `KVCacheBlock`；`vllm/v1/worker/block_table.py` → `BlockTable`；`vllm/v1/worker/gpu_input_batch.py` → `InputBatch` / `CachedRequestState`；`vllm/v1/outputs.py` → `ModelRunnerOutput` |
+| C++ / CUDA 算子怎样注册给 Python | `csrc/libtorch_stable/torch_bindings.cpp`（`STABLE_TORCH_LIBRARY_FRAGMENT` / `STABLE_TORCH_LIBRARY_IMPL`）、`vllm/_custom_ops.py` |
 | 进程启动、ZMQ 握手与 DP 协调 | `vllm/v1/engine/utils.py`、`vllm/v1/utils.py`、`vllm/v1/engine/coordinator.py` |
 
 Table: 入口与引擎循环的源码导航
@@ -839,11 +937,11 @@ Table: 入口与引擎循环的源码导航
 
    </details>
 
-3. 一个请求的状态机有哪几个主要状态？从 WAITING 到 RUNNING 要过哪些检查？
+3. 从 `Scheduler.schedule()` 给一个请求分到 KV 块，到 kernel 把它的新 K、V 写进显存，“块”经过哪几个对象？从哪一步起只剩一个整数？
 
    <details markdown="1"><summary>答案</summary>
 
-   WAITING → RUNNING → FINISHED（或被抢占回 WAITING / PREEMPTED；结构化输出有 WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR）；准入要 KV 块够（`KVCacheManager.allocate_slots`）、token budget 够、`max_num_seqs` 未满、（有 LoRA 时）`max_loras` 未满。
+   `Scheduler.schedule` → `KVCacheManager.get_computed_blocks`（查 prefix cache 命中的块）→ `KVCacheManager.allocate_slots`（算需要几个新块）→ `BlockPool.get_new_blocks`（从空闲队列取，可能先驱逐带哈希的旧块）→ 追加到 `SingleTypeKVCacheManager.req_to_blocks[request_id]`，这些都是 `KVCacheBlock` 对象；写进 `SchedulerOutput`（`NewRequestData.block_ids` / `CachedRequestData.new_block_ids`）时只剩整数 `block_id`，`ref_cnt` 和哈希留在 EngineCoreProc。Worker 用它填 `BlockTable` 的一行，`compute_slot_mapping()` 算出每个 token 的 slot，`reshape_and_cache` 按 slot 写 KV。
 
    </details>
 
@@ -879,4 +977,5 @@ Table: 入口与引擎循环的源码导航
 
    </details>
 
-[^q0]: 链路是固定的：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM` → `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token，产出 `SchedulerOutput`；**Executor 分发**到一个或多个 Worker；**ModelRunner 执行**——准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`；EngineCore 把结果交回 Scheduler 更新请求状态，并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是元数据——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。详见[第二](#二逻辑视图静态系统拓扑自顶向下)至[第六章](#六场景视图1)（数据流在 6.2）。
+[^q0]: 链路是固定的：**入口**（`api_server` 的 OpenAI 兼容路由）→ `AsyncLLM` → `InputProcessor`（tokenize、构造 `EngineCoreRequest`）→ 经 `EngineCoreClient` 跨进程送进 **EngineCore**。EngineCore 的 `step()` 是驱动循环：**Scheduler 决策**——这一轮哪些请求跑、每个推进多少 token，产出 `SchedulerOutput`；**Executor 分发**到一个或多个 Worker；**ModelRunner 执行**——准备 `InputBatch`、调 attention backend 与模型前向、采样，产出 `ModelRunnerOutput`；EngineCore 把结果交回 Scheduler 更新请求状态，并把 `EngineCoreOutputs` 送回前端 detokenize、流式返回。**传递的是什么**：Scheduler 与 ModelRunner 之间传的不是 tensor 而是元数据——每个请求这一轮的 token 数、block table、slot mapping、采样参数；Worker 之间传的是激活（TP 的 all-reduce、PP 的 P2P）；前后端之间传的是 token id。详见[第二](#二逻辑视图静态系统拓扑自顶向下)至[第六章](#六场景视图1)（函数级调用链在 6.2，数据流在 6.3）。
+[^q1]: 可以，因为控制面只处理整数元数据，而且它的时间被 GPU 时间盖住。三个理由：（1）**语言特性匹配**——调度逻辑条件多、数据结构动态，适合 Python；数值计算追求极致性能，适合 C++ / CUDA；（2）**迭代速度**——调度算法是 vLLM 改动最频繁的模块，Python 的开发效率远高于 C++；（3）**开销可被摊薄**——一步 decode 的 GPU 时间是十毫秒量级（70B 多卡约 15 ms、7B 单卡约 8–12 ms），schedule 与输入准备合计零点几毫秒，约占 1%；再加上 `execute_model(non_block=True)` 与 async scheduling 的 batch queue 让 GPU 跑第 N 步时 CPU 准备第 N+1 步，这部分时间被流水线化盖住。是否成为瓶颈仍取决于 batch、模型和硬件。详见[第二章](#二逻辑视图静态系统拓扑自顶向下)。

@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（11）：模型适配：如何跟上变化极快的模型世界？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -67,7 +67,7 @@ Table: 模型工程实现的异构维度
 
 - 换 Attention 变体 → 影响 Attention Kernel **和** KV Cache 布局
 - 换 KV Cache 格式 → 影响显存管理 **和** 调度策略（Mamba 的 state 根本不是块状的）
-- 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见本文第七章第 3 节 MTP 部分；投机解码的通用链路——proposer、lookahead 槽位、拒绝采样——在[第六篇](/gpu-execution-kernels-and-graphs.html#五能不能少跑几轮模型-投机解码)）
+- 加特殊头 → 影响采样、调度预算 **和** KV 回滚逻辑（见本文第七章第 3 节 MTP 部分；投机解码的通用链路——proposer、lookahead 槽位、拒绝采样——在[第六篇](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）
 - 引入 MoE → 影响路由、Token Dispatch、通信和负载均衡
 - 改变权重布局 → 影响加载、量化和张量并行
 
