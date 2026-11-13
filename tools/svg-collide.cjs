@@ -45,9 +45,10 @@ const CHECK = `(() => {
   const boxRects=rects2.filter(o=>{const f=(o.el.getAttribute('fill')||getComputedStyle(o.el).fill||'');
     const cs=getComputedStyle(o.el), stroked=cs.stroke&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
     if(!stroked&&(/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f))) return false;
+    o.b.hollow=/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f);
     return !((o.b.x1-o.b.x0)>=vb.width*0.95&&(o.b.y1-o.b.y0)>=vb.height*0.9);}).map(o=>o.b);
-  // circles / ellipses (a ⊕ node, a marker dot) are targets too
-  [...svg.querySelectorAll('circle,ellipse')].filter(c=>!c.closest('defs,marker,g.mathtext')).forEach(c=>{const b=bb(c);if(b&&(b.x1-b.x0)>=6)boxRects.push(b);});
+  // small circles / ellipses (a ⊕ node, a marker dot; ≤ 40px, not a unit circle) are targets too
+  [...svg.querySelectorAll('circle,ellipse')].filter(c=>!c.closest('defs,marker,g.mathtext')).forEach(c=>{const b=bb(c);if(b&&(b.x1-b.x0)>=6&&(b.x1-b.x0)<=40)boxRects.push(b);});
   // closed, filled <path> shapes (rounded cards drawn as paths by generators) are boxes too
   [...svg.querySelectorAll('path')].filter(p=>!p.closest('defs,marker,g.mathtext')&&/[Zz]\\s*$/.test(p.getAttribute('d')||'')
     &&!/^(none|transparent)$/.test(getComputedStyle(p).fill)&&!/rgba\\(0, 0, 0, 0\\)/.test(getComputedStyle(p).fill))
@@ -140,6 +141,8 @@ const CHECK = `(() => {
       for(const b of boxRects){
         const ox=Math.max(b.x0-px,0,px-b.x1), oy=Math.max(b.y0-py,0,py-b.y1);
         const inside=!ox&&!oy;
+        // an arrow ending inside a hollow frame (plot area, container) points at its content, not its border
+        if(inside&&b.hollow&&Math.min(px-b.x0,b.x1-px,py-b.y0,b.y1-py)>4) continue;
         d=Math.min(d, inside?Math.min(px-b.x0,b.x1-px,py-b.y0,b.y1-py):Math.hypot(ox,oy));
       }
       const nearText=texts.some(t=>px>t.b.x0-8&&px<t.b.x1+8&&py>t.b.y0-8&&py<t.b.y1+8);
