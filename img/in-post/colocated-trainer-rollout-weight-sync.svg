@@ -20,7 +20,7 @@
 <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333" /></marker>
 <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#888" /></marker></defs>
 
-<line class="axis" x1="130" y1="30" x2="740" y2="30" marker-end="url(#ag)" />
+<line data-axis="" class="axis" x1="130" y1="30" x2="740" y2="30" marker-end="url(#ag)" />
 <text class="ax" x="130" y="22">时间（不按比例）</text>
 <text class="lbl" x="20" y="111">训练器进程</text>
 <text class="lbl" x="20" y="203">vLLM worker</text>
