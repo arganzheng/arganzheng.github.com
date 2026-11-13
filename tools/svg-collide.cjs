@@ -43,8 +43,11 @@ const CHECK = `(() => {
   const rectList=rects2.map(o=>o.b);
   // boxes an arrow may land on: visible rects that are not the page background
   const boxRects=rects2.filter(o=>{const f=(o.el.getAttribute('fill')||getComputedStyle(o.el).fill||'');
-    if(/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f)) return false;
+    const cs=getComputedStyle(o.el), stroked=cs.stroke&&cs.stroke!=='none'&&parseFloat(cs.strokeWidth)>0;
+    if(!stroked&&(/^(transparent|none)$/.test(f)||/rgba\(0, 0, 0, 0\)/.test(f))) return false;
     return !((o.b.x1-o.b.x0)>=vb.width*0.95&&(o.b.y1-o.b.y0)>=vb.height*0.9);}).map(o=>o.b);
+  // circles / ellipses (a ⊕ node, a marker dot) are targets too
+  [...svg.querySelectorAll('circle,ellipse')].filter(c=>!c.closest('defs,marker,g.mathtext')).forEach(c=>{const b=bb(c);if(b&&(b.x1-b.x0)>=6)boxRects.push(b);});
   // closed, filled <path> shapes (rounded cards drawn as paths by generators) are boxes too
   [...svg.querySelectorAll('path')].filter(p=>!p.closest('defs,marker,g.mathtext')&&/[Zz]\\s*$/.test(p.getAttribute('d')||'')
     &&!/^(none|transparent)$/.test(getComputedStyle(p).fill)&&!/rgba\\(0, 0, 0, 0\\)/.test(getComputedStyle(p).fill))
