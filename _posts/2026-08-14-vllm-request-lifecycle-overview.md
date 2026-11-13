@@ -336,16 +336,30 @@ Table: 模块、源码位置与进程的映射（vLLM v0.27.1）
 
 ### 1. 子系统划分与包图
 
-UML 的开发视图看的是子系统划分与包依赖。服务一条请求真正相关的源码目录有八个，按 import 方向画成一棵树，上层依赖下层，单向向下。实际 import 不是严格的树（`distributed` 的 custom all-reduce 也调用 `csrc` 编出来的 kernel），图里每个目录只画它最主要的上游：
+UML 的开发视图看的是子系统划分与包依赖。服务一条请求真正相关的源码目录有八个。它们之间的 import 并不分层：统计 v0.27.1 的源码，这些目录两两之间有 38 个方向存在 import，不少是反向的、互相引用的（见图后的表）。所以图里的实线画的是**运行时谁调用谁**——一条请求从入口一路驱动到 kernel 的方向；虚线补两条调用主干之外的直接依赖：
 
-![vLLM v0.27.1 的包依赖树：entrypoints → v1.engine → v1.core 与 v1.executor，v1.executor → v1.worker → model_executor 与 distributed，model_executor → csrc](/img/in-post/vllm-request-lifecycle-package-view.svg)
+![vLLM v0.27.1 的包图：运行时调用方向 entrypoints → v1.engine → v1.core 与 v1.executor，v1.executor → v1.worker → model_executor 与 distributed，model_executor → csrc；虚线为调用主干之外的直接依赖](/img/in-post/vllm-request-lifecycle-package-view.svg)
 
-- **entrypoints**（`vllm/entrypoints/openai/`）：协议层。FastAPI 路由、`ChatCompletionRequest` 等 msgspec/pydantic 模型、`serve` CLI 都在这里，只依赖 `v1.engine` 的客户端侧。
+- **entrypoints**（`vllm/entrypoints/openai/`）：协议层。FastAPI 路由、`ChatCompletionRequest` 等 msgspec/pydantic 模型、`serve` CLI 都在这里，往下主要经 `v1.engine` 的客户端侧调用。
 - **v1.engine**（`vllm/v1/engine/`）：引擎壳。`async_llm` / `input_processor` / `output_processor` / `detokenizer` 在 API Server 进程；`core.py`（`EngineCore` / `EngineCoreProc` / `DPEngineCoreProc`）与 `core_client.py` 的服务端在 EngineCoreProc；`coordinator.py`、`utils.py` 管 DP 协调与进程启动。
 - **v1.core**（`vllm/v1/core/`）：调度域。`sched/`（Scheduler、`SchedulerOutput`）、`kv_cache_manager`、`block_pool`、`encoder_cache_manager`，全部活在 EngineCoreProc。
 - **v1.executor**（`vllm/v1/executor/`）：执行抽象。`abstract.py` 的 `Executor` 基类派生 `UniProcExecutor` / `MultiprocExecutor` / `RayExecutorV2` / `RayDistributedExecutor`，是 EngineCoreProc 内拉起并驱动 WorkerProc 的唯一通道。
 - **v1.worker**（`vllm/v1/worker/`）：设备域。`gpu_worker`、`gpu_model_runner`、`gpu_input_batch`，每个 WorkerProc 一份。
 - **执行依赖**：`vllm/model_executor/models/`（各模型定义）、`vllm/v1/attention/backends/`（FA/Triton 等 backend）、`vllm/distributed/`（`parallel_state`、`pynccl`、`shm_broadcast`）、`csrc/`（CUDA/C++ kernel）。
+
+调用方向之外，import 关系里量最大的几条如下，多数是引用另一个包里定义的数据结构或注册表，不是运行时的反向调用：
+
+| 方向 | import 语句数 | 主要引用的是什么 |
+|---|---:|---|
+| `model_executor` → `distributed` | 270 | 模型层里 TP / PP 用的并行线性层与 collective（`vllm.distributed`、`parallel_state`） |
+| `model_executor` → `v1/attention` | 126 | 模型调用 attention 层与 backend 注册表（`v1.attention.backend`、`backends.registry`） |
+| `model_executor` → `v1/worker` | 83 | 多模态编码器的 CUDA Graph 定义（`worker.encoder_cudagraph_defs`）、micro-batch 工具 |
+| `distributed` → `v1/core` | 61 | KV connector 读调度输出与块管理器（`core.sched.output`、`kv_cache_manager`） |
+| `v1/attention` → `model_executor` | 55 | MLA 等 backend 引用模型层的实现与量化工具 |
+| `distributed` → `v1/attention` | 25 | KV connector 读 attention backend 的元数据定义 |
+| `v1/worker` → `v1/core` | 16 | Worker 读 `SchedulerOutput` 的类型定义 |
+
+Table: v0.27.1 里调用主干之外 import 最多的方向（按 import 语句计）
 
 ### 2. 构建与打包：Python 包 + 编译扩展
 
@@ -390,7 +404,36 @@ flowchart LR
 
 ## 五、部署/物理视图：进程怎样落到 GPU 和节点上
 
-第三章说了有哪几类进程，第四章说了源码编译出哪些制品；部署视图把进程落到硬件上：API Server 和 EngineCoreProc 是纯 CPU 进程，执行侧每个模型并行 rank 占一张（或一份）GPU。几个典型配置：
+第三章说了有哪几类进程，第四章说了源码编译出哪些制品；部署视图把进程落到硬件上。先看决定进程图的规则，再看五种常见部署。
+
+### 1. 部署的总体规则
+
+API Server 和 EngineCoreProc 是纯 CPU 进程；执行侧每个模型并行 rank 是一个 WorkerProc，占一张（或一份）GPU。进程数由两类并行度分别决定，另有一类并行不新增进程：
+
+**1、data parallel size 决定 EngineCoreProc 的个数。**
+
+`launch_core_engines` 对每个 DP rank 起一个 EngineCore 进程（`vllm/v1/engine/utils.py`、`vllm/v1/engine/core.py`）。DP rank 之间互不共享 KV state，每个 rank 一套 Scheduler / Executor / Worker。
+
+**2、world_size = TP × PP（× PCP，context parallel）决定每个 EngineCoreProc 拉起的 WorkerProc 数。**
+
+`MultiprocExecutor` 按 world_size 拉起 WorkerProc，并断言 `world_size == tp_size * pp_size * pcp_size`（`vllm/v1/executor/multiproc_executor.py`）。
+
+**3、expert parallel 不新增进程。**
+
+EP 复用 DP × TP 的已有 rank，MoE 权重按 EP 组切分在已有的 Worker 上。
+
+此外，几个开关会改变进程图的形状：
+
+- `UniProcExecutor` 在 EngineCore 进程内直接初始化并调用 Worker，不创建 `WorkerProc` 子进程。`InprocClient` 是另一层选择：它把 EngineCore 本身也放在调用方进程里。二者改变的是不同的进程边界（`vllm/v1/executor/uniproc_executor.py`、`vllm/v1/engine/core_client.py`）。
+- data parallel 会启动多个 EngineCore rank，各自有自己的 Scheduler 和 Executor。在线且配置需要协调时，rank 0 还会启动 `DPCoordinator`；它汇总队列统计、向 API frontends 发布负载信息，并在需要时协调 MoE request wave。它不是每个 token 的执行通道（`vllm/v1/engine/utils.py`、`vllm/v1/engine/coordinator.py`、`vllm/v1/engine/core.py`）。
+- `--api-server-count > 1` 会启动多个 API Server 进程，并为它们分配各自的 ZMQ 地址；它增加的是前端进程数，不等于增加模型并行 rank。未显式指定时，参数默认值会根据 DP 配置决定（`vllm/entrypoints/cli/serve.py`、`vllm/entrypoints/openai/cli_args.py`）。
+- Ray 改变 Worker 的启动和放置方式。`RayExecutorV2` 用 Ray actor 承载 `RayWorkerProc`，并复用 MessageQueue 控制面与 Worker 间的 collective；旧 `RayDistributedExecutor` 是另一套 Ray executor 实现（`vllm/v1/executor/ray_executor_v2.py`、`vllm/v1/executor/ray_executor.py`）。
+
+> 单卡时没有 WorkerProc，Worker 直接跑在 EngineCoreProc 里，源码依据（v0.27.1）：`ParallelConfig.__post_init__` 里 `world_size == 1` 时把 `distributed_executor_backend` 置为 `"uni"`（`vllm/config/parallel.py`），`Executor.get_class` 再把 `"uni"` 映射到 `UniProcExecutor`（`vllm/v1/executor/abstract.py`）；它的 `_init_executor` 直接在 EngineCore 进程内 `WorkerWrapperBase.init_worker()`、`init_device()`、`load_model()`（`vllm/v1/executor/uniproc_executor.py`），全程没有 `make_worker_process`。单卡时连 API Server → EngineCoreProc 的进程边界都可能取消（`InprocClient`），但那是另一层选择。
+
+### 2. 常见的部署方式
+
+五种典型配置的进程与落位：
 
 | 部署 | 进程 | 落位 |
 |---|---|---|
@@ -401,8 +444,6 @@ flowchart LR
 | 多 API Server | `--api-server-count > 1`，N × API Server 子进程 | 只增加前端进程，模型侧 rank 数不变；P/D 分离部署则把 prefill 与 decode 拆到不同 EngineCore 实例、连 KV 传输层 |
 
 Table: 部署方式到进程、GPU、节点的映射
-
-> 单卡时没有 WorkerProc，Worker 直接跑在 EngineCoreProc 里，源码依据（v0.27.1）：`ParallelConfig.__post_init__` 里 `world_size == 1` 时把 `distributed_executor_backend` 置为 `"uni"`（`vllm/config/parallel.py`），`Executor.get_class` 再把 `"uni"` 映射到 `UniProcExecutor`（`vllm/v1/executor/abstract.py`）；它的 `_init_executor` 直接在 EngineCore 进程内 `WorkerWrapperBase.init_worker()`、`init_device()`、`load_model()`（`vllm/v1/executor/uniproc_executor.py`），全程没有 `make_worker_process`。单卡时连 API Server → EngineCoreProc 的进程边界都可能取消（`InprocClient`），但那是另一层选择。
 
 下面每种配置一张部署图。外框是一台节点，蓝色是只用 CPU 的进程，橙色是占 GPU 的进程。
 
@@ -537,15 +578,6 @@ flowchart TB
 ```
 
 P/D 分离部署不在这五种里：它把 prefill 和 decode 拆到不同的 vLLM 实例（各自是上面某一种形态），中间接 KV 传输层，见[《PD 分离：从资源混部走向计算解耦》](/prefill-decode-disaggregation.html)。
-
-几种部署对进程图的改动，按源码归纳如下：
-
-- `UniProcExecutor` 在 EngineCore 进程内直接初始化并调用 Worker，不创建 `WorkerProc` 子进程。`InprocClient` 是另一层选择：它把 EngineCore 本身也放在调用方进程里。二者改变的是不同的进程边界（`vllm/v1/executor/uniproc_executor.py`、`vllm/v1/engine/core_client.py`）。
-- data parallel 会启动多个 EngineCore rank，各自有自己的 Scheduler 和 Executor。在线且配置需要协调时，rank 0 还会启动 `DPCoordinator`；它汇总队列统计、向 API frontends 发布负载信息，并在需要时协调 MoE request wave。它不是每个 token 的执行通道（`vllm/v1/engine/utils.py`、`vllm/v1/engine/coordinator.py`、`vllm/v1/engine/core.py`）。
-- `--api-server-count > 1` 会启动多个 API Server 进程，并为它们分配各自的 ZMQ 地址；它增加的是前端进程数，不等于增加模型并行 rank。未显式指定时，参数默认值会根据 DP 配置决定（`vllm/entrypoints/cli/serve.py`、`vllm/entrypoints/openai/cli_args.py`）。
-- Ray 改变 Worker 的启动和放置方式。`RayExecutorV2` 用 Ray actor 承载 `RayWorkerProc`，并复用 MessageQueue 控制面与 Worker 间的 collective；旧 `RayDistributedExecutor` 是另一套 Ray executor 实现（`vllm/v1/executor/ray_executor_v2.py`、`vllm/v1/executor/ray_executor.py`）。
-
-把这张表翻成两条规则：**进程数由两类并行度分别决定**——data parallel size 决定 `EngineCoreProc` 的数量（`launch_core_engines` 对每个 dp rank 起一个 EngineCore 进程，`vllm/v1/engine/utils.py`、`vllm/v1/engine/core.py`）；`world_size = TP × PP`（×PCP，context parallel）决定每个 EngineCore 内 `MultiprocExecutor` 拉起的 `WorkerProc` 数（`vllm/v1/executor/multiproc_executor.py` 的断言 `world_size == tp_size * pp_size * pcp_size`）。expert parallel 不新增进程：EP 复用 DP×TP 的已有 rank（MoE 权重按 EP 组切分在已有 Worker 上）。DP rank 之间互不共享 KV state，每 rank 一套 Scheduler/Executor/Worker 组。
 
 ## 六、场景视图（+1）
 

@@ -231,7 +231,15 @@ post's KaTeX, not ASCII (「SVG 图里的公式要像 LaTeX 一样」, 2026-10):
   text, lands every arrow on a box edge, and gives the title / list styling
   below for free. The 13 such SVGs of vLLM 04 were converted on 2026-11-12.
   Hand SVG stays for geometry (time axes, memory / block layouts, tables
-  drawn row by row). When a hand SVG has boxes, the same rules hold:
+  drawn row by row) and for layouts whose arrangement carries meaning — steps
+  in one column, the data structures they update / read in another, an arrow
+  into a whole container rather than its first step (vLLM 04
+  `scheduler-output-to-runner.svg` was converted to Mermaid on 2026-11-12,
+  lost both, and was restored as SVG on 11-13). When converting a figure,
+  carry over every edge — loop-backs included (the same round dropped fig.
+  10's 「下一个 Request → remaining_tokens」 loop) — and check a decision
+  against the source: a `min()` is a box, a branch is a `{}` diamond. When a
+  hand SVG has boxes, the same rules hold:
   1. **Compact boxes**: padding about 10–14 px around the text, no box wider
      or taller than its text needs; sibling boxes may share one size.
   2. **Title**: the line naming the box is bold (500–700) and one size up

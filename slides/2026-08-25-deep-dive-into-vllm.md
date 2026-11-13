@@ -225,12 +225,12 @@ graph TB
 
 ### 4+1：开发视图与包依赖
 
-![vLLM v0.27.1 的包依赖树](/img/in-post/vllm-request-lifecycle-package-view.svg){: style="max-height: 440px"}
+![vLLM v0.27.1 的包图：运行时调用方向](/img/in-post/vllm-request-lifecycle-package-view.svg){: style="max-height: 440px"}
 
-**八个源码目录按 import 方向排成一棵树，依赖单向向下。**
+**实线是一条请求从入口驱动到 kernel 的调用方向，虚线是主干之外的直接依赖。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里](/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里)。entrypoints → v1.engine → v1.core 与 v1.executor；v1.executor → v1.worker → model_executor（含 v1/attention）与 distributed；model_executor → csrc。实际 import 不是严格的树（distributed 的 custom all-reduce 也调用 csrc 的 kernel），图里每个目录只画最主要的上游。
+原文：[/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里](/vllm-request-lifecycle-overview.html#四开发视图模块在源码树的哪里)。调用方向：entrypoints → v1.engine → v1.core 与 v1.executor；v1.executor → v1.worker → model_executor（含 v1/attention）与 distributed；model_executor → csrc。import 关系并不分层：v0.27.1 里这些目录两两之间有 38 个方向存在 import，量最大的是 model_executor → distributed（270 处，并行线性层与 collective）、model_executor → v1/attention（126）、model_executor → v1/worker（83）、distributed → v1/core（61，KV connector 读调度输出），多数是引用数据结构或注册表，不是运行时反向调用。
 </aside>
 
 <!-- v -->
