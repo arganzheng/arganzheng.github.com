@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（03）：鸟瞰 vLLM：一个请求如何穿过整个推理系统？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`，commit `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`，2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。文中的 **V1** 指引擎架构及其源码包 `vllm/v1/`，不是一个可选的版本：旧的 V0 引擎在 v0.11.0（2025-10-02）中被整体移除，release notes 原话是 “V1 is the only engine in the codebase now”，所以 v0.27.1 里只有这一套引擎，没有 “V2 引擎”。名字里带 V2 的只是两个组件——模型执行层的新 ModelRunner 和 Ray 后端的 `RayExecutorV2`，见[第二章第 4 节](#4-executorworker-与-modelrunner模型执行的设备抽象)。
@@ -32,11 +32,11 @@ updated: 2026-11-12
 
 | 章 | 视图 | 内容 |
 |---|---|---|
-| 二 | 逻辑视图 | 静态系统拓扑，自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Executor → Worker → ModelRunner |
+| 二 | 逻辑视图 | 静态系统拓扑，自顶向下：API Server 与 AsyncLLM、EngineCore、Scheduler 与 KVCacheManager、Executor → Worker → ModelRunner<br/>控制面为什么可以用 Python 写<br/>核心数据对象的四个域：请求域、调度域、显存域、模型域，以及串起它们的 `request_id` 与 `block_id` |
 | 三 | 进程视图 | API Server、EngineCoreProc、WorkerProc 的职责与 IPC |
-| 四 | 开发视图 | 模块 ↔ 源码目录 ↔ 所在进程的对照表；包依赖树；源码到 wheel 制品的构建 |
+| 四 | 开发视图 | 模块 ↔ 源码目录 ↔ 所在进程的对照表；包依赖树；源码到 wheel 制品的构建；Python 怎样调到 C++ / CUDA / Triton kernel |
 | 五 | 部署/物理视图 | 五种典型部署各一张部署图：进程、GPU、节点怎样对应 |
-| 六 | 场景视图（+1） | 两个子场景：1. 请求流（一次请求的完整生命周期，HTTP → SSE [DONE]）；2. 数据流（Token 如何穿过整个 Serving 栈） |
+| 六 | 场景视图（+1） | 1. 请求流：一次请求的完整生命周期，HTTP → SSE [DONE]<br/>2. 下钻到函数：从 HTTP 请求到 GPU kernel 的调用链与三个进程的调用栈<br/>3. 数据流：Token 如何穿过整个 Serving 栈 |
 | 七 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
 | 八 | 自测 | 7 道题 |
 
@@ -120,6 +120,27 @@ Worker 侧的 `InputBatch` 常驻一份 block table（`BlockTable`，`vllm/v1/wo
 1. **CPU 工作与 GPU 前向重叠。** `EngineCore.step()` 用 `execute_model(scheduler_output, non_block=True)` 发出前向后，不等结果就去算这一轮的语法 bitmask（`Scheduler.get_grammar_bitmask`），再 `sample_tokens()`；开启 async scheduling（v0.27.1 在没有不兼容选项时默认开启）后 `max_concurrent_batches = 2`，`step_with_batch_queue()` 在第 N 轮还在 GPU 上跑时就调度第 N+1 轮。
 2. **边界消息的大小与模型大小无关。** 一轮的 `SchedulerOutput` 只和 batch 里的请求数、新 block 数有关，7B 和 670B 的模型一样，所以 `MultiprocExecutor` 用一块共享内存环形缓冲就能广播给所有 rank。
 3. **调度状态只有一份。** Scheduler 和 KVCacheManager 只在 EngineCore 里存在，所有 rank 拿到同一份决定；换 Uni / Multiproc / Ray 部署，改的只是中间那个 Executor 对象。
+
+**控制面为什么可以用 Python 写，而不拖慢 GPU？[^q1]**
+
+两半的语言分工是：控制面全部是 Python，数据面是 PyTorch 调起的 C++ / CUDA / Triton kernel 和 NCCL。控制面选 Python 有三个理由：
+
+1. **语言特性匹配。** 调度逻辑条件判断多、数据结构动态（队列、字典、按请求增删的列表），适合 Python；数值计算追求极致性能，适合 C++ / CUDA。
+2. **迭代速度。** 调度算法是 vLLM 改动最频繁的模块，Python 的开发效率远高于 C++。
+3. **控制面开销可被摊薄。** 只要调度、序列化和输入准备的时间显著小于 GPU 执行时间，Python 控制面的影响就会被流水线化和批处理摊薄；具体是否成为瓶颈取决于 batch、模型和硬件。
+
+第 3 条用数字看。下图以一个较大模型的 decode 步为例（forward 约 15 ms 量级，例如 70B 级别多卡部署；Llama-2-7B 在 A100 单卡上 batch=1 的一步约 8–12 ms，量级相同）：只要 GPU 侧是十毫秒量级，Python 侧的零点几毫秒就淹没在里面。下半部分是上面第 1 条收益说的流水线化：GPU 跑第 N 步的 forward 时，CPU 已经在准备第 N+1 步。
+
+![单次 Decode 迭代：Python 控制面与 GPU 数据面](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg)
+
+四个阶段对应的源码位置：
+
+1. **schedule（CPU）**：`Scheduler.schedule()` 从 running / waiting 里按 token 预算分配本步额度，产出 `SchedulerOutput`（本章第 3 节）。
+2. **prepare（CPU）**：`GPUModelRunner._update_states()` 按 `SchedulerOutput` 增删 `InputBatch` 的行，`_prepare_inputs()` 拼 `input_ids` / `positions`、H2D 拷贝、算 `slot_mapping`。
+3. **model forward（GPU）**：逐层 launch kernel，纯 decode 时整张 CUDA Graph 一次 replay。
+4. **sample（GPU → CPU）**：采样 kernel 出 `sampled_token_ids`，D2H 到 CPU，打包成 `ModelRunnerOutput` 回 Scheduler。
+
+图中 ~0.05 ms、~0.1 ms 这些数字是估算，不是源码里的常量。第 2、4 阶段在一步之内谁等谁、唯一的同步点在哪，在[《GPU 执行：如何让每个 Token 算得更快？》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)里逐个函数展开。
 
 ### 1. API Server 与 AsyncLLM：异步并发处理的桥头堡
 
@@ -226,15 +247,15 @@ graph TB
     EX --> W0 & W1 & WN
     subgraph W0["Worker 0 (GPU 0)"]
         direction TB
-        M0["ModelRunner"] --- S0["<b>Model Weights（分片）</b><br/>KV Cache"]
+        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph W1["Worker 1 (GPU 1)"]
         direction TB
-        M1["ModelRunner"] --- S1["<b>Model Weights（分片）</b><br/>KV Cache"]
+        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph WN["Worker N (GPU N)"]
         direction TB
-        MN["ModelRunner"] --- SN["<b>Model Weights（分片）</b><br/>KV Cache"]
+        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
     end
     NC["NCCL：TP all-reduce / PP 激活收发"]
     W0 & W1 & WN <-.-> NC
@@ -263,6 +284,71 @@ graph TB
 3. **采样**（`sample_tokens()`）：从 logits 采出每个请求的下一个 token，打包成 `ModelRunnerOutput` 交回。
 
 Worker 管“这张卡上有什么”，ModelRunner 管“这一轮怎么算”，所以[《GPU 执行：如何让每个 Token 算得更快？》](/gpu-execution-kernels-and-graphs.html)展开的主要是 ModelRunner。v0.27.1 另有一份新实现 Model Runner V2（`vllm/v1/worker/gpu/model_runner.py`）：`VLLM_USE_V2_MODEL_RUNNER=1` 强制启用，未设置时只对少数架构（如 `DeepseekV2ForCausalLM`、`Qwen2MoeForCausalLM`）和 PCP、diffusion 等少数特性默认启用（`VllmConfig.use_v2_model_runner`，`vllm/config/vllm.py`）。文中以默认的 `GPUModelRunner` 为主线。
+
+### 5. 核心数据对象：四个域
+
+前四节按模块讲；换一个角度，按“数据对象归谁管”来分，vLLM V1 的核心对象（定义在 `vllm/v1/request.py`、`vllm/v1/core/sched/output.py`、`vllm/v1/outputs.py`、`vllm/v1/core/kv_cache_utils.py`、`vllm/v1/worker/block_table.py`）落在四个域里：
+
+- **请求域**：`Request` 是调度器内部对请求的完整表示，包含 token ids、采样参数、状态机状态、块哈希等。
+- **调度域**：`SchedulerOutput` 封装每一轮的调度决策，`ModelRunnerOutput` 封装 GPU 执行结果。
+- **显存域**：`KVCacheBlock` 是物理块的元数据（含引用计数和哈希），Worker 侧的 `BlockTable` 维护请求的逻辑块 → 物理块映射。
+- **模型域**：模型权重常驻 GPU，激活张量在前向计算中动态生成和销毁。
+
+这四个域和[第一篇的四个核心问题](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)是对应的：请求域是四问的输入，调度域是第一问（这一轮谁执行、执行多少）的产物，显存域是第二问（状态放哪、怎么复用）的产物，模型域是第三问（怎么算得更快）的战场。
+
+![核心数据对象全景图：四个域](/img/in-post/source-code-request-walkthrough-four-domains.svg)
+
+两条边界值得留意：
+
+- **`EngineCoreRequest` → `Request` 是一次跨进程翻译。** 前者是能被 msgspec 序列化、走 ZMQ 的扁平数据；后者是带状态机、会被反复修改的活对象。这条边界就是第三章进程视图里 API Server 与 EngineCoreProc 之间的 API 边界。
+- **显存域是唯一“跨请求共享”的域。** 请求域、调度域、模型域的对象都属于某一次请求或某一轮迭代，而 `KVCacheBlock` 会被多个请求通过 `ref_cnt` 共享——Prefix Cache 的全部魔法都发生在这一个字段上。
+
+全景图按域列出了字段，但没有回答“这些对象之间靠什么串起来”。答案是两把钥匙——`request_id` 和 `block_id`——以及一次跨进程的复制：调度器进程里 `Request` 通过 `request_id` 找到它的 `KVCacheBlock` 列表，块对象只在这个进程存在；跨到 Worker 进程时，`SchedulerOutput` 只带整数 `block_id`，Worker 用它填 `BlockTable` 的一行，再由 `BlockTable` 派生出 kernel 真正读写 KV 张量所需的 `slot_mapping`：
+
+```mermaid
+%% 图：四个域里对象的两把钥匙：request_id 把 Request 连到 KVCacheBlock，跨进程只传 block_id 整数，Worker 用它填 BlockTable
+flowchart TB
+    subgraph SB["EngineCore 进程：Scheduler / KVCacheManager"]
+        direction TB
+        REQ["<b>Request</b><br/>request_id, status, num_computed_tokens<br/>output_token_ids, block_hashes"]
+        R2B["<b>SingleTypeKVCacheManager.req_to_blocks</b><br/>request_id → list#91;KVCacheBlock#93;"]
+        BLK["<b>KVCacheBlock</b><br/>block_id, ref_cnt, block_hash"]
+        POOL["<b>BlockPool</b><br/>blocks#91;block_id#93; + cached_block_hash_to_block"]
+    end
+    SO["<b>SchedulerOutput</b><br/>每步一份，走共享内存<br/>NewRequestData.block_ids / CachedRequestData.new_block_ids<br/>只带 block_id 整数，不带 KVCacheBlock 对象"]
+    subgraph SC["Worker 进程：GPUModelRunner"]
+        direction TB
+        CRS["<b>requests</b><br/>req_id → CachedRequestState<br/>block_ids, num_computed_tokens, output_token_ids"]
+        IB["<b>InputBatch</b><br/>持久 batch，按行组织<br/>req_id_to_index: req_id → row<br/>token_ids_cpu#91;row, :#93;"]
+        BT["<b>BlockTable</b><br/>每个 KV cache group 一张<br/>block_table#91;row, j#93; = block_id"]
+        SM["<b>slot_mapping</b><br/>slot_mapping#91;token#93; = block_id × block_size + offset<br/>compute_slot_mapping() 的 Triton kernel 在 GPU 上算"]
+        KV["<b>KV Cache 张量（GPU HBM）</b><br/>kv_cache#91;block_id#93;#91;offset#93;"]
+    end
+    REQ -- "request_id" --> R2B --> BLK
+    BLK -- "block_id 下标" --> POOL
+    REQ -. "block_hashes 查前缀命中" .-> POOL
+    R2B -- "取 block_id" --> SO
+    SO -- "_update_states()" --> CRS
+    CRS -- "add_request()：占一行" --> IB
+    IB -- "block_ids 写入该行" --> BT
+    BT -- "commit_block_table() H2D" --> SM
+    SM -- "reshape_and_cache 写 KV" --> KV
+    BT -. "attention kernel 按行读 KV" .-> KV
+    classDef state fill:#e8f1ff,stroke:#3b6fb6;
+    classDef msg fill:#fff4e0,stroke:#d9822b;
+    classDef mem fill:#e9f7e9,stroke:#3a8a3a;
+    class REQ,CRS state;
+    class SO msg;
+    class BLK,POOL,KV mem;
+```
+
+读这张图要抓住三处“断开”：
+
+1. **`KVCacheBlock` 对象不出进程。** `ref_cnt`、`block_hash` 只在 Scheduler 侧有意义（决定能否复用、何时释放），Worker 侧看到的只是一个整数 `block_id`。所以 Prefix Cache 命中与否，Worker 完全不知情——它只是少收到几个要写的 token。
+2. **`CachedRequestState` 是 `Request` 的只读镜像。** 两者字段高度重合（`num_computed_tokens`、`output_token_ids`、`block_ids`），但前者靠每步 `CachedRequestData` 的增量维护，从不反向同步；`Request` 才是权威。
+3. **`InputBatch` 的行号是临时的。** `req_id_to_index` 每步都可能因 `condense()`（把尾行搬到空洞）而变化，`BlockTable` 和 `token_ids_cpu` 都按行号索引，所以它们必须和 `InputBatch` 同步搬行（`move_row` / `swap_row`）。`request_id` 是跨进程的稳定身份，行号只是 Worker 内一次 step 的临时坐标。
+
+Worker 侧从 `SchedulerOutput` 到这些张量的每一步（`_update_states()`、`_prepare_inputs()`、attention metadata）在[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)展开；第六章第 3 节的对象表则按进程和寿命把同一批对象再排一遍。
 
 ## 三、进程视图：谁在什么进程里，如何交互
 
@@ -379,8 +465,8 @@ flowchart LR
     subgraph WHL["wheel 里的制品"]
         W1["<b>vllm/ 下的 .py</b><br/>原样打包"]
         W2["<b>vllm/_C_stable_libtorch.abi3.so</b><br/>注册 torch 自定义算子"]
-        W3["<b>vllm/_moe_C_stable_libtorch.abi3.so</b>"]
-        W4["<b>vllm/cumem_allocator.abi3.so</b>"]
+        W3["vllm/_moe_C_stable_libtorch.abi3.so"]
+        W4["vllm/cumem_allocator.abi3.so"]
         W5["<b>vllm/vllm_flash_attn/</b><br/>_vllm_fa2_C · _vllm_fa3_C"]
     end
     PY -->|"setup.py 收集"| W1

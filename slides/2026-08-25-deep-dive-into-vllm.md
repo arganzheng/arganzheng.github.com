@@ -17,7 +17,16 @@ transition: slide
 
 **十五篇正文 · 一条请求路径 · 一切围绕动态请求、KV 状态与 GPU 资源**
 
-![一次请求从入口、调度、KV 到 GPU 执行的路径](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 420px"}
+```mermaid
+%% 图：一个 LLM 请求：Prefill 之后逐步 Decode，直到 EOS 或长度上限
+flowchart LR
+  IN["请求进入"] --> PF["Prompt Processing / Prefill"]
+  PF --> T1["生成第一个 Token"]
+  T1 --> DS["Decode Step：再生成一个 Token"]
+  DS --> Q{"EOS 或达到长度上限？"}
+  Q -- "否" --> DS
+  Q -- "是" --> FIN["请求结束"]
+```
 
 <aside class="notes" markdown="1">
 系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 16 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来、源码与 SGLang 对照。
@@ -97,7 +106,16 @@ flowchart TB
 
 **接纳时不知道要跑几轮 forward，KV 又跨步常驻、越长越大——请求有了生命周期**
 
-![LLM Serving 中一个请求的持续生成、状态与资源关系](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 400px"}
+```mermaid
+%% 图：一个 LLM 请求：Prefill 之后逐步 Decode，直到 EOS 或长度上限
+flowchart LR
+  IN["请求进入"] --> PF["Prompt Processing / Prefill"]
+  PF --> T1["生成第一个 Token"]
+  T1 --> DS["Decode Step：再生成一个 Token"]
+  DS --> Q{"EOS 或达到长度上限？"}
+  Q -- "否" --> DS
+  Q -- "是" --> FIN["请求结束"]
+```
 
 <aside class="notes" markdown="1">
 原文：[/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)。输入长度可变不是 LLM 独有的问题（传统 Serving 用 padding / bucketing 规整），LLM 只是跨度大了几个数量级。真正改变服务对象的是两点：一个请求要循环多少次「Forward → 采样」，要到生成 EOS / `max_tokens` / stop 才知道，接纳时无法规划；KV Cache 从 Prefill 起一直占着显存并逐步追加，直到请求结束才释放。两点合起来，请求就有了接纳 → Prefill → 若干轮 Decode → 完成（或被抢占、重算）的生命周期，系统每一步都要重新决策。由此引出三个变化：动态执行、带状态推理、Prefill / Decode 混合 workload。贯穿全系列的例子：Llama-3-70B、8×H100，每 token KV 320 KB，2050 token prompt + 300 token 输出约 734 MB。
@@ -107,7 +125,27 @@ flowchart TB
 
 ### Prefill 与 Decode 争用不同资源
 
-![Prefill 与 Decode 的算力、权重读取和 KV 读取路径](/img/in-post/why-llm-serving-is-hard-prefill-decode-dataflow.svg){: style="max-height: 390px"}
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%% 图：Prefill 与 Decode 的数据流对照
+flowchart TB
+  subgraph PP["Prefill：N 个 Prompt Token 并行，Compute-Bound 倾向"]
+    direction LR
+    PIN["<b>input_ids</b><br/>$$[t_1, \dots, t_N]$$"] --> PQKV["<b>QKV Proj</b><br/>Q、K、V 各 N 行"]
+    PQKV -- "K、V 批量写入" --> PKV["<b>KV Cache</b><br/>+N 个位置"]
+    PQKV -- "Q、K、V" --> PATT["<b>Attention</b><br/>因果掩码，K、V 是刚算出的 N 个"]
+    PATT --> PLOG["最后 1 个位置的 Logits → 第 1 个 Token"]
+  end
+  subgraph PD["Decode：1 个新 Token，Memory-Bound 倾向"]
+    direction LR
+    DIN["<b>input_ids</b><br/>$$[t_L]$$"] --> DQKV["<b>QKV Proj</b><br/>q、k、v 各 1 行"]
+    DQKV -- "k、v 追加" --> DKV["<b>KV Cache</b><br/>+1 个位置"]
+    DQKV -- "q" --> DATT["<b>Attention</b><br/>q 对全部 L 个位置"]
+    DKV -- "读出 L 个 K、V" --> DATT
+    DATT --> DLOG["Logits → 下一个 Token"]
+  end
+  PP ~~~ PD
+```
 
 **Prefill 偏计算密集，Decode 偏内存带宽；两者竞争同一组 GPU 资源。**
 
@@ -201,15 +239,15 @@ graph TB
     EX --> W0 & W1 & WN
     subgraph W0["Worker 0 (GPU 0)"]
         direction TB
-        M0["ModelRunner"] --- S0["<b>Model Weights（分片）</b><br/>KV Cache"]
+        M0["ModelRunner"] --- S0["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph W1["Worker 1 (GPU 1)"]
         direction TB
-        M1["ModelRunner"] --- S1["<b>Model Weights（分片）</b><br/>KV Cache"]
+        M1["ModelRunner"] --- S1["Model Weights（分片）<br/>KV Cache"]
     end
     subgraph WN["Worker N (GPU N)"]
         direction TB
-        MN["ModelRunner"] --- SN["<b>Model Weights（分片）</b><br/>KV Cache"]
+        MN["ModelRunner"] --- SN["Model Weights（分片）<br/>KV Cache"]
     end
     NC["NCCL：TP all-reduce / PP 激活收发"]
     W0 & W1 & WN <-.-> NC
@@ -238,12 +276,12 @@ graph TB
 ### 开发视图：源码与 wheel 制品
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：vLLM v0.27.1（CUDA）的源码与 wheel 制品：Python 源码原样打包，csrc 与 FlashAttention 经 CMake 编译成扩展模块
 flowchart LR
     subgraph SRC["源码（vllm 仓库 + CMake 拉取的依赖）"]
         PY["<b>vllm/ 下的 .py</b><br/>entrypoints · v1 · model_executor · distributed"]
-        CS["<b>csrc/libtorch_stable/</b><br/>layernorm · 量化 · cache · sampler · custom all-reduce"]
+        CS["<b>csrc/libtorch_stable/</b><br/>layernorm、量化、cache、sampler、all-reduce"]
         CM["<b>csrc/libtorch_stable/moe/</b><br/>moe_align_sum · topk_softmax"]
         CA["<b>csrc/cumem_allocator.cpp</b><br/>sleep mode 的显存分配器"]
         FA["<b>vllm-project/flash-attention</b><br/>CMake FetchContent，固定 commit"]
@@ -251,8 +289,8 @@ flowchart LR
     subgraph WHL["wheel 里的制品"]
         W1["<b>vllm/ 下的 .py</b><br/>原样打包"]
         W2["<b>vllm/_C_stable_libtorch.abi3.so</b><br/>注册 torch 自定义算子"]
-        W3["<b>vllm/_moe_C_stable_libtorch.abi3.so</b>"]
-        W4["<b>vllm/cumem_allocator.abi3.so</b>"]
+        W3["vllm/_moe_C_stable_libtorch.abi3.so"]
+        W4["vllm/cumem_allocator.abi3.so"]
         W5["<b>vllm/vllm_flash_attn/</b><br/>_vllm_fa2_C · _vllm_fa3_C"]
     end
     PY -->|"setup.py 收集"| W1

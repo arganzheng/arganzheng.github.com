@@ -59,7 +59,16 @@ Table: 本文的章节安排
 
 LLM Serving 则不同。一个请求通常要经历：
 
-![一个 LLM 请求从进入、Prefill 到 Decode 结束的流程](/img/in-post/why-llm-serving-is-hard-request-flow.svg)
+```mermaid
+%% 图：一个 LLM 请求从进入、Prefill 到 Decode 结束的流程
+flowchart TB
+  IN["请求进入"] --> PF["Prompt Processing / Prefill"]
+  PF --> T1["生成第一个 Token"]
+  T1 --> DS["Decode Step：再生成一个 Token"]
+  DS --> Q{"EOS 或达到长度上限？"}
+  Q -- "否" --> DS
+  Q -- "是" --> FIN["请求结束"]
+```
 
 输入长度不固定并不是 LLM 才有的问题：传统 Serving 里每张图片的大小、每句待翻译文本的长度同样各不相同，上面说的 padding、bucketing 就是为此准备的。LLM 的输入长度跨度更大——从几十个 token 到数万甚至更长，相差四个数量级——它决定 Prefill 的计算量和 KV Cache 的初始大小，是**量级**上的变化，不是一类新问题。真正改变服务对象的是另外两点：
 
@@ -101,7 +110,41 @@ LLM 推理通常分为 Prefill 与 Decode 两个阶段：
 
 Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 Token 的生成速度和稳定性**。二者不仅执行顺序不同，计算规模、并行方式和硬件瓶颈也明显不同。
 
-![Prefill 与 Decode 的数据流对照](/img/in-post/why-llm-serving-is-hard-prefill-decode-dataflow.svg)
+```mermaid
+%% 图：Prefill 与 Decode 的数据流对照
+flowchart TB
+  subgraph PD["Decode 数据流"]
+    direction TB
+    DIN["<b>input_ids</b><br/>$$[t_L]$$<br/>1 个新 Token 输入"]
+    DQKV["<b>QKV Proj</b><br/>• q: $$[1, H, d]$$<br/>• k: $$[1, H_{kv}, d]$$<br/>• v: $$[1, H_{kv}, d]$$"]
+    DKV["<b>KV Cache</b><br/>增量追加 1 个新位置"]
+    DATT["<b>$$\mathrm{Attention}(q_L, K_{1:L}, V_{1:L})$$</b><br/>• q 只有 1 行：第 L 个位置的新 Token<br/>• K、V：从 KV Cache 读出全部 L 个位置（含本步刚追加的 1 个）"]
+    DLOG["<b>Logits → Sampling</b><br/>→ 下一个 Output Token"]
+    DF["<b>特征：Memory-Bound 倾向</b><br/>单请求并行度低，大量 HBM 读取"]
+    DIN --> DQKV
+    DQKV -- "k、v 追加" --> DKV
+    DQKV -- "q" --> DATT
+    DKV -- "读出全部 L 个位置的 K、V" --> DATT
+    DATT --> DLOG
+    DLOG ~~~ DF
+  end
+  subgraph PP["Prefill 数据流"]
+    direction TB
+    PIN["<b>input_ids</b><br/>$$[t_1, t_2, t_3, \dots, t_N]$$<br/>N 个 Prompt Token 并行输入"]
+    PQKV["<b>QKV Proj</b><br/>• Q: $$[N, H, d]$$<br/>• K: $$[N, H_{kv}, d]$$<br/>• V: $$[N, H_{kv}, d]$$"]
+    PKV["<b>KV Cache</b><br/>批量写入 N 个新位置"]
+    PATT["<b>$$\mathrm{Attention}(Q_{1:N}, K_{1:N}, V_{1:N})$$</b><br/>• Q 有 N 行，加因果掩码（只看前文）<br/>• K、V：本次 Prompt 自己刚算出的 N 个<br/>• 通常由 FlashAttention 等 Kernel 分块完成"]
+    PLOG["<b>只取最后 1 个 Position 的 Logits</b><br/>→ Sampling → 第 1 个 Output Token"]
+    PF2["<b>特征：Compute-Bound 倾向</b><br/>高 GPU 利用率，大矩阵 GEMM"]
+    PIN --> PQKV
+    PQKV -- "K、V 批量写入" --> PKV
+    PQKV -- "Q、K、V" --> PATT
+    PATT --> PLOG
+    PLOG ~~~ PF2
+  end
+  classDef note fill:#f6f7f8,stroke:#cbd5e1
+  class PF2,DF note
+```
 
 可以把两者的差异概括为：
 
