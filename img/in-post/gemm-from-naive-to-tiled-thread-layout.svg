@@ -243,6 +243,6 @@
  <line class="hot" x1="150.0" y1="106.0" x2="662.0" y2="106.0" />
  <line class="hot" x1="150.0" y1="154.0" x2="662.0" y2="154.0" />
  <line class="hot" x1="150.0" y1="178.0" x2="662.0" y2="178.0" />
- <line class="ln" x1="150.0" y1="246.0" x2="662.0" y2="246.0" marker-end="url(#ah)" marker-start="url(#ah)" />
+ <line data-axis="" class="ln" x1="150.0" y1="246.0" x2="662.0" y2="246.0" marker-end="url(#ah)" marker-start="url(#ah)" />
  <text x="406.0" y="268.0" text-anchor="middle">128 列 = 16 个 <tspan style="font-family:'SvgMono', monospace">tn</tspan><tspan> × 8 列</tspan></text>
 </svg>

@@ -59,7 +59,7 @@
  <text class="m" x="212.0" y="108.0"><tspan style="font-family:'SvgMono', monospace">BM</tspan></text>
  <text class="m" x="114.0" y="113.0" text-anchor="middle" transform="translate(0 -3.500) ">t</text>
  <text class="m" x="114.0" y="174.0" text-anchor="middle"><tspan style="font-family:'SvgMono', monospace">BK</tspan></text>
- <line class="ln" x1="60.0" y1="190.0" x2="204.0" y2="190.0" marker-end="url(#ah)" />
+ <line data-axis="" class="ln" x1="60.0" y1="190.0" x2="204.0" y2="190.0" marker-end="url(#ah)" />
  <text x="132.0" y="210.0" text-anchor="middle">沿 K 每次取一段 <tspan style="font-family:'SvgMono', monospace">BK</tspan></text>
  <text class="b" x="380.0" y="40.0" text-anchor="middle">N</text>
  <text class="b" x="288.0" y="126.0" text-anchor="end">K</text>
