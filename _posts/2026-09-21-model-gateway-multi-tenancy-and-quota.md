@@ -53,7 +53,28 @@ Table: 模型网关需要什么、原生路径缺什么
 
 整条链路从外到内：
 
-![模型网关链路：从客户端到引擎](/img/in-post/model-gateway-request-path.svg)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 600}}}%%
+%% 图：模型网关链路：从客户端到引擎
+flowchart TB
+    C["<b>客户端</b><br/>• POST /v1/chat/completions<br/>• #123;&quot;model&quot;: &quot;llama-70b&quot;, &quot;stream&quot;: true, ...#125;"]
+    AUTH["<b>API 网关 / 认证层</b><br/>• API key 或 JWT → 租户身份<br/>• 剥掉客户端自带的 x-llm-d-* 头<br/>• 注入 x-llm-d-inference-fairness-id / x-llm-d-inference-objective<br/>• 按租户 × 模型的 RPM / TPM / 并发预扣（本篇第五、六章的设计部分）"]
+    GW["<b>Gateway API 网关</b><br/>• Gateway（Istio / agentgateway / Envoy AI Gateway / GKE Gateway …）<br/>• HTTPRoute：按 header（模型名，由 body-based router 从请求体提出）匹配<br/>• backendRefs → InferencePool（inference.networking.k8s.io/v1）<br/>• 或按 weight 分到两个 InferencePool（版本灰度）"]
+    EPP["<b>ext_proc → EPP</b><br/>• Endpoint Picker（llm-d-router）：解析 OpenAI 请求体<br/>• 模型名重写（InferenceModelRewrite）→ 查 InferenceObjective 得优先级<br/>• flow control 排队 / 准入 → 调度 profile：filter → scorer（加权）→ picker<br/>• 返回 x-gateway-destination-endpoint: #60;podIP:port#62;"]
+    FWD["<b>数据面转发</b><br/>• 网关把请求原样（或重写了 model 字段后）发到那个 Pod<br/>• 流式响应经 EPP 的 response 处理路径，从 usage 里读 prompt_tokens / completion_tokens"]
+    POD["<b>vLLM Pod</b><br/>• InferencePool.spec.selector 选中的 Pod<br/>• /metrics 被 EPP 每 50 ms 抓一次<br/>• 可选：ZMQ 发布 KV 事件给 EPP 的精确前缀索引"]
+    C --> AUTH --> GW --> EPP --> FWD --> POD
+    classDef auth fill:#fde3c3,stroke:#d79a45
+    classDef gw fill:#dbe8fb,stroke:#5880b4
+    classDef epp fill:#ece4f7,stroke:#8a6fb5
+    classDef fwd fill:#e3f1e8,stroke:#70a582
+    classDef pod fill:#f8dada,stroke:#c26b6b
+    class AUTH auth
+    class GW gw
+    class EPP epp
+    class FWD fwd
+    class POD pod
+```
 
 三层各管一件事：**认证层管"你是谁、还能用多少"**，是本篇的设计讨论部分，因为开源栈里没有一个组件把它做完整；**Gateway API 管"哪个模型、哪个版本"**，用标准的 `HTTPRoute` 匹配和权重；**EPP 管"哪个副本、现在还是等一会"**，这是 LLM 特有的部分，也是本篇源码阅读的主体。
 
