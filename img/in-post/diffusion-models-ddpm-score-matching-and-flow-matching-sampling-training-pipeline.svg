@@ -98,7 +98,7 @@ text { font-family:'SvgSans', "Noto Sans SC", sans-serif; font-weight: 400; fill
    </text>
   </g>
  </g>
- <path class="arrow" d="M680,282 L680,310 L280,310 L280,284" />
+ <path class="arrow" d="M680,282 L680,310 L280,310 L280,235.5" />
  <g class="mathtext" data-tex="时间步递减，重复 $N$ 次" data-x="480" data-y="338" data-size="11.5" data-anchor="middle" data-fill="#233247" fill="#233247" data-family=" &quot;Noto Sans SC&quot;, sans-serif" data-weight="400" aria-label="时间步递减，重复 $N$ 次">
   <g transform="translate(419.000 338.000)">
    <text font-size="0">
