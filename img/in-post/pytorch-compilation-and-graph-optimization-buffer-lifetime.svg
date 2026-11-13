@@ -15,7 +15,7 @@
     <text x="20" y="24" class="title" text-anchor="start">buffer 生命周期</text>
 <text x="20" y="56" class="title" text-anchor="start">三个逻辑值，共用一次显存分配</text>
 <text x="20" y="91" class="" text-anchor="start">依赖顺序</text>
-<path d="M190,86 H732" class="arrow" />
+<path data-axis="" d="M190,86 H732" class="arrow" />
 <path d="M190,100 V419" class="guide" />
 <path d="M328,100 V419" class="guide" />
 <text x="20" y="134" class="" text-anchor="start">GPU 计算</text>
