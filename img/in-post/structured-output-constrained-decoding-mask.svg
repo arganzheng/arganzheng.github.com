@@ -53,7 +53,7 @@
    </g>
   </g>
  </g>
- <line x1="230" y1="190" x2="262" y2="120" stroke="#1f6fb2" stroke-width="1.5" marker-end="url(#ar)" />
+ <line x1="230" y1="190" x2="265" y2="113" stroke="#1f6fb2" stroke-width="1.5" marker-end="url(#ar)" />
  <g transform="translate(540,50)">
   <text x="0" y="0" fill="#333" font-size="12" font-weight="500">剩下的重新归一化后采样</text>
   <g font-family="'SvgMono','SvgSans', Menlo, monospace" font-size="12">
