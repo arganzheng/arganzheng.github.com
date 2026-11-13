@@ -17,7 +17,7 @@
 <text x="20.0" y="174" text-anchor="start">（接待）</text>
 <text x="20.0" y="244.5" text-anchor="start">退款 agent</text>
 <text x="20.0" y="316.5" text-anchor="start">人工</text>
-<path d="M112,64 H740" class="axis" />
+<path data-axis="" d="M112,64 H740" class="axis" />
 <text x="112.0" y="56.0" class="cap" text-anchor="start">时间</text>
 <path d="M198.0,113.0 V145.0" class="arrow" />
 <path d="M298.0,175.0 V225.0" class="arrow" />
