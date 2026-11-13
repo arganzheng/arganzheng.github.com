@@ -2433,10 +2433,15 @@ How it is built (`_plugins/moments.rb`):
   Efficient Fine-Tuning，参数高效微调）`, `trl（Transformer Reinforcement
   Learning）`; a term the passage is not about (Jinja, PPL, ridge point,
   Jacobian, SP) gets an inline tip (see below) at its first appearance.
-- **No 「本机」**: 「本机没有 libtorch，输出标注为预期」, 「（本机就有）」, 「本机
-  macOS ld64 的实际输出」 — the reader is not on the author's machine. Either
-  set the environment up and show real output, or show no output; never a
-  「预期」 transcript.
+- **No 「本机」, no invented output**: 「本机没有 libtorch，输出标注为预期」, 「（本机就有）」,
+  「本机 macOS ld64 的实际输出」 — the reader is not on the author's machine, so
+  name the environment instead (「在 M2 MacBook、clang++ 18 上」). What a post
+  shows as a result must be real: either output actually produced (state the
+  environment), or data from a paper, official docs or a widely accepted
+  benchmark (cite the source and date) — author, 2026-11-13: 「除了本机跑出来的
+  真实输出，论文/业界公认的数据也是可以的」. Never a made-up 「预期」 / 「示意」
+  transcript presented as if it had been run; a clearly labelled illustrative
+  sketch (not dressed as program output) is fine.
 - **No AI / lecturer voice** (reader flagged 「AI 味太浓」 on: 「一个现实的标准」,
   「出现时就是越界的信号」, 「……就过关了；遇到……也是回到这二十行想」, 「本篇写出它」,
   「一切机制都建立在一个事实上」, 「读的时候带着 L0 第八篇的置信区间」). Write the
