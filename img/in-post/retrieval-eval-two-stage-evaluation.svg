@@ -76,8 +76,8 @@ text { font-family:'SvgSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Pi
 <line x1="488" y1="225" x2="736" y2="225" class="g-sep" />
 <text x="488" y="242" class="lab" text-anchor="start">药</text>
 <text x="540" y="242" class="val" text-anchor="start">L2、L5</text>
-<line x1="52" y1="66.0" x2="86" y2="66.0" class="arrow" marker-end="url(#ar)" />
+<line x1="52" y1="66.0" x2="94.6" y2="66" class="arrow" marker-end="url(#ar)" />
 <line x1="352" y1="66.0" x2="386" y2="66.0" class="arrow" marker-end="url(#ar)" />
-<line x1="444" y1="66.0" x2="478" y2="66.0" class="arrow" marker-end="url(#ar)" />
+<line x1="444" y1="66.0" x2="486.6" y2="66" class="arrow" marker-end="url(#ar)" />
 <line x1="746" y1="66.0" x2="780" y2="66.0" class="arrow" marker-end="url(#ar)" />
 </svg>
