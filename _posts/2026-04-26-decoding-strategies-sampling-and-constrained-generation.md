@@ -38,9 +38,28 @@ Table: 解码策略的分类表
 
 前七行在**单步**上操作，最后两行涉及**多步**。单步策略的组合顺序也重要——先 temperature 再 top-p，与先 top-p 再 temperature，结果不同（第三章第五节）。
 
-![解码循环中 logits、惩罚、temperature、截断、约束 mask 与选 token 的位置](/img/in-post/decoding-strategies-sampling-loop.svg)
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%% 图：单步解码的概念顺序：从 logits 到选出下一个 token
+flowchart TB
+    S1["<b>1. 模型输出 logits z</b><br/>每个词表 token 一个分数"]
+    S2["<b>2. 重复惩罚</b><br/>修改已出现 token 的 logits（可选）"]
+    S3["<b>3. Temperature</b><br/>logits 除以 $$T$$，改变分布尖锐度"]
+    S4["<b>4. 截断候选集</b><br/>top-k、top-p、min-p，通常选一种；被移除的 token logits 设为 −∞"]
+    S5["<b>5. 约束 mask</b><br/>屏蔽此状态下不合法的 token"]
+    S6["<b>6. Softmax 重新归一化</b><br/>得到当前可选 token 的概率"]
+    S7["<b>7. 采样（$$T > 0$$）或 argmax（greedy）</b><br/>选出下一个 token"]
+    S8["8. 追加到上下文"]
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
+    S8 -- "运行下一步" --> S1
+    classDef cut fill:#fff3d6,stroke:#c98a00
+    class S4,S5 cut
+```
 
-图里先按概念顺序串起一步解码。Hugging Face Transformers 和 vLLM 的实际执行顺序不同，第三章会对照源码说明。
+图里按概念顺序串起一步解码；同一组参数在不同推理框架里的实际执行顺序不同，第三章会对照源码说明：
+
+- Hugging Face Transformers：重复 / prefix 处理器在前；temperature → top-k → top-p → min-p。
+- vLLM：token allowlist / bad words → penalties → temperature → min-p → top-k / top-p。
 
 ### 2. temperature 调大，pass@1 与 pass@64 各怎么变
 
@@ -208,7 +227,7 @@ frequency penalty 的线性增长在长输出上尤其危险：一个出现了 5
 
 约束的表达方式从简到繁：正则表达式、JSON Schema、上下文无关语法（CFG）。执行的方式都一样：维护一个状态（当前在语法的哪个位置），每步计算"从这个状态出发，哪些 token 是合法的下一步"，把不合法的 token 的 logits 置 $$-\infty$$，然后照常采样。
 
-![JSON Schema 对应的语法状态，以及当前状态作用到 logits 的 token mask](/img/in-post/decoding-strategies-constrained-json-mask.svg)
+![JSON Schema 的语法状态与当前状态下的 token mask](/img/in-post/decoding-strategies-constrained-json-mask.svg)
 
 图中当前状态只接受 `"ok"` 和 `"error"`，mask 后其余 token 的概率为零。这里的 token 拼写是示意；真实 tokenizer 的一个 token 可能覆盖多个语法字符。
 
