@@ -648,18 +648,35 @@ token_budget -= num_new_tokens
 它们共同构成了 Scheduler 的核心逻辑：
 
 ```mermaid
-%% 图：从 remaining_tokens 到 num_new_tokens 的判断链
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：从 remaining_tokens 到 num_new_tokens 的判断链（running 队列的一轮循环）
 flowchart TB
-    R["<b>remaining_tokens</b>"] --> C["与 Token Budget 比较"] --> N["<b>num_new_tokens</b>"] --> S["<b>allocate_slots()</b>"] --> U["消耗 Token Budget"] --> X["下一个 Request"]
+    L{"还有 running 请求，<br/>且 token_budget > 0？"}
+    R["<b>remaining_tokens</b><br/>num_tokens_with_spec − num_computed_tokens<br/>这个请求还差多少 token 没算"]
+    N["<b>num_new_tokens</b><br/>min(remaining, long_prefill 阈值, token_budget)<br/>本轮实际给它算多少"]
+    Z{"num_new_tokens == 0？"}
+    A{"allocate_slots()<br/>分到 KV 块？"}
+    P["<b>抢占</b><br/>running 队尾的请求让出 KV 块"]
+    U["<b>token_budget −= num_new_tokens</b><br/>记进 SchedulerOutput"]
+    FIN["本轮结束"]
+    L -->|"是"| R --> N --> Z
+    L -->|"否"| FIN
+    Z -->|"是：跳过这个请求"| L
+    Z -->|"否"| A
+    A -->|"否"| P
+    P -->|"再试"| A
+    P -->|"抢到的就是它自己"| FIN
+    A -->|"是"| U
+    U -->|"下一个 Request"| L
     classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
     classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
     classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
-    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
     classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
     class R,N card
-    class C,U compute
-    class S memory
-    class X request
+    class L,Z,U compute
+    class A memory
+    class P waiting
+    class FIN card
 ```
 
 需要特别注意：
@@ -891,35 +908,7 @@ Scheduler 算完这一轮给谁多少 token，并不会自己去跑模型。它�
 
 注意里面没有 token 序列，也没有 attention 相关的东西。它只是一份"这一轮算什么"的清单。
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
-%% 图：SchedulerOutput 装了什么，执行层拿它做什么
-flowchart TB
-    SO["<b>SchedulerOutput</b><br/>• num_scheduled_tokens = #123;A: 256, B: 1, C: 5#125;<br/>• total_num_scheduled_tokens = 262<br/>• scheduled_new_reqs / scheduled_cached_reqs（new_block_ids）<br/>• scheduled_spec_decode_tokens = #123;C: 4 个候选#125;<br/>• finished_req_ids"]
-    subgraph EM["GPUModelRunner.execute_model()"]
-        direction TB
-        U["<b>1. _update_states()</b><br/>按 SchedulerOutput 更新常驻的 InputBatch"]
-        P["<b>2. _prepare_inputs()</b><br/>拼扁平的 input_ids / positions 等，算 slot_mapping"]
-        BA["<b>3. _build_attention_metadata()</b><br/>打包成 attention backend 需要的 metadata"]
-        FW["<b>一次 forward → logits → sample</b>"]
-        IB["<b>InputBatch（常驻）</b><br/>• req_ids<br/>• token_ids_cpu<br/>• num_computed_tokens_cpu<br/>• block_table（含 slot_mapping）"]
-        AM["<b>attention metadata</b><br/>• query_start_loc · seq_lens<br/>• block_table · slot_mapping"]
-        U --> P --> BA --> FW
-        U -->|"更新"| IB
-        IB -->|"读取"| P
-        BA -->|"构造"| AM
-        AM --> FW
-    end
-    SO --> U
-    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
-    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
-    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
-    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
-    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
-    class SO compute
-    class U,P,BA,AM card
-    class FW,IB memory
-```
+![SchedulerOutput 装了什么，执行层拿它做什么](/img/in-post/scheduler-output-to-runner.svg)
 
 执行层拿到这份清单后，在 `execute_model()` 里做三件事：
 
@@ -988,10 +977,11 @@ A 的 256 个是长 Prompt 的一个 chunk，B 的 1 个是普通 Decode，C 的
 概念流程：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
 %% 图：KV Cache 不够时：D 进不来，只能抢占 Running Request 腾出空间
 flowchart TB
     A["Token Budget 足够（D 分得到 token）"] --> B["D 需要 KV Cache（Prompt 4K）"] --> C["Free Blocks 不足"] --> D["无法接纳 D，需要释放 KV Cache"] --> E["选择一个 Running Request"]
-    E --> P["<b>Preemption</b><br/>1. 释放它的 KV Cache<br/>2. 状态变 PREEMPTED<br/>3. 重新进入 Waiting"]
+    E --> P["<b>Preemption：_preempt_request()</b><br/>1. 释放它的 KV Cache<br/>2. 状态变 PREEMPTED<br/>3. num_computed_tokens 清零（恢复时重算）<br/>4. 放回 waiting 队首（prepend_request）"]
     classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
     classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
     classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
