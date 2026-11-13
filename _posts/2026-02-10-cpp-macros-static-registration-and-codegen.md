@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（05）：宏、静态注册与代码生成"
 subtitle: "Macros, Static Registration and Code Generation"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 vLLM 的 CPU 后端把所有自定义算子登记到 PyTorch 的代码在 `csrc/cpu/torch_bindings.cpp` 里，形状是这样的：
@@ -1609,7 +1609,7 @@ m.def("bincount(Tensor self, Tensor? weights=None, SymInt minlength=0) -> Tensor
 
 ### 4. 一个 yaml 条目生成了什么
 
-本机没有 build 目录，下面以模板和生成器代码为依据说明 `bincount` 条目在 `build/aten/src/ATen/` 下会出现在哪些文件里、长什么样。文件名和结构是确定的；具体的空白、注释可能与实际生成物略有差别。
+写作时没有 PyTorch 的 `build/` 目录可对照，下面以模板和生成器代码为依据说明 `bincount` 条目在 `build/aten/src/ATen/` 下会出现在哪些文件里、长什么样。文件名和结构是确定的；下面各段「产物形如」的代码是按模板整理的示意，具体的空白、注释可能与实际生成物略有差别。
 
 ```mermaid
 %% 图：一个 native_functions.yaml 条目生成了什么：torchgen 产出的头文件、注册文件与 wrapper
@@ -1947,7 +1947,7 @@ Table: Macros.h 的整体结构
 
 ## 十二、mini-c10：让算子文件自己注册
 
-按系列约定，本篇实现 `minic10/macros/Macros.h` 和 `minic10/library.h`，把 `minic10/ops/add.cpp`、`minic10/ops/mul.cpp` 改成自注册，并复现"静态库里注册消失"。所有片段在本机用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过，无警告。
+按系列约定，本篇实现 `minic10/macros/Macros.h` 和 `minic10/library.h`，把 `minic10/ops/add.cpp`、`minic10/ops/mul.cpp` 改成自注册，并复现"静态库里注册消失"。所有片段在 macOS（arm64，Apple clang 21）上用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过，无警告。
 
 本篇依赖第二篇的 `Tensor`/`TensorImpl`/`StorageImpl`/`intrusive_ptr`、第三篇的 `ScalarType`/`MINI_DISPATCH_FLOATING_TYPES`、第四篇的 `DispatchKey`/`KernelFunction`/`OperatorEntry`/`Dispatcher`。第四篇的 `Dispatcher` 已有 `singleton()`、`registerOp`/`registerKernel`、`findOp`/`findOpOrThrow`、`call<Return, Args...>(op, args...)`；本篇在它上面加三个带"注册位置"信息的入口 `registerLibrary`/`registerDef`/`registerImpl`（与真实 `c10::Dispatcher` 同名，`registerDef` 相当于 `registerOp` 加 debug 字串，`registerImpl` 相当于 `registerKernel` 加 debug 字串并容忍 impl 先于 def）和一个 `registeredOps()`，其余不变。`Tensor` 沿用第四篇的 `key()` 访问器和 `empty_meta()`。
 
@@ -2713,7 +2713,7 @@ if(NOT BUILD_SHARED_LIBS)
 endif()
 ```
 
-（本机没有 CMake，这段未实际运行；命令行版本已在 12.5 节验证。第八篇补齐构建系统时会一起跑。）
+（验证环境（macOS arm64）没有安装 CMake，这段未经 cmake 实际配置；命令行版本已在 12.5 节验证。第八篇的 `CMakeLists.txt` 同样只逐条对照过 PyTorch 的写法，没有实际配置。）
 
 ### 8. 与 PyTorch 的对照
 

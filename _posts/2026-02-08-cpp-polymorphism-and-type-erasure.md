@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（04）：多态与类型擦除——运行时如何选
 subtitle: "Polymorphism and Type Erasure"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
@@ -2001,7 +2001,7 @@ TORCH_LIBRARY_IMPL(aten, CPU, m) {
 }
 ```
 
-（上面是按生成模板整理的示意，本机没有构建目录，无法给出精确生成结果；`m.impl("...", TORCH_FN(...))` 这一行的形式来自 `register_dispatch_key.py` 第 568 行的模板。）
+（上面是按生成模板整理的示意，不是实际生成物——写作时没有 PyTorch 的构建目录可对照；`m.impl("...", TORCH_FN(...))` 这一行的形式来自 `register_dispatch_key.py` 第 568 行的模板。）
 
 顺着 6.5 节的 `CppFunction` 构造函数、6.3 节的 `makeFromUnboxedFunctor`，这一行注册产生的 `KernelFunction` 是：
 

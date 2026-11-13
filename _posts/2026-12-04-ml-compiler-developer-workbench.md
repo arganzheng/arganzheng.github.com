@@ -50,7 +50,7 @@ TRITON_BUILD_PROTON=OFF pip install -e . -v     # 约 10–20 分钟（M 系列�
 
 ### 2. 三层测试
 
-| 层 | 位置 | 跑法 | 需要 GPU | 耗时（本机） |
+| 层 | 位置 | 跑法 | 需要 GPU | 耗时（macOS arm64，无 GPU） |
 |---|---|---|---|---|
 | lit（IR 级） | `test/**/*.mlir`（277 个文件） | `lit build/cmake.*/test`；单个：`lit -v build/cmake.*/test/TritonGPU/combine.mlir` | 否 | 9.5 s 全部 |
 | C++ 单元测试 | `unittest/` | `build/cmake.*/unittest/Tools/LinearLayout`（72 个）、`unittest/Dialect/TritonGPU/LinearLayoutConversions`（112 个） | 否 | 毫秒 |

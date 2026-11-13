@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（07）：与 Python 之间——pybind11、Python C AP
 subtitle: "pybind11, the Python C API and ABI"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 `torch.Tensor` 在 Python 里是一个再普通不过的对象：能 `isinstance`、能子类化、能 `t.foo = 1` 挂属性、能被 `gc` 收集。但它在 C++ 里的定义，在 `torch/csrc/autograd/python_variable.h` 开头：
@@ -317,7 +317,7 @@ Java 对照：JNI 没有"在 C 里定义 Java 类"这回事——类只能在 Ja
 
 pybind11 是一个 header-only 的 C++ 库，它做的事情可以一句话概括：**用模板在编译期为每个被绑定的函数生成一段 C API 胶水代码**——解析 `args` 元组、把每个 `PyObject*` 转成对应的 C++ 类型、调用函数、把返回值转回 `PyObject*`、把 C++ 异常翻译成 Python 异常。第三篇讲过模板是"按类型生成代码"，pybind11 是这一能力最重的应用之一。
 
-PyTorch v2.10.0 源码树把 pybind11 作为 `third_party/pybind11` 子模块（钉在 pybind11 3.0.1）；`torch/csrc/utils/pybind.h` 里有 `#define IS_PYBIND_2_13_PLUS PYBIND11_VERSION_HEX >= 0x020D0000`，说明代码需要兼容 pybind11 2.13 之前和之后的版本。本文引用的 pybind11 头文件片段来自本机安装的 pybind11 3.0.1（与 PyTorch 钉的版本一致），涉及的接口（`gil_scoped_release`、`type_caster`、`py::object`）在 2.x 与 3.x 之间语义一致。
+PyTorch v2.10.0 源码树把 pybind11 作为 `third_party/pybind11` 子模块（钉在 pybind11 3.0.1）；`torch/csrc/utils/pybind.h` 里有 `#define IS_PYBIND_2_13_PLUS PYBIND11_VERSION_HEX >= 0x020D0000`，说明代码需要兼容 pybind11 2.13 之前和之后的版本。本文引用的 pybind11 头文件片段来自 venv 里 `pip install pybind11` 安装的 pybind11 3.0.1（与 PyTorch 钉的版本一致），涉及的接口（`gil_scoped_release`、`type_caster`、`py::object`）在 2.x 与 3.x 之间语义一致。
 
 ### 1. `PYBIND11_MODULE`：`PyInit_xxx` 入口
 
@@ -1925,7 +1925,7 @@ ImportError: .../my_ext.so: undefined symbol: _ZN3c105ErrorC2ENS_14SourceLocatio
 
 用 `c++filt` 一看，符号里有 `__cxx11`：扩展是新 ABI 编的，而它加载的 `libc10.so` 是旧 ABI 编的（导出的是 `Ss` 版本）。反过来 `undefined symbol: _ZN3c105ErrorC2ENS_14SourceLocationESs` 是扩展旧、库新。
 
-**这是 PyTorch 扩展开发历史上最常见的 ABI 事故**，因为 PyTorch 的 Linux wheel 多年来一直用 `_GLIBCXX_USE_CXX11_ABI=0` 编译（为了兼容老的 manylinux 平台），而用户本机的 g++ 默认是 `=1`。
+**这是 PyTorch 扩展开发历史上最常见的 ABI 事故**，因为 PyTorch 的 Linux wheel 多年来一直用 `_GLIBCXX_USE_CXX11_ABI=0` 编译（为了兼容老的 manylinux 平台），而用户机器上的 g++ 默认是 `=1`。
 
 PyTorch 2.x 中的变化（版本敏感，按官方发布说明和 v2.10.0 源码）：
 
@@ -1946,7 +1946,7 @@ $ nm s.o | grep " T " | c++filt
 0000000000000000 T f(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&)
 ```
 
-`__1` 之于 libc++，正如 `__cxx11` 之于 libstdc++——都是"用 inline namespace 给 ABI 版本打标签"。这也顺带说明：**libc++ 编的 `.so` 和 libstdc++ 编的 `.so` 之间不能互传任何标准库类型**，Linux 上用 clang 编扩展时要确保它用的是 libstdc++（默认如此）而不是 `-stdlib=libc++`。第十二章会在本机用一个人造的 inline namespace 复现完整的"编译通过、链接失败、`c++filt` 定位"过程。
+`__1` 之于 libc++，正如 `__cxx11` 之于 libstdc++——都是"用 inline namespace 给 ABI 版本打标签"。这也顺带说明：**libc++ 编的 `.so` 和 libstdc++ 编的 `.so` 之间不能互传任何标准库类型**，Linux 上用 clang 编扩展时要确保它用的是 libstdc++（默认如此）而不是 `-stdlib=libc++`。第十二章会在 macOS 上用一个人造的 inline namespace 复现完整的"编译通过、链接失败、`c++filt` 定位"过程。
 
 ### 3. `GLIBCXX_3.4.x`：libstdc++ 的符号版本
 
@@ -2423,7 +2423,7 @@ after: True
 - `use_count = 1`：Python 对象的 holder 里那一个 `Tensor` 是 `TensorImpl` 的唯一持有者。`d = c` 是 Python 层的别名，不新建 `Tensor`，计数不变——这和 `torch.Tensor` 一样：Python 侧多一个变量名，C++ 计数不变。
 - `mc.add([...], [...])` 成功：两个 list 参数走了 caster 的第二条路径。`TypeError` 那条里 `'not a tensor'` 是 `str`，两条路径都失败，pybind11 报错并打印它从 `type_caster<Tensor>::name` 拿到的类型名 `_minic10.Tensor`。
 - Meta tensor 的 `add` 返回 Meta tensor，不碰数据——第四篇的 Meta 后端。
-- `ticks ... 26`：300ms 里另一个 Python 线程跑了 26 次循环（每次 sleep 10ms），证明 `busy_wait_ms` 确实放掉了 GIL。把 `gil_scoped_release` 那行注释掉重编再跑，本机实测 `ticks` 是 2——只有线程刚启动时和 `busy_wait_ms` 返回后各一次，300ms 的 sleep 期间 `ticker` 一次都没拿到 GIL。
+- `ticks ... 26`：300ms 里另一个 Python 线程跑了 26 次循环（每次 sleep 10ms），证明 `busy_wait_ms` 确实放掉了 GIL。把 `gil_scoped_release` 那行注释掉重编再跑，同一环境（macOS，Apple clang）实测 `ticks` 是 2——只有线程刚启动时和 `busy_wait_ms` 返回后各一次，300ms 的 sleep 期间 `ticker` 一次都没拿到 GIL。
 - `no_grad` 三行：TLS 状态在 `with` 内外正确切换。
 
 用 `nm` 看这个 `.so` 导出了什么（第一篇的工具）：
@@ -2526,7 +2526,7 @@ c10::Error::Error(char const*, mylib::string const&)
 
 两边都用 `-DMYLIB_NEW_ABI=1` 重编 `ext.cpp`，链接通过。
 
-**在 Linux + libstdc++ 上对应的真实现象**（本机无法运行，按机制推断并与 10.2 节引用的真实错误信息一致）：
+**在 Linux + libstdc++ 上对应的真实现象**（macOS 上无法运行，以下是按机制推断的说明，与 10.2 节引用的真实错误信息一致，不是实际运行记录）：
 
 - 把 `mylib::string` 换成 `std::string`、把 `MYLIB_NEW_ABI` 换成 `_GLIBCXX_USE_CXX11_ABI`，就是真实情形。`libc10.so` 里导出的是 `_ZN3c105ErrorC1ENS_14SourceLocationENSt7__cxx1112basic_string...`，用 `-D_GLIBCXX_USE_CXX11_ABI=0` 编的扩展要的是 `_ZN3c105ErrorC1ENS_14SourceLocationESs`。
 - 区别在于**失败发生在加载期而不是链接期**：Linux 上 `-shared` 默认允许 `.so` 有未定义符号（要留给运行时解析），所以扩展 `.so` 能链接成功，`import` 时 `dlopen` 才报 `ImportError: ... undefined symbol: _ZN3c105ErrorC1ENS_14SourceLocationESs`。如果链接时加 `-Wl,--no-undefined`，就能像上面 macOS 演示那样提前到链接期。

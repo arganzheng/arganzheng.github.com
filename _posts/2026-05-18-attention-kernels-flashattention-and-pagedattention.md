@@ -5,7 +5,7 @@ title: "GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 Pag
 subtitle: "Attention Kernels: FlashAttention and PagedAttention from Derivation to Code"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 前七篇分别处理了 GPU 的硬件结构与 Roofline、CUDA 执行模型、访存合并、shared memory 与 reduction（其中包括 online softmax）、GEMM 的分块、Tensor Core 与 CUTLASS、Triton。这一篇是它们的汇合点：attention 同时包含两个 GEMM（$$QK^T$$ 与 $$PV$$）、一个逐行的 reduction（softmax），以及推理时特有的内存访问模式（分页的 KV cache）。它是 Transformer 推理里最重要、也最难写好的 kernel。
@@ -250,13 +250,13 @@ $$
 
 ### 4. FlashAttention 源码的结构
 
-FlashAttention-2 的 CUDA 源码大致位于仓库的 `csrc/flash_attn/src/` 目录。核心文件是 `flash_fwd_kernel.h`，其中 `compute_attn_1rowblock` 这个 device 函数就是"一个 thread block 处理一个 $$Q$$ 行块"的实现（本机没有源码，以下凭对代码结构的了解描述，不给行号）：
+FlashAttention-2 的 CUDA 源码在仓库的 `csrc/flash_attn/src/` 目录。核心文件是 `flash_fwd_kernel.h`，其中 `compute_attn_1rowblock` 这个 device 函数就是"一个 thread block 处理一个 $$Q$$ 行块"的实现（以下对照 FlashAttention v2.8.3，2025-08-14 发布）：
 
 1. 用 `binfo`（`BlockInfo`）从 `cu_seqlens_q/k` 取得当前序列的起止，算出这个 $$Q$$ 块需要遍历的 KV 块范围 `n_block_min..n_block_max`（因果或 sliding window 时缩小范围）；
 2. 用 CuTe 的 `Tensor` 与 `Layout` 把 gmem 上的 $$Q, K, V$$ 切成 tile，`cp.async` 搬到 smem 的双缓冲；
-3. 主循环分两段：先处理需要 mask 的块（对角块，`n_masking_steps` 次），再处理不需要 mask 的块；两段共用同一套 "gemm → softmax rescale → gemm" 逻辑，只是 mask 那段多了 `apply_mask_causal`；
+3. 主循环分两段：先处理需要 mask 的块（对角块，`n_masking_steps` 次），再处理不需要 mask 的块；两段共用同一套 "gemm → softmax rescale → gemm" 逻辑，只是 mask 那段多调一次 `mask.apply_mask<Is_causal, …>`（`mask.h` 的 `Mask` 结构体；同一文件里的 `apply_mask_causal` 等函数把越界位置置成 $$-\infty$$）；
 4. `flash::gemm` 用 `mma.sync m16n8k16` 算 $$S$$，`Softmax` 结构体（在 `softmax.h`）里的 `softmax_rescale_o` 完成 $$m, l, O$$ 的更新——正是第二节步骤 2–4；
-5. $$P$$ 从 FP32 累加器转成 BF16 后**直接作为下一个 mma 的 A 操作数**（fragment 布局是兼容的，不需要经过 shared memory）；
+5. $$P$$ 由 `convert_type<Element>` 从 FP32 累加器转成 BF16 后，**直接作为下一个 mma 的 A 操作数**交给 `gemm_rs`（A 在寄存器、B 在 shared memory；fragment 布局是兼容的，不需要经过 shared memory）；
 6. 收尾：$$O / l$$，写 $$O$$ 与 $$L$$。
 
 后面第七节的 CUDA 骨架就是这个结构的浓缩。

@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（03）：模板与泛型编程"
 subtitle: "Templates and Generic Programming"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-13
 ---
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：
@@ -173,7 +173,7 @@ Table: Java 泛型的类型擦除与 C++ 模板的单态化
 
 对 AI-Infra 读者，C++ 这一侧有一个更熟悉的类比：`torch.compile` 对同一个 Python 函数，会按输入的 dtype、形状（guard）各编译一份专用的图，`f(float32 张量)` 和 `f(float64 张量)` 跑的是两份不同的生成代码。模板做的是同一件事，只是发生在编译期、由源码里显式或推导出的 `<T>` 触发，而 `torch.compile` 发生在运行期、由第一次见到的实参触发。两者的代价也同构：份数随参数组合增长（模板是编译时间与二进制体积，`torch.compile` 是 recompile 次数与缓存），这是第七章 `AT_DISPATCH` 只为有限几种 dtype 实例化、而不是对所有类型全开的原因。
 
-最后两行解释了 C++ 模板错误信息为什么巨长。Java 在泛型定义处就检查 `T` 满足 `extends Comparable<T>`，错在哪一行就报哪一行。C++ 模板默认对 `T` 没有任何约束，`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道；如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。本机做一个最小实验，用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
+最后两行解释了 C++ 模板错误信息为什么巨长。Java 在泛型定义处就检查 `T` 满足 `extends Comparable<T>`，错在哪一行就报哪一行。C++ 模板默认对 `T` 没有任何约束，`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道；如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。做一个最小实验（macOS arm64，Apple clang 21，libc++），用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
 
 ```cpp title="用 std::sort 排序 std::list：故意触发模板错误"
 #include <algorithm>
@@ -1885,7 +1885,7 @@ using IntArrayRef = ArrayRef<int64_t>;
 }  // namespace minic10
 ```
 
-去掉了 `HeaderOnlyArrayRef` 那层拆分、`SmallVector` 构造函数、推导指引和 `makeArrayRef` 系列，其余是 8.1 节读到的形状。本机验证了 `ref = int64_t{5};` 和 `ref = {int64_t{1}, int64_t{2}};` 报 "overload resolution selected deleted operator '='"，`ref = {};` 正常编译。
+去掉了 `HeaderOnlyArrayRef` 那层拆分、`SmallVector` 构造函数、推导指引和 `makeArrayRef` 系列，其余是 8.1 节读到的形状。在同一环境（macOS arm64，Apple clang 21）验证了 `ref = int64_t{5};` 和 `ref = {int64_t{1}, int64_t{2}};` 报 "overload resolution selected deleted operator '='"，`ref = {};` 正常编译。
 
 ### 4. `TensorImpl`/`Tensor`：`sizes()` 改为返回 `IntArrayRef`
 

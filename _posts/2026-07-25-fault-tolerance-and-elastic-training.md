@@ -5,7 +5,7 @@ title: "大规模训练工程（09）：容错与弹性——故障率数学、s
 subtitle: "Fault Tolerance and Elasticity: Failure Math, Stragglers, SDC and Elastic Training"
 tags: [PyTorch, Megatron, torchft, Fault Tolerance, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 > **更新 @2026-09-06**：本文 torchft 部分基于 v0.2.0、torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / NVIDIA Resiliency Extension 0.6.0 为准。
@@ -1010,7 +1010,7 @@ def main():
 torchrun --standalone --nnodes=1 --nproc-per-node=8 --max-restarts=2 chaos/kill_rank.py --ckpt-dir /tmp/ckpt --timeout-s 60
 ```
 
-预期日志形状：第 25 步 rank 3 打印 injecting crash 并退出 → 其余 rank 在下一次 all_reduce 上卡住：走网络传输的连接能感知对端断开、很快报 NCCL remote error，节点内 NVLink/P2P 路径上的 rank 则一直等到 watchdog timeout——这正是把 `--timeout-s` 设短的原因；两种情况下 `TORCH_NCCL_ASYNC_ERROR_HANDLING` 的默认值都把它变成异常、进程退出 → agent 日志 `Worker group FAILED. 2/2 attempts left; will restart worker group` → 全部 8 个进程重新拉起，`TORCHELASTIC_RESTART_COUNT=1` → 每个 rank 打印 loading checkpoint at step 20 → 从 20 继续到 60。**观察点**：从 crash 到第一条"resumed at step 20"日志之间的墙钟时间就是本机上的 T_d + T_r + T_l；被丢掉的 5 步（20 → 25）是回退。把 `--timeout-s` 改回默认、再把 `os._exit(1)` 换成 `time.sleep(3600)`（模拟 hang），会看到 T_d 从秒级变成 timeout 值——这是第三章"隐式故障只能靠超时"的直观演示。
+预期日志形状：第 25 步 rank 3 打印 injecting crash 并退出 → 其余 rank 在下一次 all_reduce 上卡住：走网络传输的连接能感知对端断开、很快报 NCCL remote error，节点内 NVLink/P2P 路径上的 rank 则一直等到 watchdog timeout——这正是把 `--timeout-s` 设短的原因；两种情况下 `TORCH_NCCL_ASYNC_ERROR_HANDLING` 的默认值都把它变成异常、进程退出 → agent 日志 `Worker group FAILED. 2/2 attempts left; will restart worker group` → 全部 8 个进程重新拉起，`TORCHELASTIC_RESTART_COUNT=1` → 每个 rank 打印 loading checkpoint at step 20 → 从 20 继续到 60。**观察点**：从 crash 到第一条"resumed at step 20"日志之间的墙钟时间就是这次演练里的 T_d + T_r + T_l；被丢掉的 5 步（20 → 25）是回退。把 `--timeout-s` 改回默认、再把 `os._exit(1)` 换成 `time.sleep(3600)`（模拟 hang），会看到 T_d 从秒级变成 timeout 值——这是第三章"隐式故障只能靠超时"的直观演示。
 
 **演练 2：拖慢一个 rank，用计算 vs 等待时间找到它。**
 

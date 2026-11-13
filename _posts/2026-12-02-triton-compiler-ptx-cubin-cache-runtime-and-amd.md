@@ -96,7 +96,7 @@ Table: 缓存键的五个成分
 
 ### 2. 目录名与内容
 
-`hash` 是 key 的 SHA-256 十六进制；目录名是它的 base32（`~/.triton/cache/7G26FXWXQI5YNQJ3B34UJOLGK57PHFWFBB23QHJBVOCHWJC6TMGA/`），`TRITON_CACHE_DIR` 可以换根目录。本机编译 `add_kernel` 之后：
+`hash` 是 key 的 SHA-256 十六进制；目录名是它的 base32（`~/.triton/cache/7G26FXWXQI5YNQJ3B34UJOLGK57PHFWFBB23QHJBVOCHWJC6TMGA/`），`TRITON_CACHE_DIR` 可以换根目录。在 macOS（arm64，用假 `ptxas`）上编译 `add_kernel` 之后：
 
 | 文件 | 内容 |
 |---|---|
@@ -106,7 +106,7 @@ Table: 缓存键的五个成分
 | `add_kernel.ttgir` | `make_ttgir` 之后 |
 | `add_kernel.llir` | `make_llir` 之后 |
 | `add_kernel.ptx` | `make_ptx` 之后 |
-| `add_kernel.cubin` | `make_cubin` 之后；本机是 0 字节（假 ptxas），真机上是 ELF |
+| `add_kernel.cubin` | `make_cubin` 之后；用假 ptxas 时是 0 字节，用真 ptxas 是 ELF |
 | `add_kernel.json` | 元数据 |
 
 Table: 缓存目录里的文件

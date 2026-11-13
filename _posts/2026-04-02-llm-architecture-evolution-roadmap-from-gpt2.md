@@ -4,7 +4,7 @@ title: "现代 LLM 结构：从 GPT-2 到今天的演进（总纲）"
 subtitle: "Modern LLM Architecture: From GPT-2 to Today"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-18
+updated: 2026-11-13
 comments_path: /transformer-anatomy-and-parameter-count.html
 ---
 
@@ -258,7 +258,7 @@ flowchart TB
 2. [Jamba](https://arxiv.org/html/2403.19887)：Mamba 与 Transformer attention 混合；
 3. [MiniMax-01](https://arxiv.org/html/2501.08313)、[Qwen3-Next](https://www.alibabacloud.com/blog/602580)、[Kimi Linear](https://arxiv.org/html/2510.26692)：各自公开的线性 / full-attention 混合比例与折中。
 
-前两条线都还保留逐 token 的 K/V，只是让它变小、变少；这条线的目标是让模型记住历史所需的状态不再随上下文长度增长。做法是换掉 attention 本身，把大部分层换成线性 attention 或 SSM。它们的层比例、状态和质量折中在[第 05 篇](/long-context-cost-and-structural-remedies.html)第四章「换掉 attention：线性 attention、SSM 与混合架构」里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
+前两条线都还保留逐 token 的 K/V，只是让它变小、变少；这条线的目标是让模型记住历史所需的状态不再随上下文长度增长。做法是换掉 attention 本身，把大部分层换成线性 attention 或 SSM。它们的层比例、状态和质量折中在[《长上下文的成本与结构手段》第四章「换掉 attention：线性 attention、SSM 与混合架构」](/long-context-cost-and-structural-remedies.html#四换掉-attention线性-attentionssm-与混合架构)里按模型配置逐项核算；MiniMax-M2 选择 full attention 的官方解释也放在那里。
 
 **对应的 config 字段**：
 

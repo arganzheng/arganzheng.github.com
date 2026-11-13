@@ -5,7 +5,7 @@ title: "GPU Kernel 工程（06）：Tensor Core、CUTLASS 与 CuTe"
 subtitle: "Tensor Cores, CUTLASS and CuTe: Programming the Matrix Units"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 上一篇用 CUDA Core 把 GEMM 的分块结构讲透了。回顾一下那个结构，因为本篇要做的事情就是把它"接"到另一种计算单元上：
@@ -641,7 +641,7 @@ print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 
 
 ## 五、Hopper：TMA、wgmma 与 warp specialization
 
-以下内容需要 sm_90（H100），本机无法运行，以指令语义和 kernel 结构为主。H100 BF16 Tensor Core 标称约 989 TFLOPS，是 A100 的 3.2 倍，但 shared memory 带宽（每 SM 每周期 128 字节）没有同比增长，SM 数只从 108 增至 132。这意味着 Ampere 那套"每个线程发 `cp.async`、每个 warp 发 `ldmatrix` 再发 `mma`"的结构在 Hopper 上无法喂饱 Tensor Core：**指令发射带宽和 shared memory 带宽都不够**。Hopper 的三项新机制都是针对这一点。
+以下内容需要 sm_90（H100），sm_80 的卡上无法运行，以指令语义和 kernel 结构为主。H100 BF16 Tensor Core 标称约 989 TFLOPS，是 A100 的 3.2 倍，但 shared memory 带宽（每 SM 每周期 128 字节）没有同比增长，SM 数只从 108 增至 132。这意味着 Ampere 那套"每个线程发 `cp.async`、每个 warp 发 `ldmatrix` 再发 `mma`"的结构在 Hopper 上无法喂饱 Tensor Core：**指令发射带宽和 shared memory 带宽都不够**。Hopper 的三项新机制都是针对这一点。
 
 ### 1. TMA：一条指令搬一个多维 tile
 

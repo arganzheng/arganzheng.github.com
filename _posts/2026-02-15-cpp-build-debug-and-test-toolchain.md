@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（08）：构建、调试与测试工具链"
 subtitle: "Build, Debug and Test Toolchain"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-13
 ---
 
 PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
@@ -826,7 +826,7 @@ Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后�
 ]
 ```
 
-（上面是格式示意，具体路径和选项以本机构建为准；关键是每个文件带着完整的 `-D`/`-I`/`-std`。）
+（上面是格式示意，具体路径和选项以各自构建目录里生成的文件为准；关键是每个文件带着完整的 `-D`/`-I`/`-std`。）
 
 ### 2. clangd
 
@@ -996,7 +996,7 @@ Table: pytorch-gdb.py 的命令与背后的 C++ 函数
 
 ### 5. `-O2` 下变量为什么消失：mini-c10 实测
 
-4.1 节说 `-O2 -g` 能调试但看不清。用 mini-c10 的 `add_cpu` kernel（第十三章的代码）实际对比。本机 macOS 只有 lldb，且 lldb 的 `process launch` 在这个沙箱环境里被系统的调试授权拦住了（`task_for_pid` 无法完成），所以下面**只用不需要运行进程的静态命令**——它们对回答"调试信息里有什么"已经足够。
+4.1 节说 `-O2 -g` 能调试但看不清。用 mini-c10 的 `add_cpu` kernel（第十三章的代码）实际对比。验证环境是 macOS（arm64，Apple clang 21），只有 lldb，且 lldb 的 `process launch` 在验证用的沙箱里被系统的调试授权拦住了（`task_for_pid` 无法完成），所以下面**只用不需要运行进程的静态命令**——它们对回答"调试信息里有什么"已经足够。
 
 先用 Debug 选项编译，看符号表：
 
@@ -2286,7 +2286,7 @@ Table: clang-tidy 检查模块的来源与性质
 
 按系列约定，本篇给 mini-c10 补上：完整的 `CMakeLists.txt`（库、算子、Python 模块、gtest、ASan 选项、`compile_commands.json`）、`test/intrusive_ptr_test.cpp`、`test/dispatcher_test.cpp`、`.clang-format`，以及一个 lldb 会话。**先说清边界**：这些文件是按前面各篇的接口**设计**出来的骨架，没有在一个仓库里整体配置、编译、跑通过——已知的接缝包括：`CMakeLists.txt` 引用的 `Dispatcher.cpp` / `RegisterSchema.cpp` 前面各篇只给了头文件；第四篇的 `IValue` 只装 `Tensor` / `int64` / `double` / `bool`，`dispatcher_test.cpp` 里若对 `int` 做 boxed 调用会因 `to<int>()` 未实例化而编译失败；sanitizer 选项要 `PUBLIC` 才能传给测试目标；导出的 `targets` 文件不是 `find_package` 的 Config 文件，还缺 `Config.cmake.in` 与 `find_dependency(Threads)`。把它当"照着补齐就能编"的清单读，而不是当已交付的可运行工程。
 
-**关于验证的说明。** 本机没有安装 CMake、Ninja、gtest 和 clang-format（`which cmake ninja clang-format` 均为空），只有 Apple clang 21 和 lldb。因此：所有 C++ 文件（第二、三、四、五、六篇约定的头文件的最小版本 + 本篇的两个测试文件）都用 `clang++ -std=c++17 -Wall -Wextra` 实际编译并运行过；gtest 用一个 40 行的桩头文件（只提供 `TEST`/`EXPECT_*`/`ASSERT_*`/`EXPECT_THROW` 宏和一个最简 `main`）代替，以验证测试文件的语法和逻辑，两个测试文件共 21 个测试全部通过；`CMakeLists.txt` **未经 cmake 实际配置**，它只用了本文第二章和第九章从 `c10/CMakeLists.txt`、`c10/test/CMakeLists.txt` 里读到的命令，逐条对照过；`.clang-format` 内容取自 PyTorch 的同名文件的子集。lldb 部分的限制在 6.5 节说明过。
+**关于验证的说明。** 验证环境（macOS arm64）没有安装 CMake、Ninja、gtest 和 clang-format（`which cmake ninja clang-format` 均为空），只有 Apple clang 21 和 lldb。因此：所有 C++ 文件（第二、三、四、五、六篇约定的头文件的最小版本 + 本篇的两个测试文件）都用 `clang++ -std=c++17 -Wall -Wextra` 实际编译并运行过；gtest 用一个 40 行的桩头文件（只提供 `TEST`/`EXPECT_*`/`ASSERT_*`/`EXPECT_THROW` 宏和一个最简 `main`）代替，以验证测试文件的语法和逻辑，两个测试文件共 21 个测试全部通过；`CMakeLists.txt` **未经 cmake 实际配置**，它只用了本文第二章和第九章从 `c10/CMakeLists.txt`、`c10/test/CMakeLists.txt` 里读到的命令，逐条对照过；`.clang-format` 内容取自 PyTorch 的同名文件的子集。lldb 部分的限制在 6.5 节说明过。
 
 在整合前面几篇的头文件时发现了一处需要主编协调的不一致：第六篇的 `intrusive_ptr.h`（原子计数版）去掉了第二篇版本里的 `explicit operator bool()`，而第二篇的 `TensorImpl::data()` 写的是 `storage_ ? storage_->data() : nullptr`，需要这个转换。本篇验证时在第六篇的版本上补回了这一行；建议第六篇也补上。
 
@@ -2382,7 +2382,7 @@ if(BUILD_TEST)
       GIT_REPOSITORY https://github.com/google/googletest.git
       GIT_TAG        v1.14.0)
   set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)   # 与 cmake/Dependencies.cmake 一致：gtest 只嵌进测试二进制
-  FetchContent_MakeAvailable(googletest)      # 未在本机验证（无网络/无 cmake）；PyTorch 用 third_party/ submodule
+  FetchContent_MakeAvailable(googletest)      # 未经实际验证（验证环境无网络、无 cmake）；PyTorch 用 third_party/ submodule
 
   enable_testing()
   file(GLOB MINIC10_TEST_FILES CONFIGURE_DEPENDS test/*_test.cpp)
@@ -2758,57 +2758,25 @@ MINI_LIBRARY_IMPL(minic10, CPU, m) { m.impl("add", minic10::add_cpu); }
 MINI_LIBRARY_IMPL(minic10, Meta, m) { m.impl("add", minic10::add_meta); }
 ```
 
-会话（`$` 是 shell，`(lldb)` 是调试器）。**断点设置这一步在本机实际执行过**（6.5 节的输出）；`process launch` 之后的部分因为本机的调试授权限制没有实际运行，是根据 Debug 构建的调试信息和源码给出的预期输出：
+会话的命令如下（`$` 是 shell，`(lldb)` 是调试器）。只有第一条 `breakpoint set` 实际执行过（输出见 6.5 节：解析到 `add.cpp:11:3`）；`process launch` 之后的步骤被验证环境的调试授权拦住、没有实际运行，所以这里**不贴会话输出**，只在注释里写每条命令该看到什么——这是示意，不是运行记录：
 
-```text title="lldb 会话：从 add_cpu 断点到 kernel（launch 后为预期输出）"
+```text title="lldb 会话：从 add_cpu 断点到 kernel 的命令与各步该看到的内容（示意）"
 $ lldb ./build/hello
-(lldb) breakpoint set --name add_cpu
-Breakpoint 1: where = hello`minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&) + 32 at add.cpp:11:3, address = 0x000000010000192c
-(lldb) process launch
-Process 12345 stopped
-* thread #1, queue = 'com.apple.main-thread', stop reason = breakpoint 1.1
-    frame #0: 0x000000010000192c hello`minic10::(anonymous namespace)::add_cpu(a=0x000000016fdff2a8, b=0x000000016fdff2a0) at add.cpp:11:3
-   10   Tensor add_cpu(const Tensor& a, const Tensor& b) {
--> 11     MINI_CHECK(a.sizes() == b.sizes(), "add: size mismatch");
-   12     MINI_CHECK(a.dtype() == b.dtype(), "add: dtype mismatch");
-   13     Tensor out = empty(a.sizes(), a.dtype(), DispatchKey::CPU);
-(lldb) bt
-* thread #1, queue = 'com.apple.main-thread', stop reason = breakpoint 1.1
-  * frame #0: hello`minic10::(anonymous namespace)::add_cpu(a=..., b=...) at add.cpp:11:3
-    frame #1: hello`minic10::KernelFunction::call<minic10::Tensor, minic10::Tensor const&, minic10::Tensor const&>(this=..., args=..., args=...) const at KernelFunction.h:26:12
-    frame #2: hello`minic10::Dispatcher::call<minic10::Tensor, minic10::Tensor const&, minic10::Tensor const&>(this=..., name="add", key=CPU, args=..., args=...) const at Dispatcher.h:42:12
-    frame #3: hello`minic10::add(a=..., b=...) at add.cpp:31:37
-    frame #4: hello`main at hello.cpp:9:14
-    frame #5: dyld`start + 1234
-(lldb) frame variable
-(const minic10::Tensor &) a = 0x000000016fdff2a8: {
-  impl_ = {
-    target_ = 0x0000600000008000
-  }
-}
-(const minic10::Tensor &) b = 0x000000016fdff2a0: { ... }
-(lldb) p a.sizes()
-(const std::vector<long long> &) $0 = size=1 { [0] = 4 }
-(lldb) p a.use_count()
-(size_t) $1 = 1
-(lldb) p a.data_ptr<float>()[1]
-(float) $2 = 1
+(lldb) breakpoint set --name add_cpu          # 解析到 add.cpp:11:3（6.5 节实测）
+(lldb) process launch                         # 停在 add_cpu 第 11 行的 MINI_CHECK
+(lldb) bt                                     # 自顶向下：add_cpu ← KernelFunction::call ← Dispatcher::call ← minic10::add ← main
+(lldb) frame variable                         # a、b 两个 const Tensor&，内部只有 impl_.target_ 一个指针
+(lldb) p a.sizes()                            # main 里构造的形状，一维 4 个元素
+(lldb) p a.use_count()                        # 1：只有 main 里那一个 Tensor 持有它
+(lldb) p a.data_ptr<float>()[1]               # a 的第 2 个元素
 (lldb) breakpoint set --file add.cpp --line 18
-Breakpoint 2: where = hello`...add_cpu(...)::$_0::operator()() const::'lambda'()::operator()() const + ... at add.cpp:18:...
-(lldb) continue
-Process 12345 stopped ... stop reason = breakpoint 2.1
-    frame #0: ... at add.cpp:18
--> 18     for (int64_t i = 0; i < out.numel(); ++i) po[i] = pa[i] + pb[i];
-(lldb) frame variable
-(const float *) pa = 0x0000600000008040
-(const float *) pb = 0x0000600000008060
-(float *) po = 0x0000600000008080
+(lldb) continue                               # 停在 MINI_DISPATCH_FLOATING_TYPES 展开出的 float 分支 lambda 里
+(lldb) frame variable                         # pa、pb、po 三个指针：lambda 自己的局部变量
 (lldb) finish
-(lldb) p out.data_ptr<float>()[3]
-(float) $3 = 13
+(lldb) p out.data_ptr<float>()[3]             # 结果的第 4 个元素 = a[3] + b[3]
 ```
 
-对照 6.3 节的 PyTorch 栈：`frame #3 minic10::add` 对应 `at::add`，`frame #2 Dispatcher::call` 对应 `c10::Dispatcher::call`，`frame #1 KernelFunction::call` 对应 `c10::impl::wrap_kernel_functor_unboxed_::call`，`frame #0 add_cpu` 对应 `at::native::add_out`。第二个断点停在 `MINI_DISPATCH_FLOATING_TYPES` 展开出的 lambda 里——`-O0` 下它是一个独立的函数，有自己的帧和局部变量 `pa`/`pb`/`po`。换成 `-O2 -g`，6.5 节已经看到这些 lambda 消失、`out` 没有位置——同样的会话里 `frame variable` 会显示 `<optimized out>` 或者干脆找不到变量。
+对照 6.3 节的 PyTorch 栈：`bt` 里的 `minic10::add` 对应 `at::add`，`Dispatcher::call` 对应 `c10::Dispatcher::call`，`KernelFunction::call` 对应 `c10::impl::wrap_kernel_functor_unboxed_::call`，`add_cpu` 对应 `at::native::add_out`。第二个断点停在 `MINI_DISPATCH_FLOATING_TYPES` 展开出的 lambda 里——6.5 节的 `nm` 输出已经确认 `-O0` 下它是一个独立的函数，有自己的帧和局部变量 `pa`/`pb`/`po`。换成 `-O2 -g`，6.5 节已经看到这些 lambda 消失、`out` 没有位置——同样的会话里 `frame variable` 会显示 `<optimized out>` 或者干脆找不到变量。
 
 从 Python 端进入的版本（第七篇的 `_minic10` 模块）只多一步：`lldb -- python -c "import _minic10; ..."`，先 `breakpoint set --name add_cpu`（此时 pending），`process launch` 后模块被 `import` 时断点被解析，命中后 `bt` 的顶部多出 `pybind11::cpp_function::dispatcher` 和 CPython 的 `cfunction_call`/`_PyEval_EvalFrameDefault` 帧——和 PyTorch 的 `THPVariable_add` 位置对应。
 
