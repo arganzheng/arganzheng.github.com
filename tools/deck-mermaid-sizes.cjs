@@ -1,4 +1,4 @@
-const http=require('http');const WebSocket=require(require('os').homedir()+'/.claude/skills/browser/node_modules/ws');
+const http=require('http');let WebSocket;try{WebSocket=require('ws')}catch{WebSocket=require(require('os').homedir()+'/.claude/skills/browser/node_modules/ws')}
 const getJSON=(url,method='GET')=>new Promise((res,rej)=>{const req=http.request(url,{method},r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>{try{res(JSON.parse(d))}catch(e){res(d)}})});req.on('error',rej);req.end();});
 (async()=>{for(const slug of process.argv.slice(2)){
  const url='http://localhost:4000/'+slug+'.html';

@@ -328,6 +328,12 @@ span.mmd-li {
   padding-left: 1.1em;
   text-indent: -1.1em;
 }
+/* text-indent is inherited: an inline-block formula inside a list item would
+   start 1.1em left of its placeholder and overprint the text before it. */
+span.mmd-li span.mm-math,
+span.mmd-li .katex {
+  text-indent: 0;
+}
 /* KaTeX's 1.21em made a formula look larger than the label text (and the
    title) around it; inside diagrams 1.05em matches the label's x-height. */
 .mermaid .katex,

@@ -89,10 +89,11 @@ const CHECK = `(() => {
         if(!(sc>0)) return null;
         const hs=[...sv.querySelectorAll('text,tspan,foreignObject div,foreignObject span,foreignObject p')]
           .map(e=>{const h=e.getBoundingClientRect().height; if(h<=0) return null;
+            if(e.closest('.katex')&&!e.matches('.katex')) return null; // KaTeX struts (.vlist-s 0.05em)
             const fs=parseFloat(getComputedStyle(e).fontSize)||16; return fs*sc;})
           .filter(x=>x!=null);
         const min=Math.min(...hs,999);
-        return (min<14&&min<999)?"#"+(i+1)+" min "+min.toFixed(1)+"px":null;
+        return (min<14&&min<999)?"#"+(i+1)+" min "+min.toFixed(1)+"px ("+((s.querySelector('h1,h2,h3')||{}).textContent||'').trim().slice(0,24)+")":null;
       }).filter(Boolean);
     }).flat(),
     // consecutive visible block children crammed together: <8 px of air between a

@@ -116,7 +116,7 @@ const CHECK = `(() => {
       const w=+(mk.getAttribute('markerWidth')||3), mh=+(mk.getAttribute('markerHeight')||3);
       head=Math.max(head,Math.max(w,mh)*2);
     }
-    if(L-head<16) errs.push('箭头杆过短('+Math.round(L-head)+'px): '+(p.getAttribute('id')||(p.getAttribute('d')||'').slice(0,30)||p.outerHTML.slice(0,30)));
+    if(L-head<16) {const a=p.getPointAtLength(0),z=p.getPointAtLength(L);errs.push('箭头杆过短('+Math.round(L-head)+'px): ('+Math.round(a.x)+','+Math.round(a.y)+')→('+Math.round(z.x)+','+Math.round(z.y)+')');}
     // (e) dangling arrow (2026-11-12, 「箭头没有连接上方框」): the arrowhead end
     // must touch a box edge — within 4px of a visible rect's border — or a
     // label it points at. 4–60px from the nearest box means a gap was left.
@@ -135,7 +135,7 @@ const CHECK = `(() => {
       const onLine=plainLines.some(([x1,y1,x2,y2])=>{const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy||1;
         const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/l2));return Math.hypot(px-x1-t*dx,py-y1-t*dy)<=4;});
       if(onLine) continue;
-      if(d>4&&d<60&&!nearText) errs.push('箭头悬空（端点离最近方框 '+Math.round(d)+'px）: '+((p.getAttribute('d')||'').slice(0,30)||p.outerHTML.slice(0,40)));
+      if(d>4&&d<60&&!nearText) errs.push('箭头悬空（端点离最近方框 '+Math.round(d)+'px）: 端点 ('+Math.round(q.x)+','+Math.round(q.y)+')');
     }
   });
   return JSON.stringify({errs:[...new Set(errs)],ntexts:texts.length});

@@ -120,6 +120,13 @@ Front matter knobs (all optional):
         .diagram-zoom-toolbar button:hover { color: #00788f; border-color: #00788f; }
         .diagram-zoom-hint { position: absolute; bottom: 18px; left: 0; width: 100%; text-align: center; font-size: 13px; color: #808080; pointer-events: none; }
         .reveal .mermaid { text-align: center; }
+        /* node titles / lists made by the loader (rich-content.html); the deck
+           does not load the blog CSS, so these mirror less/theme-overrides.less */
+        span.mmd-title { display: block; font-weight: 700; font-size: 1.1em; margin-bottom: 5px; }
+        span.mmd-list { display: block; text-align: left; }
+        span.mmd-li { display: block; line-height: 1.4; padding-left: 1.1em; text-indent: -1.1em; }
+        span.mmd-li span.mm-math, span.mmd-li .katex { text-indent: 0; }
+        .reveal .mermaid .katex, .mm-probe .katex { font-size: 1.05em; }
         /* the deck does not load the blog CSS, so the dark-mode mermaid
            backing panel from less/dark.less is duplicated here — light card
            keeps dark-on-light node text, edges and labels readable */
