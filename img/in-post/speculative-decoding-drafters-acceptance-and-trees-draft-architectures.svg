@@ -21,10 +21,10 @@
  <rect x="24" y="60.6" width="222" height="29.72" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <text class="head" x="135" y="82" text-anchor="middle" style="font-weight:500" font-weight="500">独立小模型</text>
  <text class="small" x="38" y="102">只用 token 前缀，自回归起草</text>
- <path class="input" d="M47 120 H223 A8 8 0 0 1 231 128 V164 A8 8 0 0 1 223 172 H47 A8 8 0 0 1 39 164 V128 A8 8 0 0 1 47 120 Z" />
+ <path class="input" d="M 47 120 H 223 A 8 8 0 0 1 231 128 V 164 A 8 8 0 0 1 223 172 H 47 A 8 8 0 0 1 39 164 V 128 A 8 8 0 0 1 47 120 Z " />
  <rect x="43" y="123.08" width="184" height="25.376" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <g class="mathtext" data-tex="前缀 token $x_1\ldots x_t$" data-x="135" data-y="141" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="前缀 token $x_1\ldots x_t$">
-  <g transform="translate(82.500 141.000)">
+  <g transform="translate(82.500 141)">
    <text font-size="0">
     <tspan x="0.000" y="-0.828" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">前</tspan>
     <tspan x="12.000" y="-0.828" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">缀</tspan>
@@ -37,23 +37,23 @@
     <tspan x="60.012" y="-0.828" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500"> </tspan>
     <tspan x="63.000" y="-0.578" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
     <tspan x="91.712" y="-0.578" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
-    <tspan x="71.286" y="1.600" style="font-family:'cmr10';font-size:10.164px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
+    <tspan x="71.286" y="1.6" style="font-family:'cmr10';font-size:10.164px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">1</tspan>
     <tspan x="77.197" y="-0.578" style="font-family:'STIXGeneral';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">…</tspan>
-    <tspan x="99.998" y="1.600" style="font-family:'cmmi10';font-size:10.164px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">t</tspan>
+    <tspan x="99.998" y="1.6" style="font-family:'cmmi10';font-size:10.164px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">t</tspan>
    </text>
   </g>
  </g>
  <text class="small" x="135" y="163" text-anchor="middle">目标模型的 token 输入</text>
- <path class="arrow" d="M135 174 V199" />
- <path class="module" d="M63 202 H207 A8 8 0 0 1 215 210 V242 A8 8 0 0 1 207 250 H63 A8 8 0 0 1 55 242 V210 A8 8 0 0 1 63 202 Z" />
- <text class="label" x="135" y="219" text-anchor="middle">独立 draft LM q</text>
- <text class="small" x="135" y="239" text-anchor="middle">单独训练的小模型</text>
- <path class="arrow" d="M135 252 V283" />
- <path class="token" d="M57 286 H77 A8 8 0 0 1 85 294 V316 A8 8 0 0 1 77 324 H57 A8 8 0 0 1 49 316 V294 A8 8 0 0 1 57 286 Z" />
- <path class="token" d="M129 286 H149 A8 8 0 0 1 157 294 V316 A8 8 0 0 1 149 324 H129 A8 8 0 0 1 121 316 V294 A8 8 0 0 1 129 286 Z" />
- <path class="token" d="M197 286 H217 A8 8 0 0 1 225 294 V316 A8 8 0 0 1 217 324 H197 A8 8 0 0 1 189 316 V294 A8 8 0 0 1 197 286 Z" />
- <g class="mathtext" data-tex="$\tilde x_1$" data-x="67" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_1$">
-  <g transform="translate(59.500 310.000)">
+ <path class="arrow" d="M 135 174 V 207" />
+ <path class="module" d="M 63 210 H 207 A 8 8 0 0 1 215 218 V 250 A 8 8 0 0 1 207 258 H 63 A 8 8 0 0 1 55 250 V 218 A 8 8 0 0 1 63 210 Z " />
+ <text class="label" x="135" y="227" text-anchor="middle">独立 draft LM q</text>
+ <text class="small" x="135" y="247" text-anchor="middle">单独训练的小模型</text>
+ <path class="arrow" d="M 135 260 V 291" />
+ <path class="token" d="M 57 294 H 77 A 8 8 0 0 1 85 302 V 324 A 8 8 0 0 1 77 332 H 57 A 8 8 0 0 1 49 324 V 302 A 8 8 0 0 1 57 294 Z " />
+ <path class="token" d="M 129 294 H 149 A 8 8 0 0 1 157 302 V 324 A 8 8 0 0 1 149 332 H 129 A 8 8 0 0 1 121 324 V 302 A 8 8 0 0 1 129 294 Z " />
+ <path class="token" d="M 197 294 H 217 A 8 8 0 0 1 225 302 V 324 A 8 8 0 0 1 217 332 H 197 A 8 8 0 0 1 189 324 V 302 A 8 8 0 0 1 197 294 Z " />
+ <g class="mathtext" data-tex="$\tilde x_1$" data-x="67" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_1$">
+  <g transform="translate(59.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -61,8 +61,8 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="$\tilde x_2$" data-x="139" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_2$">
-  <g transform="translate(131.500 310.000)">
+ <g class="mathtext" data-tex="$\tilde x_2$" data-x="139" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_2$">
+  <g transform="translate(131.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -70,8 +70,8 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="$\tilde x_3$" data-x="207" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_3$">
-  <g transform="translate(199.500 310.000)">
+ <g class="mathtext" data-tex="$\tilde x_3$" data-x="207" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_3$">
+  <g transform="translate(199.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -79,17 +79,17 @@
    </text>
   </g>
  </g>
- <path class="arrow" d="M87 305 H118" />
- <path class="arrow" d="M159 305 H186" />
- <text class="small" x="135" y="343" text-anchor="middle">前一草稿 token 喂给下一步</text>
+ <path class="arrow" d="M 87 313 H 118" />
+ <path class="arrow" d="M 158 313 H 187.5" />
+ <text class="small" x="135" y="351" text-anchor="middle">前一草稿 token 喂给下一步</text>
  <path class="card" d="M273 54 H487 A8 8 0 0 1 495 62 V368 A8 8 0 0 1 487 376 H273 A8 8 0 0 1 265 368 V62 A8 8 0 0 1 273 54 Z" />
  <rect x="269" y="60.6" width="222" height="29.72" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <text class="head" x="380" y="82" text-anchor="middle" style="font-weight:500" font-weight="500">Medusa</text>
  <text class="small" x="283" y="102">多个头从同一个最后层状态出发</text>
- <path class="input" d="M308 120 H452 A8 8 0 0 1 460 128 V164 A8 8 0 0 1 452 172 H308 A8 8 0 0 1 300 164 V128 A8 8 0 0 1 308 120 Z" />
+ <path class="input" d="M 308 120 H 452 A 8 8 0 0 1 460 128 V 164 A 8 8 0 0 1 452 172 H 308 A 8 8 0 0 1 300 164 V 128 A 8 8 0 0 1 308 120 Z " />
  <rect x="304" y="123.08" width="152" height="25.376" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <g class="mathtext" data-tex="目标模型最后层 $h_t$" data-x="380" data-y="141" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="目标模型最后层 $h_t$">
-  <g transform="translate(330.000 141.000)">
+  <g transform="translate(330.000 141)">
    <text font-size="0">
     <tspan x="0.000" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">目</tspan>
     <tspan x="12.000" y="-0.875" style="font-family:'NotoSansSC-Medium';font-size:12px;font-weight:500">标</tspan>
@@ -105,32 +105,32 @@
   </g>
  </g>
  <text class="small" x="380" y="163" text-anchor="middle">一次 target forward</text>
- <path class="arrow" d="M380 174 V187 H320 V199" />
- <path class="arrow" d="M380 174 V199" />
- <path class="arrow" d="M380 187 H440 V199" />
- <rect class="module" x="292" y="202" width="56" height="48" />
- <rect class="module" x="352" y="202" width="56" height="48" />
- <rect class="module" x="412" y="202" width="56" height="48" />
+ <path class="arrow" d="M 380 174 V 187 H 320 V 207" />
+ <path class="arrow" d="M 380 174 V 207" />
+ <path class="arrow" d="M 380 187 H 440 V 207" />
+ <rect class="module" x="292" y="210" width="56" height="48" />
+ <rect class="module" x="352" y="210" width="56" height="48" />
+ <rect class="module" x="412" y="210" width="56" height="48" />
  <text x="320" text-anchor="middle" fill="#263f56" font-family="'SvgMono','SvgSans', monospace" font-size="10" font-weight="500" style="font-size:10px;font-weight:500">
-  <tspan x="320" y="219.5">head +1</tspan>
-  <tspan x="320" y="239.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 1</tspan>
+  <tspan x="320" y="227.5">head +1</tspan>
+  <tspan x="320" y="247.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 1</tspan>
  </text>
  <text x="380" text-anchor="middle" fill="#263f56" font-family="'SvgMono','SvgSans', monospace" font-size="10" font-weight="500" style="font-size:10px;font-weight:500">
-  <tspan x="380" y="219.5">head +2</tspan>
-  <tspan x="380" y="239.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 2</tspan>
+  <tspan x="380" y="227.5">head +2</tspan>
+  <tspan x="380" y="247.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 2</tspan>
  </text>
  <text x="440" text-anchor="middle" fill="#263f56" font-family="'SvgMono','SvgSans', monospace" font-size="10" font-weight="500" style="font-size:10px;font-weight:500">
-  <tspan x="440" y="219.5">head +3</tspan>
-  <tspan x="440" y="239.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 3</tspan>
+  <tspan x="440" y="227.5">head +3</tspan>
+  <tspan x="440" y="247.5" font-size="9" font-weight="400" font-family="'SvgSans', sans-serif" style="font-size:9px;font-weight:400">预测位置 3</tspan>
  </text>
- <path class="arrow" d="M320 252 V283" />
- <path class="arrow" d="M380 252 V283" />
- <path class="arrow" d="M440 252 V283" />
- <path class="token" d="M299 286 H341 A8 8 0 0 1 349 294 V316 A8 8 0 0 1 341 324 H299 A8 8 0 0 1 291 316 V294 A8 8 0 0 1 299 286 Z" />
- <path class="token" d="M359 286 H401 A8 8 0 0 1 409 294 V316 A8 8 0 0 1 401 324 H359 A8 8 0 0 1 351 316 V294 A8 8 0 0 1 359 286 Z" />
- <path class="token" d="M419 286 H461 A8 8 0 0 1 469 294 V316 A8 8 0 0 1 461 324 H419 A8 8 0 0 1 411 316 V294 A8 8 0 0 1 419 286 Z" />
- <g class="mathtext" data-tex="$\tilde x_1$" data-x="320" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_1$">
-  <g transform="translate(312.500 310.000)">
+ <path class="arrow" d="M 320 260 V 291" />
+ <path class="arrow" d="M 380 260 V 291" />
+ <path class="arrow" d="M 440 260 V 291" />
+ <path class="token" d="M 299 294 H 341 A 8 8 0 0 1 349 302 V 324 A 8 8 0 0 1 341 332 H 299 A 8 8 0 0 1 291 324 V 302 A 8 8 0 0 1 299 294 Z " />
+ <path class="token" d="M 359 294 H 401 A 8 8 0 0 1 409 302 V 324 A 8 8 0 0 1 401 332 H 359 A 8 8 0 0 1 351 324 V 302 A 8 8 0 0 1 359 294 Z " />
+ <path class="token" d="M 419 294 H 461 A 8 8 0 0 1 469 302 V 324 A 8 8 0 0 1 461 332 H 419 A 8 8 0 0 1 411 324 V 302 A 8 8 0 0 1 419 294 Z " />
+ <g class="mathtext" data-tex="$\tilde x_1$" data-x="320" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_1$">
+  <g transform="translate(312.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -138,8 +138,8 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="$\tilde x_2$" data-x="380" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_2$">
-  <g transform="translate(372.500 310.000)">
+ <g class="mathtext" data-tex="$\tilde x_2$" data-x="380" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_2$">
+  <g transform="translate(372.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -147,8 +147,8 @@
    </text>
   </g>
  </g>
- <g class="mathtext" data-tex="$\tilde x_3$" data-x="440" data-y="310" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_3$">
-  <g transform="translate(432.500 310.000)">
+ <g class="mathtext" data-tex="$\tilde x_3$" data-x="440" data-y="318" data-size="12" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="$\tilde x_3$">
+  <g transform="translate(432.500 318)">
    <text font-size="0">
     <tspan x="0.594" y="-0.297" style="font-family:'cmr10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">~</tspan>
     <tspan x="0.000" y="-0.357" style="font-family:'cmmi10';font-size:14.52px;stroke:#263f56;stroke-width:0.308px;paint-order:stroke fill">x</tspan>
@@ -156,15 +156,15 @@
    </text>
   </g>
  </g>
- <text class="small" x="380" y="343" text-anchor="middle">各头独立，不读前一草稿 token</text>
+ <text class="small" x="380" y="351" text-anchor="middle">各头独立，不读前一草稿 token</text>
  <path class="card" d="M518 54 H732 A8 8 0 0 1 740 62 V368 A8 8 0 0 1 732 376 H518 A8 8 0 0 1 510 368 V62 A8 8 0 0 1 518 54 Z" />
  <rect x="514" y="60.6" width="222" height="29.72" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <text class="head" x="625" y="82" text-anchor="middle" style="font-weight:500" font-weight="500">EAGLE</text>
  <text class="small" x="528" y="102">在目标特征空间自回归起草</text>
- <path class="input" d="M536 120 H714 A8 8 0 0 1 722 128 V164 A8 8 0 0 1 714 172 H536 A8 8 0 0 1 528 164 V128 A8 8 0 0 1 536 120 Z" />
+ <path class="input" d="M 536 120 H 714 A 8 8 0 0 1 722 128 V 164 A 8 8 0 0 1 714 172 H 536 A 8 8 0 0 1 528 164 V 128 A 8 8 0 0 1 536 120 Z " />
  <rect x="532" y="123.08" width="186" height="25.376" rx="3" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="0.7" />
  <g class="mathtext" data-tex="目标特征 $f_t$ + token embedding" data-x="625" data-y="141" data-size="11" data-anchor="middle" data-fill="#263f56" fill="#263f56" data-family="system-ui,sans-serif" data-weight="500" aria-label="目标特征 $f_t$ + token embedding">
-  <g transform="translate(543.500 141.000)">
+  <g transform="translate(543.500 141)">
    <text font-size="0">
     <tspan x="0.000" y="-0.703" style="font-family:'NotoSansSC-Medium';font-size:11px;font-weight:500">目</tspan>
     <tspan x="11.000" y="-0.703" style="font-family:'NotoSansSC-Medium';font-size:11px;font-weight:500">标</tspan>
@@ -195,14 +195,14 @@
   </g>
  </g>
  <text class="small" x="625" y="163" text-anchor="middle">每步带上前一个草稿 token</text>
- <path class="arrow" d="M625 174 V199" />
- <path class="module" d="M553 202 H697 A8 8 0 0 1 705 210 V242 A8 8 0 0 1 697 250 H553 A8 8 0 0 1 545 242 V210 A8 8 0 0 1 553 202 Z" />
- <text class="label" x="625" y="219" text-anchor="middle">EAGLE decoder</text>
- <text class="small" x="625" y="239" text-anchor="middle">预测下一个特征</text>
- <path class="arrow" d="M625 252 V283" />
- <path class="token" d="M576 286 H674 A8 8 0 0 1 682 294 V316 A8 8 0 0 1 674 324 H576 A8 8 0 0 1 568 316 V294 A8 8 0 0 1 576 286 Z" />
- <text class="label" x="625" y="300" text-anchor="middle" font-family="'SvgMono','SvgSans', monospace">共享 lm_head</text>
- <text class="small" x="625" y="319" text-anchor="middle" style="font-size:10px">得到草稿 token</text>
- <path class="feedback" d="M682 305 H712 V331 H625 V326" />
- <text class="small" x="625" y="350" text-anchor="middle">预测特征与 token 反馈到下一步</text>
+ <path class="arrow" d="M 625 174 V 207" />
+ <path class="module" d="M 553 210 H 697 A 8 8 0 0 1 705 218 V 250 A 8 8 0 0 1 697 258 H 553 A 8 8 0 0 1 545 250 V 218 A 8 8 0 0 1 553 210 Z " />
+ <text class="label" x="625" y="227" text-anchor="middle">EAGLE decoder</text>
+ <text class="small" x="625" y="247" text-anchor="middle">预测下一个特征</text>
+ <path class="arrow" d="M 625 260 V 291" />
+ <path class="token" d="M 576 294 H 674 A 8 8 0 0 1 682 302 V 324 A 8 8 0 0 1 674 332 H 576 A 8 8 0 0 1 568 324 V 302 A 8 8 0 0 1 576 294 Z " />
+ <text class="label" x="625" y="308" text-anchor="middle" font-family="'SvgMono','SvgSans', monospace">共享 lm_head</text>
+ <text class="small" x="625" y="327" text-anchor="middle" style="font-size:10px">得到草稿 token</text>
+ <path class="feedback" d="M 682 313 H 712 V 339 H 625 V 334" />
+ <text class="small" x="625" y="358" text-anchor="middle">预测特征与 token 反馈到下一步</text>
 </svg>
