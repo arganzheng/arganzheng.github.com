@@ -209,26 +209,15 @@ flowchart TB
 
 <!-- v -->
 
-### vLLM #47272：几乎整条时间轴都在等 review
+### PR 阶段的时间去了哪里
 
-```mermaid
-%%{init: {"gantt": {"useWidth": 1200, "fontSize": 22, "sectionFontSize": 22, "barHeight": 34, "barGap": 8, "leftPadding": 130}}}%%
-gantt
-    todayMarker off
-    dateFormat YYYY-MM-DD HH:mm
-    axisFormat %m-%d
-    tickInterval 1week
-    section 作者
-    开 PR                 :a1, 2026-07-01 08:51, 2026-07-01 10:08
-    rebase                :a2, 2026-07-21 10:04, 2026-07-21 11:00
-    补 auto-fit           :a3, 2026-08-18 04:18, 2026-08-18 05:15
-    修 3 个测试           :a4, 2026-08-19 23:46, 2026-08-20 01:11
-    section 等 review
-    47 天无人 review      :crit, w1, 2026-07-01 10:08, 2026-08-17 21:34
-    等下一步              :crit, w2, 2026-08-18 05:15, 2026-08-19 21:55
-    section CI
-    两个 Buildkite build  :c1, 2026-08-19 22:45, 2026-08-20 02:49
-```
+| 归类 | PyTorch #185344 | vLLM #47272 |
+|---|---:|---:|
+| 等 review | ≈ 1 天 6 小时 | **≈ 49 天**（一段 47 天） |
+| 往返 | ≈ 1.5 小时 | ≈ 8 小时 |
+| CI 处理 | ≈ 20 分钟 | ≈ 4 小时 |
+| 作者工作 | **≈ 4 天**（补 fp64 验证） | < 1 天 |
+| PR 历时 | 5 天 6 小时 | 49 天 18 小时 |
 
 <aside class="notes" markdown="1">
 PR 阶段 49 天 18 小时：等 review 约 49 天、往返约 8 小时、CI 约 4 小时、作者工作不到 1 天。PyTorch #185344 正好相反：5 天里最长的一段是作者在 CUDA 13.2 上补做的 fp64 验证（3 天 22 小时）。原文 /two-real-prs-pytorch-and-vllm.html 第六章。
