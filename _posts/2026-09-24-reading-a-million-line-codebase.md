@@ -108,18 +108,18 @@ Table: 本文的章节安排
 
 ### 1. PyTorch 的目录
 
-在 v2.14.0 检出上统计（`git ls-files` 与 `rg --files | wc -l`，行数为 `git ls-files <dir> | xargs cat | wc -l` 的粗略值，含数据文件，不含 `third_party/` 子模块）：仓库根目录 52 个条目，`git ls-files` 列出 21663 个文件、约 475 万行。八个与贡献者直接相关的目录：
+在 v2.14.0 检出上统计（`git ls-files` 与 `rg --files | wc -l`，行数为 `git ls-files <dir> | xargs cat | wc -l` 的粗略值，含数据文件，不含 `third_party/` 子模块）：仓库根目录 52 个条目，`git ls-files` 列出 21588 个文件、约 475 万行。八个与贡献者直接相关的目录：
 
 | 目录 | 文件数 | 行数（约） | 一句话职责 |
 |---|---|---|---|
 | `c10/` | 433 | 8.9 万 | 最底层的核心库：`Device`、`ScalarType`、`TensorImpl`、`DispatchKey`、分配器；server 与 mobile 都用 |
-| `aten/` | 2718 | 80.7 万 | C++ 张量库（无 autograd）。`aten/src/ATen/native/` 是算子实现<br/>`aten/src/ATen/native/native_functions.yaml` 是全部算子的登记表<br/>`cpu/`、`cuda/`、`mps/` 等子目录是各后端 kernel |
-| `torch/csrc/` | 1924 | 49.6 万 | PyTorch 库的 C++ 部分：Python 绑定（文件名惯例以 `python_` 开头）、`autograd/`、`jit/`、`distributed/`、`inductor/` 的 C++ 侧 |
-| `torch/` | 4607 | — | Python 包本体（除 `csrc/` 外）：`nn/`、`optim/`、`distributed/`、`_dynamo/`、`_inductor/`、`testing/` 等；`.py` 文件约 126.6 万行 |
+| `aten/` | 2730 | 80.7 万 | C++ 张量库（无 autograd）。`aten/src/ATen/native/` 是算子实现<br/>`aten/src/ATen/native/native_functions.yaml` 是全部算子的登记表<br/>`cpu/`、`cuda/`、`mps/` 等子目录是各后端 kernel |
+| `torch/csrc/` | 1926 | 49.6 万 | PyTorch 库的 C++ 部分：Python 绑定（文件名惯例以 `python_` 开头）、`autograd/`、`jit/`、`distributed/`、`inductor/` 的 C++ 侧 |
+| `torch/` | 4609 | — | Python 包本体（除 `csrc/` 外）：`nn/`、`optim/`、`distributed/`、`_dynamo/`、`_inductor/`、`testing/` 等；`.py` 文件约 126.6 万行 |
 | `torchgen/` | 94 | 2.7 万 | 代码生成器：读 `native_functions.yaml`，生成 C++ 与 Python 绑定；`gen.py` 是入口，`model.py` 的 `NativeFunction` 是 yaml 一条记录的内存表示 |
-| `test/` | 11357 | 146 万 | Python 单元测试，176 个 `test_*.py` 加 46 个子目录（`distributed/`、`inductor/`、`dynamo/`、`cpp/` 等） |
+| `test/` | 11359 | 146 万 | Python 单元测试，176 个 `test_*.py` 加 46 个子目录（`distributed/`、`inductor/`、`dynamo/`、`cpp/` 等） |
 | `tools/` | 388 | — | 构建与开发脚本：`nightly.py`、`autograd/`（Python 绑定的模板与生成器）、`pyi/gen_pyi.py`、`testing/` |
-| `benchmarks/` | 549 | — | 按子系统组织的 benchmark：`operator_benchmark/`、`dynamo/`、`inductor_backends/`、`distributed/`、`transformer/` 等 |
+| `benchmarks/` | 550 | — | 按子系统组织的 benchmark：`operator_benchmark/`、`dynamo/`、`inductor_backends/`、`distributed/`、`transformer/` 等 |
 
 Table: PyTorch v2.14.0 的目录地图
 
@@ -127,17 +127,17 @@ Table: PyTorch v2.14.0 的目录地图
 
 ### 2. vLLM 的目录
 
-在 v0.28.0 检出上统计：仓库根目录 31 个条目，`git ls-files` 列出 6596 个文件、约 202 万行（`.py` 文件约 131 万行：`vllm/` 下 83 万、`tests/` 下 48 万；其余是 CUDA/C++、JSON 配置、文档与数据）。
+在 v0.28.0 检出上统计：仓库根目录 31 个条目，`git ls-files` 列出 6596 个文件、约 202 万行（`.py` 文件约 142 万行：`vllm/` 下 85 万、`tests/` 下 49 万；其余是 CUDA/C++、JSON 配置、文档与数据）。
 
 | 目录 | 文件数 | 行数（约） | 一句话职责 |
 |---|---|---|---|
-| `vllm/` | 2841 | 99.8 万 | Python 包本体，58 个顶层条目：`config/`、`engine/`、`v1/`、`model_executor/`、`entrypoints/`、`distributed/`、`compilation/`、`lora/`、`multimodal/`、`platforms/`、`_custom_ops.py` 等 |
+| `vllm/` | 2842 | 99.8 万 | Python 包本体，58 个顶层条目：`config/`、`engine/`、`v1/`、`model_executor/`、`entrypoints/`、`distributed/`、`compilation/`、`lora/`、`multimodal/`、`platforms/`、`_custom_ops.py` 等 |
 | `vllm/v1/` | 350 | 14.7 万 | 引擎核心：`engine/`（`AsyncLLM`、`EngineCore`、`EngineCoreClient`）、`core/`（KV cache 管理与 `sched/` 调度器）、`worker/`、`executor/`、`attention/`、`sample/`、`spec_decode/`、`metrics/` |
 | `vllm/model_executor/` | 1337 | 42.1 万 | 模型与层：`models/`（293 个条目，每个模型一个文件）、`layers/`（`linear.py`、`layernorm.py`、`fused_moe/`、`quantization/`、`rotary_embedding/`）、`model_loader/`；其中 570 个 `.json` 是 fused <span class="inline-tip" data-tip="mixture of experts，每个 token 只走部分专家网络">MoE</span> 的 kernel 调优配置，占约 8.2 万行 |
 | `vllm/entrypoints/` | 197 | 4.0 万 | 用户入口：`cli/`（`vllm` 命令的子命令）、`openai/`（OpenAI 兼容 HTTP 服务，`api_server.py`）、`llm.py`（离线 `LLM` 类）、`anthropic/`、`grpc_server.py` |
-| `csrc/` | 302 | 12.4 万 | CUDA/C++ kernel：`attention/`、`moe/`、`quantization/`、`cpu/`、`rocm/`、`cutlass_extensions/`；`libtorch_stable/` 下是以 libtorch 稳定 ABI 注册的 kernel 与 `torch_bindings.cpp` |
-| `tests/` | 1926 | 50.1 万 | pytest 测试，40 个子目录按子系统组织：`kernels/`、`v1/`、`entrypoints/`、`models/`、`distributed/`、`quantization/`、`lora/`、`evals/`、`benchmarks/` |
-| `benchmarks/` | 129 | — | `benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 等端到端脚本；`kernels/`、`cutlass_benchmarks/`、`fused_kernels/`、`attention_benchmarks/` 是 kernel 级 |
+| `csrc/` | 304 | 12.4 万 | CUDA/C++ kernel：`attention/`、`moe/`、`quantization/`、`cpu/`、`rocm/`、`cutlass_extensions/`；`libtorch_stable/` 下是以 libtorch 稳定 ABI 注册的 kernel 与 `torch_bindings.cpp` |
+| `tests/` | 1927 | 50.1 万 | pytest 测试，40 个子目录按子系统组织：`kernels/`、`v1/`、`entrypoints/`、`models/`、`distributed/`、`quantization/`、`lora/`、`evals/`、`benchmarks/` |
+| `benchmarks/` | 131 | — | `benchmark_serving.py`、`benchmark_throughput.py`、`benchmark_latency.py` 等端到端脚本；`kernels/`、`cutlass_benchmarks/`、`fused_kernels/`、`attention_benchmarks/` 是 kernel 级 |
 | `docs/contributing/` | 16 | — | 贡献文档：`README.md`、`incremental_build.md`、`deprecation_policy.md`、`profiling.md`、`vulnerability_management.md`、`editing-agent-instructions.md`；子目录 `ci/`（`failures.md`、`nightly_builds.md`、`update_pytorch_version.md`）、`model/`（`basic.md`、`registration.md`、`tests.md`、`multimodal.md`、`transcription.md`）、`dockerfile/` |
 
 Table: vLLM v0.28.0 的目录地图
@@ -192,13 +192,12 @@ rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
 **第三步：找 `dispatch:` 指向的 C++ 函数。**
 
 ```bash title="第三步：找 dispatch 指向的 C++ 函数"
-rg -n 'logaddexp' aten/src/ATen/native/BinaryOps.cpp aten/src/ATen/native/BinaryOps.h
+rg -n 'logaddexp[^2]' aten/src/ATen/native/BinaryOps.cpp aten/src/ATen/native/BinaryOps.h
 ```
 
 输出：
 
 ```text title="BinaryOps.cpp 里的 logaddexp"
-aten/src/ATen/native/BinaryOps.cpp:75:#include <ATen/ops/logaddexp2_native.h>
 aten/src/ATen/native/BinaryOps.cpp:76:#include <ATen/ops/logaddexp_native.h>
 aten/src/ATen/native/BinaryOps.cpp:324:CREATE_BINARY_META_FUNC(logaddexp)
 aten/src/ATen/native/BinaryOps.cpp:407:DEFINE_DISPATCH(logaddexp_stub);
@@ -299,7 +298,7 @@ flowchart TB
     H --> I["<b>vllm/v1/core/sched/</b><br/>调度器"]
 ```
 
-从命令到调度器六跳，全在 Python 里，`rg` 加"跳转到定义"就能走完。vLLM 的语言边界在更下面：当追到 `vllm/model_executor/layers/layernorm.py` 里调用 `ops.rms_norm(...)`（`from vllm import _custom_ops as ops`）时，`vllm/_custom_ops.py` 的 `rms_norm()` 只有一行 `torch.ops._C.rms_norm(out, input, weight, epsilon)`，这里 Python 侧到头了——`torch.ops._C` 是编译好的扩展模块注册进来的算子，下一章说怎么追。
+从命令到调度器六跳，全在 Python 里，`rg` 加"跳转到定义"就能走完。vLLM 的语言边界在更下面：当追到 `vllm/model_executor/layers/layernorm.py` 里 `RMSNorm.forward_native()` 调用的 `ir.ops.rms_norm(...)`（`from vllm import ir`）时，它在 `vllm/kernels/vllm_c.py` 里用 `@ir.ops.rms_norm.register_impl("vllm_c", ...)` 注册的实现 `rms_norm()` 调的是 `torch.ops._C.rms_norm(output, x, weight, epsilon)`（`vllm/_custom_ops.py` 的 `rms_norm()` 也只有一行 `torch.ops._C.rms_norm(out, input, weight, epsilon)`），这里 Python 侧到头了——`torch.ops._C` 是编译好的扩展模块注册进来的算子，下一章说怎么追。
 
 ### 3. 两条追踪的共同点
 
@@ -348,7 +347,7 @@ rg -n 'rms_norm\(' csrc/libtorch_stable/torch_bindings.cpp
 rg -ln 'void rms_norm\(' csrc
 ```
 
-第一条命中 `csrc/libtorch_stable/torch_bindings.cpp` 里 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 块中的 `ops.def("rms_norm(Tensor! result, Tensor input, Tensor? weight, float epsilon) ...")`，同文件末尾 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 块把它绑到 C++ 函数；第二条命中 `csrc/libtorch_stable/layernorm_kernels.cu`（CUDA 实现）与 `csrc/cpu/layernorm.cpp`（CPU 实现）。声明在 `csrc/libtorch_stable/ops.h`。
+第一条命中 `csrc/libtorch_stable/torch_bindings.cpp` 里 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 块中的 `ops.def("rms_norm(Tensor! result, Tensor input, Tensor? weight, float epsilon) ...")`，同文件后面的 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 块把它绑到 C++ 函数；第二条命中 `csrc/libtorch_stable/layernorm_kernels.cu`（CUDA 实现）与 `csrc/cpu/layernorm.cpp`（CPU 实现）。声明在 `csrc/libtorch_stable/ops.h`。
 
 扩展模块的名字在 `vllm/platforms/cuda.py` 里：`import vllm._C_stable_libtorch  # noqa`，注释写着 "import custom ops, trigger op registration"；`CudaPlatform.import_kernels()` 还会尝试导入 `vllm._moe_C_stable_libtorch` 等。这些 `.so` 由 `CMakeLists.txt` 定义（v0.28.0 的注释说明 CUDA 算子已从旧的 `_C` 迁到 `_C_stable_libtorch`，`_C` 仅 ROCm 保留），`*.so` 在 `.gitignore` 里。
 
@@ -358,7 +357,7 @@ vLLM 版的一行链：
 %%{init: {"flowchart": {"wrappingWidth": 520}}}%%
 %% 图：vLLM 版的一行链：_custom_ops 到 .cu
 flowchart TB
-    A["<b>vllm/model_executor/layers/&lt;layer&gt;.py</b>"] --> B["<b>vllm/_custom_ops.py</b><br/>def &lt;name&gt;()：torch.ops._C.&lt;name&gt;(...)"]
+    A["<b>vllm/model_executor/layers/&lt;layer&gt;.py</b>"] --> B["<b>vllm/_custom_ops.py</b>（或 vllm/kernels/vllm_c.py 的 IR 实现）<br/>def &lt;name&gt;()：torch.ops._C.&lt;name&gt;(...)"]
     B -->|CUDA| C["<b>csrc/libtorch_stable/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(...)"]
     B -->|CPU| D["<b>csrc/cpu/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(..., torch::kCPU, ...)"]
     C --> E["<b>csrc/libtorch_stable/&lt;kernel&gt;.cu</b>"]
@@ -617,7 +616,7 @@ PyTorch 的 commit message 是由合入机器人生成的，格式固定，四�
 `git blame` 的一个例子——看 CPU kernel `logaddexp_kernel` 的前三行是谁写的：
 
 ```bash title="git blame logaddexp_kernel 的前三行"
-git blame -w -C -L 1062,1064 --date=short aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
+git blame -w -C -L '/^void logaddexp_kernel/,+2' --date=short aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
 ```
 
 ```text title="blame 输出：三行的作者与日期"
@@ -694,7 +693,7 @@ Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 
 表格上方注明 "All future dates below are tentative" 与 "Patch Releases are optional"。从表里读出的节奏：branch cut 到发布约三到四周，相邻 minor 版本相隔约两个月。"General Overview" 一节列出发布的步骤（cut release branch → drafting RCs 与 cherry-pick → final RC → promote to stable）；"Frequently Asked Questions" 解释 branch cut 之后 "new features *are not* added to the release branch"，cherry-pick 需要在 release tracker issue 里提名，可以用 `@pytorchbot cherry-pick -c [reason]` 自动化；"Cherry Picking Fixes" 一节强调 "The cherry pick process is not an invitation to add new features, it is mainly there to fix regressions"，`-c` 的取值是 `regression`、`critical`、`fixnewfeature`、`docs`、`release` 五种。
 
-对贡献者的含义：一个在 8 月 10 日之后合入 main 的 feature，不会进 2.14，要等 10 月 28 日的 2.15；如果它是 regression fix，可以走 cherry-pick 进 2.14 的 patch 版本。
+对贡献者的含义：一个在 8 月 10 日之后合入 main 的 feature，不会进 2.14，要等 10 月 28 日的 2.15；如果它是 regression fix，可以走 cherry-pick：2.14.0 发布（9 月 2 日）之前进它的 RC，发布之后进 patch 版本。
 
 **vLLM** `RELEASE.md` 的 "Release Cadence and Versioning" 一节原文："We aim to have a regular release every 2 weeks. Since v0.12.0, regular releases increment the minor version rather than patch version." 三种版本的定义：
 
@@ -704,7 +703,7 @@ Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 
 "Release Branch" 一节：major/minor 的 release branch cut 在发布前 1–2 天；构建由推 `vX.Y.Z-rc1` 这样的 RC tag 触发，最终 tag `vX.Y.Z` 不触发构建；"Cherry-Pick Criteria" 允许 regression fix、critical fix、对最近一版新功能的修复、文档、release 分支特定改动，并加粗 "No feature work allowed for cherry picks"。
 
-对贡献者的含义：vLLM 合入 main 的改动最多等两周就在下一个 minor 版本里；branch cut 到发布只有一两天，几乎没有 cherry-pick 的窗口——想进某个版本，就在那个版本 cut 之前合入。
+按文档，vLLM 合入 main 的改动最多等两周就在下一个 minor 版本里，branch cut 到发布只有一两天。实际的 v0.28.0 不是这样：`releases/v0.28.0` 分支以 08-17 合入 main 的 #52570 为基点，08-20 到 08-24 又收了 13 个 commit（多数带 `(cherry picked from commit …)`），08-26 发布——基点比发布早 9 天，cherry-pick 窗口约一周。所以对贡献者的含义是：想进某个版本，要在那个版本的分支基点之前合入，而基点只能事后从 tag 查（`git merge-base vX.Y.Z origin/main`），不能从文档推算；第四篇的 #47272 就是 08-20 合入 main、却不在 08-26 发布的 v0.28.0 里。
 
 把两份 `RELEASE.md` 合成一张判断：一个改动合入 main 之后，进哪一版取决于两件事——合入时目标版本的 release branch 切了没有，以及它够不够 cherry-pick 的准则。
 
@@ -712,9 +711,9 @@ Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 %% 图：合入 main 的改动进入哪个版本：branch cut 与 cherry-pick 的分叉
 flowchart TB
     M["改动合入 main"] --> Q1{"合入时，目标版本的<br/>release branch 切了吗？"}
-    Q1 -->|"还没切"| N["<b>进入这一版</b><br/>PyTorch：cut 后经 RC → final RC，约 3–4 周发布<br/>vLLM：cut 后 1–2 天发布"]
+    Q1 -->|"还没切"| N["<b>进入这一版</b><br/>PyTorch：cut 后经 RC → final RC，约 3–4 周发布<br/>vLLM：文档写 cut 后 1–2 天发布，<br/>v0.28.0 实际分支基点早于发布 9 天"]
     Q1 -->|"已经切了"| Q2{"符合 cherry-pick 准则吗？<br/>regression / critical fix 等，新功能一律不收"}
-    Q2 -->|"符合"| CP["<b>cherry-pick 进 release 分支</b><br/>PyTorch：在 release tracker issue 提名，<br/>@pytorchbot cherry-pick -c &lt;类别&gt;，进 RC 或 patch 版<br/>vLLM：cut 到发布只有 1–2 天，窗口极短"]
+    Q2 -->|"符合"| CP["<b>cherry-pick 进 release 分支</b><br/>PyTorch：在 release tracker issue 提名，<br/>@pytorchbot cherry-pick -c &lt;类别&gt;，进 RC 或 patch 版<br/>vLLM：按 Cherry-Pick Criteria 收；<br/>v0.28.0 在发布前一周收了 13 个 commit"]
     Q2 -->|"不符合（新功能）"| NX["<b>等下一版</b><br/>PyTorch：约 2 个月后（8 月 10 日后合入的 feature 等 10 月 28 日的 2.15）<br/>vLLM：约 2 周后"]
 ```
 
@@ -723,9 +722,9 @@ flowchart TB
 | 环节 | PyTorch | vLLM |
 |---|---|---|
 | 常规版本间隔 | 约 2 个月（`RELEASE.md` 日程表） | 约 2 周（"every 2 weeks"） |
-| branch cut → 发布 | 约 3–4 周 | 1–2 天 |
+| branch cut → 发布 | 约 3–4 周 | 文档写 1–2 天；v0.28.0 的分支基点比发布早 9 天 |
 | 版本号递增 | minor（2.13 → 2.14） | minor（0.27 → 0.28，自 v0.12.0 起） |
-| cherry-pick | 有明确流程与 tracker issue，`@pytorchbot cherry-pick` | 有准则；窗口极短 |
+| cherry-pick | 有明确流程与 tracker issue，`@pytorchbot cherry-pick` | 有准则（Cherry-Pick Criteria）；v0.28.0 收了 13 个 commit |
 | patch 版本 | optional，日程表列出 | new models 与紧急修复 |
 
 Table: 两个项目的发布节奏
@@ -765,7 +764,7 @@ Table: 两小时定位一个报错的流程清单
 
 引言里的 PyTorch 案例：报错信息是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"。符号 `logaddexp`，层次判断是算子 → `aten/`；yaml 条目 → `dispatch: CPU, CUDA, MPS, XPU: logaddexp_out` → `BinaryOps.cpp` 的宏 → `rg -l logaddexp aten/src/ATen/native/cuda` → `LogAddExpKernel.cu`。测试在 `test/test_binary_ufuncs.py` 的 `_test_logaddexp`，OpInfo 在 `common_methods_invocations.py`。历史：`git log -- aten/src/ATen/native/cuda/LogAddExpKernel.cu` 显示 2025-11-17 的 #163509 已经修了这个问题（`Fixes #158429`）。**结论：这个 issue 已经被修，在 v2.11.0 里。**四十分钟内得到"不用做"的结论，这本身就是流程的价值——它避免了引言那位工程师白做一周。
 
-vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API server 进程已退出"会发生什么。符号 `api_server_count`、`launch_core_engines`；`rg -n 'launch_core_engines' vllm/` 命中 `vllm/v1/engine/utils.py` 与 `vllm/entrypoints/cli/serve.py`；`git log -- vllm/entrypoints/cli/serve.py` 第二条是 2026-08-06 的 #43417 "Watch frontend processes during engine startup"，`gh pr view 43417` 的 Purpose 精确描述了这个场景，测试在 `tests/v1/engine/test_startup_watch_processes.py`。**结论：v0.28.0 已包含这个行为，测试文件就是它的规格。**
+vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API server 进程已退出"会发生什么。符号 `api_server_count`、`launch_core_engines`；`rg -n 'launch_core_engines' vllm/` 命中 `vllm/v1/engine/utils.py`、`vllm/v1/engine/core_client.py` 与 `vllm/entrypoints/cli/serve.py`；`git log -- vllm/entrypoints/cli/serve.py` 第二条是 2026-08-06 的 #43417 "Watch frontend processes during engine startup"，`gh pr view 43417` 的 Purpose 精确描述了这个场景，测试在 `tests/v1/engine/test_startup_watch_processes.py`。**结论：v0.28.0 已包含这个行为，测试文件就是它的规格。**
 
 ## 九、贡献日志：项目地图
 
@@ -916,12 +915,12 @@ Table: 定位 vLLM 入口与实现的命令
 
 [追过的符号路径]
 1. vllm serve → pyproject.toml [project.scripts] → vllm/entrypoints/cli/main.py main() → vllm/entrypoints/cli/serve.py ServeSubcommand.cmd() → vllm/entrypoints/openai/api_server.py run_server() / build_async_engine_client_from_engine_args() → vllm/v1/engine/async_llm.py AsyncLLM.from_vllm_config → vllm/v1/engine/core_client.py EngineCoreClient.make_async_mp_client → vllm/v1/engine/core.py EngineCoreProc（2026-09-12）
-2. RMSNorm.forward → vllm/model_executor/layers/layernorm.py ops.rms_norm → vllm/_custom_ops.py rms_norm(): torch.ops._C.rms_norm → csrc/libtorch_stable/torch_bindings.cpp STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops) ops.def("rms_norm(...)") → csrc/libtorch_stable/layernorm_kernels.cu rms_norm；CPU 在 csrc/cpu/layernorm.cpp（2026-09-12）
+2. RMSNorm.forward_native → vllm/model_executor/layers/layernorm.py ir.ops.rms_norm → vllm/kernels/vllm_c.py rms_norm()（register_impl("vllm_c")）: torch.ops._C.rms_norm → csrc/libtorch_stable/torch_bindings.cpp STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops) ops.def("rms_norm(...)") → csrc/libtorch_stable/layernorm_kernels.cu rms_norm；CPU 在 csrc/cpu/layernorm.cpp（2026-09-12）
 3. torch.ops._C 从哪来 → vllm/platforms/cuda.py import vllm._C_stable_libtorch（"trigger op registration"）→ CMakeLists.txt 的 _C_stable_libtorch 目标 → *.so 在 .gitignore（2026-09-12）
 
 [历史]
 - serve.py 最近的实质改动：7b9f2dad89 2026-08-06 #43417 "[Frontend] Watch frontend processes during engine startup"，commit 只有 trailer，Purpose 在 gh pr view；进入 v0.28.0
-- RELEASE.md："regular release every 2 weeks"；branch cut 在发布前 1–2 天
+- RELEASE.md："regular release every 2 weeks"；文档写 branch cut 在发布前 1–2 天，v0.28.0 的分支基点（08-17）比发布（08-26）早 9 天
 ```
 
 两份样例里所有路径与命令都是本文前面各章核对过的。读者填自己的那份时，第一条符号路径应该是自己遇到的那个问题——不必是本文的例子。
@@ -943,7 +942,7 @@ Table: 定位 vLLM 入口与实现的命令
 
 | 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
 |---|---|---|
-| 规模（检出统计） | `git ls-files` 21663 个文件、约 475 万行（不含 `third_party/`）；`test/` 146 万行 | `git ls-files` 6596 个文件、约 202 万行；`.py` 约 131 万行 |
+| 规模（检出统计） | `git ls-files` 21588 个文件、约 475 万行（不含 `third_party/`）；`test/` 146 万行 | `git ls-files` 6596 个文件、约 202 万行；`.py` 约 142 万行 |
 | 分层 | `c10/` → `aten/` → `torch/csrc/` → `torch/` | `csrc/` → `vllm/` |
 | 自带地图 | `CONTRIBUTING.md` "Codebase structure"<br/>子目录 README<br/>`persons_of_interest.md` | `docs/contributing/`（流程）<br/>`docs/contributing/model/`<br/>无目录表 |
 | 算子/命令登记表 | `native_functions.yaml`；`tools/autograd/` 模板 | `pyproject.toml` `[project.scripts]`；`csrc/libtorch_stable/torch_bindings.cpp` |
@@ -953,7 +952,7 @@ Table: 定位 vLLM 入口与实现的命令
 | 测试框架 | unittest；`TestCase`/`run_tests`/`instantiate_device_type_tests`/OpInfo | pytest；`conftest.py` fixture |
 | 测试目录 | `test/test_*.py` 按主题 + 46 个子目录 | `tests/` 40 个子目录对应 `vllm/` 子系统 |
 | commit 形态 | 正文 = PR 描述 + `Fixes #` + `Pull Request resolved:` + `Approved by:` | 标题 `[Tag] ... (#N)`；正文 `Signed-off-by`、`Co-authored-by` |
-| 发布节奏 | 约 2 个月一个 minor<br/>cut → 发布 3–4 周<br/>`@pytorchbot cherry-pick` | 约 2 周一版<br/>cut → 发布 1–2 天<br/>minor 递增 |
+| 发布节奏 | 约 2 个月一个 minor<br/>cut → 发布 3–4 周<br/>`@pytorchbot cherry-pick` | 约 2 周一版<br/>文档写 cut → 发布 1–2 天（v0.28.0 实测基点早 9 天）<br/>minor 递增 |
 
 Table: 读代码各环节的 PyTorch 与 vLLM 对照
 
@@ -986,7 +985,7 @@ Table: 读代码各环节的 PyTorch 与 vLLM 对照
 | vllm `vllm/entrypoints/cli/main.py`、`serve.py` | `main()`；`ServeSubcommand.cmd()`、`run_multi_api_server` |
 | vllm `vllm/entrypoints/openai/api_server.py` | `run_server()`、`build_async_engine_client_from_engine_args()`、`init_app_state()` |
 | vllm `vllm/v1/engine/async_llm.py`、`core_client.py`、`core.py` | `AsyncLLM`、`EngineCoreClient.make_async_mp_client`、`EngineCore`/`EngineCoreProc` |
-| vllm `vllm/_custom_ops.py`、`vllm/platforms/cuda.py` | `torch.ops._C.rms_norm` 包装；`import vllm._C_stable_libtorch` |
+| vllm `vllm/_custom_ops.py`、`vllm/kernels/vllm_c.py`、`vllm/platforms/cuda.py` | `torch.ops._C.rms_norm` 包装；`ir.ops.rms_norm` 的 `vllm_c` 实现；`import vllm._C_stable_libtorch` |
 | vllm `csrc/libtorch_stable/torch_bindings.cpp`、`ops.h`、`layernorm_kernels.cu`；`csrc/cpu/layernorm.cpp` | `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)`、`ops.def("rms_norm(...)")`；`rms_norm` 声明与 CUDA/CPU 实现 |
 | vllm `tests/v1/engine/test_startup_watch_processes.py` | #43417 的配套测试 |
 
