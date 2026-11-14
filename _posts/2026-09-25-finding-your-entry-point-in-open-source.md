@@ -169,6 +169,8 @@ PR 上的很多标签不是人打的。`.github/labeler.yml` 按**改动的文�
 - aten/src/ATen/native/Convolution*.cpp
 - aten/src/ATen/native/mkldnn/**
 - torch/cpu/**
+- torch/utils/mkldnn.py
+- torch/utils/_sympy/**
 
 "ciflow/mps":
 - aten/src/ATen/mps/**
@@ -184,9 +186,9 @@ PR 上的很多标签不是人打的。`.github/labeler.yml` 按**改动的文�
 
 三类标签混在一个文件里：`module:`（归属）、`ciflow/`（触发 CI，例如改了 `aten/src/ATen/native/mps/**` 自动跑 MPS 任务）、`release notes:`（归类）。对选题的用处是反向的：**你想做某个子系统，看 `labeler.yml` 里那个 `module:` 对应哪些目录，就知道改动会落在哪、会自动通知谁、会跑哪组 CI**。
 
-`.github/label_to_label.yml` 做的是**标签推导标签**，对 issue 和 PR 都生效，60 行，全文结构如下：
+`.github/label_to_label.yml` 做的是**标签推导标签**，对 issue 和 PR 都生效，60 行，节选如下：
 
-```yaml title="label_to_label.yml：标签推导标签"
+```yaml title="label_to_label.yml 节选：标签推导标签"
 # Use this to auto apply labels based on other labels.  Applies to both PRs and
 # issues. Currently only supports any and all
 - any:
@@ -297,9 +299,9 @@ vLLM 的标签只有 63 个，没有前缀体系，也没有状态机。`gh labe
 | `needs-rebase` | （无描述） | — | mergify 检测到冲突时自动打 |
 | `closed-as-slop` | Pull request determined to be low effort and agent generated | 97 个已关闭 PR | PR 侧：低质量 agent 生成 |
 | `verified` | Run pre-commit for new contributors without triggering other tests | — | PR 侧 |
-| 领域标签 | `frontend`、`v1`、`torch.compile`、`speculative-decoding`、`structured-output`、`kv-connector`、`quantization`、`multi-modality`、`tool-calling`、`scheduler`、`kv-cache-manager`、`mrv2`、`mrv1-only`、`vllm-ir` | — | 由 mergify 按路径打（PR）或 `issue_autolabel.yml` 按关键词打（issue） |
+| 领域标签 | `frontend`、`v1`、`torch.compile`、`speculative-decoding`、`structured-output`、`kv-connector`、`quantization`、`multi-modality`、`tool-calling`、`scheduler`、`kv-cache-manager`、`mrv2`、`mrv1-only`、`vllm-ir` | — | 多数由 mergify 按路径打（PR）或 `issue_autolabel.yml` 按关键词打（issue）；`v1`、`torch.compile`、`scheduler`、`kv-cache-manager`、`mrv1-only`、`vllm-ir` 不在这两份配置里，由人手工打 |
 | 硬件标签 | `rocm`、`cpu`、`tpu`、`intel-gpu`、`nvidia` | — | 同上 |
-| 模型标签 | `llama`、`qwen`、`deepseek`、`mistral`、`gpt-oss`、`kimi`、`k3`、`glm`、`minimax`、`cohere` | — | 同上 |
+| 模型标签 | `llama`、`qwen`、`deepseek`、`mistral`、`gpt-oss`、`kimi`、`k3`、`glm`、`minimax`、`cohere` | — | 同上；`glm`、`minimax` 不在两份配置里 |
 
 Table: vLLM 与选题相关的标签
 
@@ -372,7 +374,7 @@ issue 侧的自动打标在 `.github/workflows/issue_autolabel.yml`，按 issue 
 - **module: accelerator**：与共享 accelerator API 有关——暗示 maintainer 想要设备无关的解法
 - **bot-triaged**：模块标签是 bot 打的，准确度打折
 
-再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。当天有人开了 PR #194396（MPS 专用测试）被关闭，改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
+再读评论：@malfet 2026-08-24 留了两条，"It would be good to have a generic test for it ... rather than write an MPS-specific test"，"Will accept a PR that adds a non-MPS specific test to validate for it (or enable the existing test for MPS platform)"。这就是 maintainer 把"要什么"写得最清楚的形态——不仅说了要做，还说了怎么做才收。08-21 开的 PR #194396（MPS 专用测试）在当天被关闭，作者改开 #194631（设备通用测试，`allow_mps=True, allow_xpu=True`）保持 open。**读标签 + 读 maintainer 的最后一条评论**，五分钟内就能判断这个 issue 还有没有位置、位置在哪。
 
 ## 三、RFC 与 roadmap：大改动从哪里开始
 
@@ -432,7 +434,7 @@ labels: ["RFC"]
 
 Table: vLLM RFC 模板的正文字段
 
-模板顶部还有一行提示："Please take a look at previous RFCs for reference"，链到 `label:RFC sort:updated-desc`。截至查询有 207 个 open 的 `RFC` issue，2026-09-01 到 09-06 这一周新开了至少 8 个（#54477 到 #55584），主题从 "GDS kv offloading"（GDS：GPUDirect Storage，GPU 显存和存储之间直接传数据的 NVIDIA 技术）到 "Custom all-reduce for XPU"。
+模板顶部还有一行提示："Please take a look at previous RFCs for reference"，链到 `label:RFC sort:updated-desc`。截至查询有 207 个 open 的 `RFC` issue，2026-08-31 到 09-06 这一周新开了至少 8 个（#54477 到 #55584），主题从 "GDS kv offloading"（GDS：GPUDirect Storage，GPU 显存和存储之间直接传数据的 NVIDIA 技术）到 "Custom all-reduce for XPU"。
 
 什么时候必须先开 RFC，`docs/contributing/README.md` 的 "Notes for Large Changes" 一节写死了数字：
 
@@ -554,7 +556,7 @@ Table: vLLM 性能 issue 模板的字段
 
 PyTorch 没有专门的性能 issue 模板，性能问题用 `bug-report.yml`（或 torch.compile 相关的 `pt2-bug-report.yml`，自动标签 `oncall: pt2`）提，靠标签区分：`module: performance`（"Issues related to performance, either of kernel code or framework glue"）、`module: regression`（"It used to work, and now it doesn't"，156 open）、`topic: performance`（PR 侧）。
 
-`benchmarks/` 目录按子系统组织，v2.14.0 有二十多个子目录：`dynamo/`（TorchBench / HF / TIMM 三套模型的 compile 性能，也是 nightly 性能 dashboard 的来源）、`operator_benchmark/`、`instruction_counts/`、`fastrnns/`、`functional_autograd_benchmark/`、`distributed/`、`inductor_backends/`、`transformer/`、`gpt_fast/`、`sparse/`、`nested/`、`profiler_benchmark/`、`serialization/`、`static_runtime/`、`tensorexpr/`、`fuser/`、`framework_overhead_benchmark/`、`overrides_benchmark/`、`record_function_benchmark/`、`strict_numerics/`、`inference/`、`diffusion/`。`benchmarks/README.md` 的 "Benchmark List" 只给了其中五个的链接（Fast RNNs、Dynamo、Functional autograd、Instruction counts、Operator），其余要进子目录自己看。`labeler.yml` 把 `benchmarks/dynamo/**` 归到 `module: dynamo` 和 `ciflow/inductor`——改这个目录会触发 inductor CI。
+`benchmarks/` 目录按子系统组织，v2.14.0 有二十多个子目录：`dynamo/`（TorchBench / HF / TIMM 三套模型的 compile 性能，也是 nightly 性能 dashboard 的来源）、`operator_benchmark/`、`instruction_counts/`、`fastrnns/`、`functional_autograd_benchmark/`、`distributed/`、`inductor_backends/`、`transformer/`、`gpt_fast/`、`sparse/`、`nested/`、`profiler_benchmark/`、`serialization/`、`static_runtime/`、`tensorexpr/`、`fuser/`、`framework_overhead_benchmark/`、`overrides_benchmark/`、`record_function_benchmark/`、`strict_numerics/`、`inference/`、`diffusion/`、`data/`。`benchmarks/README.md` 的 "Benchmark List" 只给了其中九个的链接（Fast RNNs、Dynamo、Functional autograd、Instruction counts、Operator、Overrides、Sparse、Tensor expression、Data），其余要进子目录自己看。`labeler.yml` 把 `benchmarks/dynamo/**` 归到 `module: dynamo` 和 `ciflow/inductor`——改这个目录会触发 inductor CI。
 
 PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RELEASE.md` 的 "Cherry Picking Fixes" 一节：
 
