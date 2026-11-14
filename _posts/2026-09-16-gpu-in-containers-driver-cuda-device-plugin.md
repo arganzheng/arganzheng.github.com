@@ -5,7 +5,7 @@ title: "AI 平台工程（02）：容器里的 GPU——驱动、CUDA、device p
 subtitle: "GPUs in Containers: Driver, CUDA, Device Plugin, DRA and Images"
 tags: [Kubernetes, GPU, CUDA, DRA, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
@@ -179,7 +179,7 @@ Table: 核心问题三个组合的兼容结果
 
 ## 三、Container Toolkit：把驱动注入容器
 
-Container Toolkit 是"注入边界"的执行者。它以 NVIDIA Container Toolkit v1.20.0 为准，包含四个可执行文件（`cmd/`）：`nvidia-container-runtime`（OCI runtime 包装器）、`nvidia-container-runtime-hook`（prestart hook）、`nvidia-cdi-hook`（CDI spec 里引用的 hook）、`nvidia-ctk`（命令行工具，含 `cdi generate`、`runtime configure`）。配置文件是 `/etc/nvidia-container-runtime/config.toml`，结构定义在 `api/config/v1/config.go` 的 `Config`。
+Container Toolkit 是"注入边界"的执行者。它以 NVIDIA Container Toolkit v1.20.0 为准，`cmd/` 下与本篇相关的是四个可执行文件（另有 `nvidia-ctk-installer` 等）：`nvidia-container-runtime`（OCI runtime 包装器）、`nvidia-container-runtime-hook`（prestart hook）、`nvidia-cdi-hook`（CDI spec 里引用的 hook）、`nvidia-ctk`（命令行工具，含 `cdi generate`、`runtime configure`）。配置文件是 `/etc/nvidia-container-runtime/config.toml`，结构定义在 `api/config/v1/config.go` 的 `Config`。
 
 ### 1. legacy 路径：prestart hook
 
@@ -220,7 +220,7 @@ sequenceDiagram
     RUNC-->>CD: 容器 Running
 ```
 
-第四步是 forward compatibility 在容器里生效的地方：`api/config/v1/runtime.go` 的 `legacyModeConfig.CUDACompatMode`（`cuda-compat-mode`）默认 `ldconfig`，把 `/usr/local/cuda/compat` 加进 `ldconfig` 的搜索路径；如果镜像的 compat 目录里 `libcuda.so` 比宿主机的新，ld cache 就指向它。另两个取值 `mount` 与 `hook`（`enable-cuda-compat` hook，`internal/discover/hooks.go` 的 `EnableCudaCompatHook`）是 CDI 路径下的实现。
+第四步是 forward compatibility 在容器里生效的地方：`api/config/v1/runtime.go` 的 `legacyModeConfig.CUDACompatMode`（`cuda-compat-mode`）默认 `ldconfig`，把 `/usr/local/cuda/compat` 加进 `ldconfig` 的搜索路径；如果镜像的 compat 目录里 `libcuda.so` 比宿主机的新，ld cache 就指向它。其余取值：`mount`（由 `nvidia-container-cli` 直接挂载 compat 库）、`hook`（由 nvidia-container-runtime 加一条 `enable-cuda-compat` hook，`internal/discover/hooks.go` 的 `EnableCudaCompatHook`，CDI 路径用的也是这条 hook）与 `disabled`（关闭）；见 `cmd/nvidia-container-runtime-hook/hook_config.go` 的 `nvidiaContainerCliCUDACompatModeFlags` 与 `internal/modifier/gated.go`。
 
 ### 2. 三个环境变量
 
@@ -242,11 +242,11 @@ sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
 #   --vendor nvidia.com  --class gpu          → 设备名 nvidia.com/gpu=0、nvidia.com/gpu=GPU-<uuid>、nvidia.com/gpu=all
 #   --device-name-strategy index,uuid         → 每张卡同时生成索引名和 UUID 名
 #   --mode auto                               → nvml / csv（Tegra）/ wsl 自动判断
-#   --nvidia-cdi-hook-path /usr/bin/nvidia-cdi-hook
+#   --nvidia-cdi-hook-path                    → 不指定时在 PATH 里找 nvidia-cdi-hook
 nvidia-ctk cdi list                          # 列出可用设备名
 ```
 
-生成的 spec 里每个设备包含 `/dev/nvidia<N>` 的 deviceNodes、`containerEdits` 里的库文件 mounts，以及 `nvidia-cdi-hook` 的 `update-ldcache`、`create-symlinks`、`enable-cuda-compat`（v1.20.0 起加入管理 spec）等 hook（hook 名列表在 `internal/discover/hooks.go`）。之后容器请求设备只需在 CRI 层给出 `nvidia.com/gpu=0`——device plugin 的 `cdi-cri` 策略正是这样做的（第四章第 3 节）。
+生成的 spec 里每个设备包含 `/dev/nvidia<N>` 的 deviceNodes、`containerEdits` 里的库文件 mounts，以及 `nvidia-cdi-hook` 的 `update-ldcache`、`create-symlinks`、`enable-cuda-compat`（v1.20.0 起加入管理 spec）等 hook（hook 名列表在 `internal/discover/hooks.go`）。之后容器请求设备只需在 CRI 层给出 `nvidia.com/gpu=0`——device plugin 的 `cdi-cri` 策略正是这样做的（第四章第 3 节；它另行生成一份 vendor 为 `k8s.device-plugin.nvidia.com` 的 spec，设备名形如 `k8s.device-plugin.nvidia.com/gpu=GPU-<uuid>`，见插件的 `internal/cdi/cdi.go`）。
 
 Toolkit 自身也能消费 CDI：`nvidia-container-runtime.mode = "cdi"` 时，`internal/modifier/cdi.go` 按 `modes.cdi.spec-dirs`（`cdiModeConfig.SpecDirs`）读 spec 并修改 OCI spec，注解前缀 `modes.cdi.annotation-prefixes` 默认 `cdi.k8s.io/`。v1.20.0 的 `mode = "auto"` 在有 NVML 的平台上解析为 `jit-cdi`（`internal/info/auto.go` 的 `modeResolver.ResolveRuntimeMode`，默认 `JitCDIRuntimeMode`）：不读磁盘上的 spec 文件，而是在每次容器创建时**即时生成**等价的 CDI 编辑并应用——行为与 CDI 一致，但不依赖 `nvidia-ctk cdi generate` 的产物是否过期。
 
@@ -263,7 +263,7 @@ Toolkit 自身也能消费 CDI：`nvidia-container-runtime.mode = "cdi"` 时，`
 
 Table: legacy hook 与 CDI 的对照
 
-GPU Operator v26.7.0 的 `cdi.enabled` 默认 `true`（`api/nvidia/v1/clusterpolicy_types.go` 的 `CDIConfigSpec.Enabled`），它把 Toolkit 配成 CDI 模式、把 device plugin 的 `deviceListStrategy` 配成 CDI 注解。方向很清楚：hook 是过去，CDI 是现在和 DRA 的基础。
+GPU Operator v26.7.0 的 `cdi.enabled` 默认 `true`（`api/nvidia/v1/clusterpolicy_types.go` 的 `CDIConfigSpec.Enabled`），它把 Toolkit 配成 CDI 模式、把 device plugin 的 `deviceListStrategy` 配成 `cdi-annotations,cdi-cri`（`controllers/object_controls.go` 的 `transformDevicePluginCtrForCDI`）。方向很清楚：hook 是过去，CDI 是现在和 DRA 的基础。
 
 ## 四、device plugin：让 kubelet 数得清 GPU
 
@@ -304,7 +304,7 @@ sequenceDiagram
     K->>P: GetPreferredAllocation(available, size=2)
     P-->>K: alignedAlloc 按 NVLink 拓扑挑 2 张（仅建议）
     K->>P: Allocate(devices_ids)
-    P-->>K: envs NVIDIA_VISIBLE_DEVICES=GPU-uuid… 或 cdi_devices nvidia.com/gpu=GPU-uuid…
+    P-->>K: envs NVIDIA_VISIBLE_DEVICES=GPU-uuid… 或 cdi_devices k8s.device-plugin.nvidia.com/gpu=GPU-uuid…
     K->>K: 写 checkpoint
     K->>C: CreateContainer（env / annotations / CDI 设备名并入 CRI 请求）
     Note over C: Container Toolkit 或原生 CDI 注入设备与驱动库（第三章）
@@ -344,7 +344,7 @@ Table: device plugin 的相关 flags
 
 - `envvar`（默认）：`Envs["NVIDIA_VISIBLE_DEVICES"] = "GPU-uuid1,GPU-uuid2"`，交给 Container Toolkit 的 hook 路径；
 - `volume-mounts`：把设备列表编码成挂载路径（`/var/run/nvidia-container-devices/<id>`），配合 Toolkit 的 `accept-nvidia-visible-devices-as-volume-mounts`，用于禁用了环境变量方式的安全加固场景；
-- `cdi-annotations`：`Annotations["cdi.k8s.io/<prefix>_<uuid>"] = "nvidia.com/gpu=GPU-uuid1,…"`，由 nvidia-container-runtime 的 CDI 模式解析；
+- `cdi-annotations`：`Annotations["cdi.k8s.io/nvidia-device-plugin_<响应 uuid>"] = "k8s.device-plugin.nvidia.com/gpu=GPU-uuid1,…"`，由 nvidia-container-runtime 的 CDI 模式解析；
 - `cdi-cri`：填 `CdiDevices`，即 `api.proto` 里 `ContainerAllocateResponse.cdi_devices`，kubelet 通过 CRI 直接传给支持 CDI 的 containerd / CRI-O，不再需要 nvidia-container-runtime。
 
 另有 `passDeviceSpecs=true` 时填 `Devices`（`DeviceSpec` 的 host_path / container_path / permissions），让 kubelet 直接创建设备节点——这对 CPU Manager 静态策略或 `hostPID` 等场景有用。GDRCopy、GDS、MOFED 开关分别加 `NVIDIA_GDRCOPY=enabled` 等环境变量，Toolkit 据此多挂对应的库（第五篇 RDMA 时再见）。
@@ -391,7 +391,7 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 | `dcgm` | `DCGMSpec` | 独立 `nv-hostengine`，默认关闭（exporter 内嵌） |
 | `mig` | `MIGSpec` | `strategy`：`none` \| `single` \| `mixed`，同时喂给 GFD 与 device plugin |
 | `migManager` | `MIGManagerSpec` | `enabled`<br/>`k8s-mig-manager` 镜像（默认 v0.15.0）<br/>`config`（`MIGPartedConfigSpec`）——第四篇 |
-| `cdi` | `CDIConfigSpec` | `enabled`（默认 `true`）：Toolkit 配成 CDI 模式、device plugin 用 CDI 注解 |
+| `cdi` | `CDIConfigSpec` | `enabled`（默认 `true`）：Toolkit 配成 CDI 模式、device plugin 用 `cdi-annotations,cdi-cri` |
 | `validator` | `ValidatorSpec` | `operator-validator`：在每个节点上依次验证 `driver` / `toolkit` / `cuda` / `plugin` 是否就绪 |
 | `hostPaths` | `HostPathsSpec` | `rootFS`（默认 `/`）、`driverInstallDir`（默认 `/run/nvidia/driver`）、`kubeletRootDir` |
 | `nodeStatusExporter`, `gds`, `gdrcopy`, `sandboxWorkloads`, `vgpuManager`, `kataManager`, `ccManager` … |  | 本篇不涉及 |
@@ -406,7 +406,7 @@ Operator 的 reconcile（`controllers/`）按固定顺序推进各组件的 Daem
 
 **第一组：NFD 的 PCI 标签。** GPU Operator 依赖 Node Feature Discovery（Helm 值 `nfd.enabled: true` 时一并安装），NFD 扫 PCI 总线，给有 NVIDIA 设备（vendor id `10de`）的节点打 `feature.node.kubernetes.io/pci-10de.present=true`。这是"这个节点有 NVIDIA 卡"的唯一硬件级来源。
 
-**第二组：Operator 自己的部署控制标签。** `controllers/state_manager.go` 里，Operator 看到 `pci-10de.present` 后给节点打 `nvidia.com/gpu.present=true`（`GPUPresentLabel`），再打一组 `nvidia.com/gpu.deploy.*=true`：`gpu.deploy.driver`、`gpu.deploy.container-toolkit`、`gpu.deploy.device-plugin`、`gpu.deploy.gpu-feature-discovery`、`gpu.deploy.dcgm-exporter`、`gpu.deploy.mig-manager`、`gpu.deploy.operator-validator` 等（v26.7.0 还有 `gpu.deploy.dra-driver`，见第六章第 5 节）。每个 operand DaemonSet 的 `nodeSelector` 就是对应的 `gpu.deploy.<name>=true`。把某个节点的 `nvidia.com/gpu.deploy.driver` 改成 `false`，驱动容器就从它上面撤走——这是节点级排除和灰度升级的开关。
+**第二组：Operator 自己的部署控制标签。** `controllers/state_manager.go` 里，Operator 看到 `pci-10de.present` 后给节点打 `nvidia.com/gpu.present=true`（`commonGPULabelKey`），再打一组 `nvidia.com/gpu.deploy.*=true`：`gpu.deploy.driver`、`gpu.deploy.container-toolkit`、`gpu.deploy.device-plugin`、`gpu.deploy.gpu-feature-discovery`、`gpu.deploy.dcgm-exporter`、`gpu.deploy.mig-manager`、`gpu.deploy.operator-validator` 等（v26.7.0 还有 `gpu.deploy.dra-driver`，见第六章第 5 节）。每个 operand DaemonSet 的 `nodeSelector` 就是对应的 `gpu.deploy.<name>=true`。把某个节点的 `nvidia.com/gpu.deploy.driver` 改成 `false`，驱动容器就从它上面撤走——这是节点级排除和灰度升级的开关。
 
 **第三组：GFD 的属性标签。** GPU Feature Discovery（k8s-device-plugin 仓库 `cmd/gpu-feature-discovery`，标签生成在 `internal/lm/`）用 NVML 读每张卡的属性写成节点标签。`internal/lm/resource.go` 的 `baseLabeler` 与 `NewGPUResourceLabeler` 生成，键名是 `<资源名>.<后缀>`：
 
@@ -495,7 +495,7 @@ Pod 侧的接法是两处：`spec.resourceClaims[]` 声明（`name` + `resourceC
 
 DRA 的核心变化是**分配决定由调度器做**（结构化参数，structured parameters）：调度器读所有 `ResourceSlice`，在 `pkg/scheduler/framework/plugins/dynamicresources/dynamicresources.go` 的 `DynamicResources` 插件里，`PreFilter` 收集 Pod 的 claims 并检查 DeviceClass 存在（`validateDeviceClass`），`Filter` 对每个节点跑分配算法看能否满足全部请求，`Reserve` 暂定结果，`PreBind` 把 `status.allocation` 写回 `ResourceClaim`（`bindClaim`）并把 Pod 加进 `reservedFor`。驱动**不参与调度**，它只负责两件事：发布 `ResourceSlice`，以及在节点上按分配结果准备设备。
 
-节点上，kubelet 的 DRA manager（`pkg/kubelet/cm/dra/manager.go`）在 Pod 启动前调 `PrepareResources`，通过 kubelet plugin gRPC（`staging/src/k8s.io/kubelet/pkg/apis/dra/v1/api.proto` 的 `NodePrepareResources` / `NodeUnprepareResources`）让驱动做节点侧准备，驱动返回每个设备的 `cdi_device_ids`——**DRA 的注入手段就是 CDI**，kubelet 把这些 CDI 设备名放进 CRI 请求，containerd 按第三章的 CDI spec 注入。Pod 结束后 `UnprepareResources` 清理。
+节点上，kubelet 的 DRA manager（`pkg/kubelet/cm/dra/manager.go`）在 Pod 启动前调 `PrepareResources`，通过 kubelet plugin gRPC（`staging/src/k8s.io/kubelet/pkg/apis/dra/v1/api.proto` 的 `NodePrepareResources` / `NodeUnprepareResources`）让驱动做节点侧准备，驱动返回每个设备的 `cdi_device_ids`——**DRA 的注入手段就是 CDI**，kubelet 把这些 CDI 设备名放进 CRI 请求，containerd 按驱动为该 claim 写下的 CDI spec（格式同第三章）注入。Pod 结束后 `UnprepareResources` 清理。
 
 与第四章第 1 节的 device plugin 时序对照着看：分配决定从 kubelet 移到了调度器，驱动只在两端出现——开头发布 `ResourceSlice`，结尾把已分配的设备翻译成 CDI 设备名；调度器读的不再是一个整数而是每张卡的属性：
 
@@ -517,7 +517,7 @@ sequenceDiagram
     S->>A: PreBind 写 claim.status.allocation（driver / pool / device）与 reservedFor，绑定 Pod
     A->>K: Pod 到本节点
     K->>D: NodePrepareResources(claim)
-    D-->>K: cdi_device_ids（nvidia.com/gpu=GPU-uuid）
+    D-->>K: cdi_device_ids（k8s.gpu.nvidia.com/claim=claimUID-gpu-0）
     K->>C: CreateContainer（CRI 请求携带 CDI 设备名）
     Note over C: 按 CDI spec 注入设备节点、驱动库与 hook（第三章第 3 节）
     Note over D,K: Pod 结束后 kubelet 调 NodeUnprepareResources 清理
@@ -527,7 +527,7 @@ sequenceDiagram
 
 ### 4. 完整示例：按显存选一张卡
 
-以下三个对象假设集群已部署 NVIDIA DRA driver（驱动名 `gpu.nvidia.com`，GPU Operator v26.7.0 的 `manifests/state-dra-driver/0400_deviceclass-gpu.yaml` 会同时创建名为 `gpu.nvidia.com` 的 DeviceClass，选择器为 `device.driver == 'gpu.nvidia.com' && device.attributes['gpu.nvidia.com'].type == 'gpu'`）。设备的属性名与容量名由驱动定义，`memory` 容量名以 NVIDIA DRA driver 文档为准，本地检出未含该仓库。
+以下三个对象假设集群已部署 NVIDIA DRA driver（驱动名 `gpu.nvidia.com`，GPU Operator v26.7.0 的 `manifests/state-dra-driver/0400_deviceclass-gpu.yaml` 会同时创建名为 `gpu.nvidia.com` 的 DeviceClass，选择器为 `device.driver == 'gpu.nvidia.com' && device.attributes['gpu.nvidia.com'].type == 'gpu'`）。设备的属性名与容量名由驱动定义：k8s-dra-driver-gpu v0.5.0 的 `cmd/gpu-kubelet-plugin/deviceinfo.go` 中 `GpuInfo.Attributes` 发布 `type`、`uuid`、`productName`、`architecture`、`cudaComputeCapability`、`driverVersion` 等属性，`partitions.go` 的 `fullGpuCapacity` 发布容量 `memory`（字节数的 Quantity），完整 GPU 的设备名形如 `gpu-0`。
 
 ```yaml title="gpu/dra/deviceclass.yaml"
 # mini-platform/gpu/dra/deviceclass.yaml —— 一个只匹配完整 GPU（不含 MIG 实例）的类
@@ -589,7 +589,7 @@ kubectl -n mini-platform logs dra-probe                          # nvidia-smi �
 kubectl get resourceslice -o yaml | grep -A3 "memory:"          # 看驱动发布的容量，与选择器对照
 ```
 
-要两张卡且在同一 NVLink 域，把 `count: 2` 并加 `constraints: [{requests: [gpu], matchAttribute: gpu.nvidia.com/<域属性名>}]`——属性名同样以驱动文档为准。这一句在 device plugin 模型里没有任何对应物。
+要两张卡且在同一 NVLink 域，把 `count: 2` 并加 `constraints: [{requests: [gpu], matchAttribute: gpu.nvidia.com/<域属性名>}]`——v0.5.0 的完整 GPU 设备默认不发布 NVLink 域属性（`FabricManagerPartitioning` 特性门打开时才有 `partition<N>`），属性名以驱动文档为准。这一句在 device plugin 模型里没有任何对应物。
 
 ### 5. DRA 修了什么、v1.37 走到哪、NVIDIA driver 的状态
 
@@ -599,9 +599,9 @@ kubectl get resourceslice -o yaml | grep -A3 "memory:"          # 看驱动发�
 - **拓扑**：`constraints.matchAttribute` 让"多个设备的某属性相同"成为硬约束；v1.37 新增的 `derivedAttributes`（`DeviceDerivedAttribute`，CEL 计算的虚拟属性）允许跨驱动对齐——例如 GPU 与 RDMA 网卡的 NUMA 节点，changelog 里明确以此为例；`resource.kubernetes.io/numaNode` 成为标准属性名（KEP-6072）。
 - **共享**：`allowMultipleAllocations` + `capacity.requestPolicy`（consumable capacity，`DRAConsumableCapacity`）让一个设备被多个 claim 各取一部分容量；`sharedCounters` / `consumesCounters`（`DRAPartitionableDevices`）让 MIG 这类"从同一块物理资源切出的分区"被正确记账——第四篇会回到这里。
 
-Kubernetes v1.37.0 的 `CHANGELOG/CHANGELOG-1.37.md` 给出的 DRA 状态：核心 API GA（1.34 起）；`DRAExtendedResource`（`DeviceClass.extendedResourceName`，让 `nvidia.com/gpu: 1` 这种传统请求由 DRA 满足，kubelet devicemanager 的 `isDRAExtendedResource` 据此放行）GA；Device Taints and Tolerations GA；`DRAResourceClaimDeviceStatus` GA；Prioritized List（`firstAvailable`）1.36 GA 并锁定；DRA 设备健康 gRPC 升 v1；DRA Workload resource claims（PodGroup 级 claim，与 gang scheduling 相关）升 Beta 但默认关闭；派生属性、兼容性组（`compatibilityGroups`）、资源池状态、`SkipNodeOperations` 为 Alpha。也就是说：按属性选卡、按 NVLink 域约束、DRA 接管 `nvidia.com/gpu` 请求，在 v1.37 都是可以在生产集群上开的功能；共享与分区还在 Beta / Alpha。
+Kubernetes v1.37.0 的 `CHANGELOG/CHANGELOG-1.37.md` 给出的 DRA 状态：核心 API GA（1.34 起）；`DRAExtendedResource`（`DeviceClass.extendedResourceName`，让 `nvidia.com/gpu: 1` 这种传统请求由 DRA 满足，kubelet devicemanager 的 `isDRAExtendedResource` 据此放行）GA；Device Taints and Tolerations GA；`DRAResourceClaimDeviceStatus` GA；Prioritized List（`firstAvailable`）1.36 GA、1.37 锁定；DRA 设备健康 gRPC 升 v1；DRA Workload resource claims（PodGroup 级 claim，与 gang scheduling 相关）升 Beta 但默认关闭；派生属性、兼容性组（`compatibilityGroups`）、资源池状态、`SkipNodeOperations` 为 Alpha。也就是说：按属性选卡、按 NVLink 域约束、DRA 接管 `nvidia.com/gpu` 请求，在 v1.37 都是可以在生产集群上开的功能；共享与分区还在 Beta / Alpha。
 
-NVIDIA 的 DRA driver（`k8s-dra-driver-gpu`）在 GPU Operator v26.7.0 里的位置：仓库 `README.md` 的 Roadmap 写着"Integrate NVIDIA's DRA Driver for GPUs as a managed component"；`api/nvidia/v1alpha1/gpucluster_types.go` 定义了一个新的 `GPUCluster` CRD（`nvidia.com/v1alpha1`），其 `spec.draDriver`（`DRADriverSpec`）配置 DRA driver 的镜像、`featureGates`、`gpus.kubeletPlugin` 与 `computeDomains`（多节点 NVLink 的 compute domain）；`deployments/gpu-operator/values.yaml` 的 `gpuCluster.deployCR` 默认 `false`、注释标明"experimental"，且与 `clusterPolicy.deployCR` 互斥；`draDriver.version` 默认 `v0.5.0`；`manifests/state-dra-driver/` 会创建 `gpu.nvidia.com`、`mig.nvidia.com` 与 compute-domain 三类 DeviceClass；节点标签多了 `nvidia.com/gpu.deploy.dra-driver`。结论：**device plugin 路径是 v26.7.0 的默认与生产路径，DRA 路径是同一 Operator 内的实验性替代**，两者不能同时启用。生产集群今天用 device plugin + GFD 标签，在测试集群上用 `GPUCluster` 验证 DRA，是合理的节奏。
+NVIDIA 的 DRA driver（`k8s-dra-driver-gpu`）在 GPU Operator v26.7.0 里的位置：仓库 `README.md` 的 Roadmap 写着"Integrate NVIDIA's DRA Driver for GPUs as a managed component"；`api/nvidia/v1alpha1/gpucluster_types.go` 定义了一个新的 `GPUCluster` CRD（`nvidia.com/v1alpha1`），其 `spec.draDriver`（`DRADriverSpec`）配置 DRA driver 的镜像、`featureGates`、`gpus.kubeletPlugin` 与 `computeDomains`（多节点 NVLink 的 compute domain）；`deployments/gpu-operator/values.yaml` 的 `gpuCluster.deployCR` 默认 `false`、注释标明"experimental"，且与 `clusterPolicy.deployCR` 互斥；`draDriver.version` 默认 `v0.5.0`；`manifests/state-dra-driver/` 会创建 `gpu.nvidia.com`、`mig.nvidia.com`、`vfio.gpu.nvidia.com` 与两个 compute-domain 的 DeviceClass；节点标签多了 `nvidia.com/gpu.deploy.dra-driver`。结论：**device plugin 路径是 v26.7.0 的默认与生产路径，DRA 路径是同一 Operator 内的实验性替代**，两者不能同时启用。生产集群今天用 device plugin + GFD 标签，在测试集群上用 `GPUCluster` 验证 DRA，是合理的节奏。
 
 ## 七、镜像：分层、体积与拉取时间
 
