@@ -143,7 +143,7 @@ Table: 扩散推理的五个事实与系统含义
 
 ### 3. 一步里到底算了什么：diffusers 的去噪循环
 
-上表的前三行落到代码上是十几行。下面是 diffusers v0.40.0 `FluxPipeline.__call__` 的去噪循环（删掉了 IP-Adapter、回调与中断处理，变量名不变）：
+上表的前三行落到代码上是十几行。下面是 diffusers v0.40.0 `FluxPipeline.__call__` 的去噪循环（删掉了 IP-Adapter、回调与中断处理，以及每次前向外层的 `cache_context` 包装和 `joint_attention_kwargs` / `return_dict` 参数，变量名不变）：
 
 ```python title="FluxPipeline.__call__ 的去噪循环（diffusers v0.40.0，节选）"
 for i, t in enumerate(timesteps):
