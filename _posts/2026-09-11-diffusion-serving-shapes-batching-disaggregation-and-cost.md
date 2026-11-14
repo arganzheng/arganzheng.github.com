@@ -150,7 +150,7 @@ Table: LLM 请求与扩散请求的对照
 
 ### 3. 兼容键与准入
 
-能拼进一个 batch 的请求必须**每步的形状与执行策略完全相同**。vLLM-Omni 的 `StepBatchSamplingParamsKey` 列出了全部条件：height / width / num_frames / fps、CFG 是否开与 guidance scale、quality 模式、每 prompt 输出数、**LoRA 的 id 与 scale**（一个 batch 只能激活一个 adapter）；SGLang 的 `dynamic_batch_admission` 在此之上按模型 × 分辨率 × 显存给 `max_batch_size` 与"cost 预算"的上限（`--batching-max-size` 是公共上限，`--batching-config` 按形状收紧），并要求同一批的 steps 相同。这与 LLM 的连续批处理（任何请求可以随时进出 batch）完全不同：扩散的 batch 是**同构、静态、整批开始整批结束**的——本质上是把几个相同形状的请求并成一个更大的请求。
+能拼进一个 batch 的请求必须**每步的形状与执行策略完全相同**。vLLM-Omni 的 `StepBatchSamplingParamsKey` 列出了全部条件：height / width / num_frames / fps、CFG 是否开与 guidance scale、quality 模式、每 prompt 输出数、**LoRA 的 id 与 scale**（一个 batch 只能激活一个 adapter）；SGLang 的兼容判断在 `Scheduler._can_dynamic_batch`：除 prompt、seed 等标了 `batch_sig_exclude` 的字段外，`SamplingParams` 的全部字段（分辨率、steps、guidance……）必须相同，且不带输入图；`dynamic_batch_admission` 再按模型 × 分辨率 × 显存给 `max_batch_size` 与"cost 预算"的上限（`--batching-max-size` 是公共上限、默认 1 即不合批，`--batching-config` 按形状收紧）。这与 LLM 的连续批处理（任何请求可以随时进出 batch）完全不同：扩散的 batch 是**同构、静态、整批开始整批结束**的——本质上是把几个相同形状的请求并成一个更大的请求。唯一的例外是 vLLM-Omni 打开 `--step-execution`（默认关）时的 `StepScheduler`：兼容键相同的新请求可以在步边界加入正在跑的 batch、各自走完就离开，batch 里的请求可以处在不同步数——这是受形状约束的 step 级连续批，只有实现了 `denoise_step` 的原生 pipeline（Qwen-Image、HunyuanImage-3 等，不含 FLUX，diffusers 适配器也不支持）能用。它省的是排队等整批的时间，不改变 compute-bound 下 batch 不提吞吐这件事。
 
 ## 四、调度
 
@@ -229,8 +229,8 @@ Parallel VAE / 独立卡
     class E,V s
 ```
 
-- **vLLM-Omni 的 stage-based 部署**：为全模态模型设计（一个请求可能经过 LLM → DiT → TTS 三个不同的模型），扩散是其中一种 stage；`vllm serve MODEL --omni` 默认加载 `vllm_omni/deploy/` 里该模型的 stage 配置，stage 0 是 API server + orchestrator，其余 stage 可以用 `--stage-overrides` 放到不同 GPU 甚至不同主机，stage 间用 OmniConnector 传张量（embedding、latent）。
-- **SGLang Diffusion 的 disaggregation**：`runtime/disaggregation/` 定义 `RoleType`——encoder / denoiser / decoder / server（无 GPU 的头节点）——每个角色一组进程，`transport/` 负责 stage 间的张量传输与缓冲，`dispatch_policy` 决定请求怎样在角色间流动。
+- **vLLM-Omni 的 stage-based 部署**：为全模态模型设计（一个请求可能经过 LLM → DiT → TTS 三个不同的模型），扩散是其中一种 stage；`vllm serve MODEL --omni` 默认加载 `vllm_omni/deploy/` 里该模型的 stage 配置，`--stage-overrides` 按 stage 改各自的 engine 参数（显存占比、设备等）；要把 stage 放到不同主机，就用 `--stage-id` 逐个单独启动——stage 0 是 orchestrator + API server，其余 stage 以 `--headless` 加 `--omni-master-address` 注册到它；stage 间用 OmniConnector 传张量（embedding、latent；同机默认 `SharedMemoryConnector`，跨机 `MooncakeStoreConnector`）。
+- **SGLang Diffusion 的 disaggregation**：`runtime/disaggregation/` 定义 `RoleType`——encoder / denoiser / decoder / server（无 GPU 的头节点）——每个角色一组进程，`orchestrator.py` 是中心路由、把请求依次送过三个角色，`transport/` 负责 stage 间的张量传输与缓冲，`dispatch_policy` 决定同一角色的多个实例里选哪个（`RoundRobin` / `MaxFreeSlotsFirst`）。
 
 ### 3. 何时分
 
@@ -250,7 +250,7 @@ Parallel VAE / 独立卡
 
 Table: LoRA 的三种服务方式
 
-扩散上多 LoRA batch 的价值比 LLM 小（batch 本来就不提吞吐），所以 vLLM-Omni 的兼容键要求**一个 batch 一个 LoRA**、SGLang 同样按 LoRA id 分批。切换的瓶颈是**加载**：从磁盘 / 网络读几百 MB 的 adapter。SwiftDiffusion（Li 等 2024）的 **bounded async loading**：观察到去噪的前几步对 LoRA 不敏感（前几步在定构图，LoRA 影响的是风格与细节），所以**前 $$k$$ 步先用基座模型跑、同时异步加载 LoRA**，加载完再挂上，$$k \le 4$$ 时质量不变——把加载完全藏在生成里。Nunchaku 让 LoRA 直接挂在 SVDQuant 的低秩分支旁而不必重新量化。
+扩散上多 LoRA batch 的价值比 LLM 小（batch 本来就不提吞吐），所以 vLLM-Omni 的兼容键要求**一个 batch 一个 LoRA**；SGLang 干脆不做按请求 LoRA——adapter 是服务级的，由 `POST /v1/set_lora` 切换，之后所有请求都用它。切换的瓶颈是**加载**：从磁盘 / 网络读几百 MB 的 adapter。SwiftDiffusion（Li 等 2024）的 **bounded async loading**：观察到去噪的前几步对 LoRA 不敏感（前几步在定构图，LoRA 影响的是风格与细节），所以**前 $$k$$ 步先用基座模型跑、同时异步加载 LoRA**，加载完再挂上，$$k \le 4$$ 时质量不变——把加载完全藏在生成里。Nunchaku 让 LoRA 直接挂在 SVDQuant 的低秩分支旁而不必重新量化。
 
 ### 2. ControlNet-as-a-Service
 
@@ -268,7 +268,7 @@ DiffServe（Yang 等 2025，MLSys）的观察：不是每个请求都需要最�
 
 ### 1. 图像：同步
 
-`POST /v1/images/generations`（OpenAI DALL-E 兼容，SGLang 与 vLLM-Omni 都实现）：请求带 prompt / n / size / response_format，扩展字段 negative_prompt / num_inference_steps / guidance_scale / seed / lora；秒级完成，响应里直接带 b64 或文件 URL。SGLang 另有 `/v1/images/edits`（I2I）与 `/v1/images/{id}/content`（取文件）。同步的前提是时长在 HTTP 超时内（几秒到几十秒）。
+`POST /v1/images/generations`（OpenAI DALL-E 兼容，SGLang 与 vLLM-Omni 都实现）：请求带 prompt / n / size / response_format，扩展字段 negative_prompt / num_inference_steps / guidance_scale / seed，vLLM-Omni 还有按请求的 lora；秒级完成，响应里直接带 b64 或文件 URL。两者都有 `/v1/images/edits`（I2I），SGLang 另有 `/v1/images/{id}/content`（取文件）。同步的前提是时长在 HTTP 超时内（几秒到几十秒）。
 
 ### 2. 视频：异步 job
 
@@ -295,7 +295,7 @@ sequenceDiagram
     C->>S: GET /v1/videos/{id}/content
 ```
 
-视频请求分钟级，HTTP 连接不可能挂着等；`POST /v1/videos` 立即返回 job id（SGLang 实现了 OpenAI Videos API 的子集：创建、列表、查询、取内容），客户端轮询或收 webhook。系统上多了三样东西：**job 表**（持久化状态、支持重启后恢复——扩散的状态就是 latent + 步号，可以 checkpoint）、**对象存储**（视频文件几十 MB，不走 API 层）、**进度与预览**（每几步用 tiny VAE 解一张低清图 / 帧）。自回归视频（第六篇）的流式会话是第三种形态：长连接、逐 chunk 推送。
+视频请求分钟级，HTTP 连接不可能挂着等；`POST /v1/videos` 立即返回 job id（SGLang 与 vLLM-Omni 都实现了 OpenAI Videos API 的子集：创建、列表、查询、删除、取内容；vLLM-Omni 另有同步的 `/v1/videos/sync`），客户端轮询或收 webhook。系统上多了三样东西：**job 表**（持久化状态、支持重启后恢复——扩散的状态就是 latent + 步号，可以 checkpoint）、**对象存储**（视频文件几十 MB，不走 API 层）、**进度与预览**（每几步用 tiny VAE 解一张低清图 / 帧）。自回归视频（第六篇）的流式会话是第三种形态：长连接、逐 chunk 推送。
 
 ### 3. 幂等与确定性
 
@@ -321,15 +321,15 @@ sequenceDiagram
 
 | 机制 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT | diffusers |
 |---|---|---|---|---|
-| API | `runtime/entrypoints/openai/`：`image_api.py`（`/v1/images/generations`、`/edits`、`/{id}/content`）、`video_api.py`（`/v1/videos` 创建 / 列表 / 查询 / 内容）、`mesh_api.py`、`realtime/` | OpenAI 兼容 `/v1/images/generations`（DALL-E 参数 + 扩展）、`/v1/chat/completions` 的 extra_body 路径；`vllm serve --omni` | Ray Serve 示例（`xfuser/ray/`） | 无服务层 |
-| 调度器 | `runtime/managers/scheduler.py`；`scheduler_client.py` | `diffusion/sched/`：`request_scheduler.py`、`step_scheduler.py`、`base_scheduler.py` | — | — |
-| 批处理 | `dynamic_batch_admission.py`（`--batching-max-size`、`--batching-config`） | `StepBatchSamplingParamsKey` / `RequestBatchSamplingParamsKey`（`sched/interface.py`） | `--data_parallel_degree` | `num_images_per_prompt` |
-| 三段分离 | `runtime/disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage-based：`vllm serve --omni`、`--stage-overrides`、`vllm_omni/deploy/`、OmniConnector；`stage_diffusion_proc.py` | — | — |
-| LoRA | `runtime/pipelines_core/lora/`、`runtime/layers/lora/`；`--lora-path`、按请求 lora | `diffusion/lora/`：`manager.py`、`loader.py`<br/>`--lora-path`、`--lora-backend`<br/>请求体 `lora` 字段 | — | `load_lora_weights` / `fuse_lora` |
+| API | `runtime/entrypoints/openai/`：`image_api.py`（`/v1/images/generations`、`/edits`、`/{id}/content`）、`video_api.py`（`/v1/videos` 创建 / 列表 / 查询 / 删除 / 内容）、`mesh_api.py`、`realtime/` | `entrypoints/openai/api_server.py`：`/v1/images/generations`（DALL-E 参数 + 扩展）、`/edits`<br/>`/v1/videos`（创建 / 列表 / 查询 / 删除 / 内容，另有 `/sync`）<br/>`/v1/chat/completions` 的 extra_body 路径<br/>`vllm serve --omni` | `entrypoints/launch.py`：FastAPI `/generate` + Ray actor 的示例服务（`xfuser/ray/` 是 Ray worker 执行器） | 无服务层 |
+| 调度器 | `runtime/managers/scheduler.py`；`runtime/scheduler_client.py` | `diffusion/sched/`：`request_scheduler.py`、`step_scheduler.py`、`base_scheduler.py` | — | — |
+| 批处理 | `Scheduler._can_dynamic_batch`（`SamplingParams` 签名）<br/>`dynamic_batch_admission.py`（`--batching-max-size`、`--batching-config`） | `StepBatchSamplingParamsKey` / `RequestBatchSamplingParamsKey`（`sched/interface.py`） | `--data_parallel_degree` | `num_images_per_prompt` |
+| 三段分离 | `runtime/disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage-based：`vllm serve --omni`、`--stage-overrides`、`--stage-id` / `--headless`、`vllm_omni/deploy/`、OmniConnector；`stage_diffusion_proc.py` | — | — |
+| LoRA | `runtime/pipelines_core/lora/`、`runtime/layers/lora/`；`--lora-path`<br/>`/v1/set_lora` 服务级切换（请求体无 lora 字段） | `diffusion/lora/`：`manager.py`、`loader.py`<br/>`--lora-path`、`--lora-backend`<br/>请求体 `lora` 字段 | — | `load_lora_weights` / `fuse_lora` |
 | ControlNet | 按模型 pipeline | 按模型 | `pipeline_flux_control.py` | ControlNet pipelines |
 | embedding 缓存 | — | `cache/prompt_embed_cache.py` | — | — |
-| warmup | `--warmup-mode`、`--warmup-resolutions`；`server_warmup.py` | — | — | — |
-| 存储 / job | `openai/storage.py`、`stores.py` | `outputs/` | — | — |
+| warmup | `--warmup-mode`、`--warmup-resolutions`；`server_warmup.py` | `DiffusionEngine.run_startup_warmup`（启动时一次 dummy run） | — | — |
+| 存储 / job | `openai/storage.py`、`stores.py` | `entrypoints/openai/storage.py`、`stores.py` | — | — |
 
 Table: 服务机制在四个引擎里的实现对照
 
@@ -343,7 +343,7 @@ Table: 服务机制在四个引擎里的实现对照
 |---|---|---|
 | 卡数 | QPS × 单张 GPU·秒<br/>batch 不参与<br/>SP 只减延迟 | FLUX 100 QPS：eager 670 张 → 优化后 170 → schnell 80 |
 | 时长 | 收到请求即确定（$$H, W, F, T, g$$，实例的 $$\eta$$）；缓存 ±20% | LLM 不可预测 |
-| 批处理 | compute-bound 下不提吞吐<br/>小模型 × 低分辨率有效<br/>同构静态整批 | 兼容键：形状、CFG、quality、LoRA id |
+| 批处理 | compute-bound 下不提吞吐<br/>小模型 × 低分辨率有效<br/>同构整批（vLLM-Omni 的 step 模式可在步边界进出） | 兼容键：形状、CFG、quality、LoRA id |
 | 调度 | 分池、SJF + 老化、SLO 准入、事前配额；抢占在步边界（状态 = latent 0.5 MB） | 生产多用分池而非抢占 |
 | 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大<br/>视频几乎总分 VAE<br/>全模态必分 | stage 间传 4 MiB / 0.5 MB |
 | LoRA | merge / unmerged / 多 LoRA<br/>瓶颈是加载<br/>bounded async loading 前 $$k \le 4$$ 步不挂 | rank 32 +2–5% |
