@@ -65,7 +65,7 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 | 叠加到 | H100 每步 | H100 28 步 | 4090 每步 | 4090 28 步 | 显存（DiT 段） | 输出 |
 |---|---|---|---|---|---|---|
 | bf16 eager，FA2 | 240 ms | 6.71 s（实测） | 放不下：需 offload，约 1.5 s | ~40 s | 22.5 GiB | 基线 |
-| + `torch.compile` | 154 ms | 4.30 s（实测） | ~1.2 s | ~33 s | 同 | 浮点漂移（SSIM > 0.98） |
+| + `torch.compile` | 154 ms | 4.30 s（实测） | ~1.2 s | ~33 s | 同 | 浮点漂移（SSIM 0.98 级，参考值） |
 | + FA3（Hopper） | ~140 ms | ~3.9 s（估） | — | — | 同 | 无损 |
 | + FP8 线性层 | ~105 ms | ~2.9 s（估） | — | — | 11 GiB | 有损：轻微 |
 | + SVDQuant INT4（W4A4） | Hopper 不支持 | — | ~0.45 s | ~12 s（Nunchaku：4090 上比 W4A16 快 3×） | 6.5 GiB | 有损：可见但小 |
@@ -160,7 +160,7 @@ Table: FLUX 逐层预取的两条 stream（预取深度 1）
 - **独立服务 / 独立卡**：文本编码器作为一个 stage 单独部署，输出 embedding 传给 DiT 的卡——第七篇的三段分离；vLLM-Omni 的 stage-based 部署与 SGLang 的 disaggregation 都支持；
 - **不加载**：SD3 允许推理时不加载 T5（只用两个 CLIP），省 9 GiB，代价是文字渲染与复杂 prompt 变差（算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》的消融）。
 
-另一个细节：**prompt embedding 缓存**。同一个 prompt 被反复请求（同 prompt 多 seed、批量出图）时，文本编码器的输出可以按 prompt 哈希缓存——vLLM-Omni 的 `PromptEmbedCache`、diffusers 的 `text_kv_cache` hook；每条 4 MiB，缓存一千条 4 GiB。这是扩散推理里唯一像"前缀缓存"的东西。
+另一个细节：**prompt embedding 缓存**。同一个 prompt 被反复请求（同 prompt 多 seed、批量出图）时，文本编码器的输出可以按 prompt 缓存——vLLM-Omni 的 `PromptEmbedCache`（`diffusion/cache/prompt_embed_cache.py`：包住 pipeline 的 `encode_prompt`，按可哈希的调用参数做 LRU）；每条 4 MiB，缓存一千条 4 GiB。diffusers 的 `text_kv_cache` hook（`hooks/text_kv_cache.py`）是另一回事：在一次生成之内把每个 block 的文本 K / V 投影算一次、跨步复用，目前只接了 NucleusMoE-Image 的 block。这是扩散推理里唯一像"前缀缓存"的东西。
 
 ### 3. 24 GB 卡上的 FLUX
 
@@ -191,7 +191,7 @@ SageAttention 把 $$Q$$、$$K$$ 按 block 平滑后量化到 INT8，用 INT8 Ten
 - **每一步的误差被后续步的去噪吸收**：扩散的每步是在预测"当前 latent 里的噪声"，一步的小误差相当于多加了一点噪声，下一步会把它当作噪声去掉。这是扩散模型对近似计算（低精度 attention、跨步缓存、稀疏 attention）普遍鲁棒的根源，也是第三、四篇的前提；
 - **输出是像素而不是离散 token**：LLM 的一个 logit 错位就换了一个词，图像的一个像素值偏 1/255 不可见。
 
-代价仍然存在：SageAttention 在细节纹理、文字渲染上有可测的 PSNR 下降（对基线图 30–35 dB），所以三个引擎都把它列在"有损"栏，SGLang 允许按请求覆盖（`--attention-backend-override sage_attn`）而不是全局开。
+代价仍然存在：SageAttention 在细节纹理、文字渲染上有可测的 PSNR 下降（对基线图 30–35 dB），所以三个引擎都把它列在"有损"栏，SGLang 除了全局的 `--attention-backend sage_attn`，还允许按请求覆盖（采样参数 `--attention-backend-override sage_attn`，在 breakable CUDA graph、`torch.compile` 下会被拒绝），不必全局开。
 
 ## 四、编译与 CUDA graph
 
@@ -217,7 +217,7 @@ Table: 扩散负载对编译友好的性质
 
 - **编译时间**：FLUX 第一次前向 1–3 分钟（`max-autotune` 更久）。服务启动时要 warmup（SGLang 的 `--warmup-mode request`）；
 - **动态分辨率 = 重编译**：用户请求 1024² 与 768×1344 是两个形状，各编译一次；分辨率组合多时是"重编译风暴"（第九篇的故障之一）。对策：只允许一组预定义分辨率（SGLang 的 `--warmup-resolutions 1024x1024 768x1344` 启动时预编译）、或 `dynamic=True` 用符号形状（Inductor 对 GEMM 的调优会变弱）；
-- **数值漂移**：融合改变了浮点运算顺序，输出与 eager 不 bit-exact——SGLang 在 Qwen-Image 上测得 SSIM 0.984 / PSNR 39.7 dB，肉眼不可见，但 A/B 时要知道这不是 bug。
+- **数值漂移**：融合改变了浮点运算顺序，输出与 eager 不 bit-exact，但 A/B 时要知道这不是 bug。同类"只改执行方式、不改模型"的手段的量级可以参考 SGLang 对 breakable CUDA graph（下一节）的实测：Qwen-Image 固定 seed 对 eager SSIM 0.984 / PSNR 39.7 dB，肉眼不可见；编译本身的漂移要按同样方法对基线图测。
 
 ### 3. CUDA graph 与 breakable CUDA graph
 
@@ -283,7 +283,7 @@ $$Q(\hat X) \cdot Q(R)$$
     class Q4 lo
 ```
 
-低秩分支的 FLOPs 是 $$2 N d r \times 2$$，$$r = 32$$ 时不到主 GEMM 的 2%；但它多读写一遍激活——**Nunchaku** 推理引擎把低秩分支的 kernel 融进 INT4 GEMM 的 kernel（共享输入的读取、把低秩输出直接加进累加器），才把这 2% 的 FLOPs 变成 2% 的时间而不是 20%。结果：FLUX.1-dev 显存 3.6× 缩减（22 → 6.5 GiB），16 GB 的笔记本 4090 上比 NF4 W4A16（只量化权重、算时反量化成 bf16）快 3×，比"bf16 + CPU offload"快 8.7×；LoRA 可以直接挂在低秩分支旁而不必重新量化。Blackwell 上有 NVFP4 版本。**Hopper 没有 INT4 Tensor Core**，所以 SVDQuant 在 H100 上没有加速（SGLang 文档：Ampere / Ada / Blackwell only）——这是 4-bit 量化在消费卡上比在数据中心卡上更有价值的硬件原因。
+低秩分支的 FLOPs 是 $$2 N d r \times 2$$，$$r = 32$$ 时不到主 GEMM 的 2%；但它多读写一遍激活——**Nunchaku** 推理引擎把低秩分支的 kernel 融进 INT4 GEMM 的 kernel（共享输入的读取、把低秩输出直接加进累加器），才把这 2% 的 FLOPs 变成 2% 的时间而不是 20%。结果：FLUX.1-dev 显存 3.6× 缩减（22 → 6.5 GiB），16 GB 的笔记本 4090 上比 NF4 W4A16（只量化权重、算时反量化成 bf16）快 3×，比"bf16 + CPU offload"快 8.7×；LoRA 可以直接挂在低秩分支旁而不必重新量化。Blackwell 上有 NVFP4 版本。**Hopper 没有 INT4 Tensor Core**，所以 SVDQuant 在 H100 上没有加速（SGLang 文档：只支持 SM8x（Ampere / Ada）与 SM12x，不支持 Hopper SM90）——这是 4-bit 量化在消费卡上比在数据中心卡上更有价值的硬件原因。
 
 ### 4. 图像为什么对 W4 更敏感、怎么评
 
@@ -324,8 +324,8 @@ Table: PSNR 与每像素平均偏差的换算
 
 | 模式 | 做什么 | 为什么值得手写 | 在哪 |
 |---|---|---|---|
-| **adaLN 调制融合** | LayerNorm + scale + shift（+ gate）一个 kernel | 每层两次，读写 $$[N, d]$$ 三遍变一遍 | SGLang `runtime/layers/fused_scale_shift_gate.py`；vLLM-Omni 的 batched TP AdaLN |
-| **QK-norm + RoPE** | Q / K 的 RMSNorm 与旋转位置编码一个 kernel | 每层一次，$$[N, h, d_h]$$ 的两遍读写变一遍 | SGLang（FLUX / LTX-2 的 fused QK norm）|
+| **adaLN 调制融合** | LayerNorm + scale + shift（+ gate）一个 kernel | 每层两次，读写 $$[N, d]$$ 三遍变一遍 | SGLang `runtime/layers/fused_scale_shift_gate.py`（MiniMax-H3 另把各 block 的 TP AdaLN 投影合成一次 all-gather）；vLLM-Omni `diffusion/layers/adalayernorm.py` 的 CUDA 路径仍是原生实现 |
+| **QK-norm + RoPE** | Q / K 的 RMSNorm 与旋转位置编码一个 kernel | 每层一次，$$[N, h, d_h]$$ 的两遍读写变一遍 | SGLang（FLUX / LTX-2 的 fused QK norm）；vLLM-Omni `diffusion/layers/fused_qk_norm_rope.py`（MiniMax-H3） |
 | **packed QKV** | 三个投影合成一个 $$[d, 3d]$$ 的 GEMM | GEMM 越大效率越高；也方便量化与 all-to-all | 三者都有；SGLang 注：NVFP4 路径下看到分开的 `to_q/k/v` 说明量化没生效 |
 | **GELU / gate epilogue** | 激活函数进 GEMM 的 epilogue（cuBLASLt） | 省一遍 $$[N, 4d]$$ 的读写 | SGLang `--quality high` 的 Wan FFN 路径 |
 | **GroupNorm + SiLU**（VAE） | 解码器残差块里的归一化 + 激活 | VAE 是 memory-bound，省读写就是省时间 | SGLang 的 VAE fast path |
@@ -380,14 +380,14 @@ SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（
     class S4 bad
 ```
 
-每一步都对着基线的固定 seed 图测 PSNR / SSIM，无损的应当 > 40 dB（编译的浮点漂移）或 bit-exact。
+每一步都对着基线的固定 seed 图测 PSNR / SSIM，无损的应当在 40 dB 上下（编译的浮点漂移）或 bit-exact。
 
 ### 2. FLUX.1-dev 1024² 28 步
 
 | 配置 | H100 每步 | 28 步 | 4090 28 步 | DiT 段显存 | 对基线 PSNR | 来源 |
 |---|---|---|---|---|---|---|
 | bf16 eager FA2 | 240 ms | 6.71 s | ~40 s（offload） | 22.5 GiB | — | xDiT |
-| + compile | 154 ms | 4.30 s | ~33 s | 22.5 GiB | > 40 dB | xDiT |
+| + compile | 154 ms | 4.30 s | ~33 s | 22.5 GiB | ≈ 40 dB（参考值） | xDiT |
 | + FA3 | ~140 ms | ~3.9 s | — | 同 | bit-exact 级 | 估（attention 20% × 1.7） |
 | + FP8 W8A8 | ~105 ms | ~2.9 s | — | 11.3 GiB | ~36 dB | 估（GEMM 部分 1.4×） |
 | SVDQuant INT4 + compile | Hopper 无收益 | — | ~12 s | 6.5 GiB | ~30 dB | Nunchaku（4090：3× vs W4A16） |
@@ -414,15 +414,15 @@ Table: Wan2.1-14B 720p 单卡各配置的时间与显存
 
 | 机制 | diffusers v0.40 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT |
 |---|---|---|---|---|
-| 模型级 offload | `pipe.enable_model_cpu_offload()` | `--text-encoder-cpu-offload` / `--vae-cpu-offload` / `--dit-cpu-offload`；`runtime/managers/memory_managers/component_residency.py` | `diffusion/offloader/sequential_backend.py` | 沿用 diffusers |
-| 逐层预取 | `model.enable_group_offload(use_stream=True)`（`hooks/group_offloading.py`） | `--dit-layerwise-offload`、`--dit-offload-prefetch-size`；`layerwise_offload.py` | `offloader/layerwise_backend.py`、`distributed_layerwise_backend.py` | — |
-| attention 后端 | `model.set_attention_backend("flash" / "_flash_3_hub" / "sage")`（`models/attention_dispatch.py`） | `--attention-backend fa / torch_sdpa / sage_attn / sage_attn_3 / …`；`runtime/layers/attention/selector.py` | `diffusion/attention/selector.py`、`attention/backends/` | `xfuser/core/distributed/attention_backend.py` |
-| 编译 | `torch.compile(pipe.transformer)` | `--enable-torch-compile`；`--warmup-resolutions` | `--compile` / `diffusion/compile.py` | `--use_torch_compile`（`xfuser/compile/`） |
-| CUDA graph | — | `--enable-breakable-cuda-graph`（`runtime/breakable_cuda_graph/`） | CUDA graph in `worker/` | — |
-| FP8 | `torchao` / `PipelineQuantizationConfig` | ModelOpt checkpoint：`--transformer-path` | `diffusion/quantization/`（含 `hsdp_fp8.py`） | `layers/fp8_linear.py` |
-| INT4 / NVFP4 | Nunchaku 插件 | `--enable-svdquant --transformer-weights-path`；`flux_2_nvfp4.py` | ModelOpt NVFP4 | `fp4_quantize.py` |
-| VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.*`；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（第五篇） |
-| 融合 fast path | — | `runtime/layers/fused_scale_shift_gate.py`、`--quality high` | batched TP AdaLN 等 | — |
+| 模型级 offload | `pipe.enable_model_cpu_offload()` | `--text-encoder-cpu-offload` / `--vae-cpu-offload` / `--dit-cpu-offload`；`runtime/managers/memory_managers/component_residency.py` | `--enable-cpu-offload`；`diffusion/offloader/sequential_backend.py` | `--enable_model_cpu_offload` / `--enable_sequential_cpu_offload`（调 diffusers 的同名方法） |
+| 逐层预取 | `model.enable_group_offload(use_stream=True)`（`hooks/group_offloading.py`） | `--dit-layerwise-offload`、`--dit-offload-prefetch-size`；`runtime/managers/memory_managers/layerwise_offload.py` | `--enable-layerwise-offload`；`offloader/layerwise_backend.py`、`distributed_layerwise_backend.py` | `--enable_group_cpu_offload`（diffusers 的 group offloading） |
+| attention 后端 | `model.set_attention_backend("flash" / "_flash_3_hub" / "sage")`（`models/attention_dispatch.py`） | `--attention-backend fa / torch_sdpa / sage_attn / sage_attn_3 / …`；`runtime/layers/attention/selector.py` | `diffusion/attention/selector.py`、`attention/backends/` | `--attention_backend`；`xfuser/core/distributed/attention_backend.py` |
+| 编译 | `torch.compile(pipe.transformer)` | `--enable-torch-compile`；`--warmup-resolutions` | 默认开启（`diffusion/compile.py::regionally_compile` 逐 block 编译，`--enforce-eager` 关闭） | `--use_torch_compile`（自定义 Inductor pass 在 `xfuser/compile/`） |
+| CUDA graph | — | `--enable-breakable-cuda-graph`（`runtime/breakable_cuda_graph/`） | 无通用的 DiT CUDA graph；个别 pipeline（DreamZero）对编码器用 `torch.compile` 的 `reduce-overhead` 模式 | — |
+| FP8 | `torchao` / `PipelineQuantizationConfig` | ModelOpt checkpoint：`--transformer-path` | `quantization_config` 设 `fp8`（在线动态 FP8，`--diffusion-quantization-config`；入口 `vllm_omni/quantization/factory.py`）；`diffusion/quantization/hsdp_fp8.py` 是它与 FSDP 的兼容层 | `--use_fp8_gemms`（`core/utils/runner_utils.py::quantize_linear_layers_to_fp8`、`model_executor/layers/fp8_linear.py`） |
+| INT4 / NVFP4 | `NunchakuLiteQuantizationConfig`（`quantizers/nunchaku/`） | `--enable-svdquant --transformer-weights-path`；`runtime/pipelines/flux_2_nvfp4.py` | ModelOpt NVFP4（`modelopt_fp4`）、SVDQuant NVFP4（`quantization/svdquant_config.py`） | `--use_fp4_gemms`（`quantize_linear_layers_to_fp4` / `_to_nvfp4`，部分模型） |
+| VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.use-tiling` / `use-temporal-tiling` 等；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（第五篇） |
+| 融合 fast path | — | `runtime/layers/fused_scale_shift_gate.py`、`--quality high` | `diffusion/layers/fused_qk_norm_rope.py` 等 | — |
 
 Table: 单卡优化机制在四个引擎里的实现对照
 
@@ -438,7 +438,7 @@ Table: 单卡优化机制在四个引擎里的实现对照
 | offload | 三段不必同时在卡；逐层预取的收益 = 每层计算 / 搬运 | 模型级 +1.3 s / 次；逐层：Wan 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） |
 | 文本编码器 | 只跑一次、4 MiB 输出：offload / 独立 stage / embedding 缓存 | T5-XXL 9 GiB |
 | attention 后端 | FA3 比 FA2 快 1.5–2×<br/>图像占 20% → 端到端 5–10%<br/>视频是主项 | SageAttention INT8 Q·K 有损、扩散可容忍 |
-| 编译 | 形状固定 + 每步相同 = 理想负载；eager 一半时间在小算子 | 6.71 → 4.30 s（1.56×）；漂移 SSIM 0.98 |
+| 编译 | 形状固定 + 每步相同 = 理想负载；eager 一半时间在小算子 | 6.71 → 4.30 s（1.56×）；漂移 SSIM 0.98 级（参考 BCG 实测） |
 | CUDA graph | 消 launch 开销<br/>扩散一步计算长、收益小于编译<br/>小模型 / 多卡 / 少步时重要 | Qwen-Image BCG 125 → 83 ms |
 | 量化 | 收益来自 Tensor Core 峰值，不来自字节 | FP8 GEMM 2× → 端到端 1.3–1.5×；Hopper 无 INT4 |
 | SVDQuant | 低秩分支吸收离群值 + Nunchaku 融合 kernel | FLUX 22 → 6.5 GiB；4090 上 3× vs W4A16 |
@@ -499,4 +499,4 @@ Table: 单卡扩散执行的规则与数字小结
 
 [^q1]: H100：eager 240 ms → compile 154 ms（xDiT 实测 6.71 → 4.30 s）→ FA3 约 140 → FP8 约 105 → SageAttention 约 95 ms（后三项按各方法公开加速比合成）。4090：bf16 + offload 约 40 s；SVDQuant INT4 + compile 约 12 s（Nunchaku：比 W4A16 快 3×）。详见[第八章](#八叠加顺序与收益表)。
 
-[^q2]: offload、VAE tiling、FA3 无损（bit-exact 级）；compile 有浮点漂移但 SSIM > 0.98 / PSNR > 40 dB，不可见；FP8 线性层约 36 dB，细看不可见；SageAttention 30–35 dB、SVDQuant INT4 约 30 dB，细纹理与文字渲染开始可见。判定标准是对同 seed 基线图的 PSNR / SSIM / LPIPS，不是 LLM 的困惑度。详见[第五章](#五量化换更快的-tensor-core)、[第八章](#八叠加顺序与收益表)。
+[^q2]: offload、VAE tiling、FA3 无损（bit-exact 级）；compile 有浮点漂移（参考同类手段 SGLang BCG 的实测：SSIM 0.984 / PSNR 39.7 dB），不可见；FP8 线性层约 36 dB，细看不可见；SageAttention 30–35 dB、SVDQuant INT4 约 30 dB，细纹理与文字渲染开始可见。判定标准是对同 seed 基线图的 PSNR / SSIM / LPIPS，不是 LLM 的困惑度。详见[第五章](#五量化换更快的-tensor-core)、[第八章](#八叠加顺序与收益表)。
