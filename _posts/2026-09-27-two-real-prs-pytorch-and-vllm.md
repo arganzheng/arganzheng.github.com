@@ -46,7 +46,7 @@ flowchart TB
 - **不知道 review 在等什么**。PyTorch 的那个 PR 开出来四小时之内就收到了 reviewer 的三条行内评论，没有一条是关于算法的：一条关于代码注释里的数字与 PR 描述不一致，一条关于注释里"Blackwell"指的是哪块卡，一条要求删掉一句 "Authored with Claude"。贡献者如果把 review 想成"检查算法对不对"，会对这些意见感到意外，甚至觉得是吹毛求疵；理解了 reviewer 在守什么（可维护性、数据来源可追溯、项目政策），就知道这些恰恰是必经的第一轮。
 - **不知道沉默意味着什么**。vLLM 的那个 PR 在开出后 47 天没有任何 maintainer 评论，期间 mergify 打了一次 `needs-rebase`，原 issue 被 stale bot 自动关闭。作者在这 47 天里没有 ping 过任何人。`docs/contributing/README.md` 写着"7 天没 review 可以 ping"，但知道这条规则和在第 8 天真的去 ping 是两回事。
 - **不知道 CI 失败的责任归属**。PyTorch 的 PR 合入时 `pull` 里两个 docs 任务失败，作者用 `@pytorchbot merge -i` 忽略——因为它改的是一个 `.cpp` 文件，Dr. CI 给出的失败原因是脚本退出码 127。vLLM 的 PR 第一次跑 Buildkite 有六个任务失败，全部是作者自己引入的：修好了一个边界之后，三个已有测试恰好卡在那个边界上。两种失败的处理方式完全不同，区分它们的依据在 CI 日志里而不在直觉里。
-- **不知道合入之后还有一段**。两个 PR 都在合入后被问"进了哪个版本"。PyTorch 的进了 v2.13.0；vLLM 的合入于 8 月 20 日，v0.28.0 在 8 月 26 日发布，但它**不在** v0.28.0 里——release 分支已经在此之前从 main 分出去了。截至 9 月 7 日它只存在于 v0.28.1rc0 与 v0.29.0 的几个 rc 标签中。不查 tag 就回答"在最新版里"，是错的。
+- **不知道合入之后还有一段**。两个 PR 都在合入后被问"进了哪个版本"。PyTorch 的进了 v2.13.0；vLLM 的合入于 8 月 20 日，v0.28.0 在 8 月 26 日发布，但它**不在** v0.28.0 里——v0.28.0 的 release 分支以 8 月 17 日的 main 为基点，之后只收 cherry-pick。截至 9 月 7 日它只存在于 v0.28.1rc0 与 v0.29.0 的几个 rc 标签中。不查 tag 就回答"在最新版里"，是错的。
 
 ### 2. 方法
 
@@ -286,7 +286,7 @@ Check mergeability of ghstack PR  pull_request  success   .github/workflows/chec
 
 `gh pr checks 185344` 列出 219 项：178 通过、39 跳过、2 失败。两个失败都是 `pull` 里的 `linux-docs / build-docs-cpp-false` 与 `build-docs-python-false`。Dr. CI 在 PR 顶部的评论把它们归为 "2 New Failures"，附的原因是 `[OSDC] Step script exited with code 127. This is a script/workflow error, not an infrastructure issue.`——退出码 127 是"命令找不到"，与一个只改 `.cpp` 的 PR 没有关系。（写作时这两个任务的日志已过期，无法进一步核对；在 v2.14.0 检出里 docs 构建已从 `pull.yml` 移到 `.github/workflows/docs-build.yml`，`pull.yml` 里只留了一段注释说明。）
 
-这两个失败直接影响了合入。`.github/merge_rules.yaml` 的 "Linear Algebra" 规则要求 `mandatory_checks_name` 为 `EasyCLA`、`Lint`、`pull`——`pull` 里任何一项失败，`@pytorchbot merge` 就会拒绝。第 6 节的时间线里能看到这一步。
+这两个失败直接影响了合入。`.github/merge_rules.yaml` 的 "Linear Algebra" 规则要求 `mandatory_checks_name` 为 `EasyCLA`、`Lint`、`pull`——它是这个文件命中的第一条规则（`patterns` 里有 `aten/src/ATen/native/cuda/linalg/**`，`approved_by` 是 mruberry、lezcano、IvanYashchuk 三人），所以 IvanYashchuk 的 approve 算数。`pull` 里的失败只有被 Dr. CI 归为 flaky 或 broken trunk 的才会被 `trymerge.py` 自动放过（`get_classifications` 加 `IGNORABLE_FAILED_CHECKS_THESHOLD`，至多 10 个）；这两个被归为 New Failures，`@pytorchbot merge` 就会拒绝。第 6 节的时间线里能看到这一步。
 
 ### 6. review
 
@@ -294,9 +294,9 @@ review 全部发生在 PR 开出后四小时内的一个窗口里，然后是四
 
 **2026-05-27 12:15–12:20，@IvanYashchuk** 提交一次 review，三条行内评论加一段总评。三条行内都针对新增的注释块：
 
-- 第 869 行附近："This says the rule is based on about 3200 points, while the PR description says about 3800 points and the validation table totals 3792. Can we make these numbers agree…This heuristic is benchmark-derived, so the provenance needs to be easy to trust later."
-- 第 900 行附近："What Blackwell? The PR description says 5090 was used, it's also Blackwell."
-- 第 902 行附近："The benchmark summary and the rule are useful future-reader context, but `Authored with Claude` does not help explain or maintain the heuristic. It's your code still."
+- 注释块开头的数据来源行（"Based on benchmarks across … about 3200 points"）："This says the rule is based on about 3200 points, while the PR description says about 3800 points and the validation table totals 3792. Can we make these numbers agree…This heuristic is benchmark-derived, so the provenance needs to be easy to trust later."
+- 注释块末尾的 `// FIXME: test on Blackwell with float32 via half emulation enabled (CUDA 13.2+).`："What Blackwell? The PR description says 5090 was used, it's also Blackwell."
+- 紧接着的 `// Authored with Claude.`："The benchmark summary and the rule are useful future-reader context, but `Authored with Claude` does not help explain or maintain the heuristic. It's your code still."
 
 总评："The direction is right. The old `m >= 512` cutoff is too coarse for batched square LU…" 然后提了一个更大的问题："Are you planning to add user-controlled overwrite of this choice? It could probably be done through…preferred_linalg_library adding a cublas option there."
 
@@ -470,7 +470,7 @@ git merge-base --is-ancestor 76fb6d210a57c7efbb61fa6cb029d1fa1911bfb5 v0.28.0; e
 gh api repos/vllm-project/vllm/releases --jq '.[] | "\(.tag_name) \(.published_at[:10]) prerelease=\(.prerelease)"' | head -3
 ```
 
-结果：包含它的 tag 是 `v0.28.1rc0`（2026-08-27）、`v0.29.0rc1`（09-01）到 `v0.29.0rc4`（09-04）；`merge-base --is-ancestor … v0.28.0` 返回 1——**不在 v0.28.0**。v0.28.0 的 tag 打于 08-24、GitHub release 发布于 08-26，但 `git merge-base v0.28.0 origin/main` 落在 08-17 的一个 commit（#52570）上，也就是 v0.28.0 的 release 分支在 8 月 17 日从 main 分出，之后只收 cherry-pick；08-20 合入 main 的东西自然不在里面。`RELEASE.md` 说 "We aim to have a regular release every 2 weeks"，且 "After branch cut … cherry picks are allowed in" 只限于明确的标准。截至 2026-09-07，这个修复没有进任何正式版本；一个 8 月 20 日合入的 bugfix，用户最早在 v0.29.0 正式发布后才能不打补丁地用上。
+结果：包含它的 tag 是 `v0.28.1rc0`（2026-08-27）、`v0.29.0rc1`（09-01）到 `v0.29.0rc4`（09-04）；`merge-base --is-ancestor … v0.28.0` 返回 1——**不在 v0.28.0**。v0.28.0 的 tag 打于 08-24、GitHub release 发布于 08-26，但 `git merge-base v0.28.0 origin/main` 落在 08-17 合入 main 的 #52570 上：`releases/v0.28.0` 分支以它为基点，之后的 13 个 commit（08-20 到 08-24）都是带 `(cherry picked from commit …)` 的 cherry-pick；08-20 合入 main 的 #47272 不在其中，自然不在 v0.28.0。`RELEASE.md` 说 "We aim to have a regular release every 2 weeks"，"Release Branch" 一节还写着 minor 版本的 "release branch cut is performed 1-2 days before release is live"——这次分支基点却比 release 早 9 天，所以只读文档推不出某个 commit 在不在某一版，要用 tag 与 merge-base 核对。cut 之后的 cherry-pick 只收 "Cherry-Pick Criteria" 列出的五类（regression、critical fix、新功能的修复、文档、release 分支专用改动），"No feature work allowed for cherry picks"。截至 2026-09-07，这个修复没有进任何正式版本；一个 8 月 20 日合入的 bugfix，用户最早在 v0.29.0 正式发布后才能不打补丁地用上。
 
 follow-up 与 revert：
 
