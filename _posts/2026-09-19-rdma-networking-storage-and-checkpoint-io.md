@@ -5,7 +5,7 @@ title: "AI 平台工程（05）：网络与存储——RDMA 进容器、并行�
 subtitle: "Networking and Storage: RDMA in Containers, Parallel File Systems and Checkpoint I/O"
 tags: [Kubernetes, GPU, RDMA, 存储, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个 8 节点 64 卡的训练任务在裸机上跑通了，`all_reduce_perf` 的大消息 busbw 接近网卡的标称值。同一个镜像、同一套 NCCL 环境变量搬到 Kubernetes 上，Pod 全部 Running，任务也在正常推进，只是 step time 慢了两倍多。再跑一次 `all_reduce_perf`，busbw 只剩裸机的三分之一。日志里没有报错，`nvidia-smi` 显示八张卡都在，`ibstat` 在宿主机上也一切正常。
@@ -129,7 +129,7 @@ Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有三�
 
 ### 2. `NetworkAttachmentDefinition` 与三个注解
 
-附加网络用 CRD `NetworkAttachmentDefinition`（API 组 `k8s.cni.cncf.io/v1`，Network Plumbing WG 的事实标准）描述，`spec.config` 就是一段 CNI 配置 JSON。Pod 用注解引用它。Multus v4.3.0 `pkg/k8sclient/k8sclient.go` 里定义了三个关键注解：
+附加网络用 CRD `NetworkAttachmentDefinition`（API 组 `k8s.cni.cncf.io/v1`，Network Plumbing WG 的事实标准）描述，`spec.config` 就是一段 CNI 配置 JSON。Pod 用注解引用它。Multus v4.3.0 用到三个关键注解（前两个是 `pkg/k8sclient/k8sclient.go` 里的常量，`network-status` 来自 network-attachment-definition-client 的 `NetworkStatusAnnot`，由 `SetPodNetworkStatusAnnotation` 写回）：
 
 - **k8s.v1.cni.cncf.io/networks**：Pod 上：要挂哪些附加网络。逗号分隔的名字，或 JSON 数组（可带 interface、ips、mac、gateway）
 - **k8s.v1.cni.cncf.io/resourceName**：NAD 上：这个网络要消耗哪个 device plugin 资源；Multus 据此把 kubelet 分配的设备信息传给 delegate
@@ -404,15 +404,15 @@ GPUDirect RDMA 需要 GPU 驱动侧的 `nvidia_peermem` 模块（把显存作为
 
 ### 3. 两个 Operator 的顺序
 
-两者的依赖关系是：**nvidia_peermem 要针对当前的 OFED 内核模块编译并在其后加载**。所以推荐顺序是 Network Operator 的 OFED 驱动先就位，GPU Operator 的驱动容器再启动；OFED 升级重载后，`nvidia-peermem-ctr` 的 `reload_nvidia_peermem` 负责重新加载。Network Operator 用节点标签 `network.nvidia.com/operator.mofed.wait` 表达"OFED 尚未就绪"（`controllers/mofed_wait_labels.go` 设置；`pkg/nodeinfo/attributes.go` 的 `NodeLabelWaitOFED`），GPU Operator 在 `internal/nodeinfo/attributes.go` 里定义了同名常量；这个标签也出现在 Network Operator Helm values 的 `configDaemonNodeSelector` 里。两个 Operator 各自的 Helm 参数与安装顺序以 NVIDIA 文档为准，本篇只说明机制。把这条依赖链画出来，两个 Operator 之间靠的是一个宿主机路径和一个节点标签：
+两者的依赖关系是：**nvidia_peermem 要针对当前的 OFED 内核模块编译并在其后加载**。所以推荐顺序是 Network Operator 的 OFED 驱动先就位，GPU Operator 的驱动容器再启动；OFED 升级重载后，`nvidia-peermem-ctr` 的 `reload_nvidia_peermem` 负责重新加载。Network Operator 用节点标签 `network.nvidia.com/operator.mofed.wait` 表达"OFED 尚未就绪"（`controllers/mofed_wait_labels.go` 设置：`mofed-container` 未 Ready 时为 `"true"`，Ready 后改为 `"false"`，标签并不删除；`pkg/nodeinfo/attributes.go` 的 `NodeLabelWaitOFED`）；这个标签出现在 Network Operator Helm values 的 `sriovOperatorConfig.configDaemonNodeSelector` 里（`mofed.wait: "false"`）。GPU Operator 在 `internal/nodeinfo/attributes.go` 里定义了同名常量，但 v26.7.0 的控制器并不读它；GPU 侧认的是 OFED 容器在 `/run/mellanox/drivers` 下写出的 `.driver-ready`（Network Operator 的 OFED 容器探针查的就是它，GPU Operator validator 的 `MOFED.runValidation` 也 `stat` 这个文件）。两个 Operator 各自的 Helm 参数与安装顺序以 NVIDIA 文档为准，本篇只说明机制。把这条依赖链画出来，两个 Operator 之间靠的是同一个宿主机路径：
 
 ```mermaid
-%% 图：两个 Operator 的顺序：Network Operator 的 OFED 驱动先就位并移除 wait 标签，GPU Operator 的驱动容器再启动并加载 nvidia_peermem
+%% 图：两个 Operator 的顺序：Network Operator 的 OFED 驱动先就位并写出 .driver-ready，GPU Operator 的驱动容器再启动并加载 nvidia_peermem
 flowchart TB
     NCP["NicClusterPolicy.spec.ofedDriver<br/>（Network Operator）"]
     OFED["OFED / DOCA 驱动容器 DaemonSet<br/>加载 mlx5_core · ib_core · ib_uverbs · rdma_cm"]
     Publish["<b>驱动树发布到宿主机</b><br/>/run/mellanox/drivers"]
-    WaitLabel["节点标签 network.nvidia.com/operator.mofed.wait<br/>OFED 就绪前存在，就绪后移除"]
+    WaitLabel["节点标签 network.nvidia.com/operator.mofed.wait<br/>OFED 就绪前为 true，就绪后改为 false"]
     CP["ClusterPolicy.spec.driver.rdma.enabled = true<br/>（GPU Operator）"]
     GPUDrv["<b>GPU 驱动容器 DaemonSet</b><br/>nvidia / nvidia_uvm / nvidia_modeset"]
     Peermem["<b>nvidia-peermem-ctr sidecar</b><br/>挂 /run/mellanox/drivers（HostToContainer）<br/>reload_nvidia_peermem：针对当前 ib_core 编译并加载"]
@@ -423,7 +423,7 @@ flowchart TB
     NCP --> OFED --> Publish
     OFED --> WaitLabel
     CP --> GPUDrv --> Peermem
-    WaitLabel -- "GPU Operator 用同名常量判断 OFED 是否就绪" --> GPUDrv
+    Publish -- ".driver-ready 出现 = OFED 就绪" --> GPUDrv
     Publish -- "peermem 必须针对这套 ib_core 编译、在其后加载" --> Peermem
     Peermem --> Validator --> Ready
     Upgrade --> OFED
@@ -550,7 +550,7 @@ mpirun -np 16 -N 8 -H nccl-tests-0.nccl-tests:8,nccl-tests-1.nccl-tests:8 \
 | `NET/Socket : Using [0]eth0:10.244.2.6<0>` | `src/transport/net_socket.cc` | socket transport 用的接口。若这是最终选择，就是回落 |
 | `Using network IB   /   Using network Socket` | `src/init.cc` | 最终选择。看到 Socket 就不用再看带宽了 |
 | `Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA` | `src/transport/net.cc` | 每个跨机连接用的网卡编号<br/>有 `/GDRDMA` 说明 GPUDirect RDMA 生效，没有 `/GDRDMA` 就是经 host 内存中转<br/>(PCI) 后缀是 GDR 的 PCI 模式 |
-| `GPU Direct RDMA Disabled for GPU 3 / HCA … (distance 5 > 3)` | `src/graph/paths.cc` | peermem/DMA-BUF 在但拓扑距离超过 `NCCL_NET_GDR_LEVEL` |
+| `GPU Direct RDMA Disabled for GPU 3 / HCA … (distance 9 > 5)` | `src/graph/paths.cc` | peermem/DMA-BUF 在但拓扑距离超过 `NCCL_NET_GDR_LEVEL` |
 
 Table: NCCL_DEBUG=INFO 里要看的几行
 
@@ -1131,7 +1131,7 @@ mini-platform/
 
    <details markdown="1"><summary>答案</summary>
 
-   `NCCL_NET_GDR_LEVEL` 默认 `PXB`，路径超过它 GDR 被关，数据经主机内存中转，带宽打折；日志 `GPU Direct RDMA Disabled for HCA ... (distance N > 3)`、连接行没有 `/GDRDMA`。修：让 device plugin 的 GPU 与 RDMA 分配带拓扑亲和（SR-IOV plugin + 节点拓扑、或每 GPU 一个 rdma 资源组），而不是直接放宽 `GDR_LEVEL`。
+   `NCCL_NET_GDR_LEVEL` 默认 `PXB`，路径超过它 GDR 被关，数据经主机内存中转，带宽打折；日志 `GPU Direct RDMA Disabled for GPU ... / HCA ... (distance N > 5)`（2.28.9 里 `PATH_PXB` = 5）、连接行没有 `/GDRDMA`。修：让 device plugin 的 GPU 与 RDMA 分配带拓扑亲和（SR-IOV plugin + 节点拓扑、或每 GPU 一个 rdma 资源组），而不是直接放宽 `GDR_LEVEL`。
 
    </details>
 
