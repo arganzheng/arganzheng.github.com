@@ -6,6 +6,7 @@ subtitle: "Contributing to AI-Infra Open Source: Series Recap and Final Self-Tes
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
 date: 2026-09-27 20:00:00
+updated: 2026-11-14
 ---
 
 四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
@@ -34,7 +35,7 @@ flowchart TB
 |---|---|---|---|
 | [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`<br/>vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`<br/>发布约 2 个月 vs 约 2 周<br/>引言案例四十分钟得出"已在 v2.11.0 修复" |
 | [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签<br/>vLLM 63 个标签、`closed-as-slop` 97<br/>RFC 门槛 >500 LOC（不含 kernel / data / config / test）<br/>stale 90 + 30 天<br/>#191394 下 5 个 open PR |
-| [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
+| [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、48 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
 | [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
 
 Table: 四篇的核心问题、结论与必记判据
@@ -61,10 +62,10 @@ Table: 本文的章节安排
 
 **必记**：
 
-- 规模与分层：PyTorch 21663 个文件约 475 万行，`c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 6596 个文件约 202 万行，`csrc/` → `vllm/`，`tests/` 40 个子目录对应 `vllm/` 子系统。
+- 规模与分层：PyTorch 21588 个文件约 475 万行，`c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 6596 个文件约 202 万行，`csrc/` → `vllm/`，`tests/` 40 个子目录对应 `vllm/` 子系统。
 - 构建：PyTorch `pip install -e . -v --no-build-isolation`（纯 Python 用 `tools/nightly.py`）；vLLM `VLLM_USE_PRECOMPILED=1 uv pip install -e .` 跳过 CUDA 编译，改 kernel 用 `cmake --preset release` 增量。
 - 测试框架三件套：`TestCase` / `run_tests`、`instantiate_device_type_tests`（CI 里的 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 要去掉后缀找源码）、OpInfo。
-- 发布节奏：PyTorch 约 2 个月一个 minor、cut 到发布 3–4 周、`@pytorchbot cherry-pick -c regression` 等五种理由；vLLM 约 2 周一版、cut 到发布 1–2 天。
+- 发布节奏：PyTorch 约 2 个月一个 minor、cut 到发布 3–4 周、`@pytorchbot cherry-pick -c regression` 等五种理由；vLLM 约 2 周一版、文档写 cut 到发布 1–2 天，但 v0.28.0 的分支基点比发布早 9 天、其间收了 13 个 commit。
 
 **常见误解**："仓库不完整、头文件丢了"——`ATen/ops/logaddexp_native.h` 在源码树里确实不存在，它由 `torchgen` 构建时生成，回 yaml 读比读生成物快。另一个："构建好了才能开始读"——两条追踪四五条 `rg` 就走完，引言的案例四十分钟得出"已在 v2.11.0 修复"的结论。
 
@@ -91,7 +92,7 @@ Table: 本文的章节安排
 
 **必记**：
 
-- PyTorch：2000 行硬上限；61 个 linter；148 个 workflow；49 个 `ciflow/*`（需写权限）；`merge_rules.yaml` 33 条，每条 `patterns` / `approved_by` / `mandatory_checks_name`（几乎都是 `EasyCLA`、`Lint`、`pull`），`Core Maintainers` 兜底；合入还需 `release notes:` 或 `topic: not user facing` 标签。
+- PyTorch：2000 行硬上限；61 个 linter；148 个 workflow；48 个 `ciflow/*`（需写权限）；`merge_rules.yaml` 33 条，每条 `patterns` / `approved_by` / `mandatory_checks_name`（几乎都是 `EasyCLA`、`Lint`、`pull`），最后三条 `'*'` 规则（Metamates、Core Reviewers、Core Maintainers）兜底；按文件顺序取第一条通过的规则，检查顺序是全局暂停 → approver → 标签 → 必过 check；合入还需 `release notes:` 或 `topic: not user facing` 标签。
 - vLLM：500 行 RFC 线、6 个 open PR 上限；35 个 test_area；pre-commit 需 `verified` / `ready` 或作者 ≥4 个合入 PR；`/ci run` 授权链：写权限 → 受信名单 → 非作者拒绝 → draft 拒绝 → `ready` 标签 → 受信 reviewer 的 approval；`run_all_patterns`（`csrc/`、`CMakeLists.txt`、`setup.py` 等）改了就全跑。
 - benchmark 六要素：基线、对比、硬件、shape、方法与命令、不利 case；vLLM kernel 脚本放 `benchmarks/kernels/`，端到端用 `vllm bench`（`benchmarks/benchmark_*.py` 在 v0.28.0 只是弃用桩）。
 - 签名与 review：CLA 签一次 vs DCO 每个 commit `-s`（漏签要 rebase 重写）；PyTorch 4 个工作日无回应留言、再去每周五 Office Hours；vLLM 7 天可 ping、`pr-review-request@vllm.ai` 加急。
@@ -165,7 +166,7 @@ Table: 贯穿四篇的概念及其关系
 | typo PR 是最安全的第一个 PR | vLLM 明文不接受 busywork<br/>PyTorch 受 `AI_POLICY.md` 约束<br/>`closed-as-slop` 已打在 97 个 PR 上 | 做成有范围、有依据、能说出"怎么找全"的 systematic 批次 | [第二篇](/finding-your-entry-point-in-open-source.html) |
 | vLLM 的 PR 开出来 CI 是灰的，等它自己跑 | 默认只跑 pre-commit 且有门槛<br/>测试任务要 `/ci run`<br/>新 commit 不自动重跑 | 本地 `pre-commit run --all-files`<br/>等 reviewer 敲 `/ci run` 或打 `ready`<br/>每次 push 后重新敲 | [第三篇](/landing-a-mergeable-change.html) |
 | review 意见是在检查算法对不对 | #185344 的三条意见全是注释与来源 | 提交前用描述里的数字校对代码注释；署名放描述不放代码 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
-| 合入了就在最新版里 | #47272 合入六天后 v0.28.0 发布却不含它——分支已于 08-17 切出 | `git tag --contains <sha>`；`merge-base --is-ancestor` 核对 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
+| 合入了就在最新版里 | #47272 合入六天后 v0.28.0 发布却不含它——分支基点是 08-17 的 main，之后只收 cherry-pick | `git tag --contains <sha>`；`merge-base --is-ancestor` 核对 | [第四篇](/two-real-prs-pytorch-and-vllm.html) |
 
 Table: 常见误区与正确说法
 
@@ -209,7 +210,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   大概率失败。`find_matching_merge_rule` 要找一条"改动的每个文件都匹配 `patterns`、且至少一个 approver 在 `approved_by` 里"的规则；linalg maintainer 不在 distributed checkpoint 规则的名单里，除非他同时在兜底规则 `Core Maintainers` 里。标签与 checks 已满足，拒绝信息会指出差的是哪条规则。
+   大概率失败。`find_matching_merge_rule` 要找一条"改动的每个文件都匹配 `patterns`、且至少一个 approver 在 `approved_by` 里"的规则；linalg maintainer 不在 distributed checkpoint 规则的名单里，除非他同时在三条 `'*'` 兜底规则（Metamates、Core Reviewers、Core Maintainers）之一的名单里——v2.14.0 的 "Linear Algebra" 规则列了 mruberry、lezcano、IvanYashchuk 三人，前两位也在 Core Reviewers 里，他们的 approve 会成功；IvanYashchuk 不在任何兜底名单里，他的 approve 会被拒。标签与 checks 已满足，拒绝信息会指出差的是哪条规则（"Approvers from one of the following sets are needed"，列出 DCP、Distributed 与三条兜底规则各自的名单）。
 
    </details>
 
@@ -217,7 +218,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   2.14 的 branch cut 是 2026-08-10，cut 之后 "new features are not added to the release branch"，所以进 2.15（cut 09-28、发布 10-28）。regression fix 可以在 release tracker issue 里提名 `@pytorchbot cherry-pick -c regression` 进 2.14 的 patch 版本。
+   2.14 的 branch cut 是 2026-08-10，cut 之后 "new features are not added to the release branch"，所以进 2.15（cut 09-28、发布 10-28）。regression fix 可以在 release tracker issue 里提名 `@pytorchbot cherry-pick -c regression`：08-15 时 2.14.0 还没发布（9 月 2 日），所以能进 2.14.0 本身的 RC。
 
    </details>
 
@@ -275,7 +276,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：`RELEASE.md`——vLLM 约两周一版、branch cut 在发布前 1–2 天、cut 后只收符合准则的 cherry-pick；PyTorch 约两个月一版、cut 到发布 3–4 周。第四篇：不要凭节奏猜，用 `git tag --contains <sha>` 与 `git merge-base --is-ancestor` 核对——#47272 08-20 合入、v0.28.0 08-26 发布却不含它，因为分支 08-17 已切出；#185344 06-01 合入，进了 07-08 发布的 v2.13.0。
+   第一篇：`RELEASE.md`——vLLM 约两周一版、文档写 branch cut 在发布前 1–2 天（v0.28.0 实际基点早 9 天）、cut 后只收符合准则的 cherry-pick；PyTorch 约两个月一版、cut 到发布 3–4 周。第四篇：不要凭节奏猜，用 `git tag --contains <sha>` 与 `git merge-base --is-ancestor` 核对——#47272 08-20 合入、v0.28.0 08-26 发布却不含它，因为分支 08-17 已切出；#185344 06-01 合入，进了 07-08 发布的 v2.13.0。
 
    </details>
 
@@ -331,7 +332,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) PyTorch 推送即跑、分层触发：`pull` + `Lint` 必跑，其余靠 `ciflow/*` 标签（49 个，需写权限）；(2) vLLM 默认不跑、按需触发：PR 上只有 pre-commit 且需 `verified` / `ready` 或 ≥4 合入 PR，测试任务要 `/ci run`，新 commit 不自动重跑；(3) vLLM 按 `source_file_dependencies` 选任务，`run_all_patterns`（`csrc/` 等）例外全跑；(4) 所以 PyTorch 的绿可能还没跑 trunk，vLLM 的灰不是绿；(5) 红了先看 main。
+   **答案要点**：(1) PyTorch 推送即跑、分层触发：`pull` + `Lint` 必跑，其余靠 `ciflow/*` 标签（48 个，需写权限）；(2) vLLM 默认不跑、按需触发：PR 上只有 pre-commit 且需 `verified` / `ready` 或 ≥4 合入 PR，测试任务要 `/ci run`，新 commit 不自动重跑；(3) vLLM 按 `source_file_dependencies` 选任务，`run_all_patterns`（`csrc/` 等）例外全跑；(4) 所以 PyTorch 的绿可能还没跑 trunk，vLLM 的灰不是绿；(5) 红了先看 main。
    **追问方向**：`ciflow/trunk` 的实现（bot 打 git tag）；"Which commit is used in CI?"；`mirror: amd` 为什么失败成对。
    **好答案与一般答案的区别**：一般答案说"一个用 GitHub Actions 一个用 Buildkite"；好答案说出两种哲学（机器换时间 vs 人的判断换机器）与对新贡献者的具体后果。
 
@@ -402,5 +403,5 @@ Table: 掌握程度的判据
 
 
 [^q0]: 四个：给一个报错能不能两小时定位到函数、靠什么（登记表、生成代码、测试即规格、历史即注释）；maintainer 最想要哪类工作、怎么判断题一周后不被关（`actionable` / `help wanted`、maintainer 最后一条评论、open PR 数、RFC 门槛、硬件、政策）；reviewer 的十分钟要确认什么、diff / 描述 / 测试 / CI 各答哪个问题；小 PR 的时间花在哪、哪些可省哪些是正常成本（数据是正常成本，等待大半可省）。详见[第二章](#二逐篇回顾)。
-[^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、48 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

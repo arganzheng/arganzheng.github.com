@@ -221,7 +221,7 @@ Table: 三条交织的线索
   - vLLM 的 PR 模板要求 Purpose、Test Plan、Test Result 三段，标题必须带 `[Bugfix]`、`[Kernel]`、`[Core]`、`[Model]`、`[Doc]` 等前缀
   - PyTorch 的 `.github/PULL_REQUEST_TEMPLATE/` 下有三个模板（修 issue、文档/typo、预先批准），修 issue 的 PR 必须写 `Fixes #`，"没有关联 issue 的 PR 可能被自动关闭"，描述"过于冗长会被视为 spam"
 - DCO 与签名：
-  - vLLM 要求每个 commit 带 `Signed-off-by`（`git commit -s`），`pre-commit` 的 `signoff-commit` 钩子和 `mergify` 都会检查
+  - vLLM 要求每个 commit 带 `Signed-off-by`（`git commit -s`），由 GitHub 上的 DCO check 检查；`pre-commit` 的 `signoff-commit` 钩子在本地自动补上这一行，`mergify` 的 `comment-dco-failure` 规则在检查失败时留言
   - PyTorch 走 CLA
 - CI 矩阵：
   - PyTorch 的 `.github/workflows/` 下有一百多个 workflow，`pull.yml` 在每个 PR 上跑，`trunk.yml`、`periodic.yml`、`slow.yml`、`inductor.yml` 在 main 上、按周期或按标签触发，`ciflow/` 标签（`.github/pytorch-probot.yml` 列出）用来手动拉起某一组任务

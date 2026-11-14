@@ -73,14 +73,14 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart LR
     M["合入 main"] --> Q1{"release branch<br/>切了吗？"}
-    Q1 -->|"没切"| N["<b>进这一版</b><br/>PyTorch cut 后 3–4 周发布<br/>vLLM cut 后 1–2 天"]
+    Q1 -->|"没切"| N["<b>进这一版</b><br/>PyTorch cut 后 3–4 周发布<br/>vLLM 文档写 cut 后 1–2 天<br/>（v0.28.0 基点早 9 天）"]
     Q1 -->|"切了"| Q2{"符合 cherry-pick 准则？<br/>regression / critical"}
-    Q2 -->|"是"| CP["<b>cherry-pick</b><br/>PyTorch：tracker issue 提名<br/>vLLM：窗口 1–2 天"]
+    Q2 -->|"是"| CP["<b>cherry-pick</b><br/>PyTorch：tracker issue 提名<br/>vLLM：v0.28.0 收了 13 个"]
     Q2 -->|"新功能"| NX["<b>等下一版</b><br/>PyTorch 约 2 个月<br/>vLLM 约 2 周"]
 ```
 
 <aside class="notes" markdown="1">
-两份 RELEASE.md 合成的判断：branch cut 与 cherry-pick 准则决定改动进哪一版。PyTorch 用 `@pytorchbot cherry-pick -c <类别>`；vLLM "No feature work allowed for cherry picks"。原文 /reading-a-million-line-codebase.html 第七章。
+两份 RELEASE.md 合成的判断：branch cut 与 cherry-pick 准则决定改动进哪一版。PyTorch 用 `@pytorchbot cherry-pick -c <类别>`；vLLM "No feature work allowed for cherry picks"。vLLM 文档写 branch cut 在发布前 1–2 天，但 v0.28.0 的分支基点是 08-17 的 main、08-20 到 08-24 收了 13 个 commit、08-26 发布：进没进某一版以 tag 为准。原文 /reading-a-million-line-codebase.html 第七章。
 </aside>
 
 ---
@@ -141,7 +141,7 @@ RFC-0058（pytorch/rfcs #106，截至 2026-09 仍 open）给每个状态的定�
 |---|---|---|
 | 大小 | 2000 行硬上限 | 6 个 open PR 上限 |
 | lint | 61 个 linter | pre-commit；需 `verified` / `ready` 或 ≥ 4 个合入 PR 才自动跑 |
-| CI | 148 个 workflow、49 个 `ciflow/*`、33 条 merge rule | 35 个 test_area；测试任务要 `/ci run`，新 commit 不自动重跑 |
+| CI | 148 个 workflow、48 个 `ciflow/*`、33 条 merge rule | 35 个 test_area；测试任务要 `/ci run`，新 commit 不自动重跑 |
 | 催 | 4 个工作日 | 2–3 天 / 7 天 |
 | 签名 | CLA | DCO 每个 commit |
 
@@ -192,7 +192,7 @@ flowchart TB
 | diff | +104 −0 | +109 −16 |
 | 时间线 | 27 天采 3792 个点 → PR 5 天 | 47 天无 review、**未 ping** |
 | review | 3 小时 42 分收到；三条意见全是注释与来源 | 6 个自己引入的 CI 失败 |
-| 合入 | `merge -i`，进 v2.13.0 | 合入 08-20，**不在 v0.28.0**（分支 08-17 切出） |
+| 合入 | `merge -i`，进 v2.13.0 | 合入 08-20，**不在 v0.28.0**（分支基点 08-17） |
 
 <aside class="notes" markdown="1">
 原文 /two-real-prs-pytorch-and-vllm.html。
