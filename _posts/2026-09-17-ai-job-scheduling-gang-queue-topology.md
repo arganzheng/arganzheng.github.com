@@ -18,7 +18,11 @@ updated: 2026-09-14
 
 > **两个团队各有 16 卡的配额，A 团队提交了一个 32 卡的任务，B 团队的卡空着。在 Volcano、Kueue 和 Slurm 里，这个任务分别会怎样？[^q0] 借用、抢占、等待三种行为各自的配置是什么？[^q1]**
 
-读完本篇你应该能做三件事：面对一个 Pending 的训练任务，说出它卡在哪一层（配额没准入、gang 没凑齐、拓扑约束不满足、还是节点碎片）；为一个多团队 GPU 集群选出 Volcano 或 Kueue 并写出配额定义；把一个 `torchrun` 任务用 Kubeflow Trainer 的 `TrainJob` 表达出来并接到队列上。
+读完本篇你应该能做三件事：
+
+1. 面对一个 Pending 的训练任务，说出它卡在哪一层（配额没准入、gang 没凑齐、拓扑约束不满足、还是节点碎片）。
+2. 为一个多团队 GPU 集群选出 Volcano 或 Kueue 并写出配额定义。
+3. 把一个 `torchrun` 任务用 Kubeflow Trainer 的 `TrainJob` 表达出来并接到队列上。
 
 源码与 API 以下列版本为准：Volcano v1.15.2（`scheduling.volcano.sh/v1beta1`、`batch.volcano.sh/v1alpha1`、`topology.volcano.sh/v1alpha1`）、Kueue v0.19.2（`kueue.x-k8s.io/v1beta2`）、Kubeflow Trainer v2.3.0（`trainer.kubeflow.org/v1alpha1`）、KubeRay v1.7.0（`ray.io/v1`）、Slinky slurm-operator v1.2.2（`slinky.slurm.net/v1beta1`，仅对照）、Kubernetes v1.37.0。引用格式为"仓库 路径 的 类型/字段/函数"，不给行号。
 
@@ -425,7 +429,12 @@ Table: Volcano v1.15.2 与 Kueue v0.19.2 对比
 
 **Volcano 适合"调度器本身就是问题"的场景**：任务几乎全是批处理，需要精细的节点级决策（binpack 减少碎片、NUMA、拓扑 tier），需要 task 级别的弹性（minAvailable < replicas 的弹性训练），团队有能力维护一个非默认调度器。它的对象模型（Job / task / PodGroup）也更贴近 HPC 用户的直觉——`minAvailable` 就是 `sbatch -N`。
 
-**Kueue 适合"多租户配额是主要问题"的场景**：集群上训练和推理混跑，推理服务不该被换调度器；多个团队要按 flavor（H100 / A100 / spot）分配额、互相借用；任务类型多样（Job、JobSet、RayJob、TrainJob 甚至 Deployment），希望用同一套队列管；在云上需要和 Cluster Autoscaler 配合先扩容再启动。它对现有集群的侵入最小。
+**Kueue 适合"多租户配额是主要问题"的场景**，它对现有集群的侵入最小：
+
+- 集群上训练和推理混跑，推理服务不该被换调度器；
+- 多个团队要按 flavor（H100 / A100 / spot）分配额、互相借用；
+- 任务类型多样（Job、JobSet、RayJob、TrainJob 甚至 Deployment），希望用同一套队列管；
+- 在云上需要和 Cluster Autoscaler 配合先扩容再启动。
 
 **能不能一起用？**机制上不冲突：Kueue 管准入（`suspend`），Volcano 管调度（`schedulerName: volcano`），一个在 Pod 之前一个在 Pod 之后。但两边各有一套配额，重复定义会互相打架（Kueue 准入了、Volcano 的 Queue 又把它挡住），实际部署里很少同时启用，两个项目的文档也都没有把对方作为推荐组合。更常见的组合是 Kueue + kube-scheduler（+ TAS 补拓扑），或 Volcano 单独。
 

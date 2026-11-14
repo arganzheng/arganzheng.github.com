@@ -32,7 +32,11 @@ updated: 2026-09-14
 - **推理引擎**要求平台按它的指标而不是 CPU 利用率做决策。vLLM 暴露的 `vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT / TPOT 直方图是扩缩容与路由的输入（第六、七篇），也是 SLO 的定义域。它还要求平台把 token 数记账：`vllm:prompt_tokens_total` 与 `vllm:generation_tokens_total` 按模型累计，但**按租户**的计数只能在网关做——引擎不知道请求属于谁。
 - **两类引擎共同要求**：一张卡的硬件指标能归到一个 Pod、一个队列、一个团队。没有这条映射，利用率只能按节点看，账单只能按集群算。
 
-不满足会发生什么：训练任务变慢时只能看到"GPU 利用率 100%"（NCCL kernel 自旋也算 100%），查不出是通信还是硬件；推理服务扩容依据错误的信号，晚高峰超时而平时浪费；账单只有一个总数，每个团队都说"不是我用的"。
+不满足会发生什么：
+
+- 训练任务变慢时只能看到"GPU 利用率 100%"（NCCL kernel 自旋也算 100%），查不出是通信还是硬件；
+- 推理服务扩容依据错误的信号，晚高峰超时而平时浪费；
+- 账单只有一个总数，每个团队都说"不是我用的"。
 
 ### 2. K8s 的空缺
 
@@ -1016,7 +1020,15 @@ if __name__ == "__main__":
 
 脚本的四步对应第七、八章的模型：按 `UUID + pod` 积分得到每段分配的 GPU 小时（按分配计费）；按卡型与 MIG profile 取单价；用 `SM_ACTIVE` 的积分算每团队的"忙的 GPU 小时"与闲置比例；用 `vllm:generation_tokens_total` 的增量算每模型的每百万 token 成本，再用 EPP 的 `fairness_id` 把模型成本按 token 占比分到租户。跑在前几篇的集群上，结果的形状（不给假测量，读者代入自己的数字）应当是：训练团队 GPU 小时多、U 在 40%–60%；推理服务 U 随负载变化大，压测时段每百万 token 成本比空闲时段低一个数量级；`unlabeled` 一行如果不为零，说明有 GPU Pod 没打 `team` label——这是准入策略（ValidatingAdmissionPolicy 或网关的 webhook）该拦下的。
 
-到这里，`mini-platform/` 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`cluster/` 与 `probes/` 是裸集群与第一个 Pending 的 GPU Pod；`gpu/` 装上 GPU Operator 与 DRA；`sched/` 用 Kueue 与 Volcano 跑通两队列 cohort 下的 DDP；`share/` 在一张卡上放两个服务并验证隔离；`net/` 与 `storage/` 把 RDMA 与 checkpoint 存储接进容器；`serve/` 与 `gateway/` 把 vLLM 变成有扩缩容、有路由、有配额的服务；`obs/` 与 `cost/` 让全部这些有一张看板和一份账单。
+到这里，`mini-platform/` 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：
+
+- `cluster/` 与 `probes/` 是裸集群与第一个 Pending 的 GPU Pod；
+- `gpu/` 装上 GPU Operator 与 DRA；
+- `sched/` 用 Kueue 与 Volcano 跑通两队列 cohort 下的 DDP；
+- `share/` 在一张卡上放两个服务并验证隔离；
+- `net/` 与 `storage/` 把 RDMA 与 checkpoint 存储接进容器；
+- `serve/` 与 `gateway/` 把 vLLM 变成有扩缩容、有路由、有配额的服务；
+- `obs/` 与 `cost/` 让全部这些有一张看板和一份账单。
 
 ## 十三、自测
 

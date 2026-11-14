@@ -317,19 +317,23 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 - **第七篇**：Inference Gateway · InferencePool · 租户配额；对比轮询与 KV 感知路由
 - **第八篇**：DCGM + Prometheus + Grafana · 成本分摊；一张看板，一份账单
 
-到第八篇结束，读者手上有一个能提交训练任务、能部署和扩缩推理服务、能按租户限流、能看到利用率和成本的平台。它的每个组件都是生产环境里在用的，差别只在规模和高可用配置。硬件要求会在每篇标注：大部分内容用云上三到四台单卡实例就能完成；MIG 需要 A100 / H100 这类数据中心 GPU；RDMA 部分需要带 IB 或 RoCE 网卡的实例，没有的话用 host network 完成配置走读。
+到第八篇结束，读者手上有一个能提交训练任务、能部署和扩缩推理服务、能按租户限流、能看到利用率和成本的平台。它的每个组件都是生产环境里在用的，差别只在规模和高可用配置。硬件要求会在每篇标注：
+
+- 大部分内容用云上三到四台单卡实例就能完成；
+- MIG 需要 A100 / H100 这类数据中心 GPU；
+- RDMA 部分需要带 IB 或 RoCE 网卡的实例，没有的话用 host network 完成配置走读。
 
 与它平行的源码与文档阅读线。平台层的"源码"更多是 CRD 定义、Operator 的 reconcile 逻辑和官方设计文档：
 
 | 篇 | 源码与文档 |
 |---|---|
 | 第二篇 | k8s-device-plugin `cmd/nvidia-device-plugin` · `api/config/v1`；kubernetes KEP-4381（DRA structured parameters） |
-| 第三篇 | kueue `apis/kueue/v1beta2` · `pkg/scheduler`；volcano `pkg/scheduler/plugins/gang`；trainer `pkg/runtime` |
+| 第三篇 | kueue `apis/kueue/v1beta2` · `pkg/scheduler`<br/>volcano `pkg/scheduler/plugins/gang`<br/>trainer `pkg/runtime` |
 | 第四篇 | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
-| 第五篇 | network-operator NicClusterPolicy CRD；k8s-rdma-shared-dev-plugin；nccl-tests；PyTorch `torch/distributed/checkpoint` |
-| 第六篇 | kserve `pkg/apis/serving/v1alpha1/llm_inference_service_types.go`；lws `api/leaderworkerset/v1`；llm-d 架构文档 |
+| 第五篇 | network-operator NicClusterPolicy CRD<br/>k8s-rdma-shared-dev-plugin<br/>nccl-tests<br/>PyTorch `torch/distributed/checkpoint` |
+| 第六篇 | kserve `pkg/apis/serving/v1alpha1/llm_inference_service_types.go`<br/>lws `api/leaderworkerset/v1`<br/>llm-d 架构文档 |
 | 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）；llm-d-router `pkg/epp`（Endpoint Picker 的调度插件） |
-| 第八篇 | dcgm-exporter 的默认指标表；vLLM `docs/design/metrics.md`；OpenCost 的 GPU 计费逻辑 |
+| 第八篇 | dcgm-exporter 的默认指标表<br/>vLLM `docs/design/metrics.md`<br/>OpenCost 的 GPU 计费逻辑 |
 
 Table: 与实践线平行的源码与文档阅读线
 

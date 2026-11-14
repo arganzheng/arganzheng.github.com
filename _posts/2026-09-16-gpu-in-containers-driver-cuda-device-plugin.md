@@ -383,14 +383,14 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 |---|---|---|
 | `operator` | `OperatorSpec` | `runtimeClass`（默认 `"nvidia"`）、`initContainer`；`defaultRuntime`（`docker` \| `crio` \| `containerd`）已废弃，运行时由 Operator 自动探测 |
 | `daemonsets` | `DaemonsetsSpec` | 所有 operand DaemonSet 的公共 `tolerations` / `priorityClassName` / `updateStrategy` |
-| `driver` | `DriverSpec` | `enabled`；`repository`/`image`/`version`（默认 `nvcr.io/nvidia/driver:595.91.07`）；`kernelModuleType`（`auto` \| `open` \| `proprietary`）；<br/>`usePrecompiled`；`useNvidiaDriverCRD`（用 NVIDIADriver CRD 按节点组管理多版本驱动）；`rdma`；`upgradePolicy` |
-| `toolkit` | `ToolkitSpec` | `enabled`；`container-toolkit` 镜像（默认 v1.20.0）；`env`（如 `CONTAINERD_CONFIG`） |
-| `devicePlugin` | `DevicePluginSpec` | `enabled`；`k8s-device-plugin` 镜像（默认 v0.20.0）；`config`（`DevicePluginConfig`：ConfigMap 名与默认项，内容即第四章的 `Config`）；`mps` |
+| `driver` | `DriverSpec` | `enabled`<br/>`repository`/`image`/`version`（默认 `nvcr.io/nvidia/driver:595.91.07`）<br/>`kernelModuleType`（`auto` \| `open` \| `proprietary`）<br/>`usePrecompiled`<br/>`useNvidiaDriverCRD`（用 NVIDIADriver CRD 按节点组管理多版本驱动）<br/>`rdma`<br/>`upgradePolicy` |
+| `toolkit` | `ToolkitSpec` | `enabled`<br/>`container-toolkit` 镜像（默认 v1.20.0）<br/>`env`（如 `CONTAINERD_CONFIG`） |
+| `devicePlugin` | `DevicePluginSpec` | `enabled`<br/>`k8s-device-plugin` 镜像（默认 v0.20.0）<br/>`config`（`DevicePluginConfig`：ConfigMap 名与默认项，内容即第四章的 `Config`）<br/>`mps` |
 | `gfd` | `GPUFeatureDiscoverySpec` | `enabled`；GFD 与 device plugin 同一镜像 |
-| `dcgmExporter` | `DCGMExporterSpec` | `enabled`；`dcgm-exporter` 镜像（默认 4.6.0-4.8.3）；`serviceMonitor`（第八篇） |
+| `dcgmExporter` | `DCGMExporterSpec` | `enabled`<br/>`dcgm-exporter` 镜像（默认 4.6.0-4.8.3）<br/>`serviceMonitor`（第八篇） |
 | `dcgm` | `DCGMSpec` | 独立 `nv-hostengine`，默认关闭（exporter 内嵌） |
 | `mig` | `MIGSpec` | `strategy`：`none` \| `single` \| `mixed`，同时喂给 GFD 与 device plugin |
-| `migManager` | `MIGManagerSpec` | `enabled`；`k8s-mig-manager` 镜像（默认 v0.15.0）；`config`（`MIGPartedConfigSpec`）——第四篇 |
+| `migManager` | `MIGManagerSpec` | `enabled`<br/>`k8s-mig-manager` 镜像（默认 v0.15.0）<br/>`config`（`MIGPartedConfigSpec`）——第四篇 |
 | `cdi` | `CDIConfigSpec` | `enabled`（默认 `true`）：Toolkit 配成 CDI 模式、device plugin 用 CDI 注解 |
 | `validator` | `ValidatorSpec` | `operator-validator`：在每个节点上依次验证 `driver` / `toolkit` / `cuda` / `plugin` 是否就绪 |
 | `hostPaths` | `HostPathsSpec` | `rootFS`（默认 `/`）、`driverInstallDir`（默认 `/run/nvidia/driver`）、`kubeletRootDir` |
@@ -478,7 +478,7 @@ Dynamic Resource Allocation 在 Kubernetes 1.34 把 `resource.k8s.io/v1` 升为 
 |---|---|---|
 | `ResourceSlice` | 驱动发布 | "这个节点/池里有哪些设备，每个设备有什么属性和容量"<br/>`spec.driver`（如 `gpu.nvidia.com`）、`spec.pool`、`spec.nodeName` / `nodeSelector` / `allNodes`、<br/>`spec.devices[]`：`name`、`attributes{}`（`DeviceAttribute`：`int` / `bool` / `string` / `version` 之一）、`capacity{}`（`DeviceCapacity`：`Quantity`）<br/>可选：`sharedCounters` / `consumesCounters`（可分区设备）、`taints`、`allowMultipleAllocations`（可共享设备） |
 | `DeviceClass` | 管理员定义 | "一类设备"：`spec.selectors[].cel.expression` 预筛选（如"驱动是 `gpu.nvidia.com` 且 `type` 是 `gpu`"）、<br/>`spec.config[]` 给驱动的默认参数；`spec.extendedResourceName` 让传统 `nvidia.com/gpu` 请求映射到这个类（v1.37 GA） |
-| `ResourceClaim` | 用户申请 | `spec.devices.requests[]`：每个请求 `exactly`{`deviceClassName`, `selectors[]`, `allocationMode`（`ExactCount` \| `All`）, `count`, `capacity`}<br/>或 `firstAvailable[]`（按优先顺序列出多个子请求，取第一个能满足的）；<br/>`spec.devices.constraints[]`：`matchAttribute`（多设备的某属性必须相同，如同一 NVLink 域）/ `distinctAttribute`；<br/>`status.allocation.devices.results[]`：`driver` / `pool` / `device`，即分到了哪张卡；`status.reservedFor`：哪个 Pod 在用 |
+| `ResourceClaim` | 用户申请 | `spec.devices.requests[]`：每个请求 `exactly`{`deviceClassName`, `selectors[]`, `allocationMode`（`ExactCount` \| `All`）, `count`, `capacity`}<br/>或 `firstAvailable[]`（按优先顺序列出多个子请求，取第一个能满足的）<br/>`spec.devices.constraints[]`：`matchAttribute`（多设备的某属性必须相同，如同一 NVLink 域）/ `distinctAttribute`<br/>`status.allocation.devices.results[]`：`driver` / `pool` / `device`，即分到了哪张卡<br/>`status.reservedFor`：哪个 Pod 在用 |
 | `ResourceClaimTemplate` | Pod 模板 | `spec.spec` 是一个 `ResourceClaimSpec`；Pod 引用模板时，每个 Pod 实例自动生成一个 `ResourceClaim`，Pod 删除时随之删除 |
 
 Table: DRA 的四个对象

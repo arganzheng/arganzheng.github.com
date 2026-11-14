@@ -332,7 +332,7 @@ KServe v0.20.0 有两条并行的 API：`serving.kserve.io/v1beta1` 的 `Inferen
 
 | 模式 | 生成的对象与扩缩 | 依赖 / 特点 |
 |---|---|---|
-| Knative（旧名 Serverless） | Knative Service + KPA；按并发/rps 扩缩，能缩到零；请求经 activator 排队 | 依赖 Knative Serving（默认命名空间 knative-serving）与一个 Ingress 实现 |
+| Knative（旧名 Serverless） | Knative Service + KPA<br/>按并发/rps 扩缩，能缩到零<br/>请求经 activator 排队 | 依赖 Knative Serving（默认命名空间 knative-serving）与一个 Ingress 实现 |
 | Standard（旧名 RawDeployment） | Deployment + Service + HPA（或 KEDA，注解 `serving.kserve.io/autoscalerClass: keda`） | 不能原生缩零；对象最少、最接近手写 |
 | ModelMesh | 多模型共享一组服务进程（模型按需装载卸载） | 面向大量小模型 |
 
@@ -529,7 +529,11 @@ flowchart TB
     class PRE,DEC eng;
 ```
 
-排障时按这张图找对象：`kubectl get httproute,inferencepool,deploy,lws -n serve` 能看到全部生成物；请求 5xx 先看 EPP 日志（是否选到了 Pod），再看 decode Pod 的 vLLM 日志（KV 是否收到）；改了 `template` 却没生效，多半是 well-known config 与本对象 spec 的合并优先级问题。
+排障时按这张图找对象：
+
+- `kubectl get httproute,inferencepool,deploy,lws -n serve` 能看到全部生成物；
+- 请求 5xx 先看 EPP 日志（是否选到了 Pod），再看 decode Pod 的 vLLM 日志（KV 是否收到）；
+- 改了 `template` 却没生效，多半是 well-known config 与本对象 spec 的合并优先级问题。
 
 ### 6. 权重加载路径
 
@@ -684,10 +688,10 @@ Table: llm-d v0.9.0 的交付物
 | 分组 | 路径 |
 |---|---|
 | Intelligent Routing | Optimized Baseline（前缀缓存 + 负载感知路由，即"推理调度"路径）；Predicted Latency-Based Routing |
-| Advanced KV-Cache | Precise Prefix Cache Routing；Tiered Prefix Cache；P2P KV Cache Sharing（实验） |
+| Advanced KV-Cache | Precise Prefix Cache Routing<br/>Tiered Prefix Cache<br/>P2P KV Cache Sharing（实验） |
 | Serving Large Models | Prefill/Decode Disaggregation（gpt-oss-120b：8 × TP=1 prefill + 2 × TP=4 decode）；<br/>Wide Expert-Parallelism（DeepSeek-R1 用 LWS 跨节点 DP/EP） |
-| Operational Excellence | Flow Control；Workload Autoscaling（KEDA + EPP 指标 / WVA）；Fast Model Actuation |
-| Workloads | Agentic Serving；Multimodal；RL rollout；Batch Serving |
+| Operational Excellence | Flow Control<br/>Workload Autoscaling（KEDA + EPP 指标 / WVA）<br/>Fast Model Actuation |
+| Workloads | Agentic Serving<br/>Multimodal<br/>RL rollout<br/>Batch Serving |
 
 Table: llm-d 的 well-lit paths
 
@@ -847,7 +851,12 @@ spec:
       desiredReplicas: "6"
 ```
 
-几处与 LLM 相关的选择：`metricType: AverageValue` 让阈值是"每副本"的数字，副本数变化时语义不变；`scaleUp.policies` 用 `Pods: 4`，让 HPA 算出的期望值（可能一次从 2 跳到 6）不被默认的"每 15 秒最多翻倍"限流截断；`scaleDown` 的 15 分钟稳定窗口加每 5 分钟缩 1 个，是因为**缩错的代价是 8 分钟**——一个副本缩掉后再需要它，用户要等 8 分钟；`fallback` 用 `currentReplicasIfHigher`，监控故障时宁多勿少。
+几处与 LLM 相关的选择：
+
+- `metricType: AverageValue` 让阈值是"每副本"的数字，副本数变化时语义不变；
+- `scaleUp.policies` 用 `Pods: 4`，让 HPA 算出的期望值（可能一次从 2 跳到 6）不被默认的"每 15 秒最多翻倍"限流截断；
+- `scaleDown` 的 15 分钟稳定窗口加每 5 分钟缩 1 个，是因为**缩错的代价是 8 分钟**——一个副本缩掉后再需要它，用户要等 8 分钟；
+- `fallback` 用 `currentReplicasIfHigher`，监控故障时宁多勿少。
 
 ### 4. 缩零与冷启动
 
@@ -939,7 +948,7 @@ Table: 三种扩缩容策略的卡时账（每天一个 3.5 小时的高峰）
 
 | 项 | 结论 |
 |---|---|
-| 指标 | 主：cron（可预测的日高峰）；辅：`vllm:num_requests_running` AverageValue（领先，意外流量）；<br/>兜底：`vllm:num_requests_waiting` AverageValue（滞后，任何排队都扩）；长上下文流量再挂 `vllm:kv_cache_usage_perc` |
+| 指标 | 主：cron（可预测的日高峰）<br/>辅：`vllm:num_requests_running` AverageValue（领先，意外流量）<br/>兜底：`vllm:num_requests_waiting` AverageValue（滞后，任何排队都扩）<br/>长上下文流量再挂 `vllm:kv_cache_usage_perc` |
 | 阈值 | 无 cron 的纯反应式：running ≤ C × (1 − r·(T\_signal + T\_ready) / (N·C))，本例 36/副本，代价是峰值过配到 10 副本<br/>有 cron：running 抬到 ~0.9 C（本例 56），waiting 取 4 |
 | 提前多久 | cron 提前 T\_signal + T\_ready + 余量 ≈ 12 分钟；反应式的"提前"就是阈值与饱和点之间的差 ÷ 爬升速率 |
 | 不浪费 | 缩容 15 分钟稳定窗口 + 每 5 分钟 1 个；idle 时段 minReplicaCount 2 而不是 0（8 分钟冷启动不能对用户暴露） |
@@ -1140,7 +1149,10 @@ if __name__ == "__main__":
 
    <details markdown="1"><summary>答案</summary>
 
-   `pvc://` 直挂（不拉、直接读 PFS）；`s3://` / `hf://` 经 storage-initializer init 容器（默认，最慢）；`oci://` modelcar 或 image volume（权重打进镜像层、节点镜像缓存复用）；`LocalModelCache` 预热到节点本地盘（第二次起秒级）。
+   1. `pvc://` 直挂（不拉、直接读 PFS）。
+   2. `s3://` / `hf://` 经 storage-initializer init 容器（默认，最慢）。
+   3. `oci://` modelcar 或 image volume（权重打进镜像层、节点镜像缓存复用）。
+   4. `LocalModelCache` 预热到节点本地盘（第二次起秒级）。
 
    </details>
 

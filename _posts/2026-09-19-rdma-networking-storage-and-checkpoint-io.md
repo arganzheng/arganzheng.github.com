@@ -121,7 +121,11 @@ Multus CNI 是一个"元插件"：kubelet 只认它一个 CNI，它再把 ADD/DE
 
 thick 的好处是有了一个常驻进程可以做缓存、指标和更复杂的逻辑，代价是多一个 DaemonSet 和一次本地 RPC。Network Operator 部署的是它自己打包的 Multus 镜像（`secondaryNetwork.multus`），形态以 Operator 版本为准。
 
-Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有：`clusterNetwork` 或 `delegates` 指定默认网络；`namespaceIsolation` 限制 Pod 只能引用本 namespace 的 NAD；`readinessindicatorfile` 让 Multus 等默认网络就绪再工作——GPU 训练 Pod 起不来时，先看这个文件是否存在。
+Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有三个：
+
+- `clusterNetwork` 或 `delegates` 指定默认网络；
+- `namespaceIsolation` 限制 Pod 只能引用本 namespace 的 NAD；
+- `readinessindicatorfile` 让 Multus 等默认网络就绪再工作——GPU 训练 Pod 起不来时，先看这个文件是否存在。
 
 ### 2. `NetworkAttachmentDefinition` 与三个注解
 
@@ -545,7 +549,7 @@ mpirun -np 16 -N 8 -H nccl-tests-0.nccl-tests:8,nccl-tests-1.nccl-tests:8 \
 | `NET/IB : No device found.` | `src/transport/net_ib.cc` | 容器里没有 uverbs 设备 → 之后会看到下一行的 Socket |
 | `NET/Socket : Using [0]eth0:10.244.2.6<0>` | `src/transport/net_socket.cc` | socket transport 用的接口。若这是最终选择，就是回落 |
 | `Using network IB   /   Using network Socket` | `src/init.cc` | 最终选择。看到 Socket 就不用再看带宽了 |
-| `Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA` | `src/transport/net.cc` | 每个跨机连接用的网卡编号；有 `/GDRDMA` 说明 GPUDirect RDMA 生效，没有 `/GDRDMA` 就是经 host 内存中转；(PCI) 后缀是 GDR 的 PCI 模式 |
+| `Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA` | `src/transport/net.cc` | 每个跨机连接用的网卡编号<br/>有 `/GDRDMA` 说明 GPUDirect RDMA 生效，没有 `/GDRDMA` 就是经 host 内存中转<br/>(PCI) 后缀是 GDR 的 PCI 模式 |
 | `GPU Direct RDMA Disabled for GPU 3 / HCA … (distance 5 > 3)` | `src/graph/paths.cc` | peermem/DMA-BUF 在但拓扑距离超过 `NCCL_NET_GDR_LEVEL` |
 
 Table: NCCL_DEBUG=INFO 里要看的几行
@@ -917,7 +921,7 @@ if __name__ == "__main__":
 | 节点本地 NVMe 缓存 | 权重第一次读时落到节点 NVMe（缓存层 CSI 自动做，或 `DaemonSet` 预热），后续副本直接本地读 | 同一模型在同一批节点上反复扩缩（最常见的情况） | 首个副本仍要冷读<br/>缓存占盘<br/>节点池变动后要重新预热<br/>缓存驱逐策略 |
 | 权重进镜像 | 把权重打进容器镜像的一层，靠镜像仓库与节点镜像缓存分发（第二篇的镜像预热与 P2P 分发同样适用） | 模型固定、版本少、节点数多（边缘/固定部署） | 镜像几十～上百 GB：仓库压力、拉取时间、版本更新要重打镜像；镜像层不共享权重 |
 | P2P 分发 | 节点之间互相传（Dragonfly 这类 P2P 镜像/文件分发，或缓存层自带的节点间读） | 大规模并发扩容（几十副本同时起） | 需要额外的 P2P 组件<br/>首个种子仍是冷读<br/>占用节点间网络（要与 RDMA 网分开） |
-| GPUDirect Storage（GDS） | 存储 → 显存的 DMA 路径（`nvidia-fs` 驱动，GPU Operator `spec.gds.enabled` 部署），绕过 host 内存 | 单节点本地 NVMe 或支持 GDS 的并行文件系统上、CPU 成为瓶颈时 | 需要 GDS 支持的文件系统与驱动；引擎要用 `cuFile` API 读；GPU Operator 里标为实验性 |
+| GPUDirect Storage（GDS） | 存储 → 显存的 DMA 路径（`nvidia-fs` 驱动，GPU Operator `spec.gds.enabled` 部署），绕过 host 内存 | 单节点本地 NVMe 或支持 GDS 的并行文件系统上、CPU 成为瓶颈时 | 需要 GDS 支持的文件系统与驱动<br/>引擎要用 `cuFile` API 读<br/>GPU Operator 里标为实验性 |
 
 Table: 权重加载的三种方案与 GPUDirect Storage
 
@@ -1011,14 +1015,14 @@ Table: 代价与边界：每个机制挖的新洞
 
 | 引擎需求 | K8s 的空缺 | 平台机制 | 代价 |
 |---|---|---|---|
-| NCCL 要一个 RDMA 侧 IP 做握手 | 一 Pod 一网卡，只有 overlay | Multus + `NetworkAttachmentDefinition`（host-device / macvlan / ipoib） | 第二个网络平面；IPAM 组件；Pod 创建慢 |
-| NCCL 要打开 `/dev/infiniband/*` | 没有 RDMA 资源类型，设备不进容器 | `rdma-shared-dev-plugin`（`rdma/<name>`）或 SR-IOV device plugin（一 VF 一 Pod） | shared 无隔离；SR-IOV 运维重；netns 模式全节点二选一 |
-| 网卡要直接读写显存 | 内核模块不归 K8s 管 | Network Operator `ofedDriver` + GPU Operator `driver.rdma`（`nvidia_peermem`）或 DMA-BUF | 三方版本耦合；驱动升级断网；跨 NUMA 时无效 |
+| NCCL 要一个 RDMA 侧 IP 做握手 | 一 Pod 一网卡，只有 overlay | Multus + `NetworkAttachmentDefinition`（host-device / macvlan / ipoib） | 第二个网络平面<br/>IPAM 组件<br/>Pod 创建慢 |
+| NCCL 要打开 `/dev/infiniband/*` | 没有 RDMA 资源类型，设备不进容器 | `rdma-shared-dev-plugin`（`rdma/<name>`）或 SR-IOV device plugin（一 VF 一 Pod） | shared 无隔离<br/>SR-IOV 运维重<br/>netns 模式全节点二选一 |
+| 网卡要直接读写显存 | 内核模块不归 K8s 管 | Network Operator `ofedDriver` + GPU Operator `driver.rdma`（`nvidia_peermem`）或 DMA-BUF | 三方版本耦合<br/>驱动升级断网<br/>跨 NUMA 时无效 |
 | 注册内存要 pin | 容器默认 memlock 很小 | `securityContext` `IPC_LOCK` | 放宽了一项隔离 |
 | "走了哪条路"要可验证 | K8s 只知道 Pod Running | 容器内清单 + `NCCL_DEBUG=INFO` 判读 | 需要 MPI/多 Pod 启动；要人读日志 |
 | checkpoint 大块突发写 | PVC 不表达带宽 | 并行文件系统 RWX PVC；DCP 分片 + 异步 | 存储贵/运维重；异步要 host 内存 |
-| 数据集小文件随机读 | 同上 | 对象存储 + 缓存层（JuiceFS/Alluxio/Fluid）+ NVMe | FUSE 开销；元数据单点；缓存一致性 |
-| 权重并发读 | 同上 | 本地 NVMe 缓存 / P2P / 权重进镜像 / GDS | 缓存预热；P2P 组件；镜像巨大 |
+| 数据集小文件随机读 | 同上 | 对象存储 + 缓存层（JuiceFS/Alluxio/Fluid）+ NVMe | FUSE 开销<br/>元数据单点<br/>缓存一致性 |
+| 权重并发读 | 同上 | 本地 NVMe 缓存 / P2P / 权重进镜像 / GDS | 缓存预热<br/>P2P 组件<br/>镜像巨大 |
 
 Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价：网络与存储
 
@@ -1026,35 +1030,35 @@ Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价：网络与存储
 
 | 项目 | 路径 | 关键符号 / 内容 |
 |---|---|---|
-| Multus CNI v4.3.0 | `pkg/k8sclient/k8sclient.go` | `networkAttachmentAnnot`（`k8s.v1.cni.cncf.io/networks`）· `resourceNameAnnot`（…`/resourceName`）· `defaultNetAnnot`；`GetNetAttachDef`；`getKubernetesDelegate` 读 `resourceName` |
+| Multus CNI v4.3.0 | `pkg/k8sclient/k8sclient.go` | `networkAttachmentAnnot`（`k8s.v1.cni.cncf.io/networks`）· `resourceNameAnnot`（…`/resourceName`）· `defaultNetAnnot`<br/>`GetNetAttachDef`<br/>`getKubernetesDelegate` 读 `resourceName` |
 | ^^ | `docs/thick-plugin.md` · `deployments/multus-daemonset{,-thick}.yml` | `thin/thick` 两种形态；`daemon-config.json` |
 | ^^ | `docs/configuration.md` | `clusterNetwork/delegates` · `namespaceIsolation` · `readinessindicatorfile` |
 | ^^ | `docs/how-to-use.md` · `examples/macvlan-pod.yml` | NAD 与 networks 注解的写法（JSON 形式含 `interface/ips/gateway`） |
-| k8s-rdma-shared-dev-plugin v1.5.4 | `pkg/types/types.go` | `UserConfigList.configList/periodicUpdateInterval`；`UserConfig.resourceName/resourcePrefix/rdmaHcaMax/devices/selectors`；`Selectors.vendors/deviceIDs/drivers/ifNames/linkTypes` |
+| k8s-rdma-shared-dev-plugin v1.5.4 | `pkg/types/types.go` | `UserConfigList.configList/periodicUpdateInterval`<br/>`UserConfig.resourceName/resourcePrefix/rdmaHcaMax/devices/selectors`<br/>`Selectors.vendors/deviceIDs/drivers/ifNames/linkTypes` |
 | ^^ | `pkg/resources/resources_manager.go` | `rdmaHcaResourcePrefix` = `"rdma"`；`ValidateRdmaSystemMode`（拒绝 exclusive） |
-| ^^ | `pkg/resources/server.go` | `Allocate`（Devices 或 CDI 注解）；`resourceName` = `prefix/name`；`rdmaHcaMax` 个 Device；`cdiResourcePrefix` = `"nvidia.com"` |
-| ^^ | `pkg/resources/rdma_device_spec.go` · `pkg/utils/utils.go` | `requiredRdmaDevices`（`rdma_cm/umad/uverbs`）；`Get`；`VerifyRdmaSpec`；`GetRdmaDevices` |
+| ^^ | `pkg/resources/server.go` | `Allocate`（Devices 或 CDI 注解）<br/>`resourceName` = `prefix/name`<br/>`rdmaHcaMax` 个 Device<br/>`cdiResourcePrefix` = `"nvidia.com"` |
+| ^^ | `pkg/resources/rdma_device_spec.go` · `pkg/utils/utils.go` | `requiredRdmaDevices`（`rdma_cm/umad/uverbs`）<br/>`Get`<br/>`VerifyRdmaSpec`<br/>`GetRdmaDevices` |
 | ^^ | `deployment/k8s/base/configmap.yaml` · `example/test-hca-pod.yaml` | 配置示例；`IPC_LOCK` 与 `rdma/hca_shared_devices_a` 请求 |
-| NVIDIA Network Operator v26.7.0 | `api/v1alpha1/nicclusterpolicy_types.go` | `NicClusterPolicySpec.ofedDriver/rdmaSharedDevicePlugin/sriovDevicePlugin/secondaryNetwork/nvIpam/ibKubernetes/`…；`OFEDDriverSpec`；`DevicePluginSpec.useCdi`；`SecondaryNetworkSpec.multus/cniPlugins/ipoib`；`DriverUpgradePolicySpec` |
+| NVIDIA Network Operator v26.7.0 | `api/v1alpha1/nicclusterpolicy_types.go` | `NicClusterPolicySpec.ofedDriver/rdmaSharedDevicePlugin/sriovDevicePlugin/secondaryNetwork/nvIpam/ibKubernetes/`…<br/>`OFEDDriverSpec`<br/>`DevicePluginSpec.useCdi`<br/>`SecondaryNetworkSpec.multus/cniPlugins/ipoib`<br/>`DriverUpgradePolicySpec` |
 | ^^ | `api/v1alpha1/groupversion_info.go` | `mellanox.com/v1alpha1` |
 | ^^ | `api/v1alpha1/{hostdevicenetwork,ipoibnetwork,macvlannetwork}_types.go` | `networkNamespace/resourceName/master/mode/mtu/ipam` |
 | ^^ | `manifests/state-hostdevice-network/0010-hostdevice-net-cr.yml` | 生成的 NAD：type `host-device` + `resourceName` 注解 |
 | ^^ | `manifests/state-ipoib-network/0010-ipoib-net-cr.yaml` | 生成的 NAD：type `ipoib` + `master` |
 | ^^ | `manifests/state-ofed-driver/0050_ofed-driver-ds.yaml` | `/run/mellanox/drivers` · `/dev/infiniband` · `/etc/modprobe.d/ib_core.conf` |
 | ^^ | `manifests/state-rdma-shared-device-plugin/` | `ConfigMap` 与 `DaemonSet`（`hostNetwork`，挂 `/dev`） |
-| ^^ | `example/crs/*.yaml` · `example/*.yml` · `example/sriov-network/` | `NicClusterPolicy` 示例；`rdma-gpu-test-pod`；SR-IOV 的 `isRdma` |
+| ^^ | `example/crs/*.yaml` · `example/*.yml` · `example/sriov-network/` | `NicClusterPolicy` 示例<br/>`rdma-gpu-test-pod`<br/>SR-IOV 的 `isRdma` |
 | ^^ | `controllers/mofed_wait_labels.go` · `pkg/nodeinfo/attributes.go` | `network.nvidia.com/operator.mofed.wait` |
 | ^^ | `docs/host-ofed.md` · `docs/mofed-container-env-vars.md` | 宿主机 OFED 与 Operator 共存；驱动容器 env |
-| NVIDIA GPU Operator v26.7.0 | `api/nvidia/v1/clusterpolicy_types.go` | `DriverSpec.GPUDirectRDMA`（json `rdma`）：`Enabled/UseHostMOFED`；`GPUDirectStorageSpec`（`gds`）；`GDRCopySpec`（`gdrcopy`） |
+| NVIDIA GPU Operator v26.7.0 | `api/nvidia/v1/clusterpolicy_types.go` | `DriverSpec.GPUDirectRDMA`（json `rdma`）：`Enabled/UseHostMOFED`<br/>`GPUDirectStorageSpec`（`gds`）<br/>`GDRCopySpec`（`gdrcopy`） |
 | ^^ | `controllers/object_controls.go` | `transformPeerMemoryContainer`；`GPU_DIRECT_RDMA_ENABLED` / `USE_HOST_MOFED` / `MOFED_ENABLED` / `GDS_ENABLED` |
 | ^^ | `assets/state-driver/0500_daemonset.yaml` | `nvidia-peermem-ctr`（`reload_nvidia_peermem` / `probe_nvidia_peermem`）· `nvidia-fs-ctr` · `/run/mellanox/drivers` 挂载 |
 | ^^ | `cmd/nvidia-validator/main.go` | `nvidia-peermem-ready`；`lsmod` 检查 |
 | ^^ | `internal/nodeinfo/attributes.go` | `NodeLabelWaitOFED` |
 | NCCL 2.28.9（仅日志与变量） | `src/transport/net_ib.cc` | `NCCL_IB_HCA`（`^/=` 语义）· `NCCL_IB_GID_INDEX` · `NCCL_IB_ROCE_VERSION_NUM` · `NCCL_IB_ADDR_FAMILY` · `ncclIbGetGidIndex` · `ibGdrSupportInitOnce`（`nvidia_peermem`）· `ncclIbDmaBufSupport` · `"NET/IB : Using …; OOB …"` · `"NET/IB : No device found."` · `"NET/IB : No IP interface found."` |
 | ^^ | `src/transport/net_socket.cc` · `src/misc/socket.cc` | `"NET/Socket : Using …"`；`NCCL_SOCKET_IFNAME` |
-| ^^ | `src/init.cc` · `src/plugin/net.cc` | `"Using network %s"`；`NCCL_NET`；`NCCL_DMABUF_ENABLE`；内部插件顺序 IB → Socket |
-| ^^ | `src/transport/net.cc` · `src/graph/paths.cc` | `"via NET/%s/%d/GDRDMA"`；`NCCL_NET_GDR_LEVEL`；`"GPU Direct RDMA Enabled/Disabled"` |
-| nccl-tests 2.18.3 | `src/common.cu` | 参数表；MPI 的使用；`-T` 超时 |
+| ^^ | `src/init.cc` · `src/plugin/net.cc` | `"Using network %s"`<br/>`NCCL_NET`<br/>`NCCL_DMABUF_ENABLE`<br/>内部插件顺序 IB → Socket |
+| ^^ | `src/transport/net.cc` · `src/graph/paths.cc` | `"via NET/%s/%d/GDRDMA"`<br/>`NCCL_NET_GDR_LEVEL`<br/>`"GPU Direct RDMA Enabled/Disabled"` |
+| nccl-tests 2.18.3 | `src/common.cu` | 参数表<br/>MPI 的使用<br/>`-T` 超时 |
 | PyTorch v2.13.0 | `torch/distributed/checkpoint/state_dict_saver.py` | `save` · `async_save` · `AsyncCheckpointerType`（`THREAD/PROCESS`）· `AsyncSaveResponse` |
 | ^^ | `torch/distributed/checkpoint/filesystem.py` | `FileSystemWriter`（`single_file_per_rank/sync_files/thread_count/per_thread_copy_ahead`） |
 | ^^ | `torch/distributed/checkpoint/staging.py` | `BlockingAsyncStager` · `DefaultStager` · `StagingOptions` |
