@@ -5,7 +5,7 @@ title: "AI 平台工程（04）：GPU 共享与切分——MIG、时间片、MPS
 subtitle: "Sharing and Partitioning GPUs: MIG, Time-Slicing, MPS and HAMi"
 tags: [Kubernetes, GPU, MIG, HAMi, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE` 白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
@@ -18,7 +18,7 @@ NVIDIA 与开源社区给出了四层答案：不隔离的裸共享、驱动层�
 
 > **同一张 A100 上跑三个小模型的推理服务，用 MIG `3g.20gb` + `3g.20gb`、用 HAMi 按显存切三份、用时间片开三个副本——三种方案在隔离性、总吞吐、故障影响范围上各自怎样？[^q1] 哪种方案下一个服务的 OOM 会拖垮另外两个？[^q2]**
 
-本篇源码与配置以 NVIDIA k8s-device-plugin v0.20.0、NVIDIA GPU Operator v26.7.0、HAMi v2.10.0、Kubernetes v1.37.0 为准。MIG 的几何约束、MPS 的语义、NCCL 对 MIG 的支持等硬件与驱动层事实，来自 NVIDIA 的 MIG 用户指南与 MPS 文档，正文中标为"以 NVIDIA 文档为准"，不写成实测。
+本篇源码与配置以 NVIDIA k8s-device-plugin v0.20.0、NVIDIA GPU Operator v26.7.0、mig-parted / k8s-mig-manager v0.15.0、HAMi v2.10.0、Kubernetes v1.37.0、vLLM v0.28.0（仅 CLI 参数）为准。MIG 的几何约束、MPS 的语义、NCCL 对 MIG 的支持等硬件与驱动层事实，来自 NVIDIA 的 MIG 用户指南与 MPS 文档，正文中标为"以 NVIDIA 文档为准"，不写成实测。
 
 ## 一、总览：隔离与利用率的四档取舍
 
@@ -26,7 +26,7 @@ NVIDIA 与开源社区给出了四层答案：不隔离的裸共享、驱动层�
 
 推理引擎对一张 GPU 的需求可以拆成三个量：
 
-- **显存**是硬约束。vLLM 启动时按 `--gpu-memory-utilization`（默认 0.9）预留显存：权重加载后剩下的全部划给 KV cache。它把"这张卡有多少显存"当作事实，划完就不再归还。两个 vLLM 进程在同一张卡上各自预留 90%，第二个必然启动失败；即使调低到各 45%，任何一个进程的显存越界（CUDA graph 捕获、临时缓冲、碎片）都会撞到对方。引擎需要的是**一个不会被别人侵占、也不会侵占别人的显存上限**。
+- **显存**是硬约束。vLLM 启动时按 `--gpu-memory-utilization`（v0.28.0 默认 0.92，`vllm/config/cache.py` 的 `CacheConfig.gpu_memory_utilization`）预留显存：权重加载后剩下的全部划给 KV cache。它把"这张卡有多少显存"当作事实，划完就不再归还。两个 vLLM 进程在同一张卡上各自预留 92%，第二个必然启动失败；即使调低到各 45%，任何一个进程的显存越界（CUDA graph 捕获、临时缓冲、碎片）都会撞到对方。引擎需要的是**一个不会被别人侵占、也不会侵占别人的显存上限**。
 - **算力**是软约束。同一模型在 30% 算力和 100% 算力下都能跑，差别是吞吐和延迟。引擎需要的是**可预期的算力份额**——不是绝对数字，而是"邻居的负载变化不会让 P99 翻三倍"。
 - **故障域**是运维约束。一个进程触发的 GPU 错误（Xid、非法地址访问、ECC 错误）是否会让同卡的其他进程一起被杀，决定了两个服务能不能放在一张卡上而不把 SLA 绑在一起。
 
@@ -225,8 +225,8 @@ GPU Operator v26.7.0 把 MIG 的生命周期拆给三个组件：
 各环节对应的源码与配置：
 
 - **ClusterPolicy 字段**（`gpu-operator api/nvidia/v1/clusterpolicy_types.go`）：`MIGManagerSpec`（`spec.migManager`，`Enabled`、`Config *MIGPartedConfigSpec`、`GPUClientsConfig`）；`MIGPartedConfigSpec.Name` 指定自定义 mig-parted ConfigMap，注释写明"If not specified, MIG configuration will be dynamically generated from hardware"；`MIGPartedConfigSpec.Default` 是节点没有 `nvidia.com/mig.config` 标签时的默认配置，枚举只允许 `all-disabled` 或空。`MIGSpec.Strategy`（`spec.mig.strategy`）取 `none` / `single` / `mixed`，同时传给 GFD 与 device plugin。
-- **标签**：`controllers/state_manager.go` 定义 `migConfigLabelKey = "nvidia.com/mig.config"`、`migCapableLabelKey = "nvidia.com/mig.capable"`、`migManagerLabelKey = "nvidia.com/gpu.deploy.mig-manager"`；`addGPUStateLabels` 在容器工作负载模式下对 `mig.capable=true` 的节点自动加 `gpu.deploy.mig-manager=true`，MIG Manager DaemonSet 只落在这些节点上。状态回写标签（`nvidia.com/mig.config.state`）由 MIG Manager 自身（`mig-parted` 仓库）写入，GPU Operator 检出里没有它的定义，以 MIG Manager 文档为准。
-- **默认配置**：`assets/state-mig-manager/0400_configmap.yaml` 是 `default-mig-parted-config`，`mig-configs` 下每个键是一个可用的标签值：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，条目用 `device-filter` 按 PCI 设备 ID 区分 A100 40 GB / 80 GB / H100 / H200 / B200。`0410_configmap.yaml` 是 `default-gpu-clients`，列出重新配置前要停掉的宿主机服务（`nvidia-dcgm.service`、`dcgm-exporter.service` 等）；`0600_daemonset.yaml` 把两者挂到 `/mig-parted-config` 与 `/gpu-clients`。Helm values 里 `mig.strategy` 默认 `single`，`migManager.enabled` 默认 `true`，MIG Manager 镜像为 `k8s-mig-manager` v0.15.0。
+- **标签**：`controllers/state_manager.go` 定义 `migConfigLabelKey = "nvidia.com/mig.config"`、`migCapableLabelKey = "nvidia.com/mig.capable"`、`migManagerLabelKey = "nvidia.com/gpu.deploy.mig-manager"`；`addGPUStateLabels` 在容器工作负载模式下对 `mig.capable=true` 的节点自动加 `gpu.deploy.mig-manager=true`，MIG Manager DaemonSet 只落在这些节点上。状态回写标签 `nvidia.com/mig.config.state` 由 MIG Manager 自身写入（mig-parted v0.15.0 `pkg/mig/reconfigure/reconfigure.go` 的 `migConfigStateLabel`，取值 `pending` / `rebooting` / `success` / `failed`），GPU Operator 里没有它的定义。
+- **默认配置**：没有自定义 ConfigMap 时，MIG Manager v0.15.0 启动时按硬件生成配置（`cmd/nvidia-mig-manager/main.go` 的 `setupMigConfig`，`pkg/mig/builder` 生成 `all-disabled`、`all-enabled`、`all-balanced` 与每个 profile 一条 `all-<profile>`）；`assets/state-mig-manager/0400_configmap.yaml` 的 `default-mig-parted-config` 被 Operator 挂成 `config-default.yaml`（`DEFAULT_CONFIG_FILE`），只在硬件发现不到 profile 时作回退。两者 `mig-configs` 下每个键都是一个可用的标签值：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，条目用 `device-filter` 按 PCI 设备 ID 区分 A100 40 GB / 80 GB / H100 / H200 / B200。`0410_configmap.yaml` 是 `default-gpu-clients`，列出重新配置前要停掉的宿主机服务（`nvidia-dcgm.service`、`dcgm-exporter.service` 等）；`0600_daemonset.yaml` 把两者挂到 `/mig-parted-config` 与 `/gpu-clients`。Helm values 里 `mig.strategy` 默认 `single`，`migManager.enabled` 默认 `true`，MIG Manager 镜像为 `k8s-mig-manager` v0.15.0。
 
 device plugin 侧（`k8s-device-plugin v0.20.0`）把 GI 变成 K8s 资源的逻辑在 `internal/rm`：
 
@@ -320,7 +320,7 @@ spec:
 
 `nvidia.com/gpu.sharing-strategy` 与 `nvidia.com/gpu.replicas` 是 GFD 在共享模式下追加的标签（`internal/lm/resource.go` 写 `sharing-strategy`）；若没有 `renameByDefault`（资源名仍是 `nvidia.com/gpu`），GFD 会给 `nvidia.com/gpu.product` 追加 `-SHARED` 后缀以示区别（`resourceLabeler` 中 `isShared() && !isRenamed()` 的分支），改名后则不加。
 
-三个要点，全部来自 README "With CUDA Time-Slicing"：
+三个要点，全部来自 README "Shared Access to GPUs" 一节（含 "With CUDA Time-Slicing"）：
 
 1. **节点级生效**："the same sharing method is applied to all GPUs on a node. You cannot configure sharing on a per-GPU basis"。一台机器要么全部时间片，要么全部不。
 2. **没有隔离**：plugin "simply creates 10 references to each GPU and indiscriminately hands them out"。显存、算力、故障域与第二章第 2 节描述的裸时间片完全相同。
@@ -370,7 +370,7 @@ MPS 比时间片多出的是显存上限与 SM 比例；比 HAMi 少的是粒度
 
 ### 1. 请求模型
 
-HAMi（Heterogeneous AI Computing Virtualization Middleware，CNCF 孵化项目）把一张 NVIDIA GPU 表达成四个资源（`HAMi charts/hami/values.yaml`，名称可改）：
+HAMi（Heterogeneous AI Computing Virtualization Middleware，CNCF 孵化项目）把一张 NVIDIA GPU 表达成五个资源（`HAMi charts/hami/values.yaml`，名称可改）：
 
 | 资源 | 默认名 | 含义 |
 |---|---|---|
@@ -380,7 +380,7 @@ HAMi（Heterogeneous AI Computing Virtualization Middleware，CNCF 孵化项目�
 | `resourceCores` | `nvidia.com/gpucores` | 每张卡算力的百分比（0–100） |
 | `resourcePriority` | `nvidia.com/priority` | 任务优先级，注入 `CUDA_TASK_PRIORITY` |
 
-Table: HAMi 的四个资源
+Table: HAMi 的五个资源
 
 它们对应 `pkg/device/nvidia/device.go` 的 `NvidiaConfig` 字段 `ResourceCountName` / `ResourceMemoryName` / `ResourceMemoryPercentageName` / `ResourceCoreName` / `ResourcePriority`，由 chart 的 `templates/scheduler/device-configmap.yaml` 渲染进 `device-config.yaml`。`gpumem` 与 `gpucores` 都是可选的：不写 `gpumem` 时按 `defaultMemory`（默认 0，表示整卡）、不写 `gpucores` 时按 `defaultCores`（默认 0，表示不限）。
 
@@ -481,7 +481,8 @@ flowchart TB
    - 从节点注解 `hami.io/node-nvidia-register` 读每张卡的总显存 / 总算力 / 型号
    - 从已调度 Pod 的注解累加每张卡的已用显存与算力（`getNodesUsage`）
    - 对每个节点：`fitInDevices` 逐卡试装 → 通过则打分（`calcScore`）
-4. **extender Bind**（`Scheduler.Bind`，路由 `Bind`）：先对节点加锁（`hami.io/mutex.lock` 注解，nodelock），写 Pod 注解 `hami.io/vgpu-devices-to-allocate`、`hami.io/vgpu-devices-allocated`、`hami.io/vgpu-node`、`hami.io/bind-phase=allocating`，再调 API 绑定。
+   - 选出最高分节点后写 Pod 注解 `hami.io/vgpu-node` 与 `hami.io/vgpu-devices-to-allocate`、`hami.io/vgpu-devices-allocated`（`NvidiaGPUDevices.PatchAnnotations`）
+4. **extender Bind**（`Scheduler.Bind`，路由 `Bind`）：先对节点加锁（`hami.io/mutex.lock` 注解，nodelock），写 Pod 注解 `hami.io/bind-phase=allocating`，再调 API 绑定。
 5. **节点上 HAMi device plugin 的 Allocate**：读 `hami.io/vgpu-devices-to-allocate` 得知该给哪张卡多少显存 → 注入环境变量与挂载；成功后 `bind-phase` 置 `success`，释放节点锁。
 
 打分有两级，各有 `binpack` / `spread` 两种策略（`pkg/util/types.go` 的 `SchedulerPolicyName`）：
@@ -502,9 +503,9 @@ HAMi v2.10.0 还带了**动态 MIG**（`docs/develop/dynamic-mig-migration.md`�
 HAMi 的 CHANGELOG 记录 v2.8.0 "Support DRA (Dynamic Resource Allocation) via HAMi-DRA"、v2.9.0 "HAMi-DRA for NVIDIA is ready for use"；HAMi-DRA 是独立仓库，本文未检出，其 `DeviceClass` 与属性名以 HAMi 文档为准。这里只说 Kubernetes v1.37 的 `resource.k8s.io/v1` 为切分提供了什么原语（`kubernetes staging/src/k8s.io/api/resource/v1/types.go`）：
 
 - **可分区设备**（feature gate `DRAPartitionableDevices`，v1.37 为 beta）：`ResourceSliceSpec.SharedCounters []CounterSet` 声明一组共享计数器（例如"这张卡的 7 个计算 slice 与 8 个显存 slice"），每个候选设备用 `Device.ConsumesCounters []DeviceCounterConsumption` 声明自己消耗多少计数器。驱动可以把一张卡的**所有可能的** MIG profile 都作为设备发布出去，调度器分配 `3g.20gb` 时扣掉对应计数器，与之冲突的 `7g.40gb` 自动不可用——这正是 MIG 几何约束在 API 层的表达，也让"按 Pod 请求动态创建 GI"有了原生路径。
-- **可消耗容量 / 多次分配**（feature gate `DRAConsumableCapacity`）：`Device.AllowMultipleAllocations *bool` 允许一个设备被多个 `DeviceRequest` 分配，`DeviceCapacity.RequestPolicy *CapacityRequestPolicy` 规定每次请求如何消耗容量（如显存按 MB 扣减），`DeviceRequestAllocationResult.ShareID` 标识每一份分配。这是 HAMi 式"按显存共卡"在 DRA 里的表达。
+- **可消耗容量 / 多次分配**（feature gate `DRAConsumableCapacity`，v1.37 为 beta）：`Device.AllowMultipleAllocations *bool` 允许一个设备被多个 `DeviceRequest` 分配，`DeviceCapacity.RequestPolicy *CapacityRequestPolicy` 规定每次请求如何消耗容量（如显存按 MB 扣减），`DeviceRequestAllocationResult.ShareID` 标识每一份分配。这是 HAMi 式"按显存共卡"在 DRA 里的表达。
 
-两者都还是 beta 或更早，NVIDIA 官方 DRA driver 与 HAMi-DRA 对它们的支持程度以各自当前版本的文档为准。方向是明确的：切分与共享正在从 device plugin 的"复制 N 份"技巧，迁移到 DRA 的结构化参数上；但 2026 年 9 月的生产集群仍以本篇前四章的机制为主。
+两者在 v1.37 都还是 beta（默认开启），NVIDIA 官方 DRA driver 与 HAMi-DRA 对它们的支持程度以各自当前版本的文档为准。方向是明确的：切分与共享正在从 device plugin 的"复制 N 份"技巧，迁移到 DRA 的结构化参数上；但 2026 年 9 月的生产集群仍以本篇前四章的机制为主。
 
 ## 六、商业 vGPU：虚拟机场景的对照
 
@@ -540,7 +541,7 @@ Table: 各共享方案的资源份额与两个阶段的延迟
 
 表里最值得看的是 MIG 两行的 SM 与带宽份额**不成比例**（`3g.20gb` 是 3/7 对 4/8），以及 HAMi / MPS 的带宽列是"整卡"——前者决定了同一 profile 对 prefill 密集与 decode 密集的服务划算程度不同，后者是软件切分总吞吐更高、延迟波动也更大的直接原因。
 
-引擎侧的另一个影响是**启动时的显存探测**。vLLM 按 `--gpu-memory-utilization` × 可见显存总量预留 KV cache。在 MIG 实例里可见显存就是 GI 的显存，没有问题；在 HAMi 里可见显存被拦截库改写为 `gpumem` 配额，也没有问题；在裸时间片与 MPS 里，vLLM 看到的是整卡显存，`0.9 × 80 GB` 会撞上邻居——必须手动把 `--gpu-memory-utilization` 调到 `1/N` 以下并留出余量（MPS 下 pinned memory limit 会让越界的分配失败，时间片下则是先到先得）。
+引擎侧的另一个影响是**启动时的显存探测**。vLLM 按 `--gpu-memory-utilization` × 可见显存总量预留 KV cache。在 MIG 实例里可见显存就是 GI 的显存，没有问题；在 HAMi 里可见显存被拦截库改写为 `gpumem` 配额，也没有问题；在裸时间片与 MPS 里，vLLM 看到的是整卡显存，默认的 `0.92 × 80 GB` 会撞上邻居——必须手动把 `--gpu-memory-utilization` 调到 `1/N` 以下并留出余量（MPS 下 pinned memory limit 会让越界的分配失败，时间片下则是先到先得）。
 
 ### 2. 决策树
 
@@ -682,7 +683,7 @@ kubectl apply -f share/mig-config.yaml
 # 排空目标节点（MIG Manager 会停掉 GPU 客户端，但用户 Pod 要自己驱逐）
 kubectl cordon a100-1 && kubectl drain a100-1 --ignore-daemonsets --delete-emptydir-data
 kubectl label node a100-1 nvidia.com/mig.config=two-services --overwrite
-# 观察 MIG Manager 日志与状态标签，直到 mig.config.state 变为 success（标签名以 MIG Manager 文档为准）
+# 观察 MIG Manager 日志与状态标签，直到 nvidia.com/mig.config.state 变为 success
 kubectl get node a100-1 -o jsonpath='{.metadata.labels}' | tr ',' '\n' | grep mig
 kubectl uncordon a100-1
 kubectl describe node a100-1 | grep -A3 Capacity
@@ -905,7 +906,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 |  | `docs/gpu-feature-discovery/README.md` | `single` / `mixed` 下的 GFD 标签：`nvidia.com/mig.strategy`、`gpu.product` 改写、`gpu.slices.gi/ci`、`gpu.multiprocessors`、`nvidia.com/mig-<profile>.count/.memory` |
 | GPU Operator v26.7.0 | `api/nvidia/v1/clusterpolicy_types.go` | `MIGSpec.Strategy`（`none/single/mixed`）<br/>`MIGManagerSpec`（`Enabled`、`Config *MIGPartedConfigSpec`、`GPUClientsConfig`）<br/>`MIGPartedConfigSpec{Name, Default}`<br/>`DevicePluginSpec.Config *DevicePluginConfig{Name, Default}`、`DevicePluginSpec.MPS *MPSConfig{Root}`<br/>`SandboxWorkloadsSpec`、`VGPUManagerSpec` |
 |  | `controllers/state_manager.go` | `migConfigLabelKey = "nvidia.com/mig.config"`、`migCapableLabelKey`、`migManagerLabelKey = "nvidia.com/gpu.deploy.mig-manager"`、`gpuWorkloadConfigLabelKey = "nvidia.com/gpu.workload.config"`（`container` / `vm-passthrough` / `vm-vgpu`）；`addGPUStateLabels` |
-|  | `assets/state-mig-manager/0400_configmap.yaml` | `default-mig-parted-config`：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，按 `device-filter` 区分卡型 |
+|  | `assets/state-mig-manager/0400_configmap.yaml` | `default-mig-parted-config`（无自定义配置时作 `config-default.yaml` 回退，常规路径由 MIG Manager 按硬件生成）：`all-disabled`、`all-enabled`、`all-1g.5gb`、`all-3g.20gb`、`all-1g.10gb`、`all-balanced` 等，按 `device-filter` 区分卡型 |
 |  | `assets/state-mig-manager/0410_configmap.yaml`、`0420_configmap.yaml`、`0600_daemonset.yaml` | `default-gpu-clients`（重配前停掉的宿主机服务）<br/>entrypoint 设 `WITH_SHUTDOWN_HOST_GPU_CLIENTS`<br/>DaemonSet 挂载 `/mig-parted-config` 与 `/gpu-clients` |
 |  | `deployments/gpu-operator/values.yaml` | `mig.strategy: single`、`migManager.enabled/version`（k8s-mig-manager v0.15.0）、`migManager.config` 自定义 ConfigMap 示例；`devicePlugin.version: v0.20.0` |
 | HAMi v2.10.0 | `charts/hami/values.yaml` | `resourceName` / `resourceMem` / `resourceMemPercentage` / `resourceCores` / `resourcePriority`<br/>`scheduler.defaultSchedulerPolicy.{nodeSchedulerPolicy,gpuSchedulerPolicy}`<br/>`scheduler.forceOverwriteDefaultScheduler`<br/>`devicePlugin.deviceSplitCount / deviceMemoryScaling / deviceCoreScaling / nvidiaNodeSelector / nodeConfiguration`<br/>`devices.nvidia.gpuCorePolicy`<br/>`global.gpuHookPath` |
