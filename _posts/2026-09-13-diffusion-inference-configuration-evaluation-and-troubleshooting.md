@@ -164,11 +164,11 @@ Table: 扩散推理配置推导的八步
 |---|---|---|
 | **排除 warmup** | 第一次请求含编译（1–3 分钟）、CUDA graph 捕获、cuDNN 自动调优、allocator 增长 | 先跑 2–3 个同形状请求再计时；SGLang 的 `--warmup-mode request`，看日志里 "(with warmup excluded)" |
 | **步级计时** | 端到端里混着文本编码、VAE、IO；优化多数作用在步上 | `torch.cuda.Event` 夹每步的 transformer forward；报"每步 ms"与"总秒"两个数 |
-| **三段分开** | 少步模型上 VAE 占 15%，优化对象不同 | 分别计时 text / denoise / decode（vLLM-Omni 的 `--log-stats` 与 pipeline profiler、SGLang 的 `--perf-dump-path` 都给分段） |
+| **三段分开** | 少步模型上 VAE 占 15%，优化对象不同 | 分别计时 text / denoise / decode（vLLM-Omni 的 `--log-stats` 与 `--enable-diffusion-pipeline-profiler`、SGLang 的 `sglang generate --perf-dump-path`（服务端是请求体的 `perf_dump_path`）或环境变量 `SGLANG_DIFFUSION_STAGE_LOGGING=1` 都给分段） |
 | **同一形状** | 不同分辨率的 $$N$$ 不同，不可比 | 固定 $$H, W, F, T, g$$、prompt 长度（T5 pad 到 512 时无关；不 pad 的模型有关） |
 | **ABBA 交替** | GPU 频率、温度、其他进程的漂移 | 基线 / 候选 / 候选 / 基线交替各 ≥ 3 次，取中位数 |
 | **吞吐与延迟分开报** | batch 与 SP 对两者的影响相反 | 吞吐用并发压测（张/s/卡），延迟用单请求 p50 / p99 |
-| **同一后端** | `--backend diffusers` 回退时的数字不代表原生性能 | 确认日志没有 "Falling back to diffusers" |
+| **同一后端** | SGLang 默认 `--backend auto`，原生 pipeline 不可用时回退到 diffusers，此时的数字不代表原生性能 | 确认日志没有 "Falling back to diffusers" |
 | **profiler 只做诊断** | torch.profiler 有开销、扭曲时间 | 基线不开 profiler；定位瓶颈时对 1–2 个请求开，operator / shape 与 host stack 两种 trace 分开采 |
 
 Table: 评测规则、原因与做法
@@ -203,11 +203,11 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 
 ### 3. 视频
 
-逐帧 PSNR / LPIPS 之外要看**时间一致性**：帧间光流一致性、闪烁指标（VBench 的 temporal flickering、motion smoothness 分项），以及**运动幅度**（稀疏 attention 与缓存都倾向于让运动变小——静态帧看不出、动态片段明显）。SGLang 的 `--quality high` 门限对视频是 SSIM 0.92 / 24 dB（图像 0.95 / 28 dB），且要求报**最差帧**而不只是平均。
+逐帧 PSNR / LPIPS 之外要看**时间一致性**：帧间光流一致性、闪烁指标（VBench 的 temporal flickering、motion smoothness 分项），以及**运动幅度**（稀疏 attention 与缓存都倾向于让运动变小——静态帧看不出、动态片段明显）。SGLang 给 `--quality high` 加速路径的验证门限默认对视频是 SSIM 0.92 / 24 dB（图像 0.95 / 28 dB，见 `test/test_utils.py`，模型可单独覆盖），且要求报**最差帧**而不只是平均。
 
 ### 4. 阈值扫描曲线
 
-每个有损选项都有一个连续参数（缓存阈值、稀疏度、量化位宽 / rank），评测的产出是一条"加速比—质量"曲线（第三篇第五章的形状）与在质量预算处的工作点。曲线要**按模型 × 形状 × 步数**各测：同一阈值在 50 步与 20 步下命中率不同、在 512² 与 2048² 下伪影不同。工作点存进配置（SGLang 的 `--batching-config` 式的按形状规则、vLLM-Omni 的 cache config），面板上抽检（第七章）。
+每个有损选项都有一个连续参数（缓存阈值、稀疏度、量化位宽 / rank），评测的产出是一条"加速比—质量"曲线（第三篇第五章的形状）与在质量预算处的工作点。曲线要**按模型 × 形状 × 步数**各测：同一阈值在 50 步与 20 步下命中率不同、在 512² 与 2048² 下伪影不同。工作点存进配置（SGLang 的 `--batching-config` 式的按形状规则、vLLM-Omni 的 `--cache-backend` + `--cache-config`），面板上抽检（第七章）。
 
 ## 五、确定性
 
@@ -242,8 +242,8 @@ Table: 确定性漂移的来源与对策
 | 8 | **LoRA 未生效 / 效果过强** | 权重名映射失败静默跳过<br/>scale 传错（0 或 2）<br/>量化路径不支持 LoRA（GGUF） | 加载日志的 "unexpected / missing keys"；请求里的 scale | 修映射<br/>SVDQuant 用 Nunchaku 的 LoRA 路径<br/>GGUF 与 LoRA 互斥（SGLang 会在启动时拒绝） |
 | 9 | **长 prompt 被截断**：后半段描述不生效 | T5 / CLIP 的 token 上限（77 / 256 / 512） | tokenizer 的截断警告 | 用 T5 / LLM 编码器的模型；prompt 改写压缩 |
 | 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（第七篇）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）<br/>换少步模型<br/>不要调 batch |
-| 11 | **`--backend diffusers` 回退**：性能远低于文档 | 原生 pipeline 注册失败 / 模型路径不匹配 | 启动日志 "Falling back to diffusers backend" | 修注册 / 路径；或接受回退性能 |
-| 12 | **BCG 捕获后结果不同 / 偶发错图** | 未捕获形状走 eager（正常）<br/>捕获签名 miss<br/>与 compile / Cache-DiT 互斥被同时开了 | 日志 "captured" / "signature MISSED" | 列全形状；关掉互斥项 |
+| 11 | **回退到 diffusers 后端**（`--backend auto` 下）：性能远低于文档 | 原生 pipeline 注册失败 / 模型路径不匹配 / 读不到 `model_index.json`<br/>路径名带 `-4bit` / `-awq` / `-gptq` 的量化模型（原生引擎只支持 BF16 / FP16） | 启动日志 "Falling back to diffusers backend" | 修注册 / 路径；或接受回退性能 |
+| 12 | **BCG 捕获后结果不同 / 偶发错图 / 没提速** | 未捕获形状走 eager（正常）<br/>捕获签名 miss<br/>与 compile / Cache-DiT 同时开（BCG 优先，另两项不生效）<br/>模型不在 BCG 支持列表（如 FLUX），BCG 被自动关掉 | 日志 "[Diffusion BCG] captured" / "signature MISSED" / "[Diffusion BCG] disabled for" | 列全形状；关掉互斥项 |
 
 Table: 扩散推理的常见故障
 
