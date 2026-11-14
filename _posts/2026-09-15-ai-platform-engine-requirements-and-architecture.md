@@ -5,7 +5,7 @@ title: "AI 平台工程（01）：引擎的需求清单与平台的整体架构"
 subtitle: "What Engines Demand from the Platform, and the Platform's Two Layers"
 tags: [Kubernetes, GPU, MLOps, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个刚装好的 Kubernetes 集群，三台 worker 每台插着一张 GPU。提交一个只有十几行的 Pod，`resources.limits` 里写 `nvidia.com/gpu: 1`，它一直 Pending。`kubectl describe pod` 的 Events 里只有一行：`0/4 nodes are available: 3 Insufficient nvidia.com/gpu`。三张卡明明在那里，`nvidia-smi` 在宿主机上能看到，调度器却说"不够"。
@@ -243,7 +243,7 @@ Kubernetes 原生的 HPA 以 CPU 与内存利用率为默认信号。对推理�
 
 | 指标 | 含义 | 与扩缩容 / 路由的关系 |
 |---|---|---|
-| `vllm:num_requests_running` | 正在 decode 的请求数 |  |
+| `vllm:num_requests_running` | 在执行批次里（prefill 或 decode）的请求数 |  |
 | `vllm:num_requests_waiting` | 在等待队列里的请求数 | 扩容的主信号 |
 | `vllm:kv_cache_usage_perc` | KV cache 使用比例 0–1 | 饱和度；路由的副本选择依据 |
 | `vllm:prefix_cache_hits / _queries` | prefix cache 命中与查询次数 | 同前缀请求去同副本的收益 |
@@ -358,7 +358,7 @@ CNI 给每个 Pod 一张 veth 网卡，接到 overlay 或 underlay 网络。NCCL
 
 **Service** 假设后端可互换，kube-proxy 按轮询或随机分发。推理副本不可互换：一个副本 KV cache 已满、另一个空着，轮询会把请求送到满的那个排队；同一前缀的请求去同一副本能命中 prefix cache，轮询完全不管。请求还是流式长连接，时长差百倍，连接数均衡不等于负载均衡。Gateway API 的 `HTTPRoute` 能按路径与 header 路由、能按权重分流，但选哪个后端 Pod 还是 Service 的事——除非把后端换成 `InferencePool`（第七篇）。
 
-**HPA** 假设信号是 CPU / 内存，或通过 metrics API 接入的自定义指标。前者对推理无意义；后者要一条从引擎 `/metrics` 到 Prometheus 到 metrics adapter 的管线，HPA 自身不提供。HPA 也不能缩到零。KEDA 补的正是这两条（第六篇）。
+**HPA** 假设信号是 CPU / 内存，或通过 metrics API 接入的自定义指标。前者对推理无意义；后者要一条从引擎 `/metrics` 到 Prometheus 到 metrics adapter 的管线，HPA 自身不提供。HPA 缩到零要 `HPAScaleToZero` 特性门（Kubernetes v1.37.0 升为 beta、默认开启），而且只在配置了 Object / External 指标时才允许 `minReplicas: 0`——又回到那条外部指标管线。KEDA 补的正是这条管线，并自己处理 0 ↔ 1 的激活（第六篇）。
 
 ### 5. 空缺清单
 
@@ -399,7 +399,7 @@ Table: 原生 Kubernetes 的三种空缺
 
 三个子层自内向外对应第六到第八篇：
 
-- **Serving 层**（第六篇）：副本的生命周期。LeaderWorkerSet v0.10.0 的 `LeaderWorkerSet`（`api/leaderworkerset/v1/leaderworkerset_types.go` 的 `LeaderWorkerSetSpec.LeaderWorkerTemplate`）表达多 Pod 副本；KServe v0.20.0 的 `InferenceService`（`serving.kserve.io/v1beta1`）面向传统模型、`LLMInferenceService`（`serving.kserve.io/v1alpha1`，`pkg/apis/serving/v1alpha1/llm_inference_service_types.go`）面向 LLM 并内置 llm-d 的架构；llm-d v0.9.0 是 vLLM 与 Kubernetes 社区共同推动的 LLM Serving 栈；KubeRay 的 `RayService` 把 Ray Serve 放到 Kubernetes 上；KEDA v2.20.2 的 `ScaledObject`（`apis/keda/v1alpha1/scaledobject_types.go`，`triggers` 字段接 Prometheus scaler）按引擎指标扩缩容。
+- **Serving 层**（第六篇）：副本的生命周期。LeaderWorkerSet v0.10.0 的 `LeaderWorkerSet`（`api/leaderworkerset/v1/leaderworkerset_types.go` 的 `LeaderWorkerSetSpec.LeaderWorkerTemplate`）表达多 Pod 副本；KServe v0.20.0 的 `InferenceService`（`serving.kserve.io/v1beta1`）面向传统模型、`LLMInferenceService`（`serving.kserve.io/v1alpha1` 与 `v1alpha2`，后者是存储版本，`pkg/apis/serving/v1alpha2/llm_inference_service_types.go`）面向 LLM 并内置 llm-d 的架构；llm-d v0.9.0 是 vLLM 与 Kubernetes 社区共同推动的 LLM Serving 栈；KubeRay 的 `RayService` 把 Ray Serve 放到 Kubernetes 上；KEDA v2.20.2 的 `ScaledObject`（`apis/keda/v1alpha1/scaledobject_types.go`，`triggers` 字段接 Prometheus scaler）按引擎指标扩缩容。
 - **网关层**（第七篇）：请求的路由与治理。Gateway API Inference Extension v1.6.0 的 `InferencePool`（`inference.networking.k8s.io/v1`，`api/v1/inferencepool_types.go`，`EndpointPickerRef` 字段指向 EPP）替代 Service 作为 `HTTPRoute` 的后端；Endpoint Picker（EPP）在 v1.6.0 已迁出到 llm-d-router v0.10.0（`cmd/epp`、`pkg/epp`），按每个副本的队列、KV cache 使用率与已加载的 LoRA 选目标；`InferenceObjective` 在 llm-d-router 的 `apix/v1alpha2` 表达请求优先级。多租户、配额、灰度建立在这个网关之上。
 - **可观测与成本层**（第八篇）：DCGM Exporter 4.6.0-4.8.3 的硬件指标（`etc/default-counters.csv` 里的 `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED`；`DCGM_FI_PROF_SM_ACTIVE` 在同一文件中默认注释掉，需要打开）、引擎的 `vllm:*` 指标、网关的 token 计数，三层拼成从硬件到请求的链条；OpenCost v1.121.1（`pkg/costmodel` 的 allocation 逻辑含 GPU 字段）按 label 把 GPU 成本分摊到团队与模型。
 
@@ -532,7 +532,7 @@ Table: 训练任务的需求与原生 K8s 能否满足
 | 3 | 小流量时段该模型用不满 2 张 80 GB 卡，想让别人用剩余部分 | 否：device plugin 不能把一张卡的一部分给别人 | 4 |
 | 4 | 副本数按 `vllm:num_requests_waiting` 扩缩 | 否：HPA 默认只看 CPU / 内存；自定义指标要自建管线 | 6 |
 | 5 | 高峰前提前扩容（一个副本就绪要 5 分钟以上） | 否：HPA 是反应式的；需要预测或低阈值策略 | 6 |
-| 6 | 夜间缩到 1 甚至 0，且第一个请求能接受几分钟冷启动 | 部分：缩到 1 可以；缩到 0 HPA 不支持 | 6 |
+| 6 | 夜间缩到 1 甚至 0，且第一个请求能接受几分钟冷启动 | 部分：缩到 1 可以；缩到 0 要 `HPAScaleToZero`（v1.37 beta）且只认 Object / External 指标，管线仍要自建 | 6 |
 | 7 | 就绪探针等到权重加载与预热完成 | 是：`readinessProbe` 打引擎的 `/health` | 6 |
 | 8 | 扩容时 6 个 Pod 并发读同一份 60 GB 权重 | 接口是；带宽否 | 5 |
 | 9 | 滚动升级时等在途流式请求完成再终止旧副本 | 部分：`terminationGracePeriodSeconds` + `preStop`；引擎要配合 drain | 6 |
@@ -575,7 +575,7 @@ Table: 原生满足不了的五组需求
 | cohort | Kueue 中一组 ClusterQueue 的集合，成员之间可以借用彼此的空闲配额（`ClusterQueueSpec.CohortName`） | 第三篇 |
 | ResourceFlavor | Kueue 中资源的"口味"：一组节点标签与污点对应一种硬件（如 H100 与 A100 各一个 flavor） | 第三篇 |
 | Workload | Kueue 为每个被管理的 Job 创建的准入对象，记录它要多少配额、被哪个 ClusterQueue 准入 | 第三篇 |
-| TAS | Kueue 的 Topology-Aware Scheduling：Topology CRD（v1beta1）定义层级，Workload 按层级紧凑放置 | 第三篇 |
+| TAS | Kueue 的 Topology-Aware Scheduling：Topology CRD（v1beta2）定义层级，Workload 按层级紧凑放置 | 第三篇 |
 | PodGroup / Queue | Volcano 的调度单位与队列；Queue 有 capability / deserved / guarantee 三个配额语义 | 第三篇 |
 | TrainJob | Kubeflow Trainer 的训练任务对象，引用 TrainingRuntime，底层生成 JobSet | 第三篇 |
 | MIG profile | 一张 GPU 切成的硬件分区规格，如 1g.5gb、3g.20gb；device plugin 上报为 `nvidia.com/mig-1g.5gb` | 第四篇 |
@@ -624,7 +624,7 @@ Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价
 
 **版本契约的层数**。一个能用 GPU 的 Pod 依赖驱动、Container Toolkit、device plugin、CUDA Runtime 四层各自的版本，加上 Kubernetes 自身、Operator、调度器扩展、CRD 的 API 版本。每一层都有自己的发布节奏与兼容矩阵。总纲的版本基线表里有二十多个项目，这不是本系列的选择，而是这一层生态的现状：升级任何一个都要检查它与相邻层的契约。
 
-**两套对象模型**。用了 Kueue 就要理解 `Workload` 与 `ClusterQueue`，用了 Volcano 就要理解 `PodGroup` 与 `Queue`，用了 LeaderWorkerSet 就不能直接用 Deployment 的滚动升级参数。每个 CRD 都是对原生对象的一次包装，排障时要穿过这层包装找到底下的 Pod。第五章说这一层生态选择了"扩展而非替换"，好处是原生工具（`kubectl describe`、事件、标签）都还能用，代价是**对象数量翻倍**——一个 `TrainJob` 背后是 JobSet、Job、Pod 三层，一个 `LLMInferenceService` 背后是 LeaderWorkerSet、StatefulSet、Pod、InferencePool、HTTPRoute。
+**两套对象模型**。用了 Kueue 就要理解 `Workload` 与 `ClusterQueue`，用了 Volcano 就要理解 `PodGroup` 与 `Queue`，用了 LeaderWorkerSet 就不能直接用 Deployment 的滚动升级参数。每个 CRD 都是对原生对象的一次包装，排障时要穿过这层包装找到底下的 Pod。第五章说这一层生态选择了"扩展而非替换"，好处是原生工具（`kubectl describe`、事件、标签）都还能用，代价是**对象数量翻倍**——一个 `TrainJob` 背后是 JobSet、Job、Pod 三层，一个 `LLMInferenceService` 背后是 Deployment（多节点时是 LeaderWorkerSet 与它生成的 StatefulSet）、Pod、InferencePool、HTTPRoute。
 
 **信号延迟的叠加**。推理扩容的链路是：引擎指标每 N 秒被 Prometheus 抓一次 → KEDA 每 M 秒查一次 → HPA 决定 → 调度 → 拉镜像 → 加载权重 → 就绪。每一段的延迟相加才是"从负载上升到新副本可用"的时间。平台每加一个环节，这个数字就多一项；第六篇的核心问题就是把它分解并压缩。
 
@@ -684,16 +684,16 @@ Table: 自建与托管方案各层的分工
 | vLLM v0.28.0 `vllm/v1/metrics/loggers.py` | `PrometheusStatLogger`：`vllm:num_requests_running`、`vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、`vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`、`vllm:num_preemptions`、`vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_queue_time_seconds` |
 | vLLM v0.28.0 `vllm/config/cache.py`、`vllm/config/parallel.py` | `CacheConfig.gpu_memory_utilization`（默认 0.92）；`ParallelConfig.tensor_parallel_size` |
 | Kubernetes v1.37.0 `pkg/scheduler/framework/plugins/noderesources/fit.go` | `Fits()`、`fitsRequest()`、`InsufficientResource`（`Reason` 为 `Insufficient <资源名>`） |
-| Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto` | `ListAndWatch`、`GetPreferredAllocation`、`Allocate` 三个 rpc；`pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.Allocate()` / `GetCapacity()` |
+| Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto` | `ListAndWatch`、`GetPreferredAllocation`、`Allocate` 等 rpc；`pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.Allocate()` / `GetCapacity()` |
 | Kubernetes v1.37.0 `staging/src/k8s.io/api/resource/v1/types.go` | DRA 的 `ResourceSlice`、`ResourceClaim`、`ResourceClaimTemplate`、`DeviceClass`（第二篇展开） |
 | GPU Operator v26.7.0 `api/nvidia/v1/clusterpolicy_types.go` | `ClusterPolicySpec` |
-| Kueue v0.19.2 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`apis/kueue/v1beta1/topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`<br/>`ResourceFlavorSpec.NodeLabels`<br/>`Topology` CRD |
+| Kueue v0.19.2 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`<br/>`ResourceFlavorSpec.NodeLabels`<br/>`Topology` CRD |
 | Volcano v1.15.2 `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go`、`pkg/scheduler/plugins/gang/gang.go` | `PodGroupSpec.MinMember`<br/>`QueueSpec.Capability` / `Deserved` / `Guarantee`<br/>gang 插件 |
-| Kubeflow Trainer v2.3.0 `pkg/apis/trainer/v1alpha1/trainjob_types.go`、`trainingruntime_types.go`、`pkg/constants/constants.go` | `TrainJobSpec.RuntimeRef`<br/>`TorchMLPolicySource.NumProcPerNode`、`NumNodes`<br/>`TorchEnvNumNodes = "PET_NNODES"` 等 torchrun 环境变量常量 |
+| Kubeflow Trainer v2.3.0 `pkg/apis/trainer/v1alpha1/trainjob_types.go`、`trainingruntime_types.go`、`pkg/constants/constants.go` | `TrainJobSpec.RuntimeRef`<br/>TrainJob 侧 `Trainer.NumNodes`、`Trainer.NumProcPerNode`；Runtime 侧 `MLPolicy.NumNodes`<br/>`TorchEnvNumNodes = "PET_NNODES"` 等 torchrun 环境变量常量 |
 | KubeRay v1.7.0 `ray-operator/apis/ray/v1/` | `RayClusterSpec`、`RayJobSpec`、`RayServiceSpec` |
 | Slinky slurm-operator v1.2.2 `api/v1beta1/` | `ControllerSpec`、`NodeSetSpec`、`LoginSetSpec` |
 | LeaderWorkerSet v0.10.0 `api/leaderworkerset/v1/leaderworkerset_types.go` | `LeaderWorkerSetSpec.LeaderWorkerTemplate`；`api/disaggregatedset/v1/` 为 PD 分离的独立 API group |
-| KServe v0.20.0 `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` | `LLMInferenceService`（`serving.kserve.io/v1alpha1`） |
+| KServe v0.20.0 `pkg/apis/serving/v1alpha2/llm_inference_service_types.go` | `LLMInferenceService`（`serving.kserve.io/v1alpha2` 为存储版本，`v1alpha1` 仍可用） |
 | Gateway API Inference Extension v1.6.0 `api/v1/inferencepool_types.go` | `InferencePool`（`inference.networking.k8s.io/v1`）、`EndpointPickerRef`<br/>EPP 实现在 llm-d-router v0.10.0 `cmd/epp`、`pkg/epp`<br/>`InferenceObjective` 在 llm-d-router `apix/v1alpha2` |
 | KEDA v2.20.2 `apis/keda/v1alpha1/scaledobject_types.go`、`pkg/scalers/prometheus_scaler.go` | `ScaledObjectSpec.Triggers`；Prometheus scaler |
 | DCGM Exporter 4.6.0-4.8.3 `etc/default-counters.csv` | `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED` 默认开启；`DCGM_FI_PROF_SM_ACTIVE` 默认注释 |
