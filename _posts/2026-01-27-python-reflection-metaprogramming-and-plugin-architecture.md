@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（04）：Python的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-14
 ---
 
 `vllm.LLM(model="Qwen/Qwen3-8B")` 这一行背后，vLLM 要在几十种模型架构、十几种量化格式、几种 attention 后端、几种调度策略里各选一个，还要允许别人在不改 vLLM 源码的情况下接入自己的模型或量化方法。如果用 `if model_type == "qwen3": ... elif ...` 来写，核心代码会变成一张几百行的 `if-else` 表，每接一个新模型都要改它。实际的做法是：模型类用一个装饰器把自己登记进一个注册表，量化方法按名字从表里取，后端在启动时按硬件条件动态 `import`——运行时用**字符串**找到**类**、用**装饰器**改写**函数**、用**元类 / `__init_subclass__`** 在**定义时**介入。这些就是 Python 的动态机制。
@@ -483,7 +483,7 @@ async def infer(...):
 
 ### 3. 描述符：属性访问背后的机制
 
-> 描述符的基本原理在[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)中已经介绍，这里侧重它在元编程和插件系统中的应用。
+> 描述符的基本原理——它在属性查找顺序里的位置、数据描述符与非数据描述符的区别——在[《对象如何工作——对象模型、协议、装饰器与生成器》的「描述符协议」一节](/python-object-model-protocols-decorators-and-generators.html#4-描述符协议属性查找的可编程点)中已经介绍，这里侧重它在元编程和插件系统中的应用。
 
 描述符是 Python 属性系统的重要基础。实现了以下任意方法的对象，都可以参与属性访问控制：
 
@@ -643,6 +643,35 @@ class TorchBackend(BaseBackend):
 ```python title="从元类的 registry 取回 TorchBackend"
 print(RegistryMeta.registry["torch"])
 ```
+
+**一条 `class` 语句里，四种机制按什么顺序触发**
+
+本章开头的表只说了各机制"在什么时候介入"。把它们放进同一条 `class` 语句——基类 `BaseBackend` 用上面的 `RegistryMeta`，假设它还定义了 `__init_subclass__`，类体里有一个 `PositiveInteger` 描述符，外面再套一个类装饰器 `register`——执行顺序是固定的：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：一条 class 语句的执行顺序：元类、描述符、__init_subclass__、类装饰器各在哪一步介入
+flowchart TB
+    S["<b>@register<br/>class TorchBackend(BaseBackend):</b>"] --> P["<b>1. 确定元类，调用 __prepare__</b><br/>元类取自基类（RegistryMeta）；<br/>返回空的命名空间 dict"]
+    P --> B["<b>2. 执行类体</b><br/>backend_name = 'torch'、def infer…、<br/>max_batch = PositiveInteger() 写进命名空间"]
+    B --> N["<b>3. RegistryMeta.__new__ 开始</b><br/>调用 super().__new__，即 type.__new__"]
+    subgraph TN["type.__new__ 内部"]
+        direction TB
+        T1["<b>3a. 创建类对象</b>"] --> T2["<b>3b. 对命名空间里的描述符调用 __set_name__</b><br/>PositiveInteger 得知自己叫 max_batch"]
+        T2 --> T3["<b>3c. 调用父类的 __init_subclass__</b><br/>基类没定义时走 object 的空实现"]
+    end
+    N --> T1
+    T3 --> R["<b>4. RegistryMeta.__new__ 中 super() 之后的代码</b><br/>此时登记进 registry"]
+    R --> I["<b>5. RegistryMeta.__init__</b>"]
+    I --> D["<b>6. 类装饰器 register(cls)</b><br/>拿到已经完整创建的类，可返回替代对象"]
+    D --> X["<b>7. 名字 TorchBackend 绑定到返回值</b>"]
+```
+
+这个顺序（在 CPython 上用每个钩子打印一行即可验证）解释了几件容易困惑的事：
+
+1. 元类的 `__new__` 能在第 2 步之后、类对象诞生之前修改命名空间，这是它唯一不可替代的地方；装饰器和 `__init_subclass__` 拿到的都已经是创建好的类。
+2. `__set_name__` 和 `__init_subclass__` 都发生在 `type.__new__` 内部，所以元类在 `super().__new__()` 之后写的登记代码，比 `__init_subclass__` 晚执行；两套注册同时存在时，以这个顺序判断谁先看到类。
+3. 类装饰器最后执行，它能看到元类和 `__init_subclass__` 加上的一切，也能把类整个换掉——所以第 7 步绑定的是装饰器的返回值。
 
 **元类的优点**
 
@@ -1064,6 +1093,20 @@ def discover_backends() -> dict[str, object]:
     return discovered
 ```
 
+这两段代码分属两个包，中间靠安装时写下的元数据连起来——主程序从头到尾没有写过 `my_package` 这个名字：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：入口点从声明到加载：插件包的 pyproject.toml → 安装后的 entry_points.txt → 主程序按 group 读取并导入
+flowchart TB
+    A["<b>插件包 pyproject.toml</b><br/>#91;project.entry-points.#quot;my_ai.backends#quot;#93;<br/>torch = #quot;my_package.torch_backend:TorchBackend#quot;"] -- "pip install 插件包" --> B["<b>site-packages/my_package-1.0.dist-info/entry_points.txt</b><br/>同样的 group、名字和 module:object 字符串"]
+    B -- "entry_points(group='my_ai.backends')<br/>只读元数据，不导入任何模块" --> C["<b>EntryPoint 对象</b><br/>name='torch'、value='my_package.torch_backend:TorchBackend'"]
+    C -- "entry_point.load()" --> D["<b>import my_package.torch_backend</b><br/>执行模块顶层代码，再 getattr 取出 TorchBackend"]
+    D --> E["<b>discovered['torch'] = TorchBackend</b>"]
+```
+
+两点由这条链路决定：`entry_points()` 只扫描已安装包的 `dist-info` 元数据，所以列出插件很便宜，而且没装进当前环境的插件根本看不见；真正的导入（以及插件模块顶层的全部副作用）发生在 `load()` 那一步，所以下面的 `LazyPlugin` 把 `load()` 推迟到第一次使用。
+
 入口点适合：
 
 - 插件独立打包；
@@ -1099,7 +1142,7 @@ class LazyPlugin:
 
 三种方式并不互斥。成熟系统通常同时用两种：内置插件走显式导入（可控），第三方插件走入口点（免改代码）。
 
-| | 显式导入 | 包扫描 | 入口点 |
+| 维度 | 显式导入 | 包扫描 | 入口点 |
 |---|---|---|---|
 | 谁能加插件 | 只有你 | 只有你 | 任何人，装个包即可 |
 | 是否要改核心代码 | 要 | 不要 | 不要 |
@@ -1400,11 +1443,27 @@ else:
 - GPU 资源；
 - 其他模块持有的引用。
 
+原因在于 `reload` 做的事很窄：在**同一个模块对象**的 `__dict__` 里把顶层代码再执行一遍，把名字重新绑定到新创建的对象上。所有不经过这个 `__dict__` 拿到的引用，都还指着旧对象。以一个用 `@register_backend("torch")` 注册的插件模块 `plugins.torch_backend` 为例，`importlib.reload(plugins.torch_backend)` 之后：
+
+```mermaid
+%% 图：importlib.reload 之后谁指向新类、谁还指向旧类
+flowchart TB
+    M["<b>模块 plugins.torch_backend 的 __dict__</b><br/>同一个模块对象，顶层代码重跑一遍"] -- "名字 TorchBackend 重新绑定" --> NEW["<b>新的 TorchBackend 类</b>"]
+    NEW -- "@register_backend('torch') 再执行一次" --> ERR["<b>registry.register 抛 ValueError</b><br/>backend already registered: torch"]
+    subgraph KEEP["reload 碰不到的引用"]
+        direction TB
+        INST["<b>reload 之前创建的实例</b><br/>backend.__class__"] ~~~ OTHER["<b>别的模块里</b><br/>from plugins.torch_backend import TorchBackend"] ~~~ REG["<b>registry._factories['torch']</b><br/>注册表模块没有被重载"]
+    end
+    KEEP --> OLD["<b>旧的 TorchBackend 类</b><br/>reload 之前那一次执行创建的"]
+```
+
+于是一次 `reload` 会同时制造三种不一致：旧实例继续跑旧代码；`isinstance(backend, plugins.torch_backend.TorchBackend)` 变成 `False`，因为那已经是另一个类；注册表里登记的仍是旧类，而重新执行的装饰器又撞上"重名注册"的检查。要绕开这三点，就得像上面的七步流程那样把"新实例"当成一个独立对象来创建、校验、切换和销毁旧的——这已经是生命周期管理，而不是模块重载。
+
 因此，生产系统应优先设计显式的插件生命周期，而不是依赖模块重载。
 
 ### 9. 一个可维护的插件架构示例
 
-下面给出一个简化的完结构：
+下面给出一个简化的完整结构：
 
 ```text title="插件架构示例的目录结构"
 ai_infra/

@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（05）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个推理服务上线后，进程的常驻内存（RSS）每小时稳定上涨 300 MB，三天后被 OOM killer 杀掉。值班的人打开 `tracemalloc`，它说 Python 对象总共只涨了 20 MB。剩下的 280 MB 在哪？这类问题在 AI-Infra 服务里几乎是必修课，答案通常不在任何一行"算得慢"的 Python 代码里，而在几个看不见的地方：NumPy 数组的数据缓冲区不算 Python 对象，`tracemalloc` 默认看不到它；一个请求级的 `dict` 缓存没有上限，每个 key 挂着一段 tensor；一次 `arr[mask]` 以为是视图其实是拷贝；pymalloc 把释放的小对象内存留在自己的 arena 里不还给操作系统；CUDA 的缓存分配器同样把显存攥在手里——`nvidia-smi` 看到的数字与 PyTorch 实际在用的差一倍。
@@ -195,6 +195,27 @@ values = np.arange(1_000_000, dtype=np.float32)
 
 NumPy 数组通常将数据存储在连续的原生内存中，避免为每个数值创建独立的 Python 对象。
 
+把两种存法摊开来比，差距来自"每个数是不是一个对象"：
+
+```mermaid
+%% 图：一百万个数的两种存法：list 里的指针 + 独立 float 对象，对比 ndarray 的一块连续缓冲区
+flowchart TB
+    subgraph L["list：values = [float(i) for i in range(1_000_000)]"]
+        direction TB
+        LH["<b>list 对象</b><br/>对象头 + 长度 + ob_item 指针"] --> LP["<b>指针数组 ob_item</b><br/>每格 8 B × 1,000,000 ≈ 8 MB"]
+        LP --> F0["<b>float 对象 0.0</b><br/>ob_refcnt 8 B · ob_type 8 B · 数值 8 B = 24 B"]
+        LP --> F1["<b>float 对象 1.0</b><br/>24 B"]
+        LP --> FN["……共 1,000,000 个，≈ 24 MB"]
+    end
+    subgraph A["ndarray：np.arange(1_000_000, dtype=np.float32)"]
+        direction TB
+        AH["<b>ndarray 对象</b><br/>shape、strides、dtype、data 指针"] --> AB["<b>一块连续缓冲区</b><br/>#91;0.0#93;#91;1.0#93;#91;2.0#93;…<br/>每个 4 B × 1,000,000 = 4 MB"]
+    end
+    L ~~~ A
+```
+
+左边合计约 32 MB，而且散落在一百万个独立对象里，每个都要分配、计引用、被 GC 扫描；右边只有一个 Python 对象，数值本身没有对象头，紧挨着排在一块 4 MB 的原生内存里（`float64` 是 8 MB）。`sys.getsizeof(1.0)` 返回 24、`sys.getsizeof([0.0] * 1_000_000)` 返回 8,000,056（只算指针数组，不算它指向的对象），`np.arange(1_000_000, dtype=np.float32).nbytes` 是 4,000,000，可以自己验证这几个数。
+
 这并不意味着“所有列表都应该改成 NumPy 数组”。如果数据包含复杂的异构结构，例如请求元数据、配置项或插件描述，Python 容器仍然是合理选择。关键在于区分：
 
 - 适合 Python 对象表达的数据；
@@ -379,6 +400,19 @@ new_config = {
 
 这种方式虽然也会创建对象，但复制范围更加明确。
 
+假设 `config` 里除了 `limits` 还有一个不会被修改的大对象 `config["vocab"]`，四种写法各自复制了哪一层：
+
+| 写法 | 顶层 dict | `limits` dict | 其他嵌套值（`vocab`） | 改 `limits["max_tokens"]` 会影响 `config` 吗 |
+|---|---|---|---|---|
+| `backup = config` | 共享 | 共享 | 共享 | 会 |
+| `config.copy()` | 新建 | 共享 | 共享 | 会 |
+| `copy.deepcopy(config)` | 新建 | 新建 | 新建（可能很大） | 不会 |
+| `{**config, "limits": {**config["limits"], …}}` | 新建 | 新建 | 共享 | 不会 |
+
+Table: 四种复制写法各复制了哪一层
+
+最后一行只复制要改的那条路径，其余对象原样共享——既不会误改原配置，也不用为 `vocab` 付深拷贝的代价。
+
 ### 3. 切片可能创建副本
 
 对于列表，切片会创建新的列表：
@@ -557,7 +591,20 @@ print(transposed.flags["C_CONTIGUOUS"])
 # False
 ```
 
-非连续数组不一定有问题。很多操作可以直接处理 stride 信息。但某些底层接口要求连续内存，此时可能自动创建一个连续副本。
+转置并没有搬动数据。数组对象记着一组**步长**（strides）：沿每一维前进一格，要在缓冲区里跳过多少字节。`array` 的步长是 `(16, 4)`——换一行跳 16 字节（4 个 `float32`），换一列跳 4 字节；`array.T` 与它共用同一块 12 个元素的缓冲区，只是把形状换成 `(4, 3)`、步长换成 `(4, 16)`。按行读两者，访问到的缓冲区下标是：
+
+| 读第几行 | `array`（3×4，strides `(16, 4)`）读到的缓冲区下标 | `array.T`（4×3，strides `(4, 16)`）读到的缓冲区下标 |
+|---|---|---|
+| 0 | 0, 1, 2, 3 | 0, 4, 8 |
+| 1 | 4, 5, 6, 7 | 1, 5, 9 |
+| 2 | 8, 9, 10, 11 | 2, 6, 10 |
+| 3 | — | 3, 7, 11 |
+
+Table: 同一块缓冲区在原数组与转置视图下的读取顺序
+
+左列每一行在内存里是挨着的，这就是 C 连续（C_CONTIGUOUS）；右列每一行都在缓冲区里跳着读，于是 `C_CONTIGUOUS` 为 `False`。
+
+非连续数组不一定有问题。很多操作可以直接按步长读取。但某些底层接口要求连续内存，此时可能自动创建一个连续副本。
 
 可以显式检查：
 
@@ -784,6 +831,19 @@ del b
 - **Generation 0**：新创建的对象，回收频率最高；
 - **Generation 1**：经历一次 Gen 0 回收后存活的对象；
 - **Generation 2**：经历一次 Gen 1 回收后存活的对象，回收频率最低。
+
+回收一代时，GC 怎么知道上一节那两个 `Node` 已经不可达？它不从"根"出发找，而是只看这一代里的容器对象：先把每个对象的 `ob_refcnt` 复制一份，再减去**来自这一组对象内部**的引用。减完还大于零，说明有组外的引用（某个变量、别的代的对象）指着它，它和从它出发能到达的对象都活着；减到零、又没有活着的对象指向它，就是不可达的垃圾（CPython 的 `gcmodule.c` 里对应 `update_refs` → `subtract_refs` → `move_unreachable`）。用上一节的例子算一遍：
+
+| 情形 | 对象 | `ob_refcnt` | 来自组内的引用 | 相减后 | 结论 |
+|---|---|---:|---:|---:|---|
+| `del a`、`del b` 之后 | Node A | 1（`B.ref`） | 1 | 0 | 不可达 |
+| ^^ | Node B | 1（`A.ref`） | 1 | 0 | 不可达，两个一起回收 |
+| 只执行了 `del b` | Node A | 2（名字 `a` + `B.ref`） | 1 | 1 | 有外部引用，存活 |
+| ^^ | Node B | 1（`A.ref`） | 1 | 0 | 从存活的 A 可达，存活 |
+
+Table: 循环 GC 用「引用计数减组内引用」判断两个互相引用的 Node 是否可达
+
+所以 GC 的开销与这一代里容器对象的数量成正比——这就是下面"存活对象多时 Gen 2 回收会造成尖刺"的原因。
 
 可以查看和调整各代的阈值：
 
