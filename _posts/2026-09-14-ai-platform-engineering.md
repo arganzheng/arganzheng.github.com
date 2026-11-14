@@ -4,6 +4,7 @@ title: AI 平台工程：资源层与交付层（总纲）
 subtitle: "AI Platform Engineering: the Resource Layer and the Delivery Layer"
 tags: [Kubernetes, MLOps, GPU, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 
