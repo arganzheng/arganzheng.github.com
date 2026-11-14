@@ -325,7 +325,7 @@ flowchart TB
 - **num_key_value_heads**：8
 - **vocab_size**：128256
 
-先把这六个数字标到模型结构上——每个数字都是图里某个方框的一条边长（第一篇会解释每个方框是什么，第一篇解释它与 GPT-2 差在哪）：
+先把这六个数字标到模型结构上——每个数字都是图里某个方框的一条边长（《Transformer 原理与实现》第一篇解释每个方框是什么，本系列第一篇解释它与 GPT-2 差在哪）：
 ```mermaid
 %% 图：Llama-3-8B 的结构与 config.json 六个数字的对应：vocab_size 决定 embedding / lm_head 的行数，hidden_size 是贯穿全模型的向量宽度，num_hidden_layers 是同样的层重复几次，num_attention_heads / num_key_value_heads 决定 Q 与 K、V 投影的输出宽度，intermediate_size 是 FFN 中间的宽度
 flowchart TB
