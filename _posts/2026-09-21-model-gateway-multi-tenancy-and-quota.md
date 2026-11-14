@@ -5,7 +5,7 @@ title: "AI 平台工程（07）：模型网关与多租户——路由、配额�
 subtitle: "The Model Gateway: KV-Aware Routing, Multi-Tenancy, Quotas and Canaries"
 tags: [Kubernetes, GPU, Gateway API, llm-d, Multi-Tenancy, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 上一篇结束时，一个 70B 模型的 4 个副本已经跑在集群里，KEDA 会按 `vllm:num_requests_waiting` 把它扩到 6 个。把它们暴露出去最省事的做法是一个 `Service` 加一个 Ingress：`kube-proxy` 在 4 个 Pod 之间轮询，客户端拿到一个 URL，`POST /v1/chat/completions`，完事。这套东西跑起来没有任何报错，但第一周的监控会出现一个反直觉的图形：4 个副本的 `vllm:kv_cache_usage_perc` 长期不齐——一个在 95% 上下抖、两个在 60%、一个 30%；TTFT 的 p50 在 400 ms，p99 却到了 6 s；而 `nvidia-smi` 看总算力只用了一半。请求没有多到需要扩容，但排队真实地发生了，发生在那个 95% 的副本上，因为轮询不看它满不满。
@@ -103,7 +103,7 @@ Table: 本文的章节安排
 
 ### 1. 一个数值小例子
 
-取一组不算极端的数字（全部为推演值，非实测）：一个模型的 4 个副本，每个副本的 KV cache 能放约 160k token（由 `--gpu-memory-utilization` 和 `--max-model-len` 决定，70B 级模型在多卡 TP 下是这个量级）；工作负载是 64 个活跃的多轮对话，每个对话的上下文约 8k token；prefill 吞吐按 llm-d 的 `prefix-cache-affinity-filter` 为参考配置校准出的 `peakPrefillThroughput: 15926` token/s 取整为 16k token/s（Qwen3-32B、H100、TP=2，`guides/optimized-baseline/router/optimized-baseline.values.yaml` 的注释）。
+取一组不算极端的数字（全部为推演值，非实测）：一个模型的 4 个副本，每个副本的 KV cache 能放约 160k token（由 `--gpu-memory-utilization` 和 `--max-model-len` 决定，70B 级模型在多卡 TP 下是这个量级）；工作负载是 64 个活跃的多轮对话，每个对话的上下文约 8k token；prefill 吞吐按 llm-d 的 `prefix-cache-affinity-filter` 为参考配置校准出的 `peakPrefillThroughput` 默认值 15928 token/s 取整为 16k token/s（Qwen3-32B、H100 80 GB、TP=2，`guides/optimized-baseline/router/optimized-baseline.values.yaml` 的注释）。
 
 **轮询。** 每个对话的每一轮被随机送到 4 个副本之一。要让某一轮命中缓存，它必须落在上一轮所在的副本，概率 1/4；更糟的是每个副本会看到全部 64 个对话的碎片，64 × 8k = 512k token 远超 160k 的容量，LRU 不断淘汰，实际命中率还要低于 1/4。未命中一轮的 prefill 是 8k / 16k = **0.5 s**，命中一轮接近 0。TTFT 的期望约 0.4 s，但这是均值；分布是双峰的：四分之一的请求几十毫秒，四分之三 0.5 s 以上。
 
@@ -142,7 +142,7 @@ GIE 在 `docs/proposals/003-model-server-protocol/README.md` 里把 EPP 对引�
 | PD 分离的路由 sidecar | llm-d-router `pkg/sidecar/`、`cmd/pd-sidecar/` | — |
 | body-based routing（从请求体提模型名） | GIE 只剩提案 `docs/proposals/1964-pluggable-bbr-framework`（Draft）；llm-d v0.9.0 的 `guides/multi-model-routing` 用独立仓库的 Inference Payload Processor（IPP） | 注入 `X-Gateway-Base-Model-Name` 头 |
 
-Table: GIE 与 llm-d v1.6.0 的仓库分工
+Table: GIE v1.6.0 与 llm-d-router v0.10.0 的仓库分工
 
 GIE `docs/proposals/1199-inferencemodel-api-evolution/README.md` 记录了这个演化：原来的 `InferenceModel`（v1alpha2）被拆掉，`Criticality` 变成 `InferenceObjective.spec.priority`（整数，允许负值），流量切分与模型名重写"不一定通过 GIE 的 CRD"实现——这就是它们最终落在 llm-d-router 的 `InferenceModelRewrite` 里的原因。GIE 的 `1816-inferenceomodelrewrite` 提案（状态 Proposed）与 llm-d-router `apix/v1alpha2/inferencemodelrewrite_types.go` 的字段是一致的。
 
@@ -166,7 +166,7 @@ type EndpointPickerRef struct {
 }
 ```
 
-- `selector` 故意只支持 `matchLabels`（`shared_types.go` 的 `LabelSelector` 注释："intentionally simple to be compatible with Kubernetes Service selectors"），因为有的网关实现会把它翻译成一个 `Service`。
+- `selector` 故意只支持 `matchLabels`（`InferencePoolSpec.Selector` 的注释："intentionally simple to be compatible with Kubernetes Service selectors"），因为有的网关实现会把它翻译成一个 `Service`。
 - `targetPorts` 多于一个时，同一个 Pod 的每个端口是一个独立的 endpoint——这是给一个 Pod 里跑多个引擎进程（DP 副本）的形态用的，conformance 里有一条 `gateway_following_epp_routing_dp` 测的就是它。
 - `endpointPickerRef` 是 v1 的字段名（早期版本叫 `extensionRef`，v1.6.0 的类型定义里已没有这个名字）。它在 API 层面是 `+optional`，但 `InferencePoolReasonEndpointPickerRefMissing` 的注释说得很直白：v1.5.0 之前必填，现在"仍被大多数实现要求"。
 - `failureMode` 默认 `FailClose`：EPP 不可达时**丢请求**而不是退回随机转发。这个默认值的理由是 FailOpen 会把本篇第二章的问题原样带回来，而且是在流量最大、EPP 最可能过载的时候。conformance 有专门一条 `epp_unavailable_fail_open` 测 FailOpen 的行为。
@@ -274,7 +274,7 @@ v1.6.0 的 `site-src/implementations/gateways.md` 列出的 conformant 实现是
 
 llm-d 还提供一个 **Standalone 模式**（`docs/architecture/core/router/proxy.md`）：Envoy 作为 sidecar 与 EPP 跑在同一个 Pod 里，ext_proc 走 localhost，不需要 `Gateway` / `HTTPRoute` 与网关控制器。适合批处理、RL rollout、还在用 Ingress 的集群；生产多租户场景仍应走 Gateway 模式，因为灰度、TLS、多集群都依赖 Gateway API 的对象。
 
-KServe v0.20.0 的对照：`pkg/apis/serving/v1alpha1/llm_inference_service_types.go` 的 `LLMInferenceServiceSpec.Router` 有 `Route.HTTP`（内嵌 `gwapiv1.HTTPRouteSpec`）、`Gateway.Refs` 和 `Scheduler`（`Pool.Spec` 内嵌 GIE 的 `InferencePoolSpec`、`Config.Inline` / `Config.Ref` 放 `EndpointPickerConfig`、`Template` 是 EPP 的 PodSpec、`Replicas`）——它把本章的 `InferencePool` + `HTTPRoute` + EPP Deployment 三样东西折叠进一个 CR，生成的对象与本章手写的一致。
+KServe v0.20.0 的对照：`pkg/apis/serving/v1alpha1/llm_inference_service_types.go` 的 `LLMInferenceServiceSpec.Router` 有 `Route.HTTP`（`Spec` 字段内嵌 `gwapiv1.HTTPRouteSpec`）、`Gateway.Refs` 和 `Scheduler`（`Pool.Spec` 是 KServe 自带的 v1alpha2 形态 `InferencePoolSpec`——`pkg/apis/gie/v1alpha2pool`，字段为 `selector` / `targetPortNumber` / `extensionRef`，由 `ConvertTo` 转成 GIE v1 的 `InferencePool`；`Config.Inline` / `Config.Ref` 放 `EndpointPickerConfig`、`Template` 是 EPP 的 PodSpec、`Replicas`）——它把本章的 `InferencePool` + `HTTPRoute` + EPP Deployment 三样东西折叠进一个 CR，生成的对象与本章手写的一致。
 
 ## 四、EPP：llm-d-router 的调度框架
 
@@ -374,7 +374,7 @@ brief 里提到的 `lora-affinity`，在 v0.10.0 的类型名是 `lora-affinity-
 
 ### 3. `EndpointPickerConfig` 与加权打分
 
-EPP 的配置是一个 YAML 文件（`--config-file`）或内联文本（`--config-text`），schema 是 `apix/config/v1alpha1/endpointpickerconfig_types.go` 的 `EndpointPickerConfig`：`plugins[]`（`name` / `type` / `parameters`）实例化插件，`schedulingProfiles[]`（`name` / `plugins[].pluginRef` / `weight`）把实例装进 profile；另有 `featureGates`、`dataLayer`、`flowControl`、`requestHandler` 几段。下面是 `mini-platform/gateway/epp-config.yaml`，它把 llm-d v0.9.0 的 `guides/flow-control/router/flow-control.values.yaml` 与 `optimized-baseline` 的配置合成一份，装进 ConfigMap 由 EPP Deployment 挂载：
+EPP 的配置是一个 YAML 文件（`--config-file`）或内联文本（`--config-text`），schema 是 `apix/config/v1alpha1/endpointpickerconfig_types.go` 的 `EndpointPickerConfig`：`plugins[]`（`name` / `type` / `parameters`）实例化插件，`schedulingProfiles[]`（`name` / `plugins[].pluginRef` / `weight`）把实例装进 profile；另有 `featureGates`、`dataLayer`、`flowControl`、`requestHandler` 几段。下面是 `mini-platform/gateway/epp-config.yaml`，它把 llm-d v0.9.0 的 `guides/flow-control/router/flow-control.values.yaml` 与 `optimized-baseline` 的配置合成一份，装进 ConfigMap 由 EPP Deployment 挂载。其中 `utilization-filter` 在 v0.10.0 是 Alpha 插件（`cmd/epp/runner/runner.go` 以 `StabilityAlpha` 注册），EPP 要带 `--allow-experimental-plugins` 启动：
 
 ```yaml title="gateway/epp-config.yaml：EndpointPickerConfig"
 apiVersion: v1
@@ -546,7 +546,7 @@ EPP 的 `requestHandler.parsers` 默认开三个：`openai-parser`、`anthropic-
 
 ### 3. 租户识别与信任边界
 
-租户身份进入这条链路的方式是 header。llm-d-router `pkg/epp/metadata/consts.go` 定义了 EPP 读取的控制头（v0.9.0 起统一为 `x-llm-d-*` 前缀，旧的 `x-gateway-inference-*` 作为弃用别名仍可读，同时出现时新名胜出）：
+租户身份进入这条链路的方式是 header。llm-d-router `pkg/epp/metadata/consts.go` 定义了 EPP 读取的控制头（v0.9.0 起统一为 `x-llm-d-*` 前缀，旧名 `x-gateway-inference-*`、`x-gateway-model-name-rewrite`、`x-slo-*` 作为弃用别名仍可读，同时出现时新名胜出）：
 
 | header | 用途 | EPP 里的消费者 |
 |---|---|---|
@@ -597,7 +597,7 @@ spec:
     name: llama-70b-bf16
 ```
 
-flow control（`pkg/epp/flowcontrol/`，`featureGates: ["flowControl"]` 打开，默认关）在 `Admit` 处生效：饱和检测器（`concurrency-detector` 按在途请求数，`utilization-detector` 按抓到的 KV / 队列指标；后者受指标滞后影响，`guides/flow-control/tuning.md` 建议生产用前者）判断池是否饱和；未饱和直接放行（work-conserving，不会在 GPU 有余量时人为限流）；饱和时请求进入按 `priority` 分的 band，band 内按 `fairnessPolicyRef` 在流之间选（`round-robin-fairness-policy` 轮转各 fairness ID；`global-strict-fairness-policy` 忽略流、全局排序），流内按 `orderingPolicyRef` 选（`fcfs-ordering-policy` 先到先服务；`edf` / `slo-deadline` 按截止时间）。每个 band 有 `maxRequests` / `maxBytes` 上限，超过直接 429；排队超过 `defaultRequestTTL`（默认 60 s）也 429。429 响应带 `x-llm-d-request-dropped-reason` 头（`rejected-saturated`、`rejected-ttl-expired`、`rejected-context-cancelled`、`evicted-*`），前缀 `rejected-*` 表示没消耗 GPU、可放心重试，`evicted-*` 表示已经算了一部分（`docs/api-reference/epp-http-headers.md`）。`enableEviction: true` 时高优先级请求被饱和挡住可以把在途的负优先级请求杀掉腾位。
+flow control（`pkg/epp/flowcontrol/`，`featureGates: ["flowControl"]` 打开，默认关）在 `Admit` 处生效：饱和检测器（`concurrency-detector` 按在途请求数，`utilization-detector` 按抓到的 KV / 队列指标；后者受指标滞后影响，`guides/flow-control/README.md` 建议生产用前者）判断池是否饱和；未饱和直接放行（work-conserving，不会在 GPU 有余量时人为限流）；饱和时请求进入按 `priority` 分的 band，band 内按 `fairnessPolicyRef` 在流之间选（`round-robin-fairness-policy` 轮转各 fairness ID；`global-strict-fairness-policy` 忽略流、全局排序），流内按 `orderingPolicyRef` 选（`fcfs-ordering-policy` 先到先服务；`edf` / `slo-deadline` 按截止时间）。每个 band 有 `maxRequests` / `maxBytes` 上限，超过直接 429；排队超过 `defaultRequestTTL`（默认 60 s）也 429。429 响应带 `x-llm-d-request-dropped-reason` 头（`rejected-saturated`、`rejected-ttl-expired`、`rejected-context-cancelled`、`evicted-*`），前缀 `rejected-*` 表示没消耗 GPU、可放心重试，`evicted-*` 表示已经算了一部分（`docs/api-reference/epp-http-headers.md`）。`enableEviction: true` 时高优先级请求被饱和挡住可以把在途的负优先级请求杀掉腾位。
 
 这几条规则叠在一起，在一次过载里的表现用一条时间线最清楚。下面假设池已饱和、每个 tick 恰好释放 1 个在途槽位；A 是 `premium-traffic`（band 100），B、C 是 `standard-traffic`（band 0，两个 fairness ID），D 是 `best-effort-traffic`（band -10，`maxRequests` 缩成 2 便于演示）；TTL 缩成 8 tick。记法 `B3` = fairness ID B 有 3 个请求在排队；每行是该 tick 处理完到达与出队后的队列状态：
 
@@ -896,7 +896,7 @@ flowchart TB
 
 vLLM v0.28.0 的 LoRA 有两条加载路径：启动时 `--enable-lora --max-loras N --lora-modules name=path`（`vllm/entrypoints/openai/cli_args.py` 的 `lora_modules`，值为 `LoRAModulePath{name, path, base_model_name}`）；运行时 `POST /v1/load_lora_adapter` / `/v1/unload_lora_adapter`（`vllm/entrypoints/serve/lora/api_router.py`，需要环境变量 `VLLM_ALLOW_RUNTIME_LORA_UPDATING=True`），或者更省事的 `VLLM_PLUGINS=lora_filesystem_resolver` + `VLLM_LORA_RESOLVER_CACHE_DIR=/adapters`，让引擎在收到未知 `model` 名时到目录里找同名 adapter 自动加载（llm-d `guides/rollouts/adapter-rollout.md` 用的就是这条）。`--max-loras` 限制同时驻留 GPU 的 adapter 数，超过就要换出。
 
-网关这一层的两件事：**池的选择**由 IPP 的 `adapters` 列表把 adapter 名映射到基础模型的池（5.1）；**副本的选择**由 `lora-affinity-scorer` 按 `vllm:lora_requests_info` 的 `running_lora_adapters` / `waiting_lora_adapters` / `max_lora` 打分：已加载 1.0、未加载但有空位 0.8、正在等待加载 0.6、满了 0.0。它的 README 承认这个算法"highly biased towards vLLM's current dynamic LoRA implementation"。一个几十个 adapter 的多租户微调场景里，权重设置的直觉是：`lora-affinity-scorer` 的权重要高于负载类 scorer，因为换入一个 adapter 的代价（从磁盘读几百 MB、占显存）通常大于多排几个请求的代价；但也不能压过 `prefix-cache-scorer`，因为 adapter 亲和与前缀亲和往往指向同一个副本（同一租户的请求既用同一 adapter 又共享 system prompt），冲突时前缀命中省的是 prefill 时间，更直接。
+网关这一层的两件事：**池的选择**由 IPP 的 `adapters` 列表把 adapter 名映射到基础模型的池（5.1）；**副本的选择**由 `lora-affinity-scorer` 按 `vllm:lora_requests_info` 的 `running_lora_adapters` / `waiting_lora_adapters` / `max_lora` 打分：已加载 1.0、未加载但有空位 0.8、正在等待加载 0.6、满了 0.0。llm-d-router `docs/plugin-metric-protocol.md` 承认这个算法"highly biased towards vLLM's current dynamic LoRA implementation"。一个几十个 adapter 的多租户微调场景里，权重设置的直觉是：`lora-affinity-scorer` 的权重要高于负载类 scorer，因为换入一个 adapter 的代价（从磁盘读几百 MB、占显存）通常大于多排几个请求的代价；但也不能压过 `prefix-cache-scorer`，因为 adapter 亲和与前缀亲和往往指向同一个副本（同一租户的请求既用同一 adapter 又共享 system prompt），冲突时前缀命中省的是 prefill 时间，更直接。
 
 ## 八、多集群与网关自身的容量
 
