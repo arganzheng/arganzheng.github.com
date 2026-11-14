@@ -109,7 +109,7 @@ Table: 记账符号与 FLUX.1-dev 的取值
 | 四 | FLOP 账 | 每步 = $$2 P_\text{tok} N + 4 L N^2 d$$<br/>一个 DiT block 里有什么（双流块、单流块、adaLN）<br/>$$P_\text{tok} \ne P$$ 与 11.9B 的拆账<br/>attention 占比随 $$N$$ 的变化<br/>三段合计 |
 | 五 | 字节账 | 权重、激活（为什么没有 KV cache）、VAE 解码的峰值；三段不必同时在卡上 |
 | 六 | 秒的账 | roofline：为什么单请求就 compute-bound<br/>每步时间<br/>MFU 的实测反推<br/>三段时间 |
-| 七 | 与 LLM 推理的对照 | 同一张表上的两种负载；为什么 08 系列的方法大半用不上 |
+| 七 | 与 LLM 推理的对照 | 同一张表上的两种负载；为什么 vLLM 系列的方法大半用不上 |
 | 八 | 四个放大器 | 分辨率、帧数、步数、CFG 各怎样放大账 |
 | 九 | 动手：`diffusion_ledger.py` | 账本脚本的用法与输出 |
 | 十 | 本文小结 |  |
@@ -427,7 +427,7 @@ Table: 五个模型的权重显存
 
 ### 2. 激活：为什么没有 KV cache
 
-LLM decode 的显存里，KV cache 常常比权重还大（08 系列第五篇：一条 8K 上下文的 Llama-3-8B 请求 1 GiB）。扩散推理的激活账里**没有这一项**：
+LLM decode 的显存里，KV cache 常常比权重还大（vLLM 系列第五篇：一条 8K 上下文的 Llama-3-8B 请求 1 GiB）。扩散推理的激活账里**没有这一项**：
 
 - 每步是一次完整前向，attention 的 K / V 由这一步的 $$x_t$$ 算出来、用完即弃，下一步的 $$x_{t-1}$$ 不同，K / V 要重算。没有"历史 token 的 K / V 供新 token 查询"这种结构——所有 token 都是"新"的。
 - 唯一能跨步复用的是文本条件：cross-attention 模型的文本 K / V（Wan 每层 $$2 \times 512 \times 5120 \times 2$$ 字节 = 10 MiB，40 层 400 MiB），以及 MMDiT 里文本 token 的……什么都不能，因为它们也随每步的联合 attention 重算（文本流的输入每层都在变）。
@@ -563,9 +563,9 @@ Table: 五个模型三段的时间
 
 Table: 7B LLM 与 FLUX.1-dev 的负载对照
 
-**150 倍的 FLOPs，0.8 倍的时间**——这就是 compute-bound 与 memory-bound 的差别的全部含义。由此可以逐项对照 08 系列的机制在扩散上的命运：
+**150 倍的 FLOPs，0.8 倍的时间**——这就是 compute-bound 与 memory-bound 的差别的全部含义。由此可以逐项对照 vLLM 系列的机制在扩散上的命运：
 
-| 08 系列的机制 | 它解决的问题 | 扩散上 | 替代物 |
+| vLLM 系列的机制 | 它解决的问题 | 扩散上 | 替代物 |
 |---|---|---|---|
 | KV cache 与 PagedAttention | decode 不重算历史 token | 没有历史 token | 文本 K / V 缓存（cross-attn 模型，几百 MiB） |
 | 连续批处理 | memory-bound 下 batch 提吞吐；请求长短不齐 | compute-bound，batch 不提吞吐；请求时长已知 | 同形状请求的静态 batch（小模型才值）、按时长的队列调度（07） |
@@ -576,7 +576,7 @@ Table: 7B LLM 与 FLUX.1-dev 的负载对照
 | PD 分离 | prefill 与 decode 形态不同 | 三段形态不同：编码器小、DiT 重、VAE 显存峰值 | 三段分离（07） |
 | 前缀缓存 | 多请求共享 prompt 前缀 | 文本编码器输出可缓存（几 MiB）；latent 无共享 | 提示词 embedding 缓存 |
 
-Table: 08 系列的机制在扩散上的命运
+Table: vLLM 系列的机制在扩散上的命运
 
 只有一样东西是两边共有的：**GEMM 与 attention 的 kernel**。FlashAttention、FP8 GEMM、融合的归一化——扩散引擎与 LLM 引擎共用同一套 kernel 库（SGLang 的 sgl-kernel、vLLM 的 kernel），这也是 SGLang 与 vLLM 能把扩散接进自己框架的物质基础。
 

@@ -10,7 +10,7 @@ updated: 2026-11-14
 
 前五篇都在一个前提下做交换：28 步、50 步，每步一次完整前向。步数 $$T$$ 是第一篇账上最大的可调乘数，但前五篇没有动它——因为它不是系统能改的，是算法侧的：换更好的采样器（50 → 20 步）、步数蒸馏（→ 4 步、1 步）、guidance 蒸馏（去掉 CFG 的 ×2）。这一篇不讨论这些方法怎么做（在算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》），只讨论**它们做成之后系统怎么变**：当 FLUX.1-dev 的 28 步变成 FLUX.1-schnell 的 4 步、一张图从 4.3 s 变成 0.7 s，前五篇的结论哪些失效、哪些不变、哪些新问题出现。
 
-然后是一个更大的变化。视频模型一直是"一次前向处理整段视频的全部 token、重复几十步"——双向 attention，生成第 1 帧时要看第 81 帧。2024 年底开始的**自回归视频**（CausVid、Self-Forcing）把它改成"一个 chunk 一个 chunk 地生成，每个 chunk 只看前面的"——因果 attention 加少步蒸馏，单卡实时流式。于是一个在第一篇里被宣布"没有"的东西回来了：**KV cache**。已生成 chunk 的 K / V 被缓存供后面的 chunk 查询，滑动窗口决定它多大，服务形态从批任务变成会话——08 系列的一部分方法在这里重新出现。
+然后是一个更大的变化。视频模型一直是"一次前向处理整段视频的全部 token、重复几十步"——双向 attention，生成第 1 帧时要看第 81 帧。2024 年底开始的**自回归视频**（CausVid、Self-Forcing）把它改成"一个 chunk 一个 chunk 地生成，每个 chunk 只看前面的"——因果 attention 加少步蒸馏，单卡实时流式。于是一个在第一篇里被宣布"没有"的东西回来了：**KV cache**。已生成 chunk 的 K / V 被缓存供后面的 chunk 查询，滑动窗口决定它多大，服务形态从批任务变成会话——vLLM 系列的一部分方法在这里重新出现。
 
 本篇要回答的核心问题是：
 
@@ -91,7 +91,7 @@ Table: 双向 Wan 与自回归视频的账
 | 五 | 实时交互 | StreamDiffusion 的 stream batch；交互式图像生成的延迟结构 |
 | 六 | 自回归视频 | 双向的三个硬约束<br/>双向 → 因果：块因果掩码，CausVid、Self-Forcing、Causal Forcing<br/>一个 chunk 的前向与逐 chunk 的 FLOPs 账 |
 | 七 | KV cache 的回归 | 每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化 |
-| 八 | 服务形态：从批任务到会话 | 流式输出、会话状态、交互式世界模型；08 系列的哪些回来了 |
+| 八 | 服务形态：从批任务到会话 | 流式输出、会话状态、交互式世界模型；vLLM 系列的哪些回来了 |
 | 九 | 实现对照与实践 | 三个引擎的 causal pipeline 与 KV 组件 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 6 道题 |
@@ -306,7 +306,7 @@ Table: 自回归 Wan 1.3B 480p 每个 chunk 的 FLOPs
 
 Table: 自回归视频的 KV 字节数
 
-对比第一篇 Llama-3-8B 的 KV：128 KB / token（GQA 8 head）。**自回归视频的 KV 每 token 比 LLM 还大**（无 GQA、$$d$$ 大），且一个 chunk 就是几千 token——08 系列的 KV 管理问题（分页、驻留、换出）在这里重现，vLLM-Omni 的 `diffusion_kv/` 直接复用了 vLLM 的分页 KV 管理器与 PagedAttention 适配。
+对比第一篇 Llama-3-8B 的 KV：128 KB / token（GQA 8 head）。**自回归视频的 KV 每 token 比 LLM 还大**（无 GQA、$$d$$ 大），且一个 chunk 就是几千 token——vLLM 系列的 KV 管理问题（分页、驻留、换出）在这里重现，vLLM-Omni 的 `diffusion_kv/` 直接复用了 vLLM 的分页 KV 管理器与 PagedAttention 适配。
 
 ### 2. 滑动窗口与长视频
 
@@ -320,7 +320,7 @@ Table: 自回归视频的 KV 字节数
 
 ### 1. 什么回来了
 
-| 08 系列的概念 | 双向多步扩散 | 自回归少步视频 |
+| vLLM 系列的概念 | 双向多步扩散 | 自回归少步视频 |
 |---|---|---|
 | KV cache | 无 | **有**：chunk 级，滑动窗口 |
 | 分页 / 驻留 / 换出 | 无 | **有**：多会话共享显存，vLLM-Omni 复用分页管理器 |
@@ -331,7 +331,7 @@ Table: 自回归视频的 KV 字节数
 | 抢占 | 步边界 | chunk 边界；被抢占的会话要换出 KV |
 | 请求时长 | 可预测 | **不可预测**（用户决定何时停）——与 LLM 一样 |
 
-Table: 08 系列的概念在自回归少步视频上回来了什么
+Table: vLLM 系列的概念在自回归少步视频上回来了什么
 
 第一篇那张"08 的机制在扩散上大半用不上"的表，在自回归视频上要重新画：大半又用得上了。**因果化让视频生成在系统形态上向 LLM serving 收敛**——这是 SGLang 与 vLLM 两个 LLM 引擎恰好适合承载它的原因之一。
 
@@ -373,7 +373,7 @@ Table: 少步与自回归视频在四个引擎里的实现对照
 | 自回归视频 | 因果 chunk + 4 步 DMD；CausVid → Self-Forcing → Causal Forcing | 单卡实时；首 chunk 亚秒 |
 | KV cache 回归 | 每 token $$2 d L \times 2$$ 字节（无 GQA）<br/>chunk 级<br/>滑动窗口 | Wan 1.3B 480p：184 KB / token，chunk 0.86 GB，窗口 6 GB |
 | 限制 | 误差累积（漂移）、窗口外遗忘 | 分钟级 |
-| 形态 | 批任务 → 会话：KV 驻留、流式、抢占、不可预测时长 | 08 系列大半回归 |
+| 形态 | 批任务 → 会话：KV 驻留、流式、抢占、不可预测时长 | vLLM 系列大半回归 |
 
 Table: 少步与自回归视频的规则与数字小结
 

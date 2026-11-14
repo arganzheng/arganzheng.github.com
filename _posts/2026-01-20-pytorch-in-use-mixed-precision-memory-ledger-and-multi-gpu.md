@@ -228,7 +228,7 @@ model = FullyShardedDataParallel(model, ...)   # 或 accelerate / trl 的配置�
 
 ### 3. 更大的并行
 
-张量并行、流水线并行、专家并行——把**单层**切到多卡、把**不同层**放到不同卡、把 MoE 的专家分到不同卡——是预训练规模（几百到几千卡）才需要的，由 Megatron、DeepSpeed、torchtitan 一类框架提供。算法工程师知道它们各切什么、对 batch 与学习率有什么影响即可。DDP / FSDP 的通信内部（bucket、overlap、`ProcessGroupNCCL`）在 Infra 03 系列第九篇与 06 系列；并行策略的选择在 07 系列第二篇。
+张量并行、流水线并行、专家并行——把**单层**切到多卡、把**不同层**放到不同卡、把 MoE 的专家分到不同卡——是预训练规模（几百到几千卡）才需要的，由 Megatron、DeepSpeed、torchtitan 一类框架提供。算法工程师知道它们各切什么、对 batch 与学习率有什么影响即可。DDP / FSDP 的通信内部（bucket、overlap、`ProcessGroupNCCL`）在 Infra 地图的《PyTorch 深度实践》第九篇与《通信与互联》系列；并行策略的选择在《大规模训练工程》第二篇。
 
 ## 七、算的与量的
 

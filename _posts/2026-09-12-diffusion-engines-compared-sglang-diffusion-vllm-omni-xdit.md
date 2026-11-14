@@ -126,7 +126,7 @@ Table: diffusers 的四层接口与引擎的用法
 
 ### 2. 权重格式
 
-Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、`text_encoder/` 子目录 + `model_index.json`）是三个引擎的输入。SGLang 的 `runtime/loader/`（`weight_load_plan.py`、`component_loaders/`、`transformer_load_utils.py`）与 vLLM-Omni 的 `model_loader/`（`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`）都是"读 diffusers 格式、映射到自己的模块名"——与 09 系列第四篇的"HF 名 ↔ Megatron 名"是同一类工作。原生重写模型的代价之一就是要维护这层映射（SGLang 的 add-model 指南里大半篇幅在讲它）。
+Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、`text_encoder/` 子目录 + `model_index.json`）是三个引擎的输入。SGLang 的 `runtime/loader/`（`weight_load_plan.py`、`component_loaders/`、`transformer_load_utils.py`）与 vLLM-Omni 的 `model_loader/`（`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`）都是"读 diffusers 格式、映射到自己的模块名"——与 RL 后训练基础设施系列第四篇的"HF 名 ↔ Megatron 名"是同一类工作。原生重写模型的代价之一就是要维护这层映射（SGLang 的 add-model 指南里大半篇幅在讲它）。
 
 ## 三、SGLang Diffusion 的一条路
 

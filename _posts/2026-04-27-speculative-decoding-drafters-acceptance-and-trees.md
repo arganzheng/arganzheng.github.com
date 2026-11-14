@@ -18,7 +18,7 @@ updated: 2026-10-18
 
 ## 一、总览：加速比的两个自由度
 
-### 1. 从 04-12 接过来的公式
+### 1. 从 《现代 LLM 结构》的投机解码篇 接过来的公式
 
 普通解码每生成一个 token，都要等目标模型跑一次 forward。投机解码先让便宜的 draft 连续提出 $$\gamma$$ 个 token，再让 target 一次性算出这些位置的分布。Target 从左到右验证：前缀接受多少，取决于草稿和目标的接受率；起草花多久，取决于草稿成本。两者一起决定加速。
 
@@ -308,7 +308,7 @@ MTP 的接受率高于 EAGLE 的第 1 个草稿（0.85–0.9 vs 约 0.8），因
 
 ### 1. 大 batch
 
-04-12 的结论：$$B(\gamma + 1) \gtrsim \text{ridge}$$ 时验证进入 compute-bound，加速比下降甚至低于 1。树把 $$\gamma + 1$$ 换成 $$N_{tree}$$，约束更紧。对高吞吐、大 batch 的服务负载，投机解码要么关掉，要么缩小到 $$\gamma = 1$$–$$2$$ 的链式草稿。这是投机解码在**延迟优化**（batch 小、单请求快）上有用、在**吞吐优化**（batch 大、总 token/s 高）上用处有限的原因——两个目标用不同的工具。
+[《现代 LLM 结构》的投机解码篇](/speculative-decoding-draft-verify-and-payoff.html) 的结论：$$B(\gamma + 1) \gtrsim \text{ridge}$$ 时验证进入 compute-bound，加速比下降甚至低于 1。树把 $$\gamma + 1$$ 换成 $$N_{tree}$$，约束更紧。对高吞吐、大 batch 的服务负载，投机解码要么关掉，要么缩小到 $$\gamma = 1$$–$$2$$ 的链式草稿。这是投机解码在**延迟优化**（batch 小、单请求快）上有用、在**吞吐优化**（batch 大、总 token/s 高）上用处有限的原因——两个目标用不同的工具。
 
 一个折中：**动态投机**——按当前 batch 大小调整 $$\gamma$$ 或关闭投机（vLLM 的 `speculative_disable_by_batch_size`）。
 
@@ -356,7 +356,7 @@ vLLM 支持 n-gram 与 EAGLE 两种草稿，社区有 Llama-3.1-8B-Instruct 的 
 - batch ∈ {1, 4, 16, 64}。
 - 记录：每轮接受长度（vLLM 的 `spec_decode` 指标）、每 token 延迟、吞吐；greedy 下核对三种配置的输出逐 token 一致。
 
-该看的：（a）任务上 n-gram 的接受长度是否接近 EAGLE；（b）任务上 n-gram 是否接近 1（无收益）；EAGLE 的接受长度随 batch 是否不变而加速比随 batch 下降——把加速比降到 1 的 batch 与 04-12 的 $$\text{ridge}/(\gamma+1)$$ 估算对照；$$T = 0.6$$ 与 greedy 下 EAGLE 接受长度的差。
+该看的：（a）任务上 n-gram 的接受长度是否接近 EAGLE；（b）任务上 n-gram 是否接近 1（无收益）；EAGLE 的接受长度随 batch 是否不变而加速比随 batch 下降——把加速比降到 1 的 batch 与 [《现代 LLM 结构》的投机解码篇](/speculative-decoding-draft-verify-and-payoff.html) 的 $$\text{ridge}/(\gamma+1)$$ 估算对照；$$T = 0.6$$ 与 greedy 下 EAGLE 接受长度的差。
 
 不引用任何未跑过的数字。EAGLE-3 论文报告的 8B 接受长度约 5–6 是在 batch 1、特定数据集上的，你的负载上大概率更低。
 

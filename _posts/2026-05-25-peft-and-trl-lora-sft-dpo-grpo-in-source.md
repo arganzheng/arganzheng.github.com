@@ -38,7 +38,7 @@ flowchart TB
         S1["_prepare_dataset：messages → apply_chat_template（可带 assistant_masks）/ prompt+completion → completion_mask"]
         S2["build_labels：labels[i] = input_ids[i] if 所有 mask 位为 1 else -100；可选 pack_dataset（bfd）"]
         S3["DataCollatorForLanguageModeling：pad input_ids 用 pad_id、pad labels 用 -100；padding_free 时拼成一行 + position_ids"]
-        S4["compute_loss → model(**inputs) → 上一篇的 ForCausalLMLoss；记录 token 准确率与熵"]
+        S4["compute_loss → model(**inputs) → 第一篇的 ForCausalLMLoss；记录 token 准确率与熵"]
         S1 --> S2 --> S3 --> S4
     end
     subgraph D["trl：DPOTrainer.dpo_loss / GRPOTrainer._compute_loss"]
@@ -110,7 +110,7 @@ for key, target in model.named_modules():          # 全部模块，约 900 个
 self._mark_only_adapters_as_trainable(model)        # 除了名字带 "lora_" 的，全部 requires_grad=False
 ```
 
-`_check_target_module_exists` 对每个模块名做上一节的匹配；匹配上的交给 `LoraModel._create_and_replace`：按目标层类型（`nn.Linear` / `nn.Embedding` / `nn.Conv2d` / 量化的 `bnb.Linear4bit` 各有对应的 LoRA 层）新建一个 `lora.Linear(target, adapter_name, r, lora_alpha, ...)`，然后 `setattr(parent, target_name, new_module)`——用 Python 的属性赋值把 `self_attn.q_proj` 换掉，`Qwen2Attention.forward` 里 `self.q_proj(hidden_states)` 那一行代码不用改。24 层 × 7 个 = 168 个替换。最后 `_mark_only_adapters_as_trainable` 把基座全部冻结：配套脚本 `trainable 8,798,208 of 502,830,976 (1.75%)`——与后训练第二篇那张表的 8.8M 对上。
+`_check_target_module_exists` 对每个模块名做上一节的匹配；匹配上的交给 `LoraModel._create_and_replace`：按目标层类型（`nn.Linear` / `nn.Embedding` / `nn.Conv2d` / 量化的 `bnb.Linear4bit` 各有对应的 LoRA 层）新建一个 `lora.Linear(target, adapter_name, r, lora_alpha, ...)`，然后 `setattr(parent, target_name, new_module)`——用 Python 的属性赋值把 `self_attn.q_proj` 换掉，`Qwen2Attention.forward` 里 `self.q_proj(hidden_states)` 那一行代码不用改。24 层 × 7 个 = 168 个替换。最后 `_mark_only_adapters_as_trainable` 把基座全部冻结：配套脚本 `trainable 8,798,208 of 502,830,976 (1.75%)`——与《后训练》SFT 篇那张表的 8.8M 对上。
 
 ## 三、peft：换成什么
 
@@ -141,7 +141,7 @@ nn.init.kaiming_uniform_(self.lora_A[adapter_name].weight, a=math.sqrt(5))    # 
 nn.init.zeros_(self.lora_B[adapter_name].weight)                               # B 全零
 ```
 
-配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——后训练第二篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA（Principal Singular values and Singular vectors Adaptation，用 W 的前 r 个奇异向量初始化 A、B） 就是这里的一个分支。
+配套脚本对 `q_proj`：`A (16, 896)`、`B (896, 16)`、`scaling 2.0`（$$\alpha / r = 32 / 16$$）、`B all zero: True`。这就是 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲的"一个为零、一个随机，开始时 $$\Delta W = 0$$"；`use_rslora=True` 换成 $$\alpha / \sqrt r$$——《后训练》SFT 篇讨论的 rsLoRA 在代码里就是这个 `if`。`init_lora_weights` 还接受 `"pissa"`、`"corda"`、`"olora"`、`"eva"`、`"loftq"` 等字符串，各调一个用 SVD 或数据初始化 A、B 的函数（`pissa_init` 对 $$W$$ 做 SVD 取前 $$r$$ 个奇异向量），公式那篇提到的 PiSSA（Principal Singular values and Singular vectors Adaptation，用 W 的前 r 个奇异向量初始化 A、B） 就是这里的一个分支。
 
 ### 2. `forward`：一行
 
@@ -175,11 +175,11 @@ def unmerge(self):
     base_layer.weight.data -= self.get_delta_weight(active_adapter)
 ```
 
-`merge_and_unload()` 对每层调 `merge` 再把 `lora.Linear` 换回 `base_layer`，得到一个与原模型结构完全相同、权重被改过的 `Qwen2ForCausalLM`——后训练第二篇说的"合并后推理零开销"。`unmerge` 是它的逆，减回去（浮点上有 $$10^{-7}$$ 级的残差，反复 merge / unmerge 会累积）。
+`merge_and_unload()` 对每层调 `merge` 再把 `lora.Linear` 换回 `base_layer`，得到一个与原模型结构完全相同、权重被改过的 `Qwen2ForCausalLM`——《后训练》SFT 篇说的"合并后推理零开销"。`unmerge` 是它的逆，减回去（浮点上有 $$10^{-7}$$ 级的残差，反复 merge / unmerge 会累积）。
 
 ### 4. `state_dict` 里只有 adapter
 
-`PeftModel.save_pretrained` 存的是 `get_peft_model_state_dict`：只挑键里带 `lora_` 的参数（8.8M，bf16 下 17 MB），加一个 `adapter_config.json`。所以 Hub 上一个 LoRA 仓库只有几十 MB，`PeftModel.from_pretrained(base, "user/adapter")` 或 transformers 自带的 `model.load_adapter(...)`（上一篇 `from_pretrained` 收尾时那个 `_adapter_model_path` 分支）再把它挂回基座。基座权重不在里面——adapter 与基座的对应关系靠 `adapter_config.json` 里的 `base_model_name_or_path`，换了基座版本挂上去不报错但结果是错的。
+`PeftModel.save_pretrained` 存的是 `get_peft_model_state_dict`：只挑键里带 `lora_` 的参数（8.8M，bf16 下 17 MB），加一个 `adapter_config.json`。所以 Hub 上一个 LoRA 仓库只有几十 MB，`PeftModel.from_pretrained(base, "user/adapter")` 或 transformers 自带的 `model.load_adapter(...)`（第一篇 `from_pretrained` 收尾时那个 `_adapter_model_path` 分支）再把它挂回基座。基座权重不在里面——adapter 与基座的对应关系靠 `adapter_config.json` 里的 `base_model_name_or_path`，换了基座版本挂上去不报错但结果是错的。
 
 ## 四、trl：SFT 的数据契约
 
@@ -218,7 +218,7 @@ if "labels" not in column_names:
     dataset = dataset.map(build_labels, fn_kwargs={"mask_columns": mask_columns}, remove_columns=mask_columns, **map_kwargs)
 ```
 
-规则一句话：**某个位置的所有 mask 位都是 1，`labels` 才等于 `input_ids`，否则 `-100`**。这是一次 `datasets.map`（上一篇第六章，有缓存），发生在训练开始前，不在每步的 collator 里——1.x 之前的 trl 在 collator 里造 labels，现在提前到数据准备阶段，`labels` 成为数据集的一列，你可以在 `trainer.train_dataset[0]["labels"]` 里直接检查 mask 对不对（后训练第二篇建议的"打印 loss mask 比例"就该看这一列）。上一篇 `ForCausalLMLoss` 再把 labels 左移一位——所以 **completion 的第一个 token 由 prompt 的最后一个位置预测**，它的 loss 是算的；prompt 内部的位置全不算。
+规则一句话：**某个位置的所有 mask 位都是 1，`labels` 才等于 `input_ids`，否则 `-100`**。这是一次 `datasets.map`（上一篇第六章，有缓存），发生在训练开始前，不在每步的 collator 里——1.x 之前的 trl 在 collator 里造 labels，现在提前到数据准备阶段，`labels` 成为数据集的一列，你可以在 `trainer.train_dataset[0]["labels"]` 里直接检查 mask 对不对（《后训练》SFT 篇建议的"打印 loss mask 比例"就该看这一列）。第一篇的 `ForCausalLMLoss` 再把 labels 左移一位——所以 **completion 的第一个 token 由 prompt 的最后一个位置预测**，它的 loss 是算的；prompt 内部的位置全不算。
 
 ### 3. packing
 
@@ -260,7 +260,7 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
     # 之后：从 outputs.logits 算 token 准确率与熵，记进 self._metrics
 ```
 
-`super().compute_loss` 是 transformers `Trainer` 的：把 `num_items_in_batch` 塞进 `inputs`，调 `model(**inputs)`，取 `outputs.loss`——也就是上一篇第七章的 `ForCausalLMLoss`。trl 自己不写交叉熵，只在外面加了两个可观测量：`mean_token_accuracy`（argmax 命中率，按 `labels != -100` 的位置）与 `entropy`（每 token 的分布熵）。`loss_type="dft"` 换成 Dynamic Fine-Tuning（按预测概率加权），`"chunked_nll"` 用 `_chunked_cross_entropy_loss` 分块算——不物化 `[B, T, V]` 的 fp32 logits（$$B \times T \times 151936 \times 4$$ 字节，长序列下常是显存峰值），`use_liger_kernel=True` 用 Liger 的融合 kernel 做同一件事。
+`super().compute_loss` 是 transformers `Trainer` 的：把 `num_items_in_batch` 塞进 `inputs`，调 `model(**inputs)`，取 `outputs.loss`——也就是第一篇第七章的 `ForCausalLMLoss`。trl 自己不写交叉熵，只在外面加了两个可观测量：`mean_token_accuracy`（argmax 命中率，按 `labels != -100` 的位置）与 `entropy`（每 token 的分布熵）。`loss_type="dft"` 换成 Dynamic Fine-Tuning（按预测概率加权），`"chunked_nll"` 用 `_chunked_cross_entropy_loss` 分块算——不物化 `[B, T, V]` 的 fp32 logits（$$B \times T \times 151936 \times 4$$ 字节，长序列下常是显存峰值），`use_liger_kernel=True` 用 Liger 的融合 kernel 做同一件事。
 
 ## 六、trl：DPO
 
@@ -276,7 +276,7 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
 - `is_peft_model(self.model) and ref_model is None` → `with self.null_ref_context():`，内部就是 `model.disable_adapter()`——第三章那个 `disable_adapters` 分支，**同一个模型关掉 LoRA 就是参考模型**，零额外显存；
 - `precompute_ref_log_probs=True` → 训练开始前把全部数据的参考 log p 算一遍存成两列，之后不再需要参考模型。
 
-后训练第三篇算 DPO 显存账时说"LoRA 下参考模型免费"，来源就是第二条。
+《后训练》DPO 篇算显存账时说"LoRA 下参考模型免费"，来源就是第二条。
 
 ### 3. `dpo_loss`
 
@@ -303,13 +303,13 @@ $$
 \mathcal{L}_{\text{DPO}} = -\log\sigma\!\left(\beta\left[\log\frac{\pi_\theta(y_w|x)}{\pi_{\text{ref}}(y_w|x)} - \log\frac{\pi_\theta(y_l|x)}{\pi_{\text{ref}}(y_l|x)}\right]\right)
 $$
 
-就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（<span class="inline-tip" data-tip="conservative DPO，给 DPO 加标签平滑">cDPO</span>，对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，后训练第三篇讨论的那个现象）。`f_divergence_type` 换掉 KL 时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
+就是 `sigmoid` 那一行：两个 logratio 相减是方括号，乘 $$\beta$$，`logsigmoid` 取负。`label_smoothing` 把它变成 $$-(1-\epsilon)\log\sigma(\beta\Delta) - \epsilon\log\sigma(-\beta\Delta)$$（<span class="inline-tip" data-tip="conservative DPO，给 DPO 加标签平滑">cDPO</span>，对标注噪声鲁棒）。`loss_type` 可以是一个列表配 `loss_weights`——`["sigmoid", "sft"]` 就是 RPO（加一项 chosen 的 SFT loss 防止 chosen 概率也一起掉，《后训练》DPO 篇讨论的那个现象）。`f_divergence_type` 换掉 KL 时改的是 logratio 到 score 的映射（`js_divergence`、`alpha_divergence`），loss 形式不变。`chosen_rewards - rejected_rewards > 0` 的比例就是日志里的 `rewards/accuracies`。
 
 ## 七、trl：GRPO
 
 ### 1. 采样与打分
 
-`GRPOTrainer` 每步的 `_generate_and_score_completions`：对 batch 里每个 prompt 生成 `num_generations` 条（`G`）completion——`use_vllm=True` 时走 `vllm_mode="colocate"`（vLLM 引擎与训练进程共卡）或 `"server"`（独立 vLLM 服务，`trl vllm-serve`），否则用 transformers 的 `generate`（上一篇）；然后把每条交给 `reward_funcs`——一个列表，元素可以是 `nn.Module`（奖励模型，`AutoModelForSequenceClassification`）或普通 Python 函数（`def accuracy_reward(completions, **kwargs) -> list[float]`，可验证奖励就是这种），`reward_weights` 加权求和。[RL Infra 系列](/rl-post-training-infrastructure.html)讨论的"rollout 引擎与训练器怎么共享 GPU、权重怎么同步"，在 trl 里就是 `vllm_mode` 这个开关和它背后 `_move_model_to_vllm` 的权重推送。
+`GRPOTrainer` 每步的 `_generate_and_score_completions`：对 batch 里每个 prompt 生成 `num_generations` 条（`G`）completion——`use_vllm=True` 时走 `vllm_mode="colocate"`（vLLM 引擎与训练进程共卡）或 `"server"`（独立 vLLM 服务，`trl vllm-serve`），否则用 transformers 的 `generate`（第二篇）；然后把每条交给 `reward_funcs`——一个列表，元素可以是 `nn.Module`（奖励模型，`AutoModelForSequenceClassification`）或普通 Python 函数（`def accuracy_reward(completions, **kwargs) -> list[float]`，可验证奖励就是这种），`reward_weights` 加权求和。[RL Infra 系列](/rl-post-training-infrastructure.html)讨论的"rollout 引擎与训练器怎么共享 GPU、权重怎么同步"，在 trl 里就是 `vllm_mode` 这个开关和它背后 `_move_model_to_vllm` 的权重推送。
 
 ### 2. 组内优势
 
@@ -342,7 +342,7 @@ elif self.loss_type == "dr_grpo":
 elif self.loss_type == "dapo": ...
 ```
 
-`epsilon_high` 与 `epsilon_low` 分开（DAPO 的 clip-higher）；`importance_sampling_level="sequence"` 时 `log_importance_weights` 先对 token 求和再广播（<span class="inline-tip" data-tip="Group Sequence Policy Optimization，重要性比按整条序列算">GSPO</span>）。三种归一方式对应后训练第四篇讨论的长度偏差：`grpo` 每条按自己长度平均，长回答里每个 token 权重小；`dr_grpo` 除以常数，去掉这个偏差；`bnpo` 按 batch 总 token 平均。GRPO 论文里的公式一条一条对应到 `loss_type` 的分支，改哪一行就是哪篇后续论文。当 `num_iterations=1` 时 $$\pi_\theta = \pi_{old}$$、`coef_1 = 1`，裁剪不起作用，loss 退化为 $$-A \cdot \log\pi$$ 的 REINFORCE（loss = −A·log π） 形式——`coef_1` 的计算用了 `per_token_logps - per_token_logps.detach()` 保梯度，这是读这段代码时最容易困惑的一行。
+`epsilon_high` 与 `epsilon_low` 分开（DAPO 的 clip-higher）；`importance_sampling_level="sequence"` 时 `log_importance_weights` 先对 token 求和再广播（<span class="inline-tip" data-tip="Group Sequence Policy Optimization，重要性比按整条序列算">GSPO</span>）。三种归一方式对应《后训练》在线 RL 篇讨论的长度偏差：`grpo` 每条按自己长度平均，长回答里每个 token 权重小；`dr_grpo` 除以常数，去掉这个偏差；`bnpo` 按 batch 总 token 平均。GRPO 论文里的公式一条一条对应到 `loss_type` 的分支，改哪一行就是哪篇后续论文。当 `num_iterations=1` 时 $$\pi_\theta = \pi_{old}$$、`coef_1 = 1`，裁剪不起作用，loss 退化为 $$-A \cdot \log\pi$$ 的 REINFORCE（loss = −A·log π） 形式——`coef_1` 的计算用了 `per_token_logps - per_token_logps.detach()` 保梯度，这是读这段代码时最容易困惑的一行。
 
 ## 八、本文小结
 
@@ -363,7 +363,7 @@ elif self.loss_type == "dapo": ...
 2. LoRA 训练时 `optimizer` 只拿到 8.8M 个参数，但反向传播仍要经过冻结的 `base_layer`。为什么？省下的到底是什么？
 
    <details markdown="1"><summary>答案</summary>
-   `result = base_layer(x) + ...` 里 `x` 来自上一层，对 `x` 的梯度要穿过 `base_layer.weight`（$$W^T G$$）传回去，这一半算量与全量相同。省的是对 `W` 自身的梯度（`requires_grad=False`，autograd 不算 $$G x^T$$）、它的 fp32 主权重与 Adam 两个矩（每参数 12–16 字节）——后训练第二篇那张 7.36 GiB → 1.03 GiB 的表。
+   `result = base_layer(x) + ...` 里 `x` 来自上一层，对 `x` 的梯度要穿过 `base_layer.weight`（$$W^T G$$）传回去，这一半算量与全量相同。省的是对 `W` 自身的梯度（`requires_grad=False`，autograd 不算 $$G x^T$$）、它的 fp32 主权重与 Adam 两个矩（每参数 12–16 字节）——《后训练》SFT 篇那张 7.36 GiB → 1.03 GiB 的表。
    </details>
 
 3. 数据是 `messages` 格式，用 Qwen2.5 自带模板，`SFTConfig(assistant_only_loss=True)`。会发生什么？两条修法各有什么代价？

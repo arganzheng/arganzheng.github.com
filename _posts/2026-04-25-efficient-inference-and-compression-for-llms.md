@@ -121,7 +121,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 贯穿六篇的三条线索：
 
-- **推导线**：拒绝采样的分布等式（第二篇，从 04-12 的证明出发讲怎么提高接受率）、量化误差的统计模型与 OBS 的拉格朗日推导（第三篇）、STE 的梯度与 NF4 的分位推导（第四篇）、KV 离群值的通道结构（第五篇）、OBS 在剪枝上的形式（第六篇）——每种方法的目标函数都能写出来。
+- **推导线**：拒绝采样的分布等式（第二篇，从 [《现代 LLM 结构》的投机解码篇](/speculative-decoding-draft-verify-and-payoff.html) 的证明出发讲怎么提高接受率）、量化误差的统计模型与 OBS 的拉格朗日推导（第三篇）、STE 的梯度与 NF4 的分位推导（第四篇）、KV 离群值的通道结构（第五篇）、OBS 在剪枝上的形式（第六篇）——每种方法的目标函数都能写出来。
 - **成本线**：每种方法改了成本公式的哪一项、收益区间在哪（回到 Roofline）、量化的元数据占多少字节、草稿模型训练要多少算力、剪枝 + 蒸馏比从头训省多少 token。
 - **评测线**：每种方法的退化集中在哪类任务、用什么评测能看到、公开报告里的"无损"在什么协议下成立。
 
@@ -142,7 +142,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 [现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)已经证明了拒绝采样保证分布不变、推出了期望接受长度与 Roofline 决定的收益区间。这一篇从那里继续：**怎么把接受率提上去、怎么把草稿成本压下去、树状草稿怎么验证**。
 
-**核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（04-11）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
+**核心内容**：接受率就是 $$1 - \text{TV}(p, q)$$，因此提高接受率就是让草稿分布接近目标分布——草稿模型的训练目标应该是蒸馏（《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》），而且是 on-policy 的；Medusa 的多头结构、训练方式（自蒸馏）与各头接受率递减的原因；EAGLE 从 token 级到特征级起草的动机、它的训练目标（特征回归 + token 损失）、EAGLE-2 的动态草稿树与 EAGLE-3 的多层特征融合与训练时测试；树状草稿的验证——tree attention 的 mask、多条路径的接受规则、期望接受长度在树上的形式；MTP 头作为草稿（DeepSeek-V3）与作为训练目标（[《现代 LLM 结构》的 MTP 篇](/multi-token-prediction-mtp.html)）的两种身份；n-gram / prompt lookup 在有复制的任务上的免费收益；温度对接受率的影响；何时投机反而变慢——大 batch、短输出、草稿与目标不匹配；草稿模型的评测：接受长度、每 token 延迟、与目标的一致性检验。
 
 **要回答的问题**：为什么 EAGLE 的接受率高于 Medusa 而草稿成本差不多？一个 70B 模型该用什么草稿？
 
@@ -150,7 +150,7 @@ KV 量化：KV 字节 ÷ 2–4
 
 [现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)给出了 decode 的 Roofline。这一篇先用它算量化省多少、什么时候省得到（W4A16 的收益区间、交叉点 B ≈ ridge/4、W8A8 与 W4A16 的位置），再往下挖：**量化误差从哪来、为什么 RTN 到 4 bit 就不够、每种方法在最小化什么、离群值怎么处理**。
 
-**核心内容**：量化误差的统计模型——均匀量化的噪声方差 $$\Delta^2/12$$、裁剪与舍入的权衡、最优裁剪阈值；误差怎么通过层传播、为什么某些层敏感；RTN 在 4 bit 失败的原因——权重的重尾分布与 group 内的动态范围；OBS 的拉格朗日推导（04-07 只给了结论）与 GPTQ 的列顺序、act-order、group size 的选择及元数据字节账；AWQ 的 α 搜索与它为什么等价于保护显著通道；SmoothQuant 的 α 与激活离群的模型规模依赖；旋转方法（QuaRot、SpinQuant）——用 Hadamard 旋转把离群值摊平、为什么旋转不改变输出、它让 W4A4 成为可能；浮点格式的低比特：FP8、MXFP4 / NVFP4 的微缩放块与它们和整数格式的精度对比；校准集的选择与过拟合；per-tensor / per-channel / per-group 的精度—开销权衡。
+**核心内容**：量化误差的统计模型——均匀量化的噪声方差 $$\Delta^2/12$$、裁剪与舍入的权衡、最优裁剪阈值；误差怎么通过层传播、为什么某些层敏感；RTN 在 4 bit 失败的原因——权重的重尾分布与 group 内的动态范围；OBS 的拉格朗日推导与 GPTQ 的列顺序、act-order、group size 的选择及元数据字节账；AWQ 的 α 搜索与它为什么等价于保护显著通道；SmoothQuant 的 α 与激活离群的模型规模依赖；旋转方法（QuaRot、SpinQuant）——用 Hadamard 旋转把离群值摊平、为什么旋转不改变输出、它让 W4A4 成为可能；浮点格式的低比特：FP8、MXFP4 / NVFP4 的微缩放块与它们和整数格式的精度对比；校准集的选择与过拟合；per-tensor / per-channel / per-group 的精度—开销权衡。
 
 **要回答的问题**：一个 4-bit 量化模型比 16-bit 慢在哪、快在哪？为什么同样是 4 bit，有的模型几乎无损、有的崩掉？
 
@@ -166,7 +166,7 @@ PTQ 到 4 bit 是当前的舒适区；再往下（3 bit、2 bit、三值）或�
 
 长上下文与长输出让 KV cache 成为推理内存的主体（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)的账）。结构级的办法——GQA、MLA——在训练时就定了；这一篇讲**训好之后**还能对 KV 做什么。
 
-**核心内容**：KV 的数值结构——key 的离群值集中在固定通道、value 没有——所以 KIVI 对 key 按通道、对 value 按 token 量化；KV 量化到 2 bit 的误差怎么影响 attention 分数（softmax 前的误差被放大）；驱逐——StreamingLLM 的 attention sink 现象与解释（04-09 已介绍现象，这里讲为什么第一个 token 会成为 sink）、H2O 的累计注意力打分、SnapKV 用 prompt 尾部的注意力选 KV、PyramidKV 按层分配预算；驱逐在"大海捞针"上的失败与原因；token 合并；跨层共享 KV（CLA、YOCO）；训练时就稀疏的 attention——NSA 与 MoBA 的块选择、它们怎么让选择可微、与推理时的一致性；prompt 压缩（LLMLingua 一类）作为另一条路。
+**核心内容**：KV 的数值结构——key 的离群值集中在固定通道、value 没有——所以 KIVI 对 key 按通道、对 value 按 token 量化；KV 量化到 2 bit 的误差怎么影响 attention 分数（softmax 前的误差被放大）；驱逐——StreamingLLM 的 attention sink 现象与解释（[《现代 LLM 结构》的长上下文篇](/long-context-cost-and-structural-remedies.html)已介绍现象，这里讲为什么第一个 token 会成为 sink）、H2O 的累计注意力打分、SnapKV 用 prompt 尾部的注意力选 KV、PyramidKV 按层分配预算；驱逐在"大海捞针"上的失败与原因；token 合并；跨层共享 KV（CLA、YOCO）；训练时就稀疏的 attention——NSA 与 MoBA 的块选择、它们怎么让选择可微、与推理时的一致性；prompt 压缩（LLMLingua 一类）作为另一条路。
 
 **要回答的问题**：128K 上下文的 KV 从 40 GB 压到 10 GB，哪种办法在哪类任务上安全？
 

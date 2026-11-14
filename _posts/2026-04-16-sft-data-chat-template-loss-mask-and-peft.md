@@ -370,7 +370,7 @@ Table: 缓解遗忘的四种对策
 
 ### 1. 一次 SFT 的账
 
-用 《[现代 LLM 结构（07）：MTP——改训练目标而不改主干的多 token 预测](/multi-token-prediction-mtp.html)》的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
+用 《[预训练（03）：Scaling law](/scaling-laws-and-compute-optimal-training.html)》的 $$6ND$$：Llama 3 8B 规格、100 万条样本、平均 1000 token、2 个 epoch，$$D = 2 \times 10^9$$，$$C = 6 \times 8 \times 10^9 \times 2 \times 10^9 = 9.6 \times 10^{19}$$ FLOPs，H100 上 40% MFU 约 **67 GPU 小时**——预训练 146 万 GPU 小时的两万分之一。padding 的浪费（第四章：不 packing 时一半）与梯度检查点（多三分之一前向）会把它翻到 150–200 小时，仍然微不足道。
 
 SFT 便宜到成本几乎全在数据上：100 万条样本如果由人写，按每条 10 分钟算是 17 万人时；由 GPT-4 级模型生成，按每条 1000 token 输出算是 10 亿输出 token 的 API 费用；由自己的模型拒绝采样生成，是 $$K$$ 倍的推理 FLOPs 加奖励模型打分——$$K = 8$$、8B 模型、100 万条 × 1000 token 是 $$2 \times 8\text{B} \times 8 \times 10^9 = 1.3 \times 10^{20}$$ FLOPs，与 SFT 训练本身同量级。**后训练的成本结构与预训练相反：算力便宜，数据贵**；而数据的成本正在从人时变成推理 FLOPs。
 

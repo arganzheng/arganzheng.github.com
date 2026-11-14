@@ -50,9 +50,9 @@ updated: 2026-11-14
 
 2024 年以前，图像生成的推理是"一张 A10 跑 SD 1.5、几秒一张"的规模，服务形态是 Web UI 加一个队列，不需要基础设施。2024 年之后两件事同时发生：模型从 1B 的 U-Net 变成 12B–20B 的 DiT（FLUX、Qwen-Image），一张 1024² 的图的算力涨了两个量级；视频生成从实验变成产品（Sora、Kling、Veo、Wan、HunyuanVideo），单请求的算力比图像再高两个量级、单卡几十分钟。到 2025 年底，SGLang 与 vLLM 两个 LLM serving 的主流项目都把扩散模型纳入了自己的框架，这是最清楚的信号：图像与视频生成已经是与 LLM 并列的一类 serving 负载，需要同样等级的基础设施。
 
-### 08 系列建立的方法在它身上大半用不上
+### vLLM 系列建立的方法在它身上大半用不上
 
-这是把它单列一个系列而不是附在 08 后面的理由。《大模型推理系统揭秘》十四篇建立的分析方法——请求的 prefill / decode 两阶段、KV cache 的字节数与分页、连续批处理、投机解码、PD 分离——每一项的前提都是"decode 是 memory-bound 的串行过程"。扩散模型没有 decode：每一步是一次对整个序列的完整前向，几千个 token 一起过一遍权重，MFU 在 batch 1 就能到 50% 以上。于是：
+这是把它单列一个系列而不是附在 vLLM 系列后面的理由。《大模型推理系统揭秘》十四篇建立的分析方法——请求的 prefill / decode 两阶段、KV cache 的字节数与分页、连续批处理、投机解码、PD 分离——每一项的前提都是"decode 是 memory-bound 的串行过程"。扩散模型没有 decode：每一步是一次对整个序列的完整前向，几千个 token 一起过一遍权重，MFU 在 batch 1 就能到 50% 以上。于是：
 
 - **KV cache**：没有：每步的输入是整张 latent，没有跨步可复用的中间状态（文本编码器输出除外）
 - **prefill/decode**：没有：每步的形态相同，都是"prefill"
@@ -84,7 +84,7 @@ updated: 2026-11-14
 
 你的团队用 FLUX、Qwen-Image 或 Wan 对外提供生成服务，能跑，但一张 1024² 的图要十几秒、一段 5 秒视频要十几分钟、GPU 账单比同等流量的 LLM 服务高一个量级，而你不知道哪些优化是无损的、哪些会改变图片、叠加起来能到多少。本系列是为这个阶段准备的。
 
-### 读完 08 系列、想知道"另一半 serving"长什么样的 Infra 工程师
+### 读完 vLLM 系列、想知道"另一半 serving"长什么样的 Infra 工程师
 
 你理解 vLLM 的每个机制，想知道当负载从 memory-bound 变成 compute-bound 时，这些机制哪些还成立、哪些要换成什么。本系列第一、五、七篇是最直接的对照。
 
@@ -232,7 +232,7 @@ updated: 2026-11-14
 - 形态变了：单卡亚秒 → 多卡的意义从延迟变为吞吐 → batch 开始有意义（小模型、少步下 GEMM 不饱和）→ 调度像 LLM 的 prefill 池；
 - 实时交互：StreamDiffusion 的 stream batch——把处于不同去噪步的连续帧拼成一个 batch 一次前向；
 - **自回归视频**：CausVid（把双向 DiT 改成因果、DMD 蒸馏到 4 步、按 chunk 生成、单卡 9.4 fps）→ **Self-Forcing**（训练时按推理方式 rollout、rolling KV cache、单张 4090 实时流式）→ Causal Forcing；
-- **KV cache 的回归**：因果视频模型对已生成的 chunk 做 KV cache，每 chunk 的 KV 字节数、滑动窗口的长度、长视频的误差累积；服务形态从批任务变为**会话**——08 系列的前缀缓存、会话状态、流式输出在这里重新出现；SGLang 的 `realtime/` 与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 与实验性的 `experimental/ar_diffusion/`（会话、按 chunk 流式输出）；
+- **KV cache 的回归**：因果视频模型对已生成的 chunk 做 KV cache，每 chunk 的 KV 字节数、滑动窗口的长度、长视频的误差累积；服务形态从批任务变为**会话**——vLLM 系列的前缀缓存、会话状态、流式输出在这里重新出现；SGLang 的 `realtime/` 与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 与实验性的 `experimental/ar_diffusion/`（会话、按 chunk 流式输出）；
 - 世界模型 / 交互式生成（LingBot World、Cosmos 一类）作为这条线的延伸。
 
 核心问题是：
