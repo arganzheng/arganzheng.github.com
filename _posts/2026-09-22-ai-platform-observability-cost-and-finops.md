@@ -5,7 +5,7 @@ title: "AI 平台工程（08）：可观测、成本与 FinOps"
 subtitle: "Observability, Cost and FinOps: from DCGM to the Token Bill"
 tags: [Kubernetes, GPU, Observability, FinOps, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 月初，财务把上个月的 GPU 账单转给平台组：64 张 H100，按云上的小时价折下来是一个七位数。附带一个问题：这些钱花得值不值？平台组打开 Grafana，能给出的数字是两个——DCGM 报的平均"GPU 利用率"78%，节点上 `nvidia.com/gpu` 的平均分配率 85%。看起来不错。但换一个指标，`DCGM_FI_PROF_SM_ACTIVE` 的集群平均只有 35%。三个数字之间差了几十个百分点，而没有一张看板能说清这几十个点分别去了哪里、归哪个团队、对应前七篇里的哪个机制。
@@ -56,7 +56,7 @@ Kubernetes 自带的可观测面对 GPU 几乎是空白：
 |---|---|---|---|
 | 硬件 | DCGM Exporter（DaemonSet，每节点一个）；读驱动 / NVML / 硬件性能计数器 | `DCGM_FI_DEV_*` · `DCGM_FI_PROF_*` | `--kubernetes`：查 kubelet pod-resources socket，把 `gpu` / `UUID` 映射到 `pod` / `namespace` / `container` |
 | 容器 Pod | kube-state-metrics · cAdvisor（kubelet 内置） | `kube_pod_*` · `kube_node_*` · `container_*` | K8s 对象自带 `namespace` / `pod` / label |
-| | Kueue / Volcano 控制器的 `/metrics` | `kueue_pending_workloads` 等 | `cluster_queue` / `local_queue` 标签 |
+| | Kueue / Volcano 控制器的 `/metrics` | `kueue_pending_workloads` 等 | `cluster_queue` 标签；LocalQueue 级的 `kueue_local_queue_*` 用 `name` / `namespace` |
 | 引擎 | vLLM `/metrics`（每副本）· 训练进程或 sidecar | `vllm:*` · 训练框架自定义（`step_time` 等） | Prometheus 服务发现给 `pod` / `namespace`；训练侧自带 `rank` / `job` 标签 |
 | 请求 | Endpoint Picker（llm-d-router）· 网关的访问日志 | `llm_d_epp_*` · `inference_objective_*` | `model_name` / `target_model_name` / `fairness_id`（租户）/ `priority` |
 
@@ -169,7 +169,7 @@ flowchart TB
     KUBELET -->|"设备 ID → pod / namespace / container"| PM
     API -->|"--kubernetes-enable-pod-labels<br/>经 podLabelAllowlistRegex 过滤、SanitizeLabelName 改名"| PM
     OUT["DCGM_FI_PROF_SM_ACTIVE#123;gpu=3, UUID=…, hostname=node-7,<br/>pod=train-ddp-0, namespace=team-a,<br/>container=pytorch, team=a#125; 0.41"]
-    NOPOD["<b>pod-resources 里没有这张卡</b><br/>→ 指标带 pod 空标签：未分配<br/>（第三章分配率的分母 − 分子）"]
+    NOPOD["<b>pod-resources 里没有这张卡</b><br/>→ 指标不带 pod 标签（PromQL 里按空值匹配）：未分配<br/>（第三章分配率的分母 − 分子）"]
     PM --> OUT
     PM -.-> NOPOD
     classDef srcs fill:#eef5ff,stroke:#4a78b5;
@@ -217,7 +217,7 @@ vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定
 | 组 | 指标 | 类型 / 说明 |
 |---|---|---|
 | 状态 | `vllm:num_requests_running` · `vllm:num_requests_waiting` | Gauge；扩缩容（第六篇）与路由（第七篇）的输入 |
-| | `vllm:num_requests_waiting_by_reason{reason}` | Gauge；等 KV 块还是等其他资源 |
+| | `vllm:num_requests_waiting_by_reason{reason}` | Gauge；`capacity`（等调度容量）还是 `deferred`（LoRA 预算、KV 传输等暂时性约束），两者之和等于 `num_requests_waiting` |
 | | `vllm:kv_cache_usage_perc` | Gauge，0–1；"KV-cache usage. 1 means 100 percent usage." |
 | | `vllm:engine_sleep_state{sleep_state}` | Gauge；缩容到"睡眠"而非零的形态 |
 | 延迟 | `vllm:time_to_first_token_seconds` | Histogram；TTFT |
@@ -445,7 +445,7 @@ OpenCost v1.121.1 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 
 - **分配**：`applyGPUsAllocated` 用 kube-state-metrics 的 `kube_pod_container_resource_requests{resource="nvidia_com_gpu"}`（`modules/prometheus-source/pkg/prom/metricsquerier.go` 的 `queryFmtGPUsRequested`）或 OpenCost 自己导出的 `container_gpu_allocation`（`queryFmtGPUsAllocated`），`GPUHours = 请求数 × 小时`——注释写明"GPUHours reflects the full reserved GPU allocation (request × hours)"，即按分配不按使用；
 - **定价**：`applyNodeCostPerGPUHr` 读 `node_gpu_hourly_cost{node,instance_type,provider_id}`（OpenCost 自己从云厂商定价 API 或 `configs/*.json` 的自定义价生成，`default.json` 里 `"GPU": "0.95"`），然后 `GPUCost = GPUHours × CostPerGPUHr`；
-- **使用**：`applyGPUUsageAvg` / `applyGPUUsageMax` 从 `DCGM_FI_PROF_GR_ENGINE_ACTIVE{container!=""}` 按 `container, pod, namespace, pod_uid` 聚合（`queryFmtGPUsUsageAvg`），填进 `GPUUsageAverage`；它依赖 DCGM Exporter 开了 `--kubernetes` 映射且 Prometheus 里有 `pod_uid` 标签（`--kubernetes-enable-pod-uid`）；
+- **使用**：`applyGPUUsageAvg` / `applyGPUUsageMax` 从 `DCGM_FI_PROF_GR_ENGINE_ACTIVE{container!=""}` 按 `container, pod, namespace, pod_uid` 聚合（`queryFmtGPUsUsageAvg`），填进 `GPUUsageAverage`；它依赖 DCGM Exporter 开了 `--kubernetes` 映射，结果按 `namespace` / `pod` 对到分配（`newResultPodKey`），`pod_uid` 只是聚合维度之一，`--kubernetes-enable-pod-uid` 不开也能对上；
 - **共享**：`applyGPUUsageShared` 识别 `nvidia_com_gpu_shared` 资源名（GFD `renameByDefault=true` 时时间片副本的名字，第四篇）置 `IsGPUShared`；节点侧 `costmodel.go` 读 `nvidia.com/gpu.count` 标签与 `nvidia.com/gpu.shared` 容量区分物理卡数与副本数；
 - **闲置**：`costmodel.go` 里 `gpuIdleCost = assetTotal.TotalGPUCost() − allocTotal.TotalGPUCost()`，即节点上 GPU 的总成本减去分配出去的，就是"没给出去"的那部分（`1 − A`）；分配出去但没算的那部分（`A(1 − U)`）不在 OpenCost 的闲置定义里，要用 `GPUUsageAverage` 自己算。
 
@@ -578,7 +578,7 @@ Table: 50 个百分点的去向与测法
 
 **基数与保留**。第四章的三条基数陷阱每一条都有真实的事故记录。分摊维度越细、保留越长，存储越贵；13 个月的原始 DCGM 时序在几百节点的集群上是 TB 级，必须靠 recording rules 降采样后再长期保留，而降采样后就查不到当时某张卡的抖动了。**告警用原始、账单用聚合**，两边的数字要能对上，对不上时以原始为准。
 
-**归因的误差**。DCGM 的 `pod` 标签来自 kubelet 的 pod-resources API，一张卡在两个 Pod 之间切换的那几十秒里可能归错；时间片与 HAMi 共卡时（第四篇）一张卡的 `SM_ACTIVE` 归到多个 Pod，DCGM 4.x 用 `vgpu` 属性区分副本但**没有按进程拆分活跃度的能力**——共卡的使用率只能按份额平摊或按 `FB_USED` 比例估。MIG 实例有独立的 `GPU_I_ID`，归因是准确的；这也是 MIG 在多租户计费上比软件切分更受欢迎的原因之一。EPP 的 `fairness_id` 超过 1000 个折叠为 `other`。OpenCost 用 `GR_ENGINE_ACTIVE`，与本篇的 `SM_ACTIVE` 数值不同。
+**归因的误差**。DCGM 的 `pod` 标签来自 kubelet 的 pod-resources API，一张卡在两个 Pod 之间切换的那几十秒里可能归错；时间片与 HAMi 共卡时（第四篇）一张卡的 `SM_ACTIVE` 归到多个 Pod，DCGM Exporter 4.x 开 `--kubernetes-virtual-gpus` 时用 `vgpu` 属性区分副本，并只对 `GPU_UTIL` 与 `FB_USED` 按进程拆分（`process_metrics.go` 的 `isPerProcessMetric`），`SM_ACTIVE` 等 `PROF_*` 字段**没有按进程拆分的能力**——共卡的使用率只能按份额平摊或按 `FB_USED` 比例估。MIG 实例有独立的 `GPU_I_ID`，归因是准确的；这也是 MIG 在多租户计费上比软件切分更受欢迎的原因之一。EPP 的 `fairness_id` 超过 1000 个折叠为 `other`。OpenCost 用 `GR_ENGINE_ACTIVE`，与本篇的 `SM_ACTIVE` 数值不同。
 
 **成本模型的假设**。单价是输入不是输出——自建集群的折旧口径、电费、机房、网络分摊都是财务的约定，换一种口径每百万 token 成本可以差一倍；"按分配计费"是一个政策选择，它让闲置有主，但也让被平台调度到坏节点上等了两小时的任务替平台买单——这类情况要靠 `GPUCostAdjustment` 一类的人工冲销。每百万 token 成本里的 $$T$$ 依赖压测条件（输入 / 输出长度分布），真实流量与压测分布不同时它就不准。
 
@@ -707,7 +707,7 @@ customMetrics: |
   DCGM_FI_PROF_PCIE_RX_BYTES, gauge, The rate of data received over the PCIe bus in bytes per second.
 ```
 
-装完后 `curl` 任一 DCGM Pod 的 `:9400/metrics`，应当看到 `DCGM_FI_PROF_SM_ACTIVE{gpu="0",UUID="GPU-…",…,pod="…",namespace="…",container="…",team="…"}`——`team` 只在 Pod 打了这个 label 时出现，没有 GPU Pod 的卡上 `pod=""`。GPU Operator 管理的 DCGM Exporter 用 `ClusterPolicy.spec.dcgmExporter` 的对应字段（第二篇），机制相同。
+装完后 `curl` 任一 DCGM Pod 的 `:9400/metrics`，应当看到 `DCGM_FI_PROF_SM_ACTIVE{gpu="0",UUID="GPU-…",…,pod="…",namespace="…",container="…",team="…"}`——`team` 只在 Pod 打了这个 label 时出现，没有 GPU Pod 的卡上不带 `pod` 标签（PromQL 里等价于 `pod=""`）。GPU Operator 管理的 DCGM Exporter 用 `ClusterPolicy.spec.dcgmExporter` 的对应字段（第二篇），机制相同。
 
 **`obs/prometheus-rules.yaml`**——三个数字的 recording rules 与三条告警（`monitoring.coreos.com/v1` 的 `PrometheusRule`，Prometheus Operator 通行 CRD）：
 
@@ -1052,7 +1052,7 @@ if __name__ == "__main__":
 
    <details markdown="1"><summary>答案</summary>
 
-   `kubernetes.enablePodLabels` 与 `enablePodUID`（OpenCost 按 pod_uid 聚合）；`SM_ACTIVE` / `SM_OCCUPANCY` 是 `PROF_*` 系指标，默认 counters CSV 里注释掉了，要在 `customMetrics` 里放出来（且必须给完整表）。
+   `kubernetes.enablePodLabels` 与 `enablePodUID`（OpenCost 的 DCGM 查询把 `pod_uid` 列在聚合维度里；对上分配靠的是 `--kubernetes` 映射出的 `namespace` / `pod`）；`SM_ACTIVE` / `SM_OCCUPANCY` 是 `PROF_*` 系指标，默认 counters CSV 里注释掉了，要在 `customMetrics` 里放出来（且必须给完整表）。
 
    </details>
 
