@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（03）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-14
 ---
 
 先看一个真实形状的故障。一个用 FastAPI 写的推理网关，后面接着 GPU 上的推理引擎：压测到每秒 200 个请求时 p99 延迟涨到 8 秒，而 GPU 利用率只有 30%——算力明明空着，请求却在排队。第一反应是"多开几个线程"，没用：请求处理里有一段纯 Python 的 tokenize 与 JSON 拼装，CPython 的全局解释器锁让 32 个线程也只能一个一个地算。换成多进程，吞吐上去了，但每个进程各自加载了一份 5 GB 的模型，显存翻了几倍。改成 `asyncio`，网络那一段快了，可是有人在协程里调了一个同步的 `requests.get`，整条事件循环被卡住 3 秒，所有请求一起等。
@@ -523,7 +523,7 @@ def preprocess_batch(items: list[bytes]) -> list[list[int]]:
 
 Table: fork、spawn、forkserver 三种启动方式
 
-`spawn` 和 `forkserver` 都会重新导入主模块，所以任何用多进程的脚本必须写 `if __name__ == "__main__":` 保护——否则子进程导入主模块时又会创建进程池，无限递归。这在 Java 里完全没有对应概念。本系列第一篇讨论 `python script.py` 与 `python -m` 的 `__name__` 差别时埋下的这个概念，在这里有了最实际的用途。
+`spawn` 和 `forkserver` 都会重新导入主模块，所以任何用多进程的脚本必须写 `if __name__ == "__main__":` 保护——否则子进程导入主模块时又会创建进程池，无限递归。这在 Java 里完全没有对应概念。《代码如何被执行》里[`python script.py` 与 `python -m` 的差别](/python-execution-model-scopes-imports-and-exceptions.html#4-syspath-的构成以及-python-scriptpy-与-python--m-的差别)一节讲过 `__name__` 在两种启动方式下的取值，这里是它最实际的用途。
 
 Python 3.14 把 Linux 的默认从 `fork` 改成 `forkserver`，直接原因是 `fork` 与多线程混用不安全：`fork()` 只复制调用它的那个线程，其他线程持有的锁（包括 CUDA 运行时、日志库、`malloc` 内部的锁）在子进程里永远不会被释放。PyTorch 的 `DataLoader` 在 CUDA 已初始化的进程里用 `fork` 启动 worker 时报 `Cannot re-initialize CUDA in forked subprocess`，就是这类问题的表现。显式指定启动方式：
 
@@ -768,6 +768,29 @@ result = await client.get(url)
   - 恢复可继续执行的协程
   - 执行协程直到下一次 await
 
+把两个协程放进同一个循环，上面六步就是下图的时间顺序。协程 A 在 `await client.get(url)` 处挂起后，事件循环转去执行协程 B；B 到自己的 `await` 再让出；循环这时没有可跑的协程，就阻塞在 `epoll` / `kqueue` 上等内核通知；A 的 socket 可读后，循环把 A 放回就绪队列并从挂起点继续执行。整个过程只有一个线程，任何时刻最多一个协程在跑 Python 代码：
+
+```mermaid
+%% 图：一个事件循环上两个协程的交替：await 处挂起、socket 就绪后恢复
+sequenceDiagram
+    participant A as 协程 A
+    participant L as 事件循环（单线程）
+    participant B as 协程 B
+    participant K as 内核 epoll / kqueue
+    L->>A: 恢复 A，执行到 await client.get(url)
+    A->>K: 发出请求，注册 socket 可读事件
+    A-->>L: 挂起，让出执行权
+    L->>B: 恢复 B，执行到 await asyncio.sleep(0.1)
+    B-->>L: 挂起，登记 0.1 s 定时器
+    L->>K: 无就绪协程，等待事件（最长到下一个定时器）
+    K-->>L: A 的 socket 可读
+    L->>A: 从挂起点恢复 A，拿到 response
+    A-->>L: 执行到下一个 await 或结束
+    L->>B: 定时器到期，恢复 B
+```
+
+图里没有"等待中的协程占着线程"这回事：挂起的协程只是一个保存了执行位置的对象，等待交给内核。这也说明了上面 `time.sleep(5)` 的后果——如果 B 在两次 `await` 之间跑 5 秒同步代码，循环在这 5 秒里收不到 A 的就绪通知，A 的响应早已到达也只能等着。
+
 对应 Java：这套模型 Java 程序员其实很熟悉，它就是 **Netty 的 EventLoop**。`uvicorn`（Python 最主流的 ASGI 服务器）默认用 `uvloop`——基于 libuv 的事件循环实现，和 Netty 基于 epoll/kqueue 是同一层抽象。
 
 对照关系：
@@ -1001,6 +1024,27 @@ Response handle() throws InterruptedException {
 | 多个子任务同时失败 | `ExceptionGroup`，配 `except*` 语法 | 首个异常 + `addSuppressed()` |
 
 Table: TaskGroup 与 StructuredTaskScope 的逐条对照
+
+表里"默认失败策略"一行在运行时是下面这个顺序。以前面的 `run_pipeline` 为例，假设 `encode` 抛出 `ValueError`、`load_metadata` 还在等网络：
+
+```mermaid
+%% 图：TaskGroup 中一个子任务失败后的取消与汇合顺序
+sequenceDiagram
+    participant P as run_pipeline（父协程）
+    participant G as TaskGroup
+    participant E as encode 子任务
+    participant M as load_metadata 子任务
+    P->>G: 进入 async with，create_task 两次
+    P->>G: 走到块末尾，挂起等待全部子任务
+    E-->>G: 抛出 ValueError
+    G->>M: cancel()，下一个 await 处抛 CancelledError
+    M->>M: except / finally 里释放连接，再 raise
+    M-->>G: 以"已取消"结束
+    G-->>P: 所有子任务都已结束，抛出 ExceptionGroup([ValueError])
+    Note over P: async with 之后的 infer(...) 不会执行
+```
+
+三点值得看清：第一，`TaskGroup` 等到**每个**子任务都结束（包括被取消的那个把清理代码跑完）才把异常交给父协程，所以退出 `async with` 时不会留下还在跑的子任务；第二，被取消的子任务不算失败，`ExceptionGroup` 里只有真正的 `ValueError`；第三，父协程收到的是 `ExceptionGroup` 而不是裸的 `ValueError`，`except ValueError:` 接不住它，要写 `except* ValueError:`（见下文第 2 条）。取消信号在子任务里怎样表现为 `CancelledError`、为什么必须重新抛出，在 4.5 节展开。
 
 三个实质差异：
 
@@ -1886,7 +1930,7 @@ class BatchProcessor:
 
 **把它封装成装饰器**
 
-Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是第一篇讲的装饰器在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
+Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是《对象如何工作》里讲的[装饰器](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
 
 ```python title="把 BatchProcessor 封装成 @batched 装饰器"
 import functools
@@ -1923,7 +1967,7 @@ async def main():
     print(results)                                                     # [0, 2, 4, ..., 38]，内部只跑了 3 次 predict.batch
 ```
 
-三处对应第一篇的机制：`batched(...)` 是带参数的装饰器，两层闭包把 `max_batch_size` 带到 `submit_one` 里；`nonlocal processor` 让闭包在第一次调用时改写外层变量，把"创建队列与后台 Task"推迟到事件循环已经在跑的时候（`asyncio.Queue` 与 `create_task` 都要求这一点，所以不能在装饰的那一刻做）；`functools.wraps` 让 `predict.__name__` 与文档字符串保持原样。与 Ray Serve 的差别只在生产细节——它的后台 Task 会跟着 replica 的生命周期启停，还处理了取消与超时；调用方看到的接口一模一样。
+三处对应《对象如何工作》里装饰器一章的机制：`batched(...)` 是带参数的装饰器，两层闭包把 `max_batch_size` 带到 `submit_one` 里；`nonlocal processor` 让闭包在第一次调用时改写外层变量，把"创建队列与后台 Task"推迟到事件循环已经在跑的时候（`asyncio.Queue` 与 `create_task` 都要求这一点，所以不能在装饰的那一刻做）；`functools.wraps` 让 `predict.__name__` 与文档字符串保持原样。与 Ray Serve 的差别只在生产细节——它的后台 Task 会跟着 replica 的生命周期启停，还处理了取消与超时；调用方看到的接口一模一样。
 
 对应 Java：同一个模式在 Java 里是"攒批线程 + `BlockingQueue` + `CompletableFuture`"，`drainTo` 让攒批代码比 Python 短得多：
 
@@ -2179,6 +2223,28 @@ torch.cuda.synchronize()   # 显式等待 stream 上所有操作完成
 ```
 
 `non_blocking=True` 只在源张量位于 pinned memory 时才真正异步；普通可分页内存上它会静默退化为同步拷贝。
+
+把这段拷贝与计算放进上面的 `_run_inference`，一次请求会经过三条各自推进的执行流：事件循环线程、推理线程池里的一个线程、GPU 上的 CUDA stream。两种"异步"分别发生在不同的交界处——事件循环与推理线程之间是 `run_in_executor` 的 Future，推理线程与 GPU 之间是"提交即返回"的 stream：
+
+```mermaid
+%% 图：一次推理请求在事件循环线程、推理线程与 CUDA stream 之间的交接
+sequenceDiagram
+    participant L as 事件循环线程
+    participant T as 推理线程（_infer_pool）
+    participant S as CUDA stream（GPU）
+    L->>T: run_in_executor(_infer_pool, _run_inference, ...)
+    Note over L: await 挂起本协程，循环继续服务其他请求
+    T->>S: inputs.to("cuda", non_blocking=True)，提交即返回
+    T->>S: model(gpu_inputs)，逐个提交 kernel，提交即返回
+    T->>S: outputs.to("cpu", non_blocking=True)
+    Note over S: GPU 按提交顺序执行拷贝与 kernel
+    T->>S: torch.cuda.synchronize()，推理线程阻塞等待
+    S-->>T: stream 上的操作全部完成
+    T-->>L: 结果经 call_soon_threadsafe 写回 asyncio Future
+    Note over L: 恢复 await infer_async(...) 的协程
+```
+
+图里有两处等待，各由不同的机制兜住：GPU 上的计算由推理线程的 `synchronize()` 等，事件循环线程从头到尾没有等 GPU；推理线程的结果由 asyncio Future 交还给协程，协程挂起期间不占循环。把 `synchronize()` 或同步的 `.cpu()` 直接写进 `async def`，等待就落到了事件循环线程上，所有请求一起停顿。
 
 对应 Java：**这一整章在 Java 生态里没有主流对应场景**，但底层机制有直接类比。
 
