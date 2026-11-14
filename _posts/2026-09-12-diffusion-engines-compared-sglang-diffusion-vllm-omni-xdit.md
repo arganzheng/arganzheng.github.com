@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（08）：三个引擎的对照导读—�
 subtitle: "Three Engines Compared: One Request Through SGLang Diffusion, vLLM-Omni and xDiT"
 tags: [Diffusion, SGLang, vLLM, xDiT, diffusers, Source Code, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 前七篇每篇末尾有一张对照表，指向三个引擎里实现同一机制的文件与类。这一篇把这些点连成线：一个"生成一张 FLUX 1024² 的图"的请求，在 SGLang Diffusion、vLLM-Omni 与 xDiT 里各自从哪里进来、经过哪些进程、哪些类、哪些函数，到哪里出去。三条线走完，三个引擎的取向就清楚了：**SGLang Diffusion 把扩散塞进了 LLM serving 的结构**（scheduler、worker、kernel 栈、warmup、CUDA graph 都复用），**vLLM-Omni 为全模态模型设计了 stage 流水线**（一个请求可以经过 LLM → DiT → TTS，扩散是其中一种 stage），**xDiT 只做并行**（把 diffusers 的 pipeline 包一层、换掉 attention、建好并行组，没有服务层）。而 **diffusers** 是三者共同的底座——模型定义、调度器、pipeline 的接口都从它来，三个引擎要么直接复用它的 pipeline、要么按它的接口重写"原生"版本。
@@ -84,12 +85,12 @@ USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 | **pipeline 抽象** | 原生 `ComposedPipelineBase` = stage 列表（文本编码、latent 准备、去噪、解码…）；`--backend diffusers` 回退到 diffusers pipeline | 按模型的原生 pipeline（`models/<model>/pipeline_*.py`）+ `diffusers_adapter`；`--diffusion-load-format diffusers` 回退 | `xFuserPipelineBaseWrapper` **包装** diffusers pipeline，替换 attention 与部分层 |
 | **模型定义** | `runtime/models/` 原生重写（用自己的 `layers/`） | `models/<model>/*_transformer.py` 原生重写 | 直接用 diffusers 的模型 |
 | **并行** | USP（`UlyssesAttention` / `USPAttention`）、CFG 并行、TP、FSDP 推理、跨节点 SP | USP / Ring、CFG 并行、TP、HSDP、PP、VAE patch 并行 | USP、CFG 并行、PipeFusion、DP、Parallel VAE——**源头** |
-| **调度 / 批处理** | `Scheduler` + `dynamic_batch_admission`（形状兼容的同构批） | `RequestScheduler` / `StepScheduler`（step 级批，兼容键） | 无（一个进程组一个请求） |
-| **缓存 / 加速** | Cache-DiT、TeaCache、Spectrum、CFG gating、breakable CUDA graph、fused ops、`--quality` | TeaCache / MagCache / Cache-DiT 后端（hook）、prompt embedding 缓存、compile | TeaCache / FBCache adapter、DiTFastAttn、compile |
+| **调度 / 批处理** | `Scheduler` + `dynamic_batch_admission`（形状兼容的同构批） | `RequestScheduler`（请求级同构批）/ `StepScheduler`（`--step-execution`：step 级批，兼容请求可在步边界进出） | 无（一个进程组一个请求） |
+| **缓存 / 加速** | Cache-DiT、TeaCache、Spectrum、CFG gating、breakable CUDA graph、fused ops、`--quality` | TeaCache / MagCache / StepCache / Cache-DiT 后端（hook）、prompt embedding 缓存、regional compile | TeaCache / FBCache adapter、DiTFastAttn、compile |
 | **API** | OpenAI 兼容 `/v1/images`、`/v1/videos`、`/v1/meshes`、realtime | OpenAI 兼容 `/v1/images/generations`、`/v1/chat/completions` 扩展 | 无（Ray 示例） |
 | **分离** | disaggregation：encoder / denoiser / decoder / server 角色 | stage-based：天然分离 | 无 |
 | **自回归 / 实时** | causal DMD pipelines、KV cache、`realtime/` 会话、KV 量化 | `diffusion_kv/`（分页 KV） | `pipeline_causal_wan.py` |
-| **硬件** | NVIDIA / AMD / Intel XPU / Ascend / MPS / MUSA | NVIDIA / Ascend（NPU） | NVIDIA 为主 |
+| **硬件** | NVIDIA / AMD / Intel XPU / Ascend / MPS / MUSA | NVIDIA / AMD（ROCm）/ Intel XPU / Ascend（NPU）/ MUSA | NVIDIA、AMD（ROCm，含 FlyDSL kernel），另有 MUSA / Ascend / MPS 的设备分支 |
 
 Table: 三个扩散引擎的定位对照
 
@@ -118,8 +119,8 @@ diffusers 给扩散推理定义了四层可替换的接口，三个引擎都在�
 |---|---|---|---|
 | **pipeline** | `pipelines/flux/pipeline_flux.py` 的 `FluxPipeline.__call__` | 编码 prompt → 准备 latent 与时间步 → 去噪循环 → VAE 解码 → 后处理 | xDiT 包装它；SGLang / vLLM-Omni 按同样的段落重写成 stage 或原生 pipeline，并保留 `--backend diffusers` 回退 |
 | **模型** | `models/transformers/transformer_flux.py`（`FluxTransformer2DModel`）、`models/autoencoders/`、文本编码器来自 transformers | block 结构、attention、adaLN、RoPE | xDiT 原样用、只换 attention processor；SGLang / vLLM-Omni 用自己的 `layers/` 重写（为了 fused ops、USP、量化、CUDA graph） |
-| **attention 分派** | `models/attention_dispatch.py`：`set_attention_backend("flash" / "_flash_3_hub" / "sage" / "flex" / "native" / …)` | 后端枚举与分派 | 各引擎有自己的 selector，语义相同 |
-| **hook** | `hooks/`：`HookRegistry`、`ModelHook`、`StateManager`；`group_offloading.py`、`layerwise_casting.py`、`first_block_cache.py`、`taylorseer_cache.py`、`mag_cache.py`、`context_parallel.py`、`tensor_parallel.py` | 不改模型代码的 forward 拦截 | 缓存与 offload 的形态被三者沿用；xDiT 直接用 hook 接 TeaCache / FBCache |
+| **attention 分派** | `models/attention_dispatch.py` 的 `AttentionBackendName`（`flash` / `_flash_3_hub` / `sage` / `flex` / `native` / …）；模型上用 `set_attention_backend(...)` 选 | 后端枚举与分派 | 各引擎有自己的 selector，语义相同 |
+| **hook** | `hooks/`：`HookRegistry`、`ModelHook`、`StateManager`；`group_offloading.py`、`layerwise_casting.py`、`first_block_cache.py`、`taylorseer_cache.py`、`mag_cache.py`、`context_parallel.py`、`tensor_parallel.py` | 不改模型代码的 forward 拦截 | "不改单个模型代码"的缓存与 offload 形态被三者沿用；vLLM-Omni 的缓存后端就是 hook，xDiT 的 TeaCache / FBCache 则是把 block 列表换成带缓存的包装模块 |
 
 Table: diffusers 的四层接口与引擎的用法
 
@@ -136,11 +137,11 @@ Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、
 `sglang serve --model-path black-forest-labs/FLUX.1-dev --port 30010` 起的进程：
 
 - HTTP server 进程（主进程跑 `launch_http_server_only`）：`runtime/entrypoints/http_server.py`（FastAPI）
-  - `openai/image_api.py` 的 `@router.post("/generations")`：`build_sampling_params` → `prepare_request`（`entrypoints/utils.py`）构造 `Req`（`pipelines_core/schedule_batch.py`：prompt、size、steps、seed、lora、cache 参数…）
+  - `openai/image_api.py` 的 `@router.post("/generations")`：`build_sampling_params` → `prepare_request`（`entrypoints/utils.py`）构造 `Req`（`pipelines_core/schedule_batch.py`：prompt、size、steps、seed、cache 参数…；LoRA 不在请求里，是服务级的 `POST /v1/set_lora`）
   - `process_generation_batch` → `AsyncSchedulerClient.forward`（`scheduler_client.py`）：ZMQ 发到 rank 0 的 Scheduler，等回 `OutputBatch`
   - `server_warmup.py`：HTTP 起来后 `run_async_client_warmup` 按 `--warmup-resolutions` 发 dummy 请求（编译 / CUDA graph 捕获），Scheduler 一侧由 `SchedulerWarmupMixin` 处理
-- worker 进程 × num_gpus：`launch_server` 给每张卡起一个 `mp.Process(target=run_scheduler_process)`（`runtime/managers/gpu_worker.py`），进程里是一个 `Scheduler`（`runtime/managers/scheduler.py`，`class Scheduler(SchedulerWarmupMixin, SchedulerPostTrainingMixin, SchedulerDisaggMixin)`）加一个 `GPUWorker`（`self.worker`）
-  - rank 0 的 Scheduler 绑 ZMQ ROUTER 收 Req，`BatchAdmissionController`（`dynamic_batch_admission.py`）决定能否与队列里形状兼容的 Req 合批（`--batching-max-size` / `--batching-config`）
+- worker 进程 × num_gpus：`launch_server`（`runtime/launch_server.py`）给每张卡起一个 `mp.Process(target=run_scheduler_process)`（`run_scheduler_process` 在 `runtime/managers/gpu_worker.py`），进程里是一个 `Scheduler`（`runtime/managers/scheduler.py`，`class Scheduler(SchedulerWarmupMixin, SchedulerPostTrainingMixin, SchedulerDisaggMixin)`）加一个 `GPUWorker`（`self.worker`）
+  - rank 0 的 Scheduler 绑 ZMQ ROUTER 收 Req，`_can_dynamic_batch` 判断队列里的 Req 与当前请求的采样参数签名是否相同，`BatchAdmissionController`（`dynamic_batch_admission.py`）再按 `--batching-max-size`（默认 1，即不合批）/ `--batching-config` 的上限决定收几个
   - `recv_reqs` 用 `broadcast_pyobj` 在 SP / CFG / TP 组内把请求广播给其它 rank，每个 rank 的 Scheduler 让自己的 GPUWorker 跑同一批；rank 0 的 `return_result` 把 `OutputBatch` 经 ZMQ 回给 HTTP 进程
   - `GPUWorker`：持有一个 `ComposedPipelineBase` 实例 + 并行组的一个 rank
   - `forward_context.py`：`ForwardContext` 传每次前向的状态（`current_timestep`、`attn_metadata`、当前的 `Req`）
@@ -154,13 +155,13 @@ Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、
 `ComposedPipelineBase`（`pipelines_core/composed_pipeline_base.py`）把一次生成拆成 `pipelines_core/stages/` 里的 stage 对象顺序执行：
 
 1. InputValidationStage → TextEncodingStage（+ 可选 ImageEncodingStage / ConditionEncodingStage）
-2. TimestepPreparationStage → LatentPreparationStage
-3. DenoisingStage（或 DenoisingDMDStage / CausalDenoisingStage）
+2. LatentPreparationStage → TimestepPreparationStage（`add_standard_t2i_stages` 里就是这个顺序）
+3. DenoisingStage（或 DmdDenoisingStage / CausalDMDDenoisingStage）
 4. DecodingStage → 后处理
 
 `runtime/pipelines/flux.py` 就是"FLUX 用哪些 stage、每个 stage 用哪个模块"的声明；`comfyui_*_pipeline.py` 是接 ComfyUI 格式 checkpoint 的变体；`diffusers_pipeline.py` 是 `--backend diffusers` 的回退——把整个 diffusers pipeline 当一个 stage。`pipelines_core/executors/`（`sync_executor`、`parallel_executor`、`pipeline_executor`）决定 stage 怎样在 worker 上执行；disaggregation 模式下 stage 按 `RoleType`（encoder / denoiser / decoder）落到不同的 worker 组，`disaggregation/transport/` 传中间张量。
 
-DenoisingStage 里的循环：每步 → 取 CFG 分支（`distributed/cfg_policy.py`）→ 缓存决策（`cache/teacache.py` 的 `TeaCacheMixin` 或 `cache_dit_integration.py`）→ 调 `runtime/models/` 里的原生 DiT forward → 采样器（`pipelines_core/diffusion_scheduler_utils.py`）。
+DenoisingStage 里的循环：每步 → 取 CFG 分支（`distributed/cfg_policy.py`）→ 调 `runtime/models/` 里的原生 DiT forward（TeaCache 的跳步判断在 DiT 基类 `CachableDiT` 混入的 `TeaCacheMixin` 里，`cache/teacache.py`；Cache-DiT 走 `cache_dit_integration.py`）→ 采样器 `scheduler.step()`（调度器实现在 `runtime/models/schedulers/`）。
 
 ### 3. 模型与层
 
@@ -168,7 +169,7 @@ DenoisingStage 里的循环：每步 → 取 CFG 分支（`distributed/cfg_polic
 
 ### 4. 出口
 
-DecodingStage 调 VAE（tiling 配置来自 `--vae-config`），`postprocess/` 编码成 PNG / MP4，`OutputBatch` 回 scheduler → HTTP → `openai/storage.py` 存文件或直接 b64 返回。`/v1/videos` 的 job 状态在 `openai/stores.py`。
+DecodingStage 调 VAE（tiling 配置来自 `--vae-config.*` 一组参数），`OutputBatch` 经 scheduler 回 HTTP 进程；`process_generation_batch` 用 `save_outputs`（`entrypoints/utils.py`）编码成 PNG / MP4 文件，`image_api.py` 再按 `response_format` 读成 b64 返回，或经 `openai/storage.py` 的 `CloudStorage` 上传后返回 URL。`postprocess/` 是可选的超分（Real-ESRGAN）与插帧（RIFE）。`/v1/videos` 的 job 状态在 `openai/stores.py`。
 
 ## 四、vLLM-Omni 的一条路
 
@@ -187,12 +188,12 @@ DecodingStage 调 VAE（tiling 配置来自 `--vae-config`），`postprocess/` �
   - stage-based CLI：每个 stage 用 `--stage-id` 单独启动，经 `--omni-master-address` / `--omni-master-port` 汇合，所以 stage 可以放到别的主机上
   - `--stage-overrides` 按 stage 覆盖配置（JSON），stage 用哪几张卡写在它的 `runtime.devices` 里
 - `DiffusionEngine`（`diffusion/diffusion_engine.py`），在上面哪个进程里都一样：
-  - `RequestScheduler` / `StepScheduler`（`sched/`）：请求级或 step 级的批，兼容键 `StepBatchSamplingParamsKey`
+  - `RequestScheduler` / `StepScheduler`（`sched/`）：请求级或 step 级的批，兼容键分别是 `RequestBatchSamplingParamsKey` / `StepBatchSamplingParamsKey`
   - 执行器：单卡是 `UniProcDiffusionExecutor`（worker 就在本进程）；多卡是 `MultiprocDiffusionExecutor`（`executor/multiproc_executor.py`），起 `WorkerProc` × N 进程（`worker/diffusion_worker.py`），经共享内存 `MessageQueue` 派任务
 - `WorkerProc` 进程：`DiffusionWorker` → `DiffusionModelRunner`（`worker/diffusion_model_runner.py`）
   - 持有原生 pipeline（`models/flux/pipeline_flux.py`）与 transformer（`flux_transformer.py`）
-  - 并行组：`distributed/parallel_state.py`（USP / Ring / CFG / TP / HSDP / PP / VAE patch）
-  - 缓存：`cache/selector.py` 选 teacache / magcache / cachedit 后端，包成 `CachedTransformer`
+  - 并行组：`distributed/parallel_state.py`（USP / Ring / CFG / TP / HSDP / PP；VAE patch 并行在 `vae_patch_parallel.py`）
+  - 缓存：`cache/selector.py` 的 `get_cache_backend` 选 cache_dit / tea_cache / mag_cache / step_cache 后端（`CacheBackend`），以 hook 挂到 transformer 上
   - offload：`offloader/`（sequential / layerwise / distributed layerwise）
   - 因果模型：`diffusion_kv/`（KV manager、PagedAttention 适配）
 
@@ -200,7 +201,7 @@ stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni�
 
 ### 2. 引擎
 
-`DiffusionEngine` 与 vLLM 的 `EngineCore` 同构：一个调度循环，每轮从 `RequestScheduler`（请求级）或 `StepScheduler`（step 级——把不同请求的同一步拼批，`_StepProgress` 跟踪每个请求走到第几步）取一批，交给 executor 执行一步或整个请求，收回 `RunnerOutput` / `BatchRunnerOutput`（`worker/utils.py`）。`DiffusionExecutionMode` 决定同步 / 异步。`sched/sigma_schedule.py` 的 `DMD2SigmaSchedule` 是少步蒸馏模型的时间步表。
+`DiffusionEngine` 与 vLLM 的 `EngineCore` 同构：一个调度循环，每轮从 `RequestScheduler`（请求级）或 `StepScheduler`（step 级——每轮把 batch 里每个请求各推进一步，`_StepProgress` 跟踪每个请求走到第几步，兼容的新请求可以在步边界加入）取一批，交给 executor 执行一步或整个请求，收回 `RunnerOutput` / `BatchRunnerOutput`（`worker/utils.py`）。`DiffusionExecutionMode`（`REQUEST_BATCH` / `STEP_BATCH`，由 `--step-execution` 决定，默认请求级）决定用哪种调度器。`sched/sigma_schedule.py` 的 `DMD2SigmaSchedule` 是少步蒸馏模型的时间步表。
 
 ### 3. 模型
 
@@ -208,7 +209,7 @@ stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni�
 
 ### 4. 出口
 
-`DiffusionModelRunner` 的输出经 `postprocess/` 与 `output_formatter.py`（`io_support.py` 处理图 / 视频编码）回到 API server 进程，OpenAI 层按 `response_format` 返回 b64 或文件。
+`DiffusionModelRunner` 的输出经 `output_formatter.py`（`format_diffusion_outputs`）整理成 `OmniRequestOutput` 回到 API server 进程，OpenAI 层（`image_api_utils.py` 的 `encode_image_base64`）按 `response_format` 返回 b64 或文件。
 
 ## 五、xDiT 的一条路
 
@@ -254,7 +255,7 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 |---|---|---|---|---|
 | **入口** | `openai/image_api.py`、`video_api.py`、`realtime/` | `entrypoints/openai/`；`AsyncOmni` | 用户脚本 / `xfuser/ray/` |  |
 | **请求对象** | `pipelines_core/schedule_batch.py` 的 `Req` / `OutputBatch` | `diffusion/request.py`；`sched/interface.py` 的 `NewRequestData` / `CachedRequestData` | `InputConfig` |  |
-| **调度与合批** | `managers/scheduler.py` + `dynamic_batch_admission.py` | `sched/request_scheduler.py` / `step_scheduler.py`；`StepBatchSamplingParamsKey` | — | 都是同构批 |
+| **调度与合批** | `managers/scheduler.py` + `dynamic_batch_admission.py` | `sched/request_scheduler.py` / `step_scheduler.py`；`RequestBatchSamplingParamsKey` / `StepBatchSamplingParamsKey` | — | 都按兼容键同构批；vLLM-Omni 的 step 模式允许步边界进出 |
 | **进程 / 执行器** | `GPUWorker` 进程组，ZMQ | `MultiprocDiffusionExecutor` → `WorkerProc` → `DiffusionWorker` | torchrun rank |  |
 | **并行组** | `distributed/parallel_state.py`、`group_coordinator.py`、`parallel_groups.py` | `distributed/parallel_state.py`、`group_coordinator.py`、`sp_plan.py` | `core/distributed/parallel_state.py`、`group_coordinator.py`、`runtime_state.py` | 三者的 `GroupCoordinator` 都从 vLLM 的 `GroupCoordinator` 演化 |
 | **序列并行** | `layers/attention/layer.py`：`UlyssesAttention`、`USPAttention`；`layers/usp.py`、`distributed/sp_shard_utils.py` | `distributed/a2a_permute.py`、`sp_sharding.py`<br/>`hooks/sequence_parallel.py`<br/>`attention/parallel/` | `core/long_ctx_attention/{ring,hybrid}/`；`model_executor/layers/usp.py` |  |
@@ -262,13 +263,13 @@ xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、�
 | **PipeFusion** | — | `distributed/pipeline_parallel.py`（PP） | `core/cache_manager/` + pipeline wrapper | xDiT 独有 |
 | **TP / FSDP** | `--tp-size`；`loader/fsdp_load.py` | `--tensor-parallel-size`；`distributed/hsdp.py` | — |  |
 | **attention 后端** | `layers/attention/selector.py`、`backends/` | `attention/selector.py`、`backends/`、`ops/` | `core/distributed/attention_backend.py`；`core/fast_attention/`、`sparge_attention/`、`vsa_attention.py` |  |
-| **跨步缓存** | `runtime/cache/teacache.py`、`cache_dit_integration.py`、`spectrum.py` | `cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`、`magcache/`、`cachedit/`、`selector.py` | `core/cache_manager/`、`model_executor/cache/adapters/` |  |
+| **跨步缓存** | `runtime/cache/teacache.py`、`cache_dit_integration.py`、`spectrum.py` | `cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`、`magcache/`、`stepcache/`、`cachedit/`、`selector.py` | `model_executor/cache/`（`utils.py` 的 `TeaCachedTransformerBlocks` / `FBCachedTransformerBlocks`，`adapters/` 按模型接入） |  |
 | **offload** | `managers/memory_managers/`：`component_residency*.py`、`layerwise_offload*.py`、`host_memory_budget.py` | `offloader/`：`sequential_backend.py`、`layerwise_backend.py`、`distributed_layerwise_backend.py`、`module_residency.py` | 沿用 diffusers |  |
-| **编译 / CUDA graph** | `--enable-torch-compile`；`breakable_cuda_graph/runner.py` | `compile.py`；worker 内 CUDA graph | `xfuser/compile/` |  |
+| **编译 / CUDA graph** | `--enable-torch-compile`；`breakable_cuda_graph/runner.py` | `compile.py`（`regionally_compile`，按重复 block 编译） | `xfuser/compile/` |  |
 | **量化** | `layers/quantization/`<br/>`--enable-svdquant`<br/>ModelOpt checkpoint<br/>GGUF（`loader/gguf_weights.py`） | `quantization/`（含 `hsdp_fp8.py`）；`--quantization` | `layers/fp8_linear.py`、`mxfp4_linear.py`；`core/distributed/fp4_quantize.py` |  |
 | **LoRA** | `pipelines_core/lora/`、`layers/lora/` | `lora/manager.py`、`loader.py`、`layers/` | diffusers 的 `load_lora_weights` |  |
 | **VAE** | `stages/decoding.py`<br/>`--vae-config`<br/>parallel decode | `distributed/vae_patch_parallel.py`、`distributed/autoencoders/`；`--vae-use-tiling` | distvae 的 `parallelize_decoder`（Parallel VAE）；Ray 路径用 `xFuserVAEWrapper` |  |
-| **warmup** | `server_warmup.py`、`warmup_request_builder.py`；`--warmup-mode`、`--warmup-resolutions` | — | `prepare_run` |  |
+| **warmup** | `server_warmup.py`、`warmup_request_builder.py`；`--warmup-mode`、`--warmup-resolutions` | `DiffusionEngine.run_startup_warmup`（启动时一个 512² 的 dummy 请求） | `prepare_run` |  |
 | **分离** | `disaggregation/`：`roles.py`、`orchestrator.py`、`dispatch_policy.py`、`transport/` | stage 本身 | — |  |
 | **因果 / KV** | `layers/kvcache/`、`stages/causal_denoising.py`、`realtime/` | `diffusion_kv/`（`manager.py`、`paged_attention_adapter.py`）；调度器的 `KVPrefetchJob` | `pipeline_causal_wan.py` |  |
 | **权重加载** | `loader/`：`weight_load_plan.py`、`component_loaders/`、`weight_readers/`、`rank_local_checkpoint.py` | `model_loader/`：`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`、`hub_prefetch.py` | diffusers `from_pretrained` |  |
@@ -296,8 +297,8 @@ Table: 三个引擎的取向与出发点
 ### 2. 三个共同点
 
 - **并行组的写法趋同**：三者的 `parallel_state.py` / `GroupCoordinator` 几乎可以互换——都是 vLLM 那套"按维度建 NCCL 组、rank 映射、collective 封装"的写法。序列并行的实现也趋同（Ulysses 的 all-to-all + FlashAttention、Ring 的 P2P 环），xDiT 的 USP 论文与实现是共同来源。
-- **缓存与 offload 都是 hook**：不改模型 forward，包一层——diffusers 的 `hooks/` 定义的形态。
-- **同构批**：没有一个引擎做 LLM 式的连续批处理；有调度器的两个都是"形状兼容才合批、整批开始整批结束"。这是负载性质决定的（第七篇）。
+- **缓存与 offload 都不改单个模型的代码**：vLLM-Omni 的缓存后端是 hook（`cache/teacache/hook.py`），xDiT 把 FLUX 的 block 列表换成带缓存的包装模块，SGLang 把 TeaCache 放进所有 DiT 共用的基类 `CachableDiT`——都是 diffusers `hooks/` 那种"在模型外面包一层"的思路。
+- **同构批**：有调度器的两个都是"形状兼容才合批"。默认都是整批开始整批结束；只有 vLLM-Omni 打开 `--step-execution` 时，`StepScheduler` 让兼容键相同的请求在步边界加入、各自走完就离开——这是受形状约束的 step 级连续批，目前只有实现了 `denoise_step` 的少数 pipeline（Qwen-Image、HunyuanImage-3 等，不含 FLUX）支持。形状必须相同是负载性质决定的（第七篇）。
 
 ### 3. 该选哪个
 
@@ -306,7 +307,7 @@ Table: 三个引擎的取向与出发点
 | 对外的图像 / 视频生成服务，NVIDIA 单节点或多节点 | SGLang Diffusion 或 vLLM-Omni；两者的模型覆盖与性能互有胜负，按目标模型是否有原生实现选 |
 | 全模态服务（LLM + 生成 + 语音在一个请求里） | vLLM-Omni（stage 流水线为此设计） |
 | 已有 vLLM 基础设施、想复用运维 | vLLM-Omni |
-| 已有 SGLang 基础设施；AMD / Ascend / Apple 等非 NVIDIA 平台 | SGLang Diffusion |
+| 已有 SGLang 基础设施；Apple（MPS）上跑 | SGLang Diffusion（AMD / Ascend / Intel XPU 两者都有平台层，按目标模型的支持情况选） |
 | 新模型 diffusers 刚出、两个引擎还没原生支持 | 两者的 diffusers 回退（性能打折）或 xDiT 包装 |
 | PCIe / 以太网集群上的多卡 | xDiT（PipeFusion）或等 SGLang / vLLM-Omni 的 PP |
 | 研究并行方法 / 做 benchmark | xDiT |
@@ -322,8 +323,8 @@ Table: 不同场景该选哪个引擎
 | 路径 | `image_api` → `AsyncSchedulerClient` → `Scheduler` → `GPUWorker` → `ComposedPipelineBase` 的 stage → `runtime/models` + `layers/attention/USPAttention` | `AsyncOmni` → Orchestrator → `InlineStageDiffusionClient`（或 `StageDiffusionClient` → `StageDiffusionProc`）→ `DiffusionEngine` + `Step/RequestScheduler` → `MultiprocDiffusionExecutor` → `DiffusionWorker` → `DiffusionModelRunner` → `models/flux` | `xFuserArgs` → `xDiTParallel` → `xFuserFluxPipeline` 包装 → `initialize_model_parallel` → attention processor 替换 → diffusers transformer |
 | 进程 | HTTP 进程 + 每卡一个 worker 进程 | API 进程（+ 可选的 stage 进程）+ 执行器 | torchrun SPMD |
 | 模型 | 原生重写 | 原生重写 | diffusers 原样 |
-| 独有 | 动态批处理准入、breakable CUDA graph、`--quality`、realtime 会话、KV 量化、多平台 | stage 分离、HSDP、VAE patch 并行、分页 diffusion KV | PipeFusion、Parallel VAE、弱互联 |
-| 共有 | USP / CFG 并行、hook 式缓存与 offload、同构批、vLLM 式并行组、diffusers 权重格式 | | |
+| 独有 | 动态批处理准入、breakable CUDA graph、`--quality`、realtime 会话、KV 量化、MPS 支持 | stage 分离、PP、VAE patch 并行、step 级批、分页 diffusion KV | PipeFusion、Parallel VAE、弱互联 |
+| 共有 | USP / CFG 并行、模型外挂式缓存与 offload、同构批、vLLM 式并行组、diffusers 权重格式 | | |
 
 Table: 三个引擎的一句话小结
 
@@ -344,7 +345,7 @@ Table: 三个引擎的一句话小结
 
    <details markdown="1">
    <summary>答案</summary>
-   扩散每步是整段序列的完整前向，batch 里的请求必须每步形状与执行策略相同才能拼成一个张量；且 compute-bound 下 batch 不提吞吐，动态进出的收益为零。所以两者都是同构批：SGLang 的 `dynamic_batch_admission` 与 vLLM-Omni 的 `StepBatchSamplingParamsKey` 要求 height / width / frames / CFG / quality / LoRA 等全同，整批开始整批结束（vLLM-Omni 的 StepScheduler 可把不同请求的同一步拼批，但仍要求形状相同）。详见[第六章](#六逐机制对照)、[第七章](#七分歧点)。
+   扩散每步是整段序列的完整前向，batch 里的请求必须每步形状与执行策略相同才能拼成一个张量；且 compute-bound 下 batch 不提吞吐，动态进出的收益为零。所以两者都是同构批：SGLang 的 `Scheduler._can_dynamic_batch` 要求采样参数签名（除 prompt、seed 等少数字段外的全部 `SamplingParams`，含 height / width / frames / steps / CFG）全同、`dynamic_batch_admission` 再管批大小与代价上限，vLLM-Omni 的 `StepBatchSamplingParamsKey` 同样要求形状、CFG、LoRA 等全同，默认整批开始整批结束；vLLM-Omni 打开 `--step-execution` 后，`StepScheduler` 让兼容请求在步边界加入、走完就离开（各请求可处在不同步数），但仍要求兼容键相同，且只有实现了 `denoise_step` 的 pipeline 支持。详见[第六章](#六逐机制对照)、[第七章](#七分歧点)。
    </details>
 
 3. vLLM-Omni 对一个纯扩散模型也用 stage 结构（orchestrator + 一个 diffusion stage），看起来多了一层。这层在什么时候变成优势？
@@ -368,8 +369,8 @@ Table: 三个引擎的一句话小结
    以太网跨节点只有 PipeFusion 可行（第五篇）。xDiT 有 PipeFusion + Ulysses 的混合并行，但没有服务层（要自己包 API、队列、job）。SGLang Diffusion 有完整服务层与跨节点 SP（Ring），但没有 PipeFusion——跨节点 Ring 在以太网上每步 1.6 GB 不可行，只能节点内 8 卡 USP、两节点各自独立成实例（DP）。vLLM-Omni 有 PP（`pipeline_parallel.py`）与服务层，PP 是否达到 PipeFusion 的 patch 流水线效果要实测。实际最常见的选择：放弃跨节点切请求，两节点各 8 卡 USP 独立服务，吞吐反而更高（第五篇：DP 是吞吐最优）。详见[第七章](#七分歧点)。
    </details>
 
-[^q0]: SGLang Diffusion：`openai/image_api.py` 的 `/generations` 路由构造 `Req` → `AsyncSchedulerClient`（ZMQ）→ rank 0 的 `Scheduler`（合批准入、warmup，再广播给其它 rank）→ 各 rank 的 `GPUWorker` → `ComposedPipelineBase` 顺序执行 `TextEncodingStage` / `LatentPreparationStage` / `DenoisingStage`（每步经 CFG policy、缓存决策、`runtime/models` 的原生 DiT、`USPAttention`）/ `DecodingStage` → `postprocess` → `OutputBatch` 回 HTTP → b64 或 `storage.py`。vLLM-Omni：OpenAI 层 → `AsyncOmni` → Orchestrator → `InlineStageDiffusionClient`（或 `StageDiffusionClient` → `StageDiffusionProc`）→ `DiffusionEngine`（`RequestScheduler` / `StepScheduler`）→ `MultiprocDiffusionExecutor` → `WorkerProc` / `DiffusionWorker` → `DiffusionModelRunner` → `models/flux/pipeline_flux.py` + `flux_transformer.py`（并行组、`CachedTransformer`、offloader）→ `output_formatter` → OpenAI 层返回。xDiT：无 HTTP；`torchrun` 每个 rank 跑脚本 → `xFuserArgs` → `xDiTParallel` → `xFuserFluxPipeline` 包装 diffusers 的 `FluxPipeline`（`initialize_model_parallel`、把每个 `attn` 包成 `xFuserFluxAttentionWrapper`、processor 换成 `xFuserFluxAttnProcessor`、`prepare_run` warmup）→ 调用 → `save`。详见[第三章](#三sglang-diffusion-的一条路)、[第四章](#四vllm-omni-的一条路)、[第五章](#五xdit-的一条路)。
+[^q0]: SGLang Diffusion：`openai/image_api.py` 的 `/generations` 路由构造 `Req` → `AsyncSchedulerClient`（ZMQ）→ rank 0 的 `Scheduler`（合批准入、warmup，再广播给其它 rank）→ 各 rank 的 `GPUWorker` → `ComposedPipelineBase` 顺序执行 `TextEncodingStage` / `LatentPreparationStage` / `DenoisingStage`（每步经 CFG policy、缓存决策、`runtime/models` 的原生 DiT、`USPAttention`）/ `DecodingStage` → `OutputBatch` 回 HTTP → `save_outputs` 编码成文件 → b64 或经 `storage.py` 上传返回 URL。vLLM-Omni：OpenAI 层 → `AsyncOmni` → Orchestrator → `InlineStageDiffusionClient`（或 `StageDiffusionClient` → `StageDiffusionProc`）→ `DiffusionEngine`（`RequestScheduler` / `StepScheduler`）→ `MultiprocDiffusionExecutor` → `WorkerProc` / `DiffusionWorker` → `DiffusionModelRunner` → `models/flux/pipeline_flux.py` + `flux_transformer.py`（并行组、缓存 hook、offloader）→ `output_formatter` → OpenAI 层返回。xDiT：无 HTTP；`torchrun` 每个 rank 跑脚本 → `xFuserArgs` → `xDiTParallel` → `xFuserFluxPipeline` 包装 diffusers 的 `FluxPipeline`（`initialize_model_parallel`、把每个 `attn` 包成 `xFuserFluxAttentionWrapper`、processor 换成 `xFuserFluxAttnProcessor`、`prepare_run` warmup）→ 调用 → `save`。详见[第三章](#三sglang-diffusion-的一条路)、[第四章](#四vllm-omni-的一条路)、[第五章](#五xdit-的一条路)。
 
-[^q1]: 进程模型：SGLang 是 HTTP 进程 + 每卡一个 worker 进程（各含 Scheduler 与 GPUWorker，与 SGLang LLM 同构），vLLM-Omni 是 API 进程里的 orchestrator 编排 stage（单 stage 单副本时扩散引擎 inline 在 API 进程，否则是独立的 `StageDiffusionProc`，可跨 GPU / 主机），引擎内再有执行器与 worker 进程，xDiT 是 torchrun 的 SPMD rank。pipeline 抽象：SGLang 的 `ComposedPipelineBase` = stage 列表 + 原生模型（diffusers 回退），vLLM-Omni 的 `models/<model>/pipeline_*.py` 原生 pipeline（diffusers adapter 回退），xDiT 包装 diffusers pipeline 只换 attention processor 与去噪循环。并行组：三者的 `parallel_state` / `GroupCoordinator` 同源，xDiT 多 PipeFusion 与 Parallel VAE，vLLM-Omni 多 HSDP / PP / VAE patch，SGLang 多 FSDP 推理与跨节点 SP。调度：SGLang `Scheduler` + `dynamic_batch_admission`，vLLM-Omni `RequestScheduler` / `StepScheduler` + 兼容键，xDiT 无——两个有调度器的都是同构静态批。详见[第一章](#一总览)、[第六章](#六逐机制对照)。
+[^q1]: 进程模型：SGLang 是 HTTP 进程 + 每卡一个 worker 进程（各含 Scheduler 与 GPUWorker，与 SGLang LLM 同构），vLLM-Omni 是 API 进程里的 orchestrator 编排 stage（单 stage 单副本时扩散引擎 inline 在 API 进程，否则是独立的 `StageDiffusionProc`，可跨 GPU / 主机），引擎内再有执行器与 worker 进程，xDiT 是 torchrun 的 SPMD rank。pipeline 抽象：SGLang 的 `ComposedPipelineBase` = stage 列表 + 原生模型（diffusers 回退），vLLM-Omni 的 `models/<model>/pipeline_*.py` 原生 pipeline（diffusers adapter 回退），xDiT 包装 diffusers pipeline 只换 attention processor 与去噪循环。并行组：三者的 `parallel_state` / `GroupCoordinator` 同源，xDiT 多 PipeFusion 与 Parallel VAE，vLLM-Omni 多 PP / VAE patch，SGLang 多跨节点 SP；FSDP / HSDP 式的权重分片两者都有。调度：SGLang `Scheduler` + `dynamic_batch_admission`，vLLM-Omni `RequestScheduler` / `StepScheduler` + 兼容键，xDiT 无——两个有调度器的都是同构批，默认整批开始整批结束，只有 vLLM-Omni 的 step 模式允许兼容请求在步边界进出。详见[第一章](#一总览)、[第六章](#六逐机制对照)。
 
 [^q2]: 出发点不同：SGLang 想把已有的 serving 结构（scheduler、kernel 栈、warmup、CUDA graph、多平台）复用到新负载上，所以原生重写模型以接入自己的 layers；vLLM-Omni 要服务全模态模型（一个请求经过 LLM、DiT、TTS 多种模型），stage 流水线是必需的抽象，扩散只是一种 stage，原生重写是为了与 vLLM 的 worker / 量化 / KV 栈一致；xDiT 的目标是研究并验证并行方法（USP、PipeFusion），包装 diffusers 让它以最低成本覆盖最多模型、专注并行本身。代价对应：SGLang / vLLM-Omni 支持新模型成本高（重写 + 权重映射），xDiT 没有服务层且性能受 diffusers 限制。详见[第七章](#七分歧点)。
