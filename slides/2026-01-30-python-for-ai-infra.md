@@ -65,6 +65,7 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /python-execution-model-scopes-imports-and-exceptions.html 与 /python-object-model-protocols-decorators-and-generators.html。
 结论原文：`import` 是**运行时动作**（执行模块顶层代码，注册与 CUDA 初始化都在这一步）；`obj.attr` 是一个固定算法；`model(x)` 查类型上的 `__call__`——**直接调 `forward` 绕过全部 hook**；装饰器在定义时执行一次；生成器是挂起的帧。
+补充要点：`import` 先把模块放进 `sys.modules` 再执行顶层代码（循环导入拿到半成品就在这个窗口）；顶层代码抛异常时模块会被删掉，下次 `import` 重新执行。名称属于哪个作用域在编译期按「本函数里有没有绑定」决定；循环里的 `lambda: i` 共享同一个 cell。
 </aside>
 
 ---
@@ -261,7 +262,7 @@ flowchart TB
 | 量 | 数 |
 |---|---|
 | `pip install torch` | 2 GB+；环境 5–8 GB；镜像 8–12 GB |
-| 装 torch | `--index-url`，**不用** `--extra-index-url`（pip 在多索引里选最高版本，可能装到 PyPI 默认变体） |
+| 装 torch | `--index-url`，**不用** `--extra-index-url`（pip 在多索引里选最高版本，PyPI 一有更新的上游版本就装成 PyPI 默认构建） |
 | CUDA 三层 | 驱动 / runtime / 库；同大版本向前兼容 |
 | 4 个 worker × 14 GB 模型 | 56 GB 显存——「多开 worker 提吞吐」的代价 |
 | tag | 不能是 `latest` |
