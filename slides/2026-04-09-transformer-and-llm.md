@@ -119,7 +119,7 @@ encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder �
 - 有 / 无 KV cache 输出逐 token **一致**；prompt 256 生成 256 快 **7.9 倍**
 - 代价：Llama-3-8B **128 KiB / token** = 32 层 × 2 × 8 个 KV 头 × 128 × 2 B
 - KV cache 不存 Q——旧 token 的 Q 用过即弃
-- 训练长上下文比推理多一份与 B × T 成正比的激活值
+- 训练 Llama-3-8B、T = 8192：激活约 **41 GiB**（朴素 attention 表再 +128 GiB），参数才 16 GB
 
 ---
 
@@ -142,7 +142,7 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 ```
 
 <aside class="notes" markdown="1">
-原文 /nanogpt-model-py-line-by-line.html。`wte.weight` = `lm_head.weight` 共享省 31% 参数；所有权重 \(N(0, 0.02)\)02²)，写回残差流的 c_proj 再除 √(2L)；forward 传 targets 算全部位置，不传只算最后一个位置的 lm_head（省 99.9%）。
+原文 /nanogpt-model-py-line-by-line.html。`wte.weight` = `lm_head.weight` 共享省 31% 参数；所有权重 $$\mathcal N(0, 0.02^2)$$，写回残差流的 c_proj 再除 √(2L)（L = 12 时标准差 0.0041）；forward 传 targets 算全部位置，不传只算最后一个位置的 lm_head（省 99.9%）。
 结论原文：330 行、6 个类，结构本身（LayerNorm、CausalSelfAttention、MLP、Block）**不到 90 行**；与 HF GPT-2 对拍相对差 $$9 \times 10^{-5}$$。
 </aside>
 
@@ -175,7 +175,7 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 ![只改层数在 shakespeare_char 上 2000 步的 loss：2 / 4 / 8 层 val 1.82 / 1.66 / 1.59，每步耗时约 0.5× / 1× / 2×](/img/in-post/transformer-04-shakespeare-loss-by-depth.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文 /nanogpt-train-py-and-training-a-model-that-writes.html。默认配置每次迭代 40 × 12 × 1024 = 491,520 token；8 卡时每卡累积 5 次。MFU 0.2%：小 batch 在 MPS 上 launch-bound。
+原文 /nanogpt-train-py-and-training-a-model-that-writes.html。默认配置每次迭代 40 × 12 × 1024 = 491,520 token；8 卡时每卡累积 5 次。MFU 0.2%：每次迭代 40 个 768 token 的 micro-batch，在 MPS 上 launch-bound，分母还按 A100 算。
 结论原文：1.1 MB 莎士比亚、0.8M 参数、2000 步 7 分钟，loss 从 **ln 65 = 4.17 → 1.66**；层是串行的——参数与耗时线性、loss 收益递减。
 </aside>
 

@@ -6,7 +6,7 @@ subtitle: "From the Original Transformer to the GPT-2 Decoder-only Stack"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-03-30 12:00:00
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 > **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。先看本系列要拆解的 GPT-2 small 总览，再回到 2017 年的 encoder-decoder Transformer，比较三条路线，最后逐个打开 GPT-2 的部件；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
@@ -80,13 +80,13 @@ Table: 本文的六种部件与「七个权重矩阵」的对应——七个矩�
 | 四 | 为什么从 GPT-2 开始 | decoder-only 的常见解释<br/>GPT-2 与 nanoGPT 的实践理由 |
 | 五 | token embedding | 查表：编号 → 向量<br/>查表等价于 one-hot 乘矩阵 |
 | 六 | 位置 embedding | attention 不知道顺序（换序实验）<br/>两种给位置的方法：查位置表与 RoPE |
-| 七 | attention 子层 | 为什么需要它：GPT-2 真实的 attention 图<br/>Q / K / V 三个投影<br/>d = 4 的六步手算<br/>为什么除 √d、为什么 mask<br/>多头：怎么切、为什么各头看的不一样<br/>这一子层的四个参数矩阵 |
-| 八 | FFN 子层 | 为什么 attention 之后还要它<br/>GELU 与 4d<br/>知识存在哪 |
-| 九 | 残差连接与 LayerNorm | 深了为什么训不动<br/>LayerNorm 手算<br/>pre-norm 与 post-norm |
-| 十 | lm_head | 最后一次 LayerNorm 与 lm_head<br/>与 embedding 表共享权重 |
+| 七 | attention 子层 | 为什么需要它：GPT-2 真实的 attention 图<br/>Q / K / V 三个投影<br/>d = 4 的六步手算<br/>写成循环：两次求和的下标<br/>为什么除 √d、为什么 mask<br/>多头：怎么切、两个头的手算、为什么各头看的不一样<br/>这一子层的四个参数矩阵 |
+| 八 | FFN 子层 | 为什么 attention 之后还要它<br/>GELU 与 4d<br/>d = 2 的小 FFN：非线性起了什么作用<br/>知识存在哪 |
+| 九 | 残差连接与 LayerNorm | 深了为什么训不动<br/>LayerNorm 手算<br/>pre-norm 与 post-norm：LayerNorm 在加号的哪一边 |
+| 十 | lm_head | 最后一次 LayerNorm 与 lm_head<br/>与 embedding 表共享权重：logit 是内积 |
 | 十一 | 把它们叠起来 | 一个 block 的数据流<br/>GPT-2 small 的 1.24 亿参数逐项数出来 |
 | 十二 | 本文小结 |  |
-| 十三 | 自测 | 六道题 |
+| 十三 | 自测 | 八道题 |
 
 Table: 本文的章节安排
 
@@ -293,6 +293,37 @@ ref = F.scaled_dot_product_attention(Q[None, None], K[None, None], V[None, None]
 print((out - ref).abs().max())                            # tensor(5.9605e-08)
 ```
 
+矩阵写法把两次求和藏在了乘号里。把 ②–⑥ 写成普通的 Python 循环，就能看清每一步沿哪一维求和：
+
+```python title='同一个 attention 写成循环：两次求和分别沿特征维与 token 维'
+for i in range(T):                       # 第 i 个 token 当 query
+    for j in range(T):                   # 第 j 个 token 当 key
+        # !ref loop-score
+        S[i][j] = sum(Q[i][c] * K[j][c] for c in range(d)) / math.sqrt(d)
+        if j > i:
+            S[i][j] = float("-inf")      # causal mask：右边的 token 不许看
+    P[i] = softmax(S[i])                 # 一行一行地归一化
+    for c in range(d):
+        # !ref loop-mix
+        out[i][c] = sum(P[i][j] * V[j][c] for j in range(T))
+```
+
+两处 `sum` 求和的下标不同，这正是 attention 的要点：
+
+1. [打分](#loop-score)沿**特征维** $$c$$ 求和：$$S_{ij} = \sum_c Q_{ic} K_{jc}$$，是第 $$i$$ 行 $$Q$$ 和第 $$j$$ 行 $$K$$ 的内积。$$K$$ 要转置，是因为矩阵乘法 $$AB$$ 拿 $$A$$ 的行去乘 $$B$$ 的列，而我们要的是 $$K$$ 的**行**，所以先把行翻成列。
+2. [加权求和](#loop-mix)沿 **token 维** $$j$$ 求和：$$\text{out}_{ic} = \sum_j P_{ij} V_{jc}$$。第 $$i$$ 个 token 的输出里混进了第 $$j$$ 个 token 的 value，token 之间的信息就是在这一步传过去的。FFN、LayerNorm 里没有沿 token 维的求和，所以它们不交流。
+
+每个量的形状：
+
+| 量 | 形状 | 一行是什么 |
+|---|---|---|
+| $$Q$$、$$K$$、$$V$$ | $$[T, d]$$ | 一个 token 的 query / key / value |
+| $$S = QK^\top / \sqrt d$$ | $$[T, d] \times [d, T] = [T, T]$$ | 一个 query 对全部 key 的分数 |
+| $$P = \text{softmax}(S + M)$$ | $$[T, T]$$ | 一个 query 的注意力权重，和为 1 |
+| $$\text{out} = PV$$ | $$[T, T] \times [T, d] = [T, d]$$ | 一个 token 混合了左边各 token 后的新向量 |
+
+Table: attention 六步里每个量的形状
+
 `F.scaled_dot_product_attention` 是 PyTorch 2.0 起的内置函数，把 ②–⑥ 合成一个 kernel（Infra 地图 GPU Kernel 系列讲 FlashAttention 怎么做到不写出那张 $$[T, T]$$ 的表）；本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)的 nanoGPT 两条路径都有。
 
 ### 4. 为什么除以 √d
@@ -327,6 +358,20 @@ mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0
 第 1 节那两张热力图来自**同一层的两个不同的头**：一个看上一个词，一个看主语。如果这一层只有一套 $$W_Q, W_K, W_V$$，它只能学出一种"该看谁"的模式；语言里同时存在很多种关系（上一个词、指代、主谓、句首……），所以让一层里有 $$h$$ 套独立的投影，各算一张自己的权重表——这就是**多头**（multi-head）。
 
 实现上不是把 $$d$$ 维的向量复制 $$h$$ 份，而是**切成 $$h$$ 段**：GPT-2 small 的 768 维切成 12 个头、每头 64 维（$$d_h = d / h$$）。每个头在自己的 64 维上做上一节的六步，得到一个 $$[T, 64]$$ 的输出，12 个拼回 $$[T, 768]$$，再过一个 $$W_O$$（$$768 \times 768$$）把各头的结果混合。
+
+用第 3 节的玩具把这件事算一遍。$$d = 4$$ 切成 $$h = 2$$ 个头、每头 $$d_h = 2$$ 维：头 0 拿 $$Q$$、$$K$$、$$V$$ 的第 1–2 列，头 1 拿第 3–4 列，各自做六步。缩放除的是**每头的维度** $$\sqrt{d_h} = \sqrt 2$$，不是 $$\sqrt d$$。只看 t2 那一行：
+
+| | 头 0（第 1–2 列） | 头 1（第 3–4 列） | 单头（4 列一起，第 3 节） |
+|---|---|---|---|
+| t2 的 query | (1, 1) | (0, 0) | (1, 1, 0, 0) |
+| t0、t1、t2 的 key | (1, 0)、(0, 1)、(1, 1) | (2, 0)、(0, 2)、(1, 1) | 见第 3 节 $$K$$ |
+| 分数 ÷ 缩放 | (0.71, 0.71, 1.41) | (0, 0, 0) | (0.5, 0.5, 1.0) |
+| 权重 | (0.25, 0.25, 0.50) | (0.33, 0.33, 0.33) | (0.27, 0.27, 0.45) |
+| t2 的输出 | (0.75, 0.75) | (0.33, 0.33) | (0.73, 0.73, 0.27, 0.27) |
+
+Table: 把 d = 4 切成两个头：同一个 t2，两个头分出的权重不同
+
+两个头对同一个 token 给出了两组不同的权重：头 0 偏向 t2 自己；头 1 里 t2 的 query 是零向量，三个分数全是 0，于是平均分给三个 token。两个头的输出拼起来是 $$(0.75, 0.75, 0.33, 0.33)$$，再乘 $$W_O$$。它和单头的结果不一样：多头不是把单头的计算拆开做，而是换成了一个不同的函数——每个头在自己的子空间里单独做 softmax。
 
 "切"这个字容易让人以为是把输入向量的 768 维分给 12 个头、每头只看其中 64 维——不是。被切的是**投影之后**的结果：$$W_Q$$ 是一个 $$768 \times 768$$ 的矩阵，$$x W_Q$$ 得到 768 维，再平均切成 12 段；而 $$W_Q$$ 的第 $$i$$ 段 64 列本身就是一个独立的 $$768 \times 64$$ 小矩阵 $$W_Q^{(i)}$$。所以"切成 12 段"等价于"12 个头各有一个从**整个** 768 维输入读进来的小投影"，每个头都能看到输入的全部信息，切分的位置本身没有任何讲究——按 64 维平均切只是为了把 12 个小矩阵拼成一个大矩阵、一次乘完。
 
@@ -382,6 +427,26 @@ $$
 
 先把 768 维放大到 3072 维，过一个非线性函数，再压回 768 维。GELU 是 ReLU 的平滑版本（[《深度学习基础（03）：反向传播——手推一个两层网络》](/backpropagation-by-hand.html)），负半轴不是硬截到 0 而是缓缓压到 0，GPT-2 起成为标配；公式与导数的完整对照见[《深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU》](/activation-functions-from-sigmoid-to-swiglu.html)。"4 倍"是原论文的经验选择，之后被沿用；Llama 换成三个矩阵的 SwiGLU、宽度改为约 2.7 倍（[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的），但"放大 → 非线性 → 压回"的形状没变。
 
+GELU 的定义是 $$\text{GELU}(z) = z \cdot \Phi(z)$$，$$\Phi$$ 是标准正态分布的累积分布函数（一个服从标准正态分布的随机数小于 $$z$$ 的概率）：$$z$$ 很大时 $$\Phi \approx 1$$，输出约等于 $$z$$；$$z$$ 很负时 $$\Phi \approx 0$$，输出约等于 0。几个值：$$\text{GELU}(2) = 1.954$$、$$\text{GELU}(1) = 0.841$$、$$\text{GELU}(0) = 0$$、$$\text{GELU}(-1) = -0.159$$、$$\text{GELU}(-2) = -0.046$$。
+
+形状一路是 $$[T, 768] \xrightarrow{W_1} [T, 3072] \xrightarrow{\text{GELU}} [T, 3072] \xrightarrow{W_2} [T, 768]$$。$$W_1$$、$$W_2$$ 作用在最后一维上，$$T$$ 个 token 各乘各的，所以说它是逐位置的。
+
+用 $$d = 2$$、中间层 4 维的小 FFN 看一下非线性起了什么作用（真实模型放大 4 倍，这里为了手算只放大 2 倍，bias 取 0）：
+
+$$
+W_1 = \begin{pmatrix} 1 & -1 & 1 & 0 \\ 0 & 1 & 1 & -1 \end{pmatrix},\qquad
+W_2 = \begin{pmatrix} 1 & 0 \\ 0 & 1 \\ 1 & 1 \\ 0 & -1 \end{pmatrix}
+$$
+
+| 输入 $$x$$ | $$xW_1$$：4 个中间单元的值 | GELU 之后 | FFN 输出 | 去掉 GELU 的输出 |
+|---|---|---|---|---|
+| (1, −1) | (1, −2, 0, 1) | (0.84, −0.05, 0, 0.84) | (0.84, −0.89) | (1, −3) |
+| (−1, 1) | (−1, 2, 0, −1) | (−0.16, 1.95, 0, −0.16) | (−0.16, 2.11) | (−1, 3) |
+
+Table: 一个 d = 2 的小 FFN：输入取反，有 GELU 时输出不再跟着取反
+
+去掉 GELU，两个矩阵乘起来就是一个 $$2 \times 2$$ 矩阵 $$W_1 W_2 = \begin{pmatrix} 2 & 0 \\ 1 & 3 \end{pmatrix}$$，输入取反输出也只是取反，两层等于一层。加上 GELU，第 2 个中间单元对 $$x = (1, -1)$$ 的值是 −2，几乎被关掉（−0.05）；对 $$-x$$ 是 2，几乎原样通过（1.95）。同一个单元对一种输入"打开"、对另一种"关闭"，输出就不再是输入的线性函数。下面第 3 节说的"探测器"，指的就是这种按输入开关的中间单元。
+
 ### 2. 它在一层里占了三分之二
 
 一层的参数数一数：attention 四个矩阵 $$4d^2$$，FFN 两个矩阵 $$8d^2$$——**FFN 占一层参数的三分之二**（GPT-2 small：4.72M 对 2.36M）。这个比例在 Llama 上更高（约 80%，[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)的表）。所以"大模型的参数主要在 attention 里"是个常见误解；attention 负责决定看谁，真正的"存储"在 FFN。
@@ -410,11 +475,38 @@ $$
 x = (2, 4, 4, 6) \;\to\; \mu = 4,\; \sigma^2 = 2 \;\to\; \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} = (-1.41,\, 0,\, 0,\, 1.41) \;\to\; \gamma \odot (\cdot) + \beta
 $$
 
+逐步看：均值 $$\mu = (2 + 4 + 4 + 6) / 4 = 4$$；减去均值得 $$(-2, 0, 0, 2)$$；平方 $$(4, 0, 0, 4)$$ 的平均就是方差 $$\sigma^2 = 2$$；除以 $$\sqrt 2 = 1.41$$ 得 $$(-1.41, 0, 0, 1.41)$$。这一步之后，任何输入都变成均值 0、方差 1。$$\epsilon$$ 是 $$10^{-5}$$ 这样的小数，防止方差为 0 时除零。最后一步 $$\gamma \odot$$ 是逐元素相乘：若学到的 $$\gamma = (1, 1, 2, 2)$$、$$\beta = (0, 0, 0, 1)$$，输出是 $$(-1.41, 0, 0, 3.83)$$。归一化把尺度统一掉，$$\gamma$$、$$\beta$$ 再让模型按维度把需要的尺度和偏移学回来。输入 $$[T, d]$$ 时，均值和方差沿 $$d$$ 那一维算，$$T$$ 个 token 各得一对 $$(\mu, \sigma^2)$$。
+
 它解决的问题是**尺度**：残差流上 24 次相加，向量的数值会越来越大，直接喂给 attention 会让 $$q \cdot k$$ 的分数失控（第七章第 4 节那个问题的另一个来源）；LayerNorm 保证每个子层看到的输入都在同一个尺度上。注意它是**每个 token 自己归一化**，不跨 token、也不跨 batch——这是它与 CNN 里 BatchNorm 的区别，也是它在变长序列上好用的原因。Llama 换成 RMSNorm（不减均值，只除均方根，省一次运算，[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)），作用相同。
 
 ### 3. pre-norm 与 post-norm
 
 LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pre-norm）还是**之后**（原论文 2017 与 d2l 10.7 画的是 $$\text{LN}(x + \text{Sublayer}(x))$$，叫 post-norm）？两者数学上不等价：pre-norm 下残差流本身不经过归一化，梯度有一条干净的直通路；post-norm 下每层输出都被重新归一化，深了以后需要 warmup 和小学习率才不发散（Xiong 等，2020）。现代大模型几乎全部用 pre-norm，代价是最后要多加一次 `ln_f`（图 1 里"最后一次 LayerNorm"那个框），否则残差流的尺度直接进 lm_head。
+
+两种放法只差 LayerNorm 在"+"的哪一边：
+
+```mermaid
+%% 图：post-norm 与 pre-norm 的一个子层：post-norm 在相加之后归一化，主干上每个子层都过一次 LayerNorm；pre-norm 只归一化送进子层的那一份，主干 x 原样通到相加
+flowchart TB
+    subgraph POST["post-norm（2017 原论文）"]
+        direction TB
+        PX["x"] --> PS["子层"]
+        PS --> PA(("+"))
+        PX -. "残差" .-> PA
+        PA --> PL["LayerNorm"]
+        PL --> PY["下一个子层的 x"]
+    end
+    subgraph PRE["pre-norm（GPT-2 起）"]
+        direction TB
+        QX["x"] --> QL["LayerNorm"]
+        QL --> QS["子层"]
+        QS --> QA(("+"))
+        QX -. "残差" .-> QA
+        QA --> QY["下一个子层的 x"]
+    end
+```
+
+post-norm 里，主干每经过一个子层都要过一次 LayerNorm，24 个子层就是 24 次，从输出往回传的梯度也要穿过这 24 次归一化。pre-norm 里，主干从 embedding 到最后只有一连串"+"，LayerNorm 只作用在分出去送进子层的那一份上，加法对梯度是原样传递（$$\partial (x + f)/\partial x$$ 里有一项恒为 1），这就是"干净的直通路"。
 
 ## 十、lm_head：把向量变成词表上的分数
 
@@ -422,9 +514,23 @@ LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pr
 
 最后一个 block 出来的 $$[T, 768]$$ 过 `ln_f`，再乘 **lm_head**（$$768 \times 50257$$）得到每个位置在词表上的 50257 个分数（logits），softmax 之后就是"下一个 token 是谁"的概率。
 
+形状是 $$[T, 768] \times [768, 50257] = [T, 50257]$$。第 $$v$$ 个分数是最后的向量 $$h$$ 与 lm_head 第 $$v$$ 列的内积：lm_head 的每一列代表一个词，$$h$$ 和哪个词的方向越接近，那个词的分数越高。
+
 ### 2. 与 embedding 表共享权重
 
 GPT-2 的 lm_head 直接**复用 embedding 表的转置**（tie weights）：查表是"编号 → 向量"，lm_head 是"向量 → 每个编号的分数"，用同一张表做两件事既省了 3860 万参数，又让"输入端相近的词在输出端也相近"。大模型（Llama-3-70B）通常不共享，因为 embedding 那点参数相对总量已经不重要（[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)）。
+
+共享之后，"第 $$v$$ 个词的分数"就是 $$h$$ 与 embedding 表第 $$v$$ 行的内积，$$\text{logits} = h \, W_{\text{te}}^\top$$。用一张 3 个词、2 维的表手算：
+
+| 词 | embedding 表里的行 | 与 $$h = (2, 1)$$ 的内积（logit） | softmax 后的概率 |
+|---|---|---:|---:|
+| cat | (1, 0) | 2.0 | 0.39 |
+| dog | (0.8, 0.6) | 2.2 | 0.47 |
+| mat | (0, 1) | 1.0 | 0.14 |
+
+Table: 共享权重的 lm_head：logit 是最后的向量与每个词的 embedding 行的内积
+
+模型要预测 dog，就得把最后的 $$h$$ 推到 dog 那一行的方向上。输入端把 dog 查成 $$(0.8, 0.6)$$，输出端用的是同一个 $$(0.8, 0.6)$$。
 
 ## 十一、把它们叠起来
 
@@ -532,6 +638,20 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
    <details markdown="1"><summary>答案</summary>
 
    少了 cross-attention（读 encoder 输出的那个）。GPT 把要参考的内容直接拼在输入前面（prompt），由 causal self-attention 去看——见[第二章的 cross-attention 说明](#cross-attention-去哪了)。
+   </details>
+
+7. 对 $$x = (1, 1, 3, 3)$$ 做 LayerNorm（$$\gamma$$ 全 1、$$\beta$$ 全 0，忽略 $$\epsilon$$），结果是什么？把 $$x$$ 换成 $$(10, 10, 30, 30)$$ 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\mu = 2$$，减均值得 $$(-1, -1, 1, 1)$$，方差 1，结果 $$(-1, -1, 1, 1)$$。$$(10, 10, 30, 30)$$ 的均值 20、方差 100，结果也是 $$(-1, -1, 1, 1)$$：LayerNorm 只保留一个 token 内各维的相对大小，整体放大多少倍都看不出来。见[第九章第 2 节](#2-layernorm-做什么)。
+   </details>
+
+8. 第七章第 6 节的两头手算里，头 1 给 t2 的权重为什么恰好是 $$(1/3, 1/3, 1/3)$$？两个头拼起来的输出为什么不等于单头的输出？
+
+   <details markdown="1"><summary>答案</summary>
+
+   t2 在头 1 上的 query 是 $$(0, 0)$$，与任何 key 的内积都是 0，三个分数相同，softmax 后平均分配。多头时每个头在自己的 2 维上单独做 softmax，得到的是另一组权重；单头是在 4 维上一起打分、只做一次 softmax，所以结果不同——多头不是单头计算的拆分。见[第七章第 6 节](#6-多头12-个头各看各的)。
    </details>
 
 ## 下一篇

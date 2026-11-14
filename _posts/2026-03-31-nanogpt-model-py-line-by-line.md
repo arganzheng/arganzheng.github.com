@@ -6,10 +6,10 @@ subtitle: "Building GPT by Hand, Part 1: Every Line of nanoGPT's model.py"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true
 date: 2026-03-31 12:00:00
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
-> **本篇在系列中的位置。** 第一段的第三篇。前两篇的结构图与动态线在这里落成 nanoGPT `model.py` 的 330 行；下一篇写训练循环并真正训一个模型，文末的 GPT-2 / Llama 对照表是第 05 篇的起点。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第三篇。前两篇的结构图与动态线在这里落成 nanoGPT `model.py` 的 330 行；下一篇写训练循环并真正训一个模型，文末的 GPT-2 / Llama 对照表是[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)的起点。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 前两篇画了 Transformer 的静态结构和 token 流过它的两条动态线。图看懂了，能不能**写出来**？这一篇的答案是 Andrej Karpathy 的 [nanoGPT](https://github.com/karpathy/nanoGPT)：`model.py` 一个文件、330 行、6 个类，完整定义了 GPT-2，能加载 OpenAI 的原版权重并给出和 HuggingFace 一样的输出。它是目前最好的"从图到代码"的范本——没有多余的抽象，每一行都对应前两篇的某个方框或某一步。
 
@@ -25,12 +25,12 @@ updated: 2026-11-13
 
 | 类 | 行数 | 对应第一篇 | 做什么 |
 |---|---:|---|---|
-| `LayerNorm` | 11 | 第五章第 2 节 | 可选 bias 的 LayerNorm（PyTorch 自带的不支持 `bias=False`） |
-| `CausalSelfAttention` | 47 | 第三章 | Q / K / V 投影、多头、causal mask、softmax、加权求和、W_O |
-| `MLP` | 15 | 第四章 | $$d \to 4d \to$$ GELU $$\to d$$ |
-| `Block` | 14 | 第六章第 1 节 | pre-norm + 两个残差 |
+| `LayerNorm` | 11 | 第九章第 2 节 | 可选 bias 的 LayerNorm（PyTorch 自带的不支持 `bias=False`） |
+| `CausalSelfAttention` | 47 | 第七章 | Q / K / V 投影、多头、causal mask、softmax、加权求和、W_O |
+| `MLP` | 15 | 第八章 | $$d \to 4d \to$$ GELU $$\to d$$ |
+| `Block` | 14 | 第十一章第 1 节 | pre-norm + 两个残差 |
 | `GPTConfig` | 9 | 全篇的超参数 | `block_size`、`vocab_size`、`n_layer`、`n_head`、`n_embd`、`dropout`、`bias` |
-| `GPT` | 210 | 第六章 + 第二篇 | embedding、堆 block、lm_head、权重共享、初始化；`forward`、`generate`、`from_pretrained`、`configure_optimizers`、`estimate_mfu` |
+| `GPT` | 210 | 第五、六、十章 + 第二篇 | embedding、堆 block、lm_head、权重共享、初始化；`forward`、`generate`、`from_pretrained`、`configure_optimizers`、`estimate_mfu` |
 
 Table: nanoGPT model.py 的六个类与它们对应的结构
 
@@ -58,14 +58,14 @@ flowchart TB
 | 章 | 内容 |
 |---|---|
 | 二 | `LayerNorm`：为什么自己写 |
-| 三 | `CausalSelfAttention`：47 行，《Transformer 长什么样》里 Attention 子层的六步各在哪一行 |
+| 三 | `CausalSelfAttention`：47 行，《Transformer 长什么样》里 Attention 子层的六步各在哪一行；每一行之后的形状 |
 | 四 | `MLP` 与 `Block` |
 | 五 | `GPTConfig`：为什么 vocab_size 是 50304 |
 | 六 | `GPT.__init__`：拼结构、权重共享、两种初始化 |
 | 七 | `forward`：训练分支与推理分支 |
-| 八 | `generate`：温度、top-k、采样；nanoGPT 为什么没有 KV cache |
+| 八 | `generate`：温度、top-k、采样（5 个 logits 的手算）；nanoGPT 为什么没有 KV cache |
 | 九 | `from_pretrained`：把 OpenAI 的权重搬进来 |
-| 十 | `configure_optimizers` 与 `estimate_mfu` |
+| 十 | `configure_optimizers` 与 `estimate_mfu`：GPT-2 small 每 token 855M FLOPs |
 | 十一 | 与 HuggingFace GPT-2 / Llama 的名字对照；Llama 改了哪五处 |
 | 十二 | 本文小结 |
 | 十三 | 自测 |
@@ -99,7 +99,7 @@ class LayerNorm(nn.Module):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 ```
 
-第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第六章第 2 节的 LayerNorm：减均值、除标准差、乘 $$\gamma$$（这里叫 `weight`，初始化为全 1）、加 $$\beta$$（`bias`，全 0）。PyTorch 自带 `nn.LayerNorm`，为什么要自己写 11 行？因为 [`bias` 可以是 `None`](#ln-init)：`GPTConfig.bias=False` 时整个模型（Linear 和 LayerNorm）都不带偏置——Llama 之后的模型都这么做，参数少一点、快一点、效果不差（第五篇讲 bias 为什么消失）；写这篇时 `nn.LayerNorm` 还不支持 `bias=False`（2.1 起支持了）。
+第一篇[《Transformer 长什么样》第九章的「LayerNorm 做什么」](/transformer-architecture-from-a-sentence-to-the-next-token.html#2-layernorm-做什么)：减均值、除标准差、乘 $$\gamma$$（这里叫 `weight`，初始化为全 1）、加 $$\beta$$（`bias`，全 0）。PyTorch 自带 `nn.LayerNorm`，为什么要自己写 11 行？因为 [`bias` 可以是 `None`](#ln-init)：`GPTConfig.bias=False` 时整个模型（Linear 和 LayerNorm）都不带偏置——Llama 之后的模型都这么做，参数少一点、快一点、效果不差（[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 bias 为什么消失）；写这篇时 `nn.LayerNorm` 还不支持 `bias=False`（2.1 起支持了）。
 
 [`forward`](#ln-fwd) 直接调 `F.layer_norm`：对最后一维（`self.weight.shape` = `(ndim,)`）归一化，$$\epsilon = 10^{-5}$$ 防止除零。注意归一化是**每个 token 自己**做——输入 `[B, T, d]`，沿 `d` 那一维算均值和方差，`B × T` 个 token 各算各的。
 
@@ -168,17 +168,19 @@ class CausalSelfAttention(nn.Module):
 
 ### 1. 三个投影合成一个矩阵
 
-第一篇里 $$W_Q, W_K, W_V$$ 是三个 $$d \times d$$ 矩阵。这里[只有一个 `c_attn`](#attn-cattn)，形状 $$d \to 3d$$（GPT-2 small：$$768 \to 2304$$）。数学上完全等价——把三个矩阵**横着拼**成一个宽矩阵，$$x$$ 乘一次得到 $$[B, T, 3d]$$，再[沿最后一维切成三段](#attn-split)就是 $$Q, K, V$$。为什么合并：一次大 GEMM 比三次小 GEMM 快（少两次 kernel launch、少两次读 $$x$$），Infra PyTorch 第八篇讲为什么。名字 `c_attn`（c = Conv1D）沿用 OpenAI 原版代码，为了和 HF 权重对上。
+第一篇里 $$W_Q, W_K, W_V$$ 是三个 $$d \times d$$ 矩阵。这里[只有一个 `c_attn`](#attn-cattn)，形状 $$d \to 3d$$（GPT-2 small：$$768 \to 2304$$）。数学上完全等价——把三个矩阵**横着拼**成一个宽矩阵，$$x$$ 乘一次得到 $$[B, T, 3d]$$，再[沿最后一维切成三段](#attn-split)就是 $$Q, K, V$$。为什么合并：一次大 GEMM 比三次小 GEMM 快（少两次 kernel launch、少两次读 $$x$$），[《PyTorch 深度实践（08）：性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讲为什么。名字 `c_attn`（c = Conv1D）沿用 OpenAI 原版代码，为了和 HF 权重对上。
 
 [`c_proj`](#attn-cproj) 是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章第 6 节的 $$W_O$$：多头拼接后再混合一次。
 
 ### 2. 拆头：`view` + `transpose`
 
-[三行 `view(...).transpose(1, 2)`](#attn-view) 就是第一篇那张"多头形状变化"图：`[B, T, d]` → `view` 成 `[B, T, nh, hs]`（把每行的 $$d$$ 个数按顺序切成 $$nh$$ 段，不动数据）→ `transpose(1, 2)` 成 `[B, nh, T, hs]`（把"头"换到 batch 后面）。为什么要把头换到第 1 维：接下来的 `q @ k.transpose(-2, -1)` 是**批量矩阵乘**（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》「五、训练代码里的形状操作」：最后两维做矩阵乘，前面的维度是批），`B × nh` 个头就成了 `B × nh` 个独立的 $$[T, hs] \times [hs, T]$$，一次调用全算完。`transpose` 只改 stride 不搬数据（Infra PyTorch 第二篇）——这是下面 `contiguous()` 出现的原因。
+[三行 `view(...).transpose(1, 2)`](#attn-view) 就是第一篇那张"多头形状变化"图：`[B, T, d]` → `view` 成 `[B, T, nh, hs]`（把每行的 $$d$$ 个数按顺序切成 $$nh$$ 段，不动数据）→ `transpose(1, 2)` 成 `[B, nh, T, hs]`（把"头"换到 batch 后面）。为什么要把头换到第 1 维：接下来的 `q @ k.transpose(-2, -1)` 是**批量矩阵乘**（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》「五、训练代码里的形状操作」：最后两维做矩阵乘，前面的维度是批），`B × nh` 个头就成了 `B × nh` 个独立的 $$[T, hs] \times [hs, T]$$，一次调用全算完。`transpose` 只改 stride 不搬数据（[《PyTorch 深度实践（02）：Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)）——这是下面 `contiguous()` 出现的原因。
+
+用一个 token 看 `view` 做了什么。设 $$d = 4$$、`n_head = 2`，某个 token 的 query 是 $$(q_0, q_1, q_2, q_3)$$；`view(B, T, 2, 2)` 把这 4 个数读成两行 $$(q_0, q_1)$$ 与 $$(q_2, q_3)$$，前两维归头 0、后两维归头 1。内存里的 4 个数一个没动，只是换了一种读法。第一篇两头手算里"头 0 拿第 1–2 列、头 1 拿第 3–4 列"，在代码里就是这一行 `view`。
 
 ### 3. 两条路径：Flash 与手写
 
-[`self.flash`](#attn-flashflag) 检查 PyTorch 有没有 `scaled_dot_product_attention`（2.0 起有）。有就走[一行](#attn-flash)：`is_causal=True` 让它自己加下三角 mask，内部用 FlashAttention 一类的融合 kernel，**不会真的造出那张 $$[B, nh, T, T]$$ 的分数表**（Infra GPU Kernel 系列第九篇讲它怎么做到），显存从 $$O(T^2)$$ 降到 $$O(T)$$。
+[`self.flash`](#attn-flashflag) 检查 PyTorch 有没有 `scaled_dot_product_attention`（2.0 起有）。有就走[一行](#attn-flash)：`is_causal=True` 让它自己加下三角 mask，内部用 FlashAttention 一类的融合 kernel，**不会真的造出那张 $$[B, nh, T, T]$$ 的分数表**（[《GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)讲它怎么做到），显存从 $$O(T^2)$$ 降到 $$O(T)$$。
 
 没有就走[手写的五行](#attn-manual)——这五行正是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章第 3 节的第 ②–⑥ 步：
 
@@ -192,11 +194,33 @@ class CausalSelfAttention(nn.Module):
 
 Table: 手写 attention 的五行与第一篇六步的对应
 
-那个 mask 为什么[叫 `bias`](#attn-mask)？又是为了和 OpenAI / HF 的 checkpoint 键名一致（它们把 mask 存成了一个叫 `attn.bias` 的 buffer）。`register_buffer` 让它随模型 `.to(device)`、进 `state_dict`（`from_pretrained` 里要专门把它剔掉），但不是参数、没有梯度——Infra PyTorch 第四篇讲 buffer 与 parameter 的区别。`torch.tril(torch.ones(T, T))` 就是第一篇手算图里那个下三角的 0/1 矩阵，`view(1, 1, T, T)` 加两个维度是为了能广播到 `[B, nh, T, T]`。
+那个 mask 为什么[叫 `bias`](#attn-mask)？又是为了和 OpenAI / HF 的 checkpoint 键名一致（它们把 mask 存成了一个叫 `attn.bias` 的 buffer）。`register_buffer` 让它随模型 `.to(device)`、进 `state_dict`（`from_pretrained` 里要专门把它剔掉），但不是参数、没有梯度——[《PyTorch 深度实践（04）：nn.Module 与训练系统》](/pytorch-module-and-training-system.html)讲 buffer 与 parameter 的区别。`torch.tril(torch.ones(T, T))` 就是第一篇手算图里那个下三角的 0/1 矩阵，`view(1, 1, T, T)` 加两个维度是为了能广播到 `[B, nh, T, T]`。
 
 ### 4. 拼回去
 
 [`y.transpose(1, 2).contiguous().view(B, T, C)`](#attn-merge) 是拆头的逆操作：`[B, nh, T, hs]` → `transpose` 回 `[B, T, nh, hs]` → `view` 成 `[B, T, d]`。中间必须 `contiguous()`：`transpose` 之后的张量在内存里不连续，`view` 会报错（[《PyTorch 深度实践》的《Tensor 与内存布局》第五章「Transpose、Permute 与 View」](/pytorch-tensor-and-memory-layout.html#五transposepermute-与-view)里的那个例子，这里是它在真实代码里的样子）；`contiguous()` 做一次真实拷贝把顺序理顺。然后[过 `c_proj`（$$W_O$$）再 dropout](#attn-out)，输出 `[B, T, d]`——和输入同形状，可以加回残差流。
+
+### 5. 形状一路
+
+把 GPT-2 small（`n_embd = 768`、`n_head = 12`、每头 64 维）代进去，`forward` 里每一行之后的形状：
+
+| 代码 | 输出形状 | 这一步做了什么 |
+|---|---|---|
+| `x` | `[B, T, 768]` | 残差流经过 `ln_1` |
+| `self.c_attn(x)` | `[B, T, 2304]` | 一次矩阵乘算出 Q、K、V |
+| `.split(768, dim=2)` | 3 个 `[B, T, 768]` | 切成 `q`、`k`、`v` |
+| `.view(B, T, 12, 64)` | `[B, T, 12, 64]` | 每个 token 的 768 维读成 12 段 × 64 |
+| `.transpose(1, 2)` | `[B, 12, T, 64]` | 头换到第 1 维，成为批的一部分 |
+| `q @ k.transpose(-2, -1)` | `[B, 12, T, T]` | 每个头一张分数表 |
+| `F.softmax(att, dim=-1)` | `[B, 12, T, T]` | 每行和为 1 |
+| `att @ v` | `[B, 12, T, 64]` | 每个头各自加权求和 |
+| `y.transpose(1, 2)` | `[B, T, 12, 64]` | 头换回去（此时内存不连续） |
+| `.contiguous().view(B, T, C)` | `[B, T, 768]` | 12 个头的结果拼回一行 |
+| `self.c_proj(y)` | `[B, T, 768]` | $$W_O$$ 混合各头 |
+
+Table: CausalSelfAttention.forward 每一行之后的形状（GPT-2 small）
+
+形状只在中间一段变成四维：进来是 `[B, T, 768]`，出去还是 `[B, T, 768]`。$$T = 1024$$ 时那张 `[B, 12, T, T]` 的分数表每个序列有 1260 万个数，手写路径要把它真的造出来，Flash 路径不造。
 
 ## 四、`MLP` 与 `Block`
 
@@ -236,9 +260,9 @@ class Block(nn.Module):
         return x
 ```
 
-[`MLP`](#mlp-init) 是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第五章的公式原样：`c_fc` 放大到 $$4d$$（$$768 \to 3072$$），GELU，`c_proj` 压回 $$d$$。[`forward`](#mlp-fwd) 四行按顺序执行，每个 token 各自过——`nn.Linear` 作用于最后一维，前面的 `[B, T]` 都是"批"，所以 token 之间天然不交流。
+[`MLP`](#mlp-init) 是第一篇[《Transformer 长什么样》第八章「FFN 子层」](/transformer-architecture-from-a-sentence-to-the-next-token.html#八ffn-子层让每个-token-自己想一想)的公式原样：`c_fc` 放大到 $$4d$$（$$768 \to 3072$$），GELU，`c_proj` 压回 $$d$$。[`forward`](#mlp-fwd) 四行按顺序执行，每个 token 各自过——`nn.Linear` 作用于最后一维，前面的 `[B, T]` 都是"批"，所以 token 之间天然不交流。
 
-[`Block`](#block-init) 把四个部件装在一起，[`forward` 两行](#block-fwd)就是第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节那张 block 数据流图：`x + attn(ln_1(x))`——先归一化、过 attention、加回原来的 `x`（残差）；再对 FFN 做一遍。LayerNorm 在子层**之前**（pre-norm），残差加的是**归一化之前**的 `x`——这两点决定了残差流不经过任何归一化，梯度有一条直通路（[《Transformer 长什么样》第九章的「pre-norm 与 post-norm」](/transformer-architecture-from-a-sentence-to-the-next-token.html#3-pre-norm-与-post-norm)）。
+[`Block`](#block-init) 把四个部件装在一起，[`forward` 两行](#block-fwd)就是第一篇[《Transformer 长什么样》第十一章「一个 block」](/transformer-architecture-from-a-sentence-to-the-next-token.html#1-一个-block)那张数据流图：`x + attn(ln_1(x))`——先归一化、过 attention、加回原来的 `x`（残差）；再对 FFN 做一遍。LayerNorm 在子层**之前**（pre-norm），残差加的是**归一化之前**的 `x`——这两点决定了残差流不经过任何归一化，梯度有一条直通路（[《Transformer 长什么样》第九章的「pre-norm 与 post-norm」](/transformer-architecture-from-a-sentence-to-the-next-token.html#3-pre-norm-与-post-norm)）。
 
 ## 五、`GPTConfig`：为什么 vocab_size 是 50304
 
@@ -255,7 +279,7 @@ class GPTConfig:
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 ```
 
-七个超参数（工具箱第一篇的 `dataclass` 配置）。默认值就是 GPT-2 small，只有一处不同：[`vocab_size = 50304`](#cfg-vocab) 而不是真实的 50257。50304 是 50257 向上取到 64 的倍数——lm_head 那个 $$768 \times V$$ 的矩阵乘法在 $$V$$ 是 64 的倍数时 GPU 跑得明显更快（Tensor Core 按 8 / 16 / 64 对齐，Infra GPU Kernel 系列第六篇）；多出来的 47 个词永远不会出现在数据里，模型学会给它们几乎为 0 的概率。从零训练时用 50304；`from_pretrained` 加载 GPT-2 权重时强制回 50257（第九章）。
+七个超参数（[《算法工程师的工具箱（01）：Python 使用层》](/python-in-use-for-algorithm-engineers.html)讲过的 `dataclass` 配置）。默认值就是 GPT-2 small，只有一处不同：[`vocab_size = 50304`](#cfg-vocab) 而不是真实的 50257。50304 是 50257 向上取到 64 的倍数——lm_head 那个 $$768 \times V$$ 的矩阵乘法在 $$V$$ 是 64 的倍数时 GPU 跑得明显更快（Tensor Core 按 8 / 16 / 64 对齐，[《GPU Kernel 工程（06）：Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)）；多出来的 47 个词永远不会出现在数据里，模型学会给它们几乎为 0 的概率。从零训练时用 50304；`from_pretrained` 加载 GPT-2 权重时强制回 50257（第九章）。
 
 `block_size` 是上下文上限（位置表的行数，第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第六章第 2 节）；`bias=False` 是 Llama 式的选择，作者注释说"稍好一点、快一点"。
 
@@ -324,7 +348,7 @@ class GPT(nn.Module):
 
 ### 1. 拼结构
 
-[`nn.ModuleDict`](#gpt-dict) 装着第一篇图 1 从上到下的部件：`wte`（token 表 $$V \times d$$）、`wpe`（位置表 $$\text{block\_size} \times d$$）、`drop`（embedding 后的 dropout）、`h`（$$n_{\text{layer}}$$ 个 `Block` 的 `ModuleList`，Infra PyTorch 第四篇讲为什么不能用普通 list）、`ln_f`（最后一次 LayerNorm）。用 `ModuleDict` 而不是直接 `self.wte = ...`，只为了让 `state_dict` 的键长成 `transformer.wte.weight`——与 HF 一致。
+[`nn.ModuleDict`](#gpt-dict) 装着第一篇图 1 从上到下的部件：`wte`（token 表 $$V \times d$$）、`wpe`（位置表 $$\text{block\_size} \times d$$）、`drop`（embedding 后的 dropout）、`h`（$$n_{\text{layer}}$$ 个 `Block` 的 `ModuleList`，[《PyTorch 深度实践（04）》](/pytorch-module-and-training-system.html)讲为什么不能用普通 list）、`ln_f`（最后一次 LayerNorm）。用 `ModuleDict` 而不是直接 `self.wte = ...`，只为了让 `state_dict` 的键长成 `transformer.wte.weight`——与 HF 一致。
 
 [`lm_head`](#gpt-head) 是 $$d \to V$$ 的线性层，不带 bias。
 
@@ -338,7 +362,7 @@ class GPT(nn.Module):
 
 [`self.apply(self._init_weights)`](#gpt-init) 对每个子模块调一次 [`_init_weights`](#initweights)：所有 `Linear` 与 `Embedding` 的权重从 $$\mathcal{N}(0, 0.02^2)$$ 采样，bias 置 0。0.02 是 GPT-2 论文的数（$$1/\sqrt{d}$$ 量级，《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讲初始化的方差怎么定）。[《一个 token 的旅程》第二章](/transformer-token-journey-training-and-inference.html#1-形状从头到尾)那个"随机初始化 loss ≈ $$\ln V$$"就靠它——初始化太大 logits 就会很极端。
 
-然后[对所有 `c_proj.weight` 再来一次](#gpt-scaled)，标准差改成 $$0.02 / \sqrt{2L}$$。为什么？`c_proj` 是每个子层**写回残差流**的那个矩阵（attention 的 $$W_O$$ 与 FFN 的第二个矩阵）。$$L$$ 层有 $$2L$$ 个子层往残差流里加东西，如果每份的方差都一样，残差流的方差会随 $$2L$$ 线性增长；把每份的标准差除以 $$\sqrt{2L}$$，$$2L$$ 份加起来的方差恰好回到 1。这是 GPT-2 论文里的一句话，nanoGPT 忠实实现了它；[《Transformer 长什么样》第九章的「残差流」](/transformer-architecture-from-a-sentence-to-the-next-token.html#1-残差流)说残差流上"每次修正量都比主干小得多"，这就是保证它的手段。
+然后[对所有 `c_proj.weight` 再来一次](#gpt-scaled)，标准差改成 $$0.02 / \sqrt{2L}$$。为什么？`c_proj` 是每个子层**写回残差流**的那个矩阵（attention 的 $$W_O$$ 与 FFN 的第二个矩阵）。$$L$$ 层有 $$2L$$ 个子层往残差流里加东西。独立的随机量相加，方差相加：如果每份写回的量方差都是 $$\sigma^2$$，$$2L$$ 份加完方差是 $$2L\sigma^2$$，标准差放大 $$\sqrt{2L}$$ 倍。把写回矩阵的标准差除以 $$\sqrt{2L}$$，每份方差变成 $$\sigma^2 / 2L$$，$$2L$$ 份加起来回到 $$\sigma^2$$，与只加一份时相同。GPT-2 small 的 $$L = 12$$，$$2L = 24$$，`c_proj` 的标准差是 $$0.02 / \sqrt{24} = 0.0041$$；不缩放的话，24 份加完残差流的标准差会是一份的 $$\sqrt{24} \approx 4.9$$ 倍。这是 GPT-2 论文里的一句话，nanoGPT 忠实实现了它；[《Transformer 长什么样》第九章的「残差流」](/transformer-architecture-from-a-sentence-to-the-next-token.html#1-残差流)说残差流上"每次修正量都比主干小得多"，这就是保证它的手段。
 
 [`get_num_params`](#numparams) 默认扣掉 `wpe` 的参数（作者认为位置表不算"模型"），所以 GPT-2 small 打印 123.65M；加回来是 124.44M，与第一篇的表一致。`wte` 没有扣，因为它兼任 lm_head。
 
@@ -429,6 +453,19 @@ class GPT(nn.Module):
 4. [top-k](#gen-topk)：`torch.topk` 取前 $$k$$ 大的 logits，比第 $$k$$ 大还小的全部设成 $$-\infty$$（softmax 后为 0）——把长尾里那些概率 0.001 的词砍掉，避免采到明显的胡话。
 5. [`multinomial`](#gen-sample)：按概率抽一个（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》的类别分布采样）。
 6. [`cat`](#gen-cat)：接到序列末尾，下一轮继续。
+
+用 5 个词的 logits $$(2.0, 1.0, 0.5, 0.0, -1.0)$$ 把温度和 top-k 手算一遍。除以温度 $$\tau$$ 再 softmax，第一个词的概率是 $$e^{2/\tau} / \sum_j e^{z_j/\tau}$$：
+
+| 设置 | 5 个词的概率 | 最可能的词的概率 |
+|---|---|---:|
+| $$\tau = 1$$ | (0.56, 0.21, 0.13, 0.08, 0.03) | 0.56 |
+| $$\tau = 0.5$$ | (0.83, 0.11, 0.04, 0.02, 0.00) | 0.83 |
+| $$\tau = 2$$ | (0.38, 0.23, 0.18, 0.14, 0.08) | 0.38 |
+| $$\tau = 1$$，top-k = 2 | (0.73, 0.27, 0, 0, 0) | 0.73 |
+
+Table: 温度与 top-k 对同一组 logits 的影响
+
+$$\tau = 0.5$$ 等于把 logits 之间的差距放大一倍（$$2.0 - 1.0 = 1$$ 变成 $$4 - 2 = 2$$），概率向最大的那个集中；$$\tau = 2$$ 把差距缩小一半，分布变平。top-k = 2 时，[那一行](#gen-topk)把第 3–5 个 logit 设成 $$-\infty$$，softmax 只在剩下两个之间分配：$$e^2 / (e^2 + e^1) = 0.73$$。`v[:, [-1]]` 是 top-k 里最小的那个值（这里是 1.0），比它小的全部被砍掉。
 
 `@torch.no_grad()` 让整个循环不建计算图（推理没有反向）。`nanogpt_walkthrough.py` 第 5 步用真实 GPT-2 权重跑了三组：
 
@@ -581,18 +618,30 @@ class GPT(nn.Module):
 
 ### 1. 谁做 weight decay
 
-工具箱第三篇说 `weight_decay=0.1` 是"参数别太大"的惩罚。nanoGPT 不是对所有参数一视同仁：[按维度分两组](#opt-groups)——二维以上的（所有矩阵：`c_attn`、`c_proj`、`c_fc`、`wte`、`wpe`）做 decay，一维的（所有 bias、LayerNorm 的 $$\gamma$$、$$\beta$$）不做。理由：decay 是在压"权重的大小"，对矩阵这是正则化；对 LayerNorm 的缩放参数，压向 0 会直接破坏归一化后的尺度，对 bias 也没意义。这是训练 Transformer 的通行做法（HF 的 Trainer 也这么分）。
+[《算法工程师的工具箱（03）：PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html)说 `weight_decay=0.1` 是"参数别太大"的惩罚。nanoGPT 不是对所有参数一视同仁：[按维度分两组](#opt-groups)——二维以上的（所有矩阵：`c_attn`、`c_proj`、`c_fc`、`wte`、`wpe`）做 decay，一维的（所有 bias、LayerNorm 的 $$\gamma$$、$$\beta$$）不做。理由：decay 是在压"权重的大小"，对矩阵这是正则化；对 LayerNorm 的缩放参数，压向 0 会直接破坏归一化后的尺度，对 bias 也没意义。这是训练 Transformer 的通行做法（HF 的 Trainer 也这么分）。
 
-[fused AdamW](#opt-fused)：PyTorch 2.0 起 `AdamW(fused=True)` 把几十个参数张量的更新合成一个 kernel，避免工具箱第三篇说的"100 个参数张量 × 10 个算子 = 1000 次 launch"（Infra PyTorch 第八篇）；只在 CUDA 上可用，所以先检查。
+[fused AdamW](#opt-fused)：PyTorch 2.0 起 `AdamW(fused=True)` 把几十个参数张量的更新合成一个 kernel，避免工具箱那篇说的"100 个参数张量 × 10 个算子 = 1000 次 launch"（[《PyTorch 深度实践（08）》](/pytorch-performance-optimization-and-debugging.html)）；只在 CUDA 上可用，所以先检查。
 
 ### 2. MFU：用了硬件几成算力
 
 MFU（model FLOPs utilization）= 实际达到的 FLOP/s ÷ 硬件峰值。[每 token 的 FLOPs](#mfu-flops) 是 $$6N + 12 L H Q T$$：
 
-- $$6N$$：每个参数在前向做一次乘加（$$2N$$，《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——第十二篇会把它按 GEMM 逐个算出来；
+- $$6N$$：每个参数在前向做一次乘加（$$2N$$，《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》的"一个 token 过整个模型 ≈ $$2N$$"），反向约两倍（$$4N$$），合计 $$6N$$——[《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)会把它按 GEMM 逐个算出来；
 - $$12 L H Q T$$：attention 里 $$QK^T$$ 与 $$PV$$ 两个矩阵乘**与参数无关**、与上下文长度 $$T$$ 成正比（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》「六、一层 Transformer 有哪些矩阵」表末那一行）：每层每头 $$2 \times 2 \times Q \times T$$ FLOPs 前向，乘 3（含反向）、乘 $$L H$$。
 
-乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。第六篇讲为什么到不了 100%。
+乘上每次迭代处理的 token 数，除以一次迭代的时间，再[除以 A100 的 312 TFLOPS](#mfu-ratio)。GPT-2 small 在 A100 上训到 MFU 约 40% 左右算正常；这个数字是下一篇训练时的重要仪表。[《大规模训练工程（01）：训练任务的状态解剖——显存账与 MFU》](/training-state-anatomy-memory-and-mfu.html)讲为什么到不了 100%。
+
+代入 GPT-2 small 算一遍（`get_num_params()` 给的 $$N = 123.65$$M，$$L = H = 12$$、$$Q = 64$$、$$T = 1024$$）：
+
+| 项 | 算式 | 每 token FLOPs |
+|---|---|---:|
+| 与参数有关 | $$6N = 6 \times 123.65\text{M}$$ | 742M |
+| attention 打分与加权 | $$12 \times 12 \times 12 \times 64 \times 1024$$ | 113M |
+| 合计 | | 855M |
+
+Table: GPT-2 small 每个 token 一次前向加反向的 FLOPs
+
+下一篇的默认配置每次迭代处理 491,520 个 token，一次迭代就是 $$855\text{M} \times 491{,}520 \approx 4.2 \times 10^{14}$$ FLOPs。这些计算全放在一张 A100 上、跑满 312 TFLOP/s 也要 1.35 秒；如果实测一次迭代 3.4 秒，MFU 就是 $$1.35 / 3.4 \approx 40\%$$。
 
 ## 十一、名字对照：nanoGPT、HuggingFace GPT-2、Llama
 
@@ -615,12 +664,12 @@ Table: 同一结构在 nanoGPT、HuggingFace GPT-2 与 Llama 里的名字
 最后一列已经把 Llama 相对 GPT-2 的改动全列出来了——**只有五处**：
 
 1. LayerNorm → **RMSNorm**（不减均值，省一次运算）；
-2. 位置表 → **RoPE**（第七篇）；
-3. GELU 两矩阵 FFN → **SwiGLU 三矩阵**（gate / up / down，第五篇讲 14336 怎么来的）；
-4. K、V 投影变窄 → **GQA**（多个 Q 头共用一组 K、V，第八篇）；
+2. 位置表 → **RoPE**（[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)）；
+3. GELU 两矩阵 FFN → **SwiGLU 三矩阵**（gate / up / down，[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)讲 14336 怎么来的）；
+4. K、V 投影变窄 → **GQA**（多个 Q 头共用一组 K、V，[《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)）；
 5. **去掉所有 bias**，lm_head 不再与 embedding 共享。
 
-其余——残差流、pre-norm、causal mask、softmax、多头拆合、$$1/\sqrt{d_h}$$——一行没变。所以本篇的 330 行读懂了，`modeling_llama.py` 就只剩五个局部改动要看，这正是第五篇的内容。
+其余——残差流、pre-norm、causal mask、softmax、多头拆合、$$1/\sqrt{d_h}$$——一行没变。所以本篇的 330 行读懂了，`modeling_llama.py` 就只剩五个局部改动要看，这正是[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)的内容。
 
 ## 十二、本文小结
 
@@ -677,6 +726,20 @@ Table: 同一结构在 nanoGPT、HuggingFace GPT-2 与 Llama 里的名字
    <details markdown="1"><summary>答案</summary>
 
    prompt 长度 + 499 个——每步重算整段（[《一个 token 的旅程》第六章的「朴素做法」](/transformer-token-journey-training-and-inference.html#1-朴素做法在浪费什么)）；有 cache 只算 1 个。nanoGPT 有意省掉 cache 换取代码简单。见[第八章](#八generate温度top-k采样)。
+   </details>
+
+7. 两个词的 logits 是 $$(1, 0)$$。温度 1 与温度 0.5 时，第一个词被抽中的概率各是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   温度 1：$$e^1 / (e^1 + e^0) = 2.72 / 3.72 = 0.73$$。温度 0.5：logits 变成 $$(2, 0)$$，$$e^2 / (e^2 + 1) = 7.39 / 8.39 = 0.88$$。温度越低，差距越被放大。见[第八章](#八generate温度top-k采样)。
+   </details>
+
+8. 把 GPT-2 small 加深到 $$L = 24$$ 层，`c_proj.weight` 初始化的标准差是多少？不做这一步缩放，残差流上 $$2L$$ 份写回加完，标准差是一份的几倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$0.02 / \sqrt{48} \approx 0.0029$$。不缩放时 48 份独立量相加，方差是 48 倍，标准差是 $$\sqrt{48} \approx 6.9$$ 倍。见[第六章第 3 节](#3-两种初始化)。
    </details>
 
 ## 下一篇

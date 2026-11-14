@@ -5,7 +5,7 @@ title: "Transformer 原理与实现（02）：一个 token 的旅程——训练
 subtitle: "The Dynamic View: What Happens to a Token During Training and During Inference"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 > **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
@@ -40,13 +40,13 @@ Table: 训练与推理：同一个模型，两条不同的动态线
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 训练侧的前向 | 一个 batch 的形状从头到尾；teacher forcing：一次前向 $$T$$ 个预测 |
-| 三 | loss 与反向 | 交叉熵<br/>反向沿哪条路走<br/>为反向保存的激活值有多大 |
+| 三 | loss 与反向 | 交叉熵<br/>反向沿哪条路走：梯度怎样按注意力权重回传<br/>为反向保存的激活值有多大：Llama-3-8B 的一笔粗账 |
 | 四 | 更新 | AdamW 走一步；一步的完整清单 |
-| 五 | 推理侧：prefill 与 decode | 逐 token 生成<br/>为什么第一个 token 慢<br/>采样 |
-| 六 | KV cache | 为什么旧 token 不用重算<br/>实测有 / 无 cache 一致且快 8 倍<br/>代价 |
+| 五 | 推理侧：prefill 与 decode | 逐 token 生成<br/>为什么第一个 token 慢：读权重与计算的粗账<br/>采样 |
+| 六 | KV cache | 为什么旧 token 不用重算：追加一个 token 的手算<br/>实测有 / 无 cache 一致且快 8 倍<br/>代价 |
 | 七 | 两侧的差别 | mask、dropout、形状、显存构成的对照表 |
 | 八 | 本文小结 |  |
-| 九 | 自测 | 六道题 |
+| 九 | 自测 | 八道题 |
 
 Table: 本文的章节安排
 
@@ -120,11 +120,11 @@ $$T$$ 个 loss 的平均是 2.7583，两句话一起平均就是上面的 2.7805
 loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] 对 [B·T]
 ```
 
-`logits` 从 $$[2, 5, 16]$$ 拍平成 $$[10, 16]$$，`targets` 拍平成 $$[10]$$，10 个位置一起算。（顺带一个真实的坑：这里 `targets` 是 `idx[:, 1:]` 切出来的、在内存里不连续，用 `.view(-1)` 会报错，要用 `.reshape(-1)`——Infra PyTorch 系列第二篇讲的 stride 问题在训练代码里长这样。）
+`logits` 从 $$[2, 5, 16]$$ 拍平成 $$[10, 16]$$，`targets` 拍平成 $$[10]$$，10 个位置一起算。（顺带一个真实的坑：这里 `targets` 是 `idx[:, 1:]` 切出来的、在内存里不连续，用 `.view(-1)` 会报错，要用 `.reshape(-1)`——[《PyTorch 深度实践（02）：Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲的 stride 问题在训练代码里长这样。）
 
 ### 2. 反向沿哪条路
 
-`loss.backward()` 从这个标量出发，沿前向的每一步反着走一遍（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的链式法则、Infra PyTorch 第三篇的 Autograd）：lm_head → `ln_f` → block1 的 FFN → block1 的 attention → block0 …… → `wpe`、`wte`。每个参数拿到一份和自己同形状的梯度：
+`loss.backward()` 从这个标量出发，沿前向的每一步反着走一遍（《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》的链式法则、[《PyTorch 深度实践（03）：自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 Autograd）：lm_head → `ln_f` → block1 的 FFN → block1 的 attention → block0 …… → `wpe`、`wte`。每个参数拿到一份和自己同形状的梯度：
 
 ```text title='backward 后每个参数拿到同形状的梯度'
   wte.weight                   参数 (16, 8)      梯度范数 1.0940
@@ -136,11 +136,42 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 反向过 attention 时，梯度会**沿着注意力权重流回被关注的 token**：位置 4 的 loss 会通过 attention 权重影响 token 0 的表示——这就是"远处的 token 也能得到训练信号"的机制，RNN 做不到这一点（《[深度学习基础（10）：RNN——从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)》）。
 
+用上一篇的六步手算看这条路。那里 t2 的输出是 $$\text{out}_2 = 0.27\,v_0 + 0.27\,v_1 + 0.45\,v_2$$。设 loss 对 $$\text{out}_2$$ 的梯度是 $$g = (1, 0, 0, 0)$$（反向从上游传下来的一个向量），按链式法则，每个 $$v_j$$ 拿到的梯度就是它的权重乘 $$g$$：
+
+$$
+\frac{\partial L}{\partial v_j} = P_{2j}\, g \quad\Rightarrow\quad v_0: (0.27, 0, 0, 0),\;\; v_1: (0.27, 0, 0, 0),\;\; v_2: (0.45, 0, 0, 0)
+$$
+
+正向时谁被关注得多，反向时谁拿到的梯度就多。一个 token 的 value 会被它右边**所有**位置看，所以它的梯度是所有这些位置的贡献之和。写成循环：
+
+```python title='attention 反向：value 的梯度是各 query 位置按权重回传之和'
+for j in range(T):                       # 被看的 token
+    for c in range(d):
+        dV[j][c] = sum(P[i][j] * dOut[i][c] for i in range(T))   # 沿 query 维求和
+```
+
+如果三个位置的输出都收到 $$g = (1, 0, 0, 0)$$，t0 的 value 拿到的第一维梯度是 $$1 + 0.12 + 0.27 = 1.39$$（t0、t1、t2 三行在第 0 列的权重之和），t1 是 $$0.88 + 0.27 = 1.15$$，t2 只有 $$0.45$$：越靠前的 token 被越多的位置看，收到的训练信号也越多。梯度同样会经过 $$P$$ 流回 $$Q$$ 和 $$K$$（改变"该看谁"），推导步骤多一些，这里只看 $$V$$ 这一支。
+
 ### 3. 为反向保存的东西：激活值
 
 链式法则要用到前向的中间结果——算 $$W_1$$ 的梯度要有 FFN 的输入、算 $$V$$ 投影的梯度要有 attention 权重。所以前向时这些中间量不能丢，要一直留到反向用完。它们统称**激活值**（activations），每层要留：LayerNorm 的输入、Q / K / V、attention 权重 $$[B, h, T, T]$$、FFN 的 $$4d$$ 维中间量、各处的残差流……
 
-关键性质：激活值的大小与 $$B \times T$$ **成正比**，而参数与它无关。玩具模型看不出来，换成 Llama-3-8B、$$B = 1$$、$$T = 8192$$：参数 16 GB，为反向保存的激活值按朴素实现要几十 GB——**比参数本身大**。这就是为什么训练长上下文比推理长上下文难得多、为什么有"激活值重算"（activation checkpointing，用时间换显存）这类技术；第六篇算这笔账，Infra 大规模训练系列讲怎么切。
+关键性质：激活值的大小与 $$B \times T$$ **成正比**，而参数与它无关。玩具模型看不出来，换成 Llama-3-8B、$$B = 1$$、$$T = 8192$$、bf16（每个数 2 字节）粗算一遍。它的形状：32 层，$$d = 4096$$，32 个 query 头，K、V 各 1024 维（GQA，8 个 KV 头 × 128），FFN 中间层 14336 维、三个矩阵（gate、up、down）。只数反向一定要用到的大块，不数 LayerNorm 的均值方差、mask 这些小东西：
+
+| 每层要留的东西 | 每个 token 多少个数 | 每层（8192 个 token） | 32 层 |
+|---|---:|---:|---:|
+| 两个 LayerNorm 各自的输入与输出 | $$4 \times 4096 = 16{,}384$$ | 0.25 GiB | 8 GiB |
+| Q、K、V | $$4096 + 1024 + 1024 = 6{,}144$$ | 0.09 GiB | 3 GiB |
+| attention 输出（$$W_O$$ 的输入） | 4,096 | 0.06 GiB | 2 GiB |
+| FFN：gate、up 的输出，SiLU 的输出，相乘的结果 | $$4 \times 14336 = 57{,}344$$ | 0.88 GiB | 28 GiB |
+| 小计（随 $$T$$ 线性增长） | 83,968 | 1.28 GiB | **41 GiB** |
+| attention 权重 $$P$$：$$[h, T, T]$$ | $$32 \times 8192 = 262{,}144$$ | 4 GiB | **128 GiB** |
+
+Table: Llama-3-8B、B = 1、T = 8192 训练时每层为反向保存的激活值（bf16 粗算）
+
+参数只有 16 GB，而光是线性增长的那部分就有 41 GiB；朴素实现还要再存每层一张 $$[h, T, T]$$ 的权重表，每层 4 GiB（$$32 \times 8192^2 \times 2$$ 字节），32 层 128 GiB，而且随 $$T^2$$ 增长。FlashAttention 不存这张表，反向时重算，于是只剩那 41 GiB 左右（另加最后一层 $$[T, V]$$ 的 logits：$$8192 \times 128256$$ 个数，fp32 时 3.9 GiB）。推理时同一条 8K 的请求，KV cache 只要 1 GiB（第六章第 3 节）。
+
+这就是为什么训练长上下文比推理长上下文难得多、为什么有"激活值重算"（activation checkpointing：前向只留每层的输入，反向时把这一层再算一遍，用时间换显存）这类技术。[《大规模训练工程（01）：训练任务的状态解剖——显存账与 MFU》](/training-state-anatomy-memory-and-mfu.html)把参数、梯度、优化器状态、激活值四块放在一起算，[《大规模训练工程（07）：千卡配置实战——并行搭配、micro-batch、激活重计算与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)讲怎么在重算与显存之间取舍。
 
 ![前向与反向的配合：前向从 wte + wpe 经 block0、block1、ln_f、lm_head 走到 loss，每一站把反向要用的激活值存下来（LayerNorm 的输入、Q/K/V、attention 权重、FFN 的 4d 中间量、logits）；反向从 loss 出发按 lm_head → ln_f → block1 → block0 → wte / wpe 的顺序走回去，每一站用自己存下的激活值算出本站参数的 .grad，用完即可释放；激活值的大小与 B × T 成正比，参数量与 B × T 无关](/img/in-post/transformer-02-forward-backward-activations.svg)
 
@@ -154,14 +185,14 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 一步就下降了 0.1——但这是在**同一个 batch** 上量的，只说明更新方向对；真正的进步要看新 batch 上的 loss（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》：训练集 vs 验证集）。
 
-到这里训练的一步走完了。清单如下——这就是工具箱第三篇那二十行的每一行在模型内部对应的事：
+到这里训练的一步走完了。清单如下——这就是[《算法工程师的工具箱（03）：PyTorch 使用层（上）——五个对象与二十行训练循环》](/pytorch-in-use-five-objects-and-a-training-loop.html)那二十行的每一行在模型内部对应的事：
 
 1. 取一个 batch：$$T + 1$$ 个连续 token → 输入 $$x$$ 与目标 $$y$$（右移一位）；
 2. 前向：$$[B, T] \to [B, T, d] \to \cdots \to [B, T, V]$$，沿路保存激活值；
 3. loss：$$B \times T$$ 个交叉熵取平均；
 4. 反向：沿原路算出每个参数的 `.grad`，用完释放激活值；
 5. 更新：AdamW 用 `.grad` 与动量改参数；`zero_grad`；
-6. 换下一个 batch，回到 1。几十万步之后就是一个语言模型（下下篇实训一个）。
+6. 换下一个 batch，回到 1。几十万步之后就是一个语言模型（本系列第四篇[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)实训一个）。
 
 ## 五、推理侧：prefill 与 decode
 
@@ -178,12 +209,23 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
   生成: [3, 7, 1, 14, 0, 0, 0, 0]
 ```
 
-（未训练的模型生成的是无意义的 token，这里只看形状；下下篇训完的模型会续写出像莎士比亚的句子。）
+（未训练的模型生成的是无意义的 token，这里只看形状；第四篇训完的模型会续写出像莎士比亚的句子。）
 
 这个循环天然分成两个阶段：
 
 - **prefill**（预填充）：prompt 的 $$T$$ 个 token 一次前向——和训练的前向**一模一样**，$$T$$ 个位置同时算，但只有最后一个位置的分布有用（它预测第一个新 token）。这一步是矩阵乘法为主的"计算密集"阶段，决定了用户等第一个字的时间（TTFT，time to first token）。
-- **decode**（解码）：之后每一步只喂**1 个**新 token（形状 $$[1, 1]$$），得到 1 个分布，抽 1 个 token。这一步计算量很小、但要把全部参数从显存读一遍，是"访存密集"阶段，决定了后面每个字之间的间隔（TPOT / ITL）。第六篇用 Roofline 把这两个阶段的时间算出来。
+- **decode**（解码）：之后每一步只喂**1 个**新 token（形状 $$[1, 1]$$），得到 1 个分布，抽 1 个 token。这一步计算量很小、但要把全部参数从显存读一遍，是"访存密集"阶段，决定了后面每个字之间的间隔（TPOT / ITL）。
+
+"计算密集"和"访存密集"可以用 GPT-2 small 在一张 A100 上粗算出来。A100 的 bf16 峰值是 312 TFLOP/s，显存带宽约 2.0 TB/s；GPT-2 small 有 1.24 亿参数，bf16 下 249 MB。一个 token 过一遍模型约 $$2N = 249$$ MFLOPs（每个参数一次乘法一次加法，attention 打分那部分在短上下文时很小，先不计）：
+
+| 一次前向 | 计算量 | 从显存读的权重 | 只算的时间 | 只读的时间 |
+|---|---:|---:|---:|---:|
+| decode，$$B = 1$$，1 个 token | 249 MFLOPs | 249 MB | 0.0008 ms | 0.12 ms |
+| prefill，1024 个 token | 255 GFLOPs | 249 MB | 0.82 ms | 0.12 ms |
+
+Table: GPT-2 small 在 A100 上一次前向的计算与读权重时间（理想峰值粗算，不含 KV cache 与激活的读写）
+
+decode 一步里读权重的时间是计算时间的 150 倍：GPU 的算力几乎都在等数据。prefill 读一遍权重、算 1024 个 token，计算时间反过来比读的时间长。两者读的权重一样多，差别全在"读一次算几个 token"。所以 decode 想提高利用率，办法是把很多请求拼成一个 batch，读一次权重同时算 $$B$$ 个 token。[《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)用 Roofline 模型把这笔账算完整。
 
 "第一个字慢、后面快"就是 prefill 与 decode 的区别在用户体验上的样子：
 
@@ -191,7 +233,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 ### 2. 从分布里抽一个 token
 
-每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲温度，高效推理系列第一篇讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行（下一篇）。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
+每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲温度，[《高效推理与压缩（01）：解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行，下一篇在那几行旁边用 5 个 logits 把温度和 top-k 手算一遍。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
 
 ## 六、KV cache：为什么旧 token 不用重算
 
@@ -200,6 +242,19 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 最朴素的 decode：每生成一个 token，把**整段序列**（prompt + 已生成的）重新前向一遍，取最后一个位置。生成第 100 个 token 时要算 $$T + 100$$ 个位置，其中 $$T + 99$$ 个上一步刚算过。总计算量随生成长度平方增长。
 
 哪些能省？回头看上一篇 attention 的六步：位置 $$i$$ 的 **K 和 V** 只由 token $$i$$ 自己的向量算出（$$k_i = x_i W_K$$），而 causal mask 保证 $$x_i$$ 本身只依赖 token $$0..i$$——**后面来了新 token，前面所有位置的 K、V 一个数都不会变**（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》用图讲过这条因果性）。既然不变，算一次存下来就行。至于 Q：只有新 token 需要 Q（只有它要做预测），旧 token 的 Q 用过就没用了。
+
+拿上一篇的 $$d = 4$$、3 个 token 的玩具验证一下：在末尾追加第 4 个 token $$t_3 = (0, 0, 1, 1)$$，再算一遍 attention，看前三行的输出变不变：
+
+| | t0 的输出 | t1 的输出 | t2 的输出 | t3 的输出 |
+|---|---|---|---|---|
+| 有 mask，3 个 token | (1, 0, 1, 0) | (0.12, 0.88, 0.12, 0.88) | (0.73, 0.73, 0.27, 0.27) | — |
+| 有 mask，追加 t3 后 | (1, 0, 1, 0) | (0.12, 0.88, 0.12, 0.88) | (0.73, 0.73, 0.27, 0.27) | (0.62, 0.62, 0.38, 0.38) |
+| 无 mask，3 个 token | (0.92, 0.43, 0.57, 0.08) | (0.43, 0.92, 0.08, 0.57) | (0.73, 0.73, 0.27, 0.27) | — |
+| 无 mask，追加 t3 后 | (0.82, 0.38, 0.62, 0.18) | (0.38, 0.82, 0.18, 0.62) | (0.62, 0.62, 0.38, 0.38) | (0.62, 0.62, 0.38, 0.38) |
+
+Table: 追加一个 token：有 causal mask 时前三行输出一个数都不变，没有 mask 时全变了
+
+有 mask 时，前三行逐位相同，因为 t0、t1、t2 根本不看 t3；没有 mask（encoder 那种双向 attention）时，每个旧 token 都会去看新来的 t3，三行全变。这一层的输出就是下一层的输入，所以下一层旧 token 的 $$x$$ 也不变，它们的 K、V 也不变；一层一层推上去，**所有层**的旧 K、V 都不变。这条性质只对 causal 模型成立：双向模型每来一个新 token 都得把整段重算，没法这样缓存。
 
 于是：
 
@@ -240,7 +295,7 @@ att = (q @ k.transpose(-2, -1)) / math.sqrt(d_h)         # q 只有 1 行，k �
 
 ### 3. 代价：显存
 
-省下的是计算，花掉的是显存：每层、每个 token 都要存一份 K 和一份 V。Llama-3-8B：32 层 × 2（K、V）× 8 个 KV 头 × 128 维 × 2 字节（bf16）= **128 KiB / token**；一个 8K 上下文的请求 1 GiB，一张 80 GB 的卡除掉 16 GB 权重只能同时服务几十个这样的请求。这就是为什么第六篇整篇在讲怎么把 K、V 做小（GQA 把 KV 头从 32 减到 8 已经省了 4 倍；MLA 再压），也是 Infra vLLM 系列的核心矛盾（PagedAttention 就是给 KV cache 做的内存管理）。
+省下的是计算，花掉的是显存：每层、每个 token 都要存一份 K 和一份 V。Llama-3-8B：32 层 × 2（K、V）× 8 个 KV 头 × 128 维 × 2 字节（bf16）= **128 KiB / token**；一个 8K 上下文的请求 1 GiB，一张 80 GB 的卡除掉 16 GB 权重只能同时服务几十个这样的请求。这就是为什么[《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)整篇在讲怎么把 K、V 做小（GQA 把 KV 头从 32 减到 8 已经省了 4 倍；MLA 再压），也是 Infra vLLM 系列的核心矛盾（PagedAttention 就是给 KV cache 做的内存管理）。
 
 ## 七、两侧的差别
 
@@ -265,8 +320,8 @@ Table: 训练、prefill、decode 三种运转方式的差别
 
 - **训练侧**：$$T + 1$$ 个连续 token → 输入与右移一位的目标 → 一次前向得到 $$[B, T, V]$$ 的 logits → $$B \times T$$ 个交叉熵取平均 → 反向沿原路给每个参数一份梯度 → AdamW 挪一步。
 - 一次前向能同时得到 $$T$$ 个训练信号，靠两件事：**causal mask** 让每个位置的预测只用前文（与推理一致），**teacher forcing** 让目标用真实文本而不等模型自己预测（位置间可并行）。
-- 反向要用前向的中间量，所以**激活值**必须保存到反向结束；它与 $$B \times T$$ 成正比，长上下文训练时比参数还大。
-- **推理侧**：prefill 一次算完 prompt（同训练前向，只取最后位置），之后每步 decode 只算 1 个 token；"第一个字慢、后面快"就是这两个阶段。
+- 反向要用前向的中间量，所以**激活值**必须保存到反向结束；它与 $$B \times T$$ 成正比，长上下文训练时比参数还大（Llama-3-8B、$$T = 8192$$：线性部分约 41 GiB，朴素实现的 attention 权重表再加 128 GiB，参数 16 GB）。
+- **推理侧**：prefill 一次算完 prompt（同训练前向，只取最后位置），之后每步 decode 只算 1 个 token；"第一个字慢、后面快"就是这两个阶段。decode 一步读全部权重只算 1 个 token（GPT-2 small 在 A100 上读 0.12 ms、算 0.0008 ms），所以是访存密集。
 - **KV cache**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来；实测有 / 无 cache 输出完全一致、生成 256 个 token 快 7.9 倍；代价是每层每 token 一份 K、V（Llama-3-8B 128 KiB / token）。
 - 训练、prefill、decode 是三种不同的运转形态，差别在输入形状、mask、dropout、保存什么、瓶颈在哪。
 
@@ -313,7 +368,21 @@ Table: 训练、prefill、decode 三种运转方式的差别
 
    <details markdown="1"><summary>答案</summary>
 
-   每步不管算几个 token，全部参数都要从显存读一遍；prefill 一次读参数算 $$T$$ 个 token，平均每个 token 摊到的读取量小、计算多；decode 一次读参数只算 1 个 token，读的时间远大于算的时间。第六篇用 Roofline 把这两个数算出来。见[第五章第 1 节](#1-生成是一个循环)、[第七章](#七两侧的差别)。
+   每步不管算几个 token，全部参数都要从显存读一遍；prefill 一次读参数算 $$T$$ 个 token，平均每个 token 摊到的读取量小、计算多；decode 一次读参数只算 1 个 token，读的时间远大于算的时间：GPT-2 small 在 A100 上 decode 一步读 249 MB 要 0.12 ms，算 249 MFLOPs 只要 0.0008 ms。见[第五章第 1 节](#1-生成是一个循环)、[第七章](#七两侧的差别)。
+   </details>
+
+7. 训练 Llama-3-8B（32 层、32 个 query 头）、$$B = 1$$、$$T = 8192$$、bf16，朴素实现每层要为反向保存的 attention 权重表多大？$$T$$ 翻倍到 16384 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   每层 $$32 \times 8192 \times 8192 \times 2$$ 字节 $$= 4$$ GiB，32 层 128 GiB；$$T$$ 翻倍时表随 $$T^2$$ 变成 4 倍，每层 16 GiB。线性增长的那部分（约 41 GiB）只翻倍。FlashAttention 不保存这张表，反向时重算。见[第三章第 3 节](#3-为反向保存的东西激活值)。
+   </details>
+
+8. 一个双向 attention 的 encoder（不加 causal mask）能不能像 GPT 那样用 KV cache 逐 token 处理输入？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不能。没有 mask 时每个旧 token 都会看新来的 token，追加一个 token 后旧 token 这一层的输出全变（玩具例子里 t0 从 $$(0.92, 0.43, 0.57, 0.08)$$ 变成 $$(0.82, 0.38, 0.62, 0.18)$$），下一层的 K、V 随之全变，缓存失效。见[第六章第 1 节](#1-朴素做法在浪费什么)。
    </details>
 
 ## 下一篇

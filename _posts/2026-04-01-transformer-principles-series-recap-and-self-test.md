@@ -12,6 +12,15 @@ date: 2026-04-01 23:00:00 +0800
 
 ## 一、总览
 
+| 篇 | 回答的问题 | 一句话结论 | 必记 |
+|---|---|---|---|
+| [01 Transformer 长什么样](/transformer-architecture-from-a-sentence-to-the-next-token.html) | 编号到概率分布经过哪些运算？与 encoder-decoder 有何不同？ | 六种部件，只有 attention 让 token 交流；GPT 去掉 encoder 与 cross-attention | $$\text{softmax}(QK^\top/\sqrt d + M)V$$<br/>打分沿特征维求和、加权沿 token 维求和<br/>GPT-2 small 124,439,808 个参数 |
+| [02 一个 token 的旅程](/transformer-token-journey-training-and-inference.html) | 为什么一次前向有 $$T$$ 个训练信号？KV cache 存什么、省什么、花什么？ | causal mask + teacher forcing；旧 token 的 K、V 不随新 token 变 | 随机初始化 loss ≈ $$\ln V$$<br/>Llama-3-8B 8K 训练激活约 41 GiB（不含 $$[T, T]$$ 表）<br/>KV cache 128 KiB / token |
+| [03 手搓 GPT（上）](/nanogpt-model-py-line-by-line.html) | 能加载 GPT-2 权重、能训能生成的 Transformer 最少写哪些东西？ | 结构不到 90 行；`GPT` 类其余部分是周边 | `c_attn` 一次算 QKV<br/>`c_proj` 初始化除 $$\sqrt{2L}$$<br/>GPT-2 small 每 token 855M FLOPs（前向 + 反向） |
+| [04 手搓 GPT（下）](/nanogpt-train-py-and-training-a-model-that-writes.html) | 1.1 MB 文本到会续写的模型，每一步代码在哪？改层数会怎样？ | 参数与每步耗时随层数线性增长，loss 收益递减 | 每次迭代 491,520 token<br/>val loss 4.17 → 1.66<br/>2 / 4 / 8 层 val 1.82 / 1.66 / 1.59 |
+
+Table: 四篇正文的问题、结论与必记
+
 ## 二、逐篇回顾
 
 ### 1. 第一篇：Transformer 长什么样：从一句话到下一个 token
@@ -41,6 +50,8 @@ date: 2026-04-01 23:00:00 +0800
 - 有 / 无 KV cache 输出逐 token 一致；prompt 256 生成 256，快 7.9 倍；代价 Llama-3-8B 128 KiB / token（32 层 × 2 × 8 头 × 128 × 2 B）。
 - 三种形态：训练 $$[B, T]$$ 全位置有用、有反向、存激活值；prefill $$[B, T]$$ 只用最后位置、存 K/V；decode $$[B, 1]$$ 无 mask 矩阵、追加 K/V、访存瓶颈。
 - `targets` 若是切片要 `.reshape(-1)`，`view` 会因不连续报错。
+- Llama-3-8B、$$T = 8192$$ 训练时每层要为反向保存约 1.28 GiB 线性增长的激活值（32 层 41 GiB），朴素 attention 的 $$[h, T, T]$$ 权重表每层再加 4 GiB；参数只有 16 GB。
+- 玩具例子里追加一个 token：有 causal mask 时旧行输出不变，没有 mask 时全变——KV cache 只对 causal 模型成立。
 
 **常见误解**："推理就是训练的前向"（decode 完全是另一种形态）；"KV cache 也存 Q"（旧 token 的 Q 用过即弃）；"训练长上下文和推理长上下文一样难"（训练多一份与 $$B \times T$$ 成正比的激活值）。
 
@@ -70,7 +81,7 @@ date: 2026-04-01 23:00:00 +0800
 - 默认配置每次迭代 $$40 \times 12 \times 1024 = 491{,}520$$ token；8 卡时每卡累积 5 次，总量不变。
 - 2 / 4 / 8 层：参数 0.40 / 0.80 / 1.58M，val loss 1.82 / 1.66 / 1.59，每步耗时约 0.5× / 1× / 2×——参数与耗时线性、loss 收益递减。
 - checkpoint 五样：model、optimizer、model_args、iter_num、config。
-- MFU 0.2%：小 batch 在 MPS 上完全 launch-bound，与 A100 分母无关。
+- MFU 0.2%：每次迭代 40 个 768 token 的 micro-batch，在 MPS 上 launch-bound；`estimate_mfu` 的分母仍按 A100 的 312 TFLOP/s 算。
 
 **常见误解**："不除累积步数只是 loss 尺度不同"（等价于学习率放大 $$k$$ 倍）；"续训不需要优化器状态"（动量从零重估，前几百步抖）；"更深总是更好"（同样时间内更深跑的步数更少）。
 
