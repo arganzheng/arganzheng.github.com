@@ -33,7 +33,7 @@ flowchart TB
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
 | [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`<br/>vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`<br/>发布约 2 个月 vs 约 2 周<br/>引言案例四十分钟得出"已在 v2.11.0 修复" |
-| [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态<br/>vLLM 63 个标签、`closed-as-slop` 97<br/>RFC 门槛 >500 LOC（不含 kernel / data / config / test）<br/>stale 90 + 30 天<br/>#191394 下 5 个 open PR |
+| [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签<br/>vLLM 63 个标签、`closed-as-slop` 97<br/>RFC 门槛 >500 LOC（不含 kernel / data / config / test）<br/>stale 90 + 30 天<br/>#191394 下 5 个 open PR |
 | [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
 | [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
 
@@ -135,14 +135,19 @@ PyTorch 与 vLLM 在每篇并排出现，四张对照表叠起来是两种一致
 
 ### 4. 贡献日志：四页证据链
 
-系列的练手项目不是代码，是一份 Markdown 日志，每篇新增一页：第一篇"项目地图"（目录职责、构建命令、测试入口、`rg` 模式、追过的符号路径）；第二篇"切入点清单"（六个候选的来源、open PR 编号与最后活动日期、规模与硬件、是否需先讨论、结论，允许写"放弃"）；第三篇"PR 草稿与往返记录"（diff 摘要、测试、benchmark、描述初稿、每次 push 的 CI 归因、每轮 review 的改 / 争 / 问——"争"占多数通常说明选题阶段就有问题）；第四篇"复盘"（按七阶段重述自己的 PR、时间去了哪、下次省什么）。
+系列的练手项目不是代码，是一份 Markdown 日志，每篇新增一页：
+
+1. 第一篇"项目地图"：目录职责、构建命令、测试入口、`rg` 模式、追过的符号路径
+2. 第二篇"切入点清单"：六个候选的来源、open PR 编号与最后活动日期、规模与硬件、是否需先讨论、结论，允许写"放弃"
+3. 第三篇"PR 草稿与往返记录"：diff 摘要、测试、benchmark、描述初稿、每次 push 的 CI 归因、每轮 review 的改 / 争 / 问——"争"占多数通常说明选题阶段就有问题
+4. 第四篇"复盘"：按七阶段重述自己的 PR、时间去了哪、下次省什么
 
 四页有同一条要求：每一项都有出处——一条命令、一个链接、一段日志。第四篇解释了为什么：走读只能算出 GitHub 上留下痕迹的时间，vLLM 作者 PR 开出前那 63 天从外面看不到；只有作者自己记，才知道时间真正去了哪里。这四页填完，就是总纲说的三种能力——阅读、判断、交付——的全部证据。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
 | reviewer 的时间最稀缺 | 二、三、四 | 二用它定选题判据<br/>三推出六条做法与十分钟表<br/>四量出价格（42 分钟 vs 47 天） |
-| `actionable` 与 RFC 门槛 | 二、三、四 | 二定义状态链与 >500 LOC<br/>三讲被要求先开 issue / RFC 后怎么办<br/>四解释 #181999 无 `actionable` 却合入（规则针对新贡献者） |
+| `actionable` 与 RFC 门槛 | 二、三、四 | 二定义四种状态标签与 >500 LOC<br/>三讲被要求先开 issue / RFC 后怎么办<br/>四解释 #181999 无 `actionable` 却合入（规则针对新贡献者） |
 | 查重 | 二、三、四 | 二给三条 `gh` 命令与 Fail-closed<br/>三把 "Not a duplicate" 列入 AI 辅助 PR 的四项必填<br/>四展示 #52530 主动划界、#48724 的声明过期——查重不是一次性的 |
 | 测试是规格 / 改动带测试 | 一、三、四 | 一教怎么找与读（OpInfo、`tests/<subsystem>/`）<br/>三讲怎么写（`instantiate_device_type_tests`、`AGENTS.md` 四问、`opcheck`）<br/>四看既有测试加数据表 vs 三个新用例与三个被修正的边界测试 |
 | CI：谁触发、红了是谁的 | 二、三、四 | 二把 CI 失败当切入点<br/>三讲两种哲学与判断表<br/>四对照退出码 127（无关，`merge -i`）与 6 个自己引入的失败（修测试） |
@@ -397,5 +402,5 @@ Table: 掌握程度的判据
 
 
 [^q0]: 四个：给一个报错能不能两小时定位到函数、靠什么（登记表、生成代码、测试即规格、历史即注释）；maintainer 最想要哪类工作、怎么判断题一周后不被关（`actionable` / `help wanted`、maintainer 最后一条评论、open PR 数、RFC 门槛、硬件、政策）；reviewer 的十分钟要确认什么、diff / 描述 / 测试 / CI 各答哪个问题；小 PR 的时间花在哪、哪些可省哪些是正常成本（数据是正常成本，等待大半可省）。详见[第二章](#二逐篇回顾)。
-[^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、状态链四态；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、49 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

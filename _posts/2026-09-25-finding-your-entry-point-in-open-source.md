@@ -5,7 +5,7 @@ title: "AI-Infra 开源贡献指南（02）：找到切入点——从 issue、R
 subtitle: "Finding Your Entry Point: Issues, RFCs, Roadmaps, CI Failures and Regressions"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个很典型的第一次贡献是这样开始的：打开 PyTorch 的 issue 列表，按 `good first issue` 过滤，看到 #191394 "[Elastic] FileStore rendezvous leaks the mkstemp file descriptor"——`_create_file_store()` 调了 `tempfile.mkstemp()` 却没有关掉返回的文件描述符。问题描述清楚、附了代码链接、改动显然只有几行。花一个晚上搭好环境、复现、修掉、补一个回归测试，第二天开 PR。然后发现，截至 2026-09-07 查询，这个 issue 下已经挂着 **5 个 open 的 PR**（#194259、#194623、#195137、#195711、#196096），最早的一个 8 月 20 日就开了；issue 评论区里还有同一个账号在同一天用同一段模板留了三次"I'd like to take this one"。你的是第六个。
@@ -59,10 +59,16 @@ Table: 选题的四类失败方式
 1. **读"想要什么"**：标签体系（哪些标签表示"欢迎外部 PR"）、Job Board / 看板、roadmap 与 tracker issue
 2. **读"不要什么"**：CONTRIBUTING / AI_POLICY / AGENTS.md 里的否定句：不要 typo PR、不要没 RFC 的大改、不要没 actionable 的 PR
 3. **找信号源**：除 issue 以外的四个来源：RFC、CI 失败看板、性能回归报告、文档/类型/测试缺口
-4. **查重**：gh issue view --comments；gh pr list --search；看 assignee；看最近一条评论的日期
-5. **估规模并决定是否先讨论**：几行 / 几十行 / 几百行；要不要硬件；maintainer 有没有说过"会 review 什么样的 PR"
+4. **查重**：`gh issue view --comments`、`gh pr list --search`、看 assignee、看最近一条评论的日期
+5. **估规模并决定是否先讨论**：规模（几行 / 几十行 / 几百行）、要不要硬件、maintainer 有没有说过"会 review 什么样的 PR"
 
-背后的理由和整个系列一样：reviewer 的时间是项目最稀缺的资源。一个已经有 5 个 PR 的 issue，第 6 个 PR 消耗 reviewer 的时间却几乎不增加价值；一个没有 RFC 的千行 PR，reviewer 要先在 PR 里补上本该在 issue 里发生的设计讨论；一个 typo PR 要走完 CI、review、merge 的全部开销，收益是一个字母。反过来，maintainer 最希望有人来做的，是**他们已经决定要做、写清楚了要什么、但自己没时间做**的事——在 PyTorch 是 `actionable` 加上 maintainer 一句"I'd review a PR that ..."，在 vLLM 是 `help wanted` 加上 issue 正文里的分步骤说明。
+背后的理由和整个系列一样：reviewer 的时间是项目最稀缺的资源。三种选错的题各自浪费它的方式：
+
+- 一个已经有 5 个 PR 的 issue，第 6 个 PR 消耗 reviewer 的时间却几乎不增加价值
+- 一个没有 RFC 的千行 PR，reviewer 要先在 PR 里补上本该在 issue 里发生的设计讨论
+- 一个 typo PR 要走完 CI、review、merge 的全部开销，收益是一个字母
+
+反过来，maintainer 最希望有人来做的，是**他们已经决定要做、写清楚了要什么、但自己没时间做**的事——在 PyTorch 是 `actionable` 加上 maintainer 一句"I'd review a PR that ..."，在 vLLM 是 `help wanted` 加上 issue 正文里的分步骤说明。
 
 ### 3. 两个项目
 
@@ -242,6 +248,30 @@ wiki 的 "The Ultimate Guide to PyTorch Contributions"（`CONTRIBUTING.md` 与�
 - **actionable**：issue 里的信息足够任何人写出一个好 PR；打这个标签的 maintainer 愿意 review 对应的改动
 - **not planned**：有效但 ROI 太低
 
+把每个状态"等谁做什么"画出来，外部贡献者在每一格能做的事就清楚了——只有走到 `actionable` 才该写 PR，之前的格子里能做的是复现、找证据、参与设计：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220}}}%%
+%% 图：PyTorch issue 的状态与外部贡献者在每个状态能做的事（RFC-0058 草案）
+flowchart TB
+    NEW["新 issue"] --> TR["<b>triage</b><br/>打 module: 标签，进入某个状态"]
+    TR --> R["<b>needs reproduction</b><br/>你能做：复现，写成最小测试贴在评论里"]
+    TR --> S["<b>needs research</b><br/>你能做：提供「bug 是真的 / feature 有价值」的证据"]
+    TR --> D["<b>needs design</b><br/>你能做：提出设计，参与讨论"]
+    R -->|"maintainer 确认复现"| A
+    S -->|"maintainer 决定要做"| A
+    D -->|"maintainer 认可设计"| A
+    TR --> A["<b>actionable</b><br/>信息足够写出好 PR；打标的 maintainer 愿意 review"]
+    A --> PR["你写 PR（fix_issue 模板，Fixes #N）"]
+    R -.-> NP["<b>not planned</b> / 关闭<br/>有效但 ROI 太低"]
+    S -.-> NP
+    D -.-> NP
+    style A fill:#eefaf0,stroke:#4d9a5c
+    style PR fill:#eefaf0,stroke:#4d9a5c
+```
+
+在 `actionable` 之前直接发 PR 是最常见的越级：按 wiki 的原文，这样的 PR "will be closed"。
+
 对贡献者最有用的一句是 `actionable` 的第二个条件：**打标的 maintainer 已经承诺会 review**。这就是为什么 `actionable` 是"预测一周后不会被关"的最强信号——它不只是"可以做"，而是"有人等着收"。
 
 但 `actionable` 池子是被激烈争抢的。第九章会给出实查：最新 15 个 `actionable` issue 里，几乎每一个都在 24 小时内有了 PR，多的有 5 个。所以光看标签不够，还要看第八章的查重。
@@ -362,8 +392,8 @@ PyTorch 的 RFC 不在主仓库，在 `github.com/pytorch/rfcs`。`gh api repos/
 
 | 步骤 | 操作 |
 |---|---|
-| Step 1：Create an RFC | fork `pytorch/rfcs`；复制 `RFC-0000-template.md` 为 `RFC-00xx-your-feature.md`；可以只放一个公开 Google Doc 的链接 |
-| Step 2：Get Feedback | PR 标题 `RFC-00xx-your-feature.md`；先打 `draft` 标签，准备好后换 `commenting` 标签<br/>在 `pytorch/pytorch` 开一个 issue 链到 RFC PR，由 triage 路由给相关 core contributors<br/>在 `dev-discuss.pytorch.org` 的 `rfc-chatter` 版和 Slack 上扩散；按 `CODEOWNERS` 找利害相关人 |
+| Step 1：Create an RFC | fork `pytorch/rfcs`<br/>复制 `RFC-0000-template.md` 为 `RFC-00xx-your-feature.md`<br/>可以只放一个公开 Google Doc 的链接 |
+| Step 2：Get Feedback | PR 标题 `RFC-00xx-your-feature.md`<br/>先打 `draft` 标签，准备好后换 `commenting` 标签<br/>在 `pytorch/pytorch` 开一个 issue 链到 RFC PR，由 triage 路由给相关 core contributors<br/>在 `dev-discuss.pytorch.org` 的 `rfc-chatter` 版和 Slack 上扩散<br/>按 `CODEOWNERS` 找利害相关人 |
 | Step 3：Implement | RFC PR 被接受后合入 `pytorch/rfcs`；实现 PR 要链回 RFC |
 
 Table: PyTorch RFC 的三步
@@ -450,7 +480,7 @@ vLLM 把 CI 失败的处理流程完整写在 `docs/contributing/ci/failures.md`
 
 | 环节 | 操作 |
 |---|---|
-| Filing a CI Test Failure Issue | 用 `450-ci-failure.yml`；标题格式 `[CI Failure]: failing-test-job - regex/matching/failing:test`<br/>环境字段写 `Still failing on main as of commit abcdef123`；描述里逐条列出 `FAILED failing/test.py:failing_test1` |
+| Filing a CI Test Failure Issue | 用 `450-ci-failure.yml`<br/>标题格式 `[CI Failure]: failing-test-job - regex/matching/failing:test`<br/>环境字段写 `Still failing on main as of commit abcdef123`<br/>描述里逐条列出 `FAILED failing/test.py:failing_test1` |
 | Logs Wrangling | `.buildkite/scripts/ci-fetch-log.sh --pr <PR>`：拉一个 PR 最新 build 的全部失败 job 日志<br/>`.buildkite/scripts/ci-clean-log.sh ci.log`：去掉时间戳与 ANSI |
 | Investigating | 去 Buildkite main 分支 → 二分找到第一个出问题的 build → 写进 issue → 找到可疑 PR 就 ping 作者 |
 | Reproducing | `.buildkite/scripts/rerun-test.sh tests/v1/engine/test_engine_core_client.py::test_kv_cache_events[True-tcp]` |
@@ -617,14 +647,24 @@ vLLM 的 `docs/contributing/deprecation_policy.md` 把废弃一个功能写成�
 | 阶段 | 状态 | 操作 |
 |---|---|---|
 | 1 | Deprecated (Still On By Default) | 标记废弃；警告里写明移除版本（如 "This will be removed in v0.10.0"）<br/>在 help string、日志、API 响应、`/metrics`、文档、release notes、RFC issue 里同步<br/>Python API 用 `@typing_extensions.deprecated` 装饰器 |
-| 2 | Deprecated (Off By Default) | 默认关闭；可用 CLI flag 或环境变量重新打开；不打开就报错 |
+| 2 | Deprecated (Off By Default) | 默认关闭<br/>可用 CLI flag 或环境变量重新打开<br/>不打开就报错 |
 | 3 | Removed | 彻底删除；只有走完前两阶段的功能才能删 |
 
 Table: vLLM deprecation 的三阶段
 
-"Important Guidelines" 三条：No Removals in Patch Releases；Grace Period for Existing Deprecations（政策之前废弃的功能从政策生效时开始计）；Documentation is Critical。
+"Important Guidelines" 三条：
 
-这条流水线的每一步都是一个小而明确的 PR：给一个即将废弃的参数加带版本号的警告；到了下一个版本把它改成默认关闭并加逃生开关；再下一个版本删掉。第一步和第三步几乎是机械的，第二步需要判断哪些用户会受影响。`rg "deprecated" vllm/ --type py` 能找到所有在途的废弃项，对照 `RELEASE.md` 的版本号就能知道哪些到期了。
+1. No Removals in Patch Releases
+2. Grace Period for Existing Deprecations（政策之前废弃的功能从政策生效时开始计）
+3. Documentation is Critical
+
+这条流水线的每一步都是一个小而明确的 PR：
+
+1. 给一个即将废弃的参数加带版本号的警告
+2. 到了下一个版本把它改成默认关闭并加逃生开关
+3. 再下一个版本删掉
+
+第一步和第三步几乎是机械的，第二步需要判断哪些用户会受影响。`rg "deprecated" vllm/ --type py` 能找到所有在途的废弃项，对照 `RELEASE.md` 的版本号就能知道哪些到期了。
 
 PyTorch 侧对应的是 `topic: deprecation` 标签和 PR 模板的 "BC-breaking?" 一栏——废弃在 PyTorch 是 BC 问题，走 RFC 或至少在 issue 里由 maintainer 确认。
 
@@ -632,7 +672,14 @@ PyTorch 侧对应的是 `topic: deprecation` 标签和 PR 模板的 "BC-breaking
 
 `needs reproduction` 在 PyTorch 有 535 个 open——是所有状态标签里最多的。标签描述说得很直接："Someone else needs to confirm the repro."。**复现并把复现写成一个最小测试用例**，是不需要任何权限、不会撞车、maintainer 一定感谢的工作。它推动 issue 从 `needs reproduction` 走向 `actionable`，而按 RFC-0058 的定义，你就成了那个"提供了足够信息让任何人写出好 PR"的人。
 
-具体做法：按 `bug-report.yml` 模板要求的"fully self-contained"标准把复现精简到十行以内；在当前 nightly 上确认仍能复现（注明 commit）；如果能定位到文件和函数，写出来；然后用 `torch/testing/_internal/common_utils.py` 的 `TestCase` 风格把它写成测试草稿贴在评论里。vLLM 没有 `needs reproduction` 标签，但 `bug`（818 open）里大量 issue 停在"报告者环境特殊、无人复现"的状态，同样的工作同样有价值。
+具体做法分四步：
+
+1. 按 `bug-report.yml` 模板要求的"fully self-contained"标准把复现精简到十行以内
+2. 在当前 nightly 上确认仍能复现（注明 commit）
+3. 如果能定位到文件和函数，写出来
+4. 用 `torch/testing/_internal/common_utils.py` 的 `TestCase` 风格把它写成测试草稿贴在评论里
+
+vLLM 没有 `needs reproduction` 标签，但 `bug`（818 open）里大量 issue 停在"报告者环境特殊、无人复现"的状态，同样的工作同样有价值。
 
 ### 4. 测量本身就是贡献
 
@@ -680,7 +727,13 @@ vLLM 把查重写成了可以直接复制的命令。`AGENTS.md` 的 "Duplicate-
 
 > If work is duplicate/trivial busywork, **do not proceed**. Return a short explanation of what is missing.
 
-三条命令分别查三样东西：issue 评论里有没有人说"在做 / 已开 #xxx"；有没有 PR 在正文里引用了这个 issue 号；有没有 PR 在标题或正文里提到了同一块代码（关键词要短，例如 `flashinfer_utils`、`mkstemp`、`_create_file_store`）。第三条最容易被省掉，但正是它能抓到那些**没有链 issue 的重复 PR**——PyTorch #191394 的 5 个 PR 里，用关键词 `mkstemp` 搜能全部找到，用 issue 号搜会漏掉标题里没写编号的。
+三条命令分别查三样东西：
+
+1. issue 评论里有没有人说"在做 / 已开 #xxx"
+2. 有没有 PR 在正文里引用了这个 issue 号
+3. 有没有 PR 在标题或正文里提到了同一块代码（关键词要短，例如 `flashinfer_utils`、`mkstemp`、`_create_file_store`）
+
+第三条最容易被省掉，但正是它能抓到那些**没有链 issue 的重复 PR**——PyTorch #191394 的 5 个 PR 里，用关键词 `mkstemp` 搜能全部找到，用 issue 号搜会漏掉标题里没写编号的。
 
 同样的命令换个 `--repo` 就能用在 PyTorch 上。本篇第九章的清单就是这样查出来的。
 
@@ -694,18 +747,17 @@ I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause
 
 与 #31414 下另一位贡献者同日的留言：
 
-- I took a look through the current usages of both modules. `vllm.utils.flashinfer` appears to serve as the
-- general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layers.quantization.utils.flashinfer_utils` ...
+> I took a look through the current usages of both modules. `vllm.utils.flashinfer` appears to serve as the general FlashInfer compatibility/wrapper layer, while `vllm.model_executor.layers.quantization.utils.flashinfer_utils` ...
 
 第二种才是有用的认领：它证明你读了代码、给出了你理解的边界、隐含了你的方案。第一种不但没用，还给自己贴了标签——第二天那个账号自己在 #31414 下留言 "Stepping back on this one — @lvnpz got here first with the more detailed analysis, and there are already several PRs in flight"。
 
 一条好的认领留言的要素：
 
-- **1**：核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
-- **2**：理解的问题在 <文件>::<函数>，原因是 ...
-- **3**：打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
-- **4**：预计 <规模>；需要 <硬件>（如有）
-- **5**：一个明确的问题：这个方向可以吗？/ 需要先开 RFC 吗？
+1. 核对过：已有的 PR 是 #a、#b（或：没有找到相关 PR）
+2. 理解的问题在 <文件>::<函数>，原因是 ...
+3. 打算 <方案概要，两三句>；与 #a 的区别是 ...（如有）
+4. 预计 <规模>；需要 <硬件>（如有）
+5. 一个明确的问题：这个方向可以吗？/ 需要先开 RFC 吗？
 
 然后**等**。PyTorch 的规则是等到 `actionable`；vLLM 没有明文的等待期，但 maintainer 一句 "Sure" 或一个 assignee 就是信号。等待期间可以做第七章的事——复现、测量、写测试草稿——这些不会撞车。
 
@@ -726,6 +778,25 @@ I'd like to take this one (`<issue title 截断>`). I'll dig into the root cause
 Table: 一周后会不会被关的打分表
 
 减分项里任何一个"硬"的（`needs research`、≥3 个 PR、>500 行无 RFC、单个 typo）都足以让 PR 一周内被关。加分项里最强的两个是 **`actionable` + maintainer 写明了要什么**——这时候你的 PR 不是在申请 review，而是在交付一个已经被下单的东西。
+
+把本章的规则按动手前的顺序排成一条判断链，每一个分叉都对应上面的一条明文：
+
+```mermaid
+%% 图：动手写 PR 之前的判断链：查重、硬性减分项、是否先讨论
+flowchart TB
+    C["<b>一个候选 issue</b><br/>先跑三条查重命令"] --> DUP{"已有 open PR？"}
+    DUP -->|"有，做法相同"| STOP1["<b>不开新 PR</b><br/>可以去 review / 测试已有的那个"]
+    DUP -->|"有，做法实质不同"| EXP["在 issue 里说明区别，等回应"]
+    DUP -->|"没有"| HARD{"踩中硬性减分项？"}
+    HARD -->|"needs research / typo"| STOP2["<b>换题</b>，或先补证据、攒成批次"]
+    HARD -->|">500 行无 RFC"| RFC["先开 RFC<br/>PyTorch：pytorch/rfcs；vLLM：[RFC] issue"]
+    HARD -->|"都没有"| GATE{"有动手信号？"}
+    GATE -->|"没有"| CLAIM["写一条带信息的认领留言，然后等<br/>等待期间：复现、测量、写测试草稿"]
+    CLAIM --> GATE
+    EXP --> GATE
+    GATE -->|"有"| GO["<b>动手写 PR</b><br/>信号：PyTorch 的 actionable；<br/>vLLM 的 help wanted 或 maintainer 一句 Sure"]
+    style GO fill:#eefaf0,stroke:#4d9a5c
+```
 
 ## 九、贡献日志：切入点清单
 
@@ -896,4 +967,4 @@ Table: 本篇涉及的文件位置
    </details>
 
 [^q0]: 他们已经决定要做、写清了要什么、自己没时间做的事——PyTorch 里是带 `actionable` 状态标签、或 maintainer 评论里写了 “I'd review a PR that ...” 的 issue；vLLM 里是 `help wanted` 加分步骤正文的 issue、Job Board 上的四类链接、已接受但没人实现的 RFC（[第二章](#二标签maintainer-表达想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)）。另外两类稳定的需求：CI 失败（vLLM 的 Project 20 看板 + `failures.md` 操作手册；PyTorch 的 HUD + bot 自动开的 `DISABLED` issue，修好自动重新启用）（[第四章](#四ci-失败低风险高感谢度的切入点)）与性能回归（带数字的报告本身就是贡献）（[第五章](#五性能回归带数字的报告本身就是贡献)）。不受欢迎的：单个 typo、纯格式改动（[第六章](#六文档类型与不欢迎单个-typo)）。
-[^q1]: 看几个预测器：**标签状态**——PyTorch 的状态链 needs reproduction → needs research → needs design → actionable，只有最后一档该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。
+[^q1]: 看几个预测器：**标签状态**——PyTorch 的状态 needs reproduction / needs research / needs design / actionable，只有走到 actionable 才该动手；**maintainer 最后一条评论**是「欢迎 PR」还是「需要先讨论」；**同一 issue 下已有的 open PR 数**（有人在做就别重复）；**规模与 RFC 门槛**（vLLM > 500 行架构改动无 RFC 不 review；PyTorch 大改动走 pytorch/rfcs 仓库）；**硬件**（你没有的 GPU 上的 bug 修不了）；**项目政策**（vLLM 6 个 open PR 上限、stale bot）。标签怎么读：PyTorch 682 个分五层前缀 + 状态标签；vLLM 63 个平铺，`mergify.yml` 按路径 / 标题打 PR 标签、`issue_autolabel.yml` 按关键词打 issue 标签。原则：从 maintainer 已表达的需求出发，比自己想一个「好主意」被接受的概率高一个量级。详见[第二章](#二标签maintainer-表达想要什么的主渠道)、[第三章](#三rfc-与-roadmap大改动从哪里开始)、[第八章](#八先讨论再动手以及查重)。

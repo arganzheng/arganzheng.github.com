@@ -5,7 +5,7 @@ title: "AI-Infra 开源贡献指南（01）：读懂一个百万行的代码库"
 subtitle: "Reading a Million-Line Codebase: Maps, Entry Points, Symbols, Tests and History"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一位工程师在 GitHub 上看到 PyTorch 的一个 issue：`torch.logaddexp` 在 complex128 上 CPU 与 CUDA 的结果不一致。他会写 CUDA，觉得这是个好的第一个 PR。克隆仓库，`rg logaddexp` 一下，两百多个匹配；打开 `torch/__init__.py` 想找 `def logaddexp`，没有；点 IDE 的"跳转到定义"，跳到一个 `.pyi` 文件里的类型签名就断了；再往下找 C++ 实现，发现 `aten/src/ATen/native/BinaryOps.cpp` 里只有一行宏 `CREATE_BINARY_TORCH_IMPL_FUNC(logaddexp_out, logaddexp_stub)`，而 clangd 对整个 `aten/` 目录报"找不到头文件 `ATen/ops/logaddexp_native.h`"——这个文件在仓库里确实不存在。两个小时过去，他还没有找到那个要改的 kernel 在哪个文件。
@@ -603,7 +603,14 @@ Pull Request resolved: https://github.com/pytorch/pytorch/pull/163509
 Approved by: https://github.com/isuruf
 ```
 
-PyTorch 的 commit message 是由合入机器人生成的，格式固定：标题末尾的 `(#163509)` 是 PR 号；正文是 PR 描述；`Fixes #158429` 关联 issue；末尾两个 trailer `Pull Request resolved:` 与 `Approved by:` 分别是 PR 链接与批准者。顺着 `Pull Request resolved:` 的链接（或 `gh pr view 163509 --repo pytorch/pytorch --comments`）能看到当时的 review 对话；顺着 `Fixes #158429`（`gh issue view 158429 --repo pytorch/pytorch`）能看到 issue 原文——截至 2026-09 查询，这个 issue 的标题是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"，标签 `triaged`、`module: linear algebra`、`topic: fuzzer`。
+PyTorch 的 commit message 是由合入机器人生成的，格式固定，四个部分：
+
+1. 标题末尾的 `(#163509)` 是 PR 号
+2. 正文是 PR 描述
+3. `Fixes #158429` 关联 issue
+4. 末尾两个 trailer `Pull Request resolved:` 与 `Approved by:` 分别是 PR 链接与批准者
+
+顺着 `Pull Request resolved:` 的链接（或 `gh pr view 163509 --repo pytorch/pytorch --comments`）能看到当时的 review 对话；顺着 `Fixes #158429`（`gh issue view 158429 --repo pytorch/pytorch`）能看到 issue 原文——截至 2026-09 查询，这个 issue 的标题是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"，标签 `triaged`、`module: linear algebra`、`topic: fuzzer`。
 
 `git show --stat --format= 2ddcf53e1a9` 显示这个 commit 改了四个文件：`aten/src/ATen/native/cuda/LogAddExpKernel.cu`（+235）、`test/test_binary_ufuncs.py`、`test/test_linalg.py`、`torch/testing/_internal/common_methods_invocations.py`。**一个 kernel 修复 = kernel 文件 + 直接测试 + 对比测试 + OpInfo 的 dtype 更新**，这是第六章讲的结构在一个真实 commit 里的样子。`git tag --contains 2ddcf53e1a9` 显示它最早进入 `v2.11.0`。
 
@@ -689,9 +696,27 @@ Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 
 对贡献者的含义：一个在 8 月 10 日之后合入 main 的 feature，不会进 2.14，要等 10 月 28 日的 2.15；如果它是 regression fix，可以走 cherry-pick 进 2.14 的 patch 版本。
 
-**vLLM** `RELEASE.md` 的 "Release Cadence and Versioning" 一节原文："We aim to have a regular release every 2 weeks. Since v0.12.0, regular releases increment the minor version rather than patch version." 三种版本的定义：Major 留给 "architectural milestones involving sweeping API changes, similar to PyTorch 2.0"；Minor 是常规发布；Patch 是 "special releases for new models, as well as emergency patches for critical performance, functionality and security issues"。"Release Branch" 一节：major/minor 的 release branch cut 在发布前 1–2 天；构建由推 `vX.Y.Z-rc1` 这样的 RC tag 触发，最终 tag `vX.Y.Z` 不触发构建；"Cherry-Pick Criteria" 允许 regression fix、critical fix、对最近一版新功能的修复、文档、release 分支特定改动，并加粗 "No feature work allowed for cherry picks"。
+**vLLM** `RELEASE.md` 的 "Release Cadence and Versioning" 一节原文："We aim to have a regular release every 2 weeks. Since v0.12.0, regular releases increment the minor version rather than patch version." 三种版本的定义：
+
+- **Major**：留给 "architectural milestones involving sweeping API changes, similar to PyTorch 2.0"
+- **Minor**：常规发布
+- **Patch**："special releases for new models, as well as emergency patches for critical performance, functionality and security issues"
+
+"Release Branch" 一节：major/minor 的 release branch cut 在发布前 1–2 天；构建由推 `vX.Y.Z-rc1` 这样的 RC tag 触发，最终 tag `vX.Y.Z` 不触发构建；"Cherry-Pick Criteria" 允许 regression fix、critical fix、对最近一版新功能的修复、文档、release 分支特定改动，并加粗 "No feature work allowed for cherry picks"。
 
 对贡献者的含义：vLLM 合入 main 的改动最多等两周就在下一个 minor 版本里；branch cut 到发布只有一两天，几乎没有 cherry-pick 的窗口——想进某个版本，就在那个版本 cut 之前合入。
+
+把两份 `RELEASE.md` 合成一张判断：一个改动合入 main 之后，进哪一版取决于两件事——合入时目标版本的 release branch 切了没有，以及它够不够 cherry-pick 的准则。
+
+```mermaid
+%% 图：合入 main 的改动进入哪个版本：branch cut 与 cherry-pick 的分叉
+flowchart TB
+    M["改动合入 main"] --> Q1{"合入时，目标版本的<br/>release branch 切了吗？"}
+    Q1 -->|"还没切"| N["<b>进入这一版</b><br/>PyTorch：cut 后经 RC → final RC，约 3–4 周发布<br/>vLLM：cut 后 1–2 天发布"]
+    Q1 -->|"已经切了"| Q2{"符合 cherry-pick 准则吗？<br/>regression / critical fix 等，新功能一律不收"}
+    Q2 -->|"符合"| CP["<b>cherry-pick 进 release 分支</b><br/>PyTorch：在 release tracker issue 提名，<br/>@pytorchbot cherry-pick -c &lt;类别&gt;，进 RC 或 patch 版<br/>vLLM：cut 到发布只有 1–2 天，窗口极短"]
+    Q2 -->|"不符合（新功能）"| NX["<b>等下一版</b><br/>PyTorch：约 2 个月后（8 月 10 日后合入的 feature 等 10 月 28 日的 2.15）<br/>vLLM：约 2 周后"]
+```
 
 两个节奏放在一起：
 
@@ -714,13 +739,13 @@ Table: 两个项目的发布节奏
 | 时间 | 步骤 | 做法 | 产出 |
 |---|---|---|---|
 | 0:00 | 读报错，提取符号 | 从 traceback / 错误信息里挑出 2–3 个最具体的标识符：函数名、类名、错误字符串 | 一个 grep 词表 |
-| 0:05 | 画顶层地图 | `ls` 根目录；读项目自带的地图（PyTorch `CONTRIBUTING.md` "Codebase structure"；vLLM 自己列 `vllm/` 的顶层目录）；判断符号大概在哪一层 | 目录职责表（第二章） |
+| 0:05 | 画顶层地图 | `ls` 根目录<br/>读项目自带的地图（PyTorch `CONTRIBUTING.md` "Codebase structure"；vLLM 自己列 `vllm/` 的顶层目录）<br/>判断符号大概在哪一层 | 目录职责表（第二章） |
 | 0:15 | rg 第一轮 | `rg -n '<symbol>'` 限定到最可能的目录；错误字符串直接 `rg -F` | 候选文件 ≤ 5 个 |
 | 0:25 | 找登记表 | PyTorch：`rg '^- func: <op>' native_functions.yaml`<br/>vLLM：`pyproject.toml` `[project.scripts]`、`csrc/libtorch_stable/torch_bindings.cpp` | dispatch / 注册位置 |
 | 0:35 | 沿链追到实现 | 按第三章的链条走：<br/>yaml `dispatch` → `native/*.cpp` → <code>cpu&#124;cuda/*.cu</code><br/>`cli/main.py` → `cli/<sub>.py` → `openai/api_server.py` → `v1/engine/` | 目标文件 + 函数名 |
-| 0:50 | 识别生成代码 | 找不到的 `#include <ATen/ops/...>` 回 yaml；`.pyi` 回 `.pyi.in`；`torch.ops._C.<x>` 回 `torch_bindings.cpp` | 不再被"找不到定义"卡住 |
-| 1:00 | 读测试 | `rg -l '<symbol>' test/*.py` 或 `tests/<subsystem>/`；读断言与跳过项；PyTorch 再看 OpInfo 条目 | 行为规格；要跑的测试文件 |
-| 1:20 | 读历史 | `git log -S'<symbol>' -- <file>`；`git show -s` 最近一次相关 commit；PyTorch 顺 `Pull Request resolved:`；vLLM `gh pr view <N>` | 为什么是这样；有没有人已经在改 |
+| 0:50 | 识别生成代码 | 找不到的 `#include <ATen/ops/...>` 回 yaml<br/>`.pyi` 回 `.pyi.in`<br/>`torch.ops._C.<x>` 回 `torch_bindings.cpp` | 不再被"找不到定义"卡住 |
+| 1:00 | 读测试 | `rg -l '<symbol>' test/*.py` 或 `tests/<subsystem>/`<br/>读断言与跳过项<br/>PyTorch 再看 OpInfo 条目 | 行为规格；要跑的测试文件 |
+| 1:20 | 读历史 | `git log -S'<symbol>' -- <file>`<br/>`git show -s` 最近一次相关 commit<br/>PyTorch 顺 `Pull Request resolved:`<br/>vLLM `gh pr view <N>` | 为什么是这样；有没有人已经在改 |
 | 1:40 | 写进项目地图 | 把追过的这条路径、用过的 rg 模式、找到的测试文件记入贡献日志 | 第九章的一页 |
 | 2:00 | （可选）开始构建 | 如果要改 C++/CUDA：按第五章的命令启动构建，在等待时继续读 | `compile_commands.json` |
 
@@ -755,7 +780,7 @@ vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API
 | 目录 | 职责 | 出处 |
 |---|---|---|
 
-Table: PyTorch 源码目录地图模板
+Table: 源码目录地图模板
 
 [自带的地图]
 - <文件路径 + 章节名>
@@ -989,7 +1014,7 @@ Table: 本篇涉及的文件位置
 
    <details markdown="1"><summary>答案</summary>
 
-   它由 `_C_stable_libtorch.abi3.so` 在加载时用 `TORCH_LIBRARY` 注册——Python 里没有 `def`；去 `csrc/torch_bindings.cpp` 找 `ops.def("rms_norm(...)")` 与 `ops.impl("rms_norm", torch::kCUDA, &rms_norm)`，再到 `csrc/layernorm_kernels.cu`。
+   它由扩展模块 `_C_stable_libtorch.abi3.so` 在加载时注册（`vllm/platforms/cuda.py` 里 `import vllm._C_stable_libtorch`）——Python 里没有 `def`；去 `csrc/libtorch_stable/torch_bindings.cpp` 找 `STABLE_TORCH_LIBRARY_FRAGMENT(_C, ops)` 块里的 `ops.def("rms_norm(...)")` 与 `STABLE_TORCH_LIBRARY_IMPL(_C, CUDA, ops)` 块里的绑定，再到 `csrc/libtorch_stable/layernorm_kernels.cu`（CPU 实现在 `csrc/cpu/layernorm.cpp`）。
 
    </details>
 

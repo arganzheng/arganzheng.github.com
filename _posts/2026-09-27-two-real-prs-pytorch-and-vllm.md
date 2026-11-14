@@ -5,7 +5,7 @@ title: "AI-Infra 开源贡献指南（04）：两个真实 PR 的完整走读—
 subtitle: "Two Real Pull Requests, End to End: One in PyTorch, One in vLLM"
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 前三篇讲的都是规则：目录怎么读、标签怎么看、PR 怎么写、CI 怎么跑。规则读完之后最常见的一种失败是——它们在脑子里是分开的。一个贡献者知道 vLLM 要在描述里写 Purpose / Test Plan / Test Result，知道 PyTorch 要用 `@pytorchbot merge`，知道 CI 红了要先看是不是 main 本来就红；但真正开一个 PR 的时候，他不知道这些规则在**一个真实的时间线上**是怎么排列的：哪一步会卡多久、reviewer 的第一条评论通常是关于什么、"改了再提"到底要往返几次、合入之后什么时候才算进了版本。规则是静态的，一次贡献是动态的，中间缺一段实录。
@@ -88,7 +88,7 @@ Table: 走读 PR 的七个阶段与数据来源
 | CI | pull · trunk（`ciflow/trunk`）· Lint · TSan · BC Lint · ghstack 可合入性检查；219 项检查，2 失败 | Buildkite #84702（6 失败）→ #84725（88 项全绿）；DCO · pre-commit · mergify |
 | review | @IvanYashchuk 3 条行内 + 1 条总评；@johannesz-codes 1 条 | @njhill 1 条行内（含建议代码）+ 1 个 commit；社区 @malaiwah 2 条长评论并开配套 PR #52530 |
 | 合入方式 | `@pytorchbot merge` → 失败 → `@pytorchbot merge -i` | `ready` 标签 → `/ci run` → 修 CI → `/ci run` → 合入 |
-| 进入版本 | v2.13.0（tag 2026-07-03，release 2026-07-08） | 不在 v0.28.0；v0.28.1rc0 · v0.29.0rc1–rc4；无正式版本 |
+| 进入版本 | v2.13.0（tag 2026-07-03，release 2026-07-08） | 不在 v0.28.0<br/>v0.28.1rc0 · v0.29.0rc1–rc4<br/>无正式版本 |
 
 Table: 两个 PR 的基本事实
 
@@ -122,7 +122,7 @@ Table: 本文的章节安排
 | diff 规模 | 约 50–500 行 | 同 |
 | 关联 issue / RFC | body 含 `Fixes #`；commit 含 `Pull Request resolved` | body 含 `Fixes #` / `Closes #`，或 RFC 链接 |
 | 至少一轮导致代码改动的 review | `/reviews` 与 `/comments` 有 maintainer 意见，且其后有新 commit | 同 |
-| 项目流程要素 | ghstack（commit 含 `ghstack-poisoned` / `ghstack-source-id`）或 `@pytorchbot merge`；`module:` 标签；`gh pr checks` 有多个 workflow | 标题前缀；Purpose / Test Plan / Test Result；`Signed-off-by`；Buildkite；`ready` 标签 |
+| 项目流程要素 | ghstack（commit 含 `ghstack-poisoned` / `ghstack-source-id`）或 `@pytorchbot merge`<br/>`module:` 标签<br/>`gh pr checks` 有多个 workflow | 标题前缀<br/>Purpose / Test Plan / Test Result<br/>`Signed-off-by`<br/>Buildkite<br/>`ready` 标签 |
 | 类型 | 一个算子 / kernel 级、PR 里有 benchmark 数字 | 一个系统 / 接口级、有端到端测试 |
 
 Table: 选取 PR 的可查询条件
@@ -177,7 +177,13 @@ issue 下的讨论只有两条。2026-05-27 @christopher-hesse 问："Shouldn't 
 
 ### 2. 阅读
 
-要做这个改动，作者需要确认三件事：切换点在哪个函数里；两个后端各自是哪个函数、在哪个文件；有没有用户可控的开关会绕过这个选择。用第一篇的方法，从 Python API 追到 CUDA 实现（在 PyTorch v2.14.0 检出根目录执行）：
+要做这个改动，作者需要确认三件事：
+
+1. 切换点在哪个函数里
+2. 两个后端各自是哪个函数、在哪个文件
+3. 有没有用户可控的开关会绕过这个选择
+
+用第一篇的方法，从 Python API 追到 CUDA 实现（在 PyTorch v2.14.0 检出根目录执行）：
 
 ```bash title="从 linalg_lu_factor_ex 追到 CUDA 实现"
 # 1. API 名 → native_functions.yaml 里的算子声明
@@ -334,7 +340,14 @@ body 的 "Not a duplicate" 一段列出了 #41069（override-only、按总块数
 
 ### 2. 阅读
 
-从现象到代码，作者需要找到：那条 "Maximum concurrency" 日志在哪打的；启动检查是哪个函数、它拿的块数从哪来；null block 是在哪保留的；`num_gpu_blocks_override` 在哪定义。在 vLLM v0.28.0 检出根目录执行：
+从现象到代码，作者需要找到四个位置：
+
+1. 那条 "Maximum concurrency" 日志在哪打的
+2. 启动检查是哪个函数、它拿的块数从哪来
+3. null block 是在哪保留的
+4. `num_gpu_blocks_override` 在哪定义
+
+在 vLLM v0.28.0 检出根目录执行：
 
 ```bash title="从 Maximum concurrency 日志追到 kv_cache_utils.py"
 rg -n "Maximum concurrency for" vllm/                       # → vllm/v1/core/kv_cache_utils.py
@@ -381,7 +394,12 @@ rg -ln "num_gpu_blocks_override=3[23]" tests/               # → 哪些测试�
 
 `dict(kv_cache_spec)` 那个拷贝有注释解释："grouping may unify them in-place"——不拷贝会改到调用方的 spec。这一处是 @njhill 在批准前自己推的 commit（第 6 节）。
 
-其余四个文件全是测试。`tests/v1/core/test_kv_cache_utils.py` 加三个用例、改一个既有用例的内存量；`tests/v1/e2e/general/test_async_scheduling.py` 与 `tests/v1/sample/test_logprobs.py` 把 `num_gpu_blocks_override=32` 改成 33；`tests/v1/e2e/general/test_context_length.py` 把 `kv_cache_bytes` 从 1 MB 改成 2 MB；`tests/v1/engine/test_init_error_messaging.py` 把 `dtype="float16"` 改成 `torch.float16`（njhill 顺手修的类型）。
+其余五个文件全是测试：
+
+- `tests/v1/core/test_kv_cache_utils.py`：加三个用例、改一个既有用例的内存量
+- `tests/v1/e2e/general/test_async_scheduling.py` 与 `tests/v1/sample/test_logprobs.py`：把 `num_gpu_blocks_override=32` 改成 33
+- `tests/v1/e2e/general/test_context_length.py`：把 `kv_cache_bytes` 从 1 MB 改成 2 MB
+- `tests/v1/engine/test_init_error_messaging.py`：把 `dtype="float16"` 改成 `torch.float16`（njhill 顺手修的类型）
 
 有意避开的更大改法在 PR 讨论里被明确写出来了。社区成员 @malaiwah 建议把上界收敛到 spec 上的一个方法里、同时处理 lookahead slots 与 mamba align 的额外块，还提议把他自己 PR 里的"请求侧"逻辑并进来；作者 08-18 回复："I'd like to keep this PR's scope small — the startup capacity fix only."
 
@@ -461,26 +479,32 @@ gh pr list --repo vllm-project/vllm --state all --search "47272 in:body,title" \
   --json number,title,state,createdAt
 ```
 
-返回三个：#52530（@malaiwah，请求侧，08-20 关闭，关闭留言 "Closing in favor of the maintainer-requested path. #47272 has merged as `76fb6d21…`"）；#48724（@ricky-chaoju，07-15 开出，"[Bugfix][Core] Reserve the null block in auto-fit max_model_len"，body 里写 "This is not a duplicate of #47272: that PR fixes the explicit `max_model_len` validation and its diff keeps `check_memory = available_memory`…"——这在 7 月 15 日是对的，8 月 18 日之后就不成立了；截至 09-07 仍 open，mergify 在 08-20 给它打了冲突提示）；#51156（spec decode 相关，只是提及）。没有 revert。#48724 是一个值得记住的反例：它在开出时确实不重复，但原 PR 在 review 中吸收了它的范围，而它没有跟进——查重不是一次性的动作。
+返回三个：
+
+1. #52530（@malaiwah，请求侧，08-20 关闭，关闭留言 "Closing in favor of the maintainer-requested path. #47272 has merged as `76fb6d21…`"）
+2. #48724（@ricky-chaoju，07-15 开出，"[Bugfix][Core] Reserve the null block in auto-fit max_model_len"，body 里写 "This is not a duplicate of #47272: that PR fixes the explicit `max_model_len` validation and its diff keeps `check_memory = available_memory`…"——这在 7 月 15 日是对的，8 月 18 日之后就不成立了；截至 09-07 仍 open，mergify 在 08-20 给它打了冲突提示）
+3. #51156（spec decode 相关，只是提及）
+
+没有 revert。#48724 是一个值得记住的反例：它在开出时确实不重复，但原 PR 在 review 中吸收了它的范围，而它没有跟进——查重不是一次性的动作。
 
 ## 五、两个走读的对照表
 
 | 环节 | PyTorch #185344 | vLLM #47272 |
 |---|---|---|
-| issue 来源 | maintainer 自己开的性能 issue（附复现与实测表）；无 `actionable` 标签，由熟悉该模块的长期贡献者接手 | 用户 bug 报告；被部分修复过一次；PR 开出后 issue 被 stale bot 关闭 |
+| issue 来源 | maintainer 自己开的性能 issue（附复现与实测表）；无 `actionable` 标签，由熟悉该模块的长期贡献者接手 | 用户 bug 报告<br/>被部分修复过一次<br/>PR 开出后 issue 被 stale bot 关闭 |
 | 关联方式 | body 写 `Fixes https://…/issues/181999`；合入 commit 带 `Pull Request resolved:` 与 `Approved by:` | body 写 `Fixes #35541 (still not fully resolved)`；合入 commit 标题带 `(#47272)` |
 | 标题 | 无前缀，一句话 | `[Bugfix][Core]` 前缀（`docs/contributing/README.md` "PR Title and Classification"） |
 | 描述结构 | ghstack 头 + 数据表 + cc 列表；无固定模板 | Purpose / Test Plan / Test Result（`PULL_REQUEST_TEMPLATE.md`）+ Not a duplicate（`AGENTS.md`） |
-| 标签由谁打 | 作者自己打 `module:` × 3、`release notes:`、`ciflow/trunk`；pytorchbot 打 `open source` | mergify 按标题 `[Bugfix]` 打 `bug`（`.github/mergify.yml` `label-bug`）、`v1`；maintainer 打 `ready`；`kv-cache-manager` 由 mergify 在合入前一天打上（规则不在 v0.28.0 检出中） |
-| commit 形态 | 8 个 "Update"，commit 体只有 `[ghstack-poisoned]`；CLA 由 EasyCLA 检查 | 4 个有标题的 commit + 2 个 merge main；非 merge commit 都带 `Signed-off-by`；作者的 3 个带 `Co-authored-by: Claude`；DCO 由 probot dco 检查 |
+| 标签由谁打 | 作者自己打 `module:` × 3、`release notes:`、`ciflow/trunk`；pytorchbot 打 `open source` | mergify 按标题 `[Bugfix]` 打 `bug`（`.github/mergify.yml` `label-bug`）、`v1`<br/>maintainer 打 `ready`<br/>`kv-cache-manager` 由 mergify 在合入前一天打上（规则不在 v0.28.0 检出中） |
+| commit 形态 | 8 个 "Update"，commit 体只有 `[ghstack-poisoned]`；CLA 由 EasyCLA 检查 | 4 个有标题的 commit + 2 个 merge main<br/>非 merge commit 都带 `Signed-off-by`<br/>作者的 3 个带 `Co-authored-by: Claude`<br/>DCO 由 probot dco 检查 |
 | CI 触发 | 开 PR 即跑 pull + Lint；`ciflow/trunk` 标签额外拉起 trunk | 开 PR 只跑 pre-commit / DCO；`ready` 之后 maintainer `/ci run` |
 | CI 规模 | 219 项检查、7 个 workflow | 88 项检查、1 个 Buildkite build，按 `source_file_dependencies` 选任务，AMD 镜像成对 |
 | CI 失败 | 2 个 docs 任务，脚本错误，与改动无关 → `merge -i` 忽略 | 6 个测试任务，改动引入 → 修 3 个测试的配置 → 再跑 |
-| review 形态 | 4 小时内 3 条行内 + 1 条总评，全部关于注释与来源；作者逐条回复并推 commit；4 天后 ping | 47 天沉默 → 社区成员 2 条长评论 → maintainer 1 条带代码的行内意见 + 自己推 1 个 commit |
+| review 形态 | 4 小时内 3 条行内 + 1 条总评，全部关于注释与来源<br/>作者逐条回复并推 commit<br/>4 天后 ping | 47 天沉默 → 社区成员 2 条长评论 → maintainer 1 条带代码的行内意见 + 自己推 1 个 commit |
 | 维持原样 | "加 cublas 用户开关"——作者说明其他算子 benchmark 已旧，暂不做 | "把请求侧一起修"——作者明确只修启动容量 |
-| AI 政策 | `AI_POLICY.md`；描述保留 "Authored with Claude."，代码注释里的同一句被 reviewer 要求删除 | `AGENTS.md` + `docs/contributing/README.md`；描述末尾声明 + commit trailer；claude[bot] 对 fork PR 默认不 review |
+| AI 政策 | `AI_POLICY.md`；描述保留 "Authored with Claude."，代码注释里的同一句被 reviewer 要求删除 | `AGENTS.md` + `docs/contributing/README.md`<br/>描述末尾声明 + commit trailer<br/>claude[bot] 对 fork PR 默认不 review |
 | 合入命令 | `@pytorchbot merge` → `merge_rules.yaml` 校验 `approved_by` 与 `mandatory_checks_name`（Linear Algebra：EasyCLA · Lint · pull） | maintainer 打 `ready` → 绿 CI → GitHub merge |
-| 进入版本 | v2.13.0（合入 32 天后打 tag，37 天后 release） | 不在 v0.28.0；只在 rc 标签中；正式版本待 v0.29.0 |
+| 进入版本 | v2.13.0（合入 32 天后打 tag，37 天后 release） | 不在 v0.28.0<br/>只在 rc 标签中<br/>正式版本待 v0.29.0 |
 
 Table: 两个走读的对照表
 
@@ -495,13 +519,13 @@ Table: 两个走读的对照表
 | 04-30 08:21 | @IvanYashchuk 开 issue #181999，附复现与 RTX 6000 Ada 实测表 | — | 起点 |
 | 04-30 → 05-27 | 采集 4 种 GPU × 3792 个点的 benchmark、拟合阈值（推断） | 27 天 | 作者工作（GitHub 不可见） |
 | 05-27 08:33 | PR 开出（ghstack）；请求 eqy / syed-ahmed / Aidyn-A / IvanYashchuk | — | — |
-| 05-27 08:40–08:46 | 作者打 5 个标签；pytorchbot 打 `open source`；pull / Lint / trunk 起跑 | 13 分钟 | 作者工作 |
+| 05-27 08:40–08:46 | 作者打 5 个标签<br/>pytorchbot 打 `open source`<br/>pull / Lint / trunk 起跑 | 13 分钟 | 作者工作 |
 | 05-27 08:50、08:56 | 两个 Update commit（开出后 23 分钟内） | — | 作者工作 |
 | 05-27 12:15–12:20 | @IvanYashchuk 3 条行内 + 总评 | 3 小时 42 分 | 等 review |
 | 05-27 12:23–12:57 | 作者逐条回复；@johannesz-codes 纠正 CUDA 版本 | 42 分钟 | 往返 |
 | 05-27 12:30、13:03 | 两个 Update commit：3200→3800、删 Claude 句、改 Blackwell 注释 | — | 作者工作 |
 | 05-27 13:03 → 05-31 11:32 | 作者在 CUDA 13.2 上补做 fp64 模拟开/关的验证 | 3 天 22 小时 | 作者工作（reviewer 提出的 TODO） |
-| 05-31 11:32–12:01 | 补验证结论评论；3 个 Update commit；ping reviewer | 29 分钟 | 往返 |
+| 05-31 11:32–12:01 | 补验证结论评论<br/>3 个 Update commit<br/>ping reviewer | 29 分钟 | 往返 |
 | 05-31 12:01 → 06-01 14:05 | 等 reviewer 二次 review | 1 天 2 小时 | 等 review |
 | 06-01 14:05 | @IvanYashchuk 批准，`@pytorchbot merge` | — | — |
 | 06-01 14:13 | merge 失败：pull / linux-docs 两项 | 8 分钟 | CI |
@@ -509,7 +533,38 @@ Table: 两个走读的对照表
 
 Table: PyTorch #185344 的时间线
 
-PR 阶段总计 5 天 5 小时 50 分。分解：**等 review** 约 1 天 6 小时（两段，都在 PyTorch "4 个工作日"的承诺之内，实际远快于承诺）；**往返** 约 1.5 小时；**CI** 约 20 分钟（不算 workflow 本身的运行时间，那与作者无关）；**作者工作** 约 4 天——其中 3 天 22 小时是 reviewer 一条评论引出的补充验证。加上 PR 之前的 27 天（推断为 benchmark 采集），按上表归类，从 issue 到合入的 32 天里约 31 天是作者自己在工作，等待与往返合计不到一天半。
+PR 阶段总计 5 天 5 小时 50 分。分解：
+
+- **等 review**：约 1 天 6 小时（两段，都在 PyTorch "4 个工作日"的承诺之内，实际远快于承诺）
+- **往返**：约 1.5 小时
+- **CI**：约 20 分钟（不算 workflow 本身的运行时间，那与作者无关）
+- **作者工作**：约 4 天——其中 3 天 22 小时是 reviewer 一条评论引出的补充验证
+
+把表里的时间段按归类摆到同一条时间轴上（UTC），一眼能看出最长的那根条是作者自己的验证，往返和 CI 短到几乎看不见：
+
+```mermaid
+%%{init: {"gantt": {"useWidth": 835, "fontSize": 15, "sectionFontSize": 15, "barHeight": 24, "barGap": 6, "leftPadding": 90, "rightPadding": 20}}}%%
+%% 图：PyTorch #185344 PR 阶段的时间分布（UTC，按归类分行）
+gantt
+    todayMarker off
+    dateFormat YYYY-MM-DD HH:mm
+    axisFormat %m-%d
+    tickInterval 1day
+    section 作者工作
+    开 PR、打标签、两个 Update        :p1, 2026-05-27 08:33, 2026-05-27 08:56
+    两个 Update commit               :p2, 2026-05-27 12:30, 2026-05-27 13:03
+    CUDA 13.2 上补做 fp64 验证        :p3, 2026-05-27 13:03, 2026-05-31 11:32
+    section 等 review
+    首轮 review                      :crit, w1, 2026-05-27 08:56, 2026-05-27 12:15
+    二次 review                      :crit, w2, 2026-05-31 12:01, 2026-06-01 14:05
+    section 往返
+    逐条回复意见                      :r1, 2026-05-27 12:15, 2026-05-27 12:57
+    补验证结论并 ping                 :r2, 2026-05-31 11:32, 2026-05-31 12:01
+    section CI
+    merge 失败到 merge -i 合入        :c1, 2026-06-01 14:05, 2026-06-01 14:23
+```
+
+加上 PR 之前的 27 天（推断为 benchmark 采集），按上表归类，从 issue 到合入的 32 天里约 31 天是作者自己在工作，等待与往返合计不到一天半。
 
 **哪些可以省**：几乎没有。三条行内意见都是作者提交前自己核对一遍就能避免的（注释与描述的数字对齐、注释里不放与维护无关的话、说清 "Blackwell" 指哪块卡），但它们合计只耗了 42 分钟往返。CI 的两个 docs 失败不是作者的，8 分钟识别、10 分钟处理。**哪些是正常成本**：27 天的 benchmark 是这类"性能启发式"PR 的本体——没有 3792 个点就没有那张表，没有那张表 reviewer 就无法在不自己跑数据的情况下批准；4 天的 fp64 模拟验证是 reviewer 用一条评论买到的额外置信度，换来的是阈值常数一个都不用改。
 
@@ -519,7 +574,7 @@ PR 阶段总计 5 天 5 小时 50 分。分解：**等 review** 约 1 天 6 小�
 |---|---|---|---|
 | 02-27 19:45 | @kvcache670 开 issue #35541；同日开 PR #35542（未合入） | — | 起点（他人） |
 | 04-28 22:44 | @njhill 的 #41069 合入，部分修复 | 60 天 | 他人 |
-| 07-01 08:51 | PR 开出；mergify 打 `v1`、`bug`；github-actions 提示 CI 不自动跑 | 63 天 | 作者工作（不可见） |
+| 07-01 08:51 | PR 开出<br/>mergify 打 `v1`、`bug`<br/>github-actions 提示 CI 不自动跑 | 63 天 | 作者工作（不可见） |
 | 07-01 09:01、10:02 | 两次 force-push；10:08 请求 9 位 reviewer | 77 分钟 | 作者工作 |
 | 07-12 07:02 | mergify：冲突，打 `needs-rebase` | 11 天 | 等 review |
 | 07-21 10:04–11:00 | 作者 force-push 解决冲突；`needs-rebase` 移除 | 9 天 | 等 review（期间作者只做了 rebase） |
@@ -535,7 +590,42 @@ PR 阶段总计 5 天 5 小时 50 分。分解：**等 review** 约 1 天 6 小�
 
 Table: vLLM #47272 的时间线
 
-PR 阶段总计 49 天 18 小时。分解：**等 review** 约 47 天 13 小时（07-01 → 08-17，其中 9 天在等一次 rebase）加合入前的 1 天 17 小时，合计约 49 天；**往返** 约 8 小时（08-18 的回复与 08-20 的 `/ci run`）；**CI** 约 4 小时（两个 Buildkite build 加定位与解释失败）；**作者工作** 在 PR 开出后不到 1 天（首日 77 分钟、08-18 数小时、08-19 夜里修测试）。
+PR 阶段总计 49 天 18 小时。分解：
+
+- **等 review**：约 47 天 13 小时（07-01 → 08-17，其中 9 天在等一次 rebase）加合入前的 1 天 17 小时，合计约 49 天
+- **往返**：约 8 小时（08-18 的回复与 08-20 的 `/ci run`）
+- **CI**：约 4 小时（两个 Buildkite build 加定位与解释失败）
+- **作者工作**：PR 开出后不到 1 天（首日 77 分钟、08-18 数小时、08-19 夜里修测试）
+
+同样摆到时间轴上，形状和 PyTorch 那张正好相反——几乎整条轴都是"等 review"，作者、往返和 CI 挤在两端：
+
+```mermaid
+%%{init: {"gantt": {"useWidth": 835, "fontSize": 15, "sectionFontSize": 15, "barHeight": 24, "barGap": 6, "leftPadding": 90, "rightPadding": 20}}}%%
+%% 图：vLLM #47272 PR 阶段的时间分布（UTC，按归类分行）
+gantt
+    todayMarker off
+    dateFormat YYYY-MM-DD HH:mm
+    axisFormat %m-%d
+    tickInterval 1week
+    section 作者工作
+    开 PR、两次 force-push           :a1, 2026-07-01 08:51, 2026-07-01 10:08
+    rebase 解决冲突                  :a2, 2026-07-21 10:04, 2026-07-21 11:00
+    补 auto-fit 与第三个测试          :a3, 2026-08-18 04:18, 2026-08-18 05:15
+    修 3 个测试并逐个解释失败          :a4, 2026-08-19 23:46, 2026-08-20 01:11
+    section 等 review
+    无人 review（47 天）             :crit, w1, 2026-07-01 10:08, 2026-08-17 21:34
+    等 maintainer 下一步             :crit, w2, 2026-08-18 05:15, 2026-08-19 21:55
+    section 往返
+    maintainer 推 commit、ready、/ci run :r1, 2026-08-19 21:55, 2026-08-19 22:45
+    合并 main、再次 /ci run           :r2, 2026-08-20 01:11, 2026-08-20 01:38
+    section CI
+    Buildkite 84702 报 6 项失败       :c1, 2026-08-19 22:45, 2026-08-19 23:46
+    Buildkite 84725 全绿后合入        :c2, 2026-08-20 01:38, 2026-08-20 02:49
+    section 外部事件
+    mergify 打 needs-rebase          :milestone, e1, 2026-07-12 07:02, 0m
+    issue 被 stale bot 关闭           :milestone, e2, 2026-07-30 02:16, 0m
+    社区成员两条长评论                :milestone, e3, 2026-08-16 12:02, 0m
+```
 
 **哪些可以省**：47 天的沉默里，作者一次也没有 ping。`docs/contributing/README.md` 写着 "If the PR is not reviewed within 7 days, please feel free to ping the reviewer or the vLLM team."——第 8 天、第 15 天各留一句话，不保证有效，但把主动权留在自己手里。请求 9 位 reviewer 的做法反而稀释了责任：没有一个人觉得"是自己的"。另一处可省的是 6 个 CI 失败——`rg -ln "num_gpu_blocks_override=3[23]" tests/` 在提交前就能找到那两个把池子开到边界上的测试；第三个（1 MB 池子）不容易预见，但前两个可以。这两项合起来，PR 的历时可能从 50 天压到两三周。**哪些是正常成本**：CI 不自动跑，是 vLLM 用 GPU 预算换来的规则，必须等 `ready`；maintainer 的一条评论把范围扩大到 auto-fit，是正确的技术判断，7 小时的响应是合理的；两轮 Buildkite 各一个多小时是硬件矩阵的固定开销；合入后错过 v0.28.0，是两周一版 + 提前切分支的节奏决定的，与作者无关。
 
@@ -684,7 +774,7 @@ Table: PR 各阶段耗时记录模板
 | 签名 | EasyCLA | DCO probot；`Signed-off-by` 每个 commit |
 | CI 何时跑 | 开 PR 即跑 pull / Lint；`ciflow/` 标签加跑 | pre-commit / DCO 即跑；测试任务等 `ready` + `/ci run` |
 | CI 失败归属 | Dr. CI 分 New Failures / flaky / broken trunk | Buildkite 页面；作者自己解释每个失败 |
-| 合入 | `@pytorchbot merge`；`merge_rules.yaml`；`-i` 可忽略 | `ready` + 绿 CI + maintainer 点合入；mergify 管 rebase |
+| 合入 | `@pytorchbot merge`<br/>`merge_rules.yaml`<br/>`-i` 可忽略 | `ready` + 绿 CI + maintainer 点合入；mergify 管 rebase |
 | 进版本 | 按固定日程切分支，rc 十几个；合入到 release 约一个月 | 两周一版，切分支后 main 上的合入要等下一版 |
 
 Table: 同一环节在 PyTorch 与 vLLM 的两种做法

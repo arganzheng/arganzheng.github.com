@@ -5,7 +5,7 @@ title: "AI-Infra 开源贡献指南（03）：做出一个能被合入的改动"
 subtitle: "Landing a Mergeable Change: Diff, Tests, Benchmarks, PR, CI and Review"
 tags: [Open Source, PyTorch, vLLM, CI, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个 PR 在 vLLM 里开了十天。作者修了一个真实的 bug，本地测试全绿，描述写了两屏，还顺手把同一目录下三个文件的 import 排了序。十天里发生的事是：DCO check 红了（有一个 commit 忘了 `-s`）；`pre-commit` 没跑（新贡献者的 PR 默认不跑，需要 `verified` 或 `ready` 标签）；Buildkite 一个任务也没起（`/ci run` 要有写权限的 reviewer 来敲）；mergify 打上了 `needs-rebase`（main 已经往前走了两百个 commit）；标题没有 `[Bugfix]` 前缀，没人被分派。reviewer 最终打开它时，看到的是一个 diff 里混着无关的 import 重排、描述里找不到"怎么测的"、CI 一片灰色的 PR。他留了一句"could you split the unrelated changes out and add a test plan?"，然后去看下一个。
@@ -18,7 +18,15 @@ updated: 2026-09-14
 
 > **reviewer 打开你的 PR，只有十分钟。这十分钟里他要确认什么？[^q0] 你的 diff、描述、测试、CI 状态分别替他回答了哪个问题？[^q1]**
 
-每一条规则都可以还原成这个问题的一个侧面：最小 diff 是让他十分钟读得完；测试是替他回答"这个改动对不对"；benchmark 是替他回答"值不值"；描述是替他回答"为什么这样改、有没有别的改法"；绿色的 CI 是替他回答"会不会弄坏别的东西"。规则会变，这个视角不变。
+每一条规则都可以还原成这个问题的一个侧面：
+
+- 最小 diff：让他十分钟读得完
+- 测试：替他回答"这个改动对不对"
+- benchmark：替他回答"值不值"
+- 描述：替他回答"为什么这样改、有没有别的改法"
+- 绿色的 CI：替他回答"会不会弄坏别的东西"
+
+规则会变，这个视角不变。
 
 版本锚点：PyTorch **v2.14.0**、vLLM **v0.28.0**，引用的文件路径、章节标题、字段名、命令均以这两个检出为准，格式为"仓库 路径 的 字段/章节"。GitHub 上的动态信息（标签是否存在）用 `gh` 查询，注明"截至 2026-09 查询"。本篇不展开任何一层的技术原理，也不重复 git 与 GitHub 的基本操作。
 
@@ -79,6 +87,35 @@ Table: 六条通用做法与理由
 两个项目在这六条上的具体规定不同，但没有一条相互矛盾。学会读一个项目的规则文件（本篇会列出所有位置），下一个项目的规则半小时就能读完。
 
 ### 3. 两个项目：同一环节两种做法
+
+先看整条路上每一步由谁推动。两个项目差别最大、新贡献者最容易以为"卡住了"的是第三、四步：PyTorch 的 CI 在开 PR 的那一刻就自己跑起来，vLLM 的测试在 reviewer 动手之前一个都不会跑（标黄的两格）。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：一个外部 PR 在 PyTorch 与 vLLM 里的生命周期：每一步由谁推动
+flowchart LR
+    subgraph PT["PyTorch v2.14.0"]
+    direction TB
+    P1["<b>起点</b><br/>actionable issue（或 preapproved 的讨论）"] --> P2["<b>作者开 PR</b><br/>fix_issue 模板，写 Fixes #N；大改动用 ghstack 叠成多个 PR"]
+    P2 --> P3["<b>自动</b><br/>pull + Lint 立即跑；labeler.yml 按路径打 module: / release notes: 标签"]
+    P3 --> P4["<b>triage 分派 reviewer</b><br/>a couple business days；4 个工作日无回应可留言"]
+    P4 --> P5["<b>review 往返</b><br/>reviewer 视改动打 ciflow/trunk 等标签加跑；每次 push 自动重跑"]
+    P5 --> P6["<b>@pytorchbot merge</b><br/>trymerge.py 查 merge_rules、标签、mandatory checks"]
+    P6 --> P7["<b>bot push 到 main</b><br/>约 2 个月一个 minor 版本"]
+    end
+    subgraph VL["vLLM v0.28.0"]
+    direction TB
+    V1["<b>起点</b><br/>issue；>500 行架构改动先开 [RFC]"] --> V2["<b>作者开 PR</b><br/>[Bugfix] 等标题前缀；Purpose / Test Plan / Test Result；每个 commit 带 -s"]
+    V2 --> V3["<b>自动</b><br/>mergify 按路径 / 标题打标；测试一个不跑，pre-commit 也要 verified / ready 或作者 ≥4 个合入 PR"]
+    V3 --> V4["<b>reviewer 接手</b><br/>敲 /ci run、approve 或打 ready；此后作者才能自己 /ci run"]
+    V4 --> V5["<b>review 往返</b><br/>每次 push 后要重新 /ci run；冲突时 mergify 打 needs-rebase"]
+    V5 --> V6["<b>maintainer 打 ready、跑全量 CI</b><br/>绿了点 squash merge"]
+    V6 --> V7["<b>进下一个 minor 版本</b><br/>约 2 周一版"]
+    end
+    PT ~~~ VL
+    style V3 fill:#fff6e0,stroke:#d4a017
+    style V4 fill:#fff6e0,stroke:#d4a017
+```
 
 | 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
 |---|---|---|
@@ -233,7 +270,13 @@ pytest -s -v tests/test_logger.py   # 单个文件
 
 > **Design before you write.** Answer four questions first: what is the module for, what is its I/O contract, what failure am I guarding against, and what is the cheapest level that catches it (unit over integration over e2e)?
 
-然后是五条规则（原文标题）："Reuse before create."（扩展已有测试文件与 `conftest.py` fixture，不轻易新建文件）；"Test behavior with intent."（通过公开 API 断言可观察的结果，在测试名或 docstring 里写明为什么；"flaky tests are worse than no tests"）；"Keep it minimal."（一个测试一个行为；"if the test diff dwarfs the code change, cut scope"）；"No one-off kernel benchmarks in `tests/`."（kernel 性能工作放 `benchmarks/kernels/`）；"Run model evals for model-affecting changes."（搜 `tests/evals/` 或用 `vllm bench`，把结果放进 PR，"do not wait for reviewers to ask"）。
+然后是五条规则（原文标题）：
+
+1. "Reuse before create."：扩展已有测试文件与 `conftest.py` fixture，不轻易新建文件
+2. "Test behavior with intent."：通过公开 API 断言可观察的结果，在测试名或 docstring 里写明为什么；"flaky tests are worse than no tests"
+3. "Keep it minimal."：一个测试一个行为；"if the test diff dwarfs the code change, cut scope"
+4. "No one-off kernel benchmarks in `tests/`."：kernel 性能工作放 `benchmarks/kernels/`
+5. "Run model evals for model-affecting changes."：搜 `tests/evals/` 或用 `vllm bench`，把结果放进 PR，"do not wait for reviewers to ask"
 
 kernel 改动还有一条专门的要求。"Adding or Changing Kernels" 一节：自定义 op 要按 PyTorch 的规范注册，返回 Tensor 的 op 需要 meta-function，并且 "Use torch.library.opcheck() to test the function registration and meta-function for any registered ops. See `tests/kernels` for examples."——`tests/kernels/attention/test_attention.py` 等文件里能看到 `opcheck` 的用法。模型相关的测试要求单独写在 `docs/contributing/model/tests.md`（"Required Tests" 的 "Model loading"、"Optional Tests" 的 "Model correctness" 等小节）。
 
@@ -258,7 +301,13 @@ vLLM 的 `docs/contributing/README.md` "Testing" 一节直接承认没有 GPU �
 
 Table: 一份能用的 benchmark 要包含的六项
 
-没有基线的数字没有意义；没有 shape 的数字不能比较；没有命令的数字不能复现。三者缺一，reviewer 就得自己跑——他不会。
+一个性能数字要带齐三样东西：
+
+1. 基线：没有基线的数字没有意义
+2. shape：没有 shape 的数字不能比较
+3. 命令：没有命令的数字不能复现
+
+三者缺一，reviewer 就得自己跑——他不会。
 
 ### 2. PyTorch：模板 checklist 与 benchmarks/
 
@@ -444,7 +493,14 @@ PyTorch 对标题没有前缀要求，但合入时要求 PR 有一个 `release n
 ## Test Result
 ```
 
-折叠的 checklist 解释了每栏要写什么：Purpose 是 "Fix some issue (link existing issues this PR will resolve)"；Test Plan 是 "providing test command"；Test Result 是 "pasting the results comparison before and after, or e2e results"；可选一项是文档更新（"such as updating `supported_models.md` and `examples` for a new model"）。模板末尾那行 "BEFORE SUBMITTING, PLEASE READ …"以及所有 HTML 注释会被 `.github/workflows/new_pr_bot.yml` 在 PR 打开时自动删掉，所以不必手工清理；同一个 workflow 还会给第一次贡献的作者留一条欢迎评论，里面写明了 `/ci run` 的规则。
+折叠的 checklist 解释了每栏要写什么：
+
+- **Purpose**："Fix some issue (link existing issues this PR will resolve)"
+- **Test Plan**："providing test command"
+- **Test Result**："pasting the results comparison before and after, or e2e results"
+- 可选：文档更新（"such as updating `supported_models.md` and `examples` for a new model"）
+
+模板末尾那行 "BEFORE SUBMITTING, PLEASE READ …"以及所有 HTML 注释会被 `.github/workflows/new_pr_bot.yml` 在 PR 打开时自动删掉，所以不必手工清理；同一个 workflow 还会给第一次贡献的作者留一条欢迎评论，里面写明了 `/ci run` 的规则。
 
 标题前缀是 vLLM 的分派机制。`docs/contributing/README.md` "PR Title and Classification" 一节开头就说 "Only specific types of PRs will be reviewed."，然后列出：
 
@@ -520,7 +576,29 @@ Inductor      ciflow/inductor ciflow/inductor-periodic ciflow/inductor-cu126 cif
 
 打标签需要写权限，外部贡献者要在 PR 里请 reviewer 帮忙："Could you add `ciflow/trunk` so the ROCm jobs run?"。同一个文件的 `retryable_workflows`（`pull`、`trunk`、`linux-binary`、`windows-binary`、`inductor-A100-perf-nightly`）说明哪些 workflow 失败后可以让机器人重试；`mergebot: true` 表示合入机器人启用。
 
-一个改动应该请求跑哪些标签，按改动的文件判断：改了 `aten/src/ATen/native/cuda/` 下的 kernel，至少要 `ciflow/trunk`（覆盖更多 CUDA 配置），涉及 bf16 或新架构再加 `ciflow/h100`；改了 `torch/_inductor/`，要 `ciflow/inductor`；改了分布式，`ciflow/h100-distributed`。`CONTRIBUTING.md` "Run Specific CI Jobs" 一节还提供了另一条路：`python tools/testing/explicit_ci_jobs.py --filter-gha '*pull*' --make-commit` 生成一个只保留匹配 workflow 的 commit，配合 `ghstack` 用；但它明说 "It creates a large commit that is of very low signal to reviewers"，只适合调试 CI 本身。
+一个 PR 上的 workflow 因此有两个入口：`pull_request` 事件直接触发的默认组，和经"标签 → git tag → `on.push.tags`"这条间接链拉起的加跑组：
+
+```mermaid
+%% 图：PyTorch PR 上的两种 CI 触发：pull_request 事件与 ciflow 标签
+flowchart TB
+    PUSH["作者开 PR / push 新 commit"] -->|"pull_request 事件"| DEF["<b>默认组</b><br/>pull.yml + lint.yml，每次 push 都跑"]
+    LBL["reviewer 打 ciflow/trunk 标签<br/>（需写权限；有效标签见 pytorch-probot.yml 的 ciflow_push_tags）"] --> TAG["机器人给 PR 的 head commit<br/>打 git tag ciflow/trunk/&lt;PR号&gt;"]
+    TAG -->|"push tag 事件"| WF["<b>加跑组</b><br/>trunk.yml 的 on.push.tags: ciflow/trunk/* 被触发"]
+    DEF --> CK["结果都出现在 PR 的 checks 页"]
+    WF --> CK
+```
+
+改哪类文件该请求哪个标签：
+
+| 改动位置 | 至少请求 |
+|---|---|
+| `aten/src/ATen/native/cuda/` 下的 kernel | `ciflow/trunk`（覆盖更多 CUDA 配置）；涉及 bf16 或新架构再加 `ciflow/h100` |
+| `torch/_inductor/` | `ciflow/inductor` |
+| 分布式 | `ciflow/h100-distributed` |
+
+Table: 改动位置与应请求的 ciflow 标签
+
+`CONTRIBUTING.md` "Run Specific CI Jobs" 一节还提供了另一条路：`python tools/testing/explicit_ci_jobs.py --filter-gha '*pull*' --make-commit` 生成一个只保留匹配 workflow 的 commit，配合 `ghstack` 用；但它明说 "It creates a large commit that is of very low signal to reviewers"，只适合调试 CI 本身。
 
 ### 3. vLLM：Buildkite、test_areas、source_file_dependencies
 
@@ -599,6 +677,26 @@ Table: run_ci_command.py 的授权顺序（authorize()，命中即返回）
 所以新贡献者的 PR 流程是：开 PR → 自己什么都触发不了 → reviewer 看过一眼后敲 `/ci run` 或打 `ready` → 之后作者可以自己 `/ci run` / `/ci retry`。**每次 push 新 commit 之后都要重新敲**——"New commits do not start CI automatically"。`ready` 标签的描述（截至 2026-09 查询）是 "ONLY add when PR is ready to merge/full CI is needed"；`ready-run-all-tests` 是 "Trigger CI with all tests for wide-ranging PRs"，会把 `optional: true` 的 step 也跑起来。
 
 pre-commit 也有门槛。`.github/workflows/pre-commit.yml` 的 `pre-run-check` job 要求 PR 有 `verified`、`ready` 或 `ready-run-all-tests` 标签之一，或作者已有至少 4 个合入的 PR（"PR must have the 'verified', 'ready', or 'ready-run-all-tests' label to run pre-commit, or the author must have at least 4 merged PRs"）。`verified` 标签的描述是 "Run pre-commit for new contributors without triggering other tests"。这意味着第一次贡献者连 lint 都要等人打标签——所以本地 `pre-commit run --all-files` 不是可选项。
+
+把授权、step 选择和"push 后不重跑"连起来，一个 vLLM PR 的 CI 实际跑了什么，由下面这条链决定：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%% 图：vLLM 一个 PR 的 CI 跑哪些 step：授权、run_all_patterns、source_file_dependencies、optional
+flowchart TB
+    C["有人评论 /ci run"] --> AU{"授权？"}
+    AU -->|"否"| NO["<b>authorize() 拒绝</b><br/>放行条件：写权限 / CI_TRUSTED_USERS，<br/>或作者本人且 PR 有 ready 标签或受信 approval<br/>留言拒绝，什么都不跑"]
+    AU -->|"是"| RA{"命中 run_all_patterns？"}
+    RA -->|"是"| ALL["<b>跑全部非 optional 的 step</b><br/>ci_config.yaml 的 run_all_patterns：CMakeLists.txt、setup.py、csrc/ 等"]
+    RA -->|"否"| SFD["只跑 source_file_dependencies 与 diff 相交的 step"]
+    ALL --> OPT{"要求全跑？"}
+    SFD --> OPT
+    OPT -->|"是"| PLUS["<b>optional: true 的 step 也跑</b><br/>ready-run-all-tests 标签或 /ci run all"]
+    OPT -->|"否"| DONE["一个 Buildkite build"]
+    PLUS --> DONE
+    DONE --> NEW["作者 push 新 commit"]
+    NEW -.->|"不会自动重跑"| C
+```
 
 ### 5. 对照表
 
@@ -784,6 +882,26 @@ Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
 **CI 检查**——`mandatory_checks_name` 列出的 check 必须成功；其余 check 失败会阻塞默认合入但可以用 `-i` 忽略。
 
 **全局检查**——`check_for_sev`：如果仓库有 open 的、同时带 `ci: sev` 和 `merge blocking` 标签的 issue，所有合入暂停（"Not merging any PRs at the moment because there is a merge blocking … issue open"）。遇到这个不是你的问题，等。
+
+四类检查各自卡住时，PR 上看到的是哪条留言、该做什么：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：@pytorchbot merge 的四类检查与各自卡住时的处理
+flowchart TB
+    M["评论 @pytorchbot merge"] --> G{"全局暂停？"}
+    G -->|"是"| GW["<b>有 ci: sev + merge blocking issue</b><br/>所有合入暂停；不是你的问题，等它关闭"]
+    G -->|"否"| R{"权限够？"}
+    R -->|"否"| RW["<b>没有匹配的 merge_rules.yaml 规则</b><br/>要求：PR 每个文件都匹配某条规则的 patterns，<br/>且有 approver 在它的 approved_by 里<br/>留言报最相关的一条；请那条规则的人批准"]
+    R -->|"是"| L{"标签齐？"}
+    L -->|"否"| LW["<b>缺 release notes: 或 topic: not user facing</b><br/>LABEL_ERR_MSG；用 @pytorchbot label 补上"]
+    L -->|"是"| K{"必过 check 绿？"}
+    K -->|"否"| KW["<b>mandatory_checks_name 有失败</b><br/>EasyCLA / Lint / pull …；默认等待或拒绝，<br/>非必过项的已有失败可用 -i 忽略"]
+    K -->|"是"| OK["机器人 push 到 main<br/>commit 带 Pull Request resolved: 与 Approved by:"]
+    style OK fill:#eefaf0,stroke:#4d9a5c
+```
+
+图里的先后只是为了读起来顺；`trymerge.py` 内部的检查顺序不影响结论——任何一类不过都合不进。
 
 ### 2. vLLM：ready 标签与 mergify
 
@@ -1155,13 +1273,13 @@ Table: review 往返记录表（填写示例）
 
 | 环节 | PyTorch v2.14.0 | vLLM v0.28.0 |
 |---|---|---|
-| 体积 | 2000 行 CI 硬上限；ghstack | 500 行 RFC 线；顺序 PR；6 个 open PR 上限 |
+| 体积 | 2000 行 CI 硬上限；ghstack | 500 行 RFC 线<br/>顺序 PR<br/>6 个 open PR 上限 |
 | 测试 | unittest 体系 + 设备泛化装饰器 | pytest + AGENTS.md 设计原则 |
 | benchmark | 模板 checklist；benchmarks/ 按子系统 | benchmarks/kernels/ + vllm bench 子命令 |
 | lint | lintrunner 61 项，spin 包装，手动跑 | pre-commit ~35 项，commit 时自动跑 |
 | 描述 | 三模板，元数据化（Fixes #、标签） | 一模板，正文化（Purpose / Test Plan / Test Result）+ 标题前缀 |
 | 签名 | CLA 一次 | DCO 每 commit |
-| CI | 推送即跑，分层；ciflow 标签加跑 | 默认不跑；/ci run 按需；source_file_dependencies 按文件 |
+| CI | 推送即跑，分层；ciflow 标签加跑 | 默认不跑<br/>/ci run 按需<br/>source_file_dependencies 按文件 |
 | 日志 | HUD | Buildkite 公开日志 + Dashboard + 脚本 |
 | review | 4 个工作日可催 | 2–3 天状态，7 天可催 |
 | 合入 | 机器人 + merge_rules 路径权限 + release notes 标签 | 人 + ready 标签 + mergify |

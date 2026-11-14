@@ -65,6 +65,24 @@ flowchart TB
 - 引言案例：四十分钟得出「已在 v2.11.0 修复」
 - 「`rg` 找不到 `def`、头文件不存在，说明仓库不完整」——是生成代码；回登记表
 
+<!-- v -->
+
+### 合入 main 之后进哪一版
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart LR
+    M["合入 main"] --> Q1{"release branch<br/>切了吗？"}
+    Q1 -->|"没切"| N["<b>进这一版</b><br/>PyTorch cut 后 3–4 周发布<br/>vLLM cut 后 1–2 天"]
+    Q1 -->|"切了"| Q2{"符合 cherry-pick 准则？<br/>regression / critical"}
+    Q2 -->|"是"| CP["<b>cherry-pick</b><br/>PyTorch：tracker issue 提名<br/>vLLM：窗口 1–2 天"]
+    Q2 -->|"新功能"| NX["<b>等下一版</b><br/>PyTorch 约 2 个月<br/>vLLM 约 2 周"]
+```
+
+<aside class="notes" markdown="1">
+两份 RELEASE.md 合成的判断：branch cut 与 cherry-pick 准则决定改动进哪一版。PyTorch 用 `@pytorchbot cherry-pick -c <类别>`；vLLM "No feature work allowed for cherry picks"。原文 /reading-a-million-line-codebase.html 第七章。
+</aside>
+
 ---
 
 ## 02 · 找到切入点：maintainer 最希望有人做的是哪类
@@ -73,7 +91,7 @@ flowchart TB
 
 | 信号 | PyTorch | vLLM |
 |---|---|---|
-| 标签 | 682 个，`actionable` 396 占不到 3%；状态链四态 | 63 个；`closed-as-slop` 已打在 97 个 PR 上 |
+| 标签 | 682 个，`actionable` 396 占不到 3%；四种状态标签 | 63 个；`closed-as-slop` 已打在 97 个 PR 上 |
 | RFC 门槛 | 设计决策 | > 500 LOC（不含 kernel / data / config / test） |
 | stale | 90 + 30 天 | |
 | 查重 | #191394 下挂着 5 个 open PR | |
@@ -90,6 +108,28 @@ flowchart TB
 
 - 「issue 还 open 就是没人在做」——三条查重命令看 open PR 数与最后一条评论；`good first issue` 是最挤的池子
 - 「typo PR 是最安全的第一个 PR」——vLLM 明文不接受 busywork；做成有范围、有依据、能说出「怎么找全」的 systematic 批次
+
+<!-- v -->
+
+### PyTorch issue 的状态：只有 actionable 才写 PR
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart LR
+    TR["<b>triage</b><br/>打 module: 标签"] --> R["<b>needs reproduction</b><br/>你：复现、写最小测试"]
+    TR --> S["<b>needs research</b><br/>你：提供证据"]
+    TR --> D["<b>needs design</b><br/>你：提出设计"]
+    TR --> A
+    R -->|"maintainer 确认"| A["<b>actionable</b><br/>打标的 maintainer 愿意 review"]
+    S -->|"决定要做"| A
+    D -->|"认可设计"| A
+    A --> PR["你写 PR"]
+    style A fill:#eefaf0,stroke:#4d9a5c
+```
+
+<aside class="notes" markdown="1">
+RFC-0058（pytorch/rfcs #106，截至 2026-09 仍 open）给每个状态的定义：等任何人做什么、等 maintainer 做什么。actionable 之前发 PR，wiki 说会被关。另有 not planned：有效但 ROI 太低。原文 /finding-your-entry-point-in-open-source.html 第二章。
+</aside>
 
 ---
 
@@ -117,6 +157,30 @@ flowchart TB
 
 - 「vLLM 的 PR 开出来 CI 是灰的，等它自己跑」——本地 `pre-commit run --all-files`；等 reviewer 敲 `/ci run`；每次 push 后重新敲
 
+<!-- v -->
+
+### 一个外部 PR 每一步由谁推动
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart TB
+    subgraph PT["PyTorch"]
+    direction LR
+    P2["作者开 PR<br/>Fixes #N"] --> P3["pull + Lint<br/>自动跑"] --> P4["triage<br/>分派 reviewer"] --> P5["review<br/>ciflow/* 加跑"] --> P6["@pytorchbot merge<br/>trymerge 校验"]
+    end
+    subgraph VL["vLLM"]
+    direction LR
+    V2["作者开 PR<br/>[Tag] + -s"] --> V3["测试不跑<br/>pre-commit 也要标签"] --> V4["reviewer<br/>/ci run 或 ready"] --> V5["review<br/>push 后重敲 /ci run"] --> V6["maintainer<br/>squash merge"]
+    end
+    PT ~~~ VL
+    style V3 fill:#fff6e0,stroke:#d4a017
+    style V4 fill:#fff6e0,stroke:#d4a017
+```
+
+<aside class="notes" markdown="1">
+新贡献者最容易以为「卡住了」的是标黄的两格：vLLM 的测试在 reviewer 动手前一个都不跑，pre-commit 也要 verified / ready 标签或作者 ≥4 个合入 PR。PyTorch 的 `@pytorchbot merge` 还要过 merge_rules.yaml、release notes 标签、mandatory checks 与 ci: sev 四类检查。原文 /landing-a-mergeable-change.html 第一、七、十章。
+</aside>
+
 ---
 
 ## 04 · 两个真实 PR：时间花在哪里
@@ -142,6 +206,33 @@ flowchart TB
 
 - 「review 意见是在检查算法对不对」——提交前用描述里的数字校对代码注释；署名放描述不放代码
 - 「合入了就在最新版里」——`git tag --contains <sha>`；`merge-base --is-ancestor` 核对
+
+<!-- v -->
+
+### vLLM #47272：几乎整条时间轴都在等 review
+
+```mermaid
+%%{init: {"gantt": {"useWidth": 1200, "fontSize": 22, "sectionFontSize": 22, "barHeight": 34, "barGap": 8, "leftPadding": 130}}}%%
+gantt
+    todayMarker off
+    dateFormat YYYY-MM-DD HH:mm
+    axisFormat %m-%d
+    tickInterval 1week
+    section 作者
+    开 PR                 :a1, 2026-07-01 08:51, 2026-07-01 10:08
+    rebase                :a2, 2026-07-21 10:04, 2026-07-21 11:00
+    补 auto-fit           :a3, 2026-08-18 04:18, 2026-08-18 05:15
+    修 3 个测试           :a4, 2026-08-19 23:46, 2026-08-20 01:11
+    section 等 review
+    47 天无人 review      :crit, w1, 2026-07-01 10:08, 2026-08-17 21:34
+    等下一步              :crit, w2, 2026-08-18 05:15, 2026-08-19 21:55
+    section CI
+    两个 Buildkite build  :c1, 2026-08-19 22:45, 2026-08-20 02:49
+```
+
+<aside class="notes" markdown="1">
+PR 阶段 49 天 18 小时：等 review 约 49 天、往返约 8 小时、CI 约 4 小时、作者工作不到 1 天。PyTorch #185344 正好相反：5 天里最长的一段是作者在 CUDA 13.2 上补做的 fp64 验证（3 天 22 小时）。原文 /two-real-prs-pytorch-and-vllm.html 第六章。
+</aside>
 
 ---
 
