@@ -180,11 +180,13 @@ if ((pr_size > 2000)); then
     echo 'Your PR is '"$pr_size"' LOC which is more than the 2000 maximum'
     echo 'allowed within PyTorch infra. PLease make sure to split up'
     echo 'your PR into smaller pieces that can be reviewed.'
+    echo 'If you think that this rule should not apply to your PR,'
+    echo 'please contact @albanD or @seemethere.'
     exit 1
 fi
 ```
 
-绕过它需要 `skip-pr-sanity-checks` 标签（截至 2026-09 查询该标签存在），只有 maintainer 会打。这是一个明确的信号：超过 2 000 行的 PR 项目根本不打算 review。
+绕过它需要 `skip-pr-sanity-checks` 标签（`lint.yml` 里这个 job 的 `if:` 条件排除了带该标签的 PR；截至 2026-09 查询该标签存在），只有 maintainer 会打。这是一个明确的信号：超过 2 000 行的 PR 项目根本不打算 review。
 
 拆分的工具是 `ghstack`。它把本地一串 commit 变成一叠 PR，每个 PR 的 base 是上一个 PR 的 head（分支形如 `gh/<user>/<N>/base`、`gh/<user>/<N>/head`、`gh/<user>/<N>/orig`），可以从下往上逐个 review、逐个合入，修改中间一个会自动更新上面所有。`CONTRIBUTING.md` 在 "Run Specific CI Jobs" 一节直接用 `ghstack submit` 作为提交命令，并说明"It is not recommended to use this workflow unless you are also using `ghstack`"；`.github/workflows/check_mergeability_ghstack.yml` 专门检查 `gh/**/base` 分支的可合并性；`.github/scripts/trymerge.py` 里的 `get_ghstack_prs` 负责在合入时按顺序处理整叠。检出根目录的 `AGENTS.md` 有一节 "ghstack Workflow"，写明了识别 ghstack commit 的三个信号（detached HEAD、`ghstack-source-id` trailer、`origin/gh/USERNAME/N` 分支）和"Never push directly"的规则。
 
@@ -219,7 +221,7 @@ vLLM 没有 ghstack。拆分大改动的做法是**顺序开 PR**：先开第 1 
 
 一个带测试的 PR 让 reviewer 不必在脑子里模拟代码执行。他只需要看两件事：**测试是否覆盖了改动声称要解决的问题**（修 bug 的 PR，测试在改动前应该失败、改动后应该通过），以及**测试是否会在将来别人弄坏它时报警**。所以测试的形状比数量重要：一个精确复现 issue 场景的断言，胜过十个泛泛的"跑一遍不报错"。
 
-两个项目都有"改动必须带测试"的规定。PyTorch 的三个 PR 模板 checklist 里都有 `- [ ] Added/updated tests`；vLLM 的 "Code Quality" 一节写着 "Include sufficient tests to ensure the project stays correct and robust. This includes both unit tests and integration tests."。如果确实无法测（比如只能在特定硬件上复现），要在描述里说明原因和手工验证方法。
+两个项目都有"改动必须带测试"的规定。PyTorch 的 `fix_issue.md` 与 `preapproved.md` 两个 PR 模板的 checklist 里都有 `- [ ] Added/updated tests`（第三个 `docs_typo.md` 只用于文档 / typo，没有 checklist）；vLLM 的 "Code Quality" 一节写着 "Include sufficient tests to ensure the project stays correct and robust. This includes both unit tests and integration tests."。如果确实无法测（比如只能在特定硬件上复现），要在描述里说明原因和手工验证方法。
 
 ### 2. PyTorch：TestCase、run_tests、instantiate_device_type_tests
 
@@ -380,7 +382,7 @@ Python 语义  ERROR_PRONE_ISINSTANCE ISINSTANCE_FAKE_TENSOR EXEC ROOT_LOGGING D
 稳定 ABI     STABLE_SHIM_VERSION STABLE_SHIM_USAGE GENERATED_SHIMS_VERSION UNSPECIFIED_BACKEND GB_REGISTRY
 ```
 
-其中 12 个标了 `is_formatter = true`，可以自动修复。很多 linter 是 PyTorch 自己写的（`tools/linter/adapters/` 下），检查的是项目特有的约定：`NATIVEFUNCTIONS` 检查 `native_functions.yaml` 的格式，`WORKFLOWSYNC` 检查 `.github/workflows/` 是否与模板同步，`RAWCUDA` 禁止裸的 `cudaXxx` 调用。这解释了为什么"本地 flake8 过了"不够——CI 跑的是这 61 个。
+其中 9 个标了 `is_formatter = true`（另有 3 个显式写了 `false`），可以自动修复。很多 linter 是 PyTorch 自己写的（`tools/linter/adapters/` 下），检查的是项目特有的约定：`NATIVEFUNCTIONS` 检查 `native_functions.yaml` 的格式，`WORKFLOWSYNC` 检查 `.github/workflows/` 是否与模板同步，`RAWCUDA` 禁止裸的 `cudaXxx` 调用。这解释了为什么"本地 flake8 过了"不够——CI 跑的是这 61 个。
 
 v2.14.0 推荐的入口是 `spin`（`CONTRIBUTING.md` 的 "Spin" 一节与 "Linting before committing" 一节）。`pyproject.toml` 的 `[tool.spin.commands]` 注册了这些子命令：`develop`、`editable`、`install`、`clean`、`lint`、`fixlint`、`quicklint`、`quickfix`、`regenerate-version`、`regenerate-type-stubs`、`regenerate-clangtidy-files`、`regenerate-github-workflows`、`docs`、`pyrefly`，实现都在 `.spin/cmds.py`。CONTRIBUTING 的 "Linting" 表格列出的是 `lint`、`quicklint`、`quickfix` 三个；`fixlint` 在表格里没有，但 `pyproject.toml` 里注册了，三个 PR 模板的 checklist 也都写着 `Passes lint (spin fixlint)`，根目录 `AGENTS.md` 的 "Linting" 一节说 "use `spin lint` as to run the lint and `spin fixlint` to apply automatic fixes"。以 `pyproject.toml` 为准，四个都能用：
 
@@ -414,7 +416,7 @@ vLLM 用 `pre-commit`，配置在根目录 `.pre-commit-config.yaml`。`default_
 末尾       suggestion（只打印一条提示：--no-verify 跳过全部，SKIP=<hook-id> 跳过某个）
 ```
 
-`signoff-commit` 值得单独看：它挂在 `commit-msg` 阶段，用 `bash -c` 检查 `COMMIT_EDITMSG` 里有没有 `Signed-off-by: <git user.name> <git user.email>`，没有就追加一行。也就是说装好 pre-commit 之后忘了 `-s` 也不会漏签——但前提是 `pre-commit install` 装了 `commit-msg` 类型的钩子（默认会）。`check-spdx-header` 只在本地跑（"Only run locally as Buildkite will cover this"）；四个 `mypy-3.x` 中只有 3.10 本地跑，其余三个是 `manual` 阶段。
+`signoff-commit` 值得单独看：它挂在 `commit-msg` 阶段，用 `bash -c` 检查 `COMMIT_EDITMSG` 里有没有 `Signed-off-by: <git user.name> <git user.email>`，没有就追加一行。也就是说装好 pre-commit 之后忘了 `-s` 也不会漏签——但前提是 `pre-commit install` 装了 `commit-msg` 类型的钩子（默认会）。三个 `rust-cargo-*` hook 只在本地跑（`stages: [pre-commit]`，注释 "Only run locally as Buildkite will cover this"）；四个 `mypy-3.x` 中只有 3.10 本地跑，其余三个是 `manual` 阶段。
 
 命令（`docs/contributing/README.md` "Linting" 与 `AGENTS.md` "Running linters"，在仓库根目录执行）：
 
@@ -551,17 +553,17 @@ PyTorch 的 CI 是**推送即跑、分层触发**：每个 PR 自动跑一组（
 | `pull.yml` | pull_request<br/>push main / release/\* / landchecks/\*<br/>tags ciflow/pull/\* | 每个 PR 必跑；merge_rules 里叫 "pull" |
 | `lint.yml` | pull_request<br/>push main / release/\*<br/>tags ciflow/pull/\* ciflow/trunk/\* | 每个 PR 必跑；merge_rules 里叫 "Lint" |
 | `trunk.yml` | push main / release/\* / landchecks/\*<br/>tags ciflow/trunk/\*<br/>schedule | main 上跑；PR 上要打 ciflow/trunk 标签 |
-| `periodic.yml` | schedule（工作日每 8 小时等）<br/>tags ciflow/periodic/\*<br/>push release/\* | 周期跑；PR 上要打 ciflow/periodic |
+| `periodic.yml` | schedule（工作日两组错开 4 小时、各每 8 小时一次的 cron，周末更少）<br/>tags ciflow/periodic/\*<br/>push release/\* | 周期跑；PR 上要打 ciflow/periodic |
 | `slow.yml` | push main / release/\*<br/>tags ciflow/slow/\*<br/>schedule | 慢测试；PR 上要打 ciflow/slow |
 | `inductor.yml` | push main / release/\*；tags ciflow/inductor/\* | Inductor 全量；PR 上要打 ciflow/inductor |
 
 Table: 与贡献者直接相关的六个 PyTorch workflow
 
-`pull.yml` 自身有十个左右顶层 job 定义，但通过 `uses: ./.github/workflows/_linux-build.yml` / `_linux-test.yml` 等复用二十多次，实际展开为几十个 build/test 组合（不同 Python、CUDA、编译器、平台）。一个 PR 的 checks 页面因此有几百个条目。检出根目录 `AGENTS.md` 专门提醒："A PR has hundreds of check-runs, so a single `check-runs?per_page=100` call silently truncates and makes red look green. Use `gh pr checks <PR> --json name,state,workflow,link,bucket,completedAt`"。
+`pull.yml` 自身有 24 个顶层 job，其中 20 个通过 `uses:` 复用 `_linux-build.yml`（13 次）与 `_linux-test.yml`（7 次），另有 `job-filter`、`llm-td`、`target-determination` 等辅助 job；每个 test job 再按 test matrix 分片，实际展开为几十个 build/test 组合（不同 Python、CUDA、编译器、平台）。一个 PR 的 checks 页面因此有几百个条目。检出根目录 `AGENTS.md` 专门提醒："A PR has hundreds of check-runs, so a single `check-runs?per_page=100` call silently truncates and makes red look green. Use `gh pr checks <PR> --json name,state,workflow,link,bucket,completedAt`"。
 
-`ciflow/*` 是 PyTorch 让 PR 跑"非默认"任务的机制。给 PR 打上 `ciflow/trunk` 标签，机器人会给 PR 的 head commit 打一个 `ciflow/trunk/<PR号>` 的 git tag，`trunk.yml` 的 `on.push.tags: ciflow/trunk/*` 就被触发。哪些标签有效，写在 `.github/pytorch-probot.yml` 的 `ciflow_push_tags` 列表里，v2.14.0 有 49 个，可以分成几组：
+`ciflow/*` 是 PyTorch 让 PR 跑"非默认"任务的机制。给 PR 打上 `ciflow/trunk` 标签，机器人会给 PR 的 head commit 打一个 `ciflow/trunk/<PR号>` 的 git tag，`trunk.yml` 的 `on.push.tags: ciflow/trunk/*` 就被触发。哪些标签有效，写在 `.github/pytorch-probot.yml` 的 `ciflow_push_tags` 列表里，v2.14.0 有 48 个，可以分成几组：
 
-```text title="ciflow_push_tags 的 49 个标签分组"
+```text title="ciflow_push_tags 的 48 个标签分组"
 基础          ciflow/pull ciflow/trunk ciflow/periodic ciflow/slow ciflow/nightly ciflow/unstable
 硬件          ciflow/h100 ciflow/h100-distributed ciflow/h100-symm-mem ciflow/h100-cutlass-backend
               ciflow/b200 ciflow/b200-distributed ciflow/b200-symm-mem ciflow/mps ciflow/xpu ciflow/s390 ciflow/riscv64 ciflow/win-arm64
@@ -642,7 +644,7 @@ steps:
 | `label` / `key` | 显示名与唯一键；`gh pr checks` 里看到的名字来自 `label` |
 | `device` | 跑在什么 GPU 上：`h100` / `h200_18gb` / `h200_35gb` / `b200-k8s` 等（带显存后缀的是共享切分的实例） |
 | `num_devices` | 需要几张卡（多卡分布式测试） |
-| `source_file_dependencies` | 改了这些路径下的文件才触发这个 step；PR 的 CI 只跑与 diff 相交的 step |
+| `source_file_dependencies` | 改了这些路径下的文件才触发这个 step；PR 的 CI 只跑与 diff 相交的 step；以 `!` 开头的是排除项（如 `misc.yaml` 里的 `"!vllm/distributed/kv_transfer/"`） |
 | `commands` | 在 `/vllm-workspace/tests` 下执行的命令；`$$` 是 Buildkite 的转义 |
 | `parallelism` | 分片数，配合 `--shard-id` / `--num-shards` |
 | `optional` | 默认不跑，需要 `ready-run-all-tests` 或 `/ci run all` |
@@ -674,7 +676,7 @@ Table: test_areas step 的字段含义
 
 Table: run_ci_command.py 的授权顺序（authorize()，命中即返回）
 
-所以新贡献者的 PR 流程是：开 PR → 自己什么都触发不了 → reviewer 看过一眼后敲 `/ci run` 或打 `ready` → 之后作者可以自己 `/ci run` / `/ci retry`。**每次 push 新 commit 之后都要重新敲**——"New commits do not start CI automatically"。`ready` 标签的描述（截至 2026-09 查询）是 "ONLY add when PR is ready to merge/full CI is needed"；`ready-run-all-tests` 是 "Trigger CI with all tests for wide-ranging PRs"，会把 `optional: true` 的 step 也跑起来。
+所以新贡献者的 PR 流程是：开 PR → 自己什么都触发不了 → reviewer 看过一眼后敲 `/ci run` 或打 `ready` → 之后作者可以自己 `/ci run` / `/ci retry`。授权变化有通知：`.github/workflows/notify-ci-authorized.yml` 在 PR 被打上 `ready` / `ready-run-all-tests`，或收到受信 reviewer 的 approve（`record-ci-approval.yml` 记录 review 事件）之后，调用同一个 `run_ci_command.py` 的 `notify_authorized`，在 PR 里留言 "CI is now available for this PR."，告诉作者此后可以自己敲 `/ci run` / `/ci retry`。**每次 push 新 commit 之后都要重新敲**——"New commits do not start CI automatically"。`ready` 标签的描述（截至 2026-09 查询）是 "ONLY add when PR is ready to merge/full CI is needed"；`ready-run-all-tests` 是 "Trigger CI with all tests for wide-ranging PRs"，会把 `optional: true` 的 step 也跑起来。
 
 pre-commit 也有门槛。`.github/workflows/pre-commit.yml` 的 `pre-run-check` job 要求 PR 有 `verified`、`ready` 或 `ready-run-all-tests` 标签之一，或作者已有至少 4 个合入的 PR（"PR must have the 'verified', 'ready', or 'ready-run-all-tests' label to run pre-commit, or the author must have at least 4 merged PRs"）。`verified` 标签的描述是 "Run pre-commit for new contributors without triggering other tests"。这意味着第一次贡献者连 lint 都要等人打标签——所以本地 `pre-commit run --all-files` 不是可选项。
 
@@ -705,7 +707,7 @@ flowchart TB
 | 系统 | GitHub Actions | Buildkite（+ GitHub Actions 跑 pre-commit 与机器人） |
 | 配置位置 | .github/workflows/\*.yml（148 个） | .buildkite/test_areas/\*.yaml（35 个）+ ci_config.yaml |
 | 按领域组织 | 按 workflow（pull / trunk / periodic / slow / inductor …） | 按 test_area 文件（kernels / entrypoints / distributed …） |
-| 按改动文件选任务 | 无（pull 全跑；filter_test_configs.py 有少量按标签过滤） | source_file_dependencies 精确到路径；run_all_patterns 例外 |
+| 按改动文件选任务 | job 不裁剪（pull 的 job 全跑）；但 PR 上的 pull / trunk 测试启用 target determination：tools/testing/target_determination/heuristics/ 按改动文件、历史失败等给测试文件排序，test/run_test.py 的 --enable-td 只跑前 25% | source_file_dependencies 精确到路径；run_all_patterns 例外 |
 | PR 上默认跑什么 | pull + Lint（几十个 job） | 只有 pre-commit（且需 verified/ready 或 ≥4 合入 PR） |
 | 额外任务怎么要 | reviewer 打 ciflow/`<xxx>` 标签 | reviewer 敲 /ci run 或打 ready；之后作者可自己敲 |
 | push 后自动重跑 | 是 | 否，需再敲 /ci run |
@@ -795,7 +797,7 @@ vLLM `docs/contributing/README.md` "What to Expect for the Reviews" 一节，自
 
 |  | PyTorch | vLLM |
 |---|---|---|
-| 分派 | triage squad 打 module 标签、分派，"a couple business days" | 自动分派 reviewer（mergify 规则 + 人工） |
+| 分派 | triage squad 打 module 标签、分派，"a couple business days" | .github/CODEOWNERS 按路径自动请求 review；mergify 另有 3 条 assign 规则（cpu、tensorizer、modelopt）；其余人工 |
 | 中途状态 | 无承诺 | 每 2–3 天一次 |
 | 可以催的时点 | 4 个工作日无回应 | 7 天无 review |
 | 怎么催 | PR 里留言并 @ reviewer | ping reviewer 或 vLLM team；Slack #pr-reviews（new_pr_bot 欢迎语里给了地址） |
@@ -852,7 +854,7 @@ Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
 
 合入前 `trymerge.py` 做四类检查，任何一类不过就在 PR 里留言拒绝：
 
-**权限检查**——`.github/merge_rules.yaml`。v2.14.0 有 33 条规则，每条四个字段：
+**权限检查**——`.github/merge_rules.yaml`。v2.14.0 有 33 条规则，每条四个必填字段（`trymerge.py` 的 `MergeRule` 类），外加一个可选的 `ignore_flaky_failures`（默认 true，33 条里只有 "OSS CI / pytorchbot / XLA" 设成了 false）：
 
 ```yaml title="merge_rules.yaml 节选"
 # pytorch .github/merge_rules.yaml（节选）
@@ -871,7 +873,19 @@ Table: @pytorchbot 评论写法与 trymerge.py 参数的对应
   - pull
 ```
 
-`patterns` 是文件 glob，`approved_by` 是有权批准这些文件改动的人或团队，`mandatory_checks_name` 是必须通过的 check（几乎所有规则都是 `EasyCLA`、`Lint`、`pull` 三项，个别加 `inductor` 或 `slow`）。`find_matching_merge_rule` 遍历所有规则，找一条**PR 改动的每个文件都匹配其 `patterns`、且至少一个 approver 在 `approved_by` 里**的规则。最后一条 `Core Maintainers` 的 `patterns` 是 `'*'`，`approved_by` 是核心维护者名单，作为兜底。这解释了一个常见困惑："PR 被 approve 了为什么合不进"——approve 你的人不在你改动文件对应规则的 `approved_by` 里。拒绝信息会告诉你差哪条规则（`reject_reason` 按匹配文件数排序，只报最相关的一条）。
+`patterns` 是文件 glob（`gitutils.py` 的 `patterns_to_regex`：`*` 不跨目录、`**` 跨目录；以 `-` 开头的是排除项），`approved_by` 是有权批准这些文件改动的人或团队，`mandatory_checks_name` 是必须通过的 check（33 条里 31 条是 `EasyCLA`、`Lint`、`pull` 三项，pytorchbot 更新 commit pin 的那条加 `inductor`、更新 `test/slow_tests.json` 的那条加 `slow`）。`find_matching_merge_rule` 按文件顺序逐条试，找到第一条**PR 改动的每个文件都匹配其 `patterns`、且至少一个 approver 在 `approved_by` 里**的规则就通过。最后三条 `Metamates`（67 人）、`Core Reviewers`（14 人）、`Core Maintainers`（9 人）的 `patterns` 都是 `'*'`，作为兜底：这些人的 approve 对任何文件都算数。这解释了一个常见困惑："PR 被 approve 了为什么合不进"——approve 你的人不在你改动文件对应规则的 `approved_by` 里。拒绝信息只报最接近通过的一条规则：`reject_reason_score` 按"匹配了几个文件" < "文件全匹配但没有对应 approver" < "必过 check 还在跑" < "必过 check 失败"打分，取最高的那条。
+
+merge_rules.yaml 管的是"谁的 approve 算数"，它和"谁会被请来 review"是两份不同的文件。两个项目的分工如下：
+
+|  | PyTorch | vLLM |
+|---|---|---|
+| 谁会自动收到 review 请求 | 根目录 `CODEOWNERS`（167 条路径规则、65 个账号或团队）<br/>文件头写明它 "ONLY used to subscribe for notifications"，"Approvals from people in this file are not required for merges"<br/>`.github/auto_request_review.yml` 只按作者配了一个 symbolic-shapes 组，`files:` 为空 | `.github/CODEOWNERS`（166 条带 owner 的路径规则、54 个账号）<br/>mergify 另有 3 条按路径 assign 的规则（cpu、tensorizer、modelopt） |
+| 谁的 approve 算数 | `.github/merge_rules.yaml` 的 33 条规则<br/>30 条按路径（其中 4 条只认 pytorchbot，用于自动更新 commit pin 与 `test/slow_tests.json`）<br/>3 条 `'*'` 兜底：Metamates 67 人、Core Reviewers 14 人、Core Maintainers 9 人 | 仓库里没有对应文件：由有写权限的 maintainer approve 后合入；分支保护设置不在仓库里，检出看不到 |
+| 谁执行合入 | merge bot；`SECURITY.md`："Protected branches are used to restrict the ability to merge to the trunk/release branches only to the repository administrators and merge bot" | maintainer 在 GitHub 上 squash merge |
+
+Table: 两个项目的 review 请求与合入权限分别由哪份文件决定
+
+所以在 PyTorch 里被 CODEOWNERS 自动 @ 到的人不一定能放行你的 PR；要找的是改动路径对应规则 `approved_by` 里的人，或者三条兜底规则里的人。
 
 **标签检查**——`ensure_mergeable_labels` 要求 PR 有 `release notes:` 开头的标签或 `topic: not user facing`。`.github/scripts/label_utils.py` 的 `LABEL_ERR_MSG`：
 
@@ -896,12 +910,12 @@ flowchart TB
     R -->|"是"| L{"标签齐？"}
     L -->|"否"| LW["<b>缺 release notes: 或 topic: not user facing</b><br/>LABEL_ERR_MSG；用 @pytorchbot label 补上"]
     L -->|"是"| K{"必过 check 绿？"}
-    K -->|"否"| KW["<b>mandatory_checks_name 有失败</b><br/>EasyCLA / Lint / pull …；默认等待或拒绝，<br/>非必过项的已有失败可用 -i 忽略"]
+    K -->|"否"| KW["<b>check 失败或还在跑</b><br/>失败：拒绝，留言列出前几个失败 job；<br/>还在跑：每 5 分钟重查（每轮先重查全局暂停），<br/>最长 400 分钟，超时打 land-failed 标签；<br/>评论时已失败的 check 可用 -i 忽略"]
     K -->|"是"| OK["机器人 push 到 main<br/>commit 带 Pull Request resolved: 与 Approved by:"]
     style OK fill:#eefaf0,stroke:#4d9a5c
 ```
 
-图里的先后只是为了读起来顺；`trymerge.py` 内部的检查顺序不影响结论——任何一类不过都合不进。
+图里的先后就是 `trymerge.py` 的 `merge()` 函数的实际顺序：先 `check_for_sev`，再 `find_matching_merge_rule(..., skip_mandatory_checks=True)` 只查 approver，再 `ensure_mergeable_labels`，之后才进入等待 check 的循环（循环里用完整的 `find_matching_merge_rule` 加 `categorize_checks` 判断必过项与其余 check），全部通过后 `merge_into` 再查一次规则才 push。所以留言总是报排在最前的那一类问题：approver 不对时，你看不到标签和 CI 的报错。进入 `merge()` 之前，`main()` 还会直接拒绝已关闭的 PR、目标分支不是 main 的非 ghstack PR，以及改了 submodule 却没在标题或描述里写 "submodule" 的 PR。`-f` 走的是另一条短路：跳过全局暂停、标签检查和等待循环，但 `merge_into` 里的 `find_matching_merge_rule` 仍要求对应规则的 approver，`EasyCLA` 也照样必过（`find_matching_merge_rule` 里过滤 `required_checks` 时对 `EasyCLA` 例外）。
 
 ### 2. vLLM：ready 标签与 mergify
 
@@ -928,7 +942,7 @@ vLLM 的合入是人做的：有写权限的 maintainer approve 之后打 `ready
 ```
 {% endraw %}
 
-  对应的 "remove 'needs-rebase' label when conflict is resolved" 规则在冲突解决后自动摘掉标签。vLLM 的 main 每天几十个 commit，一个 PR 挂一周基本必然要 rebase 一次；
+  对应的 "remove 'needs-rebase' label when conflict is resolved" 规则在冲突解决后自动摘掉标签。另一条 "auto-rebase to keep merge candidate within 1 day behind main" 只管已经进入合入候选的 PR：有 `ready` 标签、至少一个 approve、落后 main 50 个以上 commit、没有失败的 check、没有冲突时，mergify 用 `update` 动作把 main 合进 PR 分支。vLLM 的 main 每天几十个 commit，一个 PR 挂一周基本必然要 rebase 一次；
 
 - **pre-commit 与 DCO 绿**：mergify 的 `comment-pre-commit-failure` 规则在 PR 有 `ready` 或 `verified` 标签且 pre-commit 失败时留言，附上 `uv pip install pre-commit>=4.5.1` / `pre-commit install` / `pre-commit run --all-files` 三行命令；`comment-dco-failure` 在 DCO 失败时留言；
 
@@ -1254,7 +1268,7 @@ Table: review 往返记录表（填写示例）
   - vLLM Purpose / Test Plan / Test Result；标题前缀 `[Bugfix]` `[CI/Build]` `[Doc]` `[Model]` `[Frontend]` `[Kernel]` `[Core]` `[Hardware][Vendor]` `[Misc]`
 - **签名**：PyTorch CLA（EasyCLA check，在 merge_rules 的 `mandatory_checks_name` 里）；vLLM DCO（`git commit -s`；`signoff-commit` 钩子；mergify `comment-dco-failure`）
 - **CI**
-  - PyTorch 148 个 workflow；PR 自动跑 pull + Lint；trunk / periodic / slow / inductor 靠 `ciflow/*` 标签（`pytorch-probot.yml` 列 49 个）
+  - PyTorch 148 个 workflow；PR 自动跑 pull + Lint；trunk / periodic / slow / inductor 靠 `ciflow/*` 标签（`pytorch-probot.yml` 列 48 个）
   - vLLM 35 个 test_area；`source_file_dependencies` 决定触发；`ci_config.yaml` `run_all_patterns` 例外；PR 默认只跑 pre-commit（需 verified/ready 或 ≥4 合入）；`/ci run` 授权链：写权限 → 受信名单 → 作者且非 draft 且有 ready/approval
 - **读日志**：先看 main 是否也红：PyTorch HUD + "CI failure tips"、"Which commit is used in CI?"；`gh pr checks`；vLLM CI Failures Dashboard + `failures.md` + `ci-fetch-log.sh` + `rerun-test.sh`
 - **review**
@@ -1299,8 +1313,8 @@ Table: 两个项目逐环节对照
 |  | `pyproject.toml`；`.spin/cmds.py` | `[tool.spin.commands]`：`lint` / `fixlint` / `quicklint` / `quickfix` / `develop` / `regenerate-*` / `docs` / `pyrefly` |
 |  | `.github/workflows/pull.yml` / `trunk.yml` / `periodic.yml` / `slow.yml` / `inductor.yml` / `lint.yml` | `on:` 触发条件；`lint.yml` 的 `pr-sanity-checks` / `lintrunner-clang` / `lintrunner-pyrefly` / `lintrunner-noclang` / `quick-checks` / `workflow-checks` |
 |  | `.github/scripts/pr-sanity-check.sh` | 2000 行上限；`skip-pr-sanity-checks` 标签 |
-|  | `.github/pytorch-probot.yml` | `ciflow_push_tags`（49 个）、`retryable_workflows`、`mergebot: true` |
-|  | `.github/merge_rules.yaml` | 33 条：`name` / `patterns` / `approved_by` / `mandatory_checks_name`（`EasyCLA` / `Lint` / `pull` …）；`Core Maintainers` 兜底 |
+|  | `.github/pytorch-probot.yml` | `ciflow_push_tags`（48 个）、`retryable_workflows`、`mergebot: true` |
+|  | `.github/merge_rules.yaml` | 33 条：`name` / `patterns` / `approved_by` / `mandatory_checks_name`（`EasyCLA` / `Lint` / `pull` …）；可选 `ignore_flaky_failures`；最后三条 `'*'` 规则兜底 |
 |  | `.github/scripts/trymerge.py`<br/>`trymerge_explainer.py`<br/>`label_utils.py` | `parse_args`（`--force` / `--ignore-current` / `--revert`）<br/>`find_matching_merge_rule`<br/>`ensure_mergeable_labels`<br/>`check_for_sev`<br/>`get_ghstack_prs`<br/>`NOT_USER_FACING_LABEL`<br/>`LABEL_ERR_MSG` |
 |  | `.github/workflows/trymerge.yml` / `tryrebase.yml` / `revert.yml` / `check_mergeability_ghstack.yml` | 机器人 workflow |
 |  | `.github/labeler.yml` | `release notes: *` 自动标签 |
