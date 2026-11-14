@@ -5,7 +5,7 @@ title: "AI 平台工程（06）：Serving 平台——从 InferenceService 到 l
 subtitle: "Serving Platforms: KServe, Triton, Ray Serve, LeaderWorkerSet and llm-d"
 tags: [Kubernetes, GPU, KServe, llm-d, vLLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个常见的事故是这样的：某个 70B 模型的推理服务用 Deployment 部署了 2 个副本，每个副本 TP=4 占一台 4 卡机器，HPA 按 CPU 利用率 70% 扩容。晚高峰到来，用户侧 TTFT 从 1 秒涨到 20 秒，`kubectl get hpa` 却显示 CPU 只有 12%——vLLM 的 CPU 几乎全在等 GPU，KV cache 早已占满、几百个请求在引擎内部的等待队列里排队，而 K8s 对此一无所知。值班同学手动把副本改成 6，新 Pod 调度、拉镜像、从对象存储拉 140 GB 权重、加载到显存、做 CUDA graph 捕获，8 分钟后第一个新副本才开始接流量，此时高峰已经过去一半。第二天有人把副本常驻改成 6，于是 16 张 H100 在白天的 20 个小时里几乎空转。
@@ -38,7 +38,7 @@ updated: 2026-09-14
 原生对象逐条对不上：
 
 - Deployment 与 StatefulSet 的单位都是 Pod，没有"N 个 Pod 是一个副本"的概念；StatefulSet 有稳定的名字但没有组的语义，`replicas: 4` 是 4 个 Pod 而不是 2 组 × 2。
-- HPA 默认只认 `metrics.k8s.io` 的 CPU 与内存；接引擎指标要经过 `custom.metrics.k8s.io` / `external.metrics.k8s.io` 的适配器，且 HPA 不能缩到 0（`HPAScaleToZero` 至今是 alpha feature gate）。
+- HPA 默认只认 `metrics.k8s.io` 的 CPU 与内存；接引擎指标要经过 `custom.metrics.k8s.io` / `external.metrics.k8s.io` 的适配器，且 HPA 缩到 0 有前提：`HPAScaleToZero` 在 v1.37 才升为 beta、默认开启，`minReplicas: 0` 还要求至少一个 Object 或 External 指标；缩到 0 之后第一个请求到来时没有副本，Service 也不替它排队缓冲。
 - Pod 的 `readinessProbe` 只有成功与失败，没有"权重加载到 60%"这样的进度；`startupProbe` 能给出足够长的宽限，但平台不知道一个副本还要多久。
 - Service 的 kube-proxy 负载均衡是无状态轮询，不知道哪个副本 KV cache 已满——这是第七篇网关的问题，本篇只在"平台生成什么对象"处带过。
 - 模型权重不是镜像的一部分。K8s 没有"把 140 GB 的文件放到 Pod 起来之前"的原生机制，只有 initContainer、PVC 与 image volume 这些积木。
@@ -297,7 +297,7 @@ spec:
   - { name: http, port: 8000, targetPort: 8000 }
 ```
 
-三点说明。第一，worker 的 `--node-rank $(LWS_WORKER_INDEX)` 只在 `size: 2` 时恰好等于 1；更多节点时 worker index 从 1 起、node-rank 也从 1 起，仍然一致。第二，`LWS_LEADER_ADDRESS` 是 DNS 名，vLLM 文档里写的是 `<HEAD_NODE_IP>`，主机名能否被 torch 分布式初始化接受以 v0.28.0 实际行为为准，不行就在启动脚本里先 `getent hosts` 解析成 IP。第三，`lws docs/examples/vllm/GPU/lws.yaml` 给的是 Ray 后端的写法：leader 用 `multi-node-serving.sh leader --ray_cluster_size=$(LWS_GROUP_SIZE)` 起 Ray head，worker 用 `multi-node-serving.sh worker --ray_address=$(LWS_LEADER_ADDRESS)` 加入，然后在 leader 上 `--distributed-executor-backend ray`；这个脚本在 vLLM v0.28.0 里位于 `examples/ray_serving/multi-node-serving.sh`。两种方式的差别只在进程组怎么组建，LWS 层完全相同。
+三点说明。第一，worker 的 `--node-rank $(LWS_WORKER_INDEX)` 只在 `size: 2` 时恰好等于 1；更多节点时 worker index 从 1 起、node-rank 也从 1 起，仍然一致。第二，`LWS_LEADER_ADDRESS` 是 DNS 名，vLLM 文档里写的是 `<HEAD_NODE_IP>`，主机名能否被 torch 分布式初始化接受以 v0.28.0 实际行为为准，不行就在启动脚本里先 `getent hosts` 解析成 IP。第三，`lws docs/examples/vllm/GPU/lws.yaml` 给的是 Ray 后端的写法：leader 用 `multi-node-serving.sh leader --ray_cluster_size=$(LWS_GROUP_SIZE)` 起 Ray head，worker 用 `multi-node-serving.sh worker --ray_address=$(LWS_LEADER_ADDRESS)` 加入，然后在 leader 上启动 API server；示例的启动命令没有写 `--distributed-executor-backend`，而 v0.28.0 在 world size 大于本机卡数、又没给 `--nnodes` 时直接报错，要显式加上 `--distributed-executor-backend ray`；这个脚本在 vLLM v0.28.0 里位于 `examples/ray_serving/multi-node-serving.sh`（示例里写的是旧路径 `examples/online_serving/`）。两种方式的差别只在进程组怎么组建，LWS 层完全相同。
 
 ### 4. DisaggregatedSet：P/D 角色作为一个对象
 
@@ -384,7 +384,7 @@ spec:
 
 `pkg/apis/serving/v1alpha1/llm_inference_service_types.go` 的 `LLMInferenceServiceSpec`：
 
-- `model`：LLMModelSpec——`uri`（hf:// s3:// pvc:// oci://，storage-initializer 据此下载）、`name`（请求里的 model 字段，默认 `metadata.name`）、`criticality`（Critical/Standard/Sheddable，给推理网关调度器用）、`lora`（`adapters[]`、`maxRank` → `--max-lora-rank`、`maxAdapters` → `--max-loras`、`maxCpuAdapters` → `--max-cpu-loras`）
+- `model`：LLMModelSpec——`uri`（hf:// s3:// pvc:// oci://，storage-initializer 据此下载）、`name`（请求里的 model 字段，默认 `metadata.name`）、`criticality`（Critical/Standard/Sheddable；存储版本 v1alpha2 已删掉这个字段，转换时只存进注解，控制器不再使用）、`lora`（`adapters[]`、`maxRank` → `--max-lora-rank`、`maxAdapters` → `--max-loras`、`maxCpuAdapters` → `--max-cpu-loras`）
 - `storageInitializer`：`enabled`：false 时不注入 init 容器（模型已由别的方式放好）
 - （WorkloadSpec 内联）
   - `replicas`：静态副本数；与 `scaling` 互斥（类型上的 CEL 校验）
@@ -537,7 +537,7 @@ flowchart TB
 
 ### 6. 权重加载路径
 
-两个 CRD 共用 `pkg/webhook/admission/pod/storage_initializer_injector.go` 的逻辑，按 `storageUri` 的 scheme 分三条路（scheme 常量在 `pkg/constants/constants.go`）：
+`InferenceService` 由 Pod webhook `pkg/webhook/admission/pod/storage_initializer_injector.go` 注入，`LLMInferenceService` 由控制器在生成 Pod 模板时处理（`pkg/controller/v1alpha2/llmisvc/workload_storage.go` 的 `attachModelArtifacts`，只认 `pvc://`、`hf://`、`s3://`、`oci://`、`oci+native://`）；两边都按 `storageUri` 的 scheme 分三条路（scheme 常量在 `pkg/constants/constants.go`）：
 
 - **`pvc://<claim>[/path]`**：`CommonStorageInitialization` 把 PVC URI 单独分出来，"直接作为卷挂载，不需要 init 容器"，卷名 `kserve-pvc-source`，挂到 `/mnt/models`（默认只读，注解可改）。这是最快的路径——权重已在并行文件系统上，就绪时间只剩读到显存。
 - **`s3://`、`gs://`、`hf://`、`https://`**：注入名为 `storage-initializer` 的 initContainer（镜像 `kserve/storage-initializer`），下载到 emptyDir 卷 `kserve-provision-location`，主容器再从 `/mnt/models` 读。下载由 `ClusterStorageContainer`（`pkg/apis/serving/v1alpha1/storage_container_types.go`）按 URI 前缀匹配容器镜像与凭据，`predictor.storageContainerName` 可指定。代价是每个副本都要完整下一遍，140 GB 在对象存储上的下载时间直接计入扩容时间。
@@ -613,7 +613,7 @@ Triton 的抽象是"张量进、张量出"，调度器（dynamic / sequence / en
 
 Ray Serve 的单位是 **deployment**：一个 Python 类加 `@serve.deployment` 装饰器，声明副本数、每副本资源（`ray_actor_options={"num_gpus": 1}`）与自动扩缩容（`autoscaling_config` 里的 `min_replicas`、`max_replicas`、`target_ongoing_requests`）。多个 deployment 用 `.bind()` 组成一张图（一个 application），一个 deployment 的方法可以直接 `await` 另一个的 handle——多阶段流水线（tokenize → embed → LLM → rerank）是 Python 调用而不是 YAML 里的 step。Ray 自己的调度器在 Ray 集群内放置副本，K8s 只看到 Ray 的 head 与 worker Pod。
 
-Ray 也提供 `ray.serve.llm` 模块，把 vLLM 包装成 deployment 并暴露 OpenAI 兼容路由；`kuberay ray-operator/config/samples/ray-service.llm-serve.yaml` 用 `import_path: ray.serve.llm:build_openai_app`，在 `llm_configs` 里给 `model_loading_config`、`engine_kwargs`（直接是 vLLM 的引擎参数）与 `deployment_config.autoscaling_config`（`target_ongoing_requests: 64`、`max_ongoing_requests: 128`）。这里的扩缩容信号是 Ray Serve 自己计的每副本在途请求数，与 vLLM 的队列长度接近，但不是同一个数。
+Ray 也提供 `ray.serve.llm` 模块，把 vLLM 包装成 deployment 并暴露 OpenAI 兼容路由；`kuberay ray-operator/config/samples/ray-service.llm-serve.yaml` 用 `import_path: ray.serve.llm:build_openai_app`，在 `llm_configs` 里给 `model_loading_config`、`engine_kwargs`（直接是 vLLM 的引擎参数）与 `deployment_config`（`autoscaling_config.target_ongoing_requests: 64`，以及与它平级的 `max_ongoing_requests: 128`）。这里的扩缩容信号是 Ray Serve 自己计的每副本在途请求数，与 vLLM 的队列长度接近，但不是同一个数。
 
 ### 5. RayService
 
@@ -634,7 +634,7 @@ RayService 适合的场景：Python 逻辑重、多阶段、需要在阶段之�
 
 `llm-d docs/architecture/README.md` 把架构建立在三个概念上：
 
-- **llm-d Router**：请求的入口，做 LLM 感知的负载均衡、排队与策略执行。它由两部分组成——**Proxy**（`core/router/proxy.md`）是一个符合 GIE 规范的 L7 代理，接收请求后通过 `ext-proc` 协议咨询 EPP；**EPP（Endpoint Picker）**（`core/router/epp/`）是路由引擎，按实时指标、KV cache 亲和与配置的策略给模型服务器 Pod 打分并选出目标。EPP 的代码在 llm-d-router 仓库的 `epp/` 目录（v0.10.0）。
+- **llm-d Router**：请求的入口，做 LLM 感知的负载均衡、排队与策略执行。它由两部分组成——**Proxy**（`core/router/proxy.md`）是一个符合 GIE 规范的 L7 代理，接收请求后通过 `ext-proc` 协议咨询 EPP；**EPP（Endpoint Picker）**（`core/router/epp/`）是路由引擎，按实时指标、KV cache 亲和与配置的策略给模型服务器 Pod 打分并选出目标。EPP 的代码在 llm-d-router 仓库的 `pkg/epp/` 目录（v0.10.0）。
 - **InferencePool**：来自 GIE 的 API（`inference.networking.k8s.io/v1`，v1.6.0 的 GIE 仓库只保留 InferencePool API、`apix/v1alpha1` 扩展 API、轻量参考 EPP `pkg/lwepp` 与 conformance），用标签选择器把服务同一基础模型的 Pod 归为一组，文档称之为 "LLM-optimized Service"。**Variant** 是 pool 内通过 Pod 标签区分的子集——prefill 与 decode、不同成本或性能档位。
 - **Model Server**：vLLM 或 SGLang。`core/model-servers.md` 列出 EPP 默认抓取的指标及各引擎的对应名：TotalQueuedRequests ↔ `vllm:num_requests_waiting`，TotalRunningRequests ↔ `vllm:num_requests_running`，KVCacheUtilization ↔ `vllm:kv_cache_usage_perc`，以及可选的 `vllm:cache_config_info` 标签 `block_size` / `num_gpu_blocks`（给前缀缓存打分器用）。这张表是"引擎需要暴露什么才能被正确路由"的接口清单。
 
@@ -651,7 +651,7 @@ sequenceDiagram
     C->>P: POST /v1/chat/completions
     P->>E: ext-proc 请求头 + body(model, prompt)
     Note over E: 候选 = InferencePool 选中的 Pod<br/>指标来自周期抓取 /metrics 与 KVEvents
-    Note over E: decode profile: decode-filter → active-request-scorer<br/>(num_requests_running 少者高分)
+    Note over E: decode profile: decode-filter → active-request-scorer<br/>(EPP 自己记账的在途请求少者高分)
     Note over E: prefill profile: prefill-filter → prefix-cache-affinity-filter<br/>→ token-load-scorer(前缀命中多 + 排队 token 少者高分)
     E-->>P: 目标 decode Pod + header x-prefiller-host-port
     P->>D: 转发请求(带 prefill 目标头)
@@ -661,7 +661,7 @@ sequenceDiagram
     P-->>C: SSE 流
 ```
 
-如果不做 PD 分离（Optimized Baseline 路径），第 3–5 步只剩一个 profile：`prefix-cache-scorer` 与 `queue-scorer` / `kv-cache-utilization-scorer` 加权求和，选出一个 Pod 后 Proxy 直接转发，Pod 上也没有 sidecar。两条路径共用的一点是：**EPP 的所有评分输入都来自 Model Server 的指标约定**——引擎不导出 `vllm:kv_cache_usage_perc` 或不发 KV 事件，对应打分器就退化成随机。
+如果不做 PD 分离（Optimized Baseline 路径），第 3–5 步只剩一个 profile：`prefix-cache-affinity-filter` 先把请求收拢到前缀缓存可能命中的 Pod，`token-load-scorer` 再按排队 token 少者打分（`router/optimized-baseline.values.yaml`），选出一个 Pod 后 Proxy 直接转发，Pod 上也没有 sidecar。两条路径共用的一点是：**EPP 的所有评分输入都来自 Model Server 的指标约定**——引擎不导出 `vllm:kv_cache_usage_perc` 或不发 KV 事件，对应打分器就退化成随机。
 
 高级模式在此之上叠加：KV cache 管理（前缀感知路由的近似与精确两种、`KVEvents` 驱动的 KV-Cache Indexer、CPU/SSD 分层卸载、P2P 前缀共享）、PD 分离（Router 同时选 prefill 与 decode 端点并协调 KV 传输，decode Pod 上有一个 `routing-proxy` sidecar，镜像 `llm-d-router-disagg-sidecar`）、预测延迟路由（XGBoost 在线训练的 latency predictor sidecar）、批处理、自动扩缩容。
 
@@ -672,7 +672,7 @@ sequenceDiagram
 | 类别 | 内容 |
 |---|---|
 | CRD | InferencePool（GIE）；InferenceObjective、InferenceModelRewrite（llm-d-router） |
-| Router Helm | `oci://ghcr.io/llm-d/charts/llm-d-router-standalone`：EPP + Envoy sidecar，不需要 K8s Gateway<br/>`oci://ghcr.io/llm-d/charts/llm-d-router-gateway`：EPP + InferencePool，接已有 Gateway（Istio、kgateway、GKE…）<br/>（chart 当前由 GIE 仓库发布，未来迁到 llm-d） |
+| Router Helm | `oci://ghcr.io/llm-d/charts/llm-d-router-standalone`：InferencePool + EPP + 同 Pod 的 Envoy sidecar，不需要 K8s Gateway<br/>`oci://ghcr.io/llm-d/charts/llm-d-router-gateway`：EPP + InferencePool，接已有 Gateway（Istio、kgateway、GKE…）<br/>（chart 当前由 GIE 仓库发布，未来迁到 llm-d） |
 | 镜像 | `ghcr.io/llm-d/llm-d-router-endpoint-picker`（EPP）、`llm-d-router-disagg-sidecar`、`latency-training/prediction-server` |
 | Model Server | 推荐上游镜像 `vllm/vllm-openai`；llm-d 自建 `llm-d-cuda` / `llm-d-aws` / `llm-d-rocm` 等含未合入补丁（EFA、DeepEP…） |
 | 部署方式 | Kustomize：`guides/recipes/modelserver/` 的 base（single-host/default、pd、e-pd）+ components（镜像、sidecar）<br/>+ 各 guide 的 overlay（`patch-decode.yaml` / `patch-prefill.yaml`） |
@@ -725,7 +725,7 @@ vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记�
 
 ### 2. HPA 自定义指标 vs KEDA
 
-HPA 要用引擎指标，需要一个实现了 `custom.metrics.k8s.io` 或 `external.metrics.k8s.io` 的 API 服务（通常是 prometheus-adapter），在它的配置里把 PromQL 映射成指标名，再在 HPA 的 `metrics[].type: Pods` 或 `External` 里引用。链路是 Prometheus → adapter → HPA，配置分散在三处，adapter 的规则语法与 PromQL 之间还有一层翻译。HPA 本身有两个硬约束：`minReplicas` ≥ 1（除非开 alpha 的 `HPAScaleToZero`），且默认的同步周期 15 秒、scaleDown 稳定窗口 5 分钟等参数在 `behavior` 里调。
+HPA 要用引擎指标，需要一个实现了 `custom.metrics.k8s.io` 或 `external.metrics.k8s.io` 的 API 服务（通常是 prometheus-adapter），在它的配置里把 PromQL 映射成指标名，再在 HPA 的 `metrics[].type: Pods` 或 `External` 里引用。链路是 Prometheus → adapter → HPA，配置分散在三处，adapter 的规则语法与 PromQL 之间还有一层翻译。HPA 本身有两个硬约束：`minReplicas` ≥ 1（`HPAScaleToZero` 在 v1.37 升为 beta、默认开启后才允许 0，且必须带 Object / External 指标），且默认的同步周期 15 秒、scaleDown 稳定窗口 5 分钟等参数在 `behavior` 里调。
 
 KEDA 把这一层收敛成一个 CRD。`keda apis/keda/v1alpha1/scaledobject_types.go` 的 `ScaledObjectSpec`：
 
@@ -854,7 +854,7 @@ spec:
 几处与 LLM 相关的选择：
 
 - `metricType: AverageValue` 让阈值是"每副本"的数字，副本数变化时语义不变；
-- `scaleUp.policies` 用 `Pods: 4`，让 HPA 算出的期望值（可能一次从 2 跳到 6）不被默认的"每 15 秒最多翻倍"限流截断；
+- `scaleUp.policies` 用 `Pods: 4`：K8s 默认的扩容限速是每 15 秒加 4 个或翻倍、取大者，2 → 6 本身不会被截断；显式写出来是把"每分钟最多加 4 个副本"固定下来，副本多了以后默认的翻倍一次就会加 6 个、8 个；
 - `scaleDown` 的 15 分钟稳定窗口加每 5 分钟缩 1 个，是因为**缩错的代价是 8 分钟**——一个副本缩掉后再需要它，用户要等 8 分钟；
 - `fallback` 用 `currentReplicasIfHigher`，监控故障时宁多勿少。
 
@@ -968,7 +968,7 @@ Table: 扩缩容结论：指标、阈值、提前多久
 | 声明式的"一个模型服务"，含路由与调度器 | 只有 Deployment + Service | KServe `InferenceService` / `LLMInferenceService` + well-known config；生成 LWS、InferencePool、EPP、HTTPRoute | 控制器与模板隐藏细节，排障要读生成物<br/>API 仍是 alpha（v1alpha1 → v1alpha2），升级有迁移成本<br/>依赖 Gateway API 与 GIE |
 | 多模型、DAG、异构后端一个进程服务 | 无 | Triton model repository、`config.pbtxt`、dynamic batching、ensemble、vLLM backend | 张量协议对 LLM 不自然<br/>vLLM 作为 backend 少一层原生能力（多节点、指标）<br/>ensemble 内阶段不能独立扩缩 |
 | Python 逻辑重、多阶段、进程间传大对象 | 无 | Ray Serve deployment 图 + `RayService`（`serveConfigV2`、`rayClusterConfig`、`upgradeStrategy`） | 多一个 Ray 控制面（head、GCS、autoscaler）<br/>升级是整集群切换<br/>三层扩缩容延迟叠加 |
-| 按引擎内部状态扩缩 | HPA 只认 CPU/内存；缩零是 alpha | KEDA `ScaledObject`：prometheus / cron 触发、`AverageValue`、behavior、fallback；EPP 汇总指标 | 领先阈值 = 峰值过配<br/>滞后阈值 = 排队<br/>缩零 = 冷启动暴露给用户<br/>多一个 KEDA 与 Prometheus 依赖 |
+| 按引擎内部状态扩缩 | HPA 只认 CPU/内存；缩零到 v1.37 才是 beta | KEDA `ScaledObject`：prometheus / cron 触发、`AverageValue`、behavior、fallback；EPP 汇总指标 | 领先阈值 = 峰值过配<br/>滞后阈值 = 排队<br/>缩零 = 冷启动暴露给用户<br/>多一个 KEDA 与 Prometheus 依赖 |
 | 140 GB 权重在 Pod 起来前到位 | 镜像不含权重；无原生预取 | storage-initializer（`s3://` `hf://`）、`pvc://` 直挂、`oci://` modelcar / image volume、`LocalModelCache` | 下载路径每副本重复拉<br/>PVC 依赖并行文件系统<br/>OCI 镜像巨大、版本管理复杂<br/>预热占用节点盘 |
 | 按副本组滚动升级、不中断 | Deployment 滚动按 Pod | LWS `rolloutStrategy`（`partition`、`maxSurge`）<br/>RayService `NewCluster*`<br/>KServe `canary` / `router.route.group+weight` | `maxSurge` 期间双倍 GPU<br/>`partition` 需要人工推进<br/>canary 需要网关分流 |
 
@@ -1011,9 +1011,9 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 | KServe 模式与注解 | `kserve pkg/constants/constants.go`：`DeploymentMode`、`DeploymentModeType`（`Knative`、`Standard`、`ModelMeshDeployment`、`LegacyServerless`、`LegacyRawDeployment`）、`ParseDeploymentMode`、`AutoscalerClass`、`AutoscalerClassHPA` / `KPA` / `External` / `Keda` / `None`、`HfURIPrefix` / `OciURIPrefix` / `OciNativeURIPrefix` / `PvcURIPrefix` / `S3URIPrefix`、`PvcSourceMountName`、`StorageInitializerVolumeName`、`StorageInitializerContainerName`、`DefaultModelLocalMountPath` |
 | KServe LLMInferenceService | `kserve pkg/apis/serving/v1alpha1/llm_inference_service_types.go`：`LLMInferenceServiceSpec`（`Model`、`StorageInitializer`、`WorkloadSpec`、`Router`、`Prefill`、`Tracing`、`BaseRefs`）、`WorkloadSpec`（`Replicas`、`Scaling`、`Parallelism`、`Template`、`Worker`）、`LLMModelSpec`（`URI`、`Name`、`Criticality`、`LoRA`）、`RouterSpec`（`Route`、`Gateway`、`Ingress`、`Scheduler`）、`SchedulerSpec`（`Pool`、`Template`、`Config`、`Replicas`）、`ScalingSpec`（`MinReplicas`、`MaxReplicas`、`WVA`）、`ActuatorSpec`（`HPA`、`KEDA`）、`KEDAScalingSpec`、`ParallelismSpec`（`Tensor`、`Pipeline`、`Data`、`DataLocal`、`Expert`）、`LLMInferenceServiceConfig`；`v1alpha2/llm_inference_service_types.go` 为存储版本 |
 | KServe llmisvc 控制器 | `kserve pkg/controller/v1alpha2/llmisvc/config_merge.go`：`combineBaseRefsConfig`、`ReplaceVariables`、`MergeSpecs`、config 名常量（`configTemplateNameSuffix` 等）<br/>`workload_multi_node.go`：`reconcileMultiNodeWorkload`、`expectedMainMultiNodeLWS`、`expectedPrefillMultiNodeLWS`、`PreserveLWSReplicas`<br/>`config/llmisvcconfig/config-llm-template.yaml`、`config-llm-scheduler.yaml`、`config-llm-decode-template.yaml`、`config-llm-prefill-template.yaml`<br/>样例 `docs/samples/llmisvc/single-node-gpu/`、`e2e-gpt-oss/` |
-| KServe 权重加载 | `kserve pkg/webhook/admission/pod/storage_initializer_injector.go`：`CommonStorageInitialization`、`InjectStorageInitializer`、`InjectModelcar`<br/>`pkg/utils/storage.go`：`ConfigureModelcarToContainer`、`ConfigureOciNativeToContainer`（`ImageVolumeSource`）<br/>`pkg/apis/serving/v1alpha1/storage_container_types.go`（`ClusterStorageContainer`）、`local_model_cache_types.go`（`LocalModelCacheSpec.SourceModelUri` / `ModelSize` / `NodeGroups`）<br/>`config/runtimes/kserve-vllmserver.yaml`、`kserve-huggingfaceserver-multinode.yaml` |
+| KServe 权重加载 | `kserve pkg/webhook/admission/pod/storage_initializer_injector.go`：`CommonStorageInitialization`、`InjectStorageInitializer`、`InjectModelcar`（InferenceService）<br/>`pkg/controller/v1alpha2/llmisvc/workload_storage.go`：`attachModelArtifacts`（LLMInferenceService）<br/>`pkg/utils/storage.go`：`ConfigureModelcarToContainer`、`ConfigureOciNativeToContainer`（`ImageVolumeSource`）<br/>`pkg/apis/serving/v1alpha1/storage_container_types.go`（`ClusterStorageContainer`）、`local_model_cache_types.go`（`LocalModelCacheSpec.SourceModelUri` / `ModelSize` / `NodeGroups`）<br/>`config/runtimes/kserve-vllmserver.yaml`、`kserve-huggingfaceserver-multinode.yaml` |
 | llm-d | `llm-d docs/architecture/README.md`<br/>`core/router/README.md`、`proxy.md`、`epp/`<br/>`core/inferencepool.md`<br/>`core/model-servers.md`（指标对应表）<br/>`advanced/autoscaling/README.md`、`hpa-epp.md`（`llm_d_epp_flow_control_queue_size`、`llm_d_epp_request_running`）<br/>`advanced/kv-management/kv-indexer.md`<br/>`docs/api-reference/artifacts.md`<br/>`proposals/modelservice.md`（Superseded）<br/>`guides/README.md`、`guides/env.sh`、`guides/recipes/router/base.values.yaml`、`guides/recipes/modelserver/`、`guides/pd-disaggregation/`（`README.md`、`README.ds.md`、`router/pd-disaggregation.values.yaml`、`modelserver/gpu/vllm/base/`）、`guides/wide-ep-lws/modelserver/gpu/vllm/disaggregatedset/disaggregatedset.yaml`、`guides/workload-autoscaling/keda-epp-queue/optimized-baseline/base/scaledobject.yaml`、`guides/fast-model-actuation/README.md` |
-| GIE / llm-d-router | `gateway-api-inference-extension api/v1`（`inference.networking.k8s.io`，`InferencePool`）、`apix/v1alpha1`、`pkg/lwepp`；`llm-d-router epp/`（EPP）、`sidecar/`、`cmd/epp`、`cmd/pd-sidecar` |
+| GIE / llm-d-router | `gateway-api-inference-extension api/v1`（`inference.networking.k8s.io`，`InferencePool`）、`apix/v1alpha1`、`pkg/lwepp`；`llm-d-router pkg/epp/`（EPP）、`pkg/sidecar/`、`cmd/epp`、`cmd/pd-sidecar` |
 | Triton | `triton-server docs/user_guide/model_repository.md`（Repository Layout、`--model-repository`）、`model_configuration.md`（`platform` / `backend`、`max_batch_size`、`input` / `output`、`instance_group`、`model_transaction_policy.decoupled`、Model Warmup）、`batcher.md`（`dynamic_batching`：`preferred_batch_size`、`max_queue_delay_microseconds`、`preserve_ordering`、`priority_levels`；`sequence_batching`、`iterative_sequence`）、`ensemble_models.md`（`ensemble_scheduling.step`、`input_map` / `output_map`）、`metrics.md`（`nv_inference_request_success`、`nv_inference_queue_duration_us`、`nv_inference_pending_request_count`）；`docs/backend_guide/vllm.rst`、`docs/introduction/compatibility.md`（`vllm-python-py3` 容器） |
 | KubeRay | `kuberay ray-operator/apis/ray/v1/rayservice_types.go`：`RayServiceSpec`（`ServeConfigV2`、`RayClusterSpec`、`UpgradeStrategy`、`ServiceUnhealthySecondThreshold`、`DeploymentUnhealthySecondThreshold`、`ExcludeHeadPodFromServeSvc`、`Suspend`）、`RayServiceUpgradeStrategy`、`ClusterUpgradeOptions`、`RayServiceNewCluster` / `RayServiceNewClusterWithIncrementalUpgrade` / `RayServiceUpgradeNone`<br/>`raycluster_types.go`：`EnableInTreeAutoscaling`、`AutoscalerOptions`（`UpscalingMode`、`IdleTimeoutSeconds`）、`WorkerGroupSpec`（`GroupName`、`MinReplicas`、`MaxReplicas`、`NumOfHosts`、`RayStartParams`）<br/>`config/samples/ray-service.llm-serve.yaml` |
 | KEDA | `keda apis/keda/v1alpha1/scaledobject_types.go`：`ScaledObjectSpec`（`ScaleTargetRef`、`PollingInterval`、`CooldownPeriod`、`InitialCooldownPeriod`、`IdleReplicaCount`、`MinReplicaCount`、`MaxReplicaCount`、`Advanced`、`Triggers`、`Fallback`）、`Fallback`（`FailureThreshold`、`Replicas`、`Behavior`）、`AdvancedConfig`（`HorizontalPodAutoscalerConfig`、`RestoreToOriginalReplicaCount`、`ScalingModifiers`）、`ScaleTarget`<br/>`scaletriggers_types.go`：`ScaleTriggers`（`Type`、`Name`、`Metadata`、`AuthenticationRef`、`MetricType`）<br/>`pkg/scalers/prometheus_scaler.go`：`prometheusMetadata`（`serverAddress`、`query`、`threshold`、`activationThreshold`、`namespace`、`ignoreNullValues`）<br/>`cron_scaler.go`（`start`、`end`、`timezone`、`desiredReplicas`）<br/>`pkg/scalers/scaler.go`：`GetMetricTargetType`<br/>`groupversion_info.go`：`keda.sh/v1alpha1` |
