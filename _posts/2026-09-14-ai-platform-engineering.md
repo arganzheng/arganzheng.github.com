@@ -160,7 +160,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 - CUDA 兼容规则：向后兼容（新驱动跑旧 Toolkit，无条件成立）、minor version compatibility（CUDA 11 起，同一大版本内旧驱动跑新 Toolkit，要求 SASS 而非 PTX）、forward compatibility（跨大版本，需要 `cuda-compat` 包，仅数据中心 GPU）；CUDA 12.x 要求驱动 >= 525、CUDA 13.x 要求 >= 580 这类基线怎么查；
 - 为什么 PyTorch 的 wheel 自带 CUDA Runtime 但不带驱动，`torch.version.cuda` 与 `nvidia-smi` 显示的 CUDA 版本为什么可以不同；
 - NVIDIA Container Toolkit：`nvidia-container-runtime` 作为 OCI runtime hook 把驱动库和设备文件注入容器；`NVIDIA_VISIBLE_DEVICES` 与 `NVIDIA_DRIVER_CAPABILITIES`；CDI（Container Device Interface）作为新一代的注入方式；
-- Kubernetes device plugin 机制：`ListAndWatch` 与 `Allocate` 两个 gRPC 接口，节点上报 `nvidia.com/gpu` 扩展资源，Pod 用 `resources.limits` 请求；这套机制的局限——只能计数、不能表达属性、不能跨 Pod 共享；
+- Kubernetes device plugin 机制：`ListAndWatch` 与 `Allocate` 等 gRPC 接口，节点上报 `nvidia.com/gpu` 扩展资源，Pod 用 `resources.limits` 请求；这套机制的局限——只能计数、不能表达属性、不能跨 Pod 共享；
 - NVIDIA GPU Operator：用 `ClusterPolicy` CRD 统一管理驱动容器、Container Toolkit、device plugin、GPU Feature Discovery、DCGM Exporter、MIG Manager，节点标签（`nvidia.com/gpu.product` 等）从哪里来；
 - Dynamic Resource Allocation（DRA）：Kubernetes 1.34 GA 的 `resource.k8s.io/v1` API——`DeviceClass`、`ResourceSlice`、`ResourceClaim`、`ResourceClaimTemplate`，用 CEL 表达式按属性选设备；它相对 device plugin 解决了什么、NVIDIA 的 DRA driver 处于什么阶段；
 - 镜像：官方 `nvidia/cuda` 基础镜像的 `base` / `runtime` / `devel` 三种变体；PyTorch、vLLM 官方镜像的层结构；多阶段构建把 10 GB 的镜像压到 3 GB；镜像拉取时间对训练启动和推理扩容的影响，以及镜像预热和 P2P 分发。
@@ -264,7 +264,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 这一篇会覆盖：
 
 - 为什么需要专门的推理网关：Service 的轮询负载均衡对 LLM 请求是错的——一个副本 KV cache 已满而另一个空闲，轮询会让请求在满的那个排队；prefix caching 使得"同一前缀的请求去同一副本"有明显收益；
-- Gateway API Inference Extension：`InferencePool`（一组同模型同硬件的 Pod，替代 Service 作为 `HTTPRoute` 的后端）与 Endpoint Picker（外部处理器，按每个副本的队列长度、KV cache 使用率、已加载的 LoRA 选择目标）；`InferenceObjective` 表达请求的优先级；Envoy 的 `ext_proc` 机制；Istio、Envoy Gateway、kgateway 等实现；
+- Gateway API Inference Extension：`InferencePool`（一组同模型同硬件的 Pod，替代 Service 作为 `HTTPRoute` 的后端）与 Endpoint Picker（外部处理器，按每个副本的队列长度、KV cache 使用率、已加载的 LoRA 选择目标）；`InferenceObjective` 表达请求的优先级（v1.6.0 起它与 Endpoint Picker 一起迁到 llm-d-router，`llm-d.ai/v1alpha2`）；Envoy 的 `ext_proc` 机制；Istio、Envoy Gateway、kgateway 等实现；
 - OpenAI 兼容协议作为事实标准：`/v1/chat/completions`、流式 SSE 响应、`model` 字段作为路由键；网关在多后端间做协议归一；
 - 多租户：租户识别（API key、JWT、命名空间），每租户每模型的配额（RPM、TPM、并发数），优先级与抢占（高优先级租户的请求是否可以让低优先级的排队），公平性；
 - 限流与计费的粒度问题：请求进来时不知道要生成多少 token，按输入 token 预扣、按输出 token 结算；流式响应中途断开怎么计；`usage` 字段的可靠性；
@@ -331,7 +331,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 | 第三篇 | kueue `apis/kueue/v1beta2` · `pkg/scheduler`<br/>volcano `pkg/scheduler/plugins/gang`<br/>trainer `pkg/runtime` |
 | 第四篇 | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
 | 第五篇 | network-operator NicClusterPolicy CRD<br/>k8s-rdma-shared-dev-plugin<br/>nccl-tests<br/>PyTorch `torch/distributed/checkpoint` |
-| 第六篇 | kserve `pkg/apis/serving/v1alpha1/llm_inference_service_types.go`<br/>lws `api/leaderworkerset/v1`<br/>llm-d 架构文档 |
+| 第六篇 | kserve `pkg/apis/serving/v1alpha2/llm_inference_service_types.go`<br/>lws `api/leaderworkerset/v1`<br/>llm-d 架构文档 |
 | 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）；llm-d-router `pkg/epp`（Endpoint Picker 的调度插件） |
 | 第八篇 | dcgm-exporter 的默认指标表<br/>vLLM `docs/design/metrics.md`<br/>OpenCost 的 GPU 计费逻辑 |
 
@@ -361,10 +361,10 @@ Table: 与实践线平行的源码与文档阅读线
 正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（每篇文章只引用早于其发布日期的版本；Slinky slurm-operator v1.2.2 发布于 2026-09-02，早于引用它的第一、三篇）：
 
 - Kubernetes **v1.37.0**（DRA 的 `resource.k8s.io/v1` 自 1.34 GA）；device plugin 路径对更早版本同样适用，随文标注；
-- NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
-- 调度：Kueue **v0.19.2**（主 API `kueue.x-k8s.io/v1beta2`，Topology-Aware Scheduling 的 `Topology` CRD 在 `v1beta1`）、Volcano **v1.15.2**、Kubeflow Trainer **v2.3.0**（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、KubeRay **v1.7.0**、Slinky slurm-operator **v1.2.2**、Multus CNI **v4.3.0**；
+- NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**、DRA driver k8s-dra-driver-gpu **v0.5.0**、mig-parted / k8s-mig-manager **v0.15.0**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
+- 调度：Kueue **v0.19.2**（主 API `kueue.x-k8s.io/v1beta2`，Topology-Aware Scheduling 的 `Topology` CRD 同样以 `v1beta2` 为存储版本，`v1beta1` 已标为弃用）、Volcano **v1.15.2**、Kubeflow Trainer **v2.3.0**（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、JobSet **v0.12.0**（`TrainJob` 底下的多 Job 编排）、KubeRay **v1.7.0**、Slinky slurm-operator **v1.2.2**、Multus CNI **v4.3.0**；
 - 切分：HAMi **v2.10.0**；
-- 交付：KServe **v0.20.0**（`LLMInferenceService` 在 `serving.kserve.io/v1alpha1`）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.0**（`InferencePool` v1；Endpoint Picker 自此版本起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
+- 交付：KServe **v0.20.0**（`LLMInferenceService` 以 `serving.kserve.io/v1alpha2` 为存储版本，`v1alpha1` 仍可用）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.0**（`InferencePool` v1；Endpoint Picker 自此版本起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
 - 可观测与成本：DCGM Exporter 同上、OpenCost **v1.121.1**、Prometheus / OpenTelemetry Collector 按通用用法；
 - 引擎作为被服务对象：PyTorch **v2.13.0**、vLLM **v0.28.0**，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
 

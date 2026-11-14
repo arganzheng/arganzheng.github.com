@@ -160,7 +160,7 @@ flowchart LR
 
 ### 要点
 
-- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = \(3/7\) 算力 + \(4/8\) 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
+- A100：7 个计算 slice、8 个显存 slice；`3g.20gb` = 3/7 算力 + 4/8 带宽；`3g.20gb × 2` 已用尽 8 个显存 slice——**塞不进 `1g.5gb`**，浪费 1 个计算 slice
 
 ---
 
@@ -232,7 +232,7 @@ flowchart LR
 
 | 量 | 数 |
 |---|---|
-| EPP 打分权重 | 前缀亲和 3、队列 2、KV 2、LoRA 1；每 50 ms 抓一次 `/metrics` |
+| EPP 打分权重（本篇配置） | 前缀亲和 3、队列 2、KV 2、LoRA 1；每 50 ms 抓一次 `/metrics` |
 | 64 会话 × 8k 对 4 副本 × 160k | 前缀亲和让 TTFT 从 0.5 s 级到几十 ms |
 | TPM 预扣 | 输入估算 + min(max_completion_tokens, 上限) |
 

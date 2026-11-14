@@ -111,7 +111,7 @@ Table: 本文的章节安排
 - Kueue 三个抢占开关：`withinClusterQueue`、`reclaimWithinCohort`、`borrowWithinCohort`；不借是 `borrowingLimit: 0` 或不设 cohort，Workload 停在 `ExceedsMaxQuota`。
 - 抢占代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$：30 分钟间隔平均丢 15 分钟，256 卡任务被抢一次平均损失 64 卡时；grace period 至少覆盖一次 checkpoint 写入。
 - 三层优先级：Pod 级 `PriorityClass`、Workload 级 `WorkloadPriorityClass`、队列级；训练 Pod 一律同一个 `PriorityClass`，差异只在 Workload 层表达。
-- Kubeflow Trainer：`TrainJob` → JobSet，注入 `PET_*`，`MASTER_ADDR = <job>-node-0-0.<job>`；K8s v1.37 的 WAS（`scheduling.k8s.io/v1beta1` PodGroup）是原生 gang 雏形，只解决同时性。
+- Kubeflow Trainer：`TrainJob` → JobSet，注入 `PET_*`，`MASTER_ADDR = <job>-node-0-0.<job>`；K8s v1.37 的 WAS（`scheduling.k8s.io/v1beta1` PodGroup，`GenericWorkload` 特性门 beta 但默认关闭）是原生 gang 雏形，只解决同时性。
 
 **常见误解**："配额就是硬上限"——配额系统能表达保底、可借、可收回，把它当硬上限用是最常见的浪费来源；32 卡任务是常态时"两个 16 卡队列"本身就是错的设计。另一个："Kueue 准入了就一定能跑"——准入是配额加法，节点实况可能放不下（碎片、taint、非 Kueue 的 Pod），要 TAS 或 `waitForPodsReady`。
 
@@ -143,7 +143,7 @@ Table: 本文的章节安排
 - 30 分钟一次、1 分钟写完：16.7 GB/s ≈ 133 Gb/s 聚合，每节点 2.1 GB/s，每 rank 260 MB/s；每 30 分钟停 1 分钟约 3% 开销。
 - 异步 `dcp.async_save`：带宽只需 1 TB / 30 min ≈ 0.56 GB/s（留余量取 2–3 GB/s），代价每 rank 约 15.6 GB pinned 内存、每节点约 125 GB；聚合带宽只跟状态总量挂钩，405B 同步要 95 GB/s。
 - 70B BF16 权重 140 GB：1 GB/s 两分多钟，200 MB/s 十几分钟；分发顺序本地 NVMe 缓存 → P2P → 权重进镜像；GDS 只在 CPU 成为瓶颈时值得。
-- `NCCL_NET_GDR_LEVEL` 默认 `PXB`，日志 `GPU Direct RDMA Disabled ... (distance N > 3)`；修法是 GPU 与 RDMA 分配带拓扑亲和，不是放宽 `GDR_LEVEL`。
+- `NCCL_NET_GDR_LEVEL` 默认 `PXB`，日志 `GPU Direct RDMA Disabled for GPU ... / HCA ... (distance N > 5)`（NCCL 2.28.9 里 `PATH_PXB` = 5）；修法是 GPU 与 RDMA 分配带拓扑亲和，不是放宽 `GDR_LEVEL`。
 
 **常见误解**："Pod 全 Running、训练在推进，说明网络没问题"——NCCL 回落 TCP 不报错，慢是唯一症状，平台必须主动验证。另一个："checkpoint 写不完是存储太慢"——同步要 16.7 GB/s，异步只要 0.56 GB/s，问题往往是形态而不是带宽。
 
@@ -159,7 +159,7 @@ Table: 本文的章节安排
 - 三种方案的代价：反应式阈值 36 → 峰值 10 副本、多 16 卡 × 3.5 h ≈ 56 卡时/天；常驻 6 → 328 卡时/天；cron + 阈值 56 + 慢缩容 ≈ 5 卡时/天。
 - 信号延迟 ≈ Prometheus 抓取 30 s + KEDA `pollingInterval` 15 s + HPA 同步 15 s ≈ 1 分钟。
 - 五段量级：云上加节点 3–10 分钟；未缓存镜像 1–2 分钟；权重对象存储 1 GB/s 2–3 分钟 / 并行文件系统 30 秒 / 本地缓存 ≈ 0；加载 1–3 分钟；预热 1–3 分钟。
-- `startupProbe` 60 × 30 s——大模型加载以半小时为上限配探针；HPA 不能缩零（`HPAScaleToZero` 仍是 alpha），缩零靠 KEDA `minReplicaCount: 0`；权重四条路径 `pvc://`、`s3://` / `hf://`、`oci://`、`LocalModelCache`。
+- `startupProbe` 60 × 30 s——大模型加载以半小时为上限配探针；HPA 缩零要 `HPAScaleToZero`（v1.37 升为 beta、默认开启）且必须带 Object / External 指标，管线仍要自建，所以缩零一般交给 KEDA `minReplicaCount: 0`；权重四条路径 `pvc://`、`s3://` / `hf://`、`oci://`、`LocalModelCache`。
 
 **常见误解**："阈值没调好才过配"——为 9 分钟就绪预留的 44% headroom 在稳态高峰也被保留，是反应式扩缩容的结构性代价。另一个："缩容阈值接近扩容阈值更灵敏"——新副本刚就绪负载就落回去、被缩掉、再涨再扩，抖动 8 分钟一周期。
 
@@ -174,7 +174,7 @@ Table: 本文的章节安排
 - 数值例子：4 副本各 160k token KV、64 会话 × 8k、prefill 16k token/s：轮询命中率 < 1/4、未命中一轮 0.5 s；前缀亲和每副本 128k 在容量内、TTFT 几十 ms。
 - 请求数是错的量纲：500 token 与 30k token 差 60 倍。
 - 预扣 = 输入估算 + min(`max_completion_tokens`, 单请求上限)；按 `usage` 结算；流式必须强制 `stream_options.include_usage`；排队中断开退全部预扣，生成中断开按已生成计。
-- EPP 默认打分权重前缀 3、队列 2、KV 2、LoRA 1；`/metrics` 每 50 ms 抓一次；`defaultRequestTTL` 60 s；429 的 `rejected-*` 没消耗 GPU 可重试。
+- 本篇 EPP 配置的打分权重前缀 3、队列 2、KV 2、LoRA 1；`/metrics` 每 50 ms 抓一次；`defaultRequestTTL` 60 s；429 的 `rejected-*` 没消耗 GPU 可重试。
 - `endpointPickerRef.failureMode` 默认 `FailClose`（EPP 挂了流量全断）；灰度池间用 `HTTPRoute` 权重会打散前缀缓存，池内 `InferenceModelRewrite` 只对 LoRA 版本成立。
 
 **常见误解**："给 A 更高 priority 就实现了 3:1"——那是严格优先，不是 3:1；比例只能在外层配额上落地。另一个："`sessionAffinity: ClientIP` 能代替前缀亲和"——亲和的键应该是请求内容的前缀哈希，一个 NAT 后面的几千个用户会全落到一个副本。
@@ -191,7 +191,7 @@ Table: 本文的章节安排
 - 训练 MFU 40% 对应 SM 忙 40–50%，`SM_ACTIVE` 长期 40–50% 是训练的正常值；开发环境是分配率 100%、`SM_ACTIVE` 接近 0。
 - $$C_{1M} = \frac{P_{GPU} \times N_{GPU}}{T \times 3600 \times U} \times 10^6$$：2.5 美元/卡时、TP=4、2000 token/s → 满载 1.39 美元，U = 40% 时 3.47 美元。
 - OpenCost v1.121.1：`GPUHours = request × hours`，使用率用 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`，`gpuIdleCost = 资产 − 分配`（只算 `1 − A`）；无队列、无 token、MIG 资源名不匹配。
-- DCGM Exporter 默认 30 秒采样；成本核算要 13 个月保留；`fairness_id` 超过 1000 折叠为 `other`；共卡时 DCGM 不能按进程拆活跃度，MIG 的 `GPU_I_ID` 归因准确。
+- DCGM Exporter 默认 30 秒采样；成本核算要 13 个月保留；`fairness_id` 超过 1000 折叠为 `other`；共卡时 DCGM 不能按进程拆 `SM_ACTIVE` 等 `PROF_*` 活跃度（只有 `GPU_UTIL`、`FB_USED` 能按进程拆），MIG 的 `GPU_I_ID` 归因准确。
 
 **常见误解**："GPU 利用率 78% 说明集群用得不错"——`GPU_UTIL` 把通信等待报成 100%，换 `SM_ACTIVE` 只有 35%。另一个："按使用率计费更公平"——它让闲置成为没人负责的公共成本；按分配计费才让 dev 团队看到 4% 的 U 对着 12,500 美元的账单。
 
@@ -402,7 +402,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先假设 NCCL 回落 Socket 或 GDR 没开——引擎自己降级不报错；(2) `NCCL_DEBUG=INFO` 看 `Using network IB` 还是 `Socket`、连接行有没有 `/GDRDMA`、有没有 `GPU Direct RDMA Disabled ... distance > 3`；(3) 容器里 `ls /dev/infiniband`、`ibv_devinfo`、`ulimit -l`、`ib_write_bw --use_cuda` 两 Pod 间测裸带宽，再到 nccl-tests；(4) 三层归因：Pod 网络（Multus 注解、NAD 的 `resourceName`、`NCCL_SOCKET_IFNAME`）、device plugin（没请求 `rdma/<name>`、selectors、netns 模式、`IPC_LOCK`、peermem / DMA-BUF）、NCCL 环境变量（`NCCL_IB_HCA`、RoCE 的 `GID_INDEX`、`NET_GDR_LEVEL`）；(5) GPU 与网卡分配没有 PCIe 亲和是容器场景特有的坑，修分配而不是放宽 `GDR_LEVEL`；(6) 网络没问题再看拓扑（第三篇是否跨 spine）与 checkpoint 停顿（第五篇的竖条）。
+   **答案要点**：(1) 先假设 NCCL 回落 Socket 或 GDR 没开——引擎自己降级不报错；(2) `NCCL_DEBUG=INFO` 看 `Using network IB` 还是 `Socket`、连接行有没有 `/GDRDMA`、有没有 `GPU Direct RDMA Disabled ... (distance N > 5)`；(3) 容器里 `ls /dev/infiniband`、`ibv_devinfo`、`ulimit -l`、`ib_write_bw --use_cuda` 两 Pod 间测裸带宽，再到 nccl-tests；(4) 三层归因：Pod 网络（Multus 注解、NAD 的 `resourceName`、`NCCL_SOCKET_IFNAME`）、device plugin（没请求 `rdma/<name>`、selectors、netns 模式、`IPC_LOCK`、peermem / DMA-BUF）、NCCL 环境变量（`NCCL_IB_HCA`、RoCE 的 `GID_INDEX`、`NET_GDR_LEVEL`）；(5) GPU 与网卡分配没有 PCIe 亲和是容器场景特有的坑，修分配而不是放宽 `GDR_LEVEL`；(6) 网络没问题再看拓扑（第三篇是否跨 spine）与 checkpoint 停顿（第五篇的竖条）。
    **追问方向**：shared 与 SR-IOV plugin 怎么选；Network Operator 与 GPU Operator 的部署顺序；为什么 NetworkPolicy 管不到 RDMA 流量。
    **好答案与一般答案的区别**：一般答案说"检查网络配置"；好答案先从日志行判定回落到了哪一层，再按三层逐项对照，并知道每一项不满足时的具体症状。
 
