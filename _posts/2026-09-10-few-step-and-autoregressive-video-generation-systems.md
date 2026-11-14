@@ -65,7 +65,7 @@ Table: FLUX.1-dev 与 schnell 的账
 
 - **步数蒸馏是本系列里最大的一项加速，但它不是系统做的**：7× 来自算法侧重训一个模型；系统侧的全部工作（编译 1.5×、缓存 1.8×、稀疏 2×、多卡 2.6×）加起来与它同量级。系统工程师要知道的是：它之后账的结构变了。
 - **利用"相邻步相似"的优化全部失效**：跨步缓存、PipeFusion、DistriFusion 的前提是几十步里中段平缓，4 步的每一步都是转折点。CFG 并行随 guidance 蒸馏一起消失。剩下的是不依赖步数的那些：attention 后端、编译、量化、序列并行。
-- **固定开销与另两段浮出来**：文本编码器与 VAE 从 2.6% 到 15.6%；kernel launch、采样器、Python 开销从可忽略到可见——CUDA graph 从"收益小于编译"变成必需（SGLang 对 Z-Image-Turbo、SANA 一类少步模型推荐 breakable CUDA graph）。
+- **固定开销与另两段浮出来**：文本编码器与 VAE 从 2.6% 到 15.6%；kernel launch、采样器、Python 开销从可忽略到可见——CUDA graph 从"收益小于编译"变成必需（SGLang 的 breakable CUDA graph `--enable-breakable-cuda-graph` 已覆盖 Z-Image-Turbo、SANA 1.5 等模型）。
 
 自回归视频的账（Self-Forcing，Wan2.1-1.3B 底座，480p，chunk = 3 个 latent 帧）：
 
@@ -171,7 +171,7 @@ Table: 前五篇的优化在少步模型上的失效与不变
 
 ### 2. 多卡的意义
 
-dev 上 4 卡 SP 是为了把 4.3 s 切成 1.6 s（延迟）；schnell 单卡 0.8 s 已经在多数 SLO 内，4 卡 SP 切到 0.3 s 的意义不大、效率还低。xDiT 的 schnell 数据：8×A100 Ulysses 8 + compile，1024² 0.82 s、2048² 2.4 s——2048² 才是多卡的理由（单卡 2048² 4 步约 3.8 s）。少步模型的多卡默认是 **DP**（吞吐），SP 留给高分辨率与视频。
+dev 上 4 卡 SP 是为了把 4.3 s 切成 1.6 s（延迟）；schnell 单卡 0.8 s 已经在多数 SLO 内，4 卡 SP 切到 0.3 s 的意义不大、效率还低。xDiT 的 schnell 数据：8×A100 Ulysses 8 + compile，1024² 0.82 s、2048² 2.4 s——2048² 才是多卡的理由（单卡 2048² 4 步按本系列的 H100 账约 3.8 s，xDiT 文档给单张 A100 约 10 s）。少步模型的多卡默认是 **DP**（吞吐），SP 留给高分辨率与视频。
 
 ### 3. 延迟结构
 
@@ -345,12 +345,12 @@ Table: 08 系列的概念在自回归少步视频上回来了什么
 
 | 机制 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT | diffusers v0.40 |
 |---|---|---|---|---|
-| 少步模型 | 原生 pipeline：`flux_2_klein.py`、`zimage_pipeline.py`（Turbo 9 步无 CFG）、`wan_dmd_pipeline.py`、`sana_sprint.py`；推荐 breakable CUDA graph | `sched/sigma_schedule.py`（`DMD2SigmaSchedule`） | schnell 用 USP、不用 PipeFusion | FLUX-schnell、LCM、Turbo 各 pipeline |
-| 因果视频 pipeline | `wan_causal_dmd_pipeline.py`、`lingbot_world_causal_dmd_pipeline.py`、`sana_wm_realtime_pipeline.py`、`longlive2_pipeline.py` | 因果模型适配 | `pipeline_causal_wan.py` | — |
-| KV cache | `runtime/layers/kvcache/causal_attention_cache.py`、`qvg_packed_cache.py`（量化） | `diffusion/diffusion_kv/`：`manager.py`、`paged_attention_adapter.py`、`request.py`；调度器里的 `KVPrefetchJob` | — | `hooks/text_kv_cache.py`（只缓存文本 K/V） |
-| KV 量化 | `--kv-cache-quant int4 / int2` | — | — | — |
-| 实时会话 | `runtime/realtime/`：`session.py`、`control_signals.py`、`states/` | — | — | — |
-| 流式输出 | realtime 会话逐 chunk 推送 | 流式输出（`outputs/`） | — | — |
+| 少步模型 | 原生 pipeline：`flux_2_klein.py`、`zimage_pipeline.py`（Turbo 9 步无 CFG）、`wan_dmd_pipeline.py`；breakable CUDA graph 覆盖 Z-Image-Turbo | `sched/sigma_schedule.py`（`DMD2SigmaSchedule`） | `pipeline_sana_sprint.py`；schnell 用 USP、不用 PipeFusion | FLUX-schnell 走 `FluxPipeline`；`latent_consistency_models/`（LCM） |
+| 因果视频 pipeline | `wan_causal_dmd_pipeline.py`、`lingbot_world_causal_dmd_pipeline.py`、`sana_wm_realtime_pipeline.py`、`longlive2_pipeline.py` | `diffusion/models/lingbot_world/`、`dreamzero/`（`causal_wan_model.py`）；运行时 `experimental/ar_diffusion/`（实验性） | `pipeline_causal_wan.py` | `anyflow/pipeline_anyflow_far.py`（`AnyFlowFARPipeline`，逐 chunk 因果）；`skyreels_v2/`（diffusion forcing） |
+| KV cache | `runtime/layers/kvcache/causal_attention_cache.py`、`qvg_packed_cache.py`（量化） | `diffusion/diffusion_kv/`：`manager.py`、`paged_attention_adapter.py`、`request.py`；`experimental/ar_diffusion/kv_cache/` | `pipeline_causal_wan.py`（`_initialize_kv_cache`、`_initialize_crossattn_cache`，滑窗 + sink） | `AnyFlowFARPipeline.encode_kv_cache`（跨 chunk 复用）；`hooks/text_kv_cache.py`（跨步缓存文本 K/V） |
+| KV 量化 | `--kv-cache-quant int4 / int2`（`--kv-cache-quant-keep-recent` 控制留 bf16 的 chunk 数） | `--diffusion-kv-cache-dtype fp8`（attention 的 K / V 走 FP8，可按步 / 层跳过；不是按 chunk 的缓存量化） | — | — |
+| 实时会话 | `runtime/realtime/`：`session.py`、`control_signals.py`、`states/` | `experimental/ar_diffusion/`：`session.py`、`tick_protocol.py`（实验性） | — | — |
+| 流式输出 | realtime 会话逐 chunk 推送 | `experimental/ar_diffusion/consumer.py`（逐 chunk tick）；通用多模态输出在 `outputs/` | — | — |
 | 动态批处理 | `runtime/managers/dynamic_batch_admission.py` | `sched/step_scheduler.py`（step 级批） | — | — |
 
 Table: 少步与自回归视频在四个引擎里的实现对照
