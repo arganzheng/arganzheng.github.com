@@ -2451,6 +2451,21 @@ How it is built (`_plugins/moments.rb`):
   真实输出，论文/业界公认的数据也是可以的」. Never a made-up 「预期」 / 「示意」
   transcript presented as if it had been run; a clearly labelled illustrative
   sketch (not dressed as program output) is fine.
+- **No revision history in a post** (author, 2026-11-14, Discussion #287:
+  「不要提旧文章……我这边没有任何历史包袱……每次都当作最新的写，不需要跟之前的版本
+  做对比」). Never write about an earlier state of the blog's own content —
+  「旧文章里的 X 已改名」, 「旧资料里常见的参数已不存在」, 「本文原来…」,
+  「（旧名 … 已没有）」 — in posts, recaps, footnotes or slides: state the
+  pinned version's facts only. Deprecated flags / metric names that do not
+  exist in the pinned version are simply not mentioned. Changes *of the
+  software itself* (vLLM V0 → V1, an ABI switch removed in PyTorch 2.x) are
+  technical content and stay when they explain something.
+- **In-series pointers are titles, not numbers** (author, 2026-11-14,
+  Discussions #285 / #287: 「第几篇要展开成具体的文章标题和链接」). Write
+  `[《Scheduler》](/scheduler-batch-and-fairness.html)`, never 「第四篇」 /
+  「（04）」 / a 「机制见」 column of numbers with a legend under the table;
+  `[第一篇：标题](url)` labels in recap tables are fine. The vLLM series was
+  swept on 2026-11-14.
 - **No AI / lecturer voice** (reader flagged 「AI 味太浓」 on: 「一个现实的标准」,
   「出现时就是越界的信号」, 「……就过关了；遇到……也是回到这二十行想」, 「本篇写出它」,
   「一切机制都建立在一个事实上」, 「读的时候带着 L0 第八篇的置信区间」). Write the
