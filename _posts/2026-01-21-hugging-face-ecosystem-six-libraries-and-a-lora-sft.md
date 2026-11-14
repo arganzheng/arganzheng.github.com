@@ -5,7 +5,7 @@ title: "算法工程师的工具箱（05）：Hugging Face 生态——六个库
 subtitle: "The Hugging Face Ecosystem: Six Libraries, a Six-Line LoRA SFT, and Why Reading the Source Is the Fastest Way to Learn"
 tags: [AI, LLM, PyTorch, Python]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-14
 ---
 
 前两篇的训练循环训的是自己写的小模型。真实工作里模型不是自己写的——是从 Hugging Face Hub 下载的 Llama、Qwen、DeepSeek；数据也不是随机切窗口——是 Hub 上的数据集经过 chat template、loss mask、packing；训练器也不是二十行——是 `trl` 的 `SFTTrainer` / `DPOTrainer` / `GRPOTrainer`。Hugging Face 的六个库把这条路铺好了，六行代码能组装一次 LoRA SFT。这一篇讲六个库各管什么、六行背后发生了什么、以及一个比任何教程都重要的习惯：**卡住的时候直接读源码**。
@@ -18,7 +18,7 @@ updated: 2026-09-20
 
 ### 1. 本文的组织方式
 
-按一次微调里遇到东西的顺序：先看 Hub 上下载下来的是什么（第二章：三个文件），再看六个库各接手哪一段（第三章），然后把六行代码写出来、对照第三篇的二十行看每一行背后发生了什么（第四章），在一个 0.5B 模型上真的跑一遍、看清 chat template、loss mask、LoRA 参数量这些名词的实物（第五章），最后讲一个习惯：卡住的时候去哪读源码（第六章）。
+按一次微调里遇到东西的顺序：先看 Hub 上下载下来的是什么（第二章：三个文件），再看六个库各接手哪一段（第三章），然后把六行代码写出来、对照《[算法工程师的工具箱（03）：PyTorch 使用层（上）——五个对象与二十行训练循环](/pytorch-in-use-five-objects-and-a-training-loop.html#六二十行训练循环训一个小-transformer)》里的二十行训练循环，看每一行背后发生了什么（第四章），在一个 0.5B 模型上真的跑一遍、看清 chat template、loss mask、LoRA 参数量这些名词的实物（第五章），最后讲一个习惯：卡住的时候去哪读源码（第六章）。
 
 ### 2. 六个库
 
@@ -66,7 +66,7 @@ DDP / FSDP / DeepSpeed 配置`"]
 |---|---|---|
 | 二 | Hub 上的三个文件 | `config.json`、`tokenizer.json`、`*.safetensors`；从 config 算参数量 |
 | 三 | 六个库各管什么 | `transformers`、`datasets`、`tokenizers`、`peft`、`trl`、`accelerate` |
-| 四 | 六行组装一次 LoRA SFT | 代码；背后的每件事在第三篇二十行里的位置 |
+| 四 | 六行组装一次 LoRA SFT | 代码；背后的每件事在《PyTorch 使用层（上）》二十行训练循环里的位置 |
 | 五 | 在 0.5B 模型上跑通 | chat template、loss mask 比例、LoRA 参数量、20 步的 loss |
 | 六 | 为什么读源码是最快的路 | 六个入口与它们的长度；从 `compute_loss` 往下追 |
 | 七 | 本文小结 | |
@@ -145,15 +145,15 @@ flowchart TB
 
 Table: Qwen2-0.5B 各部件的形状与参数量
 
-`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。L4《现代 LLM 结构》第一篇专门教从 `config.json` 算参数量。
+`tie_word_embeddings: true` 说明输出层与词嵌入共享一份权重——小模型常这样做，否则 `lm_head` 还要再加 136M，词嵌入就占了近一半。加载后 `sum(p.numel() for p in model.parameters())` 数出 494M，与名字里的 "0.5B" 对上。《[现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量](/gpt2-to-llama-five-changes-and-parameter-count.html#四参数量从-configjson-到-803b)》「参数量：从 config.json 到 8.03B」一章专门教从 `config.json` 算参数量。
 
 ### 2. `tokenizer.json` 与 `tokenizer_config.json`
 
-词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 [Jinja](# "tip: Python 生态的模板引擎（Flask / Django 网页模板用的那个）：模板里用 for 循环遍历 messages，用双花括号占位符填入 message.content，渲染后得到一个字符串。chat template 用它把 messages 列表渲染成模型训练时见过的那种带特殊 token 的文本") 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。L4 预训练系列的第二篇讲 tokenizer 本身。
+词表、合并规则、特殊 token（`<|im_start|>`、`<|im_end|>`、`<|endoftext|>`）、以及 **chat template**——一段 [Jinja](# "tip: Python 生态的模板引擎（Flask / Django 网页模板用的那个）：模板里用 for 循环遍历 messages，用双花括号占位符填入 message.content，渲染后得到一个字符串。chat template 用它把 messages 列表渲染成模型训练时见过的那种带特殊 token 的文本") 模板，规定"一轮对话怎么拼成一个字符串"。第五章会看到它的输出。tokenizer 本身在《[预训练（02）：分词与词表：BPE、词表大小与 token 效率](/tokenizer-vocabulary-and-token-efficiency.html)》里讲。
 
 ### 3. `*.safetensors`：权重
 
-`state_dict`（第三篇第四章）的磁盘格式。一个 `.safetensors` 文件只有三段：8 个字节写 header 有多长，然后是一段 JSON header，然后是所有张量的原始字节首尾相接：
+`state_dict`（《PyTorch 使用层（上）》「[参数与状态](/pytorch-in-use-five-objects-and-a-training-loop.html#3-参数与状态)」一节）的磁盘格式。一个 `.safetensors` 文件只有三段：8 个字节写 header 有多长，然后是一段 JSON header，然后是所有张量的原始字节首尾相接：
 
 ![safetensors 文件的字节布局——8 字节 header 长度、JSON header（每个张量的名字、dtype、shape 与在数据区的字节区间）、数据区（纯字节）；读某一层只需按 data_offsets 定位并 mmap 那一段；大模型按名字分成多个分片，由 index.json 记录每个张量在哪个文件](/img/in-post/hf-safetensors-layout.svg)
 
@@ -178,22 +178,22 @@ Table: Qwen2-0.5B 各部件的形状与参数量
 
 Table: Hugging Face 六个库各自负责的事
 
-它们的分工对应第三篇的五个对象——每个库产出（或改造）训练循环里的一个东西：
+它们的分工对应《PyTorch 使用层（上）》的「[五个对象](/pytorch-in-use-five-objects-and-a-training-loop.html#2-五个对象)」——每个库产出（或改造）训练循环里的一个东西：
 
-| 库 | 产出的对象 | 对应第三篇的 |
+| 库 | 产出的对象 | 对应《PyTorch 使用层（上）》的对象 |
 |---|---|---|
 | `transformers` | 模型（一个 `nn.Module`）与 tokenizer | `nn.Module`；`TinyGPT` 换成 `AutoModelForCausalLM` |
 | `datasets` | `Dataset`（Arrow 格式，可直接喂 `DataLoader`） | `Dataset` / `DataLoader`；`get_batch` 换成它 |
 | `tokenizers` | 把文本变成 `input_ids` 的编码器 | `Dataset.__getitem__` 里"字符 → id"那一步 |
 | `peft` | 改造后的 `nn.Module`：线性层旁挂上 LoRA，基座 `requires_grad=False` | `nn.Module` + `requires_grad` |
 | `trl` | 训练循环本身（`SFTTrainer` 等） | 二十行 |
-| `accelerate` | 多卡启动与设备放置 | 第四篇的 DDP / FSDP |
+| `accelerate` | 多卡启动与设备放置 | 《PyTorch 使用层（下）》「多卡启用即可」里的 DDP / FSDP |
 
-Table: 六个库产出的对象与第三篇五个对象的对应
+Table: 六个库产出的对象与《PyTorch 使用层（上）》五个对象的对应
 
 ### `generate` 的采样参数
 
-`model.generate(..., do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=256)` 里的每个参数都在改"从 logits 里怎么挑下一个 token"这一步，数学都在《算法工程师的数学》的《算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss》第七章"softmax"里：
+`model.generate(..., do_sample=True, temperature=0.7, top_p=0.9, max_new_tokens=256)` 里的每个参数都在改"从 logits 里怎么挑下一个 token"这一步，数学都在《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html#七softmax)》「softmax」与「[温度与采样](/from-maximum-likelihood-to-cross-entropy.html#八温度与采样)」两章里：
 
 - `do_sample=False` 是 **greedy**：每步取分数最高的那个 token，同一个 prompt 每次输出一样。
 - `temperature=0.7`：logits 先除以 0.7 再过 softmax，分布变尖，高分 token 更容易被选中；大于 1 则变平、更随机。
@@ -222,11 +222,11 @@ trainer.train()
 3. `get_peft_model(model, LoraConfig(...))`（peft）：把基座的全部参数冻结，在每个线性层旁边挂一对小矩阵 $$A$$、$$B$$（秩 `r=16`），之后只训这些小矩阵——这就是 LoRA。
 4. `load_dataset(...)`（datasets）：从 Hub 下载一个对话数据集，得到一个按行取样本的 `Dataset`，每条是一个 `messages` 列表。
 5. `SFTTrainer(...)`（trl）：把模型、数据、tokenizer 与训练超参数（`SFTConfig`：学习率、batch、步数、bf16……）装进一个训练器。
-6. `trainer.train()`：跑第三篇那二十行训练循环——下一节逐行对应。
+6. `trainer.train()`：跑《PyTorch 使用层（上）》那二十行训练循环——下一节逐行对应。
 
 ### 2. 背后发生的事
 
-把第三篇的二十行训练循环拿过来（SFT 版本：用 `DataLoader` 取数、loss 带 `ignore_index`），六行背后每一件事都在里面有对应位置：
+把《PyTorch 使用层（上）》的二十行训练循环拿过来（SFT 版本：用 `DataLoader` 取数、loss 带 `ignore_index`），六行背后每一件事都在里面有对应位置：
 
 ```python title="六行背后的训练循环：每一行都在表里有位置"
 # !ref load
@@ -313,7 +313,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 
 ### 2. LoRA 挂到哪、多少参数
 
-> 这里只给一份能跑的配置。`r`、`target_modules`、`lora_alpha`、学习率各取多少、依据是什么，见[《LoRA 专题》第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的对照实验。
+> 这里只给一份能跑的配置。`r`、`target_modules`、`lora_alpha`、学习率各取多少、依据是什么，见《[LoRA 专题（02）：选参：r、target_modules、alpha、lr 与 QLoRA / DoRA / PiSSA 各让模型变成什么](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)》的对照实验。
 
 ```text title='LoRA 挂在七个线性层上：可训练 1.78%'
 可训练 8.80 M / 494 M = 1.78%
@@ -321,7 +321,7 @@ Qwen 的模板自动加了一段默认 system prompt；每一轮用 `<|im_start|
 挂了 LoRA 的线性层: ['down_proj', 'gate_proj', 'k_proj', 'o_proj', 'q_proj', 'up_proj', 'v_proj']
 ```
 
-七个线性层——与 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。第四篇的账：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
+七个线性层——与 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》表里的七个一一对应。0.5B 模型上 $$r = 16$$ 是 1.78%（比 8B 的 0.52% 高，因为小模型 $$d$$ 小、$$r(m + n) / mn$$ 更大）。按《[PyTorch 使用层（下）](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html#三显存的账)》「显存的账」算：训练状态只有 141 MB，冻结权重 2 GB（fp32）——这个模型在 CPU 上都能微调。
 
 ### 3. loss mask 的比例
 
@@ -339,7 +339,7 @@ Q: What is the capital of France?   A: 'Paris.看查看\npositories\nThe capital
 Q: What is the capital of Italy?    A: 'Rome.看查看\nRowAtIndexPath\n Florence.看查看\nRowAtIndexPath'
 ```
 
-loss 从 5.3 降到 1.7；生成时**答案学会了**（Paris、Rome——后者不在训练数据里，是基座本来就会的），但**没学会在 `<|im_end|>` 停下**，接着吐出乱码。12 条数据、20 步，模型见到 `<|im_end|>` 这个 token 的次数太少。这是一个真实的 SFT 现象：**结束符必须进 loss、且要见够多次**，否则模型不会停。L5 后训练系列第一篇专门讲 SFT 数据的这些细节；这里它是一个"六行跑通了，但要看懂输出"的例子。
+loss 从 5.3 降到 1.7；生成时**答案学会了**（Paris、Rome——后者不在训练数据里，是基座本来就会的），但**没学会在 `<|im_end|>` 停下**，接着吐出乱码。12 条数据、20 步，模型见到 `<|im_end|>` 这个 token 的次数太少。这是一个真实的 SFT 现象：**结束符必须进 loss、且要见够多次**，否则模型不会停。《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html#四目标loss-maskpacking-与归约)》「目标：loss mask、packing 与归约」一章专门讲 SFT 数据的这些细节；这里它是一个"六行跑通了，但要看懂输出"的例子。
 
 ### 5. 合并
 
@@ -355,7 +355,7 @@ Hugging Face 的库是当前算法工作的事实标准，也是**最好的教�
 
 | 想学 | 读 | 大约多长 |
 |---|---|---|
-| Llama 的结构 | `transformers/models/llama/modeling_llama.py`：`LlamaAttention`、`LlamaMLP`、`LlamaDecoderLayer`、`apply_rotary_pos_emb` | 核心几百行；每个类都是第三篇的 `nn.Module` |
+| Llama 的结构 | `transformers/models/llama/modeling_llama.py`：`LlamaAttention`、`LlamaMLP`、`LlamaDecoderLayer`、`apply_rotary_pos_emb` | 核心几百行；每个类都是《PyTorch 使用层（上）》讲的 `nn.Module` |
 | DPO 的 loss 到底怎么算 | `trl/trainer/dpo_trainer.py` 里 `dpo_loss`：把 《[算法工程师的数学（06）：熵、交叉熵与 KL——从困惑度到 DPO](/entropy-cross-entropy-and-kl-to-dpo.html)》推出的公式变成十几行代码，还能看到 IPO、hinge 等变体各改了哪一行 | 几十行 |
 | GRPO 的优势怎么算、KL 怎么加 | `trl/trainer/grpo_trainer.py`：《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$ 与裁剪 | 几百行 |
 | LoRA 怎么挂上去 | `peft/tuners/lora/layer.py`：`Linear.forward` 里 `result += lora_B(lora_A(dropout(x))) * scaling` | 一行核心——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》的 $$BAx$$ |
@@ -366,12 +366,12 @@ Table: 值得直接读的 Hugging Face 源码入口
 
 这六个入口后来各读成了一篇：[《读 Hugging Face 源码》](/reading-hugging-face-source-code.html)（四篇）——01 `from_pretrained` 与一次前向到 loss、02 `generate` 的循环、03 tokenizers 与 datasets、04 peft 与 trl 的三种 loss——每篇从上表的一行进入，读到与 L0 / L4 / L5 的公式对应的那几行为止。
 
-方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回 L0 对应的篇；读到一个看不懂的形状操作，回本系列第一篇。
+方法很简单：**遇到一个后训练概念，先读它在 `trl` 里的实现，再读论文。** 库的版本变化快，函数名会变（本文写作时的接口未必与你读到时一致），但找到入口的方法不变——从 Trainer 的 `compute_loss` 往下追，或者在编辑器里对着一个 API 名按"跳转到定义"。读到一个看不懂的公式，回《算法工程师的数学》里讲它的那一篇；读到一个看不懂的形状操作，回《[数据科学三剑客](/numpy-pandas-matplotlib-for-algorithm-engineers.html#四reshapetranspose-与-einsum)》「reshape、transpose 与 einsum」一章。
 
 ## 七、本文小结
 
 - **Hub 上的三个文件**：`config.json`（结构超参数，能算出参数量）、`tokenizer.json`（词表、特殊 token、chat template）、`*.safetensors`（`state_dict` 的磁盘格式，可部分加载、不能执行代码）。
-- **六个库**各管一段：`transformers` 给模型与 tokenizer、`datasets` 给数据（Arrow）、`tokenizers` 训与编码词表、`peft` 挂 LoRA、`trl` 给后训练的 Trainer、`accelerate` 给多卡启动；对应第三篇的五个对象。
+- **六个库**各管一段：`transformers` 给模型与 tokenizer、`datasets` 给数据（Arrow）、`tokenizers` 训与编码词表、`peft` 挂 LoRA、`trl` 给后训练的 Trainer、`accelerate` 给多卡启动；对应《PyTorch 使用层（上）》的五个对象。
 - **六行组装 LoRA SFT**，背后的每件事——chat template、loss mask（−100）、packing、LoRA 挂载、只更新 $$A, B$$、bf16 / 裁剪 / 调度——都在二十行训练循环里有位置。
 - 0.5B 上跑通：七个线性层挂 LoRA、可训练 1.78%、训练状态 141 MB；一个 batch 85% 的 token 被 mask；20 步 loss 5.3 → 1.7，答案学会了但没学会停——**结束符要进 loss 且见够多次**。
 - **读源码是最快的路**：`modeling_llama.py`、`dpo_loss`、`grpo_trainer.py`、`peft` 的 `Linear.forward`、`LogitsProcessor`；从 `compute_loss` 往下追。库的接口会变，方法不变。
