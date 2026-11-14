@@ -323,7 +323,7 @@ flowchart LR
 
 ### 4. 五组需要算账的取舍
 
-表里每一行的“代价”一栏都是一句话，下面五组需要用数字才能说清楚。算例沿用[第一篇](/why-llm-serving-is-hard.html)的设定：Llama-3-70B、8×H100、TP=8，每 token 的 KV 320 KB（每卡 40 KB），每卡权重 17.6 GB。再加两个从[第六篇](/gpu-execution-kernels-and-graphs.html)取来的实测量级：64 个请求的纯 decode 步约 10 ms；2050 token 的 prefill 约 92 ms，折合每个 prefill token 约 45 µs。这里把一步的时间简化成：
+表里每一行的“代价”一栏都是一句话，下面五组需要用数字才能说清楚。算例沿用[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的设定：Llama-3-70B、8×H100、TP=8，每 token 的 KV 320 KB（每卡 40 KB），每卡权重 17.6 GB。再加两个从[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)取来的实测量级：64 个请求的纯 decode 步约 10 ms；2050 token 的 prefill 约 92 ms，折合每个 prefill token 约 45 µs。这里把一步的时间简化成：
 
 $$t_\text{step} \approx t_\text{decode}(B) + 45\ \mu\text{s} \times (\text{这一步的 prefill token 数})$$
 
@@ -348,7 +348,7 @@ Table: 4 个 2050 token prompt 同时到达时，两种 token 预算的对比
 
 **2、并发上限：`max_num_seqs` 让吞吐和 TPOT 一起涨，直到踩线。**
 
-decode 每步要读一遍每卡 17.6 GB 的权重，再读 batch 里每个请求的全部 KV。按第一篇的 Roofline 下界（上下文取请求结束时的 2350 token），再加约 3 ms 的 all-reduce 与 kernel 开销：
+decode 每步要读一遍每卡 17.6 GB 的权重，再读 batch 里每个请求的全部 KV。按[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的 Roofline 下界（上下文取请求结束时的 2350 token），再加约 3 ms 的 all-reduce 与 kernel 开销：
 
 | 并发 B | 每卡 KV 读取 | 每步时间 ≈ TPOT | Output Tokens/s |
 |---:|---:|---:|---:|
@@ -377,7 +377,7 @@ vLLM 启动时先用一个 `max_num_batched_tokens` 大小的假 batch 跑一遍
 
 **4、抢占：V1 只有重算，`watermark` 用容量换稳定。**
 
-running 里的请求每多生成 16 个 token（一个块）就要一个新块。池满时调度器调用 `Scheduler._preempt_request`：FCFS 策略下抢 running 队尾最后加入的那个，`priority` 策略下抢优先级数值最大、到达最晚的那个；释放它的全部块，把 `num_computed_tokens` 清零，放回 waiting 队头。被抢的请求下次被调度时要把 prompt 加已生成的 token 重新 prefill 一遍：第一篇那个请求在生成到第 250 个 token 时被抢，要重算约 2300 token，按 45 µs 计约 104 ms 的 GPU 时间，这个用户的 ITL 里会出现一个“排队等待 + 104 ms”的空洞，同一步里的其他请求也被这 2300 token 拖慢。开着 prefix caching 时，被释放的块进入空闲队列但保留哈希，如果在重新调度前没被别人拿走，重算会直接命中这些块——只是池满时它们往往第一批被逐出。
+running 里的请求每多生成 16 个 token（一个块）就要一个新块。池满时调度器调用 `Scheduler._preempt_request`：FCFS 策略下抢 running 队尾最后加入的那个，`priority` 策略下抢优先级数值最大、到达最晚的那个；释放它的全部块，把 `num_computed_tokens` 清零，放回 waiting 队头。被抢的请求下次被调度时要把 prompt 加已生成的 token 重新 prefill 一遍：[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)里那个请求在生成到第 250 个 token 时被抢，要重算约 2300 token，按 45 µs 计约 104 ms 的 GPU 时间，这个用户的 ITL 里会出现一个“排队等待 + 104 ms”的空洞，同一步里的其他请求也被这 2300 token 拖慢。开着 prefix caching 时，被释放的块进入空闲队列但保留哈希，如果在重新调度前没被别人拿走，重算会直接命中这些块——只是池满时它们往往第一批被逐出。
 
 所以抢占速率 > 0 的稳态是坏信号：GPU 在重复做已经做过的工作，吞吐和 ITL 一起变差。`--watermark 0.02` 让调度器在接纳 waiting 或被抢占的请求时留出 2% 的空闲块（51 GB 池子里约 1 GB、约 2.5 万 token 的余量），给 running 里的请求增长用；代价是峰值并发少了约 2%。`--scheduler-reserve-full-isl`（默认开）解决的是另一半：接纳时就确认整条 prompt 放得下，避免“第一块进来了、后面的块抢别人”的抖动；它只管 prompt，不管之后的输出增长，所以输出长的业务还需要 watermark 或更小的 `max_num_seqs`。
 

@@ -185,7 +185,7 @@ LLM Serving 中：
 - 请求完成时间不确定；
 - 每轮活跃请求集合不确定。
 
-不同请求会在不同时间到达，也会在不同时间结束。Batch 因此需要在每个 step 重新组成，具体调度方式见[第四篇](/scheduler-batch-and-fairness.html)。
+不同请求会在不同时间到达，也会在不同时间结束。Batch 因此需要在每个 step 重新组成，具体调度方式见[《Scheduler》](/scheduler-batch-and-fairness.html)。
 
 ### 2. 变化二：从无状态推理变成带状态推理
 
@@ -216,19 +216,19 @@ Prefill 更偏向计算密集型，Decode 更偏向访存密集型。
 
 | # | 核心问题 | 主要机制 | 主要代码落点 | 后续章节 |
 |---|---|---|---|---|
-| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | 第 4 篇 调度 |
-| 二 | 历史状态**放在哪里、如何复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | 第 5 篇 KV Cache |
-| 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | 第 6 篇 执行优化（含投机解码） |
-| 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | 第 7 篇 多卡、第 8 篇 PD 分离 |
+| 一 | 请求来了，**这一轮谁执行、执行多少？** | Continuous Batching、Token Budget、Chunked Prefill、抢占 | `Scheduler` | [《Scheduler》](/scheduler-batch-and-fairness.html) |
+| 二 | 历史状态**放在哪里、如何复用？** | PagedAttention、Prefix Cache、GQA/MLA、KV 量化 | `KVCacheManager` / `BlockPool` | [《KV Cache》](/kv-cache-memory-core.html) |
+| 三 | 这一轮**如何计算得更快？** | FlashAttention、CUDA Graph、算子融合、量化、投机解码 | `ModelRunner` / Attention Backend | [《GPU 执行》](/gpu-execution-kernels-and-graphs.html)（含投机解码） |
+| 四 | 一张卡不够，**如何扩展？** | TP、PP、EP、CP、DP、集合通信 | `Executor` / `distributed` | [《Multi-GPU》](/multi-gpu-scaling-strategies.html)、[《PD 分离》](/prefill-decode-disaggregation.html) |
 
 Table: LLM Serving 的四个核心问题与代码落点
 
 四问之外还有四个**横切约束**，按从请求到芯片的顺序：
 
-1. 输入在变（第 9 篇）：一个请求可以带自己的 LoRA、带几张图片；
-2. 输出在变（第 10 篇）：每个请求有自己的采样参数，还可能要求输出必须符合 JSON schema 或语法；
-3. 模型在变（第 11 篇）：MLA、MoE、MTP 等新结构不断进来；
-4. 硬件在变（第 12 篇）：同一套 Serving 逻辑要跑在不同芯片上。
+1. 输入在变（[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)）：一个请求可以带自己的 LoRA、带几张图片；
+2. 输出在变（[《输出在变》](/output-changes-sampling-and-structured-output.html)）：每个请求有自己的采样参数，还可能要求输出必须符合 JSON schema 或语法；
+3. 模型在变（[《模型适配》](/model-adaptation-architecture.html)）：MLA、MoE、MTP 等新结构不断进来；
+4. 硬件在变（[《硬件解耦》](/hardware-abstraction-and-portability.html)）：同一套 Serving 逻辑要跑在不同芯片上。
 
 它们不新增问题，但要求上面四个答案在剧烈变化的外部环境里保持稳定。投机解码不在横切约束里：它不改变输出的分布，只改变一次 forward 产出几个 token，属于问题三「如何计算得更快」；采样参数与结构化输出改的是「输出什么」，才属于约束。
 

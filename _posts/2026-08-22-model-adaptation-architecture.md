@@ -10,7 +10,7 @@ updated: 2026-11-13
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-前面几篇先解决一个固定模型如何被高效地调度、缓存、执行和扩展，再看请求可见的契约怎样变——输入（第九篇：一个请求带自己的 LoRA、带几张图片）与输出（第十篇：采样参数与结构化输出）。这一篇换到模型本身。模型世界变化极快：MLA、MoE、MTP、Mamba、各种量化格式和权重布局层出不穷，而每一种差异都会往下捅穿好几层——Attention Kernel、KV Cache 布局、调度预算、并行与通信都可能被牵动。它是四种外部变化——输入在变（第九篇）、输出在变（第十篇）、模型在变（本篇）、硬件在变（第十二篇）——里的第三种：同样要问这种变化应该停在哪一层。
+前面几篇先解决一个固定模型如何被高效地调度、缓存、执行和扩展，再看请求可见的契约怎样变——输入（[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)：一个请求带自己的 LoRA、带几张图片）与输出（[《输出在变》](/output-changes-sampling-and-structured-output.html)：采样参数与结构化输出）。这一篇换到模型本身。模型世界变化极快：MLA、MoE、MTP、Mamba、各种量化格式和权重布局层出不穷，而每一种差异都会往下捅穿好几层——Attention Kernel、KV Cache 布局、调度预算、并行与通信都可能被牵动。它是四种外部变化——输入在变（《请求形态的扩展》）、《输出在变》、模型在变（本篇）、硬件在变（[《硬件解耦》](/hardware-abstraction-and-portability.html)）——里的第三种：同样要问这种变化应该停在哪一层。
 
 本篇的核心问题是：
 
@@ -22,7 +22,7 @@ updated: 2026-11-13
 
 本文跟着一个模型走：从 Hugging Face 的 checkpoint 和 `config.json` 出发，经过配置解释、注册表找类、能力声明、权重装配，一直到它第一次 forward 时 attention 落到哪个 kernel。每经过一个抽象，就问一句：哪一类模型变化停在这里，哪一类会穿过去。
 
-先在第二章把"差异怎样往下捅穿"画成一张矩阵；第三章沿接入链路逐个看 vLLM 的抽象，第九篇用到的 `SupportsLoRA`、`SupportsMultiModal` 在第三章第 3 节讲完整；第四、五章看这些抽象怎样演进、在哪里失效；第六章把前面的东西排成接入一个新模型的施工顺序和验收阶梯；第七章用 DeepSeek 的 MLA、MoE、MTP 三个特性逐一对照，看它们分别落在哪一层、对应哪段源码。
+先在第二章把"差异怎样往下捅穿"画成一张矩阵；第三章沿接入链路逐个看 vLLM 的抽象，[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)用到的 `SupportsLoRA`、`SupportsMultiModal` 在第三章第 3 节讲完整；第四、五章看这些抽象怎样演进、在哪里失效；第六章把前面的东西排成接入一个新模型的施工顺序和验收阶梯；第七章用 DeepSeek 的 MLA、MoE、MTP 三个特性逐一对照，看它们分别落在哪一层、对应哪段源码。
 
 ### 2. 本文的章节安排
 
@@ -95,7 +95,7 @@ Table: 新模型差异扩散的三个层次
 
 Table: 模型变化 × 三层：每种变化在 vLLM 里要动的对象
 
-这张表从上往下越来越贵：前两行停在模型层或只多一个后端选项；MLA、Mamba 改了"状态长什么样"，调度器算显存的方式跟着变；MoE、MTP 改了"一步怎么执行"，牵动并行和调度。MTP 这一行的通用链路——proposer、lookahead 槽位、拒绝采样、按接受数回退——在[第六篇](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)，本文第七章第 3 节只讲 DeepSeek 的 MTP 头本身怎样接进来。
+这张表从上往下越来越贵：前两行停在模型层或只多一个后端选项；MLA、Mamba 改了"状态长什么样"，调度器算显存的方式跟着变；MoE、MTP 改了"一步怎么执行"，牵动并行和调度。MTP 这一行的通用链路——proposer、lookahead 槽位、拒绝采样、按接受数回退——在[《GPU 执行》](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)，本文第七章第 3 节只讲 DeepSeek 的 MTP 头本身怎样接进来。
 
 以标准 Attention 为例，论文里的计算是：
 
@@ -316,8 +316,8 @@ class LlamaForCausalLM(
 | `VllmModel` | `__init__(*, vllm_config, prefix)`<br/>`embed_input_ids(input_ids)`<br/>`forward(input_ids, positions, …)`，关键字名不能改 | `is_vllm_model` 检查签名；`initialize_model` 只按 `vllm_config` / `prefix` 两个关键字实例化 | 把它当作 vLLM 模型构造、调用 |
 | `VllmModelForTextGeneration` | `compute_logits(hidden_states)` | 注册表检查，写进 `_ModelInfo.is_text_generation_model` | 可以作为 generate runner |
 | `VllmModelForPooling` | `pooler` | 同上，`is_pooling_model` | 可以作为 pooling runner（embed / classify / score） |
-| `SupportsLoRA` | `packed_modules_mapping`、`embedding_modules`（可选 `lora_skip_prefixes`） | Worker 加载完模型后 `load_lora_model` 调 `supports_lora(model)`，不满足就抛 `ValueError("… does not support LoRA yet.")` | `LoRAModelManager._create_lora_modules` 用 `from_layer` 把线性层换成 `*WithLoRA` 包装层；融合层按 `packed_modules_mapping` 拆回原子层名去匹配 adapter 权重（第九篇第二章） |
-| `SupportsMultiModal` | `embed_multimodal(**kwargs)`、`get_placeholder_str(modality, i)`，并在 `MULTIMODAL_REGISTRY.register_processor` 登记处理器 | 注册表检查，`_ModelInfo.supports_multimodal` | `ModelConfig` 建多模态配置；ModelRunner 为它跑 encoder、把 encoder 输出按占位符合并进 embedding（第九篇第三章） |
+| `SupportsLoRA` | `packed_modules_mapping`、`embedding_modules`（可选 `lora_skip_prefixes`） | Worker 加载完模型后 `load_lora_model` 调 `supports_lora(model)`，不满足就抛 `ValueError("… does not support LoRA yet.")` | `LoRAModelManager._create_lora_modules` 用 `from_layer` 把线性层换成 `*WithLoRA` 包装层；融合层按 `packed_modules_mapping` 拆回原子层名去匹配 adapter 权重（[《请求形态的扩展》第二章](/request-shapes-multi-lora-and-multimodal.html)） |
+| `SupportsMultiModal` | `embed_multimodal(**kwargs)`、`get_placeholder_str(modality, i)`，并在 `MULTIMODAL_REGISTRY.register_processor` 登记处理器 | 注册表检查，`_ModelInfo.supports_multimodal` | `ModelConfig` 建多模态配置；ModelRunner 为它跑 encoder、把 encoder 输出按占位符合并进 embedding（[《请求形态的扩展》第三章](/request-shapes-multi-lora-and-multimodal.html)） |
 | `SupportsPP` | `make_empty_intermediate_tensors`<br/>`forward` 接收并在非末段返回 `IntermediateTensors` | 注册表检查；`ModelConfig.verify_with_parallel_config` 在 PP > 1 而模型不支持时抛 `NotImplementedError("Pipeline parallelism is not supported for this model …")` | 允许按层切到多个 PP stage |
 | `SupportsQuant` | `hf_to_vllm_mapper`、`packed_modules_mapping` | 模型构造时 `SupportsQuant.__new__` 自动执行 | 把 `quant_config` 挂到模型上，并把映射规则交给量化配置，让 checkpoint 里按原始层名写的量化信息对得上 vLLM 的融合层 |
 | `HasInnerState` / `IsAttentionFree` / `IsHybrid` | 混合模型实现 `get_mamba_state_shape_from_config`、`get_mamba_state_copy_func` | 注册表检查 | `ModelConfig.attn_type` 变成 hybrid / attention_free；按层类型数 attention 层；KV 管理为 mamba 层分配定长状态 |
@@ -330,7 +330,7 @@ Table: vLLM v0.27.1 的主要能力协议：模型提供什么、谁检查、引
 
 检查发生在两个时间点。一类在**启动解析配置时**，由注册表在子进程里对类做检查、写进 `_ModelInfo`，主进程据此决定 runner 类型、能不能开 PP、是不是混合模型——这类错误在模型加载之前就暴露。另一类在 **Worker 建好模型实例之后**，对实例做 `isinstance` 检查（`supports_lora`、`is_mixture_of_experts`、`supports_eagle3`），决定要不要包 LoRA 层、要不要挂 EPLB。
 
-第九篇里 multi-LoRA 与多模态用到的 `SupportsLoRA`、`SupportsMultiModal` 就是这张表里的两行：声明了 `SupportsLoRA`，线性层才会被换成 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并登记了处理器，引擎才会为它跑 encoder、合并 embedding。一个模型想支持 LoRA 却只写了一半，`supports_lora` 会打出警告：设了 `supports_lora=True` 但缺 `packed_modules_mapping` / `embedding_modules`，或者属性都有却没设标志。
+[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)里 multi-LoRA 与多模态用到的 `SupportsLoRA`、`SupportsMultiModal` 就是这张表里的两行：声明了 `SupportsLoRA`，线性层才会被换成 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并登记了处理器，引擎才会为它跑 encoder、合并 embedding。一个模型想支持 LoRA 却只写了一半，`supports_lora` 会打出警告：设了 `supports_lora=True` 但缺 `packed_modules_mapping` / `embedding_modules`，或者属性都有却没设标志。
 
 所以 vLLM 统一的不是 `forward` 的完整签名，而是三样东西：
 
@@ -439,7 +439,7 @@ Table: Llama-3-8B：HF 权重到 vLLM 融合层的映射（HF key 省去 `model.
 - prefill、decode 和投机解码如何协同
 - 当前设备采用哪种执行策略
 
-这些由一条逐级细化的数据流承接，它们在第三、四、六篇里已经逐个展开过，这里只列各自对模型适配的意义：
+这些由一条逐级细化的数据流承接，它们在[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)、[《Scheduler》](/scheduler-batch-and-fairness.html)、[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)里已经逐个展开过，这里只列各自对模型适配的意义：
 
 | 对象 | 决定什么 | 包含 | 不包含 |
 |---|---|---|---|
@@ -504,7 +504,7 @@ flowchart TB
 
 **1、KV 规格：模型只声明需要什么状态。**
 
-KV cache 不绑定某个模型实现，而是由每个 attention 类的层自己声明。Worker 建好模型后，`GPUModelRunner.get_kv_cache_spec` 遍历所有 `AttentionLayerBase` 层，逐个调用它们的 `get_kv_cache_spec(vllm_config)`，得到"层名 → `KVCacheSpec`"的字典；KV 管理器按规格分组、按页大小分配和回收（第五篇）。和别的层共享 KV 的层（`kv_sharing_target_layer_name`）不产生规格，encoder-only 的层返回 `None`。`vllm/v1/kv_cache_interface.py` 里的规格家族就是 vLLM 能表示的"推理状态"种类：
+KV cache 不绑定某个模型实现，而是由每个 attention 类的层自己声明。Worker 建好模型后，`GPUModelRunner.get_kv_cache_spec` 遍历所有 `AttentionLayerBase` 层，逐个调用它们的 `get_kv_cache_spec(vllm_config)`，得到"层名 → `KVCacheSpec`"的字典；KV 管理器按规格分组、按页大小分配和回收（[《KV Cache》](/kv-cache-memory-core.html)）。和别的层共享 KV 的层（`kv_sharing_target_layer_name`）不产生规格，encoder-only 的层返回 `None`。`vllm/v1/kv_cache_interface.py` 里的规格家族就是 vLLM 能表示的"推理状态"种类：
 
 | 规格 | 谁产生 | 每块页大小 | 典型模型 |
 |---|---|---|---|
@@ -524,7 +524,7 @@ Table: KVCacheSpec 家族：vLLM 能表示的几类推理状态
 
 **3、MultiModal Registry：模型结构与输入预处理链各自演进。**
 
-多模态模型的复杂性不只来自结构，还来自输入预处理链。`MULTIMODAL_REGISTRY.register_processor` 把模型类与它的处理器工厂登记在一起（`SupportsMultiModal._processor_factory` 就是在这里设置的），第九篇的多模态输入流水线正是从这里按模型类找到 processor。它承接：
+多模态模型的复杂性不只来自结构，还来自输入预处理链。`MULTIMODAL_REGISTRY.register_processor` 把模型类与它的处理器工厂登记在一起（`SupportsMultiModal._processor_factory` 就是在这里设置的），[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)的多模态输入流水线正是从这里按模型类找到 processor。它承接：
 
 - 图片、视频、音频等输入处理
 - 多模态特征提取
@@ -543,7 +543,7 @@ Table: KVCacheSpec 家族：vLLM 能表示的几类推理状态
 - 多模态处理器：`MULTIMODAL_REGISTRY.register_processor`
 - 量化方法：`register_quantization_config`
 - 模型加载器：`register_model_loader`
-- 硬件平台：`vllm.platform_plugins` 入口点（第十二篇）
+- 硬件平台：`vllm.platform_plugins` 入口点（[《硬件解耦》](/hardware-abstraction-and-portability.html)）
 
 这些注册函数通常写在一个 `vllm.general_plugins` 入口点里，vLLM 启动时 `load_general_plugins` 逐个调用。插件不是对所有内部对象开放任意修改：没有注册点的地方，插件只能 monkey patch，等于把核心里的隐式耦合搬到了外部。
 
@@ -591,7 +591,7 @@ class LlamaModel(nn.Module, EagleModelMixin):
     ...
 ```
 
-它告诉编译器：forward 的这几个输入只有第 0 维（本步 token 数）会变，其余都是静态的。动态的 token 数由 CUDA Graph 按若干档 batch size 分别捕获（第六篇）。attention 这类依赖 metadata 的算子被列为切图点：`CompilationConfig._attention_ops` 里有 `vllm::unified_attention_with_output`、`vllm::unified_mla_attention_with_output`、`vllm::mamba_mixer2` 等，`torch.compile` 在这些算子处把图切开，两段之间的 dense 计算整段编译、融合，attention 本身留给后端。一个新模型想享受编译和图捕获，forward 就得能被 Dynamo 追踪：不在 forward 里按张量的值走 Python 分支，新的 attention 类算子要注册成自定义算子并加进切图点。
+它告诉编译器：forward 的这几个输入只有第 0 维（本步 token 数）会变，其余都是静态的。动态的 token 数由 CUDA Graph 按若干档 batch size 分别捕获（[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)）。attention 这类依赖 metadata 的算子被列为切图点：`CompilationConfig._attention_ops` 里有 `vllm::unified_attention_with_output`、`vllm::unified_mla_attention_with_output`、`vllm::mamba_mixer2` 等，`torch.compile` 在这些算子处把图切开，两段之间的 dense 计算整段编译、融合，attention 本身留给后端。一个新模型想享受编译和图捕获，forward 就得能被 Dynamo 追踪：不在 forward 里按张量的值走 Python 分支，新的 attention 类算子要注册成自定义算子并加进切图点。
 
 `SchedulerOutput` 和 attention metadata 把动态状态显式化之后，编译器和 kernel 不必理解请求调度，只消费结构化的运行时输入——前面这些抽象服务于可维护性，也服务于性能。
 
@@ -1054,7 +1054,7 @@ Multi-head Latent Attention（MLA）最直接的目标是降低 KV Cache 的存�
 
 ![传统 KV Cache 与 MLA latent cache](/img/in-post/model-adaptation-kv-vs-latent.svg)
 
-在 DeepSeek V3 上，每 token 每层存 `kv_lora_rank` = 512 维 latent 加 `qk_rope_head_dim` = 64 维带位置编码的 key，共 576 维。bf16 下是 576 × 2 = 1,152 字节；如果 128 个头都按 head_dim 128 存完整的 K 和 V，是 2 × 128 × 128 × 2 = 65,536 字节，MLA 只有它的 1.8%（这笔账和"存的时候压缩、用的时候还原"两步，见[第五篇的 MLA 一节](/kv-cache-memory-core.html#2-mla从-kv-cache-到-latent-cache)）。
+在 DeepSeek V3 上，每 token 每层存 `kv_lora_rank` = 512 维 latent 加 `qk_rope_head_dim` = 64 维带位置编码的 key，共 576 维。bf16 下是 576 × 2 = 1,152 字节；如果 128 个头都按 head_dim 128 存完整的 K 和 V，是 2 × 128 × 128 × 2 = 65,536 字节，MLA 只有它的 1.8%（这笔账和"存的时候压缩、用的时候还原"两步，见[《KV Cache》的 MLA 一节](/kv-cache-memory-core.html#2-mla从-kv-cache-到-latent-cache)）。
 
 MLA 的关键变化不只是"缓存张量变小"，而是缓存的**语义**变了：KV Cache 不再必然表示已经展开的 Key / Value，而可以表示生成 Key / Value 所需的压缩状态。这一变化在 vLLM 里落到四处。
 
@@ -1089,7 +1089,7 @@ def get_kv_cache_spec(self, vllm_config: VllmConfig) -> KVCacheSpec:
 
 **3、复用与搬运：块共享不需要转换。**
 
-普通注意力的写入是"新生成的 K、V 写进对应的块"；MLA 写进去的是压缩后的 latent 和带 RoPE 的 key。直觉上，前缀复用、块的复制与迁移都得知道"复制的到底是什么"。V1 的 KV 管理没有块复制和换出：前缀缓存是按块哈希共享同一个物理块（第五篇），块里存什么格式与它无关，所以 MLA 的前缀复用不需要任何转换。真正要对齐格式的地方在跨实例：PD 分离时，`compute_tp_mapping()` 对 MLA 的处理是 latent cache 在 TP rank 间复制、选一个源，与 GQA 按头切分拼接不同（第八篇）。
+普通注意力的写入是"新生成的 K、V 写进对应的块"；MLA 写进去的是压缩后的 latent 和带 RoPE 的 key。直觉上，前缀复用、块的复制与迁移都得知道"复制的到底是什么"。V1 的 KV 管理没有块复制和换出：前缀缓存是按块哈希共享同一个物理块（[《KV Cache》](/kv-cache-memory-core.html)），块里存什么格式与它无关，所以 MLA 的前缀复用不需要任何转换。真正要对齐格式的地方在跨实例：PD 分离时，`compute_tp_mapping()` 对 MLA 的处理是 latent cache 在 TP rank 间复制、选一个源，与 GQA 按头切分拼接不同（[《PD 分离》](/prefill-decode-disaggregation.html)）。
 
 **4、算子层：一族 MLA 后端。**
 
@@ -1106,7 +1106,7 @@ MLA 的特殊性被限制在模型、规格和后端三个明确的边界内，�
 
 ### 2. MoE：从静态执行图到动态专家路由
 
-Mixture-of-Experts（MoE）把单一的前馈网络换成多个专家，由路由器为每个 token 选少数几个专家执行：在保持较大参数规模的同时，每个 token 只激活部分参数。对推理引擎而言，MoE 带来的不是多几个 `Linear` 层，而是一套动态的 token → 专家执行机制。Dense 模型的路径是 token → Attention → MLP → 下一层；MoE 层里变成 Router → Top-k 选专家 → 按专家重排（跨卡时 All-to-All dispatch）→ 专家计算 → 还原顺序（跨卡时 All-to-All combine）。矩阵乘法的输入排列不再固定，各专家的负载也不再均匀，而且每一批 token 都不同。Token-to-Expert 映射、dispatch / combine 的通信和重叠，[第七篇的 EP 一章](/multi-gpu-scaling-strategies.html#五ep-expert-parallelism)已经逐步展开；这里看它在 vLLM 里的落点。
+Mixture-of-Experts（MoE）把单一的前馈网络换成多个专家，由路由器为每个 token 选少数几个专家执行：在保持较大参数规模的同时，每个 token 只激活部分参数。对推理引擎而言，MoE 带来的不是多几个 `Linear` 层，而是一套动态的 token → 专家执行机制。Dense 模型的路径是 token → Attention → MLP → 下一层；MoE 层里变成 Router → Top-k 选专家 → 按专家重排（跨卡时 All-to-All dispatch）→ 专家计算 → 还原顺序（跨卡时 All-to-All combine）。矩阵乘法的输入排列不再固定，各专家的负载也不再均匀，而且每一批 token 都不同。Token-to-Expert 映射、dispatch / combine 的通信和重叠，[《Multi-GPU》的 EP 一章](/multi-gpu-scaling-strategies.html#五ep-expert-parallelism)已经逐步展开；这里看它在 vLLM 里的落点。
 
 **1、模型层：路由器 + 融合专家层。**
 
@@ -1199,7 +1199,7 @@ return hidden_states, self.shared_head(hidden_states)
 
 KV Cache、序列长度、位置以及相关元数据都必须能区分这两者。直觉上，回退似乎要做很多事：回退序列长度、释放或重新标记缓存块、恢复 block table、清理临时 metadata、撤销候选 token 的 logits、恢复位置和采样状态、修正请求的生成进度，像一个"记录旧状态 → 写入暂存结果 → 验证 → 提交或恢复"的事务。
 
-vLLM 的做法要简单得多（[第六篇的调度器与 KV 一节](/gpu-execution-kernels-and-graphs.html#4-调度器与-kvdraft-进预算预留-lookahead-槽位按接受数回滚)）：调度时 draft token 进 token 预算，KV 按 `num_lookahead_tokens` 预留槽位；验证后只把请求的 `num_computed_tokens` 减去被拒的个数。被拒 token 写下的 KV 留在原地，下一步的 token 按 `num_computed_tokens` 算出 `slot_mapping`，直接覆盖它们；不调用任何撤销接口，也不释放物理块。"暂存 vs 提交"在 vLLM 里就是 `num_computed_tokens` 与实际写入 KV 的位置之间的差。所以 MTP 带进运行时的不是事务式回滚，而是**显式的候选状态和部分接受**：推理状态除了前进，还要能"只前进一部分"。
+vLLM 的做法要简单得多（[《GPU 执行》的调度器与 KV 一节](/gpu-execution-kernels-and-graphs.html#4-调度器与-kvdraft-进预算预留-lookahead-槽位按接受数回滚)）：调度时 draft token 进 token 预算，KV 按 `num_lookahead_tokens` 预留槽位；验证后只把请求的 `num_computed_tokens` 减去被拒的个数。被拒 token 写下的 KV 留在原地，下一步的 token 按 `num_computed_tokens` 算出 `slot_mapping`，直接覆盖它们；不调用任何撤销接口，也不释放物理块。"暂存 vs 提交"在 vLLM 里就是 `num_computed_tokens` 与实际写入 KV 的位置之间的差。所以 MTP 带进运行时的不是事务式回滚，而是**显式的候选状态和部分接受**：推理状态除了前进，还要能"只前进一部分"。
 
 三者的分工是：
 
@@ -1408,7 +1408,7 @@ Table: 模型适配源码导航
 [^q0]: 在**三层**里按变化的性质吸收，让变化停在尽可能高、尽可能窄的层。**结构层面的变化**（新的 attention 变体、激活函数、MoE 路由）用模型层的组合式实现吸收——每个模型文件用共享的 `LinearBase` 子类、`Attention` 层、`FusedMoE` 拼装，权重加载经 `WeightsMapper` / `AutoWeightsLoader` 映射 HF 的 checkpoint 命名，能力用 `Supports*` 协议声明；新模型 = 一个新文件 + 注册到 `ModelRegistry`，运行时与算子层不动。**状态表示的变化**（MLA 的压缩 KV、滑窗、SSM 状态、混合模型）触及运行时层——每个 attention 类的层用 `get_kv_cache_spec` 声明自己的 `KVCacheSpec`，`KVCacheManager` 按 spec 分组管理；这是最贵的适配，因为调度与显存账都受影响。**执行方式的变化**（新量化格式、新 attention kernel、新硬件）落在算子层——`QuantizationConfig` + `LinearMethodBase` 替换线性层前向；attention 经 backend 抽象选 kernel；通用算子经 `CustomOp` / vLLM IR 按平台和优先级选实现；硬件经 Platform。判断方法：问它改了「算什么」（模型层）、「状态长什么样」（运行时层）还是「怎么算」（算子层）。详见[第二章](#二痛点为什么推理引擎必须持续适配新模型)的矩阵和[第三](#三vllm-的核心抽象从模型接入到运行时执行)至[六章](#六一个新模型接入-vllm-的完整路径)，DeepSeek 的案例在[第七章](#七实际案例分析deepseek-架构的工程适配)。
 [^q1]: 由 **`ModelConfig`** 回答：它读取 Hugging Face 的 `config.json` 与命令行 / 引擎参数，统一解释出架构名（`architectures` / `model_type`）、runner 类型（generate / pooling / draft）、输出转换类型（embed / classify / none）、dtype 与量化方式、最大上下文、是否多模态、并行相关的派生量（每卡的 head 数、KV head 数、层数）等；能力位（`is_pp_supported`、`is_hybrid`、`attn_type` 等）来自注册表返回的 `_ModelInfo`，`use_mla` 来自 HF 配置。之后所有层——注册表选类、Loader 加载权重、Attention 后端选择、KV 块大小计算——都只看这份统一的解释，而不再各自读原始配置。详见[第三章第 2 节](#2-配置语义modelconfig-将外部参数收敛为执行意图)。
 [^q2]: 由 **`ModelRegistry`** 决定：它维护「架构名 → 实现类」的映射——内置表 `_VLLM_MODELS`（如 `LlamaForCausalLM` → `llama.py`，8 个架构名共用这一个实现）、运行时 `register_model` 注册、通过 `vllm.general_plugins` 入口点加载的外部模块、`module:class` 字符串，以及 `model_impl` 为 auto 时回退到 Transformers backend；解析时按 `ModelConfig` 识别出的架构名查表（找不到就报不支持），能力检查在**子进程**里惰性导入模块完成、结果按源码 hash 缓存，以避免在主进程提前初始化 CUDA，只有 `resolve_model_cls` 才在 Worker 里真正 import 模型类。详见[第三章第 3 节](#3-模型发现modelregistry-负责定位实现)。
-[^q3]: 用 **`nn.Module` + 能力协议（Protocol）** 而不是继承树：每个模型就是一个普通的 PyTorch 模块，通过继承 `interfaces_base.py` / `interfaces.py` 里的协议声明能力——`VllmModel`（`__init__(vllm_config, prefix)`、`forward(input_ids, positions, …)`）、`VllmModelForTextGeneration`（`compute_logits`）、`VllmModelForPooling`、`SupportsLoRA`（`packed_modules_mapping`、`embedding_modules`）、`SupportsPP`、`SupportsMultiModal`、`SupportsQuant`、`IsHybrid`、`MixtureOfExperts` 等。检查发生在两个时间点：注册表在启动时对类做检查、写进 `_ModelInfo`（决定 runner 类型、能否开 PP、是否混合模型）；Worker 建好实例后再做 `isinstance` 检查（是否包 LoRA 层、是否挂 EPLB）。模型内部复用的是一组**可组合的层**（`VocabParallelEmbedding`、`QKVParallelLinear`、`RowParallelLinear`、`Attention`、`RMSNorm`、量化后的 Linear），并行与量化通过这些层注入而不是通过基类。第九篇的 `SupportsLoRA`、`SupportsMultiModal` 就是其中两项。详见[第三章第 4 节](#4-能力声明nnmodule-加-protocol而不是统一继承树)。
+[^q3]: 用 **`nn.Module` + 能力协议（Protocol）** 而不是继承树：每个模型就是一个普通的 PyTorch 模块，通过继承 `interfaces_base.py` / `interfaces.py` 里的协议声明能力——`VllmModel`（`__init__(vllm_config, prefix)`、`forward(input_ids, positions, …)`）、`VllmModelForTextGeneration`（`compute_logits`）、`VllmModelForPooling`、`SupportsLoRA`（`packed_modules_mapping`、`embedding_modules`）、`SupportsPP`、`SupportsMultiModal`、`SupportsQuant`、`IsHybrid`、`MixtureOfExperts` 等。检查发生在两个时间点：注册表在启动时对类做检查、写进 `_ModelInfo`（决定 runner 类型、能否开 PP、是否混合模型）；Worker 建好实例后再做 `isinstance` 检查（是否包 LoRA 层、是否挂 EPLB）。模型内部复用的是一组**可组合的层**（`VocabParallelEmbedding`、`QKVParallelLinear`、`RowParallelLinear`、`Attention`、`RMSNorm`、量化后的 Linear），并行与量化通过这些层注入而不是通过基类。[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)的 `SupportsLoRA`、`SupportsMultiModal` 就是其中两项。详见[第三章第 4 节](#4-能力声明nnmodule-加-protocol而不是统一继承树)。
 [^q4]: 按变化的来源对层：**架构无法识别 / 找不到实现类** → `ModelConfig`（配置解释）与 `ModelRegistry`（映射表、插件注册）；**开 PP / LoRA / EAGLE3 被拒** → 能力协议；**权重名字对不上、有参数没加载、形状不匹配、量化 checkpoint 加载失败** → Loader 与模型类的 `load_weights`（`hf_to_vllm_mapper`、`stacked_params_mapping`、量化 Linear 的权重布局）；**前向报错或输出不对** → 模型实现类本身与它复用的并行 / 量化层（`QKVParallelLinear` 的切分、RoPE 参数）及 attention metadata；**特定后端 / 并行度才出错** → Attention 后端选择与并行层；**多模态输入处理失败** → 处理器与 `SupportsMultiModal` 相关接口。顺序是先识别、再能力、再权重、再运行时状态、最后后端与性能，让修改停在尽可能高、尽可能窄的层，不要为一个模型去改运行时。详见[第三章第 9 节](#9-新模型接入出错时先查哪一层)。
 [^q5]: 按"先正确、后完整、再快"的顺序：先做差异分析并在三种决策里选一种（加注册别名直接复用、组合公共模块局部改造、新增实现并扩展运行时）；再写模型文件，结构和权重装配分开验证；然后沿验收阶梯一级级打开变量——注册与能力位、dummy 权重能建能跑、真实权重单卡、与 HF 对 logprobs、prefill / decode 衔接与动态 batch、服务生命周期、TP → PP → EP、量化、prefix cache 与投机解码、图捕获与特化 kernel；性能优化只在正确性基线稳定后、由 profiling 指向时才做，每次优化后回到对数那一级。详见[第六章](#六一个新模型接入-vllm-的完整路径)。
 [^q6]: 每级只加一个变量：(1) `tests/models/registry.py` 的 `_HfExamplesInfo` 与 `test_registry.py` 查注册和能力位；(2) `test_initialization.py` 用 dummy 权重、压缩层数，确认能建结构、初始化 KV、跑一步；(3) 真实权重单卡，靠严格的漏加载检查和逐层对比；(4) 与 HF 各 greedy 生成 32 个 token，`check_logprobs_close` 要求第一个分叉处双方的 token 都在对方 top-5 logprobs 里；(5) prefill 与 decode 衔接、多轮、动态 batch；(6) 服务生命周期；(7) 并行；(8) 量化；(9) prefix cache 与投机解码；(10) 图捕获、编译与特化 kernel。失败时就查这一级新加的那个变量对应的层。详见[第六章第 3 节](#3-验收阶梯从注册测试到分布式与性能)。

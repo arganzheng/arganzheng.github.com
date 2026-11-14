@@ -70,7 +70,7 @@ Table: 本文的章节安排
 
 ### 1. vLLM：显存碎片
 
-vLLM 的起点是 2023 年的 PagedAttention 论文（SOSP'23）。它看到的问题是第五篇讲过的：按最大长度预分配 KV cache 的系统，真正存放有效 KV 的显存只占两三成，其余被内部碎片、外部碎片和预留吃掉。答案借自操作系统的虚拟内存：KV 按固定大小的块分配，请求持一张 block table，attention kernel 按表查块。块一旦成为分配单位，continuous batching、抢占、prefix caching、PD 分离的 KV 交接就都以块为单位展开——这是前面十三篇反复看到的脉络。
+vLLM 的起点是 2023 年的 PagedAttention 论文（SOSP'23）。它看到的问题是[《KV Cache》](/kv-cache-memory-core.html)讲过的：按最大长度预分配 KV cache 的系统，真正存放有效 KV 的显存只占两三成，其余被内部碎片、外部碎片和预留吃掉。答案借自操作系统的虚拟内存：KV 按固定大小的块分配，请求持一张 block table，attention kernel 按表查块。块一旦成为分配单位，continuous batching、抢占、prefix caching、PD 分离的 KV 交接就都以块为单位展开——这是前面十三篇反复看到的脉络。
 
 ### 2. SGLang：前缀复用
 
@@ -78,7 +78,7 @@ SGLang 的起点是同年年底的论文《SGLang: Efficient Execution of Struct
 
 ### 3. 出发点留下的痕迹
 
-两条路很快会师：vLLM V1 把 prefix caching 做成默认开启（第五篇），SGLang 加了 `page_size`、分页 allocator 和 chunked prefill。但出发点没有被抹平，它决定了今天几处结构性差异：
+两条路很快会师：vLLM V1 把 prefix caching 做成默认开启（[《KV Cache》](/kv-cache-memory-core.html)），SGLang 加了 `page_size`、分页 allocator 和 chunked prefill。但出发点没有被抹平，它决定了今天几处结构性差异：
 
 - **复用的单位**。vLLM 的复用单位是**块**：按块内容哈希，命中要整块命中，块有引用计数。SGLang 的复用单位是**token 序列**：树节点的 key 是一段 token，命中可以停在任意位置（`page_size` > 1 时按页对齐），节点有锁计数。
 - **调度器看待命中的方式**。vLLM 的 Scheduler 把前缀命中当作"这个请求少算几块"，顺序仍按 FCFS 或优先级；SGLang 的 Scheduler 提供 `lpm`（longest prefix match）与 `dfs-weight` 两种**缓存感知**的排序策略，把命中长度当作排序依据，并在同一批新请求内部检测互相的前缀（in-batch prefix caching）。
@@ -106,13 +106,13 @@ flowchart LR
 
 ### 1. vLLM：一个调度器、N 个 worker
 
-[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)画过 vLLM 的三类进程，这里只重述和 SGLang 对照时要用的部分：
+[《鸟瞰 vLLM》的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)画过 vLLM 的三类进程，这里只重述和 SGLang 对照时要用的部分：
 
 - **API Server 进程**：FastAPI 路由 → `AsyncLLM`（`v1/engine/async_llm.py`）→ `InputProcessor` 在这里 **tokenize**，产出 `EngineCoreRequest`；输出侧 `OutputProcessor` 持每个请求的 `IncrementalDetokenizer`，**detokenize 也在这里**。
 - **EngineCore 进程**（`v1/engine/core.py` 的 `EngineCoreProc`）：经 ZMQ 收请求；`Scheduler` + `KVCacheManager` 做决策；通过 `Executor` 下发。
 - **Worker 进程**（`v1/executor/multiproc_executor.py` 的 `WorkerProc`，每个 TP / PP rank 一个）：`SchedulerOutput` 经共享内存 `MessageQueue`（`rpc_broadcast_mq`）广播到所有 worker；`GPUModelRunner` 翻译成张量、forward、采样；`ModelRunnerOutput` 回到 EngineCore。
 
-调度决策只做**一次**，然后作为数据跨两道边界传递。`SchedulerOutput` 因此是全系统最重要的契约（字段见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）。
+调度决策只做**一次**，然后作为数据跨两道边界传递。`SchedulerOutput` 因此是全系统最重要的契约（字段见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）。
 
 ### 2. SGLang：每个 TP rank 一份调度器
 
@@ -167,7 +167,7 @@ Table: 进程与边界对照
 
 这是两套系统最底层的结构差异，值得单独问一句：为什么 SGLang 让每个 TP rank 各跑一份 Scheduler？[^q2]
 
-两种做法各付一种代价。vLLM 只算一次，但要把结果**序列化并跨进程传**，worker 侧还要把它翻译成张量——[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)的"翻译层"就是这个代价的体现；好处是 worker 完全被动，调度器可以任意复杂而不必关心确定性。SGLang 不传调度结果，但要求所有 rank **看到完全相同的输入、做出完全相同的决策**——`RequestReceiver` 先广播请求再调度就是为此，调度器里任何依赖本地状态的分支（时间、随机数、本地显存余量）都必须对所有 rank 一致；好处是 Scheduler 和 ModelRunner 之间没有进程边界，`ScheduleBatch` 直接变成 `ForwardBatch`，CPU 侧的准备工作可以与上一轮 GPU 执行紧密重叠（下一章的 overlap scheduler 建立在这上面）。
+两种做法各付一种代价。vLLM 只算一次，但要把结果**序列化并跨进程传**，worker 侧还要把它翻译成张量——[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)的"翻译层"就是这个代价的体现；好处是 worker 完全被动，调度器可以任意复杂而不必关心确定性。SGLang 不传调度结果，但要求所有 rank **看到完全相同的输入、做出完全相同的决策**——`RequestReceiver` 先广播请求再调度就是为此，调度器里任何依赖本地状态的分支（时间、随机数、本地显存余量）都必须对所有 rank 一致；好处是 Scheduler 和 ModelRunner 之间没有进程边界，`ScheduleBatch` 直接变成 `ForwardBatch`，CPU 侧的准备工作可以与上一轮 GPU 执行紧密重叠（下一章的 overlap scheduler 建立在这上面）。
 
 两边都在向对方靠近：vLLM 的 `async_scheduling` 让调度提前一步做；SGLang 的 `SGLANG_RUST_SERVER` 用一个嵌在调度进程里的 Rust 前端（`rust/sglang-server/`：API server → TokenizerManager → tokenizer / detokenizer）替代 Python 的 HTTP 与 tokenizer 进程，省掉两道 ZMQ。但"一个调度器"与"N 个相同的调度器"这个分法，两边都没有改。
 
@@ -175,11 +175,11 @@ Table: 进程与边界对照
 
 ### 1. vLLM：一个循环、一个预算
 
-第四篇讲过，vLLM V1 的 `Scheduler.schedule()`（`v1/core/sched/scheduler.py`）没有 prefill / decode 之分：
+[《Scheduler》](/scheduler-batch-and-fairness.html)讲过，vLLM V1 的 `Scheduler.schedule()`（`v1/core/sched/scheduler.py`）没有 prefill / decode 之分：
 
 - 一个 `token_budget = max_num_scheduled_tokens`；默认值随硬件：显存 ≥ 70 GB 且非 A100 时 API server 为 8192（`LLM` 类 16384），否则 2048（`LLM` 类 8192）；`max_num_seqs` 相应为 1024 或 256（`engine/arg_utils.py`）。
 - **先 `running` 后 `waiting`**：running 里每个请求推进 1 个 token（投机解码时 `1 + K`），chunked prefill 的请求推进预算剩余的那段；然后从 waiting 按 FCFS 或 `priority` 取新请求，`long_prefill_token_threshold` 限制单个长 prompt 一轮占多少预算。
-- **抢占**：running 请求分配不到块时，弹出 `running` 尾部的请求（`self.running.pop()`，优先级模式下取优先级最低者），置 `RequestStatus.PREEMPTED` 回 waiting，下次从头重算（第五篇解释了为什么 V1 选重算不选 swap）。
+- **抢占**：running 请求分配不到块时，弹出 `running` 尾部的请求（`self.running.pop()`，优先级模式下取优先级最低者），置 `RequestStatus.PREEMPTED` 回 waiting，下次从头重算（[《KV Cache》](/kv-cache-memory-core.html)解释了为什么 V1 选重算不选 swap）。
 - 队列策略只有 `fcfs` 与 `priority` 两种（`config/scheduler.py`）。
 
 ### 2. SGLang：先 prefill 后 decode、带预留的准入
@@ -201,7 +201,7 @@ SGLang 的 `Scheduler.get_next_batch_to_run()` 是另一种形状：
 
 ### 4. 两种 CPU / GPU 重叠
 
-两边都要解决[第六篇第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)的问题：GPU 跑这一轮时 CPU 在干什么。
+两边都要解决[《GPU 执行》第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)的问题：GPU 跑这一轮时 CPU 在干什么。
 
 - vLLM 的 `async_scheduling`（`v1/core/sched/async_scheduler.py`）：调度器在上一轮采样结果回来之前就排下一轮，用占位 token 代替还没出来的那个 token。v0.27.1 的默认是 `None`，由 `config/vllm.py` 决定——没有冲突选项（pooling 模型、不支持的投机方法、不支持的 executor 等）时**开启**。
 - SGLang 的 overlap scheduler（`Scheduler.event_loop_overlap()`，默认开，`--disable-overlap-schedule` 关闭）：`FutureMap`（`managers/overlap_utils.py`）给下一轮 batch 的 `input_ids` 填**负的 future 下标**，GPU 侧在 forward 入口 `resolve_forward_inputs` 时从 `output_tokens_buf` 取回上一轮刚采出的 token；调度线程维护一个 `result_queue`，GPU 跑第 N 轮时 CPU 处理第 N−1 轮的结果、准备第 N+1 轮。
@@ -244,7 +244,7 @@ Table: 调度旋钮对照
 
 ### 1. vLLM：块、哈希链、引用计数
 
-第五篇与[第三篇的「四个域」](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)讲过的结构，这里列出对照要用的四个事实：
+[《KV Cache》](/kv-cache-memory-core.html)与[《鸟瞰 vLLM》的「四个域」](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)讲过的结构，这里列出对照要用的四个事实：
 
 - 物理单位是 `KVCacheBlock`，默认 16 个 token（`CacheConfig.DEFAULT_BLOCK_SIZE`），每层的 KV tensor 形如 `[num_blocks, block_size, …]`。
 - 复用索引是 `BlockPool.cached_block_hash_to_block`（`v1/core/block_pool.py`）：**哈希 → 块**。块的哈希是一条链——`hash_block_tokens(parent_hash, tokens, extra_keys)`（默认 `sha256`），所以相同 token 在不同前缀下得到不同的哈希，一个块只能被同一前缀链上的请求命中。
@@ -294,7 +294,7 @@ flowchart LR
 
 Table: KV 管理对照
 
-块哈希与基数树，谁的前缀命中更"强"？代价是什么？[^q5]基数树命中更细、更能被调度器利用——任意长度命中、同批检测、缓存感知排序；代价是一棵在 CPU 上维护的树（匹配、切分、锁、驱逐都是 Python 对象操作，前缀越多树越大），以及每个 TP rank 各维护一份（第三章）。块哈希表的命中按块取整，但查找是 O(块数) 的哈希，结构简单到可以把块的哈希与元数据通过 `KVConnector` 发给另一个进程或机器——第八篇的 PD 分离、第十三篇的分布式 KV 都建立在"块 + 哈希"这个可以序列化的单位上。SGLang 的 `HiRadixCache` 做同样的事时，节点要额外记 `host_value` 与 `hash_value`，相当于在树上再长出一套块哈希。
+块哈希与基数树，谁的前缀命中更"强"？代价是什么？[^q5]基数树命中更细、更能被调度器利用——任意长度命中、同批检测、缓存感知排序；代价是一棵在 CPU 上维护的树（匹配、切分、锁、驱逐都是 Python 对象操作，前缀越多树越大），以及每个 TP rank 各维护一份（第三章）。块哈希表的命中按块取整，但查找是 O(块数) 的哈希，结构简单到可以把块的哈希与元数据通过 `KVConnector` 发给另一个进程或机器——[《PD 分离》](/prefill-decode-disaggregation.html)的 PD 分离、[《Serving Infra 的下一站》](/future-of-serving-infra.html)的分布式 KV 都建立在"块 + 哈希"这个可以序列化的单位上。SGLang 的 `HiRadixCache` 做同样的事时，节点要额外记 `host_value` 与 `hash_value`，相当于在树上再长出一套块哈希。
 
 ## 六、GPU 执行
 
@@ -302,17 +302,17 @@ Table: KV 管理对照
 
 ### 1. runner 与 worker 的位置
 
-vLLM 的 `GPUModelRunner`（`v1/worker/gpu_model_runner.py`）在 worker 进程里，持久化的 `InputBatch` 跨步增量更新（[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）；SGLang 的 `ModelRunner` 在调度进程里，由 `TpModelWorker.forward_batch_generation()` 调用，`ScheduleBatch` → `ModelWorkerBatch` → `ForwardBatch` 三次转换都不出进程。overlap 时 `Scheduler.run_batch()` 在 `forward_stream` 上发起 forward，采样可以被 `delay_sample_func` 推迟、D2H 拷贝走单独的 `copy_stream`（`launch_batch_sample_if_needed`）。
+vLLM 的 `GPUModelRunner`（`v1/worker/gpu_model_runner.py`）在 worker 进程里，持久化的 `InputBatch` 跨步增量更新（[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)）；SGLang 的 `ModelRunner` 在调度进程里，由 `TpModelWorker.forward_batch_generation()` 调用，`ScheduleBatch` → `ModelWorkerBatch` → `ForwardBatch` 三次转换都不出进程。overlap 时 `Scheduler.run_batch()` 在 `forward_stream` 上发起 forward，采样可以被 `delay_sample_func` 推迟、D2H 拷贝走单独的 `copy_stream`（`launch_batch_sample_if_needed`）。
 
 ### 2. attention backend 怎么选
 
-vLLM 的 backend 在 `v1/attention/backends/`（FlashAttention、FlashInfer、Triton、FlexAttention、ROCm 的 AITER、CPU，MLA 另有一组），由 `Platform` 按硬件、dtype、模型特性选一个（第十二篇）；prefill 与 decode 的区别在 backend **内部**处理（MLA backend 内部有 prefill / decode 两条路径）。
+vLLM 的 backend 在 `v1/attention/backends/`（FlashAttention、FlashInfer、Triton、FlexAttention、ROCm 的 AITER、CPU，MLA 另有一组），由 `Platform` 按硬件、dtype、模型特性选一个（[《硬件解耦》](/hardware-abstraction-and-portability.html)）；prefill 与 decode 的区别在 backend **内部**处理（MLA backend 内部有 prefill / decode 两条路径）。
 
 SGLang 的 backend 在 `layers/attention/`，选择逻辑在 `ServerArgs`（`server_args.py`）：MHA 模型在 Hopper 默认 `fa3`，SM100 默认 `trtllm_mha`（K / V 宽度不等时 `fa4`），ROCm `aiter`，其余 `flashinfer` 或 `triton`；MLA 模型 Hopper `fa3`、SM100 `flashinfer`。它把 **prefill 与 decode 的选择权暴露给用户**：`--prefill-attention-backend` 与 `--decode-attention-backend` 可以不同。
 
 ### 3. CUDA Graph 的配置方式
 
-vLLM 的 `CompilationConfig` 默认 `cudagraph_mode = FULL_AND_PIECEWISE`：decode 形态整图捕获，其它形态用 `torch.compile` 切成分段图、把 attention 留在图外（第六篇）。SGLang 的 `cuda_graph_config` 分 `decode` 与 `prefill` 两组，各有 `max_bs`、`bs` 列表与 backend（`FULL` / `BREAKABLE` / `TC_PIECEWISE` / `DISABLED`，`model_executor/runner_backend/`）；decode 的 `max_bs` 随显存档位自动定（< 20 GB 为 8，A100 40 GB 档 32 / 160，H100 / H200 档 TP < 4 时 256、否则 512，B200 档 512），`mem_fraction_static` 再按 `chunked_prefill_size` 与 `max_bs` 反推——活化显存与图缓冲都从这两个数估出来。`torch.compile` 在 SGLang 是可选项（`--enable-torch-compile`），不是 CUDA Graph 的前提。
+vLLM 的 `CompilationConfig` 默认 `cudagraph_mode = FULL_AND_PIECEWISE`：decode 形态整图捕获，其它形态用 `torch.compile` 切成分段图、把 attention 留在图外（[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)）。SGLang 的 `cuda_graph_config` 分 `decode` 与 `prefill` 两组，各有 `max_bs`、`bs` 列表与 backend（`FULL` / `BREAKABLE` / `TC_PIECEWISE` / `DISABLED`，`model_executor/runner_backend/`）；decode 的 `max_bs` 随显存档位自动定（< 20 GB 为 8，A100 40 GB 档 32 / 160，H100 / H200 档 TP < 4 时 256、否则 512，B200 档 512），`mem_fraction_static` 再按 `chunked_prefill_size` 与 `max_bs` 反推——活化显存与图缓冲都从这两个数估出来。`torch.compile` 在 SGLang 是可选项（`--enable-torch-compile`），不是 CUDA Graph 的前提。
 
 | | vLLM | SGLang |
 |---|---|---|
@@ -331,7 +331,7 @@ Table: GPU 执行层对照
 
 ### 1. 共同点
 
-TP / PP / EP / DP 四种并行两边都有（第七篇讲 vLLM 的实现）：TP 切权重、每层 all-reduce；PP 切层、微批流水；EP 把 MoE 专家分散到不同卡、all-to-all 路由 token；DP 复制整个引擎、各自调度。SGLang 的 PP 由 `scheduler_pp_mixin.py` 的 `event_loop_pp` 提供，DP 由 `DataParallelController` 分发。
+TP / PP / EP / DP 四种并行两边都有（[《Multi-GPU》](/multi-gpu-scaling-strategies.html)讲 vLLM 的实现）：TP 切权重、每层 all-reduce；PP 切层、微批流水；EP 把 MoE 专家分散到不同卡、all-to-all 路由 token；DP 复制整个引擎、各自调度。SGLang 的 PP 由 `scheduler_pp_mixin.py` 的 `event_loop_pp` 提供，DP 由 `DataParallelController` 分发。
 
 ### 2. 分叉：DeepSeek 带来的那一组
 
@@ -340,7 +340,7 @@ DeepSeek-V3 / R1 这种"MLA + 数百专家 + 几十张卡"的部署让两边各�
 - **DP attention**（SGLang `--enable-dp-attention`，`layers/dp_attention.py`）：attention 部分按 DP 复制（MLA 的 KV 很小，复制比切分划算），FFN / MoE 部分按 TP / EP 切；要求 `dp_size == tp_size`，每个 DP rank 有自己的调度器与 KV 池。vLLM 对应的是 DP + EP 的组合（`data_parallel_size` + `enable_expert_parallel`），多个 EngineCore 各管一份 attention，MoE 层跨 DP rank 做 all-to-all。
 - **专家负载均衡**：两边都叫 EPLB——SGLang 在 `eplb/`，vLLM 在 `ParallelConfig.enable_eplb` + `EPLBConfig`。
 - **两个微批重叠通信与计算**：SGLang 叫 TBO（`--enable-two-batch-overlap`，`batch_overlap/two_batch_overlap.py`），vLLM 叫 DBO（`ParallelConfig.enable_dbo`，`dbo_decode_token_threshold` 默认 32）。
-- **all-to-all 的实现**：SGLang `moe_a2a_backend` 可选 `deepep` / `mooncake` / `nixl` / `mori`；vLLM 的 all-to-all 由 `all2all_backend`（第七篇）选择，同样支持 DeepEP。
+- **all-to-all 的实现**：SGLang `moe_a2a_backend` 可选 `deepep` / `mooncake` / `nixl` / `mori`；vLLM 的 all-to-all 由 `all2all_backend`（[《Multi-GPU》](/multi-gpu-scaling-strategies.html)）选择，同样支持 DeepEP。
 
 | | vLLM | SGLang |
 |---|---|---|
@@ -360,7 +360,7 @@ Table: 并行能力对照
 
 ### 1. vLLM：一个抽象、多个实现
 
-第八篇讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
+[《PD 分离》](/prefill-decode-disaggregation.html)讲过 vLLM 的做法：PD 分离不是一个独立模块，而是 Scheduler 与 ModelRunner 上的一组钩子加一个 `KVConnector` 抽象（`distributed/kv_transfer/kv_connector/v1/base.py`：`register_kv_caches`、`start_load_kv`、`save_kv_layer`、`get_finished`、`build_connector_meta`）。实现在同一目录：`nixl/`、`lmcache_connector.py`、`mooncake/`、`moriio/`、`multi_connector.py`（叠加多个）、`offloading_connector.py`（CPU 卸载）、`hf3fs/` 等。P 实例与 D 实例各是一个普通的 vLLM 进程，谁先收请求、D 满了 P 收不收，由**外部的 proxy / 编排层**决定，仓库只提供示例 proxy。
 
 ### 2. SGLang：两套队列、一个 bootstrap、一个原生网关
 
@@ -396,18 +396,18 @@ vLLM 的多级 KV 复用 `KVConnector` 这同一个抽象：`offloading_connecto
 |---|---|---|
 | PD 分离的形态 | `KVConnector` 钩子 + 普通实例 | `disaggregation/` 模块 + `--disaggregation-mode` |
 | P / D 配对与路由 | 外部 proxy | `sgl-model-gateway` 原生，`bootstrap_room` |
-| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（第八篇） | `PreallocQueue` → `TransferQueue` 两级队列 |
+| D 侧"匹配 ≠ 就绪"的处理 | Scheduler 中 `WAITING_FOR_REMOTE_KVS` 状态（[《PD 分离》](/prefill-decode-disaggregation.html)） | `PreallocQueue` → `TransferQueue` 两级队列 |
 | 传输实现 | NIXL、Mooncake、LMCache、<span class="inline-tip" data-tip="Modular RDMA Interface：AMD 的 MoE 通信库">MoRI</span> IO 等 connector | Mooncake（默认）、NIXL、Mori、Ascend |
 | CPU 卸载 | `offloading_connector.py` | `HiRadixCache`（L2） |
 | 外部存储 | LMCache、Mooncake、HF3FS connector | `mem_cache/storage/` 多个 backend（L3） |
 
 Table: PD 分离与多级缓存对照
 
-两套 PD 分离，谁承担"D 满了 P 收不收"的决定？[^q8]vLLM 把它留给外部：P 实例只知道自己的 KV 发没发完，D 实例只知道自己收没收到，是否放行一个新请求由 proxy 看两边的指标决定（第八篇第四章的"P/D 协同"是对这层的要求，不是实现）。SGLang 把它内置到 P 侧：请求必须先在 Bootstrap Queue 里与 D 握手、等 D **预分配到 KV** 才能进 Waiting Queue，所以 D 满了的后果是 P 侧的请求停在 bootstrap 阶段，不占 P 的 KV 池。这个差别回到两边的定位：vLLM 更愿意做一个被编排的执行层，SGLang 更愿意把编排的一部分收进来。
+两套 PD 分离，谁承担"D 满了 P 收不收"的决定？[^q8]vLLM 把它留给外部：P 实例只知道自己的 KV 发没发完，D 实例只知道自己收没收到，是否放行一个新请求由 proxy 看两边的指标决定（[《PD 分离》第四章](/prefill-decode-disaggregation.html)的"P/D 协同"是对这层的要求，不是实现）。SGLang 把它内置到 P 侧：请求必须先在 Bootstrap Queue 里与 D 握手、等 D **预分配到 KV** 才能进 Waiting Queue，所以 D 满了的后果是 P 侧的请求停在 bootstrap 阶段，不占 P 的 KV 池。这个差别回到两边的定位：vLLM 更愿意做一个被编排的执行层，SGLang 更愿意把编排的一部分收进来。
 
 ## 九、解码的扩展
 
-第六篇（投机解码）、第九篇（multi-LoRA 与多模态）与第十篇（结构化输出）讲的几类扩展两边都有，差别在清单与默认值。
+[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)（投机解码）、[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)（multi-LoRA 与多模态）与[《输出在变》](/output-changes-sampling-and-structured-output.html)（结构化输出）讲的几类扩展两边都有，差别在清单与默认值。
 
 | 能力 | vLLM | SGLang |
 |---|---|---|
@@ -416,8 +416,8 @@ Table: PD 分离与多级缓存对照
 | 结构化输出 backend | `auto`、`xgrammar`、`guidance`、`outlines`、`lm-format-enforcer`（`config/structured_outputs.py`） | `xgrammar`（默认）、`outlines`、`llguidance`、`none`（`constrained/`） |
 | 结构化输出的加速 | bitmask 由 `StructuredOutputManager` 异步编译，采样前应用 | 同样 bitmask；另有 jump-forward（`outlines_jump_forward.py`，一次写入多个确定 token） |
 | 推理模型的思维链 | reasoning parser 在 API 层 | `reasoner_grammar_backend.py`：思考段不施加语法，答案段才施加 |
-| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（第九篇） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
-| 多模态 | 处理器注册表 + encoder cache（第九篇） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
+| multi-LoRA | `max_loras`、`max_cpu_loras`、Punica kernel（[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)） | `lora/`：`lora_manager.py`、`lora_backend` 可选 triton / csgmv 等 |
+| 多模态 | 处理器注册表 + encoder cache（[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)） | `multimodal/` 处理器 + `mm_receiver`，encoder 可与 LM 分离（EPD 分离，`docs/.../epd_disaggregation.mdx`） |
 | 前端 DSL | 无（`LLM` 类是 Python API，不是程序语言） | `sglang.lang`：`gen` / `select` / `fork`，可运行在 SGLang 或 OpenAI backend 上 |
 
 Table: 解码扩展的清单对照
@@ -439,7 +439,7 @@ Table: 解码扩展的清单对照
 
 Table: 入口与生态对照
 
-一个常被忽略的差别是**网关的归属**。vLLM 仓库只管单个实例，多实例的路由、prefix 亲和、PD 配对、弹性伸缩是另外几个项目的事；SGLang 把一个 Rust 网关放进仓库一起发版，它的 cache-aware 路由直接利用第五章的基数树——网关侧维护一棵近似树，把前缀相同的请求送到同一个 worker。第十三篇说的"从模型执行器走向分布式系统"，SGLang 选择在仓库内多走了一步，vLLM 选择把这一步留给生态。
+一个常被忽略的差别是**网关的归属**。vLLM 仓库只管单个实例，多实例的路由、prefix 亲和、PD 配对、弹性伸缩是另外几个项目的事；SGLang 把一个 Rust 网关放进仓库一起发版，它的 cache-aware 路由直接利用第五章的基数树——网关侧维护一棵近似树，把前缀相同的请求送到同一个 worker。[《Serving Infra 的下一站》](/future-of-serving-infra.html)说的"从模型执行器走向分布式系统"，SGLang 选择在仓库内多走了一步，vLLM 选择把这一步留给生态。
 
 ## 十一、怎么选：按工作负载，不按排行榜
 
@@ -454,7 +454,7 @@ Table: 入口与生态对照
 - **输入 / 输出长度分布**：长输入短输出偏向 prefill 效率与 prefix cache，短输入长输出偏向 decode 的 graph 与采样路径。
 - **版本**：两边都以周为单位发版，一张三个月前的图对应的默认值可能已经变了。
 
-两边都自带压测工具（`vllm bench serve`、`python -m sglang.bench_serving`），**用自己的 trace、在自己的硬件上、把两边配置调到同一口径**（相同 token 预算、相同 backend、相同 KV 池比例、相同 graph 配置）再比，是唯一可信的做法；第二篇讲的 TTFT / TPOT / Goodput 口径同样适用。
+两边都自带压测工具（`vllm bench serve`、`python -m sglang.bench_serving`），**用自己的 trace、在自己的硬件上、把两边配置调到同一口径**（相同 token 预算、相同 backend、相同 KV 池比例、相同 graph 配置）再比，是唯一可信的做法；[《如何衡量 LLM Serving》](/how-to-measure-llm-serving.html)讲的 TTFT / TPOT / Goodput 口径同样适用。
 
 ### 2. 决策表
 
@@ -462,7 +462,7 @@ Table: 入口与生态对照
 |---|---|---|
 | 多轮对话、agent、长 system prompt、few-shot，前缀共享度高 | SGLang | 基数树 token 粒度命中 + `lpm` / `dfs-weight` 调度 + 网关 cache-aware 路由（五、十） |
 | DeepSeek 类大规模 MoE，几十张卡，需要 DP attention + EP + PD 一整套 | SGLang 起步快；vLLM 可达 | SGLang 把 DP attention、DeepEP、EPLB、TBO、PD、HiCache 集成在一个仓库并有成体系的文档（七、八）；vLLM 对应能力都有，但要自己拼编排层 |
-| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（第十一、第十二篇） |
+| 异构硬件（TPU、XPU、特定加速卡）或需要硬件插件 | vLLM | `Platform` 抽象与外部插件生态（[《模型适配》](/model-adaptation-architecture.html)、[《硬件解耦》](/hardware-abstraction-and-portability.html)） |
 | 模型 / 量化格式覆盖面、与 HF 生态的贴合 | 两者都快，vLLM 清单更长 | 模型文件数与量化方法清单（十） |
 | 需要 KV 多级缓存（CPU、外部存储）且不想引入第三方 | SGLang | `HiRadixCache` + `storage/` 内置（八） |
 | 已有 Ray / Kubernetes 编排与 vLLM 社区的部署栈 | vLLM | 外部生态围绕 vLLM 实例设计（十） |
@@ -533,7 +533,7 @@ Table: 全文对照与差异来源
 
    </details>
 
-5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应 vLLM 第八篇说的"匹配不等于就绪"？
+5. 一个请求在 SGLang 的 PD 分离里从进入 P 到开始 decode 经过哪几个队列？其中哪一步对应[《PD 分离》](/prefill-decode-disaggregation.html)中 vLLM 的"匹配不等于就绪"？
 
    <details markdown="1"><summary>答案</summary>
 

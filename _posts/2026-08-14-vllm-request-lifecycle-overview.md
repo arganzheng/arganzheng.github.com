@@ -37,7 +37,7 @@ updated: 2026-11-13
 | 四 | 开发视图 | 模块 ↔ 源码目录 ↔ 所在进程的对照表<br/>包依赖树<br/>源码到 wheel 制品的构建，以及哪些进程加载这些制品 |
 | 五 | 部署/物理视图 | 五种典型部署各一张部署图：进程、GPU、节点怎样对应 |
 | 六 | 场景视图（+1） | 1. 请求流：一次请求的完整生命周期，HTTP → SSE [DONE]；放大一级，落到组件和关键方法上的同一条链与它的三道边界<br/>2. 数据流：Token 如何穿过整个 Serving 栈 |
-| 七 | 本文小结 | 模块分工，以及与第一篇“四问”的对应 |
+| 七 | 本文小结 | 模块分工，以及与[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)“四问”的对应 |
 | 八 | 自测 | 7 道题 |
 
 Table: 本文的章节安排
@@ -304,7 +304,7 @@ Worker 管“这张卡上有什么”，ModelRunner 管“这一轮怎么算”�
 - **显存域**：`KVCacheBlock` 是物理块的元数据（含引用计数和哈希），Worker 侧的 `BlockTable` 维护请求的逻辑块 → 物理块映射。
 - **模型域**：模型权重常驻 GPU，激活张量在前向计算中动态生成和销毁。
 
-这四个域和[第一篇的四个核心问题](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)是对应的：请求域是四问的输入，调度域是第一问（这一轮谁执行、执行多少）的产物，显存域是第二问（状态放哪、怎么复用）的产物，模型域是第三问（怎么算得更快）的战场。
+这四个域和[《为什么 LLM Serving 难》的四个核心问题](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)是对应的：请求域是四问的输入，调度域是第一问（这一轮谁执行、执行多少）的产物，显存域是第二问（状态放哪、怎么复用）的产物，模型域是第三问（怎么算得更快）的战场。
 
 ![核心数据对象全景图：四个域](/img/in-post/source-code-request-walkthrough-four-domains.svg)
 
@@ -392,17 +392,17 @@ Worker 侧从 `SchedulerOutput` 到这些张量的每一步在[《GPU 执行》�
 
 FastAPI 的 OpenAI route 调用同进程里的 `AsyncLLM`。`InputProcessor` 产出 `EngineCoreRequest`；`OutputProcessor` 把 `EngineCoreOutputs` 增量 detokenize 成 `RequestOutput`，输出循环由 asyncio task 驱动。
 
-“处理文本”的两端各有一层容易出错的转换：进门时 chat template 把 messages 和工具定义渲染成 token id（[第九篇第二章](/request-shapes-multi-lora-and-multimodal.html#二从-messages-到-token-idchat-template-与工具定义)），出门时 reasoning parser 和 tool parser 把 token 切成 content、reasoning、tool_calls（[第十篇第六章](/output-changes-sampling-and-structured-output.html#六输出解析同一串-token-拆成-contentreasoning-与-tool_calls)）。两者都只在这个进程里运行，`--api-server-count` 扩的正是它们。
+“处理文本”的两端各有一层容易出错的转换：进门时 chat template 把 messages 和工具定义渲染成 token id（[《请求形态的扩展》第二章](/request-shapes-multi-lora-and-multimodal.html#二从-messages-到-token-idchat-template-与工具定义)），出门时 reasoning parser 和 tool parser 把 token 切成 content、reasoning、tool_calls（[《输出在变》第六章](/output-changes-sampling-and-structured-output.html#六输出解析同一串-token-拆成-contentreasoning-与-tool_calls)）。两者都只在这个进程里运行，`--api-server-count` 扩的正是它们。
 
 ### 2. EngineCoreProc：持有调度状态
 
-`EngineCoreProc` 运行 `EngineCore`：输入、输出 socket I/O 各有线程，主线程循环调度与更新。`Scheduler` 持有权威 `Request` 状态和 `KVCacheManager` 元数据；默认 `MultiprocExecutor` 下，GPU forward 留在 Worker 侧。三个线程各做什么、主循环一轮怎样走，见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
+`EngineCoreProc` 运行 `EngineCore`：输入、输出 socket I/O 各有线程，主线程循环调度与更新。`Scheduler` 持有权威 `Request` 状态和 `KVCacheManager` 元数据；默认 `MultiprocExecutor` 下，GPU forward 留在 Worker 侧。三个线程各做什么、主循环一轮怎样走，见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
 
 注意 **Executor 不是一个进程**：它是 `EngineCore` 构造时创建的一个进程内对象，活在 EngineCoreProc 的主线程里。所以逻辑视图里的 Executor 在这张进程图里落在 EngineCoreProc 内部——它不占进程，它的作用是封装“怎么把一轮调度交给 Worker”：`UniProc` 在本进程直接调，`Multiproc` 经共享内存 MessageQueue 广播给 `WorkerProc`，`Ray` 走 actor。换一个部署形态时 EngineCore 的代码一行不改，改的只是这个对象。
 
 ### 3. WorkerProc：一个模型并行 rank
 
-`MultiprocExecutor` 为每个模型并行 rank 启动 `WorkerProc`。每个进程初始化 `Worker` 和 `GPUModelRunner`，加载本 rank 的权重分片，并在 GPU 上读写 KV cache；TP/PP 通信由 Worker ranks 直接完成，不经过 EngineCore。WorkerProc 里常驻的循环怎样把收到的消息变成一次 `execute_model()`，见[第六篇第二章第 4 节](/gpu-execution-kernels-and-graphs.html#4-worker-进程的常驻循环execute_model-只是一个方法名)。
+`MultiprocExecutor` 为每个模型并行 rank 启动 `WorkerProc`。每个进程初始化 `Worker` 和 `GPUModelRunner`，加载本 rank 的权重分片，并在 GPU 上读写 KV cache；TP/PP 通信由 Worker ranks 直接完成，不经过 EngineCore。WorkerProc 里常驻的循环怎样把收到的消息变成一次 `execute_model()`，见[《GPU 执行》第二章第 4 节](/gpu-execution-kernels-and-graphs.html#4-worker-进程的常驻循环execute_model-只是一个方法名)。
 
 ### 4. 两道边界上传什么
 
@@ -522,7 +522,7 @@ flowchart LR
 
 制品在运行时由谁加载：`vllm/platforms/cuda.py` 在模块顶层 `import vllm._C_stable_libtorch`，把 kernel 注册成 torch 自定义算子；`vllm/_custom_ops.py` 再调 `current_platform.import_kernels()` 加载 `_moe_C_stable_libtorch`。所以只要一个进程解析了 `current_platform`——API Server 和 EngineCoreProc 构造配置时都会——这个 `.so` 就会被装进内存；真正在 GPU 上调用这些 kernel 的只有执行模型的进程：WorkerProc，单卡时是 EngineCoreProc 里的 Worker。FlashAttention 扩展由 `vllm/v1/attention/backends/fa_utils.py` 导入，在 Worker 的 attention 前向里用。
 
-这些 `.so` 里的算子怎样注册给 PyTorch、Python 一侧又经什么名字调到它们，属于“forward 里那串 kernel 从哪来”的问题，在[第六篇第二章第 5 节](/gpu-execution-kernels-and-graphs.html#5-forward-里的-kernel-从哪来python-怎样调到-c--cuda--triton)展开。
+这些 `.so` 里的算子怎样注册给 PyTorch、Python 一侧又经什么名字调到它们，属于“forward 里那串 kernel 从哪来”的问题，在[《GPU 执行》第二章第 5 节](/gpu-execution-kernels-and-graphs.html#5-forward-里的-kernel-从哪来python-怎样调到-c--cuda--triton)展开。
 
 按层看，语言分工如下：
 
@@ -813,7 +813,7 @@ sequenceDiagram
 
 第二章那张单步时间线说的“Python 控制面只占约 1%”，指的就是 ⑦ 之前这一段相对 ⑦–⑩ 的耗时占比。
 
-三段链各活在一个进程里，进程之间只靠消息队列衔接，没有哪一段调用同时横跨两道边界：每个进程里都常驻一个“循环 + 一次调用”形状的东西，请求本身只是在队列里流过的数据。各进程里常驻的循环和调用栈分别在机制篇里展开：API Server 进程的协程见[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程和 `step()` 见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环和 ⑥–⑩ 在 Worker 里的细节见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+三段链各活在一个进程里，进程之间只靠消息队列衔接，没有哪一段调用同时横跨两道边界：每个进程里都常驻一个“循环 + 一次调用”形状的东西，请求本身只是在队列里流过的数据。各进程里常驻的循环和调用栈分别在机制篇里展开：API Server 进程的协程见[《输出在变》第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程和 `step()` 见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环和 ⑥–⑩ 在 Worker 里的细节见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
 
 ### 2. 数据流：Token 如何穿过整个 Serving 栈
 
@@ -851,7 +851,7 @@ Table: 一个请求在各层的对象
 
 读 trace 时，先分清两种流量：请求、token ids 和 `SchedulerOutput` 属于控制流；TP/PP 的激活张量在 Worker 间走 collective，不经 EngineCore 转发。
 
-把它和第一篇的四问对齐，就得到全系列的骨架：
+把它和[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的四问对齐，就得到全系列的骨架：
 
 | 四问 | 承担模块 |
 |------|---------|
@@ -864,13 +864,13 @@ Table: 四问与承担模块
 
 按数据对象看是同一副骨架：请求域（`Request`）是四问的输入，调度域（`SchedulerOutput` / `ModelRunnerOutput`）和显存域（`KVCacheBlock` / `BlockTable`）是前两问的产物，模型域是第三问的战场；它们之间只靠 `request_id` 和 `block_id` 两个整数串起来（第二章第 3 节）。
 
-本篇停在组件和关键方法一级。每个进程里常驻什么、一轮在函数里怎么走，在讲对应机制的几篇里：EngineCoreProc 的主循环在第四篇，WorkerProc 的循环和从 Python 到 kernel 的调用路径在第六篇，API Server 进门的渲染在第九篇、出门的解析在第十篇。
+本篇停在组件和关键方法一级。每个进程里常驻什么、一轮在函数里怎么走，在讲对应机制的几篇里：EngineCoreProc 的主循环在[《Scheduler》](/scheduler-batch-and-fairness.html)，WorkerProc 的循环和从 Python 到 kernel 的调用路径在[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)，API Server 进门的渲染在[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)、出门的解析在[《输出在变》](/output-changes-sampling-and-structured-output.html)。
 
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>
 
-正文只讲架构，下面是各节涉及的源码位置（v0.27.1）。各进程里常驻的循环和调用栈在机制篇里展开：API Server 的协程见[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程与 `step()` 见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环与 Python → kernel 的调用路径见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+正文只讲架构，下面是各节涉及的源码位置（v0.27.1）。各进程里常驻的循环和调用栈在机制篇里展开：API Server 的协程见[《输出在变》第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程与 `step()` 见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环与 Python → kernel 的调用路径见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
 
 **入口与引擎循环**
 

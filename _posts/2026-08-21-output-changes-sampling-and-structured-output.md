@@ -15,7 +15,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 > **版本提示 @2026-11-12**：v0.29.0（2026-09-09）起，Model Runner V2（`vllm/v1/worker/gpu/`）成为所有模型的默认实现，V1 的 `GPUModelRunner`（`vllm/v1/worker/gpu_model_runner.py`）被宣布弃用，只在 V2 尚不支持的配置下作为回退。本文第二章的 `Sampler`、`LogitsProcessor` / `BatchUpdate` 接口与 `InputBatch` 讲的是 V1 路径：V2 有独立的采样器（`vllm/v1/worker/gpu/sample/`，Gumbel 采样、按槽位存请求状态）和新的 logits processor 接口；结构化输出的调度器侧（grammar 编译、bitmask）不变。
 
 
-上一篇讲的是输入在变：同一个 batch 里的请求各带不同的 LoRA、各带几张图。这一篇看另一端——**输出在变**。
+[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)讲的是输入在变：同一个 batch 里的请求各带不同的 LoRA、各带几张图。这一篇看另一端——**输出在变**。
 
 引擎对输出的默认约定很简单：每一步，每个请求在 logits 里占一行，从这一行采出一个 token。真实服务里这一行几乎从来不是"直接 argmax"：一个请求要 `temperature=0.7, top_p=0.9` 加 `repetition_penalty=1.1`，另一个要固定 `seed` 可复现，第三个要求输出必须是符合某个 JSON schema 的对象，第四个是推理模型，要先自由地"思考"、再输出 JSON。这些要求都是**请求带进来的输出语义**，每个请求不同，而且会随生成过程变化。
 
@@ -23,7 +23,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 > **当每个请求都对"输出"提出自己的要求——自己的温度和惩罚、必须是合法的 JSON——vLLM 在哪几层吸收这些变化？[^q0] 代价分别落在谁身上？[^q1]**
 
-投机解码不在本篇：它不改变输出分布，只改变一次 forward 产出几个 token，是性能手段，已经在[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)讲完。但它会改变 logits 的行数，和本篇的两类变化都有交叉，交叉点在各章里单独说明。
+投机解码不在本篇：它不改变输出分布，只改变一次 forward 产出几个 token，是性能手段，已经在[《GPU 执行》第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)讲完。但它会改变 logits 的行数，和本篇的两类变化都有交叉，交叉点在各章里单独说明。
 
 两类变化决定的是采出哪些 token。token 采出来之后还有一步：API Server 要把同一串 token 切成 `content`、`reasoning`、`tool_calls` 交给客户端——这一步不改变任何 token，第六章单独讲它，以及它和结构化输出、推理模式怎么配合。
 
@@ -31,7 +31,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 ### 1. 输出契约：从 hidden_states 到 token
 
-先把"最后一步"画清楚。第六篇的 forward 结束在 `hidden_states`；接下来是：
+先把"最后一步"画清楚。[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的 forward 结束在 `hidden_states`；接下来是：
 
 ![从 hidden_states 到采样的最后一步](/img/in-post/decoding-extensions-sampling-chain.svg)
 
@@ -71,11 +71,11 @@ Table: 两类输出变化在各层的适配与代价
 
 表里没有列出的第三件事是输出解析：采出的 token 在 API Server 进程里被 detokenize，再由 reasoning parser 和 tool parser 切成响应字段（第六章）；它不进 EngineCore，但 `tool_choice` 会经它反过来变成一条结构化输出约束。
 
-KV Cache 一行是空的，这本身就是一个结论：**输出语义的变化不影响状态怎么存**——不同的采样参数、不同的 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比上一篇，LoRA 和多模态都要往块哈希里加 `extra_keys`）。
+KV Cache 一行是空的，这本身就是一个结论：**输出语义的变化不影响状态怎么存**——不同的采样参数、不同的 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比《请求形态的扩展》，LoRA 和多模态都要往块哈希里加 `extra_keys`）。
 
 ### 4. 回到前面的例子：这一步有多贵？
 
-**回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token）。Llama-3 的词表是 128256，一行 fp32 logits 是 `128256 × 4 B ≈ 513 KB`；batch=64 时整个 logits 张量约 33 MB，按 3.35 TB/s 算读一遍只要 0.01 ms。和第六篇里"一步 decode 约 10 ms"相比，**Sampler 本身的成本是可以忽略的**——这正是能在这里塞进那么多花样的原因。
+**回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token）。Llama-3 的词表是 128256，一行 fp32 logits 是 `128256 × 4 B ≈ 513 KB`；batch=64 时整个 logits 张量约 33 MB，按 3.35 TB/s 算读一遍只要 0.01 ms。和[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)里"一步 decode 约 10 ms"相比，**Sampler 本身的成本是可以忽略的**——这正是能在这里塞进那么多花样的原因。
 
 但有三个东西不便宜，本篇会逐个点名：
 
@@ -273,7 +273,7 @@ Table: 不同采样参数的成本形态
 
 ### 6. 开投机解码时的采样参数
 
-投机解码（[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）不改变输出分布，但它要求 target 在每个 draft 位置上的分布 $$q$$ 正是这个请求真正的采样分布——否则拒绝采样就不再无损。麻烦在于第一章第 1 节的第 1 条约定被打破了：logits 不再是每请求一行，而是 `[num_reqs + Σ drafts, V]`，一个带 3 个 draft 的请求就占 4 行（3 行 target + 1 行 bonus）。`RejectionSampler.forward()` 因此把采样语义拆成两份：
+投机解码（[《GPU 执行》第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）不改变输出分布，但它要求 target 在每个 draft 位置上的分布 $$q$$ 正是这个请求真正的采样分布——否则拒绝采样就不再无损。麻烦在于第一章第 1 节的第 1 条约定被打破了：logits 不再是每请求一行，而是 `[num_reqs + Σ drafts, V]`，一个带 3 个 draft 的请求就占 4 行（3 行 target + 1 行 bonus）。`RejectionSampler.forward()` 因此把采样语义拆成两份：
 
 1. **bonus 行**（每请求一行）走完整的 `Sampler`，本章前几节的一切照常生效；
 2. **target 行**（每个 draft 一行）走一条投机版的处理链：
@@ -292,7 +292,7 @@ Table: 不同采样参数的成本形态
 
 ![结构化输出生效的四个位置](/img/in-post/decoding-extensions-structured-output-positions.svg)
 
-第 ② 步的**异步**是关键设计：JSON schema 编译成 grammar 可能要几十到几百毫秒，甚至更久，如果在调度循环里同步做，整个引擎会为一个请求停摆。所以编译进线程池，请求进一个专门的等待状态（[第四篇第六章第 2 节](/scheduler-batch-and-fairness.html#2-kv-cache-不够preemption)状态机里的 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 就是它）。调度器每步在 `_try_promote_blocked_waiting_request()` 里看一眼 `structured_output_req.grammar`——这个 property（`StructuredOutputRequest.grammar`，`vllm/v1/structured_output/request.py`）会以 **100 微秒**的超时去 poll Future，好了就把请求放回 `WAITING`，编译抛异常的请求记入 `grammar_compile_error_reqs` 单独失败。代价是这个请求的 TTFT 多了一段编译时间；收益是其他请求完全不受影响。`external_launcher` 模式是例外——各 TP rank 各有调度器，异步编译会让状态转换在不同 rank 上时序不一致，于是退回同步（见第四章第 3 节）。
+第 ② 步的**异步**是关键设计：JSON schema 编译成 grammar 可能要几十到几百毫秒，甚至更久，如果在调度循环里同步做，整个引擎会为一个请求停摆。所以编译进线程池，请求进一个专门的等待状态（[《Scheduler》第六章第 2 节](/scheduler-batch-and-fairness.html#2-kv-cache-不够preemption)状态机里的 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR` 就是它）。调度器每步在 `_try_promote_blocked_waiting_request()` 里看一眼 `structured_output_req.grammar`——这个 property（`StructuredOutputRequest.grammar`，`vllm/v1/structured_output/request.py`）会以 **100 微秒**的超时去 poll Future，好了就把请求放回 `WAITING`，编译抛异常的请求记入 `grammar_compile_error_reqs` 单独失败。代价是这个请求的 TTFT 多了一段编译时间；收益是其他请求完全不受影响。`external_launcher` 模式是例外——各 TP rank 各有调度器，异步编译会让状态转换在不同 rank 上时序不一致，于是退回同步（见第四章第 3 节）。
 
 第 ③ 步里有一个时序细节值得看 `EngineCore.step()`（`vllm/v1/engine/core.py`）：
 
@@ -359,7 +359,7 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 
 ### 4. 与投机解码同时开启
 
-投机解码本身（proposer、调度器的预算与回滚、`RejectionSampler`）见[第六篇第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)。这里只看它和 grammar 的交叉：投机解码让一步要决定 `1+K` 个位置，而每个位置的合法 token 集合取决于前面的位置，叠加时需要两层配合：
+投机解码本身（proposer、调度器的预算与回滚、`RejectionSampler`）见[《GPU 执行》第六章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)。这里只看它和 grammar 的交叉：投机解码让一步要决定 `1+K` 个位置，而每个位置的合法 token 集合取决于前面的位置，叠加时需要两层配合：
 
 **① draft 先过一遍 grammar。** `Scheduler.update_draft_token_ids()` 拿到 proposer 的 draft 后，对结构化请求调 `grammar.validate_tokens(spec_token_ids)`——**不推进 FSM**，只返回合法的最长前缀。不合法的尾部直接扔掉（同步路径）或补 `-1`（异步路径 `update_draft_token_ids_in_output()`，因为 `scheduled_spec_decode_tokens` 的长度已经定了）。这是为什么 `StructuredOutputGrammar` 需要 `validate_tokens()` 这个"只看不动"的方法。
 
@@ -404,7 +404,7 @@ Table: 结构化输出的代价
 
 ## 四、多卡与 PD 分离下的适配
 
-第七篇（多卡）和第八篇（PD 分离）讲的都是"一个模型、一串 token"怎么拆到多张卡、两个实例上，没有讨论采样语义和 grammar。把本篇的两类变化放回去，要回答的是：logits 在哪张卡上、谁来采样、掩码怎么送到、grammar 在哪里编译。
+[《Multi-GPU》](/multi-gpu-scaling-strategies.html)和[《PD 分离》](/prefill-decode-disaggregation.html)讲的都是"一个模型、一串 token"怎么拆到多张卡、两个实例上，没有讨论采样语义和 grammar。把本篇的两类变化放回去，要回答的是：logits 在哪张卡上、谁来采样、掩码怎么送到、grammar 在哪里编译。
 
 ### 1. TP：每个 rank 都拿到完整 logits、各自采样
 
@@ -413,7 +413,7 @@ TP 下 `lm_head` 是按词表切的 `VocabParallelEmbedding`，每张卡只算�
 - `current_platform.use_all_gather()` 为真时用 `tensor_model_parallel_all_gather`，**每个 rank 都得到完整的 `[num_tokens, V]`**。`Platform.use_all_gather()` 的默认实现返回 `True`，CUDA 平台没有覆盖它，所以 8×H100 上走的是这条；
 - 返回 `False` 的平台走 `tensor_model_parallel_gather`，只有 rank 0 拿到 logits，其他 rank 得到 `None`。
 
-拿到完整 logits 之后，**TP 组里每个 rank 都打同一张掩码、跑同一个 Sampler**。`GrammarOutput` 跟 `SchedulerOutput` 走同一条路：`MultiprocExecutor.sample_tokens()` 是一次 `collective_rpc("sample_tokens", args=(grammar_output,))`，消息写进共享内存的 `rpc_broadcast_mq` 一次、所有 worker 读到同一份，只有 `output_rank` 回复（`unique_reply_rank=self.output_rank`）——就是[第七篇第八章那张时序图](/multi-gpu-scaling-strategies.html#2-nccl多-gpu-通信的默认底座)里 `execute_model` 的路径，`sample_tokens` 是它的第二个 RPC。
+拿到完整 logits 之后，**TP 组里每个 rank 都打同一张掩码、跑同一个 Sampler**。`GrammarOutput` 跟 `SchedulerOutput` 走同一条路：`MultiprocExecutor.sample_tokens()` 是一次 `collective_rpc("sample_tokens", args=(grammar_output,))`，消息写进共享内存的 `rpc_broadcast_mq` 一次、所有 worker 读到同一份，只有 `output_rank` 回复（`unique_reply_rank=self.output_rank`）——就是[《Multi-GPU》第八章那张时序图](/multi-gpu-scaling-strategies.html#2-nccl多-gpu-通信的默认底座)里 `execute_model` 的路径，`sample_tokens` 是它的第二个 RPC。
 
 为什么不让一个 rank 采样、再广播结果？因为下一步的输入 token 要进每个 rank 自己的 `InputBatch`，异步调度下上一步采出的 `sampled_token_ids` 直接留在 GPU 上作为下一步的输入，各 rank 自己采就省掉了一次广播。前提是 8 个 rank 采出同一个 token：logits 相同、操作序列相同，随机状态由 `GPUWorker` 初始化时的 `set_random_seed(model_config.seed)` 对齐，带 `seed` 的请求各 rank 用同一个种子建自己的 `torch.Generator`。
 
@@ -421,7 +421,7 @@ TP 下 `lm_head` 是按词表切的 `VocabParallelEmbedding`，每张卡只算�
 
 ### 2. PP：只有末 stage 采样
 
-PP 下 logits 只在最后一个 stage 产生。[第七篇讲 PP 里请求怎么流动](/multi-gpu-scaling-strategies.html#4-推理请求在-pp-中如何流动)时说过，非末 stage 算完把激活发给下游就返回；落到 `GPUModelRunner` 上，这些 rank 的 `execute_model()` 返回 `IntermediateTensors`，不保存采样所需的状态，于是随后的 `sample_tokens(grammar_output)` 在它们那里直接返回——`GrammarOutput` 照样广播给所有 worker，但只有末 stage 用得上。
+PP 下 logits 只在最后一个 stage 产生。[《Multi-GPU》讲 PP 里请求怎么流动](/multi-gpu-scaling-strategies.html#4-推理请求在-pp-中如何流动)时说过，非末 stage 算完把激活发给下游就返回；落到 `GPUModelRunner` 上，这些 rank 的 `execute_model()` 返回 `IntermediateTensors`，不保存采样所需的状态，于是随后的 `sample_tokens(grammar_output)` 在它们那里直接返回——`GrammarOutput` 照样广播给所有 worker，但只有末 stage 用得上。
 
 下一步的输入要回到第一个 stage。同步调度下，采出的 token 经 `ModelRunnerOutput` 回到调度器，再随下一步的 `SchedulerOutput` 发出去。异步调度下调度器已经提前一步把下一步发出去了，等不及这条路，于是：
 
@@ -440,17 +440,17 @@ PP 下 logits 只在最后一个 stage 产生。[第七篇讲 PP 里请求怎么
 
 ### 4. PD 分离：grammar 在两侧各编译一次
 
-[第八篇的交接契约](/prefill-decode-disaggregation.html#1-一次请求的交接契约传什么何时可用何时释放)里有一行"请求执行可接续：采样和停止参数、输出预算"。采样参数是请求字段，随请求本身到达 D，不需要额外交接；grammar 不一样，它是**每个实例自己编译、自己推进的状态**。
+[《PD 分离》的交接契约](/prefill-decode-disaggregation.html#1-一次请求的交接契约传什么何时可用何时释放)里有一行"请求执行可接续：采样和停止参数、输出预算"。采样参数是请求字段，随请求本身到达 D，不需要额外交接；grammar 不一样，它是**每个实例自己编译、自己推进的状态**。
 
-按第八篇走读的 NIXL toy proxy（`tests/v1/kv_connector/nixl_integration/toy_proxy_server.py`）：`send_request_to_service()` 把原请求改成 `max_tokens=1`、`stream=False` 发给 P，P 返回后再把原请求加上 P 给的 `kv_transfer_params` 发给 D。proxy 已经为采样参数做了一处适配：发往 P 之前去掉 `min_tokens` / `min_completion_tokens`（注释 "These args are not supported for P"——`max_tokens=1` 与 `min_tokens > 1` 自相矛盾）。结构化输出参数则没有去掉，两边都带着，于是：
+按[《PD 分离》](/prefill-decode-disaggregation.html)走读的 NIXL toy proxy（`tests/v1/kv_connector/nixl_integration/toy_proxy_server.py`）：`send_request_to_service()` 把原请求改成 `max_tokens=1`、`stream=False` 发给 P，P 返回后再把原请求加上 P 给的 `kv_transfer_params` 发给 D。proxy 已经为采样参数做了一处适配：发往 P 之前去掉 `min_tokens` / `min_completion_tokens`（注释 "These args are not supported for P"——`max_tokens=1` 与 `min_tokens > 1` 自相矛盾）。结构化输出参数则没有去掉，两边都带着，于是：
 
 1. **P 侧也编译 grammar。** 请求在 P 上同样先进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`，grammar 就绪之前不会被调度，prefill 被推迟；最后一个 prompt chunk 那一步 `is_prefill_chunk` 已为假，`get_grammar_bitmask()` 会为它填掩码——P 用掩码采出那 1 个 token，而这个 token 不会返回给客户端。
 2. **D 侧再编译一次，并且排在 KV 拉取之前。** D 的 `EngineCore` 收到请求时 `grammar_init()` 提交编译；D 发起 KV 拉取是在 `Scheduler.schedule()` 把请求从 waiting 队列取出、调 `connector.get_num_new_matched_tokens()` 的时候，而 grammar 未就绪的请求走不到这一步。所以 D 上的编译和 KV 传输是串行的，不是并行的。
-3. **TTFT 多两段编译时间。** 对照第八篇的 TTFT 分解 $$T_{\text{front}}+Q_P+T_P+T_{\text{handoff}}+Q_{D,\text{ready}}+T_{D,\text{first}}+T_{\text{return}}$$：P 上的编译落在 $$Q_P$$ 里（请求在 P 上等着被调度），D 上的编译串在 $$T_{\text{handoff}}$$ 前面。首 token 由 D 产生、受 D 的掩码约束，P 上那次编译只是为了让 P 能调度这个请求。
+3. **TTFT 多两段编译时间。** 对照[《PD 分离》](/prefill-decode-disaggregation.html)的 TTFT 分解 $$T_{\text{front}}+Q_P+T_P+T_{\text{handoff}}+Q_{D,\text{ready}}+T_{D,\text{first}}+T_{\text{return}}$$：P 上的编译落在 $$Q_P$$ 里（请求在 P 上等着被调度），D 上的编译串在 $$T_{\text{handoff}}$$ 前面。首 token 由 D 产生、受 D 的掩码约束，P 上那次编译只是为了让 P 能调度这个请求。
 
 两点缓解：重复的 schema 在各实例的 xgrammar 缓存里命中，第二次之后编译几乎免费；P 那次编译可以由 proxy 省掉：像处理 `min_tokens` 一样，在发往 P 的请求里去掉结构化输出参数，P 采出的那个 token 反正会被丢弃。
 
-PD 下 penalties 的历史也值得看一眼：toy proxy 丢弃 P 的输出 token，D 从空的输出历史开始生成，`output_token_ids` 与不分离时一致。若改成 P 流式返回首 token，D 的历史就要从 1 开始，`min_tokens`、penalties、grammar 的 FSM 都要把这个 token 计入。故障恢复时同理：[第八篇说的流式续接](/prefill-decode-disaggregation.html#5-失败与状态恢复交接失败节点故障与流式续接)要遵守约束解码，换一个实例意味着用已提交的输出把 grammar 重新推进一遍。
+PD 下 penalties 的历史也值得看一眼：toy proxy 丢弃 P 的输出 token，D 从空的输出历史开始生成，`output_token_ids` 与不分离时一致。若改成 P 流式返回首 token，D 的历史就要从 1 开始，`min_tokens`、penalties、grammar 的 FSM 都要把这个 token 计入。故障恢复时同理：[《PD 分离》说的流式续接](/prefill-decode-disaggregation.html#5-失败与状态恢复交接失败节点故障与流式续接)要遵守约束解码，换一个实例意味着用已提交的输出把 grammar 重新推进一遍。
 
 ## 五、一步之内的顺序
 
@@ -483,7 +483,7 @@ PD 下 penalties 的历史也值得看一眼：toy proxy 丢弃 P 的输出 toke
 | **采样流水线** | `vllm/v1/sample/sampler.py` → `Sampler.forward()` / `sample()` / `apply_logits_processors()` |
 | 前端校验 | `vllm/v1/engine/input_processor.py` → `InputProcessor._validate_params()`；`vllm/sampling_params.py` → `SamplingParams.verify()`、`_validate_spec_decode()` |
 | 每请求参数的容器 | `vllm/v1/sample/metadata.py` → `SamplingMetadata`；`vllm/v1/worker/gpu_input_batch.py` → `InputBatch.add_request()`、`_make_sampling_metadata()` |
-| 投机解码下的采样 | `vllm/v1/sample/rejection_sampler.py` → `RejectionSampler.apply_logits_processors()`、`apply_sampling_constraints()`（投机解码本身见第六篇的源码导航） |
+| 投机解码下的采样 | `vllm/v1/sample/rejection_sampler.py` → `RejectionSampler.apply_logits_processors()`、`apply_sampling_constraints()`（投机解码本身见[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的源码导航） |
 | top-k / top-p / 随机采样 | `vllm/v1/sample/ops/topk_topp_sampler.py` → `TopKTopPSampler`、`apply_top_k_top_p()`、`random_sample()`；Triton 版 `topk_topp_triton.py` |
 | penalties | `vllm/v1/sample/ops/penalties.py` → `apply_all_penalties()`；`vllm/model_executor/layers/utils.py` → `apply_penalties()`、`get_token_bin_counts_and_mask()` |
 | LogitsProcessor 接口与 BatchUpdate | `vllm/v1/sample/logits_processor/interface.py` |
@@ -532,11 +532,11 @@ Table: 多卡与 PD 分离下的适配源码导航
 
 ### 1. 解析在哪个进程里跑，由哪些参数打开
 
-解析发生在 **API Server 进程**，不在 EngineCore 里（进程划分见[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)）。EngineCore 每步把各请求的新 token id 经 `EngineCoreOutputs` 发回；API Server 的 `OutputProcessor`（`vllm/v1/engine/output_processor.py`）为每个请求维护一个 `IncrementalDetokenizer`（`vllm/v1/engine/detokenizer.py`），增量地把 token id 还原成文本、检查 `stop` 字符串，因停止 token 结束时把这个 token 留在 `token_ids` 里、但不写进文本；`skip_special_tokens`（默认 `true`）决定特殊 token 的文本删不删。`OpenAIServingChat` 拿到这一步的 `delta_text` 和 `delta_token_ids` 后交给解析器：流式请求每个 delta 调一次 `Parser.parse_delta()`（在 `chat_completion_stream_generator()` 里），非流式请求在生成结束后对全文调一次 `Parser.parse()`（在 `chat_completion_full_generator()` 里）。
+解析发生在 **API Server 进程**，不在 EngineCore 里（进程划分见[《鸟瞰 vLLM》的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)）。EngineCore 每步把各请求的新 token id 经 `EngineCoreOutputs` 发回；API Server 的 `OutputProcessor`（`vllm/v1/engine/output_processor.py`）为每个请求维护一个 `IncrementalDetokenizer`（`vllm/v1/engine/detokenizer.py`），增量地把 token id 还原成文本、检查 `stop` 字符串，因停止 token 结束时把这个 token 留在 `token_ids` 里、但不写进文本；`skip_special_tokens`（默认 `true`）决定特殊 token 的文本删不删。`OpenAIServingChat` 拿到这一步的 `delta_text` 和 `delta_token_ids` 后交给解析器：流式请求每个 delta 调一次 `Parser.parse_delta()`（在 `chat_completion_stream_generator()` 里），非流式请求在生成结束后对全文调一次 `Parser.parse()`（在 `chat_completion_full_generator()` 里）。
 
 这几样东西挂在 API Server 进程里两类常驻的 asyncio 协程上：
 
-1. **每个请求一个 `AsyncLLM.generate()`。** 它先 `add_request()`：`InputProcessor.process_inputs()` 构造 `EngineCoreRequest`（上一篇第二章的渲染流水线），`AsyncMPClient.add_request_async()` 经 ZMQ 发给 EngineCore；然后在这个请求自己的 `RequestOutputCollector` 上 `await`，取到一个 `RequestOutput` 就交给上层 `OpenAIServingChat` 的生成器解析、写成 SSE。客户端断开时这个协程被取消，`generate()` 随即 `abort` 掉请求。
+1. **每个请求一个 `AsyncLLM.generate()`。** 它先 `add_request()`：`InputProcessor.process_inputs()` 构造 `EngineCoreRequest`（《请求形态的扩展》第二章的渲染流水线），`AsyncMPClient.add_request_async()` 经 ZMQ 发给 EngineCore；然后在这个请求自己的 `RequestOutputCollector` 上 `await`，取到一个 `RequestOutput` 就交给上层 `OpenAIServingChat` 的生成器解析、写成 SSE。客户端断开时这个协程被取消，`generate()` 随即 `abort` 掉请求。
 2. **全局一个 `output_handler()`**（`AsyncLLM._run_output_handler()` 创建）。它循环 `await engine_core.get_output_async()` 取每一步的 `EngineCoreOutputs`，按 `VLLM_V1_OUTPUT_PROC_CHUNK_SIZE` 分块交给 `OutputProcessor.process_outputs()`，块与块之间 `await asyncio.sleep(0)` 让出事件循环；`process_outputs()` 增量 detokenize 后把各请求的 `RequestOutput` 推进它们各自的 collector。因 stop 字符串结束的请求，由这里反向发 abort 给 EngineCore——GPU 那边可能已经为它多算了一步。
 
 ```text title="API Server 进程里的调用栈"
@@ -619,7 +619,7 @@ Table: `deepseek_r1` 推理解析器的流式切分
 最后一行的覆盖有来历：DeepSeek-R1-Distill 系列的模板在助手轮开头就写了 `<｜Assistant｜><think>\n`，`<think>` 在 **prompt** 里，输出里只会出现 `</think>`。这就引出推理解析的另一半——**看 prompt**。`is_reasoning_end(prompt_token_ids)` 从 prompt 末尾往前扫，先遇到 `<think>` 返回假、先遇到 `</think>` 返回真。`parse_delta()` 第一次调用时用它初始化 `reasoning_ended`；`_create_chat_completion()` 在提交请求前也算一次，经 `engine_client.generate(..., reasoning_ended=...)` → `AsyncLLM.add_request()` 写到 `EngineCoreRequest` 上，EngineCore 拿到的初值和 API Server 一致。两个例子：
 
 1. **DeepSeek-R1-Distill**：prompt 以 `<think>\n` 结尾 → 推理未结束。API Server 把输出前段放进 `reasoning`；EngineCore 里第三章第 5 节的 `should_fill_bitmask()` 返回假，结构化输出等 `</think>` 出现才开始约束。
-2. **Qwen3 关思考**：`chat_template_kwargs={"enable_thinking": false}` 时模板在助手轮开头写上 `<think>\n\n</think>\n\n`（[上一篇第二章第 5 节](/request-shapes-multi-lora-and-multimodal.html#5-模板与模型不配时会怎样)讲过这个开关怎么进模板）→ 往前扫先遇到 `</think>` → 推理已结束。输出全部进 `content`，结构化输出从第一个 token 起生效。另外，请求设了 `include_reasoning=false` 时，API Server 直接传 `reasoning_ended=True`：既然不要推理内容，约束也就从第一个 token 开始。
+2. **Qwen3 关思考**：`chat_template_kwargs={"enable_thinking": false}` 时模板在助手轮开头写上 `<think>\n\n</think>\n\n`（[《请求形态的扩展》第二章第 5 节](/request-shapes-multi-lora-and-multimodal.html#5-模板与模型不配时会怎样)讲过这个开关怎么进模板）→ 往前扫先遇到 `</think>` → 推理已结束。输出全部进 `content`，结构化输出从第一个 token 起生效。另外，请求设了 `include_reasoning=false` 时，API Server 直接传 `reasoning_ended=True`：既然不要推理内容，约束也就从第一个 token 开始。
 
 **同一个参数，两个进程各一个实例。** `--reasoning-parser` 的值经 `EngineArgs` 写进 `StructuredOutputsConfig.reasoning_parser`，API Server 的 `OnlineRenderer` / `OpenAIServingChat` 和 EngineCore 的 `StructuredOutputManager` 读的是同一个字段。EngineCore 只存类（`reasoner_cls`），按请求懒构造实例，构造参数是 API Server 随请求带过来的 `reasoning_parser_kwargs`（里面是这个请求的 `chat_template_kwargs`），所以两边对"思考开没开"的理解一致。两份实例各自看同一串 token：EngineCore 那份决定这一步**加不加掩码**，API Server 这份决定这段文本**进哪个字段**。第三章第 5 节讲的是前者，这里是后者；它们用同一个 `is_reasoning_end_streaming()` 判断边界，所以掩码生效的位置和 `content` 开始的位置是同一个 token。
 
@@ -636,13 +636,13 @@ Table: `deepseek_r1` 推理解析器的流式切分
 
 Table: 几个常用工具解析器与它们认的格式
 
-**解析器必须和模板配对**：它认的是模板在 prompt 里教给模型的那种格式（[上一篇第二章第 4 节](/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么)的例子里，Qwen2.5 的模板写明了用 `<tool_call>` 包 JSON）。
+**解析器必须和模板配对**：它认的是模板在 prompt 里教给模型的那种格式（[《请求形态的扩展》第二章第 4 节](/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么)的例子里，Qwen2.5 的模板写明了用 `<tool_call>` 包 JSON）。
 
 `hermes`（`Hermes2ProToolParser`）的非流式解析很直接：用正则 `<tool_call>(.*?)</tool_call>|<tool_call>(.*)` 找出每段，`json.loads`，把 `arguments` 再 `json.dumps(ensure_ascii=False)` 成字符串（OpenAI 协议里它是字符串），第一个 `<tool_call>` 之前的文本作为 `content`。值得记住的是它的失败方式：**任何一段 JSON 解析失败，整段输出原样作为 `content` 返回，`tool_calls` 为空**——不报错、HTTP 200。模型少写一个引号、或者干脆没包 `<tool_call>`，客户端看到的就是"模型回了一段 JSON 文本"。这是 `tool_choice="auto"` 不加约束时的常态风险，第 6 节说怎么用约束解码堵上。
 
 ### 5. 实例：流式输出一个工具调用
 
-接[上一篇第二章第 4 节](/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么)的请求：Qwen2.5-7B-Instruct，服务端开了 `--enable-auto-tool-choice --tool-call-parser hermes`，请求加 `"stream": true`，`tool_choice` 缺省为 `auto`，没有推理解析器。假设模型对"那广州呢？"按模板教的格式回答：
+接[《请求形态的扩展》第二章第 4 节](/request-shapes-multi-lora-and-multimodal.html#4-实例两轮对话加一个工具渲染出来是什么)的请求：Qwen2.5-7B-Instruct，服务端开了 `--enable-auto-tool-choice --tool-call-parser hermes`，请求加 `"stream": true`，`tool_choice` 缺省为 `auto`，没有推理解析器。假设模型对"那广州呢？"按模板教的格式回答：
 
 ```text title="模型这一轮的输出（共 20 个 token）"
 <tool_call>
@@ -683,7 +683,7 @@ Table: 一个 hermes 工具调用的流式解析过程
 
 第 4 节的失败方式（JSON 写坏了就退回 `content`）说明：`tool_choice="auto"` 下模型用不用工具、格式对不对，全靠模型自己；解析器只是事后去抠。要让格式有保证，就得在**采样时**约束它——这正是第三章的结构化输出。二者的分工是：约束由 API Server 在请求**进引擎前**写进 `SamplingParams.structured_outputs`，之后走第三章那条编译 grammar、每步填 bitmask 的路；解析仍在输出侧照常进行，只是这时输入的文本已经保证合法。
 
-写约束的是 `Parser.adjust_request()`，它在[上一篇第二章第 2 节](/request-shapes-multi-lora-and-multimodal.html#2-渲染流水线从-http-请求到-enginecorerequest)的第 6 步、`to_sampling_params()` 之前运行。v0.27.1 有两种写法：
+写约束的是 `Parser.adjust_request()`，它在[《请求形态的扩展》第二章第 2 节](/request-shapes-multi-lora-and-multimodal.html#2-渲染流水线从-http-请求到-enginecorerequest)的第 6 步、`to_sampling_params()` 之前运行。v0.27.1 有两种写法：
 
 1. **structural tag（模型原生格式）。** 工具解析器声明了 `structural_tag_model`（`hermes`、`llama3_json` 等都有），并且环境变量 `VLLM_ENFORCE_STRICT_TOOL_CALLING` 为真（默认）时，`DelegatingParser._apply_structural_tag()` 调 `ToolParser.get_structural_tag()`（`vllm/tool_parsers/structural_tag_registry.py`）生成一个 xgrammar structural tag，写成 `StructuredOutputsParams(structural_tag=…)`。对 `hermes`，每个工具一条规则：以 `<tool_call>\n{"name": "<函数名>", "arguments": ` 开头，中间按这个函数的参数 schema 约束，以 `}\n</tool_call>` 结尾。约束的就是模板教的格式。
 2. **JSON schema（通用格式）。** 解析器没有 `structural_tag_model`，或者把那个环境变量设成 0 时，`ToolParser.adjust_request()` 用 `get_json_schema_from_tools()` 生成 schema：`required` 是"至少一个元素的数组，每个元素是某个工具的 `{name, parameters}`"，点名函数直接是那个函数的参数 schema。模型被逼着输出一个 JSON 数组，而不是模板教的 `<tool_call>` 格式；`ToolParser.supports_required_and_named` 为真的解析器才走这条，解析时用 `TypeAdapter(list[FunctionDefinition])` 直接读这个数组。
@@ -728,7 +728,7 @@ Table: 输出解析源码导航
 
 ## 七、本文小结
 
-- 引擎对输出的默认约定是"每请求一行 logits、每个 token 都可能被选中、采样无状态"。输出语义的变化有两类：**采样语义**改分布本身（每请求的温度、top-p、penalties、`logit_bias`、`seed`、自定义 logits processor……），**输出约束**改分布的支撑集（结构化输出把不合法 token 置 `-inf`）。两者都不影响 KV 怎么存——这是它们和上一篇的输入变化最大的不同。
+- 引擎对输出的默认约定是"每请求一行 logits、每个 token 都可能被选中、采样无状态"。输出语义的变化有两类：**采样语义**改分布本身（每请求的温度、top-p、penalties、`logit_bias`、`seed`、自定义 logits processor……），**输出约束**改分布的支撑集（结构化输出把不合法 token 置 `-inf`）。两者都不影响 KV 怎么存——这是它们和《请求形态的扩展》的输入变化最大的不同。
 - 采样参数在三层被接住：前端 `SamplingParams.verify()` 校验并拒绝不兼容的组合；持久 `InputBatch` 按下标保存每请求参数；`refresh_metadata()` 只在 batch 变化时重建 `SamplingMetadata`。`Sampler` 的流水线以"是否改变 argmax"为组织原则，让 greedy 与随机请求走同一条向量化路径；`LogitsProcessor` 接口长成 `update_state(BatchUpdate)` 的样子，是因为处理器状态必须跟着持久 batch 的增删移动同步。V1 只接受引擎级注册的处理器类。
 - 采样参数里真正有成本的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`（逐请求循环、FlashInfer 路径失效），其余淹没在 forward 里。开投机解码时 logits 变成每个 draft 一行，只有内置的几步做了"行 → 请求"的展开，所以 `min_p`、`logit_bias` 和自定义处理器被禁用。
 - 结构化输出分布在四个位置：前端选后端；`grammar_init()` 异步编译，请求进 `WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`；每步调度器进程填 bitmask、与 forward 重叠，worker 按 batch 行序重排后一个 kernel 打 `-inf`；步后 `accept_tokens()` 推进 FSM。与投机解码叠加时 draft 先经 `validate_tokens()` 过滤，bitmask 每个位置一行，FSM 每步推进 K 次再 `rollback()`。成本几乎全在 CPU 与 TTFT 上。

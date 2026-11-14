@@ -20,7 +20,7 @@ transition: slide
 ![一次请求从入口、调度、KV 到 GPU 执行的路径](/img/in-post/why-llm-serving-is-hard-request-flow.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
-系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 15 篇是系列总结与通关自测。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来与 SGLang 对照；源码落在讲到它的那一篇里（03 的四个域与调用链、06 的翻译层）。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。全系列以[《系列总结与通关自测》](/deep-dive-into-vllm-series-recap-and-self-test.html)收尾。主线：Serving 难点 → 指标 → 系统全景 → 调度、内存、执行（含投机解码）→ 多卡和 PD → 输入、输出、模型、硬件适配 → 未来与 SGLang 对照；源码落在讲到它的那一篇里（03 的四个域与调用链、06 的翻译层）。
 </aside>
 
 ---
@@ -34,7 +34,7 @@ transition: slide
 - 目标不是最大 batch，而是在 SLO 约束下选择合适的执行规模。
 
 <aside class="notes" markdown="1">
-系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。第 15 篇：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
+系列总纲：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)。《系列总结与通关自测》：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
 </aside>
 
 <!-- v -->
@@ -50,7 +50,7 @@ transition: slide
 | 删除 Medusa 与旧 Ray executor | v0.33 rc | 03 · 06 |
 
 <aside class="notes" markdown="1">
-版本提示 @2026-11-12。全系列源码钉在 v0.27.1（2026-08-11）；截至 v0.32.0（2026-10-18），分层架构（API Server → AsyncLLM → EngineCore → Executor → Worker）与进程间通信不变，变化集中在 ModelRunner 层：v0.29.0 起 `vllm/v1/worker/gpu/` 的 Model Runner V2 是默认实现，有自己的 CUDA Graph 管理、采样器、logits processor 接口和投机解码子包；V1 的 `gpu_model_runner.py` 被宣布弃用，v0.32.0 中仍在。另有 prefix cache 的 `NONE_HASH` 默认改为确定值（v0.29，第 05 篇）。完整清单见总纲「版本与硬件基线」：[/deep-dive-into-vllm.html#版本与硬件基线](/deep-dive-into-vllm.html#版本与硬件基线)。
+版本提示 @2026-11-12。全系列源码钉在 v0.27.1（2026-08-11）；截至 v0.32.0（2026-10-18），分层架构（API Server → AsyncLLM → EngineCore → Executor → Worker）与进程间通信不变，变化集中在 ModelRunner 层：v0.29.0 起 `vllm/v1/worker/gpu/` 的 Model Runner V2 是默认实现，有自己的 CUDA Graph 管理、采样器、logits processor 接口和投机解码子包；V1 的 `gpu_model_runner.py` 被宣布弃用，v0.32.0 中仍在。另有 prefix cache 的 `NONE_HASH` 默认改为确定值（v0.29，[《KV Cache》](/kv-cache-memory-core.html)）。完整清单见总纲「版本与硬件基线」：[/deep-dive-into-vllm.html#版本与硬件基线](/deep-dive-into-vllm.html#版本与硬件基线)。
 </aside>
 
 ---
@@ -85,7 +85,7 @@ flowchart TB
 | 采样参数、结构化输出 | 改变「输出什么」 | 10 输出在变 |
 | multi-LoRA、多模态 | 每个请求带进来的东西不同 | 09 输入在变 |
 
-**变化段按粒度排：请求级（09、10，同一 batch 逐请求不同）→ 部署级（11、12，实例启动时定下）。**
+**变化段按粒度排：请求级（输入、输出，同一 batch 逐请求不同）→ 部署级（模型、硬件，实例启动时定下）。**
 
 <aside class="notes" markdown="1">
 01 [/why-llm-serving-is-hard.html](/why-llm-serving-is-hard.html)；02 [/how-to-measure-llm-serving.html](/how-to-measure-llm-serving.html)；03 [/vllm-request-lifecycle-overview.html](/vllm-request-lifecycle-overview.html)；04 [/scheduler-batch-and-fairness.html](/scheduler-batch-and-fairness.html)；05 [/kv-cache-memory-core.html](/kv-cache-memory-core.html)；06 [/gpu-execution-kernels-and-graphs.html](/gpu-execution-kernels-and-graphs.html)；07 [/multi-gpu-scaling-strategies.html](/multi-gpu-scaling-strategies.html)；08 [/prefill-decode-disaggregation.html](/prefill-decode-disaggregation.html)；09 [/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)；10 [/output-changes-sampling-and-structured-output.html](/output-changes-sampling-and-structured-output.html)；11 [/model-adaptation-architecture.html](/model-adaptation-architecture.html)；12 [/hardware-abstraction-and-portability.html](/hardware-abstraction-and-portability.html)；13 [/future-of-serving-infra.html](/future-of-serving-infra.html)；14 [/vllm-vs-sglang.html](/vllm-vs-sglang.html)。系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。
@@ -121,15 +121,15 @@ flowchart TB
 
 | 核心问题 | 主要机制 | 篇 |
 |---|---|---|
-| 这一轮谁执行、执行多少？ | Continuous Batching、Token Budget、Chunked Prefill、抢占 | 04 |
-| 历史状态放哪、如何复用？ | PagedAttention、Prefix Cache、GQA / MLA、KV 量化 | 05 |
-| 这一轮如何算得更快？ | FlashAttention、CUDA Graph、融合、量化、投机解码 | 06 |
-| 一张卡不够，如何扩展？ | TP、PP、EP、CP、DP；PD 分离 | 07 · 08 |
+| 这一轮谁执行、执行多少？ | Continuous Batching、Token Budget、Chunked Prefill、抢占 | 《Scheduler》 |
+| 历史状态放哪、如何复用？ | PagedAttention、Prefix Cache、GQA / MLA、KV 量化 | 《KV Cache》 |
+| 这一轮如何算得更快？ | FlashAttention、CUDA Graph、融合、量化、投机解码 | 《GPU 执行》 |
+| 一张卡不够，如何扩展？ | TP、PP、EP、CP、DP；PD 分离 | 《Multi-GPU》·《PD 分离》 |
 
-**横切约束，从请求到芯片：输入在变 09 · 输出在变 10 · 模型在变 11 · 硬件在变 12**
+**横切约束，从请求到芯片：输入在变 · 输出在变 · 模型在变 · 硬件在变**
 
 <aside class="notes" markdown="1">
-原文：[/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)。对应 01 的表 4。代码落点：Scheduler、KVCacheManager / BlockPool、ModelRunner / Attention Backend、Executor / distributed。横切约束：一个请求可以带自己的 LoRA、带图片（09）；每个请求有自己的采样参数、可能要求符合 JSON schema（10）；MLA、MoE、MTP 等新结构（11）；同一套 Serving 逻辑跑在不同芯片上（12）。
+原文：[/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开](/why-llm-serving-is-hard.html#六阅读地图后续内容如何展开)。对应《为什么 LLM Serving 难》的表 4。代码落点：Scheduler、KVCacheManager / BlockPool、ModelRunner / Attention Backend、Executor / distributed。横切约束：一个请求可以带自己的 LoRA、带图片（《请求形态的扩展》）；每个请求有自己的采样参数、可能要求符合 JSON schema（《输出在变》）；MLA、MoE、MTP 等新结构（《模型适配》）；同一套 Serving 逻辑跑在不同芯片上（12）。
 </aside>
 
 ---
@@ -463,7 +463,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文同上，第二章第 3 节第 2 点。原图的边标注：`SchedulerOutput` 按请求更新增量 → `CachedRequestState` 占 `InputBatch` 一行 → 该行的块号进 `BlockTable` → 拷到 GPU 算出 `slot_mapping` → 写入新的 K、V；虚线是 attention kernel 按 `BlockTable` 的行读 KV。`CachedRequestState` 是 `Request` 的只读镜像，靠每步 `CachedRequestData` 的增量维护、从不反向同步；`InputBatch` 每个在跑的请求占一行，请求结束后尾行搬进空行，行号每步都可能变，`BlockTable` 与 token ids 跟着同步搬行——`request_id` 才是跨进程的稳定身份。`slot = block_id × block_size + offset` 由 Triton kernel 在 GPU 上算；每步的四个函数（`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()`、选图）见第六篇第二章。
+原文同上，第二章第 3 节第 2 点。原图的边标注：`SchedulerOutput` 按请求更新增量 → `CachedRequestState` 占 `InputBatch` 一行 → 该行的块号进 `BlockTable` → 拷到 GPU 算出 `slot_mapping` → 写入新的 K、V；虚线是 attention kernel 按 `BlockTable` 的行读 KV。`CachedRequestState` 是 `Request` 的只读镜像，靠每步 `CachedRequestData` 的增量维护、从不反向同步；`InputBatch` 每个在跑的请求占一行，请求结束后尾行搬进空行，行号每步都可能变，`BlockTable` 与 token ids 跟着同步搬行——`request_id` 才是跨进程的稳定身份。`slot = block_id × block_size + offset` 由 Triton kernel 在 GPU 上算；每步的四个函数（`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()`、选图）见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html)。
 </aside>
 
 <!-- v -->
@@ -475,7 +475,7 @@ flowchart LR
 **schedule ~0.05 ms + prepare ~0.1 ms，对十毫秒量级的 forward 约 1%，且被流水线化。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)。四个阶段：schedule（CPU）→ prepare（CPU）→ model forward（GPU，纯 decode 时一次 CUDA Graph replay）→ sample（GPU → CPU）。GPU 跑第 N 步时 CPU 已在准备第 N+1 步。图中毫秒数是估算，不是源码常量。四个阶段各落在哪些函数、一步之内谁等谁、唯一的同步点在哪，见[第六篇第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)；EngineCore 一侧的主循环见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
+原文：[/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)。四个阶段：schedule（CPU）→ prepare（CPU）→ model forward（GPU，纯 decode 时一次 CUDA Graph replay）→ sample（GPU → CPU）。GPU 跑第 N 步时 CPU 已在准备第 N+1 步。图中毫秒数是估算，不是源码常量。四个阶段各落在哪些函数、一步之内谁等谁、唯一的同步点在哪，见[《GPU 执行》第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)；EngineCore 一侧的主循环见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
 </aside>
 
 <!-- v -->
@@ -487,7 +487,7 @@ flowchart LR
 **十一步、三道边界：③ ZMQ 与 ⑤ 共享内存队列是进程边界，⑦ 是 Python → CUDA。**
 
 <aside class="notes" markdown="1">
-原文：[/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上](/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上)。① `create_chat_completion()` → ② `AsyncLLM.add_request()` + `InputProcessor` tokenize → ③ ZMQ + msgspec 进 EngineCore → ④ `Scheduler.schedule()` → ⑤ `Executor.execute_model()` 经 `rpc_broadcast_mq` 到 Worker（也是控制面与数据面的边界；单卡 `UniProcExecutor` 时退化为函数调用）→ ⑥ `GPUModelRunner` 准备张量 → ⑦ `model(input_ids, positions)` → ⑧ attention kernel → ⑨ 可选 CUDA Graph 重放 → ⑩ 采样结果 D2H → ⑪ `update_from_output()`、detokenize、SSE。三段分别活在 API Server、EngineCoreProc、WorkerProc 里，彼此只靠消息队列衔接；每个进程里常驻的循环与调用栈在机制篇：API Server 的协程见[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程与 `step()` 见[第四篇第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环与 Python 怎样调到 kernel 见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。（版本提示：执行侧走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
+原文：[/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上](/vllm-request-lifecycle-overview.html#放大同一条生命周期落到组件和关键方法上)。① `create_chat_completion()` → ② `AsyncLLM.add_request()` + `InputProcessor` tokenize → ③ ZMQ + msgspec 进 EngineCore → ④ `Scheduler.schedule()` → ⑤ `Executor.execute_model()` 经 `rpc_broadcast_mq` 到 Worker（也是控制面与数据面的边界；单卡 `UniProcExecutor` 时退化为函数调用）→ ⑥ `GPUModelRunner` 准备张量 → ⑦ `model(input_ids, positions)` → ⑧ attention kernel → ⑨ 可选 CUDA Graph 重放 → ⑩ 采样结果 D2H → ⑪ `update_from_output()`、detokenize、SSE。三段分别活在 API Server、EngineCoreProc、WorkerProc 里，彼此只靠消息队列衔接；每个进程里常驻的循环与调用栈在机制篇：API Server 的协程见[《输出在变》第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)，EngineCoreProc 的三个线程与 `step()` 见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)，WorkerProc 的循环与 Python 怎样调到 kernel 见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。（版本提示：执行侧走的是 v0.27.1 的 V1 `GPUModelRunner`；v0.29 起调试断点要打在 `vllm/v1/worker/gpu/model_runner.py`。）
 </aside>
 
 <!-- v -->
@@ -730,7 +730,7 @@ flowchart TB
 ![一个 kernel 按排序后的 token 索引 gather 不同 LoRA adapter 的权重行](/img/in-post/request-shapes-multi-lora-and-multimodal-lora-gather.svg){: style="max-height: 390px"}
 
 <aside class="notes" markdown="1">
-原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。变化段的第一篇，属于请求级变化：同一个 batch 里每个请求都可能带自己的 LoRA、带几张图片，引擎必须逐请求处理；模型类经 `SupportsLoRA` / `SupportsMultiModal` 声明能力，引擎据此启用对应路径（完整机制在 11）。LoRA FLOPs 只多 0.2%，但每步多 1,120 次 kernel launch；图片贵在持续驻留的 KV，而不是短命的 encoder 输出。
+原文：[/request-shapes-multi-lora-and-multimodal.html](/request-shapes-multi-lora-and-multimodal.html)。变化段的第一篇，属于请求级变化：同一个 batch 里每个请求都可能带自己的 LoRA、带几张图片，引擎必须逐请求处理；模型类经 `SupportsLoRA` / `SupportsMultiModal` 声明能力，引擎据此启用对应路径（完整机制在《模型适配》）。LoRA FLOPs 只多 0.2%，但每步多 1,120 次 kernel launch；图片贵在持续驻留的 KV，而不是短命的 encoder 输出。
 </aside>
 
 <!-- v -->
@@ -829,7 +829,7 @@ You are Qwen, created by Alibaba Cloud. ...
 | PD 分离 | 参数随请求交接 | P、D 各编译一次，都落在 TTFT 上 |
 
 <aside class="notes" markdown="1">
-原文：[/output-changes-sampling-and-structured-output.html#3-变化落在哪几层](/output-changes-sampling-and-structured-output.html#3-变化落在哪几层)。KV Cache 一行是空的，这本身就是结论：输出语义的变化不影响状态怎么存，不同参数、不同 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比 09：LoRA 和多模态都要往块哈希里加 `extra_keys`）。代价：采样语义几乎为零，值得算的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`；结构化输出几乎全在 CPU 与 TTFT——编译、每步填 bitmask、FSM 推进，GPU 只有一个掩码 kernel。batch=64 全开 JSON：每步 H2D 64 × 16 KB = 1 MB。
+原文：[/output-changes-sampling-and-structured-output.html#3-变化落在哪几层](/output-changes-sampling-and-structured-output.html#3-变化落在哪几层)。KV Cache 一行是空的，这本身就是结论：输出语义的变化不影响状态怎么存，不同参数、不同 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比《请求形态的扩展》：LoRA 和多模态都要往块哈希里加 `extra_keys`）。代价：采样语义几乎为零，值得算的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`；结构化输出几乎全在 CPU 与 TTFT——编译、每步填 bitmask、FSM 推进，GPU 只有一个掩码 kernel。batch=64 全开 JSON：每步 H2D 64 × 16 KB = 1 MB。
 </aside>
 
 <!-- v -->
@@ -928,7 +928,7 @@ flowchart LR
 | 新量化 | 不改 | 只有 KV 量化要改 | `LinearMethodBase` 子类 |
 
 <aside class="notes" markdown="1">
-原文：[/model-adaptation-architecture.html#2-新模型差异如何向下游扩散](/model-adaptation-architecture.html#2-新模型差异如何向下游扩散)。四种外部变化里的第三种，进入部署级变化：模型在实例启动时就定下，引擎要在接口层把它隔离。表从上往下越来越贵：前两行停在模型层或只多一个后端选项；MLA、Mamba 改了"状态长什么样"，调度器算显存的方式跟着变；MoE、MTP 改了"一步怎么执行"，牵动并行和调度。MTP 不是事务式回滚：被拒位置的 KV 留在原地，下一步覆盖；MoE 也不往 `SchedulerOutput` 加字段。09 用到的 `SupportsLoRA` / `SupportsMultiModal` 就是这里的能力声明，在两个时间点检查：启动时注册表在子进程里查类、写进 `_ModelInfo`（不支持 PP 却开 PP 启动即报错），Worker 加载后对实例做 `isinstance`（要不要包 LoRA 层、挂 EPLB）。
+原文：[/model-adaptation-architecture.html#2-新模型差异如何向下游扩散](/model-adaptation-architecture.html#2-新模型差异如何向下游扩散)。四种外部变化里的第三种，进入部署级变化：模型在实例启动时就定下，引擎要在接口层把它隔离。表从上往下越来越贵：前两行停在模型层或只多一个后端选项；MLA、Mamba 改了"状态长什么样"，调度器算显存的方式跟着变；MoE、MTP 改了"一步怎么执行"，牵动并行和调度。MTP 不是事务式回滚：被拒位置的 KV 留在原地，下一步覆盖；MoE 也不往 `SchedulerOutput` 加字段。《请求形态的扩展》用到的 `SupportsLoRA` / `SupportsMultiModal` 就是这里的能力声明，在两个时间点检查：启动时注册表在子进程里查类、写进 `_ModelInfo`（不支持 PP 却开 PP 启动即报错），Worker 加载后对实例做 `isinstance`（要不要包 LoRA 层、挂 EPLB）。
 </aside>
 
 <!-- v -->
@@ -1040,7 +1040,7 @@ flowchart TB
 - **调度单位是 token**：budget、chunk、投机 lookahead 与 encoder 预算都围绕 token 推进。
 
 <aside class="notes" markdown="1">
-系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。第 15 篇回顾十四篇正文并提供通关自测。
+系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。《系列总结与通关自测》回顾十四篇正文并提供通关自测。
 </aside>
 
 ---
@@ -1063,7 +1063,7 @@ flowchart TB
 
 ## 下一步
 
-- **系列总结**：第 15 篇 [/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)
+- **系列总结**：[《系列总结与通关自测》](/deep-dive-into-vllm-series-recap-and-self-test.html)
 - **往下**：《GPU Kernel 工程》与《通信与互联》——继续看 FlashAttention、PagedAttention、All-Reduce 与 KV 传输。
 - **往旁**：《扩散模型推理 Infra》与《RL 后训练 Infra》——比较另一种 Serving 工作负载及训练中的推理引擎。
 - **回看总纲**：[/deep-dive-into-vllm.html](/deep-dive-into-vllm.html)

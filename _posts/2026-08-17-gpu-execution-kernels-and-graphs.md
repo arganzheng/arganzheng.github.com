@@ -68,7 +68,7 @@ Table: 本文的章节安排
 
 > **调度器交出来的是“哪个请求本轮推进多少 token”，kernel 要的是“这个 token 的 KV 写到哪个 slot、这个请求能读哪些块”——中间这层翻译在哪做、做了什么，又为什么不让 GPU 等？[^q1]**
 
-第四篇的调度决策和本文后面四章的 GPU 执行之间，隔着这一层翻译。做翻译的是 `GPUModelRunner.execute_model()` 的前半段：`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()` 三个函数，再加一次执行模式选择。先看全貌，下面两张表再展开：
+[《Scheduler》](/scheduler-batch-and-fairness.html)的调度决策和本文后面四章的 GPU 执行之间，隔着这一层翻译。做翻译的是 `GPUModelRunner.execute_model()` 的前半段：`_update_states()`、`_prepare_inputs()`、`_build_attention_metadata()` 三个函数，再加一次执行模式选择。先看全貌，下面两张表再展开：
 
 ![SchedulerOutput → GPU 输入的映射](/img/in-post/source-code-request-walkthrough-scheduler-output-to-gpu.svg)
 
@@ -88,7 +88,7 @@ Table: SchedulerOutput 的字段
 
 ### 2. 四步翻译：从调度决策到 kernel 参数
 
-Worker 一侧常驻一份 `InputBatch`（`vllm/v1/worker/gpu_input_batch.py`，每个在跑的请求占一行）和每个 KV cache group 一张 `BlockTable`（`vllm/v1/worker/block_table.py`）。它们和调度器进程里的对象怎样靠 `request_id`、`block_id` 两个整数对上，见[第三篇“核心数据对象：四个域”](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)那张图。每一步，Worker 把 `SchedulerOutput` 翻译成 GPU 数据结构，分四步：
+Worker 一侧常驻一份 `InputBatch`（`vllm/v1/worker/gpu_input_batch.py`，每个在跑的请求占一行）和每个 KV cache group 一张 `BlockTable`（`vllm/v1/worker/block_table.py`）。它们和调度器进程里的对象怎样靠 `request_id`、`block_id` 两个整数对上，见[《鸟瞰 vLLM》“核心数据对象：四个域”](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)那张图。每一步，Worker 把 `SchedulerOutput` 翻译成 GPU 数据结构，分四步：
 
 | 步骤 | 函数 | 做什么 | 细节 |
 |---|---|---|---|
@@ -103,13 +103,13 @@ Table: SchedulerOutput 到 GPU 输入的四步翻译
 
 所以 `SchedulerOutput` 和 GPU 计算之间隔着的这一层不是调模型，而是把调度决策翻译成 GPU 数据结构：`slot_mapping` 告诉每个 token 的 KV 写去哪，`block_table` 告诉每个请求能读到哪些块，CUDA Graph / Eager 的选择也在这里决定。这层翻译是看懂后面 Prefill、Decode 和 Mixed Batch 执行差异的前提。
 
-这一层为什么必须存在：`slot_mapping` 是第五篇分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块，第五篇），而“走 Graph 还是 Eager”则是本文第三章 CUDA Graph 那个约束的落地位置（图里的形状必须固定）。**三个字段，三处设计约束。**
+这一层为什么必须存在：`slot_mapping` 是[《KV Cache》](/kv-cache-memory-core.html)分块存储的直接产物（KV 不连续，所以必须逐 token 给出落点），`block_table` 是 Prefix Cache 共享的直接产物（多个请求可能指向同一个物理块，见《KV Cache》），而“走 Graph 还是 Eager”则是本文第三章 CUDA Graph 那个约束的落地位置（图里的形状必须固定）。**三个字段，三处设计约束。**
 
 ### 3. 一步之内的时序：CPU 与 GPU 在哪里等谁
 
-上面讲的是“翻译什么”，还有一个问题是“翻译和计算在时间上怎么排”。[第三篇的控制面与数据面](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)那张单步时间线把一步分成四段，落到源码是：
+上面讲的是“翻译什么”，还有一个问题是“翻译和计算在时间上怎么排”。[《鸟瞰 vLLM》的控制面与数据面](/vllm-request-lifecycle-overview.html#1-两个面控制面与数据面的分离)那张单步时间线把一步分成四段，落到源码是：
 
-1. **schedule（CPU，EngineCore 进程）**：`Scheduler.schedule()` 从 running / waiting 里按 token 预算分配本步额度，产出 `SchedulerOutput`（主循环见[第四篇](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)）。
+1. **schedule（CPU，EngineCore 进程）**：`Scheduler.schedule()` 从 running / waiting 里按 token 预算分配本步额度，产出 `SchedulerOutput`（主循环见[《Scheduler》](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)）。
 2. **prepare（CPU，Worker 进程）**：`GPUModelRunner._update_states()` 按 `SchedulerOutput` 增删 `InputBatch` 的行，`_prepare_inputs()` 拼 `input_ids` / `positions`、H2D 拷贝、算 `slot_mapping`。
 3. **model forward（GPU）**：`_model_forward()` 逐层 launch kernel，纯 decode 时整张 CUDA Graph 一次 replay。
 4. **sample（GPU → CPU）**：`_sample()` 采出 `sampled_token_ids`，`_bookkeeping_sync()` 拷回 CPU，打包成 `ModelRunnerOutput` 交回 Scheduler。
@@ -153,7 +153,7 @@ sequenceDiagram
 1. **`execute_model()` 全程不同步。** 从 `_update_states()` 到 `compute_logits()`，CPU 做的只是填 pinned buffer、发 `non_blocking` 拷贝、launch kernel（或 replay 一张图）。`commit_block_table()` 被刻意放在 `_prepare_inputs()` 的第一行，让 block table 的 H2D 拷贝和后面的 numpy 计算重叠——源码注释明说这是一项优化（“Start copying the block table first”）。
 2. **同步点只有一个，且被推到最后。** `_bookkeeping_sync()` 里的 `_to_list()` 用 `transfer_event.synchronize()` 等采样结果落到 CPU；它用 CUDA event 而不是 `tolist()` 直接触发的全 stream 同步，是为了不阻塞其他 stream 上的拷贝（比如 PD 分离时的 KV 传输）。在这个点之前，GPU 上排着的是 forward + 采样整条队列，CPU 等的时间就是 GPU 真正的计算时间。
 3. **为什么拆成两次调用。** `execute_model()` 返回后、`sample_tokens()` 之前，EngineCore 有一个窗口可以做需要上一步结果的事（结构化输出的 grammar bitmask），而 GPU 此刻正在跑 forward——把 CPU 侧这段工作塞进 GPU 的空当。
-4. **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是第三篇说的“流水线化”在源码里更激进的形态。
+4. **async scheduling 把最后那个同步点也拿掉了。** 采样结果留在 GPU，`AsyncGPUModelRunnerOutput` 在另一条 copy stream 上做 D2H，Scheduler 用占位 token 先调度下一步，等结果到达再修正。这就是[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)说的“流水线化”在源码里更激进的形态。
 
 ### 4. Worker 进程的常驻循环：execute_model 只是一个方法名
 
@@ -195,7 +195,7 @@ WorkerProc（每个 TP/PP rank 一个）           vllm/v1/worker/
 
 Table: 从 Python 调用到 GPU 硬件的对应
 
-这些 `.so` 由哪些进程加载、wheel 里有哪几个，见[第三篇的开发视图](/vllm-request-lifecycle-overview.html#2-构建与打包python-包--编译扩展)。
+这些 `.so` 由哪些进程加载、wheel 里有哪几个，见[《鸟瞰 vLLM》的开发视图](/vllm-request-lifecycle-overview.html#2-构建与打包python-包--编译扩展)。
 
 翻译层本身不会让 GPU 空等：它的 CPU 工作全部异步入队，被 GPU 上一段 forward 盖住。真正可能让 GPU 等 CPU 的，是 `_model_forward()` 里那串 kernel launch——一步几百到上千次，单个 kernel 又短。这就是下一章的第一种浪费。
 
@@ -315,7 +315,7 @@ flowchart TB
 
 两个常见误解要澄清。第一，FULL 模式录的是**一张包含全部 kernel 的图**，replay 时 GPU 按图里记录的顺序执行这些 kernel——它减少的是 CPU 侧 launch 开销和 kernel 间的空隙，**不是**把 forward 融合成一个"超级 kernel"，每个 kernel 内部的执行时间一点没变。第二，CUDA Graph 与 `torch.compile` 是两个正交的轴：docstring 明说 "the cudagraph logic is generally orthogonal to the compilation logic"——PIECEWISE 依赖 piecewise 编译，但 FULL 图在不开编译时也能录。`CompilationConfig.mode`（`NONE / STOCK_TORCH_COMPILE / DYNAMO_TRACE_ONCE / VLLM_COMPILE`）管的是"要不要让 Inductor 生成融合 kernel"，`cudagraph_mode` 管的是"生成好的 kernel 序列要不要录成图"。
 
-这组模式和第八篇的 PD 分离有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
+这组模式和[《PD 分离》](/prefill-decode-disaggregation.html)有一个自然的对应：Decode 实例里没有 prefill，全部 batch 都是"每请求一个 token"的规则形状，`FULL_DECODE_ONLY` 用最少的显存拿到全部收益（这正是 docstring 里点名的用法）；Prefill 实例里每个 batch 的形状都不一样，图的收益本来就小，`PIECEWISE` 甚至 `NONE` 都合理。
 
 ## 四、数据为什么搬不动？—— 压缩 HBM 流量
 
@@ -665,7 +665,7 @@ Table: 混合精度组合的显存、延迟与质量
 
 前面三章都在优化"一轮怎么跑得更快"。这一章换个思路：**能不能让一轮多产出几个 token，从而少跑几轮？**
 
-先把投机解码的定位说清楚：它**不改变输出分布**（拒绝采样保证与直接用 Target 采样一致，greedy 下逐 token 相同），只改变"一次 Target forward 产出几个 token"。所以它和 CUDA Graph、量化一样是性能手段，归在本篇；而采样参数、结构化输出改变的是"输出什么"，放在第十篇。
+先把投机解码的定位说清楚：它**不改变输出分布**（拒绝采样保证与直接用 Target 采样一致，greedy 下逐 token 相同），只改变"一次 Target forward 产出几个 token"。所以它和 CUDA Graph、量化一样是性能手段，归在本篇；而采样参数、结构化输出改变的是"输出什么"，放在[《输出在变》](/output-changes-sampling-and-structured-output.html)。
 
 本章先讲原理和候选从哪来（第 1–3 节），再按 vLLM 里一步的走向讲调度器与 KV（第 4 节）、model runner（第 5 节）、拒绝采样（第 6 节），最后算账（第 7 节）并列出多卡与 PD 下的约束（第 8 节）。
 
@@ -826,7 +826,7 @@ MTP 在 vLLM 里复用 `EagleProposer`，这是工程抽象上的复用（候选
 
 ### 4. 调度器与 KV：draft 进预算、预留 lookahead 槽位、按接受数回滚
 
-第四篇讲 `schedule()` 时反复出现的 `num_tokens_with_spec`，在这里落地：
+[《Scheduler》](/scheduler-batch-and-fairness.html)讲 `schedule()` 时反复出现的 `num_tokens_with_spec`，在这里落地：
 
 `num_tokens_with_spec = len(prompt_token_ids) + len(output_token_ids) + len(spec_token_ids)`
 
@@ -849,7 +849,7 @@ if request.spec_token_ids:
 
 另一条上界：`num_new_tokens ≤ max_model_len - num_computed_tokens - num_sampled_tokens_per_step`，源码注释写明 "This is necessary when using spec decoding"——验证 K 个 draft 后还要采一个 bonus，位置不能越界。
 
-**② 给 KV 预留 lookahead 槽位。** `allocate_slots(request, num_new_tokens, num_lookahead_tokens=self.num_lookahead_tokens)`。第五篇 `allocate_slots()` 注释里那个布局图最右边的 `lookahead` 一段就是它。`num_lookahead_tokens` 在 `Scheduler.__init__` 里按方法设定：EAGLE / MTP / draft model 为 `num_spec_tokens`；DFlash 因为要多一个 query 位置是 `num_spec_tokens + 1`；n-gram 一族为 0——它们不跑模型，不需要为 draft 写 KV。为什么 draft 模型需要 lookahead？因为 draft 模型在**这一步的 forward 之后**才跑，它要为下一步的 K 个候选写自己那份 KV，位置必须现在就分好。
+**② 给 KV 预留 lookahead 槽位。** `allocate_slots(request, num_new_tokens, num_lookahead_tokens=self.num_lookahead_tokens)`。[《KV Cache》](/kv-cache-memory-core.html)中 `allocate_slots()` 注释里那个布局图最右边的 `lookahead` 一段就是它。`num_lookahead_tokens` 在 `Scheduler.__init__` 里按方法设定：EAGLE / MTP / draft model 为 `num_spec_tokens`；DFlash 因为要多一个 query 位置是 `num_spec_tokens + 1`；n-gram 一族为 0——它们不跑模型，不需要为 draft 写 KV。为什么 draft 模型需要 lookahead？因为 draft 模型在**这一步的 forward 之后**才跑，它要为下一步的 K 个候选写自己那份 KV，位置必须现在就分好。
 
 **回到前面的例子**：K=3，`num_lookahead_tokens=3`，每张卡每 token 40 KB，预留 120 KB；`block_size=16` 时绝大多数步骤这 3 个槽位落在当前块里，偶尔多占一块（每卡 640 KB）。对一个 734 MB 的请求来说是零头——**lookahead 的代价不在显存，而在它让 `allocate_slots()` 更早触碰 watermark**。
 
@@ -862,7 +862,7 @@ num_rejected = num_draft_tokens - num_accepted
 request.num_computed_tokens -= num_rejected                    # 被拒的位置"当作没算过"
 ```
 
-常说的"KV 回滚"，落到源码上**就是这一行减法**。vLLM 不调用任何"撤销"接口，也不释放被拒位置所在的物理块：被拒 token 占的槽位留在原地，下一步的 token 直接覆盖它们（`slot_mapping` 按 `num_computed_tokens` 算）。第十一篇讲 DeepSeek MTP 时说的"暂存状态 vs 提交状态"，在 vLLM 里的实现就是 `num_computed_tokens` 与实际写入 KV 的位置之间的这个差。
+常说的"KV 回滚"，落到源码上**就是这一行减法**。vLLM 不调用任何"撤销"接口，也不释放被拒位置所在的物理块：被拒 token 占的槽位留在原地，下一步的 token 直接覆盖它们（`slot_mapping` 按 `num_computed_tokens` 算）。[《模型适配》](/model-adaptation-architecture.html)讲 DeepSeek MTP 时说的"暂存状态 vs 提交状态"，在 vLLM 里的实现就是 `num_computed_tokens` 与实际写入 KV 的位置之间的这个差。
 
 用一个请求连续两步的 KV 槽位把这件事画出来（K=3，第一步接受 1 个、拒绝 2 个）：
 
@@ -882,7 +882,7 @@ Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61
 
 **④ draft 从哪里来、何时回到调度器。** 同步调度下，`EngineCore.post_step()` 在一步结束后 `take_draft_token_ids()` → `Scheduler.update_draft_token_ids()` 写回 `request.spec_token_ids`；异步调度下调度器提前一步跑，拿不到 draft，于是 worker 侧在 `update_draft_token_ids_in_output()` 里把 `scheduled_spec_decode_tokens` 的占位换成真实 draft，**长度不够的位置补 `-1`**，并把每个请求补了几个记进 `num_invalid_spec_tokens`——`-1` 在 `RejectionSampler` 的 kernel 里被无条件拒绝。
 
-**⑤ 一个 prefix cache 的特例。** `HybridKVCacheCoordinator.find_longest_cache_hit()` 与 `SingleTypeKVCacheManager.find_longest_cache_hit()` 都有一个 `drop_eagle_block` 参数：EAGLE / MTP 开启时，**prefix cache 命中的最后一个块会被主动丢掉**（`hit_length -= min(alignment_tokens, block_size)`）。原因是 EAGLE 的 draft 需要 target 对"最后一个已计算 token"的 hidden state，而 prefix cache 只保留 KV、不保留 hidden state——全部命中的话就没有任何位置会真正跑 forward，draft 无从下手。所以第五篇算的"125 块全部命中"在开 EAGLE 时会变成 124 块命中、重算 16 个 token。相应地 `cache_blocks()` 会多缓存一块（`num_tokens_to_cache = aligned + block_size`），让下一个请求仍能用到。
+**⑤ 一个 prefix cache 的特例。** `HybridKVCacheCoordinator.find_longest_cache_hit()` 与 `SingleTypeKVCacheManager.find_longest_cache_hit()` 都有一个 `drop_eagle_block` 参数：EAGLE / MTP 开启时，**prefix cache 命中的最后一个块会被主动丢掉**（`hit_length -= min(alignment_tokens, block_size)`）。原因是 EAGLE 的 draft 需要 target 对"最后一个已计算 token"的 hidden state，而 prefix cache 只保留 KV、不保留 hidden state——全部命中的话就没有任何位置会真正跑 forward，draft 无从下手。所以[《KV Cache》](/kv-cache-memory-core.html)算的"125 块全部命中"在开 EAGLE 时会变成 124 块命中、重算 16 个 token。相应地 `cache_blocks()` 会多缓存一块（`num_tokens_to_cache = aligned + block_size`），让下一个请求仍能用到。
 
 ### 5. Model runner：一次 forward 算 K+1 个位置
 
@@ -899,7 +899,7 @@ Per-position acceptance rate: 0.812, 0.605, 0.412, Avg Draft acceptance rate: 61
 # bonus_logits_indices:     [  3,   4,   7,   8,  10]
 ```
 
-看请求 0：它本步的 4 个 token 是 `[上一步采样的 token, d₁, d₂, d₃]`，forward 后需要 4 个位置的 logits——前 3 个（`target_logits_indices`）用来验证 `d₁ d₂ d₃`，第 4 个（`bonus_logits_indices`）是全部接受时的 bonus。请求 1 在 prefill，只要最后一个位置（104 → 全是 bonus）。于是 `logits_indices` 总长 `num_tokens + batch_size`，**logits 张量不再是 `[num_reqs, V]` 而是 `[num_reqs + Σ drafts, V]`**——采样一侧的 logits processor 因此不知道每一行属于哪个请求，第十篇会讲这带来的限制。`draft_token_ids` 直接从 `input_ids[logits_indices][target_logits_indices + 1]` 取出来：draft 已经作为输入 token 喂进了 forward。
+看请求 0：它本步的 4 个 token 是 `[上一步采样的 token, d₁, d₂, d₃]`，forward 后需要 4 个位置的 logits——前 3 个（`target_logits_indices`）用来验证 `d₁ d₂ d₃`，第 4 个（`bonus_logits_indices`）是全部接受时的 bonus。请求 1 在 prefill，只要最后一个位置（104 → 全是 bonus）。于是 `logits_indices` 总长 `num_tokens + batch_size`，**logits 张量不再是 `[num_reqs, V]` 而是 `[num_reqs + Σ drafts, V]`**——采样一侧的 logits processor 因此不知道每一行属于哪个请求，[《输出在变》](/output-changes-sampling-and-structured-output.html)会讲这带来的限制。`draft_token_ids` 直接从 `input_ids[logits_indices][target_logits_indices + 1]` 取出来：draft 已经作为输入 token 喂进了 forward。
 
 **这一步和 CUDA Graph 的关系**是最容易被忽略的约束。[第三章](#2-cuda-graph静态执行图捕获与重放)讲 `FULL_AND_PIECEWISE` 时说"纯 decode batch 形状规则、可以按 batch size 分桶录图"——投机解码把"规则"的定义改了：
 
@@ -942,7 +942,7 @@ output_token_ids = rejection_sample(metadata.draft_token_ids, metadata.num_draft
                                                                    # ④ 两个 Triton kernel
 ```
 
-①–③ 保证 target 行用的是"和不开投机时同一个请求会看到的"那个分布——拒绝采样只有在 $$q$$ 就是该请求真正的采样分布时才无损。这几步怎么把每请求的参数展开到每个 draft 行、哪些处理器因此被禁用，属于采样参数的适配，放在第十篇。
+①–③ 保证 target 行用的是"和不开投机时同一个请求会看到的"那个分布——拒绝采样只有在 $$q$$ 就是该请求真正的采样分布时才无损。这几步怎么把每请求的参数展开到每个 draft 行、哪些处理器因此被禁用，属于采样参数的适配，放在[《输出在变》](/output-changes-sampling-and-structured-output.html)。
 
 第 ④ 步 `rejection_sample()`：
 
@@ -998,7 +998,7 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 - 每步 token 数已接近或超过 $$T_\text{ridge}$$（高并发、吞吐优先）；
 - 输出很短（prefill 主导，投机对 prefill 无效——第 4 节说过 draft 在 prefill 阶段根本不调度）；
-- 请求普遍需要 `min_p`、`logit_bias` 或自定义 logits processor（开投机时它们被禁用，见第十篇）；
+- 请求普遍需要 `min_p`、`logit_bias` 或自定义 logits processor（开投机时它们被禁用，见[《输出在变》](/output-changes-sampling-and-structured-output.html)）；
 - 采样温度高、文本高熵——接受率随之下降，而 draft 成本不变；
 - 需要异步调度但 proposer 不在支持列表里。
 
@@ -1006,13 +1006,13 @@ Table: 贯穿全文例子在不同投机配置下的 Decode 时间
 
 ### 8. 多卡与 PD 下的约束
 
-第七篇（多卡）和第八篇（PD 分离）没有专门讨论投机解码，这里把 v0.27.1 里与它们相关的几条约束列出来：
+[《Multi-GPU》](/multi-gpu-scaling-strategies.html)和[《PD 分离》](/prefill-decode-disaggregation.html)没有专门讨论投机解码，这里把 v0.27.1 里与它们相关的几条约束列出来：
 
 1. **draft 的 TP。** `SpeculativeConfig.draft_tensor_parallel_size` 只能是 1 或等于 target 的 TP（`SpeculativeConfig._verify_and_get_draft_tp()`；不设时取 target 的 TP，`mlp_speculator` 取 1）。`draft_model` 方法更严格，`DraftModelProposer._raise_if_draft_tp_mismatch()` 要求两者相等——注释给的原因是 target TP > 1、draft TP = 1 时各 rank 都在 rank 0 上编译 draft，torch.compile 缓存会互相覆盖。EAGLE 头随 target 的 TP 切开时，每卡的矩阵很小，draft 的每一步都要付 target 一层的 all-reduce，却只换来一层的计算。
 2. **draft 在哪个 PP stage。** `GPUModelRunner.__init__` 只在最后一个 PP rank 上创建 `drafter`（注释："currently we put the entire draft model on the last PP rank"）——logits 只在末 stage 产生，draft 紧跟采样。
 3. **动态 K 与 DP 互斥。** `VllmConfig._maybe_disable_dynamic_sd_for_data_parallel()` 在 DP > 1 时关掉 `num_speculative_tokens_per_batch_size`、退回固定 K：不同 DP rank 若选了不同 K，各 rank 的 forward 形状对不上，集合通信会死锁。
 4. **PD 下的 lookahead 槽位。** D 侧异步拉取远端 KV 的那一步（`load_kv_async` 为真）不跑 forward，`Scheduler.schedule()` 里 `limit_lookahead_tokens` 把这一步的 `num_lookahead_tokens` 置 0，注释说是为了不让本地与远端的块数对不上；KV 到达、请求真正开始 decode 后再按正常规则预留。
-5. **PD 下 EAGLE 的第一个 draft。** EAGLE 需要 target 对 prompt 最后一个 token 的 hidden state，而 KV Transfer 只传 KV。第八篇走读的 NIXL toy proxy 下，D 本来就会[重算最后一个输入 token](/prefill-decode-disaggregation.html#1-一次请求的交接契约传什么何时可用何时释放)以得到采样所需的 logits，这一步的 hidden state 就在 D 上产生；和第 4 节的 `drop_eagle_block` 是同一件事——总要留一个位置真正跑 forward。
+5. **PD 下 EAGLE 的第一个 draft。** EAGLE 需要 target 对 prompt 最后一个 token 的 hidden state，而 KV Transfer 只传 KV。[《PD 分离》](/prefill-decode-disaggregation.html)走读的 NIXL toy proxy 下，D 本来就会[重算最后一个输入 token](/prefill-decode-disaggregation.html#1-一次请求的交接契约传什么何时可用何时释放)以得到采样所需的 logits，这一步的 hidden state 就在 D 上产生；和第 4 节的 `drop_eagle_block` 是同一件事——总要留一个位置真正跑 forward。
 
 <details markdown="1">
 <summary><b>📂 本章源码导航</b></summary>

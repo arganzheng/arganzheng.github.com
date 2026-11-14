@@ -1562,7 +1562,7 @@ graph LR
 
 Table: Ring Attention：GPU 0 的四步
 
-这个"分块算 + 在线累加"的套路，和第六篇的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
+这个"分块算 + 在线累加"的套路，和[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)里的 FlashAttention 是**同一个数学技巧**（Online Softmax），只不过一个跨的是 SRAM 与 HBM，另一个跨的是 GPU 与 GPU。
 
 在实际实现中，每个 GPU 会对不同 KV 块产生的注意力结果进行在线归约。为了避免保存所有中间结果，通常采用 Online Softmax 等方法，对不同 KV 分块的注意力结果进行数值稳定的增量合并。
 

@@ -10,7 +10,7 @@ updated: 2026-11-13
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-前八篇——调度、KV Cache、GPU 执行，再到多卡与 PD 分离——讲的都是一个固定的服务如何算得更快、扩得更大。从这一篇起的四篇换一个方向，看引擎如何承受四种外部变化，以及每种变化应该停在哪一层：先是请求级的变化——输入在变（本篇）、输出在变（第十篇），同一个 batch 里每个请求都可能不同，引擎必须逐请求处理；再是部署级的变化——模型在变（第十一篇）、硬件在变（第十二篇），一个实例启动时就定下，引擎要在接口层把它们隔离开。
+前八篇——调度、KV Cache、GPU 执行，再到多卡与 PD 分离——讲的都是一个固定的服务如何算得更快、扩得更大。从这一篇起的四篇换一个方向，看引擎如何承受四种外部变化，以及每种变化应该停在哪一层：先是请求级的变化——输入在变（本篇）、[《输出在变》](/output-changes-sampling-and-structured-output.html)，同一个 batch 里每个请求都可能不同，引擎必须逐请求处理；再是部署级的变化——模型在变（[《模型适配》](/model-adaptation-architecture.html)）、硬件在变（[《硬件解耦》](/hardware-abstraction-and-portability.html)），一个实例启动时就定下，引擎要在接口层把它们隔离开。
 
 请求级变化的起点，是同一个 batch 里的请求不再长得一样。前八篇的执行链路（API 进程把请求变成 token id → Scheduler → `Worker + ModelRunner`）有一个没有说出口的假设：**服务里只有一个模型、一份权重，每个请求就是一串 token id**。调度器按 token 分预算，KV Cache 按 token 分块，model runner 把所有请求的 token 拍平成一条 `input_ids` 送进同一个 forward。
 
@@ -46,11 +46,11 @@ updated: 2026-11-13
 
 Table: 执行链路上的三个隐含假设与谁打破它
 
-第五篇讲 `hash_block_tokens()` 时留了一个 `extra_keys` 参数，说它"是隔离用的"——本篇就是它存在的理由。
+[《KV Cache》](/kv-cache-memory-core.html)讲 `hash_block_tokens()` 时留了一个 `extra_keys` 参数，说它"是隔离用的"——本篇就是它存在的理由。
 
 ### 2. 三种输入变化分别惊动了谁
 
-| | 调度器（第四篇） | KV Cache（第五篇） | Model Runner / 执行（第六篇） | 模型侧 |
+| | 调度器（[《Scheduler》](/scheduler-batch-and-fairness.html)） | KV Cache（[《KV Cache》](/kv-cache-memory-core.html)） | Model Runner / 执行（[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)） | 模型侧 |
 |---|---|---|---|---|
 | multi-LoRA | 一步内活跃 adapter 数 ≤ `max_loras`，超了的 waiting 请求跳过 | 块哈希加 `lora_name` | 每步算 token → adapter 的映射，交给 Punica kernel<br/>每个 LoRA 层多两次 kernel<br/>CUDA graph 按"有无 LoRA / 几个 LoRA"分别录 | 模型声明 `SupportsLoRA`；线性层被 `*WithLoRA` 包一层 |
 | 多模态 | 多一种预算（encoder compute budget）和一种缓存（encoder cache）<br/>chunk 边界不能切开一张图<br/>prefix cache 跳过了图但 encoder 没算过时 `num_new_tokens=0` | 块哈希加 `(mm_hash, 块内偏移)` | prefill 前先跑 encoder，输出按 hash 缓存；embedding 后把 encoder 输出按 `is_mm_embed` 掩码散射进去 | 模型声明 `SupportsMultiModal`，提供 `embed_multimodal()`；`MultiModalRegistry` 注册 processor |
@@ -58,7 +58,7 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 Table: 三种输入变化惊动的模块
 
-最后一列的 `SupportsLoRA`、`SupportsMultiModal` 是 vLLM 模型类的**能力声明**：模型类实现这些接口协议（Protocol），引擎在加载时检查，据此启用对应路径——声明了 `SupportsLoRA`，加载器才会把它的线性层替换成带 LoRA 分支的 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并在 `MultiModalRegistry` 里登记了输入处理器，引擎才会为它跑 encoder、合并 embedding。本篇只用到这两种声明的效果；能力声明与模型注册的完整机制见第十一篇。
+最后一列的 `SupportsLoRA`、`SupportsMultiModal` 是 vLLM 模型类的**能力声明**：模型类实现这些接口协议（Protocol），引擎在加载时检查，据此启用对应路径——声明了 `SupportsLoRA`，加载器才会把它的线性层替换成带 LoRA 分支的 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并在 `MultiModalRegistry` 里登记了输入处理器，引擎才会为它跑 encoder、合并 embedding。本篇只用到这两种声明的效果；能力声明与模型注册的完整机制见[《模型适配》](/model-adaptation-architecture.html)。
 
 ### 3. 回到前面的例子
 
@@ -94,7 +94,7 @@ Table: 本文的章节安排
 |---|---|---|
 | `messages` | 对话轮次：system / user / assistant / tool，assistant 轮里可以带历史 `tool_calls` | —— |
 | `tools` | 工具定义（函数名、描述、参数的 JSON schema），由模板渲染进 prompt | 无 |
-| `tool_choice` | `none` / `auto` / `required` / 点名某个函数；决定输出侧是否解析、是否加约束（第十篇） | 没有 `tools` 时 `none`，有 `tools` 时 `auto` |
+| `tool_choice` | `none` / `auto` / `required` / 点名某个函数；决定输出侧是否解析、是否加约束（[《输出在变》](/output-changes-sampling-and-structured-output.html)） | 没有 `tools` 时 `none`，有 `tools` 时 `auto` |
 | `add_generation_prompt` | 是否在 prompt 末尾补上"助手轮开头"的标记 | `true` |
 | `continue_final_message` | 让最后一条 assistant 消息保持开放，模型接着写（预填回答开头）；与上一项互斥 | `false` |
 | `chat_template_kwargs` | 传给模板的额外变量，如 Qwen3 的 `enable_thinking` | 与 `--default-chat-template-kwargs` 合并，请求优先 |
@@ -133,10 +133,10 @@ flowchart TB
 3. **套模板。** `safe_apply_chat_template()`（`renderers/hf.py`）先用 `resolve_chat_template()` 选出模板，再调 `tokenizer.apply_chat_template(conversation, tools=..., chat_template=..., add_generation_prompt=..., **kwargs)`。HF tokenizer 默认先渲染出**文本**，下一步再分词（Mistral tokenizer 和 `--enable-prompt-embeds` 例外，直接出 token id）。`resolve_chat_template_kwargs()` 会过滤 kwargs：只留下模板里真正引用的变量和 HF `apply_chat_template` 的标准参数——给一个不认识 `enable_thinking` 的模板传这个开关，它被**静默丢掉**，不报错。
 4. **分词。** `BaseRenderer.tokenize_prompts_async()`（`renderers/base.py`）把文本切成 token id。chat 请求的 `add_special_tokens` 默认 `false`：模板自己已经写了 BOS 之类的开头，再加一次就是两个 BOS。
 5. **多模态展开。** `process_for_engine_async()` → `_process_tokens()` → `_process_multimodal()`：有图时调模型的 `BaseMultiModalProcessor.apply()`，把模板写下的一个占位换成 N 个、记下 `PlaceholderRange`——这是第四章第 1 节的流水线，它接在模板之后。
-6. **按工具设置改写请求。** 回到 `preprocess_chat()`，如果配了 tool / reasoning parser 且 `tool_choice` 不是 `none`，`Parser.adjust_request()` 有机会改写请求本身：`required` 或点名函数会被写成一个结构化输出约束，Hermes parser 还会把 `skip_special_tokens` 置为 `False`。这些改写影响的是输出，第十篇第六章再展开。
-7. **进引擎。** 回到 `_create_chat_completion()`：`to_sampling_params()` 生成 `SamplingParams`，`engine_client.generate()` → `AsyncLLM.add_request()`（`v1/engine/async_llm.py`）→ `InputProcessor.process_inputs()`（`v1/engine/input_processor.py`）组装 `EngineCoreRequest`。这里有一处和模板直接相关：`SamplingParams.update_from_generation_config()` 把 tokenizer 的 `eos_token_id` 和模型 `generation_config.json` 里的 `eos_token_id`（可以是一个列表）并成停止集合——模板用哪个 token 结束一轮，这个 token 就必须在集合里。组装好的 `EngineCoreRequest` 由 `AsyncMPClient.add_request_async()`（`v1/engine/core_client.py`）经 ZMQ 发往 EngineCore 进程；`generate()` 这个协程则留在 API Server 里，等这个请求的输出回来（[第十篇第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)）。
+6. **按工具设置改写请求。** 回到 `preprocess_chat()`，如果配了 tool / reasoning parser 且 `tool_choice` 不是 `none`，`Parser.adjust_request()` 有机会改写请求本身：`required` 或点名函数会被写成一个结构化输出约束，Hermes parser 还会把 `skip_special_tokens` 置为 `False`。这些改写影响的是输出，[《输出在变》第六章](/output-changes-sampling-and-structured-output.html)再展开。
+7. **进引擎。** 回到 `_create_chat_completion()`：`to_sampling_params()` 生成 `SamplingParams`，`engine_client.generate()` → `AsyncLLM.add_request()`（`v1/engine/async_llm.py`）→ `InputProcessor.process_inputs()`（`v1/engine/input_processor.py`）组装 `EngineCoreRequest`。这里有一处和模板直接相关：`SamplingParams.update_from_generation_config()` 把 tokenizer 的 `eos_token_id` 和模型 `generation_config.json` 里的 `eos_token_id`（可以是一个列表）并成停止集合——模板用哪个 token 结束一轮，这个 token 就必须在集合里。组装好的 `EngineCoreRequest` 由 `AsyncMPClient.add_request_async()`（`v1/engine/core_client.py`）经 ZMQ 发往 EngineCore 进程；`generate()` 这个协程则留在 API Server 里，等这个请求的输出回来（[《输出在变》第六章第 1 节](/output-changes-sampling-and-structured-output.html#1-解析在哪个进程里跑由哪些参数打开)）。
 
-到第 7 步为止都在 API Server 进程里，用的是 CPU；`--api-server-count` 加的就是这一段的并行度（[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)）。
+到第 7 步为止都在 API Server 进程里，用的是 CPU；`--api-server-count` 加的就是这一段的并行度（[《鸟瞰 vLLM》的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)）。
 
 ### 3. chat template 从哪来：content format 与图片占位
 
@@ -226,15 +226,15 @@ For each function call, return a json object with function name and arguments wi
 
 用这个模型的 tokenizer 切开是 **232 个 token**。逐段对照请求看：
 
-1. **系统段与工具定义。** 请求里没有 system 消息，模板补上默认的一句；因为有 `tools`，模板把每个工具 `tojson` 成一行放进 `<tools></tools>`，再写一段格式说明，教模型用 `<tool_call>` 包一个 `{"name": …, "arguments": …}` 的 JSON 来调用——**这段说明就是模型的工具调用格式**，输出侧的 `hermes` parser 认的正是它（第十篇第六章）。同一段对话不带 `tools` 渲染只有 100 个 token：工具定义和说明占了 132 个，而且放在 prompt 的最前面。
+1. **系统段与工具定义。** 请求里没有 system 消息，模板补上默认的一句；因为有 `tools`，模板把每个工具 `tojson` 成一行放进 `<tools></tools>`，再写一段格式说明，教模型用 `<tool_call>` 包一个 `{"name": …, "arguments": …}` 的 JSON 来调用——**这段说明就是模型的工具调用格式**，输出侧的 `hermes` parser 认的正是它（[《输出在变》第六章](/output-changes-sampling-and-structured-output.html)）。同一段对话不带 `tools` 渲染只有 100 个 token：工具定义和说明占了 132 个，而且放在 prompt 的最前面。
 2. **轮次标记。** `<|im_start|>`（id 151644）和 `<|im_end|>`（151645）在词表里是单个**特殊 token**，各轮次靠它们分隔；最后一行 `<|im_start|>assistant\n` 是 `add_generation_prompt` 补的，切成 `[151644, 77091, 198]` 三个 token，模型从这里开始写。
 3. **历史工具调用。** 第一轮助手的 `tool_calls` 被模板写回成 `<tool_call>…</tool_call>` 文本，`arguments` 是第 2 节第 2 步解析出来的 dict 再 `tojson`；工具结果没有专门的角色，模板把它包成 `<tool_response>` 放进一个 user 轮。`<tool_call>`（151657）、`</tool_call>`（151658）是词表里的单个 token，但**不是**特殊 token——这一点在输出侧决定 `skip_special_tokens` 会不会把它们删掉。
 4. **停止。** 这个模型的 tokenizer `eos_token` 是 `<|im_end|>`，`generation_config.json` 的 `eos_token_id` 是 `[151645, 151643]`；第 7 步把两者并进停止集合，所以模型写完一轮、吐出 `<|im_end|>` 时生成停止，这个 token 本身不进输出文本。
 
 两件和前面篇目有关的事：
 
-- **工具定义是前缀的一部分。** 132 个 token 的工具段在 system 里、在所有对话之前，`tools` 列表相同（顺序、描述逐字相同）的请求共享这段前缀，[第五篇的 prefix cache](/kv-cache-memory-core.html#四prefix-cache命中怎么找谁先被驱逐) 能命中；只要改一个工具的描述或调换两个工具的顺序，块哈希从工具段开始就对不上，后面整段对话都要重算。
-- **历史要"渲染得和生成时一样"才能复用。** 第五篇的 prefix cache 也缓存生成阶段写满的块。上一轮助手输出的 token 在下一轮会被模板从 `messages` **重新渲染**一次，两者逐 token 相同，上一轮的 KV 才能接着用。Qwen3 的模板是一个反例：它在重新渲染历史轮次时去掉上一个用户问题之前各轮的 `<think>…</think>` 推理内容，于是从那一轮起重新渲染的 token 与当时生成的不同，后面的块哈希都不命中。
+- **工具定义是前缀的一部分。** 132 个 token 的工具段在 system 里、在所有对话之前，`tools` 列表相同（顺序、描述逐字相同）的请求共享这段前缀，[《KV Cache》的 prefix cache](/kv-cache-memory-core.html#四prefix-cache命中怎么找谁先被驱逐) 能命中；只要改一个工具的描述或调换两个工具的顺序，块哈希从工具段开始就对不上，后面整段对话都要重算。
+- **历史要"渲染得和生成时一样"才能复用。** [《KV Cache》](/kv-cache-memory-core.html)的 prefix cache 也缓存生成阶段写满的块。上一轮助手输出的 token 在下一轮会被模板从 `messages` **重新渲染**一次，两者逐 token 相同，上一轮的 KV 才能接着用。Qwen3 的模板是一个反例：它在重新渲染历史轮次时去掉上一个用户问题之前各轮的 `<think>…</think>` 推理内容，于是从那一轮起重新渲染的 token 与当时生成的不同，后面的块哈希都不命中。
 
 排查这一段不用猜：`vllm serve` 自带 `POST /tokenize`，请求体同样接受 `messages`、`tools`、`add_generation_prompt`，加上 `"return_token_strs": true` 就返回渲染并分词后的 token id 和每个 token 的字符串。它走的是同一个 `OnlineRenderer.preprocess_chat()`，拿到的就是引擎会看到的那串。
 
@@ -246,9 +246,9 @@ For each function call, return a json object with function name and arguments wi
 
 **3、`add_generation_prompt=false`：模型替用户接着说。** prompt 停在用户轮的 `<|im_end|>\n` 上，没有 `<|im_start|>assistant\n`。模型下一个 token 要自己决定"现在是谁在说话"，可能先补出 `<|im_start|>assistant`，也可能接着写一个新的 user 轮。这个字段默认是 `true`，出问题的通常是直接调 `/v1/completions`、自己拼 prompt 又漏了助手轮开头的客户端。想预填回答开头时用 `continue_final_message=true`：最后一条 assistant 消息不闭合，模型从它的末尾接着写。
 
-**4、思考开关传错地方：推理模型不按预期思考。** Qwen3 的模板认 `enable_thinking`：为 `false` 时在助手轮开头直接写上一段空的 `<think>\n\n</think>\n\n`，模型跳过思考。这个开关只能经 `chat_template_kwargs`（或 `--default-chat-template-kwargs`、`reasoning_effort`）进模板；传给一个不引用这个变量的模板，会在第 2 节第 3 步被静默过滤，请求照常成功。它还会影响输出：prompt 末尾已经出现 `</think>`，API Server 据此判定"推理已结束"，结构化输出从第一个 token 就生效（第十篇第三章第 5 节、第六章第 3 节）。
+**4、思考开关传错地方：推理模型不按预期思考。** Qwen3 的模板认 `enable_thinking`：为 `false` 时在助手轮开头直接写上一段空的 `<think>\n\n</think>\n\n`，模型跳过思考。这个开关只能经 `chat_template_kwargs`（或 `--default-chat-template-kwargs`、`reasoning_effort`）进模板；传给一个不引用这个变量的模板，会在第 2 节第 3 步被静默过滤，请求照常成功。它还会影响输出：prompt 末尾已经出现 `</think>`，API Server 据此判定"推理已结束"，结构化输出从第一个 token 就生效（[《输出在变》第三章第 5 节](/output-changes-sampling-and-structured-output.html)、第六章第 3 节）。
 
-**5、工具格式和输出 parser 不配：模型调了工具，客户端收不到。** 模板教给模型的调用格式，必须是 `--tool-call-parser` 认的格式。Qwen2.5 的模板教的是 `<tool_call>` 包 JSON，对应 `hermes`；配成 `llama3_json`，parser 在构造时找不到它要的 `<|python_tag|>` token，每个 chat 请求都失败。更隐蔽的是格式对了一半：模型偶尔不包 `<tool_call>`、直接输出一段 JSON，`hermes` 不认，这段 JSON 就作为 `content` 原样返回。这一段在输出侧，第十篇第六章展开。
+**5、工具格式和输出 parser 不配：模型调了工具，客户端收不到。** 模板教给模型的调用格式，必须是 `--tool-call-parser` 认的格式。Qwen2.5 的模板教的是 `<tool_call>` 包 JSON，对应 `hermes`；配成 `llama3_json`，parser 在构造时找不到它要的 `<|python_tag|>` token，每个 chat 请求都失败。更隐蔽的是格式对了一半：模型偶尔不包 `<tool_call>`、直接输出一段 JSON，`hermes` 不认，这段 JSON 就作为 `content` 原样返回。这一段在输出侧，[《输出在变》第六章](/output-changes-sampling-and-structured-output.html)展开。
 
 ## 三、multi-LoRA：同一个 batch，每一行乘不同的权重
 
@@ -268,7 +268,7 @@ LoRA 路径的 FLOPs 是 `2·r·(in + out)` 对比基座的 `2·in·out`，`r=16
 
 **问题**：一个 batch 里有 6 行 token，第 0、1、5 行要乘客服 adapter 的 A、B，第 2 行要乘代码 adapter 的，第 3、4 行不用 LoRA。GPU 上一次矩阵乘默认是"所有行乘同一个矩阵"，怎么让不同的行乘不同的矩阵？
 
-**两条走不通的路**：一是按 adapter 把 batch 切开、逐个做小 GEMM——8 个 adapter 就是 8 次 launch，每次只处理几行，decode 阶段本来就是 launch-bound（一步的时间被上千次 kernel 启动的固定开销而不是计算量决定，第六篇），这条路走不通；二是先把 token 按 adapter **物理重排**成连续的几段再算——每层都要重排一次 x 再把 y 排回去，搬数据的开销比 LoRA 本身的计算还大。
+**两条走不通的路**：一是按 adapter 把 batch 切开、逐个做小 GEMM——8 个 adapter 就是 8 次 launch，每次只处理几行，decode 阶段本来就是 launch-bound（一步的时间被上千次 kernel 启动的固定开销而不是计算量决定，见[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)），这条路走不通；二是先把 token 按 adapter **物理重排**成连续的几段再算——每层都要重排一次 x 再把 y 排回去，搬数据的开销比 LoRA 本身的计算还大。
 
 **Punica 的直觉**（`vllm/lora/punica_wrapper/punica_gpu.py` 的文件头引用了论文 *Punica: Multi-Tenant LoRA Serving*）用一个类比来说：一个班的学生按座位坐着**不动**（x 的行不动），老师手里有一张**按小组分好的点名单**（排序后的行号数组），第 1 组的老师照名单去找第 0、1、5 号座位的学生，第 2 组的老师去找第 2 号座位的——学生不换座位，换的只是老师看名单的那一段。落到 GPU 上：**一次 launch 处理全部 adapter**，kernel 的 grid（一次 launch 里所有计算单元的排列）多开一维遍历 adapter，每个 program（grid 里的一个计算单元）只看自己 adapter 那一段名单，按名单里的行号从原始 x 里 **gather**（按索引取行）自己要算的几行，乘自己 adapter 的权重块，再把结果按同样的行号加回 y。x 和 y 从头到尾都没有被重排。
 
@@ -416,7 +416,7 @@ Table: 一个 LoRA 槽位每层每卡的参数量
 | 项 | 量 | 说明 |
 |---|---|---|
 | 额外 FLOPs | 每 token 每层 `2 × 16 × (8192 + 8192) × 2`（q、o）+ … ≈ 基座的 0.2% | 忽略 |
-| 额外 kernel | 7 个模块 × 2（shrink + expand）× 80 层 = **1120 次 / 步** | 与第六篇"一步上千 kernel"同量级，**必须进 CUDA graph** |
+| 额外 kernel | 7 个模块 × 2（shrink + expand）× 80 层 = **1120 次 / 步** | 与[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)"一步上千 kernel"同量级，**必须进 CUDA graph** |
 | fp32 中间缓冲 | `[num_slices, tokens, r]`，每层 `torch.empty` 一次 | batch=64 decode 时每层 `3 × 64 × 16 × 4 B = 12 KB`，忽略；prefill 2050 token 时 393 KB |
 | 元数据 | 每步一次 `sort` + `unique` + 若干 H2D | CPU-GPU 同步点，微秒级 |
 
@@ -430,7 +430,7 @@ Table: multi-LoRA 的计算与 launch 开销
 
 **调度器**（`Scheduler.schedule()`，`vllm/v1/core/sched/scheduler.py`）：先收集本步 running 请求的 `scheduled_loras` 集合并 `assert len(scheduled_loras) <= max_loras`；遍历 waiting 队列时，若某请求的 adapter 不在集合里且集合已满，**跳过这个请求**（`step_skipped_waiting.prepend_request`）继续看下一个。这是本篇里 multi-LoRA 对调度公平性唯一但真实的影响：`max_loras` 成了一种新的准入约束，一个冷门 adapter 的请求可能在 8 个热门 adapter 的持续流量下长时间等不到槽位——FCFS 在这里被打破了，而且没有 aging 机制。
 
-**KV Cache**：`_gen_lora_extra_hash_keys()`（`vllm/v1/core/kv_cache_utils.py`）把 `lora_request.lora_name` 加进每个块的 `extra_keys`。同一段 system prompt 在两个 adapter 下会得到两条完全不同的哈希链、两份物理块——第五篇算的"125 块全部命中"只在**同一个 adapter** 的请求之间成立。这是正确性要求：不同 adapter 的 K、V 投影本来就不同。
+**KV Cache**：`_gen_lora_extra_hash_keys()`（`vllm/v1/core/kv_cache_utils.py`）把 `lora_request.lora_name` 加进每个块的 `extra_keys`。同一段 system prompt 在两个 adapter 下会得到两条完全不同的哈希链、两份物理块——[《KV Cache》](/kv-cache-memory-core.html)算的"125 块全部命中"只在**同一个 adapter** 的请求之间成立。这是正确性要求：不同 adapter 的 K、V 投影本来就不同。
 
 **InputBatch**（`vllm/v1/worker/gpu_input_batch.py`）：`add_request()` 时把 `lora_int_id` 记进 `request_lora_mapping[req_index]`，`lora_id_to_lora_request` 保留请求对象供 worker 加载。
 
@@ -446,7 +446,7 @@ Table: multi-LoRA 的计算与 launch 开销
 
 ### 7. 对 CUDA graph 的影响
 
-第六篇说 CUDA graph 要求"图内 kernel 序列和形状固定"。LoRA 路径的 1120 个 kernel 只在有 LoRA 请求时才存在——于是"有没有 LoRA"成了图的一个维度。`BatchDescriptor`（`vllm/forward_context.py`）因此多了两个字段：`has_lora: bool` 和 `num_active_loras: int`。`CudagraphDispatcher._get_lora_cases()`（`vllm/v1/cudagraph_dispatcher.py`）决定录几套图：
+[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)说 CUDA graph 要求"图内 kernel 序列和形状固定"。LoRA 路径的 1120 个 kernel 只在有 LoRA 请求时才存在——于是"有没有 LoRA"成了图的一个维度。`BatchDescriptor`（`vllm/forward_context.py`）因此多了两个字段：`has_lora: bool` 和 `num_active_loras: int`。`CudagraphDispatcher._get_lora_cases()`（`vllm/v1/cudagraph_dispatcher.py`）决定录几套图：
 
 | 配置 | 录的图 | 说明 |
 |---|---|---|
@@ -537,7 +537,7 @@ def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multim
     return inputs_embeds
 ```
 
-这张掩码有两处让它不那么平凡。一是**占位区间里可能夹着真文本**：有的模型在每行图像 token 之间插一个换行 token，它在 `PlaceholderRange` 的区间之内，却不该被覆盖——`is_embed` 就是区间内的一张细粒度掩码，标出哪些位置真的要填 encoder 输出。二是 **chunked prefill**（第四篇：一个长 prompt 分几步算，每步只算一个 chunk）**可以把一张图切在两个 chunk 里**：这一步只算图的前半，就只能取 encoder 输出的前半——而"前半"要在两个坐标系之间换算：prompt 位置坐标下的"占位区间第几个位置"，和 encoder 输出坐标下的"第几个 embedding"，两者因为夹着的文本 token 而错位。
+这张掩码有两处让它不那么平凡。一是**占位区间里可能夹着真文本**：有的模型在每行图像 token 之间插一个换行 token，它在 `PlaceholderRange` 的区间之内，却不该被覆盖——`is_embed` 就是区间内的一张细粒度掩码，标出哪些位置真的要填 encoder 输出。二是 **chunked prefill**（[《Scheduler》](/scheduler-batch-and-fairness.html)：一个长 prompt 分几步算，每步只算一个 chunk）**可以把一张图切在两个 chunk 里**：这一步只算图的前半，就只能取 encoder 输出的前半——而"前半"要在两个坐标系之间换算：prompt 位置坐标下的"占位区间第几个位置"，和 encoder 输出坐标下的"第几个 embedding"，两者因为夹着的文本 token 而错位。
 
 具体地，`is_multimodal` 这张 `[total_num_scheduled_tokens]` 的布尔掩码由 `GPUModelRunner._gather_mm_embeddings()` 构造：遍历本步每个请求、找出与 `[num_computed_tokens, num_computed_tokens + num_scheduled_tokens)` 窗口重叠的 `mm_features`（`get_mm_features_in_window()`），对每个重叠的图计算本步覆盖的是它的第 `start_idx` 到 `end_idx` 个占位，只取 encoder 输出的对应片段（`pos_info.get_embeds_indices_in_range()` 处理 `is_embed` 掩码下的下标换算）。掩码在 CPU pinned 内存上填好再传 GPU，避免 D2H 同步。
 
@@ -547,7 +547,7 @@ def _merge_multimodal_embeddings(inputs_embeds, multimodal_embeddings, is_multim
 
 最后一步就是 `inputs_embeds[is_mm_embed] = mm_embeds_flat`——盖掉查表得到的占位 embedding。注意两点：位置 6 的换行虽然在占位区间内，但 `is_embed=0`，它保留查表 embedding，encoder 输出的下标也跳过它；chunk 2 的 `start_idx=4` 是"encoder 输出的第 4 个"而不是"占位区间的第 5 个位置"——`get_embeds_indices_in_range()` 做的正是这两个坐标系之间的换算。
 
-encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见[第六篇的投机解码一章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）。
+encoder 输出从 `self.encoder_cache[mm_hash]` 取——这是一个普通的 `dict[str, torch.Tensor]`，不是预分配的显存池。取不到会 `RuntimeError("Encoder cache miss")`，唯一的例外是 EAGLE 的 draft 多看了一个位置、读到了尚未编码的下一张图（调度器与 runner 用 `shift_computed_tokens=1` 表达这个偏移，见[《GPU 执行》的投机解码一章](/gpu-execution-kernels-and-graphs.html#六能不能少跑几轮模型-投机解码)）。
 
 ### 3. encoder 的独立执行与预算
 
@@ -575,7 +575,7 @@ encoder_cache_size     = max(scheduler_config.encoder_cache_size,            max
 
 Table: encoder 输入的调度规则
 
-encoder 用双向注意力，一张图必须整体编码（注释："the encoder usually uses bidirectional attention"）——所以 encoder 预算的粒度是"项"，与 decoder 的 token 预算不同：**一张 1300 token 的图，要么这一步全算，要么不算**。这是第四篇 Token Budget 模型的第一个真正例外。
+encoder 用双向注意力，一张图必须整体编码（注释："the encoder usually uses bidirectional attention"）——所以 encoder 预算的粒度是"项"，与 decoder 的 token 预算不同：**一张 1300 token 的图，要么这一步全算，要么不算**。这是[《Scheduler》](/scheduler-batch-and-fairness.html)里 Token Budget 模型的第一个真正例外。
 
 ### 4. `EncoderCacheManager`：encoder 输出的分配与释放
 
@@ -620,7 +620,7 @@ flowchart TB
 
 ### 5. 多模态 prefix cache：哈希与复用条件
 
-第五篇的 `hash_block_tokens()` 只看 token id，而多模态请求里图片占位符的 token id 全是同一个 image token——两张不同的图会产生完全相同的 token 序列。`_gen_mm_extra_hash_keys()`（`vllm/v1/core/kv_cache_utils.py`）为每个与占位区间重叠的块加入 `(mm_feature.identifier, offset - start_token_idx)`：图的哈希，以及**图的起点相对块起点的偏移**（源码注释：确保同一张图出现在不同位置时块哈希不同）。
+[《KV Cache》](/kv-cache-memory-core.html)的 `hash_block_tokens()` 只看 token id，而多模态请求里图片占位符的 token id 全是同一个 image token——两张不同的图会产生完全相同的 token 序列。`_gen_mm_extra_hash_keys()`（`vllm/v1/core/kv_cache_utils.py`）为每个与占位区间重叠的块加入 `(mm_feature.identifier, offset - start_token_idx)`：图的哈希，以及**图的起点相对块起点的偏移**（源码注释：确保同一张图出现在不同位置时块哈希不同）。
 
 于是多模态下 prefix cache 的命中条件是：token 前缀相同 **且** 每个块里覆盖到的图相同 **且** 图在块内的位置相同。实际后果：
 
@@ -644,7 +644,7 @@ flowchart TB
 
 Table: LLaVA 类与 Qwen2-VL 类一张图的显存账
 
-**一张图真正贵的地方是它的 KV，不是 encoder 输出**——后者小 20 倍、活得短得多。这解释了为什么 encoder cache 的上限可以简单地绑到 `max_num_batched_tokens`：`16384 × 16 KB = 268 MB`，相对 80 GB 的卡不值得精细管理；而图片占的 KV 直接进第五篇那套按块管理的体系，第四篇的 Token Budget 也直接把 1369 个占位 token 当普通 prefill token 计费。
+**一张图真正贵的地方是它的 KV，不是 encoder 输出**——后者小 20 倍、活得短得多。这解释了为什么 encoder cache 的上限可以简单地绑到 `max_num_batched_tokens`：`16384 × 16 KB = 268 MB`，相对 80 GB 的卡不值得精细管理；而图片占的 KV 直接进[《KV Cache》](/kv-cache-memory-core.html)那套按块管理的体系，[《Scheduler》](/scheduler-batch-and-fairness.html)的 Token Budget 也直接把 1369 个占位 token 当普通 prefill token 计费。
 
 encoder **激活**的峰值是另一笔：ViT 对 1024×1024 图有 5329 个 patch，注意力矩阵 `5329² × heads`，比它的输出大得多。vLLM 不试图精确算它，而是在 `profile_run()` 里用 `get_dummy_encoder_profile_inputs()`（`encoder_budget.py`）按 `mm_max_items_per_batch` 个最大尺寸的假图**实测一次峰值**，从可用显存里扣掉，剩下的才给 KV Cache。`skip_mm_profiling=True` 可以跳过以加快启动，代价是这部分显存需要用户自己预估——文档明说 "shifts the responsibility to users"。
 
@@ -656,7 +656,7 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 
 **视频**是"很多帧图片 + 时间维"：token 数 = 帧数 × 每帧 token，很容易几千甚至上万。`vllm/multimodal/video.py` 提供多种解码后端（`VideoLoader`：OpenCV、PyAV、TorchCodec、PyNvVideoCodec 硬解），`sample_frames_from_video()` 抽帧。token 太多时的对策是**剪枝**：`video_pruning_rate`（`MultiModalConfig`）启用 EVS（`vllm/multimodal/video_prune/evs.py`）等算法，按帧间相似度丢掉冗余 token——这正是 `PlaceholderRange.is_embed` 掩码存在的原因：占位区间长度不变，但只有掩码为真的位置真的填 encoder 输出。model runner 里有一段注释承认的 hack：开启剪枝时多段视频逐个编码而不合 batch，因为调度器按剪枝后的 token 数扣预算，而 encoder 的峰值显存按剪枝前算——预算与真实成本对不上。
 
-**音频**的差异在模型结构：Whisper 一类是 encoder-decoder，音频 encoder 的输出不是 embedding 而是 cross-attention 的 K/V。vLLM 用 `EncoderDecoderCacheManager` 代替 `EncoderCacheManager`：所有 encoder 输入的 `start_pos=0`，只在第一步调度一次（`num_computed_tokens > 0` 后跳过），没有跨请求缓存；`SchedulerConfig.__post_init__` 对 encoder-decoder 模型**直接关闭 chunked prefill 与 prefix caching**（`disable_chunked_mm_input=True`、`enable_chunked_prefill=False`）——第四、五篇的两个核心机制在这类模型上都不可用。`vllm/multimodal/audio.py` 负责重采样等预处理。
+**音频**的差异在模型结构：Whisper 一类是 encoder-decoder，音频 encoder 的输出不是 embedding 而是 cross-attention 的 K/V。vLLM 用 `EncoderDecoderCacheManager` 代替 `EncoderCacheManager`：所有 encoder 输入的 `start_pos=0`，只在第一步调度一次（`num_computed_tokens > 0` 后跳过），没有跨请求缓存；`SchedulerConfig.__post_init__` 对 encoder-decoder 模型**直接关闭 chunked prefill 与 prefix caching**（`disable_chunked_mm_input=True`、`enable_chunked_prefill=False`）——[《Scheduler》](/scheduler-batch-and-fairness.html)、[《KV Cache》](/kv-cache-memory-core.html)的两个核心机制在这类模型上都不可用。`vllm/multimodal/audio.py` 负责重采样等预处理。
 
 还有一个角落：Qwen-Omni 类的 `use_audio_in_video`，同一段占位符同时属于视频和音频两个 feature，`_gather_mm_embeddings()` 里 `is_mm_embed` 用 `|=` 合并两个掩码——`MultiModalBudget` 的注释也为此专门过滤了"没有独立占位符的模态"。
 
@@ -670,15 +670,15 @@ CPU 侧还有 processor cache 的 `4 GiB × (api_server_count + dp_size)`。
 - `enable_tower_connector_lora`：LoRA 不只挂在语言模型上，也挂在视觉塔和 connector 上。`_execute_mm_encoder()` 为 encoder batch 单独构造 `LoRAMapping`（`LoRAMappingType.TOWER` / `CONNECTOR`），因为 encoder batch 的结构（按图）与 decoder batch（按 token）不同；
 - 此时 encoder 输出依赖 adapter，所以 `identifier = f"{lora_name}:{mm_hash}"`——同一张图在两个 adapter 下是两份 encoder cache，也是两份 KV。
 
-### 2. 留给第十二篇（硬件抽象）的问题
+### 2. 留给《硬件解耦》的问题
 
-- LoRA 的 kernel 是 Triton 写的，`get_punica_wrapper()`（`vllm/lora/punica_wrapper/punica_selector.py`）按平台选 `PunicaWrapperGPU` / `PunicaWrapperCPU` / `PunicaWrapperXPU`，算子目录也分 `ops/triton_ops`、`ops/torch_ops`、`ops/xpu_ops`。一个新硬件要支持 multi-LoRA，是重写这两个 kernel，还是退回 `torch_ops` 的逐 adapter 循环？后者在 decode 下的 launch 成本，第六篇已经算过。
+- LoRA 的 kernel 是 Triton 写的，`get_punica_wrapper()`（`vllm/lora/punica_wrapper/punica_selector.py`）按平台选 `PunicaWrapperGPU` / `PunicaWrapperCPU` / `PunicaWrapperXPU`，算子目录也分 `ops/triton_ops`、`ops/torch_ops`、`ops/xpu_ops`。一个新硬件要支持 multi-LoRA，是重写这两个 kernel，还是退回 `torch_ops` 的逐 adapter 循环？后者在 decode 下的 launch 成本，[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)已经算过。
 - ViT 的注意力与 decoder 的 paged attention 是两套后端：`get_vit_attn_backend()`（`vllm/model_executor/models/vision.py`）与 `mm_encoder_attn_backend` 单独选择，`mm_encoder_attn_dtype="fp8"` 单独量化。硬件抽象层要同时覆盖两种注意力形态。
 - 视频解码可以走 GPU 硬解（PyNvVideoCodec），这是 NVIDIA 特有的能力——平台抽象要不要把"预处理"也纳入？
 
-### 3. 放回第八篇（PD 分离）的问题
+### 3. 放回《PD 分离》的问题
 
-第八篇讲 PD 分离时，隐含的仍是「一个模型、一串 token」。把本篇的两个扩展放回去，有三个它没有回答的问题：
+[《PD 分离》](/prefill-decode-disaggregation.html)讲 PD 分离时，隐含的仍是「一个模型、一串 token」。把本篇的两个扩展放回去，有三个它没有回答的问题：
 
 - **encoder 放哪一侧？** 它的输出只在 prefill 时需要，自然属于 P 侧；但 P 侧的显存本来就要给大 batch 的 prefill 激活，ViT 的峰值激活会挤它。v0.27.1 已经有第三种选择的骨架：`ECTransferConfig`（`vllm/config/ec_transfer.py`）与 `vllm/distributed/ec_transfer/` 定义了 encoder cache 的 producer / consumer，`mm_encoder_only=True` 让一个实例只跑 encoder，调度器里 `_try_schedule_encoder_inputs()` 的 `external_load_encoder_input` 分支对应"encoder 输出从远端来"。E/P/D 三池分离的问题是：encoder 输出（每张图 9–22 MB）值不值得走一次网络？
 - **LoRA 在两个池怎么同步？** KV 的块哈希包含 `lora_name`，P 侧算出的 KV 只对同一个 adapter 有效；D 侧必须有同一个 adapter 且槽位可用，否则传过来的 KV 无法使用。两个池的 `max_loras`、adapter 集合、LRU 状态如何保持一致，是 PD 分离下 multi-LoRA 的新问题。
@@ -772,7 +772,7 @@ Table: 多模态源码导航
 - 多模态复用 HF processor 做预处理，用 `PlaceholderRange` 记录占位符，`MultiModalHasher` 对原始输入哈希以驱动两级缓存（processor cache 与 encoder cache）；embedding 阶段用 `is_mm_embed` 布尔掩码把 encoder 输出就地散射进去，chunk 边界可以切在一张图中间。
 - encoder 是 decoder forward 之前的一次独立计算，有自己的预算（`encoder_compute_budget`、`encoder_cache_size`，都等于 `max_num_batched_tokens`，单位是 embedding 数）；一张图必须整体编码，预算不够就把 `num_new_tokens` 截到图之前——这是 Token Budget 模型的第一个例外。`EncoderCacheManager` 只记账，输出在图 prefill 完后即可释放，驻留只有几步。
 - 显存上，一张图真正贵的是它的 KV（≈ 20× encoder 输出、活全程），encoder 输出本身小且短命；encoder 激活峰值靠 `profile_run()` 实测扣除。视频用 `is_embed` 掩码支持剪枝，音频的 encoder-decoder 结构让 chunked prefill 与 prefix cache 双双失效。
-- 两者都把问题留给了硬件抽象（第十二篇）与 PD 分离（第八篇）：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
+- 两者都把问题留给了硬件抽象（[《硬件解耦》](/hardware-abstraction-and-portability.html)）与 PD 分离（[《PD 分离》](/prefill-decode-disaggregation.html)）：Triton kernel 与 ViT 注意力后端如何跨硬件；encoder 放 P 侧还是独立成池（`ECTransferConfig` 已是骨架）、两个池的 adapter 集合如何一致。
 
 ## 七、自测
 

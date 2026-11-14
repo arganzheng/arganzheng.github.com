@@ -10,7 +10,7 @@ updated: 2026-11-12
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-前三篇讨论了三种变化来源：输入在变——同一个 batch 里的请求各带 LoRA、各带图片时，引擎如何把破掉的假设缝回去（第九篇）；输出在变——采样参数与结构化输出如何按请求改写「从 logits 到 token」这一步（第十篇）；模型在变——面对不断变化的模型结构，Serving 框架如何通过统一接口、模型注册和模块化执行路径，降低新模型接入成本（上一篇）。
+前三篇讨论了三种变化来源：输入在变——同一个 batch 里的请求各带 LoRA、各带图片时，引擎如何把破掉的假设缝回去（[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)）；输出在变——采样参数与结构化输出如何按请求改写「从 logits 到 token」这一步（[《输出在变》](/output-changes-sampling-and-structured-output.html)）；模型在变——面对不断变化的模型结构，Serving 框架如何通过统一接口、模型注册和模块化执行路径，降低新模型接入成本（[《模型适配》](/model-adaptation-architecture.html)）。
 
 但输入、输出和模型都还只是软件侧的变化。
 
@@ -87,14 +87,14 @@ Attention、通信、量化和模型执行路径中也不断加入类似分支�
 
 把这句话放回前面几篇的语境里，会更容易理解。
 
-第四篇的 Scheduler 关心的是：
+[《Scheduler》](/scheduler-batch-and-fairness.html)里讲的 Scheduler 关心的是：
 
 - 当前请求需要执行多少 token；
 - 当前 batch 还有多少计算预算；
 - 哪些请求应该继续 decode；
 - 哪些请求应该被抢占或延迟。
 
-第五篇的 KV Cache Manager 关心的是：
+[《KV Cache》](/kv-cache-memory-core.html)里讲的 KV Cache Manager 关心的是：
 
 - KV Cache 被划分成多少个 block；
 - 哪些 block 已经分配；

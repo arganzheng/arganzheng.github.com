@@ -10,7 +10,7 @@ updated: 2026-11-13
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
 
 
-第三篇的全景图把几个核心问题放在一张图里。先从调度开始：这一轮 GPU 给谁用，每个请求推进多少 token？KV Cache 会随生成 token 增长，Scheduler 按 block 申请空间；详细管理留到第五篇。
+[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)的全景图把几个核心问题放在一张图里。先从调度开始：这一轮 GPU 给谁用，每个请求推进多少 token？KV Cache 会随生成 token 增长，Scheduler 按 block 申请空间；详细管理留到[《KV Cache》](/kv-cache-memory-core.html)。
 
 > **GPU 这一轮到底给谁用？[^q0] 每个请求这一轮应该推进多少？[^q1]**
 
@@ -928,7 +928,7 @@ A 的 256 个是长 Prompt 的一个 chunk，B 的 1 个是普通 Decode，C 的
 
 ### 5. 调度循环跑在哪里：EngineCoreProc 的三个线程与 `step()`
 
-前面几节讲的是一轮 `schedule()` 内部怎么分额度。这一轮本身由谁触发、算完交给谁，要回到 Scheduler 所在的进程看。默认部署下 Scheduler 活在 `EngineCoreProc` 里（进程划分见[第三篇的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)），这个进程常驻三个线程：
+前面几节讲的是一轮 `schedule()` 内部怎么分额度。这一轮本身由谁触发、算完交给谁，要回到 Scheduler 所在的进程看。默认部署下 Scheduler 活在 `EngineCoreProc` 里（进程划分见[《鸟瞰 vLLM》的进程视图](/vllm-request-lifecycle-overview.html#三进程视图谁在什么进程里如何交互)），这个进程常驻三个线程：
 
 1. **输入线程** `process_input_sockets()`：从 ZMQ 收 API Server 发来的 `EngineCoreRequest`，用 msgspec 解码；新请求在这里就调 `preprocess_add_request()`，经 `Request.from_engine_core_request()` 构造出调度器用的 `Request`（块哈希也在这时算好），再放进 `input_queue`。解码和构造都不占主线程。
 2. **主线程** `run_busy_loop()`：每圈先 `_process_input_queue()` 取空输入队列（没有活时阻塞在这里），把新请求交给 `Scheduler.add_request()`；再 `_process_engine_step()` 调一次 `step()`，把产出的 `EngineCoreOutputs` 放进 `output_queue`。
@@ -964,9 +964,9 @@ EngineCoreProc                               vllm/v1/engine/core.py
 4. `sample_tokens(grammar_output)` 把掩码发下去、等采样结果；只有 `output_rank` 回传 `ModelRunnerOutput`。
 5. `update_from_output()` 把采样出的 token 追加到各 `Request`、检查停止条件、释放结束请求的块，并产出发回前端的 `EngineCoreOutputs`。
 
-开启 async scheduling 时（v0.27.1 在没有不兼容选项时默认开启），`max_concurrent_batches` 为 2，`step` 换成 `step_with_batch_queue()`：发出一轮后只要队列没满，就直接返回去排下一轮，不等这一轮的结果；队列满了才阻塞取最早那一轮的结果，再 `update_from_output()`。于是 GPU 还在跑第 N 轮时，调度器已经在排第 N+1 轮——第三篇单步时间线下半部分画的流水线，就是这个队列。
+开启 async scheduling 时（v0.27.1 在没有不兼容选项时默认开启），`max_concurrent_batches` 为 2，`step` 换成 `step_with_batch_queue()`：发出一轮后只要队列没满，就直接返回去排下一轮，不等这一轮的结果；队列满了才阻塞取最早那一轮的结果，再 `update_from_output()`。于是 GPU 还在跑第 N 轮时，调度器已经在排第 N+1 轮——[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)单步时间线下半部分画的流水线，就是这个队列。
 
-这一圈里调度器只碰整数：`execute_model()` 之后的事——`SchedulerOutput` 怎样在 Worker 里变成张量、`sample_tokens()` 在 Worker 那一侧等的是哪一个同步点——在[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+这一圈里调度器只碰整数：`execute_model()` 之后的事——`SchedulerOutput` 怎样在 Worker 里变成张量、`sample_tokens()` 在 Worker 那一侧等的是哪一个同步点——在[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)。
 
 ## 六、Admission Control 与 Preemption：KV Cache 不够怎么办？
 
@@ -1149,7 +1149,7 @@ flowchart TB
 三个子状态对 batch 组成的影响各不相同：
 
 1. **`WAITING_FOR_STRUCTURED_OUTPUT_GRAMMAR`** 只是把请求推迟到语法编译完，编译失败的请求在 `update_from_output()` 里以 `FINISHED_ERROR` 结束。
-2. **`WAITING_FOR_REMOTE_KVS`** 是 PD 分离里 Decode 实例的门槛：块已经分配、`num_computed_tokens` 也已预先记上，但 KV 没到齐之前不能进模型计算。到齐后若整个 prompt 都命中，`_update_waiting_for_remote_kv()` 把 `num_computed_tokens` 退一格，让最后一个输入 token 重算一次以得到采样用的 logits。它的完整交接流程在[第八篇第三章](/prefill-decode-disaggregation.html#三状态如何交接从请求契约到-kv-transfer)。
+2. **`WAITING_FOR_REMOTE_KVS`** 是 PD 分离里 Decode 实例的门槛：块已经分配、`num_computed_tokens` 也已预先记上，但 KV 没到齐之前不能进模型计算。到齐后若整个 prompt 都命中，`_update_waiting_for_remote_kv()` 把 `num_computed_tokens` 退一格，让最后一个输入 token 重算一次以得到采样用的 logits。它的完整交接流程在[《PD 分离》第三章](/prefill-decode-disaggregation.html#三状态如何交接从请求契约到-kv-transfer)。
 3. **`WAITING_FOR_STREAMING_REQ`** 停下的会话不在 `running` 里，却仍占着 model runner 的一个请求槽位，所以 waiting 循环判断名额时用的是 `len(self.running) + self.num_waiting_for_streaming_input`，它们会挤占 `max_num_seqs`。
 
 
@@ -1274,7 +1274,7 @@ Table: A、B、C、D 四个请求的抢占与恢复逐步表
 
 * step 3 中真正"缺块"的是 C，但牺牲者是 D——FCFS 下 `self.running.pop()` 取的是最晚进入 running 的请求，与谁触发了失败无关；
 * step 3 抢占发生后，即使预算还剩很多、waiting 里还有别的新请求，第二个循环也不会执行（`if not preempted_reqs`）；
-* step 4 中 D 需要重算的是 60 个 Prompt token 加上 step 1、2 已经生成的 2 个 token，共 62 个；其中 3 个整块（48 token）的 hash 仍在 Block Pool 里可以命中（Prefix Cache 的细节见第五篇），所以 `num_new_tokens = 14` 而不是 62——这就是 §4 说的"Recomputation 不一定那么贵"；
+* step 4 中 D 需要重算的是 60 个 Prompt token 加上 step 1、2 已经生成的 2 个 token，共 62 个；其中 3 个整块（48 token）的 hash 仍在 Block Pool 里可以命中（Prefix Cache 的细节见[《KV Cache》](/kv-cache-memory-core.html)），所以 `num_new_tokens = 14` 而不是 62——这就是 §4 说的"Recomputation 不一定那么贵"；
 * step 5 空闲块归零，说明 step 4 的接纳其实已经把系统推到了悬崖边，下一节的 Watermark 正是为了在 step 4 就拒绝这次接纳。
 
 
@@ -1444,7 +1444,7 @@ flowchart TB
 | **Scheduler → Executor** | `SchedulerOutput`                                          |
 | **调度循环与线程** | `vllm/v1/engine/core.py` → `EngineCoreProc.run_busy_loop()`、`_process_input_queue()`、`_process_engine_step()`、`process_input_sockets()` / `process_output_sockets()`、`preprocess_add_request()`；`EngineCore.step()` / `step_with_batch_queue()`；并发批数 `vllm/config/vllm.py` → `VllmConfig.max_concurrent_batches` |
 | **Scheduler → Worker 的投递** | `vllm/v1/executor/multiproc_executor.py` → `MultiprocExecutor.execute_model()` / `sample_tokens()` / `collective_rpc()` |
-| **执行层 InputBatch 构造** | `GPUModelRunner._update_states()` / `_prepare_inputs()`，见[第六篇第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量) |
+| **执行层 InputBatch 构造** | `GPUModelRunner._update_states()` / `_prepare_inputs()`，见[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量) |
 
 Table: Scheduler 源码导航
 

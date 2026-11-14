@@ -38,7 +38,7 @@ PagedAttention 的核心思想，用一句话就能说完：
 2. **一个模型里的 KV 不止一种**：Gemma-3、gpt-oss 这类模型一部分层是全注意力、一部分是滑窗注意力，Mamba 混合模型还有固定大小的递归状态。各层要存的 token 数和存活时间都不同，一张块表管不了，vLLM 用「KV cache group」把它们分开管理、共用一个块池。
 3. **每个 token 本身要占多少字节**：GQA / MLA 从模型结构上减少要存的量，KV 量化（FP8 等）把每个元素压小。
 
-本文按这个顺序展开：先讲分页本身和一个块的生命周期，再讲 Prefix Cache 的命中与驱逐，然后是多种注意力层共存的混合 KV，最后是结构和数值两层瘦身。对象之间的总体关系（请求域、调度域、显存域、模型域，以及串起它们的 `request_id` / `block_id`）在[第三篇的「核心数据对象：四个域」](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)已经讲过，这里只下钻显存域。
+本文按这个顺序展开：先讲分页本身和一个块的生命周期，再讲 Prefix Cache 的命中与驱逐，然后是多种注意力层共存的混合 KV，最后是结构和数值两层瘦身。对象之间的总体关系（请求域、调度域、显存域、模型域，以及串起它们的 `request_id` / `block_id`）在[《鸟瞰 vLLM》的「核心数据对象：四个域」](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)已经讲过，这里只下钻显存域。
 
 ### 2. 本文的章节安排
 
@@ -422,7 +422,7 @@ Table: block_size 为 4 的块池上，五个请求的 Prefix Cache 状态
 
 > 那 2000 token 的 system prompt 是 **125 个整块**。第一个请求跑完后它们全部进入缓存；**第二个请求带着同样的 system prompt 到来时，这 125 块全部命中**，只需要 prefill 用户那 50 个 token。
 >
-> 省下多少？按第一篇「一个贯穿全文的例子」的量算：
+> 省下多少？按[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)「一个贯穿全文的例子」的量算：
 >
 > - **计算**：2000 token 的 prefill 不用做了，TTFT 从约 92 ms 掉到 5 ms 量级
 > - **显存**：这 125 块（约 625 MB 的 KV）在两个请求间**共享同一份物理块**，靠 `ref_cnt` 计数，不是复制
@@ -435,7 +435,7 @@ Prefix Cache 的收益完全取决于负载。vLLM 用 `vllm:prefix_cache_querie
 
 **1、前缀本身不稳定。** 链式哈希只认从第一个 token 开始的完全一致。把当前时间、请求 ID、用户名放在 system prompt 的开头，第一块就各不相同，后面再长的公共部分也全部失效。把会变的内容挪到 prompt 末尾，命中长度就从 0 变成「变化点之前的整块数」。`cache_salt`、LoRA adapter 也会把同一段 token 分成互不命中的几份，这是有意的隔离，但会按租户数或 adapter 数摊薄命中率。
 
-**2、工作集比块池大，LRU 退化成零命中。** 第一篇的 Llama-3-70B / 8×H100 例子里，按每卡约 50 GiB 留给 KV 估算，每卡每 token 40 KiB，块池约 81,920 块、131 万 token。RAG 服务如果轮流引用 64 份各 32K token 的文档做前缀，工作集是 210 万 token。按顺序轮转访问时，LRU 正好在每份文档再次被用到之前把它驱逐——命中率接近 0，而不是「装得下的那 60% 命中」。
+**2、工作集比块池大，LRU 退化成零命中。** [《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的 Llama-3-70B / 8×H100 例子里，按每卡约 50 GiB 留给 KV 估算，每卡每 token 40 KiB，块池约 81,920 块、131 万 token。RAG 服务如果轮流引用 64 份各 32K token 的文档做前缀，工作集是 210 万 token。按顺序轮转访问时，LRU 正好在每份文档再次被用到之前把它驱逐——命中率接近 0，而不是「装得下的那 60% 命中」。
 
 **3、负载越高，留给缓存的块越少。** 缓存只能占用 `ref_cnt == 0` 的块。正在跑的请求持有的块越多，空闲队列越短，缓存块被新分配挤掉得越快。`kv_cache_usage_perc` 在 90% 时，能当缓存的只剩 10% 的块——恰恰在最需要省 prefill 的高峰期，命中率最低。
 
@@ -631,7 +631,7 @@ graph LR
 
 压缩效果：相比同规模 MHA 可缩减一个数量级以上；相比 Llama 式 GQA-8（4 KB/token/layer）约缩减 3~4x。
 
-以第一篇的 Llama-3-70B 为参照，三层叠起来是：MHA 64 头 BF16 每 token `2 × 64 × 128 × 2 B × 80 层 = 2.56 MB`，GQA-8 是 320 KB，再存成 FP8 是 160 KB，一共缩小 16 倍。
+以[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的 Llama-3-70B 为参照，三层叠起来是：MHA 64 头 BF16 每 token `2 × 64 × 128 × 2 B × 80 层 = 2.56 MB`，GQA-8 是 320 KB，再存成 FP8 是 160 KB，一共缩小 16 倍。
 
 vLLM 里 MLA 层是 `MLAAttention`（`vllm/model_executor/layers/attention/mla_attention.py`，模型侧经 `vllm/model_executor/layers/mla.py` 的 `MultiHeadLatentAttentionWrapper` 接入）。它的 `get_kv_cache_spec()` 返回 `MLAAttentionSpec(num_kv_heads=1, head_size=576)`：把 latent 当成「只有 1 个头、576 维、K 和 V 不分开」的 KV，页大小是 `block_size × 576 × dtype 字节`，没有全注意力公式里那个 2。`MLAAttentionSpec` 是 `FullAttentionSpec` 的子类，由 `FullAttentionManager` 管理，所以分页、Prefix Cache、驱逐都和普通模型完全一样——变的只是每页的字节数。
 
@@ -686,7 +686,7 @@ Table: v0.27.1 主要 attention 后端的 supported_kv_cache_dtypes
 
 #### 3.4 算账：Llama-3-70B / 8×H100 能多装多少
 
-沿用第一篇的例子。每卡留给 KV 多少要看实际启动日志，这里按约 50 GiB 估：80 GB × 0.92 ≈ 73.6 GB，减去权重 17.6 GB 和几 GB 的激活、CUDA Graph、通信缓冲。TP8 下每卡只有 1 个 KV 头，每 token 每卡 40 KiB（BF16）或 20 KiB（FP8），每块 16 token 即 640 KiB 或 320 KiB：
+沿用[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)的例子。每卡留给 KV 多少要看实际启动日志，这里按约 50 GiB 估：80 GB × 0.92 ≈ 73.6 GB，减去权重 17.6 GB 和几 GB 的激活、CUDA Graph、通信缓冲。TP8 下每卡只有 1 个 KV 头，每 token 每卡 40 KiB（BF16）或 20 KiB（FP8），每块 16 token 即 640 KiB 或 320 KiB：
 
 | 场景 | BF16 | FP8（E4M3） |
 |---|---:|---:|
@@ -699,7 +699,7 @@ Table: Llama-3-70B / 8×H100 每卡 50 GiB KV 池在 BF16 与 FP8 下的并发�
 
 （`max_num_seqs` 在 80 GB 级、非 A100 的卡上默认 1,024，见 `vllm/engine/arg_utils.py` 的 `get_batch_defaults()`。）
 
-容量翻倍只是一半收益。Decode 受带宽限制，第一篇算过 Batch=256 时每步要读 24 GB 的 KV、已经超过权重本身；KV 减半，这部分读取也减半，长上下文、大 batch 的 decode 每步时间跟着下降。
+容量翻倍只是一半收益。Decode 受带宽限制，[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)算过 Batch=256 时每步要读 24 GB 的 KV、已经超过权重本身；KV 减半，这部分读取也减半，长上下文、大 batch 的 decode 每步时间跟着下降。
 
 #### 3.5 代价与相互影响
 
