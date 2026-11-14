@@ -137,7 +137,7 @@ Table: FLUX 4 卡 Ulysses 的时间拆账
 - **通信不完全重叠**：Ulysses 的 all-to-all 在 attention 前后，是同步点；Ring 能重叠但每步的环有启动开销；
 - **固定开销**：kernel launch、归一化、采样器的时间不随 p 减少。`torch.compile` 在多卡上的收益（2.6× vs 单卡 1.56×）正是因为它压掉了这部分——每卡计算变短之后固定开销的占比变大。
 
-视频上效率更高（每卡的 attention 块仍然很大、计算时间长），SGLang 文档给 Wan 的 Ulysses "near-linear"。
+视频上效率更高（每卡的 attention 块仍然很大、计算时间长），SGLang 的性能文档把 Ulysses 的扩展写作 "near-linear"，并建议 Wan2.2 先测纯 Ulysses。
 
 ## 三、张量并行
 
@@ -228,7 +228,7 @@ USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做�
 - **RoPE / 位置编码**：每卡按自己 token 的绝对位置算——切分时必须带上位置索引；
 - **文本 token**（MMDiT）：xDiT 与 SGLang 把文本 token 复制到每卡（"replicated prefix"），或与图像 token 一起切——两种都可以，复制更简单但 attention 里每卡多算一份；
 - **cross-attention 的文本 K / V**（Wan）：每卡复制，跨步缓存；
-- **文本编码器**：SGLang 的"parallel folding"把 SP 组复用为 T5 的 TP 组，文本编码也并行了；
+- **文本编码器**：SGLang 的 fold（`--encoder-parallel fold`）把编码器权重按 TP 切到副本里的各张 DiT 卡上，文本编码也并行了；vLLM-Omni 的 `--text-encoder-tp-size` 与 xDiT 的 `--text_encoder_tp_degree` 是同一思路；
 - **跨步缓存的决策**（第三篇）：必须全局一致——all-reduce 信号后统一比阈值；
 - **VAE**：默认 rank 0 单卡解码（其他卡空等），或 Parallel VAE（第七章）。
 
@@ -266,7 +266,7 @@ Table: CFG 2 × Ulysses 4 的 rank 编组
 
 组内的 all-to-all 每层 4 次，组间每步只交换一次：GPU $$i$$ 把自己那 1024 个图像 token 的预测（$$1024 \times 64 \times 2$$ 字节 = 131 KB）发给 GPU $$i+4$$，双方各自合成同一份结果、各自走采样器，下一步开始时两组手里的 latent 完全相同。所以两个 CFG 组可以放在两台机器上，组间只走以太网也无妨。（FLUX 没有 CFG，这里借它的形状演示；SD3 / Qwen-Image / Wan 才真正这样编组。）
 
-SGLang 与 vLLM-Omni 的推荐都是：CFG 模型在多卡上**先比较 CFG 2 × USP $$p/2$$ 与 USP $$p$$**——前者通信少一半（SP 组只有 $$p/2$$）、后者每卡的 GEMM 更大（一个 batch 2 的前向而不是两个 batch 1）；哪个赢取决于模型与 $$N$$，要实测。FLUX / HunyuanVideo 这类 guidance 蒸馏模型没有 CFG 分支，用不上。
+SGLang 与 vLLM-Omni 都支持 CFG 并行与 SP 叠加，CFG 模型在多卡上应**先比较 CFG 2 × USP $$p/2$$ 与 USP $$p$$**——前者通信少一半（SP 组只有 $$p/2$$）、后者每卡的 GEMM 更大（一个 batch 2 的前向而不是两个 batch 1）；哪个赢取决于模型与 $$N$$，要实测。FLUX / HunyuanVideo 这类 guidance 蒸馏模型没有 CFG 分支，用不上。
 
 ### 2. data parallel
 
@@ -320,7 +320,7 @@ PipeFusion 的适用面：**弱互联**——PCIe、以太网、跨节点。xDiT
 
 ### 2. FSDP / HSDP 推理：权重分片作为显存策略
 
-权重切 $$1/p$$ 分片到各卡，每层前 all-gather 本层完整权重、算完释放——训练里的 FSDP 用在推理上。每步每卡要 gather 全部权重（FLUX 22 GB，NVLink 上约 50 ms，可用预取与计算重叠）。它不减少计算、只减显存，SGLang（`--use-fsdp-inference`）与 vLLM-Omni（HSDP）都把它标为"显存策略"：多卡跑一个单卡放不下的模型（或让 SP 复制的权重不再是每卡一份），且与逐层 offload 互斥（两者都在解决同一件事）。**SP + FSDP** 是视频模型在 8 × 40 GB 或 8 × 24 GB 卡上的组合：SP 切激活、FSDP 切权重。
+权重切 $$1/p$$ 分片到各卡，每层前 all-gather 本层完整权重、算完释放——训练里的 FSDP 用在推理上。每步每卡要 gather 全部权重（FLUX 22 GB，NVLink 上约 50 ms，可用预取与计算重叠）。它不减少计算、只减显存，SGLang（`--use-fsdp-inference`）与 vLLM-Omni（`--use-hsdp`）都把它标为"显存策略"：多卡跑一个单卡放不下的模型（或让 SP 复制的权重不再是每卡一份）；SGLang 里它与 `--dit-layerwise-offload` 互斥（两者都在解决同一件事）。**SP + FSDP** 是视频模型在 8 × 40 GB 或 8 × 24 GB 卡上的组合：SP 切激活、FSDP 切权重。
 
 ## 八、混合并行与选型
 
@@ -330,7 +330,7 @@ $$
 p_\text{data} \times p_\text{cfg} \times p_\text{ulysses} \times p_\text{ring} \times p_\text{pipefusion} = \#\text{GPU}
 $$
 
-xDiT 的命令行就是这五个度数；SGLang 的是 `--num-gpus`、`--enable-cfg-parallel`、`--ulysses-degree`、`--ring-degree`（加 `--tp-size`）；vLLM-Omni 的是 `--usp`、`--ring`、`--tensor-parallel-size`、`--cfg-parallel`（加 HSDP 与 VAE patch）。约束：Ulysses 度整除 head 数；SP 度整除 $$N$$（否则 padding——SGLang 按 token 而不是按帧切以减少 padding）。
+xDiT 的命令行就是这五个度数（另有 `--tensor_parallel_degree`，乘进同一个积）；SGLang 的是 `--num-gpus`、`--enable-cfg-parallel`、`--ulysses-degree`、`--ring-degree`（加 `--tp-size`）；vLLM-Omni 的是 `--usp`、`--ring`、`--tensor-parallel-size`、`--cfg-parallel-size`（加 `--use-hsdp` 与 `--vae-patch-parallel-size`）。约束：Ulysses 度整除 head 数；SP 度整除 $$N$$（否则 padding——SGLang 对 Wan 等视频管线默认开 `enable_sequence_shard`，按 token 而不是按帧切以减少 padding）。
 
 ### 2. 三张选型表
 
@@ -360,13 +360,13 @@ Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 
 | 机制 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT | diffusers v0.40 |
 |---|---|---|---|---|
 | 并行组 | `runtime/distributed/parallel_state.py`、`group_coordinator.py`、`parallel_groups.py` | `diffusion/distributed/parallel_state.py`、`group_coordinator.py`、`sp_plan.py` | `xfuser/core/distributed/parallel_state.py`、`group_coordinator.py`、`runtime_state.py` | `hooks/context_parallel.py`（实验性 <span class="inline-tip" data-tip="context parallelism，沿序列维切分长序列">CP</span>） |
-| Ulysses / Ring | `--ulysses-degree` / `--ring-degree`；`runtime/layers/usp.py`、`sp_shard_utils.py` | `--usp` / `--ring`；`distributed/a2a_permute.py`、`sp_sharding.py`、`hooks/sequence_parallel.py` | `--ulysses_degree` / `--ring_degree`；`core/long_ctx_attention/{hybrid,ring}/` | — |
-| CFG 并行 | `--enable-cfg-parallel`；`distributed/cfg_parallel_utils.py`、`cfg_policy.py` | `--cfg-parallel`；`distributed/cfg_parallel.py` | `--use_cfg_parallel` | — |
-| PipeFusion | — | `distributed/pipeline_parallel.py`（PP） | `--pipefusion_parallel_degree --num_pipeline_patch`；`model_executor/pipelines/base_pipeline.py` | — |
-| TP | `--tp-size`；custom all-reduce | `--tensor-parallel-size` | — | `hooks/tensor_parallel.py` |
-| FSDP / HSDP | `--use-fsdp-inference`；`runtime/loader/fsdp_load.py` | `distributed/hsdp.py` | — | — |
-| Parallel VAE | parallel decode（`--vae-config`） | `--vae-patch-parallel-size`；`distributed/vae_patch_parallel.py`、`distributed/autoencoders/` | `--use_parallel_vae`（DistVAE） | — |
-| 文本编码器并行 | parallel folding（SP 组复用为 T5 TP） | — | — | — |
+| Ulysses / Ring | `--ulysses-degree` / `--ring-degree`；`runtime/layers/usp.py`、`runtime/distributed/sp_shard_utils.py` | `--usp` / `--ring`；`distributed/a2a_permute.py`、`sp_sharding.py`、`hooks/sequence_parallel.py` | `--ulysses_degree` / `--ring_degree`；`core/long_ctx_attention/{hybrid,ring}/` | `ContextParallelConfig(ulysses_degree, ring_degree)`；`hooks/context_parallel.py` |
+| CFG 并行 | `--enable-cfg-parallel`；`distributed/cfg_parallel_utils.py`、`cfg_policy.py` | `--cfg-parallel-size`；`distributed/cfg_parallel.py` | `--use_cfg_parallel` | — |
+| PipeFusion | — | `distributed/pipeline_parallel.py`（普通层间 PP：整块 latent 逐 stage 传，无 patch 流水、无 stale K / V） | `--pipefusion_parallel_degree --num_pipeline_patch`；`model_executor/pipelines/base_pipeline.py` | — |
+| TP | `--tp-size`；custom all-reduce | `--tensor-parallel-size` | `--tensor_parallel_degree`（只覆盖少数模型，如 FLUX 的 FeedForward、StepVideo） | `hooks/tensor_parallel.py` |
+| FSDP / HSDP | `--use-fsdp-inference`；`runtime/loader/fsdp_load.py` | `--use-hsdp`；`distributed/hsdp.py` | `--shard_dit`；`core/distributed/sharding.py`（`shard_dit`，PyTorch FSDP） | — |
+| Parallel VAE | parallel decode（`--vae-config.use-parallel-decode`） | `--vae-patch-parallel-size`；`distributed/vae_patch_parallel.py`、`distributed/autoencoders/` | `--use_parallel_vae`（DistVAE） | — |
+| 文本编码器并行 | `--encoder-parallel fold`（编码器权重按 TP 切到副本各卡） | `--text-encoder-tp-size` | `--text_encoder_tp_degree`；`--shard_t5_encoder`（FSDP 切 T5） | — |
 | 进程模型 | scheduler + GPU worker 进程组 | `executor/multiproc_executor.py` | `torchrun` SPMD | — |
 
 Table: 多卡并行机制在四个引擎里的实现对照
