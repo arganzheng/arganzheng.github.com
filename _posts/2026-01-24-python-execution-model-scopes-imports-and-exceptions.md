@@ -7,7 +7,7 @@ tags: [Python]
 catalog: true
 redirect_from:
   - /python-language-mechanisms-and-runtime-internals.html
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 
@@ -138,7 +138,7 @@ flowchart TB
 | 四 | 模块与导入系统：代码如何被加载 | `import` 的执行过程、`meta_path` / `PathFinder` / loader 三层机制、`sys.path` 与启动方式、项目布局与 editable 安装、`sys.modules` 与注册前提、循环导入、动态导入、导入语法 |
 | 五 | 异常处理与失败传播 | 层级、错误边界、异常链、记录并重抛 |
 | 六 | 本文小结 |  |
-| 七 | 自测 | 2 道题 |
+| 七 | 自测 | 3 道题 |
 
 Table: 本文的章节安排
 
@@ -378,6 +378,25 @@ print(f())      # enclosing
 2. 一个名称是局部变量与它**有没有被赋过值**是两回事：局部变量可以"存在但还没有值"，读它会得到 `UnboundLocalError`（§3 的例子）；
 3. 要在函数里改外层的变量，必须用 `nonlocal` / `global` 显式声明"这个赋值不是在造局部变量"。
 
+编译器对函数体里的每个名称做的是同一串判断，判断的结果就是运行时用哪条取值指令：
+
+```mermaid
+%% 图：编译器给函数里的一个名称分类，以及对应的取值指令
+flowchart TB
+    N["函数体里出现名称 x"] --> D{"本函数声明了<br/>global x 或 nonlocal x？"}
+    D -- "global x" --> GL["<b>全局名称</b><br/>LOAD_GLOBAL：运行时先查模块 __dict__，再查 builtins"]
+    D -- "nonlocal x" --> FV["<b>自由变量</b><br/>LOAD_DEREF：从外层函数的 cell 取值"]
+    D -- "都没有" --> A{"本函数里绑定了 x？<br/>（参数、=、+=、for x、import x、def x）"}
+    A -- "绑定了" --> IN{"内层函数引用了 x？"}
+    IN -- "没有" --> LO["<b>局部变量</b><br/>LOAD_FAST：帧里的局部槽位"]
+    IN -- "引用了" --> CV["<b>cell 变量</b><br/>LOAD_DEREF：放进 cell，与内层函数共享"]
+    A -- "没绑定" --> E{"外层函数里绑定了 x？"}
+    E -- "是" --> FV
+    E -- "否" --> GL
+```
+
+图里只有 `LOAD_GLOBAL` 在运行时按名字查字典（模块 `__dict__` 找不到再去 `builtins`）；局部变量和 cell 都是按编译时排好的下标取值，运行时不再"找"。判断的第二步只问"有没有绑定"，不问绑定出现在第几行——§3 的 `UnboundLocalError` 就落在"局部变量"这个出口上，只是读的时候槽位里还没有值。
+
 分类结果直接体现在字节码里：
 
 ```python title='用 dis 看名称分类的结果'
@@ -467,6 +486,29 @@ fns.append(lambda i=i: i)                    # [0, 1, 2]
 
 `i=i` 里等号左边是 lambda 自己的参数 `i`，右边是循环变量 `i` 此刻的值，被当作默认值存进函数对象（`fn.__defaults__`）；调用 `fn()` 时不传参，就用这个默认值，于是 lambda 体里的 `i` 变成了局部变量，不再去外层找。注意不能写成 `lambda i: i`——那是一个**必须**接收一个参数的恒等函数，`fn()` 会直接报 `TypeError: <lambda>() missing 1 required positional argument: 'i'`。
 
+两种写法的差别在于值存在哪里：
+
+```mermaid
+%% 图：延迟绑定：三个 lambda 共享一个 cell，默认参数版各自存一份值
+flowchart LR
+    subgraph LATE["lambda: i"]
+        direction TB
+        F0["fns#91;0#93;"] -- "__closure__#91;0#93;" --> CELL["<b>make_fns 的 cell i</b><br/>循环结束后是 2"]
+        F1["fns#91;1#93;"] -- "__closure__#91;0#93;" --> CELL
+        F2["fns#91;2#93;"] -- "__closure__#91;0#93;" --> CELL
+    end
+    subgraph EARLY["lambda i=i: i"]
+        direction TB
+        G0["fns#91;0#93;.__defaults__ = (0,)"]
+        G1["fns#91;1#93;.__defaults__ = (1,)"]
+        G2["fns#91;2#93;.__defaults__ = (2,)"]
+        G0 ~~~ G1 ~~~ G2
+    end
+    LATE ~~~ EARLY
+```
+
+左边三个函数对象指向同一个 cell，cell 只有一个"当前值"，调用时读到的都是循环结束后的 2；右边每个函数对象在创建时把 `i` 的值拷进自己的 `__defaults__`，之后循环再怎么改 `i` 都与它无关。
+
 或者用 `functools.partial(handler, i)`，语义更明确。构造一批 Worker 回调、为每个 GPU 生成一个任务函数、在循环里注册 hook，都会遇到这个问题。
 
 ### 5. 闭包还是类
@@ -526,6 +568,24 @@ print(json.decoder.__package__)   # json
 5. `sys.modules[name] = module`。注意：在执行之前。
 6. **执行**：`spec.loader.exec_module(module)`。源码模块在这一步编译（或读 `.pyc`），并在 `module.__dict__` 中执行顶层代码。
 7. 把结果绑定到当前命名空间：`import a.b` 绑定 `a`；`from a.b import c` 绑定 `c`。
+
+把这七步画成流程，能看清两处分支：缓存命中时直接跳到第 7 步，第 3 步全部落空时抛错；还有一条列表里没写的失败路径——顶层代码执行时抛异常，导入系统会把第 5 步登记的模块从 `sys.modules` 删掉，下次 `import` 会重新执行一遍，而不是拿到一个半成品：
+
+```mermaid
+%% 图：import mypackage.model 的执行流程：查缓存、导入父包、查找、先登记后执行
+flowchart TB
+    S["import mypackage.model"] --> C{"1. sys.modules 里<br/>有 mypackage.model？"}
+    C -- "有（包括顶层代码还没执行完的）" --> BIND["7. 把名称绑定到当前命名空间"]
+    C -- "没有" --> P["2. 先导入父包 mypackage<br/>递归走同一流程"]
+    P --> F["3. 依次问 sys.meta_path 里的 finder：find_spec()"]
+    F --> FS{"有 finder 返回 ModuleSpec？"}
+    FS -- "全部返回 None" --> ERR["ModuleNotFoundError"]
+    FS -- "第一个非 None 的胜出" --> MK["4. module_from_spec：创建模块对象<br/>写入 __name__、__spec__"]
+    MK --> REG["5. sys.modules#91;name#93; = module<br/>此时模块的 __dict__ 几乎是空的"]
+    REG --> EX["6. loader.exec_module：执行顶层代码"]
+    EX -- "执行完毕" --> BIND
+    EX -- "顶层代码抛异常" --> DEL["从 sys.modules 删除该模块<br/>异常传给执行 import 的那一行"]
+```
 
 有三点决定了后面几节的全部内容：
 
@@ -908,14 +968,17 @@ finally:
 
 ### 2. `BaseException` 层级
 
-```text title='BaseException 层级：业务代码应捕获的根是 Exception'
-BaseException
-├── BaseExceptionGroup        3.11+
-├── Exception                 ← 业务代码应捕获的根
-├── GeneratorExit             生成器/协程被关闭（[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)）
-├── KeyboardInterrupt         Ctrl+C
-└── SystemExit                sys.exit()
-```
+所有异常都继承自 `BaseException`，它的直接子类只有五个：
+
+| `BaseException` 的直接子类 | 什么时候出现 | 业务代码是否捕获 |
+|---|---|---|
+| `Exception` | 几乎所有业务异常的根：`ValueError`、`OSError`、`RuntimeError` 和自定义异常都在它下面 | 捕获它 |
+| `BaseExceptionGroup` | 3.11 起，把多个异常打包一起抛出；常用的 `ExceptionGroup` 同时也是 `Exception` 的子类 | 用 `except*` 处理 |
+| `GeneratorExit` | 生成器 / 协程被关闭（[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)） | 不捕获 |
+| `KeyboardInterrupt` | 按下 Ctrl+C | 不捕获 |
+| `SystemExit` | 调用 `sys.exit()` | 不捕获 |
+
+Table: BaseException 的直接子类：业务代码应捕获的根是 Exception
 
 `except BaseException:` 或裸 `except:` 会吞掉 `KeyboardInterrupt` 和 `SystemExit`——Worker 收到终止信号却继续跑；也会吞掉 `GeneratorExit`，让生成器无法关闭。业务代码捕获 `Exception` 即可。
 
@@ -1031,6 +1094,14 @@ Table: 开头两行代码背后的机制
    <details markdown="1"><summary>答案</summary>
 
    名称的归属在**编译期**决定：函数体内出现对 `x` 的赋值，`x` 就是这个函数的局部变量，整个函数里都是——不存在"前半段全局、后半段局部"。读到 `x + 1` 时局部 `x` 还没有值，于是 `UnboundLocalError`。要改全局的 `x` 必须 `global x`（外层函数的变量则 `nonlocal`）。
+
+   </details>
+
+3. 循环里写 `fns.append(lambda: i)`，三个函数各返回什么？把 `i` 改成 `lambda i=i: i` 之后呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   第一种都返回 2，第二种返回 0、1、2。`lambda: i` 里的 `i` 是自由变量，三个函数的 `__closure__` 指向 `make_fns` 的**同一个** cell，调用时才读，读到的是循环结束后的值；`i=i` 在创建函数时把当时的值存进各自的 `__defaults__`，函数体里的 `i` 变成局部变量，不再读 cell。
 
    </details>
 
