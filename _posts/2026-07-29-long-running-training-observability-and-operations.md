@@ -58,14 +58,14 @@ checkpoint/重启的周期在本篇里的意义是：**检测时间是有效训�
 | 任务 | loss（全局平均 / 全局最大） | 训练循环；跨 DP 归约后由一个 rank 写出 | 平滑下降；spike、NaN、平台（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
 | ^^ | grad norm · params norm · lr | 优化器 step 后 | grad norm 缓慢下降且抖动稳定；持续上升 = 前兆 |
 | ^^ | loss scale · 跳过 / NaN 迭代数 | fp16 时；Megatron 的 skipped / nan iterations | 为 0；连续非 0 = 数值问题 |
-| ^^ | token/s · TFLOPS/GPU · MFU | 用 6N + 12Lhs 与 step 时间算 | 平直；缓慢下滑 = 性能回归；阶跃 = straggler / 降频 |
+| ^^ | token/s · TFLOPS/GPU · MFU | 用 6N + 12Lhs 与 step 时间算 | 平直<br/>缓慢下滑 = 性能回归<br/>阶跃 = straggler / 降频 |
 | ^^ | step 时间及其 p50 / p95 / 抖动 | 每 step 计时，最好每 rank | 抖动 1–2%；p95/p50 > 1.2 = 有 rank 在拖 |
 | ^^ | step 计数是否前进 | 最近一次 step 完成的时间戳 | 持续前进；停止 = hang（唯一可靠的 hang 信号） |
 | ^^ | checkpoint 保存时长与成功/失败 | checkpoint 组件 | δ 稳定；失败 = 立即告警 |
 | ^^ | 数据加载等待 · 消费到的样本位置 | dataloader | 等待 ≈ 0；位置单调 |
 | 进程 | 每 rank 前向 / 反向 / 优化器时间 | Megatron Timers（all 模式）· torchtitan 结构化日志 | 各 rank 一致；一个 rank 持续偏长 = straggler |
 | ^^ | 每 rank 通信等待时间 | 集合通信 kernel 时长 − 理论传输时间 | 健康集群 < 2% step 时间 |
-| ^^ | 显存 allocated / reserved 峰值 | `torch.cuda.memory_stats` | 稳定；reserved 持续上涨 = 碎片；num_alloc_retries > 0 = 快 OOM |
+| ^^ | 显存 allocated / reserved 峰值 | `torch.cuda.memory_stats` | 稳定<br/>reserved 持续上涨 = 碎片<br/>num_alloc_retries > 0 = 快 OOM |
 | ^^ | inactive_split_bytes（碎片） | 同上 | 稳定；上涨 = 碎片化 |
 | ^^ | CPU 利用率 · dataloader 队列深度 | 进程或 node exporter | 队列满；空 = 数据跟不上 |
 | ^^ | 进程存活 · 最后一次日志时间戳 | torchrun 日志目录 | 每 rank 都在写 |
@@ -551,7 +551,7 @@ done
 | 不同 rank 上的 micro-batch 数不同 | rank 间同一 step 内集合通信次数不同 → 序号错位 | m 由 global batch 统一算，不由本地数据量算 |
 | 一个 rank 在 `.item()` 或 `print(tensor)` 上等 | FR 无异常（通信都完成了）；py-spy 停在 `.item()` | 找出并去掉训练循环里的同步点 |
 | NCCL 初始化卡住 | FR 里没有记录（还没开始）；py-spy 在 ncclCommInitRank | TCPStore 可达性、NCCL_SOCKET_IFNAME、防火墙、网卡状态 |
-| 硬件：某卡 kernel 不调度 / 网卡掉 | FR "No errors found"；dmesg 有 XID；DCGM 有 DBE/掉卡 | 隔离节点，重启（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
+| 硬件：某卡 kernel 不调度 / 网卡掉 | FR "No errors found"<br/>dmesg 有 XID<br/>DCGM 有 DBE/掉卡 | 隔离节点，重启（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
 | GIL 死锁 / 日志锁 | FR 无异常；py-spy 多个线程互相等锁 | 换日志 handler；避免在 hook 里打日志 |
 | watchdog 自己卡死 | "watchdog got stuck for 480 seconds"，monitor 线程 abort | 通常是 CUDA API hang，按硬件路径处理 |
 
@@ -829,12 +829,12 @@ flowchart TB
 | MFU 基准 | 100 步稳态，记录 step 时间 p50/p95、MFU、trace 一份 | MFU 在预期区间<br/>p95/p50 < 1.15 | [第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html) |
 | checkpoint 保存与恢复演练 | 存一次、kill 全部进程、从 checkpoint 恢复、比对 loss 与数据位置 | loss 精确衔接<br/>数据顺序一致<br/>保存时长 δ 已记录 | 第五、七篇 |
 | 换配置加载 | 用不同 DP/TP 加载同一 checkpoint | 成功且 loss 一致 | [第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html) |
-| 故障注入 | kill 一个 rank；人为拖慢一个 rank；篡改一个梯度 | 自动重启成功<br/>straggler 被检测<br/>SDC 被检测 | [第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
+| 故障注入 | kill 一个 rank<br/>人为拖慢一个 rank<br/>篡改一个梯度 | 自动重启成功<br/>straggler 被检测<br/>SDC 被检测 | [第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
 | Flight Recorder | TORCH_FR_DUMP_TEMP_FILE 指向持久且可收集的路径；跑一次 hang 演练 | 所有 rank 的 dump 都能收到<br/>fr_trace 指出正确 rank | 本篇 |
 | 指标与告警 | Prometheus 抓到每个 rank 的 train_*、每张卡的 DCGM_*；测试 page 通路 | 人为停止 step 计数 → 2 分钟内收到 page | 本篇 |
 | 日志 | torchrun --log-dir 落盘；rank → host/GPU 映射表已生成 | 每 rank 一个文件<br/>能从 rank 号查到物理卡 | 本篇 |
 | 配置留痕 | 启动脚本、环境变量、镜像 tag、框架 commit 进 git；启动时打印全部参数 | 变更表有条目 | [第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html) |
-| 值班 | runbook 已更新；值班表已排；page 通路已测 |  | 本篇 |
+| 值班 | runbook 已更新<br/>值班表已排<br/>page 通路已测 |  | 本篇 |
 
 Table: 开训前的检查清单
 
@@ -961,11 +961,11 @@ Table: 三项优化的投入与月度收益
 
 | 项目 | 路径 | 关键符号 / 内容 |
 |---|---|---|
-| PyTorch v2.13.0 | `torch/csrc/distributed/c10d/FlightRecorder.hpp` | `FlightRecorder<EventType>`：Entry（各字段）· record / update_state / retire_id / dump / dump_json · getCollectiveTrace / getPgConfig / getPgStatus<br/>DebugInfoWriter：write / getWriter / registerWriter<br/>version_val "2.10"；TORCH_INCLUDE_STACK_TRACE / TORCH_INCLUDE_ONLY_ACTIVE；dump_fr_trace / dump_fr_trace_json |
+| PyTorch v2.13.0 | `torch/csrc/distributed/c10d/FlightRecorder.hpp` | `FlightRecorder<EventType>`：Entry（各字段）· record / update_state / retire_id / dump / dump_json · getCollectiveTrace / getPgConfig / getPgStatus<br/>DebugInfoWriter：write / getWriter / registerWriter<br/>version_val "2.10"<br/>TORCH_INCLUDE_STACK_TRACE / TORCH_INCLUDE_ONLY_ACTIVE<br/>dump_fr_trace / dump_fr_trace_json |
 |  | `torch/csrc/distributed/c10d/FlightRecorder.cpp` | DebugInfoWriter::getWriter 的默认路径（`$XDG_CACHE_HOME\|$HOME/.cache/torch/comm_lib_trace_rank_`）<br/>TORCH_FR_DUMP_TEMP_FILE / TORCH_NCCL_DEBUG_INFO_TEMP_FILE / TORCH_FR_DUMP_DYNAMIC_FILE_NAME |
 |  | `torch/csrc/distributed/c10d/FlightRecorderDetail.hpp` · `FlightRecorderCuda.cpp` | 模板实现；CUDA event 特化 |
-|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | 环境变量定义：TORCH_NCCL_DUMP_ON_TIMEOUT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / TRACE_BUFFER_SIZE / WAIT_TIMEOUT_DUMP_MILSEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR / DESYNC_DEBUG / ASYNC_ERROR_HANDLING / ENABLE_TIMING / LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN<br/>DumpPipe；ErrorHandlingMode；kProcessGroupNCCLDefaultTimeout（10 min）<br/>HeartbeatMonitor · Watchdog · DesyncDebugger |
-|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 构造函数读 traceBufferSize_ / debugInfoPipeFile_<br/>HeartbeatMonitor 构造函数的默认值；HeartbeatMonitor::runLoop<br/>Watchdog::runLoop 的超时分支；broadcastDumpSignal；dumpDebuggingInfo；getNCCLWatchdogTimeoutErrorMsg |
+|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | 环境变量定义：TORCH_NCCL_DUMP_ON_TIMEOUT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / TRACE_BUFFER_SIZE / WAIT_TIMEOUT_DUMP_MILSEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR / DESYNC_DEBUG / ASYNC_ERROR_HANDLING / ENABLE_TIMING / LOG_CPP_STACK_ON_UNCLEAN_SHUTDOWN<br/>DumpPipe<br/>ErrorHandlingMode<br/>kProcessGroupNCCLDefaultTimeout（10 min）<br/>HeartbeatMonitor · Watchdog · DesyncDebugger |
+|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 构造函数读 traceBufferSize_ / debugInfoPipeFile_<br/>HeartbeatMonitor 构造函数的默认值<br/>HeartbeatMonitor::runLoop<br/>Watchdog::runLoop 的超时分支<br/>broadcastDumpSignal<br/>dumpDebuggingInfo<br/>getNCCLWatchdogTimeoutErrorMsg |
 |  | `torch/csrc/distributed/c10d/init.cpp` | `_dump_nccl_trace` / `_dump_nccl_trace_json` 的 Python 绑定 |
 |  | `torch/csrc/distributed/c10d/debug.cpp` · `debug.h` | TORCH_DISTRIBUTED_DEBUG 解析；DebugLevel |
 |  | `torch/csrc/distributed/c10d/ProcessGroupWrapper.hpp/.cpp` | DETAIL 下的发起前校验 |
@@ -988,7 +988,7 @@ Table: 三项优化的投入与月度收益
 |  | `megatron/training/ft_integration.py` | RankMonitorClient 的接入（心跳，[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)） |
 | torchtitan v0.3.0 | `torchtitan/components/metrics.py` | DeviceMemoryMonitor.get_peak_stats · BaseLogger / TensorBoardLogger / WandBLogger / LoggerContainer · _get_metrics_rank · MetricsProcessor（Config：log_freq / enable_tensorboard / enable_wandb / save_for_all_ranks；log；log_validation） |
 |  | `torchtitan/tools/utils.py` | get_peak_flops（按设备名查标称峰值；lspci 区分 SXM/PCIe/NVL） |
-|  | `torchtitan/trainer.py` | ntokens_since_last_log / data_loading_times 的累加；dist_sum / dist_max 归约 loss；isfinite 检查；sl.log_trace_span 埋点 |
+|  | `torchtitan/trainer.py` | ntokens_since_last_log / data_loading_times 的累加<br/>dist_sum / dist_max 归约 loss<br/>isfinite 检查<br/>sl.log_trace_span 埋点 |
 |  | `torchtitan/observability/structured_logger/structured_logging.py` | init_structured_logger · log_trace_span · log_trace_instant · log_trace_scalar · LogType · event_extra · TraceEventsOnlyFilter |
 |  | `torchtitan/observability/structured_logger/step_state.py` | set_step · add_step_tag · get_step |
 |  | `torchtitan/observability/structured_logger/jsonl_handler.py` | TraceJsonlFormatter · TraceJsonlHandler（文件名格式）· register_jsonl_handler；TITAN_STRUCT_LOGGER_HANDLERS |
@@ -996,7 +996,7 @@ Table: 三项优化的投入与月度收益
 |  | `torchtitan/distributed/utils.py` | init_distributed：强制 TORCH_NCCL_ASYNC_ERROR_HANDLING=3；按 CommConfig 设 TORCH_FR_BUFFER_SIZE / TORCH_NCCL_DUMP_ON_TIMEOUT / TORCH_FR_DUMP_TEMP_FILE |
 |  | `torchtitan/config/configs.py` | CommConfig：init_timeout_seconds（300）· train_timeout_seconds（100）· trace_buf_size（20000）· save_traces_folder · save_traces_file_prefix<br/>DebugConfig.enable_structured_logging |
 |  | `torchtitan/tools/profiler.py` | Profiler.Config（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)） |
-| DeepSpeed 0.19.2 | `deepspeed/utils/timer.py` · `deepspeed/monitor/` · `deepspeed/profiling/flops_profiler/` | SynchronizedWallClockTimer · ThroughputTimer；tensorboard/wandb/comet/csv monitor；flops profiler |
+| DeepSpeed 0.19.2 | `deepspeed/utils/timer.py` · `deepspeed/monitor/` · `deepspeed/profiling/flops_profiler/` | SynchronizedWallClockTimer · ThroughputTimer<br/>tensorboard/wandb/comet/csv monitor<br/>flops profiler |
 | 工具 |  | torchfrtrace · py-spy dump · nsys profile --capture-range=cudaProfilerApi · dcgm-exporter · perfquery · Prometheus / Alertmanager / Grafana |
 
 Table: 本篇涉及的源码位置
@@ -1264,7 +1264,13 @@ if __name__ == "__main__":
 
 **`runbook.md`**：第六章第 2 节五个症状的骨架，每个症状四段（检查 / 处置 / 升级 / 相关面板与告警），加一节"环境速查"（dump 路径、日志路径、rank → host 映射表的位置、排除列表怎么改、如何触发重启），和一节"联系人"。它是一份活文档：每次复盘的行动项里有一类就是"更新 runbook 第 X 节"。
 
-到这里，train-ledger 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`ledger/` 算显存、算力、通信量与可用性；`runs/` 与 `sweep/` 在 8 卡上验证并外推；`ckpt/` 与 `chaos/` 演练保存、恢复与故障；`signals/` 记录数值信号；`dash/` 与 `runbook.md` 把它们变成一个能值班的系统。
+到这里，train-ledger 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：
+
+- `ledger/` 算显存、算力、通信量与可用性；
+- `runs/` 与 `sweep/` 在 8 卡上验证并外推；
+- `ckpt/` 与 `chaos/` 演练保存、恢复与故障；
+- `signals/` 记录数值信号；
+- `dash/` 与 `runbook.md` 把它们变成一个能值班的系统。
 
 ## 九、自测
 

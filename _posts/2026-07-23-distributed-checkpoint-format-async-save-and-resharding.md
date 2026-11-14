@@ -65,7 +65,7 @@ Table: 本篇用到的记账符号
 | <span style="white-space:nowrap">分片抽象</span> | `ShardedTensor` / `ShardedObject`（`megatron/core/` `dist_checkpointing/` `mapping.py`） | 无；每 rank 的 state_dict 直接 `torch.save` | DTensor（FSDP2 / TP 原生） |
 | <span style="white-space:nowrap">磁盘格式</span> | `torch_dist`（DCP 文件 + `common.pt` + `metadata.json`）；也可 `torch` / `torch_dcp` / `fsdp_dtensor` | `mp_rank_XX_model_states.pt` + `zero_pp_rank_X_` `mp_rank_XX_optim_states.pt` | DCP：`step-N/__i_0.distcp` + `.metadata`（可导出 HF safetensors） |
 | <span style="white-space:nowrap">底层写入</span> | DCP `FileSystemWriter` 的子类 `FileSystemWriterAsync` | CheckpointEngine：Torch / Fast / Decoupled / Nebula / DataStates | DCP `FileSystemWriter` |
-| <span style="white-space:nowrap">异步保存</span> | `--async-save`；nvrx 或 mcore 策略；可持久后台 worker | `writer.decoupled = true`（独立进程） | `checkpoint.async_mode = async / async_with_pinned_mem` |
+| <span style="white-space:nowrap">异步保存</span> | `--async-save`<br/>nvrx 或 mcore 策略<br/>可持久后台 worker | `writer.decoupled = true`（独立进程） | `checkpoint.async_mode = async / async_with_pinned_mem` |
 | <span style="white-space:nowrap">写入去重 / 并行</span> | `FullyParallelSaveStrategyWrapper` 在 DP 副本间分摊写入 | `data_parallel = replica/socket/machine` | DCP `DefaultSavePlanner` 去重 |
 | <span style="white-space:nowrap">重分片</span> | 模型：任意 TP/PP/DP；优化器按 `sharding_type`（`dp_reshardable` / `fully_reshardable`） | ZeRO 文件绑定 DP 度；换配置需先转 universal checkpoint（`ds_to_universal.py`） | 任意 DP / TP（DTensor 决定）；PP 需切分点一致 |
 | <span style="white-space:nowrap">本地 / 多级存储</span> | `non_persistent_ckpt_type = local` + replication（借 nvidia-resiliency-ext） | 无内置 | 无内置（`keep_latest_k` 清理） |
@@ -576,7 +576,11 @@ sequenceDiagram
 
 Megatron 早于 DTensor 建立了自己的分片描述。`megatron/core/dist_checkpointing/mapping.py` 的 `ShardedTensor` 是一个 dataclass：`key`（全局唯一名）、`data`（本地张量）、`global_shape`、`global_offset`、`axis_fragmentations`（每个轴被切成几段）、`replica_id`（这个分片在哪些维度上是复制的——DP 副本的 `replica_id` 不同，只有 `is_main_replica()` 为真的那个写）、`prepend_axis_num`（本地张量比全局少几维，PP 下把层号作为前置轴）、`flattened_range`（分布式优化器的连续缓冲切片）、`allow_shape_mismatch`（词表 padding 之类允许全局形状不一致的张量）。构造函数 `ShardedTensor.from_rank_offsets()` 从 `(axis, rank, size)` 三元组算出 offset。
 
-同一文件里还有：`ShardedObject`——非张量对象的分片版（RNG 状态、数据加载器状态），有 `global_shape` 与 `global_offset` 但内容是 pickle；`ShardedTensorFactory`——保存时把一个张量按函数拆成多个 `ShardedTensor`、加载时合回来（MoE 专家、QKV 交错布局用它）；`LocalNonpersistentObject`——只在内存里、不落盘的东西。
+同一文件里还有三个类：
+
+- `ShardedObject`：非张量对象的分片版（RNG 状态、数据加载器状态），有 `global_shape` 与 `global_offset` 但内容是 pickle；
+- `ShardedTensorFactory`：保存时把一个张量按函数拆成多个 `ShardedTensor`、加载时合回来（MoE 专家、QKV 交错布局用它）；
+- `LocalNonpersistentObject`：只在内存里、不落盘的东西。
 
 模型侧的入口是每个 `MegatronModule` 的 `sharded_state_dict()`：TP 切分的 `ColumnParallelLinear` 返回按第 0 维分片的 `ShardedTensor`，`RowParallelLinear` 按第 1 维，LayerNorm 全复制（`replica_id` 含 TP rank），Transformer 层的 key 用全局层号——这一步把并行布局翻译成全局坐标，与 DCP 里 `_create_chunk_from_dtensor()` 做的事一样，只是手写。
 
@@ -763,22 +767,22 @@ toy `young` 打印的就是下面这张表（δ 那列是 §三.2–3 的每个�
 | 路径 | 关键符号 / 内容 |
 |---|---|
 | **PyTorch v2.13.0** | |
-| `torch/distributed/` `checkpoint/` `state_dict_saver.py` | save / async_save / _save_state_dict；AsyncCheckpointerType；AsyncSaveResponse； _stateful_to_state_dict；local_step / global_step / write_data / finish_checkpoint |
+| `torch/distributed/` `checkpoint/` `state_dict_saver.py` | save / async_save / _save_state_dict<br/>AsyncCheckpointerType<br/>AsyncSaveResponse<br/>_stateful_to_state_dict<br/>local_step / global_step / write_data / finish_checkpoint |
 | `torch/distributed/` `checkpoint/` `state_dict_loader.py` | load；local_step / global_step / read_data |
-| `torch/distributed/` `checkpoint/planner.py` | SavePlanner / LoadPlanner；SavePlan / LoadPlan；WriteItem / ReadItem；WriteItemType / TensorWriteData |
-| `torch/distributed/` `checkpoint/` `default_planner.py` | DefaultSavePlanner（flatten、dedup、enable_plan_caching）/ DefaultLoadPlanner（allow_partial_load）； _EmptyStateDictLoadPlanner；create_default_local_save_plan / create_default_local_load_plan；_validate_global_plan |
+| `torch/distributed/` `checkpoint/planner.py` | SavePlanner / LoadPlanner<br/>SavePlan / LoadPlan<br/>WriteItem / ReadItem<br/>WriteItemType / TensorWriteData |
+| `torch/distributed/` `checkpoint/` `default_planner.py` | DefaultSavePlanner（flatten、dedup、enable_plan_caching）/ DefaultLoadPlanner（allow_partial_load）<br/>_EmptyStateDictLoadPlanner<br/>create_default_local_save_plan / create_default_local_load_plan<br/>_validate_global_plan |
 | `torch/distributed/` `checkpoint/` `_dedup_save_plans.py` | dedup_save_plans |
-| `torch/distributed/` `checkpoint/` `planner_helpers.py` | create_read_items_for_chunk_list（扫描线）；_create_write_items_for_dtensor；_create_chunk_from_dtensor |
+| `torch/distributed/` `checkpoint/` `planner_helpers.py` | create_read_items_for_chunk_list（扫描线）<br/>_create_write_items_for_dtensor<br/>_create_chunk_from_dtensor |
 | `torch/distributed/` `checkpoint/` `resharding.py` | _check_shard_metadata_pair_overlap；_shards_get_overlap_region_wrt_saved_tensor |
 | `torch/distributed/` `checkpoint/storage.py` | StorageWriter / StorageReader；WriteResult |
-| `torch/distributed/` `checkpoint/` `filesystem.py` | FileSystemWriter（继承 _FileSystemWriter + BlockingAsyncStager）/ FileSystemReader； thread_count / single_file_per_rank / sync_files / per_thread_copy_ahead / cache_staged_state_dict； _split_by_size_and_type；_write_files_from_queue；finish 的 .metadata 原子写；DEFAULT_SUFFIX；CURRENT_DCP_VERSION；SerializationFormat |
+| `torch/distributed/` `checkpoint/` `filesystem.py` | FileSystemWriter（继承 _FileSystemWriter + BlockingAsyncStager）/ FileSystemReader<br/>thread_count / single_file_per_rank / sync_files / per_thread_copy_ahead / cache_staged_state_dict<br/>_split_by_size_and_type<br/>_write_files_from_queue<br/>finish 的 .metadata 原子写<br/>DEFAULT_SUFFIX<br/>CURRENT_DCP_VERSION<br/>SerializationFormat |
 | `torch/distributed/` `checkpoint/metadata.py` | Metadata / TensorStorageMetadata / ChunkStorageMetadata / BytesStorageMetadata / TensorProperties / MetadataIndex / StorageMeta |
-| `torch/distributed/` `checkpoint/staging.py` | AsyncStager；StagingOptions；DefaultStager；BlockingAsyncStager；_ReplicationStager |
+| `torch/distributed/` `checkpoint/staging.py` | AsyncStager<br/>StagingOptions<br/>DefaultStager<br/>BlockingAsyncStager<br/>_ReplicationStager |
 | `torch/distributed/` `checkpoint/` `_state_dict_stager.py` | StateDictStager（按 storage 缓存的 pinned / shared CPU 副本） |
 | `torch/distributed/` `checkpoint/` `_async_executor.py` | _AsyncCheckpointExecutor |
 | `torch/distributed/` `checkpoint/` `_async_thread_executor.py` | _ThreadBasedAsyncCheckpointExecutor；save_wrapper |
-| `torch/distributed/` `checkpoint/` `_async_process_executor.py` | _ProcessBasedAsyncCheckpointExecutor；_AsyncCheckpointProcess；_ProcessGroupInitInfo |
-| `torch/distributed/` `checkpoint/` `state_dict.py` | StateDictOptions；get_model_state_dict / get_optimizer_state_dict / get_state_dict； set_model_state_dict / set_optimizer_state_dict / set_state_dict；_init_optim_state |
+| `torch/distributed/` `checkpoint/` `_async_process_executor.py` | _ProcessBasedAsyncCheckpointExecutor<br/>_AsyncCheckpointProcess<br/>_ProcessGroupInitInfo |
+| `torch/distributed/` `checkpoint/` `state_dict.py` | StateDictOptions<br/>get_model_state_dict / get_optimizer_state_dict / get_state_dict<br/>set_model_state_dict / set_optimizer_state_dict / set_state_dict<br/>_init_optim_state |
 | `torch/distributed/` `checkpoint/stateful.py` | Stateful |
 | `torch/distributed/` `checkpoint/` `hf_storage.py` | HuggingFaceStorageWriter / HuggingFaceStorageReader |
 | `torch/distributed/` `checkpoint/` `format_utils.py` | dcp_to_torch_save / torch_save_to_dcp；BroadcastingTorchSaveReader |
@@ -789,14 +793,14 @@ toy `young` 打印的就是下面这张表（δ 那列是 §三.2–3 的每个�
 | `megatron/core/` `dist_checkpointing/` `core.py` | CheckpointingConfig；metadata.json |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `common.py` | common.pt 的读写 |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `base.py` | SaveShardedStrategy / LoadShardedStrategy / AsyncSaveShardedStrategy；get_default_strategy |
-| `megatron/core/` `dist_checkpointing/` `strategies/` `torch.py` | TorchDistSaveShardedStrategy / TorchDistLoadShardedStrategy；MCoreSavePlanner / MCoreLoadPlanner； mcore_to_pyt_state_dict；get_async_strategy |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `torch.py` | TorchDistSaveShardedStrategy / TorchDistLoadShardedStrategy<br/>MCoreSavePlanner / MCoreLoadPlanner<br/>mcore_to_pyt_state_dict<br/>get_async_strategy |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `filesystem_async.py` | FileSystemWriterAsync |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `fully_parallel.py` | FullyParallelSaveStrategyWrapper / FullyParallelLoadStrategyWrapper； distribute_main_replicas_with_precomputed_distribution |
-| `megatron/core/` `dist_checkpointing/` `strategies/` `async_utils.py` | AsyncRequest；TemporalAsyncCaller / PersistentAsyncCaller；AsyncCallsQueue；_set_process_qos；_disable_gc |
+| `megatron/core/` `dist_checkpointing/` `strategies/` `async_utils.py` | AsyncRequest<br/>TemporalAsyncCaller / PersistentAsyncCaller<br/>AsyncCallsQueue<br/>_set_process_qos<br/>_disable_gc |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `state_dict_saver.py` | save_state_dict_async_plan / save_state_dict_async_finalize；verify_global_md_reuse |
 | `megatron/core/` `dist_checkpointing/` `strategies/` `nvrx.py` | has_nvrx_async_support；make_nvrx_async_request |
-| `megatron/core/` `dist_checkpointing/` `optimizer.py` | get_param_id_to_sharded_param_map；make_sharded_optimizer_tensor；optim_state_to_sharding_state |
-| `megatron/core/` `dist_checkpointing/` `validation.py` | StrictHandling；validate_sharding_integrity；save_integrity_manifest / verify_integrity_manifest |
+| `megatron/core/` `dist_checkpointing/` `optimizer.py` | get_param_id_to_sharded_param_map<br/>make_sharded_optimizer_tensor<br/>optim_state_to_sharding_state |
+| `megatron/core/` `dist_checkpointing/` `validation.py` | StrictHandling<br/>validate_sharding_integrity<br/>save_integrity_manifest / verify_integrity_manifest |
 | `megatron/core/` `optimizer/` `distrib_optimizer.py` | DistributedOptimizer.sharded_state_dict；sharded_param_state_dp_reshardable / _fully_reshardable / _fs_model_space / _dp_zero |
 | `megatron/training/` `checkpointing.py` | save_checkpoint / load_checkpoint / generate_state_dict / get_rng_state / _load_base_checkpoint / _get_checkpoint_format / get_checkpoint_tracker_filename / read_metadata / check_checkpoint_args / fix_query_key_value_ordering / maybe_save_dataloader_state / cleanup_old_non_persistent_checkpoint |
 | `megatron/training/` `async_utils.py` | schedule_async_save / maybe_finalize_async_save / init_persistent_async_worker |
@@ -807,20 +811,20 @@ toy `young` 打印的就是下面这张表（δ 那列是 §三.2–3 的每个�
 | `deepspeed/runtime/` `checkpoint_engine/` `checkpoint_engine.py` | CheckpointEngine；CheckpointCommitInfo |
 | `deepspeed/runtime/` `checkpoint_engine/` `utils.py` | create_checkpoint_engine |
 | `deepspeed/runtime/` `checkpoint_engine/` `*_checkpoint_engine.py` | torch / fast / decoupled / nebula / datastates 五种实现 |
-| `deepspeed/runtime/` `model_checkpointing/` `constants.py` | CHECKPOINT_FORMAT（writer 的 JSON 字段）；CheckpointWriterType；CheckpointDataParallel |
+| `deepspeed/runtime/` `model_checkpointing/` `constants.py` | CHECKPOINT_FORMAT（writer 的 JSON 字段）<br/>CheckpointWriterType<br/>CheckpointDataParallel |
 | `deepspeed/runtime/` `engine.py` | save_checkpoint / load_checkpoint / _get_ckpt_name / _get_zero_ckpt_name / load_universal_checkpoint |
 | `deepspeed/checkpoint/` `ds_to_universal.py` | extract_zero_shards / merge_tp_slices / merge_zero3_slices / dump_param_fragment |
 | `deepspeed/checkpoint/` `universal_checkpoint.py` | load_hp_checkpoint_state；enable_universal_checkpoint |
 | `deepspeed/checkpoint/` `deepspeed_checkpoint.py` / `zero_checkpoint.py` / `reshape_meg_2d.py` | DeepSpeedCheckpoint / ZeROCheckpoint / 重排规则 |
 | **torchtitan v0.3.0** | |
-| `torchtitan/components/` `checkpointer/base.py` | BaseCheckpointManager（Config：interval / keep_latest_k / exclude_from_loading …）；ModelWrapper；purge_thread |
-| `torchtitan/components/` `checkpointer/dcp.py` | CheckpointManager（Config.async_mode）；AsyncMode；dcp_save / dcp_load / _save / _load / _maybe_wait_for_staging / _wait_for_saving / _purge_stale_checkpoints / _create_checkpoint_id |
+| `torchtitan/components/` `checkpointer/base.py` | BaseCheckpointManager（Config：interval / keep_latest_k / exclude_from_loading …）<br/>ModelWrapper<br/>purge_thread |
+| `torchtitan/components/` `checkpointer/dcp.py` | CheckpointManager（Config.async_mode）<br/>AsyncMode<br/>dcp_save / dcp_load / _save / _load / _maybe_wait_for_staging / _wait_for_saving / _purge_stale_checkpoints / _create_checkpoint_id |
 | `torchtitan/components/` `checkpointer/` `torch_checkpointing.py` | TorchCheckpointingManager（另一实现） |
 | `torchtitan/components/` `checkpoint.py` | 兼容性重导出 |
 | `torchtitan/components/` `optimizer/` `optimizer.py` | OptimizersContainer.state_dict / load_state_dict |
 | `torchtitan/components/` `optimizer/utils.py` | init_optim_state / get_flat_optim_state_dict / load_flat_optim_state_dict |
 | `torchtitan/components/` `dataloader.py` | ParallelAwareDataloader（StatefulDataLoader） |
-| `torchtitan/trainer.py` | Trainer 实现 Stateful（step / ntokens_seen）；train_step 里 maybe_wait_for_staging 的位置；train 里 save |
+| `torchtitan/trainer.py` | Trainer 实现 Stateful（step / ntokens_seen）<br/>train_step 里 maybe_wait_for_staging 的位置<br/>train 里 save |
 
 Table: 本篇涉及的源码位置
 

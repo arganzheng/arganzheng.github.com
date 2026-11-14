@@ -160,7 +160,11 @@ $$d = 1024 / (8p)$$：候选 A 是 32，B 是 64。每条流水线每 step 处�
 - 一行同号 GPU = 一个 DP 组：32 个节点的第 i 张卡，reduce-scatter / all-gather 走节点间网卡；共 8×4 = 32 个 DP 组，每组 32 个 rank。
 - v=4 交错时 stage 0 持有层 1–5 / 21–25 / 41–45 / 61–65，其余 stage 类推。
 
-这张图解释了后面所有通信量为什么落在哪条链路上：TP 的 300 GB/step 全部在格子内的 NVSwitch 上；PP 的 p2p 只在纵向相邻两格之间；DP 的 8.8 GB/step 横跨一行的 32 个节点，且 32 个 DP 组同时在跑，每张网卡都被自己那一组占用。
+这张图解释了后面所有通信量为什么落在哪条链路上：
+
+- TP 的 300 GB/step 全部在格子内的 NVSwitch 上；
+- PP 的 p2p 只在纵向相邻两格之间；
+- DP 的 8.8 GB/step 横跨一行的 32 个节点，且 32 个 DP 组同时在跑，每张网卡都被自己那一组占用。
 
 气泡率：A 非交错 $$3/16 = 18.8\%$$，B 是 $$1/8 = 12.5\%$$——都太高。交错调度取 $$v=4$$（A 每 chunk 5 层，B 每 chunk 10 层）：A 降到 $$3/64 = 4.7\%$$，B 降到 $$1/32 = 3.1\%$$。Megatron 用 `--num-virtual-stages-per-pipeline-rank 4`（或 `--num-layers-per-virtual-pipeline-stage`），调度在 `megatron/core/pipeline_parallel/schedules.py` 的 `forward_backward_pipelining_with_interleaving()`；PyTorch 侧是 `torch/distributed/pipelining/schedules.py` 的 `ScheduleInterleaved1F1B`，torchtitan 通过 `pipeline_parallel_schedule = "Interleaved1F1B"` 选它。
 
@@ -243,7 +247,7 @@ A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态�
 | kernel 效率 | GEMM 达峰 70–75%，非 GEMM kernel 再占 15–20% | → 计算实际耗时 ≈ 2.0 / 0.62 ≈ 3.2 s |
 | PP 气泡 | 气泡率 × 前后向时间 | 3.2 × 4.7% ≈ 0.15 s |
 | 未重叠通信 | TP 未盖住部分 0.2–0.4 s；DP 尾部 0.05–0.1 s | ≈ 0.3–0.5 s |
-| 重计算 | 不开为 0；选择性 +3–5%；全量 +30–35% | 0 |
+| 重计算 | 不开为 0<br/>选择性 +3–5%<br/>全量 +30–35% | 0 |
 | 数据等待 | 应为 0；预取够深时 < 0.05 s | ≈ 0 |
 | CPU 发射开销 | 每 step 0.1–0.3 s（b=1 时 kernel 小而多） | ≈ 0.2 s |
 | straggler | 健康集群 < 2% | ≈ 0.1 s |
@@ -334,7 +338,7 @@ selective: 反向期保存的激活     41.0 MiB（ 36.3%），FLOP  66.57 G（1
 |---|---|
 | recompute_granularity --recompute-granularity | None / 'selective' / 'full' |
 | recompute_method --recompute-method | 'uniform'（每 recompute_num_layers 层为一组重算）/ 'block'（每 stage 只重算前 N 层） |
-| recompute_num_layers --recompute-num-layers | uniform 时每组层数；block 时每 stage 重算的层数；selective 时必须为 None |
+| recompute_num_layers --recompute-num-layers | uniform 时每组层数<br/>block 时每 stage 重算的层数<br/>selective 时必须为 None |
 | recompute_modules --recompute-modules | selective 时重算哪些子模块：core_attn / moe_act / layernorm / mla_up_proj / mlp / moe / shared_experts |
 | distribute_saved_activations --distribute-saved-activations | 把保存的激活沿 TP 组切分（与 SP 互斥） |
 | --recompute-activations | arguments.py 里的快捷方式，等价于 --recompute-granularity selective |
@@ -497,7 +501,7 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 | 1 PP 气泡 | 0.15 s | 0.23 s | +0.08 | ~0.5 | 首尾 stage 各多算 embedding / lm_head+loss，其余 stage 等 | 首尾 stage 少放 1 层 |
 | 2 未重叠通信 | 0.4 s | 0.8 s | +0.4 | ~3 | --overlap-grad-reduce / --overlap-param-gather 没开，DP 全暴露；<br/>tp_comm_overlap 没开，TP 独占接近 0.67 s 上界 | 开两个 overlap；开 tp_comm_overlap |
 | 3 重计算 | 0 | 0.13 s | +0.13 | ~1 | 示例配置带着 --recompute-granularity selective，TE fused attention 下白算 | 关掉；用 memory_stats 确认放得下 |
-| 4 数据等待 | 0 | 0.05 s | +0.05 | ~0.5 | 在线 tokenize，2 个 worker | 离线 tokenize；worker 数 ≥ 4；pin_memory |
+| 4 数据等待 | 0 | 0.05 s | +0.05 | ~0.5 | 在线 tokenize，2 个 worker | 离线 tokenize<br/>worker 数 ≥ 4<br/>pin_memory |
 | 5 kernel 效率 | 3.2 s | 3.4 s | +0.2 | ~1.5 | --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad | 去掉两个 no-fusion；--make-vocab-size-divisible-by 128 |
 | 6 CPU 发射开销 | 0.2 s | 0.45 s | +0.25 | ~1.5 | b=1、无 CUDA Graph、每 step 数千个小 kernel | cuda_graph_impl=local；或 b=2 配 v 更大 |
 | 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)）；开训前跑 gpu_sniff_test |

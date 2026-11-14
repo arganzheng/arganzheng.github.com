@@ -988,7 +988,11 @@ CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再�
 
 Table: 三框架对并行策略的覆盖
 
-三者对同一格子的选择差异，多数可以从五元组解释：Megatron 长期只做 ZeRO-1 是因为 ZeRO-1 拿掉了 74% 的显存却不花通信，其余靠 TP/PP 解决；DeepSpeed 从 ZeRO-3 出发是因为它对用户模型零侵入；torchtitan 用 FSDP2 + DTensor 是因为 per-parameter 分片让各维度可以自由组合。
+三者对同一格子的选择差异，多数可以从五元组解释：
+
+- Megatron 长期只做 ZeRO-1，是因为 ZeRO-1 拿掉了 74% 的显存却不花通信，其余靠 TP/PP 解决；
+- DeepSpeed 从 ZeRO-3 出发，是因为它对用户模型零侵入；
+- torchtitan 用 FSDP2 + DTensor，是因为 per-parameter 分片让各维度可以自由组合。
 
 ### 5. 原语 ↔ 并行对应表
 

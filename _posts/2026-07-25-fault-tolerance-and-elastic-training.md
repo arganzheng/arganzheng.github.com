@@ -133,7 +133,7 @@ $$
 |---|---|---|---|
 | 1/M 故障频率 | 分子的分母 | 硬件质量 × 卡数；坏卡隔离能降一点 | 1024 卡 ~2 天一次；16K 卡 ~3 小时一次 |
 | T_d 检测 | 分子 | watchdog 超时 / 心跳 / step 告警 | 显式故障秒级；hang 靠超时：默认 10 分钟 |
-| T_r 重启 | 分子 | 进程重启 vs 进程内重启 vs 弹性 | 进程重启 2–5 分钟；进程内 10–60 秒；弹性 ~0 |
+| T_r 重启 | 分子 | 进程重启 vs 进程内重启 vs 弹性 | 进程重启 2–5 分钟<br/>进程内 10–60 秒<br/>弹性 ~0 |
 | T_l 加载 | 分子 | checkpoint 放在哪、多大、多少 rank 并行读 | 本地 NVMe 几十秒；远端并行文件系统几分钟 |
 | τ/2 回退 | 分子 | checkpoint 间隔 | τ_opt = √(2δM)，异步保存下几分钟 |
 | δ/τ 保存代价 | 分母 | 同步 vs 异步保存 | 同步几分钟 / τ；异步几秒 / τ |
@@ -159,9 +159,9 @@ Table: 同步保存与异步 staging 下的最优 checkpoint 间隔与开销
 
 | 场景 | 参数 | 1024 卡（M = 48.8 h） | 16K 卡（M = 3.05 h） |
 |---|---|---|---|
-| A | 同步保存 δ=300s；T_d=600s（watchdog）；T_r=300s（进程重启）；T_l=120s | τ_opt 171 min，G 93.8%<br/>主导项：回退 2.9%，保存 2.7% | τ_opt 43 min，G 70.8%<br/>主导项：回退 11.7%，保存 8.3%，检测 5.5% |
+| A | 同步保存 δ=300s<br/>T_d=600s（watchdog）<br/>T_r=300s（进程重启）<br/>T_l=120s | τ_opt 171 min，G 93.8%<br/>主导项：回退 2.9%，保存 2.7% | τ_opt 43 min，G 70.8%<br/>主导项：回退 11.7%，保存 8.3%，检测 5.5% |
 | B | 异步保存 δ=10s；其余同 A | τ_opt 31 min，G 98.4%<br/>主导项：回退 0.5%，保存 0.5% | τ_opt 7.8 min，G 86.7%<br/>主导项：检测 5.5%，重启 2.7%，回退 2.1% |
-| C | 异步 δ=10s；T_d=60s（心跳）；T_r=30s（进程内重启）；T_l=60s（本地） | τ_opt 31 min，G 98.9%<br/>主导项：回退 0.5%，保存 0.5% | τ_opt 7.8 min，G 94.5%<br/>主导项：回退 2.1%，保存 2.0%，检测 0.5% |
+| C | 异步 δ=10s<br/>T_d=60s（心跳）<br/>T_r=30s（进程内重启）<br/>T_l=60s（本地） | τ_opt 31 min，G 98.9%<br/>主导项：回退 0.5%，保存 0.5% | τ_opt 7.8 min，G 94.5%<br/>主导项：回退 2.1%，保存 2.0%，检测 0.5% |
 
 Table: Llama 3 数字代入的三个场景
 
@@ -219,7 +219,7 @@ Llama 3 的 419 次里，前两类占了绝大部分，第三类 6 次；但第�
 |---|---|---|---|
 | <span style="white-space:nowrap">进程层</span> | 进程退出码；torchrun agent 的 `_monitor_workers` 每 `monitor_interval` 轮询 | agent 只知道进程活着，不知道它在做什么 | 无 |
 | <span style="white-space:nowrap">通信层</span> | NCCL 错误经 `ProcessGroupNCCL` 的 watchdog 抛出（`TORCH_NCCL_ASYNC_ERROR_HANDLING`） | watchdog：每个集合通信从 enqueue 起计时，超过 timeout 视为 hang → 抛错/abort（默认 10 分钟） | 无（归约结果正确性无法在通信层判断） |
-| <span style="white-space:nowrap">框架层</span> | Python 异常 → 进程退出 | NVRx RankMonitor 心跳 / section 超时（分钟级，按实测 step 时间自动算） | `RerunStateMachine`：重跑一个 iteration 比对；NaN/Inf/spiky loss 校验；梯度范数校验 |
+| <span style="white-space:nowrap">框架层</span> | Python 异常 → 进程退出 | NVRx RankMonitor 心跳 / section 超时（分钟级，按实测 step 时间自动算） | `RerunStateMachine` 重跑一个 iteration 比对<br/>NaN/Inf/spiky loss 校验<br/>梯度范数校验 |
 | <span style="white-space:nowrap">应用层</span> | — | step 时间告警（每 rank 计算时间 vs 等待） | loss 曲线人工/规则告警（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)） |
 | <span style="white-space:nowrap">硬件层</span> | dmesg Xid；DCGM 事件 | DCGM 温度/频率/功耗；网卡 link_down 计数 | ECC 计数上升是 SDC 的前兆之一 |
 
@@ -340,10 +340,10 @@ flowchart TB
 |---|---|---|
 | agent 发现 worker 退出 | &lt; 1 s | `monitor_interval` 默认 0.1 s |
 | 杀掉本节点其余 worker（SIGTERM → 等待 → SIGKILL） | 秒级 | — |
-| rendezvous：写状态、等其他节点、last_call | 5–40 s | min == max；c10d 后端；调 `last_call_timeout` |
+| rendezvous：写状态、等其他节点、last_call | 5–40 s | min == max<br/>c10d 后端<br/>调 `last_call_timeout` |
 | 拉起新进程：Python 解释器、import torch 与框架 | 10–30 s | 进程内重启（第五章） |
 | CUDA context、加载 kernel、TE/Triton JIT | 10–60 s | 进程内重启；预编译 kernel 缓存 |
-| `init_process_group` + 各并行组的 NCCL communicator（TP/PP/DP/CP/EP 每组一个，每个要 bootstrap 与拓扑探测） | 20 s–数分钟 | 进程内重启只重建 communicator；减少进程组数量；NCCL 的懒初始化让第一次通信才建 comm（把成本挪到 T_l 之后） |
+| `init_process_group` + 各并行组的 NCCL communicator（TP/PP/DP/CP/EP 每组一个，每个要 bootstrap 与拓扑探测） | 20 s–数分钟 | 进程内重启只重建 communicator<br/>减少进程组数量<br/>NCCL 的懒初始化让第一次通信才建 comm（把成本挪到 T_l 之后） |
 | 数据集索引、tokenizer、数据加载器 worker 进程 | 10–60 s | 进程内重启保留它们 |
 | **合计** | **2–5 分钟** | |
 
@@ -428,7 +428,11 @@ flowchart TB
 
 省掉的是进程、CUDA、import、数据集的固定开销；留下的是 NCCL communicator 重建和 checkpoint 加载（`T_l`，若用 NVRx `checkpointing/local` 的本地 checkpoint 或内存副本，也是秒级）。所以 T_r 从"2–5 分钟"变成"十几秒到一分钟"，T_d 从 NCCL 的 10 分钟变成 `soft_timeout` 的 60 秒——第二章场景 C 的两个数字都来自这里。
 
-代价有三：训练代码必须可重入（Megatron 为此改了全局状态的生命周期）；必须有热备 rank 才能保持 world size（否则 DP 度变化、global batch 的切法变化，Megatron 不支持运行时改并行度）；abort 后 GPU 上可能残留异常状态，`CudaHealthCheck` 与 NVRx 自动追加的 GPU/NVLink 检查是防线，但一张真坏的卡会让它所在节点整体被剔除。
+代价有三：
+
+1. 训练代码必须可重入（Megatron 为此改了全局状态的生命周期）。
+2. 必须有热备 rank 才能保持 world size（否则 DP 度变化、global batch 的切法变化，Megatron 不支持运行时改并行度）。
+3. abort 后 GPU 上可能残留异常状态，`CudaHealthCheck` 与 NVRx 自动追加的 GPU/NVLink 检查是防线，但一张真坏的卡会让它所在节点整体被剔除。
 
 ## 六、弹性训练：torchft 的副本组模型
 
@@ -621,7 +625,7 @@ NVRx 的 `shared_utils/health_check.py` 提供 `GPUHealthCheck`（<span class="i
 
 | 类别 | 成因 | 特征 |
 |---|---|---|
-| 硬件 | GPU 降频（温度、功耗封顶、时钟策略） | 持续；该 rank 计算 kernel 一致变慢；nvidia-smi 频率低 |
+| 硬件 | GPU 降频（温度、功耗封顶、时钟策略） | 持续<br/>该 rank 计算 kernel 一致变慢<br/>nvidia-smi 频率低 |
 | 硬件 | HBM ECC 纠错频繁（坏 memory 的前兆） | 持续或阵发；ECC 计数上升 |
 | 硬件 | PCIe 链路降速（x16 → x8，Gen5 → Gen4） | H2D/D2H 与 GDR 慢；数据加载与 PP p2p 受影响 |
 | 硬件 | 网络链路差（误码、重传、拥塞） | 该节点所有跨机通信慢；ibstat 计数器 |
@@ -782,50 +786,50 @@ flowchart TB
 
 | 项目 | 路径 | 关键符号 / 内容 |
 |---|---|---|
-| PyTorch v2.13.0 | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | kProcessGroupNCCLDefaultTimeout（10 min）；ErrorHandlingMode；TORCH_NCCL_ASYNC_ERROR_HANDLING / BLOCKING_WAIT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR 定义 |
-|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | WorkNCCL::checkTimeout；Watchdog::runLoop；HeartbeatMonitor::runLoop；各 getCvar 默认值 |
-|  | `torch/distributed/run.py` | get_args_parser（`--nnodes` / `--rdzv-*` / `--max-restarts` / `--monitor-interval` / `--standalone`）；parse_min_max_nnodes；config_from_args；main |
-|  | `torch/distributed/launcher/api.py` | LaunchConfig；elastic_launch；launch_agent |
+| PyTorch v2.13.0 | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | kProcessGroupNCCLDefaultTimeout（10 min）<br/>ErrorHandlingMode<br/>TORCH_NCCL_ASYNC_ERROR_HANDLING / BLOCKING_WAIT / ENABLE_MONITORING / HEARTBEAT_TIMEOUT_SEC / COORD_CHECK_MILSEC / PROPAGATE_ERROR 定义 |
+|  | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | WorkNCCL::checkTimeout<br/>Watchdog::runLoop<br/>HeartbeatMonitor::runLoop<br/>各 getCvar 默认值 |
+|  | `torch/distributed/run.py` | get_args_parser（`--nnodes` / `--rdzv-*` / `--max-restarts` / `--monitor-interval` / `--standalone`）<br/>parse_min_max_nnodes<br/>config_from_args<br/>main |
+|  | `torch/distributed/launcher/api.py` | LaunchConfig<br/>elastic_launch<br/>launch_agent |
 |  | `torch/distributed/elastic/agent/server/api.py` | WorkerSpec / WorkerGroup / WorkerState；SimpleElasticAgent：\_invoke_run、\_rendezvous、 \_restart_workers、\_monitor_workers、\_exit_barrier |
 |  | `torch/distributed/elastic/agent/server/local_elastic_agent.py` | LocalElasticAgent：\_start_workers（TORCHELASTIC_RESTART_COUNT / MAX_RESTARTS / RUN_ID）、\_monitor_workers |
-|  | `torch/distributed/elastic/rendezvous/api.py` | RendezvousHandler；RendezvousInfo；RendezvousParameters；RendezvousHandlerRegistry |
-|  | `torch/distributed/elastic/rendezvous/dynamic_rendezvous.py` | DynamicRendezvousHandler；RendezvousTimeout（join 600 / last_call 30 / close 30 / heartbeat 5）；RendezvousSettings；\_RendezvousState；\_DistributedRendezvousOpExecutor；\_RendezvousJoinOp |
+|  | `torch/distributed/elastic/rendezvous/api.py` | RendezvousHandler<br/>RendezvousInfo<br/>RendezvousParameters<br/>RendezvousHandlerRegistry |
+|  | `torch/distributed/elastic/rendezvous/dynamic_rendezvous.py` | DynamicRendezvousHandler<br/>RendezvousTimeout（join 600 / last_call 30 / close 30 / heartbeat 5）<br/>RendezvousSettings<br/>\_RendezvousState<br/>\_DistributedRendezvousOpExecutor<br/>\_RendezvousJoinOp |
 |  | `torch/distributed/elastic/rendezvous/c10d_rendezvous_backend.py` | C10dRendezvousBackend；create_backend |
 |  | `torch/distributed/elastic/rendezvous/etcd_rendezvous_backend.py` | EtcdRendezvousBackend |
 |  | `torch/distributed/elastic/rendezvous/static_tcp_rendezvous.py` | 静态 rendezvous（`--rdzv-backend` 默认 static） |
-| NVRx v0.6.0 | `fault_tolerance/launcher.py` | ft_launcher 入口 main；LocalElasticAgent（NVRx 版）；`--ft-*` 参数 |
+| NVRx v0.6.0 | `fault_tolerance/launcher.py` | ft_launcher 入口 main<br/>LocalElasticAgent（NVRx 版）<br/>`--ft-*` 参数 |
 |  | `fault_tolerance/rank_monitor_server.py` · `rank_monitor_client.py` | RankMonitorServer（每 local rank 一个子进程）；RankMonitorClient：send_heartbeat / start_section / end_section |
 |  | `fault_tolerance/config.py` · `timeouts_calc.py` | FaultToleranceConfig；TimeoutsCalc（safety_factor 5.0） |
 |  | `fault_tolerance/rank_monitor_state_machine.py` | RankMonitorState / RankMonitorStateMachine |
 |  | `inprocess/wrap.py` | Wrapper（全部超时参数与顺序约束）；CallWrapper |
-|  | `inprocess/abort.py` · `finalize.py` · `initialize.py` · `health_check.py` | AbortTorchDistributed / AbortTransformerEngine；ThreadedFinalize；RetryController；CudaHealthCheck / FaultCounter / ChainedGPU / NVL / NicHealthCheck |
+|  | `inprocess/abort.py` · `finalize.py` · `initialize.py` · `health_check.py` | AbortTorchDistributed / AbortTransformerEngine<br/>ThreadedFinalize<br/>RetryController<br/>CudaHealthCheck / FaultCounter / ChainedGPU / NVL / NicHealthCheck |
 |  | `inprocess/rank_assignment.py` | ActivateAllRanks / ShiftRanks / FillGaps / Tree / Layer / LayerFlag / MaxActiveWorldSize |
-|  | `inprocess/monitor_thread.py` · `monitor_process.py` · `progress_watchdog.py` | MonitorThread（RankShouldRestart）；MonitorProcess；ProgressWatchdog |
+|  | `inprocess/monitor_thread.py` · `monitor_process.py` · `progress_watchdog.py` | MonitorThread（RankShouldRestart）<br/>MonitorProcess<br/>ProgressWatchdog |
 |  | `inprocess/nested_restarter.py` | NestedRestarterHandlingStarting / HandlingCompleted / Finalized / Aborted |
-|  | `attribution/straggler/straggler.py` · `reporting.py` · `cupti.py` | Detector（initialize / detection_section / wrap_callables / generate_report）；Report / ReportGenerator；CuptiManager |
+|  | `attribution/straggler/straggler.py` · `reporting.py` · `cupti.py` | Detector（initialize / detection_section / wrap_callables / generate_report）<br/>Report / ReportGenerator<br/>CuptiManager |
 |  | `shared_utils/health_check.py` | GPUHealthCheck / NVLHealthCheck / NicHealthCheck / NicLinkStateHealthCheck / DistributedStorageHealthCheck / NodeHealthCheck |
 |  | `shared_utils/inject_fault.py` | Fault 枚举；inject_fault |
-| Megatron Core 0.18.0 | `megatron/training/ft_integration.py` | setup；on_training_step_start/end；on_checkpointing_start/end；\_maybe_update_timeouts；maybe_setup_simulated_fault |
-|  | `megatron/training/inprocess_restart.py` | inprocess_restart；maybe_wrap_for_inprocess_restart；maybe_force_nccl_backend_init；destroy_state |
-|  | `megatron/training/arguments.py` | \_add_inprocess_restart_args（`--inprocess-*` / `--enable-ft-package` / `--calc-ft-timeouts`）；`--check-for-large-grads`；`--no-check-for-nan-in-loss-and-grad`；deterministic_mode 的断言 |
+| Megatron Core 0.18.0 | `megatron/training/ft_integration.py` | setup<br/>on_training_step_start/end<br/>on_checkpointing_start/end<br/>\_maybe_update_timeouts<br/>maybe_setup_simulated_fault |
+|  | `megatron/training/inprocess_restart.py` | inprocess_restart<br/>maybe_wrap_for_inprocess_restart<br/>maybe_force_nccl_backend_init<br/>destroy_state |
+|  | `megatron/training/arguments.py` | \_add_inprocess_restart_args（`--inprocess-*` / `--enable-ft-package` / `--calc-ft-timeouts`）<br/>`--check-for-large-grads`<br/>`--no-check-for-nan-in-loss-and-grad`<br/>deterministic_mode 的断言 |
 |  | `megatron/training/config/resilience_config.py` | RerunStateMachineConfig（rerun_mode / error_injection_rate / error_injection_type / check_for_spiky_loss）；StragglerDetectionConfig |
-|  | `megatron/core/rerun_state_machine.py` | RerunStateMachine：should_run_forward_backward / validate_result / should_checkpoint_and_exit / is_unexpectedly_large；RerunMode / RerunState / RerunDiagnostic / RerunValidationStatus；RerunDataIterator；RerunErrorInjector；QuickStats |
+|  | `megatron/core/rerun_state_machine.py` | RerunStateMachine：should_run_forward_backward / validate_result / should_checkpoint_and_exit / is_unexpectedly_large<br/>RerunMode / RerunState / RerunDiagnostic / RerunValidationStatus<br/>RerunDataIterator<br/>RerunErrorInjector<br/>QuickStats |
 |  | `megatron/core/distributed/param_and_grad_buffer.py` | 梯度 reduce 前的 validate_result 调用（NaN/Inf/large grads） |
 |  | `pretrain_gpt.py` | loss 函数里的 validate_result（isnan / isinf / spiky loss） |
 |  | `megatron/core/fault_injector.py` | FaultInjectorConfig；get_fault_ranks / get_fault / get_fault_delay / setup_fault_injection |
 |  | `megatron/core/utils.py` | StragglerDetector：configure / start_method / stop_method / elapsed / report |
-|  | `megatron/training/gpu_sniff_test.py` · `training.py` | run_gpu_sniff_test；\_run_gpu_sniff_test；gpu_sniff_test_interval |
+|  | `megatron/training/gpu_sniff_test.py` · `training.py` | run_gpu_sniff_test<br/>\_run_gpu_sniff_test<br/>gpu_sniff_test_interval |
 |  | `megatron/core/model_parallel_config.py` | deterministic_mode |
-| torchft v0.2.0 | `src/lighthouse.rs` · `src/bin/lighthouse.rs` | Lighthouse；LighthouseOpt（min_replicas / join_timeout_ms / quorum_tick_ms / heartbeat_timeout_ms）；quorum_compute；\_quorum_tick |
+| torchft v0.2.0 | `src/lighthouse.rs` · `src/bin/lighthouse.rs` | Lighthouse<br/>LighthouseOpt（min_replicas / join_timeout_ms / quorum_tick_ms / heartbeat_timeout_ms）<br/>quorum_compute<br/>\_quorum_tick |
 |  | `src/manager.rs` | ManagerServer 的 quorum 响应：max_step / heal / recover_src_* / recover_dst_replica_ranks |
 |  | `proto/torchft.proto` | LighthouseService（Quorum / Heartbeat）；ManagerService（Quorum / CheckpointMetadata / ShouldCommit / Kill） |
-|  | `torchft/manager.py` | Manager：start_quorum / wait_quorum / \_async_quorum / allreduce / should_commit / report_error / state_dict；WorldSizeMode；TORCHFT_LIGHTHOUSE / TORCHFT_*\_TIMEOUT_SEC 环境变量 |
-|  | `torchft/process_group.py` | ProcessGroup（configure / abort / errored）；ProcessGroupWrapper；ProcessGroupGloo / NCCL / XCCL；ProcessGroupBaby* ；ManagedProcessGroup；ErrorSwallowingProcessGroupWrapper |
-|  | `torchft/ddp.py` · `optim.py` · `data.py` | DistributedDataParallel（comm hook → manager.allreduce）；OptimizerWrapper（zero_grad → start_quorum，step → should_commit）；DistributedSampler |
-|  | `torchft/checkpointing/` | CheckpointTransport；HTTPTransport；PGTransport |
-|  | `torchft/local_sgd.py` | LocalSGD；DiLoCo；\_StreamingDiLoCoFragment |
+|  | `torchft/manager.py` | Manager：start_quorum / wait_quorum / \_async_quorum / allreduce / should_commit / report_error / state_dict<br/>WorldSizeMode<br/>TORCHFT_LIGHTHOUSE / TORCHFT_*\_TIMEOUT_SEC 环境变量 |
+|  | `torchft/process_group.py` | ProcessGroup（configure / abort / errored）<br/>ProcessGroupWrapper<br/>ProcessGroupGloo / NCCL / XCCL<br/>ProcessGroupBaby*<br/>ManagedProcessGroup<br/>ErrorSwallowingProcessGroupWrapper |
+|  | `torchft/ddp.py` · `optim.py` · `data.py` | DistributedDataParallel（comm hook → manager.allreduce）<br/>OptimizerWrapper（zero_grad → start_quorum，step → should_commit）<br/>DistributedSampler |
+|  | `torchft/checkpointing/` | CheckpointTransport<br/>HTTPTransport<br/>PGTransport |
+|  | `torchft/local_sgd.py` | LocalSGD<br/>DiLoCo<br/>\_StreamingDiLoCoFragment |
 |  | `torchft/collectives.py` | allreduce_quantized |
-| torchtitan v0.3.0 | `torchtitan/experiments/torchft/manager.py` | TorchFTManager（Config：enable / process_group / replica_id / group_size / min_replica_size / semi_sync_method）；get_dp_info；maybe_set_all_reduce_hook；maybe_semi_sync_training |
+| torchtitan v0.3.0 | `torchtitan/experiments/torchft/manager.py` | TorchFTManager（Config：enable / process_group / replica_id / group_size / min_replica_size / semi_sync_method）<br/>get_dp_info<br/>maybe_set_all_reduce_hook<br/>maybe_semi_sync_training |
 |  | `torchtitan/experiments/torchft/optimizer.py` · `checkpoint.py` | TorchFTOptimizersContainer；TorchFTCheckpointManager |
 |  | `torchtitan/experiments/torchft/trainer.py` · `llama3/config_registry.py` | FaultTolerantTrainer；llama3_torchft_debugmodel |
 |  | `torchtitan/distributed/utils.py` · `config/configs.py` | debug.deterministic 的实现；batch_invariant |

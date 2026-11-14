@@ -287,13 +287,13 @@ Table: 1F1B 在三个框架里的写法
 | 强项 | 极致性能：TE / FP8、手写重叠、MoE 全套 | 对模型零侵入；ZeRO-3 + offload 让小集群训大模型 | 可读、可组合；PyTorch 原生功能的参考实现 |
 | 模型代码约束 | 必须用 megatron/core/transformer 的层写；<br/>外部模型需转换 | 任意 nn.Module；PP 要改写成 LayerSpec 列表 | 用它的 Module 协议 + ShardingConfig；层是普通 PyTorch |
 | DP 系覆盖 | ZeRO-1（分布式优化器）+ Megatron-FSDP（ZeRO-1/2/3） | ZeRO-1/2/3、offload、hpZ、MiCS | FSDP2（ZeRO-3）、HSDP；无 ZeRO-1/2 |
-| 模型并行覆盖 | TP+SP、PP（1F1B / interleaved）、CP、EP 全套 | 依赖外部 mpu 的 TP；自带 PP；Ulysses CP；EP | TP+SP、PP（pipelining 全部调度）、CP（实验 API）、EP |
+| 模型并行覆盖 | TP+SP、PP（1F1B / interleaved）、CP、EP 全套 | 依赖外部 mpu 的 TP<br/>自带 PP<br/>Ulysses CP<br/>EP | TP+SP、PP（pipelining 全部调度）、CP（实验 API）、EP |
 | 配置 | 几百个 argparse flag，validate_args 做约束检查 | JSON，约束隐式 | Python 函数返回 Trainer.Config，类型检查 |
-| 调试 | param.data 随时可读；buffer 布局要懂 | 参数常为空张量；GatheredParameters；日志靠 see_memory_usage | DTensor 自描述；但通信藏在 hook 里 |
+| 调试 | param.data 随时可读；buffer 布局要懂 | 参数常为空张量<br/>GatheredParameters<br/>日志靠 see_memory_usage | DTensor 自描述；但通信藏在 hook 里 |
 | checkpoint | dist_checkpointing（ShardedTensor）+ torch_dist / fsdp_dtensor 格式 | ZeRO checkpoint 按 rank；universal checkpoint 转换 | DCP（DTensor 原生重分片） |
 | 可观测 | timers、log_memory_to_tensorboard、straggler 检测 | wall_clock_breakdown、flops_profiler | MetricsProcessor、DeviceMemoryMonitor、Profiler、Flight Recorder 配置 |
 | 代码量与耦合 | 大；DDP ↔ 优化器 ↔ 调度通过回调耦合 | 大；engine ↔ ZeRO 优化器强耦合 | 小；耦合在 PyTorch 侧 |
-| 适合 | 千卡 dense / MoE 预训练，追求 MFU | 已有训练脚本要放大；显存不够；小集群 | 新项目、研究、需要改并行策略的场景 |
+| 适合 | 千卡 dense / MoE 预训练，追求 MFU | 已有训练脚本要放大<br/>显存不够<br/>小集群 | 新项目、研究、需要改并行策略的场景 |
 
 Table: 三框架取舍表
 
