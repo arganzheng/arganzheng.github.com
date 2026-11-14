@@ -273,33 +273,27 @@ R3 和 R4 各只违反一项，但一样不计入——Goodput 是按请求做�
 
 Table: 本章涉及的 vLLM 参数（v0.27.1）
 
-旧资料里常见的两组参数在 v0.27.1 的 `EngineArgs` 里已经不存在，照抄会直接报 “unrecognized arguments”：
-
-1. `--swap-space` / `--preemption-mode`：V1 调度器只有重算式抢占，没有把运行中请求的 KV 换出到 CPU 这条路（见本章第 4 节第 4 条）；想用 CPU 内存，现在是 `--kv-offloading-size` 给前缀缓存加一层 CPU 存储。
-2. `--max-num-partial-prefills` / `--max-long-partial-prefills`：V1 只用 `long_prefill_token_threshold` 一个参数限制长 prompt 每步的份额。
-
 ### 2. 症状对照表
 
 | 症状 | 先看哪个指标 | vLLM 里的常见成因 | 先动的参数（方向） | 代价落在 | 机制见 |
 |---|---|---|---|---|---|
-| TTFT 高，排队占大头 | `request_queue_time_seconds`<br/>`num_requests_waiting_by_reason{reason="capacity"}` | running 已到 `max_num_seqs`<br/>KV 池放不下新请求<br/>到达率超过服务能力 | KV 够时 `max_num_seqs` ↑<br/>KV 不够时 `kv_cache_dtype=fp8`、`gpu_memory_utilization` ↑<br/>都不行就扩副本、网关限流 | TPOT ↑（batch 变大）；限流 = 拒绝请求 | 04、05、07 |
-| TTFT 高，prefill 占大头 | `request_prefill_time_seconds`<br/>`prompt_tokens_by_source{source="local_compute"}` | prompt 长且没命中前缀<br/>token 预算小，一条 prompt 要切很多步 | 稳定前缀、确认 prefix caching 开着<br/>`max_num_batched_tokens` ↑<br/>`-tp` ↑ | 同一步 decode 的 ITL ↑；TP 通信 | 04、05、06、07 |
-| TTFT P99 ≫ P50，短请求被长 prompt 卡住 | TTFT P99 / P50<br/>`request_queue_time_seconds` P99<br/>`request_prompt_tokens` 分布 | 一条长 prompt 每步吃光剩余预算，排在后面的请求一个 token 也分不到 | `long_prefill_token_threshold` 设为预算的 1/4 左右<br/>`--scheduling-policy priority`<br/>长文请求分到单独实例 | 长 prompt 自己的 TTFT 略升 | 04、08 |
-| TPOT 均值高 | `request_time_per_output_token_seconds`<br/>`num_requests_running` | batch 大、上下文长，每步读的 KV 多<br/>每卡权重读取的下界高 | `max_num_seqs` ↓<br/>`kv_cache_dtype=fp8`<br/>`-tp` ↑<br/>低并发时开投机解码 | 吞吐 ↓；fp8 有精度风险；TP 通信 | 05、06、07 |
-| ITL P99 尖刺，均值正常 | `inter_token_latency_seconds` P99 / P50<br/>`iteration_tokens_total` | 大 prefill 块和 decode 进同一步，这一步变长<br/>抢占后的重算<br/>每步 token 数超过最大 CUDA Graph 尺寸 | `max_num_batched_tokens` ↓<br/>`long_prefill_token_threshold`<br/>PD 分离 | prefill 积压排空变慢，TTFT ↑，总吞吐略降 | 04、06、08 |
-| 吞吐上不去，GPU 利用率却很高 | Output Tokens/s 对 `num_requests_running`<br/>`estimated_read_bytes_per_gpu_total` | decode 是 memory-bound，“利用率高”只说明有 kernel 在跑<br/>batch 被 `max_num_seqs` 或 KV 容量卡住 | KV 容量 ↑ 之后 `max_num_seqs` ↑<br/>`kv_cache_dtype=fp8` | TPOT ↑ | 05、06 |
-| 吞吐低，GPU 有空隙 | GPU 时间线（profiler）<br/>`generation_tokens` 速率 | CPU 侧调度、输入准备、detokenize、HTTP 没被 GPU 时间盖住<br/>没用上 CUDA Graph | 确认 async scheduling 开着（`ngram` 等方法会关掉它）<br/>去掉 `--enforce-eager`<br/>`--stream-interval` ↑、`--api-server-count` ↑ | 流式输出更“成块”；多进程的 CPU 与内存 | 03、06 |
-| 抢占频繁 | `num_preemptions` 速率<br/>`kv_cache_usage_perc` 贴近 1 | decode 增长要新块时池满，只能抢占：被抢的请求清零已算 token、回到 waiting 队头 | KV 容量 ↑<br/>`max_num_seqs` ↓<br/>`--watermark` 0.01–0.05<br/>保持 `--scheduler-reserve-full-isl` 开 | 并发 ↓ → 吞吐 ↓ | 04、05 |
-| 启动 OOM / 启动报 KV 不够 | 启动日志 | 权重 + 激活峰值 + CUDA Graph 超过 `gpu_memory_utilization` 的份额<br/>KV 池放不下一条 `max_model_len` 长的请求 | `max_model_len` ↓（报错里直接给估算值）<br/>`-tp` ↑、`kv_cache_dtype=fp8`<br/>`gpu_memory_utilization` ↑（同卡没别的进程时） | 上下文变短；TP 通信 | 05、07 |
-| Prefix cache 命中率下降 | `prefix_cache_hits` / `prefix_cache_queries`<br/>`kv_block_idle_before_evict_seconds` | 前缀变了（system prompt 插了时间戳、工具列表顺序变）<br/>KV 紧张，空闲的缓存块被逐出<br/>多副本没按前缀路由 | 固定前缀<br/>KV 容量 ↑、`--kv-offloading-size`<br/>按前缀亲和路由 | CPU 内存；路由复杂度 | 05、07 |
-| 突发流量下尾延迟恶化 | `num_requests_waiting` 陡升<br/>`request_queue_time_seconds` P99 | 到达率短时超过服务率，排队按非线性增长；单实例参数救不了 | 网关准入与限流<br/>`--scheduling-policy priority`<br/>扩副本（提前，而不是等告警） | 被拒绝或降级的请求 | 04、07 |
-| 多 LoRA 时部分请求等很久 | `num_requests_waiting_by_reason{reason="deferred"}`<br/>`lora_requests_info` | 一步里不同 adapter 数到了 `max_loras`，其余 adapter 的请求被推迟 | `--max-loras` ↑ | adapter 权重槽占显存；每步 LoRA kernel 变慢 | 09 |
-| 结构化输出、`n` > 1 或大量 `logprobs` 后变慢 | TTFT、TPOT 按请求参数分组<br/>`request_params_n` | 语法约束每步要算 token 掩码，新 schema 首次要编译<br/>`n` 份并行采样各占一个序列 | 复用 schema<br/>按需开 `logprobs`、限制 `n` | 功能取舍 | 10 |
-| 开投机解码后反而变慢 | `spec_decode_num_accepted_tokens` / `spec_decode_num_draft_tokens`<br/>TPOT 对并发 | 接受率低<br/>高并发时验证 K+1 个 token 不再免费<br/>`ngram` 关掉了 async scheduling | `num_speculative_tokens` ↓<br/>只在低并发实例上开 | 低并发时的 TPOT 收益 | 06 |
+| TTFT 高，排队占大头 | `request_queue_time_seconds`<br/>`num_requests_waiting_by_reason{reason="capacity"}` | running 已到 `max_num_seqs`<br/>KV 池放不下新请求<br/>到达率超过服务能力 | KV 够时 `max_num_seqs` ↑<br/>KV 不够时 `kv_cache_dtype=fp8`、`gpu_memory_utilization` ↑<br/>都不行就扩副本、网关限流 | TPOT ↑（batch 变大）；限流 = 拒绝请求 | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《KV Cache》](/kv-cache-memory-core.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| TTFT 高，prefill 占大头 | `request_prefill_time_seconds`<br/>`prompt_tokens_by_source{source="local_compute"}` | prompt 长且没命中前缀<br/>token 预算小，一条 prompt 要切很多步 | 稳定前缀、确认 prefix caching 开着<br/>`max_num_batched_tokens` ↑<br/>`-tp` ↑ | 同一步 decode 的 ITL ↑；TP 通信 | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《KV Cache》](/kv-cache-memory-core.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| TTFT P99 ≫ P50，短请求被长 prompt 卡住 | TTFT P99 / P50<br/>`request_queue_time_seconds` P99<br/>`request_prompt_tokens` 分布 | 一条长 prompt 每步吃光剩余预算，排在后面的请求一个 token 也分不到 | `long_prefill_token_threshold` 设为预算的 1/4 左右<br/>`--scheduling-policy priority`<br/>长文请求分到单独实例 | 长 prompt 自己的 TTFT 略升 | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《PD 分离》](/prefill-decode-disaggregation.html) |
+| TPOT 均值高 | `request_time_per_output_token_seconds`<br/>`num_requests_running` | batch 大、上下文长，每步读的 KV 多<br/>每卡权重读取的下界高 | `max_num_seqs` ↓<br/>`kv_cache_dtype=fp8`<br/>`-tp` ↑<br/>低并发时开投机解码 | 吞吐 ↓；fp8 有精度风险；TP 通信 | [《KV Cache》](/kv-cache-memory-core.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| ITL P99 尖刺，均值正常 | `inter_token_latency_seconds` P99 / P50<br/>`iteration_tokens_total` | 大 prefill 块和 decode 进同一步，这一步变长<br/>抢占后的重算<br/>每步 token 数超过最大 CUDA Graph 尺寸 | `max_num_batched_tokens` ↓<br/>`long_prefill_token_threshold`<br/>PD 分离 | prefill 积压排空变慢，TTFT ↑，总吞吐略降 | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)<br/>[《PD 分离》](/prefill-decode-disaggregation.html) |
+| 吞吐上不去，GPU 利用率却很高 | Output Tokens/s 对 `num_requests_running`<br/>`estimated_read_bytes_per_gpu_total` | decode 是 memory-bound，“利用率高”只说明有 kernel 在跑<br/>batch 被 `max_num_seqs` 或 KV 容量卡住 | KV 容量 ↑ 之后 `max_num_seqs` ↑<br/>`kv_cache_dtype=fp8` | TPOT ↑ | [《KV Cache》](/kv-cache-memory-core.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| 吞吐低，GPU 有空隙 | GPU 时间线（profiler）<br/>`generation_tokens` 速率 | CPU 侧调度、输入准备、detokenize、HTTP 没被 GPU 时间盖住<br/>没用上 CUDA Graph | 确认 async scheduling 开着（`ngram` 等方法会关掉它）<br/>去掉 `--enforce-eager`<br/>`--stream-interval` ↑、`--api-server-count` ↑ | 流式输出更“成块”；多进程的 CPU 与内存 | [《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| 抢占频繁 | `num_preemptions` 速率<br/>`kv_cache_usage_perc` 贴近 1 | decode 增长要新块时池满，只能抢占：被抢的请求清零已算 token、回到 waiting 队头 | KV 容量 ↑<br/>`max_num_seqs` ↓<br/>`--watermark` 0.01–0.05<br/>保持 `--scheduler-reserve-full-isl` 开 | 并发 ↓ → 吞吐 ↓ | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《KV Cache》](/kv-cache-memory-core.html) |
+| 启动 OOM / 启动报 KV 不够 | 启动日志 | 权重 + 激活峰值 + CUDA Graph 超过 `gpu_memory_utilization` 的份额<br/>KV 池放不下一条 `max_model_len` 长的请求 | `max_model_len` ↓（报错里直接给估算值）<br/>`-tp` ↑、`kv_cache_dtype=fp8`<br/>`gpu_memory_utilization` ↑（同卡没别的进程时） | 上下文变短；TP 通信 | [《KV Cache》](/kv-cache-memory-core.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| Prefix cache 命中率下降 | `prefix_cache_hits` / `prefix_cache_queries`<br/>`kv_block_idle_before_evict_seconds` | 前缀变了（system prompt 插了时间戳、工具列表顺序变）<br/>KV 紧张，空闲的缓存块被逐出<br/>多副本没按前缀路由 | 固定前缀<br/>KV 容量 ↑、`--kv-offloading-size`<br/>按前缀亲和路由 | CPU 内存；路由复杂度 | [《KV Cache》](/kv-cache-memory-core.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| 突发流量下尾延迟恶化 | `num_requests_waiting` 陡升<br/>`request_queue_time_seconds` P99 | 到达率短时超过服务率，排队按非线性增长；单实例参数救不了 | 网关准入与限流<br/>`--scheduling-policy priority`<br/>扩副本（提前，而不是等告警） | 被拒绝或降级的请求 | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| 多 LoRA 时部分请求等很久 | `num_requests_waiting_by_reason{reason="deferred"}`<br/>`lora_requests_info` | 一步里不同 adapter 数到了 `max_loras`，其余 adapter 的请求被推迟 | `--max-loras` ↑ | adapter 权重槽占显存；每步 LoRA kernel 变慢 | [《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html) |
+| 结构化输出、`n` > 1 或大量 `logprobs` 后变慢 | TTFT、TPOT 按请求参数分组<br/>`request_params_n` | 语法约束每步要算 token 掩码，新 schema 首次要编译<br/>`n` 份并行采样各占一个序列 | 复用 schema<br/>按需开 `logprobs`、限制 `n` | 功能取舍 | [《输出在变》](/output-changes-sampling-and-structured-output.html) |
+| 开投机解码后反而变慢 | `spec_decode_num_accepted_tokens` / `spec_decode_num_draft_tokens`<br/>TPOT 对并发 | 接受率低<br/>高并发时验证 K+1 个 token 不再免费<br/>`ngram` 关掉了 async scheduling | `num_speculative_tokens` ↓<br/>只在低并发实例上开 | 低并发时的 TPOT 收益 | [《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
 
 Table: 症状、指标与参数的对照（指标名省略 `vllm:` 前缀）
 
-“机制见”一列的编号对应本系列：[《鸟瞰 vLLM：一个请求如何穿过整个推理系统？》](/vllm-request-lifecycle-overview.html)（03）、[《Scheduler：GPU 这一轮到底给谁用？》](/scheduler-batch-and-fairness.html)（04）、[《KV Cache：LLM Serving 的第一号内存问题》](/kv-cache-memory-core.html)（05）、[《GPU 执行：如何让每个 Token 算得更快？》](/gpu-execution-kernels-and-graphs.html)（06）、[《Multi-GPU：一张卡不够时如何扩展？》](/multi-gpu-scaling-strategies.html)（07）、[《PD 分离：从资源混部走向计算解耦》](/prefill-decode-disaggregation.html)（08）、[《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)（09）、[《输出在变：采样参数与结构化输出》](/output-changes-sampling-and-structured-output.html)（10）。
 
 ### 3. 排查顺序：先拆 TTFT 和 ITL，再碰参数
 
@@ -436,10 +430,7 @@ running 里的请求每多生成 16 个 token（一个块）就要一个新块�
 
 Table: vLLM v0.27.1 的 Prometheus 指标与本文指标的对应
 
-两个使用细节：
-
-1. counter 在 `/metrics` 里带 `_total` 后缀，查询时写 `vllm:num_preemptions_total`、`vllm:prefix_cache_hits_total`、`vllm:generation_tokens_total`；本身名字就以 `_total` 结尾的不再重复（`vllm:iteration_tokens_total` 是 histogram，查 `vllm:iteration_tokens_total_bucket`）。histogram 查分位数用 `_bucket`。
-2. 旧文章里的 `vllm:gpu_cache_usage_perc`、`vllm:time_per_output_token_seconds` 在 v0.27.1 里已经没有了，分别换成了上表的 `vllm:kv_cache_usage_perc` 和 `vllm:request_time_per_output_token_seconds`；照抄旧看板会得到一片空图。
+使用细节：counter 在 `/metrics` 里带 `_total` 后缀，查询时写 `vllm:num_preemptions_total`、`vllm:prefix_cache_hits_total`、`vllm:generation_tokens_total`；本身名字就以 `_total` 结尾的不再重复（`vllm:iteration_tokens_total` 是 histogram，查 `vllm:iteration_tokens_total_bucket`）。histogram 查分位数用 `_bucket`。
 
 不开 Prometheus 时，同一组数也会周期性打在日志里（`LoggingStatLogger.log`）：`Avg prompt throughput`、`Avg generation throughput`、`Running`、`Waiting`、`Preemptions`、`GPU KV cache usage`、`Prefix cache hit rate`。
 
@@ -567,5 +558,5 @@ LLM Serving 的指标体系可以归纳为：
 
 [^q0]: 四组：**延迟**——TTFT（首 token）、TPOT / ITL（每 token 间隔）、E2E；**吞吐**——tokens/s、requests/s、以及在 SLO 下完成的有效吞吐 Goodput；**效率**——MFU、GPU 利用率、显存利用率、每 token 成本；**质量**——P50 / P95 / P99 与 SLO 达标率。吞吐衡量系统做了多少工作，延迟衡量用户等了多久，Goodput 衡量在满足 SLO 前提下做了多少有效工作——只报吞吐或只报平均延迟都会误导。详见[第二章](#二llm-serving-指标总览)。
 [^q1]: TTFT 高而 TPOT 正常 → 排队或 Prefill（看队列长度与 waiting 数、prefill 的 token 预算、是否有长 prompt 独占）；TPOT 高 → Decode（batch 太大、KV 读取量大、被 chunked prefill 混批拖慢、通信）；两者都高且随负载恶化 → 资源饱和（KV 显存不足触发抢占与重算）；P99 远高于 P50 → 尾延迟来自长请求、抢占或 straggler。对应的方向：排队 → 扩容或准入控制；Prefill → chunked prefill、prefix cache、PD 分离；Decode → 调 token budget、KV 量化、投机解码、CUDA Graph；资源 → 更多 KV 显存（量化、GQA / MLA 模型）。测法：固定的请求分布与到达率压测、报分位数不报均值、区分冷热缓存。详见[第三章](#三指标常见误区与优化方向)、[第四章](#四在-vllm-里怎么测vllm-bench)。
-[^q2]: 先按指标定位，再动对应的参数，每个参数都在两个指标之间换。TTFT 高且排队占大头：running 到了 `max_num_seqs` 就调大它（TPOT 会涨），KV 用量贴近 1 就加 KV 容量（`kv_cache_dtype=fp8`、扩副本）；排队长但 KV 与并发都有余量，是长 prompt 吃光了每步预算，设 `long_prefill_token_threshold`（长请求慢约 8%，短请求 TTFT 从约 1.5 s 降到 0.2 s 以内）。ITL 的 P99 尖刺：调小 `max_num_batched_tokens`（算例里 2048 → 8192 总吞吐只 +5%，ITL 却从 99 ms 变成 376 ms）或做 PD 分离。TPOT 均值高：调小 `max_num_seqs`、KV 用 fp8、加大 TP（并发 128 → 256 时吞吐 +54%、TPOT 11.8 → 15.4 ms）。抢占频繁：V1 只有重算式抢占，加 KV 容量、设 `watermark`、减并发。启动失败：按报错里的估算值调小 `max_model_len`，或加卡、KV 用 fp8。v0.27.1 已经没有 `--swap-space`、`--preemption-mode`、`--max-long-partial-prefills`。详见[第五章](#五从症状到参数指标异常时在-vllm-里调什么)。
+[^q2]: 先按指标定位，再动对应的参数，每个参数都在两个指标之间换。TTFT 高且排队占大头：running 到了 `max_num_seqs` 就调大它（TPOT 会涨），KV 用量贴近 1 就加 KV 容量（`kv_cache_dtype=fp8`、扩副本）；排队长但 KV 与并发都有余量，是长 prompt 吃光了每步预算，设 `long_prefill_token_threshold`（长请求慢约 8%，短请求 TTFT 从约 1.5 s 降到 0.2 s 以内）。ITL 的 P99 尖刺：调小 `max_num_batched_tokens`（算例里 2048 → 8192 总吞吐只 +5%，ITL 却从 99 ms 变成 376 ms）或做 PD 分离。TPOT 均值高：调小 `max_num_seqs`、KV 用 fp8、加大 TP（并发 128 → 256 时吞吐 +54%、TPOT 11.8 → 15.4 ms）。抢占频繁：V1 只有重算式抢占，加 KV 容量、设 `watermark`、减并发。启动失败：按报错里的估算值调小 `max_model_len`，或加卡、KV 用 fp8。详见[第五章](#五从症状到参数指标异常时在-vllm-里调什么)。
 [^q3]: 与本文指标一一对应的服务端直方图是 `vllm:time_to_first_token_seconds`、`vllm:inter_token_latency_seconds`、`vllm:request_time_per_output_token_seconds`、`vllm:e2e_request_latency_seconds`、`vllm:request_queue_time_seconds`、`vllm:request_prefill_time_seconds` / `vllm:request_decode_time_seconds`；解释它们为什么变的是 `vllm:num_requests_running`、`vllm:num_requests_waiting_by_reason`、`vllm:kv_cache_usage_perc`、`vllm:num_preemptions`、`vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`、`vllm:iteration_tokens_total`，开投机解码时再加接受率。口径上，服务端 TTFT 不含回客户端的网络，ITL 按引擎步记，queue time 只算第一次排队，也没有 Goodput（只能按桶边界逐指标估达标率）。看板 8 块：流量、TTFT 与排队、ITL / TPOT、队列、KV 与抢占、前缀命中率、每步 token 与请求形状、效率；告警按 SLO 违约、容量（capacity 等待持续非零）、抢占（速率 > 0 且 KV 用量 > 0.95）、前缀命中率断崖、`error` / `abort` 比例来配。详见[第六章](#六线上监控metrics-里该看什么)。

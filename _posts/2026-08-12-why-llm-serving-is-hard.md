@@ -107,17 +107,17 @@ Prefill 主要决定**第一个 Token 何时到达**，Decode 则决定**后续 
 
 > Prefill 一次处理多个 Prompt Token，并批量写入 KV Cache；Decode 每个 Step 只处理一个新 Token，却要读取此前累积的历史 KV Cache。
 
-| 维度 | Prefill | Decode |
-|---|---|---|
-| 单步输入 Token 数 | N 个 Prompt Token | 每个请求 1 个新 Token |
-| 单请求序列并行度 | 高 | 低 |
-| 跨请求并行度 | 可通过 Batch 提升 | 依赖 Continuous Batching |
-| KV Cache 操作 | 批量写入 N 个位置 | 追加 1 个位置，读取历史 KV |
-| Attention 序列相关计算 | O(N² · d) | O(L · d)，L 为当前序列长度 |
-| 总计算量 | O(N·d² + N²·d) | O(d² + L·d) per Step |
-| 典型瓶颈 | Compute、长序列 Attention | HBM 带宽、KV Cache、通信 |
-| 常见优化 | FlashAttention、Chunked Prefill | PagedAttention、FlashInfer、CUDA Graph |
-| CUDA Graph | 需视执行形态而定 | 适合形状和路径相对稳定的场景 |
+| 维度 | Prefill | Decode | 说明 |
+|---|---|---|---|
+| 单步输入 Token 数 | N 个 Prompt Token | 每个请求 1 个新 Token | Prefill 一次把整段 Prompt 送进模型；Decode 每步只有上一步刚采样出来的那个 Token |
+| 单请求序列并行度 | 高 | 低 | Prefill 的 N 个 Token 在一次前向里同时算，矩阵乘有 N 行；Decode 一个请求每步只有 1 行，下一个 Token 要等这一个采样完 |
+| 跨请求并行度 | 可通过 Batch 提升 | 依赖 Continuous Batching | Decode 要把很多请求各自的那 1 行拼在一起，矩阵乘才够大；请求随时结束、随时加入，所以每步都要重新组 batch，见[《Scheduler》](/scheduler-batch-and-fairness.html) |
+| KV Cache 操作 | 批量写入 N 个位置 | 追加 1 个位置，读取历史 KV | 每个 Token 的 K、V 算出来后都要存下，后面每个 Token 做 Attention 时都要读 |
+| Attention 序列相关计算 | O(N² · d) | O(L · d)，L 为当前序列长度 | Prefill：N 个 query 各与 N 个 key 做 d 维点积，$$QK^\top$$ 是 N × N，再用这 N × N 个权重对 V 加权，两步各约 N² · d；Decode：1 个 query 对 L 个 key、value，约 L · d |
+| 总计算量 | O(N·d² + N²·d) | O(d² + L·d) per Step | N · d²：每个 Token 都要过 QKV / O 投影和 MLP，都是 d × d 量级的矩阵乘（常数倍省略）；N² · d 是上一行的 Attention。Decode 同理，只是 Token 数从 N 变成 1 |
+| 典型瓶颈 | Compute、长序列 Attention | HBM 带宽、KV Cache、通信 | Prefill 读一遍权重做 N 行乘法，算得多、读得少；Decode 读一遍全部权重和 L 个位置的 KV，只算 1 行，读得多、算得少 |
+| 常见优化 | 分块 Attention（FlashAttention 算法）、Chunked Prefill | 分页 KV（PagedAttention）、沿 KV 长度切分并行（Flash-Decoding）、CUDA Graph | 优化对着各自的瓶颈：Prefill 的大头是 N × N 的分数矩阵，分块计算可以不把它写回 HBM；Chunked Prefill 把长 Prompt 切段，和 Decode 混在一步里跑。Decode 要高效读散落在各个 block 里的历史 KV，batch 小时还要把一条长 KV 切成几段并行。vLLM 的 FlashAttention、FlashInfer 两个后端都同时实现了两个阶段（`vllm/v1/attention/backends/`），选哪个看硬件和模型，不看阶段 |
+| CUDA Graph | 需视执行形态而定 | 适合形状和路径相对稳定的场景 | CUDA Graph 按一步的 Token 总数分档录制，超出最大一档就不用图。纯 Decode 一步的 Token 数等于请求数，容易落在档内；Prefill 一步动辄几千 Token，常常超出 |
 
 Table: Prefill 与 Decode 的对比
 

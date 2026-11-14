@@ -336,7 +336,7 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
   - → 告警：一侧 idle > 30% 持续 10 步 → 配比漂了
 - **第三篇 · 显存**
   - 每卡 memory_allocated / reserved 在 "Before resume weights / After update_weights / After resume kv_cache" 三点
-  - vLLM 的 gpu_cache_usage_perc · num_preempted（KV 池不够时的抢占）
+  - vLLM 的 kv_cache_usage_perc · num_preemptions（KV 池不够时的抢占）
   - → 告警：reserved − allocated 持续增长（碎片）；preemption > 0
 - **第四篇 · 同步**
   - timing_s/update_weights · 传输字节 · 每实例 global_steps（版本）· delta 的 changed_ratio 与校验失败数

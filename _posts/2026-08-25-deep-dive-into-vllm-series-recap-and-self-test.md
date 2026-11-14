@@ -111,7 +111,7 @@ Table: 本文的章节安排
 - 例子：TTFT 0.3 s、TPOT 30 ms、300 输出 → E2E ≈ 9.3 s，decode 占 97%。
 - Goodput 按请求计、ttft / tpot / e2el 三项"与"；报告至少带并发数、输入 / 输出长度、Tokens/s、TTFT、TPOT / ITL、P99，报分位数不报均值。
 - Llama-3-70B / TP=8 的两组取舍：token 预算 2048 → 8192，Total Tokens/s 20.3k → 21.4k（+5%），同一步里 64 个 decode 流的 ITL 99 → 376 ms；`max_num_seqs` 128 → 256，Output Tokens/s +54%、TPOT 11.8 → 15.4 ms。H100 默认 `max_num_seqs` 1024 在这里碰不到，真正限制 batch 的是约 540 条 2350 token 请求的 KV 池；`kv_cache_dtype=fp8` 是少有的容量与 TPOT 同时变好的选项。
-- V1 只有重算式抢占，抢占速率 > 0 的稳态就是 GPU 在重复工作；`--swap-space`、`--preemption-mode` 已不是合法参数，`vllm:gpu_cache_usage_perc` 换成了 `vllm:kv_cache_usage_perc`。
+- V1 只有重算式抢占，抢占速率 > 0 的稳态就是 GPU 在重复工作；KV 用量看 `vllm:kv_cache_usage_perc`。
 
 **常见误解**："GPU 利用率 95% 说明系统高效"——利用率只说 SM 上有 kernel 在跑，decode memory-bound 时 MFU 天然只有几个百分点。另一个："KV 用量 95% 该告警"——用量高说明池子被用起来了，要告警的是 KV 用量贴近 1 同时抢占速率非零。
 
@@ -402,7 +402,6 @@ flowchart TB
 | GPU 利用率高 = 系统高效 | 利用率只说 SM 上有 kernel；decode memory-bound 时 MFU 只有几个百分点 | 看带宽利用率、每步时间对下界的比值、Goodput | [第二篇](/how-to-measure-llm-serving.html)、[第十三篇](/future-of-serving-infra.html) |
 | vLLM 与 SGLang 谁更快有定论 | 一张吞吐图至少藏着模型、硬件、长度分布、并发、命中率、backend、默认值七个变量，两边每周发版 | 按工作负载选：前缀共享高偏 SGLang，异构硬件与外部编排生态偏 vLLM；用自己的 trace 同口径压测 | [第十四篇](/vllm-vs-sglang.html) |
 | Scheduler 先跑 prefill 阶段再跑 decode 阶段 | Scheduler 没有阶段，只有"这一轮给这个请求推进多少 token" | Continuous Batching、Chunked Prefill、混合批次、投机解码是同一模型的四种取值 | [第四篇](/scheduler-batch-and-fairness.html) |
-| 照抄旧资料的参数与指标名：`--swap-space`、`--preemption-mode`、`vllm:gpu_cache_usage_perc` | v0.27.1 的 `EngineArgs` 里已没有这些参数，启动直接报 unrecognized arguments；旧指标名已改，旧看板一片空图 | V1 只有重算式抢占，CPU 内存改用 `--kv-offloading-size` 给前缀缓存加一层；KV 用量看 `vllm:kv_cache_usage_perc`，TPOT 看 `vllm:request_time_per_output_token_seconds` | [第二篇](/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么) |
 | `/metrics` 的数应该和 `vllm bench` 对得上，Goodput 也能从直方图算 | 服务端 TTFT 不含回送的网络与 SSE、ITL 按引擎步记、Queueing Time 只算第一次；直方图把 TTFT、TPOT 分开聚合，回不到单个请求 | 两者差几毫秒是正常的；Goodput 要在网关或请求日志里逐请求算 | [第二篇](/how-to-measure-llm-serving.html#2-服务端口径与-vllm-bench-的差异) |
 | 抢占重算一定很贵，应该 swap | Prefix Cache 让前缀块大多还在缓存，重算远低于理论最坏；swap 要 PCIe 拷贝且管理复杂 | V1 主要用重算：`num_computed_tokens = 0`，恢复时只算未命中的部分 | [第四篇](/scheduler-batch-and-fairness.html)、[第五篇](/kv-cache-memory-core.html) |
 | Prefix Cache 按 token 复用 | 块只有写满才进缓存，键是链式哈希 | 复用粒度是块：2000 token 命中 125 块，2005 token 最后 5 个要重算 | [第五篇](/kv-cache-memory-core.html) |

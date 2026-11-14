@@ -221,7 +221,7 @@ flowchart LR
 | 8 | 效率：MFU 估算、投机接受率 |
 
 <aside class="notes" markdown="1">
-原文：[/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么](/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么)。面板 2、3、4、5 就是排查顺序图的四个分叉点。服务端口径与 `vllm bench` 差四处：TTFT 偏小（不含回送首 token 的网络与 SSE）；ITL 按引擎步记，投机一步出 3 个 token 也只记一个样本；Queueing Time 只算第一次，抢占后的再等待算进 prefill / decode；服务端没有 Goodput，直方图回不到单个请求，只能逐指标估达标率，要真 Goodput 在网关或请求日志里逐请求算。旧名 `vllm:gpu_cache_usage_perc` 已换成 `vllm:kv_cache_usage_perc`。告警：SLO（TTFT P99 / TPOT P95 持续 5 分钟）、容量（`waiting_by_reason{capacity}` 持续非零）、抢占（速率 > 0 且 KV 用量 > 0.95）、前缀命中率低于前一天同时段 70%、错误与 abort 比例。
+原文：[/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么](/how-to-measure-llm-serving.html#六线上监控metrics-里该看什么)。面板 2、3、4、5 就是排查顺序图的四个分叉点。服务端口径与 `vllm bench` 差四处：TTFT 偏小（不含回送首 token 的网络与 SSE）；ITL 按引擎步记，投机一步出 3 个 token 也只记一个样本；Queueing Time 只算第一次，抢占后的再等待算进 prefill / decode；服务端没有 Goodput，直方图回不到单个请求，只能逐指标估达标率，要真 Goodput 在网关或请求日志里逐请求算。KV 用量看 `vllm:kv_cache_usage_perc`。告警：SLO（TTFT P99 / TPOT P95 持续 5 分钟）、容量（`waiting_by_reason{capacity}` 持续非零）、抢占（速率 > 0 且 KV 用量 > 0.95）、前缀命中率低于前一天同时段 70%、错误与 abort 比例。
 </aside>
 
 ---
