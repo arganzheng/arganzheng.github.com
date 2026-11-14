@@ -262,14 +262,14 @@ Table: Wan2.1-14B 720p 81 帧 50 步的叠加账
 | 机制 | diffusers v0.40 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT |
 |---|---|---|---|---|
 | 稠密后端 | `set_attention_backend("flash" / "_flash_3_hub" / "sage")` | `--attention-backend fa / torch_sdpa / sage_attn / sage_attn_3` | `attention/backends/` + `selector.py` | `core/distributed/attention_backend.py` |
-| 稀疏后端 | FlexAttention（`flex`）可自定义掩码 | `sliding_tile_attn`（需 `--mask-strategy-file-path`）、`video_sparse_attn`（VSA）、`sparse_video_gen_2_attn`、`vmoba_attn`、`sla_attn` / `sage_sla_attn`；`runtime/layers/attention/STA_configuration.py` | 按模型适配 | `core/fast_attention/`（DiTFastAttn）、`sparge_attention/`、`vsa_attention.py`、`ssta.py` |
-| 按请求切换 | — | `--attention-backend-override`（只允许稠密后端：fa / sdpa / sage） | — | — |
-| 与 SP 的关系 | — | 稀疏后端只在服务级、与 ring 并行有兼容限制 | — | USP 下的 attention 由 `long_ctx_attention/` 包装 |
-| 3D VAE 分块 | `vae.enable_tiling()`（时空版本，Wan / Hunyuan 的 VAE 类各自实现） | `--vae-config.*`；overlapping tiled decode | `--vae-use-tiling`、`vae_patch_parallel.py` | Parallel VAE |
+| 稀疏后端 | FlexAttention（`flex`）可自定义掩码 | `sliding_tile_attn`（需 `--attention-backend-config mask_strategy_file_path=…`）、`video_sparse_attn`（VSA）、`sparse_video_gen_2_attn`、`vmoba_attn`、`sla_attn` / `sage_sla_attn`；`runtime/layers/attention/STA_configuration.py` | `attention/backends/fastvideo_vsa.py`（VSA）、`rainfusion_attn.py` | `core/fast_attention/`（DiTFastAttn）、`sparge_attention/`、`vsa_attention.py`、`distributed/ssta.py`（SSTA） |
+| 按请求切换 | — | `--attention-backend-override` / 采样参数 `attention_backend_override`（只允许稠密的 `fa` / `torch_sdpa` / `sage_attn` / `sage_attn_3`；开 breakable CUDA graph、`torch.compile` 或服务默认是稀疏后端时拒绝请求） | — | — |
+| 与 SP 的关系 | — | ring 度 > 1 时只接受 `supports_ring_rotation()` 为真的后端（FA、SageAttention），稀疏后端不能与 ring 并行同开 | — | USP 下的 attention 由 `long_ctx_attention/`（`xFuserLongContextAttention`）与 `model_executor/layers/usp.py`（`USP`）包装 |
+| 3D VAE 分块 | `vae.enable_tiling()`（Wan / Hunyuan 的 VAE 类各自实现；HunyuanVideo 的还沿帧维切，Wan 的只切空间） | `--vae-config.*`（`use_tiling` / `use_temporal_tiling` 默认开，相邻 tile 有重叠）；`use_parallel_decode` 多卡解码 | `--vae-use-tiling`；`--vae-patch-parallel-size`（`distributed/vae_patch_parallel.py`） | `--use_parallel_vae` |
 
 Table: 视频 attention 机制在四个引擎里的实现对照
 
-注意 SGLang 把稀疏后端全部标为**服务级、有损、模型特定**：STA 需要每个模型每个分辨率的掩码配置文件；VSA 只对用 VSA 训练的模型（FastWan）是无损的。
+注意 SGLang 里稀疏后端都是**服务级**的（`AttentionBackendEnum.is_sparse` 的后端只能用 `--attention-backend` 在启动时选，不能与按请求的稠密切换混用），而且各要一份模型相关的配置：STA 读一份按层 × 步 × 头离线搜出来的掩码策略文件（`STA_configuration.py` 的 `configure_sta` 负责搜索与调优），VSA 的稀疏度经 `--attention-backend-config` 设置。它们都是有损的近似；VSA 只在用 VSA 训练过的模型（FastWan）上接近无损——这是 VSA 论文的结论，不是引擎替你做的保证。
 
 ### 2. 实践建议
 
