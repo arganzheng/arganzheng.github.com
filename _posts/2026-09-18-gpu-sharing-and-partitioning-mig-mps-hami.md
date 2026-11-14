@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-11-14
 ---
 
-月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE` 白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
+月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE`（dcgm-exporter 4.6.0-4.8.3 默认的 `etc/default-counters.csv` 里这一行是注释掉的，这个集群的监控已经在 counters CSV 里把它打开，做法见第八篇）白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
 
 于是有人把两个服务塞到同一张卡上——直接在 Pod 里不声明 GPU、用 `hostPath` 挂上 `/dev/nvidia*`。省了一半的钱，也带来了新的事故：一个服务的请求突增、KV cache 把显存吃到 79 GB，另一个服务在 `cudaMalloc` 上抛出 OOM 崩掉；两个服务的进程在同一张卡上轮转，尾延迟从 80 ms 涨到 300 ms，而且没人能说清楚哪个服务该为这 220 ms 负责。
 

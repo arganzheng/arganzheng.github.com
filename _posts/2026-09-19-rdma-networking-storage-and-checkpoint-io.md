@@ -137,6 +137,14 @@ Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有三�
 
 `networks` 注解跨 namespace 引用写成 `<namespace>/<name>`；`resourceName` 把 NAD 与第四章的 device plugin 关联起来——Pod 请求了 `nvidia.com/hostdev: 1`，kubelet 分配了某个 PCI 设备，Multus 从 kubelet 的设备分配记录（checkpoint 文件或 PodResources API）读到结果，再以 `deviceID` 传给 `host-device` 或 `sriov` CNI，让 CNI 知道要把哪张网卡搬进 Pod。
 
+网卡也可以不经 device plugin、改由 DRA 分配（第二篇讲过 DRA 的 `ResourceClaim` 与 `ResourceSlice`）。Multus v4.3.1 起接上了这条路（`pkg/draclient/draclient.go`，用法见 `docs/how-to-use.md` 的 DRA 一节，要求 Kubernetes 1.34+ 与 `resource.k8s.io/v1`）：NAD 上照样写 `resourceName` 注解；Multus 读完 kubelet 的设备分配后，再按 Pod 的 `status.resourceClaimStatuses` 取每个 `ResourceClaim` 的分配结果，到本节点的 `ResourceSlice` 里查被分到的设备，设备属性 `k8s.cni.cncf.io/resourceName` 与 NAD 注解相等时，把同一设备的 `k8s.cni.cncf.io/deviceID` 属性当作 `deviceID` 传给 CNI。落到部署上有三点：
+
+1. DRA 网卡驱动必须在 `ResourceSlice` 上为每个网络设备发布这两个属性；
+2. 没有这两个属性的设备（例如同一个 Pod 里的 GPU claim）被跳过，device plugin 那条路的分配结果不受影响；
+3. Multus 的 ClusterRole 要能 get / list `resource.k8s.io` 下的 `resourceclaims` 与 `resourceslices`（v4.3.1 的 `deployments/*.yml` 已加上）。
+
+v4.3.0 的 DRA 支持基于 Kubernetes 1.26–1.30 的 alpha API，与 1.31 起改版的 DRA API 不兼容；本篇的 RDMA 网卡仍走 device plugin。
+
 ### 3. 四种接入方式
 
 RDMA 网卡进 Pod 的第二张网卡有四种常见接法。它们决定的是**IP 接口**怎么进 Pod；RDMA 设备文件由第四章的 device plugin 负责，两者是正交的。下图把这两条链放在一起看：kubelet 创建 Pod 时分别走 CNI 和 device plugin 两个扩展点，前者给 Pod 两个 IP 接口（`eth0` 走内核协议栈；`net1` 也是内核接口，但 NCCL 只用它做握手），后者把 `/dev/infiniband/*` 挂进容器；NCCL 的数据面最终只经 verbs 直达 HCA，两条链在此汇合。唯一的交叉点是 NAD 上的 `resourceName` 注解——host-device/sriov 接法需要 CNI 知道 device plugin 分到了哪张网卡。
@@ -1031,6 +1039,7 @@ Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价：网络与存储
 | 项目 | 路径 | 关键符号 / 内容 |
 |---|---|---|
 | Multus CNI v4.3.1 | `pkg/k8sclient/k8sclient.go` | `networkAttachmentAnnot`（`k8s.v1.cni.cncf.io/networks`）· `resourceNameAnnot`（…`/resourceName`）· `defaultNetAnnot`<br/>`GetNetAttachDef`<br/>`getKubernetesDelegate` 读 `resourceName` |
+| ^^ | `pkg/draclient/draclient.go` | `GetPodResourceMap`：按 `ResourceClaim` 分配结果查 `ResourceSlice`，读设备属性 `k8s.cni.cncf.io/resourceName` / `deviceID` |
 | ^^ | `docs/thick-plugin.md` · `deployments/multus-daemonset{,-thick}.yml` | `thin/thick` 两种形态；`daemon-config.json` |
 | ^^ | `docs/configuration.md` | `clusterNetwork/delegates` · `namespaceIsolation` · `readinessindicatorfile` |
 | ^^ | `docs/how-to-use.md` · `examples/macvlan-pod.yml` | NAD 与 networks 注解的写法（JSON 形式含 `interface/ips/gateway`） |

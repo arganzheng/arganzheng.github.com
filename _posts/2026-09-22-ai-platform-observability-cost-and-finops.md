@@ -445,11 +445,19 @@ OpenCost v1.121.2 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 
 - **分配**：`applyGPUsAllocated` 用 kube-state-metrics 的 `kube_pod_container_resource_requests{resource="nvidia_com_gpu"}`（`modules/prometheus-source/pkg/prom/metricsquerier.go` 的 `queryFmtGPUsRequested`）或 OpenCost 自己导出的 `container_gpu_allocation`（`queryFmtGPUsAllocated`），`GPUHours = 请求数 × 小时`——注释写明"GPUHours reflects the full reserved GPU allocation (request × hours)"，即按分配不按使用；
 - **定价**：`applyNodeCostPerGPUHr` 读 `node_gpu_hourly_cost{node,instance_type,provider_id}`（OpenCost 自己从云厂商定价 API 或 `configs/*.json` 的自定义价生成，`default.json` 里 `"GPU": "0.95"`），然后 `GPUCost = GPUHours × CostPerGPUHr`；
-- **使用**：`applyGPUUsageAvg` / `applyGPUUsageMax` 从 `DCGM_FI_PROF_GR_ENGINE_ACTIVE{container!=""}` 按 `container, pod, namespace, pod_uid` 聚合（`queryFmtGPUsUsageAvg`），填进 `GPUUsageAverage`；它依赖 DCGM Exporter 开了 `--kubernetes` 映射，结果按 `namespace` / `pod` 对到分配（`newResultPodKey`），`pod_uid` 只是聚合维度之一，`--kubernetes-enable-pod-uid` 不开也能对上；
+- **使用**：`applyGPUUsageAvg` / `applyGPUUsageMax` 从 `DCGM_FI_PROF_GR_ENGINE_ACTIVE{container!=""}` 按 `container, pod, namespace, pod_uid` 聚合（`queryFmtGPUsUsageAvg`），填进 `GPUUsageAverage`；它依赖 DCGM Exporter 开了 `--kubernetes` 映射，结果按 `namespace` / `pod` 对到分配（`newResultPodKey`），`pod_uid` 只是聚合维度之一，`--kubernetes-enable-pod-uid` 不开也能对上（v1.121.2 的内置 collector 数据源还会在 DCGM 样本缺 `pod_uid` 时按 `namespace` / `pod` 从集群缓存回填，`modules/collector-source/pkg/scrape/dcgm.go` 的 `podUIDEnricher`）；
 - **共享**：`applyGPUUsageShared` 识别 `nvidia_com_gpu_shared` 资源名（GFD `renameByDefault=true` 时时间片副本的名字，第四篇）置 `IsGPUShared`；节点侧 `costmodel.go` 读 `nvidia.com/gpu.count` 标签与 `nvidia.com/gpu.shared` 容量区分物理卡数与副本数；
 - **闲置**：`costmodel.go` 里 `gpuIdleCost = assetTotal.TotalGPUCost() − allocTotal.TotalGPUCost()`，即节点上 GPU 的总成本减去分配出去的，就是"没给出去"的那部分（`1 − A`）；分配出去但没算的那部分（`A(1 − U)`）不在 OpenCost 的闲置定义里，要用 `GPUUsageAverage` 自己算。
 
-查询接口是 `/allocation/compute`（`pkg/costmodel/router.go`），参数 `window`、`aggregate`（支持 `namespace`、`label:team` 这样的形式，`core/pkg/opencost/allocationprops.go`）、`includeIdle`、`shareIdle`、`idleByNode`。**边界**：GPU 使用率用的是 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`；MIG 实例按 `nvidia_com_mig_*` 资源名不会被 `queryFmtGPUsRequested` 的 `resource="nvidia_com_gpu"` 过滤器匹配到（以 v1.121.2 源码为准），MIG 集群要么改资源名要么自己算；没有队列维度（它不认识 Kueue）；没有 token 维度。第十二章的 `allocate.py` 补这三样，其余照搬 OpenCost 的思路。
+查询接口是 `/allocation/compute`（`pkg/costmodel/router.go`），参数 `window`、`aggregate`（支持 `namespace`、`label:team` 这样的形式，`core/pkg/opencost/allocationprops.go`）、`includeIdle`、`shareIdle`、`idleByNode`。它的**边界**有五条：
+
+1. GPU 使用率用的是 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`。
+2. MIG 实例按 `nvidia_com_mig_*` 资源名，不会被 `queryFmtGPUsRequested` 的 `resource="nvidia_com_gpu"` 过滤器匹配到（以 v1.121.2 源码为准），MIG 集群要么改资源名要么自己算。
+3. 资源名规范化只有 kube-state-metrics 在做。v1.121.2 里 OpenCost 自己导出的 `kube_pod_container_resource_requests`（`pkg/metrics/kubemetrics.go` 与 collector 数据源 `modules/collector-source/pkg/scrape/clustercache.go` 里的 `toResourceUnitValue`）不再规范化资源名，`resource` 标签是原样的 `nvidia.com/gpu`；而 `queryFmtGPUsRequested`、collector 的 `NewGPUsRequestedMetricCollector` 与 `applyGPUUsageShared` 仍按 `nvidia_com_gpu` / `nvidia_com_gpu_shared` 精确匹配。用内置 collector 数据源，或 Prometheus 里这个指标只来自 OpenCost 自己时，`IsGPUShared` 不会被置上，`GPUHours` 只剩 `container_gpu_allocation` 一个来源（`applyGPUsAllocated` 优先用它，该序列缺失时为 0）；指标来自 kube-state-metrics 时不受影响。
+4. 没有队列维度（它不认识 Kueue）。
+5. 没有 token 维度。
+
+第十二章的 `allocate.py` 补上第 1、4、5 条，其余照搬 OpenCost 的思路。
 
 ### 4. 三种隐性成本
 
