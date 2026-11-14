@@ -5,7 +5,7 @@ title: "多模态（02）：VLM 的结构（下）：connector、注入方式与
 subtitle: "VLM Architecture (II): Connectors, Injection Methods and Resolution Strategies"
 tags: [AI, Multimodal, VLM, 架构]
 catalog: true
-updated: 2026-10-18
+updated: 2026-11-14
 ---
 
 VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector → 注入方式。上篇《[多模态（01）：VLM 的结构（上）：视觉编码器——CLIP、SigLIP 与自监督 ViT](/vision-encoders-clip-siglip-and-self-supervised-vit.html)》讲了视觉编码器，本篇讲其余三个。
@@ -28,7 +28,7 @@ VLM 由四个部件组成：分辨率策略 → 视觉编码器 → connector �
 | BLIP-2（2023） | 224 | EVA ViT-g | Q-Former（32 query） | 固定 32 | decoder 序列 | 32 |
 | LLaVA-1.5（2023） | 336 | CLIP-L/14-336 | 2 层 MLP | 无 | decoder 序列 | 576 |
 | Qwen-VL（2023） | 448 | ViT-bigG | cross-attention resampler（256 query） | 固定 256 | decoder 序列 | 256 |
-| LLaVA-NeXT（2024） | AnyRes ≤ 4 tile + 全图 | CLIP-L/14-336 | MLP | 无 | decoder 序列 | 576 × 5 = 2880 |
+| LLaVA-NeXT（2024） | AnyRes ≤ 4 tile + 全图 | CLIP-L/14-336 | MLP | 无 | decoder 序列 | ≤ 576 × 5 + 换行 ≈ 2.9K |
 | InternVL 1.5 / 2（2024） | 448 tile ≤ 40 + 缩略图 | InternViT-6B / 300M | pixel shuffle + MLP | 4× | decoder 序列 | 256 / tile |
 | Qwen2-VL（2024） | 原生动态 | 675M ViT，2D RoPE | 2×2 merge + MLP | 4× | decoder 序列 | $$HW / (28^2)$$，可设上下限 |
 | Llama 3.2 Vision（2024） | 560，≤ 4 tile | ViT-H/14 | 投影 | 无 | **cross-attention**（每 4 层插 1 层） | 不进序列 |
@@ -209,6 +209,34 @@ MM1（McKinzie 等 2024）的消融：connector 的类型（MLP / 池化 / C-Abs
 
 connector 解决的是「翻译成 LLM 的向量」，注入方式解决的是「翻译好的向量放在哪里」：塞进文本序列里当普通 token，还是不进序列、让文本 token 隔着层来 attend。前者什么都不用改，后者不占上下文但要动 LLM。
 
+两种注入的差别落在 LLM 的每一层上，下面这张图把一张图片在两条路径里经过的地方画出来：
+
+```mermaid
+%% 图：序列注入与 cross-attention 注入：图片特征在 LLM 各层里经过哪里、KV 存在哪里
+flowchart LR
+    subgraph A["A. 序列注入（LLaVA、Qwen2-VL）"]
+        direction TB
+        A1["<b>输入序列</b><br/>文本、N 个 image token、文本<br/>序列长度 T + N"] --> A2["<b>第 1 层</b><br/>self-attention + FFN<br/>image token 与文本 token 一起算"]
+        A2 --> A3["<b>第 2 … L 层</b><br/>与第 1 层相同<br/>image token 每层都过 FFN"]
+        A3 --> A4["<b>KV cache</b><br/>每层存 T + N 个位置"]
+    end
+    subgraph B["B. cross-attention 注入（Llama 3.2 Vision）"]
+        direction TB
+        V["<b>视觉特征</b><br/>N 个向量，不进序列"]
+        B1["<b>输入序列</b><br/>只有文本 token + 1 个图片占位符<br/>序列长度 T + 1"] --> B2["<b>原有的自注意力层 ×3–4</b><br/>只看文本，权重冻结"]
+        B2 --> B3["<b>gated cross-attention 层</b><br/>Q = 文本，K / V = 视觉特征<br/>输出 × tanh(α)，α 从 0 开始"]
+        V --> B3
+        B3 --> B4["<b>重复</b><br/>11B：40 层里第 3、8、13 … 38 层是 cross 层，共 8 层"]
+        B4 --> B5["<b>两份 KV cache</b><br/>自注意力：T + 1 个位置 × 32 层<br/>cross：N 个视觉 K / V × 8 层，prefill 算一次、decode 复用"]
+    end
+    A ~~~ B
+
+    classDef img fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef llm fill:#fff7e0,stroke:#c98a00,color:#222
+    class A1,V img
+    class A2,A3,A4,B1,B2,B3,B4,B5 llm
+```
+
 ### 1. decoder 序列注入
 
 图片 token 与文本 token 拼成一个序列送进 LLM，图片 token 占据序列位置、参与 causal attention、有自己的位置编码、产生 KV。LLM 结构不改，只是输入里有一段"看不懂但能 attend"的 token。LLaVA 起的所有主流 VLM 都是这个。
@@ -223,6 +251,25 @@ Flamingo 与 Llama 3.2 Vision：图片特征**不进**序列。LLM 的每 $$k$$ 
 
 ### 3. 为什么主流是序列注入
 
+拿一个具体模型算一次账。Llama 3.2 11B Vision 的文本部分就是 Llama 3.1 8B（32 层、hidden 4096、8 个 KV head × 128 维），另插 8 个 cross-attention 层；一张切满 4 个 $$560 \times 560$$ tile 的图片，编码器输出 $$4 \times (40^2 + 1) = 6404$$ 个视觉特征（数字取自 Hugging Face 上 `Llama-3.2-11B-Vision-Instruct` 的 `config.json`，2024-09 发布）。右列是假设：把同样 6404 个特征按序列注入塞进同一个 8B 文本模型。
+
+| 一张 4-tile 图片 | cross-attention 注入（实际） | 同样 6404 个特征走序列注入（假设） |
+|---|---:|---:|
+| 占用文本上下文 | 1 个位置（<code>&lt;&#124;image&#124;&gt;</code> 占位符） | 6404 个位置 |
+| 视觉特征经过的层 | 8 个 cross 层，只做 K、V 投影 | 32 层，attention + FFN 全算 |
+| 视觉特征的线性层 FLOPs | $$8 \times 2 \times 2 \times 4096 \times 1024 \times 6404 \approx 0.86$$ T | $$2 \times 6.98\text{B} \times 6404 \approx 89$$ T |
+| 视觉部分的 KV cache（bf16） | $$8 \times 2 \times 1024 \times 2\,\text{B} \times 6404 \approx 200$$ MiB | $$32 \times 2 \times 1024 \times 2\,\text{B} \times 6404 \approx 800$$ MiB |
+| 新增的 LLM 参数 | 8 × 218M ≈ 1.7B | 0（只有 connector） |
+
+Table: Llama 3.2 11B Vision 一张图片的两种注入成本
+
+表里的 6.98B 是 8B 模型每层线性层参数（$$2 \times 4096^2 + 2 \times 4096 \times 1024 + 3 \times 4096 \times 14336 \approx 218$$M）乘 32 层，不含词表；218M 也正是一个 cross 层的参数量——它带着一整套 Q、K、V、O 与 SwiGLU FFN。表里没算两边都有的部分：视觉编码器本身，以及 attention 里与序列长度平方相关的项。
+
+读这张表要注意两点：
+
+1. cross-attention 注入省的是**每个视觉特征的成本**，约 100 倍——视觉特征不过 FFN、只在 8 层出现。所以它敢每张图给 6404 个特征，序列注入的模型通常要先压到 1–3K（LLaVA-NeXT 约 2.3K、Qwen2-VL 推荐配置 ≤ 1280）。
+2. 省下来的成本换成了 1.7B 要从零训练的参数，以及一套推理引擎里单独的 attention 路径；90B 版本里这部分约 20B，第 2 节拆开过这个数。
+
 Llama 3.2 Vision 是 2024 年唯一的主流 cross-attention 模型，它的选择有明确的动机：Meta 要保证视觉版本的文本能力**与 Llama 3.1 完全一致**（产品承诺），且愿意为此付出 20B 参数与单独的训练。多数团队没有这个约束，序列注入的简单性与生态兼容性胜出。NVLM（NVIDIA 2024）做了直接对照：同数据下 decoder 序列注入（NVLM-D）在 OCR 与推理任务上优于 cross-attention（NVLM-X），后者训练更快；他们的折中是混合结构（NVLM-H：缩略图进序列、高分辨率 tile 走 cross-attention）。
 
 一个中间形态值得知道：**序列注入 + 图片 token 不产生 loss、用双向 attention**。PaliGemma 让图片 token 之间用双向 attention（prefix 部分非因果），文本部分因果——图片内部的 patch 本来就没有先后顺序，双向让每个 patch token 看到全图。这不改变注入方式，只改 mask。
@@ -235,30 +282,75 @@ LLaVA-1.5 把任何图 resize（保持宽高比、pad 到正方形）到 $$336^2
 
 ### 2. AnyRes：切 tile
 
-LLaVA-NeXT（2024）：把图按预设的网格（$$1 \times 2$$、$$2 \times 2$$、$$1 \times 3$$……从一组候选里选与原图宽高比最接近、且总 tile 数不超上限的）切成若干 $$336^2$$ 的 tile，每个 tile 独立过编码器得 576 个 token；再加一个全图 resize 到 $$336^2$$ 的**缩略图**（global view）提供全局上下文。$$2 \times 2$$ + 缩略图 = 2880 个 token。InternVL 1.5 把上限推到 40 个 tile（$$448^2$$，压缩后每 tile 256 token → 最多 10K token），Molmo 12 个。
+LLaVA-NeXT（2024）：把图按预设的网格（$$1 \times 2$$、$$2 \times 2$$、$$3 \times 1$$……从一组候选里选能装下最多有效像素的）切成若干 $$336^2$$ 的 tile，每个 tile 独立过编码器得 576 个 token；再加一个全图 resize 到 $$336^2$$ 的**缩略图**（global view）提供全局上下文。$$2 \times 2$$ + 缩略图最多约 2.9K 个 token（第 3 节有一张照片的逐步计算）。InternVL 1.5 把上限推到 40 个 tile（$$448^2$$，压缩后每 tile 256 token → 最多 10K token），Molmo 12 个。
 
 缩略图的作用被反复证实：没有它，模型看到的是四块互不相连的局部，对"这张图整体是什么"的判断变差；有它，全局与局部都有。tile 之间在 LLM 里通过 attention 交互，但**编码器内部**tile 是独立的——一个跨 tile 边界的物体，两半各自被编码，编码器不知道它们是同一个东西。对文字行尤其明显：一行字被切成两段。
 
 ### 3. 网格选择与 token 预算
 
-AnyRes 的网格候选是超参数：LLaVA-NeXT 用 $$\{1 \times 1, 1 \times 2, 2 \times 1, 2 \times 2, 1 \times 3, 3 \times 1\}$$（≤ 4 tile）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则（LLaVA-NeXT 的 `select_best_resolution`）：对每个候选网格，把图保持宽高比缩放到刚好装进去，算"有效像素"（缩小后剩下的像素数，放大不算）与"浪费"（网格面积减有效像素），选有效像素最多、浪费最少的：
+AnyRes 的网格候选是超参数：LLaVA-NeXT 发布的 `llava-v1.6` 配置（`image_grid_pinpoints`）只有 5 个——$$1 \times 2$$、$$2 \times 1$$、$$2 \times 2$$、$$3 \times 1$$、$$1 \times 3$$（行 × 列，≤ 4 tile，没有 $$1 \times 1$$）；InternVL 用 1 到 40 个 tile 的所有宽高比组合。选择规则（LLaVA-NeXT 的 `select_best_resolution`）：对每个候选网格，把图保持宽高比缩放到刚好装进去，算"有效像素"（缩小后剩下的像素数，放大不算）与"浪费"（网格面积减有效像素），选有效像素最多、浪费最少的。选完以后还有两步会改 token 数：缩放后没占满网格的补边，对应的 patch 特征被裁掉（`unpad`）；特征网格每一行末尾加一个可学习的换行 token（`image_newline`），让 LLM 知道一行在哪里结束。按 Hugging Face `LlavaNextProcessor` 的算法写出来：
 
-```python title="tokens_anyres：LLaVA-NeXT 的网格选择"
+```python title="tokens_anyres：LLaVA-NeXT 的网格选择与 token 数"
 def tokens_anyres(h, w, side=336, patch=14):
-    grids = [(1, 1), (1, 2), (2, 1), (2, 2), (1, 3), (3, 1)]             # (行, 列) 的候选网格
+    grids = [(1, 2), (2, 1), (2, 2), (3, 1), (1, 3)]                     # (行, 列)
     best, best_key = None, None
     for r, c in grids:
         gh, gw = r * side, c * side
-        scale = min(gw / w, gh / h)                                      # ① 保持宽高比缩放到网格里
-        eff = min(int(w * scale) * int(h * scale), w * h)                # ② 有效像素：放大不算
-        waste = gw * gh - eff                                            # ③ 网格里没被图占住的面积
+        # !ref scale
+        scale = min(gw / w, gh / h)
+        # !ref eff
+        eff = min(int(w * scale) * int(h * scale), w * h)
+        # !ref waste
+        waste = gw * gh - eff
         key = (eff, -waste)
         if best_key is None or key > best_key:
             best, best_key = (r, c), key
-    return (best[0] * best[1] + 1) * (side // patch) ** 2                # ④ tile 数 × 576 + 一张缩略图
+    r, c = best
+    n = side // patch                                                    # 每个 tile 24 × 24 个 patch
+    # !ref grid
+    fh, fw = r * n, c * n
+    # !ref unpad +5
+    if w / h > fw / fh:
+        pad = (fh - int(h * fw / w)) // 2
+        fh -= 2 * pad
+    else:
+        pad = (fw - int(w * fh / h)) // 2
+        fw -= 2 * pad
+    # !ref total
+    return fh * fw + fh + n * n
 ```
 
-一张 $$1080 \times 2400$$ 的手机截图：$$1 \times 3$$ 的网格（$$336 \times 1008$$）宽高比最接近，3 个 tile + 缩略图 = 2304 token；一张 $$64 \times 64$$ 的小图标也得占 $$1 \times 1$$ + 缩略图 = 1152 token——放大 5 倍再切，全是浪费。token 预算随 tile 数线性增长，一张 $$4000 \times 3000$$ 的文档照片在 InternVL 里可能用掉 25 个 tile = 6400 token。
+拿一张 $$768 \times 1024$$（宽 × 高）的竖版照片走一遍。先对 5 个候选网格各算一次[缩放](#scale)、[有效像素](#eff)与[浪费](#waste)：
+
+| 网格（行 × 列） | 网格像素（宽 × 高） | 缩放 | 缩放后 | 有效像素 | 浪费 |
+|---|---|---:|---|---:|---:|
+| 1 × 2 | 672 × 336 | 0.328 | 252 × 336 | 84,672 | 141,120 |
+| 2 × 1 | 336 × 672 | 0.438 | 336 × 448 | 150,528 | 75,264 |
+| **2 × 2** | **672 × 672** | **0.656** | **504 × 672** | **338,688** | 112,896 |
+| 3 × 1 | 336 × 1008 | 0.438 | 336 × 448 | 150,528 | 188,160 |
+| 1 × 3 | 1008 × 336 | 0.328 | 252 × 336 | 84,672 | 254,016 |
+
+Table: 768 × 1024 照片在 5 个候选网格上的有效像素与浪费
+
+$$2 \times 2$$ 的有效像素最多，选中。照片在 $$672 \times 672$$ 的网格里是这样放的：
+
+![LLaVA-NeXT AnyRes 处理一张 768 × 1024 照片：左边是 2×2 网格（672 × 672），照片缩放到 504 × 672 居中，左右各补 84 像素的灰边，红色虚线把网格切成 4 个 336 × 336 的 tile；右边是整张照片直接压到 336 × 336 的缩略图](/img/in-post/multimodal-02-anyres-tiling.svg)
+
+4 个 tile 与缩略图各过一次编码器，各得 $$24 \times 24$$ 个 patch 特征；4 个 tile 的特征按位置拼回[一张 $$48 \times 48$$ 的特征网格](#grid)，再[裁掉补边](#unpad)，最后[加上每行的换行 token 与缩略图](#total)：
+
+| 部分 | 形状 | token 数 |
+|---|---|---:|
+| 缩略图 | 24 × 24 | 576 |
+| 4 个 tile 拼成的特征网格 | 48 × 48 | （2304） |
+| 裁掉左右补边：84 px ÷ 14 = 每边 6 列 | 48 × 36 | 1728 |
+| 每行末尾一个换行 token | 48 行 | 48 |
+| 合计 | | 2352 |
+
+Table: 768 × 1024 照片在 LLaVA-NeXT 里的 token 数
+
+进 LLM 的顺序是缩略图的 576 个在前，tile 特征按行展开在后。常被引用的「$$2 \times 2$$ + 缩略图 = 2880」是 $$5 \times 576$$ 的上限，只有正方形图（没有补边）才接近，而且还要加 48 个换行 token：一张 $$1024 \times 1024$$ 的图是 2928。
+
+再看两个极端：一张 $$1080 \times 2400$$ 的手机截图选 $$3 \times 1$$（3 行 1 列，宽 336 × 高 1008），特征网格 $$72 \times 24$$，上下裁掉 18 行补边后是 $$54 \times 24$$，加 54 个换行和 576 个缩略图 token，共 1926；一张 $$64 \times 64$$ 的小图标所有网格都要放大，有效像素都是 4096，于是选浪费最少的 $$1 \times 2$$，放大 5 倍后裁成 $$24 \times 24$$，共 $$576 + 24 + 576 = 1176$$ 个 token——全是放大出来的冗余。token 预算随 tile 数线性增长，一张 $$4000 \times 3000$$ 的文档照片在 InternVL 里可能用掉 25 个 tile = 6400 token。
 
 tile 方案的优点是编码器**完全不变**（每个 tile 是标准的 $$336^2$$ 或 $$448^2$$ 输入，位置编码不需要插值），可以直接用任何现成的 CLIP / SigLIP。这是它在 2024 年流行的工程原因。
 
@@ -281,11 +373,30 @@ def tokens_native(h, w, unit=28, lo=256, hi=1280):
     return int(min(max(n, lo), hi))                                      # 夹在上下限之间
 ```
 
-上面的 `lo=256, hi=1280` 是 Qwen2-VL 模型卡里**推荐的部署配置**，不是 processor 的默认——公开 `preprocessor_config.json` 的默认是 `min_pixels = 3136`（4 个 token）、`max_pixels = 12845056`（16384 个 token）。而且真实 processor 不是"算完 token 再夹"：它先把像素数夹到 [min, max] 内**缩放图片**、再 round 到 28 的倍数，所以小图会被放大、大图会被缩小，而不是 token 数被截断。按推荐配置：$$224 \times 224$$ 会被放大到约 $$448 \times 448$$ 得 256 个 token；$$1344 \times 896$$（一页文档）1536 超上限，图片被缩到约 $$1260 \times 840$$ 得 1350 → round 后落在 1280 附近。**token 数与（缩放后的）像素数成正比**，预算以 processor 输出的 `image_grid_thw` 为准。
+上面的 `lo=256, hi=1280` 是 Qwen2-VL 模型卡里**推荐的部署配置**，不是 processor 的默认——公开 `preprocessor_config.json` 的默认是 `min_pixels = 3136`（4 个 token）、`max_pixels = 12845056`（16384 个 token）。而且真实 processor 不是"算完 token 再夹"：它先把像素数夹到 [min, max] 内**缩放图片**、再 round 到 28 的倍数，所以小图会被放大、大图会被缩小，而不是 token 数被截断。按推荐配置：$$224 \times 224$$ 会被放大到约 $$448 \times 448$$ 得 256 个 token；$$1344 \times 896$$（一页文档）按 28 取整是 1536 个 token，超上限，图片被缩到 $$1204 \times 812$$，得 1247 个 token。**token 数与（缩放后的）像素数成正比**，预算以 processor 输出的 `image_grid_thw` 为准。
+
+按 Hugging Face `Qwen2VLImageProcessor` 里的 `smart_resize` 对四张图各算一遍（推荐配置 `min_pixels` = $$256 \times 28^2$$、`max_pixels` = $$1280 \times 28^2$$；最后一列是不设推荐上下限、用 `preprocessor_config.json` 默认值的结果）：
+
+| 原图（宽 × 高） | resize 后（宽 × 高） | ViT patch 网格（高 × 宽） | 2×2 merge 后 | token 数 | 默认配置的 token 数 |
+|---|---|---|---|---:|---:|
+| 224 × 224 小图 | 448 × 448（放大到下限） | 32 × 32 = 1024 | 16 × 16 | 256 | 64 |
+| 768 × 1024 照片 | 756 × 1036 | 74 × 54 = 3996 | 37 × 27 | 999 | 999 |
+| 1344 × 896 文档 | 1204 × 812（缩到上限内） | 58 × 86 = 4988 | 29 × 43 | 1247 | 1536 |
+| 1080 × 2400 手机截图 | 672 × 1484（缩到上限内） | 106 × 48 = 5088 | 53 × 24 | 1272 | 3354 |
+
+Table: Qwen2-VL 原生分辨率下四张图的 patch 网格与 token 数
+
+表里能读出三点：
+
+1. resize 只把边长调到 28 的倍数，宽高比基本不变（$$768 \times 1024$$ → $$756 \times 1036$$）；超上限时两条边按同一比例缩、再向下取整到 28 的倍数，所以文档落在 1247 而不是正好 1280。
+2. ViT 看到的是 merge 之前的 patch 网格（几千个），LLM 看到的是 merge 之后的四分之一。第 3 节说的 ViT attention 成本按前者算。
+3. 同一张 $$768 \times 1024$$ 照片，LLaVA-NeXT 给 2352 个 token（第四章第 3 节），Qwen2-VL 给 999 个；差别来自两处：LLaVA-NeXT 多一份 576 个 token 的缩略图；它每个 token 对应 $$14 \times 14$$ 像素，Qwen2-VL 合并后每个 token 对应 $$28 \times 28$$。
+
+每张图在序列里还要多两个文本 token：前面的 `<|vision_start|>` 与后面的 `<|vision_end|>`。
 
 ### 2. 它解决了什么
 
-对照 tile 的三个问题：**边界**——全图在一个 ViT 的 attention 里，跨区域的物体与文字行完整；**失真**——不 pad 不拉伸（只 resize 到 28 的倍数，误差 < 14 像素）；**效率**——一张小图标 64 个 token 而不是 576，一张宽的横幅按实际比例给 token。Qwen2-VL 在 DocVQA（94.5）、InfoVQA、OCRBench 等文档任务上相比 tile 方案有明显优势，且 token 用得更少。
+对照 tile 的三个问题：**边界**——全图在一个 ViT 的 attention 里，跨区域的物体与文字行完整；**失真**——不 pad 不拉伸（只 resize 到 28 的倍数，误差 < 14 像素）；**效率**——一张 $$224 \times 224$$ 的小图在默认配置下 64 个 token 而不是 576，一张宽的横幅按实际比例给 token。Qwen2-VL 在 DocVQA（94.5）、InfoVQA、OCRBench 等文档任务上相比 tile 方案有明显优势，且 token 用得更少。
 
 ### 3. 代价与 Qwen2.5-VL 的窗口 attention
 
@@ -313,6 +424,44 @@ Qwen2.5-VL 用**绝对时间**的 M-RoPE（时间维的位置 id 与真实秒数
 
 [04-13](/multimodal-vision-encoder-cost-and-image-token-kv.html)第六章讲了 M-RoPE 的结构：head_dim 分成三段，分别编码时间、高、宽。文本 token 三个 id 相同（退化为 1D RoPE）；图片 token 时间 id 固定、高宽 id 是二维网格位置；视频 token 时间 id 随帧递增。它让 LLM 用同一套位置编码处理三种模态，且图片内部的相对位置（"左边的物体"）在 RoPE 的相对性下有意义。后续 token 的位置 id 从图片占据的最大 id + 1 开始，所以一张 $$32 \times 32$$ token 的图只"消耗"32 个位置而不是 1024 个——对长上下文外推有利。
 
+具体看一个小例子：两个文本 token，接一张 merge 后只有 $$2 \times 3$$ 个 token 的小图，再接两个文本 token。按 Hugging Face `Qwen2VLForConditionalGeneration.get_rope_index` 的规则，每个 token 的三个位置 id 是：
+
+| token | 时间 t | 高 h | 宽 w |
+|---|---:|---:|---:|
+| 文本 1 | 0 | 0 | 0 |
+| 文本 2 | 1 | 1 | 1 |
+| <code>&lt;&#124;vision_start&#124;&gt;</code> | 2 | 2 | 2 |
+| 图 (0, 0) | 3 | 3 | 3 |
+| 图 (0, 1) | 3 | 3 | 4 |
+| 图 (0, 2) | 3 | 3 | 5 |
+| 图 (1, 0) | 3 | 4 | 3 |
+| 图 (1, 1) | 3 | 4 | 4 |
+| 图 (1, 2) | 3 | 4 | 5 |
+| <code>&lt;&#124;vision_end&#124;&gt;</code> | 6 | 6 | 6 |
+| 文本 3 | 7 | 7 | 7 |
+| 文本 4 | 8 | 8 | 8 |
+
+Table: M-RoPE 的位置 id：两段文本夹一张 2 × 3 token 的图
+
+规则就三条：
+
+1. 文本 token 三个 id 相同，逐个加 1——与普通 1D RoPE 完全一样。
+2. 图片 token 的三个 id 都从「前一个 token 的 id + 1」（这里是 3）起算：t 对整张图固定，h 加行号，w 加列号。所以同一行的 token h 相同、同一列的 w 相同，「左边的物体」「上面一行字」在 RoPE 的相对位置里有意义。
+3. 图片之后的 token 从三个轴里最大的 id + 1 开始（这里最大是 w 的 5，所以 `<|vision_end|>` 是 6）。6 个图片 token 只推进了 3 个位置；一张 $$32 \times 32$$ token 的图 1024 个 token，只推进 32 个位置。
+
+head_dim 的分段也是配置里写死的：Qwen2-VL-7B 的 `config.json` 里 `mrope_section = [16, 24, 24]`，head_dim 128 的 64 对旋转频率里，16 对用 t、24 对用 h、24 对用 w。
+
+视频把 t 用起来。Qwen2-VL 的视频先按 2 帧一组做 3D patch（`temporal_patch_size` = 2），每组一个 t；Qwen2.5-VL 把 t 换成真实时间：$$t = \text{组序号} \times \frac{2}{\text{fps}} \times 2$$（`tokens_per_second` = 2，即每秒推进 2 个 t）。同一段 4 秒视频，两种采样率下每组 token 的 t（相对图片起点）：
+
+| 采样 | 帧数 → 组数 | Qwen2-VL 的 t | Qwen2.5-VL 的 t |
+|---|---|---|---|
+| 2 fps | 8 帧 → 4 组 | 0, 1, 2, 3 | 0, 2, 4, 6 |
+| 1 fps | 4 帧 → 2 组 | 0, 1 | 0, 4 |
+
+Table: 4 秒视频在两种采样率下的时间位置 id
+
+Qwen2-VL 里 t 差 1 可能是 1 秒也可能是 2 秒，取决于采样率；Qwen2.5-VL 里 t 差 2 永远是 1 秒，所以模型能回答「第 3 秒发生了什么」。
+
 ### 3. 多图与交错
 
 decoder 序列注入下多图是自然的：每张图的 token 出现在它在文本里的位置，`<image>` 占位符被替换。挑战在**token 预算的分配**——十张图各 1000 token 就是 10K；InternVL、Qwen2-VL 对多图场景自动降低每张图的分辨率上限。交错图文（网页、论文、漫画）的训练数据（MMC4、OBELICS）让模型学会图与它附近文本的对应。
@@ -321,21 +470,21 @@ decoder 序列注入下多图是自然的：每张图的 token 出现在它在�
 
 ### 1. 五张图、三种策略
 
-把前三章的三个函数对几张常见的图各算一遍：
+把固定分辨率、第四章的 `tokens_anyres` 与第五章的 `smart_resize` 对几张常见的图各算一遍：
 
-| 图 | 固定 $$336^2$$ | AnyRes ≤ 4 tile | 原生动态（28 px / token） |
+| 图 | 固定 $$336^2$$ | AnyRes（LLaVA-NeXT） | 原生动态（Qwen2-VL 推荐配置） |
 |---|---:|---:|---:|
-| 手机截图 1080 × 2400 | 576 | 2304 | 1280（上限） |
-| A4 文档照片 3000 × 2100 | 576 | 2880 | 1280（上限；不设上限是 8036） |
-| 小图标 64 × 64 | 576 | 1152 | 256（下限；不设下限是 5） |
-| 横幅 400 × 1600 | 576 | 2304 | 798 |
-| 普通照片 768 × 1024 | 576 | 2880 | 999 |
+| 手机截图 1080 × 2400 | 576 | 1926 | 1272（缩到上限内） |
+| A4 文档照片 3000 × 2100 | 576 | 2242 | 1218（缩到上限内；不设上限约 8000） |
+| 小图标 64 × 64 | 576 | 1176 | 256（放大到下限） |
+| 横幅 400 × 1600 | 576 | 1944 | 798 |
+| 普通照片 768 × 1024 | 576 | 2352 | 999 |
 
 Table: 几张常见图片在三种分辨率策略下的 token 数
 
 ![横轴正方形图的边长 64–2048 像素，纵轴进 LLM 的 token 数：固定策略是 576 的水平线；AnyRes 是台阶——小图 1152、约 350 像素以上跳到 2880；原生动态沿抛物线（像素 / 784）上升，在 256 与 1280 处被上下限夹平](/img/in-post/multimodal-02-token-budget.svg)
 
-固定策略对什么图都是 576——小图浪费、大图糊；AnyRes 是台阶，一张 400 像素的图就要 2880；原生动态让 token 数跟着像素走。同样一张普通照片，三种策略给 LLM 的 token 数是 576 : 2880 : 999，prefill 的算力与 KV 也按这个比例。
+固定策略对什么图都是 576——小图浪费、大图糊；AnyRes 是台阶，一张 400 像素的图就要 2880；原生动态让 token 数跟着像素走。同样一张普通照片，三种策略给 LLM 的 token 数是 576 : 2352 : 999，prefill 的算力与 KV 也按这个比例。图里的 AnyRes 台阶用的是简化算法（tile 数 × 576 + 576）；正方形图没有补边可裁，与实际 processor 只差每行一个换行 token（1152 对 1176、2880 对 2928）。
 
 ### 2. 一张效果矩阵
 
@@ -381,7 +530,7 @@ VLM 训练的显存主要由 LLM 决定（与文本 SFT 相同），图片 token
 
 该看的：DocVQA 随 token 预算的曲线是否陡而 MMBench 是否平；token 数与 prefill 时间的线性关系；LLaVA-NeXT 相比 LLaVA-1.5 在 DocVQA 上的提升是否远大于在 MMBench 上的。再挑几张跨 tile 边界有文字行的图，比较 AnyRes 与原生动态的输出。不引用任何未跑过的数字。
 
-配套代码：第二章四种 connector 的形状与信息损失、第四、五、七章的 token 数与两张图由 [`multimodal/02_connectors_and_resolution.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/multimodal/02_connectors_and_resolution.py) 产生（`connectors` / `budget` 两个子实验），CPU 一秒跑完。
+配套代码：第二章四种 connector 的形状与信息损失、第七章的 token 预算曲线等图由 [`multimodal/02_connectors_and_resolution.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/multimodal/02_connectors_and_resolution.py) 产生（`connectors` / `budget` 两个子实验），CPU 一秒跑完；其中的 `tokens_anyres` 是不裁补边、不加换行 token 的简化版。第四、五、七章表里的 token 数按 Hugging Face `LlavaNextProcessor` 与 `smart_resize` 的算法计算。
 
 ## 十、本文小结
 
@@ -439,6 +588,22 @@ Table: VLM 结构的规则小结
    <details markdown="1"><summary>答案</summary>
 
    冻结原层后文本能力严格不变（文本路径没有任何改动，图片不进序列、不占文本上下文；视觉 K/V 另存可复用，不是没有 KV）；付出 +20B 参数的 cross-attention 层（每层含 FFN）、推理引擎需要特殊支持、图文交互不如序列注入深。
+
+   </details>
+
+6. 一张 $$768 \times 1024$$（宽 × 高）的照片进 LLaVA-NeXT，选哪个网格、最后多少个 token？进 Qwen2-VL（推荐配置）呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$2 \times 2$$（有效像素 338,688 最多）；特征网格 $$48 \times 48$$ 裁掉左右各 6 列补边成 $$48 \times 36 = 1728$$，加 48 个换行与 576 个缩略图 token，共 2352。Qwen2-VL resize 到 $$756 \times 1036$$，merge 后 $$37 \times 27 = 999$$。
+
+   </details>
+
+7. Qwen2-VL 里文本 token 的 id 是 9，后面接一张 merge 后 $$4 \times 6$$ 个 token 的图（不计 vision_start / end）。图片最后一个 token 的 (t, h, w) 是多少？图片之后的第一个 token 的 id 是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   图片 id 从 10 起：最后一个 token 在第 3 行第 5 列，(t, h, w) = (10, 13, 15)；之后的 token 从最大 id 15 + 1 = 16 开始。24 个图片 token 只推进了 6 个位置。
 
    </details>
 

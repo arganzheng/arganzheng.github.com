@@ -100,10 +100,27 @@ flowchart TB
 | 模型 | 策略 | 一张大图的 token |
 |---|---|---|
 | LLaVA-1.5 | 固定 336² | 576 |
-| LLaVA-NeXT | AnyRes tile | 2880 |
+| LLaVA-NeXT | AnyRes tile | 768 × 1024 → 2352（上限 ≈ 2.9K） |
 | InternVL | ≤ 40 tile | ≈ 10K |
 | Qwen2-VL | 原生分辨率，HW / 28² | 1024² → 1369 |
 | Llama 3.2 Vision | cross-attention 注入 | 不占上下文，但 **+20B 参数**、单独训练 |
+
+<!-- v -->
+
+### 两种注入的成本：Llama 3.2 11B 的一张 4-tile 图
+
+| 6404 个视觉特征 | cross-attention 注入 | 假设走序列注入 |
+|---|---:|---:|
+| 占用上下文 | 1 个位置 | 6404 个位置 |
+| 视觉特征的线性层 FLOPs | ≈ 0.86 T | ≈ 89 T |
+| 视觉 KV（bf16） | ≈ 200 MiB | ≈ 800 MiB |
+| 新增 LLM 参数 | ≈ 1.7B（8 个 cross 层） | 0 |
+
+**每个视觉特征便宜约 100 倍，换来 1.7B 要从零训的参数**
+
+<aside class="notes" markdown="1">
+原文第三章第 3 节。文本部分 = Llama 3.1 8B（32 层、hidden 4096、8 KV head × 128），40 层里第 3、8 … 38 层是 cross 层；一张 4 tile 图 4 × (40² + 1) = 6404 个特征。cross 层只对视觉特征做 K、V 投影，不过 FFN；90B 版本这部分约 20B。
+</aside>
 
 ---
 
