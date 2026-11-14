@@ -370,7 +370,7 @@ flowchart TB
 
 Table: EPP 插件类型与实名清单
 
-brief 里提到的 `lora-affinity`，在 v0.10.0 的类型名是 `lora-affinity-scorer`（`scorer/loraaffinity/lora_affinity.go` 的 `LoraAffinityScorerType`）；`pd-profile-handler` 存在但已标 Deprecated，替代者是 `disagg-profile-handler`（`profilehandler/disagg/README.md`）。
+LoRA 亲和打分器在 v0.10.0 的类型名是 `lora-affinity-scorer`（`scorer/loraaffinity/lora_affinity.go` 的 `LoraAffinityScorerType`）；`pd-profile-handler` 存在但已标 Deprecated，替代者是 `disagg-profile-handler`（`profilehandler/disagg/README.md`）。
 
 ### 3. `EndpointPickerConfig` 与加权打分
 
