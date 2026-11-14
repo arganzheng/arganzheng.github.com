@@ -162,7 +162,13 @@ flowchart TB
   class RC0,RC1 rc;
 ```
 
-所以 PCIe P2P 的带宽从"同 switch"到"跨 socket"是一条下坡路：同 switch 下能接近链路带宽的 80–90%；经 root complex 通常明显更低且随 CPU 平台差异很大；跨 socket 最差。NCCL 对这几段各有一个内部估算值，见本章第 5 节。
+所以 PCIe P2P 的带宽从"同 switch"到"跨 socket"是一条下坡路：
+
+1. 同 switch 下能接近链路带宽的 80–90%；
+2. 经 root complex 通常明显更低，且随 CPU 平台差异很大；
+3. 跨 socket 最差。
+
+NCCL 对这几段各有一个内部估算值，见本章第 5 节。
 
 ### 4. 为什么跨 root complex 的 P2P 可能"不可用"：ACS 与 IOMMU
 
@@ -260,7 +266,13 @@ flowchart TB
 
 NVSwitch 把这变成了交换网络。每张 GPU 的所有链路全部接到 NVSwitch 芯片上（DGX A100 用 6 颗第二代 NVSwitch，每卡 12 条链路每颗 switch 各 2 条；DGX H100 用 4 颗第三代 NVSwitch，每卡 18 条链路分到 4 颗上），任意两张 GPU 之间的流量由 switch 交换。效果是：**任意一对 GPU 之间都能用满发送方的全部链路带宽**，与它们的编号无关；8 张卡同时全速对外发送，switch 的总交换容量足以承载（DGX H100 的 4 颗 NVSwitch 合计双向 7.2 TB/s，正好是 8 × 900 GB/s）。这就是"any-to-any 全带宽"，也是 `nvidia-smi topo -m` 里 GPU 之间清一色 `NV12` 或 `NV18` 的物理含义。
 
-对代价模型的意义：节点内 8 卡的 β 是一个常数，不随"谁和谁通信"变化；ring 的每一步都以同样的带宽进行；tree 的每条边也一样。NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——第四篇会看到它甚至不必真的搜索。
+对代价模型的意义：
+
+- 节点内 8 卡的 β 是一个常数，不随"谁和谁通信"变化；
+- ring 的每一步都以同样的带宽进行；
+- tree 的每条边也一样。
+
+NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——第四篇会看到它甚至不必真的搜索。
 
 ### 3. 为什么 NVLink 上的 all_reduce 几乎不受消息大小影响
 
@@ -371,7 +383,11 @@ Table: 每张 H100 的三条对外链路与整机汇总
 
 Table: nvidia-smi topo 的六个等级
 
-`NODE` 与 `PHB` 的区分在多数双路服务器上不明显（一个 NUMA 节点通常就是一颗 CPU 一个 host bridge），在把一颗 CPU 划成多个 NUMA 节点（AMD 的 NPS 模式、Intel 的 SNC）的机器上会出现。从排障角度可以把六级压成三档：`NV#` 是 NVLink，几百 GB/s；`PIX`/`PXB` 是 PCIe switch 内，几十 GB/s，P2P 与 GPUDirect RDMA 都能全速；`PHB`/`NODE`/`SYS` 是经过了 CPU，带宽打折、延迟增加、P2P 可能被禁用。
+`NODE` 与 `PHB` 的区分在多数双路服务器上不明显（一个 NUMA 节点通常就是一颗 CPU 一个 host bridge），在把一颗 CPU 划成多个 NUMA 节点（AMD 的 NPS 模式、Intel 的 SNC）的机器上会出现。从排障角度可以把六级压成三档：
+
+1. `NV#` 是 NVLink，几百 GB/s；
+2. `PIX`/`PXB` 是 PCIe switch 内，几十 GB/s，P2P 与 GPUDirect RDMA 都能全速；
+3. `PHB`/`NODE`/`SYS` 是经过了 CPU，带宽打折、延迟增加、P2P 可能被禁用。
 
 ### 2. 一台 8 卡 + 8 网卡机器的样例矩阵
 

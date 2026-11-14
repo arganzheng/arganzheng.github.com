@@ -288,7 +288,7 @@ ncclAllReduce
 
 > **一个 64 卡训练任务在第 3000 步 hang 住，所有 rank 的日志都停在 all_reduce。是谁的问题、是哪一次 all_reduce、为什么会等到 timeout 才暴露？**
 
-实践：在本机与两机环境跑完整的 nccl-tests 扫描并画出带宽曲线，与代价模型的预测对齐；人为制造三种 hang（参数不一致、顺序不一致、send/recv 不配对），用 py-spy 和 Flight Recorder 分别定位。
+实践：在单机与两机环境跑完整的 nccl-tests 扫描并画出带宽曲线，与代价模型的预测对齐；人为制造三种 hang（参数不一致、顺序不一致、send/recv 不配对），用 py-spy 和 Flight Recorder 分别定位。
 
 ### 7. 推理侧的通信：custom all-reduce 与 KV 传输
 

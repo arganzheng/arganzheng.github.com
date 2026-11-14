@@ -34,7 +34,14 @@ vLLM 对这两个场景给出了两套完全不同的答案。对前者，它绕
 
 用第一篇的记号，一次 all_reduce 的时间 $$T = \alpha_{\text{eff}} + S/\beta_{\text{eff}}$$。训练的梯度 bucket S 在 25 MB 量级，$$S/\beta$$ 项几十到几百微秒，α 项十几微秒，看的是带宽的账；decode 的 TP all_reduce S 在 128 KB 量级，NVLink 上 $$S/\beta$$ 不到 1 µs，α 项十几微秒，看的是延迟的账。同一个 API，两本账的答案相反：训练希望多 channel、大 chunk、Simple 协议跑满带宽；推理希望一次同步、一个 kernel、最少的步数。
 
-KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：它不是集合通信，是点对点；它的对端在运行时才知道；它不能占用正在做 decode 的 GPU 的 SM；它要跑满的是每 GPU 一张的 400 Gb/s 网卡，而不是 NVLink。这四个约束合起来，把它推向第三篇讲的单边 RDMA。
+KV 传输回到带宽的账，但和梯度 all_reduce 又不一样：
+
+1. 它不是集合通信，是点对点；
+2. 它的对端在运行时才知道；
+3. 它不能占用正在做 decode 的 GPU 的 SM；
+4. 它要跑满的是每 GPU 一张的 400 Gb/s 网卡，而不是 NVLink。
+
+这四个约束合起来，把它推向第三篇讲的单边 RDMA。
 
 ### 3. 本文的章节安排
 

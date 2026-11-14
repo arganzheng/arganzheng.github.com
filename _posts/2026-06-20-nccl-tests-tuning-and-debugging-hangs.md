@@ -269,7 +269,7 @@ nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上�
 | ^^ | 不是问题：Tree→Ring、LL128→Simple 的切换本身就有几个百分点的不连续 | 切换处小幅不平滑是正常的 |
 | 多机远差于（单机 / 节点数） | 以上跨机各项之外：每节点网卡数 < GPU 数 | 数一下 `NET/IB : Using` 里的设备数 |
 | ^^ | `NCCL_CROSS_NIC` 配置与拓扑不匹配 | 换 0/1/2 试 |
-| 曲线抖动、in-place 与 out-of-place 差很多 | 其他任务干扰；GPU 降频；buffer 未对齐 | `nvidia-smi -q -d CLOCK`；`-u` 参数是否设置 |
+| 曲线抖动、in-place 与 out-of-place 差很多 | 其他任务干扰<br/>GPU 降频<br/>buffer 未对齐 | `nvidia-smi -q -d CLOCK`；`-u` 参数是否设置 |
 
 Table: 常见异常形状、原因与先查什么
 
@@ -485,10 +485,10 @@ Communicators
 |---|---|---|
 | A 集合通信参数不一致（tensor 大小 / dtype 不同） | rank 3 传 1 MB+4 KB，其他传 1 MB；NCCL 不校验 count 跨 rank 是否一致，ring 上各 rank 按自己的 count 切块，收发字节数对不上 | 要么 hang（多数），要么静默完成给出错误结果（少数，取决于协议与切块对齐）；Flight Recorder 报 `SIZE_OR_SYNTAX_MISMATCH` 或 `COLLECTIVE_DTYPE_MISMATCH` |
 | B 调用顺序 / 次数不一致 | rank 2 因 if 分支跳过一次 all_reduce（或多做一次）；之后它第 k+1 步的调用会和别人第 k 步的配对 | 各 rank 停在不同的步上；按 `collective_seq_id` 对齐时，rank 2 在该序号上顶着下一步的形状；若各次大小恰好相同则要到最后一次才 hang，这时 rank 2 的 `collective_seq_id` 比别人少 1 |
-| C send/recv 不配对 | rank 0 send 给 1，rank 1 没有 recv（或 recv 自 2）；流水线并行的 stage 边界最常见 | 只有涉及的 rank 先停；其他 rank 走到下一次集合通信后被连锁拖住；Flight Recorder 里 `is_p2p` 条目找不到配对 |
-| D 两个 communicator 交叉等待 | rank A 先在 comm1 上 all_reduce 再在 comm2 上；rank B 顺序反过来；两个 kernel 各占着 SM 等对方 | 经典死锁；各 rank 各自"合法"，只是顺序不同；py-spy 看到不同 rank 停在不同 PG 的调用上 |
-| E 一个 rank 崩溃 / 被 kill / 卡在非通信代码 | rank 17 OOM 退出、被 OOM killer 杀、Python 异常退出但没触发 abort；或者活着但卡在 dataloader / checkpoint / GIL 死锁 / 第三方库的 mutex | ps 看进程数少了一个；dmesg 有 Killed process；py-spy 看它的栈不在 c10d 里；其他所有 rank 停在同一序号且状态一致 |
-| F 网络或硬件真的断了 | 链路 down、网卡 reset、交换机重启、GPU Xid 错误、NVLink 错误 | NCCL WARN：`Got completion from peer … with error` / `Cuda failure` / `socket closed by remote`；dmesg 有 mlx5 / Xid；ibstat 的 State 不是 Active；所有 rank 停在同一序号 |
+| C send/recv 不配对 | rank 0 send 给 1，rank 1 没有 recv（或 recv 自 2）；流水线并行的 stage 边界最常见 | 只有涉及的 rank 先停<br/>其他 rank 走到下一次集合通信后被连锁拖住<br/>Flight Recorder 里 `is_p2p` 条目找不到配对 |
+| D 两个 communicator 交叉等待 | rank A 先在 comm1 上 all_reduce 再在 comm2 上；rank B 顺序反过来；两个 kernel 各占着 SM 等对方 | 经典死锁<br/>各 rank 各自"合法"，只是顺序不同<br/>py-spy 看到不同 rank 停在不同 PG 的调用上 |
+| E 一个 rank 崩溃 / 被 kill / 卡在非通信代码 | rank 17 OOM 退出、被 OOM killer 杀、Python 异常退出但没触发 abort；或者活着但卡在 dataloader / checkpoint / GIL 死锁 / 第三方库的 mutex | ps 看进程数少了一个<br/>dmesg 有 Killed process<br/>py-spy 看它的栈不在 c10d 里<br/>其他所有 rank 停在同一序号且状态一致 |
+| F 网络或硬件真的断了 | 链路 down、网卡 reset、交换机重启、GPU Xid 错误、NVLink 错误 | NCCL WARN：`Got completion from peer … with error` / `Cuda failure` / `socket closed by remote`<br/>dmesg 有 mlx5 / Xid<br/>ibstat 的 State 不是 Active<br/>所有 rank 停在同一序号 |
 
 Table: 六类 hang：机制与现象特征
 
@@ -865,7 +865,7 @@ hang 指 watchdog 报 timeout，或没有 watchdog 时进程不动：
 
 | # | 项 | 看什么 |
 |---|---|---|
-| 1 | 版本与库 | ldd 确认 libnccl.so；日志 "NCCL version"；各节点一致 |
+| 1 | 版本与库 | ldd 确认 libnccl.so<br/>日志 "NCCL version"<br/>各节点一致 |
 | 2 | 进程与硬件 | 进程数对不对<br/>nvidia-smi（Xid、降频、掉卡）<br/>dmesg<br/>ibstat State/Rate |
 | 3 | 路径 | INFO 日志：Using network IB？via P2P 还是 SHM？GDRDMA 有没有？网卡与 GPU 亲和对不对？ |
 | 4 | 参数 | "set by environment" 列表：有没有三年前留下的 NCCL_ALGO=Ring |
@@ -880,34 +880,34 @@ Table: 通信层排障检查项
 
 | 项目 | 路径 | 关键函数 / 内容 |
 |---|---|---|
-| nccl-tests 2.18.3 | `src/common.cu` | `getopt_long` 参数表与 usage；参数默认值；`run()`；MPI 的使用；`NCCL_TESTS_MIN_BW`；`NCCL_TESTS_DEVICE`；`CheckDelta` |
+| nccl-tests 2.18.3 | `src/common.cu` | `getopt_long` 参数表与 usage<br/>参数默认值<br/>`run()`<br/>MPI 的使用<br/>`NCCL_TESTS_MIN_BW`<br/>`NCCL_TESTS_DEVICE`<br/>`CheckDelta` |
 | ^^ | `src/common.h` | `NCCL_TESTS_VERSION` |
 | ^^ | `src/util.cu` | `writeResultHeader` 列名；`writeResultFooter` 的 "Out of bounds values" / "Avg bus bandwidth" |
 | ^^ | `src/all_reduce.cu` 等 | `*GetBw`：algbw → busbw 的系数 |
 | ^^ | `verifiable/verifiable.cu` | `ncclVerifiablePrepareInput` / `ncclVerifiableVerify`（精确校验；avg 放宽 2 ulp） |
-| ^^ | `README.md` · `doc/PERFORMANCE.md` | 编译选项 `MPI=1`；Arguments 与默认值；busbw 的推导 |
-| NCCL 2.28.9 | `src/include/param.h` · `src/misc/param.cc` | `NCCL_PARAM` 宏；`ncclLoadParam`；`initEnv` 与 `NCCL_CONF_FILE`；`ncclGetEnv` |
+| ^^ | `README.md` · `doc/PERFORMANCE.md` | 编译选项 `MPI=1`<br/>Arguments 与默认值<br/>busbw 的推导 |
+| NCCL 2.28.9 | `src/include/param.h` · `src/misc/param.cc` | `NCCL_PARAM` 宏<br/>`ncclLoadParam`<br/>`initEnv` 与 `NCCL_CONF_FILE`<br/>`ncclGetEnv` |
 | ^^ | `src/plugin/env.cc` | `NCCL_ENV_PLUGIN` |
-| ^^ | `src/debug.cc` · `src/include/debug.h` | `ncclDebugInit`：`NCCL_DEBUG` 级别、`NCCL_DEBUG_SUBSYS`、`NCCL_DEBUG_FILE` 的 `%h`/`%p`；`ncclDebugLog` 行格式；TRACE 需 `ENABLE_TRACE` |
-| ^^ | `src/graph/tuning.cc` | `NCCL_ALGO` / `NCCL_PROTO` 的 `parseList`；`NCCL_NTHREADS`；TUNING 日志 |
+| ^^ | `src/debug.cc` · `src/include/debug.h` | `ncclDebugInit`：`NCCL_DEBUG` 级别、`NCCL_DEBUG_SUBSYS`、`NCCL_DEBUG_FILE` 的 `%h`/`%p`<br/>`ncclDebugLog` 行格式<br/>TRACE 需 `ENABLE_TRACE` |
+| ^^ | `src/graph/tuning.cc` | `NCCL_ALGO` / `NCCL_PROTO` 的 `parseList`<br/>`NCCL_NTHREADS`<br/>TUNING 日志 |
 | ^^ | `src/graph/connect.cc` | `NCCL_MIN_NCHANNELS` / `NCCL_MAX_NCHANNELS` |
-| ^^ | `src/graph/paths.cc` | `ncclGetLevel`；`NCCL_P2P_LEVEL` / `NCCL_P2P_DISABLE` / `NCCL_NET_GDR_LEVEL`；"GPU Direct RDMA Enabled/Disabled" |
+| ^^ | `src/graph/paths.cc` | `ncclGetLevel`<br/>`NCCL_P2P_LEVEL` / `NCCL_P2P_DISABLE` / `NCCL_NET_GDR_LEVEL`<br/>"GPU Direct RDMA Enabled/Disabled" |
 | ^^ | `src/graph/topo.cc` | `topoPathTypeStr`（LOC NVL … SYS）；`NCCL_TOPO_FILE` |
 | ^^ | `src/graph/search.cc` | `NCCL_CROSS_NIC`；`NCCL_GRAPH_DUMP_FILE` |
-| ^^ | `src/init.cc` | `NCCL_BUFFSIZE`；`NCCL_COLLNET_ENABLE`；`NCCL_TOPO_DUMP_FILE`；`NCCL_NET`；`ncclAlgoStr`/`ncclProtoStr` |
-| ^^ | `src/transport/net_ib.cc` | `NCCL_IB_HCA` 解析（`^` 与 `=`）；`IB_GID_INDEX` / `IB_TC` / `IB_SL` / `IB_QPS_PER_CONNECTION` / `IB_SPLIT_DATA_ON_QPS` / `IB_TIMEOUT` / `IB_RETRY_CNT`；"NET/IB : Using …" |
+| ^^ | `src/init.cc` | `NCCL_BUFFSIZE`<br/>`NCCL_COLLNET_ENABLE`<br/>`NCCL_TOPO_DUMP_FILE`<br/>`NCCL_NET`<br/>`ncclAlgoStr`/`ncclProtoStr` |
+| ^^ | `src/transport/net_ib.cc` | `NCCL_IB_HCA` 解析（`^` 与 `=`）<br/>`IB_GID_INDEX` / `IB_TC` / `IB_SL` / `IB_QPS_PER_CONNECTION` / `IB_SPLIT_DATA_ON_QPS` / `IB_TIMEOUT` / `IB_RETRY_CNT`<br/>"NET/IB : Using …" |
 | ^^ | `src/transport/net.cc` · `p2p.cc` · `shm.cc` | "via NET/IB/…/GDRDMA" · "via P2P/…" · "via SHM/…" |
 | ^^ | `src/transport/nvls.cc` | `NCCL_NVLS_ENABLE` |
 | ^^ | `src/transport/net_socket.cc` · `src/misc/socket.cc` | `NCCL_SOCKET_NTHREADS` / `NCCL_NSOCKS_PERTHREAD`；`NCCL_SOCKET_IFNAME` |
 | ^^ | `src/enqueue.cc` | COLL 日志的 opCount 行；TUNING 日志的 "N Bytes -> Algo … proto …" |
-| ^^ | `src/ras/` · `src/bootstrap.cc` | RAS 子系统；ncclras 客户端（`client.cc`）；`collOpCounts` 比对（`client_support.cc`）；`NCCL_RAS_ENABLE` |
-| PyTorch 2.12 | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | `TORCH_NCCL_*` 变量定义；`ErrorHandlingMode`；`kStoreDumpKey`；`DumpPipe`；`kProcessGroupNCCLDefaultTimeout` |
-| ^^ | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 各 `TORCH_NCCL_*` 的 `getCvar` 默认值；`WorkNCCL::checkTimeout`；`Watchdog::runLoop`；`HeartbeatMonitor::runLoop`；`broadcastDumpSignal`；`dumpDebuggingInfo`；`DesyncDebugger`；`checkForNan` 调用点 |
-| ^^ | `torch/csrc/distributed/c10d/FlightRecorder.hpp/.cpp` | `Entry` 字段；`DebugInfoWriter` 默认路径；`TORCH_FR_*` 别名 |
+| ^^ | `src/ras/` · `src/bootstrap.cc` | RAS 子系统<br/>ncclras 客户端（`client.cc`）<br/>`collOpCounts` 比对（`client_support.cc`）<br/>`NCCL_RAS_ENABLE` |
+| PyTorch 2.12 | `torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp` | `TORCH_NCCL_*` 变量定义<br/>`ErrorHandlingMode`<br/>`kStoreDumpKey`<br/>`DumpPipe`<br/>`kProcessGroupNCCLDefaultTimeout` |
+| ^^ | `torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp` | 各 `TORCH_NCCL_*` 的 `getCvar` 默认值<br/>`WorkNCCL::checkTimeout`<br/>`Watchdog::runLoop`<br/>`HeartbeatMonitor::runLoop`<br/>`broadcastDumpSignal`<br/>`dumpDebuggingInfo`<br/>`DesyncDebugger`<br/>`checkForNan` 调用点 |
+| ^^ | `torch/csrc/distributed/c10d/FlightRecorder.hpp/.cpp` | `Entry` 字段<br/>`DebugInfoWriter` 默认路径<br/>`TORCH_FR_*` 别名 |
 | ^^ | `torch/csrc/distributed/c10d/FlightRecorderCuda.cpp` | `dump_nccl_trace` |
 | ^^ | `torch/csrc/distributed/c10d/TraceUtils.h` | `retrieveDesyncReport` |
 | ^^ | `torch/csrc/distributed/c10d/NanCheck.hpp/.cu` | `checkForNan` |
-| ^^ | `torch/distributed/flight_recorder/fr_trace.py` · `components/` | 分析工具；`MatchState`；参数 |
+| ^^ | `torch/distributed/flight_recorder/fr_trace.py` · `components/` | 分析工具<br/>`MatchState`<br/>参数 |
 | ^^ | `torch/distributed/distributed_c10d.py` · `constants.py` | `init_process_group(timeout=)`；`default_pg_nccl_timeout` |
 
 Table: 本篇涉及的源码与工具位置

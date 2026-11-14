@@ -353,7 +353,11 @@ T_{\text{ring}} &\approx 145\ \mu\text{s}
 \end{aligned}
 $$
 
-带宽项占 3%。这个数字只对 α 和步数敏感：换 NDR 几乎没有变化（少 2.3 µs）；把 α 从 10 µs 降到 5 µs 时间几乎减半；把 8 卡改成 4 卡（6 步）时间从 145 µs 降到 63 µs。
+带宽项占 3%。这个数字只对 α 和步数敏感：
+
+- 换 NDR 几乎没有变化（少 2.3 µs）；
+- 把 α 从 10 µs 降到 5 µs，时间几乎减半；
+- 把 8 卡改成 4 卡（6 步），时间从 145 µs 降到 63 µs。
 
 两个数字对不同变量敏感的原因，就是 $$T_{\text{ring}}$$ 两项在 $$S$$ 上的不同阶：第一项是常数，第二项与 $$S$$ 成正比。$$S$$ 差 15,000 倍，两项的比例从 3% : 97% 翻到 97% : 3%。
 
@@ -718,8 +722,8 @@ Table: 各算法的步数、字节数与拐点
 | | 定义 |
 |---|---|
 | algbw | S / T |
-| busbw | algbw × 系数：all_reduce 2(n-1)/n；all_gather / reduce_scatter / all_to_all (n-1)/n；broadcast / reduce 1 |
-| S 的口径 | all_gather 为拼接后总量；reduce_scatter 为输入总量；其余为每 rank buffer |
+| busbw | all_reduce：algbw × 2(n-1)/n<br/>all_gather / reduce_scatter / all_to_all：algbw × (n-1)/n<br/>broadcast / reduce：algbw × 1 |
+| S 的口径 | all_gather 为拼接后总量<br/>reduce_scatter 为输入总量<br/>其余为每 rank buffer |
 
 Table: nccl-tests 的两个带宽（GB/s = 10⁹ B/s）
 
@@ -728,7 +732,7 @@ Table: nccl-tests 的两个带宽（GB/s = 10⁹ B/s）
 | β | IB HDR 25 GB/s · IB NDR 50 GB/s · PCIe 4.0 x16 32 GB/s · NVLink 8 卡 ring 每 rank ~200 GB/s |
 | α | IB 上一步 5–20 µs · NVLink 上一步 2–5 µs |
 | 8 卡 | IB ring 拐点 ~2 MB · NVLink ring 拐点 ~5 MB |
-| 从曲线反推 | α ≈ T<sub>min</sub> / 步数；β ≈ busbw 平台 / 协议效率；α ≈ 拐点 S / (nβ) |
+| 从曲线反推 | α ≈ T<sub>min</sub> / 步数<br/>β ≈ busbw 平台 / 协议效率<br/>α ≈ 拐点 S / (nβ) |
 
 Table: 典型量级（非实测；单向）
 
@@ -872,7 +876,12 @@ $ ./cost_model.py --n 8 --size 1G --coll all_gather
 all_gather     ring   n=8    S=   1G  T=    37651.0 us  lat=  0.2%  algbw=  28.52  busbw=  24.95 GB/s
 ```
 
-每一行都能在正文里找到对应：第一组是第五章的核心问题与第九章的谱（2 MB 处延迟占比 48.8%，正是拐点）；第二组是第六章 Ring vs Tree 表里的 1024 卡；第三组是第八章两级算法的 4.7 倍与 busbw 超过链路的现象；最后两行分别是第七篇要处理的 decode 场景，以及 all_gather 的 busbw 与 all_reduce 一样落在链路带宽上、algbw 却不同。
+每一行都能在正文里找到对应：
+
+- 第一组是第五章的核心问题与第九章的谱（2 MB 处延迟占比 48.8%，正是拐点）；
+- 第二组是第六章 Ring vs Tree 表里的 1024 卡；
+- 第三组是第八章两级算法的 4.7 倍与 busbw 超过链路的现象；
+- 最后两行分别是第七篇要处理的 decode 场景，以及 all_gather 的 busbw 与 all_reduce 一样落在链路带宽上、algbw 却不同。
 
 后面几篇对这个脚本的使用方式是：第二篇用 `nvbandwidth` 与 `ib_write_bw` 测出你机器上真实的 β，第六篇用 nccl-tests 最小消息的时间反推 α，把默认值换掉；然后每一条实测曲线都与它输出的理论值比，差距就是那一篇要解释的东西。
 

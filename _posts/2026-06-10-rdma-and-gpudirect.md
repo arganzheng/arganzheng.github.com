@@ -59,7 +59,13 @@ flowchart TB
 
 ### 2. 两本账在这一层的形态
 
-**带宽的账**：路径上每一段的带宽取最小值。路径 A 的最小值通常是 CPU 拷贝能力（一个核 memcpy 大约 10–15 GB/s，且拷贝在内存总线上是读加写两倍流量）；路径 B 的最小值是 GPU 的 PCIe 链路，因为同一条链路既要承担 GPU 到主机的拷贝、又要和网卡 DMA 争抢主机内存带宽；路径 C 的最小值是 min(网卡, PCIe x16)——A100 配 PCIe 4.0 x16 单向 32 GB/s，配 HDR 25 GB/s 正好塞得下；H100 配 PCIe 5.0 x16 单向 64 GB/s，配 NDR 50 GB/s 也塞得下。这不是巧合，是每一代"GPU + 网卡"的搭配都按 PCIe 不成为瓶颈来配的。
+**带宽的账**：路径上每一段的带宽取最小值。
+
+- 路径 A 的最小值通常是 CPU 拷贝能力（一个核 memcpy 大约 10–15 GB/s，且拷贝在内存总线上是读加写两倍流量）。
+- 路径 B 的最小值是 GPU 的 PCIe 链路，因为同一条链路既要承担 GPU 到主机的拷贝、又要和网卡 DMA 争抢主机内存带宽。
+- 路径 C 的最小值是 min(网卡, PCIe x16)——A100 配 PCIe 4.0 x16 单向 32 GB/s，配 HDR 25 GB/s 正好塞得下；H100 配 PCIe 5.0 x16 单向 64 GB/s，配 NDR 50 GB/s 也塞得下。
+
+这不是巧合，是每一代"GPU + 网卡"的搭配都按 PCIe 不成为瓶颈来配的。
 
 **延迟的账**：一次 RDMA WRITE 的单向延迟在同一交换机下通常 1–2 µs（InfiniBand）到 2–4 µs（RoCE v2），TCP 同机房 RTT 通常 15–50 µs。差一个数量级，来源是内核协议栈、中断、上下文切换和拷贝。但 RDMA 的延迟里还有两项 TCP 没有的固定开销：**连接建立**（QP 状态机要走三步、带外交换连接信息）和**内存注册**（pin 页、建翻译表，GB 级 buffer 要几十到几百 ms）。这两项决定了 RDMA 程序的结构：连接与注册在初始化时一次做完，数据面只做 post 与 poll。NCCL 的 MR cache、`ncclCommRegister`，第七篇 KV 传输层预注册整个 KV pool，都是这本账的产物。
 
@@ -663,7 +669,12 @@ rdma link                    # iproute2 的 rdma 子命令：link mlx5_0/1 state
 rdma dev                     # 设备列表与 node_guid
 ```
 
-要看的字段：`State: Active`（不是 `Initializing`，那表示 IB 子网管理器没跑起来或 RoCE 的以太网口没 UP）；`Rate` 与预期一致（400 而不是 200 或 100，降速通常是线缆或光模块问题）；`Link layer: InfiniBand` 还是 `Ethernet` 决定后面一切配置；`active_mtu`（IB 通常 4096，RoCE 取决于以太网 MTU，9000 的以太网 MTU 才能用 4096 的 IB MTU）。
+要看的字段：
+
+- `State: Active`（不是 `Initializing`，那表示 IB 子网管理器没跑起来或 RoCE 的以太网口没 UP）；
+- `Rate` 与预期一致（400 而不是 200 或 100，降速通常是线缆或光模块问题）；
+- `Link layer: InfiniBand` 还是 `Ethernet`，决定后面一切配置；
+- `active_mtu`（IB 通常 4096，RoCE 取决于以太网 MTU，9000 的以太网 MTU 才能用 4096 的 IB MTU）。
 
 ### 2. RoCE 的 GID 表：`show_gids`
 

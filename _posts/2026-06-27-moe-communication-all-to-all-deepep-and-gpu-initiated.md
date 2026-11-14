@@ -266,7 +266,7 @@ Table: 变长 all_to_all_single 做 dispatch 的四步
 | 每条跨节点消息经 proxy 线程发起；一个 CPU 线程对所有对端串行 | 每个 warp 自己写 WQE、敲门铃（IBGDA）；发起者数量随 SM 数增长 |
 | 数据经 channel buffer 中转（Simple 协议的 slot、LL 的 8+8） | 写进对端的对称 buffer，接收端直接从那里读出成 `[expert, token, hidden]` 布局 |
 | permute → 发送 buffer → 接收 buffer → 按专家排序，多次拷贝 | FP8 转换、按专家分槽、发送在一个 kernel 里完成；combine 时加权求和在接收端完成 |
-| kernel 全程占 SM 自旋等 head / tail | send 阶段结束 kernel 就退出；RDMA 在后台进行；recv 阶段由 hook 另起 kernel |
+| kernel 全程占 SM 自旋等 head / tail | send 阶段结束 kernel 就退出<br/>RDMA 在后台进行<br/>recv 阶段由 hook 另起 kernel |
 
 Table: NCCL 路径在 decode 上多付的与 DeepEP 的做法
 
@@ -714,7 +714,7 @@ Table: DeepEP 的配置项
 - **Megatron**：`--moe-token-dispatcher-type {allgather,alltoall,flex}`、`--moe-flex-dispatcher-backend {deepep,hybridep}`、`--moe-deepep-num-sms`、`--moe-router-dtype fp32`（DeepEP 要求 fp32 probs）
 - **NCCL**（走 `all_to_all_single` 时）：`NCCL_P2P_NET_CHUNKSIZE`（默认 128 KB）、`NCCL_P2P_LL_THRESHOLD`（默认 16 KB）、以及第六篇的 `NCCL_IB_*` / `NCCL_NET_GDR_LEVEL`
 
-第七篇第七章提过一件事在这里要再说一次：vLLM 的 NixlConnector 注释解释它限制 UCX 线程数是因为"每个线程通过 DevX 分配 UAR（doorbell 页），过多会耗尽网卡的 UAR 空间，导致同机的 NVSHMEM（DeepEP）初始化失败"。IBGDA 的每条 QP 也要 doorbell 页——PD 分离与 EP 同机部署时，KV 传输和 MoE 通信在网卡资源上是竞争关系，`num_qps_per_rank × 对端数` 是要算的。
+[《推理侧的通信》的 KVConnector 一章](/inference-communication-custom-all-reduce-and-kv-transfer.html#七看一看kvconnector-与传输层)提过一件事，在这里要再说一次：vLLM 的 NixlConnector 注释解释它限制 UCX 线程数是因为"每个线程通过 DevX 分配 UAR（doorbell 页），过多会耗尽网卡的 UAR 空间，导致同机的 NVSHMEM（DeepEP）初始化失败"。IBGDA 的每条 QP 也要 doorbell 页——PD 分离与 EP 同机部署时，KV 传输和 MoE 通信在网卡资源上是竞争关系，`num_qps_per_rank × 对端数` 是要算的。
 
 ### 4. 检查清单
 

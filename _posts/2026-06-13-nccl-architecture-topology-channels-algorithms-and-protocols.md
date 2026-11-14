@@ -193,7 +193,12 @@ Table: NCCL 拓扑图的路径类型、字符串与同号的链路类型
 </system>
 ```
 
-读它的要点：GPU 和 NIC 挂在同一个 `<pci>`（PCIe switch）下，所以它们之间的路径是 `PIX`；两个 `<cpu>` 是两个 NUMA 域，跨域的路径是 `SYS`；`<nvlink>` 的 `count` 决定 NVLink 带宽；`sm="80"` 决定 NVLink 每 link 的带宽常数和调优表的档位。
+读它的要点：
+
+- GPU 和 NIC 挂在同一个 `<pci>`（PCIe switch）下，所以它们之间的路径是 `PIX`；
+- 两个 `<cpu>` 是两个 NUMA 域，跨域的路径是 `SYS`；
+- `<nvlink>` 的 `count` 决定 NVLink 带宽；
+- `sm="80"` 决定 NVLink 每 link 的带宽常数和调优表的档位。
 
 ### 4. 链路带宽是怎么填的
 
@@ -203,7 +208,7 @@ Table: NCCL 拓扑图的路径类型、字符串与同号的链路类型
 |---|---|---|
 | NVLink 每 link | SM60 18.0 · SM70 20.0 · SM80 20.0 · SM86 12.0 · SM90 20.6 · SM100 40.1<br/>GPU→NVS/GPU 链路带宽 = count × 每 link 带宽：A100 12×20 = 240，H100 18×20.6 ≈ 371，B200 18×40.1 ≈ 722 | `ncclTopoNVLinkBw` |
 | PCIe | width × speed / 80，speed 单位 100 Mbps/lane：Gen3 x16 = 16×60/80 = 12，Gen4 = 24，Gen5 = 48<br/>`PCI_BW = 12.0` 是 Gen3 x16 的基准，多处判断用它 | `ncclTopoAddPci` |
-| CPU 间（QPI/UPI） | Intel BDW 6 · SKL 10 · SRP 22 · ERP 40；AMD 16；ARM 6；POWER9 32<br/>Intel 上 P2P 流量走 64B TLP，额外乘 6/5 的开销（`INTEL_P2P_OVERHEAD`） | `ncclTopoGetInterCpuBw` |
+| CPU 间（QPI/UPI） | Intel BDW 6 · SKL 10 · SRP 22 · ERP 40<br/>AMD 16<br/>ARM 6<br/>POWER9 32<br/>Intel 上 P2P 流量走 64B TLP，额外乘 6/5 的开销（`INTEL_P2P_OVERHEAD`） | `ncclTopoGetInterCpuBw` |
 | NET | speed(Mbps) / 8000：HDR 200000 → 25，NDR 400000 → 50；未知时按 10 Gbps | `ncclTopoAddNet` |
 | LOC | `LOC_BW = 5000`，自己到自己 | |
 
@@ -416,7 +421,7 @@ struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
 
 | 日志行 | 含义 |
 |---|---|
-| `Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM` | 同进程内是 P2P/direct pointer；多进程用 cuMem 导出句柄；老路径是 P2P/IPC |
+| `Channel 00/0 : 0[0] -> 1[1] via P2P/CUMEM` | 同进程内是 P2P/direct pointer<br/>多进程用 cuMem 导出句柄<br/>老路径是 P2P/IPC |
 | `Channel 00/0 : 0[0] -> 2[2] via P2P/indirect/1[1]` | NVB：经 GPU1 中转 |
 | `Channel 00 : 0[0] -> 4[4] via SHM/direct/direct` | 经共享内存；CE 表示用 copy engine 搬 |
 | `Channel 00/0 : 7[7] -> 8[0] [send] via NET/IB/0/GDRDMA` | 经 IB 设备 0，开了 GPUDirect RDMA |
@@ -489,7 +494,13 @@ const char* ncclProtoStr[NCCL_NUM_PROTOCOLS] = { "LL", "LL128", "Simple" };
 
 Table: 七种算法各自的形状与适用范围
 
-哪些算法能跑哪些集合操作在 `ncclTopoTuneModel` 里写死：broadcast/reduce 只有 Ring；all_gather/reduce_scatter 只有 Ring、PAT、NVLS、CollNetDirect；all_reduce 除 PAT 外都可以。总纲提到的"NVLS、PAT 的加入版本"以你手上版本的 `ncclAlgoStr` 为准——这一行 grep 一下就知道有几种。
+哪些算法能跑哪些集合操作在 `ncclTopoTuneModel` 里写死：
+
+- broadcast/reduce 只有 Ring；
+- all_gather/reduce_scatter 只有 Ring、PAT、NVLS、CollNetDirect；
+- all_reduce 除 PAT 外都可以。
+
+总纲提到的"NVLS、PAT 的加入版本"以你手上版本的 `ncclAlgoStr` 为准——这一行 grep 一下就知道有几种。
 
 ### 2. 三种协议的机制
 
@@ -701,7 +712,11 @@ Ring+LL       busBw = min(20.4, 96×0.5) = 20.4 → algbw = 20.4 × 256/510 = 10
 
 延迟的账差了一个数量级：ring 要走 510 步，其中 62 步过网络；tree 只要节点内 7 步 + 节点间 $$\log_2 32 = 5$$ 步、再乘 2。带宽的账 ring 好 30%（Simple 对 Simple）。先各自比协议：Tree 这边 $$116.5 + S/35.2\text{e}3 = 204 + S/37.5\text{e}3$$ 得 $$S \approx 50\ \text{MB}$$，50 MB 以下 Tree+LL128 更快；Ring 这边 LL128 不吃 plateau，$$1113 + S/44.3\text{e}3 = 3360 + S/48.2\text{e}3$$ 得 $$S \approx 1.2\ \text{GB}$$，在这之前都是 Ring+LL128 更快。Tree 与 Ring 的交叉点：$$204 + S/37.5\text{e}3 = 1113 + S/44.3\text{e}3$$ 得 $$S \approx 222\ \text{MB}$$（还没算 `treeCorrectionFactor` 在 100 MB 附近的 0.8 折，算上后交叉点略前移）。**25 MB 的 DDP bucket、几十 MB 的梯度分片都在 Tree 的区间（50 MB 以下是 Tree+LL128），两百多 MB 以上 Ring 才回来。** 这就是"跨 32 台机器时选了 Tree"。
 
-三个决定用的是同一个公式，不同的只是输入：机器一的输入里有 NVLS 图且 NVLink 延迟低；机器二的输入里 `typeIntra` 决定 LL128 开不开、有没有 NVS 决定 NVLS 有没有；机器三的输入里 `nNodes = 32` 让 ring 的步数项爆掉。
+三个决定用的是同一个公式，不同的只是输入：
+
+- 机器一的输入里有 NVLS 图且 NVLink 延迟低；
+- 机器二的输入里 `typeIntra` 决定 LL128 开不开、有没有 NVS 决定 NVLS 有没有；
+- 机器三的输入里 `nNodes = 32` 让 ring 的步数项爆掉。
 
 ### 4. 强行 NCCL_ALGO=Ring 的代价
 
