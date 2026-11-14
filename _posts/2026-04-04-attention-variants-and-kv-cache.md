@@ -147,7 +147,7 @@ $$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。四种结构的差别，就是 query h
 
 Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇（第一篇）算出的每层 attention 41.94M，已经包含了这一节省。
 
-在代码上，GQA 相对第三篇 nanoGPT 的 `CausalSelfAttention` 只改三处：K、V 的投影变窄，拆头时 K、V 的头数用 $$n_{kv}$$，打分前把每组 K、V **复制** $$g$$ 份对齐到 $$n_h$$ 个 query head（`repeat_interleave`；用 SDPA（scaled dot-product attention，PyTorch 的融合 attention 函数） 时传 `enable_gqa=True` 可以省掉这次复制）：
+在代码上，GQA 相对 [《Transformer 原理与实现》逐行读的 nanoGPT `model.py`](/nanogpt-model-py-line-by-line.html) 里的 `CausalSelfAttention` 只改三处：K、V 的投影变窄，拆头时 K、V 的头数用 $$n_{kv}$$，打分前把每组 K、V **复制** $$g$$ 份对齐到 $$n_h$$ 个 query head（`repeat_interleave`；用 SDPA（scaled dot-product attention，PyTorch 的融合 attention 函数） 时传 `enable_gqa=True` 可以省掉这次复制）：
 
 ```python title="GQAttention：相对 nanoGPT 只改三处"
 class GQAttention(nn.Module):

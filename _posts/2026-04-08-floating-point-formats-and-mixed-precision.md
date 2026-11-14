@@ -610,7 +610,7 @@ if torch.cuda.is_available() and hasattr(torch, "_scaled_mm"):
 
 ### 4. llm_cost.py：dtype 字节表与训练状态
 
-本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第一篇 `param_count()` 的 dense 版本；第二篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
+本篇给贯穿脚本加两样东西：`DTYPE_BYTES` 表和 `training_state_bytes()`。为保持可独立运行，这里附上第一篇 `param_count()` 的 dense 版本；第六篇的 MoE 版本对 dense 模型给出相同结果，DeepSeek-V3 用 `param_override` 直接填入 671B。
 
 ```python title="llm_cost.py：DTYPE_BYTES 与 training_state_bytes"
 from dataclasses import dataclass
@@ -626,7 +626,7 @@ class ModelConfig:
     d_ff: int
     vocab: int
     tie_embeddings: bool = False
-    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第二篇的 param_count 可算出)
+    param_override: int = 0      # MoE/MLA 模型直接给总参数量 (第六篇的 param_count 可算出)
 
 LLAMA3_8B  = ModelConfig("Llama-3-8B",  4096, 32, 32, 8, 128, 14336, 128256)
 LLAMA3_70B = ModelConfig("Llama-3-70B", 8192, 80, 64, 8, 128, 28672, 128256)
@@ -644,7 +644,7 @@ def param_count(cfg: ModelConfig) -> dict:
     total = cfg.param_override or (per_layer * cfg.layers + embed + lm_head + d)
     return {"per_layer": per_layer, "embedding": embed, "lm_head": lm_head, "total": total}
 
-# ---- 第二篇新增 ----
+# ---- 本篇新增 ----
 DTYPE_BYTES = {
     "fp32": 4, "tf32": 4,          # TF32 在内存中仍是 32 位
     "fp16": 2, "bf16": 2,

@@ -5,7 +5,7 @@ title: "现代 LLM 结构（06）：MoE 的路由、激活参数量与通信形�
 subtitle: "Mixture of Experts: Routing, Active Parameters and Communication Patterns"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-10
+updated: 2026-11-14
 date: 2026-04-05 10:00:00
 ---
 
@@ -290,16 +290,18 @@ $$\mathbb{E}[\text{激活专家数}] = E \cdot \left[1 - \left(1 - \frac{k}{E}\r
 
 $$B = 1$$ 时它等于 $$k$$（一个 token 恰好激活 $$k$$ 个）；$$B \to \infty$$ 时趋于 $$E$$。代入 DeepSeek-V3（$$E = 256$$，$$k = 8$$，$$1 - k/E = 0.96875$$）和 Mixtral（$$E = 8$$，$$k = 2$$，$$1 - k/E = 0.75$$）：
 
-```text title="期望激活专家数随 batch 变化"
-B         DeepSeek-V3 (E=256, k=8)      Mixtral (E=8, k=2)
-          期望激活专家   占 E 比例        期望激活专家   占 E 比例
-1           8.0           3.1%           2.0           25%
-8          57.4          22.4%           7.2           90%
-32        163.3          63.8%           8.0          100%
-64        222.4          86.9%           8.0          100%
-128       251.6          98.3%           8.0          100%
-512       256.0         100%             8.0          100%
-```
+| $$B$$ | DeepSeek-V3（$$E = 256$$，$$k = 8$$）期望激活专家 | 占 $$E$$ 比例 | Mixtral（$$E = 8$$，$$k = 2$$）期望激活专家 | 占 $$E$$ 比例 |
+|---:|---:|---:|---:|---:|
+| 1 | 8.0 | 3.1% | 2.0 | 25% |
+| 8 | 57.4 | 22.4% | 7.2 | 90% |
+| 32 | 163.3 | 63.8% | 8.0 | 100% |
+| 64 | 222.4 | 86.9% | 8.0 | 100% |
+| 128 | 251.6 | 98.3% | 8.0 | 100% |
+| 512 | 256.0 | 100% | 8.0 | 100% |
+
+Table: 期望激活专家数随 batch 变化（均匀路由假设）
+
+以 $$B = 8$$ 的 DeepSeek-V3 手算一遍：$$0.96875^8 = 0.776$$，即某个专家没被 8 个 token 中任何一个选中的概率是 77.6%，被选中的概率 22.4%，乘以 256 得 57.4 个。
 
 Mixtral 在 $$B = 8$$ 时就几乎读全部专家；DeepSeek-V3 在 $$B = 32$$ 时读 64%，$$B = 128$$ 时读 98%。真实路由并不均匀（热门专家被选中的概率更高），这会让期望激活数比均匀假设略低，但结论不变：**中等 batch 下，几乎所有专家的权重每一步都要读一遍。**
 
@@ -329,15 +331,15 @@ Table: 不同 batch 下 DeepSeek-V3 每步读取的参数量
 
 现在可以完整回答核心问题：
 
-```text title="DeepSeek-V3 与 Llama-3-70B 的三个数"
-                                   DeepSeek-V3            Llama-3-70B          两者之比
-参数量（决定显存）                    671B                   70.55B               9.5x
-激活参数量（决定 FLOPs/token）        37B                    70.55B               0.52x
-每步读取参数量（决定 decode 带宽）
-    B = 1                            37.6B                  70.55B               0.53x
-    B = 32                           434B                   70.55B               6.2x
-    B = 128                          660B                   70.55B               9.4x
-```
+| 数 | 决定什么 | DeepSeek-V3 | Llama-3-70B | 两者之比 |
+|---|---|---:|---:|---:|
+| 参数量 | 显存 | 671B | 70.55B | 9.5× |
+| 激活参数量 | FLOPs/token | 37B | 70.55B | 0.52× |
+| 每步读取参数量，$$B = 1$$ | decode 带宽 | 37.6B | 70.55B | 0.53× |
+| 每步读取参数量，$$B = 32$$ | decode 带宽 | 434B | 70.55B | 6.2× |
+| 每步读取参数量，$$B = 128$$ | decode 带宽 | 660B | 70.55B | 9.4× |
+
+Table: DeepSeek-V3 与 Llama-3-70B 的三个数
 
 "部署 DeepSeek-V3 比 dense 70B 难得多"的原因是第一行和第三行：显存要 9.5 倍，中等 batch 下每步访存要 6–9 倍。只有第二行对 MoE 有利，而 decode 阶段的瓶颈本来就不在第二行。
 
@@ -379,28 +381,33 @@ attention 部分在 EP 下通常是数据并行的（每卡处理 batch 的一�
 
 用一个缩小的例子把 token、专家、卡三者的映射摆出来（EP4，$$E = 8$$，$$k = 2$$，每卡持有 2 个 token）：
 
-```text title="EP4 下 token、专家、卡的映射与 dispatch/combine"
-           rank0        rank1        rank2        rank3
-持有专家    e0  e1       e2  e3       e4  e5       e6  e7
-持有 token  t0  t1       t2  t3       t4  t5       t6  t7
+| | rank0 | rank1 | rank2 | rank3 |
+|---|---|---|---|---|
+| 持有的专家 | e0、e1 | e2、e3 | e4、e5 | e6、e7 |
+| 持有的 token | t0、t1 | t2、t3 | t4、t5 | t6、t7 |
+| 这些 token 选中的专家（router，每 token 2 个） | t0 → e1、e4<br/>t1 → e2、e7 | t2 → e0、e5<br/>t3 → e3、e6 | t4 → e0、e4<br/>t5 → e0、e2 | t6 → e1、e7<br/>t7 → e5、e7 |
 
-router 结果（每 token 选 2 个专家）：
-  t0 -> {e1, e4}   t2 -> {e0, e5}   t4 -> {e0, e4}   t6 -> {e1, e7}
-  t1 -> {e2, e7}   t3 -> {e3, e6}   t5 -> {e0, e2}   t7 -> {e5, e7}
+Table: EP4 例子：每张卡持有的专家、token 与 router 结果
 
-dispatch 的 all-to-all 矩阵：行 = 发送方（token 所在卡），列 = 接收方
-（专家所在卡），格子 = 发送的 hidden 向量份数（每份 d 个元素）
+把每个"token → 专家"换成"token 所在卡 → 专家所在卡"，按发送方、接收方计数，就是 dispatch 这次 all-to-all 的流量矩阵（格子 = 发送的 hidden 向量份数，每份 $$d$$ 个元素）。例如 rank2 的 t4 → e0、t5 → e0 两份都发往 rank0，所以 rank2 → rank0 是 2：
 
-              -> rank0   -> rank1   -> rank2   -> rank3    发出合计
-  rank0          1          1          1          1           4
-  rank1          1          1          1          1           4
-  rank2          2          1          1          0           4
-  rank3          1          0          1          2           4
-  收到合计       5          3          4          4         16 = 8 x k
+| 发送方 ＼ 接收方 | → rank0 | → rank1 | → rank2 | → rank3 | 发出合计 |
+|---|---:|---:|---:|---:|---:|
+| rank0 | 1 | 1 | 1 | 1 | 4 |
+| rank1 | 1 | 1 | 1 | 1 | 4 |
+| rank2 | 2 | 1 | 1 | 0 | 4 |
+| rank3 | 1 | 0 | 1 | 2 | 4 |
+| 收到合计 | 5 | 3 | 4 | 4 | 16 = 8 × k |
 
-各专家实际收到的行数（第六章 grouped GEMM 的 M）：
-  e0:3  e1:2  e2:2  e3:1  e4:2  e5:2  e6:1  e7:3
-```
+Table: EP4 例子的 dispatch 流量矩阵：行 = token 所在卡，列 = 专家所在卡
+
+各专家实际收到的行数（也就是第六章 grouped GEMM 里每个专家的 M）：
+
+| 专家 | e0 | e1 | e2 | e3 | e4 | e5 | e6 | e7 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 收到的 token 数 | 3 | 2 | 2 | 1 | 2 | 2 | 1 | 3 |
+
+Table: EP4 例子中每个专家收到的 token 数
 
 每卡**发出**的份数恒为 $$B_{local} \times k = 4$$，与路由无关；每卡**收到**的份数取决于路由结果，rank0 收 5 份、rank1 收 3 份，这就是负载不均在通信上的体现（第七章）。对角线上的格子是本卡专家，不走网络。combine 是这张矩阵的转置：每个专家把输出沿原路发回 token 所在卡，只是每份的字节数不同（下一节）。
 
@@ -656,7 +663,7 @@ DeepSeek-V3 每个 MoE 层有 1 个共享专家，$$d_{ff} = 2048$$，不经过 
 
 ### 2. MTP：内置的投机草稿
 
-DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第四篇会展开。
+DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第八篇会展开。
 
 ## 九、实践：llm_cost.py 的 MoE 支持
 
@@ -682,7 +689,7 @@ class ModelConfig:
     mla_rank: int = 0        # d_c
     rope_dim: int = 0        # d_h^R
     q_lora_rank: int = 0
-    # 第二篇加入：MoE（n_experts=0 表示 dense）
+    # 本篇加入：MoE（n_experts=0 表示 dense）
     n_experts: int = 0       # 路由专家数 E
     top_k: int = 0           # 每 token 激活的路由专家数 k
     expert_d_ff: int = 0     # 每个专家的 d_ff
@@ -855,7 +862,7 @@ if __name__ == "__main__":
 - 期望激活专家数 $$B = 32$$ 时 163.3、$$B = 128$$ 时 251.6，与第四章的表一致；
 - all-to-all 每 token 每层 168 KiB（DeepSeek-V3）、32 KiB（Mixtral，top-2、$$d = 4096$$、dispatch 与 combine 都按 BF16）。
 
-第四篇会在这个脚本上加投机解码的期望加速比，第二篇加 dtype 字节表与训练状态显存；量化与 LoRA 的列在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
+第八篇会在这个脚本上加投机解码的期望加速比，第十篇加 dtype 字节表与训练状态显存；量化与 LoRA 的列在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
 
 ## 十、本文小结
 

@@ -116,7 +116,7 @@ ViT 的一层与第一篇的 decoder 层结构相同：attention 四个矩阵加
 
 $$N_{layer} = 4 d_{vit}^2 + 2 \cdot 4 d_{vit}^2 = 12\, d_{vit}^2, \qquad N_{vit} \approx L_{vit} \cdot 12\, d_{vit}^2 + 3p^2 d_{vit}$$
 
-FLOPs 按第一篇参数账的口径算（第二篇会把它系统展开）：权重部分每个 patch 每参数 2 FLOPs，attention 部分每层 $$4 n_p^2 d_{vit}$$（$$QK^\top$$ 与 $$PV$$ 两个 GEMM）：
+FLOPs 按第一篇参数账的口径算（第二篇系统展开过）：权重部分每个 patch 每参数 2 FLOPs，attention 部分每层 $$4 n_p^2 d_{vit}$$（$$QK^\top$$ 与 $$PV$$ 两个 GEMM）：
 
 $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 
@@ -241,7 +241,7 @@ Table: 一张图的三段字节数与生命周期
 
 ### 3. prefill 的另一面
 
-image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇会用 Roofline 说明）：1369 个 image token 在 70B 上要 190 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
+image token 让 prefill 变长，而 prefill 是 compute-bound 的（第二篇用 Roofline 说明过）：1369 个 image token 在 70B 上要 190 TFLOP，与 1369 个文本 token 完全相同；再加上 encoder 自己的 11.8 TFLOP，一张图让这个请求的首 token 延迟多了约 200 ms（H100 峰值下界，实际 1.5–2 倍）。
 
 这里有一个常见的误判：encoder 12 ms、decoder prefill 195 ms，看起来 encoder 不重要。但 encoder 的时间是**串行前置**的——decoder 的 prefill 必须等 encoder 输出就绪才能开始（image token 的 embedding 来自它）。系统层面能做的是把 encoder 与其他请求的 decoder 计算重叠，而不是缩短它。
 
@@ -368,7 +368,7 @@ $$
 
 ### 1. 冻结 encoder 省的主要是激活，状态只是小头
 
-多模态模型的训练通常分阶段：先冻结 encoder 与 LLM、只训 connector（对齐），再解冻 LLM（指令微调），encoder 是否解冻各家不同（LLaVA-1.5 冻结，Qwen2-VL 在前两个阶段训练 ViT、第三阶段冻结）。用第二篇的训练状态公式看冻结省了什么：
+多模态模型的训练通常分阶段：先冻结 encoder 与 LLM、只训 connector（对齐），再解冻 LLM（指令微调），encoder 是否解冻各家不同（LLaVA-1.5 冻结，Qwen2-VL 在前两个阶段训练 ViT、第三阶段冻结）。用第十篇的训练状态公式（混合精度 + Adam 每参数 16 字节）看冻结省了什么：
 
 | 组件 | 参数 | 冻结时的状态 | 解冻时的状态（16 B/参数） |
 |---|---|---|---|
@@ -492,7 +492,7 @@ Llama-3.2 ViT-H/14     patches  6404 tokens  6400 encoder 18.48 TFLOP (attn 45%)
 
 ### 2. 成本表新增的一列
 
-第二篇已经给三个文本模型的成本表加了 FLOPs 与时间列，第二篇再加精度列。本篇先给它加上"一张 1024² 图片"这一行，按三种注入方式放到 Llama-3-8B 规格的 decoder 上：
+第二篇已经给三个文本模型的成本表加了 FLOPs 与时间列，下一篇（第十篇）再加精度列。本篇先给它加上"一张 1024² 图片"这一行，按三种注入方式放到 Llama-3-8B 规格的 decoder 上：
 
 | 一张 1024² 图片 | LLaVA 式（576） | Qwen2-VL 式（1369） | Llama-3.2 式（6404，cross-attn） |
 |---|---|---|---|

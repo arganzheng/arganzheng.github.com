@@ -6,7 +6,7 @@ subtitle: "The Cost of Long Context: KV Cache, Quadratic Prefill and Structural 
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-04 14:00:00
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 > **本篇在系列中的位置。** 现代 LLM 结构系列的第五篇。第 03 篇讲了位置能不能外推，第 04 篇讲了 KV cache 的账，本篇先算长上下文下 KV cache、prefill 与中间量各涨成什么函数，再比较线性 attention、SSM 与混合架构如何改变历史信息的保存方式。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
@@ -23,7 +23,7 @@ updated: 2026-11-13
 
 先把 full attention 下长上下文的三项成本算出来（第二章），再看四类结构手段各自把哪一项从什么函数改成什么函数（第三章），再比较递归状态与混合 attention（第四章），最后落到推理系统上：并发数、TTFT、chunked prefill 与序列并行（第五章）。
 
-**本篇只算成本，不等于长上下文只影响成本。** 效果是另一笔账，而且通常先于成本撞墙：标称 128K 甚至 1M 的模型，在 RULER 一类需要跨越全文聚合、推理的评测上，有效长度常常只有标称的一半甚至更短；"大海捞针"满分不代表装得下，它只测精确取回一条信息。效果下降的来源有三个，分别在别处讨论：其一，位置方案在训练长度之外的相位分布没被覆盖，或像 ALiBi 那样带局部性先验，远处的信息取不准——[第 03 篇](/positional-encoding-and-long-context.html)；其二，softmax 把一个固定的注意力预算摊到更多 token 上，无关 token 越多、每个相关 token 分到的权重越小，加上"中间丢失"的位置偏置——这是 attention 机制本身的性质，sink 与稀疏 attention（第三章）部分是对它的回应；其三，训练数据里真正长的样本很少，长上下文能力要靠继续预训练阶段的长度课程与数据配比专门训出来——[预训练系列第一篇](/pretraining-recipe-and-training-stability.html)第七章。所以"这个模型支持 128K"要分两句读：成本上装得下（本篇算的），效果上用得好（上面三处决定）；两句都成立才是真的 128K。
+**本篇只算成本，不等于长上下文只影响成本。** 效果是另一笔账，而且通常先于成本撞墙：标称 128K 甚至 1M 的模型，在 RULER 一类需要跨越全文聚合、推理的评测上，有效长度常常只有标称的一半甚至更短；"大海捞针"满分不代表装得下，它只测精确取回一条信息。效果下降的来源有三个，分别在别处讨论：其一，位置方案在训练长度之外的相位分布没被覆盖，或像 ALiBi 那样带局部性先验，远处的信息取不准——[第 03 篇](/positional-encoding-and-long-context.html)；其二，softmax 把一个固定的注意力预算摊到更多 token 上，无关 token 越多、每个相关 token 分到的权重越小，加上"中间丢失"的位置偏置——这是 attention 机制本身的性质，sink 与稀疏 attention（第三章）部分是对它的回应；其三，训练数据里真正长的样本很少，长上下文能力要靠继续预训练阶段的长度课程与数据配比专门训出来——[《预训练》的《训练配方与稳定性》第七章「长上下文继续预训练」](/pretraining-recipe-and-training-stability.html#七长上下文继续预训练)。所以"这个模型支持 128K"要分两句读：成本上装得下（本篇算的），效果上用得好（上面三处决定）；两句都成立才是真的 128K。
 
 ### 2. 数字基线
 
@@ -39,7 +39,7 @@ updated: 2026-11-13
 | 五 | 对 Infra 的影响汇总 | 并发数、TTFT、chunked prefill、序列并行 |
 | 六 | 实践 | `llm_cost.py` 上下文长度扫描 |
 | 七 | 本文小结 |  |
-| 八 | 自测 | 3 道题 |
+| 八 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -108,7 +108,18 @@ Llama-3-8B 一个 128K 请求的 KV cache 是它权重（16.06 GB）的大小；
 
 Mistral 7B（Jiang 等 2023）让每个 token 只看前面 $$W = 4096$$ 个 token。attention 算量从 $$4dLs$$ 变成 $$4dL \cdot \min(s, W)$$，KV cache 从 $$s$$ 个 token 变成 $$\min(s, W)$$ 个——两者都从 $$O(s)$$ 变成 $$O(W)$$，即常数。Mistral 7B 的每 token KV cache 与 Llama-3-8B 相同（32 层、8 个 KV 头、$$d_{head} = 128$$，128 KiB），但上限是 $$4096 \times 128\,\text{KiB} = 512$$ MiB，无论输入多长；attention 算量上限 $$4 \times 4096 \times 4096 \times 32 \approx 2.1$$ GFLOPs/token，不到权重的 15%。
 
-实现上 KV cache 变成一个环形缓冲区（rolling buffer），位置 $$n$$ 的 K、V 写到槽 $$n \bmod W$$，第 $$W + 1$$ 个 token 覆盖第 1 个。vLLM 对 sliding window 模型的 block 分配就是按这个做的。
+实现上 KV cache 变成一个环形缓冲区（rolling buffer），位置 $$n$$ 的 K、V 写到槽 $$n \bmod W$$，第 $$W + 1$$ 个 token 覆盖第 1 个。以 $$W = 4$$ 为例，位置 3 到 6 依次写入时：
+
+| 写入的 token 位置 $$n$$ | 写到槽 $$n \bmod 4$$ | 写入后槽 0 / 1 / 2 / 3 里存的位置 | 这个 token 的 query 能看到的位置 |
+|---:|---:|---|---|
+| 3 | 3 | 0 / 1 / 2 / 3 | 0–3 |
+| 4 | 0 | **4** / 1 / 2 / 3 | 1–4 |
+| 5 | 1 | 4 / **5** / 2 / 3 | 2–5 |
+| 6 | 2 | 4 / 5 / **6** / 3 | 3–6 |
+
+Table: W = 4 的环形 KV 缓冲区：新位置覆盖最旧的槽
+
+缓冲区大小固定为 4 个槽，槽里的顺序不再等于位置顺序（写完位置 6 后是 4、5、6、3），所以每个槽要记住自己存的是哪个位置，RoPE 已经在写入前乘进 K 里了，attention 本身不关心槽的顺序。vLLM 对 sliding window 模型的 block 分配也是这个思路，只是以 block 为单位：窗口外的整块归还给块池。
 
 代价是信息只能通过层间传递向远处流动：第 $$\ell$$ 层的 token 能间接看到 $$\ell \cdot W$$ 之内的信息（每层扩一个窗口），32 层理论上是 131072，但每一跳都有损。事实上 Mistral 后续的模型（Mistral Large、Mixtral 的部分版本）取消了滑窗，回到 full attention，说明纯滑窗在长程精确检索任务上有代价。
 
@@ -122,7 +133,20 @@ $$
 \text{KV}(s) = \frac{L}{2} \cdot b \cdot \min(s, W) + \frac{L}{2} \cdot b \cdot s
 $$
 
-其中 $$b$$ 是每层每 token 的 KV 字节数。$$s \gg W$$ 时约为 full attention 的一半。attention 算量同理，$$s \gg W$$ 时约减半。它没有改变函数的阶（仍然 $$O(s)$$ 的 KV 与 $$O(s^2)$$ 的 prefill），只是把系数减半；如果全局层占 $$1/k$$，系数就变成 $$1/k$$。这类设计在 2024–2025 年成为长上下文模型的常见选择，全局层比例从 1:1 到 1:5 不等。
+其中 $$b$$ 是每层每 token 的 KV 字节数。$$s \gg W$$ 时约为 full attention 的一半。attention 算量同理，$$s \gg W$$ 时约减半。它没有改变函数的阶（仍然 $$O(s)$$ 的 KV 与 $$O(s^2)$$ 的 prefill），只是把系数减半；如果全局层占 $$1/k$$，系数就变成 $$1/k$$。这类设计在 2024–2025 年成为长上下文模型的常见选择，局部与全局层的比例从 1:1 到 5:1 不等。
+
+用一个公开配置把公式算一遍。Gemma-3-27B（2025-03）共 62 层，其中 10 层 full attention、52 层窗口 1024 的局部 attention（约 5:1）；每层每 token 的 KV 是 $$2 \times 16 \times 128 \times 2\,\text{B} = 8$$ KiB。一个 128K（131,072 token）请求：
+
+| 层的类型 | 层数 | 每层存多少个 token 的 KV | KV |
+|---|---:|---:|---:|
+| 若全部是 full attention（对照） | 62 | 131,072 | $$62 \times 8\,\text{KiB} \times 131072$$ = 62 GiB |
+| full attention 层 | 10 | 131,072 | $$10 \times 8\,\text{KiB} \times 131072$$ = 10 GiB |
+| 局部层（$$W = 1024$$） | 52 | 1,024 | $$52 \times 8\,\text{KiB} \times 1024$$ = 416 MiB |
+| 交错后合计 | 62 | | 约 10.4 GiB |
+
+Table: Gemma-3-27B 一个 128K 请求的 KV cache：全 full attention 对照与 5:1 交错
+
+交错后约为对照的 1/6，几乎全部来自 10 层 full attention；52 层局部层合起来不到半 GiB，再长的上下文也不会让它们变大。这正是公式里 $$s/k$$ 那一项：$$s \gg W$$ 时系数由全局层占比决定（这里 10/62）。
 
 ### 3. attention sink 与 StreamingLLM
 
@@ -142,6 +166,12 @@ StreamingLLM（Xiao 等 2023）观察到一个现象：在 full attention 训练
 
 - **块稀疏**（block-sparse）：把 K、V 按块（例如 64 个 token）分组，每个 query 块只看部分 key 块——固定模式（局部块 + 若干全局块，如 Longformer、BigBird）或按块的粗粒度分数动态选（top-k 块）。稀疏度 $$\rho$$（保留的块占比）下算量约为 $$4dLs \cdot \rho$$；KV cache 通常不减（需要保留所有块以便选择），除非配合淘汰策略。
 - **DeepSeek 的 NSA**（Native Sparse Attention，Yuan 等 2025）一类：把上下文压成粗粒度的块表示、按块选 top-k 精细 attention、再加一个滑窗，三路结果加权，并在训练时就使用这种结构，让 kernel 形态对齐硬件的块粒度。这一类方法的算量是 $$O(s \cdot k_{blocks} \cdot B_{size})$$ 加压缩部分，接近线性。
+
+三种可见范围画在同一个 16-token 的因果 score 矩阵上（行是 query，列是 key，深色格子表示要算的分数）：
+
+![16-token 因果序列上 dense causal、sliding window（w=4）与 block top-k 三种 attention mask；block top-k 的选块是合成示意](/img/in-post/kv-cache-compression-sparse-attention-patterns.svg)
+
+dense causal 是整个下三角，深色格子数随 $$s$$ 平方增长；滑窗是一条宽 $$W$$ 的对角带，每行最多 $$W$$ 格；block top-k 以 4×4 的块为单位，每个 query 块只算自己的对角块加选中的少数 key 块（图里第 2–4 个 query 块都选了第 1 块，第 4 块还选了第 3 块；这是合成的选择，真实模型由 query 与块摘要的打分决定）。sink + 滑窗相当于在滑窗那条带的左边再固定加上第 1 列的几格。
 
 这里只提形态，不展开。关键在于任何稀疏方法的实现都要处理**索引与不规则访存**——被选中的 K、V 块散落在 HBM 中，kernel 要 gather，这与 dense attention "顺序读一整段"是完全不同的访存模式，也是稀疏 attention 的理论算量节省常常兑现不到实测的原因。
 
@@ -252,7 +282,7 @@ Table: 不同上下文长度下的 Qwen3-Next 状态显存估算
 
 ## 六、实践：llm_cost.py 上下文长度扫描
 
-在第五、六、十二篇脚本的骨架上新增 `context_scan(cfg, gpu, ctxs)`，输出"上下文长度 → KV cache、prefill FLOPs、attention 占比"：
+在前几篇 `llm_cost.py` 的骨架上新增 `context_scan(cfg, gpu, ctxs)`，输出"上下文长度 → KV cache、prefill FLOPs、attention 占比"：
 
 ```python title="llm_cost.py：context_scan"
 from dataclasses import dataclass
@@ -362,7 +392,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
   131072     40.0 G     40.74 PF      68.65 s     343.6 GF      71.2%
 ```
 
-8B 的三列与第二章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第二篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
+8B 的三列与第二章一致：128K 时 16 GiB、6.5 PFLOP、11 s、attention 占 82%。70B 的权重项脚本给出 139 GFLOPs（$$2 \times (70.55 - 1.05)$$B），正文沿用总纲取整的 141，差异 1.5%，不影响任何结论；70B 的 prefill 时间是"单卡等效"，实际至少要 2 张 H100 才放得下权重。要加 DeepSeek-V3，传入 `mla_rank=512, rope_dim=64` 即可得到 68.6 KiB/token 与 128K 的 8.6 GiB；它的权重 FLOPs 项需要第六篇的 MoE 字段（激活 37B → 74 GFLOPs），attention 项按 128 头、q/k 192 维、v 128 维手算是每层 $$2 \times 128 \times (192 + 128) \cdot s = 81920\,s$$，61 层约 $$5.0 \times 10^6 \cdot s$$（未吸收的朴素形式）。
 
 ## 七、本文小结
 
@@ -389,7 +419,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
 
 Table: 本篇数字汇总：三个模型的长上下文成本
 
-DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第四篇有讨论；它的 prefill 总量需要第二篇 MoE 的激活参数量才能完整给出。
+DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 维、v 128 维）计算，吸收后的形式访存更少但 FLOPs 更高，第四篇有讨论；它的 prefill 总量需要第六篇 MoE 的激活参数量才能完整给出。
 
 配套代码：[`transformer-and-llm/llm_cost_04_long_context.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_04_long_context.py)；RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
 
@@ -417,6 +447,22 @@ DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 
    <details markdown="1"><summary>答案</summary>
 
    全层 attention 对照约 12 GiB；混合结构 12 层 KV 约 3 GiB，加 36 层递归矩阵状态 36 MiB，合计约 3.04 GiB。1M 是按 KV 公式外推，配置的 `max_position_embeddings` 为 262144，不能据此说原生支持 1M。
+
+   </details>
+
+4. Mistral 7B 的滑窗 $$W = 4096$$，KV 用环形缓冲区存。位置 10000 的 token 写到哪个槽？它覆盖的是哪个位置的 K、V？
+
+   <details markdown="1"><summary>答案</summary>
+
+   槽 $$10000 \bmod 4096 = 1808$$；这个槽上一次写的是位置 $$10000 - 4096 = 5904$$，正好是刚滑出窗口的那个 token。见[第三章第 1 节](#1-sliding-window-attention)。
+
+   </details>
+
+5. Gemma-3-27B 一个 128K 请求，KV cache 约多少？若 62 层全用 full attention 又是多少？大头在哪里？
+
+   <details markdown="1"><summary>答案</summary>
+
+   交错后约 10.4 GiB（10 层 full attention 10 GiB + 52 层窗口 1024 的局部层 416 MiB）；全 full attention 是 62 GiB。大头几乎全在 10 层 full attention 层，局部层与上下文长度无关。见[第三章第 2 节](#2-全局层与局部层交错)。
 
    </details>
 

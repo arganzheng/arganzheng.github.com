@@ -9,7 +9,7 @@ updated: 2026-09-14
 date: 2026-04-03 14:00:00
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第三篇，也是第一个结构专项。第 01 篇只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推（在比训练时更长的序列上推理）为什么失败、各种长度扩展方法改了什么。下一篇的 MLA 要把 RoPE 从低秩压缩里解耦出来，需要这里的结论；上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在第 01 篇。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第三篇，也是第一个结构专项。第 01 篇只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推（在比训练时更长的序列上推理）为什么失败、各种长度扩展方法改了什么。下一篇的 MLA 要把 RoPE 从低秩压缩里解耦出来，需要这里的结论；上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在第 05 篇。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
 [《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量。Llama 换成了 RoPE，没有表，也就没有写死的行数，但这不等于它能处理任意长度：模型凭什么知道一个 token 在第几个位置？超过训练长度之后它还认不认得？
 
@@ -539,7 +539,7 @@ YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 1. 无 mask 的 attention 是置换等变的，causal mask 只给弱的顺序信号，位置要显式注入。正弦编码是加性的，$$q^\top k$$ 展开后依赖绝对位置；可学习编码有硬上限；相对 bias 需要 $$s \times s$$ 的额外项。RoPE 把 $$d_{head}$$ 维向量看成 $$d_{head}/2$$ 个复数、第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，$$q_m^\top k_n = \text{Re}[\sum_i q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}]$$ 只依赖 $$m - n$$——以绝对位置的实现得到相对位置的性质，且与 KV cache 天然兼容。
 2. 每一对的波长 $$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$ 是理解一切的钥匙。base 10000、$$d_{head} = 128$$ 时从 6.28 到 5.4 万；训练长度 8K 时 $$i \ge 50$$ 的 14 对没转完一圈，推 32K 时这些维度出现从未见过的相位，是外推失败的根源。base 500000 把最低频波长拉到 256 万，让 128K 内的长距离在数学上可区分，但"见过"只能靠在长序列上训练；高频维度不变，attention 熵随长度增长的问题也不归它管。
 3. PI 把所有 $$\theta_i$$ 除以 factor；NTK-aware 用 $$\text{base}' = \text{base} \cdot \text{factor}^{d/(d-2)}$$ 使最低频恰好插值 factor 倍、最高频不动；YaRN 按 $$r_i = L/\lambda_i$$ 分三段（$$r > \beta$$ 不动、$$r < \alpha$$ 全插值、中间线性），再用 $$\sqrt{1/t} = 0.1 \ln(\text{factor}) + 1$$ 修正温度；Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 就是 $$\alpha = 1$$、$$\beta = 4$$ 的 YaRN 分段规则、不带温度；DeepSeek-V3 与 Qwen2.5 直接用 YaRN 字段。ALiBi 用 $$2^{-8h/n_h}$$ 的线性惩罚，外推好但局部性先验太强、无法表达内容与位置交互，被 RoPE 取代。
-位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见第一篇[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。在那之前先看 attention 自己：[下一篇《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 MHA → GQA → MQA → MLA 各把每 token 的 KV 压到多少，其中 MLA 要把 RoPE 从低秩压缩里解耦出来单独缓存——用的正是本篇 $$R_m^\top R_n = R_{n-m}$$ 这条性质。
+位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见第五篇[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。在那之前先看 attention 自己：[下一篇《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 MHA → GQA → MQA → MLA 各把每 token 的 KV 压到多少，其中 MLA 要把 RoPE 从低秩压缩里解耦出来单独缓存——用的正是本篇 $$R_m^\top R_n = R_{n-m}$$ 这条性质。
 
 配套代码：RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
 

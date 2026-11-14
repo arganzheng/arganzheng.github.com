@@ -90,7 +90,7 @@ $$
 2 \times 7.5 \times 10^9 \approx 15.0\ \text{GFLOPs/token}
 $$
 
-同样的方法：Llama-3-70B 总参数 70.55B，GEMM 部分 69.5B，每 token 约 139–141 GFLOPs（本系列统一取 141，即 $$2 \times 70.55\text{B}$$，两者差别在 embedding 那一项，不影响任何结论）。DeepSeek-V3 总参数 671B，但每个 token 只经过被路由到的 8 个专家加 1 个共享专家，**激活参数**约 37B，所以每 token 约 $$2 \times 37\text{B} = 74$$ GFLOPs——MoE 的全部意义就是让 $$N$$ 与 $$N_{active}$$ 分离，第二篇会展开。
+同样的方法：Llama-3-70B 总参数 70.55B，GEMM 部分 69.5B，每 token 约 139–141 GFLOPs（本系列统一取 141，即 $$2 \times 70.55\text{B}$$，两者差别在 embedding 那一项，不影响任何结论）。DeepSeek-V3 总参数 671B，但每个 token 只经过被路由到的 8 个专家加 1 个共享专家，**激活参数**约 37B，所以每 token 约 $$2 \times 37\text{B} = 74$$ GFLOPs——MoE 的全部意义就是让 $$N$$ 与 $$N_{active}$$ 分离，第六篇会展开。
 
 这个近似里被忽略的项：RMSNorm（每 token 每层约 $$4d$$ 次运算）、RoPE、softmax、SwiGLU 里的逐元素乘法与激活函数、残差加法。它们都是 $$O(d)$$ 或 $$O(d_{ff})$$ 每 token，与 GEMM 的 $$O(d^2)$$ 相比小两到三个数量级。它们在 FLOPs 上可以忽略，**但在时间上不一定能忽略**——这些算子是 memory-bound 的，这是第八节讨论实测差距时要回来的一点。
 
@@ -134,7 +134,7 @@ $$
 
 Table: 不同上下文长度下 attention 上下文项与权重项的比
 
-在 8K 上下文，attention 的上下文项是权重项的不到三分之一，"2N 近似"仍然好用；到 128K，它是权重项的 4.6 倍，模型每生成一个 token 的算量主要花在"看历史"而不是"过权重"上。对 Llama-3-70B（$$d = 8192$$，80 层）在 128K：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是它 141 GFLOPs 权重项的 2.4 倍。这一项对系统的意义，第一篇讲长上下文时会算得更细。
+在 8K 上下文，attention 的上下文项是权重项的不到三分之一，"2N 近似"仍然好用；到 128K，它是权重项的 4.6 倍，模型每生成一个 token 的算量主要花在"看历史"而不是"过权重"上。对 Llama-3-70B（$$d = 8192$$，80 层）在 128K：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是它 141 GFLOPs 权重项的 2.4 倍。这一项对系统的意义，第五篇讲长上下文时会算得更细。
 
 ### 5. 训练的 6ND 与激活重算的 8N
 
@@ -412,7 +412,7 @@ $$
 
 这个结论干净得令人不安：**BF16 decode 的算术强度在数值上就等于 batch 大小。**每 2 字节的权重被读进来，对 $$B$$ 个 token 各做一次乘加，共 $$2B$$ FLOPs。
 
-$$B = 1$$ 时 $$I = 1$$，距 ridge point 295 差两个多数量级。这就是"decode 是 memory-bound 的"这句话的全部含义：不是某个 kernel 写得不好，而是工作负载的算术强度天然比硬件的 ridge point 低两个数量级。任何 kernel 优化都不可能把 $$B = 1$$ 的 decode 变成 compute-bound；能做的只有提高 $$B$$（continuous batching）、减少每步读的字节（量化，第二篇）、或者一步产出多个 token（投机解码，第四篇）。
+$$B = 1$$ 时 $$I = 1$$，距 ridge point 295 差两个多数量级。这就是"decode 是 memory-bound 的"这句话的全部含义：不是某个 kernel 写得不好，而是工作负载的算术强度天然比硬件的 ridge point 低两个数量级。任何 kernel 优化都不可能把 $$B = 1$$ 的 decode 变成 compute-bound；能做的只有提高 $$B$$（continuous batching）、减少每步读的字节（量化，见算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)）、或者一步产出多个 token（投机解码，第八篇）。
 
 顺便得到 FP8 的情况：权重字节减半，$$I_{\text{weight}} = 2B$$；同时 H100 FP8 算力翻倍到 1979 TFLOPS，ridge point 变为 $$1979 / 3.35 \approx 590$$。距离没有变：仍然需要 $$B \approx 295$$。量化在 decode 上的收益来自字节数减少，而不是算力提高。
 
@@ -562,7 +562,7 @@ $$
 
 Table: 64 GB 的预算：B × s ≤ 52 万
 
-（每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；第一篇专门算这一项。）
+（每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；第五篇专门算这一项。）
 
 注意到当 KV cache 把显存填满时，每步读的 KV 字节数总是 64 GiB，与 $$s$$ 无关——总时间下界固定在约 25 ms，变的只是这 25 ms 里产出多少个 token。$$s = 1024$$ 时 $$B = 512$$，强度 94，是这张卡上离 ridge point 最近的配置，但仍差 3 倍。
 
@@ -889,7 +889,7 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
                             约 51 万 GPU-h  约 450 万 GPU-h
 ```
 
-本篇的所有字节数都以 BF16 的 2 字节为默认，"每个字节里存了什么"留到第二篇。有了这把尺子，从下一篇起逐个打开今天的模型改过的部件，每一处都问同样的问题：改了什么、为什么、相对基线多算或少搬了什么。[下一篇《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)从第一个被换掉的部件开始：GPT-2 的位置表为什么被 RoPE 取代、RoPE 为什么在训练长度之外会失效、改 base 与 YaRN 各解决了什么。
+本篇的所有字节数都以 BF16 的 2 字节为默认，"每个字节里存了什么"留到第十篇。有了这把尺子，从下一篇起逐个打开今天的模型改过的部件，每一处都问同样的问题：改了什么、为什么、相对基线多算或少搬了什么。[下一篇《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)从第一个被换掉的部件开始：GPT-2 的位置表为什么被 RoPE 取代、RoPE 为什么在训练长度之外会失效、改 base 与 YaRN 各解决了什么。
 
 > **BF16 的相对精度只有 FP16 的 1/8，为什么它反而成了训练的默认格式？**
 
