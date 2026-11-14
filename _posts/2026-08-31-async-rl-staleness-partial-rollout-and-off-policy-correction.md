@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（05）：异步与 off-policy——把同步�
 subtitle: "Asynchrony and Off-Policy: What You Owe After Tearing Down the Synchronization Wall"
 tags: [RL, verl, AReaL, GRPO, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 <style>
@@ -161,7 +161,13 @@ Table: 回答长度与 staleness 的关系
 
 Kimi k1.5 的报告（Kimi Team 2025）最早把它写清楚：每一轮 rollout 给一个 token 预算，超预算的序列**暂停**、下一轮用新权重**继续**，一条长轨迹可能跨三四个版本才完成。AReaL 叫它 interruptible generation；verl 的实现是 `abort → update_weights → resume`：权重同步前中断所有在飞请求，保存已生成的 token，同步后作为新请求（prompt = 原 prompt + 已生成部分）重新提交。
 
-它解决的是第二章的长度偏置：32K 的回答不再是"一个版本生成 600 秒"，而是"每 150 秒换一次权重，四段各 8K"，每段的 staleness 不超过 1。长尾从"等一条序列"变成"一条序列分四次算"，而且训练器随时有样本——这是 meituan 实验里从 1.6 倍到 2.35 倍那最后一档的来源。
+它解决的是第二章的长度偏置：32K 的回答不再是"一个版本生成 600 秒"，而是"每 150 秒换一次权重，四段各 8K"：每一段都由当时最新的权重生成、只跨一个同步间隔，不会因为整条太长而被 drop。长尾从"等一条序列"变成"一条序列分四次算"，而且训练器随时有样本——这是 meituan 实验里从 1.6 倍到 2.35 倍那最后一档的来源。
+
+把第二章的表和这里的续接画在同一根时间轴上（8B 推理场景，$$T_{sync} \approx 150$$ s，忽略缓冲等待）：
+
+![staleness 与回答长度：不做部分 rollout 与做部分 rollout](/img/in-post/async-rl-staleness-and-partial-rollout.svg)
+
+上半部分是 drop 偏向短回答的原因：三条回答都在 v0 开始，越长的完成得越晚、跨过的同步越多，阈值 2 只拦住了 32K 那一条。下半部分是部分 rollout 的代价所在：一条回答的 token 分属 v0–v3 四个版本（第 3 节的分段 $$\pi_{old}$$），每次续接前的深色窄条是重 prefill（第 2 节）。
 
 ### 2. 代价一：重 prefill
 
@@ -268,6 +274,33 @@ GRPO 的组约束让缓冲以**组**为单位：一个 prompt 的 $$G$$ 条要�
 Table: 淘汰矩阵
 
 每一类淘汰都改变分布，并且**比例会随训练变化**：DAPO 过滤在训练后期（模型变强、全对率升）淘汰得越来越多，能留下有效训练信号的生成样本比例下降、补发负担上升；补发跟得上时，训练 batch 不一定缩小。超时淘汰在回答变长后变多。verl 分别记录过期、DAPO、失败的淘汰计数（`{prefix}/off_policy/evicted_samples`、`{prefix}/filter_groups/evicted_samples`、`{prefix}/rollout_failure/evicted_samples`），另有 DAPO 的 `filtered_reward_counts`；staleness 统计只覆盖过期淘汰组，`wait` 的阻塞时间要另记。第八章的诊断表靠这些信号。
+
+一个组从完成到进训练 batch 要过的几道筛，按 verl v0.9.0 `ReplayBuffer._evict_terminal_groups` 的检查顺序画（async 模式）：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：一个 GRPO 组在 verl ReplayBuffer 里的去向（async 模式）：每一道淘汰都触发补发，并各记一类计数
+flowchart TB
+    G["<b>生成侧</b><br/>agent loop 跑完一条 session<br/>kv_put 进 TransferQueue，标签 finished / failure"]
+    T{"组内 G 条都到终态？"}
+    D{"DAPO：组内 reward 全同？"}
+    F{"有 session 失败？"}
+    S{"跨越版本数 > max_off_policy_threshold？"}
+    EV["<b>淘汰</b><br/>按原因记 filter_groups / rollout_failure / off_policy 计数<br/>refill_fn 补发一个 prompt"]
+    OK["<b>可取</b><br/>够 B 个组 → 一个训练 batch"]
+    G --> T
+    T -- "否：等最慢的那条" --> T
+    T -- "是" --> D
+    D -- "是" --> EV
+    D -- "否" --> F
+    F -- "是" --> EV
+    F -- "否" --> S
+    S -- "是，drop 策略" --> EV
+    S -- "否（wait 策略下过期也不丢）" --> OK
+    EV -. "补发的 prompt 重新生成" .-> G
+```
+
+wait 策略不在这里丢组，而是在取样时检查在飞的组：有组的版本跨度到了阈值，就先阻塞、等它完成。sync 模式下第四道是空操作，失败组默认保留、缺的位置 padding。图里每条进"淘汰"的边都会改变训练 batch 的分布，而且是单向的：DAPO 筛掉太难和太简单的 prompt，失败与 drop 筛掉更长、更慢的轨迹。
 
 ### 3. 补发与预热
 

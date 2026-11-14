@@ -97,7 +97,7 @@ flowchart TB
 
 | 32B、8 卡 | 数 |
 |---|---|
-| 每步换手 | 约 130 GB、6.5 s（4 s 是优化器状态往返） |
+| 每步换手 | 约 146 GB、7 s（4 s 是优化器状态往返） |
 | pinned 内存 | 520 GB |
 | `gpu_memory_utilization` 0.85 → 0.5 | 8B 生成 610 → **745 s**——KV 池只有半张卡 |
 | 边界 | $$16N / n \le 70$$ GB 才能共置 |
@@ -109,6 +109,18 @@ flowchart TB
 
 <!-- v -->
 
+
+### 一张卡上的显存：六个阶段
+
+![32B、8 卡共置：一张卡在一步各阶段的显存占用](/img/in-post/colocated-trainer-rollout-memory-per-phase.svg){: style="max-height: 470px"}
+
+update_actor 贴着 80 GB；生成时空着三十多 GB——KV 池被 0.5 定死
+
+<aside class="notes" markdown="1">
+优化器状态 49 GB 只在 update_actor 期间上卡，所以 32B/8 卡必须开 optimizer_offload。生成那一列的空白就是 gpu_memory_utilization = 0.5 的代价：训练器让出的显存推理引擎用不上。
+</aside>
+
+<!-- v -->
 
 ### 常见误区
 
@@ -134,6 +146,25 @@ flowchart TB
 
 <!-- v -->
 
+
+### 两类参数，两条路
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+flowchart LR
+    A["<b>注意力 / dense</b><br/>TP = 4 切分"] --> AG["TP 组内 all-gather<br/>→ mcore → HF 拆 QKV"]
+    E["<b>路由专家</b><br/>每 EP rank 32 个完整专家"] --> M2["只改编号<br/>不用 all-gather"]
+    AG & M2 --> Q["bf16 → FP8<br/>分桶传输"]
+    Q --> V["<b>vLLM TP = 8 × EP = 4</b><br/>取自己的 TP 切片<br/>专家 8 组重分成 4 组"]
+```
+
+专家占 95% 以上的参数，本来就没有人需要持有完整模型——天然多源
+
+<aside class="notes" markdown="1">
+注意力一侧必须有人 gather 出完整张量才能拆交错的 QKV；专家一侧每个训练 EP rank 可以直接把自己的 32 个专家发给需要它们的推理 rank，每个推理 EP 组从两个训练 EP rank 各收一半。
+</aside>
+
+<!-- v -->
 
 ### 要点
 
@@ -167,6 +198,18 @@ flowchart TB
 
 <!-- v -->
 
+
+### staleness 与回答长度
+
+![staleness 与回答长度：不做部分 rollout 与做部分 rollout](/img/in-post/async-rl-staleness-and-partial-rollout.svg){: style="max-height: 420px"}
+
+越长越晚完成、跨越的同步越多；部分 rollout 让一条回答分段由 v0–v3 生成，每段先重 prefill
+
+<aside class="notes" markdown="1">
+8B 推理场景，T_sync ≈ 150 s：2K s = 0、8K s = 1、32K s = 4；阈值 2 + drop 只丢 32K。部分 rollout 的代价是重 prefill（约一步 FLOP 的 6%）和分段的 π_old。
+</aside>
+
+<!-- v -->
 
 ### 常见误区
 
@@ -227,7 +270,7 @@ flowchart TB
 |---|---|
 | 配比 | 80 : 48 |
 | 一步 | ≈ 1170 s，MFU ≈ 20% |
-| MFU 瀑布 | 100% − 64%（decode）− 13%（长尾）− 4%（同步）− 0.1% ≈ 13% |
+| MFU 瀑布 | 100 − 48.1（decode）− 24.2（长尾）− 14.5（前向与训练）− 0.1 ≈ 13% |
 | 671B checkpoint | 10.7 TB 写 18 分钟 |
 | 确定性 | `full_determinism` 要求 `use_v1=false` |
 
@@ -295,12 +338,12 @@ flowchart TB
 |---|---|
 | 01 | 602 + 72 + 136 = 810 s；MFU 13%；每 token 12N_a |
 | 02 | 共置 810 / 分离 1501 / 异步 619 s；配比按时间 2 : 1 |
-| 03 | 换手 130 GB、6.5 s、< 2%；0.5 → 745 s；16N/n ≤ 70 GB |
+| 03 | 换手 146 GB、7 s、< 2%；0.5 → 745 s；16N/n ≤ 70 GB |
 | 04 | 671B FP8 60–80 → 12–20 s；delta 21×；bucket 512 MB |
 | 05 | $$s \approx \lfloor(\text{gen} + \text{wait})/T_{sync}\rfloor$$；TIS min(w, 2)；3 份 logprob |
 | 06 | 8 万次执行；1300–1800 沙箱；prefill 160 vs 1600 s |
 | 07 | 十二步、四类进程、三条链路；TransferQueue |
-| 08 | 瀑布 100 − 64 − 13 − 4 ≈ 13%；数据 → 版本 → 异步 → 实现 |
+| 08 | 瀑布 100 − 48.1 − 24.2 − 14.5 ≈ 13%；数据 → 版本 → 异步 → 实现 |
 
 ---
 

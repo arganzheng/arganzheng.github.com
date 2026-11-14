@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（01）：负载画像——一步 RL 里发生
 subtitle: "Anatomy of an RL Step: Rollout, Reward and Train"
 tags: [RL, verl, vLLM, GRPO, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个 8B 的策略模型做 GRPO：512 个 prompt、每个采 16 条回答、回答平均 8K token。这一步要生成 6700 万个 token，参考模型与旧策略要再各过一遍 7100 万个 token 的前向，训练要对同样多的 token 做前向加反向。合计 6.8×10¹⁸ FLOP，其中训练占一半、生成只占六分之一。但在 64 张 H100 上，生成要 600 秒、训练 135 秒——**按时间生成占四分之三**。整步下来，64 张卡的算力只用到了 13%。
@@ -68,18 +68,20 @@ FLOP 账在算法侧已经算过（[《后训练》第三篇](/online-rl-ppo-grp
 
 全系列使用同一套符号，后续各篇在总览里复述用到的部分：
 
-```text title="全系列的记账符号"
-N  N_a           总参数量、每 token 激活参数量（dense 模型两者相等；MoE 只有 N_a 进 FLOP 账）
-B  G             一步的 prompt 数、每个 prompt 的回答数；序列数 S = B·G
-P  L̄  L_max      prompt 平均长度、回答平均长度、回答最大长度（token）
-T_resp T_all     一步的回答 token 数 S·L̄、前向要过的全部 token 数 S·(P + L̄)
-k_kv             每 token 的 KV 字节数（Llama-3-8B：128 KiB；MLA：≈ 70 KB）
-n  t             GPU 总数、推理引擎一个实例占的卡数（TP 度）
-c                一个推理实例同时在飞的序列数（并发）
-F_peak BW M      单卡峰值 FLOPS、HBM 带宽、HBM 容量
-η_train η_pre    训练与 prefill 形态前向的 MFU 假设（本篇 0.40、0.50）
-η_bw             decode 时 HBM 带宽的有效利用率假设（本篇 0.60）
-```
+| 符号 | 含义 |
+|---|---|
+| $$N$$、$$N_a$$ | 总参数量、每 token 激活参数量（dense 模型两者相等；MoE 只有 $$N_a$$ 进 FLOP 账） |
+| $$B$$、$$G$$ | 一步的 prompt 数、每个 prompt 的回答数；序列数 $$S = B \cdot G$$ |
+| $$P$$、$$\bar L$$、$$L_{max}$$ | prompt 平均长度、回答平均长度、回答最大长度（token） |
+| $$T_{resp}$$、$$T_{all}$$ | 一步的回答 token 数 $$S \cdot \bar L$$、前向要过的全部 token 数 $$S \cdot (P + \bar L)$$ |
+| $$k_{kv}$$ | 每 token 的 KV 字节数（Llama-3-8B：128 KiB；MLA：≈ 70 KB） |
+| $$n$$、$$t$$ | GPU 总数、推理引擎一个实例占的卡数（TP 度） |
+| $$c$$ | 一个推理实例同时在飞的序列数（并发） |
+| $$F_{peak}$$、$$BW$$、$$M$$ | 单卡峰值 FLOPS、HBM 带宽、HBM 容量 |
+| $$\eta_{train}$$、$$\eta_{pre}$$ | 训练与 prefill 形态前向的 MFU 假设（本篇 0.40、0.50） |
+| $$\eta_{bw}$$ | decode 时 HBM 带宽的有效利用率假设（本篇 0.60） |
+
+Table: 全系列的记账符号
 
 四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《现代 LLM 结构》第四篇](/attention-variants-and-kv-cache.html)）：
 
@@ -170,14 +172,16 @@ Table: RL 一步每 token 的 FLOP 系数
 
 $$B = 512$$、$$G = 16$$、$$P = 500$$、$$\bar L = 8192$$：$$S = 8192$$ 条序列，$$T_{resp} = 6.71 \times 10^7$$，$$T_{all} = 7.12 \times 10^7$$。
 
-```text title="8B 推理场景的 FLOP 分项"
-生成            2 × 8.03e9 × 6.71e7  =  1.08 EFLOP    15.9%
-prompt prefill  2 × 8.03e9 × 2.56e5  =  4.1  PFLOP     0.1%
-参考前向        2 × 8.03e9 × 7.12e7  =  1.14 EFLOP    16.8%
-旧策略前向      同上                  =  1.14 EFLOP    16.8%
-策略训练        6 × 8.03e9 × 7.12e7  =  3.43 EFLOP    50.5%
-合计                                     6.80 EFLOP  = 11.9 N_a 每 token
-```
+| 分项 | 算式 | FLOP | 占比 |
+|---|---|---:|---:|
+| 生成 | $$2 \times 8.03 \times 10^9 \times 6.71 \times 10^7$$ | 1.08 EFLOP | 15.9% |
+| prompt prefill | $$2 \times 8.03 \times 10^9 \times 2.56 \times 10^5$$ | 4.1 PFLOP | 0.1% |
+| 参考前向 | $$2 \times 8.03 \times 10^9 \times 7.12 \times 10^7$$ | 1.14 EFLOP | 16.8% |
+| 旧策略前向 | 同上 | 1.14 EFLOP | 16.8% |
+| 策略训练 | $$6 \times 8.03 \times 10^9 \times 7.12 \times 10^7$$ | 3.43 EFLOP | 50.5% |
+| 合计 | 每 token $$11.9 N_a$$ | 6.80 EFLOP | 100% |
+
+Table: 8B 推理场景的 FLOP 分项
 
 64 张 H100 的峰值是 $$64 \times 989 \times 10^{12} = 6.33 \times 10^{16}$$ FLOP/s，这 6.8 EFLOP 全部按峰值算要 107 秒。第五章会算出实际的墙钟是它的 7 到 8 倍——差距几乎全部来自生成。
 
@@ -199,15 +203,15 @@ PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率
 
 一步里显存中要出现过的东西：
 
-```text title="一步里的四份显存"
-                            字节                      8B 推理场景（64 卡）           每卡（均分）
-① 训练状态                   16 N（bf16 参数 + 梯度 + fp32 主参数 + Adam 两个矩）
-                                                      128.5 GB                     2.0 GB
-② 参考模型（bf16，只前向）    2 N                       16.1 GB                      0.25 GB
-③ 推理引擎的权重副本          2 N（FP8 则 N）           16.1 GB / 实例               16.1 GB（TP = 1）
-④ KV cache                  T_all × k_kv             7.12e7 × 128 KiB = 9.33 TB   146 GB —— 放不下
-   激活（训练时）             按 micro-batch 的 token 数，可重计算；与预训练同一公式
-```
+| 项 | 字节 | 8B 推理场景（64 卡） | 每卡（均分） |
+|---|---|---:|---:|
+| ① 训练状态（bf16 参数 + 梯度 + fp32 主参数 + Adam 两个矩） | $$16N$$ | 128.5 GB | 2.0 GB |
+| ② 参考模型（bf16，只前向） | $$2N$$ | 16.1 GB | 0.25 GB |
+| ③ 推理引擎的权重副本 | $$2N$$（FP8 则 $$N$$） | 16.1 GB / 实例 | 16.1 GB（TP = 1） |
+| ④ KV cache | $$T_{all} \times k_{kv}$$ | $$7.12 \times 10^7 \times 128$$ KiB = 9.33 TB | 146 GB——放不下 |
+| 激活（训练时） | 按 micro-batch 的 token 数，可重计算；与预训练同一公式 | | |
+
+Table: 一步里的四份显存
 
 ①的 16 字节来自[《大规模训练工程》第一篇](/training-state-anatomy-memory-and-mfu.html)；FSDP / ZeRO-3 把它均分到全部训练卡上，64 卡时每卡只有 2 GB——**训练状态在这个规模下不是问题**，问题是 ③ 和 ④。
 
@@ -281,13 +285,14 @@ Table: 8B 推理场景（64 张 H100）一步的五段时间与占比
 
 四个场景放在一起：
 
-```text title="四个场景的墙钟与全步 MFU"
-                            一步墙钟    生成占比    全步 MFU    每卡 decode token/s
-8B 对话  B=512 G=8  L̄=1K    111 s      42%        29%        11900
-8B 推理  B=512 G=16 L̄=8K    810 s      74%        13%         2600
-32B 推理  (TP=2)            2407 s      65%        18%          900
-DeepSeek-V3 推理 (256 卡)     654 s      59%        19%         2100
-```
+| 场景 | 一步墙钟 | 生成占比 | 全步 MFU | 每卡 decode token/s |
+|---|---:|---:|---:|---:|
+| 8B 对话（$$B = 512$$、$$G = 8$$、$$\bar L = 1\text{K}$$） | 111 s | 42% | 29% | 11900 |
+| 8B 推理（$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$） | 810 s | 74% | 13% | 2600 |
+| 32B 推理（TP = 2） | 2407 s | 65% | 18% | 900 |
+| DeepSeek-V3 推理（256 卡） | 654 s | 59% | 19% | 2100 |
+
+Table: 四个场景的墙钟与全步 MFU
 
 规律：回答越长、生成占比越高、全步 MFU 越低——**RL 后训练的系统效率由 rollout 决定**。HybridFlow（verl）与 OpenRLHF 的论文报告 rollout 占 60–80% 的墙钟，与这张账一致；它们的系统优化几乎全部落在生成一侧，也是这个原因。
 

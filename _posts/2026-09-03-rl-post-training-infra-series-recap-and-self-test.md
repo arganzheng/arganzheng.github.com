@@ -5,6 +5,7 @@ title: "RL 后训练基础设施（09）：系列总结与通关自测"
 subtitle: "RL Post-Training Infrastructure: Series Recap and Final Self-Test"
 tags: [RL, verl, vLLM, Megatron, Distributed Training, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 date: 2026-09-03 20:00:00
 ---
 
@@ -38,12 +39,12 @@ flowchart TB
 |---|---|---|---|
 | [第一篇：负载画像](/rl-step-anatomy-rollout-reward-train.html) | 8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 张 H100 做 GRPO：生成多少 token、多少 KV、分几波？三段各多少 GPU·秒？利用率上限？ | 一步 = 三个作业 + 两次同步；FLOP 上训练占一半、生成六分之一，时间上生成占四分之三——decode 每步把整块 HBM 读一遍 | 每 token 约 $$12N_a$$<br/>一步 6.8 EFLOP<br/>KV 9.3 TB、分 1.4 波<br/>decode 步 ≈ 36 ms<br/>生成 602 s（长尾 196）+ 前向 72 + 训练 136 = 810 s<br/>全步 MFU 13%（对话场景 29%） |
 | [第二篇：系统形态](/rl-system-topologies-colocate-disaggregate-async.html) | 同样 64 卡，共置、分离、异步各是多少墙钟与利用率？长尾变大时哪种先撑不住？ | 三种形态是同一张账上的三种交换<br/>同步分离比共置更差<br/>异步 ≈ 共置 − 长尾<br/>共置对长尾线性敏感、异步不敏感 | 共置 810 s / 13%，同步分离 1501 s / 7%，一步流水 764 s / 14%，异步 619 s / 17%<br/>$$f$$ 从 10% 到 70%，异步 / 共置 1.07× → 2.55×<br/>verl 实验 2.35–2.67×<br/>配比 $$n_r / n_t = T_{gen}^{(n)} / T_{train}^{(n)}$$，异步 2 : 1（42 : 22） |
-| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | 32B 在 8 卡共置，每步两次显存换手搬多少字节、走哪条链路、几秒？是 2% 还是 20%？ | 让渡有搬 / 丢 / 不动三种<br/>`CuMemAllocator` 摘物理页保虚拟地址<br/>切换 < 2%，真实代价是常驻部分挤掉的 KV 池 | 每步约 130 GB、6.5 s（4 s 是优化器状态往返）<br/>`gpu_memory_utilization` 0.5 → 0.85 让 8B 生成 745 → 610 s<br/>pinned 内存 32B/8 卡 520 GB<br/>边界 $$16N / n \le 70$$ GB |
+| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | 32B 在 8 卡共置，每步两次显存换手搬多少字节、走哪条链路、几秒？是 2% 还是 20%？ | 让渡有搬 / 丢 / 不动三种<br/>`CuMemAllocator` 摘物理页保虚拟地址<br/>切换 < 2%，真实代价是常驻部分挤掉的 KV 池 | 每步约 146 GB、7 s（4 s 是优化器状态往返）<br/>`gpu_memory_utilization` 0.5 → 0.85 让 8B 生成 745 → 610 s<br/>pinned 内存 32B/8 卡 520 GB<br/>边界 $$16N / n \le 70$$ GB |
 | [第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html) | Megatron TP4 / PP2 / EP8 的 671B → vLLM TP8 / EP4 的 FP8 副本，跨机一次同步做哪几步、传多少、几秒？增量省多少？ | 同步 = 布局 + 传输两半，中间是 HF 名字的 `(name, tensor)` 流<br/>"谁持有完整模型"比链路快慢重要<br/>增量让没有人持有完整模型 | FP8 传 $$N$$ = 671 GB<br/>朴素经 rank 0 60–80 s（理论下界 13 s）、多源 12–20 s<br/>235B 全量 246–266 s vs delta 11–15 s（21×）<br/>dense 每步 1–3% 变化、MoE 0.02–0.05%<br/>bucket 512 MB、峰值 2 bucket<br/>bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$ |
 | [第五篇：异步与 off-policy](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) | 同步换成 $$k \le 2$$ 的异步后 reward 斜率变缓，是 staleness、训推不一致还是缓冲淘汰？事前记什么信号？ | "样本过期"是三个东西，reward 曲线上不可分、事前记录的信号上可分；修正的系统要求是 logprob 的份数 | $$s \approx \lfloor (\text{生成用时} + \text{等待}) / T_{sync} \rfloor$$，长回答 $$s$$ 更大<br/>阈值默认 8<br/>$$s \le 2$$–4 配修正无损<br/>不一致 dense $$10^{-3}$$、FP8 $$10^{-2}$$、MoE 路由翻转单 token > 1<br/>TIS $$\min(w, 2)$$<br/>部分 rollout 重 prefill ≈ 一步 FLOP 的 6%<br/>decoupled PPO 3 份 logprob |
 | [第六篇：Agentic rollout](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) | 500 任务 × $$G = 8$$ × 20 轮、每轮几十秒测试：多少次容器执行、多少 CPU·小时、多少并发沙箱？GPU 在做什么？ | rollout 变成分布式系统<br/>KV 驻留决定 prefill 是二次还是线性<br/>沙箱是第三个池<br/>环境方差让异步成必需 | 8 万次执行<br/>667–1300 CPU·h<br/>1300–1800 并发沙箱<br/>32 卡 30 分钟里 decode ≈ 500 s、prefill 160–1600 s<br/>每卡 650 token/s<br/>训练侧 15 EFLOP<br/>八成 token 来自环境 |
 | [第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | 一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token，经过哪些函数、进程、链路？ | 十二步、四类进程、三条链路<br/>共置 = 一个进程持有多个角色对象<br/>TransferQueue 是同步与异步统一的解耦点<br/>slime 薄、AReaL 异步优先 | `@register` 只挂属性、`_bind_worker_method` 生成组方法<br/>`_step_once` 九个阶段<br/>non-naive 同步七步<br/>`create_colocated_worker_cls` + `spawn`<br/>三家趋同的四段是必然 |
-| [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | 凌晨两点 reward 平台、步时间不变、无报错：十分钟内区分四个嫌疑，信号开训前采了没有？ | 六步推导、全步 MFU 瀑布、RL 状态的 checkpoint、确定性、必采指标、故障表；排查顺序是数据 → 版本 → 异步 → 实现 | 32B / 128 卡算例：80 : 48、一步 ≈ 1170 s、MFU ≈ 20%<br/>瀑布 100% − 64% − 13% − 4% − 0.1% ≈ 13%<br/>671B checkpoint 10.7 TB 写 18 分钟<br/>`full_determinism` 要求 `use_v1=false` |
+| [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | 凌晨两点 reward 平台、步时间不变、无报错：十分钟内区分四个嫌疑，信号开训前采了没有？ | 六步推导、全步 MFU 瀑布、RL 状态的 checkpoint、确定性、必采指标、故障表；排查顺序是数据 → 版本 → 异步 → 实现 | 32B / 128 卡算例：80 : 48、一步 ≈ 1170 s、MFU ≈ 20%<br/>瀑布 100% − 48.1 − 24.2 − 14.5 − 0.1 个百分点 ≈ 13%<br/>671B checkpoint 10.7 TB 写 18 分钟<br/>`full_determinism` 要求 `use_v1=false` |
 
 Table: 八篇的核心问题、结论与必记公式
 
@@ -103,7 +104,7 @@ Table: 本文的章节安排
 
 **必记**：
 
-- 32B / 8 卡：优化器状态 + fp32 主参数 49 GB、bf16 分片 8 GB、参考模型 8 GB 每卡，PCIe pinned 25 GB/s，一步约 130 GB、6.5 s，其中 4 s 是优化器状态往返；步时间 5 分钟时 2%。
+- 32B / 8 卡：优化器状态 + fp32 主参数 49 GB、bf16 分片 8 GB、参考模型 8 GB 每卡，PCIe pinned 25 GB/s，一步约 146 GB、7 s，其中 4 s 是优化器状态往返；步时间 5 分钟时 2%。
 - 8B / 64 卡 2.3 GB × 2、0.2 s；DeepSeek-V3 规格 / 256 卡 47 GB × 2、3.8 s——没有一行超过 2%。
 - `gpu_memory_utilization` 1.0 / 0.85 / 0.7 / 0.5：8B 生成 602 / 610 / 645 / 745 s；训练侧两个 offload 都开、CUDA graph 只捕获小 batch，可开到 0.8–0.85。
 - sleep level：0 只停调度、1 权重备份到 CPU、2 全丢（RL 默认；LoRA、MTP 草稿、NPU 退回 1）。
@@ -190,7 +191,7 @@ Table: 本文的章节安排
 
 - 算例一（32B、128 卡）：共置一步 ≈ 1500 s、$$f = 38\%$$ → `separate_async`，配比 650 : 440 ≈ 3 : 2，凑整 80 : 48，一步 ≈ 1170 s（1.38×），预期 MFU ≈ 20%；`parameter_sync_step = 2`，空转 2.5%。
 - 算例二（671B、512 卡）：按时间 384 : 128 但训练侧每卡 84 GB 放不下 → 256 : 256；沙箱并发 4000 级；同步 60–80 s 必须与生成重叠。
-- 瀑布（8B、64 卡）：100% − 64%（decode memory-bound）− 13%（长尾）− 4%（前向 / 训练 MFU）− 0.1%（切换 + 同步）≈ 13%；实测常在 8–10%。
+- 瀑布（8B、64 卡，单位是全步 MFU 的百分点）：100 − 48.1（decode memory-bound）− 24.2（长尾）− 14.5（前向与训练未达峰值）− 0.1（切换 + 同步）≈ 13%；实测常在 8–10%。
 - checkpoint：8B 128 GB 13 s、32B 525 GB 53 s、671B 10.7 TB 18 分钟——大模型必须异步保存。
 - 确定性来源七项；`full_determinism` 要求 `use_v1: false`、不被 batch-invariant 覆盖的模型 `max_num_seqs: 1`；确定性 kernel 训练慢 10–30%。
 - 排查顺序：数据（reward 按源、长度、filtered 计数）→ 版本（每实例 `global_steps`、同步耗时）→ 异步（staleness、clipfrac、被 drop 的长度）→ 实现（py-spy、NCCL 日志）；前三步各两分钟看面板。
@@ -203,7 +204,7 @@ Table: 本文的章节安排
 
 第一篇给出长尾的定义与量：最后一波里最长的回答多走 $$L_{max} - \bar L$$ 步，602 秒里 196 秒，且它不随卡数缩短——64 → 128 卡墙钟只降 35%，这是账里唯一不能用钱买的项。第二篇把它变成形态的判据：异步 ≈ 共置 − 长尾，收益几乎全部来自这一项，$$f$$ 从 10% 到 70% 对应 1.07× 到 2.55×，共置对它线性敏感、异步不敏感。第三篇给出共置的换挡阈值 $$f > 0.4$$ 至少换 `colocate_async`。
 
-第五篇是长尾的另一面：吞掉长尾的手段——部分 rollout、流式缓冲——各自带来 staleness 的长度偏置、重 prefill、分段的 $$\pi_{old}$$；`wait` 策略无偏，但等的就是长尾，把异步的收益又还回去一部分。第六篇把长尾的来源从回答长度换成环境耗时，$$f > 0.8$$，共置同步在第二篇的表里是 3014 秒对 614 秒，异步从优化变成必需。第八篇的 MFU 瀑布里长尾是 −13% 那一项，排在 decode memory-bound 的 −64% 之后、任何训练侧优化之前——先砍长尾，与预训练的优化顺序相反。
+第五篇是长尾的另一面：吞掉长尾的手段——部分 rollout、流式缓冲——各自带来 staleness 的长度偏置、重 prefill、分段的 $$\pi_{old}$$；`wait` 策略无偏，但等的就是长尾，把异步的收益又还回去一部分。第六篇把长尾的来源从回答长度换成环境耗时，$$f > 0.8$$，共置同步在第二篇的表里是 3014 秒对 614 秒，异步从优化变成必需。第八篇的 MFU 瀑布里长尾是 −24.2 个百分点那一项，排在 decode memory-bound 的 −48.1 之后、任何训练侧优化之前——先砍长尾，与预训练的优化顺序相反。
 
 ### 2. 谁持有完整模型：字节账的一条暗线
 
@@ -420,7 +421,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 一步里生成是 memory-bound 的 decode，每步把整块 HBM 读一遍约 36 ms，MFU 个位数，时间占四分之三；(2) 全步 MFU 是时间加权：8B 推理场景上限 13%，瀑布 −64%（decode）−13%（长尾）−4%（前向 / 训练 MFU）−0.1%（切换 + 同步）；(3) 三个杠杆：生成时训练器不闲着（分离 / 异步）、砍长尾（部分 rollout、异步）、提高 decode 带宽效率（更大的 $$c$$：FP8 权重、MLA、`gpu_memory_utilization`）；(4) FLOP 一侧没有杠杆，能省的只有旧策略重算的 $$2N$$；(5) 优化顺序与预训练相反：先长尾、再并发、最后训练 MFU；(6) 看墙钟不只看 MFU（PPO 的 MFU 更高但更慢）。
+   **答案要点**：(1) 一步里生成是 memory-bound 的 decode，每步把整块 HBM 读一遍约 36 ms，MFU 个位数，时间占四分之三；(2) 全步 MFU 是时间加权：8B 推理场景上限 13%，瀑布 −48.1（decode）−24.2（长尾）−14.5（前向与训练未达峰值）−0.1（切换 + 同步）个百分点；(3) 三个杠杆：生成时训练器不闲着（分离 / 异步）、砍长尾（部分 rollout、异步）、提高 decode 带宽效率（更大的 $$c$$：FP8 权重、MLA、`gpu_memory_utilization`）；(4) FLOP 一侧没有杠杆，能省的只有旧策略重算的 $$2N$$；(5) 优化顺序与预训练相反：先长尾、再并发、最后训练 MFU；(6) 看墙钟不只看 MFU（PPO 的 MFU 更高但更慢）。
    **追问方向**：为什么 decode 步时间与模型大小无关；卡数翻倍为什么只快 35%；Agent 场景 prefill 为什么可能比 decode 贵。
    **好答案与一般答案的区别**：一般答案说"推理慢"；好答案给出带宽模型、把损失拆成瀑布、说清哪一项能用什么手段拿回来。
 
@@ -430,7 +431,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 两方各要"尽量大"的一块（KV 池 vs $$16N$$ + 激活），每步换手两次；(2) 三种让渡：搬到 CPU（FSDP offload、sleep level 1）、丢弃再重建（level 2 权重、KV 池）、不动（CUDA graph 池、NCCL 缓冲）；(3) `CuMemAllocator` 用 cuMemUnmap / cuMemMap 摘物理页保虚拟地址，CUDA graph、模型对象、KV 块表不重建，按 tag 分开唤醒；(4) 顺序：优化器状态 D2H → empty_cache → wake weights → all-gather + IPC 同步 → 训练器参数 D2H → wake kv_cache → reset_prefix_cache；(5) 搬运 32B/8 卡 6.5 s、< 2%；真实代价是 KV 池被常驻部分挤掉（0.5 → 0.85 差 22% 生成时间）、pinned 内存 520 GB、两个 allocator 的碎片与 `expandable_segments` 冲突。
+   **答案要点**：(1) 两方各要"尽量大"的一块（KV 池 vs $$16N$$ + 激活），每步换手两次；(2) 三种让渡：搬到 CPU（FSDP offload、sleep level 1）、丢弃再重建（level 2 权重、KV 池）、不动（CUDA graph 池、NCCL 缓冲）；(3) `CuMemAllocator` 用 cuMemUnmap / cuMemMap 摘物理页保虚拟地址，CUDA graph、模型对象、KV 块表不重建，按 tag 分开唤醒；(4) 顺序（verl v0.9.0 默认）：退出 `train_mode` 时参数 + 优化器状态 D2H → empty_cache → wake weights → 参数分片逐个 H2D、all-gather + IPC 同步 → wake kv_cache → reset_prefix_cache；(5) 搬运 32B/8 卡 7 s、< 2%；真实代价是 KV 池被常驻部分挤掉（0.5 → 0.85 差 22% 生成时间）、pinned 内存 520 GB、两个 allocator 的碎片与 `expandable_segments` 冲突。
    **追问方向**：level 1 与 2 什么时候各用；为什么先挂权重再挂 KV 池；`engine.wake_up` 与 `collective_rpc("wake_up")` 的坑；何时换分离。
    **好答案与一般答案的区别**：一般答案说"offload 到 CPU"；好答案说出虚拟地址不变这一步为什么关键，并指出代价不在切换秒数而在 KV 池上限。
 
@@ -527,5 +528,5 @@ Table: 掌握程度的判据
 
 
 [^q0]: 八个，与总纲的"最终目标"一一对应：一步里生成、打分、训练各花多少 GPU·秒、上限是多少（三段的账）；该共置、分离还是异步、GPU 怎么分（三种形态的交换）；每步的显存切换搬多少字节、要几秒（让渡接口与切换代价）；新权重怎么进推理引擎、传多少、走哪条链路、几秒（布局映射与传输）；异步之后 reward 曲线变了是 staleness 还是训推不一致（off-policy 的信号）；Agent 训练的沙箱要多少并发、GPU 在等什么（环境账与长尾调度）；verl 把权重同步与样本通路实现在哪（源码导读）；利用率差在哪一项、坏了从哪查（全步 MFU 与排障）。详见[第二章](#二逐篇回顾)。
-[^q1]: 每 token 约 $$12N_a$$、训练占一半生成六分之一；decode 步 ≈ 36 ms 与模型无关；8B 推理场景一步 810 s（生成 602、长尾 196、前向 72、训练 136）、全步 MFU 13%；共置 810 / 同步分离 1501 / 一步流水 764 / 异步 619 s，异步 ≈ 共置 − 长尾，$$f$$ 70% 时 2.55×；配比 $$n_r / n_t = T_{gen} / T_{train}$$ 按时间不按 FLOP；32B/8 卡切换 6.5 s < 2%，`gpu_memory_utilization` 0.5 → 0.85 让生成 745 → 610 s；671B FP8 同步经 rank 0 60–80 s、多源 12–20 s，235B 全量 246–266 s vs 增量 11–15 s；dense 每步 1–3%、MoE 0.02–0.05% 参数变化；bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$；$$s \le 2$$–4 配修正无损，不一致 $$10^{-3}$$ / $$10^{-2}$$ / MoE > 1；Agent 8 万次执行、667–1300 CPU·h、1300–1800 沙箱、prefill 160–1600 s；MFU 瀑布 100 − 64 − 13 − 4 − 0.1 ≈ 13%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 每 token 约 $$12N_a$$、训练占一半生成六分之一；decode 步 ≈ 36 ms 与模型无关；8B 推理场景一步 810 s（生成 602、长尾 196、前向 72、训练 136）、全步 MFU 13%；共置 810 / 同步分离 1501 / 一步流水 764 / 异步 619 s，异步 ≈ 共置 − 长尾，$$f$$ 70% 时 2.55×；配比 $$n_r / n_t = T_{gen} / T_{train}$$ 按时间不按 FLOP；32B/8 卡切换 7 s < 2%，`gpu_memory_utilization` 0.5 → 0.85 让生成 745 → 610 s；671B FP8 同步经 rank 0 60–80 s、多源 12–20 s，235B 全量 246–266 s vs 增量 11–15 s；dense 每步 1–3%、MoE 0.02–0.05% 参数变化；bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$；$$s \le 2$$–4 配修正无损，不一致 $$10^{-3}$$ / $$10^{-2}$$ / MoE > 1；Agent 8 万次执行、667–1300 CPU·h、1300–1800 沙箱、prefill 160–1600 s；MFU 瀑布 100 − 48.1 − 24.2 − 14.5 − 0.1 ≈ 13%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 8 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

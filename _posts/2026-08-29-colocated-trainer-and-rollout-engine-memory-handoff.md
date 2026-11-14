@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（03）：共置——训练器与推理引擎�
 subtitle: "Colocation: Handing GPU Memory Back and Forth Between Trainer and Rollout Engine"
 tags: [RL, verl, vLLM, FSDP, CUDA, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 一个 32B 的模型在 8 张 H100 上做共置的 GRPO。训练时每张卡上要有 66 GB 的训练状态（16 字节 / 参数均分到 8 卡），还要跑参考模型的前向；生成时每张卡上要有 8 GB 的推理权重副本（TP = 8）加尽量大的 KV 池。两样东西加起来 150 GB，卡只有 80 GB——所以每一步里显存要**换两次主人**：生成前训练状态搬到 CPU、推理引擎的权重与 KV 池挂回 GPU；训练前反过来。按 PCIe 的带宽算，一步两次切换搬 146 GB 左右、约 7 秒；步时间 5 分钟时是 2%。
@@ -161,6 +161,20 @@ def wake_up(self, tags):
 
 `Worker.sleep(level)` 把 level 翻译成标签：level 1 备份 `weights`、丢 `kv_cache`；level 2 全丢；`wake_up(tags=["weights"])` 与 `wake_up(tags=["kv_cache"])` 可以**分开唤醒**——verl 的权重同步就利用了这一点：先只挂回权重区域、把新权重写进去、再挂回 KV 池，中间这段时间 KV 池的物理内存空着，留给训练器 all-gather 权重用。
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：weights 与 kv_cache 两个标签区域在一步里的映射状态（hybrid 模式，sleep level 2）
+flowchart TB
+    G["<b>生成中</b><br/>weights：虚拟地址 + 物理页（8 GB）<br/>kv_cache：虚拟地址 + 物理页（~30 GB）"]
+    S["<b>sleep(level=2)</b><br/>两个区域都 cuMemUnmap + cuMemRelease<br/>物理页还给驱动，虚拟地址仍预留<br/>训练器拿到这 38 GB 物理显存"]
+    W["<b>wake_up(tags=[weights])</b><br/>weights：cuMemCreate + cuMemMap 回原地址，内容未定<br/>kv_cache：仍只有虚拟地址<br/>训练器 all-gather 参数，经 IPC 写进 weights"]
+    K["<b>wake_up(tags=[kv_cache])</b><br/>kv_cache：物理页映射回原地址<br/>fp8 KV 清零并重置 scale；reset_prefix_cache"]
+    P["持有这些地址的对象不用重建：<br/>CUDA graph · model.parameters() · KV 块表"]
+    G --> S --> W --> K -- "下一步生成" --> G
+    P -.- W
+    P -.- K
+```
+
 因为 `ptr` 不变，三样东西得以幸存：
 
 - **CUDA graph**：捕获时记下的是权重与中间缓冲的地址，地址不变图仍有效——这是 vLLM 官方文档里 sleep mode 的第一个设计目标，也是 RL 共置每步不用重新 warm up 几十秒的原因。
@@ -296,6 +310,12 @@ async def update_weights(self, global_steps=None, mode="auto"):
 
 Table: 共置一步的显存时间线（verl v0.9.0 默认）：推理引擎 sleep 让出显存，训练器搬入参数与优化器状态做更新，再唤醒引擎同步权重
 
+把这张表按阶段画成一张卡上的显存占用（常驻与激活的高度是示意量级）：
+
+![32B、8 卡共置：一张卡在一步各阶段的显存占用](/img/in-post/colocated-trainer-rollout-memory-per-phase.svg)
+
+图里有两处要看。一是 update_actor 那一列贴着 80 GB：fp32 主参数加 Adam 状态一项就是 49 GB，所以 32B 在 8 卡上必须开 `optimizer_offload`，让它只在这一段上卡。二是生成那一列上面空着三十多 GB：训练器已经全部让出，但 KV 池的块数在启动时按 `gpu_memory_utilization = 0.5` 定死，空出来的显存推理引擎用不上。这一块空白就是第六章第 1 节说的共置真实代价。
+
 搬运合计约 7 秒，其中 4 秒是优化器状态的一对往返。三个可以省的地方：
 
 - **优化器状态不 offload**：如果卡放得下（8B、70B 在 64 卡以上），关掉 `optimizer_offload`，省 4 秒——但 32B 在 8 卡上放不下，没有选择。
@@ -403,7 +423,7 @@ Table: 隐性代价的合计
 | 模型 | 卡数 | 训练侧 offload | gpu_memory_utilization | 结论 |
 |---|---|---|---|---|
 | 8B | 8–64 | 不需要 | 0.8–0.85 | 共置，几乎无税 |
-| 32B | 8 | param + optimizer | 0.6–0.7 | 共置可行，切换 6 s / 步，KV 池受限 |
+| 32B | 8 | param + optimizer | 0.6–0.7 | 共置可行，切换约 7 s / 步，KV 池受限 |
 | 32B | 64 | 不需要 | 0.8 | 共置，与 8B 同 |
 | 70B | 8 | — | — | 放不下（训练状态 141 GB / 卡） |
 | 70B | 32–64 | param（optimizer 可不开） | 0.7 | 共置可行；TP 度两侧都要 ≥ 2 |

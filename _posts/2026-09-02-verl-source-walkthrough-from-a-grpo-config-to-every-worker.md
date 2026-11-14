@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（07）：verl 源码导读——从一个 GRPO
 subtitle: "Reading verl: From One GRPO Config to Every Worker"
 tags: [RL, verl, Ray, vLLM, FSDP, Source Code, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 前六篇每讲一个机制都给了 verl 里的落点：一个目录、一个类、一个函数名。这一篇把落点串成线。线的起点是一条命令——`python -m verl.trainer.main_ppo algorithm.adv_estimator=grpo trainer.nnodes=1 trainer.n_gpus_per_node=8 ...`——终点是 8 张卡上各自的进程在做什么、一个训练步的数据怎样在它们之间流动、一个 bf16 参数从优化器更新完成到推理引擎用它生成下一个 token 经过哪些函数。追完这条线，前六篇的"账"与"机制"就都有了代码的锚点；再看 slime 与 AReaL 在同一条线的哪几段做了不同的选择，就能分清哪些是这类系统的必然、哪些是 verl 的取舍。
@@ -179,6 +179,34 @@ class ActorRolloutRefWorker(Worker):
 1. `dispatch_fn(worker_group, data)` → 把 data 按 DP 切成 world_size 份（nd_compute：按 "actor" mesh 的 dp 维切，TP/PP 内的 rank 拿同一份）
 2. `execute_fn` → 对每个 worker 调 `worker.update_actor.remote(chunk_i)`（execute_all）
 3. `collect_fn(worker_group, outputs)` → 收回各 rank 的输出，按 mesh 拼回（只从每个 dp 组的一个 rank 收）
+
+以 4 个 worker、actor mesh 为 DP = 2 × TP = 2 为例，一次 `update_actor(data)` 里数据的去向：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：组方法 update_actor 的切、发、收：按 actor mesh 的 dp 维切两份，同一 TP 组的两个 rank 拿同一份，每个 dp 组只收一个 rank 的输出
+flowchart TB
+    C["<b>driver</b><br/>self.actor_rollout_wg.update_actor(batch)"]
+    DF["<b>dispatch_fn</b><br/>按 actor mesh 的 dp 维切成 2 份"]
+    C0["chunk 0"]
+    C1["chunk 1"]
+    W0["worker 0<br/>dp 0 · tp 0"]
+    W1["worker 1<br/>dp 0 · tp 1"]
+    W2["worker 2<br/>dp 1 · tp 0"]
+    W3["worker 3<br/>dp 1 · tp 1"]
+    CF["<b>collect_fn</b><br/>每个 dp 组收一个 rank 的输出，按 mesh 拼回"]
+    C --> DF
+    DF --> C0 & C1
+    C0 --> W0 & W1
+    C1 --> W2 & W3
+    W0 --> CF
+    W2 --> CF
+    W1 -. "输出不收" .-> CF
+    W3 -. "输出不收" .-> CF
+    CF --> R["返回 driver"]
+```
+
+同一个 TP 组里的两个 rank 必须拿到同一份数据（它们一起算同一批样本的不同切片），输出也只需要收一份；纯 FSDP、没有 TP / 序列并行时，每个 worker 自成一个 dp 组，上图退化成一份数据对一个 worker。
 
 注册时写了 `blocking=False` 的方法（如 `update_weights`、`TrainingWorker.train_mini_batch`）不等第 3 步，直接返回 futures，调用方用 `ray.get` 或直接传给下一个组方法（`_materialize_futures` 自动等待）。
 
@@ -354,6 +382,23 @@ worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer
 ### 3. 数据在哪
 
 v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`（`{uid}_{session}_{index}` 列表）、`tags`（每条的元数据）。张量在 TransferQueue 的存储单元里；worker 收到 `KVBatchMeta` 后按键 `tq.kv_batch_get(...)` 取自己那份、算完 `kv_batch_put` 新列（`log_probs`、`ref_log_prob`、`advantages`）。driver 上只有 `_compute_advantage` 会真的取张量（reward 与 mask 这几列，小），算 GRPO 的组内归一化后写回。第二篇说的"控制器只拿元数据"就是这个。
+
+一步里各阶段读写哪些列（`_step_once` 的编号）：
+
+| 阶段 | 谁在读写 | 读 | 写 |
+|---|---|---|---|
+| rollout（步前） | AgentLoopWorker | — | prompt / response 的 token id、推理侧 logprob、mask；reward（RewardWorker 异步打分时）；标签 `finished` / `failure`、`global_steps` |
+| 2 [可选] 共置 RM 打分 | `_compute_reward_colocate` | token id | reward |
+| 1 取样 | driver（`ReplayBuffer`） | 只读标签 | 返回 `KVBatchMeta`：键 + 标签 |
+| 4 old_log_prob | hybrid worker | token id、mask | `log_probs` |
+| 5 ref | hybrid worker | token id、mask | `ref_log_prob` |
+| 7 优势 | driver | reward、mask 两列 | `advantages` |
+| 9 update_actor | hybrid worker | token id、mask、`log_probs`、`ref_log_prob`、`advantages` | —（只更新参数） |
+| 步末 | driver | — | `kv_clear` 删掉这一步的全部键 |
+
+Table: 一步里各阶段对 TransferQueue 列的读写
+
+driver 一直只持有键和标签；张量只在第 7 阶段经过 driver，而且只有两个小列。
 
 ## 八、权重同步：checkpoint engine 的三条路
 

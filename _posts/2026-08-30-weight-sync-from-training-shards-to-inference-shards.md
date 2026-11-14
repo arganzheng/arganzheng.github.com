@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（04）：权重同步——从训练分片到�
 subtitle: "Weight Synchronization: From Training Shards to Inference Shards"
 tags: [RL, verl, vLLM, Megatron, NCCL, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 每一步训练结束，优化器改完了参数，推理引擎里的那份权重就旧了。把新权重送过去听起来是一次拷贝——8B 模型 16 GB，NVLink 一秒、InfiniBand 几秒。但两边的权重**不是同一个形状的东西**：训练器里它是 FSDP 按第 0 维切成 64 份的 DTensor，或者 Megatron 的 TP = 4 × PP = 2 × EP = 8 分片，QKV 三个矩阵融合成一个、专家堆叠成一个大张量、名字是 `decoder.layers.3.self_attention.linear_qkv.weight`；推理引擎里它是 vLLM 按 TP = 8 切的列、专家按 EP = 4 分组、可能是 FP8 加一组 128 × 128 的块缩放、名字是 `model.layers.3.self_attn.qkv_proj.weight`。所以"同步"是两件事：**布局**（怎样从一种切法映射到另一种）和**传输**（字节从哪张卡到哪张卡、走哪条链路）。前者决定要不要在中间过一遍"完整张量"、由谁过；后者决定秒数。
@@ -83,16 +83,13 @@ Table: 本文的章节安排
 
 同一个 Llama / Qwen / DeepSeek 层，在三个地方长得不一样：
 
-```text title="同一层在 HF、Megatron Core、vLLM 里的三套命名"
-HF（checkpoint 与 vLLM 的“语言”）               Megatron Core（训练器）                             vLLM 内部
-model.layers.3.self_attn.q_proj.weight        decoder.layers.3.self_attention.linear_qkv.weight   model.layers.3.self_attn.qkv_proj.weight
-model.layers.3.self_attn.k_proj.weight          （Q、K、V 交错融合成一个 [h + 2·h_kv, d] 的矩阵）      （Q、K、V 顺序拼接）
-model.layers.3.self_attn.v_proj.weight
-model.layers.3.mlp.gate_proj.weight           decoder.layers.3.mlp.linear_fc1.weight              model.layers.3.mlp.gate_up_proj.weight
-model.layers.3.mlp.up_proj.weight               （gate 与 up 拼接）
-model.layers.3.mlp.experts.17.down_proj.weight decoder.layers.3.mlp.experts.linear_fc2.weight17   model.layers.3.mlp.experts.w2_weight[17]
-                                                （或 GroupedGEMM 的堆叠张量 [E_local, ...]）          （堆叠成 [E, ...] 的一个大张量）
-```
+| 部件 | HF（checkpoint 与 vLLM 的"语言"） | Megatron Core（训练器） | vLLM 内部 |
+|---|---|---|---|
+| 注意力 | `model.layers.3.self_attn.q_proj.weight`<br/>`model.layers.3.self_attn.k_proj.weight`<br/>`model.layers.3.self_attn.v_proj.weight` | `decoder.layers.3.self_attention.linear_qkv.weight`：Q、K、V 交错融合成一个 [h + 2·h_kv, d] 的矩阵 | `model.layers.3.self_attn.qkv_proj.weight`：Q、K、V 顺序拼接 |
+| MLP | `model.layers.3.mlp.gate_proj.weight`<br/>`model.layers.3.mlp.up_proj.weight` | `decoder.layers.3.mlp.linear_fc1.weight`：gate 与 up 拼接 | `model.layers.3.mlp.gate_up_proj.weight` |
+| 专家 | `model.layers.3.mlp.experts.17.down_proj.weight` | `decoder.layers.3.mlp.experts.linear_fc2.weight17`，或 GroupedGEMM 的堆叠张量 [E_local, ...] | `model.layers.3.mlp.experts.w2_weight[17]`：堆叠成 [E, ...] 的一个大张量 |
+
+Table: 同一层在 HF、Megatron Core、vLLM 里的三套命名
 
 三点差别：**融合**（Megatron 把 QKV、gate/up 融合成一个 GEMM，且 QKV 的融合是按注意力组**交错**的，不是顺序拼接——拆开时要按 `num_query_groups` 重排）；**专家堆叠**（Megatron 的 GroupedGEMM 与 vLLM 的 FusedMoE 都把本地专家堆成一个张量，但堆的是各自 EP 分组下的本地专家、顺序与编号不同）；**dtype 与量化布局**（推理侧 FP8 的 `weight_scale_inv`、MXFP4 的 `weight_scale` 是训练侧没有的张量）。
 
@@ -124,6 +121,29 @@ verl 0.9 的 release note 里有一项"Megatron-Bridge param mappings covering T
 **MLA**：DeepSeek 的注意力把 K / V 压成一个低秩的 `kv_a_proj`（$$d_c = 512$$）加 `kv_b_proj`，Q 也有 `q_a / q_b` 两段；vLLM 为了 decode 效率会把 `kv_b_proj` 吸收进 Q / O 投影（weight absorption），这是加载时做的**推理侧变换**——权重同步只需送 HF 形状的 `kv_b_proj`，vLLM 自己重新吸收。但这意味着 `load_weights` 之后有一段推理侧的计算，且吸收后的张量不在 HF 命名里、每次同步都要重算。
 
 **共享专家与 dense 层**：DeepSeek-V3 前 3 层是 dense MLP（multi-layer perceptron，多层感知机）、每层有 1 个共享专家，这些走注意力 / dense 层的 TP 路径。同一个模型里两条路径并存，映射表要分别覆盖。
+
+### 4. 两条路径合起来
+
+注意力 / dense 层与路由专家在同步里走的是两条路：前者要先在 TP 组内 gather 成完整张量、再拆融合；后者本地就是完整的，只改编号、重新分组。以总览里的 671B 为例：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：671B 一次同步里两类参数的路径：注意力 / dense 层要 TP all-gather，路由专家只改编号、8 组重分成 4 组
+flowchart TB
+    subgraph TR["训练器：Megatron TP = 4 × PP = 2 × EP = 8"]
+        direction TB
+        A["<b>注意力 / dense 层 / 共享专家</b><br/>每层按 TP = 4 切分<br/>只有持有该层的 PP stage 参与"]
+        E["<b>路由专家（95% 以上的参数）</b><br/>每个 EP rank 持有 32 个完整专家<br/>不用 all-gather"]
+        A --> AG["TP 组内 all-gather（NVLink）<br/>→ 完整的 mcore 张量"]
+        AG --> M1["Megatron-Bridge：mcore → HF<br/>QKV 按 query group 去交错再切三块<br/>linear_fc1 切成 gate / up"]
+        E --> M2["本地编号 → 全局编号<br/>拆堆叠张量 → 逐专家的 HF 张量"]
+    end
+    M1 & M2 --> Q["在线量化 bf16 → FP8<br/>块 128 × 128 + weight_scale_inv"]
+    Q --> T["分桶 512 MB → 传输<br/>NCCL 广播 / NIXL 点对点（第四章）"]
+    T --> V["<b>vLLM TP = 8 × EP = 4 的每个 rank</b><br/>load_weights 按 HF 名字找目标张量<br/>注意力：q / k / v 拼进 qkv_proj，取自己的 TP 切片<br/>专家：收自己那 64 个——来自两个训练 EP rank"]
+```
+
+两条路的差别决定了传输方式的选择：注意力一侧必须有人持有完整张量；专家一侧本来就没有人需要持有完整模型，训练 EP rank 可以把自己的 32 个专家直接发给需要它们的推理 rank。
 
 ## 三、布局之二：从分片到完整再到分片
 
@@ -172,7 +192,7 @@ verl 的 `delta_weight_sync.md` 给了直接的测量：Qwen3-235B-A22B（VeOmni
 
 ### 1. 五条链路
 
-verl 的 checkpoint engine 把传输抽象成三个接口——`send_weights`（训练侧，消费张量流并发送）、`receive_weights`（推理侧，产出张量流）、`get_weights`（推理侧从本地缓存取，用于每个实例独立更新）——下面有六个后端：
+verl 的 checkpoint engine 把传输抽象成三个接口——`send_weights`（训练侧，消费张量流并发送）、`receive_weights`（推理侧，产出张量流）、`get_weights`（推理侧从本地缓存取，用于每个实例独立更新）——下面有七个后端：
 
 | 后端 | 通信库 | 拓扑 | 适用 | 弹性 |
 |---|---|---|---|---|
@@ -184,9 +204,48 @@ verl 的 checkpoint engine 把传输抽象成三个接口——`send_weights`（
 | kimi_ckpt_engine | Mooncake P2P + NCCL 广播 | 先 offload 到 CPU，P2P 到一个推理 worker，再组内广播 | 分离、顺带落 checkpoint | 低 |
 | delta_sharded | NCCL（稀疏负载） | 分片 diff + 稀疏 gather + 广播 | 分离异步、FSDP 训练侧 | 低 |
 
-Table: 五条链路
+Table: verl checkpoint engine 的七个后端与它们走的链路
 
 基准（verl README，Qwen3-30B-A3B 61 GB bf16）：4 × 8 H100 IB 400 Gbps 上 NCCL 约 7 秒（8.25 GB/s）、NIXL 约 7 秒；2 × 8 H100 上 Mooncake 5.9 秒（9.4 GB/s）；Ascend 上 kimi_ckpt_engine 的 "offload 7 s + update 3.5 s"——先把权重放到 CPU 再传，多付一次 PCIe 换来传输与训练重叠的可能。
+
+跨机的三种走法，区别在"谁发、发给谁"：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+%% 图：跨机权重同步的三种拓扑：NCCL 一对多广播、NIXL / Mooncake 的环形单边写、checkpoint-engine 的 CPU 中转 + 节点内广播
+flowchart TB
+    subgraph B["NCCL 广播（nccl）"]
+        direction LR
+        B0["<b>训练 rank 0</b><br/>gather 出 bucket<br/>唯一的发送方"]
+        B1["推理 rank 1"]
+        B2["推理 rank 2"]
+        B3["推理 rank …"]
+        B0 -- "broadcast" --> B1 & B2 & B3
+    end
+    subgraph R["环形点对点（nixl / mooncake）"]
+        direction LR
+        R0["<b>训练 rank 0</b><br/>gather 出 bucket"]
+        R1["推理 rank 1"]
+        R2["推理 rank 2"]
+        R3["推理 rank …"]
+        R0 -- "RDMA 单边写" --> R1 --> R2 --> R3
+    end
+    subgraph K["CPU 中转（kimi_ckpt_engine）"]
+        direction LR
+        K0["<b>训练侧</b><br/>先 offload 到 CPU pinned"]
+        K1["节点 1 的一个推理 worker"]
+        K2["节点 2 的一个推理 worker"]
+        K3["节点内其余推理 rank"]
+        K4["节点内其余推理 rank"]
+        K0 -- "Mooncake P2P" --> K1 & K2
+        K1 -- "NCCL 广播" --> K3
+        K2 -- "NCCL 广播" --> K4
+    end
+    B ~~~ R ~~~ K
+```
+
+三者的出口都只有训练侧的一个点（rank 0 或 CPU 缓冲）：NCCL 广播要为每次同步建一个包含全部推理 rank 的临时进程组；环不要进程组，加减实例只改成员表；CPU 中转多付一次 PCIe，换来训练侧 offload 与传输可以流水。NCCL 与 NIXL 在 verl 的基准里打平，原因就是都被这一个出口限制；要突破它得多源发送——第二章第 4 节的专家路径就是天然的多源。
+
 
 ### 2. CUDA IPC（同卡）
 
@@ -227,12 +286,9 @@ MoonshotAI 的 **checkpoint-engine**（Kimi K2 的权重同步组件，verl 的 
 
 一个 bucket 的生命周期有三步——**填**（gather 张量、拷进 bucket）、**传**（NCCL / RDMA）、**装**（接收侧切出张量、`load_weights`）——三步各在不同的硬件上（NVLink + 显存拷贝、网卡、显存拷贝 + 可能的 dtype 转换），可以重叠。verl 的 NCCL 引擎用**双缓冲**：`send_buf` 填满 → 发起异步广播 → 换到 `recv_buf` 继续填 → 填满前等上一个广播完成。稳态下传输与填充重叠，同步时间 ≈ max(填, 传, 装)。
 
-```text title="填、传、装三步流水"
-时间 →
-填    [b0][b1][b2][b3]……
-传        [b0][b1][b2][b3]……
-装            [b0][b1][b2]……
-```
+![双缓冲下的填、传、装（示意，不按比例）](/img/in-post/weight-sync-bucket-double-buffer-pipeline.svg)
+
+两块缓冲轮流用：b0 填完开始传，b1 填进另一块；"传"比"填"慢时，b2 要等 b0 传完、那块缓冲空出来才能开始填（虚线框）。于是"传"一行首尾相接、没有空档——它是瓶颈，整次同步的时间约等于传的总时间；"填"与"装"都藏在它下面。
 
 重叠的前提是三步的速度接近；671B 场景下"填"含 TP all-gather（NVLink，快）、"传"是 IB（慢）、"装"含 FP8 反量化或 MLA 吸收（GPU kernel，中）——瓶颈在传，另外两步被它遮住。
 
