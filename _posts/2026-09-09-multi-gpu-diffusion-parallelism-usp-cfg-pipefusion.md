@@ -243,20 +243,15 @@ CFG 模型（SD3、Qwen-Image、Wan）每步两次前向，输入不同（条件
 ```mermaid
 %% 图：8 卡 CFG 2 × Ulysses 4 的编组：两个 CFG 组各 4 卡，组内每层 4 次 all-to-all，组间每步只交换一次预测
 flowchart TB
-    subgraph G0["CFG 组 0：条件分支（prompt）"]
+    subgraph G0["CFG 组 0：条件分支（prompt）；组内 Ulysses all-to-all，每层 4 次"]
         direction LR
         R0["<b>GPU 0</b><br/>图像 token 0–1023"] ~~~ R1["<b>GPU 1</b><br/>图像 token 1024–2047"] ~~~ R2["<b>GPU 2</b><br/>图像 token 2048–3071"] ~~~ R3["<b>GPU 3</b><br/>图像 token 3072–4095"]
     end
-    subgraph G1["CFG 组 1：无条件分支（空 prompt）"]
+    subgraph G1["CFG 组 1：无条件分支（空 prompt）；组内 Ulysses all-to-all，每层 4 次"]
         direction LR
         R4["<b>GPU 4</b><br/>图像 token 0–1023"] ~~~ R5["<b>GPU 5</b><br/>图像 token 1024–2047"] ~~~ R6["<b>GPU 6</b><br/>图像 token 2048–3071"] ~~~ R7["<b>GPU 7</b><br/>图像 token 3072–4095"]
     end
-    A2A["<b>组内：Ulysses all-to-all</b><br/>每层 4 次（Q、K、V、O）<br/>NVLink 上，在关键路径上"]
-    MIX["<b>组间：每步末一次</b><br/>GPU i 与 GPU i+4 交换自己那 1024 个图像 token 的预测<br/>按 $$\epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 合成"]
-    G0 --- A2A
-    G1 --- A2A
-    G0 <--> MIX
-    G1 <--> MIX
+    G0 <-- "每步末一次：GPU i 与 GPU i+4 交换自己那 1024 个 token 的预测，各自按 $$\epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 合成" --> G1
 ```
 
 | GPU | CFG 组 | Ulysses 组内序号 | 持有的图像 token（512 个文本 token 每卡复制） | attention 时持有的 head（FLUX 24 个） |

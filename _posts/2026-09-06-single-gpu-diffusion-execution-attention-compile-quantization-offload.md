@@ -149,7 +149,7 @@ Table: offload 的三种粒度
 
 Table: FLUX 逐层预取的两条 stream（预取深度 1）
 
-每层的耗时是 $$\max(t_	ext{算}, t_	ext{搬})$$，一步 $$pprox L \cdot \max(t_	ext{算}, t_	ext{搬})$$：FLUX 是 $$57 	imes \max(2.7, 16) pprox 0.91$$ s，计算 stream 83% 的时间在等；Wan 是 $$40 	imes \max(730, 27) pprox 29.2$$ s，拷贝 stream 96% 的时间空闲，搬运完全藏住。加大预取深度只能多藏一层的搬运延迟，改变不了这个 max——H2D 带宽本身不够时，预取多少层都是 0.9 s。
+每层的耗时是 $$\max(t_\text{算}, t_\text{搬})$$，一步 $$\approx L \cdot \max(t_\text{算}, t_\text{搬})$$：FLUX 是 $$57 \times \max(2.7, 16) \approx 0.91$$ s，计算 stream 83% 的时间在等；Wan 是 $$40 \times \max(730, 27) \approx 29.2$$ s，拷贝 stream 96% 的时间空闲，搬运完全藏住。加大预取深度只能多藏一层的搬运延迟，改变不了这个 max——H2D 带宽本身不够时，预取多少层都是 0.9 s。
 
 ### 2. 文本编码器放哪
 
