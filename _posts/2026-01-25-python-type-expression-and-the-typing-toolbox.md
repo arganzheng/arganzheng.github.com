@@ -7,7 +7,7 @@ tags: [Python]
 catalog: true
 redirect_from:
   - /python-type-system-and-data-contract-design.html
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 
@@ -59,7 +59,7 @@ Java 把前两件事合为一体：类型写在源码里，编译器既是提供
 | 二 | 类型表达 | 从基础注解到 TypeVar、Protocol、TypedDict、ParamSpec、TypeGuard、overload 等 typing 工具 |
 | 三 | 附录 | typing 速查表；Java 与 Python 类型系统对照 |
 | 四 | 本文小结 |  |
-| 五 | 自测 | 2 道题 |
+| 五 | 自测 | 3 道题 |
 
 Table: 本文的章节安排
 
@@ -616,6 +616,36 @@ class ReadOnlyList(Generic[T_co]):
 
 # 类比 Java: List<? extends Animal>
 ```
+
+这三个词说的是同一件事：已知 `Cat` 是 `Animal` 的子类型，那么 `容器[Cat]` 和 `容器[Animal]` 之间是什么关系。答案取决于容器对 `T` 做什么：
+
+```mermaid
+%% 图：协变、逆变与不变：元素类型的子类关系怎样传到容器类型上
+flowchart TB
+    subgraph E["元素类型"]
+        direction LR
+        CAT["Cat"] -- "是子类型" --> ANI["Animal"]
+    end
+    subgraph CO["协变：只往外读 T"]
+        direction LR
+        RC["ReadOnlyList#91;Cat#93;"] -- "可以当作" --> RA["ReadOnlyList#91;Animal#93;"]
+    end
+    subgraph CT["逆变：只往里写 T"]
+        direction LR
+        SA["Sink#91;Animal#93;"] -- "可以当作" --> SC["Sink#91;Cat#93;"]
+    end
+    subgraph IV["不变：既读又写 T"]
+        direction LR
+        LC["list#91;Cat#93;"] -. "互不兼容" .- LA["list#91;Animal#93;"]
+    end
+    E ~~~ CO ~~~ CT ~~~ IV
+```
+
+逐个看箭头为什么是这个方向：
+
+1. **协变，方向相同**。需要 `ReadOnlyList[Animal]` 的代码只会从里面**读**出元素、当作 `Animal` 用；给它一个装满 `Cat` 的列表，读出来的每一个都确实是 `Animal`，不会出错。
+2. **逆变，方向反过来**。设 `Sink[T]` 只有一个 `send(item: T)` 方法。需要 `Sink[Cat]` 的代码只会往里**写** `Cat`；一个能接收任意 `Animal` 的 `Sink[Animal]` 当然也能接收 `Cat`，所以 `Sink[Animal]` 可以顶替 `Sink[Cat]`。函数参数是最常见的逆变位置：`Callable[[Animal], None]` 可以赋给 `Callable[[Cat], None]`。
+3. **不变，互不兼容**。`list` 既能读又能写。如果允许把 `list[Cat]` 当作 `list[Animal]`，接收方就能合法地 `append(Dog())`，原来那个只该装 `Cat` 的列表里混进了一只 `Dog`；反过来把 `list[Animal]` 当作 `list[Cat]`，读出来的又可能不是 `Cat`。两个方向都不安全，所以 `list[T]`、`dict[K, V]` 都是不变的；只读的 `Sequence[T]`、`Mapping[K, V]` 的值类型才是协变的。
 
 | | 协变 (covariant) | 逆变 (contravariant) | 不变 (invariant) |
 |---|---|---|---|
@@ -1547,7 +1577,16 @@ def process(val: str | int) -> None:
         print(val + 1)       # val: int（TypeIs 能正确收窄 else 分支）
 ```
 
-`TypeGuard` 和 `TypeIs` 的区别：`TypeIs` 在 `else` 分支也会收窄类型，`TypeGuard` 不会。`typing.TypeIs` 是 3.13 才进标准库的（PEP 742），3.12 上 `from typing import TypeIs` 会 ImportError——用 `typing_extensions.TypeIs`；能用就优先用它。
+`TypeGuard` 和 `TypeIs` 的区别：`TypeIs` 在 `else` 分支也会收窄类型，`TypeGuard` 不会。以参数 `val: str | int` 为例：
+
+| 守卫函数的返回注解 | `if` 分支里 `val` 的类型 | `else` 分支里 `val` 的类型 | 对守卫类型的要求 |
+|---|---|---|---|
+| `TypeGuard[str]` | `str` | `str \| int`（不收窄） | 无，可以是任意类型，例如把 `list[object]` 收窄成 `list[str]` |
+| `TypeIs[str]` | `str` | `int` | 必须是参数类型的子类型；函数必须"返回 `True` 当且仅当是 `str`" |
+
+Table: TypeGuard 与 TypeIs 在两个分支上的收窄结果
+
+`TypeGuard` 不收窄 `else`，是因为它对守卫类型没有任何约束：`list[str]` 甚至不是 `list[object]` 的子类型（`list` 不变，见 §5），检查器无法从"返回了 `False`"推出参数**不是**什么类型，只能保持原样；`TypeIs` 要求守卫类型是参数类型的一部分、判断是精确的，所以 `else` 分支可以把 `str` 从 `str | int` 里减掉。`typing.TypeIs` 是 3.13 才进标准库的（PEP 742），3.12 上 `from typing import TypeIs` 会 ImportError——用 `typing_extensions.TypeIs`；能用就优先用它。
 
 **真实项目中的 TypeGuard**
 
@@ -1947,6 +1986,14 @@ Table: Java 与 Python 类型系统对照
    <details markdown="1"><summary>答案</summary>
 
    `ABC` 是名义子类型（必须显式继承），`Protocol` 是结构子类型（有这些方法就算实现）。第三方后端不必依赖你的基类时 `Protocol` 更松；需要强制注册、共享默认实现时 `ABC`。两者 mypy 都能检查。
+
+   </details>
+
+3. 函数签名写成 `def total(xs: list[float]) -> float`，调用方传入一个 `list[int]`，mypy 会报错吗？把参数改成 `Sequence[float]` 呢？
+
+   <details markdown="1"><summary>答案</summary>
+
+   第一种会报错，第二种不会。`list` 可读可写，是**不变**的：`list[int]` 不是 `list[float]`（否则 `total` 可以往里 `append(0.5)`）。`Sequence` 只读，元素类型**协变**，而 `int` 被类型检查器当作 `float` 的子类型，所以 `Sequence[int]` 可以当作 `Sequence[float]`。只读参数优先写 `Sequence` / `Mapping` / `Iterable`。
 
    </details>
 

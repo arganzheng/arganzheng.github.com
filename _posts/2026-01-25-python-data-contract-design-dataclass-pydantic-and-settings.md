@@ -6,7 +6,7 @@ subtitle: "Type System III: Data Contract Design"
 tags: [Python]
 catalog: true
 date: 2026-01-25 20:00:00 +0800
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 前两篇沿着"类型信息如何流动"展开：[上篇](/python-type-expression-and-the-typing-toolbox.html)讲怎么写（`typing` 工具箱），[中篇](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。
@@ -34,7 +34,7 @@ updated: 2026-09-21
 | 二 | 工程落地：数据契约设计 | dataclass、Pydantic、序列化与 Schema、BaseSettings、选型指南 |
 | 三 | 附录 | 类型工具选择决策树；Java 与 Python 数据契约对照 |
 | 四 | 本文小结 |  |
-| 五 | 自测 | 2 道题 |
+| 五 | 自测 | 3 道题 |
 
 Table: 本文的章节安排
 
@@ -477,6 +477,19 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
 
 最后这一条是配置契约最重要的性质：**把配置错误从运行期挪到启动期**。
 
+用上面的 `Settings` 和 `.env` 走一遍：假设启动命令是 `export PORT=7000; python app.py`，代码里写的是 `Settings()`（没有显式传值）。每个字段独立地从高到低找第一个有值的来源，然后把字符串转换成声明的类型：
+
+| 字段 | 显式传入 | 环境变量 | `.env` | 类默认值 | 最终取值 |
+|---|---|---|---|---|---|
+| `APP_NAME` | — | — | — | `"Awesome App"` | `"Awesome App"`（默认值） |
+| `DEBUG` | — | — | `True` | `False` | `True`（`.env` 里的字符串 `"True"` 转成 `bool`） |
+| `PORT` | — | `7000` | `9000` | `8000` | `7000`（环境变量盖过 `.env`，字符串转成 `int`） |
+| `DATABASE_URL` | — | — | `postgresql://…` | 无（必填） | 按 `PostgresDsn` 校验通过后的 URL |
+
+Table: 一次 Settings() 里每个字段的取值来源
+
+如果把 `.env` 里的 `DATABASE_URL` 删掉，四个来源都没有值，`Settings()` 这一行就抛 `ValidationError`（`Field required`），进程在启动时退出，而不是等到第一次连数据库时才失败。
+
 **多环境配置**
 
 指定多个 `.env` 文件，右边的覆盖左边的：
@@ -576,6 +589,31 @@ flowchart TB
 
 这正是[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)「静态与运行时的协作边界」中信任边界（Trust Boundary）模式在数据建模上的体现：外部数据不可信，进门时付一次校验成本；进门之后数据已经可信，用零开销的 `@dataclass` 传递，靠 mypy 做静态保障。
 
+```mermaid
+%% 图：信任边界：外部数据在入口校验一次，内部用 dataclass 传递
+flowchart TB
+    subgraph OUT["系统外部（不可信）"]
+        direction LR
+        H["HTTP 请求 JSON"]
+        Y["YAML 配置文件"]
+        ENV["环境变量 / .env"]
+    end
+    subgraph EDGE["边界：校验一次"]
+        direction LR
+        REQ["<b>Pydantic BaseModel</b><br/>解析、转换、校验<br/>失败 → 422 或拒绝启动"]
+        SET["<b>Pydantic BaseSettings</b><br/>启动时读取并校验"]
+    end
+    subgraph IN["系统内部（已可信）"]
+        direction LR
+        DC["<b>@dataclass 对象</b><br/>零运行时校验<br/>由 mypy 做静态保证"] --> HOT["热路径：调度、每 token 的循环"]
+    end
+    H --> REQ
+    Y --> REQ
+    ENV --> SET
+    REQ -- "转换成内部结构" --> DC
+    SET -- "读出配置值" --> DC
+```
+
 vLLM 的源码就是这个模式：API 层（`entrypoints/openai/protocol.py`）用 Pydantic 定义请求体，引擎内部（`SamplingParams`、`SchedulerConfig`）一律用 `@dataclass`。热路径上不做重复校验。
 
 反过来的两种常见错误：
@@ -662,6 +700,14 @@ Table: Java 与 Python 数据契约对照
    <details markdown="1"><summary>答案</summary>
 
    注解首先是给人读的接口文档，其次是让 IDE 能补全与跳转，再次是让将来上 mypy 时不必回头补；而边界上的 Pydantic 校验直接依赖注解生成。不写注解的代价在读别人代码时才显现。
+
+   </details>
+
+3. `Settings` 里声明 `PORT: int = 8000`，`.env` 写着 `PORT=9000`，启动前又 `export PORT=hello`。`Settings()` 的结果是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   抛 `ValidationError`，进程在启动时退出。环境变量的优先级高于 `.env`，所以 `PORT` 取到的是字符串 `"hello"`；它无法转换成 `int`，校验失败。`.env` 里的 `9000` 和默认值 `8000` 不会被当作"后备"再试一次——取值和校验是两步，先定来源，再校验。
 
    </details>
 

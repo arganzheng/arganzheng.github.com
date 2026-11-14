@@ -6,7 +6,7 @@ subtitle: "Type System II: Distributing and Consuming Type Information"
 tags: [Python]
 catalog: true
 date: 2026-01-25 12:00:00 +0800
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 [上篇](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
@@ -48,7 +48,7 @@ flowchart TB
 | 三 | 类型信息消费层（上）：静态分析与推理 | mypy 与 pyright、配置与渐进式引入、静态检查的能力边界 |
 | 四 | 类型信息消费层（下）：动态消费 | `__annotations__` 与 `get_type_hints`、@dataclass 与 Pydantic 如何读注解、beartype、静态与运行时的分工 |
 | 五 | 本文小结 |  |
-| 六 | 自测 | 2 道题 |
+| 六 | 自测 | 3 道题 |
 
 Table: 本文的章节安排
 
@@ -138,6 +138,24 @@ mypy 安装后会自动发现并使用这些存根。
 3. **独立存根包**：site-packages 里的 `<pkg>-stubs/` 目录。`pip install types-requests` 装进去的就是 `requests-stubs/`。它排在库本身前面，库自带 `py.typed` 也一样
 4. **带 `py.typed` 的已安装包**：库自己发布的类型信息，inline 写在 `.py` 里的，或者随包发布的 `.pyi`（如 PyTorch 的 `torch/_C/__init__.pyi`），都在这一级。没有 `py.typed` 的包 mypy 不读，报 `module is installed, but missing library stubs or py.typed marker`
 5. **typeshed**：标准库存根
+
+这五级是"**第一个命中的胜出**"：找到一处就停，后面的不再看。以 `import requests` 为例，同时装了 `requests` 和 `types-requests` 时，mypy 读的是第 3 级的 `requests-stubs/`，`requests` 包本身的源码根本不会被打开：
+
+```mermaid
+%%{init: {"flowchart": {"rankSpacing": 30, "nodeSpacing": 30}}}%%
+%% 图：mypy 为一个 import 查找类型信息的顺序：第一个命中的胜出
+flowchart TB
+    S["代码里写了 import requests"] --> L1["<b>1. MYPYPATH / mypy_path</b>"]
+    L1 -- "没有" --> L2["<b>2. 被检查的源码目录</b>"]
+    L2 -- "没有" --> L3["<b>3. site-packages/requests-stubs/</b><br/>pip install types-requests 装的"]
+    L3 -- "没有" --> L4["<b>4. site-packages/requests/</b><br/>且包里有 py.typed"]
+    L4 -- "没有" --> L5["<b>5. typeshed</b><br/>标准库存根"]
+    L5 -- "没有" --> N["报 Cannot find implementation or library stub"]
+    L1 & L2 & L3 & L4 & L5 -- "有" --> H["用这一份，停止查找"]
+    L4 -. "包在，但没有 py.typed" .-> M["报 missing library stubs or py.typed marker<br/>按 Any 处理"]
+```
+
+每一级内部，同一目录下 `foo.pyi` 与 `foo.py` 都在时只读 `.pyi`。
 
 mypy 1.19.1 里还有两处细节：
 
@@ -607,7 +625,27 @@ Pydantic v2 中元类的核心流程：
 2. **构建验证树**：为该模型构建一套验证树结构。v2 为了性能，把这部分核心校验逻辑编译后交给 Rust 编写的引擎 `pydantic-core` 驱动；
 3. **重写 `__init__`**：生成一个特殊的 `__init__`。调用 `User(id="123")` 时它不直接赋值，而是把入参丢进验证树——先清洗与转换（`"123"` → `123`），再执行复杂校验（正则、范围），通过后写入实例；失败则收集**所有**错误路径，一次性抛出结构化的 `ValidationError`。
 
-关键在于**时机**：验证树是在类定义时一次性构建好的，实例化时只是执行它。这也是 Pydantic v2 比 v1 快一个数量级的原因之一——把工作从"每次实例化"挪到了"仅一次的类创建"。
+关键在于**时机**：验证树是在类定义时一次性构建好的，实例化时只是执行它。把两条路线按"类定义时"和"实例化时"两个时刻对齐，差别就在第二行：
+
+```mermaid
+%% 图：@dataclass 与 Pydantic 在类定义时与实例化时各做了什么
+flowchart LR
+    subgraph DC["@dataclass"]
+        direction TB
+        D1["<b>类定义时（一次）</b><br/>class 语句执行完，装饰器读 __annotations__<br/>拼出 __init__ 源码，exec 成函数挂到类上"]
+        D2["<b>实例化时（每次）</b><br/>User(id='x', name=1)<br/>生成的 __init__ 只做 self.id = id<br/>不看类型，照样构造成功"]
+        D1 --> D2
+    end
+    subgraph PD["Pydantic BaseModel"]
+        direction TB
+        P1["<b>类定义时（一次）</b><br/>元类 ModelMetaclass 拦截类的创建<br/>get_type_hints 解析每个字段<br/>构建 core schema，交给 pydantic-core 编译成验证器"]
+        P2["<b>实例化时（每次）</b><br/>User(id='123', name='a')<br/>入参送进验证器：先转换 '123' → 123，再校验<br/>失败则收集全部错误，抛 ValidationError"]
+        P1 --> P2
+    end
+    DC ~~~ PD
+```
+
+这也是 Pydantic v2 比 v1 快一个数量级的原因之一——把工作从"每次实例化"挪到了"仅一次的类创建"。
 
 ```python title="Pydantic BaseModel：类定义时构建验证树"
 from pydantic import BaseModel
@@ -780,6 +818,14 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
    <details markdown="1"><summary>答案</summary>
 
    PEP 561 要求包里放一个空的 `py.typed` 标记文件，检查器才会读取它的 inline 注解；没有这个文件，mypy 把整个包视作无类型来源，所有导入都是 `Any`。修法是在包目录加 `py.typed` 并确保它进 wheel（`package_data`）；C 扩展或不想暴露源码的部分则提供 `.pyi` 存根。
+
+   </details>
+
+3. 环境里同时装了 `requests`（假设它自带 `py.typed`）和 `types-requests`，mypy 用哪一份类型信息？想临时修正其中一个签名，存根应该放在哪里？
+
+   <details markdown="1"><summary>答案</summary>
+
+   用 `types-requests` 装进来的 `requests-stubs/`：独立存根包排在第 3 级，先于第 4 级带 `py.typed` 的已安装包，命中即停。想盖掉它，把修改过的 `.pyi` 放进 `MYPYPATH` / `mypy_path` 指向的目录——那是第 1 级，比所有已安装的包都先被查。
 
    </details>
 

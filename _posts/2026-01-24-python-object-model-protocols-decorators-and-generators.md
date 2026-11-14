@@ -6,7 +6,7 @@ subtitle: "How Objects Work — Object Model, Protocols, Decorators and Generato
 tags: [Python]
 catalog: true
 date: 2026-01-24 20:00:00 +0800
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 [上篇](/python-execution-model-scopes-imports-and-exceptions.html)讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——上篇开头那七行里剩下的五行：
@@ -165,6 +165,26 @@ def __getattribute__(obj, name):                 # object.__getattribute__ 的�
         return cls_attr                          # ⑤ 普通类属性
 
     raise AttributeError(name)                   # ⑥ 都没有 → 抛出；若类定义了 __getattr__，解释器接着调它
+```
+
+伪代码里的 ① 只是"先在类上找一遍"，真正决定结果的是后面几次判断。画成判断流程，能看清两件事：类上找到的东西要**先看它是不是数据描述符**，再决定实例字典有没有机会；`__getattr__` 在整条链的最末端，只有前面全部落空才轮到它：
+
+```mermaid
+%% 图：obj.attr 的属性查找判断流程
+flowchart TB
+    S["obj.attr"] --> M["① 沿 type(obj).__mro__ 查各类的 __dict__<br/>得到 cls_attr（可能没有）"]
+    M --> D{"cls_attr 是数据描述符？<br/>（有 __set__ 或 __delete__）"}
+    D -- "是" --> R2["② 返回 cls_attr.__get__(obj, cls)<br/>例：property"]
+    D -- "否" --> I{"name 在 obj.__dict__ 里？"}
+    I -- "是" --> R3["③ 返回实例字典里的值"]
+    I -- "否" --> F{"类上找到了 cls_attr？"}
+    F -- "否" --> E["⑥ AttributeError"]
+    F -- "是" --> G{"cls_attr 有 __get__？"}
+    G -- "是" --> R4["④ 返回 cls_attr.__get__(obj, cls)<br/>例：函数 → 绑定方法"]
+    G -- "否" --> R5["⑤ 返回类属性本身"]
+    E --> GA{"类定义了 __getattr__？"}
+    GA -- "是" --> R6["调用 __getattr__(obj, name)"]
+    GA -- "否" --> R7["AttributeError 抛给调用方"]
 ```
 
 用三个实验验证这个顺序。首先，数据描述符（`property` 有 `__set__`）赢过实例字典：
@@ -476,6 +496,19 @@ class Run(Logging, Metrics, Base): pass
 
 print([k.__name__ for k in Run.__mro__])   # ['Run', 'Logging', 'Metrics', 'Base', 'object']
 print(Run().run())                         # ['base', 'metrics', 'logging']
+```
+
+把这次调用按时间画出来：调用沿 MRO 往下走到 `Base`，返回值再沿原路往回传，每一层在**拿到下一层的结果之后**才 `append`，所以最先追加的是离 `Base` 最近的 `Metrics`：
+
+```mermaid
+%% 图：协作式 super() 的调用链：沿 MRO 向下调用，结果向上返回
+flowchart TB
+    U["调用方：Run().run()"] -- "Run 没有 run，按 MRO 找到" --> L["<b>Logging.run</b><br/>super().run()：MRO 里 Logging 之后是 Metrics"]
+    L -- "调用" --> M["<b>Metrics.run</b><br/>super().run()：MRO 里 Metrics 之后是 Base"]
+    M -- "调用" --> B["<b>Base.run</b><br/>返回 #91;'base'#93;"]
+    B -. "返回 #91;'base'#93;" .-> M2["Metrics.run 追加 'metrics'"]
+    M2 -. "返回 #91;'base', 'metrics'#93;" .-> L2["Logging.run 追加 'logging'"]
+    L2 -. "返回 #91;'base', 'metrics', 'logging'#93;" .-> U2["调用方拿到结果"]
 ```
 
 `Logging.run` 里的 `super().run()` 调到的是 `Metrics.run`，不是 `Base.run`——`super()` 的含义是"**在实例的 MRO 中，当前类之后的下一个**"，它取决于实例的类型，而不是写代码时看到的父类。`Logging` 类的作者并不知道 `Metrics` 的存在，链条却能接上，这就是协作式多继承。
@@ -949,7 +982,23 @@ finally:
         manager.__exit__(None, None, None)      # 正常结束、return、break、continue 都走这里
 ```
 
-（PEP 343 的官方展开就是 try / except / finally 这种形状。常见的 try / except / **else** 写法是错的：块内 `return` 或 `break` 时 `else` 分支不会执行，`__exit__` 就漏掉了——本地 3.12 验证过，用 `else` 版本在 `return` 时上下文管理器不会退出。）
+（PEP 343 的官方展开就是 try / except / finally 这种形状。常见的 try / except / **else** 写法是错的：块内 `return` 或 `break` 时 `else` 分支不会执行，`__exit__` 就漏掉了——在 CPython 3.12 上验证过，用 `else` 版本在 `return` 时上下文管理器不会退出。）
+
+把这段展开按"块怎么结束"分成几条路径，`__exit__` 被调用几次、收到什么参数、异常最后去了哪里就一目了然：
+
+```mermaid
+%% 图：with 语句的执行路径：__enter__、块的四种结束方式与 __exit__ 的返回值
+flowchart TB
+    S["manager = resource()"] --> EN{"manager.__enter__() 抛异常？"}
+    EN -- "是" --> P0["异常直接向外传播<br/>__exit__ 不被调用"]
+    EN -- "否" --> BODY["执行块体 use(value)"]
+    BODY -- "正常结束、return、break、continue" --> X0["__exit__(None, None, None)"]
+    X0 --> C0["按原来的方式继续：<br/>执行下一句或完成 return / break"]
+    BODY -- "块内抛异常 exc" --> X1["__exit__(type(exc), exc, tb)"]
+    X1 --> T{"__exit__ 返回真值？"}
+    T -- "是" --> SUP["异常被抑制<br/>块后的代码照常执行"]
+    T -- "否（False / None）" --> RE["异常继续向外传播"]
+```
 
 由展开可以读出几条规则，每一条都在实验中验证过：
 
