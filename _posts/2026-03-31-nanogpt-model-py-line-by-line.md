@@ -744,6 +744,6 @@ Table: 同一结构在 nanoGPT、HuggingFace GPT-2 与 Llama 里的名字
 
 ## 下一篇
 
-模型有了，还差数据、训练循环和一张 GPU。[下一篇《手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型》](/nanogpt-train-py-and-training-a-model-that-writes.html)把 336 行的训练脚本也逐块过一遍，然后在莎士比亚全集上训 5 分钟，看它从乱码到能写出像样的台词；再改层数和头数各跑一次——"改结构"的第一次体验。
+模型有了，还差数据、训练循环和一次实际的训练。[下一篇《手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型》](/nanogpt-train-py-and-training-a-model-that-writes.html)把 336 行的训练脚本也逐块过一遍，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），看它从乱码到能写出像样的台词；再把层数改成 2 和 8 各跑一次——"改结构"的第一次体验。
 
 [^q0]: 最少四个类、不到 90 行：`LayerNorm`（可选 bias）、`CausalSelfAttention`（`c_attn` 一次算出 Q/K/V → `view`/`transpose` 拆头 → 打分、缩放、mask、softmax、加权 → 拼回 → `c_proj`）、`MLP`（$$d \to 4d \to$$ GELU $$\to d$$）、`Block`（pre-norm + 两次残差）；`GPT` 把 `wte`、`wpe`、$$L$$ 个 `Block`、`ln_f`、`lm_head` 拼起来，共享 `wte` 与 `lm_head` 的权重，`forward` 的训练分支对全部位置算交叉熵、推理分支只算最后一个位置。其余是周边：`generate`（温度 / top-k / 采样）、`from_pretrained`（按键名拷 HF 权重、四个矩阵转置）、`configure_optimizers`（二维参数才 decay）、`estimate_mfu`（$$6N + 12LHQT$$）。详见[第三](#三causalselfattention47-行装下一整个-attention-子层)、[六](#六gpt__init__拼结构共享权重两种初始化)、[七章](#七forward训练分支与推理分支)。

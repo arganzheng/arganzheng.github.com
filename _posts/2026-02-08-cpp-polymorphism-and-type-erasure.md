@@ -936,6 +936,7 @@ Table: KernelFunction 的三个字段
 把三个字段和它们指向的东西画在一起，类型擦除的四步就落到了具体位置：模板工厂在**注册时**实例化两个知道 `KernelFunctor` 的静态函数，把地址存进三个字段；之后 `KernelFunction` 这个非模板类型只拿着这些地址，`KernelFunctor` 这个名字再也不出现。调用时唯一需要恢复的是签名，靠调用方显式给出的 `Args...` 把 `void*` cast 回去（3.3 节）：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
 %% 图：KernelFunction 的类型擦除：注册时模板实例化两个适配函数并存下地址，调用时只剩三个字段
 flowchart TB
     subgraph KF["KernelFunction：非模板，所有签名的 kernel 是同一种类型"]
@@ -944,15 +945,15 @@ flowchart TB
         F2["boxed_kernel_func_<br/>统一签名的函数指针"]
         F3["unboxed_kernel_func_<br/>void*"]
     end
-    R["<b>注册时：makeFromUnboxedFunctor&lt;KernelFunctor&gt;</b><br/>模板，知道 KernelFunctor 与 kernel 签名<br/>接管 KernelFunctor 对象，实例化两个适配函数"]
+    R["<b>注册时：makeFromUnboxedFunctor<br/>&lt;KernelFunctor&gt;</b><br/>模板，知道 KernelFunctor 与 kernel 签名<br/>接管 KernelFunctor 对象，实例化两个适配函数"]
     OBJ["<b>KernelFunctor 对象</b><br/>堆上，继承 OperatorKernel"]
-    W2["<b>make_boxed_from_unboxed_functor::call</b><br/>从 Stack 拆参数 → 调 KernelFunctor 对象<br/>→ 结果压回 Stack"]
-    W1["<b>wrap_kernel_functor_unboxed_::call</b><br/>把第一个参数 static_cast 回 KernelFunctor*<br/>调它的 operator()"]
+    W2["<b>make_boxed_from_unboxed_functor<br/>::call</b><br/>从 Stack 拆参数 → 调 KernelFunctor 对象<br/>→ 结果压回 Stack"]
+    W1["<b>wrap_kernel_functor_unboxed_<br/>::call</b><br/>把第一个参数 static_cast 回 KernelFunctor*<br/>调它的 operator()"]
     F1 -->|"拥有"| OBJ
     F2 -->|"指向"| W2
     F3 -->|"调用时按 Args... cast 回原签名"| W1
-    R -->|"实例化"| W2
-    R -->|"实例化"| W1
+    R --> W2
+    R --> W1
 ```
 
 

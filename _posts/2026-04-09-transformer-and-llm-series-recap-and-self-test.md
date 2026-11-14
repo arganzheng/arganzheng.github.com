@@ -285,7 +285,7 @@ Table: 跨篇概念的正确阅读入口
 
 Table: Transformer 常见误区及正确理解
 
-| 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（13B 以上明显） | 小模型只验证机制与代价 | [第七篇](/multi-token-prediction-mtp.html) |
+| 小模型上 MTP 没收益说明 MTP 无效 | 收益是规模依赖的（Gloeckle 等：0.3B、0.6B 反而变差，变大后反超，13B 时 HumanEval +12%） | 小模型只验证机制与代价 | [第七篇](/multi-token-prediction-mtp.html) |
 | FFN 中间维度就是 $$4d$$ | Llama 用 SwiGLU 三矩阵，14336 = $$\frac{2}{3} \cdot 4d \times 1.3$$ 对齐到 1024 | 以 `intermediate_size` 为准，且数三个矩阵 | [第一篇](/gpt2-to-llama-five-changes-and-parameter-count.html) |
 | 每 token FLOPs 就是 $$2 \times$$ 全部参数 | embedding 是查表，FLOPs 为零 | $$2 N_{gemm}$$，8B 是 $$2 \times 7.5$$B = 15 GFLOPs | [第一篇](/gpt2-to-llama-five-changes-and-parameter-count.html)、[第二篇](/transformer-flops-bytes-and-roofline.html) |
 | decode 慢是因为算力不够 | $$B = 1$$ 时算力时间 0.02 ms，访存 4.8 ms | 强度等于 $$B$$，距 ridge 295 两个数量级，是 memory-bound | [第二篇](/transformer-flops-bytes-and-roofline.html) |

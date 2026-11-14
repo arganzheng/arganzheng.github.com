@@ -1042,7 +1042,7 @@ static Registrar reg_foo("foo", &make_foo);        // 构造函数里写 g_regis
 | 谁先初始化 | 第一步 | 第二步 | 结果 |
 |---|---|---|---|
 | `registry.cpp` 先 | `g_registry` 构造成一张空表 | `reg_foo` 往表里插入 `"foo"` | 正常 |
-| `foo.cpp` 先 | `reg_foo` 往一个**还没构造**的 `std::map` 里插入（此时它只是一片全零的内存） | `g_registry` 的构造函数运行，把它重新初始化成空表 | 通常是段错误；侥幸没崩时 `"foo"` 被静默清掉 |
+| `foo.cpp` 先 | `reg_foo` 往一个**还没构造**的 `std::map` 里插入（此时它只是一片全零的内存） | `g_registry` 的构造函数运行，把它重新初始化成空表 | 段错误：在 macOS、Apple clang 14（libc++）上按 `foo.cpp registry.cpp` 的顺序链接，`-O0` 与 `-O2` 都在进入 `main` 前崩溃（退出码 139）；换一个标准库实现即便插入没崩，第二步的构造函数也会把表重置为空，`"foo"` 照样丢失 |
 
 Table: 跨翻译单元的两种初始化顺序
 
