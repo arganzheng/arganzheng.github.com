@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（10）：系列总结与通关自测"
 subtitle: "Diffusion Model Inference Infrastructure: Series Recap and Final Self-Test"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 date: 2026-09-13 20:00:00
 ---
 
@@ -46,9 +47,9 @@ $$\eta$$ 是第二篇，$$T_\text{eff}$$ 是第三篇与第六篇，$$s^{-1}$$ �
 | [第二篇：单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 24 GB 的 4090 放不放得下 FLUX？FA3、compile、FP8、SVDQuant 依次加上每步降到多少、哪一步图片可见地变了？ | 无损先有损后<br/>编译是最大的无损收益<br/>量化的收益来自 Tensor Core 峰值而不来自字节<br/>逐层 offload 的判据是每层计算 / 搬运 | eager 6.71 s → compile 4.30 s（1.56×，$$\eta$$ 0.31 → 0.49）<br/>FP8 GEMM 2× → 端到端 1.3–1.5×<br/>SVDQuant 22 → 6.5 GiB、4090 上 3×、Hopper 无 INT4<br/>PSNR > 35 dB 不可见、30–35 细看可见<br/>Wan 逐层 offload 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） |
 | [第三篇：跨步冗余](/timestep-redundancy-caching-and-step-skipping.html) | FLUX 28 步 TeaCache 阈值 0.4 命中多少步、加速多少、PSNR 掉到多少？为什么在 schnell 的 4 步上一步都省不下来？ | 便宜信号 → 阈值 → 复用缓存残差，首末步强制全算；本质是自适应的少步采样，上限约 2×，与步数蒸馏互斥 | $$T \to T_\text{full} + T_\text{hit}\,\epsilon$$、speedup $$\approx T / T_\text{full}$$<br/>0.25 / 0.4 / 0.6 → 1.5 / 1.8 / 2.0×<br/>0.4 时约 16 全算 12 复用、约 30 dB<br/>视频到 4.4×<br/>CFG 两份状态<br/>SP 下决策全局一致 |
 | [第四篇：视频与稀疏化](/video-diffusion-long-sequence-attention-and-sparsity.html) | Wan 一步的 attention 多少 PFLOPs、占几成？稀疏 80% 端到端加速多少？帧数 4 倍哪一项 16 倍？ | $$N$$ 到十万后 $$4LN^2d$$ 压过 $$2P_\text{tok}N$$<br/>稀疏必须落到 FlashAttention 的 block 粒度<br/>收益受 Amdahl 约束 | 交叉点 $$N \approx 6d$$<br/>Wan 4.7 P attention / 6.5 P 每步、72%<br/>分数矩阵 425 GiB 不可物化<br/>Amdahl $$1/((1-a) + a/s)$$：$$a$$ 0.72、$$s$$ 3.5 → 2.06×、上限 3.57×<br/>17 → 129 帧每步 21×<br/>叠加 24 min → 40 s |
-| [第五篇：多卡并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 8 张 H100 生成 FLUX，CFG 2 × Ulysses 4 与 TP 8 各通信多少？以太网互联的两台 8×L40 为什么 PipeFusion 赢？视频为什么 SP 必需？ | 扩散多卡为延迟（切一个请求），吞吐永远是 DP 最优<br/>SP 通信是 TP 的 $$1/p$$，PipeFusion 是 TP 的 $$1/L$$<br/>NVLink 用 USP、弱互联加 PipeFusion | TP $$4\frac{p-1}{p}Nd$$、Ulysses $$4\frac{p-1}{p^2}Nd$$<br/>FLUX $$p$$ = 4：4.8 GB vs 1.2 GB / 步<br/>CFG 并行每步 0.6 MB<br/>PipeFusion 28 MB / 步<br/>4×H100 1.63 s（2.63×）<br/>Wan 8 卡一步 29 → 4 s<br/>乘积 = 卡数 |
+| [第五篇：多卡并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 8 张 H100 生成 FLUX，CFG 2 × Ulysses 4 与 TP 8 各通信多少？以太网互联的两台 8×L40 为什么 PipeFusion 赢？视频为什么 SP 必需？ | 扩散多卡为延迟（切一个请求），吞吐永远是 DP 最优<br/>SP 通信是 TP 的 $$1/p$$，PipeFusion 是 TP 的 $$1/L$$<br/>NVLink 用 USP、弱互联加 PipeFusion | TP $$4\frac{p-1}{p}Nd$$、Ulysses $$4\frac{p-1}{p^2}Nd$$<br/>FLUX $$p$$ = 4：4.8 GB vs 1.2 GB / 步<br/>CFG 并行每步 0.5 MB<br/>PipeFusion 28 MB / 步<br/>4×H100 1.63 s（2.63×）<br/>Wan 8 卡一步 29 → 4 s<br/>乘积 = 卡数 |
 | [第六篇：少步与自回归](/few-step-and-autoregressive-video-generation-systems.html) | schnell 4 步 vs dev 28 步每张 FLOPs、QPS、哪些优化还有用？自回归视频每 chunk 的 KV 多大？为什么"没有 KV cache"的负载又需要它了？ | 蒸馏拿走了"几十步里大半是保守余量"，依赖相邻步相似的优化全部失效；因果化让视频生成向 LLM serving 收敛 | DiT 2.08 P → 0.30 P（1/7）、0.80 s、1.25 张/s<br/>另两段 2.6% → 15.6%<br/>KV 每 token $$2dL \times 2$$ 字节：Wan 1.3B 184 KB、chunk 0.86 GB、窗口 21 帧 6 GB<br/>SD-Turbo 4090 约 90 fps |
-| [第七篇：serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 100 QPS 的 FLUX 1024² 服务需要多少张 H100？batch 有没有用？p99 怎样保证？视频为什么必须异步 job？ | 卡数 = QPS × 单张 GPU·秒，batch 不参与、SP 只减延迟；时长收到请求时即确定 → 分池、SJF、SLO 准入、事前定价 | 100 QPS：eager 670 → compile + FA3 390 → FP8 290 → TeaCache 170 → schnell 80 张<br/>每张 \$0.0047 → \$0.0006<br/>抢占状态 = latent 0.6 MB<br/>Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22<br/>LoRA 前 $$k \le 4$$ 步不挂 |
+| [第七篇：serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 100 QPS 的 FLUX 1024² 服务需要多少张 H100？batch 有没有用？p99 怎样保证？视频为什么必须异步 job？ | 卡数 = QPS × 单张 GPU·秒，batch 不参与、SP 只减延迟；时长收到请求时即确定 → 分池、SJF、SLO 准入、事前定价 | 100 QPS：eager 670 → compile + FA3 390 → FP8 290 → TeaCache 170 → schnell 80 张<br/>每张 \$0.0047 → \$0.0006<br/>抢占状态 = latent 0.5 MB<br/>Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22<br/>LoRA 前 $$k \le 4$$ 步不挂 |
 | [第八篇：三个引擎](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | 一个 `/v1/images/generations` 请求在三个引擎里各经过哪些进程与类？它们在进程模型、pipeline 抽象、并行组、调度上各怎么选、为什么？ | SGLang 把扩散塞进 LLM serving 的结构<br/>vLLM-Omni 把扩散做成全模态流水线的一个 stage<br/>xDiT 只做并行、包装 diffusers<br/>三者共用 diffusers 底座与 vLLM 式并行组 | SGLang：HTTP / Scheduler / GPUWorker 三类进程、`ComposedPipelineBase`<br/>vLLM-Omni：stage 0 + stage N、`DiffusionEngine`<br/>xDiT：torchrun SPMD、`xFuserPipelineBaseWrapper`<br/>有调度器的两个都是同构静态批 |
 | [第九篇：配置、评测与排障](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | p99 抬升 / 伪影 / 半夜 OOM 各先查什么？该采集哪些信号？配置按什么顺序推？ | 八步推导：算账 → 无损单卡 → 有损 I → 有损 II → 多卡 → 少步 → serving → 面板；无损先于有损、切卡先于换模型、卡数由 GPU·秒决定 | 门限 PSNR > 35 / 30 dB<br/>FID 不能评"开不开某项优化"<br/>同一部署内确定、跨部署不保证<br/>OOM 先看 `vae.decode`<br/>p99 抬升先看重编译<br/>告警：每步 +20%、命中率 ±30%、抽检 −3 dB |
 
@@ -76,6 +77,7 @@ Table: 本文的章节安排
 
 **必记**：
 
+- 一步 = 一次 transformer 前向（真 CFG 再一次）+ 采样器一行 `x + dt · v`；FLUX.1-dev 的 `guidance_scale` 3.5 是送进网络的数，$$g = 1$$；一个 token 每个 block 经过 $$12 d^2$$ 参数，$$57 \times 12 d^2 = 6.45$$B。
 - $$N = \frac{H}{fp}\cdot\frac{W}{fp}\cdot\frac{F_\text{lat}}{p_t} + N_\text{txt}$$，$$F_\text{lat} = \frac{F-1}{f_t} + 1$$：FLUX 4096 + 512 = 4608；Wan 720p 81 帧 $$45 \times 80 \times 21 = 75{,}600$$。
 - 每步 $$2 P_\text{tok} N + 4 L N^2 d$$：FLUX 59.4 T + 14.9 T = 74.3 T，attention 20%；Wan 1.8 P + 4.7 P = 6.5 P，attention 72%；HunyuanVideo 129 帧 87%。
 - 每步 $$= g \cdot \text{FLOPs}_\text{fwd} / (\text{峰值} \cdot \eta)$$：$$\eta$$ 0.45 时 167 ms、28 步 4.68 s；xDiT 实测 eager 6.71 s（$$\eta$$ 0.31）、compile 4.30 s（0.49）。
@@ -140,11 +142,11 @@ Table: 本文的章节安排
 
 **核心问题**：8 张 H100 生成一张 FLUX 1024²，CFG 2 × Ulysses 4 与 TP 8 各通信多少字节、几秒？两台以太网互联的 8×L40 该选什么组合，为什么 PipeFusion 在这里赢？为什么视频模型上序列并行是必需而不是可选？
 
-**结论**：扩散多卡的目的与 LLM 不同：权重放得下、单请求已 compute-bound，切一个请求是为了延迟；只要吞吐，DP 永远最优（4 卡各跑一个请求 4× vs 切一个请求 2.63×）。四种刀法：切序列（Ulysses all-to-all 换 head、Ring P2P 传 K/V、USP 二维组合——节点内 Ulysses、跨节点 Ring）、切 CFG 分支（两组卡，每步末交换一次 0.6 MB 的预测，恒为 2、几乎零通信）、切层加 patch（PipeFusion：层切 stage、latent 切 patch、用上一步的 stale K/V 让流水线不等，通信与层数无关）、切权重（TP / FSDP，只在装不下时是首选）。通信量：TP $$4\frac{p-1}{p}Nd$$、Ulysses 是它的 $$1/p$$、PipeFusion 是它的 $$1/L$$。NVLink 上用 USP，PCIe / 以太网加 PipeFusion；Ring 跨以太网每步 1.6 GB → 0.5 s 不可行，PipeFusion 28 MB → 10 ms。scaling 不到线性（GEMM 变小、通信不全重叠、固定开销），视频上接近线性。视频上 SP 是必需：激活 14–49 GiB 与单卡 24 分钟都是硬约束。
+**结论**：扩散多卡的目的与 LLM 不同：权重放得下、单请求已 compute-bound，切一个请求是为了延迟；只要吞吐，DP 永远最优（4 卡各跑一个请求 4× vs 切一个请求 2.63×）。四种刀法：切序列（Ulysses all-to-all 换 head、Ring P2P 传 K/V、USP 二维组合——节点内 Ulysses、跨节点 Ring）、切 CFG 分支（两组卡，每步末交换一次 0.5 MB 的预测，恒为 2、几乎零通信）、切层加 patch（PipeFusion：层切 stage、latent 切 patch、用上一步的 stale K/V 让流水线不等，通信与层数无关）、切权重（TP / FSDP，只在装不下时是首选）。通信量：TP $$4\frac{p-1}{p}Nd$$、Ulysses 是它的 $$1/p$$、PipeFusion 是它的 $$1/L$$。NVLink 上用 USP，PCIe / 以太网加 PipeFusion；Ring 跨以太网每步 1.6 GB → 0.5 s 不可行，PipeFusion 28 MB → 10 ms。scaling 不到线性（GEMM 变小、通信不全重叠、固定开销），视频上接近线性。视频上 SP 是必需：激活 14–49 GiB 与单卡 24 分钟都是硬约束。
 
 **必记**：
 
-- FLUX $$p$$ = 4 每步每卡：TP 4.8 GB（16 ms，关键路径）、Ulysses 1.2 GB（4 ms）、Ring 2.4 GB（可重叠）、CFG 并行 0.6 MB、PipeFusion 28 MB。
+- FLUX $$p$$ = 4 每步每卡：TP 4.8 GB（16 ms，关键路径）、Ulysses 1.2 GB（4 ms）、Ring 2.4 GB（可重叠）、CFG 并行 0.5 MB、PipeFusion 28 MB。
 - xDiT 实测 FLUX compile：Ulysses-2 2.68 s、Ring-2 2.60、Ulysses-2 × Ring-2 1.80、Ulysses-4 1.63（2.63×）、Ring-4 1.98。
 - 约束：Ulysses 度整除 head 数（FLUX 24、Wan 40）；SP 度整除 $$N$$；乘积 $$p_\text{data} \times p_\text{cfg} \times p_\text{ulysses} \times p_\text{ring} \times p_\text{pipefusion}$$ = 卡数。
 - PipeFusion 气泡 $$\frac{p-1}{M+p-1}$$，跨步连续流水填掉大半；16×L40 比 8 卡再快 1.16×；少步模型不用（stale K/V 误差大）。
@@ -165,7 +167,7 @@ Table: 本文的章节安排
 - 失效：跨步缓存（schnell 零命中）、PipeFusion / DistriFusion、CFG 并行、CFG gating；不变：后端、compile（更重要）、CUDA graph（必需）、FP8 / INT4、稀疏、SP、Parallel VAE。
 - batch 有意义的条件：SD3-Turbo 512²（$$N$$ = 1357、$$d$$ = 1536）MFU 不到 30%，batch 4 近 3×；FLUX-schnell 1024² 仍无意义。
 - KV 每 token $$2 d L \times 2$$ 字节（无 GQA）：Wan 1.3B 184 KB（Llama-3-8B 128 KB）；chunk 3 帧 4,680 token 0.86 GB；窗口 21 帧 6.0 GB；14B 底座每 token 819 KB。
-- 每 chunk 完成后再算一次 clean 版本的 K/V 写入缓存；窗口 $$W$$ 同时决定显存与每 chunk 的 attention 成本。
+- 每 chunk 完成后再算一次 clean 版本的 K/V 写入缓存（每 chunk 5 次前向）；7 个 chunk 合计 0.96 PFLOPs，是双向 50 步 CFG 27.6 P 的 3.5%；窗口填满后每 chunk 恒定 198 T。窗口 $$W$$ 同时决定显存与每 chunk 的 attention 成本。
 - KV 量化只量化已完成的 chunk，当前与最近的留 bf16。
 
 **常见误解**："第一篇说 batch 没用，StreamDiffusion 又说 batch 提吞吐，矛盾"——前提不同：FLUX 1024² 的 GEMM 已填满 GPU，SD-Turbo 512² 没有；batch 的收益来自填满未饱和的 GPU。另一个："自回归视频的漂移靠加大窗口解决"——漂移来自以自己有误差的输出为条件，与窗口无关，靠训练方法推后。
@@ -174,15 +176,15 @@ Table: 本文的章节安排
 
 **核心问题**：一个 100 QPS 的 FLUX 1024² 服务需要多少张 H100？batch 有没有用？p99 怎样保证？为什么视频服务必须做成异步 job？
 
-**结论**：扩散的服务层围绕与 LLM 相反的两件事组织：请求时长在收到它时就完全确定（$$H, W, F, T, g$$ 加实例的 $$\eta$$），batch 几乎不提吞吐。于是卡数 = QPS × 单张 GPU·秒，前六篇的每一项优化直接按比例减卡数、直接是毛利，多卡 SP 不减卡数；调度像批处理系统：按形状分池（无重编译、容量可规划）、按估算 GPU·秒 SJF 加老化、SLO 准入与事前定价，抢占只在步边界有意义（状态就是 0.6 MB 的 latent），生产多用分池代替抢占。能合批的请求必须形状、CFG、quality、LoRA 全同——同构、静态、整批开始整批结束。三段的资源形态不同可以分开部署：图像 1024² 以下通常不分，视频几乎总分 VAE，全模态必分。附件：LoRA 的瓶颈是加载，SwiftDiffusion 前 $$k \le 4$$ 步先不挂、边算边加载；ControlNet 做成独立服务与基座并行。视频请求分钟级，`POST /v1/videos` 立即返回 job id、轮询、对象存储；自回归视频的流式会话是第三种形态。
+**结论**：扩散的服务层围绕与 LLM 相反的两件事组织：请求时长在收到它时就完全确定（$$H, W, F, T, g$$ 加实例的 $$\eta$$），batch 几乎不提吞吐。于是卡数 = QPS × 单张 GPU·秒，前六篇的每一项优化直接按比例减卡数、直接是毛利，多卡 SP 不减卡数；调度像批处理系统：按形状分池（无重编译、容量可规划）、按估算 GPU·秒 SJF 加老化、SLO 准入与事前定价，抢占只在步边界有意义（状态就是 0.5 MB 的 latent），生产多用分池代替抢占。能合批的请求必须形状、CFG、quality、LoRA 全同——同构、静态、整批开始整批结束。三段的资源形态不同可以分开部署：图像 1024² 以下通常不分，视频几乎总分 VAE，全模态必分。附件：LoRA 的瓶颈是加载，SwiftDiffusion 前 $$k \le 4$$ 步先不挂、边算边加载；ControlNet 做成独立服务与基座并行。视频请求分钟级，`POST /v1/videos` 立即返回 job id、轮询、对象存储；自回归视频的流式会话是第三种形态。
 
 **必记**：
 
 - 100 QPS FLUX：eager 6.7 s → 670 张；compile + FA3 3.9 s → 390；+ FP8 2.9 s → 290；+ TeaCache 0.4 1.65 s → 170；schnell 0.8 s → 80。
 - 成本（H100 \$2.5 / 小时）：每张 \$0.0047 → \$0.0011 → \$0.0006；商业 API \$0.02–0.03 / 张；Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22，不优化约 \$1。
 - batch 收益 $$= \text{MFU}(b) / \text{MFU}(1)$$，MFU(1) 已 0.5 以上时实际 1.0–1.2×；视频永远 batch 1。
-- 抢占状态：latent $$N \times c p^2$$，FLUX $$4608 \times 64 \times 2$$ 字节 ≈ 0.6 MB；同 seed 恢复 bit-exact。
-- stage 间传输：embedding 4 MiB、latent 0.6 MB；冷启动 = 权重 30–50 GB + 编译 1–3 min，分钟级，提前扩。
+- 抢占状态：latent $$N_\text{img} \times c p^2$$，FLUX $$4096 \times 64 \times 2$$ 字节 ≈ 0.5 MB；同 seed 恢复 bit-exact。
+- stage 间传输：embedding 4 MiB、latent 0.5 MB；冷启动 = 权重 30–50 GB + 编译 1–3 min，分钟级，提前扩。
 - 兼容键：height / width / frames / CFG / guidance / quality / LoRA id 与 scale；同批 steps 相同。
 
 **常见误解**："提高吞吐就调大 batch"——compute-bound 下吞吐随并发不增、p99 线性恶化，这不是故障，是负载性质；加实例或换少步模型。另一个："多 LoRA batch 像 LLM 一样值得做"——LLM 上值得是因为 batch 本身提吞吐，扩散上为它付分组 GEMM 的开销没有回报，按 LoRA 分批串行跑。
@@ -224,7 +226,15 @@ Table: 本文的章节安排
 
 ### 1. 一张账，九次记账
 
-第一篇建立的三本账（FLOPs、字节、秒）是全系列的坐标系，之后每一篇只做一件事：把新机制写成账上的一项修正。第二篇改 $$\eta$$（0.31 → 0.5 以上）、Tensor Core 峰值与权重字节；第三篇把 $$T$$ 换成 $$T_\text{full} + T_\text{hit}\,\epsilon$$；第四篇给 attention 项乘一个 $$s^{-1}$$ 并用 Amdahl 算它的上限；第五篇把分母乘 $$p \cdot e(p)$$ 并给每步加一项通信时间；第六篇直接改 $$T$$ 与 $$g$$ 这两个乘数；第七篇在多请求上摊——卡数 = QPS × GPU·秒；第九篇把这条公式写成推导顺序。
+第一篇建立的三本账（FLOPs、字节、秒）是全系列的坐标系，之后每一篇只做一件事：把新机制写成账上的一项修正。
+
+- 第二篇改 $$\eta$$（0.31 → 0.5 以上）、Tensor Core 峰值与权重字节；
+- 第三篇把 $$T$$ 换成 $$T_\text{full} + T_\text{hit}\,\epsilon$$；
+- 第四篇给 attention 项乘一个 $$s^{-1}$$ 并用 Amdahl 算它的上限；
+- 第五篇把分母乘 $$p \cdot e(p)$$ 并给每步加一项通信时间；
+- 第六篇直接改 $$T$$ 与 $$g$$ 这两个乘数；
+- 第七篇在多请求上摊——卡数 = QPS × GPU·秒；
+- 第九篇把这条公式写成推导顺序。
 
 这条线的价值在于它给每个优化一个可比的位置：编译 1.56×、缓存 1.8×、稀疏 2×、4 卡 2.63×、蒸馏 7×——系统侧全部工作加起来与算法侧的一次蒸馏同量级，这是第六篇的判断，只有在同一张账上才看得出。它也给出了什么时候一项优化"无关"：稀疏 attention 对 FLUX 的 20% 只有 1.17×，FP8 对 Wan 的 28% 线性项从 17 分钟只到 15 分钟。
 
@@ -246,7 +256,14 @@ Table: 本文的章节安排
 
 ### 5. 有损优化与质量预算
 
-LLM 的量化用困惑度一个数字度量损失；扩散的有损优化——FP8 / INT4 / 8-bit attention（第二篇）、跨步缓存（第三篇）、稀疏 attention（第四篇）、少步蒸馏（第六篇）——每一项都有一个连续参数与一条"加速比—质量"曲线，评测方法是配置方法的一半。第二篇给出门限（> 35 dB 不可见、30–35 细看可见）与"文字与手指最先坏"；第三篇给出阈值曲线的形状（加速先快后饱和、质量先平后陡）与伪影的顺序；第四篇加上视频的时间一致性与运动幅度；第九篇把它们收成三层评测（对基线图、prompt 集、人工 A/B）、一条确定性规则（同一部署内确定、跨部署重建基线）与一个性能面板看不出的质量抽检。无损先于有损、有损按可见度排序，是第九篇推导顺序的第一原则。
+LLM 的量化用困惑度一个数字度量损失；扩散的有损优化——FP8 / INT4 / 8-bit attention（第二篇）、跨步缓存（第三篇）、稀疏 attention（第四篇）、少步蒸馏（第六篇）——每一项都有一个连续参数与一条"加速比—质量"曲线，评测方法是配置方法的一半。各篇的贡献：
+
+- 第二篇给出门限（> 35 dB 不可见、30–35 细看可见，即每像素平均偏 4.5 到 8 个灰度级）与"文字与手指最先坏"；
+- 第三篇给出阈值曲线的形状（加速先快后饱和、质量先平后陡）与伪影的顺序；
+- 第四篇加上视频的时间一致性与运动幅度；
+- 第九篇把它们收成三层评测（对基线图、prompt 集、人工 A/B）、一条确定性规则（同一部署内确定、跨部署重建基线）与一个性能面板看不出的质量抽检。
+
+无损先于有损、有损按可见度排序，是第九篇推导顺序的第一原则。
 
 ```mermaid
 %% 图：扩散推理各概念的关系：单请求 compute-bound 与相邻步相似是两个根，少步蒸馏让跨步缓存与 PipeFusion 失效、让 KV cache 回归
@@ -408,7 +425,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：CFG 并行恒为 2，8 卡 = CFG 2 × Ulysses 4，组间每步只传 0.6 MB，组内 Ulysses 4 每层 4 次 all-to-all；要与 Ulysses 8（一个 batch 2 前向、GEMM 更大）实测比较。第三篇 × 第五篇：4 卡 SP 下各卡只持 $$N/4$$ 个 token，缓存决策必须全局一致（all-reduce 信号或 rank 0 广播），否则 hang 或错图。第三篇 × 第一篇：$$g$$ = 2 的两个分支残差不同，缓存状态必须两份，混用则饱和发灰。另：SGLang 的 CFG gating 与缓存正交可叠加，但误差叠加、质量预算一起算。
+   第五篇：CFG 并行恒为 2，8 卡 = CFG 2 × Ulysses 4，组间每步只传 0.5 MB，组内 Ulysses 4 每层 4 次 all-to-all；要与 Ulysses 8（一个 batch 2 前向、GEMM 更大）实测比较。第三篇 × 第五篇：4 卡 SP 下各卡只持 $$N/4$$ 个 token，缓存决策必须全局一致（all-reduce 信号或 rank 0 广播），否则 hang 或错图。第三篇 × 第一篇：$$g$$ = 2 的两个分支残差不同，缓存状态必须两份，混用则饱和发灰。另：SGLang 的 CFG gating 与缓存正交可叠加，但误差叠加、质量预算一起算。
 
    </details>
 
@@ -424,7 +441,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：双向多步无 KV、每步整段前向、时长收到请求即确定；第六篇：自回归有 chunk 级 KV（0.86 GB / chunk、窗口 6 GB）、滑动窗口、每 chunk 完成即输出、时长由用户决定——不可预测；第七篇：双向是异步 job（`POST /v1/videos` + 轮询 + 对象存储，状态 = latent 0.6 MB 可 checkpoint），自回归是长连接会话（服务端持有 KV 与控制信号，抢占在 chunk 边界要换出 KV，多会话的当前 chunk 可拼 batch）；第八篇：SGLang 的 `realtime/` 会话与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 复用分页 KV 管理器——LLM 引擎恰好适合承载它。
+   第一篇：双向多步无 KV、每步整段前向、时长收到请求即确定；第六篇：自回归有 chunk 级 KV（0.86 GB / chunk、窗口 6 GB）、滑动窗口、每 chunk 完成即输出、时长由用户决定——不可预测；第七篇：双向是异步 job（`POST /v1/videos` + 轮询 + 对象存储，状态 = latent 0.5 MB 可 checkpoint），自回归是长连接会话（服务端持有 KV 与控制信号，抢占在 chunk 边界要换出 KV，多会话的当前 chunk 可拼 batch）；第八篇：SGLang 的 `realtime/` 会话与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 复用分页 KV 管理器——LLM 引擎恰好适合承载它。
 
    </details>
 
@@ -454,7 +471,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 两个硬约束：显存——Wan 720p 81 帧激活 14.4 GiB + 权重 26.6 GiB，129 帧 49 GiB，1080p 激活 32 GiB；时间——单卡每步 29 s、50 步 24 分钟；(2) 切序列：Ulysses 换 head（all-to-all，$$p$$ 整除 head 数）、Ring 传 K/V（P2P、可重叠）、USP 节点内 Ulysses 跨节点 Ring；视频上每卡 attention 块仍大，效率接近线性；(3) CFG 模型加 CFG 并行（每步 0.6–5 MB），先比较 CFG 2 × USP $$p/2$$ 与 USP $$p$$；(4) VAE 解码 107 GiB 必须时间分块 + Parallel VAE；(5) 以太网上 Ring 每步 1.6 GB 不可行，PipeFusion 每步每 stage 只传 $$Nd$$、与层数无关，但有气泡与 stale 误差，NVLink 上不用它；(6) 不是 TP：通信是 SP 的 $$p$$ 倍。
+   **答案要点**：(1) 两个硬约束：显存——Wan 720p 81 帧激活 14.4 GiB + 权重 26.6 GiB，129 帧 49 GiB，1080p 激活 32 GiB；时间——单卡每步 29 s、50 步 24 分钟；(2) 切序列：Ulysses 换 head（all-to-all，$$p$$ 整除 head 数）、Ring 传 K/V（P2P、可重叠）、USP 节点内 Ulysses 跨节点 Ring；视频上每卡 attention 块仍大，效率接近线性；(3) CFG 模型加 CFG 并行（每步 0.5–10 MB），先比较 CFG 2 × USP $$p/2$$ 与 USP $$p$$；(4) VAE 解码 107 GiB 必须时间分块 + Parallel VAE；(5) 以太网上 Ring 每步 1.6 GB 不可行，PipeFusion 每步每 stage 只传 $$Nd$$、与层数无关，但有气泡与 stale 误差，NVLink 上不用它；(6) 不是 TP：通信是 SP 的 $$p$$ 倍。
    **追问方向**：scaling 为什么不到线性（4 卡 2.63×）；DP 与 SP 在吞吐上的关系；少步模型上 PipeFusion 为什么失效。
    **好答案与一般答案的区别**：一般答案说"视频大所以多卡、用序列并行"；好答案给出显存与时间两个硬约束的数字、三种刀法的通信量公式，并解释互联怎样决定选择。
 

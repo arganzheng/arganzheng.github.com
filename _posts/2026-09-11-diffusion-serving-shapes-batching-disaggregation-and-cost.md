@@ -5,11 +5,16 @@ title: "扩散模型推理基础设施（07）：serving 形态——请求、�
 subtitle: "Serving Diffusion Models: Request Shapes, Batching, Disaggregation, Add-ons, Async Jobs and Cost"
 tags: [Diffusion, Serving, Inference, SGLang, vLLM, LoRA, ControlNet, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 前六篇的机制都在一个请求内部。这一篇把它们放进一个对外的服务：请求从 HTTP 进来、排队、被分到一组卡、跑三段、把图片或视频交回去、记一笔钱。LLM serving 的这一层（08 系列第三、四篇）围绕两件事组织——请求时长不可预测、memory-bound 下 batch 提吞吐——所以有连续批处理、抢占、KV 驻留。扩散的这一层围绕相反的两件事：**请求时长在收到它时就完全确定**（分辨率 × 步数 × CFG），**batch 几乎不提吞吐**（compute-bound）。于是调度像批处理系统而不像流处理系统：按时长排队、按形状分池、多实例横向扩，抢占只在步边界有意义。
 
-另外三个 LLM serving 没有的问题：**三段的资源需求不同**（文本编码器小且一次、DiT 重、VAE 显存峰值大），可以分开部署；**附件**（LoRA、ControlNet、IP-Adapter）让同一个基座模型服务上千种变体，每个请求带不同的附件；**视频请求是分钟级**，同步 HTTP 不可能，必须是异步任务。
+另外还有三个 LLM serving 没有的问题：
+
+1. **三段的资源需求不同**（文本编码器小且一次、DiT 重、VAE 显存峰值大），可以分开部署；
+2. **附件**（LoRA、ControlNet、IP-Adapter）让同一个基座模型服务上千种变体，每个请求带不同的附件；
+3. **视频请求是分钟级**，同步 HTTP 不可能，必须是异步任务。
 
 本篇要回答的核心问题是：
 
@@ -79,7 +84,7 @@ Table: 100 QPS FLUX.1-dev 服务各配置的卡数与成本
 |---|---|---|
 | 二 | 请求形态 | T2I / I2I / T2V / I2V / 编辑 / 附件<br/>参数决定时长<br/>与 LLM 请求的对照 |
 | 三 | 批处理 | 为什么几乎不提吞吐<br/>何时有用<br/>SGLang 与 vLLM-Omni 的兼容键与准入 |
-| 四 | 调度 | 时长可预测 → SJF / 分池 / SLO 准入<br/>抢占的价值与代价<br/>公平性 |
+| 四 | 调度 | 时长可预测 → SJF / 分池 / SLO 准入<br/>四个请求的 FIFO 与 SJF 手算<br/>抢占的价值与代价<br/>公平性 |
 | 五 | 三段分离 | 文本编码器 / DiT / VAE 各自的资源形态<br/>vLLM-Omni 的 stage、SGLang 的 disaggregation<br/>何时分 |
 | 六 | 附件 | LoRA（merge / unmerged / 多 LoRA / 异步加载）、ControlNet-as-a-Service、IP-Adapter |
 | 七 | 模型级联与路由 | DiffServe 的 query-aware 级联；多模型池 |
@@ -123,12 +128,12 @@ $$
 | 中间输出 | 逐 token 流式 | 无（或每步一张模糊预览） |
 | 请求间的共享 | 前缀 KV | prompt embedding（4 MiB）；同 prompt 多 seed 共享文本编码 |
 | 状态 | KV cache 随生成增长 | 无（自回归视频除外） |
-| 抢占 | 任意 token 边界，KV 要换出 | 步边界，只需保存 latent（$$N \times c p^2$$，FLUX 0.6 MB） |
+| 抢占 | 任意 token 边界，KV 要换出 | 步边界，只需保存 latent（$$N_\text{img} \times c p^2$$，FLUX 0.5 MB） |
 | 失败重试 | 从头或从 KV 恢复 | 从任意步的 latent 恢复（确定性 seed 下 bit-exact） |
 
 Table: LLM 请求与扩散请求的对照
 
-最后两行是扩散独有的便利：**一个请求的全部状态就是当前的 latent**——0.6 MB，任何一步都可以 checkpoint、迁移到另一张卡继续、或抢占后恢复。
+最后两行是扩散独有的便利：**一个请求的全部状态就是当前的 latent**——0.5 MB，任何一步都可以 checkpoint、迁移到另一张卡继续、或抢占后恢复。
 
 ## 三、批处理
 
@@ -162,9 +167,23 @@ Table: 时长可预测带来的调度策略
 
 这些在 LLM serving 里都做不好（不知道时长），在扩散上都是直接的。
 
+用一个能手算的队列看 SJF 与先来先服务（FIFO）的差别。一个实例（一张卡）几乎同时收到四个请求，各自的执行时间在准入时就能算出：
+
+| 请求 | 估算执行时间 | FIFO：开始 = 等待 | SJF：开始 = 等待 |
+|---|---:|---:|---:|
+| A：Wan2.1-14B 480p 81 帧（单卡 50 步） | 375 s | 0 s | 35.6 s |
+| B：FLUX 2048² | 26 s | 375 s | 9.6 s |
+| C：FLUX 1024² | 4.8 s | 401 s | 0 s |
+| D：FLUX 1024² | 4.8 s | 405.8 s | 4.8 s |
+| 平均等待 | | 295 s | 12.5 s |
+
+Table: 四个请求在 FIFO 与 SJF 下的等待（单实例）
+
+FIFO 按到达顺序 A → B → C → D，两张 4.8 s 的小图排在 6 分钟的视频后面，等了将近 7 分钟；SJF 按估算时间从短到长排成 C → D → B → A，平均等待从 295 s 降到 12.5 s，代价是视频晚了 35.6 s 开始——相对它自己的 375 s 不到 10%。执行时间都按第一篇的账（H100，$$\eta$$ 0.45）估。LLM 的调度器做不了这一排序，因为它在开始时不知道哪个请求短。SJF 的风险是饥饿：小请求源源不断时 A 永远排不到，所以实际用"估算时间减去已等待时间 × 系数"排序（老化），或者干脆把 A 这类长任务放进单独的池。
+
 ### 2. 抢占
 
-在步边界抢占一个请求只需保存它的 latent（0.6 MB）与步号，恢复时从那一步继续（同 seed 下 bit-exact）。它的价值：让一个高优先级的小请求插到一个 24 分钟的视频前面。代价：被抢占的视频请求的 SP 组要空出来、恢复时 KV（自回归视频）或文本 K / V 缓存要重建、编译状态要热。多数生产系统不做步级抢占，而是**分池**——把长任务与短任务隔离在不同的实例组，用队列而不是抢占保证短任务的延迟。
+在步边界抢占一个请求只需保存它的 latent（0.5 MB）与步号，恢复时从那一步继续（同 seed 下 bit-exact）。它的价值：让一个高优先级的小请求插到一个 24 分钟的视频前面。代价：被抢占的视频请求的 SP 组要空出来、恢复时 KV（自回归视频）或文本 K / V 缓存要重建、编译状态要热。多数生产系统不做步级抢占，而是**分池**——把长任务与短任务隔离在不同的实例组，用队列而不是抢占保证短任务的延迟。
 
 ### 3. 公平与多租户
 
@@ -200,7 +219,7 @@ flowchart TB
 小卡 / CPU / 多实例共享
 输出 embedding 4 MiB"] -- "IPC / RDMA / 网络" --> D["denoiser stage
 DiT 的 SP 组
-输出 latent 0.6 MB"] -- "IPC / RDMA / 网络" --> V["decoder stage
+输出 latent 0.5 MB"] -- "IPC / RDMA / 网络" --> V["decoder stage
 Parallel VAE / 独立卡
 输出像素"]
     end
@@ -215,7 +234,7 @@ Parallel VAE / 独立卡
 
 ### 3. 何时分
 
-分离的收益：DiT 卡的显存密度、文本编码器与 VAE 可以按各自的负载独立扩缩（一个文本编码器实例服务几十个 DiT 实例）、VAE 的显存峰值不再限制 DiT 的分辨率上限。代价：stage 间传输（embedding 4 MiB、latent 0.6 MB——很小，但多一跳延迟）、三套进程的运维、单请求延迟多几十毫秒。**图像服务在 1024² 以下通常不分**（三段同卡 + offload 够用）；**视频服务几乎总是分 VAE**（百 GiB 的峰值不能与 DiT 抢显存）；**全模态服务必须分**（不同模型）。这与 08 系列的 PD 分离形式相似、动机不同：PD 分离是因为 prefill 与 decode 的算力 / 带宽形态相反，这里是因为三段的显存与频次形态不同。
+分离的收益：DiT 卡的显存密度、文本编码器与 VAE 可以按各自的负载独立扩缩（一个文本编码器实例服务几十个 DiT 实例）、VAE 的显存峰值不再限制 DiT 的分辨率上限。代价：stage 间传输（embedding 4 MiB、latent 0.5 MB——很小，但多一跳延迟）、三套进程的运维、单请求延迟多几十毫秒。**图像服务在 1024² 以下通常不分**（三段同卡 + offload 够用）；**视频服务几乎总是分 VAE**（百 GiB 的峰值不能与 DiT 抢显存）；**全模态服务必须分**（不同模型）。这与 08 系列的 PD 分离形式相似、动机不同：PD 分离是因为 prefill 与 decode 的算力 / 带宽形态相反，这里是因为三段的显存与频次形态不同。
 
 ## 六、附件：LoRA、ControlNet、IP-Adapter
 
@@ -325,8 +344,8 @@ Table: 服务机制在四个引擎里的实现对照
 | 卡数 | QPS × 单张 GPU·秒<br/>batch 不参与<br/>SP 只减延迟 | FLUX 100 QPS：eager 670 张 → 优化后 170 → schnell 80 |
 | 时长 | 收到请求即确定（$$H, W, F, T, g$$，实例的 $$\eta$$）；缓存 ±20% | LLM 不可预测 |
 | 批处理 | compute-bound 下不提吞吐<br/>小模型 × 低分辨率有效<br/>同构静态整批 | 兼容键：形状、CFG、quality、LoRA id |
-| 调度 | 分池、SJF + 老化、SLO 准入、事前配额；抢占在步边界（状态 = latent 0.6 MB） | 生产多用分池而非抢占 |
-| 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大<br/>视频几乎总分 VAE<br/>全模态必分 | stage 间传 4 MiB / 0.6 MB |
+| 调度 | 分池、SJF + 老化、SLO 准入、事前配额；抢占在步边界（状态 = latent 0.5 MB） | 生产多用分池而非抢占 |
+| 三段分离 | 文本编码器小且一次、DiT 重、VAE 峰值大<br/>视频几乎总分 VAE<br/>全模态必分 | stage 间传 4 MiB / 0.5 MB |
 | LoRA | merge / unmerged / 多 LoRA<br/>瓶颈是加载<br/>bounded async loading 前 $$k \le 4$$ 步不挂 | rank 32 +2–5% |
 | ControlNet | 独立服务、常驻、共享、与基座并行 | SwiftDiffusion 7.8× 延迟 |
 | 级联 | 小模型先试、判别器决定是否升级；按负载调阈值 | DiffServe SLO 违约 −19–70% |
@@ -360,7 +379,7 @@ Table: 扩散服务的规则与数字小结
 
    <details markdown="1">
    <summary>答案</summary>
-   当前 latent（$$N \times c p^2$$，FLUX 1024² 为 $$4608 \times 64 \times 2$$ 字节 ≈ 0.6 MB）与步号、seed；同配置下恢复是 bit-exact 的。仍不常用是因为被抢占的长任务（视频）占的 SP 组要整组让出、恢复时缓存（文本 K/V、自回归 KV）与编译状态要重建、实现复杂；分池（长短任务隔离到不同实例组）用队列就能保证短任务延迟，且时长可预测让分池的容量规划可行。详见[第二章](#二请求形态)、[第四章](#四调度)。
+   当前 latent（$$N_\text{img} \times c p^2$$，FLUX 1024² 为 $$4096 \times 64 \times 2$$ 字节 ≈ 0.5 MB）与步号、seed；同配置下恢复是 bit-exact 的。仍不常用是因为被抢占的长任务（视频）占的 SP 组要整组让出、恢复时缓存（文本 K/V、自回归 KV）与编译状态要重建、实现复杂；分池（长短任务隔离到不同实例组）用队列就能保证短任务延迟，且时长可预测让分池的容量规划可行。详见[第二章](#二请求形态)、[第四章](#四调度)。
    </details>
 
 4. SwiftDiffusion 的 bounded async loading 为什么能在前 $$k$$ 步不挂 LoRA 而不改变输出质量？$$k$$ 的上限来自什么？

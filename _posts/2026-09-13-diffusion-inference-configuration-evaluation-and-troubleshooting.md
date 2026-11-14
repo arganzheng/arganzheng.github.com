@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（09）：配置、评测与排障——�
 subtitle: "Configuration, Evaluation and Troubleshooting for Diffusion Inference (with Series Summary)"
 tags: [Diffusion, Inference, Benchmark, Evaluation, Troubleshooting, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 前八篇给出了机制与它们在账上的位置。最后一篇把它们变成两件日常工作：**上线前**——给定模型、分辨率、步数、GPU 与 SLO，按什么顺序推出配置，怎样证明每一项优化的性能收益是真的、质量代价是可接受的；**上线后**——看什么指标，p99 抬升、图片出伪影、半夜 OOM 各先查什么。
@@ -13,11 +14,41 @@ catalog: true
 
 本篇要回答的核心问题是：
 
-> **一个 FLUX 服务上线后 p99 抬升 / 图片出现伪影 / 半夜 OOM，各先查什么？[^q0] 开训前该采集哪些信号才能十分钟内定位？[^q1] 给定模型、GPU 与 SLO，配置该按什么顺序推？[^q2]**
+> **一个 FLUX 服务上线后 p99 抬升 / 图片出现伪影 / 半夜 OOM，各先查什么？[^q0] 上线前该采集哪些信号才能十分钟内定位？[^q1] 给定模型、GPU 与 SLO，配置该按什么顺序推？[^q2]**
 
 ## 一、总览
 
 ### 1. p99 抬升 / 伪影 / OOM：各先查什么
+
+三类症状各有一条最短的排查路径，每个分叉都是一条日志或一块面板就能回答的问题：
+
+```mermaid
+%% 图：三类线上症状的排查路径：p99 先看重编译与队列，伪影先看有损项是否开着，OOM 先看报错栈是否在 VAE 解码
+flowchart TB
+    S{"线上症状"}
+    S -- "p99 抬升、p50 不变" --> P1{"日志里有 recompile？"}
+    P1 -- "有" --> P1Y["<b>重编译</b><br/>请求了未 warmup 的分辨率 / 帧数<br/>列全 --warmup-resolutions、按形状分池"]
+    P1 -- "没有" --> P2{"队列深度在涨？"}
+    P2 -- "是" --> P2Y["<b>排队</b><br/>扩实例；查分池是否失衡"]
+    P2 -- "否" --> P2N["<b>执行变慢</b><br/>看各 rank 每步时间差：<br/>降频的卡、NCCL 链路"]
+    S -- "图片出伪影" --> A1{"开了跨步缓存？"}
+    A1 -- "是" --> A1Y["<b>缓存</b><br/>命中步位置直方图：末尾命中多 → 降阈值<br/>CFG 发灰 → 两分支分状态<br/>蒸馏模型 → 关缓存"]
+    A1 -- "否" --> A2{"开了 FP8 / INT4 / 8-bit attention？"}
+    A2 -- "是" --> A2Y["<b>量化</b><br/>逐层开关二分；VAE 是否被一起量化"]
+    A2 -- "否" --> A3["<b>视频闪烁</b><br/>逐帧 PSNR 的凹陷是否按 chunk 周期出现：<br/>周期 → VAE 分块接缝；随机 → 稀疏 attention"]
+    S -- "半夜 OOM" --> O1{"报错栈在 vae.decode？"}
+    O1 -- "是" --> O1Y["<b>VAE 解码峰值</b><br/>tiling / 时间分块<br/>解码前先 offload DiT、Parallel VAE"]
+    O1 -- "否" --> O1N["<b>DiT 激活</b><br/>分辨率 / 帧数的长尾请求<br/>限制最大形状或改走 SP 池"]
+
+    classDef sym fill:#fff0f0,stroke:#c0504d,color:#222
+    class S sym
+```
+
+详细的信号—原因—修法见第六章的故障表；能不能在十分钟内走完这几个分叉，取决于第七章的面板事先采没采这些数。
+
+### 2. 配置按什么顺序推
+
+上线前的配置也有固定的顺序：
 
 ```mermaid
 %% 图：配置的推导顺序：算账 → 无损单卡 → 有损 I → 有损 II → 延迟仍不达 SLO 则多卡
@@ -63,7 +94,7 @@ schnell / Turbo / DMD 蒸馏版
 - **延迟不够先切卡、再换模型**：多卡不改图（SP 是无损的，除了 reduce 顺序的漂移），换少步模型改风格与多样性。
 - **实例数由 GPU·秒决定**：单卡优化的每一项直接乘进卡数；多卡 SP 不减卡数。
 
-### 2. 本文的章节安排
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -96,15 +127,34 @@ Table: 扩散推理配置推导的八步
 
 ### 2. 算例一：FLUX.1-dev 1024² 图像服务，8×H100 一台，SLO p99 3 s，100 QPS
 
-① 单卡放得下（31.5 GiB），eager 6.7 s。② compile + FA3 → 3.9 s，基线。③ FP8 → 2.9 s，PSNR 36 dB，采用。④ TeaCache 扫 0.2 / 0.3 / 0.4：0.3 时 1.6×、PSNR p10 31 dB、A/B 通过 → 1.8 s。⑤ 单卡 1.8 s 在 SLO 内（排队另算），不切卡——DP 8。⑦ 实例数 = 100 × 1.8 × 1.3（余量）≈ 230 张卡，即 29 台；按形状分池（1024² 主池、其余形状小池）；同步 API；LoRA 按请求 unmerged。⑧ 面板。若 SLO 是 1 s：⑤ USP 4 → 0.7 s，但卡数不变（GPU·秒不变），或 ⑥ 换 schnell 0.8 s、卡数降到 100 × 0.8 × 1.3 ≈ 105。
+- ① 单卡放得下（31.5 GiB），eager 6.7 s。
+- ② compile + FA3 → 3.9 s，基线。
+- ③ FP8 → 2.9 s，PSNR 36 dB，采用。
+- ④ TeaCache 扫 0.2 / 0.3 / 0.4：0.3 时 1.6×、PSNR p10 31 dB、A/B 通过 → 1.8 s。
+- ⑤ 单卡 1.8 s 在 SLO 内（排队另算），不切卡——DP 8。
+- ⑦ 实例数 = 100 × 1.8 × 1.3（余量）≈ 230 张卡，即 29 台；按形状分池（1024² 主池、其余形状小池）；同步 API；LoRA 按请求 unmerged。
+- ⑧ 面板。
+
+若 SLO 是 1 s：⑤ USP 4 → 0.7 s，但卡数不变（GPU·秒不变），或 ⑥ 换 schnell 0.8 s、卡数降到 100 × 0.8 × 1.3 ≈ 105。
 
 ### 3. 算例二：Wan2.1-14B 720p 5 秒视频服务，8×H100 若干台，SLO 2 分钟
 
-① 单卡 24 分钟、激活 14 GiB，attention 72%。② 逐层 offload（免费）、FA3 → 17 分钟。③ FP8 只作用 28% → 15 分钟；SageAttention → 10 分钟。④ STA / SVG 稀疏 80% → 6.6 分钟；TeaCache 视频档 → 4 分钟。⑤ 8 卡 CFG 2 × Ulysses 4 vs Ulysses 8 实测，取快者 → 约 40 s；VAE patch 并行 8。⑦ 每台一个实例，实例数 = QPS × 320 GPU·秒 / 8；异步 `/v1/videos`；VAE 分 stage 或 patch 并行。若允许 ⑥：FastWan（VSA + DMD 3 步）→ 单卡几十秒，改为 DP。
+- ① 单卡 24 分钟、激活 14 GiB，attention 72%。
+- ② 逐层 offload（免费）、FA3 → 17 分钟。
+- ③ FP8 只作用 28% → 15 分钟；SageAttention → 10 分钟。
+- ④ STA / SVG 稀疏 80% → 6.6 分钟；TeaCache 视频档 → 4 分钟。
+- ⑤ 8 卡 CFG 2 × Ulysses 4 vs Ulysses 8 实测，取快者 → 约 40 s；VAE patch 并行 8。
+- ⑦ 每台一个实例，实例数 = QPS × 320 GPU·秒 / 8；异步 `/v1/videos`；VAE 分 stage 或 patch 并行。
+
+若允许 ⑥：FastWan（VSA + DMD 3 步）→ 单卡几十秒，改为 DP。
 
 ### 4. 算例三：一张 RTX 4090 跑 FLUX.1-dev
 
-① 放不下（31.5 > 24），eager 需 offload 约 40 s。② 模型级 offload + VAE tiling → 跑起来；compile → 33 s。③ 4090 无 FP8 优势（Ada 有 FP8 Tensor Core，但 SGLang / diffusers 的 FP8 路径主要针对 Hopper），跳过。④ SVDQuant INT4（Nunchaku）→ 6.5 GiB 常驻、约 12 s、PSNR 30 dB；TeaCache 0.4 → 7 s。⑥ schnell + INT4 → 2 s。
+- ① 放不下（31.5 > 24），eager 需 offload 约 40 s。
+- ② 模型级 offload + VAE tiling → 跑起来；compile → 33 s。
+- ③ 4090 无 FP8 优势（Ada 有 FP8 Tensor Core，但 SGLang / diffusers 的 FP8 路径主要针对 Hopper），跳过。
+- ④ SVDQuant INT4（Nunchaku）→ 6.5 GiB 常驻、约 12 s、PSNR 30 dB；TeaCache 0.4 → 7 s。
+- ⑥ schnell + INT4 → 2 s。
 
 ## 三、性能评测
 
@@ -125,7 +175,7 @@ Table: 评测规则、原因与做法
 
 ### 2. GPU 利用率的陷阱
 
-`nvidia-smi` 的 GPU-Util 是"有 kernel 在跑的时间比例"，eager 下几百个小 kernel 也能把它打到 95%——**它不度量 MFU**。看 MFU 要用账：每步 FLOPs / (每步秒 × 峰值)。FLUX eager 的 GPU-Util 接近 100%、MFU 0.31；compile 后 GPU-Util 差不多、MFU 0.49。同样，SP 多卡下每卡 GPU-Util 高不代表没有在等 all-to-all——NCCL kernel 也算"在跑"。诊断用 profiler 里的 kernel 分类（GEMM / attention / NCCL / 其他）与 GPU idle gap。
+`nvidia-smi` 的 GPU-Util 是"有 kernel 在跑的时间比例"，eager 下几百个小 kernel 也能把它打到 95%——**它不度量 MFU**。看 MFU 要用账：每步 FLOPs / (每步秒 × 峰值)。FLUX eager 的 GPU-Util 接近 100%，MFU 却是 $$2.08\text{ P} / (6.71\text{ s} \times 989\text{ T}) = 0.31$$；compile 后 GPU-Util 差不多，MFU 是 $$2.08 / (4.30 \times 0.989) = 0.49$$。面板上的 MFU 就按这个式子由每步 ms 与账上的每步 FLOPs 算出来，不需要硬件计数器。同样，SP 多卡下每卡 GPU-Util 高不代表没有在等 all-to-all——NCCL kernel 也算"在跑"。诊断用 profiler 里的 kernel 分类（GEMM / attention / NCCL / 其他）与 GPU idle gap。
 
 ### 3. 报告的最小格式
 

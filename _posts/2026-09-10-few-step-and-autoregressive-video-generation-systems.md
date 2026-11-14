@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（06）：少步与自回归——把步�
 subtitle: "Few-Step and Autoregressive Generation: When the Step Count Becomes a System Parameter"
 tags: [Diffusion, Distillation, Video Generation, Autoregressive, KV Cache, Real-time, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 前五篇都在一个前提下做交换：28 步、50 步，每步一次完整前向。步数 $$T$$ 是第一篇账上最大的可调乘数，但前五篇没有动它——因为它不是系统能改的，是算法侧的：换更好的采样器（50 → 20 步）、步数蒸馏（→ 4 步、1 步）、guidance 蒸馏（去掉 CFG 的 ×2）。这一篇不讨论这些方法怎么做（在算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》），只讨论**它们做成之后系统怎么变**：当 FLUX.1-dev 的 28 步变成 FLUX.1-schnell 的 4 步、一张图从 4.3 s 变成 0.7 s，前五篇的结论哪些失效、哪些不变、哪些新问题出现。
@@ -88,12 +89,12 @@ Table: 双向 Wan 与自回归视频的账
 | 三 | 失效与不变 | 逐项复核前五篇的优化 |
 | 四 | 少步下的新形态 | 固定开销、CUDA graph、批处理何时有意义、多卡的意义从延迟变为吞吐 |
 | 五 | 实时交互 | StreamDiffusion 的 stream batch；交互式图像生成的延迟结构 |
-| 六 | 自回归视频 | 双向 → 因果：CausVid、Self-Forcing、Causal Forcing；chunk 与 KV cache |
+| 六 | 自回归视频 | 双向的三个硬约束<br/>双向 → 因果：块因果掩码，CausVid、Self-Forcing、Causal Forcing<br/>一个 chunk 的前向与逐 chunk 的 FLOPs 账 |
 | 七 | KV cache 的回归 | 每 chunk 的字节数、滑动窗口、长视频的误差累积、KV 量化 |
 | 八 | 服务形态：从批任务到会话 | 流式输出、会话状态、交互式世界模型；08 系列的哪些回来了 |
 | 九 | 实现对照与实践 | 三个引擎的 causal pipeline 与 KV 组件 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -213,11 +214,29 @@ flowchart TB
 
 ### 1. 双向的限制
 
-Wan / HunyuanVideo 的 DiT 是**双向**的：每个 token 看全部帧，包括"未来"。这带来两个系统上的硬约束：整段视频必须一次生成完才有任何输出（24 分钟后才看到第一帧）；时长在生成前固定（81 帧就是 81 帧，延长要重新生成）；而且 $$N^2$$ 的 attention 让时长是二次方的成本。交互式应用（游戏、世界模型、实时对话中的视频）不可能在这个形态上做。
+Wan / HunyuanVideo 的 DiT 是**双向**的：每个 token 看全部帧，包括"未来"。这带来三个系统上的硬约束：
+
+1. 整段视频必须一次生成完才有任何输出（24 分钟后才看到第一帧）；
+2. 时长在生成前固定（81 帧就是 81 帧，延长要重新生成）；
+3. $$N^2$$ 的 attention 让时长是二次方的成本。
+
+交互式应用（游戏、世界模型、实时对话中的视频）不可能在这个形态上做。
 
 ### 2. 因果化 + 蒸馏
 
-自回归视频模型把 DiT 改成**因果**的：按 chunk（几个 latent 帧）生成，第 $$k$$ 个 chunk 的 token 只看第 $$1 \ldots k$$ 个 chunk（chunk 内双向、chunk 间因果），前面 chunk 的 K / V 缓存起来。再加步数蒸馏让每个 chunk 只需 4 步：
+自回归视频模型把 DiT 改成**因果**的：按 chunk（几个 latent 帧）生成，第 $$k$$ 个 chunk 的 token 只看第 $$1 \ldots k$$ 个 chunk（chunk 内双向、chunk 间因果），前面 chunk 的 K / V 缓存起来。以 3 个 chunk 为例，attention 掩码在 chunk 粒度上是一个下三角（✓ = 这一对 chunk 之间算 attention）：
+
+| query 所在 chunk ＼ key 所在 chunk | chunk 1 | chunk 2 | chunk 3 |
+|---|---|---|---|
+| chunk 1 | ✓（块内双向） | — | — |
+| chunk 2 | ✓（读缓存） | ✓（块内双向） | — |
+| chunk 3 | ✓（读缓存） | ✓（读缓存） | ✓（块内双向） |
+
+Table: 3 个 chunk 的块因果掩码
+
+与 LLM 的因果掩码相比，粒度从 token 变成了 chunk：同一 chunk 的 4,680 个 token 之间仍是双向的（一帧里的像素需要互相看），只有跨 chunk 才分先后。对角线以下的块读的正是 KV cache——生成 chunk 3 时，chunk 1、2 的 K / V 不再重算。
+
+再加步数蒸馏让每个 chunk 只需 4 步：
 
 | 工作 | 年 | 底座 | 方法 | 结果 |
 |---|---|---|---|---|
@@ -255,8 +274,21 @@ K/V = 本 chunk ∪ 缓存"] --> OUT["去噪 4 步 → clean chunk"]
 
 - 前向的 $$N_q = 4680$$（Q），K / V 长度 = 4680 + 缓存长度（最多窗口 21 帧 = 32,760）；
 - attention FLOPs 每层 $$4 N_q N_{kv} d$$——比双向的 $$4 N^2 d$$ 小 $$N / N_q = 7$$ 倍（$$N_{kv}$$ 满窗口时）；线性项 $$2 P_\text{tok} N_q$$ 是双向的 $$1/7$$；
-- 4 步 × 7 个 chunk = 28 次前向，每次约双向一次前向的 $$1/7$$ → 总 FLOPs ≈ 双向 50 步 CFG 的 $$\frac{28}{100} \times \frac{1}{7} \approx 4\%$$；
-- 每 chunk 完成后**再算一次**它的 clean 版本的 K / V 写入缓存（去噪过程中的 K / V 是带噪输入的，不能直接用）——多一次前向的 attention 部分。
+- 每 chunk 完成后**再算一次**它的 clean 版本的 K / V 写入缓存（去噪过程中的 K / V 是带噪输入的，不能直接用）——每 chunk 共 5 次前向：4 次去噪 + 1 次写缓存。
+
+逐 chunk 算一遍（$$P_\text{tok}$$ 取 1.2B；每次前向 = 线性 $$2 P_\text{tok} N_q$$ + attention $$4 L N_q N_{kv} d$$）：
+
+| chunk | 缓存后的 $$N_{kv}$$ | 线性项 | attention | 一次前向 | × 5 次 |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 4,680 | 11.2 T | 4.0 T | 15.3 T | 77 T |
+| 2 | 9,360 | 11.2 T | 8.1 T | 19.3 T | 97 T |
+| 4 | 18,720 | 11.2 T | 16.1 T | 27.4 T | 137 T |
+| 7 | 32,760 | 11.2 T | 28.3 T | 39.5 T | 198 T |
+| 7 个 chunk 合计 | | | | | **958 T** |
+
+Table: 自回归 Wan 1.3B 480p 每个 chunk 的 FLOPs
+
+对照双向：一次前向 $$N = 32{,}760$$，线性 79 T + attention 198 T = 276 T，50 步 × CFG 2 = 100 次前向 = 27.6 PFLOPs。自回归 7 个 chunk 合计 0.96 PFLOPs，是双向的 **3.5%**（不算写缓存那一遍是 2.8%）。窗口填满之后（第 7 个 chunk 起），每个新 chunk 都是 198 T——**成本按 chunk 数线性增长**，而双向的成本随时长平方增长。
 
 ## 七、KV cache 的回归
 
@@ -384,6 +416,13 @@ Table: 少步与自回归视频的规则与数字小结
    <details markdown="1">
    <summary>答案</summary>
    两个原因：最近的 chunk 对当前生成的影响最大（attention 随时间距离衰减，第四篇），量化误差在这里最伤；当前 chunk 去噪完成后还要重算一次 clean 版本的 K / V 覆盖进缓存，量化中间状态没有意义。旧 chunk 影响小、且不再改变，INT4 / INT2 的误差可接受——与 LLM 的 KV 量化按"最近 token 保留高精度"同构，粒度是 chunk。详见[第七章](#七kv-cache-的回归)。
+   </details>
+
+6. 自回归 Wan 1.3B 480p，chunk 4,680 token、窗口 21 帧。生成第 7 个 chunk 时一次前向的 attention 是多少？为什么从第 7 个 chunk 起每个 chunk 的成本不再增长，而双向模型把视频加长一倍成本要涨到约 4 倍？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   $$N_{kv} = 7 \times 4680 = 32{,}760$$，attention $$4 \times 30 \times 4680 \times 32760 \times 1536 = 28.3$$ T（线性项 11.2 T）。窗口填满后旧帧的 K / V 被丢弃，$$N_{kv}$$ 固定在 32,760，每个新 chunk 都是 5 次 × 39.5 T ≈ 198 T，成本随 chunk 数线性增长；双向模型一次前向处理整段，attention $$\propto N^2$$，时长翻倍时 attention 项变 4 倍。详见[第六章](#六自回归视频)。
    </details>
 
 [^q0]: schnell 4 步、$$g = 1$$：DiT 段 $$4 \times 74.3$$ T = 0.30 PFLOPs（dev 的 1/7），加文本编码器 4.9 T 与 VAE 5 T；H100 $$\eta$$ 0.45 下 0.67 + 0.12 = 0.80 s，单卡约 1.25 张/s（dev 0.21 张/s）。仍有用的：attention 后端、`torch.compile` / CUDA graph（更重要）、FP8 / INT4、序列并行（但意义变为高分辨率与吞吐）、Parallel VAE；失效的：跨步缓存（4 步无冗余）、PipeFusion / DistriFusion（stale K/V 误差大）、CFG 并行与 CFG gating（无 CFG）。详见[第二章](#二少步的账)、[第三章](#三失效与不变)。

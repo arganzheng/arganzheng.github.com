@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（02）：单卡执行——attention 后
 subtitle: "Single-GPU Execution: Attention Backends, Compilation, FP8 / INT4 and Offloading"
 tags: [Diffusion, DiT, Inference, torch.compile, FlashAttention, Quantization, SVDQuant, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 上一篇算出 FLUX.1-dev 一步 74 TFLOPs、eager 下 MFU 只有 0.31。这一篇讨论**不改变这 74 TFLOPs**（或改变得可控）的全部单卡手段：让同样的 FLOPs 跑得更快（换 attention 后端、编译、量化到 FP8 / INT4 用更快的 Tensor Core），以及让 31.5 GiB 的权重装进 24 GB 的卡（三段的 offload、逐层 offload、VAE 分块）。它们在账上改的是 $$\eta$$ 与字节，不是 FLOPs 的公式。
@@ -72,6 +73,8 @@ FLUX.1-dev 1024² 28 步，从 eager 基线出发逐项叠加（H100 与 4090 �
 
 Table: 六种手段逐项叠加的账
 
+表里"输出"一列的 PSNR / SSIM 都是对同 seed 基线图的距离，第五章第 4 节解释这几个数怎么读。
+
 三个结论：
 
 - **编译是最大的一项无损收益**（1.56×）：扩散是形状固定、步数固定、每步相同的负载，几乎是 `torch.compile` 的理想用例；eager 下 GEMM 之外的几十个小算子占了近一半时间。
@@ -82,15 +85,15 @@ Table: 六种手段逐项叠加的账
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 三段的 offload | 三段不必同时在卡<br/>模型级 / 顺序 / 分组 offload<br/>DiT 逐层预取与它的两面<br/>文本编码器放哪 |
+| 二 | 三段的 offload | 三段不必同时在卡<br/>模型级 / 顺序 / 分组 offload<br/>DiT 逐层预取与它的两面：两条 stream 的时间线<br/>文本编码器放哪 |
 | 三 | attention 后端 | FA2 / FA3 / SDPA / xformers 在 $$N = 4608$$ 上的差别；SageAttention 的 8-bit Q·K 为什么扩散能容忍 |
 | 四 | 编译与 CUDA graph | eager 的时间去哪了<br/>`torch.compile` 的收益与代价<br/>动态分辨率<br/>breakable CUDA graph |
-| 五 | 量化 | FP8 W8A8<br/>SVDQuant / Nunchaku 的 W4A4<br/>NVFP4<br/>为什么图像对 W4 更敏感、怎么评 |
+| 五 | 量化 | FP8 W8A8<br/>SVDQuant / Nunchaku 的 W4A4<br/>NVFP4<br/>为什么图像对 W4 更敏感、怎么评：PSNR / SSIM / LPIPS 的读法 |
 | 六 | 融合 kernel | adaLN、QK-norm + RoPE、GELU epilogue、packed QKV——引擎的"fast path" |
 | 七 | VAE | 解码峰值的来源<br/>tiling / slicing<br/>视频 3D VAE 的时间分块<br/>fp32 还是 bf16 |
 | 八 | 叠加顺序与收益表 | 无损先、有损后<br/>FLUX 与 Wan 的两张表<br/>三个引擎的对照 |
 | 九 | 本文小结 |  |
-| 十 | 自测 | 5 道题 |
+| 十 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -133,6 +136,20 @@ flowchart TB
 Table: offload 的三种粒度
 
 分组预取的收益完全取决于**每层的计算时间与搬运时间之比**。Wan 14B 一层权重 0.67 GB、搬运 27 ms（25 GB/s），而一层的计算在 720p 81 帧上是 29 s / 40 = 0.73 s——搬运只占 4%，可以完全藏在计算后面；SGLang 的文档给出 Wan A14B 显存从 40 GB 降到约 11 GB、速度几乎不变，并且对 Wan / MOVA 一类视频模型**默认开启**。FLUX 一层权重 0.39 GB、搬运 16 ms，而 1024² 上一层计算只有 154 / 57 = 2.7 ms——搬运是计算的 6 倍，逐层 offload 会让每步慢到 H2D 的速度（≈ 22 GiB / 25 GB/s ≈ 0.9 s）。所以同一个 flag 在视频模型上"免费"、在图像模型上"慢 6 倍"，SGLang 的性能指南明确建议图像模型关掉它（`--dit-layerwise-offload false`），并给出 `--dit-offload-prefetch-size` 调预取深度。
+
+两条 stream 怎样交替，按时间排开看最清楚。预取深度 1（卡上同时只有"正在算的一层"与"正在搬的下一层"），FLUX 1024² 一步的开头：
+
+| 时刻（ms） | 拷贝 stream（H2D） | 计算 stream | 计算 stream 在干什么 |
+|---|---|---|---|
+| 0–16 | 搬第 1 层（0.39 GB） | — | 等第 1 层 |
+| 16–32 | 搬第 2 层 | 16–18.7 算第 1 层 | 18.7–32 等第 2 层 |
+| 32–48 | 搬第 3 层 | 32–34.7 算第 2 层 | 34.7–48 等第 3 层 |
+| … | … | … | … |
+| 912–914.7 | — | 算第 57 层 | |
+
+Table: FLUX 逐层预取的两条 stream（预取深度 1）
+
+每层的耗时是 $$\max(t_	ext{算}, t_	ext{搬})$$，一步 $$pprox L \cdot \max(t_	ext{算}, t_	ext{搬})$$：FLUX 是 $$57 	imes \max(2.7, 16) pprox 0.91$$ s，计算 stream 83% 的时间在等；Wan 是 $$40 	imes \max(730, 27) pprox 29.2$$ s，拷贝 stream 96% 的时间空闲，搬运完全藏住。加大预取深度只能多藏一层的搬运延迟，改变不了这个 max——H2D 带宽本身不够时，预取多少层都是 0.9 s。
 
 ### 2. 文本编码器放哪
 
@@ -279,6 +296,25 @@ LLM 的 W4（GPTQ（逐层用二阶信息补偿误差的训练后权重量化方
 | — | 目测：文字渲染、手指、细纹理是最先坏的 |
 
 Table: LLM 量化评测与扩散量化评测的差别
+
+三个对基线图的度量各量什么：
+
+1. **PSNR**（peak signal-to-noise ratio，峰值信噪比）：两张图逐像素差的均方误差 MSE，换成 $$\text{PSNR} = 10 \log_{10} \frac{255^2}{\text{MSE}}$$ dB。它只看像素值差多少，不看差在哪里。
+2. **SSIM**（structural similarity）：在每个小窗口里比较两张图的局部均值、方差与协方差，取值 0–1，1 是完全相同；对整体亮度平移不如 PSNR 敏感，对结构（边缘、纹理）的破坏更敏感。
+3. **LPIPS**（learned perceptual image patch similarity）：把两张图送进一个预训练 CNN，比较各层特征的距离，0 是完全相同；它最接近"人看着像不像"。
+
+PSNR 的 dB 数换算回 0–255 的灰度级最直观：$$\text{RMS 偏差} = 255 / 10^{\text{PSNR}/20}$$。
+
+| PSNR | 每个像素平均偏差（0–255 灰度级） | 典型来源 |
+|---:|---:|---|
+| 40 dB | 2.6 | `torch.compile` 的浮点漂移 |
+| 35 dB | 4.5 | FP8 线性层 |
+| 30 dB | 8.1 | SVDQuant INT4、TeaCache 0.4 |
+| 28 dB | 10.2 | 明显可见的门槛 |
+
+Table: PSNR 与每像素平均偏差的换算
+
+偏差 2–3 个灰度级肉眼分不出，8 个灰度级集中在文字边缘与细纹理上时就能看见——这就是下面三档阈值的来由。注意它是**平均**：30 dB 可能是全图均匀偏 8 级，也可能是大部分像素不变、一个手指整个画错，所以 PSNR 之外还要看 LPIPS 与目测。
 
 第九篇展开。经验阈值：PSNR > 35 dB 不可见，30–35 dB 细看可见，< 28 dB 明显。FP8 通常 > 35，SVDQuant INT4 在 30 上下，NF4 W4A16 更低。
 
@@ -450,6 +486,13 @@ Table: 单卡扩散执行的规则与数字小结
    <details markdown="1">
    <summary>答案</summary>
    （1）每步的误差相当于多加了一点噪声，被后续去噪步吸收；（2）输出是连续像素而不是离散 token，小偏差不可见。仍有可测的 PSNR 下降（30–35 dB），细纹理与文字渲染最先变，所以按请求可选而非全局默认。详见[第三章](#三attention-后端)。
+   </details>
+
+6. 一项优化让对基线图的 PSNR 从"bit-exact"降到 32 dB。每个像素平均偏了几个灰度级？只看 PSNR 能不能判断它可以上线？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   $$255 / 10^{32/20} = 255 / 39.8 \approx 6.4$$ 个灰度级（0–255）。不能只看 PSNR：它是全图平均，均匀的轻微偏移与"一处细节画错、其余不变"可以给出同一个数；要同时看 LPIPS（感知距离）并目测文字、手指、细纹理，上线前再做人工 A/B。详见[第五章](#五量化换更快的-tensor-core)。
    </details>
 
 [^q0]: bf16 放不下三段合计的 31.5 GiB，但 DiT 段只要 22.2 GiB 权重 + 0.3 GiB 激活：文本编码器 CPU offload（算完搬走）、VAE 最后再加载并 tiling，24 GB 能放下（余 1.5 GB，2048² 会溢）。每次生成多搬 31 GiB 权重约 1.3 s。量化到 SVDQuant INT4 后 DiT 6.5 GiB，三段全部常驻。详见[第二章](#二三段的-offload装下)、[第五章](#五量化换更快的-tensor-core)。

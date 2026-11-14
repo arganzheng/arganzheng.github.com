@@ -4,12 +4,22 @@ title: 扩散模型推理基础设施：图像与视频生成的 serving（总�
 subtitle: "Diffusion Model Inference Infrastructure: Serving Image and Video Generation"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 
 ## 内容简介
 
-《扩散模型推理基础设施：从一次去噪到一个生成服务》是一组共九篇的系列文章，面向已经理解 LLM 推理引擎（vLLM 一类：请求、调度、KV cache、批处理、多卡）的工程师，系统讲解**图像与视频生成模型**——Stable Diffusion 3、FLUX、Qwen-Image、Wan、HunyuanVideo 一类——的推理是怎样一种负载，以及围绕它建立起来的一套与 LLM serving 几乎不重叠的基础设施：一次生成的三段（文本编码、几十步去噪、VAE 解码）各花多少算力、显存与时间；单卡上 attention 后端、编译、量化、offload 各能换回多少；相邻去噪步之间的冗余怎样被缓存与跳步利用；视频的十万级 token 序列让 attention 占到算力的大半之后，稀疏化怎样做；多卡为什么用序列并行、CFG 并行与 patch 级流水线而不是张量并行；步数蒸馏与自回归视频把"几十步"变成"四步"或"一段流"之后，前面的优化哪些失效、哪些回归（KV cache 又出现了）；一个生成服务的请求形态、批处理、三段分离、LoRA 与异步任务 API 该怎样设计；以及 SGLang Diffusion、vLLM-Omni、xDiT 三个引擎各把这些机制放在哪里。
+《扩散模型推理基础设施：从一次去噪到一个生成服务》是一组共九篇的系列文章，面向已经理解 LLM 推理引擎（vLLM 一类：请求、调度、KV cache、批处理、多卡）的工程师，系统讲解**图像与视频生成模型**——Stable Diffusion 3、FLUX、Qwen-Image、Wan、HunyuanVideo 一类——的推理是怎样一种负载，以及围绕它建立起来的一套与 LLM serving 几乎不重叠的基础设施。具体讲八件事：
+
+1. 一次生成的三段（文本编码、几十步去噪、VAE 解码）各花多少算力、显存与时间；
+2. 单卡上 attention 后端、编译、量化、offload 各能换回多少；
+3. 相邻去噪步之间的冗余怎样被缓存与跳步利用；
+4. 视频的十万级 token 序列让 attention 占到算力的大半之后，稀疏化怎样做；
+5. 多卡为什么用序列并行、CFG 并行与 patch 级流水线而不是张量并行；
+6. 步数蒸馏与自回归视频把"几十步"变成"四步"或"一段流"之后，前面的优化哪些失效、哪些回归（KV cache 又出现了）；
+7. 一个生成服务的请求形态、批处理、三段分离、LoRA 与异步任务 API 该怎样设计；
+8. SGLang Diffusion、vLLM-Omni、xDiT 三个引擎各把这些机制放在哪里。
 
 它回答的问题是：
 
@@ -17,7 +27,15 @@ catalog: true
 
 答案的起点是一个结构性的差别：LLM 的生成是**一次前向产出一个 token、串行几百次、每次读一遍全部权重**——memory-bound，所有的系统设计（KV cache、批处理、投机解码、PD 分离）都在对付"每步读权重"这件事。扩散模型的生成是**一次前向处理整张 latent 的几千到十几万个 token、重复几十步、每步同样读一遍权重**——单请求就是 compute-bound，算术强度是 LLM decode 的几千倍，batch 对吞吐几乎无益，没有跨步的缓存（除了文本编码器的输出），请求的时长在收到它的那一刻就完全确定。这一个差别决定了两套系统在每个层面上的分歧：它的瓶颈在算力而不是带宽，所以优化的是 FLOPs（少算：跨步缓存、稀疏 attention、步数蒸馏）与 MFU（算得快：编译、量化、FA3），而不是字节；它的多卡是为了把一个请求的延迟切短而不是把权重装下，所以用序列并行而不是张量并行；它的调度面对的是可预测的批任务而不是不可预测的流，所以是队列与 SLO 而不是连续批处理。
 
-系列的组织原则来自这本账：**先算清一次生成的三本账（FLOPs、字节、秒），再看每一类优化在账上的哪一项做交换**。单卡优化换 MFU；跨步缓存与稀疏 attention 换 FLOPs 的系数；多卡并行用通信换墙钟；步数蒸馏直接改步数这个乘数；serving 层在这些之上决定请求怎样排队、哪一段放在哪张卡。九篇的每一篇都把新引入的机制记回第一篇的账。
+系列的组织原则来自这本账：**先算清一次生成的三本账（FLOPs、字节、秒），再看每一类优化在账上的哪一项做交换**。五类机制各在账上做一种交换：
+
+1. 单卡优化换 MFU；
+2. 跨步缓存与稀疏 attention 换 FLOPs 的系数；
+3. 多卡并行用通信换墙钟；
+4. 步数蒸馏直接改步数这个乘数；
+5. serving 层在这些之上决定请求怎样排队、哪一段放在哪张卡。
+
+九篇的每一篇都把新引入的机制记回第一篇的账。
 
 系列**不设单一的源码阅读对象**。与《大模型推理系统揭秘》以 vLLM 为主线、《RL 后训练基础设施》以 verl 为主线不同，扩散推理的三个主要引擎——**SGLang Diffusion**（SGLang 在 2025 年 11 月并入的图像 / 视频生成框架，继承 SGLang 的 scheduler 与 kernel 栈）、**vLLM-Omni**（vLLM 面向全模态与非自回归模型的扩展，以 stage 分离的流水线为特点）、**xDiT**（并行方法的源头：USP、PipeFusion、CFG 并行、Parallel VAE 都从这里出来）——各自代表一种取向，没有哪一个像 vLLM 之于 LLM serving 那样成为事实标准；而 **diffusers** 是三者共同的底座（模型定义、调度器、缓存 hook 的接口）。所以正文以机制为主，每篇末尾用一张表对照同一个机制在三个引擎里的位置；第八篇专门用一个请求的路径把三个引擎完整走一遍，看它们在哪一段做了不同的选择、为什么。
 
@@ -109,6 +127,7 @@ catalog: true
 这一篇会讨论：
 
 - 三段流水线：文本编码器（T5-XXL / CLIP / LLM，一次前向、几百 token、几十毫秒）→ 去噪网络（DiT，对整张 latent 一次完整前向 × 步数 × CFG 分支）→ VAE 解码（卷积，一次、算力小但显存峰值大）；
+- 一步里实际算了什么：diffusers 的去噪循环里一步 = 一次 transformer 前向（CFG 再一次）+ 采样器一行 `x + dt · v`；FLUX.1-dev 的 `guidance_scale` 是送进网络的一个数、不是第二次前向；一个 DiT block 里每个 token 经过 $$12d^2$$ 个参数（双流块走自己那条流，单流块两种 token 共用）；
 - token 数公式：$$N = \frac{H}{f\,p} \cdot \frac{W}{f\,p} \cdot \frac{F}{f_t\,p_t}$$，FLUX 的 1024² 是 4096 个图像 token 加 512 个进联合 attention 的文本 token；Wan 的 720p 81 帧是 75,600 个；
 - 每步 FLOPs = 线性项 $$2 P_\text{tok} N$$ + attention 项 $$4 L N^2 d$$（$$P_\text{tok}$$ 是一个 token 真正经过的参数量，FLUX 的 6.45B 而不是 11.9B）：FLUX 上 attention 占 20%，Wan 上占 72%——**图像模型是 GEMM 负载，视频模型是 attention 负载**；
 - 显存：权重（FLUX 12B bf16 22 GiB + T5 9 GiB）+ 激活（FlashAttention 下随 $$N$$ 线性，几百 MiB 到十几 GiB）+ VAE 解码的峰值（720p 81 帧不分块要上百 GiB）——**没有 KV cache**；

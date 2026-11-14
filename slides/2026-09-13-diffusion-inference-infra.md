@@ -85,7 +85,7 @@ flowchart TB
 | eager | 6.71 s | 0.31 |
 | + `torch.compile` | **4.30 s（1.56×）** | 0.49 |
 | + FP8 | ÷ 1.3–1.5 | |
-| SVDQuant INT4 | 22 → 6.5 GiB；4090 上 3×；**Hopper 无 INT4 Tensor Core，只省显存** | |
+| SVDQuant INT4 | 22 → 6.5 GiB<br/>4090 上 3×<br/>**Hopper 无 INT4 Tensor Core，只省显存** | |
 
 <aside class="notes" markdown="1">
 原文 /single-gpu-diffusion-execution-attention-compile-quantization-offload.html。
@@ -178,12 +178,12 @@ $$
 |---|---|
 | TP $$4\frac{p-1}{p}Nd$$ | 4.8 GB，关键路径 |
 | Ulysses $$4\frac{p-1}{p^2}Nd$$ | **1.2 GB** |
-| CFG 并行 | 0.6 MB |
+| CFG 并行 | 0.5 MB |
 | PipeFusion | 28 MB |
 
 <aside class="notes" markdown="1">
 原文 /multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html。
-结论原文：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 \(1/p\)，PipeFusion 是 TP 的 \(1/L\)；NVLink 用 USP、弱互联加 PipeFusion。
+结论原文：扩散多卡**为延迟**（切一个请求），**吞吐永远是 DP 最优**；SP 通信是 TP 的 $$1/p$$，PipeFusion 是 TP 的 $$1/L$$；NVLink 用 USP、弱互联加 PipeFusion。
 </aside>
 
 <!-- v -->
@@ -249,7 +249,7 @@ $$
 
 ### 要点
 
-- 抢占状态只有 latent 0.6 MB；Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22；LoRA 前 k ≤ 4 步不挂
+- 抢占状态只有 latent 0.5 MB；Wan 5 秒 8 卡 40 s = 320 GPU·秒 ≈ \$0.22；LoRA 前 k ≤ 4 步不挂
 
 <!-- v -->
 
@@ -348,7 +348,7 @@ flowchart TB
 ## 常见误区（二）
 
 - 「稀疏 80% 端到端 5×」——Amdahl 2.06×
-- 「多卡默认 TP」——SP 通信是 TP 的 \(1/p\)
+- 「多卡默认 TP」——SP 通信是 TP 的 $$1/p$$
 - 「SP 能减少卡数」——只减延迟
 - 「少步模型照搬前几篇优化」——缓存、PipeFusion、CFG 并行失效
 - 「吞吐不随并发增长是 bug」——compute-bound 的正常现象
@@ -361,10 +361,10 @@ flowchart TB
 
 | 篇 | 一个数 / 一个公式 |
 |---|---|
-| 01 | 强度 3,100 vs 2；FLUX 74.3 T / 步、4.8 s；Wan 24 min |
-| 02 | compile 1.56×；FP8 1.3–1.5×；PSNR > 35 dB |
+| 01 | 强度 3,100 vs 2<br/>FLUX 74.3 T / 步、4.8 s<br/>Wan 24 min |
+| 02 | compile 1.56×<br/>FP8 1.3–1.5×<br/>PSNR > 35 dB |
 | 03 | 阈值 0.4 → 1.8×、30 dB；上限 2× |
-| 04 | N ≈ 6d；Amdahl 2.06× / 3.57×；24 min → 40 s |
+| 04 | N ≈ 6d<br/>Amdahl 2.06× / 3.57×<br/>24 min → 40 s |
 | 05 | TP 4.8 GB vs Ulysses 1.2 GB；乘积 = 卡数 |
 | 06 | 1/7 FLOPs；KV 184 KB / token |
 | 07 | 100 QPS：670 → 80 张；\$0.0047 → \$0.0006 |

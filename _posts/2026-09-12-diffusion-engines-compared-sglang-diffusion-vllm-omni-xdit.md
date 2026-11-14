@@ -80,7 +80,7 @@ USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 | 维度 | SGLang Diffusion | vLLM-Omni | xDiT |
 |---|---|---|---|
 | **定位** | 图像 / 视频生成的 serving 框架，SGLang 的一个子包 | 全模态（LLM + 扩散 + 语音 + 动作）serving，vLLM 的扩展 | 扩散 Transformer 的**并行推理引擎**（库），无服务层 |
-| **进程模型** | HTTP server 进程 → 每卡一个 worker 进程（Scheduler + GPUWorker），rank 0 收 ZMQ 再广播给其它 rank，与 SGLang LLM 同构 | API server 进程里的 orchestrator 编排各 stage；单 stage 单副本时扩散引擎 inline 在 API 进程里，否则是独立的 stage 进程，可跨 GPU / 主机；多卡时执行器再起 worker 进程 | `torchrun` SPMD：每个 rank 跑同一段脚本、同一个 pipeline |
+| **进程模型** | HTTP server 进程 → 每卡一个 worker 进程（Scheduler + GPUWorker），rank 0 收 ZMQ 再广播给其它 rank，与 SGLang LLM 同构 | API server 进程里的 orchestrator 编排各 stage<br/>单 stage 单副本时扩散引擎 inline 在 API 进程里，否则是独立的 stage 进程，可跨 GPU / 主机<br/>多卡时执行器再起 worker 进程 | `torchrun` SPMD：每个 rank 跑同一段脚本、同一个 pipeline |
 | **pipeline 抽象** | 原生 `ComposedPipelineBase` = stage 列表（文本编码、latent 准备、去噪、解码…）；`--backend diffusers` 回退到 diffusers pipeline | 按模型的原生 pipeline（`models/<model>/pipeline_*.py`）+ `diffusers_adapter`；`--diffusion-load-format diffusers` 回退 | `xFuserPipelineBaseWrapper` **包装** diffusers pipeline，替换 attention 与部分层 |
 | **模型定义** | `runtime/models/` 原生重写（用自己的 `layers/`） | `models/<model>/*_transformer.py` 原生重写 | 直接用 diffusers 的模型 |
 | **并行** | USP（`UlyssesAttention` / `USPAttention`）、CFG 并行、TP、FSDP 推理、跨节点 SP | USP / Ring、CFG 并行、TP、HSDP、PP、VAE patch 并行 | USP、CFG 并行、PipeFusion、DP、Parallel VAE——**源头** |

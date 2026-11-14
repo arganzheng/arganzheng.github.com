@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（01）：负载画像——一次生成�
 subtitle: "Workload Anatomy: FLOPs, Bytes and Seconds of One Diffusion Generation"
 tags: [Diffusion, DiT, Video Generation, Inference, Roofline, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 一张 1024² 的图从 prompt 到像素，在 GPU 上是三段完全不同的计算：文本编码器跑一次，几百个 token、几十毫秒；去噪网络对整张 latent 做一次完整前向，重复几十步，占掉 97% 以上的时间；VAE 解码器跑一次，算力不多但显存峰值可能比前两段加起来还大。这三段各花多少 FLOP、多少字节、多少秒，是本系列后面八篇每一项优化的坐标系——不算清这张账，就不知道 TeaCache 省的是哪一项、序列并行切的是哪一项、蒸馏到 4 步改的是哪一个乘数。
@@ -103,16 +104,16 @@ Table: 记账符号与 FLUX.1-dev 的取值
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 一次生成的时间线 | 三段各做什么<br/>扩散推理需要知道的最小集（不涉及数学）<br/>CFG 为什么是两次前向 |
+| 二 | 一次生成的时间线 | 三段各做什么<br/>扩散推理需要知道的最小集<br/>一步里到底算了什么：diffusers 的去噪循环、手算一个 Euler 步、CFG 的合成、σ 序列、latent 怎样变成 token<br/>一步的时间线 |
 | 三 | token 账 | 从像素到 token 的两次压缩<br/>图像与视频的 $$N$$<br/>文本 token 进不进 attention |
-| 四 | FLOP 账 | 每步 = $$2 P_\text{tok} N + 4 L N^2 d$$<br/>$$P_\text{tok} \ne P$$<br/>attention 占比随 $$N$$ 的变化<br/>三段合计 |
+| 四 | FLOP 账 | 每步 = $$2 P_\text{tok} N + 4 L N^2 d$$<br/>一个 DiT block 里有什么（双流块、单流块、adaLN）<br/>$$P_\text{tok} \ne P$$ 与 11.9B 的拆账<br/>attention 占比随 $$N$$ 的变化<br/>三段合计 |
 | 五 | 字节账 | 权重、激活（为什么没有 KV cache）、VAE 解码的峰值；三段不必同时在卡上 |
 | 六 | 秒的账 | roofline：为什么单请求就 compute-bound<br/>每步时间<br/>MFU 的实测反推<br/>三段时间 |
 | 七 | 与 LLM 推理的对照 | 同一张表上的两种负载；为什么 08 系列的方法大半用不上 |
 | 八 | 四个放大器 | 分辨率、帧数、步数、CFG 各怎样放大账 |
 | 九 | 动手：`diffusion_ledger.py` | 账本脚本的用法与输出 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 7 道题 |
 
 Table: 本文的章节安排
 
@@ -140,7 +141,78 @@ Table: 本文的章节安排
 
 Table: 扩散推理的五个事实与系统含义
 
-### 3. 一步的时间线
+### 3. 一步里到底算了什么：diffusers 的去噪循环
+
+上表的前三行落到代码上是十几行。下面是 diffusers v0.40.0 `FluxPipeline.__call__` 的去噪循环（删掉了 IP-Adapter、回调与中断处理，变量名不变）：
+
+```python title="FluxPipeline.__call__ 的去噪循环（diffusers v0.40.0，节选）"
+for i, t in enumerate(timesteps):
+    timestep = t.expand(latents.shape[0]).to(latents.dtype)
+    # !ref cond-fwd +8
+    noise_pred = self.transformer(
+        hidden_states=latents,
+        timestep=timestep / 1000,
+        guidance=guidance,
+        pooled_projections=pooled_prompt_embeds,
+        encoder_hidden_states=prompt_embeds,
+        txt_ids=text_ids,
+        img_ids=latent_image_ids,
+    )[0]
+    if do_true_cfg:
+        # !ref uncond-fwd +8
+        neg_noise_pred = self.transformer(
+            hidden_states=latents,
+            timestep=timestep / 1000,
+            guidance=guidance,
+            pooled_projections=negative_pooled_prompt_embeds,
+            encoder_hidden_states=negative_prompt_embeds,
+            txt_ids=negative_text_ids,
+            img_ids=latent_image_ids,
+        )[0]
+        # !ref cfg-mix
+        noise_pred = neg_noise_pred + true_cfg_scale * (noise_pred - neg_noise_pred)
+    # !ref solver
+    latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+```
+
+一步就是这三件事：
+
+1. [一次 transformer 前向](#cond-fwd)：输入当前的 latent（`hidden_states`，形状 $$[1, 4096, 64]$$）、时间步、文本条件（`encoder_hidden_states` 是 T5 的 $$[1, 512, 4096]$$，`pooled_projections` 是 CLIP 的池化向量），输出一个与 latent 同形状的预测 `noise_pred`。本文的 FLOP 账、字节账算的全是这一行。
+2. 若开了真 CFG，[用负向 prompt 再跑一次](#uncond-fwd)，[两个预测按 guidance 强度合成](#cfg-mix)。这就是 $$g = 2$$：第二次前向的输入 latent 相同、文本条件不同，FLOPs 一分不少。FLUX.1-dev 默认不走这条路：`true_cfg_scale` 默认 1.0，`do_true_cfg` 为假；它的 `guidance_scale = 3.5` 作为一个数通过 `guidance` 参数送进网络（模型配置 `guidance_embeds = True`，网络把它和时间步一样编码成调制向量），guidance 的效果在训练时蒸馏进了这一次前向——所以 $$g = 1$$。
+3. [采样器走一步](#solver)：`FlowMatchEulerDiscreteScheduler.step` 的确定性分支只有一行 `prev_sample = sample + dt * model_output`，其中 `dt = sigma_next - sigma`。对 $$[4096, 64]$$ 个数做一次乘加，与前向的 74 TFLOPs 相比是零。
+
+**用三个数手算一步。** flow matching（SD3 / FLUX / Wan 的训练目标）把带噪 latent 定义成干净 latent $$x_0$$ 与噪声 $$\epsilon$$ 的直线插值 $$x_\sigma = (1 - \sigma)\, x_0 + \sigma\, \epsilon$$，$$\sigma$$ 从 1（纯噪声）走到 0（干净图），网络学的是这条直线的方向 $$v = \epsilon - x_0$$。取一个只有 3 个数的"latent"：
+
+| 量 | 第 1 个数 | 第 2 个数 | 第 3 个数 |
+|---|---:|---:|---:|
+| 干净 latent $$x_0$$（未知，网络要逼近它） | 0.50 | −0.20 | 0.10 |
+| 初始噪声 $$\epsilon$$（= $$\sigma = 1$$ 时的 latent） | 0.80 | 0.30 | −1.00 |
+| 理想预测 $$v = \epsilon - x_0$$ | 0.30 | 0.50 | −1.10 |
+| 第一步（$$\sigma$$ 1.000 → 0.9884，`dt` = −0.0116）后 $$x + \text{dt} \cdot v$$ | 0.7965 | 0.2942 | −0.9872 |
+
+Table: 用三个数手算一次 flow matching 的 Euler 步
+
+验算：$$(1 - 0.9884) \times 0.50 + 0.9884 \times 0.80 = 0.7965$$，正好落在直线上。28 步的 `dt` 加起来是 $$-1$$，如果每一步的 $$v$$ 都理想，最后正好回到 $$x_0$$。实际网络每步只能根据当前的 $$x_\sigma$$ 估计 $$v$$，估计有偏差，所以要分几十小步走、每步重新估计——**步数就是"重新估计方向"的次数**，每次都是一次完整前向。
+
+CFG 的合成同样可以手算：同一个位置条件分支预测 0.62、无条件分支预测 0.40、强度 $$w = 3.5$$，合成值是 $$0.40 + 3.5 \times (0.62 - 0.40) = 1.17$$——把"有 prompt 与无 prompt 的差"放大 3.5 倍。这两个预测必须各来自一次前向，所以 CFG 模型每步的成本是两倍。
+
+**步长不均匀。** 28 个 $$\sigma$$ 不是等间距的：pipeline 先取 `np.linspace(1.0, 1/28, 28)`，再用 `calculate_shift` 按图像 token 数（4096 → `mu = 1.15`）做指数时间偏移 $$\sigma' = \frac{e^{\mu}}{e^{\mu} + (1/\sigma - 1)}$$，最后补一个 0：
+
+| 第几步（从 0 数） | $$\sigma$$ | 下一个 $$\sigma$$ | 步长 $$\lvert \text{dt} \rvert$$ |
+|---:|---:|---:|---:|
+| 0 | 1.000 | 0.988 | 0.012 |
+| 7 | 0.905 | 0.888 | 0.017 |
+| 14 | 0.760 | 0.732 | 0.027 |
+| 21 | 0.513 | 0.463 | 0.050 |
+| 27 | 0.105 | 0 | 0.105 |
+
+Table: FLUX.1-dev 1024² 28 步的 σ 序列（节选）
+
+偏移让开头在高噪声区多停留（前 7 步只走掉 $$\sigma$$ 的 10%），最后一步一口气走掉 0.105。每一步的 FLOPs 相同，但每一步改变 latent 的幅度不同——第三篇的跨步缓存利用的正是这种不均匀。
+
+**latent 怎样变成 4096 个 token。** VAE 编码出的 latent 是 $$[16, 128, 128]$$（通道 × 高 × 宽）。`_pack_latents` 把每个 $$2 \times 2$$ 的空间块的 16 个通道拼起来：`latents.view(b, 16, 64, 2, 64, 2).permute(0, 2, 4, 1, 3, 5).reshape(b, 64 * 64, 16 * 4)`——$$64 \times 64 = 4096$$ 个 token、每个 64 维（$$c p^2 = 16 \times 4$$）。网络的第一层 `x_embedder` 是一个 $$64 \to 3072$$ 的线性层，把每个 token 投到隐维度 $$d$$；最后一层 `proj_out` 再投回 64 维，所以输出与输入同形状。patch 边长 $$p = 2$$ 就是这里的"2 × 2"。
+
+### 4. 一步的时间线
 
 ```mermaid
 %% 图：一个去噪步的时间线：时间步 embedding → 57 个 block 的 attention + MLP → 预测 ε / v → 采样器 → x_{t-1}
@@ -210,14 +282,89 @@ $$
 
 线性项是《现代 LLM 结构》第二篇的 $$2N$$ 每 token 规则；attention 项是 $$QK^\top$$（$$N \times d$$ 乘 $$d \times N$$，$$2N^2 d$$）加 $$PV$$（同样 $$2N^2 d$$），每层一次，与 head 数无关（$$h$$ 个 head 各 $$d/h$$ 维，乘起来仍是 $$d$$）。MMDiT 的联合 attention 里 $$N$$ 是文本加图像的总长。
 
-### 2. $$P_\text{tok} \ne P$$
+attention 项的 $$4 N^2 d$$ 写成循环就看得出来（单层，把 $$h$$ 个 head 的 $$d/h$$ 维拼起来看成 $$d$$ 维）：
+
+```python title="一层 attention 的两次矩阵乘写成循环"
+for i in range(N):              # 每个 query token
+    for j in range(N):          # 每个 key token
+        for k in range(d):      # 点积的每一维
+            S[i][j] += Q[i][k] * K[j][k]   # QKᵀ：一乘一加 = 2 FLOPs，共 2·N·N·d
+for i in range(N):
+    for k in range(d):
+        for j in range(N):      # 按 softmax 后的权重 P 对 N 个 value 加权求和
+            O[i][k] += P[i][j] * V[j][k]   # PV：同样 2·N·N·d
+```
+
+三重循环各跑 $$N$$、$$N$$、$$d$$ 次，每次 2 FLOPs，两段合计 $$4 N^2 d$$；softmax 本身是 $$N^2$$ 级的逐元素运算，比它小 $$d$$ 倍，不进账。
+
+### 2. 一个 DiT block 里有什么
+
+$$P_\text{tok}$$ 要从 block 的结构里数出来。FLUX.1-dev 的 transformer（diffusers `FluxTransformer2DModel`）由 19 个**双流块**（`FluxTransformerBlock`）接 38 个**单流块**（`FluxSingleTransformerBlock`）组成：
+
+```mermaid
+%% 图：FLUX 的两种 block：双流块里图像与文本各走一套权重、只在 attention 里拼接，单流块里两种 token 拼成一个序列共用一套权重
+flowchart TB
+    subgraph DS["双流块 × 19"]
+        direction TB
+        IMG["图像 token [4096, d]"] --> NI["<b>norm1（adaLN）</b><br/>LayerNorm，再按条件向量 scale / shift"] --> QI["<b>to_q / to_k / to_v</b><br/>$$3d^2$$"]
+        TXT["文本 token [512, d]"] --> NT["<b>norm1_context（adaLN）</b>"] --> QT["<b>add_q / k / v_proj</b><br/>$$3d^2$$"]
+        QI --> JA["联合 attention：两段拼成 4608 个 token"]
+        QT --> JA
+        JA --> OI["<b>图像流</b><br/>to_out $$d^2$$ → gate → 残差<br/>ff：d → 4d → d，$$8d^2$$ → gate → 残差"]
+        JA --> OT["<b>文本流</b><br/>to_add_out $$d^2$$ → gate → 残差<br/>ff_context $$8d^2$$ → gate → 残差"]
+    end
+    subgraph SS["单流块 × 38"]
+        direction TB
+        X["4608 个 token 拼成一个序列 [4608, d]"] --> NS["<b>norm（adaLN）</b>"]
+        NS --> QS["<b>to_q / to_k / to_v</b><br/>$$3d^2$$"] --> AS["attention"]
+        NS --> MS["<b>proj_mlp</b><br/>d → 4d，$$4d^2$$，再 GELU"]
+        AS --> PO["<b>proj_out</b><br/>attention 输出（d）与 MLP 中间（4d）拼起来投回 d：$$5d^2$$<br/>→ gate → 残差"]
+        MS --> PO
+    end
+    DS ~~~ SS
+
+    classDef img fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef txt fill:#eefaf0,stroke:#4d9a5c,color:#222
+    classDef one fill:#eef6ff,stroke:#5b8fd6,color:#222
+    class IMG,NI,QI,OI img
+    class TXT,NT,QT,OT txt
+    class X,NS,QS,AS,MS,PO one
+```
+
+两种 block 里**一个 token 经过的权重都是 $$12 d^2$$**：
+
+| block | 部件 | 参数 | $$d = 3072$$ |
+|---|---|---|---:|
+| 双流（一个 token 走自己那条流） | QKV 投影 | $$3d^2$$ | 28.3M |
+| ^^ | 输出投影 | $$d^2$$ | 9.4M |
+| ^^ | MLP（$$d \to 4d \to d$$） | $$8d^2$$ | 75.5M |
+| ^^ | 合计 | $$12 d^2$$ | 113.2M |
+| 单流 | QKV + `proj_mlp` + `proj_out` | $$3d^2 + 4d^2 + 5d^2 = 12 d^2$$ | 113.2M |
+
+Table: FLUX 一个 token 在一个 block 里经过的参数
+
+每个 token 每层的线性项是 $$2 \times 12 d^2 = 226$$ MFLOP；attention 每个 token 每层是 $$4 N d = 4 \times 4608 \times 3072 = 57$$ MFLOP——两者之比就是下面的"attention 占 20%"。
+
+**adaLN** 是 DiT 接收时间步与条件的方式：把时间步 $$t$$（FLUX.1-dev 还有 guidance 值）与 CLIP 池化向量编码成一个 $$d$$ 维的条件向量，每个 block 用一个线性层从它算出若干个 $$d$$ 维向量——LayerNorm 之后的 scale、shift，残差之前的 gate。双流块每条流算 6 个（`AdaLayerNormZero`：attention 与 MLP 各一组 scale / shift / gate，线性层 $$d \to 6d$$），单流块算 3 个（`AdaLayerNormZeroSingle`，$$d \to 3d$$）。这些线性层的**输入只有一个向量**，不是 $$N$$ 个 token，所以它们的 FLOPs 是 $$2 \times 6d^2$$ 量级、可忽略，但参数照样占显存。
+
+### 3. $$P_\text{tok} \ne P$$
 
 这里有一个容易算错的地方：**FLOPs 用的不是参数量 $$P$$，而是一个 token 真正经过的参数量 $$P_\text{tok}$$**。FLUX.1-dev 有 11.9B 参数，但：
 
 - 19 个双流块里，图像 token 只过图像流的权重（$$12 d^2$$：QKV 与输出投影 $$4d^2$$、MLP $$8d^2$$），文本 token 只过文本流的；两条流各 $$12 d^2$$，一个 token 只走一条；
-- adaLN 调制的 MLP（每个双流块两条流各 $$6 d^2$$、每个单流块 $$3 d^2$$，合计 3.3B）只处理**一个**条件向量（时间步 + 池化文本），不随 $$N$$ 放大，FLOPs 可忽略——但权重字节数照算。
+- adaLN 调制的线性层（每个双流块两条流各 $$6 d^2$$、每个单流块 $$3 d^2$$，合计 3.2B）只处理**一个**条件向量（时间步 + 池化文本），不随 $$N$$ 放大，FLOPs 可忽略——但权重字节数照算。
 
-所以 $$P_\text{tok} = 57 \times 12 d^2 = 6.45\text{B}$$，是 $$P$$ 的 54%。用 $$P$$ 算会高估线性项 85%。
+所以 $$P_\text{tok} = 57 \times 12 d^2 = 6.45\text{B}$$，是 $$P$$ 的 54%。用 $$P$$ 算会高估线性项 85%。11.9B 可以逐项对上：
+
+| 部分 | 算式 | 参数 |
+|---|---|---:|
+| 一个 token 经过的（$$P_\text{tok}$$） | $$57 \times 12 d^2$$ | 6.45B |
+| 双流块里另一条流（这个 token 不走） | $$19 \times 12 d^2$$ | 2.15B |
+| adaLN 调制线性层 | $$(19 \times 2 \times 6 + 38 \times 3)\, d^2$$ | 3.23B |
+| 输入 / 输出投影、时间步与文本 embedder 等 | — | 约 0.07B |
+| 合计 | | 11.9B |
+
+Table: FLUX.1-dev 的 11.9B 参数拆账
 
 | 模型 | $$P$$ | $$P_\text{tok}$$ | 差在哪 |
 |---|---|---|---|
@@ -231,7 +378,7 @@ Table: 五个模型的 P 与 P_tok
 
 （Qwen-Image 20B 与 FLUX 12B 的每 token FLOPs 几乎相同——6.8B vs 6.45B——因为都是 $$d = 3072$$，Qwen-Image 多的是双流块数与 adaLN。参数量在这里主要是**显存**账的数字，不是算力账的。）
 
-### 3. 五个模型的每步账
+### 4. 五个模型的每步账
 
 | 模型 | $$N$$ | 线性项 $$2 P_\text{tok} N$$ | attention $$4 L N^2 d$$ | attention 占比 | 每前向 | $$g$$ | $$T$$ | DiT 段合计 |
 |---|---|---|---|---|---|---|---|---|
@@ -248,7 +395,7 @@ Table: 五个模型的每步账
 - **图像模型的 attention 占 20–30%**，是 GEMM 负载。SD3 的占比比 FLUX 高，因为它的 $$d$$ 小（1536）——线性项 $$\propto P_\text{tok} \propto L d^2$$，attention 项 $$\propto L d$$，$$d$$ 越小 attention 相对越大。
 - **视频模型的 attention 占 70–90%**。Wan 一步 6.5 PFLOPs 里 4.7 P 是 attention；HunyuanVideo 129 帧的 attention 是线性项的 6.5 倍。按 $$4 L N^2 d$$ 算：$$4 \times 60 \times 119{,}056^2 \times 3072 = 10.5$$ P，一步 12.1 P，50 步 604 P（算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》的成本一节给出的就是这笔账的粗略版本）。视频生成的 attention 比直觉更重——早期的粗估常把它当作"与线性项相当"，差了一个 6 倍。
 
-### 4. 三段合计
+### 5. 三段合计
 
 | | 文本编码器 | DiT 段 | VAE 解码 | 合计 | DiT 占比 |
 |---|---|---|---|---|---|
@@ -526,7 +673,14 @@ FLUX 默认账的输出（节选）：
   本次生成 = LLM 的 149× FLOPs，0.8× 时间
 ```
 
-脚本里的几个经验常数值得知道来源：DiT 的 MFU 默认 0.45（xDiT 实测反推：eager 0.31、compile 0.49）；VAE 解码 4.8 MFLOP / 像素、MFU 0.05；激活按 10 份 $$[N, d]$$ 张量；VAE 解码激活按 4 份全分辨率 128 通道 fp32 特征图。它们决定的是数量级，改动它们不会改变本文的任何结论。后面各篇不再给脚本，但每篇都会把新机制写成这张账上的一项修正——例如第三篇的跨步缓存把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"，第五篇的序列并行给每步加一项通信时间。
+脚本里有四个经验常数，值得知道来源：
+
+1. DiT 的 MFU 默认 0.45（xDiT 实测反推：eager 0.31、compile 0.49）；
+2. VAE 解码 4.8 MFLOP / 像素、MFU 0.05；
+3. DiT 激活按 10 份 $$[N, d]$$ 张量；
+4. VAE 解码激活按 4 份全分辨率 128 通道 fp32 特征图。
+
+它们决定的是数量级，改动它们不会改变本文的任何结论。后面各篇不再给脚本，但每篇都会把新机制写成这张账上的一项修正——例如第三篇的跨步缓存把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"，第五篇的序列并行给每步加一项通信时间。
 
 ## 十、本文小结
 
@@ -534,6 +688,7 @@ FLUX 默认账的输出（节选）：
 
 | 项 | 规则 | 数字（FLUX.1-dev 1024² 28 步，H100） |
 |---|---|---|
+| 一步 | 一次 transformer 前向（CFG 再一次）+ 采样器一行乘加 `x + dt · v` | 28 个 $$\sigma$$ 不等距：首步步长 0.012、末步 0.105 |
 | 三段 | 文本编码器一次 → DiT × $$T$$ × $$g$$ → VAE 解码一次 | 4.9 T + 2.1 P + 5.0 T；22 ms + 4.68 s + 102 ms |
 | token 数 | $$N = \frac{H}{fp}\frac{W}{fp}\frac{F_\text{lat}}{p_t} + N_\text{txt}$$ | 4096 + 512 = 4608；Wan 720p 81f 75,600 |
 | 每步 FLOPs | $$2 P_\text{tok} N + 4 L N^2 d$$；$$P_\text{tok} \ne P$$ | 59.4 T + 14.9 T = 74.3 T；attention 20% |
@@ -602,6 +757,20 @@ $$
    <details markdown="1">
    <summary>答案</summary>
    解码器在全分辨率 720×1280 上以 128 通道 fp32 工作，一帧一份特征图 472 MiB，129 帧 59 GiB，同时存活约 4 份 → 约 227 GiB，比 DiT 段的权重 + 激活（24 + 7 GiB）大一个量级。FLOPs 小是因为卷积核小、通道少；显存大是因为特征图在像素分辨率上。必须时间分块 / 空间 tiling 或多卡 Parallel VAE。详见[第五章](#五字节账权重激活与没有-kv-cache)。
+   </details>
+
+6. FLUX.1-dev 的调用默认带 `guidance_scale=3.5`，为什么它的 $$g$$ 仍是 1？什么设置会让它变成 2，每步 FLOPs 变成多少？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   FLUX.1-dev 是 guidance 蒸馏模型（`guidance_embeds = True`）：3.5 作为一个数经 `guidance` 参数送进网络、与时间步一起编码进 adaLN 的条件向量，一步仍只有一次前向。传入负向 prompt 且 `true_cfg_scale > 1` 时 `do_true_cfg` 为真，每步多一次用负向 prompt 的前向再按 `neg + s·(cond − neg)` 合成，$$g = 2$$，每步 $$2 \times 74.3 = 148.6$$ TFLOPs。详见[第二章](#二一次生成的时间线)。
+   </details>
+
+7. 一个 latent 值当前是 0.60（$$\sigma = 0.76$$），网络预测的速度 $$v = 0.90$$，下一个 $$\sigma$$ 是 0.732。Euler 步之后它是多少？采样器这一步的计算量与一次前向相比是什么量级？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   `dt` = 0.732 − 0.76 = −0.028，新值 $$0.60 + (-0.028) \times 0.90 = 0.5748$$。采样器对 $$[4096, 64]$$ 个数各做一次乘加，约 0.5 MFLOP，而一次前向是 74 TFLOPs，差 8 个量级，不进账。详见[第二章](#二一次生成的时间线)。
    </details>
 
 [^q0]: 一次前向 74.3 TFLOPs：线性项 $$2 P_\text{tok} N = 2 \times 6.45\text{B} \times 4608 = 59.4$$ T（$$P_\text{tok}$$ 是一个 token 经过的 6.45B，不是总参数 11.9B），attention $$4 L N^2 d = 4 \times 57 \times 4608^2 \times 3072 = 14.9$$ T，占 20%。FLUX.1-dev 是 guidance 蒸馏模型、无 CFG，每步就是一次前向；28 步合计 2.08 PFLOPs。详见[第四章](#四flop-账每步--线性项--attention-项)。

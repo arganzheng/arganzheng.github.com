@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（04）：视频——长序列 attention
 subtitle: "Video Diffusion: The Long-Sequence Attention Bill and How Sparsity Pays It"
 tags: [Diffusion, Video Generation, DiT, Attention, Sparse Attention, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 第一篇的账里有一个翻转：FLUX 一步 74 TFLOPs 里 attention 占 20%，Wan2.1-14B 生成 5 秒 720p 的一步 6.5 PFLOPs 里 attention 占 72%，HunyuanVideo 129 帧占 87%。同样是 DiT，图像模型是 GEMM 负载，视频模型是 attention 负载——因为 $$N$$ 从 4 千变成了 7 万到 12 万，$$4 L N^2 d$$ 压过了 $$2 P_\text{tok} N$$。前两篇的手段在视频上仍然有效但不够：编译与量化只改线性项那 28%，跨步缓存跳的是整步；要动 attention 这 72%，需要另一类冗余——**token 与 token 之间的冗余**：一个 token 对绝大多数其他 token 的注意力接近零，尤其是空间上远、时间上远的那些。
@@ -88,11 +89,11 @@ Table: Amdahl 定律下稀疏 attention 的端到端加速
 | 四 | 显存：FlashAttention 是前提 | 分数矩阵 425 GiB<br/>激活随 $$N$$ 线性到 14 GiB<br/>CFG batch<br/>3D VAE 解码的 107 GiB |
 | 五 | 全 3D attention 与它的替代 | 时空分解为什么被放弃；全 attention 的代价就是本文 |
 | 六 | 稀疏 attention 的四条路 | SVG（head 分类）、SVG2（语义置换）、Radial（静态能量衰减掩码）、STA / VSA（tile 滑窗、可训练）；训练无关 vs 需微调 |
-| 七 | 稀疏怎样落到 kernel | block-sparse FlashAttention<br/>layout 变换<br/>tile 对齐<br/>掩码的存储 |
+| 七 | 稀疏怎样落到 kernel | block-sparse FlashAttention<br/>layout 变换：12 个 token 的置换手算<br/>tile 对齐<br/>掩码的存储 |
 | 八 | 8-bit attention 与叠加表 | SageAttention 在视频上的收益<br/>Wan 81 帧的叠加账<br/>Amdahl |
 | 九 | 实现对照与实践 | 四个实现里的后端；实践建议 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -116,7 +117,7 @@ $$
 
 | 模型 | 输出 | latent | $$N_\text{img}$$ | 文本 | $$N$$ | 每步 FLOPs（$$g$$ 后） |
 |---|---|---|---|---|---|---|
-| Wan2.1-1.3B | 480×832×81 | 60×104×21 | 32,760 | cross-attn | 32,760 | 小模型：$$P_\text{tok}$$ 1.2B、$$d$$ 1536、30 层 → 线性 0.08 P + attention 0.4 P |
+| Wan2.1-1.3B | 480×832×81 | 60×104×21 | 32,760 | cross-attn | 32,760 | 小模型：$$P_\text{tok}$$ 1.2B、$$d$$ 1536、30 层 → 线性 0.08 P + attention 0.20 P（占 71%） |
 | Wan2.1-14B | 480×832×81 | 60×104×21 | 32,760 | cross-attn | 32,760 | 0.79 P + 0.88 P = 1.7 P ×2 |
 | **Wan2.1-14B** | **720×1280×81** | **90×160×21** | **75,600** | cross-attn | **75,600** | **1.8 P + 4.7 P = 6.5 P ×2** |
 | HunyuanVideo-13B | 720×1280×129 | 90×160×33 | 118,800 | 256（联合） | 119,056 | 1.6 P + 10.5 P = 12.1 P ×1 |
@@ -213,6 +214,19 @@ FlashAttention 把 $$Q$$ 与 $$K / V$$ 各切成 $$B_q \times B_k$$ 的块（FA2
 
 视频 token 的自然顺序是 $$(t, h, w)$$ 展平——同一帧的 token 连续。spatial head 的对角块掩码在这个顺序下天然对齐；**temporal head 的斜线掩码不对齐**（同一空间位置的 token 相隔 $$N_\text{frame}$$ 个位置，散在 $$F_\text{lat}$$ 个块里）。SVG 的解法是**置换**：对 temporal head 把 token 按 $$(h, w, t)$$ 重排——同一位置跨帧的 token 变成连续——斜线掩码变成对角块，再调 block-sparse kernel；算完置换回来。置换是一次 $$[N, d]$$ 的 gather，成本小于它省下的 attention。SVG2 把这个思路推广成按语义聚类的置换（k-means 的簇作为块）。
 
+用一个能手数的例子看置换做了什么：3 个 latent 帧、每帧 4 个空间位置，共 12 个 token；kernel 的块大小取 3。temporal head 只让同一空间位置的 token 互相看（每个 token 看 3 个，共 $$12 \times 3 = 36$$ 个非零分数，占 $$12 \times 12 = 144$$ 的 25%）。
+
+| 空间位置 | 按 $$(t, h, w)$$ 排的下标（帧 0 / 1 / 2） | 落在哪几个块 | 按 $$(h, w, t)$$ 排的下标 | 落在哪几个块 |
+|---|---|---|---|---|
+| 位置 0 | 0 / 4 / 8 | 0、1、2 | 0 / 1 / 2 | 0 |
+| 位置 1 | 1 / 5 / 9 | 0、1、3 | 3 / 4 / 5 | 1 |
+| 位置 2 | 2 / 6 / 10 | 0、2、3 | 6 / 7 / 8 | 2 |
+| 位置 3 | 3 / 7 / 11 | 1、2、3 | 9 / 10 / 11 | 3 |
+
+Table: 12 个 token 在两种排布下的下标与所在的块
+
+$$12 \times 12$$ 的分数矩阵被切成 $$4 \times 4 = 16$$ 个块。原顺序下 36 个非零散在全部 16 个块里，每块只有四分之一有用——一个块都跳不掉，稀疏度 75% 换不来任何加速；置换后它们正好填满对角线上的 4 个块，其余 12 个块整块跳过，kernel 只做原来 25% 的工作。真实尺寸下同理：Wan 720p 一帧 3,600 个 token，同一位置跨 21 帧的 token 相隔 3,600 个下标，原顺序里 temporal head 的非零是一条条斜线，穿过的每个 $$128 \times 128$$ 块都只用到其中一条对角线。
+
 STA 的 tile 是 3D 的：把 latent 切成 $$(t, h, w)$$ 各几个单位的 tile，tile 内 token 连续，3D 滑窗恰好是若干整 tile——它把"稀疏模式对齐到 kernel 块"做成了设计约束而不是事后适配。
 
 ### 3. 掩码的存储与开销
@@ -259,7 +273,7 @@ Table: 视频 attention 机制在四个引擎里的实现对照
 
 ### 2. 实践建议
 
-一张 24 GB 以上的卡，Wan2.1-1.3B（480p，$$N = 32,760$$，attention 占 53%——小模型上占比更高，效果更明显）：用 `diffusion_ledger.py --model wan --height 480 --width 832 --sweep` 先看帧数对 attention 占比的影响；然后在 diffusers 里对同一 prompt / seed 依次换 `flash` → `_flash_3_hub`（Hopper）→ `sage`，记录每步时间与对基线视频的逐帧 PSNR 与 VBench 的时间一致性分项；有 SGLang 的话再试 `--attention-backend sliding_tile_attn`。该看的：attention 后端在视频上的端到端收益比在 FLUX 上大 5 倍以上；SageAttention 的 PSNR 在视频上常比图像上更低（时间闪烁）；STA 在快速运动的片段上比静态片段掉得多。
+一张 24 GB 以上的卡，Wan2.1-1.3B（480p，$$N = 32,760$$，attention 占 71%，比 14B 在同一分辨率下的 53% 还高——$$d = 1536$$ 让交叉点 $$6d$$ 降到 9K，attention 后端的效果更明显）：用 `diffusion_ledger.py --model wan --height 480 --width 832 --sweep` 先看帧数对 attention 占比的影响；然后在 diffusers 里对同一 prompt / seed 依次换 `flash` → `_flash_3_hub`（Hopper）→ `sage`，记录每步时间与对基线视频的逐帧 PSNR 与 VBench 的时间一致性分项；有 SGLang 的话再试 `--attention-backend sliding_tile_attn`。该看的：attention 后端在视频上的端到端收益比在 FLUX 上大 5 倍以上；SageAttention 的 PSNR 在视频上常比图像上更低（时间闪烁）；STA 在快速运动的片段上比静态片段掉得多。
 
 ## 十、本文小结
 
@@ -318,6 +332,13 @@ Table: 视频扩散的规则与数字小结
    <details markdown="1">
    <summary>答案</summary>
    静态掩码按 $$(F, H, W)$$ 在请求开始时生成一次，每步的计算量完全可预知（服务可精确估时长、可与 CUDA graph / 编译配合，不需要每步的动态决策）；也没有各卡决策不一致的问题。差的场景：快速大范围运动或相机大幅移动的片段——相关 token 在时空上相距远，被静态的局部 / 衰减窗口截掉，而 SVG 的在线 profiling 会为这些 head 选 temporal 模式。详见[第六章](#六稀疏-attention-的四条路)。
+   </details>
+
+6. 一个 temporal head 的掩码稀疏度是 75%，但在 $$(t, h, w)$$ 的原顺序上调 block-sparse FlashAttention，attention 一点没变快。为什么？置换成 $$(h, w, t)$$ 之后要跳过多少块？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   kernel 只能整块跳过。原顺序下同一空间位置跨帧的 token 相隔一整帧的下标，非零分数散成斜线，穿过几乎每个块，每块都有一部分有用，于是每块都得算。置换后同一位置的各帧 token 连续，非零集中在对角块里：12 个 token、块大小 3 的例子里，16 个块只剩对角线 4 个要算，跳过 75%。详见[第七章](#七稀疏怎样落到-kernel)。
    </details>
 
 [^q0]: $$N = 45 \times 80 \times 21 = 75{,}600$$；attention $$4 L N^2 d = 4 \times 40 \times 75600^2 \times 5120 = 4.7$$ PFLOPs，线性项 $$2 \times 12\text{B} \times 75600 = 1.8$$ P，attention 占 72%；一步（CFG ×2）13 PFLOPs，H100 $$\eta$$ 0.45 下 29 s，50 步 24 分钟。详见[第一章](#一总览)、[第三章](#三attention-占比的翻转)。

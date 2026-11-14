@@ -5,6 +5,7 @@ title: "扩散模型推理基础设施（05）：多卡并行——序列并行�
 subtitle: "Multi-GPU Diffusion Inference: Sequence Parallelism, CFG Parallelism and PipeFusion"
 tags: [Diffusion, DiT, Inference, Sequence Parallelism, xDiT, PipeFusion, NCCL, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 LLM serving 用多卡有两个理由：权重放不下（70B 的 140 GB 要切到几张卡上）、每步读权重的时间要切短（memory-bound，TP 让每张卡只读 1/p）。扩散推理的多卡理由不同：FLUX 的 22 GiB 一张卡放得下；单请求已经 compute-bound，多卡的目标是**把一个请求的 FLOPs 分到 p 张卡上、让墙钟缩短 p 倍**——而视频再加一个：14 GiB 的激活与几分钟的单卡时间让单卡本身不可接受。目标不同，切法就不同。
@@ -33,7 +34,7 @@ Ring 传 K/V（P2P 环）"]
         direction LR
         C1["卡组 A：条件分支"] ~~~ C2["卡组 B：无条件分支"]
         CFGN["每步末交换一次预测 $$\epsilon$$
-[N, c·p²]：0.6 MB"]
+[N_img, c·p²]：0.5 MB"]
     end
     subgraph PF["切层 + patch：PipeFusion"]
         direction LR
@@ -64,7 +65,7 @@ FSDP：每层 all-gather 权重"]
 | **张量并行** | 2 次 all-reduce：$$4\frac{p-1}{p} N d$$ | 4.8 GB | 186 GB | 难（在关键路径上） | 切 $$1/p$$ | NVLink |
 | **Ulysses** | 4 次 all-to-all：$$4\frac{p-1}{p^2} N d$$ | 1.2 GB | 13.5 GB | 部分 | 复制 | NVLink（all-to-all 对拓扑敏感） |
 | **Ring** | K / V 绕环：$$2\frac{p-1}{p} N d$$ | 2.4 GB | 54 GB | **是**（与分块 attention 重叠） | 复制 | NVLink / 跨节点 |
-| **CFG 并行** | 每步一次：$$N c p^2$$ | 0.6 MB | 5 MB | — | 复制 | 任何 |
+| **CFG 并行** | 每步一次：$$N_\text{img} c p^2$$ | 0.5 MB | 10 MB | — | 复制 | 任何 |
 | **PipeFusion** | 每步每 stage：$$N d$$（分 M 片） | 28 MB | 0.8 GB | **是**（流水线） | 切 $$1/p$$（按层） | **PCIe / 以太网** |
 | **DistriFusion** | 每层 async all-gather：$$2\frac{p-1}{p} N d$$ | 2.4 GB | 54 GB | 是（用 stale 值） | 复制 | NVLink / PCIe |
 | **FSDP 推理** | 每层 all-gather 权重：$$2P/L \cdot \frac{p-1}{p}$$ | 17 GB（全部权重） | 23 GB | 可预取 | 切 $$1/p$$ | NVLink |
@@ -90,16 +91,16 @@ Table: xDiT 实测 FLUX.1-dev 各并行配置的时间
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 多卡的目的 | 延迟 vs 显存 vs 吞吐<br/>扩散与 LLM 的差别<br/>scaling 为什么不到线性 |
+| 二 | 多卡的目的 | 延迟 vs 显存 vs 吞吐<br/>扩散与 LLM 的差别<br/>scaling 为什么不到线性：4 卡 Ulysses 的时间拆账 |
 | 三 | 张量并行 | 它在 DiT 上怎么切、通信量、何时仍是首选 |
-| 四 | 序列并行 | Ulysses（换 head）、Ring（传 K/V）、USP（组合）<br/>通信量与拓扑<br/>SP 下的线性层与 adaLN |
-| 五 | CFG 并行与 data parallel | 恒为 2 的免费并行；与 SP 的组合 |
+| 四 | 序列并行 | Ulysses（换 head）<br/>Ring（传 K/V）与在线 softmax 的手算<br/>USP（组合）<br/>通信量与拓扑<br/>SP 下的线性层与 adaLN |
+| 五 | CFG 并行与 data parallel | 恒为 2 的免费并行<br/>8 卡 CFG 2 × Ulysses 4 的编组<br/>与 SP 的组合 |
 | 六 | PipeFusion 与 DistriFusion | 时间冗余换通信<br/>patch 流水线<br/>stale K/V 的显存<br/>DistriFusion 的异步 all-gather |
 | 七 | Parallel VAE 与 FSDP | 107 GiB 的解码峰值怎么切；权重分片作为显存策略 |
 | 八 | 混合并行与选型 | 乘积 = 卡数<br/>NVLink / PCIe / 以太网三张表<br/>视频的必需 |
 | 九 | 实现对照与实践 | 三个引擎的并行组；实践建议 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -118,6 +119,17 @@ Table: 多卡的三种目的在 LLM 与扩散上的差别
 最后一行是关键：**如果只要吞吐，扩散不应该切请求**——四张卡各跑一个请求的吞吐（4 张 / 4.30 s）永远高于四张卡切一个请求（1 张 / 1.63 s = 2.63 张 / 4.30 s）。切请求是为了**延迟**：一张图 4.3 s 太慢、一段视频 24 分钟不可接受。服务的选型（第七篇）就是在延迟 SLO 与吞吐成本之间选 p。
 
 ### 2. scaling 为什么不到线性
+
+先把损失量出来：理想的 4 卡是 $$4.30 / 4 = 1.08$$ s，实测 1.63 s，多出 0.55 s，摊到 28 步是每步约 20 ms。通信只占其中一小块——Ulysses 每步每卡收发 1.2 GB，按 NVLink 上 all-to-all 有效约 300 GB/s 估是每步 4 ms、28 步 0.11 s；剩下约 0.44 s（每步 16 ms）来自下面另外两处：
+
+| 项 | 每步 | 28 步 |
+|---|---:|---:|
+| 理想：单卡 154 ms ÷ 4 | 38 ms | 1.08 s |
+| Ulysses 通信（1.2 GB ÷ 约 300 GB/s，估） | 约 4 ms | 约 0.11 s |
+| GEMM 变小 + 固定开销（差额） | 约 16 ms | 约 0.44 s |
+| 实测（xDiT，4×H100，compile） | 58 ms | 1.63 s |
+
+Table: FLUX 4 卡 Ulysses 的时间拆账
 
 四卡 2.63× 的损失来自三处：
 
@@ -190,6 +202,21 @@ head 18–23"]
 
 Ring Attention（Liu 等 2023）不换 head，换 K / V：每卡持有自己 $$N/p$$ 个 token 的 Q、K、V，对自己的 Q 做 attention 时需要全部 token 的 K / V——把 K / V 块沿环传：第 $$i$$ 轮用第 $$(r + i) \bmod p$$ 卡的 K / V 块算一部分分数、在线 softmax 累加，同时把这块 K / V 传给下一卡。$$p$$ 轮之后每卡的 Q 看过了全部 K / V。通信是 P2P、总量 $$2\frac{p-1}{p} N d$$（每卡收到全部 K / V），**与计算重叠**（传下一块时算这一块）；不要求整除 head 数；P2P 跨节点友好。缺点：每轮的 attention 块变小（$$N/p \times N/p$$），kernel 效率降；$$p$$ 大时环的轮数多、每轮的固定开销累积——xDiT 的表里 Ring-4（1.98 s）慢于 Ulysses-4（1.63 s）。
 
+Ring 能分块算的前提是**在线 softmax**：softmax 的分母要对全部 key 求和，但可以一块一块地累加，每来一块就用新的最大值把旧的部分和重标一次。手算一个 query、4 个 key 分在两张卡上（标量 value 便于验算）：
+
+| 量 | 卡 0 的 K / V 块 | 卡 1 的 K / V 块 |
+|---|---|---|
+| 分数 $$s = q \cdot k$$ | 2、1 | 3、0 |
+| value | 10、20 | 30、40 |
+
+Table: 一个 query 对两块 K / V 的分数与 value
+
+1. 第 1 轮用本卡的块：最大值 $$m = 2$$，分母 $$\ell = e^{0} + e^{-1} = 1.368$$，未归一化输出 $$o = 1 \times 10 + 0.368 \times 20 = 17.36$$。
+2. 第 2 轮收到卡 1 的块：新最大值 3，旧的部分乘 $$e^{2-3} = 0.368$$ 重标：$$\ell = 1.368 \times 0.368 + (e^{0} + e^{-3}) = 1.553$$，$$o = 17.36 \times 0.368 + (1 \times 30 + 0.050 \times 40) = 38.38$$。
+3. 输出 $$o / \ell = 38.38 / 1.553 = 24.71$$，与一次性对 4 个分数做 softmax 的 $$\frac{7.39 \times 10 + 2.72 \times 20 + 20.09 \times 30 + 1 \times 40}{31.19} = 24.71$$ 相同。
+
+每卡只需在本地保存 $$m$$、$$\ell$$、$$o$$ 三个量，K / V 块用完即可丢弃并传给下一卡——这就是 Ring 不必在任何一张卡上凑齐全部 $$N$$ 个 token 的 K / V、通信又能与计算重叠的原因。FlashAttention 在一张卡内部按块循环用的是同一套递推。
+
 ### 3. USP：两者的组合
 
 USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做成二维：$$p = p_\text{ulysses} \times p_\text{ring}$$，节点内用 Ulysses（NVLink 上 all-to-all 快）、跨节点用 Ring（P2P 跨 IB（InfiniBand，高带宽低延迟的 RDMA 网络）/ 以太网）。它也解除了 Ulysses 的 head 整除限制（Ulysses 度只需整除 head 数，Ring 度任意）。xDiT 的表里 Ulysses-2 × Ring-2（1.80 s）介于 Ulysses-4 与 Ring-4 之间——单节点 NVLink 上纯 Ulysses 最优，USP 的价值在跨节点：SGLang 的跨节点 SP 文档明确"节点内 Ulysses、跨节点 Ring"。
@@ -209,7 +236,40 @@ USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做�
 
 ### 1. CFG 并行
 
-CFG 模型（SD3、Qwen-Image、Wan）每步两次前向，输入不同（条件 / 无条件）、网络相同、**中间完全独立**——只在步末合成 $$\hat\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 时需要对方的输出。所以把两个分支放到两组卡上，每步只交换一次 $$[N, c p^2]$$ 的预测（FLUX 形状 $$4608 \times 64 \times 2$$ 字节 = 0.6 MB，Wan 5 MB）——**几乎零通信的 2 倍并行**。它恒为 2，与 SP 正交：8 卡 = CFG 2 × Ulysses 4，每个 CFG 组内 4 卡切序列。
+CFG 模型（SD3、Qwen-Image、Wan）每步两次前向，输入不同（条件 / 无条件）、网络相同、**中间完全独立**——只在步末合成 $$\hat\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 时需要对方的输出。所以把两个分支放到两组卡上，每步只交换一次 $$[N_\text{img}, c p^2]$$ 的预测（FLUX 形状 $$4096 \times 64 \times 2$$ 字节 = 0.5 MB——文本 token 不产生预测，只有 4096 个图像 token 有；Wan $$75{,}600 \times 64 \times 2$$ 字节 = 9.7 MB）——**几乎零通信的 2 倍并行**。它恒为 2，与 SP 正交：8 卡 = CFG 2 × Ulysses 4，每个 CFG 组内 4 卡切序列。
+
+8 张卡按 CFG 2 × Ulysses 4 编组时，每张卡有两个坐标：
+
+```mermaid
+%% 图：8 卡 CFG 2 × Ulysses 4 的编组：两个 CFG 组各 4 卡，组内每层 4 次 all-to-all，组间每步只交换一次预测
+flowchart TB
+    subgraph G0["CFG 组 0：条件分支（prompt）"]
+        direction LR
+        R0["<b>GPU 0</b><br/>图像 token 0–1023"] ~~~ R1["<b>GPU 1</b><br/>图像 token 1024–2047"] ~~~ R2["<b>GPU 2</b><br/>图像 token 2048–3071"] ~~~ R3["<b>GPU 3</b><br/>图像 token 3072–4095"]
+    end
+    subgraph G1["CFG 组 1：无条件分支（空 prompt）"]
+        direction LR
+        R4["<b>GPU 4</b><br/>图像 token 0–1023"] ~~~ R5["<b>GPU 5</b><br/>图像 token 1024–2047"] ~~~ R6["<b>GPU 6</b><br/>图像 token 2048–3071"] ~~~ R7["<b>GPU 7</b><br/>图像 token 3072–4095"]
+    end
+    A2A["<b>组内：Ulysses all-to-all</b><br/>每层 4 次（Q、K、V、O）<br/>NVLink 上，在关键路径上"]
+    MIX["<b>组间：每步末一次</b><br/>GPU i 与 GPU i+4 交换自己那 1024 个图像 token 的预测<br/>按 $$\epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 合成"]
+    G0 --- A2A
+    G1 --- A2A
+    G0 <--> MIX
+    G1 <--> MIX
+```
+
+| GPU | CFG 组 | Ulysses 组内序号 | 持有的图像 token（512 个文本 token 每卡复制） | attention 时持有的 head（FLUX 24 个） |
+|---:|---:|---:|---|---|
+| 0 | 0 | 0 | 0–1023 | 0–5 |
+| 1 | 0 | 1 | 1024–2047 | 6–11 |
+| 2 | 0 | 2 | 2048–3071 | 12–17 |
+| 3 | 0 | 3 | 3072–4095 | 18–23 |
+| 4–7 | 1 | 0–3 | 同 GPU 0–3 | 同 GPU 0–3 |
+
+Table: CFG 2 × Ulysses 4 的 rank 编组
+
+组内的 all-to-all 每层 4 次，组间每步只交换一次：GPU $$i$$ 把自己那 1024 个图像 token 的预测（$$1024 \times 64 \times 2$$ 字节 = 131 KB）发给 GPU $$i+4$$，双方各自合成同一份结果、各自走采样器，下一步开始时两组手里的 latent 完全相同。所以两个 CFG 组可以放在两台机器上，组间只走以太网也无妨。（FLUX 没有 CFG，这里借它的形状演示；SD3 / Qwen-Image / Wan 才真正这样编组。）
 
 SGLang 与 vLLM-Omni 的推荐都是：CFG 模型在多卡上**先比较 CFG 2 × USP $$p/2$$ 与 USP $$p$$**——前者通信少一半（SP 组只有 $$p/2$$）、后者每卡的 GEMM 更大（一个 batch 2 的前向而不是两个 batch 1）；哪个赢取决于模型与 $$N$$，要实测。FLUX / HunyuanVideo 这类 guidance 蒸馏模型没有 CFG 分支，用不上。
 
@@ -292,7 +352,7 @@ Table: 单节点 NVLink 的并行选型
 
 **单节点 PCIe（8×L40 / A10）**：Ulysses 度 ≤ 2–4、其余给 PipeFusion；CFG 并行照常（通信为零）。
 
-**跨节点**：节点内 Ulysses、跨节点 Ring（IB）或 PipeFusion（以太网）；CFG 并行的两组尽量放在两个节点上（跨节点只传 0.6 MB）。
+**跨节点**：节点内 Ulysses、跨节点 Ring（IB）或 PipeFusion（以太网）；CFG 并行的两组尽量放在两个节点上（跨节点只传 0.5 MB）。
 
 ### 3. 视频上 SP 是必需
 
@@ -331,7 +391,7 @@ Table: 多卡并行机制在四个引擎里的实现对照
 | Ulysses | all-to-all 换 head<br/>通信 TP 的 $$1/p$$<br/>$$p$$ 整除 head 数<br/>对拓扑敏感 | 1.2 GB / 步；4×H100 1.63 s（2.63×） |
 | Ring | P2P 传 K / V<br/>可重叠<br/>跨节点友好<br/>块变小效率降 | 2.4 GB / 步；Ring-4 1.98 s |
 | USP | 节点内 Ulysses × 跨节点 Ring | 解除整除限制 |
-| CFG 并行 | 两分支两组卡，每步交换一次预测 | 0.6 MB / 步，恒为 2 |
+| CFG 并行 | 两分支两组卡，每步交换一次预测 | 0.5 MB / 步，恒为 2 |
 | PipeFusion | 层切 stage、latent 切 patch、stale K/V 让流水线不等；通信 SP 的 $$1/L$$ | 28 MB / 步；以太网 16×L40 再快 1.16× |
 | DistriFusion | patch 并行 + 异步 all-gather stale K/V | 每卡存全部层的 K/V：视频不可行 |
 | Parallel VAE | latent 切条带 + halo | 峰值 $$1/p$$ |
@@ -365,7 +425,7 @@ Table: 多卡扩散并行的规则与数字小结
 
    <details markdown="1">
    <summary>答案</summary>
-   条件与无条件分支的网络前向完全独立，只在步末合成 $$\hat\epsilon$$ 时需要对方的预测 $$[N, c p^2]$$（FLUX 形状 0.6 MB），每步一次。FLUX.1-dev 与 HunyuanVideo 是 guidance 蒸馏模型，每步只有一次前向（$$g = 1$$），没有第二个分支可切。详见[第五章](#五cfg-并行与-data-parallel)。
+   条件与无条件分支的网络前向完全独立，只在步末合成 $$\hat\epsilon$$ 时需要对方的预测 $$[N_\text{img}, c p^2]$$（FLUX 形状 0.5 MB），每步一次。FLUX.1-dev 与 HunyuanVideo 是 guidance 蒸馏模型，每步只有一次前向（$$g = 1$$），没有第二个分支可切。详见[第五章](#五cfg-并行与-data-parallel)。
    </details>
 
 4. PipeFusion 与 DistriFusion 都用上一步的 K / V（stale）。为什么在 FLUX.1-schnell（4 步）上不能用？两者在显存上的差别是什么？
@@ -382,7 +442,14 @@ Table: 多卡扩散并行的规则与数字小结
    data parallel 8：每卡独立跑一个请求。切一个请求的并行效率不到线性（4 卡 2.63×），DP 是 8×；单请求已 compute-bound、batch 也不提吞吐。只有当单卡放不下（视频激活 + 权重）或延迟 SLO 要求时才切请求。详见[第二章](#二多卡的目的)。
    </details>
 
-[^q0]: FLUX 无 CFG，"CFG 2"用不上；8 卡实际是 Ulysses 8（或 Ulysses 4 + DP 2）。通信：TP 8 每层 2 次 all-reduce $$[4608, 3072]$$，每卡 $$4 \times \frac{7}{8} \times 28 \text{ MB} = 98$$ MB / 层 × 57 = 5.6 GB / 步，NVLink 约 19 ms，且在关键路径；Ulysses 8 每层 4 次 all-to-all，每卡 $$4 \times \frac{7}{64} \times 28 = 12$$ MB / 层 → 0.7 GB / 步，约 2–3 ms。xDiT 实测 Ulysses 4 为 1.63 s（4 卡 2.63×），8 卡约 1.0–1.2 s（效率继续下降：每卡 GEMM 只有 576 行）。CFG 模型（如 Qwen-Image）才是 CFG 2 × Ulysses 4：CFG 组间每步 0.6 MB，组内同上。详见[第三章](#三张量并行)、[第四章](#四序列并行)、[第五章](#五cfg-并行与-data-parallel)。
+6. Ring Attention 里一个 query 先看到本卡 K / V 块的分数 2、1，再收到另一块的分数 3、0（value 依次 10、20、30、40）。按在线 softmax 走完两轮，每卡要保存哪几个量？结果是多少？
+
+   <details markdown="1">
+   <summary>答案</summary>
+   每个 query 保存当前最大值 $$m$$、分母 $$\ell$$、未归一化输出 $$o$$。第 1 轮 $$m = 2$$、$$\ell = 1 + e^{-1} = 1.368$$、$$o = 10 + 0.368 \times 20 = 17.36$$；第 2 轮最大值变 3，旧量乘 $$e^{-1}$$：$$\ell = 0.503 + 1 + e^{-3} = 1.553$$，$$o = 6.39 + 30 + 2.0 = 38.38$$；输出 $$38.38 / 1.553 = 24.71$$，与一次性 softmax 相同。块用完即可传走，不必凑齐全部 K / V。详见[第四章](#四序列并行)。
+   </details>
+
+[^q0]: FLUX 无 CFG，"CFG 2"用不上；8 卡实际是 Ulysses 8（或 Ulysses 4 + DP 2）。通信：TP 8 每层 2 次 all-reduce $$[4608, 3072]$$，每卡 $$4 \times \frac{7}{8} \times 28 \text{ MB} = 98$$ MB / 层 × 57 = 5.6 GB / 步，NVLink 约 19 ms，且在关键路径；Ulysses 8 每层 4 次 all-to-all，每卡 $$4 \times \frac{7}{64} \times 28 = 12$$ MB / 层 → 0.7 GB / 步，约 2–3 ms。xDiT 实测 Ulysses 4 为 1.63 s（4 卡 2.63×），8 卡约 1.0–1.2 s（效率继续下降：每卡 GEMM 只有 576 行）。CFG 模型（如 Qwen-Image）才是 CFG 2 × Ulysses 4：CFG 组间每步 0.5 MB，组内同上。详见[第三章](#三张量并行)、[第四章](#四序列并行)、[第五章](#五cfg-并行与-data-parallel)。
 
 [^q1]: 节点内 Ulysses 4（NVLink 或 PCIe 上 all-to-all 尚可承受），跨节点 PipeFusion 4——xDiT 实测这样 16 卡比 8 卡再快 1.16×（1024²），4096² 上 Ulysses 2 × Ring 2 × PipeFusion 4 快 1.9×。PipeFusion 赢是因为它每步每 stage 只传 $$N d$$ = 28 MB（与层数无关，SP 的 $$1/L$$），以太网 3 GB/s 下 10 ms；Ring 跨节点每层都要传 K / V，每步 1.6 GB → 0.5 s，超过计算本身。代价是流水线气泡与 stale K / V 的误差，所以 NVLink 上仍用 USP。详见[第六章](#六pipefusion-与-distrifusion)、[第八章](#八混合并行与选型)。
 
