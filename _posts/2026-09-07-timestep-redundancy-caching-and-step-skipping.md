@@ -137,7 +137,7 @@ Table: 跨步缓存方法的谱系
 
 ### 1. TeaCache：调制后的输入
 
-TeaCache（Liu 等 2024，"Timestep Embedding Tells"）的观察：网络**输出**的跨步差不能事先知道，但网络**输入**的跨步差可以——而两者强相关。直接用 $$x_t$$ 的差不够准（$$x_t$$ 的变化在高噪声与低噪声区含义不同），TeaCache 用**经时间步 embedding 调制后的输入**：第一个 block 的 adaLN 把 $$x_t$$ 归一化后乘上从 $$t$$ 算出的 scale、加 shift——这一步把"这一时刻网络实际看到的东西"算出来了，它的跨步相对 L1 差与输出的差几乎线性相关。再用一个**四次多项式**把输入差映射到估计的输出差（系数按模型离线拟合，FLUX 的一组是 $$[498.7, -283.8, 55.9, -3.82, 0.264]$$，vLLM-Omni 与 diffusers 都内置了几个模型的系数），跨跳过的步**累积**，累积值超过阈值才全算并清零。
+TeaCache（Liu 等 2024，"Timestep Embedding Tells"）的观察：网络**输出**的跨步差不能事先知道，但网络**输入**的跨步差可以——而两者强相关。直接用 $$x_t$$ 的差不够准（$$x_t$$ 的变化在高噪声与低噪声区含义不同），TeaCache 用**经时间步 embedding 调制后的输入**：第一个 block 的 adaLN 把 $$x_t$$ 归一化后乘上从 $$t$$ 算出的 scale、加 shift——这一步把"这一时刻网络实际看到的东西"算出来了，它的跨步相对 L1 差与输出的差几乎线性相关。再用一个**四次多项式**把输入差映射到估计的输出差（系数按模型离线拟合，FLUX 的一组是 $$[498.7, -283.8, 55.9, -3.82, 0.264]$$，vLLM-Omni 与 xDiT 都内置了这一组；diffusers v0.40 没有 TeaCache 实现），跨跳过的步**累积**，累积值超过阈值才全算并清零。
 
 $$
 \delta_t = \frac{\lVert \text{mod}(x_t, t) - \text{mod}(x_{t+1}, t+1) \rVert_1}{\lVert \text{mod}(x_{t+1}, t+1) \rVert_1}, \qquad
@@ -174,7 +174,7 @@ $$
 \text{diff} = \frac{\text{mean}\lvert r^{(1)}_t - r^{(1)}_{\text{cached}} \rvert}{\text{mean}\lvert r^{(1)}_{\text{cached}} \rvert}, \qquad \text{全算} \iff \text{diff} > \tau
 $$
 
-diffusers `FirstBlockCacheConfig` 的默认阈值 0.05（保守），社区常用 0.08–0.12（1.6–2×）。它不需要每模型拟合系数（第一块的残差已经是"网络怎么看这一步"的直接度量），代价是每步至少算一个 block（1/57 ≈ 2%）。Cache-DiT 的 DBCache 把"1 个头块"推广成 $$F_n$$ 个头块加 $$B_n$$ 个尾块（默认 $$F_n = 1, B_n = 0$$，阈值 0.24——注意它的 diff 定义与 FBCache 不同，尺度不可直接比），并可叠加 TaylorSeer 外推。
+diffusers `FirstBlockCacheConfig` 的默认阈值 0.05（保守），社区常用 0.08–0.12（1.6–2×）。它不需要每模型拟合系数（第一块的残差已经是"网络怎么看这一步"的直接度量），代价是每步至少算一个 block（1/57 ≈ 2%）。Cache-DiT 的 DBCache 把"1 个头块"推广成 $$F_n$$ 个头块加 $$B_n$$ 个尾块（SGLang 的服务默认 `SGLANG_CACHE_DIT_FN=1`、`SGLANG_CACHE_DIT_BN=0`、`SGLANG_CACHE_DIT_RDT=0.24`；xDiT 的 `DBCachePreset` 默认 8 个头块、阈值 0.08——注意它的 diff 定义与 FBCache 不同，尺度不可直接比），并可叠加 TaylorSeer 外推。
 
 ### 3. MagCache：离线校准
 
@@ -256,7 +256,7 @@ Table: 跨步缓存伪影的形态、原因与对策
 
 ### 1. CFG：两份状态
 
-CFG 每步两次前向（或 batch 2），条件分支与无条件分支的残差不同、变化率也不同。缓存状态必须**分两份**：条件用条件的缓存与累积量，无条件用无条件的。混用会让一支复用另一支的残差，图片饱和或发灰。所有实现都用一个"上下文键"区分（diffusers 的 `StateManager` 按 CFG 分支切换状态；vLLM-Omni 的 TeaCache hook 明确"CFG-aware state management"）。跳步决策两支各自做——通常两支会在相近的步命中，但不保证。
+CFG 每步两次前向（或 batch 2），条件分支与无条件分支的残差不同、变化率也不同。缓存状态必须**分两份**：条件用条件的缓存与累积量，无条件用无条件的。混用会让一支复用另一支的残差，图片饱和或发灰。各实现都按分支分开存（diffusers 的 `StateManager` 按 pipeline 里 `cache_context("cond")` / `cache_context("uncond")` 设的上下文键切换状态；vLLM-Omni 的 TeaCache hook 明确"CFG-aware state management"；SGLang 的 `TeaCacheMixin` 对 Wan / HunyuanVideo / Z-Image 为负分支另存一份残差与累积量）。跳步决策两支各自做——通常两支会在相近的步命中，但不保证。
 
 ### 2. 序列并行：决策必须一致
 
@@ -272,7 +272,7 @@ SGLang 的 **CFG gating**（`--cfg-gate-step 0.5`）是另一种利用冗余的�
 
 ### 5. 与少步蒸馏互斥
 
-已述：4 步模型无冗余。所以服务侧的规则是**蒸馏模型不开缓存**，SGLang 的 Cache-DiT 文档与 xDiT 的 benchmark 都在 schnell 上跳过这一项。
+已述：4 步模型无冗余。所以服务侧的规则是**蒸馏模型不开缓存**。引擎不会替你做这个判断：SGLang 的 Cache-DiT 文档只说少于 8 步时自动关掉 SCM（步级掩码），DBCache 照常生效——这条规则要服务侧自己定。
 
 ## 八、实现：全是 hook
 
@@ -311,16 +311,16 @@ FBCache 的 hook 挂在**第一个 block**（算完它才决策）与**尾块**�
 
 | | diffusers v0.40 | SGLang Diffusion v0.5.19 | vLLM-Omni v0.28 | xDiT |
 |---|---|---|---|---|
-| 接口 | `model.enable_cache(FirstBlockCacheConfig(threshold=0.05))`；`TaylorSeerCacheConfig`、`MagCacheConfig`、`FasterCacheConfig`、`PyramidAttentionBroadcastConfig` | 原生：按请求 `--enable-cache-dit` + `--cache-dit-params`（`SGLANG_CACHE_DIT_*` 为服务默认）<br/>`--enable-teacache`<br/>diffusers 后端：`--cache-dit-config` | `--cache-backend teacache / magcache / cache_dit`；`DiffusionCacheConfig(rel_l1_thresh=0.2)` | `--use_teacache` / `--use_fbcache`；`xfuser/model_executor/cache/` |
-| 位置 | `hooks/first_block_cache.py`（`FBCHeadBlockHook` / `FBCBlockHook`）、`taylorseer_cache.py`、`mag_cache.py`、`_common.py`（`TransformerBlockRegistry`） | `runtime/cache/teacache.py`（`TeaCacheMixin`）、`cache_dit_integration.py`、`spectrum.py` | `diffusion/cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`（`hook.py`、`extractors.py`、`coefficient_estimator.py`）、`magcache/`、`cachedit/` | `xfuser/core/cache_manager/cache_manager.py`、`model_executor/cache/adapters/` |
-| 状态管理 | `StateManager`，按 CFG 上下文切换 | 按请求的 `TeaCacheContext` | `state.py`，CFG-aware | — |
-| 与 SP 的一致性 | 单卡库，不涉及 | 内部处理 | 内部处理 | 内部处理 |
-| 系数 | `MagCacheConfig` 需 `mag_ratios`；TeaCache 系数在模型适配里 | 模型 sampling presets | `_MODEL_COEFFICIENTS`（FLUX、Qwen-Image、Z-Image…）+ 在线估计器 | 模型配置 |
-| 互斥 | — | 与 breakable CUDA graph 互斥；TeaCache 与 Spectrum 互斥 | — | — |
+| 接口 | `model.enable_cache(FirstBlockCacheConfig(threshold=0.05))`；`TaylorSeerCacheConfig`、`MagCacheConfig`、`FasterCacheConfig`、`PyramidAttentionBroadcastConfig` | 原生：按请求 `--enable-cache-dit` + `--cache-dit-params`（`SGLANG_CACHE_DIT_*` 为服务默认）<br/>`--enable-teacache`<br/>diffusers 后端：`--cache-dit-config` | `--cache-backend tea_cache / mag_cache / cache_dit / step_cache` + `--cache-config`（JSON，如 `{"rel_l1_thresh": 0.2}`） | `--cache_method teacache / fbcache / dbcache` + `--cache_config`（`--use_teacache` / `--use_fbcache` 已废弃） |
+| 位置 | `hooks/first_block_cache.py`（`FBCHeadBlockHook` / `FBCBlockHook`）、`taylorseer_cache.py`、`mag_cache.py`、`_helpers.py`（`TransformerBlockRegistry`） | `runtime/cache/teacache.py`（`TeaCacheMixin`）、`cache_dit_integration.py`、`spectrum.py` | `diffusion/cache/base.py`（`CacheBackend`、`CachedTransformer`）、`teacache/`（`hook.py`、`extractors.py`、`coefficient_estimator.py`）、`magcache/`、`cachedit/`、`stepcache/` | `xfuser/model_executor/cache/utils.py`（`TeaCachedTransformerBlocks`、`FBCachedTransformerBlocks`）、`adapters/`（`flux.py`、`flux2.py`、`cache_dit.py`）、`presets.py`（`DBCachePreset`） |
+| 状态管理 | `StateManager`，按 CFG 上下文切换 | `TeaCacheMixin` 的成员状态，第 0 步 `reset_teacache_state()`；每步的 `TeaCacheContext` 带 `is_cfg_negative` | `teacache/state.py`，CFG-aware | `CacheState` / `CacheContext` |
+| 与 SP 的一致性 | hook 内无跨卡同步 | Cache-DiT 的残差差在 SP / TP 组内 all-reduce 取平均（`cache_dit_integration.py`） | 部分 extractor 在 SP 组内 all-reduce 取 MAX 同步决策（任一卡要全算就都全算） | `CachedTransformerBlocks.all_reduce` 取平均后比阈值 |
+| 系数 | `MagCacheConfig` 需 `mag_ratios`（`mag_cache.py` 附 `FLUX_MAG_RATIOS`）；无 TeaCache | 各模型 sampling params 里的 `TeaCacheParams`（`configs/sample/wan.py`、`hunyuan.py`、`zimage.py`） | `teacache/config.py` 的 `_MODEL_COEFFICIENTS`（FLUX、Qwen-Image、Z-Image…）+ 离线拟合工具 `TeaCacheCoefficientEstimator` | `CacheContext` 内置 FLUX 系数 |
+| 互斥 | — | 开 breakable CUDA graph 时 Cache-DiT 被关闭；TeaCache 与 Spectrum 互斥 | — | — |
 
 Table: 跨步缓存在四个引擎里的实现对照
 
-四个实现的形态相同，说明这一族已经稳定：**hook + 状态 + 阈值**。Cache-DiT 作为独立库（vipshop/cache-dit）被 SGLang 与 vLLM-Omni 同时集成，正在成为这一族的事实标准接口。
+四个实现的形态相同，说明这一族已经稳定：**hook + 状态 + 阈值**。Cache-DiT 作为独立库（vipshop/cache-dit）被 SGLang、vLLM-Omni 与 xDiT（`--cache_method dbcache`）同时集成，正在成为这一族的事实标准接口。
 
 ### 3. 实践建议
 
