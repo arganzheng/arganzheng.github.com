@@ -283,11 +283,11 @@ Table: Prefill 与 Decode 一个 step 的算术强度
 
 ## 九、自测
 
-1. Llama-3-70B（80 层、8 个 KV head、head dim 128、BF16）每 token 的 KV 多大？一个 2000 token prompt + 300 token 输出的请求峰值 KV 多大？
+1. Llama-3-70B（80 层、8 个 KV head、head dim 128、BF16）每 token 的 KV 多大？一个 2050 token prompt + 300 token 输出的请求峰值 KV 多大？
 
    <details markdown="1"><summary>答案</summary>
 
-   $$2 \times 80 \times 8 \times 128 \times 2$$ B = 320 KB / token；2300 × 320 KB ≈ 734 MB。一张 80 GB 的 H100 扣掉权重（TP8 每卡 17.5 GB）后大约能放几十个这样的请求。
+   $$2 \times 80 \times 8 \times 128 \times 2$$ B = 320 KB / token；2350 × 320 KB ≈ 734 MB。TP=8 下 KV 也按卡切分，每卡约 94 MB；一张 80 GB 的 H100 扣掉权重（每卡 17.6 GB）和运行时开销后约有 51 GB 留给 KV 池，大约放得下 540 个这样的请求。
 
    </details>
 

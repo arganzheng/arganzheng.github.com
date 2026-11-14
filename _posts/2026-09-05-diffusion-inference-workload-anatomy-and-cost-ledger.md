@@ -65,7 +65,7 @@ Table: FLUX.1-dev 一次生成三段的账
 三个结论：
 
 - **算力全在 DiT**。文本编码器与 VAE 加起来不到 1% 的 FLOPs、3% 的时间。后面八篇的所有"加速"都是在加速 DiT 的那 28 次前向；文本编码器与 VAE 只在显存（它们的权重要不要常驻）与 VAE 解码的激活峰值上出现。
-- **一次 DiT 前向就是 compute-bound**。74 TFLOPs 除以读一遍 22 GiB 权重，算术强度 3,100 FLOP/字节，H100 的拐点是 295。不需要 batch，单请求就在算力屋顶上——这是与 LLM decode（强度 ≈ 2，batch 到几百才到拐点）最根本的差别。
+- **一次 DiT 前向就是 compute-bound**。74 TFLOPs 除以读一遍 22 GiB 权重，算术强度 3,100 FLOP/字节，H100 的拐点是 295。不需要 batch，单请求就在算力屋顶上——这是与 LLM decode（强度 ≈ 1，batch 到约 300 才到拐点）最根本的差别。
 - **图像模型是 GEMM 负载**：4608 个 token 的 attention 只占每步 FLOPs 的 20%，其余是线性层。到视频的 75,600 个 token 时这个比例翻过来（72%），负载变成 attention 负载——第四篇的主题。
 
 ### 2. 三本账：FLOP、字节、秒
@@ -470,7 +470,7 @@ $$
 \text{算术强度} = \frac{\text{FLOPs}_\text{fwd}}{\text{权重字节}} = \frac{2 P_\text{tok} N + 4 L N^2 d}{2 P} \approx \frac{P_\text{tok}}{P} \cdot N \approx 3{,}100 \ \text{FLOP/字节}
 $$
 
-H100 的拐点是 $$989 \text{ TFLOPS} / 3.35 \text{ TB/s} = 295$$。3,100 在拐点右边十倍——**算力屋顶**。对照 LLM decode：每生成一个 token 读一遍权重、做 $$2P$$ FLOPs，强度 $$= 2 \cdot (\text{batch})$$，batch 1 时是 2，要到 batch 150 才到拐点。
+H100 的拐点是 $$989 \text{ TFLOPS} / 3.35 \text{ TB/s} = 295$$。3,100 在拐点右边十倍——**算力屋顶**。对照 LLM decode：每生成一个 token 读一遍权重、做 $$2P$$ FLOPs、读 $$2P$$ 字节（BF16 每参数 2 字节），强度 $$= 1 \cdot (\text{batch})$$，batch 1 时是 1，要到 batch 约 295 才到拐点。
 
 ```mermaid
 %% 图：H100 roofline 上的位置：LLM decode 在带宽屋顶，DiT 一次前向强度 3,100 在算力屋顶，视频 DiT 更深
@@ -553,7 +553,7 @@ Table: 五个模型三段的时间
 | 权重 | 14 GiB | 31.5 GiB（DiT 22 GiB） | 2× |
 | 跨步状态 | KV cache，随上下文线性增长 | 无 | — |
 | 每步形态 | 1 个 token，读一遍权重 | 4608 个 token，读一遍权重 | — |
-| 算术强度 | 2 | 3,100 | 1500× |
+| 算术强度 | 1 | 3,100 | 3100× |
 | 瓶颈 | 带宽 | 算力 | — |
 | 每步时间 | 6 ms（14 GiB / 3.35 TB/s / 0.7） | 167 ms | — |
 | 步数 | 1000 | 28 | — |
@@ -695,7 +695,7 @@ FLUX 默认账的输出（节选）：
 | 视频 | attention 占比随 $$N$$ 翻转 | Wan 72%、HunyuanVideo 87%；一步 6.5–12 P |
 | 显存 | 权重 + 激活（随 $$N$$ 线性，无 KV）+ VAE 解码峰值 | 31.5 GiB + 270 MiB + 2.0 GiB；Wan 激活 14 GiB、VAE 107 GiB |
 | 三段不必同时在卡 | 文本编码器算完可让出；VAE 最后才要 | DiT 段只需 22.5 GiB |
-| roofline | 强度 $$\approx \frac{P_\text{tok}}{P} N$$，单请求就 compute-bound | 3,100 vs 拐点 295；LLM decode 是 2 |
+| roofline | 强度 $$\approx \frac{P_\text{tok}}{P} N$$，单请求就 compute-bound | 3,100 vs 拐点 295；LLM decode 是 1 |
 | 每步时间 | $$g \cdot \text{FLOPs}_\text{fwd} / (\text{峰值} \cdot \eta)$$ | 167 ms（$$\eta$$ 0.45）；实测 eager 0.31、compile 0.49 |
 | 与 LLM | FLOPs 高两个量级、时间相近、瓶颈相反、时长可预测 | 150× FLOPs，0.8× 时间 |
 | 放大器 | 分辨率（$$N^2$$）、帧数（$$N^2$$）、步数（线性）、CFG（×2） | 2048² 是 1024² 的 5.6×<br/>129 帧是 17 帧的 21×<br/>4 步是 28 步的 1/7 |
@@ -749,7 +749,7 @@ $$
 
    <details markdown="1">
    <summary>答案</summary>
-   DiT 一次前向的算术强度约 3,100 FLOP/字节，在 H100 拐点（295）之上，时间由 FLOPs / (峰值 × MFU) 决定；LLM decode 的强度是 2，时间由每步读 14 GiB 权重的带宽决定，1000 步 × 6 ms。batch 2：LLM 每步仍读一遍权重、服务两个请求，吞吐约 2 倍；DiT 每个请求的 FLOPs 独立、已在算力屋顶，batch 2 ≈ 2 倍时间，吞吐不变。详见[第六章](#六秒的账为什么单请求就-compute-bound)、[第七章](#七与-llm-推理的对照)。
+   DiT 一次前向的算术强度约 3,100 FLOP/字节，在 H100 拐点（295）之上，时间由 FLOPs / (峰值 × MFU) 决定；LLM decode 的强度是 1，时间由每步读 14 GiB 权重的带宽决定，1000 步 × 6 ms。batch 2：LLM 每步仍读一遍权重、服务两个请求，吞吐约 2 倍；DiT 每个请求的 FLOPs 独立、已在算力屋顶，batch 2 ≈ 2 倍时间，吞吐不变。详见[第六章](#六秒的账为什么单请求就-compute-bound)、[第七章](#七与-llm-推理的对照)。
    </details>
 
 5. HunyuanVideo 720p 129 帧的 VAE 解码只有 571 TFLOPs（不到总 FLOPs 的 0.1%），为什么它是最容易 OOM 的一段？不分块时峰值大约多少？

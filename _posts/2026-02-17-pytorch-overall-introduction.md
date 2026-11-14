@@ -847,7 +847,7 @@ Dispatcher 不直接完成加法，而是依据 Tensor 携带的分发键和线�
 
 在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作：先选中 Autograd 处理者，再由它通过 Redispatch 调用 CUDA 后端；后端调用返回后，Autograd 包装层为输出关联梯度历史。
 
-为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（第三篇的 `grad_fn`），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 的角色像 Java 里 AOP 的 around advice：它包在真正实现的外面，进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 做的就是把这一层跳过：它不改 Tensor 的 key，而是在线程局部的 exclude 集里排除 Autograd，第一轮查表直接落到 CUDA（第五篇讲 include / exclude 的机制）——少了记图这一层，也就少了它的开销。
+为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（第三篇的 `grad_fn`），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 的角色像 Java 里 AOP 的 around advice：它包在真正实现的外面，进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 并不跳过这一层：它只把线程局部的梯度模式关掉，第一轮查表仍然落到 Autograd 包装层，包装层发现不需要记图，就直接放行给后端——省掉的是建图与保存输入，不是这一次分发。真正在线程局部的 exclude 集里排除 Autograd、让第一轮查表直接落到 CUDA 的是 `torch.inference_mode()`（第五篇讲 include / exclude 的机制）。
 
 ```mermaid
 flowchart TB

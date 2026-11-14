@@ -131,7 +131,7 @@ updated: 2026-11-14
 - token 数公式：$$N = \frac{H}{f\,p} \cdot \frac{W}{f\,p} \cdot \frac{F}{f_t\,p_t}$$，FLUX 的 1024² 是 4096 个图像 token 加 512 个进联合 attention 的文本 token；Wan 的 720p 81 帧是 75,600 个；
 - 每步 FLOPs = 线性项 $$2 P_\text{tok} N$$ + attention 项 $$4 L N^2 d$$（$$P_\text{tok}$$ 是一个 token 真正经过的参数量，FLUX 的 6.45B 而不是 11.9B）：FLUX 上 attention 占 20%，Wan 上占 72%——**图像模型是 GEMM 负载，视频模型是 attention 负载**；
 - 显存：权重（FLUX 12B bf16 22 GiB + T5 9 GiB）+ 激活（FlashAttention 下随 $$N$$ 线性，几百 MiB 到十几 GiB）+ VAE 解码的峰值（720p 81 帧不分块要上百 GiB）——**没有 KV cache**；
-- roofline：一次 DiT 前向的算术强度是几千到几十万 FLOP/字节，H100 的拐点是 295——单请求就在算力屋顶上，与 LLM decode 的每 token 读一遍权重（强度 ≈ 2）相反；
+- roofline：一次 DiT 前向的算术强度是几千到几十万 FLOP/字节，H100 的拐点是 295——单请求就在算力屋顶上，与 LLM decode 的每 token 读一遍权重（强度 ≈ 1）相反；
 - 时间模型：每步 = FLOPs / (峰值 × MFU)，FLUX 28 步在 H100 上 eager 6.7 s、编译后 4.3 s（xDiT 实测，MFU 0.31 / 0.49），Wan 14B 50 步单卡二十几分钟；
 - 与 LLM 的对照表：FLOPs 高 2–5 个量级、时间相近或更长、瓶颈在算力、batch 无益；
 - 四个放大器：分辨率（$$N \propto$$ 像素，attention $$\propto N^2$$）、帧数、步数、CFG。

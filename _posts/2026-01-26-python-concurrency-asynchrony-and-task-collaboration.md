@@ -167,11 +167,11 @@ Python 3.13 引入了实验性的 free-threaded 模式（PEP 703），允许多�
 python3.13t script.py
 ```
 
-截至目前，这一特性仍处于实验阶段：
+3.13 里它是实验特性；从 Python 3.14 起（PEP 779）它成为官方支持的构建，但仍是可选构建，默认的解释器照旧带 GIL。换用之前要考虑三点：
 
-- 许多第三方 C 扩展尚未适配；
-- 部分场景下单线程性能可能略有下降；
-- 生产环境建议继续使用默认的 GIL 模式。
+- 部分第三方 C 扩展尚未适配；
+- 单线程性能略有下降；
+- 默认构建仍带 GIL，生产环境换用前要先确认依赖的扩展都已支持 free-threaded。
 
 但这是 Python 并发模型的重要演进方向。对于 Java 开发者来说，可以把 free-threaded Python 理解为 Python 正在向 Java 的真正多线程并行能力靠拢。
 
@@ -1854,10 +1854,11 @@ class BatchProcessor:
         infer_batch: Callable[[list[T]], Awaitable[list[R]]],
         max_batch_size: int = 16,
         max_wait_seconds: float = 0.01,
+        max_queue_size: int = 1024,
     ) -> None:
         self.queue: asyncio.Queue[
             tuple[T, asyncio.Future[R]]
-        ] = asyncio.Queue()
+        ] = asyncio.Queue(maxsize=max_queue_size)
         self.infer_batch = infer_batch
         self.max_batch_size = max_batch_size
         self.max_wait_seconds = max_wait_seconds
@@ -1914,6 +1915,7 @@ class BatchProcessor:
 这个例子体现了几个重要思想：
 
 - 请求通过队列进入推理阶段；
+- 队列有界（`maxsize`）：推理跟不上时，`submit` 会在 `await self.queue.put()` 处挂起，压力回传给调用方，而不是让队列无限增长；
 - 推理端按照最大批量收集请求；
 - 如果批量未满，也只等待有限时间；
 - 每个请求通过自己的 Future 获得结果；

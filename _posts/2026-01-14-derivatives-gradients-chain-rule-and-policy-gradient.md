@@ -568,6 +568,8 @@ Table: 两个 run 的奖励、val loss 与生成样本
 
    全写空格（或几乎全是空格）——奖励最大的输出往往是退化的。设计奖励时要问："**让这个分数最高的输出是什么？那是要的东西吗？**"如果答案是"不想"，要么改奖励（比如加长度、流畅度的约束），要么靠 KL 惩罚把模型按在参考分布附近。
 
+   </details>
+
 最后一篇讲统计推断与拟合：怎么判断评测上差 3 个点是不是噪声，以及 scaling law 的曲线是怎么从一组实验点拟出来的。
 
 配套代码：[`math-for-ai/07_gradients_and_policy_gradient.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_gradients_and_policy_gradient.py)（割线、梯度场、链式法则三方对拍、$$p - y$$、玩具策略的全部实验、学习率轨迹、拉格朗日）与 [`07_rl_on_nanogpt.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/math-for-ai/07_rl_on_nanogpt.py)（第八章，需要先按《Transformer 原理与实现》第四篇训出莎士比亚 checkpoint）；输出在 `expected/`。

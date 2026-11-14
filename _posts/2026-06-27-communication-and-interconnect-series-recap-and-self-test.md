@@ -108,7 +108,7 @@ Table: 本文的章节安排
 - QP 状态机 RESET → INIT → RTR → RTS；`NCCL_IB_TIMEOUT=20` 一次 4.3 s × `RETRY_CNT=7` ≈ 30 s 后 status=12；status=13（RNR）= 对端没 post recv，通常对端已 hang。
 - GDR 两条路：`nvidia-peermem` 或 DMA-BUF；Ampere 接收后需 RDMA READ flush，Hopper 不需要；RoCE 要选对 GID 索引与 `NCCL_IB_TC`。
 
-**常见误解**："`GPU Direct RDMA Disabled (distance 4 > 3)` 就设 `NCCL_NET_GDR_LEVEL=SYS`"——先用 `ib_write_bw --use_cuda` 证明跨 root complex 的路径能跑，多数该修的是 GPU–NIC 亲和。另一个："RDMA 就是快的 TCP"——它的程序结构必须是初始化时连接与注册、数据面只 post 与 poll。
+**常见误解**："`GPU Direct RDMA Disabled (distance 8 > 5)` 就设 `NCCL_NET_GDR_LEVEL=SYS`"——先用 `ib_write_bw --use_cuda` 证明跨 root complex 的路径能跑，多数该修的是 GPU–NIC 亲和。另一个："RDMA 就是快的 TCP"——它的程序结构必须是初始化时连接与注册、数据面只 post 与 poll。
 
 ### 4. 第四篇：NCCL 架构——拓扑探测、channel、算法与协议
 
@@ -208,7 +208,7 @@ Table: 本文的章节安排
 
 ### 3. 拓扑等级与 GDR 的条件：一组词在五篇里的位置
 
-第二篇引入 `nvidia-smi topo -m` 的六个等级 `NV#` / `PIX` / `PXB` / `PHB` / `NODE` / `SYS`，并说它们不只是"看看"，而是 NCCL 决策的输入。第三篇讲 GPUDirect RDMA 的前提正是这组词：GPU 与网卡在同一 PCIe switch 下（`PIX` / `PXB`）DMA 在 switch 内折返，跨 root complex 带宽可能只有几 GB/s、有的平台不支持 P2P，所以 `NCCL_NET_GDR_LEVEL` 默认 `PXB`，日志 `GPU Direct RDMA Disabled (distance 4 > 3)` 就是这条规则的输出。第四篇把它变成 NCCL 内部的 `LOC < NVL < NVB < C2C < PIX < PXB < P2C < PXN < PHB < SYS`，路径类型取沿途最差一段，`NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 用同一组词控制某种路径最多能跨多远。
+第二篇引入 `nvidia-smi topo -m` 的六个等级 `NV#` / `PIX` / `PXB` / `PHB` / `NODE` / `SYS`，并说它们不只是"看看"，而是 NCCL 决策的输入。第三篇讲 GPUDirect RDMA 的前提正是这组词：GPU 与网卡在同一 PCIe switch 下（`PIX` / `PXB`）DMA 在 switch 内折返，跨 root complex 带宽可能只有几 GB/s、有的平台不支持 P2P，所以 `NCCL_NET_GDR_LEVEL` 默认 `PXB`，日志 `GPU Direct RDMA Disabled (distance 8 > 5)` 就是这条规则的输出。第四篇把它变成 NCCL 内部的 `LOC < NVL < NVB < C2C < PIX < PXB < P2C < PXN < PHB < SYS`，路径类型取沿途最差一段，`NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 用同一组词控制某种路径最多能跨多远。
 
 第六篇的决策树里，"多机远差于单机"第一层就是这组词：`via NET/IB/<dev>` 里的 dev 与 `topo -m` 对照、`GDRDMA` 有没有出现、`NCCL_IB_HCA` 有没有把管理网口混进来。第七篇 KV 传输慢的检查清单是同一套（`topo -mp`、`UCX_NET_DEVICES`、GDR 可用性），第八篇 DeepEP 把跨节点 token 先 RDMA 到同号 GPU 再 NVLink 转发，与第四篇的 PXN、第二篇的 rail-optimized 是同一件事——同编号 GPU 走同一台 leaf 一跳到达，跨 rail 的流量经 NVLink 转发。平台工程师给任务提的要求（每 GPU 一张网卡、GPU 与 NIC 同 switch、同号 GPU 同 rail、GPU–NIC 映射每台机器一致）全部可以从这组词推出来。
 

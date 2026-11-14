@@ -507,7 +507,7 @@ PCIe 上任何设备都可以向另一个设备的 BAR（Base Address Register�
 问题在于软件：`ibv_reg_mr` 拿到一个地址，要 pin 页、查物理地址。显存的虚拟地址在 CPU 的页表里没有物理页——它是 GPU 的地址空间。所以 RDMA 驱动需要一个"如何把这个地址翻译成 BAR1 里的总线地址"的插件，有两条路：
 
 - **`nvidia-peermem` 内核模块**（旧名 `nv_peer_mem`）：向 RDMA 子系统注册一个 peer memory client；`ibv_reg_mr` 收到显存地址时，`ib_core` 发现不是普通内存，调 `nvidia-peermem` → NVIDIA 驱动的 `nvidia_p2p_get_pages` 拿到 BAR1 里的物理页（2 MB 粒度）→ 写进 MTT。对应用透明：还是 `ibv_reg_mr(pd, cudaMalloc 的指针, ...)`。要求 `nvidia-peermem` 模块已加载（`lsmod | grep peermem`），且它是 out-of-tree 的，随 NVIDIA 驱动一起编译。
-- **DMA-BUF**：Linux 内核标准的跨设备 buffer 共享机制。应用调 `cuMemGetHandleForAddressRange(&fd, ptr, size, CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0)` 让 NVIDIA 驱动为这段显存导出一个 dma-buf 文件描述符，再 `ibv_reg_dmabuf_mr(pd, offset, length, iova, fd, access)` 让网卡驱动 attach 这个 dma-buf、拿到映射。不需要 `nvidia-peermem`，走内核主线 API（内核 5.12+，rdma-core 1.12+ 即 `IBVERBS_1.12` 符号版本，CUDA 11.7+，NVIDIA 开源内核模块或 R515+ 驱动）。这是未来的方向，也是容器与不能加载第三方模块的环境里的唯一选择。
+- **DMA-BUF**：Linux 内核标准的跨设备 buffer 共享机制。应用调 `cuMemGetHandleForAddressRange(&fd, ptr, size, CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD, 0)` 让 NVIDIA 驱动为这段显存导出一个 dma-buf 文件描述符，再 `ibv_reg_dmabuf_mr(pd, offset, length, iova, fd, access)` 让网卡驱动 attach 这个 dma-buf、拿到映射。不需要 `nvidia-peermem`，走内核主线 API（内核 5.12+，rdma-core 34+，对应符号版本 `IBVERBS_1.12`，CUDA 11.7+，NVIDIA 开源内核模块或 R515+ 驱动）。这是未来的方向，也是容器与不能加载第三方模块的环境里的唯一选择。
 
 两条路从同一个显存指针出发，在不同层分叉，最后汇合到同一张网卡翻译表；NCCL 的选择顺序是先试 DMA-BUF、失败再落到 peermem：
 
@@ -566,9 +566,9 @@ if (distance > netGdrLevel) {
 INFO(NCCL_GRAPH|NCCL_NET,"GPU Direct RDMA Enabled for GPU %d / HCA %lx (distance %d <= %d), read %d mode %s", ...);
 ```
 
-`distance` 是上一篇 `nvidia-smi topo -m` 的那套等级（`LOC` < `NVL` < `PIX` < `PXB` < `PHB` < `SYS`，第四篇讲 `paths.cc` 怎么算出来），默认阈值 `PATH_PXB`：GPU 与网卡在同一 PCIe switch 下（`PIX`）或经过多层 switch 但不经过 CPU（`PXB`）才开 GDR；要经过 CPU root complex（`PHB`）或跨 socket（`SYS`）就不开，退回主机内存 staging。原因是第二章表格最后一行：跨 root complex 的 P2P 事务在很多平台上带宽只有几 GB/s，甚至比走主机内存还慢，或者干脆不工作（IOMMU / ACS 配置）。`NCCL_NET_GDR_LEVEL=SYS` 可以强制开，只应在确认硬件路径可用（用 `ib_write_bw --use_cuda` 测过）后使用。
+`distance` 是上一篇 `nvidia-smi topo -m` 的那套等级（NCCL 2.28 的 `topo.h` 里从近到远是 `LOC` 0 < `NVL` 1 < `NVB` 2 < `C2C` 3 < `PIX` 4 < `PXB` 5 < `P2C` 6 < `PXN` 7 < `PHB` 8 < `SYS` 9，第四篇讲 `paths.cc` 怎么算出来），默认阈值 `PATH_PXB`：GPU 与网卡在同一 PCIe switch 下（`PIX`）或经过多层 switch 但不经过 CPU（`PXB`）才开 GDR；要经过 CPU root complex（`PHB`）或跨 socket（`SYS`）就不开，退回主机内存 staging。原因是第二章表格最后一行：跨 root complex 的 P2P 事务在很多平台上带宽只有几 GB/s，甚至比走主机内存还慢，或者干脆不工作（IOMMU / ACS 配置）。`NCCL_NET_GDR_LEVEL=SYS` 可以强制开，只应在确认硬件路径可用（用 `ib_write_bw --use_cuda` 测过）后使用。
 
-日志里那一行 `GPU Direct RDMA Enabled for GPU 0 / HCA 0 (distance 2 <= 3)` 就是这个函数打的；看到 `Disabled ... (distance 4 > 3)` 说明 GPU 与网卡的亲和不对，去看 `nvidia-smi topo -mp`。
+日志里那一行 `GPU Direct RDMA Enabled for GPU 0 / HCA 0 (distance 4 <= 5)` 就是这个函数打的；看到 `Disabled ... (distance 8 > 5)` 说明 GPU 与网卡的亲和不对，去看 `nvidia-smi topo -mp`。
 
 ### 3. `NCCL_NET_GDR_READ`：发送方向为什么默认更谨慎
 
@@ -1011,7 +1011,7 @@ int main(int argc, char **argv) {
 
    </details>
 
-5. 日志出现 `GPU Direct RDMA Disabled for HCA 0 mlx5_0 (distance 4 > 3)`，该做什么、不该做什么？
+5. 日志出现 `GPU Direct RDMA Disabled for HCA 0 mlx5_0 (distance 8 > 5)`，该做什么、不该做什么？
 
    <details markdown="1"><summary>答案</summary>
 

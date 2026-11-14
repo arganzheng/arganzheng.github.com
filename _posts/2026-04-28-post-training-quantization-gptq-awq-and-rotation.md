@@ -211,7 +211,7 @@ $$
 \mathbb{E}[e^2] = \frac{1}{\Delta} \int_{-\Delta/2}^{\Delta/2} e^2 \, de = \frac{\Delta^2}{12}
 $$
 
-这是量化的基本公式。它说：误差方差与步长的平方成正比，步长与范围 $$\alpha$$ 成正比、与 $$2^b$$ 成反比。**每少 1 bit，步长约翻倍，误差方差约乘 4**（6 dB）——精确地说是格点数之比的平方：INT8 到 INT4 是 $$(255/15)^2 = 289$$ 而不是恰好 256，高位数下才趋近 $$4^{\Delta b}$$；且"误差在格内均匀"这个前提在 INT4（$$\Delta \approx 2\sigma$$）已经很勉强。
+这是量化的基本公式。它说：误差方差与步长的平方成正比，步长与范围 $$\alpha$$ 成正比、与 $$2^b$$ 成反比。**每少 1 bit，步长约翻倍，误差方差约乘 4**（6 dB）——精确地说是格点数之比的平方：INT8 到 INT4 是步长之比的平方 $$(127/7)^2 \approx 329$$ 而不是恰好 256，高位数下才趋近 $$4^{\Delta b}$$；且"误差在格内均匀"这个前提在 INT4（$$\Delta \approx 2\sigma$$）已经很勉强。
 
 ### 2. 裁剪与舍入的权衡
 
@@ -251,7 +251,7 @@ $$
 
 LLM 的权重矩阵每一行（或每一列）大致是高斯的，但有**重尾**：少数权重的绝对值是标准差的 10–20 倍。这些大权重不是噪声，它们对应重要的特征（Dettmers 等 2023 SpQR 的分析：约 1% 的权重是"敏感的"，它们集中在某些行与某些列上，且与激活离群通道相关）。
 
-一个 group（第三节）里如果有一个 $$15\sigma$$ 的权重，$$\alpha = 15\sigma$$，INT4 的 $$\Delta = 30\sigma / 15 = 2\sigma$$——**其他权重的舍入误差标准差是 $$2\sigma / \sqrt{12} \approx 0.58\sigma$$，与权重本身同量级**。这个 group 里的多数权重基本被毁了。INT8 下 $$\Delta = 30\sigma / 255 \approx 0.12\sigma$$，舍入误差 $$0.034\sigma$$，无所谓。这就是"INT8 RTN 够用、INT4 RTN 不够"的量化版本。
+一个 group（第三节）里如果有一个 $$15\sigma$$ 的权重，$$\alpha = 15\sigma$$，INT4 的 $$\Delta = 15\sigma / 7 \approx 2.14\sigma$$——**其他权重的舍入误差标准差是 $$2.14\sigma / \sqrt{12} \approx 0.62\sigma$$，与权重本身同量级**。这个 group 里的多数权重基本被毁了。INT8 下 $$\Delta = 15\sigma / 127 \approx 0.12\sigma$$，舍入误差 $$0.034\sigma$$，无所谓。这就是"INT8 RTN 够用、INT4 RTN 不够"的量化版本。
 
 ### 2. group size：范围的粒度
 
@@ -586,7 +586,7 @@ Table: Llama-3.1-70B 各量化配置的权重字节
 | 形式 | $$\hat w = s(q - z)$$；per-tensor / per-channel / per-group | INT4 g128 实为 4.16–4.25 bit；70B 141 → 37.5–40.6 GB |
 | 噪声 | 舍入误差方差 $$\Delta^2 / 12$$；每少 1 bit 方差 ×4 | 裁剪与舍入的权衡：高斯 4-bit 最优 $$\alpha \approx 2.5$$–$$3\sigma$$ |
 | 传播 | 输出误差 $$\text{tr}(E H E^\top)$$，$$H = \mathbb{E}[XX^\top]$$ | 激活大的通道上权重误差被放大——显著通道的根源 |
-| RTN 失败 | group 内一个 $$15\sigma$$ 权重让 INT4 的 $$\Delta = 2\sigma$$ | INT8 无所谓；per-group 128 是默认，元数据 +4% |
+| RTN 失败 | group 内一个 $$15\sigma$$ 权重让 INT4 的 $$\Delta \approx 2.1\sigma$$ | INT8 无所谓；per-group 128 是默认，元数据 +4% |
 | GPTQ | OBS：$$\delta^* = -\frac{w_q - Q(w_q)}{[H^{-1}]_{qq}} H^{-1}_{:,q}$$（拉格朗日推出） | 补偿靠通道相关性<br/>act-order<br/>校准集 128–512，阻尼 |
 | AWQ | 缩放 $$s_j = \text{mean}\lvert X_j \rvert^\alpha$$，group 内不成为最大值时该列误差 ÷ $$s_j$$ | 一阶、鲁棒<br/>与 GPTQ 精度相近<br/>可组合 |
 | 离群值 | 通道级（LayerNorm γ）与 massive activations（sink） | SmoothQuant 迁移通道级<br/>per-token 动态处理 massive<br/>W8A8 / FP8 接近无损 |
@@ -612,7 +612,7 @@ Table: 训练后量化的规则与公式小结
 
    <details markdown="1"><summary>答案</summary>
 
-   范围被拉到 $$\pm 15\sigma$$，16 个格点步长约 $$2\sigma$$——其余权重（绝大多数在 $$\pm 2\sigma$$ 内）只落在两三个格点上，几乎全被抹平。这是 RTN 到 4 bit 崩掉的机制。
+   范围被拉到 $$\pm 15\sigma$$，15 个格点、步长约 $$2.1\sigma$$——其余权重（绝大多数在 $$\pm 2\sigma$$ 内）只落在两三个格点上，几乎全被抹平。这是 RTN 到 4 bit 崩掉的机制。
 
    </details>
 
