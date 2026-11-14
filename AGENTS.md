@@ -1666,12 +1666,12 @@ How it is built (`_plugins/moments.rb`):
   Kubernetes v1.37.0, GPU Operator v26.7.0, k8s-device-plugin v0.20.0,
   Container Toolkit v1.20.0, DCGM Exporter 4.6.0-4.8.3, k8s-dra-driver-gpu
   v0.5.0, mig-parted v0.15.0, Network Operator v26.7.0,
-  k8s-rdma-shared-dev-plugin v1.5.4, Multus v4.3.0, Kueue v0.19.2, Volcano
+  k8s-rdma-shared-dev-plugin v1.5.4, Multus v4.3.1, Kueue v0.19.4, Volcano
   v1.15.2, Kubeflow Trainer v2.3.0, KubeRay v1.7.0, Slinky slurm-operator
   v1.2.2, JobSet v0.12.0, HAMi v2.10.0, KServe v0.20.0, LWS v0.10.0, GIE
-  v1.6.0, llm-d v0.9.0, llm-d-router v0.10.0, Triton v2.72.0, KEDA v2.20.2,
-  OpenCost v1.121.1; shallow clones `~/Code/<repo>-<tag>` (e.g.
-  `~/Code/kueue-v0.19.2`, `~/Code/triton-server-v2.72.0`), all citations
+  v1.6.1, llm-d v0.9.0, llm-d-router v0.10.0, Triton v2.72.0, KEDA v2.20.2,
+  OpenCost v1.121.2; shallow clones `~/Code/<repo>-<tag>` (e.g.
+  `~/Code/kueue-v0.19.4`, `~/Code/triton-server-v2.72.0`), all citations
   re-verified against them on 2026-11-14); series 12 also uses
   `../pytorch-v2.14.0`. Series 9 (RL 后训练基础设施) will pin verl v0.9.0 and
   reuse `../vllm-v0.27.1` / `../pytorch-v2.13.0` / `../Megatron-LM`. Series 2 pins PyTorch v2.10.0 /

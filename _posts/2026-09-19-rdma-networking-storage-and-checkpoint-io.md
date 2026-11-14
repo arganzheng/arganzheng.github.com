@@ -18,7 +18,7 @@ updated: 2026-11-14
 
 > **一个 8 节点 64 卡的训练任务，`nccl-tests` 在容器里测出的 all_reduce 带宽只有裸机的三分之一。从 Pod 的网络配置、device plugin 的资源分配、NCCL 的环境变量三个层面，各自可能出了什么问题？[^q0]**
 
-依照系列惯例，本篇不解释 NCCL 为什么选某条路径、不讲 RDMA verbs 与 IB/RoCE 的协议差别，只讨论如何让 NCCL 在容器里能选到 RDMA 这条路、如何从日志确认它选了。源码与 CRD 以 Multus CNI v4.3.0、k8s-rdma-shared-dev-plugin v1.5.4、NVIDIA Network Operator v26.7.0、NVIDIA GPU Operator v26.7.0 为准；NCCL 2.28.9 与 nccl-tests 2.18.3 只用到环境变量名、日志行与命令行；PyTorch v2.13.0 只用到 `torch.distributed.checkpoint` 的公开 API。存储产品（Lustre、Storage Scale、WEKA、BeeGFS、JuiceFS、Alluxio、Fluid、GPUDirect Storage）按公开文档描述定位，本篇不给任何实测数字。
+依照系列惯例，本篇不解释 NCCL 为什么选某条路径、不讲 RDMA verbs 与 IB/RoCE 的协议差别，只讨论如何让 NCCL 在容器里能选到 RDMA 这条路、如何从日志确认它选了。源码与 CRD 以 Multus CNI v4.3.1、k8s-rdma-shared-dev-plugin v1.5.4、NVIDIA Network Operator v26.7.0、NVIDIA GPU Operator v26.7.0 为准；NCCL 2.28.9 与 nccl-tests 2.18.3 只用到环境变量名、日志行与命令行；PyTorch v2.13.0 只用到 `torch.distributed.checkpoint` 的公开 API。存储产品（Lustre、Storage Scale、WEKA、BeeGFS、JuiceFS、Alluxio、Fluid、GPUDirect Storage）按公开文档描述定位，本篇不给任何实测数字。
 
 ## 一、总览
 
@@ -114,7 +114,7 @@ Table: overlay 与 RDMA 直通的对照
 
 ### 1. Multus 的位置：thin 与 thick
 
-Multus CNI 是一个"元插件"：kubelet 只认它一个 CNI，它再把 ADD/DEL 调用分发给默认网络插件和若干附加网络插件（delegate）。v4.3.0 有两种部署形态（`docs/thick-plugin.md`）：
+Multus CNI 是一个"元插件"：kubelet 只认它一个 CNI，它再把 ADD/DEL 调用分发给默认网络插件和若干附加网络插件（delegate）。v4.3.1 有两种部署形态（`docs/thick-plugin.md`）：
 
 - **thin**：`/opt/cni/bin/multus` 是一个完整的二进制，每次 CNI 调用都由它直接读 kubeconfig、查 API、调 delegate；部署文件 `deployments/multus-daemonset.yml`。
 - **thick**：节点上的 `multus-shim` 只负责把 CNI 参数通过 unix socket 转给常驻的 `multus-daemon`，后者取 `NetworkAttachmentDefinition`、算 `RuntimeConfig`、调 delegate；部署文件 `deployments/multus-daemonset-thick.yml`，daemon 配置默认在 `/etc/cni/net.d/multus.d/daemon-config.json`。
@@ -129,7 +129,7 @@ Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有三�
 
 ### 2. `NetworkAttachmentDefinition` 与三个注解
 
-附加网络用 CRD `NetworkAttachmentDefinition`（API 组 `k8s.cni.cncf.io/v1`，Network Plumbing WG 的事实标准）描述，`spec.config` 就是一段 CNI 配置 JSON。Pod 用注解引用它。Multus v4.3.0 用到三个关键注解（前两个是 `pkg/k8sclient/k8sclient.go` 里的常量，`network-status` 来自 network-attachment-definition-client 的 `NetworkStatusAnnot`，由 `SetPodNetworkStatusAnnotation` 写回）：
+附加网络用 CRD `NetworkAttachmentDefinition`（API 组 `k8s.cni.cncf.io/v1`，Network Plumbing WG 的事实标准）描述，`spec.config` 就是一段 CNI 配置 JSON。Pod 用注解引用它。Multus v4.3.1 用到三个关键注解（前两个是 `pkg/k8sclient/k8sclient.go` 里的常量，`network-status` 来自 network-attachment-definition-client 的 `NetworkStatusAnnot`，由 `SetPodNetworkStatusAnnotation` 写回）：
 
 - **k8s.v1.cni.cncf.io/networks**：Pod 上：要挂哪些附加网络。逗号分隔的名字，或 JSON 数组（可带 interface、ips、mac、gateway）
 - **k8s.v1.cni.cncf.io/resourceName**：NAD 上：这个网络要消耗哪个 device plugin 资源；Multus 据此把 kubelet 分配的设备信息传给 delegate
@@ -1030,7 +1030,7 @@ Table: 引擎需求 → K8s 空缺 → 平台机制 → 代价：网络与存储
 
 | 项目 | 路径 | 关键符号 / 内容 |
 |---|---|---|
-| Multus CNI v4.3.0 | `pkg/k8sclient/k8sclient.go` | `networkAttachmentAnnot`（`k8s.v1.cni.cncf.io/networks`）· `resourceNameAnnot`（…`/resourceName`）· `defaultNetAnnot`<br/>`GetNetAttachDef`<br/>`getKubernetesDelegate` 读 `resourceName` |
+| Multus CNI v4.3.1 | `pkg/k8sclient/k8sclient.go` | `networkAttachmentAnnot`（`k8s.v1.cni.cncf.io/networks`）· `resourceNameAnnot`（…`/resourceName`）· `defaultNetAnnot`<br/>`GetNetAttachDef`<br/>`getKubernetesDelegate` 读 `resourceName` |
 | ^^ | `docs/thick-plugin.md` · `deployments/multus-daemonset{,-thick}.yml` | `thin/thick` 两种形态；`daemon-config.json` |
 | ^^ | `docs/configuration.md` | `clusterNetwork/delegates` · `namespaceIsolation` · `readinessindicatorfile` |
 | ^^ | `docs/how-to-use.md` · `examples/macvlan-pod.yml` | NAD 与 networks 注解的写法（JSON 形式含 `interface/ips/gateway`） |

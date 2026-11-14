@@ -386,9 +386,9 @@ Table: 原生 Kubernetes 的三种空缺
 它内部又分四个子层，自下而上对应第二到第五篇：
 
 - **设备层**（第二篇）：让容器看到 GPU。驱动与 CUDA 的兼容契约、Container Toolkit 把设备文件与用户态库注入容器、device plugin 或 DRA 把设备变成可调度的资源、GPU Operator 把这一切装到每个节点、镜像里放什么不放什么。GPU Operator v26.7.0 的 `ClusterPolicy`（`api/nvidia/v1/clusterpolicy_types.go` 的 `ClusterPolicySpec`）是这一层的总开关。
-- **调度层**（第三篇）：决定哪组 Pod 在什么时候上哪些节点。Kueue v0.19.2 是"调度器之前的配额闸门"——`ClusterQueue` / `LocalQueue` / `ResourceFlavor` / cohort（`apis/kueue/v1beta2/clusterqueue_types.go` 的 `ClusterQueueSpec.CohortName`）决定一个 Workload 何时被准入，准入后交给 kube-scheduler；Volcano v1.15.2 是"一个更懂批处理的调度器"——`PodGroup`（`MinMember`）与 `Queue`（`capability` / `deserved` / `guarantee`）加 action-plugin 流水线，替换 kube-scheduler 做 gang 与公平分享。任务的表达由 Kubeflow Trainer v2.3.0 的 `TrainJob` / `TrainingRuntime`（`pkg/apis/trainer/v1alpha1`，基于 JobSet）与 KubeRay v1.7.0 的 `RayJob`（`ray-operator/apis/ray/v1`）承担。
+- **调度层**（第三篇）：决定哪组 Pod 在什么时候上哪些节点。Kueue v0.19.4 是"调度器之前的配额闸门"——`ClusterQueue` / `LocalQueue` / `ResourceFlavor` / cohort（`apis/kueue/v1beta2/clusterqueue_types.go` 的 `ClusterQueueSpec.CohortName`）决定一个 Workload 何时被准入，准入后交给 kube-scheduler；Volcano v1.15.2 是"一个更懂批处理的调度器"——`PodGroup`（`MinMember`）与 `Queue`（`capability` / `deserved` / `guarantee`）加 action-plugin 流水线，替换 kube-scheduler 做 gang 与公平分享。任务的表达由 Kubeflow Trainer v2.3.0 的 `TrainJob` / `TrainingRuntime`（`pkg/apis/trainer/v1alpha1`，基于 JobSet）与 KubeRay v1.7.0 的 `RayJob`（`ray-operator/apis/ray/v1`）承担。
 - **切分层**（第四篇）：让一张卡被多个 Pod 用。MIG 是硬件分区（GPU Operator 的 MIG Manager 按 `nvidia.com/mig.config` 节点标签配置）、时间片与 MPS 是 device plugin 的 `sharing` 配置（k8s-device-plugin v0.20.0 的 `api/config/v1`）、HAMi v2.10.0 是软件层的显存与算力限制。
-- **网络与存储层**（第五篇）：Network Operator v26.7.0 的 `NicClusterPolicy` 装 RDMA 驱动栈、Multus v4.3.0 给 Pod 第二张网卡、k8s-rdma-shared-dev-plugin v1.5.4 把 RDMA 设备作为资源分配；存储通过 CSI 接并行文件系统、对象存储与缓存层。
+- **网络与存储层**（第五篇）：Network Operator v26.7.0 的 `NicClusterPolicy` 装 RDMA 驱动栈、Multus v4.3.1 给 Pod 第二张网卡、k8s-rdma-shared-dev-plugin v1.5.4 把 RDMA 设备作为资源分配；存储通过 CSI 接并行文件系统、对象存储与缓存层。
 
 ### 2. 交付层：输入与输出
 
@@ -400,8 +400,8 @@ Table: 原生 Kubernetes 的三种空缺
 三个子层自内向外对应第六到第八篇：
 
 - **Serving 层**（第六篇）：副本的生命周期。LeaderWorkerSet v0.10.0 的 `LeaderWorkerSet`（`api/leaderworkerset/v1/leaderworkerset_types.go` 的 `LeaderWorkerSetSpec.LeaderWorkerTemplate`）表达多 Pod 副本；KServe v0.20.0 的 `InferenceService`（`serving.kserve.io/v1beta1`）面向传统模型、`LLMInferenceService`（`serving.kserve.io/v1alpha1` 与 `v1alpha2`，后者是存储版本，`pkg/apis/serving/v1alpha2/llm_inference_service_types.go`）面向 LLM 并内置 llm-d 的架构；llm-d v0.9.0 是 vLLM 与 Kubernetes 社区共同推动的 LLM Serving 栈；KubeRay 的 `RayService` 把 Ray Serve 放到 Kubernetes 上；KEDA v2.20.2 的 `ScaledObject`（`apis/keda/v1alpha1/scaledobject_types.go`，`triggers` 字段接 Prometheus scaler）按引擎指标扩缩容。
-- **网关层**（第七篇）：请求的路由与治理。Gateway API Inference Extension v1.6.0 的 `InferencePool`（`inference.networking.k8s.io/v1`，`api/v1/inferencepool_types.go`，`EndpointPickerRef` 字段指向 EPP）替代 Service 作为 `HTTPRoute` 的后端；Endpoint Picker（EPP）在 v1.6.0 已迁出到 llm-d-router v0.10.0（`cmd/epp`、`pkg/epp`），按每个副本的队列、KV cache 使用率与已加载的 LoRA 选目标；`InferenceObjective` 在 llm-d-router 的 `apix/v1alpha2` 表达请求优先级。多租户、配额、灰度建立在这个网关之上。
-- **可观测与成本层**（第八篇）：DCGM Exporter 4.6.0-4.8.3 的硬件指标（`etc/default-counters.csv` 里的 `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED`；`DCGM_FI_PROF_SM_ACTIVE` 在同一文件中默认注释掉，需要打开）、引擎的 `vllm:*` 指标、网关的 token 计数，三层拼成从硬件到请求的链条；OpenCost v1.121.1（`pkg/costmodel` 的 allocation 逻辑含 GPU 字段）按 label 把 GPU 成本分摊到团队与模型。
+- **网关层**（第七篇）：请求的路由与治理。Gateway API Inference Extension v1.6.1 的 `InferencePool`（`inference.networking.k8s.io/v1`，`api/v1/inferencepool_types.go`，`EndpointPickerRef` 字段指向 EPP）替代 Service 作为 `HTTPRoute` 的后端；Endpoint Picker（EPP）在 v1.6.0 已迁出到 llm-d-router v0.10.0（`cmd/epp`、`pkg/epp`），按每个副本的队列、KV cache 使用率与已加载的 LoRA 选目标；`InferenceObjective` 在 llm-d-router 的 `apix/v1alpha2` 表达请求优先级。多租户、配额、灰度建立在这个网关之上。
+- **可观测与成本层**（第八篇）：DCGM Exporter 4.6.0-4.8.3 的硬件指标（`etc/default-counters.csv` 里的 `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED`；`DCGM_FI_PROF_SM_ACTIVE` 在同一文件中默认注释掉，需要打开）、引擎的 `vllm:*` 指标、网关的 token 计数，三层拼成从硬件到请求的链条；OpenCost v1.121.2（`pkg/costmodel` 的 allocation 逻辑含 GPU 字段）按 label 把 GPU 成本分摊到团队与模型。
 
 ### 3. 两层之间的接口
 
@@ -450,7 +450,7 @@ sequenceDiagram
 | ^^ | k8s-device-plugin v0.20.0 | 缺插件：GPU 作为资源 | 整数个 GPU 可请求 | 2 |
 | ^^ | DRA（Kubernetes v1.37.0，`resource.k8s.io/v1`） | 缺概念：设备属性 | 按显存 / 型号 / 拓扑选卡 | 2 |
 | ^^ | NVIDIA Container Toolkit v1.20.0 | 缺插件：设备注入容器 | 容器内有 `/dev/nvidia*` 与 libcuda | 2 |
-| 调度 | Kueue v0.19.2 | 缺概念：队列、配额、gang 准入 | 全员到齐才开始；团队配额与借用 | 3 |
+| 调度 | Kueue v0.19.4 | 缺概念：队列、配额、gang 准入 | 全员到齐才开始；团队配额与借用 | 3 |
 | ^^ | Volcano v1.15.2 | 缺概念：批调度器 | gang、公平分享、拓扑 | 3 |
 | ^^ | Kubeflow Trainer v2.3.0 | 缺概念：训练任务对象 | `RANK` / `MASTER_ADDR` 注入；整组重启 | 3 |
 | ^^ | KubeRay v1.7.0 | 缺概念：Ray 集群对象 | Ray 任务与服务的表达 | 3、6 |
@@ -458,17 +458,17 @@ sequenceDiagram
 | ^^ | 时间片 / MPS（device plugin sharing） | 缺概念：一张卡的一部分 | 开发环境共卡，无 / 弱隔离 | 4 |
 | ^^ | HAMi v2.10.0 | 缺概念：按显存与算力比例请求 | 小模型共卡，软件隔离 | 4 |
 | 网络存储 | NVIDIA Network Operator v26.7.0 | 缺插件：RDMA 驱动栈 | 节点间 RDMA | 5 |
-| ^^ | Multus CNI v4.3.0 | 缺概念：第二张网卡 | RDMA 网卡进 Pod | 5 |
+| ^^ | Multus CNI v4.3.1 | 缺概念：第二张网卡 | RDMA 网卡进 Pod | 5 |
 | ^^ | k8s-rdma-shared-dev-plugin v1.5.4 | 缺插件：RDMA 设备作为资源 | `/dev/infiniband` 进容器 | 5 |
 | ^^ | CSI（PFS / 对象存储 / 缓存层） | 缺规划：突发写与并发读带宽 | checkpoint 写、数据集读、权重分发 | 5 |
 | Serving | LeaderWorkerSet v0.10.0 | 缺概念：多 Pod 一副本 | 跨节点 TP / PP 副本；PD 分离 | 6 |
 | ^^ | KServe v0.20.0 | 缺概念：推理服务对象 | InferenceService / LLMInferenceService | 6 |
 | ^^ | llm-d v0.9.0 | 缺概念：LLM Serving 栈 | PD 分离、KV 感知路由的整体方案 | 6、7 |
 | ^^ | KEDA v2.20.2 | 缺信号：按引擎指标扩缩 | `vllm:num_requests_waiting` 驱动扩容 | 6 |
-| 网关 | Gateway API Inference Extension v1.6.0 | 缺概念：InferencePool | 副本不可互换的后端集合 | 7 |
+| 网关 | Gateway API Inference Extension v1.6.1 | 缺概念：InferencePool | 副本不可互换的后端集合 | 7 |
 | ^^ | llm-d-router v0.10.0（EPP） | 缺信号：按副本状态选后端 | KV cache / 队列 / LoRA 感知路由 | 7 |
 | 可观测 | DCGM Exporter 4.6.0-4.8.3 | 缺信号：硬件指标 | 分配率 vs 使用率 | 8 |
-| ^^ | OpenCost v1.121.1 | 缺信号：成本分摊 | 每团队、每模型、每百万 token 的成本 | 8 |
+| ^^ | OpenCost v1.121.2 | 缺信号：成本分摊 | 每团队、每模型、每百万 token 的成本 | 8 |
 
 Table: 组件全景图按层落位
 
@@ -687,17 +687,17 @@ Table: 自建与托管方案各层的分工
 | Kubernetes v1.37.0 `staging/src/k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1/api.proto` | `ListAndWatch`、`GetPreferredAllocation`、`Allocate` 等 rpc；`pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.Allocate()` / `GetCapacity()` |
 | Kubernetes v1.37.0 `staging/src/k8s.io/api/resource/v1/types.go` | DRA 的 `ResourceSlice`、`ResourceClaim`、`ResourceClaimTemplate`、`DeviceClass`（第二篇展开） |
 | GPU Operator v26.7.0 `api/nvidia/v1/clusterpolicy_types.go` | `ClusterPolicySpec` |
-| Kueue v0.19.2 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`<br/>`ResourceFlavorSpec.NodeLabels`<br/>`Topology` CRD |
+| Kueue v0.19.4 `apis/kueue/v1beta2/clusterqueue_types.go`、`resourceflavor_types.go`、`topology_types.go` | `ClusterQueueSpec.CohortName`、`ReclaimWithinCohort` / `BorrowWithinCohort`<br/>`ResourceFlavorSpec.NodeLabels`<br/>`Topology` CRD |
 | Volcano v1.15.2 `staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go`、`pkg/scheduler/plugins/gang/gang.go` | `PodGroupSpec.MinMember`<br/>`QueueSpec.Capability` / `Deserved` / `Guarantee`<br/>gang 插件 |
 | Kubeflow Trainer v2.3.0 `pkg/apis/trainer/v1alpha1/trainjob_types.go`、`trainingruntime_types.go`、`pkg/constants/constants.go` | `TrainJobSpec.RuntimeRef`<br/>TrainJob 侧 `Trainer.NumNodes`、`Trainer.NumProcPerNode`；Runtime 侧 `MLPolicy.NumNodes`<br/>`TorchEnvNumNodes = "PET_NNODES"` 等 torchrun 环境变量常量 |
 | KubeRay v1.7.0 `ray-operator/apis/ray/v1/` | `RayClusterSpec`、`RayJobSpec`、`RayServiceSpec` |
 | Slinky slurm-operator v1.2.2 `api/v1beta1/` | `ControllerSpec`、`NodeSetSpec`、`LoginSetSpec` |
 | LeaderWorkerSet v0.10.0 `api/leaderworkerset/v1/leaderworkerset_types.go` | `LeaderWorkerSetSpec.LeaderWorkerTemplate`；`api/disaggregatedset/v1/` 为 PD 分离的独立 API group |
 | KServe v0.20.0 `pkg/apis/serving/v1alpha2/llm_inference_service_types.go` | `LLMInferenceService`（`serving.kserve.io/v1alpha2` 为存储版本，`v1alpha1` 仍可用） |
-| Gateway API Inference Extension v1.6.0 `api/v1/inferencepool_types.go` | `InferencePool`（`inference.networking.k8s.io/v1`）、`EndpointPickerRef`<br/>EPP 实现在 llm-d-router v0.10.0 `cmd/epp`、`pkg/epp`<br/>`InferenceObjective` 在 llm-d-router `apix/v1alpha2` |
+| Gateway API Inference Extension v1.6.1 `api/v1/inferencepool_types.go` | `InferencePool`（`inference.networking.k8s.io/v1`）、`EndpointPickerRef`<br/>EPP 实现在 llm-d-router v0.10.0 `cmd/epp`、`pkg/epp`<br/>`InferenceObjective` 在 llm-d-router `apix/v1alpha2` |
 | KEDA v2.20.2 `apis/keda/v1alpha1/scaledobject_types.go`、`pkg/scalers/prometheus_scaler.go` | `ScaledObjectSpec.Triggers`；Prometheus scaler |
 | DCGM Exporter 4.6.0-4.8.3 `etc/default-counters.csv` | `DCGM_FI_DEV_GPU_UTIL`、`DCGM_FI_DEV_FB_USED` 默认开启；`DCGM_FI_PROF_SM_ACTIVE` 默认注释 |
-| OpenCost v1.121.1 `pkg/costmodel/allocation.go` | allocation 合并逻辑中的 GPU 字段（第八篇展开） |
+| OpenCost v1.121.2 `pkg/costmodel/allocation.go` | allocation 合并逻辑中的 GPU 字段（第八篇展开） |
 
 Table: 本篇涉及的源码与 CRD 位置
 

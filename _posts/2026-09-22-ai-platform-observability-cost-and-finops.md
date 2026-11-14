@@ -12,7 +12,7 @@ updated: 2026-11-14
 
 这就是本篇要处理的问题。前七篇搭起来的东西——GPU Operator、Kueue、MIG 与 HAMi、RDMA 与 checkpoint 存储、Serving 平台、推理网关——每一层都在做一个取舍：隔离换利用率、排队换碎片、冷启动换常驻成本。取舍做得对不对，只有两种办法知道：看运行状态，算成本。看不见就无法改进，算不清就无法说服任何人改配额、改切分、改扩缩容参数。可观测与 FinOps 是平台的反馈回路，没有它，前七篇的机制只是一次性的配置。
 
-这一层的难点不在于工具——Prometheus、Grafana、OpenTelemetry 都是现成的——而在于 AI 负载把每一个环节都扭曲了。"利用率"这个词在 GPU 上至少有三个互不相等的定义；一张卡的指标要归到一个 Pod、一个队列、一个租户，需要穿过 kubelet 的设备分配记录；推理请求的成本按 token 计而不是按次计，成本模型要从 GPU 小时换算到每百万 token；训练任务的"空转"藏在通信等待里，DCGM 的 `GPU_UTIL` 把它报成 100%。通用的云成本工具对 GPU 的支持也刚起步——OpenCost 到 v1.121.1 才有 `GPUAllocation` 这样的结构，且用的是 `GR_ENGINE_ACTIVE` 而不是 `SM_ACTIVE`。
+这一层的难点不在于工具——Prometheus、Grafana、OpenTelemetry 都是现成的——而在于 AI 负载把每一个环节都扭曲了。"利用率"这个词在 GPU 上至少有三个互不相等的定义；一张卡的指标要归到一个 Pod、一个队列、一个租户，需要穿过 kubelet 的设备分配记录；推理请求的成本按 token 计而不是按次计，成本模型要从 GPU 小时换算到每百万 token；训练任务的"空转"藏在通信等待里，DCGM 的 `GPU_UTIL` 把它报成 100%。通用的云成本工具对 GPU 的支持也刚起步——OpenCost 到 v1.121 才有 `GPUAllocation` 这样的结构，且用的是 `GR_ENGINE_ACTIVE` 而不是 `SM_ACTIVE`。
 
 所以本篇分三段走。先把从硬件到请求的**四层指标**串成一条线，说清每一层从哪采、叫什么名字、哪些名字会骗人；再用这些指标定义**分配率、使用率、有效利用率**三个数，把它们之间的差距分解到具体原因；最后把指标变成**账单**——GPU 小时怎么分摊到团队、每百万 token 的成本怎么算、成本数据怎么回流到配额、切分与扩缩容的参数。作为末篇，最后一章是全系列的总结。
 
@@ -20,7 +20,7 @@ updated: 2026-11-14
 
 > **一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里——排队等 gang、训练的通信等待、推理的低峰空转、开发环境的长期占用？[^q0] 每一项对应本系列哪一篇的机制？[^q1]**
 
-版本以 NVIDIA DCGM Exporter 4.6.0-4.8.3、vLLM v0.28.0（只用指标名）、Kueue v0.19.2、OpenCost v1.121.1、llm-d-router v0.10.0（Endpoint Picker 的指标）、Kubernetes v1.37.0 为准。kube-state-metrics、cAdvisor、Prometheus 与 OpenTelemetry 只用通行的指标名与概念，不引用其源码。GPU 单价与吞吐数字全部是标注为假设的算例，不是任何供应商的报价或实测。本篇不引用其他系列的文章；训练框架与推理引擎的内部只作为指标来源，不展开。
+版本以 NVIDIA DCGM Exporter 4.6.0-4.8.3、vLLM v0.28.0（只用指标名）、Kueue v0.19.4、OpenCost v1.121.2、llm-d-router v0.10.0（Endpoint Picker 的指标）、Kubernetes v1.37.0 为准。kube-state-metrics、cAdvisor、Prometheus 与 OpenTelemetry 只用通行的指标名与概念，不引用其源码。GPU 单价与吞吐数字全部是标注为假设的算例，不是任何供应商的报价或实测。本篇不引用其他系列的文章；训练框架与推理引擎的内部只作为指标来源，不展开。
 
 ## 一、总览
 
@@ -125,7 +125,7 @@ Table: 本文的章节安排
 | ^^ | `kube_node_status_allocatable{resource="nvidia_com_gpu"}` | kube-state-metrics | 节点可分配卡数（分配率的分母） |
 | ^^ | `kube_pod_status_phase` · `kube_pod_labels` | kube-state-metrics | 只算 Running 的；label 作为分摊维度 |
 | ^^ | `container_cpu_usage_seconds_total` · `container_memory_working_set_bytes` | cAdvisor | dataloader 的 CPU、主机内存（异步 checkpoint 的暂存） |
-| ^^ | `kueue_pending_workloads{cluster_queue,status}` | Kueue v0.19.2 | 排队深度；`status=active / inadmissible` |
+| ^^ | `kueue_pending_workloads{cluster_queue,status}` | Kueue v0.19.4 | 排队深度；`status=active / inadmissible` |
 | ^^ | `kueue_admitted_active_workloads` · `kueue_admission_wait_time_seconds` | Kueue | 在跑的任务数；从提交到准入的等待 |
 | ^^ | `kueue_cluster_queue_resource_usage` / `_nominal_quota` / `_resource_reservation` | Kueue | 队列用量 / 名义配额 / 预留，按 flavor 与 resource |
 | 引擎 | `vllm:num_requests_running` · `vllm:num_requests_waiting` | vLLM v0.28.0 | 在跑 / 排队的请求数（gauge） |
@@ -441,7 +441,7 @@ flowchart TB
 
 ### 3. OpenCost 的 GPU 支持
 
-OpenCost v1.121.1 的分配模型（`core/pkg/opencost/allocation.go` 的 `Allocation`）对 GPU 有这几个字段：`GPUHours`、`GPUCost`、`GPUCostAdjustment`、`GPUCostIdle`，以及 v1.121 引入的 `GPUAllocation` 结构（`GPUDevice`、`GPUModel`、`GPUUUID`、`IsGPUShared`、`GPUUsageAverage`、`GPURequestAverage`；旧的顶层 `GPURequestAverage` / `GPUUsageAverage` 已标 deprecated）。计算链路在 `pkg/costmodel/allocation_helpers.go`：
+OpenCost v1.121.2 的分配模型（`core/pkg/opencost/allocation.go` 的 `Allocation`）对 GPU 有这几个字段：`GPUHours`、`GPUCost`、`GPUCostAdjustment`、`GPUCostIdle`，以及 v1.121 引入的 `GPUAllocation` 结构（`GPUDevice`、`GPUModel`、`GPUUUID`、`IsGPUShared`、`GPUUsageAverage`、`GPURequestAverage`；旧的顶层 `GPURequestAverage` / `GPUUsageAverage` 已标 deprecated）。计算链路在 `pkg/costmodel/allocation_helpers.go`：
 
 - **分配**：`applyGPUsAllocated` 用 kube-state-metrics 的 `kube_pod_container_resource_requests{resource="nvidia_com_gpu"}`（`modules/prometheus-source/pkg/prom/metricsquerier.go` 的 `queryFmtGPUsRequested`）或 OpenCost 自己导出的 `container_gpu_allocation`（`queryFmtGPUsAllocated`），`GPUHours = 请求数 × 小时`——注释写明"GPUHours reflects the full reserved GPU allocation (request × hours)"，即按分配不按使用；
 - **定价**：`applyNodeCostPerGPUHr` 读 `node_gpu_hourly_cost{node,instance_type,provider_id}`（OpenCost 自己从云厂商定价 API 或 `configs/*.json` 的自定义价生成，`default.json` 里 `"GPU": "0.95"`），然后 `GPUCost = GPUHours × CostPerGPUHr`；
@@ -449,7 +449,7 @@ OpenCost v1.121.1 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 - **共享**：`applyGPUUsageShared` 识别 `nvidia_com_gpu_shared` 资源名（GFD `renameByDefault=true` 时时间片副本的名字，第四篇）置 `IsGPUShared`；节点侧 `costmodel.go` 读 `nvidia.com/gpu.count` 标签与 `nvidia.com/gpu.shared` 容量区分物理卡数与副本数；
 - **闲置**：`costmodel.go` 里 `gpuIdleCost = assetTotal.TotalGPUCost() − allocTotal.TotalGPUCost()`，即节点上 GPU 的总成本减去分配出去的，就是"没给出去"的那部分（`1 − A`）；分配出去但没算的那部分（`A(1 − U)`）不在 OpenCost 的闲置定义里，要用 `GPUUsageAverage` 自己算。
 
-查询接口是 `/allocation/compute`（`pkg/costmodel/router.go`），参数 `window`、`aggregate`（支持 `namespace`、`label:team` 这样的形式，`core/pkg/opencost/allocationprops.go`）、`includeIdle`、`shareIdle`、`idleByNode`。**边界**：GPU 使用率用的是 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`；MIG 实例按 `nvidia_com_mig_*` 资源名不会被 `queryFmtGPUsRequested` 的 `resource="nvidia_com_gpu"` 过滤器匹配到（以 v1.121.1 源码为准），MIG 集群要么改资源名要么自己算；没有队列维度（它不认识 Kueue）；没有 token 维度。第十二章的 `allocate.py` 补这三样，其余照搬 OpenCost 的思路。
+查询接口是 `/allocation/compute`（`pkg/costmodel/router.go`），参数 `window`、`aggregate`（支持 `namespace`、`label:team` 这样的形式，`core/pkg/opencost/allocationprops.go`）、`includeIdle`、`shareIdle`、`idleByNode`。**边界**：GPU 使用率用的是 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`；MIG 实例按 `nvidia_com_mig_*` 资源名不会被 `queryFmtGPUsRequested` 的 `resource="nvidia_com_gpu"` 过滤器匹配到（以 v1.121.2 源码为准），MIG 集群要么改资源名要么自己算；没有队列维度（它不认识 Kueue）；没有 token 维度。第十二章的 `allocate.py` 补这三样，其余照搬 OpenCost 的思路。
 
 ### 4. 三种隐性成本
 
@@ -634,13 +634,13 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 | vLLM v0.28.0 | `vllm/v1/metrics/loggers.py` · `metrics/utils.py` | `PrometheusStatLogger`：全部 `vllm:*` 名字与桶<br/>`labelnames = [model_name, engine]`<br/>`create_metric_per_engine` |
 | ^^ | `vllm/v1/metrics/perf.py` | `vllm:estimated_flops_per_gpu_total` 等估算指标（本篇未用） |
 | ^^ | `docs/design/metrics.md` | Counter 的 `_total` 后缀；ITL 即 TPOT 的说明 |
-| Kueue v0.19.2 | `pkg/metrics/metrics.go` | `kueue_pending_workloads{cluster_queue,status}` · `admitted_active_workloads` · `admission_wait_time_seconds` · `cluster_queue_resource_usage` / `_nominal_quota` / `_resource_reservation` / `_resource_pending` |
+| Kueue v0.19.4 | `pkg/metrics/metrics.go` | `kueue_pending_workloads{cluster_queue,status}` · `admitted_active_workloads` · `admission_wait_time_seconds` · `cluster_queue_resource_usage` / `_nominal_quota` / `_resource_reservation` / `_resource_pending` |
 | ^^ | `pkg/constants/constants.go` | `KueueName = "kueue"`（Subsystem） |
 | llm-d-router v0.10.0 | `pkg/epp/metrics/llm_d_router_metrics.go` | `LLMDRouterEndpointPickerSubsystem = "llm_d_epp"`；`request_total` · `request_input/output_tokens` · `request_ttft_seconds` · `request_streaming_tpot_seconds` · `average_kv_cache_utilization` · `ready_endpoints` · `plugin_duration_seconds` |
 | ^^ | `pkg/epp/metrics/metrics.go` | `inference_objective_*` / `inference_pool_*`（Deprecated 注释） |
 | ^^ | `pkg/epp/metrics/cardinality.go` | `maxModelLabelValues` / `maxFairnessLabelValues = 1000` · `overflowValue = "other"` · `boundFairnessID` |
 | ^^ | `pkg/epp/metadata/consts.go` | `FlowFairnessIDKey` · `TTFTSLOHeaderKey` |
-| OpenCost v1.121.1 | `core/pkg/opencost/allocation.go` | `Allocation`：`GPUHours` · `GPUCost` · `GPUCostAdjustment` · `GPUCostIdle` · `GPUAllocation{IsGPUShared, GPUUsageAverage, GPURequestAverage}` |
+| OpenCost v1.121.2 | `core/pkg/opencost/allocation.go` | `Allocation`：`GPUHours` · `GPUCost` · `GPUCostAdjustment` · `GPUCostIdle` · `GPUAllocation{IsGPUShared, GPUUsageAverage, GPURequestAverage}` |
 | ^^ | `core/pkg/opencost/allocationprops.go` | `AllocationLabelProp`（`"label:"`） |
 | ^^ | `pkg/costmodel/allocation_helpers.go` | `applyGPUsAllocated`（GPUHours = request × hours）· `applyGPUUsageAvg` / `Max` · `applyGPUUsageShared` · `applyNodeCostPerGPUHr`（GPUCost） |
 | ^^ | `pkg/costmodel/costmodel.go` | `nvidia.com/gpu.count` / `gpu.shared` 的节点解析；`gpuIdleCost` = 资产 − 分配 |

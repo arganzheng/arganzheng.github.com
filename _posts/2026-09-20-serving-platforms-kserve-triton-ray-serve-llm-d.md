@@ -18,7 +18,7 @@ updated: 2026-11-14
 
 > **一个 TP=4 的 70B 模型服务，晚高峰要从 2 副本扩到 6 副本，每个副本从调度到能接流量要 8 分钟。扩缩容指标选什么、阈值定多少、提前多久触发，才能在高峰到来前就绪而不在平时浪费 16 张卡？[^q0]**
 
-本文的 CRD 与源码以 **LeaderWorkerSet v0.10.0、KServe v0.20.0、llm-d v0.9.0（EPP 来自 llm-d-router v0.10.0）、Triton Inference Server v2.72.0、KubeRay v1.7.0、KEDA v2.20.2** 为准，Gateway API Inference Extension 以 v1.6.0 为准；被服务的引擎是 vLLM v0.28.0，只使用它的启动参数、指标名与 OpenAI 兼容接口。文中出现的硬件与时间数字是量级估算，标注"非实测"；核心问题里的"8 分钟"是题设。
+本文的 CRD 与源码以 **LeaderWorkerSet v0.10.0、KServe v0.20.0、llm-d v0.9.0（EPP 来自 llm-d-router v0.10.0）、Triton Inference Server v2.72.0、KubeRay v1.7.0、KEDA v2.20.2** 为准，Gateway API Inference Extension 以 v1.6.1 为准；被服务的引擎是 vLLM v0.28.0，只使用它的启动参数、指标名与 OpenAI 兼容接口。文中出现的硬件与时间数字是量级估算，标注"非实测"；核心问题里的"8 分钟"是题设。
 
 ## 一、总览
 
@@ -635,7 +635,7 @@ RayService 适合的场景：Python 逻辑重、多阶段、需要在阶段之�
 `llm-d docs/architecture/README.md` 把架构建立在三个概念上：
 
 - **llm-d Router**：请求的入口，做 LLM 感知的负载均衡、排队与策略执行。它由两部分组成——**Proxy**（`core/router/proxy.md`）是一个符合 GIE 规范的 L7 代理，接收请求后通过 `ext-proc` 协议咨询 EPP；**EPP（Endpoint Picker）**（`core/router/epp/`）是路由引擎，按实时指标、KV cache 亲和与配置的策略给模型服务器 Pod 打分并选出目标。EPP 的代码在 llm-d-router 仓库的 `pkg/epp/` 目录（v0.10.0）。
-- **InferencePool**：来自 GIE 的 API（`inference.networking.k8s.io/v1`，v1.6.0 的 GIE 仓库只保留 InferencePool API、`apix/v1alpha1` 扩展 API、轻量参考 EPP `pkg/lwepp` 与 conformance），用标签选择器把服务同一基础模型的 Pod 归为一组，文档称之为 "LLM-optimized Service"。**Variant** 是 pool 内通过 Pod 标签区分的子集——prefill 与 decode、不同成本或性能档位。
+- **InferencePool**：来自 GIE 的 API（`inference.networking.k8s.io/v1`，v1.6.1 的 GIE 仓库只保留 InferencePool API、`apix/v1alpha1` 扩展 API、轻量参考 EPP `pkg/lwepp` 与 conformance），用标签选择器把服务同一基础模型的 Pod 归为一组，文档称之为 "LLM-optimized Service"。**Variant** 是 pool 内通过 Pod 标签区分的子集——prefill 与 decode、不同成本或性能档位。
 - **Model Server**：vLLM 或 SGLang。`core/model-servers.md` 列出 EPP 默认抓取的指标及各引擎的对应名：TotalQueuedRequests ↔ `vllm:num_requests_waiting`，TotalRunningRequests ↔ `vllm:num_requests_running`，KVCacheUtilization ↔ `vllm:kv_cache_usage_perc`，以及可选的 `vllm:cache_config_info` 标签 `block_size` / `num_gpu_blocks`（给前缀缓存打分器用）。这张表是"引擎需要暴露什么才能被正确路由"的接口清单。
 
 三个概念在一次请求里怎么协作，用 PD 分离路径（`router/pd-disaggregation.values.yaml` 的插件链）走一遍最清楚。EPP 不在数据路径上：它只回答"送到哪"，请求体仍由 Proxy 转发；prefill 与 decode 的选择用两个不同的 `schedulingProfile`，打分依据也不同：

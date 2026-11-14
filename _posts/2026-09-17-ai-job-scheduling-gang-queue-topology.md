@@ -24,7 +24,7 @@ updated: 2026-11-14
 2. 为一个多团队 GPU 集群选出 Volcano 或 Kueue 并写出配额定义。
 3. 把一个 `torchrun` 任务用 Kubeflow Trainer 的 `TrainJob` 表达出来并接到队列上。
 
-源码与 API 以下列版本为准：Volcano v1.15.2（`scheduling.volcano.sh/v1beta1`、`batch.volcano.sh/v1alpha1`、`topology.volcano.sh/v1alpha1`）、Kueue v0.19.2（`kueue.x-k8s.io/v1beta2`）、Kubeflow Trainer v2.3.0（`trainer.kubeflow.org/v1alpha1`）、KubeRay v1.7.0（`ray.io/v1`）、Slinky slurm-operator v1.2.2（`slinky.slurm.net/v1beta1`，仅对照）、Kubernetes v1.37.0。引用格式为"仓库 路径 的 类型/字段/函数"，不给行号。
+源码与 API 以下列版本为准：Volcano v1.15.2（`scheduling.volcano.sh/v1beta1`、`batch.volcano.sh/v1alpha1`、`topology.volcano.sh/v1alpha1`）、Kueue v0.19.4（`kueue.x-k8s.io/v1beta2`）、Kubeflow Trainer v2.3.0（`trainer.kubeflow.org/v1alpha1`）、KubeRay v1.7.0（`ray.io/v1`）、Slinky slurm-operator v1.2.2（`slinky.slurm.net/v1beta1`，仅对照）、Kubernetes v1.37.0。引用格式为"仓库 路径 的 类型/字段/函数"，不给行号。
 
 ## 一、总览：从一个 Pod 到一组 Pod
 
@@ -406,7 +406,7 @@ Kueue 准入是按配额做的加法，不保证 kube-scheduler 真能把每个 
 
 ### 1. 对比表
 
-| 维度 | Volcano v1.15.2 | Kueue v0.19.2 |
+| 维度 | Volcano v1.15.2 | Kueue v0.19.4 |
 |---|---|---|
 | 定位 | 替换 kube-scheduler 的批处理调度器 | kube-scheduler 之前的准入控制器 |
 | 介入时机 | Pod 创建后（vcjob 的 Pod 在 PodGroup Inqueue 后创建） | Pod 创建前（suspend=true 直到 admitted） |
@@ -423,7 +423,7 @@ Kueue 准入是按配额做的加法，不保证 kube-scheduler 真能把每个 
 | 多集群 | Job forwarding（volcano.sh/job-forwarding 注解） | MultiKueue（managedBy: kueue.x-k8s.io/multikueue） |
 | 运维面 | 换调度器：所有 Pod 走 volcano，或按 schedulerName 分流 | 加一个 controller + webhook；不改调度器 |
 
-Table: Volcano v1.15.2 与 Kueue v0.19.2 对比
+Table: Volcano v1.15.2 与 Kueue v0.19.4 对比
 
 ### 2. 什么场景选哪个
 
@@ -461,7 +461,7 @@ Table: Volcano v1.15.2 与 Kueue v0.19.2 对比
 
 Kueue 从 v0.14 起 TAS 进入 beta（`kueue site/content/en/docs/concepts/topology_aware_scheduling.md` 开头的 feature-state 标注，`TopologyAwareScheduling` feature gate 默认开启）。三个对象：
 
-**`Topology` CRD** 定义层级。它在 v0.19.2 里同时存在于 `kueue apis/kueue/v1beta1/topology_types.go` 和 `apis/kueue/v1beta2/topology_types.go`，v1beta2 是存储版本。`TopologySpec.Levels[]` 是从粗到细的一组 `TopologyLevel{NodeLabel}`：
+**`Topology` CRD** 定义层级。它在 v0.19.4 里同时存在于 `kueue apis/kueue/v1beta1/topology_types.go` 和 `apis/kueue/v1beta2/topology_types.go`，v1beta2 是存储版本。`TopologySpec.Levels[]` 是从粗到细的一组 `TopologyLevel{NodeLabel}`：
 
 ```yaml title="Topology CRD 定义层级"
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -653,7 +653,7 @@ KubeRay 和本篇两条路线的接口：`--batch-scheduler` 启动参数（`kub
 
 两个团队 A、B，各 16 卡配额，集群共 32 卡。A 提交一个 32 卡任务 J，此时 B 空闲。J 的三种可能结局——借到 B 的 16 卡跑起来（借用）、等 B 有任务时被收回（抢占/回收）、或一直等到 A 自己有 32 卡（等待，即永远不跑）——在三个系统里分别由什么配置决定：
 
-| | Volcano v1.15.2（capacity 插件） | Kueue v0.19.2 | Slurm |
+| | Volcano v1.15.2（capacity 插件） | Kueue v0.19.4 | Slurm |
 |---|---|---|---|
 | **借用**：J 能否用 B 的 16 卡 | Queue A: deserved 16, capability ≥ 32<br/>Queue B: deserved 16（reclaimable 默认 true）<br/>enqueue: minResources(32) ≤ A 的 realCapability → Inqueue；allocate 用到 B 的空闲 → J 运行 | CQ A: nominalQuota 16, borrowingLimit ≥ 16（或 null）<br/>CQ B: nominalQuota 16, lendingLimit ≥ 16（或 null）<br/>两者 cohortName 相同<br/>调度周期：A 的 nominal 16 + 从 B 借 16 → admitted | A、B 在同一 partition，各自 association 的 GrpTRES=gres/gpu=16 → J 超出 A 的 GrpTRES，永远 Pending（AssocGrpGRES）<br/>要允许借用，须不设 GrpTRES 而只靠 fairshare 排序，或用 QOS 的 GrpTRES 做软限（MaxTRESPerJob 仍是硬的） |
 | **不借**：J 永远等 | Queue A: capability 16（或 B: guarantee 16）<br/>J 停在 Pending，PodGroup Unschedulable | CQ A: borrowingLimit 0 或 B: lendingLimit 0，或不设 cohortName<br/>Workload 停在 Pending，reason ExceedsMaxQuota（32 > 16 + 0） | GrpTRES=gres/gpu=16（默认行为）<br/>squeue 显示 AssocGrpGRES |
@@ -720,7 +720,7 @@ mini-platform/sched/
 
 ### 1. Kueue：flavor、两个 ClusterQueue、LocalQueue
 
-安装 Kueue v0.19.2 后（Helm 或 manifests，以官方安装文档为准），在 Kueue 的 ConfigMap 配置里确认 `integrations.frameworks` 包含 `trainer.kubeflow.org/trainjob` 和 `jobset.x-k8s.io/jobset`。
+安装 Kueue v0.19.4 后（Helm 或 manifests，以官方安装文档为准），在 Kueue 的 ConfigMap 配置里确认 `integrations.frameworks` 包含 `trainer.kubeflow.org/trainjob` 和 `jobset.x-k8s.io/jobset`。
 
 `sched/kueue/flavor.yaml`：
 
@@ -1111,7 +1111,7 @@ Table: 代价与边界
 |  | `pkg/controllers/job/job_controller_actions.go`；`pkg/controllers/podgroup/pg_controller_handler.go` | `createOrUpdatePodGroup`；Pod 无 group-name 注解时自动建 PodGroup |
 |  | `pkg/controllers/job/plugins/` | `factory.go`（`ssh` / `env` / `svc` / `pytorch`）<br/>`distributed-framework/pytorch/pytorch.go`（`MASTER_ADDR` / `MASTER_PORT` / `WORLD_SIZE` / `RANK`，`DefaultPort = 23456`）<br/>`svc/svc.go`（headless Service、`Hostname` / `Subdomain`） |
 |  | `installer/helm/chart/volcano/config/volcano-scheduler.conf`；`docs/design/capacity-scheduling.md`、`Network Topology Aware Scheduling.md`、`hyperNode-auto-discovery.md` | 默认 actions / tiers<br/>三个配额语义的定义<br/>HyperNode / tier 定义<br/>拓扑发现 |
-| Kueue v0.19.2 | `apis/kueue/v1beta2/clusterqueue_types.go` | `ClusterQueueSpec.ResourceGroups` / `CohortName` / `QueueingStrategy` / `NamespaceSelector` / `FlavorFungibility` / `Preemption` / `AdmissionChecksStrategy` / `StopPolicy` / `FairSharing`<br/>`ResourceQuota.NominalQuota` / `BorrowingLimit` / `LendingLimit`<br/>`ClusterQueuePreemption.ReclaimWithinCohort` / `BorrowWithinCohort` / `WithinClusterQueue`<br/>`StrictFIFO` / `BestEffortFIFO` |
+| Kueue v0.19.4 | `apis/kueue/v1beta2/clusterqueue_types.go` | `ClusterQueueSpec.ResourceGroups` / `CohortName` / `QueueingStrategy` / `NamespaceSelector` / `FlavorFungibility` / `Preemption` / `AdmissionChecksStrategy` / `StopPolicy` / `FairSharing`<br/>`ResourceQuota.NominalQuota` / `BorrowingLimit` / `LendingLimit`<br/>`ClusterQueuePreemption.ReclaimWithinCohort` / `BorrowWithinCohort` / `WithinClusterQueue`<br/>`StrictFIFO` / `BestEffortFIFO` |
 |  | `apis/kueue/v1beta2/{resourceflavor,localqueue,cohort,workload,workloadpriorityclass,admissioncheck,provisioningrequestconfig,fairsharing}_types.go` | `ResourceFlavorSpec.NodeLabels` / `NodeTaints` / `Tolerations` / `TopologyName`<br/>`LocalQueueSpec.ClusterQueue`<br/>`CohortSpec.ParentName` / `ResourceGroups`<br/>`WorkloadSpec.PodSets` / `QueueName` / `PriorityClassRef`<br/>`PodSet.Count` / `MinCount` / `TopologyRequest`<br/>`Admission.PodSetAssignments[].Flavors` / `TopologyAssignment`<br/>condition `QuotaReserved` / `Admitted` / `Evicted` / `Preempted` 与 reason `WaitingForQuota` / `NoMatchingFlavor` / `ExceedsMaxQuota` / `TopologyPlacementFailed` / `InCohortReclamation` / `InCohortReclaimWhileBorrowing`<br/>`WorkloadPriorityClass.Value`<br/>`AdmissionCheckSpec.ControllerName`<br/>`ProvisioningRequestControllerName`<br/>`ProvisioningRequestConfigSpec.ProvisioningClassName` / `ManagedResources` / `RetryStrategy`<br/>`FairSharing.Weight` |
 |  | `apis/kueue/v1beta2/topology_types.go`（存储版本）、`v1beta1/topology_types.go` | `TopologySpec.Levels[].NodeLabel`<br/>`PodSetRequiredTopologyAnnotation` / `PodSetPreferredTopologyAnnotation` / `PodSetUnconstrainedTopologyAnnotation` / `PodSetSliceRequiredTopologyAnnotation` / `PodSetSliceSizeAnnotation` / `PodSetGroupName`<br/>`TopologySchedulingGate`（`kueue.x-k8s.io/topology`） |
 |  | `apis/config/v1beta2/configuration_types.go` | `Configuration.WaitForPodsReady`（`Timeout` / `BlockAdmission` / `RequeuingStrategy`）、`FairSharing.PreemptionStrategies`（`LessThanOrEqualToFinalShare` / `LessThanInitialShare`）、`Integrations.Frameworks`、`ManageJobsWithoutQueueName` |

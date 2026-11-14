@@ -168,7 +168,7 @@ Table: 本文的章节安排
 
 **核心问题**：两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？"配额"在这里指的是 GPU 时间、token 数还是请求数？
 
-**结论**：轮询错在两处：不看 KV 满不满——请求一旦送到副本就迁不走；不看缓存在哪——prefix cache 在副本本地，同一会话落到另一个副本就是一次全量 prefill。GIE v1.6.0 只定义 `InferencePool`（替代 Service 作 `HTTPRoute` 后端）与 ext_proc 协议，选副本的逻辑在 llm-d-router 的 EPP：parse → 模型名重写 → `InferenceObjective` 取 priority → fairness ID → flow control → filter → 加权打分 → picker，用 `x-gateway-destination-endpoint` 告诉网关选了哪个 Pod。租户分两层：外层认证层识别租户、剥掉伪造的 `x-llm-d-*` 头、按租户 × 模型做 RPM / TPM / 并发限流，超配额直接 429；内层按 priority 严格优先、同级 round-robin——v0.10 没有按权重的公平，A 的"三倍"只能靠外层的桶体现。排在哪个副本与租户无关：前缀亲和 → `utilization-filter` 丢掉 KV > 0.9 或队列 > 4 的 → 加权分。"配额"对租户是 token（输入 / 输出 / 命中分开）+ 并发 + RPM，GPU 时间到达时不可知、只做内部成本。要在空间上隔离两个租户就得拆两个池——隔离 vs 利用率在网关层的形态。
+**结论**：轮询错在两处：不看 KV 满不满——请求一旦送到副本就迁不走；不看缓存在哪——prefix cache 在副本本地，同一会话落到另一个副本就是一次全量 prefill。GIE v1.6.1 只定义 `InferencePool`（替代 Service 作 `HTTPRoute` 后端）与 ext_proc 协议，选副本的逻辑在 llm-d-router 的 EPP：parse → 模型名重写 → `InferenceObjective` 取 priority → fairness ID → flow control → filter → 加权打分 → picker，用 `x-gateway-destination-endpoint` 告诉网关选了哪个 Pod。租户分两层：外层认证层识别租户、剥掉伪造的 `x-llm-d-*` 头、按租户 × 模型做 RPM / TPM / 并发限流，超配额直接 429；内层按 priority 严格优先、同级 round-robin——v0.10 没有按权重的公平，A 的"三倍"只能靠外层的桶体现。排在哪个副本与租户无关：前缀亲和 → `utilization-filter` 丢掉 KV > 0.9 或队列 > 4 的 → 加权分。"配额"对租户是 token（输入 / 输出 / 命中分开）+ 并发 + RPM，GPU 时间到达时不可知、只做内部成本。要在空间上隔离两个租户就得拆两个池——隔离 vs 利用率在网关层的形态。
 
 **必记**：
 
@@ -191,7 +191,7 @@ Table: 本文的章节安排
 - 85% / 35% → U ≈ 41%；50 个点：推理低峰 ~15、开发环境 ~10、通信等待 ~10、排队占位 ~5、checkpoint ~3、冷启动 ~2、测量上限 ~5（不可回收）；`1 − A` 的 15 个点：碎片 ~6、坏节点 ~3、配额过紧 ~6。
 - 训练 MFU 40% 对应 SM 忙 40–50%，`SM_ACTIVE` 长期 40–50% 是训练的正常值；开发环境是分配率 100%、`SM_ACTIVE` 接近 0。
 - $$C_{1M} = \frac{P_{GPU} \times N_{GPU}}{T \times 3600 \times U} \times 10^6$$：2.5 美元/卡时、TP=4、2000 token/s → 满载 1.39 美元，U = 40% 时 3.47 美元。
-- OpenCost v1.121.1：`GPUHours = request × hours`，使用率用 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`，`gpuIdleCost = 资产 − 分配`（只算 `1 − A`）；无队列、无 token、MIG 资源名不匹配。
+- OpenCost v1.121.2：`GPUHours = request × hours`，使用率用 `GR_ENGINE_ACTIVE` 而非 `SM_ACTIVE`，`gpuIdleCost = 资产 − 分配`（只算 `1 − A`）；无队列、无 token、MIG 资源名不匹配。
 - DCGM Exporter 默认 30 秒采样；成本核算要 13 个月保留；`fairness_id` 超过 1000 折叠为 `other`；共卡时 DCGM 不能按进程拆 `SM_ACTIVE` 等 `PROF_*` 活跃度（只有 `GPU_UTIL`、`FB_USED` 能按进程拆），MIG 的 `GPU_I_ID` 归因准确。
 
 **常见误解**："GPU 利用率 78% 说明集群用得不错"——`GPU_UTIL` 把通信等待报成 100%，换 `SM_ACTIVE` 只有 35%。另一个："按使用率计费更公平"——它让闲置成为没人负责的公共成本；按分配计费才让 dev 团队看到 4% 的 U 对着 12,500 美元的账单。

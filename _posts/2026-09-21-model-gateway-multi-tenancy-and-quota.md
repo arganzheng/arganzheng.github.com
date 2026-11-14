@@ -18,7 +18,7 @@ updated: 2026-11-14
 
 > **两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？[^q0] "配额"在这里指的是 GPU 时间、token 数还是请求数？[^q1]**
 
-版本锚点：Gateway API Inference Extension（下称 GIE）v1.6.0（`inference.networking.k8s.io/v1`、`inference.networking.x-k8s.io/v1alpha1`）；llm-d-router v0.10.0（`llm-d.ai/v1alpha2`、`llm-d.ai/v1alpha1` 的 `EndpointPickerConfig`）；llm-d v0.9.0 的 guides；vLLM v0.28.0 只用它的 OpenAI 协议字段、启动参数与指标名；KServe v0.20.0 的 `LLMInferenceService` 只做对照。全部发布于本文日期之前。一个必须先说明的事实：**GIE 在 v1.6.0 已经不再包含 Endpoint Picker 的实现**——它的仓库里只剩 `InferencePool` API（`api/v1`）、实验性的 `InferencePoolImport`（`apix/v1alpha1`）、一个只做轮询的轻量参考实现 `pkg/lwepp` 和 conformance 套件；调度插件、`InferenceObjective`、`InferenceModelRewrite` 都在 llm-d 社区的 `llm-d-router` 仓库里。本篇据此分工：**池的定义看 GIE，选副本的逻辑看 llm-d-router**。
+版本锚点：Gateway API Inference Extension（下称 GIE）v1.6.1（`inference.networking.k8s.io/v1`、`inference.networking.x-k8s.io/v1alpha1`）；llm-d-router v0.10.0（`llm-d.ai/v1alpha2`、`llm-d.ai/v1alpha1` 的 `EndpointPickerConfig`）；llm-d v0.9.0 的 guides；vLLM v0.28.0 只用它的 OpenAI 协议字段、启动参数与指标名；KServe v0.20.0 的 `LLMInferenceService` 只做对照。全部发布于本文日期之前。一个必须先说明的事实：**GIE 自 v1.6.0 起不再包含 Endpoint Picker 的实现**——它的仓库里只剩 `InferencePool` API（`api/v1`）、实验性的 `InferencePoolImport`（`apix/v1alpha1`）、一个只做轮询的轻量参考实现 `pkg/lwepp` 和 conformance 套件；调度插件、`InferenceObjective`、`InferenceModelRewrite` 都在 llm-d 社区的 `llm-d-router` 仓库里。本篇据此分工：**池的定义看 GIE，选副本的逻辑看 llm-d-router**。
 
 ## 一、总览
 
@@ -87,7 +87,7 @@ flowchart TB
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 为什么轮询是错的 | KV 满与 prefix cache 的数值小例子<br/>负载均衡器看不到什么<br/>引擎给了什么 |
-| 三 | GIE 的对象与数据路径 | `v1.6.0` 的仓库分工<br/>InferencePool 字段<br/>HTTPRoute → InferencePool 的完整 YAML<br/>`ext_proc` 协议（x-gateway-destination-endpoint 等）<br/>网关实现与 conformance |
+| 三 | GIE 的对象与数据路径 | `v1.6.1` 的仓库分工<br/>InferencePool 字段<br/>HTTPRoute → InferencePool 的完整 YAML<br/>`ext_proc` 协议（x-gateway-destination-endpoint 等）<br/>网关实现与 conformance |
 | 四 | EPP 的调度框架 | llm-d-router：请求控制流水线、filter / scorer / picker / profile handler 的实名清单、EndpointPickerConfig 与加权打分、近似 vs 精确前缀缓存、PD 分离的 profile 与 sidecar、EPP 的 HA |
 | 五 | 协议与租户 | OpenAI 协议作为路由键、body-based routing、协议归一<br/>租户识别与信任边界<br/>InferenceObjective 与 priority、fairness ID、flow control 的 priority band<br/>配额规则表与策略 YAML |
 | 六 | token 记账 | 三种"配额"的量纲<br/>预扣与结算<br/>流式断开<br/>usage 的可靠性<br/>回答核心问题的规则表 |
@@ -123,11 +123,11 @@ GIE 在 `docs/proposals/003-model-server-protocol/README.md` 里把 EPP 对引�
 
 ## 三、Gateway API Inference Extension：InferencePool 与 ext_proc 数据路径
 
-### 1. v1.6.0 的仓库分工
+### 1. v1.6.1 的仓库分工
 
 先把"什么在哪里"说清楚，因为文档和早期博客里的路径已经对不上了：
 
-| 东西 | v1.6.0 所在 | API group / 路径 |
+| 东西 | v1.6.1 所在 | API group / 路径 |
 |---|---|---|
 | `InferencePool` CRD | GIE `api/v1/inferencepool_types.go` | `inference.networking.k8s.io/v1` |
 | `InferencePoolImport` CRD（alpha） | GIE `apix/v1alpha1/inferencepoolimport_types.go` | `inference.networking.x-k8s.io/v1alpha1` |
@@ -142,7 +142,7 @@ GIE 在 `docs/proposals/003-model-server-protocol/README.md` 里把 EPP 对引�
 | PD 分离的路由 sidecar | llm-d-router `pkg/sidecar/`、`cmd/pd-sidecar/` | — |
 | body-based routing（从请求体提模型名） | GIE 只剩提案 `docs/proposals/1964-pluggable-bbr-framework`（Draft）；llm-d v0.9.0 的 `guides/multi-model-routing` 用独立仓库的 Inference Payload Processor（IPP） | 注入 `X-Gateway-Base-Model-Name` 头 |
 
-Table: GIE v1.6.0 与 llm-d-router v0.10.0 的仓库分工
+Table: GIE v1.6.1 与 llm-d-router v0.10.0 的仓库分工
 
 GIE `docs/proposals/1199-inferencemodel-api-evolution/README.md` 记录了这个演化：原来的 `InferenceModel`（v1alpha2）被拆掉，`Criticality` 变成 `InferenceObjective.spec.priority`（整数，允许负值），流量切分与模型名重写"不一定通过 GIE 的 CRD"实现——这就是它们最终落在 llm-d-router 的 `InferenceModelRewrite` 里的原因。GIE 的 `1816-inferenceomodelrewrite` 提案（状态 Proposed）与 llm-d-router `apix/v1alpha2/inferencemodelrewrite_types.go` 的字段是一致的。
 
@@ -168,14 +168,14 @@ type EndpointPickerRef struct {
 
 - `selector` 故意只支持 `matchLabels`（`InferencePoolSpec.Selector` 的注释："intentionally simple to be compatible with Kubernetes Service selectors"），因为有的网关实现会把它翻译成一个 `Service`。
 - `targetPorts` 多于一个时，同一个 Pod 的每个端口是一个独立的 endpoint——这是给一个 Pod 里跑多个引擎进程（DP 副本）的形态用的，conformance 里有一条 `gateway_following_epp_routing_dp` 测的就是它。
-- `endpointPickerRef` 是 v1 的字段名（早期版本叫 `extensionRef`，v1.6.0 的类型定义里已没有这个名字）。它在 API 层面是 `+optional`，但 `InferencePoolReasonEndpointPickerRefMissing` 的注释说得很直白：v1.5.0 之前必填，现在"仍被大多数实现要求"。
+- `endpointPickerRef` 是 v1 的字段名（早期版本叫 `extensionRef`，v1.6.1 的类型定义里已没有这个名字）。它在 API 层面是 `+optional`，但 `InferencePoolReasonEndpointPickerRefMissing` 的注释说得很直白：v1.5.0 之前必填，现在"仍被大多数实现要求"。
 - `failureMode` 默认 `FailClose`：EPP 不可达时**丢请求**而不是退回随机转发。这个默认值的理由是 FailOpen 会把本篇第二章的问题原样带回来，而且是在流量最大、EPP 最可能过载的时候。conformance 有专门一条 `epp_unavailable_fail_open` 测 FailOpen 的行为。
 
 `status.parents[]` 按每个引用它的 Gateway 记 `Accepted` 与 `ResolvedRefs` 两个 condition；另有一个 `Exported` condition 类型（`InferencePoolConditionExported`）为多集群导出预留，第八章再说。
 
 ### 3. 完整的 `InferencePool` + `HTTPRoute`
 
-下面两个对象是 `mini-platform/gateway/inferencepool.yaml` 与 `httproute.yaml` 的内容，字段全部来自 v1.6.0 的类型定义和 conformance 的 `resources/base.yaml`：
+下面两个对象是 `mini-platform/gateway/inferencepool.yaml` 与 `httproute.yaml` 的内容，字段全部来自 v1.6.1 的类型定义和 conformance 的 `resources/base.yaml`：
 
 ```yaml title="gateway/inferencepool.yaml"
 apiVersion: inference.networking.k8s.io/v1
@@ -270,7 +270,7 @@ sequenceDiagram
 
 GIE 的 conformance 只有 `Gateway` 一个 profile（`conformance/conformance.go` 注释："Future profiles will cover EPP and ModelServer layers"），测的是网关是否正确地：接受 `InferencePool` 作为后端并写 status、按 EPP 返回的 endpoint 转发（`gateway_following_epp_routing`）、按权重在两个池之间分流（`gateway_weighted_two_pools`：70 / 30）、回传 served endpoint、处理 `FailOpen`、拒绝无效引用、支持 `appProtocol` 与 DP 多端口。`conformance/reports/` 里 v1.5.0 有 istio 与 nginx-gateway-fabric 的报告。
 
-v1.6.0 的 `site-src/implementations/gateways.md` 列出的 conformant 实现是 **Istio、Agentgateway、NGINX Gateway Fabric**；`site-src/index.md` 与 `concepts/api-overview.md` 仍写着"extends popular gateways like Envoy Gateway, kgateway, and GKE Gateway"。llm-d v0.9.0 的 `docs/infrastructure/gateway/README.md` 给出安装指引的是 **GKE Gateway、Istio、Agentgateway、Envoy AI Gateway** 四家，`guides/optimized-baseline` 的 `GATEWAY_CLASS` 选项是 `epponly | gke | agentgateway | istio`。选型上这些实现的差别在于 ext_proc 之外的东西：是否已有服务网格、是否需要 AI 网关的上游（第三方模型 API）代理、是否用云厂商的 LB。对本篇讨论的 EPP 路由语义来说它们是等价的——协议就是为了这个而定的。
+v1.6.1 的 `site-src/implementations/gateways.md` 列出的 conformant 实现是 **Istio、Agentgateway、NGINX Gateway Fabric**；`site-src/index.md` 与 `concepts/api-overview.md` 仍写着"extends popular gateways like Envoy Gateway, kgateway, and GKE Gateway"。llm-d v0.9.0 的 `docs/infrastructure/gateway/README.md` 给出安装指引的是 **GKE Gateway、Istio、Agentgateway、Envoy AI Gateway** 四家，`guides/optimized-baseline` 的 `GATEWAY_CLASS` 选项是 `epponly | gke | agentgateway | istio`。选型上这些实现的差别在于 ext_proc 之外的东西：是否已有服务网格、是否需要 AI 网关的上游（第三方模型 API）代理、是否用云厂商的 LB。对本篇讨论的 EPP 路由语义来说它们是等价的——协议就是为了这个而定的。
 
 llm-d 还提供一个 **Standalone 模式**（`docs/architecture/core/router/proxy.md`）：Envoy 作为 sidecar 与 EPP 跑在同一个 Pod 里，ext_proc 走 localhost，不需要 `Gateway` / `HTTPRoute` 与网关控制器。适合批处理、RL rollout、还在用 Ingress 的集群；生产多租户场景仍应走 Gateway 模式，因为灰度、TLS、多集群都依赖 Gateway API 的对象。
 
@@ -902,11 +902,11 @@ vLLM v0.28.0 的 LoRA 有两条加载路径：启动时 `--enable-lora --max-lor
 
 ### 1. `InferencePoolImport`：状态以检出为准
 
-GIE v1.6.0 的 `apix/v1alpha1/inferencepoolimport_types.go` 定义了 `InferencePoolImport`（`inference.networking.x-k8s.io/v1alpha1`，`site-src/api-types/inferencepoolimport.md` 标注 "Alpha since v1.1.0"）。它的形态值得注意：**没有 `spec`，只有 `status`**——`status.controllers[]` 每项记 `name`（管理它的控制器）、`exportingClusters[].name`、`parents[]`（复用 v1 的 `ParentStatus`）与 `conditions`。它不是用户写的，是控制器根据其他集群导出的 `InferencePool` 在本集群里同名同 namespace 地创建的；用户能做的是让 `HTTPRoute.backendRefs` 指向它。
+GIE v1.6.1 的 `apix/v1alpha1/inferencepoolimport_types.go` 定义了 `InferencePoolImport`（`inference.networking.x-k8s.io/v1alpha1`，`site-src/api-types/inferencepoolimport.md` 标注 "Alpha since v1.1.0"）。它的形态值得注意：**没有 `spec`，只有 `status`**——`status.controllers[]` 每项记 `name`（管理它的控制器）、`exportingClusters[].name`、`parents[]`（复用 v1 的 `ParentStatus`）与 `conditions`。它不是用户写的，是控制器根据其他集群导出的 `InferencePool` 在本集群里同名同 namespace 地创建的；用户能做的是让 `HTTPRoute.backendRefs` 指向它。
 
 导出侧的机制在 `docs/proposals/1374-multi-cluster-inference/README.md`（状态 **Draft**）：在 `InferencePool` 上加注解 `inference.networking.x-k8s.io/export: ClusterSet`，实现（Hub/Spoke 或 Push/Pull 两种拓扑）把它镜像成各成员集群的 `InferencePoolImport`；`InferencePool.status` 里用 `Exported` condition（`InferencePoolConditionExported`，v1 类型里已有此常量）表示导出状态。数据路径有两种模式：**Endpoint Mode** 由导入集群的网关直接路由到导出池的 EPP 选出的 Pod（要求跨集群 Pod 网络可达）；**Parent Mode** 路由到导出池的 Gateway（要求 Gateway 之间可达）。选哪个导出池是实现自定义的（就近、容量溢出等）。
 
-所以对"多集群"的准确表述是：**API 有了（alpha、status-only），提案是 Draft，conformance 不覆盖，v1.6.0 的检出里没有参考实现**。生产上跨集群的 LLM 路由今天仍靠上层 DNS / 全局 LB 做粗粒度分发，每个集群内部再用本篇的机制。
+所以对"多集群"的准确表述是：**API 有了（alpha、status-only），提案是 Draft，conformance 不覆盖，v1.6.1 的检出里没有参考实现**。生产上跨集群的 LLM 路由今天仍靠上层 DNS / 全局 LB 做粗粒度分发，每个集群内部再用本篇的机制。
 
 ### 2. llm-d-router 的 `multicluster-*` 插件
 
@@ -966,7 +966,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 
 - **为什么**：轮询不看 KV 满不满、不看缓存在哪；64 会话 × 8k 的例子里前缀亲和把 TTFT 从 0.5 s 级降到几十 ms 级
 - **分工**：
-  - GIE v1.6.0：InferencePool（api/v1）、InferencePoolImport（apix/v1alpha1）、ext_proc 协议、lwepp、conformance
+  - GIE v1.6.1：InferencePool（api/v1）、InferencePoolImport（apix/v1alpha1）、ext_proc 协议、lwepp、conformance
   - llm-d-router v0.10.0：EPP 实现、EndpointPickerConfig、InferenceObjective / InferenceModelRewrite（llm-d.ai/v1alpha2）
 - **数据路径**：Gateway → HTTPRoute（header 匹配模型名）→ InferencePool → ext_proc → EPP → x-gateway-destination-endpoint → Pod
 - **InferencePool**：selector（只有 matchLabels）/ targetPorts（1~8）/ appProtocol / `endpointPickerRef{name, port, failureMode=FailClose}`
@@ -1028,7 +1028,7 @@ mini-platform/gateway/
 └── ttft-compare.py           下面
 ```
 
-前置条件是上一篇的多副本 vLLM（Pod 带 `app=vllm-llama-70b, variant=bf16` 标签、`--enable-prefix-caching`、端口 8000）、一个支持 GIE 的 Gateway 实现（按 llm-d `docs/infrastructure/gateway/` 任选一家）、GIE 的 CRD（`kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.6.0/manifests.yaml`，文件名以 v1.6.0 release 页为准）、llm-d-router 的 EPP Deployment 与 Service（用 llm-d 的 router Helm chart 或手写，挂载 `epp-config.yaml`，`--config-file` 指向它，`--pool-name llama-70b-bf16`）。为了做对照，同时保留一个普通的 `Service` 指向同一组 Pod，通过网关的另一条 `HTTPRoute`（path `/rr/v1`，`backendRefs` 指向该 `Service`）暴露——这就是"轮询"那一侧。
+前置条件是上一篇的多副本 vLLM（Pod 带 `app=vllm-llama-70b, variant=bf16` 标签、`--enable-prefix-caching`、端口 8000）、一个支持 GIE 的 Gateway 实现（按 llm-d `docs/infrastructure/gateway/` 任选一家）、GIE 的 CRD（`kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/v1.6.1/manifests.yaml`，文件名以 v1.6.1 release 页为准）、llm-d-router 的 EPP Deployment 与 Service（用 llm-d 的 router Helm chart 或手写，挂载 `epp-config.yaml`，`--config-file` 指向它，`--pool-name llama-70b-bf16`）。为了做对照，同时保留一个普通的 `Service` 指向同一组 Pod，通过网关的另一条 `HTTPRoute`（path `/rr/v1`，`backendRefs` 指向该 `Service`）暴露——这就是"轮询"那一侧。
 
 **`ttft-compare.py` 做什么。** 模拟 N 个多轮对话（每个对话一个固定的长 system prompt + 逐轮追加的历史），把同样的请求序列分别打到轮询入口和 InferencePool 入口，流式接收，记录每个请求的 TTFT（发出请求到收到第一个带 `content` 的 SSE chunk），输出两侧的 p50 / p90 / p99 与均值；同时从 `usage` 里读 `prompt_tokens_details.cached_tokens` 算命中率。只用标准库。
 

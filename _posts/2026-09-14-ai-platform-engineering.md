@@ -363,10 +363,10 @@ Table: 与实践线平行的源码与文档阅读线
 
 - Kubernetes **v1.37.0**（DRA 的 `resource.k8s.io/v1` 自 1.34 GA）；device plugin 路径对更早版本同样适用，随文标注；
 - NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**、DRA driver k8s-dra-driver-gpu **v0.5.0**、mig-parted / k8s-mig-manager **v0.15.0**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
-- 调度：Kueue **v0.19.2**（主 API `kueue.x-k8s.io/v1beta2`，Topology-Aware Scheduling 的 `Topology` CRD 同样以 `v1beta2` 为存储版本，`v1beta1` 已标为弃用）、Volcano **v1.15.2**、Kubeflow Trainer **v2.3.0**（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、JobSet **v0.12.0**（`TrainJob` 底下的多 Job 编排）、KubeRay **v1.7.0**、Slinky slurm-operator **v1.2.2**、Multus CNI **v4.3.0**；
+- 调度：Kueue **v0.19.4**（主 API `kueue.x-k8s.io/v1beta2`，Topology-Aware Scheduling 的 `Topology` CRD 同样以 `v1beta2` 为存储版本，`v1beta1` 已标为弃用）、Volcano **v1.15.2**、Kubeflow Trainer **v2.3.0**（`TrainJob` API，取代 Training Operator v1 的 `PyTorchJob`）、JobSet **v0.12.0**（`TrainJob` 底下的多 Job 编排）、KubeRay **v1.7.0**、Slinky slurm-operator **v1.2.2**、Multus CNI **v4.3.1**；
 - 切分：HAMi **v2.10.0**；
-- 交付：KServe **v0.20.0**（`LLMInferenceService` 以 `serving.kserve.io/v1alpha2` 为存储版本，`v1alpha1` 仍可用）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.0**（`InferencePool` v1；Endpoint Picker 自此版本起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
-- 可观测与成本：DCGM Exporter 同上、OpenCost **v1.121.1**、Prometheus / OpenTelemetry Collector 按通用用法；
+- 交付：KServe **v0.20.0**（`LLMInferenceService` 以 `serving.kserve.io/v1alpha2` 为存储版本，`v1alpha1` 仍可用）、LeaderWorkerSet **v0.10.0**（`DisaggregatedSet` 在独立的 `disaggregatedset` API group）、Gateway API Inference Extension **v1.6.1**（`InferencePool` v1；Endpoint Picker 自 v1.6.0 起迁至 llm-d-router）、llm-d **v0.9.0**、llm-d-router **v0.10.0**、Triton Inference Server **v2.72.0**、KEDA **v2.20.2**；
+- 可观测与成本：DCGM Exporter 同上、OpenCost **v1.121.2**、Prometheus / OpenTelemetry Collector 按通用用法；
 - 引擎作为被服务对象：PyTorch **v2.13.0**、vLLM **v0.28.0**，正文只使用它们对外暴露的接口（启动参数、指标、OpenAI 兼容 API），不依赖内部实现。
 
 这一层的组件版本变化比引擎更快，尤其是 DRA、Inference Extension 和 llm-d 这几处仍在快速演进。正文的原则是：**先讲机制和取舍，再讲当前的 API 形态**，API 变化时机制部分仍然成立。版本敏感处随文标注。
