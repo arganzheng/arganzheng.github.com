@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-14
 ---
 
 前面几篇讨论的都是"代码本身"：语言机制、类型与数据契约、并发、元编程、内存、测试与调试。这一篇讨论一件不同的事——**怎么把这些代码变成一个可以交付的东西**。
@@ -64,11 +64,11 @@ flowchart TB
 
 需要说明本文的边界。以下内容属于其他篇，本文只做交叉引用，不重复展开：
 
-- **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《Python 单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
-- **异步与并发**（asyncio、GIL、事件循环）→ [《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
-- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《Python 类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
-- **`import` 机制、`sys.path` 与 src 布局** → [《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)
-- **入口点做插件发现** → [《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
+- **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
+- **异步与并发**（asyncio、GIL、事件循环）→ [《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
+- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
+- **`import` 机制、`sys.path` 与 src 布局** → [《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)
+- **入口点做插件发现** → [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
 
@@ -178,7 +178,7 @@ def main() -> None:
 
 这个机制的底层是 Python 包的**入口点（entry points）**。除了生成 CLI，同一套机制还能用来做插件发现——让主程序自动找到已安装的第三方扩展。
 
-> 入口点用于插件发现的完整做法（`[project.entry-points."my_ai.backends"]` 与 `importlib.metadata.entry_points()`），见[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"入口点：面向发行包的插件发现"一节。本文只关注它作为 CLI 入口的用法。
+> 入口点用于插件发现的完整做法（`[project.entry-points."my_ai.backends"]` 与 `importlib.metadata.entry_points()`），见[《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"入口点：面向发行包的插件发现"一节。本文只关注它作为 CLI 入口的用法。
 
 对应 Java：类似在 `MANIFEST.MF` 里声明 `Main-Class`，或用 Maven 的 `appassembler` 插件生成启动脚本。
 
@@ -211,7 +211,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)的"项目布局、测试与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)的"项目布局、测试与 editable 安装"一节。
 
 ### 5. 工具配置的聚合
 
@@ -342,11 +342,7 @@ $ which python
 
 Table: 虚拟环境隔离与不隔离的层次
 
-所以下面这类问题，虚拟环境救不了：
-
-- 本机 CUDA driver 支持到 CUDA 12.1
-- 但装了编译against CUDA 12.4 的 torch wheel
-- → 运行时报 "CUDA driver version is insufficient"
+所以下面这类问题，虚拟环境救不了：机器上的 CUDA driver 只支持到 CUDA 12.1，venv 里却装了针对 CUDA 12.4 编译的 torch wheel，运行时报 "CUDA driver version is insufficient"。
 
 这是第五章的主题。而**解释器版本**的隔离需要额外工具：
 
@@ -641,7 +637,21 @@ pip install torch==2.4.0+cu121 --index-url https://download.pytorch.org/whl/cu12
 pip install torch --extra-index-url https://download.pytorch.org/whl/cu121
 ```
 
-**`--extra-index-url` 在这里是危险的**：pip 会同时看 PyPI 和 PyTorch 索引，然后选"版本最高"的。由于 PyPI 上的 `torch` 版本号没有 `+cu121` 后缀，版本比较的结果可能让 pip 选中 PyPI 那个默认变体，你以为装的是 cu121 专版，实际装的是别的。这类"明明指定了却没生效"的问题非常难查。
+**`--extra-index-url` 在这里是危险的**：pip 不区分候选来自哪个索引，它把 PyPI 和 PyTorch 索引上的所有 `torch` 合成一个列表，再按 PEP 440 取满足约束的最高版本：
+
+```mermaid
+%% 图：--extra-index-url 下 pip 怎样在两个索引的 torch 里选一个
+flowchart TB
+    R["pip install torch<br/>--extra-index-url .../whl/cu121"] --> P["PyPI：torch 2.4.0、2.5.0 …<br/>默认构建，CUDA 版本由该版本决定"]
+    R --> T["PyTorch cu121 索引：<br/>torch 2.4.0+cu121 …"]
+    P --> M["合并成一个候选列表"]
+    T --> M
+    M --> V{"取最高版本"}
+    V -- "PyPI 有更新的上游版本" --> W1["2.5.0 > 2.4.0+cu121<br/>装上 PyPI 的默认构建"]
+    V -- "上游版本相同" --> W2["2.4.0+cu121 > 2.4.0<br/>装上 cu121 构建"]
+```
+
+本地版本标识只在上游版本相同时才参与比较，所以结果取决于 PyPI 当天有没有更新的版本：今天装到 cu121，PyTorch 发了新版之后，同一条命令就装到 PyPI 上的默认构建，你以为装的是 cu121 专版，实际装的是别的。这类"明明指定了却没生效"的问题非常难查。
 
 **结论：装 PyTorch 时用 `--index-url`，不要用 `--extra-index-url`。**
 
@@ -1215,7 +1225,7 @@ RUN pip install -e .
 CMD ["uvicorn", "inference_service.main:app"]
 ```
 
-问题是 `COPY . .` 把代码和依赖声明一起拷进来了。Docker 的层缓存以"COPY 的内容是否变化"为准，**改任何一行业务代码都会让这一层失效**，于是 `pip install` 整个重跑。如果依赖里有 torch，每次改代码都要重新下载几 GB。
+问题是 `COPY . .` 把代码和依赖声明一起拷进来了。Docker 的层缓存以"COPY 的内容是否变化"为准，**改任何一行业务代码都会让这一层失效**，而一层失效后，它下面的每一层都要重建，于是 `pip install` 整个重跑。如果依赖里有 torch，每次改代码都要重新下载几 GB。
 
 正确做法是**先拷依赖声明，装完依赖，再拷代码**：
 
@@ -1233,6 +1243,25 @@ COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
 CMD [".venv/bin/uvicorn", "inference_service.main:app", "--host", "0.0.0.0"]
+```
+
+只改了 `src/` 里一行代码时，两种写法要重建的层：
+
+```mermaid
+%% 图：改一行业务代码后，两种 Dockerfile 各有哪些层命中缓存、哪些要重建
+flowchart TB
+    subgraph GOOD["正确分层：依赖声明在前"]
+        direction TB
+        G1["FROM python:3.11-slim<br/>命中"] --> G2["COPY pyproject.toml uv.lock<br/>没变，命中"] --> G3["RUN uv sync --no-install-project<br/>命中：依赖层直接复用"] --> G4["COPY src/<br/>内容变了，失效"] --> G5["RUN uv sync<br/>重建：只装项目本身"]
+    end
+    subgraph BAD["反面写法：COPY . . 在前"]
+        direction TB
+        B1["FROM python:3.11-slim<br/>命中"] --> B2["COPY . .<br/>内容变了，失效"] --> B3["RUN pip install -e .<br/>重建：重新下载全部依赖"]
+    end
+    classDef hit fill:#e6f4ea,stroke:#4d9a5c,color:#1b4d2a
+    classDef miss fill:#fdecea,stroke:#c0392b,color:#7a1f16
+    class B1,G1,G2,G3 hit
+    class B2,B3,G4,G5 miss
 ```
 
 关键点：

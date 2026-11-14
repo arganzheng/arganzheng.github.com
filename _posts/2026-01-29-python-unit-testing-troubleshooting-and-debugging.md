@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（06）：单元测试、问题定位与调试实践
 subtitle: Python Unit Testing, Troubleshooting, and Debugging
 tags: [Python]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 两个都发生过的场景。第一个：一次改动通过了 CI 里全部四百个测试，上线半小时后服务 OOM——测试里把模型客户端 mock 成了一个立刻返回的函数，真实客户端在超时后会把请求留在一个重试队列里，而那个队列没有上限；测试全绿，因为它测的根本不是上线跑的那条路。第二个：一个训练任务的进程"卡住"了——CPU 0%、GPU 0%、日志停在四十分钟前、进程没有崩，`kill -9` 之前没有人知道它停在哪一行；事后发现是一个集合通信在等一个已经退出的 rank。
@@ -244,6 +244,32 @@ def db_connection():
 
 `yield` fixture 在 `yield` 之后的代码作为 teardown 执行，即使测试失败也会运行，适合确保资源释放。
 
+三种 scope 的生命周期是一层套一层的。假设 `test_a.py` 里有 `test_1`、`test_2`，`test_b.py` 里有 `test_3`，三个测试都用到上面的 `model`、`db_connection` 和第三章开头的 `backend`（默认 `scope="function"`）：
+
+```mermaid
+%% 图：三种 fixture scope 的生命周期嵌套：session 包住 module，module 包住每个测试
+flowchart TB
+    subgraph S["session：model 在第一个用到它的测试前加载，全部测试结束后释放"]
+        direction TB
+        subgraph M1["module test_a.py：db_connection 建一次，模块最后一个测试结束后 close"]
+            direction TB
+            T1["<b>test_1</b><br/>backend 新建，测试结束即丢弃"]
+            T2["<b>test_2</b><br/>backend 再新建一个"]
+            T1 --> T2
+        end
+        subgraph M2["module test_b.py：重新建一个 db_connection"]
+            direction TB
+            T3["<b>test_3</b><br/>backend 新建"]
+        end
+        M1 --> M2
+    end
+```
+
+从图里能直接读出两条规则：
+
+1. **teardown 按 setup 的逆序执行**：`test_2` 结束时先拆 `backend`，再关 `test_a.py` 的 `db_connection`，`model` 要等 `test_3` 也结束后才释放。
+2. **fixture 只能依赖范围不比自己窄的 fixture**：`db_connection`（module）可以用 `model`（session），反过来让 `model` 依赖一个 function 级的 fixture，pytest 会报 `ScopeMismatch`——外层对象活得比内层长，内层每个测试结束就被拆掉了。
+
 ### 2. 使用 conftest.py 共享 fixture
 
 pytest 会自动从 `conftest.py` 文件中收集 fixture，无需显式导入。通常将多个测试模块共用的 fixture 放在 `tests/conftest.py`：
@@ -455,7 +481,7 @@ mypy src/
 
 未使用 `await` 的代码可能不会立刻失败，因此应结合测试和静态检查。
 
-> 关于 asyncio 事件循环、超时、取消和 `TaskGroup` 的详细机制，参见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
+> 关于 asyncio 事件循环、超时、取消和 `TaskGroup` 的详细机制，参见[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
 ## 六、使用 monkeypatch 修改运行环境
 
@@ -490,7 +516,7 @@ def test_model_path(monkeypatch):
     assert path == "/tmp/fake-model"
 ```
 
-注意：必须替换“被测试模块中实际使用的名称”，而不是盲目替换定义它的原始模块。
+注意：必须替换“被测试模块中实际使用的名称”，而不是盲目替换定义它的原始模块。原因在于 `from ... import` 的语义：它在**导入方模块**的命名空间里新建一个名字，指向同一个函数对象，之后两个名字各自独立。
 
 例如：
 
@@ -511,7 +537,28 @@ monkeypatch.setattr("service.download_model", fake_download)
 monkeypatch.setattr("loader.download_model", fake_download)
 ```
 
-> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)。
+```mermaid
+%% 图：from-import 之后有两个名字指向同一个函数：patch 哪个名字，被测代码才看得到
+flowchart TB
+    subgraph W["错误：patch loader.download_model 之后"]
+        direction TB
+        WL["<b>loader.download_model</b><br/>loader 模块里的名字"] --> WF["fake_download"]
+        WS["<b>service.download_model</b><br/>被测代码查的名字"] --> WO["原函数<br/>测试仍去下载真实模型"]
+    end
+    subgraph R["正确：patch service.download_model 之后"]
+        direction TB
+        RL["<b>loader.download_model</b><br/>loader 模块里的名字"] --> RO["原函数"]
+        RS["<b>service.download_model</b><br/>被测代码查的名字"] --> RF["fake_download<br/>替换生效"]
+    end
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#7a1f16
+    classDef good fill:#e6f4ea,stroke:#4d9a5c,color:#1b4d2a
+    class WO bad
+    class RF good
+```
+
+`service` 里的函数调用 `download_model(...)` 时，在 `service` 模块的全局命名空间里查这个名字。`setattr("loader.download_model", …)` 只把 `loader` 里的名字改指向 fake，`service` 里的名字仍指向原函数，测试照样去下载真实模型。反过来，如果 `service.py` 写的是 `import loader`、调用 `loader.download_model(...)`，每次调用都现查 `loader` 模块的属性，这时替换 `loader.download_model` 才是对的。`unittest.mock.patch` 的目标字符串遵循同一条规则。
+
+> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)的「名称绑定」与「`sys.modules` 缓存」两节。
 
 ## 七、使用 pdb 定位 Python 逻辑问题
 
@@ -649,7 +696,20 @@ logging.basicConfig(
 
 Table: logging 的四个组件与 Logback 对应
 
-一条日志的流动路径是：`Logger` → `Filter` → 沿 logger 树向上传播 → 各级 `Handler` → `Formatter` → 输出。
+一条日志的流动路径是：`Logger` → `Filter` → 沿 logger 树向上传播 → 各级 `Handler` → `Formatter` → 输出。其中有两道级别判断：第一道是发出日志的那个 logger 的**有效级别**（自己没设级别就取最近一个设了级别的祖先的），第二道是每个 Handler 自己的级别。向上传播时**不再检查祖先 logger 的级别和 Filter**，只检查祖先身上每个 Handler 的级别：
+
+```mermaid
+%% 图：一条日志记录从 logger 到输出：logger 级别、Handler 级别与向上传播
+flowchart TB
+    A["logger.debug(...)<br/>在 inference.backends.torch 上调用"] --> B{"级别 ≥ logger 的有效级别<br/>且 Filter 放行？"}
+    B -- 否 --> X["丢弃"]
+    B -- 是 --> D["<b>当前 logger 上的每个 Handler</b><br/>记录级别 ≥ Handler 级别且 Handler 的 Filter 放行<br/>→ Formatter 格式化，输出一次"]
+    D --> P{"propagate 为 True<br/>且还有父 logger？"}
+    P -- "是：换到父 logger" --> D
+    P -- 否 --> Z["结束"]
+```
+
+路径上每经过一个放行的 Handler 就输出一次，所以子 logger 和 root 各挂一个 Handler 时，同一条日志会出现两遍（下一节末尾）。
 
 ```python title="Logger、Handler、Formatter 手工装配一遍"
 import logging
@@ -841,7 +901,7 @@ async def add_request_id(request, call_next):
 
 `ContextVar` 的关键性质是它在 asyncio 任务间是隔离的——每个 Task 有自己的上下文副本，并发请求不会互相污染。这一点是它能替代 `threading.local` 用在异步代码里的原因。
 
-> `ContextVars` 的完整机制、与 `threading.local` 的差异、以及在 `TaskGroup` 和线程池中的传播规则，见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)的 ContextVars 一章。
+> `ContextVars` 的完整机制、与 `threading.local` 的差异、以及在 `TaskGroup` 和线程池中的传播规则，见[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)的 ContextVars 一章。
 
 ### 7. 与 SLF4J + Logback 对照
 
@@ -962,7 +1022,7 @@ if not inspect.iscoroutinefunction(plugin.predict):
 - 运行环境使用了旧版本代码；
 - 子类继承关系不符合预期。
 
-> 关于反射、`__init_subclass__` 注册和插件发现机制的详细讨论，参见[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)。
+> 关于反射、`__init_subclass__` 注册和插件发现机制的详细讨论，参见[《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)。
 
 ## 十一、使用 tracemalloc 定位 Python 内存增长
 
