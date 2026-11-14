@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（04）：多态与类型擦除——运行时如何选
 subtitle: "Polymorphism and Type Erasure"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 在 Python 里写 `torch.add(a, b)`，如果 `a` 在 CPU 上就跑 CPU kernel，在 GPU 上就跑 CUDA kernel。这个"按参数选实现"的动作在 C++ 层叫 dispatch，做这件事的类叫 `c10::Dispatcher`。它的核心调用路径在 `aten/src/ATen/core/dispatch/Dispatcher.h` 里（本文引用的 PyTorch 源码以 v2.10.0 为准），删掉调试和 profiler 分支后只剩这几行：
@@ -933,6 +933,29 @@ Table: KernelFunction 的三个字段
 
 `OperatorKernel*` 出现在两个函数指针的第一个参数位置上，它就是 `function_ref` 里那个 `intptr_t callable`——"被装进去的东西"的地址。区别是 `KernelFunction` 拥有它（`intrusive_ptr`），而且它有一个公共基类 `OperatorKernel`（只为虚析构存在，2.3 节）。
 
+把三个字段和它们指向的东西画在一起，类型擦除的四步就落到了具体位置：模板工厂在**注册时**实例化两个知道 `KernelFunctor` 的静态函数，把地址存进三个字段；之后 `KernelFunction` 这个非模板类型只拿着这些地址，`KernelFunctor` 这个名字再也不出现。调用时唯一需要恢复的是签名，靠调用方显式给出的 `Args...` 把 `void*` cast 回去（3.3 节）：
+
+```mermaid
+%% 图：KernelFunction 的类型擦除：注册时模板实例化两个适配函数并存下地址，调用时只剩三个字段
+flowchart TB
+    subgraph KF["KernelFunction：非模板，所有签名的 kernel 是同一种类型"]
+        direction LR
+        F1["functor_<br/>intrusive_ptr&lt;OperatorKernel&gt;"]
+        F2["boxed_kernel_func_<br/>统一签名的函数指针"]
+        F3["unboxed_kernel_func_<br/>void*"]
+    end
+    R["<b>注册时：makeFromUnboxedFunctor&lt;KernelFunctor&gt;</b><br/>模板，知道 KernelFunctor 与 kernel 签名<br/>接管 KernelFunctor 对象，实例化两个适配函数"]
+    OBJ["<b>KernelFunctor 对象</b><br/>堆上，继承 OperatorKernel"]
+    W2["<b>make_boxed_from_unboxed_functor::call</b><br/>从 Stack 拆参数 → 调 KernelFunctor 对象<br/>→ 结果压回 Stack"]
+    W1["<b>wrap_kernel_functor_unboxed_::call</b><br/>把第一个参数 static_cast 回 KernelFunctor*<br/>调它的 operator()"]
+    F1 -->|"拥有"| OBJ
+    F2 -->|"指向"| W2
+    F3 -->|"调用时按 Args... cast 回原签名"| W1
+    R -->|"实例化"| W2
+    R -->|"实例化"| W1
+```
+
+
 ### 3. unboxed 路径：从 functor 到 `void*`，再回来
 
 创建一个 `KernelFunction` 的所有工厂函数最终都汇到 `makeFromUnboxedFunctor`（`KernelFunction_impl.h`）：
@@ -1249,6 +1272,17 @@ TORCH_LIBRARY_IMPL(_, Conjugate, m) {
 - 跨 ABI 边界（`torch/csrc/stable`）：只能约定统一签名。
 
 **两条路径必须能互转。** 一个 kernel 不管以哪种方式注册，都可能被以另一种方式调用：Python 实现的算子（boxed）被 C++ 代码 `at::foo(x)` 调（unboxed）；C++ 实现的 CPU kernel（unboxed）被 TorchScript（boxed）调。所以 `KernelFunction` 保证 `boxed_kernel_func_` 永远有效——unboxed 注册的 kernel 自动生成一个 boxed 包装（`make_boxed_from_unboxed_functor`）；而 boxed 注册的 kernel 的 `unboxed_kernel_func_` 为空，unboxed 调用时走 `BoxedKernelWrapper` 装箱。
+
+两种注册方式乘两种调用方式，一共四种组合，每种走哪段代码：
+
+| 注册方式 ＼ 调用方式 | unboxed 调用（`at::foo(x)`，`KernelFunction::call<Return, Args...>`） | boxed 调用（TorchScript、fallback、Python 侧） |
+|---|---|---|
+| unboxed 注册（`TORCH_FN`、函数指针、lambda） | `unboxed_kernel_func_` 非空，直接调，不装箱 | `boxed_kernel_func_` 指向注册时自动生成的 `make_boxed_from_unboxed_functor::call`：从栈上拆参数、调 kernel、把结果压回栈 |
+| boxed 注册（`makeFromBoxedFunction`） | `unboxed_kernel_func_` 为空，`BoxedKernelWrapper` 先把参数装进 `Stack`，调 boxed 入口，再从栈顶取回结果 | `boxed_kernel_func_` 直接调 |
+
+Table: 注册方式与调用方式的四种组合
+
+只有对角线上的两格没有转换开销。`at::` 的日常调用几乎都落在左上格，这也是 `KernelFunction::call` 先检查 `unboxed_kernel_func_` 的原因。
 
 `OperatorEntry::lookup` 的注释总结了这个不对称：
 

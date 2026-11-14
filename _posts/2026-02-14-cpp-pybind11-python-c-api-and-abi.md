@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（07）：与 Python 之间——pybind11、Python C AP
 subtitle: "pybind11, the Python C API and ABI"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 `torch.Tensor` 在 Python 里是一个再普通不过的对象：能 `isinstance`、能子类化、能 `t.foo = 1` 挂属性、能被 `gc` 收集。但它在 C++ 里的定义，在 `torch/csrc/autograd/python_variable.h` 开头：
@@ -645,7 +645,26 @@ py::object invokeOperatorFromPython(
 }
 ```
 
-三段式：**持 GIL 把 Python 参数转成 C++（`getOpWithStack`）→ 放掉 GIL 跑算子 → 拿回 GIL 把结果转回 Python**。第八章会沿这条路走一遍。`torch.library` 的 Python 绑定（`torch/csrc/utils/python_dispatch.cpp`）里 `ophandle_call_boxed` 和 `_DispatchOperatorHandle.redispatch_boxed` 是同一形状：`createStackForSchema` → `{ gil_scoped_release; handle.callBoxed(stack); }` → `createPyObjectForStack`。
+三段式：**持 GIL 把 Python 参数转成 C++（`getOpWithStack`）→ 放掉 GIL 跑算子 → 拿回 GIL 把结果转回 Python**。放在时间轴上，中间那段正是别的 Python 线程能跑的窗口：
+
+```mermaid
+%% 图：一次 torch.ops 调用里 GIL 的交接：中间算子执行的那段，其他 Python 线程拿到 GIL 继续运行
+sequenceDiagram
+    participant M as 调用 torch.ops 的线程
+    participant G as GIL
+    participant W as 另一个 Python 线程
+    Note over M: 持 GIL：getOpWithStack 把 Python 参数转成 IValue 栈
+    M->>G: gil_scoped_release 构造：PyEval_SaveThread 交出 GIL
+    G->>W: W 拿到 GIL，继续执行 Python 字节码
+    Note over M: 不持 GIL：Dispatcher 跑算子，可能几十毫秒
+    M->>G: 守卫析构：PyEval_RestoreThread 请求 GIL
+    G->>W: 切换间隔到期，要求 W 让出
+    W->>G: W 交还 GIL
+    G->>M: M 拿回 GIL
+    Note over M: 持 GIL：createPyObjectForStack 把结果转回 Python 对象
+```
+
+如果中间那段不放 GIL，`W` 在算子跑完之前一条字节码都执行不了。第八章会沿这条路走一遍。`torch.library` 的 Python 绑定（`torch/csrc/utils/python_dispatch.cpp`）里 `ophandle_call_boxed` 和 `_DispatchOperatorHandle.redispatch_boxed` 是同一形状：`createStackForSchema` → `{ gil_scoped_release; handle.callBoxed(stack); }` → `createPyObjectForStack`。
 
 3. **可能阻塞的操作**：等待 CUDA 事件、集合通信、文件 IO、等条件变量。持 GIL 阻塞是死锁的常见来源——如果被等的那一方需要 GIL 才能推进。
 
@@ -726,7 +745,22 @@ void ConcretePyInterpreterVTable::incref(PyObject* pyobj) const {
 
 ### 5. 死锁模式
 
-最经典的一种：线程 A 持有一个 C++ `std::mutex` 然后去 `gil_scoped_acquire`；线程 B 持有 GIL 然后去锁同一个 `mutex`。两把锁的获取顺序不一致就是死锁。通用的解法和任何多锁问题一样：固定顺序。对 Python 扩展来说自然的顺序是把 GIL 当作最外层的锁——需要同时持有 GIL 和某个 C++ 锁时先拿 GIL；已经持有 C++ 锁却需要回 Python 时，先放锁再拿 GIL。`c10/core/impl/PyInterpreter.h` 开头的 Note 提到了正是这个风险："acquiring the GIL could lead to deadlocks if someone is blocking on you while holding the GIL"——`TensorImpl` 的析构可能在任何线程、持有任何锁的情况下发生，而它要 `Py_DECREF`，这就是为什么 4.3 节的 `decref` 要格外小心。
+最经典的一种：线程 A 持有一个 C++ `std::mutex` 然后去 `gil_scoped_acquire`；线程 B 持有 GIL 然后去锁同一个 `mutex`。两把锁的获取顺序不一致就是死锁。两个线程各拿着对方要的那把锁（粗线是已持有，虚线是在等待）：
+
+```mermaid
+%% 图：GIL 与 C++ mutex 的死锁环：线程 A 持 mutex 等 GIL，线程 B 持 GIL 等 mutex
+flowchart TB
+    TA["<b>线程 A</b><br/>C++ 线程，要回调 Python"]
+    TB["<b>线程 B</b><br/>Python 线程，要进 C++"]
+    MU["std::mutex m"]
+    GIL["GIL"]
+    TA ==>|"已持有"| MU
+    TA -.->|"等待 gil_scoped_acquire"| GIL
+    TB ==>|"已持有"| GIL
+    TB -.->|"等待 lock(m)"| MU
+```
+
+通用的解法和任何多锁问题一样：固定顺序。对 Python 扩展来说自然的顺序是把 GIL 当作最外层的锁——需要同时持有 GIL 和某个 C++ 锁时先拿 GIL；已经持有 C++ 锁却需要回 Python 时，先放锁再拿 GIL。`c10/core/impl/PyInterpreter.h` 开头的 Note 提到了正是这个风险："acquiring the GIL could lead to deadlocks if someone is blocking on you while holding the GIL"——`TensorImpl` 的析构可能在任何线程、持有任何锁的情况下发生，而它要 `Py_DECREF`，这就是为什么 4.3 节的 `decref` 要格外小心。
 
 Java 对照：JVM 没有 GIL，但 JNI 有 `MonitorEnter/MonitorExit`，与 `synchronized` 是同一把锁；C++ 侧持有 `std::mutex` 再 `MonitorEnter` 一个被 Java 线程持有的监视器，死锁模式完全相同。区别在于 Python 里这个问题更常见，因为 GIL 是**所有** Python 操作共用的一把锁，任何 `py::object` 析构都可能要它。
 

@@ -92,7 +92,7 @@ flowchart TB
 
 **`Tensor` = 8 字节值句柄；`=` 拷句柄计数 +1，计数归零才释放数据**
 
-![shared_ptr 与 intrusive_ptr 的内存布局对比](/img/in-post/cpp-value-semantics-ownership-and-raii-shared-intrusive-layout.svg){: style="max-height: 380px}
+![shared_ptr 与 intrusive_ptr 的内存布局对比](/img/in-post/cpp-value-semantics-ownership-and-raii-shared-intrusive-layout.svg){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
 原文 /cpp-value-semantics-ownership-and-raii.html。del 后显存未降的四步排查：别的 Python 引用 → autograd 保存 → view 活着 → 在缓存池。
@@ -158,6 +158,33 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 原文 /cpp-polymorphism-and-type-erasure.html。
 结论原文：`KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed——**函数指针 + 模板生成的适配器**的手工类型擦除；`lookup` 一次数组下标，全程无虚调用；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次。
 补充要点：虚函数 / CRTP / 类型擦除 / `std::variant` 四种多态各在 PyTorch 哪里用
+</aside>
+
+<!-- v -->
+
+### `KernelFunction` 里存了什么
+
+```mermaid
+%% 图：KernelFunction 的类型擦除：注册时模板实例化两个适配函数并存下地址，调用时只剩三个字段
+flowchart LR
+    R["<b>注册时</b><br/>makeFromUnboxedFunctor&lt;KernelFunctor&gt;"]
+    R -->|"实例化"| W1["<b>unboxed 适配</b><br/>static_cast 回 KernelFunctor*"]
+    R -->|"实例化"| W2["<b>boxed 适配</b><br/>Stack 拆参数 → 调 → 压回"]
+    subgraph KF["KernelFunction（非模板）"]
+        direction TB
+        F1["functor_"]
+        F2["boxed_kernel_func_"]
+        F3["unboxed_kernel_func_：void*"]
+    end
+    F1 -->|"拥有"| OBJ["<b>KernelFunctor 对象</b>"]
+    F2 --> W2
+    F3 -->|"按 Args... cast 回"| W1
+    W1 --> OBJ
+    W2 --> OBJ
+```
+
+<aside class="notes" markdown="1">
+原文 /cpp-polymorphism-and-type-erasure.html 第六章第 2 节的图。注册时模板知道 `KernelFunctor`，实例化两个静态适配函数并存下地址；之后外壳只拿地址，调用时由调用方显式给出的 `Args...` 把 `void*` cast 回原签名。四种组合里只有「unboxed 注册 + unboxed 调用」「boxed 注册 + boxed 调用」两格没有装箱 / 拆箱开销。
 </aside>
 
 <!-- v -->

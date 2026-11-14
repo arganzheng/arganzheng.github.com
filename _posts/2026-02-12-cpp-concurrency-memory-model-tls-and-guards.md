@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（06）：并发、内存模型、TLS 与守卫"
 subtitle: "Concurrency, Memory Model, TLS and Guards"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-14
 ---
 
 `with torch.no_grad():` 大概是 PyTorch 用户最早学会的几个写法之一。它在 Python 侧是一个上下文管理器，`__enter__` 调 `torch.set_grad_enabled(False)`，`__exit__` 把旧值设回去。顺着 `torch._C._set_grad_enabled` 往下追，会落到 `torch/csrc/autograd/init.cpp` 里的这段 C++：
@@ -491,6 +491,19 @@ inline uint64_t atomic_combined_refcount_decrement(
 
 要保证 T2 的析构函数看到 T1 之前写入的所有内容（否则可能释放一个"半新半旧"的对象，或者漏掉 T1 挂上去的资源），需要：**T1 的 -1 是 release，T2 的 -1 是 acquire**，两者之间建立 synchronizes-with，从而 T1 之前的所有写 happens-before T2 的析构。
 
+和本文第三章那张 producer / consumer 图是同一个形状，只是 release 写和 acquire 读换成了两次 `fetch_sub`：
+
+```mermaid
+%% 图：两个线程先后放掉同一 TensorImpl 的引用：T1 的减与 T2 的最后一次减同步，T1 的写因此先于 T2 的析构
+flowchart TB
+    A["<b>T1</b><br/>(A) 写 impl->sizes_"] -->|sequenced-before| B["<b>T1</b><br/>(B) fetch_sub(acq_rel)：2 → 1"]
+    B -->|synchronizes-with| C["<b>T2</b><br/>(C) fetch_sub(acq_rel)：1 → 0"]
+    C -->|sequenced-before| D["<b>T2</b><br/>(D) delete：析构读字段、释放 Storage"]
+    A -.->|happens-before| D
+```
+
+(B) 这一边需要 release 语义，(C) 这一边需要 acquire 语义；但执行 `fetch_sub` 之前谁也不知道自己会落在哪一边。
+
 问题是执行 -1 的时候不知道自己是不是"最后一个"——只有拿到 `fetch_sub` 的返回值之后才知道。所以每次减都得同时准备好两种角色：既是 release（万一自己不是最后一个），又是 acquire（万一自己是）。这就是 `acq_rel`。注释说的另一种写法是全部用 release，然后只在返回值为 0 时补一个 `std::atomic_thread_fence(memory_order_acquire)`；这在某些平台上略省，但代码更绕，而且在现代 x86/ARM 上 `acq_rel` 的读-改-写指令本身就是一条指令，没有额外代价。
 
 ### 4. 在 `intrusive_ptr` 内部它们是怎么用的
@@ -898,9 +911,9 @@ struct TORCH_API AutoDispatchBelowADInplaceOrView {
 
 每个算子的 autograd kernel 在"记录完反向图信息、准备调真正的计算"之前，声明一个这样的守卫，让接下来的 redispatch 跳过 autograd 层，避免无穷递归。`LegacyTypeDispatch.h` 里 "Note [AutoDispatchBelowADInplaceOrView]" 把这个不变量写成一句话：
 
-- Once you are in VariableType/ADInplaceOrView kernel for an op,
-- you never go back to a kernel on same dispatch key until
-- you finish the current op.
+> Once you are in VariableType/ADInplaceOrView kernel for an op,
+> you never go back to a kernel on same dispatch key until
+> you finish the current op.
 
 第五篇讨论过代码生成；这是生成代码依赖运行时守卫来维持正确性的一个例子。
 

@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（05）：宏、静态注册与代码生成"
 subtitle: "Macros, Static Registration and Code Generation"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 vLLM 的 CPU 后端把所有自定义算子登记到 PyTorch 的代码在 `csrc/cpu/torch_bindings.cpp` 里，形状是这样的：
@@ -1037,7 +1037,16 @@ std::map<std::string, Factory> g_registry;          // 动态初始化：要跑 
 static Registrar reg_foo("foo", &make_foo);        // 构造函数里写 g_registry
 ```
 
-如果 `foo.cpp` 的初始化先于 `registry.cpp`，`reg_foo` 的构造函数往一个还没构造的 `std::map` 里写东西——通常是段错误，而且只在某种链接顺序下出现。这就是 "static initialization order fiasco"。
+两个翻译单元的初始化谁先谁后，只取决于链接顺序，两种顺序的结局完全不同：
+
+| 谁先初始化 | 第一步 | 第二步 | 结果 |
+|---|---|---|---|
+| `registry.cpp` 先 | `g_registry` 构造成一张空表 | `reg_foo` 往表里插入 `"foo"` | 正常 |
+| `foo.cpp` 先 | `reg_foo` 往一个**还没构造**的 `std::map` 里插入（此时它只是一片全零的内存） | `g_registry` 的构造函数运行，把它重新初始化成空表 | 通常是段错误；侥幸没崩时 `"foo"` 被静默清掉 |
+
+Table: 跨翻译单元的两种初始化顺序
+
+第二行的故障只在某种链接顺序下出现，改一下 `CMakeLists.txt` 里源文件的顺序就可能出现或消失。这就是 "static initialization order fiasco"。
 
 Java 没有这个问题：类初始化按需触发，JVM 保证在第一次使用 `Registry` 之前先初始化它，还处理了循环依赖。C++ 把"按需"这件事留给了程序员。
 
@@ -1184,6 +1193,24 @@ Table: 符号可见性对 .so 内外的影响
 第一篇 5.3 节留下的问题现在可以正面讨论了。链接器处理静态库 `.a` 的规则是：**只从归档里取出那些能解析当前未定义符号的目标文件**。一个 `.o` 如果没有任何符号被别人引用，链接器认为它没用，不会把它放进最终产物。
 
 而一个典型的算子实现文件——比如 torchgen 生成的 `RegisterCPU.cpp`，或者用户写的 `my_kernels.cpp`——的全部内容是：一堆匿名命名空间里的 kernel 函数（内部链接）、几个 `TORCH_LIBRARY_IMPL` 块（展开出来全是 `static`）。**这个文件没有任何外部链接的符号**，没有人引用它，也没法引用它。把它打进 `.a`，链接时链接器看一眼："没有人需要这个 `.o`"，丢掉。注册器对象不存在，`.init_array` 里没有它，`torch.ops.myops.xxx` 报 `AttributeError`。没有任何编译或链接错误。
+
+画出来：
+
+```mermaid
+%% 图：链接器从静态库里只取被引用的目标文件：靠静态注册器生效的 add.o 没有被引用的符号，被整个丢掉
+flowchart TB
+    M["<b>main.o</b><br/>U Dispatcher::singleton()"] --> LK{"链接器在 libops.a 里<br/>找能解析 U 的目标文件"}
+    subgraph A["libops.a"]
+        direction LR
+        D["<b>Dispatcher.o</b><br/>T Dispatcher::singleton()"]
+        K["<b>add.o</b><br/>kernel 与注册器全是内部链接"]
+    end
+    A --> LK
+    LK -->|"Dispatcher.o 能解析 U：取出"| IN["Dispatcher.o 进入可执行文件"]
+    LK -->|"add.o 没有符号被引用：跳过"| OUT["add.o 不进入，.init_array 里没有它的注册器"]
+    OUT --> R["运行时注册表里没有 add，编译、链接都不报错"]
+    LK -.->|"加 --whole-archive / -force_load"| ALL["libops.a 里所有 .o 都进入，注册器照常运行"]
+```
 
 这就是"算子在某些链接方式下消失"的机制。它不是 bug，是静态库的设计——静态库本来就是"按需取用"的目标文件集合。问题在于静态注册的 `.o` 的"被需要"方式（加载器跑初始化）不是链接器识别的方式（符号引用）。
 

@@ -4,6 +4,7 @@ title: C++ 在 AI-Infra：从对象模型到算子扩展（总纲）
 subtitle: C++ for AI-Infra, from the Object Model to Operator Extensions
 tags: [C++, AI, AI-Infra]
 catalog: true
+updated: 2026-11-14
 ---
 
 
@@ -164,7 +165,7 @@ CUDA 是 C++ 的方言。写 kernel 之前，需要先能自然地写出 host �
 5. 第五篇：代码如何在启动时自己登记进系统（宏 · 静态初始化 · 可见性 · 代码生成）
 6. 第六篇：多线程下如何正确且快（内存模型 · 原子 · TLS · 守卫 · 并行）
 7. 第七篇：C++ 如何与 Python 对话（pybind11 · Python C API · GIL · ABI）
-8. 第八篇：怎么构建、调试、测试 CMake · 编译选项 · gdb · sanitizer · gtest
+8. 第八篇：怎么构建、调试、测试（CMake · 编译选项 · gdb · sanitizer · gtest）
 
 前四篇是语言核心，后四篇是工程实践。每一篇都有同样的三段结构：
 
@@ -177,8 +178,7 @@ CUDA 是 C++ 的方言。写 kernel 之前，需要先能自然地写出 host �
 
 - 语言线：编译模型 → 对象模型 → 泛型 → 多态 → 元编程 → 并发
 - 工程线：构建 → 链接 → ABI → 调试 → 测试
-- 源码线：c10::intrusive_ptr → TensorImpl → AT_DISPATCH → KernelFunction
--  → TORCH_LIBRARY → DeviceGuard → THPVariable → CMakeLists.txt
+- 源码线：c10::intrusive_ptr → TensorImpl → AT_DISPATCH → KernelFunction → TORCH_LIBRARY → DeviceGuard → THPVariable → CMakeLists.txt
 
 
 ## 章节结构与分章导读
@@ -387,29 +387,22 @@ Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这�
 
 ## 贯穿全系列的实践线：mini-c10
 
-本系列的练手项目取名 mini-c10，因为它模仿的正是 PyTorch 最底层那个库——`c10/`——的核心结构，外加 ATen 的 Dispatcher 骨架：
+本系列的练手项目取名 mini-c10，因为它模仿的正是 PyTorch 最底层那个库——`c10/`——的核心结构，外加 ATen 的 Dispatcher 骨架。它最终大约一两千行 C++，实现 `add` 和 `mul` 两个算子的 CPU 实现和 Meta 实现，能从 Python 调用，能被 gdb 调试，有测试。它不追求性能，也不追求功能覆盖，只有一个目标：**读者写完之后，再打开真实的 `c10/core/TensorImpl.h` 和 `aten/src/ATen/core/dispatch/Dispatcher.h`，看到的是熟悉的结构。**
 
-- **第一篇**：目录结构、CMake 骨架、第一个可链接的库
-- **第二篇**：intrusive_ptr · TensorImpl · StorageImpl · Tensor 句柄
-- **第三篇**：ScalarType · dtype 分发宏 · 第一个模板化 kernel
-- **第四篇**：DispatchKey · OperatorEntry · 类型擦除的 KernelFunction · 最小 Dispatcher
-- **第五篇**：MINI_LIBRARY 静态注册宏 · 算子文件自注册 · 符号可见性
-- **第六篇**：parallel_for · TLS 守卫 · 线程安全的引用计数
-- **第七篇**：pybind11 模块 · Tensor caster · 一次 ABI 事故复现
-- **第八篇**：gtest · ASan · gdb 会话 · clang-format
+与它平行的是源码阅读线：每篇的"回到源码"部分带读者读真实项目的一到三处代码。两条线按篇对齐——mini-c10 里写的那一块，正是同一篇读的源码的缩小版：
 
-它最终大约一两千行 C++，实现 `add` 和 `mul` 两个算子的 CPU 实现和 Meta 实现，能从 Python 调用，能被 gdb 调试，有测试。它不追求性能，也不追求功能覆盖，只有一个目标：**读者写完之后，再打开真实的 `c10/core/TensorImpl.h` 和 `aten/src/ATen/core/dispatch/Dispatcher.h`，看到的是熟悉的结构。**
+| 篇 | mini-c10 写什么 | 回到源码读什么 |
+|---|---|---|
+| 第一篇 | 目录结构、CMake 骨架、第一个可链接的库 | `c10/CMakeLists.txt`<br/>`torch/csrc/stub.c`<br/>`setup.py` 的库依赖 |
+| 第二篇 | `intrusive_ptr`、`TensorImpl`、`StorageImpl`、`Tensor` 句柄 | `c10/util/intrusive_ptr.h`<br/>`c10/core/TensorImpl.h`<br/>`c10/core/StorageImpl.h`<br/>`c10/core/Allocator.h` |
+| 第三篇 | `ScalarType`、dtype 分发宏、第一个模板化 kernel | `ATen/Dispatch.h`<br/>`c10/util/ArrayRef.h`<br/>`c10/util/SmallVector.h` |
+| 第四篇 | `DispatchKey`、`OperatorEntry`、类型擦除的 `KernelFunction`、最小 Dispatcher | `ATen/core/boxing/KernelFunction.h`<br/>`ATen/core/dispatch/OperatorEntry.h`<br/>`ATen/core/ivalue.h` |
+| 第五篇 | `MINI_LIBRARY` 静态注册宏、算子文件自注册、符号可见性 | `torch/library.h`<br/>`c10/macros/Macros.h`<br/>`c10/macros/Export.h`<br/>一个 torchgen 生成文件 |
+| 第六篇 | `parallel_for`、TLS 守卫、线程安全的引用计数 | `c10/core/impl/LocalDispatchKeySet.h`<br/>`c10/core/DeviceGuard.h`<br/>`ATen/Parallel.h`<br/>`ATen/cpu/vec/` |
+| 第七篇 | pybind11 模块、`Tensor` caster、一次 ABI 事故复现 | `torch/csrc/autograd/python_variable.cpp`<br/>`torch/csrc/utils/pybind.h`<br/>vLLM `csrc/torch_bindings.cpp` |
+| 第八篇 | gtest、ASan、gdb 会话、clang-format | `c10/test/util/intrusive_ptr_test.cpp`<br/>`tools/gdb/pytorch-gdb.py`<br/>`.clang-tidy` |
 
-与它平行的是源码阅读线。每篇的"回到源码"部分带读者读真实项目的一到三处代码：
-
-- **第一篇**：c10/CMakeLists.txt · torch/csrc/stub.c · setup.py 的库依赖
-- **第二篇**：c10/util/intrusive_ptr.h · c10/core/TensorImpl.h · c10/core/StorageImpl.h · c10/core/Allocator.h
-- **第三篇**：ATen/Dispatch.h · c10/util/ArrayRef.h · c10/util/SmallVector.h
-- **第四篇**：ATen/core/boxing/KernelFunction.h · ATen/core/dispatch/OperatorEntry.h · ATen/core/ivalue.h
-- **第五篇**：torch/library.h · c10/macros/Macros.h · c10/macros/Export.h · 一个 torchgen 生成文件
-- **第六篇**：c10/core/impl/LocalDispatchKeySet.h · c10/core/DeviceGuard.h · ATen/Parallel.h · ATen/cpu/vec/
-- **第七篇**：torch/csrc/autograd/python_variable.cpp · torch/csrc/utils/pybind.h · vLLM csrc/torch_bindings.cpp
-- **第八篇**：c10/test/util/intrusive_ptr_test.cpp · tools/gdb/pytorch-gdb.py · .clang-tidy
+Table: 各篇的 mini-c10 实践与源码阅读
 
 mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra)（目前是第二篇的部分：`intrusive_ptr` / `Allocator` / `StorageImpl` / `TensorImpl` / `Tensor` 与 14 个值语义例子，`make run` 一键编译运行），后续各篇的文件会加到同一目录。
 
@@ -476,15 +469,19 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 并逐行回答：
 
-- const at::Tensor& 为什么这样传？：→ 第二篇：值语义与常量引用
-- TORCH_CHECK 为什么是宏？：→ 第五篇：宏在调用点捕获信息
-- x.contiguous() 返回的对象要拷贝数据吗？：→ 第二篇：句柄与移动语义
-- AT_DISPATCH 如何把运行期 dtype 变成编译期类型？ → 第三篇：模板与编译期分派
-- [&] 捕获了什么，安全吗？：→ 第三篇：lambda 与生命周期
-- parallel_for 的线程从哪里来？：→ 第六篇：OpenMP 与线程模型
-- 这个函数怎么变成 torch.ops 下的算子？：→ 第五篇：静态注册
-- Python 调用它时经过了什么？：→ 第七篇：pybind11 与 GIL
-- 它编译成哪个 .so，链接到哪些库？：→ 第一篇、第八篇：链接与 CMake
+| 这一行的问题 | 回答它的篇与机制 |
+|---|---|
+| `const at::Tensor&` 为什么这样传？ | [第二篇](/cpp-value-semantics-ownership-and-raii.html)：值语义与常量引用 |
+| `TORCH_CHECK` 为什么是宏？ | [第五篇](/cpp-macros-static-registration-and-codegen.html)：宏在调用点捕获信息 |
+| `x.contiguous()` 返回的对象要拷贝数据吗？ | [第二篇](/cpp-value-semantics-ownership-and-raii.html)：句柄与移动语义 |
+| `AT_DISPATCH` 如何把运行期 dtype 变成编译期类型？ | [第三篇](/cpp-templates-and-generic-programming.html)：模板与编译期分派 |
+| `[&]` 捕获了什么，安全吗？ | [第三篇](/cpp-templates-and-generic-programming.html)：lambda 与生命周期 |
+| `parallel_for` 的线程从哪里来？ | [第六篇](/cpp-concurrency-memory-model-tls-and-guards.html)：OpenMP 与线程模型 |
+| 这个函数怎么变成 `torch.ops` 下的算子？ | [第五篇](/cpp-macros-static-registration-and-codegen.html)：静态注册 |
+| Python 调用它时经过了什么？ | [第七篇](/cpp-pybind11-python-c-api-and-abi.html)：pybind11 与 GIL |
+| 它编译成哪个 `.so`，链接到哪些库？ | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html)、[第八篇](/cpp-build-debug-and-test-toolchain.html)：链接与 CMake |
+
+Table: 开篇代码的每一行由哪一篇回答
 
 最终目标不是"会写 C++"，而是三种能力：
 

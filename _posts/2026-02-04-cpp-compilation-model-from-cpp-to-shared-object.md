@@ -7,7 +7,7 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 redirect_from:
   - /cpp-compilation-model-and-project-layout.html
-updated: 2026-09-21
+updated: 2026-11-14
 ---
 
 
@@ -948,6 +948,24 @@ Linux 上的输出形如：
 3. `DT_RUNPATH`；
 4. `/etc/ld.so.cache`（由 `ldconfig` 从 `/etc/ld.so.conf` 生成）；
 5. 默认目录 `/lib`、`/usr/lib`（及 64 位变体）。
+
+第 1 条和第 3 条容易看混：老式的 `DT_RPATH` 排在 `LD_LIBRARY_PATH` **之前**，新式的 `DT_RUNPATH` 排在它**之后**，而且二进制里一旦有 `DT_RUNPATH`，`DT_RPATH` 就整个被忽略。画成判断流程：
+
+```mermaid
+%% 图：ld.so 为一个 DT_NEEDED 库找文件的顺序：DT_RPATH 只在没有 DT_RUNPATH 时生效，LD_LIBRARY_PATH 夹在两者之间
+flowchart TB
+    S["<b>要加载 DT_NEEDED 里的 libminic10.so</b>"] --> Q{"这个二进制有 DT_RUNPATH 吗？"}
+    Q -->|"没有"| RP["1. 搜 DT_RPATH"]
+    Q -->|"有：DT_RPATH 被忽略"| LD
+    RP -->|"没找到"| LD["2. 搜 LD_LIBRARY_PATH"]
+    LD -->|"没找到"| RU["3. 搜 DT_RUNPATH"]
+    RU -->|"没找到"| C["4. 查 /etc/ld.so.cache"]
+    C -->|"没找到"| D["5. 搜 /lib、/usr/lib"]
+    D -->|"没找到"| NF["报 not found，加载失败"]
+    RP & LD & RU & C & D -->|"找到"| OK["映射进进程，继续处理它自己的 DT_NEEDED"]
+```
+
+所以设 `LD_LIBRARY_PATH` 能盖过 `DT_RUNPATH`，却盖不过老式的 `DT_RPATH`——同一个环境变量在两个二进制上效果不同，通常就是这个原因（`readelf -d` 看它写的是哪一种）。
 
 三个可控的手段：
 

@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（02）：值、引用与所有权——对象模型与
 subtitle: "Value Semantics, Ownership and RAII"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-14
 ---
 
 打开 `aten/src/ATen/core/TensorBase.h`，`at::Tensor` 的基类是这样定义的（类定义开头和结尾）：
@@ -348,15 +348,17 @@ int main() {
 
 第三个构造函数 `Tracer(const Tracer& o)` 就是拷贝构造函数：参数是"对另一个 `Tracer` 的常量引用"，函数体决定"拷贝"是什么意思——这里是把名字加一个撇号，方便在输出里区分谁是谁的拷贝。输出：
 
-- **ctor      a**
-- **copy-ctor a'**
-- **copy-ctor a''**
-  - in by_value, got a''
-- **dtor      a''**
-  - in by_cref, got a'
-- **end of main**
-- **dtor      a'**
-- **dtor      a**
+```text title="运行输出：按值传参多一次拷贝构造，按 const& 传参没有"
+ctor      a
+copy-ctor a'
+copy-ctor a''
+  in by_value, got a''
+dtor      a''
+  in by_cref, got a'
+end of main
+dtor      a'
+dtor      a
+```
 
 对照代码：
 
@@ -723,7 +725,19 @@ free  0x1009edbc0
 free  0x1009edbe0
 ```
 
-对照输出：`b` 拿到了一块新内存（`...bd0`）；`c` 从 `a` 手里**偷**走了 `...bc0`，`a.data` 变成空；`b = c` 时先把 `c` 深拷贝成一个临时对象 `tmp`（`...be0`），再把 `tmp` 和 `b` 的内容交换，函数返回时 `tmp` 析构、顺手释放了 `b` 原来的 `...bd0`——这就是 `after b = c` 之前那行 `free`。最后 `main` 结束，`c`、`b` 逆序析构，各释放自己那块，`a` 的 `data` 是空所以没有打印。每块内存恰好释放一次。
+把每条语句执行完之后三个对象各自指向哪块内存列出来（地址取后三位）：
+
+| 语句 | `a.data` | `b.data` | `c.data` | 这一步打印 |
+|---|---|---|---|---|
+| `Buffer a(4);` | `…bc0` | — | — | `alloc …bc0` |
+| `Buffer b = a;` | `…bc0` | `…bd0`（新块，内容拷自 `a`） | — | `copy …bc0 -> …bd0` |
+| `Buffer c = std::move(a);` | `0x0` | `…bd0` | `…bc0`（从 `a` 偷来） | `move …bc0 (stolen)` |
+| `b = c;` | `0x0` | `…be0`（`tmp` 的新块换进来） | `…bc0` | `copy …bc0 -> …be0`<br/>`free …bd0`（`tmp` 带走 `b` 的旧块） |
+| `main` 结束 | — | — | — | `free …bc0`（`c`）<br/>`free …be0`（`b`）<br/>`a` 为空，不打印 |
+
+Table: 每条语句之后三个 Buffer 持有的堆块
+
+任何时刻，每块存活的堆内存都恰好只有一个对象的 `data` 指向它——这就是"每个资源只有一个所有者"在表里的样子。对照输出：`b` 拿到了一块新内存（`...bd0`）；`c` 从 `a` 手里**偷**走了 `...bc0`，`a.data` 变成空；`b = c` 时先把 `c` 深拷贝成一个临时对象 `tmp`（`...be0`），再把 `tmp` 和 `b` 的内容交换，函数返回时 `tmp` 析构、顺手释放了 `b` 原来的 `...bd0`——这就是 `after b = c` 之前那行 `free`。最后 `main` 结束，`c`、`b` 逆序析构，各释放自己那块，`a` 的 `data` 是空所以没有打印。每块内存恰好释放一次。
 
 **copy-and-swap** 值得多说一句，因为 `c10::intrusive_ptr` 的赋值也是这么写的（第九章）。赋值运算符最麻烦的地方是：要释放自己原来的资源、要接收新资源、还要处理 `a = a;` 这种自赋值和"拷贝过程中抛异常"的情况。copy-and-swap 把这三件事一次解决：先用参数构造一个临时对象（如果这一步抛异常，`*this` 还没被碰过，安然无恙），再和 `*this` 交换（交换指针不会抛异常），临时对象析构时带走旧资源。自赋值时 `tmp` 是自己的拷贝，交换后再析构掉，结果正确只是多做了一次拷贝。
 
@@ -836,9 +850,11 @@ Tracer c = std::move(a);   // move-ctor：std::move(a) 是右值；之后 a 处�
 std::printf("a now: %s\n", a.name.c_str());
 ```
 
-- copy-ctor a'
-- move-ctor a
-- a now: (moved-from)
+```text title="运行输出（节选）：b 是拷贝，c 偷走了 a 的名字"
+copy-ctor a'
+move-ctor a
+a now: (moved-from)
+```
 
 **moved-from 对象**的状态是"有效但未指定"（valid but unspecified）：可以析构、可以重新赋值，但不应该读它的内容——上面故意把 `name` 设成 `"(moved-from)"` 是为了演示，标准库类型不会这样做。对 `Tensor` 来说，moved-from 的 `Tensor` 是 undefined 的（`impl_` 为空），`defined()` 返回 `false`。
 
@@ -1036,14 +1052,16 @@ int main() {
 }
 ```
 
-- == normal
-- acquire local
-- work done normally
-- release local
-- == exception
-- acquire local
-- release local
-- caught: boom
+```text title="运行输出：正常返回和抛异常两条路径都打印了 release"
+== normal
+acquire local
+work done normally
+release local
+== exception
+acquire local
+release local
+caught: boom
+```
 
 第二段最重要：`work(true)` 在 `acquire` 之后抛了异常，函数体后面的代码一行都没执行，但 `release local` 照样打印了，而且是在 `catch` 之前——异常传播出 `work` 的过程中（叫"栈展开"，stack unwinding），`g` 所在的栈帧被销毁，`g` 的析构函数运行。**不需要 `finally`，不需要 `try-with-resources`，资源释放写在类型里一次，所有使用点自动获得。**
 
@@ -1097,13 +1115,15 @@ dtor Base::t             再基类的成员
 
 构造和析构严格镜像。这条规则对读 `TensorImpl` 很重要。`TensorImpl` 的成员按声明顺序有 `storage_`（一个 `Storage`，里面是 `intrusive_ptr<StorageImpl>`）、`autograd_meta_`（`unique_ptr`）、`extra_meta_`、`version_counter_`、`pyobj_slot_`、`sizes_and_strides_`……当最后一个 `Tensor` 句柄析构、`TensorImpl` 的引用计数归零时：
 
-1. **delete target**：(intrusive_ptr 内部，第九章)
-2. **~TensorImpl()**：函数体是 = default，什么都不做
-3. 逆序析构成员：... → ~unique_ptr(autograd_meta_) → ~Storage(storage_)
-4. **~intrusive_ptr<StorageImpl>**：StorageImpl 引用计数 -1
-5. 若归零：delete StorageImpl
-6. **~StorageImpl()**：函数体 = default
-7. ~DataPtr(data_ptr_) → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
+```text title="TensorImpl 计数归零后的析构链：缩进 = 调用嵌套"
+delete target                          (intrusive_ptr 内部，第九章)
+  → ~TensorImpl()                      函数体是 = default，什么都不做
+    → 逆序析构成员：... → ~unique_ptr(autograd_meta_) → ~Storage(storage_)
+      → ~intrusive_ptr<StorageImpl>    StorageImpl 引用计数 -1
+        → 若归零：delete StorageImpl
+          → ~StorageImpl()             函数体 = default
+            → ~DataPtr(data_ptr_)      → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
+```
 
 整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是总纲那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第十章会把每一层的代码摊开看。
 

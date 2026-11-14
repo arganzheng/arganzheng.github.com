@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（08）：构建、调试与测试工具链"
 subtitle: "Build, Debug and Test Toolchain"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
@@ -180,6 +180,19 @@ Table: PUBLIC、PRIVATE、INTERFACE 的传播规则
 判断标准只有一个：**这个属性是否出现在当前头文件里**。`c10` 的头文件 `#include <torch/headeronly/...>`，所以 `headeronly` 是 `PUBLIC`——任何 include 了 c10 头文件的下游都需要它的路径。`fmt` 只在 `c10/util/*.cpp` 里用，所以 `PRIVATE`——下游不需要知道 fmt 存在。`-fvisibility=hidden` 是 c10 自己怎么编的问题，`PRIVATE`——如果写成 `PUBLIC`，所有链接 c10 的目标都会变成 hidden 可见性，扩展模块的 `PyInit_*` 会消失。
 
 传递是链式的：`torch_cpu` 链接 `c10`（`PUBLIC`），`torch_python` 链接 `torch_cpu`，于是 `torch_python` 自动拿到 c10 的头文件路径和 `headeronly`。这也是为什么 `find_package(Torch)` 之后只需要 `target_link_libraries(my_ext torch)` 一行——所有传递属性自动带过来。
+
+沿这条链看 c10 的几项属性各自走到了哪里：
+
+```mermaid
+%% 图：c10 的属性沿 target_link_libraries 传播：PUBLIC 的头文件目录和 headeronly 一路传到扩展，PRIVATE 的 fmt 与 hidden 可见性留在 c10
+flowchart TB
+    C10["<b>c10</b><br/>PUBLIC：c10 头文件目录、headeronly<br/>PRIVATE：fmt、-fvisibility=hidden、-DC10_BUILD_MAIN_LIB"]
+    C10 -->|"PUBLIC 部分传下去"| CPU["<b>torch_cpu</b><br/>链接 c10（PUBLIC）<br/>拿到：c10 头文件目录、headeronly"]
+    CPU -->|"c10 作为 PUBLIC 依赖继续传"| DOWN["<b>torch_python、my_ext</b><br/>拿到：c10 头文件目录、headeronly"]
+    C10 -.->|"PRIVATE：不传"| KEEP["fmt、hidden 可见性只出现在<br/>c10 自己的 .cpp 的编译命令里"]
+```
+
+如果把 `-fvisibility=hidden` 错写成 `PUBLIC`，它会沿实线一路传到 `my_ext`，扩展的 `PyInit_*` 就不再导出。
 
 Java 对照：Maven 的 `compile` 与 `runtime`/`provided` scope 有类似的传递性概念（`compile` 依赖传给下游，`provided` 不传），但 Maven 传递的是"jar 文件"这一种东西；CMake 传递的是头文件路径、宏定义、编译选项、链接选项四类属性，粒度更细，而且传错会导致编译期或链接期的失败，而不是运行期的 `ClassNotFoundException`。
 
@@ -2832,16 +2845,20 @@ UseTab: Never
 
 回答核心问题。一个改动从写完到可以提 PR，按成本从低到高：
 
-- **1. clangd 没有红线**：零成本，写的时候就看到
-- **2. clang-format 过了**：lintrunner -a / clang-format -i
-- **3. Debug 构建编过，-Wall -Wextra 无新警告**：本地日常构建
-- **4. 相关 gtest / pytest 过了**：ninja bin/<test> && ./bin/<test>；python test/test_x.py -k ...
-- **5. clang-tidy 无新报告**：lintrunner（需要 build/compile_commands.json）
-- **6. 改了内存/生命周期相关代码：ASan+UBSan 过**：单独的 build-asan 目录，跑相关测试
-- **7. 改了并发代码：TSan 过**：单独的 build-tsan 目录
-- **8. 交给 CI：gcc 11 + clang 12/18 + aarch64 + CUDA 矩阵**：自己不用做，但要看结果
+| 步骤 | 检查项 | 怎么做 | 什么时候做 |
+|---:|---|---|---|
+| 1 | clangd 没有红线 | 零成本，写的时候就看到 | 每次 |
+| 2 | clang-format 过了 | `lintrunner -a` / `clang-format -i` | 每次 |
+| 3 | Debug 构建编过，`-Wall -Wextra` 无新警告 | 本地日常构建 | 每次 |
+| 4 | 相关 gtest / pytest 过了 | `ninja bin/<test> && ./bin/<test>`<br/>`python test/test_x.py -k ...` | 每次 |
+| 5 | clang-tidy 无新报告 | `lintrunner`（需要 `build/compile_commands.json`） | 提交前 |
+| 6 | ASan + UBSan 过 | 单独的 `build-asan` 目录，跑相关测试 | 改了内存 / 生命周期相关代码时 |
+| 7 | TSan 过 | 单独的 `build-tsan` 目录 | 改了并发代码时 |
+| 8 | CI 矩阵：gcc 11 + clang 12/18 + aarch64 + CUDA | 自己不用做，但要看结果 | 由 CI 承担 |
 
-1–4 是每次都做的；5 在提交前做；6、7 按改动性质；8 由 CI 承担。跳过 6 是最常见、后果最重的省略——ASan 报告里的三张栈是内存问题唯一可靠的线索，等到线上偶发段错误再查，成本高一个数量级。
+Table: 一个 C++ 改动提 PR 前的检查清单
+
+跳过 6 是最常见、后果最重的省略——ASan 报告里的三张栈是内存问题唯一可靠的线索，等到线上偶发段错误再查，成本高一个数量级。
 
 ### 2. 构建
 

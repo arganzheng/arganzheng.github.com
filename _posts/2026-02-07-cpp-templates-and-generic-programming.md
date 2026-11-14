@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（03）：模板与泛型编程"
 subtitle: "Templates and Generic Programming"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-14
 ---
 
 打开 `aten/src/ATen/native/cpu/Activation.cpp`，`log_sigmoid` 的 CPU kernel 里有这么一段（`log_sigmoid_cpu_kernel` 的 `else` 分支，删节）：
@@ -153,6 +153,32 @@ T* TensorBase::data_ptr() const {
 ```
 
 `template TORCH_API T* TensorBase::data_ptr() const;`（开头只有 `template` 而没有 `template <...>`，也没有函数体；`T` 由返回类型给出）是**显式实例化定义**：命令编译器在这个翻译单元里生成这个实例，并用 `TORCH_API` 导出符号。这样做的理由有两个：一是 `data_ptr<T>` 只对有限的一组 `T` 有意义（PyTorch 支持的 dtype 列表），把实例化收口到一个 `.cpp` 里，头文件就不必暴露 `check_type` 等实现细节；二是所有翻译单元共享 `libtorch_cpu.so` 里这一份实例，不再各自实例化。代价是：如果你在扩展里写 `x.data_ptr<MyStruct>()`，编译能过（声明可见），链接时报"未定义的引用"——因为没有任何地方实例化过它。第八篇排查链接错误时会再遇到这种情况。
+
+两种做法放在一起看，区别在于"实例的机器码由谁生成、符号在哪里"：
+
+```mermaid
+%% 图：模板实例在哪里生成：定义在头文件时每个翻译单元各生成一份由链接器合并，只给声明时由 libtorch_cpu.so 的显式实例化统一提供
+flowchart TB
+    subgraph HDR["定义在头文件里：intrusive_ptr&lt;TensorImpl&gt;::reset_()"]
+        direction TB
+        A1["<b>a.cpp</b><br/>include 头文件，实例化 reset_()"] --> O1["a.o：reset_() 是弱符号"]
+        A2["<b>b.cpp</b><br/>include 头文件，实例化 reset_()"] --> O2["b.o：reset_() 是弱符号"]
+        O1 --> L1["链接器：同名弱符号只保留一份"]
+        O2 --> L1
+    end
+    subgraph EXP["头文件只有声明：data_ptr&lt;T&gt;()"]
+        direction TB
+        U["<b>my_ext.cpp</b><br/>调 data_ptr&lt;float&gt;() 与 data_ptr&lt;MyStruct&gt;()"] --> UO["my_ext.o：两个未定义引用（U）"]
+        TM["<b>TensorMethods.cpp</b><br/>DEFINE_CAST 对每种 dtype 显式实例化"] --> SO["libtorch_cpu.so：data_ptr&lt;float&gt; 等已定义并导出（T）"]
+        UO --> L2{"链接器解析 U"}
+        SO --> L2
+        L2 -->|"float：找到定义"| OK["链接成功"]
+        L2 -->|"MyStruct：没有任何地方实例化过"| ERR["undefined reference"]
+    end
+    HDR ~~~ EXP
+```
+
+左边是默认做法：编译慢（每个翻译单元重做一遍），但任何 `T` 都能用；右边把实例化收口到一个 `.cpp`，编译快、实现细节不进头文件，代价是 `T` 只能取那张列表里的类型。
 
 ### 4. Java 对照：类型擦除 vs 单态化，以及错误信息为什么巨长
 
