@@ -98,7 +98,7 @@ Table: 本文的章节安排
 - H100 叠加：eager 240 ms → compile 154 ms（1.56×）→ FA3 约 140 → FP8 约 105 → SageAttention 约 95 ms（后三项为估算）；4090：bf16 + offload 约 40 s，SVDQuant INT4 + compile 约 12 s。
 - 逐层 offload 判据：Wan 一层 0.67 GB / 27 ms 搬运 vs 0.73 s 计算（免费）；FLUX 一层 0.39 GB / 16 ms vs 2.7 ms（每步退化为搬 22 GiB 的 0.9 s）。
 - Tensor Core 峰值：BF16 989 T、FP8 / INT8 1979 T；4090 INT4 660 T vs bf16 165 T；Hopper 无 INT4。
-- 质量门限：> 35 dB 不可见、30–35 细看可见、< 28 明显；compile 漂移 SSIM 0.98 / PSNR > 40 dB，FP8 约 36 dB，SageAttention 30–35 dB，SVDQuant INT4 约 30 dB。
+- 质量门限：> 35 dB 不可见、30–35 细看可见、< 28 明显；只改执行方式的漂移（SGLang 实测 BCG 对 eager）SSIM 0.984 / PSNR 39.7 dB，FP8 约 36 dB，SageAttention 30–35 dB，SVDQuant INT4 约 30 dB。
 - FA3 比 FA2 快 1.5–2×，图像上端到端只有 5–10%（attention 占 20%），视频上是主项。
 - breakable CUDA graph：Qwen-Image 2×H200 每步 124.7 → 83.1 ms，与 compile、Cache-DiT 互斥。
 
@@ -185,7 +185,7 @@ Table: 本文的章节安排
 - batch 收益 $$= \text{MFU}(b) / \text{MFU}(1)$$，MFU(1) 已 0.5 以上时实际 1.0–1.2×；视频永远 batch 1。
 - 抢占状态：latent $$N_\text{img} \times c p^2$$，FLUX $$4096 \times 64 \times 2$$ 字节 ≈ 0.5 MB；同 seed 恢复 bit-exact。
 - stage 间传输：embedding 4 MiB、latent 0.5 MB；冷启动 = 权重 30–50 GB + 编译 1–3 min，分钟级，提前扩。
-- 兼容键：height / width / frames / CFG / guidance / quality / LoRA id 与 scale；同批 steps 相同。
+- 兼容键：vLLM-Omni 是 height / width / frames / CFG / guidance / quality / LoRA id 与 scale；SGLang 要求除 prompt、seed 等之外的采样参数全同（含 steps），LoRA 是服务级（`/v1/set_lora`）。
 
 **常见误解**："提高吞吐就调大 batch"——compute-bound 下吞吐随并发不增、p99 线性恶化，这不是故障，是负载性质；加实例或换少步模型。另一个："多 LoRA batch 像 LLM 一样值得做"——LLM 上值得是因为 batch 本身提吞吐，扩散上为它付分组 GEMM 的开销没有回报，按 LoRA 分批串行跑。
 
@@ -193,17 +193,17 @@ Table: 本文的章节安排
 
 **核心问题**：一个 `/v1/images/generations` 请求从进 HTTP 到返回 base64，在 SGLang Diffusion、vLLM-Omni、xDiT 里各经过哪些函数？它们在进程模型、pipeline 抽象、并行组、调度上各做了什么不同的选择，为什么？
 
-**结论**：三条路径走完，三种取向就清楚了。SGLang Diffusion 把扩散塞进 LLM serving 的结构：HTTP server → `Scheduler` 进程（合批准入、warmup）→ `GPUWorker` 组 → `ComposedPipelineBase` 的 stage 列表 → `runtime/models` 原生重写的 DiT 与 `USPAttention`，scheduler、kernel 栈、CUDA graph、多平台全部复用。vLLM-Omni 为全模态模型设计 stage 流水线：stage 0 是 API + orchestrator，diffusion stage 里 `DiffusionEngine` 带 `RequestScheduler` / `StepScheduler`，经 `MultiprocExecutor` → `DiffusionWorker` → `DiffusionModelRunner` → 原生 pipeline；扩散只是一种 stage，三段分离只是改 yaml。xDiT 只做并行：torchrun SPMD、`xFuserPipelineBaseWrapper` 包装 diffusers pipeline、替换 attention processor、建并行组，没有服务层，是 USP / PipeFusion / CFG 并行 / Parallel VAE 的源头。三个共同点：并行组的 `parallel_state` / `GroupCoordinator` 都从 vLLM 演化、几乎可互换；缓存与 offload 都是 diffusers 定义的 hook 形态；有调度器的两个都是同构静态批。diffusers 是共同底座——模型、pipeline、调度器、hook 的接口都从它来，原生重写的代价是维护权重名映射。
+**结论**：三条路径走完，三种取向就清楚了。SGLang Diffusion 把扩散塞进 LLM serving 的结构：HTTP server → `Scheduler` 进程（合批准入、warmup）→ `GPUWorker` 组 → `ComposedPipelineBase` 的 stage 列表 → `runtime/models` 原生重写的 DiT 与 `USPAttention`，scheduler、kernel 栈、CUDA graph、多平台全部复用。vLLM-Omni 为全模态模型设计 stage 流水线：stage 0 是 API + orchestrator，diffusion stage 里 `DiffusionEngine` 带 `RequestScheduler` / `StepScheduler`，经 `MultiprocDiffusionExecutor` → `DiffusionWorker` → `DiffusionModelRunner` → 原生 pipeline；扩散只是一种 stage，三段分离只是改 yaml。xDiT 只做并行：torchrun SPMD、`xFuserPipelineBaseWrapper` 包装 diffusers pipeline、替换 attention processor、建并行组，没有服务层，是 USP / PipeFusion / CFG 并行 / Parallel VAE 的源头。三个共同点：并行组的 `parallel_state` / `GroupCoordinator` 都从 vLLM 演化、几乎可互换；缓存与 offload 都不改单个模型的代码、在模型外包一层（diffusers `hooks/` 的思路；vLLM-Omni 直接用 hook，xDiT 换成带缓存的 block 包装，SGLang 放进 DiT 基类）；有调度器的两个都按兼容键同构批，默认整批开始整批结束，只有 vLLM-Omni 的 `--step-execution` 让兼容请求在步边界进出。diffusers 是共同底座——模型、pipeline、调度器、hook 的接口都从它来，原生重写的代价是维护权重名映射。
 
 **必记**：
 
 - 进程模型：SGLang 三类进程（与 SGLang LLM 同构，ZMQ）；vLLM-Omni stage 进程（可跨 GPU / 主机）；xDiT torchrun 每 rank 同一段脚本。
 - pipeline 抽象：SGLang `ComposedPipelineBase` = stage 列表 + `--backend diffusers` 回退；vLLM-Omni `models/<model>/pipeline_*.py` + diffusers adapter；xDiT 包装 diffusers 只换 attention 与去噪循环。
-- 独有：SGLang——动态批处理准入、breakable CUDA graph、`--quality`、realtime 会话、KV 量化；vLLM-Omni——stage 分离、HSDP、VAE patch 并行、分页 diffusion KV；xDiT——PipeFusion、Parallel VAE、弱互联。
+- 独有：SGLang——动态批处理准入、breakable CUDA graph、`--quality`、realtime 会话、KV 量化；vLLM-Omni——stage 分离、PP、VAE patch 并行、step 级批、分页 diffusion KV；xDiT——PipeFusion、Parallel VAE、弱互联。
 - 支持新模型的成本：SGLang / vLLM-Omni 高（重写 + 权重映射），xDiT 低（一个 wrapper）；xDiT 的绝对性能受 diffusers 限制。
 - 选型：对外服务选 SGLang 或 vLLM-Omni（按目标模型是否有原生实现）；全模态选 vLLM-Omni；非 NVIDIA 平台选 SGLang；PCIe / 以太网多卡或研究并行选 xDiT；单卡跑图用 diffusers + compile + hook 缓存。
 
-**常见误解**："三个引擎是同一类东西、选性能最高的"——xDiT 没有服务层，vLLM-Omni 的 stage 结构对纯扩散偏重，SGLang 与主线耦合；取向来自出发点。另一个："它们都会做连续批处理"——没有一个做，负载性质决定只能同构批。
+**常见误解**："三个引擎是同一类东西、选性能最高的"——xDiT 没有服务层，vLLM-Omni 的 stage 结构对纯扩散偏重，SGLang 与主线耦合；取向来自出发点。另一个："它们都会做连续批处理"——默认都不做，负载性质决定只能同构批；vLLM-Omni 的 `--step-execution` 是受兼容键约束的 step 级进出，只有少数原生 pipeline（不含 FLUX）支持。
 
 ### 9. 第九篇：配置、评测与排障——从一张卡的推导到一条伪影的排查
 
@@ -433,7 +433,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：卡数 = QPS × GPU·秒，0.8 s 对 1.65 s（dev 全优化），100 QPS 从 170 张到 80 张；批处理对 1024² 仍无意义。第六篇：关掉跨步缓存与 CFG 相关项（零命中或图坏），量化评测重做（少步对量化更敏感）。第二篇：CUDA graph（BCG）从可选变必需，warmup 列全形状。第一篇：VAE 102 ms 与文本编码器 22 ms 从 2.6% 到 15.6%，优化对象转向 VAE（bf16 / 融合 / TAESD 预览）与 prompt embedding 缓存。第五篇：多卡默认 DP，SP 只留给 2048²（单卡 4 步约 3.8 s）。
+   第七篇：卡数 = QPS × GPU·秒，0.8 s 对 1.65 s（dev 全优化），100 QPS 从 170 张到 80 张；批处理对 1024² 仍无意义。第六篇：关掉跨步缓存与 CFG 相关项（零命中或图坏），量化评测重做（少步对量化更敏感）。第二篇：CUDA graph 从可选变必需（SGLang v0.5.19 的 BCG 支持名单里还没有 FLUX，换模型前先查），warmup 列全形状。第一篇：VAE 102 ms 与文本编码器 22 ms 从 2.6% 到 15.6%，优化对象转向 VAE（bf16 / 融合 / TAESD 预览）与 prompt embedding 缓存。第五篇：多卡默认 DP，SP 只留给 2048²（单卡 4 步约 3.8 s）。
 
    </details>
 
@@ -501,7 +501,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) SGLang 把扩散塞进 LLM serving 的结构——scheduler / worker / kernel / warmup / CUDA graph / 多平台全部复用，原生重写模型，独有动态批处理准入、BCG、`--quality`、realtime 会话、KV 量化；(2) vLLM-Omni 为全模态设计 stage 流水线，扩散只是一种 stage，三段分离只是改 yaml，独有 HSDP、VAE patch 并行、分页 diffusion KV；(3) xDiT 只做并行、包装 diffusers、无服务层，是 USP / PipeFusion / CFG 并行 / Parallel VAE 的源头，弱互联最全；(4) 共同点：并行组从 vLLM 演化几乎可互换、缓存与 offload 都是 hook、同构静态批；(5) 选型：对外服务按目标模型是否有原生实现选 SGLang 或 vLLM-Omni；全模态选 vLLM-Omni；非 NVIDIA 选 SGLang；PCIe / 以太网或研究并行选 xDiT；新模型刚出用 diffusers 回退或 xDiT 包装；(6) 代价：原生重写的模型覆盖成本高（权重名映射），xDiT 性能受 diffusers 限制。
+   **答案要点**：(1) SGLang 把扩散塞进 LLM serving 的结构——scheduler / worker / kernel / warmup / CUDA graph / 多平台全部复用，原生重写模型，独有动态批处理准入、BCG、`--quality`、realtime 会话、KV 量化；(2) vLLM-Omni 为全模态设计 stage 流水线，扩散只是一种 stage，三段分离只是改 yaml，独有 PP、VAE patch 并行、step 级批、分页 diffusion KV；(3) xDiT 只做并行、包装 diffusers、无服务层，是 USP / PipeFusion / CFG 并行 / Parallel VAE 的源头，弱互联最全；(4) 共同点：并行组从 vLLM 演化几乎可互换、缓存与 offload 都不改单个模型代码、默认同构整批；(5) 选型：对外服务按目标模型是否有原生实现选 SGLang 或 vLLM-Omni；全模态选 vLLM-Omni；Apple MPS 选 SGLang（AMD / Ascend / Intel XPU 两者都有平台层，看目标模型的支持）；PCIe / 以太网或研究并行选 xDiT；新模型刚出用 diffusers 回退或 xDiT 包装；(6) 代价：原生重写的模型覆盖成本高（权重名映射），xDiT 性能受 diffusers 限制。
    **追问方向**：为什么没有一个做连续批处理；一个请求在 SGLang 里经过哪几个进程；两台以太网 8×L40 各能提供什么。
    **好答案与一般答案的区别**：一般答案比 feature 表；好答案说出三种出发点如何决定结构与代价，并给出场景到选择的映射。
 

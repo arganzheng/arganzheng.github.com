@@ -173,7 +173,7 @@ updated: 2026-11-14
 - 命中率 → 加速比：$$\text{speedup} = T / (T_\text{full} + T_\text{hit} \cdot \epsilon)$$，FLUX 28 步阈值 0.4 命中约一半、端到端 1.5–2×；视频上到 4.4×（TeaCache 在 Open-Sora-Plan）；
 - 质量代价与评测：VBench 掉 0.07%、对原图的 PSNR 30 dB 上下；伪影的形态（闪烁、细节丢失）与阈值扫描曲线；
 - 交互：与 CFG（条件 / 无条件分支各自的缓存状态）、与序列并行（各卡的跳步决策必须一致——用同一个标量）、与 layerwise offload（跳过的层不用搬）、与**少步蒸馏互斥**（4 步之间没有冗余可利用）；首末步总是全算；
-- 实现：全部是 hook——diffusers 的 `CacheMixin` / `HookRegistry`，vLLM-Omni 的 `CachedTransformer` 与 TeaCache / MagCache / Cache-DiT 后端，SGLang 的 `runtime/cache/` 与 Cache-DiT 集成，xDiT 的 `cache_manager`。
+- 实现：都不改单个模型的代码，在模型外面包一层——diffusers 的 `CacheMixin` / `HookRegistry`，vLLM-Omni 以 hook 挂上的 TeaCache / MagCache / StepCache / Cache-DiT 后端（`cache/selector.py`），SGLang 的 `runtime/cache/`（TeaCache 混入 DiT 基类 `CachableDiT`）与 Cache-DiT 集成，xDiT 的 `model_executor/cache/`（把 block 列表换成带缓存的包装模块）。
 
 核心问题是：
 
@@ -232,7 +232,7 @@ updated: 2026-11-14
 - 形态变了：单卡亚秒 → 多卡的意义从延迟变为吞吐 → batch 开始有意义（小模型、少步下 GEMM 不饱和）→ 调度像 LLM 的 prefill 池；
 - 实时交互：StreamDiffusion 的 stream batch——把处于不同去噪步的连续帧拼成一个 batch 一次前向；
 - **自回归视频**：CausVid（把双向 DiT 改成因果、DMD 蒸馏到 4 步、按 chunk 生成、单卡 9.4 fps）→ **Self-Forcing**（训练时按推理方式 rollout、rolling KV cache、单张 4090 实时流式）→ Causal Forcing；
-- **KV cache 的回归**：因果视频模型对已生成的 chunk 做 KV cache，每 chunk 的 KV 字节数、滑动窗口的长度、长视频的误差累积；服务形态从批任务变为**会话**——08 系列的前缀缓存、会话状态、流式输出在这里重新出现；SGLang 的 `realtime/` 与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/`；
+- **KV cache 的回归**：因果视频模型对已生成的 chunk 做 KV cache，每 chunk 的 KV 字节数、滑动窗口的长度、长视频的误差累积；服务形态从批任务变为**会话**——08 系列的前缀缓存、会话状态、流式输出在这里重新出现；SGLang 的 `realtime/` 与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 与实验性的 `experimental/ar_diffusion/`（会话、按 chunk 流式输出）；
 - 世界模型 / 交互式生成（LingBot World、Cosmos 一类）作为这条线的延伸。
 
 核心问题是：
@@ -269,10 +269,10 @@ updated: 2026-11-14
 这一篇会覆盖：
 
 - 进程模型：xDiT 是 torchrun 起的 SPMD 进程、每个进程跑同一段 pipeline；SGLang Diffusion 是 HTTP server + scheduler + GPU worker（继承 SGLang 的结构）；vLLM-Omni 是 stage 进程（orchestrator / API 与 worker 可以分卡、分机）；
-- pipeline 抽象：diffusers 的 pipeline 类是底座；SGLang 的原生 pipeline（`runtime/pipelines/`，stage 组合）与 `--backend diffusers` 回退；vLLM-Omni 的 `diffusion/models/` 适配器与 diffusers loader；xDiT 的 `xFuserPipelineBaseWrapper` 包装 diffusers pipeline；
+- pipeline 抽象：diffusers 的 pipeline 类是底座；SGLang 的原生 pipeline（`runtime/pipelines/`，stage 组合）与 diffusers 回退（默认 `--backend auto` 找不到原生实现时）；vLLM-Omni 的 `diffusion/models/` 适配器与 diffusers loader；xDiT 的 `xFuserPipelineBaseWrapper` 包装 diffusers pipeline；
 - 并行组的建立：三者的 `parallel_state` 与 `GroupCoordinator`（都从 vLLM / Megatron 的写法演化而来）；USP 在 attention 层的接入点；CFG 并行在哪一层切；
 - attention 后端的选择器；缓存 hook 的挂载点；量化与 LoRA 的加载路径；
-- 调度器与 API：SGLang 的 scheduler 与动态批处理、vLLM-Omni 的 `StepScheduler` / `RequestScheduler` 与 OpenAI 兼容层、xDiT 的 Ray 部署；
+- 调度器与 API：SGLang 的 scheduler 与动态批处理、vLLM-Omni 的 `StepScheduler` / `RequestScheduler` 与 OpenAI 兼容层、xDiT 只有 `entrypoints/launch.py` 的 FastAPI + Ray 示例；
 - 分歧点：SGLang 把扩散塞进 LLM serving 的结构里（scheduler、kernel、warmup、CUDA graph 都复用）；vLLM-Omni 为全模态模型（LLM + DiT + TTS 串起来）设计 stage 流水线，扩散是其中一种 stage；xDiT 只做并行、不做 serving，是另两者并行方法的来源。
 
 核心问题是：

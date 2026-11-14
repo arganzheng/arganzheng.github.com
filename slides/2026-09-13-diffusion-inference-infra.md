@@ -268,7 +268,7 @@ $$
 |---|---|---|---|
 | 进程模型 | HTTP / Scheduler / GPUWorker 三类 | stage 0 + stage N | torchrun SPMD |
 | pipeline 抽象 | `ComposedPipelineBase`（四 stage） | `DiffusionEngine` | `xFuserPipelineBaseWrapper` |
-| 调度 | 同构静态批 | 同构静态批 | 无 |
+| 调度 | 同构静态批 | 同构批，step 模式可步边界进出 | 无 |
 | 并行 | USP、CFG | 同 | USP、CFG、PipeFusion |
 
 <aside class="notes" markdown="1">
