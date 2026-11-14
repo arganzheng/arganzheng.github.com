@@ -33,7 +33,7 @@ flowchart TB
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
-| [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`<br/>vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`<br/>发布约 2 个月 vs 约 2 周<br/>引言案例四十分钟得出"已在 v2.11.0 修复" |
+| [第一篇：读懂一个百万行的代码库](/reading-a-million-line-codebase.html) | 给你一个从未见过的百万行仓库和一个报错，两小时之内能定位到一个文件的一个函数吗？靠什么？ | 能。靠有目标的检索：提取符号 → 画地图 → `rg` → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史；构建是为了工具链，可选、放最后 | PyTorch `c10/` → `aten/` → `torch/csrc/` → `torch/`，登记表 `native_functions.yaml`<br/>vLLM `csrc/` → `vllm/`，登记表 `pyproject.toml` / `torch_bindings.cpp`<br/>发布约 2 个月 vs 约 2 周<br/>引言案例四十分钟得出"已在 v2.10.0 修复" |
 | [第二篇：找到切入点](/finding-your-entry-point-in-open-source.html) | 每天几十个 issue、几十个 PR，maintainer 最希望有人来做的是哪一类？怎么判断自己选的题不会一周后被关？ | 他们已决定要做、写清了要什么、自己没时间做的事；预测器是标签状态、maintainer 最后一条评论、open PR 数、规模与 RFC 门槛、硬件、项目政策 | PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签<br/>vLLM 63 个标签、`closed-as-slop` 97<br/>RFC 门槛 >500 LOC（不含 kernel / data / config / test）<br/>stale 90 + 30 天<br/>#191394 下 5 个 open PR |
 | [第三篇：做出一个能被合入的改动](/landing-a-mergeable-change.html) | reviewer 打开你的 PR 只有十分钟，他要确认什么？diff、描述、测试、CI 状态分别替他回答了哪个问题？ | 四件事：改了什么且只改了这一件、为什么改怎么验证、怎么证明对怎么防回归、有没有弄坏别的；diff、描述、测试、CI 各答一个 | PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、48 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 个合入 PR、2–3 天 / 7 天、DCO 每个 commit |
 | [第四篇：两个真实 PR 的完整走读](/two-real-prs-pytorch-and-vllm.html) | 两个都是"小"PR，却各花了作者一到几周。时间花在哪里？哪些可省，哪些是正常成本？ | 小 PR 的时间不在写代码：PyTorch 那个在数据（正常成本），vLLM 那个在等待（大半可省） | #185344：+104 −0、27 天采 3792 个点、PR 5 天、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272：+109 −16、47 天无 review 未 ping、6 个自己引入的 CI 失败、合入 08-20 不在 v0.28.0（分支 08-17 切出） |
@@ -67,7 +67,7 @@ Table: 本文的章节安排
 - 测试框架三件套：`TestCase` / `run_tests`、`instantiate_device_type_tests`（CI 里的 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 要去掉后缀找源码）、OpInfo。
 - 发布节奏：PyTorch 约 2 个月一个 minor、cut 到发布 3–4 周、`@pytorchbot cherry-pick -c regression` 等五种理由；vLLM 约 2 周一版、文档写 cut 到发布 1–2 天，但 v0.28.0 的分支基点比发布早 9 天、其间收了 13 个 commit。
 
-**常见误解**："仓库不完整、头文件丢了"——`ATen/ops/logaddexp_native.h` 在源码树里确实不存在，它由 `torchgen` 构建时生成，回 yaml 读比读生成物快。另一个："构建好了才能开始读"——两条追踪四五条 `rg` 就走完，引言的案例四十分钟得出"已在 v2.11.0 修复"的结论。
+**常见误解**："仓库不完整、头文件丢了"——`ATen/ops/logaddexp_native.h` 在源码树里确实不存在，它由 `torchgen` 构建时生成，回 yaml 读比读生成物快。另一个："构建好了才能开始读"——两条追踪四五条 `rg` 就走完，引言的案例四十分钟得出"已在 v2.10.0 修复"的结论。
 
 ### 2. 第二篇：找到切入点——从 issue、RFC 到性能回归
 
@@ -118,7 +118,7 @@ Table: 本文的章节安排
 
 ### 1. reviewer 的时间是最稀缺的资源
 
-这是总纲提出、四篇各自展开的那条逻辑。第一篇里它还是隐含的："四十分钟得出已在 v2.11.0 修复"避免的是白做一周再让 reviewer 关掉一个重复 PR。第二篇把它变成选题判据：已有 5 个 PR 的 issue 第 6 个几乎不增加价值，没有 RFC 的千行 PR 让 reviewer 在 PR 里补设计讨论，typo PR 走完 CI、review、merge 的全部开销换一个字母——`actionable`、`help wanted`、`closed-as-slop`、"No low-value busywork PRs" 是同一件事的正反面。
+这是总纲提出、四篇各自展开的那条逻辑。第一篇里它还是隐含的："四十分钟得出已在 v2.10.0 修复"避免的是白做一周再让 reviewer 关掉一个重复 PR。第二篇把它变成选题判据：已有 5 个 PR 的 issue 第 6 个几乎不增加价值，没有 RFC 的千行 PR 让 reviewer 在 PR 里补设计讨论，typo PR 走完 CI、review、merge 的全部开销换一个字母——`actionable`、`help wanted`、`closed-as-slop`、"No low-value busywork PRs" 是同一件事的正反面。
 
 第三篇把它写成六条通用做法与一张十分钟的表：标题标签 → 目的 → CI → diff → 测试 → 数据 → 风险，任何一格空着，reviewer 就在那一分钟停下来写 "how did you test this?"。第四篇量出了价格：PyTorch 那个 PR 三条意见合计 42 分钟往返，全是提交前自查就能避免的；vLLM 那个 PR 47 天沉默里作者一次没 ping。承诺是平均值，个案要靠自己推进。
 
@@ -260,7 +260,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：`rg '^- func: X' native_functions.yaml` → `dispatch:` → `cuda/` 下的 kernel，`rg -l X test/*.py` 找测试与 OpInfo，`git log -- <kernel 文件>` 看是否已有人修（引言案例正是这样发现 #163509 已修、在 v2.11.0）。第二篇：`needs reproduction` 不是 `actionable`，发 PR 会被关；能做的是复现并把复现写成 `TestCase` 风格的最小测试草稿贴在评论里，推动它走向 `actionable`。第三篇：真要修时测试用 `instantiate_device_type_tests` 写成设备无关；一个 kernel 修复通常是 kernel 文件 + 测试 + OpInfo 的 dtype 更新。
+   第一篇：`rg '^- func: X' native_functions.yaml` → `dispatch:` → `cuda/` 下的 kernel，`rg -l X test/*.py` 找测试与 OpInfo，`git log -- <kernel 文件>` 看是否已有人修（引言案例正是这样发现 #163509 已修、在 v2.10.0）。第二篇：`needs reproduction` 不是 `actionable`，发 PR 会被关；能做的是复现并把复现写成 `TestCase` 风格的最小测试草稿贴在评论里，推动它走向 `actionable`。第三篇：真要修时测试用 `instantiate_device_type_tests` 写成设备无关；一个 kernel 修复通常是 kernel 文件 + 测试 + OpInfo 的 dtype 更新。
 
    </details>
 

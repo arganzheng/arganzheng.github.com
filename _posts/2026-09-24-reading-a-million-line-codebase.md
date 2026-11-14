@@ -540,7 +540,7 @@ Table: vLLM tests/ 子目录与子系统的对应
 
 其余还有 `tests/basic_correctness/`、`tests/compile/`、`tests/multimodal/`、`tests/tool_use/`、`tests/weight_loading/` ……
 
-找一个改动对应的测试目录的规则很简单：`vllm/v1/engine/` 的改动看 `tests/v1/engine/`，`csrc/` 的 kernel 看 `tests/kernels/`，`vllm/entrypoints/openai/` 看 `tests/entrypoints/openai/`。第七章那个 vLLM commit 改了 `vllm/entrypoints/cli/serve.py` 与 `vllm/v1/engine/utils.py`，配套测试加在 `tests/v1/engine/test_startup_watch_processes.py`。
+找一个改动对应的测试目录的规则很简单：`vllm/v1/engine/` 的改动看 `tests/v1/engine/`，`csrc/` 的 kernel 看 `tests/kernels/`，`vllm/entrypoints/openai/` 看 `tests/entrypoints/openai/`。第七章那个 vLLM commit 改了 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py` 与 `vllm/v1/engine/utils.py`，配套测试新加在 `tests/v1/engine/test_startup_watch_processes.py`（同时调整了同目录的 `test_core_engine_actor_manager.py`）。
 
 vLLM 没有 PyTorch 那样厚的测试框架层，`tests/conftest.py` 与各子目录的 `conftest.py` 提供 fixture（模型加载、`VllmRunner`、`HfRunner` 等）。`AGENTS.md` 的 "Tests" 一节对新测试提了四个问题（模块做什么、I/O 契约、防的是什么失败、最便宜的层级）和几条原则（复用已有文件、一个测试一个行为、不在 `tests/` 里放一次性 kernel benchmark），第三篇展开。
 
@@ -611,21 +611,21 @@ PyTorch 的 commit message 是由合入机器人生成的，格式固定，四�
 
 顺着 `Pull Request resolved:` 的链接（或 `gh pr view 163509 --repo pytorch/pytorch --comments`）能看到当时的 review 对话；顺着 `Fixes #158429`（`gh issue view 158429 --repo pytorch/pytorch`）能看到 issue 原文——截至 2026-09 查询，这个 issue 的标题是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"，标签 `triaged`、`module: linear algebra`、`topic: fuzzer`。
 
-`git show --stat --format= 2ddcf53e1a9` 显示这个 commit 改了四个文件：`aten/src/ATen/native/cuda/LogAddExpKernel.cu`（+235）、`test/test_binary_ufuncs.py`、`test/test_linalg.py`、`torch/testing/_internal/common_methods_invocations.py`。**一个 kernel 修复 = kernel 文件 + 直接测试 + 对比测试 + OpInfo 的 dtype 更新**，这是第六章讲的结构在一个真实 commit 里的样子。`git tag --contains 2ddcf53e1a9` 显示它最早进入 `v2.11.0`。
+`git show --stat --format= 2ddcf53e1a9` 显示这个 commit 改了四个文件：`aten/src/ATen/native/cuda/LogAddExpKernel.cu`（+234 −1）、`test/test_binary_ufuncs.py`、`test/test_linalg.py`、`torch/testing/_internal/common_methods_invocations.py`。**一个 kernel 修复 = kernel 文件 + 直接测试 + 对比测试 + OpInfo 的 dtype 更新**，这是第六章讲的结构在一个真实 commit 里的样子。`git tag --contains 2ddcf53e1a9` 列出的最早的版本 tag 是 `v2.10.0-rc1`（2025-12-10），正式版本是 `v2.10.0`（GitHub release 2026-01-21）——要在完整历史的克隆里查，浅克隆只有 v2.14.0 一个 commit，`--contains` 什么也列不出。
 
 `git blame` 的一个例子——看 CPU kernel `logaddexp_kernel` 的前三行是谁写的：
 
 ```bash title="git blame logaddexp_kernel 的前三行"
-git blame -w -C -L '/^void logaddexp_kernel/,+2' --date=short aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
+git blame -w -C -L '/^void logaddexp_kernel/,+3' --date=short aten/src/ATen/native/cpu/BinaryOpsKernel.cpp
 ```
 
 ```text title="blame 输出：三行的作者与日期"
 0503105bc287 (Freey0 2021-05-07 1062) void logaddexp_kernel(TensorIteratorBase& iter) {
 455241bbd362 (CaoE   2023-11-06 1063)   if (at::isReducedFloatingType(iter.dtype())) {
-455241bbd362 (CaoE   2023-11-06 1064)     AT_DISPATCH_REDUCED_FLOATING_TYPES(iter.dtype(), "logaddexp_cpu", [&
+455241bbd362 (CaoE   2023-11-06 1064)     AT_DISPATCH_REDUCED_FLOATING_TYPES(iter.dtype(), "logaddexp_cpu", [&]() {
 ```
 
-函数签名是 2021 年的，reduced-float 分支是 2023 年加的；`git log -S'logaddexp_kernel' -- aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 再往前追到 `05f097b5bbf 2020-05-27 Implement logaddexp (#38384)`——这个算子的诞生。
+`-L '/正则/,+3'` 的 `+3` 是从匹配行起共 3 行。函数签名那一行来自 2021 年的 #57629 "Port logaddexp and logaddexp2 to structured"，reduced-float 分支是 2023 年的 #112138 "Add Half for aten2, logaddexp, logaddexp2, hypot, and nextafter on CPU" 加的；`git log -S'logaddexp_kernel' -- aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 再往前追到 `05f097b5bbf 2020-05-27 Implement logaddexp (#38384)`——这个算子的诞生。
 
 ### 3. vLLM：`Signed-off-by` 与标题里的 PR 号
 
@@ -662,7 +662,7 @@ Co-authored-by: OpenAI Codex <codex@openai.com>
 Co-authored-by: Nick Hill <nickhill123@gmail.com>
 ```
 
-正文里只有 trailer：`Signed-off-by`（DCO 签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89` 显示它进入了 `v0.28.0`（以及 `v0.27.2rc0`）。
+正文里只有 trailer：`Signed-off-by`（DCO 签名，vLLM 每个 commit 必须有）、`Co-authored-by`（这里包括一个 AI 助手——`AGENTS.md` 要求 AI 辅助的提交用这个 trailer 声明）。**"为什么改"不在 commit 里，在 PR 页面上。**所以读 vLLM 历史的第二步永远是 `gh pr view <PR 号> --repo vllm-project/vllm`。截至 2026-09 查询，#43417 的描述以 "## Purpose" 开头："Fail promptly when a frontend process exits while engine cores are still initializing"，接着解释了 `launch_core_engines` 的启动屏障原来只监视本地引擎核心与 DP coordinator，API server 进程在这个窗口内退出会让父进程一直等；标签是 `frontend`、`ready`、`v1`、`rust`。改动涉及 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py`、`vllm/v1/engine/utils.py`，测试在 `tests/v1/engine/test_startup_watch_processes.py`。`git tag --contains 7b9f2dad89 | grep '^v'` 列出的最早的版本 tag 是 `v0.28.0rc1`（2026-08-20），然后是 `v0.28.0`——它是 v0.28.0 的新改动，v0.27.x 里没有。
 
 两个项目的对比：
 
@@ -762,7 +762,7 @@ Table: 两小时定位一个报错的流程清单
 
 ### 3. 用两个真实案例验证
 
-引言里的 PyTorch 案例：报错信息是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"。符号 `logaddexp`，层次判断是算子 → `aten/`；yaml 条目 → `dispatch: CPU, CUDA, MPS, XPU: logaddexp_out` → `BinaryOps.cpp` 的宏 → `rg -l logaddexp aten/src/ATen/native/cuda` → `LogAddExpKernel.cu`。测试在 `test/test_binary_ufuncs.py` 的 `_test_logaddexp`，OpInfo 在 `common_methods_invocations.py`。历史：`git log -- aten/src/ATen/native/cuda/LogAddExpKernel.cu` 显示 2025-11-17 的 #163509 已经修了这个问题（`Fixes #158429`）。**结论：这个 issue 已经被修，在 v2.11.0 里。**四十分钟内得到"不用做"的结论，这本身就是流程的价值——它避免了引言那位工程师白做一周。
+引言里的 PyTorch 案例：报错信息是 "Inconsistent torch.logaddexp results on complex128 between CPU and CUDA"。符号 `logaddexp`，层次判断是算子 → `aten/`；yaml 条目 → `dispatch: CPU, CUDA, MPS, XPU: logaddexp_out` → `BinaryOps.cpp` 的宏 → `rg -l logaddexp aten/src/ATen/native/cuda` → `LogAddExpKernel.cu`。测试在 `test/test_binary_ufuncs.py` 的 `_test_logaddexp`，OpInfo 在 `common_methods_invocations.py`。历史：`git log -- aten/src/ATen/native/cuda/LogAddExpKernel.cu` 显示 2025-11-17 的 #163509 已经修了这个问题（`Fixes #158429`）。**结论：这个 issue 已经被修，在 v2.10.0 里。**四十分钟内得到"不用做"的结论，这本身就是流程的价值——它避免了引言那位工程师白做一周。
 
 vLLM 案例：想知道 `vllm serve` 启动时"engine core 还在初始化、API server 进程已退出"会发生什么。符号 `api_server_count`、`launch_core_engines`；`rg -n 'launch_core_engines' vllm/` 命中 `vllm/v1/engine/utils.py`、`vllm/v1/engine/core_client.py` 与 `vllm/entrypoints/cli/serve.py`；`git log -- vllm/entrypoints/cli/serve.py` 第二条是 2026-08-06 的 #43417 "Watch frontend processes during engine startup"，`gh pr view 43417` 的 Purpose 精确描述了这个场景，测试在 `tests/v1/engine/test_startup_watch_processes.py`。**结论：v0.28.0 已包含这个行为，测试文件就是它的规格。**
 
@@ -859,7 +859,7 @@ Table: 定位 PyTorch 实现位置的查询命令
 3. #include <ATen/ops/logaddexp_native.h> → 仓库中不存在 → cmake/Codegen.cmake 调 torchgen 生成到 build/aten/src/ATen/ops/，安装后 torch/include/ATen/ops/（2026-09-12）
 
 [历史]
-- LogAddExpKernel.cu 最近的实质改动：2ddcf53e1a9 2025-11-17 #163509 "Logaddexp complex inconsistent bw cpu and cuda"，Fixes #158429，进入 v2.11.0
+- LogAddExpKernel.cu 最近的实质改动：2ddcf53e1a9 2025-11-17 #163509 "Logaddexp complex inconsistent bw cpu and cuda"，Fixes #158429，进入 v2.10.0
 - RELEASE.md：2.15 branch cut 28 Sept 2026，发布 28 Oct 2026
 ```
 
@@ -936,7 +936,7 @@ Table: 定位 vLLM 入口与实现的命令
 - **构建一次是为了工具链，不是为了改代码。** PyTorch：`python -m pip install -e . -v --no-build-isolation`（生成 `compile_commands.json`，可用 `USE_CUDA=0` 等裁剪），纯 Python 开发用 `tools/nightly.py`；vLLM：`VLLM_USE_PRECOMPILED=1 uv pip install -e .` 跳过 CUDA 编译，改 kernel 用 `incremental_build.md` 的 `cmake --preset release` 流程。
 - **测试是规格。** PyTorch 的 `test/` 按主题（176 个 `test_*.py`）与子系统（46 个子目录）组织，框架三件套是 `common_utils.py` 的 `TestCase`/`run_tests`、`common_device_type.py` 的 `instantiate_device_type_tests`、`common_methods_invocations.py` 的 OpInfo；vLLM 的 `tests/` 40 个子目录与 `vllm/` 子系统对应，pytest 加 `conftest.py` fixture。
 - **历史是注释。** `git log -S`、`git blame -w -C`、`git show`。PyTorch 的 commit 正文含 PR 描述、`Fixes #`、`Pull Request resolved:`、`Approved by:`；vLLM 的 commit 只有 `Signed-off-by`/`Co-authored-by` trailer，"为什么"要 `gh pr view`。`RELEASE.md`：PyTorch 约两个月一个 minor、cut 到发布三四周、有 cherry-pick 流程；vLLM 约两周一版、cut 到发布一两天。
-- **核心问题的答案**是一张两小时流程清单：提取符号 → 画地图 → rg → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史 → 记入地图；构建可选、放最后。用它走引言的案例，四十分钟得出"已在 v2.11.0 修复"的结论。
+- **核心问题的答案**是一张两小时流程清单：提取符号 → 画地图 → rg → 找登记表 → 沿链追 → 识别生成代码 → 读测试 → 读历史 → 记入地图；构建可选、放最后。用它走引言的案例，四十分钟得出"已在 v2.10.0 修复"的结论。
 
 ### 2. PyTorch 与 vLLM 对照
 
@@ -1033,5 +1033,5 @@ Table: 本篇涉及的文件位置
 
    </details>
 
-[^q0]: **能**。用引言的案例走一遍两小时流程，四十分钟得出「已在 v2.11.0 修复」的结论。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。详见[第八章](#八核心问题两小时定位流程)。
+[^q0]: **能**。用引言的案例走一遍两小时流程，四十分钟得出「已在 v2.10.0 修复」的结论。四种典型失败——从头读、随便读、被生成代码卡住、只读代码不读测试与历史——都是把阅读当成线性活动。详见[第八章](#八核心问题两小时定位流程)。
 [^q1]: 靠**有目标地检索而不是阅读**，一张流程清单：提取符号（报错里的类名、函数名、字符串字面量、`torch.ops.xxx` 名）→ 画地图（PyTorch 的 `c10/` → `aten/` → `torch/csrc/` → `torch/`；vLLM 的 `csrc/` → `vllm/`）（[第二章](#二先画地图)）→ `rg` 精确搜（字符串字面量优先）→ 找登记表（PyTorch 的 `native_functions.yaml` 把算子 `dispatch:` 到 C++ 函数；vLLM 的 `pyproject.toml` 入口、`ModelRegistry`、`torch_bindings.cpp`）（[第三章](#三找到入口点)）→ 沿链追到底、只读路径上的东西 → 识别生成代码（`torchgen` 生成的 `ATen/ops/*.h`、`autograd/generated/`、`_C/*.pyi` 在源码树里「找不到定义」——回 yaml、`.pyi.in`，或构建后用 clangd）（[第四章](#四生成代码与找不到定义)、[第五章](#五构建一次)）→ 读测试（测试是规格）（[第六章](#六用测试当文档)）→ 读历史（`git log -S`、`git blame -w -C`；PyTorch 的 commit 正文含 PR 描述，vLLM 的「为什么」要 `gh pr view`）（[第七章](#七读历史)）→ 记入地图（[第九章](#九贡献日志项目地图)）。构建是为了工具链不是为了改代码，可选、放最后。

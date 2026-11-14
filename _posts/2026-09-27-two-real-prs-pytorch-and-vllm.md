@@ -324,7 +324,7 @@ git tag --contains 230db5d50ab7181876abd9a5ac5c4aca70c7d79b | grep -E '^v2\.'
 gh api repos/pytorch/pytorch/compare/v2.13.0...230db5d50ab7181876abd9a5ac5c4aca70c7d79b --jq '{status, behind_by}'
 ```
 
-前者列出 `v2.13.0-rc1`（tag 日期 2026-06-10）到 `v2.13.0-rc14`、`v2.14.0-rc1` 到 `v2.14.0`；后者返回 `status: behind, behind_by: 567`，即该 commit 是 v2.13.0 的祖先。v2.13.0 的 tag 打于 2026-07-03，GitHub release 发布于 2026-07-08。从 issue 到用户能 `pip install` 到，69 天。
+前者（2026-09-07 查询）列出 `v2.13.0-rc1`（tag 日期 2026-06-10）到 `v2.13.0-rc15`、`v2.14.0-rc1` 到 `v2.14.0`；后者返回 `status: behind, behind_by: 567`，即该 commit 是 v2.13.0 的祖先。v2.13.0 的 tag 打于 2026-07-03，GitHub release 发布于 2026-07-08。从 issue 到用户能 `pip install` 到，69 天。
 
 follow-up 与 revert：`gh pr list --repo pytorch/pytorch --state all --search "185344 in:body,title"` 只返回它自己，没有 revert、没有引用它的后续 PR。`git log 230db5d50ab7..v2.14.0 -- aten/src/ATen/native/cuda/linalg/BatchLinearAlgebra.cpp` 有两个 ROCm 相关 commit（#185557、#188720）碰过这个文件，但 `get_lu_factor_solver_backend` 在 v2.14.0 检出里与合入时逐行一致。作者自己留下的 `FIXME: this heuristic is likely incorrect for ROCM.` 也还在。
 
@@ -470,7 +470,7 @@ git merge-base --is-ancestor 76fb6d210a57c7efbb61fa6cb029d1fa1911bfb5 v0.28.0; e
 gh api repos/vllm-project/vllm/releases --jq '.[] | "\(.tag_name) \(.published_at[:10]) prerelease=\(.prerelease)"' | head -3
 ```
 
-结果：包含它的 tag 是 `v0.28.1rc0`（2026-08-27）、`v0.29.0rc1`（09-01）到 `v0.29.0rc4`（09-04）；`merge-base --is-ancestor … v0.28.0` 返回 1——**不在 v0.28.0**。v0.28.0 的 tag 打于 08-24、GitHub release 发布于 08-26，但 `git merge-base v0.28.0 origin/main` 落在 08-17 合入 main 的 #52570 上：`releases/v0.28.0` 分支以它为基点，之后的 13 个 commit（08-20 到 08-24）都是带 `(cherry picked from commit …)` 的 cherry-pick；08-20 合入 main 的 #47272 不在其中，自然不在 v0.28.0。`RELEASE.md` 说 "We aim to have a regular release every 2 weeks"，"Release Branch" 一节还写着 minor 版本的 "release branch cut is performed 1-2 days before release is live"——这次分支基点却比 release 早 9 天，所以只读文档推不出某个 commit 在不在某一版，要用 tag 与 merge-base 核对。cut 之后的 cherry-pick 只收 "Cherry-Pick Criteria" 列出的五类（regression、critical fix、新功能的修复、文档、release 分支专用改动），"No feature work allowed for cherry picks"。截至 2026-09-07，这个修复没有进任何正式版本；一个 8 月 20 日合入的 bugfix，用户最早在 v0.29.0 正式发布后才能不打补丁地用上。
+结果：包含它的 tag 是 `v0.28.1rc0`（2026-08-27）、`v0.29.0rc1`（09-01）到 `v0.29.0rc4`（09-04）；`merge-base --is-ancestor … v0.28.0` 返回 1——**不在 v0.28.0**。v0.28.0 的 tag 打于 08-24、GitHub release 发布于 08-26，但 `git merge-base v0.28.0 origin/main` 落在 08-17 合入 main 的 #52570 上：`releases/v0.28.0` 分支以它为基点，之后的 13 个 commit（08-20 到 08-24）里 11 个带 `(cherry picked from commit …)`，另外两个是 release 分支上直接做的 revert（#52987）与 release CI 超时调整（#53252）；08-20 合入 main 的 #47272 不在其中，自然不在 v0.28.0。`RELEASE.md` 说 "We aim to have a regular release every 2 weeks"，"Release Branch" 一节还写着 minor 版本的 "release branch cut is performed 1-2 days before release is live"——这次分支基点却比 release 早 9 天，所以只读文档推不出某个 commit 在不在某一版，要用 tag 与 merge-base 核对。cut 之后的 cherry-pick 只收 "Cherry-Pick Criteria" 列出的五类（regression、critical fix、新功能的修复、文档、release 分支专用改动），"No feature work allowed for cherry picks"。截至 2026-09-07，这个修复没有进任何正式版本；一个 8 月 20 日合入的 bugfix，用户最早在 v0.29.0 正式发布后才能不打补丁地用上。事后核对：v0.29.0 的 tag 打于 09-08、GitHub release 发布于 09-09，`git merge-base --is-ancestor 76fb6d210a57… v0.29.0` 返回 0——从合入 main 到进入正式版本 20 天。
 
 follow-up 与 revert：
 
