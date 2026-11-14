@@ -31,7 +31,7 @@ updated: 2026-09-17
 
 Table: AI 应用工程师需要的七样东西
 
-与前两张地图不同，这一层几乎没有 PyTorch 那样的事实标准框架。稳定的是**协议与模式**——OpenAI 兼容的模型 API、MCP、ReAct 循环、RAG 管线、evals；框架（LangChain / LangGraph、LlamaIndex、Dify、各家 Agent SDK）迭代很快。地图以协议与模式为主线，框架只作为抓手或代表点名。七层各对应一个系列，共 47 篇正文、约 18 小时，目录在[本文末尾](#已有的文章与系列)；这张地图上的一切——调 API、写 prompt、搭 RAG、跑 agent 循环、做评测——都在一台笔记本加一个 API key 上完成，不需要 GPU。
+与前两张地图不同，这一层几乎没有 PyTorch 那样的事实标准框架。稳定的是**协议与模式**——OpenAI 兼容的模型 API、MCP、ReAct 循环、RAG 管线、evals；框架（LangChain / LangGraph、LlamaIndex、Dify、各家 Agent SDK）迭代很快。地图以协议与模式为主线，框架只作为抓手或代表点名。七层各对应一个系列，共 47 篇正文、约 12 小时，目录在[本文末尾](#已有的文章与系列)；这张地图上的一切——调 API、写 prompt、搭 RAG、跑 agent 循环、做评测——都在一台笔记本加一个 API key 上完成，不需要 GPU。
 
 
 ## 两张图：架构视图与学习路径
@@ -539,15 +539,15 @@ Table: 评测驱动开发的六条纪律
 | 重叠主题 | 应用地图负责（本图） | 算法地图负责 | Infra 地图负责 |
 |---|---|---|---|
 | 模型 | 作为组件的契约、失效模式、选型 | 结构、训练、能力 | serving：调度、KV、多卡 |
-| 模型网关 | 使用：接入、路由、fallback | — | 建设：多租户、配额、可观测（11） |
-| 微调 | 何时需要、数据准备、效果评测 | 配方：SFT / LoRA / DPO | 训练基础设施（07） |
+| 模型网关 | 使用：接入、路由、fallback | — | 建设：多租户、配额、可观测（12） |
+| 微调 | 何时需要、数据准备、效果评测 | 配方：SFT / LoRA / DPO | 训练基础设施（08） |
 | 评测 | 应用效果：任务完成率、faithfulness、在线指标 | 模型能力：benchmark、LLM-as-judge 方法论 | 性能：吞吐、延迟、MFU |
 | embedding / rerank | 选用与调参 | 训练与对比学习 | 向量检索的算力 |
-| 上下文与 token | 预算、缓存前缀、成本 | 上下文窗口与位置编码 | KV cache 与 prefill 成本（04、08） |
+| 上下文与 token | 预算、缓存前缀、成本 | 上下文窗口与位置编码 | KV cache 与 prefill 成本（05、09） |
 | 安全 | prompt injection、工具权限、PII | 对齐与拒答训练 | 平台层的隔离与审计 |
 | 可观测 | trace：prompt、工具、token、成本 | 训练曲线 | GPU 指标、请求级指标 |
 | 成本 | 按 token 的账 | 按训练算力的账 | 按 GPU 小时的账 |
-| Agent | 编排、工具、harness | agent 能力的训练（RL、工具使用数据） | RL 后训练的 rollout 基础设施（09） |
+| Agent | 编排、工具、harness | agent 能力的训练（RL、工具使用数据） | RL 后训练的 rollout 基础设施（10） |
 
 Table: 应用地图与另两张地图的重叠主题分工
 

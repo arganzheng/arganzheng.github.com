@@ -18,7 +18,7 @@ updated: 2026-09-17
 
 > **一个模型从数据到上线经过哪些阶段？每个阶段需要掌握什么？按什么顺序学？[^q0]**
 
-这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 58 篇、约 35 小时，另与 Infra 地图共享 01 / 03 / 04 三个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
+这张地图描述的是**知识结构**：八层加一个横切，每层说明回答什么问题、包含哪些概念、为什么放在那个位置。每一层都已有对应的系列（共 69 篇、约 22 小时，另与 Infra 地图共享 01 / 03 / 04 / 05 四个系列），目录与配套代码在[本文末尾](#已有的文章与系列)。
 
 | 需要什么 | 具体是什么 |
 |---|---|
@@ -91,30 +91,30 @@ benchmark · LLM-as-judge · Arena
 %% 图：学习路径：L0–L7 八层加横切，紫色两处与 Infra 地图共享
 flowchart TB
     L0["`**L0 数学**
-8 篇 ≈ 3h`"]
+8 篇 ≈ 1.7h`"]
     L1["`**L1 工具箱**
-6 篇 ≈ 2.5h`"]
+6 篇 ≈ 1.3h`"]
     D["`**深入篇（共享，可略读）**
-01 Python 9 篇 ≈ 14h
-03 PyTorch 10 篇 ≈ 15h`"]
+01 Python 10 篇 ≈ 5.5h
+03 PyTorch 10 篇 ≈ 5.7h`"]
     L2["`**L2 经典机器学习**
-10 篇 ≈ 4h`"]
+10 篇 ≈ 4.6h`"]
     L3["`**L3 深度学习基础**
-9 篇 ≈ 4h`"]
+10 篇 ≈ 3.5h`"]
     L4["`**L4 LLM 核心**
-04 Transformer 原理与实现 4 篇 ≈ 6h（共享）
-05 现代 LLM 结构 10 篇 ≈ 12h（共享）
-预训练 5 篇 ≈ 5h`"]
+04 Transformer 原理与实现 4 篇 ≈ 1.5h（共享）
+05 现代 LLM 结构 10 篇 ≈ 4h（共享）
+预训练 5 篇 ≈ 2.6h`"]
     L5["`**L5 后训练**
-8 篇 ≈ 6h`"]
+8 篇 ≈ 2.4h`"]
     H["`**深入篇：读 Hugging Face 源码**
-4 篇 ≈ 3.2h`"]
+4 篇 ≈ 0.7h`"]
     LR["`**专题：LoRA**
-3 篇 ≈ 3h`"]
+3 篇 ≈ 0.7h`"]
     L6["`**L6 高效推理与压缩**
-6 篇 ≈ 4h`"]
+6 篇 ≈ 1.9h`"]
     L7["`**L7 多模态**
-9 篇 ≈ 7h`"]
+9 篇 ≈ 2.8h`"]
     X["`**横切：实验方法论**
 1 篇 ≈ 1h，任何阶段`"]
     L0 --> L1 --> L2 --> L3 --> L4 --> L5
@@ -136,14 +136,14 @@ flowchart TB
 
 | 层 | 主题 | 回答的问题 | 文章 | 时长 |
 |---|---|---|---|---|
-| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 3h |
-| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 2.5h（+ 14h + 15h） |
-| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4h |
-| L3 | 深度学习基础 | 深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？ | [系列（9 篇）](/deep-learning-foundations.html) | 4h |
-| L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [Transformer 原理与实现（4 篇）](/transformer-and-llm-structure-implementation-and-evolution.html) + [现代 LLM 结构（10 篇）](/llm-architecture-evolution-roadmap-from-gpt2.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 6h + 12h + 5h |
-| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 6h（+ 3.2h） |
-| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 4h |
-| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 7h |
+| L0 | 数学基础 | 公式里的每个符号是什么意思？loss 为什么这样写？ | [系列（8 篇）](/math-for-ai-algorithm-engineers.html) | 1.7h |
+| L1 | 编程与工具 | 怎么把一个想法变成一次能跑的实验？ | [系列（6 篇）](/tooling-for-ai-algorithm-engineers.html) + 深入篇 [01 Python](/python-for-ai-infra.html)、[03 PyTorch](/deep-dive-into-pytorch.html)（共享） | 1.3h（+ 5.5h + 5.7h） |
+| L2 | 机器学习基础 | 什么是学习？怎么知道模型学会了而不是背下来了？ | [系列（10 篇）](/classical-machine-learning-in-the-llm-era.html) | 4.6h |
+| L3 | 深度学习基础 | 深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？ | [系列（10 篇）](/deep-learning-foundations.html) | 3.5h |
+| L4 | LLM 核心 | Transformer 长什么样、怎么写出来、为什么演进成今天的样子？tokenizer、scaling law 与预训练数据各决定了什么？ | [Transformer 原理与实现（4 篇）](/transformer-and-llm-structure-implementation-and-evolution.html) + [现代 LLM 结构（10 篇）](/llm-architecture-evolution-roadmap-from-gpt2.html) + [预训练系列（5 篇）](/pretraining-from-tokenizer-to-training-recipe.html) | 1.5h + 4h + 2.6h |
+| L5 | 后训练 | 一个基座模型怎么变成一个能对话、会推理、符合偏好的模型？怎么证明它变好了？ | [系列（8 篇）](/post-training-from-sft-to-verifiable-rewards.html) + 深入篇 [读 Hugging Face 源码](/reading-hugging-face-source-code.html)（4 篇，L4–L5） | 2.4h（+ 0.7h） |
+| L6 | 高效推理与压缩（算法侧） | 不改硬件，怎么让同一个模型更快、更小、更便宜？ | [系列（6 篇）](/efficient-inference-and-compression-for-llms.html) | 1.9h |
+| L7 | 多模态 | 图片、视频、语音怎么进入语言模型？图像生成为什么是另一套数学？ | [系列（9 篇）](/multimodal-from-vision-encoders-to-diffusion.html) | 2.8h |
 | 横切 | 实验方法论 | 怎么用有限的算力得出可信的结论？ | [导读](/experimental-methodology-for-ai-algorithm-engineers.html) | 1h |
 | 选修 | 系统内部 ｜ 应用层 | 推理引擎与训练框架怎么实现（→ Infra 地图）｜ Agent、RAG 怎么搭（→ 应用地图） | — | — |
 
@@ -229,20 +229,21 @@ Table: L2 机器学习基础的主题与 LLM 时代的必要性
 
 > **深度模型怎样走到 Transformer？梯度怎么流、训练为何不稳？卷积、表示与循环各留下什么？[^q4]**
 
-系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（九篇正文）——深度模型演进史 · 反向传播 · 激活函数 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · Embedding 与表示学习 · RNN 到 attention。案例依次是 XOR 的感知机 / ADALINE / MLP、MNIST 手推 MLP、20 层 MLP 激活对照、64 层稳定性、优化器与梯度累积、double descent、LeNet、text8 Word2Vec、字符级 LSTM；每篇都配推导、算账、CPU 实验与原论文结构图。
+系列：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)（十篇正文）——深度模型演进史 · 损失函数 · 反向传播 · 激活函数 · 初始化 / 归一化 / 残差 · 优化器 · 正则化与泛化 · CNN 到 ViT · Embedding 与表示学习 · RNN 到 attention。案例依次是 XOR 的感知机 / ADALINE / MLP、MNIST 手推 MLP、20 层 MLP 激活对照、64 层稳定性、优化器与梯度累积、double descent、LeNet、text8 Word2Vec、字符级 LSTM；每篇都配推导、算账、CPU 实验与原论文结构图。
 
 | 主题 | 概念 | 说明 | 在哪一篇 |
 |---|---|---|---|
 | 演进史 | 感知机、ADALINE、XOR、多层网络、CNN / RNN / attention 到 Transformer | 先看每类结构解决什么、留下什么；感知机的线性边界无法表达 XOR | [第一篇](/evolution-of-deep-models-from-perceptron-to-transformer.html) |
-| 基本单元 | 感知机、MLP、前向传播、反向传播 | 感知机与 MLP 的结构背景见第一篇；反向传播要能手推一个两层网络 | [第一篇：感知机与 MLP](/evolution-of-deep-models-from-perceptron-to-transformer.html)、[第二篇：反向传播](/backpropagation-by-hand.html) |
-| 激活函数 | sigmoid、tanh、ReLU、GELU、SiLU、GLU 家族；导数、饱和、稀疏与门控 | 非线性让层叠网络不再等价于一个线性层；激活导数也会改变深层梯度 | [第三篇](/activation-functions-from-sigmoid-to-swiglu.html) |
-| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第四篇](/initialization-normalization-and-residual.html)、[第六篇](/regularization-and-generalization.html) |
-| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；梯度累积以时间换显存，warmup 是训练稳定性的第一道防线 | [第五篇](/optimizers-from-sgd-to-adamw.html) |
-| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | [第四篇](/initialization-normalization-and-residual.html) |
-| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第七篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| 表示学习 | one-hot、Embedding 查表、skip-gram / CBOW、negative sampling、静态与上下文表示 | GPT-2 small 的输入 embedding 表有 38.6M 参数、约占模型参数 31%；text8 案例演示词向量怎样从上下文学习 | [第八篇](/embedding-and-representation-learning.html) |
-| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第九篇](/rnn-lstm-and-the-birth-of-attention.html) |
-| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲<br/>本层只关心它们对训练稳定性的影响<br/>原理与大规模实现属于 Infra 地图 03、07 | L1 第三篇 |
+| 基本单元 | 感知机、MLP、前向传播、反向传播 | 感知机与 MLP 的结构背景见第一篇；反向传播要能手推一个两层网络 | [第一篇：感知机与 MLP](/evolution-of-deep-models-from-perceptron-to-transformer.html)、[第三篇：反向传播](/backpropagation-by-hand.html) |
+| 损失函数 | 从 MSE、交叉熵到 DPO 的 loss | 把「好」写成一个可求导的数；后面每一层的训练目标都是它的变体 | [第二篇](/loss-functions-from-mse-to-dpo.html) |
+| 激活函数 | sigmoid、tanh、ReLU、GELU、SiLU、GLU 家族；导数、饱和、稀疏与门控 | 非线性让层叠网络不再等价于一个线性层；激活导数也会改变深层梯度 | [第四篇](/activation-functions-from-sigmoid-to-swiglu.html) |
+| 正则化与归一化 | Dropout、weight decay、BatchNorm、LayerNorm、RMSNorm、Pre-Norm 与 Post-Norm | LayerNorm / RMSNorm 与 Pre-Norm 是 Transformer 的标准件；BatchNorm 为什么在序列模型里不好用 | [第五篇](/initialization-normalization-and-residual.html)、[第七篇](/regularization-and-generalization.html) |
+| 优化器 | SGD、Momentum、Adam / AdamW、学习率调度（warmup、cosine、WSD）、梯度裁剪、梯度累积 | AdamW 的两个矩是每参数 8 字节状态的来源；梯度累积以时间换显存，warmup 是训练稳定性的第一道防线 | [第六篇](/optimizers-from-sgd-to-adamw.html) |
+| 初始化与稳定性 | Xavier / Kaiming 初始化、梯度消失与爆炸、残差连接 | 残差连接是"深了也能训"的答案，Transformer 的每一层都靠它 | [第五篇](/initialization-normalization-and-residual.html) |
+| CNN | 卷积、池化、[感受野](# "tip: receptive field：一个输出位置能看到输入的多大范围。叠 n 层 3×3 卷积后是 (2n + 1)×(2n + 1)，池化与步幅会成倍放大它。")、feature map；LeNet → AlexNet → VGG → ResNet | 学到 ResNet 为止：残差是关键遗产；ViT 把卷积换成了 patch embedding，但 CNN 的直觉仍在多模态里有用 | [第八篇](/cnn-from-lenet-to-resnet-and-vit.html) |
+| 表示学习 | one-hot、Embedding 查表、skip-gram / CBOW、negative sampling、静态与上下文表示 | GPT-2 small 的输入 embedding 表有 38.6M 参数、约占模型参数 31%；text8 案例演示词向量怎样从上下文学习 | [第九篇](/embedding-and-representation-learning.html) |
+| RNN | 序列建模、长距离依赖、梯度在时间上的消失<br/>RNN → LSTM → GRU<br/>seq2seq 与 attention 的起源 | 理解 RNN 的失败才理解 attention 为什么赢：并行性与长依赖 | [第十篇](/rnn-lstm-and-the-birth-of-attention.html) |
+| 训练实践 | 混合精度（AMP）的用法、显存的四个去向、checkpoint 的保存与恢复、多卡 DDP 的启用 | 用法在 L1 工具箱[第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)已讲<br/>本层只关心它们对训练稳定性的影响<br/>原理与大规模实现属于 Infra 地图 03、08 | L1 第四篇 |
 
 Table: L3 深度学习基础的主题与概念
 
@@ -295,7 +296,7 @@ Table: L5 后训练各阶段的概念
 | 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | L6 第一篇 |
 | 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致<br/>期望接受长度<br/>草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | [现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)给出数学与收益区间；L6 第二篇讲草稿的训练与树 |
 | 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8<br/>QAT<br/>KV cache 量化<br/>格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 现代 LLM 结构第 10 篇给出浮点格式与字节数<br/>L6 第三、四篇讲误差模型、QAT 与评测<br/>kernel 实现属于 Infra 地图 06 |
-| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 04 第三篇给出 KV 的账；L6 第五、六篇 |
+| 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 《现代 LLM 结构》第四篇给出 KV 的账；L6 第五、六篇 |
 | 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 04 第四篇；L6 第五篇 |
 
 Table: L6 算法侧推理优化的主题与概念

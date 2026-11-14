@@ -201,13 +201,13 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **在 AI-Infra 系统里，Python 并不承担最重的计算，那它到底承担什么？为此需要掌握它的哪些机制？**
 
-七篇：语言机制与运行时 → 类型系统与数据契约 → 并发与异步 → 动态机制与插件架构 → 内存管理 → 测试与调试 → 工程化与交付。前六篇解决"写对"，第七篇解决"交付"。本系列与[算法地图](/ai-algorithm-engineer-learning-roadmap.html)共享：算法地图的 L1 工具箱只讲 Python 的用法，把语言机制与运行时交给这里——它是 L1 的**深入篇**，两张地图的第一个交点。
+七讲十篇（第一讲分上下、第二讲分上中下）：语言机制与运行时 → 类型系统与数据契约 → 并发与异步 → 动态机制与插件架构 → 内存管理 → 测试与调试 → 工程化与交付。前六讲解决"写对"，第七讲解决"交付"。本系列与[算法地图](/ai-algorithm-engineer-learning-roadmap.html)共享：算法地图的 L1 工具箱只讲 Python 的用法，把语言机制与运行时交给这里——它是 L1 的**深入篇**，两张地图的第一个交点。
 
 #### 02 C++ 在 AI-Infra：从对象模型到算子扩展
 
 > **PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写？**
 
-八篇：编译模型与项目布局 → 值语义与所有权 → 模板 → 多态与类型擦除 → 宏与静态注册 → 并发与 TLS 守卫 → pybind11 与 ABI → 构建、调试与测试。以 PyTorch 和 vLLM 的真实源码为教材，以 Java 为参照系，练手项目 mini-c10 逐篇长成一个带 Dispatcher 的最小 Tensor 库。
+八讲九篇（第一讲分上下）：编译模型与项目布局 → 值语义与所有权 → 模板 → 多态与类型擦除 → 宏与静态注册 → 并发与 TLS 守卫 → pybind11 与 ABI → 构建、调试与测试。以 PyTorch 和 vLLM 的真实源码为教材，以 Java 为参照系，练手项目 mini-c10 逐篇长成一个带 Dispatcher 的最小 Tensor 库。
 
 ### L2 计算运行时
 
@@ -225,7 +225,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 这一组内容分成两个系列。[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)四篇走通 GPT-2 的静态结构、训练 / 推理动态线与 nanoGPT 实现；[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)十篇先读 Llama / DeepSeek / VLM 的实践配置地图并数出参数量，再用 FLOPs / 访存与 Roofline 建立成本工具箱，继而展开位置编码与外推、attention 与 KV、长上下文、MoE、MTP、投机解码、多模态、浮点格式与混合精度。量化与 LoRA 在算法地图的《高效推理与压缩》与《LoRA 专题》。训练侧的 tokenizer、scaling law、数据与配方在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
-这一篇由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
+这两个系列由**推导**驱动而不是由 API 驱动。它同时服务两类读者：Infra 工程师借它理解优化对象，算法工程师借它理解自己的模型在硬件上的成本。
 
 #### 06 GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention
 
@@ -253,7 +253,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 > **一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒？**
 
-八篇。Megatron-LM / DeepSpeed / torchtitan 的架构对比与源码导读；多维并行的实际配置与 MFU 计算；分布式 checkpoint 与恢复；容错、弹性、straggler 与 silent data corruption；训练稳定性（loss spike、梯度范数）；数据管线（tokenization、数据混合、shuffle、流式加载）；长时训练的可观测。
+十一篇。Megatron-LM / DeepSpeed / torchtitan 的架构对比与源码导读；多维并行的实际配置与 MFU 计算；分布式 checkpoint 与恢复；容错、弹性、straggler 与 silent data corruption；训练稳定性（loss spike、梯度范数）；数据管线（tokenization、数据混合、shuffle、流式加载）；长时训练的可观测。
 
 #### 09 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术
 
@@ -388,7 +388,7 @@ Table: 按目标选择的 Infra 学习路径
 
 Table: Infra 地图与算法地图的重叠主题分工
 
-三个系列两张地图共享。01 Python 与 03 PyTorch 是算法地图 L1 工具箱的深入篇：算法侧讲"用"，它们讲"为什么这样工作"与"怎么改"。04 讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言：Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱。
+四个系列两张地图共享。01 Python 与 03 PyTorch 是算法地图 L1 工具箱的深入篇：算法侧讲"用"，它们讲"为什么这样工作"与"怎么改"。04、05 讨论的对象——模型作为一个计算对象的成本——恰好是两类工程师对话的语言：Infra 工程师从中知道要优化什么，算法工程师从中知道自己的每个结构决定在硬件上花多少钱。
 
 
 ## 边界与说明
@@ -410,21 +410,21 @@ Table: 主线技术与同位替代品
 
 ### 不在地图上的内容
 
-- **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04 是两条路径的交点，10 只讲扩散模型的推理系统。
-- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 11 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列分别为十篇与九篇。
-- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（现代 LLM 结构 01）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（09 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（08 第七篇）。算法侧的完整讲法在预训练系列[第二篇](/tokenizer-vocabulary-and-token-efficiency.html)。
-- **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；11 只讲它们在 AI 负载下的特殊之处。
+- **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04、05 是两条路径的交点，11 只讲扩散模型的推理系统。
+- **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 12 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列各十篇。
+- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（现代 LLM 结构 01）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（09 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（08 第十篇）。算法侧的完整讲法在预训练系列[第二篇](/tokenizer-vocabulary-and-token-efficiency.html)。
+- **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；12 只讲它们在 AI 负载下的特殊之处。
 - **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用；每一条在算法地图的 [L0 数学系列](/math-for-ai-algorithm-engineers.html)里都有一篇从定义讲起：
 
   | 数学 | 用在哪里 | L0 系列 |
   |---|---|---|
-  | 矩阵乘法的形状规则、转置、分块 | 04 第一、二篇的参数量与 FLOPs；05 的 GEMM 分块 | [第一篇](/vectors-matrices-shapes-and-flops.html) |
+  | 矩阵乘法的形状规则、转置、分块 | 现代 LLM 结构第一、二篇的参数量与 FLOPs；06 的 GEMM 分块 | [第一篇](/vectors-matrices-shapes-and-flops.html) |
   | 范数、误差的相对与绝对量 | 现代 LLM 结构第十篇的数值误差与量化误差 | [第二篇](/inner-product-norms-and-cosine-similarity.html) |
   | softmax、交叉熵、KL 散度 | 现代 LLM 结构第八篇的投机解码分布等式；06 的 online softmax | [第五](/from-maximum-likelihood-to-cross-entropy.html)、[六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
   | 期望、概率分布的基本操作 | 现代 LLM 结构第六篇的期望激活专家数、第八篇的期望接受长度 | [第四篇](/probability-basics-language-model-as-conditional-distribution.html) |
   | 链式法则 | 03 第三篇的 Autograd | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
-  | 指数加权平均 | 07 第一篇的 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
-  | 幂律与对数坐标 | 04 第二篇的 scaling law、05 与 06 的 Roofline 与带宽-延迟模型 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+  | 指数加权平均 | 08 第一篇的 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
+  | 幂律与对数坐标 | 预训练系列的 scaling law、06 与 07 的 Roofline 与带宽-延迟模型 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
 
   Table: AI-Infra 用到的数学子集及其在 L0 系列中的位置
 
@@ -473,12 +473,12 @@ Table: 十四个系列总览：层、篇数与时长
 | 02 | `cpp-for-ai-infra/` | C++17 编译器 + make；mini-c10 逐篇长成 |
 | 04 | `transformer-and-llm/` | Transformer 原理与实现的手算、极小 GPT 与 nanoGPT 实训 |
 | 05 | `modern-llm-architecture/` | 参数量、FLOPs、访存、KV 与结构演进的计算脚本，纯 Python 为主 |
-| 09 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
-| 10 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
+| 10 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
+| 11 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
 
 Table: 配套代码按系列的目录与依赖
 
-03、06–08、11、12、13、14 以源码走读为主，示例直接给出命令与输出，暂无单独目录（14 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
+03、06–09、12、13、14 以源码走读为主，示例直接给出命令与输出，暂无单独目录（14 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
 
 **哪些需要硬件，哪些不需要**：01、02、03、04、05 与两本账本（10、11 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。06 GPU Kernel 与 07 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 06 的全部实验；08 大规模训练与 10 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。09 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 14 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
 
@@ -492,13 +492,13 @@ Table: 配套代码按系列的目录与依赖
 |---|---|
 | 这行 Python 代码调用了哪个算子？ | 01 · 03 |
 | 算子怎么分发到 CUDA 实现？那段 C++ 在做什么？ | 02 · 03 |
-| 这个 kernel 读写多少字节、离硬件极限多远？ | 04 · 05 |
-| 多卡之间的通信走了什么路径、为什么是这个耗时？ | 06 |
-| 训练框架为什么这样切分状态？推理引擎为什么这样调度请求？ | 07 · 08 |
-| RL 训练里推理引擎和训练器怎样轮流用同一组 GPU？新权重怎么进引擎？ | 09 |
-| 一张图 / 一段视频为什么 FLOPs 是 LLM 的几百倍、时间却相近？它的服务为什么不用 KV cache 与连续批处理？ | 10 |
-| 集群为什么把任务放在这几张卡上？服务为什么这样扩缩容？ | 11 |
-| 发现问题之后，怎么把修复合入上游？ | 12 |
+| 这个 kernel 读写多少字节、离硬件极限多远？ | 05 · 06 |
+| 多卡之间的通信走了什么路径、为什么是这个耗时？ | 07 |
+| 训练框架为什么这样切分状态？推理引擎为什么这样调度请求？ | 08 · 09 |
+| RL 训练里推理引擎和训练器怎样轮流用同一组 GPU？新权重怎么进引擎？ | 10 |
+| 一张图 / 一段视频为什么 FLOPs 是 LLM 的几百倍、时间却相近？它的服务为什么不用 KV cache 与连续批处理？ | 11 |
+| 集群为什么把任务放在这几张卡上？服务为什么这样扩缩容？ | 12 |
+| 发现问题之后，怎么把修复合入上游？ | 13 |
 
 Table: 读完 Infra 地图后能追问的问题与答案来源
 
