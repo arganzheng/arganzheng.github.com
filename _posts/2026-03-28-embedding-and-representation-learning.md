@@ -6,7 +6,7 @@ date: 2026-03-28 20:00:00
 tags: [AI, Deep Learning, LLM]
 series: deep-learning-foundations
 catalog: true
-updated: 2026-10-14
+updated: 2026-11-14
 ---
 
 词、token、用户 ID 都是离散编号；神经网络接收的却是向量。中间这一步查表，把一个编号变成什么？[^q0]
@@ -129,7 +129,42 @@ print(table.weight.grad.coalesce().values())
 
 ![左：one-hot 行向量 e_2ᵀ（第 2 格高亮）乘 5×3 的表 W，结果正好是 W 的第 2 行（同色高亮）；右：序列 [2,0,2] 求和反向后的 W.grad——第 0 行全 1（用一次）、第 2 行全 2（用两次、梯度相加）、其余行全 0](/img/in-post/emb-onehot-lookup.svg)
 
-```text title='one-hot 查表与稀疏梯度实测（case_09_emb_toys.py onehot-lookup）'
+下面这段代码把图里的两件事都验证一遍——查表与 one-hot 乘法给出同一行，序列 $$[2,0,2]$$ 反向后只有被查到的行有梯度：
+
+```python title='one-hot 查表与稀疏梯度：数值验证'
+import numpy as np
+import torch
+
+W = np.array([[2, 1, 0],
+              [0, 3, 1],
+              [1, 0, 2],
+              [4, 1, 1],
+              [0, 2, 3]], dtype=float)   # V=5、d=3，小整数
+
+e2 = np.eye(5)[2]
+print("e_2 =", e2.astype(int).tolist())
+print("e_2^T W =", (e2 @ W).tolist(), "  == W 的第 2 行", W[2].tolist())
+tW = torch.tensor(W, dtype=torch.float32)
+emb = torch.nn.Embedding(5, 3)
+emb.weight.data = tW.clone()
+a = emb(torch.tensor(2))
+b = torch.nn.functional.one_hot(torch.tensor(2), 5).float() @ tW
+print(f"nn.Embedding(2) = {a.tolist()}, max diff = "
+      f"{(a - b).abs().max().item():.1e}")
+# 序列 [2,0,2] 求和反向：只有被查的行有梯度，重复查的行梯度累加
+emb2 = torch.nn.Embedding(5, 3)
+emb2.weight.data = tW.clone()
+out = emb2(torch.tensor([2, 0, 2])).sum()
+out.backward()
+g = emb2.weight.grad.numpy()
+print("loss = sum(emb[2]+emb[0]+emb[2])，对 W 反向：")
+print("  W.grad 非零行：", np.nonzero(np.abs(g).sum(1))[0].tolist())
+print("  W.grad[0] =", g[0].tolist(), "（1 次）")
+print("  W.grad[2] =", g[2].tolist(), "（2 次累加，每行全为 2.0）")
+print("  其余行全 0 —— 梯度是稀疏的")
+```
+
+```text title='上面代码的输出'
 e_2 = [0, 0, 1, 0, 0]
 e_2^T W = [1.0, 0.0, 2.0]   == W 的第 2 行 [1.0, 0.0, 2.0]
 nn.Embedding(2) = [1.0, 0.0, 2.0], max diff = 0.0e+00
@@ -140,7 +175,7 @@ loss = sum(emb[2]+emb[0]+emb[2])，对 W 反向：
   其余行全 0 —— 梯度是稀疏的
 ```
 
-读数：第 2 行被用到两次，梯度恰是单次的 2 倍——这正是第三篇说的「同一参数被用多次，梯度相加」；其余行一个更新都没收到，所以词表里冷门词的行可能长期停在初始值。
+读数：第 2 行被用到两次，梯度恰是单次的 2 倍——这正是《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html#3-一个量被用了两次梯度相加)》「一个量被用了两次：梯度相加」一节说的「同一参数被用多次，梯度相加」；其余行一个更新都没收到，所以词表里冷门词的行可能长期停在初始值。
 
 ### tokenizer 与 embedding 表：谁给谁什么
 
@@ -203,7 +238,7 @@ Word2Vec 的直觉是：如果两个词经常出现在相似的上下文里，�
 | 吃 | 1 | 2 | 2 | 1 | 0 | 0 | 0 |
 | 睡 | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 
-Table: toy 语料的对称共现矩阵（labs 脚本 `case_09_concept_figures.py` 输出）
+Table: toy 语料的对称共现矩阵（七句话里相邻词对的计数，左右对称）
 
 共现次数本身受词频支配：高频词跟谁都容易撞上。要看的是共现比独立假设下多出多少，这就是点互信息（PMI）：$$p_{ij}=X_{ij}/N$$ 是观测到的共现概率（$$N$$ 是矩阵里所有计数之和，本例 $$N=28$$），$$p_i=\sum_j X_{ij}/N$$ 是词 $$i$$ 单独出现的概率。
 
@@ -286,9 +321,51 @@ $$
 
 负样本按噪声分布 $$P_n(w)\propto f(w)^{3/4}$$ 抽，$$f(w)$$ 是词在语料里的频次。叫它「负」是因为抽中的词几乎不可能是真的上下文。取 3/4 次幂是 Mikolov 等人试出来的：它把分布压平，低频词被抽到的机会比原频率高，「的」这类超高频词被压低。拿两个词算一遍：假如「的」的频率是 0.05、「猫」是 0.0005，原始频率差 100 倍；各取 3/4 次幂后 $$0.05^{0.75}\approx0.106$$、$$0.0005^{0.75}\approx0.0034$$，只差约 31 倍。$$k$$ 的建议值是小语料 5–20，大语料 2–5。
 
-具体看一个样本：中心词「追」、正样本上下文「猫」，抽 5 个负样本「球、狗、鱼、跑、睡」。随机初始化两张 $$d=8$$ 的表、跑 15 步 SGD，各对的 $$\sigma$$ 分数如下（数字由 `case_09_concept_figures.py` 算出）：
+具体看一个样本：中心词「追」、正样本上下文「猫」，抽 5 个负样本「球、狗、鱼、跑、睡」。随机初始化两张 $$d=8$$ 的表、跑 15 步 SGD，各对的 $$\sigma$$ 分数如下：
 
 ![负采样示意：中心词「追」对正样本「猫」和五个负样本分别算 sigmoid 分数；15 步 SGD 后正样本 0.89，五个负样本 0.11 到 0.15](/img/in-post/dl-emb-negsample.svg)
+
+这组分数由下面这段代码算出：两张表各给 7 个词一个 8 维向量，每步按上面的损失对「追」的中心向量和 6 个上下文向量做一次 SGD（学习率 0.2）。
+
+```python title='负采样的 15 步 SGD：中心词「追」、正样本「猫」、5 个负样本'
+import numpy as np
+
+rng = np.random.default_rng(0)
+center = "追"; pos = "猫"; negs = ["球", "狗", "鱼", "跑", "睡"]
+words = [center, pos] + negs
+d, steps, lr = 8, 15, 0.2
+vin = {w: rng.normal(0, 0.1, d) for w in words}   # 中心词表
+vout = {w: rng.normal(0, 0.1, d) for w in words}  # 上下文（输出）表
+sig = lambda x: 1 / (1 + np.exp(-x))
+before = {w: sig(vout[w] @ vin[center]) for w in [pos] + negs}
+for _ in range(steps):
+    vc = vin[center]
+    g_in = (sig(vout[pos] @ vc) - 1) * vout[pos]
+    g_out = {}
+    g_out[pos] = (sig(vout[pos] @ vc) - 1) * vc
+    for n in negs:
+        s = sig(vout[n] @ vc)
+        g_in += s * vout[n]
+        g_out[n] = s * vc
+    vin[center] -= lr * g_in
+    for w in [pos] + negs:
+        vout[w] -= lr * g_out[w]
+after = {w: sig(vout[w] @ vin[center]) for w in [pos] + negs}
+for w in [pos] + negs:
+    print(f"neg-sampling {center}-{w}: before={before[w]:.3f} "
+          f"after={after[w]:.3f}")
+```
+
+```text title='上面代码的输出'
+neg-sampling 追-猫: before=0.502 after=0.894
+neg-sampling 追-球: before=0.510 after=0.129
+neg-sampling 追-狗: before=0.507 after=0.119
+neg-sampling 追-鱼: before=0.502 after=0.149
+neg-sampling 追-跑: before=0.495 after=0.118
+neg-sampling 追-睡: before=0.501 after=0.115
+```
+
+初始时六个分数都在 0.5 附近（两个随机小向量的点积接近 0）；15 步之后正样本被推到 0.89，负样本被压到 0.12–0.15。
 
 若 $$d=300$$、$$k=5$$，每个正样本是 6 个点积，约 3,600 FLOPs，而不是 3,000 万量级。
 
@@ -474,7 +551,7 @@ GPT-2 的配置来自 [Hugging Face 模型配置](https://huggingface.co/openai-
 
 实验使用 Matt Mahoney 提供的[完整 text8 语料](http://mattmahoney.net/dc/text8.zip)，共 17,005,207 个词。先按 `min_count=5` 得到 71,290 词词表，再按 Mikolov 等人的高频词抽样公式降低常见词的出现率：词频为 $$f$$、阈值 $$t=10^{-5}$$ 时，若 $$f>t$$，保留概率为 $$P_{\text{keep}}=(\sqrt{f/t}+1)t/f$$。抽样后保留 5,597,324 个词。
 
-训练使用 100 维稀疏 embedding、窗口半径随机取 1–5、每个正样本配 5 个按 $$P(w)\propto f(w)^{0.75}$$ 构造的 alias-table 负样本。批大小为 16,384，`SparseAdam` 学习率从 0.01 衰减到 0.002；对 33,594,601 个训练对完整遍历 3 个 epoch，共 6,153 次更新。脚本首次运行会下载并缓存语料；本次 CPU 运行耗时 310.0 秒。
+训练使用 100 维稀疏 embedding、窗口半径随机取 1–5、每个正样本配 5 个按 $$P(w)\propto f(w)^{0.75}$$ 构造的 alias-table 负样本。批大小为 16,384，`SparseAdam` 学习率从 0.01 衰减到 0.002；对 33,594,601 个训练对完整遍历 3 个 epoch，共 6,153 次更新。语料首次运行时下载并缓存；整个训练在 CPU 上耗时 310.0 秒。
 
 | 查询词 | 随机初始化的最近邻（余弦） | 训练后的最近邻（余弦） |
 |---|---|---|
@@ -493,13 +570,13 @@ Table: text8 词向量训练前后的近邻变化
 
 图中把训练后的 100 维词向量投影到二维 PCA 平面。PCA 只保留方差最大的两个方向，所以点之间的二维距离不能替代原始空间里的相似度。
 
-配套脚本：[`case_embedding_word2vec.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_embedding_word2vec.py)、[`case_09_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_concept_figures.py)；第二章的查表与稀疏梯度验证是 [`case_09_emb_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_emb_toys.py)（`onehot-lookup`）。
-
 ## 十三、本文小结
 
 Embedding 表把离散 ID 映射为可训练向量；后面的内容沿两条轴展开：**嵌入什么**——词、子词、句子与文本、图像、位置、图节点与实体、ID 与类别特征；**用什么信号得到**——计数分解（LSA、PPMI+SVD、GloVe）、预测（Word2Vec、BERT、GPT、MAE）、重建（AE、VAE）、对比（CLIP、SimCSE、TransE、双塔）、自蒸馏（BYOL、DINO）、有监督（ImageNet、NLI、CTR），以及根本不用学的固定公式（正弦、RoPE）。静态还是上下文相关是第三条独立的轴：它是架构属性，不是信号。
 
 Word2Vec 用局部上下文训练静态词向量，负采样把全词表归一化改成少量正负样本判别，Levy & Goldberg 证明它和 PMI 分解学的是同一张统计表。现代语言模型把输入 embedding 继续变成受上下文影响的 hidden state，句子向量由专门的编码器给出，位置、图像、图节点和推荐 ID 走同一条「查表或映射 → 用信号摆向量」的路。工程上，词表乘维度决定参数量，稀疏访问与优化器状态决定了训练成本。
+
+配套代码：第二章的查表与稀疏梯度验证是 [`case_09_emb_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_emb_toys.py)（`onehot-lookup`），第四、五章的 toy 共现矩阵与负采样分数来自 [`case_09_concept_figures.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_09_concept_figures.py)，第十二章的 text8 训练是 [`case_embedding_word2vec.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_embedding_word2vec.py)。正文已给出理解所需的代码与输出，复现实验时才需要它们。
 
 ## 十四、自测
 
