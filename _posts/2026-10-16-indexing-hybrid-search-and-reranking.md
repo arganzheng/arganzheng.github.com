@@ -273,6 +273,69 @@ Cohere Rerank、Voyage rerank、Qwen3-Reranker（开放，0.6B / 4B / 8B）、BG
 
 ## 八、实践建议
 
+**先跑一段：十行 RRF。** [第四章](#四混合检索)的融合公式写成代码如下，输入用的就是那一节算例里的两路名次：
+
+```python title="rrf：只用名次的两路融合"
+def rrf(rankings: dict[str, list[str]], k: int = 60) -> list[tuple[str, float]]:
+    """rankings：每一路检索给出的文档 id 列表，按名次从前到后。只用名次，不看各路的原始分数。"""
+    score: dict[str, float] = {}
+    for docs in rankings.values():
+        for rank, doc in enumerate(docs, start=1):
+            score[doc] = score.get(doc, 0.0) + 1 / (k + rank)
+    return sorted(score.items(), key=lambda item: -item[1])
+
+
+fused = rrf({
+    "向量": ["D1", "D2", "D5"],
+    "BM25": ["D3", "D7", "D1"],
+})
+for doc, s in fused:
+    print(f"{doc}  {s:.4f}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+D1  0.0323
+D3  0.0164
+D2  0.0161
+D7  0.0161
+D5  0.0159
+```
+
+D1 两路都在前三，得分 0.0323，是只在一路出现的文档的两倍；D3、D2、D7 的分数与第四章的算例一致。两路的原始分数（余弦 0.83 与 BM25 的 12.7）从头到尾没有出现在代码里。
+
+两路名次从哪来：下面是 PostgreSQL + pgvector 上的最小写法，权限过滤（`acl && $2`）写在两路各自的 `WHERE` 里，而不是融合之后再筛。这一段**没有在本文的环境里运行**（需要一个装了 pgvector 的数据库），按 pgvector 的文档语法写成，上线前请先在自己的库上验证：
+
+```sql title="pgvector 上的混合检索：建表、索引与两路查询（未运行）"
+-- 需要 PostgreSQL 加 pgvector 扩展；向量维度按所用 embedding 模型改
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE chunks (
+    id        bigserial PRIMARY KEY,
+    doc_id    bigint NOT NULL,
+    acl       text[] NOT NULL,                      -- 能看这一块的用户组
+    body      text   NOT NULL,
+    tsv       tsvector GENERATED ALWAYS AS (to_tsvector('simple', body)) STORED,
+    embedding vector(1024)
+);
+CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ON chunks USING gin (tsv);
+CREATE INDEX ON chunks USING gin (acl);
+
+-- 向量路：$1 是问题的 embedding，$2 是当前用户所属的组
+SELECT id FROM chunks
+WHERE acl && $2
+ORDER BY embedding <=> $1
+LIMIT 20;
+
+-- 词法路：$3 是问题原文
+SELECT id FROM chunks
+WHERE acl && $2 AND tsv @@ plainto_tsquery('simple', $3)
+ORDER BY ts_rank(tsv, plainto_tsquery('simple', $3)) DESC
+LIMIT 20;
+```
+
+`'simple'` 分词配置不会切中文，中文语料要换成装好的中文分词扩展，或者把词法路交给 Elasticsearch / OpenSearch。带过滤条件时 HNSW 可能返回不足 20 条，要对着第六章的权限过滤一节检查召回。
+
 1. **建检索评测集**（50–200 条真实查询 + 标注的相关块），先测纯向量的 recall@5 作为基线。
 2. **加 BM25 混合 + RRF**，再测；多数语料上这一步的提升大于换模型。
 3. **加 rerank**（top-20 → top-5），再测；同时把进入上下文的块数从 10 降到 5，看成本与质量。

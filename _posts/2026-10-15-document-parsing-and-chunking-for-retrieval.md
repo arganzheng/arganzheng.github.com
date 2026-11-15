@@ -278,6 +278,56 @@ flowchart TB
 
 ## 七、实践建议
 
+**先跑一段：按标题切块，并带上标题路径。** 最容易先做对的一步是不按固定字数硬切，而是顺着文档自己的结构切，并把「它在哪一节」随块保存：
+
+```python title="chunk_by_heading：按标题切分，一节太长再按段落切"
+def chunk_by_heading(markdown: str, max_chars: int = 30) -> list[dict]:
+    """按标题切分，每块带上它的标题路径；一节太长再按段落切，不在句子中间下刀。"""
+    chunks, path, buffer = [], [], []
+
+    def flush():
+        text = "\n".join(buffer).strip()
+        buffer.clear()
+        piece = ""
+        for paragraph in filter(None, text.split("\n")):
+            if piece and len(piece) + len(paragraph) > max_chars:
+                chunks.append({"path": " > ".join(path), "text": piece})
+                piece = ""
+            piece = (piece + "\n" + paragraph).strip()
+        if piece:
+            chunks.append({"path": " > ".join(path), "text": piece})
+
+    for line in markdown.splitlines():
+        if line.startswith("#"):
+            flush()
+            level = len(line) - len(line.lstrip("#"))
+            path[level - 1:] = [line.lstrip("# ")]
+        else:
+            buffer.append(line)
+    flush()
+    return chunks
+
+
+doc = """# 退换货政策
+## 退货
+签收后七天内可以申请退货。
+商品需保持未使用状态，配件齐全。
+定制商品不支持无理由退货。
+## 换货
+同款换货不收运费。
+"""
+for c in chunk_by_heading(doc):
+    print(f"[{c['path']}] {c['text']!r}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+[退换货政策 > 退货] '签收后七天内可以申请退货。\n商品需保持未使用状态，配件齐全。'
+[退换货政策 > 退货] '定制商品不支持无理由退货。'
+[退换货政策 > 换货] '同款换货不收运费。'
+```
+
+「退货」一节超过上限，在段落边界切成两块，两块都带着 `退换货政策 > 退货` 这条路径；单看第二块「定制商品不支持无理由退货」，没有路径就不知道它说的是哪种操作。入库时把路径拼在正文前面一起做 embedding。
+
 1. **抽最难的 20 页**（表格最多、多栏、扫描）跑三个梯级的解析器，人工比对——多数团队会发现梯级 ① 在其中一半页面上有第三章的失败。
 2. **建解析质量检测**：连贯性抽检、表格数量对比、重复行检测，作为入库流水线的一步；失败的文档路由到更高梯级。
 3. **按结构切**：让解析保留标题层级与代码边界，分块按它们切，表格不切断；块 200–800 token，父子块。

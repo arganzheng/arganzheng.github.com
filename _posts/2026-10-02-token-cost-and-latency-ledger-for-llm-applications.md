@@ -305,6 +305,43 @@ flowchart TB
 
 ## 八、实践建议
 
+**先跑一段：把成本公式写成函数。** 下面二十几行就是第一条建议里的 `cost()`，价目表单独放在一个字典里；用它算[自测](#十自测)第 1 题的那个请求：
+
+```python title="cost()：一次调用的美元成本"
+# 价目：美元 / 百万 token。数字取自本文第一章的价目表（2026 年 9 月），换模型只改这张表
+PRICES = {
+    "claude-opus-5": {"input": 5.00, "cache_read": 0.50, "cache_write": 6.25, "output": 25.00},
+}
+
+
+def cost(usage: dict, model: str) -> float:
+    """一次调用的美元成本。usage 的五个字段对应成本公式的五项。"""
+    p = PRICES[model]
+    micro_usd = (
+        usage.get("input_uncached", 0) * p["input"]
+        + usage.get("cache_read", 0) * p["cache_read"]
+        + usage.get("cache_write", 0) * p["cache_write"]
+        # 思考 token 按输出价计费
+        + (usage.get("output", 0) + usage.get("thinking", 0)) * p["output"]
+    )
+    return micro_usd / 1_000_000
+
+
+hit = {"cache_read": 3000, "input_uncached": 500, "thinking": 2000, "output": 400}
+miss = {"cache_write": 3000, "input_uncached": 500, "thinking": 2000, "output": 400}
+for name, usage in [("system 命中缓存", hit), ("system 未命中、本次写入", miss)]:
+    c = cost(usage, "claude-opus-5")
+    out = (usage["thinking"] + usage["output"]) * 25 / 1_000_000
+    print(f"{name}: ${c:.4f}，其中输出侧 ${out:.3f}，占 {out / c:.0%}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+system 命中缓存: $0.0640，其中输出侧 $0.060，占 94%
+system 未命中、本次写入: $0.0813，其中输出侧 $0.060，占 74%
+```
+
+命中缓存时是 \$0.064，其中 94% 花在思考与回答上；system 没命中时多出的 \$0.017 全在输入侧。接到自己的系统里时，把每次响应的 `usage` 字段映射成这五个键、按天汇总，再与账单核对。
+
 1. **把公式写成代码**：一个 `cost(usage, model, region, tier)` 函数，价目表放配置，用每天的 usage 汇总核对账单。
 2. **审计前缀**：打印你的请求体，检查 system 与工具定义之前有没有任何动态内容；测量命中率，目标 > 70%。
 3. **算一次多轮的账**：用你的 $$S$$、$$m$$、典型 $$N$$ 代入第五章的两个公式，看缓存给你省了多少、还剩多少要靠压缩。

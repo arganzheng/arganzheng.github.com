@@ -266,6 +266,65 @@ flowchart TB
 
 ## 六、实践建议
 
+**先看一段：真能跑的最小循环。** [第一章](#一总览)的伪代码补全成可运行的版本是下面五十行：一个只读工具、四个卫士（步数、token 预算、重复调用、单次超时）、一个出口。只用标准库，走 OpenAI 兼容的 `/chat/completions`，地址、key、模型名从环境变量读：
+
+```python title="最小 agent 循环：一个工具、四个卫士、一个出口"
+import json
+import os
+import pathlib
+import urllib.request
+
+BASE, KEY, MODEL = os.environ["OPENAI_BASE_URL"], os.environ["OPENAI_API_KEY"], os.environ["MODEL"]
+TOOLS = [{"type": "function", "function": {
+    "name": "read_file", "description": "读取当前目录下的一个文本文件",
+    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}]
+
+
+def chat(messages: list) -> dict:
+    body = json.dumps({"model": MODEL, "messages": messages, "tools": TOOLS}).encode()
+    request = urllib.request.Request(BASE + "/chat/completions", body,
+                                     {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=60) as response:      # 卫士：单次调用超时
+        return json.load(response)
+
+
+def run_tool(name: str, args: dict) -> str:
+    if name != "read_file":
+        return f"错误：没有工具 {name}"
+    path = pathlib.Path(args["path"])
+    if path.is_absolute() or ".." in path.parts:                       # 只许读当前目录以内
+        return "错误：只能读当前目录下的文件"
+    return path.read_text(encoding="utf-8")[:4000]                     # 工具返回截断，别撑爆上下文
+
+
+def agent(task: str, max_steps: int = 8, token_budget: int = 50_000) -> str:
+    messages, seen, used = [{"role": "user", "content": task}], set(), 0
+    for _ in range(max_steps):                                         # 卫士：步数上限
+        reply = chat(messages)
+        used += reply["usage"]["total_tokens"]
+        message = reply["choices"][0]["message"]
+        messages.append(message)
+        if not message.get("tool_calls"):                              # 出口：模型不再要工具
+            return message["content"]
+        if used > token_budget:                                        # 卫士：token 预算
+            return "停止：超出 token 预算"
+        for call in message["tool_calls"]:
+            signature = (call["function"]["name"], call["function"]["arguments"])
+            if signature in seen:                                      # 卫士：重复调用
+                result = "错误：这个调用已经执行过，请换一种做法或直接回答"
+            else:
+                seen.add(signature)
+                result = run_tool(call["function"]["name"], json.loads(call["function"]["arguments"]))
+            messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+    return "停止：达到步数上限"
+
+
+if __name__ == "__main__":
+    print(agent("读一下 README.md，用一句话说这个项目是做什么的。"))
+```
+
+这一段需要 API key，**本文没有附它对真实模型的运行输出**；循环本身用一个按固定脚本返回的本地替身验证过：重复调用会被挡回、超预算会停、`..` 路径会被拒。运行方式：设好 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`MODEL` 三个环境变量，在一个有 `README.md` 的目录里执行。跑通之后按下面的清单逐项往上加。
+
 1. **手写一次 40 行循环**，带四个卫士与两个终止条件，用真实 API 跑一个多步任务；不要先用框架。
 2. **读一遍生产循环**：Codex 的 `core/src/tools/orchestrator.rs`（审批 → 沙箱 → 重试的顺序）或 DeepSeek Harness `packages/core/agent-loop` 的 README（领取 → 开 turn → 派生 → 流式 → 分发 → 追加）。
 3. **给每个终止条件写测试**：模型正常结束、步数耗尽、预算耗尽、重复调用触发、连续失败——每个都要能触发并交付部分结果。

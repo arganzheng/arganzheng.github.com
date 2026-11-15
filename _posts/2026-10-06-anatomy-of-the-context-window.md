@@ -223,6 +223,50 @@ Transformer 的注意力对上下文里每一对 token 计算一个关系，$$n$
 
 ## 六、实践建议
 
+**先跑一段：给一份请求体按层称重。** 第一条建议说的「按七层标注、数一数」可以这样起步。下面的请求体是构造的（一个修 bug 的 coding 会话的第二步），每条消息标了所属的层，脚本统计各层占的字符数：
+
+```python title="按七层给请求体里的每一段称重"
+import json
+
+# 一份构造出来的请求体（OpenAI 兼容的 chat 格式），每一段标上它属于七层里的哪一层
+request = {
+    "model": "your-model",
+    "tools": [                                                            # ② 工具定义
+        {"type": "function", "function": {"name": "read_file", "description": "读取工作区里的一个文件",
+                                          "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}},
+    ],
+    "messages": [
+        {"role": "system", "content": "你是代码助手。只改用户点名的文件；改完运行测试。"},          # ① 系统指令
+        {"role": "system", "content": "[AGENTS.md] 本仓库用 pytest；提交前跑 make lint。"},        # ③ 长期记忆
+        {"role": "user", "content": "utils.py 里的 parse_date 在闰年 2 月 29 日会报错，帮我修。"},   # ④ 对话历史（原始任务）
+        {"role": "assistant", "content": None,                                            # ④ 对话历史
+         "tool_calls": [{"id": "c1", "type": "function",
+                         "function": {"name": "read_file", "arguments": "{\"path\": \"utils.py\"}"}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "def parse_date(s):\n    ...\n" * 40},  # ⑥ 工具返回
+        {"role": "user", "content": "先别改别的函数。"},                                      # ⑦ 当前输入
+    ],
+}
+layer_of_message = ["① 系统指令", "③ 长期记忆", "④ 对话历史", "④ 对话历史", "⑥ 工具返回", "⑦ 当前输入"]
+
+size = {"② 工具定义": len(json.dumps(request["tools"], ensure_ascii=False))}
+for layer, message in zip(layer_of_message, request["messages"]):
+    size[layer] = size.get(layer, 0) + len(json.dumps(message, ensure_ascii=False))
+total = sum(size.values())
+for layer in sorted(size):
+    print(f"{layer}  {size[layer]:5d} 字符  {size[layer] / total:5.1%}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+① 系统指令     57 字符   3.2%
+② 工具定义    165 字符   9.2%
+③ 长期记忆     72 字符   4.0%
+④ 对话历史    238 字符  13.3%
+⑥ 工具返回   1213 字符  68.0%
+⑦ 当前输入     39 字符   2.2%
+```
+
+只读了一个文件，⑥ 工具返回就占了 68%。字符数只是 token 数的粗略替代，要精确就换成供应商的计数接口；换上自己应用第 10 步的真实请求体、把 `layer_of_message` 改成对应的标注，就是第一条建议要的那张表。这份请求里没有 ⑤ 检索结果。
+
 1. **打印一次完整请求体**。选你的应用一个典型的第 10 步请求，把请求体存下来，按七层标注每一段、数 token。多数团队第一次做会发现 ⑥ 占了一半以上，① 里有一段早已无效的规则，③ 里有重复的内容。
 2. **画预算饼图并定上限**。每一层给一个 token 上限（第四篇有参考值），超过上限的层就是下一步要处理的对象。
 3. **给工具返回做时效标记**。在 trace 里记每个工具返回在后续几步里被模型引用过没有——多数在下一步之后就不再被引用，这是清理策略的依据。

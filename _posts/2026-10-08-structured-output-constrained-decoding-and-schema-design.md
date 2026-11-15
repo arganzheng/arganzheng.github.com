@@ -240,6 +240,57 @@ Table: 结构化输出仍要评的指标
 
 ## 六、实践建议
 
+**先跑一段：校验，并把错误写成能贴回给模型的话。** 即使开了约束解码，拿到输出后仍要校验业务规则（枚举、类型、多余字段）与截断。下面只用标准库，三条样例输出是构造的：一条合格、一条取值与类型不对、一条被截断：
+
+```python title="validate：校验模型输出并生成可回贴的错误说明"
+import json
+
+SCHEMA = {   # 字段名 -> (类型, 允许的取值；None 表示不限)
+    "intent": (str, {"refund", "exchange", "other"}),
+    "order_id": (str, None),
+    "amount": ((int, float), None),
+}
+
+
+def validate(raw: str) -> list[str]:
+    """返回错误列表；空列表表示可以交给下游。错误写成能直接贴回给模型的句子。"""
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return [f"不是合法 JSON：第 {e.lineno} 行第 {e.colno} 列，{e.msg}"]
+    if not isinstance(data, dict):
+        return ["最外层必须是一个对象"]
+    errors = [f"缺少字段 {name}" for name in SCHEMA if name not in data]
+    errors += [f"多出未定义的字段 {name}" for name in data if name not in SCHEMA]
+    for name, (kind, allowed) in SCHEMA.items():
+        if name not in data:
+            continue
+        value = data[name]
+        if not isinstance(value, kind) or isinstance(value, bool):
+            errors.append(f"字段 {name} 的类型不对，收到 {type(value).__name__}")
+        elif allowed and value not in allowed:
+            errors.append(f"字段 {name} 的取值 {value!r} 不在 {sorted(allowed)} 里")
+    return errors
+
+
+samples = [
+    '{"intent": "refund", "order_id": "A1024", "amount": 59.9}',
+    '{"intent": "退款", "order_id": "A1024", "amount": "59.9"}',
+    '{"intent": "refund", "order_id": "A1024", "amount": 59.9',
+]
+for raw in samples:
+    errors = validate(raw)
+    print("通过" if not errors else "打回：" + "；".join(errors))
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+通过
+打回：字段 intent 的取值 '退款' 不在 ['exchange', 'other', 'refund'] 里；字段 amount 的类型不对，收到 str
+打回：不是合法 JSON：第 1 行第 57 列，Expecting ',' delimiter
+```
+
+第二、三条被打回，错误信息本身就是重试时追加给模型的那句话（「上一次输出有如下问题：……请只输出修正后的 JSON」）。重试以一次为限；第三条那样的截断要先查 `finish_reason` 与 `max_tokens`，重试解决不了。
+
 1. **所有可数字段改 enum，所有 schema 加出口**，一小时内能做完，消除一类静默错误。
 2. **推理字段前置**，在评测集上对比两种顺序。
 3. **schema 稳定化**：把动态候选从 enum 挪到 prompt 上下文，看首 token 延迟与缓存命中率的变化。

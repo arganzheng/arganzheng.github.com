@@ -298,6 +298,50 @@ flowchart TB
 
 ## 八、实践建议
 
+**先跑一段：二十行的执行策略。** 执行策略回答的是「这条命令自动执行、先问人、还是禁止」。最小的实现是一张自上而下匹配的规则表，默认问人：
+
+```python title="decide：allow / prompt / forbidden 三档的执行策略"
+import fnmatch
+
+# 自上而下匹配，第一条命中的规则生效；都不命中时默认问人
+RULES = [
+    ("forbidden", "rm -rf /*"),
+    ("forbidden", "git push --force*"),
+    ("prompt",    "rm *"),
+    ("prompt",    "git push*"),
+    ("prompt",    "curl * -X DELETE*"),
+    ("allow",     "git status*"),
+    ("allow",     "git diff*"),
+    ("allow",     "pytest*"),
+    ("allow",     "ls*"),
+]
+
+
+def decide(command: str) -> str:
+    for decision, pattern in RULES:
+        if fnmatch.fnmatch(command, pattern):
+            return decision
+    return "prompt"
+
+
+for command in ["pytest -q tests/", "git push origin main", "git push --force origin main",
+                "rm build/tmp.log", "rm -rf /var/lib/data", "curl https://api.example.com/volumes/7 -X DELETE",
+                "python migrate.py"]:
+    print(f"{decide(command):9s} {command}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+allow     pytest -q tests/
+prompt    git push origin main
+forbidden git push --force origin main
+prompt    rm build/tmp.log
+forbidden rm -rf /var/lib/data
+prompt    curl https://api.example.com/volumes/7 -X DELETE
+prompt    python migrate.py
+```
+
+带合法凭据删云上卷的那条 `curl … -X DELETE` 落在 `prompt`——这正是 PocketOS 第四环缺的东西。规则表里没写到的 `python migrate.py` 默认问人，而不是默认放行。真实的 harness 匹配的是解析后的命令而不是字符串（否则 `cd x && rm -rf /` 就绕过去了），这段只用来看清三档与匹配顺序。
+
 1. **写权限档**：默认 `workspace`，`.git` 与凭据文件只读或 deny，网络默认关，全权档带警告且需显式开。
 2. **写执行策略**：用 Codex 的 `execpolicy` 或自己的等价物，至少覆盖删除、强制推送、数据库写、对外 HTTP 的写方法——`prompt` 或 `forbidden`，每条带 `justification` 与 `match` / `not_match` 测试。
 3. **把执行放进沙箱**：本地 CLI 用平台沙箱（Seatbelt / bubblewrap+Landlock / 受限令牌），服务端用容器或 microVM；沙箱拒绝不自动升级。

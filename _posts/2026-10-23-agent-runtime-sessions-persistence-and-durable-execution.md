@@ -255,6 +255,62 @@ flowchart LR
 
 ## 六、实践建议
 
+**先跑一段：意图、执行、结果三步，加一次崩溃。** 「崩溃后从日志继续」里最容易出错的是这种情况：工具已经执行了，结果还没写进日志，进程就没了。下面用内存里的 SQLite 当日志、一个列表当「真正发出去的邮件」：
+
+```python title="append-only 事件日志与幂等键：崩溃在「执行之后、记结果之前」"
+import json
+import sqlite3
+
+db = sqlite3.connect(":memory:")
+db.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT, kind TEXT, call_id TEXT, data TEXT)")
+sent = []                                         # 假装的外部世界：真正发出去的邮件
+
+
+def append(session, kind, call_id, data):         # 只追加，不改不删
+    db.execute("INSERT INTO events (session, kind, call_id, data) VALUES (?, ?, ?, ?)",
+               (session, kind, call_id, json.dumps(data, ensure_ascii=False)))
+    db.commit()
+
+
+def send_email(call_id, to):                      # 工具自己用 call_id 去重：同一个 id 只发一次
+    if call_id not in [c for c, _ in sent]:
+        sent.append((call_id, to))
+    return {"status": "sent", "to": to}
+
+
+def execute(session, call_id, args, crash_before_result=False):
+    done = db.execute("SELECT data FROM events WHERE session=? AND kind='result' AND call_id=?",
+                      (session, call_id)).fetchone()
+    if done:                                      # 日志里已有结果：直接取，不再执行
+        return json.loads(done[0]), "取自日志"
+    append(session, "intent", call_id, args)      # ① 先记下打算做什么
+    result = send_email(call_id, **args)          # ② 执行，把 call_id 当幂等键传给工具
+    if crash_before_result:
+        raise SystemError("进程在写结果之前崩溃")
+    append(session, "result", call_id, result)    # ③ 再记下结果
+    return result, "新执行"
+
+
+try:
+    execute("s1", "c9", {"to": "a@example.com"}, crash_before_result=True)
+except SystemError as e:
+    print("第一次：", e)
+print("恢复后重放：", execute("s1", "c9", {"to": "a@example.com"}))
+print("再重放一次：", execute("s1", "c9", {"to": "a@example.com"}))
+print("实际发出的邮件：", sent)
+print("日志：", [(kind, call_id) for kind, call_id in db.execute("SELECT kind, call_id FROM events ORDER BY seq")])
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+第一次： 进程在写结果之前崩溃
+恢复后重放： ({'status': 'sent', 'to': 'a@example.com'}, '新执行')
+再重放一次： ({'status': 'sent', 'to': 'a@example.com'}, '取自日志')
+实际发出的邮件： [('c9', 'a@example.com')]
+日志： [('intent', 'c9'), ('intent', 'c9'), ('result', 'c9')]
+```
+
+恢复后日志里只有意图、没有结果，无法判断邮件到底发没发，所以只能再执行一次（日志里出现第二条 intent）；邮件没有重复发出，靠的是工具一侧用 `call_id` 去重。**日志保证不漏做，幂等键保证不重做，两样缺一不可。** 第三次重放直接从日志取结果。`rm`、`shell` 这类没法做成幂等的工具不能自动重放，恢复时要停下来问人。
+
 1. **把会话改成 append-only 事件日志**：列第二章第 4 节的事件类，每一类一个事件；历史从日志派生，不再持有可变对象。
 2. **崩溃测试**：在第 10 步杀掉进程，重启后从日志恢复并继续；确认未完成的工具调用不重复执行（幂等 id）。
 3. **挂起要释放 worker**：审批与等外部事件时会话标为等待、worker 归还；监控"等待中的会话数"。

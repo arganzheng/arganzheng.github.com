@@ -249,6 +249,45 @@ coding agent 的经验（只用 grep）不能照搬到企业文档——三个�
 
 ## 七、实践建议
 
+**先跑一段：手写 BM25。** 词法检索的打分只有两个因素：一个词在多少文档里出现过（越少越值钱），以及它在这篇文档里出现了几次（越多越高，但会饱和、并按文档长度折算）。三篇已经分好词的短文档：
+
+```python title="二十行 BM25：三篇文档、两个查询"
+import math
+
+docs = {
+    "D1": "退货 需要 在 签收 后 七 天 内 申请".split(),
+    "D2": "型号 X-200 的 电池 续航 是 十二 小时".split(),
+    "D3": "X-200 与 X-300 的 区别 在 屏幕 与 电池".split(),
+}
+N = len(docs)
+avg_len = sum(len(words) for words in docs.values()) / N
+
+
+def idf(term: str) -> float:
+    n = sum(term in words for words in docs.values())          # 含这个词的文档数：越少越值钱
+    return math.log((N - n + 0.5) / (n + 0.5) + 1)
+
+
+def bm25(query: list[str], words: list[str], k1: float = 1.5, b: float = 0.75) -> float:
+    total = 0.0
+    for term in query:
+        tf = words.count(term)                                  # 词频：出现越多分越高，但会饱和
+        total += idf(term) * tf * (k1 + 1) / (tf + k1 * (1 - b + b * len(words) / avg_len))
+    return total
+
+
+for query in (["X-200", "电池"], ["退货"]):
+    scores = {name: round(bm25(query, words), 3) for name, words in docs.items()}
+    print(query, scores)
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+['X-200', '电池'] {'D1': 0.0, 'D2': 0.974, 'D3': 0.924}
+['退货'] {'D1': 0.964, 'D2': 0.0, 'D3': 0.0}
+```
+
+查型号 `X-200` 时 D2、D3 有分、D1 是 0；查「退货」时只有 D1 有分。它与 Elasticsearch 的 `_score` 是同一个公式（Lucene 的默认相似度就是 BM25）。向量检索能把「退款」与「退货」拉近，但对 `X-200` 这种必须一字不差的型号，词法检索更可靠——这是两路都要的原因。
+
 1. **对每个语料回答三个前提**（精确标识符？可枚举？能迭代？），三个都满足先用词法，一个不满足考虑向量，有 schema 走结构化。
 2. **coding 场景从 agentic grep 开始**（Anthropic 的建议），只在超大仓库或明确的词汇不匹配问题上加索引，并算清过期税。
 3. **企业文档默认混合**：向量 + BM25 + rerank（第四篇），不要只上向量。

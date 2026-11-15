@@ -268,6 +268,39 @@ Copilot 的教训对任何企业知识库都成立：上线检索之前先审计
 
 ## 八、实践建议
 
+**先跑一段：recall@k 与 MRR。** 检索评测先不看生成，只问一件事：该找到的文档有没有出现在前 k 条里、排在第几。三个问题、人工标好的相关文档：
+
+```python title="evaluate：检索的 recall@k 与 MRR"
+def evaluate(results: dict[str, list[str]], gold: dict[str, set[str]], k: int = 3) -> None:
+    """results：每个问题检索回来的文档 id（按名次）；gold：每个问题人工标注的相关文档。"""
+    recalls, reciprocal_ranks = [], []
+    for question, retrieved in results.items():
+        relevant = gold[question]
+        top = retrieved[:k]
+        recalls.append(len(relevant & set(top)) / len(relevant))
+        first_hit = next((rank for rank, doc in enumerate(top, start=1) if doc in relevant), None)
+        reciprocal_ranks.append(1 / first_hit if first_hit else 0.0)
+        where = f"第一个相关文档在第 {first_hit} 名" if first_hit else "前 k 名里没有相关文档"
+        print(f"{question}: recall@{k} = {recalls[-1]:.2f}，{where}")
+    n = len(results)
+    print(f"平均 recall@{k} = {sum(recalls) / n:.2f}，MRR = {sum(reciprocal_ranks) / n:.2f}")
+
+
+evaluate(
+    results={"q1": ["D3", "D1", "D9"], "q2": ["D4", "D8", "D2"], "q3": ["D5", "D6", "D7"]},
+    gold={"q1": {"D1", "D2"}, "q2": {"D2"}, "q3": {"D1"}},
+)
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+q1: recall@3 = 0.50，第一个相关文档在第 2 名
+q2: recall@3 = 1.00，第一个相关文档在第 3 名
+q3: recall@3 = 0.00，前 k 名里没有相关文档
+平均 recall@3 = 0.50，MRR = 0.28
+```
+
+q3 的召回是 0：这类问题后面的生成再好也答不对，应该先修检索而不是改 prompt。把线上抽样的问题和标注好的相关文档填进去，这二十行就是检索回归测试的起点。
+
 1. **建两个评测集**：检索侧（查询，相关块）50–100 条起，生成侧（查询，正确块，理想答案）50 条起；从真实查询采，每周从负反馈补。
 2. **三个数字上仪表盘**：recall@5、固定检索下的 faithfulness、端到端质量——任何退化先看哪一段掉了。
 3. **消融一次**：纯向量 → 混合 → rerank → 换模型 → 改分块 → 加前缀，记下每步在你语料上的提升。

@@ -319,6 +319,51 @@ fallback 的选择要**提前在评测集上验证**（第五篇：替代模型�
 
 ## 十、实践建议
 
+**先跑一段：错误分类加指数退避。** 重试逻辑的两个决定——哪些状态码值得重试、每次等多久——写出来不到二十行。下面用两串预先排好的状态码代替真实接口，看它各自怎么走：
+
+```python title="call_with_retry：按状态码分类，指数退避加全抖动"
+import random
+
+RETRYABLE = {429, 500, 502, 503, 504}   # 限流与服务端错误：可以重试
+# 400（请求本身有错）、401 / 403（鉴权）、404：重试多少次结果都一样，直接失败
+
+
+def call_with_retry(call, max_attempts=5, base=0.5, cap=8.0, sleep=lambda s: None):
+    """call() 返回 (状态码, 结果)。指数退避 + 全抖动；sleep 默认不真睡，方便看日志。"""
+    for attempt in range(1, max_attempts + 1):
+        status, body = call()
+        if status == 200:
+            return body
+        if status not in RETRYABLE or attempt == max_attempts:
+            raise RuntimeError(f"第 {attempt} 次返回 {status}，不再重试")
+        # 等待上限每次翻倍，实际等待在 [0, 上限] 里随机取，避免所有客户端同时重试
+        ceiling = min(cap, base * 2 ** (attempt - 1))
+        wait = random.uniform(0, ceiling)
+        print(f"  第 {attempt} 次返回 {status}，等待 {wait:.2f} s（上限 {ceiling:.1f} s）后重试")
+        sleep(wait)
+
+
+random.seed(7)
+for name, statuses in [("先限流两次再成功", [429, 503, 200]), ("请求本身有错", [400])]:
+    replies = iter(statuses)
+    print(name)
+    try:
+        print("  结果：", call_with_retry(lambda: (next(replies), "ok")))
+    except RuntimeError as e:
+        print("  失败：", e)
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+先限流两次再成功
+  第 1 次返回 429，等待 0.16 s（上限 0.5 s）后重试
+  第 2 次返回 503，等待 0.15 s（上限 1.0 s）后重试
+  结果： ok
+请求本身有错
+  失败： 第 1 次返回 400，不再重试
+```
+
+第一串在两次可重试的错误之后成功；第二串是 400，重试没有意义，第一次就失败。等待时间在 0 到上限之间随机取（全抖动），上限每次翻倍。换成真实调用时把 `sleep` 换成 `time.sleep`，并给整个调用再套一个总超时。
+
 一份客户端检查清单，按本文顺序：
 
 1. **错误分类器**：按第二章的表把响应映射到"可重试 / 修正后重试一次 / 不可重试 / 需人工"，读响应体不只读状态码；记请求 id。

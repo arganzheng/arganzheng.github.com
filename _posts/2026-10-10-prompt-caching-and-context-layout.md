@@ -252,6 +252,48 @@ flowchart TB
 
 ## 八、实践建议
 
+**先跑一段：找两次请求的公共前缀。** 第一条建议的「diff 两次连续请求体」写成脚本如下。两种写法发的是同一段对话，区别只在每次都变的 `request_id` 放在哪：
+
+```python title="相邻两次请求能共用多长的前缀"
+import json
+
+
+def serialize(request: dict) -> bytes:
+    # 固定序列化：键排序、无多余空白——同样的内容永远得到同样的字节
+    return json.dumps(request, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+
+
+def shared_prefix(a: dict, b: dict) -> str:
+    x, y = serialize(a), serialize(b)
+    n = next((i for i, (p, q) in enumerate(zip(x, y)) if p != q), min(len(x), len(y)))
+    return f"两次请求 {len(x)} / {len(y)} 字节，前 {n} 字节相同（{n / len(y):.0%} 可以命中缓存）"
+
+
+RULES = "你是客服助手。" + "退款规则第 N 条……" * 60          # 一段长而稳定的系统指令
+history = [{"role": "user", "content": "我的订单什么时候到？"}]
+
+
+def bad(request_id, messages):       # 把每次都变的 id 写在系统指令最前面
+    return {"messages": [{"role": "system", "content": f"[request_id: {request_id}] " + RULES}] + messages}
+
+
+def good(request_id, messages):      # id 不进 prompt，放进 metadata（或 HTTP 请求头）
+    return {"messages": [{"role": "system", "content": RULES}] + messages,
+            "metadata": {"request_id": request_id}}
+
+
+turn2 = history + [{"role": "assistant", "content": "预计明天送达。"}, {"role": "user", "content": "能改地址吗？"}]
+print("id 在最前：", shared_prefix(bad("a81f", history), bad("c302", turn2)))
+print("id 不进 prompt：", shared_prefix(good("a81f", history), good("c302", turn2)))
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+id 在最前： 两次请求 1764 / 1866 字节，前 38 字节相同（2% 可以命中缓存）
+id 不进 prompt： 两次请求 1778 / 1880 字节，前 1743 字节相同（93% 可以命中缓存）
+```
+
+id 写在系统指令最前面时，两次请求从第 38 个字节就分叉，后面一千多字节的稳定规则全部无法命中；id 挪出 prompt 之后，分叉点退到新增的那一轮对话。缓存实际按 token 前缀匹配，还有最小长度与断点规则（见[第二章](#二四家的机制)），字节前缀只是定位「第一个不同的地方」最省事的办法。
+
 1. **diff 两次连续请求体**：取同一会话相邻两轮的完整请求体，找第一个不同的字节在哪——它就是你的有效前缀边界。多数团队第一次做会在 system 前几百字节里找到一个时间戳或 id。
 2. **按四层放断点**（Anthropic）或按四层排列（其他家），动态段一律放最后。
 3. **固定序列化**：`sort_keys`、固定浮点格式、去掉无意义空白；把"序列化确定性"写进代码审查清单。
