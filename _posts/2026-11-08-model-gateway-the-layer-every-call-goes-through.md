@@ -54,7 +54,7 @@ Table: 网关的七项职责
 
 ### 1. 认证与密钥
 
-应用拿**网关的凭据**（按服务 / 租户 / 功能发放，可随时吊销），供应商的 key **只在网关**。收益：轮换在一处；泄露一个应用凭据只影响它自己的配额；供应商 key 不会出现在应用日志与工作区（PocketOS 的第一环——《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）。网关的凭据本身要能表达范围（哪些模型、多大配额、哪些功能）。
+应用拿**网关的凭据**（按服务 / 租户 / 功能发放，可随时吊销），供应商的 key **只在网关**。收益：轮换在一处；泄露一个应用凭据只影响它自己的配额；供应商 key 不会出现在应用日志与工作区（PocketOS 的第二环——《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）。网关的凭据本身要能表达范围（哪些模型、多大配额、哪些功能）。
 
 ### 2. 路由与 fallback
 

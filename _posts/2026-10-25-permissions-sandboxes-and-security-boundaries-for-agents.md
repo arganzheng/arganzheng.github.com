@@ -76,7 +76,7 @@ Claude Code 没有"档"，用**规则**表达范围：allow / deny / ask 三类�
 ### 4. 设计原则
 
 - **默认最小**：新会话从 `read_only` 或 `workspace` 起，全权要显式开且带警告。
-- **凭据不在工作区**：agent 能读到的目录里不该有 API token（PocketOS 的第一环）。
+- **凭据不在工作区**：agent 能读到的目录里不该有 API token（PocketOS 的第二环）。
 - **环境隔离**：staging 的会话拿的凭据只能碰 staging 的资源，与 agent 无关，是基础设施的责任（第二环）。
 - **范围与用途对齐**：为管理域名创建的 token 只能管域名（第三环）。
 
