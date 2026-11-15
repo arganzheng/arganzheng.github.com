@@ -308,6 +308,39 @@ bool cvtNeedsSharedMemory(src, dst) { 两者都不是 }                    // �
 
 ① 算出"源 layout 里 (reg, lane, warp) 位置上的元素，在目标 layout 里位于哪个 (reg, lane, warp)"。② 从最慢的维开始试 `quotient`：如果 `warp` 维上这个复合映射是恒等（源的 warp w 的数据全部还在目标的 warp w，且 warp 位不与别的位纠缠），就把 `warp` 剥掉——转换不需要跨 warp。然后试 `lane`。③ ④ ⑤ 看剥完剩什么：只剩 `register` → 每个线程自己重排寄存器；剩 `{register, lane}` → warp 内用 `shfl.sync`；`warp` 剥不掉 → 数据要跨 warp，只有 shared memory 能做。
 
+**先在一个能手算的玩具上走一遍。** 下面这个例子是为了能在纸上算完而缩小的，不是 Triton 的真实 layout：一个 `[2, 4]` 的张量，2 个 warp、每个 warp 2 个 lane、每线程 2 个寄存器，一共 $$2 \times 2 \times 2 = 8$$ 个位置放 8 个元素。硬件位置是 3 位 `(register, lane, warp)`，张量下标也是 3 位：列号的低位、列号的高位、行号。
+
+源 layout A 让 lane 管列的低位、register 管列的高位、warp 管行；目标 layout B 让 register 管列的低位、warp 管列的高位、lane 管行。两个 layout 各自把谁放在哪（`Tt:r` 是线程 t 的第 r 个寄存器，线程号 = warp × 2 + lane）：
+
+| layout | 行 | 列 0 | 列 1 | 列 2 | 列 3 |
+|---|---|---|---|---|---|
+| A（源） | 0 | T0:0 | T1:0 | T0:1 | T1:1 |
+| | 1 | T2:0 | T3:0 | T2:1 | T3:1 |
+| B（目标） | 0 | T0:0 | T0:1 | T2:0 | T2:1 |
+| | 1 | T1:0 | T1:1 | T3:0 | T3:1 |
+
+Table: 玩具例子里两个 layout 的元素持有表
+
+把每个 layout 写成 §2 说的 0/1 矩阵：三列是输入位 `(register, lane, warp)`，三行是输出位（列低位、列高位、行），某一列就是那个输入位的基向量：
+
+$$
+A = \begin{pmatrix} 0 & 1 & 0 \\ 1 & 0 & 0 \\ 0 & 0 & 1 \end{pmatrix}
+\qquad
+B = \begin{pmatrix} 1 & 0 & 0 \\ 0 & 0 & 1 \\ 0 & 1 & 0 \end{pmatrix}
+$$
+
+读 $$A$$ 的第二列 $$(1, 0, 0)$$：lane 位为 1 时列号的低位加 1，对上表里 T0 → T1 右移一列。`dst.invertAndCompose(src)` 算的是 $$B^{-1} A$$：先用 $$A$$ 从源位置查到下标，再用 $$B^{-1}$$ 从下标查到目标位置。$$B$$ 只是交换了后两行，逆就是它自己，所以
+
+$$
+B^{-1} A = \begin{pmatrix} 1 & 0 & 0 \\ 0 & 0 & 1 \\ 0 & 1 & 0 \end{pmatrix}
+\begin{pmatrix} 0 & 1 & 0 \\ 1 & 0 & 0 \\ 0 & 0 & 1 \end{pmatrix}
+= \begin{pmatrix} 0 & 1 & 0 \\ 0 & 0 & 1 \\ 1 & 0 & 0 \end{pmatrix}
+$$
+
+三行依次是目标的 register、lane、warp 位。读第三行 $$(1, 0, 0)$$：**目标的 warp 位 = 源的 register 位**。源里 warp 0 的线程 T0 手上的第 1 个寄存器（`T0:1`，元素 `[0, 2]`），在目标里归 warp 1 的 T2（`T2:0`）——数据必须离开原来的 warp。对照 ② 的判定：`quotient(warp)` 要求这一行是 $$(0, 0, 1)$$（warp 位原样保留）且别的行不含 warp，这里第三行不是，第二行（目标 lane = 源 warp）还用到了 warp，剥不掉，于是走 ⑤ shared memory。
+
+换一个目标 layout C：register 管列的低位、lane 管列的高位、warp 管行（只把 A 里 register 与 lane 的角色对调）。$$C$$ 是单位矩阵，$$C^{-1} A = A$$，第三行是 $$(0, 0, 1)$$，第三列也只有这一个 1：warp 剥得掉，剩下 register 与 lane 互换，数据只在同一个 warp 的两个线程之间移动，对应 ④ 的 warp 内 shuffle。真实的 layout 只是位数更多（12 位），判定的方式与这两个 3 × 3 矩阵相同。
+
 回答核心问题第二问。看两张表里**行号的低位**由谁决定：`#blocked` 里行 1 是 **warp 位 2**，行 2、4 是**寄存器位** 1、2；`#mma` 里行 1、2、4 是 **lane 位** 4、8、16。所以 `dst⁻¹ ∘ src` 把源的 warp 位 2 映到目标的 lane 位 4——**源 warp 2 的数据要进目标的另一个 lane**，跨了 warp；同时源的寄存器位映到目标的 lane 位（第 2、4 行要从寄存器进 lane）。`quotient(warp)` 在第一步就失败（warp 位不是恒等），`outDims` 含 `warp`，`cvtNeedsSharedMemory` 为真。这个转换是 `[128, 128]` 累加器写回前经历的那一次 shared memory 往返（GPU Kernel 系列第七篇提到的 epilogue 固有开销）——第八篇讨论它为什么消不掉。
 
 反例：`#blocked<{[1, 8], [8, 4], [4, 1]}>` → `#blocked<{[1, 4], [8, 4], [4, 1]}>`（只改每线程元素数，行列分配不变）的复合映射在 `warp` 和 `lane` 上都是恒等，剥完只剩 `register`——零成本，每个线程把 8 个寄存器看成两组 4 个而已。
