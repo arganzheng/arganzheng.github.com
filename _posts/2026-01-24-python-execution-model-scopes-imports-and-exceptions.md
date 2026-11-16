@@ -7,7 +7,7 @@ tags: [Python]
 catalog: true
 redirect_from:
   - /python-language-mechanisms-and-runtime-internals.html
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 
@@ -146,6 +146,33 @@ Table: 本文的章节安排
 
 Python 源码在运行前会先被编译成字节码，解释器执行的是字节码，不是源文件的文本。这一章讲清这条链路——源码怎么变成 code object、函数对象、执行帧，以及编译在什么时候发生——后面的导入、闭包、生成器都建在它上面。
 
+以一个定义了 `add(x, y)`、随后调用 `add(1, 2)` 的脚本为例，CPython 在进程启动后分两步处理：先编译，再执行。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 220, "rankSpacing": 30, "curve": "linear"}}}%%
+%% 图：CPython 从源码编译到函数调用的执行链路
+flowchart TB
+    subgraph COMPILE["编译：脚本启动 / 首次导入源码模块时"]
+        SRC["<b>源码 .py</b><br/>def add(x, y): …<br/>add(1, 2)"]
+        AST["<b>抽象语法树 AST</b>"]
+        CO["<b>模块 code object</b><br/>常量表里包含 add 的 code object"]
+        SRC -- "parser：解析" --> AST
+        AST -- "compiler：生成字节码" --> CO
+    end
+    subgraph EXEC["解释器：在帧中执行字节码，维护调用栈"]
+        MOD["<b>模块执行帧</b><br/>开始执行顶层代码"]
+        FN["<b>add 函数对象</b><br/>__code__ 指向已编译的函数体<br/>__globals__ 指向模块字典"]
+        FR["<b>add 的执行帧</b><br/>局部变量 x = 1、y = 2<br/>执行函数体，返回 3"]
+        MOD -- "执行 def：创建函数对象，绑定 add" --> FN
+        FN -- "执行 add(1, 2)：每次调用创建新帧" --> FR
+    end
+    CO -- "交给解释器执行" --> MOD
+```
+
+- **编译器处理代码**：整个模块先编译，函数体也在这时编成嵌套的 code object；执行 `def` 和调用函数都不重新编译。
+- **解释器运行代码**：先在模块帧里执行顶层字节码，遇到 `def` 创建函数对象，遇到普通函数调用进入新帧，返回后继续调用者。它是执行这些步骤的运行时，不是链路上的另一份代码产物。
+- **缓存可以跳过编译**：导入源码模块时，若有有效的 `.pyc`，直接读回 code object，再从执行模块代码开始；同一进程已导入的模块通常连执行也跳过（第四章）。
+
 ### 1. Python 不是"逐行解释"
 
 "解释器读一行、执行一行"是入门时的近似，但它解释不了为什么一个函数里的语法错误会让整个模块都无法导入，也解释不了为什么闭包能记住外层变量。实际过程是：
@@ -163,7 +190,10 @@ Python 没有 `javac` 那样一个单独的编译步骤，但编译确实发生�
 
 Table: Python 编译的触发时机与产物
 
-所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。与 Java 对照：`javac` 在构建期把每个类编成 `.class`，JVM 启动后按需加载并**再次**即时编译成机器码；Python 只有前一半（源码 → 字节码）且发生在运行期，字节码之后就是解释执行。
+所以说"运行时编译"是指：编译发生在**进程运行期间、第一次用到某个模块时**，而不是在一个独立的构建阶段；单位是**整个模块**——一个函数里的语法错误会让整个文件编译失败，于是 `import` 报 `SyntaxError`，哪怕那个函数从未被调用。编译的产物里，每个函数体、类体、生成器体各自是一个嵌套的 code object；`def` 语句执行时只是把已经编译好的 code object 包成函数对象（§2），不再编译。
+
+> [!NOTE] 与 Java 对照：编译与执行
+> `javac` 通常在构建期把源码编成 `.class`，JVM 运行时加载字节码，解释执行，并可将热点代码 JIT 编译成机器码。这里讨论的 CPython 3.12 在脚本启动或源码模块导入时编译，之后解释执行字节码；`.pyc` 是编译缓存，不是必须预先构建的交付物。
 
 用 `dis` 可以看到函数的字节码：
 
@@ -201,13 +231,12 @@ print(c.co_varnames, c.co_argcount, c.co_consts)  # ('x', 'y') 2 (None,)
 
 这里需要分清几个概念，后面每一章都会用到：
 
-| 对象 | 是什么 | 什么时候产生 |
-| :--- | :--- | :--- |
-| 源代码 | `.py` 文本 | 开发者编写 |
-| code object | 编译产物：字节码、常量表、变量名表、行号表 | 模块被首次导入（或脚本启动）时整体编译；每个作用域一个 |
-| 函数对象 | code object + 默认参数 + 全局命名空间 + 闭包 + 注解 | 执行到 `def` 语句时 |
-| 执行帧（frame） | 一次调用的运行状态：局部变量、当前指令位置、指向调用者的链 | 每次调用时创建 |
-| 解释器 | 执行字节码，维护调用栈、异常状态 | 进程级 |
+| 形态 | 是什么 | 什么时候产生 | 保存在哪里 | Java 对照 |
+| :--- | :--- | :--- | :--- | :--- |
+| 源代码 | `.py` 文本 | 开发者编写 | 磁盘上的 `.py` 文件；也可来自内存字符串 | `.java` 源文件 |
+| code object | 字节码、常量表、变量名表、行号表 | 编译时产生，也可从有效 `.pyc` 读回 | 进程内存；函数通过 `__code__` 引用；嵌套代码在外层的 `co_consts` 中；导入时可缓存到磁盘 `.pyc` | 类比 `.class` 中方法的字节码与元数据；加载后由 JVM 管理 |
+| 函数对象 | code object + 默认参数 + 全局命名空间 + 闭包 + 注解 | 执行到 `def` 时 | 进程内存中的对象，由模块字典、局部变量或容器等引用 | 方法本身不是函数对象；lambda 的函数式接口实例可类比，但不等同 |
+| 执行帧（frame） | 一次执行的局部变量、指令位置、调用者链 | 开始执行模块或调用函数时 | 线程的活动调用栈；返回后仍可被 traceback 等保留；生成器的暂停帧由生成器持有 | JVM 栈中的方法调用帧 |
 
 Table: 源代码、code object、函数对象与执行帧
 
@@ -247,6 +276,9 @@ print(a is b, a.__code__ is b.__code__)   # False True
 ```
 
 这就是为什么函数在 Python 里是"一等对象"：它可以被赋值、传参、返回、放进容器、动态添加属性——本质上它就是一个带有 `__call__` 的普通对象。[下篇第四章](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)的装饰器把这件事用到极致：`@log_call` 只是把名称 `predict` 重新绑定到另一个函数对象。
+
+> [!NOTE] 与 Java 对照：函数与方法
+> Java 的方法本身不是普通对象；lambda 和方法引用通过函数式接口实例来传递行为。Python 的 `def` 则是运行时语句，执行后得到的函数对象可以直接赋值、传参和返回。
 
 ### 3. 执行帧与调用栈
 
@@ -396,6 +428,9 @@ flowchart TB
 
 生产代码不应依赖 `inspect.currentframe()` 或修改帧对象，但调试器、profiler、`logging` 的调用位置记录都建立在帧之上。
 
+> [!NOTE] 与 Java 对照：观察调用栈
+> Java 也有调用帧，但通常通过 `StackTraceElement`、`StackWalker` 等有限视图观察调用栈，不能像 CPython 的 `inspect.currentframe()` 那样拿到包含局部状态的帧对象。
+
 ### 4. 名称绑定：名称不是变量盒子
 
 Python 的赋值不是"把值放进一个盒子"，而是"让一个名称指向一个对象"。
@@ -409,17 +444,23 @@ print(x, y, x is y)     # [1] [1] True
 
 这里只有一个列表对象，`x` 和 `y` 是它的两个名称。因此要分开四件事：**名称**、**对象**、**对象身份**（`id()`、`is`）、**对象可变性**。
 
-`==` 比较值，`is` 比较身份。写过 Java 的人要把这两个符号**对调着记**——同一个符号 `==`，在两门语言里意思相反：
+> [!NOTE] 与 Java 对照：名称与类型
+> Java 的对象变量同样持有引用，但变量有静态类型，赋值要经过编译期检查。Python 名称本身不固定类型，类型属于它绑定的对象。类型注解如何提供信息、由谁检查，见本系列第二篇。
 
-| 想问的问题 | Python 写法 | Java 写法 |
-| :--- | :--- | :--- |
-| 两个对象的**值**相等吗 | `a == b`（调用 `a.__eq__(b)`） | `a.equals(b)` |
-| 两个名称指向**同一个对象**吗 | `a is b` | `a == b`（两边都是引用时） |
-| 是不是空 | `x is None` | `x == null` |
+`==` 比较值，`is` 比较身份。
 
-Table: 值相等与身份相同：Python 与 Java 的写法对照
-
-Java 的 `==` 只有在两边是 `int` 这类基本类型时才比较值；Python 没有基本类型与包装类型之分，一切都是对象，所以 `==` 永远走值比较、`is` 永远比较身份。下面 `a is b` 时真时假的现象在 Java 里也有对应：`Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就是 `false`，原因同样是小整数被缓存复用。两边的教训相同：比较值不要用比较身份的那个运算符。
+> [!NOTE] 与 Java 对照：值相等与身份相同
+> 对两个对象引用，Python 的 `==` 对应 Java 的 `equals()`，Python 的 `is` 对应 Java 的 `==`：
+>
+> | 想问的问题 | Python 写法 | Java 写法 |
+> | :--- | :--- | :--- |
+> | 两个对象的**值**相等吗 | `a == b`（走 `__eq__` 比较协议） | `a.equals(b)` |
+> | 两个名称指向**同一个对象**吗 | `a is b` | `a == b`（两边都是引用时） |
+> | 是不是空 | `x is None` | `x == null` |
+>
+> Table: 值相等与身份相同：Python 与 Java 的写法对照
+>
+> Java 的 `==` 在两边是 `int` 这类基本类型时也比较值；Python 没有基本类型与包装类型之分。小整数缓存会让身份比较看起来像值比较：Java 的 `Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就不能依赖这个结果；Python 也有对象复用。两边都应把值比较与身份比较分开。
 
 回到 Python：对值做 `is` 判断结果不可预期：
 
@@ -440,21 +481,6 @@ print(p == q, p is q)                         # True False  —— 运行时各�
 - 一个 Batch 被 DataLoader、预处理器和模型共享时，谁做了原地操作；
 - 缓存里放的是可变对象时，缓存内容会随外部修改而"漂移"；
 - 多进程 Worker 各自持有的是**副本**（`fork` 后各自的地址空间），进程内的全局注册表并不共享——这一点在第四章 §6 会再遇到。
-
-### 5. 与 Java 的对照
-
-Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样是引用，`.class` 文件里的字节码也需要 JVM 解释或 JIT 执行（`==` 与 `is` 的对应见上一节）。真正的差异在这几处：
-
-| | Python | Java |
-| :--- | :--- | :--- |
-| 名称携带类型吗 | 不。名称只是绑定，任何对象都能绑上去 | 变量有静态类型，编译期检查 |
-| 编译发生在什么时候 | 导入/启动时按模块编译，编译产物（`.pyc`）只是缓存 | 构建期生成 `.class`，运行期由类加载器加载 |
-| 函数是对象吗 | 是，`def` 是运行时语句 | 方法不是对象；lambda 是函数式接口的实例 |
-| 帧能被程序访问吗 | 能，`inspect.currentframe()`、traceback 对象 | 只能通过 `StackTraceElement` 等有限视图 |
-
-Table: 执行模型与对象模型：Python 与 Java 的差异
-
-最重要的一条是第一行：Python 名称没有类型，类型信息全在对象上。这也是为什么本系列第二篇要单独讨论类型系统——Python 把"提供类型信息"和"消费类型信息"拆成了两层。
 
 ## 三、作用域与闭包：名称在哪里被解析
 
@@ -577,7 +603,10 @@ L 这一层被拆成了两类，G 与 B 被并成了一类。
 
 编译器怎么决定一个名字归哪一类：编译 `inner` 时扫描整个函数体，有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。
 
-**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。** Java 里 `int count;` 先声明、之后的 `count++` 只是使用；Python 里一句 `count = 99` 本身就宣告了"`count` 是本函数的局部变量"，不管它写在函数的第几行。
+**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。**
+
+> [!NOTE] 与 Java 对照：声明与赋值
+> Java 里 `int count;` 先声明局部变量，之后的 `count++` 只是使用；Python 里一句 `count = 99` 本身就让编译器把 `count` 归为本函数的局部变量，不管它写在函数的第几行（显式 `global` / `nonlocal` 除外）。
 
 三个函数，模块里有一个 `count = 10`，看各自读到什么：
 
@@ -766,6 +795,9 @@ UnboundLocalError: cannot access local variable 'count' where it is not associat
 
 按 §1 的规则，`count += 1` 是赋值，编译器因此把 `count` 判定为 `increment` 的**局部变量**；执行时先读局部槽位，而它还没有值。这个错误经常出现在把一个模块级计数器、开关或缓存直接在函数里 `+=` 的时候——那时需要的是 `global`。
 
+> [!NOTE] 与 Java 对照：修改捕获的状态
+> Java 的 lambda 和匿名内部类捕获的外层局部变量必须是 `final` 或 effectively final，不能像 Python 的 `nonlocal count` 那样重新绑定。要累加状态，通常捕获数组、`AtomicInteger` 或其他对象的引用，再修改其内容；引用不能重新赋值，不代表对象不可变。
+
 ### 4. 延迟绑定：cell 是共享的
 
 闭包最常见的陷阱：
@@ -818,6 +850,9 @@ flowchart LR
 
 或者用 `functools.partial(handler, i)`，语义更明确。构造一批 Worker 回调、为每个 GPU 生成一个任务函数、在循环里注册 hook，都会遇到这个问题。
 
+> [!NOTE] 与 Java 对照：捕获值与共享变量
+> Java 的 lambda 捕获外层局部变量的值；如果值是引用，拷贝的也是引用。Python 闭包共享的是 cell，调用时读当前值。上面会变化的循环变量 `i` 在 Java 中不满足 effectively final，直接捕获会编译失败；通常在每轮声明一个新的局部变量保存当轮值，再交给 lambda。
+
 ### 5. 闭包还是类
 
 闭包和类都能"把状态和行为绑在一起"。取舍标准是状态的数量和生命周期：
@@ -826,12 +861,6 @@ flowchart LR
 - 状态多于两三个、需要被外部检查或重置、有清理逻辑：用类。类的状态在 `__dict__` 里可见可调试，闭包的状态藏在 `cell_contents` 里。
 
 [下篇第四章](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)会看到，装饰器既可以用闭包写，也可以用类写，取舍标准相同。
-
-### 6. 与 Java 的对照
-
-Java 的 lambda 和匿名内部类也能捕获外层变量，但捕获的变量必须是 **effectively final**——编译器直接禁止 §4 那种"捕获一个会变的循环变量"的写法，也就不存在延迟绑定问题。注意 final 约束的是**引用**不能重新赋值，引用指向的对象本身照样可以修改：lambda 里不能写 `count++`，但可以 `counter.incrementAndGet()` 或 `holder[0]++`。所以 Java 无法像 §3 那样用 `nonlocal` 直接重绑一个外层局部变量，而是要把可变状态装进一个对象——数组、`AtomicInteger` 或对象字段——再捕获这个对象的引用。
-
-两种设计的根本差异：Java 捕获的是**值**（拷贝进 lambda 对象），Python 捕获的是**变量**（共享 cell）。读 Python 代码时要时刻记得这点：闭包看到的是变量的当前值，不是创建时的快照。
 
 ## 四、模块与导入系统：代码如何被加载
 
@@ -899,6 +928,18 @@ flowchart TB
 - **第 1 步**说明同一个模块名在一个进程里只执行一次。注册表、单例、模块级缓存都依赖这一点（§6）。
 - **第 5 步在第 6 步之前**。模块在顶层代码执行完之前就已经在 `sys.modules` 里了，此时它是一个"部分初始化"的模块。循环导入之所以表现为 `AttributeError`/`ImportError: cannot import name`，就是有人在这个窗口期拿到了它（§7）。
 - **第 3 步是可插拔的**。`sys.meta_path` 是一个普通列表，谁都可以往里插 finder。下一节展开。
+
+> [!NOTE] 与 Java 对照：import 会不会执行代码
+> Java 的 `import` 是编译期声明，只简化名称书写；Python 的 `import` 是运行时语句，要走上面的查找、加载、执行和绑定过程。
+>
+> | | Python 模块导入 | Java 类加载与初始化 |
+> | :--- | :--- | :--- |
+> | 何时执行初始化代码 | 首次导入时执行模块顶层代码 | 与 `import` 无关，类初始化通常由 `new`、调用静态方法等主动使用触发 |
+> | 缓存与身份 | `sys.modules`，按模块名 | JVM 按定义类加载器与类的全限定名区分类 |
+>
+> Table: Python 模块导入与 Java 类加载、初始化的对照
+>
+> 注册机制（§6）与循环导入（§7）要从模块的执行顺序理解，不能套 Java `import` 的直觉。Java 的类加载器隔离、`ClassNotFoundException` 与 `NoClassDefFoundError` 没有一一对应的 Python 机制；排查 Python 加载问题时，重点看 `sys.path`、`sys.modules` 和启动方式（§4）。
 
 ### 3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader
 
@@ -1233,26 +1274,23 @@ def load_backend(name):
 
 它走的是 §2 的同一条流程，只是名字来自字符串。代价是依赖关系对静态工具不可见、拼写错误延迟到运行时、字符串来自不可信输入时会变成任意代码执行。按配置加载后端、`pkgutil.iter_modules` 扫描插件包、`importlib.metadata.entry_points` 发现第三方插件——这三种插件发现方式的对比与选型，在本系列第四篇[《反射、元编程与插件架构》](/python-reflection-metaprogramming-and-plugin-architecture.html)中展开。
 
-### 9. 导入语法，以及与 Java `import` 的对照
+### 9. 导入语法与名称绑定
 
 `import math`、`import numpy as np`、`from math import sqrt` 三种写法的区别只有一点：**§2 第 7 步绑定什么名称**。`import` 绑定模块名；`as` 只是在当前命名空间起一个别名，不会创建第二个模块对象（`import numpy as np; import numpy; np is numpy` 为 `True`）；`from ... import` 直接绑定成员，简洁但来源不明显、容易被同名覆盖。
 
 工程惯例：模块级依赖用 `import package.submodule`，生态约定的缩写用 `as`（`np`、`pd`），少量稳定的公共对象用 `from ... import`（`Path`、`contextmanager`），不用 `from module import *`。
 
-Java 程序员最需要注意的差异不在语法，而在语义：
-
-| | Python `import` | Java `import` |
-| :--- | :--- | :--- |
-| 本质 | **运行时语句**：查找、加载、执行模块顶层代码、绑定名称 | **编译期声明**：简化类名书写，不产生任何运行时动作 |
-| 执行代码吗 | 会。模块顶层代码在首次导入时执行 | 不会。类初始化推迟到首次主动使用（`new`、静态成员访问） |
-| 缓存 | `sys.modules`，按模块名 | 类加载器，按（加载器, 全限定名） |
-| 别名 | `as` | 无 |
-| 导入成员 | `from m import f` | `import static C.f` |
-| 可以放在函数里吗 | 可以，作为延迟导入 | 不可以 |
-
-Table: Python import 与 Java import 的语义对照
-
-Java 中"加载类"这件事由类加载器在**使用时**惰性完成，代码不会因为写了一行 `import` 就去执行什么；Python 的 `import` 则是一个会产生副作用的动作，且顺序由代码书写顺序决定。§6 的注册机制、§7 的循环导入，在 Java 里几乎没有对应的问题——反过来，Java 的类加载器隔离、`ClassNotFoundException` vs `NoClassDefFoundError` 那些问题，在 Python 里对应的是 `sys.path`、`sys.modules` 和 §4 的启动方式差异。
+> [!NOTE] 与 Java 对照：导入语法
+>
+> | | Python `import` | Java `import` |
+> | :--- | :--- | :--- |
+> | 别名 | `as` | 无 |
+> | 导入成员 | `from m import f` | 静态成员用 `import static C.f` |
+> | 可以放在函数里吗 | 可以，作为延迟导入 | 不可以 |
+>
+> Table: Python 与 Java 的导入语法对照
+>
+> 语法相近不代表动作相同；是否执行代码的差别见本章 §2。
 
 ## 五、异常处理与失败传播
 
@@ -1273,6 +1311,9 @@ finally:
 
 异常发生时，解释器沿当前帧的 `f_back` 链向上寻找匹配的 `except`；每经过一帧，就把这一帧记进 `__traceback__`。找不到就终止线程（主线程则终止进程）。这就是第二章 §3 中看到的 traceback 结构。
 
+> [!NOTE] 与 Java 对照：else 与 finally
+> 两门语言的 `finally` 都用于离开 `try` 结构时执行清理。Python 还提供 `else` 子句，只在 `try` 正常结束时运行，Java 没有对应子句。
+
 ### 2. `BaseException` 层级
 
 所有异常都继承自 `BaseException`，它的直接子类只有五个：
@@ -1288,6 +1329,9 @@ finally:
 Table: BaseException 的直接子类：业务代码应捕获的根是 Exception
 
 `except BaseException:` 或裸 `except:` 会吞掉 `KeyboardInterrupt` 和 `SystemExit`——Worker 收到终止信号却继续跑；也会吞掉 `GeneratorExit`，让生成器无法关闭。业务代码捕获 `Exception` 即可。
+
+> [!NOTE] 与 Java 对照：没有受检异常
+> Python 不像 Java 那样区分受检异常与非受检异常，也不要求用 `throws` 声明。调用方必须处理哪些失败，要靠接口文档约定，编译器不会强制检查。
 
 ### 3. 自定义异常与错误边界
 
@@ -1322,6 +1366,9 @@ except OSError as exc:
 
 `from exc` 设置 `__cause__`，traceback 显示 "The above exception was the direct cause of the following exception"；不写 `from` 则隐式记录到 `__context__`，显示 "During handling of the above exception, another exception occurred"。两者都保留根因，区别只是措辞和意图的明确程度。`from None` 抑制链条——只在底层异常确实对调用方无意义时使用，否则排障时会丢掉关键信息。
 
+> [!NOTE] 与 Java 对照：保留异常原因
+> `raise RuntimeError(msg) from exc` 可类比 `throw new RuntimeException(msg, cause)`；Python 的 `__cause__` 对应 Java 的 `getCause()`。
+
 ### 5. 记录并重抛：`raise` 与 `raise exc` 的区别
 
 ```python title='记录完整 traceback 后原样重抛'
@@ -1334,6 +1381,9 @@ except Exception:
 
 裸 `raise` 重新抛出当前异常，traceback 不变；`raise exc` 则会把**当前这一行**追加进 traceback，实验中同一个异常的帧列表从 `['<module>', 'w']` 变成 `['<module>', '<module>', 'w']`，多出一层噪音。
 
+> [!NOTE] 与 Java 对照：重抛与调用栈
+> Java 没有裸 `throw;` 语法，用 `throw e;` 重抛已有异常通常不会重建其栈信息（栈通常在构造异常时记录）。Python 的 traceback 随传播逐帧累加，因此 `raise` 与 `raise exc` 的这项差别不能直接套到 Java 上。
+
 只记录不重抛是最常见的错误处理反模式：
 
 ```python title='反模式：只记录 str(exc) 不重抛'
@@ -1342,10 +1392,6 @@ except Exception as exc:
 ```
 
 上层以为任务成功，Worker 带着不一致的状态继续跑，分布式训练中表现为某个 rank 悄悄掉队、其他 rank 在集合通信上无限等待。原则是：**能处理就处理并明确恢复到一致状态，不能处理就重抛；日志不是处理**。
-
-### 6. 与 Java 的对照
-
-Python 没有受检异常，所有异常都是 Java 意义上的 `RuntimeException`；方法签名不声明会抛什么，这是文档和类型注解（第二篇）的职责。`raise ... from exc` 对应 Java 的 `new RuntimeException(msg, cause)`，`__cause__` 对应 `getCause()`。裸 `raise` 对应 `throw;`——Java 里 `throw e;` 不会改变 `e` 的栈信息（栈在构造时固定），而 Python 的 traceback 是在传播过程中逐帧累加的，所以 §5 的差别在 Java 里不存在。`finally` 语义一致；`else` 子句是 Python 独有的。
 
 ## 六、本文小结
 
