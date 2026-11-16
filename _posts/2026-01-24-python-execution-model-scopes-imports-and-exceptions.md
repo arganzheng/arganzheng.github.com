@@ -284,16 +284,87 @@ except ValueError as exc:
         tb = tb.tb_next
 ```
 
-- <module> 9
-- outer 6
-- inner 2
+```text title="运行输出：从最外层到出错的那一层"
+<module> 10
+outer 6
+inner 2
+```
 
-帧这个概念解释了后面几件事：
+三行各是一帧：模块顶层执行到第 10 行调用了 `outer`，`outer` 执行到第 6 行调用了 `inner`，`inner` 在第 2 行抛出异常。
 
-- 第三章：局部变量、闭包变量、全局变量的查找方式不同，因为它们存放在帧的不同位置；
-- [下篇第四章](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)：装饰器会在调用栈里多插入一层 `wrapper` 帧，所以 traceback 里会出现它；
-- [下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)：生成器的本质是"一个可以被挂起、之后再恢复的帧"；
-- 第五章：异常传播就是沿帧链逐层向上寻找 `except`。
+一帧里具体有什么，决定了后面几章的行为。帧对象上能直接读到的字段：
+
+| 字段 | 内容 | 后面哪里用到 |
+|---|---|---|
+| `f_code` | 正在执行的 code object | 上一节：同一个 code object 可以同时有多帧在跑（递归） |
+| `f_locals` | 这次调用的局部变量 | 第三章：局部变量就存在这里，每次调用一份，互不影响 |
+| `f_globals` / `f_builtins` | 函数定义所在模块的字典、内置名称的字典 | 第三章：全局名称不存在帧里，帧只带着"去哪个字典找"的指针 |
+| `f_lineno` | 当前执行到哪一行 | 帧可以停在某一行，之后从这一行继续——生成器靠的就是它 |
+| `f_back` | 调用者的帧 | 调用栈就是沿 `f_back` 串起来的链；异常沿这条链往上找 `except` |
+
+Table: 帧对象的字段，以及各自在后面哪一章起作用
+
+下面这段把其中两件事直接跑出来：装饰器为什么会在调用栈里多出一层，以及"生成器是一个可以暂停的帧"是什么意思。
+
+```python title="沿 f_back 打印调用栈；看生成器对象身上的帧"
+import functools
+import inspect
+
+
+def show_stack():
+    """从当前帧出发，沿 f_back 一路走到最外层，打印每一帧的函数名、局部变量名和正在执行的行号。"""
+    frame = inspect.currentframe().f_back
+    while frame:
+        names = list(frame.f_locals)[:3]
+        print(f"  {frame.f_code.co_name:10s} 局部变量 {names}  第 {frame.f_lineno} 行")
+        frame = frame.f_back
+
+
+def logged(fn):
+    @functools.wraps(fn)
+    def wrapper(*args):
+        return fn(*args)
+    return wrapper
+
+
+@logged
+def handle(request_id):
+    show_stack()
+
+
+print("① 被装饰的函数调用时，栈里多一层 wrapper：")
+handle(42)
+
+
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+
+gen = countdown(3)
+print("② 生成器对象自己带着一个帧：")
+print("  还没开始：第", gen.gi_frame.f_lineno, "行，局部变量", gen.gi_frame.f_locals)
+next(gen)
+next(gen)
+print("  取了两个值之后停在：第", gen.gi_frame.f_lineno, "行，局部变量", gen.gi_frame.f_locals)
+```
+
+```text title="运行输出（Python 3.12）"
+① 被装饰的函数调用时，栈里多一层 wrapper：
+  handle     局部变量 ['request_id']  第 23 行
+  wrapper    局部变量 ['args', 'fn']  第 17 行
+  <module>   局部变量 ['__name__', '__doc__', '__package__']  第 27 行
+② 生成器对象自己带着一个帧：
+  还没开始：第 30 行，局部变量 {'n': 3}
+  取了两个值之后停在：第 32 行，局部变量 {'n': 2}
+```
+
+① `handle` 被 `@logged` 装饰之后，名字 `handle` 实际指向的是 `wrapper`；调用它要先进 `wrapper` 的帧，再由 `wrapper` 调原函数，所以栈里在 `handle` 与模块顶层之间多了一层。报错时 traceback 里出现的 `wrapper` 就是这一帧（[下篇第四章](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)）。
+
+② 普通函数的帧在 `return` 之后就销毁了。生成器函数被调用时不执行函数体，而是造出一个带着帧的生成器对象（`gi_frame`）：帧里的局部变量 `n` 和"停在第几行"都保存在这个对象上。每次 `next()` 让这一帧从上次停下的 `yield` 继续跑到下一个 `yield`，再停住——`n` 从 3 变成了 2，行号从函数开头走到了 `yield` 那一行。生成器的惰性、`await` 的挂起与恢复，都是这一帧被暂停和继续（[下篇第五章](/python-object-model-protocols-decorators-and-generators.html#五生成器与惰性执行)）。
+
+另外两件事在本篇后面展开：局部变量、外层函数的变量、全局变量分别存在帧里、cell 里、模块字典里，所以取值方式不同（第三章）；异常传播是沿 `f_back` 一帧一帧往上找 `except`，上面那三行输出就是这条链（第五章）。
 
 生产代码不应依赖 `inspect.currentframe()` 或修改帧对象，但调试器、profiler、`logging` 的调用位置记录都建立在帧之上。
 
@@ -310,7 +381,7 @@ print(x, y, x is y)     # [1] [1] True
 
 这里只有一个列表对象，`x` 和 `y` 是它的两个名称。因此要分开四件事：**名称**、**对象**、**对象身份**（`id()`、`is`）、**对象可变性**。
 
-`==` 比较值，`is` 比较身份。对值做 `is` 判断结果不可预期：
+`==` 比较值，`is` 比较身份。写过 Java 的人要把这两个符号**对调着记**：Python 的 `==` 相当于 Java 的 `equals()`，Python 的 `is` 才相当于 Java 里对两个引用用的 `==`（下一节有对照表）。对值做 `is` 判断结果不可预期：
 
 ```python title='== 比值、is 比身份：对值做 is 结果不可预期'
 a = 1000
@@ -332,7 +403,19 @@ print(p == q, p is q)                         # True False  —— 运行时各�
 
 ### 5. 与 Java 的对照
 
-Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样是引用，`==` 比较引用、`equals()` 比较值，`.class` 文件里的字节码也需要 JVM 解释或 JIT 执行。真正的差异在两处：
+Java 程序员对上面大部分内容并不陌生：Java 的对象变量同样是引用，`.class` 文件里的字节码也需要 JVM 解释或 JIT 执行。要先改口的是比较运算符——同一个符号 `==`，在两门语言里意思相反：
+
+| 想问的问题 | Python 写法 | Java 写法 |
+| :--- | :--- | :--- |
+| 两个对象的**值**相等吗 | `a == b`（调用 `a.__eq__(b)`） | `a.equals(b)` |
+| 两个名称指向**同一个对象**吗 | `a is b` | `a == b`（两边都是引用时） |
+| 是不是空 | `x is None` | `x == null` |
+
+Table: 值相等与身份相同：Python 与 Java 的写法对照
+
+Java 的 `==` 只有在两边是 `int` 这类基本类型时才比较值；Python 没有基本类型与包装类型之分，一切都是对象，所以 `==` 永远走值比较、`is` 永远比较身份。上一节 `a is b` 时真时假的现象在 Java 里也有对应：`Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就是 `false`，原因同样是小整数被缓存复用。两边的教训相同：比较值不要用比较身份的那个运算符。
+
+其余真正的差异在这几处：
 
 | | Python | Java |
 | :--- | :--- | :--- |
@@ -351,7 +434,7 @@ Table: 执行模型与对象模型：Python 与 Java 的差异
 
 ### 1. LEGB 是编译期规则
 
-名称查找的四层通常叫 LEGB：Local（当前函数）→ Enclosing（外层函数）→ Global（模块）→ Builtins。
+名称查找的四层通常叫 LEGB：Local（当前函数）→ Enclosing（外层函数）→ Global（模块）→ Builtins。这个缩写乍一看很像 LGBT，第一次见的人常常念串；它其实没有别的含义，只是四个单词的首字母，按**由内到外**的顺序排：先看自己这个函数，再看包着它的函数，再看模块，最后看内置。
 
 ```python title='LEGB 三层嵌套的例子：global、enclosing、inner'
 value = "global"
@@ -370,13 +453,120 @@ f = outer()
 print(f())      # enclosing
 ```
 
-关键在于：编译器在编译 `inner` 时，扫描整个函数体，把每个名称分类——有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。
+`inner` 里的 `value` 自己这一层没有，往外一层在 `outer` 里找到了，所以是 `"enclosing"`，模块里那个 `"global"` 被挡住了。
+
+**四层各放一个名字，再看编译器怎么记账。** 上面的例子只用到两层。下面这个函数对里，`inner` 用到的五个名字分别来自四层；每个函数的 code object 上有四张名单，记着编译器把每个名字归到了哪一类：
+
+```python title="四层各放一个名字：看 code object 上的四张名单"
+import builtins
+
+limit = 100                     # 模块里绑定
+
+
+def outer(items):
+    total = 0                   # 只在 outer 里用
+    seen = []                   # outer 里绑定，inner 也要用
+
+    def inner(x):
+        doubled = x * 2         # 只在 inner 里用
+        seen.append(doubled)    # 来自外层函数
+        return min(doubled, limit)   # limit 来自模块，min 来自内置
+
+    for item in items:
+        total += inner(item)
+    return total, inner
+
+
+total, inner = outer([10, 80])
+for fn in (outer, inner):
+    code = fn.__code__
+    print(fn.__name__)
+    print("  局部变量 co_varnames:", code.co_varnames)
+    print("  cell 变量 co_cellvars:", code.co_cellvars)
+    print("  自由变量 co_freevars:", code.co_freevars)
+    print("  按名字查的 co_names  :", code.co_names)
+print("inner.__closure__[0].cell_contents =", inner.__closure__[0].cell_contents)
+print("limit 在模块字典里:", "limit" in globals(), "  min 在 builtins 里:", hasattr(builtins, "min"))
+```
+
+```text title="运行输出（Python 3.12）"
+outer
+  局部变量 co_varnames: ('items', 'total', 'inner', 'item')
+  cell 变量 co_cellvars: ('seen',)
+  自由变量 co_freevars: ()
+  按名字查的 co_names  : ()
+inner
+  局部变量 co_varnames: ('x', 'doubled')
+  cell 变量 co_cellvars: ()
+  自由变量 co_freevars: ('seen',)
+  按名字查的 co_names  : ('append', 'min', 'limit')
+inner.__closure__[0].cell_contents = [20, 160]
+limit 在模块字典里: True   min 在 builtins 里: True
+```
+
+四张名单就是编译器给名字分的四类。它们与 LEGB 四层**不是一一对应**的，这是这一节最容易混的地方：LEGB 说的是"这个名字绑定在哪一层"，四类说的是"站在某一个函数里看，这个名字存在哪、用哪条指令取"。对应关系如下：
+
+| 名字绑定在哪一层（LEGB） | 站在使用它的函数里，编译器归为 | 值存在哪 | 取值指令 | 上例中 |
+|---|---|---|---|---|
+| L：本函数，没有内层函数用它 | **局部变量** | 这次调用的帧里 | `LOAD_FAST` | `outer` 的 `total`<br/>`inner` 的 `x`、`doubled` |
+| L：本函数，且有内层函数用它 | **cell 变量** | 一个单独的 cell 对象里，帧只留一个指向它的引用 | `LOAD_DEREF` | `outer` 的 `seen` |
+| E：外层函数 | **自由变量** | 外层函数的那个 cell（同一个对象） | `LOAD_DEREF` | `inner` 的 `seen` |
+| G：模块<br/>B：内置 | **全局名称**（编译器不区分 G 与 B） | 模块的字典；找不到再查内置的字典 | `LOAD_GLOBAL` | `limit`（模块）<br/>`min`（内置） |
+
+Table: LEGB 四层与编译器的四类名称怎样对应
+
+三点读法：
+
+1. **cell 变量与自由变量是同一个东西的两头。** `seen` 只有一个：站在 `outer` 里看，它是"我的变量，但内层函数也要用"，叫 cell 变量；站在 `inner` 里看，它是"不是我的，从外层借来的"，叫自由变量。两边的名单里都有它，指向同一个 cell。
+2. **cell 是什么。** 就是一个只有一个格子的小容器对象。普通局部变量随帧一起消失；一个变量如果还要被内层函数用，就不能跟着帧走，编译器于是把它单独放进一个 cell，让外层的帧和内层的函数对象各拿一个指向它的引用。输出最后一行的 `[20, 160]` 就是 `outer` 已经返回之后，从 `inner` 手里的 cell 读出来的。下一节专门讲它。
+3. **L 这一层被拆成了两类，G 和 B 被并成了一类。** 所以不是"四层对四类"。G 与 B 到运行时才区分：先查模块的字典，没有再查内置的字典——这也是为什么在模块里定义一个叫 `min` 的变量会把内置的 `min` 挡住。`co_names` 里还有 `append`，它是属性名，同样是运行时按名字查的。
+
+编译器怎么决定一个名字归哪一类：编译 `inner` 时扫描整个函数体，有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。
 
 这条规则值得单独强调，因为它是 Python 与 Java 这类静态语言在"变量"这件事上最大的差别：**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。** Java 里 `int count;` 声明了类型和作用域，之后的 `count++` 只是使用；Python 里 `count += 1` 这一句本身就宣告了"`count` 是本函数的局部变量"——不管它出现在函数的第几行、前面有没有读过它。三个直接后果：
 
 1. 同一个名称在一个函数里只能属于一个作用域，不存在"前半段是全局、后半段是局部"；
 2. 一个名称是局部变量与它**有没有被赋过值**是两回事：局部变量可以"存在但还没有值"，读它会得到 `UnboundLocalError`（§3 的例子）；
 3. 要在函数里改外层的变量，必须用 `nonlocal` / `global` 显式声明"这个赋值不是在造局部变量"。
+
+三个只差一行的函数，把这条规则跑出来：
+
+```python title="只读、直接赋值、声明后赋值：同一个 count 的三种归类"
+count = 0
+
+
+def read_only():
+    return count + 1            # 只读：没有赋值，count 是全局名称
+
+
+def assign_without_declaring():
+    count += 1                  # 有赋值：count 被判成局部变量，读的时候还没有值
+    return count
+
+
+def assign_with_global():
+    global count                # 声明：这里的赋值改的是模块里的 count
+    count += 1
+    return count
+
+
+for fn in (read_only, assign_without_declaring, assign_with_global):
+    try:
+        result = fn()
+    except UnboundLocalError:
+        result = "UnboundLocalError"
+    print(f"{fn.__name__:26s} 局部变量 {fn.__code__.co_varnames!s:10s} → {result}")
+print("模块里的 count 现在是", count)
+```
+
+```text title="运行输出（Python 3.12）"
+read_only                  局部变量 ()         → 1
+assign_without_declaring   局部变量 ('count',) → UnboundLocalError
+assign_with_global         局部变量 ()         → 1
+模块里的 count 现在是 1
+```
+
+中间那个函数只比第一个多了一次赋值，`count` 就进了它的局部变量名单；执行 `count += 1` 要先读 `count`，而这个局部变量还没有值，于是报错。模块里的 `count` 明明是 0，它却读不到——不是找不到，而是编译器已经决定不去模块里找了。第三个函数加了 `global`，`count` 不再是局部变量，赋值落到了模块里（最后一行的 1）。
 
 编译器对函数体里的每个名称做的是同一串判断，判断的结果就是运行时用哪条取值指令：
 
@@ -426,7 +616,33 @@ print(f.__closure__)                     # (<cell at 0x...: str object at 0x...>
 print(f.__closure__[0].cell_contents)    # enclosing
 ```
 
-所以闭包不是什么魔法："外层帧销毁了，但 cell 对象被内层函数对象引用着，所以还活着。" 这就是**词法作用域**：名称的解析依据函数**定义时**的代码结构，与调用位置无关。
+把"谁指着谁"画出来：
+
+```mermaid
+%% 图：闭包里的三个对象：outer 的帧、cell、inner 函数对象，以及 outer 返回前后各自的去留
+flowchart LR
+    FR["<b>outer 的帧</b><br/>outer 返回后销毁"] -. "局部槽位里的引用<br/>随帧一起消失" .-> CELL["<b>cell 对象</b><br/>里面装着 'enclosing'"]
+    FN["<b>inner 函数对象</b><br/>模块里的名称 f 指着它"] -- "__closure__#91;0#93;" --> CELL
+    CALL["<b>f() 的帧</b><br/>每次调用新建一个"] -- "LOAD_DEREF 0<br/>从 cell 取值" --> CELL
+
+    classDef gone fill:#f4f4f4,stroke:#aaa,color:#777,stroke-dasharray:4 3
+    classDef live fill:#fff7e0,stroke:#c98a00,color:#222
+    class FR gone
+    class CELL,FN,CALL live
+```
+
+按时间顺序是四步：
+
+| 步骤 | 发生了什么 | 这时谁指着 cell |
+|---|---|---|
+| ① 调用 `outer()` | 新建 `outer` 的帧；因为 `value` 是 cell 变量，同时新建一个 cell，把 `"enclosing"` 放进去 | `outer` 的帧 |
+| ② 执行 `def inner` | 新建 `inner` 函数对象，把这个 cell 的引用放进它的 `__closure__` | `outer` 的帧、`inner` 函数对象 |
+| ③ `outer` 返回 | 帧销毁，返回值（`inner` 函数对象）绑定到模块里的名称 `f` | 只剩 `inner` 函数对象 |
+| ④ 调用 `f()` | 新建 `inner` 的帧，`LOAD_DEREF` 顺着 `__closure__` 从 cell 里取出 `"enclosing"` | `inner` 函数对象 |
+
+Table: 一个闭包从创建到被调用的四步
+
+所以闭包不是什么魔法："外层帧销毁了，但 cell 对象被内层函数对象引用着，所以还活着。" 再调用一次 `outer()` 会新建另一个 cell 和另一个 `inner` 函数对象，两次得到的闭包互不影响——§3 的计数器就靠这一点让每个计数器各数各的。这就是**词法作用域**：名称的解析依据函数**定义时**的代码结构，与调用位置无关。
 
 在 AI-Infra 中闭包常用来携带少量配置进入回调：后端名、重试次数、指标标签、模型引用。但它也是隐式依赖——读者无法从函数签名看出它依赖了什么。
 
