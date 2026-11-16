@@ -5,7 +5,7 @@ title: "算法工程师的数学（01）：向量、矩阵与形状——一个 
 subtitle: "Vectors, Matrices and Shapes: How Much Compute Does One Token Through One Layer Take"
 tags: [AI, LLM, Math]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 打开任何一个大模型的结构图，看到的全是矩阵乘法：一个 token（模型处理文字的最小单位，大致是一个词或半个词——"我爱北京"约 3 个 token——不是一字一个，常用词"北京"通常整个是一个 token，"我""爱"各一个；反过来英文长词 "tokenizer" 会被切成两三个。切法由分词器（tokenizer）的词表决定，不同模型不同；模型读到的不是字，而是 token 在词表里的编号）变成一个向量，向量乘一个矩阵变成另一个向量，再乘一个矩阵……几十层之后输出下一个 token 的概率。所以线性代数在 AI 里的第一个用处不是什么高深的定理，而是两条极其朴素的规则：**形状规则**（什么形状乘什么形状得到什么形状）与**成本规则**（这一乘要算多少次）。会了这两条，读模型结构图、算训练成本、判断"这个改动为什么慢"都有了起点。
@@ -321,33 +321,33 @@ Table: 广播的三个例子
 先说一层在做什么，再数它有哪些矩阵。一个 Transformer 层只有两个部件，每个 token 的向量依次经过它们：**attention**（注意力）让每个 token 看一眼句子里的其他 token、把有用的信息加到自己身上——它是唯一一处 token 之间发生交流的地方；**MLP**（多层感知机，两三个矩阵乘法夹一个非线性函数）对每个 token 各自做一次变换，token 之间互不影响。两个部件的输出都加回输入（**残差连接**，$$x + f(x)$$，为什么必要见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html#五方案三残差连接)》「残差连接」一章）。把这条路径上的每个矩阵标出来：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 250}}}%%
 %% 图：一个 Transformer 层的七个权重矩阵：attention 部件四个、MLP 部件三个，以 Llama-3-8B 的形状标注
 flowchart TB
-    X["x　[1, 4096]"]
+    X["$$x$$　[1, 4096]"]
     subgraph ATTN["attention 部件：token 之间交流"]
         direction TB
-        P["× $$W_Q$$ → [1, 4096]<br/>× $$W_K$$ → [1, 1024]<br/>× $$W_V$$ → [1, 1024]"]
-        A["<b>attention：$$QK^\top$$、softmax(·)V</b><br/>用自己的 Q 看其他 token 的 K、V<br/>无参数，FLOPs 随 T 增长"]
-        O["× $$W_O$$ → [1, 4096]"]
+        P["<b>① 投影</b><br/>$$q = x W_Q$$ → [1, 4096]<br/>$$k = x W_K$$ → [1, 1024]<br/>$$v = x W_V$$ → [1, 1024]"]
+        A["<b>② attention</b><br/>自己的 $$q$$ 与句中 T 个 token 的 $$k$$ 算内积<br/>softmax 后加权求和它们的 $$v$$<br/>无参数，FLOPs 随 T 增长<br/>T 个 token 合起来写就是 $$QK^\top$$、softmax(·)V"]
+        O["<b>③ 输出投影</b><br/>× $$W_O$$ → [1, 4096]"]
         P --> A --> O
     end
     subgraph MLP["MLP 部件：每个 token 各自变换"]
         direction TB
-        G["× $$W_{\text{gate}}$$ → [1, 14336]<br/>× $$W_{\text{up}}$$ → [1, 14336]"]
-        S["silu(gate) ⊙ up　逐元素"]
-        D["× $$W_{\text{down}}$$ → [1, 4096]"]
+        G["<b>④ 两路放大</b><br/>$$g = h W_{\text{gate}}$$ → [1, 14336]<br/>$$u = h W_{\text{up}}$$ → [1, 14336]"]
+        S["<b>⑤ 门控</b><br/>$$\text{silu}(g) \odot u$$，逐元素，无参数"]
+        D["<b>⑥ 压回</b><br/>× $$W_{\text{down}}$$ → [1, 4096]"]
         G --> S --> D
     end
     X --> P
-    O --> ADD1(("+")) --> H["h　[1, 4096]"]
+    O --> ADD1(("+")) --> H["$$h$$　[1, 4096]"]
     X -. 残差 .-> ADD1
     H --> G
-    D --> ADD2(("+")) --> Y["下一层的 x　[1, 4096]"]
+    D --> ADD2(("+")) --> Y["下一层的 $$x$$　[1, 4096]"]
     H -. 残差 .-> ADD2
 ```
 
-先用一组小数字把这条路径走一遍——取 $$d = 4$$、MLP 中间维 $$d_{ff} = 8$$、只有 1 个头，一个 token 的向量 $$x = (1, 0, 2, 1)$$：
+先用一组小数字把这条路径走一遍——取 $$d = 4$$、MLP 中间维 $$d_{ff} = 8$$、只有 1 个头，一个 token 的向量 $$x = (1, 0, 2, 1)$$。表里的步骤 ①–⑥ 就是上图方框上的编号，运算一栏的等式也和图里一致；图上标的是 Llama-3-8B 的真实尺寸，表里换成玩具尺寸：
 
 | 步骤 | 运算 | 输入形状 | 权重形状 | 输出形状 | 这一步在做什么 |
 |---|---|---|---|---|---|
