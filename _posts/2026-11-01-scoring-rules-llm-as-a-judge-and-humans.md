@@ -248,6 +248,34 @@ xychart-beta
 
 ## 七、实践建议
 
+**先跑一段：从 2×2 表算 kappa。** 把 judge 与人工在校准集上的判定数成四格，十行就能算出 Cohen's kappa：
+
+```python title="cohen_kappa：从四格计数算一致率与 kappa"
+def cohen_kappa(both_good: int, human_only: int, judge_only: int, both_bad: int) -> None:
+    """四个数是 2×2 表的四格：人与 judge 都判好 / 只有人判好 / 只有 judge 判好 / 都判坏。"""
+    n = both_good + human_only + judge_only + both_bad
+    agree = (both_good + both_bad) / n                              # 观察到的一致率
+    human_good = (both_good + human_only) / n
+    judge_good = (both_good + judge_only) / n
+    chance = human_good * judge_good + (1 - human_good) * (1 - judge_good)   # 碰巧一致的概率
+    kappa = (agree - chance) / (1 - chance)
+    print(f"一致率 {agree:.0%}  人判好 {human_good:.0%}  judge 判好 {judge_good:.0%}"
+          f"  机遇一致 {chance:.2f}  kappa {kappa:.2f}")
+
+
+cohen_kappa(80, 0, 20, 0)      # 永远说「好」的 judge
+cohen_kappa(79, 1, 11, 9)      # 一致率 88%，但偏向说「好」
+cohen_kappa(76, 4, 4, 16)      # 一致率 92%，两边判好的比例相同
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+一致率 80%  人判好 80%  judge 判好 100%  机遇一致 0.80  kappa 0.00
+一致率 88%  人判好 80%  judge 判好 90%  机遇一致 0.74  kappa 0.54
+一致率 92%  人判好 80%  judge 判好 80%  机遇一致 0.68  kappa 0.75
+```
+
+第二行就是[第三章](#三judge-的偏差)图里的那个 judge：一致率 88%，kappa 只有 0.54，够不上 0.61。第三行一致率只高 4 个点，kappa 却到了 0.75——差别在于它没有偏向说「好」。校准时把四格计数留下来，比只留一个一致率有用。
+
 1. **先把能规则化的规则化**：审一遍评测集的期望，能改成 schema / 集合 / 脚本判定的都改。
 2. **标 100 条校准集**（双标注者，kappa ≥ 0.6），跑第四章的八步协议，得到你的 judge 的 kappa、四类偏差、敏感度 / 特异度；写进评测文档。
 3. **门禁用 pointwise + 校准后的通过率**，对比用 pairwise + 交换 + 长度匹配。

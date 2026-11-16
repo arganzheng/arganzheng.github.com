@@ -215,6 +215,36 @@ xychart-beta
 
 ## 七、实践建议
 
+**先跑一段：门禁看的是哪几条翻了。** 新版本总分更高不等于可以发：要逐条对比，把「修好的」和「弄坏的」分开列：
+
+```python title="gate：逐条比较新旧版本，列出修好与弄坏的用例"
+def gate(baseline: dict[str, bool], candidate: dict[str, bool], max_regressions: int = 0) -> bool:
+    """逐条比较同一批用例在旧版本与新版本上的结果。看的是哪些用例翻了，不只是总分。"""
+    fixed = sorted(case for case in baseline if not baseline[case] and candidate[case])
+    broken = sorted(case for case in baseline if baseline[case] and not candidate[case])
+    old, new = sum(baseline.values()), sum(candidate.values())
+    print(f"通过数 {old} → {new}（共 {len(baseline)} 条）")
+    print(f"  修好 {len(fixed)} 条：{fixed}")
+    print(f"  弄坏 {len(broken)} 条：{broken}")
+    passed = len(broken) <= max_regressions
+    print("  门禁：" + ("通过" if passed else f"不通过，弄坏的用例超过 {max_regressions} 条，逐条看 diff 再决定"))
+    return passed
+
+
+baseline = {f"case-{i:02d}": i not in (3, 7, 12) for i in range(1, 21)}        # 旧版本：20 条里错 3 条
+candidate = {f"case-{i:02d}": i not in (7, 15) for i in range(1, 21)}          # 新版本：错 2 条
+gate(baseline, candidate)
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+通过数 17 → 18（共 20 条）
+  修好 2 条：['case-03', 'case-12']
+  弄坏 1 条：['case-15']
+  门禁：不通过，弄坏的用例超过 0 条，逐条看 diff 再决定
+```
+
+总分从 17 涨到 18，却有一条原来通过的用例被弄坏了。只看总分，这次改动会被当成纯改进放行；门禁应该拦下来，让人看 `case-15` 的 diff 之后再决定。模型输出有随机性时，每条用例跑 k 次、按多数或全部通过来定「过」，再做这个比较。
+
 1. **列触发清单**：所有会改变模型行为的东西都进门禁，包括 judge 与 rubric 的改动。
 2. **门禁输出四样**：分层指标与阈值、逐条 diff、成本延迟、红队通过率；hold-out 为准。
 3. **钉快照 + 探针集每日跑**：几十条敏感用例，记分数、格式率、输出长度、TTFT，漂移告警。

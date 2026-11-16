@@ -238,6 +238,55 @@ flowchart TB
 
 ## 六、实践建议
 
+**先跑一段：手搓一棵 span 树。** 接 SDK 之前先看清 trace 记的是什么：每一步一条记录，带名字、父节点、耗时和属性。属性名用的是 OpenTelemetry GenAI 语义约定里的键（约定仍在 Development 阶段，接入前核对当前版本）：
+
+```python title="一个 with 语句一条 span：agent 调用、模型调用、工具执行"
+import contextlib
+import json
+
+clock_ms = 0          # 手动推进的时钟，代替真实耗时；接到真实系统时换成 time.perf_counter()
+
+spans, stack = [], []
+
+
+@contextlib.contextmanager
+def span(name: str, **attributes):
+    record = {"name": name, "parent": stack[-1] if stack else None, "attributes": attributes, "order": len(spans) + len(stack)}
+    stack.append(name)
+    start = clock_ms
+    try:
+        yield record                                  # 调用方可以在结束前补属性，比如 token 数
+    finally:
+        record["ms"] = clock_ms - start
+        stack.pop()
+        spans.append(record)
+
+
+with span("invoke_agent refund-bot", **{"gen_ai.operation.name": "invoke_agent"}):
+    with span("chat", **{"gen_ai.operation.name": "chat", "gen_ai.request.model": "your-model"}) as s:
+        clock_ms += 1200                              # 这里是模型调用
+        s["attributes"].update({"gen_ai.usage.input_tokens": 1820, "gen_ai.usage.output_tokens": 64})
+    with span("execute_tool lookup_order", **{"gen_ai.operation.name": "execute_tool"}):
+        clock_ms += 80                                # 这里是工具执行
+    with span("chat", **{"gen_ai.operation.name": "chat", "gen_ai.request.model": "your-model"}) as s:
+        clock_ms += 2100
+        s["attributes"].update({"gen_ai.usage.input_tokens": 1990, "gen_ai.usage.output_tokens": 120})
+
+for record in sorted(spans, key=lambda r: r["order"]):
+    indent = "" if record["parent"] is None else "  "
+    tokens = {k.split(".")[-1]: v for k, v in record["attributes"].items() if "usage" in k}
+    print(f"{indent}{record['name']}  {record['ms']} ms  {json.dumps(tokens) if tokens else ''}".rstrip())
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+invoke_agent refund-bot  3380 ms
+  chat  1200 ms  {"input_tokens": 1820, "output_tokens": 64}
+  execute_tool lookup_order  80 ms
+  chat  2100 ms  {"input_tokens": 1990, "output_tokens": 120}
+```
+
+一次 agent 调用拆成了两次模型调用加一次工具执行，每一段的耗时和 token 数都在；多数排障要回答的就是「时间和钱花在哪一步」。时间用手动推进的时钟代替，所以输出是确定的；换成真实时钟、把 `spans` 交给 OpenTelemetry 的导出器，就是真正的 trace。
+
 1. **按三级树打点**，模型 span 记完整输入输出（或可重建的引用）、五项 usage、effort、stop_reason、TTFT；工具 span 记沙箱与审批；会话记版本六元组。
 2. **用 `gen_ai.*` 命名 + `app.*` 业务属性**，钉 `OTEL_SEMCONV_STABILITY_OPT_IN`，框架升级时 diff 属性名，后端做归一映射。
 3. **选工具看评测闭环与自托管**；从开源起步；trace 与会话日志一份数据两种视图。

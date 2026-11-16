@@ -254,6 +254,60 @@ flowchart TB
 
 ## 八、实践建议
 
+**先跑一段：录制与回放。** 把模型调用包一层：录制时照常调用并按请求内容存下响应，回放时只从录像里取。请求变了，回放会直接报错：
+
+```python title="recorded：按请求内容的哈希录制与回放模型调用"
+import hashlib
+import json
+
+cassette: dict[str, str] = {}          # 录下来的「请求 → 响应」，实际使用时存成文件
+
+
+def key_of(request: dict) -> str:
+    canonical = json.dumps(request, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
+
+
+def recorded(call, mode: str):
+    """record：真调用并录下；replay：只从录像里取，找不到就报错（说明请求变了）。"""
+    def wrapper(request: dict) -> str:
+        key = key_of(request)
+        if mode == "replay":
+            if key not in cassette:
+                raise KeyError(f"录像里没有 {key}：这一步发出的请求与录制时不同")
+            return cassette[key]
+        cassette[key] = call(request)
+        return cassette[key]
+    return wrapper
+
+
+calls = 0
+
+
+def model(request: dict) -> str:        # 代替真实的模型调用，数一下被调了几次
+    global calls
+    calls += 1
+    return f"第 {calls} 次真实调用的回答"
+
+
+request = {"model": "your-model", "messages": [{"role": "user", "content": "订单 A1024 能退吗？"}]}
+print("录制：", recorded(model, "record")(request))
+print("回放：", recorded(model, "replay")(request), f"（真实调用累计 {calls} 次）")
+changed = {**request, "messages": [{"role": "user", "content": "订单 A1024 能退吗？请简短回答。"}]}
+try:
+    recorded(model, "replay")(changed)
+except KeyError as e:
+    print("改了 prompt 再回放：", e.args[0])
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+录制： 第 1 次真实调用的回答
+回放： 第 1 次真实调用的回答 （真实调用累计 1 次）
+改了 prompt 再回放： 录像里没有 ef4ef92007d4：这一步发出的请求与录制时不同
+```
+
+回放时没有发生新的真实调用，同一次失败可以反复重现而不受模型随机性影响；改了 prompt 之后回放报错，这正是要的行为——它告诉你这一步的输入已经和事故现场不一样了。工具调用同样要录，否则回放到工具那一步又会碰到外部世界。
+
 1. **接录制回放**：录每次模型调用的完整输出 + 输入哈希；改非模型部分用重放回归，输入哈希不匹配处报警。
 2. **打决策点日志**：工具选择、终止原因、权限判定、沙箱、预算、上下文操作、分流、子 agent——结构化事件挂在 turn 上。
 3. **建失败分类**：用第四章的表给最近 50 条 bad case 打类，分布进面板，每类定药与 owner。

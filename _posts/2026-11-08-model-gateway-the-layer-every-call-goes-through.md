@@ -209,6 +209,52 @@ flowchart TB
 
 ## 六、实践建议
 
+**先跑一段：按 token 限流，预扣再结算。** 网关与普通 API 网关最不一样的地方：一次请求花多少要等响应回来才知道，所以进门时按上限预扣，结束后把没用完的还回去：
+
+```python title="TokenBudget：按 token 的令牌桶，预扣与结算"
+class TokenBudget:
+    """按 token 而不是按请求限流：请求进来时先按上限预扣，响应回来后按实际用量结算。"""
+
+    def __init__(self, tokens_per_minute: int):
+        self.capacity = self.available = tokens_per_minute
+        self.rate = tokens_per_minute / 60          # 每秒补回多少
+        self.last = 0.0
+
+    def _refill(self, now: float) -> None:
+        self.available = min(self.capacity, self.available + (now - self.last) * self.rate)
+        self.last = now
+
+    def reserve(self, now: float, input_tokens: int, max_output_tokens: int) -> int | None:
+        self._refill(now)
+        need = input_tokens + max_output_tokens     # 输出还没生成，只能按上限预扣
+        if need > self.available:
+            return None                             # 返回 429，带上 Retry-After
+        self.available -= need
+        return need
+
+    def settle(self, reserved: int, actual_tokens: int) -> None:
+        self.available += reserved - actual_tokens  # 把没用完的预扣额度还回去
+
+
+budget = TokenBudget(tokens_per_minute=60_000)
+for now, (inp, max_out, used_out) in [(0, (20_000, 8_000, 500)), (1, (20_000, 8_000, 700)), (2, (20_000, 8_000, 0))]:
+    reserved = budget.reserve(now, inp, max_out)
+    if reserved is None:
+        print(f"t={now}s 拒绝：需要 {inp + max_out}，只剩 {budget.available:.0f}")
+        continue
+    print(f"t={now}s 放行：预扣 {reserved}，剩 {budget.available:.0f}", end="")
+    budget.settle(reserved, inp + used_out)
+    print(f" → 实际用 {inp + used_out}，结算后剩 {budget.available:.0f}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+t=0s 放行：预扣 28000，剩 32000 → 实际用 20500，结算后剩 39500
+t=1s 放行：预扣 28000，剩 12500 → 实际用 20700，结算后剩 19800
+t=2s 拒绝：需要 28000，只剩 20800
+```
+
+第三个请求被拒，不是因为额度真的用完了（前两个请求实际只用了 41,200），而是因为预扣是按 `max_output_tokens` 的上限算的。上限设得越大，被预扣占住的额度越多，所以 `max_output_tokens` 要按实际需要给。多实例部署时，`available` 要放进共享存储并用原子操作增减。
+
 1. **收口**：所有模型调用改走网关（逻辑模型名），供应商 key 从所有应用的环境变量里移除。
 2. **凭据分发**：每个服务 / 功能一个网关凭据，带模型白名单与配额。
 3. **归因标签**：每次调用带租户 / 功能 / prompt 版本 / 环境，usage 进账本——第二篇的起点。

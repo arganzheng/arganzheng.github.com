@@ -268,6 +268,38 @@ xychart-beta
 - **有效长度作为预算**：L2 上下文工程给每一部分（system、历史、检索、工具输出）设 token 配额，历史用摘要压缩，检索结果按相关性排序并截断。
 - **检索优于堆料**：L3 的三类检索是把"找到相关内容"这件事从模型的注意力里拿出来，交给一个确定性的系统。
 
+第一条的针测可以这样起步：把自己的资料截成三种长度，把一条资料里没有、且与问题不共用关键词的事实插在开头、中间、结尾，各问五次。走 OpenAI 兼容接口，地址、key、模型名从环境变量读：
+
+```python title="针测：不同长度、不同位置下还能不能找到那条事实"
+import json
+import os
+import urllib.request
+
+BASE, KEY, MODEL = os.environ["OPENAI_BASE_URL"], os.environ["OPENAI_API_KEY"], os.environ["MODEL"]
+FILLER = open("your_document.txt", encoding="utf-8").read()       # 换成自己的真实资料，越长越好
+NEEDLE = "老周每天 23:40 把仓库 B 的钥匙交给下一班。"               # 资料里原本没有的事实，与问题不共用关键词
+QUESTION = "仓库 B 的夜班交接时间是几点？只回答时间。"
+
+
+def ask(context: str) -> str:
+    body = json.dumps({"model": MODEL, "messages": [
+        {"role": "user", "content": context + "\n\n" + QUESTION}]}).encode()
+    request = urllib.request.Request(BASE + "/chat/completions", body,
+                                     {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=120) as response:
+        return json.load(response)["choices"][0]["message"]["content"]
+
+
+for length in (2_000, 20_000, 100_000):                           # 上下文长度（字符）
+    for position in (0.0, 0.5, 1.0):                              # 把事实插在开头、中间、结尾
+        text = FILLER[:length]
+        cut = int(len(text) * position)
+        hits = sum("23:40" in ask(text[:cut] + NEEDLE + text[cut:]) for _ in range(5))
+        print(f"长度 {length:>7,}  位置 {position:.0%}  5 次里答对 {hits} 次")
+```
+
+这一段要调模型，**本文没有附运行输出**（只做过语法检查）；结果因模型和资料而异，要看的是答对次数在哪个长度、哪个位置开始往下掉。九种组合各问五次共 45 次调用，最长的一档每次约十万字符，跑之前先按第四篇的方法估一下花费。
+
 ## 六、知识截止：它不知道最近的事，也不知道今天是几号
 
 ### 1. 机制

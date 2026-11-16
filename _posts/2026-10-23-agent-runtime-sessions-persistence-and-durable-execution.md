@@ -262,7 +262,8 @@ import json
 import sqlite3
 
 db = sqlite3.connect(":memory:")
-db.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT, kind TEXT, call_id TEXT, data TEXT)")
+db.execute("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+           " session TEXT, kind TEXT, call_id TEXT, data TEXT)")
 sent = []                                         # 假装的外部世界：真正发出去的邮件
 
 
@@ -298,7 +299,8 @@ except SystemError as e:
 print("恢复后重放：", execute("s1", "c9", {"to": "a@example.com"}))
 print("再重放一次：", execute("s1", "c9", {"to": "a@example.com"}))
 print("实际发出的邮件：", sent)
-print("日志：", [(kind, call_id) for kind, call_id in db.execute("SELECT kind, call_id FROM events ORDER BY seq")])
+log = db.execute("SELECT kind, call_id FROM events ORDER BY seq").fetchall()
+print("日志：", log)
 ```
 
 ```text title="运行输出（Python 3.12，只用标准库）"

@@ -230,6 +230,41 @@ Table: FinOps 的节奏
 
 ## 八、实践建议
 
+**先跑一段：从调用日志到每任务成本。** 账单按 token 出，产品要的是每个任务花多少。只要每次调用的日志里带着任务 id 和功能名，聚合只是两次分组：
+
+```python title="按任务聚合，再按功能看分布"
+import statistics
+from collections import defaultdict
+
+# 每次模型调用一行日志：任务 id、功能、这次调用的美元成本（字段要在网关或 trace 里记下来）
+calls = [
+    ("t1", "客服问答", 0.004), ("t2", "客服问答", 0.005), ("t3", "客服问答", 0.004),
+    ("t4", "报告生成", 0.030), ("t4", "报告生成", 0.042), ("t4", "报告生成", 0.038),
+    ("t5", "报告生成", 0.031), ("t5", "报告生成", 0.035),
+    ("t6", "报告生成", 0.029), ("t6", "报告生成", 0.040), ("t6", "报告生成", 0.036), ("t6", "报告生成", 0.044),
+    ("t6", "报告生成", 0.041), ("t6", "报告生成", 0.039), ("t6", "报告生成", 0.043), ("t6", "报告生成", 0.037),
+]
+
+per_task: dict[tuple[str, str], float] = defaultdict(float)
+for task, feature, usd in calls:
+    per_task[(feature, task)] += usd                 # 先按任务聚合，再按功能看分布
+
+by_feature: dict[str, list[float]] = defaultdict(list)
+for (feature, _), usd in per_task.items():
+    by_feature[feature].append(usd)
+
+for feature, costs in by_feature.items():
+    print(f"{feature}：{len(costs)} 个任务，合计 ${sum(costs):.3f}，"
+          f"每任务中位数 ${statistics.median(costs):.3f}，最贵 ${max(costs):.3f}")
+```
+
+```text title="运行输出（Python 3.12，只用标准库）"
+客服问答：3 个任务，合计 $0.013，每任务中位数 $0.004，最贵 $0.005
+报告生成：3 个任务，合计 $0.485，每任务中位数 $0.110，最贵 $0.309
+```
+
+「报告生成」三个任务合计 \$0.485，其中一个任务（t6，循环了 8 步）独占 \$0.309；只看每次调用的均价，这种跑偏的任务是看不出来的。真实数据量下把最大值换成 p95，并对超过中位数若干倍的任务设告警。
+
 1. **归因先行**：网关标签齐全、账本按天、三个视图；评测与灰度成本单列。
 2. **预算与降级梯子**：按租户 / 功能设日月预算，80 / 95 / 100% 三档动作，梯子写进 runbook。
 3. **先做免费的**：缓存排列、prompt 瘦身、Batch 迁移、卫士——量省了多少。
