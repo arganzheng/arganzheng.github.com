@@ -321,21 +321,21 @@ Table: 广播的三个例子
 先说一层在做什么，再数它有哪些矩阵。一个 Transformer 层只有两个部件，每个 token 的向量依次经过它们：**attention**（注意力）让每个 token 看一眼句子里的其他 token、把有用的信息加到自己身上——它是唯一一处 token 之间发生交流的地方；**MLP**（多层感知机，两三个矩阵乘法夹一个非线性函数）对每个 token 各自做一次变换，token 之间互不影响。两个部件的输出都加回输入（**残差连接**，$$x + f(x)$$，为什么必要见《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html#五方案三残差连接)》「残差连接」一章）。把这条路径上的每个矩阵标出来：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 250}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 310}}}%%
 %% 图：一个 Transformer 层的七个权重矩阵：attention 部件四个、MLP 部件三个，以 Llama-3-8B 的形状标注
 flowchart TB
     X["$$x$$　[1, 4096]"]
     subgraph ATTN["attention 部件：token 之间交流"]
         direction TB
         P["<b>① 投影</b><br/>$$q = x W_Q$$ → [1, 4096]<br/>$$k = x W_K$$ → [1, 1024]<br/>$$v = x W_V$$ → [1, 1024]"]
-        A["<b>② attention</b><br/>$$a = \text{softmax}(q K^\top / \sqrt{d_h})$$<br/>$$z = a V$$<br/>K、V：句中 T 个 token 的 k、v 各叠成 T 行<br/>$$d_h$$：每个头的维度，这里是 128<br/>a：T 个权重，加起来是 1<br/>无参数，FLOPs 随 T 增长"]
+        A["<b>② attention</b><br/>$$a = \text{softmax}(q K^\top / \sqrt{d_h})$$<br/>$$z = a V$$<br/>• K、V：句中 T 个 token 的 k、v 各叠成 T 行<br/>• $$d_h$$：每个头的维度，这里是 128<br/>• a：T 个权重，加起来是 1<br/>• 无参数，FLOPs 随 T 增长"]
         O["<b>③ 输出投影</b><br/>$$z W_O$$ → [1, 4096]"]
         P --> A --> O
     end
     subgraph MLP["MLP 部件：每个 token 各自变换"]
         direction TB
         G["<b>④ 两路放大</b><br/>$$g = h W_{\text{gate}}$$ → [1, 14336]<br/>$$u = h W_{\text{up}}$$ → [1, 14336]"]
-        S["<b>⑤ 门控</b><br/>$$\text{silu}(g) \odot u$$<br/>⊙：逐元素相乘，不是点积<br/>无参数"]
+        S["<b>⑤ 门控</b><br/>$$\text{silu}(g) \odot u$$<br/>• ⊙：逐元素相乘，不是点积<br/>• 无参数"]
         D["<b>⑥ 压回</b><br/>× $$W_{\text{down}}$$ → [1, 4096]"]
         G --> S --> D
     end
