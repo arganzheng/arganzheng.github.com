@@ -6,7 +6,7 @@ subtitle: "How Objects Work — Object Model, Protocols, Decorators and Generato
 tags: [Python]
 catalog: true
 date: 2026-01-24 20:00:00 +0800
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 [上篇](/python-execution-model-scopes-imports-and-exceptions.html)讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——上篇开头那七行里剩下的五行：
@@ -75,7 +75,40 @@ class Runner:
 
 上篇解释了它被 `import` 时发生了什么（第 1 步）以及异常怎么传播（第 5 步）；本篇解释中间三步：`Runner(model)` 创建实例，`runner(batch)` 触发 `__call__` 并进入 `with`，`runner.stream(batch)` 创建生成器。
 
-![本篇主线：类语句 → 类对象 → 实例 → 属性查找，装饰器与生成器改写路径](/img/in-post/python-object-model-protocols-decorators-and-generators-roadmap.svg)
+```mermaid
+%% 图：Runner 从定义到调用：哪些发生在导入时，哪些发生在使用时
+flowchart TB
+    subgraph DEFINE["定义阶段：首次导入执行模块代码时"]
+        BODY["<b>执行 class Runner 的类体</b><br/>def 创建函数对象，写进类命名空间"]
+        CLS["<b>元类创建类对象</b><br/>默认由 type 处理方法与描述符"]
+        REG["<b>应用 registered 装饰器</b><br/>登记类对象，再把结果绑定到 Runner"]
+        BODY --> CLS --> REG
+    end
+    subgraph USE["使用阶段：每次创建或调用时"]
+        OBJ["<b>Runner(model)</b><br/>__new__ 创建实例，__init__ 写入状态"]
+        CALL["<b>runner(batch)</b><br/>类型上的 __call__ → with → model(batch)"]
+        GEN["<b>runner.stream(batch)</b><br/>绑定方法，调用后只创建生成器"]
+        NEXT["<b>next(g) / for</b><br/>恢复帧，运行到 yield，再次挂起"]
+        OBJ --> CALL
+        OBJ --> GEN --> NEXT
+    end
+    REG --> OBJ
+```
+
+图从**模块代码已经开始执行**的地方接上篇。源码和函数体的编译发生在此前；执行 `class`、应用装饰器、调用 `Runner(model)` 都不是重新编译。装饰器表达式 `registered("runner")` 在类体执行前求值，得到的装饰器在类对象创建后应用，第四章会把这两个时机分开。
+
+先区分链路上的对象，再看它们如何协作。下表说的是运行中的对象；除了 code object 可写入 `.pyc`，它们不是磁盘上的另一份代码文件。
+
+| 对象 | 什么时候产生 | 保存在哪里 | Java 对照 |
+| :--- | :--- | :--- | :--- |
+| 类对象 `Runner` | 执行类体后，由元类创建 | 进程内存；模块字典里的 `Runner`、注册表等引用它；类的 `__dict__` 提供属性映射的只读视图 | `Class<?>` 可反映类的运行时信息，但普通 Java 类不是执行 `class` 语句时创建的 |
+| 实例 `runner` | 调用 `Runner(model)` 时 | 进程内存；普通实例的状态在 `__dict__`，使用 `__slots__` 的类也可放在槽位中 | `new Runner(model)` 创建的堆对象 |
+| 函数 `Runner.__dict__["stream"]` | 类体执行到 `def stream` 时 | 类属性映射引用它；`__code__` 指向此前已编译的 code object | 类的方法有字节码，但不是 Python 这种可直接取出、替换的函数对象 |
+| 绑定方法 `runner.stream` | 通过实例读取类上的函数属性时 | 临时的方法对象，持有 `__self__` 和 `__func__`；赋给变量后可继续存活 | `runner::stream` 的绑定方法引用可类比，但需要函数式接口作为目标类型 |
+| 描述符，如 `property`、`Typed(int)` | 构造该对象并放入类属性时 | 描述符对象由类引用；它管理的值可存在实例字典、槽位或其他存储中 | getter/setter 只能类比用途；Java 没有同样的属性访问协议 |
+| 生成器 `g` | 调用含 `yield` 的函数时 | 生成器对象保留暂停执行所需的帧状态，包括局部变量和指令位置 | 手写 `Iterator` 把进度存进字段；Java 没有对应的生成器函数语法 |
+
+Table: 类、实例、函数、绑定方法、描述符与生成器的产生时机和保存位置
 
 各章之间的依赖是单向的：第二章的方法绑定、`property` 依赖描述符协议，所以描述符放在第二章内部讲，而不是拖到对象协议之后；第四章装饰器同时依赖闭包（[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析)）和描述符（本篇第二章），因此排在两者之后；第五章生成器建立在[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)的帧之上；第六章 `contextlib` 的实现又建立在第五章的生成器之上。
 
@@ -118,13 +151,16 @@ print(type(Runner.__dict__))              # <class 'mappingproxy'>   类属性�
 print(type(Runner.__dict__["run"]))       # <class 'function'>       类里存的是普通函数
 ```
 
-第 2 步可以手工做，效果完全相同：
+不涉及自定义元类等扩展时，可以手工完成第 2 步，得到具有相同方法的类：
 
 ```python title='手工调用 type(name, bases, namespace) 造出同样的类'
 Runner = type("Runner", (object,), {"run": lambda self, batch: batch})
 ```
 
 两个事实值得记住：**类的 `__dict__` 里存的方法就是普通函数对象**（后面 §5 解释它如何变成"方法"）；**类由 `type` 创建**，所以替换 `type` 为自定义元类就能干预类的创建——`nn.Module` 没有用元类，但许多 ORM、配置框架和 `abc.ABC` 用了。元类的用法在本系列第四篇展开，这里只需知道它是 `class` 语句的第 2 步。
+
+> [!NOTE] 与 Java 对照：类对象与实例
+> Java 的 `Runner.class` 得到 `Class<Runner>`，`new Runner(...)` 创建实例；Python 的 `Runner` 本身就是可调用的类对象，默认由 `type` 创建。两边都有类的运行时信息，但 Python 的类体是会执行的代码：里面的赋值、`def` 和装饰器会在执行类定义时产生对象，而不是每次创建实例时重做。
 
 ### 2. 实例属性与类属性
 
@@ -142,38 +178,46 @@ print(obj.__dict__)                     # {'value': 20}
 print(Demo.__dict__["value"], Demo.value, obj.value)   # 10 10 20
 ```
 
-赋值 `obj.value = 20` 写的是实例字典，类属性不受影响。反过来，可变的类属性会被所有实例共享——`class Bad: items = []` 之后 `a.items.append(1)` 会让 `b.items` 也变成 `[1]`，因为没有任何赋值发生在实例上，`a.items` 读到的是类字典里的同一个列表。需要每实例独立的可变状态，在 `__init__` 里创建。
+这里的 `value` 是普通类属性，所以赋值 `obj.value = 20` 写的是实例字典，类属性不受影响；遇到 `property` 等数据描述符或自定义 `__setattr__` 时，写入会被接管。反过来，可变的类属性会被所有实例共享——`class Bad: items = []` 之后 `a.items.append(1)` 会让 `b.items` 也变成 `[1]`，因为没有任何赋值发生在实例上，`a.items` 读到的是类字典里的同一个列表。需要每实例独立的可变状态，在 `__init__` 里创建。
+
+> [!NOTE] 与 Java 对照：类属性不等于 static 字段
+> Java 用 `static` 区分类字段与实例字段；Python 按数据描述符、实例字典、其余类属性的优先级读取。`Demo.value` 改类属性，`obj.value = 20` 在这个例子里却会新建同名实例属性，并不修改 `Demo.value`。可变的类属性又会被实例共享，不能仅凭写法 `obj.value` 判断数据属于谁。
 
 ### 3. 属性查找算法：`object.__getattribute__`
 
 现在可以给出核心算法。`obj.attr` 默认调用 `type(obj).__getattribute__(obj, "attr")`，对普通对象它的逻辑是：
 
 ```python title='object.__getattribute__ 的等价伪代码：六步查找顺序'
-def __getattribute__(obj, name):                 # object.__getattribute__ 的等价伪代码
+MISSING = object()                              # 与合法的类属性值 None 区分
+
+
+def __getattribute__(obj, name):                 # 默认查找算法的简化伪代码
     cls = type(obj)
-    cls_attr = lookup_in_mro(cls, name)          # ① 沿 cls.__mro__ 逐个查 __dict__，找到第一个就停
+    cls_attr = lookup_in_mro(cls, name, MISSING) # ① 沿 cls.__mro__ 查 __dict__，未找到才返回 MISSING
+    descr_get = getattr(type(cls_attr), "__get__", None)
 
-    if cls_attr is not None and is_data_descriptor(cls_attr):    # ② 数据描述符（有 __set__ 或 __delete__）优先
-        return cls_attr.__get__(obj, cls)
+    if descr_get is not None and is_data_descriptor(cls_attr):   # ② 有读取方法的数据描述符优先
+        return descr_get(cls_attr, obj, cls)
 
-    if name in obj.__dict__:                     # ③ 实例字典
-        return obj.__dict__[name]
+    instance_dict = get_instance_dict(obj)      # ③ 不经过 obj.__getattribute__；无字典时视为空
+    if name in instance_dict:
+        return instance_dict[name]
 
-    if cls_attr is not None:
-        if hasattr(cls_attr, "__get__"):         # ④ 非数据描述符（只有 __get__）：函数、classmethod、staticmethod
-            return cls_attr.__get__(obj, cls)
+    if cls_attr is not MISSING:
+        if descr_get is not None:              # ④ 非数据描述符：函数、classmethod、staticmethod
+            return descr_get(cls_attr, obj, cls)
         return cls_attr                          # ⑤ 普通类属性
 
     raise AttributeError(name)                   # ⑥ 都没有 → 抛出；若类定义了 __getattr__，解释器接着调它
 ```
 
-伪代码里的 ① 只是"先在类上找一遍"，真正决定结果的是后面几次判断。画成判断流程，能看清两件事：类上找到的东西要**先看它是不是数据描述符**，再决定实例字典有没有机会；`__getattr__` 在整条链的最末端，只有前面全部落空才轮到它：
+伪代码里的 ① 只是"先在类上找一遍"，真正决定结果的是后面几次判断。描述符方法要查**描述符对象的类型**，而不是在它自己的实例字典里找。下面流程假设描述符正常返回：类上找到的东西要**先看它有没有 `__get__` 且是数据描述符**，再决定实例字典有没有机会；查找抛出 `AttributeError` 后，点号访问才会尝试 `__getattr__`：
 
 ```mermaid
 %% 图：obj.attr 的属性查找判断流程
 flowchart TB
     S["obj.attr"] --> M["① 沿 type(obj).__mro__ 查各类的 __dict__<br/>得到 cls_attr（可能没有）"]
-    M --> D{"cls_attr 是数据描述符？<br/>（有 __set__ 或 __delete__）"}
+    M --> D{"有 __get__，且是数据描述符？<br/>类型上有 __set__ 或 __delete__"}
     D -- "是" --> R2["② 返回 cls_attr.__get__(obj, cls)<br/>例：property"]
     D -- "否" --> I{"name 在 obj.__dict__ 里？"}
     I -- "是" --> R3["③ 返回实例字典里的值"]
@@ -261,7 +305,10 @@ config.batch_size = "big"                    # TypeError: batch_size expects int
 
 描述符必须放在类上才生效——算法第 ① 步只查类的 MRO，实例字典里的对象即便有 `__get__` 也不会被调用。
 
-`__slots__` 是描述符的一个内建应用：`class S: __slots__ = ("a",)` 会让 `type` 为每个槽位在类上创建一个 `member_descriptor`（数据描述符），直接读写实例的固定内存偏移，实例因此不再需要 `__dict__`。第五篇讨论内存时会回到它。
+`__slots__` 是描述符的一个内建应用：`class S: __slots__ = ("a",)` 会让 `type` 为每个槽位在类上创建一个 `member_descriptor`（数据描述符），直接读写实例的固定内存偏移。若基类没有提供实例字典，且槽位里没有 `"__dict__"`，这种实例就没有 `__dict__`；子类不声明 `__slots__` 时又会获得字典。第五篇讨论内存时会回到它。
+
+> [!NOTE] 与 Java 对照：描述符接管的是访问语法
+> Java 的字段访问和 getter/setter 调用是两种写法；Python 的描述符能让 `config.batch_size`、`config.batch_size = 32` 分别执行 `__get__`、`__set__`。类上保存的是管理访问的 `Typed` 对象，本例中的整数值仍在各个实例字典里，不是所有实例共用一个值。
 
 ### 5. 方法绑定、`classmethod`、`staticmethod`、`property`：描述符的四种形态
 
@@ -282,6 +329,25 @@ print(Runner3.__dict__["run"].__get__(r3, Runner3))                    # 手工�
 
 绑定方法是一个小对象，持有实例（`__self__`）和原函数（`__func__`），调用时把 `__self__` 塞到第一个参数位置。`self` 不是关键字，只是这个协议约定的第一个参数。
 
+```mermaid
+%% 图：同一函数通过两个实例读取时，绑定方法分别持有谁
+flowchart TB
+    F["<b>类字典中的 run 函数</b><br/>Runner3.__dict__#91;'run'#93;，只有一份"]
+    A["<b>a = Runner3()</b><br/>读取 a.run，触发函数的 __get__"]
+    B["<b>b = Runner3()</b><br/>读取 b.run，触发函数的 __get__"]
+    MA["<b>绑定方法 a.run</b><br/>__self__ → a，__func__ → run"]
+    MB["<b>绑定方法 b.run</b><br/>__self__ → b，__func__ → run"]
+    A --> MA
+    B --> MB
+    MA -- "__func__" --> F
+    MB -- "__func__" --> F
+```
+
+不是把函数复制进每个实例，而是在读取属性时临时配上接收者：`a.run(batch)` 相当于调用 `Runner3.run(a, batch)`；`b.run(batch)` 则传入 `b`。这也解释了为什么直接把函数写进**实例字典**不会自动绑定：它不经过类上描述符的分支。
+
+> [!NOTE] 与 Java 对照：实例方法与绑定方法
+> 两边的实例方法调用都会携带接收者；Python 把它显式写成第一个参数 `self`，并把“函数 + 接收者”暴露成可读取的绑定方法对象。Java 的 `obj::method` 也能记住接收者，但它是在函数式接口的目标类型下创建的方法引用，不是每次读取 `obj.method` 的结果。
+
 `classmethod`、`staticmethod`、`property` 是三个内建的描述符类型，区别只在 `__get__` 返回什么，以及是否有 `__set__`：
 
 ```python title='classmethod、staticmethod、property 三个内建描述符的 __get__ 返回值'
@@ -300,12 +366,12 @@ print(hasattr(classmethod, "__set__"), hasattr(staticmethod, "__set__"), hasattr
 # False False True
 ```
 
-| 类属性上的对象 | `__get__(obj, cls)` 返回 | 数据描述符？ | 效果 |
-| :--- | :--- | :--- | :--- |
-| 函数 | `obj` 为 `None` 时返回函数；否则返回绑定 `obj` 的方法 | 否 | 实例方法 |
-| `classmethod` | 无论怎么访问，都返回绑定 **`cls`** 的方法 | 否 | 第一个参数是类 |
-| `staticmethod` | 原函数本身，不绑定任何东西 | 否 | 普通函数挂在类命名空间 |
-| `property` | 调用 `fget(obj)` 的结果 | **是**（有 `__set__`，未提供 setter 时抛 `AttributeError`） | 计算属性，且不可被实例字典覆盖 |
+| 类属性上的对象 | `__get__(obj, cls)` 返回 | 数据描述符？ | 效果 | Java 对照 |
+| :--- | :--- | :--- | :--- | :--- |
+| 函数 | `obj` 为 `None` 时返回函数；否则返回绑定 `obj` 的方法 | 否 | 实例方法 | 实例方法；Python 显式声明 `self` |
+| `classmethod` | 无论通过类还是实例访问，都绑定到访问所用的类 | 否 | 第一个参数是类 | 静态工厂可类比用途，但不会自动得到调用处的子类 |
+| `staticmethod` | 原函数本身，不绑定任何东西 | 否 | 普通函数挂在类命名空间 | `static` 方法可类比用途；Python 仍按运行时属性查找规则取值 |
+| `property` | 实例访问返回 `fget(obj)`；类访问返回 property 本身 | **是**（有 `__set__`，未提供 setter 时抛 `AttributeError`） | 计算属性，且不可被实例字典覆盖 | getter/setter 或 record 访问器；Java 仍要调用方法 |
 
 Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
 
@@ -315,6 +381,10 @@ Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
 
   ```python title='classmethod 作替代构造函数：cls 是实际被调用的那个类'
   class Runner:
+      def __init__(self, model, device="cpu"):
+          self.model = model
+          self.device = device
+
       @classmethod
       def from_config(cls, config):
           return cls(model=config["model"], device=config.get("device", "cpu"))
@@ -323,66 +393,17 @@ Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
   class GPURunner(Runner): ...
 
 
-  GPURunner.from_config(cfg)     # 创建的是 GPURunner 实例
+  cfg = {"model": "demo", "device": "cuda"}
+  print(type(GPURunner.from_config(cfg)).__name__)  # GPURunner
   ```
 
   对象尚未存在，所以不能是实例方法；需要构造"当前类或子类"，所以不该写死 `Runner(...)`——`cls(...)` 自动跟随继承。
 
+  > [!NOTE] 与 Java 对照：classmethod 与静态工厂
+  > 若 `GPURunner` 继承 `Runner` 的静态工厂，Java 的 `GPURunner.fromConfig(cfg)` 仍调用 `Runner.fromConfig`；方法体内 `new Runner(...)` 不会自动变成 `new GPURunner(...)`。Python 的 `GPURunner.from_config(cfg)` 则由描述符把 `GPURunner` 绑定给 `cls`，`cls(...)` 因而创建子类实例。Java 要实现同样的工厂，可以显式传 `GPURunner.class` 再反射构造，或传 `GPURunner::new` 给 `Function<Model, T>`；区别在于类或构造器由调用方传入，而不是属性查找自动注入。
+
 - **`staticmethod` 只是命名空间归属**。既不需要实例也不需要类的函数，放在类里是为了表达"逻辑上属于它"；很多时候放模块级更简单。
 - **`property` 是数据描述符**，所以 §3 的第一个实验成立。它适合"看起来像字段、实际需要计算或校验"的场景；不适合隐藏昂贵操作——调用方看到 `runner.device` 不会预期它去查询硬件。
-
-**与 Java 的对照**
-
-| Python | Java 中最接近的形式 | 差异 |
-| :--- | :--- | :--- |
-| 实例方法 | 实例方法 | 相同；Python 的 `self` 显式出现在签名里 |
-| `staticmethod` | `static` 方法 | 相同 |
-| `property` | getter/setter 约定，或 record 的访问器 | Java 没有语法级支持，`obj.getX()` 不能写成 `obj.x` |
-| `classmethod` | 静态工厂方法 | 见下 |
-
-Table: 方法绑定：Python 与 Java 的对照
-
-`classmethod` 与 Java 静态工厂的差异需要说准确。Java 的静态方法**不按接收者分派**：`GPURunner.fromConfig(cfg)` 在编译期就被解析为 `Runner.fromConfig(cfg)`，方法体内没有任何途径知道调用方写的是 `GPURunner`，`new Runner(...)` 写死了就只能造 `Runner`：
-
-```java title='Java 静态工厂不按接收者分派：GPURunner.fromConfig 只能造 Runner'
-class Runner {
-    static Runner fromConfig(Map<String, Object> cfg) {
-        return new Runner((Model) cfg.get("model"));     // 只能造 Runner；GPURunner.fromConfig(cfg) 得到的也是 Runner
-    }
-}
-class GPURunner extends Runner { ... }
-```
-
-要让工厂创建子类，必须由调用方**显式传入**类型信息。两种写法：
-
-```java title='Java 要让工厂造子类的两种写法：Class<T> 令牌与构造函数参数'
-// 写法一：Class<T> 令牌 + 反射
-static <T extends Runner> T fromConfig(Class<T> cls, Map<String, Object> cfg) throws Exception {
-    return cls.getDeclaredConstructor(Model.class).newInstance((Model) cfg.get("model"));
-}
-GPURunner r = Runner.fromConfig(GPURunner.class, cfg);
-
-// 写法二：把构造函数当参数传进来
-static <T extends Runner> T fromConfig(Function<Model, T> ctor, Map<String, Object> cfg) {
-    return ctor.apply((Model) cfg.get("model"));
-}
-GPURunner r = Runner.fromConfig(GPURunner::new, cfg);
-```
-
-这并不难写，但类对象是调用方**传**进去的；Python 的 `classmethod` 则由描述符协议在 `__get__` 时**自动**把实际的类绑定进 `cls`：
-
-```python title='Python 的 classmethod 自动把实际类绑进 cls'
-class Runner:
-    @classmethod
-    def from_config(cls, cfg):
-        return cls(cfg["model"])          # cls 是谁调的就是谁
-
-class GPURunner(Runner): ...
-
-GPURunner.from_config(cfg)                # 得到 GPURunner，不用传任何类型信息
-```
-
-两者能达到同样的目的，区别在"谁负责提供类对象"：Java 靠调用方传参，Python 靠属性查找机制注入。
 
 ### 6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子
 
@@ -451,19 +472,22 @@ def __getattr__(self, name):
 
 ### 7. 对象创建：`__new__`、`__init__` 与 `type.__call__`
 
-`Runner(model)` 是对**类对象**的调用，按第三章的可调用协议，执行的是 `type(Runner).__call__`，即 `type.__call__`。它做两件事：
+`Runner(model)` 是对**类对象**的调用；这里的元类是默认的 `type`，因此由 `type.__call__` 组织创建过程。省略底层槽位调用与返回值校验后，可以概括为：
 
-```python title='type.__call__ 的等价伪代码：__new__ 再 __init__'
-def __call__(cls, *args, **kwargs):          # type.__call__ 的等价伪代码
+```python title='type.__call__ 的简化伪代码：__new__ 再 __init__'
+def __call__(cls, *args, **kwargs):          # 说明创建顺序，不是底层实现
     obj = cls.__new__(cls, *args, **kwargs)  # 分配并返回实例
-    if isinstance(obj, cls):
-        obj.__init__(*args, **kwargs)        # 初始化实例；返回值必须是 None
+    if isinstance(obj, cls):               # __new__ 可返回 cls 的子类实例
+        type(obj).__init__(obj, *args, **kwargs)  # 按返回对象的类型初始化；必须返回 None
     return obj
 ```
 
-`__new__` 是静态方法（唯一一个不需要写 `@staticmethod` 的特例），负责"造出对象"；`__init__` 负责"填充对象"。重写 `__new__` 的场景很少：不可变类型（`int`、`tuple`、`str`）的子类化必须在 `__new__` 里改值，因为 `__init__` 拿到的已经是造好的不可变对象；单例、实例缓存、根据参数返回不同子类的工厂类也在这里做。其他情况只写 `__init__`。
+`__new__` 被特殊处理为静态方法，不需要显式写 `@staticmethod`，负责“造出对象”；`__init__` 负责“填充对象”。重写 `__new__` 的场景很少：不可变类型（`int`、`tuple`、`str`）的子类化必须在 `__new__` 里改值，因为 `__init__` 拿到的已经是造好的不可变对象；单例、实例缓存、根据参数返回不同子类的工厂类也在这里做。其他情况只写 `__init__`。
 
 如果 `__new__` 返回的不是 `cls` 的实例，`__init__` 不会被调用——这是"工厂类"模式的机制基础。
+
+> [!NOTE] 与 Java 对照：分配与初始化
+> Java 的 `new Runner(...)` 把分配对象和执行构造器连在一起；Python 在协议上分成 `__new__` 返回对象、`__init__` 初始化对象。因此 `__init__` 不是分配内存的构造步骤，不能用 `return another_object` 换掉实例；这类替换发生在 `__new__` 或工厂函数里。
 
 ### 8. 继承、MRO 与协作式 `super()`
 
@@ -517,6 +541,9 @@ flowchart TB
 
 协作式多继承的约定：每一层都调 `super()`（包括 `__init__`）；同名方法签名兼容，通常用 `*args, **kwargs` 透传；不假设 `super()` 指向某个具体类。任何一层漏掉 `super()`，它之后的所有层都会被跳过。声明顺序不一致时 C3 会直接拒绝：`class X(A, C)` 抛出 `TypeError: Cannot create a consistent method resolution order (MRO) for bases A, C`，因为 `C` 已经要求 `A` 在自己之后。
 
+> [!NOTE] 与 Java 对照：super 不是固定的父类名称
+> Java 单继承加接口；`super.method()` 从当前类的直接父类一侧查找，不会沿多个类组成的协作链继续分派。两个无继承关系接口的同名 default 方法冲突时，需要实现类显式选择。Python 的 `super()` 则按实际实例的 MRO，从当前类之后继续查找：上面的 `Logging` 没有继承 `Metrics`，却能经由 `super().run()` 调到它。
+
 ### 9. Mixin 与组合
 
 Mixin 是协作式多继承的一种受限用法：一个只提供横向能力（日志、指标、序列化）、不代表完整实体、不持有业务依赖的类，被放在基类列表前部：
@@ -554,8 +581,6 @@ class InferenceRunner:
 | 管理业务依赖 | 组合 |
 
 Table: 继承与组合的选择规则
-
-**与 Java 的对照**：Java 单继承加接口，接口的 default 方法能提供一部分 Mixin 的效果，但没有 MRO——两个接口的同名 default 方法冲突时必须在实现类里显式选择，不存在"沿链自动接力"的 `super()`。Java 的 `super.method()` 永远指向直接父类，是静态的；Python 的 `super()` 是动态的，取决于实例的 MRO。这一点是 Java 程序员读 Python 多继承代码时最容易误判的地方。
 
 ## 三、对象协议：语法背后的特殊方法
 
@@ -599,6 +624,9 @@ print(c.__call__())     # instance-level    —— 普通属性访问才看实�
 
 `nn.Module` 是最典型的例子。`model(x)` 不直接调 `forward`，而是 `Module.__call__`——在 PyTorch 2.9.0 中它被赋值为 `_wrapped_call_impl`（`torch/nn/modules/module.py`）：先检查有没有 `torch.compile` 生成的编译版本，再进入 `_call_impl`；`_call_impl` 在没有任何 hook 注册时直接调用 `forward`，否则依次执行 forward pre-hooks、`forward`、forward hooks，并处理 backward hooks 的挂载。所以直接调 `model.forward(x)` 会绕过全部 hook——这就是文档要求"调用模块而不是 forward"的机制原因。
 
+> [!NOTE] 与 Java 对照：可调用对象
+> Java 可以用函数式接口实例表达行为，但仍通过 `.apply()`、`.call()` 等方法调用，没有让任意实例支持 `model(x)` 的运算符协议。在调用前后加 hook 也不一定要 AOP：显式包装一层方法就能做到；Python 的 `__call__` 让这层包装仍可使用函数调用语法。
+
 ### 3. 迭代协议：可迭代对象与迭代器
 
 `for item in x` 展开为：
@@ -633,7 +661,10 @@ c = CountDown(2)
 print(list(c), list(c))                 # [2, 1] []    —— 第二次遍历是空的：迭代器耗尽后不会重置
 ```
 
-`torch.utils.data.DataLoader` 是可迭代对象——每个 epoch 的 `for batch in loader` 都调用 `loader.__iter__()` 创建一个**新的**迭代器（在多 worker 模式下这意味着重新启动 worker 进程）。而 `loader.__iter__()` 返回的那个对象是迭代器，用完即弃。理解这一层，就能解释为什么 `iter(loader)` 拿出来手工 `next()` 的对象不能跨 epoch 复用。
+`torch.utils.data.DataLoader` 是可迭代对象——每个 epoch 的 `for batch in loader` 都重新调用 `iter(loader)`，开始一轮迭代。默认情况下会创建新迭代器，多 worker 模式也会重建 worker；但 `persistent_workers=True` 且 `num_workers > 0` 时，会复用迭代器及 worker，并重置本轮迭代状态。不能因此笼统地说“每次都创建新对象”；应在每个 epoch 重新向 loader 请求迭代，而不是继续对上一轮已经耗尽的迭代器调用 `next()`。
+
+> [!NOTE] 与 Java 对照：Iterable 与 Iterator
+> Java 的 `Iterable<T>.iterator()`、`Iterator<T>.hasNext()/next()` 与这里的两层角色相近；Python 用 `iter()`、`next()` 和 `StopIteration`，没有单独的 `hasNext()`。Java 要声明实现接口，Python 的运行时协议不要求继承特定基类。能否重复遍历，取决于 `iter(x)` 如何提供或重置迭代状态，不是只看有没有 `__iter__`。
 
 还有一条历史兼容规则：没有 `__iter__` 但有 `__getitem__` 的对象也可迭代——解释器从 0 开始调 `__getitem__` 直到 `IndexError`。`Dataset` 子类只实现 `__getitem__` 和 `__len__` 就能被 `for` 遍历，靠的就是它。
 
@@ -671,11 +702,8 @@ print(User.__hash__)     # None
 
 需要哈希就显式实现 `__hash__`，并且只使用参与 `__eq__` 且在对象生命周期内不变的字段。`@dataclass(frozen=True)` 会自动生成一致的两者；可变的 dataclass 默认也是不可哈希的，原因相同。
 
-### 7. 与 Java 的对照
-
-Java 的做法是**接口**：想被 `for-each` 遍历就实现 `Iterable<T>`，想能 `try-with-resources` 就实现 `AutoCloseable`，`equals`/`hashCode` 契约与 Python 完全一致（`HashMap` 同样依赖它）。Python 的特殊方法是**协议**：不需要声明实现了什么，只要方法存在、签名对得上，语法就生效。
-
-差异带来两点后果：Python 里"这个对象能不能 `for`"无法从类型声明得知，只能看有没有 `__iter__`（第二篇的 `Protocol` 就是为了给这类协议补上静态描述）；Java 没有对应 `__call__` 的机制，"可调用对象"要么是函数式接口的实例、要么是显式的 `.apply()`/`.call()`，`model(x)` 这种写法不存在，`nn.Module` 那种"在调用路径上插 hook"只能靠动态代理或 AOP 实现。
+> [!NOTE] 与 Java 对照：equals / hashCode 契约
+> Java 的 `equals` / `hashCode` 也要求相等对象具有相同哈希值，`HashMap`、`HashSet` 都依赖它。不同的是 Python 在类只重写 `__eq__` 时会自动禁用继承来的默认哈希；Java 不会替开发者禁用 `hashCode()`，需要自己保证两者一致。Python 的 `==` 对应值比较，`is` 对应身份比较，不要把它们与 Java 引用上的 `==` 混淆。
 
 ## 四、装饰器：用闭包和描述符改写调用路径
 
@@ -703,7 +731,7 @@ def predict(x): ...
 predict = log_call(predict)
 ```
 
-所以：装饰器在**定义时**执行一次（模块导入时、类体执行时），返回的对象在**每次调用**时执行。此后名称 `predict` 指向 `wrapper`，原函数只存在于 `wrapper` 的闭包 cell 里。多个装饰器从下往上应用：
+所以：每次执行到这条 `def` 时，装饰器都会被调用；如果定义在模块顶层，通常就是首次导入执行模块代码时，而不是每次调用 `predict` 时。此后名称 `predict` 指向 `wrapper`，原函数由 `wrapper` 的闭包 cell 保留；若没有其他引用，就不再有独立名称指向它。多个装饰器从下往上应用：
 
 ```python title='多个装饰器从下往上应用'
 @outer
@@ -711,6 +739,9 @@ predict = log_call(predict)
 def run(): ...
 # run = outer(inner(run))     调用时先进 outer 的 wrapper，再进 inner 的
 ```
+
+> [!NOTE] 与 Java 对照：装饰器不是注解
+> Java 的 `@Transactional`、`@Retryable` 是元数据，调用拦截来自读取它们的框架，例如 Spring 创建的代理；Python 的 `@log_call` 本身就是一次调用和名称重新绑定，不依赖扫描或代理框架。读代码时分别追踪“谁读取注解”和“装饰器返回了谁”，不能只看两个语言里都有 `@`。
 
 ### 2. 装饰器与闭包的关系
 
@@ -768,19 +799,38 @@ def retry(max_attempts, exceptions=(TimeoutError,)):
     return decorator
 ```
 
-| 层 | 函数 | 返回 |
-|---|---|---|
-| 配置层 | `retry(max_attempts)` | `decorator` |
-| 装饰层 | `decorator(func)` | `wrapper` |
-| 运行层 | `wrapper(*args, **kwargs)` | `func` 的结果 |
+| 层 | 函数 | 执行时机 | 返回 / 保存在哪里 |
+|---|---|---|---|
+| 配置层 | `retry(max_attempts)` | 执行被装饰的定义时，先求值装饰器表达式 | 返回 `decorator`；参数经闭包 cell 保留 |
+| 装饰层 | `decorator(func)` | 函数对象创建后，名称最终绑定前 | 返回 `wrapper`；闭包保留 `func` 和重试参数 |
+| 运行层 | `wrapper(*args, **kwargs)` | 每次调用装饰后的函数时 | 新建本次调用帧，返回 `func` 的结果 |
 
 Table: retry 的三层：配置层、装饰层、运行层
 
 `max_attempts` 和 `exceptions` 经由两层闭包到达 `wrapper`。重试装饰器应只捕获明确可重试的异常，让其余异常原样传播——`except Exception` 会把断言失败、类型错误和 CUDA OOM 一起重试。
 
+```mermaid
+%% 图：参数化装饰器的定义阶段与调用阶段
+flowchart TB
+    subgraph DEF["定义阶段：执行这条 def 时"]
+        EXPR["<b>求值 retry(3)</b><br/>返回 decorator，记住 max_attempts = 3"]
+        FUNC["<b>创建原函数对象 f</b><br/>函数体此时不运行"]
+        WRAP["<b>应用 decorator(f)</b><br/>返回 wrapper，把名称 predict 绑定到它"]
+        EXPR --> FUNC --> WRAP
+    end
+    subgraph RUN["调用阶段：执行 predict(5) 时"]
+        WC["<b>wrapper 的执行帧</b><br/>从闭包取 func、max_attempts、exceptions"]
+        FC["<b>原函数 f 的执行帧</b><br/>计算结果；超时则由 wrapper 决定重试"]
+        WC --> FC
+    end
+    WRAP -- "每次调用" --> WC
+```
+
+定义阶段产出可复用的包装函数和闭包；调用阶段才创建本次的 `args`、`kwargs`、`attempt` 等局部状态。若定义写在另一个函数内部，每次运行到该定义都会重新装饰，并不是整个进程只装饰一次。
+
 ### 5. 装饰类：注册表
 
-先说清装饰器**接收什么**：`@deco` 写在什么定义的上面，`deco` 收到的就是那个定义产生的对象——`def` 上面收到函数对象，`class` 上面收到类对象，`async def` 上面收到协程函数；因为方法也是函数，写在方法上面收到的同样是函数（§6 讲它与 `property` / `staticmethod` 叠放时的顺序）。没有第四种：Python 只允许把装饰器写在 `def` 和 `class` 前面。至于装饰器**返回**什么则完全自由——通常是同类型的替代品（包装函数、原类），但也可以是任何对象：`@property` 收到函数、返回一个 `property` 描述符对象；`@functools.lru_cache` 收到函数、返回一个带 `cache_info()` 方法的可调用对象；`@dataclass` 收到类、原地改造后返回同一个类。
+先说清装饰器**接收什么**：紧贴 `def` 的装饰器收到函数对象，紧贴 `class` 的收到类对象；`async def` 也产生函数对象。多层叠放时，外层收到的是**内层装饰器的返回值**，不一定仍是函数（§6 的 `property` / `staticmethod` 就会改变它）。装饰器语法只能写在函数或类定义前，但其**返回值**可以是任何对象：`@property` 返回描述符；`@functools.lru_cache` 返回带 `cache_info()` 的可调用对象；默认的 `@dataclass` 原地改造并返回原类，`slots=True` 则返回新类。
 
 装饰器的参数可以是类，返回原类不变、只做登记，就是第一章的 `registered`：
 
@@ -794,7 +844,7 @@ def registered(name):
     return decorator
 ```
 
-由 §1 的时机规则和[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §6 的导入规则可推出它的全部行为：注册发生在类定义执行时，也就是模块被导入时；模块没被导入则注册表为空；模块以两个名字导入则第二次触发 `duplicate registration`——这正是[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §4 那个 `__main__`/`app` 双重导入实验里看到的报错。重复注册抛异常而不是静默覆盖，是刻意的：它把"同一个文件被导入了两次"这个隐蔽问题变成一个显眼的启动失败。
+由 §1 的时机规则和[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §6 的导入规则可推出它的行为：注册发生在类定义执行时，模块顶层的类通常就是在导入时注册；模块没被导入则注册不会发生。若同一文件以两个模块名执行，可能向**同一个注册表**重复登记并报错，也可能各自创建一份注册表，导致查找的一方看不到另一方的注册。重复注册抛异常而不是静默覆盖，能让共享注册表里的重复定义尽早暴露，但不能替代对模块身份的检查。
 
 ### 6. 装饰方法时的叠放顺序：与描述符的交互
 
@@ -807,7 +857,7 @@ class Runner:
     def create(cls): ...       # 再应用 classmethod：把 wrapper 包成 classmethod 对象
 ```
 
-- `log_call` 必须在 `classmethod`/`staticmethod`/`property` **下面**。反过来写，`log_call` 收到的是一个 `classmethod` 对象，它不可调用，`wrapper` 里 `func(*args)` 会报 `TypeError: 'classmethod' object is not callable`。
+- 对这种只会调用 `func(*args)` 的通用包装器，`log_call` 放在 `classmethod`/`staticmethod`/`property` **下面**最稳妥，让它先拿到普通函数。反过来包 `classmethod` 或 `property`，包装器拿到不可直接调用的描述符，会报错。`staticmethod` 从 Python 3.10 起可直接调用，所以反序在某些类访问中能跑，但包装结果变成普通函数后，实例访问又会多绑定一个 `self`，不再保留静态方法的语义。
 - `wrapper(*args, **kwargs)` 的 `args[0]` 是 `self`/`cls`——因为 `wrapper` 作为普通函数放在类上，本身就是非数据描述符，绑定后 `self` 会正常传入。这是函数式装饰器能"透明"用于方法的原因。
 - §2 那种用类实现的装饰器**不能**透明用于方法：`LogCall` 实例没有 `__get__`，不是描述符，`obj.method` 得到的是 `LogCall` 实例本身，调用时不会传 `self`（报 `TypeError: S.m() missing 1 required positional argument: 'self'`）。要修复就给 `LogCall` 加一个 `__get__`，返回 `functools.partial(self, obj)` 或 `types.MethodType(self, obj)`。
 
@@ -830,17 +880,14 @@ def async_log_call(func):
 
 需要同时支持两种函数的装饰器，用 `inspect.iscoroutinefunction(func)` 分派。并发与异步在本系列第三篇展开。
 
-### 8. 与 Java 的对照
-
-Java 的注解（`@Transactional`、`@Retryable`）只是**元数据**，本身不改变任何行为；行为来自框架在运行时扫描注解、生成代理对象（Spring AOP 的 JDK 动态代理或 CGLIB 子类）并拦截调用。Python 的装饰器则是**普通函数调用**，在定义处直接替换掉目标对象，没有框架也能工作。
-
-后果是双向的：Python 装饰器透明得多——`grep` 就能找到它做了什么，调试时能直接进 `wrapper`；但它也没有 Java 代理的"边界"——Spring 的自调用不经过代理是常见坑，Python 里则是 §6 的描述符顺序和 §7 的同步/异步区分。两边共同的原则是：被包装的调用路径必须能被开发者看到。
-
 ## 五、生成器与惰性执行
 
-[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)说函数调用创建一个帧，返回时销毁它。生成器打破了这个规则：`yield` 让帧**挂起**而不销毁，下次 `next()` 时从原地恢复。
+[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码)说普通函数调用创建一次执行，返回时退出活动调用栈。生成器则可以在 `yield` 处**挂起**，下次 `next()` 时从原地恢复。
 
-先把两个词说白：**帧**就是一次函数调用的"活动记录"——这次调用的局部变量、以及执行到了哪一条指令，普通函数 `return` 时这些东西一起被扔掉；**挂起**是指函数走到 `yield` 处停下来，把值交给调用方，但这份活动记录**不扔**，原地保留，下次 `next()` 就从停下的那一行接着走，局部变量还是刚才的值。Java 里没有现成的对应物，最接近的是手写一个 `Iterator`：把"走到第几步了"存进对象的字段，每次 `next()` 按字段判断该做什么——生成器把这件事交给解释器自动做，你写的是一段普通的顺序代码。第一章的 `Runner.stream` 用它实现流式输出。
+先把两个词说白：**帧**就是一次执行的“活动记录”——这次执行的局部变量、以及执行到了哪一条指令；**挂起**是指函数走到 `yield` 处停下来，把值交给调用方，但这份活动记录保留，下次 `next()` 从暂停点继续，局部变量还是刚才的值。普通帧退出调用栈后，如果仍被 traceback 或调试器引用，也不一定立即释放；生成器的不同在于它保留了**可继续执行**的状态。第一章的 `Runner.stream` 用它实现流式输出。
+
+> [!NOTE] 与 Java 对照：yield 与惰性迭代
+> Java 的 `Iterator`、`Stream` 也能惰性地产生值，但没有 Python 这种生成器函数语法；手写迭代器通常把进度保存在对象字段，Python 则替开发者保留暂停的帧。Java `switch` 表达式中的 `yield` 是提交分支结果，不是暂停函数。两边的惰性数据源都可能持有文件等资源，不能把消费结束当成自动关闭的保证。
 
 ### 1. `yield`：帧被挂起而不是销毁
 
@@ -880,11 +927,29 @@ sequenceDiagram
     Note over G: 从 yield 1 的下一条指令恢复：print("resume")<br/>遇到 yield 2：再次挂起
     G-->>C: 2
     C->>G: next(g)
-    Note over G: 恢复：print("end")，函数体结束<br/>帧销毁，状态 GEN_CLOSED
+    Note over G: 恢复：print("end")，函数体结束<br/>生成器释放帧引用，状态 GEN_CLOSED
     G-->>C: raise StopIteration
 ```
 
-调用生成器函数不执行函数体，只创建一个生成器对象，它内部持有一个帧（`g.gi_frame`）；第一次 `next()` 才开始执行；到 `yield` 处暂停，帧里的局部变量、指令位置全部保留（`g.gi_frame.f_locals` 可以直接看到）；函数体结束时抛出 `StopIteration`。普通函数的帧在 `return` 时销毁，生成器的帧在两次 `next()` 之间一直活着——这就是"惰性"的全部实现。生成器同时实现了 `__iter__`（返回自己）和 `__next__`，所以它是第三章意义上的迭代器，可以直接放进 `for`。
+调用生成器函数不执行函数体，只创建一个生成器对象，它内部保留帧状态（可通过 `g.gi_frame` 观察）；第一次 `next()` 才开始执行；到 `yield` 处暂停，帧里的局部变量、指令位置全部保留（`g.gi_frame.f_locals` 可以直接看到）；函数体结束时通过 `StopIteration` 告知消费者。生成器的帧在两次 `next()` 之间仍然可恢复，这是惰性执行的基础。生成器同时实现了 `__iter__`（返回自己）和 `__next__`，所以它是第三章意义上的迭代器，可以直接放进 `for`。
+
+再用一个局部变量看“保留”的到底是什么：
+
+```python title='生成器保留的是同一次执行：局部变量 n 从 2 变成 1'
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+
+g = countdown(2)
+print(inspect.getgeneratorstate(g), g.gi_frame.f_locals)  # GEN_CREATED {'n': 2}
+print(next(g), g.gi_frame.f_locals)                       # 2 {'n': 2}
+print(next(g), g.gi_frame.f_locals)                       # 1 {'n': 1}
+print(list(g), g.gi_frame)                               # [] None
+```
+
+第一次 `yield 2` 时还没执行 `n -= 1`，所以帧里仍是 `n = 2`；第二次 `next()` 才继续减到 1。正常耗尽后，生成器不再持有执行帧，`gi_frame` 变成 `None`；若此前有代码另存了帧引用，那个帧对象仍可存活。
 
 ### 2. 惰性的价值与成本
 
@@ -899,7 +964,7 @@ def read_lines(path):
 
 流式 Token 输出、大数据集分片读取、Batch 生成、日志消费都是这个模式。但惰性有两个经常被忽视的成本：
 
-- **生成器持有资源的时间等于它存活的时间**。上面 `read_lines` 的文件句柄在第一次 `next()` 时打开，要到生成器结束或被关闭时才关——如果消费方中途 `break` 并把生成器丢在一边，文件就一直开着（§4）。GPU 张量、数据库游标、进程间队列同理。
+- **暂停也可能延长资源占用**。上面 `read_lines` 的文件句柄在第一次 `next()` 时打开，要到生成器结束或被关闭时才关——如果消费方中途 `break` 并保留着未关闭的生成器，文件就一直开着（§4）。GPU 张量、数据库游标、进程间队列同理；正常耗尽或显式关闭后，即使生成器对象还在，清理逻辑也已经执行。
 - **错误延迟出现**。生成器函数里的 bug 在 `next()` 时才暴露，traceback 的调用方是消费者而不是创建者。
 
 ### 3. `yield from`
@@ -950,9 +1015,8 @@ del r                     #   close file   —— 引用计数归零时，生成
 
 在 CPython 里，生成器对象被回收时会自动 `close()`，所以上面的例子在 `del` 后立刻清理。但依赖这一点是脆弱的：生成器被别处引用（放进列表、被 traceback 持有、被闭包捕获）就不会及时回收；在其他实现或存在循环引用时，回收时机不确定。**需要确定性清理的生成器，要么由消费方在 `finally` 里显式 `close()`，要么用 `contextlib.closing(gen)` 包起来放进 `with`。** 对象回收的细节在本系列第五篇。
 
-### 5. 与 Java 的对照
-
-Java 的 `Iterator`/`Stream` 也是惰性的，但它们是**对象**，"暂停"靠的是对象字段记录状态，每一步的状态机要自己写；Python 的生成器把状态机交给帧，一个 `yield` 就完成了。Java 没有对应 `yield` 的语言机制（Loom 的 `Continuation` 是内部 API），流式响应通常靠回调或 `Flow.Publisher`。另一方面，Java 的 `Stream` 有明确的"终止操作"边界，而 Python 的生成器随时可能被半途丢弃，所以 §4 的清理问题在 Java 中要少得多。
+> [!NOTE] 与 Java 对照：终止操作不等于 close
+> Java `Stream` 的终止操作（如 `findFirst()`）不会自动调用 `close()`；`Files.lines(path)` 这类持有资源的流仍要放进 try-with-resources。对应到 Python，`break` 不会关闭生成器，持有资源时应使用 `with closing(g)` 或显式 `close()`，不能依赖两种语言各自的垃圾回收时机。
 
 ## 六、上下文管理器：把资源生命周期交给协议
 
@@ -982,7 +1046,7 @@ finally:
         manager.__exit__(None, None, None)      # 正常结束、return、break、continue 都走这里
 ```
 
-（PEP 343 的官方展开就是 try / except / finally 这种形状。常见的 try / except / **else** 写法是错的：块内 `return` 或 `break` 时 `else` 分支不会执行，`__exit__` 就漏掉了——在 CPython 3.12 上验证过，用 `else` 版本在 `return` 时上下文管理器不会退出。）
+这里展示控制流，省略了特殊方法查找细节：真实的 `with` 在管理器的**类型**上取 `__enter__`、`__exit__`，并在进入块体前保存退出方法，而不是走实例字典里的同名属性。PEP 343 的展开采用 try / except / finally；若把 `finally` 错换成 `else`，块内 `return` 或 `break` 时就会漏掉退出动作。
 
 把这段展开按"块怎么结束"分成几条路径，`__exit__` 被调用几次、收到什么参数、异常最后去了哪里就一目了然：
 
@@ -1002,9 +1066,12 @@ flowchart TB
 
 由展开可以读出几条规则，每一条都在实验中验证过：
 
-- `__enter__` 抛异常时，`__exit__` **不会**被调用——资源还没获取，无需释放；
+- `__enter__` 抛异常时，`__exit__` **不会**被调用；如果进入过程中已经获取了一部分资源，必须由 `__enter__` 自己清理，不能假设“进入失败就没资源”；
 - `__exit__` 收到异常三元组，返回 `True` 表示**抑制**该异常（块外看不到），返回 `False`/`None` 则异常照常传播；`contextlib.suppress` 就是一个返回 `True` 的 `__exit__`；
 - 块内 `return`、`break` 同样触发 `__exit__`，因为它们也走 `try` 的退出路径。
+
+> [!NOTE] 与 Java 对照：with 与 try-with-resources
+> Java 的 try-with-resources 在退出块时调用 `AutoCloseable.close()`；Python 的 `with` 还多了进入钩子及其返回值，退出钩子也能接收异常三元组。`__exit__` 返回真值可抑制块内异常，Java 的 `close()` 返回 `void`，没有这个协议；若块体和清理同时失败，Java 有 suppressed exceptions，Python 则按异常上下文链保留关系。
 
 ### 2. 类实现与 `contextlib.contextmanager`
 
@@ -1049,10 +1116,6 @@ def resource():
 ### 4. 异步上下文管理器
 
 `async with` 对应 `__aenter__`/`__aexit__`，两者都是协程，允许在进入和退出时 `await`（建立连接、优雅关闭）。`contextlib.asynccontextmanager` 是对应的生成器版本。
-
-### 5. 与 Java 的对照
-
-Java 7 的 try-with-resources 是同一个思路：实现 `AutoCloseable`，`close()` 在块结束时自动调用。差异有三点：Java 只有"退出"钩子，没有 `__enter__` 的返回值和 `__exit__` 的异常参数，因此**不能抑制异常**，也不能根据异常类型做不同清理；Java 的资源必须是一个对象，Python 的 `@contextmanager` 让任何一段"前置/后置"逻辑都能变成上下文管理器；Java 生态里几乎没有 §3 那种"临时切换全局状态"的惯用法，这是 Python 科学计算生态特有的模式。
 
 ## 七、一个推理组件的完整运行时追踪
 
@@ -1115,15 +1178,15 @@ class Runner:
 1. `sys.modules` 中没有 `"runner"`，进入查找（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §2）；
 2. `sys.meta_path` 上的 `PathFinder` 沿 `sys.path` 找到 `runner.py`，`FileFinder` 按 `.py` 后缀选出 `SourceFileLoader`，生成 `ModuleSpec`（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §3）；
 3. 创建空模块对象，写入 `sys.modules["runner"]`——此刻它还是空的（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §7 循环导入的窗口期）；
-4. 编译整个文件为 code object（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §1），在模块 `__dict__` 中执行顶层代码：
-   - `from contextlib import nullcontext`：`contextlib` 已在 `sys.modules`，直接绑定名称；
+4. 取得模块的 code object：没有有效缓存时编译整个文件，否则从 `.pyc` 读回（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §1）；随后在模块 `__dict__` 中执行顶层代码：
+   - `from contextlib import nullcontext`：若 `contextlib` 已在 `sys.modules`，复用该模块并绑定名称；否则先导入它；
    - `REGISTRY = {}`：创建字典；
    - [`def registered(name)`](#registered)：创建函数对象，`__globals__` 指向本模块的 `__dict__`（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §2）；
    - `class InferenceContext:`：执行类体、调用 `type` 创建类对象（第二章 §1）；
-   - [`@registered("runner") class Runner:`](#apply)：先执行类体得到类对象，然后调用 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §2），再调用 `decorator(Runner)`——写入 `REGISTRY`，返回原类（第四章 §5）；名称 `Runner` 绑定到它。
+   - [`@registered("runner") class Runner:`](#apply)：先求值 `registered("runner")` 得到 `decorator`（闭包持有 `name`，[上篇第三章](/python-execution-model-scopes-imports-and-exceptions.html#三作用域与闭包名称在哪里被解析) §2），再执行类体并由元类创建类对象，随后调用 `decorator(类对象)`——写入 `REGISTRY`，返回原类（第四章 §5）；最后名称 `Runner` 绑定到它。
 5. 导入方拿到模块对象或 `Runner` 名称。
 
-如果没有任何模块导入 `runner`，第 4 步不会发生，`REGISTRY` 里不会有 `"runner"`。如果 `runner.py` 同时被当作脚本运行又被别的模块导入，第 4 步会执行两次，第二次抛出 `duplicate registration`（[上篇第四章](/python-execution-model-scopes-imports-and-exceptions.html#四模块与导入系统代码如何被加载) §4）。
+如果没有执行 `runner` 模块的顶层代码，注册就不会发生。如果 `runner.py` 同时以 `__main__` 和 `runner` 两个名字执行，本例会连 `REGISTRY = {}` 也执行两次，得到两份注册表，**不会仅因双重导入就报重复注册**；只有装饰器写入同一份共享注册表时，重名才会触发 `duplicate registration`。这两种失败分别是注册状态分裂和重复登记，排查时要区分。
 
 ### 2. 创建对象阶段
 
@@ -1145,7 +1208,7 @@ class Runner:
 5. `with context:` 调用 [`__enter__`](#ctx)，打印 `enter inference mode`（第六章 §1）；
 6. `self.model(batch)`：`model` 是什么类型就走什么类型的 `__call__`——如果是 `nn.Module`，进入 `_wrapped_call_impl` → hooks → `forward`（第三章 §2）；
 7. `return` 触发 `with` 的退出路径，`__exit__(None, None, None)` 打印 `exit inference mode`，返回 `False`；
-8. 帧销毁，返回值绑定到 `output`。
+8. 帧退出活动调用栈，返回值绑定到 `output`；没有其他引用时，帧状态可被释放。
 
 ### 4. 流式执行阶段
 
@@ -1165,7 +1228,7 @@ class Runner:
 
 1. 异常在 `model` 的帧中产生，沿 `f_back` 回到 `Runner.__call__` 的帧（[上篇第五章](/python-execution-model-scopes-imports-and-exceptions.html#五异常处理与失败传播) §1）；
 2. 经过 `with` 块：`InferenceContext.__exit__(RuntimeError, exc, tb)` 被调用，打印 `exit inference mode`，返回 `False`，异常继续传播（第六章 §1）；
-3. `__call__` 的帧被加入 traceback 后销毁；
+3. `__call__` 的帧退出活动调用栈，但仍被 traceback 引用，不能当作已经销毁；
 4. 到达调用方的 `try`：
 
    ```python title='调用方的 try：记录 traceback 后重抛'
@@ -1209,10 +1272,10 @@ Table: 五个阶段对应的机制
 
 | 机制 | 要点 |
 |---|---|
-| <span style="white-space:nowrap">类与对象模型</span> | 类由 `type` 创建；`obj.attr` 是一个固定算法：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`<br/>方法、`classmethod`、`staticmethod`、`property` 都只是描述符的 `__get__` 返回值不同 |
+| <span style="white-space:nowrap">类与对象模型</span> | 默认由 `type` 创建类；属性读取优先级：有 `__get__` 的数据描述符 → 实例字典 → 非数据描述符或普通类属性；抛出 `AttributeError` 后才尝试 `__getattr__`<br/>方法、`classmethod`、`staticmethod`、`property` 通过描述符决定绑定或取值 |
 | 对象协议 | 语法交给类型上的特殊方法；特殊方法跳过实例字典 |
 | 装饰器 | 定义时执行一次的函数调用；靠闭包记参数，靠描述符协议对方法透明 |
-| 生成器 | 帧被挂起而非销毁；资源随生成器存活；`break` 不等于 `close` |
+| 生成器 | `yield` 保留可恢复的帧；暂停可能延长资源占用；`break` 不等于 `close` |
 | <span style="white-space:nowrap">上下文管理器</span> | `__enter__` / `__exit__` 绑定到代码块；`@contextmanager` 把异常 `throw` 进 `yield` |
 
 Table: 本篇五种机制围绕对象的小结
@@ -1222,7 +1285,7 @@ Table: 本篇五种机制围绕对象的小结
 | 开头的写法 | 背后的机制 | 在哪一节 |
 |---|---|---|
 | `model(x)` 走 `__call__`，中间插入 hooks | 调用语法查的是**类型**上的 `__call__`；`nn.Module.__call__` = `_wrapped_call_impl` → pre-hooks → `forward` → hooks，所以 `model.forward(x)` 绕过全部 hook | 三 §1、§2 |
-| `for batch in loader` | 迭代协议：`for` 先调 `loader.__iter__()` 拿一个新迭代器（每个 epoch 一个），再反复调它的 `__next__`；用生成器写迭代器时，"暂停 / 恢复"就是帧在 `yield` 处挂起、下一次 `next` 恢复 | 三 §3、五 §1 |
+| `for batch in loader` | `for` 先调用 `iter(loader)` 开始本轮迭代，再反复 `next()`；DataLoader 可新建迭代器，也可在 persistent worker 模式下复用并重置；生成器则在 `yield` 处挂起、下一次 `next` 恢复 | 三 §3、五 §1 |
 | `with torch.inference_mode()` | `with` 展开为 `__enter__` / `__exit__`；这类上下文管理器进入时切换一个线程局部状态、退出时恢复，异常也照样恢复 | 六 §1、§3 |
 | `@register("cuda")` 注册表能否填上取决于谁导入了它 | 装饰器在**定义时**执行一次；定义所在的模块没被导入、或被以两个名字导入，注册就不会发生或发生两次 | 四 §5、上篇四 §6 |
 | `self.linear = nn.Linear(4, 4)` 登记到 `_modules` | `Module.__setattr__` 拦截赋值写进 `_modules`（不进 `__dict__`），读取时属性查找算法在类和实例字典都找不到，落到 `__getattr__` 从 `_modules` 取回 | 二 §3、§6 |
@@ -1271,7 +1334,7 @@ Table: 开头五行代码背后的机制
 
    <details markdown="1"><summary>答案</summary>
 
-   `for` 先调用 `loader.__iter__()` 得到一个**新的**迭代器对象，再反复调它的 `__next__` 直到 `StopIteration`；`DataLoader.__iter__` 每次都返回新迭代器（含新的 worker 进程），所以下一个 epoch 从头开始。
+   `for` 先调用 `iter(loader)` 开始本轮迭代，再反复 `next()` 直到 `StopIteration`。默认创建新迭代器，多 worker 时也重建 worker；`persistent_workers=True` 且 `num_workers > 0` 时则复用迭代器和 worker，并重置迭代状态。下一个 epoch 要重新执行 `iter(loader)`，不是继续消费上一轮已耗尽的状态。
 
    </details>
 
