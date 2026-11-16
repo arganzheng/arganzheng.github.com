@@ -577,51 +577,75 @@ L 这一层被拆成了两类，G 与 B 被并成了一类。
 
 编译器怎么决定一个名字归哪一类：编译 `inner` 时扫描整个函数体，有赋值的是局部变量，没有赋值但在外层函数中有定义的是**自由变量**（free variable），其余都当作全局/内置。
 
-这条规则值得单独强调，因为它是 Python 与 Java 这类静态语言在"变量"这件事上最大的差别：**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。** Java 里 `int count;` 声明了类型和作用域，之后的 `count++` 只是使用；Python 里 `count += 1` 这一句本身就宣告了"`count` 是本函数的局部变量"——不管它出现在函数的第几行、前面有没有读过它。三个直接后果：
+**Python 没有变量声明，一个名称属于哪个作用域由"这个函数体里有没有对它赋值"决定，而且是在编译期、看整个函数体一次决定的。** Java 里 `int count;` 先声明、之后的 `count++` 只是使用；Python 里一句 `count = 99` 本身就宣告了"`count` 是本函数的局部变量"，不管它写在函数的第几行。
 
-1. 同一个名称在一个函数里只能属于一个作用域，不存在"前半段是全局、后半段是局部"；
-2. 一个名称是局部变量与它**有没有被赋过值**是两回事：局部变量可以"存在但还没有值"，读它会得到 `UnboundLocalError`（§3 的例子）；
-3. 要在函数里改外层的变量，必须用 `nonlocal` / `global` 显式声明"这个赋值不是在造局部变量"。
+三个函数，模块里有一个 `count = 10`，看各自读到什么：
 
-三个只差一行的函数，把这条规则跑出来：
+```python title="只读、先读后赋值、声明后赋值：同一个 count 的三种归类"
+import traceback
 
-```python title="只读、直接赋值、声明后赋值：同一个 count 的三种归类"
-count = 0
+count = 10
 
 
-def read_only():
-    return count + 1            # 只读：没有赋值，count 是全局名称
+def only_read():
+    return count                # 整个函数没有给 count 赋值
 
 
-def assign_without_declaring():
-    count += 1                  # 有赋值：count 被判成局部变量，读的时候还没有值
-    return count
+def read_then_assign():
+    first = count               # 第一行想读模块里的 count
+    count = 99                  # 后面才赋值
+    return first
 
 
-def assign_with_global():
-    global count                # 声明：这里的赋值改的是模块里的 count
-    count += 1
-    return count
+def declare_then_assign():
+    global count                # 先声明
+    first = count
+    count = 99
+    return first
 
 
-for fn in (read_only, assign_without_declaring, assign_with_global):
+for fn in (only_read, read_then_assign, declare_then_assign):
+    names = str(fn.__code__.co_varnames)
     try:
         result = fn()
-    except UnboundLocalError:
-        result = "UnboundLocalError"
-    print(f"{fn.__name__:26s} 局部变量 {fn.__code__.co_varnames!s:10s} → {result}")
+    except UnboundLocalError as error:
+        failing_line = traceback.extract_tb(error.__traceback__)[-1].line.split("#")[0].strip()
+        result = f"UnboundLocalError，出错的行：{failing_line}"
+    print(f"{fn.__name__:20s} 局部变量 {names:19s} → {result}")
 print("模块里的 count 现在是", count)
 ```
 
 ```text title="运行输出（Python 3.12）"
-read_only                  局部变量 ()         → 1
-assign_without_declaring   局部变量 ('count',) → UnboundLocalError
-assign_with_global         局部变量 ()         → 1
-模块里的 count 现在是 1
+only_read            局部变量 ()                  → 10
+read_then_assign     局部变量 ('count', 'first')  → UnboundLocalError，出错的行：first = count
+declare_then_assign  局部变量 ('first',)          → 10
+模块里的 count 现在是 99
 ```
 
-- 第二个函数只多了一次赋值，`count` 就进了它的局部变量名单；读它时还没有值，报错。模块里的 `count` 是 0，但编译器已经决定不去模块里找了。
-- 第三个函数加了 `global`，`count` 不再是局部变量，赋值落到模块里（最后一行的 1）。
+三个函数运行时各自去哪里找 `count`：
+
+```mermaid
+%% 图：三个函数各自去哪里找 count：没有赋值的去模块字典，有赋值的只看自己的帧，声明了 global 的读写都落在模块字典
+flowchart TB
+    A["<b>only_read 的帧</b><br/>局部变量：无<br/>读 count：去模块字典"]
+    B["<b>read_then_assign 的帧</b><br/>局部变量：count、first（都还没有值）<br/>读 count：只看自己的帧，是空的，报错"]
+    C["<b>declare_then_assign 的帧</b><br/>局部变量：first<br/>count 声明了 global"]
+    MOD["<b>模块字典</b><br/>count = 10，最后被改成 99"]
+    A -- "读到 10" --> MOD
+    B ~~~ MOD
+    C -- "读到 10，写入 99" --> MOD
+
+    classDef bad fill:#fdecea,stroke:#c0392b,stroke-width:2px,color:#222
+    classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class B bad
+    class A,C,MOD ok
+```
+
+中间那一帧没有连到模块字典的线：模块里明明有 `count = 10`，它不去看。由此得到三条后果，每条都能在上面的输出里找到：
+
+1. **一个名字在一个函数里只归一类，不存在"前半段是全局、后半段是局部"。** `read_then_assign` 第一行想读的是模块里的 `count`，但函数后面有一句赋值，整个函数里的 `count` 就都是局部变量了。输出里出错的行是 `first = count`——读的那一行，而不是赋值那一行。
+2. **局部变量可以"有位置、没有值"。** `count` 在 `read_then_assign` 的局部变量名单里，位置已经留好，只是执行到第一行时还没放进值。所以报的是 `UnboundLocalError`（局部变量还没绑定值），不是"找不到这个名字"的 `NameError`。
+3. **要在函数里改外层的变量，必须先声明。** `declare_then_assign` 多了一句 `global count`，`count` 就从局部变量名单里消失了，读到 10、写入的 99 落在模块字典里（最后一行）。要改的是外层函数的变量时，用的是 `nonlocal`（§3）。
 
 编译器对函数体里的每个名称做的是同一串判断，判断的结果就是运行时用哪条取值指令：
 
