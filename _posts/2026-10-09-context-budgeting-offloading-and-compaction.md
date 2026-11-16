@@ -285,9 +285,10 @@ BUDGET = {
 }
 
 
-def check(measured: dict[str, int], window: int = 200_000, reserve_for_output: int = 20_000) -> None:
+def check(measured: dict[str, int], window: int = 200_000, output_reserve: int = 20_000) -> None:
     total = sum(measured.values())
-    print(f"已用 {total:,} / 可用 {window - reserve_for_output:,}（窗口 {window:,}，留给输出 {reserve_for_output:,}）")
+    usable = window - output_reserve
+    print(f"已用 {total:,} / 可用 {usable:,}（窗口 {window:,}，留给输出 {output_reserve:,}）")
     for layer, used in measured.items():
         cap, action = BUDGET[layer]
         if used > cap:

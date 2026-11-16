@@ -231,19 +231,24 @@ import json
 # 一份构造出来的请求体（OpenAI 兼容的 chat 格式），每一段标上它属于七层里的哪一层
 request = {
     "model": "your-model",
-    "tools": [                                                            # ② 工具定义
-        {"type": "function", "function": {"name": "read_file", "description": "读取工作区里的一个文件",
-                                          "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}},
-    ],
+    # ② 工具定义
+    "tools": [{"type": "function", "function": {
+        "name": "read_file", "description": "读取工作区里的一个文件",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}],
     "messages": [
-        {"role": "system", "content": "你是代码助手。只改用户点名的文件；改完运行测试。"},          # ① 系统指令
-        {"role": "system", "content": "[AGENTS.md] 本仓库用 pytest；提交前跑 make lint。"},        # ③ 长期记忆
-        {"role": "user", "content": "utils.py 里的 parse_date 在闰年 2 月 29 日会报错，帮我修。"},   # ④ 对话历史（原始任务）
-        {"role": "assistant", "content": None,                                            # ④ 对话历史
-         "tool_calls": [{"id": "c1", "type": "function",
-                         "function": {"name": "read_file", "arguments": "{\"path\": \"utils.py\"}"}}]},
-        {"role": "tool", "tool_call_id": "c1", "content": "def parse_date(s):\n    ...\n" * 40},  # ⑥ 工具返回
-        {"role": "user", "content": "先别改别的函数。"},                                      # ⑦ 当前输入
+        # ① 系统指令
+        {"role": "system", "content": "你是代码助手。只改用户点名的文件；改完运行测试。"},
+        # ③ 长期记忆
+        {"role": "system", "content": "[AGENTS.md] 本仓库用 pytest；提交前跑 make lint。"},
+        # ④ 对话历史：原始任务，以及模型上一步发出的工具调用
+        {"role": "user", "content": "utils.py 里的 parse_date 在闰年 2 月 29 日会报错，帮我修。"},
+        {"role": "assistant", "content": None, "tool_calls": [{
+            "id": "c1", "type": "function",
+            "function": {"name": "read_file", "arguments": "{\"path\": \"utils.py\"}"}}]},
+        # ⑥ 工具返回
+        {"role": "tool", "tool_call_id": "c1", "content": "def parse_date(s):\n    ...\n" * 40},
+        # ⑦ 当前输入
+        {"role": "user", "content": "先别改别的函数。"},
     ],
 }
 layer_of_message = ["① 系统指令", "③ 长期记忆", "④ 对话历史", "④ 对话历史", "⑥ 工具返回", "⑦ 当前输入"]

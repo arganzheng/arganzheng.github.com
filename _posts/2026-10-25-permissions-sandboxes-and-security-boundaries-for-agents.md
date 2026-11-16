@@ -325,7 +325,8 @@ def decide(command: str) -> str:
 
 
 for command in ["pytest -q tests/", "git push origin main", "git push --force origin main",
-                "rm build/tmp.log", "rm -rf /var/lib/data", "curl https://api.example.com/volumes/7 -X DELETE",
+                "rm build/tmp.log", "rm -rf /var/lib/data",
+                "curl https://api.example.com/volumes/7 -X DELETE",
                 "python migrate.py"]:
     print(f"{decide(command):9s} {command}")
 ```

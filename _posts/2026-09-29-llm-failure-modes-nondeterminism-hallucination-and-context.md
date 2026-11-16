@@ -284,8 +284,8 @@ QUESTION = "仓库 B 的夜班交接时间是几点？只回答时间。"
 def ask(context: str) -> str:
     body = json.dumps({"model": MODEL, "messages": [
         {"role": "user", "content": context + "\n\n" + QUESTION}]}).encode()
-    request = urllib.request.Request(BASE + "/chat/completions", body,
-                                     {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    headers = {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+    request = urllib.request.Request(BASE + "/chat/completions", body, headers)
     with urllib.request.urlopen(request, timeout=120) as response:
         return json.load(response)["choices"][0]["message"]["content"]
 

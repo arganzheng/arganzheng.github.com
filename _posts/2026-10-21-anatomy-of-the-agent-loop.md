@@ -41,14 +41,14 @@ flowchart TB
 loop(task):
     ctx = [system, tools, task]
     for step in 1..MAX_STEPS:                       # 卫士 ①：步数
-        resp = model(ctx)                           # 一次调用（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的契约）
-        ctx.append(resp.message)                    # 含 thinking 块（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）
+        resp = model(ctx)                           # 一次调用（《模型作为组件》第 2 篇的契约）
+        ctx.append(resp.message)                    # 含 thinking 块（《模型作为组件》第 3 篇）
         if no resp.tool_calls: return resp.text     # 终止条件 A：模型说完了
         for call in resp.tool_calls:                # 可并行
             if is_repeat(call, ctx): warn(ctx)       # 卫士 ②：重复调用
             if not permitted(call): result = deny(call)   # 权限（第五篇）
             else: result = run(call, timeout=T)     # 卫士 ③：单次超时；沙箱（第五篇）
-            ctx.append(tool_result(call.id, result))       # 配对（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）
+            ctx.append(tool_result(call.id, result))       # 配对（《模型作为组件》第 2 篇）
         if tokens(ctx) > BUDGET: compact(ctx)       # 卫士 ④：预算；压缩（第四篇）
     return partial(ctx)                             # 终止条件 B：预算耗尽，交付部分结果
 ```
@@ -277,13 +277,14 @@ import urllib.request
 BASE, KEY, MODEL = os.environ["OPENAI_BASE_URL"], os.environ["OPENAI_API_KEY"], os.environ["MODEL"]
 TOOLS = [{"type": "function", "function": {
     "name": "read_file", "description": "读取当前目录下的一个文本文件",
-    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}]
+    "parameters": {"type": "object", "required": ["path"],
+                   "properties": {"path": {"type": "string"}}}}}]
 
 
 def chat(messages: list) -> dict:
     body = json.dumps({"model": MODEL, "messages": messages, "tools": TOOLS}).encode()
-    request = urllib.request.Request(BASE + "/chat/completions", body,
-                                     {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    headers = {"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+    request = urllib.request.Request(BASE + "/chat/completions", body, headers)
     with urllib.request.urlopen(request, timeout=60) as response:      # 卫士：单次调用超时
         return json.load(response)
 
@@ -314,7 +315,8 @@ def agent(task: str, max_steps: int = 8, token_budget: int = 50_000) -> str:
                 result = "错误：这个调用已经执行过，请换一种做法或直接回答"
             else:
                 seen.add(signature)
-                result = run_tool(call["function"]["name"], json.loads(call["function"]["arguments"]))
+                arguments = json.loads(call["function"]["arguments"])
+                result = run_tool(call["function"]["name"], arguments)
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
     return "停止：达到步数上限"
 

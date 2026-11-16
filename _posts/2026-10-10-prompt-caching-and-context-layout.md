@@ -274,7 +274,8 @@ history = [{"role": "user", "content": "我的订单什么时候到？"}]
 
 
 def bad(request_id, messages):       # 把每次都变的 id 写在系统指令最前面
-    return {"messages": [{"role": "system", "content": f"[request_id: {request_id}] " + RULES}] + messages}
+    system = f"[request_id: {request_id}] " + RULES
+    return {"messages": [{"role": "system", "content": system}] + messages}
 
 
 def good(request_id, messages):      # id 不进 prompt，放进 metadata（或 HTTP 请求头）
@@ -282,7 +283,8 @@ def good(request_id, messages):      # id 不进 prompt，放进 metadata（或 
             "metadata": {"request_id": request_id}}
 
 
-turn2 = history + [{"role": "assistant", "content": "预计明天送达。"}, {"role": "user", "content": "能改地址吗？"}]
+turn2 = history + [{"role": "assistant", "content": "预计明天送达。"},
+                   {"role": "user", "content": "能改地址吗？"}]
 print("id 在最前：", shared_prefix(bad("a81f", history), bad("c302", turn2)))
 print("id 不进 prompt：", shared_prefix(good("a81f", history), good("c302", turn2)))
 ```

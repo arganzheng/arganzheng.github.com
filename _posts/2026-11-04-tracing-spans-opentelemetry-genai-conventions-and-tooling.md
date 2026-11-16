@@ -251,7 +251,8 @@ spans, stack = [], []
 
 @contextlib.contextmanager
 def span(name: str, **attributes):
-    record = {"name": name, "parent": stack[-1] if stack else None, "attributes": attributes, "order": len(spans) + len(stack)}
+    record = {"name": name, "parent": stack[-1] if stack else None,
+              "attributes": attributes, "order": len(spans) + len(stack)}
     stack.append(name)
     start = clock_ms
     try:
@@ -262,20 +263,24 @@ def span(name: str, **attributes):
         spans.append(record)
 
 
+CHAT = {"gen_ai.operation.name": "chat", "gen_ai.request.model": "your-model"}
+IN, OUT = "gen_ai.usage.input_tokens", "gen_ai.usage.output_tokens"
+
 with span("invoke_agent refund-bot", **{"gen_ai.operation.name": "invoke_agent"}):
-    with span("chat", **{"gen_ai.operation.name": "chat", "gen_ai.request.model": "your-model"}) as s:
+    with span("chat", **CHAT) as s:
         clock_ms += 1200                              # 这里是模型调用
-        s["attributes"].update({"gen_ai.usage.input_tokens": 1820, "gen_ai.usage.output_tokens": 64})
+        s["attributes"].update({IN: 1820, OUT: 64})
     with span("execute_tool lookup_order", **{"gen_ai.operation.name": "execute_tool"}):
         clock_ms += 80                                # 这里是工具执行
-    with span("chat", **{"gen_ai.operation.name": "chat", "gen_ai.request.model": "your-model"}) as s:
+    with span("chat", **CHAT) as s:
         clock_ms += 2100
-        s["attributes"].update({"gen_ai.usage.input_tokens": 1990, "gen_ai.usage.output_tokens": 120})
+        s["attributes"].update({IN: 1990, OUT: 120})
 
 for record in sorted(spans, key=lambda r: r["order"]):
     indent = "" if record["parent"] is None else "  "
     tokens = {k.split(".")[-1]: v for k, v in record["attributes"].items() if "usage" in k}
-    print(f"{indent}{record['name']}  {record['ms']} ms  {json.dumps(tokens) if tokens else ''}".rstrip())
+    usage = json.dumps(tokens) if tokens else ""
+    print(f"{indent}{record['name']}  {record['ms']} ms  {usage}".rstrip())
 ```
 
 ```text title="运行输出（Python 3.12，只用标准库）"

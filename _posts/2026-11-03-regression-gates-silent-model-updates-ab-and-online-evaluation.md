@@ -227,12 +227,14 @@ def gate(baseline: dict[str, bool], candidate: dict[str, bool], max_regressions:
     print(f"  修好 {len(fixed)} 条：{fixed}")
     print(f"  弄坏 {len(broken)} 条：{broken}")
     passed = len(broken) <= max_regressions
-    print("  门禁：" + ("通过" if passed else f"不通过，弄坏的用例超过 {max_regressions} 条，逐条看 diff 再决定"))
+    verdict = "通过" if passed else f"不通过，弄坏的用例超过 {max_regressions} 条，逐条看 diff 再决定"
+    print("  门禁：" + verdict)
     return passed
 
 
-baseline = {f"case-{i:02d}": i not in (3, 7, 12) for i in range(1, 21)}        # 旧版本：20 条里错 3 条
-candidate = {f"case-{i:02d}": i not in (7, 15) for i in range(1, 21)}          # 新版本：错 2 条
+# 旧版本 20 条里错 3 条，新版本错 2 条
+baseline = {f"case-{i:02d}": i not in (3, 7, 12) for i in range(1, 21)}
+candidate = {f"case-{i:02d}": i not in (7, 15) for i in range(1, 21)}
 gate(baseline, candidate)
 ```
 

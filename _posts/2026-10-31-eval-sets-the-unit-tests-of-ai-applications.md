@@ -272,7 +272,8 @@ import math
 def pass_rate_interval(passed: int, n: int) -> str:
     p = passed / n
     se = math.sqrt(p * (1 - p) / n)                 # 通过率的标准误
-    return f"n={n:4d}  通过率 {p:.0%}  标准误 {se:.1%}  95% 区间 [{max(0, p - 1.96 * se):.1%}, {min(1, p + 1.96 * se):.1%}]"
+    low, high = max(0, p - 1.96 * se), min(1, p + 1.96 * se)
+    return f"n={n:4d}  通过率 {p:.0%}  标准误 {se:.1%}  95% 区间 [{low:.1%}, {high:.1%}]"
 
 
 for passed, n in [(17, 20), (85, 100), (340, 400), (850, 1000)]:

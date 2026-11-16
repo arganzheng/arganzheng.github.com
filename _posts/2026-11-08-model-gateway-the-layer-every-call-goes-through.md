@@ -237,7 +237,8 @@ class TokenBudget:
 
 
 budget = TokenBudget(tokens_per_minute=60_000)
-for now, (inp, max_out, used_out) in [(0, (20_000, 8_000, 500)), (1, (20_000, 8_000, 700)), (2, (20_000, 8_000, 0))]:
+requests = [(0, 20_000, 8_000, 500), (1, 20_000, 8_000, 700), (2, 20_000, 8_000, 0)]
+for now, inp, max_out, used_out in requests:      # 到达时刻、输入、输出上限、实际输出
     reserved = budget.reserve(now, inp, max_out)
     if reserved is None:
         print(f"t={now}s 拒绝：需要 {inp + max_out}，只剩 {budget.available:.0f}")
