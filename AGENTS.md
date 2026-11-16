@@ -608,7 +608,13 @@ Pages has `https_enforced` on.
   (`A["<b>Scheduler.schedule()</b><br/>1. 计算 remaining tokens<br/>2. 分配
   Token Budget"]`) become `span.mmd-list` / `.mmd-li` — left-aligned, hanging
   indent, line-height 1.4. Write a box's steps / fields that way instead of
-  centred lines. Gotchas met on 2026-11-12: a subgraph with no edge to the
+  centred lines. A box may also open with plain lines and end with a run of
+  list lines — formulas first, then the notes on them
+  (`A["<b>② attention</b><br/>$$a = …$$<br/>• K、V：…<br/>• 无参数"]`):
+  the plain lines stay centred and the list becomes
+  `span.mmd-list.mmd-note`, left-aligned and one size down (0.9em; a formula
+  inside it is measured at 0.9em too) — author, 2026-11-16, on 数学 01's
+  attention box: 「先写公式，再说明」「说明文字缩小一号左对齐，以无序列表的形式」. Gotchas met on 2026-11-12: a subgraph with no edge to the
   outside is laid out on its own and Mermaid flips its direction (TB → LR),
   so give every such container `direction TB` / `LR` explicitly; class names
   used by the loader must not collide with other site CSS (`.mm-title`

@@ -162,6 +162,10 @@
       // 「多行文字改成有序或者无序列表左对齐更合适」). Opt-in by writing the
       // markers in the source; all body lines must carry one (a single
       // `• ` line counts too, so it lines up with its siblings' lists).
+      // A box may also open with plain lines (formulas) and end with a run
+      // of list lines: the plain lines stay centred, the list becomes
+      // span.mmd-list.mmd-note — notes on the formulas, one size down
+      // (2026-11-16, 「说明文字缩小一号左对齐，以无序列表的形式」).
       var LABEL_RE = /([(\[{>\/\\]\s*")([^"]*)(")/g;
       var ITEM_RE = /^\s*(?:•|\d+\.)\s/;
       function nodeLists(source) {
@@ -170,15 +174,25 @@
           var t = body.match(/^<span class='mmd-title'>[\s\S]*?<\/span>/);
           if (t) { head = t[0]; rest = body.slice(head.length); }
           var lines = rest.split(/<br\s*\/?>/);
-          if (!lines.every(function (l) { return ITEM_RE.test(l); })) return m;
-          return open + head + "<span class='mmd-list'>" + lines.map(function (l) {
-            return "<span class='mmd-li'>" + l.trim() + '</span>';
-          }).join('') + '</span>' + close;
+          var first = 0;
+          while (first < lines.length && !ITEM_RE.test(lines[first])) first++;
+          if (first === lines.length) return m;
+          var items = lines.slice(first);
+          if (!items.every(function (l) { return ITEM_RE.test(l); })) return m;
+          return open + head + lines.slice(0, first).join('<br/>') +
+            "<span class='mmd-list" + (first ? ' mmd-note' : '') + "'>" + items.map(function (l) {
+              return "<span class='mmd-li'>" + l.trim() + '</span>';
+            }).join('') + '</span>' + close;
         });
       }
       function inTitle(source, offset) {
         var open = source.lastIndexOf("<span class='mmd-title'>", offset);
         return open !== -1 && source.indexOf('</span>', open) > offset;
+      }
+      // a note list runs to the end of its label (the closing quote)
+      function inNote(source, offset) {
+        var open = source.lastIndexOf("<span class='mmd-list mmd-note'>", offset);
+        return open !== -1 && source.indexOf('"', open) > offset;
       }
 
       function mathPlaceholders(source, texts) {
@@ -197,6 +211,8 @@
           var row = document.createElement('div');
           // a formula in a node title is drawn at the title's 1.1em
           if (inTitle(source, offset)) row.style.fontSize = '1.1em';
+          // …and one in a note list at the note's 0.9em
+          else if (inNote(source, offset)) row.style.fontSize = '0.9em';
           // the zero-size inline-block sits on the baseline
           row.innerHTML = '<span style="display:inline-block;width:0;height:0"></span>';
           // inline-block: an inline span's rect is one line of text tall,
