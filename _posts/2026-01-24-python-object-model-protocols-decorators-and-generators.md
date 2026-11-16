@@ -180,10 +180,39 @@ print(Demo.__dict__["value"], Demo.value, obj.value)   # 10 10 20
 
 这里的 `value` 是普通类属性，所以赋值 `obj.value = 20` 写的是实例字典，类属性不受影响；遇到 `property` 等数据描述符或自定义 `__setattr__` 时，写入会被接管。反过来，可变的类属性会被所有实例共享——`class Bad: items = []` 之后 `a.items.append(1)` 会让 `b.items` 也变成 `[1]`，因为没有任何赋值发生在实例上，`a.items` 读到的是类字典里的同一个列表。需要每实例独立的可变状态，在 `__init__` 里创建。
 
+把前一个例子里的引用画出来，`obj.value = 20` 并不是把类里的 `10` 改成了 `20`：
+
+```mermaid
+%% 图：普通同名属性分别存放在实例字典和类字典
+flowchart TB
+    O["<b>obj 实例</b>"] -- "__dict__" --> I["<b>实例字典</b><br/>value → 20"]
+    O -- "type(obj)" --> C["<b>Demo 类对象</b>"]
+    C -- "__dict__ 只读视图" --> D["<b>类属性映射</b><br/>value → 10"]
+    R["<b>读取 obj.value</b><br/>普通类属性没有优先权"] -- "先命中实例字典" --> I
+    R -. "实例里没有 value 时才取" .-> D
+```
+
 > [!NOTE] 与 Java 对照：类属性不等于 static 字段
 > Java 用 `static` 区分类字段与实例字段；Python 按数据描述符、实例字典、其余类属性的优先级读取。`Demo.value` 改类属性，`obj.value = 20` 在这个例子里却会新建同名实例属性，并不修改 `Demo.value`。可变的类属性又会被实例共享，不能仅凭写法 `obj.value` 判断数据属于谁。
 
 ### 3. 属性查找算法：`object.__getattribute__`
+
+先补一个马上要用到的词：**MRO（Method Resolution Order，方法解析顺序）就是查找类属性时依次检查哪些类**，不只用于找方法。单继承时很好理解：
+
+```python title='先看单继承的 MRO：当前类、父类、object'
+class Base:
+    value = 10
+
+
+class Child(Base):
+    pass
+
+
+print([cls.__name__ for cls in Child.__mro__])  # ['Child', 'Base', 'object']
+print(Child().value)                           # 10：Child 没有，再找 Base
+```
+
+这里先按 `Child → Base → object` 的顺序逐个查类的 `__dict__` 就够了；多继承时如何排出这个顺序，以及 `super()` 怎么沿它继续找，放在本章 §8 展开。**MRO 决定类之间的先后，下面的算法决定类属性和实例属性谁优先。**
 
 现在可以给出核心算法。`obj.attr` 默认调用 `type(obj).__getattribute__(obj, "attr")`，对普通对象它的逻辑是：
 
@@ -231,34 +260,38 @@ flowchart TB
     GA -- "否" --> R7["AttributeError 抛给调用方"]
 ```
 
-用三个实验验证这个顺序。首先，数据描述符（`property` 有 `__set__`）赢过实例字典：
+用一个实验同时放进三种类属性，再给实例字典塞入同名值，看哪一个生效：
 
-```python title='实验一：数据描述符（property）赢过实例字典'
-class D:
+```python title='一个实验比较 property、函数和普通类属性的查找优先级'
+class LookupDemo:
+    count = 10
+
     @property
     def value(self):
         return "from property"
 
-
-d = D()
-d.__dict__["value"] = "from instance dict"
-print(d.value)          # from property      —— ② 先于 ③
-```
-
-其次，非数据描述符（普通函数）输给实例字典：
-
-```python title='实验二：非数据描述符（普通函数）输给实例字典'
-class Runner2:
     def run(self):
-        return "method"
+        return "from class method"
 
 
-r = Runner2()
-r.__dict__["run"] = lambda: "instance attr"
-print(r.run())          # instance attr      —— ③ 先于 ④
+obj = LookupDemo()
+obj.__dict__.update(
+    value="from instance dict",
+    run=lambda: "from instance function",
+    count=20,
+)
+print(obj.value)             # from property：数据描述符优先，② 先于 ③
+print(obj.run())             # from instance function：实例优先，③ 先于 ④
+print(obj.count)             # 20：实例优先于普通类属性，③ 先于 ⑤
+print(LookupDemo.count)      # 10：类属性没有改变
+
+del obj.__dict__["run"]
+del obj.__dict__["count"]
+print(obj.run())             # from class method：实例没有，才绑定类上的函数
+print(obj.count)             # 10：实例没有，才返回普通类属性
 ```
 
-最后，§2 的 `obj.value = 20` 之所以能覆盖类属性 `10`，是因为 `int` 不是描述符，走的是 ③ 先于 ⑤。
+这里刻意直接写实例字典，让三种同名属性同时存在：`property` 即使没有 setter，类型上仍有 `__set__`，所以读时优先；函数是非数据描述符；`count` 对应的整数则根本不是描述符。后两种都允许实例里的值遮住类上的值，删除实例值后才重新露出类属性。
 
 这个顺序设计的意图：`property` 这类需要**控制读写**的东西必须不能被实例字典绕过，所以放最前；方法这类**只提供默认行为**的东西允许被实例覆盖（monkey patch 单个对象的方法就靠这一点），所以放实例字典之后。
 
@@ -399,11 +432,11 @@ Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
 
   对象尚未存在，所以不能是实例方法；需要构造"当前类或子类"，所以不该写死 `Runner(...)`——`cls(...)` 自动跟随继承。
 
-  > [!NOTE] 与 Java 对照：classmethod 与静态工厂
-  > 若 `GPURunner` 继承 `Runner` 的静态工厂，Java 的 `GPURunner.fromConfig(cfg)` 仍调用 `Runner.fromConfig`；方法体内 `new Runner(...)` 不会自动变成 `new GPURunner(...)`。Python 的 `GPURunner.from_config(cfg)` 则由描述符把 `GPURunner` 绑定给 `cls`，`cls(...)` 因而创建子类实例。Java 要实现同样的工厂，可以显式传 `GPURunner.class` 再反射构造，或传 `GPURunner::new` 给 `Function<Model, T>`；区别在于类或构造器由调用方传入，而不是属性查找自动注入。
-
 - **`staticmethod` 只是命名空间归属**。既不需要实例也不需要类的函数，放在类里是为了表达"逻辑上属于它"；很多时候放模块级更简单。
-- **`property` 是数据描述符**，所以 §3 的第一个实验成立。它适合"看起来像字段、实际需要计算或校验"的场景；不适合隐藏昂贵操作——调用方看到 `runner.device` 不会预期它去查询硬件。
+- **`property` 是数据描述符**，所以 §3 的实验中它赢过实例字典。它适合"看起来像字段、实际需要计算或校验"的场景；不适合隐藏昂贵操作——调用方看到 `runner.device` 不会预期它去查询硬件。
+
+> [!NOTE] 与 Java 对照：classmethod 与静态工厂
+> Java 的 `GPURunner.fromConfig(cfg)` 若继承的是 `Runner` 的静态工厂，方法体里的 `new Runner(...)` 不会自动变成 `new GPURunner(...)`。Python 的 `GPURunner.from_config(cfg)` 则自动把 `GPURunner` 绑定给 `cls`，所以 `cls(...)` 创建子类实例。Java 要实现类似工厂，可以显式传构造器 `GPURunner::new`；区别在于由调用方传入，而不是由属性查找注入。
 
 ### 6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子
 
@@ -468,6 +501,19 @@ def __getattr__(self, name):
 
 于是 `self.linear = nn.Linear(4, 4)` 被 `__setattr__` 截获，写进 `_modules`；之后 `self.linear` 走 §3 的算法在类和实例字典都找不到，落到 `__getattr__`，从 `_modules` 取回。这就是 `parameters()`、`state_dict()`、`.to(device)` 能够递归遍历所有子模块的原因——它们只需遍历三个字典，而不需要扫描 `__dict__` 猜哪些属性是模块。代价是每次访问子模块都多走一次失败查找加一次 Python 级函数调用，所以在热路径上 PyTorch 自己也会先把 `self.linear` 取到局部变量。
 
+注意，`linear` 不直接在实例字典里，不等于三个注册字典也不在：`self.__dict__["_modules"]` 持有的就是子模块注册表。
+
+```mermaid
+%% 图：nn.Module 子模块属性的写入、存储与读取路径
+flowchart TB
+    W["<b>self.linear = nn.Linear(4, 4)</b>"] --> SET["__setattr__ 识别 Module"]
+    SET -- "登记 linear" --> STORE["<b>self.__dict__['_modules']</b><br/>linear → Linear 子模块"]
+    R["<b>读取 self.linear</b>"] --> LOOK["默认属性查找<br/>类和实例字典没有 linear"]
+    LOOK -- "AttributeError 后兜底" --> GET["__getattr__('linear')"]
+    GET -- "查注册表" --> STORE
+    STORE --> RESULT["返回同一个 Linear 子模块"]
+```
+
 模块级也有同样的钩子（PEP 562）：在模块顶层定义 `__getattr__(name)`，访问不存在的模块属性时会被调用。`torch/__init__.py` 用它做两件事——对已废弃的名字发出 `DeprecationWarning` 后返回替代品，以及对少数子模块做惰性导入（第一次访问时才 `importlib.import_module`）。
 
 ### 7. 对象创建：`__new__`、`__init__` 与 `type.__call__`
@@ -485,6 +531,19 @@ def __call__(cls, *args, **kwargs):          # 说明创建顺序，不是底层
 `__new__` 被特殊处理为静态方法，不需要显式写 `@staticmethod`，负责“造出对象”；`__init__` 负责“填充对象”。重写 `__new__` 的场景很少：不可变类型（`int`、`tuple`、`str`）的子类化必须在 `__new__` 里改值，因为 `__init__` 拿到的已经是造好的不可变对象；单例、实例缓存、根据参数返回不同子类的工厂类也在这里做。其他情况只写 `__init__`。
 
 如果 `__new__` 返回的不是 `cls` 的实例，`__init__` 不会被调用——这是"工厂类"模式的机制基础。
+
+```mermaid
+%% 图：类调用与实例调用的两条不同路径
+flowchart TB
+    C["<b>Runner(model)</b><br/>调用类对象"] --> T["元类 type.__call__"]
+    T --> N["Runner.__new__<br/>分配并返回对象 obj"]
+    N --> CHECK{"obj 是 Runner 的实例？"}
+    CHECK -- "是" --> INIT["按 obj 的实际类型调用 __init__<br/>初始化后返回 obj"]
+    CHECK -- "否" --> RET["直接返回 obj<br/>不调用 __init__"]
+    O["<b>runner(batch)</b><br/>调用已有实例"] --> CALL["类型上的 Runner.__call__<br/>执行业务逻辑，不是创建 Runner"]
+```
+
+两条路径里都有 `__call__`，但接收者不同：前者由元类负责造实例，后者由实例的类型负责执行模型调用。
 
 > [!NOTE] 与 Java 对照：分配与初始化
 > Java 的 `new Runner(...)` 把分配对象和执行构造器连在一起；Python 在协议上分成 `__new__` 返回对象、`__init__` 初始化对象。因此 `__init__` 不是分配内存的构造步骤，不能用 `return another_object` 换掉实例；这类替换发生在 `__new__` 或工厂函数里。
@@ -911,24 +970,18 @@ print(next(g))                                  #   resume / 2
 next(g)                                         #   end → StopIteration；状态变为 GEN_CLOSED
 ```
 
-把这段执行画出来——左边是调用方，右边是生成器对象里那个帧：
+把这段执行画成状态变化，关键不在于“函数被调用了几次”，而在于**同一份执行状态被恢复了几次**：
 
 ```mermaid
-%% 图：生成器的执行时序：帧在 yield 处挂起而不是销毁，next() 再从断点恢复
-sequenceDiagram
-    participant C as 调用方
-    participant G as 生成器对象 g（内部持有一个帧）
-    C->>G: g = stream()
-    Note over G: 创建帧，指令位置指向函数开头<br/>状态 GEN_CREATED——函数体一行都没执行
-    C->>G: next(g)
-    Note over G: 帧开始执行：print("start")<br/>遇到 yield 1：帧挂起，局部变量与指令位置原地保留<br/>状态 GEN_SUSPENDED
-    G-->>C: 1
-    C->>G: next(g)
-    Note over G: 从 yield 1 的下一条指令恢复：print("resume")<br/>遇到 yield 2：再次挂起
-    G-->>C: 2
-    C->>G: next(g)
-    Note over G: 恢复：print("end")，函数体结束<br/>生成器释放帧引用，状态 GEN_CLOSED
-    G-->>C: raise StopIteration
+%% 图：stream 生成器的创建、两次挂起与耗尽
+flowchart TB
+    C["<b>g = stream()</b><br/>GEN_CREATED：函数体尚未运行"]
+    C -- "第一次 next(g)" --> R1["GEN_RUNNING<br/>打印 start，执行到 yield 1"]
+    R1 -- "向调用方交出 1" --> S1["<b>GEN_SUSPENDED</b><br/>保留帧状态，停在第一个 yield"]
+    S1 -- "第二次 next(g)" --> R2["GEN_RUNNING<br/>从暂停点继续，打印 resume"]
+    R2 -- "yield 2，交出 2" --> S2["<b>GEN_SUSPENDED</b><br/>同一份帧状态，停在第二个 yield"]
+    S2 -- "第三次 next(g)" --> END["打印 end，函数体结束<br/>向调用方抛 StopIteration"]
+    END --> CLOSED["<b>GEN_CLOSED</b><br/>g.gi_frame 为 None"]
 ```
 
 调用生成器函数不执行函数体，只创建一个生成器对象，它内部保留帧状态（可通过 `g.gi_frame` 观察）；第一次 `next()` 才开始执行；到 `yield` 处暂停，帧里的局部变量、指令位置全部保留（`g.gi_frame.f_locals` 可以直接看到）；函数体结束时通过 `StopIteration` 告知消费者。生成器的帧在两次 `next()` 之间仍然可恢复，这是惰性执行的基础。生成器同时实现了 `__iter__`（返回自己）和 `__next__`，所以它是第三章意义上的迭代器，可以直接放进 `for`。
@@ -1014,6 +1067,22 @@ del r                     #   close file   —— 引用计数归零时，生成
 ```
 
 在 CPython 里，生成器对象被回收时会自动 `close()`，所以上面的例子在 `del` 后立刻清理。但依赖这一点是脆弱的：生成器被别处引用（放进列表、被 traceback 持有、被闭包捕获）就不会及时回收；在其他实现或存在循环引用时，回收时机不确定。**需要确定性清理的生成器，要么由消费方在 `finally` 里显式 `close()`，要么用 `contextlib.closing(gen)` 包起来放进 `with`。** 对象回收的细节在本系列第五篇。
+
+同一个 `reader()`，消费方式决定资源什么时候释放：
+
+```mermaid
+%% 图：生成器正常耗尽、提前 break 与显式关闭的资源路径
+flowchart TB
+    OPEN["<b>next(r) 后进入 reader</b><br/>资源已获取，停在 yield"]
+    OPEN -- "继续消费直到结束" --> FIN["执行 finally<br/>释放资源"]
+    OPEN -- "break，且 r 仍被引用" --> HOLD["<b>只退出消费循环</b><br/>生成器仍挂起，资源仍被持有"]
+    HOLD -- "r.close()" --> EXIT["在暂停点注入 GeneratorExit"]
+    EXIT --> FIN
+    FIN --> CLOSED["生成器关闭"]
+    WITH["<b>with closing(reader()) as r</b>"] -- "退出 with 时调用 r.close()" --> EXIT
+```
+
+`closing` 不会把数据提前读完，只保证离开 `with` 时调用 `close()`。即使循环只取一个值就 `break`，资源也有明确的退出路径。
 
 > [!NOTE] 与 Java 对照：终止操作不等于 close
 > Java `Stream` 的终止操作（如 `findFirst()`）不会自动调用 `close()`；`Files.lines(path)` 这类持有资源的流仍要放进 try-with-resources。对应到 Python，`break` 不会关闭生成器，持有资源时应使用 `with closing(g)` 或显式 `close()`，不能依赖两种语言各自的垃圾回收时机。
