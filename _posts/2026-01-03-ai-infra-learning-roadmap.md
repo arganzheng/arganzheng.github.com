@@ -4,7 +4,7 @@ title: AI-Infra 工程师学习地图：从后端工程师到基础设施贡献�
 subtitle: A Learning Roadmap for AI Infrastructure Engineers
 tags: [AI, AI-Infra, Roadmap]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-16
 ---
 
 
@@ -12,7 +12,7 @@ updated: 2026-11-13
 
 这是一张给后端工程师——尤其是 Java、Go 等托管语言背景的工程师——转向 AI-Infra 方向的学习地图。它把这个方向需要的知识组织成十四个系列，说明每个系列解决什么问题、为什么放在那个位置、彼此之间如何依赖，以及按不同目标应该走哪条路径。
 
-它是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：第一张[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**跑模型的人**（AI-Infra 工程师），第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。本地图的 01 Python、03 PyTorch、04 Transformer 原理与实现、05 现代 LLM 结构四个系列与算法地图共享。三张地图有重叠的名词，分工在本文末尾的[《与算法工程师地图的关系》](#与算法工程师地图的关系)一节说明。
+它是三张 AI 学习地图中的第二张（三张的总览与分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)）：第一张[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)面向**造模型的人**，这一张面向**跑模型的人**（AI-Infra 工程师），第三张[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)面向**用模型的人**。本地图的 01 Python、03 PyTorch、04 Transformer 原理与实现、05 现代 LLM 结构四个系列与算法地图共享。三张地图有重叠的名词，分工在本文末尾的[「与算法工程师地图的关系」](#与算法工程师地图的关系)一节说明。
 
 地图回答三个问题：
 
@@ -267,7 +267,12 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 八篇。一步 RL 里生成、打分、训练三段的算力、显存与时间账（rollout 为什么占墙钟的 60–80%）；共置、分离与异步三种系统形态的利用率与正确性交换；共置下训练状态与 KV cache 的显存归属切换（vLLM 的 sleep / wake_up、SGLang 的 memory saver）；权重同步——从 FSDP / Megatron 的分片布局到 vLLM 的 TP / EP 布局，NCCL 广播、CUDA IPC、NIXL、量化传输与增量同步；异步与 off-policy 的 staleness 控制、部分 rollout、训推不一致；Agent 训练的多轮 rollout、沙箱集群与环境服务化；verl、slime、OpenRLHF、AReaL 四个框架的架构对比与源码导读；配置推导、全步 MFU、RL 状态的 checkpoint、确定性与排障。
 
-这是 08 与 09 两条线会合的地方，也是当前增长最快的一类 AI-Infra 负载。它曾在本图作为选修，理由是"组件都已覆盖、框架尚在收敛"；到 2026 年两个理由都不再成立：编排本身（显存切换、布局映射、异步修正、环境调度）是 08、09 里都没有的新机制，而框架的机制层已经稳定到可以写机制、少写实现。算法本身（奖励、目标函数、配方）属于算法地图 L5 的[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列。
+这是 08 与 09 两条线会合的地方，也是当前增长最快的一类 AI-Infra 负载。它单独成一个主线系列，有两个原因：
+
+1. 编排本身（显存切换、布局映射、异步修正、环境调度）是 08、09 里都没有的新机制，把两个系列各读一遍并不能得到它。
+2. 框架的机制层已经稳定，可以写机制、少写实现。
+
+算法本身（奖励、目标函数、配方）属于算法地图 L5 的[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)系列。
 
 #### 11 扩散模型推理基础设施：从一次去噪到一个生成服务
 
@@ -275,7 +280,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 九篇。一次生成的三段（文本编码器、DiT × 步数 × CFG、VAE 解码）的 FLOPs、显存与时间账，以及为什么单请求就是 compute-bound；单卡的 attention 后端、编译、FP8 / INT4（SVDQuant）、offload 与 VAE 分块；相邻去噪步的时间冗余（TeaCache、First-Block Cache、Cache-DiT 一族）；视频的十万级 token 让 attention 占到七成之后的稀疏化（Sparse VideoGen、Radial Attention、STA）；多卡为什么用序列并行、CFG 并行与 PipeFusion 而不是张量并行；步数蒸馏与自回归视频（CausVid、Self-Forcing）之后哪些优化失效、KV cache 怎样回归；生成服务的请求形态、批处理为什么几乎不提吞吐、三段分离、LoRA / ControlNet 与异步任务 API；SGLang Diffusion、vLLM-Omni、xDiT 三个引擎的对照导读；配置推导、有损优化的质量评测与排障。
 
-它是推理主线的**另一半**：09 讲 memory-bound 的 serving，11 讲 compute-bound 的 serving，几乎每一个系统答案都相反。它曾在本图作为选修，理由是"读者面窄"；到 2026 年这个理由不再成立——SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
+它是推理主线的**另一半**：09 讲 memory-bound 的 serving，11 讲 compute-bound 的 serving，几乎每一个系统答案都相反。SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态纳入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载，做推理的 Infra 工程师绕不开它。模型本身（扩散的数学、DiT、文生图与视频配方、步数蒸馏的方法）属于算法地图 L7 的[《多模态》](/multimodal-from-vision-encoders-to-diffusion.html)系列第六至九篇。
 
 ### L5 平台
 

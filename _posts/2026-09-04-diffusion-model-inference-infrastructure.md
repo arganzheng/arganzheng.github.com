@@ -4,7 +4,7 @@ title: 扩散模型推理基础设施：图像与视频生成的 serving（总�
 subtitle: "Diffusion Model Inference Infrastructure: Serving Image and Video Generation"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 
@@ -64,9 +64,9 @@ updated: 2026-11-14
 
 同时它有一套 LLM serving 没有的东西：相邻步之间的**时间冗余**（TeaCache 一族）、几十步的**步数**本身作为可蒸馏的乘数、把 latent 切成 patch 的**空间并行**、以及视频里让 attention 占到七成算力的**十万级序列**。这些需要另一套分析方法，本系列就是这套方法。
 
-### 为什么进主线
+### 为什么属于主线
 
-地图最初把它列为选修，理由是"不做生成的 Infra 工程师可能永远碰不到它"。这个理由到 2026 年不再成立：SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态并入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载；而只读 08 的人会以为 KV cache、连续批处理、张量并行就是"推理系统"——本系列是推理主线的另一半，与 09 当年从选修升入主线是同一类判断。它也是当前少有的一类"系统尚未定型"的 Infra 方向：三个引擎都在快速迭代，机制层却已经稳定（并行方法、缓存方法、量化方法在 2024–2025 年基本收敛），正是适合写机制、少写实现的时候。
+SGLang 与 vLLM 两个 LLM serving 主项目都把扩散 / 全模态并入了自己的框架，图像与视频生成已经是与 LLM 并列的一类 serving 负载。只读过 LLM 推理系统的人会以为 KV cache、连续批处理、张量并行就是"推理系统"；本系列是推理主线的另一半。它也是当前少有的一类"系统尚未定型"的 Infra 方向：三个引擎都在快速迭代，机制层却已经稳定（并行方法、缓存方法、量化方法在 2024–2025 年基本收敛），正是适合写机制、少写实现的时候。
 
 ### 现有材料的断层
 

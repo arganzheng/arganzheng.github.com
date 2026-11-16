@@ -2466,6 +2466,13 @@ How it is built (`_plugins/moments.rb`):
   exist in the pinned version are simply not mentioned. Changes *of the
   software itself* (vLLM V0 → V1, an ABI switch removed in PyTorch 2.x) are
   technical content and stay when they explain something.
+- **Section names take 「」, not 《》** (author, 2026-11-16, Discussion #333:
+  「章节不是文章，不要用书名号」). 《》 is for posts, series and books; a
+  chapter / section — linked or not — is written `[「与算法工程师地图的关系」](#…)一节`.
+- **Why a series sits where it does is stated directly, not as a change**
+  (same day, same discussion — an instance of *No revision history*): never
+  「它曾在本图作为选修……到 2026 年这个理由不再成立」 or 「地图最初把它列为…」;
+  write the reasons it is in the main line.
 - **In-series pointers are titles, not numbers** (author, 2026-11-14,
   Discussions #285 / #287: 「第几篇要展开成具体的文章标题和链接」). Write
   `[《Scheduler》](/scheduler-batch-and-fairness.html)`, never 「第四篇」 /
