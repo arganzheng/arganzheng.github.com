@@ -280,9 +280,9 @@ obj.__dict__.update(
     run=lambda: "from instance function",
     count=20,
 )
-print(obj.value)             # from property：数据描述符优先，② 先于 ③
-print(obj.run())             # from instance function：实例优先，③ 先于 ④
-print(obj.count)             # 20：实例优先于普通类属性，③ 先于 ⑤
+print(obj.value)             # from property：② 数据描述符先于 ③ 实例字典
+print(obj.run())             # from instance function：③ 实例字典先于 ④ 非数据描述符
+print(obj.count)             # 20：③ 实例字典先于 ⑤ 普通类属性
 print(LookupDemo.count)      # 10：类属性没有改变
 
 del obj.__dict__["run"]
@@ -297,7 +297,7 @@ print(obj.count)             # 10：实例没有，才返回普通类属性
 
 ### 4. 描述符协议：属性查找的可编程点
 
-算法里的 ② 和 ④ 都在调用一个东西的 `__get__`。凡是定义了 `__get__`、`__set__` 或 `__delete__` 之一的对象，放在**类属性**位置上，就是描述符：
+算法里的 ②（数据描述符）和 ④（非数据描述符）都在调用一个东西的 `__get__`。凡是定义了 `__get__`、`__set__` 或 `__delete__` 之一的对象，放在**类属性**位置上，就是描述符：
 
 - 只有 `__get__`：**非数据描述符**，可被实例字典覆盖；
 - 有 `__set__` 或 `__delete__`：**数据描述符**，优先于实例字典。
@@ -336,7 +336,7 @@ config = Config(32, "cuda")
 config.batch_size = "big"                    # TypeError: batch_size expects int, got str
 ```
 
-描述符必须放在类上才生效——算法第 ① 步只查类的 MRO，实例字典里的对象即便有 `__get__` 也不会被调用。
+描述符必须放在类上才生效——算法第 ① 步（沿类的 MRO 查找）只查类，实例字典里的对象即便有 `__get__` 也不会被调用。
 
 `__slots__` 是描述符的一个内建应用：`class S: __slots__ = ("a",)` 会让 `type` 为每个槽位在类上创建一个 `member_descriptor`（数据描述符），直接读写实例的固定内存偏移。若基类没有提供实例字典，且槽位里没有 `"__dict__"`，这种实例就没有 `__dict__`；子类不声明 `__slots__` 时又会获得字典。第五篇讨论内存时会回到它。
 
@@ -440,7 +440,7 @@ Table: 函数、classmethod、staticmethod、property 的 __get__ 行为
 
 ### 6. `__getattr__` 与 `__getattribute__`：查找失败后的钩子
 
-§3 算法的第 ⑥ 步：`__getattribute__` 抛出 `AttributeError` 之后，如果类定义了 `__getattr__`，解释器会调用它作为最后手段。
+§3 算法的第 ⑥ 步（都没找到，抛 `AttributeError`）：`__getattribute__` 抛出 `AttributeError` 之后，如果类定义了 `__getattr__`，解释器会调用它作为最后手段。
 
 ```python title='__getattr__ 只在查找失败后被调用'
 class Cfg:
@@ -1272,7 +1272,7 @@ class Runner:
 
 1. 解释器在 `type(runner)` 上查找 `__call__` 槽位（第三章 §1），找到 [`Runner.__call__`](#call)；
 2. 函数作为非数据描述符被绑定，`self = runner`（第二章 §5），创建新的执行帧（[上篇第二章](/python-execution-model-scopes-imports-and-exceptions.html#二执行模型源码如何变成正在运行的代码) §3）；
-3. `self.inference`：类 MRO 上没有同名描述符，实例 `__dict__` 中命中（第二章 §3 的 ③）；
+3. `self.inference`：类 MRO 上没有同名描述符，实例 `__dict__` 中命中（第二章 §3 的 ③ 实例字典）；
 4. `InferenceContext()` 创建上下文管理器实例；
 5. `with context:` 调用 [`__enter__`](#ctx)，打印 `enter inference mode`（第六章 §1）；
 6. `self.model(batch)`：`model` 是什么类型就走什么类型的 `__call__`——如果是 `nn.Module`，进入 `_wrapped_call_impl` → hooks → `forward`（第三章 §2）；

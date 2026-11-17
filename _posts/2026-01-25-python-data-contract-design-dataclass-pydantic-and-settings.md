@@ -142,13 +142,15 @@ print(user == User(1, "Alice", "alice@example.com"))   # True
 > [!NOTE] 与 Java 对照：数据载体与 record
 > Lombok `@Data` 为普通类生成访问器、比较等方法；Java 16 正式引入的 `record` 则是另一种数据载体（Java 14、15 为预览）。下面是可单独保存为 `User.java` 的 Java 16+ 定义：
 >
-> ```java title='Java record：简洁的数据载体'
+> {: data-title="Java record：简洁的数据载体"}
+> ```java
 > public record User(Long id, String name, String email) {}
 > ```
 >
 > 使用 Lombok 的项目也可以保留普通类（下面是另一份 `User.java`，需要 Lombok 依赖和注解处理器）：
 >
-> ```java title='Lombok @Data：为普通类生成模板方法'
+> {: data-title="Lombok @Data：为普通类生成模板方法"}
+> ```java
 > import lombok.Data;
 >
 > @Data
@@ -302,7 +304,8 @@ class UserProfile(BaseModel):
 > [!NOTE] 与 Java 对照：谁触发 Bean Validation
 > 下列 Java 16+ record 需要 Jakarta Validation API；真正执行校验还需要 Hibernate Validator 等实现：
 >
-> ```java title='Bean Validation：声明字段约束'
+> {: data-title="Bean Validation：声明字段约束"}
+> ```java
 > import jakarta.validation.constraints.*;
 >
 > public record User(
@@ -373,18 +376,20 @@ async def create_chat_completion(request: ChatCompletionRequest):
 ```python title='model_dump 与 model_dump_json'
 config = InferenceConfig(model_name="llama-3", backend="cuda")
 
-config.model_dump()
-# {'model_name': 'llama-3', 'backend': 'cuda', 'max_tokens': 2048, ...}
-
-config.model_dump_json()
-# '{"model_name":"llama-3","backend":"cuda","max_tokens":2048,...}'
-
-# 常用选项
-config.model_dump(exclude={"top_p"})          # 排除字段
-config.model_dump(exclude_defaults=True)      # 排除值等于默认值的字段
-config.model_dump(exclude_unset=True)         # 排除未显式设置的字段
-config.model_dump(mode="json")                # 把 datetime/UUID 等转成 JSON 可序列化的形式
+print(config.model_dump())                          # 导出成 Python 字典
+print(config.model_dump_json())                     # 导出成 JSON 字符串
+print(config.model_dump(exclude={"top_p"}))         # 排除字段
+print(config.model_dump(exclude_defaults=True))     # 排除值等于默认值的字段
 ```
+
+```text title="运行输出（Python 3.12，Pydantic v2）"
+{'model_name': 'llama-3', 'backend': 'cuda', 'max_tokens': 2048, 'temperature': 1.0, 'top_p': 1.0}
+{"model_name":"llama-3","backend":"cuda","max_tokens":2048,"temperature":1.0,"top_p":1.0}
+{'model_name': 'llama-3', 'backend': 'cuda', 'max_tokens': 2048, 'temperature': 1.0}
+{'model_name': 'llama-3', 'backend': 'cuda'}
+```
+
+另外两个常用选项：`exclude_unset=True` 排除没有显式设置的字段，`mode="json"` 把 `datetime`、`UUID` 等转成 JSON 可序列化的形式。
 
 `@dataclass` 也能序列化，但要自己动手，且不处理嵌套的非 JSON 原生类型：
 
@@ -409,17 +414,30 @@ except TypeError as exc:
 **model_json_schema 与 OpenAPI**
 
 ```python title='model_json_schema 生成的 JSON Schema'
-InferenceConfig.model_json_schema()
-# {
-#   'type': 'object',
-#   'properties': {
-#     'model_name': {'type': 'string', 'title': 'Model Name'},
-#     'backend': {'enum': ['cuda', 'rocm', 'cpu'], 'type': 'string'},
-#     'max_tokens': {'type': 'integer', 'maximum': 32768, 'minimum': 1, 'default': 2048},
-#     ...
-#   },
-#   'required': ['model_name', 'backend']
-# }
+import pprint
+
+pprint.pprint(InferenceConfig.model_json_schema(), width=88, sort_dicts=False)
+```
+
+```text title="运行输出（Python 3.12，Pydantic v2）"
+{'properties': {'model_name': {'title': 'Model Name', 'type': 'string'},
+                'backend': {'enum': ['cuda', 'rocm', 'cpu'],
+                            'title': 'Backend',
+                            'type': 'string'},
+                'max_tokens': {'default': 2048,
+                               'maximum': 32768,
+                               'minimum': 1,
+                               'title': 'Max Tokens',
+                               'type': 'integer'},
+                'temperature': {'default': 1.0,
+                                'maximum': 2.0,
+                                'minimum': 0.0,
+                                'title': 'Temperature',
+                                'type': 'number'},
+                'top_p': {'default': 1.0, 'title': 'Top P', 'type': 'number'}},
+ 'required': ['model_name', 'backend'],
+ 'title': 'InferenceConfig',
+ 'type': 'object'}
 ```
 
 注意 `Literal["cuda", "rocm", "cpu"]` 被翻译成了 JSON Schema 的 `enum`，`Field(ge=1, le=32768)` 变成了 `minimum`/`maximum`。FastAPI 把这些 Schema 组合进 OpenAPI，再提供 `/docs` 页面；自定义 Python 校验逻辑未必都能表达成 JSON Schema，不能认为文档包含了全部运行时规则。

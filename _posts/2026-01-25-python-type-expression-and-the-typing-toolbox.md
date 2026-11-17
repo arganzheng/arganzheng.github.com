@@ -153,10 +153,12 @@ def matmul(input: Tensor, other: Tensor, *, out: Tensor | None = None) -> Tensor
 | `Tuple[int, str]` | `tuple[int, str]` | 无直接对应 | 固定长度、异构 |
 | `Tuple[int, ...]` | `tuple[int, ...]` | 无直接对应 | 不定长度、同构 |
 | `FrozenSet[str]` | `frozenset[str]` | `Set.of(...)` | 不可变集合 |
-| `Sequence[int]` | `collections.abc.Sequence[int]` | `List<Integer>` | 只读序列 |
-| `Mapping[str, int]` | `collections.abc.Mapping[str, int]` | `Map<String, Integer>` | 只读映射 |
+| `Sequence[int]` | `collections.abc.Sequence[int]` | 无直接对应：Java 没有只读的集合接口，`List<Integer>` 自带 `add` / `remove` | 只读序列：类型里只有读取方法 |
+| `Mapping[str, int]` | `collections.abc.Mapping[str, int]` | 无直接对应：`Map<String, Integer>` 自带 `put` / `remove` | 只读映射：类型里只有读取方法 |
 
 Table: 内置容器的类型注解对照
+
+最后两行的差别在于「只读」由谁保证。Python 的 `Sequence` / `Mapping` 是**类型上**只读：接口里没有修改方法，对它调 `append` 类型检查器就报错，传进来的仍可以是一个普通 `list`。Java 的只读是**运行时**的：`List.copyOf(...)`、`Collections.unmodifiableList(...)` 返回的对象类型仍是 `List<Integer>`，调 `add` 能通过编译，运行时才抛 `UnsupportedOperationException`。
 
 
 ### 2. Union、Optional 与 None：表达"可能性"
@@ -235,8 +237,7 @@ Optional<User> findUser(long userId) {
 
 三者在类型检查时完全等价，`Optional[User]`、`Union[User, None]`、`User | None` 对 mypy/pyright 而言是同一个类型。
 
-> **延伸：`|` 在 Python 中身兼数职**
->
+> [!NOTE] 延伸：竖线运算符在 Python 中身兼数职
 > 这一段与类型系统无关，但有助于理解为什么 Python 选了 `|` 来表示联合类型。
 >
 > Python 官方设计团队非常喜欢复用 `|`，因为它的直观语义就是"合并 / 或者"。这使得 `|` 在不同上下文中扮演完全不同的角色。
@@ -1386,7 +1387,8 @@ async def list_items(
 > [!NOTE] 与 Java 对照：参数校验注解
 > 最接近的是 Bean Validation 一类**注解（Annotation）**：`@NotNull`、`@Size(max=50)` 作用在参数或字段上，由 Hibernate Validator、Spring 等框架读取并执行。Python 的 `Annotated` 把元数据挂在类型表达式上，同样要靠框架消费。
 >
-> ```java title='Java 对应：注解作用在参数或字段上'
+> {: data-title="Java 对应：注解作用在参数或字段上"}
+> ```java
 > // Java 的方式
 > void createUser(@NotNull @Size(min=2, max=50) String name,
 >                 @Min(0) @Max(150) int age) { ... }
