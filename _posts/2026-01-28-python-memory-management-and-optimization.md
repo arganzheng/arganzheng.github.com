@@ -5,10 +5,10 @@ title: Python 在 AI-Infra（05）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
-一个推理服务上线后，进程的常驻内存（RSS）每小时稳定上涨 300 MB，三天后被 OOM killer 杀掉。值班的人打开 `tracemalloc`，它说 Python 对象总共只涨了 20 MB。剩下的 280 MB 在哪？这类问题在 AI-Infra 服务里几乎是必修课，答案通常不在任何一行"算得慢"的 Python 代码里，而在几个看不见的地方：NumPy 数组的数据缓冲区不算 Python 对象，`tracemalloc` 默认看不到它；一个请求级的 `dict` 缓存没有上限，每个 key 挂着一段 tensor；一次 `arr[mask]` 以为是视图其实是拷贝；pymalloc 把释放的小对象内存留在自己的 arena 里不还给操作系统；CUDA 的缓存分配器同样把显存攥在手里——`nvidia-smi` 看到的数字与 PyTorch 实际在用的差一倍。
+一个推理服务上线后，进程的常驻内存（RSS）每小时稳定上涨 300 MB，三天后被 OOM killer 杀掉。值班的人打开 `tracemalloc`，它记录的已追踪分配总共只涨了 20 MB。剩下的 280 MB 在哪？这类问题在 AI-Infra 服务里几乎是必修课，答案通常不在任何一行"算得慢"的 Python 代码里，而在几个看不见的地方：原生缓冲区未必进入 `tracemalloc` 的追踪范围（现代 NumPy 通常会主动登记数据分配，PyTorch Storage 则不能指望它覆盖）；一个请求级的 `dict` 缓存没有上限，每个 key 挂着一段 tensor；一次 `arr[mask]` 以为是视图其实是拷贝；pymalloc 把释放的小对象内存留在自己的 arena 里不还给操作系统；CUDA 的缓存分配器同样把显存攥在手里——`nvidia-smi` 看到的数字与 PyTorch 实际在用的差一倍。
 
 Python 在这类系统里不做最重的数值计算，它做的是组织请求、配置与任务对象，管理数据结构的生命周期，调用 NumPy / PyTorch，并把 CPU 内存、原生缓冲区与 GPU 显存连在一起。于是它的内存问题也换了形态：不是"某段代码慢"，而是对象太多、临时对象活得太久、容器无界增长、隐式拷贝、Python 对象与原生数据之间的隐式转换，以及三块内存的所有权边界不清。要定位开头那 280 MB，得先弄清一件事：
 
@@ -19,8 +19,8 @@ Python 在这类系统里不做最重的数值计算，它做的是组织请求�
 ## 一、总览
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
 %% 图：三块内存各有各的量尺：Python 堆（pymalloc）、原生缓冲区、CUDA 缓存分配器
+%%{init: {"flowchart": {"wrappingWidth": 230}}}%%
 flowchart TB
     subgraph PY["Python 堆：小对象由 pymalloc 管"]
         direction TB
@@ -28,14 +28,14 @@ flowchart TB
     end
     subgraph NAT["原生缓冲区：malloc / 库自己的分配器"]
         direction TB
-        N1["NumPy 数组的数据、torch CPU tensor 的 storage<br/>tracemalloc 默认<b>看不见</b>"] --> N2["Python 对象只是一个 40 字节的壳，<br/>指着几百 MB 的缓冲区"]
+        N1["NumPy 数据、torch CPU Storage<br/>tracemalloc 能否看到取决于分配器接入"] --> N2["Python 包装对象保存元数据与引用<br/>底层缓冲区可以远大于包装对象"]
     end
     subgraph GPU["显存：CUDA 缓存分配器"]
         direction TB
-        G1["tensor 释放后显存留在 PyTorch 的缓存池里"] --> G2["nvidia-smi 看到的是池子大小，<br/>不是正在用的量（memory_allocated vs reserved）"]
+        G1["最后一个存储使用者释放后<br/>显存可能留在 PyTorch 缓存池"] --> G2["allocated 看活跃张量，reserved 看分配器保留<br/>nvidia-smi 还含上下文等额外开销"]
     end
     PY --- NAT --- GPU
-    X["开头那 280 MB：Python 对象只涨 20 MB，其余在原生缓冲区（被一个没上限的 dict 引用着）——三块内存各有各的量尺"] -.-> NAT
+    X["请求创建包装对象 → 转换分配缓冲区 → 缓存或视图保留引用<br/>释放引用后，缓冲区何时可复用由其所有者决定"] -.-> NAT
 
 ```
 
@@ -43,6 +43,8 @@ flowchart TB
 ### 1. 本文的范围
 
 本文聚焦 Python 工程师在 AI-Infra 场景下必须掌握的内存知识，包括对象模型、内存分配、复制语义、垃圾回收、缓存生命周期，以及 Python 与原生运行时之间的内存边界。
+
+下文用一个接收数值列表、转成张量再返回结果的请求贯穿这些层次。对象布局、引用计数与 pymalloc 主要按 **64 位 CPython 3.10–3.12 的常见带 GIL 构建**说明；这些不是 Python 语言对回收时机的保证。3.13/3.14 的 free-threaded 构建、GC 与分配器变化另行注明。Java 对照以 Java 25 为参照，比较的是所有权与诊断职责。
 
 本文不重点讨论线程、进程、异步调度、动态批处理或 CPU 计算并行化。这些内容属于并发模型和任务协作的范畴。
 
@@ -72,35 +74,41 @@ Table: 本文的章节安排
 
 ## 二、为什么 AI-Infra 需要理解 Python 内存
 
-一个典型的推理请求可能经历如下过程：
-
-1. 网络请求
-2. Python 请求对象
-3. 输入校验与预处理
-4. NumPy 数组或 PyTorch 张量
-5. 原生推理运行时
-6. 输出张量
-7. Python 结果对象
-8. JSON 或其他协议响应
-
-在这条链路中，Python 可能参与了多次对象创建、格式转换和生命周期管理。
-
-例如，下面的代码看起来只是进行一次简单的数据转换：
+先把真实推理简化成一次 CPU 数据往返。请求已经解析成字典，下面只看表示形式如何变化：
 
 ```python title="一次请求里的多次对象创建与格式转换"
-payload = request.json()
+import numpy as np
+import torch
+
+payload = {"values": [1.0, 2.0, 3.0]}
 values = payload["values"]
 
 array = np.array(values, dtype=np.float32)
 tensor = torch.from_numpy(array)
 result = tensor.tolist()
+print(result)
+# [1.0, 2.0, 3.0]
 ```
 
-但它背后可能发生了以下事情：
+真实服务在这条链路中还会插入 GPU 推理。谁发起转换、谁持有结果，要沿调用路径逐段追：
+
+```mermaid
+%% 图：一个数值请求从 JSON 对象到张量再到响应的内存路径
+flowchart TB
+    J["请求解析器<br/>创建 dict、list、float"] --> N["np.array(values)<br/>分配并填充 CPU 数值缓冲区"]
+    N -- "torch.from_numpy" --> T["CPU Tensor 包装<br/>共享 ndarray 的存储"]
+    T -- "服务选择 CUDA 推理时" --> G["复制到设备存储<br/>原生运行时提交计算"]
+    G -- ".cpu() 等待传输完成" --> C["CPU 输出 Tensor"]
+    T -- "本例直接往返" --> L[".tolist()<br/>创建 Python 列表与标量"]
+    C -- ".tolist()" --> L
+    L --> R["响应序列化器<br/>编码字节并发送"]
+```
+
+这里有几处容易低估的成本：
 
 1. JSON 解析创建大量 Python `dict`、`list`、`float` 对象；
 2. `np.array()` 将 Python 对象转换为连续的 NumPy 内存；
-3. `torch.from_numpy()` 创建张量描述对象，并可能共享 NumPy 的底层存储；
+3. `torch.from_numpy()` 对支持的 ndarray 创建 CPU Tensor 包装，共享底层存储；
 4. 推理过程可能将数据复制到 GPU；
 5. `tolist()` 又将底层数值转换回大量 Python 标量和列表对象；
 6. JSON 序列化再次遍历这些对象。
@@ -147,21 +155,21 @@ print(id(a) == id(b))
 - 对象是否可变；
 - 引用是否被容器、闭包、任务或缓存长期持有。
 
-值得注意的是，CPython 对部分常用对象做了缓存优化：小整数（-5 到 256）在解释器启动时预先创建并全局共享，短字符串也可能被驻留（intern）。这意味着对同一个小整数的多次引用实际指向同一个对象：
+CPython 会缓存常用小整数，编译器也可能合并同一个代码对象里的常量；字符串驻留又是另一项优化。**缓存范围与常量合并属于实现细节，不能用 `257 is 257` 证明是否新分配。** 用运行时构造把这两件事分开看：
 
-```python title="小整数缓存：256 是同一对象、257 不是"
-a = 256
-b = 256
-print(a is b)
-# True
+```python title="比较值用 ==，不要依赖整数对象是否复用"
+a = int("256")
+b = int("256")
+print(a == b, a is b)
+# 常见 CPython：True True（小整数缓存）
 
-a = 257
-b = 257
-print(a is b)
-# False（不在缓存范围内，可能创建了不同的对象）
+a = int("257")
+b = int("257")
+print(a == b, a is b)
+# 常见 CPython：True False；第二项不是 Python 语言保证
 ```
 
-这不影响正确性（应使用 `==` 而非 `is` 比较值），但有助于理解 `id()` 结果和小对象的内存行为。
+业务判断数值相等用 `==`，判断是否为单例 `None` 用 `is None`。对象身份只能说明当前这些引用是否指向同一对象，不能作为容量或生命周期协议。
 
 ### 2. Python 标量不是裸数据
 
@@ -214,7 +222,12 @@ flowchart TB
     L ~~~ A
 ```
 
-左边合计约 32 MB，而且散落在一百万个独立对象里，每个都要分配、计引用、被 GC 扫描；右边只有一个 Python 对象，数值本身没有对象头，紧挨着排在一块 4 MB 的原生内存里（`float64` 是 8 MB）。`sys.getsizeof(1.0)` 返回 24、`sys.getsizeof([0.0] * 1_000_000)` 返回 8,000,056（只算指针数组，不算它指向的对象），`np.arange(1_000_000, dtype=np.float32).nbytes` 是 4,000,000，可以自己验证这几个数。
+在常见 64 位 CPython 构建上，左边大约是 8 MB 引用数组加 24 MB 独立 float 对象，还可能有列表预留容量与分配器开销。float 通常不由循环 GC 跟踪，但列表会被跟踪；不能把一百万个 float 都算成 GC 扫描对象。右边的 ndarray 包装则指向一块 4 MB 数值缓冲区（`float64` 为 8 MB），数值本身没有独立 Python 对象头。
+
+`sys.getsizeof(1.0)` 常见为 24，`sys.getsizeof([0.0] * 1_000_000)` 常见为 8,000,056，但后一个表达式让所有元素引用**同一个** float，只能用来观察列表浅层大小，不能代表前面列表推导式的总占用。NumPy 的 `nbytes` 统计逻辑元素字节数，不等于该数组独占的内存量。
+
+> [!NOTE] 与 Java 对照：对象数组与原语数组
+> Java 的 `double[]` 在数组对象内保存连续数值，`Double[]` 保存到装箱对象的引用；Python `list[float]` 更接近后一种表示，但类型注解不会改变 list 的存储布局。Java 原语可以出现在局部变量、对象字段或数组元素中，并非统一“分配在栈上”；Python 的 NumPy / `array.array` 才提供紧凑数值缓冲区。
 
 这并不意味着“所有列表都应该改成 NumPy 数组”。如果数据包含复杂的异构结构，例如请求元数据、配置项或插件描述，Python 容器仍然是合理选择。关键在于区分：
 
@@ -329,18 +342,14 @@ print(config["timeout"])
 
 `backup = config` 只增加了一个引用，并没有创建新的字典。
 
-如果确实需要复制，可以使用浅拷贝：
-
-```python title="config.copy() 做浅拷贝"
-backup = config.copy()
-```
-
-此时修改顶层键值不会影响原字典：
+如果确实需要隔离顶层键的修改，可以使用浅拷贝。重新初始化配置，避免把前一个实验已经改成 2.0 的值带进来：
 
 ```python title="浅拷贝后改顶层键不影响原字典"
+config = {"timeout": 1.0}
+backup = config.copy()
 backup["timeout"] = 2.0
-print(config["timeout"])
-# 1.0
+print(config["timeout"], backup["timeout"])
+# 1.0 2.0
 ```
 
 但浅拷贝只复制最外层容器：
@@ -369,7 +378,7 @@ import copy
 backup = copy.deepcopy(config)
 ```
 
-深拷贝会递归复制嵌套对象，可能导致：
+深拷贝递归处理对象图，用 memo 避免重复复制与无限递归；不可变对象、用户定义的 `__deepcopy__` 等可以保留共享，并不是“每个节点必建新对象”。它仍可能导致：
 
 - 更高的 CPU 开销；
 - 更高的瞬时内存峰值；
@@ -406,12 +415,15 @@ new_config = {
 |---|---|---|---|---|
 | `backup = config` | 共享 | 共享 | 共享 | 会 |
 | `config.copy()` | 新建 | 共享 | 共享 | 会 |
-| `copy.deepcopy(config)` | 新建 | 新建 | 新建（可能很大） | 不会 |
+| `copy.deepcopy(config)` | 新建 | 新建 | 按类型协议递归处理（可变大对象可能很贵） | 不会 |
 | `{**config, "limits": {**config["limits"], …}}` | 新建 | 新建 | 共享 | 不会 |
 
 Table: 四种复制写法各复制了哪一层
 
 最后一行只复制要改的那条路径，其余对象原样共享——既不会误改原配置，也不用为 `vocab` 付深拷贝的代价。
+
+> [!NOTE] 与 Java 对照：浅拷贝与不可变容器
+> `new HashMap<>(config)` 同样只复制顶层映射；`List.copyOf()` / `Map.copyOf()` 提供不可修改的容器，也不会递归冻结元素。Python 的浅拷贝、Java 的容器复制都要求先说明哪一层可修改，不能把“新容器”当成“独立对象图”。
 
 ### 3. 切片可能创建副本
 
@@ -467,7 +479,21 @@ large_array = np.zeros(100_000_000, dtype=np.float32)
 small_view = large_array[:10]
 ```
 
-即使 `small_view` 只使用很少的数据，它仍然可能让 `large_array` 的底层内存保持存活。
+即使 `small_view` 只使用很少的数据，它仍然让整块底层存储保持存活。注意被保留的是存储及其所有权链，不要求原始变量名或每一层中间视图都存活。
+
+```mermaid
+%% 图：小视图通过所有权链保留大缓冲区，复制后才能独立存活
+flowchart TB
+    A["large_array 名称"] --> O["拥有数据的 ndarray"]
+    V["small_view<br/>10 个元素的元数据"] -- "base / 所有权链" --> O
+    O --> B["大缓冲区<br/>100,000,000 个 float32"]
+    V -- ".copy()" --> C["small_copy 的独立缓冲区<br/>只有 10 个 float32"]
+    D["del large_array<br/>只解除名称绑定"] -. "不移除视图的引用" .-> V
+```
+
+- `small_view.nbytes` 只有 40，但它保留的存储是 400 MB。
+- 只创建 `small_copy` 还不够；原视图仍在时，大缓冲区仍活着。要释放原视图等所有使用者，复制才换来了生命周期隔离。
+- 对 NumPy 基本切片通常得到视图，布尔掩码 / 整数数组索引通常复制；`base` 不是通用共享检测器，需判断是否重叠时可用 `np.shares_memory()`。
 
 如果只需要保留少量数据，可以显式复制：
 
@@ -501,7 +527,7 @@ print(data)
 # bytearray(b'Xbcdef')
 ```
 
-`memoryview` 本身不需要复制整个底层缓冲区，可以让函数访问已有内存的一部分。
+`memoryview` 本身不复制底层字节，会保持导出缓冲区的对象存活；`release()` 或退出其上下文管理器可结束该视图的访问。切片生成的其他视图也各自需要结束生命周期。
 
 例如：
 
@@ -521,7 +547,7 @@ header = parse_header(memoryview(data))
 - 音视频或图像缓冲区处理；
 - 推理输入的预处理。
 
-在处理固定格式的二进制协议时，`struct` 模块可以与 `memoryview` 配合使用，在不复制数据的前提下解析字段：
+在处理固定格式的二进制协议时，`struct` 模块可以与 `memoryview` 配合使用，在不复制输入字节的前提下解析字段（结果 tuple、int、float 仍需创建）：
 
 ```python title="struct.unpack_from 直接从 memoryview 解析字段"
 import struct
@@ -559,12 +585,24 @@ print(array[0])
 
 但如果数据类型或接口不兼容，转换可能发生复制：
 
-```python title="dtype 不一致时 torch.tensor 会复制"
+```python title="torch.tensor 总是复制，dtype 转换会进一步改变表示"
 array = np.zeros(8, dtype=np.float64)
 tensor = torch.tensor(array, dtype=torch.float32)
 ```
 
-这里通常需要创建新的 `float32` 存储，因为原数组是 `float64`。
+`torch.tensor(array)` 即使 dtype 相同也会复制；这里还把 `float64` 转成了 `float32`。`torch.from_numpy()` 才是对支持的 CPU ndarray 共享存储的接口，不能从“dtype 恰好相同”倒推出所有构造函数都零拷贝。
+
+| 操作 | 何时产生 / 谁消费 | 数据与所有者在哪里 | Java 对照 |
+|---|---|---|---|
+| `memoryview(data)` | 解析器按字节读已有输入 | 视图保留 buffer exporter，不复制数据 | `ByteBuffer.slice()` 共享底层缓冲区 |
+| `torch.from_numpy(array)` | 数值预处理交给 PyTorch | CPU 存储共享，Tensor 保留 ndarray 的所有权链 | native buffer 包装；需遵守绑定库生命周期 |
+| `torch.tensor(array)` | 显式构造独立 Tensor | 复制到新存储，device / dtype 由参数决定 | 分配目标缓冲区再复制 |
+| `small_view.copy()` | 少量结果需长期缓存 | 新存储由副本持有，原存储可在其他使用者退出后释放 | 复制一段 `ByteBuffer` 以隔离生命周期 |
+
+Table: 缓冲区交接时的创建动作、消费者与所有权
+
+> [!NOTE] 与 Java 对照：视图不是堆外分配器
+> Python 的 buffer protocol / `memoryview` 是访问已有存储的协议与视图，不等于 Java `allocateDirect()`。Java 的 `ByteBuffer.slice()` 也共享原存储；使用 FFM 的 `MemorySegment` 则要服从 `Arena` 生命周期，不能把 Python 视图延长所有者寿命的行为一一套过去。
 
 因此，不能仅根据代码表面判断是否发生了复制。应当结合以下因素验证：
 
@@ -685,13 +723,15 @@ values = array.tolist()
 - C/C++ 分配的原生内存；
 - 内存映射文件；
 - 线程栈；
-- GPU 驱动和设备缓存。
+- GPU 驱动的主机端状态与映射。
 
-因此，`tracemalloc` 只能观察 Python 层的一部分分配，不能解释所有 RSS 增长。
+设备显存本身不计入进程的 CPU RSS，不能拿显存增长直接解释那 280 MB RSS 差额。
+
+`tracemalloc` 跟踪通过 Python 分配接口或显式登记的内存块，不是整个进程的 malloc 拦截器。现代 NumPy 会把经其数据内存管理接口分配的缓冲区登记到独立追踪域；快照可用 `tracemalloc.DomainFilter(True, np.lib.tracemalloc_domain)` 筛选它们。外部传入的缓冲区、未接入追踪的扩展分配与 PyTorch 原生 Storage 则不能指望它完整覆盖。追踪启动之前已经存在的分配也不会被补记。
 
 例如：
 
-```python title="tracemalloc 只看到 Python 层的分配"
+```python title="tracemalloc 统计已登记的活动分配"
 import tracemalloc
 
 tracemalloc.start()
@@ -706,9 +746,11 @@ print(f"current={current}, peak={peak}")
 
 - C/C++ 扩展；
 - 深度学习框架；
-- GPU 分配器；
+- 分配器保留或碎片；
 - 内存映射；
-- 系统级缓存。
+- 驱动的主机端状态。
+
+GPU allocator 要另看显存指标；操作系统文件缓存也不能不加区分地全部算到本进程 RSS。
 
 ### 2. CPU 内存与 GPU 显存是不同的资源
 
@@ -753,11 +795,17 @@ array = cpu_tensor.numpy()
 values = array.tolist()
 ```
 
-这条链路可能包含：
+这条链路的边界应逐个确认：
 
-- GPU 到 CPU 的数据传输；
-- 张量与 NumPy 之间的共享或复制；
-- NumPy 数值到 Python 标量的对象转换。
+| 调用 | 触发动作与消费者 | 存储 / 生命周期 |
+|---|---|---|
+| `gpu_tensor.cpu()` | GPU 输出交给 CPU 后处理 | 对 CUDA Tensor 分配 CPU 存储并传输；已在 CPU 上则可直接返回原对象 |
+| `cpu_tensor.numpy()` | NumPy 消费 CPU 结果 | 默认要求 CPU、无需梯度、支持的 dtype / layout 等条件；成功时共享存储，并非总是复制 |
+| `array.tolist()` | JSON 序列化消费 Python 值 | 创建列表与 Python 标量；大结果可能显著增加对象数与峰值 |
+
+Table: 输出从设备回到响应时的传输、共享与对象化边界
+
+需要梯度的 Tensor 通常先 `detach()`，但 detach 只断开 autograd 关系，不复制数据。`numpy(force=True)` 等版本相关便捷接口可能隐含设备迁移或状态解析，不能据此承诺零拷贝。
 
 在调试代码中，下面这种写法尤其需要注意：
 
@@ -787,7 +835,7 @@ print(gpu_tensor.flatten()[:8].cpu().tolist())
 
 ### 1. 引用计数：CPython 的基本回收机制
 
-CPython 中，每个对象都有一个引用计数器（`ob_refcnt`）。当引用计数降为零时，对象立即释放：
+在本文基准的带 GIL CPython 中，普通对象的引用计数降为零时通常立即开始销毁；`__del__` 复活对象等情况仍可能改变结果。下面用普通 list 观察计数，避免把 3.12 起的 immortal 对象等实现优化混进来：
 
 ```python title="sys.getrefcount 观察引用计数的增减"
 import sys
@@ -805,7 +853,7 @@ print(sys.getrefcount(a))
 # 2
 ```
 
-引用计数的优点是确定性释放——对象不再被引用时立即回收，不需要等待 GC 轮次。
+对不含循环的普通对象，及时销毁是 CPython 引用计数的常见优势，但并非 Python 语言保证。free-threaded 构建存在偏置 / 延迟引用计数等不同实现；外部资源仍应使用 `with` 或显式 close。
 
 但引用计数无法处理循环引用：
 
@@ -826,7 +874,7 @@ del b
 
 ### 2. 循环垃圾回收器
 
-为了处理循环引用，CPython 引入了分代循环垃圾回收器。它将对象分为三代：
+为了处理循环引用，CPython 还会跟踪可能参与循环的容器等对象。按 3.10–3.12 的常见路径，它将被跟踪对象分为三代：
 
 - **Generation 0**：新创建的对象，回收频率最高；
 - **Generation 1**：经历一次 Gen 0 回收后存活的对象；
@@ -843,19 +891,25 @@ del b
 
 Table: 循环 GC 用「引用计数减组内引用」判断两个互相引用的 Node 是否可达
 
-所以 GC 的开销与这一代里容器对象的数量成正比——这就是下面"存活对象多时 Gen 2 回收会造成尖刺"的原因。
+所以 GC 的扫描成本与候选容器及其引用边的数量有关——这就是下面"存活对象多时 Gen 2 回收会造成尖刺"的原因。
 
 可以查看和调整各代的阈值：
 
-```python title="gc.get_threshold() 与各代阈值的含义"
+```python title="读取当前解释器的 GC 阈值，而不是照抄另一版本的默认值"
 import gc
+import sys
 
-print(gc.get_threshold())
-# (700, 10, 10)   ← 3.12 及之前；3.13 是 (2000, 10, 10)，3.14 改为增量 GC、只剩两代，数字与含义都变了
-# 含义：Gen 0 中分配数 - 释放数达到 700 时触发 Gen 0 回收；
-# Gen 0 回收 10 次后触发 Gen 1 回收；
-# Gen 1 回收 10 次后触发 Gen 2 回收。
+print(sys.version_info[:3], gc.get_threshold())
+# CPython 3.12 常见阈值：(700, 10, 10)，应用可能自行调整
 ```
+
+在 3.10–3.12 中，年轻代触发主要看被跟踪对象的净分配计数；代际收集次数决定升级收集，最老代还有额外启发式，不是每十次必然全堆扫描。它看的是对象计数，不直接按占用字节数触发。
+
+> [!NOTE] 版本边界：3.14 的 GC 还要看补丁版本
+> 3.14.0–3.14.4 引入的增量方案去掉了中间代；[3.14.5 起恢复三代行为](https://docs.python.org/3.14/library/gc.html)，包括 generation 1 与 threshold2 的职责。free-threaded 构建还会参考进程内存增长。不要只写“3.14 只有两代”，调优前先核对完整版本和当前阈值。
+
+> [!NOTE] 与 Java 对照：循环 GC 不是 JVM 整堆回收的翻版
+> Java 的可达性 GC 是对象回收的主要机制，具体分代与并发策略由收集器决定；CPython 的循环 GC 补充引用计数，候选是被跟踪对象。Python float 等原子值通常无需循环扫描，GPU Storage 是否存活也不能只靠 GC 代际解释。
 
 在 AI-Infra 服务中，需要注意以下几点：
 
@@ -897,24 +951,24 @@ class Resource:
         print(f"releasing {name}")
 ```
 
-`weakref.finalize()` 不阻碍垃圾回收，且可以显式调用 `_finalizer()` 提前清理。
+这里 finalizer 只持有清理所需的 `name`，不会反向强引用 `self`，也可以显式调用 `_finalizer()` 提前清理。不要传绑定方法 `self._cleanup`，或把 `self` 放进参数；那会让清理器保留它本该观察的对象。finalize 仍不保证在进程被强杀时执行。
 
 对于 AI-Infra 场景中的资源管理（GPU 句柄、网络连接、临时文件），优先使用上下文管理器（`with` 语句），而不是依赖 `__del__`。
 
 ### 4. pymalloc：CPython 的内存分配器
 
-CPython 使用名为 pymalloc 的专用分配器来管理小对象（≤ 512 bytes）。它的结构是：
+常见带 GIL 的 CPython 使用 pymalloc 优化不超过 512 bytes 的小额分配请求；门槛看的是每次分配请求大小，不是一个对象递归引用的数据总量。图保留 Arena / Pool / Block 三层结构：
 
 ![pymalloc 的 Arena、Pool、Block 三层结构](/img/in-post/python-memory-management-and-optimization-pymalloc-layers.svg)
 
-- **Arena**：向 OS 申请，3.10 以前 256 KiB，3.10+ 64 位平台 1 MiB。两种配置都最多切成 64 个 Pool（256 KiB ÷ 4 KiB = 1 MiB ÷ 16 KiB = 64）。
-- **Pool**：3.10 以前 4 KiB，3.10+ 16 KiB；按 size class 划分，一个 Pool 开头是 pool header，后面只切一种大小的 block。图里各 Pool 分到的档位只是示例，橙色是 48 B 这一档，放大的是 Pool 1。
+- **Arena**：常见 64 位 3.10+ 构建启用大 arena（1 MiB）与大 pool（16 KiB）；较早版本或其他构建可为 256 KiB / 4 KiB。每个 arena 最多切成约 64 个 pool，实际还有对齐和管理开销，不能当作语言常量。
+- **Pool**：上述大池配置为 16 KiB，其他构建可能为 4 KiB；按 size class 划分，一个 Pool 开头是 pool header，后面只切一种大小的 block。图里各 Pool 分到的档位只是示例，橙色是 48 B 这一档，放大的是 Pool 1。
 - **Block**：64 位平台按 16 字节对齐分档，16, 32, 48, …, 512 bytes，共 32 档；32 位平台按 8 字节分档，8, 16, 24, …, 512 bytes。
 
 关键行为：
 
-- **小对象**由 pymalloc 管理，大对象直接走系统 `malloc`；
-- Pool 释放后归还 Arena，但 **Arena 只有在所有 Pool 都释放后才归还 OS**；
+- 小额分配走 pymalloc，大额请求回退到 raw allocator；自定义 allocator 和 `PYTHONMALLOC` 还可能改变路径；
+- pool 空闲后可复用，arena 完全空闲才具备整体归还条件；实现也可能保留空 arena，不能承诺清空后 RSS 必降；
 - 这意味着：即使大量 Python 小对象被释放，进程 RSS 可能仍然不下降。
 
 这是实际排查中最容易引起困惑的现象：
@@ -925,6 +979,11 @@ CPython 使用名为 pymalloc 的专用分配器来管理小对象（≤ 512 byt
 4. 但 arena 中仍有少量存活对象
 5. arena 不释放 → RSS 不降
 6. 看起来像"内存泄漏"，实际是分配器保留
+
+3.13+ 的 free-threaded 构建默认使用 mimalloc，不能直接套用上面的 pymalloc 分层；带 GIL 构建也可能被显式换成其他分配器。
+
+> [!NOTE] 与 Java 对照：对象死亡与 RSS 下降是两件事
+> JVM 收集器和 CPython allocator 都可能保留已释放空间供下次复用；能否归还 OS 取决于整块空间是否空闲、碎片与分配器策略。不能把“Java GC 后能还、Python 不能还”当作语言差异，应同时观察活动数据、分配器保留量和 RSS。
 
 因此，在判断是否发生内存泄漏时，需要区分"分配器保留"和"对象仍被引用"。`tracemalloc` 可以帮助定位后者，但对分配器保留行为无能为力。
 
@@ -1007,6 +1066,23 @@ def create_handler(large_model):
 - 局部变量；
 - traceback。
 
+回到前面的数值请求：若把失败的 Task 放进全局 `history`，即使请求协程已经退出，下面的链仍可能存在：
+
+```mermaid
+%% 图：失败任务沿异常与 traceback 保留请求缓冲区的路径
+flowchart TB
+    H["长期存活的 history 容器"] --> T["失败 Task / Future"]
+    T --> E["保存的异常对象"]
+    E --> B["traceback"]
+    B --> F["执行帧的局部变量<br/>payload、array、tensor"]
+    F --> S["原生 Storage / 大缓冲区"]
+    C["GC 看到从 history 可达"] -. "仍然存活，不能回收" .-> T
+```
+
+- 并非所有完成 Task 都保留所有局部变量；这里展示的是失败异常仍持有 traceback 的具体路径，成功结果也可能单独保留大张量。
+- `except Exception as error` 的异常目标会在离开 except 时自动清除；把 `error`、traceback 或 Task 另存到历史容器，才可能长期保留这条链。
+- 诊断工具展示分配点，引用链决定为什么仍然活着。清理 history 或只保留轻量错误摘要，比反复 `gc.collect()` 更直接。
+
 因此，任务完成后应及时清理不再需要的引用，避免将任务对象无限保存。
 
 > 关于异步任务、Future 和回调的生命周期管理，参见[《Python 并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
@@ -1036,7 +1112,10 @@ registry["default"] = model
 del model
 ```
 
-当对象没有其他强引用时，弱引用容器中的条目也会自动消失。
+当对象最终被回收时，弱引用容器中的条目会自动消失；若对象处于不可达循环中，清理仍可能等循环 GC。
+
+> [!NOTE] 与 Java 对照：弱键与弱值不是同一种缓存
+> `WeakValueDictionary` 弱持有值，更接近 Java 中显式使用 `WeakReference<V>` 的注册表；`WeakHashMap` 弱持有的是键。两者都不负责保证业务对象存活，也不能替代容量与失效策略。
 
 弱引用适合：
 
@@ -1074,7 +1153,7 @@ value = [1, 2, 3]
 print(sys.getsizeof(value))
 ```
 
-`sys.getsizeof()` 通常只返回对象自身的浅层大小，不会递归计算嵌套对象：
+`sys.getsizeof()` 通过类型提供的 `__sizeof__` 计算，不会递归遍历整个引用图。对 list，通常包含对象头和引用数组，不含元素对象：
 
 ```python title="getsizeof 不递归嵌套列表"
 items = [[1, 2, 3], [4, 5, 6]]
@@ -1083,9 +1162,11 @@ print(sys.getsizeof(items))
 
 这个结果不包含嵌套列表和其中元素的完整大小。
 
+类型可以把自己拥有的存储算进去：NumPy 拥有数据的 ndarray 常把其数据区计入 `getsizeof()`，视图通常只计描述信息；`ndarray.nbytes` 则是逻辑元素字节数，可能与别的数组重叠。不能把每个视图的 `nbytes` 相加当成物理占用。
+
 因此，它适合做局部观察，不适合直接作为复杂对象的总内存统计工具。
 
-### 3. 使用 `tracemalloc` 定位 Python 分配
+### 3. 使用 `tracemalloc` 定位已登记分配
 
 ```python title="tracemalloc 前后快照对比找分配点"
 import tracemalloc
@@ -1113,8 +1194,8 @@ for statistic in snapshot_after.compare_to(
 
 但它不能完整反映：
 
-- NumPy 底层缓冲区；
-- PyTorch 原生分配；
+- NumPy 引用的外部缓冲区或未登记分配（NumPy 自管数据通常可追踪）；
+- PyTorch 原生 Storage 分配；
 - GPU 显存；
 - 所有 C 扩展分配。
 
@@ -1199,7 +1280,10 @@ print(torch.cuda.memory_reserved())
 print(torch.cuda.memory_summary())
 ```
 
-需要注意的是，`torch.cuda.memory_reserved()` 通常大于 `memory_allocated()`，因为 PyTorch 的缓存分配器会保留已释放的显存块以供复用。这不是泄漏，而是分配器的正常行为。
+需要注意的是，`torch.cuda.memory_reserved()` 包含缓存分配器当前管理的活动块与空闲块，通常大于 `memory_allocated()`。差值可能来自可复用缓存与碎片，不能只凭差值判定有无泄漏；持续增长仍需结合活动张量和压力阶段分析。`nvidia-smi` 还包括 CUDA 上下文、库工作区等额外占用，不等于 `memory_reserved()`。
+
+> [!NOTE] 与 Java 对照：设备内存由运行时管理
+> JVM 堆分析与 Python `tracemalloc` 都不能单独解释 CUDA allocator 的全部占用。无论通过 Java 绑定还是 Python 包装调用引擎，都要使用该引擎的设备统计，按其所有权和异步完成协议释放资源。
 
 如果需要从命令行监控，可以使用：
 
@@ -1288,14 +1372,14 @@ def predict(payload):
     tensor = torch.tensor(array, device="cuda")
 
     output = model(tensor)
-    return output.cpu().numpy().tolist()
+    return output.detach().cpu().numpy().tolist()
 ```
 
 这段代码可能存在以下问题：
 
 1. `payload` 中的 Python 列表本身占用较多对象内存；
 2. `np.array()` 创建 NumPy 数组；
-3. `torch.tensor()` 通常创建新的张量存储；
+3. `torch.tensor()` 创建独立张量存储；
 4. 张量被复制到 GPU；
 5. `output.cpu()` 将结果复制回 CPU；
 6. `.numpy()` 创建或暴露 NumPy 表示；
@@ -1324,11 +1408,13 @@ def predict(array: np.ndarray):
     tensor = torch.from_numpy(array).to(device="cuda")
     output = model(tensor)
 
-    # 如果下游可以直接消费张量（如内部 pipeline 或 gRPC），直接返回
+    # 如果下游是可接收 Tensor 的进程内 pipeline，可直接交接
     return output
     # 如果必须返回给 HTTP 客户端，在明确的边界做一次转换
-    # return output.cpu().numpy().tolist()
+    # return output.detach().cpu().numpy().tolist()
 ```
+
+推理服务还应在加载时调用 `model.eval()`，在执行边界使用 `torch.inference_mode()` / `torch.no_grad()`（它们与 eval 的职责不同），避免意外保存 autograd 图。gRPC / HTTP 发送前仍需按协议序列化，跨设备也仍有传输成本，不能把返回 Tensor 称为整个链路零拷贝。
 
 这个版本并不适用于所有 API，但它展示了一个重要原则：
 
@@ -1378,22 +1464,20 @@ def predict(array: np.ndarray):
 
 ## 十四、附：Java 与 Python 内存管理对照
 
-| 维度 | Java | Python (CPython) |
-|---|---|---|
-| 基本回收机制 | 可达性分析 + 分代 GC（G1/ZGC/Shenandoah） | 引用计数 + 分代循环 GC |
-| 回收时机 | GC 线程异步回收，不确定 | 引用计数归零时立即回收；循环引用依赖 GC 轮次 |
-| 值类型 | `int`/`long`/`double` 等原语不装箱，栈上分配 | 一切皆对象，`int`/`float` 也是堆对象 |
-| 数组 | `int[]` 连续原语内存 | `list` 存引用；需 `array` / NumPy 才连续 |
-| 堆外内存 | `ByteBuffer.allocateDirect()` / `Unsafe` | `memoryview` / buffer protocol |
-| 终结器 | `Cleaner` / `PhantomReference`（推荐）；`finalize()` 已废弃 | `weakref.finalize()`（推荐）；`__del__` 有陷阱 |
-| 内存分配器 | JVM 自管理堆（TLAB + 分代） | pymalloc（arena → pool → block） |
-| RSS 不下降 | GC 后可归还 OS（G1/ZGC 支持） | pymalloc arena 可能不归还 OS |
-| 内存分析工具 | JVisualVM / MAT / JFR / async-profiler | `tracemalloc` / `objgraph` / `pympler` / `memray` |
-| GPU 内存 | 不直接涉及（由 native 库管理） | 同样由 CUDA runtime / PyTorch 缓存分配器管理 |
-| 弱引用 | `WeakReference` / `WeakHashMap` | `weakref.ref()` / `WeakValueDictionary` |
-| 零拷贝 | NIO `MappedByteBuffer` / Netty `CompositeByteBuf` | `memoryview` / `torch.from_numpy()` 共享存储 |
+这里仅保留跨主题的查阅入口，具体对象、复制、GC 与设备边界已在相应小节就近对照。
 
-Table: Java 与 Python 内存管理对照
+| 维度 | Java | Python（本文的 CPython 基准） |
+|---|---|---|
+| 对象回收 | 以可达性为基础；策略取决于 GC | 普通对象引用计数 + 被跟踪循环的 GC |
+| 数值表示 | 原语字段 / 原语数组紧凑；装箱对象另计 | list 存引用；NumPy / array 等提供紧凑数值缓冲区 |
+| 共享视图 | ByteBuffer slice；FFM 遵守 Arena 生命周期 | memoryview、ndarray view、from_numpy 遵守各自所有权 |
+| 外部资源 | try-with-resources / AutoCloseable 优先；Cleaner 兜底 | with / close 优先；weakref.finalize 兜底 |
+| allocator 与 RSS | GC 后保留 / 归还策略依赖收集器与碎片 | pymalloc / 原生 allocator 保留空间；free-threaded 另看 mimalloc |
+| 排查工具 | JFR / MAT 看堆与保留链；native 指标另看 | tracemalloc 看已登记分配与栈；memray 等补充原生分配 |
+| GPU 内存 | 由所绑定的 native / 设备运行时管理 | 同样由 CUDA / 推理框架 allocator 管理 |
+| 非所有权关系 | WeakReference、弱键 WeakHashMap | weakref、弱值 WeakValueDictionary，不能混为一一对应 |
+
+Table: Java 与 Python 的内存职责速查
 
 ## 十五、本文小结
 
@@ -1445,7 +1529,7 @@ Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收
 
    <details markdown="1"><summary>答案</summary>
 
-   前三个不复制（共享 storage，`numpy()` 共享 CPU 内存）；`clone()` 总是复制；`contiguous()` 只在不连续时复制。共享意味着一个小切片会让整个大缓冲区活着。
+   对常见稠密 Tensor：基本切片 `x[::2]` 共享 storage；`view(-1)` 仅在步长兼容时返回视图，否则抛错；默认 `numpy()` 仅在 CPU、无需梯度、支持 dtype / layout 等条件满足时共享，否则报错。`clone()` 创建副本，`contiguous()` 在布局已满足时返回原对象，否则复制。共享视图可能让整个大缓冲区活着。
 
    </details>
 
@@ -1453,7 +1537,7 @@ Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收
 
    <details markdown="1"><summary>答案</summary>
 
-   引用计数处理不了循环引用（a→b→a）；带 `__del__`、互相引用的对象、闭包捕获 self 的回调、异常对象持有的 traceback 帧（`except Exception as e` 后 `e` 持有整条栈上的局部变量）都要等 GC；GC 触发按分配计数，不按内存大小。
+   引用计数单独处理不了不可达循环（a→b→a）；相互引用的实例、捕获 self 且被 self 保存的回调、异常与帧之间的循环都可能等待循环 GC。单有 `__del__` 并不必然延迟回收，另存异常 / Task 形成的可达链也不会被 GC 强行清除。except 的异常目标离开处理块会自动清除。触发条件要按解释器与补丁版本核对，见第八章。
 
    </details>
 
@@ -1461,7 +1545,7 @@ Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收
 
    <details markdown="1"><summary>答案</summary>
 
-   CUDA caching allocator 缓存的、已从驱动申请但当前空闲的块（`memory_reserved` − `memory_allocated`），加上 CUDA context 本身几百 MB；不是泄漏，`empty_cache()` 可归还但会让下次分配变慢。碎片化会让 reserved 远大于 allocated。
+   差额可能包括缓存 allocator 的空闲块 / 碎片、CUDA context、库工作区与其他未计入 PyTorch allocator 的分配。先对照 `memory_reserved()`，再查设备运行时；不能把全部差额认定为缓存或直接排除泄漏。`empty_cache()` 只能释放可释放的未用缓存，不释放活跃张量，也不保证回到初始占用。
 
    </details>
 
@@ -1469,8 +1553,8 @@ Python 内存管理的核心，不只是调用 `del` 或手动触发垃圾回收
 
    <details markdown="1"><summary>答案</summary>
 
-   `tracemalloc` 快照对比看 Python 对象分配点；RSS 涨而 tracemalloc 不涨 → 原生（pymalloc arena 碎片、C 扩展、glibc malloc），用 `jemalloc` / `malloc_trim` 或 `memray`；设备内存看 `memory_summary()` 与 `nvidia-smi`。先分层再找源。
+   `tracemalloc` 快照对比看已登记分配点（含现代 NumPy 自管数据）；RSS 涨而 traced 不涨，继续排查未追踪的 native 分配、allocator 保留与映射，用原生分配分析器和进程指标核对。设备内存单独看 `memory_summary()`、allocated / reserved 与 `nvidia-smi`。先分层，再判断引用保留、碎片还是缓存。
 
    </details>
 
-[^q0]: **由 Python 管理的**：对象头、容器、字符串、闭包、异常与 traceback、`Tensor` 的 Python 包装——引用计数归零立即释放，循环引用等分代 GC；小对象经 pymalloc 的 arena，释放后不一定还给操作系统（[第三章](#三python-对象模型与内存开销)、[第八章](#八引用计数垃圾回收与内存分配器)）。**在原生缓冲区或设备上的**：`Tensor` 的数据在 `Storage` 里，CPU 侧由 allocator、GPU 侧由 CUDA caching allocator 管——`nvidia-smi` 看到的是 reserved，`memory_allocated()` 才是在用的；PyTorch 的 Tensor 存储、Arrow 的 buffer 走自己的分配器，`tracemalloc` 看不见；NumPy 是例外——它通过 `PyDataMem_*` 接入了 tracemalloc 的追踪域（本地 3.12 验证：分配 400000 字节的 ndarray，traced 增长 400096），所以能看到 NumPy 数组、看不到 torch / CUDA 的（[第五章](#五缓冲区协议与底层内存共享)、[第七章](#七python-与原生运行时的内存边界)）。**创建副本或延长生命周期的操作**：`clone()`、不连续时的 `contiguous()`、`.tolist()`、`np.array(x)` 复制；切片、`view`、`numpy()` 共享并让整块缓冲区活着；闭包捕获、`except ... as e` 持有的 traceback 帧、全局缓存、`lru_cache`、日志 handler 都会延长生命周期（[第四章](#四复制视图与对象共享)、[第六章](#六数据布局与隐式复制)、[第九章](#九缓存引用与对象生命周期)）。**持续增长时怎么定位**：先分层——RSS 涨而 `tracemalloc` 不涨是原生或碎片，`memory_reserved` 涨是 CUDA 缓存或碎片；再用 `tracemalloc` 快照对比、`objgraph` 找引用链、`memray` 看原生分配、`memory_summary()` 看设备（[第十章](#十常见内存问题的排查方法)、[第十二章](#十二一个简单的内存审查案例)、[第十三章](#十三内存优化检查清单)）。
+[^q0]: **先分清所有权与量尺**：Python 包装对象通过引用连接 ndarray / Tensor 的原生存储，视图、缓存、闭包、Task 与 traceback 都可能延长它的寿命；普通对象及时销毁是 CPython 的常见行为，不是语言保证（[第三章](#三python-对象模型与内存开销)、[第四章](#四复制视图与对象共享)、[第九章](#九缓存引用与对象生命周期)）。`tracemalloc` 看已登记分配，现代 NumPy 自管数据会主动接入，PyTorch 原生 Storage 与设备分配需要其他统计；GPU 显存不计入 CPU RSS，`nvidia-smi` 也不等于 `memory_reserved()`（[第五章](#五缓冲区协议与底层内存共享)、[第七章](#七python-与原生运行时的内存边界)）。**副本与保留要一起看**：基本切片和支持条件下的 `numpy()` / `from_numpy()` 共享，`torch.tensor()`、`clone()` 与 `.tolist()` 创建新表示；连续性、dtype、设备变化还会触发复制（[第六章](#六数据布局与隐式复制)、[第十二章](#十二一个简单的内存审查案例)）。**增长时先分层**：对齐活动分配、引用链、RSS、设备 allocated / reserved 的时间线，再判断保留、碎片或泄漏；GC 与 allocator 策略需核对完整版本（[第八章](#八引用计数垃圾回收与内存分配器)、[第十章](#十常见内存问题的排查方法)、[第十三章](#十三内存优化检查清单)）。
