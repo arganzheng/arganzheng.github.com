@@ -10,6 +10,7 @@
 # 1. Liquid-looking {{ / {% inside code blocks not wrapped in {% raw %}
 #    (one such draft aborts the whole build, and _site silently stays stale under jekyll serve)
 # 1b. Q&A footnotes: every [^qN] marker has exactly one definition, numbered in reading order
+# 1c. tools/*.test.rb — unit tests of the _plugins/ text transforms (tools/run-tests.sh)
 # 2. css/argan-blog{,.min}.css are exactly what less/ compiles to (npm run css)
 # 3. js/blog.min.js is exactly what js/*.js bundle to (npm run js)
 # 4. jekyll build --future --unpublished --strict_front_matter -> _site-check (must print "done in";
@@ -34,6 +35,9 @@ python3 tools/qfootnotes.py --check >/dev/null && ok "every [^qN] has one defini
 
 step "glossary data files"
 ruby tools/glossary-check.rb && ok "glossary terms consistent and reachable" || bad "glossary-check failures — see above"
+
+step "Plugin unit tests (tools/*.test.rb)"
+tools/run-tests.sh && ok "all test suites pass" || bad "a plugin test failed — see above (tools/run-tests.sh <file> reruns one)"
 
 step "css/ is built from less/"
 tools/build-css.sh --check >/dev/null 2>&1 && ok "css/argan-blog{,.min}.css match less/" || bad "css/ is stale or hand-edited — run: npm run css"

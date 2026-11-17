@@ -75,6 +75,12 @@ same way), `css/` and `js/blog.min.js` up to date with their sources,
 printed `done in` (unpublished too, so a `published: false` post cannot park
 a Liquid error or a dead anchor that surfaces the day it is published;
 `_site-check/` is gitignored and leaves the `jekyll serve` `_site/` alone),
+`tools/run-tests.sh` (every `tools/*.test.rb`, the Minitest suites of the
+`_plugins/` text transforms — `code_titles`, `glossary`, `highlights`,
+`table_rowspan`, `wikilinks`; a new plugin test only needs to be dropped
+into `tools/`. Not in `check.yml` yet — the step `run: tools/run-tests.sh`
+before the build has to be pushed with a token that has the `workflow`
+scope),
 `tools/fa-subset.py --check`, lychee offline over `_site-check` (skipped when
 lychee is not installed, or `SKIP_LINKS=1`), `git diff --check`. Bypass once with
 `git push --no-verify`. `tools/check-render.cjs` (headless Chrome) is not part
