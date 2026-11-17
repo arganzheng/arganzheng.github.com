@@ -279,7 +279,7 @@ CPython 的 GIL（Global Interpreter Lock）保证同一时刻只有一个线程
 1. **任何触碰 `PyObject` 的操作（包括 `Py_INCREF`）都必须在持有 GIL 时进行。**
 2. 一个从 Python 进入 C++ 的调用，在进入时**已经持有** GIL；如果 C++ 代码要长时间计算或阻塞，应当主动释放，让其他 Python 线程运行，做完再拿回来。
 
-C API 的原语是 `PyEval_SaveThread()`（释放，返回当前线程状态）和 `PyEval_RestoreThread(tstate)`（重新获取）。Python 自己的 `Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS` 宏就是这两个调用。对于一个"不知道自己有没有 GIL"的 C++ 线程（比如 autograd 引擎的工作线程）要回调 Python，用 `PyGILState_Ensure()/PyGILState_Release()`。第四章会看到 pybind11 把它们包成了两个 RAII 守卫。
+C API 的原语是 `PyEval_SaveThread()`（释放，返回当前线程状态）和 `PyEval_RestoreThread(tstate)`（重新获取）。Python 自己的 `Py_BEGIN_ALLOW_THREADS / Py_END_ALLOW_THREADS` 宏就是这两个调用。对于一个"不知道自己有没有 GIL"的 C++ 线程（比如 autograd 引擎的工作线程）要回调 Python，用 `PyGILState_Ensure()/PyGILState_Release()`。第四章会看到 pybind11 为这两个方向各提供一个 RAII 守卫。
 
 一个常被忽略的点：`gil_scoped_release` 之后**不能析构任何 `py::object`**，因为析构会 `Py_DECREF`。这条规则和 PyTorch 的一个设计直接相关——`TensorImpl` 析构时可能要 `Py_DECREF` 它的 Python 包装对象，而析构可能发生在任何线程、任何 GIL 状态下。第五章会看到 PyTorch 怎么处理。
 
@@ -555,10 +555,11 @@ flowchart TB
     LOADOK{"每个参数的 type_caster::load<br/>都返回 true？"}
     MORE{"还有重载没试？"}
     ROUND{"这一轮已经是 convert=true？"}
-    TYPEERR["设置 TypeError，列出全部候选签名<br/>返回 nullptr"]
+    TYPEERR["设置 TypeError，列出全部候选签名<br/>返回 nullptr<br/>（运算符重载改为返回 NotImplemented）"]
     RUN["调用被绑定的 C++ 函数<br/>实参取自各个 caster 的 value"]
     THROWN{"C++ 函数抛异常？"}
-    TRANS["异常翻译器 PyErr_SetString<br/>返回 nullptr"]
+    RESTORE["restore()：把它带着的 Python 异常<br/>放回错误指示器，返回 nullptr"]
+    TRANS["交给已注册的异常翻译器<br/>设置对应的 Python 异常，返回 nullptr"]
     CASTRET["返回值的 type_caster::cast<br/>得到 new reference，交还解释器"]
     PYCALL --> GLUE --> PICK --> LOADOK
     LOADOK -->|"是"| RUN
@@ -568,11 +569,19 @@ flowchart TB
     ROUND -->|"否：改用 convert=true 从头再试"| PICK
     ROUND -->|"是"| TYPEERR
     RUN --> THROWN
-    THROWN -->|"是"| TRANS
+    THROWN -->|"error_already_set"| RESTORE
+    THROWN -->|"其他 C++ 异常"| TRANS
     THROWN -->|"否"| CASTRET
 ```
 
-三个出口里有两个返回 `nullptr`，都遵守 2.4 节的 C API 约定：先设好错误指示器再返回空指针。只有一个重载时没有 `convert=false` 那一轮，第一次 `load` 失败就直接走到 `TypeError`。caster 对象是胶水函数的局部变量，从 `load` 活到 C++ 函数返回——第七章几个 caster 把转换结果存在自己成员里，依赖的就是这段生命期。
+四个出口里有三个返回 `nullptr`，都遵守 2.4 节的 C API 约定：先设好错误指示器再返回空指针。图对应的是 pybind11 3.0.1（PyTorch v2.10.0 的 `third_party/pybind11`）`pybind11.h` 里的 `cpp_function::dispatcher`，有四处细节图上放不下：
+
+- 只有一个重载时没有 `convert=false` 那一轮，第一次 `load` 失败就直接走到 `TypeError`。
+- 第二轮只重试那些至少有一个参数允许转换的重载；参数全部标了 `.noconvert()` 的重载不会再试。
+- 被绑定的是运算符（`__add__` 这类，注册时带 `py::is_operator()`）时，全部不匹配返回的是 `NotImplemented` 而不是 `TypeError`，这样 Python 还能去试右操作数的反向方法。
+- C++ 函数一旦抛出异常就走右边两个出口，不会再去试下一个重载；唯一的例外是 `reference_cast_error`，它被当作参数转换失败。
+
+caster 对象是胶水函数的局部变量，从 `load` 活到 C++ 函数返回——第七章几个 caster 把转换结果存在自己成员里，依赖的就是这段生命期。
 
 ### 5. 类绑定：`py::class_` 与 holder
 
@@ -599,7 +608,7 @@ PYBIND11_DECLARE_HOLDER_TYPE(T, c10::intrusive_ptr<T>, true)
 
 ### 6. 异常翻译：C++ `throw` 如何变成 Python `raise`
 
-pybind11 生成的胶水函数用 `try/catch` 包住整个调用。默认翻译规则：`std::exception` 派生类按类型映射（`std::invalid_argument → ValueError`、`std::out_of_range → IndexError`、其他 `std::exception → RuntimeError`），`py::error_already_set`（表示 Python 错误指示器已经设好）直接返回 `nullptr`。翻译的方式就是 `PyErr_SetString(PyExc_XXX, e.what())` 再返回 `nullptr`——2.4 节那套 C API 约定。
+pybind11 生成的胶水函数用 `try/catch` 包住整个调用。默认翻译规则：`std::exception` 派生类按类型映射（`std::invalid_argument → ValueError`、`std::out_of_range → IndexError`、其他 `std::exception → RuntimeError`），`py::error_already_set`（它带着一个已经发生的 Python 异常）不经过翻译：`restore()` 把那个异常放回错误指示器，然后返回 `nullptr`。翻译的方式就是 `PyErr_SetString(PyExc_XXX, e.what())` 再返回 `nullptr`——2.4 节那套 C API 约定。
 
 PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::ValueError`、`c10::NotImplementedError`、`c10::OutOfMemoryError`……），默认规则只会把它们全变成 `RuntimeError`。所以 `torch/csrc/Module.cpp` 的 `initModule` 里注册了自己的翻译器：
 
@@ -685,9 +694,9 @@ PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::Value
 
 ### 1. 两个守卫的实现
 
-pybind11 把 2.3 节的 C API 原语包成两个 RAII 守卫。`pybind11/gil.h`：
+pybind11 为 2.3 节的两个方向各提供一个 RAII 守卫。先看释放方向，`pybind11/gil.h`（pybind11 3.0.1）：
 
-```cpp title="gil_scoped_release 与 gil_scoped_acquire 的实现"
+```cpp title="gil_scoped_release 的实现（节选）"
 class gil_scoped_release {
 public:
     // PRECONDITION: The GIL must be held when this constructor is called.
@@ -718,7 +727,7 @@ private:
 
 构造 = `PyEval_SaveThread()`（释放 GIL，记住线程状态），析构 = `PyEval_RestoreThread()`（拿回 GIL）。删除拷贝。这和[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)里的 `NoGradGuard`、`DeviceGuard` 是同一个"守卫"模式：管理的不是资源，是一段"上下文"，靠析构保证配对，异常路径也不会漏。
 
-`gil_scoped_acquire` 相反：构造时如果当前线程没有 GIL 就获取（必要时为这个线程创建 `PyThreadState`），析构时释放。它是可重入的——已经持有 GIL 的线程再构造一个 `gil_scoped_acquire` 只是计数 +1，所以 2.4 节 `python_error` 的析构里可以无条件写 `gil_scoped_acquire`。
+`gil_scoped_acquire` 相反：构造时如果当前线程没有 GIL 就获取（必要时为这个线程创建 `PyThreadState`），析构时释放。默认实现不调用 `PyGILState_Ensure`，而是自己管理线程状态：用 `PyThreadState_New` 建状态，用 `PyEval_AcquireThread` 拿 GIL；只有定义了 `PYBIND11_SIMPLE_GIL_MANAGEMENT` 才换成对 `PyGILState_Ensure` / `PyGILState_Release` 的直接封装。它是可重入的——已经持有 GIL 的线程再构造一个 `gil_scoped_acquire` 只是计数 +1，所以 2.4 节 `python_error` 的析构里可以无条件写 `gil_scoped_acquire`。
 
 ### 2. 什么时候必须释放
 
