@@ -142,15 +142,13 @@ print(user == User(1, "Alice", "alice@example.com"))   # True
 > [!NOTE] 与 Java 对照：数据载体与 record
 > Lombok `@Data` 为普通类生成访问器、比较等方法；Java 16 正式引入的 `record` 则是另一种数据载体（Java 14、15 为预览）。下面是可单独保存为 `User.java` 的 Java 16+ 定义：
 >
-> {: data-title="Java record：简洁的数据载体"}
-> ```java
+> ```java title='Java record：简洁的数据载体'
 > public record User(Long id, String name, String email) {}
 > ```
 >
 > 使用 Lombok 的项目也可以保留普通类（下面是另一份 `User.java`，需要 Lombok 依赖和注解处理器）：
 >
-> {: data-title="Lombok @Data：为普通类生成模板方法"}
-> ```java
+> ```java title='Lombok @Data：为普通类生成模板方法'
 > import lombok.Data;
 >
 > @Data
@@ -304,8 +302,7 @@ class UserProfile(BaseModel):
 > [!NOTE] 与 Java 对照：谁触发 Bean Validation
 > 下列 Java 16+ record 需要 Jakarta Validation API；真正执行校验还需要 Hibernate Validator 等实现：
 >
-> {: data-title="Bean Validation：声明字段约束"}
-> ```java
+> ```java title='Bean Validation：声明字段约束'
 > import jakarta.validation.constraints.*;
 >
 > public record User(

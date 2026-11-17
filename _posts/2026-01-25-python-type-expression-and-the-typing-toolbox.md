@@ -1387,8 +1387,7 @@ async def list_items(
 > [!NOTE] 与 Java 对照：参数校验注解
 > 最接近的是 Bean Validation 一类**注解（Annotation）**：`@NotNull`、`@Size(max=50)` 作用在参数或字段上，由 Hibernate Validator、Spring 等框架读取并执行。Python 的 `Annotated` 把元数据挂在类型表达式上，同样要靠框架消费。
 >
-> {: data-title="Java 对应：注解作用在参数或字段上"}
-> ```java
+> ```java title='Java 对应：注解作用在参数或字段上'
 > // Java 的方式
 > void createUser(@NotNull @Size(min=2, max=50) String name,
 >                 @Min(0) @Max(150) int age) { ... }
