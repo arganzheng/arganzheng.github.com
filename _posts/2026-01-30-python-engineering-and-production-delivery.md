@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（07）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 前面几篇讨论的都是"代码本身"：语言机制、类型与数据契约、并发、元编程、内存、测试与调试。这一篇讨论一件不同的事——**怎么把这些代码变成一个可以交付的东西**。
@@ -17,10 +17,10 @@ updated: 2026-11-14
 | 依赖管理与构建 | Maven / Gradle | pyproject.toml + pip / uv / Poetry |
 | 环境隔离 | JVM + classpath 天然隔离 | venv / conda（必须显式创建） |
 | 应用框架与依赖注入 | Spring | **没有等价物**（按需组合） |
-| 单元测试 | JUnit | pytest（见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)） |
-| 日志 | SLF4J + Logback | `logging`（见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)） |
+| 单元测试 | JUnit | pytest（见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)） |
+| 日志 | SLF4J + Logback | `logging`（同上文） |
 | 静态检查 | Checkstyle / SpotBugs | Ruff |
-| 类型检查 | 编译器内建 | mypy / pyright（见[篇二](/python-type-expression-and-the-typing-toolbox.html)） |
+| 类型检查 | 编译器内建 | mypy / pyright（见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)） |
 | 打包产物 | jar / war | wheel / sdist |
 | 部署运行 | Docker / Kubernetes | Docker + ASGI server |
 
@@ -41,16 +41,18 @@ Java 开发者常有的一个错觉是"Python 简单，随便装装就能跑"。
 
 ## 一、总览
 
+以 `inference-service` 为例：开发者修改依赖声明后生成锁文件，CI 按锁安装并检查代码，构建任务产出 wheel 和镜像，部署平台再启动服务进程。各阶段消费的是上一阶段留下的文件或制品，不是开发者电脑上那份“已经装好”的环境。
+
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
 %% 图：从 pyproject 到运行：锁文件 → 虚拟环境 → 质量门 → wheel → 容器镜像
+%%{init: {"flowchart": {"wrappingWidth": 400}}}%%
 flowchart TB
-    A["pyproject.toml：元数据 + 依赖声明（第二章）"] --> B["锁文件 uv.lock / poetry.lock：精确到版本与哈希（第四章）"]
-    B --> C["虚拟环境：uv sync --locked（第三章）"]
-    C --> D["质量门：ruff · mypy · pytest（第六章）"]
-    D --> E["产物：wheel / sdist（第七章）"]
-    E --> F["容器镜像：多阶段构建、CUDA 基础镜像（第八章）"]
-    F --> G["运行：ASGI server / K8s"]
+    A["开发者修改 pyproject.toml<br/>元数据 + 依赖声明（第二章）"] -- "uv lock，审查并提交" --> B["uv.lock / poetry.lock<br/>解析结果与制品哈希（第四章）"]
+    B -- "CI：uv sync --locked" --> C["虚拟环境<br/>第三章"]
+    C --> D["质量门：ruff、mypy、pytest<br/>第六章"]
+    D -- "构建任务" --> E["产物：wheel / sdist<br/>第七章"]
+    E --> F["容器镜像：多阶段构建、CUDA 基础镜像<br/>第八章"]
+    F -- "部署平台启动" --> G["ASGI 服务进程<br/>加载模型，通过就绪检查后接流量"]
     B -. "AI-Infra 的难点（第五章）：torch 的 CUDA 版本、flash-attn 的预编译轮子、同一份 lock 跨 GPU 架构" .-> F
 
 ```
@@ -59,6 +61,16 @@ flowchart TB
 ### 1. 组织轴：可交付物的生命周期
 
 本文的组织轴是**项目作为一个可交付物的生命周期**：声明依赖 → 隔离环境 → 锁定版本 → 检查质量 → 打成制品 → 交付运行。第二到第八章依次对应这条链上的每一步（其中第五章专门处理 AI-Infra 特有的 torch/CUDA 依赖难题），第九章把它们串成一个可复现的项目骨架。
+
+| 交付对象 | 什么时候产生 | 谁消费 | 保存在哪里 | Java 对照 |
+|---|---|---|---|---|
+| `pyproject.toml` | 开发者声明项目与依赖时 | 解析器、构建后端和质量工具 | 源码仓库 | `pom.xml` 的部分职责 |
+| `uv.lock` | `uv lock` / `uv add` 解析后 | CI、开发环境、镜像构建 | 源码仓库 | 更接近 Gradle 依赖锁定；Maven BOM 只覆盖部分职责 |
+| `.venv/` | 创建环境并同步依赖后 | 本次环境里的 Python 进程 | 开发机或镜像文件系统，不提交 git | 应用 classpath 与依赖目录，隔离机制不同 |
+| wheel / sdist | 构建后端打包后 | 安装器；sdist 还交给构建后端 | `dist/`、制品仓库 | jar / 源码包，不包含完整运行环境 |
+| 容器镜像 | 镜像构建完成后 | 部署平台、容器运行时 | 镜像仓库与节点缓存 | Java 服务也常用容器交付 |
+
+Table: 从项目声明到运行环境的交付对象
 
 ### 2. 本文的边界与版本基线
 
@@ -70,7 +82,7 @@ flowchart TB
 - **`import` 机制、`sys.path` 与 src 布局** → [《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)
 - **入口点做插件发现** → [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
-> **版本基线**：Python 生态的工具链演进很快，本文以 **Python 3.11+、uv 0.5、PyTorch 2.4、setuptools 75** 为基线。涉及具体版本号的地方都集中在代码块里，读到时请以官方文档为准。
+> **示例约定**：工具链以 Python 3.11–3.12、uv 0.5、PyTorch 2.4、setuptools 75 为基线；NGC 镜像示例使用镜像自带的 Python / torch，版本由镜像清单另行确定，不能把它当成 PyTorch 2.4 的同义物。GPU 兼容性仍需在目标节点验证。
 
 ### 3. 本文的章节安排
 
@@ -116,11 +128,12 @@ dependencies = [
 
 几个关键字段：
 
-- **`requires-python`**：声明解释器版本要求。这一项比看起来重要——它决定了 pip 会不会把包装到不兼容的环境里，也决定了 mypy / Ruff 按哪个版本的语法规则检查。
+- **`requires-python`**：声明包支持的解释器版本，供安装器筛选发行版。Ruff 可以据此推断目标版本，mypy 则应显式配置 `python_version`（未配置时通常使用运行 mypy 的 Python 版本）。
 - **`dependencies`**：**抽象依赖**（abstract dependencies），只声明"需要什么"，不锁定具体版本。锁定是另一件事，见第四章。
 - **`version`**：也可以交给构建后端动态生成（`dynamic = ["version"]`），从 `__init__.py` 的 `__version__` 或 git tag 读取。
 
-对应 Java：`dependencies` 相当于 `pom.xml` 的 `<dependencies>`，`requires-python` 相当于 `maven.compiler.source`。
+> [!NOTE] 与 Java 对照：依赖声明与解释器要求
+> `dependencies` 的职责接近 Maven 的 `<dependencies>`。`requires-python` 是安装兼容条件，不会安装解释器，也不等于 `maven.compiler.source`；Java 的源码级别、目标字节码和实际 JDK 同样需要分别配置。
 
 ### 2. 可选依赖与依赖分组
 
@@ -150,9 +163,10 @@ dev = [
 - `optional-dependencies` 是给**用户**的选项——"你如果要用 GPU 监控功能，就多装这几个包"；
 - `dependency-groups` 是给**开发者**的——测试和 lint 工具，用户根本不需要知道。
 
-历史上大家都把 dev 依赖塞进 `optional-dependencies.dev`，因为当时没有别的选择。PEP 735 之后应该迁移到 `dependency-groups`。
+不需要向用户公开的开发依赖，可以在工具支持 PEP 735 后放进 `dependency-groups`；它不会作为包的 extras 发布。
 
-对应 Java：`optional-dependencies` 类似 Maven 的 `<optional>true</optional>`，`dependency-groups` 类似 `<scope>test</scope>`。
+> [!NOTE] 与 Java 对照：extras 与开发依赖
+> `dependency-groups` 和 Maven test scope 都能把测试工具与运行依赖分开，但 Python 分组由 uv 等工具消费。extras 是用户主动选择的一组附加依赖（`pkg[s3]`），不等于 Maven 用 `<optional>true</optional>` 限制依赖的传递。
 
 ### 3. `[project.scripts]`：命令行入口
 
@@ -165,6 +179,7 @@ inference-bench = "inference_service.bench:main"
 安装后会在环境的 `bin/` 目录生成可执行脚本，直接 `inference-server --port 8000` 即可运行。等号右边是 `模块路径:函数名`。
 
 ```python title="cli.py 里的 main：argparse 解析 --port"
+# 入口骨架：省略解析参数之后的服务启动
 # src/inference_service/cli.py
 import argparse
 
@@ -180,7 +195,8 @@ def main() -> None:
 
 > 入口点用于插件发现的完整做法（`[project.entry-points."my_ai.backends"]` 与 `importlib.metadata.entry_points()`），见[《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"入口点：面向发行包的插件发现"一节。本文只关注它作为 CLI 入口的用法。
 
-对应 Java：类似在 `MANIFEST.MF` 里声明 `Main-Class`，或用 Maven 的 `appassembler` 插件生成启动脚本。
+> [!NOTE] 与 Java 对照：命令入口
+> 用途接近 `Main-Class` 或 appassembler 生成的启动脚本；Python 安装器为命令生成包装脚本，调用指定的零参数函数，解释器仍来自安装它的环境。
 
 ### 4. `[build-system]`：构建后端
 
@@ -236,9 +252,10 @@ asyncio_mode = "auto"
 markers = ["slow: marks tests as slow"]
 ```
 
-对应 Java：类似把 Checkstyle、SpotBugs、Surefire 的配置都写进 `pom.xml` 的 `<build><plugins>`，而不是散落在各自的 XML 里。
+> [!NOTE] 与 Java 对照：工具配置的聚合
+> 与把 Checkstyle、SpotBugs、Surefire 配置集中到 `pom.xml` 类似。`[tool.*]` 由各工具自己读取，写进同一个文件不代表它们会被自动执行。
 
-> `[tool.mypy]` 的详细配置和渐进式引入策略见[篇二](/python-type-expression-and-the-typing-toolbox.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。本文不重复。
+> `[tool.mypy]` 的详细配置和渐进式引入策略见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ### 6. 对照 Maven：像什么，不像什么
 
@@ -249,7 +266,7 @@ markers = ["slow: marks tests as slow"]
 | 维度 | Maven | pyproject.toml |
 |---|---|---|
 | 依赖解析 | Maven 内建，`mvn` 一个命令搞定 | **文件本身不含解析器**，靠 pip / uv / Poetry 去解析 |
-| 版本锁定 | 依赖树可确定性推导 | **需要额外的锁文件**（见第四章） |
+| 版本锁定 | 固定发布版本与配置后按规则仲裁；范围和 SNAPSHOT 仍会漂移 | 应用通常提交锁文件（见第四章） |
 | 继承与聚合 | parent pom、多模块 | **没有对应机制**，多包仓库靠工具（uv workspace）实现 |
 | 环境切换 | profile | 没有内建 profile，靠环境变量或多份配置文件 |
 | 传递依赖冲突 | 有明确的"最近优先"仲裁规则 | pip 的解析器会尽力求解，失败则报冲突 |
@@ -265,7 +282,8 @@ Table: pyproject.toml 与 Maven 不像的部分
 
 这是 Java 开发者最需要转换观念的一点。
 
-JVM 的依赖隔离是**天然的**：每个应用启动时通过 `-cp` 指定自己的 classpath，两个应用用不同版本的同一个库，互不干扰。你甚至可以在同一个 JVM 里用 ClassLoader 隔离出多份。
+> [!NOTE] 与 Java 对照：classpath 与包环境
+> 两个独立 JVM 进程可以通过各自的 classpath 选不同依赖；同一 JVM 内还可以用不同 ClassLoader 隔离。普通 classpath 内若有同名类，也会发生遮蔽，不能把它理解成自动解决全部版本冲突。
 
 Python 没有 classpath 的概念。`import` 的查找路径是 `sys.path`，而它默认包含**解释器全局的 `site-packages` 目录**。也就是说：
 
@@ -276,7 +294,7 @@ Python 没有 classpath 的概念。`import` 的查找路径是 `sys.path`，而
 └── ...
 ```
 
-一个解释器下，**一个包只能有一个版本**。于是：
+在同一个普通安装环境里，通常只保留同一发行包的一个版本；同一进程按相同模块名导入时还会复用 `sys.modules`。于是：
 
 - 项目 A 需要 pydantic 1.x
 - 项目 B 需要 pydantic 2.x
@@ -296,7 +314,8 @@ source .venv/bin/activate           # Linux / macOS
 .venv\Scripts\Activate.ps1          # Windows PowerShell
 
 # 安装依赖
-python -m pip install -e ".[dev]"
+python -m pip install -e .     # 包本身与运行依赖
+# 本文的 dev 使用 PEP 735 分组，用 uv sync 安装（第四章）
 
 # 退出
 deactivate
@@ -314,7 +333,7 @@ $ which python
 /path/to/project/.venv/bin/python
 ```
 
-`activate` 把 `.venv/bin` 插到 `PATH` 最前面，于是 `python` 和 `pip` 都指向虚拟环境里的那份。虚拟环境里的解释器会把 `sys.path` 指向自己的 `site-packages`，不再看全局的。
+`activate` 把 `.venv/bin` 插到 `PATH` 最前面，于是 `python` 优先找到环境里的解释器。用 `python -m pip` 可以明确选择同一个环境的安装器（Python 3.12+ 的 uv 环境默认不带 pip，可直接用 uv）。解释器依据 `pyvenv.cfg` 确定环境，默认保留标准库路径、使用本环境的 `site-packages`，不加入全局第三方包目录；`--system-site-packages` 是显式例外。
 
 因为激活只是改 `PATH`，所以**不激活也完全可以用**——直接给出完整路径即可：
 
@@ -342,7 +361,7 @@ $ which python
 
 Table: 虚拟环境隔离与不隔离的层次
 
-所以下面这类问题，虚拟环境救不了：机器上的 CUDA driver 只支持到 CUDA 12.1，venv 里却装了针对 CUDA 12.4 编译的 torch wheel，运行时报 "CUDA driver version is insufficient"。
+例如 driver 低于所选 CUDA 运行时要求的最低版本，或扩展依赖不兼容的系统共享库，换一个 venv 并不能解决。CUDA 12.x 内还有次要版本兼容规则，不能仅凭 `nvidia-smi` 显示的 12.1 / 12.4 就判定失败，见第五章。
 
 这是第五章的主题。而**解释器版本**的隔离需要额外工具：
 
@@ -356,7 +375,8 @@ pyenv install 3.11.10
 pyenv local 3.11.10
 ```
 
-对应 Java：这一层相当于用 SDKMAN 或 jenv 管理多个 JDK 版本——`pom.xml` 里的 `maven.compiler.source` 只是声明要求，真正装哪个 JDK 是环境的事。
+> [!NOTE] 与 Java 对照：选择实际解释器
+> uv / pyenv 管理 Python 版本的用途接近 SDKMAN / jenv 管理 JDK。声明兼容版本、安装解释器、让构建实际使用该解释器，是三个不同步骤。
 
 ### 4. conda vs venv：什么时候真的需要 conda
 
@@ -397,14 +417,14 @@ Java 开发者对依赖管理的心智模型来自 Maven：写 `pom.xml`、`mvn 
 | 事 | Maven | Python（uv / pip 生态） | 差别 |
 |---|---|---|---|
 | **声明**直接依赖 | `pom.xml` 的 `<dependencies>`，坐标 `groupId:artifactId:version`，版本几乎总是写死 | `pyproject.toml` 的 `dependencies = [...]`，只有包名（无命名空间），版本通常写范围 `>=2.9` | Python 没有 groupId：`requests` 全世界只有一个，谁先注册谁拿走（第二章末尾的扁平命名空间） |
-| **解析**传递依赖 | 构建时按"最近优先"（nearest-wins）取每个坐标的一个版本，结果由 pom 树唯一确定 | 解析器（pip 的 resolvelib、uv 的 PubGrub）在所有范围的交集里挑满足约束的最新版本，结果随 PyPI 上的新发布而变 | Maven 的结果是确定的，所以它**没有锁文件也能复现**；Python 的结果随时间漂移，所以必须把解析结果写下来 |
-| **锁定**解析结果 | 不需要（Gradle 有 `gradle.lockfile`，Maven 靠 `dependencyManagement` / BOM 把版本钉死） | `uv.lock` / `poetry.lock` / `requirements.lock`：每个包的精确版本 + hash | 这一件是 Python 多出来的、也是最容易被跳过的一步——`pip install -r requirements.txt` 跳过的就是它 |
+| **解析**传递依赖 | 对依赖冲突按“最近优先”等规则仲裁；版本范围、SNAPSHOT、profile 与仓库内容也会影响结果 | pip / uv 的解析器在约束下求可用解，结果还受索引、平台和工具配置影响 | 两边都要固定输入，不能把仲裁规则当成可复现保证 |
+| **锁定**解析结果 | `dependencyManagement` / BOM 集中约束版本；Gradle 另有依赖锁定 | `uv.lock` / `poetry.lock` / 带完整版本与 hash 的 requirements 文件 | Python 应用通常把解析结果单独提交；requirements 文件是否锁定，要看内容和生成方式 |
 | **安装**到环境 | 下载到 `~/.m2/repository`（全局缓存，按坐标隔离），运行时按 classpath 取 | 装进当前 venv 的 `site-packages`（每项目一份；uv 有全局缓存做硬链接） | Java 靠坐标天然隔离多版本；Python 同一个环境里一个包只能有一个版本，隔离靠 venv |
 | **审计** | `mvn dependency:tree`、`versions:display-dependency-updates`、OWASP dependency-check | `uv tree` / `pipdeptree`、`uv lock --upgrade`、`pip-audit` | 相同 |
 
 Table: 依赖管理的五件事：Maven 与 Python 的对应
 
-其余概念的对应：`jar` ↔ `wheel`（第七章），Nexus / Artifactory 私有仓库 ↔ 私有 index（`--index-url`，第 6 节与第五章），BOM ↔ `constraints.txt` / `[tool.uv] constraint-dependencies`，`mvn -o` 离线严格构建 ↔ `uv sync --locked`，`mvn exec:java` ↔ `uv run`。
+其余概念的用途对照：`jar` 与 `wheel` 都是分发制品（第七章），私有 Maven 仓库对应私有 index（本章 §6），BOM 和 constraints 都能集中约束版本。`uv sync --locked` 不等于 `mvn -o`：前者拒绝更改锁文件，仍可联网下载；离线还要加 `--offline`，并事先准备缓存。
 
 第三行的差别决定了本章其余内容的组织：先分清"声明"与"锁定"两种依赖（§2），说明为什么常见的 `requirements.txt` 做不到复现（§3），再看工具怎么选（§4）、版本范围怎么写（§5）、传递依赖与供应链怎么管（§6）。
 
@@ -447,14 +467,14 @@ typing-extensions==4.12.2
 |---|---|---|
 | 写在哪 | `pyproject.toml` | `uv.lock` / `poetry.lock` / `requirements.lock` |
 | 谁维护 | 人手写 | 工具生成，**不要手改** |
-| 是否提交 git | 是 | **是**（应用要提交；库通常不提交，见下） |
+| 是否提交 git | 是 | 应用提交；库也可提交以复现自身开发环境 |
 | 作用 | 表达兼容范围 | 保证可复现 |
-| 库项目 | 必须有 | 可以没有（不能限制下游） |
+| 库项目 | 对外声明兼容范围 | 可用于开发与 CI，不随库依赖元数据约束下游 |
 | 应用/服务 | 必须有 | **必须有** |
 
 Table: 抽象依赖与锁定依赖的职责
 
-**库和应用的区别很关键**：库不该锁死依赖版本，否则会和下游其他库的要求冲突（这也是为什么第 5 节讨论"上界该不该加"）；应用是依赖链的终点，锁得越死越好。
+**库和应用的区别很关键**：库发布的依赖元数据应表达兼容范围；仓库里的开发锁文件可以另外固定维护者的测试环境。下游安装 wheel 时读取包元数据，不会自动遵循库仓库中的 `uv.lock`。应用则需要固定实际部署的解析结果。
 
 ### 3. 为什么 requirements.txt 不等于可复现
 
@@ -470,7 +490,7 @@ httpx>=0.27
 
 1. **版本范围**：`>=0.115` 今天解析成 0.115.6，三个月后是 0.118.0，行为可能已经变了；
 2. **传递依赖完全没约束**：即使你把直接依赖钉成 `==`，`starlette` 这类传递依赖仍然浮动；
-3. **没有完整性校验**：即使版本号一致，你也无法确认下载到的文件和当初是同一个（PyPI 上的包理论上可以被重新上传，或者你走的是被污染的镜像）。
+3. **没有制品哈希**：同一版本可能有多个平台的 wheel 和 sdist，仅版本号不足以指定被批准的文件集合；镜像源也需要完整性校验。PyPI 不允许重传同一个文件名，不能用“可覆盖上传”解释这个问题。
 
 即使把所有版本都写成 `==`（所谓 "fully pinned requirements"），仍缺第 3 点。真正的可复现需要 **hash 校验**：
 
@@ -501,7 +521,7 @@ Python 的依赖管理工具经历了长期的碎片化。当前的格局：
 | **Poetry** | 全套项目管理 | `poetry.lock` | 否 | 慢 | 成熟但慢，早期项目多 |
 | **PDM** | 全套项目管理 | `pdm.lock` | 部分 | 中 | 标准兼容性好，用户较少 |
 | **uv** | 全套项目管理（Rust 实现） | `uv.lock` | **是** | **极快** | **新项目推荐** |
-| **conda** | 环境管理（含非 Python 依赖） | `environment.yml` | 是 | 慢 | 只在真需要系统级依赖时 |
+| **conda** | 环境管理（含非 Python 依赖） | `environment.yml` 是环境声明；精确锁定可用 conda-lock 等 | 是 | 慢 | 需要管理系统级依赖时 |
 
 Table: Python 依赖管理工具的当前格局
 
@@ -525,16 +545,36 @@ uv lock --upgrade              # 主动升级锁文件
 uv run pytest                  # 在项目环境里执行命令，无需激活
 ```
 
-**CI 里该用 `uv sync --locked`**——它检查锁文件是否与 `pyproject.toml` 一致，不一致就直接失败而不是悄悄重新解析（`uv lock --check` 是只检查不安装的版本）。`--frozen` 的语义不同：它**跳过**这个检查、直接按现有锁文件安装，适合镜像构建这类锁已经在 CI 核过的地方；把 `--frozen` 当"不一致就失败"用是一个常见误读。两者合起来相当于 Maven 的 `--offline` + 严格版本。
+**CI 里该用 `uv sync --locked`**——它检查锁文件是否与 `pyproject.toml` 一致，不一致就失败（`uv lock --check` 是只检查不安装的版本）。`--frozen` **跳过**一致性检查、直接使用现有锁文件，适合镜像构建这类锁已经在 CI 核过的地方。两者都不会自动进入离线模式。
 
-对应 Java：uv 的定位相当于 Maven 本身（依赖解析 + 环境管理 + 命令执行），而 pip 只相当于 Maven 依赖下载的那一小部分。
+例如只把 `pydantic>=2.9` 改成 `pydantic>=2.11`，忘了更新仍锁着 2.10.4 的 `uv.lock`，三条路径就会分开：
+
+```mermaid
+%% 图：修改依赖声明后，更新锁、检查锁与冻结安装的不同路径
+flowchart TB
+    EDIT["开发者修改 pyproject.toml<br/>pydantic 下界改为 2.11"] --> DEV["开发路径：uv lock<br/>重新解析并写入 uv.lock"]
+    DEV --> REVIEW["审查声明与锁文件<br/>一起提交 git"]
+    EDIT --> CI["CI：uv sync --locked<br/>检查现有锁能否保持不变"]
+    CI --> CHECK{"旧锁仍为 2.10.4？"}
+    CHECK -- "是，与新下界冲突" --> STOP["失败并停止构建<br/>由开发者更新锁文件"]
+    CHECK -- "否，锁与声明一致" --> INSTALL["安装锁定依赖<br/>再运行质量检查"]
+    REVIEW --> CI
+    EDIT -. "若误用 --frozen" .-> SKIP["跳过声明一致性检查<br/>可能仍按旧锁安装 2.10.4"]
+```
+
+- 更新锁发生在开发阶段，应审查版本和来源的变化。
+- CI 检查锁是否过期，不替开发者接受新的解析结果。
+- 锁决定版本和候选制品，目标平台仍决定实际选择哪个 wheel。
+
+> [!NOTE] 与 Java 对照：uv 的职责范围
+> uv 集中了依赖解析、环境管理和命令执行，部分职责类似 Maven / Gradle；pip 主要负责安装。锁文件一致性、离线和完整性校验是不同要求，应分别配置。
 
 ### 5. 版本约束：上界该不该加
 
 这是个有争议的话题，判断是**分情况**：
 
-```toml title="四种版本约束写法的含义"
-# 语义化版本约束
+```text title="常见版本约束写法的含义"
+# 以下是依赖字符串摘录，不是完整 TOML
 "pydantic>=2.9"           # 只有下界，接受未来任何版本
 "pydantic>=2.9,<3"        # 排除下一个大版本
 "pydantic~=2.9.0"         # 等价于 >=2.9.0,<2.10.0（锁到小版本）
@@ -570,9 +610,10 @@ pip install pipdeptree && pipdeptree
 
 ```bash title="pip-audit 扫描已知漏洞"
 # 检查已知漏洞（对照 PyPI Advisory Database）
-uv pip list | pip-audit
-# 或
-pip install pip-audit && pip-audit
+uv tool run pip-audit --path .venv/lib/python3.11/site-packages
+# 上面是 Linux / Python 3.11 路径，按实际环境调整；也可以在目标环境安装后执行：
+python -m pip install pip-audit
+python -m pip_audit
 ```
 
 **约束镜像源**。企业环境常用私有索引，注意 `--extra-index-url` 的**优先级陷阱**：pip 会在所有索引里找同名包并选版本最高的，这意味着公网上有人注册同名高版本包就可能被装进来（dependency confusion 攻击）。更安全的做法是用 `--index-url` 指定唯一索引，或用 uv 的 `index` 配置显式声明每个包的来源：
@@ -584,7 +625,8 @@ url = "https://pypi.internal.example.com/simple"
 default = true
 ```
 
-对应 Java：相当于 Maven 的 `<mirrors>` + `<repositories>` 加上 `settings.xml` 里的仓库优先级——但 Maven 有 groupId 命名空间，天然不容易被同名包混淆，Python 这里的风险更高。
+> [!NOTE] 与 Java 对照：仓库与包来源
+> Maven 也要管理 `<repositories>`、mirrors 和仓库凭据；groupId 提供坐标命名空间，但不代表可以忽略仓库来源。Python 的扁平包名更需要明确索引选择，不能把多个源理解成有严格主备顺序的镜像。
 
 ## 五、AI-Infra 的依赖难题
 
@@ -608,8 +650,8 @@ torch==2.4.0+rocm6.1
 几个必须知道的性质：
 
 - **PyPI 不接受带本地版本标识的包**。所以 `pip install torch==2.4.0+cu121` 从默认 PyPI 装不到，必须指定 PyTorch 自己的索引；
-- **`==2.4.0` 不匹配 `2.4.0+cu121`**，但 `torch==2.4.0` 这个约束**可以**被 `2.4.0+cu121` 满足（本地版本是"更具体"的）；
-- 锁文件里记录 `2.4.0+cu121` 之后，这份锁文件就**只对同样的 CUDA 目标有效**。
+- **`==2.4.0` 可以匹配 `2.4.0+cu121`**：约束没有本地版本段时，匹配时忽略候选的本地版本；`==2.4.0+cu121` 则要求这个具体变体。排序时 `2.4.0 < 2.4.0+cu121 < 2.5.0`，匹配与排序不是同一件事；
+- 锁里若只记录 `2.4.0+cu121`，它不会自动变成另一个 CUDA 目标；通用锁也可以按平台标记记录不同来源和构建，见本章 §4。
 
 那 `pip install torch` 从默认 PyPI 装到的是什么？在 Linux 上是**捆绑了 CUDA 运行时的默认变体**（当前默认对应某个 CUDA 版本，随 torch 发布而变），体积极大（2GB+），因为它把 `nvidia-*` 系列的 CUDA 库作为依赖一起拉下来了：
 
@@ -678,17 +720,17 @@ torch = { index = "pytorch-cu121" }    # 只有 torch 走这个索引
 
 | 层 | 典型内容 | 来源与隔离 |
 |---|---|---|
-| 3. torch wheel（编译时链接的 CUDA runtime） | `torch 2.4.0+cu121` | pip 装进来的，可多版本共存 |
-| 2. CUDA runtime / toolkit | `libcudart.so`、`libcublas.so`、cuDNN | 可由 wheel 自带，或来自镜像 |
-| 1. NVIDIA driver（内核态） | `nvidia-smi` 显示的 "CUDA Version" | 全机唯一，虚拟环境隔离不了 |
+| 3. torch 与扩展的编译目标 | `torch 2.4.0+cu121`、GPU 架构、Python / C++ ABI | 安装到各自环境；同一 venv 通常只装一个 torch |
+| 2. 用户态 CUDA 库 / toolkit | `libcudart.so`、cuBLAS、cuDNN；toolkit 另含 `nvcc` 和头文件 | 由 wheel 依赖或镜像提供；只运行预编译 wheel 通常不需完整 toolkit |
+| 1. NVIDIA driver | 内核模块及用户态驱动接口 | 由宿主机及容器运行时提供，venv 无法隔离内核驱动 |
 
 Table: CUDA 兼容矩阵的三层（自上而下：上层依赖下层）
 
-核心规则是 **CUDA 的"次要版本兼容性"（minor version compatibility）**：driver 只需要不低于 runtime 的**大版本**要求即可，同一大版本内的次要版本向前兼容。所以：
+先查所选运行时的**最低 driver 要求**，再查 torch / 扩展的发布说明。CUDA 11 之后提供同一大版本内的**次要版本兼容性**，但有最低驱动门槛，PTX JIT 或新特性还可能要求更高驱动：
 
-- driver 支持 CUDA 12.2，装 torch+cu121：→ 可以（12.x 内向前兼容）
-- driver 支持 CUDA 12.2，装 torch+cu124：→ 通常可以（12.x 内），但不保证新特性可用
-- driver 支持 CUDA 11.8，装 torch+cu121：→ 不行，大版本不匹配
+- 较新 driver 运行较旧 CUDA runtime，通常属于驱动的向后兼容路径；
+- `nvidia-smi` 显示 12.2 而 torch 是 cu124，不能仅凭两个数字下结论，需要核对次要版本兼容条件；
+- 仅支持 CUDA 11 的旧驱动通常不能直接运行 CUDA 12 构建；特定硬件上的 forward compatibility 包属于另外的受限机制。
 
 诊断命令：
 
@@ -711,7 +753,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.device_coun
 | 报错 | 层次 | 原因 |
 |---|---|---|
 | `CUDA driver version is insufficient for CUDA runtime version` | 1 vs 3 | driver 太老，需升级 driver 或换低版本 torch wheel |
-| `torch.cuda.is_available() == False` 但有 GPU | 1 | 装了 `+cpu` 变体，或容器没挂 GPU |
+| `torch.cuda.is_available() == False` 但有 GPU | 1 / 3 | 可能是 CPU 构建、容器没挂 GPU、驱动不可用等，需继续诊断 |
 | `undefined symbol: ...cudnn...` | 2 | cuDNN 版本与 torch 编译时不一致 |
 | `no kernel image is available for execution` | 3 | GPU 架构（compute capability）不在 wheel 的编译目标里 |
 
@@ -721,20 +763,20 @@ Table: CUDA 兼容性典型报错与对应层次
 
 ### 4. 为什么 AI 项目的锁文件经常跨平台失效
 
-设想这个场景：开发者在 macOS 上 `uv lock`，锁文件记录了 `torch==2.4.0`（macOS 上没有 CUDA 变体）。CI 在 Linux + GPU 上 `uv sync`，需要的是 `torch==2.4.0+cu121`。锁文件对不上。
+先区分**单平台导出的依赖清单**与 uv 的**通用锁文件**。在 macOS 上生成 `uv.lock`，并不意味着锁里只有 macOS 的结果；uv 默认会跨支持的 Python / 平台标记解析。但锁文件也不能凭空补出上游没有发布的 wheel，或替项目选择某种 CUDA 变体。
 
 根因是**同一份抽象依赖在不同平台解析出不同结果**，而这在 AI 项目里比普通项目严重得多：
 
 - torch 的变体取决于 CUDA 目标（`+cu121` / `+cpu` / `+rocm`）；
-- `nvidia-*` 系列的 CUDA 库只有 Linux wheel，macOS / Windows 上根本不存在；
-- 某些包（`flash-attn`、`xformers`、`bitsandbytes`、`triton`）只有 Linux 的 wheel，或者需要现场编译；
+- CUDA 相关依赖的 wheel 支持范围与 torch 版本、操作系统和架构有关，macOS 不使用 NVIDIA CUDA 这套依赖；
+- 某些版本的扩展只覆盖部分平台、Python 或 GPU 架构，其他组合需要现场编译，甚至不支持；
 - Apple Silicon 上 torch 走 MPS 后端，依赖集完全不同。
 
 应对方式：
 
-**方式一：锁文件支持多平台**（uv 的做法）。`uv.lock` 会为多个平台各记录一套解析结果，并用环境标记区分：
+**方式一：使用通用锁，并显式限定支持范围。** uv 用环境标记记录必要的解析分支；下面的 `environments` 是缩小解析范围，**不是开启跨平台锁的开关，也不是选择 CUDA 变体**：
 
-```toml title="uv 的 environments：多平台各锁一套"
+```toml title="uv 的 environments：限定项目支持的目标环境"
 [tool.uv]
 environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -751,25 +793,25 @@ dependencies = [
 ]
 ```
 
-**方式三（最省事，也最常见）：只锁一个目标平台**。既然交付形态是容器，就统一在与生产一致的 Linux 镜像里生成锁文件，本地开发环境不追求和锁文件完全一致：
+**方式三：只支持一个交付目标。** 可把上面的 `environments` 只保留 Linux x86_64，并在生产同构的镜像中验证安装和构建。单纯在 Linux 执行 `uv lock` 不会自动把通用锁限制为 Linux：
 
 ```bash title="在与生产同构的容器里生成锁文件"
 # 在与生产同构的容器里生成锁文件
 docker run --rm -v "$PWD:/app" -w /app python:3.11-slim \
-    sh -c "pip install uv && uv lock"
+    sh -c "pip install uv==0.5.31 && uv lock && uv sync --locked"
 ```
 
 ### 5. 实践建议：把 torch 从项目依赖里摘出去
 
-这是对 AI-Infra 项目最有价值的一条建议，也和第八章的容器化直接衔接。
+对固定运行在一套受控 GPU 镜像里的**应用**，可以让平台团队维护 torch / CUDA；可复用的库仍应正确声明运行依赖。这是与第八章容器化衔接的一种选择，另一种是把 torch 和指定索引一起锁在项目里，利用独立依赖层和下载缓存。
 
 **问题**：如果 `pyproject.toml` 里写着 `torch==2.4.0`，那么：
 
-- 每次 `uv sync` 都可能重新下载几 GB；
-- Docker 构建时 torch 和业务依赖在同一层，改一行业务代码就要重装 torch；
-- 锁文件绑死了 CUDA 目标，换 GPU 环境就得重新锁。
+- 冷缓存安装需要下载数 GB；缓存命中时不必每次重下；
+- 若先 `COPY . .` 再装依赖，改业务代码也会让依赖层失效；
+- 指定 CUDA 变体后，换交付目标需要审查依赖和镜像的兼容性。
 
-**做法**：把 torch 及其 CUDA 依赖交给**基础镜像**，项目依赖里只声明"需要 torch，但别帮我装"。
+**做法**：把 torch 及其 CUDA 依赖交给**基础镜像**，普通运行依赖里不放 torch，本地 GPU 开发另选 extra。Python 包元数据没有通用的“需要它，但安装器别装”的 provided 标记；这个应用的运行约定必须由镜像与测试补足。
 
 ```dockerfile title="Dockerfile 用自带 torch 的 NGC 基础镜像"
 # 基础镜像已经带好了对应 CUDA 版本的 torch
@@ -783,34 +825,39 @@ FROM nvcr.io/nvidia/pytorch:24.10-py3
 dependencies = ["fastapi>=0.115", "pydantic>=2.9"]   # 不含 torch
 
 [project.optional-dependencies]
-# 本地开发用：pip install -e ".[torch-cu121]"
-torch-cu121 = ["torch==2.4.0"]
+# Linux x86_64 本地开发用；还要使用本章 §2 的 torch 索引配置
+torch-cu121 = ["torch==2.4.0; sys_platform == 'linux' and platform_machine == 'x86_64'"]
 ```
 
 ```dockerfile title="镜像里 uv sync 只装业务依赖"
-# 镜像里只装业务依赖，torch 用基础镜像自带的
+# 结构摘录：在上述 NGC 镜像的 /app 中使用镜像自带的解释器
+# 默认隔离的 venv 看不到镜像预装 torch，需明确开放系统包可见性
+RUN uv venv --python "$(command -v python)" --system-site-packages /app/.venv
 RUN uv sync --frozen --no-install-project --no-dev
+RUN /app/.venv/bin/python -c "import torch; print(torch.__version__, torch.version.cuda)"
 ```
 
-**代价要说清楚**：这样做之后，"torch 版本"不再由锁文件保证，而是由基础镜像的 tag 保证。所以基础镜像的 tag **必须固定**，不能用 `latest`：
+**代价要说清楚**：镜像中的 torch 不再由项目锁文件保证。固定发行 tag 便于辨认版本，**按 digest 固定镜像才约束到内容**；下面只展示 tag 选择，生产还应记录并使用实际 digest：
 
 ```dockerfile title="基础镜像 tag 固定 vs latest"
-# 好：可复现
+# 明确版本；生产再附加 @sha256:<实际摘要>
 FROM nvcr.io/nvidia/pytorch:24.10-py3
 
 # 坏：不可复现，某天构建出来的东西就变了
 FROM nvcr.io/nvidia/pytorch:latest
 ```
 
-换句话说，可复现性的责任从锁文件转移到了镜像 tag 上——它没有消失，只是换了地方。这是个有意识的权衡，不是免费的午餐。
+还要保证使用的是**预装 torch 的同一个 Python 安装**。若 torch 在另一个 conda 环境，`--system-site-packages` 也不会让任意解释器看到它。开放系统包后，项目 venv 中的同名依赖可能遮蔽镜像包；uv 的锁只管理项目安装的部分，需核对镜像清单，并在目标 GPU 节点验证导入、设备发现和最小推理。NGC 的镜像自带 torch 也未必等于本地 extra 的 2.4.0。
 
-对应 Java：类似把一个巨大的、平台相关的 native 依赖从 `pom.xml` 移到基础镜像里预装，`pom.xml` 里标 `<scope>provided</scope>`。区别是 Java 极少遇到几 GB 级别的 native 依赖，所以这个模式在 Java 生态里并不常见。
+> [!NOTE] 与 Java 对照：运行平台提供依赖
+> 思路类似 Java 的 provided scope：应用依赖运行环境提供某个组件。Python extras 不等于 provided，默认也没有容器替它校验约定，因此必须明确解释器路径、镜像 digest 和兼容性测试。
 
 ## 六、代码质量工具链
 
-Java 的静态检查有编译器兜底：类型错误、未使用的导入、不可达代码，`javac` 直接拒绝编译。Checkstyle 和 SpotBugs 是在此之上加规范和缺陷模式检查。
+> [!NOTE] 与 Java 对照：编译检查与质量门
+> `javac` 强制检查类型和部分不可达语句，但未使用导入等问题通常交给 IDE、Checkstyle 或其他工具。Python 的注解不由解释器强制，Ruff 与 mypy / pyright 的分工要在 CI 中显式安排。
 
-Python 没有这个兜底。**语法正确的代码就能运行**，错误留到运行时才暴露。所以对 Python 项目来说，静态检查不是"锦上添花的规范"，而是**替代编译器的第一道防线**。
+Python 会检查语法，但不会在执行前根据注解拒绝所有类型不一致；导入、名称解析和业务路径也可能在运行时失败。因此静态检查与测试分别承担代码分析和行为验证，不能相互替代。
 
 ### 1. Ruff：格式化与 Lint 二合一
 
@@ -893,6 +940,7 @@ ruff check --statistics .
 **关于 `noqa`**：它是必要的逃逸舱，但要有纪律。
 
 ```python title="noqa 好坏对照：写规则码与理由"
+# 规则示意：torch 的导入副作用和 compute() 由具体项目决定
 # 好：说明了为什么
 import torch  # noqa: F401  # 需要导入以触发算子注册
 
@@ -972,7 +1020,14 @@ Table: Ruff 与 mypy / pyright 的分工
 一个直观的例子：
 
 ```python title="Ruff 通过、mypy 报错：Optional 未处理"
-def get_user(uid: int) -> User | None: ...
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    name: str
+
+def get_user(uid: int) -> User | None:
+    return User("Alice") if uid == 1 else None
 
 user = get_user(1)
 print(user.name)        # Ruff 通过；mypy 报错：user 可能是 None
@@ -993,7 +1048,7 @@ mypy src/              # 类型
 pytest                 # 行为
 ```
 
-> mypy 的详细配置、`strict` 各项开关的含义、以及在存量项目上渐进引入类型检查的策略，见[篇二（中）](/python-type-information-distribution-and-consumption.html)的"静态分析与推理"。测试相关见[篇六](/python-unit-testing-troubleshooting-and-debugging.html)。
+> mypy 的详细配置和渐进引入策略，见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“静态分析与推理”；测试相关见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ### 5. 对照 Checkstyle / SpotBugs
 
@@ -1009,7 +1064,7 @@ pytest                 # 行为
 
 Table: 代码质量工具：Checkstyle / SpotBugs 与 Ruff 的对照
 
-最关键的差异仍然是类型检查那一行：Java 的类型检查是**语言强制**的，你不可能提交一个类型错误的 Java 项目；Python 的类型检查是**可选的外挂工具**，需要项目自己立规矩、自己在 CI 里强制。
+关键差异是 Java 编译器强制检查静态类型，Python 的注解检查需要项目主动运行 mypy / pyright。两边都要通过构建与 CI 规则，才能阻止未通过检查的代码交付。
 
 这也是为什么本系列反复强调工程规范：**Python 给了你更大的自由度，代价是纪律必须自己建立**。团队应该在项目层面统一：Python 版本、格式化工具与配置、import 规则、类型注解覆盖要求、异常处理规范、日志规范、目录结构、测试覆盖率门槛。这些一旦写进 `pyproject.toml` 和 CI，就从"口头约定"变成了"机器强制"。
 
@@ -1027,7 +1082,7 @@ Python 有两种分发格式：
 | 内容 | 源码 + 构建脚本 | **已构建好**的文件树 |
 | 安装时 | **需要执行构建**（可能要编译器） | 解压 + 拷贝 |
 | 速度 | 慢 | 快 |
-| 平台相关性 | 与平台无关 | 可能与平台绑定 |
+| 平台相关性 | 源码包不编码 wheel 平台标签，但源码未必支持所有平台 | 可能与平台绑定 |
 
 Table: sdist 与 wheel 的对比
 
@@ -1064,7 +1119,7 @@ Table: torch wheel 文件名各段的含义
 
 Table: 纯 Python 包的 py3-none-any wheel 文件名
 
-`py3-none-any` 意味着"一份文件到处能用"。而 `cp311-cp311-linux_x86_64` 意味着**每个 Python 版本 × 每个平台都要单独构建一份**——这就是为什么 PyTorch 的发布矩阵那么大，也是为什么第五章讲的锁文件跨平台问题那么棘手。
+`py3-none-any` 不绑定平台和 CPython ABI，但仍受 `Requires-Python`、依赖和代码实际兼容性限制。`cp311-cp311-linux_x86_64` 则绑定 CPython 3.11 ABI 与 Linux x86_64；使用常规 CPython ABI 的扩展通常需按 Python 版本和平台分别构建，稳定 ABI 是例外。
 
 **实践建议**：发布时**两种都传**。wheel 让多数用户装得快，sdist 是兜底——如果用户的平台/Python 版本没有对应 wheel，至少还能从源码构建。
 
@@ -1126,7 +1181,8 @@ auditwheel repair dist/*.whl --plat manylinux_2_28_x86_64
 
 **与 torch 的 ABI 绑定**。链接了 `libtorch` 的扩展，必须和用户装的 torch 版本 ABI 一致。这就是为什么 `flash-attn` 的 wheel 名字里往往还带 torch 版本，以及为什么它经常需要用户现场编译（编译一次几十分钟）。
 
-**对应 Java**：JNI 的处境类似，但 Java 生态很少走这条路，而且 JVM 屏蔽了大部分平台差异。Python 这里的复杂度显著更高——因为 Python 的性能路线本身就是"薄 Python 壳 + 厚 native 核"。
+> [!NOTE] 与 Java 对照：原生扩展的 ABI
+> JNI 同样要处理操作系统、CPU 架构和动态库依赖。Python AI 库大量使用 C++ / CUDA 扩展，除了系统 ABI，还要核对 CPython、torch 与 CUDA 的编译组合；JVM / Python 解释器都不能消除 native 库的兼容要求。
 
 ### 3. 让类型信息随包分发
 
@@ -1145,9 +1201,9 @@ src/myops/
 myops = ["py.typed", "*.pyi"]
 ```
 
-这一步很容易漏——`py.typed` 在源码目录里存在，但如果没配 `package-data`，构建 wheel 时不会被打进去，下游依然看不到类型。
+这一步要检查最终 wheel。setuptools 69+ 默认尝试包含包内的 `.pyi` 和 `py.typed`，但其他后端、旧版本或排除配置可能不同；显式声明能表达意图，不能代替检查构建产物。
 
-> `py.typed` 背后的 PEP 561 机制、`.pyi` 存根的写法、typeshed 与 `types-*` 存根包的关系、以及 inline types 与 stub 的选择，见[篇二（中）](/python-type-information-distribution-and-consumption.html)的"类型载体与分发"一节。这里只强调打包时别漏掉这一步。
+> `py.typed`、PEP 561 和存根分发，见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“类型载体与分发”一节。
 
 对带 CUDA 扩展的包，`.pyi` 存根几乎是必需的——类型检查器无法分析 `.so` 里的内容，只能靠存根知道 `myops._C.fused_attention` 的签名。
 
@@ -1184,8 +1240,10 @@ __version__ = "0.1.0"
 或者从 git tag 推导（`setuptools-scm` / `hatch-vcs`），这样打 tag 就等于定版本，不会忘记改代码：
 
 ```toml title="setuptools-scm 从 git tag 推导版本"
+# 与上一例的 [project] name / dynamic = ["version"] 配合使用
 [build-system]
 requires = ["setuptools>=75", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
 ```
@@ -1202,14 +1260,18 @@ twine upload dist/*                      # 正式发布
 
 两条纪律：
 
-- **先发 TestPyPI**。PyPI 上的版本号**不能重用**——一旦上传了 `1.0.0`，即使删除也不能再传同名版本，只能发 `1.0.1`。
+- **先发 TestPyPI**。PyPI 不允许重用已上传的**文件名**，删除后也不能覆盖重传。已有版本下可以补传新的平台 wheel；修改同一个构建应递增版本，而不是试图覆盖旧文件。
 - **用 Trusted Publishing 而不是 API token**。GitHub Actions 可以通过 OIDC 直接向 PyPI 认证，不需要在仓库里存长期 token，避免密钥泄露风险。
 
-对应 Java：`twine upload` 相当于 `mvn deploy`，TestPyPI 相当于 snapshot 仓库。但有个重要区别——Maven 的 SNAPSHOT 版本可以反复覆盖，PyPI 的正式版本**永久不可变**，这个约束比 Maven 严格得多。
+> [!NOTE] 与 Java 对照：包发布与试发布仓库
+> `twine upload` 的用途类似 `mvn deploy`，TestPyPI 是独立的试发布服务，不等于支持覆盖更新的 SNAPSHOT 仓库。Maven Central 的正式 release 也有不可变规则，不能把 Central 与私有仓库的 snapshot 策略混为一谈。
 
 ## 八、容器化：Python 服务的交付形态
 
-Java 的交付物是一个 `jar`——自包含、平台无关，`java -jar` 就能跑。Python 没有这种东西：一个 wheel 不含解释器，也不含系统库。所以 **Python 服务的实际交付单位是容器镜像**。
+> [!NOTE] 与 Java 对照：包产物与服务交付物
+> 普通 jar 不一定包含依赖，也依赖 JVM；可执行 fat jar 才把许多依赖一起打入。wheel 不含 Python 解释器，原生依赖还可能要求特定系统库。两种生态都可以用容器固定用户态运行环境。
+
+本文选择**容器镜像作为推理服务的交付单位**。Python 也能通过虚拟环境、系统包或独立应用打包工具部署；容器的价值是把解释器、依赖和启动方式一起交给部署平台。
 
 本章只讨论与 Python 直接相关的部分：镜像分层、依赖安装策略、进程模型。Kubernetes 层面的编排不在范围内。
 
@@ -1225,7 +1287,7 @@ RUN pip install -e .
 CMD ["uvicorn", "inference_service.main:app"]
 ```
 
-问题是 `COPY . .` 把代码和依赖声明一起拷进来了。Docker 的层缓存以"COPY 的内容是否变化"为准，**改任何一行业务代码都会让这一层失效**，而一层失效后，它下面的每一层都要重建，于是 `pip install` 整个重跑。如果依赖里有 torch，每次改代码都要重新下载几 GB。
+问题是 `COPY . .` 把代码和依赖声明一起拷进来了。复制范围内业务代码变化，就会让这一层及后续依赖层失去缓存，于是 `pip install` 重新执行。若下载缓存也没保留，就可能重下数 GB；命中下载缓存只能省下载，仍省不了安装步骤。
 
 正确做法是**先拷依赖声明，装完依赖，再拷代码**：
 
@@ -1235,12 +1297,13 @@ WORKDIR /app
 
 # 第一层：只拷依赖声明。只有依赖变化时这一层才失效
 COPY pyproject.toml uv.lock ./
-RUN pip install --no-cache-dir uv && \
+RUN pip install --no-cache-dir uv==0.5.31 && \
     uv sync --frozen --no-install-project --no-dev
 
 # 第二层：拷代码。改代码只失效这一层
 COPY src/ ./src/
-RUN uv sync --frozen --no-dev
+COPY README.md ./
+RUN uv sync --frozen --no-dev --no-editable
 
 CMD [".venv/bin/uvicorn", "inference_service.main:app", "--host", "0.0.0.0"]
 ```
@@ -1252,11 +1315,11 @@ CMD [".venv/bin/uvicorn", "inference_service.main:app", "--host", "0.0.0.0"]
 flowchart TB
     subgraph GOOD["正确分层：依赖声明在前"]
         direction TB
-        G1["FROM python:3.11-slim<br/>命中"] --> G2["COPY pyproject.toml uv.lock<br/>没变，命中"] --> G3["RUN uv sync --no-install-project<br/>命中：依赖层直接复用"] --> G4["COPY src/<br/>内容变了，失效"] --> G5["RUN uv sync<br/>重建：只装项目本身"]
+        G1["FROM python:3.11-slim<br/>命中"] --> G2["COPY pyproject.toml uv.lock<br/>没变，命中"] --> G3["RUN uv sync --no-install-project<br/>命中：依赖层直接复用"] --> G4["COPY src/ 与 README.md<br/>源码变了，失效"] --> G5["RUN uv sync --no-editable<br/>重建：安装项目本身"]
     end
     subgraph BAD["反面写法：COPY . . 在前"]
         direction TB
-        B1["FROM python:3.11-slim<br/>命中"] --> B2["COPY . .<br/>内容变了，失效"] --> B3["RUN pip install -e .<br/>重建：重新下载全部依赖"]
+        B1["FROM python:3.11-slim<br/>命中"] --> B2["COPY . .<br/>内容变了，失效"] --> B3["RUN pip install -e .<br/>重建：重新执行依赖安装"]
     end
     classDef hit fill:#e6f4ea,stroke:#4d9a5c,color:#1b4d2a
     classDef miss fill:#fdecea,stroke:#c0392b,color:#7a1f16
@@ -1269,6 +1332,7 @@ flowchart TB
 - `--no-install-project` 让第一步只装依赖、不装项目本身，这样项目代码还没拷进来也能跑；
 - `--frozen` 直接按锁文件装、不做一致性检查——镜像构建前 CI 已用 `--locked` 核过锁文件（对应第四章）；
 - `--no-dev` 排除测试和 lint 工具，它们不该进生产镜像；
+- 第二次同步用 `--no-editable` 把项目安装进环境，不让生产环境依赖指向源码树的 editable 链接；`README.md` 也是本文包元数据声明的构建输入；
 - `--no-cache-dir`（pip）避免把下载缓存留在镜像层里。
 
 如果用 BuildKit，还可以让 pip/uv 的缓存跨构建复用，同时不进镜像：
@@ -1292,9 +1356,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 Table: 一个装了 torch 的镜像的体积构成
 
-三条针对性建议：
+四条针对性建议：
 
-**其一，用官方 CUDA/PyTorch 基础镜像，别自己 pip 装 torch。**
+**其一，让 torch 层独立复用。** 可以选受控的 PyTorch 基础镜像，也可以在独立且稳定的依赖层里安装锁定的 torch。
 
 ```dockerfile title="用 NGC PyTorch 镜像或 CUDA runtime 镜像做基础"
 # 推荐：torch 和 CUDA 已在基础镜像里，且被多个镜像共享缓存
@@ -1304,7 +1368,7 @@ FROM nvcr.io/nvidia/pytorch:24.10-py3
 FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 ```
 
-这样做的好处不只是省事：**同一个基础镜像在同一台机器上只存一份**。十个服务都基于 `nvcr.io/nvidia/pytorch:24.10-py3`，那 7GB 的 torch 层只占一份磁盘、只拉一次。而如果每个服务各自 `pip install torch`，即使版本相同，层的哈希也不同，会重复存十份。
+同一节点可按 digest 复用相同的镜像层，不同节点仍各需拉取。统一基础镜像更容易得到相同的 torch 层；自行安装时是否复用也取决于实际层内容和构建缓存，不能只看安装命令或包版本相同。
 
 这与第五章"把 torch 从项目依赖里摘出去"是同一个决策的两面。
 
@@ -1313,7 +1377,7 @@ FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 | 变体 | 内容 | 用途 |
 |---|---|---|
 | `base` | 最小 CUDA 运行时 | 很少直接用 |
-| `runtime` | + cuBLAS、cuDNN 等库 | **生产推理服务用这个** |
+| `runtime` | CUDA 用户态运行库；cuDNN 取决于是否选择 `cudnn` tag | 无需编译扩展时的候选 |
 | `devel` | + nvcc 编译器、头文件 | 需要现场编译扩展时用 |
 
 Table: nvidia/cuda 镜像的三个变体
@@ -1342,25 +1406,25 @@ data/
 
 这是个常见疑问：容器本身就是隔离的，为什么还要 venv？
 
-理由是**多阶段构建时便于整体拷贝**。虚拟环境是一个自包含目录，可以从构建阶段整体拷到运行阶段：
+理由是**多阶段构建时便于整体拷贝项目环境**。venv 仍依赖基础解释器、系统库和绝对路径，并非任意机器间可搬运的自包含目录。下面两阶段必须使用兼容的同一基础镜像和 `/app/.venv` 路径，生产应按 digest 固定：
 
 ```dockerfile title="多阶段构建：builder 里装 venv，运行阶段整体拷贝"
 # ---------- 构建阶段 ----------
 FROM python:3.11-slim AS builder
 WORKDIR /app
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir uv==0.5.31
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 COPY src/ ./src/
-RUN uv sync --frozen --no-dev
+COPY README.md ./
+RUN uv sync --frozen --no-dev --no-editable
 
 # ---------- 运行阶段 ----------
 FROM python:3.11-slim AS runtime
 WORKDIR /app
 
-# 只拷虚拟环境和代码，构建工具（uv、编译器、缓存）都留在 builder 里
+# 项目已非 editable 安装；运行时还依赖基础镜像提供解释器与系统库
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH"
 
@@ -1372,51 +1436,68 @@ EXPOSE 8000
 CMD ["uvicorn", "inference_service.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-如果装在系统 Python 里，就得挑挑拣拣地拷 `site-packages` 和 `bin/`，容易漏。用 venv 只需一条 `COPY --from`。
+如果装在系统 Python 里，跨阶段拷包时更容易漏掉脚本或数据文件。venv 让应用环境的拷贝范围明确；原生扩展要求的运行库仍须在 runtime 镜像中提供。使用 NGC 预装 torch 时，还要处理第五章提到的系统包可见性。
 
 注意 `ENV PATH="/app/.venv/bin:$PATH"` ——这就是第三章说的"激活只是改 PATH"，在 Dockerfile 里直接设 `PATH` 比 `source activate` 可靠，因为每条 `RUN` 都是新 shell，`source` 的效果不会保留。
 
 ### 4. ASGI 部署：uvicorn 与 worker 模型
 
-Java 的 servlet 容器用线程池处理并发请求。Python 这里的模型不同，而且**直接受 GIL 约束**。
+传统 Java servlet 容器常用线程池处理请求。ASGI worker 通常运行事件循环；I/O 并发、Python CPU 工作和释放 GIL 的原生计算，需要分别判断。以下 GIL 说明针对 Python 3.10–3.12 常见的 CPython 构建。
 
 ```bash title="uvicorn 单进程与多 worker 启动"
-# 单进程，适合开发和调试
+# 单进程；开发、单副本部署均可使用
 uvicorn inference_service.main:app --host 0.0.0.0 --port 8000
 
 # 多进程
 uvicorn inference_service.main:app --workers 4
 
-# 或用 gunicorn 管理 uvicorn worker（生产更常见）
+# 或安装 gunicorn 与独立的 uvicorn-worker 包（Linux）
+# pip install gunicorn uvicorn-worker
 gunicorn inference_service.main:app \
-    --worker-class uvicorn.workers.UvicornWorker \
+    --worker-class uvicorn_worker.UvicornWorker \
     --workers 4 \
     --bind 0.0.0.0:8000
 ```
 
 理解这套模型的要点：
 
-**每个 worker 是独立进程，各有自己的 GIL 和事件循环。** 单个 worker 内部靠 asyncio 并发处理大量 I/O 等待中的请求；多个 worker 之间靠多进程绕过 GIL 实现真正的 CPU 并行。
+**每个 worker 是独立进程，各有自己的 GIL 和事件循环。** 单个 worker 内部靠 asyncio 组织 I/O 等待；同步阻塞调用仍可能卡住事件循环。多进程可以并行执行 Python CPU 工作，但也增加内存开销。旧的 `uvicorn.workers` 模块已弃用，上例采用独立的 `uvicorn-worker` 包。
 
 **worker 数怎么定，取决于瓶颈在哪：**
 
 | 场景 | 建议 | 原因 |
 |---|---|---|
 | 纯 I/O 转发（调用远端模型服务） | worker 数 ≈ 2–4，靠 asyncio 撑并发 | I/O 等待不占 GIL，单 worker 就能扛很高并发 |
-| Python 层有 CPU 工作（tokenize、后处理） | worker 数 ≈ CPU 核数 | 需要多进程绕过 GIL |
-| **本地 GPU 推理** | **worker 数 = 1**（或按 GPU 数） | 见下 |
+| Python 层 CPU 工作较多 | 按 CPU、内存与压测结果增加 worker | 原生 tokenizer 可能释放 GIL，不能只按操作名判断 |
+| **worker 自己加载本地模型** | **先用 1 个 API worker，单独规划引擎进程与 GPU** | 避免同一张卡意外出现多份模型 |
 
 Table: uvicorn worker 数按瓶颈的建议
 
-**GPU 推理服务的 worker 数是个坑**。每个 worker 是独立进程，会**各自加载一份模型到显存**。4 个 worker × 一个 14GB 的模型 = 56GB 显存，直接 OOM。而且多进程抢同一块 GPU 会导致上下文切换开销和显存碎片。
+**GPU 推理服务的 worker 数是个坑**。若应用的启动逻辑在每个 API worker 内加载同一个 14GB 模型，`--workers 4` 就会尝试建立四份模型副本，仅权重已有 56GB，还没算 KV cache 和临时张量；一张 24GB 卡放不下。
 
-所以 GPU 服务的常规做法是：**每个 GPU 一个进程**，进程内用单事件循环 + 批处理（continuous batching）来提升吞吐，而不是靠多 worker。vLLM、TGI 都是这个架构。要横向扩容就起多个容器，每个容器绑一块 GPU，前面挂负载均衡。
+```mermaid
+%% 图：API worker 内加载模型与独立推理引擎的副本边界
+flowchart TB
+    START["部署平台启动 API"] --> LOCAL["模式一：每个 worker 自己加载模型"]
+    LOCAL --> W1["worker 1<br/>加载 14GB 权重"]
+    LOCAL --> W2["worker 2…4<br/>各加载 14GB 权重"]
+    W1 --> GPU["同一张 24GB GPU<br/>四份权重已需 56GB，无法容纳"]
+    W2 --> GPU
+    START --> REMOTE["模式二：API worker 只做转发"]
+    REMOTE --> ENGINE["独立推理引擎管理模型<br/>调度、批处理、KV cache"]
+    ENGINE --> DEVICE["按引擎拓扑分配 GPU<br/>单卡副本或多卡张量并行"]
+```
 
-> 单 worker 内部如何用 asyncio 组织并发、如何避免阻塞事件循环、如何做批处理与背压——这些是[篇三](/python-concurrency-asynchrony-and-task-collaboration.html)的主题。本章只关注进程层面的部署形态。
+- 简单单卡服务可先用一个加载模型的进程，依靠异步请求组织与批处理提升吞吐；GPU 执行仍由推理引擎调度。
+- API worker 只调用独立引擎时，增加 API worker 不必复制模型，副本数由引擎决定。
+- vLLM、TGI 等还可能使用独立 API / 调度进程和多卡张量并行，不能概括成“每个 GPU 一个完整服务进程”。扩容前先明确进程、模型副本与 GPU 的映射。
+
+> 单 worker 内部如何用 asyncio 组织并发、避免阻塞事件循环，见[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
 **健康检查**要区分两种探针：
 
 ```python title="/healthz 与 /readyz 两种探针"
+# 路由摘录：app、HTTPException 和 model_manager 由应用模块提供
 @app.get("/healthz")          # liveness：进程还活着吗
 async def healthz():
     return {"status": "ok"}
@@ -1428,17 +1509,18 @@ async def readyz():
     return {"status": "ready"}
 ```
 
-这个区分对 AI 服务尤其重要——加载几十 GB 权重可能要几分钟，这段时间进程是活的（liveness 通过）但不能服务（readiness 不通过）。如果只有一个探针，编排系统会在模型还没加载完时就把流量打进来，或者误判进程挂了反复重启。
+这个区分对 AI 服务尤其重要——加载权重可能要几分钟。只有事件循环已能响应时，`/healthz` 才能返回；若 ASGI lifespan 还在阻塞加载，HTTP 探针也不可达。部署时应设置足够的 startup probe / 启动宽限期，再用 readiness 控制接流量，避免反复重启。
 
 ### 5. 为什么 AI-Infra 服务层收敛到 FastAPI + uvicorn
 
-Python Web 生态里 Django、Flask、FastAPI 三者并存，但 AI-Infra 的模型服务层几乎清一色是 FastAPI + uvicorn（vLLM、TGI、Ray Serve、多数自研推理服务都是）。原因是**部署形态和工作负载的匹配度**，不是框架功能强弱：
+FastAPI + uvicorn 常用于 Python 推理 API，例如 vLLM 的 OpenAI 兼容服务；Ray Serve 也能集成 FastAPI。TGI 的路由层则主要用 Rust 实现，不能作为 FastAPI 的例子。选型的依据是**部署形态和工作负载的匹配度**：
 
-**其一，模型服务的负载是"少量重请求 + 长时间等待"。** 一个生成请求可能要几秒到几十秒，期间 Python 主要在等 GPU。这正是 asyncio 擅长的场景——单进程就能维持成千上万个等待中的连接。Django/Flask 的传统 WSGI 同步模型下，每个请求占一个线程，扛不住这种并发。
+**其一，生成请求常有长时间等待。** asyncio 适合维持等待中的连接，前提是引擎接口没有同步阻塞事件循环。传统 WSGI worker 通常在响应结束前占着一个执行槽；Django 也支持 ASGI，不能把框架名称直接等同于同步或异步能力。
 
 **其二，流式响应是刚需。** token 逐个返回（SSE 或 chunked），需要框架原生支持异步生成器：
 
 ```python title="StreamingResponse 逐 token 返回"
+# 路由摘录：app、CompletionRequest 与异步 engine 由应用提供
 from fastapi.responses import StreamingResponse
 
 @app.post("/v1/completions")
@@ -1451,13 +1533,13 @@ async def create_completion(request: CompletionRequest):
 
 **其三，Django 的核心价值用不上。** ORM、模板、admin、用户认证、数据迁移——模型服务通常没有关系数据库，不渲染页面，认证在网关层做。带上整套 Django 只是负担。
 
-**其四，与类型系统的协同。** FastAPI 直接消费 Pydantic 模型做校验和 OpenAPI 生成，这正是[篇二（下）](/python-data-contract-design-dataclass-pydantic-and-settings.html)讲的数据契约在服务边界上的落地。
+**其四，与类型系统的协同。** FastAPI 消费 Pydantic 模型做输入校验和 OpenAPI 生成，见[《数据契约设计——dataclass、Pydantic 与配置管理》](/python-data-contract-design-dataclass-pydantic-and-settings.html)。
 
 需要说明的是，这个结论**只针对模型服务层**。如果你要做的是带管理后台、用户体系、复杂数据模型的平台类系统（比如训练任务管理平台），Django 依然是合理选择——它的 admin 和 ORM 能省掉大量工作。选型取决于负载特征，不存在普遍更优的框架。
 
 ## 九、串起来：一个可复现的项目骨架
 
-把前面七章的决策合到一起，得到一个可以直接用的骨架。
+把前面各章的决策合到一起，得到一个应用骨架。它假设 Linux x86_64、镜像自带 torch、业务代码能把不依赖 torch 的单元测试与 GPU 测试分开；实际模型加载、路由与测试实现仍需补齐。
 
 ### 1. 目录结构
 
@@ -1472,10 +1554,10 @@ inference-service/
 ├── Makefile                    # 常用命令入口
 ├── README.md
 ├── src/
-│   └── inference_service/      # src 布局（见篇一）
+│   └── inference_service/      # src 布局，见执行模型篇的项目布局一节
 │       ├── __init__.py
 │       ├── py.typed            # 类型信息随包分发（第七章）
-│       ├── config.py           # Pydantic BaseSettings（见篇二）
+│       ├── config.py           # Pydantic BaseSettings，见数据契约篇
 │       ├── main.py             # FastAPI app
 │       ├── cli.py              # [project.scripts] 入口（第二章）
 │       ├── engine.py
@@ -1483,7 +1565,7 @@ inference-service/
 │           ├── __init__.py
 │           └── torch_backend.py
 ├── tests/
-│   ├── conftest.py             # 见篇六
+│   ├── conftest.py             # 见《单元测试、问题定位与调试实践》
 │   ├── test_engine.py
 │   └── test_api.py
 └── scripts/
@@ -1498,9 +1580,9 @@ name = "inference-service"
 version = "0.1.0"
 description = "Model inference service"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 
-# 抽象依赖：不含 torch，torch 由基础镜像提供（第四章）
+# 抽象依赖：不含 torch，torch 由基础镜像提供（第五章）
 dependencies = [
     "fastapi>=0.115",
     "pydantic>=2.9",
@@ -1511,7 +1593,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # 本地开发时装：uv sync --extra torch-cu121
-torch-cu121 = ["torch==2.4.0"]
+torch-cu121 = ["torch==2.4.0; sys_platform == 'linux' and platform_machine == 'x86_64'"]
 
 [dependency-groups]
 dev = [
@@ -1536,7 +1618,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 inference_service = ["py.typed"]
 
-# ---- torch 走 PyTorch 官方索引（第四章）----
+# ---- torch 走 PyTorch 官方索引（第五章）----
 [[tool.uv.index]]
 name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
@@ -1545,7 +1627,7 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu121" }
 
-# ---- 质量工具（第五章）----
+# ---- 质量工具（第六章）----
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -1564,10 +1646,20 @@ python_version = "3.11"
 strict = true
 warn_unreachable = true
 
+# 轻量 CI 不安装 torch，仅允许这个可选后端缺少外部类型信息
+# GPU 作业应安装 torch 后检查后端，不能把这条豁免当成验证通过
+[[tool.mypy.overrides]]
+module = ["torch", "torch.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q --cov=inference_service --cov-report=term-missing"
+markers = ["gpu: requires the production GPU runtime"]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
 ```
 
 ### 3. Dockerfile
@@ -1576,28 +1668,30 @@ addopts = "-q --cov=inference_service --cov-report=term-missing"
 # syntax=docker/dockerfile:1
 
 # ---------- 构建阶段 ----------
-# 基础镜像 tag 必须固定，可复现性由它保证（第四章）
+# 示例给出发行 tag；生产用同一个已验证 digest 固定两阶段内容（第五章）
 FROM nvcr.io/nvidia/pytorch:24.10-py3 AS builder
 
 WORKDIR /app
-RUN pip install --no-cache-dir uv
+RUN pip install --no-cache-dir uv==0.5.31
+RUN uv venv --python "$(command -v python)" --system-site-packages /app/.venv
 
-# 先装依赖：只有依赖变化才重跑这一层（第七章）
+# 先装依赖：只有声明或锁变化才重跑这一层（第八章）
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
 # 再拷代码
 COPY src/ ./src/
+COPY README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --no-editable
+RUN /app/.venv/bin/python -c "import torch; print(torch.__version__, torch.version.cuda)"
 
 # ---------- 运行阶段 ----------
 FROM nvcr.io/nvidia/pytorch:24.10-py3 AS runtime
 
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -1607,12 +1701,14 @@ RUN useradd --create-home --uid 10001 appuser
 USER appuser
 
 EXPOSE 8000
-# GPU 服务单 worker，靠 asyncio + 批处理提升吞吐（第七章）
+# 本例 API worker 自己加载模型，先用单 worker（第八章）
 CMD ["uvicorn", "inference_service.main:app", \
      "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 ```
 
-两个环境变量值得说明：`PYTHONUNBUFFERED=1` 让日志立即输出而不是缓冲（容器里日志靠 stdout 采集，缓冲会导致日志延迟甚至丢失）；`PYTHONDONTWRITEBYTECODE=1` 不生成 `.pyc`（镜像里的代码不会变，写 `.pyc` 只是增加层体积）。
+`--system-site-packages` 让 venv 运行时可以读取该 NGC Python 预装的 torch；两阶段使用相同镜像、解释器与 venv 绝对路径。`--no-editable` 已把业务包装进 venv，因此 runtime 不需再复制 `src/`。NGC 基础镜像本身带的工具仍在，不能把此例称为最小 runtime 镜像。
+
+`PYTHONUNBUFFERED=1` 让 stdout / stderr 日志及时输出；`PYTHONDONTWRITEBYTECODE=1` 禁止运行时写 `.pyc`，避免只读目录写入和容器可写层增长。它不会删除构建阶段已有的 `.pyc`。构建时的导入检查不需要 GPU，也不能代替部署节点上的 GPU 最小推理检查。
 
 ### 4. Makefile
 
@@ -1622,7 +1718,7 @@ CMD ["uvicorn", "inference_service.main:app", \
 .PHONY: install lint format typecheck test check build docker
 
 install:
-	uv sync --all-extras
+	uv sync --locked
 	uv run pre-commit install
 
 lint:
@@ -1641,6 +1737,7 @@ test:
 # CI 入口：一条命令跑完所有门禁
 check: lint typecheck test
 	uv run ruff format --check .
+	uv lock --check
 
 build:
 	uv build
@@ -1665,18 +1762,23 @@ jobs:
 
       - uses: astral-sh/setup-uv@v4
         with:
+          version: "0.5.31"
           enable-cache: true
 
-      # --frozen：锁文件与 pyproject.toml 不一致就失败（第四章）
-      - run: uv sync --frozen --no-extra torch-cu121
+      - run: uv python install 3.11
+      # --locked：需要改写锁文件就失败；默认不选 torch extra（第四章）
+      - run: uv sync --locked --python 3.11
 
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy src/
-      - run: uv run pytest
+      # 使用已核对的环境，避免后续命令再次自动同步
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+      - run: uv run --no-sync mypy src/
+      - run: uv run --no-sync pytest -m "not gpu"
 ```
 
-注意 `--no-extra torch-cu121`：CI 机器没有 GPU，不需要装 torch，省掉几分钟和几 GB 流量。
+此作业不选择 `torch-cu121` extra，只跑不依赖 torch 的检查；CUDA 构建的 torch 并非必须有 GPU 才能安装。CPU 单元测试如果会导入 torch，应另配 CPU extra / 索引并安装，不能把“没有 GPU”当成“所有测试不需要 torch”。`-m "not gpu"` 也不会阻止 pytest 收集阶段导入模块：GPU 测试要延迟导入，或在缺依赖时用 `pytest.importorskip()` 跳过。
+
+生产镜像还需要独立 GPU 作业，确认镜像 torch 与依赖兼容、设备可见、最小推理成功，并撤掉可选后端的类型检查豁免。GitHub Actions 中的 `@v4` 是可读示例，要求严格复现时也应锁定 action commit SHA。
 
 ### 6. 这套骨架回答了什么
 
@@ -1684,9 +1786,9 @@ jobs:
 
 | 问题 | 由什么解决 |
 |---|---|
-| 依赖版本三个月后就变了 | `uv.lock` + `uv sync --frozen` |
-| 装到的 torch 与 GPU driver 不兼容 | 固定 tag 的基础镜像 + `[tool.uv.index]` |
-| 本地能跑、装到别的机器 `ImportError` | src 布局 + editable 安装（篇一） |
+| 依赖版本三个月后就变了 | 提交 `uv.lock`，CI 用 `uv sync --locked` 检查后安装 |
+| 装到的 torch 与 GPU driver 不兼容 | 明确 torch 来源与镜像 digest，在目标节点做 GPU 验证 |
+| 本地能跑、装到别的机器 `ImportError` | src 布局 + 安装产物测试；editable 安装不能覆盖所有漏打包问题 |
 | 改一行代码就重装几 GB 依赖 | Dockerfile 分层 + BuildKit 缓存 |
 | 镜像从 2GB 涨到 12GB | 基础镜像共享 torch 层 + `.dockerignore` + 权重外置 |
 | 类型错误上线才发现 | `mypy src/` 进 CI 门禁 |
@@ -1700,9 +1802,9 @@ Table: 工程骨架回答了开头的哪些问题
 |---|---|---|---|
 | 项目描述文件 | `pom.xml` / `build.gradle` | `pyproject.toml` | Python 的文件本身不含依赖解析器 |
 | 依赖解析与安装 | Maven / Gradle 内建 | pip / uv / Poetry（外部工具） | 需自行选型 |
-| 版本锁定 | 依赖树可确定性推导 | `uv.lock` / `poetry.lock` | Python **必须**额外维护锁文件 |
+| 版本锁定 | 固定依赖 / BOM；Gradle 也有锁定机制 | `uv.lock` / `poetry.lock` | 两边都要固定解析输入与制品来源 |
 | 包命名空间 | `groupId:artifactId` | **扁平包名** | PyPI 有抢注与混淆风险 |
-| 环境隔离 | JVM classpath 天然隔离 | venv / conda（显式创建） | Python 同解释器下一个包只能一个版本 |
+| 环境隔离 | 独立进程的 classpath、ClassLoader | venv / conda（显式创建） | Python 普通安装环境通常保留同包一个版本 |
 | 解释器/JDK 版本管理 | SDKMAN / jenv | uv / pyenv / conda | — |
 | 多模块 | parent pom | 无内建机制（uv workspace） | — |
 | 环境切换 | Maven profile | 环境变量 / 多份配置 | Python 无内建 profile |
@@ -1710,41 +1812,37 @@ Table: 工程骨架回答了开头的哪些问题
 | 缺陷模式 | SpotBugs / Error Prone | Ruff（`B`/`SIM`/`ASYNC`） | — |
 | 格式化 | spotless / google-java-format | Ruff format / Black | — |
 | **类型检查** | **编译器强制** | **mypy / pyright（可选外挂）** | **最根本的差异** |
-| 单元测试 | JUnit | pytest | 见篇六 |
-| 日志 | SLF4J + Logback | `logging` | 见篇六 |
+| 单元测试 | JUnit | pytest | 见《单元测试、问题定位与调试实践》 |
+| 日志 | SLF4J + Logback | `logging` | 同上文 |
 | 提交前检查 | git hook + spotless | pre-commit | — |
-| 构建产物 | jar / war（自包含） | wheel / sdist（**不含解释器**） | Python 产物无法独立运行 |
+| 构建产物 | jar / war（通常不含 JVM，普通 jar 也未必含依赖） | wheel / sdist（**不含解释器**） | 包产物与完整运行环境应分开 |
 | 平台相关产物 | 罕见（JNI） | 常见（`cp311-linux_x86_64`） | AI 库几乎都是平台相关的 |
-| 制品仓库 | Maven Central（可覆盖 SNAPSHOT） | PyPI（**版本永久不可变**） | PyPI 约束更严 |
-| 实际交付单位 | jar 或容器镜像 | **容器镜像** | Python 基本只能靠容器 |
+| 制品仓库 | Maven Central 的正式 release 不可覆盖；SNAPSHOT 使用其他仓库策略 | PyPI 不允许重用文件名 | 明确正式制品与试发布的规则 |
+| 实际交付单位 | 应用包或容器镜像 | 环境、应用包或容器镜像 | 本文选择容器交付推理服务 |
 | 应用框架 | Spring（统摄一切） | **无等价物** | 规范需自行建立 |
 
 Table: Java 与 Python 工程化工具链对照
 
-两条贯穿全表的结论：
-
-1. **Java 的工程化由框架和编译器强制，Python 的工程化靠团队纪律。** Maven 强制你声明依赖，编译器强制你类型正确，Spring 强制你按它的方式组织代码。Python 每一项都是可选的——这带来灵活性，也意味着一个没立规矩的 Python 项目会迅速腐化。
-
-2. **Python 的交付物不自包含。** jar 里有字节码，随便哪台装了 JVM 的机器都能跑。wheel 里没有解释器、没有系统库、可能还绑定了特定平台和 CUDA 版本。所以 Python 服务的交付必然落到容器上。
+上表用于跨主题速查。版本锁定、环境隔离、质量检查和运行平台各有独立职责；具体差异见对应章节的就近说明。
 
 ## 十一、本文小结
 
 这一篇和前六篇关注的东西不同。前面讲的是**代码怎么写对**——语言机制、类型与契约、并发、元编程、内存、测试；这一篇讲的是**代码怎么交付出去**。
 
-对 Java 开发者，这一篇的核心认知转换是：**Python 把 Java 里由框架和编译器强制的事情，交还给了你。**
+对 Java 开发者，迁移时需要显式安排几件事：
 
 - 没有 Maven 内建的依赖解析，所以要自己选工具、自己维护锁文件；
 - 没有 classpath 隔离，所以要自己创建虚拟环境；
 - 没有编译器把关类型，所以要自己把 mypy 装进 CI；
 - 没有 Spring 定义项目结构，所以要自己立目录约定和代码规范；
-- 没有自包含的 jar，所以要自己处理镜像分层和平台差异。
+- wheel 不包含解释器，原生扩展还有 ABI 要求，所以要处理运行环境和平台差异。
 
 这份自由度是 Python 能在 AI 领域胜出的原因之一——它让 Python 可以做薄薄的一层壳，把重活交给 CUDA、C++ 和专用引擎，而不被框架的假设绑住。但同样的自由度也意味着，**一个没有工程纪律的 Python 项目会比同等的 Java 项目腐化得更快**。
 
 如果这一篇只留三条，选：
 
-1. **锁文件必须有，且必须进 CI 强制。** `uv sync --frozen` 是可复现的底线。抽象依赖表达兼容范围，锁文件保证这次装的和上次一样，两者不能互相替代。
-2. **把 torch 和 CUDA 交给固定 tag 的基础镜像。** 这一条同时解决了依赖体积、构建缓存、跨平台锁文件三个问题。代价是可复现性的责任从锁文件转移到镜像 tag——它没消失，只是换了地方，所以 tag 绝不能用 `latest`。
+1. **锁文件要提交，CI 用 `uv sync --locked` 检查后安装。** 抽象依赖表达兼容范围，锁文件记录解析结果；`--frozen` 只适用于已核对声明的冻结安装。
+2. **明确 torch / CUDA 由谁交付。** 项目锁定或受控基础镜像都可行；使用镜像预装包时，要固定 digest、核对解释器可见性，并验证目标 GPU，不能仅靠 tag 推断兼容。
 3. **静态检查是 Python 的编译器替代品，不是可选项。** `ruff check` + `mypy src/` 进 CI 门禁。Java 里编译不过就交付不了，Python 里这道门得你自己装。
 
 ## 十二、自测
@@ -1753,15 +1851,15 @@ Table: Java 与 Python 工程化工具链对照
 
    <details markdown="1"><summary>答案</summary>
 
-   前者是抽象依赖——库对外声明的兼容范围；后者是这次安装的精确解。只留前者每次装的版本不同、不可复现；只留后者无法作为库被别人依赖、无法表达兼容范围。两者都要，CI 用 `--frozen` 校验一致。
+   前者声明兼容范围，后者记录本次解析的精确解。应用需要声明与锁共同工作，CI 用 `--locked` 检查一致性；库可以提交自身开发锁，但发布给下游的是依赖元数据，下游不自动使用库的锁。
 
    </details>
 
-2. 为什么建议把 torch 与 CUDA 放进固定 tag 的基础镜像而不是锁文件？代价是什么？
+2. 把 torch 与 CUDA 交给基础镜像，有什么收益与代价？
 
    <details markdown="1"><summary>答案</summary>
 
-   torch 的 wheel 几 GB、按 CUDA 版本与平台分发（锁文件里跨平台解析困难），放进镜像层可以被所有构建复用、不重复下载；代价是可复现性的责任从锁文件转到镜像 tag——tag 必须固定（不能 `latest`），且要记录镜像 digest。
+   平台团队可统一维护并复用较大的 torch / CUDA 层；代价是项目锁不再描述完整运行环境，必须固定镜像 digest、保证解释器看得到预装包、验证与项目依赖的兼容性。也可以把 torch 锁在项目中并独立分层，基础镜像不是唯一办法。
 
    </details>
 
@@ -1769,7 +1867,7 @@ Table: Java 与 Python 工程化工具链对照
 
    <details markdown="1"><summary>答案</summary>
 
-   flat 布局下测试导入的是源码树（当前目录在 `sys.path`），而安装产物漏了某个子包或数据文件；src 布局把源码放在 `src/pkg/`，测试必须依赖已安装的包（`pip install -e .`），漏打包在本地就报错。
+   flat 布局下测试可能直接导入源码树，掩盖未安装项目的问题。src 布局促使测试使用已安装的包；editable 安装仍可能掩盖 wheel 漏掉数据文件等问题，因此还应构建 wheel，在干净环境中做安装与导入测试。
 
    </details>
 
@@ -1777,7 +1875,7 @@ Table: Java 与 Python 工程化工具链对照
 
    <details markdown="1"><summary>答案</summary>
 
-   基础层：CUDA 运行时 + torch，几乎不变；依赖层：`uv sync --frozen` 装锁文件里的其他依赖，锁文件变才重建；代码层：`COPY src/`，每次提交重建。顺序错了（先 COPY 代码再装依赖）每次提交都重装全部依赖。
+   基础层提供解释器、CUDA / torch；依赖层在声明或锁文件变化时重建；代码层在源码或构建输入变化时重建。先拷全部代码再装依赖，会让代码变化连带触发依赖重装。多阶段是选择保留哪些构建产物，分层则决定缓存如何复用，两者相关但不同。
 
    </details>
 
@@ -1789,4 +1887,4 @@ Table: Java 与 Python 工程化工具链对照
 
    </details>
 
-[^q0]: **依赖**：`pyproject.toml` 里声明抽象依赖（兼容范围），锁文件（`uv.lock`）固定这次装的每个版本与 hash，CI 用 `uv sync --frozen` 强制锁文件与声明一致——两者不能互相替代（[第二章](#二pyprojecttoml项目元数据的单一入口)、[第四章](#四依赖管理与可复现构建)）。**环境**：每个项目一个虚拟环境，Python 没有 classpath 隔离，全局 site-packages 就是事故现场；torch 与 CUDA 这类平台相关的大件交给固定 tag 的基础镜像，tag 绝不能是 `latest`（[第三章](#三虚拟环境与解释器隔离)、[第五章](#五ai-infra-的依赖难题)）。**质量**：Python 没有编译器把关，`ruff check` + `ruff format` + `mypy src/` 进 CI 门禁就是编译器的替代品，`pytest` 与覆盖率是第二道门（[第六章](#六代码质量工具链)）。**制品**：src 布局 + `pyproject.toml` 构建 wheel，纯 Python 一个 wheel、带 C 扩展按平台各一个，版本号从 git tag 派生（[第七章](#七打包与分发)）。**镜像**：多阶段构建——基础镜像层（CUDA + torch，几乎不变）、依赖层（锁文件变才重建）、代码层（每次变）——按变化频率分层让构建缓存命中、镜像可复现（[第八章](#八容器化python-服务的交付形态)）。[第九章](#九串起来一个可复现的项目骨架)把这些串成一个项目骨架。
+[^q0]: **依赖**：`pyproject.toml` 声明兼容范围，`uv.lock` 记录解析结果，CI 用 `uv sync --locked` 检查一致性后安装，`--frozen` 跳过该检查（[第四章](#四依赖管理与可复现构建)）。**环境**：项目通常用 venv 隔离；若读取镜像预装 torch，要明确使用同一 Python 的系统包、固定镜像 digest 并验证 GPU（[第三章](#三虚拟环境与解释器隔离)、[第五章](#五ai-infra-的依赖难题)）。**质量**：Ruff、mypy、pytest 分别检查代码规范、静态类型和运行行为（[第六章](#六代码质量工具链)）。**制品**：构建 wheel / sdist，再测试安装产物；解释器、系统 ABI 与 GPU 环境不由 wheel 单独解决（[第七章](#七打包与分发)）。**镜像**：按基础环境、依赖与源码的变化频率分层，多阶段只保留运行所需产物，进程数要与模型副本及 GPU 拓扑一起规划（[第八章](#八容器化python-服务的交付形态)）。[第九章](#九串起来一个可复现的项目骨架)给出应用骨架。
