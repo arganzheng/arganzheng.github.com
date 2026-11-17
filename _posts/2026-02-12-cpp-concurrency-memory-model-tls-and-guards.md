@@ -623,9 +623,18 @@ flowchart TB
 
 这个值只用于诊断和调试，读到一个瞬间即过时的数字是可以接受的，不需要任何顺序保证。
 
-### 5. `std::shared_ptr` 的同一选择与构造时的 relaxed 写
+### 5. `std::shared_ptr` 的引用计数与构造时的 relaxed 写
 
-`std::shared_ptr` 的控制块做的是同样的事情（libc++ 的实现里，+1 用 relaxed，-1 用 acq_rel），只是它把计数放在独立分配的控制块里，`intrusive_ptr` 放在对象内部——[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讨论过这个取舍。
+`std::shared_ptr` 的控制块维护的也是一个原子计数，只是它把计数放在独立分配的控制块里，`intrusive_ptr` 放在对象内部——[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讨论过这个取舍。两个主流标准库选的内存序并不一样：
+
+| 标准库 | +1 | −1 | 源码位置 |
+|---|---|---|---|
+| libc++ | relaxed | acq_rel | `__memory/shared_ptr.h` 的 `__libcpp_atomic_refcount_increment`、`__libcpp_atomic_refcount_decrement` |
+| libstdc++（GCC 15.2） | acq_rel | acq_rel | `ext/atomicity.h` 的 `__atomic_add`、`__exchange_and_add` |
+
+Table: 两个标准库里 shared_ptr 强计数增减所用的内存序
+
+libc++ 与 c10 的选择相同。libstdc++ 的增也用 acq_rel，比需要的强，结果同样正确：增的时候对象已经被持有，relaxed 就够。
 
 还有一个细节在 `intrusive_ptr` 的原始指针构造函数里（类定义中部）：
 
