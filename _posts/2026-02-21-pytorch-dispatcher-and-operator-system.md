@@ -159,7 +159,14 @@ PyTorch 的原生算子集中声明在 `aten/src/ATen/native/native_functions.ya
     Meta: add_meta        # 在 Meta Key 下，实现函数叫 add_meta
 ```
 
-真实文件包含更多字段，示例只用于说明结构。一条声明至少包含三类信息：
+> [!NOTE] 这是简化写法：真实文件里的 add 长什么样
+> 上面的条目是为了讲清结构而简化的，`add`、`add_meta` 是示意名，在源码里搜不到 `at::native::add` 这个函数。真实文件里结构与它一致、可以直接对上的例子是 `dot`：`dispatch` 下写着 `CPU: dot`、`CUDA: dot_cuda`，`aten/src/ATen/native/Blas.cpp` 里就有手写的 `at::native::dot`。
+>
+> 真实的 `add.Tensor` 多绕了一层：它写的是 `structured_delegate: add.out`，把 CPU / CUDA 的实现委托给 `add.out` 这一条；`add.out` 标着 `structured: True`，它的元数据推断是 `BinaryOps.cpp` 里的 `TORCH_META_FUNC2(add, Tensor)`，逐元素的计算由 Codegen 按 `ufunc_inner_loop` 字段从 `aten/src/ATen/native/ufunc/add.h` 生成。这样 `add`、`add_`、`add.out` 三个变体共用一份形状推断和一份计算。
+>
+> 本文后面出现的 `at::native::add` 指「`add` 在 CPU / CUDA 槽位上的实现」，`add_meta` 指「只推断输出元数据的实现」。表的结构、注册和分发的过程与真实情况相同，不同的只是这两个函数在源码里的名字和生成方式。
+
+一条声明至少包含三类信息：
 
 | 字段 | 含义 | 在哪讲 |
 |---|---|---|
@@ -843,7 +850,7 @@ Table: 本篇涉及的源码位置
 
    <details markdown="1"><summary>答案</summary>
 
-   `torch.add` 是 Python 绑定入口；`at::add` 是 Codegen 生成的 C++ 入口，调 Dispatcher；`at::native::add`（实际是 `add_cpu` 等）是被注册到表里的实现主体。开发者写第三个，用户调第一个。
+   `torch.add` 是 Python 绑定入口；`at::add` 是 Codegen 生成的 C++ 入口，调 Dispatcher；`at::native::add` 是被注册到表里的实现主体（本文的示意名，真实的 `add` 由 `add.out` 的 structured kernel 提供，见第二章的说明）。开发者写第三个，用户调第一个。
 
    </details>
 

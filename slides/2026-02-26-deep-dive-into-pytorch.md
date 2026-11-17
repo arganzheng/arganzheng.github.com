@@ -29,24 +29,17 @@ transition: slide
 
 ---
 
-## 十篇怎么连起来
+## 十篇怎么连起来：一次训练 step 经过的部件
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart LR
-    P1["01 整体介绍"] --> T2["02 Tensor<br/>与内存"] --> A3["03 Autograd<br/>动态图"] --> M4["04 nn.Module"] --> NX["05–10 系统与工程<br/>（下图）"]
+    M["<b>04 nn.Module</b><br/>与训练循环"] --> OP["<b>一次算子调用</b><br/>输入是 02 Tensor"] --> D["<b>05 Dispatcher</b><br/>查 kernel 表"] --> A["<b>03 Autograd</b><br/>记录 grad_fn"] --> K["<b>06 后端 kernel</b><br/>CPU / CUDA"]
+    C["<b>07 torch.compile</b><br/>把这一段整体编译"] -.-> OP
+    R["<b>09 分布式</b><br/>每个进程跑一份"] -.-> M
 ```
 
-<!-- v -->
-
-### 05–10：系统与工程
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
-flowchart TB
-    D5["05 Dispatcher"] --> X6["06 C++ 扩展"] & C7["07 编译与图优化"]
-    X6 & C7 --> P8["08 性能与调试"] --> D9["09 分布式"] --> E10["10 工程体系"]
-```
+横切的三篇：**01** 把这张图展开成三张地图 · **08** 测量这条路径上的时间和显存 · **10** 让一次改动安全到达用户
 
 ---
 
@@ -163,15 +156,16 @@ flowchart TB
 
 <!-- v -->
 
-### 从模型对象到训练循环
+### 一次训练迭代穿过的对象
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 210}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
 flowchart LR
-    A["nn.Module 树"] --> B["__setattr__<br/>注册 P/M/B"] --> C["state_dict<br/>路径 → Tensor"] --> E["Optimizer<br/>.grad 更新"]
-    F["Dataset<br/>→ DataLoader"] --> G["循环 fwd→loss<br/>→bwd→step"]
-    E --> G
-    G --> H["autocast · Hook<br/>· ckpt"]
+    DL["DataLoader<br/>供给 batch"] --> F["model(inputs)<br/>得到 loss"] --> B["backward()<br/>写 .grad"] --> O["Optimizer"]
+    MT["Module 树<br/>三张登记表"] -->|"读参数"| F
+    O -->|"step() 更新"| MT
+    MT --> SD["state_dict"] --> CK["checkpoint"]
+    O --> CK
 ```
 
 <aside class="notes" markdown="1">
@@ -241,6 +235,22 @@ flowchart TB
 原文 /pytorch-cpp-extension-and-custom-operators.html。「自定义 Kernel 处理连续 float32 就够了」——dtype、device、stride、空 Tensor、生命周期、backward 都要处理。
 结论原文：定义 / 注册 / 实现三步；`torch.library` 或 `TORCH_LIBRARY` 接入；Python → C++ CPU → CUDA → Autograd 与 Meta 四阶段；实现层必须处理 **device、dtype、stride、生命周期**四件事。
 补充要点：stride 2 访问带宽利用 50%，最坏多搬 8 倍；ABI：`_GLIBCXX_USE_CXX11_ABI` 与 torch 一致，否则符号找不到
+</aside>
+
+<!-- v -->
+
+### 从源码到被调用：注册发生在库加载时
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
+flowchart LR
+    S["扩展源码<br/>实现 + TORCH_LIBRARY"] --> SO["共享库 .so"] --> INIT["加载时静态初始化<br/>m.def 写 Schema、m.impl 填槽位"] --> T[("Operator Table<br/>myops::scale_shift 一行")]
+    PY["torch.library<br/>register_autograd、register_fake"] --> T
+    T --> DSP["Dispatcher<br/>按 DispatchKeySet 取槽位"] --> IMPL["Autograd 包装<br/>→ CPU / CUDA 实现"]
+```
+
+<aside class="notes" markdown="1">
+库没被加载，它的实现就不在表里；`torch.compile` 追踪时走的是 Fake 实现，只给出输出的 shape / dtype / device。
 </aside>
 
 ---
@@ -392,17 +402,19 @@ flowchart LR
 
 **2000+ 算子 × 15 dtype × 设备 × 布局——在组合爆炸下求可行**
 
-| 关 | 内容 |
+| 关 | 守住什么 |
 |---|---|
-| lint / 类型 | 格式、mypy、clang-tidy |
-| 单测（`pull` 层约两小时） | OpInfo 驱动，五种 oracle：参考实现、`gradcheck`、跨设备、跨 dtype、`compile` vs eager |
-| 性能基准 | TorchBench、每日回归 |
-| 兼容性 | 弃用保留至少一个小版本（通常两个）；ABI 检查 |
-| 发布 | 小版本每三到四个月，cut 距发布约 6 周 |
+| ① 本地构建能跑 | Codegen 是构建的一步；改 Schema 比改实现贵 |
+| ② 结果正确 | OpInfo 一处声明、万处生成；五种 oracle |
+| ③ 没有变慢 | 指令数守 CPU 开销，TorchBench 守端到端 |
+| ④ 审查与 CI | `pull` 约两小时 → `trunk` → `periodic`；flaky 自动隔离 |
+| ⑤ 发布 | 小版本每三到四个月；wheel 按 Python × 后端 × 平台分格 |
+| ⑥ 用户升级不坏 | 弃用保留至少一个小版本；Schema 有 BC / FC 检查 |
+| ⑦ 使用者跟随 | pin 具体版本、弃用警告当 CI 错误、nightly / RC 冒烟 |
 
 <aside class="notes" markdown="1">
 原文 /pytorch-engineering-system.html。
-结论原文：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例，五种 oracle。
+结论原文：守住**正确性、性能、兼容性**；框架工程是在**组合爆炸**下求可行——2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例；五种 oracle 是参考实现、数学恒等式、跨后端一致、跨模式一致、元数据一致。
 补充要点：flaky 测试：自动开 disable issue 隔离、定期重跑、连续通过后恢复——不是让作者重跑到过；`gradcheck`：数值 Jacobian（float64、中心差分）对解析 Jacobian 逐元素比
 </aside>
 
