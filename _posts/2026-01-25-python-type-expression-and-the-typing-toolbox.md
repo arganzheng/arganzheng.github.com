@@ -7,7 +7,7 @@ tags: [Python]
 catalog: true
 redirect_from:
   - /python-type-system-and-data-contract-design.html
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 
@@ -871,7 +871,7 @@ Table: 实例类型与类对象类型：Python 与 Java 对照
 两个实质差异：
 
 1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
-2. **没有类型擦除。** Java 的 `Class<T>` 之所以常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），正是因为泛型被擦除了，运行时拿不到 `T`。Python 没有擦除问题——注解本身在运行时就可以读取（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）——所以 `type[C]` 的用途更纯粹：它就是"需要一个类，而不是一个实例"。
+2. **类对象本身就是运行时令牌。** Java 的 `Class<T>` 常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），因为泛型被擦除后，方法体里拿不到 `T`。Python 的类本来就是普通对象，直接把 `Foo` 传进去即可，`type[C]` 只是给这个参数写上静态约束：它要"一个类，而不是一个实例"。但 Python 也没有保留泛型实参：`list[int]` 这类注解可以从 `__annotations__` / `get_type_hints()` 里读到（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)），`[1, 2]` 这个对象本身却不记得元素类型，`Stack[int]()` 创建的实例也不检查放进去的值。
 
 **典型用途：工厂与注册表**
 
@@ -916,8 +916,23 @@ def load(name: str) -> Model:
 两者都能表达"能造出 C 的东西"，但语义不同：
 
 ```python title='type[Model] 与 Callable[..., Model] 的语义差别'
-def a(factory: type[Model]) -> Model: ...      # 必须是类
+from collections.abc import Callable
+from functools import partial
+
+class Model:
+    def __init__(self, size: int = 1) -> None:
+        self.size = size
+
+def a(factory: type[Model]) -> Model:          # 必须是类
+    return factory()
+
 def b(factory: Callable[..., Model]) -> Model: # 类或函数都行
+    return factory()
+
+a(Model)                       # OK
+b(Model)                       # OK：类也是可调用对象
+b(partial(Model, size=8))      # OK：只要调用结果是 Model
+a(partial(Model, size=8))      # 类型错误：partial 不是类
 ```
 
 - 需要访问**类属性、classmethod 或做 `issubclass` 判断**时，必须用 `type[C]`；
@@ -1355,23 +1370,27 @@ class User(BaseModel):
 from typing import Annotated
 from fastapi import Depends, Header, Query
 
-# 把依赖注入、校验规则等信息附加到类型上
+# 片段：Session、get_db、Item 来自应用自己的数据库层和模型定义
+# 把依赖注入、校验规则等信息附加到类型上；没有默认值的参数要排在前面
 async def list_items(
-    q: Annotated[str | None, Query(max_length=50)] = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 10,
     token: Annotated[str, Header()],
     db: Annotated[Session, Depends(get_db)],
+    q: Annotated[str | None, Query(max_length=50)] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
 ) -> list[Item]:
     ...
 ```
 
-对应 Java：最接近的概念是**注解（Annotation）**。Java 的 `@NotNull`、`@Size(max=50)` 作用在参数或字段上；Python 的 `Annotated` 把元数据嵌入到类型本身。
+`Annotated` 的元数据对解释器和 mypy 都没有约束力：`Query(ge=1)` 只有 FastAPI 在启动时读到、在请求进来时执行，`limit` 才会被检查范围。
 
-```java title='Java 对应：注解作用在参数或字段上'
-// Java 的方式
-void createUser(@NotNull @Size(min=2, max=50) String name,
-                @Min(0) @Max(150) int age) { ... }
-```
+> [!NOTE] 与 Java 对照：参数校验注解
+> 最接近的是 Bean Validation 一类**注解（Annotation）**：`@NotNull`、`@Size(max=50)` 作用在参数或字段上，由 Hibernate Validator、Spring 等框架读取并执行。Python 的 `Annotated` 把元数据挂在类型表达式上，同样要靠框架消费。
+>
+> ```java title='Java 对应：注解作用在参数或字段上'
+> // Java 的方式
+> void createUser(@NotNull @Size(min=2, max=50) String name,
+>                 @Min(0) @Max(150) int age) { ... }
+> ```
 
 
 ### 11. ParamSpec 与 Concatenate：保留装饰器的类型信息
@@ -1954,8 +1973,8 @@ Table: typing 功能速查表
 | 维度 | Java 泛型 | Python 泛型 |
 |---|---|---|
 | 引入版本 | Java 5 (2004) | Python 3.5 (2015) |
-| 实现方式 | 类型擦除（编译后泛型信息消失） | **纯注解**（运行时完全没有泛型检查） |
-| 运行时获取泛型信息 | 困难（需要反射技巧） | `get_type_hints()` 可以获取 |
+| 实现方式 | 类型擦除（对象不记得类型实参，声明处签名仍在 `.class` 里） | 注解 + 静态检查（运行时不检查泛型；对象不记得类型实参） |
+| 运行时获取泛型信息 | 声明处可用反射读取（如 `Field.getGenericType()`） | 声明处可用 `get_type_hints()` 读取；实例上读不到 |
 | 通配符 | `? extends T` / `? super T` | `TypeVar(covariant/contravariant)` |
 | 上界约束 | `<T extends Number>` | `TypeVar("T", bound=Number)` |
 | 多重约束 | `<T extends A & B>` | 不直接支持（可用 Protocol 组合） |

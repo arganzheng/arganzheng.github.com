@@ -6,7 +6,7 @@ subtitle: "Type System II: Distributing and Consuming Type Information"
 tags: [Python]
 catalog: true
 date: 2026-01-25 12:00:00 +0800
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 [上篇](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
@@ -22,16 +22,20 @@ updated: 2026-11-14
 
 ## 一、总览
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
-%% 图：类型信息的载体与两种消费：静态检查器与运行时库读同一份注解
-flowchart TB
-    SRC["类型信息的载体（第二章）：源码里的注解 · .pyi 存根（C 扩展、没注解的库）· typeshed · py.typed 标记"]
-    SRC --> ST["<b>静态消费</b>（第三章）<br/>mypy / pyright / IDE：不运行代码，推理每个表达式的类型；报错在提交前，运行时零开销"]
-    SRC --> RT["<b>动态消费</b>（第四章）<br/>pydantic / FastAPI / dataclasses：运行时读 __annotations__ / get_type_hints，据此做校验、转换、生成 schema"]
-    ST -. "同一份注解，两种读法：一个防写错，一个管数据" .-> RT
+下图以一行 `max_tokens: int | None = None` 为例，按"谁在什么时候做什么"排开：
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：一行注解从写下、发布到被静态检查器和运行时库读取的路径
+flowchart TB
+    W["<b>库作者写下</b><br/>max_tokens: int | None = None<br/>C 扩展另写 .pyi 存根"]
+    W --> PUB["<b>打包发布</b>（第二章）<br/>.py / .pyi 与 py.typed 一起进 wheel<br/>没注解的库由 types-* 或 typeshed 补"]
+    PUB --> ST["<b>开发时：mypy / pyright</b>（第三章）<br/>不 import、不执行代码<br/>按查找顺序读源码或存根，推理并报错"]
+    PUB --> IMP["<b>运行时：import 执行 class 语句</b><br/>解释器求值注解，存进 __annotations__<br/>（3.14 起改为首次读取时才求值）"]
+    IMP --> RT["<b>运行时库读取</b>（第四章）<br/>dataclass：类定义时生成 __init__<br/>Pydantic：类定义时建验证器，实例化时校验<br/>beartype：每次调用时检查"]
 ```
+
+两条读取路径互不依赖：mypy 从不执行代码，`__annotations__` 也不会因为 mypy 报错而改变。静态检查器防的是代码写错，运行时库处理的是进来的数据。
 
 
 ### 1. 在三篇地图上的位置
@@ -162,7 +166,8 @@ mypy 1.19.1 里还有两处细节：
 - 同一个目录里 `foo.pyi` 和 `foo.py` 都在时，只用 `.pyi`（文档 [`running_mypy.rst`「How imports are found」](https://github.com/python/mypy/blob/v1.19.1/docs/source/running_mypy.rst)）。所以包内存根和 inline 注解不是先后两级，是同一级里 `.pyi` 盖住 `.py`
 - mypy 自带的 typeshed 只有标准库（外加 mypy-extensions 等几个）。查标准库模块时，它把 typeshed 提到已安装的包前面，免得 PyPI 上的 backport（比如 `dataclasses`）盖掉标准库存根
 
-对应 Java：Java 没有存根文件的概念——类型信息编译进 `.class` 文件。最接近的是 `.jar` 中不含实现的接口定义。
+> [!NOTE] 与 Java 对照：存根与 .class
+> Java 的类型签名由编译器写进 `.class`，下游编译只要拿到 jar（或只含签名的 API jar）就能检查调用。Python 没有这一步编译产物：检查器要么读 `.py` 源码里的注解，要么读单独的 `.pyi`。所以 `.pyi` 更像手工维护的"签名文件"，内容是否和实现一致没有编译器保证。
 
 
 ### 2. py.typed、PEP 561 与类型信息发布
@@ -197,7 +202,7 @@ Table: 三种类型信息发布方式
 
 - **FastAPI / Pydantic / httpx**：inline types——源码本身就有完整注解，加 `py.typed` 标记
 - **PyTorch**：混合——Python 代码用 inline types，C++ 扩展用 `.pyi` 存根
-- **NumPy**：从 1.20 开始提供 inline types + `py.typed`
+- **NumPy**：从 1.20 开始随包发布 `.pyi` 存根 + `py.typed`（实现大量在 C 里，签名写在存根中）
 - **requests**：本身无注解，依赖社区的 `types-requests` 独立存根包
 
 
@@ -240,7 +245,7 @@ mypackage = ["py.typed", "*.pyi"]
 
 类型信息写好了、分发好了，接下来就是"谁来用"。消费方分为两种：**静态分析工具**在开发时检查类型正确性，**动态工具**在运行时利用类型信息做校验和解析。两者互补，不是替代关系。
 
-类型注解写在源码中，但 Python 解释器**完全忽略**它们——不会做任何检查。真正让类型注解产生价值的是**静态类型检查器**。这一部分关于"谁来检查、怎么检查、检查到什么程度"。
+解释器会求值并保存注解，但不据此检查参数或返回值——`x: int = "hello"` 照样运行。在开发阶段让注解产生价值的是**静态类型检查器**。这一部分关于"谁来检查、怎么检查、检查到什么程度"。
 
 ### 1. mypy 与 pyright
 
@@ -346,11 +351,13 @@ reportMissingTypeStubs = false
 
 对于已有大型项目，不可能一步到位开启 `--strict`。推荐的渐进策略：
 
-**第一步：仅检查新代码**
+**第一步：只检查有注解的函数，再扩到无注解函数的函数体**
 
-```toml title="渐进第一步：只检查有注解的代码"
+mypy 默认就只检查带注解的函数，没注解的函数体直接跳过。先在默认配置下把报错清零，再打开 `check_untyped_defs`，让无注解函数的函数体也接受检查（参数仍按 `Any` 处理）：
+
+```toml title="渐进第一步：默认配置清零后，再检查无注解函数的函数体"
 [tool.mypy]
-# 不开 strict，只检查有注解的代码
+# 不开 strict；默认只检查有注解的函数，这一项把无注解函数的函数体也纳入
 check_untyped_defs = true
 ```
 
@@ -426,10 +433,11 @@ class User(Base):
 
 ```python title="静态检查做不到的事三：C 扩展与序列化返回 Any"
 # C 扩展模块——需要 .pyi 存根文件提供类型信息（见"类型载体与分发"部分）
-import numpy as np
-arr = np.array([1, 2, 3])  # 没有存根就是 Any
+import fastops            # 假设这是一个没有 .pyi、没有 py.typed 的 C 扩展
+arr = fastops.make(3)     # 检查器看不到签名：报 missing stubs，或按 Any 处理
 
 # RPC / 序列化结果——类型信息在传输中丢失
+import pickle
 result = pickle.loads(data)  # result: Any
 ```
 
@@ -492,7 +500,7 @@ def process(value: int | str) -> str:
 `isinstance` 是 Python 内置的运行时类型检查，不依赖 `typing` 模块。它的限制：
 
 - **不支持泛型**：`isinstance(x, list[int])` 会报错（`list[int]` 不是运行时类型）
-- **不支持 Union**：`isinstance(x, int | str)` 从 3.10 开始才支持
+- **Union 要看版本**：3.10 起才能写 `isinstance(x, int | str)`，之前只能传元组 `(int, str)`
 - **不支持 Protocol**：除非加了 `@runtime_checkable`
 
 **`__annotations__`：注解存放在哪里**
@@ -538,11 +546,24 @@ hints = get_type_hints(User)
 
 | | `__annotations__` | `get_type_hints()` |
 |---|---|---|
-| 字符串注解 | 原样返回字符串 | 求值为真正的类型对象 |
+| 字符串注解 | 原样返回字符串 | 在定义所在模块的命名空间里求值为类型对象 |
 | 继承来的字段 | 只有当前类自己的 | 合并整条 MRO 上的注解 |
-| `Optional` 补全 | 不处理 | 带 `None` 默认值的参数自动补成 `X ∣ None` |
+| `Optional` 补全 | 不处理 | 3.10 及之前：带 `None` 默认值的参数补成 `Optional[X]`；3.11 起不再补 |
+| `Annotated` 元数据 | 原样保留 | 默认去掉，`include_extras=True` 才保留 |
 
 Table: __annotations__ 与 get_type_hints() 的差别
+
+`get_type_hints()` 对一个类做的事可以画成下面这条路径：
+
+```mermaid
+%% 图：get_type_hints 解析类注解的路径
+flowchart TB
+    C["get_type_hints(Node)"] --> M["沿 Node.__mro__ 逐个取各类自己的 __annotations__"]
+    M --> S{"值是字符串？"}
+    S -- "是，如 'Node | None'" --> E["在该类所在模块的 globals 里 eval<br/>名字找不到就抛 NameError"]
+    S -- "否，已是类型对象" --> K["原样保留"]
+    E & K --> R["合并成一个 dict 返回<br/>默认去掉 Annotated 的元数据"]
+```
 
 第一点尤其重要。开启 `from __future__ import annotations` 后（或使用前向引用），所有注解都会以字符串形式保存：
 
@@ -561,9 +582,13 @@ print(get_type_hints(Node))
 # {'value': <class 'int'>, 'next': Node | None}   ← 已求值
 ```
 
-所以框架读注解时基本都用 `get_type_hints()` 而不是裸的 `__annotations__`——这是 Pydantic、beartype 等框架的底层基础：它们在运行时读取注解，然后根据注解生成校验逻辑。
+所以框架读注解时一般走 `get_type_hints()` 或自己的等价实现，而不是裸的 `__annotations__`——这是 Pydantic、beartype 等框架的底层基础：它们在运行时读取注解，然后根据注解生成校验逻辑。
 
-对应 Java：`get_type_hints()` 类似 Java 的反射 API `Field.getGenericType()`，但由于 Java 有类型擦除，运行时拿不到完整的泛型信息。Python 反而更好——注解信息在运行时完整保留。
+> [!IMPORTANT] 版本差异：注解什么时候求值
+> 3.13 及之前，`class` / `def` 执行时就求值注解，结果存进 `__annotations__`；`from __future__ import annotations` 让它们保存成字符串，留给 `get_type_hints()` 求值。3.14 起按 PEP 649 / 749 默认延迟求值：第一次读取 `__annotations__` 时才计算，新模块 `annotationlib.get_annotations()` 还能按 `FORWARDREF`、`STRING` 等格式读取，前向引用不再需要手写引号。`from __future__ import annotations` 在 3.14 里仍然生成字符串。
+
+> [!NOTE] 与 Java 对照：反射读到的泛型信息
+> Java 的 `Field.getGenericType()` 能读到字段声明里的 `List<String>`，擦除的是对象本身：一个 `ArrayList` 实例不记得自己的 `String`。Python 也类似：`get_type_hints()` 读的是声明处的注解，`list[int]` 能原样拿到；但 `[1, 2]` 这个列表对象本身没有元素类型，`Stack[int]()` 创建出的实例也不会被检查。两边不同的地方在于 Python 的注解可能是字符串或延迟求值的表达式，读的时候要能在原模块里解析出名字。
 
 ```python title="框架底层示意：读注解生成校验逻辑"
 # 框架底层原理示意
@@ -606,14 +631,16 @@ print(inspect.signature(User.__init__))
 # (self, id: int, name: str) -> None      ← 这个 __init__ 是 exec 生成的
 ```
 
-这里有一个**必须说清楚的点**：`@dataclass` 只用注解做了"字段声明"这一件事，它**完全不做类型校验**。注解在这里是触发器，不是检查依据：
+这里有一个**必须说清楚的点**：`@dataclass` 只用注解做"字段声明"，它**完全不做类型校验**。注解在这里是触发器，不是检查依据：
 
 ```python title="dataclass 不校验类型：错误类型照样构造成功"
 user = User(id="not an int", name=123)   # 不报错！
 print(user.id)                            # 'not an int'
 ```
 
-`dataclasses` 甚至不关心注解的内容是不是一个合法类型——写 `id: "随便什么字符串"` 它也照样生成 `__init__`。所以在类型信息的消费谱系里，`@dataclass` 属于**最轻度**的消费者：它只关心"有哪些字段"，不关心"字段是什么类型"。
+生成 `__init__` 时用 `exec` 拼字符串，是 CPython 标准库 `dataclasses.py` 的实现方式，不是语言规定；3.14 起它读注解时也改走 `annotationlib`，对未定义的前向引用更宽容。
+
+`dataclasses` 基本不关心注解的内容是不是一个合法类型——写 `id: "随便什么字符串"` 它也照样生成 `__init__`。它只认几个特殊标记：`ClassVar` 不算字段，`InitVar` 只进 `__init__` 不存成属性，`KW_ONLY` 之后的字段变成仅限关键字参数。除此之外，在类型信息的消费谱系里，`@dataclass` 属于**最轻度**的消费者：它关心"有哪些字段"，不关心"字段是什么类型"。
 
 **Pydantic：元类拦截 + 构建验证树**
 
@@ -623,7 +650,7 @@ Pydantic v2 中元类的核心流程：
 
 1. **类创建期的拦截与组装**：元类拦截类的创建过程，遍历 `__annotations__` 的每个字段，检查是否附带 `EmailStr`、`Field()`、`Annotated[...]` 等高级定义；
 2. **构建验证树**：为该模型构建一套验证树结构。v2 为了性能，把这部分核心校验逻辑编译后交给 Rust 编写的引擎 `pydantic-core` 驱动；
-3. **重写 `__init__`**：生成一个特殊的 `__init__`。调用 `User(id="123")` 时它不直接赋值，而是把入参丢进验证树——先清洗与转换（`"123"` → `123`），再执行复杂校验（正则、范围），通过后写入实例；失败则收集**所有**错误路径，一次性抛出结构化的 `ValidationError`。
+3. **挂上验证器**：编译好的验证器存为类属性 `__pydantic_validator__`。`BaseModel.__init__` 是所有模型共用的一个方法，不为每个类另外生成；调用 `User(id="123")` 时它把入参交给这个验证器——先清洗与转换（`"123"` → `123`），再执行复杂校验（正则、范围），通过后写入实例；失败则收集**所有**错误路径，一次性抛出结构化的 `ValidationError`。
 
 关键在于**时机**：验证树是在类定义时一次性构建好的，实例化时只是执行它。把两条路线按"类定义时"和"实例化时"两个时刻对齐，差别就在第二行：
 
@@ -645,7 +672,7 @@ flowchart LR
     DC ~~~ PD
 ```
 
-这也是 Pydantic v2 比 v1 快一个数量级的原因之一——把工作从"每次实例化"挪到了"仅一次的类创建"。
+v1 也是在类创建时就准备好各字段的校验器，v2 的提速主要来自把整套校验编成一个 core schema、交给 Rust 写的 `pydantic-core` 执行，官方给出的提速在 4–50 倍之间。
 
 ```python title="Pydantic BaseModel：类定义时构建验证树"
 from pydantic import BaseModel
@@ -659,7 +686,7 @@ print(type(User))               # <class 'pydantic._internal._model_construction
 print(User.__pydantic_core_schema__ is not None)   # True
 ```
 
-上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。换句话说，`User` 这个**类对象**的类型是 `ModelMetaclass`，所以任何接受 `type[BaseModel]` 的函数都能拿到它。
+上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。`User` 这个**类对象**是 `ModelMetaclass` 的实例；它能传给接受 `type[BaseModel]` 的函数，则是因为 `User` 是 `BaseModel` 的子类——前者说的是类由谁创建，后者说的是类之间的继承关系。
 
 > 元类本身的机制（`type` 的三参数形式、`__new__` 的拦截时机、与 `__init_subclass__` 的取舍）在[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"元类：控制类的创建过程"一节有完整展开，这里只关注它作为注解消费者的角色。
 
@@ -676,7 +703,8 @@ print(User.__pydantic_core_schema__ is not None)   # True
 
 Table: @dataclass 与 Pydantic BaseModel 消费注解的两条路线
 
-对应 Java：`@dataclass` 类似 Lombok——编译期往类里塞方法，注解只是生成指令；Pydantic 类似 Hibernate Validator——真正解析注解的语义并在运行时执行校验。差别是 Lombok 在编译期改 AST，`@dataclass` 在运行时 `exec` 字符串。
+> [!NOTE] 与 Java 对照：Lombok 与 Bean Validation
+> `@dataclass` 的作用接近 Lombok：根据字段声明补出构造器等方法，不校验值。Pydantic 的位置接近 Hibernate Validator，按声明的约束在运行时校验，但它还会做类型转换和 JSON Schema 生成，不是一一对应。时机也不同：Lombok 在编译期改 AST，`@dataclass` 在 `class` 语句执行完后、运行时生成方法。
 
 > **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」。
 
@@ -757,6 +785,14 @@ Table: 静态检查与运行时检查的分工
 
 **1. 信任边界（Trust Boundary）模式**：在系统的**入口处**做运行时校验，内部用静态检查。
 
+```mermaid
+%% 图：信任边界：入口运行时校验，内部依靠静态检查
+flowchart TB
+    IN["HTTP 请求体 JSON<br/>{'prompt': 'hi', 'max_tokens': '16'}"] --> V["<b>入口：Pydantic 校验</b><br/>'16' 转成 16；类型或范围不符抛 ValidationError，返回 422"]
+    V --> OBJ["CompletionRequest 对象<br/>字段类型已经和注解一致"]
+    OBJ --> CORE["<b>内部：engine.generate(...)</b><br/>不再做运行时检查，由 mypy / pyright 在 CI 保证调用处类型正确"]
+```
+
 ```python title="信任边界模式：入口用 Pydantic 校验，内部信任类型"
 # 入口：运行时校验——外部数据不可信
 @app.post("/v1/completions")
@@ -766,7 +802,7 @@ async def create_completion(request: CompletionRequest):  # Pydantic 校验
     return result
 
 # 内部：静态检查——数据已经可信
-def generate(prompt: str, params: SamplingParams) -> GenerateOutput:
+def generate(self, prompt: str, params: SamplingParams) -> GenerateOutput:
     tokens = self.tokenizer.encode(prompt)  # mypy 确保 prompt 是 str
     ...
 ```
@@ -829,4 +865,4 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
 
    </details>
 
-[^q0]: 三个环节：（1）**写下**——解释器把注解求值（或在 `from __future__ import annotations` / PEP 649 下延迟为字符串 / 惰性求值）存进 `__annotations__`；（2）**静态检查器**（mypy / pyright）在不运行代码的情况下读源码，把 `Tensor | None` 当作类型做流敏感的窄化检查，能发现调用处传了错的类型、忘了判 `None`，但对运行时才知道的形状、设备、动态构造的属性无能为力；（3）**运行时框架**（Pydantic、dataclass、FastAPI、`torch.jit` / `torch.compile`）通过 `typing.get_type_hints` / `inspect` 读到同一份注解对象，用它生成校验器、序列化器或签名，能在运行时拒绝坏数据、做转换，但不做全程序推断。两边读的是同一份信息，但一个在编译期做证明、一个在运行期做执行，谁都替代不了谁。
+[^q0]: 三个环节：（1）**写下**——解释器把注解求值（或在 `from __future__ import annotations` / PEP 649 下延迟为字符串 / 惰性求值）存进 `__annotations__`；（2）**静态检查器**（mypy / pyright）在不运行代码的情况下读源码，把 `Tensor | None` 当作类型做流敏感的窄化检查，能发现调用处传了错的类型、忘了判 `None`，但对运行时才知道的形状、设备、动态构造的属性无能为力；（3）**运行时框架**（Pydantic、dataclass、FastAPI、`torch.jit.script`）通过 `typing.get_type_hints` / `inspect` 读到同一份注解对象，用它生成校验器、序列化器或签名，能在运行时拒绝坏数据、做转换，但不做全程序推断。两边读的是同一份信息，但一个在开发期做推理检查、一个在运行期处理真实数据，谁都替代不了谁。
