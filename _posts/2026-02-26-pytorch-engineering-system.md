@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（10）：PyTorch 的工程体系——一次改动
 subtitle: "The Engineering System of PyTorch: How a Change Travels Safely from Commit to Production"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
@@ -16,15 +16,60 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 
 > **一个框架的工程体系，就是一次改动从写下到进入用户生产环境所经过的全部关卡，以及每个关卡守住什么。**
 
-本文沿着这条路走一遍：改动先要在开发者机器上**构建**起来，然后证明自己**正确**、**没有变慢**，通过**审查与 CI 合入**主干，随一个版本**发布**成二进制制品，最后到达用户手里时**不能破坏**他们的代码、扩展和 checkpoint。走完这条路，再站到使用者一侧，看 AI-Infra 工程师应当怎样跟随这条演进线；最后把整套方法收回到第六篇的自定义算子上，作为全系列的实践终点。
+本文沿着这条路走一遍：改动先要在开发者机器上**构建**起来，然后证明自己**正确**、**没有变慢**，通过**审查与 CI 合入**主干，随一个版本**发布**成二进制制品，最后到达用户手里时**不能破坏**他们的代码、扩展和 checkpoint。走完这条路，再站到使用者一侧，看 AI-Infra 工程师应当怎样跟随这条演进线；最后把整套方法收回到[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)做出的自定义算子上，作为全系列的实践终点。
 
-与前几篇的关系：第六篇讲过单个自定义算子怎么用 `opcheck`、`gradcheck`、Benchmark 验证以及 ABI 为什么会坏，本文不重复那些 API 的用法，而是回答它们背后的问题——PyTorch 自己是怎么系统性地做这些事的。
+与《C++ 扩展与自定义算子》的关系：它的[「测试与 Benchmark」](/pytorch-cpp-extension-and-custom-operators.html#九测试与-benchmark)和[「构建、ABI 与分发」](/pytorch-cpp-extension-and-custom-operators.html#十构建abi-与分发)两章讲过单个自定义算子怎么用 `opcheck`、`gradcheck`、Benchmark 验证以及 ABI 为什么会坏，本文不重复那些 API 的用法，而是回答它们背后的问题——PyTorch 自己是怎么系统性地做这些事的。
 
 ## 一、总览：一次改动的七个关卡
 
+以"给某个 CUDA Kernel 换一种更快的实现"为例，这次改动从源码到用户的训练作业，依次变成下面几样东西，每变一次过一道关：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：一次改动从源码到用户训练作业经过的产物与关卡
+flowchart TB
+    subgraph DEV["维护者一侧：前六关"]
+        direction TB
+        SRC["<b>源码改动</b><br/>aten/ 下的 .cpp / .cu，或 native_functions.yaml"]
+        SO["<b>① 本地构建产物（第二章）</b><br/>torchgen 生成代码 → Ninja 编译链接<br/>libtorch_cpu.so、libtorch_cuda.so、libtorch_python.so"]
+        TEST["<b>② 测试实例（第三章）</b><br/>op_db 里的 OpInfo × 测试模板 × 设备 × dtype<br/>五种 oracle 提供标准答案"]
+        BENCH["<b>③ 性能数字（第四章）</b><br/>微基准与指令数、TorchBench 与编译器看板"]
+        MAIN["<b>④ 主干上的提交（第五章）</b><br/>pull 层 CI 全绿、按 merge_rules.yaml 审批后由机器人合入<br/>合入后 trunk / periodic 层继续跑，红了回滚"]
+        WHEEL["<b>⑤ 发布制品（第六章）</b><br/>nightly → release 分支 → RC → 正式版<br/>Python × 加速后端 × 平台的 wheel 矩阵"]
+        SRC --> SO --> TEST --> BENCH --> MAIN --> WHEEL
+    end
+    CONTRACT["<b>⑥ 五个接口面的兼容承诺（第七章）</b><br/>Python API、算子 Schema、C++ API、序列化格式、平台"]
+    subgraph USR["使用者一侧：第七关"]
+        direction TB
+        IMG["<b>⑦ 版本化的镜像（第八章）</b><br/>驱动 × CUDA × PyTorch × C++ 扩展 × 上层框架"]
+        JOB["<b>用户的训练作业</b><br/>原有代码、扩展、checkpoint 继续可用"]
+        IMG --> JOB
+    end
+    MYOPS["<b>树外扩展 myops（第九章）</b><br/>既依赖 PyTorch，又有自己的用户：把七关再走一遍"]
+    DEV -->|"wheel 带着这些承诺到达用户"| CONTRACT
+    CONTRACT -->|"按升级 playbook 逐层验证"| USR
+    USR -.-> MYOPS
+
+    classDef dev fill:#e3f2fd,stroke:#1565c0;
+    classDef mid fill:#fff8e1,stroke:#f9a825;
+    classDef usr fill:#e8f5e9,stroke:#2e7d32;
+    class SRC,SO,TEST,BENCH,MAIN,WHEEL dev;
+    class CONTRACT,MYOPS mid;
+    class IMG,JOB usr;
+```
+
+- **本地构建产物**：开发者机器上的一组共享库。torchgen 先从 `native_functions.yaml` 等声明文件生成注册代码与 Python 绑定，Ninja 再把上万个 `.cpp` / `.cu` 编译链接成 `libtorch_*.so`；后面每一关验证的都是它。
+- **测试实例**：不是手写的用例，而是运行测试时由 `op_db`（每个算子一个 `OpInfo`）与几十个测试模板、设备、dtype 相乘生成的，共几十万个；判断对错的标准答案来自五种 oracle。
+- **性能数字**：CPU 侧开销用确定的指令数衡量，GPU 侧与整模型用 TorchBench 等基准的逐日曲线衡量；大部分在合入之后才产生。
+- **主干上的提交**：PR 通过 `pull` 层 CI 和按路径指定的审批人之后，由机器人合入；更慢更全的 `trunk` / `periodic` 层在主干上继续跑，出问题靠回滚处理。
+- **发布制品**：主干每天构建 nightly；每三到四个月从主干 cut 一个 release 分支，经 RC 发成正式版。每个版本是一组 wheel，一个 wheel 对应 Python 版本 × 加速后端 × 平台的一个组合。
+- **兼容承诺**：wheel 到用户手里时附带的保证，按接口面分级——Python API 有弃用周期，算子 Schema 有自动化检查，C++ API 没有保证，序列化格式有版本机制，平台支持是滑动窗口。
+- **版本化的镜像**：使用者一侧的产物。驱动、CUDA、PyTorch、C++ 扩展、上层框架五个版本写成一组，一组对应一个镜像 tag；升级和回退都以它为单位。
+- **myops**：[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)写出的树外扩展。它对 PyTorch 是使用者，对自己的用户是维护者，所以第九章让它把七关都走一遍。
+
 ### 1. 生命周期
 
-以一个典型改动为例——给某个 CUDA Kernel 换一种更快的实现。它从写下到进入用户的训练作业，要依次过七关：
+把上图的七关逐个列出来，每一关要回答的问题是：
 
 | 关卡 | 要回答的问题 | 章节 |
 |---|---|---|
@@ -39,6 +84,9 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 Table: 一次改动从写下到进入用户训练作业的七个关卡
 
 前六关是框架维护者的视角，第七关是使用者的视角。两者对 AI-Infra 工程师都重要：读源码、给 PyTorch 提 PR、维护树外后端时是前者；升级集群、维护自己的 C++ 扩展、保证 checkpoint 可加载时是后者。
+
+> [!NOTE] Java 经验参照：七个关卡
+> 这条链路的形状与 Java 开源项目相同：本地 `mvn verify` → PR 检查 → 合入 → 按固定节奏发版 → 用户改依赖的版本号。不同在每一关的规模和绑定：测试是几十万个实例而不是几千个；制品是按平台 × Python × CUDA 分格的 wheel，而不是一个平台无关的 jar；用户升级时 C++ 扩展要重新编译，不是只改 `pom.xml` 里的版本号。
 
 ### 2. 关卡守住的三件事
 
@@ -78,10 +126,9 @@ Table: 工程系统要守住的三件事与对应的机制
 | 六 | 第五关：发布 | 节奏与分支 · wheel 矩阵与 ABI · 平台支持窗口 · 治理 |
 | 七 | 第六关：用户升级不坏 | 接口面的稳定分级 · Python API 弃用 · Schema BC/FC · C++ 与稳定 ABI、PrivateUse1 · 序列化版本 |
 | 八 | 第七关：使用者如何跟随演进 | 版本策略 · 升级 playbook · 兼容矩阵 · 回退 |
-| 九 | 实践终点：把第六篇的 myops 走完这七关 |  |
-| 十 | Java 对照 |  |
-| 十一 | 本文小结 |  |
-| 十二 | 自测 | 5 道题 |
+| 九 | 实践终点：把《C++ 扩展与自定义算子》的 myops 走完这七关 | 目录结构 · 测试 · Benchmark · CI 与发布 · Schema 契约 · 检查清单 |
+| 十 | 本文小结 |  |
+| 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -94,25 +141,25 @@ Table: 本文的章节安排
 [《PyTorch 整体介绍》第七章「代码视角——源码目录与库的分层」](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)按库给过一张四层的代码地图（`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`）并把各层对应到系列各篇。这里把它展开成构建者需要的完整目录：
 
 - **pytorch/**
-  - c10/                     核心基础库：TensorImpl、Storage（第二篇）、Device、ScalarType、DispatchKey（第五篇）、Allocator（第八篇）、intrusive_ptr
+  - c10/                     核心基础库：TensorImpl、Storage（[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)）、Device、ScalarType、DispatchKey（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)）、Allocator（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)）、intrusive_ptr
     - core/  cuda/  util/
-  - aten/src/ATen/           Tensor 库（第五篇）
+  - aten/src/ATen/           Tensor 库（《Dispatcher 与算子系统》）
     - native/              算子实现：native_functions.yaml 与 CPU 实现
       - cpu/             CPU Kernel（向量化、TensorIterator 循环）
       - cuda/            CUDA Kernel
       - ...              sparse/ quantized/ mkldnn/ 等后端
     - core/                Tensor、TensorBase、Dispatcher、boxing
-    - TensorIterator.*     第六篇用过的 stride 处理机制
+    - TensorIterator.*     [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)用过的 stride 处理机制
   - torch/                   Python 包
     - csrc/                C++ 侧的 Python 绑定与运行时
-      - autograd/        Autograd 引擎（第三篇）、generated/（Codegen 产物）
+      - autograd/        Autograd 引擎（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)）、generated/（Codegen 产物）
       - jit/             TorchScript、序列化的 upgraders（第七章 §3）
-      - distributed/     c10d：ProcessGroup、NCCL 后端、Reducer（第九篇）
-      - dynamo/          Dynamo 的 C 扩展（帧求值 hook，第七篇）
+      - distributed/     c10d：ProcessGroup、NCCL 后端、Reducer（[《分布式 PyTorch》](/pytorch-distributed-training.html)）
+      - dynamo/          Dynamo 的 C 扩展（帧求值 hook，[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)）
       - inductor/        AOTInductor 运行时、C shim（第七章 §4）
       - api/             C++ 前端（libtorch 的 torch::nn 等）
     - nn/  optim/  fx/  distributed/  testing/      Python 实现
-    - _dynamo/  _inductor/  _functorch/             编译栈（第七篇）
+    - _dynamo/  _inductor/  _functorch/             编译栈（《编译执行与图优化》）
     - _refs/  _prims/  _decomp/                     参考实现与分解（第三章 §1）
     - _C/                  编译出的扩展模块的类型桩
   - torchgen/                Codegen（[《Dispatcher 与算子系统》第五章「Codegen」](/pytorch-dispatcher-and-operator-system.html#五开发态横向机制codegen)）
@@ -142,10 +189,13 @@ Table: 本文的章节安排
    - `libc10.so`、`libc10_cuda.so`
    - `libtorch_cpu.so`、`libtorch_cuda.so`、`libtorch.so`（伞形库）
    - `libtorch_python.so`：Python 绑定层
-   - `torch/_C.cpython-*.so`：很薄的入口模块，动态链接到 `libtorch_python.so`（C++ 系列第一篇拆过这层）
+   - `torch/_C.cpython-*.so`：很薄的入口模块，动态链接到 `libtorch_python.so`（[《C++ 在 AI-Infra（01 上）：编译模型》的「动态链接与加载」一章](/cpp-compilation-model-from-cpp-to-shared-object.html#六动态链接与加载)拆过这层）
 6. develop 模式下 Python 源码原地使用；只有 C++ 改动需要重新构建
 
-第五篇讲了 Codegen **生成什么**；这里的重点是它**何时运行**——它是构建的一步，`native_functions.yaml` 改一行，会触发大量生成文件重新编译。这就是为什么改一个算子的 Schema 比改它的实现要慢得多，也是第七章 §3 中"Schema 是契约、轻易不动"的工程侧理由。
+[《Dispatcher 与算子系统》的「Codegen」一章](/pytorch-dispatcher-and-operator-system.html#五开发态横向机制codegen)讲了 Codegen **生成什么**；这里的重点是它**何时运行**——它是构建的一步，`native_functions.yaml` 改一行，会触发大量生成文件重新编译。这就是为什么改一个算子的 Schema 比改它的实现要慢得多，也是第七章 §3 中"Schema 是契约、轻易不动"的工程侧理由。
+
+> [!NOTE] Java 经验参照：构建定义与代码生成
+> `CMakeLists.txt` 加 `setup.py` 的位置相当于 `pom.xml` / `build.gradle`：前者描述 C++ 目标怎么编，后者把结果装成 Python 包。torchgen 相当于 Maven `generate-sources` 阶段的 protoc、ANTLR 这类插件——输入是独立的声明文件，输出是参与编译的源码；它不像 annotation processor 那样读源码里的注解。差别在下游的代价：`native_functions.yaml` 改一行，生成的头文件随之变化，包含它们的大量 C++ 文件都要重新编译。
 
 ### 3. 从源码构建
 
@@ -172,7 +222,10 @@ python setup.py develop
 
 首次完整 CUDA 构建在 32 核机器上约 1～2 小时；之后增量构建只编译改动的文件及依赖它的文件——改一个 `.cu` 几分钟，改 `c10/` 里的头文件可能触发半数文件重编。`ccache` 让切分支后的重建命中缓存。只改 Python 代码不需要构建（develop 模式）。
 
-`TORCH_CUDA_ARCH_LIST` 值得单独强调：不设置时会为所有支持的架构生成代码，构建时间和 `libtorch_cuda.so` 的体积都翻几倍。这也是第六篇 ABI 一节"no kernel image is available"错误的另一面。
+> [!NOTE] Java 经验参照：增量编译
+> Maven / Gradle 的增量编译以类为单位：改一个方法体，通常只重编这个类，签名变了才波及依赖它的类。C++ 的头文件是按文本包含进每个翻译单元的，`c10/` 里一个头文件改任何一行，所有直接或间接 `#include` 它的 `.cpp` 都要重编。Ninja 负责只编这些文件，ccache 负责在预处理后的内容没变时复用旧的目标文件。
+
+`TORCH_CUDA_ARCH_LIST` 值得单独强调：不设置时会为所有支持的架构生成代码，构建时间和 `libtorch_cuda.so` 的体积都翻几倍。这也是[《C++ 扩展与自定义算子》「构建、ABI 与分发」一章](/pytorch-cpp-extension-and-custom-operators.html#十构建abi-与分发)里"no kernel image is available"错误的另一面。
 
 ### 4. 调试到 C++
 
@@ -182,11 +235,11 @@ Python 栈在 `torch._C` 处断掉。接上 C++ 栈的方法：
 TORCH_SHOW_CPP_STACKTRACES=1 python test.py          # C++ 异常附带 C++ 栈（需要有符号的构建）
 gdb --args python test.py                            # 在 gdb 里 run；C++ 崩溃时 bt 看栈
 (gdb) break at::native::add_out                      # 在 C++ 函数上下断点，Python 调过来时停下
-CUDA_LAUNCH_BLOCKING=1                               # CUDA 错误在 launch 处同步报出，而不是在之后某个同步点（第八篇）
+CUDA_LAUNCH_BLOCKING=1                               # CUDA 错误在 launch 处同步报出，而不是在之后某个同步点（见《性能优化与调试》）
 compute-sanitizer python test.py                     # CUDA 的越界 / 竞态检测
 ```
 
-第五篇的分发路径、第三篇的 Autograd 引擎，用 `REL_WITH_DEB_INFO` 构建加 gdb 单步走一遍，是理解它们最直接的方式。
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的分发路径、[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 Autograd 引擎，用 `REL_WITH_DEB_INFO` 构建加 gdb 单步走一遍，是理解它们最直接的方式。
 
 到这里改动能在本机跑起来了。下一关：证明它是对的。
 
@@ -208,7 +261,7 @@ Table: PyTorch 测试用的五种 oracle
 
 前两种回答"算得对不对"，后三种回答"不同路径是否一致"。**一个新算子至少要有第一种或第二种作为绝对标准**，否则跨后端一致只能证明两个实现错得一样。
 
-参考实现值得多说一句。`torch._refs` 是一组用 PyTorch 基本算子（`torch._prims`）写成的 Python 参考实现，覆盖数百个算子。它同时是三样东西：测试 oracle、`torch.compile` 分解的来源（第七篇 AOTAutograd 的 decomposition 很多来自这里）、以及新后端的兜底实现。一份代码三种用途，是框架工程里"参考实现"的典型价值。
+参考实现值得多说一句。`torch._refs` 是一组用 PyTorch 基本算子（`torch._prims`）写成的 Python 参考实现，覆盖数百个算子。它同时是三样东西：测试 oracle、`torch.compile` 分解的来源（[《编译执行与图优化》「中端：AOTAutograd 变换」一章](/pytorch-compilation-and-graph-optimization.html#四中端aotautograd-变换)的 decomposition 很多来自这里）、以及新后端的兜底实现。一份代码三种用途，是框架工程里"参考实现"的典型价值。
 
 ### 2. OpInfo：一处声明，万处生成
 
@@ -263,6 +316,9 @@ OpInfo 的每个字段都是一个"声明"，而模板负责验证声明属实�
 
 `skips` 与 `xfail` 的区别是工程纪律：`skip` 是"不测"，`xfail`（`DecorateInfo(unittest.expectedFailure, ...)`）是"预期失败，一旦意外通过就报错"——后者防止 bug 被修好后 skip 条目永远留在那里。
 
+> [!NOTE] Java 经验参照：参数化测试与 TCK
+> `@ops(op_db)` 加 `sample_inputs_func` 的结构与 JUnit 5 的 `@ParameterizedTest` + `@MethodSource` 相同：数据源与测试模板分开写。不同在数据源的角色——`op_db` 是整个算子集合的能力声明，几十个模板与它做笛卡尔积，得到的是一套后端一致性测试。这更接近 TCK（Technology Compatibility Kit）：Servlet、JPA 的实现要通过 TCK 才能声称兼容。边界是 OpInfo 没有认证流程，树外后端拿它当算子覆盖率的度量，而不是准入门槛。
+
 ### 3. 设备与 dtype 泛化
 
 组合中设备和 dtype 两维靠 `torch/testing/_internal/common_device_type.py` 处理。一个测试类写一次，按设备实例化多份：
@@ -299,13 +355,13 @@ instantiate_device_type_tests(TestFoo, globals())        # 生成 TestFooCPU、T
 
 Table: torch.testing.assert_close 各 dtype 的默认容差
 
-它还检查 dtype、device、shape 是否相同（可关闭），处理 NaN（`equal_nan`）、复数、稀疏与量化 Tensor。第八篇讨论过混合精度的容差需要"有依据"；这张表就是依据的起点——bf16 只有 8 位尾数，1.6e-2 的相对误差是它本身的精度。
+它还检查 dtype、device、shape 是否相同（可关闭），处理 NaN（`equal_nan`）、复数、稀疏与量化 Tensor。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讨论过混合精度的容差需要"有依据"；这张表就是依据的起点——bf16 只有 8 位尾数，1.6e-2 的相对误差是它本身的精度。
 
 **构造输入**。`torch.testing.make_tensor(shape, device=, dtype=, low=, high=, noncontiguous=True, requires_grad=True)` 是 OpInfo 的 `sample_inputs_func` 大量使用的工具：对整数 dtype 给整数、对 bool 给 bool、可以要求非连续、可以排除零（测除法）、可以在指定区间取值。
 
 ### 4. gradcheck 的内部
 
-第六篇说"用 `gradcheck`，必须 float64"。这一节说它做了什么，从而知道它能抓什么、抓不到什么。
+[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)说"用 `gradcheck`，必须 float64"。这一节说它做了什么，从而知道它能抓什么、抓不到什么。
 
 `torch.autograd.gradcheck(fn, inputs)` 的核心是比较两个 Jacobian——左边一列完全不碰被测的反向代码，右边一列完全依赖它：
 
@@ -358,7 +414,10 @@ Table: gradcheck 比较的两个 Jacobian
 - **`check_grad_dtypes`**：梯度 dtype 与输入一致；
 - **非确定性检测**：同一输入算两次反向结果不同 → 报 nondeterministic 错误，而不是模糊的数值不匹配。
 
-`gradgradcheck` 对**反向函数本身**做 gradcheck：把 backward 当成一个从 (input, grad_output) 到 grad_input 的函数，检查它的导数。这抓的是"反向公式里某个中间量没有接入计算图"这类错误——一阶 gradcheck 发现不了，二阶优化（如 Hessian-vector product、梯度惩罚）时才会炸。对线性算子（第六篇的 `scale_shift`）二阶导恒为零，`gradgradcheck` 平凡通过；对 gelu、softmax、attention 这类非线性算子，它是必要的。
+`gradgradcheck` 对**反向函数本身**做 gradcheck：把 backward 当成一个从 (input, grad_output) 到 grad_input 的函数，检查它的导数。这抓的是"反向公式里某个中间量没有接入计算图"这类错误——一阶 gradcheck 发现不了，二阶优化（如 Hessian-vector product、梯度惩罚）时才会炸。对线性算子（《C++ 扩展与自定义算子》的 `scale_shift`）二阶导恒为零，`gradgradcheck` 平凡通过；对 gelu、softmax、attention 这类非线性算子，它是必要的。
+
+> [!NOTE] Java 经验参照：基于性质的测试
+> `gradcheck` 断言的不是某个期望值，而是"解析导数 = 数值导数"这条对任何输入都应成立的性质，这一点与 jqwik 这类 property-based testing 相同。不同的是输入由调用者给定：它不随机生成输入，也不会把失败用例缩小，覆盖哪些 shape、哪些数值区间仍要靠 `sample_inputs_func` 来选。
 
 ### 5. 确定性
 
@@ -375,9 +434,9 @@ Table: gradcheck 比较的两个 Jacobian
 
 ### 6. 编译器与分布式的测试
 
-**编译器**的 oracle 是 eager：同一函数 `torch.compile` 后结果应与不编译一致。`test/inductor/test_torchinductor_opinfo.py` 把整个 `op_db` 在 Inductor 下跑一遍，与 eager 比对，容差放宽（融合改变了浮点运算顺序）；`inductor_expected_failures` 列出已知不支持的算子。Dynamo 测试关心捕获行为：`torch._dynamo.testing.CompileCounter` 统计触发了几次编译、几个 graph break，`fullgraph=True` 断言没有 break。第七篇讨论的 Guard、动态 shape、重编译都有对应的测试类。
+**编译器**的 oracle 是 eager：同一函数 `torch.compile` 后结果应与不编译一致。`test/inductor/test_torchinductor_opinfo.py` 把整个 `op_db` 在 Inductor 下跑一遍，与 eager 比对，容差放宽（融合改变了浮点运算顺序）；`inductor_expected_failures` 列出已知不支持的算子。Dynamo 测试关心捕获行为：`torch._dynamo.testing.CompileCounter` 统计触发了几次编译、几个 graph break，`fullgraph=True` 断言没有 break。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)讨论的 Guard、动态 shape、重编译都有对应的测试类。
 
-**分布式**的困难是每个测试需要多个进程。`torch.testing._internal.common_distributed.MultiProcessTestCase` 为每个测试方法 spawn `world_size` 个进程，每个进程跑同一个测试函数，rank 从 `self.rank` 取；`@skip_if_lt_x_gpu(2)` 在 GPU 不够时跳过。它慢（每个测试重新初始化进程组），所以有两个轻量替代：`MultiThreadedTestCase` 用线程模拟 rank（共享一个进程，快，但只能测逻辑不能测 NCCL）；`FakeProcessGroup`（`FakeStore` 后端）让集合通信直接返回而不真正通信，用于单进程验证 DTensor 的 shape 推导和 FSDP 的分片逻辑。第九篇讨论的 DTensor 有专门的 `DTensorTestBase` 和 `@with_comms` 装饰器。
+**分布式**的困难是每个测试需要多个进程。`torch.testing._internal.common_distributed.MultiProcessTestCase` 为每个测试方法 spawn `world_size` 个进程，每个进程跑同一个测试函数，rank 从 `self.rank` 取；`@skip_if_lt_x_gpu(2)` 在 GPU 不够时跳过。它慢（每个测试重新初始化进程组），所以有两个轻量替代：`MultiThreadedTestCase` 用线程模拟 rank（共享一个进程，快，但只能测逻辑不能测 NCCL）；`FakeProcessGroup`（`FakeStore` 后端）让集合通信直接返回而不真正通信，用于单进程验证 DTensor 的 shape 推导和 FSDP 的分片逻辑。[《分布式 PyTorch》](/pytorch-distributed-training.html)讨论的 DTensor 有专门的 `DTensorTestBase` 和 `@with_comms` 装饰器。
 
 ### 7. `test/` 目录导读
 
@@ -408,11 +467,11 @@ Table: gradcheck 比较的两个 Jacobian
 
 ## 四、第三关：没有变慢
 
-正确性有明确的 oracle；性能没有——"变慢了"要先回答"比什么慢、慢多少算问题、噪声有多大"。第八篇建立了单次测量的纪律（同步、warmup、中位数、口径），这一章讨论把它变成**持续的、自动的**检查。
+正确性有明确的 oracle；性能没有——"变慢了"要先回答"比什么慢、慢多少算问题、噪声有多大"。[《性能优化与调试》的「Benchmark 方法」一章](/pytorch-performance-optimization-and-debugging.html#三度量2benchmark-方法怎么得到可信的数字)建立了单次测量的纪律（同步、warmup、中位数、口径），这一章讨论把它变成**持续的、自动的**检查。
 
 ### 1. 微基准与指令数
 
-`torch.utils.benchmark` 是第八篇用过的工具，`Compare` 把多组结果排成表：
+`torch.utils.benchmark` 是《性能优化与调试》用过的工具，`Compare` 把多组结果排成表：
 
 ```python title="用 Timer 与 Compare 对比 native 与 fused"
 from torch.utils.benchmark import Timer, Compare
@@ -436,9 +495,12 @@ Compare(results).print()
 Times are in microseconds (us).
 ```
 
-GPU 时间有噪声（时钟、温度、其他进程），CPU 侧的框架开销更是如此。对 CPU 开销，`Timer.collect_callgrind()` 用 Valgrind 统计**指令数**而不是时间——完全确定，两次运行结果逐位相同，可以检测 0.1% 的变化。PyTorch 用它守护 Dispatcher 和 Python 绑定层的开销（`benchmarks/instruction_counts/`）：第五篇讨论的"每个算子在 CPU 上的固定成本"就是这样被盯住的。
+GPU 时间有噪声（时钟、温度、其他进程），CPU 侧的框架开销更是如此。对 CPU 开销，`Timer.collect_callgrind()` 用 Valgrind 统计**指令数**而不是时间——完全确定，两次运行结果逐位相同，可以检测 0.1% 的变化。PyTorch 用它守护 Dispatcher 和 Python 绑定层的开销（`benchmarks/instruction_counts/`）：[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讨论的"每个算子在 CPU 上的固定成本"就是这样被盯住的。
 
 `benchmarks/operator_benchmark/` 是算子级的基准集合：每个算子按几种典型 shape 和 dtype 定义配置，输出可比较的 JSON。
+
+> [!NOTE] Java 经验参照：JMH 与指令数
+> `torch.utils.benchmark.Timer` 的位置相当于 JMH：自动确定迭代次数、多轮测量、报告中位数与离散程度，在 GPU 上还替调用者在计时边界做同步。`collect_callgrind` 的指令数回归在 JVM 上难以照搬：同一段 Java 代码执行多少条指令取决于 JIT 编译到了哪一级、GC 何时介入，逐次运行不同，JMH 因此靠多个 fork、多轮预热后的时间分布下结论。PyTorch 的 C++ 分发路径是提前编译好的，同一输入的指令数固定，才能用它检测 0.1% 的变化。
 
 ### 2. 端到端：TorchBench 与编译器看板
 
@@ -459,7 +521,7 @@ python benchmarks/dynamo/huggingface.py --accuracy --inference --bfloat16 --back
 
 **阈值**。每个 PR 都跑全套基准太贵（几小时 GPU 时间），所以分层：PR 上只跑少量 smoke 模型、宽阈值；主干每晚跑全套；回归确认后人工 bisect。阈值定得太严，噪声触发误报，大家开始忽略；定得太松，回归积累到看板上才发现，此时已经有几十个 PR 需要排查。
 
-**归因**。性能回归常常不是某个 PR 直接导致的：一个改动让某个融合决策变了，另一个改动让某个 Kernel 的 occupancy 掉了。nightly 之间 bisect 到 PR 后，还要用第八篇的 Profiler 定位到具体 Kernel。这是"性能测试比正确性测试更依赖人"的原因，也是为什么性能守门大部分放在合入**之后**（第五章 §1 的分层）。
+**归因**。性能回归常常不是某个 PR 直接导致的：一个改动让某个融合决策变了，另一个改动让某个 Kernel 的 occupancy 掉了。nightly 之间 bisect 到 PR 后，还要用[《性能优化与调试》「Profiler 与 Nsight」一章](/pytorch-performance-optimization-and-debugging.html#四度量3profiler-与-nsight怎么看出瓶颈属于哪一类)的 Profiler 定位到具体 Kernel。这是"性能测试比正确性测试更依赖人"的原因，也是为什么性能守门大部分放在合入**之后**（第五章 §1 的分层）。
 
 ## 五、第四关：审查、CI 与合入
 
@@ -515,6 +577,9 @@ flowchart TB
 
 蓝色是合入前的验证，绿色是合入后的验证：越慢、越依赖特殊硬件的测试越靠后，代价是它们发现的问题要靠回滚而不是靠拦截来处理。
 
+> [!NOTE] Java 经验参照：CI 分层与选测试
+> `pull` / `trunk` / `periodic` 三层对应 Java 项目里常见的 PR 检查 / 合入后构建 / nightly 构建。目标确定在 Java 这边没有同等的默认机制：Gradle 默认只在输入没变时整体跳过一个模块的 `test` 任务，粒度是模块。PyTorch 的测试集中在一个仓库的 `test/` 目录下，没有模块边界可用，所以按改动的文件和历史失败记录给测试文件排序。
+
 ### 2. flaky 的流程化处理
 
 第三章 §5 说过，几十万个测试实例中总有偶发失败。处理它的机制必须是自动的，否则**flaky 测试的成本不是那一个测试，而是它让所有人开始忽略红色的 CI**：
@@ -526,6 +591,9 @@ flowchart TB
   - → 连续通过一段时间后自动关 issue，测试恢复
 
 被禁用的测试列表是公开的，一个模块下禁用测试堆积，是该模块维护者的待办。
+
+> [!NOTE] Java 经验参照：flaky 测试
+> Java 项目处理 flaky 测试多半靠人：给测试加 `@Disabled`，或在 Surefire 里配 `rerunFailingTestsCount` 重跑，何时恢复取决于有没有人记得。PyTorch 把"发现 → 禁用 → 定期重跑 → 恢复"整条链交给机器人，是因为几十万个测试实例下人工跟不过来。
 
 ### 3. 审批、合入与回滚
 
@@ -580,6 +648,9 @@ gitGraph TB:
 
 一个改动合入主干后，落在哪个版本取决于它相对 cut 日期的位置。想让用户尽早用到、或想让用户尽早暴露问题，就是 nightly 存在的理由——第八章会讲使用者怎样利用它。
 
+> [!NOTE] Java 经验参照：发布节奏与 LTS
+> JDK 每六个月一个特性版本，每两年有一个由各厂商长期维护的 LTS，团队可以在一个 LTS 上停几年，只收安全补丁。PyTorch 三到四个月一个小版本，没有 LTS，补丁版本通常只出给最近的小版本。所以第八章的跟随策略对使用者是必需的，不是可选的。
+
 ### 2. 制品：wheel 矩阵与 ABI
 
 用户装的是预编译 wheel。每次发布构建的矩阵：
@@ -588,7 +659,7 @@ gitGraph TB:
 - **加速后端**：× CPU / CUDA 11.8 / CUDA 12.x（通常同时支持两三个）/ ROCm / XPU
 - **平台**：× Linux x86_64 / Linux aarch64 / Windows / macOS arm64
 
-三个维度各自绑定一部分 ABI，第六篇 ABI 一节列出的因素可以逐一归到某一维上：
+三个维度各自绑定一部分 ABI，[《C++ 扩展与自定义算子》「构建、ABI 与分发」一章](/pytorch-cpp-extension-and-custom-operators.html#十构建abi-与分发)列出的因素可以逐一归到某一维上：
 
 | 维度 | 取值（以 2.x 系列的发布为例） | 落在这一维上的 ABI 约束 |
 |---|---|---|
@@ -598,9 +669,12 @@ gitGraph TB:
 
 Table: wheel 矩阵的三个维度与 ABI 约束
 
-每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（Python 系列讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
+每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（[《Python 在 AI-Infra（07）：项目工程化与生产交付》的「AI-Infra 的依赖难题」一章](/python-engineering-and-production-delivery.html#五ai-infra-的依赖难题)讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
 
-第六篇 ABI 一节列出的五个因素在这里有了全貌：wheel 的每个维度都是 ABI 的一部分，C++ 扩展必须与其中一个具体组合匹配。从 2.6 起 Linux wheel 统一使用 cxx11 ABI（此前长期是旧 ABI），这是一次典型的"制品层面的破坏性变更"，扩展作者需要重新编译——第七章 §4 的话题。
+《C++ 扩展与自定义算子》列出的五个因素在这里有了全貌：wheel 的每个维度都是 ABI 的一部分，C++ 扩展必须与其中一个具体组合匹配。Linux wheel 从 2.6 起分批、到 2.7 全部切到 cxx11 ABI（此前长期是旧 ABI），这是一次典型的"制品层面的破坏性变更"，扩展作者需要重新编译——第七章 §4 的话题。
+
+> [!NOTE] Java 经验参照：jar 与 wheel
+> Maven Central 上的一个 jar 装的是字节码，同一个文件可以在任何平台、任何不低于其目标版本的 JVM 上运行。一个 torch wheel 装的是机器码，只在矩阵的一个格子里能用：换 Python 小版本、换 CUDA 大版本、换操作系统，都要换一个文件。Java 里最接近的是带 JNI 本地库的 jar（例如按 `linux-x86_64` 这类 classifier 分发的 netty-tcnative），但它绑定的只有操作系统和 CPU 架构；这里编译器的标准库 ABI、CUDA 版本、GPU 架构也都是二进制兼容性的一部分。
 
 ### 3. 平台支持窗口
 
@@ -611,11 +685,14 @@ Table: wheel 矩阵的三个维度与 ABI 约束
 - **GPU 架构**：Maxwell、Pascal、Volta 等老架构陆续从默认 wheel 的 TORCH_CUDA_ARCH_LIST 中移除，需要时自行从源码构建（第二章 §3）
 - **操作系统**：macOS x86_64 wheel 在 2.3 后停止
 
-具体窗口以每个版本的发布说明为准。对 AI-Infra 工程师的含义是：**集群的驱动版本、容器镜像的 CUDA 版本和 PyTorch 版本是一个需要一起规划的矩阵**，第八篇优化报告里"版本"一栏、第八章的兼容矩阵管理都是这个原因。
+具体窗口以每个版本的发布说明为准。对 AI-Infra 工程师的含义是：**集群的驱动版本、容器镜像的 CUDA 版本和 PyTorch 版本是一个需要一起规划的矩阵**，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)优化报告里"版本"一栏、第八章的兼容矩阵管理都是这个原因。
 
 ### 4. 治理
 
 PyTorch 于 2022 年进入 Linux Foundation 下的 PyTorch Foundation。技术决策由核心维护者与各模块维护者（`docs/source/community/persons_of_interest.rst`）负责，第五章 §3 的 `merge_rules.yaml` 是这份名单的机器可读版本；大的设计变更先在 `pytorch/rfcs` 仓库提 RFC 讨论。对使用者的意义是：一个功能的走向可以在 RFC 和 issue 里提前看到，而不是等发布说明。
+
+> [!NOTE] Java 经验参照：设计提案与治理
+> `pytorch/rfcs` 里的 RFC 相当于 OpenJDK 的 JEP：大的设计变更先写成公开文档讨论，再进入实现。PyTorch Foundation 加各模块维护者的结构，对应 OpenJDK 的治理章程加各 Project 的 lead 与 reviewer。差别是 Java 另有一份独立于实现的语言与虚拟机规范（经 JCP 的 JSR 定稿），PyTorch 没有规范文档，"正确行为"由主干实现和它的测试定义。
 
 改动随 2.x.0 发布了。最后一关，也是最难的一关：用户升级之后，他们的东西还能用吗？
 
@@ -647,9 +724,12 @@ Table: 五个接口面的稳定程度与兼容机制
 
 stable API 的弃用流程：先在一个版本中发出警告（`FutureWarning` 或 `DeprecationWarning`，说明替代方案和删除时间），保留至少一个小版本（通常两个），然后删除。例如 `torch.symeig` 在 1.9 弃用、1.13 移除；`torch.load` 的 `weights_only` 默认值从 False 改为 True，在 2.4 开始警告、2.6 切换。**用户看到 `FutureWarning` 就应当改代码——它不是噪音，是倒计时**（第八章 §2 会把它变成 CI 规则）。
 
+> [!NOTE] Java 经验参照：弃用标记
+> `FutureWarning` 的作用相当于 `@Deprecated(since = "…", forRemoval = true)`：告诉调用者这个接口将被删除、该改用什么。区别在发现的时机：Java 的弃用在编译期由 `javac` 报出，没被执行到的调用点也看得见；Python 的警告在运行到那一行时才发出，测试没覆盖的调用路径要到接口被删除的那个版本才报错。
+
 ### 3. 算子 Schema：BC 与 FC
 
-第五篇说 Schema 是算子的契约。它被序列化进 TorchScript 模型和导出的图，所以改 Schema 会影响已保存的模型。两个方向：
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)说 Schema 是算子的契约。它被序列化进 TorchScript 模型和导出的图，所以改 Schema 会影响已保存的模型。两个方向：
 
 - **BC（向后兼容）**：新版本 PyTorch 能加载旧版本保存的模型 → 旧 Schema 的调用在新版本上仍能解析；
 - **FC（向前兼容）**：旧版本 PyTorch 能加载新版本保存的模型 → 新 Schema 的调用在旧版本上仍能解析。
@@ -669,15 +749,18 @@ CI 里的 `test/forward_backward_compatibility/check_forward_backward_compatibil
 
 语义变更走 **upgrader**：1.6 把 `torch.div` 从整数截断改为真除法，旧模型里的 `div` 节点在加载时被 `torch/csrc/jit/operator_upgraders/` 中的规则替换成 `div(rounding_mode="trunc")`，行为不变。模型文件里记录了保存时的算子版本号，加载时按版本号决定要应用哪些 upgrader。
 
+> [!NOTE] Java 经验参照：class 文件版本
+> Schema 的 BC / FC 与 class 文件主版本号是同一种不对称：新 JVM 能加载旧版本编译出的 class（BC），旧 JVM 遇到更高主版本的 class 直接抛 `UnsupportedClassVersionError`（没有 FC）。不同在语义变更的处理：JVM 不改写旧字节码，靠的是已有指令的语义不变；PyTorch 允许算子语义变化，所以要在模型文件里记下算子版本号，加载时由 upgrader 把旧节点改写成等价的新调用。
+
 ### 4. C++ API：无保证、稳定子集与后端扩展点
 
-`at::Tensor`、`c10::TensorImpl`、`TORCH_LIBRARY` 这些 C++ 接口**没有 BC 承诺**。每个小版本都可能改内部结构，第六篇的扩展要针对具体 PyTorch 版本重新编译。这是有意为之的：C++ 层是实现，锁定它会让框架无法演进。
+`at::Tensor`、`c10::TensorImpl`、`TORCH_LIBRARY` 这些 C++ 接口**没有 BC 承诺**。每个小版本都可能改内部结构，[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)那样的扩展要针对具体 PyTorch 版本重新编译。这是有意为之的：C++ 层是实现，锁定它会让框架无法演进。
 
 两个缓解措施：
 
 **稳定 ABI 子集**。近期版本开始在 `torch/csrc/stable/` 提供一小组有 ABI 稳定承诺的接口（`STABLE_TORCH_LIBRARY`、`torch::stable::Tensor`），底层通过 C 接口（`torch/csrc/inductor/aoti_torch/c/shim.h`，AOTInductor 也用它）与 libtorch 交互，隔开了 C++ 类布局。用它写的扩展一次编译可以跨多个 PyTorch 版本加载。覆盖的功能还有限，但方向明确。
 
-**PrivateUse1**。第五篇的 DispatchKey 列表里预留了 `PrivateUse1` 等几个 Key 给树外后端。一个新硬件厂商不需要把代码合进 PyTorch 主干，而是在自己的包里向 `PrivateUse1` 注册全部算子实现、用 `torch.utils.rename_privateuse1_backend("npu")` 起名、注册设备模块和 Allocator，用户就能写 `x.to("npu")`。Ascend NPU（`torch_npu`）等就是这样接入的。它把硬件后端的发布周期与 PyTorch 解耦，代价是后端要自己跟上每个版本的 C++ API 变化——而 OpInfo（第三章 §2）给了它们衡量算子覆盖度的标尺。
+**PrivateUse1**。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 DispatchKey 列表里预留了 `PrivateUse1` 等几个 Key 给树外后端。一个新硬件厂商不需要把代码合进 PyTorch 主干，而是在自己的包里向 `PrivateUse1` 注册全部算子实现、用 `torch.utils.rename_privateuse1_backend("npu")` 起名、注册设备模块和 Allocator，用户就能写 `x.to("npu")`。Ascend NPU（`torch_npu`）等就是这样接入的。它把硬件后端的发布周期与 PyTorch 解耦，代价是后端要自己跟上每个版本的 C++ API 变化——而 OpInfo（第三章 §2）给了它们衡量算子覆盖度的标尺。
 
 ### 5. 序列化：`torch.save` 与 `state_dict` 的版本
 
@@ -706,6 +789,9 @@ model.pt（zip 包，所有记录都在顶层目录 model/ 下，目录名取自
 `data.pkl` 里只有对象图和 Tensor 的"引用"，真正的字节在 `data/<key>` 里，因此 `mmap=True` 才能按需读取；`_metadata` 挂在 `state_dict` 上，每个子模块前缀一条，`version` 就来自下面要说的 `_version`。
 
 pickle 带来的问题是安全：反序列化可以执行任意代码。`torch.load(weights_only=True)` 使用受限的 unpickler，只允许 Tensor、基本容器和显式加入白名单（`torch.serialization.add_safe_globals`）的类型；2.6 起它是默认值。这是 §2 弃用流程的一个实例，也是为什么很多旧代码在 2.6 上报 `UnpicklingError`。`mmap=True` 让大 checkpoint 按需读取而不是一次载入内存。
+
+> [!NOTE] Java 经验参照：反序列化过滤
+> pickle 与 Java 原生序列化有同一个问题：反序列化时由数据决定实例化哪些类型，构造恶意数据就能执行代码。`weights_only=True` 对应 Java 的 `ObjectInputFilter`（JEP 290）：用白名单限定允许出现的类型。两边的默认值不同：Java 的过滤器要应用自己配置才生效；`torch.load` 从 2.6 起默认就是受限模式，要放宽的类型由调用者显式加入白名单。
 
 **`state_dict` 的版本**。`nn.Module` 子类有一个类属性 `_version`，保存进 `state_dict` 的 metadata；加载时 `_load_from_state_dict` 拿到旧版本号，可以做升级：
 
@@ -745,7 +831,10 @@ flowchart TB
     class OK good;
 ```
 
-这就是 BatchNorm 在 1.0 之前加字段而旧 checkpoint 仍能加载的机制。自己写的 Module 加了 buffer 或改了参数名，应该走同样的路，而不是让用户手动改 checkpoint。第九篇的 DCP 在此之上加了分片与 reshard；生态中的 `safetensors` 用纯 Tensor 字典 + JSON 头绕开了 pickle。
+这就是 BatchNorm 在 1.0 之前加字段而旧 checkpoint 仍能加载的机制。自己写的 Module 加了 buffer 或改了参数名，应该走同样的路，而不是让用户手动改 checkpoint。[《分布式 PyTorch》](/pytorch-distributed-training.html)的 DCP 在此之上加了分片与 reshard；生态中的 `safetensors` 用纯 Tensor 字典 + JSON 头绕开了 pickle。
+
+> [!NOTE] Java 经验参照：序列化版本号
+> 两边都是"旧数据缺字段，由加载代码补上"：Java 在 `readObject` 里给旧流中没有的字段赋值，`_load_from_state_dict` 给旧 checkpoint 补 `num_batches_tracked`。不同在版本号的用法：`serialVersionUID` 只用来判等，不一致就抛 `InvalidClassException`，兼容演进时要保持它不变，`readObject` 也就无从知道数据是哪一版写的；`_version` 是随数据保存的递增整数，加载代码可以按"低于 2"这样的条件分支。
 
 到这里，改动走完了维护者一侧的六关。换到另一侧。
 
@@ -775,6 +864,9 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 
 配合 pytest 的 `filterwarnings` 可以精确到具体消息，对暂时无法处理的加白名单并注明版本。这样每个小版本的弃用都在它发出警告的那个版本被处理掉，而不是在删除的版本才发现。
 
+> [!NOTE] Java 经验参照：弃用即错误
+> 这相当于给 `javac` 加 `-Xlint:deprecation -Werror`，让弃用在自己的构建里就失败。差别仍是编译期与运行期：`javac` 检查全部源码，`-W error::FutureWarning` 只对测试执行到的代码生效，这条规则管多宽取决于测试覆盖率。
+
 ### 3. 升级 playbook
 
 一次升级按风险从低到高分层验证，每层都有明确的通过标准：
@@ -782,10 +874,10 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 - **1. 读发布说明**：先看 "Backwards Incompatible Changes" 和 "Deprecations"，再看与自己相关的模块；核对第六章 §3 的平台窗口
 - **2. 重编译扩展**：所有 C++ / CUDA 扩展针对新版本重编译（第七章 §4：C++ 无 BC 保证）；扩展自己的测试全过
 - **3. CPU 单元测试**：自己项目的测试套件在新版本上跑一遍；FutureWarning 当错误
-- **4. 单卡功能测试**：小模型跑几十步，loss 曲线与旧版本在容差内一致（第八篇的正确性测试）
+- **4. 单卡功能测试**：小模型跑几十步，loss 曲线与旧版本在容差内一致（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的正确性测试）
 - **5. checkpoint 兼容**：用旧版本保存的 checkpoint 在新版本加载并继续训练；注意 weights_only 之类的默认值变化（第七章 §5）
 - **6. 多卡与 compile**：DDP / FSDP 与 torch.compile 各跑一轮；编译时间与 graph break 数量对比
-- **7. 性能基线**：与旧版本在同一硬件上对比 Benchmark（第八篇的口径）；变慢的项归因后再决定是否接受
+- **7. 性能基线**：与旧版本在同一硬件上对比 Benchmark（《性能优化与调试》的口径）；变慢的项归因后再决定是否接受
 - **8. 灰度**：先升级一部分作业或一个集群分区，观察一段时间再全量
 
 画成流程：每一步都有明确的输出物，通过才进下一步，失败则回到旧镜像 tag——回退的成本在每一层都一样低，这是分层的前提：
@@ -870,16 +962,16 @@ flowchart TB
 
 第六章 §1 说 nightly 存在的理由之一是让用户提前暴露问题。反过来，使用者也应利用它：对依赖重的项目，在 RC 阶段用 RC 跑一遍自己的测试和一个短训练，发现问题在 release tracker issue 里报告——此时修复还能进正式版本；等正式发布后再发现，就要等补丁版本或自己 patch。这是使用者参与前六关的方式，成本很低，收益是升级日不再有惊喜。
 
-## 九、实践终点：把第六篇的 `myops` 走完这七关
+## 九、实践终点：把《C++ 扩展与自定义算子》的 `myops` 走完这七关
 
-第六篇做出了 `myops::scale_shift`：Schema、CPU、CUDA、Autograd、Meta 都有，`opcheck` 和 `gradcheck` 通过。那是"一个算子能用"。这一章让它也走一遍前面七关，变成"一个能持续维护的工程"。给骨架和关键片段，重点是**为什么这样组织**。
+[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)做出了 `myops::scale_shift`：Schema、CPU、CUDA、Autograd、Meta 都有，`opcheck` 和 `gradcheck` 通过。那是"一个算子能用"。这一章让它也走一遍前面七关，变成"一个能持续维护的工程"。给骨架和关键片段，重点是**为什么这样组织**。
 
 ### 1. 目录结构
 
 - **myops/**
   - pyproject.toml / setup.py       第一关：cpp_extension.CUDAExtension；把构建时的 torch 版本写进包元数据
   - myops/
-    - __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（[《C++ 扩展与自定义算子》第十章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）
+    - __init__.py                 import _C（触发 TORCH_LIBRARY）；注册 autograd / fake；运行时版本检查（[《C++ 扩展与自定义算子》「构建、ABI 与分发」一章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）
     - _autograd.py                backward、setup_context、fake
     - ops.py                      面向用户的 Python 函数；弃用垫片放这里（第六关）
   - csrc/
@@ -974,7 +1066,7 @@ def test_compile_matches_eager(self, device, dtype):
     assert_close(g_c, g_e)
 ```
 
-`fullgraph=True` 是关键：第六篇注册的 Fake 实现如果缺失或 shape 推错，Dynamo 会 graph break 或报错，测试立刻失败，而不是静默退化成 eager。
+`fullgraph=True` 是关键：[《C++ 扩展与自定义算子》「阶段四：Autograd 与 Meta」一章](/pytorch-cpp-extension-and-custom-operators.html#八阶段四autograd-与-meta)注册的 Fake 实现如果缺失或 shape 推错，Dynamo 会 graph break 或报错，测试立刻失败，而不是静默退化成 eager。
 
 分布式测试用第三章 §6 的 `MultiProcessTestCase`，oracle 是"DDP 两卡各 batch/2 的梯度 == 单进程整 batch 的梯度"（[《分布式 PyTorch》第三章的「只分片数据」](/pytorch-distributed-training.html#1-只分片数据)里的数学等价）：
 
@@ -1014,7 +1106,7 @@ Compare(results).print()
 json.dump({"torch": torch.__version__, "gpu": torch.cuda.get_device_name(), "median_s": record}, open(sys.argv[1], "w"))
 ```
 
-CI 中与 `baseline.json` 比较：同一 GPU 型号下任一项中位数慢 15% 以上则失败。15% 是给 GPU 噪声留的余量（第四章 §3）；基线随硬件与 PyTorch 版本入库，更新基线是一次显式的、需要审查的提交。报告按第八篇的五个问题写：这个融合算子节省的是访存和一次 launch，不增加显存，不改变精度，对 shape 无依赖，无编译成本。
+CI 中与 `baseline.json` 比较：同一 GPU 型号下任一项中位数慢 15% 以上则失败。15% 是给 GPU 噪声留的余量（第四章 §3）；基线随硬件与 PyTorch 版本入库，更新基线是一次显式的、需要审查的提交。报告按[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的五个问题写：这个融合算子节省的是访存和一次 launch，不增加显存，不改变精度，对 shape 无依赖，无编译成本。
 
 ### 4. 第四、五关：CI 矩阵与发布
 
@@ -1076,7 +1168,7 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 
 ### 6. 第七关：作为使用者
 
-`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（[《C++ 扩展与自定义算子》第十章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）把 ABI 不匹配变成明确的 `ImportError`。
+`myops` 依赖 PyTorch，所以它也要走第八章：`setup.py` 里声明 `torch>=2.5,<2.7`，每个 PyTorch 小版本发布后把 CI 矩阵加一列、跑一遍、必要时重编译并发新 tag；`__init__.py` 里的运行时版本检查（[《C++ 扩展与自定义算子》「构建、ABI 与分发」一章的「运行时检查」](/pytorch-cpp-extension-and-custom-operators.html#4-运行时检查)）把 ABI 不匹配变成明确的 `ImportError`。
 
 ### 7. 对照大纲的检查清单
 
@@ -1094,56 +1186,9 @@ myops::scale_shift(Tensor x, float alpha, float beta, Tensor? mask=None) -> Tens
 
 Table: 自定义算子项目的正确性覆盖与工程质量两张清单
 
-大纲要求的"支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子"到这里在**结构上**完成——本章给的是骨架与关键片段（`test_autograd.py`、`test_compile.py` 只有节选，没有完整 `__main__` 与注册），CI 文件是结构示意；照抄需要补齐这些文件并在有 CUDA 的机器上实际跑过，本文没有替你跑。它把前九篇串成了一条线：Schema（第五篇）→ stride 与 dtype 处理（第二、六篇）→ 反向（第三篇）→ Fake 与 compile（第七篇）→ Benchmark（第八篇）→ DDP 一致性（第九篇）→ 七个关卡（本篇）。
+大纲要求的"支持 CPU、CUDA、Autograd、Meta，并具有完整测试和 Benchmark 的自定义算子"到这里在**结构上**完成——本章给的是骨架与关键片段（`test_autograd.py`、`test_compile.py` 只有节选，没有完整 `__main__` 与注册），CI 文件是结构示意；照抄需要补齐这些文件并在有 CUDA 的机器上实际跑过，本文没有替你跑。它把前九篇串成了一条线：Schema（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)）→ stride 与 dtype 处理（[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)、[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)）→ 反向（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)）→ Fake 与 compile（[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)）→ Benchmark（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)）→ DDP 一致性（[《分布式 PyTorch》](/pytorch-distributed-training.html)）→ 七个关卡（本篇）。
 
-## 十、Java 工程师如何理解 PyTorch 的工程体系
-
-### 1. 生命周期：PR → CI → release train
-
-七个关卡对 Java 工程师并不陌生：本地 `mvn verify` → PR check → merge queue → release train → 用户升级依赖版本。差别在每一关的**规模和绑定**：测试是几十万个而不是几千个；制品是绑定平台 × Python × CUDA 的 wheel 矩阵而不是一个平台无关的 jar；用户升级要重编译 C++ 扩展而不是只改 `pom.xml` 里的版本号。
-
-### 2. OpInfo vs 参数化测试 vs TCK
-
-JUnit 5 的 `@ParameterizedTest` + `@MethodSource` 与 OpInfo 的 `@ops` + `sample_inputs_func` 结构相同：数据源与测试模板分离。差别在规模和角色——OpInfo 的数据源是**整个算子集合的能力声明**，模板有几十个，两者的笛卡尔积是框架的一致性套件。这更像 Java 的 **TCK**（Technology Compatibility Kit）：JDBC、JPA、Servlet 的实现要通过 TCK 才能自称兼容；新 PyTorch 后端要在 OpInfo 上跑出覆盖率才算可用。
-
-`gradcheck` 是基于属性的测试（property-based testing，Java 的 jqwik / QuickTheories）：不检查具体值，检查"解析导数 = 数值导数"这个必然成立的性质。
-
-### 3. Benchmark：JMH 与指令数
-
-`torch.utils.benchmark.Timer` 对应 JMH：warmup、多轮、统计分布、防止死代码消除（JMH 的 Blackhole ≈ 这里必须使用输出）。`collect_callgrind` 的指令数没有 JMH 对应物——Java 的 JIT 让指令数不稳定；PyTorch 的 C++ 分发路径是确定的，所以能用它做零噪声的回归检测。
-
-### 4. 构建：Maven / Gradle vs CMake + setup.py
-
-- **pom.xml / build.gradle**：CMakeLists.txt + setup.py
-- **Maven Central 上的 jar**：PyPI 上的 wheel；但 wheel 绑定平台 × Python × CUDA，jar 不绑定
-- **一次编译到处运行**：一个 wheel 只在一个格子里运行；ABI 是显式的兼容性维度
-- **annotation processor 生成代码**：torchgen 从 YAML 生成 C++ 和 Python 绑定
-- **增量编译（Gradle daemon）**：Ninja 增量 + ccache；改头文件的代价远大于改 .java
-
-最大的心智差异是 **ABI**：Java 工程师习惯了字节码的平台无关性，C++ 扩展世界里编译器版本、标准库 ABI、CUDA 版本、GPU 架构都是二进制兼容性的一部分。
-
-### 5. 兼容性：`@Deprecated`、`serialVersionUID` 与 class file version
-
-| Java | PyTorch |
-|---|---|
-| `@Deprecated(since, forRemoval)` | `FutureWarning` + 两个小版本的窗口 |
-| `-Werror` 对 deprecation | `-W error::FutureWarning`（第八章 §2） |
-| `serialVersionUID` + `readObject` 迁移 | `nn.Module._version` + `_load_from_state_dict` |
-| class file major version + 向后兼容 | TorchScript 算子版本号 + upgrader |
-| Java 序列化的安全问题 → 过滤器 | pickle 的安全问题 → `weights_only=True` |
-| JEP | RFC |
-| 六个月一个 JDK，LTS 每两年 | 三到四个月一个小版本，无 LTS |
-| JCP / OpenJDK 治理 | PyTorch Foundation + 模块维护者 |
-
-Table: Java 与 PyTorch 工程机制的对照
-
-Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_from_state_dict` 里按 `version` 补 `num_batches_tracked` 是同一个模式。"无 LTS"是一个实际差别：Java 团队可以停在 LTS 上几年，PyTorch 使用者没有这个选项，第八章的跟随策略因此是必需的而不是可选的。
-
-### 6. CI：分层与 flaky
-
-`pull` / `trunk` / `periodic` 的分层对应 Java 项目的 PR check / merge queue / nightly；目标确定对应 Gradle 的按改动选择测试。flaky 测试的机器人自动禁用 + 定期重跑 + 自动恢复，是 Java 团队通常靠人做的事情被流程化——规模逼出来的。
-
-## 十一、本文小结
+## 十、本文小结
 
 一次改动从提交到被用户安全地用上，要过七个关卡；本文按关卡的顺序把 PyTorch 的工程体系走了一遍：
 
@@ -1155,9 +1200,9 @@ Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_fro
 - **用户升级不坏**：接口面按稳定程度分级——Python API 有弃用周期，算子 Schema 有自动化 BC/FC 检查，C++ API 无保证但有稳定子集与 PrivateUse1，序列化有版本机制；
 - **使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，升级 playbook 与版本化的兼容矩阵，用 nightly / RC 提前暴露问题。
 
-第六篇的 `myops` 走完这七关的实践表明：一个树外扩展只要复用 PyTorch 的测试基础设施、把契约与实现分离、把性能基线入库，就能以很低的成本获得同样的保障。
+[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的 `myops` 走完这七关的实践表明：一个树外扩展只要复用 PyTorch 的测试基础设施、把契约与实现分离、把性能基线入库，就能以很低的成本获得同样的保障。
 
-## 十二、自测
+## 十一、自测
 
 1. 改一个算子的 Schema（比如给 `add` 加一个参数）比改它的 CPU 实现多经过哪些环节？
 
@@ -1195,8 +1240,8 @@ Java 的 `readObject` 里按 `serialVersionUID` 迁移旧字段，与 `_load_fro
 
    <details markdown="1"><summary>答案</summary>
 
-   pin 到 minor（如 `torch==2.5.*`）并版本化一张兼容矩阵；把 `DeprecationWarning` 在 CI 里变成错误（`-W error::DeprecationWarning`）以便在弃用周期内修，而不是在删除时崩；用 nightly / RC 跑一组冒烟测试提前发现破坏。
+   生产环境 pin 到具体版本（如 `torch==2.6.0+cu124`），连同 CUDA、驱动、扩展一起写进一张版本化的兼容矩阵；把 `FutureWarning` 和 `DeprecationWarning` 在 CI 里变成错误（`-W error::FutureWarning -W error::DeprecationWarning`）以便在弃用周期内修，而不是在删除时崩；用 nightly / RC 跑一组冒烟测试提前发现破坏。
 
    </details>
 
-[^q0]: 一次改动要过七道关，每道关守住一类事故。**本地构建能跑**：仓库分层与 Codegen 是构建的一步，改 Schema 比改实现代价高得多（[第二章](#二第一关本地构建能跑)）。**结果正确**：五种 oracle 定义「对」（参考实现、数学性质、跨设备一致、gradcheck、历史行为），OpInfo 用「一处声明、万处生成」化解设备 × dtype × 布局的组合爆炸（[第三章](#三第二关结果正确)）。**没有变慢**：微基准与指令数守 CPU 侧开销，TorchBench 守端到端（[第四章](#四第三关没有变慢)）。**审查、CI 与合入**：CI 分层（lint → 快速 → 完整 → 周期性）与目标确定让几十万测试在有限时间内跑完，flaky 靠隔离与重试流程，回滚由机器执行（[第五章](#五第四关审查ci-与合入)）。**发布**：固定节奏与 release 分支，wheel 矩阵的每个维度（Python、CUDA、平台、ABI）都是 ABI 的一部分（[第六章](#六第五关发布)）。**用户升级不坏**：接口面按稳定程度分级——Python API 有弃用周期，算子 Schema 有自动化 BC / FC 检查，C++ API 无保证但有稳定子集（[第七章](#七第六关用户升级不坏)）。**使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，用 nightly / RC 提前暴露问题（[第八章](#八第七关使用者如何跟随演进)）。
+[^q0]: 一次改动要过七道关，每道关守住一类事故。**本地构建能跑**：仓库分层与 Codegen 是构建的一步，改 Schema 比改实现代价高得多（[第二章](#二第一关本地构建能跑)）。**结果正确**：五种 oracle 定义「对」（参考实现、数学恒等式、跨后端一致、跨模式一致、元数据一致），OpInfo 用「一处声明、万处生成」化解设备 × dtype × 布局的组合爆炸（[第三章](#三第二关结果正确)）。**没有变慢**：微基准与指令数守 CPU 侧开销，TorchBench 守端到端（[第四章](#四第三关没有变慢)）。**审查、CI 与合入**：CI 分层（pull → trunk → periodic，另有 inductor 专项）与目标确定让几十万测试在有限时间内跑完，flaky 靠自动禁用与定期重跑的流程，回滚由机器执行（[第五章](#五第四关审查ci-与合入)）。**发布**：固定节奏与 release 分支，wheel 矩阵的每个维度（Python、CUDA、平台、ABI）都是 ABI 的一部分（[第六章](#六第五关发布)）。**用户升级不坏**：接口面按稳定程度分级——Python API 有弃用周期，算子 Schema 有自动化 BC / FC 检查，C++ API 无保证但有稳定子集（[第七章](#七第六关用户升级不坏)）。**使用者跟随演进**：pin 什么、跟多紧，把弃用警告变成 CI 错误，用 nightly / RC 提前暴露问题（[第八章](#八第七关使用者如何跟随演进)）。

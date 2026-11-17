@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（04）：nn.Module 与训练系统"
 subtitle: "nn.Module and Training Systems in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-上一篇讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讨论了 Autograd：Tensor 运算如何形成动态计算图，`backward()` 如何沿图传播梯度，以及梯度状态和计算图生命周期之间有什么关系。
 
 但一个真实的模型不会只是几个散落的 Tensor 运算。它通常包含：
 
@@ -37,26 +37,47 @@ PyTorch 用 `nn.Module` 把这些对象组织起来，再通过 Optimizer、Data
 
 ## 一、总览：从模型对象到训练系统
 
-### 1. 本文的主线
-
-本文沿着上面那条从 Module 树到参数更新的链路展开：先看一个模型对象里到底包含什么，`nn.Module` 靠什么机制发现子模块、Parameter 和 Buffer，`state_dict` 如何把模型状态变成可保存、可迁移的快照；再进入训练系统的其余部分——训练 / 评估 / 推理三种状态、Optimizer、Dataset / Sampler / DataLoader、CPU 到 GPU 的数据搬运；然后把这些部件拼成一个完整训练循环，并补上混合精度、Hook 和 checkpoint 三个工程上绕不开的话题。
+一次训练迭代里，batch 从数据管线出来，穿过 Module 树算出 loss，梯度写回 Parameter，Optimizer 再原地更新它们；模型和 Optimizer 的状态随时可以导出成 `state_dict`，合起来就是 checkpoint。下图把本文涉及的对象按「谁持有谁、数据往哪走」连在一起：
 
 ```mermaid
-%% 图：本文的主线：Module 树（第二至五章）→ 三种状态与 Optimizer（六、七）→ 数据管线（八、九）→ 拼成训练循环（十）→ 混合精度 / Hook / checkpoint（十一至十三）
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：一次训练迭代穿过的对象：数据管线、Module 树、Optimizer 与 checkpoint
 flowchart TB
-    subgraph M["模型对象（二 ～ 五章）"]
-        direction LR
-        A["<b>nn.Module 树</b><br/>__init__ 定静态结构<br/>forward 定数据流"] --> B["<b>注册机制</b><br/>__setattr__ 把 Parameter /<br/>子 Module / Buffer 登记进内部字典"] --> C["<b>state_dict</b><br/>属性路径 → Tensor 的快照"]
+    DL["<b>Dataset / Sampler / DataLoader</b><br/>worker 进程取样本、collate 成 batch<br/>pin_memory 后搬到 GPU（第八、九章）"]
+    subgraph MOD["nn.Module 树（第二章）"]
+        REG["<b>三张登记表</b><br/>_modules：子 Module<br/>_parameters：Parameter<br/>_buffers：Buffer（第三、四章）"]
+        MODE["<b>training 标志</b><br/>train() / eval() 递归切换（第六章）"]
+        REG ~~~ MODE
     end
-    subgraph T["训练部件（六 ～ 九章）"]
-        direction LR
-        D["<b>train() / eval()</b><br/>no_grad / inference_mode"] --> E["<b>Optimizer</b><br/>拿 parameters() 用 .grad 更新"]
-        F["Dataset → Sampler → DataLoader<br/>→ pin_memory / non_blocking 搬到 GPU"]
-    end
-    M --> T
-    T --> G["<b>完整训练循环（十章）</b><br/>取 batch → forward → loss → backward → step"]
-    G --> H["<b>工程补丁（十一 ～ 十三章）</b><br/>autocast / GradScaler · Hook · checkpoint"]
+    FWD["<b>model(inputs)</b><br/>Module 调用协议：hook 与 forward()<br/>可包在 autocast 里（第十、十一、十二章）"]
+    GRAD["<b>loss.backward()</b><br/>梯度写进每个 Parameter 的 .grad（第十章）"]
+    OPT["<b>Optimizer</b><br/>param_groups：持有 Parameter 的引用<br/>state：动量等逐参数统计量（第七章）"]
+    SD["<b>state_dict</b><br/>属性路径 → Tensor 的有序字典（第五章）"]
+    CK["<b>checkpoint</b><br/>模型、Optimizer、scheduler、scaler 的 state_dict<br/>加训练进度（第十三章）"]
+
+    DL -- "inputs、targets" --> FWD
+    MOD -- "forward 读取 Parameter 与 Buffer" --> FWD
+    FWD -- "loss" --> GRAD
+    GRAD -- ".grad" --> OPT
+    OPT -- "step()：原地更新 Parameter" --> MOD
+    MOD -- "state_dict()：按登记表收集" --> SD
+    SD --> CK
+    OPT -- "optimizer.state_dict()" --> CK
 ```
+
+- **nn.Module 树**：`__init__` 里把子 Module 赋给属性形成的对象树，构造模型时建成；`forward()` 每次调用时才决定数据怎么流过它。
+- **三张登记表**：每个 Module 实例上的 `_modules`、`_parameters`、`_buffers` 三个字典，属性赋值时由 `__setattr__` 按值的类型填入；`parameters()`、`.to()`、`state_dict()`、`train()` 都靠遍历它们找到对象。
+- **training 标志**：每个 Module 上的一个布尔属性，`train()` / `eval()` 递归改写它，Dropout、BatchNorm 据此切换行为；它不控制是否记录梯度。
+- **DataLoader**：主进程按 Sampler 给出的索引把任务发给 worker 进程，worker 调 `Dataset.__getitem__` 和 `collate_fn` 得到 batch，经结果队列交回训练循环。
+- **model(inputs)**：进入 Module 的调用协议，依次执行已注册的 hook 和 `forward()`；开着梯度记录时，Autograd 同时为这次前向建一张计算图。
+- **.grad**：`loss.backward()` 的产物，存在每个 Parameter 上；Optimizer 不算梯度，只读它。
+- **Optimizer**：构造时从 `model.parameters()` 拿到 Parameter 的引用放进 `param_groups`，第一次 `step()` 起在 `state` 里为每个参数保存动量等统计量。
+- **state_dict**：调用 `state_dict()` 时按登记表现收集的字典，只含 Parameter 和持久化 Buffer，不含类定义和 `forward` 代码。
+- **checkpoint**：训练脚本自己组装的字典，至少放模型和 Optimizer 的 `state_dict` 与训练进度，用 `torch.save` 写盘。
+
+### 1. 本文的主线
+
+本文沿着这条从 Module 树到参数更新的链路展开：先看一个模型对象里到底包含什么，`nn.Module` 靠什么机制发现子模块、Parameter 和 Buffer，`state_dict` 如何把模型状态变成可保存、可迁移的快照；再进入训练系统的其余部分——训练 / 评估 / 推理三种状态、Optimizer、Dataset / Sampler / DataLoader、CPU 到 GPU 的数据搬运；然后把这些部件拼成一个完整训练循环，并补上混合精度、Hook 和 checkpoint 三个工程上绕不开的话题。
 
 ### 2. 本文的章节安排
 
@@ -74,9 +95,8 @@ flowchart TB
 | 十一 | 混合精度训练入门 | autocast、GradScaler 及其边界 |
 | 十二 | Hooks 与模型观测 | Hook 能做什么、成本与风险 |
 | 十三 | Checkpoint 与可恢复训练 | 保存什么、何时保存、resume 不只是加载权重 |
-| 十四 | Java 工程师如何理解 `nn.Module` | 组件树、Parameter、`state_dict`、DataLoader 的类比 |
-| 十五 | 本文小结 |  |
-| 十六 | 自测 | 5 道题 |
+| 十四 | 本文小结 |  |
+| 十五 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -299,6 +319,9 @@ flowchart TB
 
 后续所有训练行为，都建立在 Module 能够找到并管理这些对象的前提上。
 
+> [!NOTE] Java 经验参照：Module 不是 POJO
+> Java 的 POJO 只是一组字段，谁来遍历、保存、迁移这些字段由外部框架决定；只有一个方法的接口则只约定行为、不带状态。`nn.Module` 两样都不是：它是一棵组合模式的组件树（接近 Swing 的 `Container` 套 `Component`），基类自己带着参数与 Buffer 的登记、`train()` / `eval()` 切换、设备与 dtype 迁移、`state_dict` 导入导出、hook 这几套协议，并且都沿树递归。所以自定义层只要继承 `nn.Module`、把状态赋成属性，这些能力就都有了，不需要另写遍历代码。
+
 ## 三、`nn.Module` 与模块注册
 
 ### 1. 为什么需要注册？
@@ -440,6 +463,9 @@ self.counter = 0
 - Parameter → 参数
 - Module → 子模块
 - int → 普通属性
+
+> [!NOTE] Java 经验参照：字段赋值时的登记
+> Java 里给字段赋值没有可拦截的入口，对象不知道自己被赋了什么；框架要发现「哪些字段归它管」，通常靠注解加反射（如 Spring 的 `@Autowired`、JPA 的 `@Column`），是声明式的。Python 的属性赋值会经过 `__setattr__`，`nn.Module` 在这里按**值的运行时类型**决定是否登记：一个 `double[]` 字段不会因为放进对象就被优化器看到，一个 `nn.Parameter` 属性却会；换成普通 `Tensor` 或 Python list，同样的赋值语句就只是普通属性。后果是漏登记没有任何编译期或运行期报错，只能靠 `named_parameters()`、`state_dict().keys()` 自查。
 
 ### 3. `ModuleList`
 
@@ -600,13 +626,13 @@ self.register_buffer(
 
 ### 4. Parameter、Buffer 和普通属性
 
-| 对象 | `parameters()` | `state_dict()` | `.to(device)` | Optimizer 更新 |
-|---|---:|---:|---:|---:|
-| `nn.Parameter` | 是 | 是 | 是 | 是 |
-| persistent Buffer | 否 | 是 | 是 | 否 |
-| non-persistent Buffer | 否 | 否 | 是 | 否 |
-| 普通 Tensor 属性 | 否 | 否 | 否 | 否 |
-| 普通 Python 属性 | 否 | 否 | 否 | 否 |
+| 对象 | 怎么产生 | 保存在哪里 | `parameters()` | `state_dict()` | `.to(device)` | Optimizer 更新 |
+|---|---|---|---:|---:|---:|---:|
+| `nn.Parameter` | `self.w = nn.Parameter(t)` | `_parameters` | 是 | 是 | 是 | 是 |
+| persistent Buffer | `register_buffer("m", t)` 或 `self.m = nn.Buffer(t)` | `_buffers` | 否 | 是 | 是 | 否 |
+| non-persistent Buffer | `register_buffer("m", t, persistent=False)` | `_buffers`，名字另记在 `_non_persistent_buffers_set` | 否 | 否 | 是 | 否 |
+| 普通 Tensor 属性 | `self.t = torch.ones(10)` | 实例的 `__dict__` | 否 | 否 | 否 | 否 |
+| 普通 Python 属性 | `self.counter = 0` | 实例的 `__dict__` | 否 | 否 | 否 | 否 |
 
 Table: Parameter、Buffer 与普通属性的行为
 
@@ -703,6 +729,9 @@ state = model.state_dict()
 
 因此，**模型状态快照 ≠ 可独立运行的完整模型**。
 
+> [!NOTE] Java 经验参照：state_dict 与序列化
+> Java 的 `ObjectOutputStream` 序列化的是整张对象图：类名和字段结构写进流里，反序列化时按类名找到类、直接重建对象。`state_dict` 只是「名字 → Tensor」的字典，不带任何类信息，更接近把对象的状态导出成一个 `Map`：加载前必须先用代码构造出结构相同的 Module，再按 key 和 shape 逐项回填。好处是权重文件与模型代码解耦，状态边界明确；代价是模型结构一变（属性改名、shape 变化），key 的兼容要自己显式处理。PyTorch 里与 Java 序列化对应的是 `torch.save(model)`——把整个 Module 对象 pickle 下来，加载时同样要求原来的类能按原路径导入，所以一般不这样保存。
+
 ### 3. 保存和加载模型状态
 
 ```python title='保存与加载 state_dict'
@@ -728,7 +757,7 @@ print(result)
 
 `strict=False` 可以允许缺失或多余 key，但不应该用来掩盖模型结构错误。
 
-`torch.load` 底层是 pickle，反序列化可以执行任意代码。PyTorch 2.6 起 `weights_only=True` 成为默认值：只允许加载 Tensor、基本容器和显式加入白名单的类型。只保存 `state_dict` 的做法天然满足这个限制；如果 checkpoint 里放了自定义对象，在新版本上会遇到 `UnpicklingError`。这类版本行为的变化和 `state_dict` 自身的版本迁移，第十篇会作为兼容性问题专门讨论。
+`torch.load` 底层是 pickle，反序列化可以执行任意代码。PyTorch 2.6 起 `weights_only=True` 成为默认值：只允许加载 Tensor、基本容器和显式加入白名单的类型。只保存 `state_dict` 的做法天然满足这个限制；如果 checkpoint 里放了自定义对象，在新版本上会遇到 `UnpicklingError`。这类版本行为的变化和 `state_dict` 自身的版本迁移，[《PyTorch 的工程体系》](/pytorch-engineering-system.html)会作为兼容性问题专门讨论。
 
 ### 4. 保存可恢复训练的 checkpoint
 
@@ -755,17 +784,6 @@ torch.save(checkpoint, "checkpoint.pt")
 - CUDA 随机状态；
 - 数据采样器状态；
 - 配置和代码版本。
-
-### 5. Java 对照的边界
-
-`state_dict` 可以类比为结构化状态快照，但它不是 Java 序列化整个对象图：
-
-- **state_dict**
-  - 只保存可训练参数和模型状态
-  - 依赖代码重新构造 Module
-  - 通过 key 和 shape 恢复
-
-这种设计使得权重状态和模型代码相对解耦，也使得模型结构变更时必须显式处理兼容性。
 
 ## 六、训练、评估与推理状态
 
@@ -913,7 +931,7 @@ loss.backward()
 optimizer.step()
 ```
 
-如果不清零，梯度会按照上一篇介绍的规则继续累积。
+如果不清零，梯度会按照[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)介绍的规则继续累积。
 
 - 第 1 步梯度 → grad
 - 第 2 步梯度 → grad + 新梯度
@@ -972,7 +990,7 @@ AdamW 等 Optimizer 会为参数保存额外状态，可以通过 `optimizer.sta
 
 ![FP32 + Adam(W) 下每个参数的 16 字节：param、grad 各 4 B 由 Module 持有，exp_avg、exp_avg_sq 各 4 B 由 Optimizer.state 持有；7B 模型换算 112 GB，其中 Optimizer state 56 GB](/img/in-post/pytorch-module-16-bytes-per-parameter.svg)
 
-这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），第八篇会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——第九篇的 ZeRO 与 FSDP 从这里开始。
+这也是大模型训练中 Optimizer state 可能成为显存主要消耗者的原因之一：Adam 训练下每个参数要占 16 字节（参数、梯度、两个动量），[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)会算这笔账。多卡训练时 Optimizer state 是最先被切分到各卡上的状态——[《分布式 PyTorch》](/pytorch-distributed-training.html)的 ZeRO 与 FSDP 从这里开始。
 
 ## 八、Dataset、Sampler 与 DataLoader
 
@@ -1156,7 +1174,7 @@ flowchart TB
 2. 等待下一个 batch
 3. GPU 利用率下降
 
-所以 GPU 利用率低不一定是模型 Kernel 的问题，也可能是 DataLoader 没有及时提供数据。第八篇把这种情况单列为一类瓶颈（GPU 在等数据到达），并给出在 Profiler 时间线上把它与"GPU 在等 Python"区分开的方法。
+所以 GPU 利用率低不一定是模型 Kernel 的问题，也可能是 DataLoader 没有及时提供数据。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)把这种情况单列为一类瓶颈（GPU 在等数据到达），并给出在 Profiler 时间线上把它与"GPU 在等 Python"区分开的方法。
 
 ### 7. `num_workers` 不是越大越好
 
@@ -1177,16 +1195,8 @@ flowchart TB
 - 主机内存；
 - 端到端 step time。
 
-### 8. DataLoader 的 Java 对照
-
-可以把数据管线近似理解为生产者—消费者系统：
-
-- **Dataset / Worker**：生产样本
-- **Prefetch Queue**：暂存 batch
-- **Training Loop**：消费 batch
-- **GPU**：消费计算输入
-
-但 DataLoader 不是简单的 Java `ExecutorService`：它还涉及 Python 进程、Tensor 共享、pinned memory 和设备搬运。
+> [!NOTE] Java 经验参照：DataLoader 与线程池
+> 结构上这是一个带上限的生产者—消费者系统：worker 生产 batch，结果队列暂存，训练循环消费，GPU 再消费训练循环送来的输入；主进程最多只预先发出 `num_workers × prefetch_factor` 个 batch 的索引，训练循环取走一个才补发一个，消费慢时生产自然停下。但它不能当成一个 `ExecutorService` 来调：worker 是**进程**而不是线程（为了绕开 GIL），Dataset 对象要随进程启动被复制或 pickle 过去，做好的 batch 要经共享内存跨进程传回；队列后面还接着 pinned memory 和 CPU 到 GPU 的复制。所以 `num_workers` 不能照搬线程池大小的经验，要连同数据格式、CPU 核数、主机内存、总线带宽和 GPU 的消费速度一起测。
 
 ## 九、CPU-GPU 数据传输与训练流水线
 
@@ -1260,7 +1270,7 @@ inputs = inputs.to("cuda", non_blocking=True)
 3. CPU 准备 Batch N+1
 4. GPU 等待
 
-第八篇性能文章会用 Profiler 分析这种等待具体发生在哪里。
+[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)会用 Profiler 分析这种等待具体发生在哪里。
 
 ### 5. 不要在训练循环中频繁搬回 CPU
 
@@ -1479,7 +1489,7 @@ BF16 的指数范围接近 FP32，很多训练场景不需要和 FP16 完全相�
 - 数值结果可能发生变化；
 - 不同 GPU 的收益不同。
 
-应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。本节只介绍混合精度作为训练 API 的用法；它为什么能加速（Tensor Core 与访存量减半）、什么时候加速不明显、如何用 Benchmark 确认收益，第八篇作为一条性能处方展开。
+应使用正确性测试和 Benchmark 验证，而不是只看代码中出现了 `autocast`。本节只介绍混合精度作为训练 API 的用法；它为什么能加速（Tensor Core 与访存量减半）、什么时候加速不明显、如何用 Benchmark 确认收益，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)作为一条性能处方展开。
 
 ## 十二、Hooks 与模型观测
 
@@ -1523,7 +1533,7 @@ Hook 会改变或包裹执行路径，可能带来：
 
 ### 3. Hook 与 `forward()` 的关系
 
-`output = model(inputs)` 通常会经过 Module 的调用协议，而不是简单执行 `model.forward(inputs)`。Hook 正是 Module 调用协议中的一部分。直接调用 `forward()` 可能绕过部分 Module 行为，因此业务代码通常应调用 `model(inputs)`，而不是 `model.forward(inputs)`。这与第一篇对 PyTorch 调用路径的介绍相互呼应。
+`output = model(inputs)` 通常会经过 Module 的调用协议，而不是简单执行 `model.forward(inputs)`。Hook 正是 Module 调用协议中的一部分。直接调用 `forward()` 可能绕过部分 Module 行为，因此业务代码通常应调用 `model(inputs)`，而不是 `model.forward(inputs)`。这与[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)对 PyTorch 调用路径的介绍相互呼应。
 
 ## 十三、Checkpoint 与可恢复训练
 
@@ -1637,60 +1647,10 @@ flowchart TB
     class R4 warn;
 ```
 
-这就像 Java 服务恢复业务状态时，不只是恢复一个对象字段，还可能需要恢复：
+> [!NOTE] Java 经验参照：恢复训练与重启有状态服务
+> 这和重启一个有状态的消费服务是同一类问题：只把业务对象的字段读回来（相当于只加载权重）不够，还要恢复消费位点（`epoch`、`global_step`、Sampler 位置）、定时任务的进度（scheduler）和内存里累积的统计（Optimizer 的动量）。不同之处在于漏掉其中一项时训练不会报错，照常往下跑，只是不再沿原来的优化轨迹——问题要到 loss 曲线在恢复点出现跳变时才看得出来。
 
-- 定时任务进度；
-- 消费位点；
-- 缓存状态；
-- 重试计数；
-- 外部依赖版本。
-
-## 十四、Java 工程师如何理解 `nn.Module`
-
-### 1. Module 更像带状态协议的组件树
-
-`nn.Module` 可以近似理解为一棵组件树，加上六种协议：
-
-- 参数注册；
-- 状态注册；
-- 生命周期切换；
-- 设备迁移；
-- 序列化协议；
-- 调用钩子。
-
-它不是简单的 Java POJO，也不是只有一个 `forward()` 方法的接口。
-
-### 2. Parameter 不是普通字段
-
-Java 中一个 `double[]` 字段不会因为被放入对象就自动进入 Optimizer。PyTorch 中，Parameter 的注册让框架能够发现它、保存它、迁移它并更新它。
-
-- **普通 Tensor 字段**：只是对象属性
-- **nn.Parameter 字段**：Module 管理的模型参数
-
-### 3. state_dict 不是 Java Serialization
-
-`state_dict` 保存的是显式模型状态，而不是整个 Python 对象图。重新加载时仍然需要：
-
-1. 重新构造模型代码
-2. 加载 state_dict
-3. 恢复参数和 Buffer
-
-这种方式牺牲了部分“直接恢复对象”的便利性，换来了更明确的状态边界和更好的跨代码版本控制能力。
-
-### 4. DataLoader 是带设备语义的数据管线
-
-DataLoader 可以类比生产者—消费者，但它还额外包含：
-
-- Python worker 进程；
-- Tensor batch；
-- pinned memory；
-- CPU-GPU 传输；
-- 数据预取；
-- 训练 step 的背压。
-
-所以调优 DataLoader 不能只看线程池大小，还要看数据格式、CPU、内存、总线和 GPU 消费速度。
-
-## 十五、本文小结
+## 十四、本文小结
 
 本文讨论了 PyTorch 如何把 Module、参数、状态、数据和训练循环组织成完整系统。
 
@@ -1753,17 +1713,17 @@ DataLoader 可以类比生产者—消费者，但它还额外包含：
 | `torch/optim/optimizer.py`、`torch/optim/adamw.py` | Optimizer 基类：param groups、`state`、`zero_grad`；AdamW 的 fused / foreach 实现 |
 | `torch/utils/data/dataloader.py`、`sampler.py`、`_utils/` | DataLoader 的 worker 进程、预取<br/>Sampler<br/>`collate`、`pin_memory` 线程 |
 | `torch/amp/autocast_mode.py`、`torch/amp/grad_scaler.py` | autocast 的 Python 入口与 GradScaler |
-| `aten/src/ATen/autocast_mode.cpp` | autocast 的 C++ 实现：作为一个 DispatchKey 拦截算子并转换 dtype（第五篇的机制） |
+| `aten/src/ATen/autocast_mode.cpp` | autocast 的 C++ 实现：作为一个 DispatchKey 拦截算子并转换 dtype（机制见[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)） |
 | `torch/serialization.py` | `torch.save` / `torch.load`、`weights_only` 的受限 unpickler |
 | `torch/utils/hooks.py` | `RemovableHandle` 与 hook 注册机制 |
 
 Table: 本篇涉及的源码位置
 
-下一篇将进入 PyTorch 的算子运行时：
+下一篇[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)将进入 PyTorch 的算子运行时：
 
 > **同一个 `add` 算子为什么能够运行在 CPU、CUDA、Autograd 和 Meta 等不同后端上？Dispatcher 又是如何选择具体实现的？**
 
-## 十六、自测
+## 十五、自测
 
 1. `self.layers = [nn.Linear(4, 4) for _ in range(3)]` 会有什么问题？`parameters()` 能看到它们吗？
 

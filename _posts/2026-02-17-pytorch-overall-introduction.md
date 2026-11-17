@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（01）：PyTorch 整体介绍"
 subtitle: "PyTorch Overall Introduction" 
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-17
 ---
 
 PyTorch 经常被介绍成一个“深度学习框架”，也经常被使用成一个 Python 库：导入 `torch`，创建 Tensor，定义 `nn.Module`，然后训练模型。
@@ -42,9 +42,53 @@ z = torch.add(x, y)
 
 ## 一、总览：一张全局地图
 
+以开头那一行 `z = torch.add(x, y)` 为例，下图把本文要讲的组件画在一条调用链上：实线是 Eager 模式下每个算子调用都要走的路径，虚线是 `torch.compile` 提供的另一条路径；每个框的最后一行是它在源码仓库里的位置。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%% 图：一行 torch.add(x, y) 穿过的 PyTorch 组件与源码位置
+flowchart TB
+    USER["<b>用户代码与编程抽象（第二、五章）</b><br/>Tensor、nn.Module、Autograd 接口、Optimizer<br/>源码：torch/"]
+    BIND["<b>Python Binding（第六章）</b><br/>torch._C 扩展模块：参数解析、重载匹配、取出 C++ Tensor 句柄<br/>源码：torch/csrc/"]
+    DISP["<b>Dispatcher 与算子表（第六章）</b><br/>按 DispatchKeySet 在 aten::add.Tensor 的条目里选处理者<br/>源码：aten/src/ATen/core/dispatch/"]
+    AG["<b>Autograd 包装 Kernel（第六章）</b><br/>准备反向节点，Redispatch，返回后给输出挂 grad_fn<br/>源码：torch/csrc/autograd/"]
+    KERN["<b>后端 Kernel（第五、六章）</b><br/>CPU / CUDA / Meta 各注册一份实现<br/>源码：aten/src/ATen/native/"]
+    BASE["<b>Tensor 的实体与设备支撑（第七章）</b><br/>TensorImpl、StorageImpl、Allocator、Stream<br/>源码：c10/"]
+    HW["<b>底层库与硬件（第五章）</b><br/>cuBLAS / cuDNN、CUDA Runtime、GPU"]
+    COMP["<b>编译栈（第三、八章）</b><br/>TorchDynamo → FX Graph → AOTAutograd → TorchInductor<br/>源码：torch/_dynamo/ 等"]
+
+    USER -- "Eager：每个算子调用走一遍" --> BIND
+    BIND -- "调用 ATen C++ API" --> DISP
+    DISP -- "第一轮查表" --> AG
+    AG -- "第二轮查表（仍经 Dispatcher）" --> KERN
+    KERN -- "构造输出 Tensor、分配内存" --> BASE
+    KERN -- "提交计算" --> HW
+    USER -. "torch.compile：捕获一段计算" .-> COMP
+    COMP -. "生成融合 Kernel，替代其中的逐算子分发" .-> HW
+
+    classDef api fill:#e0f2fe,stroke:#0369a1;
+    classDef dispatch fill:#fef3c7,stroke:#b45309;
+    classDef autograd fill:#f3e8ff,stroke:#7e22ce;
+    classDef compute fill:#dcfce7,stroke:#15803d;
+    class USER,BIND api;
+    class DISP,COMP dispatch;
+    class AG autograd;
+    class KERN,BASE,HW compute;
+```
+
+- **用户代码与编程抽象**：Tensor、`nn.Module`、Autograd 接口和 Optimizer 是用户写模型与训练循环时用到的对象，都是 `torch/` 下的 Python 代码或由它导出；这一层不做数值计算。
+- **Python Binding**：`torch._C` 是一个 C++ 写成的 Python 扩展模块，`import torch` 时加载。每个算子在其中有一个生成的绑定函数，把 Python 参数转成 C++ 参数后调用 ATen；Tensor 的数据不在这里复制。
+- **Dispatcher 与算子表**：每个算子在表里有一个条目，条目下按 DispatchKey 挂着它的各个处理者，库加载时注册。每次调用时，Dispatcher 用输入 Tensor 的分发键和线程局部状态算出 DispatchKeySet，取优先级最高的那个处理者。
+- **Autograd 包装 Kernel**：注册在 Autograd 键上的处理者，代码在 `torch/csrc/autograd/`，却挂在 ATen 的表上。它不做加法，只负责记录求导关系，然后让 Dispatcher 再查一次表，找到真正计算的后端。
+- **后端 Kernel**：同一个算子在 CPU、CUDA、Meta 等键上各有一份实现，「同一行代码能在不同设备上运行」靠的是这一步的选择，而不是 Python 层的分支。
+- **Tensor 的实体与设备支撑**：Python 里的 Tensor 对象是句柄，形状、步幅、dtype、设备等元数据在 `c10/` 的 `TensorImpl` 里，数据在 `StorageImpl` 指向的内存里，内存由 Allocator 分配；CUDA 上的计算提交到 Stream，调用返回时 GPU 不一定已经算完。
+- **编译栈**：`torch.compile` 第一次调用被包住的函数时，把其中能捕获的一段计算变成 FX Graph，优化后生成融合 Kernel；这段计算之后不再逐算子走左边的链路。捕获不了的部分仍然走 Eager。
+
+第五、六、七章分别从职责、调用过程和源码目录三个角度展开这张图，第八章讨论图上反复出现的四个边界。
+
 ### 1. 本文的定位
 
-本文是《PyTorch 深度实践：从 Tensor 到深度学习运行时》的第一篇。它只负责建立全局地图，不深入某一个模块的全部实现：先回答 PyTorch 是什么、不是什么，把它与其他框架放在一起比较，并按架构演进梳理它为什么长成今天的样子；然后用三张地图组织全文的主体；最后给出 PyTorch 工程中最重要的四个边界。后续文章会沿着这张地图，逐步展开 Tensor、Autograd、Module、Dispatcher、编译器、性能和分布式运行时。
+本文是《PyTorch 深度实践：从 Tensor 到深度学习运行时》的第一篇。它只负责建立全局地图，不深入某一个模块的全部实现：先回答 PyTorch 是什么、不是什么，把它与其他框架放在一起比较，并按架构演进梳理它为什么长成今天的样子；然后用三张地图组织全文的主体；最后给出 PyTorch 工程中最重要的四个边界。系列后面的文章沿着这张地图逐个展开：[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)、[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)、[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)、[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)、[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)、[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)、[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)、[《分布式 PyTorch》](/pytorch-distributed-training.html)、[《PyTorch 的工程体系》](/pytorch-engineering-system.html)。
 
 ### 2. 三张地图
 
@@ -57,7 +101,7 @@ z = torch.add(x, y)
 | 二 | PyTorch 到底是什么？ | 是什么、不是什么，几组需要分开的概念 |
 | 三 | PyTorch 与其他深度学习框架 | Eager-first、Compiler-ready 的取舍与代价 |
 | 四 | PyTorch 的架构演进 | 从动态图到编译执行的五个阶段 |
-| 五 | 第一张地图：静态视角 | 六个职责层各负责什么 |
+| 五 | 第一张地图：静态视角 | 五个职责层各负责什么 |
 | 六 | 第二张地图：动态视角 | 一次 `torch.add` 如何穿过六个步骤 |
 | 七 | 第三张地图：代码视角 | 源码目录与库的四层分层、与系列篇章的对照 |
 | 八 | PyTorch 工程中最重要的几个边界 | Python/C++、通用/后端、灵活/可分析、可移植/特化 |
@@ -261,15 +305,15 @@ CUDA 是 NVIDIA GPU 的编程平台和软件生态，PyTorch 则是可以使用 
 
 ### 4. 几组容易混淆的概念
 
-| 概念 | 它是什么 | 它不是什么 |
-| :--- | :--- | :--- |
-| Tensor | 表示多维数据及其形状、类型、布局、设备等属性的对象；某些特殊 Tensor 不持有实际数据存储 | 不是模型，也不是 Kernel |
-| `nn.Module` | 组织模型层次、参数、缓冲区和计算逻辑的对象 | 不是固定的 GPU 指令序列 |
-| Autograd Graph | 在常见 eager 反向模式下，由需要记录梯度的前向运算建立、用于反向传播的依赖结构 | 不等于完整的模型程序图，也不等于最终设备执行图 |
-| FX Graph | 表示被捕获计算的节点及其依赖关系、用于分析和变换的中间表示 | 不自动包含任意 Python 程序的全部行为，也不等于最终 Kernel |
-| Operator | 具有 Schema 和约定语义的操作，可以具有不同实现 | 不等于某个后端上的具体实现 |
-| Kernel | 需要结合语境理解：可指注册到分发系统的算子实现，也可指设备上的具体计算程序 | 不一定与一个 Operator 一一对应 |
-| CUDA | NVIDIA GPU 的编程平台和软件生态 | 不等于 PyTorch 本身 |
+| 概念 | 它是什么 | 何时产生、存在哪里 | 它不是什么 |
+| :--- | :--- | :--- | :--- |
+| Tensor | 表示多维数据及其形状、类型、布局、设备等属性的对象；某些特殊 Tensor 不持有实际数据存储 | 用户创建或算子返回结果时产生；Python 对象是句柄，元数据在 C++ 的 `TensorImpl`，数据在 `StorageImpl` 指向的主机内存或显存 | 不是模型，也不是 Kernel |
+| `nn.Module` | 组织模型层次、参数、缓冲区和计算逻辑的对象 | 用户构造模型时产生；普通 Python 对象，参数、缓冲区、子模块登记在它的 `_parameters`、`_buffers`、`_modules` 字典里 | 不是固定的 GPU 指令序列 |
+| Autograd Graph | 在常见 eager 反向模式下，由需要记录梯度的前向运算建立、用于反向传播的依赖结构 | 前向每执行一个需要记录梯度的算子增加一个节点；由输出 Tensor 的 `grad_fn` 沿边逐级持有，不再被引用时释放 | 不等于完整的模型程序图，也不等于最终设备执行图 |
+| FX Graph | 表示被捕获计算的节点及其依赖关系、用于分析和变换的中间表示 | 符号追踪或 `torch.compile` 捕获一段计算时产生；Python 侧的 `torch.fx.Graph` 对象 | 不自动包含任意 Python 程序的全部行为，也不等于最终 Kernel |
+| Operator | 具有 Schema 和约定语义的操作，可以具有不同实现 | 所在的库加载时注册；Dispatcher 的算子表里每个算子一个条目 | 不等于某个后端上的具体实现 |
+| Kernel | 需要结合语境理解：可指注册到分发系统的算子实现，也可指设备上的具体计算程序 | 分发语境：库加载时注册进算子条目；设备语境：预先编译在动态库里，或由编译栈在运行时生成 | 不一定与一个 Operator 一一对应 |
+| CUDA | NVIDIA GPU 的编程平台和软件生态 | 由 NVIDIA 独立发布；PyTorch 的 CUDA 构建在运行时加载它的运行库以及 cuBLAS、cuDNN 等库 | 不等于 PyTorch 本身 |
 
 Table: 容易混淆的 PyTorch 概念
 
@@ -319,7 +363,7 @@ PyTorch 的一个重要特点，是默认采用 Eager 执行：Tensor 运算随 
 
 - **Eager 执行**：描述运算如何随程序运行被发起。
 - **Autograd**：在满足梯度记录条件时记录求导依赖，并计算梯度。
-- **编执行**：捕获和变换计算，通过后端生成或调用优化后的实现。
+- **编译执行**：捕获和变换计算，通过后端生成或调用优化后的实现。
 
 它们不是“先 Eager、再 Autograd、最后 Compiler”的固定流水线。自动求导可以与 Eager 或编译执行结合，编译也可以用于不需要梯度的推理计算。
 
@@ -375,8 +419,6 @@ Table: Eager 与编译执行的取舍
 | 编译执行与大模型运行时 | 2.0，2023 年 3 月 15 日及之后 | `torch.compile` 成为主要编译入口，动态 Shape、分布式和 Transformer 优化持续增强 | 保留 Eager 开发方式，同时提供编译优化能力 |
 
 Table: PyTorch 架构演进阶段
-
-Table：PyTorch 架构演进的阶段
 
 ### 1. 阶段一：动态图与研究友好
 
@@ -526,8 +568,6 @@ flowchart TB
 | ⑤ 计算内核与底层库 | 原生 CPU / CUDA Kernel、编译生成的内核（如 Triton Kernel）、cuBLAS / cuDNN 等计算库 | 具体的数值计算由哪些内核或计算库完成 |
 
 Table: PyTorch 逻辑分层与职责
-
-Table：PyTorch 的逻辑分层
 
 这些层次表示**主要职责区域，而非固定的调用顺序或严格的依赖关系**，同一子系统可能涉及多个层次。用户代码是框架接口的使用方，不属于框架内部实现；外部计算库为 PyTorch 提供计算支撑，而操作系统、驱动与硬件则是这些软件组件运行所依托的基础。
 
@@ -747,7 +787,7 @@ flowchart TB
         direction TB
         K["Tensor 分发键"]
         T["线程局部分发状态"]
-        D["<b>Dispatcher</b><br/>按照 两论查表 选择已注册的处理者"]
+        D["<b>Dispatcher</b><br/>按两轮查表选择已注册的处理者"]
 
         K --> D
         T --> D
@@ -780,7 +820,7 @@ flowchart TB
 
     class A,B,C api;
     class S,K contract;
-    class D, dispatch;
+    class D dispatch;
     class CPU,CUDA,META,CK,GK,MK compute;
 ```
 
@@ -839,7 +879,7 @@ aten::add.Tensor(Tensor self, Tensor other, *, Scalar alpha=1) -> Tensor
 
 **ATen 算子接口提供统一入口，Schema 描述入口的调用契约。** 广播、类型提升等计算规则由算子的语义和实现落实，并不是全部编码在 Schema 签名中。
 
-因此，这一步中的执行入口是算子接口，Schema 是接口遵循的规则，而一个独立的执行站点。接口随后通过 Dispatcher 寻找当前上下文中的处理者。
+因此，这一步中的执行入口是算子接口，Schema 是接口遵循的规则，而不是一个独立的执行站点。接口随后通过 Dispatcher 寻找当前上下文中的处理者。
 
 ### 4. 第四步：Dispatcher 与 Autograd
 
@@ -847,7 +887,10 @@ Dispatcher 不直接完成加法，而是依据 Tensor 携带的分发键和线�
 
 在本章选定的主线上，可以用**两轮查表**理解 Autograd 包装与 CUDA 后端之间的协作：先选中 Autograd 处理者，再由它通过 Redispatch 调用 CUDA 后端；后端调用返回后，Autograd 包装层为输出关联梯度历史。
 
-为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（第三篇的 `grad_fn`），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 的角色像 Java 里 AOP 的 around advice：它包在真正实现的外面，进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 并不跳过这一层：它只把线程局部的梯度模式关掉，第一轮查表仍然落到 Autograd 包装层，包装层发现不需要记图，就直接放行给后端——省掉的是建图与保存输入，不是这一次分发。真正在线程局部的 exclude 集里排除 Autograd、让第一轮查表直接落到 CUDA 的是 `torch.inference_mode()`（第五篇讲 include / exclude 的机制）。
+为什么要**先**选 Autograd 而不是直接算加法：反向传播需要知道"这个输出是由哪个运算、从哪些输入算出来的"（即 `grad_fn`，[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)展开），这个记录必须在算子执行的**外围**完成——真正做加法的 CUDA kernel 只管算数，不知道也不该知道梯度的事。所以 Autograd 包装层包在真正实现的外面：进去之前记下输入、放行给后端算、出来之后给结果挂上 `grad_fn`。如果先算加法再想起来记图，输入已经可能被后续操作改掉，图就不完整了；`torch.no_grad()` 并不跳过这一层：它只把线程局部的梯度模式关掉，第一轮查表仍然落到 Autograd 包装层，包装层发现不需要记图，就直接放行给后端——省掉的是建图与保存输入，不是这一次分发。真正在线程局部的 exclude 集里排除 Autograd、让第一轮查表直接落到 CUDA 的是 `torch.inference_mode()`（include / exclude 的机制见[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)）。
+
+> [!NOTE] Java 经验参照：Autograd 包装层与 AOP 环绕通知
+> Autograd 包装层的位置像 Spring AOP 的环绕通知（around advice）：包在真正的实现外面，调用前记下输入，放行给后端计算，返回后给结果挂上 `grad_fn`。不同点有两处。第一，AOP 的代理在创建 bean 时生成，之后对这个对象的调用都经过它；这里没有代理对象，每次算子调用都由 Dispatcher 按 DispatchKeySet 现查，`inference_mode()` 下同一个算子完全不经过这一层。第二，包装层记下的不是日志或事务状态，而是之后反向传播要执行的计算图节点。
 
 ```mermaid
 flowchart TB
@@ -985,9 +1028,9 @@ flowchart TB
 
 Table: PyTorch 源码目录与库的分层
 
-实线是一次算子调用自上而下的依赖方向，箭头上是层与层之间的接口。虚线是一条反向关系：Autograd 引擎位于 `torch/csrc`，却把自己的 Kernel 注册进 ATen 的 Operator Table，所以 §5 的调用路径会在这两层之间往返一次。厂商库和 NCCL 分别被 ATen 的 Kernel 和 c10d 直接调用，编译栈则绕过 ATen 的 Kernel 自己生成 Triton 代码（第七篇）。
+实线是一次算子调用自上而下的依赖方向，箭头上是层与层之间的接口。虚线是一条反向关系：Autograd 引擎位于 `torch/csrc`，却把自己的 Kernel 注册进 ATen 的 Operator Table，所以 §5 的调用路径会在这两层之间往返一次。厂商库和 NCCL 分别被 ATen 的 Kernel 和 c10d 直接调用，编译栈则绕过 ATen 的 Kernel 自己生成 Triton 代码（见[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)）。
 
-编译之后，这四层对应几个动态库：`libc10`（c10）、`libtorch_cpu` 与 `libtorch_cuda`（ATen 和 `torch/csrc` 中与 Python 无关的部分：Autograd 引擎、c10d 等）、`libtorch_python`（Python 绑定）。`import torch` 时它们被依次加载；第六篇的 C++ 扩展链接的正是这些库，ABI 问题也由此而来。
+编译之后，这四层对应几个动态库：`libc10`（c10）、`libtorch_cpu` 与 `libtorch_cuda`（ATen 和 `torch/csrc` 中与 Python 无关的部分：Autograd 引擎、c10d 等）、`libtorch_python`（Python 绑定）。`import torch` 时它们被依次加载；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)里的 C++ 扩展链接的正是这些库，ABI 问题也由此而来。
 
 下面自上而下逐层说明每一层放什么、向上提供什么。
 
@@ -1002,9 +1045,9 @@ Table: PyTorch 源码目录与库的分层
 `csrc` 是 "C source" 的缩写，这里是 Python 与 C++ 的边界，也是几个大型运行时引擎的所在：
 
 - **Python 绑定**：把 C++ 的 Tensor 和函数暴露成 Python 对象。`torch.add` 在 Python 侧是一个由 Codegen 生成的绑定函数，负责解析参数、把 Python 对象转成 `at::Tensor`，再调用 ATen；
-- **Autograd 引擎**（`autograd/`）：反向传播的执行器，以及为每个算子生成的反向节点（第三篇）；
-- **c10d**（`distributed/`）：进程组、NCCL / Gloo 后端、DDP 的 Reducer（第九篇）；
-- **Profiler**（`profiler/`）：与 Kineto 集成，采集 CPU 和 CUDA 时间线（第八篇）；
+- **Autograd 引擎**（`autograd/`）：反向传播的执行器，以及为每个算子生成的反向节点（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)）；
+- **c10d**（`distributed/`）：进程组、NCCL / Gloo 后端、DDP 的 Reducer（[《分布式 PyTorch》](/pytorch-distributed-training.html)）；
+- **Profiler**（`profiler/`）：与 Kineto 集成，采集 CPU 和 CUDA 时间线（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)）；
 - **TorchScript**（`jit/`）：上一代编译路径，C++ 实现，2.x 已进入维护模式，本系列不讨论；
 - **Dynamo 与 Inductor 的少量 C++ 部分**：帧求值 hook（`dynamo/`）和 AOTInductor 运行时（`inductor/`）。
 
@@ -1014,7 +1057,7 @@ Table: PyTorch 源码目录与库的分层
 
 ATen（"A Tensor library"）是算子的家，包括两部分：
 
-- **分发**（`core/dispatch/`）：Dispatcher 与 Operator Table。每个算子在这里有一个条目，条目里按 DispatchKey 挂着它的各个实现——CPU、CUDA、Autograd、Meta……`at::add(x, y)` 被调用时，Dispatcher 根据输入 Tensor 的 DispatchKeySet 选一个实现（第五篇）；
+- **分发**（`core/dispatch/`）：Dispatcher 与 Operator Table。每个算子在这里有一个条目，条目里按 DispatchKey 挂着它的各个实现——CPU、CUDA、Autograd、Meta……`at::add(x, y)` 被调用时，Dispatcher 根据输入 Tensor 的 DispatchKeySet 选一个实现（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)）；
 - **实现**（`native/`）：`native_functions.yaml` 声明每个算子的 Schema 和它在各后端的实现函数名；`native/cpu/` 和 `native/cuda/` 是 Kernel 本身。Kernel 处理 stride 和广播靠 `TensorIterator`，处理矩阵乘、卷积则调用 cuBLAS / cuDNN / oneDNN 等厂商库。
 
 Autograd 的实现也是挂在 Operator Table 上的一个 Key：Autograd Kernel 位于 `torch/csrc/autograd/generated/`，但它被注册进 ATen 的表里，由 Dispatcher 先于设备 Kernel 调用。所以 §2 与 §3 之间是双向的：`torch/csrc` 调用 ATen 的 API，同时把 Autograd 实现注册进 ATen 的表。
@@ -1023,13 +1066,13 @@ Autograd 的实现也是挂在 Operator Table 上的一个 Key：Autograd Kernel
 
 c10（读作 "C-ten"，名字是 Caffe2 与 ATen 的双关）是所有层共同依赖的基础类型，自身不依赖任何上层，也不包含任何算子：
 
-- `TensorImpl`、`StorageImpl`：Tensor 的元数据（sizes、strides、storage_offset、dtype、device）和底层存储——**第二篇讨论的全部内容，源码上住在这里**；
+- `TensorImpl`、`StorageImpl`：Tensor 的元数据（sizes、strides、storage_offset、dtype、device）和底层存储——**[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讨论的全部内容，源码上住在这里**；
 - `Device`、`DeviceGuard`、`Stream`、`Event`：设备抽象，CUDA 的具体实现在 `c10/cuda/`；
-- `Allocator` 与 `CUDACachingAllocator`：内存分配器，第八篇显存分析的对象；
+- `Allocator` 与 `CUDACachingAllocator`：内存分配器，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里显存分析的对象；
 - `DispatchKey`、`DispatchKeySet`：Dispatcher 用来选实现的键，键的定义在这里，查表的逻辑在 ATen；
 - `ScalarType`、`Scalar`、`Layout`：类型系统。
 
-一个常见的误解是 c10 只是"设备抽象和分配器"。实际上它是 Tensor 的定义所在：用户最先接触的抽象，恰恰是源码里最底层的东西。这也是本系列把 Tensor 放在第二篇、而不是按源码自下而上从 c10 讲起的原因——它是一切的依赖，但理解它不需要先理解其他任何层。
+一个常见的误解是 c10 只是"设备抽象和分配器"。实际上它是 Tensor 的定义所在：用户最先接触的抽象，恰恰是源码里最底层的东西。这也是本系列紧接着本文就讲 Tensor、而不是按源码自下而上从 c10 讲起的原因——它是一切的依赖，但理解它不需要先理解其他任何层。
 
 ### 5. 用 `torch.add` 把四层串一遍
 
@@ -1042,25 +1085,25 @@ c10（读作 "C-ten"，名字是 Caffe2 与 ATen 的双关）是所有层共同�
 5. aten/src/ATen/       CPU 或 CUDA Key 命中：native/ 下的 add 实现，用 TensorIterator 遍历元素
 6. c10/                 结果 Tensor 的 TensorImpl 与 StorageImpl 在此构造，内存由 Allocator 分配
 
-路径在 `torch/csrc` 与 ATen 之间往返一次，正是因为 Autograd 作为一个 Key 挂在 ATen 的表上。第五篇会把这条路径的每一步展开。
+路径在 `torch/csrc` 与 ATen 之间往返一次，正是因为 Autograd 作为一个 Key 挂在 ATen 的表上。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)会把这条路径的每一步展开。
 
 ### 6. 组件、源码位置与系列篇章的对照
 
 | 组件 | 源码位置 | 职责层 | 展开篇 |
 |---|---|---|---|
-| TensorImpl、StorageImpl、stride、dtype、device | `c10/core/` | 编程接口与应用表达 | 第二篇 |
-| Autograd 引擎、`grad_fn`、saved tensors | `torch/csrc/autograd/` | 编程接口与应用表达| 第三篇 |
-| `nn.Module`、Optimizer、DataLoader、序列化 | `torch/nn/` `torch/optim/` `torch/utils/data/` | 编程接口与应用表达 | 第四篇 |
-| Operator Schema、Dispatcher、native 算子、Codegen | `aten/src/ATen/` `torchgen/` | 算子与分发运行时 | 第五篇 |
-| pybind11 绑定、`TORCH_LIBRARY`、C++/CUDA 扩展 | `torch/csrc/` `torch/utils/cpp_extension.py` | Python 与 C++ 边界 | 第六篇 |
-| Dynamo、AOTAutograd、Inductor、FX | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` |  图表示与编译 | 第七篇 |
-| Profiler、Caching Allocator、Stream、CUDA Graphs | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 设备与通信 | 第八篇 |
-| c10d、ProcessGroup、DDP、FSDP、DTensor | `torch/csrc/distributed/` `torch/distributed/` | 设备与通信 | 第九篇 |
-| 测试基础设施、构建、CI、发布 | `test/` `torch/testing/` `tools/` `.github/` | 横切 | 第十篇 |
+| TensorImpl、StorageImpl、stride、dtype、device | `c10/core/` | 编程接口与应用表达 | [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) |
+| Autograd 引擎、`grad_fn`、saved tensors | `torch/csrc/autograd/` | 编程接口与应用表达| [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) |
+| `nn.Module`、Optimizer、DataLoader、序列化 | `torch/nn/` `torch/optim/` `torch/utils/data/` | 编程接口与应用表达 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) |
+| Operator Schema、Dispatcher、native 算子、Codegen | `aten/src/ATen/` `torchgen/` | 算子与分发运行时 | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) |
+| pybind11 绑定、`TORCH_LIBRARY`、C++/CUDA 扩展 | `torch/csrc/` `torch/utils/cpp_extension.py` | Python 与 C++ 边界 | [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) |
+| Dynamo、AOTAutograd、Inductor、FX | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` |  图表示与编译 | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
+| Profiler、Caching Allocator、Stream、CUDA Graphs | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 设备与通信 | [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) |
+| c10d、ProcessGroup、DDP、FSDP、DTensor | `torch/csrc/distributed/` `torch/distributed/` | 设备与通信 | [《分布式 PyTorch》](/pytorch-distributed-training.html) |
+| 测试基础设施、构建、CI、发布 | `test/` `torch/testing/` `tools/` `.github/` | 横切 | [《PyTorch 的工程体系》](/pytorch-engineering-system.html) |
 
 Table: 组件、源码位置与系列篇章的对照
 
-**本系列有意不覆盖的部分**：TorchScript / `torch.jit`（维护模式）；量化、稀疏 Tensor、复数等专门的 Tensor 子系统；`torch.func`（`vmap`、函数式变换）；MPS、XPU 等非 CUDA 后端的实现细节；`torch.export` 与 AOTInductor 只在第七篇作为编译栈的另一个出口简要提及。模型 Serving、请求调度和 KV Cache 属于推理系统层，不在本系列范围。
+**本系列有意不覆盖的部分**：TorchScript / `torch.jit`（维护模式）；量化、稀疏 Tensor、复数等专门的 Tensor 子系统；`torch.func`（`vmap`、函数式变换）；MPS、XPU 等非 CUDA 后端的实现细节；`torch.export` 与 AOTInductor 只在[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)里作为编译栈的另一个出口简要提及。模型 Serving、请求调度和 KV Cache 属于推理系统层，不在本系列范围。
 
 ## 八、PyTorch 工程中最重要的几个边界
 
@@ -1068,10 +1111,10 @@ Table: 组件、源码位置与系列篇章的对照
 
 | 边界 | 一侧 | 另一侧 | 工程取舍 | 典型例子 | 展开篇 |
 |---|---|---|---|---|---|
-| Python 与 C++ | Python：表达模型结构、组织训练流程、配置与实验逻辑 | C++ / CUDA：运行时、高性能数据结构、设备后端、低层算子 | 不是"Python 慢、C++ 快"，而是按职责分层；性能敏感路径逐步下沉 | `torch._C` 绑定与参数解析；C++ 扩展遇到的 ABI、stride、dtype、生命周期问题 | 第五、六篇 |
-| 通用抽象与后端实现 | 统一的 Tensor API 与算子 Schema | CPU / CUDA / Meta 等后端各自的 Kernel 与能力差异 | 在统一语义之下允许后端保留必要的实现差异 | 同一个 `add` 在 CPU、CUDA、Meta 上分别有实现；某些算子只在部分后端支持、dtype 能力不同 | 第五篇 |
-| 灵活性与可分析性 | Eager Mode：动态 Python、控制流直接参与计算 | Compiler：需要稳定、可推断的程序 | 更多动态性换表达力，更多静态性换优化机会；`torch.compile()` 在两者间搭桥 | graph break、guard、动态 shape、编译缓存 | 第七篇 |
-| 可移植性与性能特化 | 通用实现：跨设备、易维护 | 设备特化：专用 Kernel、特定 shape 的优化 | 判断哪些逻辑留在通用层、哪些路径值得写专用 Kernel、哪些差异交给 Dispatcher 隔离 | TensorIterator 的通用逐元素 Kernel vs 调用 cuBLAS / cuDNN 或手写 CUDA Kernel | 第六、八篇 |
+| Python 与 C++ | Python：表达模型结构、组织训练流程、配置与实验逻辑 | C++ / CUDA：运行时、高性能数据结构、设备后端、低层算子 | 不是"Python 慢、C++ 快"，而是按职责分层；性能敏感路径逐步下沉 | `torch._C` 绑定与参数解析；C++ 扩展遇到的 ABI、stride、dtype、生命周期问题 | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)、[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) |
+| 通用抽象与后端实现 | 统一的 Tensor API 与算子 Schema | CPU / CUDA / Meta 等后端各自的 Kernel 与能力差异 | 在统一语义之下允许后端保留必要的实现差异 | 同一个 `add` 在 CPU、CUDA、Meta 上分别有实现；某些算子只在部分后端支持、dtype 能力不同 | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) |
+| 灵活性与可分析性 | Eager Mode：动态 Python、控制流直接参与计算 | Compiler：需要稳定、可推断的程序 | 更多动态性换表达力，更多静态性换优化机会；`torch.compile()` 在两者间搭桥 | graph break、guard、动态 shape、编译缓存 | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
+| 可移植性与性能特化 | 通用实现：跨设备、易维护 | 设备特化：专用 Kernel、特定 shape 的优化 | 判断哪些逻辑留在通用层、哪些路径值得写专用 Kernel、哪些差异交给 Dispatcher 隔离 | TensorIterator 的通用逐元素 Kernel vs 调用 cuBLAS / cuDNN 或手写 CUDA Kernel | [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)、[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) |
 
 Table: PyTorch 工程中的四个边界
 
@@ -1149,7 +1192,7 @@ flowchart TB
     class NEXT,MISS warn;
 ```
 
-灵活性保留在 graph break 这条分支上：捕获不了的地方退回 Eager，程序仍然正确；可分析性来自 FX Graph 这条分支：能捕获的部分成为图并被优化，代价是每次调用都要付一次 guard 检查、且 guard 失效会触发重编译。第七篇会用一个带 shape 分支的函数把这四条路径各走一遍。
+灵活性保留在 graph break 这条分支上：捕获不了的地方退回 Eager，程序仍然正确；可分析性来自 FX Graph 这条分支：能捕获的部分成为图并被优化，代价是每次调用都要付一次 guard 检查、且 guard 失效会触发重编译。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)会用一个带 shape 分支的函数把这四条路径各走一遍。
 
 ### 4. 可移植性与性能特化的边界
 
@@ -1183,11 +1226,20 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 6. 计算内核与底层库： 原生 CPU 与 CUDA 内核、编译生成内核 / cuBLAS、cuDNN 等计算库
 7. 外部运行基础：操作系统、驱动、CPU、GPU 与互连
 
-动态地图回答"一次调用怎么走"：Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware。
+动态地图回答"一次调用怎么走"：Python API → Python Binding → ATen 算子接口（Schema 是它的契约）→ Dispatcher 与 Autograd 包装层 → 后端实现与 Kernel → 结果返回。
 
 代码地图回答"东西在哪个目录、哪个库"：`torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator）。
 
-本系列按前两张地图的顺序推进；第七章 §6 的对照表标出了每一篇在代码地图上的位置。后续每一篇都是这些地图上某一格的放大：第二篇放大 Tensor，第三篇放大 Autograd，第四篇放大 Module 与训练系统，第五、六篇放大算子运行时，第七篇放大图与编译，第八篇沿动态地图测量时间去了哪里，第九篇放大设备与通信层，第十篇讨论整张图如何被持续维护。
+本系列按前两张地图的顺序推进；第七章 §6 的对照表标出了每一篇在代码地图上的位置。后续每一篇都是这些地图上某一格的放大：
+
+- [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)放大 Tensor；
+- [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)放大 Autograd；
+- [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)放大 Module 与训练系统；
+- [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)与[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)放大算子运行时；
+- [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)放大图与编译；
+- [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)沿动态地图测量时间去了哪里；
+- [《分布式 PyTorch》](/pytorch-distributed-training.html)放大设备与通信层；
+- [《PyTorch 的工程体系》](/pytorch-engineering-system.html)讨论整张图如何被持续维护。
 
 ### 3. 四个边界
 
@@ -1240,14 +1292,14 @@ PyTorch 不是一个单纯的 Python 库，而是连接模型代码、Tensor 编
 
    </details>
 
-[^q0]: 靠一条分层的运行时链路，每层各解决一件事：Python 里的 `y = model(x)` 先落到 **Tensor**（数据 + 形状 + 布局 + dtype + 设备 + 生命周期，Python 对象只是 C++ `TensorImpl` 的句柄）；每个算子调用进入 **Dispatcher**，按 Tensor 的 DispatchKeySet 选实现路径——Autograd key 上的包装先记录 `grad_fn` 建图（自动求导），再落到 CPU / CUDA / 第三方后端的 kernel（跨设备）；**编译**是把这条逐算子分发的路径整体换掉（Dynamo 捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel）；**分布式**对五类状态各做复制或分片的决定，用集合通信在 stream 上与计算重叠。四种能力能叠加，是因为都建立在同一个算子系统之上。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)；本系列第二至九篇逐层展开。
-[^q1]: 因为算子的「定义」与「实现」是分开的：`native_functions.yaml` 定义一个抽象算子，CPU 与 CUDA 各注册一份 kernel 到不同的 DispatchKey；调用时 Dispatcher 从输入 Tensor 的 device 算出 key、查表选实现。新硬件通过 PrivateUse1 与 device plugin 接入同一张表。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第五篇。
-[^q2]: Tensor 是「元数据 + 共享的 Storage」：`view` / `transpose` / 切片只创建新的 `TensorImpl`（改 sizes / strides / offset），与原 Tensor 共用 Storage；`contiguous()`、`.to()` 跨设备或改 dtype、`clone()` 才分配新 Storage 并复制。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第二篇。
-[^q3]: `model(x)` 调的是 `nn.Module.__call__`，它在 `forward` 前后执行 forward pre-hooks / forward hooks、处理 backward hooks 的注册，并做一些状态检查；直接调 `forward` 绕过了这一层，hooks 不触发。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在第四篇。
-[^q4]: Dynamo 在字节码层符号求值，只能把「能用 Tensor 元数据决定」的代码编进图；依赖 Tensor 具体值的分支（`if x.sum() > 0`）、不支持的 Python 特性、`.item()` 这类强制同步的调用都会切开图（graph break），前后各编一段、中间回到 eager。eager 下这些代码毫无问题，所以只有编译时才暴露。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)、[第八章](#八pytorch-工程中最重要的几个边界)，展开在第七篇。
-[^q5]: GPU 是异步执行的：CPU 只负责发 kernel，如果每个 kernel 很小、发得又慢（launch-bound）或 CPU 在等 `.item()` / `nonzero` 这类同步点（sync-bound），GPU 大部分时间在空等——但 Python profiler 看到的每个函数都不慢。要用 `torch.profiler` 看时间线上 CPU 与 GPU 两侧谁在空闲。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在第八篇。
-[^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在第九篇。
-[^q7]: 因为扩展跨过了[第八章](#八pytorch-工程中最重要的几个边界)说的几条边界：Python / C++ 之间的 ABI 与引用计数、Tensor 的逻辑形状与物理布局（stride）、dtype 的类型提升、以及谁持有内存多久（生命周期）。原生算子由 Codegen 与 Dispatcher 统一处理这些，自定义算子要自己补齐。展开在第六篇。
+[^q0]: 靠一条分层的运行时链路，每层各解决一件事：Python 里的 `y = model(x)` 先落到 **Tensor**（数据 + 形状 + 布局 + dtype + 设备 + 生命周期，Python 对象只是 C++ `TensorImpl` 的句柄）；每个算子调用进入 **Dispatcher**，按 Tensor 的 DispatchKeySet 选实现路径——Autograd key 上的包装先记录 `grad_fn` 建图（自动求导），再落到 CPU / CUDA / 第三方后端的 kernel（跨设备）；**编译**是把这条逐算子分发的路径整体换掉（Dynamo 捕获整图、AOTAutograd 拆前后向、Inductor 生成融合 kernel）；**分布式**对五类状态各做复制或分片的决定，用集合通信在 stream 上与计算重叠。四种能力能叠加，是因为都建立在同一个算子系统之上。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)；本系列从[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)到[《分布式 PyTorch》](/pytorch-distributed-training.html)逐层展开。
+[^q1]: 因为算子的「定义」与「实现」是分开的：`native_functions.yaml` 定义一个抽象算子，CPU 与 CUDA 各注册一份 kernel 到不同的 DispatchKey；调用时 Dispatcher 从输入 Tensor 的 device 算出 key、查表选实现。新硬件通过 PrivateUse1 与 device plugin 接入同一张表。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)、[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)。
+[^q2]: Tensor 是「元数据 + 共享的 Storage」：`view` / `transpose` / 切片只创建新的 `TensorImpl`（改 sizes / strides / offset），与原 Tensor 共用 Storage；`contiguous()`、`.to()` 跨设备或改 dtype、`clone()` 才分配新 Storage 并复制。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)。
+[^q3]: `model(x)` 调的是 `nn.Module.__call__`，它在 `forward` 前后执行 forward pre-hooks / forward hooks、处理 backward hooks 的注册，并做一些状态检查；直接调 `forward` 绕过了这一层，hooks 不触发。详见[第五章](#五第一张地图静态视角pytorch-的逻辑分层)，展开在[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)。
+[^q4]: Dynamo 在字节码层符号求值，只能把「能用 Tensor 元数据决定」的代码编进图；依赖 Tensor 具体值的分支（`if x.sum() > 0`）、不支持的 Python 特性、`.item()` 这类强制同步的调用都会切开图（graph break），前后各编一段、中间回到 eager。eager 下这些代码毫无问题，所以只有编译时才暴露。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)、[第八章](#八pytorch-工程中最重要的几个边界)，展开在[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)。
+[^q5]: GPU 是异步执行的：CPU 只负责发 kernel，如果每个 kernel 很小、发得又慢（launch-bound）或 CPU 在等 `.item()` / `nonzero` 这类同步点（sync-bound），GPU 大部分时间在空等——但 Python profiler 看到的每个函数都不慢。要用 `torch.profiler` 看时间线上 CPU 与 GPU 两侧谁在空闲。详见[第六章](#六第二张地图动态视角一次算子调用发生了什么)，展开在[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)。
+[^q6]: 多卡多了通信：DDP 每步 all-reduce 梯度、FSDP 每层 all-gather 参数与 reduce-scatter 梯度，这些通信只有与计算重叠才不占额外时间；再加上数据加载、每卡 batch 变小导致 GEMM 效率下降、慢卡拖住 collective，加速比自然低于卡数。详见[第八章](#八pytorch-工程中最重要的几个边界)，展开在[《分布式 PyTorch》](/pytorch-distributed-training.html)。
+[^q7]: 因为扩展跨过了[第八章](#八pytorch-工程中最重要的几个边界)说的几条边界：Python / C++ 之间的 ABI 与引用计数、Tensor 的逻辑形状与物理布局（stride）、dtype 的类型提升、以及谁持有内存多久（生命周期）。原生算子由 Codegen 与 Dispatcher 统一处理这些，自定义算子要自己补齐。展开在[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)。
 [^q8]: 数据用 **Tensor** 及其运算接口（形状、步幅、dtype、设备）；模型用 **`nn.Module`**（参数、缓冲区、子模块、`forward`、hooks）；求导用 **Autograd 接口**（`requires_grad`、`backward()`、`torch.autograd.grad()`、`torch.autograd.Function`）；参数更新用 **`torch.optim`**（`Optimizer.step()`、参数组、`lr_scheduler`）；数据加载用 **`Dataset` / `DataLoader`**（采样、批处理、多进程预取）。这些接口共同构成用户层的编程抽象，正文此节逐个列出它们的职责。
 [^q9]: PyTorch 2.x 的编译栈：**TorchDynamo** 分析 Python 字节码、在可捕获区域提取 FX 计算图并建立守卫（guard）；**AOTAutograd** 把前向图与自动生成的反向图一起捕获、做函数化（去除原地操作）与分解到核心算子集；**Inductor** 对图做融合、布局与调度决策，生成 Triton（GPU）或 C++ / OpenMP（CPU）kernel；**FX** 是这些组件之间的图中间表示；**TorchScript / `torch.export`** 用于导出与部署。它们让框架看到一段计算的整体，而不是逐个处理算子。
 [^q10]: 契约由 **Operator Schema** 定义——算子名、重载、参数与返回值、别名与修改标注（写在 `native_functions.yaml`，由 codegen 生成 C++ / Python 绑定与 `OperatorHandle`）；关联到处理者靠 **Dispatcher**：每个算子一张以 DispatchKey 为索引的内核表，kernel 通过 `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 注册到某个 key（CPU、CUDA、Autograd、Functionalize、Python 等）；调用时从输入 Tensor 的 DispatchKeySet 与线程局部的包含 / 排除集合算出最高优先级 key、取对应 kernel，kernel 可以处理完再 `redispatch` 到下一个 key——这就是「适合当前输入与上下文」的选择机制。

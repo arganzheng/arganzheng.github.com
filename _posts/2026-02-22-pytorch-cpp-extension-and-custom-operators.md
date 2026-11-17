@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（06）：C++ 扩展与自定义算子"
 subtitle: "C++ Extensions and Custom Operators in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-上一篇把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
 
 这一篇换到开发者的位置：**自己写一个算子，把它接入 PyTorch 的算子系统**[^q0] 。
 
@@ -18,11 +18,44 @@ updated: 2026-11-13
 
 ## 一、总览：三个概念与本文主线
 
-写一个自定义算子需要同时回答三个问题，本文的前三章分别回答它们，之后再用一个四阶段项目把答案落到代码上。
+写一个自定义算子需要同时回答三个问题，本文的前三章分别回答它们，之后再用一个四阶段项目把答案落到代码上。先看全文要走完的一条链：一段 C++ / CUDA 源码怎样变成 Operator Table 里的一行，一次 `torch.ops.myops.scale_shift(...)` 调用又怎样从这一行里取到实现。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：一个自定义算子从源码到被调用：构建、加载时注册、Operator Table、运行时分发
+flowchart TB
+    SRC["<b>扩展源码</b><br/>scale_shift.cpp、scale_shift_cuda.cu<br/>实现函数 + TORCH_LIBRARY 宏（第四、六、七章）"]
+    SO["<b>共享库 .so</b><br/>链接 libtorch、libc10，绑定 PyTorch 版本与 ABI（第四、十章）"]
+    INIT["<b>加载时的静态初始化</b><br/>m.def 写入 Schema，m.impl 写入函数指针（第三章）"]
+    PYREG["<b>Python 侧 torch.library</b><br/>register_autograd、register_fake（第三、八章）"]
+    OT[("<b>Operator Table 中的一行</b><br/>myops::scale_shift：Schema + CPU / CUDA / Autograd / Meta（Fake）槽位（第二章）")]
+    CALLER["<b>用户调用</b><br/>torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
+    DISP["<b>Dispatcher</b><br/>按 DispatchKeySet 在这一行里取槽位"]
+    AG["<b>Autograd 包装</b><br/>保存 ctx，去掉 Autograd Key 再分发（第八章）"]
+    KER["<b>后端实现</b><br/>scale_shift_cpu 或 scale_shift_cuda（第六、七章）"]
+    FAKE["<b>Fake 实现</b><br/>只给出输出的 shape / dtype / device / stride（第八章）"]
+    SRC -->|"cpp_extension 调用 g++ / nvcc"| SO
+    SO -->|"import 或 load_library"| INIT
+    INIT -->|"建一行，填 CPU / CUDA 槽位"| OT
+    PYREG -->|"填 Autograd、Fake"| OT
+    CALLER --> DISP
+    OT -->|"运行时查表"| DISP
+    DISP -->|"真实 Tensor"| AG
+    AG --> KER
+    DISP -->|"FakeTensor：torch.compile 追踪时"| FAKE
+```
+
+- **扩展源码**：实现函数（`scale_shift_cpu`、`scale_shift_cuda`）和 `TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 宏写在同一批 `.cpp` / `.cu` 文件里，由开发者维护。
+- **共享库 `.so`**：`torch.utils.cpp_extension` 调用编译器和链接器在构建期产生，存在缓存目录或安装后的包目录里；它针对某一个 PyTorch 版本、CUDA 版本和 C++ ABI 编译。
+- **加载时的静态初始化**：`.so` 被 `import` 或 `torch.ops.load_library` 加载进进程时执行一次，宏展开出的静态对象在构造时调用 `m.def` / `m.impl`。
+- **Python 侧 `torch.library`**：包的 `__init__.py` 在加载 `.so` 之后执行 `register_autograd`、`register_fake`，给同一行补上反向规则和元数据推断。
+- **Operator Table 中的一行**：进程内 `c10::Dispatcher` 持有的注册表里属于 `myops::scale_shift` 的条目，含一条 Schema 和每个 DispatchKey 一个槽位；进程退出即消失，每次启动重新注册。
+- **Dispatcher**：每次调用时根据输入 Tensor 和线程状态算出 DispatchKeySet，从这一行里取优先级最高的非空槽位；槽位为空就是 `NotImplementedError`。
+- **Autograd 包装、后端实现、Fake 实现**：槽位里放的三类函数。真实 Tensor 先过 Autograd 包装再到 CPU / CUDA 实现；`torch.compile` 追踪时的 FakeTensor 只走 Fake 实现，不运行 Kernel。
 
 ### 1. 要做哪几件事？——三步
 
-第五篇开发态的三步对自定义算子完全适用：**定义** Schema、**注册**实现到 DispatchKey、**编写实现**。原生算子由 Codegen 帮忙生成大部分粘合代码；自定义算子这三步都要自己做。第二章展开每一步的具体内容。
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里开发态的三步对自定义算子完全适用：**定义** Schema、**注册**实现到 DispatchKey、**编写实现**。原生算子由 Codegen 帮忙生成大部分粘合代码；自定义算子这三步都要自己做。第二章展开每一步的具体内容。
 
 ### 2. 用什么工具做？——两种接入方式
 
@@ -64,13 +97,12 @@ flowchart TB
 | 八 | 阶段四：Autograd 与 Meta |
 | 九 | 测试与 Benchmark |
 | 十 | 构建、ABI 与分发 |
-| 十一 | Java 对照：JNI |
-| 十二 | 本文小结 |
-| 十三 | 自测 | 5 道题 |
+| 十一 | 本文小结 |
+| 十二 | 自测（5 道题） |
 
 Table: 本文的章节安排
 
-如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和第八篇所需的几个 CUDA 概念。
+如果你已经熟悉 C++ 扩展的构建方式，可以跳过第四章；如果没有写过 C++ 扩展，第四章是后面所有代码能跑起来的前提。同样，没有 CUDA 编程经验的读者不必另找教程：第七章 §2 用一节讲清读懂本文和[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)所需的几个 CUDA 概念。
 
 ## 二、三步：定义、注册、实现
 
@@ -138,7 +170,7 @@ myops::scale_shift(Tensor x, float alpha=1.0, *, float beta=0.0) -> Tensor
 myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 ```
 
-`(a!)` 表示：参数 `x` 属于 alias 集合 `a`，且会被修改（`!`）；返回值与 `x` 是同一块存储。第五篇讲过，Autograd 的版本检查、编译器的安全重排、内存复用都依赖这条信息。**不声明却修改输入，是自定义算子中最危险的错误之一**——不会报错，但会静默破坏 Autograd 和 `torch.compile` 的正确性。
+`(a!)` 表示：参数 `x` 属于 alias 集合 `a`，且会被修改（`!`）；返回值与 `x` 是同一块存储。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲过，Autograd 的版本检查、编译器的安全重排、内存复用都依赖这条信息。**不声明却修改输入，是自定义算子中最危险的错误之一**——不会报错，但会静默破坏 Autograd 和 `torch.compile` 的正确性。
 
 按 PyTorch 惯例，in-place 算子名以下划线结尾。
 
@@ -167,7 +199,7 @@ Table: 自定义算子常用的 DispatchKey
 
 **注册就是往 Operator Table 填槽位**
 
-第五篇讲过，Operator Table 中每个算子一行，每个 DispatchKey 一个槽位。注册的效果就是填某个槽位：
+[《Dispatcher 与算子系统》第三章「注册实现到 DispatchKey」](/pytorch-dispatcher-and-operator-system.html#三开发态2注册实现到-dispatchkey)讲过，Operator Table 中每个算子一行，每个 DispatchKey 一个槽位。注册的效果就是填某个槽位：
 
 | `myops::scale_shift` | CPU | CUDA | Meta | Autograd |
 |---|---|---|---|---|
@@ -328,7 +360,8 @@ flowchart TB
 
 这解释了两个现象：为什么 `import` 一个扩展模块之后算子就“凭空出现”了；为什么 `TORCH_LIBRARY` 同一命名空间不能出现两次——第二次静态初始化会尝试重复建表。
 
-对 Java 工程师：这与 JNI 的 `JNI_OnLoad` 在 `System.loadLibrary` 时被调用是同一种机制。
+> [!NOTE] Java 经验参照：加载时初始化
+> JNI 库被 `System.loadLibrary` 加载后，JVM 会调用库里导出的 `JNI_OnLoad`，库在这个函数里做初始化（例如 `RegisterNatives`）；`TORCH_LIBRARY` 同样是“库一加载就执行注册代码”。不同点有两个：这里没有一个由框架调用的固定入口函数，执行注册的是动态链接器在加载 `.so` 时运行的 C++ 静态对象构造，所以不经过 Python 的裸 `dlopen`（`torch.ops.load_library`）也能完成注册；一个库里可以有很多个这样的静态对象，不同源文件之间的执行先后没有保证，注册代码不能依赖顺序。
 
 **C++ 侧能做什么、不能做什么**
 
@@ -396,7 +429,17 @@ flowchart TB
     SO --> LOAD
 ```
 
-对 Java 工程师：这与 JNI 的流程一一对应——`.c` 编译成 `.so`，`System.loadLibrary` 加载，`JNI_OnLoad` 执行初始化。
+> [!NOTE] Java 经验参照：JNI 的构建与加载流程
+> 构建和加载的步骤与 JNI 可以逐项对上：
+>
+> | 环节 | JNI | PyTorch 扩展 |
+> |---|---|---|
+> | 声明 | Java 里声明 `native` 方法 | Schema 定义算子 |
+> | 实现 | C / C++ 函数，编成 `.so` | C++ / CUDA 函数，编成 `.so` |
+> | 加载 | `System.loadLibrary` | `import` 或 `torch.ops.load_library` |
+> | 初始化 | JVM 调用 `JNI_OnLoad` | `TORCH_LIBRARY` 静态初始化 |
+>
+> 对不上的是加载之后：JNI 把 native 方法绑定到一个 C 函数，调用就是直接进入它；这里注册的是“某个算子在某个 DispatchKey 下的实现”，调用要先经过 Dispatcher 查表（见本章第 5 节）。
 
 ### 2. 扩展依赖 PyTorch 的哪些东西
 
@@ -588,7 +631,7 @@ Python 侧：
 torch.ops.myops.scale_shift(x, 2.0, 1.0)   # 经过 Dispatcher
 ```
 
-这条路把函数填进 Operator Table，调用时走第五篇的完整运行态路径。
+这条路把函数填进 Operator Table，调用时走[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的完整运行态路径。
 
 **两者的差别**
 
@@ -605,6 +648,9 @@ torch.ops.myops.scale_shift(x, 2.0, 1.0)   # 经过 Dispatcher
 Table: pybind11 与 TORCH_LIBRARY 暴露方式的差别
 
 结论：**pybind11 适合暴露不是算子的辅助函数；要成为算子，必须走 `TORCH_LIBRARY`**。两者可以共存于同一个扩展中。本文的算子只用后者。
+
+> [!NOTE] Java 经验参照：JNI 式直调与 SPI 式注册
+> `PYBIND11_MODULE` 这条路接近 JNI：把一个 C++ 函数暴露出去，调用方直接进入它，是一次函数调用。`TORCH_LIBRARY` 这条路更接近给框架的 SPI 提供实现：你交出的是某个契约（Schema）在某个 Key 下的实现，何时调用由框架决定。与 `ServiceLoader` 不同的是，这里没有配置文件和接口类型，注册由加载 `.so` 时的静态初始化完成；选哪个实现也不是启动时定一次，而是每次调用按输入 Tensor 的 DispatchKeySet 查表。
 
 ### 6. 最小可编译骨架
 
@@ -662,7 +708,7 @@ print(torch.ops.myops.scale_shift(x, 2.0, 1.0))
 | `undefined symbol: _ZN3c10...` | C++ ABI 不一致，或链接的 PyTorch 版本与运行时不同 | 确认 `_GLIBCXX_USE_CXX11_ABI` 与 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致；重新编译 |
 | `nvcc fatal: Unsupported gpu architecture` | CUDA Toolkit 版本与 GPU 架构或 PyTorch 期望不匹配 | 对齐 CUDA 版本；设置 `TORCH_CUDA_ARCH_LIST` |
 | `no kernel image is available for execution` | 编译时没有包含目标 GPU 的 compute capability | 设置 `TORCH_CUDA_ARCH_LIST="8.0;9.0"` 重新编译 |
-| `RuntimeError: ... myops already registered` | 同一命名空间 `TORCH_LIBRARY` 出现两次，或重复 `import` 了不同构建 | 改用 `TORCH_LIBRARY_FRAGMENT`；重启进程 |
+| `RuntimeError: Only a single TORCH_LIBRARY can be used to register the namespace myops ...` | 同一命名空间 `TORCH_LIBRARY` 出现两次，或重复 `import` 了不同构建 | 改用 `TORCH_LIBRARY_FRAGMENT`；重启进程 |
 | Schema 与函数签名不匹配的注册错误 | Schema 写 `float` 但 C++ 用了 `float` 而不是 `double` | 按第二章类型表修正 |
 | `import` 成功但 `torch.ops.myops` 没有属性 | 用了 pybind11 而不是 `TORCH_LIBRARY` | 检查是否写了 `m.def` Schema |
 
@@ -723,7 +769,10 @@ torch.testing.assert_close(y, 2.0 * x + 1.0)
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta);
 ```
 
-`at::Tensor` 是一个引用句柄，拷贝它不会拷贝数据。第二篇的 Tensor 模型——Storage、shape、stride、dtype、device——在这里全部以 C++ API 出现：`x.sizes()`、`x.strides()`、`x.dtype()`、`x.device()`、`x.is_contiguous()`。
+`at::Tensor` 是一个引用句柄，拷贝它不会拷贝数据。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)的 Tensor 模型——Storage、shape、stride、dtype、device——在这里全部以 C++ API 出现：`x.sizes()`、`x.strides()`、`x.dtype()`、`x.device()`、`x.is_contiguous()`。
+
+> [!NOTE] Java 经验参照：native 函数拿到的参数
+> JNI 的 native 函数拿到的是 `JNIEnv*` 和 `jobject` / `jfloatArray` 这类不透明句柄，读字段、取数组内容都要回调 `JNIEnv` 的函数。这里的实现函数没有环境指针：Dispatcher 按 Schema 把 Python 参数转换成 `at::Tensor`、`double`、`int64_t` 之后才调用它，`at::Tensor` 自带 shape、stride、dtype、device，数据指针直接可取。代价是签名必须与 Schema 的类型表逐个对应，没有 `jobject` 那样的通用兜底类型。
 
 ### 2. 第一件事：检查输入
 
@@ -736,9 +785,12 @@ TORCH_CHECK(x.is_floating_point(), "scale_shift_cpu: expected floating dtype, go
 
 `TORCH_CHECK(condition, msg...)` 失败时抛出 `c10::Error`，Python 侧看到 `RuntimeError` 和拼接后的消息。
 
+> [!NOTE] Java 经验参照：native 代码里的越界
+> Java 数组越界抛 `ArrayIndexOutOfBoundsException`，可以 `catch`；JNI 的 native 代码越界则可能让整个 JVM 进程崩溃，只留下 `hs_err` 文件。C++ 扩展与后者相同：越界是段错误或静默写坏别的内存，Python 的 `try / except` 接不住。能变成 Python 异常的只有 C++ 里主动抛出的异常，所以检查要写在访问内存之前。
+
 ### 3. 处理 stride：contiguous 还是 TensorIterator
 
-第二篇讨论过 Tensor 可能是非连续的。C++ 实现必须二选一，不能假装不存在：
+[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讨论过 Tensor 可能是非连续的。C++ 实现必须二选一，不能假装不存在：
 
 **选择 A：先 `contiguous()`，再按一维遍历**
 
@@ -763,7 +815,7 @@ auto iter = at::TensorIteratorConfig()
     .build();
 ```
 
-TensorIterator 处理广播、stride 和并行划分，Kernel 只写单元素计算。这是第五篇讲的原生算子最常用的实现模式。
+TensorIterator 处理广播、stride 和并行划分，Kernel 只写单元素计算。这是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲的原生算子最常用的实现模式。
 
 两种选择的差别，用同一个逻辑 shape=(2,3) 的两种 stride 看得最清楚——逻辑格子相同，落在 storage 上的位置却不同：
 
@@ -883,7 +935,7 @@ NotImplementedError: Could not run 'myops::scale_shift' with arguments from the 
 
 ### 2. 读懂一个 Kernel 需要的几个概念
 
-本系列聚焦在 PyTorch 尽量不涉及 CUDA 相关细节。但下面的 Kernel 代码，以及第八篇分析 GPU 瓶颈时用到的 occupancy、访存合并等词，都建立在几个 CUDA 执行模型的基本概念上。这里用最少的篇幅把它们讲清楚，够读懂本文和第八篇即可；写高性能 Kernel 需要的更多知识不在本系列范围内。
+本系列聚焦在 PyTorch 尽量不涉及 CUDA 相关细节。但下面的 Kernel 代码，以及[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)分析 GPU 瓶颈时用到的 occupancy、访存合并等词，都建立在几个 CUDA 执行模型的基本概念上。这里用最少的篇幅把它们讲清楚，够读懂本文和这一篇即可；写高性能 Kernel 需要的更多知识不在本系列范围内。
 
 **Host 与 Device**。CPU 及其内存是 host，GPU 及其显存是 device。两边地址空间独立：`x.data_ptr()` 对 CUDA Tensor 返回的是设备地址，在 CPU 代码里解引用会崩溃；反过来，Kernel 里也不能访问主机内存。数据在两边之间移动只能靠显式拷贝（`.to()`、`.cpu()`，见[《Tensor 与内存布局》第九章「Device：数据到底在哪里执行」](/pytorch-tensor-and-memory-layout.html#九device数据到底在哪里执行)）。所以 Launch 函数的职责之一是：**只把设备指针和标量参数传给 Kernel**。
 
@@ -930,7 +982,7 @@ Table: n=1024、每 block 256 线程时的元素分配
 **Warp**。硬件并不是逐个线程调度，而是把 block 内每 32 个连续线程编成一个 **warp**，warp 内的线程锁步执行同一条指令。两个直接后果：
 
 - **分支发散**：warp 内线程若走了不同的 `if` 分支，两条分支会串行执行，其他线程空等。`if (i < n)` 只在最后一个 warp 发散一次，代价可忽略；但按元素值分支的 Kernel 可能慢好几倍。
-- **访存合并**：warp 内 32 个线程若访问**连续**的 32 个地址，硬件合并成少数几次内存事务；若地址分散，每个线程一次事务。这就是为什么 Kernel 假设输入 contiguous——第二篇讲的 stride 在这里直接决定访存效率，也是第八篇 memory-bound 分析的根源之一。
+- **访存合并**：warp 内 32 个线程若访问**连续**的 32 个地址，硬件合并成少数几次内存事务；若地址分散，每个线程一次事务。这就是为什么 Kernel 假设输入 contiguous——[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲的 stride 在这里直接决定访存效率，也是[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里 memory-bound 分析的根源之一。
 
 访存合并的效果可以直接数**扇区**（sector）。现代 GPU（Volta 及之后）的 L1/L2 以 32B 扇区为最小取数单位，一个 warp 的一条 load 指令触碰几个扇区、每个扇区里有几个字节真被用到，就是合并好坏的全部：
 
@@ -944,7 +996,7 @@ Table: n=1024、每 block 256 线程时的元素分配
 
 Table: 三种访存模式触发的扇区数与有效带宽
 
-stride 越大，同一 warp 触碰的扇区越多；极端情况下 32 个线程落在 32 个不同扇区，取回 1024B 只用 128B——比合并访问多搬 **8 倍**数据（不是常见说法里的 32 倍：那是把 128B cache line 当成了最小取数单位）。扇区数是 L1 层面的请求账；实际到显存的流量还受 L2 命中、相邻 warp 复用同一扇区等影响，GPU Kernel 系列第三篇用 profiler 数据展开。
+stride 越大，同一 warp 触碰的扇区越多；极端情况下 32 个线程落在 32 个不同扇区，取回 1024B 只用 128B——比合并访问多搬 **8 倍**数据（不是常见说法里的 32 倍：那是把 128B cache line 当成了最小取数单位）。扇区数是 L1 层面的请求账；实际到显存的流量还受 L2 命中、相邻 warp 复用同一扇区等影响，[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)用 profiler 数据展开。
 
 **SM、Occupancy 与内存层次**。GPU 由几十到上百个 **SM**（Streaming Multiprocessor）组成，每个 block 被整体分配到一个 SM 上执行，一个 SM 同时驻留多个 block。SM 上活跃 warp 数与最大可驻留 warp 数之比叫 **occupancy**：占用率高，SM 才能在某些 warp 等待访存时切换到其他 warp，把延迟藏起来。每个线程用的寄存器数和每个 block 用的 **shared memory**（block 内线程共享的片上高速缓存，`__shared__` 声明）决定一个 SM 能容纳多少 block，因此也决定 occupancy。本文的 Kernel 不用 shared memory，寄存器也很少，occupancy 不是问题；reduction、矩阵乘这类需要线程间协作的 Kernel 才会用到它。内存层次从快到慢是：寄存器 → shared memory → L2 → 显存（global memory）。`__restrict__` 是对编译器的承诺——指针之间不别名——允许它更激进地缓存和重排访存。
 
@@ -1026,8 +1078,11 @@ Table: Launch 函数里每段代码的作用
 
 CUDA Kernel launch 是异步的：函数返回时 Kernel 可能还没执行。两个后果：
 
-- 不能在 launch 函数返回后立刻用 CPU 计时器认为计算已完成（第八篇展开）；
+- 不能在 launch 函数返回后立刻用 CPU 计时器认为计算已完成（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)展开）；
 - Kernel 内的越界访问通常在之后某个同步点（`.cpu()`、`.item()`、`torch.cuda.synchronize()`）才报出，且报错位置与出错 Kernel 无关。调试时设置 `CUDA_LAUNCH_BLOCKING=1` 强制同步，让错误在原地暴露。
+
+> [!NOTE] Java 经验参照：native 调用何时算完成
+> JNI 调用是同步的：native 方法返回时，它的工作已经做完，出错也在这一次调用里表现出来。CUDA 算子的 launch 函数返回时只是把 Kernel 排进了 stream，更接近向单线程的 `ExecutorService` 提交任务：同一 stream 上先提交的先执行，所以后续算子可以直接拿 `out` 当输入。差别在于这里不返回 `Future`，没有可以 `get()` 的对象；等待发生在把数据读回 CPU 或显式 `synchronize()` 时，Kernel 的运行时错误也在那时才报出来。
 
 ### 6. 编译
 
@@ -1038,7 +1093,7 @@ load(name="myops", sources=["scale_shift.cpp", "scale_shift_cuda.cu"], verbose=T
 
 `TORCH_LIBRARY(myops, m)` 只能出现一次（在 `.cpp` 中）；`.cu` 文件里只放 `TORCH_LIBRARY_IMPL`。
 
-现在 Operator Table 中 `myops::scale_shift` 有了 CPU 和 CUDA 两个槽位。同一个 Python 调用，输入在哪个设备，就走哪条实现——这正是第五篇运行态分发的全部意义。
+现在 Operator Table 中 `myops::scale_shift` 有了 CPU 和 CUDA 两个槽位。同一个 Python 调用，输入在哪个设备，就走哪条实现——这正是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里运行态分发的全部意义。
 
 ## 八、阶段四：Autograd 与 Meta
 
@@ -1050,7 +1105,7 @@ y = torch.ops.myops.scale_shift(x, 2.0, 1.0)
 y.sum().backward()      # 失败：没有人告诉 Autograd 反向规则
 ```
 
-第三篇讲过 Autograd 需要每个算子提供 backward；第五篇讲过 Autograd 是一个包装 Key。同样，`torch.compile` 需要在不运行真实 Kernel 的情况下推断输出 shape，这需要 Meta / Fake 实现。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过 Autograd 需要每个算子提供 backward；[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲过 Autograd 是一个包装 Key。同样，`torch.compile` 需要在不运行真实 Kernel 的情况下推断输出 shape，这需要 Meta / Fake 实现。
 
 按第三章的“混用”组合，这两项在 Python 侧完成。
 
@@ -1070,7 +1125,7 @@ torch.library.register_autograd(
 )
 ```
 
-它等价于第三篇的 `autograd.Function`，但注册到了 Operator Table 的 Autograd Key，因此对 `torch.ops.myops.scale_shift` 的所有调用自动生效。`_backward` 返回值的个数和位置必须与 Schema 参数一一对应。
+它等价于[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)里的 `autograd.Function`，但注册到了 Operator Table 的 Autograd Key，因此对 `torch.ops.myops.scale_shift` 的所有调用自动生效。`_backward` 返回值的个数和位置必须与 Schema 参数一一对应。
 
 ### 3. 注册 Autograd：C++ 侧（备选）
 
@@ -1125,7 +1180,7 @@ TORCH_LIBRARY_IMPL(myops, Autograd, m) {
 4. `scale_shift_cuda` 在当前 stream 上提交 CUDA Kernel，返回 `out`；Dispatcher 把它交回 Autograd 包装。CPU 不等待 GPU 完成，图中 GPU 色块延伸过返回点只表示可能的重叠。
 5. `apply` 为 `out` 挂上指向 backward 的 `grad_fn`，再经 Dispatcher 返回 Python 的 `y`，此时 `requires_grad=True`。
 
-`AutoDispatchBelowADInplaceOrView` 就是第五篇讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
+`AutoDispatchBelowADInplaceOrView` 就是[《Dispatcher 与算子系统》第七章「运行态（2）：分发」](/pytorch-dispatcher-and-operator-system.html#七运行态2分发)讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
 
 ### 4. 注册 Meta / Fake 实现
 
@@ -1139,6 +1194,9 @@ def _fake(x, alpha, beta):
 `memory_format=torch.contiguous_format` 不是可有可无的：Fake 实现描述的元数据里**包括 stride**。第六、七章的真实实现都返回连续输出，若这里写成默认的 `empty_like(x)`（沿用输入 stride），对转置输入 Fake 会报"输出 stride 与输入相同"、真实实现却给出连续 stride，`opcheck` 的 `test_faketensor` 会失败，`torch.compile` 也可能据错误的 stride 做出错误的布局假设。
 
 有了它：`torch.compile` 可以把算子纳入图捕获；Meta Tensor 上可以调用这个算子做 shape 推断；`opcheck` 能检查 Fake 与真实实现是否一致。C++ 侧的等价做法是向 `Meta` Key 注册一个只调用 `at::empty_like` 的函数。
+
+> [!NOTE] Java 经验参照：编译器怎样对待 native 实现
+> HotSpot 的 JIT 也看不进普通 JNI native 方法的内部，把它当作一次不透明调用；调用方照样能被编译，因为方法签名已经给出了返回值的静态类型。`torch.compile` 同样看不进 Kernel，但它追踪时需要的是输出的 shape、dtype、device、stride，这些不在 Schema 里（Schema 只写了 `-> Tensor`），要由 Fake 实现算出来。没有 Fake 实现，编译器就无法把这个算子放进它捕获的图里。
 
 ### 5. 完成后的 Operator Table
 
@@ -1246,13 +1304,13 @@ print(t_custom.timeit(100))
 print(t_native.timeit(100))
 ```
 
-`benchmark.Timer` 自动处理 CUDA 同步和预热。这个对照有意义：原生写法是两个 Kernel（`mul`、`add`），自定义算子是一个融合 Kernel，收益来自少一次内存读写和一次 launch。是否真的更快要看数据；第八篇系统讨论如何解读。
+`benchmark.Timer` 自动处理 CUDA 同步和预热。这个对照有意义：原生写法是两个 Kernel（`mul`、`add`），自定义算子是一个融合 Kernel，收益来自少一次内存读写和一次 launch。是否真的更快要看数据；[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)系统讨论如何解读。
 
 如果自定义算子没有比原生组合更快，它的价值只剩“可被 compile 视为整体”和“可自定义反向”，需要重新评估是否值得维护一份 C++/CUDA 代码。
 
 ## 十、构建、ABI 与分发
 
-第四章解决的是“在本机上编译起来”；这一章解决“交给别人也能用”。
+第四章解决的是“在开发机上编译起来”；这一章解决“交给别人也能用”。
 
 ### 1. 从 JIT `load` 到 `setup.py`
 
@@ -1290,7 +1348,10 @@ C++ 扩展与 PyTorch 之间是二进制接口。以下任何一项不一致，�
 
 Table: 影响 ABI 兼容的因素
 
-根源与 Python 系列第七篇讨论的 `torch==2.x+cu12x` 本地版本标识相同：**PyTorch 的二进制制品绑定了平台、CUDA 和 ABI**，扩展随之绑定。
+根源与[《项目工程化与生产交付》的「AI-Infra 的依赖难题」](/python-engineering-and-production-delivery.html#五ai-infra-的依赖难题)一章讨论的 `torch==2.x+cu12x` 本地版本标识相同：**PyTorch 的二进制制品绑定了平台、CUDA 和 ABI**，扩展随之绑定。
+
+> [!NOTE] Java 经验参照：JNI 库与 JDK 版本
+> JNI 库同样有平台和编译器的绑定（操作系统、CPU 架构、libc），这一点两边一样。但 JNI 库面对 JVM 的那一面是 `jni.h` 定义的 C 接口，按规范向后兼容，同一个 `.so` 通常可以跨多个 JDK 大版本使用。PyTorch 扩展链接的是 ATen / c10 的 C++ 接口，类的内存布局和符号名随版本变化，没有同等的稳定承诺，所以默认要针对每个 PyTorch 版本重新编译。
 
 ### 3. 分发策略
 
@@ -1314,40 +1375,7 @@ if not torch.__version__.startswith(_BUILT_AGAINST):
     raise ImportError(f"myops was built against torch {_BUILT_AGAINST}, got {torch.__version__}")
 ```
 
-## 十一、Java 工程师如何理解 C++ 扩展
-
-### 1. 与 JNI 的相似之处
-
-| 环节 | JNI | PyTorch 扩展 |
-|---|---|---|
-| 声明 | Java 声明 native 方法 | Schema 定义算子 |
-| 实现 | C 实现 | C++/CUDA 实现 |
-| 加载 | `System.loadLibrary` | `import` |
-| 初始化 | `JNI_OnLoad` | `TORCH_LIBRARY` 静态初始化 |
-
-Table: JNI 与 PyTorch 扩展的对应
-
-版本绑定、ABI 兼容、崩溃不可捕获，这些 JNI 的痛点在 C++ 扩展里同样存在。
-
-### 2. 关键区别
-
-| 维度 | JNI | PyTorch C++ 扩展 |
-|---|---|---|
-| 调用是否经过分发 | 直接调用 | 经过 Dispatcher，可按设备 / Autograd 分发 |
-| 参数 | 任意 Java 对象 | `at::Tensor` 等带元数据的运行时对象 |
-| 执行位置 | CPU | CPU 或 GPU，且 GPU 调用是异步的 |
-| 自动微分 | 无此概念 | 需要注册反向规则 |
-| 与编译器的关系 | JIT 不感知 native 方法内部 | `torch.compile` 需要 Fake 实现才能处理 |
-
-Table: JNI 与 PyTorch C++ 扩展的关键区别
-
-最大的差异是**分发**：JNI 是“Java 调 C”，C++ 扩展是“把 C++ 函数注册为算子的一个后端实现”。前者是函数调用，后者是往注册表填一个槽位。
-
-### 3. pybind11 vs `TORCH_LIBRARY`
-
-第四章第 5 节的两种暴露方式，用 Java 类比：`PYBIND11_MODULE` 像 JNI，直接暴露函数；`TORCH_LIBRARY` 像实现框架的 SPI 接口——你提供的是某个契约在某个 Key 下的实现，框架决定何时调用它。
-
-## 十二、本文小结
+## 十一、本文小结
 
 ### 1. 三个概念
 
@@ -1432,11 +1460,11 @@ flowchart TB
 
 Table: 本篇涉及的源码位置
 
-下一篇进入编译器：
+下一篇[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)进入编译器：
 
 > **当算子已经是 PyTorch 眼中的一个整体节点后，`torch.compile` 如何捕获包含它的 Python 程序，并把多个算子融合成更少的 Kernel？**
 
-## 十三、自测
+## 十二、自测
 
 1. 自定义算子只注册了 CPU 与 CUDA 实现，没有 `register_fake`，`torch.compile` 会怎样？
 
@@ -1466,7 +1494,7 @@ Table: 本篇涉及的源码位置
 
    <details markdown="1"><summary>答案</summary>
 
-   Schema 与实际行为一致（别名、可变性）；Autograd 注册正确（与有限差分对照）；FakeTensor / Meta 实现与真实实现的形状、dtype 一致；`torch.compile` 下 AOTAutograd 能处理。它把原生算子靠 Codegen 保证的东西变成对自定义算子的测试。
+   Schema 与实际行为一致（别名、可变性）；Autograd 公式是否通过 `register_autograd` 或 Autograd Key 注册（不做有限差分，梯度数值由 `gradcheck` 检查）；FakeTensor / Meta 实现与真实实现的形状、dtype 一致；`torch.compile` 下 AOTAutograd 能处理。它把原生算子靠 Codegen 保证的东西变成对自定义算子的测试。
 
    </details>
 

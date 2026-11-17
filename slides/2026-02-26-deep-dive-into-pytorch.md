@@ -62,7 +62,7 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-overall-introduction.html。PyTorch 2.0 于 2023 年 3 月 15 日发布。
-结论原文：六个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
+结论原文：五个职责层、一条动态调用路径、四层源码；**Autograd 只是 Operator Table 上优先级更高的一个 Key**。
 各篇关键词：01 三层运行时链路；02 Storage / shape / stride；05 一切能力建立在算子系统上；07 torch.compile；08 profiler / Roofline；09 DDP / FSDP / 并行；10 一次改动怎么到达用户。
 </aside>
 
@@ -211,7 +211,7 @@ flowchart TB
 ```
 
 <aside class="notes" markdown="1">
-原文 /pytorch-dispatcher-and-operator-system.html。五种实现模式；Autograd 只是优先级更高的一个 Key（呼应第一篇）。
+原文 /pytorch-dispatcher-and-operator-system.html。五种实现模式；Autograd 只是优先级更高的一个 Key（呼应《PyTorch 整体介绍》）。
 </aside>
 
 <!-- v -->
@@ -253,9 +253,8 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart LR
     CALL["调用"] --> GD{"Guard 成立?"} -->|是| RUN["执行产物"]
-    GD -->|否| CA{"缓存命中?"} -->|是| RUN
-    CA -->|否| TRIG["触发编译"] --> DY["编译器链<br/>（下图）"]
-    DY --> RUN
+    GD -->|都不成立| TRIG["触发编译"] --> DY["编译器链（下图）<br/>磁盘缓存在链内部查"]
+    DY -->|"写入新条目"| RUN
 ```
 
 <!-- v -->
@@ -462,7 +461,7 @@ flowchart LR
 
 ## 下一步
 
-- **往下**：《GPU Kernel 工程》——第六篇的 CUDA 阶段展开成一个系列；《ML 编译器》——第七篇的 Inductor 展开
-- **往上**：《大规模训练》——第九篇的五类状态在几千卡上怎么切；《通信与互连》——NCCL 之下
+- **往下**：《GPU Kernel 工程》——《C++ 扩展与自定义算子》的 CUDA 阶段展开成一个系列；《ML 编译器》——《编译执行与图优化》的 Inductor 展开
+- **往上**：《大规模训练》——《分布式 PyTorch》的五类状态在几千卡上怎么切；《通信与互连》——NCCL 之下
 - **算法侧**：《算法工程师的工具箱》第 3–4 篇是本系列的使用层摘要
 - 原文总纲：`/deep-dive-into-pytorch.html`；通关自测在系列总结

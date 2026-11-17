@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（07）：编译执行与图优化"
 subtitle: "Compilation and Graph Optimization in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-前两篇讨论的是**单个算子**：第五篇解释一次 `torch.add` 调用如何经过入口、分发、执行；第六篇把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
+前两篇讨论的是**单个算子**：[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)解释一次 `torch.add` 调用如何经过入口、分发、执行；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
 
 这一篇把视角从单个算子拉远到**一段程序**。写下：
 
@@ -32,9 +32,51 @@ compiled_f = torch.compile(f)
 
 ## 一、总览：一个编译器、一种中间表示、一层运行时
 
+以开头的 `compiled_f` 为例：每次调用先经过运行时的检查，只有检查不通过时，编译器流水线才运行一次。
+
+```mermaid
+%% 图：torch.compile 的全貌：每次调用先查 Guard，都不成立时编译器跑一次 Dynamo → AOTAutograd → Inductor
+flowchart TB
+    subgraph RT["运行时：每次调用 compiled_f 都经过（第六章）"]
+        CALL["<b>调用 compiled_f</b><br/>帧钩子截获 f 的帧"]
+        GD{"已有条目的 Guard<br/>假设成立?"}
+        TRIG["触发编译器"]
+        DONE["写入新条目：产物 + Guard"]
+        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call()"]
+        CALL --> GD
+        GD -- "成立" --> RUN
+        GD -- "都不成立" --> TRIG
+        DONE --> RUN
+    end
+    subgraph CP["编译器：被触发时运行一次（第三 ~ 五章）"]
+        DY["<b>前端 TorchDynamo（第三章）</b><br/>符号求值字节码，捕获 Tensor 计算<br/>Graph Break 决定边界"]
+        FX1[("<b>FX Graph（第二章）</b><br/>torch 级，只有前向")]
+        AOT["<b>中端 AOTAutograd（第四章）</b><br/>反向展开 · 函数化 · 分解"]
+        FX2[("<b>FX Graph × 2</b><br/>ATen 级，前向图 + 反向图")]
+        IND["<b>后端 TorchInductor（第五章）</b><br/>融合 · 内存规划 · 代码生成"]
+        CODE["Triton / C++ 源码<br/>→ 目标编译器 → 机器码"]
+        DS["Dynamic Shape<br/>贯穿三段（第六章）"]
+        DY --> FX1 --> AOT --> FX2 --> IND
+        IND -- "磁盘缓存命中则跳过生成与编译" --> CODE
+        DS -.- DY
+        DS -.- AOT
+        DS -.- IND
+    end
+    TRIG --> DY
+    CODE --> DONE
+```
+
+- **Guard**：捕获时记下的一组假设（输入的 shape、dtype、device，用到的 Python 对象等），和编译产物一起存成 `f` 的一个缓存条目，挂在函数的 code 对象上；每次调用先检查它。
+- **编译产物**：改写后的字节码，加上它调用的 Kernel 与调度函数 `call()`。一个函数可以有多份，各配一组 Guard。
+- **TorchDynamo**：前端。已有条目的 Guard 都不成立时才运行：在 CPython 字节码层符号求值，把 Tensor 计算记成图；捕获不了的地方切一个 Graph Break，交还 Python。
+- **FX Graph**：三段之间传递的中间表示，是内存里的 `torch.fx.Graph` 对象。每过一段结构不变，节点里的算子词汇从 torch 级降到 ATen 级。
+- **AOTAutograd**：中端，IR 进、IR 出：提前得到反向图，把 in-place 操作改写成纯函数，把算子分解到更小的集合。
+- **TorchInductor**：后端。决定哪些算子融合成一个 Kernel、Buffer 怎么复用，生成 Triton（GPU）或 C++（CPU）源码，再交给目标编译器；生成结果在磁盘上有缓存。
+- **Dynamic Shape**：让一份产物覆盖一族 shape 的机制，三段都参与：前端把维度标成符号，中端在符号上推断，后端生成不把尺寸写死的代码。
+
 ### 1. 从 Eager 到图
 
-第五篇建立的模型是：每个算子独立经过 **入口 → 分发 → 执行**。对 `f` 而言，当 `x` 是 `[128, 32]` 时，Eager 模式下一次前向是：
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)建立的模型是：每个算子独立经过 **入口 → 分发 → 执行**。对 `f` 而言，当 `x` 是 `[128, 32]` 时，Eager 模式下一次前向是：
 
 ```mermaid
 %% 图：Eager 模式下 f 的四步前向：三次独立分发与一次 Python 比较
@@ -76,7 +118,7 @@ Eager 无法做这种优化，原因是结构性的：**Dispatcher 每次只看�
 
 Table: 教科书式编译器的三段
 
-Java 工程师熟悉的 `javac` 是一个前端（Java 源码 → 字节码），HotSpot 的 C2 是中端加后端（字节码 → 优化后的机器码）。`torch.compile` 的默认路径完全对得上这三段：
+`torch.compile` 的默认路径对得上这三段：
 
 | 阶段 | 组件 | 输入 | 输出 | 回答的问题 |
 |---|---|---|---|---|
@@ -89,6 +131,9 @@ Table: torch.compile 的前端、中端、后端
 
 目标编译器不属于 PyTorch，本文只在需要时提及。
 
+> [!NOTE] Java 经验参照：三段式在 javac 与 JIT 里的位置
+> `javac` 是前端（Java 源码 → 字节码）；HotSpot 的 C2 以字节码为输入，建自己的 IR、优化、生成机器码，相当于中端加后端。`torch.compile` 在位置上更像 JIT 而不像 `javac`：Dynamo 的输入同样是字节码（CPython 的），编译发生在进程运行期间。不同的是它的三段是三个独立组件，段与段之间传的 FX Graph 可以打印出来看，Dynamo 之后的部分还可以用 `backend` 参数整体换掉（本章 §5）。
+
 三个阶段中，**中端最容易被忽视**，因为它不接触 Python 也不接触硬件。但它是唯一改变图的语义内容的阶段：进去一张前向图，出来前向加反向两张图；in-place 操作被改写成纯函数；`torch.*` 级的算子被降到 `aten::` 级并进一步分解。没有这一段，每个后端都得自己处理 Autograd 和副作用；有了它，后端只需面对一张纯函数式的 ATen 级图。
 
 ### 3. 中间表示：FX Graph
@@ -97,9 +142,9 @@ Table: torch.compile 的前端、中端、后端
 
 这条流水线是：Python 字节码 → 前端 → FX Graph（torch 级）→ 中端 → FX Graph（ATen 级）× 2 → 后端 → Triton / C++。
 
-它是三个组件唯一共享的契约。三个组件由不同团队、在不同时期开发，各自可以替换（`backend` 参数就是在替换中端之后的部分），能拼在一起全靠这一种 IR——就像第五篇里 Operator Table 是开发态与运行态的交汇点，开发者往里填、用户从里查，双方不需要知道彼此。
+它是三个组件唯一共享的契约。三个组件由不同团队、在不同时期开发，各自可以替换（`backend` 参数就是在替换中端之后的部分），能拼在一起全靠这一种 IR——就像[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里的 Operator Table 是开发态与运行态的交汇点，开发者往里填、用户从里查，双方不需要知道彼此。
 
-FX Graph 的设计非常克制：它只规定"程序是一串对 Tensor 的操作"，不规定操作是什么。所以每过一段，IR 的**结构不变，节点里的算子词汇下降**：前端产出的节点是 `torch.relu`、`operator.add` 这些用户 API；中端把它们降到第五篇讨论的 `aten::relu`、`aten::add` Schema 层；后端再把 ATen 算子展开成循环。同一个容器，装了三个抽象层级的内容。
+FX Graph 的设计非常克制：它只规定"程序是一串对 Tensor 的操作"，不规定操作是什么。所以每过一段，IR 的**结构不变，节点里的算子词汇下降**：前端产出的节点是 `torch.relu`、`operator.add` 这些用户 API；中端把它们降到[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讨论的 `aten::relu`、`aten::add` Schema 层；后端再把 ATen 算子展开成循环。同一个容器，装了三个抽象层级的内容。
 
 理解 FX Graph 是理解整条流水线的前提，所以第二章先讲它，之后再依次进入前端、中端、后端。
 
@@ -116,34 +161,7 @@ y = compiled_f(x3, weight, bias)   # 事件 B：调用。假设被打破 → 再
 
 `torch.compile(f)` 只是把 `f` 换成一个带控制逻辑的外壳。**编译器流水线在某次调用内部、按需运行**：第一次调用时，或之前的假设被打破时。绝大多数调用不触发编译，直接执行已有产物。
 
-这就是本文的第二个维度。把两个维度画在一张图上：
-
-```mermaid
-%% 图：torch.compile 的两个维度：运行时每次调用查 Guard 与缓存，编译器被触发时跑一次 Dynamo → AOTAutograd → Inductor
-flowchart TB
-    subgraph RT[运行时：每次调用 compiled_f 都经过]
-        direction LR
-        CALL[调用] --> GD{Guard<br/>假设成立?}
-        GD -->|成立| RUN[执行编译产物]
-        GD -->|不成立| CA{缓存<br/>命中?}
-        CA -->|命中| RUN
-        CA -->|未命中| TRIG[触发编译器]
-        DONE[存产物 · 装 Guard] --> RUN
-    end
-    subgraph CP[编译器：被触发时运行一次]
-        direction LR
-        DY[前端 Dynamo<br/>捕获<br/>Graph Break 决定边界] --> FX1[(IR: FX Graph<br/>torch 级)]
-        FX1 --> AOT[中端 AOTAutograd<br/>反向展开 · 函数化 · 分解]
-        AOT --> FX2[(IR: FX Graph × 2<br/>ATen 级)]
-        FX2 --> IND[后端 Inductor<br/>融合 · 内存规划 · 生成]
-        IND --> CODE[Triton / C++]
-        DS[Dynamic Shape 贯穿三段] -.- DY
-        DS -.- AOT
-        DS -.- IND
-    end
-    TRIG --> DY
-    CODE --> DONE
-```
+这就是本文的第二个维度。本章开头那张图的上下两个子图，就是这两个维度：
 
 | 维度 | 回答的问题 | 时间 | 对应章节 |
 |---|---|---|---|
@@ -159,9 +177,10 @@ Table: 编译器与运行时两个维度
 - 输入 shape 变了是否必须重编？：→ Dynamic Shape
 - 编译产物放在哪、下次怎么复用？：→ 编译缓存
 
-它们并不都是"横跨三段"的：Graph Break 完全发生在前端，Guard 主要由前端产生，Dynamic Shape 贯穿三段，缓存两头都有。把它们放在一起讲的理由不是位置，而是**它们共同构成"调用一个编译过的函数时发生了什么"这条流程**——这与第五篇区分开发态和运行态是同一个道理：静态结构和动态流程是两个轴。
+它们并不都是"横跨三段"的：Graph Break 完全发生在前端，Guard 主要由前端产生，Dynamic Shape 贯穿三段，缓存两头都有。把它们放在一起讲的理由不是位置，而是**它们共同构成"调用一个编译过的函数时发生了什么"这条流程**——这与[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)区分开发态和运行态是同一个道理：静态结构和动态流程是两个轴。
 
-这个分法在 Java 世界有直接对应：HotSpot 的 C2 是编译器，deoptimization、code cache、投机假设的检查属于 VM 运行时，不属于编译器的某个 pass。第八章展开。
+> [!NOTE] Java 经验参照：编译器与运行时的分界
+> HotSpot 里有同样的分界：C1 / C2 是编译器；何时触发编译、编译后的代码放在哪（code cache）、投机假设失效后如何去优化（deoptimization），由 VM 运行时负责。两边的编译都推迟到运行期间按需发生。触发方式不同：HotSpot 先解释执行，方法的调用与循环计数达到阈值后才交给后台编译线程，其间方法继续解释执行；`torch.compile` 没有热度探测，由用户标记函数，第一次调用就编译，这次调用要等编译完成才返回。
 
 ### 5. 两个容易混淆的名字：backend 与 FX
 
@@ -202,13 +221,12 @@ Table: FX 的两种含义
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | IR：FX Graph——所有组件共享的数据结构 |  |
-| 三 | ~ 五 | 编译器：前端 Dynamo 捕获 → 中端 AOTAutograd 变换 → 后端 Inductor 代码生成 |
-| 六 | 运行时：Graph Break / Guard / Dynamic Shape / 编译缓存 |  |
-| 七 | 串起来：f 的四次调用——运行时的每条分支 |  |
-| 八 | Java 对照 |  |
-| 九 | 本文小结 |  |
-| 十 | 自测 | 5 道题 |
+| 二 | IR | FX Graph——所有组件共享的数据结构 |
+| 三 ~ 五 | 编译器 | 前端 Dynamo 捕获 → 中端 AOTAutograd 变换 → 后端 Inductor 代码生成 |
+| 六 | 运行时 | Graph Break / Guard / Dynamic Shape / 编译缓存 |
+| 七 | 串起来 | `f` 的四次调用——运行时的每条分支 |
+| 八 | 本文小结 | 两个维度的汇总表、容易混淆的名字、排查顺序、源码位置 |
+| 九 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -310,7 +328,7 @@ gm.recompile()       # 重新生成 forward 的 Python 代码
 
 Table: 同一个 Graph 承载的三种词汇层级
 
-编译器每过一段，图的**结构不变，词汇下降**：从用户写的 Python API，降到第五篇讨论的 `aten::` Schema 层，再分解到更小的核心算子集。后端只需支持核心集就能覆盖所有上层 API——这是 Composite 算子思想在编译器里的延续。
+编译器每过一段，图的**结构不变，词汇下降**：从用户写的 Python API，降到[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讨论的 `aten::` Schema 层，再分解到更小的核心算子集。后端只需支持核心集就能覆盖所有上层 API——这是 Composite 算子思想在编译器里的延续。
 
 ### 5. FX 不是什么
 
@@ -368,7 +386,10 @@ Table: Dynamo 逐条解释 f 的字节码：模拟栈的变化与产出的 FX �
 
 若条件换成 `x.sum() > 0`：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向 → graph break：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值（第六章 §1）。
 
-FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是第六篇强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
+FakeTensor 是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
+
+> [!NOTE] Java 经验参照：Truffle 的部分求值
+> 熟悉 GraalVM Truffle 的读者可以把这一步看作一种部分求值（partial evaluation）：把一部分输入当作已知量，能算的在编译期算掉，算不了的留作残余代码。Dynamo 把 Python 值当已知量在模拟栈上折叠，Tensor 操作作为残余进入 FX Graph。特化的对象不同：Truffle 特化的是语言解释器（被解释的程序当常量），Dynamo 特化的是用户函数本身。两边都要记下“当作已知量”的前提，在前提不成立时让产物失效；Dynamo 这边记下的就是 Guard。
 
 ### 3. 产出三样东西
 
@@ -379,6 +400,9 @@ FakeTensor 是第五篇 Meta Tensor 的扩展：只有 shape、stride、dtype �
 - **③ 改写的字节码**：原帧的替代品：调用编译后的图，加上无法捕获部分的原始 Python
 
 第三项常被忽略，但它是 Dynamo 与其他方案的根本区别：它**修改的是 Python 函数的执行方式**，而不是要求用户把模型导出成另一种格式。原函数仍然是 Python 函数，只是帧被替换了。
+
+> [!NOTE] Java 经验参照：编译单元
+> HotSpot 以方法为单位编译（加上内联进来的被调方法，以及热循环的栈上替换入口）：方法的字节码变成机器码，语义单元不变。Dynamo 沿着这一次调用实际走过的路径追踪字节码，只把其中的 Tensor 操作抽成图；列表操作、字典查找、字符串格式化这些 Python 逻辑，要么在符号求值时折叠掉，要么留在改写后的字节码里继续由 CPython 执行。编译产物与残余的 Python 代码交织在同一个函数里，这种做法更接近追踪式 JIT，而不是 HotSpot 的方法级 JIT。
 
 ### 4. 看一眼 Dynamo 的图：只有被走到的分支
 
@@ -445,6 +469,9 @@ y = compiled_f(x, weight, bias)   # 第一次调用：捕获 → 编译 → 执�
 
 `torch.compile` 是惰性的：装饰时不编译，第一次调用时才拿到真实输入、开始捕获。这意味着编译依赖于**第一次调用的输入**——上一节的 Guard `size()[0] == 128` 正是这样来的：如果第一次调用用的是 batch 32，捕获到的就会是 `tanh` 那张图。第一章 §4 说“编译是动态发生的”，指的就是这件事。
 
+> [!NOTE] Java 经验参照：假设从哪里来
+> HotSpot 的 C2 做投机优化时，依据的是解释执行和 C1 阶段积累的 profile：某个调用点见过哪些类型、分支走向的统计。Dynamo 没有收集 profile 的阶段，假设来自触发编译的那一次调用的实参（shape、dtype、device）和捕获时读到的 Python 值。样本只有一次，第一次调用的输入不典型时，产物的假设很快会被打破（第六章 §2、§3）。
+
 ### 7. 捕获到此为止
 
 Dynamo 的图只有前向，并且是 torch 级的；`if` 已经被特化掉，后面两段看到的是一张直线图。它不知道反向长什么样，也不区分 `torch.relu` 和 `torch.nn.functional.relu`。把它变成后端可用的东西，是中端的工作。
@@ -455,7 +482,7 @@ Dynamo 的图只有前向，并且是 torch 级的；`if` 已经被特化掉，�
 
 ### 1. 问题：反向图从哪里来
 
-第三篇讲过，Eager 的反向图是**运行时动态构建**的：前向每执行一个算子，Autograd 就挂一个 `grad_fn` 节点，`backward()` 时沿着这些节点回溯。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过，Eager 的反向图是**运行时动态构建**的：前向每执行一个算子，Autograd 就挂一个 `grad_fn` 节点，`backward()` 时沿着这些节点回溯。
 
 这对编译器是个障碍。编译器希望前向和反向都是提前已知的整图，才能对两者都做融合和内存规划。但 Dynamo 捕获的只是前向的 Python 语义，反向还不存在。
 
@@ -469,7 +496,7 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 4. 得到一张 joint graph：前向 + 反向在同一张 FX Graph 中
 5. 切分（partition）为两张图：前向图、反向图
 
-这里复用的正是第三篇的 Autograd 引擎和第五篇的 Autograd DispatchKey：追踪过程中每个算子仍然经过 Autograd 包装层、记录反向节点，只是底层执行的是 Meta Kernel 而非真实 Kernel。**AOTAutograd 没有重新实现求导规则，它借用了 Eager 的求导规则，只是把过程记录下来。**
+这里复用的正是[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 Autograd 引擎和[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 Autograd DispatchKey：追踪过程中每个算子仍然经过 Autograd 包装层、记录反向节点，只是底层执行的是 Meta Kernel 而非真实 Kernel。**AOTAutograd 没有重新实现求导规则，它借用了 Eager 的求导规则，只是把过程记录下来。**
 
 把这一节的追踪和下一节的切分连起来，对 `f` 而言就是下图：joint graph 里前向节点和反向节点同在一张图上，切分器在两者之间找一条"割线"，割线穿过的中间值就是需要从前向传给反向的 saved tensors。
 
@@ -492,7 +519,7 @@ flowchart TB
     CUT --> FW["<b>前向图</b><br/>输出 relu<br/>额外输出 saved tensors:<br/>relu、x、weight"]
     CUT --> BW["<b>反向图</b><br/>输入 saved tensors + tangent<br/>输出三个梯度"]
     FW -.->|"saved tensors"| BW
-    BW --> TRADE["<b>权衡</b><br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（第八篇 Activation Checkpointing 的自动化版本）"]
+    BW --> TRADE["<b>权衡</b><br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（《性能优化与调试》里 Activation Checkpointing 的自动化版本）"]
     classDef saved fill:#e3f2e1,stroke:#2e7d32;
     classDef recomp fill:#fff3e0,stroke:#ef6c00;
     classDef bwd fill:#e8eaf6,stroke:#3949ab;
@@ -507,9 +534,9 @@ flowchart TB
 
 ### 3. 切分：什么该保存，什么该重算
 
-前向和反向之间需要传递中间值——`relu` 的反向需要知道前向输出哪些位置为正。Eager 里这些值由 `grad_fn` 的 saved tensors 持有（第三篇）。编译后，它们成为前向图的额外输出、反向图的额外输入。
+前向和反向之间需要传递中间值——`relu` 的反向需要知道前向输出哪些位置为正。Eager 里这些值由 `grad_fn` 的 saved tensors 持有（见[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)）。编译后，它们成为前向图的额外输出、反向图的额外输入。
 
-保存哪些中间值不是唯一解。保存得多，反向快但显存占用高；保存得少，反向需要重算部分前向。默认的切分器（min-cut partitioner）在两者之间求一个近似最优：**优先保存体积小的、重算代价高的值；体积大而重算便宜的值（典型如逐元素操作的结果）倾向于重算**。这是第八篇 Activation Checkpointing 的自动化版本。
+保存哪些中间值不是唯一解。保存得多，反向快但显存占用高；保存得少，反向需要重算部分前向。默认的切分器（min-cut partitioner）在两者之间求一个近似最优：**优先保存体积小的、重算代价高的值；体积大而重算便宜的值（典型如逐元素操作的结果）倾向于重算**。这是[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里 Activation Checkpointing 的自动化版本。
 
 ### 4. 词汇下降与函数化
 
@@ -519,7 +546,7 @@ AOTAutograd 同时完成两件事，让图对后端更友好：
 
 **函数化**（functionalization）：把 in-place 操作和 view 上的写入改写成纯函数形式。`x.add_(y)` 变成 `x_new = aten.add(x, y)` 并追踪后续对 `x` 的引用。目的是让图没有副作用，编译器才能安全地重排、融合、复用内存。
 
-函数化依赖 Schema 里的 alias 与 mutability 标注（第五篇的 `Tensor(a!)`）。这解释了第六篇为什么把“修改了输入却不声明”列为最危险的错误：函数化会认为算子是纯的，编译器据此重排，结果静默出错。
+函数化依赖 Schema 里的 alias 与 mutability 标注（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里的 `Tensor(a!)`）。这解释了[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)为什么把“修改了输入却不声明”列为最危险的错误：函数化会认为算子是纯的，编译器据此重排，结果静默出错。
 
 ### 5. 看一眼前向图与反向图
 
@@ -554,13 +581,13 @@ def forward(self, primals_1, primals_2, relu, tangents_1):
 
 三点观察：
 
-- 节点词汇已是 `torch.ops.aten.*`，与第五篇的 Schema 一一对应；
-- 反向图就是第三篇手推的链式法则：`relu` 的反向是按掩码传梯度，矩阵乘的反向是与转置相乘，广播加法的反向是求和；
+- 节点词汇已是 `torch.ops.aten.*`，与[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 Schema 一一对应；
+- 反向图就是[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)手推的链式法则：`relu` 的反向是按掩码传梯度，矩阵乘的反向是与转置相乘，广播加法的反向是求和；
 - 前向多返回了 `relu` 和两个输入，它们是切分器决定保存的值。
 
 ### 6. 输出如何接回 Eager
 
-两张图编译后，AOTAutograd 把它们包进一个 `torch.autograd.Function`（第三篇讨论过的自定义 Function）：前向调用编译后的前向图，反向调用编译后的反向图。
+两张图编译后，AOTAutograd 把它们包进一个 `torch.autograd.Function`（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讨论过的自定义 Function）：前向调用编译后的前向图，反向调用编译后的反向图。
 
 于是从 Eager Autograd 引擎的角度看，**整个编译区域是一个 `grad_fn` 节点**。用户调用 `loss.backward()` 时，引擎回溯到这个节点，调用它的反向——里面是编译好的 Kernel。编译区域外的算子仍由 Eager Autograd 正常处理。这就是编译与 Eager 能混合工作的机制。
 
@@ -620,7 +647,7 @@ Inductor IR 的核心表示方式是**循环级的**：一个逐元素算子不�
 |---|---|---|
 | Pointwise | add、relu、mul、cast | 与相邻的 pointwise / reduction 融合 |
 | Reduction | sum、max、softmax 的归约部分 | 可吸收前面的 pointwise，作为归约的输入 |
-| Extern Kernel（外部 Kernel） | mm、conv、attention | 不生成代码，直接调用厂商库（第五篇的 cuBLAS / cuDNN 路径），**不参与融合** |
+| Extern Kernel（外部 Kernel） | mm、conv、attention | 不生成代码，直接调用厂商库（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 cuBLAS / cuDNN 路径），**不参与融合** |
 | 数据搬运 | copy、cat 的某些情形 | 视情况 |
 
 Table: Inductor 的融合规则
@@ -676,7 +703,7 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 
 几个值得对照前几篇的细节：
 
-- **广播变成了索引算术**。第二篇讲 `bias` 广播到 `(128, 64)` 在 Eager 里靠 stride 为 0 的 view，第五篇讲 TensorIterator 负责按 stride 遍历。这里两者都不存在了：`x0 = xindex % 64` 直接在生成代码里算出 `bias` 的读取位置。编译器把运行时的元数据解释**固化成了编译期的代码**。
+- **广播变成了索引算术**。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲 `bias` 广播到 `(128, 64)` 在 Eager 里靠 stride 为 0 的 view，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲 TensorIterator 负责按 stride 遍历。这里两者都不存在了：`x0 = xindex % 64` 直接在生成代码里算出 `bias` 的读取位置。编译器把运行时的元数据解释**固化成了编译期的代码**。
 - **Triton 部分没有 Dispatcher**。`call()` 里的 Triton Kernel 是直接 launch，不经过 Operator Table。`extern_kernels.mm` 则不然：它就是 `torch.mm`（`torch/_inductor/kernel/mm.py`：`aten_mm = ExternKernelChoice(torch.mm, "at::mm_out", op_overload=aten.mm.out)`），照常走一次 Dispatcher 到 cuBLAS——只是这一次没有 Autograd 包装（反向已由 AOTAutograd 单独编译），也没有 Python 层的参数解析。所以编译省掉的是**逐元素算子**的分发与 Python 开销，不是把 Dispatcher 整个绕开。
 - **内存复用是静态决定的**。`buf1 = buf0` 不是运行时分配器的决定，而是编译器看到 `mm` 的输出在 `add` 之后不再被引用，直接原地写。
 - **shape 被烧进了代码**。`128`、`64`、`8192` 都是常量。这是 Guard 存在的原因之一：输入 shape 一变，这份代码就不再正确。
@@ -725,7 +752,12 @@ Inductor 选择 Triton 生成 GPU 代码的原因：
 - Triton 自带自动调优（autotune），Inductor 的 `mode="max-autotune"` 会为矩阵乘等生成多个候选配置并测速；
 - 不需要 nvcc，编译链路可控。
 
-Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做多线程并行、用 SIMD 内建函数做向量化。第六篇讨论的手写 CUDA Kernel 和 Triton Kernel 是两种不同的“自定义算子实现方式”，前者控制力更强，后者开发效率更高。
+所以 GPU 路径上是两个编译器串联：Inductor 不生成机器码，它生成 Triton 源码；Triton 编译器（内部基于 MLIR 和 LLVM 这两个通用编译器基础设施）再把源码编成 NVIDIA GPU 的汇编 PTX。定位问题时按这条分界找：生成的源码不对，是 Inductor 的问题；源码对但 Kernel 慢，可能是 Triton 编译或调优的问题。
+
+> [!NOTE] Java 经验参照：两个编译器串联不是分层编译
+> HotSpot 的 C1、C2 都直接生成机器码。分层编译指同一个方法先由 C1 编译、够热之后再由 C2 重新编译，两份代码是先后替换的关系。Inductor 与 Triton 是上下游关系：前一个编译器的输出是后一个的输入，每次冷编译两个都要经过。更接近的参照是把 C 当作目标语言、再交给 C 编译器的那类编译器。
+
+Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做多线程并行、用 SIMD 内建函数做向量化。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)讨论的手写 CUDA Kernel 和 Triton Kernel 是两种不同的“自定义算子实现方式”，前者控制力更强，后者开发效率更高。
 
 ### 6. 融合的收益从哪里来
 
@@ -740,13 +772,16 @@ Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做�
 
 Table: 融合前后的访存与 launch 次数
 
-（`bias` 是长度 64 的向量、被广播，两边都只读 64 个数；若两个输入都是完整的 `N` 元 Tensor，则是 Eager 5N 对 Fused 3N。）融合减少的是**中间结果在显存中的往返**，以及每次 launch 的固定开销。融合越长的 pointwise 链，收益越大。这是第八篇“Memory Bandwidth 与 Arithmetic Intensity”的一个具体实例。
+（`bias` 是长度 64 的向量、被广播，两边都只读 64 个数；若两个输入都是完整的 `N` 元 Tensor，则是 Eager 5N 对 Fused 3N。）融合减少的是**中间结果在显存中的往返**，以及每次 launch 的固定开销。融合越长的 pointwise 链，收益越大。这是[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里“Memory Bandwidth 与 Arithmetic Intensity”的一个具体实例。
+
+> [!NOTE] Java 经验参照：融合、内联与标量替换
+> 融合在作用上像 JIT 的内联：去掉算子（方法）之间的边界，让编译器把相邻的操作放在一起优化。`add` 的结果只在寄存器里存在、不再占一块显存，则像逃逸分析之后的标量替换省掉一次对象分配。收益的来源不同：内联省的是调用开销，并为后续优化打开空间；pointwise 融合省的主要是中间结果在显存里的一次写和一次读，对访存受限的 Kernel，这是耗时的主要部分。
 
 ### 7. Inductor 不做什么
 
 - 默认不把 `add`/`relu` 融合进 cuBLAS 的 `mm`——库调用是黑盒。`max-autotune` 模式下 Inductor 可以用 Triton 模板生成自己的矩阵乘并把后续 pointwise 作为收尾计算（epilogue）融合进矩阵乘的输出阶段，但这是可选路径。
 - 不改变数值语义（浮点结合顺序的差异除外）。融合后的结果与 Eager 应当在浮点误差范围内一致。
-- 不消除 Kernel launch 本身。`mode="reduce-overhead"` 会额外使用 CUDA Graphs——CUDA 提供的一种机制，把一串 Kernel launch 录制成一个图，之后整体重放，省掉每次 launch 的 CPU 侧开销。这与本文讨论的图编译是两回事：前者优化的是 launch 方式，后者优化的是 Kernel 本身。第八篇讨论。
+- 不消除 Kernel launch 本身。`mode="reduce-overhead"` 会额外使用 CUDA Graphs——CUDA 提供的一种机制，把一串 Kernel launch 录制成一个图，之后整体重放，省掉每次 launch 的 CPU 侧开销。这与本文讨论的图编译是两回事：前者优化的是 launch 方式，后者优化的是 Kernel 本身。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讨论。
 
 到这里，前端、中端、后端已经走完：一段 Python 变成了两个 Kernel。接下来的问题是：这份编译结果什么时候能用，什么时候不能用。
 
@@ -761,7 +796,7 @@ Table: 融合前后的访存与 launch 次数
 | Graph Break | 捕获到哪里停止？ | 前端 | 流水线运行时（捕获阶段） |
 | Guard | 编译产物在什么条件下可复用？ | 前端为主；Dynamic Shape 的约束也来自中端 | **每次调用**，在流水线之外 |
 | Dynamic Shape | shape 变了是否必须重编？ | 前端决定符号维度、中端在符号上推断、后端生成符号尺寸代码 | 流水线运行时决定，每次调用检查 |
-| 编译缓存 | 编译产物存在哪、跨进程能否复用？ | 前端（Dynamo 条目）与后端（Inductor / Triton 缓存） | 流水线运行前查、运行后写 |
+| 编译缓存 | 编译产物存在哪、跨进程能否复用？ | 前端（Dynamo 条目）与后端（Inductor / Triton 缓存） | Dynamo 条目在调用入口查；磁盘缓存在流水线内部查，生成后写 |
 
 Table: 运行时的四个机制
 
@@ -777,6 +812,9 @@ Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处�
 
 改写后的字节码依次调用图 1、原始 Python 片段、图 2。用户看不到任何差别，程序正常运行，只是编译收益被切碎了：每张子图单独优化，跨越断点的算子无法融合，每个断点处还有一次 Python 与编译代码之间的切换。
 
+> [!NOTE] Java 经验参照：Graph Break 没有精确对应物
+> HotSpot 里，一个方法编译不了（过大，或编译器放弃）时，整个方法留给解释器；编译后的方法走到没有覆盖的路径时，经 uncommon trap 去优化，从那一点起回到解释器。Graph break 两者都不是：它在编译时就把函数从内部切开，断点两侧各编成一张图，中间那段交给 CPython 执行，每次调用都按这个顺序走。它是编译产物的固定形态，不是运行时的临时回退。
+
 常见触发原因：
 
 | 原因 | 例子 | 为什么无法捕获 |
@@ -784,7 +822,7 @@ Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处�
 | 依赖 Tensor 值的 Python 控制流 | `if x.sum() > 0:` | 编译期不知道值，无法决定分支 |
 | 把 Tensor 转成 Python 标量 | `x.item()`、`int(x.shape[0])` 在某些情形 | 值在编译期不存在 |
 | 副作用调用 | `print(x)`、日志、写文件 | 无法放进图 |
-| 未注册的 Python 自定义算子 | 直接调用一个 C 扩展函数 | 第六篇：不是 `torch.library` 算子，Dynamo 看不进去 |
+| 未注册的 Python 自定义算子 | 直接调用一个 C 扩展函数 | 不是按[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的方式注册的 `torch.library` 算子，Dynamo 看不进去 |
 | 不支持的 Python 特性 | 部分生成器、动态 `__getattr__`、某些第三方库调用 | 符号求值器不支持 |
 
 Table: Graph Break 的常见触发原因
@@ -804,7 +842,7 @@ TORCH_LOGS="graph_breaks" python demo.py
 
 如果希望 graph break 直接报错而非静默降级——例如在性能敏感的推理路径上——用 `torch.compile(f, fullgraph=True)`。
 
-修复思路是把“Python 侧的动态”改成“Tensor 侧的动态”：`if cond: a else: b` 改为 `torch.where(cond, a, b)`（两个分支都算，按掩码选结果）或 `torch.cond`（把两个分支作为子图放进图中，运行时选择）；`.item()` 尽量后移到编译区域之外；自定义算子按第六篇的方式注册。
+修复思路是把“Python 侧的动态”改成“Tensor 侧的动态”：`if cond: a else: b` 改为 `torch.where(cond, a, b)`（两个分支都算，按掩码选结果）或 `torch.cond`（把两个分支作为子图放进图中，运行时选择）；`.item()` 尽量后移到编译区域之外；自定义算子按[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的方式注册。
 
 ### 2. Guard：编译产物的有效条件
 
@@ -827,7 +865,7 @@ torch.relu   仍然是同一个函数对象（没有被 monkey patch）
 - 全部通过：→ 直接运行编译产物
 - 任一失败：→ 触发重新编译，产生新的编译产物和新的 Guard，作为同一个函数的第二个缓存条目
 
-一个函数可以积累多个缓存条目（默认上限 8，配置项名称随版本变化）。超过上限，Dynamo 放弃对这个函数的编译，回退 Eager。
+一个函数可以积累多个缓存条目（默认上限 8，配置项 `torch._dynamo.config.recompile_limit`）。超过上限，Dynamo 放弃对这个函数的编译，回退 Eager。
 
 ```bash title="TORCH_LOGS=recompiles 查看重编译"
 TORCH_LOGS="recompiles" python demo.py
@@ -840,6 +878,19 @@ Recompiling function f in demo.py:3
 ```
 
 Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64` 烧进代码，是因为 Guard 保证这份代码只在 shape 匹配时运行。它也是**性能陷阱**的主要来源：Guard 太严会频繁重编译，太多缓存条目会撞上上限退回 Eager。
+
+> [!NOTE] Java 经验参照：Guard 与去优化
+> Guard 相当于 JIT 投机优化的假设检查，Guard 失败相当于假设被打破。有三处不同：
+>
+> | | HotSpot | `torch.compile` |
+> | :--- | :--- | :--- |
+> | 检查在哪里 | 多数内嵌在编译后的机器码里，执行到那一点才检查；另有一类假设（如类层次）在类加载打破它时使代码失效 | 进入编译产物之前，在帧的入口统一检查 |
+> | 失败之后 | 去优化：把当前栈帧转换成解释器帧，从失败的那一点继续解释执行，之后可能重新编译 | 这次调用不进入该产物：换一个 Guard 通过的条目，或重新编译 |
+> | 产物数量 | 一个方法通常只有一份当前有效的编译版本，旧版本作废 | 多份产物并存，各带一组 Guard，按 Guard 选 |
+>
+> Table: 投机假设的检查与失效：HotSpot 与 torch.compile
+>
+> 这里没有“执行到一半退回”这一步，因为 Guard 只检查输入的元数据和 Python 状态，在入口就能全部判定；代价是依赖 Tensor 值的条件做不成 Guard，只能 graph break（本章 §1）。条目数超过上限后退回 Eager 也有对应：HotSpot 对反复去优化的方法同样会限制重新编译的次数。
 
 ### 3. Dynamic Shape：不为每个 shape 重编
 
@@ -881,13 +932,16 @@ flowchart TB
 
 代价是生成的代码不能再把 shape 当常量：Kernel 的 `xnumel` 变成运行时参数，索引算术里出现 `s0`，某些依赖具体值的优化（如按 shape 选择最优 tile 大小）不再可用。因此默认从静态开始，只在观察到变化后才动态化。
 
-Dynamic Shape 的实现基础是 **SymInt**：一种可以是具体整数、也可以是符号表达式的整数类型。Tensor 的 `shape` 在编译期以 SymInt 表示，算子的 Meta 实现在 SymInt 上推断输出 shape，产生的约束（如 `s0 * 32 == s1`）成为 Guard。这是第五篇 Meta 实现的又一个用途。
+> [!NOTE] Java 经验参照：失败一次后放宽假设
+> 这与 HotSpot 的做法同向：去优化之后重新编译时，C2 通常不再做刚被打破的那条投机，产出更通用、可能稍慢的代码。差别在旧产物的去留：HotSpot 把旧版本作废，这里静态的 `relu` 版仍然留在条目列表里，`[128, 32]` 的输入还可以命中它。
+
+Dynamic Shape 的实现基础是 **SymInt**：一种可以是具体整数、也可以是符号表达式的整数类型。Tensor 的 `shape` 在编译期以 SymInt 表示，算子的 Meta 实现在 SymInt 上推断输出 shape，产生的约束（如 `s0 * 32 == s1`）成为 Guard。这是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里 Meta 实现的又一个用途。
 
 真正困难的是**数据依赖的 shape**：`torch.nonzero(x)` 的输出长度取决于 `x` 的值，编译期无法推断（unbacked SymInt）。这类算子往往导致 graph break，或需要 `torch._check` 显式提供约束。
 
 ### 4. 编译缓存：把编译成本摊掉
 
-*前端与后端各有一层；流水线运行前查、运行后写。*
+*前端与后端各有一层：Dynamo 条目在每次调用的入口查；磁盘上的缓存在流水线内部查（AOTAutograd、Inductor 各查自己的一层），没命中才生成并写入。*
 
 一次完整的冷编译——捕获、变换、生成、Triton 编译——对小函数是秒级，对大模型可能是分钟级。缓存分几层：
 
@@ -904,6 +958,9 @@ Table: 编译缓存的几层
 新版本还在推进把整套产物打包保存、下次启动整体加载的机制，这部分 API 变化较快，此处不展开。
 
 缓存的失效条件与 Guard 同源：PyTorch 版本、Inductor 配置、输入元数据的任何变化都会导致 key 不同。在 AI-Infra 场景中，**编译缓存的命中率直接决定训练任务的启动时间**，是集群侧值得管理的资源。
+
+> [!NOTE] Java 经验参照：编译缓存与 Code Cache
+> 只有第一层（Dynamo 缓存条目）对应 HotSpot 的 Code Cache：都在进程内存里，进程退出就没有了。磁盘上的几层在 HotSpot 的默认配置里没有对应物——JIT 产物默认不落盘，JVM 每次启动都重新预热；它们更像 Gradle 构建缓存或 ccache：以输入内容为 key 保存编译结果，跨进程，可以放到远程。冷编译与预热的体感也不同：预热期间服务照常响应，只是慢；冷编译期间，第一次调用一直等到编译结束。
 
 ### 5. 四个机制的共同点
 
@@ -972,7 +1029,7 @@ y.sum().backward()
 
 `y.sum()` 在编译区域外，由 Eager Autograd 处理。`backward()` 沿 `grad_fn` 回溯：`SumBackward0` 是普通 Eager 节点；下一个是 `CompiledFunctionBackward`，它调用编译后的反向 `call()`，内部是一个融合 Kernel 加两次 cuBLAS。再往前是 `x`、`weight`、`bias` 的叶子节点，梯度累加到 `.grad`。
 
-第三篇的 Autograd 引擎、第四篇的参数与 Optimizer、本篇的编译产物，在这一步汇合：**编译改变的是节点内部的执行方式，没有改变 Autograd 图的拓扑和 Optimizer 看到的接口**。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 Autograd 引擎、[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)的参数与 Optimizer、本篇的编译产物，在这一步汇合：**编译改变的是节点内部的执行方式，没有改变 Autograd 图的拓扑和 Optimizer 看到的接口**。
 
 ### 4. 第三次调用：shape 变化，同一分支
 
@@ -1046,7 +1103,7 @@ flowchart TB
 
 Table: Eager 与 torch.compile 热路径的对照
 
-对这个三算子的小函数，收益有限；对几十层、数百个 pointwise 算子的 Transformer，融合与内存规划的收益会显著放大。第八篇用 Profiler 量化这些差别。
+对这个三算子的小函数，收益有限；对几十层、数百个 pointwise 算子的 Transformer，融合与内存规划的收益会显著放大。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)用 Profiler 量化这些差别。
 
 ### 7. 这是一条典型路径
 
@@ -1070,71 +1127,37 @@ Table: 同一套组件可以组成的其他路径
 
 更早的 TorchScript（`torch.jit.trace` / `torch.jit.script`）是 1.x 时代的图捕获方案，用一套独立的 IR 和解释器。它已不再是主要发展方向，本系列不展开。
 
-## 八、Java 工程师如何理解 `torch.compile`
-
-### 1. 最贴切的类比：HotSpot JIT
-
-对 Java 工程师，`torch.compile` 最自然的参照是 HotSpot 的即时编译。本文的两个维度在 HotSpot 里有同样的分界：**C1 / C2 是编译器**，对应三 ~ 五章的流水线；**deoptimization、code cache、投机假设的检查属于 VM 运行时**，对应第六章。编译器被 VM 按需触发，而不是在类加载时一次性运行——这和 `torch.compile(f)` 只是包装、真正的编译推迟到调用时按需发生，是同一种设计。
-
-逐项对应：
-
-| HotSpot | `torch.compile` |
-|---|---|
-| 解释执行字节码 | Eager 模式逐算子分发 |
-| 分层编译，热点方法才编译 | 用户显式标记要编译的函数（不是自动探测） |
-| 基于 profile 的**投机优化**：假设某个调用点只见过一种类型，据此内联 | 基于第一次输入的**特化**：假设 shape 是 `[128, 32]`，据此把常量烧进代码 |
-| **Deoptimization / uncommon trap**：假设被打破，回到解释器 | **Guard 失败**：假设被打破，重新编译或退回 Eager |
-| 内联消除调用开销 | 融合消除 Kernel launch 与中间 Tensor |
-| 逃逸分析与标量替换消除对象分配 | 内存规划消除中间 Buffer 分配 |
-| Code Cache 存放编译后的机器码 | Dynamo 缓存条目 + Inductor 磁盘缓存 |
-| 预热（warmup） | 冷编译 |
-
-Table: HotSpot JIT 与 torch.compile 的逐项对应
-
-理解了 Guard 就是投机优化的假设检查，Dynamic Shape 就是“假设被打破后放宽假设再编译”，编译缓存就是 Code Cache，`torch.compile` 的大部分行为都可以预测。
-
-### 2. 关键差异：编译单元
-
-HotSpot 编译的是**方法**：输入是一个方法的字节码，输出是这个方法的机器码，语义单元没变。
-
-Dynamo 编译的是**从一个函数帧中抽取出的 Tensor 子图**。函数里的 Python 逻辑（列表操作、字典查找、字符串格式化）不进入图，要么在符号求值时被折叠掉，要么留在改写后的字节码里继续由 CPython 执行。这是**部分编译**：编译产物与残余 Python 代码交织在一起。
-
-Graph Break 在 JIT 世界里没有精确对应物。最接近的是“方法太大或含有不可编译结构时整个方法留给解释器”，但 Dynamo 是**在方法内部**切开，前半段编译、中间一段解释、后半段再编译。
-
-### 3. 另一个参照：Truffle 的部分求值
-
-GraalVM Truffle 框架通过**部分求值**（partial evaluation）把解释器与程序特化到一起：把程序当作常量输入，对解释器做符号执行，把能确定的部分折叠掉。Dynamo 对字节码的符号求值本质上是同一件事：Python 值当常量折叠，Tensor 操作作为无法折叠的“残余”留在图中。熟悉 Truffle 的读者可以把 Dynamo 看作“针对 Tensor 操作的部分求值器”。
-
-### 4. 两级编译器
-
-HotSpot 的 C2 直接生成机器码。Inductor 不生成机器码，它生成 Triton 源码，再由 Triton 编译器（内部基于 MLIR 和 LLVM 这两个通用编译器基础设施）生成 NVIDIA GPU 的汇编 PTX。这更像一个编译器把另一种高级语言作为目标，再交给第二个编译器——类似早期把 C 作为目标语言的编译器。理解这一点有助于定位问题：生成代码不对是 Inductor 的问题，生成代码对但 Kernel 慢可能是 Triton 编译或调优的问题。
-
-## 九、本文小结
+## 八、本文小结
 
 ### 1. 回看总览的那张图
 
-第一章 §4 的两层图，现在每个节点都有了具体内容：
+第一章开头的两层图，现在每个节点都有了具体内容：
 
 ```mermaid
-%% 图：回看总览的两层图：运行时的 Guard / 缓存与编译器的三段流水线，每个节点现在都有了具体内容
+%% 图：回看总览的两层图：运行时的 Guard 检查与编译器的三段流水线，每个节点现在都有了具体内容
 flowchart TB
-    subgraph RT[运行时：每次调用 compiled_f 都经过]
-        direction LR
-        CALL[调用] --> GD{Guard<br/>假设成立?}
-        GD -->|成立| RUN[执行编译产物]
-        GD -->|不成立| CA{缓存<br/>命中?}
-        CA -->|命中| RUN
-        CA -->|未命中| TRIG[触发编译器]
-        DONE[存产物 · 装 Guard] --> RUN
+    subgraph RT["运行时：每次调用 compiled_f 都经过（第六章）"]
+        CALL["<b>调用 compiled_f</b><br/>帧钩子截获 f 的帧"]
+        GD{"已有条目的 Guard<br/>假设成立?"}
+        TRIG["触发编译器"]
+        DONE["写入新条目：产物 + Guard"]
+        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call()"]
+        CALL --> GD
+        GD -- "成立" --> RUN
+        GD -- "都不成立" --> TRIG
+        DONE --> RUN
     end
-    subgraph CP[编译器：被触发时运行一次]
-        direction LR
-        DY[前端 Dynamo<br/>捕获<br/>Graph Break 决定边界] --> FX1[(IR: FX Graph<br/>torch 级)]
-        FX1 --> AOT[中端 AOTAutograd<br/>反向展开 · 函数化 · 分解]
-        AOT --> FX2[(IR: FX Graph × 2<br/>ATen 级)]
-        FX2 --> IND[后端 Inductor<br/>融合 · 内存规划 · 生成]
-        IND --> CODE[Triton / C++]
-        DS[Dynamic Shape 贯穿三段] -.- DY
+    subgraph CP["编译器：被触发时运行一次（第三 ~ 五章）"]
+        DY["<b>前端 TorchDynamo（第三章）</b><br/>符号求值字节码，捕获 Tensor 计算<br/>Graph Break 决定边界"]
+        FX1[("<b>FX Graph（第二章）</b><br/>torch 级，只有前向")]
+        AOT["<b>中端 AOTAutograd（第四章）</b><br/>反向展开 · 函数化 · 分解"]
+        FX2[("<b>FX Graph × 2</b><br/>ATen 级，前向图 + 反向图")]
+        IND["<b>后端 TorchInductor（第五章）</b><br/>融合 · 内存规划 · 代码生成"]
+        CODE["Triton / C++ 源码<br/>→ 目标编译器 → 机器码"]
+        DS["Dynamic Shape<br/>贯穿三段（第六章）"]
+        DY --> FX1 --> AOT --> FX2 --> IND
+        IND -- "磁盘缓存命中则跳过生成与编译" --> CODE
+        DS -.- DY
         DS -.- AOT
         DS -.- IND
     end
@@ -1234,11 +1257,11 @@ Table: 训练/研究与部署/推理两条路径的入口与特点
 
 Table: 本篇涉及的源码位置
 
-最后一步是下一篇的起点：
+最后一步是[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的起点：
 
 > **编译之后到底快了多少，快在哪里——省下的是 Python 开销、分发开销、Kernel launch，还是访存？如何用 Profiler 和 Benchmark 给出可复现的答案？**
 
-## 十、自测
+## 九、自测
 
 1. `symbolic_trace`（torch.fx）与 Dynamo 都产出 FX Graph，遇到 `if x.sum() > 0:` 各怎么办？
 

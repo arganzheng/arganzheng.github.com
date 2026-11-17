@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（03）：自动求导与动态计算图"
 subtitle: "Autograd and Dynamic Computation Graphs in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-上一篇介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
+[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)介绍了 Tensor 的核心模型：它不是一组孤立的数字，而是由 Storage、Shape、Stride、Storage Offset、dtype、device 和 layout 共同描述的一种数据抽象。
 
 但 Tensor 只有数据和布局，还不能完成模型训练。训练还需要回答一个问题：
 
@@ -44,6 +44,49 @@ optimizer.step()
 
 ## 一、总览：从数学求导到运行时系统
 
+一个训练 step 里，Autograd 涉及的对象连成一个环：forward 一边算数值一边建反向节点，`loss.backward()` 让引擎沿这些节点走回参数，梯度落在参数的 `.grad` 上，Optimizer 读它更新参数，下一个 step 再建一张新图。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：一个训练 step 里 Autograd 的对象与流转
+flowchart TB
+    LEAF["<b>leaf Tensor（参数、输入）</b><br/>requires_grad=True，grad_fn 为 None（第四章）"]
+    OP["<b>forward 的算子执行</b><br/>x * x、relu、sum，立即算出数值（第三章）"]
+    OUT["<b>non-leaf Tensor，直到 loss</b><br/>grad_fn 指向创建它的反向节点（第四章）"]
+    NODE["<b>反向节点 Node</b><br/>MulBackward0、SumBackward0 等<br/>知道这一步的 VJP 怎么算（第二章）"]
+    SAVED["<b>SavedVariable</b><br/>反向要用的 forward 输入或输出（第六章）"]
+    ENGINE["<b>Engine</b><br/>从 loss.grad_fn 出发，逆序执行各节点（第五章）"]
+    ACC["<b>AccumulateGrad</b><br/>每个 leaf 对应一个，是图的终点"]
+    GRAD["<b>leaf 的 .grad</b><br/>各路梯度累加在这里（第五章）"]
+    OPT["<b>Optimizer</b><br/>step 读 .grad 更新参数，zero_grad 清空"]
+
+    LEAF --> OP --> OUT
+    OP -. "记录：输入需要梯度，且没有被 no_grad、inference_mode 关闭（第七章）" .-> NODE
+    OUT -. "grad_fn" .-> NODE
+    NODE -->|"持有"| SAVED
+    OUT -->|"loss.backward()"| ENGINE
+    ENGINE -->|"逐个调用，用完释放它的 SavedVariable"| NODE
+    NODE -->|"next_functions：一路连到 leaf"| ACC
+    ACC -->|"写入"| GRAD
+    GRAD --> OPT
+    OPT -->|"更新参数，进入下一个 step"| LEAF
+
+    classDef tensor fill:#e3f2fd,stroke:#1565c0;
+    classDef gradfn fill:#fff3e0,stroke:#ef6c00;
+    classDef run fill:#ede7f6,stroke:#5e35b1;
+    class LEAF,OUT,GRAD tensor;
+    class NODE,SAVED,ACC gradfn;
+    class OP,ENGINE,OPT run;
+```
+
+- **leaf Tensor**：用户或 `nn.Module` 直接创建的 Tensor，模型参数都是。它没有 `grad_fn`，反向传播的结果最终写到它的 `.grad` 上。
+- **non-leaf Tensor**：运算的结果，forward 执行到那一行时产生。它的 `grad_fn` 指向一个反向节点；`loss` 是最后一个 non-leaf。
+- **反向节点（`Node`）**：forward 每执行一个需要梯度的算子就创建一个，C++ 基类是 `torch/csrc/autograd/function.h` 的 `Node`。内置算子的节点由 `tools/autograd/derivatives.yaml` 里的公式生成，自定义算子的节点调用 `autograd.Function.backward`（第八章）。节点之间用 `next_functions` 连接，这些节点和边就是计算图。
+- **`SavedVariable`**：节点为了算 VJP 而保存的 forward 输入或输出（激活值）。它从 forward 活到 backward 用完，是训练显存里随 batch 增长的那部分；in-place 报错也来自它的版本检查（第十章）。
+- **Engine**：`loss.backward()` 进入 `torch/csrc/autograd/engine.cpp` 的 `Engine::execute`。它从 `loss.grad_fn` 出发，按依赖关系逆序调用每个节点，把上游梯度变成传给下一个节点的梯度。
+- **`AccumulateGrad` 与 `.grad`**：每个需要梯度的 leaf 在图里对应一个 `AccumulateGrad` 节点，它把传到这里的梯度累加（`+=`）到 leaf 的 `.grad`。`.grad` 一直留在参数上，直到 `zero_grad()` 清掉。
+- **Optimizer**：不属于 Autograd，只读 `.grad`。图和保存值在 backward 后释放，`.grad` 和参数留下来。
+
 ### 1. 本文的主线
 
 本文会先从链式法则和向量–Jacobian 积（Vector-Jacobian Product，VJP）开始，再逐层解释动态计算图、Autograd Node、梯度累积、图的生命周期和自定义 `autograd.Function`。中间会专门讨论三种常用的梯度控制方式（`detach()`、`no_grad()`、`inference_mode()`）以及它们和 `model.eval()` 的组合。最后会实现一个 Mini-Autograd，用一个很小的系统复现 PyTorch 反向传播的核心思想，并整理 Autograd 最常见的几类问题和排查顺序。
@@ -61,9 +104,8 @@ optimizer.step()
 | 八 | 自定义 `autograd.Function` | `save_for_backward`、多输入与不可导输入、工程边界 |
 | 九 | 实现一个 Mini-Autograd | Value 节点、加法与乘法、拓扑排序、backward |
 | 十 | Autograd 常见问题与排查方法 | 几类典型报错与梯度异常 |
-| 十一 | Java 工程师如何理解 Autograd | 回调、反向程序、显式状态管理的类比 |
-| 十二 | 本文小结 |  |
-| 十三 | 自测 | 5 道题 |
+| 十一 | 本文小结 |  |
+| 十二 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -100,7 +142,7 @@ dz/dx = 3 × 2x = 6x
 
 但训练其实**从来不需要这张表本身**。回头看链式法则：`dz/dx = dz/dy × dy/dx`。当 `z` 是标量 loss 时，`dz/dy` 是一个和 `y` 同形的向量 `v`（长 `m`），`dy/dx` 是 Jacobian `J`（`m × n`），两者一乘：`vᵀJ` 是 `[1 × m] × [m × n] = [1 × n]`，结果和 `x` 同形，只有 `n` 个数。
 
-这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**。关键在于：算 `vᵀJ` 不必先把 `J` 造出来。以线性层 `y = W x` 为例，`J = W`，`vᵀJ = vᵀW`——就是一次普通的矩阵乘法，代价与前向同阶；对逐元素运算 `y = relu(x)`，`J` 是对角阵，`vᵀJ` 就是 `v` 逐元素乘一个 0/1 掩码，连矩阵都不用碰。每种基本运算都有自己"给上游梯度 `v`，直接吐出 `vᵀJ`"的公式，PyTorch 把它们写在 `derivatives.yaml` 里（第五章）。
+这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**。关键在于：算 `vᵀJ` 不必先把 `J` 造出来。以线性层 `y = W x` 为例，`J = W`，`vᵀJ = vᵀW`——就是一次普通的矩阵乘法，代价与前向同阶；对逐元素运算 `y = relu(x)`，`J` 是对角阵，`vᵀJ` 就是 `v` 逐元素乘一个 0/1 掩码，连矩阵都不用碰。每种基本运算都有自己"给上游梯度 `v`，直接吐出 `vᵀJ`"的公式，PyTorch 把它们写在 `tools/autograd/derivatives.yaml` 里，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
 
 所以两者的区别一句话：**Jacobian 是"所有输出对所有输入"的完整导数表，VJP 是"一个具体方向 `v` 下"这张表的一行组合，只有输入那么大。** 反向传播从 loss 出发、一层层把 `v` 传回去，每层算一次 VJP——始终只搬和数据同形的梯度，从不物化 Jacobian。PyTorch 的 `backward()` 正是沿着计算图计算这种 VJP。
 
@@ -218,7 +260,7 @@ flowchart TB
 
 ### 2. Eager Mode 下的图是动态创建的
 
-上一篇介绍过，PyTorch 默认采用 Eager-first 的编程体验。在 Eager Mode 下，代码执行到哪一行，对应的 Tensor 操作就可以立即执行；如果需要梯度，Autograd 同时记录必要的反向关系。
+[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)介绍过，PyTorch 默认采用 Eager-first 的编程体验。在 Eager Mode 下，代码执行到哪一行，对应的 Tensor 操作就可以立即执行；如果需要梯度，Autograd 同时记录必要的反向关系。
 
 ```python title='Eager Mode 下边执行边记录'
 x = torch.randn(3, requires_grad=True)
@@ -267,6 +309,9 @@ def f(x: torch.Tensor) -> torch.Tensor:
 ```
 
 不同输入可能走不同分支，因此不同执行过程可能产生不同的计算关系。
+
+> [!NOTE] Java 经验参照：异常栈里找不到出错的那行 forward 代码
+> 排查 Java 服务时，异常栈会一路指到出错的那行业务代码。backward 里报错（梯度出现 NaN、in-place 修改导致的版本检查失败）时，Python 栈只到 `loss.backward()` 为止：forward 的栈帧早已返回，反向节点是引擎按依赖关系逐个调用的，不是调用栈的回放。要找回是哪一行 forward 创建了出错的节点，打开 `torch.autograd.set_detect_anomaly(True)`，它在 forward 时为每个节点记下创建处的调用栈，报错时一并打印；开销明显，只在排查时开。
 
 ### 4. 动态图的优点和成本
 
@@ -468,6 +513,23 @@ optimizer.step()
 optimizer.zero_grad(set_to_none=True)
 ```
 
+`.grad` 是挂在参数上的状态，它在一个 step 里依次经过：
+
+1. forward 计算 loss；
+2. backward 把梯度累加进 `parameter.grad`；
+3. Optimizer 读取 `.grad` 更新参数；
+4. `zero_grad()` 清理 `.grad`。
+
+这个顺序排错时，常见的后果有四种：
+
+1. 梯度重复累积；
+2. 参数没有梯度；
+3. 梯度清零的时机错误；
+4. 梯度裁剪作用在错误的阶段。
+
+> [!NOTE] Java 经验参照：梯度是对象上的字段，不是返回值
+> 按 Java 的习惯，容易把 `loss.backward()` 想成一个返回梯度的方法，结果像局部变量一样用完即弃。实际上 `backward()` 没有返回值，它的作用是修改参数对象上的 `.grad`，相当于对一个可变字段做 `+=`；这个字段的生命周期跟着参数，跨 step 存活，不清理就带着上一步的值。
+
 ### 3. 为什么梯度累积是有用的？
 
 梯度累积并不只是一个容易忘记清零的陷阱，它也可以用于模拟更大的 batch：
@@ -531,7 +593,7 @@ y.backward()
 
 例如 `y = x²`，反向时需要 `∂y/∂x = 2x`，因此 Autograd 需要保留 `x`，或者保留足以计算梯度的信息。对于 ReLU `y = max(0, x)`，反向时需要知道 forward 阶段哪些位置大于 0。不同算子会保存不同的中间信息。
 
-这些被保存的中间值统称**激活值**（activation）。它们从 forward 保存到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。第八篇分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
+这些被保存的中间值统称**激活值**（activation）。它们从 forward 保存到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html#八空间维度显存)分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
 
 ### 2. 保存输出可能保存整张图
 
@@ -594,6 +656,9 @@ losses.append(loss.detach().item())
 losses.append(loss.detach().cpu())
 ```
 
+> [!NOTE] Java 经验参照：集合持有引用造成的泄漏
+> 这和 Java 里往一个长寿命的 `List` 不断 `add` 对象导致堆内存上涨是同一类问题：一个引用让它背后的整个对象图保持可达。两点不同：被拖住的大头是 GPU 上的激活值，JVM 式的堆分析工具看不到它；CPython 以引用计数为主，引用链一断，图和保存值立刻释放，不需要等一次 GC。
+
 ### 3. `saved_tensors_hooks`
 
 在某些内存受限场景，保存的 Tensor 可以通过 hooks 进行自定义处理，例如：
@@ -634,6 +699,14 @@ from torch.autograd.graph import saved_tensors_hooks
 - 让 Autograd 保存的中间值继续存活。
 
 因此，内存问题不能只看变量名是否被删除，还要看 Tensor 是否仍然连接着 Storage 或计算图。
+
+这两类生命周期对应 Tensor 的两个互不依赖的维度。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讨论的是布局维度：Storage、Shape、Stride、Offset、dtype、device；本文讨论的是 Autograd 维度：`requires_grad`、`grad_fn`、计算图、梯度。一个 Tensor 可以：
+
+- 共享底层 Storage，但不共享 Autograd 关系（`detach()` 的结果，见第七章）；
+- 连接同一张计算图，但拥有不同的 view 布局；
+- 发生 dtype 或 device 转换，同时改变数据存储和梯度路径。
+
+分析问题时先分清：这是数据布局问题，还是梯度关系问题？
 
 ## 七、`detach()`、`no_grad()` 与 `inference_mode()`
 
@@ -678,6 +751,9 @@ with torch.no_grad():
 
 不能用其中一个代替另一个。
 
+> [!NOTE] Java 经验参照：ThreadLocal 开关
+> `with torch.no_grad():` 的作用方式接近在 try-with-resources 里改一个 `ThreadLocal` 标志、退出时恢复原值：它只影响当前线程在这段代码里执行的运算。它不是模型对象的属性，也不是进程级的全局配置；在别的线程里跑的计算不受影响，需要在那个线程里自己进入 `no_grad()`。
+
 ### 3. `torch.inference_mode()`：更强的推理上下文
 
 ```python title='torch.inference_mode() 下跑前向'
@@ -698,7 +774,7 @@ with torch.inference_mode():
 | `inference_mode()` | 由内部操作决定 | 由内部操作决定 | 不记录新图且约束更强 | 独立的高性能推理路径 |
 | `detach().clone()` | 是 | 是 | 否 | 需要独立数据和独立梯度关系 |
 
-Table: detach()、no_grad 与 requires_grad_(False) 的区别
+Table: detach()、no_grad()、inference_mode() 与 detach().clone() 的区别
 
 ### 5. 与 `model.eval()` 的完整组合
 
@@ -789,6 +865,9 @@ print(x.grad)  # tensor(6.)
 10. engine 再执行下一个节点 `AccumulateGrad`：`x.grad += …`，然后 `y.backward()` 返回。
 
 第 9 步在第 10 步之前：saved tensors 是节点一返回就释放的，不用等梯度写进 `x.grad`（PyTorch 2.10 `torch/csrc/autograd/engine.cpp` 的 `evaluate_function`：`call_function` 之后紧接着 `fn.release_variables()`，然后才把输出交给下一个节点）。
+
+> [!NOTE] Java 经验参照：不是事件监听器
+> 「`backward` 由引擎回调」容易让人联想到 Java 的 `Listener` 或 `CompletableFuture` 回调，两者只有「由框架在稍后调用」这一点相同。监听器回答的是某个事件发生后调用哪些函数，彼此独立，返回值通常没人用；反向节点的调用顺序由计算图的依赖关系决定，每个节点接收上游梯度、按局部导数算出结果，这个返回值就是下一个节点的输入。节点也不是长期注册的：每次 forward 新建，backward 之后随图回收。
 
 ### 3. `ctx.save_for_backward()`
 
@@ -1024,9 +1103,7 @@ Mini-Autograd 没有实现：
 
 ## 十、Autograd 常见问题与排查方法
 
-Autograd 的问题大多集中在几类：链路没接上、链路被切断、保存值被改、状态没清、图已释放。下面这棵决策树给出一个从上到下的排查顺序，后面几个小节分别展开每个分支：
-
-按下面的顺序排查，每一步只回答一个问题：
+Autograd 的问题大多集中在几类：链路没接上、链路被切断、保存值被改、状态没清、图已释放。按下表的顺序排查，每一步只回答一个问题，后面几个小节分别展开：
 
 | 步 | 先看 | 若是 | 处理 |
 |---|---|---|---|
@@ -1034,7 +1111,7 @@ Autograd 的问题大多集中在几类：链路没接上、链路被切断、�
 | 2 | `loss.grad_fn` 存在？沿路径打印 `requires_grad` / `grad_fn` | 否 | 链路被切断：`detach()`、`no_grad()`、`inference_mode()`、`.item()`、不可导操作 |
 | 3 | 报 "modified by an inplace operation"？ | 是 | in-place 修改了被保存的值：移除 `add_()` 等或改用 out-of-place |
 | 4 | 梯度是预期的整数倍、或随 step 单调变大？ | 是 | 忘了 `zero_grad()`，梯度在 `.grad` 上累积 |
-| 5 | 第二次 backward 报 "buffers have already been freed"？ | 是 | 图已释放：重新 forward；有明确理由时 `retain_graph=True` |
+| 5 | 第二次 backward 报 "Trying to backward through the graph a second time"？ | 是 | 图已释放：重新 forward；有明确理由时 `retain_graph=True` |
 | 6 | 是 non-leaf 的 `.grad` 为 `None`？ | 是 | 正常现象；调试时用 `retain_grad()` |
 | 7 | 以上都不是，数值 NaN / Inf | — | 检查输入、dtype、lr；`set_detect_anomaly(True)` 定位 |
 
@@ -1146,61 +1223,7 @@ torch.autograd.set_detect_anomaly(True)
 
 定位异常 backward，但它会增加大量开销，只适合调试阶段使用。
 
-## 十一、Java 工程师如何理解 Autograd
-
-### 1. Autograd 不是普通事件回调
-
-事件回调通常只回答一个问题：某个事件发生后，调用哪些函数？Autograd 回答的是：
-
-- 当前输出由哪些 Tensor 运算得到？
-- 给定上游梯度，如何按照局部导数把梯度传回去？
-
-它是一个带数学语义的计算图系统，不是任意业务事件的监听器。
-
-### 2. Autograd 更接近运行时构建的反向程序
-
-可以把一次 forward 和 backward 粗略理解为：
-
-- **forward**
-  - 产生数值结果
-  - 同时记录反向所需的结构和数据
-- **backward**
-  - 沿记录的结构逆序执行
-  - 将上游梯度转换为下游梯度
-
-这和 Java 编译器在编译期生成字节码不同，也和普通运行时调用栈不同。Autograd 图只描述当前计算中与梯度有关的部分。
-
-### 3. 梯度累积类似显式状态管理
-
-Java 工程师通常习惯把局部变量和对象状态区分开。在 PyTorch 中，`.grad` 是与参数生命周期相关的显式状态：
-
-1. forward 计算
-2. backward 写入 parameter.grad
-3. optimizer 读取 grad
-4. zero_grad 清理状态
-
-如果不理解这个状态流，就容易出现：
-
-- 梯度重复累积；
-- 参数没有梯度；
-- 梯度清零时机错误；
-- 梯度裁剪作用在错误的阶段。
-
-### 4. Tensor 布局和 Autograd 是两个正交维度
-
-上一篇讨论的是 Tensor 的布局维度：Storage、Shape、Stride、Offset、Dtype、Device；本文讨论的是 Autograd 维度：`requires_grad`、`grad_fn`、计算图、梯度。
-
-一个 Tensor 可以：
-
-- 共享底层 Storage，但不共享 Autograd 关系；
-- 连接同一张计算图，但拥有不同的 view 布局；
-- 发生 dtype 或 device 转换，同时改变数据存储和梯度路径。
-
-分析问题时，需要明确自己正在观察的是：
-
-"这是数据布局问题，还是梯度关系问题？"
-
-## 十二、本文小结
+## 十一、本文小结
 
 Autograd 的核心任务，是把数学上的链式法则变成一次沿动态计算图执行的反向遍历。
 
@@ -1257,11 +1280,11 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 
 Table: 本篇涉及的源码位置
 
-下一篇将进入 Tensor 和 Autograd 之上的模型组织层：
+[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)将进入 Tensor 和 Autograd 之上的模型组织层：
 
 > **`nn.Module` 如何管理模型层次、Parameter、Buffer、state_dict，并把这些对象连接到训练循环？**
 
-## 十三、自测
+## 十二、自测
 
 1. `y = x * 2; z = y.sum()` 之后 `z.grad_fn`、`y.grad_fn`、`x.grad_fn` 各是什么？`x.is_leaf` 呢？
 

@@ -4,20 +4,15 @@ title: PyTorch 深度实践：从 Tensor 到深度学习运行时（总纲）
 subtitle: Deep Dive into PyTorch, from Tensor to Deep Learning Runtime
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
+updated: 2026-11-17
 ---
 
 
-## 内容简介
+## 总览：PyTorch 在系统里负责哪一段
 
 《PyTorch 深度实践：从 Tensor 到深度学习运行时》是一组共十篇的系列文章，面向有后端工程经验、尤其是 Java 背景、准备进入 AI-Infra 方向的工程师，系统梳理 PyTorch 从 Python API 到 C++、CUDA、编译器、性能分析和分布式运行时的主要机制。
 
-它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)讲 PyTorch 的"用"——五个对象、二十行训练循环、显存的账——本系列讲"改"：Dispatcher、Autograd 引擎、编译、分布式。两张地图共享本系列，算法方向的读者按需读。
-
-这个系列不是 PyTorch API 速查表，也不是机器学习算法教程，而是试图回答一个问题：
-
-> **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？[^q0]**
-
-一个训练或推理调用，看起来可能只是：
+一次训练调用，看起来只有四行：
 
 ```python title="一次训练调用的四行"
 output = model(inputs)
@@ -26,32 +21,49 @@ loss.backward()
 optimizer.step()
 ```
 
-但这几行代码背后涉及一整套运行时机制：
-
-- Tensor 如何描述数据、布局、类型和设备；
-- Autograd 如何构建和遍历动态计算图；
-- `nn.Module` 如何管理参数、子模块和状态；
-- Dispatcher 如何根据设备和运行时上下文选择算子实现；
-- Python 如何连接到 C++、CUDA 和底层数学库；
-- 编译器如何捕获动态图并生成优化后的执行代码；
-- GPU 程序为什么会受到访存、同步、Kernel Launch 和数据搬运的影响；
-- 多个进程如何通过通信协同完成一次训练；
-- 一个新算子如何经过测试、Benchmark、构建和兼容性治理。
-
-PyTorch 在 AI 系统中的位置可以概括为：
+这四行在 PyTorch 内部经过下面这些部件，每个部件由一篇文章展开：
 
 ```mermaid
-%% 图：PyTorch 在 AI 系统中的位置
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：一次训练 step 在 PyTorch 内部经过的部件，以及各篇展开的位置
 flowchart TB
-    A["模型与训练代码"] --> B["PyTorch 编程模型"]
-    B --> C["Tensor / Autograd / Module"]
-    C --> D["Dispatcher / ATen / Kernel"]
-    D --> E["Compiler / Runtime / Distributed"]
-    E --> F["CPU / GPU / 加速器"]
+    USER["<b>用户代码</b><br/>model(inputs)、loss.backward()、optimizer.step()"]
+    MOD["<b>nn.Module 与训练循环</b><br/>模块树、Parameter、state_dict、Optimizer、DataLoader<br/>《nn.Module 与训练系统》"]
+    TEN["<b>Tensor</b><br/>元数据：shape、stride、dtype、device<br/>Storage：一段设备内存<br/>《Tensor 与内存布局》"]
+    OP["forward 里的每一次算子调用<br/>例如 torch.add(x, y)"]
+    DISP["<b>Dispatcher</b><br/>按输入 Tensor 的 DispatchKeySet 查这个算子的 kernel 表<br/>《Dispatcher 与算子系统》"]
+    AUTO["<b>Autograd</b><br/>前向时记录 grad_fn<br/>backward 时引擎沿图反向执行<br/>《自动求导与动态计算图》"]
+    KER["<b>后端 kernel</b><br/>CPU / CUDA 实现，自定义算子注册到同一张表<br/>《C++ 扩展与自定义算子》"]
+    HW["CPU / GPU"]
+    COMP["<b>torch.compile</b><br/>把一段逐算子执行换成编译生成的代码<br/>《编译执行与图优化》"]
+    DIST["<b>分布式运行时</b><br/>多个进程各跑同一份训练代码，用集合通信同步<br/>《分布式 PyTorch》"]
+
+    USER --> MOD
+    MOD --> OP
+    TEN -->|"作为输入"| OP
+    OP --> DISP
+    DISP -->|"先到 Autograd key"| AUTO
+    AUTO -->|"再分发到后端 key"| KER
+    KER --> HW
+    COMP -.->|"整段替换"| OP
+    DIST -.->|"每个进程一份"| USER
 ```
 
-这个系列的重点不是记住更多 API，而是建立从上层模型代码一直追踪到硬件执行的能力。
+- **用户代码与 `nn.Module`**：模型是一棵模块树，参数、Buffer 和子模块在赋值时登记到树上；Optimizer 从树上拿到参数，DataLoader 供给数据。
+- **Tensor**：一小块元数据（shape、stride、dtype、device 等）加一段 Storage。元数据决定这段内存怎样被解释，也决定后面 Dispatcher 选哪个实现。
+- **Dispatcher**：每个算子有一张按 DispatchKey 索引的 kernel 表。一次调用先落到 Autograd 那一层，再落到 CPU 或 CUDA 的实现。
+- **Autograd**：前向时给结果挂上 `grad_fn`，把反向要用的值存下来；`loss.backward()` 时引擎从 loss 出发沿这张图反向执行，梯度累加进叶子 Tensor 的 `.grad`。
+- **后端 kernel**：真正做计算的 C++ / CUDA 代码。自定义算子用同一套注册机制接入。
+- **`torch.compile`**：不改变上面的语义，把一段可捕获的计算整体编译，省掉逐算子的 Python 与分发开销并做融合。
+- **分布式运行时**：每个进程都跑上面这一整套，区别只在参数、梯度等状态是复制还是分片，以及何时通信。
 
+图上没有画的三篇是横切的：[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)先把这张图展开成三张地图；[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讲怎样测量这条路径上的时间和显存花在哪；[《PyTorch 的工程体系》](/pytorch-engineering-system.html)讲这套系统的一次改动怎样经过测试、CI 和发布到达用户。
+
+这个系列不是 PyTorch API 速查表，也不是机器学习算法教程，它要回答的问题是：
+
+> **PyTorch 如何把张量计算表达成可求导、可扩展、可优化、可分布式执行的深度学习系统？[^q0]**
+
+它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)讲 PyTorch 的"用"——五个对象、二十行训练循环、显存的账——本系列讲"改"：Dispatcher、Autograd 引擎、编译、分布式。两张地图共享本系列，算法方向的读者按需读。
 
 ## 缩写
 
@@ -164,16 +176,16 @@ flowchart TB
 
 十篇文章按照 PyTorch 的内部抽象逐步展开：
 
-1. 第一篇：建立全局地图；
-2. 第二篇：理解 Tensor 如何表示数据；
-3. 第三篇：理解 Autograd 如何表示梯度计算；
-4. 第四篇：理解 Module 如何组织模型和训练；
-5. 第五篇：理解 Dispatcher 如何选择算子实现；
-6. 第六篇：理解 Python 如何扩展到 C++ 和 CUDA；
-7. 第七篇：理解动态图如何进入编译执行；
-8. 第八篇：理解程序为什么快或慢；
-9. 第九篇：理解多卡如何通过通信协同；
-10. 第十篇：理解一次改动如何经过测试、CI 和发布安全地到达用户。
+1. [《PyTorch 整体介绍》](/pytorch-overall-introduction.html)：建立全局地图；
+2. [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)：理解 Tensor 如何表示数据；
+3. [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)：理解 Autograd 如何表示梯度计算；
+4. [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)：理解 Module 如何组织模型和训练；
+5. [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)：理解 Dispatcher 如何选择算子实现；
+6. [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)：理解 Python 如何扩展到 C++ 和 CUDA；
+7. [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)：理解动态图如何进入编译执行；
+8. [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)：理解程序为什么快或慢；
+9. [《分布式 PyTorch》](/pytorch-distributed-training.html)：理解多卡如何通过通信协同；
+10. [《PyTorch 的工程体系》](/pytorch-engineering-system.html)：理解一次改动如何经过测试、CI 和发布安全地到达用户。
 
 可以把这条主线进一步归纳为三条相互交织的线索：
 
@@ -185,40 +197,40 @@ flowchart TB
 
 Table: 三条相互交织的线索：抽象线、执行线、工程线
 
-需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：第二篇讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。第一篇会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表；第二到九篇的小结各附一张"本篇涉及的源码位置"表，把该篇讨论的机制落到具体文件；第十篇的仓库地图则给出完整目录。读者可以随时在职责层和源码层两个坐标系之间切换。
+需要说明的是，这条主线按**职责层**推进，而不是按源码目录。PyTorch 的源码按库分层是 `torch/`（Python）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher、算子）→ `c10/`（TensorImpl、Device、Allocator），两种分层并不重合：[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲的 Tensor 元数据在源码上住在最底层的 c10，却是用户最先接触、其余一切所依赖的抽象，所以放在最前面。[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)会给出一张"组件 → 源码位置 → 职责层 → 展开篇"的对照表；从《Tensor 与内存布局》到《分布式 PyTorch》的八篇，小结各附一张"本篇涉及的源码位置"表，把该篇讨论的机制落到具体文件；[《PyTorch 的工程体系》](/pytorch-engineering-system.html)的仓库地图则给出完整目录。读者可以随时在职责层和源码层两个坐标系之间切换。
 
 把上面几条线索、源码坐标和后文"贯穿全系列的实践线"合在一起，十篇文章可以汇总成一张表：
 
-| 篇次 | 标题 | 所在线索 | 核心源码目录 | 实践落点 |
+| 篇 | 标题 | 所在线索 | 核心源码目录 | 实践落点 |
 |---|---|---|---|---|
-| 1 | PyTorch 整体介绍 | 三条线的起点：全局地图 | 全仓库四层：`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/` | 无独立项目，建立地图与对照表 |
-| 2 | Tensor 与内存布局 | 抽象线：Tensor | `c10/core/`（TensorImpl、StorageImpl） | 简化版 Tensor：用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
-| 3 | 自动求导与动态计算图 | 抽象线：Autograd | `torch/csrc/autograd/` | Mini-Autograd：加法与乘法节点、保存父节点、拓扑排序、反向传播 |
-| 4 | `nn.Module` 与训练系统 | 抽象线：Module；工程线：Training | `torch/nn/` `torch/optim/` `torch/utils/data/` | 一个完整的训练程序 |
-| 5 | Dispatcher 与算子系统 | 抽象线：Operator；执行线：C++ | `aten/src/ATen/` `torchgen/` | 原生算子 `add` / `add_` / `add.out` 的完整路径 |
-| 6 | C++ 扩展与自定义算子 | 执行线：Python → C++ → CUDA → Kernel | `torch/csrc/` `torch/utils/cpp_extension.py` | `scale_shift` 算子（`myops` 项目）：Python 契约 → C++ CPU → CUDA → Autograd 与 Meta |
-| 7 | 编译执行与图优化 | 抽象线：Compiler | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` | 一个带 shape 分支的小函数，跟踪其四次调用 |
-| 8 | 性能优化与调试 | 工程线：Profiling；执行线：Kernel → Hardware | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 一个 Transformer block 的训练 step：基线 → 采集 → 归类 → 处方 → 优化报告 |
-| 9 | 分布式 PyTorch | 工程线：Distributed | `torch/csrc/distributed/` `torch/distributed/` | 同一个 Transformer block 从 8 卡扩到 4 机 32 卡，算清显存与通信账 |
-| 10 | PyTorch 的工程体系 | 工程线：Testing → Build | `test/` `torch/testing/` `tools/` `.github/` | 把 `myops` 项目走完构建、正确性、性能、CI、发布、兼容七关 |
+| 1 | [PyTorch 整体介绍](/pytorch-overall-introduction.html) | 三条线的起点：全局地图 | 全仓库四层：`torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/` | 无独立项目，建立地图与对照表 |
+| 2 | [Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html) | 抽象线：Tensor | `c10/core/`（TensorImpl、StorageImpl） | 简化版 Tensor：用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
+| 3 | [自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html) | 抽象线：Autograd | `torch/csrc/autograd/` | Mini-Autograd：加法与乘法节点、保存父节点、拓扑排序、反向传播 |
+| 4 | [`nn.Module` 与训练系统](/pytorch-module-and-training-system.html) | 抽象线：Module；工程线：Training | `torch/nn/` `torch/optim/` `torch/utils/data/` | 一个完整的训练程序 |
+| 5 | [Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html) | 抽象线：Operator；执行线：C++ | `aten/src/ATen/` `torchgen/` | 原生算子 `add` / `add_` / `add.out` 的完整路径 |
+| 6 | [C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html) | 执行线：Python → C++ → CUDA → Kernel | `torch/csrc/` `torch/utils/cpp_extension.py` | `scale_shift` 算子（`myops` 项目）：Python 契约 → C++ CPU → CUDA → Autograd 与 Meta |
+| 7 | [编译执行与图优化](/pytorch-compilation-and-graph-optimization.html) | 抽象线：Compiler | `torch/_dynamo/` `torch/_functorch/` `torch/_inductor/` `torch/fx/` | 一个带 shape 分支的小函数，跟踪其四次调用 |
+| 8 | [性能优化与调试](/pytorch-performance-optimization-and-debugging.html) | 工程线：Profiling；执行线：Kernel → Hardware | `torch/profiler/` `c10/cuda/` `torch/cuda/` | 一个 Transformer block 的训练 step：基线 → 采集 → 归类 → 处方 → 优化报告 |
+| 9 | [分布式 PyTorch](/pytorch-distributed-training.html) | 工程线：Distributed | `torch/csrc/distributed/` `torch/distributed/` | 同一个 Transformer block 从 8 卡扩到 4 机 32 卡，算清显存与通信账 |
+| 10 | [PyTorch 的工程体系](/pytorch-engineering-system.html) | 工程线：Testing → Build | `test/` `torch/testing/` `tools/` `.github/` | 把 `myops` 项目走完构建、正确性、性能、CI、发布、兼容七关 |
 
 Table: 十篇的标题、线索、源码目录与实践落点
 
 这不是严格的单向依赖：
 
-- 第五篇会复用第二篇关于 stride、dtype 和 device 的知识；
-- 第六篇会复用第五篇关于 Operator Schema 和 Dispatcher 的知识；
-- 第七篇会同时复用 Tensor metadata 和算子系统；
-- 第八篇会帮助判断第六篇的自定义 Kernel 是否真的有效；
-- 第九篇会复用第八篇的性能分析方法，并把第八篇的案例模型扩到多卡；
-- 第十篇会把第六篇的自定义算子重新拿出来，让它走完一次完整的工程生命周期。
+- [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)会复用[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)关于 stride、dtype 和 device 的知识；
+- [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)会复用[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)关于 Operator Schema 和 Dispatcher 的知识；
+- [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)会同时复用 Tensor metadata 和算子系统；
+- [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)会帮助判断[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的自定义 Kernel 是否真的有效；
+- [《分布式 PyTorch》](/pytorch-distributed-training.html)会复用[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的性能分析方法，并把那一篇的案例模型扩到多卡；
+- [《PyTorch 的工程体系》](/pytorch-engineering-system.html)会把[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的自定义算子重新拿出来，让它走完一次完整的工程生命周期。
 
 
 ## 章节结构与分章导读
 
 ### 1. PyTorch 整体介绍
 
-第一篇从全局开始，介绍一段模型代码如何穿过 Python、C++、CUDA、Dispatcher、Compiler 和硬件执行层，帮助读者建立后续文章所需的整体地图。
+这一篇从全局开始，介绍一段模型代码如何穿过 Python、C++、CUDA、Dispatcher、Compiler 和硬件执行层，帮助读者建立后续文章所需的整体地图。
 
 这一篇会讨论：
 
@@ -249,11 +261,11 @@ flowchart TB
 
 这是一条概念路径，不意味着所有算子、所有版本都经过完全相同的源码调用栈。后续文章会分别展开其中的关键层次。
 
-Eager Mode 在全系列中承担一条贯穿主线：第一篇介绍它是什么，第三篇解释它如何构建动态计算图，第七篇说明它如何进入编译执行，第八篇分析它的性能特征和代价。
+Eager Mode 在全系列中承担一条贯穿主线：[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)介绍它是什么，[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)解释它如何构建动态计算图，[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)说明它如何进入编译执行，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)分析它的性能特征和代价。
 
 ### 2. Tensor 与内存布局
 
-第二篇讨论 PyTorch 最核心的数据抽象。重点不是罗列 `torch.zeros()`、`torch.ones()` 等 API，而是理解 Tensor 如何解释一段设备上的数据。
+这一篇讨论 PyTorch 最核心的数据抽象。重点不是罗列 `torch.zeros()`、`torch.ones()` 等 API，而是理解 Tensor 如何解释一段设备上的数据。
 
 这一篇会覆盖：
 
@@ -291,7 +303,7 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 ### 3. 自动求导与动态计算图
 
-第三篇从链式法则出发，解释 PyTorch 如何把数学上的梯度计算转化为可执行的反向图遍历。
+这一篇从链式法则出发，解释 PyTorch 如何把数学上的梯度计算转化为可执行的反向图遍历。
 
 这一篇会讨论：
 
@@ -327,7 +339,7 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 
 ### 4. `nn.Module` 与训练系统
 
-第四篇从模型对象开始，讨论 PyTorch 如何组织参数、子模块、状态、数据和训练循环。
+这一篇从模型对象开始，讨论 PyTorch 如何组织参数、子模块、状态、数据和训练循环。
 
 这一篇会覆盖：
 
@@ -364,11 +376,12 @@ Tensor 不只是一个多维数组，它是**数据、布局、类型和设备�
 - 为什么 DataLoader 可能成为训练瓶颈？
 - 为什么 `model.eval()` 不等于关闭梯度？
 
-Java 对照会帮助理解 Module 的层级管理、state_dict 的状态快照、DataLoader 的生产者—消费者模型，以及 Optimizer 对参数状态的批量更新。
+> [!NOTE] Java 经验参照：这一篇用得上的旧经验
+> 文中在对应机制旁边给出参照：组合模式的组件树之于 Module 树，把对象状态导出成 `Map` 之于 `state_dict`，带上限的生产者—消费者队列之于 DataLoader，重启有状态服务之于恢复训练。每处都写明哪里对得上、哪里对不上。
 
 ### 5. Dispatcher 与算子系统
 
-第五篇是从 PyTorch 使用者走向 PyTorch 源码阅读者的关键一步。
+这一篇是从 PyTorch 使用者走向 PyTorch 源码阅读者的关键一步。
 
 这一篇会以简单的 `add` 算子为入口，分析它的三个变体 `add`、`add_`、`add.out`，并讨论：
 
@@ -397,7 +410,7 @@ Java 对照会帮助理解 Module 的层级管理、state_dict 的状态快照�
 
 ### 6. C++ 扩展与自定义算子
 
-第六篇从“阅读框架”走向“扩展框架”，讨论 Python 如何连接到 C++ 和 CUDA。
+这一篇从“阅读框架”走向“扩展框架”，讨论 Python 如何连接到 C++ 和 CUDA。
 
 这一篇会覆盖：
 
@@ -447,7 +460,7 @@ flowchart TB
 
 ### 7. 编译执行与图优化
 
-第七篇讨论 PyTorch 如何在保留 Eager Mode 灵活性的同时，通过编译器获得更高的执行效率。
+这一篇讨论 PyTorch 如何在保留 Eager Mode 灵活性的同时，通过编译器获得更高的执行效率。
 
 这一篇会覆盖：
 
@@ -481,7 +494,7 @@ flowchart TB
 
 本篇会用一个刻意简单的函数贯穿全文：
 
-```python title="贯穿第七篇的函数 f"
+```python title="贯穿《编译执行与图优化》全文的函数 f"
 def f(x, weight, bias):
     y = x @ weight + bias
     if x.shape[0] > 64:
@@ -502,7 +515,7 @@ def f(x, weight, bias):
 
 ### 8. 性能优化与调试
 
-第八篇围绕一个核心问题展开：
+这一篇围绕一个核心问题展开：
 
 > **如何判断一个 PyTorch 程序慢，以及如何定位它为什么慢？**
 
@@ -554,7 +567,7 @@ def f(x, weight, bias):
 
 ### 9. 分布式 PyTorch
 
-第九篇回答单卡放不下模型或跑不完数据之后的问题。它不按 API 组织（DDP 一章、FSDP 一章、张量并行一章），而是用一条主线把所有并行策略放进同一张表：
+这一篇回答单卡放不下模型或跑不完数据之后的问题。它不按 API 组织（DDP 一章、FSDP 一章、张量并行一章），而是用一条主线把所有并行策略放进同一张表：
 
 > **每种并行策略，都是对训练中的五类状态——数据、参数、梯度、优化器状态、激活值——各自做一个决定：复制还是分片。每个决定对应一种集合通信原语和一个通信时机；所有决定加起来，决定了显存占用和通信量。**
 
@@ -566,7 +579,7 @@ def f(x, weight, bias):
 | 并行策略 | DDP、ZeRO / FSDP、TP、PP、CP、EP、多维组合 |
 | 通信底座 | 进程 / Rank / 进程组、集合通信原语、NCCL、α + β 成本模型 |
 
-Table: 第九篇的三层结构
+Table: 《分布式 PyTorch》的三层结构
 
 这一篇会覆盖：
 
@@ -584,7 +597,7 @@ Table: 第九篇的三层结构
 - 多维混合并行的组合原则，以及训练与推理的并行选择差异；
 - 分布式 Checkpoint、多机拓扑、通信性能分析、hang 的排查与扩展效率。
 
-完整案例把第八篇的 Transformer block 训练 step 从 8 卡扩到 4 机 32 卡，逐步说明每一次扩展为什么要换并行策略，以及每一步的显存与通信账。
+完整案例把[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的 Transformer block 训练 step 从 8 卡扩到 4 机 32 卡，逐步说明每一次扩展为什么要换并行策略，以及每一步的显存与通信账。
 
 这一篇的重点不是罗列分布式 API，而是回答：
 
@@ -596,7 +609,7 @@ Table: 第九篇的三层结构
 
 ### 10. PyTorch 的工程体系：一次改动如何安全地到达用户
 
-前九篇描述的都是一个已经存在、并且正确运行的系统。第十篇换一个问题：**它是怎么做到一直正确、一直可用的？**
+前九篇描述的都是一个已经存在、并且正确运行的系统。这一篇换一个问题：**它是怎么做到一直正确、一直可用的？**
 
 > **一个框架的工程体系，就是一次改动从写下到进入用户生产环境所经过的全部关卡，以及每个关卡守住什么。**
 
@@ -618,7 +631,7 @@ Table: 一次改动的生命周期与关卡
 
 框架与应用的区别在于**组合爆炸**：两千多个算子 × 十几种 dtype × 多个后端 × 各种 shape 与 layout × 多种执行模式。这个事实塑造了数据驱动的 OpInfo 测试、分层的 CI，以及按稳定程度分级的接口面。
 
-实践终点是把第六篇的 `scale_shift` 算子（`myops` 项目）重新拿出来，让它走完这七关：复用 PyTorch 的测试基础设施、建立 Benchmark 基线与回归阈值、搭 CI 矩阵、守住 Schema 契约并完成一次向后兼容的演进、发布制品，最后站到使用者一侧看如何跟随 PyTorch 升级。
+实践终点是把[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的 `scale_shift` 算子（`myops` 项目）重新拿出来，让它走完这七关：复用 PyTorch 的测试基础设施、建立 Benchmark 基线与回归阈值、搭 CI 矩阵、守住 Schema 契约并完成一次向后兼容的演进、发布制品，最后站到使用者一侧看如何跟随 PyTorch 升级。
 
 
 ### 11. 系列总结与通关自测
@@ -635,8 +648,8 @@ Table: 一次改动的生命周期与关卡
 
 | 篇 | 最小实现 | 做什么 |
 |---|---|---|
-| 第二篇 | 简化版 Tensor | 用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
-| 第三篇 | Mini-Autograd | 用加法和乘法节点实现保存父节点、拓扑排序和反向传播 |
+| [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) | 简化版 Tensor | 用 shape、stride、offset 实现索引、transpose 和 contiguous copy |
+| [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) | Mini-Autograd | 用加法和乘法节点实现保存父节点、拓扑排序和反向传播 |
 
 Table: 前半段的两个最小实现
 
@@ -652,8 +665,8 @@ scale_shift(x, alpha, beta) = alpha * x + beta
 
 | 篇 | 任务 | 内容 |
 |---|---|---|
-| 第六篇 | 实现它 | Python 契约 → C++ CPU → CUDA → Autograd 与 Meta，接入 Dispatcher |
-| 第十篇 | 发布它 | 把它所在的 myops 项目走完构建、正确性、性能、CI、发布、兼容七关 |
+| [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) | 实现它 | Python 契约 → C++ CPU → CUDA → Autograd 与 Meta，接入 Dispatcher |
+| [《PyTorch 的工程体系》](/pytorch-engineering-system.html) | 发布它 | 把它所在的 myops 项目走完构建、正确性、性能、CI、发布、兼容七关 |
 
 Table: 围绕 scale_shift 算子的两篇：实现它与发布它
 
@@ -661,13 +674,13 @@ Table: 围绕 scale_shift 算子的两篇：实现它与发布它
 
 | 篇 | 对象 | 做什么 |
 |---|---|---|
-| 第七篇 | 一个带 shape 分支的小函数 | 跟踪它的四次调用，看编译器前端、中端、后端和运行时各做了什么 |
-| 第八篇 | 一个 Transformer block | 以它的训练 step 为对象，走完基线 → 采集 → 归类 → 处方 → 优化报告 |
-| 第九篇 | 同一个 Transformer block | 从 8 卡扩到 4 机 32 卡，逐步换并行策略，算清每一步的显存与通信账 |
+| [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) | 一个带 shape 分支的小函数 | 跟踪它的四次调用，看编译器前端、中端、后端和运行时各做了什么 |
+| [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) | 一个 Transformer block | 以它的训练 step 为对象，走完基线 → 采集 → 归类 → 处方 → 优化报告 |
+| [《分布式 PyTorch》](/pytorch-distributed-training.html) | 同一个 Transformer block | 从 8 卡扩到 4 机 32 卡，逐步换并行策略，算清每一步的显存与通信账 |
 
 Table: 后半段以真实训练负载为对象的三篇
 
-第四篇和第五篇没有独立的实践项目：第四篇以一个完整训练程序作为落点，第五篇则以原生算子 `add` 的完整路径作为源码阅读的样例。
+[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)和[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)没有独立的实践项目：前者以一个完整训练程序作为落点，后者以原生算子 `add` 的完整路径作为源码阅读的样例。
 
 各篇实践的重心不同：简化实现关注机制是否复现，算子项目关注正确性测试与 Benchmark，案例章节关注测量方法与优化报告。共同的要求只有一条：**每个结论都能在代码或数据上验证，而不是停留在示意图。**
 
@@ -746,7 +759,7 @@ PyTorch 的以下部分变化较快：
 
 - **Python 语言本身**：CPython 的对象模型、GIL、异步、类型系统。本系列假设读者已经掌握，只在 Python 与 C++ 边界处涉及；
 - **C++ 语言本身**：模板、RAII、静态注册等在源码阅读中反复出现的特性。本系列解释它们在 PyTorch 中的用途，不讲语言机制；
-- **单个 CUDA Kernel 的内部优化**：访存合并、共享内存、Tensor Core 编程。第六篇给出读懂一个 Kernel 所需的最小概念，第八篇在系统层面判断瓶颈类型，Kernel 内部如何写到硬件极限不展开；
+- **单个 CUDA Kernel 的内部优化**：访存合并、共享内存、Tensor Core 编程。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)给出读懂一个 Kernel 所需的最小概念，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)在系统层面判断瓶颈类型，Kernel 内部如何写到硬件极限不展开；
 - **LLM 推理系统**：请求生命周期、Continuous Batching、KV Cache 管理、Prefill/Decode 分离、集群路由。本系列覆盖它们所依赖的模型计算、GPU 执行、显存和通信基础，不讨论 Serving 系统自身的设计。
 
 
@@ -777,15 +790,15 @@ loss.backward()
 
 一路追问并回答：
 
-1. Tensor 如何表示输入？（第二篇）
-2. Module 如何组织模型？（第四篇）
-3. Autograd 如何构建计算图？（第三篇）
-4. Dispatcher 如何选择算子？（第五篇）
-5. 自定义算子如何接入 Dispatcher 与 Autograd？（第六篇）
-6. Compiler 如何对计算进行变换？（第七篇）
-7. Profiler 如何暴露瓶颈在哪里？（第八篇）
-8. Distributed Runtime 如何让多卡协同？（第九篇）
-9. Tests、Build 和 CI 如何保证系统可持续演进？（第十篇）
+1. Tensor 如何表示输入？（[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)）
+2. Module 如何组织模型？（[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)）
+3. Autograd 如何构建计算图？（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)）
+4. Dispatcher 如何选择算子？（[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)）
+5. 自定义算子如何接入 Dispatcher 与 Autograd？（[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)）
+6. Compiler 如何对计算进行变换？（[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)）
+7. Profiler 如何暴露瓶颈在哪里？（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)）
+8. Distributed Runtime 如何让多卡协同？（[《分布式 PyTorch》](/pytorch-distributed-training.html)）
+9. Tests、Build 和 CI 如何保证系统可持续演进？（[《PyTorch 的工程体系》](/pytorch-engineering-system.html)）
 
 最终的目标不是“会用 PyTorch”，而是具备下面三种能力：
 
@@ -796,5 +809,5 @@ loss.backward()
 这正是从后端工程师走向 AI-Infra 工程师时，PyTorch 最值得深入学习的部分。
 
 [^q0]: 靠分层：**Tensor**（数据 + 形状 / 步幅 / dtype / 设备 / 生命周期，Python 对象是 C++ `TensorImpl` 的句柄）表达数据；每个算子经 **Dispatcher** 按 Tensor 的 DispatchKeySet 选实现——Autograd key 上先记录 `grad_fn` 建图（**可求导**），再落到 CPU / CUDA / 第三方后端的 kernel（**可扩展**：新算子注册到同一张表，新硬件走 PrivateUse1）；**编译**（Dynamo 捕获整图 → AOTAutograd 拆前后向 → Inductor 生成融合 kernel）把逐算子分发整体换掉（**可优化**）；**分布式**对参数、梯度、优化器状态、激活、数据五类状态各做复制或分片，用集合通信在 stream 上与计算重叠（**可分布式**）。四种能力能叠加，因为都建立在同一个算子系统之上。
-[^q1]: Python 的 `torch.add` 是 codegen 生成的 C++ 绑定（`torch/csrc/autograd/generated/python_torch_functions*.cpp`）：解析参数 → 调 `at::add` → 进入 **Dispatcher**，用两个输入 Tensor 的 DispatchKeySet 取最高优先级的 key：先到 Autograd key 的包装（`VariableType::add`），若需要求导就创建 `AddBackward0` 节点、记录输入 → 重新分发到后端 key（CPU / CUDA）→ `TensorIterator` 处理广播、类型提升、内存布局 → 调用对应 kernel（CPU 向量化循环或 CUDA `elementwise_kernel`）→ 结果 Tensor 带着 `grad_fn` 返回 Python。第五篇沿这条路径逐层读源码。
+[^q1]: Python 的 `torch.add` 是 codegen 生成的 C++ 绑定（`torch/csrc/autograd/generated/python_torch_functions*.cpp`）：解析参数 → 调 `at::add` → 进入 **Dispatcher**，用两个输入 Tensor 的 DispatchKeySet 取最高优先级的 key：先到 Autograd key 的包装（`VariableType::add`），若需要求导就创建 `AddBackward0` 节点、记录输入 → 重新分发到后端 key（CPU / CUDA）→ `TensorIterator` 处理广播、类型提升、内存布局 → 调用对应 kernel（CPU 向量化循环或 CUDA `elementwise_kernel`）→ 结果 Tensor 带着 `grad_fn` 返回 Python。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)沿这条路径逐层读源码。
 [^q2]: 前向时每个需要求导的算子在 Dispatcher 的 Autograd 层记录一个 `Node`（`grad_fn`），保存反向需要的输入 / 输出，节点之间通过 `next_functions` 连成一张以输出为根的有向无环图；`loss.backward()` 从根节点出发，按拓扑序（引擎维护每个节点的依赖计数，就绪的入队、多设备多线程执行）对每个节点调用它的 `apply`——把上游传来的梯度乘上本算子的局部 Jacobian（链式法则的一步）——再把结果分发给下游节点，叶子 Tensor 的梯度累加进 `.grad`。因为图是在前向执行时**动态**记录的，每次 forward 建一张新图，Python 的 `if` / `for` 直接决定图长什么样，用完即释放。

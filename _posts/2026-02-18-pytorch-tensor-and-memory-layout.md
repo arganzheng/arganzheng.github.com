@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（02）：Tensor 与内存布局"
 subtitle: "Tensor Abstraction and Memory Layout in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-上一篇从整体上介绍了 PyTorch：它不是只有 Python API 的库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。
+[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)从整体上介绍了 PyTorch：它不是只有 Python API 的库，而是连接模型代码、Tensor 编程模型、算子运行时、设备后端、Kernel 和硬件的一套计算平台。
 
 这一次进入这张地图的核心数据抽象：
 
@@ -31,6 +31,41 @@ updated: 2026-11-13
 
 ## 一、总览：一个 Tensor 由哪些部分组成
 
+先看全篇涉及的对象怎样连在一起：Python 里的一个 Tensor 往下是哪几层，哪些操作只在上层多建一个对象，哪些操作要在下层多分配一块数据。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%% 图：一个 Tensor 的组成与两类操作：Python 句柄、TensorImpl 元数据、StorageImpl 与设备内存
+flowchart TB
+    PY["<b>Python 的 torch.Tensor 对象</b><br/>名字 x、y 各绑定一个，本身只是句柄"]
+    TA["<b>TensorImpl（x）</b><br/>sizes、strides、storage_offset（第三、四章）<br/>dtype（第八章）、device（第九章）<br/>Autograd 元数据与版本计数（第十章）"]
+    TV["<b>TensorImpl（y = x.t()）</b><br/>自己的一套 sizes、strides、storage_offset"]
+    ST["<b>StorageImpl</b>（第七章）<br/>数据指针、字节数、Allocator<br/>x 与 y 共同持有"]
+    MEM["<b>设备内存</b>（第九、十二章）<br/>CPU 内存，或缓存分配器管理的显存"]
+    OPV["<b>只改元数据的操作</b><br/>view、transpose、permute、切片、expand<br/>（第三、五、十一章）"]
+    OPC["<b>产生新数据的操作</b><br/>clone、不连续时的 contiguous、<br/>改 dtype 或 device 的 .to()<br/>（第六、八、九章）"]
+
+    PY --> TA
+    PY --> TV
+    TA -- "持有" --> ST
+    TV -- "持有同一个" --> ST
+    ST -- "数据指针指向" --> MEM
+    OPV -. "新建一个 TensorImpl" .-> TV
+    OPC -. "新建一个 StorageImpl 并写入数据" .-> ST
+
+    classDef op fill:#fff3cd,stroke:#b8860b;
+    classDef mem fill:#eef3fb,stroke:#3b6ea5;
+    class OPV,OPC op;
+    class ST,MEM mem;
+```
+
+- **Python 的 torch.Tensor 对象**：每次运算返回一个新的 Python 对象，它内部只有一个指向 C++ `TensorImpl` 的引用计数指针，不存数据也不存形状。
+- **TensorImpl**：一个 Tensor 的全部元数据，定义在 `c10/core/TensorImpl.h`——`sizes`、`strides`、`storage_offset` 说明怎样把一段存储读成多维数组，`dtype` 说明每个元素怎么解释，`device` 说明数据在哪，另有 Autograd 元数据和版本计数。每个 Tensor 一份，创建成本与数据量无关。
+- **StorageImpl**：数据本体的所有者，定义在 `c10/core/StorageImpl.h`，只有数据指针、字节数和分配它的 Allocator，不知道形状。多个 `TensorImpl` 可以持有同一个 `StorageImpl`，最后一个持有者消失时它才释放。
+- **设备内存**：`StorageImpl` 的数据指针指向的那块内存，在 CPU 上是主机内存，在 CUDA 上是 PyTorch 缓存分配器从驱动申请来的显存；释放后先回到缓存分配器。
+- **只改元数据的操作**：新建一个 `TensorImpl`，填上新的 `sizes` / `strides` / `storage_offset`，继续指向原来的 `StorageImpl`；不分配数据、不拷贝，代价是结果可能不连续，并让原 Storage 继续存活。
+- **产生新数据的操作**：新建一个 `StorageImpl`，把元素按新的顺序、新的 dtype 或在新的设备上写一遍；耗时和内存都与数据量成正比。
+
 ### 1. 本文的主线
 
 本文会从一个简化的 Tensor 模型开始，逐步解释 Storage、Shape、Stride、Storage Offset、dtype、device、view、拷贝和 contiguous：先建立“逻辑视图 + 物理存储”的整体模型，再逐个展开描述 Tensor 的各个字段，然后讨论 view / clone / detach / in-place 与广播这几组容易混淆的操作，最后从 Tensor 视角解释显存问题，并动手实现一个简化版 Tensor 来验证这套模型。后面 Autograd、Dispatcher、Kernel 和性能分析文章，都会以本文建立的 Tensor 心智模型为基础。
@@ -51,9 +86,8 @@ updated: 2026-11-13
 | 十一 | Broadcasting | expand 与 repeat、广播不等于复制、排查方式 |
 | 十二 | 从 Tensor 视角理解内存问题 | 数据 / 缓存 / 计算图内存、生命周期、成本模型 |
 | 十三 | 实现一个简化版 Tensor | 用 Python 复现 stride、transpose 与 contiguous copy |
-| 十四 | Java 工程师应该如何理解 Tensor | Tensor 与 Java 数组的关键差异 |
-| 十五 | 本文小结 |  |
-| 十六 | 自测 | 5 道题 |
+| 十四 | 本文小结 |  |
+| 十五 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -103,6 +137,9 @@ x = torch.tensor([
 
 这组信息共同决定了“如何解释一段内存”。
 
+> [!NOTE] Java 经验参照：嵌套集合
+> `List<List<Float>>` 描述的是对象之间的嵌套引用：外层列表存内层列表的引用，每个 `Float` 又是一个单独的装箱对象，元素分散在堆上。Tensor 的元素是一段连续存储里的原始数值，行和列只是 sizes、strides 对这段存储的解释。把 Tensor 想成嵌套集合，会漏掉后面要讲的零拷贝视图、连续性和设备这些性能与内存语义。
+
 ### 2. Tensor 的逻辑视图与物理存储
 
 Tensor 有两个需要分开的层次：
@@ -131,6 +168,9 @@ print(x.is_contiguous(), y.is_contiguous())   # True False
 ![逻辑形状相同（都是 2×3）、物理布局不同：x 的存储是 1 2 3 4 5 6、stride (3, 1)；y 的存储是 1 4 2 5 3 6、stride (1, 2)，每个逻辑下标 [i, j] 用 i·stride₀ + j·stride₁ 算出存储位置](/img/in-post/pytorch-tensor-same-shape-different-stride.svg)
 
 `x` 的存储顺序就是行优先的 `1 2 3 4 5 6`，读 `x[i, j]` 去第 `i*3 + j` 格；`y` 的存储顺序是 `1 4 2 5 3 6`（它是那个 `3×2` 矩阵按行存的），读 `y[i, j]` 去第 `i*1 + j*2` 格。**同一个逻辑下标，两个 Tensor 走到的存储位置不同，靠的就是各自的 stride。** 转置 `.t()` 没有搬动任何数据，只是把 stride 从 `(2, 1)` 换成了 `(1, 2)`——这就是第四、五章要展开的机制。
+
+> [!NOTE] Java 经验参照：多维数组
+> Java 的 `float[][]` 是数组的数组：外层数组存每一行的引用，每一行是独立的 `float[]` 对象，各行长度可以不同，转置只能新建数组逐个抄。Tensor 的“多维”只存在于元数据里，数据是一段一维存储，所以转置可以只换 stride。Java 里最接近的写法是自己用一个 `float[]` 加下标公式 `i * cols + j`——stride 相当于把公式里的系数存成了每个 Tensor 自己的字段。
 
 反过来的情况也成立：`x.t()` 形状变成 `3×2`、却和 `x` 用同一份存储。两件事合起来才是 Tensor 与普通二维数组的差异：
 
@@ -166,7 +206,7 @@ flowchart LR
 - `dtype` 决定如何解释每个元素的二进制内容；
 - `device` 决定 Storage 位于 CPU、CUDA 还是其他设备。
 
-这些字段在源码里对应两个 C++ 对象，都位于第一篇代码地图最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
+这些字段在源码里对应两个 C++ 对象，都位于[《PyTorch 整体介绍》代码地图](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
 
 ### 4. Tensor 的元素数量与占用空间
 
@@ -507,6 +547,9 @@ print(x[0])  # 100
 print(z[0])  # 200
 ```
 
+> [!NOTE] Java 经验参照：视图
+> Java 数组本身没有视图：`Arrays.copyOfRange()` 是拷贝，要共享底层数据得另用一层抽象，例如 `ByteBuffer.slice()` / `duplicate()` 或 `List.subList()`，对它们写入同样会透到原数据。PyTorch 里视图是默认行为——切片、`view()`、`transpose()` 返回的都是共享 Storage 的 Tensor，返回值的类型也看不出它是不是视图，要独立副本必须显式 `clone()`。
+
 
 ## 六、Contiguous：连续布局与数据拷贝
 
@@ -653,6 +696,9 @@ small = large[0, 0, :10].clone()
 
 这不是说所有切片都应该 clone，而是要根据对象生命周期和内存成本做决定。
 
+> [!NOTE] Java 经验参照：小视图持有大块存储
+> 这和 `List.subList()` 让整个父列表保持可达是同一类问题（JDK 7u6 之前 `String.substring()` 共享原字符串的 `char[]`，也造成过同样的内存滞留）：视图还活着，整块底层数组就不回收。Tensor 这边靠引用计数，结论相同——只要还有一个 `TensorImpl` 指向这个 Storage，它就不释放；区别是这里滞留的常常是以 GB 计的显存。
+
 
 ## 八、dtype：如何解释每个元素
 
@@ -724,6 +770,9 @@ print(z.dtype)
 
 工程中不要只凭直觉猜测结果 dtype，尤其是在混合精度、索引和整数计算中，应通过显式检查和测试确认。
 
+> [!NOTE] Java 经验参照：类型不匹配在什么时候暴露
+> 写 Java 时，`float[]` 和 `double[]` 是两个类型，`float + double` 提升为 `double` 由编译器按语言规范确定，传错类型在编译期就报出来。Tensor 的静态类型都是 `torch.Tensor`，dtype 是运行时属性，类型提升在每次算子调用时才计算；dtype 不一致的代码要到运行时才表现出来——结果的 dtype 变了、数据区大小跟着变，或者算子直接报错。习惯了靠编译器把关的读者，需要在关键位置自己断言 dtype。
+
 ### 4. dtype 转换可能产生真实拷贝
 
 ```python title='float32 转 float16'
@@ -779,6 +828,9 @@ outputs = model(inputs)
 
 “模型在 GPU 上”不会自动把之后传入的所有输入都移动到 GPU；“输入在 GPU 上”也不会自动移动模型参数。
 
+> [!NOTE] Java 经验参照：设备与堆外内存
+> Java 数组在 JVM 堆上；`ByteBuffer.allocateDirect()` 分配的堆外内存不在 GC 堆里，但仍是主机内存，CPU 可以直接读写。CUDA Tensor 的 Storage 在显存里，CPU 上的代码不能直接解引用它的数据指针，读一个值也要先做一次设备到主机的拷贝。所以 `device` 是每个 Tensor 自带的属性，不同设备的 Tensor 一起运算时 PyTorch 不会替你搬运，而是报错。
+
 ### 2. `.to()` 的两个维度
 
 `.to()` 既可以改变 device，也可以改变 dtype：
@@ -815,7 +867,7 @@ flowchart TB
     PAGE["<b>CPU pageable 内存</b><br/>DataLoader worker 进程读取、预处理"]
     PIN["CPU pinned 内存（页锁定，不会被换出）<br/>pin_memory=True 时由 DataLoader 主进程拷入"]
     H2D_SYNC["<b>H2D 拷贝：（近乎）同步</b><br/>来源是 pageable 内存，或 non_blocking=False<br/>pageable：先搬进驱动的 pinned 中转区，CPU 等这一步；<br/>non_blocking=False：CPU 等整个拷贝 —— 同步点"]
-    H2D_ASYNC["<b>H2D 拷贝：异步 DMA</b><br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，第八篇）"]
+    H2D_ASYNC["<b>H2D 拷贝：异步 DMA</b><br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，见《性能优化与调试》）"]
     GPU["GPU 显存中的 batch Tensor"]
     KERNEL["<b>Kernel 执行</b><br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
     IMPLICIT["隐式同步点：.item()、print(tensor)、.cpu()<br/>会让 CPU 等待 stream 上全部工作完成，<br/>把异步拷贝的收益吃掉"]
@@ -1159,6 +1211,9 @@ torch.cuda.memory_reserved()
 
 因此，`del x` 只删除一个 Python 名称，不代表底层数据一定立即归还操作系统或 GPU 驱动。
 
+> [!NOTE] Java 经验参照：内存何时释放
+> Java 把引用置为 `null` 之后，对象何时回收由 GC 决定，时机不确定。`del x` 同样只是去掉一个引用，但 CPython 对象和 `TensorImpl` / `StorageImpl` 都用引用计数：最后一个引用消失时 Storage 立即释放（对象陷在引用环里时才要等 Python 的循环垃圾回收）。释放出来的显存回到 PyTorch 的缓存分配器而不是驱动——这一层类似 JVM 回收对象后，堆空间不一定还给操作系统——所以 `nvidia-smi` 看到的占用不降。
+
 ### 3. Tensor 生命周期比变量名更重要
 
 ```python title='把 model(batch) 直接存进列表'
@@ -1310,62 +1365,7 @@ def contiguous(self):
 它的意义不是替代 PyTorch，而是把一个真实框架中的关键数据结构缩小到可以观察的范围。
 
 
-## 十四、Java 工程师应该如何理解 Tensor
-
-### 1. Tensor 不是 `List<List<Float>>`
-
-`List<List<Float>>` 主要描述对象之间的嵌套关系，而 Tensor 还描述：
-
-- 连续的底层存储；
-- 元素类型；
-- 逻辑 shape；
-- stride；
-- offset；
-- CPU/GPU 设备；
-- 梯度关系；
-- 共享 Storage 和生命周期。
-
-把 Tensor 理解成嵌套集合，会漏掉 PyTorch 最重要的性能和内存语义。
-
-### 2. Tensor 更接近“带布局的设备内存视图”
-
-对于 AI-Infra 工程师，一个更有用的近似是：
-
-```text title='Tensor 更接近"带布局的设备内存视图"'
-Tensor
-    = 一段设备内存
-    + 对这段内存的形状解释
-    + 对地址计算的 stride 规则
-    + dtype 和 device 元数据
-    + 可选的 Autograd 关系
-```
-
-这不是 Tensor 的完整定义，但足以帮助分析：
-
-- 一个操作是否复制数据；
-- 为什么转置可以很便宜；
-- 为什么某些 Kernel 需要 contiguous；
-- 为什么设备迁移成本很高；
-- 为什么保存一个小 view 可能持有大块内存。
-
-### 3. 与 Java 数组的关键差异
-
-| 维度 | Java 数组 | PyTorch Tensor |
-|---|---|---|
-| 数据布局 | 数组对象和元素布局由 JVM 管理 | Storage、shape、stride 可以分离 |
-| 多维结构 | `T[][]` 常是数组的数组 | 通常是一段 Storage 加 metadata |
-| 视图 | 需要显式抽象 | view 可以共享底层 Storage |
-| 设备 | 通常在主机内存 | CPU、CUDA 和其他设备均可 |
-| 类型 | 编译期类型系统为主 | dtype 参与运行时计算语义 |
-| 数值计算 | 通常由循环和库完成 | 交给算子、Kernel 和硬件后端 |
-| 内存释放 | GC 管理对象可达性 | Python 引用、Storage、Autograd、Allocator 共同影响 |
-
-Table: Java 数组与 PyTorch Tensor 的关键差异
-
-类比的价值在于搭桥，但不能让 Java 的数组和对象模型覆盖 Tensor 的真实语义。
-
-
-## 十五、本文小结
+## 十四、本文小结
 
 Tensor 是 PyTorch 编程模型的核心数据抽象。理解它，不能只停留在：
 
@@ -1387,15 +1387,24 @@ x.device
 
 ### 1. Tensor 的基本模型
 
-```text title='Tensor 的基本模型：Storage 加五项元数据'
+分析工程问题时，可以把 Tensor 近似成一个“带布局的设备内存视图”：
+
+```text title='Tensor 的基本模型：一段设备内存加上对它的解释'
 Tensor
-    = Storage
-    + Shape
-    + Stride
-    + Storage Offset
-    + Dtype
-    + Device
+    = Storage：一段设备内存
+    + Shape：对这段内存的形状解释
+    + Stride、Storage Offset：地址计算规则
+    + Dtype、Device：元素类型与所在设备
+    + 可选的 Autograd 关系
 ```
+
+这不是 Tensor 的完整定义，但足以回答：
+
+- 一个操作是否复制数据；
+- 为什么转置可以很便宜；
+- 为什么某些 Kernel 需要 contiguous；
+- 为什么设备迁移成本很高；
+- 为什么保存一个小 view 可能持有大块内存。
 
 ### 2. View 与拷贝
 
@@ -1455,11 +1464,11 @@ flowchart TB
 
 Table: 本篇涉及的源码位置
 
-下一篇将进入 Tensor 之上的梯度系统：
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)将进入 Tensor 之上的梯度系统：
 
 > **Autograd 如何把一次次 Tensor 运算连接成动态计算图，并在 backward 阶段沿图传播梯度？**
 
-## 十六、自测
+## 十五、自测
 
 1. 形状 `[2, 3, 4]` 的连续 Tensor，strides 是什么？`x.transpose(0, 2)` 之后 shape 与 strides 是什么、连续吗？
 

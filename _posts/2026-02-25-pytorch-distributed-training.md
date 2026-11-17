@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（09）：分布式 PyTorch"
 subtitle: "Distributed Training in PyTorch: Collectives, DDP, FSDP, TP, PP, CP and EP"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-前八篇都在一张卡上。第八篇末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，第八篇案例里那个 38M 参数的小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
+本系列前面各篇都在一张卡上。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，那一篇案例里的 38M 参数小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
 
 这一篇回答加卡之后的问题：
 
@@ -23,6 +23,43 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 本篇主要从训练出发，把每种并行的**通用机制**（切什么、通信什么、正向反向各通信几次、通信量怎么算）讲透，再加上训练特有的部分（梯度同步、状态分片、反向重叠、流水线调度）。推理特有的内容本文不做介绍。
 
 ## 一、总览：为什么需要多卡
+
+先把全文的机制连成一条链：进程怎样起来，五类状态由哪种策略复制或分片，通信最后落到哪里。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：分布式训练的机制总览：从 torchrun 起进程到并行策略、集合通信与链路
+flowchart TB
+    LAUNCH["<b>torchrun</b><br/>每台机器起 nproc_per_node 个进程<br/>设 RANK / LOCAL_RANK / WORLD_SIZE（第十章）"]
+    RANKS["<b>N 个 rank 进程（SPMD）</b><br/>同一份脚本，各绑一张 GPU<br/>各自持有五类状态的副本或分片（第二章）"]
+    MESH["<b>进程组与 DeviceMesh</b><br/>init_process_group 建默认组<br/>DeviceMesh 按 dp / tp 等维度切出子组（第二、九章）"]
+    subgraph STRAT["并行策略：对五类状态各选复制或分片"]
+        direction TB
+        DDP["<b>DDP</b><br/>数据分片，其余复制<br/>Reducer 按桶 all_reduce 梯度（第三章）"]
+        FSDP["<b>FSDP2：fully_shard</b><br/>参数、梯度、优化器状态分片<br/>all_gather → 计算 → reduce_scatter（第四章）"]
+        ACT["<b>TP / PP / CP / EP</b><br/>切层内、层间、序列、expert<br/>通信的是激活值（第五至八章）"]
+        DDP ~~~ FSDP ~~~ ACT
+    end
+    PG["<b>ProcessGroupNCCL</b><br/>集合通信原语变成 NCCL Kernel<br/>在通信 Stream 上执行，返回 Work 句柄（第二章）"]
+    WIRE["<b>链路：NVLink / InfiniBand</b><br/>带宽决定通信能否藏进计算<br/>也决定哪个维度放节点内（第九、十章）"]
+    OPS["<b>运行时</b><br/>DistributedSampler 切数据<br/>DCP 存分片 checkpoint，Flight Recorder 查 hang（第十章）"]
+    LAUNCH --> RANKS --> MESH --> STRAT
+    STRAT -- "每个决定对应一种原语和一个时机" --> PG
+    PG --> WIRE
+    RANKS -. "喂数据 / 存盘 / 排障" .-> OPS
+    classDef comm fill:#fde68a,stroke:#b45309;
+    classDef strat fill:#dcfce7,stroke:#15803d;
+    class PG,WIRE comm;
+    class DDP,FSDP,ACT strat;
+```
+
+- **torchrun**：启动器。在每台机器上起 `nproc_per_node` 个进程，用环境变量告诉每个进程它的 rank；进程失败时整体重启。
+- **rank 进程**：SPMD 的执行单位。N 个进程跑同一份脚本，没有 master；训练的五类状态（数据、参数、梯度、优化器状态、激活值）就存在这些进程各自的 GPU 上。
+- **进程组与 DeviceMesh**：集合通信的参与者名单。默认组含全部 rank，`DeviceMesh` 把 rank 排成多维网格，每一维是一组子进程组，供 FSDP2、TP、CP 使用。
+- **并行策略**：对每类状态做「复制还是分片」的决定。DDP 只分片数据；FSDP2 再分片参数、梯度和优化器状态；TP / PP / CP / EP 切开计算本身，分片的是激活值和层。
+- **ProcessGroupNCCL**：通信后端。策略发出的 `all_reduce`、`all_gather`、`reduce_scatter` 等在这里变成 GPU 上的 NCCL Kernel，跑在独立的通信 Stream 上，调用方拿到 `Work` 句柄。
+- **链路**：节点内 NVLink、节点间 InfiniBand，带宽差一个量级；通信量除以带宽与计算时间的比较，决定一种配置能否接近线性扩展。
+- **运行时**：`DistributedSampler` 让各 rank 看到互不重叠的数据，DCP 保存分片状态及其布局，Flight Recorder 记录每次集合通信，用于排查 hang。
 
 ### 1. 两个极限
 
@@ -55,6 +92,9 @@ Table: 五类训练状态的复制与分片含义
 | 分片 | 1/N | 用到时要凑齐完整的一份 → 聚合（all-gather）、用完再分发（reduce-scatter） |
 
 Table: 复制与分片各自的显存与通信含义
+
+> [!NOTE] Java 经验参照：副本与分库分表
+> 这两种选择和后端存储的两种扩展方式是同一个结构：加副本，每个节点一份完整数据，写入要同步到所有副本，扩的是吞吐而不是容量；分库分表，每个节点只有 1/N，扩的是容量，代价是跨分片查询要先把数据聚到一起。不同之处在于同步的频率：训练里每个 step 都要同步或聚合一次，而且是全体参与的集合通信，没有「异步复制、最终一致」这一档。
 
 于是每个"复制还是分片"的决定，都同时决定了三件事：**这类状态占多少显存、需要哪种通信原语、通信发生在 step 的哪个时刻**。这就是本文的主线。
 
@@ -98,10 +138,9 @@ Table: 复制与分片各自的显存与通信含义
 | 八 | 并行策略（6）：EP | 切分 Expert |
 | 九 | 并行策略的组合与选择 | 训练 vs 推理、决策顺序、多维 mesh、统一表 |
 | 十 | 运行时与工程 | 启动、数据、Checkpoint、拓扑、性能与故障 |
-| 十一 | 完整案例 | 把第八篇的 Transformer block 扩到 8 卡、再扩到 4 机 |
-| 十二 | Java 对照 | |
-| 十三 | 本文小结 | |
-| 十四 | 自测 | 5 道题 |
+| 十一 | 完整案例 | 把[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的 Transformer block 扩到 8 卡、再扩到 4 机 |
+| 十二 | 本文小结 | |
+| 十三 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
@@ -138,6 +177,20 @@ dist.destroy_process_group()
 用 `torchrun --nproc_per_node=8 script.py` 启动，就会有 8 个进程运行这段代码。启动机制第十章 §1 细讲。
 
 SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有参与的进程以相同的顺序调用**。如果 rank 0 走了 `if` 分支多调用了一次 `all_reduce`，而其他 rank 没有，rank 0 会永远等待——这是分布式训练中最常见的 hang 成因，第十章 §6 讨论。
+
+> [!NOTE] Java 经验参照：SPMD 与微服务
+> 微服务所在的那种「分布式」和 SPMD 在几个基本假设上相反：
+>
+> | | 微服务 | SPMD 训练 |
+> |---|---|---|
+> | 角色 | 异构：gateway / order / payment 各跑各的代码 | 同构：N 个 rank 跑同一份脚本 |
+> | 交互 | RPC，调用方与被调方两两请求-响应 | 集合通信，组内所有进程同时参与，每步对齐一次 |
+> | 一致性 | 服务间通常是最终一致，靠幂等与补偿 | 每步强一致：DDP 下各 rank 的参数始终相同 |
+> | 协调者 | 注册中心、配置中心常驻 | 没有；rendezvous 之后各 rank 对等 |
+>
+> Table: 微服务与 SPMD 训练的对照
+>
+> Java 生态里更接近 SPMD 的是 Spark / Flink 一个 stage 内的 task：同一段代码在所有分区上跑。区别是 Spark 有 driver 调度 task、失败的 task 可以单独重跑，SPMD 两样都没有。
 
 ### 2. 进程组与后端
 
@@ -188,6 +241,9 @@ DeviceMesh 是 FSDP2、TP、CP API 的共同输入，第三至九章会反复用
 - `barrier`：所有人到齐后才继续。
 - `send` / `recv`：点对点，一个 rank 发给另一个。
 
+> [!NOTE] Java 经验参照：barrier 与 CyclicBarrier
+> `dist.barrier()` 的语义与 `java.util.concurrent.CyclicBarrier.await()` 相同：所有参与者到齐才放行。区别是参与者是跨机器的进程而不是同一个 JVM 里的线程，所以「有人没来」时没有 `BrokenBarrierException` 通知其他人，只能靠超时发现。
+
 对应的 API（`torch.distributed` 命名空间）：
 
 ```python title="对应的 torch.distributed API"
@@ -213,6 +269,19 @@ dist.send(t, dst=1);  dist.recv(t, src=0)
 
 Table: 集合通信原语在并行策略中的用途
 
+> [!NOTE] Java 经验参照：集合通信与 Spark 的聚合、shuffle
+> 用过 Spark 的读者可以这样对应数据流向：
+>
+> | 原语 | Spark 里数据流向相同的操作 |
+> |---|---|
+> | all_reduce | `reduce` 得到一个结果，再 `broadcast` 给所有 executor |
+> | all_gather | `collect()` 拿到全部分区，再 `broadcast` 回去 |
+> | all_to_all | shuffle：每个上游分区把第 i 段发给下游分区 i |
+>
+> Table: 集合通信原语与 Spark 操作的数据流向对应
+>
+> 对应的只是数据流向。Spark 的结果先回到 driver 再下发；集合通信没有 driver，数据在 rank 之间直接走 GPU 到 GPU 的链路，输入输出都是每个进程显存里的 Tensor。
+
 一个恒等式贯穿全文：
 
 > **all_reduce = reduce_scatter + all_gather**
@@ -229,7 +298,7 @@ Table: 集合通信原语在并行策略中的用途
 T(n) = α + β · n        α：延迟（固定开销，微秒级）    β：每字节传输时间 = 1 / 带宽    n：字节数
 ```
 
-小消息由 α 主导，大消息由 β·n 主导。这和第八篇 Kernel launch 的固定成本是同一个结构：**消息越小越浪费，所以要把小消息合并成大消息**——这就是 DDP 梯度桶（第三章 §2）存在的理由，也是 FSDP 分片单元不能太小（第四章 §4）的理由。
+小消息由 α 主导，大消息由 β·n 主导。这和[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里 Kernel launch 的固定成本是同一个结构：**消息越小越浪费，所以要把小消息合并成大消息**——这就是 DDP 梯度桶（第三章 §2）存在的理由，也是 FSDP 分片单元不能太小（第四章 §4）的理由。
 
 **Ring all-reduce 分步走一遍**
 
@@ -285,7 +354,7 @@ NCCL 还按消息大小选择**协议**：`LL`（8 字节数据 + 标志位一�
 
 ### 5. 通信也是异步的
 
-第八篇建立的异步模型在这里延伸：**NCCL 的集合通信也是 GPU 上的 Kernel**，在 Profiler 里以 `ncclDevKernel_AllReduce_...` 之类的名字出现，运行在 PyTorch 为通信专门创建的 CUDA Stream 上，与计算 Stream 并行。
+[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)建立的异步模型在这里延伸：**NCCL 的集合通信也是 GPU 上的 Kernel**，在 Profiler 里以 `ncclDevKernel_AllReduce_...` 之类的名字出现，运行在 PyTorch 为通信专门创建的 CUDA Stream 上，与计算 Stream 并行。
 
 ```python title="async_op=True：通信在后台进行"
 work = dist.all_reduce(t, async_op=True)     # 立即返回 Work 句柄，通信在后台进行
@@ -303,7 +372,10 @@ work.wait()                                  # 让当前 Stream 等待通信完�
 4. CPU 调 `work.wait()`，同样立即返回。它只是让 compute stream 等 NCCL stream 上的一个事件。
 5. CPU 提交依赖 t 的后续 kernel。它排在等待之后，事件完成、t 可用时才开始执行。
 
-`async_op=False`（默认）等价于调用后立刻 `wait()`——注意即使如此 CPU 也**不**阻塞，只是让计算 Stream 排在通信之后。真正的 CPU 阻塞只发生在 `.item()`、`synchronize()` 这类第八篇讨论过的同步点。
+`async_op=False`（默认）等价于调用后立刻 `wait()`——注意即使如此 CPU 也**不**阻塞，只是让计算 Stream 排在通信之后。真正的 CPU 阻塞只发生在 `.item()`、`synchronize()` 这类[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讨论过的同步点。
+
+> [!NOTE] Java 经验参照：Work 与 CompletableFuture
+> `Work` 的角色像 `CompletableFuture`：发起异步操作时拿到句柄，之后再要求「完成后才继续」。但 `CompletableFuture.join()` 阻塞的是调用它的 Java 线程；NCCL 后端的 `work.wait()` 默认只在 GPU 上登记「计算 Stream 等通信 Stream 的一个事件」，Python 线程立即往下走。所以在 `wait()` 前后用 `time.time()` 计时量不出通信耗时，要看 Profiler 的 GPU 时间线。
 
 这个机制是"通信与计算重叠"的基础：反向传播还在算后面几层的梯度时，前面几层的梯度已经在通信 Stream 上做 all_reduce。两条 Stream 同时占用 GPU 的不同资源（SM 算力 vs 网络/拷贝引擎），互不阻塞。第三章 §2 和第四章 §5 分别是 DDP 和 FSDP 对它的运用。
 
@@ -348,7 +420,7 @@ for x in loader:                                       # loader 用 DistributedS
 
 ### 2. Reducer：把 all_reduce 藏进反向
 
-DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参数注册一个 autograd hook（`Tensor.register_post_accumulate_grad_hook`，挂在第三篇计算图末端那个把梯度累积进 `.grad` 的节点上），当某个参数的梯度在反向中算完，hook 通知 Reducer。
+DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参数注册一个 autograd hook（`Tensor.register_post_accumulate_grad_hook`，挂在[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)里计算图末端那个把梯度累积进 `.grad` 的节点上），当某个参数的梯度在反向中算完，hook 通知 Reducer。
 
 如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce。从"参数 → hook → 桶 → all_reduce"的结构看：
 
@@ -447,7 +519,7 @@ with Join([model]):
 
 **随机性**：Dropout 等操作在各 rank 上应使用**不同**的随机数（否则相当于没有增加样本多样性），而参数初始化应**相同**（DDP 构造时的 broadcast 保证了这一点，即使各 rank 初始化不同）。
 
-**`torch.compile`**：`torch.compile(DDP(model))` 时，Dynamo 的 DDPOptimizer 会在桶边界插入 graph break（第七篇），让编译后的图仍能在反向中触发 Reducer 的 hook。否则整张图的反向作为一个整体，所有梯度同时就位，桶的重叠机制失效。
+**`torch.compile`**：`torch.compile(DDP(model))` 时，Dynamo 的 DDPOptimizer 会在桶边界插入 graph break（见[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)），让编译后的图仍能在反向中触发 Reducer 的 hook。否则整张图的反向作为一个整体，所有梯度同时就位，桶的重叠机制失效。
 
 ### 6. 何时够用
 
@@ -634,6 +706,9 @@ fully_shard(block, mesh=mesh)    # 2D mesh：在 shard 维分片，在 replicate
 
 参数在节点**内**分片（all_gather 和 reduce_scatter 走 NVLink），在节点**间**复制：每个节点 reduce_scatter 之后，各 rank 只对自己持有的 **1/8 梯度分片**做跨节点 all_reduce。跨 IB 的流量因此从 FSDP 的 3P 降到 2P/8，而且可以按层与反向重叠。用主线的话说：同一类状态在不同的 mesh 维上做不同的决定。代价是每个节点持有完整的一份状态，显存不再随节点数下降。
 
+> [!NOTE] Java 经验参照：分片乘副本
+> HSDP 的布局就是 Kafka 的 partition × replica、Elasticsearch 的 shard × replica：先分片解决容量，再给每个分片加副本。目的不同：存储系统加副本是为了可用性，一个副本挂了由另一个接替；HSDP 的副本是为了让更多的卡各算一份数据，任何一个 rank 挂掉整个作业照样要重启。
+
 ### 8. CPU offload 与显存的再一次交换
 
 FSDP 允许把分片后的参数、梯度和优化器状态放到 CPU 内存，只在计算时搬到 GPU：
@@ -647,7 +722,7 @@ fully_shard(block, mesh=mesh, offload_policy=CPUOffloadPolicy())
 
 ### 9. 混合精度策略
 
-`MixedPrecisionPolicy` 与第四篇的 `autocast` 不同，它作用在**参数存储**层面：
+`MixedPrecisionPolicy` 与[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)的 `autocast` 不同，它作用在**参数存储**层面：
 
 - **`param_dtype`**：all_gather 时把 fp32 分片 cast 成 bf16 再通信 → 通信量减半，计算用 bf16；
 - **`reduce_dtype`**：reduce_scatter 用的 dtype；fp32 更稳定，代价是梯度通信量翻倍；
@@ -699,7 +774,7 @@ f 和 g 互为**共轭**：一个前向通信、反向不通信，另一个反�
 
 **Attention 按 head 切**。q、k、v 的三个投影是列并行，每个 rank 得到 heads/N 个 head 的 q、k、v（H/N 列刚好是 heads/N 个 head 拼起来）；attention 计算在 head 之间独立，各 rank 本地完成；输出投影 proj 是行并行，末尾 all_reduce。要求 head 数能被 N 整除；GQA 时 kv head 数也要能整除。
 
-这里有一个工程细节：第八篇案例把 q、k、v 合并成一个 `qkv` Linear（3H 列）。对它做列并行，每个 rank 拿到的是 3H/N 列——是 q 的一段、k 的一段、v 的一段**交错**在一起，本地 `split(H, dim=-1)` 会切错。要么把 qkv 拆成三个 Linear，要么在切分时按 [q 段, k 段, v 段] 的顺序重排权重（Megatron 的做法）。第十一章案例会先做这个改动。
+这里有一个工程细节：[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的案例把 q、k、v 合并成一个 `qkv` Linear（3H 列）。对它做列并行，每个 rank 拿到的是 3H/N 列——是 q 的一段、k 的一段、v 的一段**交错**在一起，本地 `split(H, dim=-1)` 会切错。要么把 qkv 拆成三个 Linear，要么在切分时按 [q 段, k 段, v 段] 的顺序重排权重（Megatron 的做法）。第十一章案例会先做这个改动。
 
 **Embedding 按 vocab 切**（行并行的变体）：每个 rank 持有词表的 1/N 行，查表时不在自己范围内的 token 输出 0，然后 all_reduce——只有一个 rank 贡献非零值，求和等于查表结果。
 
@@ -825,7 +900,7 @@ torch._inductor.config._micro_pipeline_tp = True
 model = torch.compile(model)
 ```
 
-这是第七篇编译器与本篇通信的交汇点：图优化的对象不再只是算子，也包括通信。推理引擎在前向图上做的是同一件事。
+这是[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)里的编译器与本篇通信的交汇点：图优化的对象不再只是算子，也包括通信。推理引擎在前向图上做的是同一件事。
 
 ## 六、并行策略（4）：PP——切分层与层之间
 
@@ -902,7 +977,7 @@ for x, y in loader:
 
 `schedule.step` 内部按调度表执行 micro-batch 的前向、反向和 stage 间的 send/recv；micro-batch 的梯度在本 stage 内累积，最后由普通的优化器更新。
 
-也可以让框架自动切分——`pipeline()` 用 `torch.export` 追踪整个模型（第七篇的导出机制），在指定的模块边界切开：
+也可以让框架自动切分——`pipeline()` 用 `torch.export` 追踪整个模型（[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的导出机制），在指定的模块边界切开：
 
 ```python title="pipeline() 自动切分"
 from torch.distributed.pipelining import pipeline, SplitPoint
@@ -1035,6 +1110,9 @@ flowchart TB
 训练特有的两个问题：
 
 **负载不均**：router 是学出来的，热门 expert 收到的 token 可能是冷门的几十倍，持有它的 rank 成为 straggler。训练时加**负载均衡辅助 loss**鼓励均匀路由，或设 **capacity factor** 限制每个 expert 每 step 最多接收的 token 数（超出的 token 被丢弃、直接走残差）。
+
+> [!NOTE] Java 经验参照：按 key 路由与热 key
+> dispatch 相当于按 key 把记录 shuffle 到分片，key 是 router 选出的 expert 编号；热门 expert 就是热 key，持有它的 rank 就是倾斜的分片。数据系统处理倾斜靠加盐、拆分热 key，路由规则不变；这里的「哈希函数」是学出来的 router，所以可以直接用辅助 loss 改路由本身，或者用 capacity factor 丢掉超额的 token——后者在数据系统里不可接受，在训练里只是少了一点信号。
 
 **两套数据并行组**：EP 通常与 DP 组合——例如 64 卡，EP=8、DP=8。稠密参数（attention）在全部 64 卡上复制，梯度在 64 卡的组里归约；expert 参数只在 8 个 DP 副本间复制（每个 expert 存在于 8 张卡上），梯度在**另一个** 8 卡的组里归约。两类参数走不同的进程组，FSDP 也要分别施加在两组参数上。这是 EP 在训练中比推理多出来的复杂度。
 
@@ -1180,7 +1258,10 @@ torchrun --nnodes=2 --nproc_per_node=8 --node_rank=0 \
 
 `init_process_group()` 不带参数时读这些变量。所有进程通过 `MASTER_ADDR:MASTER_PORT` 上的 TCPStore 交换 NCCL 的通信 ID，之后的通信不再经过它。
 
-`torchrun` 还提供弹性能力（`--max_restarts`）：某个进程失败时杀掉所有进程、从 checkpoint 重启。这反映了 NCCL 训练的故障模型——**任何一个 rank 挂掉，集合通信就无法完成，整个作业必须重启**。没有"部分失败继续运行"的选项（第十二章会与微服务对比）。
+`torchrun` 还提供弹性能力（`--max_restarts`）：某个进程失败时杀掉所有进程、从 checkpoint 重启。这反映了 NCCL 训练的故障模型——**任何一个 rank 挂掉，集合通信就无法完成，整个作业必须重启**。没有"部分失败继续运行"的选项。
+
+> [!NOTE] Java 经验参照：故障模型
+> 微服务把部分失败当常态，用熔断、重试、降级把故障隔离在一个实例里。这些手段在这里用不上：一次集合通信缺一个参与者就无法完成，没有可以降级返回的「部分结果」。训练作业的容错只有一种，全体停下、从最近的 checkpoint 重来；`--max-restarts` 只是把这个动作自动化。
 
 ### 2. 数据切分与随机性
 
@@ -1203,6 +1284,9 @@ for epoch in range(epochs):
 - 各 rank 的数据量必须**相等**（`DistributedSampler` 默认 `drop_last=False` 时会填充到相等）。如果 rank 0 多跑一个 batch，它会多调用一次 `backward` 里的 all_reduce，其他 rank 已经进入下一个 epoch 或退出——hang（§6）。
 
 随机性：参数初始化各 rank 应相同（DDP 的 broadcast 或 FSDP 的确定性 `init_weights` 保证），Dropout 等应不同（各 rank 用 `seed + rank`；TP 组内则必须相同，否则复制的激活不一致）。数据加载的随机性由 sampler 的 `seed` 控制，各 rank 必须相同，否则切分不互补。
+
+> [!NOTE] Java 经验参照：DistributedSampler 与 consumer group
+> 结果上它像 Kafka 的 consumer group：一个 topic 的 partition 被组内 consumer 互不重叠地分走。机制上相反：consumer group 由 group coordinator 分配并在成员变化时 rebalance；`DistributedSampler` 没有协调者，每个 rank 用相同的 `seed` 和 `epoch` 各自算出同一个全局排列，再按自己的 rank 取第 rank、rank + N、rank + 2N … 个索引。所以各 rank 的 seed、`set_epoch` 的参数必须一致，否则各算各的排列，切分就会重叠或遗漏，而且不会报错。
 
 ### 3. Checkpoint
 
@@ -1236,6 +1320,9 @@ set_state_dict(model, optimizer, model_state_dict=model_sd, optim_state_dict=opt
 
 优化器状态是 checkpoint 中最大的部分（12P 中的 8P 是 Adam 的 m、v）。7B 模型完整 checkpoint 约 100 GB，写盘时间和存储带宽是大规模训练中真实的工程约束。
 
+> [!NOTE] Java 经验参照：checkpoint 与 Flink 的 savepoint
+> DCP「按新的并行度重新切分」的能力，对应 Flink 从 savepoint 恢复时改并行度：两者保存的都是带布局元数据的分片状态，而不是「第 k 个进程的内存」。容错方式也相近，失败后回到上一个 checkpoint。不同的是训练没有可重放的输入日志和 exactly-once 语义：回滚之后把丢掉的那些 step 重新算一遍即可，所以 checkpoint 间隔只是「失败时重算多少」与「平时写盘多少」之间的权衡。
+
 ### 4. 多机拓扑
 
 第二章 §4 给出了带宽层级。真实机器上的拓扑：
@@ -1263,7 +1350,7 @@ NCCL INFO Connected all rings, Connected all trees
 
 ### 5. 通信性能分析
 
-第八篇的工具在分布式下继续可用，多了几个要看的东西。
+[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的工具在分布式下继续可用，多了几个要看的东西。
 
 **Profiler 时间线**中 NCCL Kernel 出现在独立的 Stream 泳道上，名字形如 `ncclDevKernel_AllGather_RING_LL` 或 `ncclDevKernel_ReduceScatter_Sum_bf16_RING_LL`。判断重叠：
 
@@ -1281,7 +1368,7 @@ NCCL INFO Connected all rings, Connected all trees
 1. **通信没有重叠**：Profiler 中 NCCL Kernel 期间计算空白 → 检查 prefetch、桶大小、`find_unused_parameters`；
 2. **通信量超过带宽能藏的量**：通信时间 > 反向计算时间 → 换策略（FSDP → HSDP）、降低 `reduce_dtype`、增大 per-rank batch；
 3. **Straggler**：某个 rank 慢，其他 rank 在 all_reduce 上等它 → Profiler 中大量 NCCL 时间但实际传输很短；原因：数据加载不均、某卡降频、CPU 争抢、NUMA 绑定错误、EP 的路由不均；
-4. **per-rank batch 太小**：加卡后每卡 batch 变小 → 回到第八篇的 launch-bound；
+4. **per-rank batch 太小**：加卡后每卡 batch 变小 → 回到[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的 launch-bound；
 5. **跨节点带宽**：`NCCL_DEBUG` 确认是否走了 IB；`nvidia-smi topo` 确认 GPU 与网卡的亲和。
 
 NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情况下测量集群的原始集合通信带宽（第二章 §4 的 busbw），是排除"网络本身有问题"的第一步。
@@ -1346,6 +1433,9 @@ torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺�
 
 它直接回答"谁没来"，比对着 N 个 rank 的日志猜要快得多。
 
+> [!NOTE] Java 经验参照：hang 与死锁
+> Java 的死锁是线程之间循环等待对方持有的锁，`jstack` 能直接报出环。集合通信的 hang 没有环，是 N 个参与者里有人**缺席**（没调用、调用顺序不同、已经退出），其余的人一直等。诊断动作相同：拿到所有参与者的栈再比较，`py-spy dump` 相当于 `jstack`，只是要对每个 rank 各做一次。`TORCH_DISTRIBUTED_DEBUG=DETAIL` 类似 `-ea`、`-Xcheck:jni`，开了很慢但能在出错的那次调用上报错。另外，这里的 Flight Recorder 与 JDK Flight Recorder（JFR）只是同名：它不采样 CPU 和内存，只记录最近若干次集合通信的元信息。
+
 ### 7. 为什么加卡不线性
 
 大纲里的问题，现在可以系统回答。扩展效率低于 1 的原因，按主线分为四组：
@@ -1357,9 +1447,12 @@ torchfrtrace --prefix /tmp/nccl_trace_rank_          # 分析：哪个 rank 缺�
 
 前三组是本文的范围，第四组是为什么"卡多了 loss 反而降得慢"的解释——分布式系统做到了线性吞吐，但每个样本的价值下降了。工程上用学习率缩放、warmup 和更长的训练来补偿。
 
+> [!NOTE] Java 经验参照：Amdahl 定律与 USL
+> 调过线程池或连接池的读者见过同样形状的曲线。按 Universal Scalability Law 的说法：不能与计算重叠的通信相当于串行部分（争用项），加多少卡都不缩短；同步等待相当于一致性代价（相干项），参与者越多越可能等到一个慢的，这一项会让曲线过了某个 N 之后掉头向下。注意 USL 惯用的系数也叫 α、β，与本文成本模型里的延迟 α、带宽倒数 β 不是同一组量。第四组原因（算法效率）不在这类模型里：它不降低吞吐，降低的是每个样本的价值。
+
 ## 十一、完整案例：从 8 卡到 4 机
 
-接着第八篇的案例。终点是：12 层 Transformer block，H=512，约 38M 参数，B=64，bf16 + compile + SDPA，单卡 29 ms/step，2207 samples/s，峰值显存 8.4 GB。GPU 已饱和。数字为示意，比例关系反映真实规律。
+接着[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的案例。终点是：12 层 Transformer block，H=512，约 38M 参数，B=64，bf16 + compile + SDPA，单卡 29 ms/step，2207 samples/s，峰值显存 8.4 GB。GPU 已饱和。数字为示意，比例关系反映真实规律。
 
 ### 1. 第一步：DDP，8 卡
 
@@ -1404,7 +1497,7 @@ model.to_empty(device="cuda"); model.init_weights()
 
 通信账：all_gather 2 × 14 GB（bf16 参数）+ reduce_scatter 28 GB（fp32 梯度）= 56 GB / rank / step，NVLink 下约 190 ms，占 4.2 s 的 4.5%。Profiler 时间线中 NCCL Kernel 与计算并排，暴露的只有第一层前向的 all_gather 和最后一层反向的 reduce_scatter，合计不到 40 ms。**通信已隐藏，瓶颈回到计算**：`aten::mm` 占 78%，Tensor Core 利用率接近上限。
 
-对照单卡：单卡放不下，扩展效率无法定义；但 8 卡的 GPU 利用率与第八篇单卡饱和时相当，FSDP 的 3P 通信没有成为代价。
+对照单卡：单卡放不下，扩展效率无法定义；但 8 卡的 GPU 利用率与《性能优化与调试》单卡饱和时相当，FSDP 的 3P 通信没有成为代价。
 
 ### 3. 第三步：4 机 32 卡
 
@@ -1439,7 +1532,7 @@ fully_shard(block, mesh=mesh, mp_policy=mp)
 
 | 改动 | 吞吐 | 每卡显存 | 通信/step/rank | 暴露的通信 | 代价 |
 |---|---|---|---|---|---|
-| 单卡（第八篇终点） | 2207 samples/s | 8.4 GB | 0 | 0 | — |
+| 单卡（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的终点） | 2207 samples/s | 8.4 GB | 0 | 0 | — |
 | 8 卡 DDP | 16800 samples/s（95%） | 8.6 GB | 264 MB | 0.3 ms | 总 batch 变 512，需调学习率 |
 | 放大到 7B：8 卡 FSDP + checkpointing | 62k tokens/s | 31 GB | 56 GB | 40 ms | 通信 3P 全部隐藏；重算 +33% 计算 |
 | 32 卡 FSDP | 154k tokens/s（62%） | 10 GB | 56 GB（跨 IB） | 0.6 s | 通信不随卡数减少，计算随 batch 减少 |
@@ -1449,69 +1542,7 @@ Table: 多卡优化报告：每项改动的吞吐、显存与通信
 
 每一步的决策依据都是第九章 §4 那张表的两列：**先看每卡显存放不放得下，再看通信时间能不能被计算隐藏**。第三步还展示了第十章 §7 的第一组和第三组原因同时发生：卡数翻四倍，通信量不变而计算量缩到四分之一，两条曲线交叉，扩展效率断崖式下跌。
 
-## 十二、Java 工程师如何理解分布式 PyTorch
-
-Java 工程师做过分布式系统，但 PyTorch 分布式训练和微服务、消息队列所在的那个"分布式"在几个基本假设上相反。先说相反的，再说相通的。
-
-### 1. SPMD vs 微服务
-
-微服务架构中不同进程运行**不同的代码**、承担不同角色，通过 RPC 异步交互，任何一个服务的失败应当被隔离。SPMD 中所有进程运行**同一份代码**，通过集合通信**同步**交互，任何一个进程失败则全体失败。
-
-| | 微服务 | SPMD 训练 |
-|---|---|---|
-| 角色 | 异构：gateway / order / payment | 同构：N 个 rank 跑同一脚本 |
-| 交互 | RPC，请求-响应，异步 | 集合通信，所有人同时参与，BSP 同步 |
-| 失败模型 | 部分失败，熔断、重试、降级 | 任一失败 → 全体重启（从 checkpoint） |
-| 一致性 | 最终一致，幂等，补偿 | 每步强一致：所有 rank 的参数逐位相同 |
-| 协调者 | 注册中心、配置中心 | 没有；rendezvous 之后各 rank 对等 |
-
-Table: 微服务与 SPMD 训练的对照
-
-最接近 SPMD 的 Java 世界的东西是 MPI 风格的 HPC 程序，或者 Spark/Flink 的一个 stage 内所有 task 的执行——同一段代码在所有分区上跑，stage 边界做 shuffle 同步。
-
-### 2. 复制 vs 分片：数据库的类比
-
-本文的主线在数据库领域有精确对应：
-
-| 并行策略 | 数据库领域的对应 |
-|---|---|
-| 复制（DDP） | 读副本：每个节点一份完整数据，写入时同步（all_reduce ≈ 同步复制）；扩展读吞吐，不扩展容量 |
-| 分片（FSDP / TP） | 分库分表：每个节点 1/N 数据，跨分片查询要聚合（all_gather ≈ scatter-gather 查询）；扩展容量，代价是跨分片通信 |
-| HSDP | 分片 + 每个分片多副本：Kafka 的 partition × replica、Elasticsearch 的 shard × replica |
-| TP 的列/行并行 | 按列分区的表做 join：分区键对齐时 join 不需要 shuffle（列并行 → 行并行无通信），否则要 shuffle（all_reduce） |
-| EP | 按 key 路由到不同分片处理（all_to_all ≈ shuffle by key），热 key 导致的分片倾斜 ≈ expert 负载不均 |
-
-Table: 并行策略与数据库概念的对应
-
-Kafka consumer group 是 DistributedSampler 的对应物：一个 topic 的 partition 被 group 内的 consumer 互不重叠地分走。`set_epoch` 忘调，就像每次 rebalance 都用同一种分配。
-
-### 3. 集合通信 vs MapReduce / 并发原语
-
-- **all_reduce**：MapReduce 的 combine + reduce 后再广播；Spark 的 treeReduce + broadcast
-- **reduce_scatter**：shuffle 到 reducer：每个 key 的所有值归到一个 reducer
-- **all_gather**：collect() 后广播给所有 executor
-- **all_to_all**：shuffle 本身：每个 mapper 的第 i 段发给 reducer i
-- **barrier**：CyclicBarrier / Phaser
-- **Work.wait()**：CompletableFuture.join()，但发生在 GPU Stream 上而非线程上
-- **流水线并行**：SEDA / Disruptor 的多阶段流水线：每个阶段一个处理器，micro-batch 是流过的事件，气泡是阶段间的空转
-
-Ring all_reduce 的"每个节点只和邻居通信、带宽项与 N 无关"，与 Chord/Cassandra 一致性哈希环的"每个节点只需知道少数邻居"是同一类设计：用 O(N) 步的顺序通信换掉 O(N²) 的全连接。
-
-### 4. hang vs 分布式死锁
-
-Java 中的死锁是两个线程互相等对方持有的锁，`jstack` 看到 `BLOCKED`。集合通信 hang 是 N 个进程中有人没来开会，其他人无限等待——不是循环等待，是**缺席**。诊断思路相同：拿到所有参与者的栈（`py-spy dump` ≈ `jstack`），比较谁停在哪里。Flight Recorder 相当于一个记录了每次"开会"的参与者名单和议题的日志——比 `jstack` 更进一步，直接指出谁缺席了哪一次。
-
-`TORCH_DISTRIBUTED_DEBUG=DETAIL` 对应 `-Xcheck:jni` 或 `-ea` 这类"开了很慢但能抓到错误"的模式。
-
-### 5. Checkpoint vs 快照
-
-DCP 的 sharded checkpoint + reshard 能力，对应分布式存储的快照与 rebalance：Elasticsearch 的 snapshot 可以 restore 到不同 shard 数的集群；Kafka 的 partition 可以 reassign。区别是训练 checkpoint 是**唯一的容错手段**——没有 WAL、没有副本自动切换，失败就回滚到上一个 checkpoint 重来。checkpoint 间隔是"重算多少"与"写盘多少"的权衡，与数据库 checkpoint 间隔的权衡结构相同。
-
-### 6. 扩展效率 vs Amdahl / USL
-
-第十章 §7 的四组原因，Java 工程师在 Universal Scalability Law 里见过：线性项是并行部分，α 是串行部分（不能重叠的通信、同步等待），β 是一致性代价（rank 越多、越可能等最慢的）。分布式训练的 USL 曲线和数据库连接池、线程池的曲线形状相同，只是横轴是 GPU 数。
-
-## 十三、本文小结
+## 十二、本文小结
 
 ### 1. 一条主线
 
@@ -1537,14 +1568,14 @@ DDP 全复制只分数据；ZeRO 三级逐个把优化器状态、梯度、参�
 
 ### 4. 与前几篇的连接
 
-- 第三篇 autograd hook：→ DDP Reducer 和 FSDP 的反向 hook 都挂在它上面
-- 第四篇 autocast / 主参数：→ MixedPrecisionPolicy：fp32 分片、bf16 通信与计算
-- 第七篇 graph break / 导出：→ DDP + torch.compile 在桶边界切图；pipeline() 用 export 切 stage；异步 TP 由 Inductor 改写通信
-- 第八篇 异步 Stream / 同步点：→ 通信 Stream 与计算 Stream 的重叠；Work.wait() 是 Stream 依赖而非 CPU 阻塞
-- 第八篇 launch-bound：→ 加卡后 per-rank batch 变小，瓶颈回到 CPU 侧
-- 第八篇 16 B/参数：→ 本文所有显存账的基准
-- 第八篇 Activation Checkpointing：→ 单卡案例里不值得，7B 案例里必需
-- 第八篇 CPU 内存 / PCIe：→ CPU offload 的约束
+- [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 autograd hook：→ DDP Reducer 和 FSDP 的反向 hook 都挂在它上面
+- [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)的 autocast / 主参数：→ MixedPrecisionPolicy：fp32 分片、bf16 通信与计算
+- [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的 graph break / 导出：→ DDP + torch.compile 在桶边界切图；pipeline() 用 export 切 stage；异步 TP 由 Inductor 改写通信
+- [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的异步 Stream / 同步点：→ 通信 Stream 与计算 Stream 的重叠；Work.wait() 是 Stream 依赖而非 CPU 阻塞
+- 同篇的 launch-bound：→ 加卡后 per-rank batch 变小，瓶颈回到 CPU 侧
+- 同篇的 16 B/参数：→ 本文所有显存账的基准
+- 同篇的 Activation Checkpointing：→ 单卡案例里不值得，7B 案例里必需
+- 同篇的 CPU 内存 / PCIe：→ CPU offload 的约束
 
 ### 5. 本篇涉及的源码位置
 
@@ -1567,7 +1598,7 @@ Table: 本篇涉及的源码位置
 
 > **一个复杂深度学习框架如何测试、构建和演进？**
 
-## 十四、自测
+## 十三、自测
 
 1. DDP 在 8 卡上训 8B 模型（bf16 + AdamW），每卡显存大约多少？为什么放不下？
 

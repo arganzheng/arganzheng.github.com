@@ -5,10 +5,10 @@ title: "PyTorch 深度实践（05）：Dispatcher 与算子系统"
 subtitle: "The Dispatcher and Operator System in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
-上一篇讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
+[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
 
 但写下：
 
@@ -23,6 +23,51 @@ z = x + y
 > **Dispatcher 解决的不是“调用哪个 Python 函数”，而是“在当前运行时上下文中，如何为一个抽象算子选择正确的实现路径”。**
 
 ## 一、总览：两个维度与一张注册表
+
+全文讲的是一张表的两头：开发态把实现填进去，运行态按 Tensor 和上下文从里面查出来。下图是这条链，括号里是展开它的章节。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%% 图：算子系统总览：开发态经 torchgen 把实现填进 OperatorEntry，运行态用 DispatchKeySet 从同一张表里查出 KernelFunction
+flowchart TB
+    subgraph DEV["开发态：构建时与库加载时"]
+        direction TB
+        DECL["<b>声明</b>（第二章）<br/>native_functions.yaml：Schema、variants、dispatch<br/>derivatives.yaml：反向公式"]
+        TG["<b>torchgen 代码生成</b>（第五章）<br/>Python 绑定、at::add、注册代码、Autograd 包装"]
+        IMPL["<b>手写实现</b>（第四章）<br/>aten/src/ATen/native/ 下的 at::native::add 等"]
+        REG["<b>注册</b>（第三章）<br/>TORCH_LIBRARY_IMPL 里的 m.impl<br/>共享库加载时执行"]
+        DECL --> TG --> REG
+        IMPL --> REG
+    end
+    subgraph TABLE["Operator Table：Dispatcher 单例持有（第三章）"]
+        OE["<b>OperatorEntry：每个算子一个</b><br/>schema_：FunctionSchema<br/>dispatchTable_：DispatchKey 下标 → KernelFunction"]
+    end
+    subgraph RUN["运行态：每次算子调用"]
+        direction TB
+        ENTRY["<b>入口</b>（第六章）<br/>torch.add → Python 绑定 → at::add<br/>拿着 add.Tensor 的 OperatorHandle 进入 Dispatcher"]
+        KS["<b>DispatchKeySet</b>（第七章）<br/>各输入 Tensor 的 KeySet 做 OR<br/>加 TLS included、减 TLS excluded、掩掉 fallthrough"]
+        PICK{"取最高优先级的 DispatchKey<br/>查 dispatchTable_"}
+        WRAP["<b>包装 Key 的 KernelFunction</b>（第七章）<br/>如 AutogradCUDA：记录 AddBackward0"]
+        BACK["<b>后端 Key 的 KernelFunction</b>（第八章）<br/>CPU / CUDA / Meta：at::native::add<br/>TensorIterator → 逐元素 Kernel"]
+        ENTRY --> KS --> PICK
+        PICK -- "包装 Key" --> WRAP
+        WRAP -- "去掉自身 Key，再次分发" --> PICK
+        PICK -- "后端 Key" --> BACK
+    end
+    DEV -- "填表" --> TABLE
+    TABLE -- "查表" --> RUN
+    classDef table fill:#fdf2e3,stroke:#c98a2b;
+    class OE table;
+```
+
+- **声明**：`aten/src/ATen/native/native_functions.yaml` 里每个算子一条，写明 Schema（名字、参数、返回值、alias）、暴露成函数还是方法、哪个 DispatchKey 用哪个实现函数；反向公式在 `tools/autograd/derivatives.yaml`。它们是源码树里的文本，只在构建时被读取。自定义算子不写 YAML，用 `torch.library` / `TORCH_LIBRARY` 在代码里声明。
+- **torchgen**：源码树里的 Python 包，构建时读两份 YAML：`torchgen/gen.py` 生成 C++ 入口 `at::add` 和各后端的注册文件，`tools/autograd/` 下的脚本用它生成 Python 绑定与 Autograd 包装。产物是 C++ 源文件，随后编进 `libtorch`。
+- **手写实现**：`at::native::add` 这类函数，放在 `aten/src/ATen/native/`，是开发者真正写计算逻辑的地方。
+- **注册**：`TORCH_LIBRARY_IMPL` 展开成一个静态对象，共享库加载时它的构造函数运行，把「算子名、DispatchKey、函数」登记进 Dispatcher。所以表是在进程启动、`import torch`（或加载扩展库）时填好的，不是编译期的常量。
+- **OperatorEntry**：Dispatcher 单例为每个算子（含 overload，如 `add.Tensor`）保存的一个条目，里面有 Schema 和 `dispatchTable_`——一个按 DispatchKey 下标的定长数组，每个槽位是一个 `KernelFunction`（对实现函数指针的封装）。全部 OperatorEntry 合起来就是本文说的 Operator Table。
+- **OperatorHandle**：指向某个 OperatorEntry 的句柄。`at::add` 第一次被调用时按名字查到它并缓存，之后每次调用直接用，不再查哈希表。
+- **DispatchKey 与 DispatchKeySet**：DispatchKey 是表里的列——后端（CPU、CUDA、Meta）或一种包装能力（Autograd、Functionalize）；DispatchKeySet 是一次调用里「可能适用的 Key」的位集合，由输入 Tensor 自带的 Key 和线程局部状态合并得到，每次调用现算。
+- **包装 Key 与后端 Key 的 KernelFunction**：优先级高的包装 Key 先被取到，它的实现做完自己的事（Autograd 记录 `AddBackward0`）后把自己从集合里去掉、再查一次表；最后落到后端 Key，那里才是计算数值的实现。
 
 ### 1. Tensor 操作不是普通函数调用
 
@@ -64,27 +109,12 @@ Table: 分发与实现在两个维度里的含义
 
 ### 3. Operator Table：两个维度的交汇点
 
-两个维度通过同一个数据结构连接：**Operator Table**——Dispatcher 内部为每个算子维护的一张 `DispatchKey → Kernel` 表。开发者往里填，用户调用时从里查。
+两个维度通过同一个数据结构连接：**Operator Table**——Dispatcher 内部为每个算子维护的一张 `DispatchKey → Kernel` 表。开发者往里填，用户调用时从里查，也就是本章开头总览图中间的那一格。
 
-```mermaid
-%% 图：Operator Table 是两个维度的交汇点：开发态往里填，运行态从里查
-flowchart TB
-    subgraph DEV[开发态：算子开发者]
-        direction TB
-        A1[定义 Schema<br/>native_functions.yaml / torch.library] --> A2[注册实现到各 DispatchKey<br/>dispatch 字段 / TORCH_LIBRARY_IMPL] --> A3[编写实现<br/>Native Function / 自定义 Kernel]
-        CG[Codegen<br/>生成 Binding / at::api / 注册代码 / Autograd] -.-> A1
-        CG -.-> A2
-    end
-    OT[(Operator Table<br/>算子 → DispatchKey → Kernel)]
-    subgraph RUN[运行态：算子使用者]
-        direction TB
-        B1[入口<br/>torch.add → Binding → at::add] --> B2[分发<br/>Dispatcher 查表<br/>DispatchKeySet / 包装 Key 再次分发] --> B3[执行<br/>选中的实现运行<br/>TensorIterator → Kernel]
-    end
-    A2 -->|填表| OT
-    OT -->|查表| B2
-```
+这与[《Python的动态机制及工程实践》第七章「应用一：组件注册与插件化管理」](/python-reflection-metaprogramming-and-plugin-architecture.html#七应用一组件注册与插件化管理)里的**注册表模式**是同一个骨架：稳定的接口契约，动态注册的实现，运行时按 key 查找。区别在 key 的维度：
 
-这与 Python 系列第四篇讨论的**注册表模式**是同一个骨架：稳定的接口契约，动态注册的实现，运行时按 key 查找。区别在于 PyTorch 的 key 不是一个字符串，而是由 Tensor 元数据和执行上下文合并出的 DispatchKeySet。
+- 业务注册表：key 是一个字符串（`"torch"` / `"tensorrt"`），启动时选定一个实现；
+- Operator Table：key 是「算子 × DispatchKey」，其中 DispatchKey 要从多个 Tensor 的元数据和执行上下文合并出的 DispatchKeySet 里现取。
 
 ### 4. 本文的章节安排
 
@@ -93,8 +123,7 @@ flowchart TB
 | 二 ~ 五 | 开发态 | 定义 → 注册 → 实现 → Codegen（横向粘合） |
 | 六 ~ 八 | 运行态 | 入口 → 分发 → 执行 |
 | 九 | 串起来：add 的完整路径，开发者做了什么 / 用户调用时发生了什么 |  |
-| 十 | Java 对照 |  |
-| 十一 | 小结 |  |
+| 十 | 小结 |  |
 
 Table: 本文的章节安排
 
@@ -166,7 +195,7 @@ lib = torch.library.Library("myops", "DEF")
 lib.define("scale(Tensor x, float alpha) -> Tensor")
 ```
 
-它与 YAML 声明进入同一个 Operator Table，遵守同一套 Schema 语法。因此“定义层 = YAML”是不完整的说法：YAML 是原生算子的定义入口，`torch.library` 是扩展算子的定义入口，二者定义的算子在运行态没有区别。这是下一篇自定义算子的起点。
+它与 YAML 声明进入同一个 Operator Table，遵守同一套 Schema 语法。因此“定义层 = YAML”是不完整的说法：YAML 是原生算子的定义入口，`torch.library` 是扩展算子的定义入口，二者定义的算子在运行态没有区别。这是[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的起点。
 
 ### 4. `add`、`add_` 和 `add.out`
 
@@ -215,15 +244,15 @@ Schema 中的 alias 标注（如 `Tensor(a!)`）是 Autograd 版本检查、编�
 
 ### 1. DispatchKey：实现被挂在哪个槽位上
 
-开发者注册实现时，需要指定它服务于哪个 **DispatchKey**。DispatchKey 分两类：
+开发者注册实现时，需要指定它服务于哪个 **DispatchKey**。DispatchKey 分三类：
 
 | 类别 | 例子 | 开发者视角 |
 |---|---|---|
 | 后端 Key | CPU、CUDA、Meta、XLA、MPS、PrivateUse1 | 为哪种设备/后端提供实现 |
-| 包装 Key | Autograd、AutogradCUDA、Functionalize、Python、Vmap | 为哪种横切能力提供包装逻辑 |
+| 包装 Key | Autograd、AutogradCUDA、Functionalize、Python、FuncTorchBatched（vmap） | 为哪种横切能力提供包装逻辑 |
 | 复合 Key | CompositeImplicitAutograd、CompositeExplicitAutograd | 用其他算子组合实现，各后端自动获得 |
 
-Table: DispatchKey 的两类
+Table: DispatchKey 的三类
 
 大多数原生算子开发者只需关心后端 Key 和复合 Key；Autograd 等包装 Key 的实现通常由 Codegen 根据 `derivatives.yaml` 自动生成。
 
@@ -271,6 +300,9 @@ lib.impl("scale", scale_cuda, "CUDA")
 ```
 
 原生算子和自定义算子填的是同一张 Operator Table，只是前者的注册代码由 Codegen 生成，后者手写。
+
+> [!NOTE] Java 经验参照：SPI 与 ServiceLoader
+> Java SPI 也是「接口 + 运行时发现实现」：提供者在 `META-INF/services` 或模块声明里登记，`ServiceLoader` 迭代时加载。两处不同：PyTorch 的登记不靠配置文件，而靠 `TORCH_LIBRARY_IMPL` 展开出的静态对象在共享库加载时执行，库没被加载，它的实现就不在表里；SPI 的调用方通常启动时选定一个实现后一直用它，Operator Table 则保留每个 Key 的实现，每次算子调用按当次的 DispatchKeySet 重新选（第七章）。
 
 ### 4. Operator Table 长什么样
 
@@ -400,7 +432,7 @@ flowchart TB
 
 TensorIterator 把“如何遍历多维 Tensor”抽象出来，让 Hardware Kernel 只需表达“对一个元素（或一段向量）做什么”。对 `add` 而言，开发者写的 CPU/CUDA Kernel 概念上只需要表达 `a + alpha * b`，遍历、广播、并行都由 TensorIterator 处理。
 
-它消费的正是第二篇讨论的 Tensor 元数据：
+它消费的正是[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讨论的 Tensor 元数据：
 
 1. shape / stride / storage_offset / dtype
 2. TensorIterator 构造迭代空间，检测连续布局，划分并行块
@@ -549,6 +581,9 @@ flowchart TB
 
 如果输入位于不同设备，会在这一步报错，而不是随便选一个 Kernel。
 
+> [!NOTE] Java 经验参照：线程局部状态
+> TLS 的 included / excluded 集合和 GradMode 标志是 C++ 的 `thread_local` 变量，相当于 Java 的 `ThreadLocal`，而不是 `InheritableThreadLocal`：新线程从初始值开始，不继承创建者的设置。在一个线程里进入 `torch.no_grad()` 或 `inference_mode()`，对自己另起的线程不生效；PyTorch 内部把任务交给别的线程时（`at::launch`、Autograd 引擎）用 `ThreadLocalState` 显式拍快照带过去。
+
 ### 3. 按优先级选 Key，查表
 
 Dispatcher 在 DispatchKeySet 中按优先级取最高的 Key，到 `add.Tensor` 那一行查对应槽位：
@@ -593,6 +628,18 @@ flowchart TB
 
 概念上它是一张表的查找，但真实系统还要处理多个 Key 的合并与优先级、包装 Key 的再次分发、fallback、boxed/unboxed 调用约定、Python 级自定义分发。它是一个**多维、可多次的运行时分发系统**。
 
+> [!NOTE] Java 经验参照：重载与虚方法分发
+> Java 的重载在编译期按参数的静态类型决定，虚方法调用按**一个**接收者对象的运行时类型选实现，一次调用选一次。Dispatcher 的 key 来自**全部** Tensor 参数的 KeySet 加线程局部状态，而且一次调用可以查多次表（包装 Key → 后端 Key）。所以同一行 `x + y`，输入换成 Meta Tensor 或者外面套一层 `inference_mode`，走的实现就不同，代码一个字不用改。`add.Tensor` 与 `add.Scalar` 之间的 overload 选择发生在更早的 Python 绑定里，那一步对应 Java 的重载决议，只是在运行时按实参类型做。
+
+Dispatcher 管的是「调用谁」，不是计算本身。一次算子调用里各部分的分工是：
+
+- **Dispatcher**：决定调用谁；
+- **实现 / Kernel**：真正计算数值；
+- **Autograd**：注册在包装 Key 上的一层实现；
+- **编译器**：可能在调用前后重写计算路径（[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)）。
+
+因此分发开销只是执行时间的一部分。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)用 Profiler 区分 Python 开销、分发开销、Kernel 开销和同步开销。
+
 ## 八、运行态（3）：执行
 
 Dispatcher 选中后端实现后，第四章的五种实现模式在运行态各自表现为：
@@ -605,7 +652,7 @@ y = torch.ones(3)
 z = x + y
 ```
 
-`at::native::add` 构造 TensorIterator：对齐 `(2,3)` 与 `(3)`，让 `y` 以 stride 为 0 的方式参与遍历（不复制数据，与第二篇 `expand()` 同机制）；检查 dtype 提升；检测输入是否连续，选择快速路径或通用 stride 路径；按块划分后调用 CPU 向量化 Kernel 或 launch CUDA Kernel。
+`at::native::add` 构造 TensorIterator：对齐 `(2,3)` 与 `(3)`，让 `y` 以 stride 为 0 的方式参与遍历（不复制数据，与[《Tensor 与内存布局》第十一章「Broadcasting：不复制数据的逻辑扩展」](/pytorch-tensor-and-memory-layout.html#十一broadcasting不复制数据的逻辑扩展)里的 `expand()` 同机制）；检查 dtype 提升；检测输入是否连续，选择快速路径或通用 stride 路径；按块划分后调用 CPU 向量化 Kernel 或 launch CUDA Kernel。
 
 广播后 `y` 的元数据变为 `shape=(2,3) stride=(0,1)`，于是每个输出位置读到的 `x` / `y` 存储偏移如下：
 
@@ -622,7 +669,7 @@ Table: 广播后每个输出位置读到的 x / y 存储偏移
 
 第二行 `x` 的偏移继续 +3，`y` 的偏移回到 0/1/2：stride 0 让 `y` 的 3 个元素被重复读取，没有任何复制。
 
-对非连续输入（如 `x.transpose(0, 1) + 1`），TensorIterator 直接按任意 stride 遍历，不强制 `contiguous()`。何时复制、何时直接遍历，是第八篇性能分析的话题之一。
+对非连续输入（如 `x.transpose(0, 1) + 1`），TensorIterator 直接按任意 stride 遍历，不强制 `contiguous()`。何时复制、何时直接遍历，是[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)的话题之一。
 
 ### 2. 厂商库模式
 
@@ -646,7 +693,7 @@ Meta 实现只推断输出元数据并构造一个无数据的 Tensor。不进�
 
 ### 5. 结果 Tensor 的构造
 
-无论哪种模式，执行结束时都要产出一个元数据正确的结果 Tensor：shape、stride、dtype、device、Storage；如果经过了 Autograd 包装，还带有 `grad_fn`。第二篇和第三篇建立的 Tensor 与 Autograd 模型，在这里汇合。
+无论哪种模式，执行结束时都要产出一个元数据正确的结果 Tensor：shape、stride、dtype、device、Storage；如果经过了 Autograd 包装，还带有 `grad_fn`。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)和[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)建立的 Tensor 与 Autograd 模型，在这里汇合。
 
 ## 九、串起来：`add` 的完整路径
 
@@ -714,33 +761,7 @@ Table: 不同上下文下的 DispatchKeySet 与路径
 
 > **开发者定义契约、注册实现、编写 Kernel，Codegen 粘合；用户从入口进入，Dispatcher 查表选路，选中的实现执行。Operator Table 是两者的交汇点。**
 
-## 十、Java 工程师如何理解 Dispatcher
-
-### 1. 最贴切的类比：注册表模式
-
-Python 系列第四篇讨论过注册表模式：稳定接口 + 动态注册 + 运行时按 key 查找。Operator Table 就是这样一张注册表。区别在于 key 的维度：
-
-- **业务注册表**：key = 字符串（"torch" / "tensorrt"）
-- **Operator Table**：key = 算子 × DispatchKey，DispatchKey 由多个 Tensor 的元数据和执行上下文合并
-
-### 2. 与 SPI 的区别
-
-Java SPI 在加载阶段根据配置发现实现，之后调用路径固定；Dispatcher 在**每次算子调用**时根据当前 Tensor 重新选路。同一段代码，输入换成 Meta Tensor，走的路径就完全不同。
-
-### 3. 与方法重载 / 虚方法分发的区别
-
-Java 重载依据编译期参数类型；虚方法分发依据**单个**对象的运行时类型。Dispatcher 依据**多个** Tensor 的运行时元数据加执行上下文，且可能**多次**分发（包装 Key → 后端 Key）。
-
-### 4. Dispatcher 是控制平面，不是计算本身
-
-- **Dispatcher**：决定调用谁
-- **实现 / Kernel**：真正计算数值
-- **Autograd**：注册在包装 Key 上的一层实现
-- **Compiler**：可能在调用前后重写计算路径（第七篇）
-
-Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profiler 区分 Python 开销、分发开销、Kernel 开销和同步开销。
-
-## 十一、本文小结
+## 十、本文小结
 
 ### 1. 两个维度
 
@@ -756,15 +777,17 @@ Dispatcher 本身的开销只是执行路径的一部分。第八篇会用 Profi
 
 ### 2. 几个容易混淆的名字
 
-| 名字 | 属于 | 说明 |
-|---|---|---|
-| `native_functions.yaml` | 开发态 · 定义 | 原生算子的 Schema 与 dispatch 声明 |
-| `at::native::add` | 开发态 · 实现 | 被注册到 Operator Table 的函数主体 |
-| `at::add` | 运行态 · 入口 | Codegen 生成的 C++ 入口，调用 Dispatcher |
-| Native Functions | 双重身份 | 声明在 YAML，实现在 `ATen/native/` |
-| Autograd | 分发层的包装 Key | 注册在 Autograd Key 上的实现，再次分发到后端 |
-| TensorIterator | 实现的一种模式 | 逐元素 / 归约算子的通用遍历框架，不是必经之路 |
-| ATen | 基础库 | 提供 `at::Tensor`、`at::*` API 和 `at::native::*` 实现所在的 C++ 库，横跨入口与实现 |
+| 名字 | 属于 | 说明 | 何时产生、在哪里 |
+|---|---|---|---|
+| `native_functions.yaml` | 开发态 · 定义 | 原生算子的 Schema 与 dispatch 声明 | 手写，在源码树 `aten/src/ATen/native/`；只在构建时被 torchgen 读取 |
+| `at::native::add` | 开发态 · 实现 | 被注册到 Operator Table 的函数主体 | 手写，在 `aten/src/ATen/native/`；编进 `libtorch` |
+| `at::add` | 运行态 · 入口 | Codegen 生成的 C++ 入口，调用 Dispatcher | 构建时生成的头文件里的内联函数 |
+| Native Functions | 双重身份 | 声明在 YAML，实现在 `ATen/native/` | 同上两行 |
+| Operator Table | 两个维度的交汇点 | Dispatcher 单例里的全部 `OperatorEntry` | 进程内存里；共享库加载时由注册代码填入 |
+| DispatchKeySet | 运行态 · 分发 | 一次调用里可能适用的 Key 的位集合 | 每次算子调用时由输入 Tensor 与 TLS 现算，不保存 |
+| Autograd | 分发层的包装 Key | 注册在 Autograd Key 上的实现，再次分发到后端 | 包装实现由构建时的 Codegen 按 `derivatives.yaml` 生成 |
+| TensorIterator | 实现的一种模式 | 逐元素 / 归约算子的通用遍历框架，不是必经之路 | 手写的 C++ 类，在 `aten/src/ATen/TensorIterator.h`；每次调用在实现函数里构造一个 |
+| ATen | 基础库 | 提供 `at::Tensor`、`at::*` API 和 `at::native::*` 实现所在的 C++ 库，横跨入口与实现 | 源码在 `aten/src/ATen/`，编进 `libtorch` |
 
 Table: 几个容易混淆的名字
 
@@ -784,7 +807,7 @@ Table: 几个容易混淆的名字
 | 路径 | 内容 |
 |---|---|
 | `aten/src/ATen/native/native_functions.yaml` | 全部原生算子的 Schema 与 `dispatch` 字段 |
-| `torchgen/` | Codegen：`gen.py` 读 yaml，生成注册代码、C++ API 与 Python 绑定 |
+| `torchgen/`、`tools/autograd/` | Codegen：`torchgen/gen.py` 读 yaml，生成注册代码与 C++ API；`tools/autograd/gen_python_functions.py`、`gen_variable_type.py` 生成 Python 绑定与 Autograd 包装 |
 | `aten/src/ATen/core/dispatch/Dispatcher.h`、`OperatorEntry.h` | Dispatcher 与 Operator Table：每个算子一个 `OperatorEntry`，按 DispatchKey 存实现 |
 | `c10/core/DispatchKey.h`、`DispatchKeySet.h` | DispatchKey 的定义与优先级；`DispatchKeySet` 的位运算与最高优先级 Key 计算 |
 | `aten/src/ATen/core/boxing/` | boxed / unboxed 调用约定：Kernel 如何被统一调用 |
@@ -794,11 +817,11 @@ Table: 几个容易混淆的名字
 
 Table: 本篇涉及的源码位置
 
-下一篇进入开发态的实践：
+[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)进入开发态的实践：
 
 > **如何用 C++ 和 CUDA 编写一个自定义算子，完成定义、注册、实现三步，并正确处理 Tensor、dtype、device、stride、Autograd 和 ABI？**
 
-## 十二、自测
+## 十一、自测
 
 1. `native_functions.yaml` 里一个算子写了 `dispatch: CPU: add_cpu, CUDA: add_cuda`，没写 Autograd——反向从哪来？
 
@@ -812,7 +835,7 @@ Table: 本篇涉及的源码位置
 
    <details markdown="1"><summary>答案</summary>
 
-   按优先级：AutocastCUDA（转换 dtype 后重新分发）→ AutogradCUDA（记录 `grad_fn`，排除自己重新分发）→ CUDA（真实 kernel）。每层用 `ExcludeDispatchKeyGuard` 把自己从后续分发里去掉。
+   按优先级：AutocastCUDA（转换 dtype 后重新分发）→ AutogradCUDA（记录 `grad_fn`，排除自己重新分发）→ CUDA（真实 kernel）。每层在重新分发前把自己排除：Autocast 用 `ExcludeDispatchKeyGuard`，Autograd 的生成代码用 `ks & c10::after_autograd_keyset` 调 redispatch。
 
    </details>
 

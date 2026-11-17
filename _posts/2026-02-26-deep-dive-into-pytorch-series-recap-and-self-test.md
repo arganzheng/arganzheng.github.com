@@ -6,9 +6,10 @@ subtitle: "Deep Dive into PyTorch: Series Recap and Final Self-Test"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
 date: 2026-02-26 20:00:00
+updated: 2026-11-17
 ---
 
-十篇正文回答了一个问题：**PyTorch 如何把 Python 里写下的张量计算，变成可求导、可扩展、可优化、可分布式执行的运行时系统**。第一篇画全局地图，第二到四篇讲编程模型（Tensor、Autograd、`nn.Module` 与训练系统），第五、六篇讲算子运行时（Dispatcher 与自定义算子），第七篇讲编译，第八篇讲性能，第九篇讲多卡，第十篇讲这个系统靠什么一直正确、一直可用。十篇合起来，是从 `loss.backward()` 一路追问到硬件与集群的一张图。
+十篇正文回答了一个问题：**PyTorch 如何把 Python 里写下的张量计算，变成可求导、可扩展、可优化、可分布式执行的运行时系统**。[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)画全局地图，[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)、[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)、[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)讲编程模型，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)和[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)讲算子运行时，[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)讲编译，[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)讲性能，[《分布式 PyTorch》](/pytorch-distributed-training.html)讲多卡，[《PyTorch 的工程体系》](/pytorch-engineering-system.html)讲这个系统靠什么一直正确、一直可用。十篇合起来，是从 `loss.backward()` 一路追问到硬件与集群的一张图。
 
 本文不讲新内容，做三件事：把十篇压成一张表与十段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十篇能不能连起来用"。
 
@@ -39,16 +40,16 @@ flowchart TB
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
-| [第一篇：PyTorch 整体介绍](/pytorch-overall-introduction.html) | 执行 `torch.add(x, y)` 时内部发生了什么？ | 六个职责层、一条动态调用路径、四层源码；Autograd 只是 Operator Table 上优先级更高的一个 Key | 职责六层<br/>源码四层 `torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`，依赖只能向下<br/>四个边界<br/>2.0 于 2023 年 3 月 15 日发布 |
-| [第二篇：Tensor 与内存布局](/pytorch-tensor-and-memory-layout.html) | Tensor 到底是什么？ | 数据、形状、布局、类型、设备与生命周期的组合；view 只改元数据，`contiguous` / `.to()` / `clone` 才复制 | `offset = storage_offset + Σ i_k × stride_k`<br/>`[2,3,4]` 连续 strides `(12, 4, 1)`<br/>fp16 最大 65504、bf16 尾数 7 位<br/>`expand` 的 stride 为 0<br/>`allocated` 与 `reserved` 不是一个东西 |
-| [第三篇：自动求导与动态计算图](/pytorch-autograd-and-dynamic-computation-graph.html) | PyTorch 如何把链式法则变成一次沿图的反向遍历？ | 前向就地建图，每个 `Node.apply` 算一次 VJP，梯度 `+=` 到叶子的 `.grad`；保存一个输出等于保存整张图 | 每节点算 VJP 不物化 Jacobian（`[B, 4096]` 层每样本 $$4096^2$$ 个数）<br/>`.grad` 是累加<br/>version counter 抓 in-place<br/>`gradcheck` 用 float64 |
-| [第四篇：nn.Module 与训练系统](/pytorch-module-and-training-system.html) | 模型结构、参数状态、数据管线和训练循环如何组织成可保存、可迁移的系统？ | `__setattr__` 的注册机制决定框架能否发现对象；一切状态都在 `state_dict` 里 | Adam 训练每参数 16 B（4 + 4 + 4 + 4），7B → 112 GB<br/>GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2<br/>`prefetch_factor` 默认 2<br/>worker 是进程 |
-| [第五篇：Dispatcher 与算子系统](/pytorch-dispatcher-and-operator-system.html) | 谁决定 `x + y` 调用哪个 Kernel？ | 开发态填表（定义 → 注册 → 实现）、运行态查表（入口 → 分发 → 执行），交汇于 Operator Table；包装 Key 做完事再次分发 | DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级<br/>一次 `add` 两次经过 Dispatcher<br/>五种实现模式<br/>AutocastCUDA → AutogradCUDA → CUDA |
-| [第六篇：C++ 扩展与自定义算子](/pytorch-cpp-extension-and-custom-operators.html) | 自己写一个算子，怎么接入算子系统？ | 三步、两种接入、四个阶段；实现层必须处理 device、dtype、stride、生命周期四件事 | `blocks = (n + 255) / 256`<br/>warp 32 线程、取数按 32 B 扇区，stride 2 访问带宽利用 50%，最坏多搬 8 倍<br/>`gradcheck` 必须 float64<br/>ABI：`_GLIBCXX_USE_CXX11_ABI` 一致 |
-| [第七篇：编译执行与图优化](/pytorch-compilation-and-graph-optimization.html) | `torch.compile` 到底做了什么？ | 前端 Dynamo 捕获、中端 AOTAutograd 变换、后端 Inductor 生成，共享 FX Graph；运行时靠 Guard 决定复用 | `f` 热路径：3 次分发 → 0 次、3 次 launch → 2 次<br/>Guard `size[0] == 128` → `s0 > 64`<br/>缓存条目上限 8<br/>`backend="eager"` / `"aot_eager"` / `"inductor"` |
-| [第八篇：性能优化与调试](/pytorch-performance-optimization-and-debugging.html) | 如何判断一个程序慢，以及定位它为什么慢？ | CPU 与 GPU 是两条异步时间线<br/>五类瓶颈 + 显存四类<br/>优化是把瓶颈从一类推到另一类 | CPU 每算子固定成本 10～30 µs<br/>$$T \ge \max(\text{字节}/\text{带宽}, \text{FLOPs}/\text{算力})$$<br/>A100 ridge point FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte<br/>融合 5N → 2N 访存<br/>案例 166 → 2207 samples/s（13 倍） |
-| [第九篇：分布式 PyTorch](/pytorch-distributed-training.html) | 一张卡放不下或跑不完时，如何切分状态并让通信与计算重叠？ | 五类状态各做一个决定（复制 / 分片），每个决定对应一种集合通信原语与一个时机 | ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ → 2n<br/>DDP 2P、FSDP 3P<br/>每 rank 静态显存 16P → 16P/N<br/>TP 每层 4 次 all_reduce、只在节点内<br/>PP 气泡 $$(K-1)/(M+K-1)$$ |
-| [第十篇：PyTorch 的工程体系](/pytorch-engineering-system.html) | 它怎么做到一直正确、一直可用？ | 一次改动过七关，守住正确性、性能、兼容性；框架工程是在组合爆炸下求可行 | 2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例<br/>五种 oracle<br/>`pull` 层约两小时<br/>小版本每三到四个月、cut 距发布约 6 周<br/>弃用保留至少一个小版本（通常两个） |
+| [《PyTorch 整体介绍》](/pytorch-overall-introduction.html) | 执行 `torch.add(x, y)` 时内部发生了什么？ | 五个职责层、一条动态调用路径、四层源码；Autograd 只是 Operator Table 上优先级更高的一个 Key | 职责六层<br/>源码四层 `torch/` → `torch/csrc/` → `aten/src/ATen/` → `c10/`，依赖只能向下<br/>四个边界<br/>2.0 于 2023 年 3 月 15 日发布 |
+| [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) | Tensor 到底是什么？ | 数据、形状、布局、类型、设备与生命周期的组合；view 只改元数据，`contiguous` / `.to()` / `clone` 才复制 | `offset = storage_offset + Σ i_k × stride_k`<br/>`[2,3,4]` 连续 strides `(12, 4, 1)`<br/>fp16 最大 65504、bf16 尾数 7 位<br/>`expand` 的 stride 为 0<br/>`allocated` 与 `reserved` 不是一个东西 |
+| [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) | PyTorch 如何把链式法则变成一次沿图的反向遍历？ | 前向就地建图，每个 `Node.apply` 算一次 VJP，梯度 `+=` 到叶子的 `.grad`；保存一个输出等于保存整张图 | 每节点算 VJP 不物化 Jacobian（`[B, 4096]` 层每样本 $$4096^2$$ 个数）<br/>`.grad` 是累加<br/>version counter 抓 in-place<br/>`gradcheck` 用 float64 |
+| [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) | 模型结构、参数状态、数据管线和训练循环如何组织成可保存、可迁移的系统？ | `__setattr__` 的注册机制决定框架能否发现对象；一切状态都在 `state_dict` 里 | Adam 训练每参数 16 B（4 + 4 + 4 + 4），7B → 112 GB<br/>GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2<br/>`prefetch_factor` 默认 2<br/>worker 是进程 |
+| [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) | 谁决定 `x + y` 调用哪个 Kernel？ | 开发态填表（定义 → 注册 → 实现）、运行态查表（入口 → 分发 → 执行），交汇于 Operator Table；包装 Key 做完事再次分发 | DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级<br/>一次 `add` 两次经过 Dispatcher<br/>五种实现模式<br/>AutocastCUDA → AutogradCUDA → CUDA |
+| [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) | 自己写一个算子，怎么接入算子系统？ | 三步、两种接入、四个阶段；实现层必须处理 device、dtype、stride、生命周期四件事 | `blocks = (n + 255) / 256`<br/>warp 32 线程、取数按 32 B 扇区，stride 2 访问带宽利用 50%，最坏多搬 8 倍<br/>`gradcheck` 必须 float64<br/>ABI：`_GLIBCXX_USE_CXX11_ABI` 一致 |
+| [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) | `torch.compile` 到底做了什么？ | 前端 Dynamo 捕获、中端 AOTAutograd 变换、后端 Inductor 生成，共享 FX Graph；运行时靠 Guard 决定复用 | `f` 热路径：3 次分发 → 0 次、3 次 launch → 2 次<br/>Guard `size[0] == 128` → `s0 > 64`<br/>缓存条目上限 8<br/>`backend="eager"` / `"aot_eager"` / `"inductor"` |
+| [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) | 如何判断一个程序慢，以及定位它为什么慢？ | CPU 与 GPU 是两条异步时间线<br/>五类瓶颈 + 显存四类<br/>优化是把瓶颈从一类推到另一类 | CPU 每算子固定成本 10～30 µs<br/>$$T \ge \max(\text{字节}/\text{带宽}, \text{FLOPs}/\text{算力})$$<br/>A100 ridge point FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte<br/>融合 5N → 2N 访存<br/>案例 166 → 2207 samples/s（13 倍） |
+| [《分布式 PyTorch》](/pytorch-distributed-training.html) | 一张卡放不下或跑不完时，如何切分状态并让通信与计算重叠？ | 五类状态各做一个决定（复制 / 分片），每个决定对应一种集合通信原语与一个时机 | ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n$$ → 2n<br/>DDP 2P、FSDP 3P<br/>每 rank 静态显存 16P → 16P/N<br/>TP 每层 4 次 all_reduce、只在节点内<br/>PP 气泡 $$(K-1)/(M+K-1)$$ |
+| [《PyTorch 的工程体系》](/pytorch-engineering-system.html) | 它怎么做到一直正确、一直可用？ | 一次改动过七关，守住正确性、性能、兼容性；框架工程是在组合爆炸下求可行 | 2000+ 算子 × 约 15 种 dtype × 设备 × 布局 × 模式 → 几十万测试实例<br/>五种 oracle<br/>`pull` 层约两小时<br/>小版本每三到四个月、cut 距发布约 6 周<br/>弃用保留至少一个小版本（通常两个） |
 
 Table: 十篇的核心问题、结论与必记公式
 
@@ -70,12 +71,12 @@ Table: 本文的章节安排
 
 **核心问题**：PyTorch 如何把 Python 中表达的张量计算，转化为可以自动求导、跨设备执行、编译优化和分布式协作的运行时系统？执行 `torch.add(x, y)` 时内部发生了什么？
 
-**结论**：本篇用三张地图建立全局。静态地图把系统分成六个职责层——用户代码、编程模型、图与编译、算子运行时、设备与通信、Kernel 与硬件；Eager 下每个算子从编程模型直接进入算子运行时，`torch.compile` 先经过图与编译层再落到最底层。动态地图追一次 `torch.add`：Python API → Python Binding → Operator Schema → Dispatcher → ATen Operator → Kernel → Hardware；以两个 `requires_grad=True` 的 CUDA Tensor 为例，分发要经过两轮查表——合成 DispatchKeySet `[Autograd, CUDA]`，先命中 Autograd 记录 `AddBackward0`，去掉自己后再次分发到 CUDA Kernel。代码地图按库分四层：`torch/`（Python，编译栈主体也在这里）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher 与算子）→ `c10/`（TensorImpl、Device、Allocator），每层只依赖下面的层；Autograd 引擎住在 `torch/csrc` 却把 Kernel 注册进 ATen 的表，所以调用路径在两层间往返一次。架构演进分五个阶段：0.1.x（2016 年 9 月起）的动态图、1.0（2018 年 12 月）的 API 稳定、1.x 的 C++ 运行时与分布式、1.8—1.13 的图与编译基础设施、2.0（2023 年 3 月 15 日）的 `torch.compile`。
+**结论**：本篇用三张地图建立全局。静态地图把系统分成五个职责层——编程接口与应用表达、图表示与编译、算子与分发运行时、设备与通信支撑、计算内核与底层库；Eager 下每个算子从编程接口直接进入算子运行时，`torch.compile` 先经过图与编译层再落到最底层。动态地图追一次 `torch.add`：Python API → Python Binding → ATen 算子接口（Schema 是它的契约）→ Dispatcher 与 Autograd 包装层 → 后端实现与 Kernel → 结果返回；以两个 `requires_grad=True` 的 CUDA Tensor 为例，分发要经过两轮查表——合成 DispatchKeySet `[Autograd, CUDA]`，先命中 Autograd 记录 `AddBackward0`，去掉自己后再次分发到 CUDA Kernel。代码地图按库分四层：`torch/`（Python，编译栈主体也在这里）→ `torch/csrc/`（绑定、Autograd 引擎、c10d）→ `aten/src/ATen/`（Dispatcher 与算子）→ `c10/`（TensorImpl、Device、Allocator），每层只依赖下面的层；Autograd 引擎住在 `torch/csrc` 却把 Kernel 注册进 ATen 的表，所以调用路径在两层间往返一次。架构演进分五个阶段：0.1.x（2016 年 9 月起）的动态图、1.0（2018 年 12 月）的 API 稳定、1.x 的 C++ 运行时与分布式、1.8—1.13 的图与编译基础设施、2.0（2023 年 3 月 15 日）的 `torch.compile`。
 
 **必记**：
 
-- 职责六层与源码四层不重合：Tensor 元数据是用户最先接触的抽象，源码上却在最底层的 `c10/`。
-- 编译后的动态库：`libc10`、`libtorch_cpu` / `libtorch_cuda`、`libtorch_python`；第六篇的扩展链接的正是它们，ABI 问题由此而来。
+- 职责五层与源码四层不重合：Tensor 元数据是用户最先接触的抽象，源码上却在最底层的 `c10/`。
+- 编译后的动态库：`libc10`、`libtorch_cpu` / `libtorch_cuda`、`libtorch_python`；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的扩展链接的正是它们，ABI 问题由此而来。
 - 四个边界：Python 与 C++、通用抽象与后端实现、灵活性与可分析性、可移植性与性能特化——后面各篇的取舍都能归到其一。
 - 新硬件接入：注册设备类型（PrivateUse1）与 `DeviceGuardImpl`、Allocator、在该 Key 上注册 Kernel、提供 stream / event 运行时 API；算子抽象与 Autograd 不用改。
 
@@ -133,7 +134,7 @@ Table: 本文的章节安排
 
 **核心问题**：写下 `z = x + y` 时，谁决定这个操作对应哪个算子、位于哪个设备、是否需要 Autograd、最终调用哪个 Kernel？
 
-**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；包装 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`requires_grad` 与 `no_grad()` 都不改 KeySet——普通 Tensor 的 KeySet 总含 Autograd Key，`no_grad()` 只翻转 GradMode 标志让包装层不记录；`inference_mode()` 才把 Autograd Key 加入 TLS excluded、真正跳过那一跳。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费第二篇的 shape / stride / dtype，不是所有算子的必经之路。
+**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；包装 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`requires_grad` 与 `no_grad()` 都不改 KeySet——普通 Tensor 的 KeySet 总含 Autograd Key，`no_grad()` 只翻转 GradMode 标志让包装层不记录；`inference_mode()` 才把 Autograd Key 加入 TLS excluded、真正跳过那一跳。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)的 shape / stride / dtype，不是所有算子的必经之路。
 
 **必记**：
 
@@ -149,7 +150,7 @@ Table: 本文的章节安排
 
 **核心问题**：自己写一个算子（`scale_shift(x, alpha, beta) = alpha * x + beta`），把它接入 PyTorch 的算子系统，要做哪几件事、用什么工具、按什么顺序练？
 
-**结论**：三步、两种接入、四个阶段。三步与第五篇相同：定义 Schema → 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现；原生算子靠 Codegen 生成粘合代码，自定义算子三步都要自己做。两种接入：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回；pybind11 暴露的是普通函数，要成为算子必须走 `TORCH_LIBRARY`。四个阶段：纯 Python 建立契约 → C++ CPU（`AT_DISPATCH` 把运行时 dtype 桥接到编译期模板，`cpp_extension.load` 即时编译）→ CUDA（`CUDAGuard` 切到输入所在设备、用当前 stream、launch 后检查）→ Autograd 与 Meta（`register_fake` 供 FakeTensor 与 `torch.compile` 使用）。实现层必须处理四件事：device、dtype、stride（`contiguous()` 用一次拷贝换 Kernel 简单，TensorIterator 用地址计算换零拷贝）、生命周期（`at::Tensor` 是句柄，`data_ptr` 只在 Tensor 存活期间有效）。读懂 Kernel 需要的 CUDA 最小集：`blockIdx.x * blockDim.x + threadIdx.x` 是全局线程号，warp 内 32 个线程锁步执行，访存按 32 B 扇区合并。验证靠 `opcheck`（Schema、Autograd 注册、FakeTensor 元数据、AOT 可追踪——不含数值梯度）与 `gradcheck`（float64），Benchmark 对照原生 `2.0 * x + 1.0` 的两个 Kernel。
+**结论**：三步、两种接入、四个阶段。三步与[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)相同：定义 Schema → 注册到 DispatchKey（CPU / CUDA / Autograd / Meta 各一份）→ 编写实现；原生算子靠 Codegen 生成粘合代码，自定义算子三步都要自己做。两种接入：Python 的 `torch.library.define / impl / register_autograd / register_fake`，C++ 的 `TORCH_LIBRARY / TORCH_LIBRARY_IMPL`，写进同一张 Operator Table，`torch.ops.myops.scale_shift` 按名字取回；pybind11 暴露的是普通函数，要成为算子必须走 `TORCH_LIBRARY`。四个阶段：纯 Python 建立契约 → C++ CPU（`AT_DISPATCH` 把运行时 dtype 桥接到编译期模板，`cpp_extension.load` 即时编译）→ CUDA（`CUDAGuard` 切到输入所在设备、用当前 stream、launch 后检查）→ Autograd 与 Meta（`register_fake` 供 FakeTensor 与 `torch.compile` 使用）。实现层必须处理四件事：device、dtype、stride（`contiguous()` 用一次拷贝换 Kernel 简单，TensorIterator 用地址计算换零拷贝）、生命周期（`at::Tensor` 是句柄，`data_ptr` 只在 Tensor 存活期间有效）。读懂 Kernel 需要的 CUDA 最小集：`blockIdx.x * blockDim.x + threadIdx.x` 是全局线程号，warp 内 32 个线程锁步执行，访存按 32 B 扇区合并。验证靠 `opcheck`（Schema、Autograd 注册、FakeTensor 元数据、AOT 可追踪——不含数值梯度）与 `gradcheck`（float64），Benchmark 对照原生 `2.0 * x + 1.0` 的两个 Kernel。
 
 **必记**：
 
@@ -215,7 +216,7 @@ Table: 本文的章节安排
 
 **核心问题**：前九篇描述的是一个已经正确运行的系统——它是怎么做到一直正确、一直可用的？
 
-**结论**：一次改动从写下到进入用户生产环境要过七关：本地构建能跑、结果正确、没有变慢、审查与 CI 合入、随版本发布、用户升级不坏、使用者跟随演进；前六关是维护者视角，第七关是使用者视角。七关守三件事：正确性（主要由 ②）、性能（③）、兼容性（⑥），构建是验证的前提，合入与发布把验证变成强制的、自动的流程。框架与应用的区别是组合爆炸：2000+ 算子 × 约 15 种 dtype × 设备 × shape × layout × 执行模式，几十万个测试点。这塑造了三件事：数据驱动的 OpInfo（一处声明 `op_db`，几十个模板做笛卡尔积，添加一个算子的测试就是加一个 `OpInfo`）；分层的 CI（`pull` 每 PR 约两小时，`trunk` 合入后，`periodic` 每晚，`inductor` 专项；目标确定按改动文件排序测试；flaky 自动开 disable issue 隔离而不是重跑到过）；按稳定程度分级的接口面（Python API 有弃用周期，算子 Schema 有自动化 BC/FC 检查，C++ API 无 BC 保证但有 `torch/csrc/stable/` 稳定子集与 PrivateUse1，序列化有 `_version` 机制）。"对"由五种 oracle 定义：参考实现、数学恒等式（`gradcheck`）、跨后端一致、跨模式一致、元数据一致——新算子至少要有前两种之一作为绝对标准，否则跨后端一致只能证明两个实现错得一样。性能守门用指令数（`collect_callgrind`，可检测 0.1% 变化）守 CPU 开销，TorchBench 与编译器看板守端到端，回归的定义是曲线上的拐点。第六篇的 `myops` 走完七关表明：复用测试基础设施、契约与实现分离、性能基线入库，树外扩展也能低成本获得同样保障。
+**结论**：一次改动从写下到进入用户生产环境要过七关：本地构建能跑、结果正确、没有变慢、审查与 CI 合入、随版本发布、用户升级不坏、使用者跟随演进；前六关是维护者视角，第七关是使用者视角。七关守三件事：正确性（主要由 ②）、性能（③）、兼容性（⑥），构建是验证的前提，合入与发布把验证变成强制的、自动的流程。框架与应用的区别是组合爆炸：2000+ 算子 × 约 15 种 dtype × 设备 × shape × layout × 执行模式，几十万个测试点。这塑造了三件事：数据驱动的 OpInfo（一处声明 `op_db`，几十个模板做笛卡尔积，添加一个算子的测试就是加一个 `OpInfo`）；分层的 CI（`pull` 每 PR 约两小时，`trunk` 合入后，`periodic` 每晚，`inductor` 专项；目标确定按改动文件排序测试；flaky 自动开 disable issue 隔离而不是重跑到过）；按稳定程度分级的接口面（Python API 有弃用周期，算子 Schema 有自动化 BC/FC 检查，C++ API 无 BC 保证但有 `torch/csrc/stable/` 稳定子集与 PrivateUse1，序列化有 `_version` 机制）。"对"由五种 oracle 定义：参考实现、数学恒等式（`gradcheck`）、跨后端一致、跨模式一致、元数据一致——新算子至少要有前两种之一作为绝对标准，否则跨后端一致只能证明两个实现错得一样。性能守门用指令数（`collect_callgrind`，可检测 0.1% 变化）守 CPU 开销，TorchBench 与编译器看板守端到端，回归的定义是曲线上的拐点。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的 `myops` 走完七关表明：复用测试基础设施、契约与实现分离、性能基线入库，树外扩展也能低成本获得同样保障。
 
 **必记**：
 
@@ -232,23 +233,23 @@ Table: 本文的章节安排
 
 ### 1. Tensor 元数据一路向下决定访存
 
-第二篇建立的六个字段——尤其是 stride 与 dtype——不只是解释"view 为什么不复制"，它们决定了下面每一层的行为。第五篇的 TensorIterator 消费的正是 shape / stride / storage_offset / dtype：构造迭代空间、检测连续布局、划分并行块，Kernel 只表达对一个元素做什么。第六篇把同一件事放到自定义 Kernel 里：`data_ptr<T>()` 返回的是 `storage_offset` 之后的起始地址，对非连续 Tensor 直接一维遍历会得到错误结果，所以要么 `contiguous()` 用一次拷贝换 Kernel 简单、要么 TensorIterator 用地址计算换零拷贝；而 warp 内 32 个线程访问连续地址才能把 32 B 扇区用满，跨步 2 就只剩 50% 带宽利用。第八篇给出后果的度量：逐元素算子几乎总是 memory-bound，时间由字节数除以带宽决定；单个转置 view 参与运算并不慢（TensorIterator 沿物理布局遍历），两个输入布局正交时才掉带宽；bf16 把数据量减半，所以同一个 Kernel 时间大致减半。第二篇的 dtype 位域（fp16 5/10、bf16 8/7）在第四篇成为 GradScaler 存在的理由，在第八篇成为 Tensor Core 16 倍算力与"主参数必须保留 fp32 副本"的依据。
+[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)建立的六个字段——尤其是 stride 与 dtype——不只是解释"view 为什么不复制"，它们决定了下面每一层的行为。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 TensorIterator 消费的正是 shape / stride / storage_offset / dtype：构造迭代空间、检测连续布局、划分并行块，Kernel 只表达对一个元素做什么。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)把同一件事放到自定义 Kernel 里：`data_ptr<T>()` 返回的是 `storage_offset` 之后的起始地址，对非连续 Tensor 直接一维遍历会得到错误结果，所以要么 `contiguous()` 用一次拷贝换 Kernel 简单、要么 TensorIterator 用地址计算换零拷贝；而 warp 内 32 个线程访问连续地址才能把 32 B 扇区用满，跨步 2 就只剩 50% 带宽利用。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)给出后果的度量：逐元素算子几乎总是 memory-bound，时间由字节数除以带宽决定；单个转置 view 参与运算并不慢（TensorIterator 沿物理布局遍历），两个输入布局正交时才掉带宽；bf16 把数据量减半，所以同一个 Kernel 时间大致减半。《Tensor 与内存布局》的 dtype 位域（fp16 5/10、bf16 8/7）在[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)成为 GradScaler 存在的理由，在《性能优化与调试》成为 Tensor Core 16 倍算力与"主参数必须保留 fp32 副本"的依据。
 
 ### 2. Autograd 是一个 DispatchKey
 
-第一篇的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。第三篇从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。第五篇从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的包装 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。第六篇要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它的注册是否合法，`gradcheck` 用有限差分检查数值。第七篇的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。第九篇的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在第三篇的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。第十篇则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
+[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的包装 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它的注册是否合法，`gradcheck` 用有限差分检查数值。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。[《分布式 PyTorch》](/pytorch-distributed-training.html)的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在《自动求导与动态计算图》的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
 
 ### 3. 固定成本与"少而大"
 
-第五篇拆开的入口 → 分发 → 执行链路，在第八篇被量化为每个算子 10～30 µs 的 CPU 固定成本，与 Tensor 大小无关；单个 Kernel 的 GPU 时间低于它就是 launch-bound，batch=1 的推理几乎必然如此。这个结构在第七篇给了编译器存在的理由——Dispatcher 每次只看到一个算子，无法跨算子优化；Inductor 把 `add` + `relu` 融成一个 Triton Kernel，`f` 的热路径从 3 次分发、3 次 launch 变成 0 次分发、2 次 launch，中间 Tensor 从 2 个变成 0 个。它还不够时，第七篇的 `mode="reduce-overhead"` 与第八篇的 CUDA Graphs 把一串 launch 录成一个图整体重放，优化的是 launch 方式而不是 Kernel 本身；`fused=True` 的优化器把 100 个参数 Tensor × Adam 约 10 个算子的 1000 次 launch 合成一个 Kernel。第九篇把同一个结构搬到通信上：α + β 模型里小消息由延迟 α 主导，"消息越小越浪费"与 Kernel launch 的固定成本是同一个结构——这就是 DDP 梯度桶、FSDP 分片单元不能太小、NCCL 按消息大小切换算法与协议的共同理由。第十篇最后用指令数守住这条线：`collect_callgrind` 完全确定、能检测 0.1% 的变化，PyTorch 用它盯住 Dispatcher 与 Python 绑定层的开销。
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)拆开的入口 → 分发 → 执行链路，在[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)被量化为每个算子 10～30 µs 的 CPU 固定成本，与 Tensor 大小无关；单个 Kernel 的 GPU 时间低于它就是 launch-bound，batch=1 的推理几乎必然如此。这个结构在[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)给了编译器存在的理由——Dispatcher 每次只看到一个算子，无法跨算子优化；Inductor 把 `add` + `relu` 融成一个 Triton Kernel，`f` 的热路径从 3 次分发、3 次 launch 变成 0 次分发、2 次 launch，中间 Tensor 从 2 个变成 0 个。它还不够时，《编译执行与图优化》的 `mode="reduce-overhead"` 与《性能优化与调试》的 CUDA Graphs 把一串 launch 录成一个图整体重放，优化的是 launch 方式而不是 Kernel 本身；`fused=True` 的优化器把 100 个参数 Tensor × Adam 约 10 个算子的 1000 次 launch 合成一个 Kernel。[《分布式 PyTorch》](/pytorch-distributed-training.html)把同一个结构搬到通信上：α + β 模型里小消息由延迟 α 主导，"消息越小越浪费"与 Kernel launch 的固定成本是同一个结构——这就是 DDP 梯度桶、FSDP 分片单元不能太小、NCCL 按消息大小切换算法与协议的共同理由。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)最后用指令数守住这条线：`collect_callgrind` 完全确定、能检测 0.1% 的变化，PyTorch 用它盯住 Dispatcher 与 Python 绑定层的开销。
 
 ### 4. 16 B/参数这笔账
 
-同一个数字在三篇里各算一次。第四篇在 Optimizer 一章第一次写下它：FP32 + Adam 下每个参数对应 param、grad、`exp_avg`、`exp_avg_sq` 四块各 4 B，7B 模型 112 GB，其中一半是 Optimizer state，并预告它是多卡训练最先被切分的状态。第八篇把它放进显存的构成——前三项是静态的、与 batch 无关，激活值随 batch 线性增长；并指出混合精度下这个数字不变（原生 autocast：参数与 `.grad` 都还是 fp32；bf16 主流程：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4），收益全在激活值上；案例里 38M 参数的小模型静态部分微不足道，checkpointing 换 batch 反而不值得。第九篇以它为所有显存账的基准：DDP 每卡 16P，ZeRO-1 4P + 12P/N，ZeRO-2 2P + 14P/N，FSDP 16P/N；7B 模型 8 卡 FSDP 静态 14 GB，激活 143 GB 远超显存，第八篇"不值得"的 checkpointing 在这里成为必需（激活降到约 13 GB，代价 +33% 计算）；HSDP 的代价正是静态显存从 3.5 GB 回到 14 GB。第十篇的升级 playbook 第 5 步"旧 checkpoint 在新版本加载并续训"，加载的就是这 16 B 里属于 `state_dict` 与优化器 `state_dict` 的部分。
+同一个数字在三篇里各算一次。[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)在 Optimizer 一章第一次写下它：FP32 + Adam 下每个参数对应 param、grad、`exp_avg`、`exp_avg_sq` 四块各 4 B，7B 模型 112 GB，其中一半是 Optimizer state，并预告它是多卡训练最先被切分的状态。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)把它放进显存的构成——前三项是静态的、与 batch 无关，激活值随 batch 线性增长；并指出混合精度下这个数字不变（原生 autocast：参数与 `.grad` 都还是 fp32；bf16 主流程：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + m 4 + v 4），收益全在激活值上；案例里 38M 参数的小模型静态部分微不足道，checkpointing 换 batch 反而不值得。[《分布式 PyTorch》](/pytorch-distributed-training.html)以它为所有显存账的基准：DDP 每卡 16P，ZeRO-1 4P + 12P/N，ZeRO-2 2P + 14P/N，FSDP 16P/N；7B 模型 8 卡 FSDP 静态 14 GB，激活 143 GB 远超显存，《性能优化与调试》"不值得"的 checkpointing 在这里成为必需（激活降到约 13 GB，代价 +33% 计算）；HSDP 的代价正是静态显存从 3.5 GB 回到 14 GB。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)的升级 playbook 第 5 步"旧 checkpoint 在新版本加载并续训"，加载的就是这 16 B 里属于 `state_dict` 与优化器 `state_dict` 的部分。
 
 ### 5. 契约与实现分离
 
-第五篇的 Operator Schema 是这条线的起点：抽象算子的定义与它在各后端的实现分开声明，alias 与 mutability 标注是 Autograd 版本检查、编译器安全重排与内存复用的共同基础。第六篇要求自定义算子从"纯 Python 实现建立契约"开始再逐层下沉，`opcheck` 检查 Schema 与实际行为、Fake 与真实实现是否一致。第七篇的编译栈完全依赖这份契约：Dynamo 与 AOTAutograd 用 FakeTensor 推断元数据，缺 `register_fake` 的自定义算子要么 graph break 要么报 "no fake impl"。第十篇把契约变成守门的对象：`op_db` 里每个 `OpInfo` 是一份声明、模板负责验证声明属实，`op_db` 同时是算子能力的权威清单与新后端衡量覆盖度的标尺；CI 把当前 Schema 与最近 nightly 的快照比较，任何 BC 破坏都失败；`torch._refs` 一份代码三种用途——测试 oracle、编译分解来源、新后端兜底。契约稳定、实现自由，是这个系统能同时支持 CPU / CUDA / 树外后端、Eager / compile 的原因。
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 Operator Schema 是这条线的起点：抽象算子的定义与它在各后端的实现分开声明，alias 与 mutability 标注是 Autograd 版本检查、编译器安全重排与内存复用的共同基础。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)要求自定义算子从"纯 Python 实现建立契约"开始再逐层下沉，`opcheck` 检查 Schema 与实际行为、Fake 与真实实现是否一致。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的编译栈完全依赖这份契约：Dynamo 与 AOTAutograd 用 FakeTensor 推断元数据，缺 `register_fake` 的自定义算子要么 graph break 要么报 "no fake impl"。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)把契约变成守门的对象：`op_db` 里每个 `OpInfo` 是一份声明、模板负责验证声明属实，`op_db` 同时是算子能力的权威清单与新后端衡量覆盖度的标尺；CI 把当前 Schema 与最近 nightly 的快照比较，任何 BC 破坏都失败；`torch._refs` 一份代码三种用途——测试 oracle、编译分解来源、新后端兜底。契约稳定、实现自由，是这个系统能同时支持 CPU / CUDA / 树外后端、Eager / compile 的原因。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -267,21 +268,21 @@ Table: 贯穿十篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| PyTorch 是一个 Python 库 | Python 只是表达与控制层 | 三层分工：Python 表达和组织，C++ 运行时和抽象，CUDA 设备执行 | [第一篇](/pytorch-overall-introduction.html) |
-| `reshape` 总是零拷贝 | 不连续时先 `contiguous()` 复制再 view | 能 view 就 view，否则复制；返回值是否共享内存不确定 | [第二篇](/pytorch-tensor-and-memory-layout.html) |
-| `del x` 后显存就释放了 | 小 view 仍持有同一 Storage；释放的块只回缓存 | 用 `.clone()` / `.item()` 切断共享；`reserved` 不降是缓存不是泄漏 | [第二篇](/pytorch-tensor-and-memory-layout.html) |
-| 把 `loss` 存进 list 只是保存一个数 | `loss` 通过 `grad_fn` 持有整张图与所有激活 | 用 `loss.item()` 或 `.detach()`；泄漏几乎总是持有了带 `grad_fn` 的 Tensor | [第三篇](/pytorch-autograd-and-dynamic-computation-graph.html) |
-| `model.eval()` 关闭了梯度 | 它只切换 Module 行为（dropout、BN） | 评估要 `eval()` + `inference_mode()` 一起用 | [第四篇](/pytorch-module-and-training-system.html) |
-| `self.layers = [nn.Linear(...) ...]` 会被 Module 管理 | list 不是 Module，`__setattr__` 不登记 | 用 `nn.ModuleList` / `nn.Sequential`，否则不进优化器、不进 `state_dict`、不迁移 | [第四篇](/pytorch-module-and-training-system.html) |
-| Dispatcher 是按 device 的 if/else | Key 由元数据与 TLS 合成，包装 Key 再次分发 | 多维、可多次的运行时分发系统；一次 `add` 两次经过 Dispatcher | [第五篇](/pytorch-dispatcher-and-operator-system.html) |
-| 自定义 Kernel 处理连续 float32 就够了 | dtype、device、stride、空 Tensor、生命周期、backward 都要处理 | `AT_DISPATCH` 展开 dtype、`CUDAGuard` 切设备、`contiguous()` 或 TensorIterator、`register_fake` | [第六篇](/pytorch-cpp-extension-and-custom-operators.html) |
-| `torch.compile` 把 Python 翻译成 CUDA | 它只捕获可分析的 Tensor 计算，把不能确定的部分变成 Guard | 能确定的固化进代码，不能确定的变成运行时检查；捕获不了就 graph break 退回 Eager | [第七篇](/pytorch-compilation-and-graph-optimization.html) |
-| 换 batch size 变慢是编译器 bug | 静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译 | `dynamic=True` / `mark_dynamic` 让 shape 成为符号；缓存条目上限 8 | [第七篇](/pytorch-compilation-and-graph-optimization.html) |
-| GPU 利用率低就优化 Kernel | 利用率低说明 GPU 在等 CPU 或同步点 | 先看 GPU 泳道形态，归到 launch / Python / sync-bound，解决后才能谈 Kernel | [第八篇](/pytorch-performance-optimization-and-debugging.html) |
-| 低精度总能加速 | launch-bound 下 Kernel 数不变，autocast 还插入 cast Kernel | 先解决 CPU 侧问题，再上 bf16 | [第八篇](/pytorch-performance-optimization-and-debugging.html) |
-| FSDP 比 DDP 省显存也省通信 | 参数分片后"用到时凑齐"多出一个 P | 通信 3P 对 2P，多 50%；省的是 16P → 16P/N | [第九篇](/pytorch-distributed-training.html) |
-| 加卡就该线性加速 | 带宽项通信量不随 N 减少，per-rank 计算随 N 缩小 | 四组原因：通信、同步等待、计算效率、算法效率；藏不住就换策略 | [第九篇](/pytorch-distributed-training.html) |
-| flaky 测试让作者重跑到过 | 几十万测试里的 flaky 会让所有人忽略红色 CI | 自动开 disable issue 隔离、定期重跑、连续通过后恢复 | [第十篇](/pytorch-engineering-system.html) |
+| PyTorch 是一个 Python 库 | Python 只是表达与控制层 | 三层分工：Python 表达和组织，C++ 运行时和抽象，CUDA 设备执行 | [《PyTorch 整体介绍》](/pytorch-overall-introduction.html) |
+| `reshape` 总是零拷贝 | 不连续时先 `contiguous()` 复制再 view | 能 view 就 view，否则复制；返回值是否共享内存不确定 | [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) |
+| `del x` 后显存就释放了 | 小 view 仍持有同一 Storage；释放的块只回缓存 | 用 `.clone()` / `.item()` 切断共享；`reserved` 不降是缓存不是泄漏 | [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) |
+| 把 `loss` 存进 list 只是保存一个数 | `loss` 通过 `grad_fn` 持有整张图与所有激活 | 用 `loss.item()` 或 `.detach()`；泄漏几乎总是持有了带 `grad_fn` 的 Tensor | [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) |
+| `model.eval()` 关闭了梯度 | 它只切换 Module 行为（dropout、BN） | 评估要 `eval()` + `inference_mode()` 一起用 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) |
+| `self.layers = [nn.Linear(...) ...]` 会被 Module 管理 | list 不是 Module，`__setattr__` 不登记 | 用 `nn.ModuleList` / `nn.Sequential`，否则不进优化器、不进 `state_dict`、不迁移 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) |
+| Dispatcher 是按 device 的 if/else | Key 由元数据与 TLS 合成，包装 Key 再次分发 | 多维、可多次的运行时分发系统；一次 `add` 两次经过 Dispatcher | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) |
+| 自定义 Kernel 处理连续 float32 就够了 | dtype、device、stride、空 Tensor、生命周期、backward 都要处理 | `AT_DISPATCH` 展开 dtype、`CUDAGuard` 切设备、`contiguous()` 或 TensorIterator、`register_fake` | [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) |
+| `torch.compile` 把 Python 翻译成 CUDA | 它只捕获可分析的 Tensor 计算，把不能确定的部分变成 Guard | 能确定的固化进代码，不能确定的变成运行时检查；捕获不了就 graph break 退回 Eager | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
+| 换 batch size 变慢是编译器 bug | 静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译 | `dynamic=True` / `mark_dynamic` 让 shape 成为符号；缓存条目上限 8 | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
+| GPU 利用率低就优化 Kernel | 利用率低说明 GPU 在等 CPU 或同步点 | 先看 GPU 泳道形态，归到 launch / Python / sync-bound，解决后才能谈 Kernel | [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) |
+| 低精度总能加速 | launch-bound 下 Kernel 数不变，autocast 还插入 cast Kernel | 先解决 CPU 侧问题，再上 bf16 | [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) |
+| FSDP 比 DDP 省显存也省通信 | 参数分片后"用到时凑齐"多出一个 P | 通信 3P 对 2P，多 50%；省的是 16P → 16P/N | [《分布式 PyTorch》](/pytorch-distributed-training.html) |
+| 加卡就该线性加速 | 带宽项通信量不随 N 减少，per-rank 计算随 N 缩小 | 四组原因：通信、同步等待、计算效率、算法效率；藏不住就换策略 | [《分布式 PyTorch》](/pytorch-distributed-training.html) |
+| flaky 测试让作者重跑到过 | 几十万测试里的 flaky 会让所有人忽略红色 CI | 自动开 disable issue 隔离、定期重跑、连续通过后恢复 | [《PyTorch 的工程体系》](/pytorch-engineering-system.html) |
 
 Table: 常见误区与正确说法
 
@@ -361,7 +362,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-10. 第七篇的 `f` 用 `torch.compile` 后依次以 batch 128、200、64 调用，各触发几次编译、Guard 各是什么？
+10. [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的 `f` 用 `torch.compile` 后依次以 batch 128、200、64 调用，各触发几次编译、Guard 各是什么？
 
     <details markdown="1"><summary>答案</summary>
 
@@ -375,7 +376,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：`loss` 是 non-leaf，通过 `grad_fn` → `SavedVariable` → 上游节点持有整张图与所有激活，每步一张新图全活着；第二篇：Tensor 生命周期比变量名重要，是否延长了某块内存的生命周期；第八篇：`allocated` 单调增长归为泄漏，用 memory snapshot 找持有 `grad_fn` 的引用。修复：`loss.item()` 或 `loss.detach()`。
+   [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)：`loss` 是 non-leaf，通过 `grad_fn` → `SavedVariable` → 上游节点持有整张图与所有激活，每步一张新图全活着；[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)：Tensor 生命周期比变量名重要，是否延长了某块内存的生命周期；[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)：`allocated` 单调增长归为泄漏，用 memory snapshot 找持有 `grad_fn` 的引用。修复：`loss.item()` 或 `loss.detach()`。
 
    </details>
 
@@ -383,7 +384,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：Operator Table 按 Key 分槽位，Meta 路径只推断输出元数据；第六篇：自定义算子要自己 `register_fake`，`opcheck` 会检查 Fake 与真实实现的 shape / dtype 一致；第七篇：Dynamo 与 AOTAutograd 全程在 FakeTensor 上运行、真实数据只在最后一步被读取，没有 Fake 实现就无法推断输出形状，只能 graph break 或报错。
+   [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)：Operator Table 按 Key 分槽位，Meta 路径只推断输出元数据；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)：自定义算子要自己 `register_fake`，`opcheck` 会检查 Fake 与真实实现的 shape / dtype 一致；[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)：Dynamo 与 AOTAutograd 全程在 FakeTensor 上运行、真实数据只在最后一步被读取，没有 Fake 实现就无法推断输出形状，只能 graph break 或报错。
 
    </details>
 
@@ -391,7 +392,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第九篇："为什么加卡不线性"的第三组原因——总 batch 不变时 per-rank batch 变成 1/8，Kernel 变小；第八篇：单个 Kernel 的 GPU 时间低于 10～30 µs 的 CPU 固定成本就是 launch-bound，处方是增大 per-rank batch、融合 / `torch.compile`、CUDA Graphs、fused 优化器；第四篇：也要排除 DataLoader 供给不足（GPU 大段空白、CPU 停在 DataLoader）。同时检查通信是否暴露（第九篇 DDP 最后一个桶无法重叠）。
+   [《分布式 PyTorch》](/pytorch-distributed-training.html)："为什么加卡不线性"的第三组原因——总 batch 不变时 per-rank batch 变成 1/8，Kernel 变小；[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)：单个 Kernel 的 GPU 时间低于 10～30 µs 的 CPU 固定成本就是 launch-bound，处方是增大 per-rank batch、融合 / `torch.compile`、CUDA Graphs、fused 优化器；[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)：也要排除 DataLoader 供给不足（GPU 大段空白、CPU 停在 DataLoader）。同时检查通信是否暴露（《分布式 PyTorch》 DDP 最后一个桶无法重叠）。
 
    </details>
 
@@ -399,7 +400,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：转置只改元数据，strides 不再是行主序，`data_ptr` 一维遍历读到错误位置；第六篇：`contiguous()` 用一次拷贝换 Kernel 简单，多出一次完整读写，另一选项是 CUDA 版 TensorIterator（`gpu_kernel`）按 stride 计算地址、零拷贝；第八篇：拷贝是纯 memory-bound 操作，时间 = 字节数 / 带宽，且跨步访问不合并——一个 warp 跨两段只剩 50% 带宽。
+   [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)：转置只改元数据，strides 不再是行主序，`data_ptr` 一维遍历读到错误位置；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)：`contiguous()` 用一次拷贝换 Kernel 简单，多出一次完整读写，另一选项是 CUDA 版 TensorIterator（`gpu_kernel`）按 stride 计算地址、零拷贝；[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)：拷贝是纯 memory-bound 操作，时间 = 字节数 / 带宽，且跨步访问不合并——一个 warp 跨两段只剩 50% 带宽。
 
    </details>
 
@@ -407,7 +408,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：改 `torch.library.define` / `TORCH_LIBRARY` 里的 Schema 与所有实现、Autograd、Fake，重跑 `opcheck` 与 `gradcheck`；第五篇：Schema 是契约，Python 绑定按参数匹配 overload；第十篇：末尾新增带默认值的参数是 ✓BC ✗FC——旧模型用默认值，新模型在旧版本上解析失败——CI 用 Schema 快照检查，`native_functions.yaml` 的改动有额外审批；OpInfo 的 `sample_inputs_func` 要补新参数的样本；性能基线（微基准）要重跑确认没变慢。
+   [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)：改 `torch.library.define` / `TORCH_LIBRARY` 里的 Schema 与所有实现、Autograd、Fake，重跑 `opcheck` 与 `gradcheck`；[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)：Schema 是契约，Python 绑定按参数匹配 overload；[《PyTorch 的工程体系》](/pytorch-engineering-system.html)：末尾新增带默认值的参数是 ✓BC ✗FC——旧模型用默认值，新模型在旧版本上解析失败——CI 用 Schema 快照检查，`native_functions.yaml` 的改动有额外审批；OpInfo 的 `sample_inputs_func` 要补新参数的样本；性能基线（微基准）要重跑确认没变慢。
 
    </details>
 
@@ -479,7 +480,7 @@ Table: 常见误区与正确说法
 
    **答案要点**：(1) 三步完整：Schema 声明 mutability / alias，CPU / CUDA / Autograd / Meta 四个槽位都注册，`register_fake` 让 `torch.compile` 能捕获；(2) 实现层处理 device（`CUDAGuard`、当前 stream）、dtype（`AT_DISPATCH`，含 bf16）、stride（`contiguous()` 或 TensorIterator）、生命周期；(3) 正确性用五种 oracle 中至少一种绝对标准：对照参考实现 `alpha * x + beta`、`gradcheck`（float64），再加跨设备、非连续、空 Tensor、极端数值；`opcheck` 一站式检查；(4) 性能：`benchmark.Timer` 对照原生两个 Kernel，基线入库、阈值守门，不比原生快就重新评估是否值得维护 C++；(5) 兼容：C++ API 无 BC 保证，扩展 pin 到具体 torch 版本并在 `__init__.py` 做版本检查，`_GLIBCXX_USE_CXX11_ABI` 与 `TORCH_CUDA_ARCH_LIST` 一致，随基础镜像交付；改 Schema 只在末尾加带默认值的参数，或新增 overload 并弃用旧的；(6) 升级 playbook：读发布说明 → 重编译扩展 → `-W error::FutureWarning` 跑测试 → 单卡 loss 对照 → checkpoint 兼容 → 多卡与 compile → 性能基线 → 灰度。
    **追问方向**：`opcheck` 具体查哪几件事；`load` 与 `setup.py` 各适合什么阶段；BC 与 FC 的区别；`torch/csrc/stable/` 稳定子集解决什么。
-   **好答案与一般答案的区别**：一般答案停在"写 Kernel、测正确性"；好答案把第六篇的七条完成标准与第十篇的七关连起来，知道每一关守什么、坏在哪一层怎么定位。
+   **好答案与一般答案的区别**：一般答案停在"写 Kernel、测正确性"；好答案把[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)的七条完成标准与[《PyTorch 的工程体系》](/pytorch-engineering-system.html)的七关连起来，知道每一关守什么、坏在哪一层怎么定位。
 
    </details>
 
