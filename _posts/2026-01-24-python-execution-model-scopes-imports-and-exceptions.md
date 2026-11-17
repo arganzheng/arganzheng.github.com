@@ -1442,6 +1442,8 @@ except Exception:
 只记录不重抛是最常见的错误处理反模式：
 
 ```python title='反模式：只记录 str(exc) 不重抛'
+try:
+    train_step(batch)
 except Exception as exc:
     logger.error(str(exc))     # 丢了 traceback，也丢了异常本身
 ```
