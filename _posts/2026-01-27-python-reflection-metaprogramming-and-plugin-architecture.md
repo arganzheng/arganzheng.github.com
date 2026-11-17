@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（04）：Python的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 `vllm.LLM(model="Qwen/Qwen3-8B")` 这一行背后，vLLM 要在几十种模型架构、十几种量化格式、几种 attention 后端、几种调度策略里各选一个，还要允许别人在不改 vLLM 源码的情况下接入自己的模型或量化方法。如果用 `if model_type == "qwen3": ... elif ...` 来写，核心代码会变成一张几百行的 `if-else` 表，每接一个新模型都要改它。实际的做法是：模型类用一个装饰器把自己登记进一个注册表，量化方法按名字从表里取，后端在启动时按硬件条件动态 `import`——运行时用**字符串**找到**类**、用**装饰器**改写**函数**、用**元类 / `__init_subclass__`** 在**定义时**介入。这些就是 Python 的动态机制。
@@ -43,7 +43,7 @@ flowchart TB
 
 ### 1. 两个问题与全文脉络
 
-全文只有两部分。**前半是 Python 的动态机制**：先说清楚 AI-Infra 为什么需要它们（第二章），再把工具箱摊开——反射、元编程、动态加载三章是同一个工具箱的三个抽屉，不是三种不同的能力（第三到第五章）——最后给出选型与边界（第六章）。**后半是应用与工程实践**：用组件注册 / 插件化和路由分发两个应用把机制组合起来（第七到第九章），再从性能、可维护性和安全三方面算清代价（第十章），并与 Java 对照（第十一章）。贯穿全文的一条工程原则是：**动态机制只负责在启动时"选择"，不负责在运行时"执行"**——初始化可以动态，热路径必须静态。
+全文只有两部分。**前半是 Python 的动态机制**：先说清楚 AI-Infra 为什么需要它们（第二章），再把工具箱摊开——反射、元编程、动态加载三章是同一个工具箱的三个抽屉，不是三种不同的能力（第三到第五章）——最后给出选型与边界（第六章）。**后半是应用与工程实践**：用组件注册 / 插件化和路由分发两个应用把机制组合起来（第七到第九章），再从性能、可维护性和安全三方面算清代价（第十章）。Java 对照放在相关知识点旁，第十一章保留跨主题速查。贯穿全文的一条工程原则是：**动态机制只负责在启动时"选择"，不负责在运行时"执行"**——初始化可以动态，热路径必须静态。
 
 ### 2. 本文的章节安排
 
@@ -132,7 +132,7 @@ Table: 名字到实现的映射：字符串、路由到类与函数
 
 这层映射就是后面两个应用场景的共同骨架——插件化和路由分发的区别，只在于 key 的空间不同：一个是插件名，一个是 `(method, path)`。
 
-而围绕这层映射有四个必须回答的问题，它们构成了第三、四章的全部内容：
+围绕这层映射有四个必须回答的问题，第七章会把它们组合成插件系统：
 
 - 名字从哪来？：→ 配置 / 入口点 / 类声明
 - 名字映射到什么？：→ 注册表（值是类还是工厂？重名怎么办？）
@@ -251,6 +251,9 @@ def collect_public_attributes(obj: object) -> dict[str, object]:
 
 因此，反射代码不能默认认为“读取属性是无副作用的”。
 
+> [!NOTE] 与 Java 对照：getattr 与成员反射
+> Java 通常先取得 `Field` / `Method`，再调用 `get()` / `invoke()`；Python 的 `getattr(obj, name)` 直接走普通属性访问协议，可能得到绑定方法，也可能执行描述符或 `__getattr__`。它不是绕过封装读取底层字段的接口，不能把不可信字符串直接当属性名。
+
 ### 2. `inspect`：检查函数和调用约定
 
 `inspect` 适合构建调试工具、依赖注入系统和接口校验工具。
@@ -294,6 +297,8 @@ def validate_loader(loader: object) -> None:
 - 运行时反射：在组件动态加载后确认实际对象结构。
 
 成熟系统通常会同时使用二者。
+
+注解本身不会强制检查实参类型。本文以 Python 3.10–3.12 为主：未启用 `from __future__ import annotations` 时，函数注解通常在定义时求值；启用后按字符串保存。Python 3.14 默认采用 PEP 649 / 749 的延迟求值语义，读取注解时可能触发求值。不要把读取注解当成无副作用的类型校验。
 
 ### 3. `__dict__` 与类的内部结构
 
@@ -381,6 +386,9 @@ print(model.describe())
 
 但它也会降低代码的可读性。除非确实需要动态生成类型，否则优先使用普通类、工厂函数或组合模式。
 
+> [!NOTE] 与 Java 对照：动态创建类
+> `type(name, bases, namespace)` 用现成对象组成一个 Python 类。Java 的 `Proxy` 主要生成实现指定接口的代理类，更一般的运行时类生成可用字节码工具；两者能解决部分相似问题，但约束和类加载过程不同，不是同一种 API 的两种拼写。
+
 ### 2. 装饰器：注入横切逻辑
 
 > 装饰器的基础用法在[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
@@ -454,7 +462,7 @@ def measure_async(
 
 装饰器适合增强行为，但不适合隐藏核心业务流程。
 
-不推荐：
+下面是省略业务实现的装饰器叠加骨架，不推荐：
 
 ```python title="反例：五层装饰器把核心流程藏起来"
 @retry
@@ -462,7 +470,7 @@ def measure_async(
 @trace
 @limit
 @fallback
-async def infer(...):
+async def infer(request: dict) -> dict:
     ...
 ```
 
@@ -496,6 +504,8 @@ async def infer(...):
 一个简单的验证描述符如下：
 
 ```python title="PositiveInteger 验证描述符：__set_name__、__get__、__set__"
+from __future__ import annotations
+
 class PositiveInteger:
     # __set_name__ 在类创建阶段由元类自动调用，
     # 将属性名注入描述符——这本身就是一种元编程钩子。
@@ -545,6 +555,9 @@ config.batch_size = -1
 - 实现缓存属性。
 
 但描述符会改变普通属性访问的语义。使用时应明确其生命周期、线程安全和异常行为。
+
+> [!NOTE] 与 Java 对照：描述符与属性拦截
+> Java 的 getter/setter 可以显式封装字段校验，代理或字节码增强也能拦截部分访问。Python 描述符则直接参与 `obj.attr` 的语言级查找协议；它与方法级 AOP 的拦截边界不同。并非所有属性拦截都靠描述符，`nn.Module` 登记参数主要依赖 `__setattr__`。
 
 ### 4. `__init_subclass__`：更轻量的自动注册
 
@@ -667,11 +680,14 @@ flowchart TB
     D --> X["<b>7. 名字 TorchBackend 绑定到返回值</b>"]
 ```
 
-这个顺序（在 CPython 上用每个钩子打印一行即可验证）解释了几件容易困惑的事：
+这是使用标准 `type` 创建流程、且自定义元类如例子调用 `super().__new__()` 时的顺序，不只是 CPython 的优化细节。图中省略了装饰器表达式的预先求值；`register(cls)` 的应用才发生在最后。这个顺序解释了几件容易困惑的事：
 
-1. 元类的 `__new__` 能在第 2 步之后、类对象诞生之前修改命名空间，这是它唯一不可替代的地方；装饰器和 `__init_subclass__` 拿到的都已经是创建好的类。
+1. 元类的 `__new__` 能在第 2 步之后、类对象诞生之前修改命名空间；装饰器和 `__init_subclass__` 拿到的都已经是创建好的类。需要控制类创建前的过程时，才考虑元类，而非仅为了注册。
 2. `__set_name__` 和 `__init_subclass__` 都发生在 `type.__new__` 内部，所以元类在 `super().__new__()` 之后写的登记代码，比 `__init_subclass__` 晚执行；两套注册同时存在时，以这个顺序判断谁先看到类。
 3. 类装饰器最后执行，它能看到元类和 `__init_subclass__` 加上的一切，也能把类整个换掉——所以第 7 步绑定的是装饰器的返回值。
+
+> [!NOTE] 与 Java 对照：子类钩子、元类与代码生成
+> Java 的注解处理器可在编译阶段生成代码，SPI 可声明服务提供者，类加载器与字节码增强可介入加载过程；这些手段能完成部分注册或校验任务。Python 的 `__init_subclass__` 在子类创建过程中运行，元类还能控制命名空间与类对象的创建。触发阶段不同，不宜直接把其中任何一个称作 APT 或类加载器的等价物。
 
 **元类的优点**
 
@@ -970,8 +986,10 @@ class ONNXLoader(ModelLoader, format_name="onnx"):
 | | 装饰器 | `__init_subclass__` |
 |---|---|---|
 | 可注册对象 | 类、函数、实例 | 只能是子类 |
+| 触发时机 | 执行定义后应用装饰器时 | `type.__new__` 创建子类时，早于类装饰器 |
+| 谁保存并消费结果 | 注册表保存引用，工厂按名字取实现 | 基类维护注册表，工厂按名字取子类 |
 | 对插件的侵入 | 无（加一行装饰） | 必须继承基类 |
-| 结构校验时机 | 需要额外写 | 类创建时天然可做 |
+| 结构校验时机 | 可在装饰器中显式实现 | 可在钩子中显式实现 |
 | 注册进多个注册表 | 容易 | 困难 |
 | 适合 | 开放式扩展、异构组件 | 强约束的同族组件 |
 
@@ -1105,7 +1123,10 @@ flowchart TB
     D --> E["<b>discovered['torch'] = TorchBackend</b>"]
 ```
 
-两点由这条链路决定：`entry_points()` 只扫描已安装包的 `dist-info` 元数据，所以列出插件很便宜，而且没装进当前环境的插件根本看不见；真正的导入（以及插件模块顶层的全部副作用）发生在 `load()` 那一步，所以下面的 `LazyPlugin` 把 `load()` 推迟到第一次使用。
+这里的 `entry_points(group=...)` 选择接口需要 Python 3.10+。它读取当前环境可发现的发行包元数据（常见于 `dist-info`），不导入插件模块；扫描仍有成本，宜在启动时执行。真正的导入发生在 `load()`：模块若尚未导入，会执行顶层代码；若已在 `sys.modules`，通常复用已有模块。下面的 `LazyPlugin` 把这一步推迟到第一次使用。
+
+> [!NOTE] 与 Java 对照：注册表、入口点与服务发现
+> Spring 的 `BeanDefinition` 保存组件创建所需的元数据，Python 注册表常直接保存类或工厂引用，均由后续装配代码消费，但简单字典没有 Spring 的容器生命周期。Java `ServiceLoader` 与 Python 入口点都能从已部署包发现提供者；声明格式、加载行为与接口约束不同，入口点的 `load()` 也不会自动验证返回对象符合协议。
 
 入口点适合：
 
@@ -1191,13 +1212,37 @@ def validate_backend(backend_cls: type) -> None:
     if infer is None or not callable(infer):
         raise TypeError("backend must define infer()")
 
+    if not inspect.iscoroutinefunction(infer):
+        raise TypeError("infer() must be an async function")
+
     signature = inspect.signature(infer)
 
     if "request" not in signature.parameters:
         raise TypeError(
             "infer() must accept request parameter"
         )
+
+    try:
+        signature.bind(object(), request={})
+    except TypeError as exc:
+        raise TypeError("infer() must support infer(self, request=...)") from exc
 ```
+
+这里约定插件提供普通实例方法 `async def infer(self, request)`，由系统以关键字传入 `request`。`bind()` 只验证调用形状，不调用插件、不检查参数类型和返回值；返回 awaitable 的同步包装器也不在这个简化契约内。上面的 `cast()` 只影响静态检查，不提供额外运行时保障。
+
+```mermaid
+%% 图：插件启动阶段的契约检查与发布边界
+flowchart TB
+    A[发现入口点或模块名] --> B[导入并取得候选类]
+    B --> C[检查 infer 是否为异步方法<br/>用 Signature.bind 验证调用形状]
+    C --> D{契约是否满足}
+    D -- 是 --> E[写入可用注册表<br/>供工厂实例化]
+    D -- 否 --> F[拒绝候选并记录原因<br/>必需插件失败则终止启动]
+```
+
+- 装饰器可能在导入期间先登记候选；候选注册表不等于已验证的可用清单。
+- 调用形状通过后，仍需初始化和集成测试确认真实行为。
+- 不可信插件在导入时就能执行代码，契约检查不是沙箱。
 
 类型检查工具则可以在开发阶段发现：
 
@@ -1443,21 +1488,23 @@ else:
 - GPU 资源；
 - 其他模块持有的引用。
 
-原因在于 `reload` 做的事很窄：在**同一个模块对象**的 `__dict__` 里把顶层代码再执行一遍，把名字重新绑定到新创建的对象上。所有不经过这个 `__dict__` 拿到的引用，都还指着旧对象。以一个用 `@register_backend("torch")` 注册的插件模块 `plugins.torch_backend` 为例，`importlib.reload(plugins.torch_backend)` 之后：
+对这里的普通 Python 插件模块，`reload` 会复用模块字典执行顶层代码，重新绑定执行到的名字；新源码未定义的旧名字仍可能残留。外部持有的旧类、旧函数和旧实例不会自动更新，但旧函数读取模块全局变量时可能看到新值。下面区分两条路径：没有注册冲突时，模块名可以绑定到新类；若 `@register_backend("torch")` 拒绝重名，装饰器会抛错，类名的最终绑定不会完成，整个重载也不成功。
 
 ```mermaid
 %% 图：importlib.reload 之后谁指向新类、谁还指向旧类
 flowchart TB
-    M["<b>模块 plugins.torch_backend 的 __dict__</b><br/>同一个模块对象，顶层代码重跑一遍"] -- "名字 TorchBackend 重新绑定" --> NEW["<b>新的 TorchBackend 类</b>"]
-    NEW -- "@register_backend('torch') 再执行一次" --> ERR["<b>registry.register 抛 ValueError</b><br/>backend already registered: torch"]
-    subgraph KEEP["reload 碰不到的引用"]
+    M["模块字典保留<br/>顶层代码重新执行"] --> NEW["创建新的 TorchBackend 类"]
+    NEW --> CHECK{注册装饰器是否成功}
+    CHECK -- 无冲突 --> BOUND["模块名字绑定到新类"]
+    CHECK -- 拒绝重名 --> ERR["抛 ValueError，reload 失败<br/>模块类名仍指向旧类"]
+    subgraph KEEP["不会自动更新的外部引用"]
         direction TB
         INST["<b>reload 之前创建的实例</b><br/>backend.__class__"] ~~~ OTHER["<b>别的模块里</b><br/>from plugins.torch_backend import TorchBackend"] ~~~ REG["<b>registry._factories['torch']</b><br/>注册表模块没有被重载"]
     end
     KEEP --> OLD["<b>旧的 TorchBackend 类</b><br/>reload 之前那一次执行创建的"]
 ```
 
-于是一次 `reload` 会同时制造三种不一致：旧实例继续跑旧代码；`isinstance(backend, plugins.torch_backend.TorchBackend)` 变成 `False`，因为那已经是另一个类；注册表里登记的仍是旧类，而重新执行的装饰器又撞上"重名注册"的检查。要绕开这三点，就得像上面的七步流程那样把"新实例"当成一个独立对象来创建、校验、切换和销毁旧的——这已经是生命周期管理，而不是模块重载。
+成功绑定新类后，旧实例的类身份不变，`isinstance(backend, plugins.torch_backend.TorchBackend)` 可能变成 `False`；外部注册表是否更新取决于注册逻辑。拒绝重名时则先发生重载异常，之前已执行的模块赋值也不会自动回滚。两种路径都需要显式创建、校验、切换和销毁实例——这已经是生命周期管理，而不是模块重载。
 
 因此，生产系统应优先设计显式的插件生命周期，而不是依赖模块重载。
 
@@ -1690,7 +1737,9 @@ def build_binder(handler: Callable[..., Any]):
             accepts_extra = True   # **kwargs：额外字段原样透传
             continue
         if parameter.kind is inspect.Parameter.VAR_POSITIONAL:
-            continue               # *args：路由 handler 不支持，忽略
+            raise TypeError("route handlers must not declare *args")
+        if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
+            raise TypeError("route handlers must not use positional-only parameters")
         if parameter.default is inspect.Parameter.empty:
             required.append(name)
         else:
@@ -1753,9 +1802,28 @@ def dispatch(method: str, path: str, request: dict) -> Any:
     return route.invoke(request)   # 一次字典查找 + 一次字典构造
 ```
 
-请求路径上剩下的动态操作只有一次 `dict.get()`，所有反射都发生在启动阶段。
+请求路径只查路由表、绑定当前请求参数并调用 handler，不再分析函数签名。
 
-> 这不是教学简化——**FastAPI 就是这么做的**。它在路由注册时（也就是装饰器执行时）用 `inspect` 分析 handler 签名，把每个参数解析成来源（path / query / body / 依赖项），构造出一个 `Dependant` 对象存进 `APIRoute`；请求到来时只是消费这份已经算好的计划。Pydantic 的校验器同样是在模型类定义时就编译好的。FastAPI 性能能打，很大程度来自这层"启动期编译"。
+```mermaid
+%% 图：路由签名到请求参数绑定器的两阶段处理
+flowchart TB
+    A[启动时注册 handler] --> B[inspect.signature 分析参数]
+    B --> C[生成 bind 闭包<br/>保存必填名、可选名与额外字段策略]
+    C --> D[CompiledRoute 保存 handler 和 bind<br/>写入路由表]
+    E[请求到达：method / path / body] --> F[查路由表]
+    D --> F
+    F --> G[bind 检查缺失字段并构造 kwargs]
+    G --> H[handler 接收关键字参数]
+```
+
+- `Signature` 的分析在启动期完成；参数值的检查仍随每个请求执行。
+- 缺失的可选参数不写入 kwargs，由 Python 调用时使用函数默认值。
+- 这个绑定器只支持关键字调用，启动时拒绝仅限位置参数与 `*args`，也不根据注解自动转换类型。
+
+> [!NOTE] 与 Java 对照：路由注册与参数解析
+> Spring 扫描 `@RequestMapping` 等注解建立映射，再由参数解析器处理请求；这里的 `@route` 在模块执行时登记函数，`build_binder` 在启动时生成绑定闭包。两边都把元数据分析提前，但本例不具备 Spring 的请求来源解析、转换、校验与依赖注入能力。
+
+> FastAPI 也采用类似的预分析思路：路由注册时分析 handler 签名与依赖关系，在 `APIRoute` 中保存 `Dependant` 等结构；请求到来后仍要解析输入、求解依赖并执行校验。Pydantic 通常预建校验器，也支持延迟构建等配置。可借鉴的是提前分析稳定元数据，而不是把本例当成框架的完整实现。
 
 如果还需要类型转换和校验，不要自己写——把绑定结果交给 Pydantic：
 
@@ -1910,7 +1978,7 @@ Table: 动态机制的其他综合应用案例
 
 单次反射调用的开销以几十纳秒计，通常可以忽略。问题出在**它被放进了每请求、每 token 或每算子都要走一遍的路径**。
 
-先看量级（CPython 3.9 / Apple Silicon，`timeit` 实测，仅作数量级参考）：
+先看一组历史量级（CPython 3.9 / Apple Silicon，`timeit` 数据；未附完整机器型号和基准脚本，不能作为可复现的性能承诺）。本文常用的 3.10–3.12 路径需在目标环境重测，尤其 3.11 引入专门化后，不同访问形式的比例也会变化：
 
 | 操作 | 耗时 | 相对直接访问 |
 |------|------|-------------|
@@ -2114,10 +2182,10 @@ class ServiceConfig:
 
 **④ 接受 `cast()`，但收窄它的作用范围**
 
-`cast()` 是对检查器的单方面承诺：编译期无成本、运行时无校验。它应当紧跟在一次真实的运行时校验之后，而不是散落各处：
+`cast()` 是对检查器的单方面承诺：运行时只返回原对象，不做类型校验。它应当紧跟在一次真实的运行时校验之后，而不是散落各处：
 
 ```python title="cast 紧跟在运行时校验之后"
-validate_backend(obj)                    # 先在运行时确认结构
+validate_backend(type(obj))              # 本文校验器接收插件类
 backend = cast(InferenceBackend, obj)    # 之后才向检查器做出承诺
 ```
 
@@ -2287,7 +2355,7 @@ def dump_registry(registry: dict[str, type]) -> list[dict[str, str]]:
 
 ## 十一、附：Java 与 Python 动态机制对照
 
-下表把本文涉及的动态能力与 Java 对应物并列。`层次`一列区分它属于语言机制还是架构决策。
+下表是跨主题速查，不表示一一等价；细节见各章就近对照。`层次`一列区分语言机制与架构决策。
 
 | 层次 | 能力 | Java | Python |
 |------|------|------|--------|
@@ -2295,10 +2363,10 @@ def dump_registry(registry: dict[str, type]) -> list[dict[str, str]]:
 | 机制 | 动态属性访问 | `Field.get()` / `Method.invoke()` | `getattr()` / `setattr()` |
 | 机制 | 函数签名检查 | `java.lang.reflect.Parameter` | `inspect.signature()` |
 | 机制 | 动态创建类 | `java.lang.reflect.Proxy`、字节码生成 | `type()` 三参数调用 |
-| 机制 | 属性拦截 | 无原生机制（需 AOP / 动态代理） | 描述符协议（`__get__` / `__set__`） |
+| 机制 | 属性拦截 | getter/setter、方法代理或字节码增强（边界不同） | 描述符协议（`__get__` / `__set__`） |
 | 机制 | 横切关注点 | 注解 + AOP（Spring / AspectJ） | 装饰器 |
 | 机制 | 自动注册子类 | 注解处理器（APT）/ SPI | `__init_subclass__` |
-| 机制 | 类创建控制 | 无直接等价（类加载器可部分替代） | 元类（`__new__` / `__init__`） |
+| 机制 | 类创建控制 | APT、字节码生成 / 增强、类加载器（阶段不同） | 元类（`__new__` / `__init__`） |
 | 机制 | 按名加载实现 | `Class.forName()` + 反射实例化 | `importlib.import_module()` + `getattr()` |
 | 架构 | 注册与发现 | `ServiceLoader`（SPI） | 注册表 + `entry_points` |
 | 架构 | 接口契约 | `interface`（名义类型） | `Protocol`（结构类型） |
@@ -2306,15 +2374,9 @@ def dump_registry(registry: dict[str, type]) -> list[dict[str, str]]:
 | 架构 | 依赖装配 | Spring `@Autowired` / Guice binding | 签名反射 + 闭包预绑定 |
 | 架构 | 插件生命周期 | OSGi Bundle 生命周期 / Spring Bean 回调 | 自定义 `start()` / `stop()` 协议 |
 | 架构 | 插件热加载 | OSGi / 自定义 ClassLoader | `importlib.reload()`（有限） |
-| 代价 | 安全沙箱 | `SecurityManager`（已废弃） | 无内建沙箱，依赖进程 / 容器隔离 |
+| 代价 | 安全沙箱 | `SecurityManager` 在 Java 17 弃用、24 永久禁用；现代部署依赖进程 / 容器等隔离 | 无通用的进程内安全沙箱，依赖进程 / 容器隔离 |
 
 Table: Java 与 Python 动态机制对照
-
-有两点值得注意。
-
-第一，**机制层 Python 明显更直接**：不需要反射 API 就能完成属性访问和类型操作，`getattr()` 就是个普通函数，描述符和元类更是没有 Java 等价物。但也因此更需要开发者自行建立边界，避免"什么都能做"变成"什么都看不懂"。
-
-第二，**架构层两边高度相似**。`ServiceLoader` 和 `entry_points` 解决的是同一个问题，Spring 的 `BeanDefinition` 持有 `Class<?>` 与 Python 注册表持有类对象是同一个模式，`@RequestMapping` 扫描注解建路由表和第八章的 `@route` 装饰器也是同一件事。这恰好印证了本文的核心区分：**架构模式与语言无关**，真正因语言而异的只有底下那层机制。Java 用注解 + APT + SPI 拼出来的东西，Python 用装饰器 + `__init_subclass__` + `entry_points` 拼出来，形状是一样的。
 
 ## 十二、本文小结
 
@@ -2324,7 +2386,7 @@ Table: Java 与 Python 动态机制对照
 - 插件化的构建顺序是：注册表（名字到实现的映射）→ 发现机制（显式导入、包扫描、入口点）→ 契约校验（启动阶段验证接口）→ 正式边界（身份、接口、配置、生命周期、能力声明）→ 版本兼容与热加载。
 - 路由分发与插件化解决的是同一个问题——名字到实现的映射——但它在热路径上，因此要把 `inspect.signature()` 等反射操作压缩到路由编译期，运行时只做查表。
 - 动态机制的账单分三类：性能（热路径开销）、可维护性（栈追踪晦涩、静态分析与 IDE 失效）和安全（任意导入、任意属性访问、任意表达式执行）。用户输入可以决定"选哪个名字"，但不能决定"名字长什么样"；插件错误要有失败分级和故障隔离，动态系统必须能被审计。
-- 与 Java 对照：机制层 Python 更直接，架构层两边高度相似——架构模式与语言无关，真正因语言而异的只是底下那层机制。
+- Java 与 Python 都能实现注册、发现和预绑定；具体触发阶段、类型约束与生命周期并不等价。
 
 ## 十三、自测
 
