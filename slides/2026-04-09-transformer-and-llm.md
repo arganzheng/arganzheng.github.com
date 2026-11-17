@@ -5,16 +5,16 @@ subtitle: "系列精华 · 四篇正文，按 ↓ 看推导、代码与数字"
 permalink: /slides/transformer-and-llm.html
 series: transformer-and-llm
 date: 2026-04-09 23:30:00 +0800
-updated: 2026-10-10
+updated: 2026-11-18
 author: arganzheng
-description: "《Transformer 原理与实现：从论文到手搓 GPT-2》系列的分享用幻灯片：五种运算、训练与推理两种形态、nanoGPT 逐行、模型训练与验证。"
+description: "《Transformer 原理与实现：从论文到手搓 GPT-2》系列的分享用幻灯片：六种部件、训练与推理两种形态、nanoGPT 逐行、模型训练与验证。"
 theme: white
 transition: slide
 ---
 
 ## 这个系列的一句话主张
 
-> Transformer 的结构可以从五种运算读懂；沿着一个 token 的旅程，再把同一套结构写成代码并训练起来。
+> 一个 decoder-only 模型只有六种部件；沿着一个 token 的旅程，再把同一套结构写成代码并训练起来。
 
 | 篇 | 内容 |
 |---|---|
@@ -26,12 +26,30 @@ transition: slide
 
 ---
 
-## 四篇怎么连起来
+## 四篇怎么连起来：一个小模型从文本到续写
 
 ```mermaid
-flowchart LR
-    P1["01 静态结构"] --> P2["02 token 的旅程"] --> P3["03 model.py"] --> P4["04 train.py"]
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart TB
+    subgraph M["从文本到词表分数：训练与推理共用（01 结构 · 03 代码）"]
+        direction LR
+        TXT["<b>文本</b><br/>分词成 token 编号（04）"] --> EMB["<b>embedding</b><br/>编号 → 向量"] --> BLK["<b>N 个 block</b><br/>attention + FFN"] --> HEAD["<b>lm_head</b><br/>向量 → 词表分数"]
+    end
+    subgraph TR["训练（02 数据流 · 04 代码与实跑）"]
+        direction LR
+        LOSS["<b>loss</b><br/>T 个位置的交叉熵"] --> BACK["<b>反向与更新</b><br/>梯度 → AdamW"]
+    end
+    subgraph INF["推理（02）"]
+        direction LR
+        PRE["<b>prefill</b><br/>留下 KV cache"] --> DEC["<b>decode</b><br/>每次 1 个新 token"]
+    end
+    M --> TR
+    M --> INF
 ```
+
+<aside class="notes" markdown="1">
+同一套结构和参数，训练与推理共用。01 逐个打开模型里的部件，03 把它对到 nanoGPT model.py；02 讲训练一步与推理（prefill、decode、KV cache）的数据流；04 从 prepare.py 读到 train.py 的训练循环并实际训练。训练更新后的参数回到模型，循环很多步。
+</aside>
 
 ---
 
@@ -53,7 +71,7 @@ flowchart LR
 
 encoder 双向读源句、decoder causal 生成、cross-attention 读 encoder 输出；GPT-2 走 decoder-only。
 
-![encoder-decoder 与 decoder-only 的两条路线对比](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg){: style="max-height: 340px}
+![encoder-decoder 与 decoder-only 的两条路线对比](/img/in-post/transformer-01-encoder-decoder-vs-decoder-only.svg){: style="max-height: 340px"}
 
 <aside class="notes" markdown="1">
 原文 /transformer-architecture-from-a-sentence-to-the-next-token.html。原始论文 base 配置：encoder、decoder 各 6 层，d_model = 512、8 heads、d_ff = 2048（[来源](https://arxiv.org/html/1706.03762v4)）。
@@ -153,10 +171,10 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 | 类 | 行数 | 实现的是 |
 |---|---|---|
 | `LayerNorm` | 10 | 可选 bias（GPT-2 有、Llama 无） |
-| `CausalSelfAttention` | 40 | `c_attn` 一次算 QKV · 拆头 · SDPA · `c_proj` |
-| `MLP` | 12 | 768 → 3072 → GELU → 768 |
-| `Block` | 10 | 上面两行 pre-norm |
-| `GPT` | 200+ | 拼结构、共享权重、初始化、`generate`、`from_pretrained`、`configure_optimizers`、`estimate_mfu` |
+| `CausalSelfAttention` | 48 | `c_attn` 一次算 QKV · 拆头 · SDPA · `c_proj` |
+| `MLP` | 15 | 768 → 3072 → GELU → 768 |
+| `Block` | 13 | 上面两行 pre-norm |
+| `GPT` | 213 | 拼结构、共享权重、初始化、`generate`、`from_pretrained`、`configure_optimizers`、`estimate_mfu` |
 
 <!-- v -->
 
@@ -186,7 +204,7 @@ y = y.transpose(1, 2).contiguous().view(B, T, C)              # 拼回去
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart LR
-    LR["设 lr<br/>warmup + cosine"] --> EV["到点评估<br/>存 checkpoint 五样"] --> ACC["k 个 micro-batch<br/>loss ÷ k 累积"] --> CL["unscale<br/>+ 梯度裁剪"] --> ST["optimizer.step()<br/>zero_grad()"] --> LR
+    LR["设 lr<br/>warmup + cosine"] --> EV["到点评估<br/>存 checkpoint 六样"] --> ACC["k 个 micro-batch<br/>loss ÷ k 累积"] --> CL["unscale<br/>+ 梯度裁剪"] --> ST["optimizer.step()<br/>zero_grad()"] --> LR
 ```
 
 <!-- v -->
@@ -196,6 +214,6 @@ flowchart LR
 
 - `get_batch`：`memmap` + 随机窗口 + `stack`，`y` 是 `x` 右移一位，没有 epoch
 - 不除累积步数 ≠ 只是尺度不同：等价于学习率放大 k 倍；DDP 只在最后一个 micro-batch 同步
-- checkpoint 五样：`model`、`optimizer`、`model_args`、`iter_num`、`config`——续训不带优化器状态，前几百步抖
+- checkpoint 六样：`model`、`optimizer`、`model_args`、`iter_num`、`best_val_loss`、`config`；续训若不读回优化器状态，前几百步会抖
 
 ---

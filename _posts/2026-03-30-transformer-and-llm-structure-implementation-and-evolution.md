@@ -4,7 +4,7 @@ title: Transformer 原理与实现：从论文到手搓 GPT-2（总纲）
 subtitle: "Transformer Principles and Implementation: From the Paper to GPT-2"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-10-11
+updated: 2026-11-18
 redirect_from:
   - /transformer-and-llm-for-infra-engineers.html
 comments_path: /transformer-and-llm-for-infra-engineers.html
@@ -12,9 +12,44 @@ comments_path: /transformer-and-llm-for-infra-engineers.html
 
 > **系列总览。** 从 Transformer 的静态结构开始，沿着一个 token 的旅程，再亲手写出并训练 GPT-2 风格的小模型。本系列由四篇正文与一篇系列总结组成。
 
-## 内容简介
+## 总览：一个小模型从文本到续写
 
-Transformer 的结构图里每个部件为什么在那里？训练与推理的一次前向分别做什么？一个最小 GPT 如何从公式落到代码，再从随机权重训练成会续写的模型？四篇文章沿着同一条代码线回答这些问题。
+Transformer 的结构图里每个部件为什么在那里？训练与推理的一次前向分别做什么？一个最小 GPT 如何从公式落到代码，再从随机权重训练成会续写的模型？四篇文章围绕同一个 GPT-2 结构的小模型回答这些问题。下图是这个模型从文本到续写经过的环节：
+
+```mermaid
+%% 图：一个 GPT-2 结构的小模型从文本到续写经过的环节
+flowchart TB
+    TXT["<b>文本</b><br/>分词成一串 token 编号"]
+    subgraph M["模型：同一套结构和参数，训练与推理共用"]
+        direction TB
+        EMB["<b>embedding</b><br/>token 表 + 位置表：编号 → 向量"]
+        BLK["<b>N 个 block</b><br/>attention 子层 + FFN 子层<br/>各带残差连接与 LayerNorm"]
+        HEAD["<b>lm_head</b><br/>向量 → 词表上每个词的分数"]
+        EMB --> BLK --> HEAD
+    end
+    subgraph TR["训练：每一步更新模型的参数，循环很多步"]
+        direction TB
+        LOSS["<b>loss</b><br/>每个位置预测下一个 token<br/>交叉熵取平均"]
+        BACK["<b>反向与更新</b><br/>每个参数得到梯度<br/>AdamW 走一步"]
+        LOSS --> BACK
+    end
+    subgraph INF["推理：参数不再变"]
+        direction TB
+        PRE["<b>prefill</b><br/>整段 prompt 过一次前向<br/>留下 KV cache"]
+        DEC["<b>decode</b><br/>每次只算 1 个新 token<br/>采样后接到末尾"]
+        PRE --> DEC
+    end
+    TXT --> M
+    M --> TR
+    M --> INF
+```
+
+图里的四块分别由这几篇展开：
+
+- **文本**：一段文本先变成整数数组才能进模型。[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)从 nanoGPT 的 `prepare.py` 读起。
+- **模型**：[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)逐个打开 embedding、attention、FFN、残差与 LayerNorm、lm_head，说明每个部件的作用和形状；[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)把同一套结构对到 nanoGPT `model.py` 的六个类上。
+- **训练**：[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)讲一步训练的数据流，包括 loss 怎么来、反向要保存什么、参数怎么更新；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)读 `train.py` 的训练循环，并实际训出一个会续写的模型。
+- **推理**：[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)讲 prefill、decode 与 KV cache；nanoGPT 的生成代码 `generate` 在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)，它是不带 KV cache 的写法，每生成一个 token 都把整段重算一遍。
 
 ## 缩写
 
@@ -64,7 +99,7 @@ Transformer 的结构图里每个部件为什么在那里？训练与推理的�
 
 ### 03. 手搓 GPT（上）：nanoGPT model.py 逐行解析
 
-把前两篇的结构与数据流落到 Karpathy 的 nanoGPT `model.py`：拆解 Q/K/V 合并投影、多头变形、mask、残差、初始化、生成与权重加载，并对照 HuggingFace GPT-2。
+把《Transformer 长什么样》的结构与《一个 token 的旅程》的数据流落到 Karpathy 的 nanoGPT `model.py`：拆解 Q/K/V 合并投影、多头变形、mask、残差、初始化、生成与权重加载，并对照 HuggingFace GPT-2。
 
 > **一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？**
 
@@ -87,7 +122,7 @@ Transformer 的结构图里每个部件为什么在那里？训练与推理的�
 - 了解矩阵乘法的形状规则、内积、softmax 与交叉熵；相关概念会在文中用到。
 - 会读基本 Python 与 PyTorch 代码，能看懂 `nn.Linear`、`torch.matmul` 和 `softmax` 的调用。
 
-不要求见过 Transformer 结构图、训练过模型、了解具体的位置编码或 attention 方法、写过 CUDA，也不需要 GPU。正文中的代码可以在 CPU 上运行；第四篇的训练实验在一台 MacBook 上约需 7 分钟。
+不要求见过 Transformer 结构图、训练过模型、了解具体的位置编码或 attention 方法、写过 CUDA，也不需要 GPU。正文中的代码可以在 CPU 上运行；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)的训练实验在一台 MacBook 上约需 7 分钟。
 
 ## 章节目录
 

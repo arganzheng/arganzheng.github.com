@@ -6,14 +6,14 @@ subtitle: "From the Original Transformer to the GPT-2 Decoder-only Stack"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-03-30 12:00:00
-updated: 2026-11-14
+updated: 2026-11-18
 ---
 
-> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。先看本系列要拆解的 GPT-2 small 总览，再回到 2017 年的 encoder-decoder Transformer，比较三条路线，最后逐个打开 GPT-2 的部件；下一篇让一个 token 在这张图上动起来，第 03 篇再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第一篇。先看本系列要拆解的 GPT-2 small 总览，再回到 2017 年的 encoder-decoder Transformer，比较三条路线，最后逐个打开 GPT-2 的部件；[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)让一个 token 在这张图上动起来，[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)再把它写成代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 先从一张 GPT-2 small 的 decoder-only 结构图开始，再回到 2017 年的《Attention Is All You Need》，看 encoder-decoder 如何为翻译而设计、后来又分出哪三条路线。随后逐个打开模型部件，说明它们做什么、为什么在那里。
 
-本文讲**静态结构**：把每个方框打开，说清它是什么、为什么在那里、里面的数怎么算。全篇用一个 4 维、3 个 token 的玩具例子把每一步**手算出来**，再用 GPT-2 small 的真实数字对照。读完这一篇，你应该能对着模型的 `config.json` 画出结构图；下一篇[《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)再讲一个 token 怎么在训练和推理时**流过**这些方框（动态线），本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两篇画的图变成代码。
+本文讲**静态结构**：把每个方框打开，说清它是什么、为什么在那里、里面的数怎么算。全篇用一个 4 维、3 个 token 的玩具例子把每一步**手算出来**，再用 GPT-2 small 的真实数字对照。读完这一篇，你应该能对着模型的 `config.json` 画出结构图；[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)再讲一个 token 怎么在训练和推理时**流过**这些方框（动态线），[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两篇画的图变成代码。
 
 本篇要回答的核心问题是：
 
@@ -23,41 +23,51 @@ updated: 2026-11-14
 
 本系列要拆解的是 decoder-only 结构，以 GPT-2 small 为蓝本。第二至四章回到 2017 年的论文，解释这条路线从哪里来；第五章起再逐个打开它的部件。
 
-### 1. 模型在做的唯一一件事
-
-先把"大模型"这个词祛魅：一个语言模型做的事只有一件——**给定前面的 token，输出下一个 token 是词表里每一个词的概率**（[《算法工程师的数学（04）：概率入门——语言模型是一个条件分布》](/probability-basics-language-model-as-conditional-distribution.html)讲过它为什么是一个条件分布）。输入是一串整数（token 编号），输出是一张长度为词表大小 $$V$$ 的概率表。Transformer 就是从这串整数到那张概率表之间的那台机器。
+先把"大模型"这个词祛魅：一个语言模型做的事只有一件——**给定前面的 token，输出下一个 token 是词表里每一个词的概率**（[《算法工程师的数学（04）：概率入门——语言模型是一个条件分布》](/probability-basics-language-model-as-conditional-distribution.html)讲过它为什么是一个条件分布）。输入是一串整数（token 编号），输出是一张长度为词表大小 $$V$$ 的概率表。Transformer 就是从这串整数到那张概率表之间的那台机器，下图是它的全貌：
 
 ![decoder-only Transformer 的整体结构（GPT-2 small 的数字）。左：数据自下而上流动——token 编号查 embedding 表得到 768 维向量、加位置 embedding、经过 12 个相同的 block、最后一次 LayerNorm、lm_head 投影到 50257 个词的分数、softmax 得到概率；一个 block 展开为 LayerNorm → 多头 causal self-attention → 残差相加 → LayerNorm → FFN → 残差相加。右：attention 子层的内部——同一个输入乘 \\(W_Q\\)、\\(W_K\\)、\\(W_V\\) 得到 \\(Q\\)、\\(K\\)、\\(V\\)，\\(QK^\top/\sqrt{64}\\) 打分、加 causal mask、softmax、乘 \\(V\\)，12 个头拼接后乘 \\(W_O\\)](/img/in-post/transformer-01-decoder-only-stack.svg)
 
-图分左右两半，自下而上读：
+图分左右两半，都自下而上读：左半是整台机器，淡蓝底的框把**一个 block** 展开；右半把 block 里的 attention 子层放大。按数据流过的顺序，图里的节点依次是：
 
-- **左半是整台机器。**最底下进来的是一串整数（token 编号）；经过 token embedding 与位置 embedding 两次查表，变成每个 token 一个 768 维向量；然后进入 12 个结构完全相同、参数各自一份的 block；出来后做最后一次 LayerNorm（`ln_f`），乘 lm_head 得到词表上 50257 个分数，softmax 变成概率。淡蓝底的框把**一个 block**展开：两个子层，每个子层都是"LayerNorm → 变换 → 加回原输入"，虚线就是那条加回去的残差（第九章）。
-- **右半把 attention 子层放大。**它是整张图里唯一让 token 之间交流的地方（第七章）：同一个输入分别乘三个矩阵得到 Q、K、V，Q 与 K 打分、加 causal mask 只保留左边、softmax 成权重、按权重把 V 加起来；12 个头各自在 64 维上算完再拼成 768 维，最后乘 W_O。这一子层的全部参数就是四个 768 × 768 的矩阵。
+- **token 编号**：输入，$$T$$ 个整数，由分词器切出来；它是数据，不是模型的参数。
+- **token embedding**：一张 50257 × 768 的参数表（`wte`），按编号取一行，每个 token 得到一个 768 维向量（第五章）。
+- **位置 embedding**：一张 1024 × 768 的参数表（`wpe`），按"第几个 token"取一行，逐元素加到 token 向量上（第六章）。
+- **残差流**：两次查表相加得到的 $$[T, 768]$$ 向量组，从 embedding 一直通到 lm_head 的主干。它不是参数，是每次前向现算出来的中间结果；图里的虚线是子层把输出加回主干的那条残差（第九章）。
+- **block × 12**：12 个结构完全相同、参数各自一份的 block 串起来；每个 block 有两个子层，都是"LayerNorm → 变换 → 加回原输入"（第十一章）。
+- **attention 子层**（右半放大）：整张图里唯一让 token 之间交流的地方。同一个输入分别乘三个矩阵得到 Q、K、V，Q 与 K 打分、加 causal mask 只保留左边、softmax 成权重、按权重把 V 加起来；12 个头各自在 64 维上算完再拼成 768 维，最后乘 $$W_O$$。这一子层的全部参数就是四个 768 × 768 的矩阵（第七章）。
+- **FFN 子层**：每个 token 各自过一遍"768 → 3072 → GELU → 768"，参数是两个矩阵，占一个 block 的三分之二（第八章）。
+- **LayerNorm**：每个子层读主干之前做一次，每个 block 两个；12 个 block 之后还有最后一次（`ln_f`）。每个 LayerNorm 只有缩放与偏移两个 768 维向量（第九章、第十章）。
+- **lm_head 与 softmax**：lm_head 把 $$[T, 768]$$ 乘成词表上的 50257 个分数，与 token embedding 共用同一张表；softmax 没有参数，把分数变成概率（第十章）。
 
 图里每个方框的输入和输出都是"若干个 768 维向量"——一个 token 一个向量，从头到尾形状不变（$$[T, d]$$，$$T$$ 是 token 数，$$d$$ 是隐藏维度，GPT-2 small 的 $$d = 768$$；只有最后 lm_head 把它变成 $$[T, V]$$）。这是 Transformer 能"一层层叠"的前提，也是读结构图时最重要的一条线索：**任何一个方框，问它的输入输出形状是什么，就知道它在干什么。**
 
-### 2. 六种部件
+### 1. 六种部件
 
 数一数图里有几种不同的东西——六种：
 
-| 部件 | 做什么 | 有没有参数 | 章 |
-|---|---|---|---|
-| token embedding | 整数编号 → 向量（查表） | 有：$$V \times d$$ 的表 | 五 |
-| 位置 embedding | 告诉模型"这是第几个 token" | 有（GPT-2）/ 无（RoPE） | 六 |
-| attention 子层 | 每个 token 看别的 token、把有用的信息加到自己身上 | 有：四个 $$d \times d$$ 的矩阵 | 七 |
-| FFN 子层 | attention 只是对 $$V$$ 加权平均（线性）；FFN 逐 token「放大 → GELU → 压回」，给模型提供非线性，也是主要参数与知识的所在（第八章） | 有：两个矩阵，$$d \times 4d$$ 与 $$4d \times d$$ | 八 |
-| 残差连接 + LayerNorm | 让几十层能训得动 | LayerNorm 有 $$2d$$ 个；残差没有 | 九 |
-| lm_head | 向量 → 词表上的分数 | 有：$$d \times V$$，常与 embedding 表共用 | 十 |
+| 部件 | 做什么 | 有没有参数 | 参数存在哪（nanoGPT 的 `state_dict` 键） | 每次前向的输出 | 哪章展开 |
+|---|---|---|---|---|---|
+| token embedding | 整数编号 → 向量（查表） | 有：$$V \times d$$ 的表 | `transformer.wte.weight` | $$[T, d]$$ | [第五章](#五token-embedding把编号变成向量) |
+| 位置 embedding | 告诉模型"这是第几个 token" | 有（GPT-2）/ 无（RoPE） | `transformer.wpe.weight` | $$[T, d]$$，加到 token 向量上 | [第六章](#六位置-embedding告诉模型这是第几个-token) |
+| attention 子层 | 每个 token 看别的 token、把有用的信息加到自己身上 | 有：四个 $$d \times d$$ 的矩阵 | `transformer.h.{i}.attn.c_attn`（$$W_Q, W_K, W_V$$ 拼成一个）<br/>`transformer.h.{i}.attn.c_proj`（$$W_O$$） | $$[T, d]$$，加回残差流 | [第七章](#七attention-子层让-token-互相看) |
+| FFN 子层 | attention 只是对 $$V$$ 加权平均（线性）；FFN 逐 token「放大 → GELU → 压回」，给模型提供非线性，也是主要参数与知识的所在 | 有：两个矩阵，$$d \times 4d$$ 与 $$4d \times d$$ | `transformer.h.{i}.mlp.c_fc`<br/>`transformer.h.{i}.mlp.c_proj` | $$[T, d]$$，加回残差流 | [第八章](#八ffn-子层让每个-token-自己想一想) |
+| 残差连接 + LayerNorm | 让几十层能训得动 | LayerNorm 有 $$2d$$ 个；残差没有 | `transformer.h.{i}.ln_1`、`transformer.h.{i}.ln_2`<br/>最后一次是 `transformer.ln_f` | $$[T, d]$$ | [第九章](#九残差连接与-layernorm让几十层能训) |
+| lm_head | 向量 → 词表上的分数 | 有：$$d \times V$$，常与 embedding 表共用 | `lm_head.weight`（与 `transformer.wte.weight` 是同一个张量） | $$[T, V]$$ | [第十章](#十lm_head把向量变成词表上的分数) |
 
-Table: decoder-only Transformer 的六种部件与它们的参数
+Table: decoder-only Transformer 的六种部件：做什么、参数存在哪、输出什么形状
+
+表里有两类东西，存放的位置和存活的时间不同：
+
+- **参数**：「参数存在哪」一列列出的张量，`{i}` 是 block 的序号 0–11，block 里的每个 `nn.Linear` 与 LayerNorm 下面各有 `.weight`、`.bias` 两个张量。模型建好时分配，训练时被更新，存盘时按这些键写进权重文件；模型有多大，说的就是它们。
+- **每次前向的输出**（激活值）：最后一列的 $$[T, d]$$ 张量，每次前向按输入现算，输入换了就全部重算。推理时算完下一层就可以丢；训练时要留到反向传播结束，占多少内存见[《一个 token 的旅程》的「loss 与反向」一章](/transformer-token-journey-training-and-inference.html#三loss-与反向)。
 
 六种部件里，attention 是**唯一让 token 之间交流**的地方，其他五种都是"每个 token 各自算"——两次查表、FFN、残差 + LayerNorm、lm_head 都只看自己这一行。这是理解 Transformer 的第一把钥匙：把它想成 $$T$$ 条平行的流水线，只在 attention 那一站互相传递信息。
 
-这张表和《算法工程师的数学》的《向量、矩阵与形状》第六章「[七个权重矩阵](/vectors-matrices-shapes-and-flops.html#1-七个权重矩阵)」数的是同一台机器，只是切法不同。那一章只数**一层 block 里带参数的矩阵**：attention 四个（$$W_Q, W_K, W_V, W_O$$）加 MLP 三个（Llama 的 $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$），按形状规则算出 Llama-3-8B 一层 218M 参数、81% 在 MLP。本文数的是**整台机器有几种不同的东西**，所以多出了三样不在那七个里的部件——两张 embedding 表、LayerNorm 的 $$2d$$ 个数、以及 lm_head。两张表对起来是这样：
+这张表和《算法工程师的数学》的《向量、矩阵与形状》里「[七个权重矩阵](/vectors-matrices-shapes-and-flops.html#1-七个权重矩阵)」一节数的是同一台机器，只是切法不同。那一节只数**一层 block 里带参数的矩阵**：attention 四个（$$W_Q, W_K, W_V, W_O$$）加 MLP 三个（Llama 的 $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$），按形状规则算出 Llama-3-8B 一层 218M 参数、81% 在 MLP。本文数的是**整台机器有几种不同的东西**，所以多出了三样不在那七个里的部件——两张 embedding 表、LayerNorm 的 $$2d$$ 个数、以及 lm_head。两张表对起来是这样：
 
 | 本文的部件 | 对应「七个权重矩阵」里的哪几个 | GPT-2 small 里的实际矩阵（nanoGPT 命名） | 两个模型的差别 |
 |---|---|---|---|
-| token embedding | 不在七个里 | `wte`：50257 × 768 | 查表不是矩阵乘，那一章的 FLOPs 账里不算它 |
+| token embedding | 不在七个里 | `wte`：50257 × 768 | 查表不是矩阵乘，那一节的 FLOPs 账里不算它 |
 | 位置 embedding | 不在七个里 | `wpe`：1024 × 768 | Llama 用 RoPE，没有这张表 |
 | attention 子层 | $$W_Q, W_K, W_V, W_O$$ 四个 | `c_attn`：768 × 2304（$$W_Q, W_K, W_V$$ 三个拼成一个）<br/>`c_proj`：768 × 768 | GPT-2 的 K、V 与 Q 同宽；Llama-3 用 GQA，$$W_K, W_V$$ 只有 4096 × 1024 |
 | FFN 子层 | $$W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$$ 三个 | `c_fc`：768 × 3072<br/>`c_proj`：3072 × 768 | GPT-2 是两个矩阵夹一个 GELU；Llama 多一个门 $$W_{\text{gate}}$$、用 SiLU，所以是三个 |
@@ -66,9 +76,9 @@ Table: decoder-only Transformer 的六种部件与它们的参数
 
 Table: 本文的六种部件与「七个权重矩阵」的对应——七个矩阵全落在 attention 与 FFN 两个子层里，其余四种部件在那张表之外
 
-所以那一章的 $$QK^\top$$、$$\mathrm{softmax}(\cdot)V$$ 是数据之间的运算、没有参数，这里的残差与 LayerNorm 同理；两边的数字也能互相印证——第十一章第 2 节数出 GPT-2 small 一层 7.09M 参数，几乎全在 `c_attn`、`c_proj`、`c_fc`、`c_proj` 这几个矩阵里，两个 LayerNorm 只占 3072 个；把形状换成 Llama-3-8B 的，就是那一章的 218M。
+所以那一节的 $$QK^\top$$、$$\mathrm{softmax}(\cdot)V$$ 是数据之间的运算、没有参数，这里的残差与 LayerNorm 同理；两边的数字也能互相印证——第十一章第 2 节数出 GPT-2 small 一层 7.09M 参数，几乎全在 `c_attn`、`c_proj`、`c_fc`、`c_proj` 这几个矩阵里，两个 LayerNorm 只占 3072 个；把形状换成 Llama-3-8B 的，就是那一节的 218M。
 
-### 3. 本文的章节安排
+### 2. 本文的章节安排
 
 第一章先立路线图；第二至四章回到论文，解释 GPT-2 这条路线的来历；第五至十章按上一节表里六种部件的顺序逐个展开。第十一章再把它们叠成一个 block、数出整台 GPT-2 small 的参数。
 
@@ -154,7 +164,7 @@ decoder-only 后来成为许多 LLM 的常见形态，可以从几种工程与�
 
 ### 2. 查表等价于 one-hot 乘矩阵
 
-编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)算账时单列）。
+编号本身不能直接当数用：编号是任意的，464 和 465 之间没有任何关系。查表等价于先做 one-hot（一个 50257 维、只有第 464 位是 1 的向量）再乘一个矩阵，但没人真的去乘——取一行就够了，所以 embedding 不算矩阵乘法的 FLOPs（[《现代 LLM 结构（02）：前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算账时单列）。
 
 这里先说明输入端的查表；稀疏梯度、词向量如何学出相似度，以及表示如何随上下文变化，见《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html#embedding-table)》「one-hot 与 embedding 表」和「从静态词向量到上下文表示」。
 
@@ -181,9 +191,9 @@ Table: 打乱输入顺序，attention 的输出只是跟着换了位置——三
 
 GPT-2 的 `n_positions = 1024`，所以表有 1024 行；行数和上下文长度是同一个数。这种做法的代价是上限被**写死在参数里**：第 1025 个位置没有训练过的表行，推理时不能直接超过 1024；想加长，只能扩表并训练新增行。
 
-**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 <span class="inline-tip" data-tip="singular value decomposition：奇异值分解">SVD</span>》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
+**方法二：不加向量，转角度。** Llama 之后的模型用 RoPE（旋转位置编码）：不改输入向量，而是在 attention 算 $$q \cdot k$$ 之前，把 $$q$$、$$k$$ 按各自的位置旋转一个角度（[《算法工程师的数学（03）：正交与旋转、特征值与 <span class="inline-tip" data-tip="singular value decomposition：奇异值分解">SVD</span>》](/orthogonal-rotation-svd-and-low-rank.html)的正交矩阵），使得两者的内积只依赖**位置差**。它不需要那张表、外推到更长上下文也更自然。[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)专门讲它；本篇的玩具例子和 GPT-2 都用方法一。
 
-两种方法在上下文上限上的差别是：位置表只覆盖训练过的行数，RoPE 则按位置计算旋转角度，没有这道表行数的硬上限。1024 在当时并不算小——attention 的算量和 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第七章第 6 节）；早期 BERT 是 512、GPT-3 是 2048，后来 4K、8K、128K 上下文则在 RoPE 上配合专门的扩展技术，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)会继续讲。
+两种方法在上下文上限上的差别是：位置表只覆盖训练过的行数，RoPE 则按位置计算旋转角度，没有这道表行数的硬上限。1024 在当时并不算小——attention 的算量和 $$T \times T$$ 权重表都随 $$T^2$$ 增长（第七章第 6 节）；早期 BERT 是 512、GPT-3 是 2048，后来 4K、8K、128K 上下文则在 RoPE 上配合专门的扩展技术，[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)会继续讲。
 
 用上一节那两句话把两种方法各走一遍。为了能口算，token 向量取二维：猫 = (2, 0)、追 = (0, 2)、狗 = (2, 1)；方法一的位置表取 4 行：位置 0 = (1, 0)、1 = (0, 1)、2 = (−1, 0)、3 = (0, −1)；方法二让每个位置转 30°（$$q$$、$$k$$ 直接取 token 向量本身，省掉 $$W_Q, W_K$$）：
 
@@ -197,7 +207,7 @@ GPT-2 的 `n_positions = 1024`，所以表有 1024 行；行数和上下文长�
 Table: 两种方法在「猫追狗」「狗追猫」上的数字：方法一改的是向量本身，方法二改的是打分；不加位置时猫·狗 = 4，两句话分不出来
 
 - **方法一**：同一个「猫」在第 0 位是 (3, 0)、第 2 位是 (1, 0)，两句话送进 attention 的已经是两组不同的向量，上一节的换序实验不再成立。但它记的是**绝对**位置——整句后移一位，三个向量全变了，"猫@1 和猫@0 是同一个词"要靠训练自己学会；位置表有几行就只认几个位置。
-- **方法二**：向量不动，打分时 $$q$$ 按自己的位置 $$m$$ 转 $$m\theta$$、$$k$$ 按位置 $$n$$ 转 $$n\theta$$，两个旋转合起来等于只把 $$k$$ 相对 $$q$$ 转 $$(n - m)\theta$$（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)：$$R(a)^\top R(b) = R(b - a)$$），所以分数只和**相对**位置差有关：猫看"右边两格的狗"永远是 0.27、看"左边两格的狗"永远是 3.73，整句后移分数不变——词序进了分数，而且天然是相对的。真实模型里 $$d_h = 128$$ 维被分成 64 对，每一对像这里的二维平面一样各转一个角度，只是转速不同，[现代 LLM 结构（03）](/positional-encoding-and-long-context.html)展开。
+- **方法二**：向量不动，打分时 $$q$$ 按自己的位置 $$m$$ 转 $$m\theta$$、$$k$$ 按位置 $$n$$ 转 $$n\theta$$，两个旋转合起来等于只把 $$k$$ 相对 $$q$$ 转 $$(n - m)\theta$$（[《算法工程师的数学（03）：正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)：$$R(a)^\top R(b) = R(b - a)$$），所以分数只和**相对**位置差有关：猫看"右边两格的狗"永远是 0.27、看"左边两格的狗"永远是 3.73，整句后移分数不变——词序进了分数，而且天然是相对的。真实模型里 $$d_h = 128$$ 维被分成 64 对，每一对像这里的二维平面一样各转一个角度，只是转速不同，[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)展开。
 
 两种方法回答的是同一个问题：attention 是集合运算，顺序必须显式地喂给它。
 
@@ -324,7 +334,7 @@ for i in range(T):                       # 第 i 个 token 当 query
 
 Table: attention 六步里每个量的形状
 
-`F.scaled_dot_product_attention` 是 PyTorch 2.0 起的内置函数，把 ②–⑥ 合成一个 kernel（Infra 地图 GPU Kernel 系列讲 FlashAttention 怎么做到不写出那张 $$[T, T]$$ 的表）；本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)的 nanoGPT 两条路径都有。
+`F.scaled_dot_product_attention` 是 PyTorch 2.0 起的内置函数，把 ②–⑥ 合成一个 kernel（[《GPU Kernel 工程（08）：Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)讲 FlashAttention 怎么做到不写出那张 $$[T, T]$$ 的表）；nanoGPT 的 `CausalSelfAttention.forward` 两条路径都有：有这个函数就调它，没有就按 ②–⑥ 手写，见[《手搓 GPT（上）：nanoGPT model.py 逐行解析》的「`CausalSelfAttention`」一章](/nanogpt-model-py-line-by-line.html#三causalselfattention48-行装下一整个-attention-子层)。
 
 ### 4. 为什么除以 √d
 
@@ -351,7 +361,7 @@ Table: 随机 q、k 的点积标准差随 d 按 √d 增长；除以 √d 后回
 
 mask 把"看未来的 token"的分数设成 $$-\infty$$，softmax 后权重为 0。为什么要禁止看未来？因为模型的任务是**预测下一个 token**：如果算第 3 个位置的输出时允许看到第 4 个 token，模型直接把它抄过来就是标准答案，什么都学不到。
 
-更深一层的原因在下一篇展开，一句话版本：训练时一句话的 $$T$$ 个位置**同时**各预测自己的下一个 token（一次前向算 $$T$$ 个 loss），mask 保证第 $$i$$ 个位置只用了前 $$i$$ 个 token 的信息，这样训练时的每个位置和推理时"只有前文"的情形完全一致。这也是它叫 **causal**（因果）attention、模型叫 decoder-only 的原因：只往一个方向看。第六章那个"换序实验"里去掉了 mask，所以输出严格只是换位置；加上 mask 之后，位置就有了"先后"的意义——但 mask 只告诉模型"谁在左边"，不告诉它"谁在左边第几个"，位置编码仍然不可少。
+更深一层的原因在[《一个 token 的旅程》的「Teacher forcing」一节](/transformer-token-journey-training-and-inference.html#2-teacher-forcing一次前向t-个训练信号)展开，一句话版本：训练时一句话的 $$T$$ 个位置**同时**各预测自己的下一个 token（一次前向算 $$T$$ 个 loss），mask 保证第 $$i$$ 个位置只用了前 $$i$$ 个 token 的信息，这样训练时的每个位置和推理时"只有前文"的情形完全一致。这也是它叫 **causal**（因果）attention、模型叫 decoder-only 的原因：只往一个方向看。第六章那个"换序实验"里去掉了 mask，所以输出严格只是换位置；加上 mask 之后，位置就有了"先后"的意义——但 mask 只告诉模型"谁在左边"，不告诉它"谁在左边第几个"，位置编码仍然不可少。
 
 ### 6. 多头：12 个头各看各的
 
@@ -411,7 +421,7 @@ nanoGPT 把前三个矩阵拼成 `c_attn`（768 × 2304），把 $$W_O$$ 叫作 
 
 Attention 本身没有参数：打分、softmax、加权求和都是固定运算，学习发生在四个投影矩阵里。
 
-Llama 后续用 GQA 缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色不变（[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
+Llama 后续用 GQA 缩小 $$W_K, W_V$$，并去掉 bias；四个矩阵的角色不变（[《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)）。
 
 ## 八、FFN 子层：让每个 token 自己想一想
 
@@ -453,7 +463,7 @@ Table: 一个 d = 2 的小 FFN：输入取反，有 GELU 时输出不再跟着�
 
 ### 3. 知识存在哪
 
-有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（[现代 LLM 结构（06）](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
+有一个有用的直觉：把 $$W_1$$ 的 3072 列看成 3072 个"探测器"，每个探测器问输入向量一个问题（"这是不是在讲一种动物？""前面是不是出现了 Paris？"），GELU 决定答"是"的强度，$$W_2$$ 再把答"是"的探测器对应的"回答向量"加起来。可解释性研究（Geva 等，2021 起）确实在真实模型的 FFN 里找到了这种 key–value 结构：某些神经元专门在特定主题出现时激活，并把对应的词推向输出。这也是为什么"往模型里塞知识"（预训练）主要涨的是 FFN，而 MoE（[《现代 LLM 结构（06）：MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)）选择把 **FFN** 复制成多个专家而不是复制 attention。
 
 ## 九、残差连接与 LayerNorm：让几十层能训
 
@@ -481,7 +491,7 @@ $$
 
 ### 3. pre-norm 与 post-norm
 
-LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pre-norm）还是**之后**（原论文 2017 与 d2l 10.7 画的是 $$\text{LN}(x + \text{Sublayer}(x))$$，叫 post-norm）？两者数学上不等价：pre-norm 下残差流本身不经过归一化，梯度有一条干净的直通路；post-norm 下每层输出都被重新归一化，深了以后需要 warmup 和小学习率才不发散（Xiong 等，2020）。现代大模型几乎全部用 pre-norm，代价是最后要多加一次 `ln_f`（图 1 里"最后一次 LayerNorm"那个框），否则残差流的尺度直接进 lm_head。
+LayerNorm 放在子层**之前**（上面的公式，GPT-2 起的做法，叫 pre-norm）还是**之后**（原论文 2017 与 d2l 10.7 画的是 $$\text{LN}(x + \text{Sublayer}(x))$$，叫 post-norm）？两者数学上不等价：pre-norm 下残差流本身不经过归一化，梯度有一条干净的直通路；post-norm 下每层输出都被重新归一化，深了以后需要 warmup 和小学习率才不发散（Xiong 等，2020）。现代大模型几乎全部用 pre-norm，代价是最后要多加一次 `ln_f`（第一章总览图里"最后一次 LayerNorm"那个框），否则残差流的尺度直接进 lm_head。
 
 两种放法只差 LayerNorm 在"+"的哪一边：
 
@@ -532,6 +542,9 @@ Table: 共享权重的 lm_head：logit 是最后的向量与每个词的 embeddi
 
 模型要预测 dog，就得把最后的 $$h$$ 推到 dog 那一行的方向上。输入端把 dog 查成 $$(0.8, 0.6)$$，输出端用的是同一个 $$(0.8, 0.6)$$。
 
+> [!NOTE] Java 经验参照：权重共享是两个字段引用同一个对象
+> 共享不是把表复制一份再保持同步，而是两个字段指向同一个数组对象：nanoGPT 里是一句 `self.transformer.wte.weight = self.lm_head.weight`，此后内存里只有一份 50257 × 768 的参数。与 Java 里两个引用指向同一个 `float[][]` 一样，通过任何一边改，另一边看到的都是改后的值——训练时从输入端查表和从输出端打分传回来的两份梯度加在同一个张量上。不同的一点在存盘：`state_dict` 里它有两个键（`transformer.wte.weight` 与 `lm_head.weight`），数参数时只算一次。
+
 ## 十一、把它们叠起来
 
 ### 1. 一个 block
@@ -552,7 +565,7 @@ flowchart TB
     ADD2 --> Y["下一个 block 的 x　[T, 768]"]
 ```
 
-这个图就是本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)里 nanoGPT `Block.forward` 的两行代码：
+这个图就是 nanoGPT `Block.forward` 的两行代码（[《手搓 GPT（上）：nanoGPT model.py 逐行解析》的「`MLP` 与 `Block`」一章](/nanogpt-model-py-line-by-line.html#四mlp-与-block)逐行讲）：
 
 ```python title='nanoGPT Block.forward 的两行'
 x = x + self.attn(self.ln_1(x))
@@ -580,7 +593,7 @@ x = x + self.mlp(self.ln_2(x))
 
 Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 66.6%
 
-两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。本系列第三篇[《手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)把同一套算法用到 Llama 上。
+两个观察：embedding 在这个小模型里占了将近三分之一，模型越大这一项占比越小（Llama-3-8B 是 13%，70B 是 1.5%）；12 层里三分之二的参数在 FFN。[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)会用 `model.get_num_params()` 把这个数打印出来（nanoGPT 默认不计 `wpe`，报 123.65M），[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)把同一套算法用到 Llama 上。
 
 ## 十二、本文小结
 
@@ -656,7 +669,7 @@ Table: GPT-2 small 的参数量逐项：embedding 占 31.6%，FFN 占每层的 6
 
 ## 下一篇
 
-本篇画的是静态的结构。[下一篇《一个 token 的旅程：训练侧与推理侧》](/transformer-token-journey-training-and-inference.html)让数据流过这些方框：训练时一句话的 $$T$$ 个位置怎么同时算出 $$T$$ 个 loss、反向传播沿哪条路走回来；推理时 prefill 与 decode 有什么不同、KV cache 为什么能让每一步只算一个 token。
+本篇画的是静态的结构。[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)让数据流过这些方框：训练时一句话的 $$T$$ 个位置怎么同时算出 $$T$$ 个 loss、反向传播沿哪条路走回来；推理时 prefill 与 decode 有什么不同、KV cache 为什么能让每一步只算一个 token。
 
 [^q0]: 六种部件：**embedding 查表**（编号 → 向量，否则编号只是任意整数）；**位置信息**（attention 是集合运算，不加它分不清词序）；**attention**（唯一让 token 互相看的地方：$$\text{softmax}(QK^T/\sqrt d + M)V$$，去掉它每个 token 只能看自己）；**FFN**（逐 token 的非线性变换，去掉它整个模型是线性的、存不了知识）；**残差 + LayerNorm**（去掉残差深了训不动，去掉 LayerNorm 残差流尺度失控）；最后 **lm_head** 把向量变成词表上的分数。详见[第五](#五token-embedding把编号变成向量)至[第十章](#十lm_head把向量变成词表上的分数)。
 

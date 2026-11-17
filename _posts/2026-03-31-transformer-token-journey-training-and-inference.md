@@ -5,20 +5,55 @@ title: "Transformer 原理与实现（02）：一个 token 的旅程——训练
 subtitle: "The Dynamic View: What Happens to a Token During Training and During Inference"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-18
 ---
 
-> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第二篇。第 01 篇给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；第 03 篇把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的第二篇。[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)给了静态结构，本篇讲 token 怎么流过它：训练侧的 teacher forcing 与反向，推理侧的 prefill、decode 与 KV cache；[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把这两条动态线对应到 nanoGPT 的代码。完整地图见[总纲](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
-上一篇把 Transformer 的每个方框打开看了一遍，但那是一张**静止**的图。同一台机器在两种场合下的运转方式很不一样：**训练**时一句话的几千个 token 一起进去、几千个 loss 一起出来、梯度沿原路返回、几十亿参数各挪一小步；**推理**时先把用户的问题一次算完，然后一个字一个字往外吐，每吐一个字只算一个 token。不搞清这两条动态线，就解释不了几件天天碰到的事：为什么训练一次前向能同时算 $$T$$ 个位置的预测、为什么推理"第一个字慢、后面快"、KV cache 到底缓存了什么、为什么训练长上下文时"激活值"比参数本身还占显存。
+[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)把 Transformer 的每个方框打开看了一遍，但那是一张**静止**的图。同一台机器在两种场合下的运转方式很不一样：**训练**时一句话的几千个 token 一起进去、几千个 loss 一起出来、梯度沿原路返回、几十亿参数各挪一小步；**推理**时先把用户的问题一次算完，然后一个字一个字往外吐，每吐一个字只算一个 token。不搞清这两条动态线，就解释不了几件天天碰到的事：为什么训练一次前向能同时算 $$T$$ 个位置的预测、为什么推理"第一个字慢、后面快"、KV cache 到底缓存了什么、为什么训练长上下文时"激活值"比参数本身还占显存。
 
-这一篇用一个 2 层、8 维、16 个词的玩具 GPT 把两条线走通，每一步打印形状和数字；再用 512 个 token 的模型实测 KV cache 带来的 8 倍加速。上一篇[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构，这一篇画的是动态线；下一篇[《Transformer 原理与实现（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把两篇的图变成 nanoGPT 的代码。
+这一篇用一个 2 层、8 维、16 个词的玩具 GPT 把两条线走通，每一步打印形状和数字；再用 512 个 token 的模型实测 KV cache 带来的 8 倍加速。《Transformer 长什么样》画的是静态结构，这一篇画的是动态线；[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)把两篇的图变成 nanoGPT 的代码。
 
 本篇要回答的核心问题是：
 
 > **训练时一句话的 $$T$$ 个 token 进入模型，为什么一次前向就能得到 $$T$$ 个训练信号？推理时为什么前面的 token 不用重算——KV cache 里存的是什么、省了什么、花了什么？[^q0]**
 
 ## 一、总览：同一台机器的两种运转方式
+
+同一份参数有两种用法：训练时它在一个循环里被反复改写，推理时它被冻结、只读。下图把两条线上的东西按先后连起来——左边是训练的一步，右边是一次推理请求：
+
+![同一个模型的两条动态线。左：训练是一个循环——取一个 batch，前向得到 [B, T, V] 的 logits 并沿路保存激活值，B × T 个交叉熵平均成 loss，反向给每个参数一份 .grad，AdamW 更新参数，再取下一个 batch。右：推理时参数冻结——prompt 先做一次 prefill 并把每层的 K、V 写进 cache，然后在「只取最后位置的分布采样一个 token」与「只喂这 1 个 token 做 decode、读写 KV cache」之间循环，直到 EOS](/img/in-post/transformer-02-two-dynamic-lines.svg)
+
+左半边，训练的一步：
+
+- **batch**：从语料里取 $$B$$ 段、每段 $$T + 1$$ 个连续 token；前 $$T$$ 个是输入，后 $$T$$ 个（右移一位）是目标。每步换一批（第二章）。
+- **logits**：一次前向的输出，形状 $$[B, T, V]$$，每个位置一行词表分数；$$T$$ 个位置同时各预测自己的下一个 token（第二章）。
+- **激活值**：前向每一站的中间结果。反向要用，所以由 Autograd 的计算图持有到反向结束；大小与 $$B \times T$$ 成正比（第三章）。
+- **loss**：$$B \times T$$ 个交叉熵的平均，一个标量，也是反向的起点（第三章）。
+- **`.grad`**：`loss.backward()` 给每个参数算出的梯度，与参数同形状，挂在参数自己的 `.grad` 属性上（第三章）。
+- **AdamW 更新**：优化器读 `.grad`、更新自己为每个参数保存的两份动量（m、v），再原地改写参数；`zero_grad` 之后回到取 batch（第四章）。
+
+右半边，一次推理请求：
+
+- **prefill**：prompt 的 $$T$$ 个 token 做一次前向，与训练的前向相同，但只用最后一个位置的分布；同时把每层的 K、V 写进 cache（第五章）。
+- **采样**：从最后位置的词表分布里抽出一个 token，接到序列末尾（第五章）。
+- **decode**：只喂刚抽出的 1 个 token 做前向，得到下一个分布；与采样交替循环，直到 EOS 或长度上限（第五章）。
+- **KV cache**：每层、每个已处理 token 的 K 和 V。prefill 写入，decode 每步读全部、追加 1 个 token 的份；请求结束才释放（第六章）。
+
+两条线上一共有六种中间量与状态，产生的时机、存放的位置和存活的时间各不相同，显存账和「什么能丢、什么不能丢」都由这三项决定：
+
+| 中间量 / 状态 | 什么时候产生 | 存在哪里 | 活多久 | 哪一侧有 | 大小跟什么成正比 |
+|---|---|---|---|---|---|
+| 参数 | 构造模型时创建并初始化，或从 checkpoint 载入 | 模型各层的 `nn.Parameter`（玩具模型里如 `wte.weight`、`blocks.0.attn.c_attn.weight`），在模型所在设备的内存里，用 GPU 时就是显存 | 整个训练 / 服务进程；训练时每步被原地改写，推理时只读 | 训练、推理 | 参数量，与 $$B$$、$$T$$ 无关（玩具模型 1,952 个数；Llama-3-8B bf16 16 GB） |
+| 激活值 | 前向每一站算出输出时 | Autograd 计算图的节点引用着它们，不挂在模型的属性上 | 到本步 `loss.backward()` 走完为止 | 训练（推理在 `torch.no_grad()` 下不建计算图，中间结果用完即弃） | $$B \times T$$；朴素实现的 attention 权重表是 $$T^2$$ |
+| logits | `lm_head` 输出时 | 前向返回的一个 $$[B, T, V]$$ 张量 | 训练：到本步反向结束<br/>推理：取出最后位置采样后丢弃 | 训练、推理 | $$B \times T \times V$$ |
+| 梯度 | `loss.backward()` 时 | 每个参数的 `.grad` 属性，与参数同形状、同设备 | 到 `optimizer.zero_grad()` 为止，下一步重新算 | 训练 | 参数量 |
+| 优化器状态（m、v） | 第一次 `optimizer.step()` 时为每个参数创建 | 优化器对象的 `state` 字典：每个参数两个同形状张量 `exp_avg`、`exp_avg_sq` | 整个训练过程，每步更新；续训要用，所以随 checkpoint 保存 | 训练 | 2 × 参数量 |
+| KV cache | prefill 写入 $$T$$ 个 token 的份，decode 每步追加 1 个 | 每层一对张量，形状 $$[B, h, \text{已有 token 数}, d_h]$$；配套脚本里是每层一个含 `k`、`v` 两个键的字典，推理引擎里是专门管理的显存块 | 一次请求的生成过程；请求结束释放 | 推理 | 层数 × 已有 token 数（Llama-3-8B 128 KiB / token） |
+
+Table: 两条动态线上的六种中间量与状态：何时产生、存在哪里、活多久
+
+把两条线按「进什么、算几次、留什么」逐项对比：
 
 | | 训练（一步） | 推理（一次请求） |
 |---|---|---|
@@ -31,9 +66,7 @@ updated: 2026-11-14
 
 Table: 训练与推理：同一个模型，两条不同的动态线
 
-![同一个模型的两条动态线。左：训练是一个循环——取一个 batch，前向得到 [B, T, V] 的 logits 并沿路保存激活值，B × T 个交叉熵平均成 loss，反向给每个参数一份 .grad，AdamW 更新参数，再取下一个 batch。右：推理时参数冻结——prompt 先做一次 prefill 并把每层的 K、V 写进 cache，然后在「只取最后位置的分布采样一个 token」与「只喂这 1 个 token 做 decode、读写 KV cache」之间循环，直到 EOS](/img/in-post/transformer-02-two-dynamic-lines.svg)
-
-两条线共用上一篇的全部结构，区别只在"进什么、算几次、留什么"。下面先走训练线（第二至四章），再走推理线（第五、六章），最后把两侧的差别汇总（第七章）。
+两条线共用[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的全部结构，区别只在"进什么、算几次、留什么"。下面先走训练线（第二至四章），再走推理线（第五、六章），最后把两侧的差别汇总（第七章）。
 
 本文的章节安排：
 
@@ -79,7 +112,7 @@ loss（标量）: 2.7805   ≈ ln(16) = 2.7726
 
 三件事情值得关注：
 
-- 从 `wte` 到 `ln_f`，形状一直是 $$[B, T, d] = [2, 5, 8]$$——上一篇说的"每个方框输入输出相同"在这里变成一列相同的数字；只有两处临时变宽（QKV 合并成 $$3d$$、FFN 放大到 $$4d$$）又缩回来。
+- 从 `wte` 到 `ln_f`，形状一直是 $$[B, T, d] = [2, 5, 8]$$——[《Transformer 长什么样》的「把它们叠起来」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#十一把它们叠起来)说的"每个方框输入输出相同"在这里变成一列相同的数字；只有两处临时变宽（QKV 合并成 $$3d$$、FFN 放大到 $$4d$$）又缩回来。
 - `lm_head` 之后是 $$[B, T, V] = [2, 5, 16]$$：**每个位置**都有一个词表分布，不只是最后一个。这是下一节的关键。
 - 随机初始化的 loss 恰好约等于 $$\ln V = \ln 16 = 2.77$$：模型还什么都不会，每个位置在 16 个词里均匀乱猜，交叉熵就是 $$\ln V$$（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》）。GPT-2 词表 50257，训练开始时 loss 约 10.8，同理。
 
@@ -103,10 +136,10 @@ $$T$$ 个 loss 的平均是 2.7583，两句话一起平均就是上面的 2.7805
 
 为什么一次前向能同时得到 5 个训练信号，而不是像推理那样一个一个来？两个条件：
 
-1. **causal mask**（[《Transformer 长什么样》第七章的「为什么 mask：只能看左边」](/transformer-architecture-from-a-sentence-to-the-next-token.html#5-为什么-mask只能看左边)）保证位置 $$i$$ 的输出只用了 token $$0..i$$ 的信息——所以位置 2 的预测"看到 [5, 3, 8] 预测下一个"，和推理时只有这三个 token 的情形**完全一样**，没有偷看答案。
+1. **causal mask**（[《Transformer 长什么样》的「为什么 mask：只能看左边」一节](/transformer-architecture-from-a-sentence-to-the-next-token.html#5-为什么-mask只能看左边)）保证位置 $$i$$ 的输出只用了 token $$0..i$$ 的信息——所以位置 2 的预测"看到 [5, 3, 8] 预测下一个"，和推理时只有这三个 token 的情形**完全一样**，没有偷看答案。
 2. **目标用真实的下一个 token，而不是模型自己刚预测的那个**。如果位置 3 的输入要等位置 2 预测出来才知道，就串行了；直接把真实文本喂进去，5 个位置互不依赖，可以并行算。这个做法叫 **teacher forcing**（老师强制喂正确答案）。
 
-于是一句 $$T$$ 个 token 的话提供 $$T$$ 个训练样本，成本只是一次前向——这是 decoder-only 训练效率高的根本原因（[《Transformer 长什么样》第七章的「为什么 mask」](/transformer-architecture-from-a-sentence-to-the-next-token.html#5-为什么-mask只能看左边)先给过一句话版本）。代价是训练时模型从没见过"自己刚犯的错"，推理时错一个字后面就可能越错越远（exposure bias），后训练系列的 RL 部分处理这个问题。
+于是一句 $$T$$ 个 token 的话提供 $$T$$ 个训练样本，成本只是一次前向——这是 decoder-only 训练效率高的根本原因（《Transformer 长什么样》的「为什么 mask：只能看左边」一节先给过一句话版本）。代价是训练时模型从没见过"自己刚犯的错"，推理时错一个字后面就可能越错越远（exposure bias），后训练系列的 RL 部分处理这个问题。
 
 ## 三、loss 与反向
 
@@ -136,7 +169,7 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 
 反向过 attention 时，梯度会**沿着注意力权重流回被关注的 token**：位置 4 的 loss 会通过 attention 权重影响 token 0 的表示——这就是"远处的 token 也能得到训练信号"的机制，RNN 做不到这一点（《[深度学习基础（10）：RNN——从 LSTM 到 attention 的诞生](/rnn-lstm-and-the-birth-of-attention.html)》）。
 
-用上一篇的六步手算看这条路。那里 t2 的输出是 $$\text{out}_2 = 0.27\,v_0 + 0.27\,v_1 + 0.45\,v_2$$。设 loss 对 $$\text{out}_2$$ 的梯度是 $$g = (1, 0, 0, 0)$$（反向从上游传下来的一个向量），按链式法则，每个 $$v_j$$ 拿到的梯度就是它的权重乘 $$g$$：
+用[《Transformer 长什么样》的「六步手算：d = 4、T = 3」一节](/transformer-architecture-from-a-sentence-to-the-next-token.html#3-六步手算d--4t--3)看这条路。那里 t2 的输出是 $$\text{out}_2 = 0.27\,v_0 + 0.27\,v_1 + 0.45\,v_2$$。设 loss 对 $$\text{out}_2$$ 的梯度是 $$g = (1, 0, 0, 0)$$（反向从上游传下来的一个向量），按链式法则，每个 $$v_j$$ 拿到的梯度就是它的权重乘 $$g$$：
 
 $$
 \frac{\partial L}{\partial v_j} = P_{2j}\, g \quad\Rightarrow\quad v_0: (0.27, 0, 0, 0),\;\; v_1: (0.27, 0, 0, 0),\;\; v_2: (0.45, 0, 0, 0)
@@ -192,7 +225,7 @@ Table: Llama-3-8B、B = 1、T = 8192 训练时每层为反向保存的激活值�
 3. loss：$$B \times T$$ 个交叉熵取平均；
 4. 反向：沿原路算出每个参数的 `.grad`，用完释放激活值；
 5. 更新：AdamW 用 `.grad` 与动量改参数；`zero_grad`；
-6. 换下一个 batch，回到 1。几十万步之后就是一个语言模型（本系列第四篇[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)实训一个）。
+6. 换下一个 batch，回到 1。几十万步之后就是一个语言模型（[《手搓 GPT（下）：nanoGPT train.py 与训一个会续写的模型》的「实跑：0.8M 参数、2000 步、7 分钟」一章](/nanogpt-train-py-and-training-a-model-that-writes.html#十实跑08m-参数2000-步7-分钟)实训一个）。
 
 ## 五、推理侧：prefill 与 decode
 
@@ -209,7 +242,7 @@ Table: Llama-3-8B、B = 1、T = 8192 训练时每层为反向保存的激活值�
   生成: [3, 7, 1, 14, 0, 0, 0, 0]
 ```
 
-（未训练的模型生成的是无意义的 token，这里只看形状；第四篇训完的模型会续写出像莎士比亚的句子。）
+（未训练的模型生成的是无意义的 token，这里只看形状；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)训完的模型会续写出像莎士比亚的句子。）
 
 这个循环天然分成两个阶段：
 
@@ -233,17 +266,17 @@ decode 一步里读权重的时间是计算时间的 150 倍：GPU 的算力几�
 
 ### 2. 从分布里抽一个 token
 
-每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲温度，[《高效推理与压缩（01）：解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行，下一篇在那几行旁边用 5 个 logits 把温度和 top-k 手算一遍。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
+每步得到的是词表上的一个分布，怎么变成一个 token？最简单是取概率最大的（贪心），但那样会重复、呆板；实际用**采样**：按概率随机抽，再用温度调节分布的尖锐程度、用 top-k / top-p 砍掉长尾（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》讲温度，[《高效推理与压缩（01）：解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)讲采样策略）。nanoGPT 的 `generate` 就是"温度 + top-k + 按概率抽"三行，[《手搓 GPT（上）》的「generate：温度、top-k、采样」一章](/nanogpt-model-py-line-by-line.html#八generate温度top-k采样)在那几行旁边用 5 个 logits 把温度和 top-k 手算一遍。采样意味着同一个 prompt 每次生成不同——这是特性不是 bug，评测时要固定它。
 
 ## 六、KV cache：为什么旧 token 不用重算
 
 ### 1. 朴素做法在浪费什么
 
-最朴素的 decode：每生成一个 token，把**整段序列**（prompt + 已生成的）重新前向一遍，取最后一个位置。生成第 100 个 token 时要算 $$T + 100$$ 个位置，其中 $$T + 99$$ 个上一步刚算过。总计算量随生成长度平方增长。
+最朴素的 decode：每生成一个 token，把**整段序列**（prompt + 已生成的）重新前向一遍，取最后一个位置。生成第 100 个 token 时要算 $$T + 100$$ 个位置，其中 $$T + 99$$ 个上一步刚算过。总计算量随生成长度平方增长。nanoGPT 的 `generate` 就是这种写法：循环里每步执行 `logits, _ = self(idx_cond)`，把当前整段序列送进模型，没有 KV cache。
 
-哪些能省？回头看上一篇 attention 的六步：位置 $$i$$ 的 **K 和 V** 只由 token $$i$$ 自己的向量算出（$$k_i = x_i W_K$$），而 causal mask 保证 $$x_i$$ 本身只依赖 token $$0..i$$——**后面来了新 token，前面所有位置的 K、V 一个数都不会变**（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》用图讲过这条因果性）。既然不变，算一次存下来就行。至于 Q：只有新 token 需要 Q（只有它要做预测），旧 token 的 Q 用过就没用了。
+哪些能省？回头看[《Transformer 长什么样》里 attention 的六步手算](/transformer-architecture-from-a-sentence-to-the-next-token.html#3-六步手算d--4t--3)：位置 $$i$$ 的 **K 和 V** 只由 token $$i$$ 自己的向量算出（$$k_i = x_i W_K$$），而 causal mask 保证 $$x_i$$ 本身只依赖 token $$0..i$$——**后面来了新 token，前面所有位置的 K、V 一个数都不会变**（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》用图讲过这条因果性）。既然不变，算一次存下来就行。至于 Q：只有新 token 需要 Q（只有它要做预测），旧 token 的 Q 用过就没用了。
 
-拿上一篇的 $$d = 4$$、3 个 token 的玩具验证一下：在末尾追加第 4 个 token $$t_3 = (0, 0, 1, 1)$$，再算一遍 attention，看前三行的输出变不变：
+拿六步手算里 $$d = 4$$、3 个 token 的玩具验证一下：在末尾追加第 4 个 token $$t_3 = (0, 0, 1, 1)$$，再算一遍 attention，看前三行的输出变不变：
 
 | | t0 的输出 | t1 的输出 | t2 的输出 | t3 的输出 |
 |---|---|---|---|---|
@@ -263,7 +296,7 @@ Table: 追加一个 token：有 causal mask 时前三行输出一个数都不变
 - prefill：$$T$$ 个 token 正常前向，**顺手把每层每个 token 的 K、V 存进 cache**——每层一对张量，形状 $$[B, h, T, d_h]$$（玩具模型：$$[1, 2, 3, 4]$$）。
 - decode：新 token 只算自己的 Q、K、V；它的 Q 去和 cache 里全部 K 打分、加权 cache 里全部 V；它的 K、V **追加**到 cache 末尾（$$[1, 2, 3, 4] \to [1, 2, 4, 4] \to \cdots$$）。每步的计算量从"整段"降到"1 个 token 过一遍模型 + 看一遍 cache"。
 
-代码上只是在上一篇的 attention 里加三行：
+代码上只是在 attention 的六步里加三行：
 
 ```python title='KV cache 只在 attention 里加三行'
 if cache["k"] is not None:                               # decode：把旧 K、V 接在前面
@@ -296,6 +329,9 @@ att = (q @ k.transpose(-2, -1)) / math.sqrt(d_h)         # q 只有 1 行，k �
 ### 3. 代价：显存
 
 省下的是计算，花掉的是显存：每层、每个 token 都要存一份 K 和一份 V。Llama-3-8B：32 层 × 2（K、V）× 8 个 KV 头 × 128 维 × 2 字节（bf16）= **128 KiB / token**；一个 8K 上下文的请求 1 GiB，一张 80 GB 的卡除掉 16 GB 权重只能同时服务几十个这样的请求。这就是为什么[《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)整篇在讲怎么把 K、V 做小（GQA 把 KV 头从 32 减到 8 已经省了 4 倍；MLA 再压），也是 Infra vLLM 系列的核心矛盾（PagedAttention 就是给 KV cache 做的内存管理）。
+
+> [!NOTE] Java 经验参照：KV cache 是 memoization，不是可淘汰的缓存
+> KV cache 的做法与 memoization 相同：结果只由输入决定，算一次存下来，以空间换时间。它与 Caffeine、Redis 这类缓存的差别在于条目不能随意淘汰——之后每一步 decode 都要读**全部**历史 token 的 K、V，缺一个 token 的份，新 token 的输出就是错的。显存不够时只能把整条请求的 cache 释放掉，之后从 prompt 重新 prefill。
 
 ## 七、两侧的差别
 
@@ -387,6 +423,6 @@ Table: 训练、prefill、decode 三种运转方式的差别
 
 ## 下一篇
 
-到这里，两篇的图都画完了：[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构（每个方框是什么、形状怎么变），这一篇画的是动态线（训练的「teacher forcing → T 个 loss → 反向 → 更新」，推理的「prefill → decode → KV cache」）。下一篇[《Transformer 原理与实现（03）：手搓 GPT（上）——nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把它们变成代码：330 行、6 个类，每一行对应到前两篇的哪个方框、哪一步。
+到这里，两篇的图都画完了：[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)画的是静态结构（每个方框是什么、形状怎么变），这一篇画的是动态线（训练的「teacher forcing → T 个 loss → 反向 → 更新」，推理的「prefill → decode → KV cache」）。[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)把它们变成代码：330 行、6 个类，每一行对应到这两篇的哪个方框、哪一步。
 
 [^q0]: **训练**：目标是输入右移一位，causal mask 保证位置 $$i$$ 只用前文，teacher forcing 用真实 token 当目标，于是 $$T$$ 个位置互不依赖、一次前向同时得到 $$T$$ 个交叉熵；反向沿原路给每个参数梯度，为此要保存与 $$B \times T$$ 成正比的激活值。**推理**：causal 结构下旧 token 的 K、V 不随新 token 改变，prefill 算一次存进 KV cache，decode 每步只算新 token 的 Q、K、V 并追加——省的是每步重算整段的计算（实测 7.9 倍），花的是每层每 token 一份 K、V 的显存（Llama-3-8B 128 KiB / token）。详见[第二](#二训练侧的前向一个-batch-的旅程)、[三](#三loss-与反向)、[六章](#六kv-cache为什么旧-token-不用重算)。

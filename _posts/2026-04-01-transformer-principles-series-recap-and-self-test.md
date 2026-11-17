@@ -6,10 +6,10 @@ subtitle: "Transformer Principles and Implementation: Series Recap and Self-Test
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-01 23:00:00 +0800
-updated: 2026-11-14
+updated: 2026-11-18
 ---
 
-四篇正文沿着一条线，从静态结构走到一个训得出来的 GPT：第一篇把 GPT-2 small 的每个方框打开，用 $$d = 4$$、3 个 token 的例子手算 attention；第二篇让一个 token 在训练、prefill 与 decode 三种形态里流过这些方框，解释一次前向的 $$T$$ 个训练信号和 KV cache；第三篇把前两篇的图落到 nanoGPT `model.py` 的 330 行，并与 HuggingFace GPT-2 对拍；第四篇读 `train.py`，在一台 MacBook 上把 0.8M 参数的模型训到能续写莎士比亚，再改层数看后果。四篇合起来，是[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)总纲里那条「图 → 数据流 → 代码 → 训练」的路径。
+四篇正文沿着一条线，从静态结构走到一个训得出来的 GPT：[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)把 GPT-2 small 的每个方框打开，用 $$d = 4$$、3 个 token 的例子手算 attention；[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)让一个 token 在训练、prefill 与 decode 三种形态里流过这些方框，解释一次前向的 $$T$$ 个训练信号和 KV cache；[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)把这两篇的图落到 nanoGPT `model.py` 的 330 行，并与 HuggingFace GPT-2 对拍；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)读 `train.py`，在一台 MacBook 上把 0.8M 参数的模型训到能续写莎士比亚，再改层数看后果。四篇合起来，是[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)总纲里那条「图 → 数据流 → 代码 → 训练」的路径。
 
 本文不讲新内容，做三件事：把四篇压成一张表与四段回顾，把贯穿四篇的几条线拎出来，再给一套通关自测。各篇末尾的自测检验的是「这一篇读懂了没有」，这里检验的是「四篇能不能连起来用」：拿到一个 `config.json` 能不能数出参数、画出形状；拿到一段公式能不能指出它在 `model.py` 的哪一行；拿到一份训练日志能不能判断它正不正常。
 
@@ -92,7 +92,7 @@ encoder-only（BERT）、decoder-only（GPT）、encoder-decoder（T5 / BART）�
 
 ### 3. 第三篇：手搓 GPT（上）：nanoGPT model.py 逐行解析
 
-**核心问题**：一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？nanoGPT 的每一行分别在实现前两篇的哪个方框、哪一步？
+**核心问题**：一个能加载 GPT-2 权重、能训练、能生成的 Transformer，最少需要写哪些东西？nanoGPT 的每一行分别在实现《Transformer 长什么样》《一个 token 的旅程》里的哪个方框、哪一步？
 
 **结论**：330 行、6 个类，结构本身（`LayerNorm` + `CausalSelfAttention` + `MLP` + `Block`）不到 90 行。
 
@@ -122,10 +122,10 @@ encoder-only（BERT）、decoder-only（GPT）、encoder-decoder（T5 / BART）�
 **结论**：
 
 1. 数据：`prepare.py` 字符级分词成 `uint16` 的 `train.bin` / `val.bin`（9 : 1）+ `meta.pkl`，词表大小 65 由数据决定。
-2. 配置：`train.py` 的 72 个全局变量默认是 GPT-2 small 的复现配方，`configurator.py` 用 `exec` 让每个变量都能 `--name=value` 覆盖。
+2. 配置：`train.py` 的 33 个全局变量默认是 GPT-2 small 的复现配方，`configurator.py` 用 `exec` 让每个变量都能 `--name=value` 覆盖。
 3. 取数：`get_batch` 用 `memmap` + 随机窗口 + `stack`（连续）造 `x` 与右移一位的 `y`，没有 epoch。
 4. 模型：三种来源（从零 / 续训强制结构一致 / GPT-2 权重），再包 GradScaler（仅 fp16）、优化器、`compile`、DDP 四层。
-5. 循环每步：设 lr（warmup + cosine）→ 到点评估、存 checkpoint 五样 → $$k$$ 个 micro-batch 累积（loss ÷ $$k$$、预取下一批、DDP 只在最后一步同步）→ unscale + 裁剪 → step → zero_grad → 日志与 MFU。
+5. 循环每步：设 lr（warmup + cosine）→ 到点评估、存 checkpoint 六样 → $$k$$ 个 micro-batch 累积（loss ÷ $$k$$、预取下一批、DDP 只在最后一步同步）→ unscale + 裁剪 → step → zero_grad → 日志与 MFU。
 
 实跑 0.8M 参数 2000 步 7 分钟，loss $$\ln 65 = 4.17 \to 1.66$$，输出有莎士比亚格式；train / val 从 1000 步起拉开。改层数：参数与每步耗时线性增长，loss 收益递减。
 
@@ -135,7 +135,7 @@ encoder-only（BERT）、decoder-only（GPT）、encoder-decoder（T5 / BART）�
 - `get_lr` 默认取值：`it = 0` 时 $$3.0 \times 10^{-7}$$、999 时 $$3.0 \times 10^{-4}$$、2000 时峰值 $$6.0 \times 10^{-4}$$、301000 时 $$3.3 \times 10^{-4}$$、600000 时 $$6.0 \times 10^{-5}$$。实跑只覆盖了 `max_iters` 和 `lr_decay_iters`，`warmup_iters` 仍是 2000，所以那 2000 步全部在 warmup 里。
 - fp16 最小正数约 $$6 \times 10^{-8}$$；GradScaler 默认乘 $$2^{16}$$，$$10^{-8}$$ 的梯度变成 $$6.6 \times 10^{-4}$$ 才存得下。
 - 2 / 4 / 8 层：参数 0.40 / 0.80 / 1.58M，val loss 1.82 / 1.66 / 1.59，每步耗时约 0.5× / 1× / 2×；每加一层多 0.20M。
-- checkpoint 五样：model、optimizer、model_args、iter_num、config。
+- checkpoint 六样：model、optimizer、model_args、iter_num、best_val_loss、config。
 - MFU：实跑每次迭代 40 个 768 token 的 micro-batch，共 30,720 token，按公式 0.14%（日志平滑后 0.20%）；分母仍按 A100 的 312 TFLOP/s 算，主因是小 micro-batch 让 MPS 上 launch-bound。
 
 **常见误解**：「不除累积步数只是 loss 尺度不同」（等价于学习率放大 $$k$$ 倍）；「续训不需要优化器状态」（动量从零重估，前几百步抖）；「更深总是更好」（同样 7 分钟，2 层能跑 4000 步、8 层只能跑 1000 步）；「梯度裁剪是每个张量各自裁到 1」（裁的是全部梯度合起来的范数，方向不变）。
@@ -157,7 +157,7 @@ Table: 四篇的代码线：每一站加了什么、用什么验证
 
 ### 2. 形状线：任何方框，先问输入输出形状
 
-第一篇说「每个方框的输入输出都是 $$[T, d]$$」，后三篇不断回到这条线索：
+[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)说「每个方框的输入输出都是 $$[T, d]$$」，其余三篇不断回到这条线索：
 
 | 张量 | 形状 | 在哪里出现 |
 |---|---|---|
@@ -193,16 +193,16 @@ Table: 训练与推理两条线在四篇里的落点
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 大模型的参数主要在 attention 里 | attention 只有四个 $$d \times d$$ 矩阵，FFN 是 $$8d^2$$ | FFN 占一层参数的 2/3（GPT-2 small 4.72M 对 2.36M） | [第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
-| causal mask 已经提供位置信息 | mask 只约束可见范围 | 位置编码仍不可少：GPT-2 查表，Llama 用 RoPE | [第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
-| 多头比单头多算很多 | $$h \times 2T^2 d_h = 2T^2 d$$ | 只多一个 $$W_O$$ 和 $$h$$ 倍的权重表 | [第一篇](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
-| 推理就是训练时的前向 | decode 的输入是 $$[B, 1]$$，靠 cache 而不是重算 | 训练、prefill、decode 是三种形态，decode 瓶颈在访存 | [第二篇](/transformer-token-journey-training-and-inference.html) |
-| KV cache 也要存 Q | 旧 token 的 Q 之后没人再用 | 只存 K、V，每层每 token 一份 | [第二篇](/transformer-token-journey-training-and-inference.html) |
-| 训练显存的大头是参数 | 反向要用的激活值与 $$B \times T$$ 成正比 | Llama-3-8B 8K：激活 41 GiB、朴素权重表再 128 GiB，参数 16 GB | [第二篇](/transformer-token-journey-training-and-inference.html) |
-| 三个独立的 Q/K/V Linear 与 `c_attn` 不等价 | 宽矩阵横着切开就是三个矩阵 | 合并只为一次 GEMM 更快 | [第三篇](/nanogpt-model-py-line-by-line.html) |
-| 推理时 lm_head 也要算全部位置 | 下一个 token 只要最后一个分布 | 只算 `x[:, [-1], :]`，1024 个位置时省 79 GFLOPs 的 99.9% | [第三篇](/nanogpt-model-py-line-by-line.html) |
-| 梯度累积不除步数只是 loss 尺度不同 | `.grad` 在 $$k$$ 个 micro-batch 上累加 | 不除等价于学习率放大 $$k$$ 倍 | [第四篇](/nanogpt-train-py-and-training-a-model-that-writes.html) |
-| 加深模型总是更好 | 层串行，每步耗时随层数线性增长 | 同样时间内深模型步数更少，loss 收益递减、更易过拟合小数据 | [第四篇](/nanogpt-train-py-and-training-a-model-that-writes.html) |
+| 大模型的参数主要在 attention 里 | attention 只有四个 $$d \times d$$ 矩阵，FFN 是 $$8d^2$$ | FFN 占一层参数的 2/3（GPT-2 small 4.72M 对 2.36M） | [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
+| causal mask 已经提供位置信息 | mask 只约束可见范围 | 位置编码仍不可少：GPT-2 查表，Llama 用 RoPE | [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
+| 多头比单头多算很多 | $$h \times 2T^2 d_h = 2T^2 d$$ | 只多一个 $$W_O$$ 和 $$h$$ 倍的权重表 | [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html) |
+| 推理就是训练时的前向 | decode 的输入是 $$[B, 1]$$，靠 cache 而不是重算 | 训练、prefill、decode 是三种形态，decode 瓶颈在访存 | [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html) |
+| KV cache 也要存 Q | 旧 token 的 Q 之后没人再用 | 只存 K、V，每层每 token 一份 | [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html) |
+| 训练显存的大头是参数 | 反向要用的激活值与 $$B \times T$$ 成正比 | Llama-3-8B 8K：激活 41 GiB、朴素权重表再 128 GiB，参数 16 GB | [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html) |
+| 三个独立的 Q/K/V Linear 与 `c_attn` 不等价 | 宽矩阵横着切开就是三个矩阵 | 合并只为一次 GEMM 更快 | [《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html) |
+| 推理时 lm_head 也要算全部位置 | 下一个 token 只要最后一个分布 | 只算 `x[:, [-1], :]`，1024 个位置时省 79 GFLOPs 的 99.9% | [《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html) |
+| 梯度累积不除步数只是 loss 尺度不同 | `.grad` 在 $$k$$ 个 micro-batch 上累加 | 不除等价于学习率放大 $$k$$ 倍 | [《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html) |
+| 加深模型总是更好 | 层串行，每步耗时随层数线性增长 | 同样时间内深模型步数更少，loss 收益递减、更易过拟合小数据 | [《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html) |
 
 Table: 常见误区与正确说法
 
@@ -210,7 +210,7 @@ Table: 常见误区与正确说法
 
 ### A. 判断与计算（10 题）
 
-1. 用第一篇的玩具模型：某个 token 的 query 与三个 key 的内积是 $$(2, 6, 4)$$，$$d = 4$$，它是第 2 个位置（能看全部三个）。softmax 权重是多少？如果不除 $$\sqrt d$$ 呢？
+1. 用[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的玩具模型：某个 token 的 query 与三个 key 的内积是 $$(2, 6, 4)$$，$$d = 4$$，它是第 2 个位置（能看全部三个）。softmax 权重是多少？如果不除 $$\sqrt d$$ 呢？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -226,7 +226,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-3. 训练时 $$B = 4$$、$$T = 2048$$、$$V = 128256$$、bf16。logits 张量多大？为什么第三篇的推理分支只算 `x[:, [-1], :]`？
+3. 训练时 $$B = 4$$、$$T = 2048$$、$$V = 128256$$、bf16。logits 张量多大？为什么[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)的推理分支只算 `x[:, [-1], :]`？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -234,11 +234,11 @@ Table: 常见误区与正确说法
 
    </details>
 
-4. prompt 500 个 token、生成 500 个：nanoGPT 的 `generate`（无 KV cache）总共前向了多少个 token 位置？第二篇的带 cache 版本呢？
+4. prompt 500 个 token、生成 500 个：nanoGPT 的 `generate`（无 KV cache）总共前向了多少个 token 位置？[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)的带 cache 版本呢？
 
    <details markdown="1"><summary>答案</summary>
 
-   无 cache：第 $$k$$ 步算 $$500 + k$$ 个位置，$$\sum_{k=1}^{500}(500 + k) = 250{,}000 + 125{,}250 = 375{,}250$$。有 cache：prefill 500 + decode 500 = 1000。差 375 倍；只比 decode 阶段则是 375,250 对 500。第二篇实测的倍数（7.9 倍）小于此：每步还要读 cache，小矩阵乘的效率也低。
+   无 cache：第 $$k$$ 步算 $$500 + k$$ 个位置，$$\sum_{k=1}^{500}(500 + k) = 250{,}000 + 125{,}250 = 375{,}250$$。有 cache：prefill 500 + decode 500 = 1000。差 375 倍；只比 decode 阶段则是 375,250 对 500。[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)实测的倍数（7.9 倍）小于此：每步还要读 cache，小矩阵乘的效率也低。
 
    </details>
 
@@ -266,7 +266,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-8. 第四篇的默认学习率配置下，`it = 151500` 时学习率是多少？第四篇的莎士比亚实跑（`max_iters = lr_decay_iters = 2000`，其余默认）第 1000 步的学习率又是多少，为什么？
+8. [《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)的默认学习率配置下，`it = 151500` 时学习率是多少？《手搓 GPT（下）》的莎士比亚实跑（`max_iters = lr_decay_iters = 2000`，其余默认）第 1000 步的学习率又是多少，为什么？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -292,43 +292,43 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 第一篇的六种部件，在第三篇的 `model.py` 里各是哪个属性？第四篇调用的 `configure_optimizers` 会对其中哪些做 weight decay？
+1. [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的六种部件，在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)的 `model.py` 里各是哪个属性？[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)调用的 `configure_optimizers` 会对其中哪些做 weight decay？
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇 → 第三篇：token embedding = `transformer.wte`；位置 = `transformer.wpe`；attention = `h[i].attn`（`c_attn` + `c_proj`）；FFN = `h[i].mlp`（`c_fc` + `c_proj`）；残差 + LayerNorm = `Block.forward` 的两个加号 + `ln_1` / `ln_2` / `ln_f`；lm_head = `lm_head`，与 `wte` 是同一个 `Parameter`。第三篇的 `configure_optimizers`：二维以上的做 decay（`wte` / `lm_head`、`wpe`、`c_attn`、`c_proj`、`c_fc` 的 weight），一维的不做（所有 bias、LayerNorm 的 $$\gamma$$、$$\beta$$）。
+   [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html) → [《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)：token embedding = `transformer.wte`；位置 = `transformer.wpe`；attention = `h[i].attn`（`c_attn` + `c_proj`）；FFN = `h[i].mlp`（`c_fc` + `c_proj`）；残差 + LayerNorm = `Block.forward` 的两个加号 + `ln_1` / `ln_2` / `ln_f`；lm_head = `lm_head`，与 `wte` 是同一个 `Parameter`。《手搓 GPT（上）》的 `configure_optimizers`：二维以上的做 decay（`wte` / `lm_head`、`wpe`、`c_attn`、`c_proj`、`c_fc` 的 weight），一维的不做（所有 bias、LayerNorm 的 $$\gamma$$、$$\beta$$）。
 
    </details>
 
-2. 第二篇的玩具模型 step 0 loss 是 2.78，第四篇莎士比亚模型是 4.17。两个数各从哪来？如果把第三篇 `_init_weights` 的 0.02 改成 1.0，第四篇 step 0 的 loss 还会接近 4.17 吗？
+2. [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)的玩具模型 step 0 loss 是 2.78，[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)莎士比亚模型是 4.17。两个数各从哪来？如果把[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html) `_init_weights` 的 0.02 改成 1.0，《手搓 GPT（下）》 step 0 的 loss 还会接近 4.17 吗？
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：随机模型在词表上均匀乱猜，交叉熵 $$= \ln V$$，$$\ln 16 = 2.77$$、$$\ln 65 = 4.17$$。第三篇：这个「均匀」靠 $$\mathcal N(0, 0.02^2)$$ 的小初始化——logits 都接近 0，softmax 接近均匀。标准差改成 1.0，logits 变得极端，分布不再均匀，正确答案常被分到很小的概率，step 0 的 loss 会明显高于 4.17。所以 step 0 ≈ $$\ln V$$ 是检查初始化与 loss 实现的第一道关。
+   [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)：随机模型在词表上均匀乱猜，交叉熵 $$= \ln V$$，$$\ln 16 = 2.77$$、$$\ln 65 = 4.17$$。[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)：这个「均匀」靠 $$\mathcal N(0, 0.02^2)$$ 的小初始化——logits 都接近 0，softmax 接近均匀。标准差改成 1.0，logits 变得极端，分布不再均匀，正确答案常被分到很小的概率，step 0 的 loss 会明显高于 4.17。所以 step 0 ≈ $$\ln V$$ 是检查初始化与 loss 实现的第一道关。
 
    </details>
 
-3. 把第三篇 attention 里的 `is_causal=True` 改成 `False`（手写路径去掉 mask），用第四篇的配置训练。train loss 会怎样？生成会怎样？第二篇的 KV cache 还能用吗？
+3. 把[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html) attention 里的 `is_causal=True` 改成 `False`（手写路径去掉 mask），用[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)的配置训练。train loss 会怎样？生成会怎样？[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)的 KV cache 还能用吗？
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：位置 $$i$$ 能看到 token $$i+1$$，而第四篇 `get_batch` 的 `y` 恰是 `x` 右移一位，模型把答案抄过来就行，train / val loss 都会很快降得很低，但什么都没学到。第二篇：推理时没有未来 token 可抄，生成是胡话——训练与推理的可见信息不一致了。KV cache 也失效：没有 mask 时追加一个 token 会改变所有旧 token 的输出（玩具例子 t0 从 $$(0.92, 0.43, 0.57, 0.08)$$ 变成 $$(0.82, 0.38, 0.62, 0.18)$$），上层的 K、V 随之全变。
+   [《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)：位置 $$i$$ 能看到 token $$i+1$$，而[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html) `get_batch` 的 `y` 恰是 `x` 右移一位，模型把答案抄过来就行，train / val loss 都会很快降得很低，但什么都没学到。[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)：推理时没有未来 token 可抄，生成是胡话——训练与推理的可见信息不一致了。KV cache 也失效：没有 mask 时追加一个 token 会改变所有旧 token 的输出（玩具例子 t0 从 $$(0.92, 0.43, 0.57, 0.08)$$ 变成 $$(0.82, 0.38, 0.62, 0.18)$$），上层的 K、V 随之全变。
 
    </details>
 
-4. 要给第三篇的 nanoGPT 加上第二篇的 KV cache，至少要改哪几处？
+4. 要给[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)的 nanoGPT 加上[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)的 KV cache，至少要改哪几处？
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇的三行加在第三篇 `CausalSelfAttention.forward` 里：`split` / 拆头之后把 cache 里的 K、V 沿 token 维接在前面、存回，再用新 token 的 Q 去打分；decode 那一步 Q 只有 1 行，看全部历史天然满足 causal，不需要 mask 矩阵。`GPT.forward` 的位置要接着历史长度往后数（`pos` 从已缓存的 token 数开始，否则 `wpe` 给的位置是错的）。`generate` 改成先对整段 prompt 做一次 prefill，之后每步只喂新抽出的 1 个 token。改完的验证方法就是第二篇那条：有 / 无 cache 的生成逐 token 一致。
+   [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)的三行加在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html) `CausalSelfAttention.forward` 里：`split` / 拆头之后把 cache 里的 K、V 沿 token 维接在前面、存回，再用新 token 的 Q 去打分；decode 那一步 Q 只有 1 行，看全部历史天然满足 causal，不需要 mask 矩阵。`GPT.forward` 的位置要接着历史长度往后数（`pos` 从已缓存的 token 数开始，否则 `wpe` 给的位置是错的）。`generate` 改成先对整段 prompt 做一次 prefill，之后每步只喂新抽出的 1 个 token。改完的验证方法就是《一个 token 的旅程》那条：有 / 无 cache 的生成逐 token 一致。
 
    </details>
 
-5. 第四篇的默认配置每次迭代 491,520 个 token，为什么写成 12 × 1024 的 micro-batch 累积 40 次，而不是一次喂 480 条序列？两种写法的梯度一样吗？
+5. [《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)的默认配置每次迭代 491,520 个 token，为什么写成 12 × 1024 的 micro-batch 累积 40 次，而不是一次喂 480 条序列？两种写法的梯度一样吗？
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：激活值与 $$B \times T$$ 成正比，480 × 1024 的激活是 12 × 1024 的 40 倍，一张卡放不下；梯度累积每次只留一个 micro-batch 的激活。第四篇：每个 micro-batch 的 loss 除以 40 再 `backward`，`.grad` 累加后等于大 batch 的平均梯度，数学上一样（dropout 的随机性除外）。第三篇：算量也一样，$$855\text{M} \times 491{,}520 \approx 4.2 \times 10^{14}$$ FLOPs，只是分 40 次做。8 卡 DDP 时每卡累积 5 次、只在最后一次同步梯度，总 token 数不变。
+   [《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)：激活值与 $$B \times T$$ 成正比，480 × 1024 的激活是 12 × 1024 的 40 倍，一张卡放不下；梯度累积每次只留一个 micro-batch 的激活。[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)：每个 micro-batch 的 loss 除以 40 再 `backward`，`.grad` 累加后等于大 batch 的平均梯度，数学上一样（dropout 的随机性除外）。[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)：算量也一样，$$855\text{M} \times 491{,}520 \approx 4.2 \times 10^{14}$$ FLOPs，只是分 40 次做。8 卡 DDP 时每卡累积 5 次、只在最后一次同步梯度，总 token 数不变。
 
    </details>
 
@@ -414,12 +414,12 @@ Table: 常见误区与正确说法
 
 Table: 掌握程度的判据
 
-通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的「必记」，再回该篇正文；形状说不清的先回第一篇，把六种部件的输入输出形状重画一遍——后三篇的每个数字都是从那张图推出来的。
+通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的「必记」，再回该篇正文；形状说不清的先回[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)，把六种部件的输入输出形状重画一遍——其余三篇的每个数字都是从那张图推出来的。
 
 ## 六、下一步
 
 - 主线的下一站是[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)：把本系列的 GPT-2 看成一组可替换的槽位，逐个讲 Llama 之后改了什么、改动怎样改变算量与显存。
-- 想知道第四篇那 1 MB 文本换成 15T token 时差什么：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+- 想知道[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)那 1 MB 文本换成 15T token 时差什么：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 - 本系列在两张地图里的位置：[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)、[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)。
@@ -428,15 +428,15 @@ Table: 掌握程度的判据
 
 本系列只讨论经典 GPT-2 结构的原理、数据流与最小实现。以下内容与它紧邻，但不在范围内：
 
-- **今天的结构改动**：RMSNorm、RoPE 的推导与外推、SwiGLU、GQA / MLA、长上下文、MoE、MTP、投机解码、浮点格式。本系列只在第三篇末尾列出 Llama 相对 GPT-2 的五处改动；逐项展开与算量 / 访存 / Roofline 的账在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+- **今天的结构改动**：RMSNorm、RoPE 的推导与外推、SwiGLU、GQA / MLA、长上下文、MoE、MTP、投机解码、浮点格式。本系列只在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)末尾列出 Llama 相对 GPT-2 的五处改动；逐项展开与算量 / 访存 / Roofline 的账在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 - **真实预训练**：BPE 分词与词表大小、数据抓取与去重、scaling law、训练配方与 loss spike。本系列用字符级分词和 1 MB 文本走通流水线；规模化之后的问题在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 - **前置的深度学习基础**：反向传播、激活函数、初始化与归一化、优化器、RNN。本系列直接使用它们的结论，推导在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 - **kernel 内部**：FlashAttention 怎样不写出 $$[T, T]$$ 的表、Tensor Core 为什么要 64 对齐。本系列只说它省了什么，实现在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
-- **多卡训练**：DDP 之外的张量 / 流水 / 序列 / 专家并行、ZeRO、分布式 checkpoint 与容错。第四篇只读到 DDP 与单文件 `ckpt.pt`；其余在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
-- **推理服务**：KV cache 的内存管理（PagedAttention）、continuous batching、调度。第二篇只讲 KV cache 为什么成立和多大；服务端的工程在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。
+- **多卡训练**：DDP 之外的张量 / 流水 / 序列 / 专家并行、ZeRO、分布式 checkpoint 与容错。[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)只读到 DDP 与单文件 `ckpt.pt`；其余在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
+- **推理服务**：KV cache 的内存管理（PagedAttention）、continuous batching、调度。[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)只讲 KV cache 为什么成立和多大；服务端的工程在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。
 - **训练之后**：SFT、RLHF / RLVR，以及采样策略、约束解码。见[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)与[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)。
 
-[^q0]: 四篇各一个核心问题，即总纲分章导读里的四问：GPT-2 的 decoder-only 结构从原始 encoder-decoder 怎么来、一个编号经过哪六种部件变成词表上的分布（第一篇）；为什么一次前向有 $$T$$ 个训练信号、为什么推理时旧 token 不用重算（第二篇：causal mask + teacher forcing，KV cache）；能加载 GPT-2 权重、能训能生成的 Transformer 最少写哪些东西（第三篇：四个类不到 90 行，加 `GPT` 的周边）；从 1.1 MB 文本到会续写的模型每一步代码在哪、改层数会怎样（第四篇：参数与耗时线性、loss 收益递减）。详见[第二章](#二逐篇回顾)。
+[^q0]: 四篇各一个核心问题，即总纲分章导读里的四问：GPT-2 的 decoder-only 结构从原始 encoder-decoder 怎么来、一个编号经过哪六种部件变成词表上的分布（[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)）；为什么一次前向有 $$T$$ 个训练信号、为什么推理时旧 token 不用重算（[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)：causal mask + teacher forcing，KV cache）；能加载 GPT-2 权重、能训能生成的 Transformer 最少写哪些东西（[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)：四个类不到 90 行，加 `GPT` 的周边）；从 1.1 MB 文本到会续写的模型每一步代码在哪、改层数会怎样（[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)：参数与耗时线性、loss 收益递减）。详见[第二章](#二逐篇回顾)。
 
 [^q1]: $$\text{softmax}(QK^\top/\sqrt d + M)V$$，打分沿特征维、加权沿 token 维求和；$$d = 4$$ 手算 t2 权重 $$(0.27, 0.27, 0.45)$$；FFN 占一层 2/3；GPT-2 small 124,439,808（nanoGPT 报 123.65M）；随机初始化 loss ≈ $$\ln V$$（2.78 / 10.8 / 4.17）；decode 一步读 0.12 ms、算 0.0008 ms；KV cache Llama-3-8B 128 KiB / token、快 7.9 倍；Llama-3-8B 8K 训练激活 41 GiB + 朴素权重表 128 GiB；HF 对拍 $$9 \times 10^{-5}$$；`c_proj` 除 $$\sqrt{2L}$$（0.0041）；每 token 855M FLOPs；每次迭代 491,520 token；val loss 4.17 → 1.66；2 / 4 / 8 层 1.82 / 1.66 / 1.59。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 

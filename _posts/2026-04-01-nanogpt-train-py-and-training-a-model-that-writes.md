@@ -5,14 +5,14 @@ title: "Transformer 原理与实现（04）：手搓 GPT（下）——nanoGPT t
 subtitle: "Building GPT by Hand, Part 2: train.py Line by Line, Then Train One on Shakespeare"
 tags: [Transformer, LLM, AI, AI-Infra, PyTorch]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-18
 ---
 
-> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的最后一篇。第 03 篇写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；本系列到此回答完「GPT-2 怎么工作、怎么写」。接下来读[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)，从今天的模型改了哪些结构开始。
+> **本篇在系列中的位置。** 《Transformer 原理与实现》系列的最后一篇。[《手搓 GPT（上）：nanoGPT model.py 逐行解析》](/nanogpt-model-py-line-by-line.html)写好了模型，本篇写训练循环并在笔记本上训出会续写的模型；本系列到此回答完「GPT-2 怎么工作、怎么写」。接下来读[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)，从今天的模型改了哪些结构开始。
 
-上一篇的 `model.py` 定义了一个 GPT，但它的权重是随机数，输出是乱码。让它变成一个"会写东西"的模型，还差三样：**数据**（一段文本怎么变成模型能吃的整数数组）、**训练循环**（第二篇那一步"取 batch → 前向 → loss → 反向 → 更新"怎么写成能跑几十万步、能断点续训、能多卡的代码）、**一次实际的训练**（看着 loss 从 4.17 掉到 1.66、输出从乱码变成像莎士比亚台词的东西）。nanoGPT 的 `train.py`（336 行）加 `prepare.py`（68 行）就是这三样。
+[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)逐行读过的 `model.py` 定义了一个 GPT，但它的权重是随机数，输出是乱码。让它变成一个"会写东西"的模型，还差三样：**数据**（一段文本怎么变成模型能吃的整数数组）、**训练循环**（[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)里那一步"取 batch → 前向 → loss → 反向 → 更新"怎么写成能跑几十万步、能断点续训、能多卡的代码）、**一次实际的训练**（看着 loss 从 4.17 掉到 1.66、输出从乱码变成像莎士比亚台词的东西）。nanoGPT 的 `train.py`（336 行）加 `prepare.py`（68 行）就是这三样。
 
-这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在工具箱与 Infra PyTorch 系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
+这一篇把 `train.py` 按块过完，然后在一台 MacBook 上用莎士比亚全集训 2000 步（7 分钟），再把层数改成 2 和 8 各训一次——这是你第一次亲手**改模型结构并看到后果**。训练循环里的每个机制（混合精度、梯度累积、学习率调度、DDP）本身在[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)与[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)两个系列里都讲过，这里只讲**它们在这个脚本里的位置和为什么在那里**。
 
 本篇要回答的核心问题是：
 
@@ -20,30 +20,67 @@ updated: 2026-11-14
 
 ## 一、总览：三个文件、一条流水线
 
+从文本到续写要过三个脚本：`prepare.py` 运行一次，把文本编码成磁盘上的整数数组；`train.py` 反复从数组里切 batch、更新模型，并定期把训练状态写成 `ckpt.pt`；`sample.py` 读回 `ckpt.pt` 生成文本。下图是这条流水线上的脚本、文件和进程内的状态，括号里是展开它的章：
+
 ```mermaid
-%% 图：nanoGPT 训练的三个文件：prepare.py 把文本编码成 uint16 的 train.bin / val.bin；train.py 用 get_batch 随机切窗口、按 model.py 建模型、跑训练循环并写 ckpt.pt；sample.py 读 ckpt.pt 用 generate 续写
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：nanoGPT 从文本到续写的流水线：三个脚本与它们读写的文件
 flowchart TB
-    TXT["input.txt：莎士比亚全集 1.1 MB"] --> PREP["data/shakespeare_char/prepare.py<br/>字符 → 整数（65 个字符的词表）"]
-    PREP --> BIN["train.bin / val.bin：uint16 数组，1.0M / 0.11M 个 token<br/>meta.pkl：字符表"]
-    BIN --> GB["<b>train.py · get_batch</b><br/>随机切 batch_size 个长 block_size 的窗口"]
-    MODEL["model.py：GPTConfig / GPT（上一篇）"] --> INIT["<b>train.py · 模型初始化</b><br/>scratch / resume / gpt2"]
-    GB --> LOOP["<b>train.py · 训练循环</b><br/>lr → 评估 → 梯度累积 × 前向 / 反向 → clip → step"]
+    TXT["<b>input.txt</b><br/>莎士比亚全集，1.1 MB 文本"] --> PREP["<b>prepare.py</b><br/>字符 → 整数，65 个字符的词表（第二章）"]
+    PREP --> BIN["<b>train.bin / val.bin、meta.pkl</b><br/>uint16 数组，1.0M / 0.11M 个 token；字符表（第二章）"]
+    CFG["<b>配置全局变量</b><br/>默认值，再由 configurator.py 覆盖（第三、四章）"]
+    MODEL["<b>model.py</b><br/>GPTConfig / GPT 的类定义"]
+    BIN --> GB["<b>train.py · get_batch</b><br/>随机切 batch_size 个长 block_size 的窗口（第五章）"]
+    BIN -- "meta.pkl 里的 vocab_size" --> INIT["<b>train.py · 模型初始化与四层包装</b><br/>scratch / resume / gpt2*<br/>GradScaler、优化器、compile、DDP（第六、七章）"]
+    MODEL --> INIT
+    CFG --> INIT
+    GB --> LOOP["<b>train.py · 训练循环</b><br/>lr → 评估 → 梯度累积 × 前向 / 反向 → clip → step（第八、九章）"]
     INIT --> LOOP
-    LOOP --> CKPT["<b>out_dir/ckpt.pt</b><br/>model + optimizer + iter_num + config"]
-    CKPT --> SAMPLE["<b>sample.py</b><br/>加载 ckpt，model.generate() 续写"]
+    LOOP --> CKPT["<b>out_dir/ckpt.pt</b><br/>model、optimizer、model_args、iter_num、best_val_loss、config（第九章）<br/>续训时由模型初始化读回（第六章）"]
+    CKPT --> SAMPLE["<b>sample.py</b><br/>加载 ckpt.pt，model.generate() 续写（第十章）"]
 ```
+
+- **input.txt**：原始文本，`prepare.py` 第一次运行时下载到 `data/shakespeare_char/`；训练脚本不读它。
+- **prepare.py**：只运行一次的预处理脚本，建字符表、把每个字符换成编号、按 9 : 1 切成训练集和验证集。
+- **train.bin / val.bin、meta.pkl**：`prepare.py` 写在数据目录里的三个文件。两个 `.bin` 是没有文件头的 `uint16` 数组，`meta.pkl` 存字符表和词表大小。
+- **配置全局变量**：`train.py` 模块顶层的 33 个赋值，启动时先取默认值，再被命令行参数或配置文件覆盖；之后的每一块代码直接按名字读它们。
+- **get_batch**：每次调用把 `.bin` 文件映射进内存，随机切出 `batch_size` 个窗口，得到形状 `[B, T]` 的输入 `x` 和右移一位的目标 `y`。
+- **模型初始化与四层包装**：按 `init_from` 从零建模型、从 `ckpt.pt` 恢复或加载 GPT-2 权重，再建 GradScaler 和优化器，按需套上 `torch.compile` 与 DDP。模型类来自 `model.py`，词表大小来自 `meta.pkl`。
+- **训练循环**：一个 `while True`，每轮设学习率、到点评估、累积若干个 micro-batch 的梯度后更新一次参数。`estimate_loss` 与 `get_lr` 是它调用的两个函数。
+- **ckpt.pt**：训练循环在评估点写到 `out_dir` 的一个字典，每次覆盖同一个文件；续训和采样都从它开始。
+- **sample.py**：独立的推理脚本，按 `ckpt.pt` 里的 `model_args` 重建模型、载入参数，再用 `meta.pkl` 把生成的编号翻回字符。
+
+这条流水线上有的东西是磁盘文件，有的只活在训练进程里；断点续训（`--init_from=resume`）能接上多少，取决于哪些被写进了 `ckpt.pt`：
+
+| 产物 / 状态 | 谁在什么时候产生 | 保存在哪里 | 续训时从哪来 |
+|---|---|---|---|
+| `input.txt` | `prepare.py` 首次运行时下载，已存在就跳过 | 磁盘，`data/shakespeare_char/` | 不需要，训练不读它 |
+| `train.bin` / `val.bin` | `prepare.py` 编码后用 `tofile` 写出，运行一次 | 磁盘；训练时由 `get_batch` 每次调用重新 `np.memmap`，只有切到的页进内存 | 磁盘上的原文件，不进 `ckpt.pt` |
+| `meta.pkl` | `prepare.py` 结尾 `pickle.dump` | 磁盘；`train.py` 启动时读 `vocab_size`，`sample.py` 读 `stoi` / `itos` | 文件仍被读，但词表大小改用 `ckpt.pt` 里 `model_args` 的值 |
+| 配置全局变量 | `train.py` 顶层赋默认值，随后 `configurator.py` 用命令行覆盖 | 进程内存（模块的全局名）；另有一份快照在 `config` 字典里 | 不恢复：每次启动重新由默认值加命令行得到，`ckpt.pt` 里的 `config` 只作记录 |
+| `model_args`（结构超参） | 模型初始化时由配置组出 | 进程内存里的字典，随 `ckpt.pt` 落盘 | 层数、头数、宽度、上下文长度、`bias`、词表大小六项强制取 `ckpt.pt` 的值，`dropout` 取命令行 |
+| 模型参数 | `GPT(gptconf)` 构造时随机初始化，此后每次 `optimizer.step` 原地更新 | `model.to(device)` 之后在 `device` 上（CUDA 即显存） | 恢复：`checkpoint['model']` 经 `load_state_dict` 写回 |
+| 梯度 `.grad` | 每次 `backward` 累加到参数的 `.grad` | 与参数同一设备；`zero_grad(set_to_none=True)` 后释放 | 不存，下一步重新算 |
+| 优化器状态 | `configure_optimizers` 建出 AdamW；第一次 `step` 起为每个参数维护两个动量张量和步数 | 优化器对象里，张量与参数同一设备 | 恢复：`checkpoint['optimizer']` 经 `optimizer.load_state_dict` 写回 |
+| GradScaler 状态（放大倍数） | 建 `scaler` 时取初值 65536，每次 `scaler.update()` 调整；只在 fp16 下启用 | `scaler` 对象里 | 不恢复：`ckpt.pt` 里没有它，从初值重新调整 |
+| `iter_num` / `best_val_loss` | 初值 0 与 1e9；前者每次迭代末尾加 1，后者在评估时更新 | 进程内存（两个全局变量） | 恢复：从 `ckpt.pt` 读回，学习率随 `iter_num` 接着原来的位置算 |
+| `ckpt.pt` | 训练循环每 `eval_interval` 步评估后由 rank 0 写出（第 0 步不写） | 磁盘，`out_dir/ckpt.pt`，每次覆盖 | 它就是恢复的来源：`torch.load` 读成字典，取完各项后置 `None` 释放 |
+
+Table: nanoGPT 训练流水线上的产物与状态：产生时机、保存位置与续训来源
+
+表里没有的两样也影响续训。学习率不用存，它是 `iter_num` 的纯函数（第八章的 `get_lr`）。随机数发生器的状态没有存，续训的进程重新从种子 1337 开始抽窗口，抽到的起点序列与第一次启动时相同。
 
 `train.py` 从上到下分九块。本文的章节安排就按这九块走：
 
 | 章 | `train.py` 的块 | 行号 | 内容 |
 |---|---|---|---|
 | 二 | （`prepare.py`） | — | 字符级分词：文本 → `uint16` 数组 |
-| 三 | 配置 | 31–75 | 72 个全局变量；`configurator.py` 的 `exec` 技巧 |
-| 四 | 初始化与 I/O | 79–110 | DDP 判定、随机种子、`autocast` 上下文 |
-| 五 | `get_batch` | 113–130 | 穷人的 DataLoader：随机窗口（一个窗口的手算）、`memmap`、pinned memory |
-| 六 | 模型初始化 | 133–195 | 三种来源：从零、续训、GPT-2 权重；词表大小从数据来 |
-| 七 | GradScaler、优化器、compile、DDP | 197–214 | 四层包装 |
-| 八 | `estimate_loss` 与 `get_lr` | 216–243 | 评估；warmup + cosine 与它的几个取值 |
+| 三 | 配置 | 32–78 | 33 个配置全局变量；`configurator.py` 的 `exec` 技巧 |
+| 四 | 初始化与 I/O | 81–112 | DDP 判定、随机种子、`autocast` 上下文 |
+| 五 | `get_batch` | 114–131 | 穷人的 DataLoader：随机窗口（一个窗口的手算）、`memmap`、pinned memory |
+| 六 | 模型初始化 | 133–193 | 三种来源：从零、续训、GPT-2 权重；词表大小从数据来 |
+| 七 | GradScaler、优化器、compile、DDP | 195–212 | 四层包装 |
+| 八 | `estimate_loss` 与 `get_lr` | 214–242 | 评估；warmup + cosine 与它的几个取值 |
 | 九 | 训练循环 | 249–336 | 逐行：学习率、评估与 checkpoint、梯度累积、clip、step、日志；累积与裁剪的手算 |
 | 十 | 实跑 | — | 0.8M 参数、2000 步、7 分钟：loss 与样本 |
 | 十一 | 改结构 | — | 2 / 4 / 8 层对比 |
@@ -54,18 +91,35 @@ Table: 本文的章节安排与 train.py 的对应
 
 ## 二、数据：`prepare.py` 把文本变成整数
 
-模型吃的是 token 编号（本系列第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第五章）。莎士比亚这个例子用**字符级**分词：每个不同的字符就是一个 token，词表只有 65 个（26 个字母大小写、标点、空格、换行）：
+模型吃的是 token 编号（[《Transformer 长什么样》的「token embedding」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#五token-embedding把编号变成向量)）。莎士比亚这个例子用**字符级**分词：每个不同的字符就是一个 token，词表只有 65 个（大小写字母各 26 个、10 个标点、数字 3、空格、换行）：
 
 ```python title='prepare.py 节选：字符级分词与 train.bin / val.bin'
-# data/shakespeare_char/prepare.py（节选）
-data = open('input.txt').read()                          # 1,115,394 个字符
+# data/shakespeare_char/prepare.py（节选：略去下载、打印与 encode / decode 两个函数的包装）
+with open(input_file_path, 'r') as f:
+    data = f.read()                                      # 1,115,394 个字符
+
 chars = sorted(list(set(data)))                          # 65 个不同字符
+vocab_size = len(chars)
+
 stoi = { ch:i for i,ch in enumerate(chars) }             # 字符 → 编号
 itos = { i:ch for i,ch in enumerate(chars) }             # 编号 → 字符
-train_ids = np.array([stoi[c] for c in data[:n]], dtype=np.uint16)   # 前 90% 训练
-val_ids   = np.array([stoi[c] for c in data[n:]], dtype=np.uint16)   # 后 10% 验证
-train_ids.tofile('train.bin'); val_ids.tofile('val.bin')
-pickle.dump({'vocab_size': 65, 'itos': itos, 'stoi': stoi}, open('meta.pkl', 'wb'))
+
+n = len(data)
+train_data = data[:int(n*0.9)]                           # 前 90% 训练
+val_data = data[int(n*0.9):]                             # 后 10% 验证
+
+train_ids = np.array([stoi[c] for c in train_data], dtype=np.uint16)
+val_ids = np.array([stoi[c] for c in val_data], dtype=np.uint16)
+train_ids.tofile(os.path.join(os.path.dirname(__file__), 'train.bin'))
+val_ids.tofile(os.path.join(os.path.dirname(__file__), 'val.bin'))
+
+meta = {
+    'vocab_size': vocab_size,
+    'itos': itos,
+    'stoi': stoi,
+}
+with open(os.path.join(os.path.dirname(__file__), 'meta.pkl'), 'wb') as f:
+    pickle.dump(meta, f)
 ```
 
 ```text title='prepare.py 的输出：65 个字符、100 万 token'
@@ -78,11 +132,17 @@ val has 111,540 tokens
 
 `chars` 是排好序的 65 个字符，编号就是它在这个列表里的下标：换行是 0、空格是 1、`C` 是 15、`F` 是 18、`i` 是 47、`r` 是 56、`s` 是 57、`t` 是 58。全文开头的 `First Citi` 这 10 个字符因此存成 `[18, 47, 56, 57, 58, 1, 15, 47, 58, 47]`。
 
-三个决定：`uint16`（词表 < 65536，两字节够，文件是文本的两倍大而不是 8 倍）；训练 / 验证按 9 : 1 **切开**（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》：验证集要没见过）；`meta.pkl` 存字符表，训练脚本从它读词表大小、采样脚本用它把编号翻回字符。真实预训练用 BPE 分词、词表几万到十几万（[《预训练（02）：分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
+这段脚本做了三个决定：
 
-## 三、配置：72 个全局变量与一个 `exec`
+1. **`uint16`**：词表小于 65536，每个 token 两字节就够，文件是文本的两倍大而不是 8 倍。
+2. **训练 / 验证按 9 : 1 切开**：验证集要是模型没见过的数据（《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》）。
+3. **`meta.pkl` 存字符表**：训练脚本从它读词表大小，采样脚本用它把编号翻回字符。
 
-```python title='train.py 的配置段：72 个全局变量'
+真实预训练用 BPE 分词、词表几万到十几万（[《预训练（02）：分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)），但"文本 → 整数数组 → 随机切窗口"这条流水线完全一样——nanoGPT 的 OpenWebText 版本只是把 65 换成 50257、把 1 MB 换成 17 GB。
+
+## 三、配置：33 个全局变量与一个 `exec`
+
+```python title='train.py 的配置段：33 个全局变量（贴出 29 个）'
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
@@ -109,7 +169,7 @@ dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 
-# !ref cfg-opt +6
+# !ref cfg-opt +5
 learning_rate = 6e-4 # max learning rate
 max_iters = 600000 # total number of training iterations
 weight_decay = 1e-1
@@ -135,7 +195,7 @@ exec(open('configurator.py').read()) # overrides from command line or config fil
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 ```
 
-（为省篇幅删去了 wandb 与 DDP backend 三行。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是[《预训练（05）：训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》讲为什么）。
+（为省篇幅删去了 wandb 的三个变量和 DDP 的 `backend = 'nccl'` 一个变量，源码里共 33 个。）默认值是 **GPT-2 small 在 OpenWebText 上的复现配方**：12 层 768 维、上下文 1024、每次迭代 [`5 × 8` 次梯度累积](#cfg-accum) × 12 × 1024 ≈ 49 万 token（8 卡各 5 次）、60 万步、峰值学习率 6e-4、warmup 2000 步后 cosine 衰减到 6e-5、weight decay 0.1、梯度裁剪 1.0——这组数字就是[《预训练（05）：训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)讨论的"训练配方"，[六个优化器参数](#cfg-opt)与 GPT-3 论文一致（$$\beta_2 = 0.95$$ 而不是 Adam 默认的 0.999，《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》讲为什么）。
 
 [`dtype`](#cfg-dtype)：有 CUDA 且支持 bf16 就用 bf16，否则 fp16（要配 GradScaler，第七章）；CPU / MPS 上这一行会选 fp16，但第四章会看到 CPU 实际不用 autocast。
 
@@ -146,7 +206,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 ```python title='初始化与 I/O：DDP 判断、种子、dtype'
 # various inits, derived attributes, I/O setup
 
-# !ref init-ddp +14
+# !ref init-ddp +13
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
     init_process_group(backend=backend)
@@ -216,8 +276,11 @@ def get_batch(split):
 [《算法工程师的工具箱（03）：PyTorch 使用层（上）——五个对象与二十行训练循环》](/pytorch-in-use-five-objects-and-a-training-loop.html)用 `Dataset` + `DataLoader`，nanoGPT 用 18 行自己写。三件事：
 
 1. [`np.memmap`](#gb-memmap)：把 `train.bin` 映射进内存而不是读进来——OpenWebText 的 `train.bin` 有 17 GB，读不进 RAM；memmap 把文件当成一个数组来读：`data[i:i+64]` 只会让操作系统从磁盘读进这 64 个数所在的那一页，其余部分不进内存。每次调用重新 memmap 是绕一个已知的内存泄漏。
-2. [随机窗口](#gb-window)：从数据里随机挑 `batch_size` 个起点，每个起点切 `block_size` 个 token 当 `x`，**右移一位**再切当 `y`——[《一个 token 的旅程》第二章「Teacher forcing」](/transformer-token-journey-training-and-inference.html#2-teacher-forcing一次前向t-个训练信号)的"目标 = 输入右移一位"就在这两行。`torch.stack` 把 `batch_size` 个一维张量叠成 `[B, T]`，叠出来的是**连续**张量，所以上一篇 `forward` 里的 `targets.view(-1)` 才不报错。拿上面那 10 个编号、`block_size = 4` 走一遍：若随机到起点 `i = 2`，`x = data[2:6] = [56, 57, 58, 1]`（`rst `），`y = data[3:7] = [57, 58, 1, 15]`（`st C`）。`x` 的第 0 位 `r` 要预测 `y` 的第 0 位 `s`，第 3 位空格要预测 `C`——一个窗口里 4 个位置各有一个目标。没有 epoch 的概念：每步随机采样，训练多久由 `max_iters` 决定——预训练的数据量大到看不完一遍时，这是常见做法。
+2. [随机窗口](#gb-window)：从数据里随机挑 `batch_size` 个起点，每个起点切 `block_size` 个 token 当 `x`，**右移一位**再切当 `y`——[《一个 token 的旅程》第二章「Teacher forcing」](/transformer-token-journey-training-and-inference.html#2-teacher-forcing一次前向t-个训练信号)的"目标 = 输入右移一位"就在这两行。`torch.stack` 把 `batch_size` 个一维张量叠成 `[B, T]`，叠出来的是**连续**张量，所以[《手搓 GPT（上）》的「forward」一章](/nanogpt-model-py-line-by-line.html#七forward训练分支与推理分支)里的 `targets.view(-1)` 才不报错。拿第二章那 10 个编号、`block_size = 4` 走一遍：若随机到起点 `i = 2`，`x = data[2:6] = [56, 57, 58, 1]`（`rst `），`y = data[3:7] = [57, 58, 1, 15]`（`st C`）。`x` 的第 0 位 `r` 要预测 `y` 的第 0 位 `s`，第 3 位空格要预测 `C`——一个窗口里 4 个位置各有一个目标。没有 epoch 的概念：每步随机采样，训练多久由 `max_iters` 决定——预训练的数据量大到看不完一遍时，这是常见做法。
 3. [pinned memory + `non_blocking`](#gb-pin)：CUDA 上先把 `x`、`y` 放进页锁定内存再异步搬到 GPU，让下一批数据的传输和当前批的计算重叠（[《PyTorch 深度实践》的《nn.Module 与训练系统》第九章「CPU-GPU 数据传输与训练流水线」](/pytorch-module-and-training-system.html#九cpu-gpu-数据传输与训练流水线)）。第九章会看到它怎么被用上。
+
+> [!NOTE] Java 经验参照：memmap 与 MappedByteBuffer
+> `np.memmap` 相当于 `FileChannel.map()` 得到的 `MappedByteBuffer`：文件内容按需由操作系统换页进来，不占 Java 堆（这里是不占 Python 进程自己分配的内存）。两点不同：单个 `MappedByteBuffer` 最多映射 2 GB，17 GB 的文件要自己分段，`np.memmap` 一个数组就能盖住；切片后的 `.astype(np.int64)` 会把这一小段**复制**成普通数组，所以 `x`、`y` 不再依赖映射，下一次调用重新映射也不影响它们。
 
 ## 六、模型初始化：三种来源
 
@@ -293,15 +356,18 @@ if block_size < model.config.block_size:
 model.to(device)
 ```
 
-[词表大小从数据来](#mi-meta)：`prepare.py` 写的 `meta.pkl` 里有 `vocab_size = 65`，脚本读到就用它——模型的 `wte` 和 `lm_head` 大小由数据决定，不是配置项。没有 `meta.pkl`（OpenWebText 用 GPT-2 的 BPE）就用上一篇讲的 50304。
+[词表大小从数据来](#mi-meta)：`prepare.py` 写的 `meta.pkl` 里有 `vocab_size = 65`，脚本读到就用它——模型的 `wte` 和 `lm_head` 大小由数据决定，不是配置项。没有 `meta.pkl`（OpenWebText 用 GPT-2 的 BPE）就用 50304（[《手搓 GPT（上）》的「GPTConfig」一章](/nanogpt-model-py-line-by-line.html#五gptconfig为什么-vocab_size-是-50304)）。
 
 三种来源对应 [`init_from`](#cfg-init) 的三个取值、三种场景：
 
 - [`scratch`](#mi-scratch)：从零训（预训练）。
 - [`resume`](#mi-resume)：断点续训——从 `ckpt.pt` 里读回模型参数、`iter_num`、`best_val_loss`，结构超参**强制**用 checkpoint 里的（层数对不上就加载不了），第七章再读回优化器状态。那个 `_orig_mod.` 前缀是 `torch.compile` 包装模型后 `state_dict` 键名多出来的（[《PyTorch 深度实践（07）：编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)），存之前没剥干净这里就剥。真实的大规模训练里 checkpoint 与恢复是一门大学问（[《大规模训练工程（08）：分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)），这 22 行是它的最小形态。
-- [`gpt2*`](#mi-gpt2)：从 OpenAI 权重出发**微调**——上一篇的 `from_pretrained`。
+- [`gpt2*`](#mi-gpt2)：从 OpenAI 权重出发**微调**，调用的是 `model.py` 里的 `GPT.from_pretrained`。
 
 [`crop_block_size`](#mi-crop)：加载的 GPT-2 上下文是 1024，想用更短的就切位置表（[《手搓 GPT（上）》第九章「from_pretrained」](/nanogpt-model-py-line-by-line.html#九from_pretrained把-openai-的权重搬进来)）。最后 `model.to(device)` 把参数搬到 GPU。
+
+> [!NOTE] Java 经验参照：checkpoint 不是对象序列化
+> Java 的 `ObjectOutputStream` 把对象连同类名一起写出，读回来就是那个对象。`ckpt.pt` 里没有 `GPT` 对象，只有一个字典：参数名到张量的有序 Map（`state_dict`）加几个数字和超参。恢复时必须先用代码按 `model_args` 把模型构造出来，再按名字把张量填进去——所以层数等六项结构超参对不上就加载失败，而 `model.py` 里只改 `forward` 的实现不影响已有的 checkpoint。
 
 ## 七、四层包装：GradScaler、优化器、compile、DDP
 
@@ -416,7 +482,7 @@ while True:
         param_group['lr'] = lr
 
     # evaluate the loss on train/val sets and write checkpoints
-    # !ref loop-eval +14
+    # !ref loop-eval +15
     if iter_num % eval_interval == 0 and master_process:
         losses = estimate_loss()
         print(f"step {iter_num}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
@@ -498,7 +564,7 @@ if ddp:
 
 1. [取第一个 batch](#loop-first)，之后每次迭代内部预取下一个（第 5 步）。`raw_model` 是剥掉 DDP 包装的原始模型——`estimate_mfu`、`state_dict` 都要在它上面调。
 2. [设学习率](#loop-lr)：每步算 `get_lr(iter_num)`，写进每个参数组——[《一个 token 的旅程》第四章「AdamW 走一步」](/transformer-token-journey-training-and-inference.html#四更新adamw-走一步)里的 $$\eta$$ 就是它。
-3. [评估与 checkpoint](#loop-eval)：每 `eval_interval` 步在 rank 0 上跑 `estimate_loss`；验证 loss 创新低（或 `always_save_checkpoint`）就存一份 checkpoint——**模型 + 优化器状态 + 结构超参 + 步数 + 配置**五样，缺一样都续不了训。第六章的 `resume` 读的就是这个字典。
+3. [评估与 checkpoint](#loop-eval)：每 `eval_interval` 步在 rank 0 上跑 `estimate_loss`；验证 loss 创新低（或 `always_save_checkpoint`）就存一份 checkpoint（第 0 步只评估不存）——**模型、优化器状态、结构超参、步数、当时的最低验证 loss、配置**六样。续训要读回前五样；`config` 是留作记录的配置快照。第六章的 `resume` 读的就是这个字典。
 4. [梯度累积](#loop-accum)：想要每步 49 万 token 但显存放不下那么大的 batch，就分 `gradient_accumulation_steps` 个 micro-batch，每个[前向 + 反向](#loop-fwd)但**不更新**，梯度在 `.grad` 里累加（`.grad` 默认累加而不是覆盖，正是为此），最后一起 `step`。[loss 除以累积步数](#loop-fwd)让累加后的梯度等于大 batch 的平均梯度。`with ctx` 是第四章的 autocast。
 5. [预取](#loop-prefetch)：前向刚提交给 GPU（异步，[《PyTorch 深度实践（08）：性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)），CPU 立刻去取下一个 batch——两件事重叠。第五章的 pinned memory 在这里派上用场。
 6. [DDP 的小优化](#loop-sync)：默认 DDP 每次 `backward` 都 all-reduce 梯度；累积 40 个 micro-batch 就通信 40 次，浪费。只在**最后一个** micro-step 同步——官方写法是 `model.no_sync()` 上下文，作者直接改那个内部标志。
@@ -541,7 +607,7 @@ real 7m34s
 
 读这段日志：
 
-- **step 0 的 4.17 ≈ $$\ln 65 = 4.17$$**——第二篇说的"随机初始化在词表上均匀乱猜"，65 个字符。
+- **step 0 的 4.17 ≈ $$\ln 65 = 4.17$$**——[《一个 token 的旅程》的「形状从头到尾」一节](/transformer-token-journey-training-and-inference.html#1-形状从头到尾)说的"随机初始化在词表上均匀乱猜"，这里词表是 65 个字符。
 - **2000 步后 val loss 1.66**：每个字符平均 $$e^{1.66} \approx 5.3$$ 个候选里犹豫（困惑度 PPL = $$e^{\text{loss}}$$，[《工具箱（03）》](/pytorch-in-use-five-objects-and-a-training-loop.html)讲过）；从 65 到 5.3，它学到了英语拼写和莎士比亚的格式。
 - **train 与 val 从 step 1000 起拉开**（1.90 / 1.95 → 1.50 / 1.66）：1 MB 数据、0.8M 参数，开始过拟合；再训下去 val 会停在 1.6 左右而 train 继续降——《[LLM 时代的经典机器学习（01）：什么是学习——划分、泛化、过拟合与偏差-方差](/what-is-learning-splits-generalization-and-bias-variance.html)》的曲线。真实预训练数据远大于参数，几乎不会过拟合。
 - **MFU 0.2%**：命令没有改 `gradient_accumulation_steps`，它仍是默认的 40，所以每次迭代是 40 个 micro-batch，每个 $$12 \times 64 = 768$$ 个 token，共 30,720 个 token。按[《手搓 GPT（上）》第十章的公式](/nanogpt-model-py-line-by-line.html#2-mfu用了硬件几成算力)：$$N = 0.80$$M，每 token $$6N + 12LHQT = 4.78\text{M} + 0.39\text{M} = 5.17$$M FLOPs，一次迭代 $$5.17\text{M} \times 30{,}720 = 1.6 \times 10^{11}$$ FLOPs；日志里那一步用了 0.365 s，每秒 $$4.4 \times 10^{11}$$ FLOPs，除以 A100 的 312 TFLOP/s 是 0.14%（日志打印的是指数平滑后的 0.20%）。分母按 A100 算，在 MPS 上本来就偏低；但更主要的是 768 个 token 的 micro-batch 太小，每个 kernel 的计算量很少，时间大部分花在 kernel 启动上——[《PyTorch 深度实践（08）：性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里的 launch-bound。这个配置是为了几分钟看到结果，不是为了效率。
@@ -594,12 +660,12 @@ nanoGPT 是完整的：数据、模型、训练、续训、多卡、混合精度
 | 数据 | 1 MB 文本，`prepare.py` 一次编码 | 15T token，抓取 / 去重 / 过滤 / 配比是一门工程 | [《预训练（04）：预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
 | 分词 | 65 个字符 | BPE，词表 128K | [《预训练（02）》](/tokenizer-vocabulary-and-token-efficiency.html) |
 | 结构 | GPT-2：LayerNorm、位置表、GELU、MHA | RMSNorm、RoPE、SwiGLU、GQA、MoE、MTP | [《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)系列 |
-| 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | Infra 大规模训练系列 |
+| 并行 | DDP：每卡一份完整模型 | 模型放不进一张卡：张量 / 流水 / 序列 / 专家并行，ZeRO | [《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)系列 |
 | 精度 | bf16 autocast | bf16 主流，FP8 训练开始出现 | [《现代 LLM 结构（10）》](/floating-point-formats-and-mixed-precision.html) |
 | 稳定性 | 梯度裁剪 | loss spike 的诊断与恢复、z-loss、QK-norm | [《预训练（05）：训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
 | 容错 | `resume` 从单个 ckpt.pt | 万卡训练每几小时坏一张卡：分片 checkpoint、自动重启 | [《大规模训练工程（08）》](/distributed-checkpoint-format-async-save-and-resharding.html)、[《大规模训练工程（09）：容错与弹性》](/fault-tolerance-and-elastic-training.html) |
 | 配方 | 默认值抄 GPT-3 | 用小模型消融 + scaling law 外推 | [《预训练（03）：Scaling law》](/scaling-laws-and-compute-optimal-training.html)、[《预训练（05）：训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
-| 之后 | 生成 | 后训练：SFT、RLHF / RLVR | L5 后训练系列 |
+| 之后 | 生成 | 后训练：SFT、RLHF / RLVR | [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)系列 |
 
 Table: nanoGPT 有的与真实预训练多出来的
 
@@ -608,10 +674,10 @@ Table: nanoGPT 有的与真实预训练多出来的
 ## 十三、本文小结
 
 - `prepare.py`：文本 → 字符级整数 → `uint16` 的 `train.bin` / `val.bin`（9 : 1）+ `meta.pkl`；模型的词表大小由数据决定。
-- `train.py` 的配置是 72 个全局变量，默认值就是 GPT-2 small 的复现配方；`configurator.py` 用 `exec` 让每个变量都能 `--name=value` 覆盖。
+- `train.py` 的配置是 33 个全局变量，默认值就是 GPT-2 small 的复现配方；`configurator.py` 用 `exec` 让每个变量都能 `--name=value` 覆盖。
 - `get_batch` 用 `memmap` + 随机窗口 + `torch.stack` 造 `[B, T]` 的 `x` 与右移一位的 `y`，CUDA 上 pinned memory 异步搬运；没有 epoch。
 - 模型三种来源：从零（词表大小从 `meta.pkl`）、续训（读回参数 / 优化器 / 步数，结构超参强制一致）、GPT-2 权重；然后 GradScaler（仅 fp16）、优化器、`torch.compile`、DDP 四层包装。
-- 训练循环每步：设学习率 → 到点评估并存 checkpoint（五样） → 梯度累积 $$k$$ 个 micro-batch（loss ÷ $$k$$，预取下一批，DDP 只在最后一步同步）→ unscale + 裁剪 → step / update → zero_grad → 日志与 MFU。
+- 训练循环每步：设学习率 → 到点评估并存 checkpoint（六样） → 梯度累积 $$k$$ 个 micro-batch（loss ÷ $$k$$，预取下一批，DDP 只在最后一步同步）→ unscale + 裁剪 → step / update → zero_grad → 日志与 MFU。
 - 实跑：0.8M 参数、2000 步、7 分钟，val loss 4.17（$$= \ln 65$$）→ 1.66，输出有莎士比亚的格式；train / val 从 1000 步起拉开——过拟合的开始。
 - 改层数：参数量与每步耗时随层数线性增长，loss 收益递减——这三条是后面结构篇与 scaling law 的起点。
 
@@ -626,7 +692,7 @@ Table: nanoGPT 有的与真实预训练多出来的
    $$40 \times 12 \times 1024 = 491{,}520$$。8 卡时每卡 $$40 / 8 = 5$$ 次累积，总 token 数不变——脚本按卡数分摊累积步数正是为了让"配方"与卡数无关。见[第四章](#四初始化与-io)。
    </details>
 
-2. `get_batch` 里 `y` 为什么是 `data[i+1 : i+1+block_size]`？用 `torch.stack` 而不是切片拼接对上一篇的 `forward` 有什么意义？
+2. `get_batch` 里 `y` 为什么是 `data[i+1 : i+1+block_size]`？用 `torch.stack` 而不是切片拼接对 `model.py` 的 `forward` 有什么意义？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -640,11 +706,11 @@ Table: nanoGPT 有的与真实预训练多出来的
    `.grad` 在 $$k$$ 个 micro-batch 上累加；除以 $$k$$ 后累加结果等于大 batch 的**平均**梯度。不除，梯度是 $$k$$ 倍，等价于学习率放大 $$k$$ 倍，配方就不对了。见[第九章第 4 点](#九训练循环逐行)。
    </details>
 
-4. checkpoint 里存了哪五样？少了 `optimizer` 会怎样？
+4. checkpoint 里存了哪六样？少了 `optimizer` 会怎样？
 
    <details markdown="1"><summary>答案</summary>
 
-   `model`（参数）、`optimizer`（Adam 的两个动量）、`model_args`（结构超参）、`iter_num`、`config`（外加 `best_val_loss`）。没有优化器状态也能续训，但动量从零重新估计，恢复后前几百步的更新方向会抖。见[第九章第 3 点](#九训练循环逐行)、[第七章](#七四层包装gradscaler优化器compileddp)。
+   `model`（参数）、`optimizer`（Adam 的两个动量）、`model_args`（结构超参）、`iter_num`、`best_val_loss`、`config`。没有优化器状态也能续训，但动量从零重新估计，恢复后前几百步的更新方向会抖。见[第九章第 3 点](#九训练循环逐行)、[第七章](#七四层包装gradscaler优化器compileddp)。
    </details>
 
 5. 实跑里 step 0 的 loss 为什么恰好是 4.17？如果换成 GPT-2 的 BPE 分词，这个数会是多少？
@@ -677,6 +743,6 @@ Table: nanoGPT 有的与真实预训练多出来的
 
 ## 下一篇
 
-到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[下一篇《从 GPT-2 到今天的 LLM——结构演进的路线图》](/llm-architecture-evolution-roadmap-from-gpt2.html)先把这个 GPT-2 看成一组可替换的槽位，按时间线和四条演进线排出 2019–2025 年的主要改动，再从上一篇末尾那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
+到这里，一个 GPT-2 结构的模型从零到能续写走完了。但今天的 Llama、Qwen、DeepSeek 已经不是 GPT-2 的样子。[《现代 LLM 结构：从 GPT-2 到今天的演进》的总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)先把这个 GPT-2 看成一组可替换的槽位，按时间线和四条演进线排出 2019–2025 年的主要改动；随后的[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)再从[《手搓 GPT（上）》的「名字对照」一章](/nanogpt-model-py-line-by-line.html#十一名字对照nanogpthuggingface-gpt-2llama)列出的那五处改动出发——RMSNorm、RoPE、SwiGLU、GQA、去 bias——讲每一处为什么改、改了之后参数怎么数，把 `config.json` 里的六个数字算成 8.03B。
 
 [^q0]: **数据**：`prepare.py` 把字符映射成 0–64 的整数存成 `uint16` 的 `train.bin`；`get_batch` 随机切 `batch_size` 个长 `block_size` 的窗口，目标是窗口右移一位。**模型**：按 `meta.pkl` 的词表大小建 `GPT`（或从 checkpoint / GPT-2 权重恢复），包上 GradScaler、优化器、`compile`、DDP。**循环**：每步设学习率（warmup + cosine）→ 到点评估并存 checkpoint → $$k$$ 个 micro-batch 各前向 + 反向累积梯度（loss ÷ $$k$$，同时预取下一批）→ 裁剪 → step → zero_grad。**改层数**：参数量和每步耗时随层数线性增长（层是串行的），loss 的收益递减。详见[第五](#五get_batch穷人的-dataloader)、[九](#九训练循环逐行)、[十一章](#十一改结构2-层4-层8-层)。
