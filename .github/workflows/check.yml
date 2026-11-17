@@ -8,9 +8,9 @@ name: check
 on:
   push:
     branches: [master, main]
-    paths: ['_posts/**', '_layouts/**', '_includes/**', '_plugins/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', '.github/workflows/check.yml']
+    paths: ['_posts/**', '_layouts/**', '_includes/**', '_plugins/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', 'tools/*.test.rb', 'tools/run-tests.sh', '.github/workflows/check.yml']
   pull_request:
-    paths: ['_posts/**', '_layouts/**', '_includes/**', '_plugins/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', '.github/workflows/check.yml']
+    paths: ['_posts/**', '_layouts/**', '_includes/**', '_plugins/**', '_data/**', 'img/**', 'js/**', 'css/**', '_config.yml', 'tools/check-render.cjs', 'tools/*.test.rb', 'tools/run-tests.sh', '.github/workflows/check.yml']
   workflow_dispatch:
     inputs:
       slugs:
@@ -37,6 +37,9 @@ jobs:
 
       - name: Install WebP tools
         run: sudo apt-get install -y --no-install-recommends webp
+
+      - name: Plugin unit tests
+        run: tools/run-tests.sh
 
       - name: Build
         run: ruby -v && bundle exec jekyll build --future --strict_front_matter
