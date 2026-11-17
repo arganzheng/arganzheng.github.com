@@ -38,12 +38,12 @@ flowchart TB
 | 讲 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
 | 第一讲：语言机制与运行时原理（[上](/python-execution-model-scopes-imports-and-exceptions.html) · [下](/python-object-model-protocols-decorators-and-generators.html)） | 一段代码从被加载、创建对象、执行任务到释放资源，运行时做了什么？ | 每行"简单"语法背后是一个可替换的协议：`import` 是运行时动作，`obj.attr` 是一个固定算法，`model(x)` 查类型上的 `__call__`，装饰器在定义时执行一次，生成器是挂起的帧 | 属性查找：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`<br/>`sys.path[0]` 由启动方式决定<br/>`sys.modules` 每进程一份<br/>`super()` 是 MRO 里的下一个<br/>`break` 不等于 `close()` |
-| 第二讲：类型系统与数据契约设计（[上](/python-type-expression-and-the-typing-toolbox.html) · [中](/python-type-information-distribution-and-consumption.html) · [下](/python-data-contract-design-dataclass-pydantic-and-settings.html)） | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器只把注解存进 `__annotations__`<br/>`@dataclass` 读注解只当字段清单、生成 `__init__` 等方法（CPython 标准库实现里用 `exec`）<br/>Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部避免重复校验；`Protocol` 3.8、<code>X &#124; Y</code> 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
+| 第二讲：类型系统与数据契约设计（[上](/python-type-expression-and-the-typing-toolbox.html) · [中](/python-type-information-distribution-and-consumption.html) · [下](/python-data-contract-design-dataclass-pydantic-and-settings.html)） | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器保存注解信息（3.14 默认延迟求值），不按注解检查值<br/>`@dataclass` 从字段声明生成方法，不自动校验字段值、生成 `__init__` 等方法（CPython 标准库实现里用 `exec`）<br/>Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部避免重复校验；`Protocol` 3.8、<code>X &#124; Y</code> 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
 | [第三讲：并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html) | 瓶颈在哪？任务怎么协作？下游跟不上时系统怎么稳？ | 按瓶颈选模型不按 API 流行度：线程管阻塞 I/O，进程绕开 GIL，asyncio 管大量 I/O 协作；背压、超时、取消、批处理是过载时的稳定手段 | 线程池默认 $$\min(32, \text{cpu} + 4)$$<br/>OS 线程约 8 MB 栈、协程几 KB<br/>`fork` 只复制调用线程，3.14 起 Linux 默认 `forkserver`<br/>`/dev/shm` 默认 64 MB<br/>队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`<br/>FastAPI `def` 端点线程池 40 |
-| [第四讲：Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html) | 运行时怎么访问和改造程序结构？怎么用它做插件系统与路由，又不失控？ | 反射观察、元编程改造、动态加载导入<br/>插件化 = 注册表 + 发现 + 契约 + 边界<br/>动态机制只在启动时"选择"，热路径必须静态 | 侵入性递增：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类<br/>`getattr` ≈ 23 ns（2.3×）、`inspect.signature` ≈ 3700 ns（约 370×）<br/>三种发现机制<br/>用户输入能选名字、不能造名字 |
+| [第四讲：Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html) | 运行时怎么访问和改造程序结构？怎么用它做插件系统与路由，又不失控？ | 反射观察、元编程改造、动态加载导入<br/>插件化 = 注册表 + 发现 + 契约 + 边界<br/>动态机制只在启动时"选择"，热路径避免重复反射与校验 | 侵入性递增：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类<br/>`getattr` ≈ 23 ns（2.3×）、`inspect.signature` ≈ 3700 ns（约 370×）<br/>三种发现机制<br/>用户输入能选名字、不能造名字 |
 | [第五讲：内存管理与优化](/python-memory-management-and-optimization.html) | 哪些内存归 Python、哪些在原生缓冲区或设备上？哪些操作复制或延长生命周期？增长怎么定位？ | 内存问题多数不是"泄漏"而是"被意外长期持有"；Python 归还内存是分层的，对象释放不等于 RSS 下降 | CPython 引用计数归零立即释放，循环靠分代 GC，3.12 及之前阈值 `(700, 10, 10)`（3.13 起默认值与分代方式有变）<br/>pymalloc 管 ≤ 512 字节，3.10+ 64 位 arena 1 MiB / pool 16 KiB（更早 256 KiB / 4 KiB）<br/>小整数 −5 到 256 缓存<br/>`memory_reserved` ≥ `memory_allocated`<br/>先分三类再找源 |
 | [第六讲：单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html) | 怎么验证行为符合预期？异步时序、Mock、动态调用、内存、卡死各用哪个工具？ | 工具不难，难在按症状选工具<br/>日志要分调试期与生产期<br/>`raise ... from` 与带上下文的日志是所有工具的前提 | `Mock` 不能 `await`、要用 `AsyncMock`<br/>替换"被测模块里实际用的名字"<br/>logger 与 handler 两道级别关卡<br/>库只建 logger 不配输出<br/>`python -X faulthandler`、`PYTHONTRACEMALLOC=25`、`pytest -W error::RuntimeWarning` |
-| [第七讲：项目工程化与生产交付](/python-engineering-and-production-delivery.html) | 依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？ | Python 把 Java 里由框架和编译器强制的事交还给你：锁文件进 CI、torch 交给固定 tag 的基础镜像、静态检查是编译器的替代品 | `pip install torch` 2 GB+、环境 5–8 GB、镜像 8–12 GB<br/>装 torch 用 `--index-url` 不用 `--extra-index-url`<br/>CUDA 三层、同大版本向前兼容<br/>GPU 服务每 GPU 一个 worker（4 × 14 GB = 56 GB）<br/>CI 用 `uv sync --locked`，镜像里 `--frozen`<br/>tag 不能是 `latest` |
+| [第七讲：项目工程化与生产交付](/python-engineering-and-production-delivery.html) | 依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？ | Python 把 Java 里由框架和编译器强制的事交还给你：锁文件进 CI、torch 由项目锁或受控基础镜像管理、静态检查是编译器的替代品 | `pip install torch` 2 GB+、环境 5–8 GB、镜像 8–12 GB<br/>装 torch 用 `--index-url` 不用 `--extra-index-url`<br/>CUDA 三层、同大版本向前兼容<br/>GPU 服务每 GPU 一个 worker（4 × 14 GB = 56 GB）<br/>CI 用 `uv sync --locked`，镜像里 `--frozen`<br/>tag 不能是 `latest` |
 
 Table: 七讲的核心问题、结论与必记判据
 
@@ -121,7 +121,7 @@ Table: 本文的章节安排
 
 **核心问题**：Python 在运行时如何访问和操作已有的程序结构？如何在程序定义、创建或执行过程中介入？这些能力如何应用到 AI-Infra 的插件系统与路由分发，又怎么不把系统弄成"什么都能做、什么都看不懂"？
 
-**结论**：先纠正一个层次混淆——反射（`getattr`、`inspect`、`__dict__`：观察）、元编程（装饰器、描述符、`__init_subclass__`、元类：改造）、动态加载（`importlib`、入口点：导入）是语言机制，插件化是叠加导入系统与注册发现能力构建出的架构模式。AI-Infra 需要它们，是因为核心逻辑不能写成一串 `if backend == "cuda"`，必须建立一层"名字 → 实现"的映射，围绕它有四个语言不替你回答的问题：名字从哪来、映射到什么、实现何时进内存、映射到的可信吗。插件系统的构建顺序是注册表 → 发现机制 → 契约校验 → 正式边界（身份、接口、配置、生命周期、能力声明）→ 版本与热加载。注册代码必须被执行，而"被执行"等价于"所属模块被导入过"，所以发现机制回答的是"谁负责导入插件模块"：显式导入（可控、可审计）、包扫描（`pkgutil.iter_modules`，顺序不确定、失败面大）、入口点（`importlib.metadata.entry_points`，第三方 pip 包接入，vLLM 的 platform plugin 用它）——默认显式，多到难维护再扫描，要让别人扩展才上入口点。路由分发与插件化骨架完全一样，区别只在 key 的空间（插件名 vs `(method, path)`）和热度，所以要把 `inspect.signature()` 压缩到启动时的"路由编译期"。全文最核心的一条原则：**初始化可以动态，热路径必须静态；系统边界可以动态，核心算法必须显式**。代价分三类——性能、可维护性（栈里三个都叫 `wrapper` 的帧、注册表返回 `Any` 让 pyright 抓不到拼错的方法名、元类注入的属性 IDE 补全为空）、安全（任意导入、任意属性访问、`eval`）。
+**结论**：先纠正一个层次混淆——反射（`getattr`、`inspect`、`__dict__`：观察）、元编程（装饰器、描述符、`__init_subclass__`、元类：改造）、动态加载（`importlib`、入口点：导入）是语言机制，插件化是叠加导入系统与注册发现能力构建出的架构模式。AI-Infra 需要它们，是因为核心逻辑不能写成一串 `if backend == "cuda"`，必须建立一层"名字 → 实现"的映射，围绕它有四个语言不替你回答的问题：名字从哪来、映射到什么、实现何时进内存、映射到的可信吗。插件系统的构建顺序是注册表 → 发现机制 → 契约校验 → 正式边界（身份、接口、配置、生命周期、能力声明）→ 版本与热加载。注册代码必须被执行，而"被执行"等价于"所属模块被导入过"，所以发现机制回答的是"谁负责导入插件模块"：显式导入（可控、可审计）、包扫描（`pkgutil.iter_modules`，顺序不确定、失败面大）、入口点（`importlib.metadata.entry_points`，第三方 pip 包接入，vLLM 的 platform plugin 用它）——默认显式，多到难维护再扫描，要让别人扩展才上入口点。路由分发与插件化骨架完全一样，区别只在 key 的空间（插件名 vs `(method, path)`）和热度，所以要把 `inspect.signature()` 压缩到启动时的"路由编译期"。全文最核心的一条原则：**初始化可以动态，热路径避免重复反射与校验；系统边界可以动态，核心算法必须显式**。代价分三类——性能、可维护性（栈里三个都叫 `wrapper` 的帧、注册表返回 `Any` 让 pyright 抓不到拼错的方法名、元类注入的属性 IDE 补全为空）、安全（任意导入、任意属性访问、`eval`）。
 
 **必记**：
 
@@ -172,12 +172,12 @@ Table: 本文的章节安排
 
 **核心问题**：怎么把一个 AI-Infra Python 项目变成可以复现、可以交付的东西——依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？
 
-**结论**：Java 工程师在这里落差最大：`pyproject.toml` 本身不含依赖解析器（pip / uv / Poetry 要自选）；没有 classpath，`sys.path` 默认含全局 `site-packages`，同一解释器下一个包只能一个版本，所以每个项目一个虚拟环境——激活只是改 `PATH`，不激活直接 `.venv/bin/python` 在 CI 与 Dockerfile 里更可靠；虚拟环境不隔离解释器版本、glibc、CUDA driver、系统工具。抽象依赖（`pyproject.toml`，表达兼容范围，人手写）与锁定依赖（`uv.lock`，记录这次装的每个版本与 hash，工具生成不手改）职责不同、不能互相替代；`requirements.txt` 三重不可复现（范围浮动、传递依赖无约束、无 hash）。AI-Infra 特有的坑来自 torch 不是纯 Python 包：`+cu121` 是 PEP 440 本地版本标识，PyPI 不接受，必须走 PyTorch 自己的索引且用 `--index-url` 而非 `--extra-index-url`（后者在多个索引里选版本最高的，会装到别的变体，也是 dependency confusion 的入口）；CUDA 兼容矩阵有三层——driver（内核态、全机唯一、`nvidia-smi` 显示的是它能支持的最高版本）、runtime / toolkit、torch wheel 链接的 runtime——同大版本内次要版本向前兼容；同一份抽象依赖在 macOS 与 Linux + GPU 上解析结果不同，锁文件跨平台失效，最省事的做法是在与生产同构的容器里锁一个平台。最有价值的一条建议：**把 torch 与 CUDA 交给固定 tag 的基础镜像**，项目依赖里不含 torch——同时解决体积、构建缓存、跨平台锁文件三个问题，代价是可复现性的责任从锁文件转移到镜像 tag，所以 tag 绝不能是 `latest`。质量把关靠 Ruff（Rust 实现，快 10–100 倍，`B008`、`B023` 抓 Python 特有陷阱）+ mypy + pre-commit 进 CI 门禁——Python 没有编译器把关，这道门得自己装。交付单位是容器镜像：先拷依赖声明装依赖再拷代码，`uv sync --frozen --no-install-project --no-dev`；容器里仍用 venv 是为了多阶段构建时 `COPY --from` 一次拷走；模型权重不进镜像；`uvicorn` 的每个 worker 是独立进程、各有 GIL 与事件循环、各自加载一份模型，GPU 推理服务每个 GPU 一个进程，进程内靠单事件循环 + continuous batching 提吞吐；健康检查分 liveness 与 readiness。
+**结论**：依赖声明、锁文件、实际环境与部署制品是四层不同的东西。`pyproject.toml` 表达兼容范围，`uv.lock` 记录解析分支与制品哈希；CI 用 `uv sync --locked` 拒绝过期锁，再运行 Ruff、mypy 和 pytest。虚拟环境隔离 Python 包，不隔离系统库与 GPU driver；CUDA 兼容性要查最低驱动要求、torch 与扩展的编译组合，不能只比两个版本号。uv 的通用锁可以覆盖多个平台，但项目仍须选定支持范围和 CUDA 来源。torch 可以由项目锁定，也可以由受控基础镜像提供：后者必须保证解释器与包可见性，固定镜像 digest，并在目标 GPU 上验证，不能只把 torch 从依赖里删掉。构建时先拷依赖声明和锁，再拷代码，以保留依赖层缓存；交付前检查 wheel，启动后区分 liveness 与 readiness。worker 数按模型所有权、显存和引擎架构测量，单进程配批处理是常见起点，不是所有 GPU 服务的唯一部署方式。
 
 **必记**：
 
 - `pip install torch` 在 Linux 上装的是捆绑 CUDA 运行时的默认变体（2 GB+，连带 `nvidia-*` 库），一个只写了 `torch` 的项目环境 5–8 GB；镜像 8–12 GB 里 torch + CUDA 库占 5–7 GB，`python:3.11-slim` 只约 150 MB。十个服务共用同一个基础镜像那 7 GB 只存一份，各自 `pip install torch` 存十份。
-- `torch==2.4.0` 这个约束可以被 `2.4.0+cu121` 满足，但锁文件记下 `+cu121` 后只对同样的 CUDA 目标有效。uv 用 `[[tool.uv.index]]` 的 `explicit = true` + `[tool.uv.sources]` 让只有 torch 走 PyTorch 索引。
+- `torch==2.4.0` 这个约束可以被 `2.4.0+cu121` 满足，但只记录这一变体不会自动兼容其他 CUDA 目标；通用锁可以显式记录不同平台与来源分支。uv 用 `[[tool.uv.index]]` 的 `explicit = true` + `[tool.uv.sources]` 让只有 torch 走 PyTorch 索引。
 - 报错对应的层：`CUDA driver version is insufficient` 是 driver 太老；`is_available() == False` 但有 GPU 是装了 `+cpu` 或容器没挂 GPU；`undefined symbol: ...cudnn...` 是 cuDNN 版本不一致；`no kernel image is available` 是 GPU 架构不在 wheel 编译目标里。
 - 版本上界：应用用 `>=` 就够（可复现由锁文件保证）；库默认不加上界，已知不兼容用 `!=` 排除具体版本。`uv sync --locked` 是 CI 的形式——锁文件与 `pyproject.toml` 不一致就直接失败；`--frozen` 是跳过检查直接装，用在锁已核过的镜像构建里。
 - worker 数：纯 I/O 转发 2–4 个靠 asyncio 撑并发；Python 层有 CPU 工作约等于核数；本地 GPU 推理 = 1（或按 GPU 数），4 个 worker × 14 GB 模型 = 56 GB 显存直接 OOM。
@@ -206,15 +206,15 @@ flowchart TB
     IN -. "非法输入：422" .-> FAIL
 ```
 
-第二讲给出原则：外部数据不可信，在系统边界用 Pydantic 校验一次，进门后用不自动校验字段类型的 `@dataclass` 传递，靠 mypy 做静态保障；`BaseSettings` 让配置错误在 `Settings()` 那一瞬间暴露，而不是加载了几十 GB 权重之后。第四讲把同一条边界画在时间轴上：初始化阶段可以动态（导入、`inspect` 签名、插件校验、路由预编译），热路径必须静态（缓存好的字典、已绑定的方法引用）；插件契约在启动阶段验证，`REQUIRED` 插件失败就拒绝启动。
+第二讲给出原则：外部数据不可信，在系统边界用 Pydantic 校验一次，进门后用不自动校验字段类型的 `@dataclass` 传递，靠 mypy 做静态保障；`BaseSettings` 让配置错误在 `Settings()` 那一瞬间暴露，而不是加载了几十 GB 权重之后。第四讲把同一条边界画在时间轴上：初始化阶段可以动态（导入、`inspect` 签名、插件校验、路由预编译），热路径避免重复反射与校验（缓存好的字典、已绑定的方法引用）；插件契约在启动阶段验证，`REQUIRED` 插件失败就拒绝启动。
 
-第五讲从内存侧说同一件事：在明确的边界完成必要的转换（`np.array`、`.tolist()`），不在链路中反复改变数据表示；请求对象只存活在请求范围内。第七讲把边界推到进程外：`ruff check` + `mypy src/` + `pytest` + `uv lock --check` 进 CI 门禁，任何一项失败就不产出制品——Python 没有编译器把关，这道门是自己装的；readiness 探针让模型没加载完时流量不进来。四篇说的是一条纪律：把不确定性挡在入口，让运行期只做确定的事。
+第五讲从内存侧说同一件事：在明确的边界完成必要的转换（`np.array`、`.tolist()`），不在链路中反复改变数据表示；请求对象只存活在请求范围内。第七讲把边界推到进程外：`ruff check` + `mypy src/` + `pytest` + `uv lock --check` 进 CI 门禁，任何一项失败就不产出制品——Python 没有按注解强制检查类型的编译门禁，这道门是自己装的；readiness 探针让模型没加载完时流量不进来。四篇说的是一条纪律：把不确定性挡在入口，让运行期只做确定的事。
 
 ### 3. GIL 与执行模型决定部署形态
 
-第三讲的 GIL 是根：多线程不能让纯 Python CPU 代码并行，绕开它的唯一手段是多进程，代价是隔离——数据要 pickle 或走共享内存、上下文不传播、每个 worker 都是主进程的完整拷贝。第五讲解释了为什么"完整拷贝"比想象中更贵：Python 读一个对象也要改引用计数，`fork` 的 copy-on-write 因此失效，8 个 DataLoader worker 就是 8 份 `Dataset` 里的大字典；`shared_memory` 是让 Tensor 跨进程只传句柄的机制。
+第三讲的 GIL 是根：多线程不能让纯 Python CPU 代码并行，多进程是常见绕开方式，释放 GIL 的原生扩展和 free-threaded 构建另论，代价是隔离——数据要 pickle 或走共享内存、上下文不传播、每个 worker 有独立解释器状态，数据是否复制取决于启动方式与共享协议。第五讲解释了为什么"完整拷贝"比想象中更贵：Python 读一个对象也要改引用计数，`fork` 的 copy-on-write 因页面写入逐渐失去共享收益，DataLoader worker 的内存因此可能显著增长；`shared_memory` 是让 Tensor 跨进程只传句柄的机制。
 
-第七讲把这条线落到部署：`uvicorn --workers N` 的每个 worker 是独立进程、各有 GIL 与事件循环、各自加载一份模型进显存，所以 GPU 推理服务每个 GPU 一个进程，进程内用单事件循环 + continuous batching（第三讲第五章的批处理）提吞吐，横向扩容靠多容器各绑一块 GPU。第六讲的 `faulthandler` 是这条线的诊断工具：事件循环被同步调用阻塞、某个线程卡在锁上，`dump_traceback_later` 能把每个线程的栈打出来。
+第七讲把这条线落到部署：`uvicorn --workers N` 的每个 worker 是独立进程、各有 GIL 与事件循环、各自加载一份模型进显存，所以 常见单模型部署以每 GPU 一个模型进程为起点，进程内用单事件循环 + continuous batching（第三讲第五章的批处理）提吞吐，横向扩容靠多容器各绑一块 GPU。第六讲的 `faulthandler` 是这条线的诊断工具：事件循环被同步调用阻塞、某个线程卡在锁上，`dump_traceback_later` 能把每个线程的栈打出来。
 
 ### 4. 引用与生命周期
 
@@ -262,7 +262,7 @@ flowchart TB
 | `import` 只是声明依赖 | 它执行模块顶层代码，注册、CUDA 初始化都在这一步发生 | `import` 是运行时动作，副作用时机由导入顺序决定；顶层只做声明式的事 | [第一讲](/python-execution-model-scopes-imports-and-exceptions.html) |
 | `model.forward(x)` 与 `model(x)` 一样 | 调用语法查类型上的 `__call__`，hooks 挂在 `nn.Module.__call__` 里 | 直接调 `forward` 绕过 Module 调用路径上的 hooks；不等于禁用所有 Tensor／autograd hook | [第一讲下](/python-object-model-protocols-decorators-and-generators.html) |
 | `super()` 调父类 | 它调的是实例 MRO 中当前类之后的下一个 | 协作式多继承每一层都要调 `super()`，漏一层之后全被跳过 | [第一讲下](/python-object-model-protocols-decorators-and-generators.html) |
-| 类型注解在运行时生效 | 解释器只把注解存进 `__annotations__` | 只有 Pydantic、beartype 这类消费者主动读取时才生效 | [第二讲](/python-type-expression-and-the-typing-toolbox.html) |
+| 类型注解在运行时生效 | 解释器保存注解信息（3.14 默认延迟求值），不按注解检查值 | 只有 Pydantic、beartype 这类消费者主动读取时才生效 | [第二讲](/python-type-expression-and-the-typing-toolbox.html) |
 | `@dataclass` 会按注解校验 | 它按字段声明生成方法，不按字段类型校验值；`ClassVar`、`InitVar` 等有特殊处理 | `User(id="abc")` 静默通过；要校验用 Pydantic 或 `__post_init__` | [第二讲下](/python-data-contract-design-dataclass-pydantic-and-settings.html) |
 | 过了 mypy 就是被检查过了 | 默认不检查没标注的函数体 | `check_untyped_defs` 或 `strict` 等配置才会收紧这部分检查 | [第二讲中](/python-type-information-distribution-and-consumption.html) |
 | 多线程能加速 CPU 计算 | 默认（带 GIL）的 CPython 构建里，同一时刻只有一个线程执行字节码；3.13 起的 free-threaded 构建是另一回事 | 线程只对阻塞 I/O 与释放了 GIL 的 C 扩展有效，纯 Python CPU 用进程 | [第三讲](/python-concurrency-asynchrony-and-task-collaboration.html) |
@@ -275,7 +275,7 @@ flowchart TB
 | 在库里 `logging.basicConfig()` | 它配置 root logger，篡改了应用的全局配置 | 库只 `getLogger(__name__)`，最多加 `NullHandler`；应用在入口配一次 | [第六讲](/python-unit-testing-troubleshooting-and-debugging.html) |
 | `requirements.txt` 全写 `==` 就可复现 | 传递依赖仍浮动，且没有 hash 校验 | 锁文件带 hash，CI 用 `uv sync --locked`（`--frozen` 不做一致性检查） | [第七讲](/python-engineering-and-production-delivery.html) |
 | 装 torch 用 `--extra-index-url` | pip 在多个索引里选版本最高的，可能装到 PyPI 的默认变体 | 用 `--index-url`，或 uv 的 `explicit = true` 按包指定索引 | [第七讲](/python-engineering-and-production-delivery.html) |
-| GPU 服务多开几个 worker 提吞吐 | 每个 worker 各自加载一份模型进显存 | 每 GPU 一个进程，进程内靠 asyncio + 批处理 | [第七讲](/python-engineering-and-production-delivery.html) |
+| GPU 服务多开几个 worker 提吞吐 | 每个 worker 各自加载一份模型进显存 | 每 GPU 一个模型进程可作起点，再按引擎并行方式与显存预算调整 | [第七讲](/python-engineering-and-production-delivery.html) |
 
 Table: 常见误区与正确说法
 
@@ -377,7 +377,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二讲：边界校验一次、内部避免重复校验——`RequestContext` 用 `@dataclass`，每 token 跑 Pydantic 校验是常见性能事故；第五讲：实例数量极大、结构稳定、生命周期短的对象用 `@dataclass(slots=True)`，省掉每实例的 `__dict__`，收益取决于对象数量；第四讲：热路径必须静态，`__slots__` 同时省内存与属性访问时间，缓存绑定方法把每次属性查找降成局部变量读取。
+   第二讲：边界校验一次、内部避免重复校验——`RequestContext` 用 `@dataclass`，每 token 跑 Pydantic 校验是常见性能事故；第五讲：实例数量极大、结构稳定、生命周期短的对象用 `@dataclass(slots=True)`，省掉每实例的 `__dict__`，收益取决于对象数量；第四讲：热路径避免重复反射与校验，`__slots__` 同时省内存与属性访问时间，缓存绑定方法把每次属性查找降成局部变量读取。
 
    </details>
 
@@ -441,7 +441,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 解释器只把注解存进 `__annotations__`，提供层与消费层拆开；(2) 静态消费 mypy / pyright（默认跳过完全未标注的函数体），动态消费 `get_type_hints`（求值字符串注解、合并类的 MRO、默认剥去 `Annotated` 等包装；3.11 起不再因默认值为 `None` 自动补 `Optional`）；(3) `@dataclass` 读注解当字段清单、`exec` 生成 `__init__`、不校验；Pydantic 元类在类创建时建验证树、v2 交给 Rust 的 `pydantic-core`，校验默认发生且会转换、错误聚合；(4) 边界用 Pydantic 校验一次（请求体、YAML、`BaseSettings` 启动即失败），内部 `@dataclass` 零开销，vLLM 就是这么分的；(5) `Protocol` 与 `ABC`、`ParamSpec` 保住装饰器签名、`py.typed` 随包分发。
+   **答案要点**：(1) 解释器保存注解信息（3.14 默认延迟求值），不按注解检查值，提供层与消费层拆开；(2) 静态消费 mypy / pyright（默认跳过完全未标注的函数体），动态消费 `get_type_hints`（求值字符串注解、合并类的 MRO、默认剥去 `Annotated` 等包装；3.11 起不再因默认值为 `None` 自动补 `Optional`）；(3) `@dataclass` 读注解当字段清单、`exec` 生成 `__init__`、不校验；Pydantic 元类在类创建时建验证树、v2 交给 Rust 的 `pydantic-core`，校验默认发生且会转换、错误聚合；(4) 边界用 Pydantic 校验一次（请求体、YAML、`BaseSettings` 启动即失败），内部 `@dataclass` 零开销，vLLM 就是这么分的；(5) `Protocol` 与 `ABC`、`ParamSpec` 保住装饰器签名、`py.typed` 随包分发。
    **追问方向**：`from __future__ import annotations` 后框架为什么还能工作；`@runtime_checkable` 检查到什么程度；`TypedDict` 什么时候用；Lombok 与 `@dataclass` 的差别在哪。
    **好答案与一般答案的区别**：一般答案说"Pydantic 校验、dataclass 不校验"；好答案说出两者读注解的机制差异（装饰器 + `exec` vs 元类 + 验证树）与由此推出的放置位置。
 
@@ -461,7 +461,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 抽象依赖写 `pyproject.toml`、锁文件（`uv.lock`，带 hash）提交并在 CI `uv sync --locked`（不一致即失败；`--frozen` 跳过这项检查，留给镜像构建），两者不能互相替代；(2) torch 是几 GB 的平台相关二进制，`+cu121` 本地版本 PyPI 不接受，装它用 `--index-url` 不用 `--extra-index-url`，锁文件跨平台会失效；(3) 最有价值的一条：把 torch 与 CUDA 交给固定 tag 的基础镜像（不能 `latest`，记录 digest），项目依赖里不含 torch——同时解决体积、缓存、跨平台锁；(4) Dockerfile 按变化频率分层：基础层 → 依赖层（`--no-install-project --no-dev`）→ 代码层，权重不进镜像，`.dockerignore`，容器里仍用 venv 便于 `COPY --from`；(5) CI 门禁 `ruff check` + `ruff format --check` + `mypy src/` + `pytest` + `uv lock --check`，任一失败不产出制品——这是 Python 的"编译器"；(6) CUDA 三层兼容矩阵与四种典型报错。
+   **答案要点**：(1) 抽象依赖写 `pyproject.toml`、锁文件（`uv.lock`，带 hash）提交并在 CI `uv sync --locked`（不一致即失败；`--frozen` 跳过这项检查，留给镜像构建），两者不能互相替代；(2) torch 是几 GB 的平台相关二进制，`+cu121` 本地版本 PyPI 不接受，装它用 `--index-url` 不用 `--extra-index-url`，通用锁仍须验证支持的平台与 CUDA 目标；(3) 可以由项目锁定 torch 与索引，也可以使用按 digest 固定的受控基础镜像；后一条路径需明确解释器、系统包可见性和运行契约，并在目标 GPU 上测试；(4) Dockerfile 按变化频率分层：基础层 → 依赖层（`--no-install-project --no-dev`）→ 代码层，权重不进镜像，`.dockerignore`，容器里仍用 venv 便于 `COPY --from`；(5) CI 门禁 `ruff check` + `ruff format --check` + `mypy src/` + `pytest` + `uv lock --check`，任一失败不产出制品——这是 Python 的"编译器"；(6) CUDA 三层兼容矩阵与四种典型报错。
    **追问方向**：库项目该不该加版本上界；conda 什么时候真的需要；`nvidia-smi` 的 CUDA Version 是什么；readiness 与 liveness 为什么要分。
    **好答案与一般答案的区别**：一般答案说"用 Docker 就可复现"；好答案说出可复现性的责任在锁文件与镜像 tag 之间怎么转移、代价是什么。
 
@@ -483,7 +483,7 @@ Table: 常见误区与正确说法
 |---|---|
 | 读过 | 能说出七讲各讲什么；知道 GIL、描述符、`Protocol`、`__init_subclass__`、pymalloc、`tracemalloc`、`uv.lock` 这些名词 |
 | 掌握 | A 组能不翻书答出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>读 vLLM / PyTorch 源码时遇到 `__getattr__`、元类、`ParamSpec`、`contextvars` 不再当黑盒<br/>拿到一份 Dockerfile 或 `pyproject.toml` 能指出哪里会让构建不可复现 |
-| 能教人 | C 组每题能给出全部要点并预判追问；能解释七讲里每个反直觉结论（`import` 是执行代码、`super()` 不是父类、多线程不加速 CPU、RSS 不降不是泄漏、GPU 服务 worker 只开一个、torch 不该进锁文件）为什么成立，并说出对应的 Java 对照在哪里失效 |
+| 能教人 | C 组每题能给出全部要点并预判追问；能解释七讲里每个反直觉结论（`import` 是执行代码、`super()` 不是父类、多线程不加速 CPU、RSS 不降不是泄漏、GPU worker 数为何受模型所有权约束、torch 何时由项目锁或基础镜像管理）为什么成立，并说出对应的 Java 对照在哪里失效 |
 
 Table: 掌握程度的判据
 
@@ -500,5 +500,5 @@ Table: 掌握程度的判据
 回到总纲：[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
 
 [^q0]: 七个：一段代码从加载到释放运行时做了什么（`import` 的三层查找、属性查找算法、`__call__` 与 hooks、生成器与 `with`）；类型信息从哪来被谁消费怎么落成契约（`__annotations__`、`@dataclass` 的 `exec` 与 Pydantic 的元类、边界校验一次）；瓶颈在哪、任务怎么协作、过载怎么稳（GIL、三种模型、背压 / 超时 / 取消 / 批处理）；运行时怎么观察与改造程序结构并做成插件系统而不失控（反射 / 元编程 / 动态加载、注册 → 发现 → 契约 → 边界、启动时选择热路径静态）；哪些内存归 Python、哪些操作复制或延长生命周期、增长怎么定位（引用计数 + 分代 GC + pymalloc、视图与副本、三类增长）；怎么验证行为符合预期、出问题用哪个工具（pytest / Mock / pytest-asyncio、按症状选工具的决策树）；怎么可复现地交付（抽象依赖与锁文件、torch 交给基础镜像、CUDA 三层、镜像分层、CI 门禁）。详见[第二章](#二逐篇回顾)。
-[^q1]: 属性查找顺序（数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`）；`sys.path[0]` 由启动方式决定、同一文件两个名字执行两次；`@dataclass` 用 `exec` 不校验、Pydantic 元类建验证树、v2 快一个数量级；线程池默认 $$\min(32, \text{cpu} + 4)$$、OS 线程约 8 MB、协程几 KB；`fork` 只复制调用线程、3.14 起 Linux 默认 `forkserver`、`/dev/shm` 默认 64 MB；队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`；`getattr` ≈ 23 ns、`inspect.signature` ≈ 3700 ns（约 370×）；GC 阈值 `(700, 10, 10)`（CPython 3.12 及之前）、pymalloc ≤ 512 字节、arena 1 MiB / pool 16 KiB（3.10+ 64 位）、小整数 −5 到 256；`memory_reserved` ≥ `memory_allocated`；`pip install torch` 2 GB+、镜像 8–12 GB 里 torch 占 5–7 GB、4 × 14 GB = 56 GB；`--index-url` 不用 `--extra-index-url`；CI 用 `uv sync --locked`（`--frozen` 跳过一致性检查）、tag 不能 `latest`。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 属性查找顺序（数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`）；`sys.path[0]` 由启动方式决定、同一文件两个名字执行两次；`@dataclass` 不校验字段值，Pydantic 构建 Schema 并由校验器执行，性能须看数据与配置；线程池默认 $$\min(32, \text{cpu} + 4)$$、OS 线程约 8 MB、协程几 KB；`fork` 只复制调用线程、3.14 起 Linux 默认 `forkserver`、`/dev/shm` 默认 64 MB；队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`；签名分析等昂贵反射应在目标环境测量，并尽量缓存在启动阶段；GC 阈值 `(700, 10, 10)`（CPython 3.12 及之前）、pymalloc ≤ 512 字节、arena 1 MiB / pool 16 KiB（3.10+ 64 位）、小整数 −5 到 256；`memory_reserved` ≥ `memory_allocated`；`pip install torch` 2 GB+、镜像 8–12 GB 里 torch 占 5–7 GB、4 × 14 GB = 56 GB；`--index-url` 不用 `--extra-index-url`；CI 用 `uv sync --locked`（`--frozen` 跳过一致性检查）、tag 不能 `latest`。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
