@@ -591,7 +591,7 @@ python train.py --dataset=shakespeare_char --out_dir=out-shakespeare-char-base -
   --n_layer=4 --n_head=4 --n_embd=128 --max_iters=2000 --lr_decay_iters=2000 --dropout=0.0
 ```
 
-```text title='训练日志：0.8M 参数，2000 步 loss 从 4.17 到 1.47'
+```text title='训练日志：0.8M 参数，2000 步 val loss 从 4.17 到 1.66'
 number of parameters: 0.80M
 step 0:    train loss 4.1676, val loss 4.1649
 step 250:  train loss 2.8491, val loss 2.8662

@@ -162,8 +162,8 @@ loss = F.cross_entropy(logits.view(-1, V), targets.reshape(-1))   # [B·T, V] �
 ```text title='backward 后每个参数拿到同形状的梯度'
   wte.weight                   参数 (16, 8)      梯度范数 1.0940
   wpe.weight                   参数 (8, 8)       梯度范数 0.6659
-  blocks.0.ln_1.weight         参数 (8,)         梯度范数 0.4008
-  blocks.0.attn.c_attn.weight  参数 (24, 8)      梯度范数 1.4743
+  blocks.0.ln_1.weight         参数 (8,)         梯度范数 0.0009
+  blocks.0.attn.c_attn.weight  参数 (24, 8)      梯度范数 0.0493
   ……共 28 个参数张量、1,952 个数，每个都有 .grad
 ```
 
