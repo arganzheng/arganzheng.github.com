@@ -6,7 +6,7 @@ subtitle: "Modern LLM Architecture: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-09 20:00:00
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
 十篇正文从 GPT-2 到今天的模型，回答现代 LLM 改了什么、为什么、花了什么——01 先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，02 把参数量换成算量、字节与时间（后面所有专项共用的尺子），03–10 再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 已并入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
@@ -50,7 +50,7 @@ flowchart TB
 | [第二篇：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) | batch 多大 decode 才 compute-bound？考虑 KV 后达得到吗？ | decode 权重 GEMM 的算术强度等于 $$B$$，ridge 295；8K 下 KV 读取把总强度压在 18 以下，单卡任何 batch 都 memory-bound | 每参数每 token 2 FLOPs<br/>attention 每层每 token $$4ds$$<br/>训练 $$6ND$$<br/>16.06 GB / 3.35 TB/s = 4.8 ms、208 token/s<br/>$$I_{weight} = B$$、$$I_{KV} = g$$<br/>64 GB 放 52 万 token 的 KV |
 | [第三篇：位置编码与外推](/positional-encoding-and-long-context.html) | 位置如何表达、为何外推有风险？ | 位置编码解决顺序；改频谱不等于学会长文 | $$\lambda_i = 2\pi\,\text{base}^{2i/d_{head}}$$；PI / NTK-aware / YaRN |
 | [第四篇：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) | V3 128 头 61 层，KV cache 为什么比 32 头 32 层的 8B 小？代价？ | KV 只与 $$n_{kv}$$ 有关；MLA 缓存 512 + 64 维 latent，decode 吸收后等价于 128 头共享一个 KV 头的 MQA，用 3.4 倍 attention FLOPs 换 57 倍字节 | $$\text{bytes/token} = 2 L n_{kv} d_{head} \cdot \text{bytes/elem}$$<br/>8B 128 KiB（MHA 512 KiB）、70B 320 KiB、V3 68.6 KiB（MHA 3.81 MiB）<br/>decode attention 强度 4 / 8 / 242 |
-| [第五篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？能否换掉 attention？ | KV 线性、prefill attention 二次；滑窗改可见位置，线性 attention / SSM 把历史压进递归状态，混合架构折中质量与成本 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s；[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)算例：混合结构约 3.04 GiB，对照全 attention 12 GiB |
+| [第五篇：长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) | 长请求贵在哪里？能否换掉 attention？ | KV 线性、prefill attention 二次；滑窗改可见位置，线性 attention / SSM 把历史压进递归状态（decode 用递归形式，训练与 prefill 用分块形式），混合架构折中质量与成本 | 8B 128K：16 GiB KV、约 6.5 PFLOP、60% MFU 约 11 s；[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)算例：混合结构约 3.04 GiB，对照全 attention 12 GiB |
 | [第六篇：MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) | V3 每 token 只算 37B，为什么比 dense 70B 难部署得多？ | 三个"参数量"分开：总参数定显存、激活参数定 FLOPs、每步实际读取的参数定 decode 带宽——中等 batch 下几乎读全部专家 | $$E[1 - (1 - k/E)^B]$$：$$B = 32$$ 时 163 个、读 434B<br/>FP8 671 GB 放不进 640 GB<br/>每 token 每层 dispatch 56 KiB + combine 112 KiB<br/>每专家 GEMM $$Tk/E$$ 行 |
 | [第七篇：MTP](/multi-token-prediction-mtp.html) | 每个位置多预测一个 token，多花了什么、多得了什么？为什么顺序不并行？ | 信号密度 ×$$(1 + D)$$，主干被逼编码更远的未来<br/>顺序模块喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）<br/>推理时丢弃或做投机 draft | 自有参数：2 个 RMSNorm + $$2d \to d$$ 投影 + 1 个 block<br/>$$\lambda$$ 0.3 → 0.1<br/>接受率 85–90%、TPS 1.8 倍<br/>nanoGPT 上主任务不变、$$t+2$$ 命中 45%、+29% 参数 |
 | [第八篇：投机解码——草稿、验证与收益条件](/speculative-decoding-draft-verify-and-payoff.html) | 同一套投机解码，为什么 batch 1 加速 2 倍、batch 64 没有收益？ | 接受 / 拒绝重采样让输出分布严格等于目标模型；验证 γ+1 个 token 只在 memory-bound 区间免费 | $$\mathbb{E}[\text{tokens}] = (1-\alpha^{\gamma+1})/(1-\alpha)$$；α=0.8、γ=4、c=0.1：3.36 token、约 2.4×；转折 batch ≈ ridge/(γ+1) ≈ 60 |
@@ -131,9 +131,9 @@ Table: 本文的章节安排
 
 **核心问题**：位置能够外推之后，128K 请求还贵在哪里？[^q4]
 
-**结论**：KV 随 s 线性增长，整段 prefill attention 随 s² 增长；FlashAttention 避免物化 logits，但不改变全局 attention 的算量阶数。滑窗 W 把单序列缓存与单步 attention 限于 O(W)，整段 prefill 变为 O(sW)；混合全局层仍保留全局部分的成本。
+**结论**：KV 随 s 线性增长，整段 prefill attention 随 s² 增长；FlashAttention 避免物化 logits，但不改变全局 attention 的算量阶数。滑窗 W 把单序列缓存与单步 attention 限于 O(W)，整段 prefill 变为 O(sW)；混合全局层仍保留全局部分的成本。线性 attention 把历史压进定长状态，同一个算式有递归、并行、分块三种等价算法：decode 用递归，prefill 用分块（块内矩阵乘、块间只传状态），混合结构的二次项只剩 full-attention 层那一部分。
 
-**必记**：8B / 70B 的 attention 与权重算量交叉点约 28.6K / 53.8K；128K KV 为 16 / 40 GiB，prefill 单卡等效 60% MFU 约 11 / 69 s。chunked prefill 改调度与干扰，不消除总工作量；稀疏 attention 也不必然省 KV。
+**必记**：8B / 70B 的 attention 与权重算量交叉点约 28.6K / 53.8K；128K KV 为 16 / 40 GiB，prefill 单卡等效 60% MFU 约 11 / 69 s。chunked prefill 改调度与干扰，不消除总工作量；稀疏 attention 也不必然省 KV。线性 attention 的 128K prompt 取块长 64 时串行 2,048 步，不是 131,072 步；Qwen3-Next 的二次项系数是全层 attention 对照的 1/4（12 / 48 层）。
 
 ### 06. 第六篇：MoE：路由、激活参数量与通信形态
 

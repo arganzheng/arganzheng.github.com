@@ -6,7 +6,7 @@ subtitle: "Deep Dive into vLLM: Series Recap and Final Self-Test"
 tags: [AI, AI-Infra, Inference]
 catalog: true
 date: 2026-08-25 20:00:00
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
 十四篇正文回答了一个问题：**一个文本生成请求，为什么会演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统——vLLM 又是怎样把它组织起来的**。前三篇定义问题、立尺子、画全景（[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)同时把对象分到四个域、把一次请求的生命周期放大到组件和关键方法，函数级的调用栈落在[《Scheduler》](/scheduler-batch-and-fairness.html)、[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)、[《输出在变》](/output-changes-sampling-and-structured-output.html)）；《Scheduler》、[《KV Cache》](/kv-cache-memory-core.html)、《GPU 执行》是单机上的三个战场（调度、KV Cache、GPU 执行，《GPU 执行》先讲调度结果怎样被翻译成 GPU 张量，让 forward 轮数变少的投机解码也归在执行）；[《Multi-GPU》](/multi-gpu-scaling-strategies.html)、[《PD 分离》](/prefill-decode-disaggregation.html)沿规模线扩到多卡与多实例；[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)、《输出在变》、[《模型适配》](/model-adaptation-architecture.html)、[《硬件解耦》](/hardware-abstraction-and-portability.html)看四种变化各停在哪一层——先是请求级的输入（multi-LoRA 与多模态）与输出（采样参数与结构化输出），再是部署级的模型与硬件；[《Serving Infra 的下一站》](/future-of-serving-infra.html)望向集群级的系统，[《vLLM 与 SGLang》](/vllm-vs-sglang.html)用同一套框架对照 SGLang。十四篇反复回到同一个请求算账：Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token。
@@ -164,10 +164,11 @@ Prefix Cache 的命中由 `find_longest_cache_hit()` 从链头逐块查哈希表
 
 forward 之前先过一层翻译：`GPUModelRunner.execute_model()` 的前半段用 `_update_states()` 增量同步跨步常驻的 `InputBatch`，`_prepare_inputs()` 拼出 `input_ids` / `positions` 并由 Triton kernel 从 block table 算出 `slot_mapping`，`_build_attention_metadata()` 告诉 kernel 每个请求能读哪些块，最后选 CUDA Graph 还是 eager。`slot_mapping` 是[《KV Cache》](/kv-cache-memory-core.html)分块存储的产物，`block_table` 是 Prefix Cache 共享的产物，Graph / eager 的选择是 CUDA Graph 形状约束的落地处。时序上 `execute_model()` 全程异步入队，整步唯一的 CPU 等 GPU 点在 `sample_tokens()` 的 `_bookkeeping_sync()`；开 async scheduling 后连它也移到独立 copy stream 上。
 
-落到 GPU 上浪费只有四种形态——等 CPU 发指令、等 HBM 送数据、搬的每个数太胖、轮次本身太多——四类手段一一对应：CUDA Graph、FlashAttention 与算子融合、量化、投机解码。CUDA Graph 成立的条件是单个 kernel 的 GPU 时间短于 CPU 提交时间，所以基本只对 decode 有意义，代价是图内形状固定、按 `cudagraph_capture_sizes` 分桶向上 pad；FlashAttention 与融合优化的是同一个量——HBM 流量。投机解码让轮数变少：draft 提出 K 个候选、target 一次 forward 验证 `1 + K` 个位置，拒绝采样保证输出分布与逐个采样相同，所以它是无损的性能手段；但它不只改采样器——调度器改三处（`1 + K` 进预算、`num_lookahead_tokens` 预留 KV、步后回滚 `num_computed_tokens`），model runner 的 logits 变成 `[num_reqs + Σ drafts, V]`，"纯 decode batch"的定义随之变成每请求 `1 + K` 个 token。
+落到 GPU 上浪费只有四种形态——等 CPU 发指令、等 HBM 送数据、搬的每个数太胖、轮次本身太多——四类手段一一对应：CUDA Graph、FlashAttention 与算子融合、量化、投机解码。CUDA Graph 成立的条件是单个 kernel 的 GPU 时间短于 CPU 提交时间，所以基本只对 decode 有意义，代价是图内形状固定、按 `cudagraph_capture_sizes` 分桶向上 pad；FlashAttention 与融合优化的是同一个量——HBM 流量。混合模型里的线性注意力层（Qwen3-Next 的 Gated DeltaNet）另有一套算子：每请求每层只存一份定长状态，decode 用递归 kernel 原地读写，prefill 用块长 64 的分块算子（五个 kernel 按块并行、一个沿块串行），FULL CUDA Graph 只覆盖 decode，投机解码靠 `num_spec + 1` 个状态槽代替回滚。投机解码让轮数变少：draft 提出 K 个候选、target 一次 forward 验证 `1 + K` 个位置，拒绝采样保证输出分布与逐个采样相同，所以它是无损的性能手段；但它不只改采样器——调度器改三处（`1 + K` 进预算、`num_lookahead_tokens` 预留 KV、步后回滚 `num_computed_tokens`），model runner 的 logits 变成 `[num_reqs + Σ drafts, V]`，"纯 decode batch"的定义随之变成每请求 `1 + K` 个 token。
 
 - 账本：Prefill 2050 token ≈ 92 ms（40% MFU）占 3%，300 步 decode ≈ 3000 ms 占 97%，一步实测约 10 ms、权重读取下界 5.3 ms。
 - capture sizes = [1, 2, 4] + range(8, 256, 8) + range(256, max + 1, 16)；五种 `CUDAGraphMode`，默认 `FULL_AND_PIECEWISE`，PIECEWISE 在 attention 处切、80 层约 81 段图；上界省 20%、实测 5%–15%。
+- Gated DeltaNet 层（Qwen3-Next）：每请求每层状态 32 × 128 × 128；prefill 2050 token = 33 块，串行 33 步而不是 2050 步；H100 上 prefill 默认用 FlashInfer 的实现，其余平台回落到随源码分发的 FLA Triton kernel。
 - Llama-70B 权重 FP16 140 GB → FP8 / INT8 70 GB → INT4 35 GB；H100 FP8 1979 vs BF16 989 TFLOPS。
 - 投机解码临界点约 300 token / 步 / 卡：batch × (1 + K) 超过它验证不再免费；batch 1、K=3、接受长度 2.5 约 120 步 ≈ 1450 ms、约 2.1×，batch 128、K=3 每步慢 1.9 倍、吞吐反降；EAGLE / MTP 为拿 hidden state 主动少命中一块 prefix cache（`drop_eagle_block`）。
 

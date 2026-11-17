@@ -5,7 +5,7 @@ subtitle: "系列精华 · 十篇正文，按 ↓ 看结构改动与成本"
 permalink: /slides/modern-llm-architecture.html
 series: modern-llm-architecture
 date: 2026-04-09 23:30:00 +0800
-updated: 2026-10-10
+updated: 2026-11-17
 author: arganzheng
 description: "《现代 LLM 结构：从 GPT-2 到今天的演进》系列的分享用幻灯片：结构演进路线图、五处改动与参数量、Roofline、位置编码、KV cache、长上下文、MoE、MTP、投机解码、多模态与浮点格式。"
 theme: white
@@ -180,6 +180,18 @@ flowchart TB
 - Qwen3-Next 配置：48 层中每 4 层 1 层 full attention，即 12 层 full + 36 层线性；BF16 矩阵状态估算 36 MiB
 - 128K：混合结构约 3.04 GiB（KV + 矩阵状态），全 48 层 attention 对照为 12 GiB；1M 外推分别约 24.04 GiB / 96 GiB，配置最大位置为 262,144
 - 来源：[Qwen3-Next 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)、[Jamba](https://arxiv.org/html/2403.19887)、[MiniMax-M1](https://arxiv.org/html/2506.13585)、[MiniMax-M2 说明](https://www.minimax.io/news/why-did-m2-end-up-as-a-full-attention-model)、[Kimi Linear](https://arxiv.org/html/2510.26692)
+
+<!-- v -->
+
+### 线性 attention 的三种算法：递归、并行、分块
+
+![线性注意力的递归、并行、分块三种形式](/img/in-post/long-context-cost-linear-attention-three-forms.svg){: style="max-height: 400px"}
+
+**decode 用递归，prefill 用分块：128K、块长 64 时串行 2,048 步，不是 131,072 步。**
+
+<aside class="notes" markdown="1">
+原文：[/long-context-cost-and-structural-remedies.html#3-同一个算式的三种算法递归并行分块](/long-context-cost-and-structural-remedies.html#3-同一个算式的三种算法递归并行分块)。同一组 4 个 token（k、q 二维，v 标量）：递归形式 4 步串行，状态 (0,0) → (7,4)，输出 2、5、4、11；并行形式是下三角矩阵 tril(QKᵀ) 乘 V，一次矩阵乘但中间量 T × T，等于去掉 softmax 的 full attention；分块形式块内算小三角，块 2 对块 1 的依赖只读块 1 末的状态 (2,3)。每 token 算量：递归 O(d_k d_v)，分块 O(C(d_k + d_v) + d_k d_v)，都与序列长度无关。delta rule 的分块在块内多算一个 KKᵀ 下三角、多解一次 C × C 的三角方程组。Qwen3-Next 的 prefill 二次项只剩 12 层 full attention，系数是全层 attention 对照的 1/4。
+</aside>
 
 ---
 

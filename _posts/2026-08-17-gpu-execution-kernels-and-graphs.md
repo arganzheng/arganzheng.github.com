@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（06）：GPU 执行：如何让每个 Token 算得更快？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -56,11 +56,11 @@ Table: 贯穿全文例子的一笔时间账
 |---|---|---|
 | 二 | forward 之前：SchedulerOutput 如何变成 GPU 张量 | `SchedulerOutput` 的字段<br/>`_update_states()`、`_prepare_inputs()`、attention metadata、执行模式选择四步翻译<br/>一步之内 CPU 与 GPU 在哪里等谁：`execute_model()` 与 `sample_tokens()`、唯一的同步点<br/>Worker 进程的常驻循环 `worker_busy_loop()`<br/>forward 里的 kernel 从哪来：`torch.ops._C.*` 与 `torch.ops.vllm.*` 两类注册 |
 | 三 | GPU 为什么在空转？ | Kernel Launch Overhead 与 CUDA Graph 的捕获、重放 |
-| 四 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）与 Kernel Fusion |
+| 四 | 数据为什么搬不动？ | FlashAttention（Attention 后端路由、Tiling 与 Online Softmax）<br/>线性注意力层（Gated DeltaNet）：递归与分块两套算子、六个分块 kernel、prefill / decode 分派、状态读写<br/>Kernel Fusion |
 | 五 | 能不能少搬几个字节？ | 权重量化、FP8 推理与混合精度组合 |
 | 六 | 能不能少跑几轮模型？ | 投机解码的原理与无损性<br/>Proposer 家族（Draft Model / n-gram / EAGLE / Medusa / MTP）<br/>调度器的预算、lookahead 槽位与回滚<br/>model runner 一次算 K+1 个位置与 CUDA Graph<br/>RejectionSampler<br/>收益的临界点<br/>多卡与 PD 下的约束 |
 | 七 | 本文小结 |  |
-| 八 | 自测 | 8 道题 |
+| 八 | 自测 | 9 道题 |
 
 Table: 本文的章节安排
 
@@ -341,7 +341,7 @@ Attention 算子的硬件执行效率高度依赖于工作负载（Workload）�
 * **FlashAttention (flash_attn.py)**：NVIDIA 生态的经典基准。在纯 Prefill 场景下对长 Query 具备极佳的矩阵乘法吞吐表现，并包含 flash_attn_diffkv 等衍生变体。
 * **MLA 特化后端 (mla/)**：针对 DeepSeek 等模型的低秩 KV 压缩（MLA）进行算子融合与内存重排优化。包含 FlashInfer MLA、FlashMLA、CUTLASS MLA、Triton MLA 及 ROCm 架构下的 AITER Triton MLA。
 * **Triton / FlexAttention (triton_attn.py, flex_attention.py)**：高可定制化后端。利用高级语言抽象，便于跨硬件平台快速移植、验证或进行非标的自定义 Mask/Attention 研发。
-* **硬件特化与非标后端**：包含 AMD 生态的 ROCm 系列（rocm_attn.py 等）、CPU 降级后端，以及适配 Mamba、Linear Attention 等非 Transformer 架构的专用算子。
+* **硬件特化与非标后端**：包含 AMD 生态的 ROCm 系列（rocm_attn.py 等）、CPU 降级后端，以及适配 Mamba、Linear Attention 等非 Transformer 架构的专用算子（Gated DeltaNet 见[本章第 2 节](#2-线性注意力层没有-nn-矩阵换成一条状态链)）。
 
 **TIPS：** 业界没有绝对通用的默认后端，算子路由强绑定于具体的 vLLM 版本与底层硬件。在生产环境上线或变更 workload 形态（如从单轮 QA 转向超长多轮对话）前，必须基于目标硬件进行针对性的端到端压力测试（Profile & Benchmark）。
 
@@ -504,11 +504,222 @@ FlashAttention 后续版本主要是在同一套数学核心上继续做工程�
 不过，无论是最初版本还是后续版本，FlashAttention 的核心思想都没有变：
 **通过分块计算（Tiling）和在线归一化（Online Softmax），在保持结果等价的前提下，大幅降低注意力计算的显存和访存开销。**
 
-### 2. Kernel Fusion
+### 2. 线性注意力层：没有 N×N 矩阵，换成一条状态链
+
+> **Qwen3-Next 的 48 层里有 36 层不是 softmax attention。这些层在 vLLM 里走哪套 kernel，prefill 和 decode 为什么用的不是同一个？[^q2]**
+
+上一节的后端算的都是 softmax attention。Qwen3-Next、Qwen3.5 这类混合模型的大部分层是 Gated DeltaNet（GDN，线性注意力的一种），它们不经过上一节的 selector，有自己的一套：
+
+| 对象 | 位置 |
+|---|---|
+| 层 | `vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py` → `QwenGatedDeltaNetAttention` |
+| attention metadata | `vllm/v1/attention/backends/gdn_attn.py` → `GDNAttentionBackend`（后端名 `GDN_ATTN`） |
+| 状态 | [《KV Cache》](/kv-cache-memory-core.html)里的 `MambaSpec`：每个请求一份定长状态，不按 token 存 |
+| kernel | `vllm/third_party/flash_linear_attention/ops/`：随 vLLM 源码分发的 flash-linear-attention（FLA）Triton 算子 |
+
+Table: GDN 层在 vLLM 中的位置
+
+Kimi Linear 的 KDA 层（同目录的 `kimi_gdn_linear_attn.py`）继承同一个基类 `GatedDeltaNetAttention`，分派结构相同，算子换成 `chunk_kda_with_fused_gate` 与 `fused_recurrent_kda`。下面以 Qwen3-Next 为例。
+
+**2.1 一层存什么、一个 token 算什么**
+
+Full attention 每层为每个 token 存一份 K、V。GDN 每层为每个请求只存两样东西，形状由 `MambaStateShapeCalculator.gated_delta_net_state_shape()` 给出：
+
+| 状态 | 大小（Qwen3-Next，TP = 1，不开投机解码） | 内容 |
+|---|---|---|
+| 递归状态 `ssm_state` | `(32, 128, 128)`：32 个 value 头，每头一个 `head_v_dim × head_k_dim` 的矩阵 | 这个请求到目前为止的全部历史 |
+| 卷积状态 `conv_state` | 8192 维 × 3 个 token | 层内有一个宽度为 4 的因果卷积，要用到前 3 个 token 的输入 |
+
+Table: GDN 层的每请求状态
+
+递归状态共 524,288 个元素，与上下文长度无关。一个 token 进来，每个头做四步。下面是 `fused_recurrent_gated_delta_rule_fwd_kernel` 循环体去掉指针运算后的样子，`S` 是这个头的状态矩阵：
+
+```python title="GDN 递归形式：一个 token 的更新"
+# !ref gdn-decay
+S = S * exp(g_t)
+# !ref gdn-delta
+u = beta_t * (v_t - S @ k_t)
+# !ref gdn-write
+S = S + outer(u, k_t)
+# !ref gdn-read
+o_t = S @ (q_t * scale)
+```
+
+1. [遗忘](#gdn-decay)：`g_t` 是当前 token 算出的 log 衰减（`g = -exp(A_log) * softplus(a + dt_bias)`，不大于 0），整个状态乘一个 0 到 1 之间的数。
+2. [读旧值、算差额](#gdn-delta)：`S @ k_t` 是状态里 `k_t` 这个方向上已经存着的 value。要写入的 `u` 是「新值减旧值」的 `beta_t` 倍（`beta = sigmoid(b)`），不是 `v_t` 本身。这一步叫 delta rule。
+3. [写入](#gdn-write)：一次秩 1 更新。
+4. [读出](#gdn-read)：`scale = head_k_dim ** -0.5`；`q`、`k` 先做 L2 归一化。
+
+四步都是 128 × 128 矩阵上的逐元素运算和向量点积。decode 每个请求每步只有 1 个 token，这样算正合适：读写一份状态，成本与上下文长度无关；full attention 的 decode 要按 block table 读回全部历史 token 的 KV。
+
+prefill 不能这样算。开头例子里 2050 token 的 prompt 要把这个循环串行执行 2050 次，每次只动一个 128 × 128 的矩阵，没有矩阵乘，Tensor Core 用不上，并行度只剩「请求数 × 头数」。
+
+**2.2 分块形式：块内算小矩阵，块间传状态**
+
+先去掉遗忘和 delta rule，只留加法：`S = S + outer(v_t, k_t)`，`o_t = S @ q_t`。取 4 个 token，`k`、`q` 是二维向量，`v` 是标量：
+
+| token | `k` | `v` | `q` |
+|---:|---|---:|---|
+| 1 | (1, 0) | 2 | (1, 0) |
+| 2 | (0, 1) | 3 | (1, 1) |
+| 3 | (1, 1) | 1 | (0, 1) |
+| 4 | (1, 0) | 4 | (1, 1) |
+
+Table: 手算例使用的 4 个 token
+
+![线性注意力的递归、并行、分块三种算法](/img/in-post/long-context-cost-linear-attention-three-forms.svg)
+
+- **左：递归。** 状态从 (0, 0) 走 4 步到 (7, 4)，每步读出一个输出，得 2、5、4、11。
+- **中：并行。** 把递归展开，$$o_t = \sum_{j \le t} (q_t^\top k_j)\,v_j$$，也就是下三角矩阵 $$\operatorname{tril}(QK^\top)$$ 乘 $$V$$。一次矩阵乘就得到同样的 4 个输出，但矩阵是 N × N——这是去掉了 softmax 的 full attention，算量回到 $$O(N^2)$$。
+- **右：分块，块长 2。** 两个块各算一个 2 × 2 的块内下三角。块 2 对块 1 的全部依赖（左下角的 2 × 2 矩形）不逐项算，只读块 1 结束时的状态 (2, 3)：块间项 (3, 5) 加块内项 (1, 6)，得 (4, 11)。
+
+所以分块形式是「块内的小矩阵乘」加「块间的一条状态链」。FLA 的 GDN 算子块长固定为 64（`ops/utils.py` 里的 `FLA_CHUNK_SIZE = 64`）：2050 token 是 $$\lceil 2050 / 64 \rceil = 33$$ 块，串行 33 步而不是 2050 步，每一步都是 64 行的矩阵乘。
+
+**2.3 六个 kernel：五个按块并行，一个沿块串行**
+
+加回 delta rule 后，块内多了一层依赖：写入的 `u` 依赖写入前的状态，同一块里前面 token 的写入会改变后面 token 读到的旧值。把它展开，一个块里 64 个 `u` 满足一个下三角方程组：
+
+$$
+(I + A)\,U = \operatorname{diag}(\beta)\,V - \operatorname{diag}(\beta\gamma)\,K S_0^\top,
+\qquad A_{ij} = \beta_i\,\frac{\gamma_i}{\gamma_j}\,(k_i^\top k_j)\quad (i > j)
+$$
+
+其中 $$S_0$$ 是这一块开始时的状态，$$\gamma_i$$ 是块内前 $$i$$ 个 token 的累计衰减，$$A$$ 是 64 × 64 的严格下三角矩阵。所以块内要先算 $$A$$，再求 $$(I + A)^{-1}$$，才能一次得到整块的 `u`。`chunk_gated_delta_rule_fwd()`（`ops/chunk.py`）依次调六个 Triton kernel：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：chunk_gated_delta_rule_fwd 的六个 kernel
+flowchart TB
+    IN["q、k、v、g、beta<br/>2050 token = 33 块"]
+    K1["<b>① chunk_local_cumsum</b><br/>块内对 g 求前缀和，得到累计衰减"]
+    K2["<b>② chunk_scaled_dot_kkt_fwd</b><br/>每块算一个 64 × 64 的严格下三角 A"]
+    K3["<b>③ solve_tril</b><br/>每块求 I + A 的逆"]
+    K4["<b>④ recompute_w_u_fwd</b><br/>逆矩阵分别乘 k、v，得到 w、u"]
+    K5["<b>⑤ chunk_gated_delta_rule_fwd_h</b><br/>沿块串行 33 步<br/>记下每块起点的状态，再推进到块末"]
+    K6["<b>⑥ chunk_fwd_o</b><br/>每块的输出 = 起点状态的贡献 + 块内 64 × 64 的贡献"]
+    OUT["输出 o<br/>末状态写回 ssm_state"]
+    IN --> K1 --> K2 --> K3 --> K4 --> K5 --> K6 --> OUT
+    classDef par fill:#dbeafe,stroke:#1e3a8a,color:#111827
+    classDef ser fill:#fde2c4,stroke:#9a3412,color:#111827
+    class K1,K2,K3,K4,K6 par
+    class K5 ser
+```
+
+蓝色的五个 kernel 把 33 个块同时铺开，橙色的 ⑤ 是唯一有跨块依赖的：
+
+| kernel | Triton grid | 做什么 |
+|---|---|---|
+| ① `chunk_local_cumsum` | `(NT, B * H)`：块 × 头 | 块内对 log 衰减 `g` 求前缀和 |
+| ② `chunk_scaled_dot_kkt_fwd` | `(NT, B * H)` | 用 `tl.dot` 算出 $$\beta K K^\top$$，乘上衰减，保留严格下三角 |
+| ③ `solve_tril` | `(NT, B * H)` | 求 $$(I + A)^{-1}$$：64 × 64 拆成 16 × 16 的小块分别求逆再合并（`merge_16x16_to_64x64_inverse_kernel`） |
+| ④ `recompute_w_u_fwd` | `(NT, B * H)` | $$w = (I + A)^{-1}\operatorname{diag}(\beta\gamma)K$$，$$u = (I + A)^{-1}\operatorname{diag}(\beta)V$$ |
+| ⑤ `chunk_gated_delta_rule_fwd_h` | `(V / BV, N * H)`：没有「块」这一维 | 每个（请求，头）一条链，`for i_t in range(NT)`：<br/>把当前状态存进 `h[i_t]`<br/>`v_new = u - w @ S.T`<br/>状态乘整块的衰减，再加上 `k.T @ v_new` |
+| ⑥ `chunk_fwd_o` | `(V / BV, NT, B * H)` | 每块：`q @ h[i_t].T` 加上块内下三角 $$\operatorname{tril}(QK^\top)$$ 乘 `v_new` |
+
+Table: 分块算子的六个 kernel（NT = 块数，B * H = 请求 × 头）
+
+⑤ 把每块起点的状态都存进了 `h`（形状 `[B, NT, H, V, K]`），⑥ 才能按块并行。这是分块形式的访存代价：2050 token 的 prompt 要临时存 33 × 32 个 128 × 128 的矩阵，BF16 下约 33 MiB，摊到每个 token 是 16 KiB，只在这一次 forward 内存在。
+
+与上一节的 FlashAttention 对照：
+
+| 对比项 | FlashAttention | GDN 分块算子 |
+|---|---|---|
+| 中间矩阵 | N × N 的分数矩阵，分 tile 算，不落 HBM | 每块 64 × 64，块与块之间不算 |
+| 历史怎么进来 | 逐 tile 读回全部历史 K、V | 只读块起点的一个状态矩阵 |
+| 归一化 | online softmax，维护 `m`、`l` 两个累加量 | 没有 softmax，只有衰减因子的块内前缀和 |
+| 算量随序列长度 | $$O(N^2)$$ | $$O(N)$$ |
+| tile / 块之间的依赖 | 只靠累加合并，可以任意顺序、任意并行 | 一条状态链，必须按顺序走 N / 64 步 |
+| decode 一步 | 读 s 个 token 的 KV | 读写一份状态，与 s 无关 |
+
+Table: FlashAttention 与 GDN 分块算子的对照
+
+两者都把长序列切成小块、让每块落进一次矩阵乘，但切的目的不同。FlashAttention 的算量没有变，分块只为了让 N × N 的中间量不落 HBM；GDN 的块间矩形根本不算，换成一个状态，代价是多了一条不能并行的链。
+
+**2.4 分派：prefill 走分块，decode 走递归**
+
+`GDNAttentionMetadataBuilder.build()` 用 `split_decodes_and_prefills(m, decode_threshold=1)` 把本步的请求分成两类：本步只推进 1 个 token 的是 decode，其余是 prefill。`QwenGatedDeltaNetAttention._forward_core()` 再按 batch 的组成选算子：
+
+| 本步 batch 的组成 | 更新递归状态的算子 | 说明 |
+|---|---|---|
+| 只有 decode | `fused_recurrent_gated_delta_rule_packed_decode` | `_forward_core_decode_non_spec()` 快路径，由 `VLLM_ENABLE_FLA_PACKED_RECURRENT_DECODE` 控制，默认开<br/>直接读卷积输出的打包张量，状态原地更新 |
+| 只有 prefill | `chunk_gated_delta_rule` | 2.3 的分块算子 |
+| prefill 与 decode 混在一步 | decode 部分用 `fused_sigmoid_gating_delta_rule_update`<br/>prefill 部分用 `chunk_gated_delta_rule` | batch 里 decode 排在前面，按 `num_decode_tokens` 切开分别算，输出再拼回原顺序 |
+| 有投机解码的请求 | `fused_sigmoid_gating_delta_rule_update` | 一步验证 1 + K 个位置，见 2.6 |
+
+Table: GDN 层按 batch 组成选择算子
+
+`chunk_gated_delta_rule` 本身还有三种实现，由 `_resolve_gdn_prefill_backend()` 在启动时选定，命令行参数是 `--gdn-prefill-backend`，默认 `auto`：
+
+| 平台 | prefill 用的实现 |
+|---|---|
+| CUDA，Hopper（SM90，如 H100） | FlashInfer 的 `flashinfer.gdn_prefill.chunk_gated_delta_rule`，首次运行要 JIT 编译 |
+| CUDA，Blackwell（SM10.x），且 `linear_key_head_dim == 128`、CUDA runtime ≥ 13 | 默认 FlashInfer；显式指定 `cutedsl` 时用仓库内的 CuTe DSL 实现（`mamba/ops/gdn_chunk_cutedsl/`） |
+| 其他 CUDA 架构与非 CUDA 平台 | Triton / FLA，即 2.3 的六个 kernel |
+
+Table: GDN prefill 分块算子的三种实现
+
+三种实现的入口参数相同（`q`、`k`、`v`、`g`、`beta`、`initial_state`、`cu_seqlens`），统一包在 `ChunkGatedDeltaRule` 这个 `CustomOp` 里，启动日志会打印 「Using … GDN prefill kernel」。decode 侧在 CUDA 上始终是 FLA 的 Triton 递归 kernel。ROCm 另有一条 AITER 路径（`forward_hip()` → `_forward_core_rocm()`）。
+
+**2.5 状态读写：两层「分块」各管各的**
+
+递归状态和卷积状态放在层的 `self.kv_cache = (conv_state, ssm_state)` 里，按块号索引。一个请求用哪一格，由它 block table 的第 0 列给出（`non_spec_state_indices_tensor = block_table_tensor[:, 0]`）：
+
+1. prefill 开始前读入：`initial_state = ssm_state[prefill_state_indices]`。`has_initial_state = context_lens > 0`，第一次被调度的请求这一项为假，状态清零。
+2. prefill 结束后写回：`ssm_state[prefill_state_indices] = last_recurrent_state`。
+3. decode 在 kernel 里原地读写（`inplace_final_state=True`）。
+
+于是一个长 prompt 身上有两层分块：
+
+| 对比项 | 调度器的 chunked prefill | kernel 内的分块 |
+|---|---|---|
+| 块多大 | 由每步的 token 预算决定，一步可以是几千 token | 固定 64 |
+| 块之间怎么接 | 跨调度步：上一步写回 `ssm_state`，下一步 `has_initial_state` 为真，读回来当 `initial_state` | 同一次 forward 内：kernel ⑤ 的循环 |
+| 为了什么 | 不让一个长 prefill 独占 GPU（[《Scheduler》](/scheduler-batch-and-fairness.html)） | 把串行步数降到 1/64，块内用上矩阵乘 |
+
+Table: 调度器的 chunked prefill 与 kernel 内分块的区别
+
+Full attention 的 chunked prefill 续算时，要读回前面各步写进 KV 块的全部 token。GDN 续算只需要那一份状态，不回读任何历史 token。
+
+**2.6 与 CUDA Graph、Triton 编译、投机解码的交互**
+
+**1、核心是一个自定义算子，FULL 图只覆盖 decode。** `forward_cuda()` 分三段：输入投影，`torch.ops.vllm.qwen_gdn_attention_core`（因果卷积加递归状态更新），`RMSNormGated` 与输出投影。中间一段用 `direct_register_custom_op` 注册，`vllm::qwen_gdn_attention_core` 列在 `CompilationConfig._attention_ops` 里，和 `unified_attention_with_output` 一样是 PIECEWISE 图的切分点。Builder 声明 `_cudagraph_support = AttentionCGSupport.UNIFORM_BATCH`，`build_for_cudagraph_capture()` 只接受纯 decode 的 batch：prefill 的块数随 prompt 长度变，进不了 FULL 图。
+
+**2、分块用的索引表在 CPU 上算。** 一个 batch 里各请求长度不同，kernel 需要一张「第几块属于哪个请求、是它的第几块」的表（`prepare_chunk_indices()`、`prepare_chunk_offsets()`）。Builder 用 `query_start_loc_cpu` 在 CPU 上把表算好，再 `async_tensor_h2d` 异步拷到 GPU，源码注释写明这是为了避免一次 GPU 到 CPU 的同步。这与第二章「一步只有一个同步点」是同一个约束。
+
+**3、Triton autotune 必须在显存被占满之前跑完。** 六个分块 kernel 都带 `@triton.autotune`，以 ② 为例是 `BK`、`num_warps`、`num_stages` 各三个取值共 27 组配置，第一次调用时逐组试跑，挑最快的。vLLM 在启动时的 profile run 之后，会把剩余显存几乎全部分给 KV cache；autotune 如果拖到第一个真实请求才触发，试跑时会 OOM。所以 `_warmup_prefill_kernels()` 在 profile run 里（这时 `attn_metadata` 为 `None`）用 64 个 token 的假输入把 prefill 路径跑一遍。autotune 的结果全局缓存，只有第一个 GDN 层付这笔开销。
+
+**4、投机解码：状态不能回滚，只能多存几份。** Full attention 拒绝 draft 时只要 `num_computed_tokens -= num_rejected`（[第六章](#4-调度器与-kvdraft-进预算预留-lookahead-槽位按接受数回滚)）：KV 按 token 存，后面的槽位作废即可。递归状态吃进 K 个 draft 之后，没有办法从里面减掉其中几个。GDN 的做法是每个请求留 `num_spec + 1` 个状态槽（`spec_state_indices_tensor = block_table_tensor[:, : num_spec + 1]`，卷积状态同样加宽 `num_spec`）：
+
+1. 验证这一步，kernel 每算完一个位置，就把当时的状态存进对应的槽。
+2. 下一步从第 `num_accepted_tokens - 1` 号槽读初始状态，也就是最后一个被接受的位置算完之后的状态。
+
+这一步里的普通 decode 请求被归入 prefill，由分块 kernel 当作长度为 1 的序列处理，因为 `num_decodes` 与 `num_spec_decodes` 在实现里不能同时非零。
+
+<details markdown="1">
+<summary><b>📂 本节源码导航</b></summary>
+
+| 内容 | 位置 |
+|---|---|
+| GDN 层：投影、卷积、分派 | `vllm/model_executor/layers/mamba/gdn/qwen_gdn_linear_attn.py` → `QwenGatedDeltaNetAttention.forward_cuda()`、`_forward_core()`、`_forward_core_decode_non_spec()` |
+| prefill 实现的选择与包装 | 同文件 → `_resolve_gdn_prefill_backend()`、`ChunkGatedDeltaRule` |
+| prefill kernel 预热 | 同文件 → `_warmup_prefill_kernels()` |
+| decode / prefill / 投机的划分，索引表 | `vllm/v1/attention/backends/gdn_attn.py` → `GDNAttentionMetadataBuilder.build()`、`build_for_cudagraph_capture()` |
+| 状态形状 | `vllm/model_executor/layers/mamba/mamba_utils.py` → `MambaStateShapeCalculator.gated_delta_net_state_shape()` |
+| 分块算子入口 | `vllm/third_party/flash_linear_attention/ops/chunk.py` → `chunk_gated_delta_rule_fwd()` |
+| 六个分块 kernel | 同目录 `cumsum.py`、`chunk_scaled_dot_kkt.py`、`solve_tril.py`、`wy_fast.py`、`chunk_delta_h.py`、`chunk_o.py` |
+| 递归 kernel | 同目录 `fused_recurrent.py`、`fused_sigmoid_gating.py` |
+| 块长与索引表 | 同目录 `utils.py` → `FLA_CHUNK_SIZE`；`index.py` → `prepare_chunk_indices()`、`prepare_chunk_offsets()` |
+| 切图算子列表 | `vllm/config/compilation.py` → `CompilationConfig._attention_ops` |
+
+Table: 线性注意力层源码导航
+
+</details>
+
+### 3. Kernel Fusion
 
 Kernel Fusion 的核心目标，是**把原本多个相邻的算子合并到一个 kernel 里执行**，从而减少中间结果的读写开销，降低 kernel launch 次数，并提升整体吞吐效率。对于大模型推理而言，很多算子本身的计算量并不大，但它们之间频繁地在 HBM 中读写中间 tensor，会让性能很快受限于显存带宽而不是算力。因此，Kernel Fusion 本质上是在做一件和 FlashAttention 非常相似的事情：**尽量让中间结果不落到 HBM，而是在片上完成连续计算。**
 
-**2.1 Kernel Fusion 的动机与收益**
+**3.1 Kernel Fusion 的动机与收益**
 
 在传统的未融合实现中，一个算子链通常会被拆成多个独立 kernel。例如以 `RMSNorm → RoPE → Residual` 为例：
 
@@ -534,7 +745,7 @@ Kernel Fusion优化带来的收益主要有三类：
 
 注意这个收益的来源和 FlashAttention 完全一致——**都是不让中间结果去 HBM 兜一圈**，只不过 FlashAttention 作用在一个算子内部，Kernel Fusion 作用在多个算子之间。
 
-**2.2 vLLM 中的 Kernel Fusion 实践**
+**3.2 vLLM 中的 Kernel Fusion 实践**
 
 在 vLLM 中，Kernel Fusion 已经被广泛用于推理链路的多个环节，尤其集中在 `csrc/libtorch_stable/` 下的 CUDA 实现中，目标就是尽可能把高频、低算力密度但高访存代价的操作合并执行。下面这些算子就是比较典型的例子：
 
@@ -563,7 +774,7 @@ Table: vLLM 里的融合算子
 
 可以看到，vLLM 的融合并不局限于某一个单点优化，而是围绕整个推理链路进行系统性的改造。其思路是：凡是存在“中间结果写回 HBM 再继续处理”的地方，都尽量尝试融合。
 
-### 3. 小结
+### 4. 小结
 
 Kernel Fusion 和 FlashAttention 的共同点在于，它们都在解决同一个根本问题：
 **把本可以在片上连续完成的计算，尽量压缩成一次执行，避免中间结果落到 HBM。**
@@ -1061,6 +1272,7 @@ Table: 投机解码源码导航
 - forward 之前，`GPUModelRunner` 把 `SchedulerOutput` 翻译成 GPU 数据结构：`_update_states()` 增量更新常驻的 `InputBatch`，`_prepare_inputs()` 拼出扁平的 `input_ids` / `positions` 并用 Triton kernel 算 `slot_mapping`（每个 token 的 KV 写去哪），`_build_attention_metadata()` 交出 `block_table`（每个请求能读哪些块）、`query_start_loc`、`seq_lens`，再由 dispatcher 选 CUDA Graph 还是 eager。`execute_model()` 全程异步入队，`sample_tokens()` 里 `transfer_event.synchronize()` 是一步唯一的同步点，async scheduling 连它也拿掉。
 - CUDA Graph 把一步 decode 的数百到上千次 kernel 提交合并为一次图重放，消除 Kernel Launch 气泡；代价是图内形状必须固定，因此要按 batch 形态捕获、按模式（如 `FULL_DECODE_ONLY`）取舍显存与收益。
 - FlashAttention 与 Kernel Fusion 优化的是同一个量——HBM 流量 = 搬运次数 × 每次搬运的数据量——前者是注意力内部的"算子内融合"（Tiling + Online Softmax，N×N 矩阵不落 HBM），后者是推理链路上的"算子间融合"；vLLM 通过 Attention Backend Selector 按硬件与 workload 路由到不同实现。
+- 混合模型里的线性注意力层（Qwen3-Next 的 Gated DeltaNet）不走 softmax attention 的后端：每个请求每层只存一份定长状态（32 × 128 × 128），decode 用递归 kernel 原地读写这份状态，prefill 用分块算子——块长 64，五个 kernel 按块并行，只有 `chunk_gated_delta_rule_fwd_h` 沿块串行，2050 token 是 33 步而不是 2050 步。prefill 的实现按平台三选一（H100 上默认 FlashInfer，其余回落到随源码分发的 FLA Triton kernel）；FULL CUDA Graph 只覆盖 decode；投机解码靠每请求 `num_spec + 1` 个状态槽代替回滚。
 - 低精度推理让每次搬运的数据本身变小，与减少搬运次数正交、可叠加；权重量化直接减半 decode 的权重读取带宽，FP8 / INT4 还能用上 Tensor Core 的特殊指令。
 - 投机解码用闲置算力换延迟，且不改变输出分布：Draft 猜 K 个、Target 一次 forward 验证，拒绝采样（接受概率 $$\min(1, q/p)$$，被拒后从 $$\max(0, q-p)$$ 的残差分布重采）保证与直接用 Target 采样一致，greedy 下逐 token 相同。候选可以抄历史（n-gram、suffix）、外挂头（EAGLE、Medusa）、模型自带（MTP）或用独立小模型；vLLM 里统称 Proposer，EAGLE / MTP / draft model 共用 `SpecDecodeBaseProposer`，有自己的 KV cache group。
 - 在 vLLM 里，调度器把 `1+K` 算进 token 预算（预算紧时截断 draft，prefill 阶段不调度 draft），用 `num_lookahead_tokens` 为 draft 模型预留槽位，步后 `num_computed_tokens -= num_rejected` 就是全部的"KV 回滚"——物理槽位不清理、不释放；model runner 的 logits 变成 `[num_reqs + Σdrafts, V]`，"纯 decode batch"变成每请求 `1+K` 个 token，截断 draft 会让 batch 掉出 FULL 图；EAGLE 命中 prefix cache 时主动少算一块。
@@ -1132,5 +1344,14 @@ Table: 投机解码源码导航
 
    </details>
 
+9. Qwen3-Next 的一个 Gated DeltaNet 层 prefill 2050 个 token：分块算子切成多少块？六个 kernel 里哪一个沿块串行，为什么其余五个可以并行？这个请求下一个调度步继续 prefill 时，状态从哪里来？
+
+   <details markdown="1"><summary>答案</summary>
+
+   块长 64，$$\lceil 2050 / 64 \rceil = 33$$ 块。串行的是 `chunk_gated_delta_rule_fwd_h`：每块的起点状态依赖上一块的末状态，它的 Triton grid 里没有「块」这一维，在 kernel 内用循环走 33 步，并把每块起点的状态存进 `h`。其余五个 kernel 只用到块内的 `k`、`v`、`g`、`beta`（①–④）或已经存好的 `h`（⑥），块与块互不依赖。下一步续算时，Builder 给出 `has_initial_state = context_lens > 0` 为真，层从 `ssm_state[prefill_state_indices]` 读回上一步写入的末状态作为 `initial_state`，不需要回读任何历史 token。
+
+   </details>
+
 [^q0]: 浪费只有四种形态，对应四类手段。**等 CPU 发指令**（launch-bound）：一步 decode 有几百到上千次 kernel 提交，单个 kernel 的 GPU 时间短于 CPU 提交它的时间时 GPU 出现气泡；CUDA Graph 把整步捕获成一张图一次重放，代价是图内形状必须固定——按 batch 大小分桶捕获、padding 到桶（[第三章](#三gpu-为什么在空转-kernel-launch-与-cuda-graph)）。**等 HBM 送数据**（memory-bound）：decode 每步读全部权重与 KV，Llama-3-70B TP8 一步权重读取下界约 5.3 ms、实测约 10 ms；手段是算子融合（残差 + RMSNorm、SiLU-mul、RoPE + cache 写入合成一个 kernel）与 attention backend 的选择（[第四章](#四数据为什么搬不动-压缩-hbm-流量)）。**搬的每个数太胖**：量化——权重 INT4 / FP8 让读取字节减 2–4 倍，KV FP8 减半，对 memory-bound 的 decode 直接换成时间（[第五章](#五能不能少搬几个字节-低精度推理)）。**轮次本身太多**：投机解码让 Draft 一次猜 K 个、Target 一次 forward 验证，拒绝采样保证输出分布不变；vLLM 里 draft 进 token 预算、为 draft 模型预留 lookahead 槽位、步后回滚 `num_computed_tokens`，一步里 `batch × (1+K)` 超过约 300 个 token 后验证不再免费（[第六章](#六能不能少跑几轮模型-投机解码)）。账本：Prefill 2050 token 约 92 ms 只占 3%，300 步 decode 约 3000 ms 占 97%——所以绝大多数优化针对 Decode。
 [^q1]: 在 Worker 里的 `GPUModelRunner.execute_model()` 前半段，分四步：`_update_states()` 按 `SchedulerOutput` 增删、更新常驻 `InputBatch` 的行与 block table；`_prepare_inputs()` 把各请求本轮的 token 扁平成 `input_ids` / `positions` 经 pinned buffer 异步 H2D，并用 Triton kernel 由 block table 算出每个 token 的 `slot_mapping`（Prefix Cache 命中的 token 已计入 `num_computed_tokens`，不在本轮里）；`_build_attention_metadata()` 交出 `block_table_tensor`、`slot_mapping`、`query_start_loc`、`seq_lens`；`_determine_batch_execution_and_padding()` 经 `cudagraph_dispatcher.dispatch()` 决定 FULL / PIECEWISE / eager 并 pad 到桶。GPU 不等它，是因为 `execute_model()` 里的拷贝和 kernel 全部 `non_blocking` 入队（`commit_block_table()` 还被提到最前与 numpy 计算重叠），整步唯一的 CPU 等 GPU 点是 `sample_tokens()` 里 `_bookkeeping_sync()` 的 `transfer_event.synchronize()`；开 async scheduling 后连这一点也移到独立 copy stream 上。详见[第二章](#二forward-之前scheduleroutput-如何变成-gpu-张量)。
+[^q2]: 走 Gated DeltaNet 自己的一套：层在 `vllm/model_executor/layers/mamba/gdn/`，metadata 由 `GDNAttentionMetadataBuilder` 构造，状态是 `MambaSpec` 下每请求一份定长的 `ssm_state`（Qwen3-Next 为 32 × 128 × 128）加卷积状态，kernel 来自随源码分发的 flash-linear-attention。两个阶段算的是同一个递推，但算法不同：decode 每步 1 个 token，用递归 kernel 原地读写状态，成本与上下文长度无关；prefill 若用递归要串行 N 步且没有矩阵乘，所以用分块算子——块长 64，块内解一个 64 × 64 的下三角方程组并做矩阵乘，块间只传状态，2050 token 串行 33 步。prefill 的实现按平台在 FlashInfer、CuTe DSL、Triton / FLA 之间选。详见[第四章第 2 节](#2-线性注意力层没有-nn-矩阵换成一条状态链)。

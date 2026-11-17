@@ -3,7 +3,7 @@ layout: post
 title: 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术（总纲）
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-17
 ---
 
 
@@ -240,7 +240,7 @@ KV Cache 并不是普通的临时张量。它是 Decode 阶段持续依赖的请
 
 > **调度器交出来的 `SchedulerOutput` 只说「哪个请求本轮推进多少 token」，它怎样变成 kernel 要的 `input_ids`、`slot_mapping`、`block_table`？一步之内 CPU 与 GPU 在哪里等谁？[^q9]**
 
-然后讨论 Kernel Launch、CUDA Graph、FlashAttention 与算子融合、低精度，以及投机解码。
+然后讨论 Kernel Launch、CUDA Graph、FlashAttention、线性注意力层（Qwen3-Next 这类混合模型里的 Gated DeltaNet：decode 用递归 kernel、prefill 用分块算子）、算子融合、低精度，以及投机解码。
 
 这一章重点区分两类常被混淆的问题：
 

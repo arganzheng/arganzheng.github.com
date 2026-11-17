@@ -6,7 +6,7 @@ subtitle: "The Cost of Long Context: KV Cache, Quadratic Prefill and Structural 
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-04 14:00:00
-updated: 2026-11-14
+updated: 2026-11-17
 ---
 
 > **本篇在系列中的位置。** 现代 LLM 结构系列的第五篇。第 03 篇讲了位置能不能外推，第 04 篇讲了 KV cache 的账，本篇先算长上下文下 KV cache、prefill 与中间量各涨成什么函数，再比较线性 attention、SSM 与混合架构如何改变历史信息的保存方式。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
@@ -35,11 +35,11 @@ updated: 2026-11-14
 |---|---|---|
 | 二 | 长上下文的成本 | attention 算量与权重算量的交叉点、128K prefill 的 11 秒、KV cache 线性项、s² 的 logits |
 | 三 | 缩短成本的结构手段 | sliding window、全局/局部交错、attention sink、稀疏 attention；每种手段改成了什么函数 |
-| 四 | 换掉 attention：线性 attention、SSM 与混合架构 | 递归状态、已发表层比例、Qwen3-Next 配置内存算例 |
+| 四 | 换掉 attention：线性 attention、SSM 与混合架构 | 递归状态、delta rule、同一个算式的三种算法（递归 / 并行 / 分块）、已发表层比例、Qwen3-Next 配置内存算例 |
 | 五 | 对 Infra 的影响汇总 | 并发数、TTFT、chunked prefill、序列并行 |
 | 六 | 实践 | `llm_cost.py` 上下文长度扫描 |
 | 七 | 本文小结 |  |
-| 八 | 自测 | 5 道题 |
+| 八 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -187,8 +187,9 @@ dense causal 是整个下三角，深色格子数随 $$s$$ 平方增长；滑窗
 | sink + window | $$b \cdot L \cdot (4 + \min(s, W))$$ | $$4dL \cdot (4 + \min(s, W))$$ |
 | 块稀疏（保留 $$\rho$$） | $$b \cdot L \cdot s$$（一般不减） | $$4dL \cdot s \cdot \rho$$ + 选择开销 |
 | MLA（DeepSeek-V3） | $$(d_c + d_h^R) \cdot 2\,\text{B} \cdot L \cdot s$$（系数减 57 倍） | 与 full attention 同阶（吸收后 FLOPs 更高） |
+| 线性 attention（[第四章](#四换掉-attention线性-attentionssm-与混合架构)） | 每层每头一个 $$d_k \times d_v$$ 的状态，与 $$s$$ 无关 | 递归形式 $$O(d_k d_v)$$、分块形式 $$O(C\,(d_k + d_v) + d_k d_v)$$，都与 $$s$$ 无关 |
 
-Table: full attention 与五种手段的 KV cache 与算量函数
+Table: full attention 与六种手段的 KV cache 与算量函数
 
 值得注意的是最后一行：MLA 减的是 KV cache 的**系数**（从 3.81 MiB 到 68.6 KiB），不改变它对 $$s$$ 的线性依赖，也不减少 attention 算量；而滑窗改的是**阶**（从 $$s$$ 到常数），但丢信息。两者正交，可以叠加。
 
@@ -219,7 +220,103 @@ $$
 
 [Gated Delta Networks](https://arxiv.org/html/2412.06464)把 delta rule 的“用新观测修正状态”与门控遗忘结合起来；Qwen3-Next 使用 Gated DeltaNet 作为混合架构中的线性 attention。线性状态让缓存不随上下文线性增长，但状态是对历史的压缩，精确检索与长程信息保真需要用具体任务评估，不能只看复杂度阶。
 
-### 3. 混合架构的已发表层比例
+第 1 节的线性 attention 每步只往状态上加一项。Gated DeltaNet 的一步写成更新式是：
+
+$$
+u_t=\beta_t\,\big(v_t-\alpha_t S_{t-1}^\top k_t\big),\qquad
+S_t=\alpha_t S_{t-1}+k_t u_t^\top
+$$
+
+其中 $$\alpha_t$$、$$\beta_t$$ 是由当前 token 算出的两个 0 到 1 之间的门。这一步做三件事：
+
+1. 遗忘：$$\alpha_t$$ 把旧状态整体乘小。
+2. 读出旧值：$$S_{t-1}^\top k_t$$ 是状态里 $$k_t$$ 这个方向上已经存着的 value。
+3. 只写差额：写入的 $$u_t$$ 是「新值减旧值」的 $$\beta_t$$ 倍，不是 $$v_t$$ 本身。
+
+取 $$\alpha_t = \beta_t = 1$$、$$k_t$$ 为单位向量，更新后再用 $$k_t$$ 去读，读到的恰好是 $$v_t$$：旧值被改写了。第 1 节的加法形式做不到这一点，它只会把新旧两个 value 叠在一起。
+
+### 3. 同一个算式的三种算法：递归、并行、分块
+
+> **递归状态一次只吃一个 token，那一个 128K 的 prompt 要串行更新 131,072 步吗？[^q2]**
+
+不用。递归式只是三种等价算法中的一种，[RetNet](https://arxiv.org/html/2307.08621) 把它们并列写了出来。下面用 4 个 token 手算一遍，取第 1 节的加法形式，$$d_k = 2$$、$$d_v = 1$$，$$\phi$$ 为恒等映射：
+
+| token | $$k_t$$ | $$v_t$$ | $$q_t$$ |
+|---:|---|---:|---|
+| 1 | (1, 0) | 2 | (1, 0) |
+| 2 | (0, 1) | 3 | (1, 1) |
+| 3 | (1, 1) | 1 | (0, 1) |
+| 4 | (1, 0) | 4 | (1, 1) |
+
+Table: 手算例使用的 4 个 token
+
+![线性注意力的递归、并行、分块三种形式](/img/in-post/long-context-cost-linear-attention-three-forms.svg)
+
+**1、递归形式：一步一个 token。** 按 $$S_t = S_{t-1} + k_t v_t$$ 更新，再读 $$o_t = q_t^\top S_t$$：
+
+| $$t$$ | 加上的 $$k_t v_t$$ | $$S_t$$ | $$o_t$$ |
+|---:|---|---|---:|
+| 1 | (2, 0) | (2, 0) | 2 |
+| 2 | (0, 3) | (2, 3) | 5 |
+| 3 | (1, 1) | (3, 4) | 4 |
+| 4 | (4, 0) | (7, 4) | 11 |
+
+Table: 递归形式的逐步状态与输出
+
+串行 4 步，任何时刻只存一个 $$S$$。decode 用的就是这种形式。
+
+**2、并行形式：把递归展开成一次矩阵乘。** 把 $$S_t$$ 逐步代回去，得到 $$o_t = \sum_{j \le t} (q_t^\top k_j)\,v_j$$，写成矩阵是：
+
+$$
+O=\operatorname{tril}(QK^\top)\,V
+$$
+
+图中间的 4 × 4 矩阵就是 $$\operatorname{tril}(QK^\top)$$，每行乘 $$v = (2, 3, 1, 4)$$ 得 (2, 5, 4, 11)，与递归形式逐项相同。它没有串行步骤，但中间量是 $$T \times T$$：这就是去掉 softmax 的 full attention，算量回到 $$O(T^2)$$。
+
+**3、分块形式：块内用并行，块间用递归。** 把序列切成长 $$C$$ 的块，第 $$c$$ 块的 $$Q$$、$$K$$、$$V$$ 记作 $$Q_{[c]}$$、$$K_{[c]}$$、$$V_{[c]}$$，$$S_{[c]}$$ 是这一块结束时的状态：
+
+$$
+O_{[c]}=Q_{[c]}\,S_{[c-1]}+\operatorname{tril}\big(Q_{[c]}K_{[c]}^\top\big)\,V_{[c]},\qquad
+S_{[c]}=S_{[c-1]}+K_{[c]}^\top V_{[c]}
+$$
+
+图右取 $$C = 2$$：
+
+| 块 | 进入时的状态 | 块间项 $$Q_{[c]} S_{[c-1]}$$ | 块内项 | 输出 | 结束时的状态 |
+|---|---|---|---|---|---|
+| 块 1（token 1、2） | (0, 0) | (0, 0) | (2, 5) | (2, 5) | (2, 3) |
+| 块 2（token 3、4） | (2, 3) | (3, 5) | (1, 6) | (4, 11) | (7, 4) |
+
+Table: 分块形式的逐块计算
+
+图右下角那个 2 × 2 的矩形是块 2 对块 1 的全部依赖。分块形式没有逐项算它，只读了一个状态 $$S_2 = (2, 3)$$。序列再长，每多一个块也只多算一个 $$C \times C$$ 的三角和一次状态读写。
+
+三种形式的成本如下，$$C = 1$$ 时分块退化成递归，$$C = T$$ 时退化成并行：
+
+| 形式 | 串行步数 | 每 token 算量 | 中间量 | 用在哪 |
+|---|---:|---|---|---|
+| 递归 | $$T$$ | $$O(d_k d_v)$$ | 一个状态 | decode |
+| 并行 | 1 | $$O(T\,(d_k + d_v))$$ | $$T \times T$$ | 短序列 |
+| 分块 | $$T / C$$ | $$O(C\,(d_k + d_v) + d_k d_v)$$ | 每块 $$C \times C$$，块间一个状态 | 训练、prefill |
+
+Table: 线性 attention 三种形式的成本
+
+取中间值的理由在硬件。递归形式每步是逐元素的小运算，用不上 GPU 的矩阵乘单元，128K 的 prompt 要串行 131,072 步。分块后块内全是矩阵乘，串行的只剩块间那条状态链，$$C = 64$$ 时是 2,048 步。[GLA](https://arxiv.org/html/2312.06635) 讨论了这种面向 GPU 的分块实现；开源库 [flash-linear-attention](https://github.com/fla-org/flash-linear-attention) 的 Gated DeltaNet 分块算子默认取 $$C = 64$$。
+
+**delta rule 的分块多两步。** 加法形式里每个 token 写入状态的是 $$v_t$$ 本身，同一块内谁先写谁后写互不影响，块内可以直接并行。上一节的 delta rule 写入的是 $$u_t$$，它依赖 $$S_{t-1}$$：同一块里前面 token 的写入，会改变后面 token 读到的旧值。把这层依赖展开，块内的 $$u$$ 满足一个 $$C \times C$$ 的下三角方程组（$$i$$、$$j$$ 是块内序号，$$\gamma_i = \prod_{j \le i} \alpha_j$$ 是块内累计衰减）：
+
+$$
+u_i=\beta_i\Big(v_i-\gamma_i\,S_{[c-1]}^\top k_i-\sum_{j<i}\frac{\gamma_i}{\gamma_j}\,(k_j^\top k_i)\,u_j\Big)
+$$
+
+多出来的两步是：
+
+1. 算块内 $$KK^\top$$ 的下三角，即上式里的 $$k_j^\top k_i$$。
+2. 解一次 $$C \times C$$ 的三角方程组，得到整块的 $$u$$。
+
+之后用 $$u$$ 取代 $$v$$、乘上衰减因子，就回到上面的分块公式。[DeltaNet 的并行化论文](https://arxiv.org/html/2406.06484)给出了完整推导。这两步都是 $$C \times C$$ 的小矩阵运算，「块内并行、块间一条状态链」的结构不变。
+
+### 4. 混合架构的已发表层比例
 
 不少模型并非在“全层 full attention”和“全层线性 attention”之间二选一，而是周期性保留 full-attention 层：
 
@@ -234,7 +331,7 @@ Table: 混合架构中线性层与全注意力层的比例
 
 比例是论文或官方配置中报告的层级配比，不代表不同模型的状态大小、质量或速度可以直接等同。MiniMax 后续在 M2 选择 full attention；[官方解释](https://www.minimax.io/news/why-did-m2-end-up-as-a-full-attention-model)强调，纸面上的高效 attention 不必然在复杂生产系统中胜过 full attention。
 
-### 4. Qwen3-Next：128K 与 1M 的每序列状态估算
+### 5. Qwen3-Next：128K 与 1M 的每序列状态估算
 
 用[官方 `Qwen3-Next-80B-A3B-Instruct` 配置](https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct/raw/main/config.json)估算单个序列的推理状态。配置给出 48 层、`full_attention_interval = 4`，即 12 层 full attention 与 36 层线性层；full-attention 的 `num_key_value_heads = 2`、`head_dim = 256`，线性状态字段为 32 个 value heads、key/value head dim 都是 128，权重 dtype 为 BF16（2 bytes）。这里仅计 KV 与线性 attention 的递归矩阵状态，不计卷积状态、权重、临时激活、框架与 allocator 开销。
 
@@ -261,6 +358,8 @@ $$
 Table: 不同上下文长度下的 Qwen3-Next 状态显存估算
 
 1M 这一行只是按 24 KiB/token 线性外推；该配置的 `max_position_embeddings` 是 262,144，表格**不表示**模型配置支持 1M 上下文。递归状态不会随 $$T$$ 变长，但长程信息被压进有限维状态，精确检索质量与 full attention 不等价。
+
+prefill 的算量也分成两部分。36 层线性层走分块形式，每 token 算量与 $$s$$ 无关，整段 prefill 对 $$s$$ 是线性的。二次项只剩 12 层 full attention：第二章的二次项系数是 $$4dL$$，这里 $$L$$ 从 48 变成 12，是全层 attention 对照的 1/4。混合结构降低的是二次项的系数，阶没有变。
 
 ## 五、对 Infra 的影响汇总
 
@@ -399,7 +498,7 @@ Llama-3-70B: KV 320.0 KiB/token, weights 139.0 GFLOPs/token
 上下文长度是对 Infra 成本最敏感的维度。本篇的结论：
 
 1. 长上下文的成本有一个线性项（KV cache）、一个二次项（prefill 的 attention）和一个不能物化的中间量（$$s \times s$$ logits）。Llama-3-70B 128K 每 token attention 344 GFLOPs 超过权重 141 GFLOPs；Llama-3-8B 128K prefill 6.5 PFLOP、60% MFU 约 11 s。滑窗让单序列 KV 与每步 decode attention 限于 $$O(W)$$，整段 prefill attention 则由 $$O(s^2)$$ 变成 $$O(sW)$$ 但丢信息；全局/局部交错把系数变成 $$1/k$$；sink + 滑窗让 full attention 模型能流式运行；MLA 减 KV 的系数不改阶。
-2. 线性 attention 与 SSM 把历史压入固定大小的递归状态；混合架构用周期性的 full-attention 层保留直接访问路径。按 Qwen3-Next 配置估算，BF16 下 128K 的 full KV 对照为 12 GiB，混合结构的 full KV 加矩阵状态约 3.04 GiB；1M 行是超出配置最大位置后的外推，不代表原生支持。
+2. 线性 attention 与 SSM 把历史压入固定大小的递归状态；混合架构用周期性的 full-attention 层保留直接访问路径。同一个线性 attention 有递归、并行、分块三种等价算法：decode 用递归，训练与 prefill 用分块，块内是 $$C \times C$$ 的矩阵乘，块间只传一个状态，128K 的 prompt 在 $$C = 64$$ 时串行 2,048 步而不是 131,072 步。按 Qwen3-Next 配置估算，BF16 下 128K 的 full KV 对照为 12 GiB，混合结构的 full KV 加矩阵状态约 3.04 GiB；1M 行是超出配置最大位置后的外推，不代表原生支持。
 3. 对 Infra：KV cache 决定并发数，prefill 二次项决定 TTFT 下界，chunked prefill 是为了不让一个 128K 请求独占 GPU 11 s，序列并行是为了把单请求的 KV、激活与 TTFT 分到多卡。
 
 本篇算出的数字汇总（theoretical，BF16，H100 60% MFU）：
@@ -466,6 +565,15 @@ DeepSeek-V3 的 attention FLOPs 按未吸收的朴素形式（128 头、q/k 192 
 
    </details>
 
+6. 第四章的手算例里，把 token 3 的 $$q_3$$ 从 (0, 1) 改成 (1, 0)，分块形式（$$C = 2$$）下 $$o_3$$ 的块间项、块内项各是多少？一个 131,072 token 的 prompt 取 $$C = 64$$，串行步数是多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   块间项 $$q_3^\top S_2 = (1, 0) \cdot (2, 3) = 2$$，块内项 $$(q_3^\top k_3)\,v_3 = 1 \times 1 = 1$$，$$o_3 = 3$$（与递归形式的 $$q_3^\top S_3 = (1, 0) \cdot (3, 4) = 3$$ 相同）。串行步数是 $$131072 / 64 = 2048$$，递归形式是 131,072。见[第四章第 3 节](#3-同一个算式的三种算法递归并行分块)。
+
+   </details>
+
 
 [^q0]: 贵在三处：KV cache 随 $$s$$ 线性增长（Llama-3-8B 128K 一个请求 16 GiB，与权重一样大），决定并发数；prefill 的 attention 随 $$s^2$$ 增长（8B 128K 约 6.5 PFLOP，单卡 60% MFU 约 11 s，attention 占 70%），决定 TTFT；$$s \times s$$ 的 logits 128K 时单头 32 GiB，只能靠 FlashAttention 不物化。详见[第二章](#二长上下文的成本)。
 [^q1]: 滑窗把单序列 KV 与每步 decode attention 从 $$O(s)$$ 改成 $$O(W)$$，整段 prefill attention 从 $$O(s^2)$$ 改成 $$O(sW)$$，但窗口外的信息只能逐层间接传递；全局/局部交错不改阶，只把系数变成全局层占比 $$1/k$$；sink + 滑窗让 full attention 训练的模型能稳定处理流式输入，代价同滑窗；块稀疏减算量但一般不减 KV，并引入不规则访存。MLA 改的是 KV 的系数而非阶，可与上面叠加。详见[第三章](#三缩短成本的结构手段)。
+[^q2]: 不用。线性 attention 有三种结果相同的算法：递归（一步一个 token，串行 $$T$$ 步，只存一个状态）、并行（$$\operatorname{tril}(QK^\top)V$$ 一次矩阵乘，中间量 $$T \times T$$）、分块（块内用并行、块间用递归，串行 $$T / C$$ 步）。decode 用递归；训练与 prefill 用分块，131,072 token 取 $$C = 64$$ 时串行 2,048 步，块内全是矩阵乘。delta rule 的分块在块内多算一个 $$KK^\top$$ 下三角、多解一次 $$C \times C$$ 三角方程组，结构不变。详见[第四章](#四换掉-attention线性-attentionssm-与混合架构)。

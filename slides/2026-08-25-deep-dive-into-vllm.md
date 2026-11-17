@@ -625,6 +625,18 @@ flowchart TB
 
 <!-- v -->
 
+### 线性注意力层：decode 走递归，prefill 走分块
+
+![线性注意力的递归、并行、分块三种算法](/img/in-post/long-context-cost-linear-attention-three-forms.svg){: style="max-height: 380px"}
+
+**Gated DeltaNet 每请求每层只存一份状态；prefill 2050 token = 33 块，串行 33 步而不是 2050 步。**
+
+<aside class="notes" markdown="1">
+原文：[/gpu-execution-kernels-and-graphs.html#2-线性注意力层没有-nn-矩阵换成一条状态链](/gpu-execution-kernels-and-graphs.html#2-线性注意力层没有-nn-矩阵换成一条状态链)。Qwen3-Next 48 层里 36 层是 Gated DeltaNet，不走 softmax attention 的后端：层在 `layers/mamba/gdn/`，后端 `GDN_ATTN`，状态是 `MambaSpec` 下每请求一份 32 × 128 × 128 的 `ssm_state` 加卷积状态。decode 用递归 kernel（遗忘 → 读旧值算差额 → 秩 1 写入 → 读出），成本与上下文长度无关。prefill 用分块算子，块长 64，六个 Triton kernel 里五个按块并行，只有 `chunk_gated_delta_rule_fwd_h` 沿块串行；delta rule 让块内多解一个 64 × 64 的下三角方程组。实现按平台三选一：H100 默认 FlashInfer，Blackwell 可选 CuTe DSL，其余是随源码分发的 FLA Triton kernel。调度器的 chunked prefill 跨步续算靠写回的 `ssm_state`，不回读历史 token。FULL CUDA Graph 只覆盖 decode；autotune 在 profile run 里预热；投机解码每请求留 `num_spec + 1` 个状态槽，从 `num_accepted_tokens - 1` 号槽恢复。
+</aside>
+
+<!-- v -->
+
 ### 投机解码：少跑几轮 forward
 
 **无损：只改每步决定的位置数；batch 1、接受长度 2.5 约 2.1×，batch 128 每步慢 1.9 倍**
