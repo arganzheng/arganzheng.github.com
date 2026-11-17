@@ -5,7 +5,7 @@ title: Python 在 AI-Infra（06）：单元测试、问题定位与调试实践
 subtitle: Python Unit Testing, Troubleshooting, and Debugging
 tags: [Python]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-16
 ---
 
 两个都发生过的场景。第一个：一次改动通过了 CI 里全部四百个测试，上线半小时后服务 OOM——测试里把模型客户端 mock 成了一个立刻返回的函数，真实客户端在超时后会把请求留在一个重试队列里，而那个队列没有上限；测试全绿，因为它测的根本不是上线跑的那条路。第二个：一个训练任务的进程"卡住"了——CPU 0%、GPU 0%、日志停在四十分钟前、进程没有崩，`kill -9` 之前没有人知道它停在哪一行；事后发现是一个集合通信在等一个已经退出的 rank。
@@ -25,6 +25,22 @@ AI-Infra 的 Python 代码——异步调度、动态 batch、多后端切换、
 - **测试**：`pytest`、`unittest.mock`、`pytest-asyncio`、`pytest-cov`；
 - **调试**：`pdb`、`logging`、`traceback`、`inspect`；
 - **运行时诊断**：`tracemalloc`、`faulthandler`、`cProfile`。
+
+```mermaid
+%% 图：开发验证、故障定位与运行时诊断的衔接
+flowchart TB
+    A[开发者提交改动] --> B[pytest 收集并运行测试]
+    B --> C[fixture 提供对象<br/>Mock / monkeypatch 替换依赖]
+    C --> D[pytest-cov 检查覆盖]
+    D -- 测试失败 --> F[开发者定位<br/>pdb / logging / traceback / inspect]
+    E[线上监控或用户报告症状] --> F
+    F -- 需要运行时证据 --> G[工程师采集诊断数据<br/>tracemalloc 内存 / faulthandler 栈 / cProfile 耗时]
+    F -- 原因已明确 --> H[修复并补回归测试]
+    G --> H
+    H --> B
+```
+
+测试由开发者在本地或 CI 触发；线上诊断由症状触发，不必先重跑测试。两条路径最终都回到回归测试。
 
 全文按这三组工具的顺序展开：先用 pytest、fixture、Mock、pytest-asyncio 和 monkeypatch 把测试写对（第二到第六章），再用 pdb、logging、traceback 和 inspect 定位逻辑问题（第七到第十章），然后用 tracemalloc、faulthandler、cProfile 诊断运行时的内存、卡死与热点（第十一到第十三章），最后用 pytest-cov 检查覆盖，并把所有工具收敛成一张按症状选工具的决策树。
 
@@ -242,14 +258,27 @@ def db_connection():
     conn.close()
 ```
 
-`yield` fixture 在 `yield` 之后的代码作为 teardown 执行，即使测试失败也会运行，适合确保资源释放。
+`yield` fixture 在 `yield` 之后的代码作为 teardown 执行；只要 setup 已到达 `yield`，即使测试失败也会清理。进程被强制终止不在此保证内。
+
+| scope | 何时创建 | 谁共享对象 | 何时执行 teardown |
+| :--- | :--- | :--- | :--- |
+| function（默认） | 每个请求它的测试首次使用时 | 当前测试及其 fixture 依赖 | 当前测试结束 |
+| module | 模块内首次请求时 | 同模块内请求它的测试 | 该模块测试结束 |
+| session | 会话内首次请求时 | 会话内请求它的测试 | 测试会话结束 |
+
+Table: 非参数化 fixture 的创建、共享与清理时机
+
+参数化 fixture 在同一 scope 内也可能创建多个实例；scope 不是无条件的全局单例保证。
+
+> [!NOTE] 与 Java 对照：fixture 与测试资源生命周期
+> function 级 fixture 的 setup / teardown 可类比 JUnit 的 `@BeforeEach` / `@AfterEach`。但 fixture 通过测试参数按需注入，还能依赖其他 fixture；module / session scope 控制共享范围，不直接等同于某一个 JUnit 注解。共享可变对象时，要防止测试相互污染。
 
 三种 scope 的生命周期是一层套一层的。假设 `test_a.py` 里有 `test_1`、`test_2`，`test_b.py` 里有 `test_3`，三个测试都用到上面的 `model`、`db_connection` 和第三章开头的 `backend`（默认 `scope="function"`）：
 
 ```mermaid
 %% 图：三种 fixture scope 的生命周期嵌套：session 包住 module，module 包住每个测试
 flowchart TB
-    subgraph S["session：model 在第一个用到它的测试前加载，全部测试结束后释放"]
+    subgraph S["session：model 首次使用前加载，会话结束时清理"]
         direction TB
         subgraph M1["module test_a.py：db_connection 建一次，模块最后一个测试结束后 close"]
             direction TB
@@ -267,7 +296,7 @@ flowchart TB
 
 从图里能直接读出两条规则：
 
-1. **teardown 按 setup 的逆序执行**：`test_2` 结束时先拆 `backend`，再关 `test_a.py` 的 `db_connection`，`model` 要等 `test_3` 也结束后才释放。
+1. **teardown 按 setup 的逆序执行**：`test_2` 结束时先结束 function 级 fixture，再关 `test_a.py` 的 `db_connection`。本例 `model` 只用了 `return`，没有显式卸载逻辑；真实模型若需释放外部资源，应改用 `yield` 并写出清理步骤。
 2. **fixture 只能依赖范围不比自己窄的 fixture**：`db_connection`（module）可以用 `model`（session），反过来让 `model` 依赖一个 function 级的 fixture，pytest 会报 `ScopeMismatch`——外层对象活得比内层长，内层每个测试结束就被拆掉了。
 
 ### 2. 使用 conftest.py 共享 fixture
@@ -359,6 +388,24 @@ async_client = AsyncMock()
 - 异步函数使用 `AsyncMock`；
 - 不要用普通 `Mock` 模拟需要 `await` 的方法，否则测试可能无法发现协程调用错误。
 
+```mermaid
+%% 图：AsyncMock 的调用记录与等待记录
+flowchart TB
+    A[调用 backend.predict] --> B[记录 call_args<br/>返回协程对象]
+    B -- await 协程 --> C[记录 await_args / await_count]
+    C --> D{side_effect 是否设置}
+    D -- 否 --> E[返回 return_value]
+    D -- 异常 --> F[抛出指定异常]
+    D -- 异步函数 --> G[等待函数执行并返回结果]
+```
+
+- 调用了 mock，不代表已经等待它；`assert_called_once_with` 不能代替 `assert_awaited_once_with`。
+- 上面的超时例子在 `await` 时抛出 `TimeoutError`，不是创建协程时就抛。
+- `side_effect` 还支持同步函数和可迭代对象；图中只展开本章用到的路径。
+
+> [!NOTE] 与 Java 对照：Mock、AsyncMock 与 Mockito
+> 两边都能预设返回值、异常并验证调用。Mockito 通常围绕 Java 类型与方法工作；Python 的 `Mock` 默认可动态生成属性，需用 `spec` / `autospec` 收紧接口。`AsyncMock` 另外区分调用与等待，不等同于返回一个已完成的 `CompletableFuture`。
+
 ### 2. 使用 `patch` 替换模块中的对象
 
 前面的例子直接创建 `AsyncMock()` 并注入，适合构造函数接收依赖的场景。对于已经在模块中绑定的对象，可以使用 `unittest.mock.patch`：
@@ -369,7 +416,7 @@ from unittest.mock import patch, AsyncMock
 
 @patch("inference.backend.GPUBackend", autospec=True)
 def test_service_uses_backend(MockBackend):
-    # autospec=True 保留原类的方法签名，调用错误会被发现
+    # autospec=True 约束属性与调用签名，不做参数类型检查
     instance = MockBackend.return_value
     instance.predict.return_value = {"result": 42}
 
@@ -393,7 +440,7 @@ async def test_patch_as_context_manager():
 
 `patch` 与 `monkeypatch` 的区别：
 
-- `patch` 是 `unittest.mock` 提供的，支持 `autospec`（类型安全）、嵌套替换和装饰器用法，适合替换类、模块级对象；
+- `patch` 是 `unittest.mock` 提供的，支持 `autospec`（约束属性和调用签名，不检查参数类型）、嵌套替换和装饰器用法，适合替换类、模块级对象；
 - `monkeypatch` 是 pytest 内置 fixture，语法更简洁，适合替换环境变量、简单属性和函数。
 
 ## 五、异步代码测试
@@ -405,7 +452,7 @@ async def test_patch_as_context_manager():
 asyncio_mode = "auto"
 ```
 
-`auto` 模式下，所有 `async def test_*` 函数自动作为 asyncio 测试运行，无需逐个标注 `@pytest.mark.asyncio`。如果项目同时使用 trio 或 anyio，应改为 `strict` 模式并显式标注，避免框架冲突。
+在支持该配置的 pytest-asyncio 版本中，`auto` 模式会接管收集到的异步测试和异步 fixture，无需逐个标注 `@pytest.mark.asyncio`。如果项目同时使用 Trio 或 AnyIO，应使用 `strict` 模式：asyncio 测试显式标注，异步 fixture 使用 `@pytest_asyncio.fixture`，让各插件只接管自己的测试。事件循环 scope 的配置随插件版本演进，应固定依赖版本。
 
 测试异步函数：
 
@@ -421,7 +468,11 @@ async def test_async_predict(backend):
 
 ### 1. 测试超时
 
-```python title="测试超时：慢后端在 asyncio.timeout 下抛 TimeoutError"
+下面使用 Python 3.10–3.12 均可用的 `asyncio.wait_for`；`asyncio.timeout()` 上下文管理器需要 Python 3.11+。
+
+```python title="测试超时：慢后端在 asyncio.wait_for 下抛 TimeoutError"
+import asyncio
+
 @pytest.mark.asyncio
 async def test_request_timeout():
     backend = AsyncMock()
@@ -468,8 +519,8 @@ async def test_request_cancellation():
 
 ### 3. 检测未等待的协程
 
-```bash title="把 RuntimeWarning 当错误：抓未 await 的协程"
-pytest -W error::RuntimeWarning
+```bash title="同时提升协程警告与不可抛出异常警告"
+PYTHONTRACEMALLOC=25 pytest -W error::RuntimeWarning -W error::pytest.PytestUnraisableExceptionWarning
 ```
 
 也可以使用静态检查工具：
@@ -479,7 +530,7 @@ ruff check .
 mypy src/
 ```
 
-未使用 `await` 的代码可能不会立刻失败，因此应结合测试和静态检查。
+未 await 的协程通常在对象回收时发出 `RuntimeWarning`，不一定归属于创建它的测试。将警告升级为异常后，若发生在析构路径，pytest 可能转报 `PytestUnraisableExceptionWarning`，因此同时检查两类警告。`PYTHONTRACEMALLOC=25` 保存分配栈以帮助定位，不负责让测试失败，也不能保证延迟回收的问题都在本次测试内暴露。静态检查依赖启用的规则和类型信息，不能代替等待行为断言。
 
 > 关于 asyncio 事件循环、超时、取消和 `TaskGroup` 的详细机制，参见[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
@@ -559,6 +610,9 @@ flowchart TB
 `service` 里的函数调用 `download_model(...)` 时，在 `service` 模块的全局命名空间里查这个名字。`setattr("loader.download_model", …)` 只把 `loader` 里的名字改指向 fake，`service` 里的名字仍指向原函数，测试照样去下载真实模型。反过来，如果 `service.py` 写的是 `import loader`、调用 `loader.download_model(...)`，每次调用都现查 `loader` 模块的属性，这时替换 `loader.download_model` 才是对的。`unittest.mock.patch` 的目标字符串遵循同一条规则。
 
 > 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)的「名称绑定」与「`sys.modules` 缓存」两节。
+
+> [!NOTE] 与 Java 对照：名称替换与 Spring @MockBean
+> Spring 的 `@MockBean` 在应用上下文中替换 bean；`patch` / `monkeypatch` 修改的是 Python 模块或对象上的名称绑定，不会自动遍历依赖注入容器。相似的是隔离依赖，差别在替换边界：必须找到被测代码实际查找的名字，并在测试结束后恢复。
 
 ## 七、使用 pdb 定位 Python 逻辑问题
 
@@ -808,7 +862,7 @@ def setup_logging(level: str = "INFO") -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 ```
 
-如果库确实想在没有任何配置时避免"No handlers could be found"这类警告，标准做法是加一个 `NullHandler`——它什么也不做，只是占位：
+Python 3 中，日志记录通过级别过滤后，如果 logger 及其传播路径上没有 handler，会由默认的 `logging.lastResort` 将 WARNING 及以上消息写到 stderr。`"No handlers could be found"` 是 Python 2 时代的提示。库若希望未配置时保持安静，可以在包级 logger 上添加 `NullHandler`：
 
 ```python title="库的 __init__.py 里加 NullHandler"
 # 库的 __init__.py
@@ -817,7 +871,10 @@ import logging
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 ```
 
-对应 Java：这正是 SLF4X 门面模式解决的同一个问题——库依赖 SLF4J API 而不绑定具体实现，由应用选择 Logback 还是 Log4j2。Python 没有门面层，靠"库不配置"这个约定来达到同样的效果。
+`NullHandler` 不输出，但也不关闭传播；应用配置了祖先 logger 的 handler 后，仍可接收库日志。判断是否使用 `lastResort` 看的是有没有找到 handler，不是有没有 handler 最终输出。
+
+> [!NOTE] 与 Java 对照：库不配置日志与 SLF4J 门面
+> Java 库依赖 SLF4J API 而不绑定具体实现，由应用选择 Logback 或 Log4j2。Python 标准库 `logging` 同时提供 API 与处理器，没有相同的门面／绑定分层；“库只取 logger，应用配置输出”解决的是相近的配置归属问题。
 
 ### 5. 结构化日志与采集
 
@@ -850,7 +907,10 @@ class JsonFormatter(logging.Formatter):
 **输出到 stdout，不要自己写文件**。容器化部署下，日志采集是平台的职责：容器运行时会捕获 stdout/stderr 交给采集侧。应用自己写文件和做轮转会带来额外问题——文件在容器里、需要挂卷、需要自己处理轮转和清理。
 
 ```python title="日志写 stdout 而不是文件"
-logging.basicConfig(stream=sys.stdout, ...)     # 推荐
+import logging
+import sys
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 # 而不是 logging.FileHandler("/var/log/app.log")
 ```
 
@@ -950,11 +1010,12 @@ listener.start()
 
 不要吞掉原始异常：
 
-```python title="raise ... from exc 保留原始异常"
-try:
-    result = await backend.predict(inputs)
-except TimeoutError as exc:
-    raise BackendTimeoutError("prediction timed out") from exc
+```python title="raise ... from exc 标明后端超时的因果关系"
+async def predict(backend, inputs):
+    try:
+        return await backend.predict(inputs)
+    except TimeoutError as exc:
+        raise BackendTimeoutError("prediction timed out") from exc
 ```
 
 查看完整异常：
@@ -971,20 +1032,25 @@ except Exception:
 测试异常链：
 
 ```python title="用 __cause__ 测试异常链"
-with pytest.raises(BackendTimeoutError) as exc_info:
-    await service.predict(inputs)
+@pytest.mark.asyncio
+async def test_exception_cause(service, inputs):
+    # service fixture 注入一个 predict 时抛 TimeoutError 的后端
+    with pytest.raises(BackendTimeoutError) as exc_info:
+        await service.predict(inputs)
 
-assert isinstance(exc_info.value.__cause__, TimeoutError)
+    assert isinstance(exc_info.value.__cause__, TimeoutError)
 ```
 
 如果只写：
 
-```python title="没有 from 的 raise 丢掉因果链"
+```python title="没有 from 的 raise 仍保留隐式上下文"
+try:
+    run_inference()
 except Exception:
     raise RuntimeError("prediction failed")
 ```
 
-原始异常上下文可能丢失，后续很难判断问题究竟发生在网络、后端还是 Python 转换层。
+原异常仍在新异常的 `__context__` 中，默认 traceback 也会显示它。`raise ... from exc` 额外设置 `__cause__`，明确“这个错误由那个错误导致”；裸 `raise` 则重抛当前异常。`from None` 只隐藏默认展示中的上下文，`__context__` 本身仍可读取。
 
 ## 十、使用 inspect 排查动态调用问题
 
@@ -1008,8 +1074,7 @@ if not inspect.iscoroutinefunction(plugin.predict):
     original = plugin.predict
 
     async def async_wrapper(*args, **kwargs):
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, original, *args)
+        return await asyncio.to_thread(original, *args, **kwargs)
 
     plugin.predict = async_wrapper
 ```
@@ -1044,6 +1109,21 @@ for statistic in snapshot_after.compare_to(
     print(statistic)
 ```
 
+```mermaid
+%% 图：请求前后快照到分配行增长量的定位路径
+flowchart TB
+    A[启动 tracemalloc] --> B[请求前快照 before]
+    B --> C[运行同一批请求]
+    C --> D[请求后快照 after]
+    D --> E[after.compare_to before<br/>按 lineno 汇总差值]
+    B --> E
+    E --> F[检查 size_diff / count_diff<br/>回查增长的分配行]
+```
+
+- 差值表示两次快照间仍被追踪的分配净增长，不是期间累计分配量。
+- 分配行指出内存从哪里申请，不直接说明是谁仍持有引用。
+- 应先预热，再比较相同负载的多轮快照，区分缓存增长和持续泄漏。
+
 命令行调试：
 
 ```bash title="用 PYTHONTRACEMALLOC 环境变量开启追踪"
@@ -1057,7 +1137,7 @@ PYTHONTRACEMALLOC=25 python app.py
 - 不能直接反映 GPU 显存；
 - RSS 增长但 `tracemalloc` 无明显变化时，应检查原生库、mmap 或框架分配器。
 
-检查对象是否仍被引用：
+先查看垃圾回收统计；它不能直接判断某个对象被谁引用：
 
 ```python title="gc.collect 后看 gc.get_stats"
 import gc
@@ -1082,7 +1162,7 @@ assert reference() is None
 
 ## 十二、使用 faulthandler 排查卡死
 
-当 Python 进程没有崩溃，但长时间无响应时，可以启用：
+`-X faulthandler` 或 `enable()` 默认在段错误等致命信号发生时转储 Python 栈，并不会因为进程“长时间无响应”就自动输出：
 
 ```bash title="python -X faulthandler 启用"
 python -X faulthandler app.py
@@ -1096,7 +1176,7 @@ import faulthandler
 faulthandler.enable()
 ```
 
-定时打印所有线程的调用栈：
+排查卡死时，需要在可能阻塞的操作之前额外注册定时转储。下面两段接在上述 `import faulthandler` 之后执行：
 
 ```python title="每 10 秒转储所有线程调用栈"
 faulthandler.dump_traceback_later(10, repeat=True)
@@ -1108,6 +1188,15 @@ faulthandler.dump_traceback_later(10, repeat=True)
 faulthandler.cancel_dump_traceback_later()
 ```
 
+Unix 上也可预先注册用户信号，卡死时从另一个终端执行 `kill -USR1 <pid>`；Windows 不支持 `register()`：
+
+```python title="Unix 上按需触发线程栈转储"
+import faulthandler
+import signal
+
+faulthandler.register(signal.SIGUSR1, all_threads=True)
+```
+
 这对排查以下问题很有用：
 
 - 线程死锁；
@@ -1115,6 +1204,9 @@ faulthandler.cancel_dump_traceback_later()
 - 某个线程卡在锁上；
 - 外部调用长时间不返回；
 - 服务看似存活但没有处理请求。
+
+> [!NOTE] 与 Java 对照：faulthandler 与线程转储
+> `jstack` / `kill -3` 常用于获取 JVM 线程现场；`faulthandler` 也能提供线程栈，但通常需要预先启用定时或用户信号转储。Python 3.10–3.12 的这些接口主要给出 Python 栈，不是完整的原生栈或 asyncio Task 清单；线程卡在 C/CUDA 内部时，还需原生调试器或专用分析器。
 
 ## 十三、使用 cProfile 判断 Python 热点
 
@@ -1196,7 +1288,7 @@ htmlcov/index.html
 | 插件加载了错误的实现 | inspect | `inspect.getmodule()` / `inspect.getsourcefile()` |
 | 测试通过但不确定覆盖了哪些分支 | pytest-cov | `pytest --cov=src --cov-report=term-missing` |
 | Python 进程 RSS 持续增长 | tracemalloc | `PYTHONTRACEMALLOC=25 python app.py` |
-| 进程卡死，不崩溃也无日志 | faulthandler | `python -X faulthandler app.py` |
+| 进程卡死，不崩溃也无日志 | faulthandler | 预埋 `dump_traceback_later(10, repeat=True)` 或 Unix 用户信号转储 |
 | Python 层响应变慢 | cProfile | `python -m cProfile -s cumulative script.py` |
 | 需要快速验证单个函数 | pytest -q | `pytest -q tests/test_backend.py::test_xxx` |
 | 需要静态检查类型和风格 | ruff + mypy | `ruff check . && mypy src/` |
@@ -1204,6 +1296,8 @@ htmlcov/index.html
 Table: 调试决策树：症状、首选工具与命令
 
 ## 十六、附：Java 与 Python 测试调试工具对照
+
+下表用于跨主题速查，不表示工具一一等价；使用边界见各章的就近对照。
 
 | 维度 | Java | Python |
 |------|------|--------|
@@ -1296,7 +1390,7 @@ graph TD
 
    <details markdown="1"><summary>答案</summary>
 
-   其实**没丢**：在 `except` 块里 `raise` 一个新异常，Python 会自动把原异常挂到 `__context__` 上，traceback 里打印 "During handling of the above exception, another exception occurred"，原始 traceback 也还在 `e.__traceback__`（3.12 验证）。丢的是**语义**——隐式链表示"处理时又出了错"，而不是"这个错是那个错导致的"。所以写 `raise RuntimeError("load failed") from e`（显式链，`__cause__`，打印 "The above exception was the direct cause"），或直接裸 `raise` 重抛；`from None` 才是刻意切断链。
+   原异常仍保留在新异常的 `__context__` 中，默认 traceback 会展示它。`raise RuntimeError("load failed") from e` 通过 `__cause__` 明确因果关系；裸 `raise` 重抛当前异常。`from None` 隐藏默认展示中的上下文，不会删除 `__context__`。
 
    </details>
 
@@ -1304,7 +1398,7 @@ graph TD
 
    <details markdown="1"><summary>答案</summary>
 
-   cProfile 只看 Python 主线程 CPU 时间，看不到 GPU 与其他线程；先用 `torch.profiler` / Nsight 看时间线上 GPU 是否在等 CPU（kernel launch 稀疏），若是则那 60% 就是真瓶颈（Python 开销让 GPU 饿着），否则优化它对端到端无益。
+   cProfile 默认统计被分析线程中函数调用的经过时间，不是单纯的 CPU 时间，也不直接呈现 GPU 时间线或自动覆盖其他线程。先用 `torch.profiler` / Nsight 看 GPU 是否在等 CPU，再将空隙与 Python 热点对应；只有比例还不足以判断端到端瓶颈。
 
    </details>
 
