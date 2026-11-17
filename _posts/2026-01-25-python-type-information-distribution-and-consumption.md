@@ -788,9 +788,9 @@ Table: 静态检查与运行时检查的分工
 ```mermaid
 %% 图：信任边界：入口运行时校验，内部依靠静态检查
 flowchart TB
-    IN["HTTP 请求体 JSON<br/>{'prompt': 'hi', 'max_tokens': '16'}"] --> V["<b>入口：Pydantic 校验</b><br/>'16' 转成 16；类型或范围不符抛 ValidationError，返回 422"]
-    V --> OBJ["CompletionRequest 对象<br/>字段类型已经和注解一致"]
-    OBJ --> CORE["<b>内部：engine.generate(...)</b><br/>不再做运行时检查，由 mypy / pyright 在 CI 保证调用处类型正确"]
+    IN["HTTP 请求体 JSON<br/>{'prompt': 'hi', 'max_tokens': '16'}"] --> V["<b>入口：FastAPI 调用 Pydantic</b><br/>'16' 转成 16；请求校验失败默认返回 422"]
+    V --> OBJ["校验通过的 CompletionRequest 对象"]
+    OBJ --> CORE["<b>内部：engine.generate(...)</b><br/>避免重复解析；mypy / pyright 在开发时检查调用"]
 ```
 
 ```python title="信任边界模式：入口用 Pydantic 校验，内部信任类型"
@@ -803,7 +803,7 @@ async def create_completion(request: CompletionRequest):  # Pydantic 校验
 
 # 内部：静态检查——数据已经可信
 def generate(self, prompt: str, params: SamplingParams) -> GenerateOutput:
-    tokens = self.tokenizer.encode(prompt)  # mypy 确保 prompt 是 str
+    tokens = self.tokenizer.encode(prompt)  # mypy 按 str 检查；不会在运行时拦截错误值
     ...
 ```
 

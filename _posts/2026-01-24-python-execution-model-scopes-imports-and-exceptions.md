@@ -318,7 +318,7 @@ inner 2
 | 字段 | 内容 | 后面哪里用到 |
 |---|---|---|
 | `f_code` | 正在执行的 code object | 上一节：同一个 code object 可以同时有多帧在跑（递归） |
-| `f_locals` | 这次调用的局部变量的映射视图 | 第三章：局部变量每次调用一份，互不影响。CPython 实际把它们放在帧内部的局部槽位数组里，`f_locals` 是按需生成的视图：3.12 及之前是快照字典，3.13 起（PEP 667）是会写回槽位的代理 |
+| `f_locals` | 当前作用域的局部名称映射 | 第三章：普通函数的局部变量每次调用一份。CPython 在优化函数作用域中使用内部槽位；3.12 及之前的 `f_locals` 是从槽位同步出的字典，3.13 起（PEP 667）是可写回槽位的代理。模块和类体的命名空间另论 |
 | `f_globals` / `f_builtins` | 函数定义所在模块的字典、内置名称的字典 | 第三章：全局名称不存在帧里，帧只带着"去哪个字典找"的指针 |
 | `f_lineno` | 当前执行到哪一行 | 帧记着执行到哪条指令（行号由它换算），之后从那里继续——生成器靠的就是这个执行位置 |
 | `f_back` | 调用者的帧 | 调用栈就是沿 `f_back` 串起来的链；异常沿这条链往上找 `except` |
@@ -449,7 +449,7 @@ print(x, y, x is y)     # [1] [1] True
 >
 > Table: 值相等与身份相同：Python 与 Java 的写法对照
 >
-> 对照只到这里。Python 的 `==` 是运算符协议，`__eq__` 可以返回任意对象：NumPy 数组、`torch.Tensor` 的 `a == b` 逐元素比较，返回布尔数组 / 张量，`if a == b:` 会报“truth value is ambiguous”，要用 `torch.equal(a, b)` 或 `(a == b).all()`；Java 的 `equals()` 永远返回 `boolean`。Java 的 `==` 在两边是 `int` 这类基本类型时也比较值；Python 没有基本类型与包装类型之分。小整数缓存会让身份比较看起来像值比较：Java 的 `Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就不能依赖这个结果；Python 也有对象复用。两边都应把值比较与身份比较分开。
+> 对照只到这里。Python 的 `==` 是运算符协议，`__eq__` 可以返回任意对象：NumPy 数组、`torch.Tensor` 的 `a == b` 逐元素比较，返回布尔数组 / 张量，当结果包含多个元素时，`if a == b:` 会报“truth value is ambiguous”，要用 `torch.equal(a, b)` 或 `(a == b).all()`；Java 的 `equals()` 永远返回 `boolean`。Java 的 `==` 在两边是 `int` 这类基本类型时也比较值；Python 没有基本类型与包装类型之分。小整数缓存会让身份比较看起来像值比较：Java 的 `Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就不能依赖这个结果；Python 也有对象复用。两边都应把值比较与身份比较分开。
 
 回到 Python：对值做 `is` 判断结果不可预期：
 
@@ -886,7 +886,7 @@ print(json.decoder.__package__)   # json
 
 `import mypackage.model` 在解释器内部大致经历以下步骤（对照 [CPython 3.12.0 的 `Lib/importlib/_bootstrap.py`](https://github.com/python/cpython/blob/v3.12.0/Lib/importlib/_bootstrap.py) 中的 `_find_and_load` → `_find_spec` → `_load_unlocked`）：
 
-1. **缓存**：查 `sys.modules["mypackage.model"]`，命中就直接返回。若该模块还在执行顶层代码：别的线程会先等它的模块锁；同一线程里的循环导入拿到的就是这个半成品（§7）。
+1. **缓存**：查 `sys.modules["mypackage.model"]`，命中已初始化的模块对象就返回；若值为 `None` 则拒绝导入。模块还在执行顶层代码时，其他线程通常先等待模块锁，同一线程的循环导入可能拿到半成品（§7）。
 2. 未命中：先确保父包 `"mypackage"` 已导入，递归走同一流程。
 3. **查找**：依次询问 `sys.meta_path` 里的每个 finder：`find_spec(name, path)`。第一个返回非 `None` 的 `ModuleSpec` 胜出；全部为 `None` 则抛 `ModuleNotFoundError`。
 4. `module_from_spec(spec)` 调用 `spec.loader.create_module(spec)` 创建模块对象；若返回 `None`，由导入系统创建。随后写入 `__name__`、`__spec__` 等元数据；有文件位置时还会设置 `__file__`。
@@ -1076,7 +1076,7 @@ Table: sys.path 的五个组成部分
 
 Table: 不同启动方式下的 sys.path[0]、__name__ 与 __package__
 
-3.11 起加 `-P` 或设 `PYTHONSAFEPATH=1`，三种方式都不再把这一项插进 `sys.path`，下面说的“意外可导入”也就没了。
+3.11 起加 `-P` 或设 `PYTHONSAFEPATH=1`，三种方式都不再自动插入这一项；下面依赖启动目录的“意外可导入”不再成立。`PYTHONPATH`、已安装包等其他路径来源仍需另看。
 
 用一个 src 布局的项目验证。`src/myproject/cli.py` 打印自己的身份，然后做一次相对导入：
 

@@ -871,7 +871,7 @@ Table: 实例类型与类对象类型：Python 与 Java 对照
 两个实质差异：
 
 1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
-2. **类对象本身就是运行时令牌。** Java 的 `Class<T>` 常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），因为泛型被擦除后，方法体里拿不到 `T`。Python 的类本来就是普通对象，直接把 `Foo` 传进去即可，`type[C]` 只是给这个参数写上静态约束：它要"一个类，而不是一个实例"。但 Python 也没有保留泛型实参：`list[int]` 这类注解可以从 `__annotations__` / `get_type_hints()` 里读到（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)），`[1, 2]` 这个对象本身却不记得元素类型，`Stack[int]()` 创建的实例也不检查放进去的值。
+2. **类对象本身就是运行时令牌。** Java 的 `Class<T>` 常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），因为泛型被擦除后，方法体里不能直接取得 `T` 对应的类对象。Python 的类本来就是普通对象，直接把 `Foo` 传进去即可，`type[C]` 只是给这个参数写上静态约束：它要"一个类，而不是一个实例"。这不代表所有实例都会记住泛型实参：`list[int]` 这类声明可从注解中读取（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)），`[1, 2]` 本身却不记得元素类型。部分用户自定义泛型实例可能有 `__orig_class__` 元数据，但不能把它当作通用保证，更不会因此自动检查放进去的值。
 
 **典型用途：工厂与注册表**
 
@@ -932,7 +932,7 @@ def b(factory: Callable[..., Model]) -> Model: # 类或函数都行
 a(Model)                       # OK
 b(Model)                       # OK：类也是可调用对象
 b(partial(Model, size=8))      # OK：只要调用结果是 Model
-a(partial(Model, size=8))      # 类型错误：partial 不是类
+a(partial(Model, size=8))      # 静态类型错误：partial 不是类；解释器仍可调用
 ```
 
 - 需要访问**类属性、classmethod 或做 `issubclass` 判断**时，必须用 `type[C]`；
@@ -1973,8 +1973,8 @@ Table: typing 功能速查表
 | 维度 | Java 泛型 | Python 泛型 |
 |---|---|---|
 | 引入版本 | Java 5 (2004) | Python 3.5 (2015) |
-| 实现方式 | 类型擦除（对象不记得类型实参，声明处签名仍在 `.class` 里） | 注解 + 静态检查（运行时不检查泛型；对象不记得类型实参） |
-| 运行时获取泛型信息 | 声明处可用反射读取（如 `Field.getGenericType()`） | 声明处可用 `get_type_hints()` 读取；实例上读不到 |
+| 实现方式 | 类型擦除（对象不记得类型实参，声明处签名仍在 `.class` 里） | 注解 + 静态检查；解释器不自动校验泛型实参 |
+| 运行时获取泛型信息 | 声明处可用反射读取（如 `Field.getGenericType()`） | 声明处可用 `get_type_hints()`；内建容器实例不保留元素类型，自定义泛型元数据另论 |
 | 通配符 | `? extends T` / `? super T` | `TypeVar(covariant/contravariant)` |
 | 上界约束 | `<T extends Number>` | `TypeVar("T", bound=Number)` |
 | 多重约束 | `<T extends A & B>` | 不直接支持（可用 Protocol 组合） |

@@ -29,9 +29,9 @@ AI-Infra 的 Python 代码——异步调度、动态 batch、多后端切换、
 ```mermaid
 %% 图：开发验证、故障定位与运行时诊断的衔接
 flowchart TB
-    A[开发者提交改动] --> B[pytest 收集并运行测试]
+    A[开发者提交改动] --> B[pytest 收集测试]
     B --> C[fixture 提供对象<br/>Mock / monkeypatch 替换依赖]
-    C --> D[pytest-cov 检查覆盖]
+    C --> D[执行测试并采集覆盖率]
     D -- 测试失败 --> F[开发者定位<br/>pdb / logging / traceback / inspect]
     E[线上监控或用户报告症状] --> F
     F -- 需要运行时证据 --> G[工程师采集诊断数据<br/>tracemalloc 内存 / faulthandler 栈 / cProfile 耗时]
