@@ -5,10 +5,10 @@ title: "C++ 在 AI-Infra（08）：构建、调试与测试工具链"
 subtitle: "Build, Debug and Test Toolchain"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-17
 ---
 
-PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃四次**：
+PyTorch 的 CI 测试脚本 `.ci/pytorch/test.sh` 里有一段很奇怪的代码。在 ASan 构建下，它先设置一堆环境变量，然后**故意让 Python 进程崩溃**（`echo` 里说四次，其中 `_crash_if_csrc_ubsan` 一行被注释掉，实际执行三次）：
 
 ```bash title=".ci/pytorch/test.sh：ASan 构建下故意让 Python 崩溃"
 if [[ "$BUILD_ENVIRONMENT" == *asan* ]]; then
@@ -92,7 +92,7 @@ Table: 本文的章节安排
 
 ### 1. CMake 不是构建工具，是构建工具的生成器
 
-第一篇讲过 C++ 的四阶段：预处理、编译、汇编、链接。这些都由编译器驱动（`clang++ a.cpp b.cpp -o prog`）。但一个项目有几千个 `.cpp`，哪些文件编进哪个库、库之间怎么链接、头文件路径是什么、每个文件用什么选项，需要有人描述。描述这些的语言是 CMake，描述文件是 `CMakeLists.txt`。
+[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲过 C++ 的四阶段：预处理、编译、汇编、链接。这些都由编译器驱动（`clang++ a.cpp b.cpp -o prog`）。但一个项目有几千个 `.cpp`，哪些文件编进哪个库、库之间怎么链接、头文件路径是什么、每个文件用什么选项，需要有人描述。描述这些的语言是 CMake，描述文件是 `CMakeLists.txt`。
 
 CMake 自己不编译任何东西。它读 `CMakeLists.txt`，生成另一个构建系统的输入文件——Makefile、`build.ninja` 或 Visual Studio 工程——然后由 `make`/`ninja` 去调用编译器。所以流程是两步：
 
@@ -101,7 +101,7 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # 配置：生成 buil
 cmake --build build                                        # 构建：等价于 (cd build && ninja)
 ```
 
-Java 工程师习惯的 Maven/Gradle 把"描述项目"和"执行构建"合成一步，还顺带管理依赖（从中央仓库下载 jar）。CMake 只做第一件事的一半：它描述项目，但不下载依赖（C++ 没有中央仓库；依赖要么系统安装，要么 git submodule 进 `third_party/`，要么用 `FetchContent`/vcpkg/conan 之类没有统一标准的方案）；执行构建交给 Ninja。这就是总纲说的"三件事由 CMake、编译器和测试框架分别负责"。
+Java 工程师习惯的 Maven/Gradle 把"描述项目"和"执行构建"合成一步，还顺带管理依赖（从中央仓库下载 jar）。CMake 只做第一件事的一半：它描述项目，但不下载依赖（C++ 没有中央仓库；依赖要么系统安装，要么 git submodule 进 `third_party/`，要么用 `FetchContent`/vcpkg/conan 之类没有统一标准的方案）；执行构建交给 Ninja。这就是[系列总纲](/cpp-for-ai-infra.html)说的"三件事由 CMake、编译器和测试框架分别负责"。
 
 ### 2. 目标：库、可执行文件，以及它们的属性
 
@@ -157,9 +157,9 @@ add_subdirectory(test)
 add_subdirectory(benchmark)
 ```
 
-第一篇的 mini-c10 骨架就是照它写的。这里有三处值得停下来。
+[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)的 mini-c10 骨架就是照它写的。这里有三处值得停下来。
 
-**`file(GLOB ...)`**：用通配符收集源文件。CMake 官方一直不推荐 glob——新增文件后必须重新运行 cmake，否则构建系统不知道它的存在；CMake 3.12 起可以加 `CONFIGURE_DEPENDS` 让构建系统在每次构建前重新检查通配结果，但 v2.10.0 的 `c10/CMakeLists.txt` 没有用它，所以在 c10 下新增一个 `.cpp` 之后要手动重跑 cmake。c10 用 glob；上层的 `caffe2/CMakeLists.txt` 则从 `build_variables.bzl` 读显式的文件列表（第一篇提过，那是"哪个 `.cpp` 进哪个库"的权威清单）。
+**`file(GLOB ...)`**：用通配符收集源文件。CMake 官方一直不推荐 glob——新增文件后必须重新运行 cmake，否则构建系统不知道它的存在；CMake 3.12 起可以加 `CONFIGURE_DEPENDS` 让构建系统在每次构建前重新检查通配结果，但 v2.10.0 的 `c10/CMakeLists.txt` 没有用它，所以在 c10 下新增一个 `.cpp` 之后要手动重跑 cmake。c10 用 glob；上层的 `caffe2/CMakeLists.txt` 则从 `build_variables.bzl` 读显式的文件列表（[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)提过，那是"哪个 `.cpp` 进哪个库"的权威清单）。
 
 **`torch_compile_options(c10)`**：一个 CMake 函数，定义在 `cmake/public/utils.cmake`，把整个项目共用的警告选项、`-fvisibility=hidden`、`-Werror` 策略一次加到目标上。第四章读它。
 
@@ -285,11 +285,11 @@ find_package_handle_standard_args(Torch DEFAULT_MSG TORCH_LIBRARY TORCH_INCLUDE_
 
 1. **定位安装前缀**：从自己所在的路径向上三级（`share/cmake/Torch/` → `<prefix>`）。所以 `find_package(Torch)` 之前必须让 CMake 找到这个目录——要么 `-DCMAKE_PREFIX_PATH=$(python -c 'import torch;print(torch.utils.cmake_prefix_path)')`，要么 `-DTorch_DIR=...`。
 
-2. **头文件路径**：两个目录。第一篇手写 `g++` 命令时发现 `torch/torch.h` 需要额外的 `include/torch/csrc/api/include`，这里就是原因。
+2. **头文件路径**：两个目录。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)手写 `g++` 命令时发现 `torch/torch.h` 需要额外的 `include/torch/csrc/api/include`，这里就是原因。
 
 3. **动态库分支**（pip wheel 都是这个分支）：`find_package(Caffe2)` 加载同目录的 `Caffe2Config.cmake` 和 `Caffe2Targets.cmake`。后者是 PyTorch 构建时 `install(EXPORT Caffe2Targets ...)` 导出的文件（顶层 `CMakeLists.txt`），里面是一组 **IMPORTED 目标**——`c10`、`torch_cpu`、`torch_cuda`、`torch` 等——每个都记录了 `.so` 的绝对路径和它们之间的 `PUBLIC` 依赖关系。`Caffe2Config.cmake.in` 里 `set(Caffe2_MAIN_LIBS torch_library)`。于是 `TORCH_LIBRARIES` 是 `torch;torch_library;<c10 的路径>`。
 
-4. **静态库分支**：没有 `Caffe2Targets.cmake` 可用（顶层 `CMakeLists.txt` 明确说 "Generated cmake files are only available when building shared libs"），只能手工 `find_library` 每一个 `.a`，而且 `torch`/`torch_cpu` 要用 `--whole-archive`——第一篇和第五篇讲过原因：静态注册的算子所在的 `.o` 没有被任何符号引用，链接器会丢掉它们。这里对三个平台各写了一遍：Linux 的 `-Wl,--whole-archive`、macOS 的 `-Wl,-force_load`、MSVC 的 `-WHOLEARCHIVE:`。
+4. **静态库分支**：没有 `Caffe2Targets.cmake` 可用（顶层 `CMakeLists.txt` 明确说 "Generated cmake files are only available when building shared libs"），只能手工 `find_library` 每一个 `.a`，而且 `torch`/`torch_cpu` 要用 `--whole-archive`——[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲过原因：静态注册的算子所在的 `.o` 没有被任何符号引用，链接器会丢掉它们。这里对三个平台各写了一遍：Linux 的 `-Wl,--whole-archive`、macOS 的 `-Wl,-force_load`、MSVC 的 `-WHOLEARCHIVE:`。
 
 5. **给 `torch` 目标设属性**：`INTERFACE_INCLUDE_DIRECTORIES` 就是 2.3 节的 `INTERFACE` 传递——链接 `torch` 的目标自动拿到头文件路径；`CXX_STANDARD 17` 声明 PyTorch 2.10 的头文件需要 C++17——与本系列 mini-c10 用的标准一致。`TORCH_CXX_FLAGS` 在模板里只是"如果有就设上"——在 v2.10.0 的源码树里，这个模板文件本身并没有 `set(TORCH_CXX_FLAGS ...)`，也没有任何 `_GLIBCXX_USE_CXX11_ABI` 的字样。（PyTorch 2.x 中的变化：早期版本的 `TorchConfig.cmake.in` 会写 `set(TORCH_CXX_FLAGS "-D_GLIBCXX_USE_CXX11_ABI=@GLIBCXX_USE_CXX11_ABI@")`，让下游自动继承 ABI 设置；2.6/2.7 Linux wheel 统一切到 CXX11 ABI 后，2.8 起这一行从 CMake 模板里删除（同时 `cpp_extension.py` 也不再传 `-D_GLIBCXX_USE_CXX11_ABI`）——v2.10.0 的 `cmake/` 目录下已经找不到它。老教程里 `set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")` 这一行在 2.10 上是无害的空操作。）
 
@@ -402,7 +402,7 @@ function (define_extension_target MOD_NAME)
 endfunction()
 ```
 
-注意两点。第一，`Python_add_library(... MODULE ...)`：Python 扩展模块用 `MODULE` 而不是 `SHARED`——它是被 `dlopen` 的，不会被别人 `-l` 链接，CMake 对两者的处理略有不同（`MODULE` 不生成 `.dylib`/import lib，只生成能加载的 `.so`）。`USE_SABI 3` 是 Python 稳定 ABI（第七篇讲过 vLLM 为什么用 `TORCH_LIBRARY` 而不是 pybind11——正是为了能用稳定 ABI，一个 `.so` 服务多个 Python 版本）。第二，`target_link_libraries(${MOD_NAME} PRIVATE torch ...)`：只链 `torch`，不链 `torch_python`——第一篇末尾的结论。CUDA 分支特意不用 `TORCH_LIBRARIES`，因为它会把 cuDNN、NCCL 等一堆依赖拉进来。
+注意两点。第一，`Python_add_library(... MODULE ...)`：Python 扩展模块用 `MODULE` 而不是 `SHARED`——它是被 `dlopen` 的，不会被别人 `-l` 链接，CMake 对两者的处理略有不同（`MODULE` 不生成 `.dylib`/import lib，只生成能加载的 `.so`）。`USE_SABI 3` 是 Python 稳定 ABI（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲过 vLLM 为什么用 `TORCH_LIBRARY` 而不是 pybind11——正是为了能用稳定 ABI，一个 `.so` 服务多个 Python 版本）。第二，`target_link_libraries(${MOD_NAME} PRIVATE torch ...)`：只链 `torch`，不链 `torch_python`——[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)「自定义扩展链接到哪一个」一节的结论。CUDA 分支特意不用 `TORCH_LIBRARIES`，因为它会把 cuDNN、NCCL 等一堆依赖拉进来。
 
 vLLM 的 `setup.py` 只是这些 CMake 的驱动器：它计算并发数、选 ccache/sccache、设置 `CMAKE_BUILD_TYPE`，然后调用 `cmake`。下一节看它。
 
@@ -427,11 +427,11 @@ Table: Maven / Gradle 与 CMake + Ninja 的对照
 
 PyTorch 的一次干净构建在几十核的机器上也要几十分钟到一小时以上，原因可以拆成四层：
 
-1. **翻译单元数量**。`build_variables.bzl` 里列出的 `.cpp` 有几千个，加上 torchgen 生成的（第五篇：`VariableType_0.cpp` 到 `VariableType_9.cpp`、`RegisterCPU.cpp`、`RegisterCUDA.cpp` 等等）。每个都是一次独立的编译器进程。
+1. **翻译单元数量**。`build_variables.bzl` 里列出的 `.cpp` 有几千个，加上 torchgen 生成的（[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)：`VariableType_0.cpp` 到 `VariableType_9.cpp`、`RegisterCPU.cpp`、`RegisterCUDA.cpp` 等等）。每个都是一次独立的编译器进程。
 
-2. **每个翻译单元很大**。第一篇讲过头文件是文本拼接：一个 `#include <ATen/ATen.h>` 展开后是几十万行。几千个翻译单元各自展开一遍同样的头文件，这是 C++ 编译模型固有的重复劳动——Java 的 `javac` 读一次 `.class` 就能复用，C++ 没有模块化的头文件（C++20 的 modules 在这些项目里还没有用起来）。
+2. **每个翻译单元很大**。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲过头文件是文本拼接：一个 `#include <ATen/ATen.h>` 展开后是几十万行。几千个翻译单元各自展开一遍同样的头文件，这是 C++ 编译模型固有的重复劳动——Java 的 `javac` 读一次 `.class` 就能复用，C++ 没有模块化的头文件（C++20 的 modules 在这些项目里还没有用起来）。
 
-3. **模板实例化**。第三篇讲过模板为每组参数生成一份代码。`AT_DISPATCH_ALL_TYPES` 之类的宏让一个 kernel 实例化十几次；`aten/src/ATen/native/cpu/*.cpp` 还要为 DEFAULT/AVX2/AVX512 三种 CPU 能力**各编一遍**（`cmake/Codegen.cmake` 里 `CPU_CAPABILITY_NAMES` 和 `CPU_CAPABILITY_FLAGS` 两个列表，同一个 `.cpp` 用不同的 `-mavx2 -mfma` / `-mavx512f ...` 选项编成多个 `.o`）。
+3. **模板实例化**。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)讲过模板为每组参数生成一份代码。`AT_DISPATCH_ALL_TYPES` 之类的宏让一个 kernel 实例化十几次；`aten/src/ATen/native/cpu/*.cpp` 还要为 DEFAULT/AVX2/AVX512 三种 CPU 能力**各编一遍**（`cmake/Codegen.cmake` 里 `CPU_CAPABILITY_NAMES` 和 `CPU_CAPABILITY_FLAGS` 两个列表，同一个 `.cpp` 用不同的 `-mavx2 -mfma` / `-mavx512f ...` 选项编成多个 `.o`）。
 
 4. **CUDA**。`nvcc` 对每个 `.cu` 要为 `TORCH_CUDA_ARCH_LIST` 里的每个架构各生成一份 SASS，再加 PTX；一个 `.cu` 的编译时间常常是 `.cpp` 的十倍。这是 `USE_CUDA=0` 能把构建时间砍掉一大半的原因。
 
@@ -522,6 +522,23 @@ endif()
 
 `CONTRIBUTING.md` 给了检验 ccache 生效的办法：做两次干净构建，第二次应该快得多；或者看 `build/CMakeCache.txt` 里 `CMAKE_CXX_COMPILER_LAUNCHER:STRING=/usr/bin/ccache`。
 
+把 Ninja 和 ccache 放在一起看，每个翻译单元在一次构建里要过两道判断：
+
+```mermaid
+%% 图：一个翻译单元在一次构建里的两道判断：Ninja 决定要不要重编，ccache 决定要不要真的调用编译器
+flowchart TB
+    CHG["改了 .cpp 或头文件，或者切分支后时间戳变了"] --> NINJA{"Ninja：输入比 .o 新？"}
+    NINJA -->|"否"| SKIP["不重编，.o 原样保留"]
+    NINJA -->|"是"| HASH["<b>ccache</b><br/>对预处理后的源码内容 + 编译选项算哈希"]
+    HASH --> HIT{"缓存命中？"}
+    HIT -->|"是"| COPY["直接取出上次的 .o"]
+    HIT -->|"否"| COMPILE["调用真正的编译器<br/>结果存进缓存"]
+    COPY --> LINK["重新链接用到这个 .o 的库"]
+    COMPILE --> LINK
+```
+
+第一道判断里的"输入"是这个翻译单元的 `.cpp` 加上它 include 的全部头文件。Ninja 只看时间戳和依赖关系，所以切分支、删 `build/` 之后它会要求重编一大批文件；这些文件预处理后的内容其实没变，在 ccache 那一步命中。两道判断都拦不住的只有内容真的变了的翻译单元，以及最后的链接。
+
 Java 对照：Gradle 的 build cache 是同一个思路（按输入哈希缓存任务输出，可以远程共享），而且是 Gradle 内建的。C++ 这边 ccache 是编译器无关的外挂，与 CMake、Ninja 都是独立的项目，要分别安装和配置——又一次"三件事由三个工具做"。
 
 ### 4. 增量构建怎么控制在分钟级
@@ -610,7 +627,19 @@ if(DEFINED USE_CUSTOM_DEBINFO)
 
 **第六，预编译头与更快的链接器。** `USE_PRECOMPILED_HEADERS=1` 让编译器把 `<ATen/ATen.h>` 的 AST 存成文件复用；`CMAKE_LINKER_TYPE=MOLD`（CMake 3.29+）换用 mold 或 lld 链接器——改一个文件时链接 `libtorch_cpu.so` 常常比编译那个文件更耗时，GNU ld 尤其慢。都在 `CONTRIBUTING.md` 的 "Make no-op build fast" 一节。
 
-把这些合起来：一台 32 核机器上，`USE_CUDA=0 BUILD_TEST=0 USE_DISTRIBUTED=0` 加 ccache 的 CPU-only Debug 构建，干净构建二三十分钟，之后改一个 `.cpp` 到 `import torch` 能用，一般在一两分钟以内——瓶颈是链接。改一个被广泛 include 的头文件（比如 `c10/core/TensorImpl.h`）则回到十几分钟，因为第一篇说过的原因：所有 include 它的翻译单元都要重编。这是 C++ 工程里"改头文件要三思"的真实成本。
+把这些合起来：一台 32 核机器上，`USE_CUDA=0 BUILD_TEST=0 USE_DISTRIBUTED=0` 加 ccache 的 CPU-only Debug 构建，干净构建二三十分钟，之后改一个 `.cpp` 到 `import torch` 能用，一般在一两分钟以内——瓶颈是链接。改一个被广泛 include 的头文件（比如 `c10/core/TensorImpl.h`）则回到十几分钟，因为[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)说过的原因：所有 include 它的翻译单元都要重编。这是 C++ 工程里"改头文件要三思"的真实成本。
+
+| 改了什么 | Ninja 要求重编 | ccache | 代价 |
+|---|---|---|---|
+| 一个 `.cpp` 的实现 | 这一个翻译单元 | 未命中（内容变了） | 一两分钟以内，瓶颈是链接 |
+| 被广泛 include 的头文件，如 `c10/core/TensorImpl.h` | 所有 include 它的翻译单元 | 未命中 | 十几分钟 |
+| 头文件里只改注释（不改变行数） | 所有 include 它的翻译单元 | 命中：预处理后内容没变 | 预处理 + 取缓存 + 链接 |
+| 切分支再切回来、删 `build/` 重来、换 worktree | 时间戳变了的全部文件 | 命中 | 第二次干净构建比第一次快得多 |
+| `USE_*` 开关 | 不生效：`CMakeCache.txt` 已固化 | — | 用 `CMAKE_FRESH=1` 重新配置 |
+
+Table: 几种改动各自触发的重编范围
+
+表的前两列对应上图的第一道判断，第三列对应第二道。
 
 Java 对照：`javac` 的增量编译粒度是类，改一个类的实现（不改签名）只重编这个类；Gradle 还能做到 ABI 感知的增量（改了方法体但没改签名，下游不重编）。C++ 的粒度是翻译单元，而且没有 ABI 感知——头文件里改一个注释，所有 include 它的 `.cpp` 全部重编（ccache 会在预处理后发现内容没变而命中，这是它最有价值的场景之一）。
 
@@ -644,7 +673,7 @@ CMake 的四种构建类型对应的默认选项（GCC/Clang）：
 
 Table: CMake 四种构建类型的默认选项
 
-`-DNDEBUG` 是 C 标准的约定：定义了它，`assert()` 变成空。PyTorch 用它控制 `TORCH_INTERNAL_ASSERT_DEBUG_ONLY`——`c10/util/Exception.h` 里这个宏在 `#ifdef NDEBUG` 分支下"generates no code"，否则等于 `TORCH_INTERNAL_ASSERT`。注释说明了用途："appropriate to use in situations where you want to add an assert to a hotpath, but it is too expensive to run this assert on production builds"。第一篇 mini-c10 的 `build_flavor()` 用的也是 `NDEBUG`。
+`-DNDEBUG` 是 C 标准的约定：定义了它，`assert()` 变成空。PyTorch 用它控制 `TORCH_INTERNAL_ASSERT_DEBUG_ONLY`——`c10/util/Exception.h` 里这个宏在 `#ifdef NDEBUG` 分支下"generates no code"，否则等于 `TORCH_INTERNAL_ASSERT`。注释说明了用途："appropriate to use in situations where you want to add an assert to a hotpath, but it is too expensive to run this assert on production builds"。[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)里 mini-c10 的 `build_flavor()` 用的也是 `NDEBUG`。
 
 ### 2. PyTorch 实际的编译选项
 
@@ -708,7 +737,7 @@ if(NOT MSVC)
 几个值得注意的决策：
 
 - **`-O2 -fPIC` 写进全局 `CMAKE_CXX_FLAGS`**：`-fPIC`（位置无关代码）是动态库的硬要求。`-O2` 放在全局 flags 里，而 CMake 把 `CMAKE_CXX_FLAGS` 排在 `CMAKE_CXX_FLAGS_<TYPE>` 前面，所以 Release 构建的命令行是 `... -O2 ... -O3 -DNDEBUG`，后出现的 `-O3` 胜出；Debug 构建是 `... -O2 ... -g -fno-omit-frame-pointer -O0`，`-O0` 胜出。`cmake/Dependencies.cmake` 末尾还对 `NDEBUG` 做了一次显式的加/删，保证 Release 有、其他没有。
-- **`-Wall -Wextra` 加一组 `-Werror=<specific>`**：不是全局 `-Werror`，而是把少数几类**几乎一定是 bug** 的警告升级为错误——函数没有返回值（`return-type`）、有虚函数但析构不虚（`non-virtual-dtor`，第四篇讲过后果）、printf 格式串与参数不匹配（`format`）。其他警告保留为警告。
+- **`-Wall -Wextra` 加一组 `-Werror=<specific>`**：不是全局 `-Werror`，而是把少数几类**几乎一定是 bug** 的警告升级为错误——函数没有返回值（`return-type`）、有虚函数但析构不虚（`non-virtual-dtor`，[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)讲过后果）、printf 格式串与参数不匹配（`format`）。其他警告保留为警告。
 - **`-Wno-*` 关掉一批噪音**：`unused-parameter`（接口实现里未用的参数太常见）、`missing-field-initializers`、`unknown-pragmas`（`#pragma omp` 在没有 OpenMP 时会警告）、`maybe-uninitialized`（GCC 的这个警告误报多）。
 - **`WERROR` 是一个 option，默认 OFF**（`option(WERROR "Build with -Werror supported by the compiler" OFF)`），CI 打开。原因是编译器版本不同警告集合不同：在 gcc 11 上干净的代码，gcc 13 可能多出几个新警告，如果默认 `-Werror`，用户用新编译器从源码构建就会失败。这就是核心问题里"不会在别的编译器上炸"的一个方面——**警告是编译器相关的，`-Werror` 让编译器升级变成构建失败**。
 - **`-fno-omit-frame-pointer`**：Debug 构建必开，和 `-O0`（aarch64 GCC 上是 `-Og`，注释说是为了绕开一个编译器内部错误）一起追加到 `CMAKE_CXX_FLAGS_DEBUG`。第七章讲它和 backtrace 的关系。
@@ -776,7 +805,7 @@ function(torch_compile_options libname)
 两处要点：
 
 - **`PRIVATE`**：这些是"PyTorch 自己怎么编"，不传给下游。扩展作者不会因为链接 `torch` 而被迫接受 `-Werror`。
-- **`-fvisibility=hidden` 且 `NOT USE_ASAN`**：第五篇讲过这个选项让所有没标 `C10_API`/`TORCH_API` 的符号不导出。注释给了两个理由：一是模拟 Windows 的 dllexport 语义，让 Linux 上就能发现漏标 `TORCH_API` 的问题；二是 UBSan 下要关掉——跨库的模板实例会各有一份定义，隐藏可见性让它们无法合并，UBSan 的 vptr 检查会认为是不同类型（开头 `test.sh` 那段注释说的正是同一件事）。
+- **`-fvisibility=hidden` 且 `NOT USE_ASAN`**：[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲过这个选项让所有没标 `C10_API`/`TORCH_API` 的符号不导出。注释给了两个理由：一是模拟 Windows 的 dllexport 语义，让 Linux 上就能发现漏标 `TORCH_API` 的问题；二是 UBSan 下要关掉——跨库的模板实例会各有一份定义，隐藏可见性让它们无法合并，UBSan 的 vptr 检查会认为是不同类型（开头 `test.sh` 那段注释说的正是同一件事）。
 
 `c10/CMakeLists.txt` 在 `WERROR` 下还追加 `-Werror=sign-compare` 和 `-Werror=shadow`——c10 是最底层、最被广泛 include 的库，对它要求更严。
 
@@ -784,7 +813,7 @@ function(torch_compile_options libname)
 
 `-march=native` 让编译器使用当前机器支持的全部指令集（AVX2、AVX-512 等）。对自己用的程序这是免费的性能，但对要分发的二进制是灾难：在支持 AVX-512 的机器上编出的 wheel 在只有 AVX2 的机器上会以 `Illegal instruction` 崩溃。
 
-PyTorch 的解决方案是**运行时分派**（第六篇 12.3 节提过 `inline namespace CPU_CAPABILITY`）：kernel 文件编多份，各自用不同的 `-m*` 选项，运行时检测 CPU 再选。`cmake/Codegen.cmake` 的实现（删节）：
+PyTorch 的解决方案是**运行时分派**（[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的「为什么用 `inline namespace CPU_CAPABILITY`」一节讲过它的命名空间机制）：kernel 文件编多份，各自用不同的 `-m*` 选项，运行时检测 CPU 再选。`cmake/Codegen.cmake` 的实现（删节）：
 
 ```cmake title="cmake/Codegen.cmake：kernel 文件按 CPU_CAPABILITY 编多份"
   # Handle source files that need to be compiled multiple times for
@@ -845,8 +874,8 @@ Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后�
 
 clangd 是 LLVM 的语言服务器（LSP）。VS Code、Neovim、Emacs、CLion 都能作为它的客户端。它在项目根目录（或上级）找 `compile_commands.json`，按里面的命令行对当前打开的文件做完整的语法和语义分析，于是：
 
-- 跳转到定义能穿过宏和模板：点 `TORCH_CHECK`，跳到 `c10/util/Exception.h` 里的定义；点 `at::add`，跳到 build 目录里生成的 `ATen/ops/add.h`（第五篇讲过它是 torchgen 生成的）；
-- 悬停显示推导出的类型：`auto out = at::empty_like(x_c)` 上悬停显示 `at::Tensor`；`AT_DISPATCH` lambda 里的 `scalar_t` 显示当前实例化的类型（第三篇的问题）；
+- 跳转到定义能穿过宏和模板：点 `TORCH_CHECK`，跳到 `c10/util/Exception.h` 里的定义；点 `at::add`，跳到 build 目录里生成的 `ATen/ops/add.h`（[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲过它是 torchgen 生成的）；
+- 悬停显示推导出的类型：`auto out = at::empty_like(x_c)` 上悬停显示 `at::Tensor`；`AT_DISPATCH` lambda 里的 `scalar_t` 显示当前实例化的类型（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的问题）；
 - 实时显示编译错误和 clang-tidy 警告（clangd 内置了 clang-tidy，读同一个 `.clang-tidy` 文件，第十章）；
 - 补全知道哪些成员函数是 `const`、哪些参数是 `const Tensor&`。
 
@@ -898,7 +927,7 @@ Make breakpoint pending on future shared library load? (y or [n]) y
 (gdb) run
 ```
 
-断点在 `libtorch_python.so` 加载前就设了，gdb 问"要不要挂起等库加载"——回答 y。这是第一篇讲的动态加载在调试器里的体现：`import torch` 之前，进程里根本没有 `at::` 的任何符号。
+断点在 `libtorch_python.so` 加载前就设了，gdb 问"要不要挂起等库加载"——回答 y。这是[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲的动态加载在调试器里的体现：`import torch` 之前，进程里根本没有 `at::` 的任何符号。
 
 `CONTRIBUTING.md` 用 lldb 演示了完全相同的流程，其中 `-o` 让 lldb 启动时依次执行命令：
 
@@ -965,7 +994,7 @@ flowchart TD
 
 在哪一层断取决于想看什么：
 
-- 想看"Python 传进来的参数是什么"，断 `THPVariable_add`（第七篇的 `THPVariable_*` 系列）；
+- 想看"Python 传进来的参数是什么"，断 `THPVariable_add`（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的 `THPVariable_*` 系列）；
 - 想看"分发到了哪个 key"，断 `c10::Dispatcher::call` 的模板实例——名字很长，用 `rbreak`（gdb 正则断点）或 `breakpoint set -r 'Dispatcher.*call.*add'`；更实用的是编译时带 `-DHAS_TORCH_SHOW_DISPATCH_TRACE`（`setup.py` 注释提到的 `CFLAGS`），运行时 `TORCH_SHOW_DISPATCH_TRACE=1` 打印每一次分发；
 - 想看"kernel 拿到的是什么数据"，断 `at::native::add_out` 或更底层的 kernel。注意 kernel 有三份（`CPU_CAPABILITY` 三个命名空间），函数名是 `at::native::AVX2::add_kernel` 之类，按 `-r` 正则断能一次全命中。
 
@@ -980,7 +1009,7 @@ CUDA kernel 的"launch 前"是 host 侧最后一个 C++ 函数——kernel 名�
 $1 = (const at::Tensor &) @0x7ffb118a9c88: {impl_ = {target_ = 0x55629b5cd330}}
 ```
 
-第二篇讲过原因——`Tensor` 是句柄，唯一的成员是 `intrusive_ptr<TensorImpl>`；数据在 `TensorImpl` → `StorageImpl` → `DataPtr` 三层之外。要手工看，得 `p *self.impl_.target_`，再 `p *(float*)self.impl_.target_->storage_.storage_impl_.target_->data_ptr_.ptr_.data_`，还要自己算 stride。PyTorch 的解决方案是 `tools/gdb/pytorch-gdb.py`：一个 gdb Python 扩展，添加三条命令。`CONTRIBUTING.md` 的示例：
+[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过原因——`Tensor` 是句柄，唯一的成员是 `intrusive_ptr<TensorImpl>`；数据在 `TensorImpl` → `StorageImpl` → `DataPtr` 三层之外。要手工看，得 `p *self.impl_.target_`，再 `p *(float*)self.impl_.target_->storage_.storage_impl_.target_->data_ptr_.ptr_.data_`，还要自己算 stride。PyTorch 的解决方案是 `tools/gdb/pytorch-gdb.py`：一个 gdb Python 扩展，添加三条命令。`CONTRIBUTING.md` 的示例：
 
 ```text title="CONTRIBUTING.md 示例：torch-tensor-repr 打印 Tensor 内容"
 (gdb) # the default repr of 'this' is not very useful
@@ -998,7 +1027,7 @@ tensor([1., 2., 3., 4.], dtype=torch.float64)
 | 命令 | 参数类型 | 背后的 C++ 函数 |
 |---|---|---|
 | `torch-tensor-repr EXP` | `at::Tensor` | `torch::gdb::tensor_repr` |
-| `torch-int-array-ref-repr EXP` | `c10::IntArrayRef`（第三篇的 `ArrayRef`，只有一个指针和长度，gdb 默认不展开） | `torch::gdb::int_array_ref_string` |
+| `torch-int-array-ref-repr EXP` | `c10::IntArrayRef`（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的 `ArrayRef`，只有一个指针和长度，gdb 默认不展开） | `torch::gdb::int_array_ref_string` |
 | `torch-dispatch-keyset-repr EXP` | `c10::DispatchKeySet`（一个 64 位位集，直接看是个数字） | `torch::gdb::dispatch_keyset_string` |
 
 Table: pytorch-gdb.py 的命令与背后的 C++ 函数
@@ -1023,7 +1052,7 @@ $ nm -C demo_dbg | grep -E "add_cpu|minic10::add\("
 0000000100009e3c t minic10::(anonymous namespace)::add_cpu(minic10::Tensor const&, minic10::Tensor const&)::$_0::operator()() const::'lambda'()::operator()() const
 ```
 
-`-O0` 下 `MINI_DISPATCH_FLOATING_TYPES` 展开出的外层 lambda（`$_0`）和两个 dtype 分支的内层 lambda（`'lambda'`、`'lambda0'`——按宏里 case 的顺序分别是 `double` 和 `float` 的实例化，第三篇的"lambda 被编译了几次"在这里有了答案：两次）都是独立的函数，各有自己的栈帧。lldb 的断点能精确落到源码行：
+`-O0` 下 `MINI_DISPATCH_FLOATING_TYPES` 展开出的外层 lambda（`$_0`）和两个 dtype 分支的内层 lambda（`'lambda'`、`'lambda0'`——按宏里 case 的顺序分别是 `double` 和 `float` 的实例化，[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的"lambda 被编译了几次"在这里有了答案：两次）都是独立的函数，各有自己的栈帧。lldb 的断点能精确落到源码行：
 
 ```text title="lldb 断点精确落到 add_cpu 的源码行"
 $ lldb --batch -o 'breakpoint set --name add_cpu' ./demo_dbg
@@ -1061,9 +1090,9 @@ Breakpoint 1: where = demo_o2`minic10::(anonymous namespace)::add_cpu(minic10::T
 
 1. **断点落在了内联函数里**：`+ 40 [inlined] intrusive_ptr<TensorImpl>::operator->() const at intrusive_ptr.h:55`。函数入口后的第一条"有源码行"的指令属于被内联进来的 `operator->`，而不是 `add_cpu` 自己的语句。回溯里会显示 `[inlined]` 帧，但你不能在它里面 `finish`。
 2. **参数只在很短的地址范围内可见**：`a` 的位置是寄存器 `W0`，有效范围 `[0xb8c, 0xbd8)`——76 个字节的指令之后，寄存器被复用，`a` 就变成 `<optimized out>`。`b` 更短。
-3. **局部变量 `out` 没有位置**：`location = <empty>`。编译器把 `out` 直接构造在返回值的位置上（第二篇的 RVO），没有一个"叫 out 的栈槽"，调试器无从显示。
+3. **局部变量 `out` 没有位置**：`location = <empty>`。编译器把 `out` 直接构造在返回值的位置上（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的 RVO），没有一个"叫 out 的栈槽"，调试器无从显示。
 
-同一份源码，同一个调试器，唯一的差别是 `-O0` 还是 `-O2`。这就是总纲那句"JVM 的调试器无需关心优化级别，C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的"的具体含义。折中方案是 `-Og`（PyTorch 在 aarch64 GCC 的 Debug 构建里用它，为了绕开一个编译器内部错误）或者 3.4 节的"只给几个文件加 `-g` 并去掉优化"。
+同一份源码，同一个调试器，唯一的差别是 `-O0` 还是 `-O2`。这就是[系列总纲](/cpp-for-ai-infra.html)那句"JVM 的调试器无需关心优化级别，C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的"的具体含义。折中方案是 `-Og`（PyTorch 在 aarch64 GCC 的 Debug 构建里用它，为了绕开一个编译器内部错误）或者 3.4 节的"只给几个文件加 `-g` 并去掉优化"。
 
 ## 七、段错误、栈溢出、use-after-free 的排查路径
 
@@ -1109,7 +1138,7 @@ core dump 是崩溃时的内存快照。gdb 加载它之后可以 `bt`、切帧�
 #14 0x00005555... in _PyEval_EvalFrameDefault () from libpython3.11.so
 ```
 
-读法：从 `#0` 往下找**第一个属于你的代码的帧**。中间的 `wrap_kernel_functor_unboxed_`、`Dispatcher::call` 是第四篇讲的类型擦除和分发机制，`RegisterCPU.cpp` 的 wrapper 是第五篇的生成代码，`THPVariable_add` 是第七篇的 Python 绑定——读过前面几篇，这个栈里的每一层都是熟悉的。
+读法：从 `#0` 往下找**第一个属于你的代码的帧**。中间的 `wrap_kernel_functor_unboxed_`、`Dispatcher::call` 是[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)讲的类型擦除和分发机制，`RegisterCPU.cpp` 的 wrapper 是[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的生成代码，`THPVariable_add` 是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的 Python 绑定——读过前面几篇，这个栈里的每一层都是熟悉的。
 
 **如果栈里只有地址没有函数名**（`#0 0x00007f8a3c2b1e40 in ?? ()`），有两种可能：那个库没有符号（strip 过），或者栈被破坏了。前者用 `addr2line`：
 
@@ -1161,13 +1190,13 @@ void kernel(...) {
 }
 ```
 
-症状是"一进函数就段错误"，`bt` 显示 `#0` 在函数开头（分配栈帧的指令），地址靠近栈底。`ulimit -s` 看主线程栈大小；工作线程的栈在创建时决定（`pthread_attr_setstacksize`，OpenMP 用 `OMP_STACKSIZE` 环境变量）。修法是把大数组换成 `std::vector` 或 `c10::SmallVector`（第三篇；栈上放小的，大了自动转堆）。
+症状是"一进函数就段错误"，`bt` 显示 `#0` 在函数开头（分配栈帧的指令），地址靠近栈底。`ulimit -s` 看主线程栈大小；工作线程的栈在创建时决定（`pthread_attr_setstacksize`，OpenMP 用 `OMP_STACKSIZE` 环境变量）。修法是把大数组换成 `std::vector` 或 `c10::SmallVector`（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)；栈上放小的，大了自动转堆）。
 
-一个 PyTorch 特有的栈溢出源：第四篇的 boxed 调用路径和 autograd 的递归结构，在极深的计算图或 `torch.compile` 生成的巨大函数上可能耗尽栈。调试时的第一条线索是 `bt` 输出几千帧重复的模式。
+一个 PyTorch 特有的栈溢出源：[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的 boxed 调用路径和 autograd 的递归结构，在极深的计算图或 `torch.compile` 生成的巨大函数上可能耗尽栈。调试时的第一条线索是 `bt` 输出几千帧重复的模式。
 
 ### 4. 没崩但不对：use-after-free 与越界
 
-这是最难的一类，因为**症状与原因不在同一处**。典型场景（第二篇反复强调的）：
+这是最难的一类，因为**症状与原因不在同一处**。典型场景（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)反复强调的）：
 
 ```cpp title="use-after-free 的典型三行"
 const float* p = t.data_ptr<float>();   // 借了裸指针
@@ -1175,7 +1204,7 @@ t = at::empty({0});                     // 原来的 Storage 引用计数归零�
 use(p[0]);                              // 读已释放的内存：可能读到旧值、可能读到别人的新数据、可能崩
 ```
 
-或者跨线程：一个线程还在用 `Tensor` 的数据，另一个线程释放了最后一个句柄。或者 Python 侧：C++ 函数拿了 `PyObject*` 的 borrowed reference，Python 对象被回收了（第七篇）。
+或者跨线程：一个线程还在用 `Tensor` 的数据，另一个线程释放了最后一个句柄。或者 Python 侧：C++ 函数拿了 `PyObject*` 的 borrowed reference，Python 对象被回收了（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)）。
 
 排查路径：
 
@@ -1214,7 +1243,7 @@ Java 对照：JVM 在运行时**永远**做这些检查（数组边界、空指�
 |---|---|---|---|---|
 | **ASan**（AddressSanitizer） | `-fsanitize=address` | 堆/栈/全局变量越界<br/>use-after-free<br/>use-after-return（需要 `detect_stack_use_after_return=1`）<br/>double free<br/>内存泄漏（LeakSanitizer，Linux 默认随 ASan 开启） | 未初始化读<br/>越界但落在另一个合法对象上的访问（"跳过 redzone"）<br/>通过 `mmap` 或自定义分配器分配的内存（除非分配器手工标注）<br/>数据竞争 | 约 2× 时间，2–3× 内存 |
 | **UBSan**（UndefinedBehaviorSanitizer） | `-fsanitize=undefined` | 有符号整数溢出<br/>除零<br/>空指针解引用<br/>未对齐访问<br/>`shift` 超范围<br/>数组下标为负或越界（仅静态已知大小的数组）<br/>`vptr` 检查（通过错误类型的指针调虚函数）<br/>`bool`/`enum` 装入非法值 | 内存错误（那是 ASan 的事）；无符号"溢出"（那是定义好的回绕，不是 UB） | 很小，可以和 ASan 同时开 |
-| **TSan**（ThreadSanitizer） | `-fsanitize=thread` | 数据竞争（两个线程无同步地访问同一内存且至少一个是写，第六篇的核心话题）；某些死锁模式 | 内存错误<br/>与 ASan **互斥**（不能同时开）<br/>对通过非 pthread 机制（比如 OpenMP 运行时内部、CUDA 回调）同步的代码可能误报或漏报 | 5–15× 时间，5–10× 内存 |
+| **TSan**（ThreadSanitizer） | `-fsanitize=thread` | 数据竞争（两个线程无同步地访问同一内存且至少一个是写，[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的核心话题）；某些死锁模式 | 内存错误<br/>与 ASan **互斥**（不能同时开）<br/>对通过非 pthread 机制（比如 OpenMP 运行时内部、CUDA 回调）同步的代码可能误报或漏报 | 5–15× 时间，5–10× 内存 |
 
 Table: 三个常用 sanitizer 能抓什么
 
@@ -1274,7 +1303,7 @@ previously allocated by thread T0 here:
 SUMMARY: AddressSanitizer: heap-use-after-free uaf.cpp:12 in main
 ```
 
-三张栈，正好是排查 use-after-free 需要的全部信息：**在哪里访问的**（`main uaf.cpp:12`）、**谁释放的**（`~TensorImpl` → `~StorageImpl` → `free`，第二篇讲的 RAII 析构链一层不差地出现在栈里）、**谁分配的**（`empty` → `CPUAllocator::allocate` → `malloc`）。把 mini-c10 换成真实的 PyTorch，这三张栈就变成 `at::empty` → `c10::alloc_cpu` 和 `~TensorImpl` → `~StorageImpl` → `c10::free_cpu`，读法完全一样。
+三张栈，正好是排查 use-after-free 需要的全部信息：**在哪里访问的**（`main uaf.cpp:12`）、**谁释放的**（`~TensorImpl` → `~StorageImpl` → `free`，[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲的 RAII 析构链一层不差地出现在栈里）、**谁分配的**（`empty` → `CPUAllocator::allocate` → `malloc`）。把 mini-c10 换成真实的 PyTorch，这三张栈就变成 `at::empty` → `c10::alloc_cpu` 和 `~TensorImpl` → `~StorageImpl` → `c10::free_cpu`，读法完全一样。
 
 UBSan 的报告更简短。一个 `numel` 计算里的有符号溢出：
 
@@ -1400,11 +1429,32 @@ fi
 
 测试侧就是开头那段 `.ci/pytorch/test.sh`。现在可以逐行解释了：
 
-- `ASAN_OPTIONS=detect_leaks=0:...`：**关掉泄漏检测**。`CONTRIBUTING.md` 直说："Python leaks a lot of memory. Possibly we could configure a suppression file, but we haven't gotten around to it." Python 解释器退出时故意不释放很多东西，LSan 会报几千条假泄漏。`detect_stack_use_after_return=true` 开启栈上 use-after-return 检测（默认关，有额外开销）；`strict_init_order=true` 和 `check_initialization_order=true` 抓第五篇讲的静态初始化顺序问题；`detect_odr_violation=1` 抓 ODR 违反（第一篇）——同一个符号在两个 `.so` 里有不同定义；`detect_container_overflow=0` 关掉 libstdc++ 容器的额外标注检查（误报多）。
+- `ASAN_OPTIONS=detect_leaks=0:...`：**关掉泄漏检测**。`CONTRIBUTING.md` 直说："Python leaks a lot of memory. Possibly we could configure a suppression file, but we haven't gotten around to it." Python 解释器退出时故意不释放很多东西，LSan 会报几千条假泄漏。`detect_stack_use_after_return=true` 开启栈上 use-after-return 检测（默认关，有额外开销）；`strict_init_order=true` 和 `check_initialization_order=true` 抓[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲的静态初始化顺序问题；`detect_odr_violation=1` 抓 ODR 违反（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)）——同一个符号在两个 `.so` 里有不同定义；`detect_container_overflow=0` 关掉 libstdc++ 容器的额外标注检查（误报多）。
 - `UBSAN_OPTIONS=print_stacktrace=1:suppressions=$PWD/ubsan.supp`：UBSan 报告带栈；抑制文件 `ubsan.supp` 在仓库根，只有一行 `vptr:pybind11::detail::translate_exception`——pybind11 的异常翻译里有一处已知的 vptr 误报。
-- `TORCH_USE_RTLD_GLOBAL=1` 和那一大段注释：第一篇讲过 `_C.so` 默认用 `RTLD_LOCAL` 加载。C++ 扩展测试会加载多个依赖 libtorch 的 `.so`，`RTLD_LOCAL` 下每个 `.so` 看到的 `std::_Sp_counted_base` 类型信息是不同的拷贝，UBSan 的 vptr 检查按地址比较 `type_info`，就报"member call on address which does not point to an object of type ..."。用 `RTLD_GLOBAL` 让所有库共享同一份符号就解决了。注释还诚实地说 "UBSAN is kind of right here: if we relied on RTTI across C++ extension modules they would indeed do the wrong thing"。
+- `TORCH_USE_RTLD_GLOBAL=1` 和那一大段注释：[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲过 `_C.so` 默认用 `RTLD_LOCAL` 加载。C++ 扩展测试会加载多个依赖 libtorch 的 `.so`，`RTLD_LOCAL` 下每个 `.so` 看到的 `std::_Sp_counted_base` 类型信息是不同的拷贝，UBSan 的 vptr 检查按地址比较 `type_info`，就报"member call on address which does not point to an object of type ..."。用 `RTLD_GLOBAL` 让所有库共享同一份符号就解决了。注释还诚实地说 "UBSAN is kind of right here: if we relied on RTTI across C++ extension modules they would indeed do the wrong thing"。
 - `LD_PRELOAD=$(clang --print-file-name=libclang_rt.asan-x86_64.so)`：8.3 节解释过。`clang --print-file-name` 让 clang 报告它自带的运行时库的路径，比硬编码版本号可靠。
-- 最后四行故意崩溃：`_crash_if_csrc_asan(3)` 在 `libtorch_python.so` 里越界写栈数组，`_crash_if_aten_asan(3)` 在 `libtorch_cpu.so` 里做同样的事（`aten/src/ATen/Utils.cpp` 的 `_crash_if_asan`），`_crash_if_vptr_ubsan()` 触发一次 vptr 违规。**如果这三次没有崩，说明 ASan/UBSan 没有真正生效**——可能是 `LD_PRELOAD` 路径错了，可能是某个库没重编——那么后面所有"测试通过"都是假的。这是一种对检测工具本身的自检，值得在任何引入 sanitizer 的项目里照做。
+- 最后几行故意崩溃：`_crash_if_csrc_asan(3)` 在 `libtorch_python.so` 里越界写栈数组，`_crash_if_aten_asan(3)` 在 `libtorch_cpu.so` 里做同样的事（`aten/src/ATen/Utils.cpp` 的 `_crash_if_asan`），`_crash_if_vptr_ubsan()` 触发一次 vptr 违规。**如果这三次没有崩，说明 ASan/UBSan 没有真正生效**——可能是 `LD_PRELOAD` 路径错了，可能是某个库没重编——那么后面所有"测试通过"都是假的。这是一种对检测工具本身的自检，值得在任何引入 sanitizer 的项目里照做。
+
+构建侧和测试侧连起来，ASan 进入一个没有插桩的 `python` 进程要经过这几步：
+
+```mermaid
+%% 图：ASan 从 USE_ASAN=1 到进入 python 进程的构建期与运行期步骤
+flowchart TB
+    subgraph BUILD["构建期：build.sh 设 USE_ASAN=1"]
+        direction TB
+        B3["<b>Sanitizer::address、Sanitizer::undefined</b><br/>find_package(Sanitizer) 试编试跑通过后创建，只承载选项"] --> B4["<b>torch_cpu 等主库</b><br/>插桩编译，依赖共享版 ASan 运行时"]
+    end
+    subgraph RUN["运行期：test.sh"]
+        direction TB
+        R1["<b>LD_PRELOAD=libclang_rt.asan-x86_64.so</b><br/>ASan 运行时先于 python 的第一次 malloc 加载"] --> R3["<b>import torch</b><br/>dlopen 插桩过的 libtorch_python.so、libtorch_cpu.so"]
+        R3 --> R4{"三次故意的错误都崩了？"}
+        R4 -->|"是"| R5["sanitizer 生效，开始跑测试"]
+        R4 -->|"否"| R6["配置失效，后面的测试通过不可信"]
+    end
+    BUILD --> RUN
+```
+
+`-shared-libasan` 与 `LD_PRELOAD` 是一对：`python` 解释器本身没有插桩，前者让 `.so` 不自带运行时，后者保证运行时在进程的第一次 `malloc` 之前就位。菱形那一步是对检测工具本身的自检：没崩通常是 `LD_PRELOAD` 路径错了或某个库没重编。
 
 ### 5. 什么时候跑哪个
 
@@ -1420,7 +1470,7 @@ fi
 
 Table: 一个 C++ 改动各阶段应跑的工具
 
-ASan 不是"有空再跑"的东西。第二篇到第七篇讲的每一个所有权、生命周期、引用计数、GIL 边界的问题，最终都以 ASan 报告的形式被发现——如果你跑了的话。
+ASan 不是"有空再跑"的东西。从[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)到[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲过的每一个所有权、生命周期、引用计数、GIL 边界的问题，最终都以 ASan 报告的形式被发现——如果你跑了的话。
 
 ## 九、gtest：C++ 测试的组织方式
 
@@ -1451,7 +1501,7 @@ TEST(IntrusivePtrTest, givenPtr_whenDestructed_thenDestructsObject) {
 
 三处 Java 没有的东西：
 
-1. **测试是编成可执行文件的。** 没有"测试运行器扫描 classpath 找 `@Test`"这回事。每个测试文件（或一组文件）链接 `gtest_main` 编成一个二进制，运行它就跑测试。`TEST` 宏靠第五篇讲的**静态注册**把测试函数登记到全局列表——`TEST(A, B)` 展开成一个类和一个静态对象，静态对象的构造函数把测试注册进 gtest 的注册表；`gtest_main` 提供的 `main()` 遍历注册表。这也是为什么测试文件可以放在一个静态库里却"消失"——第五篇的 `--whole-archive` 问题对测试同样成立。
+1. **测试是编成可执行文件的。** 没有"测试运行器扫描 classpath 找 `@Test`"这回事。每个测试文件（或一组文件）链接 `gtest_main` 编成一个二进制，运行它就跑测试。`TEST` 宏靠[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲的**静态注册**把测试函数登记到全局列表——`TEST(A, B)` 展开成一个类和一个静态对象，静态对象的构造函数把测试注册进 gtest 的注册表；`gtest_main` 提供的 `main()` 遍历注册表。这也是为什么测试文件可以放在一个静态库里却"消失"——《宏、静态注册与代码生成》的 `--whole-archive` 问题对测试同样成立。
 2. **过滤靠命令行。** `./test_binary --gtest_filter='IntrusivePtrTest.*'` 只跑一个套件；`--gtest_filter='-*Slow*'` 排除；`--gtest_repeat=100` 重复跑（抓偶发问题）；`--gtest_output=xml:report.xml` 输出 CI 能读的报告。
 3. **宏的副作用。** `EXPECT_EQ(a, b)` 是宏，参数里的逗号会被当成参数分隔符：`EXPECT_EQ(42, k.call<int, int>(21))` 编译失败，要写成 `EXPECT_EQ(42, (k.call<int, int>(21)))`。第十三章写 mini-c10 的测试时实际踩到了这个坑。
 
@@ -1502,7 +1552,7 @@ if(BUILD_TEST)
 endif()
 ```
 
-逐行：`GLOB_RECURSE *_test.cpp` 用文件名约定发现测试；`NAME_WE`（name without extension）取出 `intrusive_ptr_test`，加前缀成 `c10_intrusive_ptr_test`；`add_executable` 一个文件一个二进制（好处：某个测试挂了不影响其他的，可以单独重跑；坏处：几十个二进制各自链接 gtest，构建慢——所以 `BUILD_TEST=0` 能省不少时间）；`target_link_libraries(... ${C10_LIB} gmock gtest gtest_main)`——链接被测库和 gtest；`add_test` 把它注册给 CTest（CMake 自带的测试驱动，`ctest -R c10_intrusive` 能按名字跑）；`INSTALL_RPATH` 让安装到 `test/` 目录的二进制能找到 `../lib/libc10.so`（第一篇的 RPATH）。
+逐行：`GLOB_RECURSE *_test.cpp` 用文件名约定发现测试；`NAME_WE`（name without extension）取出 `intrusive_ptr_test`，加前缀成 `c10_intrusive_ptr_test`；`add_executable` 一个文件一个二进制（好处：某个测试挂了不影响其他的，可以单独重跑；坏处：几十个二进制各自链接 gtest，构建慢——所以 `BUILD_TEST=0` 能省不少时间）；`target_link_libraries(... ${C10_LIB} gmock gtest gtest_main)`——链接被测库和 gtest；`add_test` 把它注册给 CTest（CMake 自带的测试驱动，`ctest -R c10_intrusive` 能按名字跑）；`INSTALL_RPATH` 让安装到 `test/` 目录的二进制能找到 `../lib/libc10.so`（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)的 RPATH）。
 
 第二个块是一种特殊的测试："头文件能不能在某个 C++ 标准下编过"。`cpp17_header_build_check.cpp` 只是 include 一堆 c10 头文件，用 `CXX_STANDARD_REQUIRED ON` 严格钉在 C++17 上编译，成功就是通过。这类测试防的是"某个头文件不小心用了只有 C++20 才有的特性（`concept`、`std::span`、`<=>`……），PyTorch 自己的构建碰巧没报错，但下游用 C++17 的扩展编不过"。
 
@@ -1549,7 +1599,7 @@ PyTorch 的测试绝大部分是 Python（`test/` 下几百个 `test_*.py`，用
 **用 C++ 测的：**
 
 - **没有 Python 接口的东西。** `intrusive_ptr`、`SmallVector`、`ArrayRef`、`DispatchKeySet`、`c10::Error`、allocator、`TensorIterator` 的内部——这些类型 Python 看不到。
-- **只在 C++ 层才能触发的行为。** 移动语义（第二篇：`std::move` 之后原对象是否 `undefined`）、异常安全、`const` 正确性、模板实例化能不能编过——这些是 C++ 语言层面的契约，Python 测试无法表达。`c10/test/util/intrusive_ptr_test.cpp` 里三百多个测试几乎全是这类（第十二章读它）。
+- **只在 C++ 层才能触发的行为。** 移动语义（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：`std::move` 之后原对象是否 `undefined`）、异常安全、`const` 正确性、模板实例化能不能编过——这些是 C++ 语言层面的契约，Python 测试无法表达。`c10/test/util/intrusive_ptr_test.cpp` 里三百多个测试几乎全是这类（第十二章读它）。
 - **C++ 前端 API 本身。** `test/cpp/api` 测 `torch::nn::Linear` 之类的 C++ API——它们的用户就是 C++ 程序。
 - **编译期断言。** `static_assert(std::is_same_v<SomeClass, intrusive_ptr<SomeClass>::element_type>)`——测试文件里的 `static_assert` 在编译时检查，运行时什么都不做，但编不过就是测试失败。
 
@@ -1633,7 +1683,7 @@ TabWidth:        8
 UseTab:          Never
 ```
 
-读过前面几篇源码的读者对这些规则应该有直觉：两空格缩进（`IndentWidth: 2`）、80 列、大括号不换行（`Attach`）、`T* p` 而不是 `T *p`（`PointerAlignment: Left`）、`public:` 比类体缩进少一格（`AccessModifierOffset: -1`，这就是源码里 ` public:` 前面那一个空格）、参数一行放不下就**每个参数一行**（`BinPackParameters: false`，所以 `KernelFunction.h` 里的长签名都是竖排的）、`template <...>` 单独一行（`AlwaysBreakTemplateDeclarations`）、include 按"带 `.h` 的尖括号 → 不带 `.h` 的尖括号（标准库） → 其他"三组排序。`StatementMacros` 告诉 clang-format 哪些宏像语句一样以分号结束，否则它会把 `C10_DEFINE_bool(...)` 后面的代码格式弄乱——这是宏（第五篇）给工具链带来的麻烦之一。`Standard: c++17` 只影响格式化器对语法的理解（例如 `>>` 是不是模板闭合），它不是编译选项——这里恰好与 CMake 里的 `CMAKE_CXX_STANDARD 17` 一致，但两者互不影响。
+读过前面几篇源码的读者对这些规则应该有直觉：两空格缩进（`IndentWidth: 2`）、80 列、大括号不换行（`Attach`）、`T* p` 而不是 `T *p`（`PointerAlignment: Left`）、`public:` 比类体缩进少一格（`AccessModifierOffset: -1`，这就是源码里 ` public:` 前面那一个空格）、参数一行放不下就**每个参数一行**（`BinPackParameters: false`，所以 `KernelFunction.h` 里的长签名都是竖排的）、`template <...>` 单独一行（`AlwaysBreakTemplateDeclarations`）、include 按"带 `.h` 的尖括号 → 不带 `.h` 的尖括号（标准库） → 其他"三组排序。`StatementMacros` 告诉 clang-format 哪些宏像语句一样以分号结束，否则它会把 `C10_DEFINE_bool(...)` 后面的代码格式弄乱——这是宏（[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)）给工具链带来的麻烦之一。`Standard: c++17` 只影响格式化器对语法的理解（例如 `>>` 是不是模板闭合），它不是编译选项——这里恰好与 CMake 里的 `CMAKE_CXX_STANDARD 17` 一致，但两者互不影响。
 
 vLLM 的 `.clang-format` 更短，`BasedOnStyle: Google` 打底，只覆盖几项（也是两空格、80 列、`PointerAlignment: Left`），并关掉了 include 排序（`SortIncludes: false`，注释说排序会引入错误——CUDA 头文件的包含顺序有时是有意义的）。
 
@@ -1722,10 +1772,10 @@ CheckOptions:
 
 `Checks` 的写法是"开一整组，再关掉不适用的"。每一组对应本系列的一些主题：
 
-- **`bugprone-*`**：真正的 bug 模式。`bugprone-use-after-move`（第二篇：`std::move` 之后不能再用）、`bugprone-dangling-handle`（第三篇：`ArrayRef`/`string_view` 指向了临时对象）、`bugprone-unchecked-optional-access`（文件头注释专门提到它，"can cause clang-tidy to hang randomly"）。关掉的 `bugprone-macro-parentheses`（宏参数要加括号——PyTorch 的宏太多，很多故意不加）、`bugprone-easily-swappable-parameters`（相邻同类型参数容易传反——`add(a, b)` 这类算子签名到处都是）。
-- **`cppcoreguidelines-*`**：C++ Core Guidelines。关掉的一长串 `pro-type-*`/`pro-bounds-*` 是"禁止裸指针算术、禁止 `reinterpret_cast`、禁止 C 风格数组"——对写 kernel 的代码库不现实（`data_ptr<scalar_t>()[i]` 就是指针算术）。保留的 `cppcoreguidelines-special-member-functions`（第二篇的 Rule of Five：定义了析构就该考虑拷贝/移动）加了两个宽松选项：只有析构函数（`AllowSoleDefaultDtor`）或拷贝/移动被隐式删除（`AllowImplicitlyDeletedCopyOrMove`）时不报。
+- **`bugprone-*`**：真正的 bug 模式。`bugprone-use-after-move`（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：`std::move` 之后不能再用）、`bugprone-dangling-handle`（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)：`ArrayRef`/`string_view` 指向了临时对象）、`bugprone-unchecked-optional-access`（文件头注释专门提到它，"can cause clang-tidy to hang randomly"）。关掉的 `bugprone-macro-parentheses`（宏参数要加括号——PyTorch 的宏太多，很多故意不加）、`bugprone-easily-swappable-parameters`（相邻同类型参数容易传反——`add(a, b)` 这类算子签名到处都是）。
+- **`cppcoreguidelines-*`**：C++ Core Guidelines。关掉的一长串 `pro-type-*`/`pro-bounds-*` 是"禁止裸指针算术、禁止 `reinterpret_cast`、禁止 C 风格数组"——对写 kernel 的代码库不现实（`data_ptr<scalar_t>()[i]` 就是指针算术）。保留的 `cppcoreguidelines-special-member-functions`（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的 Rule of Five：定义了析构就该考虑拷贝/移动）加了两个宽松选项：只有析构函数（`AllowSoleDefaultDtor`）或拷贝/移动被隐式删除（`AllowImplicitlyDeletedCopyOrMove`）时不报。
 - **`modernize-*`**：用 C++11/14/17 的写法替代老写法：`nullptr`、`override`、`using` 别名、`emplace_back`、`= default`。关掉 `modernize-use-auto` 和 `modernize-use-trailing-return-type`（风格选择，PyTorch 不强制 `auto`）。
-- **`performance-*`**：不必要的拷贝（`performance-unnecessary-value-param`：按值传了一个大对象但没有移动它——第二篇的传参规则）、循环里的隐式拷贝（`performance-for-range-copy`：`for (auto x : vec)` 应该是 `const auto&`）、`performance-inefficient-vector-operation`（循环 `push_back` 前没 `reserve`）。
+- **`performance-*`**：不必要的拷贝（`performance-unnecessary-value-param`：按值传了一个大对象但没有移动它——[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的传参规则）、循环里的隐式拷贝（`performance-for-range-copy`：`for (auto x : vec)` 应该是 `const auto&`）、`performance-inefficient-vector-operation`（循环 `push_back` 前没 `reserve`）。
 - **`readability-*`**：只开了少数几条，不用整组——可读性规则最主观。
 - **`clang-analyzer-*`**：Clang Static Analyzer 的路径敏感分析——空指针解引用、用后释放、死存储。开头 `Module.cpp` 那段代码里的 `NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)` 就是在压制这一组的一条：分析器认为 `x[0]` 读的是未初始化的栈数组（确实是，那是故意的）。
 
@@ -1826,10 +1876,10 @@ command = [
 
 | code | 模式 | 规则 |
 |---|---|---|
-| `INCLUDE` | `#include "` | 不用引号 include，一律 `#include <...>`（第一篇的头文件约定；有 `--replace-pattern` 能自动修） |
-| `PYBIND11_INCLUDE` | `#include <pybind11/...>` | 不直接 include pybind11，用 `<torch/csrc/utils/pybind.h>`（第七篇：那里有 `at::Tensor` 等类型的 caster 和 GIL 处理） |
+| `INCLUDE` | `#include "` | 不用引号 include，一律 `#include <...>`（[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)的头文件约定；有 `--replace-pattern` 能自动修） |
+| `PYBIND11_INCLUDE` | `#include <pybind11/...>` | 不直接 include pybind11，用 `<torch/csrc/utils/pybind.h>`（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)：那里有 `at::Tensor` 等类型的 caster 和 GIL 处理） |
 | `C10_UNUSED` / `C10_NODISCARD` | 宏名 | 这两个宏已废弃，用 C++17 的 `[[maybe_unused]]` / `[[nodiscard]]` |
-| `RAWCUDA` / `RAWCUDADEVICE` | `cudaStreamSynchronize` 等 | 不直接调 CUDA 运行时 API，用 c10 的封装（第六篇：`c10::cuda::` 的守卫和 stream 抽象） |
+| `RAWCUDA` / `RAWCUDADEVICE` | `cudaStreamSynchronize` 等 | 不直接调 CUDA 运行时 API，用 c10 的封装（[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)：`c10::cuda::` 的守卫和 stream 抽象） |
 | `CMAKE` | — | cmakelint 检查 `CMakeLists.txt` 本身 |
 | `TEST_HAS_MAIN` | — | Python 测试文件末尾必须有 `if __name__ == "__main__": run_tests()` |
 
@@ -1880,7 +1930,7 @@ CUDA_CLANG_VERSIONS: VersionMap = {
 }
 ```
 
-含义：CUDA 11.7 支持 gcc 6 到 gcc 11（上界 12 不含）。用 gcc 12 配 CUDA 11.7 编扩展，`_check_cuda_version` 会报错 "The current installed version of g++ ... is greater than the maximum required version by CUDA 11.7"。注意这张表在 v2.10.0 里只维护到 CUDA 11.7：对 12.x 的 CUDA，`_check_cuda_version` 找不到对应条目，只打印一条 "There are no g++ version bounds defined for CUDA version 12.x" 的警告就放行——此时约束仍然存在（nvcc 自己的 `host_config.h` 会在编译时用 `#error -- unsupported GNU version!` 拦住），只是 PyTorch 不再替你提前检查。`cpp_extension.py` 里还有 `check_compiler_ok_for_platform`（Linux 上必须是 gcc/g++ 系，因为 PyTorch 的 Linux wheel 是 gcc 编的）和 `get_compiler_abi_compatibility_and_version`（第七篇讲的 ABI 契约：扩展的编译器大版本要和编译 PyTorch 的一致，否则打印 `ABI_INCOMPATIBILITY_WARNING`；`TORCH_DONT_CHECK_COMPILER_ABI=1` 可以跳过）。
+含义：CUDA 11.7 支持 gcc 6 到 gcc 11（上界 12 不含）。用 gcc 12 配 CUDA 11.7 编扩展，`_check_cuda_version` 会报错 "The current installed version of g++ ... is greater than the maximum required version by CUDA 11.7"。注意这张表在 v2.10.0 里只维护到 CUDA 11.7：对 12.x 的 CUDA，`_check_cuda_version` 找不到对应条目，只打印一条 "There are no g++ version bounds defined for CUDA version 12.x" 的警告就放行——此时约束仍然存在（nvcc 自己的 `host_config.h` 会在编译时用 `#error -- unsupported GNU version!` 拦住），只是 PyTorch 不再替你提前检查。`cpp_extension.py` 里还有 `check_compiler_ok_for_platform`（Linux 上必须是 gcc/g++ 系，因为 PyTorch 的 Linux wheel 是 gcc 编的）和 `get_compiler_abi_compatibility_and_version`（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲的 ABI 契约：扩展的编译器大版本要和编译 PyTorch 的一致，否则打印 `ABI_INCOMPATIBILITY_WARNING`；`TORCH_DONT_CHECK_COMPILER_ABI=1` 可以跳过）。
 
 ### 2. PyTorch CI 的矩阵
 
@@ -1908,19 +1958,19 @@ linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 | 编译 PyTorch 头文件时大量报错，涉及 `std::optional`、`if constexpr`、折叠表达式、`inline` 变量 | 编译器太老，不完整支持 C++17（或者环境变量里塞了 `-std=c++14` 之类，被顶层 `CMakeLists.txt` 警告过） | `g++ --version`；对照 `CMakeLists.txt` 的最低版本（GCC 9.3） |
 | `nvcc fatal: Unsupported gpu architecture 'compute_120'` | CUDA 太老，不认识新 GPU | `nvcc --version`；`TORCH_CUDA_ARCH_LIST` 去掉新架构 |
 | `#error -- unsupported GNU version! gcc versions later than 13 are not supported!` | gcc 比 CUDA 支持的新 | 上面的 `CUDA_GCC_VERSIONS` 表；装旧 gcc 或用 `-allow-unsupported-compiler`（自担风险） |
-| `import` 扩展时 `undefined symbol: ..._ZNSt7__cxx11...` 或 `...[abi:cxx11]` | 扩展和 PyTorch 的 libstdc++ ABI 不一致（第七篇） | `nm -DC` 看符号里有没有 `[abi:cxx11]`；确认 `_GLIBCXX_USE_CXX11_ABI` |
+| `import` 扩展时 `undefined symbol: ..._ZNSt7__cxx11...` 或 `...[abi:cxx11]` | 扩展和 PyTorch 的 libstdc++ ABI 不一致（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)） | `nm -DC` 看符号里有没有 `[abi:cxx11]`；确认 `_GLIBCXX_USE_CXX11_ABI` |
 | `GLIBCXX_3.4.30 not found` | 运行机器的 libstdc++ 比编译机器旧 | `strings /usr/lib/.../libstdc++.so.6 \| grep GLIBCXX`；用更老的编译机器或静态链接 libstdc++ |
 | 编 PyTorch 时 "FindCUDA says CUDA version is X but the CUDA headers say the version is Y" | PATH 上的 nvcc 和 `CUDA_HOME` 指向不同的 CUDA | `which nvcc`、`echo $CUDA_HOME` |
 
 Table: 版本不匹配的典型症状
 
-Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上第七篇的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在开发机上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
+Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在开发机上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
 
 ## 十二、回到源码
 
 ### 1. `c10/test/util/intrusive_ptr_test.cpp`：一个 C++ 测试文件的解剖
 
-这个文件 3500 多行、325 个 `TEST`，测的是第二篇的主角 `c10::intrusive_ptr`。它是学习"C++ 测试该测什么"的最好样本，因为被测对象没有任何业务逻辑——全部是语言层面的契约。
+这个文件 3500 多行、325 个 `TEST`，测的是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的主角 `c10::intrusive_ptr`。它是学习"C++ 测试该测什么"的最好样本，因为被测对象没有任何业务逻辑——全部是语言层面的契约。
 
 **文件头**：
 
@@ -1951,7 +2001,7 @@ using c10::weak_intrusive_ptr;
 // NOLINTBEGIN(clang-analyzer-cplusplus*)
 ```
 
-第一行 include 被测头文件，**在 gtest 之前**——第一篇讲的"头文件自包含"检查：如果 `intrusive_ptr.h` 漏了某个 include，靠 gtest 的头文件碰巧带进来会掩盖问题。接下来是一组关掉警告的 `#pragma`：测试要故意做 `a = std::move(a)`（self-move）、`a = a`（self-assign）这类正常代码不该写、编译器会警告的事——因为 `intrusive_ptr` 的赋值运算符**必须**在这些情况下正确（第二篇 copy-and-swap 的理由）。`-Wpragmas`/`-Wunknown-warning-option` 是为了"关掉一个可能不存在的警告"本身不产生警告——gcc 和 clang 的警告名不完全一样。最后 `NOLINTBEGIN` 关掉 clang-tidy 的静态分析器：它会对 use-after-move 之类的测试报错。这一段是 4.2 节 `-Werror` 策略和 10.3 节 `NOLINT` 机制在一个文件里的交汇。
+第一行 include 被测头文件，**在 gtest 之前**——[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)讲的"头文件自包含"检查：如果 `intrusive_ptr.h` 漏了某个 include，靠 gtest 的头文件碰巧带进来会掩盖问题。接下来是一组关掉警告的 `#pragma`：测试要故意做 `a = std::move(a)`（self-move）、`a = a`（self-assign）这类正常代码不该写、编译器会警告的事——因为 `intrusive_ptr` 的赋值运算符**必须**在这些情况下正确（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里 copy-and-swap 的理由）。`-Wpragmas`/`-Wunknown-warning-option` 是为了"关掉一个可能不存在的警告"本身不产生警告——gcc 和 clang 的警告名不完全一样。最后 `NOLINTBEGIN` 关掉 clang-tidy 的静态分析器：它会对 use-after-move 之类的测试报错。这一段是 4.2 节 `-Werror` 策略和 10.3 节 `NOLINT` 机制在一个文件里的交汇。
 
 **测试夹具：几个最小的类**：
 
@@ -1996,7 +2046,7 @@ class DestructableMock : public intrusive_ptr_target {
 } // namespace
 ```
 
-匿名命名空间（第一篇：内部链接，不污染别的测试文件）。`DestructableMock` 是这个文件最重要的工具：它通过两个 `bool*` 把"析构发生了没有"写回测试函数的栈变量——C++ 没有 GC，析构时机是确定的，所以可以精确断言"这一行之前没析构，这一行之后析构了"。Java 的测试写不出这种断言（`finalize` 的时机不确定，弱引用加 `System.gc()` 只是尽力）。`release_resources()` 是 `intrusive_ptr_target` 的虚函数，第二篇讲过 `weak_intrusive_ptr` 场景下强引用归零但对象还不能 `delete` 时用它提前释放资源。
+匿名命名空间（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)：内部链接，不污染别的测试文件）。`DestructableMock` 是这个文件最重要的工具：它通过两个 `bool*` 把"析构发生了没有"写回测试函数的栈变量——C++ 没有 GC，析构时机是确定的，所以可以精确断言"这一行之前没析构，这一行之后析构了"。Java 的测试写不出这种断言（`finalize` 的时机不确定，弱引用加 `System.gc()` 只是尽力）。`release_resources()` 是 `intrusive_ptr_target` 的虚函数，[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过 `weak_intrusive_ptr` 场景下强引用归零但对象还不能 `delete` 时用它提前释放资源。
 
 **编译期测试**：
 
@@ -2006,7 +2056,7 @@ static_assert(
     "intrusive_ptr<T>::element_type is wrong");
 ```
 
-不在任何 `TEST` 里，编译时检查。第三篇的 type traits 在测试里的用法。
+不在任何 `TEST` 里，编译时检查。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的 type traits 在测试里的用法。
 
 **测试的命名与粒度**：
 
@@ -2040,7 +2090,7 @@ TEST(
 
 `given_when_then` 命名，**每个测试一条断言**——"移动赋值后新指针指向原对象"和"移动赋值后旧指针失效"是两个测试。粒度细到这种程度的好处是失败时测试名就是 bug 描述。注意第三个：`obj1 = std::move(obj1)` 自我移动赋值——标准库对此不做保证，但 `intrusive_ptr` 保证了（因为 copy-and-swap），这个测试锁定了这个保证。`NOLINTNEXTLINE(bugprone-use-after-move)` 精确地压制了 10.3 节那条检查。
 
-**引用计数与析构时序**（第二篇 11.5 节 mini-c10 手工打印的那些事，这里变成了断言）：
+**引用计数与析构时序**（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)「验证释放时序」一节里 mini-c10 手工打印的那些事，这里变成了断言）：
 
 ```cpp title="引用计数与析构时序的断言"
 TEST(IntrusivePtrTest, givenNewPtr_thenHasUseCount1) {
@@ -2062,7 +2112,7 @@ TEST(IntrusivePtrTest, givenPtr_whenDestructed_thenDestructsObject) {
 }
 ```
 
-**`release`/`reclaim` 的所有权转移**（第二篇 9.7 节；第七篇 Python 绑定依赖它）：
+**`release`/`reclaim` 的所有权转移**（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)「与裸指针互转：`release`、`reclaim` 及其变体」一节；[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的 Python 绑定依赖它）：
 
 ```cpp title="release/reclaim 所有权转移的测试"
 TEST(
@@ -2111,7 +2161,7 @@ TEST(IntrusivePtrTest, givenStackObject_whenReclaimed_thenCrashes) {
 
 它展示了 4.1 节 `NDEBUG` 在测试里的意义：`reclaim` 一个栈对象在 Debug 构建下应该被 `TORCH_INTERNAL_ASSERT_DEBUG_ONLY` 拦住并抛异常，Release 下这个检查不存在——**同一份测试在两种构建类型下期待相反的结果**。它被注释掉了，但 `WeakIntrusivePtrTest` 里的对应版本还活着。这类"Debug 有检查、Release 没有"的行为在 PyTorch 里很多，写测试时要意识到测试二进制是哪种构建。
 
-这个文件还有一半多（172 个测试）是 `WeakIntrusivePtrTest`，测第二篇末尾提过的 `weak_intrusive_ptr`：`lock()` 在对象活着/死了时的行为、弱引用不阻止析构、弱引用计数和强引用计数的独立性。结构与上面完全平行。
+这个文件还有一半多（172 个测试）是 `WeakIntrusivePtrTest`，测[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)「`weak_intrusive_ptr`：打破 autograd 图里的环」一节讲的 `weak_intrusive_ptr`：`lock()` 在对象活着/死了时的行为、弱引用不阻止析构、弱引用计数和强引用计数的独立性。结构与上面完全平行。
 
 ### 2. `tools/gdb/pytorch-gdb.py`：调试器扩展是怎么写的
 
@@ -2187,6 +2237,35 @@ class TensorRepr(gdb.Command):  # type: ignore[misc, no-any-unimported]
 
 返回值是 `char*`，`res.string()` 让 gdb 从目标进程读出 C 字符串。然后第二次 `parse_and_eval` 调 `free()` 释放那块内存——因为字符串是在目标进程的堆上 `malloc` 的，gdb 自己没法释放。`(void)` 强转是为了让 gdb 不去打印 `free` 的返回值。
 
+一次 `torch-tensor-repr self` 在两个进程之间的往返：
+
+```mermaid
+%% 图：torch-tensor-repr 的一次执行：gdb 里的脚本两次让被调试进程执行函数
+sequenceDiagram
+    participant U as 用户
+    participant G as pytorch-gdb.py
+    participant T as tensor_repr
+    participant P as CPython
+    Note over G: gdb 进程
+    Note over T,P: 被调试进程
+    U->>G: torch-tensor-repr self
+    G->>G: 关掉所有断点
+    G->>T: parse_and_eval 调用
+    T->>P: PyGILState_Ensure
+    T->>P: THPVariable_Wrap
+    T->>P: PyObject_Repr
+    P-->>T: repr 字符串
+    T->>T: malloc 并拷入字符串
+    T->>P: 释放引用与 GIL
+    T-->>G: char*
+    G->>G: res.string() 读出并打印
+    G->>T: parse_and_eval 调用 free
+    G->>G: 恢复断点
+    G-->>U: Tensor 的 repr
+```
+
+图里从 `pytorch-gdb.py` 指向 `tensor_repr` 的两条实线就是脚本里的两次 `gdb.parse_and_eval`。返回的 `char*` 指向被调试进程堆上的缓冲区，所以要 `res.string()` 跨进程读出、再让那个进程自己 `free`。中间一段全部在被调试进程里执行，下面的 C++ 端代码逐行对应。
+
 对应的 C++ 端 `torch/csrc/utils.cpp`：
 
 ```cpp title="torch/csrc/utils.cpp 的 tensor_repr：malloc 的 C 字符串"
@@ -2239,9 +2318,9 @@ error:
 }
 ```
 
-这个函数是第七篇内容的一次集中复习：`PyGILState_Ensure()`（调试器随时可能停在任何线程上，不一定持有 GIL，所以要先拿）；`THPVariable_Wrap` 把 `at::Tensor` 包成 Python 对象（第七篇：`THPVariable` 不是 pybind11 而是手写的 Python C API）；`PyObject_Repr` 就是 Python 的 `repr()`；`Py_XDECREF` 释放引用；最后 `PyGILState_Release`。用 `malloc` 而不是 `new[]` 的理由写在注释里——从 gdb 里调 `free` 比调 `delete[]` 容易（`delete[]` 不是一个可以按名字调用的函数）。`goto error` 加 `NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)` 是 10.3 节 `.clang-tidy` 里 `hicpp-avoid-goto` 检查的一次显式压制——Python C API 风格的错误处理用 goto 是惯例。
+这个函数是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)内容的一次集中复习：`PyGILState_Ensure()`（调试器随时可能停在任何线程上，不一定持有 GIL，所以要先拿）；`THPVariable_Wrap` 把 `at::Tensor` 包成 Python 对象（《与 Python 之间》：`THPVariable` 不是 pybind11 而是手写的 Python C API）；`PyObject_Repr` 就是 Python 的 `repr()`；`Py_XDECREF` 释放引用；最后 `PyGILState_Release`。用 `malloc` 而不是 `new[]` 的理由写在注释里——从 gdb 里调 `free` 比调 `delete[]` 容易（`delete[]` 不是一个可以按名字调用的函数）。`goto error` 加 `NOLINTNEXTLINE(cppcoreguidelines-avoid-goto,hicpp-avoid-goto)` 是 10.3 节 `.clang-tidy` 里 `hicpp-avoid-goto` 检查的一次显式压制——Python C API 风格的错误处理用 goto 是惯例。
 
-那段 `NB` 注释记录了一个真实的 bug：函数签名是 `const at::Tensor&`，理论上 gdb 传的是引用；但 gdb 有时会把用户表达式的地址原样传进来，如果函数内部 `std::move` 了这个 Tensor，用户正在调试的那个变量就被掏空了——调试器改变了程序状态。所以不能 move。第二篇讲的"移动之后原对象处于有效但未指定状态"在调试工具里也是要小心的事。
+那段 `NB` 注释记录了一个真实的 bug：函数签名是 `const at::Tensor&`，理论上 gdb 传的是引用；但 gdb 有时会把用户表达式的地址原样传进来，如果函数内部 `std::move` 了这个 Tensor，用户正在调试的那个变量就被掏空了——调试器改变了程序状态。所以不能 move。[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲的"移动之后原对象处于有效但未指定状态"在调试工具里也是要小心的事。
 
 **第三部分：另外两条命令与注册**：
 
@@ -2269,7 +2348,7 @@ IntArrayRefRepr()
 DispatchKeysetRepr()
 ```
 
-`int_array_ref_string` 和 `dispatch_keyset_string` 返回 `std::string`（不是 `char*`），gdb 打印 `std::string` 的结果形如 `"[2, 3, 4]"` 带引号，所以用字符串切片去掉引号。文件末尾三个构造函数调用就是注册——和第五篇的静态注册是同一个思路，只是在 Python 里。
+`int_array_ref_string` 和 `dispatch_keyset_string` 返回 `std::string`（不是 `char*`），gdb 打印 `std::string` 的结果形如 `"[2, 3, 4]"` 带引号，所以用字符串切片去掉引号。文件末尾三个构造函数调用就是注册——和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的静态注册是同一个思路，只是在 Python 里。
 
 lldb 版 `tools/lldb/pytorch_lldb.py` 用的是 lldb 的"类型摘要提供器"（summary provider）：给 `at::Tensor`、`c10::IntArrayRef`、`c10::DispatchKeySet` 三个类型各注册一个 Python 函数，lldb 在打印这些类型的值时自动调用它——同样是 `target.EvaluateExpression(f"torch::gdb::tensor_repr({tensor})")` 在目标进程里调那三个 C++ 函数。两个脚本共用同一组 C++ 端函数，这是把"调试辅助"的逻辑放在 C++ 里而不是调试器脚本里的好处。
 
@@ -2297,11 +2376,9 @@ Table: clang-tidy 检查模块的来源与性质
 
 ## 十三、mini-c10：补齐工程
 
-按系列约定，本篇给 mini-c10 补上：完整的 `CMakeLists.txt`（库、算子、Python 模块、gtest、ASan 选项、`compile_commands.json`）、`test/intrusive_ptr_test.cpp`、`test/dispatcher_test.cpp`、`.clang-format`，以及一个 lldb 会话。**先说清边界**：这些文件是按前面各篇的接口**设计**出来的骨架，没有在一个仓库里整体配置、编译、跑通过——已知的接缝包括：`CMakeLists.txt` 引用的 `Dispatcher.cpp` / `RegisterSchema.cpp` 前面各篇只给了头文件；第四篇的 `IValue` 只装 `Tensor` / `int64` / `double` / `bool`，`dispatcher_test.cpp` 里若对 `int` 做 boxed 调用会因 `to<int>()` 未实例化而编译失败；sanitizer 选项要 `PUBLIC` 才能传给测试目标；导出的 `targets` 文件不是 `find_package` 的 Config 文件，还缺 `Config.cmake.in` 与 `find_dependency(Threads)`。把它当"照着补齐就能编"的清单读，而不是当已交付的可运行工程。
+按系列约定，本篇给 mini-c10 补上：完整的 `CMakeLists.txt`（库、算子、Python 模块、gtest、ASan 选项、`compile_commands.json`）、`test/intrusive_ptr_test.cpp`、`test/dispatcher_test.cpp`、`.clang-format`，以及一个 lldb 会话。**先说清边界**：这些文件是按前面各篇的接口**设计**出来的骨架，没有在一个仓库里整体配置、编译、跑通过——已知的接缝包括：`CMakeLists.txt` 引用的 `Dispatcher.cpp` / `RegisterSchema.cpp` 前面各篇只给了头文件；[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的 `IValue` 只装 `Tensor` / `int64` / `double` / `bool`，`dispatcher_test.cpp` 里若对 `int` 做 boxed 调用会因 `to<int>()` 未实例化而编译失败；sanitizer 选项要 `PUBLIC` 才能传给测试目标；导出的 `targets` 文件不是 `find_package` 的 Config 文件，还缺 `Config.cmake.in` 与 `find_dependency(Threads)`。把它当"照着补齐就能编"的清单读，而不是当已交付的可运行工程。
 
-**关于验证的说明。** 验证环境（macOS arm64）没有安装 CMake、Ninja、gtest 和 clang-format（`which cmake ninja clang-format` 均为空），只有 Apple clang 21 和 lldb。因此：所有 C++ 文件（第二、三、四、五、六篇约定的头文件的最小版本 + 本篇的两个测试文件）都用 `clang++ -std=c++17 -Wall -Wextra` 实际编译并运行过；gtest 用一个 40 行的桩头文件（只提供 `TEST`/`EXPECT_*`/`ASSERT_*`/`EXPECT_THROW` 宏和一个最简 `main`）代替，以验证测试文件的语法和逻辑，两个测试文件共 21 个测试全部通过；`CMakeLists.txt` **未经 cmake 实际配置**，它只用了本文第二章和第九章从 `c10/CMakeLists.txt`、`c10/test/CMakeLists.txt` 里读到的命令，逐条对照过；`.clang-format` 内容取自 PyTorch 的同名文件的子集。lldb 部分的限制在 6.5 节说明过。
-
-在整合前面几篇的头文件时发现了一处需要主编协调的不一致：第六篇的 `intrusive_ptr.h`（原子计数版）去掉了第二篇版本里的 `explicit operator bool()`，而第二篇的 `TensorImpl::data()` 写的是 `storage_ ? storage_->data() : nullptr`，需要这个转换。本篇验证时在第六篇的版本上补回了这一行；建议第六篇也补上。
+**关于验证的说明。** 验证环境（macOS arm64）没有安装 CMake、Ninja、gtest 和 clang-format（`which cmake ninja clang-format` 均为空），只有 Apple clang 21 和 lldb。因此：所有 C++ 文件（从[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)到[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)五篇约定的头文件的最小版本 + 本篇的两个测试文件）都用 `clang++ -std=c++17 -Wall -Wextra` 实际编译并运行过；gtest 用一个 40 行的桩头文件（只提供 `TEST`/`EXPECT_*`/`ASSERT_*`/`EXPECT_THROW` 宏和一个最简 `main`）代替，以验证测试文件的语法和逻辑，两个测试文件共 21 个测试全部通过；`CMakeLists.txt` **未经 cmake 实际配置**，它只用了本文第二章和第九章从 `c10/CMakeLists.txt`、`c10/test/CMakeLists.txt` 里读到的命令，逐条对照过；`.clang-format` 内容取自 PyTorch 的同名文件的子集。lldb 部分的限制在 6.5 节说明过。
 
 ### 1. `CMakeLists.txt`
 
@@ -2324,7 +2401,7 @@ endif()
 
 option(BUILD_SHARED_LIBS "Build minic10 as a shared library" ON)
 option(BUILD_TEST "Build gtest binaries" ON)              # 对应 PyTorch 的 BUILD_TEST
-option(BUILD_PYTHON "Build the pybind11 module" OFF)      # 第七篇的模块；需要 pybind11
+option(BUILD_PYTHON "Build the pybind11 module" OFF)      # 《与 Python 之间》的模块；需要 pybind11
 option(USE_ASAN "Build with AddressSanitizer + UBSan" OFF) # 对应 PyTorch 的 USE_ASAN
 option(WERROR "Treat warnings as errors" OFF)             # 对应 PyTorch 的 WERROR，CI 打开
 
@@ -2343,8 +2420,8 @@ endif()
 
 # ---- 库：libminic10 ----------------------------------------------------------
 set(MINIC10_SRCS
-    minic10/core/Version.cpp        # 第 1 篇
-    minic10/ops/add.cpp             # 第 3 篇起；第 5 篇改为 MINI_LIBRARY_IMPL 自注册
+    minic10/core/Version.cpp        # 《工程布局》
+    minic10/ops/add.cpp             # 《模板与泛型编程》起；《宏、静态注册与代码生成》改为 MINI_LIBRARY_IMPL 自注册
     minic10/ops/mul.cpp
 )
 file(GLOB_RECURSE MINIC10_HEADERS CONFIGURE_DEPENDS minic10/*.h)   # 与 c10 一样只是给 IDE 看
@@ -2355,7 +2432,7 @@ target_include_directories(minic10 PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>)
 
-# 第 5 篇：隐藏可见性 + 导出宏；与 c10 的 -DC10_BUILD_MAIN_LIB / -fvisibility=hidden 对应
+# 《宏、静态注册与代码生成》：隐藏可见性 + 导出宏；与 c10 的 -DC10_BUILD_MAIN_LIB / -fvisibility=hidden 对应
 target_compile_definitions(minic10 PRIVATE MINIC10_BUILD_MAIN_LIB)
 if(NOT WIN32 AND NOT USE_ASAN)   # torch_compile_options 里同样在 USE_ASAN 时不开 hidden
   target_compile_options(minic10 PRIVATE -fvisibility=hidden)
@@ -2371,15 +2448,15 @@ endif()
 
 target_link_libraries(minic10 PUBLIC minic10_sanitizer)   # PUBLIC：测试和 Python 模块也要插桩
 
-find_package(Threads REQUIRED)                            # 第 6 篇 Parallel.h 用 std::thread
+find_package(Threads REQUIRED)                            # 《并发、内存模型、TLS 与守卫》的 Parallel.h 用 std::thread
 target_link_libraries(minic10 PUBLIC Threads::Threads)
 
-# ---- 示例可执行文件（第 1 篇）------------------------------------------------
+# ---- 示例可执行文件（《工程布局》）------------------------------------------------
 add_executable(hello examples/hello.cpp)
 target_link_libraries(hello PRIVATE minic10)
 set_target_properties(hello PROPERTIES BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
 
-# ---- Python 模块（第 7 篇）---------------------------------------------------
+# ---- Python 模块（《与 Python 之间》）---------------------------------------------------
 if(BUILD_PYTHON)
   find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
   find_package(pybind11 CONFIG REQUIRED)     # pip install pybind11; -Dpybind11_DIR=$(python -m pybind11 --cmakedir)
@@ -2388,7 +2465,7 @@ if(BUILD_PYTHON)
   set_target_properties(_minic10 PROPERTIES BUILD_RPATH "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
 
-# ---- 测试（第 8 篇）：照 c10/test/CMakeLists.txt ---------------------------------
+# ---- 测试（本篇）：照 c10/test/CMakeLists.txt ---------------------------------
 if(BUILD_TEST)
   include(FetchContent)
   FetchContent_Declare(googletest
@@ -2415,7 +2492,36 @@ install(DIRECTORY minic10/ DESTINATION include/minic10 FILES_MATCHING PATTERN "*
 install(EXPORT minic10Targets NAMESPACE minic10:: DESTINATION share/cmake/minic10)  # 让别人能 find_package(minic10)
 ```
 
-与第一篇骨架相比新增的每一块都对应本文一节：`CMAKE_BUILD_TYPE` 默认值（3.1）；`minic10_sanitizer` INTERFACE 目标（7.3——比直接往 `CMAKE_CXX_FLAGS` 里塞 `-fsanitize` 好，因为选项跟着目标走、可以 `PUBLIC` 传递给测试和 Python 模块）；`USE_ASAN` 时不开 `-fvisibility=hidden`（3.2，同 `torch_compile_options`）；`-Werror=return-type -Werror=non-virtual-dtor` 无条件、`-Werror` 可选（3.2）；gtest 的 glob + foreach（8.2，与 `c10/test/CMakeLists.txt` 逐行对应）；`install(EXPORT ...)` 生成 `minic10Targets.cmake`，就是 2.4 节 `Caffe2Targets.cmake` 的小版本。
+这份文件里谁链接谁、哪些属性会传下去：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：mini-c10 的 CMake 目标依赖：sanitizer 选项经 PUBLIC 传到所有下游，hidden 可见性与警告选项留在 minic10
+flowchart TB
+    SAN["<b>minic10_sanitizer</b><br/>INTERFACE 目标，没有源文件<br/>USE_ASAN=ON 时承载两个选项<br/>-fsanitize=address<br/>-fsanitize=undefined"]
+    THR["Threads::Threads"]
+    LIB["<b>minic10</b><br/>• Version.cpp、add.cpp、mul.cpp<br/>• PUBLIC：头文件目录<br/>• PRIVATE：MINIC10_BUILD_MAIN_LIB 宏<br/>• PRIVATE：-fvisibility=hidden 与警告选项"]
+    SAN -->|"PUBLIC"| LIB
+    THR -->|"PUBLIC"| LIB
+    LIB -->|"PRIVATE"| HELLO["hello"]
+    LIB -->|"PRIVATE"| PYMOD["<b>_minic10</b><br/>BUILD_PYTHON=ON，pybind11 的 MODULE 库"]
+    LIB -->|"PRIVATE"| TESTS["<b>minic10_intrusive_ptr_test、minic10_dispatcher_test</b><br/>BUILD_TEST=ON，另链 gtest、gtest_main"]
+```
+
+箭头上的关键字是下游链接上游时写的那个。`minic10` 以 `PUBLIC` 链接 `minic10_sanitizer`，所以 `-DUSE_ASAN=ON` 时三个下游都自动带上插桩选项；`-fvisibility=hidden` 和警告选项是 `PRIVATE`，停在 `minic10` 自己的 `.cpp` 上。
+
+与[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)的骨架相比，新增的每一块都对应本文一节：
+
+| 新增的一块 | 本文哪一节 | 说明 |
+|---|---|---|
+| `CMAKE_BUILD_TYPE` 默认值 | 4.1 | 没指定就用 Release |
+| `minic10_sanitizer` INTERFACE 目标 | 8.3 | 比直接往 `CMAKE_CXX_FLAGS` 里塞 `-fsanitize` 好：选项跟着目标走，可以 `PUBLIC` 传递给测试和 Python 模块 |
+| `USE_ASAN` 时不开 `-fvisibility=hidden` | 4.2 | 同 `torch_compile_options` |
+| `-Werror=return-type -Werror=non-virtual-dtor` 无条件、`-Werror` 可选 | 4.2 | 同 PyTorch 顶层 `CMakeLists.txt` 与 `WERROR` 开关 |
+| gtest 的 glob + foreach | 9.2 | 与 `c10/test/CMakeLists.txt` 逐行对应 |
+| `install(EXPORT ...)` 生成 `minic10Targets.cmake` | 2.4 | `Caffe2Targets.cmake` 的小版本 |
+
+Table: mini-c10 的 CMakeLists.txt 新增部分与本文各节的对应
 
 用法：
 
@@ -2435,7 +2541,7 @@ ln -sf build/compile_commands.json .
 
 ### 2. `test/intrusive_ptr_test.cpp`
 
-照 `c10/test/util/intrusive_ptr_test.cpp` 的结构，取其中与 mini-c10 版本（第二篇的接口、第六篇的原子计数）相关的子集，加一个多线程测试：
+照 `c10/test/util/intrusive_ptr_test.cpp` 的结构，取其中与 mini-c10 版本（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的接口、[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的原子计数）相关的子集，加一个多线程测试：
 
 ```cpp title="test/intrusive_ptr_test.cpp：mini-c10 版子集加多线程测试"
 // test/intrusive_ptr_test.cpp
@@ -2569,7 +2675,7 @@ TEST(IntrusivePtrTest, givenChildClass_whenMakeIntrusive_thenAccessibleViaChildP
   EXPECT_EQ(3, var->v);
 }
 
-// 第六篇的论点：relaxed 增、acq_rel 减在多线程下计数正确
+// 《并发、内存模型、TLS 与守卫》的论点：relaxed 增、acq_rel 减在多线程下计数正确
 TEST(IntrusivePtrTest, givenSharedPtr_whenCopiedFromManyThreads_thenUseCountReturnsTo1) {
   bool wasDestructed = false;
   {
@@ -2591,11 +2697,11 @@ TEST(IntrusivePtrTest, givenSharedPtr_whenCopiedFromManyThreads_thenUseCountRetu
 }
 ```
 
-与 c10 版本的三处差异：`use_count()` 在第六篇返回 `size_t`，所以断言写 `1u` 而不是 `1`（否则 gtest 的 `EXPECT_EQ` 会报有符号/无符号比较警告——`c10/test/CMakeLists.txt` 给测试加 `-Wno-unused-variable` 就是为了应付这类噪音）；`DestructableMock` 只有一个布尔（mini-c10 没有 `release_resources`）；自赋值测试用一个引用别名绕开 clang 的 `-Wself-assign-overloaded`（c10 用 `#pragma clang diagnostic ignored` 整体关掉）。最后一个测试是第六篇 13.4 节演示的断言化：8 线程各拷贝一万次，计数回到 1，析构恰好一次——把 `refcount_` 改回非原子的 `size_t`，这个测试会间歇性失败或 double free，用 `-fsanitize=thread` 则每次都报。
+与 c10 版本的三处差异：`use_count()` 在[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)里返回 `size_t`，所以断言写 `1u` 而不是 `1`（否则 gtest 的 `EXPECT_EQ` 会报有符号/无符号比较警告——`c10/test/CMakeLists.txt` 给测试加 `-Wno-unused-variable` 就是为了应付这类噪音）；`DestructableMock` 只有一个布尔（mini-c10 没有 `release_resources`）；自赋值测试用一个引用别名绕开 clang 的 `-Wself-assign-overloaded`（c10 用 `#pragma clang diagnostic ignored` 整体关掉）。最后一个测试把《并发、内存模型、TLS 与守卫》「演示：两个线程的 TLS 隔离」一节里八线程拷贝的演示写成了断言：8 线程各拷贝一万次，计数回到 1，析构恰好一次——把 `refcount_` 改回非原子的 `size_t`，这个测试会间歇性失败或 double free，用 `-fsanitize=thread` 则每次都报。
 
 ### 3. `test/dispatcher_test.cpp`
 
-测第四、五篇的 Dispatcher 和静态注册。这个文件依赖第四篇的 `Dispatcher::singleton()`、`registerOp`/`registerKernel`、`findOp`/`findOpOrThrow`、`call<Return, Args...>(op, args...)`，`OperatorHandle::hasKernelForDispatchKey`，`KernelFunction::makeFromUnboxedFunction<&fn>()`/`isValid`/`call<Return, Args...>(op, args...)`，以及 `minic10/ops/ops.h` 里声明的 `add`/`mul`（第五篇的自注册算子）。
+测[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的 Dispatcher 和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的静态注册。这个文件依赖《多态与类型擦除》的 `Dispatcher::singleton()`、`registerOp`/`registerKernel`、`findOp`/`findOpOrThrow`、`call<Return, Args...>(op, args...)`，`OperatorHandle::hasKernelForDispatchKey`，`KernelFunction::makeFromUnboxedFunction<&fn>()`/`isValid`/`call<Return, Args...>(op, args...)`，以及 `minic10/ops/ops.h` 里声明的 `add`/`mul`（《宏、静态注册与代码生成》的自注册算子）。
 
 ```cpp title="test/dispatcher_test.cpp"
 // test/dispatcher_test.cpp
@@ -2717,9 +2823,9 @@ TEST(DispatcherTest, OutputIsFreshTensor) {
 }
 ```
 
-第一个测试是这个文件的重点：**测试代码没有 include `add.cpp`、没有调用任何注册函数**，`add.cpp` 和 `mul.cpp` 只是被链进了 `libminic10.so`；如果 `hasKernel`（`findOp` + `hasKernelForDispatchKey`）为真，说明第五篇的 `MINI_LIBRARY_IMPL` 静态初始化在 `main` 之前跑了。这个测试在 `BUILD_SHARED_LIBS=OFF` 时会揭示第五篇讨论的 `--whole-archive` 问题：静态库里 `add.o` 没有被任何符号引用，链接器丢掉它，测试失败——这正是 `TorchConfig.cmake.in` 静态分支里那些 `-Wl,--whole-archive` 存在的原因，用一个测试把它复现出来。
+第一个测试是这个文件的重点：**测试代码没有 include `add.cpp`、没有调用任何注册函数**，`add.cpp` 和 `mul.cpp` 只是被链进了 `libminic10.so`；如果 `hasKernel`（`findOp` + `hasKernelForDispatchKey`）为真，说明[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的 `MINI_LIBRARY_IMPL` 静态初始化在 `main` 之前跑了。这个测试在 `BUILD_SHARED_LIBS=OFF` 时会揭示《宏、静态注册与代码生成》讨论的 `--whole-archive` 问题：静态库里 `add.o` 没有被任何符号引用，链接器丢掉它，测试失败——这正是 `TorchConfig.cmake.in` 静态分支里那些 `-Wl,--whole-archive` 存在的原因，用一个测试把它复现出来。
 
-`MissingKernelThrows` 里的 `(Dispatcher::singleton().call<...>(...))` 外层括号和 `UnboxedRoundTrip` 里的同理：`EXPECT_THROW`、`EXPECT_EQ` 是宏，`call<Tensor, const Tensor&, const Tensor&>` 里的逗号会被预处理器当成宏参数分隔符，报 "too many arguments provided to function-like macro invocation"。本篇验证时先写的是不带括号的版本，clang 报了这个错——第五篇讲宏的局限时提过这一点，这是它在测试代码里最常见的表现。
+`MissingKernelThrows` 里的 `(Dispatcher::singleton().call<...>(...))` 外层括号和 `UnboxedRoundTrip` 里的同理：`EXPECT_THROW`、`EXPECT_EQ` 是宏，`call<Tensor, const Tensor&, const Tensor&>` 里的逗号会被预处理器当成宏参数分隔符，报 "too many arguments provided to function-like macro invocation"。本篇验证时先写的是不带括号的版本，clang 报了这个错——[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲宏的局限时提过这一点，这是它在测试代码里最常见的表现。
 
 用桩 gtest 头文件跑的结果（macOS）：
 
@@ -2739,14 +2845,14 @@ TEST(DispatcherTest, OutputIsFreshTensor) {
 
 ### 4. lldb 会话：从入口断到 kernel
 
-目标是重现 6.2 节 `CONTRIBUTING.md` 的流程，但在 mini-c10 上。用 Debug 选项编一个调用 `minic10::add` 的程序（12.1 的 `CMakeLists.txt` 下就是 `cmake -DCMAKE_BUILD_TYPE=Debug` 再 `ninja hello`；这里为了不依赖 CMake 直接用 `clang++`）：
+目标是重现 6.2 节 `CONTRIBUTING.md` 的流程，但在 mini-c10 上。用 Debug 选项编一个调用 `minic10::add` 的程序（13.1 的 `CMakeLists.txt` 下就是 `cmake -DCMAKE_BUILD_TYPE=Debug` 再 `ninja hello`；这里为了不依赖 CMake 直接用 `clang++`）：
 
 ```bash title="Debug 选项编一个调用 minic10::add 的 hello"
 clang++ -std=c++17 -g -O0 -fno-omit-frame-pointer -I. \
     minic10/ops/add.cpp minic10/ops/mul.cpp examples/hello.cpp -o build/hello
 ```
 
-验证用的 `minic10/ops/add.cpp` 是第三、四、五篇约定接口的最小版本，kernel 部分（文件第 10–21 行，下面的行号以它为准）：
+验证用的 `minic10/ops/add.cpp` 是[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)、[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)三篇约定接口的最小版本，kernel 部分（文件第 10–21 行，下面的行号以它为准）：
 
 ```cpp title="验证用的 minic10/ops/add.cpp kernel 部分（带行号）"
 Tensor add_cpu(const Tensor& a, const Tensor& b) {                        // 10
@@ -2789,9 +2895,21 @@ $ lldb ./build/hello
 (lldb) p out.data_ptr<float>()[3]             # 结果的第 4 个元素 = a[3] + b[3]
 ```
 
-对照 6.3 节的 PyTorch 栈：`bt` 里的 `minic10::add` 对应 `at::add`，`Dispatcher::call` 对应 `c10::Dispatcher::call`，`KernelFunction::call` 对应 `c10::impl::wrap_kernel_functor_unboxed_::call`，`add_cpu` 对应 `at::native::add_out`。第二个断点停在 `MINI_DISPATCH_FLOATING_TYPES` 展开出的 lambda 里——6.5 节的 `nm` 输出已经确认 `-O0` 下它是一个独立的函数，有自己的帧和局部变量 `pa`/`pb`/`po`。换成 `-O2 -g`，6.5 节已经看到这些 lambda 消失、`out` 没有位置——同样的会话里 `frame variable` 会显示 `<optimized out>` 或者干脆找不到变量。
+`bt` 里的每一帧在 6.3 节和 7.2 节的 PyTorch 栈里都有对应：
 
-从 Python 端进入的版本（第七篇的 `_minic10` 模块）只多一步：`lldb -- python -c "import _minic10; ..."`，先 `breakpoint set --name add_cpu`（此时 pending），`process launch` 后模块被 `import` 时断点被解析，命中后 `bt` 的顶部多出 `pybind11::cpp_function::dispatcher` 和 CPython 的 `cfunction_call`/`_PyEval_EvalFrameDefault` 帧——和 PyTorch 的 `THPVariable_add` 位置对应。
+| mini-c10 的帧 | PyTorch 的帧 |
+|---|---|
+| `add_cpu` | `at::native::add_out` |
+| `KernelFunction::call` | `c10::impl::wrap_kernel_functor_unboxed_::call` |
+| `Dispatcher::call` | `c10::Dispatcher::call` |
+| `minic10::add` | `at::add` |
+| `pybind11::cpp_function::dispatcher`（只在从 Python 进入时出现） | `THPVariable_add` |
+
+Table: mini-c10 的调用栈与 PyTorch 调用栈的逐帧对应
+
+第二个断点停在 `MINI_DISPATCH_FLOATING_TYPES` 展开出的 lambda 里——6.5 节的 `nm` 输出已经确认 `-O0` 下它是一个独立的函数，有自己的帧和局部变量 `pa`/`pb`/`po`。换成 `-O2 -g`，6.5 节已经看到这些 lambda 消失、`out` 没有位置——同样的会话里 `frame variable` 会显示 `<optimized out>` 或者干脆找不到变量。
+
+从 Python 端进入的版本（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的 `_minic10` 模块）只多一步：`lldb -- python -c "import _minic10; ..."`，先 `breakpoint set --name add_cpu`（此时 pending），`process launch` 后模块被 `import` 时断点被解析，命中后 `bt` 的顶部多出 `pybind11::cpp_function::dispatcher` 和 CPython 的 `cfunction_call`/`_PyEval_EvalFrameDefault` 帧——和 PyTorch 的 `THPVariable_add` 位置对应。
 
 ### 5. `.clang-format`
 
@@ -2918,7 +3036,7 @@ Table: 构建工具链：与 Java 直觉冲突的几处
 |---|---|---|
 | CMake | 描述目标和它们的属性；`find_package` 找已安装的依赖 | `c10/CMakeLists.txt`、`TorchConfig.cmake.in`、`Caffe2Targets.cmake` |
 | Ninja + ccache/sccache | 并行执行、增量构建、跨目录缓存 | `tools/setup_helpers/cmake.py`、`CMAKE_<LANG>_COMPILER_LAUNCHER` |
-| 编译选项 | `-O`/`-g` 的取舍、警告策略、可见性、目标架构 | 顶层 `CMakeLists.txt` 第 1086 行起（`if(NOT MSVC)` 分支）、`torch_compile_options()`、`cmake/Codegen.cmake` 的 CPU_CAPABILITY |
+| 编译选项 | `-O`/`-g` 的取舍、警告策略、可见性、目标架构 | 顶层 `CMakeLists.txt` 的 `if(NOT MSVC)` 分支、`torch_compile_options()`、`cmake/Codegen.cmake` 的 CPU_CAPABILITY |
 | `compile_commands.json` + clangd | 让 IDE 和静态分析工具理解项目 | `CMAKE_EXPORT_COMPILE_COMMANDS ON` |
 | gdb/lldb + 扩展脚本 | 看进运行中的进程 | `tools/gdb/pytorch-gdb.py`、`torch::gdb::tensor_repr` |
 | core dump、addr2line、`TORCH_SHOW_CPP_STACKTRACES` | 崩溃后拿到栈 | `torch/csrc/utils/cpp_stacktraces.cpp` |
@@ -2961,7 +3079,7 @@ Java 工程师需要接受的是：这些不是一个工具的十个功能，而
 
    <details markdown="1"><summary>答案</summary>
 
-   通常是假阳性或已知模式：relaxed 原子操作在 TSan 眼里可能被报告，PyTorch 的 CI 用 suppression 文件排除已审核的位置；真竞争的特征是非原子的普通读写。先看报告的两处访问是否都是 `std::atomic` 操作。
+   先看报告里的两处访问。`std::atomic` 上的操作（包括 relaxed）不构成数据竞争，TSan 不会报它们；报告落在计数附近，通常是其中一处是非原子的普通读写——例如一个线程已经把计数减到 0 并析构了对象，另一个线程还在读它的字段，这是真 bug（多半是有线程没持有自己的强引用）。如果两处调用栈都在没有插桩的库里（OpenMP 运行时内部），才考虑是误报。PyTorch v2.10.0 的 CI 没有 TSan job，要用自己的 `USE_TSAN` 构建复现。
 
    </details>
 

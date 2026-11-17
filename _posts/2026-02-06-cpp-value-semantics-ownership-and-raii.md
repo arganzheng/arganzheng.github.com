@@ -5,7 +5,7 @@ title: "C++ 在 AI-Infra（02）：值、引用与所有权——对象模型与
 subtitle: "Value Semantics, Ownership and RAII"
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-17
 ---
 
 打开 `aten/src/ATen/core/TensorBase.h`，`at::Tensor` 的基类是这样定义的（类定义开头和结尾）：
@@ -30,7 +30,7 @@ class TORCH_API TensorBase {
 
 一个 Java 工程师第一次读到这里，几乎每一行都有疑问：`= default` 是什么意思，为什么要显式写出"用默认的"？`TensorBase&&` 那两个 `&` 是什么？`std::move` 移动了什么？`: impl_(std::move(tensor_impl))` 这种写在函数体前面的冒号是什么语法？`intrusive_ptr` 又是什么，为什么不用标准库的 `shared_ptr`？最根本的：一个 `Tensor` 对象里只有一个 `impl_` 字段，那数据在哪里？
 
-再看总纲开篇那段扩展代码的签名和最后一行：
+再看[系列总纲](/cpp-for-ai-infra.html)开篇那段扩展代码的签名和最后一行：
 
 ```cpp title="scale_shift_cpu 的签名与最后的 return out"
 at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
@@ -101,7 +101,7 @@ class Counter {
 
 `public:`、`private:`、`protected:` 是分段标签，不是每个成员前面都写一遍（Java 是每个成员单独写）。一个标签管到下一个标签为止。`protected` 的含义与 Java 类似：子类可见、外界不可见。
 
-成员函数可以直接在类定义里写函数体（如上），也可以在类里只写声明、在 `.cpp` 文件里写定义（上一篇讲过声明与定义的区别）。前一种写法在头文件里很常见，因为小函数写在类里会被当作 `inline`（上一篇第四章），可以被编译器内联，也不会违反 ODR。本文引用的 PyTorch 源码大多是这种写在头文件里的短函数。
+成员函数可以直接在类定义里写函数体（如上），也可以在类里只写声明、在 `.cpp` 文件里写定义（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲过声明与定义的区别）。前一种写法在头文件里很常见，因为小函数写在类里会被当作 `inline`（《编译模型》的「One Definition Rule」一章），可以被编译器内联，也不会违反 ODR。本文引用的 PyTorch 源码大多是这种写在头文件里的短函数。
 
 ### 2. 构造函数、成员初始化列表、析构函数
 
@@ -172,16 +172,16 @@ Table: * 与 & 在声明与表达式中的两种含义
 | `= default` | 显式要求编译器生成默认实现 | 第五章 |
 | `= delete` | 显式禁止某个函数，调用它编译失败 | 第五章 |
 | `noexcept` | 承诺这个函数不抛异常；对移动构造有性能意义 | 第六章 |
-| `virtual` | 虚函数，通过基类指针调用时按实际类型分派（Java 方法默认就是虚的） | 第四篇 |
-| `override` | 标记"在覆写基类的虚函数"，写错签名时编译器报错（同 Java 的 `@Override`） | 第四篇 |
-| `final` | 类不能再被继承，或虚函数不能再被覆写（同 Java） | 第四篇 |
+| `virtual` | 虚函数，通过基类指针调用时按实际类型分派（Java 方法默认就是虚的） | [《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html) |
+| `override` | 标记"在覆写基类的虚函数"，写错签名时编译器报错（同 Java 的 `@Override`） | 《多态与类型擦除》 |
+| `final` | 类不能再被继承，或虚函数不能再被覆写（同 Java） | 《多态与类型擦除》 |
 | `static` | 类里的 `static` 成员属于类而不属于对象（同 Java）；函数里的 `static` 局部变量只初始化一次、寿命到进程结束 | 第九、十章 |
 | `friend` | 允许另一个类或函数访问本类的私有成员 | 第九章 |
 | `mutable` | 标在数据成员上：即使对象是 `const`，这个成员也允许修改 | 第四章 |
-| `constexpr` | 编译期常量或可在编译期求值的函数 | 第三篇 |
-| `inline` | 允许同一个函数定义出现在多个翻译单元 | 上一篇 |
+| `constexpr` | 编译期常量或可在编译期求值的函数 | [《模板与泛型编程》](/cpp-templates-and-generic-programming.html) |
+| `inline` | 允许同一个函数定义出现在多个翻译单元 | [《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html) |
 | `nullptr` | 空指针（Java 的 `null`） | 第四章 |
-| `auto` | 让编译器推导变量类型（类似 Java 10 的 `var`）：`auto out = at::empty_like(x);` | 第三篇 |
+| `auto` | 让编译器推导变量类型（类似 Java 10 的 `var`）：`auto out = at::empty_like(x);` | 《模板与泛型编程》 |
 | `using X = Y;` | 类型别名（`using DeleterFnPtr = void (*)(void*);`） | 第十章 |
 | `enum class` | 强类型枚举，必须写 `ScalarType::Float`，不能隐式转成 `int` | 第十一章 |
 
@@ -189,7 +189,7 @@ Table: 后文源码里的关键字速查
 
 ### 5. 模板怎么读
 
-C++ 的模板是第三篇的主题，本文用到的模板只需按 Java 泛型的方式读，能读对九成：
+C++ 的模板是[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的主题，本文用到的模板只需按 Java 泛型的方式读，能读对九成：
 
 ```cpp title="PyTorch 源码里常见模板的读法"
 c10::intrusive_ptr<TensorImpl>                  // 读作"指向 TensorImpl 的 intrusive_ptr"
@@ -202,17 +202,21 @@ template <class T>                              // 定义一个模板：T 是类
 class intrusive_ptr { T* target_; /* ... */ };  // 类体里可以用 T 声明成员、参数、返回值
 ```
 
-三点差别需要提前知道：第一，C++ 的模板参数可以是基本类型（`std::vector<int>` 合法，Java 必须 `List<Integer>`）；第二，模板参数还可以不是类型（`std::array<float, 4>` 的 `4`）；第三，也是最重要的：Java 泛型编译后只有一份代码，C++ 模板为每组参数生成一份独立的类——`intrusive_ptr<TensorImpl>` 和 `intrusive_ptr<StorageImpl>` 是两个互不相干的类型，没有共同的父类。
+三点差别需要提前知道：
 
-源码里还会出现 `template <class... Args>` 和 `Args&&... args`、`std::forward<Args>(args)...` 这种写法。它们的意思是"接受任意个任意类型的参数，并原样转发给别的函数"，本文遇到时只需这样读，机制留给第三篇。
+1. C++ 的模板参数可以是基本类型（`std::vector<int>` 合法，Java 必须 `List<Integer>`）。
+2. 模板参数还可以不是类型（`std::array<float, 4>` 的 `4`）。
+3. 最重要的一点：Java 泛型编译后只有一份代码，C++ 模板为每组参数生成一份独立的类——`intrusive_ptr<TensorImpl>` 和 `intrusive_ptr<StorageImpl>` 是两个互不相干的类型，没有共同的父类。
+
+源码里还会出现 `template <class... Args>` 和 `Args&&... args`、`std::forward<Args>(args)...` 这种写法。它们的意思是"接受任意个任意类型的参数，并原样转发给别的函数"，本文遇到时只需这样读，机制留给[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)。
 
 ### 6. 其他
 
-- **命名空间**：`c10::intrusive_ptr`、`std::move`、`at::Tensor` 里的 `::` 是命名空间分隔符，相当于 Java 包名里的 `.`。上一篇第七章讲过 `c10::`、`at::`、`torch::` 的分工。
+- **命名空间**：`c10::intrusive_ptr`、`std::move`、`at::Tensor` 里的 `::` 是命名空间分隔符，相当于 Java 包名里的 `.`。[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)的「命名空间」一章讲过 `c10::`、`at::`、`torch::` 的分工。
 - **`std::printf` 与格式符**：本文用 C 风格的 `printf` 而不是 `std::cout`，因为输出格式更紧凑。`%p` 打印指针，`%zu` 打印 `size_t`，`%g` 打印浮点，`%s` 打印 C 字符串（`std::string` 要用 `.c_str()` 转）。
 - **`sizeof(T)`**：类型 `T` 的一个对象占多少字节，编译期常量。本文会多次用它说明"这个对象有多大"。
 - **花括号初始化**：`Point p{1.0, 2.0};` 按成员顺序初始化；`Tensor t{};` 是默认初始化。C++11 之后推荐的统一写法。
-- **头文件**：`#include <memory>` 引入智能指针，`<utility>` 引入 `std::move`，`<cstdio>` 引入 `printf`。上一篇讲过 `#include` 是文本拼接。
+- **头文件**：`#include <memory>` 引入智能指针，`<utility>` 引入 `std::move`，`<cstdio>` 引入 `printf`。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲过 `#include` 是文本拼接。
 - **`std::string` / `std::vector`**：与 Java 的 `String`/`ArrayList` 对应的标准库类型，但它们是**值类型**——这正是第三章要讲的第一件事。
 
 有了这些，就可以进入正文了。
@@ -415,9 +419,19 @@ a=3 r=3 *p=3
 a=10 b=10 &r==&a? 1
 ```
 
-三点观察：通过 `r` 赋值改的就是 `a`；`&r` 和 `&a` 是同一个地址，`r` 没有自己的存储；最后一行最关键——`r = b;` **不是**"让 `r` 指向 `b`"，而是"把 `b` 的值写进 `r` 所指的对象（也就是 `a`）"，之后 `&r` 仍然等于 `&a`。
+三点观察：
 
-引用有三条硬性规则：必须在声明时绑定到一个对象；绑定后不能再改绑到别的对象；不能为空。这三条使引用比指针安全得多，也使它成为传参的默认选择。
+1. 通过 `r` 赋值改的就是 `a`。
+2. `&r` 和 `&a` 是同一个地址，`r` 没有自己的存储。
+3. 最后一行最关键：`r = b;` **不是**"让 `r` 指向 `b`"，而是"把 `b` 的值写进 `r` 所指的对象（也就是 `a`）"，之后 `&r` 仍然等于 `&a`。
+
+引用有三条硬性规则：
+
+1. 必须在声明时绑定到一个对象。
+2. 绑定后不能再改绑到别的对象。
+3. 不能为空。
+
+这三条使引用比指针安全得多，也使它成为传参的默认选择。
 
 Java 的引用可以为 `null`，可以重新赋值指向别的对象；C++ 的引用两者都不行。因此"Java 引用"更接近 C++ 的**指针**而不是 C++ 的引用。读到 `Tensor&` 时不要按 Java 的"引用变量"去想，要想成"这个函数直接操作调用方的那个对象"。
 
@@ -858,6 +872,22 @@ a now: (moved-from)
 
 **moved-from 对象**的状态是"有效但未指定"（valid but unspecified）：可以析构、可以重新赋值，但不应该读它的内容——上面故意把 `name` 设成 `"(moved-from)"` 是为了演示，标准库类型不会这样做。对 `Tensor` 来说，moved-from 的 `Tensor` 是 undefined 的（`impl_` 为空），`defined()` 返回 `false`。
 
+用一个表达式初始化新对象时走哪个构造函数，在编译期由表达式的类别决定：
+
+```mermaid
+%% 图：T b = 表达式 时拷贝、移动与省略的选择
+flowchart TB
+    E["T b = 表达式"] --> Q1{"表达式是左值还是右值"}
+    Q1 -->|"左值：有名字的变量 a"| CP["<b>拷贝构造 T(const T&amp;)</b><br/>a 不变，资源多一份"]
+    Q1 -->|"右值"| Q2{"哪一种右值"}
+    Q2 -->|"std::move(a)"| Q3{"T 有移动构造吗"}
+    Q3 -->|"有"| MV["<b>移动构造 T(T&amp;&amp;)</b><br/>资源换主人，a 进入 moved-from 状态"]
+    Q3 -->|"没有"| CP
+    Q2 -->|"临时对象：T(...)、函数返回值"| EL["<b>不调用拷贝或移动构造</b><br/>C++17 起直接在 b 的位置构造"]
+```
+
+`std::move` 只负责把表达式从“左值”改判为“右值”；之后能不能走到移动构造，取决于 `T` 有没有移动构造——第五章说过手写了析构或拷贝的类不再自动生成移动，这时 `const T&` 也能绑定右值，于是悄悄退回拷贝。临时对象那一路连移动都没有，是本章第 5 节的主题。
+
 ### 3. `explicit`：拷贝有代价时要求调用方明说
 
 `TensorBody.h` 中 `Tensor` 与 `TensorBase` 的互转把拷贝和移动的差别写得很直白：
@@ -882,7 +912,19 @@ a now: (moved-from)
       : storage_impl_(std::move(ptr)) {}
 ```
 
-调用方如果传左值，在参数处发生一次拷贝（+1）；传右值就是一次移动（零成本）。然后 `std::move(ptr)` 把参数移进成员，又是零成本。总共最多一次引用计数操作。如果写成 `const intrusive_ptr<StorageImpl>& ptr` 然后 `storage_impl_(ptr)`，那不论调用方传什么都要一次拷贝；写成两个重载又重复代码。按值 + move 是最简洁的正确写法。第三章 `Tracer` 的构造函数 `Tracer(std::string n) : name(n)` 也是 sink 参数，现在可以把它改成 `name(std::move(n))`，省掉一次字符串拷贝。
+调用方如果传左值，在参数处发生一次拷贝（+1）；传右值就是一次移动（零成本）。然后 `std::move(ptr)` 把参数移进成员，又是零成本。总共最多一次引用计数操作。如果写成 `const intrusive_ptr<StorageImpl>& ptr` 然后 `storage_impl_(ptr)`，那不论调用方传什么都要一次拷贝；写成两个重载又重复代码。按值 + move 是最简洁的正确写法。三种写法的开销列在一起（以 `intrusive_ptr<StorageImpl>` 为例，拷贝 = 引用计数原子 +1，移动 = 复制一个指针）：
+
+| 构造函数的写法 | 调用方传左值 | 调用方传右值 | 要写几个构造函数 |
+|---|---|---|---|
+| 按值接收，再 `std::move` 进成员（`Storage` 的写法） | 1 次拷贝 + 1 次移动 | 2 次移动 | 1 |
+| `const T&` 接收，再拷贝进成员 | 1 次拷贝 | 1 次拷贝（临时对象析构时计数再 −1，一加一减白做） | 1 |
+| `const T&` 与 `T&&` 两个重载 | 1 次拷贝 | 1 次移动 | 2 |
+
+Table: sink 参数三种写法的拷贝与移动次数
+
+按值 + move 比两个重载只多一次移动，却少写一个函数；`const T&` 的写法在调用方传右值时吃亏。
+
+第三章 `Tracer` 的构造函数 `Tracer(std::string n) : name(n)` 也是 sink 参数，现在可以把它改成 `name(std::move(n))`，省掉一次字符串拷贝。
 
 另一种是显式要求右值的 `T&&` 参数。`TensorImpl` 的构造函数只接受 `Storage&&`（`c10/core/TensorImpl.cpp`）：
 
@@ -934,6 +976,22 @@ dtor      (moved-from)      和一次析构
 ```text title="clang 的 -Wpessimizing-move 警告"
 warning: moving a local object in a return statement prevents copy elision [-Wpessimizing-move]
 ```
+
+把 `return` 后面可能出现的几种表达式放在一起：
+
+```mermaid
+%% 图：按值返回时 return 表达式的四种去向
+flowchart TB
+    R["return 表达式（函数按值返回 T）"] --> K1{"表达式是什么"}
+    K1 -->|"临时对象：return T(...)、return f()"| RVO["<b>RVO</b><br/>C++17 强制省略，没有拷贝也没有移动"]
+    K1 -->|"局部变量的名字：return t"| K2{"编译器能做 NRVO 吗"}
+    K2 -->|"能"| NRVO["<b>NRVO</b><br/>t 直接建在调用方的位置，没有拷贝也没有移动"]
+    K2 -->|"不能：如多个 return 返回不同的局部变量"| IM["<b>自动当作右值</b><br/>一次移动构造"]
+    K1 -->|"return std::move(t)"| PM["<b>NRVO 被阻止</b><br/>一定是一次移动构造"]
+    K1 -->|"不是局部变量：return *this"| CP2["<b>拷贝构造</b><br/>对 Tensor 是引用计数 +1"]
+```
+
+`make()` 落在 NRVO，`make_bad()` 落在“NRVO 被阻止”。返回局部变量时最差也只是一次移动，所以直接写 `return t;` 就是最优写法。`return *this` 是另一回事：`*this` 在函数返回后还活着，不能被偷，只能拷贝——本章第 8 节的 `contiguous()` 就是这种情况。
 
 所以 `scale_shift_cpu` 的 `return out;`：最好情况零成本，最坏情况一次 `intrusive_ptr` 的移动（拷贝一个指针、置空另一个）。不管哪种情况都**不碰引用计数、更不碰数据**。
 
@@ -998,7 +1056,7 @@ Bad copy
 
 ### 8. `x.contiguous()` 返回的对象要拷贝数据吗
 
-总纲"最终目标"一节的第三个问题现在也能回答了。`TensorBase.h`：
+[系列总纲](/cpp-for-ai-infra.html)「最终目标」一节里“`x.contiguous()` 返回的对象要拷贝数据吗”这个问题现在也能回答了。`TensorBase.h`：
 
 ```cpp title="contiguous()：已连续就返回 *this 的拷贝（一个句柄）"
   TensorBase contiguous(MemoryFormat memory_format=MemoryFormat::Contiguous) const {
@@ -1125,7 +1183,7 @@ delete target                          (intrusive_ptr 内部，第九章)
             → ~DataPtr(data_ptr_)      → ~UniqueVoidPtr → unique_ptr 调 deleter → 内存归还
 ```
 
-整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是总纲那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第十章会把每一层的代码摊开看。
+整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是[系列总纲](/cpp-for-ai-infra.html)那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第十章会把每一层的代码摊开看。
 
 ### 4. 异常安全是 RAII 的副产品
 
@@ -1346,7 +1404,7 @@ namespace minic10 {
 class intrusive_ptr_target {
   template <class T> friend class intrusive_ptr;   // 只允许 intrusive_ptr 碰 refcount_
 
-  // 第 6 篇会把它改成 std::atomic<uint32_t>，并讨论内存序。
+  // 《并发、内存模型、TLS 与守卫》会把它改成 std::atomic<uint32_t>，并讨论内存序。
   mutable uint32_t refcount_ = 0;
 
  protected:
@@ -1409,7 +1467,7 @@ class intrusive_ptr final {
   void swap(intrusive_ptr& rhs) noexcept { std::swap(target_, rhs.target_); }
 
   // 与裸指针互转：release() 交出所有权（不减计数），reclaim() 接回所有权（不加计数）。
-  // 第 7 篇的 Python 绑定会用到这一对。
+  // 《与 Python 之间》的 Python 绑定会用到这一对。
   T* release() noexcept {
     T* r = target_;
     target_ = nullptr;
@@ -1442,7 +1500,7 @@ inline bool operator==(const intrusive_ptr<T>& a, const intrusive_ptr<T>& b) noe
 
 逐段对照前面的章节：
 
-- **`intrusive_ptr_target`**：只有一个 `refcount_`。它是 `mutable`（第四章）因为对 `const` 对象也要能加减计数；`friend class intrusive_ptr` 让 `intrusive_ptr` 能访问这个私有成员，其他人不能。析构函数 `protected` + `virtual`：`protected` 保证外界不能 `delete` 一个基类指针（只有 `intrusive_ptr` 内部可以），`virtual` 保证 `delete target_` 时调用的是派生类（`Widget`、`TensorImpl`）的析构函数而不只是基类的（第四篇详解虚析构）。拷贝构造把计数重置为 0：拷贝出来的新对象还没人指着，当然计数是 0。
+- **`intrusive_ptr_target`**：只有一个 `refcount_`。它是 `mutable`（第四章）因为对 `const` 对象也要能加减计数；`friend class intrusive_ptr` 让 `intrusive_ptr` 能访问这个私有成员，其他人不能。析构函数 `protected` + `virtual`：`protected` 保证外界不能 `delete` 一个基类指针（只有 `intrusive_ptr` 内部可以），`virtual` 保证 `delete target_` 时调用的是派生类（`Widget`、`TensorImpl`）的析构函数而不只是基类的（[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)详解虚析构）。拷贝构造把计数重置为 0：拷贝出来的新对象还没人指着，当然计数是 0。
 - **`retain_()` / `reset_()`**：引用计数的全部逻辑。`reset_()` 里的 `delete target_` 就是第七章那条析构链的起点。
 - **六大函数**：第五章 Rule of Five 的实例。拷贝构造 = 复制指针 + `retain_()`；移动构造 = 复制指针 + 把对方置空（计数不变）；两个赋值都是 copy-and-swap；析构 = `reset_()`。默认构造是 `= default`（`target_` 已有默认值 `nullptr`）。
 - **私有的裸指针构造 + `make()`**：外界不能写 `intrusive_ptr<T>(new T)`，只能 `make_intrusive<T>(...)`。`make()` 里 `new` 之后直接把计数**写**成 1——不需要 `retain_()`，因为新对象此刻没有第二个人能看到。
@@ -1548,7 +1606,7 @@ class C10_API intrusive_ptr_target {
 
 与玩具版的对应关系一目了然：`mutable` 的计数、`friend class intrusive_ptr`、`protected` 虚析构、拷贝/移动构造把计数重置为 0——注释里那句 "intrinsic properties of the memory location"（内存位置的固有属性）正是玩具版注释的出处。差别有三点：
 
-- **计数是 `std::atomic<uint64_t>`**，多线程下的增减是原子操作。这是玩具版明确留给第六篇的事。
+- **计数是 `std::atomic<uint64_t>`**，多线程下的增减是原子操作。这是玩具版明确留给[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的事。
 - **一个 64 位整数里同时放了强计数和弱计数**（`combined_refcount_`：低 32 位强计数，高 31 位弱计数，最高位是"有 Python 包装对象"的标记）。这样一次原子操作能同时读到两个计数。早期 2.x 版本是两个独立的 `std::atomic<uint32_t>`，v2.10.0 已合并。本文后面统一说"强计数"和"弱计数"，不区分物理布局。
 - **`release_resources()` 钩子**：强引用归零但还有弱引用时，对象暂时不能 `delete`（弱引用还要查它死没死），但可以先把昂贵的资源放掉。`TensorImpl::release_resources()` 就是把 `autograd_meta_` 和 `storage_` 重置，`StorageImpl::release_resources()` 是 `data_ptr_.clear();`——数据在强引用归零时立刻归还，不用等弱引用。
 
@@ -1598,13 +1656,39 @@ class C10_API intrusive_ptr_target {
   }
 ```
 
-骨架和玩具版的 `++refcount_` / `--refcount_ == 0 → delete` 完全一致，多出来的是三件事：原子操作和 `std::memory_order_*` 参数（第六篇的内容，这里只需知道它们保证多线程正确性）；一个快速路径——如果强弱计数都是 1，说明只有一个持有者，不需要原子减，直接 `delete`；以及弱引用存在时的分支。`delete target` 通过虚析构调到 `~TensorImpl`，第七章那条析构链由此开始。
+骨架和玩具版的 `++refcount_` / `--refcount_ == 0 → delete` 完全一致，多出来的是三件事：
+
+1. 原子操作和 `std::memory_order_*` 参数（[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的内容，这里只需知道它们保证多线程正确性）。
+2. 一个快速路径：如果强弱计数都是 1，说明只有一个持有者，不需要原子减，直接 `delete`。
+3. 弱引用存在时的分支。
+
+把 `reset_()` 的全部分支画出来（判断条件取自 `c10/util/intrusive_ptr.h` 的 `reset_()`、`reset_not_null_()` 与 `release_resources_and_decrement_weakrefs_()`）：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：reset_() 放掉一个强引用时的分支
+flowchart TB
+    S["~intrusive_ptr() 或 reset() 调用 reset_()"] --> N{"target_ 是<br/>NullType::singleton() 吗"}
+    N -->|"是"| NOP["什么都不做"]
+    N -->|"否"| U{"强计数与弱计数都是 1 吗<br/>is_uniquely_owned"}
+    U -->|"是：唯一持有者"| F["<b>快速路径</b><br/>• 计数直接 store 成 0，不做原子减<br/>• delete target"]
+    U -->|"否"| D["原子减：强计数 −1"]
+    D --> Z{"减完后强计数为 0 吗"}
+    Z -->|"否"| PYQ{"只剩 1 个强引用<br/>且有 Python 包装对象吗"}
+    PYQ -->|"是"| DEC["decref_pyobject()<br/>对象继续存活"]
+    PYQ -->|"否"| KEEP["对象继续存活"]
+    Z -->|"是"| W{"弱计数是 1 吗<br/>只剩强引用附带的那一个"}
+    W -->|"是：没有弱引用"| DEL["delete target"]
+    W -->|"否：还有 weak_intrusive_ptr"| RR["<b>release_resources_and_decrement_weakrefs_()</b><br/>• release_resources() 先放掉昂贵资源<br/>• 弱计数 −1，减到 0 才 delete target"]
+```
+
+图里有三处 `delete target`：快速路径、原子减之后没有弱引用、以及弱引用随后也全部消失；玩具版只有“没有弱引用”这一处。`delete target` 通过虚析构调到 `~TensorImpl`，第七章那条析构链由此开始。还有弱引用的那个分支里，对象暂时不能删，`release_resources()` 先把数据归还（9.3 节）。
 
 `NullType::singleton()` 是"空值是什么"，玩具版里就是 `nullptr`，真实版本允许指定别的东西，9.8 节解释。
 
 ### 5. Python 对象钩子（进阶，可先跳过）
 
-上面两处 `// ... PyObject 相关钩子` 是 PyTorch 特有的：当一个 `TensorImpl` 有 Python 包装对象（`torch.Tensor` 实例）时，Python 对象持有 C++ 对象的一个强引用；反过来，只要 C++ 侧还有**其他**强引用（强计数从 1 变 2），C++ 就给 Python 对象 `Py_INCREF`，保证 Python 端的 `id(t)` 和附着在上面的属性（`t.my_attr = ...`）不会因为 Python 端暂时没人引用而丢失；强计数从 2 回到 1 时再 `Py_DECREF`。`combined_refcount_` 的最高位就是"有没有 Python 包装对象"的标记。这是第七篇"Python 对象生命周期与 C++ 对象生命周期的交叉"的入口，本文只需知道 `intrusive_ptr` 的引用计数逻辑里有这么一个钩子。
+上面两处 `// ... PyObject 相关钩子` 是 PyTorch 特有的：当一个 `TensorImpl` 有 Python 包装对象（`torch.Tensor` 实例）时，Python 对象持有 C++ 对象的一个强引用；反过来，只要 C++ 侧还有**其他**强引用（强计数从 1 变 2），C++ 就给 Python 对象 `Py_INCREF`，保证 Python 端的 `id(t)` 和附着在上面的属性（`t.my_attr = ...`）不会因为 Python 端暂时没人引用而丢失；强计数从 2 回到 1 时再 `Py_DECREF`。`combined_refcount_` 的最高位就是"有没有 Python 包装对象"的标记。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)里"Python 对象生命周期与 C++ 对象生命周期的交叉"的入口，本文只需知道 `intrusive_ptr` 的引用计数逻辑里有这么一个钩子。
 
 ### 6. 六大函数与 `make_intrusive`
 
@@ -1630,7 +1714,7 @@ class C10_API intrusive_ptr_target {
   }
 ```
 
-赋值运算符多了一层：非模板版本转发给一个模板版本，后者支持从 `intrusive_ptr<Derived>` 赋给 `intrusive_ptr<Base>`（第三篇讲模板时再看）。模板版本的函数体就是 `intrusive_ptr tmp = rhs; swap(tmp); return *this;`——copy-and-swap。注意参数列表后面的 `&`，第六章的引用限定符：只允许对左值赋值。
+赋值运算符多了一层：非模板版本转发给一个模板版本，后者支持从 `intrusive_ptr<Derived>` 赋给 `intrusive_ptr<Base>`（留到[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)再看）。模板版本的函数体就是 `intrusive_ptr tmp = rhs; swap(tmp); return *this;`——copy-and-swap。注意参数列表后面的 `&`，第六章的引用限定符：只允许对左值赋值。
 
 创建对象的入口是 `make_intrusive`：
 
@@ -1695,7 +1779,7 @@ struct THPVariable {
   ((THPVariable*)self)->cdata.~Variable();          // dealloc 里（Variable 是 Tensor 的别名）
 ```
 
-`new (地址) T(...)` 叫 **placement new**：不分配内存，在给定地址上构造对象。`obj.~T()` 是**显式析构调用**——第二章说过析构函数从不手工调用，这就是那个特例：因为这块内存是 CPython 分配的（`tp_alloc`），C++ 不知道它什么时候消失，只能在 CPython 的 `dealloc` 回调里手工析构。`Tensor` 析构 → `intrusive_ptr` 减计数 → 可能触发第七章那条析构链。Python 端的 `del t` 最终就是这样走到 C++ 端的显存释放的。第七篇会完整讲这条路径上的 GIL 和引用计数细节，这里只需要看到：**因为 `Tensor` 是一个可以在任意内存位置构造/析构的值类型，它才能嵌进 `PyObject`。**
+`new (地址) T(...)` 叫 **placement new**：不分配内存，在给定地址上构造对象。`obj.~T()` 是**显式析构调用**——第二章说过析构函数从不手工调用，这就是那个特例：因为这块内存是 CPython 分配的（`tp_alloc`），C++ 不知道它什么时候消失，只能在 CPython 的 `dealloc` 回调里手工析构。`Tensor` 析构 → `intrusive_ptr` 减计数 → 可能触发第七章那条析构链。Python 端的 `del t` 最终就是这样走到 C++ 端的显存释放的。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)会完整讲这条路径上的 GIL 和引用计数细节，这里只需要看到：**因为 `Tensor` 是一个可以在任意内存位置构造/析构的值类型，它才能嵌进 `PyObject`。**
 
 ### 8. `NullType`：`UndefinedTensorImpl` 作为空值
 
@@ -1779,7 +1863,7 @@ struct TORCH_API AutogradMeta : public c10::AutogradMetaInterface {
   };
 ```
 
-`[weak_self](...) { ... }` 是 lambda（匿名函数），方括号里是它捕获的变量，第三篇详细讲；这里只需看到捕获的是 `weak_self` 而不是 `self`。
+`[weak_self](...) { ... }` 是 lambda（匿名函数），方括号里是它捕获的变量，[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)详细讲；这里只需看到捕获的是 `weak_self` 而不是 `self`。
 
 ## 十、回到源码：从 `Tensor` 到显存的完整持有链
 
@@ -1807,7 +1891,7 @@ class TORCH_API TensorBase {
 
 | 行 | 现在的读法 |
 |---|---|
-| `class TORCH_API TensorBase` | `TORCH_API` 是符号可见性宏（上一篇第五章）；`class` 默认 private，所以下面显式写 `public:` |
+| `class TORCH_API TensorBase` | `TORCH_API` 是符号可见性宏（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)的「目标文件、库与符号」一章）；`class` 默认 private，所以下面显式写 `public:` |
 | `TensorBase() = default;` | 默认构造用编译器生成的：`impl_` 默认构造成"空"，即指向 `UndefinedTensorImpl` 单例（9.8 节） |
 | `explicit TensorBase(intrusive_ptr<...> tensor_impl)` | sink 参数按值接收（6.4 节）；`explicit` 因为从 `intrusive_ptr` 到 `Tensor` 的转换不应该悄悄发生（6.3 节） |
 | `: impl_(std::move(tensor_impl))` | 成员初始化列表（2.2 节）；`std::move` 把参数移进成员，零成本（6.2 节） |
@@ -2191,10 +2275,24 @@ Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两�
 
 按系列约定，本篇实现 `minic10/util/intrusive_ptr.h`（9.2 节已经写好）、`minic10/core/Allocator.h`、`minic10/core/StorageImpl.h`、`minic10/core/TensorImpl.h`、`minic10/core/Tensor.h`。所有文件用 `clang++ -std=c++17 -Wall -Wextra` 编译验证过。命名空间 `minic10`。
 
-为了让 `TensorImpl` 能编译，需要第三、四篇才会完整实现的 `core/ScalarType.h` 和 `core/DispatchKey.h`，这里先按约定放最小版本：
+每个文件对照哪份真实源码、保留了哪些所有权结构、省掉了什么：
+
+| mini-c10 文件 | 对照的真实源码 | 保留 | 省掉 |
+|---|---|---|---|
+| `util/intrusive_ptr.h` | `c10/util/intrusive_ptr.h` | 计数放在对象里<br/>六大特殊成员函数<br/>`make_intrusive`<br/>`release()` / `reclaim()` | 原子计数<br/>弱引用<br/>`NullType`<br/>Python 对象钩子 |
+| `core/Allocator.h` | `c10/core/Allocator.h`<br/>`c10/util/UniqueVoidPtr.h`<br/>`c10/core/CPUAllocator.cpp` | `DataPtr` 独占内存<br/>函数指针删除器<br/>`allocate()` 返回 `DataPtr`<br/>进程级的静态分配器 | data 与 ctx 两个指针的区分<br/>`Device` |
+| `core/StorageImpl.h` | `c10/core/StorageImpl.h` | 拥有一个 `DataPtr`<br/>非拥有的 `Allocator*`<br/>禁止拷贝 | `SymInt` 大小<br/>`resizable`<br/>`release_resources()` |
+| `core/TensorImpl.h` | `c10/core/TensorImpl.h` | sink 参数构造<br/>sizes、strides、dtype<br/>虚析构<br/>禁止拷贝 | `Storage` 包装层<br/>`autograd_meta_`<br/>`DispatchKeySet`（只留一个 `DispatchKey`）<br/>版本计数器与 Python 对象槽 |
+| `core/Tensor.h` | `aten/src/ATen/core/TensorBase.h`<br/>`aten/src/ATen/core/TensorBody.h`<br/>`aten/src/ATen/EmptyTensor.cpp` | 8 字节句柄<br/>Rule of Zero<br/>`use_count()`、`is_same()`、`unsafeGetTensorImpl()`<br/>按值返回的 `empty()` | `UndefinedTensorImpl` 空值<br/>生成的算子方法 |
+
+Table: mini-c10 各文件与真实源码的对照
+
+“保留”一列合起来就是第十章持有链上的全部所有权关系：共享（`intrusive_ptr`）、独占（`DataPtr`）、非拥有（`Allocator*`）；“省掉”一列都不改变“谁持有谁、何时释放”。
+
+为了让 `TensorImpl` 能编译，需要[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)和[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)才会完整实现的 `core/ScalarType.h` 和 `core/DispatchKey.h`，这里先按约定放最小版本：
 
 ```cpp title="minic10/core/ScalarType.h 最小版本"
-// minic10/core/ScalarType.h（第 3 篇会补上到 C++ 类型的映射）
+// minic10/core/ScalarType.h（《模板与泛型编程》会补上到 C++ 类型的映射）
 #pragma once
 #include <cstddef>
 namespace minic10 {
@@ -2211,7 +2309,7 @@ inline size_t itemsize(ScalarType t) {
 ```
 
 ```cpp title="minic10/core/DispatchKey.h 最小版本"
-// minic10/core/DispatchKey.h（第 4 篇的内容）
+// minic10/core/DispatchKey.h（《多态与类型擦除》的内容）
 #pragma once
 namespace minic10 {
 enum class DispatchKey { CPU, Meta, Autograd, NumKeys };
@@ -2347,7 +2445,7 @@ struct TensorImpl : intrusive_ptr_target {
     }
     std::printf("  TensorImpl(%p) ctor\n", (void*)this);
   }
-  // 虚析构：第 4 篇解释为什么 TensorImpl 需要而 Tensor 不需要
+  // 虚析构：《多态与类型擦除》解释为什么 TensorImpl 需要而 Tensor 不需要
   ~TensorImpl() override {
     std::printf("  TensorImpl(%p) dtor -> 释放对 StorageImpl 的引用\n", (void*)this);
   }
@@ -2377,7 +2475,7 @@ struct TensorImpl : intrusive_ptr_target {
 }  // namespace minic10
 ```
 
-构造函数的两个 sink 参数（`intrusive_ptr<StorageImpl> storage`、`std::vector<int64_t> sizes`）按值接收再 `std::move` 进成员——6.4 节的模式。这里直接持有 `intrusive_ptr<StorageImpl>`，省掉了真实源码里的 `Storage` 那层包装。`sizes()` 返回 `const std::vector<int64_t>&`——返回成员的常量引用，零拷贝，但调用方不能在对象死后还用它（4.5 节）。第三篇会把 `std::vector<int64_t>` 换成 `IntArrayRef`/`SmallVector`。
+构造函数的两个 sink 参数（`intrusive_ptr<StorageImpl> storage`、`std::vector<int64_t> sizes`）按值接收再 `std::move` 进成员——6.4 节的模式。这里直接持有 `intrusive_ptr<StorageImpl>`，省掉了真实源码里的 `Storage` 那层包装。`sizes()` 返回 `const std::vector<int64_t>&`——返回成员的常量引用，零拷贝，但调用方不能在对象死后还用它（4.5 节）。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)会把 `std::vector<int64_t>` 换成 `IntArrayRef`/`SmallVector`。
 
 ### 4. `core/Tensor.h`
 
@@ -2428,7 +2526,7 @@ inline Tensor empty(std::vector<int64_t> sizes, ScalarType dtype) {
 }  // namespace minic10
 ```
 
-`empty()` 就是 `_empty_generic` 的缩影：`make_intrusive<StorageImpl>`（此时 `malloc`）→ `make_intrusive<TensorImpl>`（`std::move` 进 storage）→ 包成 `Tensor` → 按值返回。`static_cast<T*>(void*)` 是 C++ 的显式类型转换（比 C 风格的 `(T*)p` 更安全、可搜索），第三篇再展开。
+`empty()` 就是 `_empty_generic` 的缩影：`make_intrusive<StorageImpl>`（此时 `malloc`）→ `make_intrusive<TensorImpl>`（`std::move` 进 storage）→ 包成 `Tensor` → 按值返回。`static_cast<T*>(void*)` 是 C++ 的显式类型转换（比 C 风格的 `(T*)p` 更安全、可搜索），[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)再展开。
 
 ### 5. 验证释放时序
 
@@ -2512,6 +2610,22 @@ y.defined()=0, w use_count=1
   [CPUAllocator] free 0x101459c20
 ```
 
+把每一步之后三个句柄的状态和两个计数列出来（计数取自上面的 `use_count` 打印；`StorageImpl` 的计数程序没有打印，由代码推出：`empty()` 里的 `storage` 被一路移动进 `TensorImpl`，此后只有这一个持有者）：
+
+| 步骤 | 语句 | `x` | `y` | `z` / `w` | `TensorImpl` 强计数 | `StorageImpl` 强计数 | 堆上发生的事 |
+|---|---|---|---|---|---:|---:|---|
+| 1 | `Tensor x = make_and_fill();` | 持有 | — | — | 1 | 1 | `malloc` 24 字节<br/>创建 `StorageImpl`、`TensorImpl` |
+| 2 | `Tensor y = x;` | 持有 | 持有 | — | 2 | 1 | 无 |
+| 3 | `Tensor z = y;` | 持有 | 持有 | `z` 持有 | 3 | 1 | 无 |
+| 3' | `z` 离开作用域 | 持有 | 持有 | — | 2 | 1 | 无 |
+| 4 | `x = Tensor();` | 空 | 持有 | — | 1 | 1 | 无 |
+| 5 | `Tensor w = std::move(y);` | 空 | 空（moved-from） | `w` 持有 | 1 | 1 | 无 |
+| 6 | `main` 返回，`w` 析构 | — | — | — | 0 | 0 | `TensorImpl` 析构<br/>`StorageImpl` 析构<br/>`free` |
+
+Table: demo 每一步之后的句柄、引用计数与堆上的动作
+
+“堆上发生的事”一列只有首尾两行有内容：中间五步无论拷贝、移动还是赋值，改的都只是 `TensorImpl` 里的一个整数。`StorageImpl` 的计数全程是 1——三个句柄共享的是 `TensorImpl`，持有 `StorageImpl` 的始终只有这一个 `TensorImpl`；要让它变成 2，需要第二个 `TensorImpl`，也就是第十章表里的 view。
+
 逐段对照第十章的结论：
 
 - 步骤 1：`malloc` 发生在 `StorageImpl` 构造函数的成员初始化列表里（`data_(allocator->allocate(nbytes))`），所以打印顺序是 malloc → StorageImpl ctor → TensorImpl ctor。`make_and_fill` 按值返回，没有多余的构造/析构打印——NRVO 生效。
@@ -2522,7 +2636,11 @@ y.defined()=0, w use_count=1
 
 把 `CPUAllocator::Delete` 换成 `cudaFree`、或者换成"放回空闲块列表"，其余任何一行都不用改。这就是 10.8 节说的"整条 RAII 链在 `DataPtr` 这一层结束，最后一步做什么由删除器决定"。
 
-第三篇会在这个骨架上加 `ScalarType` 到 C++ 类型的映射和 `MINI_DISPATCH_FLOATING_TYPES`，实现第一个 `add` kernel；第四篇加 `DispatchKey` 分发；第六篇把 `refcount_` 改成原子的。
+后续三篇在这个骨架上继续加东西：
+
+- [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)加 `ScalarType` 到 C++ 类型的映射和 `MINI_DISPATCH_FLOATING_TYPES`，实现第一个 `add` kernel。
+- [《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)加 `DispatchKey` 分发。
+- [《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)把 `refcount_` 改成原子的。
 
 ## 十二、工程实践建议与常见错误
 
@@ -2538,7 +2656,7 @@ y.defined()=0, w use_count=1
 **返回值**
 
 5. 返回 `Tensor` 直接按值返回，`return out;`，不要 `return std::move(out);`，也不要试图返回 `const Tensor&` 指向局部变量（悬垂）。
-6. 返回成员的引用（`const std::vector<int64_t>& sizes() const`）是可以的，但调用方不能在对象死后还用它。这是 `sizes()` 返回 `IntArrayRef`（第三篇）而不是 `std::vector` 拷贝的原因，也是它有风险的原因。
+6. 返回成员的引用（`const std::vector<int64_t>& sizes() const`）是可以的，但调用方不能在对象死后还用它。这是 `sizes()` 返回 `IntArrayRef`（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)）而不是 `std::vector` 拷贝的原因，也是它有风险的原因。
 
 **所有权**
 
@@ -2602,7 +2720,7 @@ y.defined()=0, w use_count=1
 | 共享所有权 | 一切皆共享，无需记账 | `shared_ptr`/`intrusive_ptr`，显式计数 | Java 无循环引用问题（GC 处理），C++ 要用 weak 断环 |
 | `null` 对象 | `null` | `nullptr` / Null Object（`UndefinedTensorImpl`） | — |
 | `WeakReference` | 不阻止 GC | `weak_ptr`/`weak_intrusive_ptr`，需 `lock()` | 用途不同：Java 多用于缓存，C++ 多用于断环 |
-| JNI `jobject` 引用 | local/global ref | `release()`/`reclaim()` 出入的裸指针 | 概念直接对应，第七篇展开 |
+| JNI `jobject` 引用 | local/global ref | `release()`/`reclaim()` 出入的裸指针 | 概念直接对应，[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)展开 |
 
 Table: 值语义与所有权：Java 对照汇总
 

@@ -4,7 +4,7 @@ title: C++ 在 AI-Infra：从对象模型到算子扩展（总纲）
 subtitle: C++ for AI-Infra, from the Object Model to Operator Extensions
 tags: [C++, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-17
 ---
 
 
@@ -147,7 +147,7 @@ Java 背景在很多地方是助力：
 
 ### 想读懂 PyTorch Dispatcher 和扩展机制的读者
 
-PyTorch 的算子分发（Dispatcher、`OperatorEntry`、`KernelFunction`）和扩展机制（`TORCH_LIBRARY`、`torch.utils.cpp_extension`）只能在 C++ 源码里看清。如果读这些源码时感到 C++ 本身是障碍，本系列的第二、三、四、七篇正是为此准备的。
+PyTorch 的算子分发（Dispatcher、`OperatorEntry`、`KernelFunction`）和扩展机制（`TORCH_LIBRARY`、`torch.utils.cpp_extension`）只能在 C++ 源码里看清。如果读这些源码时感到 C++ 本身是障碍，本系列的[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)、[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)和[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)正是为此准备的。
 
 ### 准备写 CUDA kernel 的读者
 
@@ -156,23 +156,23 @@ CUDA 是 C++ 的方言。写 kernel 之前，需要先能自然地写出 host �
 
 ## 系列的整体主线
 
-八篇文章按"读懂一个大型 C++ 项目需要的知识"的依赖顺序展开：
+八讲按"读懂一个大型 C++ 项目需要的知识"的依赖顺序展开：
 
-1. 第一篇：C++ 程序是怎么变成二进制的（翻译单元 · 头文件 · 链接 · 符号 · 库）
-2. 第二篇：对象在哪里、活多久、谁负责释放（值语义 · 引用 · 移动 · RAII · 智能指针）
-3. 第三篇：一份代码如何服务多种类型（模板 · 推导 · 特化 · constexpr）
-4. 第四篇：运行时如何选择实现（虚函数 · 函数对象 · 类型擦除 · variant）
-5. 第五篇：代码如何在启动时自己登记进系统（宏 · 静态初始化 · 可见性 · 代码生成）
-6. 第六篇：多线程下如何正确且快（内存模型 · 原子 · TLS · 守卫 · 并行）
-7. 第七篇：C++ 如何与 Python 对话（pybind11 · Python C API · GIL · ABI）
-8. 第八篇：怎么构建、调试、测试（CMake · 编译选项 · gdb · sanitizer · gtest）
+1. [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) · [第一篇（下）：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)——C++ 程序是怎么变成二进制的（翻译单元 · 头文件 · 链接 · 符号 · 库）
+2. [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html)——对象在哪里、活多久、谁负责释放（值语义 · 引用 · 移动 · RAII · 智能指针）
+3. [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html)——一份代码如何服务多种类型（模板 · 推导 · 特化 · constexpr）
+4. [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html)——运行时如何选择实现（虚函数 · 函数对象 · 类型擦除 · variant）
+5. [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)——代码如何在启动时自己登记进系统（宏 · 静态初始化 · 可见性 · 代码生成）
+6. [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)——多线程下如何正确且快（内存模型 · 原子 · TLS · 守卫 · 并行）
+7. [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html)——C++ 如何与 Python 对话（pybind11 · Python C API · GIL · ABI）
+8. [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)——怎么构建、调试、测试（CMake · 编译选项 · gdb · sanitizer · gtest）
 
-前四篇是语言核心，后四篇是工程实践。每一篇都有同样的三段结构：
+前四篇是语言核心，后四篇是工程实践。每一篇都有同样的四段结构：
 
-- **问题**：从 PyTorch/vLLM 源码里挑一段，指出读不懂的地方
-- **机制**：讲清背后的 C++ 特性，用 Java 做对照，划清类比的边界
-- **回到源码**：带着机制重读那段代码，再扩展读几个同类位置
-- **mini-c10**：在练手项目里用这个机制实现一小块
+1. **问题**：从 PyTorch/vLLM 源码里挑一段，指出读不懂的地方
+2. **机制**：讲清背后的 C++ 特性，用 Java 做对照，划清类比的边界
+3. **回到源码**：带着机制重读那段代码，再扩展读几个同类位置
+4. **mini-c10**：在练手项目里用这个机制实现一小块
 
 这条主线也可以归纳为三条线索：
 
@@ -344,7 +344,7 @@ C++ 层写好之后要暴露给 Python。这一篇讲两个运行时的边界上
 - PyTorch 如何绑定 `Tensor`：`THPVariable` 直接用 Python C API 而不是 pybind11，为什么；
 - `torch/csrc/utils/pybind.h` 里对 `at::Tensor`、`c10::Device` 等类型的 caster；
 - `TORCH_LIBRARY` 与 pybind11 的选择：vLLM 的 `csrc/torch_bindings.cpp` 为什么用前者；
-- ABI：name mangling、`_GLIBCXX_USE_CXX11_ABI`、libstdc++ 版本、`manylinux` 标准；PyTorch 2.6 起 Linux wheel 切换到 CXX11 ABI（版本敏感）；
+- ABI：name mangling、`_GLIBCXX_USE_CXX11_ABI`、libstdc++ 版本、`manylinux` 标准；PyTorch 2.6 起部分、2.7 起全部 Linux wheel 切换到 CXX11 ABI（版本敏感）；
 - 扩展与 PyTorch 之间的 ABI 契约：为什么扩展要用编译 PyTorch 的同一编译器大版本；`torch.utils.cpp_extension` 做了哪些检查；
 - Python 对象生命周期与 C++ 对象生命周期的交叉：谁持有谁，循环引用怎么断。
 
@@ -393,18 +393,18 @@ Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这�
 
 | 篇 | mini-c10 写什么 | 回到源码读什么 |
 |---|---|---|
-| 第一篇 | 目录结构、CMake 骨架、第一个可链接的库 | `c10/CMakeLists.txt`<br/>`torch/csrc/stub.c`<br/>`setup.py` 的库依赖 |
-| 第二篇 | `intrusive_ptr`、`TensorImpl`、`StorageImpl`、`Tensor` 句柄 | `c10/util/intrusive_ptr.h`<br/>`c10/core/TensorImpl.h`<br/>`c10/core/StorageImpl.h`<br/>`c10/core/Allocator.h` |
-| 第三篇 | `ScalarType`、dtype 分发宏、第一个模板化 kernel | `ATen/Dispatch.h`<br/>`c10/util/ArrayRef.h`<br/>`c10/util/SmallVector.h` |
-| 第四篇 | `DispatchKey`、`OperatorEntry`、类型擦除的 `KernelFunction`、最小 Dispatcher | `ATen/core/boxing/KernelFunction.h`<br/>`ATen/core/dispatch/OperatorEntry.h`<br/>`ATen/core/ivalue.h` |
-| 第五篇 | `MINI_LIBRARY` 静态注册宏、算子文件自注册、符号可见性 | `torch/library.h`<br/>`c10/macros/Macros.h`<br/>`c10/macros/Export.h`<br/>一个 torchgen 生成文件 |
-| 第六篇 | `parallel_for`、TLS 守卫、线程安全的引用计数 | `c10/core/impl/LocalDispatchKeySet.h`<br/>`c10/core/DeviceGuard.h`<br/>`ATen/Parallel.h`<br/>`ATen/cpu/vec/` |
-| 第七篇 | pybind11 模块、`Tensor` caster、一次 ABI 事故复现 | `torch/csrc/autograd/python_variable.cpp`<br/>`torch/csrc/utils/pybind.h`<br/>vLLM `csrc/torch_bindings.cpp` |
-| 第八篇 | gtest、ASan、gdb 会话、clang-format | `c10/test/util/intrusive_ptr_test.cpp`<br/>`tools/gdb/pytorch-gdb.py`<br/>`.clang-tidy` |
+| [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) · [第一篇（下）：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html) | 目录结构、CMake 骨架、第一个可链接的库 | `c10/CMakeLists.txt`<br/>`torch/csrc/stub.c`<br/>`setup.py` 的库依赖 |
+| [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html) | `intrusive_ptr`、`TensorImpl`、`StorageImpl`、`Tensor` 句柄 | `c10/util/intrusive_ptr.h`<br/>`c10/core/TensorImpl.h`<br/>`c10/core/StorageImpl.h`<br/>`c10/core/Allocator.h` |
+| [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) | `ScalarType`、dtype 分发宏、第一个模板化 kernel | `ATen/Dispatch.h`<br/>`c10/util/ArrayRef.h`<br/>`c10/util/SmallVector.h` |
+| [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html) | `DispatchKey`、`OperatorEntry`、类型擦除的 `KernelFunction`、最小 Dispatcher | `ATen/core/boxing/KernelFunction.h`<br/>`ATen/core/dispatch/OperatorEntry.h`<br/>`ATen/core/ivalue.h` |
+| [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html) | `MINI_LIBRARY` 静态注册宏、算子文件自注册、符号可见性 | `torch/library.h`<br/>`c10/macros/Macros.h`<br/>`c10/macros/Export.h`<br/>一个 torchgen 生成文件 |
+| [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html) | `parallel_for`、TLS 守卫、线程安全的引用计数 | `c10/core/impl/LocalDispatchKeySet.h`<br/>`c10/core/DeviceGuard.h`<br/>`ATen/Parallel.h`<br/>`ATen/cpu/vec/` |
+| [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html) | pybind11 模块、`Tensor` caster、一次 ABI 事故复现 | `torch/csrc/autograd/python_variable.cpp`<br/>`torch/csrc/utils/pybind.h`<br/>vLLM `csrc/torch_bindings.cpp` |
+| [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html) | gtest、ASan、gdb 会话、clang-format | `c10/test/util/intrusive_ptr_test.cpp`<br/>`tools/gdb/pytorch-gdb.py`<br/>`.clang-tidy` |
 
 Table: 各篇的 mini-c10 实践与源码阅读
 
-mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra)（目前是第二篇的部分：`intrusive_ptr` / `Allocator` / `StorageImpl` / `TensorImpl` / `Tensor` 与 14 个值语义例子，`make run` 一键编译运行），后续各篇的文件会加到同一目录。
+mini-c10 的代码与各篇的小例子在 [ai-learning-labs/cpp-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/cpp-for-ai-infra)（目前是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的部分：`intrusive_ptr` / `Allocator` / `StorageImpl` / `TensorImpl` / `Tensor` 与 14 个值语义例子，`make run` 一键编译运行），后续各篇的文件会加到同一目录。
 
 
 ## 前置要求与说明
@@ -471,15 +471,15 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 | 这一行的问题 | 回答它的篇与机制 |
 |---|---|
-| `const at::Tensor&` 为什么这样传？ | [第二篇](/cpp-value-semantics-ownership-and-raii.html)：值语义与常量引用 |
-| `TORCH_CHECK` 为什么是宏？ | [第五篇](/cpp-macros-static-registration-and-codegen.html)：宏在调用点捕获信息 |
-| `x.contiguous()` 返回的对象要拷贝数据吗？ | [第二篇](/cpp-value-semantics-ownership-and-raii.html)：句柄与移动语义 |
-| `AT_DISPATCH` 如何把运行期 dtype 变成编译期类型？ | [第三篇](/cpp-templates-and-generic-programming.html)：模板与编译期分派 |
-| `[&]` 捕获了什么，安全吗？ | [第三篇](/cpp-templates-and-generic-programming.html)：lambda 与生命周期 |
-| `parallel_for` 的线程从哪里来？ | [第六篇](/cpp-concurrency-memory-model-tls-and-guards.html)：OpenMP 与线程模型 |
-| 这个函数怎么变成 `torch.ops` 下的算子？ | [第五篇](/cpp-macros-static-registration-and-codegen.html)：静态注册 |
-| Python 调用它时经过了什么？ | [第七篇](/cpp-pybind11-python-c-api-and-abi.html)：pybind11 与 GIL |
-| 它编译成哪个 `.so`，链接到哪些库？ | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html)、[第八篇](/cpp-build-debug-and-test-toolchain.html)：链接与 CMake |
+| `const at::Tensor&` 为什么这样传？ | [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html)——值语义与常量引用 |
+| `TORCH_CHECK` 为什么是宏？ | [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)——宏在调用点捕获信息 |
+| `x.contiguous()` 返回的对象要拷贝数据吗？ | [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html)——句柄与移动语义 |
+| `AT_DISPATCH` 如何把运行期 dtype 变成编译期类型？ | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html)——模板与编译期分派 |
+| `[&]` 捕获了什么，安全吗？ | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html)——lambda 与生命周期 |
+| `parallel_for` 的线程从哪里来？ | [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)——OpenMP 与线程模型 |
+| 这个函数怎么变成 `torch.ops` 下的算子？ | [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)——静态注册 |
+| Python 调用它时经过了什么？ | [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html)——pybind11 与 GIL |
+| 它编译成哪个 `.so`，链接到哪些库？ | [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html)、[第一篇（下）：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)、[第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)——链接、库分层与 CMake |
 
 Table: 开篇代码的每一行由哪一篇回答
 

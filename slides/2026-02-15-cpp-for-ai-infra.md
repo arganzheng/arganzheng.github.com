@@ -76,7 +76,7 @@ flowchart TB
 | `import torch` 的库链 | `libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
 
 <aside class="notes" markdown="1">
-补充要点：库分层：依赖只能向下（第一篇的四层源码在 .so 上的形态）
+补充要点：库分层：依赖只能向下（《工程布局》的四层源码在 .so 上的形态）
 </aside>
 
 <!-- v -->
@@ -126,7 +126,7 @@ AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, self.scalar_type(), "my_op", [
 | 宏 | 编几份 |
 |---|---|
 | `AT_DISPATCH_FLOATING_TYPES` | 2（float、double）——**不含 Half / BFloat16** |
-| `AT_DISPATCH_ALL_TYPES_AND_HALF` | 十几份 |
+| `AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4` | 13（7 + 2 + 4） |
 | vLLM 的 kernel | 3 dtype × 2 width = 6 份 |
 
 <aside class="notes" markdown="1">
@@ -241,7 +241,7 @@ flowchart TB
 | memory order | 六种；引用计数 relaxed 增、acq_rel 减 |
 | `intrusive_ptr` 合并计数 | 64 位：低 32 强、高 31 弱、第 63 位 PyObject |
 | 守卫三步骨架 | 构造时保存旧值并设新值 → 作用域内生效 → 析构恢复 |
-| 线程数优先级 | `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数 |
+| 线程数优先级 | `set_num_threads` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数 |
 | `GRAIN_SIZE` | 32,768——`parallel_for` 少于它不切 |
 
 <aside class="notes" markdown="1">
@@ -356,7 +356,7 @@ flowchart TB
 |---|---|
 | 01 | `not declared` / `undefined reference` / `undefined symbol` 三阶段；RPATH → LD_LIBRARY_PATH → RUNPATH |
 | 02 | `Tensor` 8 字节；`y = x` / view / clone 三种关系；del 后四步排查 |
-| 03 | `FLOATING_TYPES` 2 份、`ALL_TYPES_AND_HALF` 十几份；`data_ptr<T>()` 显式 |
+| 03 | `FLOATING_TYPES` 2 份、`ALL_TYPES_AND_COMPLEX_AND4` 13 份；`data_ptr<T>()` 显式 |
 | 04 | 函数指针 8 / `function_ref` 16 / `std::function` 32；`IValue` 16 |
 | 05 | `.init_array`；`native_functions.yaml` 2,666 条；`nm -C` |
 | 06 | 计数 relaxed 增、acq_rel 减；`GRAIN_SIZE` 32768；`ThreadLocalStateGuard` |
@@ -369,5 +369,5 @@ flowchart TB
 
 - **往上**：《PyTorch 深度实践》第 5–6 篇——Dispatcher 与自定义算子的使用侧；《Python 在 AI-Infra》——边界的另一端
 - **往下**：《GPU Kernel 工程》——kernel 本身；《ML 编译器》——生成 C++ / Triton 的那一层
-- **实践**：《参与 AI-Infra 开源》——第八篇的工具链在真实 PR 里怎么用
+- **实践**：《参与 AI-Infra 开源》——《构建、调试与测试工具链》的工具链在真实 PR 里怎么用
 - 原文总纲：`/cpp-for-ai-infra.html`；通关自测在系列总结

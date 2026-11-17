@@ -6,9 +6,21 @@ subtitle: "C++ for AI-Infra: Series Recap and Final Self-Test"
 tags: [C++, AI, AI-Infra]
 catalog: true
 date: 2026-02-15 20:00:00
+updated: 2026-11-17
 ---
 
-八篇正文回答了一个问题：**PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写**。第一篇讲一个 `.cpp` 怎么变成 `.so`、`import torch` 拉起哪几个库；第二篇讲 `at::Tensor` 为什么是一个 8 字节的句柄、数据什么时候释放；第三篇讲 `AT_DISPATCH` 里的 `scalar_t` 从哪里来；第四篇讲 Dispatcher 用什么机制调到 kernel；第五篇讲算子怎么在没有任何显式调用的情况下登记进 `torch.ops`；第六篇讲 `no_grad` 为什么对其他线程不生效；第七篇讲一个 Tensor 跨过 Python/C++ 边界经过了什么；第八篇讲一个改动从写完到能提 PR 要跑哪些东西。八篇合起来，是[总纲](/cpp-for-ai-infra.html)开篇那段 `scale_shift_cpu` 的逐行注解。
+八篇正文回答了一个问题：**PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写**。每一篇各答其中一段：
+
+- [《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)与[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)：一个 `.cpp` 怎么变成 `.so`、`import torch` 拉起哪几个库
+- [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：`at::Tensor` 为什么是一个 8 字节的句柄、数据什么时候释放
+- [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)：`AT_DISPATCH` 里的 `scalar_t` 从哪里来
+- [《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)：Dispatcher 用什么机制调到 kernel
+- [《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)：算子怎么在没有任何显式调用的情况下登记进 `torch.ops`
+- [《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)：`no_grad` 为什么对其他线程不生效
+- [《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)：一个 Tensor 跨过 Python/C++ 边界经过了什么
+- [《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)：一个改动从写完到能提 PR 要跑哪些东西
+
+八篇合起来，是[系列总纲](/cpp-for-ai-infra.html)开篇那段 `scale_shift_cpu` 的逐行注解。
 
 本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。
 
@@ -47,13 +59,13 @@ flowchart TB
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
-| 第一篇：编译模型与项目布局（[上](/cpp-compilation-model-from-cpp-to-shared-object.html) · [下](/cpp-project-layout-namespaces-libraries-and-cmake.html)） | `import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？ | 编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段 | 四阶段 + 加载第五步<br/>20 行源文件预处理后 40222 行<br/>四种链接属性<br/>`ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH<br/>`libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
-| [第二篇：对象模型与 RAII](/cpp-value-semantics-ownership-and-raii.html) | `at::Tensor y = x;` 之后 `y` 与 `x` 是什么关系？数据什么时候释放？ | `Tensor` 是 8 字节值句柄，`=` 拷贝句柄、计数 +1；数据在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零那一刻同步释放 | `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块<br/>400M 个活 tensor 每加一个字多 3.2 GB<br/>`y = x` / view / clone 三种关系<br/>`del` 后显存未降的四步排查<br/>`const` 五个位置且 `Tensor` 的 `const` 是浅的 |
+| [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) · [第一篇（下）：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html) | `import torch` 加载了哪些 `.so`？依赖关系是什么？扩展链接到哪一个？ | 编译器只看得见一个翻译单元，符号由链接器与动态加载器在两个时刻解析；每类"找不到"只出现在一个阶段 | 四阶段 + 加载第五步<br/>20 行源文件预处理后 40222 行<br/>四种链接属性<br/>`ld.so` 搜索顺序 RPATH → `LD_LIBRARY_PATH` → RUNPATH<br/>`libtorch_global_deps.so`（`RTLD_GLOBAL`）→ `_C` → `torch_python` → `torch` → `torch_cpu` → `c10` |
+| [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html) | `at::Tensor y = x;` 之后 `y` 与 `x` 是什么关系？数据什么时候释放？ | `Tensor` 是 8 字节值句柄，`=` 拷贝句柄、计数 +1；数据在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零那一刻同步释放 | `Tensor` 8 字节 vs `shared_ptr` 16 字节 + 控制块<br/>400M 个活 tensor 每加一个字多 3.2 GB<br/>`y = x` / view / clone 三种关系<br/>`del` 后显存未降的四步排查<br/>`const` 五个位置且 `Tensor` 的 `const` 是浅的 |
 | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) | `AT_DISPATCH` 里的 `scalar_t` 从哪里来？lambda 被编译了几次？ | 模板为每组参数生成一份代码；`AT_DISPATCH` 是一个 `switch`，每个 `case` 里 `using scalar_t = ...` 再粘贴 lambda，N 个 dtype 就编 N 份 | 浮点两份、`ALL_TYPES_AND_HALF` 十几份<br/>不从返回值推导 → `data_ptr<T>()` 必须显式<br/>`DimVector` 内联 5 维<br/>vLLM 3 dtype × 2 width = 6 份 kernel<br/>`[&]` 同步不逃逸才安全 |
 | [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html) | Dispatcher 用什么机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？ | 不是虚函数，是函数指针 + 模板生成的适配器；unboxed 为快，boxed（`Stack*` 上的 `IValue`）为通用层写一次 | `KernelFunction` = `intrusive_ptr<OperatorKernel>` + boxed 指针 + `void*` unboxed<br/>`std::function` 32 / `function_ref` 16 / 函数指针 8 字节<br/>`IValue` 16 字节（4 tag + 8 payload）<br/>`lookup` 一次数组下标、全程无虚调用 |
 | [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html) | 一个 `.so` 被 `import` 后，算子怎么出现在 `torch.ops.myops` 下？ | `TORCH_LIBRARY` 展开成静态对象，`dlopen` 执行 `.init_array` 时其构造函数向 `Dispatcher` 登记；调用者是加载器，不是用户代码 | 宏三种用途<br/>`TORCH_CHECK` 必须是宏的两个理由<br/>四种链接方式里只有"静态库直接链"注册表为空<br/>`native_functions.yaml` 2666 条目、一条生成十几处<br/>跨库类型要 `C10_API` 导出 typeinfo |
-| [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html) | `with torch.no_grad():` 在 C++ 层做了什么？为什么对其他线程不生效？ | 改的是一个 `thread_local` 变量；`thread_local` 每线程一份、新线程不继承，要跨线程必须用 `ThreadLocalState` 显式传播 | 六种 memory order<br/>计数 relaxed 增、acq_rel 减<br/>64 位合并计数（低 32 强、高 31 弱、第 63 位 PyObject）<br/>守卫三步骨架<br/>线程数优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数<br/>`GRAIN_SIZE` 32768 |
-| [第七篇：pybind11、Python C API 与 ABI](/cpp-pybind11-python-c-api-and-abi.html) | 一个 Tensor 从 Python 到 C++ 再回来，几次转换、几次计数变化、GIL 状态如何？ | 输入 3 次、输出 2 次类型转换，无一步拷贝数据<br/>C++ 计数 1 → 2 → 1 联动一次 `Py_INCREF`/`Py_DECREF`<br/>GIL 转参数时持有、跑 kernel 时释放 | new / borrowed / stolen 三种引用<br/>1 → 2 `Py_INCREF`、2 → 1 `Py_DECREF`<br/>ABI 三层（CPython、libstdc++、PyTorch）<br/>2.7 起 Linux wheel 全部 CXX11 ABI，v2.10.0 开关已删<br/>`cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本 |
+| [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html) | `with torch.no_grad():` 在 C++ 层做了什么？为什么对其他线程不生效？ | 改的是一个 `thread_local` 变量；`thread_local` 每线程一份、新线程不继承，要跨线程必须用 `ThreadLocalState` 显式传播 | 六种 memory order<br/>计数 relaxed 增、acq_rel 减<br/>64 位合并计数（低 32 强、高 31 弱、第 63 位 PyObject）<br/>守卫三步骨架<br/>线程数优先级 `set_num_threads` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数<br/>`GRAIN_SIZE` 32768 |
+| [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html) | 一个 Tensor 从 Python 到 C++ 再回来，几次转换、几次计数变化、GIL 状态如何？ | 输入 3 次、输出 2 次类型转换，无一步拷贝数据<br/>C++ 计数 1 → 2 → 1 联动一次 `Py_INCREF`/`Py_DECREF`<br/>GIL 转参数时持有、跑 kernel 时释放 | new / borrowed / stolen 三种引用<br/>1 → 2 `Py_INCREF`、2 → 1 `Py_DECREF`<br/>ABI 三层（CPython、libstdc++、PyTorch）<br/>2.7 起 Linux wheel 全部 CXX11 ABI，v2.10.0 开关已删<br/>`cpp_extension` 检查 GCC ≥ 5、不检查 PyTorch 版本 |
 | [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html) | 一个 C++ 改动，从写完到确认正确、无内存错误、不在别的编译器上炸，要跑哪些东西？ | 八步清单：clangd → clang-format → Debug 构建 → gtest/pytest → clang-tidy → ASan+UBSan → TSan → CI 矩阵；"不靠推理，靠矩阵" | `-O0` 比 `-O2` 慢 3–10 倍、`-g` 不影响速度<br/>ASan 约 2× 时间、TSan 5–15×、二者互斥<br/>`detect_leaks=0`<br/>三张栈<br/>GCC ≥ 9.3、CUDA ≥ 12.0、C++17<br/>`intrusive_ptr_test.cpp` 325 个测试 |
 
 Table: 八篇的核心问题、结论与必记判据
@@ -74,7 +86,7 @@ Table: 本文的章节安排
 
 ### 1. 第一篇：从源码到二进制——编译模型与项目布局
 
-（拆成[上：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html)与[下：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)两篇。）
+原文：[第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) · [第一篇（下）：工程布局](/cpp-project-layout-namespaces-libraries-and-cmake.html)
 
 **核心问题**：`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？自定义扩展链接到哪一个？
 
@@ -91,6 +103,8 @@ Table: 本文的章节安排
 **常见误解**："编译器能看到整个项目"——它只能看到一个翻译单元，头文件是手写的接口；"找不到类是运行时异常"——在 C++ 里它是构建失败或进程起不来，三个阶段都在业务代码运行之前。
 
 ### 2. 第二篇：值、引用与所有权——对象模型与 RAII
+
+原文：[第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html)
 
 **核心问题**：`at::Tensor y = x;` 之后 `y` 和 `x` 是什么关系？什么时候数据真正被释放？
 
@@ -109,6 +123,8 @@ Table: 本文的章节安排
 
 ### 3. 第三篇：模板与泛型编程
 
+原文：[第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html)
+
 **核心问题**：`AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "name", [&] { ... scalar_t ... })` 里的 `scalar_t` 从哪里来？这个 lambda 被编译了几次？
 
 **结论**：模板是生成代码的配方，一个模板 + N 组参数 = N 份独立机器码，各有各的符号；Java 泛型擦除类型、只有一份字节码，C++ 恰恰相反，所以能用基本类型、能按类型换实现、能把值当参数，代价是编译慢、二进制大、错误信息长。函数模板从实参推 `T`、不能从返回值推，所以 `data_ptr<scalar_t>()` 必须显式写。非类型模板参数（`std::array<T, N>`、`SmallVector<T, N>`、CUDA kernel 的 `BLOCK_SIZE`）必须是编译期常量，运行期的值要经过一组分支才能进入模板——这是 `AT_DISPATCH` 与 vLLM if 链的共同本质。`AT_DISPATCH_FLOATING_TYPES` 是三层宏：外层生成 `case` 列表，`AT_DISPATCH_SWITCH` 是一个 IIFE 里的 `switch`（`default` 抛 `NotImplementedError`），每个 `case` 里 `using scalar_t = ScalarTypeToCPPTypeT<enum_type>;` 然后 `return lambda();`。`scalar_t` 是 `case` 块作用域里的类型别名，名字由宏硬编码、类型由 `ScalarTypeToCPPType` 全特化表查出；lambda 的文本被复制到每个 `case`，N 个 dtype 就是 N 个闭包类型各编译一次。`ArrayRef` 是指针 + 长度的不拥有视图，只做参数和返回值；`DimVector` 是 5 维内联的 shape 容器。lambda 的闭包类型唯一、可内联，`[&]` 不延长寿命，同步且不逃逸时安全，要存起来或异步执行时按值或初始化捕获。
@@ -126,6 +142,8 @@ Table: 本文的章节安排
 
 ### 4. 第四篇：多态与类型擦除——运行时如何选择实现
 
+原文：[第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html)
+
 **核心问题**：Dispatcher 拿到一个 `OperatorHandle` 和一组参数后，用什么 C++ 机制调到 CPU kernel？为什么既有 boxed 又有 unboxed？
 
 **结论**：C++ 方法默认不虚，`virtual`/`override`/`final`/`= 0` 各有职责；每个有虚函数的对象多一个 vptr，每次虚调用一次不可内联的间接跳转；通过基类指针删除必须有虚析构，这是 `intrusive_ptr_target` 与 `OperatorKernel`（只有一个虚析构的空结构体）存在的理由。`TensorImpl` 用"policy 字节快路径 + `*_custom` 虚定制点"兼顾速度与扩展，`Tensor` 作为值句柄没有任何虚函数。运行期选实现有五种以上做法——虚函数、函数指针、`std::function`/`function_ref`、模板参数、CRTP、类型擦除、`std::variant`——虚函数只是其中开销最大、最灵活的一种。`KernelFunction` 是手工类型擦除：`intrusive_ptr<OperatorKernel> functor_` + `boxed_kernel_func_`（永远有效）+ `void* unboxed_kernel_func_`（可能为空）；注册时模板把具体签名包成统一形态，调用时 `call<Return, Args...>` 把 `void*` cast 回精确签名做一次间接调用，全程无虚调用，签名一致性由 `CppSignature` 在注册与 `typed<>()` 时双重校验。unboxed 保留 C++ 签名、零装箱、可内联，是热路径；boxed 用 `Stack*`（`IValue` 向量）作统一约定，让 autograd、tracing、fallback、Python 这些"不知道具体签名"的通用层写一次即可，两者可互转。`IValue` 是手工的 tagged union，不是基类、类型集合封闭。`TORCH_CHECK` 抛 `c10::Error : std::exception`，子类决定跨到 Python 后的异常类型。
@@ -141,6 +159,8 @@ Table: 本文的章节安排
 **常见误解**："运行期选实现只能用接口 + 虚方法"——PyTorch 的 Dispatcher 全程没有虚调用；"`IValue` 就是 Java 的 `Object`"——它不是所有类型的基类，类型集合封闭，`toX()` 不做转换（`IValue(1).toDouble()` 会抛）。
 
 ### 5. 第五篇：宏、静态注册与代码生成
+
+原文：[第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html)
 
 **核心问题**：一个 `.so` 被 `import` 后，里面的算子怎么就出现在 `torch.ops.myops` 下了？没有任何函数被显式调用。
 
@@ -159,6 +179,8 @@ Table: 本文的章节安排
 
 ### 6. 第六篇：并发、内存模型、TLS 与守卫
 
+原文：[第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html)
+
 **核心问题**：`with torch.no_grad():` 在 C++ 层做了什么？为什么它对其他线程不生效？
 
 **结论**：`__enter__` 调 `torch._C._set_grad_enabled(False)` → `GradMode::set_enabled(false)`，改的是 `thread_local AutogradState autograd_state_tls` 里的 grad-mode 位；每个 autograd kernel 建图前读 `GradMode::is_enabled()`；`__exit__` 写回旧值。Python 的 `no_grad` 与 C++ 的 `NoGradGuard` 是同一个东西：保存旧值、设新值、退出时恢复。`thread_local` 是语言级存储类别，每线程一份、访问通常一条指令、新线程不继承创建者的值，所以主线程 `no_grad` 里启动的 worker 读到的是默认值 `True`；要跨线程生效必须显式传递——`at::ThreadLocalState` 打包 grad mode、dispatch key 集合、当前 stream 等，`ThreadLocalStateGuard` 在工作线程里恢复，`parallel_for`、autograd 引擎、`torch.jit.fork` 都这样做。C++ 内存模型与 JMM 同源但把 `volatile` 一档拆成六档；`intrusive_ptr` 计数 +1 用 relaxed（对象已被持有，不需要发布或获取任何数据），−1 用 acq_rel（每次减都可能是最后一次，要同时扮演 release 与 acquire 才能安全析构）。守卫是 RAII 从"管资源"推广到"管上下文"：三步骨架，删掉拷贝与移动，可作为成员组合；`DeviceGuard` 用"虚接口 + 内联模板"两层在不依赖 CUDA 的 `libc10` 里切换 CUDA 设备。CUDA launch 不用锁，因为 runtime 线程安全、同一 stream 按入队顺序执行、"当前设备"与"当前 stream"都是 TLS。
@@ -175,6 +197,8 @@ Table: 本文的章节安排
 **常见误解**："C++ `volatile` 像 Java 一样提供可见性与顺序"——它与线程无关，同步用 `std::atomic`；"守卫对象可以传给别的线程去析构"——它恢复的是构造线程的状态，PyTorch 通过删除移动构造从根本上杜绝这条路。
 
 ### 7. 第七篇：与 Python 之间——pybind11、Python C API 与 ABI
+
+原文：[第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html)
 
 **核心问题**：一个 `at::Tensor` 从 Python 传到 C++ 又返回 Python，经过了几次类型转换、几次引用计数变化？中间 GIL 状态是什么？
 
@@ -193,9 +217,11 @@ Table: 本文的章节安排
 
 ### 8. 第八篇：构建、调试与测试工具链
 
+原文：[第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html)
+
 **核心问题**：一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？
 
-**结论**："确认正确"靠 Debug 构建加 gtest/pytest——Debug 构建让 gdb/lldb 看到真实变量，gtest 测语言层面的契约，pytest 测能从 Python 观察到的行为；"没有内存错误"靠 ASan+UBSan 构建再跑一遍测试——越界与 use-after-free 默认什么都不发生，只有插桩构建能把它们变成带三张栈（访问、释放、分配）的确定报告，改了并发代码再加 TSan；"不会在别的编译器上炸"靠 CI 矩阵——gcc 与 clang 各编一遍、x86 与 aarch64 各跑一遍，不靠推理靠矩阵。CMake 描述目标与属性，`PUBLIC`/`PRIVATE`/`INTERFACE` 决定传递，`find_package(Torch)` 给的 `torch` 目标一行带来头文件、库与 `-std=c++17`；PyTorch 全量构建慢在翻译单元多且每个展开几十万行、`.cu` 编译约为 `.cpp` 十倍，日常靠 Ninja、ccache、`USE_CUDA=0`、`USE_CUSTOM_DEBINFO` 把增量控制在分钟级。`-O2` 下变量被优化掉、帧被内联，`<optimized out>` 不是调试器的错。CI 在 ASan 构建下先用 `_crash_if_csrc_asan(3)` 这类函数故意让进程崩、确认崩了再跑测试，是对检测工具本身的自检。版本矩阵三个轴——C++ 标准、主机编译器、CUDA——加上第七篇的标准库 ABI 第四轴，没有 `--release` 这样的开关能屏蔽差异。
+**结论**："确认正确"靠 Debug 构建加 gtest/pytest——Debug 构建让 gdb/lldb 看到真实变量，gtest 测语言层面的契约，pytest 测能从 Python 观察到的行为；"没有内存错误"靠 ASan+UBSan 构建再跑一遍测试——越界与 use-after-free 默认什么都不发生，只有插桩构建能把它们变成带三张栈（访问、释放、分配）的确定报告，改了并发代码再加 TSan；"不会在别的编译器上炸"靠 CI 矩阵——gcc 与 clang 各编一遍、x86 与 aarch64 各跑一遍，不靠推理靠矩阵。CMake 描述目标与属性，`PUBLIC`/`PRIVATE`/`INTERFACE` 决定传递，`find_package(Torch)` 给的 `torch` 目标一行带来头文件、库与 `-std=c++17`；PyTorch 全量构建慢在翻译单元多且每个展开几十万行、`.cu` 编译约为 `.cpp` 十倍，日常靠 Ninja、ccache、`USE_CUDA=0`、`USE_CUSTOM_DEBINFO` 把增量控制在分钟级。`-O2` 下变量被优化掉、帧被内联，`<optimized out>` 不是调试器的错。CI 在 ASan 构建下先用 `_crash_if_csrc_asan(3)` 这类函数故意让进程崩、确认崩了再跑测试，是对检测工具本身的自检。版本矩阵三个轴——C++ 标准、主机编译器、CUDA——加上[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)里的标准库 ABI 第四轴，没有 `--release` 这样的开关能屏蔽差异。
 
 **必记**：
 
@@ -212,49 +238,49 @@ Table: 本文的章节安排
 
 ### 1. 引用计数：一个数字穿过五篇
 
-第二篇建立起 `intrusive_ptr`：计数放进对象、8 字节句柄、`release`/`reclaim` 可与裸指针互转；`at::Tensor y = x;` 就是这个计数从 1 变 2。第四篇的 `KernelFunction` 里 `functor_` 是一个 `intrusive_ptr<OperatorKernel>`，`OperatorKernel` 继承 `intrusive_ptr_target` 并只有一个虚析构——同一套所有权语义被用来持有类型擦除后的 kernel。
+[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)建立起 `intrusive_ptr`：计数放进对象、8 字节句柄、`release`/`reclaim` 可与裸指针互转；`at::Tensor y = x;` 就是这个计数从 1 变 2。[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的 `KernelFunction` 里 `functor_` 是一个 `intrusive_ptr<OperatorKernel>`，`OperatorKernel` 继承 `intrusive_ptr_target` 并只有一个虚析构——同一套所有权语义被用来持有类型擦除后的 kernel。
 
-第六篇给这个计数加上并发语义：+1 用 relaxed、−1 用 acq_rel，v2.10.0 把强、弱计数合并进一个 64 位字段，低 32 位强、高 31 位弱、第 63 位标记是否有 Python 包装对象。第七篇解释这一位的用途：C++ 计数在 1 与 2 之间变化时联动一次 `Py_INCREF`/`Py_DECREF`，让 Python 与 C++ 的两套计数互相托住；一次 `torch.ops` 调用里 C++ 计数 1 → 2 → 1 的每一步都对应第二篇的一次拷贝或析构。
+[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)给这个计数加上并发语义：+1 用 relaxed、−1 用 acq_rel，v2.10.0 把强、弱计数合并进一个 64 位字段，低 32 位强、高 31 位弱、第 63 位标记是否有 Python 包装对象。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)解释这一位的用途：C++ 计数在 1 与 2 之间变化时联动一次 `Py_INCREF`/`Py_DECREF`，让 Python 与 C++ 的两套计数互相托住；一次 `torch.ops` 调用里 C++ 计数 1 → 2 → 1 的每一步都对应[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里的一次拷贝或析构。
 
-第八篇给它验证与观察的手段：`intrusive_ptr_test.cpp` 的 325 个测试全部是"计数何时变、对象何时死"这类语言层面的契约；ASan 报告的三张栈里，释放栈就是第二篇的析构链 `~TensorImpl` → `~StorageImpl` → `free` 一层不差地展开；TSan 在这个计数上的报告通常是 relaxed 原子操作的假阳性。
+[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)给它验证与观察的手段：`intrusive_ptr_test.cpp` 的 325 个测试全部是"计数何时变、对象何时死"这类语言层面的契约；ASan 报告的三张栈里，释放栈就是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的析构链 `~TensorImpl` → `~StorageImpl` → `free` 一层不差地展开；TSan 在这个计数上的报告通常是 relaxed 原子操作的假阳性。
 
 ### 2. RAII：从资源到上下文到 GIL
 
-第二篇的 RAII 讲的是资源——`unique_ptr`、`DataPtr` 的删除器、显存在最后一个句柄析构那条语句里同步释放；比 `try-with-resources` 强在可以作为成员、被移动、放进容器。第四篇借它替代 Java 的 `finally`：异常没有 checked/unchecked 之分、不能穿 C 边界，清理全靠析构。
+[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的 RAII 讲的是资源——`unique_ptr`、`DataPtr` 的删除器、显存在最后一个句柄析构那条语句里同步释放；比 `try-with-resources` 强在可以作为成员、被移动、放进容器。[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)借它替代 Java 的 `finally`：异常没有 checked/unchecked 之分、不能穿 C 边界，清理全靠析构。
 
-第六篇把 RAII 推广到"上下文"：`NoGradGuard`、`InferenceMode`、`DeviceGuard`、`CUDAStreamGuard`、`ThreadLocalStateGuard`、`lock_guard` 全是同一个三步骨架——保存旧值、设新值、析构恢复——并且删掉拷贝与移动、要求有名字的局部变量，因为守卫必须与作用域一一对应、不能跨线程。第七篇在另一个运行时上再用一次：`py::object` 是 `Py_INCREF`/`Py_DECREF` 的 RAII 化，`gil_scoped_release`/`gil_scoped_acquire` 是 `PyEval_SaveThread`/`RestoreThread` 的守卫。
+[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)把 RAII 推广到"上下文"：`NoGradGuard`、`InferenceMode`、`DeviceGuard`、`CUDAStreamGuard`、`ThreadLocalStateGuard`、`lock_guard` 全是同一个三步骨架——保存旧值、设新值、析构恢复——并且删掉拷贝与移动、要求有名字的局部变量，因为守卫必须与作用域一一对应、不能跨线程。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)在另一个运行时上再用一次：`py::object` 是 `Py_INCREF`/`Py_DECREF` 的 RAII 化，`gil_scoped_release`/`gil_scoped_acquire` 是 `PyEval_SaveThread`/`RestoreThread` 的守卫。
 
-第三篇的 lambda 捕获与 RAII 是一体两面：`[&]` 引用捕获不延长寿命，所以只有在 lambda 被同步调用完（`AT_DISPATCH` 的 IIFE、`parallel_for` 返回前 join）时才安全；要异步就按值捕获一个 8 字节的 `Tensor` 句柄，让所有权跟着闭包走。
+[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)的 lambda 捕获与 RAII 是一体两面：`[&]` 引用捕获不延长寿命，所以只有在 lambda 被同步调用完（`AT_DISPATCH` 的 IIFE、`parallel_for` 返回前 join）时才安全；要异步就按值捕获一个 8 字节的 `Tensor` 句柄，让所有权跟着闭包走。
 
 ### 3. 编译期与运行期的分派：dtype、device、注册
 
-第三篇解决"按 dtype 选 kernel"：`dtype` 是运行期值，kernel 需要编译期类型，`AT_DISPATCH` 用一个 `switch` 把有限个运行期值映射到有限个编译期实例——每个 `case` 一份闭包、一份 `parallel_for`、一份向量化循环。第四篇解决"按 device 选 kernel"：这必须是运行期的事，PyTorch 没有用虚函数，而是把任意签名的 kernel 用 `KernelFunction` 擦成两个函数指针加一个基类指针，`OperatorEntry` 按 `DispatchKey` 一次数组下标查到它。
+[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)解决"按 dtype 选 kernel"：`dtype` 是运行期值，kernel 需要编译期类型，`AT_DISPATCH` 用一个 `switch` 把有限个运行期值映射到有限个编译期实例——每个 `case` 一份闭包、一份 `parallel_for`、一份向量化循环。[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)解决"按 device 选 kernel"：这必须是运行期的事，PyTorch 没有用虚函数，而是把任意签名的 kernel 用 `KernelFunction` 擦成两个函数指针加一个基类指针，`OperatorEntry` 按 `DispatchKey` 一次数组下标查到它。
 
-第五篇解释这张表是怎么填的：`TORCH_LIBRARY_IMPL(myops, CPU, m)` 展开成静态对象，`dlopen` 时其构造函数把 `KernelFunction` 塞进 `OperatorEntry` 对应 key 的槽位；`torchgen` 从 2666 个 yaml 条目生成 `RegisterCPU.cpp` 等十几处样板，对原生算子做同样的事。第七篇则是这张表的 Python 入口：`torch.ops.myops.op(t)` 把参数装进 `IValue` 走 boxed 路径，这正是第四篇"通用层写一次"的用途。
+[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)解释这张表是怎么填的：`TORCH_LIBRARY_IMPL(myops, CPU, m)` 展开成静态对象，`dlopen` 时其构造函数把 `KernelFunction` 塞进 `OperatorEntry` 对应 key 的槽位；`torchgen` 从 2666 个 yaml 条目生成 `RegisterCPU.cpp` 等十几处样板，对原生算子做同样的事。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)则是这张表的 Python 入口：`torch.ops.myops.op(t)` 把参数装进 `IValue` 走 boxed 路径，这正是[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)里"通用层写一次"的用途。
 
 三段合起来是一条完整的路：Python 值 → `IValue`（运行期、类型擦除）→ `KernelFunction`（运行期、按 device）→ `AT_DISPATCH`（运行期到编译期的桥）→ `scalar_t` 专用循环（编译期）。每一段的"份数"都是代价：dtype 集合越大二进制越大，`case` 之外用 `data_ptr<T>()` 就要在运行期检查。
 
 ### 4. 符号、链接与 ABI：为什么"在开发机上能跑"不成立
 
-第一篇给出全部基本概念：翻译单元、ODR、四种链接属性、name mangling、`-fvisibility=hidden` 与 `C10_API`、`.a` 的链接期裁剪与 `.so` 的 `DT_NEEDED`、RUNPATH 与 `$ORIGIN`。第五篇把它们用在静态注册的失效条件上：静态库丢弃没被引用的 `.o` 让注册消失，`--whole-archive` 是解药；跨 `.so` 的 `catch (const c10::Error&)` 要求 typeinfo 同一份，所以异常类必须 `C10_API` 导出。
+[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)给出全部基本概念：翻译单元、ODR、四种链接属性、name mangling、`-fvisibility=hidden` 与 `C10_API`、`.a` 的链接期裁剪与 `.so` 的 `DT_NEEDED`、RUNPATH 与 `$ORIGIN`。[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)把它们用在静态注册的失效条件上：静态库丢弃没被引用的 `.o` 让注册消失，`--whole-archive` 是解药；跨 `.so` 的 `catch (const c10::Error&)` 要求 typeinfo 同一份，所以异常类必须 `C10_API` 导出。
 
-第七篇把符号问题推进到 ABI：`__cxx11` inline namespace 让 `std::string` 在两种 ABI 下 mangled 名不同，`GLIBCXX_3.4.x` 符号版本让新编译器编的库在旧运行时上找不到，CPython 的 `PyObject` 布局公开可解引用所以扩展对解释器版本敏感——三层 ABI 每一层都能让 `import` 失败，而 `cpp_extension.py` 只能检查其中一部分。第八篇给它工程化的兜底：`TORCH_USE_RTLD_GLOBAL=1` 让 UBSan 的 vptr 检查不因跨库重复 typeinfo 误报（第一篇的 `RTLD_LOCAL` 在这里露面），`detect_odr_violation=1` 抓同一符号在两个 `.so` 里的不同定义，版本矩阵与 Docker 镜像把编译器、CUDA、标准库 ABI 三个轴钉死。
+[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)把符号问题推进到 ABI：`__cxx11` inline namespace 让 `std::string` 在两种 ABI 下 mangled 名不同，`GLIBCXX_3.4.x` 符号版本让新编译器编的库在旧运行时上找不到，CPython 的 `PyObject` 布局公开可解引用所以扩展对解释器版本敏感——三层 ABI 每一层都能让 `import` 失败，而 `cpp_extension.py` 只能检查其中一部分。[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)给它工程化的兜底：`TORCH_USE_RTLD_GLOBAL=1` 让 UBSan 的 vptr 检查不因跨库重复 typeinfo 误报（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)里的 `RTLD_LOCAL` 在这里露面），`detect_odr_violation=1` 抓同一符号在两个 `.so` 里的不同定义，版本矩阵与 Docker 镜像把编译器、CUDA、标准库 ABI 三个轴钉死。
 
 ### 5. 错误从抛出到 Python：一条穿过六篇的路
 
-第五篇讲 `TORCH_CHECK` 为什么必须是宏：在调用点捕获 `__FILE__`/`__LINE__` 与条件文本，`msg` 惰性求值。第四篇讲它抛的是什么：`c10::Error : std::exception`，子类 `IndexError`/`ValueError`/`TypeError`/`NotImplementedError` 决定跨到 Python 后的异常类型；异常不能穿过 C 边界、析构函数、`noexcept` 函数。
+[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲 `TORCH_CHECK` 为什么必须是宏：在调用点捕获 `__FILE__`/`__LINE__` 与条件文本，`msg` 惰性求值。[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)讲它抛的是什么：`c10::Error : std::exception`，子类 `IndexError`/`ValueError`/`TypeError`/`NotImplementedError` 决定跨到 Python 后的异常类型；异常不能穿过 C 边界、析构函数、`noexcept` 函数。
 
-第七篇讲边界上怎么翻译：pybind11 的调用桩自动 `catch` 并按注册的翻译器设置 Python 异常；C API 风格的 `THPVariable_xxx` 用 `HANDLE_TH_ERRORS`/`END_HANDLE_TH_ERRORS` 手工 `catch`、`PyErr_SetString`、`return nullptr`。第一篇与第五篇给出它跨库成立的前提：`class C10_API Error` 导出 typeinfo，否则 `-fvisibility=hidden` 下两个 `.so` 各有一份 typeinfo，`catch` 匹配失败直接 `terminate`。第八篇给出观察它的工具：`TORCH_SHOW_CPP_STACKTRACES=1` 让 `c10::Error` 附上 C++ 栈，`.clang-tidy` 的 `hicpp-exception-baseclass` 保证凡 `throw` 出去的都派生自 `std::exception`。第三篇也在这条路上：`AT_DISPATCH` 的 `default` 分支抛的 `NotImplementedError`、`data_ptr<T>()` 类型不匹配抛的 `TORCH_CHECK` 错误，都沿这条路到达 Python。
+[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲边界上怎么翻译：pybind11 的调用桩自动 `catch` 并按注册的翻译器设置 Python 异常；C API 风格的 `THPVariable_xxx` 用 `HANDLE_TH_ERRORS`/`END_HANDLE_TH_ERRORS` 手工 `catch`、`PyErr_SetString`、`return nullptr`。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)与[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)给出它跨库成立的前提：`class C10_API Error` 导出 typeinfo，否则 `-fvisibility=hidden` 下两个 `.so` 各有一份 typeinfo，`catch` 匹配失败直接 `terminate`。[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)给出观察它的工具：`TORCH_SHOW_CPP_STACKTRACES=1` 让 `c10::Error` 附上 C++ 栈，`.clang-tidy` 的 `hicpp-exception-baseclass` 保证凡 `throw` 出去的都派生自 `std::exception`。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)也在这条路上：`AT_DISPATCH` 的 `default` 分支抛的 `NotImplementedError`、`data_ptr<T>()` 类型不匹配抛的 `TORCH_CHECK` 错误，都沿这条路到达 Python。
 
-| 概念 | 出现的篇 | 关系 |
+| 概念 | 出现的篇 | 各篇与它的关系 |
 |---|---|---|
-| `intrusive_ptr` 引用计数 | 二、四、六、七、八 | 二定义所有权<br/>四用它持有 `OperatorKernel`<br/>六给内存序与 64 位合并字段<br/>七让它与 `Py_INCREF` 联动<br/>八用 325 个测试与 ASan 三张栈观察它 |
-| RAII / 守卫 | 二、三、四、六、七 | 二管资源<br/>三的 `[&]` 以"同步调用完"为安全条件<br/>四替代 `finally`<br/>六推广到上下文并删掉拷贝移动<br/>七变成 `py::object` 与 `gil_scoped_release` |
-| 编译期 vs 运行期分派 | 三、四、五、七 | 三按 dtype（`switch` 到编译期）<br/>四按 device（类型擦除）<br/>五填表（静态注册、torchgen）<br/>七从 Python 经 boxed 路径进表 |
-| 符号可见性与链接 | 一、五、七、八 | 一给概念<br/>五给静态注册的失效条件与 typeinfo 导出<br/>七推进到三层 ABI<br/>八用 `RTLD_GLOBAL`、ODR 检测与版本矩阵兜底 |
-| `TORCH_CHECK` 与 `c10::Error` | 三、四、五、七、八 | 五说为什么是宏<br/>四说抛的是什么<br/>七说怎么翻译到 Python<br/>三的 `default`/`data_ptr` 走同一条路<br/>八给 `TORCH_SHOW_CPP_STACKTRACES` 与 lint 规则 |
-| `thread_local` 与 TLS 传播 | 三、六、七 | 三说 `parallel_for` 的 lambda 只碰裸指针<br/>六说新线程不继承、`ThreadLocalState` 显式传播<br/>七的 GIL 是"全局一把"与 TLS 的对照 |
-| C++17 与 v2.10.0 基线 | 一、二、三、七、八 | 一与二在 `CMakeLists.txt` 确认 `CMAKE_CXX_STANDARD 17`<br/>三说 concepts 源码树未用<br/>七说 `cpp_extension` 传 `-std=c++17`<br/>八说扩展的标准要跟 PyTorch 走 |
+| `intrusive_ptr` 引用计数 | [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)、[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)、[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html) | 《值、引用与所有权》定义所有权<br/>《多态与类型擦除》用它持有 `OperatorKernel`<br/>《并发、内存模型、TLS 与守卫》给内存序与 64 位合并字段<br/>《与 Python 之间》让它与 `Py_INCREF` 联动<br/>《构建、调试与测试工具链》用 325 个测试与 ASan 三张栈观察它 |
+| RAII / 守卫 | [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)、[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)、[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html) | 《值、引用与所有权》管资源<br/>《模板与泛型编程》的 `[&]` 以"同步调用完"为安全条件<br/>《多态与类型擦除》用它替代 `finally`<br/>《并发、内存模型、TLS 与守卫》推广到上下文并删掉拷贝移动<br/>《与 Python 之间》里变成 `py::object` 与 `gil_scoped_release` |
+| 编译期 vs 运行期分派 | [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)、[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html) | 《模板与泛型编程》按 dtype（`switch` 到编译期）<br/>《多态与类型擦除》按 device（类型擦除）<br/>《宏、静态注册与代码生成》填表（静态注册、torchgen）<br/>《与 Python 之间》从 Python 经 boxed 路径进表 |
+| 符号可见性与链接 | [《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)、[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)、[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html) | 《编译模型》给概念<br/>《宏、静态注册与代码生成》给静态注册的失效条件与 typeinfo 导出<br/>《与 Python 之间》推进到三层 ABI<br/>《构建、调试与测试工具链》用 `RTLD_GLOBAL`、ODR 检测与版本矩阵兜底 |
+| `TORCH_CHECK` 与 `c10::Error` | [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)、[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)、[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html) | 《宏、静态注册与代码生成》说为什么是宏<br/>《多态与类型擦除》说抛的是什么<br/>《与 Python 之间》说怎么翻译到 Python<br/>《模板与泛型编程》的 `default`/`data_ptr` 走同一条路<br/>《构建、调试与测试工具链》给 `TORCH_SHOW_CPP_STACKTRACES` 与 lint 规则 |
+| `thread_local` 与 TLS 传播 | [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html) | 《模板与泛型编程》说 `parallel_for` 的 lambda 只碰裸指针<br/>《并发、内存模型、TLS 与守卫》说新线程不继承、`ThreadLocalState` 显式传播<br/>《与 Python 之间》的 GIL 是"全局一把"与 TLS 的对照 |
+| C++17 与 v2.10.0 基线 | [《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)、[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)、[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)、[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)、[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)、[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html) | 《编译模型》与《工程布局》在 `CMakeLists.txt` 确认 `CMAKE_CXX_STANDARD 17`<br/>《值、引用与所有权》的 mini-c10 用 `-std=c++17` 编译<br/>《模板与泛型编程》说 concepts 源码树未用<br/>《与 Python 之间》说 `cpp_extension` 传 `-std=c++17`<br/>《构建、调试与测试工具链》说扩展的标准要跟 PyTorch 走 |
 
 Table: 贯穿八篇的概念及其关系
 
@@ -262,19 +288,19 @@ Table: 贯穿八篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 找不到符号是运行时异常，像 `NoClassDefFoundError` | 三类"找不到"分别在编译期、链接期、加载期，都在业务代码运行之前 | 按错误信息判断阶段：`not declared` / `undefined reference` / `undefined symbol` | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html) |
-| `-ltorch_cpu` 已经依赖 `libc10.so`，不用再写 `-lc10` | GNU ld 默认 `--no-copy-dt-needed-entries`，不通过依赖的依赖满足引用 | 引用了 `c10::` 的符号就显式 `-lc10` | [第一篇](/cpp-compilation-model-from-cpp-to-shared-object.html) |
-| `Tensor y = x;` 是起别名，和 Java 一样不花钱 | 它是值拷贝，拷的是带引用计数的 8 字节句柄，一次原子加、将来一次原子减 | 只读参数用 `const Tensor&` 省掉这两次原子操作 | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |
-| `del x` 之后显存立刻回来 | 数据只在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零时释放，CUDA 默认还给缓存池 | 四步排查：别的 Python 引用 → autograd 保存 → view 活着 → 在缓存池 | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |
-| `const Tensor&` 保证函数不改数据 | `const` 只看句柄自己的字节，不追踪指针指向的地方 | `Tensor` 的 `const` 是浅的；in-place 算子的输出参数就是 `const Tensor&` | [第二篇](/cpp-value-semantics-ownership-and-raii.html) |
-| `AT_DISPATCH` 里的 lambda 只编译一份，运行时按 dtype 分支 | lambda 文本被复制进每个 `case`，每个 `case` 一个闭包类型、一份机器码 | 浮点两份、`ALL_TYPES_AND_HALF` 十几份；运行期只有一个 `switch` | [第三篇](/cpp-templates-and-generic-programming.html) |
-| `TORCH_CHECK(x.is_floating_point())` 之后 `AT_DISPATCH_FLOATING_TYPES` 一定能处理 | `Half`/`BFloat16` 也是浮点，但不在 `FLOATING_TYPES` 的两个 `case` 里 | 要支持它们换 `AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, ...)` | [第三篇](/cpp-templates-and-generic-programming.html) |
-| Dispatcher 是 `Map<DispatchKey, Kernel>` 加接口虚调用 | `KernelFunction` 是函数指针 + 模板适配器的手工类型擦除，`lookup` 是一次数组下标 | 全程无虚调用；签名一致性靠 `CppSignature` 校验 | [第四篇](/cpp-polymorphism-and-type-erasure.html) |
-| 算子编译链接都没报错，所以一定注册上了 | 静态库里没被引用的注册 `.o` 被链接器静默丢弃 | 用 `--whole-archive`/`-force_load` 或动态库；`nm -C` 看 `TORCH_LIBRARY` 符号在不在 | [第五篇](/cpp-macros-static-registration-and-codegen.html) |
-| 主线程 `no_grad` 里启动的线程也在 `no_grad` 下 | `thread_local` 新线程不继承，worker 读到默认值 `True` | 用 `at::ThreadLocalState` + `ThreadLocalStateGuard` 显式传播 | [第六篇](/cpp-concurrency-memory-model-tls-and-guards.html) |
-| 放掉 GIL 后不能再用参数里的 Tensor | GIL 保护的是解释器状态不是 C++ 内存；`at::Tensor` 是 C++ 对象 | 不能碰 `PyObject*`、不能 `Py_INCREF/DECREF`、不能让 `py::object` 析构；C++ 值随便用 | [第七篇](/cpp-pybind11-python-c-api-and-abi.html) |
-| 在 PyTorch 2.10 上要给扩展传 `-D_GLIBCXX_USE_CXX11_ABI=1` 才安全 | v2.10.0 已删掉这个开关，只有编译器默认一种 ABI；显式传 `=0` 反而制造 `__cxx11` 类 undefined symbol | 不传；≤ 2.7 才需要与 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致 | [第七篇](/cpp-pybind11-python-c-api-and-abi.html) |
-| 越界一个字节程序会崩，测试过了就没有内存错误 | 未定义行为默认什么都不发生，数据悄悄错；只检查插了桩的代码 | ASan 构建跑一遍相关测试，CI 里先跑"故意崩"自检确认 ASan 生效 | [第八篇](/cpp-build-debug-and-test-toolchain.html) |
+| 找不到符号是运行时异常，像 `NoClassDefFoundError` | 三类"找不到"分别在编译期、链接期、加载期，都在业务代码运行之前 | 按错误信息判断阶段：`not declared` / `undefined reference` / `undefined symbol` | [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) |
+| `-ltorch_cpu` 已经依赖 `libc10.so`，不用再写 `-lc10` | GNU ld 默认 `--no-copy-dt-needed-entries`，不通过依赖的依赖满足引用 | 引用了 `c10::` 的符号就显式 `-lc10` | [第一篇（上）：编译模型](/cpp-compilation-model-from-cpp-to-shared-object.html) |
+| `Tensor y = x;` 是起别名，和 Java 一样不花钱 | 它是值拷贝，拷的是带引用计数的 8 字节句柄，一次原子加、将来一次原子减 | 只读参数用 `const Tensor&` 省掉这两次原子操作 | [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html) |
+| `del x` 之后显存立刻回来 | 数据只在最后一个 `TensorImpl` 与所有 view 的 `StorageImpl` 计数归零时释放，CUDA 默认还给缓存池 | 四步排查：别的 Python 引用 → autograd 保存 → view 活着 → 在缓存池 | [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html) |
+| `const Tensor&` 保证函数不改数据 | `const` 只看句柄自己的字节，不追踪指针指向的地方 | `Tensor` 的 `const` 是浅的；in-place 算子的输出参数就是 `const Tensor&` | [第二篇：值、引用与所有权](/cpp-value-semantics-ownership-and-raii.html) |
+| `AT_DISPATCH` 里的 lambda 只编译一份，运行时按 dtype 分支 | lambda 文本被复制进每个 `case`，每个 `case` 一个闭包类型、一份机器码 | 浮点两份、`ALL_TYPES_AND_HALF` 十几份；运行期只有一个 `switch` | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) |
+| `TORCH_CHECK(x.is_floating_point())` 之后 `AT_DISPATCH_FLOATING_TYPES` 一定能处理 | `Half`/`BFloat16` 也是浮点，但不在 `FLOATING_TYPES` 的两个 `case` 里 | 要支持它们换 `AT_DISPATCH_FLOATING_TYPES_AND2(kHalf, kBFloat16, ...)` | [第三篇：模板与泛型编程](/cpp-templates-and-generic-programming.html) |
+| Dispatcher 是 `Map<DispatchKey, Kernel>` 加接口虚调用 | `KernelFunction` 是函数指针 + 模板适配器的手工类型擦除，`lookup` 是一次数组下标 | 全程无虚调用；签名一致性靠 `CppSignature` 校验 | [第四篇：多态与类型擦除](/cpp-polymorphism-and-type-erasure.html) |
+| 算子编译链接都没报错，所以一定注册上了 | 静态库里没被引用的注册 `.o` 被链接器静默丢弃 | 用 `--whole-archive`/`-force_load` 或动态库；`nm -C` 看 `TORCH_LIBRARY` 符号在不在 | [第五篇：宏、静态注册与代码生成](/cpp-macros-static-registration-and-codegen.html) |
+| 主线程 `no_grad` 里启动的线程也在 `no_grad` 下 | `thread_local` 新线程不继承，worker 读到默认值 `True` | 用 `at::ThreadLocalState` + `ThreadLocalStateGuard` 显式传播 | [第六篇：并发、内存模型、TLS 与守卫](/cpp-concurrency-memory-model-tls-and-guards.html) |
+| 放掉 GIL 后不能再用参数里的 Tensor | GIL 保护的是解释器状态不是 C++ 内存；`at::Tensor` 是 C++ 对象 | 不能碰 `PyObject*`、不能 `Py_INCREF/DECREF`、不能让 `py::object` 析构；C++ 值随便用 | [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html) |
+| 在 PyTorch 2.10 上要给扩展传 `-D_GLIBCXX_USE_CXX11_ABI=1` 才安全 | v2.10.0 已删掉这个开关，只有编译器默认一种 ABI；显式传 `=0` 反而制造 `__cxx11` 类 undefined symbol | 不传；≤ 2.7 才需要与 `torch._C._GLIBCXX_USE_CXX11_ABI` 一致 | [第七篇：与 Python 之间](/cpp-pybind11-python-c-api-and-abi.html) |
+| 越界一个字节程序会崩，测试过了就没有内存错误 | 未定义行为默认什么都不发生，数据悄悄错；只检查插了桩的代码 | ASan 构建跑一遍相关测试，CI 里先跑"故意崩"自检确认 ASan 生效 | [第八篇：构建、调试与测试工具链](/cpp-build-debug-and-test-toolchain.html) |
 
 Table: 常见误区与正确说法
 
@@ -294,7 +320,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   三个 `Tensor` 各 8 字节（只含一个 `intrusive_ptr<TensorImpl>`），`shared_ptr` 16 字节（两个指针），至少 40 字节；换成 `intrusive_ptr` 是 8 字节，共 32 字节。这正是第二篇里 `Tensor` 不用 `shared_ptr` 的理由之一：一个 cache line 对两个 cache line。
+   三个 `Tensor` 各 8 字节（只含一个 `intrusive_ptr<TensorImpl>`），`shared_ptr` 16 字节（两个指针），至少 40 字节；换成 `intrusive_ptr` 是 8 字节，共 32 字节。这正是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里 `Tensor` 不用 `shared_ptr` 的理由之一：一个 cache line 对两个 cache line。
 
    </details>
 
@@ -310,7 +336,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   四个 `case`（`Double`、`Float`、`Half`、`BFloat16`），外层 lambda 的文本被复制四份、四个闭包类型各编译一次；每个外层实例里的内层 lambda 也是一个独立的闭包类型，所以 `parallel_for(const F&)` 有四份实例。第三篇讨论两个 `case` 时是两份，规律是一样的。
+   四个 `case`（`Double`、`Float`、`Half`、`BFloat16`），外层 lambda 的文本被复制四份、四个闭包类型各编译一次；每个外层实例里的内层 lambda 也是一个独立的闭包类型，所以 `parallel_for(const F&)` 有四份实例。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)讨论两个 `case` 时是两份，规律是一样的。
 
    </details>
 
@@ -318,7 +344,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   3 种 dtype（Float/Half/BFloat16）× 3 种 `width` = 9 份，全部在编译期生成；运行期两层分支（一个 `switch`、一条 if 链）选一份。第三篇里 `width` 两种时是 6 份。每加一个分支就多一份代码与编译时间，所以 if 链要有兜底、不能为每个可能的值都开分支。
+   3 种 dtype（Float/Half/BFloat16）× 3 种 `width` = 9 份，全部在编译期生成；运行期两层分支（一个 `switch`、一条 if 链）选一份。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)里 `width` 两种时是 6 份。每加一个分支就多一份代码与编译时间，所以 if 链要有兜底、不能为每个可能的值都开分支。
 
    </details>
 
@@ -342,7 +368,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   按值传拷贝一个 `intrusive_ptr`，进入时原子 +1（relaxed）、参数析构时原子 −1（acq_rel），每次两次；`const&` 零次。一百万次迭代少两百万次原子操作。第二篇说这就是 PyTorch 内部默认 `const Tensor&` 的原因。
+   按值传拷贝一个 `intrusive_ptr`，进入时原子 +1（relaxed）、参数析构时原子 −1（acq_rel），每次两次；`const&` 零次。一百万次迭代少两百万次原子操作。[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)说这就是 PyTorch 内部默认 `const Tensor&` 的原因。
 
    </details>
 
@@ -368,7 +394,11 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：`TORCH_CHECK` 是宏，在调用点捕获位置并惰性拼消息；第四篇：它抛的是 `c10::Error : std::exception`，子类决定 Python 异常类型；第一篇与第五篇：`c10::Error` 必须 `class C10_API Error` 导出，否则两个 `.so` 各有一份 typeinfo，`catch (const c10::Error&)` 匹配失败直接 `terminate`——`-fvisibility=hidden` 藏的不只是函数；第七篇：边界上由 pybind11 的翻译器或 `HANDLE_TH_ERRORS` 把它 `catch` 住、`PyErr_SetString`、`return nullptr`，C++ 异常绝不能穿过 C API 边界；第八篇：`TORCH_SHOW_CPP_STACKTRACES=1` 让它附上 C++ 栈。
+   - [《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)：`TORCH_CHECK` 是宏，在调用点捕获位置并惰性拼消息。
+   - [《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)：它抛的是 `c10::Error : std::exception`，子类决定 Python 异常类型。
+   - [《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)与《宏、静态注册与代码生成》：`c10::Error` 必须 `class C10_API Error` 导出，否则两个 `.so` 各有一份 typeinfo，`catch (const c10::Error&)` 匹配失败直接 `terminate`——`-fvisibility=hidden` 藏的不只是函数。
+   - [《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)：边界上由 pybind11 的翻译器或 `HANDLE_TH_ERRORS` 把它 `catch` 住、`PyErr_SetString`、`return nullptr`，C++ 异常绝不能穿过 C API 边界。
+   - [《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)：`TORCH_SHOW_CPP_STACKTRACES=1` 让它附上 C++ 栈。
 
    </details>
 
@@ -376,7 +406,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：`parallel_for` 的工作线程来自 OpenMP 线程池，不继承调用线程的 `thread_local`，在 worker 上 `GradMode::is_enabled()` 读到的是默认值 `True`，那个 tensor 算子会建 autograd 图；PyTorch 自己在进入 kernel 前用 `ThreadLocalState` 打包、worker 里用 `ThreadLocalStateGuard` 恢复，但循环体里的算子调用不在这条保护下。第三篇：`parallel_for` 的 lambda 体只应碰裸指针和标量，不调 tensor 算子。第二篇：把 `data_ptr` 取出来在循环体里用——裸指针是借用，`parallel_for` 返回前 `x_c` 还活着所以安全。改法是把算子调用移到 `parallel_for` 外面，循环体只做逐元素运算。
+   [《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)：`parallel_for` 的工作线程来自 OpenMP 线程池，不继承调用线程的 `thread_local`，在 worker 上 `GradMode::is_enabled()` 读到的是默认值 `True`，那个 tensor 算子会建 autograd 图；PyTorch 自己在进入 kernel 前用 `ThreadLocalState` 打包、worker 里用 `ThreadLocalStateGuard` 恢复，但循环体里的算子调用不在这条保护下。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)：`parallel_for` 的 lambda 体只应碰裸指针和标量，不调 tensor 算子。[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：把 `data_ptr` 取出来在循环体里用——裸指针是借用，`parallel_for` 返回前 `x_c` 还活着所以安全。改法是把算子调用移到 `parallel_for` 外面，循环体只做逐元素运算。
 
    </details>
 
@@ -384,7 +414,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：`TORCH_LIBRARY` 靠静态对象的构造函数在 `dlopen` 时登记，注册所在的 `.o` 没有任何符号被引用，链接器从 `.a` 里取文件时把它丢掉——无编译错误、无链接错误、注册表为空（mini-c10 的四种链接方式里的 B）。第一篇：`.a` 是链接期按需拷贝、`.so` 才是整体加载，这是两种库的本质差别。第八篇与第五篇的验证：`nm -C myops.so` 里搜 `TORCH_LIBRARY`，看注册符号在不在；`torch.ops.loaded_libraries` 看 `.so` 是否真的加载了；`LD_DEBUG=libs` 看加载过程。修法：`-Wl,--whole-archive`（macOS `-force_load`）或直接把算子实现编进动态库。
+   [《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)：`TORCH_LIBRARY` 靠静态对象的构造函数在 `dlopen` 时登记，注册所在的 `.o` 没有任何符号被引用，链接器从 `.a` 里取文件时把它丢掉——无编译错误、无链接错误、注册表为空（mini-c10 的四种链接方式里的 B）。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)：`.a` 是链接期按需拷贝、`.so` 才是整体加载，这是两种库的本质差别。[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)与《宏、静态注册与代码生成》的验证：`nm -C myops.so` 里搜 `TORCH_LIBRARY`，看注册符号在不在；`torch.ops.loaded_libraries` 看 `.so` 是否真的加载了；`LD_DEBUG=libs` 看加载过程。修法：`-Wl,--whole-archive`（macOS `-force_load`）或直接把算子实现编进动态库。
 
    </details>
 
@@ -392,7 +422,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：`const at::Tensor&` 是只读输入的零开销传法，返回 `at::Tensor` 按值靠 NRVO 不拷数据。第七篇：pybind11 的 `type_caster<at::Tensor>::load` 用 `THPVariable_Unpack` 从 `THPVariable::cdata` 拷贝一个 `Tensor` 句柄（C++ 计数 +1，可能触发 1 → 2 钩子的 `Py_INCREF`），参数转换完后第一行 `py::gil_scoped_release`，否则解释器其他线程全停 2 秒；释放期间不能碰任何 `PyObject`，但 `Tensor` 是 C++ 对象随便用；返回时 `THPVariable_Wrap` 生成新引用。第四篇与第五篇：pybind11 直绑的函数不在 Dispatcher 的表里，不能按 `DispatchKey` 分发、不能注册 Meta/Autograd、不能被 `torch.compile` trace；进计算图的算子要用 `TORCH_LIBRARY` 注册，让它经 `KernelFunction` 走 boxed/unboxed 路径。第一篇：用了 pybind11 的 Tensor caster 就要链 `libtorch_python.so`，也就放弃了 `abi3`。
+   [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：`const at::Tensor&` 是只读输入的零开销传法，返回 `at::Tensor` 按值靠 NRVO 不拷数据。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)：pybind11 的 `type_caster<at::Tensor>::load` 用 `THPVariable_Unpack` 从 `THPVariable::cdata` 拷贝一个 `Tensor` 句柄（C++ 计数 +1，可能触发 1 → 2 钩子的 `Py_INCREF`），参数转换完后第一行 `py::gil_scoped_release`，否则解释器其他线程全停 2 秒；释放期间不能碰任何 `PyObject`，但 `Tensor` 是 C++ 对象随便用；返回时 `THPVariable_Wrap` 生成新引用。[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)与[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)：pybind11 直绑的函数不在 Dispatcher 的表里，不能按 `DispatchKey` 分发、不能注册 Meta/Autograd、不能被 `torch.compile` trace；进计算图的算子要用 `TORCH_LIBRARY` 注册，让它经 `KernelFunction` 走 boxed/unboxed 路径。[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)：用了 pybind11 的 Tensor caster 就要链 `libtorch_python.so`，也就放弃了 `abi3`。
 
    </details>
 
@@ -400,7 +430,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：`data_ptr<float>()` 返回的裸指针是借用，不持有 `Storage`；第二篇：释放栈就是持有链反向析构——最后一个 `Tensor` 句柄析构让 `TensorImpl` 计数归零、`StorageImpl` 归零、`DataPtr` 的删除器 `free_cpu`——说明持有那块数据的最后一个 tensor 在指针使用前已经死了——第八篇 `uaf.cpp` 的形状是"取了 `data_ptr` 之后把句柄重新赋值成 `Tensor()`"，实际代码里更常见的是从 `x.contiguous()` 这样的临时对象上取指针而没有把返回的 `Tensor` 存下来。第八篇：越界与 use-after-free 是未定义行为，普通构建下那块内存多半还没被复用、读出来的值恰好是对的，测试全过；只有 ASan 的红区与影子内存能在第一次访问时给出确定报告，所以改了生命周期相关代码必须跑 ASan。
+   [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)：`data_ptr<float>()` 返回的裸指针是借用，不持有 `Storage`。[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)：释放栈就是持有链反向析构——最后一个 `Tensor` 句柄析构让 `TensorImpl` 计数归零、`StorageImpl` 归零、`DataPtr` 的删除器 `free_cpu`——说明持有那块数据的最后一个 tensor 在指针使用前已经死了；[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)里 `uaf.cpp` 的形状是"取了 `data_ptr` 之后把句柄重新赋值成 `Tensor()`"，实际代码里更常见的是从 `x.contiguous()` 这样的临时对象上取指针而没有把返回的 `Tensor` 存下来。《构建、调试与测试工具链》：越界与 use-after-free 是未定义行为，普通构建下那块内存多半还没被复用、读出来的值恰好是对的，测试全过；只有 ASan 的红区与影子内存能在第一次访问时给出确定报告，所以改了生命周期相关代码必须跑 ASan。
 
    </details>
 
@@ -480,7 +510,7 @@ Table: 常见误区与正确说法
 
 | 水平 | 表现 |
 |---|---|
-| 读过 | 能说出八篇各讲什么；知道 `intrusive_ptr`、`AT_DISPATCH`、`KernelFunction`、`TORCH_LIBRARY`、`thread_local`、GIL、ASan 这些名词，能把总纲那段 `scale_shift_cpu` 的每一行指到对应的篇 |
+| 读过 | 能说出八篇各讲什么；知道 `intrusive_ptr`、`AT_DISPATCH`、`KernelFunction`、`TORCH_LIBRARY`、`thread_local`、GIL、ASan 这些名词，能把[系列总纲](/cpp-for-ai-infra.html)那段 `scale_shift_cpu` 的每一行指到对应的篇 |
 | 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>打开 `c10/core/TensorImpl.h` 或 `Dispatcher.h` 能认出每一行的机制<br/>遇到 `undefined symbol`、算子"消失"、`del` 后显存不降能按篇里的步骤排查 |
 | 能教人 | C 组每题能给出全部要点并预判追问；能解释八篇里每个反直觉结论（Dispatcher 无虚调用、静态库会取消注册、越界不崩、放掉 GIL 还能用 Tensor、`const Tensor&` 能写数据）为什么成立，并用 Java 的对照说清类比在哪里失效 |
 
@@ -494,7 +524,7 @@ Table: 掌握程度的判据
 
 - **PyTorch 的机制本身**——Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式——本系列只借它们的 C++ 代码作为语言特性的例子，完整原理在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。
 - **CUDA 编程**——kernel 的写法、GPU 内存层次、性能优化——本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++（模板参数化 tile、RAII 管理 stream、宏做多架构分发），kernel 本身在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
-- **Python 语言本身**——第七篇假设读者已了解 CPython 的引用计数与 GIL；它们的来历与 Python 侧的工程实践在[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
+- **Python 语言本身**——[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)假设读者已了解 CPython 的引用计数与 GIL；它们的来历与 Python 侧的工程实践在[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
 - **通用 C++ 知识的完整覆盖**——STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分——不在任何一篇里，本系列只讲 AI-Infra 项目真正大量使用的那个子集。
 - 这一层在整张地图上的位置，以及语言层之后往哪走，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
@@ -506,10 +536,34 @@ Table: 掌握程度的判据
 
 - **PyTorch 的机制本身**：Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式。本系列只借用它们的 C++ 代码作为语言特性的例子，读者不需要事先理解这些机制，也不会在本系列里学到它们的完整原理。
 - **CUDA 编程**：kernel 的写法、GPU 内存层次、性能优化。本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++ 特性。
-- **Python 语言本身**：第七篇讨论 C++ 与 Python 的边界，假设读者已经了解 CPython 的引用计数和 GIL 是什么。
+- **Python 语言本身**：[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讨论 C++ 与 Python 的边界，假设读者已经了解 CPython 的引用计数和 GIL 是什么。
 - **通用 C++ 知识的完整覆盖**：STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分。
 
 
-[^q0]: 八个：`import torch` 加载了哪些 `.so`、依赖关系是什么、扩展链接到哪一个（编译模型与库布局）；`at::Tensor y = x;` 之后两者是什么关系、数据什么时候释放（句柄、`intrusive_ptr`、持有链）；`AT_DISPATCH` 里的 `scalar_t` 从哪里来、lambda 编译了几次（模板与编译期分派）；Dispatcher 用什么机制调到 kernel、为什么既有 boxed 又有 unboxed（类型擦除、`IValue`）；一个 `.so` 被 `import` 后算子怎么出现在 `torch.ops` 下（静态注册、链接方式）；`no_grad` 在 C++ 层做了什么、为什么对其他线程不生效（`thread_local`、守卫、`ThreadLocalState`）；一个 Tensor 跨过 Python/C++ 边界经过几次转换与计数变化、GIL 状态如何（C API、pybind11、ABI）；一个改动从写完到能提 PR 要跑什么（构建、调试、sanitizer、矩阵）。详见[第二章](#二逐篇回顾)。
-[^q1]: `Tensor` 8 字节、`shared_ptr` 16 字节、每个字 3.2 GB；`y = x` / view / clone 三种关系与 `del` 后的四步排查；`AT_DISPATCH_FLOATING_TYPES` 两个 `case` 编两份、`DimVector` 内联 5 维；`std::function` 32 / `function_ref` 16 / 函数指针 8 字节、`IValue` 16 字节、`lookup` 一次数组下标无虚调用；`TORCH_CHECK` 是宏的两个理由、四种链接方式里静态库直接链注册表为空、`native_functions.yaml` 2666 条目；relaxed 增 acq_rel 减、64 位合并计数低 32 强高 31 弱第 63 位 PyObject、线程数优先级 `set_num_threads` > `OMP_NUM_THREADS` > `MKL_NUM_THREADS` > 核数、`GRAIN_SIZE` 32768；一次往返输入 3 次输出 2 次转换、C++ 计数 1 → 2 → 1、ABI 三层、2.7 起全部 CXX11 ABI 且 v2.10.0 开关已删；`-O0` 慢 3–10 倍、ASan 约 2×、TSan 5–15× 且与 ASan 互斥、GCC ≥ 9.3、CUDA ≥ 12.0、C++17、325 个测试。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q0]: 八个，每篇一个：
+
+    1. `import torch` 加载了哪些 `.so`、依赖关系是什么、扩展链接到哪一个（编译模型与库布局）
+    2. `at::Tensor y = x;` 之后两者是什么关系、数据什么时候释放（句柄、`intrusive_ptr`、持有链）
+    3. `AT_DISPATCH` 里的 `scalar_t` 从哪里来、lambda 编译了几次（模板与编译期分派）
+    4. Dispatcher 用什么机制调到 kernel、为什么既有 boxed 又有 unboxed（类型擦除、`IValue`）
+    5. 一个 `.so` 被 `import` 后算子怎么出现在 `torch.ops` 下（静态注册、链接方式）
+    6. `no_grad` 在 C++ 层做了什么、为什么对其他线程不生效（`thread_local`、守卫、`ThreadLocalState`）
+    7. 一个 Tensor 跨过 Python/C++ 边界经过几次转换与计数变化、GIL 状态如何（C API、pybind11、ABI）
+    8. 一个改动从写完到能提 PR 要跑什么（构建、调试、sanitizer、矩阵）
+
+    详见[第二章](#二逐篇回顾)。
+
+[^q1]: 按主题分八组：
+
+    - `Tensor` 8 字节、`shared_ptr` 16 字节、每个字 3.2 GB
+    - `y = x` / view / clone 三种关系与 `del` 后的四步排查
+    - `AT_DISPATCH_FLOATING_TYPES` 两个 `case` 编两份、`DimVector` 内联 5 维
+    - `std::function` 32 / `function_ref` 16 / 函数指针 8 字节、`IValue` 16 字节、`lookup` 一次数组下标无虚调用
+    - `TORCH_CHECK` 是宏的两个理由、四种链接方式里静态库直接链注册表为空、`native_functions.yaml` 2666 条目
+    - relaxed 增 acq_rel 减、64 位合并计数低 32 强高 31 弱第 63 位 PyObject、线程数优先级 `set_num_threads` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数、`GRAIN_SIZE` 32768
+    - 一次往返输入 3 次输出 2 次转换、C++ 计数 1 → 2 → 1、ABI 三层、2.7 起全部 CXX11 ABI 且 v2.10.0 开关已删
+    - `-O0` 慢 3–10 倍、ASan 约 2×、TSan 5–15× 且与 ASan 互斥、GCC ≥ 9.3、CUDA ≥ 12.0、C++17、325 个测试
+
+    详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

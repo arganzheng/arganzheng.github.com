@@ -7,7 +7,7 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 redirect_from:
   - /cpp-compilation-model-and-project-layout.html
-updated: 2026-11-14
+updated: 2026-11-17
 ---
 
 
@@ -182,7 +182,7 @@ clang++ -std=c++17 -I. -E minic10/core/Version.cpp | wc -l
 
 `stub.c` 里那些 `#ifndef _WIN32`、`#ifdef __cplusplus` 就在这个阶段生效。`_WIN32` 是 Windows 编译器预定义的宏，`__cplusplus` 是 C++ 编译器预定义的宏（C 编译器不定义它）。`stub.c` 是一个 `.c` 文件，用 C 编译器编译时 `__cplusplus` 不存在，`extern "C"` 那行被删掉；如果有人用 C++ 编译器编它，`extern "C"` 保留，保证 `PyInit__C` 的符号名不被 C++ 修饰（第五章讲修饰）。
 
-Java 没有预处理器。Java 里"条件编译"靠 `if (System.getProperty(...))` 在运行时判断，靠 `final static boolean` 常量让 JIT 消除死代码；C++ 在文本层面就把不需要的代码删掉了，二进制里根本不存在另一个分支。这是第五篇的主题，这里只需要知道：**预处理之后，头文件就不存在了，只剩一个巨大的翻译单元。**
+Java 没有预处理器。Java 里"条件编译"靠 `if (System.getProperty(...))` 在运行时判断，靠 `final static boolean` 常量让 JIT 消除死代码；C++ 在文本层面就把不需要的代码删掉了，二进制里根本不存在另一个分支。这是[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的主题，这里只需要知道：**预处理之后，头文件就不存在了，只剩一个巨大的翻译单元。**
 
 ### 3. 编译：把翻译单元变成汇编
 
@@ -348,7 +348,7 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 | 记号 | 含义 | Java 里 |
 |---|---|---|
 | `using DeviceIndex = int8_t;` | **类型别名**：给 `int8_t` 起一个新名字 `DeviceIndex`，两者是同一个类型（老写法是 `typedef int8_t DeviceIndex;`）；类内的 `using Type = DeviceType;` 同理 | 没有；最接近的是用一个 `record` 包一层，但那是新类型 |
-| `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和第五篇展开 | 没有；Java 的 `public` 类天然可被别的 jar 用 |
+| `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)展开 | 没有；Java 的 `public` 类天然可被别的 jar 用 |
 | `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | `static final int`，但 Java 不保证编译期求值 |
 | `final` | 类不能被继承 | `final class` |
 | `noexcept` | 函数保证不抛异常 | 没有对应 |
@@ -414,8 +414,8 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 | 小函数的 inline 定义 | `bool is_cuda() const noexcept { ... }` | 允许内联 |
 | 类型别名 | `using DeviceIndex = int8_t;` | |
 | 常量 | `constexpr int kX = 1;` | |
-| 模板 | 第三篇 | 模板几乎必须全部放头文件 |
-| 宏 | `C10_API` | 第五篇 |
+| 模板 | [《模板与泛型编程》](/cpp-templates-and-generic-programming.html) | 模板几乎必须全部放头文件 |
+| 宏 | `C10_API` | [《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html) |
 
 Table: 头文件通常包含的内容
 
@@ -462,12 +462,12 @@ Table: 头文件通常包含的内容
 // ...
 ```
 
-`ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（第九章）。
+`ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)）。
 
 Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的增量编译粒度是类级别的 ABI 变化）。C++ 的粒度是"文本包含"，粗得多——两边画出来：
 
 ```mermaid
-%% 同一个改动在两种语言里的重编范围：Java 增量编译到直接依赖就停，C++ 所有 #include 它的翻译单元全部重编
+%% 图：同一个改动在两种语言里的重编范围：Java 增量编译到直接依赖就停，C++ 所有 #include 它的翻译单元全部重编
 flowchart LR
     subgraph J["Java：改 Half.java"]
         JH["Half.java ✎"] --> JS["<b>ScalarType.java</b><br/>直接引用了 Half"]
@@ -509,7 +509,7 @@ flowchart LR
    }} // namespace torch::autograd
    ```
 
-   这是第二篇会反复用到的规则。
+   这是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)会反复用到的规则。
 
 2. **`-inl.h` 拆分和 `#include <iosfwd>`**：`Device.h` 包含 `<iosfwd>`（只有 `std::ostream` 的前向声明）而不是 `<ostream>`（完整定义），因为它只需要声明 `operator<<`。
 
@@ -522,7 +522,7 @@ int counter;          // 定义（分配存储）
 extern int counter;   // 声明（别处有定义）
 ```
 
-头文件里放变量时必须写 `extern`，否则每个包含者都定义一份，链接时 multiple definition。PyTorch 源码里全局变量很少直接暴露，多半用函数包装（如 `c10::DeviceTypeName(...)`），或者用 `thread_local`（第六篇）。
+头文件里放变量时必须写 `extern`，否则每个包含者都定义一份，链接时 multiple definition。PyTorch 源码里全局变量很少直接暴露，多半用函数包装（如 `c10::DeviceTypeName(...)`），或者用 `thread_local`（[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)）。
 
 ## 四、One Definition Rule：同一个名字只能有一个定义
 
@@ -536,7 +536,7 @@ ODR 的核心可以概括为两句话：
 第二条有一个"非 inline"的限定，反过来说：**类、inline 函数、模板允许在多个翻译单元里各有一份定义。** 这听起来违反直觉，但它是头文件机制的必然结果：`Device.h` 里的 `is_cuda()` 是类内定义的 inline 函数，每个 `#include <c10/core/Device.h>` 的 `.cpp` 编出来的 `.o` 里都有一份 `is_cuda` 的机器码——编译器一次只看一个翻译单元，它没法知道别的 `.o` 里已经有了，也必须有一份才能内联。于是规则改成：多份可以，但**所有定义必须逐字相同**（token-for-token identical），链接器假定它们相同并任选一份、丢掉其余（下一章 `nm` 里标 `W` 的就是这种"可合并的弱定义"）。
 
 ```mermaid
-%% inline 函数为什么可以有多份定义：每个翻译单元各编一份，链接器按逐字相同的假定合并
+%% 图：inline 函数的多份定义与链接器的合并：每个翻译单元各编一份，链接器按逐字相同的假定合并
 flowchart LR
     H["<b>Device.h</b><br/>inline bool is_cuda() { return type_ == CUDA; }"]
     H --> A["<b>a.cpp → a.o</b><br/>含一份 is_cuda（W）"]
@@ -691,7 +691,7 @@ static std::string privateuse1_backend_name;
 static std::mutex privateuse1_lock;
 ```
 
-两种写法效果一样，C++ 风格指南倾向匿名命名空间（能包住类型和模板，`static` 不能）。PyTorch 的 kernel 文件大量使用这个模式——`aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 从第 22 行开始整个 kernel 实现都在匿名命名空间里，文件末尾只有一排 `REGISTER_DISPATCH(...)` 把函数指针注册出去：
+两种写法效果一样，C++ 风格指南倾向匿名命名空间（能包住类型和模板，`static` 不能）。PyTorch 的 kernel 文件大量使用这个模式——`aten/src/ATen/native/cpu/BinaryOpsKernel.cpp` 的整个 kernel 实现都在匿名命名空间里，文件末尾只有一排 `REGISTER_DISPATCH(...)` 把函数指针注册出去：
 
 ```cpp title='BinaryOpsKernel.cpp：整个 kernel 在匿名命名空间里，末尾 REGISTER_DISPATCH'
 namespace at::native {
@@ -708,7 +708,7 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 // ...
 ```
 
-这样做有两个好处：不同 kernel 文件里同名的辅助函数不会冲突；符号不导出，`.so` 的符号表更小，加载更快。第五篇讲静态注册时会重看这个文件。
+这样做有两个好处：不同 kernel 文件里同名的辅助函数不会冲突；符号不导出，`.so` 的符号表更小，加载更快。[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲静态注册时会重看这个文件。
 
 对比 Java：`private` 和包私有控制的是**编译期的访问权限**，但类和方法在 `.class` 里始终有名字，反射能找到。C++ 的内部链接是**真的没有外部可见的名字**——目标文件的全局符号表里没它，别的翻译单元想引用也引用不了。
 
@@ -796,7 +796,7 @@ echo _ZN7minic1014version_stringEv | c++filt
 
 两个直接后果：
 
-1. **C++ 编译器之间的二进制兼容**取决于修饰规则一致。GCC 和 Clang 一致，和 MSVC 不一致，所以 Linux 上编的 `.so` 不可能被 Windows 用，反之亦然。更细的问题——同一编译器不同版本、不同标准库配置（`_GLIBCXX_USE_CXX11_ABI`）——是第七篇 ABI 一节的主题。上面输出里的 `std::__cxx11::basic_string` 就是 libstdc++ 新 ABI 的痕迹。
+1. **C++ 编译器之间的二进制兼容**取决于修饰规则一致。GCC 和 Clang 一致，和 MSVC 不一致，所以 Linux 上编的 `.so` 不可能被 Windows 用，反之亦然。更细的问题——同一编译器不同版本、不同标准库配置（`_GLIBCXX_USE_CXX11_ABI`）——是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的主题。上面输出里的 `std::__cxx11::basic_string` 就是 libstdc++ 新 ABI 的痕迹。
 2. **要给 C 或 Python 调用的函数必须关掉修饰**，写法是 `extern "C"`。这就是 `torch/csrc/Module.cpp` 里那一行：
 
 ```cpp title='torch/csrc/Module.cpp 里 extern "C" 的 initModule'
@@ -807,7 +807,15 @@ PyObject* initModule() {
   // ...
 ```
 
-`initModule` 是 C++ 函数，但被 C 文件 `stub.c` 引用，`stub.c` 编译时只会生成对 `initModule` 这个**未修饰**符号的引用；如果 `Module.cpp` 不加 `extern "C"`，导出的会是 `_Z10initModulev`，两边对不上，链接失败。同理，`PyInit__C` 是 Python 解释器用 `dlsym` 按名字查找的入口，名字必须精确为 `PyInit__C`，Python 的 `PyMODINIT_FUNC` 宏在 C++ 编译时会展开出 `extern "C"`。
+| 文件与写法 | 目标文件里的符号 | 类型 | 链接结果 |
+|---|---|---|---|
+| `stub.c`（C 编译器）：`extern PyObject* initModule(void);` | `initModule` | `U` | 需要别处提供一个同名的 `T` |
+| `Module.cpp`：`extern "C" TORCH_PYTHON_API PyObject* initModule();` | `initModule` | `T` | 与 `stub.o` 的 `U` 同名，解析成功 |
+| `Module.cpp` 假如去掉 `extern "C"` | `_Z10initModulev` | `T` | 名字不同，`undefined reference to initModule` |
+
+Table: `initModule` 在 C 与 C++ 两侧的符号名
+
+链接器只比较符号名的字符串：表里第一行的 `U` 只能由第二行那个未修饰的 `T` 满足。`initModule` 是 C++ 函数，但被 C 文件 `stub.c` 引用，`stub.c` 编译时只会生成对 `initModule` 这个**未修饰**符号的引用；如果 `Module.cpp` 不加 `extern "C"`，导出的会是 `_Z10initModulev`，两边对不上，链接失败。同理，`PyInit__C` 是 Python 解释器用 `dlsym` 按名字查找的入口，名字必须精确为 `PyInit__C`，Python 的 `PyMODINIT_FUNC` 宏在 C++ 编译时会展开出 `extern "C"`。
 
 Java 对照：JNI 也有一套名字规则（`Java_com_example_Foo_bar`），本质上是同一个问题——两个运行时之间约定一个不依赖任何一方修饰规则的名字。
 
@@ -827,7 +835,7 @@ Java 对照：JNI 也有一套名字规则（`Java_com_example_Foo_bar`），本
 
 Table: 静态库与动态库的差别
 
-静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。一个 `.o` 如果没有任何符号被别人引用——典型就是"只靠静态初始化把自己注册进全局表"的算子文件（第五篇）——就会被整个丢掉，注册代码根本不存在于最终产物里。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
+静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。一个 `.o` 如果没有任何符号被别人引用——典型就是"只靠静态初始化把自己注册进全局表"的算子文件（[《宏、静态注册与代码生成》的「静态库：没被引用的目标文件会被丢掉」一节](/cpp-macros-static-registration-and-codegen.html#3-静态库没被引用的目标文件会被丢掉)）——就会被整个丢掉，注册代码根本不存在于最终产物里。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
 
 Java 里没有这个二分法：`.jar` 就是 `.class` 的 zip 包，运行时按需加载，最接近"动态库"；但 JVM 只在真的用到某个类时才加载它，这又有点像"静态库只取被引用的 `.o`"——只是 Java 是运行期惰性，C++ 是链接期裁剪。
 
@@ -875,11 +883,11 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 #endif
 ```
 
-`struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 第 55 行 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，第九章会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
+`struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 里的 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
 
-回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇 4.4 节](/cpp-project-layout-namespaces-libraries-and-cmake.html)），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
+回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇「`setup.py`：`.so` 如何进 wheel」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#4-setuppyso-如何进-wheel)），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
 
-第五篇会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
+[《宏、静态注册与代码生成》的「符号可见性：注册为什么会消失」一章](/cpp-macros-static-registration-and-codegen.html#八符号可见性注册为什么会消失)会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
 
 ### 5. 工具箱
 
@@ -896,7 +904,7 @@ Table: 二进制分析工具箱
 
 macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` 代替 `readelf -d`；`dyld_info` 代替部分 `objdump -p`。Windows 用 `dumpbin`。
 
-这些工具在第八篇（调试）会再次出现。本篇最后的实践一会用 `ldd` 和 `nm` 看真实的 PyTorch 库。
+这些工具在[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)讲调试时会再次出现。本篇最后的实践一会用 `ldd` 和 `nm` 看真实的 PyTorch 库。
 
 ### 6. Java 对照：`.class`/`.jar` 与翻译单元/目标文件/库
 
@@ -907,7 +915,7 @@ macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` �
 | `.jar` | `.a` / `.so` | 都是多个编译单元的打包 | `.jar` 只是 zip，加载器按需读；`.a` 链接期裁剪，`.so` 已链接、整体加载 |
 | classpath | `-L` + `-l`、`LD_LIBRARY_PATH`、RPATH | 都是"去哪儿找" | Java 只有运行时一次查找；C++ 有链接期（`-L`）和加载期（RPATH 等）两次，路径可以不同 |
 | `ClassNotFoundException` | `undefined reference`（链接期）/ `cannot open shared object file`（加载期） | 都是找不到 | Java 是运行时异常可捕获；C++ 是构建失败或进程直接起不来 |
-| `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期） | 都是"类找到了但方法不对" | C++ 的通常是 ABI 不匹配（第七篇） |
+| `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期） | 都是"类找到了但方法不对" | C++ 的通常是 ABI 不匹配（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)） |
 | `public`/包私有 | `visibility("default")`/`hidden` | 都是"对外暴露什么" | Java 是编译期检查，反射可绕；C++ 的 hidden 符号在 `.so` 里没有名字，无法绕过 |
 
 Table: Java 的 .class / .jar 与 C++ 翻译单元、目标文件、库的对照
@@ -922,6 +930,29 @@ Table: Java 的 .class / .jar 与 C++ 翻译单元、目标文件、库的对照
 2. `version_string` 是一个需要在运行时解析的导入符号。
 
 运行 `./hello` 时，内核把控制权交给动态加载器 `ld.so`，它读 `hello` 的 `DT_NEEDED` 列表，按一套搜索规则找到每个库，递归加载它们的依赖，然后做第二次符号解析——把 `hello` 里 `version_string` 的调用地址填成 `libminic10.so` 里的实际地址（通常是惰性的：第一次调用时才解析，`RTLD_LAZY`）。
+
+同一个符号 `version_string` 被解析了两次，一次在构建时、一次在运行时：
+
+```mermaid
+%% 图：version_string 的两次解析：链接期只检查并记账，加载期才找到库并填地址
+sequenceDiagram
+    participant LK as 链接器
+    participant H as hello
+    participant LD as ld.so
+    participant SO as libminic10.so
+    Note over LK,SO: 链接期（构建时）：库用 -L. 找到
+    LK->>SO: 动态符号表里有 version_string 吗
+    SO-->>LK: 有，类型 T
+    LK->>H: 写入 DT_NEEDED<br/>和导入符号，<br/>地址留空
+    Note over LK,SO: 加载期（运行 ./hello）：库按 ld.so 的搜索规则找
+    LD->>H: 读 DT_NEEDED
+    LD->>SO: 找到文件，<br/>映射进进程
+    H->>LD: 第一次调用<br/>version_string
+    LD->>SO: 按名字查地址
+    LD-->>H: 填好地址，<br/>以后直接跳转
+```
+
+链接期的那次只是检查和记账：`hello` 里没有库的代码，也没有库的路径，只有库名和符号名。两次解析各用各的搜索路径——链接期是 `-L`，加载期是下一小节的那套规则——所以会出现"链接成功、运行时找不到库"的情况：
 
 ```bash title='用 ldd 看 hello 的动态依赖'
 ldd hello
@@ -1090,9 +1121,40 @@ else:
     from torch._C import *  # noqa: F403
 ```
 
-这样 MKL、cudart 的符号全局可见（它们的插件能工作），而 libtorch 自己的几十万个 C++ 符号仍是 `RTLD_LOCAL`（不会和别的库——比如另一个也带了自己 libstdc++ 的扩展——打架）。注释里"mysterious segfaults"是真实的历史：早期 PyTorch 用 `RTLD_GLOBAL` 加载整个 libtorch，和其他同样导出 C++ 符号的库（如 OpenCV）冲突导致崩溃。
+```mermaid
+%% 图：import torch 时两种符号作用域：运行时依赖库进全局作用域，libtorch 自己留在局部作用域
+flowchart TB
+    PY["<b>torch/__init__.py</b><br/>1. _load_global_deps()<br/>2. from torch._C import *"]
+    subgraph GS["全局作用域（RTLD_GLOBAL）"]
+        GD["<b>libtorch_global_deps.so</b><br/>空文件 empty.c 编成，<br/>只有 DT_NEEDED"]
+        DEPS["MKL、cudart 等运行时库"]
+        GD -->|"DT_NEEDED"| DEPS
+    end
+    subgraph LS["局部作用域（RTLD_LOCAL）"]
+        EXT["<b>torch/_C.cpython-312-….so</b><br/>stub.c 编成，导出 PyInit__C"]
+        TP["libtorch_python.so"]
+        TC["libtorch_cpu.so"]
+        C10["libc10.so"]
+        EXT -->|"DT_NEEDED"| TP
+        TP -->|"DT_NEEDED"| TC
+        TC -->|"DT_NEEDED"| C10
+    end
+    PY -->|"第 1 步：ctypes.CDLL(…, RTLD_GLOBAL)"| GD
+    PY -->|"第 2 步：import 按 RTLD_LOCAL 做 dlopen"| EXT
+    TC -.->|"已加载，直接复用"| DEPS
+    DEPS --> PLUG["<b>MKL、OpenMPI 等自己 dlopen 的插件</b><br/>在全局作用域里找宿主库的符号：找得到"]
+    C10 ~~~ OTHER["<b>进程里其他带 C++ 符号的库（如 OpenCV）</b><br/>解析不到 libtorch 的符号，互不覆盖"]
+    classDef glob fill:#fde7c8,stroke:#c98a00,color:#222
+    classDef loc fill:#eef4fb,stroke:#5b8dc9,color:#222
+    classDef note fill:#f6f6f6,stroke:#999,color:#222
+    class GD,DEPS glob
+    class EXT,TP,TC,C10 loc
+    class PLUG,OTHER note
+```
 
-这一段值得反复读，因为它把本节的所有概念用在了一个真实的工程决策上：`DT_NEEDED`、加载顺序、`RTLD_GLOBAL` vs `RTLD_LOCAL`、符号污染。
+图里两个框就是两种 `dlopen` flag 的效果：橙色框里只有那几个"插件要回头找"的运行时库，蓝色框里是 libtorch 的整棵依赖树；底部两个灰框是各自的受益方。这样 MKL、cudart 的符号全局可见（它们的插件能工作），而 libtorch 自己的几十万个 C++ 符号仍是 `RTLD_LOCAL`（不会和别的库——比如另一个也带了自己 libstdc++ 的扩展——打架）。注释里"mysterious segfaults"是真实的历史：早期 PyTorch 用 `RTLD_GLOBAL` 加载整个 libtorch，和其他同样导出 C++ 符号的库（如 OpenCV）冲突导致崩溃。
+
+这一个设计把本节的所有概念用在了同一个工程决策上：`DT_NEEDED`、加载顺序、`RTLD_GLOBAL` vs `RTLD_LOCAL`、符号污染。
 
 ### 4. Java 对照：类加载器与 `ld.so`
 
@@ -1103,9 +1165,9 @@ else:
 **误导的地方**：
 
 1. **解析时机**。Java 类加载器加载 `A.class` 时，`A` 引用的 `B` 不会立即加载，第一次真正用到 `B` 时才加载、解析、初始化——完全按需，并且"找不到 `B`"是一个可以 `catch` 的 `NoClassDefFoundError`。`ld.so` 加载一个 `.so` 时会**递归加载它 `DT_NEEDED` 的全部库**（不管用不用），找不到任何一个就整个失败，`import torch` 直接 `ImportError: libcudart.so.12: cannot open shared object file`。函数级的惰性绑定（`RTLD_LAZY`）只推迟"填地址"，不推迟"加载库"。
-2. **类型信息**。类加载器加载的 `.class` 带完整类型，JVM 会做字节码验证，签名不匹配会在链接阶段报 `NoSuchMethodError`/`IncompatibleClassChangeError`。`ld.so` 只对**名字**，名字对上就填地址，参数类型、返回值、结构体布局全靠修饰名里编码的那一点信息和编译时的信任。改了一个类的成员而没有重编所有使用者——Java 会报错，C++ 会静默地读错内存。这是第七篇 ABI 一节的核心。
+2. **类型信息**。类加载器加载的 `.class` 带完整类型，JVM 会做字节码验证，签名不匹配会在链接阶段报 `NoSuchMethodError`/`IncompatibleClassChangeError`。`ld.so` 只对**名字**，名字对上就填地址，参数类型、返回值、结构体布局全靠修饰名里编码的那一点信息和编译时的信任。改了一个类的成员而没有重编所有使用者——Java 会报错，C++ 会静默地读错内存。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的核心。
 3. **谁在查找**。Java 里每个类加载器有自己的查找逻辑，可以写自定义加载器从网络、数据库加载。`ld.so` 只认文件系统路径。
-4. **符号解析在哪个阶段完成**。这是总纲强调的差别：C++ 的"找不到符号"错误出现在**编译期**（头文件里没声明）、**链接期**（没有 `.o`/库提供定义）和**加载期**（`.so` 找不到或版本不对），这三个阶段都在程序的业务逻辑开始运行之前。Java 的 `ClassNotFoundException` 可以在程序跑了三天之后第一次走到某条路径时才冒出来。C++ 用构建时的严格换来了运行时的确定。
+4. **符号解析在哪个阶段完成**。这是[系列总纲](/cpp-for-ai-infra.html)强调的差别：C++ 的"找不到符号"错误出现在**编译期**（头文件里没声明）、**链接期**（没有 `.o`/库提供定义）和**加载期**（`.so` 找不到或版本不对），这三个阶段都在程序的业务逻辑开始运行之前。Java 的 `ClassNotFoundException` 可以在程序跑了三天之后第一次走到某条路径时才冒出来。C++ 用构建时的严格换来了运行时的确定。
 
 ## 七、实践一：手写编译命令链接一个 libtorch 程序
 
@@ -1129,7 +1191,7 @@ int main() {
 }
 ```
 
-`<torch/torch.h>` 在 `torch/csrc/api/include/torch/torch.h`，它包含 `torch/all.h`，后者包含 `torch/types.h`（[下篇 2.3 节](/cpp-project-layout-namespaces-libraries-and-cmake.html)的 `using namespace at`）等。`torch::ones`、`torch::Tensor`、`u.device()` 分别落在 `libtorch_cpu.so`（算子和 `Tensor` 方法）和 `libc10.so`（`c10::Device` 的 `operator<<`）。
+`<torch/torch.h>` 在 `torch/csrc/api/include/torch/torch.h`，它包含 `torch/all.h`，后者包含 `torch/types.h`（[下篇「`torch::` 如何"包含"`at::`」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#3-torch-如何包含at)的 `using namespace at`）等。`torch::ones`、`torch::Tensor`、`u.device()` 分别落在 `libtorch_cpu.so`（算子和 `Tensor` 方法）和 `libc10.so`（`c10::Device` 的 `operator<<`）。
 
 ### 2. 找到头文件和库
 
@@ -1147,7 +1209,7 @@ libc10.dylib  libomp.dylib  libshm.dylib  libtorch.dylib  libtorch_cpu.dylib
 libtorch_global_deps.dylib  libtorch_python.dylib
 ```
 
-`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是 [下篇 3.3 节](/cpp-project-layout-namespaces-libraries-and-cmake.html)列的那些库（Linux 上后缀是 `.so`，CUDA wheel 多出 `libtorch_cuda`、`libc10_cuda`）。
+`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是[下篇「`import torch` 时加载了什么」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#3-import-torch-时加载了什么)列的那些库（Linux 上后缀是 `.so`，CUDA wheel 多出 `libtorch_cuda`、`libc10_cuda`）。
 
 ### 3. 编译（只编译）
 
@@ -1159,7 +1221,7 @@ g++ -std=c++17 -c hello_torch.cpp -o hello_torch.o \
 
 两个 `-I`：第一个让 `#include <c10/...>`、`<ATen/...>`、`<torch/csrc/...>` 能找到；第二个让 `#include <torch/torch.h>` 能找到（C++ 前端头文件在 `torch/csrc/api/include/` 下，和 `torch/csrc/` 是两套路径前缀）。`torch/CMakeLists.txt` 的 `TORCH_PYTHON_INCLUDE_DIRECTORIES` 和 `cpp_extension.py` 的 `include_paths()` 加的就是这两个。
 
-`-std=c++17` 是本系列基线 v2.10.0 的要求（[下篇 4.1 节](/cpp-project-layout-namespaces-libraries-and-cmake.html)）。**版本提醒**：2.14.0 的头文件已经要求 C++20——用 `-std=c++17` 编这一步会在 `torch/all.h` 第 5 行停住：
+`-std=c++17` 是本系列基线 v2.10.0 的要求（[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)）。**版本提醒**：2.14.0 的头文件已经要求 C++20——用 `-std=c++17` 编这一步会在 `torch/all.h` 第 5 行停住：
 
 ```text title='-std=c++17 在 2.14.0 头文件上的报错：需要 C++20'
 torch/include/torch/csrc/api/include/torch/all.h:5:2: error: C++20 or later compatible compiler is required to use PyTorch.
@@ -1220,6 +1282,19 @@ dyld[69854]: Library not loaded: @rpath/libtorch.dylib
 
 Linux 上是 `./hello_torch: error while loading shared libraries: libtorch.so: cannot open shared object file: No such file or directory`。这是加载期错误，不是链接期。用 `LD_LIBRARY_PATH=$TORCH_DIR/lib ./hello_torch`（macOS：`DYLD_LIBRARY_PATH`）可以临时绕过。
 
+把这一节手写命令里的参数按"少了它在哪个阶段出错"排一遍，正好走过第二章的四个出错阶段：
+
+| 少了什么 | 出错的阶段 | 报错（GNU 工具链 / macOS） |
+|---|---|---|
+| `-I$TORCH_DIR/include/torch/csrc/api/include` | 预处理 | `fatal error: torch/torch.h: No such file or directory` / `'torch/torch.h' file not found` |
+| `-std=` 低于头文件要求 | 预处理（`torch/all.h` 开头的 `#error` 指令） | `error: C++20 or later compatible compiler is required to use PyTorch.`（v2.10.0 的头文件写的是 C++17） |
+| `-ltorch_cpu` 或 `-lc10` | 链接 | `undefined reference to ...` / `Undefined symbols for architecture arm64` |
+| `-Wl,-rpath,$TORCH_DIR/lib` | 加载（链接成功，运行才报） | `cannot open shared object file` / `Library not loaded: @rpath/libtorch.dylib` |
+
+Table: 手写命令里少一个参数时出错的阶段
+
+`-I` 和 `-std=` 的错误在编译这一步就出现，`-l` 的错误要到链接命令，`-rpath` 的错误要到 `./hello_torch` 启动——越靠后的阶段，离写错的那一行越远。
+
 ### 5. 运行与观察
 
 ```bash title='运行 hello_torch'
@@ -1244,7 +1319,7 @@ ldd hello_torch | grep -E 'torch|c10'        # macOS: otool -L hello_torch
 	@rpath/libc10.dylib (compatibility version 0.0.0, current version 0.0.0)
 ```
 
-三个库正是 `-l` 的三个；Linux 的 `ldd` 会直接印出解析后的绝对路径 `libtorch.so => /.../torch/lib/libtorch.so`。CUDA wheel 还会多出 `libtorch_cuda`、`libc10_cuda`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch` 的 `DT_NEEDED` 把它们全拉进来了（6.4 节说的"递归加载全部依赖，不管用不用"）。
+三个库正是 `-l` 的三个；Linux 的 `ldd` 会直接印出解析后的绝对路径 `libtorch.so => /.../torch/lib/libtorch.so`。CUDA wheel 还会多出 `libtorch_cuda`、`libc10_cuda`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch` 的 `DT_NEEDED` 把它们全拉进来了（第六章「Java 对照：类加载器与 `ld.so`」一节说的"递归加载全部依赖，不管用不用"）。
 
 ```bash title='看 hello_torch 的 RPATH 与 libc10 里的 Device::str 符号'
 readelf -d hello_torch | grep -E 'NEEDED|RUNPATH'     # macOS: otool -l hello_torch | grep -A2 LC_RPATH
@@ -1257,7 +1332,7 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'   # macOS: nm -C libc1
 000000000000da78 T c10::Device::str() const
 ```
 
-第一行是 `-Wl,-rpath` 烧进去的路径（Linux 上是 `(RUNPATH) Library runpath: [/.../torch/lib]`，前面还有三行 `(NEEDED)`）；第二行是 `c10::Device::str` 在 `libc10` 里的定义，`T`——第五章那张符号表的字母。Linux 的 wheel 上这一行会带 `[abi:cxx11]` 标签：`T c10::Device::str[abi:cxx11]() const`，那是 libstdc++ 新 ABI 的痕迹（第七篇）。如果扩展编译时用了 `-D_GLIBCXX_USE_CXX11_ABI=0`，它引用的会是没有这个标签的 `c10::Device::str() const`，加载时报 `undefined symbol`——这是 PyTorch 2.6 之前 Linux wheel 用旧 ABI 时最常见的事故；PyTorch 2.x 中的变化：2.6 起 Linux wheel 切换到 CXX11 ABI，`cpp_extension.py` 不再显式传这个宏。macOS 用 libc++，没有这个标签，也就没有这个坑。
+第一行是 `-Wl,-rpath` 烧进去的路径（Linux 上是 `(RUNPATH) Library runpath: [/.../torch/lib]`，前面还有三行 `(NEEDED)`）；第二行是 `c10::Device::str` 在 `libc10` 里的定义，`T`——第五章那张符号表的字母。Linux 的 wheel 上这一行会带 `[abi:cxx11]` 标签：`T c10::Device::str[abi:cxx11]() const`，那是 libstdc++ 新 ABI 的痕迹（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)）。如果扩展编译时用了 `-D_GLIBCXX_USE_CXX11_ABI=0`，它引用的会是没有这个标签的 `c10::Device::str() const`，加载时报 `undefined symbol`——这是 PyTorch 2.6 之前 Linux wheel 用旧 ABI 时最常见的事故；PyTorch 2.x 中的变化：2.6 起 Linux wheel 切换到 CXX11 ABI，`cpp_extension.py` 不再显式传这个宏。macOS 用 libc++，没有这个标签，也就没有这个坑。
 
 ### 6. 与 CMake 的对应
 
@@ -1272,7 +1347,7 @@ nm -DC $TORCH_DIR/lib/libc10.so | grep 'c10::Device::str'   # macOS: nm -C libc1
 
 Table: 手写 g++ 参数与 CMake 的对应
 
-第八篇会系统讲 CMake。这里的目的是让读者知道：**CMake 生成的最终命令和手写的没有本质区别，出了链接问题可以把 `ninja -v` 打出的命令拿出来单独跑。**
+[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)会系统讲 CMake。这里的目的是让读者知道：**CMake 生成的最终命令和手写的没有本质区别，出了链接问题可以把 `ninja -v` 打出的命令拿出来单独跑。**
 
 ## 八、本文小结
 
