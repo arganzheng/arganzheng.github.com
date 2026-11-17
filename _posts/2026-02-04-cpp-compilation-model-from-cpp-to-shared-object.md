@@ -50,11 +50,48 @@ PyMODINIT_FUNC PyInit__C(void)
 
 ## 一、总览
 
-### 1. 参照系：Java 的一种产物与 C++ 的多种产物
+以后文反复使用的两个源文件为例：`Version.cpp` 编成动态库 `libminic10.so`，`hello.cpp` 调用库里的 `version_string()`。从源文件到进程里一次能跳过去的函数调用，中间经过的产物如下：
 
-Java 是全篇的参照系。Java 的世界里只有一种编译产物（`.class`）、一种打包格式（`.jar`）和一个负责在运行时按需找类的类加载器；C++ 的世界里有翻译单元、目标文件、静态库、动态库、符号表和链接器，而且大部分"找不到"的错误发生在编译期和加载期，不是运行期。理解这个差别，是读懂 PyTorch 和 vLLM 目录结构的前提。
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300, "rankSpacing": 34}}}%%
+%% 图：从 .cpp 到进程里可调用的函数：构建期的产物链与运行期的加载
+flowchart TB
+    subgraph BUILD["构建期：每个 .cpp 各走一遍 ① ② ③，④ 把结果合起来"]
+        SRC["<b>源文件 Version.cpp</b><br/>#include 头文件 Version.h"]
+        TU["<b>翻译单元</b><br/>头文件已经粘贴进来的一整段文本"]
+        OBJ["<b>目标文件 Version.o</b><br/>机器码 + 符号表：<br/>定义了的标 T，引用了没定义的标 U"]
+        SO["<b>动态库 libminic10.so</b><br/>导出符号表 + 自己的 DT_NEEDED"]
+        HOBJ["<b>目标文件 hello.o</b><br/>hello.cpp 同样经过 ① ② ③，<br/>version_string 标 U"]
+        EXE["<b>可执行文件 hello</b><br/>DT_NEEDED: libminic10.so + 导入符号，<br/>没有库的代码"]
+        SRC -- "① 预处理（第二、三章）" --> TU
+        TU -- "② 编译、③ 汇编（第二章）<br/>一个名字能有几份定义：ODR（第四章）" --> OBJ
+        OBJ -- "④ 链接成库（第五章）" --> SO
+        HOBJ -- "④ 链接：符号解析 + 重定位（第二章）" --> EXE
+        SO -. "链接期只检查符号存在并记账（第六章）" .-> EXE
+    end
+    subgraph RUN["运行期：程序启动或 dlopen 时"]
+        LDSO["<b>动态加载器 ld.so</b><br/>按 RPATH、LD_LIBRARY_PATH、RUNPATH<br/>为每个 DT_NEEDED 找到文件"]
+        PROC["<b>进程地址空间</b><br/>hello 与各个 .so 都已映射，<br/>version_string 的调用处填上真实地址"]
+        LDSO -- "映射库，第二次符号解析（第六章）" --> PROC
+    end
+    EXE -- "⑤ 加载（第六章）" --> LDSO
+    classDef art fill:#eef4fb,stroke:#5b8dc9,color:#222
+    classDef rt fill:#fde7c8,stroke:#c98a00,color:#222
+    class SRC,TU,OBJ,SO,HOBJ,EXE art
+    class LDSO,PROC rt
+```
 
-### 2. 本文的章节安排
+- **翻译单元**：预处理器把 `#include` 的头文件原地粘贴、宏展开之后的一整段文本，是编译器真正的输入。每次编译一个 `.cpp` 时临时产生，平时不单独保存；编译器一次只看一个。
+- **目标文件 `.o`**：一个翻译单元编译、汇编后的产物，在构建目录里。里面是机器码和一张符号表——本文件定义了哪些符号、还缺哪些要别人提供。
+- **静态库 `.a` / 动态库 `.so`**：多个 `.o` 的两种打包方式。`.a` 只是归档，链接时把用到的 `.o` 拷进最终产物；`.so` 是链接过的镜像，带导出符号表和它自己依赖的库列表（`DT_NEEDED`），代码留在库里。
+- **可执行文件**：链接器把各个 `.o` 的符号引用对上、地址定下来的结果。对动态库里的符号，它只记下「运行时需要哪个库」和「要哪个符号」。
+- **动态加载器 `ld.so`**：操作系统提供的运行时组件，不是构建产物。程序启动或 `dlopen` 时，它按搜索路径找到每个依赖库、映射进进程，再把导入符号解析成地址。
+- **进程地址空间**：程序和它依赖的全部 `.so` 映射之后的样子；到这一步，`hello` 里对 `version_string` 的调用才有真实地址可跳。
+
+> [!NOTE] 与 Java 对照：一种产物与多种产物
+> Java 的构建只产出 `.class`，打包成 `.jar`，类之间的引用由 JVM 在运行时第一次用到时解析。C++ 的链上多出翻译单元、目标文件、两种库和链接器，「找不到」的错误也因此分散在预处理、编译、链接、加载四个时刻，都早于业务代码开始运行。后文在每个机制旁边单独给出对照。
+
+### 1. 本文的章节安排
 
 本篇只讲"一个翻译单元怎么变成一个 `.so`"：前五章是编译模型的五个阶段与它们各自的规则，第七章把这些规则落到一次真实的手工编译上。
 
@@ -73,9 +110,7 @@ Table: 本文的章节安排
 
 ## 二、四个阶段：一个 `.cpp` 是怎么变成机器码的
 
-### 1. Java 的一步与 C++ 的四步
-
-Java 的构建流程可以概括为一步：`javac` 把 `.java` 编成 `.class`，`.class` 里带着完整的类型信息、方法签名、常量池和字节码，谁引用了谁全部记在文件里。运行时，JVM 的类加载器按需读 `.class`、解析、链接、初始化。"链接"这个词在 Java 里也存在，但它发生在运行时，由 JVM 负责，程序员几乎感觉不到。
+### 1. 四个阶段与运行时的加载
 
 C++ 的构建流程有四个阶段——预处理、编译、汇编、链接——每个阶段都是独立的程序，有自己的输入和输出；对动态库来说，运行时还有第五步**加载**（§6）：
 
@@ -92,17 +127,20 @@ flowchart LR
 
 平时用 `g++ -c foo.cpp` 或者 CMake 构建时，前四步是被驱动程序（`g++`/`clang++`）串起来一次跑完的，所以初学者往往感觉不到它们的存在。但**每一类错误只会出现在某一个阶段**：
 
-| 阶段 | 典型报错 |
-|---|---|
-| ① 预处理 | `fatal error: xxx.h: No such file or directory`——找不到头文件 |
-| ② 编译 | 类型不匹配、未声明的名字、语法错误 |
-| ③ 汇编 | 几乎不会出错（输入是编译器生成的） |
-| ④ 链接 | `undefined reference to ...`、`multiple definition of ...` |
-| ⑤ 加载 | `cannot open shared object file`、`undefined symbol`（运行时才发现） |
+| 阶段 | 由谁执行、什么时候 | 输入 → 产物 | 典型报错 | Java 对照 |
+|---|---|---|---|---|
+| ① 预处理 | 预处理器；构建期，每个 `.cpp` 一次 | `.cpp` 与它包含的头文件 → 翻译单元（`-E` 可输出成 `.i`，平时不单独保存） | `fatal error: xxx.h: No such file or directory`——找不到头文件 | 无：Java 没有文本级预处理 |
+| ② 编译 | 编译器；构建期 | 翻译单元 → 汇编 `.s`（`-S` 可输出，平时不单独保存） | 类型不匹配、未声明的名字、语法错误 | `javac`；它能从 classpath 读到别的类的签名，C++ 编译器只看当前翻译单元 |
+| ③ 汇编 | 汇编器；构建期 | `.s` → 目标文件 `.o`，留在构建目录 | 几乎不会出错（输入是编译器生成的） | 无：`javac` 直接产出 `.class` |
+| ④ 链接 | 链接器；构建期，每个库或可执行文件一次 | 多个 `.o`、`.a`、`.so` → 可执行文件或 `.so` | `undefined reference to ...`、`multiple definition of ...` | 构建期没有对应步骤：`.class` 之间的引用由 JVM 在运行时解析 |
+| ⑤ 加载 | 动态加载器 `ld.so`；程序启动或 `dlopen` 时 | 可执行文件与它依赖的 `.so` → 进程地址空间里的映像 | `cannot open shared object file`、`undefined symbol`（运行时才发现） | 类加载器加载 `.class`，最接近；差别见第六章 |
 
-Table: 编译四阶段各自的典型报错
+Table: 五个阶段的执行者、产物、典型报错与 Java 对照
 
 分清阶段，是排错的第一步。
+
+> [!NOTE] 与 Java 对照：链接发生在什么时候
+> `javac` 一步把 `.java` 编成 `.class`，文件里带着类型信息、方法签名、常量池和字节码，对别的类的引用以名字的形式记在常量池里。JVM 规范里也有「链接」（验证、准备、解析），但它在运行时由 JVM 完成，没有单独的构建步骤。C++ 的链接是构建期的独立程序，对不上符号时构建就失败。
 
 下面用下篇要建的 mini-c10 里的三个文件走一遍（[下篇第五章](/cpp-project-layout-namespaces-libraries-and-cmake.html#五实践二mini-c10-的目录结构与第一个可链接的库)会解释设计）：一个头文件 `Version.h`、实现它的 `Version.cpp`，以及一个调用它的小程序 `examples/hello.cpp`。前两个编成库 `libminic10.so`，第三个链接这个库：
 
@@ -182,7 +220,10 @@ clang++ -std=c++17 -I. -E minic10/core/Version.cpp | wc -l
 
 `stub.c` 里那些 `#ifndef _WIN32`、`#ifdef __cplusplus` 就在这个阶段生效。`_WIN32` 是 Windows 编译器预定义的宏，`__cplusplus` 是 C++ 编译器预定义的宏（C 编译器不定义它）。`stub.c` 是一个 `.c` 文件，用 C 编译器编译时 `__cplusplus` 不存在，`extern "C"` 那行被删掉；如果有人用 C++ 编译器编它，`extern "C"` 保留，保证 `PyInit__C` 的符号名不被 C++ 修饰（第五章讲修饰）。
 
-Java 没有预处理器。Java 里"条件编译"靠 `if (System.getProperty(...))` 在运行时判断，靠 `final static boolean` 常量让 JIT 消除死代码；C++ 在文本层面就把不需要的代码删掉了，二进制里根本不存在另一个分支。这是[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的主题，这里只需要知道：**预处理之后，头文件就不存在了，只剩一个巨大的翻译单元。**
+被 `#ifdef` 删掉的分支在翻译单元里不存在，编译器看不到它，二进制里也没有它——所以那个分支可以引用本平台根本没有的头文件和类型。宏与条件编译的更多用法是[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的主题，这里只需要知道：**预处理之后，头文件就不存在了，只剩一个巨大的翻译单元。**
+
+> [!NOTE] 与 Java 对照：条件编译
+> Java 没有预处理器。按平台或配置走不同分支，通常写成运行时判断（如读 `System.getProperty(...)`），或用 `static final boolean` 常量做开关；无论哪种，两个分支都必须是能通过编译的 Java 代码。C++ 的 `#ifdef` 在编译之前按文本删行，被删的分支不需要能编译。
 
 ### 3. 编译：把翻译单元变成汇编
 
@@ -204,7 +245,10 @@ grep -n "version_string" Version.s | head -3
 
 这解释了 `stub.c` 里 `extern PyObject* initModule(void);` 的作用：告诉编译器"有这么一个函数，签名如此，定义在别处"，让编译器能生成 `return initModule();` 这条调用。真正的定义在 `torch/csrc/Module.cpp`，编译 `stub.c` 时编译器根本没看过它。
 
-`javac` 编译 `A.java` 时如果引用了 `B`，会去 classpath 上找 `B.class` 或 `B.java` 读出签名。C++ 编译器不会去找任何别的 `.cpp`；它只信头文件里的声明。这是两种语言最根本的差别之一：**Java 的编译器能看到整个 classpath，C++ 的编译器只能看到当前翻译单元。**
+C++ 编译器不会去找任何别的 `.cpp`；一个名字的签名是什么，它只信当前翻译单元里（也就是头文件粘贴进来的）那行声明。
+
+> [!NOTE] 与 Java 对照：编译器能看到多少
+> `javac` 编译 `A.java` 时如果引用了 `B`，会去 classpath 或源码路径上找 `B.class` 或 `B.java`，自己读出签名。C++ 编译器只能看到当前翻译单元：声明写错了（与真正的定义不一致），编译这一步发现不了，要到链接期甚至运行时才暴露。
 
 ### 4. 汇编：生成目标文件
 
@@ -225,7 +269,7 @@ clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
 
 ![链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
 
-图 2 画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
+上面这张图画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
 
 ```bash title='两条链接命令：编 libminic10.so 与链 hello'
 clang++ -std=c++17 -shared -o libminic10.so Version.o
@@ -261,18 +305,6 @@ multiple definition of `helper()'          # 不止一个人定义了
 
 对动态库来说还有一个阶段在运行时：**加载**（loading）。链接 `hello` 时，链接器并没有把 `libminic10.so` 的代码拷进 `hello`，只是记录了一条"运行时需要 `libminic10.so`"和"`version_string` 在那个库里"。真正把库读进内存、把地址填上的是操作系统的**动态加载器**（Linux 上是 `ld-linux-x86-64.so.2`，也叫 `ld.so`），发生在程序启动时或 `dlopen` 时。第六章专门讲它。
 
-把四加一个阶段与 Java 对上：
-
-| 阶段 | C++ | Java 对应 | 说明 |
-|---|---|---|---|
-| 预处理 | `#include`/`#define` 展开 | 无 | Java 没有文本级预处理 |
-| 编译 | 翻译单元 → 汇编 | `javac` | Java 编译器能看到 classpath，C++ 只看当前翻译单元 |
-| 汇编 | 汇编 → `.o` | 无（`.class` 已是最终产物） | |
-| 链接 | 多个 `.o`/库 → 可执行文件或 `.so` | 无直接对应 | Java 把这一步推迟到运行时由 JVM 做 |
-| 加载 | `ld.so` 加载 `.so` | 类加载器加载 `.class` | 最接近的类比，但 C++ 加载时要解析的符号在链接期已确定 |
-
-Table: C++ 编译加载五阶段与 Java 的对应
-
 ## 三、翻译单元、声明与定义、头文件
 
 ### 1. 为什么要分 `.h` 和 `.cpp`
@@ -286,7 +318,10 @@ Table: C++ 编译加载五阶段与 Java 的对应
 
 头文件（`.h`/`.hpp`）放声明，源文件（`.cpp`/`.cc`）放定义，所有需要用这个名字的 `.cpp` 都 `#include` 这个头文件。一个声明可以出现任意多次（每个翻译单元一次），一个定义在整个程序里只能有一次——这就是第四章的 ODR。
 
-Java 没有这个区分：一个 `.java` 文件就是类的完整定义，其他类通过 `import` 引用它时，编译器自己去读 `.class` 提取签名。C++ 把"提取签名"这件事交给了程序员——头文件就是手写的签名文件。C++20 引入的 modules 试图改变这一点，但 PyTorch 和 vLLM 都还没用，本系列不讨论。
+头文件因此就是一份**手写的签名文件**：编译器不会替使用者去别的 `.cpp` 里提取签名，这件事交给了程序员。C++20 引入的 modules 试图改变这一点，但 PyTorch 和 vLLM 都还没用，本系列不讨论。
+
+> [!NOTE] 与 Java 对照：.java 与 .h + .cpp
+> 一个 `.java` 文件就是类的完整定义，没有声明与定义之分；别的类引用它时，`javac` 自己从 `.class` 或源码里读出签名。C++ 的一个类通常拆在两个文件里，而一个 `.cpp` 也不对应一个类——它是一个翻译单元，里面可以有任意多个类和函数的定义。
 
 ### 2. 真实例子：`c10/core/Device.h` 与 `Device.cpp`
 
@@ -347,9 +382,9 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 
 | 记号 | 含义 | Java 里 |
 |---|---|---|
-| `using DeviceIndex = int8_t;` | **类型别名**：给 `int8_t` 起一个新名字 `DeviceIndex`，两者是同一个类型（老写法是 `typedef int8_t DeviceIndex;`）；类内的 `using Type = DeviceType;` 同理 | 没有；最接近的是用一个 `record` 包一层，但那是新类型 |
-| `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)展开 | 没有；Java 的 `public` 类天然可被别的 jar 用 |
-| `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | `static final int`，但 Java 不保证编译期求值 |
+| `using DeviceIndex = int8_t;` | **类型别名**：给 `int8_t` 起一个新名字 `DeviceIndex`，两者是同一个类型（老写法是 `typedef int8_t DeviceIndex;`）；类内的 `using Type = DeviceType;` 同理 | 没有类型别名；用一个 `record` 包一层得到的是新类型 |
+| `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)展开 | 没有逐符号的导出标记；`public` 类默认就能被别的 jar 使用 |
+| `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | 最接近用常量表达式初始化的 `static final int`；`constexpr` 还能修饰函数和自定义类型，Java 没有对应 |
 | `final` | 类不能被继承 | `final class` |
 | `noexcept` | 函数保证不抛异常 | 没有对应 |
 | `Device::str()` | 作用域限定：`.cpp` 里定义头文件声明过的成员函数时写类名前缀 | 方法只能写在类体内 |
@@ -464,7 +499,7 @@ Table: 头文件通常包含的内容
 
 `ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)）。
 
-Java 里改一个类只需重编它自己和直接依赖它的类（Gradle 的增量编译粒度是类级别的 ABI 变化）。C++ 的粒度是"文本包含"，粗得多——两边画出来：
+Java 里改一个类，Gradle 这类构建工具的增量编译按类之间的依赖和对外签名（ABI）是否变化决定重编范围，通常到直接依赖它的类为止。C++ 的粒度是"文本包含"，粗得多——两边画出来：
 
 ```mermaid
 %% 图：同一个改动在两种语言里的重编范围：Java 增量编译到直接依赖就停，C++ 所有 #include 它的翻译单元全部重编
@@ -487,7 +522,7 @@ flowchart LR
     class JA,JB,JC skip
 ```
 
-同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，`javac` 增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
+同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
 
 1. **前向声明**（forward declaration）。一行 `class Tensor;` 只告诉编译器"有一个叫 `Tensor` 的类"，不说它有哪些成员、多大——这就是前向声明。什么时候够用：只用它的**指针或引用**（`Tensor*`、`const Tensor&`）时，编译器不需要知道它多大，一个指针总是 8 字节。什么时候不够：按值持有成员（`Tensor t_;` 要知道多大）、调用成员函数、`sizeof`，这些都需要完整定义，必须 `#include`。所以头文件里能用前向声明就不 `#include`——包含者就不必因为 `Tensor.h` 变了而重编。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串前向声明，每一行都是"只说有、不说多大"：
 
@@ -550,7 +585,8 @@ flowchart LR
 
 inline 函数为什么可以有多份定义——每个翻译单元各编一份，链接器按"逐字相同"的假定合并。危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
 
-Java 里不存在这个问题：一个类只有一个 `.class`，JVM 按全限定名找到它，同名类冲突时类加载器有明确的优先规则（父加载器优先）。C++ 没有这层运行时仲裁，全靠链接器在构建时把名字对上。
+> [!NOTE] 与 Java 对照：同名定义出现两份时
+> Java 里一个类只编出一份 `.class`，不会像 inline 函数那样每个使用者各带一份。classpath 上两个 jar 带了同一个全限定名的类时同样不报错，但结果是确定的：默认的委派模型下父加载器优先，同一个加载器按 classpath 顺序取先找到的那份，整个类来自同一处。C++ 的 ODR 违反是未定义行为，而且两份机器码可能已经分别内联进各自的调用处，连「统一用了哪一份」都保证不了。
 
 ### 2. 两种链接错误
 
@@ -710,7 +746,10 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 
 这样做有两个好处：不同 kernel 文件里同名的辅助函数不会冲突；符号不导出，`.so` 的符号表更小，加载更快。[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲静态注册时会重看这个文件。
 
-对比 Java：`private` 和包私有控制的是**编译期的访问权限**，但类和方法在 `.class` 里始终有名字，反射能找到。C++ 的内部链接是**真的没有外部可见的名字**——目标文件的全局符号表里没它，别的翻译单元想引用也引用不了。
+内部链接是**真的没有外部可见的名字**：别的翻译单元即使写了一行同名的声明，链接时也对不上这个符号。
+
+> [!NOTE] 与 Java 对照：private 与内部链接
+> `private` 和包私有是访问权限：成员的名字仍然记在 `.class` 里，编译器和 JVM 拒绝越权访问，反射在允许时还能拿到它。内部链接不是权限检查，而是符号不参与跨文件的解析；也因此两个 `.cpp` 可以各有一个同名的 `static` 函数而互不相干，这在 Java 的同一个类里做不到。
 
 ### 5. 小结：四种链接属性
 
@@ -772,6 +811,9 @@ nm -C hello.o | grep minic10
 
 `version_number()` 是 inline，在 `hello.o` 里有一份定义，标 `W`；`version_string()` 只有声明，标 `U`。链接 `hello` 时，链接器要为这个 `U` 找到一个 `T`——它在 `libminic10.so` 里。（macOS 的 `nm` 把 `version_number()` 标 `T` 而非 `W`——Mach-O 用另一套机制标记可合并的弱定义，`nm -m` 能看到 `weak`；符号名多一个前导下划线；语义相同。）
 
+> [!NOTE] 与 Java 对照：.class 与 .o
+> 两者都是编译产物的最小单位，都记着「我定义了什么、引用了谁」。差别在自描述程度：`.class` 带完整的类型信息（字段、方法签名、继承关系），版本兼容的 JVM 拿到就能加载、校验、执行；`.o` 的符号表只有名字和地址，类型信息只剩修饰名里编码的参数类型（下一节），而且地址还没定，不经过链接不能运行。
+
 ### 2. Name mangling：符号名为什么长得像乱码
 
 C 的符号名就是函数名：`initModule`。C++ 支持重载、命名空间、模板，`minic10::version_string()` 和 `other::version_string(int)` 必须是不同的符号，所以编译器把命名空间、函数名、参数类型编码进符号名，这叫**名字修饰**（name mangling）。`minic10::version_string()` 修饰后是 `_ZN7minic1014version_stringEv`，逐段拆开：
@@ -817,7 +859,8 @@ Table: `initModule` 在 C 与 C++ 两侧的符号名
 
 链接器只比较符号名的字符串：表里第一行的 `U` 只能由第二行那个未修饰的 `T` 满足。`initModule` 是 C++ 函数，但被 C 文件 `stub.c` 引用，`stub.c` 编译时只会生成对 `initModule` 这个**未修饰**符号的引用；如果 `Module.cpp` 不加 `extern "C"`，导出的会是 `_Z10initModulev`，两边对不上，链接失败。同理，`PyInit__C` 是 Python 解释器用 `dlsym` 按名字查找的入口，名字必须精确为 `PyInit__C`，Python 的 `PyMODINIT_FUNC` 宏在 C++ 编译时会展开出 `extern "C"`。
 
-Java 对照：JNI 也有一套名字规则（`Java_com_example_Foo_bar`），本质上是同一个问题——两个运行时之间约定一个不依赖任何一方修饰规则的名字。
+> [!NOTE] 与 Java 对照：JNI 的名字约定
+> JNI 解决的是同一个问题：JVM 按 `Java_com_example_Foo_bar` 这样的固定规则拼出名字，到本地库里找未修饰的 C 符号。所以用 C++ 实现 native 方法时同样要 `extern "C"`（`javac -h` 生成的头文件已经带上）。两边都是在两个运行时之间约定一个不依赖 C++ 修饰规则的名字。
 
 ### 3. 静态库与动态库
 
@@ -837,7 +880,8 @@ Table: 静态库与动态库的差别
 
 静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。一个 `.o` 如果没有任何符号被别人引用——典型就是"只靠静态初始化把自己注册进全局表"的算子文件（[《宏、静态注册与代码生成》的「静态库：没被引用的目标文件会被丢掉」一节](/cpp-macros-static-registration-and-codegen.html#3-静态库没被引用的目标文件会被丢掉)）——就会被整个丢掉，注册代码根本不存在于最终产物里。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
 
-Java 里没有这个二分法：`.jar` 就是 `.class` 的 zip 包，运行时按需加载，最接近"动态库"；但 JVM 只在真的用到某个类时才加载它，这又有点像"静态库只取被引用的 `.o`"——只是 Java 是运行期惰性，C++ 是链接期裁剪。
+> [!NOTE] 与 Java 对照：.jar 与两种库
+> Java 没有静态库与动态库之分。`.jar` 只是 `.class` 的 zip 包，没有链接过，运行时由类加载器从里面按需取类——在「运行时才加载、可以单独替换」这一点上像 `.so`。JVM 只加载真正用到的类，又有点像「`.a` 只取被引用的 `.o`」，但那是运行期的惰性，不是链接期的裁剪：没被引用的类仍在 jar 里，反射或 `ServiceLoader` 随时能把它加载出来，不会出现「注册代码被裁掉」的问题。
 
 ### 4. 符号可见性：`.so` 导出了什么
 
@@ -889,6 +933,9 @@ GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `_
 
 [《宏、静态注册与代码生成》的「符号可见性：注册为什么会消失」一章](/cpp-macros-static-registration-and-codegen.html#八符号可见性注册为什么会消失)会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
 
+> [!NOTE] 与 Java 对照：public 与符号可见性
+> 两者都在回答「对库外暴露什么」，层次不同。Java 的 `public` / 包私有写在语言里，由编译器和 JVM 检查。C++ 的 `public` / `private` 只管类成员的访问，与导出无关：一个 `public` 成员函数如果没有 `C10_API` 这类标记，在 `-fvisibility=hidden` 下就不进 `.so` 的动态符号表，别的库在链接期找不到它。Java 9 模块的 `exports` 是包一级的导出声明，比 `public` 更接近这里的可见性。
+
 ### 5. 工具箱
 
 | 工具 | 用途 | 常用命令 |
@@ -905,20 +952,6 @@ Table: 二进制分析工具箱
 macOS 对应：`nm`、`c++filt` 一样；`otool -L` 代替 `ldd`；`otool -l` 代替 `readelf -d`；`dyld_info` 代替部分 `objdump -p`。Windows 用 `dumpbin`。
 
 这些工具在[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)讲调试时会再次出现。本篇最后的实践一会用 `ldd` 和 `nm` 看真实的 PyTorch 库。
-
-### 6. Java 对照：`.class`/`.jar` 与翻译单元/目标文件/库
-
-| Java | C++ | 类比成立处 | 类比误导处 |
-|---|---|---|---|
-| `.java` | `.cpp` + `.h` | 都是源码 | Java 一个文件是一个完整的类；C++ 一个 `.cpp` 是一个翻译单元，可以有任意多个类的定义，头文件是手写的接口 |
-| `.class` | `.o` | 都是单个源文件的编译产物，都带符号表 | `.class` 自描述、含完整类型信息，任何 JVM 能加载；`.o` 只有符号名和机器码，没有类型信息，未链接不能运行 |
-| `.jar` | `.a` / `.so` | 都是多个编译单元的打包 | `.jar` 只是 zip，加载器按需读；`.a` 链接期裁剪，`.so` 已链接、整体加载 |
-| classpath | `-L` + `-l`、`LD_LIBRARY_PATH`、RPATH | 都是"去哪儿找" | Java 只有运行时一次查找；C++ 有链接期（`-L`）和加载期（RPATH 等）两次，路径可以不同 |
-| `ClassNotFoundException` | `undefined reference`（链接期）/ `cannot open shared object file`（加载期） | 都是找不到 | Java 是运行时异常可捕获；C++ 是构建失败或进程直接起不来 |
-| `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期） | 都是"类找到了但方法不对" | C++ 的通常是 ABI 不匹配（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)） |
-| `public`/包私有 | `visibility("default")`/`hidden` | 都是"对外暴露什么" | Java 是编译期检查，反射可绕；C++ 的 hidden 符号在 `.so` 里没有名字，无法绕过 |
-
-Table: Java 的 .class / .jar 与 C++ 翻译单元、目标文件、库的对照
 
 ## 六、动态链接与加载
 
@@ -952,7 +985,26 @@ sequenceDiagram
     LD-->>H: 填好地址，<br/>以后直接跳转
 ```
 
-链接期的那次只是检查和记账：`hello` 里没有库的代码，也没有库的路径，只有库名和符号名。两次解析各用各的搜索路径——链接期是 `-L`，加载期是下一小节的那套规则——所以会出现"链接成功、运行时找不到库"的情况：
+加载期的这一次有两个性质，和链接期不同，也和 Java 的直觉不同。
+
+**1、库是一次加载全的。** `ld.so` 加载一个二进制时会递归加载它 `DT_NEEDED` 的全部库，不管这次运行用不用得到；找不到任何一个就整个失败，`import torch` 直接报 `ImportError: libcudart.so.12: cannot open shared object file`。惰性绑定（`RTLD_LAZY`）只推迟"填函数地址"，不推迟"加载库"。
+
+> [!NOTE] 与 Java 对照：按需加载类与一次加载全部依赖库
+> 类加载器加载 `A` 时不会立刻加载 `A` 引用的 `B`，通常等到第一次真正用到 `B` 才加载、链接、初始化；找不到是一个可以捕获的错误，而且可能在程序运行很久之后第一次走到某条路径时才出现。C++ 的「找不到」分散在编译期、链接期和加载期，都在业务逻辑开始之前：
+>
+> | Java 的错误 | C++ 里最接近的 | 差别 |
+> |---|---|---|
+> | `ClassNotFoundException` / `NoClassDefFoundError` | `undefined reference`（链接期）、`cannot open shared object file`（加载期） | Java 在用到那个类时抛出，可捕获；C++ 是构建失败或进程起不来 |
+> | `NoSuchMethodError` | `undefined symbol: _ZN...`（加载期；惰性绑定时可能晚到第一次调用） | 都是「找到了库 / 类，但里面没有要的那个成员」；C++ 这边通常是 ABI 或版本不匹配 |
+>
+> Table: Java 与 C++ 的「找不到」错误对应
+
+**2、只对名字，不对类型。** `ld.so` 按符号名查表，名字对上就填地址；参数类型只有修饰名里编码的那一点，返回值类型、结构体布局完全不检查，靠的是两边用同一份头文件编译。改了一个类的成员而没有重编所有使用者，不会有任何报错，程序静默地读错内存。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的核心。
+
+> [!NOTE] 与 Java 对照：字节码校验与只对名字
+> `.class` 带完整的类型信息，JVM 在链接时做校验和解析，签名对不上会报 `NoSuchMethodError`、`IncompatibleClassChangeError` 这类错误。`ld.so` 没有类型信息可查：同样是「改了一个类却没重编使用者」，Java 多半得到一个明确的链接错误，C++ 得到的是没有任何提示的内存错读。
+
+回到链接期：那次只是检查和记账——`hello` 里没有库的代码，也没有库的路径，只有库名和符号名。两次解析各用各的搜索路径——链接期是 `-L`，加载期是下一小节的那套规则——所以会出现"链接成功、运行时找不到库"的情况：
 
 ```bash title='用 ldd 看 hello 的动态依赖'
 ldd hello
@@ -1055,6 +1107,9 @@ clang++ -std=c++17 -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath,'$ORIGIN' -o 
 
 （macOS 上 `$ORIGIN` 对应 `@loader_path`，`ldd` 对应 `otool -L`，`LD_LIBRARY_PATH` 对应 `DYLD_LIBRARY_PATH`。）
 
+> [!NOTE] 与 Java 对照：classpath 与两套搜索路径
+> 相同处：Java 也分两次给路径——`javac -cp` 和 `java -cp`——两次不一致时同样是「编译通过、运行时找不到」。不同处有两点。其一，classpath 只能在启动时由命令行或环境给出；C++ 的加载期路径除了环境变量 `LD_LIBRARY_PATH`，还能用 RPATH / RUNPATH 写进二进制，随文件一起分发。其二，classpath 上缺一个 jar，要到用到其中的类才出错；`DT_NEEDED` 里缺一个库，进程启动时就失败。
+
 ### 3. `dlopen`：运行时显式加载
 
 除了启动时按 `DT_NEEDED` 自动加载，程序还可以调 `dlopen("libfoo.so", flags)` 手工加载一个库，用 `dlsym` 按名字取符号。Python 的 `import` 一个 C 扩展就是 `dlopen` 它，然后 `dlsym("PyInit__C")`。
@@ -1156,18 +1211,8 @@ flowchart TB
 
 这一个设计把本节的所有概念用在了同一个工程决策上：`DT_NEEDED`、加载顺序、`RTLD_GLOBAL` vs `RTLD_LOCAL`、符号污染。
 
-### 4. Java 对照：类加载器与 `ld.so`
-
-`ld.so` 和 Java 类加载器是本文最贴切的一组类比，也是最容易误导的一组。
-
-**成立的地方**：两者都在运行时把代码从文件加载进进程；都有"搜索路径"（classpath vs RPATH/`LD_LIBRARY_PATH`）；都有"命名空间隔离"的概念（不同类加载器加载的同名类是不同的类 vs `RTLD_LOCAL` 让不同库的同名符号互不可见）；都能被程序显式调用（`Class.forName` / `URLClassLoader` vs `dlopen`/`dlsym`）。
-
-**误导的地方**：
-
-1. **解析时机**。Java 类加载器加载 `A.class` 时，`A` 引用的 `B` 不会立即加载，第一次真正用到 `B` 时才加载、解析、初始化——完全按需，并且"找不到 `B`"是一个可以 `catch` 的 `NoClassDefFoundError`。`ld.so` 加载一个 `.so` 时会**递归加载它 `DT_NEEDED` 的全部库**（不管用不用），找不到任何一个就整个失败，`import torch` 直接 `ImportError: libcudart.so.12: cannot open shared object file`。函数级的惰性绑定（`RTLD_LAZY`）只推迟"填地址"，不推迟"加载库"。
-2. **类型信息**。类加载器加载的 `.class` 带完整类型，JVM 会做字节码验证，签名不匹配会在链接阶段报 `NoSuchMethodError`/`IncompatibleClassChangeError`。`ld.so` 只对**名字**，名字对上就填地址，参数类型、返回值、结构体布局全靠修饰名里编码的那一点信息和编译时的信任。改了一个类的成员而没有重编所有使用者——Java 会报错，C++ 会静默地读错内存。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的核心。
-3. **谁在查找**。Java 里每个类加载器有自己的查找逻辑，可以写自定义加载器从网络、数据库加载。`ld.so` 只认文件系统路径。
-4. **符号解析在哪个阶段完成**。这是[系列总纲](/cpp-for-ai-infra.html)强调的差别：C++ 的"找不到符号"错误出现在**编译期**（头文件里没声明）、**链接期**（没有 `.o`/库提供定义）和**加载期**（`.so` 找不到或版本不对），这三个阶段都在程序的业务逻辑开始运行之前。Java 的 `ClassNotFoundException` 可以在程序跑了三天之后第一次走到某条路径时才冒出来。C++ 用构建时的严格换来了运行时的确定。
+> [!NOTE] 与 Java 对照：类加载器与 dlopen
+> 相像的地方：都能由程序在运行时显式加载代码（`Class.forName`、`URLClassLoader` 对 `dlopen`、`dlsym`），都有命名空间隔离——不同类加载器加载的同名类是两个不同的类，`RTLD_LOCAL` 让一个库的符号不被后加载的库解析到。不像的地方：类加载器是普通的 Java 对象，可以自己写一个从网络或数据库取字节码；`ld.so` 是操作系统的组件，`dlopen` 按文件路径加载，搜索规则固定为上一节那套顺序。隔离的粒度也不同：Java 按加载器隔离整个类，这里只有全局与局部两个符号作用域。
 
 ## 七、实践一：手写编译命令链接一个 libtorch 程序
 
@@ -1319,7 +1364,7 @@ ldd hello_torch | grep -E 'torch|c10'        # macOS: otool -L hello_torch
 	@rpath/libc10.dylib (compatibility version 0.0.0, current version 0.0.0)
 ```
 
-三个库正是 `-l` 的三个；Linux 的 `ldd` 会直接印出解析后的绝对路径 `libtorch.so => /.../torch/lib/libtorch.so`。CUDA wheel 还会多出 `libtorch_cuda`、`libc10_cuda`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch` 的 `DT_NEEDED` 把它们全拉进来了（第六章「Java 对照：类加载器与 `ld.so`」一节说的"递归加载全部依赖，不管用不用"）。
+三个库正是 `-l` 的三个；Linux 的 `ldd` 会直接印出解析后的绝对路径 `libtorch.so => /.../torch/lib/libtorch.so`。CUDA wheel 还会多出 `libtorch_cuda`、`libc10_cuda`、`libcudart.so.12` 等——虽然程序一行 CUDA 代码都没有，但 `libtorch` 的 `DT_NEEDED` 把它们全拉进来了（[第六章「链接期与加载期的两次解析」一节](#1-链接期与加载期的两次解析)说的"递归加载 `DT_NEEDED` 的全部库，不管用不用"）。
 
 ```bash title='看 hello_torch 的 RPATH 与 libc10 里的 Device::str 符号'
 readelf -d hello_torch | grep -E 'NEEDED|RUNPATH'     # macOS: otool -l hello_torch | grep -A2 LC_RPATH

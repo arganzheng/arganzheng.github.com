@@ -11,7 +11,7 @@ updated: 2026-11-17
 
 [上篇](/cpp-compilation-model-from-cpp-to-shared-object.html)讲的是**一个**翻译单元怎么变成一个 `.so`：预处理、编译、汇编、链接四个阶段，声明与定义、ODR、符号与可见性、动态链接。PyTorch 有几千个翻译单元，最终编成的不是一个 `.so` 而是十几个——`libc10.so`、`libtorch_cpu.so`、`libtorch_cuda.so`、`libtorch.so`、`libtorch_python.so`、`torch/_C.cpython-*.so`……本篇讲**几千个翻译单元怎么组织成几个库**：靠什么划分层次（命名空间）、每一层编成什么（库的分层）、谁来描述这些规则（CMake），以及自己动手搭一个同样结构的最小骨架。
 
-Java 工程师在这里要放弃的直觉是**"一个包就是一个 jar"**。Java 里 `package`、目录、`.jar` 三者天然对齐；C++ 里命名空间、目录、库是三个**独立的维度**——`torch::` 命名空间横跨两个 `.so`，`c10/` 目录编成一个库但 `aten/` 目录编进 `torch_cpu`，而库与库之间的依赖写在 CMake 里而不是源码里。PyTorch 只是让这三个维度**大致**对齐，读懂它的目录结构就是读懂这三个维度各自的规则。
+Java 工程师在这里要放弃的直觉是**"一个包就是一个 jar"**。Java 里包名决定目录，一个构建模块的源码又通常打成一个 `.jar`，名字、目录、产物大体对齐；C++ 里命名空间、目录、库是三个**独立的维度**——`torch::` 命名空间横跨两个 `.so`，`c10/` 目录编成一个库但 `aten/` 目录编进 `torch_cpu`，而库与库之间的依赖写在 CMake 里而不是源码里。PyTorch 只是让这三个维度**大致**对齐，读懂它的目录结构就是读懂这三个维度各自的规则。
 
 上篇开头那个 15 行的 `torch/csrc/stub.c` 在这里再贴一遍——它是 `import torch` 加载的第一个 C 文件，本篇第四章会逐行解释它编成什么、链到哪：
 
@@ -41,9 +41,45 @@ PyTorch 在本篇里是被拆开看的样本，与系列其他篇一样——目
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：一个翻译单元的名字、目录与库：从源码到 wheel 再到下游扩展
+flowchart TB
+    TU["<b>翻译单元（一个 .cpp）</b><br/>• 代码写在哪个 namespace 里<br/>• 文件放在哪个目录下"]
+    SYM["<b>修饰后的符号名</b><br/>c10::、at::、torch:: 只留下名字前缀"]
+    TGT["<b>CMake target</b><br/>• add_library 的源文件清单<br/>• target_link_libraries 的依赖"]
+    subgraph LIBS["torch/lib/ 里的库与扩展模块：每一层只依赖右边更低的层"]
+        direction LR
+        CEXT["_C.cpython-*.so"] --> LPY["libtorch_python.so"]
+        LPY --> LCPU["libtorch_cpu.so<br/>（经空壳 libtorch.so）"]
+        LCPU --> LC10["libc10.so"]
+    end
+    WHEEL["<b>wheel：site-packages/torch/</b><br/>_C.cpython-*.so、lib/、include/、share/cmake/"]
+    RUN["<b>import torch</b><br/>dlopen _C，ld.so 沿 DT_NEEDED 把整条链加载进来"]
+    EXT["<b>下游扩展</b><br/>cpp_extension、vLLM 的 find_package(Torch)"]
+    TU -- "namespace 关键字（第二章）" --> SYM
+    TU -- "目录由谁收进清单（第三章）" --> TGT
+    SYM -- "符号进哪个库与前缀无关（第二章）" --> LIBS
+    TGT -- "编译、链接（第四章）" --> LIBS
+    LIBS -- "setup.py 打包（第四章）" --> WHEEL
+    WHEEL -- "加载（第三章）" --> RUN
+    WHEEL -- "链接哪一个库（第三章）" --> EXT
+```
+
+- **翻译单元**：一个 `.cpp` 连同它包含的头文件。它身上有两个互不相关的属性：代码写在哪个命名空间里，文件放在哪个目录下。PyTorch 有几千个。
+- **修饰后的符号名**：命名空间是语言特性，编译后只剩符号名里的一段前缀（`c10::GetCPUAllocator()` 修饰成 `_ZN3c1015GetCPUAllocatorEv`）。它不决定这个符号进哪个库。
+- **CMake target**：`add_library(名字 源文件清单)` 定义一个库，清单里列了哪些文件，哪些翻译单元就进这个库；`target_link_libraries` 写它依赖哪些别的 target。目录本身不决定任何事，决定的是哪个 target 把它收进了清单。
+- **库的分层**：`libc10.so` 在最底层，`libtorch_cpu.so`（CUDA 构建还有 `libtorch_cuda.so`）依赖它，`libtorch.so` 是把 CPU 与 CUDA 两个库包在一起的空壳，`libtorch_python.so` 是 Python 绑定。依赖关系在链接时写进每个 `.so` 的 `DT_NEEDED`。
+- **`torch/_C.cpython-*.so`**：Python 扩展模块，由 15 行的 `stub.c` 编成，只依赖 `libtorch_python.so`。它是这条链上唯一不由 CMake 而由 setuptools 编译的二进制。
+- **wheel**：`setup.py` 先运行 CMake 把库装进 `torch/lib/`，再编 `_C`，最后连同 `include/`、`share/cmake/` 一起打包。装好之后的 `site-packages/torch/` 就是一份完整的 C++ SDK。
+- **`import torch` 与下游扩展**：wheel 的两种用法。`import torch` 是加载：`dlopen` `_C`，动态链接器沿 `DT_NEEDED` 把整条链拉起来。扩展是链接：按自己用到的符号在哪个库，决定链 `libc10.so`、`libtorch_cpu.so` 还是 `libtorch_python.so`。
+
 ### 1. 三个独立的维度：命名空间、目录、库
 
-上篇的参照系是"Java 一种产物 vs C++ 多种产物"，本篇的参照系是"Java 一个维度 vs C++ 三个维度"。Java 的 `package com.foo.bar` 同时决定了源码目录 `com/foo/bar/`、类的全名，以及它大概率在哪个 jar 里。C++ 里这三件事由三套互不相关的机制决定：**命名空间**是语言特性，只影响名字（与修饰后的符号名）；**目录**是构建系统的约定，CMake 决定哪些目录编进哪个库；**库**是链接器的产物，依赖关系写在 `target_link_libraries` 里。本篇按这个顺序展开，最后用 mini-c10 把三者亲手搭一遍。
+总览图左右两条支路对应三套互不相关的机制：**命名空间**是语言特性，只影响名字（与修饰后的符号名）；**目录**是构建系统的约定，CMake 决定哪些目录编进哪个库；**库**是链接器的产物，依赖关系写在 `target_link_libraries` 里。本篇按这个顺序展开，最后用 mini-c10 把三者亲手搭一遍。
+
+> [!NOTE] 与 Java 对照：一个维度与三个维度
+> Java 的 `package com.foo.bar` 一句声明同时给出类的全名和 class 文件的目录 `com/foo/bar/`，按 Maven / Gradle 的惯例，一个模块目录又打成一个 jar。C++ 里名字、目录、库各由一套机制决定：知道一个类型叫 `torch::autograd::Node`，推不出它在哪个目录，也推不出要链接哪个 `.so`。
 
 ### 2. 本文的章节安排
 
@@ -65,7 +101,7 @@ Table: 本文的章节安排
 
 ### 1. 命名空间的语法
 
-C++ 的 `namespace` 和 Java 的 `package` 目的相同——避免名字冲突、给名字分层——但机制很不一样：
+`namespace` 的作用是避免名字冲突、给名字分层：
 
 ```cpp title='namespace 的语法：重新打开、嵌套简写、using'
 namespace c10 {
@@ -82,17 +118,17 @@ using namespace at;                     // using 指令：引入整个命名空�
 namespace ptx = ::cuda::ptx;            // 命名空间别名
 ```
 
-与 Java `package` 的差别：
+这段代码里有三条规则：
 
-| Java `package` | C++ `namespace` |
-|---|---|
-| 一个文件属于一个 package | 一个文件可以打开任意多个命名空间，一个命名空间跨任意多个文件 |
-| package 和目录结构一一对应 | 命名空间和目录无关（PyTorch 恰好让它们大致对应，这是约定不是规则） |
-| `import` 引入类名，编译期 | `using` 引入名字，纯编译期，不影响二进制 |
-| 没有"把一个包的所有名字注入另一个包"的手段 | `namespace torch { using namespace at; }` 可以（下面会看到） |
-| 类名也是运行时身份（`Class.getName()`） | 命名空间只影响修饰后的符号名，运行时没有"命名空间"对象 |
+1. **命名空间与文件、目录无关。** 一个文件可以打开任意多个命名空间，一个命名空间可以在任意多个文件里重新打开。PyTorch 让 `c10::` 的代码大致都在 `c10/` 下，这是约定，编译器不检查。
+2. **`using` 是纯编译期的名字查找规则。** `using` 声明、`using` 指令和命名空间别名只改变"这个名字去哪里找"，不产生任何代码，不影响二进制。
+3. **命名空间在运行时不存在。** 它只进入修饰后的符号名：`c10::GetCPUAllocator()` 的符号是 `_ZN3c1015GetCPUAllocatorEv`，其中 `3c10` 就是命名空间留下的全部痕迹。运行时没有"命名空间"这种对象可以查询或遍历。
 
-Table: Java package 与 C++ namespace 的差别
+> [!NOTE] 与 Java 对照：package 与文件、目录
+> Java 的一个源文件只能有一条 `package` 声明，class 文件必须放在与包名对应的目录下，否则类加载器找不到它。C++ 的 `namespace` 是一个可以随处打开的代码块，和文件路径没有任何约束关系：`#include <c10/core/Device.h>` 里的 `c10/` 是头文件搜索路径下的目录，`c10::Device` 里的 `c10::` 是命名空间，两者同名只是 PyTorch 的约定。
+
+> [!NOTE] 与 Java 对照：名字在运行时还在不在
+> Java 的全限定类名是运行时身份的一部分：`Class.getName()` 能拿到，`Class.forName("com.foo.Bar")` 能按名字加载，反射可以列出成员。C++ 的命名空间编译完只剩符号名前缀，没有按名字加载或枚举的运行时入口；PyTorch 要"按名字找到算子"，靠的是自己建的注册表（[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)）。
 
 匿名命名空间（[上篇第四章](/cpp-compilation-model-from-cpp-to-shared-object.html#四one-definition-rule同一个名字只能有一个定义)）是 Java 完全没有的：它的目的不是组织名字，而是控制链接属性。
 
@@ -154,7 +190,10 @@ constexpr auto kFloat32 = at::kFloat;
 constexpr auto kFloat64 = at::kDouble;
 ```
 
-`namespace torch { using namespace at; }` 让所有 `at::` 里的名字可以通过 `torch::` 找到。注释解释了一个微妙之处：如果 `torch::` 自己也定义了同名函数，`torch::func()` 优先——这被用来让 `torch::ones(...)` 指向 `torch/csrc/autograd/generated/variable_factories.h` 里带 Autograd 支持的版本，而不是 `at::ones`。这是 `using namespace` 作为**接口分层手段**的用法，Java 没有对应物。
+`namespace torch { using namespace at; }` 让所有 `at::` 里的名字可以通过 `torch::` 找到。注释解释了一个微妙之处：如果 `torch::` 自己也定义了同名函数，`torch::func()` 优先——这被用来让 `torch::ones(...)` 指向 `torch/csrc/autograd/generated/variable_factories.h` 里带 Autograd 支持的版本，而不是 `at::ones`。这是 `using namespace` 作为**接口分层手段**的用法。
+
+> [!NOTE] 与 Java 对照：import 与 using 指令
+> Java 的 `import` 和 C++ 的 `using` 都只在编译期简化名字，但 `import` 的效果只限于写它的那个源文件，别的文件不会因此"通过你的包"看到那些类。`namespace torch { using namespace at; }` 写在头文件里，改的是 `torch` 这个命名空间的查找规则：任何包含这个头文件的代码写 `torch::Tensor`，在 `torch::` 里找不到同名声明时就会继续到 `at::` 里找。Java 没有把一个包的全部名字再经另一个包暴露出去的手段，只能逐个写转发类或转发方法。
 
 类似地，`c10/core/DeviceType.h` 末尾：
 
@@ -186,7 +225,7 @@ vLLM 的 `csrc/` 没有自己的顶层命名空间约定，大部分 kernel 直�
 
 ### 5. 一个命名空间可以横跨多个库
 
-命名空间和库没有对应关系，这一点必须明确。`torch::` 命名空间里的 `torch::autograd::Engine` 在 `libtorch_cpu.so`（`torch/csrc/autograd/engine.cpp` 在 `build_variables.bzl` 的 `libtorch_core_sources` 列表里），而 `torch::autograd::THPVariable_Wrap` 在 `libtorch_python.so`（`torch/csrc/autograd/python_variable.cpp` 在 `libtorch_python_core_sources` 里）。同一个目录 `torch/csrc/autograd/`、同一个命名空间，两个库。区分它们的规则是**是否 `#include <Python.h>`**：碰 Python 对象的进 `libtorch_python.so`，不碰的进 `libtorch_cpu.so`。`torch/csrc/README.md` 开头一句话说明了这个分界：
+命名空间和库没有对应关系，这一点必须明确。`torch::` 命名空间里的 `torch::autograd::Engine` 在 `libtorch_cpu.so`（`torch/csrc/autograd/engine.cpp` 在 `build_variables.bzl` 的 `libtorch_core_sources` 列表里），而 `torch::autograd::PyNode` 在 `libtorch_python.so`（`torch/csrc/autograd/python_function.cpp` 在 `libtorch_python_core_sources` 里）。同一个目录 `torch/csrc/autograd/`、同一个命名空间，两个库。区分它们的规则是**是否 `#include <Python.h>`**：碰 Python 对象的进 `libtorch_python.so`，不碰的进 `libtorch_cpu.so`。`torch/csrc/README.md` 开头一句话说明了这个分界：
 
 ```text title='torch/csrc/README.md：csrc 依赖 lib，反之不然'
 The csrc directory contains all of the code concerned with integration
@@ -196,6 +235,9 @@ versa.
 ```
 
 （这段话是老的：如今 `torch/csrc/` 里也有大量 Python 无关代码，但"Python 相关依赖 Python 无关，反之不成立"这条原则没变。）
+
+> [!NOTE] 与 Java 对照：名字找不到对应的库时
+> Java 的一个包也可以分散在 classpath 上的几个 jar 里（JPMS 模块才禁止），所以"命名空间横跨多个库"本身并不陌生。不同的是后果出现的位置：Java 代码只写类名，少放一个 jar 要到运行时首次用到那个类才报 `NoClassDefFoundError`；C++ 在链接时就必须为每个符号指明库，用了 `torch::autograd::PyNode` 却只链了 `-ltorch_cpu`，得到的是链接期的 `undefined reference`。所以读 PyTorch 代码要多记一件 Java 里不用记的事：这个名字的定义编进了哪个 `.so`。
 
 ## 三、PyTorch 的源码布局与库布局
 
@@ -239,6 +281,9 @@ flowchart TD
 ```
 
 实线是"源码编进哪个库"，虚线是"库依赖哪个库"（`DT_NEEDED`）。图中省略了 `libshm.so`（`torch/lib/libshm/`，共享内存管理，`libtorch_python.so` 依赖它）以及 MKL、OpenMP、cudart、cuDNN、NCCL 等第三方库。
+
+> [!NOTE] 与 Java 对照：目录与构建产物
+> Maven / Gradle 的惯例是一个模块目录（带一份 `pom.xml` 或 `build.gradle`）产出一个 jar，看目录树基本就知道有哪些产物。CMake 的产物由 `add_library` 的源文件清单定义，清单可以来自任何目录：图里 `aten/` 与 `torch/csrc/` 的一部分合进同一个 `libtorch_cpu.so`，`torch/csrc/` 自己又被拆进两个库，而 `aten/src/ATen/CMakeLists.txt` 只把 ATen 的源文件收进 `ATen_CPU_SRCS` 交给上层，`torch_cpu` 这个库定义在 `caffe2/CMakeLists.txt` 里。判断一个 `.cpp` 进哪个库，要看哪个 target 的清单里有它，不能看它在哪个目录。
 
 ### 2. 每一层编成什么
 
@@ -509,6 +554,15 @@ if(NOT BUILD_LIBTORCHLESS)
 Table: target_link_libraries 三个关键字的传播规则
 
 "传给下游"的内容包括链接项、头文件搜索路径和编译定义；`PUBLIC` 就是 `PRIVATE` 加 `INTERFACE`。这些关键字的完整语义在[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)。
+
+> [!NOTE] 与 Java 对照：target 传播与 Maven / Gradle 的依赖范围
+> 最接近的是 Gradle `java-library` 插件的 `api`（≈ `PUBLIC`）与 `implementation`（≈ `PRIVATE`）：都在回答"我的依赖要不要出现在使用者的编译环境里"。Maven 的 `compile` / `provided` / `runtime` / `test` 划分的是另一件事：依赖在哪个阶段的 classpath 上。套用时有三处对不上：
+>
+> | | Maven / Gradle | CMake target |
+> |---|---|---|
+> | 传播的内容 | 构件（jar）本身 | 链接项，加上头文件搜索路径、编译定义、编译选项 |
+> | 依赖从哪来 | 按坐标和版本从仓库下载，冲突时做版本仲裁 | 不下载、不仲裁：target 必须已在本工程里定义，或由 `find_package` 从已安装的位置找到 |
+> | 运行期是否需要 | 由 scope 决定是否进运行时 classpath | 与关键字无关：`PRIVATE` 链接的动态库照样记进 `DT_NEEDED`，加载时照样要找到 |
 
 ```cmake title='c10 的头文件搜索路径：源码树根'
   target_include_directories(

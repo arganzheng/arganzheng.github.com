@@ -51,22 +51,51 @@ at::Tensor scale_shift_cpu(const at::Tensor& x, double alpha, double beta) {
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：一个 Tensor 的持有链，以及拷贝、移动、析构各自改变的环节
+flowchart TB
+    CP["<b>拷贝 Tensor y = x（第五章）</b><br/>多一个句柄，数据不动"]
+    MV["<b>移动 std::move(x)、按值返回（第六章）</b><br/>句柄里的指针换主人"]
+    DT["<b>析构：句柄离开作用域（第七章）</b><br/>没有手工释放的代码"]
+    H["<b>at::Tensor 句柄（第三、四章）</b><br/>值类型，8 字节，在栈上或内嵌在别的对象里"]
+    TI["<b>TensorImpl</b><br/>堆上的实体：形状、dtype 和自己的引用计数"]
+    SI["<b>StorageImpl</b><br/>堆上的实体，多个 view 共享"]
+    DP["<b>DataPtr</b><br/>独占指针，带着分配时定下的删除器"]
+    MEM["数据：内存 / 显存"]
+    H -- "intrusive_ptr：共享持有（第八、九章）" --> TI
+    TI -- "Storage 里的 intrusive_ptr：共享持有" --> SI
+    SI -- "独占持有（第十章）" --> DP
+    DP -- "指向数据；自己析构时调用删除器" --> MEM
+    MV -. "指针搬到新句柄，旧句柄置空，计数不变" .-> H
+    CP -. "强计数 +1" .-> TI
+    DT -. "强计数 −1；归零就 delete，下面各层依次析构" .-> TI
+```
+
+- **`at::Tensor` 句柄**：一个只含一个指针的值对象，声明变量时产生，住在栈上或内嵌在容器、别的对象里，作用域结束时析构。
+- **`TensorImpl`**：`make_intrusive` 在堆上创建的实体，存形状、步长、dtype 和引用计数；有几个句柄指着它，强计数就是几。
+- **`StorageImpl`**：堆上的另一个实体，持有数据的所有权。`x.view(...)` 得到新的 `TensorImpl`，但共享同一个 `StorageImpl`。
+- **`DataPtr`**：`StorageImpl` 的成员，独占那块内存；怎么释放由分配器在分配时塞进去的删除器决定（`free`、还给 CUDA 缓存池……）。
+- **拷贝**：只复制句柄里的指针，`TensorImpl` 的强计数 +1，下面三层都不动。
+- **移动**：指针从旧句柄搬到新句柄，计数不变；按值返回通常连这一步也被编译器省掉。
+- **析构**：句柄消失时强计数 −1；减到 0 时 `TensorImpl` 被 `delete`，`StorageImpl`、`DataPtr` 作为成员依次析构，最后删除器归还数据。
+
 ### 1. 本文的组织方式
 
 本文沿着"一个对象从哪来、归谁、什么时候消失"这条线展开：先把对象放进内存（第三章：栈、堆、值语义），再讨论怎样不复制地引用它（第四章），然后是复制与移动时编译器替你做了什么（第五、六章），最后把"谁负责释放"交给协议（第七章 RAII、第八章标准智能指针、第九章 PyTorch 自己的 `intrusive_ptr`）。第十章用 `Tensor -> TensorImpl -> Storage -> StorageImpl -> DataPtr -> Allocator` 这条真实持有链把前面的机制串起来回答核心问题，第十一章的 mini-c10 再用自己的代码实现一遍。
 
-每一章按同一个节奏：先用十几行能独立编译运行的玩具代码把机制跑出来并逐行解释，再看 PyTorch 源码里同一个机制长什么样（摘录只保留要点，删掉的部分用 `// ...` 标出），需要 Java 对照的地方放在对应知识点旁边。第二章是一份"读本文需要的 C++ 语法最小集"，C++ 老手可以跳过；第三章起凡用到第二章之外的新语法，都会在首次出现处解释。
+每一章按同一个节奏：先用十几行能独立编译运行的玩具代码把机制跑出来并逐行解释，再看 PyTorch 源码里同一个机制长什么样（摘录只保留要点，删掉的部分用 `// ...` 标出），Java 对照以「与 Java 对照」提示块的形式紧跟在对应的机制后面。第二章是一份"读本文需要的 C++ 语法最小集"，C++ 老手可以跳过；第三章起凡用到第二章之外的新语法，都会在首次出现处解释。
 
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 读本文需要的 C++ 语法最小集 | 类的写法、构造/析构、初始化列表、this 与 ->、关键字速查、模板怎么读 |
-| 三 | 对象在哪里：栈、堆与值语义 | 先建立内存的图像<br/>变量就是对象<br/>拷贝在哪里发生<br/>Java 的 = 与 C++ 的 = 含义完全不同 |
+| 三 | 对象在哪里：栈、堆与值语义 | 先建立内存的图像<br/>变量就是对象<br/>拷贝在哪里发生<br/>Tensor 为什么是句柄 |
 | 四 | 引用与指针 | T&、const T&、T* 各自的使用场景<br/>const 的位置与含义<br/>const 成员函数<br/>悬垂引用 |
 | 五 | 六大特殊成员函数与 Rule of Zero/Five | 编译器替你写的六个函数<br/>一个 double free 的完整案例<br/>= default 与 = delete |
 | 六 | 右值引用、`std::move` 与按值返回 | 左值与右值<br/>移动构造<br/>`std::move` 什么都不移动<br/>RVO/NRVO<br/>noexcept 与移动 |
-| 七 | RAII | 确定性析构<br/>与 try-with-resources 的边界<br/>析构顺序<br/>异常安全 |
+| 七 | RAII | 确定性析构<br/>资源跟着所有者走<br/>析构顺序<br/>异常安全 |
 | 八 | 标准智能指针 | `unique_ptr`、`shared_ptr`、`weak_ptr`：三种所有权关系及其代价 |
 | 九 | `c10::intrusive_ptr` | 先用 60 行玩具版讲原理，再读真实源码<br/>比 `shared_ptr` 省了什么<br/>release/reclaim<br/>NullType<br/>弱引用 |
 | 十 | 回到源码：从 Tensor 到显存的完整持有链 | Tensor -> TensorImpl -> Storage -> StorageImpl -> DataPtr -> Allocator；回答核心问题 |
@@ -274,25 +303,28 @@ heap object at 0x104f4dc30, pointer variable itself at 0x16b3fec90
 
 本文后面所有关于"拷贝"、"引用"、"所有权"、"析构"的讨论，都可以放回这幅图里检验。
 
-### 2. Java 的模型：变量是引用，对象在堆上
+> [!NOTE] 与 Java 对照：变量里装的是什么
+> Java 的变量（八种基本类型除外）装的是引用，相当于图里 `hp`、`heap` 这样的指针；对象一律在堆上，何时回收由 GC 决定。C++ 的 `p`、`q` 自身就是那 16 字节，随栈帧弹出而消失；只有显式 `new` 出来的 `Point` 和 Java 的布局相同，而且要有人负责 `delete`。
 
-Java 里写 `Tensor y = x;`，发生的事情是：`x` 和 `y` 是两个引用（本质上就是上图里 `hp` 这样的指针），指向堆上的同一个对象。对象什么时候被回收，由 GC 在某个不确定的时刻决定。除了八种基本类型，Java 没有"对象在栈上"这个概念，也没有"把一个对象按值拷贝一份"的默认语义——要拷贝必须显式调用 `clone()` 或拷贝构造。
+### 2. C++ 的模型：变量就是对象
 
-这个模型简单统一，但它有一个隐藏成本：**每个对象都是一次堆分配，每次访问都是一次间接寻址**。JIT 的逃逸分析能消除一部分，但语言层面没有表达"这个对象就住在这里"的手段。
+声明一个变量，就是在当前作用域里创建一个对象；这个对象的存储空间在栈上（或者作为另一个对象的成员，嵌在那个对象里）；作用域结束，对象析构，空间回收。上面的 `Point p{1.0, 2.0};` 就是这样：`p` 不是"指向一个 Point 的引用"，`p` **就是**那 16 字节。
 
-### 3. C++ 的模型：变量就是对象
+这叫**值语义**（value semantics）：变量代表值本身，赋值和传参默认拷贝值，两个变量之间没有隐藏的共享。`Point q = p;` 之后改 `q.x` 不影响 `p.x`，上面的输出已经证明了。`std::vector<int> b = a;` 会把 `a` 的所有元素拷一份；`std::string s2 = s1;` 也一样。
 
-C++ 的默认恰好相反。声明一个变量，就是在当前作用域里创建一个对象；这个对象的存储空间在栈上（或者作为另一个对象的成员，嵌在那个对象里）；作用域结束，对象析构，空间回收。上面的 `Point p{1.0, 2.0};` 就是这样：`p` 不是"指向一个 Point 的引用"，`p` **就是**那 16 字节。
+> [!NOTE] 与 Java 对照：= 是拷贝，不是多一个引用
+> Java 的 `T b = a;` 让两个引用指向同一个对象，之后 `b.x = 1;` 改的也是 `a.x`；要一份独立的副本得显式调用 `clone()` 或拷贝构造器。C++ 的 `T b = a;` 产生一个新对象，改 `b` 不影响 `a`。`String` / `ArrayList` 在 Java 里赋值只复制引用，对应的 `std::string` / `std::vector` 赋值会把内容整个复制一遍——按 Java 的习惯随手写 `=`，可能就是一次大拷贝。
 
-这叫**值语义**（value semantics）：变量代表值本身，赋值和传参默认拷贝值，两个变量之间没有隐藏的共享。`Point q = p;` 之后改 `q.x` 不影响 `p.x`，上面的输出已经证明了。`std::vector<int> b = a;` 会把 `a` 的所有元素拷一份；`std::string s2 = s1;` 也一样——这两个在 Java 里是引用类型的东西，在 C++ 里是值类型。
-
-"嵌在别的对象里"这一点也值得单独强调。Java 里一个类的字段如果是对象类型，字段存的是引用，对象另在堆上；C++ 里字段就是对象本身：
+"嵌在别的对象里"这一点也值得单独强调。C++ 里对象类型的字段就是对象本身：
 
 ```cpp title="Line 里直接嵌着两个 Point：sizeof 为 32"
 struct Line { Point a; Point b; };   // sizeof(Line) == 32：两个 Point 直接嵌在 Line 里
 ```
 
 `Line` 对象里没有任何指针，32 字节就是两个 `Point` 排在一起。第十章会看到 `TensorImpl` 里嵌着一个 `Storage`、`Storage` 里嵌着一个 `intrusive_ptr`，都是这种"成员就是对象"的嵌套。
+
+> [!NOTE] 与 Java 对照：字段是引用还是内嵌的对象
+> Java 里对象类型的字段存的是引用，被引用的对象另在堆上：一个 `Line` 是三次分配（`Line` 和两个 `Point`），读 `line.a.x` 要多跳一次指针。C++ 的 `Line` 是一块连续的 32 字节，一次分配，没有间接寻址。JIT 的逃逸分析能消掉一部分分配，但那是优化，不是语言保证；Java 的类没有办法声明"这个字段的对象就住在我里面"。
 
 堆对象需要显式创建：
 
@@ -303,7 +335,7 @@ delete hp;                         // 必须手工释放；忘了就泄漏，删
 
 现代 C++ 几乎不直接写 `new`/`delete`，而是用智能指针（第八章）或容器来管理堆对象。但要明白：**智能指针管理的对象在堆上，智能指针本身是一个栈上（或成员）的值对象**。`std::unique_ptr<Point> up = std::make_unique<Point>();` 里，`up` 是一个 8 字节的栈对象，它指向的 `Point` 在堆上。`up` 析构时顺手 `delete` 了那个 `Point`。这就是第七章要讲的 RAII 的雏形。
 
-### 4. 拷贝在哪里发生
+### 3. 拷贝在哪里发生
 
 值语义意味着拷贝会在很多不显眼的地方发生。对一个类型 `T`，下面每一处都会调用 `T` 的**拷贝构造函数**（用一个已有对象初始化一个新对象的构造函数，第五章详述），除非编译器能省略：
 
@@ -374,20 +406,10 @@ dtor      a
 
 逆序析构是 C++ 的硬性规则：同一作用域里后构造的先析构。第七章讲 `TensorImpl` 成员释放顺序时会用到。
 
-### 5. Java 对照：`=` 的含义完全不同
+> [!NOTE] 与 Java 对照：传参
+> Java 调用 `f(a)` 时复制的是引用，被调方法拿到的是同一个对象，没有对象被拷贝。C++ 的 `void f(T t)` 复制的是整个对象（上面的 `a''`，一次拷贝构造加一次析构），写成 `const T&` 才不拷贝。两边也不能直接画等号：Java 方法里给形参重新赋值不影响调用方的变量，C++ 的 `T&` 形参就是调用方那个对象本身（第四章）。
 
-| 表达式 | Java | C++ |
-|---|---|---|
-| `T b = a;` | `b`、`a` 引用同一对象 | `b` 是 `a` 的一份拷贝（新对象） |
-| `b.x = 1;` | `a.x` 也变了 | `a.x` 不变 |
-| `f(a)` | 传引用（引用本身按值拷贝） | 默认拷贝整个对象；写 `const T&` 才是"传引用" |
-| 对象何时销毁 | GC 决定 | 作用域结束时，确定 |
-| 对象在哪 | 堆 | 默认栈/成员内嵌；`new` 才在堆 |
-| 类的字段 | 引用，对象另在堆上 | 对象本身嵌在外层对象里 |
-
-Table: = 的含义：Java 与 C++ 对照
-
-理解这张表之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）——`Tensor` 对象本身只是一个"把手"，真正的东西在它指向的地方。第十章会完整拆开。
+知道 `=` 和按值传参都是拷贝之后再看 `at::Tensor y = x;`，会产生一个正确的担心：这是不是拷贝了整个 tensor？答案是"拷贝了整个 `Tensor` 对象，但 `Tensor` 对象只有一个指针那么大"。`Tensor` 是一个刻意设计成**值语义外壳、引用语义内核**的类型：拷贝它很便宜，拷贝之后两个 `Tensor` 共享同一个 `TensorImpl`。这种设计叫句柄（handle）——`Tensor` 对象本身只是一个"把手"，真正的东西在它指向的地方。第十章会完整拆开。
 
 ## 四、引用与指针：`T&`、`const T&`、`T*`
 
@@ -433,7 +455,8 @@ a=10 b=10 &r==&a? 1
 
 这三条使引用比指针安全得多，也使它成为传参的默认选择。
 
-Java 的引用可以为 `null`，可以重新赋值指向别的对象；C++ 的引用两者都不行。因此"Java 引用"更接近 C++ 的**指针**而不是 C++ 的引用。读到 `Tensor&` 时不要按 Java 的"引用变量"去想，要想成"这个函数直接操作调用方的那个对象"。
+> [!NOTE] 与 Java 对照：Java 的引用更接近 C++ 的指针
+> Java 的引用可以为 `null`，可以重新赋值去指向别的对象；C++ 的引用两样都不行，`r = b;` 改的是被引用的对象。所以"Java 引用"对应的是 C++ 的指针（只是不能做地址运算），不是 `T&`。读到 `Tensor&` 时要想成"这个函数直接操作调用方的那个对象"。
 
 ### 2. 三种传参方式与选择规则
 
@@ -568,7 +591,10 @@ error: 'this' argument to member function 'get' has type 'const Counter',
   }
 ```
 
-为什么一个"返回可写数据指针"的函数能标 `const`？因为它确实没有修改 `Tensor` 对象本身——`Tensor` 对象里只有一个 `impl_` 指针，函数只是顺着指针取了一个地址返回，`impl_` 没变。C++ 的 `const` 只看这个对象自己的字节有没有被改，不追踪指针指向的地方。所以 `const at::Tensor& out` 作为参数时，函数体里照样能往 `out` 的数据里写。这是 PyTorch 有意的设计，读 in-place 算子时不要被 `const` 误导。Java 里没有对应概念（`final` 只管引用不能重新赋值，与此处的浅 `const` 倒是相似）。
+为什么一个"返回可写数据指针"的函数能标 `const`？因为它确实没有修改 `Tensor` 对象本身——`Tensor` 对象里只有一个 `impl_` 指针，函数只是顺着指针取了一个地址返回，`impl_` 没变。C++ 的 `const` 只看这个对象自己的字节有没有被改，不追踪指针指向的地方。所以 `const at::Tensor& out` 作为参数时，函数体里照样能往 `out` 的数据里写。这是 PyTorch 有意的设计，读 in-place 算子时不要被 `const` 误导。
+
+> [!NOTE] 与 Java 对照：浅 const 像 final，深 const 没有对应物
+> Java 的 `final Tensor t` 只保证 `t` 不再指向别的对象，不妨碍通过 `t` 修改对象内容——`const Tensor&` 对句柄的保护正是这种效果。但对普通值类型，C++ 的 `const` 会管到对象的每个成员：通过 `const std::vector<int>&` 不能 `push_back`，也不能改元素。Java 没有这种由编译器检查的"只读访问"，只能靠不可变类或只读包装这类库手段。
 
 **补充：`mutable`。** 标记在数据成员上，表示即使对象是 `const`、即使在 `const` 成员函数里，这个成员也可以改。典型用途是缓存和引用计数：对一个 `const TensorImpl` 增减引用计数并不改变它的"逻辑状态"，所以第九章会看到 `intrusive_ptr_target` 的计数字段是 `mutable` 的。
 
@@ -593,7 +619,7 @@ error: 'this' argument to member function 'get' has type 'const Counter',
 
 ### 5. 悬垂引用：C++ 没有 GC 兜底
 
-引用和指针都不延长对象的寿命。对象死了，引用就悬垂（dangling），再访问是**未定义行为**（undefined behavior）——可能崩，可能读到垃圾，可能碰巧正常，编译器不做任何保证。Java 里不存在这个问题，因为只要有引用，对象就活着。
+引用和指针都不延长对象的寿命。对象死了，引用就悬垂（dangling），再访问是**未定义行为**（undefined behavior）——可能崩，可能读到垃圾，可能碰巧正常，编译器不做任何保证。
 
 最经典的悬垂是返回局部变量的引用：
 
@@ -614,6 +640,9 @@ warning: reference to stack memory associated with local variable 'local' return
 
 但编译器只能识别最简单的情形。把引用存进成员、放进容器、被 lambda 捕获，然后对象在别处析构——这些编译器都查不出来。
 
+> [!NOTE] 与 Java 对照：引用不延长寿命
+> Java 里对象只要还能从某个引用到达就不会被回收，所以不存在"引用指向一个已经销毁的对象"。C++ 的引用和裸指针不参与生命周期：对象按作用域或所有者的安排析构，不管还有多少引用指着它。在 Java 里随手做的事——返回内部对象的引用、把局部对象的引用存进成员或集合——在 C++ 里都要先回答"被引用的对象归谁、活到什么时候"。
+
 `TensorBase.h` 里有一行专门防止一种悬垂：
 
 ```cpp title="TensorBase.h 用 && = delete 禁止从临时对象借用"
@@ -631,7 +660,7 @@ warning: reference to stack memory associated with local variable 'local' return
 
 ### 1. 编译器会替你写的六个函数
 
-Java 里一个类只需要关心构造函数；C++ 的每个类都有六个"特殊成员函数"，如果你不写，编译器在需要时会按规则生成：
+C++ 的每个类都有六个"特殊成员函数"，如果你不写，编译器在需要时会按规则生成：
 
 ```cpp title="编译器会生成的六个特殊成员函数"
 struct T {
@@ -648,7 +677,8 @@ struct T {
 
 编译器生成的版本做的事情是"逐成员"（memberwise）操作：默认构造逐成员默认构造，拷贝构造逐成员拷贝构造，拷贝赋值逐成员赋值，析构逐成员析构（逆序）。对只包含 `int`、`double`、`std::string`、`std::vector` 这类成员的结构体，编译器生成的六个函数就是正确的，一个字都不用写——因为 `std::string` 和 `std::vector` 自己知道怎么正确地拷贝和释放。
 
-Java 只有构造函数（和几乎不用的 `finalize`），没有拷贝构造、赋值运算符、移动这些概念——因为 Java 的 `=` 永远是引用赋值，不需要定义"拷贝一个对象是什么意思"。C++ 的 `=` 是值操作，所以每个类型都要回答这个问题。
+> [!NOTE] 与 Java 对照：为什么 Java 的类只需要构造函数
+> Java 的 `=` 和传参永远只复制引用，语言不需要知道"拷贝一个对象是什么意思"，所以类里只有构造函数（`finalize` 已废弃，也不是析构函数）；想要副本就自己写拷贝构造器或 `clone()`，并显式调用。C++ 的 `=`、按值传参、按值返回都是对象级的操作，编译器必须在这些位置调用某个函数，于是每个类型都要回答拷贝、赋值、移动、销毁各是什么意思——自己写，或者接受编译器生成的版本。
 
 ### 2. 一个 double free 的完整案例
 
@@ -685,7 +715,10 @@ free  0x104c09c00
 
 ![double free 的内存图：a 与 b 指向同一块堆内存](/img/in-post/cpp-value-semantics-ownership-and-raii-double-free.svg)
 
-Java 里没有这个问题：两个引用指向同一对象是常态，GC 只回收一次。C++ 里"两个对象都认为自己拥有同一份资源"就是 bug。修法是**自己写**拷贝构造和拷贝赋值，定义"拷贝一个 `Buffer`"的正确含义——分配一块新内存并复制内容：
+> [!NOTE] 与 Java 对照：共享同一个对象为什么在 Java 里没事
+> Java 里两个引用指向同一个对象是常态：没有谁"负责释放"，GC 在对象不可达之后回收一次。C++ 里 `a`、`b` 各有一个析构函数，各自都会释放 `data` 指向的内存；"两个对象都认为自己拥有同一份资源"就是 bug。要共享，得用带计数的智能指针把"最后一个放手的人释放"写进类型（第八、九章）。
+
+修法是**自己写**拷贝构造和拷贝赋值，定义"拷贝一个 `Buffer`"的正确含义——分配一块新内存并复制内容：
 
 ```cpp title="修复后的 Buffer：自写拷贝构造、拷贝赋值与移动"
 #include <algorithm>
@@ -791,7 +824,10 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
 
 `TensorImpl` 是被引用计数管理的、独一无二的对象，拷贝它没有意义（两个 `TensorImpl` 共享一个引用计数？共享一个 `PyObject` 槽？），所以六个函数里除了析构全部删除，连默认构造都不允许（必须带着 `Storage` 和 `DispatchKeySet` 构造）。`StorageImpl` 同样（`c10/core/StorageImpl.h`）。
 
-这是一个非常实用的阅读线索：**看一个类的特殊成员函数是 `default` 还是 `delete`，就知道它是"值"还是"实体"**。`Tensor`、`Storage`、`Device`、`ScalarType` 是值，随便拷；`TensorImpl`、`StorageImpl`、`Allocator` 是实体，只能通过指针/引用/智能指针访问。Java 里所有对象都是"实体"（只能通过引用访问），所以 Java 工程师读 C++ 代码时要养成先问一句"这个类型是值还是实体"的习惯。
+这是一个非常实用的阅读线索：**看一个类的特殊成员函数是 `default` 还是 `delete`，就知道它是"值"还是"实体"**。`Tensor`、`Storage`、`Device`、`ScalarType` 是值，随便拷；`TensorImpl`、`StorageImpl`、`Allocator` 是实体，只能通过指针/引用/智能指针访问。
+
+> [!NOTE] 与 Java 对照：Java 的对象都是"实体"
+> Java 的对象只能通过引用访问，有自己的身份，赋值不产生副本——按这里的分类全是"实体"，只有基本类型是"值"。C++ 里两类都由用户定义的类充当，而且写法上看不出来：`Tensor y = x;` 能编译是因为 `Tensor` 是值，`TensorImpl b = a;` 编不过是因为它是实体。读一个陌生的 C++ 类型，先看它的拷贝构造是 `default` 还是 `delete`。
 
 ### 4. Rule of Zero 与 Rule of Five
 
@@ -1125,25 +1161,15 @@ caught: boom
 
 把 `Guard` 里的 `printf` 换成 `fopen`/`fclose`、`cudaMalloc`/`cudaFree`、`mutex.lock()`/`unlock()`、`cudaSetDevice(new)`/`cudaSetDevice(old)`、`refcount++`/`refcount--`——任何成对的操作，就得到了一个 RAII 类型。第三章的 `Tracer`、第五章的 `Buffer`、第八章的 `unique_ptr`、第九章的 `intrusive_ptr`、第十章的 `DataPtr`，全都是 RAII 类型。
 
-### 2. Java 对照：`try-with-resources` 与 GC 的边界
+> [!NOTE] 与 Java 对照：try-with-resources 管到哪里
+> `try-with-resources` 也在块结束时确定地调用 `close()`，异常路径同样覆盖，这一点与上面的 `Guard` 等价。差别在范围：它只管在 `try (...)` 头部声明的资源。资源一旦成为某个对象的字段、被放进集合、或者交给别的对象持有，`try` 就管不到了，要由持有者自己实现 `AutoCloseable` 并保证有人调用 `close()`。RAII 对象不论是局部变量、成员、容器元素还是临时对象，都随所有者析构；移动它就是转移所有权。
 
-Java 也有释放资源的机制，但它们和 RAII 的能力边界差别很大：
+RAII 不限于块作用域，这一点对 AI-Infra 很要紧。资源大多不是"一个函数内打开、同一个函数内关闭"：一块显存被一个 `Tensor` 持有，`Tensor` 被放进 `std::vector`，`vector` 是某个 `Module` 的成员，`Module` 又被 Python 对象持有。这条链上没有任何一个块作用域能覆盖显存的整个寿命。RAII 让显存的释放跟着所有者走：最后一个持有者析构的那一刻，显存归还。
 
-| | Java `try-with-resources` | Java GC / `finalize` / `Cleaner` | C++ RAII |
-|---|---|---|---|
-| 释放时机 | 块结束时，确定 | 不确定，可能永远不 | 对象析构时，确定 |
-| 作用范围 | 只能管理**块作用域内**的局部变量 | 任何对象 | 局部变量、成员、容器元素、临时对象 |
-| 能否作为成员传递所有权 | 不能；对象成员必须手工 `close()` | — | 可以：成员随外层对象析构，移动即转移所有权 |
-| 能否放进容器 | 放进去后 `try` 管不到 | — | `std::vector<unique_ptr<T>>` 析构时逐个释放 |
-| 管什么 | 实现了 `AutoCloseable` 的对象 | 内存 | 任何资源 |
+> [!NOTE] 与 Java 对照：GC 只看得见 JVM 堆
+> GC 的回收时机不确定，而且通常只由 Java 堆的压力触发。GPU 显存、文件描述符、锁、native 库分配的内存不在它的账上：堆上只剩一个几十字节的包装对象时，GC 没有理由运行，背后几个 GB 的显存就一直占着。`Cleaner`（以及已废弃的 `finalize`）可以在对象被回收后补做清理，但同样不保证时机。所以 Java 的深度学习库要求显式 `close()`，或者提供 DJL 的 `NDManager` 这样的作用域管理器来成批释放；C++ 里析构是语言规则，不需要额外约定。
 
-Table: try-with-resources、GC 与 RAII 的能力边界
-
-`try-with-resources` 解决的是"一个函数内打开、同一个函数内关闭"的场景。但 AI-Infra 里的资源大多**不是**这样：一块显存被一个 `Tensor` 持有，`Tensor` 被放进 `std::vector`，`vector` 是某个 `Module` 的成员，`Module` 又被 Python 对象持有。这条链上没有任何一个块作用域能覆盖显存的整个寿命。RAII 让显存的释放跟着所有者走：最后一个持有者析构的那一刻，显存归还。
-
-GC 的问题则是另一种：它管理的只是 JVM 堆内存。GPU 显存、文件描述符、锁、外部库分配的内存，GC 根本不知道它们存在。Java 的 GPU 库（如 DJL、TornadoVM）都不得不引入手工的 `close()` 或者 `NDManager` 这种作用域管理器，本质上是在 Java 里模拟 RAII。而在 C++ 里这就是语言本身。
-
-### 3. 析构的顺序
+### 2. 析构的顺序
 
 RAII 的正确性依赖析构顺序的确定性。规则有两条：
 
@@ -1185,9 +1211,12 @@ delete target                          (intrusive_ptr 内部，第九章)
 
 整条链没有一行手写的释放代码。`TensorImpl::~TensorImpl() = default;`（`c10/core/TensorImpl.cpp`）、`~StorageImpl() override = default;`，全靠成员的析构函数层层传递。这就是[系列总纲](/cpp-for-ai-infra.html)那句"整条链上没有一处需要手工 `delete`，这就是 RAII"的具体含义。第十章会把每一层的代码摊开看。
 
-### 4. 异常安全是 RAII 的副产品
+### 3. 异常安全是 RAII 的副产品
 
-Java 用 `finally` 保证清理；C++ 用 RAII。差别是：`finally` 要在每个需要清理的地方写一遍，RAII 写在类型里一次，所有使用点自动获得。PyTorch 的算子实现几乎不写 `try`/`catch`（`TORCH_CHECK` 失败直接抛），却不会泄漏——因为所有中间 `Tensor`、所有 guard 都是 RAII 对象，栈展开时自动清理。7.1 节的 `Guard` 例子就是这个道理的最小版本。
+PyTorch 的算子实现几乎不写 `try`/`catch`（`TORCH_CHECK` 失败直接抛），却不会泄漏——因为所有中间 `Tensor`、所有 guard 都是 RAII 对象，栈展开时自动清理。7.1 节的 `Guard` 例子就是这个道理的最小版本。
+
+> [!NOTE] 与 Java 对照：finally 写在使用点，析构写在类型里
+> C++ 没有 `finally`。Java 的清理代码写在每个使用点（`finally` 或 `try-with-resources`），漏写一处就漏一处；C++ 的清理写在类型的析构函数里一次，每个使用点自动获得，提前 `return`、抛异常都不例外。代价是释放动作在调用处看不见：读 C++ 代码要习惯"右花括号 `}` 处可能有事情发生"。
 
 ## 八、标准智能指针：`unique_ptr`、`shared_ptr`、`weak_ptr`
 
@@ -1351,7 +1380,10 @@ weak: c.use_count=1 d.use_count=2
 
 第一段里，局部变量 `a`、`b` 离开作用域后，堆上的 `A` 和 `B` 还互相持有，计数各是 1，永远不会析构。第二段把反向边改成 `weak_ptr`，`D` 不再"拥有" `C`，环就断了。
 
-Java 有 `WeakReference`，语义相近：不阻止 GC 回收，`get()` 可能返回 `null`。区别是 Java 的 GC 能自动处理循环引用（可达性分析），`WeakReference` 主要用于缓存；C++ 的引用计数处理不了环，`weak_ptr` 的主要用途就是断环。第九章会看到 autograd 图里的环是怎么断的。
+> [!NOTE] 与 Java 对照：WeakReference 与 weak_ptr
+> 形式相近：`WeakReference` 不阻止回收，`get()` 可能返回 `null`，对应 `lock()` 可能返回空。用途不同：Java 的 GC 按可达性回收，互相引用但整体不可达的一组对象照样被回收，所以 `WeakReference` 多用于缓存和规范化映射（如 `WeakHashMap`）；引用计数处理不了环，`weak_ptr` 的首要用途是断环。Java 里随手写的双向引用（父子互指、观察者回指被观察者）搬到 `shared_ptr` 上就是泄漏。
+
+第九章会看到 autograd 图里的环是怎么断的。
 
 ### 4. 选择规则
 
@@ -1813,7 +1845,8 @@ struct C10_API UndefinedTensorImpl final : public TensorImpl {
 
 于是一个默认构造的 `Tensor`（`Tensor t;`）的 `impl_` 不是空指针，而是指向一个全局的 `UndefinedTensorImpl` 单例。`retain_()`/`reset_()` 里的 `if (target_ != NullType::singleton())` 保证不会对这个单例做计数操作。这样做的好处是：对一个 undefined 的 `Tensor` 调用 `t.dim()`、`t.sizes()` 不会解引用空指针崩掉，而是调到 `UndefinedTensorImpl` 的虚函数，抛出一个可读的错误（"...is not defined"）。`defined()` 就是 `impl_ != UndefinedTensorImpl::singleton()`。
 
-Java 里对应的模式叫 Null Object。差别是 C++ 把它做进了智能指针的类型参数里，零运行时开销。
+> [!NOTE] 与 Java 对照：Null Object 模式
+> 这就是 Java 里也常用的 Null Object 模式：用一个"什么都没有"的真实对象代替 `null`（如 `Collections.emptyList()`），调用方法不会得到 `NullPointerException`。差别在于这里的哨兵由智能指针的模板参数在编译期选定，判空仍然只是一次指针比较；而且它不是静默的空实现，访问 undefined `Tensor` 的属性会抛出带说明的错误。
 
 ### 9. 比 `shared_ptr` 省了什么
 
@@ -2254,7 +2287,8 @@ CUDA 分配器从所有权的角度看**没有任何区别**。`c10/cuda/CUDACac
 
 Table: Tensor 拷贝、view 与 clone 的共享关系
 
-Java 对照：`Tensor y = x;` 在效果上最接近 Java 的引用赋值（两个名字指向同一个对象），但机制上是值拷贝——拷贝的是一个带引用计数的句柄。Java 里两个引用指向同一对象不需要任何记账；C++ 这里要做一次原子加，将来还要做一次原子减。这也是为什么 PyTorch 内部大量函数用 `const Tensor&` 而不是 `Tensor` 传参：省掉这两次原子操作。
+> [!NOTE] 与 Java 对照：句柄拷贝像引用赋值，但要记账
+> `Tensor y = x;` 的效果最接近 Java 的引用赋值：两个名字指向同一个对象，改一方另一方看得到。机制上它仍是值拷贝，拷贝的是一个带引用计数的句柄：Java 多一个引用不需要任何记账，这里要做一次原子加，`y` 析构时再做一次原子减。PyTorch 内部大量函数用 `const Tensor&` 而不是 `Tensor` 传参，省的就是这两次原子操作。
 
 **数据什么时候释放**：当且仅当
 
@@ -2417,7 +2451,7 @@ struct StorageImpl : intrusive_ptr_target {
 }  // namespace minic10
 ```
 
-与真实的 `c10::StorageImpl` 一样：拥有一个 `DataPtr`，非拥有地指向一个 `Allocator`，拷贝被删除。析构函数体只是打印，真正的释放由成员 `data_` 的析构完成（7.3 节的规则：函数体先跑，成员再逆序析构）。
+与真实的 `c10::StorageImpl` 一样：拥有一个 `DataPtr`，非拥有地指向一个 `Allocator`，拷贝被删除。析构函数体只是打印，真正的释放由成员 `data_` 的析构完成（7.2 节的规则：函数体先跑，成员再逆序析构）。
 
 ### 3. `core/TensorImpl.h`
 
@@ -2708,21 +2742,6 @@ Table: demo 每一步之后的句柄、引用计数与堆上的动作
 **`c10::intrusive_ptr`**：计数放进对象，8 字节、无控制块、可与裸指针互转；80 行玩具版已具备全部所有权语义，真实版本多了原子操作、弱引用、Python 对象钩子；`make_intrusive` 直接写计数不用原子加；`release`/`reclaim` 是穿越 C/Python 边界的桥；`NullType` 让 undefined `Tensor` 不是空指针；`release_resources()` 让弱引用不拖住显存。
 
 **持有链**：`Tensor`（值）→ `intrusive_ptr<TensorImpl>` → `TensorImpl`（实体）→ `Storage`（值）→ `intrusive_ptr<StorageImpl>` → `StorageImpl`（实体）→ `DataPtr`（独占）→ `unique_ptr<void, DeleterFnPtr>` → 删除器 → `free`/`cudaFree`/缓存池。`Allocator*` 在旁边非拥有地站着。`at::Tensor y = x;` 只是让两个 8 字节句柄指向同一个 `TensorImpl`，数据在最后一个句柄（包括所有 view 的 `TensorImpl`、所有 Python 包装对象）析构的那一刻释放。
-
-最后把 Java 对照集中列一次：
-
-| 概念 | Java | C++ | 类比失效的地方 |
-|---|---|---|---|
-| `T b = a;` | 引用赋值 | 值拷贝 | Java 没有"拷贝对象"的默认语义 |
-| 传参 | 引用按值传 | 默认拷贝；`const T&` 才是传引用 | Java 无法表达"零开销只读传递" vs "拷贝" |
-| 对象死亡 | GC，不确定 | 作用域/最后一个所有者析构，确定 | Java 不能依赖析构做资源释放 |
-| 资源释放 | `try-with-resources` / `close()` | RAII | 前者只覆盖块作用域 |
-| 共享所有权 | 一切皆共享，无需记账 | `shared_ptr`/`intrusive_ptr`，显式计数 | Java 无循环引用问题（GC 处理），C++ 要用 weak 断环 |
-| `null` 对象 | `null` | `nullptr` / Null Object（`UndefinedTensorImpl`） | — |
-| `WeakReference` | 不阻止 GC | `weak_ptr`/`weak_intrusive_ptr`，需 `lock()` | 用途不同：Java 多用于缓存，C++ 多用于断环 |
-| JNI `jobject` 引用 | local/global ref | `release()`/`reclaim()` 出入的裸指针 | 概念直接对应，[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)展开 |
-
-Table: 值语义与所有权：Java 对照汇总
 
 下一篇进入模板：`AT_DISPATCH_FLOATING_TYPES` 里的 `scalar_t` 从哪里来，`data_ptr<scalar_t>()` 的 `<>` 为什么和 Java 泛型完全不是一回事，以及 `IntArrayRef`、`std::optional`、lambda 这些"轻量视图"类型如何与本篇的所有权规则配合。
 

@@ -62,11 +62,39 @@ static PyObject* THPModule_crashIfCsrcASAN(PyObject* module, PyObject* arg) {
 
 ## 一、总览
 
-### 1. 参照系：Java 与 C++ 的三个差别
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：一个 C++ 改动从写完到合入经过的工具链
+flowchart TB
+    SRC["<b>改动</b><br/>.cpp / .h、CMakeLists.txt"]
+    GEN["<b>构建目录 build/</b><br/>build.ninja、CMakeCache.txt、compile_commands.json"]
+    BIN["<b>产物</b><br/>.o → libc10.so、libtorch_cpu.so、bin/ 下的测试二进制"]
+    IDE["<b>clangd、clang-tidy</b><br/>编辑时的红线、提交前的静态检查"]
+    TEST["<b>gtest 二进制 + pytest</b><br/>C++ 层的契约、Python 可见的行为"]
+    DBG["<b>gdb / lldb、core dump</b><br/>看变量、拿崩溃点的栈"]
+    SAN["<b>ASan + UBSan、TSan 构建</b><br/>单独的构建目录，同一批测试再跑一遍"]
+    CI["<b>CI 矩阵</b><br/>gcc / clang、x86_64 / aarch64、CUDA 版本"]
+    SRC -- "cmake 配置（第二章）" --> GEN
+    GEN -- "Ninja + ccache 编译链接（第三章）<br/>-O、-g、-march 在此定死（第四章）" --> BIN
+    GEN -- "逐文件的编译命令（第五、十章）" --> IDE
+    BIN -- "运行测试（第九章）" --> TEST
+    TEST -- "失败或崩溃（第六、七章）" --> DBG
+    TEST -- "通过；改了内存或并发（第八章）" --> SAN
+    SAN -- "提 PR（第十一章）" --> CI
+    DBG -. "修改后重来" .-> SRC
+```
 
-Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一体化，C++ 里由 CMake、编译器、测试框架分别负责，而且依赖管理没有标准答案；JVM 的调试器不关心优化级别，C++ 在 `-O2` 下变量会被优化掉、栈帧会被内联，Debug 构建是必需的；JVM 用运行时检查兜底内存安全，C++ 要靠 sanitizers 在测试阶段主动抓。这三个差别是全文的主线。
+- **构建目录**：`cmake` 配置一次生成的目录。里面有交给 Ninja 的 `build.ninja`、固化了全部开关的 `CMakeCache.txt`，以及每个翻译单元一条编译命令的 `compile_commands.json`。Debug、Release、ASan 各用一个目录。
+- **产物**：Ninja 按依赖关系并行调用编译器，ccache 按预处理后的内容复用 `.o`，再链接出 `libc10.so`、`libtorch_cpu.so` 和 `build/bin/` 下的测试二进制。优化级别、调试信息、目标架构在这一步写进机器码，编完不能改。
+- **clangd、clang-tidy**：都要读 `compile_commands.json` 才知道每个文件的 `-I`、`-D`、`-std`。clang-format 只管格式，只需要源文件和 `.clang-format`。
+- **gtest 二进制与 pytest**：C++ 层的契约（引用计数、移动语义）编成可执行文件来测；能从 Python 观察到的行为用 pytest 测。
+- **gdb / lldb、core dump**：依赖 `-g` 写进二进制的 DWARF 调试信息。`-O2` 下变量和栈帧可能不存在，所以调试用 Debug 构建。
+- **sanitizer 构建**：编译期插桩，把越界、use-after-free、数据竞争从"未定义、表现随机"变成第一次发生就报告。ASan 与 TSan 不能同时开，各占一个构建目录。
+- **CI 矩阵**：同一份改动用 gcc 与 clang、在 x86_64 与 aarch64 上、配不同的 CUDA 版本各编各跑一遍。
 
-### 2. 本文的章节安排
+这条链按成本从低到高排成八步的检查清单，在[第十四章](#十四工程实践建议与常见错误)。Java 读者在这条链上会遇到三类落差：构建、依赖、测试不再由一个工具管；调试器能看到什么取决于优化级别；内存安全没有运行时兜底。每一处的对照以提示块的形式放在对应机制之后。
+
+### 1. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -75,7 +103,7 @@ Java 依然是参照系。Maven/Gradle 把依赖、编译、测试三件事一�
 | 四 | 编译选项 | 优化级别与调试信息<br/>PyTorch 实际的编译选项<br/>-march |
 | 五 | `compile_commands.json` 与 clangd | 让 IDE 和静态分析工具理解百万行项目 |
 | 六 | gdb / lldb | 从 Python 进程进入 C++<br/>在 kernel 前打断点<br/>`pytorch-gdb.py`<br/>-O2 下变量为什么消失 |
-| 七 | 段错误、栈溢出、use-after-free | 三种崩溃的排查路径 |
+| 七 | 段错误、栈溢出、use-after-free | 五类内存错误<br/>崩了与没崩两条排查路径 |
 | 八 | Sanitizers | 插桩原理<br/>一次真实的 ASan 报告<br/>PyTorch 怎么接进 CMake 与 CI<br/>什么时候跑哪个 |
 | 九 | gtest | gtest 的形状<br/>三个测试目录<br/>C++ 测试与 Python 测试的分工<br/>从写完到被 CI 跑 |
 | 十 | clang-format、clang-tidy 与 lint | .clang-format、.clang-tidy、.lintrunner.toml |
@@ -101,7 +129,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release   # 配置：生成 buil
 cmake --build build                                        # 构建：等价于 (cd build && ninja)
 ```
 
-Java 工程师习惯的 Maven/Gradle 把"描述项目"和"执行构建"合成一步，还顺带管理依赖（从中央仓库下载 jar）。CMake 只做第一件事的一半：它描述项目，但不下载依赖（C++ 没有中央仓库；依赖要么系统安装，要么 git submodule 进 `third_party/`，要么用 `FetchContent`/vcpkg/conan 之类没有统一标准的方案）；执行构建交给 Ninja。这就是[系列总纲](/cpp-for-ai-infra.html)说的"三件事由 CMake、编译器和测试框架分别负责"。
+CMake 只描述项目：执行构建交给 Ninja，依赖它也不下载——C++ 没有中央仓库，依赖要么系统安装，要么 git submodule 进 `third_party/`，要么用 `FetchContent`/vcpkg/conan 之类没有统一标准的方案。这就是[系列总纲](/cpp-for-ai-infra.html)说的"三件事由 CMake、编译器和测试框架分别负责"。
+
+> [!NOTE] 与 Java 对照：描述项目、执行构建、管理依赖
+> Maven / Gradle 读 `pom.xml` / `build.gradle` 后自己执行构建，并按坐标从中央仓库下载依赖。CMake 读 `CMakeLists.txt` 后只生成 `build.ninja`，构建由 Ninja 执行，依赖要事先以某种方式放到机器上。Java 里一条 `mvn package` 做完的事，这里分属几个独立的工具。
 
 ### 2. 目标：库、可执行文件，以及它们的属性
 
@@ -194,7 +225,8 @@ flowchart TB
 
 如果把 `-fvisibility=hidden` 错写成 `PUBLIC`，它会沿实线一路传到 `my_ext`，扩展的 `PyInit_*` 就不再导出。
 
-Java 对照：Maven 的 `compile` 与 `runtime`/`provided` scope 有类似的传递性概念（`compile` 依赖传给下游，`provided` 不传），但 Maven 传递的是"jar 文件"这一种东西；CMake 传递的是头文件路径、宏定义、编译选项、链接选项四类属性，粒度更细，而且传错会导致编译期或链接期的失败，而不是运行期的 `ClassNotFoundException`。
+> [!NOTE] 与 Java 对照：依赖的传递范围
+> 最接近的是 Gradle `java-library` 插件的 `api` 与 `implementation`：前者进入下游的编译 classpath，后者不进；Maven 的 scope（`compile` 传给下游，`provided` 不传）是同一类概念。不同在于传递的东西：Java 传的只有 jar 这一种，CMake 传的是头文件路径、宏定义、编译选项、链接选项四类属性。传错的后果出现在下游的编译期或链接期，而不是运行期的 `ClassNotFoundException`。
 
 ### 4. `find_package(Torch)` 找到了什么
 
@@ -294,6 +326,9 @@ find_package_handle_standard_args(Torch DEFAULT_MSG TORCH_LIBRARY TORCH_INCLUDE_
 5. **给 `torch` 目标设属性**：`INTERFACE_INCLUDE_DIRECTORIES` 就是 2.3 节的 `INTERFACE` 传递——链接 `torch` 的目标自动拿到头文件路径；`CXX_STANDARD 17` 声明 PyTorch 2.10 的头文件需要 C++17——与本系列 mini-c10 用的标准一致。`TORCH_CXX_FLAGS` 在模板里只是"如果有就设上"——在 v2.10.0 的源码树里，这个模板文件本身并没有 `set(TORCH_CXX_FLAGS ...)`，也没有任何 `_GLIBCXX_USE_CXX11_ABI` 的字样。（PyTorch 2.x 中的变化：早期版本的 `TorchConfig.cmake.in` 会写 `set(TORCH_CXX_FLAGS "-D_GLIBCXX_USE_CXX11_ABI=@GLIBCXX_USE_CXX11_ABI@")`，让下游自动继承 ABI 设置；2.6/2.7 Linux wheel 统一切到 CXX11 ABI 后，2.8 起这一行从 CMake 模板里删除（同时 `cpp_extension.py` 也不再传 `-D_GLIBCXX_USE_CXX11_ABI`）——v2.10.0 的 `cmake/` 目录下已经找不到它。老教程里 `set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")` 这一行在 2.10 上是无害的空操作。）
 
 一句话总结 `find_package(Torch)` 找到了什么：**一组 IMPORTED 目标（`torch`、`torch_cpu`、`c10`……），每个目标知道自己的 `.so` 在哪里、头文件在哪里、需要什么 C++ 标准、依赖哪些其他目标**。你链接 `torch`，链接器命令行上出现的是 `libtorch.so libtorch_cpu.so libc10.so ...` 的绝对路径。
+
+> [!NOTE] 与 Java 对照：find_package 不是声明一个 Maven 依赖
+> Maven 依赖是一个坐标，Maven 负责把 jar 下载到本地；jar 与平台无关，拿到就能用。`find_package` 只是**找**别人已经装好的东西：装在哪里、版本对不对、编译器和 ABI 是否匹配，都由你负责。找到的 `.so` 与平台、编译器、ABI 绑定，所以依赖出问题可能暴露在四个阶段中的任何一个：配置期 `find_package` 失败、编译期头文件找不到、链接期 undefined reference、加载期 `.so` 找不到。
 
 ### 5. vLLM 是怎么用它的
 
@@ -404,22 +439,9 @@ endfunction()
 
 注意两点。第一，`Python_add_library(... MODULE ...)`：Python 扩展模块用 `MODULE` 而不是 `SHARED`——它是被 `dlopen` 的，不会被别人 `-l` 链接，CMake 对两者的处理略有不同（`MODULE` 不生成 `.dylib`/import lib，只生成能加载的 `.so`）。`USE_SABI 3` 是 Python 稳定 ABI（[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲过 vLLM 为什么用 `TORCH_LIBRARY` 而不是 pybind11——正是为了能用稳定 ABI，一个 `.so` 服务多个 Python 版本）。第二，`target_link_libraries(${MOD_NAME} PRIVATE torch ...)`：只链 `torch`，不链 `torch_python`——[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)「自定义扩展链接到哪一个」一节的结论。CUDA 分支特意不用 `TORCH_LIBRARIES`，因为它会把 cuDNN、NCCL 等一堆依赖拉进来。
 
-vLLM 的 `setup.py` 只是这些 CMake 的驱动器：它计算并发数、选 ccache/sccache、设置 `CMAKE_BUILD_TYPE`，然后调用 `cmake`。下一节看它。
+`find_package` 本身不负责让 libtorch 出现在机器上；vLLM 用"问 Python"的手法，把"装在哪、版本对不对"交给了 pip 装好的那份 torch。
 
-### 6. Java 对照小结
-
-| | Maven / Gradle | CMake + Ninja |
-|---|---|---|
-| 描述项目 | `pom.xml` / `build.gradle` | `CMakeLists.txt` |
-| 执行构建 | 自己执行 | 生成 `build.ninja`，交给 Ninja |
-| 依赖管理 | 中央仓库，按坐标下载 | 无标准；`third_party/` submodule、系统包、`find_package` 找已安装的、`FetchContent` 下载源码 |
-| 传递依赖 | scope（compile/runtime/provided） | `PUBLIC`/`PRIVATE`/`INTERFACE`，传递四类属性 |
-| 产物 | jar（平台无关） | `.so`/`.a`/可执行文件（平台、编译器、ABI 相关） |
-| 依赖找不到 | 运行时 `ClassNotFoundException` 或构建时下载失败 | 配置期 `find_package` 失败、编译期头文件找不到、链接期 undefined reference、加载期 `.so` 找不到——四个阶段之一 |
-
-Table: Maven / Gradle 与 CMake + Ninja 的对照
-
-最容易误导的类比是"`find_package(Torch)` = 声明一个 Maven 依赖"。Maven 依赖是一个坐标，Maven 负责让它出现；`find_package` 只是**找**，找的是别人已经装好的东西，装在哪里、版本对不对、ABI 是否匹配，全部是你的责任。vLLM 用"问 Python"的手法把这个责任转嫁给了 pip。
+vLLM 的 `setup.py` 只是这些 CMake 的驱动器：它计算并发数、选 ccache/sccache、设置 `CMAKE_BUILD_TYPE`，然后调用 `cmake`。第三章看它。
 
 ## 三、构建速度：Ninja、ccache/sccache 与增量构建
 
@@ -539,7 +561,8 @@ flowchart TB
 
 第一道判断里的"输入"是这个翻译单元的 `.cpp` 加上它 include 的全部头文件。Ninja 只看时间戳和依赖关系，所以切分支、删 `build/` 之后它会要求重编一大批文件；这些文件预处理后的内容其实没变，在 ccache 那一步命中。两道判断都拦不住的只有内容真的变了的翻译单元，以及最后的链接。
 
-Java 对照：Gradle 的 build cache 是同一个思路（按输入哈希缓存任务输出，可以远程共享），而且是 Gradle 内建的。C++ 这边 ccache 是编译器无关的外挂，与 CMake、Ninja 都是独立的项目，要分别安装和配置——又一次"三件事由三个工具做"。
+> [!NOTE] 与 Java 对照：构建缓存
+> Gradle 的 build cache 是同一个思路：按输入哈希缓存任务输出，可以远程共享，而且是 Gradle 内建的。ccache / sccache 是套在编译器外面的独立程序，与 CMake、Ninja 分别安装和配置，靠 `CMAKE_<LANG>_COMPILER_LAUNCHER` 接进编译命令。
 
 ### 4. 增量构建怎么控制在分钟级
 
@@ -641,7 +664,8 @@ Table: 几种改动各自触发的重编范围
 
 表的前两列对应上图的第一道判断，第三列对应第二道。
 
-Java 对照：`javac` 的增量编译粒度是类，改一个类的实现（不改签名）只重编这个类；Gradle 还能做到 ABI 感知的增量（改了方法体但没改签名，下游不重编）。C++ 的粒度是翻译单元，而且没有 ABI 感知——头文件里改一个注释，所有 include 它的 `.cpp` 全部重编（ccache 会在预处理后发现内容没变而命中，这是它最有价值的场景之一）。
+> [!NOTE] 与 Java 对照：增量编译的粒度
+> Gradle 和 IDE 的 Java 增量编译以类为粒度，Gradle 还按 ABI 判断：只改方法体、不改签名，下游模块不重编。C++ 的粒度是翻译单元，Ninja 的判断依据是文件时间戳：头文件里只改一行注释，所有 include 它的 `.cpp` 都要重新走一遍编译命令，靠 ccache 在预处理后发现内容没变才免掉真正的编译——这是 ccache 最有价值的场景之一。
 
 ## 四、编译选项：优化级别、调试信息、警告与目标架构
 
@@ -661,6 +685,11 @@ Java 对照：`javac` 的增量编译粒度是类，改一个类的实现（不�
 Table: 优化级别与调试信息选项
 
 `-g` 不影响生成的机器码，只是附加一张"地址 ↔ 源码"的表；所以 `-O2 -g` 是完全合法的组合，这就是 CMake 的 `RelWithDebInfo`。它的问题不是"不能调试"，而是调试时看到的东西和源码对不上：一个局部变量整个生命周期都在寄存器里、中途被复用，调试器只能显示 `<optimized out>`；一个小函数被内联进调用者，栈回溯里没有它自己的帧（DWARF 能记录内联信息，好的调试器会显示 `[inlined]`，但你不能在它的"帧"里 `finish`）。第六章用 mini-c10 实际演示。
+
+优化级别和调试信息都在编译时定死：**必须在"跑得快"和"看得清"之间选一个，编完就改不了**。所以调试 C++ 要另备一份 Debug 构建，否则就是读汇编。
+
+> [!NOTE] 与 Java 对照：优化级别与调试可见性
+> Java 没有 `-O` 级别要选：`javac` 产出的字节码基本不做优化，优化由 JIT 在运行时完成。调试器在断点处看到的仍是字节码层面的帧和局部变量——HotSpot 会把已被 JIT 编译的方法去优化（deoptimization）回解释执行，只要 class 文件带局部变量表（`javac -g`，Maven / Gradle 默认带）就能按名字看到变量。C++ 的优化发生在编译期，被优化掉的变量在二进制里已经不存在，调试器无从恢复。
 
 CMake 的四种构建类型对应的默认选项（GCC/Clang）：
 
@@ -809,6 +838,9 @@ function(torch_compile_options libname)
 
 `c10/CMakeLists.txt` 在 `WERROR` 下还追加 `-Werror=sign-compare` 和 `-Werror=shadow`——c10 是最底层、最被广泛 include 的库，对它要求更严。
 
+> [!NOTE] 与 Java 对照：警告的分量
+> 多数 Java 项目把 `javac` 的警告当提示，换一个 JDK 版本多出几条警告通常不影响构建。C++ 项目普遍开 `-Wall -Wextra`，CI 再加 `-Werror`：警告就是构建失败，而警告集随编译器版本变化，换一个编译器版本可能让原本干净的代码编不过。
+
 ### 3. `-march`：目标 CPU 架构
 
 `-march=native` 让编译器使用当前机器支持的全部指令集（AVX2、AVX-512 等）。对自己用的程序这是免费的性能，但对要分发的二进制是灾难：在支持 AVX-512 的机器上编出的 wheel 在只有 AVX2 的机器上会以 `Illegal instruction` 崩溃。
@@ -844,15 +876,14 @@ PyTorch 的解决方案是**运行时分派**（[《并发、内存模型、TLS 
 
 `-march=native` 只在 `USE_NATIVE_ARCH=ON`（默认 OFF，顶层 `option(USE_NATIVE_ARCH "Use -march=native" OFF)`）时才启用。CUDA 侧的对应物是 `TORCH_CUDA_ARCH_LIST`——为哪些 GPU 架构生成代码，同样是"编多份、运行时选"。
 
-### 4. Java 对照
-
-JVM 的字节码只有一种，JIT 在运行时针对当前 CPU 生成机器码——`-march` 的问题在 Java 里根本不存在；`-O` 级别的选择也不存在，JIT 自己决定优化什么；调试器在任何优化级别下都能看到所有局部变量，因为 JVM 保留了完整的元数据并能在断点处去优化（deoptimization）。C++ 把这三个决策全部前移到编译期，代价就是：**你必须在"跑得快"和"看得清"之间选一个，而且选完了才编，编完就改不了**。Debug 构建不是可选项，是调试 C++ 的必需品——除非你愿意读汇编。
+> [!NOTE] 与 Java 对照：目标 CPU 由谁决定
+> JVM 的字节码与 CPU 无关，JIT 在运行时按当前机器支持的指令集生成机器码，所以 Java 里没有 `-march` 这个决定。C++ 的机器码在编译时就定了，要同时照顾新旧 CPU，只能像 PyTorch 这样把同一份 kernel 编多份、运行时检测后分派。
 
 ## 五、`compile_commands.json` 与 clangd
 
 ### 1. IDE 为什么读不懂 C++ 项目
 
-Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后所有的跳转、补全、错误提示都准确。C++ IDE 打开 PyTorch，什么都不知道：`#include <c10/core/Device.h>` 的 `c10/` 在哪个目录？`C10_API` 展开成什么（取决于 `-DC10_BUILD_MAIN_LIB` 有没有定义）？`#ifdef USE_CUDA` 走哪个分支？这些信息只在编译命令行里——每个 `.cpp` 的 `-I`、`-D`、`-std=` 都可能不同。
+IDE 打开 PyTorch 的源码树，什么都不知道：`#include <c10/core/Device.h>` 的 `c10/` 在哪个目录？`C10_API` 展开成什么（取决于 `-DC10_BUILD_MAIN_LIB` 有没有定义）？`#ifdef USE_CUDA` 走哪个分支？这些信息只在编译命令行里——每个 `.cpp` 的 `-I`、`-D`、`-std=` 都可能不同。
 
 `compile_commands.json` 就是把这些命令行导出来的标准格式（Clang 定义的 "JSON Compilation Database"）。CMake 原生支持：`set(CMAKE_EXPORT_COMPILE_COMMANDS ON)` 或命令行 `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`，配置后 `build/compile_commands.json` 就有了。PyTorch 顶层 `CMakeLists.txt` 和 `c10/CMakeLists.txt` 都写了这一行。文件内容是一个数组，每个元素对应一个翻译单元：
 
@@ -869,6 +900,9 @@ Java IDE 打开一个 Maven 项目，读 `pom.xml` 就知道 classpath，之后�
 ```
 
 （上面是格式示意，具体路径和选项以各自构建目录里生成的文件为准；关键是每个文件带着完整的 `-D`/`-I`/`-std`。）
+
+> [!NOTE] 与 Java 对照：classpath 与编译数据库
+> Java IDE 读 `pom.xml` / `build.gradle` 就得到整个模块的 classpath，同一模块的源文件共用一套编译参数，跳转和补全随即准确。C++ 里每个 `.cpp` 的 `-I`、`-D`、`-std` 可以各不相同，宏定义还会改变代码走哪个分支，IDE 必须拿到逐文件的编译命令；这份数据不写在 `CMakeLists.txt` 里，是 CMake 配置时导出的副产品。
 
 ### 2. clangd
 
@@ -887,7 +921,7 @@ PyTorch 的 `CONTRIBUTING.md` 有一节 "Code completion and IDE support" 专门
 
 ### 3. 与 lint 的关系
 
-`compile_commands.json` 不只是给 IDE 用。clang-tidy 需要它才能分析代码（第十章，`.lintrunner.toml` 里 clang-tidy 的命令带 `--build_dir=./build`，就是去那里找编译数据库）；include-what-you-use、clang 的静态分析器、各种代码索引工具（Sourcegraph、Kythe）都以它为输入。它是 C++ 生态里"让工具理解项目"的通用接口——Java 世界里这个角色由 `pom.xml` 兼任，C++ 世界里它是 CMake 的一个副产品。
+`compile_commands.json` 不只是给 IDE 用。clang-tidy 需要它才能分析代码（第十章，`.lintrunner.toml` 里 clang-tidy 的命令带 `--build_dir=./build`，就是去那里找编译数据库）；include-what-you-use、clang 的静态分析器、各种代码索引工具（Sourcegraph、Kythe）都以它为输入。它是 C++ 生态里"让工具理解项目"的通用接口。
 
 ## 六、gdb / lldb：从 Python 进程断到 C++ kernel
 
@@ -911,7 +945,10 @@ Linux 上是 gdb，macOS 上是 lldb（Xcode 自带）；Linux 上也能用 lldb
 
 Table: gdb 与 lldb 命令对照
 
-Java 工程师熟悉的 IDE 调试器（JDWP 协议）是这些命令的图形前端；VS Code 的 C++ 调试其实就是在后台跑 gdb 或 lldb。差别在于两点：一是 JDWP 由 JVM 实现，调试器看到的是 JVM 维护的完整元数据；gdb/lldb 依赖编译器写进二进制的 DWARF 调试信息，没有 `-g` 就只剩符号名，`-O2` 之后信息不完整。二是 Java 调试一个进程就是调试所有代码；C++ 调试 PyTorch 时，Python 解释器本身通常没有调试信息，你看到的 Python 帧只是 `_PyEval_EvalFrameDefault` 之类的 C 函数，要看 Python 调用栈需要额外工具（CPython 自带的 `python-gdb.py` 或 `py-bt` 命令），本文不展开。
+VS Code 等 IDE 的 C++ 调试是这些命令的图形前端，后台跑的就是 gdb 或 lldb。它们依赖编译器写进二进制的 DWARF 调试信息：没有 `-g` 就只剩符号名，`-O2` 之后信息不完整。另外，调试 PyTorch 时 Python 解释器本身通常没有调试信息，你看到的 Python 帧只是 `_PyEval_EvalFrameDefault` 之类的 C 函数，要看 Python 调用栈需要额外工具（CPython 自带的 `python-gdb.py` 或 `py-bt` 命令），本文不展开。
+
+> [!NOTE] 与 Java 对照：调试信息从哪里来
+> Java 的 IDE 调试器通过 JDWP 连到 JVM，帧、变量、类型都由 JVM 在运行时提供。gdb / lldb 直接读进程的内存和寄存器，靠二进制里的 DWARF 把地址翻译回源码行和变量；二进制里没有的信息它拿不到，而且同一个进程里混着 Python 解释器的 C 帧和 libtorch 的 C++ 帧。
 
 ### 2. 从 Python 进程进入 C++
 
@@ -1096,19 +1133,22 @@ Breakpoint 1: where = demo_o2`minic10::(anonymous namespace)::add_cpu(minic10::T
 
 ## 七、段错误、栈溢出、use-after-free 的排查路径
 
-### 1. 三种崩溃在 Java 里是什么
+### 1. 五类内存错误，两条排查路径
 
-| C++ 现象 | Java 对应 | 差别 |
+| 现象 | 发生了什么 | 默认表现 |
 |---|---|---|
-| 段错误（`SIGSEGV`）：访问了不该访问的地址 | `NullPointerException` / `ArrayIndexOutOfBoundsException` | Java 是精确、可捕获的异常，带栈；C++ 是信号，默认直接杀进程，栈要自己拿 |
-| 栈溢出（也是 `SIGSEGV`，地址在栈的保护页） | `StackOverflowError` | 同上；C++ 还多一种：栈上放了太大的局部数组（`float buf[1<<20]`），一进函数就炸 |
-| use-after-free：读写已经 `free` 的内存 | 不存在（GC 保证对象活着） | C++ 里它**通常不崩**，而是读到垃圾或悄悄写坏别人的数据，症状出现在很远的地方 |
-| 越界读写 | `ArrayIndexOutOfBoundsException` | 同上，通常不崩 |
-| 未初始化的变量 | 编译器拒绝（definite assignment） | C++ 读到栈上的残留值，每次运行可能不同 |
+| 段错误（`SIGSEGV`） | 访问了未映射或无权限的地址，典型是空指针 | 内核发信号，默认直接杀进程；栈要自己拿 |
+| 栈溢出 | 也是 `SIGSEGV`，地址落在栈的保护页；起因是无限递归，或栈上放了太大的局部数组（`float buf[1<<20]`） | 立即崩；后一种是一进函数就崩 |
+| use-after-free | 读写已经 `free` 的内存 | **通常不崩**，读到垃圾或悄悄写坏别人的数据，症状出现在很远的地方 |
+| 越界读写 | 访问数组范围之外的内存 | 同上，通常不崩 |
+| 未初始化的变量 | 读到栈上的残留值 | 不崩，每次运行结果可能不同 |
 
-Table: 三种 C++ 崩溃在 Java 里的对应
+Table: 五类内存错误及其默认表现
 
-关键区别是最后三行：Java 把所有内存错误都变成了确定的、立即的异常；C++ 里只有"访问了未映射的页"才会立即崩，其他情况是未定义行为，表现为随机。所以 C++ 的排查分两条路：**崩了**——拿到崩溃点的栈；**没崩但结果不对**——用 sanitizer（第八章）把不确定的错误变成确定的报告。
+前两行立即崩，因为访问落在未映射的页上；后三行是未定义行为，表现随机。所以 C++ 的排查分两条路：**崩了**——拿到崩溃点的栈；**没崩但结果不对**——用 sanitizer（第八章）把不确定的错误变成确定的报告。
+
+> [!NOTE] 与 Java 对照：异常与未定义行为
+> 这五类在 Java 里要么是带栈、可捕获的异常（空引用抛 `NullPointerException`，越界抛 `ArrayIndexOutOfBoundsException`，递归过深抛 `StackOverflowError`），要么不可能发生：GC 保证还被引用的对象活着，没有 use-after-free；局部变量未赋值就读，编译器直接拒绝。Java 的内存错误都是确定、立即的。C++ 只有前两类立即崩，而且是进程被信号杀掉，不带栈；后三类默认什么都不报。
 
 ### 2. 崩了：拿到栈
 
@@ -1181,7 +1221,7 @@ static torch::unwind::Mode compute_symbolize_mode() {
 
 ### 3. 栈溢出
 
-两种起因：无限递归（Java 也有），以及**栈上的大对象**（Java 没有——Java 的数组永远在堆上）。第二种在 kernel 代码里容易出现：
+两种起因：无限递归，以及**栈上的大对象**。第二种在 kernel 代码里容易出现：
 
 ```cpp title="栈上的大局部数组：4 MB buffer 撞爆线程栈"
 void kernel(...) {
@@ -1191,6 +1231,9 @@ void kernel(...) {
 ```
 
 症状是"一进函数就段错误"，`bt` 显示 `#0` 在函数开头（分配栈帧的指令），地址靠近栈底。`ulimit -s` 看主线程栈大小；工作线程的栈在创建时决定（`pthread_attr_setstacksize`，OpenMP 用 `OMP_STACKSIZE` 环境变量）。修法是把大数组换成 `std::vector` 或 `c10::SmallVector`（[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)；栈上放小的，大了自动转堆）。
+
+> [!NOTE] 与 Java 对照：栈上放不下大数组
+> Java 的数组按语言语义都是堆对象，局部变量里只有一个引用，`StackOverflowError` 基本只来自递归过深。C++ 的局部数组整个放在栈帧里，一个 4 MB 的 `float buffer[1 << 20]` 不需要任何递归就能撞穿线程栈。
 
 一个 PyTorch 特有的栈溢出源：[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的 boxed 调用路径和 autograd 的递归结构，在极深的计算图或 `torch.compile` 生成的巨大函数上可能耗尽栈。调试时的第一条线索是 `bt` 输出几千帧重复的模式。
 
@@ -1235,7 +1278,8 @@ flowchart TD
 
 Sanitizer 是编译器（clang 和 gcc 都支持）的一组选项，让编译器在生成代码时**在每次内存访问、每次算术运算、每次原子操作前后插入检查代码**，并链接一个运行时库来维护检查所需的元数据。程序变慢 2–10 倍、内存翻几倍，但换来的是：原本"未定义、随机"的行为在第一次发生时就被抓住，并打印出精确的位置和来历。
 
-Java 对照：JVM 在运行时**永远**做这些检查（数组边界、空指针、类型转换），代价已经付在每一次执行里；C++ 默认一个都不做，sanitizer 让你**在测试时**付这个代价，发布的二进制还是零开销的。这是 C++"不为没用的东西付费"哲学的一个直接后果：安全检查是可选的、要主动开的。
+> [!NOTE] 与 Java 对照：检查的代价什么时候付
+> JVM 对数组下标、空引用、类型转换的检查是语言语义的一部分，每次执行都做（JIT 只在能证明安全时省掉），代价付在生产环境的每一次运行里。C++ 默认一个都不做；sanitizer 让你只**在测试时**付这个代价，发布的二进制不带检查。这是 C++"不为没用的东西付费"的直接后果：安全检查要主动打开，测试没跑到的路径就没有被检查过。
 
 三个最常用的 sanitizer，能抓什么、抓不到什么：
 
@@ -1497,9 +1541,20 @@ TEST(IntrusivePtrTest, givenPtr_whenDestructed_thenDestructsObject) {
 }
 ```
 
-对照 JUnit：`TEST(Suite, Name)` ≈ 一个 `@Test` 方法，套件名 ≈ 测试类名；`EXPECT_EQ`/`ASSERT_EQ` ≈ `assertEquals`（区别是 `EXPECT_*` 失败后继续，`ASSERT_*` 失败后 `return`——所以 `ASSERT_*` 只能在返回 `void` 的函数里用）；`TEST_F(Fixture, Name)` ≈ 带 `@BeforeEach`/`@AfterEach` 的测试类（fixture 是一个类，`SetUp()`/`TearDown()` 是虚函数）；`TEST_P` ≈ `@ParameterizedTest`；`EXPECT_THROW(stmt, ExceptionType)` ≈ `assertThrows`。
+断言宏有两族：`EXPECT_*` 失败后记录并继续执行，`ASSERT_*` 失败后从当前函数 `return`——所以 `ASSERT_*` 只能用在返回 `void` 的函数里。`TEST_F(Fixture, Name)` 用一个 fixture 类提供公共的准备与清理（`SetUp()` / `TearDown()` 是虚函数），`TEST_P` 是参数化测试，`EXPECT_THROW(stmt, ExceptionType)` 断言语句抛出指定类型的异常。
 
-三处 Java 没有的东西：
+> [!NOTE] 与 Java 对照：gtest 与 JUnit 的写法对应
+> 写法可以逐项对上；JUnit 的断言失败即抛异常、结束当前测试，对应的是 `ASSERT_*`，`EXPECT_*` 那种"失败后继续"在 JUnit 里要用 `assertAll` 才有。
+>
+> | gtest | JUnit 5 |
+> |---|---|
+> | `TEST(Suite, Name)` | 测试类 `Suite` 里的一个 `@Test` 方法 |
+> | `ASSERT_EQ` / `EXPECT_EQ` | `assertEquals` |
+> | `TEST_F(Fixture, Name)` | 带 `@BeforeEach` / `@AfterEach` 的测试类 |
+> | `TEST_P` | `@ParameterizedTest` |
+> | `EXPECT_THROW(stmt, ExceptionType)` | `assertThrows` |
+
+写法之外，有三处与 JUnit 的习惯不同：
 
 1. **测试是编成可执行文件的。** 没有"测试运行器扫描 classpath 找 `@Test`"这回事。每个测试文件（或一组文件）链接 `gtest_main` 编成一个二进制，运行它就跑测试。`TEST` 宏靠[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)讲的**静态注册**把测试函数登记到全局列表——`TEST(A, B)` 展开成一个类和一个静态对象，静态对象的构造函数把测试注册进 gtest 的注册表；`gtest_main` 提供的 `main()` 遍历注册表。这也是为什么测试文件可以放在一个静态库里却"消失"——《宏、静态注册与代码生成》的 `--whole-archive` 问题对测试同样成立。
 2. **过滤靠命令行。** `./test_binary --gtest_filter='IntrusivePtrTest.*'` 只跑一个套件；`--gtest_filter='-*Slow*'` 排除；`--gtest_repeat=100` 重复跑（抓偶发问题）；`--gtest_output=xml:report.xml` 输出 CI 能读的报告。
@@ -1611,7 +1666,8 @@ PyTorch 的测试绝大部分是 Python（`test/` 下几百个 `test_*.py`，用
 
 一个实用的判断标准：**如果这个行为能从 Python 观察到，用 Python 测；否则用 C++ 测**。写一个新算子时，C++ 层的 kernel 函数不需要 gtest——Python 侧对 `torch.ops.myops.scale_shift` 的测试已经覆盖了它；但如果你改了 `c10::SmallVector` 的增长策略，只有 C++ 测试能验证。
 
-Java 对照：JUnit 一统天下，没有"两层测试用两种语言"的问题。C++ 项目的两层测试对应的是 C++ 内核 + Python 外壳这个架构本身——测试跟着接口走，接口在哪一层，测试就在哪一层。
+> [!NOTE] 与 Java 对照：一个框架与两层测试
+> Java 项目的单元测试通常只有 JUnit 一层，因为被测接口都在 Java 里。PyTorch 是 C++ 内核加 Python 外壳，接口分在两层，测试也就分成 gtest 和 pytest 两层：接口在哪一层，测试就写在哪一层。
 
 ### 4. 一个测试从写完到被 CI 跑
 
@@ -1630,7 +1686,7 @@ Python 测试的路径短得多：写 `test/test_foo.py`，`python test/test_foo
 
 ### 1. 三类工具
 
-Java 项目有 Checkstyle（格式）、SpotBugs/ErrorProne（静态分析）、以及 IDE 内置的 inspection。C++ 对应的是：
+C++ 的代码质量工具分三类：
 
 | 工具 | 做什么 | 需要什么输入 | 速度 |
 |---|---|---|---|
@@ -1639,6 +1695,9 @@ Java 项目有 Checkstyle（格式）、SpotBugs/ErrorProne（静态分析）、
 | **lintrunner** | PyTorch 自己的 lint 驱动：读 `.lintrunner.toml`，对改动的文件并行调用几十个 linter（上面两个加 flake8、mypy、以及一堆 grep 规则） | `.lintrunner.toml` | 取决于 linter |
 
 Table: C++ 代码质量的三类工具
+
+> [!NOTE] 与 Java 对照：工具的对应关系
+> 管格式的 clang-format 相当于 Checkstyle / google-java-format，做静态分析的 clang-tidy 相当于 ErrorProne / SpotBugs。lintrunner 这一层在 Java 里没有单独的对应物——那里由 Maven / Gradle 的插件机制承担。
 
 ### 2. `.clang-format`
 
@@ -1887,7 +1946,8 @@ Table: .lintrunner.toml 里的 grep 规则
 
 这些规则把本系列讲过的多条约定变成了机器检查。读 `.lintrunner.toml` 是了解一个 C++ 项目"哪些事不许做"最快的办法。
 
-Java 对照：Checkstyle 的 XML 配置对应 `.clang-format` + grep 规则；ErrorProne/SpotBugs 对应 clang-tidy。差别是集成度：Java 的这些工具挂在 Maven/Gradle 的生命周期里，`mvn verify` 一并跑；C++ 这边 lintrunner 是 PyTorch 自己写的胶水，vLLM 用的是 pre-commit（`.pre-commit-config.yaml` 里挂 `mirrors-clang-format`），每个项目各有各的。
+> [!NOTE] 与 Java 对照：谁把 lint 串起来
+> Java 的 Checkstyle、ErrorProne、SpotBugs 以插件形式挂在 Maven / Gradle 的生命周期里，`mvn verify` 一并跑。C++ 的 clang-format、clang-tidy 是独立的命令行工具，由每个项目自己写胶水：PyTorch 是 lintrunner，vLLM 是 pre-commit（`.pre-commit-config.yaml` 里挂 `mirrors-clang-format`）。
 
 ## 十一、工具链版本矩阵
 
@@ -1964,7 +2024,10 @@ linux-jammy-aarch64-py3.10            # linux-aarch64.yml，镜像是 gcc13
 
 Table: 版本不匹配的典型症状
 
-Java 对照：Java 的版本轴只有一个——JDK 版本，而且 `javac --release 17` 能在新 JDK 上精确产出老版本字节码，`.class` 文件在任何 JVM 上语义一致。C++ 的三个轴（标准、编译器、CUDA）加上[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的第四个轴（标准库 ABI），每个都影响二进制的兼容性，而且没有 `--release` 这样的开关能屏蔽差异。这是"在开发机上能跑"在 C++ 里格外不成立的根本原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
+三个轴（标准、编译器、CUDA）加上[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲的标准库 ABI，每个都影响二进制的兼容性。这是"在开发机上能跑"在 C++ 里格外不成立的原因，也是 Docker 镜像在 AI-Infra 项目里如此普遍的原因——vLLM 的 `docker/Dockerfile` 就是把这整个矩阵钉死的方式。
+
+> [!NOTE] 与 Java 对照：一个版本轴与四个版本轴
+> Java 的版本轴基本只有 JDK 版本：`javac --release 17` 能在新 JDK 上产出面向 17 的字节码，这份 jar 在任何不低于 17 的 JVM 上都能加载，与操作系统和 CPU 无关。C++ 的二进制同时受 C++ 标准、编译器版本、CUDA 版本和标准库 ABI 四个轴约束，没有 `--release` 这样的开关能屏蔽差异。
 
 ## 十二、回到源码
 
@@ -2046,7 +2109,10 @@ class DestructableMock : public intrusive_ptr_target {
 } // namespace
 ```
 
-匿名命名空间（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)：内部链接，不污染别的测试文件）。`DestructableMock` 是这个文件最重要的工具：它通过两个 `bool*` 把"析构发生了没有"写回测试函数的栈变量——C++ 没有 GC，析构时机是确定的，所以可以精确断言"这一行之前没析构，这一行之后析构了"。Java 的测试写不出这种断言（`finalize` 的时机不确定，弱引用加 `System.gc()` 只是尽力）。`release_resources()` 是 `intrusive_ptr_target` 的虚函数，[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过 `weak_intrusive_ptr` 场景下强引用归零但对象还不能 `delete` 时用它提前释放资源。
+匿名命名空间（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)：内部链接，不污染别的测试文件）。`DestructableMock` 是这个文件最重要的工具：它通过两个 `bool*` 把"析构发生了没有"写回测试函数的栈变量——C++ 没有 GC，析构时机是确定的，所以可以精确断言"这一行之前没析构，这一行之后析构了"。`release_resources()` 是 `intrusive_ptr_target` 的虚函数，[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过 `weak_intrusive_ptr` 场景下强引用归零但对象还不能 `delete` 时用它提前释放资源。
+
+> [!NOTE] 与 Java 对照：析构时机可以写进断言
+> Java 对象何时被回收由 GC 决定，测试里无法断言"这一行之后对象已被回收"——弱引用加 `System.gc()` 只是尽力而为。C++ 的析构发生在确定的位置（作用域结束、最后一个强引用释放），所以 `DestructableMock` 能逐行断言。
 
 **编译期测试**：
 
@@ -3009,20 +3075,6 @@ Table: 一个 C++ 改动提 PR 前的检查清单
 - **gtest 宏参数里有逗号（模板参数、初始化列表）要加括号。**
 - **测试文件第一行 include 被测头文件**，保证它自包含。
 - **`EXPECT_*` 用于一个测试里的多条独立断言，`ASSERT_*` 用于后续断言依赖它的前置条件**（比如先 `ASSERT_NE(nullptr, p)` 再 `EXPECT_EQ(5, p->x)`）。
-
-### 6. 与 Java 直觉冲突的几处总结
-
-| Java 直觉 | C++ 现实 |
-|---|---|
-| 构建工具管依赖 | CMake 只找依赖，不装依赖；依赖来源没有标准 |
-| 调试器随时能看所有变量 | 只有 `-O0 -g` 才能；`-O2` 下变量和帧都可能不存在 |
-| 越界/空指针立即抛异常 | 未定义行为，默认什么都不发生；要靠 ASan 在测试时抓 |
-| 一份 jar 到处跑 | 编译器版本、C++ 标准、CUDA 版本、libstdc++ ABI 四个轴都影响二进制兼容 |
-| 警告是编译器输出的噪音 | `-Werror` 下警告是构建失败，而且不同编译器版本的警告集不同 |
-| JUnit 一种测试框架 | C++ 层 gtest，Python 层 pytest，测试跟着接口所在的层走 |
-| Checkstyle/ErrorProne 挂在构建生命周期里 | clang-format/clang-tidy 是独立工具，每个项目自己写胶水（lintrunner、pre-commit） |
-
-Table: 构建工具链：与 Java 直觉冲突的几处
 
 ## 十五、本文小结
 

@@ -73,6 +73,38 @@ struct C10_API NoGradGuard : public AutoGradMode {
 
 ## 一、总览
 
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：torch.no_grad() 背后的并发机制：守卫改写 TLS、Dispatcher 读 TLS，以及线程边界上的三种处理
+flowchart TB
+    PY["<b>with torch.no_grad():</b><br/>Python 上下文管理器"] -- "进入 / 退出（第九章）" --> G["<b>RAII 守卫</b>（第六、七、八章）<br/>构造：存旧值、设新值<br/>析构：恢复旧值"]
+    G -- "读写当前线程那一份" --> TLS["<b>thread_local 状态</b>（第五章）<br/>autograd_state_tls：grad mode<br/>raw_local_dispatch_key_set<br/>current_streams"]
+    TLS -- "每次算子调用读取" --> DISP["<b>Dispatcher 与 autograd kernel</b>（第七、九章）<br/>included / excluded 集合参与选 dispatch key<br/>GradMode::is_enabled() 决定是否建反向图"]
+    TLS -- "新线程从初始值开始，不继承" --> BND{"任务交给另一个线程"}
+    BND -- "at::launch、autograd 引擎" --> TS["<b>ThreadLocalState</b>（第九章）<br/>调用方拍快照，工作线程用守卫装上"]
+    BND -- "at::parallel_for" --> PF["<b>intra-op 线程</b>（第十章）<br/>OpenMP 线程组或原生线程池<br/>不传播 TLS，循环体只做算术"]
+    BND -- "CUDA kernel launch" --> CU["<b>当前 stream</b>（第十一章）<br/>各线程向自己的当前 stream 入队<br/>launch 不加锁"]
+    PF -- "任务队列被多个线程共享" --> TP["<b>c10::ThreadPool</b>（第二章）<br/>mutex + condition_variable + 队列"]
+    TS -- "闭包里的 Tensor 跨线程拷贝、销毁" --> RC["<b>intrusive_ptr 引用计数</b>（第三、四章）<br/>std::atomic：relaxed 增、acq_rel 减"]
+    classDef tls fill:#e8f4f8,stroke:#00788f;
+    classDef shared fill:#fdf2e3,stroke:#c98a2b;
+    class TLS,G,CU tls;
+    class TP,RC shared;
+```
+
+图里的状态分两类：每线程一份的（蓝色，不需要同步），和确实被多个线程共享的（橙色，要么加锁，要么用原子操作）。
+
+- **`thread_local` 状态**：每个线程各有一份的变量，线程创建时取初始值。grad mode（`autograd_state_tls`）、Dispatcher 的 included / excluded 集合（`raw_local_dispatch_key_set`）、每个设备的当前 CUDA stream（`current_streams`）都存成这种变量。
+- **RAII 守卫**：只有构造和析构的局部对象，构造时保存旧值并写入新值，析构时恢复。`NoGradGuard`、`ExcludeDispatchKeyGuard`、`DeviceGuard` 都是这个骨架；Python 的 `with torch.no_grad():` 在 `__enter__` / `__exit__` 里做同样的两步。
+- **Dispatcher 与 autograd kernel**：读 TLS 的一方。每次算子调用，Dispatcher 用 tensor 自带的 key 集合加上 TLS 里的 included、去掉 excluded，选出 dispatch key；autograd kernel 读 `GradMode::is_enabled()` 决定是否记录反向图。
+- **`ThreadLocalState`**：把调用方线程的十几份 TLS 拷成一个值对象，随任务闭包带到工作线程，再用 `ThreadLocalStateGuard` 装上。`at::launch` 和 autograd 引擎这样做，`at::parallel_for` 不做。
+- **intra-op 线程**：`parallel_for` 的工作线程，来自 OpenMP 线程组或基于 `c10::ThreadPool` 的原生线程池，长期存活，TLS 保持各自的初始值。
+- **`c10::ThreadPool`**：任务队列是共享数据，由一把 `std::mutex` 保护，工作线程在 `std::condition_variable` 上等任务。
+- **`intrusive_ptr` 引用计数**：`Tensor` 跨线程拷贝和销毁时被多个线程同时修改的那个 `std::atomic` 字段，增用 `memory_order_relaxed`，减用 `memory_order_acq_rel`。
+- **当前 stream**：kernel launch 把任务排进调用线程的当前 stream，入队的线程安全由 CUDA runtime 负责，host 侧不加锁。
+
+第十二章的 SIMD 是 `parallel_for` 每一块内部的数据并行，不涉及线程间的状态，不在这张图上。
+
 ### 1. 本文的线索：从 TLS 到守卫
 
 开头几段代码里的疑问——`thread_local` 是什么、`NoGradGuard` 为什么只有构造和析构、引用计数为什么 relaxed 增 acq_rel 减、`parallel_for` 为什么不拷贝线程局部状态、CUDA kernel launch 为什么不用锁——共同的背景是 C++ 的并发模型：线程、内存序、线程局部存储，以及 PyTorch 在它们之上搭出的守卫（guard）模式。本文先讲语言机制（第二章到第五章），再讲 PyTorch 用它们搭出的守卫、TLS 传播与 `torch.no_grad()` 的完整链路（第六章到第九章），然后是并行、CUDA launch 与 SIMD（第十章到第十二章），最后在 mini-c10 里落地（第十三章）。
@@ -83,7 +115,7 @@ struct C10_API NoGradGuard : public AutoGradMode {
 |---|---|---|
 | 二 | 线程、锁与条件变量 | 从 `c10::ThreadPool` 读起：`std::thread`、mutex 与锁守卫、`condition_variable` |
 | 三 | C++ 内存模型 | `std::atomic`、六种 memory order、release/acquire 与 happens-before；vLLM CPU 后端的共享内存握手 |
-| 四 | `intrusive_ptr` 引用计数的内存序 | 为什么 relaxed 增、`acq_rel` 减；与 `shared_ptr`、Java 的对照 |
+| 四 | `intrusive_ptr` 引用计数的内存序 | 为什么 relaxed 增、`acq_rel` 减；与 `shared_ptr` 的对照 |
 | 五 | `thread_local` | 存储类别而非类型；c10 里有哪些线程局部状态、为什么做成线程局部 |
 | 六 | 守卫模式 | AutoGradMode/NoGradGuard、InferenceMode、AutoDispatchBelowADInplaceOrView；守卫的分类 |
 | 七 | 回到源码：`LocalDispatchKeySet.h` | 两个集合<br/>零初始化 + XOR<br/>TLS 变量与两个 RAII 守卫<br/>非 RAII API |
@@ -147,7 +179,10 @@ ThreadPool::~ThreadPool() {
 }
 ```
 
-`std::thread` 的构造函数接受任意可调用对象（这里是一个 lambda）并**立刻启动**线程——没有 Java `Thread.start()` 那一步。另一个 Java 没有的规则：一个 `std::thread` 对象在析构时如果仍然 joinable（既没 `join()` 也没 `detach()`），程序会直接 `std::terminate()`。所以析构函数里那个 `join()` 循环不是"礼貌"，而是必需的。C++20 的 `std::jthread` 会在析构时自动 join，但 PyTorch 以 C++17 为基线，源码里都是手写 join。
+`std::thread` 的构造函数接受任意可调用对象（这里是一个 lambda）并**立刻启动**线程。一个 `std::thread` 对象在析构时如果仍然 joinable（既没 `join()` 也没 `detach()`），程序会直接 `std::terminate()`。所以析构函数里那个 `join()` 循环不是"礼貌"，而是必需的。C++20 的 `std::jthread` 会在析构时自动 join，但 PyTorch 以 C++17 为基线，源码里都是手写 join。
+
+> [!NOTE] 与 Java 对照：线程对象不能随手丢弃
+> Java 的 `Thread` 要显式 `start()` 才运行，之后把引用丢掉也无妨，线程自己跑完。`std::thread` 构造即启动，而且对象析构前必须 `join()` 或 `detach()`，否则整个进程被 `std::terminate()` 终止——线程对象的收尾是程序员的责任。
 
 lambda 的捕获列表 `[this, i, init_thread]` 决定了线程体能访问什么。`this` 是裸指针，意味着 `ThreadPool` 对象必须活得比所有工作线程久——析构函数先 join 再返回，正是在维护这个不变量。[《模板与泛型编程》](/cpp-templates-and-generic-programming.html)讨论过 lambda 捕获与生命周期的关系，这里是多线程场景下同一个问题：**被捕获的引用/指针指向的对象，在线程运行期间不能死**。
 
@@ -170,12 +205,12 @@ lambda 的捕获列表 `[this, i, init_thread]` 决定了线程体能访问什�
 
 C++ 几乎不会直接写 `mutex_.lock()` / `mutex_.unlock()`，而是用两种 RAII 守卫：
 
-| 守卫 | 特点 | Java 对照 |
-|---|---|---|
-| `std::lock_guard<std::mutex>` | 构造时 lock，析构时 unlock，中间不能解锁；最轻 | `synchronized (obj) { ... }` |
-| `std::unique_lock<std::mutex>` | 同上，但可以中途 `unlock()` / `lock()`，可以移动，可以配合 `condition_variable::wait` | `ReentrantLock` + `try/finally` |
+| 守卫 | 特点 |
+|---|---|
+| `std::lock_guard<std::mutex>` | 构造时 lock，析构时 unlock，中间不能解锁；最轻 |
+| `std::unique_lock<std::mutex>` | 同上，但可以中途 `unlock()` / `lock()`，可以移动，可以配合 `condition_variable::wait` |
 
-Table: 两种 RAII 锁守卫与 Java 对照
+Table: 两种 RAII 锁守卫
 
 `ThreadPool::run` 用 `unique_lock`（这里其实 `lock_guard` 也够）：
 
@@ -192,7 +227,10 @@ void ThreadPool::run(std::function<void()> func) {
 }
 ```
 
-`lock` 是一个局部变量，函数返回（包括 `TORCH_CHECK` 抛异常）时自动析构、自动解锁。Java 需要 `try { lock.lock(); ... } finally { lock.unlock(); }`，C++ 用[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过的 RAII 把 `finally` 消灭了。注意 `std::mutex` **不可重入**，同一线程二次 `lock()` 是未定义行为；需要重入用 `std::recursive_mutex`。`c10/cuda/CUDACachingAllocator.cpp` 的设备分配器就用了 `mutable std::recursive_mutex mutex;`，因为它的内部路径会互相调用。Java 的 `synchronized` 和 `ReentrantLock` 都是可重入的，这是一个容易踩的直觉差异。
+`lock` 是一个局部变量，函数返回（包括 `TORCH_CHECK` 抛异常）时自动析构、自动解锁——这是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过的 RAII 用在锁上。注意 `std::mutex` **不可重入**，同一线程二次 `lock()` 是未定义行为；需要重入用 `std::recursive_mutex`。`c10/cuda/CUDACachingAllocator.cpp` 的设备分配器就用了 `mutable std::recursive_mutex mutex;`，因为它的内部路径会互相调用。
+
+> [!NOTE] 与 Java 对照：锁的释放与可重入
+> `lock_guard` 的用法接近 `synchronized (obj) { ... }`，`unique_lock` 接近 `ReentrantLock`（可以中途解锁、可以配条件变量）。释放方式不同：`ReentrantLock` 要手写 `try { ... } finally { lock.unlock(); }`，C++ 由守卫的析构函数完成。可重入性也不同：`synchronized` 和 `ReentrantLock` 都可重入，`std::mutex` 不可重入，一个持锁函数再调到另一个要锁同一个 mutex 的函数是未定义行为（实践中通常表现为死锁）。
 
 ### 3. `std::condition_variable`：wait 必须配谓词
 
@@ -251,14 +289,17 @@ void ThreadPool::main_loop(std::size_t index) {
 }
 ```
 
-这段代码是 C++ 条件变量的标准用法，几处细节值得对照 Java 理解：
+这段代码是 C++ 条件变量的标准用法，有四处细节：
 
-- `condition_.wait(lock, pred)` 要求传入 **`unique_lock`**（不能是 `lock_guard`），因为 wait 内部要先解锁、被唤醒后再加锁——这就是为什么 `unique_lock` 必须存在。Java 的 `Condition.await()` 隐含了同样的解锁-重锁过程，只是锁对象由 `Condition` 自己记住。
-- 带谓词的 `wait(lock, pred)` 等价于 `while (!pred()) wait(lock);`，自动处理**虚假唤醒**（spurious wakeup）。Java 里也要求把 `await()` 放在 `while` 循环里，道理一样。
+- `condition_.wait(lock, pred)` 要求传入 **`unique_lock`**（不能是 `lock_guard`），因为 wait 内部要先解锁、被唤醒后再加锁——这就是为什么 `unique_lock` 必须存在。
+- 带谓词的 `wait(lock, pred)` 等价于 `while (!pred()) wait(lock);`，自动处理**虚假唤醒**（spurious wakeup）。
 - 取出任务后先 `lock.unlock()` 再执行任务，执行完再 `lock.lock()`。任务是用户提供的 `std::function`，可能重入线程池，持锁执行会死锁。`unique_lock` 允许这种"中途解锁"，`lock_guard` 不允许。
 - `running_` 是 `std::atomic_bool`，因为析构函数在持锁时写它，而 `while (running_)` 的读也在锁内——其实这里用普通 `bool` 也正确，原子只是防御性的。
 
-在 Java 里，这个线程池会用 `BlockingQueue` + `ExecutorService` 一行搞定；C++ 标准库没有这种高层封装，所以 c10、ATen、autograd 引擎各自有自己的小线程池。读 PyTorch 并发代码时，会反复看到 `mutex + condition_variable + queue` 这个三件套，本节的模式就是模板。
+C++ 标准库（到 PyTorch 用的 C++17 为止）没有线程池和阻塞队列这类高层封装，所以 c10、ATen、autograd 引擎各自有自己的小线程池。读 PyTorch 并发代码时，会反复看到 `mutex + condition_variable + queue` 这个三件套，本节的模式就是模板。
+
+> [!NOTE] 与 Java 对照：Condition.await() 与 ExecutorService
+> Java 的 `Condition` 由 `lock.newCondition()` 创建，绑定在那把锁上，`await()` 不用传锁；`std::condition_variable` 不绑定 mutex，`wait` 时把 `unique_lock` 传进去。解锁、等待、重新加锁的过程两边一样，虚假唤醒两边也都有：Java 要自己把 `await()` 写在 `while` 里，C++ 的谓词版本替你写了这个循环。另外，Java 里这样一个线程池直接用 `ExecutorService`（内部是 `BlockingQueue`）就够了，C++ 这边要手写。
 
 ### 4. 一个可编译的最小版本
 
@@ -306,11 +347,17 @@ class Queue {
 
 ## 三、C++ 内存模型：`std::atomic`、六种 memory order 与 happens-before
 
-锁解决的是"互斥"，但 PyTorch 里大量热路径（引用计数、`running_` 标志、全局注册表的读）不用锁而用原子操作。理解原子操作需要理解 C++ 内存模型，而这恰好是 Java 工程师最有优势的地方：**JMM 和 C++11 内存模型出自同一批人（Hans Boehm、Doug Lea 等）的同一套思想，happens-before、synchronizes-with 这些词在两边含义一致**。差别在于 C++ 把 Java 只有一档的 `volatile` 拆成了六档，让程序员可以选择比 `volatile` 更弱、更便宜的语义。
+锁解决的是"互斥"，但 PyTorch 里大量热路径（引用计数、`running_` 标志、全局注册表的读）不用锁而用原子操作。理解原子操作需要理解 C++ 内存模型：哪些跨线程的读写是合法的，一次原子操作与前后其他内存操作之间有什么顺序关系。这个顺序关系的强度在 C++ 里由程序员逐次显式选择，一共六档。
+
+> [!NOTE] 与 Java 对照：两边的内存模型用同一套词汇
+> C++11 内存模型的设计借鉴了 Java 内存模型（JSR-133），两边都用 happens-before、synchronizes-with 来定义"一个线程的写何时对另一个线程可见"，这部分直觉可以直接带过来。不同在粒度：Java 日常只有普通字段和 `volatile` 两档，C++ 的 `std::atomic` 每次操作都可以单独指定六档 memory order 之一。
 
 ### 1. 为什么需要内存模型
 
-没有同步的多线程读写同一个非原子变量，在 C++ 里是**数据竞争（data race），未定义行为**——不是"可能读到旧值"，而是编译器可以假定它不发生并据此做任意优化。Java 的立场温和一些：数据竞争是允许的，只是读到的值"不确定"。这个差别决定了 C++ 里凡是跨线程共享且会被修改的变量，要么在锁的保护下，要么必须是 `std::atomic<T>`。
+没有同步的多个线程访问同一个非原子变量、其中至少一个是写，在 C++ 里是**数据竞争（data race），未定义行为**——不是"可能读到旧值"，而是编译器可以假定它不发生并据此做任意优化。所以 C++ 里凡是跨线程共享且会被修改的变量，要么在锁的保护下，要么必须是 `std::atomic<T>`。
+
+> [!NOTE] 与 Java 对照：数据竞争的后果不同
+> Java 里有数据竞争的程序仍然有定义的语义：读到的是某个线程写入过的值，可能是旧值（非 `volatile` 的 `long` / `double` 按规范还允许读到只写了一半的值），程序可能因此出错，但不会破坏内存安全。C++ 没有这层保底，一处数据竞争就让整个程序的行为未定义。"先不加同步，最多读到旧值"这个判断在 C++ 里不成立。
 
 `std::atomic<T>` 保证两件事：**每次读写是不可分割的**（不会读到半个 64 位值），以及**可以指定与其他内存操作的顺序关系**（memory order）。后者才是难点。
 
@@ -362,9 +409,10 @@ flowchart LR
 
 如果 (B) 和 (C) 都改成 `relaxed`，synchronizes-with 那条边消失，(D) 读到 0 是合法的——即使在 x86 这种强序硬件上实际很难复现，但编译器有权把 (A) 挪到 (B) 之后。
 
-Java 对照：`volatile` 写 ≈ release 写 + seq_cst 全序，`volatile` 读 ≈ acquire 读 + seq_cst 全序。也就是说 Java 的 `volatile` 大致等于 C++ 的 `seq_cst`，是六档里最强的一档。Java 9 的 `VarHandle` 补上了 `setRelease`/`getAcquire`（对应 release/acquire）和 `setOpaque`/`getOpaque`（接近 relaxed），但日常 Java 代码几乎不用它们。所以"C++ 的内存序显式且可以比 `volatile` 更弱"这句话，指的就是 C++ 让 relaxed 和 acquire/release 成为日常选项。
+还要划清一个边界：**C++ 的 `volatile` 与线程无关**。它只是告诉编译器"这个变量可能被硬件或信号处理函数修改，别优化掉读写"，不提供任何原子性或顺序保证。用 C++ `volatile` 做线程同步是经典错误。
 
-另一个必须划清的边界：**C++ 的 `volatile` 与线程无关**。它只是告诉编译器"这个变量可能被硬件或信号处理函数修改，别优化掉读写"，不提供任何原子性或顺序保证。用 C++ `volatile` 做线程同步是经典错误。
+> [!NOTE] 与 Java 对照：volatile 在两边不是一回事
+> Java 的 `volatile` 字段读写大致相当于 `std::atomic` 的默认档 `seq_cst`，是六档里最强的一档；Java 9 的 `VarHandle` 才提供更弱的访问模式（`setRelease` / `getAcquire` 对应 release / acquire，`setOpaque` / `getOpaque` 接近 relaxed），日常代码很少用。C++ 这边 relaxed 和 release / acquire 是 c10 里随处可见的写法。反过来，Java `volatile` 在 C++ 里的对应物是 `std::atomic<T>`，不是 C++ 的 `volatile` 关键字。
 
 ### 4. 一个真实的例子：vLLM CPU 后端的共享内存握手
 
@@ -465,6 +513,9 @@ inline uint64_t atomic_combined_refcount_increment(
 ```
 
 为什么增加可以用 relaxed？想一想什么时候会执行 +1：**你手里已经有一个有效的 `intrusive_ptr`**，正在拷贝它。这意味着对象此刻至少有一个强引用，不可能被释放。+1 本身不"发布"任何数据给别的线程，也不需要"看到"别的线程发布的数据；它唯一要保证的是原子性（两个线程同时 +1 结果是 +2 而不是 +1），而这正是 relaxed 提供的全部。注释说的 "happens-before decrement" 由程序逻辑保证：你是先拷贝（+1）、再在某个时刻销毁（-1），同一个线程内顺序天然成立。
+
+> [!NOTE] 与 Java 对照：AtomicInteger 的习惯写法对应 seq_cst
+> Java 靠 GC 管理对象生命周期，没有引用计数；最接近的 `AtomicInteger.incrementAndGet()` 是 `volatile` 级别的语义，相当于 seq_cst。照这个习惯写 C++ 会写成不带参数的 `fetch_add(1)`——默认 seq_cst，结果正确，但声明了比需要更强的顺序。c10 的做法是每次原子操作写明够用的最弱一档，并在注释里给出理由。
 
 ### 3. 减：所有减必须 synchronize-with 最后一次减
 
@@ -572,11 +623,9 @@ flowchart TB
 
 这个值只用于诊断和调试，读到一个瞬间即过时的数字是可以接受的，不需要任何顺序保证。
 
-### 5. 和 `std::shared_ptr`、Java 的对照
+### 5. `std::shared_ptr` 的同一选择与构造时的 relaxed 写
 
-`std::shared_ptr` 的控制块做的是同样的事情（libstdc++ 和 libc++ 的实现里，+1 用 relaxed，-1 用 acq_rel），只是它把计数放在独立分配的控制块里，`intrusive_ptr` 放在对象内部——[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讨论过这个取舍。
-
-Java 没有引用计数（GC 负责），但 `AtomicInteger.incrementAndGet()` 是 seq_cst 语义，比 relaxed 强得多。如果用 Java 的直觉去写 C++ 引用计数，会写成 `fetch_add(1)`（默认 seq_cst），功能正确但每次拷贝 `Tensor` 都多付一次全序同步的代价。PyTorch 的 `Tensor` 按值传递极其频繁，这个差异累积起来是可测量的。
+`std::shared_ptr` 的控制块做的是同样的事情（libc++ 的实现里，+1 用 relaxed，-1 用 acq_rel），只是它把计数放在独立分配的控制块里，`intrusive_ptr` 放在对象内部——[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讨论过这个取舍。
 
 还有一个细节在 `intrusive_ptr` 的原始指针构造函数里（类定义中部）：
 
@@ -615,18 +664,21 @@ class C {
 };
 ```
 
-这和 Java `ThreadLocal<T>` 的差别是根本性的：
+`thread_local` 变量写起来和普通变量一样，底层的几个性质：
 
-| | Java `ThreadLocal<T>` | C++ `thread_local T` |
-|---|---|---|
-| 是什么 | 一个库类型，本质是 `Thread` 对象内的一张 map | 语言级的存储类别，编译器/链接器/加载器协作实现 |
-| 访问方式 | `tl.get()` / `tl.set(v)`，返回 `T` 的引用 | 直接当普通变量用：`x = 1;`、`&x` |
-| 存储位置 | 堆上，`Thread.threadLocals` 里 | 线程的 TLS 段（Linux 上通过 `%fs` 段寄存器 + 偏移寻址） |
-| 访问成本 | 一次 hash 查找 | 通常一条带段前缀的访存；跨动态库访问时走 `__tls_get_addr` 函数调用 |
-| 生命周期 | 线程死亡时 map 一起回收；忘记 `remove()` 在线程池中会泄漏 | 线程退出时自动调用析构函数 |
-| 初始值 | `initialValue()` 回调 | 静态初始化必须是常量表达式或零初始化，动态初始化在首次使用时 |
+| 方面 | `thread_local T` |
+|---|---|
+| 是什么 | 语言级的存储类别，编译器 / 链接器 / 加载器协作实现 |
+| 访问方式 | 直接当普通变量用：`x = 1;`、`&x` |
+| 存储位置 | 线程的 TLS 段（Linux x86-64 上通过 `%fs` 段寄存器 + 偏移寻址） |
+| 访问成本 | 通常一条带段前缀的访存；跨动态库访问时走 `__tls_get_addr` 函数调用 |
+| 生命周期 | 线程退出时自动调用析构函数 |
+| 初始值 | 静态初始化必须是常量表达式或零初始化，动态初始化在首次使用时 |
 
-Table: Java ThreadLocal 与 C++ thread_local 的差别
+Table: thread_local 变量的性质
+
+> [!NOTE] 与 Java 对照：ThreadLocal 是库对象，thread_local 是存储类别
+> Java 的 `ThreadLocal<T>` 是一个普通对象，值存在每个 `Thread` 自带的一张 map 里，`get()` / `set()` 是以它为 key 的一次哈希查找，初始值由 `initialValue()`（或 `withInitial`）提供。C++ 的 `thread_local` 变量由加载器放在线程的 TLS 段里，访问不经过任何查找。有一点两边相同：值都活到线程结束，而线程池里的线程长期存活，上一个任务留下的值下一个任务会看到——Java 靠任务结束时 `remove()`，PyTorch 靠第六章的守卫在退出作用域时恢复。
 
 "跨动态库访问时走 `__tls_get_addr`"这一条在 PyTorch 源码里留下了直接痕迹。`c10/core/impl/LocalDispatchKeySet.h` 的守卫类里有：
 
@@ -638,7 +690,7 @@ Table: Java ThreadLocal 与 C++ thread_local 的差别
   DispatchKeySet include_;
 ```
 
-构造时取一次 TLS 变量的地址存起来，析构时直接用这个指针写回，省掉第二次 `__tls_get_addr`。Java 里没有这种优化空间，因为 `ThreadLocal.get()` 的成本是固定的。
+构造时取一次 TLS 变量的地址存起来，析构时直接用这个指针写回，省掉第二次 `__tls_get_addr`。
 
 另一个痕迹是 Windows 的限制。同一头文件里：
 
@@ -813,19 +865,10 @@ C++ 用法与 Python 的对照：
 
 `torch::NoGradGuard` 是 `torch/csrc/api/include/torch/utils.h` 里的 `using NoGradGuard = at::NoGradGuard;`，而 `at::NoGradGuard` 又是 `aten/src/ATen/core/grad_mode.h` 里的 `using NoGradGuard = c10::NoGradGuard;`。三个命名空间，一个类型。[《工程布局》](/cpp-project-layout-namespaces-libraries-and-cmake.html)讲过 `c10::`/`at::`/`torch::` 的分层，这里是分层通过 `using` 声明"向上转发"的具体例子。
 
-Java 对照：`ThreadLocal` 没有配套的作用域机制，写法只能是：
+守卫把"存旧值、设新值、退出时恢复"三件事压进一个局部变量的声明；只要守卫对象存在，析构就一定会执行，包括异常展开时。
 
-```java title="Java 用 ThreadLocal 只能 try/finally 手工恢复"
-Boolean prev = GRAD_MODE.get();
-GRAD_MODE.set(false);
-try {
-    // ...
-} finally {
-    GRAD_MODE.set(prev);
-}
-```
-
-C++ 守卫把 `prev`、`set`、`try/finally` 三件事压进一个局部变量的声明。忘记 `finally` 在 Java 里是常见 bug；C++ 里只要守卫对象存在，析构就一定会执行，包括异常展开时。
+> [!NOTE] 与 Java 对照：ThreadLocal 的保存与恢复要手写 try/finally
+> `ThreadLocal` 本身不带作用域，同样的事在 Java 里写成 `prev = TL.get(); TL.set(v); try { ... } finally { TL.set(prev); }`，漏掉 `finally` 是常见 bug。C++ 把恢复动作放进析构函数，调用方只写一行声明，没有可以漏掉的地方。
 
 ### 2. 复合守卫：`InferenceMode`
 
@@ -898,7 +941,10 @@ struct TORCH_API AutoDispatchBelowADInplaceOrView {
 };
 ```
 
-它们没有析构函数——不需要。成员 `dispatch_key_guard_` 的析构会在外层对象析构时自动执行，恢复 TLS。这是 RAII 的组合性：**守卫可以作为成员嵌进另一个类，生命周期自动跟随**。Java 的 `try-with-resources` 做不到这一点，因为它只能管理块作用域内的局部变量。
+它们没有析构函数——不需要。成员 `dispatch_key_guard_` 的析构会在外层对象析构时自动执行，恢复 TLS。这是 RAII 的组合性：**守卫可以作为成员嵌进另一个类，生命周期自动跟随**。
+
+> [!NOTE] 与 Java 对照：AutoCloseable 字段不会自动关闭
+> `try-with-resources` 只管理 `try (...)` 里声明的局部资源。一个 Java 类把 `AutoCloseable` 存成字段时，必须自己实现 `close()` 并在里面逐个转调。C++ 的成员析构由编译器按声明的逆序自动调用，所以这两个守卫类连析构函数都不用写。
 
 这两个守卫用在什么地方？在 autograd 自动生成的 kernel 里。`tools/autograd/gen_variable_type.py` 生成 `VariableType_*.cpp` 时会插入：
 
@@ -1455,7 +1501,10 @@ inline bool compute_requires_grad(Args&&... args) {
 
 `torch/autograd/grad_mode.py` 的 docstring 明确写着 "This context manager is thread local; it will not affect computation in other threads."；`torch/csrc/api/include/torch/utils.h` 里对 `torch::NoGradGuard` 的注释说的是同一句话。`c10/core/GradMode.h` 里那个 "thread local (!)" 的感叹号，就是在提醒 C++ 用户这个容易被忽略的事实。
 
-Java 对照：Java 的 `ThreadLocal` 有一个子类 `InheritableThreadLocal`，子线程创建时会拷贝父线程的值。C++ 的 `thread_local` **没有**这个机制，新线程的 TLS 一律从初始值开始。PyTorch 需要"继承"语义的地方，必须显式地把状态打包、传过去、在新线程上解包。这就是 `ThreadLocalState` 的作用。
+C++ 的 `thread_local` **没有**任何继承机制，新线程的 TLS 一律从初始值开始。PyTorch 需要"继承"语义的地方，必须显式地把状态打包、传过去、在新线程上解包。这就是 `ThreadLocalState` 的作用。
+
+> [!NOTE] 与 Java 对照：InheritableThreadLocal
+> Java 的 `InheritableThreadLocal` 在子线程**创建**时拷贝父线程的值，`thread_local` 没有对应物。不过即使在 Java 里，这个继承对线程池也不起作用：池里的线程早就创建好了，提交任务时不会再拷贝，仍然要在任务边界上手工捕获和恢复。`ThreadLocalState` 做的正是这件事——按任务传播，而不是按线程创建传播。
 
 ### 3. `ThreadLocalState`：显式传播 TLS
 
@@ -1723,7 +1772,10 @@ inline void invoke_parallel(
 
 异常处理值得注意：OpenMP 并行区域**不允许异常逃逸**（会 `terminate`），所以每个线程用 `try/catch(...)` 捕获，用 `std::atomic_flag::test_and_set()` 保证只有第一个异常被存进 `std::exception_ptr`，并行区域结束后在主线程 `rethrow_exception`。`std::atomic_flag` 是最小的原子类型，`test_and_set` 是原子的"置 1 并返回旧值"，这里用它当"只让一个线程进来"的门闩。这是本文第三章的原子操作的又一个实际用途。
 
-Java 对照：`#pragma omp parallel` 最接近的是 `IntStream.range(0, n).parallel().forEach(...)`，都是把区间切块交给一个共享的线程池（ForkJoinPool.commonPool 对应 OpenMP 的线程组）。但 OpenMP 是编译器扩展而不是库：`#pragma` 在预处理后由编译器生成 fork/join 代码，没开 `-fopenmp` 时 `#pragma omp` 被忽略、代码退化为单线程。
+OpenMP 是编译器扩展而不是库：`#pragma` 在预处理后由编译器生成 fork/join 代码，没开 `-fopenmp` 时 `#pragma omp` 被忽略、代码退化为单线程。
+
+> [!NOTE] 与 Java 对照：#pragma omp parallel 与并行流
+> 最接近的 Java 写法是 `IntStream.range(0, n).parallel().forEach(...)`：都是把一个区间切块交给一组共享的工作线程（并行流默认用 `ForkJoinPool.commonPool()`）。区别在于并行流是库，靠递归拆分和工作窃取分配任务；这里的 OpenMP 并行区域由编译器生成，每个线程按自己的编号算出一段固定区间。
 
 ### 4. 执行层 B：原生线程池（`aten/src/ATen/ParallelNative.h/.cpp`）
 
@@ -1986,6 +2038,9 @@ flowchart LR
     Q1 -.-|无顺序保证，除非用 event 同步| Q2
 ```
 
+> [!NOTE] 与 Java 对照：stream 像单线程 Executor 的任务队列
+> 一条 stream 的行为接近 `Executors.newSingleThreadExecutor()`：多个线程都可以往里提交，任务按提交顺序一个个执行；不同 executor 之间没有顺序，要等对方就得显式等待（Java 用 `Future`，CUDA 用 event 或同步调用）。不同的是队列在 GPU 一侧，"提交到哪条队列"默认取自线程局部的当前 stream。
+
 ### 3. 哪里还是有锁的
 
 不是 CUDA 路径上完全没有锁。`c10/cuda/CUDACachingAllocator.cpp` 的设备内存分配器是进程级共享的：
@@ -2001,8 +2056,6 @@ flowchart LR
 ```
 
 `at::empty(..., kCUDA)` 会走到这里。分配器维护的空闲块列表、按 stream 归属的块记录等是所有线程共享的数据结构，必须加锁。所以准确的说法是：**kernel launch 本身不用锁，因为 CUDA runtime 已经做了；但 launch 之前的显存分配、以及 PyTorch 侧任何共享数据结构的修改，还是锁保护的**。读 CUDA 算子代码时可以用这条线把"需要担心并发的部分"和"不需要的部分"分开。
-
-Java 对照：这个模型和 Java 里"每个线程自己的 `ExecutorService` 队列，任务之间用 `CompletableFuture` 链接依赖"类似，只是队列在 GPU 上，"当前队列"存在 TLS 里。
 
 ## 十二、SIMD 简介：`at::vec::Vectorized<T>`
 
@@ -2607,27 +2660,12 @@ out[12345] = 24690
 - **多进程训练设 `OMP_NUM_THREADS`**，否则每个进程默认开满核数的 intra-op 线程，总线程数远超核数。
 - **写 CPU kernel 时把标量版和向量版一起交给 `cpu_kernel_vec`**，不要手写 `Vectorized` 循环和尾部处理。
 
-### 5. 与 Java 直觉冲突的几处总结
-
-| Java 直觉 | C++ 事实 |
-|---|---|
-| 数据竞争只是读到旧值 | 数据竞争是未定义行为，编译器可以据此做任意优化 |
-| `volatile` 提供可见性和顺序 | C++ `volatile` 与线程无关；用 `std::atomic` |
-| `synchronized`/`ReentrantLock` 可重入 | `std::mutex` 不可重入；重入是 UB |
-| `ThreadLocal` 是个 map，访问有 hash 成本 | `thread_local` 是存储类别，访问通常一条指令；但跨 `.so` 访问有 `__tls_get_addr` 开销 |
-| `InheritableThreadLocal` 让子线程继承 | 没有对应机制，必须显式传播（`ThreadLocalState`） |
-| `Thread` 对象可以随意丢弃 | `std::thread` 析构前必须 join 或 detach，否则 `terminate` |
-| `AtomicInteger` 的操作都是最强语义 | `std::atomic` 默认 seq_cst，但可以显式选 relaxed/acquire/release |
-| 忘记 `finally` 里的 `remove()`/`unlock()` 是常见 bug | RAII 守卫让"退出时恢复"由析构函数保证，包括异常路径 |
-
-Table: 与 Java 直觉冲突的几处
-
 ## 十五、本文小结
 
 本篇从 `with torch.no_grad():` 出发，把 C++ 并发模型的几个部件和 PyTorch 在其上搭出的模式串了一遍：
 
 - **线程、锁、条件变量**：与 Java 概念对应，但锁由 RAII 守卫持有，`std::mutex` 不可重入，`condition_variable::wait` 需要 `unique_lock` 和谓词。`c10::ThreadPool` 是这一套的标准样板。
-- **内存模型**：与 JMM 同源，但把 `volatile` 一档拆成六档。release 写与 acquire 读配对建立 happens-before；relaxed 只保证原子性。`intrusive_ptr` 的引用计数 +1 用 relaxed（不需要看到或发布任何数据），-1 用 acq_rel（每次减都可能是最后一次，必须同时扮演 release 和 acquire）。PyTorch 2.10 把强、弱计数合并进一个 64 位原子字段，但这个选择不变。
+- **内存模型**：数据竞争是未定义行为；原子操作的顺序强度分六档，默认 `seq_cst`（Java `volatile` 大致对应这一档）。release 写与 acquire 读配对建立 happens-before；relaxed 只保证原子性。`intrusive_ptr` 的引用计数 +1 用 relaxed（不需要看到或发布任何数据），-1 用 acq_rel（每次减都可能是最后一次，必须同时扮演 release 和 acquire）。PyTorch 2.10 把强、弱计数合并进一个 64 位原子字段，但这个选择不变。
 - **`thread_local`**：语言级存储类别，每线程一份，不继承。c10 用它存 grad mode、dispatch key 集合、当前 CUDA stream 和设备、并行区域标志等所有"上下文"状态。零初始化的 POD 才能做成最快的 TLS，`LocalDispatchKeySet` 为此用了 XOR 编码。
 - **守卫**：RAII 从"管资源"推广到"管上下文"。三步骨架——保存旧值、设新值、析构恢复；删掉拷贝和移动；可作为成员组合。`NoGradGuard`、`InferenceMode`、`ExcludeDispatchKeyGuard`、`AutoDispatchBelowADInplaceOrView`、`DeviceGuard`、`CUDAStreamGuard`、`ThreadLocalStateGuard` 全是同一个模板。`DeviceGuard` 额外用"虚接口 + 内联模板"两层结构在不依赖 CUDA 的 `libc10` 里实现对 CUDA 设备的切换。
 - **`parallel_for`**：`Parallel.h` 定义接口，`Parallel-inl.h` 决定是否并行（元素数超过 `grain_size`、不在并行区域内、线程数大于 1），`ParallelOpenMP.h`/`ParallelNative.cpp` 提供 OpenMP 线程组或自有线程池两种执行层。线程数的优先级是 `torch.set_num_threads()` > `MKL_NUM_THREADS` > `OMP_NUM_THREADS` > 核数。
@@ -2684,7 +2722,7 @@ mini-c10 这一篇把 `refcount_` 改成了 `std::atomic<size_t>`（与 c10 相�
 [^q1]: 提醒读者：这个「全局」状态其实是每线程一份，新线程**不继承**创建者的值。在主线程里 `no_grad` 之后启动的工作线程读到的仍是默认值 `True`，跨线程必须显式传递——这正是 `at::ThreadLocalState` 存在的原因。详见[第五章](#五thread_local语言机制以及-c10-里有哪些线程局部状态)、[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。
 [^q2]: 它是一个**守卫**（guard）：RAII 管理的不是资源而是「上下文」。构造函数保存旧值并设新值，析构函数恢复旧值，作用域结束（包括异常路径）自动生效；业务逻辑全在这两处，所以不需要其他方法。删掉拷贝与移动是因为一旦有两份副本，谁在析构时恢复、恢复成什么值就说不清了——守卫必须与作用域一一对应。详见[第六章](#六守卫模式raii-管理的不只是资源还有上下文)。
 [^q3]: memory order 规定一次原子操作对其他线程可见性的强弱：`relaxed` 只保证原子性、不建立任何顺序；`acq_rel` 让这次操作之前的写对之后拿到它的线程可见（happens-before）。计数 +1 时对象已经被持有、别人不可能在此刻释放它，所以用最便宜的 `relaxed`；−1 到零的那一次要保证所有线程对该对象的写都在析构之前完成，所以要 `acq_rel`。详见[第三章](#三c-内存模型stdatomic六种-memory-order-与-happens-before)、[第四章](#四为什么-intrusive_ptr-的引用计数-relaxed-增acq_rel-减)。
-[^q4]: 来自 OpenMP 的线程池（或 c10 自己的 `ThreadPool`），按 grain size 把区间切给多个线程。它们是长期存在的工作线程，不会带着调用者的 TLS，所以 `no_grad` 里发起的 `parallel_for` 在工作线程上看不到 grad mode 已关闭——PyTorch 在进入 kernel 前用 `ThreadLocalState` 打包、在工作线程里用 `ThreadLocalStateGuard` 恢复。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)、[第十章](#十atparallel_foropenmpgrain-size-与线程数)。
+[^q4]: 来自 OpenMP 的线程池（或 c10 自己的 `ThreadPool`），按 grain size 把区间切给多个线程。它们是长期存在的工作线程，不会带着调用者的 TLS，所以 `no_grad` 里发起的 `parallel_for`，循环体在工作线程上读到的 grad mode 仍是默认值。`parallel_for` 特意不传播 TLS（循环体只应做算术、不调 tensor 算子）；需要传播的地方——`at::launch`、autograd 引擎——才用 `ThreadLocalState` 打包、在工作线程里用 `ThreadLocalStateGuard` 恢复。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)、[第十章](#十atparallel_foropenmpgrain-size-与线程数)。
 [^q5]: launch 本身是把一条命令排进某个 CUDA stream 的队列，CUDA runtime 对 context 与 stream 的操作内部是线程安全的；而「当前 stream」「当前 device」都是 c10 里的 `thread_local` 状态，每线程一份，不共享就不需要锁。真正的排序由 stream 语义与 event 保证，不靠主机侧的互斥。详见[第十一章](#十一为什么-cuda-kernel-launch-不用锁)。
 [^q6]: `__enter__` 调 `torch._C._set_grad_enabled(False)` → `c10::GradMode::set_enabled(false)`，改的是一个 `thread_local` 变量 `autograd_state_tls`（`AutogradState`）里的 grad-mode 位；每个 autograd kernel 在决定是否记录 `grad_fn`、是否建图之前读 `GradMode::is_enabled()`；`__exit__` 把旧值写回。Python 层的 `no_grad` 与 C++ 层的 `NoGradGuard` 是同一个东西：保存旧值、设新值、退出时恢复。详见[第七章](#七回到源码c10coreimpllocaldispatchkeyseth)、[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。
-[^q7]: 因为 `thread_local` 每线程一份、新线程不继承创建者的值：主线程在 `no_grad` 里启动的 `DataLoader` worker 或线程池任务读到的是自己线程的默认值 `True`。要跨线程生效就得显式传递——`at::ThreadLocalState` 把 grad mode、dispatch key 集合、当前 stream 等 TLS 打包，`ThreadLocalStateGuard` 在工作线程里恢复；`parallel_for`、autograd 引擎的工作线程、`torch.jit.fork` 都这样做。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。
+[^q7]: 因为 `thread_local` 每线程一份、新线程不继承创建者的值：主线程在 `no_grad` 里启动的 `DataLoader` worker 或线程池任务读到的是自己线程的默认值 `True`。要跨线程生效就得显式传递——`at::ThreadLocalState` 把 grad mode、dispatch key 集合、当前 stream 等 TLS 打包，`ThreadLocalStateGuard` 在工作线程里恢复；`at::launch`、autograd 引擎的工作线程、`torch.jit.fork` 都这样做，`at::parallel_for` 特意不传播。详见[第九章](#九回答核心问题torchno_grad-的完整链路与-threadlocalstate)。

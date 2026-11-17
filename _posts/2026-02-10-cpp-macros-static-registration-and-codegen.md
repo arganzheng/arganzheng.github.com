@@ -52,18 +52,48 @@ REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 
 ## 一、总览
 
-### 1. 参照系：Java 与 C++ 的三个差别
+一个算子从源码里的一行注册宏，到出现在 Dispatcher 的算子表里，要依次经过预处理、编译、链接、加载四个阶段；PyTorch 自己的两千多个算子多走一步，先由 torchgen 把 yaml 生成为同样写着注册宏的 `.cpp`，之后走的是同一条路：
 
-Java 仍是参照系。Java 没有预处理器，条件编译靠运行期 `if` 和 JIT 消除死代码；Java 有反射和 `ServiceLoader`，C++ 没有反射，用静态初始化实现同一目标；Java 的 `.jar` 不管怎么打包，类都在那里，C++ 的静态库会把没人引用的目标文件整个扔掉。这三个差别是本篇的主线。
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：一个算子从注册宏到进入 Dispatcher 算子表的全过程
+flowchart TB
+    YAML["<b>native_functions.yaml</b><br/>PyTorch 内置算子，每个算子一个条目"]
+    HAND["<b>手写的算子源文件</b><br/>TORCH_LIBRARY(myops, m) #123; m.def(...) #125;<br/>TORCH_LIBRARY_IMPL(myops, CPU, m) #123; m.impl(...) #125;"]
+    GEN["<b>生成的 RegisterSchema.cpp、RegisterCPU.cpp</b><br/>内容同样是 TORCH_LIBRARY、TORCH_LIBRARY_IMPL 块"]
+    TU["<b>翻译单元</b><br/>• 一个 static const TorchLibraryInit 对象<br/>• 一个以用户花括号为函数体的初始化函数"]
+    OBJ["<b>目标文件 .o</b><br/>初始化表 .init_array 里记着这个对象的构造代码"]
+    SO["<b>动态库 .so 或可执行文件</b><br/>各目标文件的初始化表合并成一张"]
+    CTOR["<b>TorchLibraryInit 的构造函数</b><br/>构造 torch::Library，调用初始化函数，执行 m.def、m.impl"]
+    DISP["<b>Dispatcher::singleton() 的算子表</b><br/>每个算子一个 OperatorEntry：schema 加各 DispatchKey 的 kernel"]
+    PY["<b>torch.ops.myops.scale_shift</b><br/>每次访问属性时按 myops::scale_shift 查表"]
+    YAML -- "torchgen 在构建时生成（第十章）" --> GEN
+    HAND -- "预处理器展开宏、按平台裁剪（第二、三、九章）" --> TU
+    GEN -- "预处理器展开宏" --> TU
+    TU -- "编译：为静态对象生成初始化代码（第五章）" --> OBJ
+    OBJ -- "链接：静态库会丢掉没被引用的 .o（第八章）" --> SO
+    SO -- "dlopen 或 import：加载器执行 .init_array（第五章）" --> CTOR
+    CTOR -- "registerDef、registerImpl（第六、七章）" --> DISP
+    PY -- "查询（第六章）" --> DISP
+```
 
-### 2. 本文的章节安排
+- **注册宏**：`TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 写在算子实现文件的命名空间作用域里，后面跟一对花括号。它们只存在于预处理之前的源文件里；同样靠预处理器工作的还有 `TORCH_CHECK`（第四章）和各种平台、编译器宏（第九章）。
+- **生成的 `Register*.cpp`**：torchgen 在构建时读 `native_functions.yaml` 写到 `build/` 目录下，源码树里没有。里面仍是注册宏，所以内置算子和扩展算子走同一个注册入口。
+- **翻译单元**：预处理的输出。宏在这里已经变成一个静态存储期对象加一个函数定义，用户写的花括号成了那个函数的函数体。
+- **`.init_array`**：编译器为每个需要运行构造函数的静态对象生成一段初始化代码，把地址收进目标文件的这张表（Mach-O 上叫 `__mod_init_func`）；链接时各目标文件的表合并进最终的二进制。
+- **`TorchLibraryInit` 的构造函数**：加载器在 `dlopen` 返回之前（主程序则是 `main` 之前）逐项执行初始化表时运行。没有任何用户代码调用它。
+- **Dispatcher 的算子表**：全进程一份，住在 `libtorch_cpu.so` 里，通过 `Dispatcher::singleton()` 访问；注册在加载时写入，Python 侧每次访问 `torch.ops.<命名空间>.<算子>` 时查询。
+
+对 Java 读者，这条链上有三处与直觉不符：`#ifdef` 让一段代码在编译前就不存在；登记不需要任何人调用；链接方式可以让登记静默消失。对照都放在讲到相应机制的地方。
+
+### 1. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 预处理器 | 预处理发生在编译之前<br/>#、##、`__VA_ARGS__`<br/>两层间接<br/>预定义宏 |
 | 三 | 宏的三种用途 | 条件编译、生成重复代码、在调用点捕获信息；什么时候不该用宏 |
 | 四 | `TORCH_CHECK` | 把一个宏完整展开一遍：`C10_UNLIKELY`、惰性拼接消息、torchCheckFail；为什么它必须是宏 |
-| 五 | 静态初始化与静态注册模式 | 三种存储期<br/>静态注册模式<br/>`REGISTER_DISPATCH`<br/>与 ServiceLoader 的对照 |
+| 五 | 静态初始化与静态注册模式 | 三种存储期<br/>静态注册模式<br/>`REGISTER_DISPATCH` |
 | 六 | `TORCH_LIBRARY` 展开成什么 | TorchLibraryInit 注册器<br/>`m.def` 与 `m.impl`<br/>`TORCH_LIBRARY_IMPL`<br/>回答核心问题 |
 | 七 | 静态初始化顺序问题 | 问题本身与三种规避方式；静态初始化阶段的纪律 |
 | 八 | 符号可见性 | -fvisibility=hidden 与 `C10_API` 一族<br/>静态库为什么会丢掉注册<br/>vLLM 的注册方式<br/>用 nm 检查 |
@@ -98,6 +128,9 @@ Table: 本文的章节安排
 Table: 所有预处理指令
 
 用 `-E` 可以只跑预处理、看到编译器真正看到的东西。这是读懂任何宏的第一个工具，本文会反复用它。
+
+> [!NOTE] 与 Java 对照：没有预处理器
+> Java 语言没有预处理器，源文件里写的就是 `javac` 看到的。`#define N 10` 这类常量在 Java 里是 `static final int N = 10`，有类型、有作用域；现代 C++ 同样用 `constexpr` 变量而不是 `#define` 来定义常量，宏只留给下一章的三种用途。
 
 ### 2. 函数宏的三个运算符
 
@@ -208,22 +241,6 @@ Table: 本文用到的预定义宏
 
 vLLM 有四个 `torch_bindings.cpp`（`csrc/`、`csrc/cpu/`、`csrc/moe/`、`csrc/rocm/`），分别编成 `_C`（CUDA 后端和 CPU 后端各有一个同名的 `_C`）、`_moe_C`、`_rocm_C` 几个模块，模块名由构建系统注入，源码里统一用宏引用。
 
-### 5. Java 对照
-
-Java 语言规范没有预处理器，这是刻意的设计决定。Java 用别的手段覆盖了宏的部分用途：
-
-| 宏的用途 | Java 的替代 | 差别 |
-|---|---|---|
-| 常量 `#define N 10` | `static final int N = 10` | Java 版本有类型、有作用域；C++ 也早就推荐 `constexpr` 而非 `#define` |
-| 条件编译 `#ifdef _WIN32` | `if (os.equals("Windows"))`；`static final boolean` 常量 + JIT 死代码消除 | Java 两个分支的字节码都在 `.class` 里；C++ 另一个分支在预处理后就不存在 |
-| 生成重复代码 | 注解处理器（Lombok、AutoValue）、反射 | 注解处理器在编译期生成新的 `.java`，是"结构化的代码生成"，比文本替换安全，也重得多 |
-| 捕获调用点 `__FILE__`/`__LINE__` | `Thread.currentThread().getStackTrace()`、`StackWalker` | Java 在运行期从栈帧取，有成本；C++ 在编译期就写死成字符串常量，零成本 |
-| 静态注册（第四、五节） | `ServiceLoader` + `META-INF/services`、Spring 组件扫描 | 见第六章 |
-
-Table: 宏的用途与 Java 的替代手段
-
-要建立的直觉：**Java 里"代码有没有"是运行期的事，C++ 里经过预处理，"代码有没有"在编译前就决定了**。看一个 PyTorch 源文件时，`#ifdef` 包住的两个分支只有一个会进入你正在读的那个二进制；想知道是哪一个，要看构建配置，不是看代码。
-
 ## 三、宏的三种用途
 
 大型 C++ 项目里宏的用法看起来五花八门，归类只有三种。分清用途，读的时候就知道该往哪个方向理解。
@@ -255,6 +272,11 @@ Table: 宏的用途与 Java 的替代手段
 ```
 
 同一个 `C10_EXPORT` 在 Windows 上是 `__declspec(dllexport)`，在 Linux/macOS 上是 `__attribute__((__visibility__("default")))`，在不认识的编译器上是空。写 `struct C10_API Device` 的人不需要知道这些差别。这类宏的替换文本通常是**属性**（attribute）或者空，它们不改变程序逻辑，只改变编译器如何处理这段代码。第八章专门讲这一组。
+
+被 `#if` 裁掉的分支在预处理之后就不存在了，编译器根本看不到它。看一个 PyTorch 源文件时，`#ifdef` 包住的两个分支只有一个会进入你正在读的那个二进制；想知道是哪一个，要看构建配置，不是看代码。
+
+> [!NOTE] 与 Java 对照：条件编译
+> Java 按平台分支通常写成运行期判断（如检查 `System.getProperty("os.name")`），两个分支的字节码都在 `.class` 里，走哪个由运行时决定；只有条件是编译期常量（`static final boolean` 开关）时，`javac` 才会省掉走不到的分支。C++ 里"这段代码有没有"在编译前就由 `-D` 和平台宏决定了，同一份源码在不同构建里是不同的程序。
 
 另一种条件编译是**功能开关**：`c10/util/Exception.h` 里的 `STRIP_ERROR_MESSAGES`（移动端构建定义它，把所有错误消息字符串从二进制里去掉以减小体积）、`C10_MOBILE`、`USE_CUDA`、`USE_ROCM`。读 PyTorch 源码时看到 `#ifdef C10_MOBILE` 包住的分支，服务器端可以直接跳过。
 
@@ -309,7 +331,10 @@ inline const char* toString(ScalarType t) {
 
 [《模板与泛型编程》](/cpp-templates-and-generic-programming.html)讲过的 `AT_DISPATCH_FLOATING_TYPES` 是同一思路的另一个应用：宏把运行期的 `ScalarType` 值变成一组 `case`，每个 `case` 里用 `using scalar_t = float;` 之类的别名实例化一次 lambda。[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)讲 `inline` 时看过的 `ScalarType.h` 里的 `elementSize` 也是。
 
-Java 里 `enum` 自带 `name()`、`values()`，这类重复根本不需要写。C++ 到 C++17 为止都没有枚举反射，X-macro 是最常见的替代。看到 `AT_FORALL_*`、`FOR_EACH_*`、`*_LIST(_)` 这类名字，就知道它是一张表，找到表就找到了所有派生代码的源头。
+C++ 到 C++17 为止都没有枚举反射，X-macro 是最常见的替代。看到 `AT_FORALL_*`、`FOR_EACH_*`、`*_LIST(_)` 这类名字，就知道它是一张表，找到表就找到了所有派生代码的源头。
+
+> [!NOTE] 与 Java 对照：枚举与样板代码
+> Java 的 `enum` 自带 `name()`、`values()`，"枚举值 ↔ 名字字符串"这类重复不需要写；其他样板靠反射或注解处理器，它们操作的是类型和语法结构。X-macro 只是文本替换，不理解类型：写错时编译器报的是展开之后的代码，要对着 `-E` 的输出读。
 
 ### 3. 用途三：在调用点捕获信息
 
@@ -325,6 +350,9 @@ Java 里 `enum` 自带 `name()`、`values()`，这类重复根本不需要写。
 `C10_THROW_ERROR` 写在 `Device.cpp` 第 60 行，展开出来的 `__FILE__` 就是 `"c10/core/Device.cpp"`、`__LINE__` 就是 `60`。如果 `C10_THROW_ERROR` 是一个函数，`__FILE__` 就永远是 `Exception.h`。
 
 这条用途还有一个更细的变体：**惰性求值**。函数的实参在调用前一定会全部求值；宏的参数只是文本，放在什么位置就什么时候求值。`TORCH_CHECK(cond, "x = ", x)` 把消息参数放进 `if (!cond) { ... }` 的花括号里，`cond` 为真时那些参数一个字节都不会被计算。这是 `TORCH_CHECK` 必须是宏的第二个原因。下一节把它完整展开。
+
+> [!NOTE] 与 Java 对照：调用点信息
+> Java 的异常在创建时由 JVM 填好栈轨迹，文件名和行号来自 `.class` 里的调试信息；日志框架要知道调用位置，则在运行期用 `StackWalker` 或 `Thread.getStackTrace()` 回溯栈帧，有成本。C++ 运行时没有这样的栈轨迹可取，位置只能在编译前由宏写成常量放进调用点，好处是不占运行时间。
 
 ### 4. 用途的边界：什么时候不该用宏
 
@@ -385,7 +413,10 @@ PyTorch 的代码风格对宏的态度是"能不用就不用"。判断标准就�
 
 注释说明了原因：nvcc 遇到 `__builtin_expect(常量)` 时，"函数缺少 return 语句"的分析会失效，所以在 nvcc 下退化成裸表达式。这是第九章"编译器宏"的一个实例——同一个宏在不同编译器下有不同定义，为的是绕过某个编译器的问题。
 
-C++20 有了标准属性 `[[likely]]`/`[[unlikely]]`，PyTorch 因为要支持的编译器范围，仍用宏。Java 没有对应物：JIT 会根据运行时 profile 自己判断分支概率，程序员不用也不能提示。
+C++20 有了标准属性 `[[likely]]`/`[[unlikely]]`，PyTorch 因为要支持的编译器范围，仍用宏。
+
+> [!NOTE] 与 Java 对照：分支概率
+> Java 语言没有分支提示的写法：HotSpot 的 JIT 根据运行时采集的 profile 判断哪条分支是热的，并据此布局机器码。C++ 是提前编译，没有运行时 profile 可用（除非做 PGO 构建），所以由程序员用 `C10_LIKELY` / `C10_UNLIKELY` 把这个信息写进源码。
 
 ### 3. `TORCH_CHECK_MSG` 与 `torchCheckMsgImpl`：惰性拼接消息
 
@@ -539,7 +570,10 @@ flowchart TB
 3. 消息参数要**惰性求值**，检查通过时零成本；
 4. 要让编译器知道这条分支**不太可能**走到（`C10_UNLIKELY`）。
 
-前三条函数都做不到（C++20 的 `std::source_location` 能解决第二条，但 PyTorch 基线是 C++17，且解决不了另外两条）。Java 的 `Objects.requireNonNull(x, "msg")` 对应的是第一种调用形式；`Preconditions.checkArgument(cond, "x = %s", x)` 之所以用格式串而不是拼接，就是为了避开"参数总是先求值"的问题，但它仍然要装箱 `x`。C++ 用宏把这几件事全部推到编译期解决。
+前三条函数都做不到（C++20 的 `std::source_location` 能解决第二条，但 PyTorch 基线是 C++17，且解决不了另外两条）。C++ 用宏把这几件事全部推到编译期解决。
+
+> [!NOTE] 与 Java 对照：参数检查
+> Java 的检查是普通方法，实参总是先求值。Guava 的 `Preconditions.checkArgument(cond, "x = %s", x)` 用格式串把"拼消息"推迟到失败时，但 `x` 仍要装箱；`Objects.requireNonNull(x, () -> "missing " + name)` 用 `Supplier` 做到惰性，代价是一个 lambda。两者都拿不到条件表达式的源码文本，调用位置靠异常自带的栈轨迹；`TORCH_CHECK` 把文本、位置、惰性三件事都在预处理阶段做完。
 
 ## 五、静态初始化与静态注册模式
 
@@ -577,7 +611,10 @@ $ otool -l add.o | grep -A2 mod_init_func
       size 0x0000000000000008
 ```
 
-两个 `static const` 对象本身放在 `b`（bss，未初始化数据）段；编译器为它们各生成了一个 `__cxx_global_var_init` 函数，`__mod_init_func` 段里放着这些函数的地址。动态加载器加载这个库时，遍历这张表，逐个调用。这就是"没有任何函数被显式调用"的答案的一半：**调用它们的是加载器**。
+两个 `static const` 对象本身放在 `b`（bss，未初始化数据）段；编译器为它们各生成了一个 `__cxx_global_var_init` 函数，`__mod_init_func` 段里放着这些函数的地址。动态加载器加载这个库时，遍历这张表，逐个调用。这就是"没有任何函数被显式调用"的答案的一半：**调用它们的是加载器**。这种初始化是**无条件**的：只要对象所在的目标文件进了这个库，库一加载它就构造，不需要任何代码引用它。
+
+> [!NOTE] 与 Java 对照：static {} 块
+> Java 里最接近的是类的静态初始化块，如 `static { Registry.register("scale_shift", ScaleShiftCpu::new); }`。但类只在第一次被主动使用时才初始化（JLS 12.4.1）：没有代码用到 `ScaleShiftCpu`，这个块永远不会跑，所以 Java 还需要 `ServiceLoader` 或类路径扫描去"主动使用"它。C++ 的静态对象随库加载就初始化，这是静态注册能成立的前提，也带来两个 Java 里没有的问题：初始化顺序不受控（第七章），目标文件没被链接进来时什么都不会发生（第八章）。
 
 ### 2. 静态注册模式
 
@@ -599,7 +636,15 @@ struct Registrar {
 static Registrar reg_foo("foo", &make_foo);   // 加载时自动执行
 ```
 
-`make_foo` 所在的文件不需要被任何人 `#include`，也不需要有人调用它——只要这个文件被链接进来，`reg_foo` 的构造函数就会在加载时跑，`"foo"` 就出现在表里。
+`make_foo` 所在的文件不需要被任何人 `#include`，也不需要有人调用它——只要这个文件被链接进来，`reg_foo` 的构造函数就会在加载时跑，`"foo"` 就出现在表里。换句话说，"发现有哪些实现"发生在**构建时**——链接器把哪些 `.o` 放进来，就有哪些注册器对象；"执行注册"发生在**加载时**——加载器跑 `.init_array`。
+
+> [!NOTE] 与 Java 对照：ServiceLoader 与 Spring 组件扫描
+> 目的相同：加一个实现不用改调用方。Java 的发现在运行时、靠元数据——`ServiceLoader` 读各 jar 里的 `META-INF/services/<接口全限定名>` 文件，Spring 扫描包下带 `@Component` 的类，再按名字加载类并反射实例化；C++ 没有可枚举的类路径、不能按名字加载类、也没有反射，所以才把发现交给链接器。另外两处差别：
+>
+> | | Java（`ServiceLoader`） | C++（静态注册） |
+> |---|---|---|
+> | 何时执行 | 惰性：使用方遍历到某个实现时才实例化 | 库加载时一定执行，不管用不用；注册器依赖的东西那一刻必须可用（第七章） |
+> | 登记信息在哪 | `META-INF/services` 与代码是两份东西，可能不同步 | 就写在实现文件里，随代码一起编译 |
 
 PyTorch 至少有四套这样的注册表，形态各异但骨架相同：
 
@@ -718,24 +763,8 @@ class Registerer {
 
 同一个 `.cpp`（如 `BinaryOpsKernel.cpp`）会被 CMake（`cmake/Codegen.cmake`）用 `-DCPU_CAPABILITY=DEFAULT`、`-DCPU_CAPABILITY=AVX2`、`-DCPU_CAPABILITY=AVX512` 分别编译三遍（这就是《编译模型》里 AVX 链接顺序注释的背景），每遍 `REGISTER_DISPATCH` 特化出不同的静态成员。这个宏同时体现了三种用途：条件编译选实现、`##` 拼名字、替人写重复的特化。
 
-### 4. Java 对照：`ServiceLoader` 与 Spring 扫描
-
-Java 实现"实现类自己登记进系统"有两条路：
-
-- **`ServiceLoader`**：实现方在 `META-INF/services/com.example.Plugin` 文件里写下实现类的全限定名；使用方 `ServiceLoader.load(Plugin.class)` 时，JVM 扫描 classpath 上所有 jar 的这个文件，用反射 `Class.forName` 实例化。
-- **Spring 组件扫描**：`@Component` 标注实现类，容器启动时扫描指定包下所有 `.class` 文件，读注解，反射实例化。
-
-两者的共同点是**发现在运行时、靠元数据**（文件或注解），前提是 JVM 能枚举 classpath、能按名字加载类、能反射构造。C++ 一条都没有：没有 classpath 可以枚举、没有按名字加载类的能力、没有反射。所以 C++ 把"发现"这件事移到了**构建时**——链接器把哪些 `.o` 放进来，就有哪些注册器对象存在——把"执行注册"移到了**加载时**——加载器跑 `.init_array`。
-
-类比成立的地方：目的相同（解耦实现和使用方，加一个实现不需要改调用方），效果相同（`import` 之后东西就在了）。
-
-类比误导的地方：
-
-1. **Java 的注册失败是运行时可见的**（`ServiceLoader` 找不到实现返回空迭代器，Spring 抛 `NoSuchBeanDefinitionException`），**C++ 的注册失败静默**——`.o` 没被链接进来，注册器对象根本不存在，没有任何错误，只有用的时候发现表里没有。第八章专门讲这个。
-2. **Java 的实现类什么时候被实例化由使用方决定**（`ServiceLoader` 是惰性的），**C++ 的注册器在加载时一定执行**，无论用不用；它的构造函数依赖的所有东西（注册表单例、字符串、`Dispatcher`）都必须在那个时刻可用——第七章。
-3. Java 的元数据（`META-INF/services`）和代码是分开的两份东西，可能不同步；C++ 的注册就在实现文件里，天然同步。
-
-一句话：**Java 用运行时反射换来了灵活和可诊断；C++ 用编译期/加载期确定性换来了零运行时成本，代价是失败模式更隐蔽。**
+> [!NOTE] 与 Java 对照：按 CPU 指令集选实现
+> JVM 上字节码只有一份，要不要用 AVX2 / AVX-512 由 JIT 在运行时按当前 CPU 生成机器码时决定，程序员不参与。C++ 是提前编译，一个二进制要同时照顾新旧 CPU，就只能把同一个 kernel 文件用不同的指令集选项各编一遍，再在运行时检测 CPU 挑一份——`DispatchStub` 的几个静态成员就是这几份的入口。
 
 ## 六、`TORCH_LIBRARY(myops, m)` 展开成什么
 
@@ -1036,18 +1065,6 @@ def _get_packet(qualname, op_module):
 
 回到开头的 vLLM 文件：`REGISTER_EXTENSION(TORCH_EXTENSION_NAME)`（第十一章读它的定义）展开成一个 `PyInit__C` 函数，让 `_C.so` 可以被 `import vllm._C` 当作 Python 扩展模块加载。`import` 就是 `dlopen`，`dlopen` 触发 `.init_array`，`TORCH_LIBRARY_EXPAND` 展开出来的 `TorchLibraryInit` 对象在这时构造，把几十个算子登记进 Dispatcher。`PyInit__C` 本身几乎什么都不做——它只是让 `import` 语句合法。
 
-### 6. Java 对照：`static {}` 块
-
-Java 里最接近"静态对象构造函数在加载时运行"的是类的静态初始化块：
-
-```java title='Java 对照：类的 static {} 块'
-class ScaleShiftCpu {
-    static { Registry.register("scale_shift", ScaleShiftCpu::new); }
-}
-```
-
-但有一个决定性差别：**Java 的类只在第一次被主动使用时才初始化**（JLS 12.4.1），如果没有任何代码引用 `ScaleShiftCpu`，这个 `static {}` 永远不会跑——所以 Java 才需要 `ServiceLoader` 或扫描来"主动使用"它。C++ 的静态存储期对象在库加载时**无条件**初始化，不需要有人引用它。这正是 `TORCH_LIBRARY` 能工作的原因，也是下一节和第八章两类问题的根源：无条件初始化意味着初始化顺序不受控（第七章），"库加载时"意味着如果整个目标文件没被放进库，就什么都不会发生（第八章）。
-
 ## 七、静态初始化顺序问题及其规避
 
 ### 1. 问题
@@ -1075,7 +1092,8 @@ Table: 跨翻译单元的两种初始化顺序
 
 第二行的故障只在某种链接顺序下出现，改一下 `CMakeLists.txt` 里源文件的顺序就可能出现或消失。这就是 "static initialization order fiasco"。
 
-Java 没有这个问题：类初始化按需触发，JVM 保证在第一次使用 `Registry` 之前先初始化它，还处理了循环依赖。C++ 把"按需"这件事留给了程序员。
+> [!NOTE] 与 Java 对照：初始化顺序
+> Java 的类初始化按需触发：第一次使用 `Registry` 时 JVM 先把它初始化完，再让使用者继续，所以"用到一个还没构造的注册表"不会发生；同一个类内部的静态字段和 `static {}` 块按源码顺序执行。边界在循环依赖：两个类的初始化互相触发时，后进入的一方可能读到对方尚未赋值的默认值（`null` / 0）。C++ 跨翻译单元没有"按需"这一层，要程序员用下面三种写法自己补上。
 
 ### 2. 规避一：函数内静态（construct on first use）
 
@@ -1273,6 +1291,9 @@ flowchart TB
 
 这就是"算子在某些链接方式下消失"的机制。它不是 bug，是静态库的设计——静态库本来就是"按需取用"的目标文件集合。问题在于静态注册的 `.o` 的"被需要"方式（加载器跑初始化）不是链接器识别的方式（符号引用）。
 
+> [!NOTE] 与 Java 对照：没被引用的实现会不会丢
+> jar 只是打包：类不会因为没人引用就从 jar 里消失（除非额外用了 ProGuard 这类裁剪工具），在类路径上就能被 `ServiceLoader` 或 Spring 找到；找不到时，`ServiceLoader` 给出空的迭代结果，Spring 在启动或注入时抛 `NoSuchBeanDefinitionException`，要查的是类路径和元数据。静态库的默认规则相反——没人引用就不取——注册少了一块时要查的是链接命令，源码里看不出任何问题。
+
 解决办法是告诉链接器"这个库的所有目标文件都要"：
 
 | 平台 | 链接器选项 |
@@ -1453,7 +1474,10 @@ ldd my_ext.so | grep torch_cpu
 
 模式是固定的：GCC/Clang 用 `__attribute__((...))`，MSVC 用 `__declspec(...)`，其他编译器降级为空。`__has_attribute(x)` 是 Clang 引入、GCC 后来支持的特性检测宏，比按编译器版本判断更可靠；`Macros.h` 开头为不支持它的编译器补了个定义为 0 的版本。
 
-Java 对照：Java 没有"编译器差异"这个概念——`javac` 只有一个，字节码只有一种。C++ 的编译器差异不只是扩展语法，还包括警告集合、优化行为、对标准的实现进度，这是[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)里工具链版本矩阵的背景。
+编译器之间的差异不只是扩展语法，还包括警告集合、优化行为、对标准的实现进度，这是[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)里工具链版本矩阵的背景。
+
+> [!NOTE] 与 Java 对照：编译器差异
+> Java 源码不管用哪个编译器（`javac` 或 Eclipse 的 ECJ）编译，产物都是 JVM 规范规定的同一种 class 文件格式，语言里也没有编译器专属的属性语法，所以 Java 代码里见不到"按编译器分支"。C++ 的 `__attribute__` / `__declspec` 都是各家编译器的扩展，同一个意图要写多份，再用宏包成一个名字。
 
 ### 2. 操作系统：`_WIN32`、`__APPLE__`、`__linux__`
 
@@ -1551,9 +1575,10 @@ Table: 构建系统传入的配置宏
 
 排查"这台机器上这段代码为什么没生效"时，第一步是确认这些宏在那次构建里的值。`ninja -v` 或 `compile_commands.json`（见[《构建、调试与测试工具链》](/cpp-build-debug-and-test-toolchain.html)）能看到完整的 `-D` 列表。
 
-### 5. Java 对照：一份字节码 vs 多份二进制
+把这一章的几类宏合起来看：同一份源码，在每个（编译器 × 操作系统 × CPU 架构 × GPU 架构 × 构建选项）组合下都是一个不同的二进制，差异由预处理器在编译前就切开了。所以 PyTorch 的 wheel 有 `cu126`/`cu128`/`cpu`/`rocm` 好几个变体，vLLM 的 CI 矩阵有几十个格子。读源码时，这些宏提醒的是："你看到的这段代码，只在某个组合下存在。"
 
-Java 的口号是 "write once, run anywhere"：一份 `.class`，任何平台的 JVM 都能跑，平台差异藏在 JVM 里。C++ 的现实是：同一份源码，在每个（编译器 × 操作系统 × CPU 架构 × GPU 架构 × 构建选项）组合下都是一个不同的二进制，差异由预处理器在编译前就切开了。所以 PyTorch 的 wheel 有 `cu126`/`cu128`/`cpu`/`rocm` 好几个变体，vLLM 的 CI 矩阵有几十个格子——不是没有能力统一，是这些差异在语言层面就没有被抽象掉。宏是这种现实的直接反映，读源码时它们提醒你："你看到的这段代码，只在某个组合下存在。"
+> [!NOTE] 与 Java 对照：一份字节码与多份二进制
+> 纯 Java 代码编出的 `.class` 只有一份，任何平台的 JVM 都能跑，平台差异由 JVM 承担。C++ 没有这一层：平台差异直接进了产物，于是同一个版本要按平台、CUDA 版本各发一个包。Java 一旦带上 JNI 本地库就回到同样的处境——本地库也得按操作系统和 CPU 架构各编一份。
 
 ## 十、代码生成：`torchgen` 与 `native_functions.yaml`
 
@@ -1929,7 +1954,10 @@ CMake 配置阶段先 `--dry-run` 一次拿到"会生成哪些文件"的列表�
 
 宏做不到这件事的原因也清楚了：宏不能读 yaml、不能按 `dispatch:` 字段的内容决定往哪个文件写、不能推导"`SymInt` 到 `int64_t` 需要 `guard_int`"这种类型转换规则。宏适合"同一处的重复"（X-macro），生成器适合"跨文件的重复"。
 
-Java 对照：注解处理器（APT）是同一位置的技术——编译期读元数据（注解），生成新源码，一起编译。Lombok 的 `@Data`、Dagger 的依赖注入代码、gRPC 的 protobuf stub 都是这条路。差别在于 Java 的元数据写在源码的注解里，由 `javac` 统一驱动；PyTorch 的元数据在一个独立的 yaml 里，由 CMake 驱动一个 Python 程序。PyTorch 选 yaml 而不是把 schema 写成 C++ 注解式的东西，一个原因是同一份 yaml 还要被 Python 层（`torch/_ops.py` 的类型信息、文档、Dynamo）读——它不只是 C++ 的元数据。
+元数据放在独立的 yaml 里、而不是写成 C++ 源码里某种标注，一个原因是同一份 yaml 还要被 Python 层（`torch/_ops.py` 的类型信息、文档、Dynamo）读——它不只是 C++ 的元数据。
+
+> [!NOTE] 与 Java 对照：构建期代码生成
+> Java 里同一位置的技术有两种。注解处理器（AutoValue、Dagger）在编译期读源码里的注解、生成新的 `.java`，由 `javac` 驱动；protobuf / gRPC 则是独立的 `.proto` 文件加外部生成器 `protoc`，由 Maven / Gradle 插件在编译前调用。torchgen 是后一种形态：元数据在源码之外（yaml），生成器是独立程序（Python），由构建系统（CMake）驱动，产物落在 `build/` 目录里。
 
 ### 7. 读生成代码的技巧
 
@@ -2934,7 +2962,7 @@ Table: 静态注册常见错误速查
 
 Table: 本篇涉及的机制及其在 PyTorch 里的体现
 
-Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前就决定了**（预处理和条件编译，看到的分支未必在你的二进制里）；**"登记"不需要有人调用**（静态对象构造函数由加载器执行，这是 `ServiceLoader` 做不到的无条件初始化）；**"登记"可能被链接器静默取消**（静态库丢弃未引用的目标文件，Java 里没有任何对应物）。第一个直觉让你读得懂 `#ifdef`，第二个让你读得懂 `TORCH_LIBRARY`，第三个让你在算子"消失"时知道去看链接命令而不是代码。
+Java 工程师需要建立的三个新直觉：**"代码有没有"在编译前就决定了**（预处理和条件编译，看到的分支未必在你的二进制里）；**"登记"不需要有人调用**（静态对象构造函数由加载器执行，这是 `ServiceLoader` 做不到的无条件初始化）；**"登记"可能被链接器静默取消**（静态库丢弃未引用的目标文件；jar 打包不会因为没人引用就丢掉一个类）。第一个直觉让你读得懂 `#ifdef`，第二个让你读得懂 `TORCH_LIBRARY`，第三个让你在算子"消失"时知道去看链接命令而不是代码。
 
 下一篇[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)进入并发：`with torch.no_grad():` 在 C++ 层做了什么，为什么它对其他线程不生效——`thread_local`、原子、守卫对象，以及本篇反复出现的"函数内静态是线程安全的"背后的机制。
 

@@ -41,27 +41,49 @@ AT_DISPATCH_FLOATING_TYPES(input.scalar_type(), "log_sigmoid_cpu", [&] {
 ## 一、总览
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-%% 图：编译期实例化与运行期分派：模板为每种 scalar_t 生成一份代码，AT_DISPATCH 在入口 switch 一次
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：模板从定义到运行期调用的全过程：填实参、实例化、链接合并与入口 switch
 flowchart TB
-    T["模板：kernel&lt;scalar_t&gt;(...)<br/>一份「配方」，T 未定"] --> I["编译期实例化"]
-    I --> F["kernel&lt;float&gt;"] & D["kernel&lt;double&gt;"] & H["kernel&lt;c10::Half&gt;"] & B["kernel&lt;c10::BFloat16&gt;"]
-    RT["运行时：input.scalar_type() == Float"] --> SW["AT_DISPATCH_FLOATING_TYPES 展开成 switch<br/>case Float: 调 kernel&lt;float&gt;；case Double: …"]
-    SW --> F
+    subgraph CT["编译期：每个翻译单元各做一遍"]
+        direction TB
+        DEF["<b>模板定义（头文件）</b><br/>template &lt;typename scalar_t&gt; void kernel(...)<br/>一份配方，本身不生成机器码"]
+        ARG["<b>模板实参</b><br/>类型 float、值 N = 4、lambda 的闭包类型"]
+        INST["<b>实例化</b><br/>代入实参，选主模板或特化，<br/>if constexpr / SFINAE 去掉不适用的分支"]
+        OBJ["<b>目标文件 a.o、b.o</b><br/>kernel&lt;float&gt;、kernel&lt;double&gt; 各是一个弱符号"]
+        DEF -- "被使用时才触发（第二章）" --> INST
+        ARG -- "从调用实参推导，或显式写 &lt;T&gt;（第三、四章）" --> INST
+        INST -- "每组实参生成一份函数（第五、六章决定函数体）" --> OBJ
+    end
+    LNK["<b>链接</b><br/>各目标文件里的同名弱符号只保留一份"]
+    LIB["<b>libtorch_cpu.so</b><br/>kernel&lt;float&gt; 与 kernel&lt;double&gt;：两份独立的机器码"]
+    OBJ --> LNK
+    LNK --> LIB
+    subgraph RT["运行期：每次调用 kernel 入口执行一次"]
+        direction TB
+        DT["<b>dtype 的值</b><br/>input.scalar_type() 返回 ScalarType::Float"]
+        SW["<b>AT_DISPATCH_FLOATING_TYPES</b><br/>展开成 switch，每个 case 里定义 scalar_t 并调用对应实例"]
+        DT --> SW
+    end
+    SW -- "case Float：调 kernel&lt;float&gt;（第七章）" --> LIB
 ```
 
-- 编译期分派：每种类型一份独立的、无分支的机器码（快，但二进制变大）。
-- 运行期分派：只在入口 `switch` 一次选哪一份（第七章逐层展开这个宏）。
+- **模板定义**：写在头文件里的配方，类型或值的位置留着参数。编译器读到它只做语法检查，不产生任何符号（第二章）。
+- **模板实参**：填进配方的东西，可以是类型（`float`）、编译期常量（`SmallVector<int64_t, 5>` 的 `5`，第四章），也可以是 lambda 的闭包类型（第九章）。它们来自调用实参的推导，推不出来时由调用方显式写在尖括号里（第三章）。
+- **实例化**：某个翻译单元第一次用到 `kernel<float>` 时，编译器把实参代入配方，生成一个真正的函数。代入时先选主模板还是特化（第五章），再由 `if constexpr`、SFINAE 去掉对这组实参不适用的分支（第六章）。
+- **弱符号与链接合并**：每个用到它的翻译单元都生成一份 `kernel<float>`，在目标文件里是弱符号；链接器把同名的合并成一份。显式实例化是例外：只在一个 `.cpp` 里生成并导出（第二章）。
+- **每组实参一份机器码**：`kernel<float>` 与 `kernel<double>` 是两个互不相干的函数，循环体里没有任何 dtype 判断。代价是编译时间与二进制体积随实参组合增长。
+- **入口的 `switch`**：dtype 是运行期才知道的值，模板实参必须是编译期常量。`AT_DISPATCH_*` 在 kernel 入口对 dtype `switch` 一次，每个 `case` 里把对应的 C++ 类型命名为 `scalar_t`，再调用那一份实例（第七章）。
+- **源码里最常见的两类模板产物**：`ArrayRef<T>`、`std::optional<T>`、`SmallVector<T, N>` 是类模板的实例（第八章）；传给 `parallel_for` 的 lambda 是模板实参 `F`（第九章）。
 
 ### 1. 本文的组织方式
 
-模板只有一件事：**在编译期用类型（或整数）当参数生成代码**。本文按"配方 → 怎么填参数 → 填了之后能做什么 → 在源码里长什么样"的顺序展开：第二章先建立模板是配方、实例化才生成代码这个模型，并与 Java 的类型擦除对照；第三、四章讲参数从哪来（推导、显式指定、非类型参数）；第五、六章讲同一个配方怎样按参数走不同分支（特化、变参、`if constexpr`、SFINAE）；第七章把这些机制合起来逐层展开 `AT_DISPATCH_FLOATING_TYPES`，回答核心问题——运行期的 dtype 怎么变成编译期的 `T`；第八、九章是源码里高频出现的两类模板产物（轻量视图与 lambda）；第十、十一章回到源码与 mini-c10。
+模板只有一件事：**在编译期用类型（或整数）当参数生成代码**。本文按"配方 → 怎么填参数 → 填了之后能做什么 → 在源码里长什么样"的顺序展开：第二章先建立模板是配方、实例化才生成代码这个模型；第三、四章讲参数从哪来（推导、显式指定、非类型参数）；第五、六章讲同一个配方怎样按参数走不同分支（特化、变参、`if constexpr`、SFINAE）；第七章把这些机制合起来逐层展开 `AT_DISPATCH_FLOATING_TYPES`，回答核心问题——运行期的 dtype 怎么变成编译期的 `T`；第八、九章是源码里高频出现的两类模板产物（轻量视图与 lambda）；第十、十一章回到源码与 mini-c10。
 
 ### 2. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 模板是生成代码的配方 | 函数模板与类模板<br/>实例化发生在哪里<br/>与 Java 类型擦除的根本差别<br/>typename 与 template 消歧义 |
+| 二 | 模板是生成代码的配方 | 函数模板与类模板<br/>实例化发生在哪里<br/>模板错误信息为什么巨长<br/>typename 与 template 消歧义 |
 | 三 | 推导 | 从实参推导、显式指定、auto/decltype、返回类型推导、CTAD |
 | 四 | 非类型模板参数 | `std::array<T, N>`、`SmallVector<T, N>`、`ScalarTypeToCPPType<N>`、CUDA kernel 的 `BLOCK_SIZE` |
 | 五 | 特化与变参模板 | 全特化、偏特化、函数模板为什么不能偏特化；参数包展开 |
@@ -92,7 +114,12 @@ void add_kernel(const scalar_t* a, const scalar_t* b, scalar_t* out, int64_t n) 
 
 `template <typename scalar_t>` 声明了一个模板参数 `scalar_t`。关键的认知转换是：**这段代码本身不是函数，编译器不会为它生成任何机器码**。它是一份配方，只有当某处用具体类型使用它时——`add_kernel<float>(...)` 或者让编译器从实参推导出 `scalar_t = float`——编译器才会把 `scalar_t` 替换成 `float`，生成一个真正的函数 `add_kernel<float>`，这一步叫**实例化**（instantiation）。再用 `double` 调用一次，就再实例化一个 `add_kernel<double>`。两个实例是两个独立的函数，各有各的符号、各有各的机器码：一个里面是单精度乘法指令，另一个是双精度。
 
-第十一章的 mini-c10 会用 `nm` 把这两个符号真的列出来。这里先记住结论：**一个模板 + N 组参数 = N 份代码**。这是 C++ 模板与 Java 泛型的根本区别，后面几乎所有现象都由它推出。
+第十一章的 mini-c10 会用 `nm` 把这两个符号真的列出来。这里先记住结论：**一个模板 + N 组参数 = N 份代码**。后面几乎所有现象都由它推出。
+
+> [!NOTE] 与 Java 对照：类型参数在哪里消失
+> Java 泛型在编译成字节码时擦除类型参数，泛型方法只有一份字节码，运行期也问不出 `T` 是什么。C++ 模板在编译成机器码时把参数替换成具体类型，每组参数一份代码（单态化）；运行期同样没有 `T`，但不需要问，因为它已经编进了那份代码。
+
+对 AI-Infra 读者，这件事有一个熟悉的类比：`torch.compile` 对同一个 Python 函数，会按输入的 dtype、形状（guard）各编译一份专用的图，`f(float32 张量)` 和 `f(float64 张量)` 跑的是两份不同的生成代码。模板做的是同一件事，只是发生在编译期、由源码里显式或推导出的 `<T>` 触发，而 `torch.compile` 发生在运行期、由第一次见到的实参触发。两者的代价也同构：份数随参数组合增长（模板是编译时间与二进制体积，`torch.compile` 是 recompile 次数与缓存），这是第七章 `AT_DISPATCH` 只为有限几种 dtype 实例化、而不是对所有类型全开的原因。
 
 ### 2. 类模板：`vector<int>` 和 `vector<string>` 是两个不相干的类型
 
@@ -100,7 +127,20 @@ void add_kernel(const scalar_t* a, const scalar_t* b, scalar_t* out, int64_t n) 
 
 [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里的 `c10::intrusive_ptr<TensorImpl, UndefinedTensorImpl>` 就是类模板的实例：`intrusive_ptr` 是模板，`<TensorImpl, UndefinedTensorImpl>` 是两个类型参数，整个东西才是一个类型。`intrusive_ptr<StorageImpl>` 是另一个类型，两者的 `operator->` 返回不同的指针类型，编译器在编译期就知道 `impl_->sizes()` 调的是 `TensorImpl::sizes`，不需要任何运行期查找。
 
-Java 里 `List<Integer>` 和 `List<String>` 在 JVM 里是同一个 `java.util.List` 类，泛型参数在编译后被擦除，`get()` 返回 `Object` 再由编译器插入 `checkcast`。这带来两个后果：Java 泛型不能用基本类型（`List<int>` 不合法，只能装箱成 `Integer`），也不能按类型参数做不同的事（没有办法为 `List<Integer>` 单独写一个更快的实现）。C++ 模板恰恰相反：`vector<int>` 里就是紧密排列的 `int`，没有装箱；而且可以为特定类型参数写完全不同的实现——这就是第五章的特化。
+类模板的每个实例各有一份代码，带来两个能力：`vector<int>` 里就是紧密排列的 `int`，没有装箱；而且可以为特定类型参数写完全不同的实现——这就是第五章的特化。
+
+> [!NOTE] 与 Java 对照：泛型容器的两个实例
+> Java 的 `List<Integer>` 和 `List<String>` 在运行期是同一个 `List` 类，`get()` 返回 `Object`，由编译器插入类型转换。C++ 的两个实例之间没有这层共同身份：
+>
+> | | Java 泛型 | C++ 模板 |
+> |---|---|---|
+> | 两种类型参数的容器 | 同一个类，可以都当作 `List<?>` 处理 | 两个不相干的类型，没有共同基类 |
+> | 基本类型做参数 | 不能，`List<int>` 不合法，要装箱成 `Integer` | 能，元素原样存放 |
+> | 为某个类型参数单独写实现 | 不能 | 能（特化、重载、`if constexpr`） |
+>
+> Table: 泛型容器的两个实例：Java 与 C++ 的差别
+>
+> 因此 C++ 里不能把 `vector<int>` 向上转型成某种"泛型 vector"；要统一处理多种实例，用模板函数（编译期）或类型擦除（见[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)）。
 
 ### 3. 实例化发生在哪里：模板为什么必须放在头文件
 
@@ -180,26 +220,9 @@ flowchart TB
 
 左边是默认做法：编译慢（每个翻译单元重做一遍），但任何 `T` 都能用；右边把实例化收口到一个 `.cpp`，编译快、实现细节不进头文件，代价是 `T` 只能取那张列表里的类型。
 
-### 4. Java 对照：类型擦除 vs 单态化，以及错误信息为什么巨长
+### 4. 模板错误信息为什么巨长
 
-把两种机制放在一起：
-
-| | Java 泛型 | C++ 模板 |
-|---|---|---|
-| 类型参数在哪里消失 | 编译成字节码时被擦除 | 编译成机器码时被替换成具体类型 |
-| `List<Integer>` / `vector<int>` | 与 `List<String>` 同一个类 | 与 `vector<string>` 两个不相干类型 |
-| 代码份数 | 一份 | 每组参数一份 |
-| 能否用基本类型 | 不能（需装箱） | 能，且没有额外开销 |
-| 能否按类型参数换实现 | 不能 | 能（特化、`if constexpr`、重载） |
-| 值可以做参数吗 | 不能 | 能（非类型模板参数，第四章） |
-| 类型检查发生在 | 泛型定义处（有 `extends` 约束） | 实例化处（默认没有约束，第六章） |
-| 运行期能问 `T` 是什么吗 | 不能（已擦除） | 不需要问，`T` 已经编进代码 |
-
-Table: Java 泛型的类型擦除与 C++ 模板的单态化
-
-对 AI-Infra 读者，C++ 这一侧有一个更熟悉的类比：`torch.compile` 对同一个 Python 函数，会按输入的 dtype、形状（guard）各编译一份专用的图，`f(float32 张量)` 和 `f(float64 张量)` 跑的是两份不同的生成代码。模板做的是同一件事，只是发生在编译期、由源码里显式或推导出的 `<T>` 触发，而 `torch.compile` 发生在运行期、由第一次见到的实参触发。两者的代价也同构：份数随参数组合增长（模板是编译时间与二进制体积，`torch.compile` 是 recompile 次数与缓存），这是第七章 `AT_DISPATCH` 只为有限几种 dtype 实例化、而不是对所有类型全开的原因。
-
-最后两行解释了 C++ 模板错误信息为什么巨长。Java 在泛型定义处就检查 `T` 满足 `extends Comparable<T>`，错在哪一行就报哪一行。C++ 模板默认对 `T` 没有任何约束，`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道；如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。做一个最小实验（macOS arm64，Apple clang 21，libc++），用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
+C++ 模板默认对 `T` 没有任何约束（第六章讲怎么加），`add_kernel` 里的 `a[i] + b[i]` 是否合法要等到 `scalar_t` 确定之后才知道：类型检查发生在**实例化处**，不在模板定义处。如果你传了一个没有 `operator+` 的类型，错误发生在**实例化的深处**，编译器会把整条实例化链打印出来。做一个最小实验（macOS arm64，Apple clang 21，libc++），用 `std::sort` 排序一个 `std::list`（`list` 的迭代器不支持随机访问）：
 
 ```cpp title="用 std::sort 排序 std::list：故意触发模板错误"
 #include <algorithm>
@@ -225,9 +248,12 @@ note: in instantiation of function template specialization
 
 错误出在标准库内部第五层的 `__last - __first`，而不是你写 `std::sort` 那一行；每一层 `note: in instantiation of ... requested here` 是实例化栈的一帧，类型名带着完整的模板参数，所以一行就有几百字符。读这类错误的方法：先找第一条 `error:`，再顺着 `note: in instantiation ... requested here` 往下找到**自己代码里**的那一帧，问题几乎总在那里。PyTorch 里一条 `AT_DISPATCH` 里的类型错误可以轻松产生上千行输出，读法相同。
 
+> [!NOTE] 与 Java 对照：类型检查发生在哪里
+> Java 泛型在定义处检查：`<T extends Comparable<T>>` 声明了 `T` 能做什么，方法体里只能用 bound 允许的操作，调用方传错类型时错误报在调用那一行。C++17 的模板在定义处不知道 `T` 能做什么，要到实例化时才检查函数体，所以错误报在库内部，并带着整条实例化链。
+
 ### 5. `typename` 与 `template` 的消歧义
 
-模板里有两个关键字的用法是纯语法层面的，Java 没有对应物，但读源码时随处可见。两者的根源是同一件事：**编译器在读模板定义时还不知道 `T` 是什么**，但它必须把每一行都解析成确定的语法结构。凡是含有 `T` 的名字（`T::x`、`t.get`）都叫**依赖名**（dependent name），解析器对它一无所知，只能靠默认规则或作者的提示。
+模板里有两个关键字的用法是纯语法层面的，读源码时随处可见。两者的根源是同一件事：**编译器在读模板定义时还不知道 `T` 是什么**，但它必须把每一行都解析成确定的语法结构。凡是含有 `T` 的名字（`T::x`、`t.get`）都叫**依赖名**（dependent name），解析器对它一无所知，只能靠默认规则或作者的提示。
 
 先看一个最小的例子：
 
@@ -291,7 +317,10 @@ void g(T t) {
 
 `this->operator=` 是成员模板，显式给它模板参数时要写 `this->template operator= <...>`。`c10/util/flat_hash_map.h` 里的 `typename std::allocator_traits<A>::template rebind_alloc<...>` 是两个关键字连用的例子。日常写代码很少需要 `template` 消歧义，但读到时不要以为是什么高级用法，它只是给解析器的提示。
 
-Java 泛型没有这两个关键字，原因也在"编译器读到 `T` 时知道多少"：Java 的 `T` 有 bound（默认 `Object`），`T` 上能用的成员在声明时就确定了，`t.get()` 是不是方法、返回什么，编译器读泛型方法体时就知道，不需要作者提示。C++17 的 `T` 在模板定义时没有任何约束——它可以是任何类型——所以解析器只能靠默认规则加作者标注。C++20 concepts（6.5 节）部分补上了这一层，但 `typename` / `template` 的规则没有变。
+C++20 concepts（6.5 节）给 `T` 加上了约束，但 `typename` / `template` 的规则没有变。
+
+> [!NOTE] 与 Java 对照：为什么 Java 泛型不需要这两个关键字
+> Java 的类型参数总有 bound（默认 `Object`），`T` 上能用的成员在声明时就确定了：编译器读泛型方法体时就知道 `t.get()` 是不是方法、返回什么，不需要作者提示。C++17 的 `T` 在模板定义时可以是任何类型，解析器只能靠默认规则加作者标注。
 
 ## 三、推导：编译器怎么知道 `T` 是什么
 
@@ -308,7 +337,10 @@ inline void parallel_for(
     const F& f);
 ```
 
-调用 `parallel_for(0, n, 4096, [&](int64_t b, int64_t e) { ... })` 时，`F` 被推导为那个 lambda 的闭包类型（第九章）。每个 lambda 表达式都有独一无二的类型，所以**每个调用点都会实例化一份 `parallel_for`**，lambda 体可以被完整内联到那一份里。这和 Java 把 lambda 转成 `Function` 接口对象再虚调用的模型完全不同，也是 C++ 里"传 lambda 零开销"的原因。
+调用 `parallel_for(0, n, 4096, [&](int64_t b, int64_t e) { ... })` 时，`F` 被推导为那个 lambda 的闭包类型（第九章）。每个 lambda 表达式都有独一无二的类型，所以**每个调用点都会实例化一份 `parallel_for`**，lambda 体可以被完整内联到那一份里，这是 C++ 里"传 lambda 零开销"的原因。
+
+> [!NOTE] 与 Java 对照：把 lambda 传给泛型方法
+> Java 把 lambda 作为函数式接口（如 `Function`）的实例传进去，接收它的方法只有一份字节码，调用 lambda 是一次接口调用，能否内联取决于 JIT 在运行期的优化。C++ 这里闭包类型成了模板实参，每个调用点一份 `parallel_for`，被调用的函数体在编译期就确定。
 
 `aten/src/ATen/native/cpu/Loops.h` 的 `cpu_kernel` 更进一步：
 
@@ -348,13 +380,17 @@ Table: 函数模板参数推导：形参写法与实参决定推导结果
 
 为什么不能从返回值推？一个自然的反驳是：实参类型都知道了，C++ 又是强类型的，返回类型理应也是确定的。这在 `T` 出现在实参里时成立——推出 `T`，返回类型随之确定，`parallel_for` 就是这样。`data_ptr<T>()` 的问题是 `T` **只**出现在返回类型里，实参列表是空的，没有任何信息可推。那能不能从**赋值目标**推——`float* p = x.data_ptr();`，左边不是明明写着 `float*`？C++ 的回答是不：表达式的类型是**自底向上**确定的，编译器先算出 `x.data_ptr()` 的类型，再检查它能否转换成左边的 `float*`，类型信息不会从上下文向下流进一个子表达式。这个选择有它的道理：同一个调用可以出现在没有目标类型的位置——`auto p = x.data_ptr();`、`f(x.data_ptr())`（`f` 可能有多个重载）、`x.data_ptr() + 1`——如果允许从目标反推，这些位置要么无解，要么让推导和重载决议变成一个联立求解的问题。C++ 把规则定成"只看实参、单向、局部"，代价是像 `data_ptr<T>()` 这种 `T` 不在实参里的情况必须显式写出来。
 
-Java 在这里走得远一点：`List<String> l = Collections.emptyList();` 能从赋值目标推出 `T = String`（目标类型推断，Java 8 起还扩展到方法实参与 lambda）；推不出来时才用显式类型见证（type witness）`Collections.<String>emptyList()`。C++ 只有后一种。
+> [!NOTE] 与 Java 对照：从赋值目标推导
+> Java 在这里走得远一点：`List<String> l = Collections.emptyList();` 能从赋值目标推出 `T = String`（目标类型推断，Java 8 起还扩展到方法实参的位置）；推不出来时才写显式类型见证（type witness）`Collections.<String>emptyList()`。C++ 不从目标类型推导，`T` 不在实参里就只有显式写这一种办法，所以 `data_ptr<float>()` 的尖括号省不掉。
 
 ### 3. `auto`、`decltype` 与 `std::declval`
 
 `auto` 让编译器从初始化表达式推导变量类型，规则和模板参数推导相同。系列总纲开篇的 `auto x_c = x.contiguous();`、`auto out = at::empty_like(x_c);` 都是 `at::Tensor`。它在两种场合几乎是必需的：类型名太长（迭代器、lambda）或者根本写不出来（lambda 的闭包类型没有名字，只能 `auto f = [&] {...};`）。
 
-Java 10 的 `var` 是它最接近的对应物：都要求有初始化表达式、都在编译期推导、运行期没有任何差别。两处差别要记住。第一，`auto` 按模板推导规则**剥掉顶层 `const` 和引用**：`const Tensor& t = ...; auto u = t;` 得到的 `u` 是一个新的 `Tensor`（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过，这里是一次引用计数加一而不是数据拷贝，但对 `std::vector` 这类值语义容器就是深拷贝），要保留引用必须写 `auto&` 或 `const auto&`——这是 C++ 代码里 `for (const auto& x : xs)` 满天飞的原因；`var` 原样取初始化表达式的类型，Java 也没有"引用"这一层可剥。第二，`auto` 不限于局部变量：函数返回类型（3.4 节）、泛型 lambda 的参数（9.3 节）都可以写 `auto`，后者实际是在声明一个模板；`var` 只能用于局部变量。
+`auto` 有两条规则要记住。第一，它按模板推导规则**剥掉顶层 `const` 和引用**：`const Tensor& t = ...; auto u = t;` 得到的 `u` 是一个新的 `Tensor`（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过，这里是一次引用计数加一而不是数据拷贝，但对 `std::vector` 这类值语义容器就是深拷贝），要保留引用必须写 `auto&` 或 `const auto&`——这是 C++ 代码里 `for (const auto& x : xs)` 满天飞的原因。第二，`auto` 不限于局部变量：函数返回类型（3.4 节）、泛型 lambda 的参数（9.3 节）都可以写 `auto`，后者实际是在声明一个模板。
+
+> [!NOTE] 与 Java 对照：auto 与 var
+> Java 10 的 `var` 是最接近的对应物：都要求有初始化表达式，都在编译期推导，运行期没有任何差别。不同在上面两条规则：`var` 原样取初始化表达式的静态类型，Java 没有"引用 / `const`"这一层可剥，所以不存在 `auto u = t;` 悄悄拷贝一份的问题；`var` 只用于局部变量（含 `for` 循环变量），不能做方法返回类型，也不会像泛型 lambda 的 `auto` 参数那样声明出一个模板。
 
 `decltype(expr)` 给出表达式的类型而不求值。它在泛型代码里用来"问"一个类型能做什么。`c10/util/StringUtil.h` 里检测一个类型能否被 `<<` 到 `ostream` 的写法：
 
@@ -438,7 +474,10 @@ ArrayRef(const std::vector<T, A>&) -> ArrayRef<T>;
 
 ### 1. `std::array<T, N>` 与 `SmallVector<T, N>`
 
-Java 泛型的参数只能是类型。C++ 模板的参数还可以是**值**——整数、枚举、指针、`bool`——只要它在编译期是常量。`std::array<float, 4>` 的 `4` 就是非类型模板参数：长度是类型的一部分，`array<float, 4>` 和 `array<float, 8>` 是两个类型，`sizeof` 不同，不能互相赋值，但也因此不需要在对象里存长度、不需要堆分配。
+模板的参数不只可以是类型，还可以是**值**——整数、枚举、指针、`bool`——只要它在编译期是常量。`std::array<float, 4>` 的 `4` 就是非类型模板参数：长度是类型的一部分，`array<float, 4>` 和 `array<float, 8>` 是两个类型，`sizeof` 不同，不能互相赋值，但也因此不需要在对象里存长度、不需要堆分配。
+
+> [!NOTE] 与 Java 对照：值做参数
+> Java 泛型的参数只能是引用类型，没有办法把长度写进类型：`new float[4]` 和 `new float[8]` 的类型都是 `float[]`，长度是数组对象在运行期携带的字段。C++ 把 `N` 编进类型后，长度不匹配是编译错误，循环次数和缓冲区大小对编译器都是常量——4.3 节的 CUDA kernel 依赖的正是这一点。
 
 `c10/util/SmallVector.h`（从 LLVM 移植）把这个思路用在"小容量内联、大容量转堆"的容器上：
 
@@ -830,7 +869,7 @@ inline std::ostream& _str(std::ostream& ss, const std::optional<T>& t) {
 
 ### 4. 变参模板与参数包展开
 
-Java 的可变参数 `Object... args` 是一个数组，所有参数被装箱成 `Object`，类型在运行期才知道。C++ 的变参模板（variadic template）在编译期知道每个参数的**精确类型**和**个数**。语法是三个点：
+变参模板（variadic template）接收任意个、任意类型的参数，并且在编译期知道每个参数的**精确类型**和**个数**。语法是三个点：
 
 ```cpp title="make：变参模板加完美转发"
 template <class... Args>          // Args 是一个"类型参数包"：零个或多个类型
@@ -840,6 +879,9 @@ static intrusive_ptr make(Args&&... args) {   // args 是"函数参数包"
 ```
 
 这是 `c10/util/intrusive_ptr.h` 里 `make_intrusive` 的核心（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)照抄过）。`Args&&... args` 接收任意个任意类型的实参；`std::forward<Args>(args)...` 是**包展开**（pack expansion）：模式 `std::forward<Args>(args)` 对包里每个元素重复一次，用逗号连接。`make_intrusive<TensorImpl>(storage, sizes, dtype)` 展开后就是 `new TensorImpl(std::forward<A0>(a0), std::forward<A1>(a1), std::forward<A2>(a2))`——参数原样转给构造函数，左值仍是左值、右值仍是右值，这叫**完美转发**。《值、引用与所有权》里 `TensorImpl` 的 sink 参数之所以能在 `make_intrusive` 那一层被移动而不是拷贝，就靠这个。
+
+> [!NOTE] 与 Java 对照：可变参数
+> Java 的 `Object... args` 在调用处被打包成一个 `Object[]`：基本类型实参要装箱，元素的静态类型统一成 `Object`，个数和各自的实际类型到运行期才能查。C++ 的参数包不是数组，`make_intrusive<TensorImpl>(storage, sizes, dtype)` 实例化出的是一个恰好三个参数、类型各异的函数，没有装箱，也不需要运行期判断类型。
 
 `c10::str` 用递归展开处理"把任意个参数拼成字符串"：
 
@@ -1049,7 +1091,10 @@ execute_op(char* C10_RESTRICT data[], const int64_t* strides, int64_t i, int64_t
 
 3.3 节的 `Streamable` 是 SFINAE 用在**类模板偏特化**上：`decltype(std::declval<std::ostream&>() << T{})` 代入失败时偏特化被丢弃，落回主模板。这个"检测某表达式是否合法"的套路叫 detection idiom，`function_traits`、`needs_dynamic_casting` 等 ATen 内部工具都是这样实现的。
 
-Java 对照：Java 的 `<T extends Comparable<T>>` 是**显式的、在定义处检查的**约束；SFINAE 是**隐式的、在重载决议时起作用的**过滤器。SFINAE 的缺点很明显——意图藏在 `enable_if` 的布尔表达式里，报错时只说"没有匹配的函数"，不说为什么。这正是 C++20 concepts 要解决的问题。
+SFINAE 的缺点很明显——意图藏在 `enable_if` 的布尔表达式里，报错时只说"没有匹配的函数"，不说为什么。这正是 C++20 concepts 要解决的问题。
+
+> [!NOTE] 与 Java 对照：SFINAE 与 bounded type
+> 两者都在限制"哪些类型可以用这个泛型"，但机制不同。Java 的 `<T extends Comparable<T>>` 是写在签名里的显式约束，不满足就是一条指向调用处的编译错误。SFINAE 是重载决议时的过滤器：条件不满足时这个重载被静默丢弃，编译器接着试其他重载，全都不匹配才报错。所以它还能做 bound 做不到的事——让两个同名重载按类型性质二选一。
 
 ### 5. C++20 concepts：约束的正式语法
 
@@ -1071,7 +1116,10 @@ concept ContiguousContainerOf = requires(const C& c) {
 };
 ```
 
-不满足时编译器会说"约束 `ContiguousContainerOf<X, int64_t>` 不满足，因为 `c.data()` 不存在"，比 SFINAE 的报错好得多。Java 工程师会觉得这终于像 `extends` 了——但注意 concepts 仍是**鸭子类型**：它检查"能不能这样用"，不要求 `Container` 声明实现了某个接口。
+不满足时编译器会说"约束 `ContiguousContainerOf<X, int64_t>` 不满足，因为 `c.data()` 不存在"，比 SFINAE 的报错好得多。concepts 是**结构化**的约束：它检查"能不能这样用"（有没有 `data()`、`size()`），不要求 `Container` 声明实现了某个接口。
+
+> [!NOTE] 与 Java 对照：concepts 与 extends
+> concepts 像 `<T extends Foo>` 的地方：约束写在签名上，不满足时错误报在调用处并说明原因。不像的地方：Java 的 bound 是名义的，类必须显式 `implements` 那个接口；concept 只看表达式是否合法，`std::vector`、`std::array` 和你自己写的类不需要任何声明就能满足 `ContiguousContainerOf`。另外，concept 只约束调用方，模板体内用到约束之外的操作，编译器在定义处并不报错。
 
 PyTorch v2.10.0 用 C++17 编译，源码树里自然没有 `requires`/`concept`（在 `c10/` 和 `aten/src/ATen/core/` 下搜不到这两个关键字的语法用法），`HeaderOnlyArrayRef.h` 的容器构造函数就是上面那副 `enable_if` 的样子。vLLM v0.15.0 同样是 C++17。所以读这两个项目时，约束都长成 `enable_if` 的样子；写新代码时，如果项目允许 C++20，concepts 是更好的选择。
 
@@ -1402,7 +1450,7 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
   size_type Length;
 ```
 
-16 字节，平凡可拷贝，按值传递就是两个寄存器。它像 Java 的 `List<Long>` 接口那样让调用方"不关心底层容器是什么"，但实现方式相反：Java 靠接口和虚调用，`ArrayRef` 靠一组隐式构造函数在编译期把各种容器统一成"指针 + 长度"：
+16 字节，平凡可拷贝，按值传递就是两个寄存器。它让调用方"不关心底层容器是什么"，靠的是一组隐式构造函数，在编译期把各种容器统一成"指针 + 长度"：
 
 ```cpp title="HeaderOnlyArrayRef 的一组隐式构造函数"
   /// Construct a HeaderOnlyArrayRef from a single element.
@@ -1441,6 +1489,9 @@ lambda 移到第三个参数并用 `AT_WRAP` 包住（因为它不再是最后�
 
 注释里的两个条件就是使用规则：`IntArrayRef s = x.sizes();` 在 `x` 活着且没被 resize 期间有效。[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过"返回成员的引用有风险"，`ArrayRef` 就是那个风险的具体形态——它是一个不延长生命周期的借用。
 
+> [!NOTE] 与 Java 对照：ArrayRef 与 List 接口
+> 参数类型写 `IntArrayRef`，作用类似 Java 方法参数写 `List<Long>` 而不是 `ArrayList<Long>`：调用方用什么容器都能传。两处不同。实现上，Java 靠接口和虚调用，元素是装箱的 `Long`；`ArrayRef` 没有虚函数，各种容器在调用处被转换成同一个"指针 + 长度"。生命周期上，Java 的 `List` 引用会让对象一直存活；`ArrayRef` 不拥有数据，底层容器销毁或重新分配后它就悬垂，所以只适合做参数和返回值。
+
 派生类 `ArrayRef` 相对基类只多两样东西：一个从 `SmallVector` 构造的模板构造函数（5.2 节），以及把 `front()`/`back()`/`at()`/`slice()` 的检查从 `STD_TORCH_CHECK` 换成 `TORCH_CHECK`（更好的错误信息，但依赖 libtorch）。还有一对刻意删除的赋值运算符：
 
 ```cpp title="ArrayRef 刻意删除的从临时对象赋值"
@@ -1475,7 +1526,10 @@ Tensor empty_cpu(
     std::optional<c10::MemoryFormat> memory_format_opt) {
 ```
 
-这对应 Schema 里的 `ScalarType? dtype=None`。用法：`opt.has_value()`、`*opt` / `opt.value()`、`opt.value_or(default)`、`opt->member`。它是**值类型**：`optional<ScalarType>` 就是一个 `ScalarType` 加一个 `bool`，放在栈上或参数寄存器里，没有堆分配。Java 的 `Optional<T>` 是一个堆对象，包着一个引用，两者语义相近、代价不同；另外 Java 用 `null` 表示缺失的地方远多于 `Optional`，而 C++ 里 `optional<Tensor>` 和"undefined `Tensor`"（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的 `UndefinedTensorImpl`）是两种不同的"没有"，读源码时要分清。
+这对应 Schema 里的 `ScalarType? dtype=None`。用法：`opt.has_value()`、`*opt` / `opt.value()`、`opt.value_or(default)`、`opt->member`。它是**值类型**：`optional<ScalarType>` 就是一个 `ScalarType` 加一个 `bool`，放在栈上或参数寄存器里，没有堆分配。注意 `optional<Tensor>` 和"undefined `Tensor`"（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的 `UndefinedTensorImpl`）是两种不同的"没有"，读源码时要分清。
+
+> [!NOTE] 与 Java 对照：Optional
+> 两者语义相近：都把"可能没有"写进类型。代价不同：Java 的 `Optional<T>` 本身是一个对象，里面再持有一个引用；`std::optional<T>` 是值类型，`T` 就存放在它内部，外加一个标志位。用法习惯也不同：Java 的 `Optional` 主要用作返回值，参数和字段里的缺失多用 `null` 表示；C++ 的值类型没有 `null` 可用，`std::optional` 直接出现在参数列表里，上面 `empty_cpu` 的签名就是例子。
 
 版本演进（PyTorch 2.x 中的变化）：PyTorch 早期用自己实现的 `c10::optional`（`c10/util/Optional.h` 曾是一个完整的自有实现，因为要支持没有 `<optional>` 的旧编译器；2.1 的 `c10/util/Optional.h` 还是这个自有实现），从 2.2 起 `c10::optional` 变成 `std::optional` 的别名，之后几个版本里 PyTorch 自己的代码逐步改写为直接使用 `std::optional`。v2.10.0 源码树里 `c10/util/Optional.h` 只剩下这些：
 
@@ -1556,7 +1610,8 @@ struct __lambda_at_line_74 {
 2. lambda 的类型没有名字，只能用 `auto` 接住，或者作为模板参数 `F` 推导出来，或者装进 `std::function`（[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)讨论它的代价）。
 3. 调用 lambda 就是调用 `operator()`，编译器完全知道函数体，可以内联。没有虚调用，没有堆分配（除非装进 `std::function`）。
 
-Java 的 lambda 会被编译成 `invokedynamic` + 一个实现函数式接口的类，调用是接口调用；在 JIT 内联之前，它和 C++ lambda 的性能模型不同。
+> [!NOTE] 与 Java 对照：lambda 的类型
+> Java 的 lambda 表达式没有自己的类型，它的值是目标函数式接口（`Runnable`、`Function` 等）的一个实例，`javac` 生成 `invokedynamic` 指令，实现类由 JVM 在运行期提供；所以两个 lambda 可以赋给同一个接口类型的变量，调用走接口方法。C++ 的每个 lambda 有自己的匿名类型，彼此不能赋值，要放进同一个变量或容器只能装进 `std::function`，那时才出现与 Java 类似的间接调用（9.4 节）。
 
 ### 2. 捕获列表：`[&]`、`[=]`、具名捕获
 
@@ -1627,7 +1682,8 @@ auto make_task(std::unique_ptr<Buffer> buf) {
 
 `[b = std::move(buf)]` 的语法是"闭包新增一个成员 `b`，用等号右边的表达式初始化它"——右边可以是任何表达式，不必是外层变量的名字，所以它同时提供了改名（`[n = size()]`）、预计算（`[len = end - begin]`）和移动三种能力。C++11 时代的变通办法是先把对象装进 `std::shared_ptr` 再 `[=]` 捕获（多一次堆分配和引用计数，语义也从独占变成了共享）或者用 `std::bind`；C++14 之后这些都不需要了。3.4 节 `register_hook` 里的 `[fn=std::forward<T>(hook)]` 就是这个用法：把用户的 hook **移动**进闭包成为成员，因为这个闭包要被存进 `std::function` 长期持有，按引用捕获会悬垂，按值捕获则要求 hook 可拷贝。凡是"lambda 要活得比当前作用域久、又要独占一份资源"的场合——线程池任务、异步回调、`std::thread` / `std::async` 的函数体——初始化捕获都是标准写法，读并发和网络库源码时会反复见到。
 
-Java 对照：Java lambda 只能捕获 effectively final 的局部变量，而且是按值捕获（对对象来说是拷贝引用）。Java 没有 `[&]`——你不能在 lambda 里给外层局部变量赋值。这条限制的原因正是生命周期：Java lambda 可能在外层方法返回后才执行，按引用捕获栈变量必然悬垂，所以语言直接禁止。C++ 允许 `[&]`，把判断"lambda 会不会活得比外层变量久"的责任交给程序员。
+> [!NOTE] 与 Java 对照：捕获外层局部变量
+> Java lambda 只能捕获 effectively final 的局部变量，捕获的是值（对对象来说是引用的拷贝，对象本身仍可修改），相当于 C++ 的 `[=]`。Java 没有 `[&]`：lambda 里不能给外层局部变量赋值。这样 lambda 即使在外层方法返回后才执行，手里的值也仍然有效，被引用的对象由 GC 保活。C++ 允许 `[&]`，闭包里存的是指向外层栈变量的引用，判断"lambda 会不会活得比外层变量久"的责任在程序员（9.5 节）。
 
 ### 3. 泛型 lambda
 
@@ -2370,24 +2426,6 @@ grep -n "fmul\|\tmul\tx8, x8, x9" mul.s
 **视图与容器**：`ArrayRef<T>` 是指针 + 长度的不拥有视图，按值传、不存储，一组隐式构造函数统一各种容器；`std::optional<T>` 是值类型的可选值，`c10::optional` 在 v2.10.0 只剩一个废弃别名；`SmallVector<T, N>` 小容量内联不分配，`DimVector` 是 5 维内联的 shape 容器。
 
 **lambda**：闭包类型唯一、可内联；`[&]` 引用捕获不延长寿命，同步且不逃逸时安全（`AT_DISPATCH` 的 IIFE、`parallel_for` 的 `#pragma omp parallel` 同步块），要存起来或异步时按值/初始化捕获；泛型 lambda 的 `operator()` 是模板；模板参数传 lambda 零开销、`std::function` 类型擦除有代价但可跨 `.so`。
-
-最后把 Java 对照集中列一次：
-
-| 概念 | Java | C++ | 类比失效的地方 |
-|---|---|---|---|
-| `Foo<T>` | 泛型，编译后擦除 | 模板，编译期为每组参数生成代码 | Java 只有一份代码；C++ `vector<int>`/`vector<string>` 是两个类型 |
-| `List<Integer>` | 装箱，运行期 `Object` | `vector<int>` 紧密排列的 `int` | Java 泛型不能用基本类型 |
-| 类型参数约束 | `<T extends Comparable<T>>`，定义处检查 | 默认无约束；`static_assert`/SFINAE/concepts | C++ 错误在实例化处，信息长 |
-| 值参数 `<N>` | 不存在 | `array<T, N>`、`SmallVector<T, N>`、kernel 的 `BLOCK_SIZE` | Java 无法把 tile 大小编进类型 |
-| 按类型给不同实现 | 不能（`instanceof` 运行期） | 特化、重载、`if constexpr`，编译期 | — |
-| 可变参数 | `Object... args`，运行期数组 | `Args&&... args`，编译期知道每个类型 | 完美转发无对应物 |
-| `Optional<T>` | 堆对象包引用 | `std::optional<T>` 值类型，无分配 | Java 更多用 `null` |
-| `List<Long>` 只读视图 | 接口 + 虚调用 | `ArrayRef<T>` 指针 + 长度，编译期统一 | `ArrayRef` 不延长生命周期 |
-| lambda 捕获 | 只能按值捕获 effectively final | `[&]`/`[=]`/初始化捕获 | Java 靠禁止按引用捕获避免悬垂；C++ 靠程序员 |
-| 传 lambda | 函数式接口，接口调用 | 模板参数直接内联；`std::function` 才是类型擦除 | Java 无零开销选项 |
-| 类型见证 `Collections.<String>emptyList()` | 少用，通常能推导 | `data_ptr<float>()` 必须写 | C++ 不从返回值推导 |
-
-Table: 模板与泛型编程：Java 对照汇总
 
 下一篇进入多态：`AT_DISPATCH` 解决了"按 dtype 选 kernel"，但"按设备（CPU/CUDA）选 kernel"是运行期的事，PyTorch 的 Dispatcher 用虚函数、函数指针、`std::function` 和手写类型擦除（`c10::KernelFunction`）把任意签名的 kernel 装进统一的表里。为什么 `TensorImpl` 有虚函数而 `Tensor` 没有，为什么 `KernelFunction` 同时有 boxed 和 unboxed 两条路径，`IValue` 和 Java 的 `Object` 有什么不同——这些是[《多态与类型擦除》](/cpp-polymorphism-and-type-erasure.html)的内容。
 

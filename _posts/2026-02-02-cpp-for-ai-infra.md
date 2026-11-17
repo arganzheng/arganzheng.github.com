@@ -8,9 +8,29 @@ updated: 2026-11-17
 ---
 
 
-## 内容简介
+## 总览：C++ 在系统里负责哪一段
 
-《C++ 在 AI-Infra：从对象模型到算子扩展》是一组共八讲、九篇的系列文章（第一讲拆成上下两篇），面向有 Java 或其他托管语言背景、准备阅读和修改 PyTorch、vLLM 等 AI-Infra 项目 C++ 层的工程师。
+《C++ 在 AI-Infra：从对象模型到算子扩展》包含**八讲、九篇正文，另有一篇总结自测**（第一讲拆成上下两篇，其余各一篇），面向有 Java 或其他托管语言背景、准备阅读和修改 PyTorch、vLLM 等 AI-Infra 项目 C++ 层的工程师。
+
+以 Python 里的一次 `z = x + y` 为例。Python 只负责把调用送到边界，之后选哪个实现、怎么算、内存何时释放，全部发生在 C++ 层；而这些 C++ 代码在 `import torch` 的那一刻就已经被加载并登记好了：
+
+```mermaid
+%% 图：import torch 时的加载与注册，以及一次 x + y 在 C++ 层走过的路径
+flowchart TB
+    SRC["<b>源码变成可加载的库</b><br/>01：编译、链接成 libc10、libtorch_cpu、_C 等 .so"]
+    REG["<b>加载时登记算子</b><br/>05：注册宏展开成静态对象<br/>初始化时写进 Dispatcher 的注册表"]
+    PY["<b>Python 调用 x + y</b><br/>07：把 Python 对象转成 at::Tensor，释放 GIL"]
+    DISP["<b>选择实现</b><br/>04：按 DispatchKeySet 查表，取出 kernel<br/>06：thread_local 守卫决定哪些 key 参与"]
+    KER["<b>执行 kernel</b><br/>03：模板按 dtype 各生成一份循环<br/>06：parallel_for 分块并行"]
+    OWN["<b>返回结果，释放资源</b><br/>02：Tensor 是句柄，引用计数归零时释放内存"]
+    TOOL["<b>验证与定位</b><br/>08：构建、测试、sanitizer、调试器"]
+    SRC --> REG
+    PY --> DISP --> KER --> OWN
+    REG -- "import torch 完成，注册表就绪" --> DISP
+    OWN -. "出错时从这里往回查" .-> TOOL
+```
+
+图里的数字是讲次。左上两步发生在进程启动时，中间一列是每次算子调用都要走的路径；后面的八讲，就是把这条路径上每一步用到的 C++ 机制拆开讲。
 
 它不是一本 C++ 教材。C++ 有几十个特性、几千页标准，而 AI-Infra 项目真正大量使用的只是一个子集。这个系列只讲这个子集，并且每一个特性都从一个具体问题引出：
 
@@ -201,7 +221,8 @@ Java 工程师第一次面对 C++ 项目时，最陌生的不是语法，而是*
 
 > **`import torch` 时加载了哪些 `.so`？它们之间是什么依赖关系？自定义扩展链接到哪一个？**
 
-Java 对照：类加载器在运行时按需加载 `.class`，C++ 在链接时就把符号解析完（动态库是部分例外）。理解这个差别，就理解了为什么 C++ 的"找不到符号"错误出现在编译期和加载期，而不是运行期。
+> [!NOTE] 与 Java 对照：符号什么时候解析
+> 类加载器在运行时第一次用到某个类时才加载它，找不到是一个可以捕获的错误。C++ 的符号在构建期由链接器解析一次，动态库里的再由 `ld.so` 在加载时解析一次，所以"找不到"出现在链接期和进程启动时，都早于业务代码开始运行。
 
 实践：写第一个 libtorch C++ 程序，手工用 `g++` 编译并链接到 PyTorch 的 `.so`，用 `ldd` 和 `nm` 观察结果。mini-c10 项目在这一篇建立目录结构。
 
@@ -228,7 +249,8 @@ Java 对照：类加载器在运行时按需加载 `.class`，C++ 在链接时�
 
 这一篇会从 C++ 所有权的角度讲清 PyTorch Tensor 的 `Tensor → TensorImpl → StorageImpl → 数据` 三层结构：`Tensor` 按值持有一个 `intrusive_ptr<TensorImpl>`，`TensorImpl` 按值持有一个 `Storage`，`Storage` 按值持有一个 `intrusive_ptr<StorageImpl>`，`StorageImpl` 持有一个带自定义删除器的 `DataPtr`。整条链上没有一处需要手工 `delete`，这就是 RAII。
 
-Java 对照：`try-with-resources` 只能管理块作用域内的资源；RAII 让资源可以作为成员、被移动、放进容器，生命周期跟着所有者走。GC 解决了"什么时候释放内存"，没有解决"什么时候释放显存、文件句柄、锁"。
+> [!NOTE] 与 Java 对照：资源由谁释放
+> `try-with-resources` 只能管理块作用域内的资源；RAII 让资源可以作为成员、被移动、放进容器，生命周期跟着所有者走。GC 解决了"什么时候释放内存"，没有解决"什么时候释放显存、文件句柄、锁"。
 
 实践：mini-c10 实现 `intrusive_ptr` 和一个最简 `TensorImpl`/`StorageImpl`，让第一个 Tensor 对象跑起来，并用析构函数打印证明释放时序。
 
@@ -254,7 +276,8 @@ Java 泛型和 C++ 模板都写成 `<T>`，但实现机制相反：Java 在编�
 
 > **`AT_DISPATCH_FLOATING_TYPES(x.scalar_type(), "name", [&] { ... scalar_t ... })` 里的 `scalar_t` 从哪里来？这个 lambda 被编译了几次？**
 
-Java 对照：`List<Integer>` 和 `List<String>` 在 JVM 里是同一个类；`std::vector<int>` 和 `std::vector<std::string>` 在 C++ 里是两个完全不相干的类型，各有各的机器码。这也是为什么模板错误信息里会出现几百字符长的类型名。
+> [!NOTE] 与 Java 对照：泛型擦除与单态化
+> `List<Integer>` 和 `List<String>` 在 JVM 里是同一个类；`std::vector<int>` 和 `std::vector<std::string>` 在 C++ 里是两个完全不相干的类型，各有各的机器码。这也是为什么模板错误信息里会出现几百字符长的类型名。
 
 实践：mini-c10 用模板加上 `dtype` 支持，实现自己的 `DISPATCH_FLOATING_TYPES` 宏，并观察编译产物里确实有多份 kernel 代码。
 
@@ -280,7 +303,8 @@ Java 的多态只有一种：接口与虚方法。C++ 有好几种，各有代�
 
 这一篇会读 `aten/src/ATen/core/boxing/KernelFunction.h` 和 `aten/src/ATen/core/dispatch/OperatorEntry.h`，把"Operator Table 里按 DispatchKey 索引的槽位"这个概念具体化成 C++ 类型。
 
-Java 对照：Java 的 `Object` 是所有类的基类，任何值都能装进去；C++ 没有统一基类，`IValue` 是手工实现的带类型标签的联合体。Java 的接口调用永远是虚调用；C++ 用模板可以在编译期就把"策略"内联进去，零运行时开销。
+> [!NOTE] 与 Java 对照：统一基类与接口调用
+> Java 的 `Object` 是所有类的基类，任何对象都能当它传递；C++ 没有统一基类，`IValue` 是手工实现的带类型标签的联合体。Java 的接口调用在语言层面都是虚调用，能否内联取决于 JIT 在运行期看到的类型；C++ 用模板可以在编译期就把"策略"绑定到调用点。
 
 实践：mini-c10 实现一个最小 Dispatcher：`OperatorEntry` 保存按 `DispatchKey` 索引的类型擦除 kernel，支持 CPU 和一个假的 "Meta" 后端。
 
@@ -304,7 +328,8 @@ Java 对照：Java 的 `Object` 是所有类的基类，任何值都能装进去
 
 > **一个 `.so` 被 `import` 后，里面的算子怎么就出现在 `torch.ops.myops` 下了？没有任何函数被显式调用。**
 
-Java 对照：`ServiceLoader` 靠 `META-INF/services` 文件在运行时发现实现；Spring 靠反射扫描注解。C++ 没有反射，用"静态对象的构造函数在加载时运行"实现同一目标——代价是链接方式会影响它是否生效。
+> [!NOTE] 与 Java 对照：怎么发现一个实现
+> `ServiceLoader` 靠 `META-INF/services` 文件在运行时发现实现；Spring 靠反射扫描注解。C++ 没有反射，用"静态对象的构造函数在加载时运行"实现同一目标——代价是链接方式会影响它是否生效。
 
 实践：mini-c10 加上 `MINI_LIBRARY` 宏和静态注册，算子实现文件不再需要被任何地方显式引用。
 
@@ -327,7 +352,8 @@ PyTorch 的 CPU kernel 用 OpenMP 多线程，Autograd 引擎有自己的线程�
 
 > **`with torch.no_grad():` 在 C++ 层做了什么？为什么它对其他线程不生效？**
 
-Java 对照：`ThreadLocal` 与 `thread_local` 概念相同，但 C++ 的守卫对象让"进入上下文—退出上下文"的配对由析构函数保证，不会忘记 `remove()`。Java 的 `synchronized` 和 `java.util.concurrent` 对应 C++ 的 `mutex` 和 `<atomic>`，但 C++ 的内存序是显式的、可以比 `volatile` 更弱。
+> [!NOTE] 与 Java 对照：线程局部状态与内存序
+> `ThreadLocal` 与 `thread_local` 都是每线程一份的状态，但 C++ 的守卫对象让"进入上下文—退出上下文"的配对由析构函数保证，不用手写 `try/finally` 去恢复。Java 的 `synchronized` 和 `java.util.concurrent` 对应 C++ 的 `mutex` 和 `<atomic>`，但 C++ 的内存序是显式的、可以比 `volatile` 更弱；另一处不同是数据竞争的后果：Java 可能读到旧值，C++ 是未定义行为。
 
 实践：mini-c10 加 `parallel_for` 和一个 TLS 守卫 `NoGradGuard`，用两个线程演示 TLS 隔离。
 
@@ -352,7 +378,8 @@ C++ 层写好之后要暴露给 Python。这一篇讲两个运行时的边界上
 
 > **一个 `at::Tensor` 从 Python 传到 C++ 又返回 Python，经过了几次类型转换、几次引用计数变化？中间 GIL 状态是什么？**
 
-Java 对照：JNI 是同一位置的技术——`jobject` 对应 `PyObject*`，局部引用/全局引用对应 borrowed/owned reference，`JNIEnv` 对应 GIL 持有状态。区别是 Python 的 GIL 让"释放锁去跑 C++"成为一个显式、常见的动作。
+> [!NOTE] 与 Java 对照：JNI 在同一个位置
+> JNI 是同一位置的技术：native 代码拿到 `jobject`，这里拿到 `PyObject*`；两边都要分清一个引用是短期借来用的还是自己长期持有的，但规则并不相同——JNI 的局部引用在 native 方法返回前保证对象存活，Python 的 borrowed reference 不保证。另一处区别是 JVM 没有 GIL，而 Python 的 GIL 让"释放锁去跑 C++"成为一个显式、常见的动作。
 
 实践：mini-c10 用 pybind11 暴露给 Python，实现 `Tensor` 的 caster，演示一次 ABI 不匹配的真实报错以及如何定位。
 
@@ -377,13 +404,14 @@ Java 对照：JNI 是同一位置的技术——`jobject` 对应 `PyObject*`，�
 
 > **一个 C++ 改动，从写完到确认正确、没有内存错误、不会在别的编译器上炸，需要跑哪些东西？**
 
-Java 对照：Maven/Gradle 管理依赖、编译和测试一体化，C++ 里这三件事由 CMake、编译器和测试框架分别负责，而且依赖管理没有标准答案。JVM 的调试器无需关心优化级别，C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的。
+> [!NOTE] 与 Java 对照：构建与调试
+> Maven / Gradle 管理依赖、编译和测试一体化，C++ 里这三件事由 CMake、编译器和测试框架分别负责，而且依赖管理没有标准答案。Java 的调试器通常不用关心优化级别（优化由 JIT 在运行时做，断点处可以退回未优化的帧），C++ 在 `-O2` 下变量可能被优化掉、栈帧可能被内联，Debug 构建是必需的。
 
 实践：mini-c10 补齐 CMake 工程、gtest 测试、ASan 配置，用 gdb 从 Python 端一路断到 C++ kernel。
 
 ### 9. 系列总结与通关自测
 
-最后一篇不讲新内容：把八篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八篇能不能连起来用；读完正文再做。
+最后一篇不讲新内容：把八讲的正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是八讲能不能连起来用；读完正文再做。
 
 ## 贯穿全系列的实践线：mini-c10
 

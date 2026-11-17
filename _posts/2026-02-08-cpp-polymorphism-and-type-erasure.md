@@ -76,9 +76,49 @@ struct TORCH_API OperatorKernel : public c10::intrusive_ptr_target {
 
 ## 一、总览
 
+以 `at::add(a, b)` 为例，一次算子调用从入口到 kernel 的循环体，要在好几处"选实现"，每一处用的 C++ 机制不同：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：一次算子调用里的几种多态：每一层用什么机制选实现
+flowchart TB
+    CALL["<b>at::add(a, b)</b><br/>C++ 调用方，或 Python 绑定转进来"]
+    subgraph DISP["分发层：运行期选 kernel，不经过虚函数"]
+        KS["<b>DispatchKeySet</b><br/>从 Tensor 参数和线程局部状态算出的位集合"]
+        TBL["<b>OperatorEntry::dispatchTable_</b><br/>std::array&lt;KernelFunction, N&gt;，每个算子一张"]
+        KF["<b>KernelFunction</b><br/>类型擦除的 kernel：functor_、boxed 函数指针、void* 形式的 unboxed 函数指针"]
+        KS -- "最高优先级的 key 换成数组下标（第九章）" --> TBL
+        TBL -- "取出一项" --> KF
+    end
+    UNBOX["<b>unboxed 调用</b><br/>void* cast 回原签名，一次函数指针间接调用（第三、六章）"]
+    BOX["<b>boxed 调用</b><br/>参数装进 Stack，即 vector&lt;IValue&gt;，走统一签名的函数指针（第六、七章）"]
+    subgraph KERN["kernel 内部：以 CPU 上的 add 为例"]
+        LOOP["<b>kernel 函数体</b><br/>cpu_kernel(iter, lambda)：lambda 的类型是模板参数，编译期内联进循环（第四章）"]
+        IMPL["<b>TensorImpl、Allocator</b><br/>虚函数：对象的 vptr → 类的 vtable → 实现（第二章）"]
+        LOOP -- "给输出分配内存、读定制的 shape" --> IMPL
+    end
+    ERR["<b>c10::Error</b><br/>C++ 异常，在 Python C API 边界被接住，翻译成 Python 异常（第八章）"]
+    CALL -- "Dispatcher::call 先算 key（第九章）" --> KS
+    KF -- "unboxed 指针非空：at:: 的日常调用" --> UNBOX
+    KF -- "调用方不知道签名：解释器、fallback、Python" --> BOX
+    UNBOX -- "经注册时生成的包装函数" --> LOOP
+    BOX -- "从栈上拆出参数" --> LOOP
+    LOOP -. "TORCH_CHECK 失败时抛出" .-> ERR
+```
+
+- **`DispatchKeySet`**：一个 64 位的位集合，每次调用时由参数里各个 Tensor 自带的 key 集合和线程局部状态现算出来，不存在任何对象里。"这次调用该走哪个后端"的信息全在它里面。
+- **`dispatchTable_`**：内嵌在每个算子的 `OperatorEntry` 里的定长数组，注册 kernel 时填好。选 kernel 就是一次数组下标，不是 vtable 查找。
+- **`KernelFunction`**：数组的元素，值类型。它把签名各不相同的 kernel 擦成同一种类型：一个拥有 kernel 对象的 `intrusive_ptr<OperatorKernel>` 加两个函数指针，适配函数由模板在注册时生成。
+- **unboxed 与 boxed**：同一个 kernel 的两种调用约定。unboxed 保留 C++ 签名，是热路径；boxed 把参数装进 `IValue`（一个带类型标签的联合体）组成的栈，给不知道签名的通用代码用。两者可以互转。
+- **kernel 函数体**：逐元素的运算写成 lambda，作为模板参数传给 `cpu_kernel`，编译期就定下实现并内联；只有不需要内联的回调参数才用 `c10::function_ref`、`std::function` 这类擦除类型的可调用对象。
+- **`TensorImpl`、`Allocator`**：真正用虚函数的地方——堆上的实体对象和按设备替换的分配器。它们的实现在运行期由对象开头的 vptr 决定；句柄 `Tensor` 没有虚函数。
+- **`c10::Error`**：检查失败时抛出的异常对象，沿调用栈展开，到 Python C API 边界被 `catch` 住。
+
+CRTP（第五章）不在这条链上：它在编译期把基类和派生类绑在一起，用于 AOTInductor 生成的模型类这种"只有一个实现、不需要运行期选择"的场合。
+
 ### 1. C++ 的多态不止一种
 
-Java 里"按运行时类型选实现"只有一种做法：接口加虚方法。C++ 有好几种——虚函数、函数指针、函数对象与 lambda、模板与 CRTP、类型擦除、`std::variant`——每一种都在"灵活性"和"零开销"之间取不同的点，AI-Infra 项目会按场景混用。本文先把这几种机制逐个讲清（第二章到第五章），再用它们读懂 `c10::KernelFunction` 的类型擦除和 `c10::IValue` 的 tagged union（第六、七章），补上异常如何跨越 C++/Python 边界（第八章），最后沿 `at::add` 走一遍完整的分发链路，并在 mini-c10 里实现一个最小的 Dispatcher（第九、十章）。
+Java 里"按运行时类型选实现"的惯用做法基本只有一种：接口加虚方法。C++ 有好几种——虚函数、函数指针、函数对象与 lambda、模板与 CRTP、类型擦除、`std::variant`——每一种都在"灵活性"和"零开销"之间取不同的点，AI-Infra 项目会按场景混用。本文先把这几种机制逐个讲清（第二章到第五章），再用它们读懂 `c10::KernelFunction` 的类型擦除和 `c10::IValue` 的 tagged union（第六、七章），补上异常如何跨越 C++/Python 边界（第八章），最后沿 `at::add` 走一遍完整的分发链路，并在 mini-c10 里实现一个最小的 Dispatcher（第九、十章）。
 
 ### 2. 本文的章节安排
 
@@ -103,7 +143,7 @@ Table: 本文的章节安排
 
 ### 1. `virtual`、`override`、`final`、纯虚函数与抽象类
 
-Java 的实例方法默认就是虚的——只要不是 `final`、`static` 或 `private`，子类就能覆盖，调用点在运行期按对象的实际类型选实现。C++ 反过来：成员函数默认**不虚**，只有显式标 `virtual` 的才参与运行期分派。
+C++ 的成员函数默认**不虚**：调用哪个函数在编译期按变量的静态类型定下。只有显式标 `virtual` 的才参与运行期分派，调用点按对象的实际类型选实现。
 
 一个最小例子：
 
@@ -130,9 +170,21 @@ struct Square : Shape {
 几个关键字的含义：
 
 - `virtual`：声明这个函数参与运行期分派。派生类里覆盖它时可以不重写 `virtual`（继承下来的虚性不会丢），但习惯上写 `override`。
-- `override`（C++11）：告诉编译器"要覆盖基类的一个虚函数"。如果基类里没有签名一致的虚函数，编译报错。它相当于 Java 的 `@Override`，但不是注解而是关键字——写错签名（比如漏了 `const`）在 Java 里是静默地新建了一个方法，在 C++ 里加 `override` 后会直接报错。PyTorch 的 clang-tidy 规则要求所有覆盖都写 `override`。
+- `override`（C++11）：告诉编译器"要覆盖基类的一个虚函数"。如果基类里没有签名一致的虚函数，编译报错。不写它，签名写错（比如漏了 `const`）时得到的是一个新的、不覆盖任何东西的函数，编译照样通过。PyTorch 的 clang-tidy 规则要求所有覆盖都写 `override`。
 - `final`：用在类上表示不能被继承，用在虚函数上表示不能再被覆盖。它对编译器有实际意义：调用一个 `final` 类的虚函数时，编译器知道实际类型就是这个类，可以去掉虚调用（devirtualization）。`c10::KernelFunction`、`c10::BoxedKernel`、`c10::IValue`、`OperatorEntry` 都标了 `final`——不是为了防止别人继承，而是明确"这是值类型 / 实体类型，不是接口"。
-- `= 0`：纯虚函数。有至少一个纯虚函数的类是抽象类，不能实例化，只能作为基类。Java 的 `interface` 和 `abstract class` 都对应到这里；C++ 没有单独的 `interface` 关键字，"全是纯虚函数、没有数据成员的抽象类"就是接口。
+- `= 0`：纯虚函数。有至少一个纯虚函数的类是抽象类，不能实例化，只能作为基类。C++ 没有单独的 `interface` 关键字，"全是纯虚函数、没有数据成员的抽象类"就是接口。
+
+> [!NOTE] 与 Java 对照：默认虚、@Override 与接口
+>
+> | | Java | C++ |
+> | :--- | :--- | :--- |
+> | 实例方法能否被子类覆盖 | 默认能，除非是 `final`、`static` 或 `private` | 默认不能，标了 `virtual` 才参与运行期分派 |
+> | 标明"这是一次覆盖" | `@Override` 注解 | `override` 关键字 |
+> | 接口 | `interface`；`abstract class` 是带状态的抽象基类 | 两者都是"含纯虚函数的类"，没有单独的关键字 |
+>
+> Table: 方法分派、覆盖标记与接口的写法对照
+>
+> `@Override` 与 `override` 的作用相同，也都可以省略；省略后签名写错，两边都是静默地多出一个新方法，写上才报错。读 PyTorch 源码时，一个类"没法覆盖某个方法"多半是有意设计成非虚的，不是漏写了 `virtual`。
 
 真实源码里的同一模式，`c10/core/Allocator.h` 的 `Allocator` 接口（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)读过它的所有权部分）：
 
@@ -175,12 +227,15 @@ struct MetaAllocator final : public at::Allocator {
 
 ### 2. vtable：虚调用在机器层面做了什么
 
-Java 工程师对"虚调用"的直觉是 JVM 的 `invokevirtual`，具体实现藏在 JIT 里。C++ 的实现是公开的、可预测的，而且会直接影响对象大小和 ABI：
+C++ 虚调用的实现是公开的、可预测的，而且会直接影响对象大小和 ABI：
 
 - 每个**有虚函数的类**有一张只读的表（vtable），每个虚函数一个槽位，存函数地址。派生类的 vtable 是基类 vtable 的"副本 + 覆盖"，槽位顺序一致。
 - 每个**有虚函数的类的对象**开头多一个隐藏指针（vptr），指向所属类的 vtable。所以 `sizeof(Square)` 是 16（vptr 8 字节 + `double` 8 字节），而没有虚函数的 `struct NoVirtual { double x; }` 是 8。
 - 通过基类指针/引用调 `s->area()`，编译成：读 `s` 的 vptr → 取第 N 个槽位 → 间接跳转。三步，每次调用都做。
-- 编译器看到的是"一个指针 + 一个槽位号"，不知道会跳到哪里，所以**不能内联**。这一点和 Java 不同：HotSpot 会做类层次分析和内联缓存，绝大多数单态调用点最终被内联成直接调用。C++ 的 AOT 编译器只有在能证明实际类型时（局部变量、`final` 类、LTO 下整个程序只有一个实现）才能 devirtualize。跨 `.so` 边界（`libtorch_cpu.so` 调 `libtorch_cuda.so` 里的实现）永远做不到。
+- 编译器看到的是"一个指针 + 一个槽位号"，不知道会跳到哪里，所以**不能内联**。C++ 的 AOT 编译器只有在能证明实际类型时（局部变量、`final` 类、LTO 下整个程序只有一个实现）才能 devirtualize。跨 `.so` 边界（`libtorch_cpu.so` 调 `libtorch_cuda.so` 里的实现）永远做不到。
+
+> [!NOTE] 与 Java 对照：虚调用能不能被优化掉
+> Java 的 `invokevirtual` 语义相同，但执行它的是 JIT：HotSpot 靠类层次分析和运行期收集的类型信息，通常能把只见过一种实际类型的热点调用点内联成直接调用，假设失效时再退回去。C++ 没有运行期的这一层，编译时证明不了实际类型，那次间接跳转就一直留在机器码里。所以在 Java 里"接口调用很便宜"的经验不能带到 C++ 的热路径上。
 
 用上一节的 `Shape` / `Circle` / `Square` 画出来就是下面这样。两个对象各自开头有一个 vptr，指向**所属类**的 vtable；两张 vtable 槽位顺序一致（0 析构、1 `area`、2 `name`），`Square` 没覆盖 `name`，它的第 2 槽仍然指向 `Shape::name`。`s->area()` 就是沿着"对象 → vptr → 第 1 槽 → 函数"跳三次：
 
@@ -237,7 +292,7 @@ sizeof(NoVirtual)=8 sizeof(Square)=16
 
 ### 3. 虚析构：通过基类指针 `delete` 派生类对象
 
-Java 没有这个问题：GC 知道每个对象的真实类型。C++ 里 `delete p` 调用的是 `p` **静态类型**的析构函数——如果 `p` 是 `Shape*` 而实际对象是 `Circle`，且 `~Shape()` 不是虚的，那么只有 `~Shape()` 被执行，`Circle` 的成员不会析构，内存大小也可能算错。这是未定义行为，不是"少释放一点"。
+C++ 里 `delete p` 调用的是 `p` **静态类型**的析构函数——如果 `p` 是 `Shape*` 而实际对象是 `Circle`，且 `~Shape()` 不是虚的，那么只有 `~Shape()` 被执行，`Circle` 的成员不会析构，内存大小也可能算错。这是未定义行为，不是"少释放一点"。
 
 规则很简单：**只要一个类打算被当作基类通过指针删除，析构函数就必须是 `virtual`**。反过来，有了虚析构，`delete base_ptr` 会先跳到派生类析构，再依次执行基类析构。
 
@@ -264,7 +319,10 @@ struct TORCH_API OperatorKernel : public c10::intrusive_ptr_target {
 };
 ```
 
-它没有任何虚方法，唯一的职责是让 `intrusive_ptr<OperatorKernel>` 能正确释放任何派生类。这是"只为析构而存在的基类"——Java 里不需要这种东西。
+它没有任何虚方法，唯一的职责是让 `intrusive_ptr<OperatorKernel>` 能正确释放任何派生类。这是"只为析构而存在的基类"。
+
+> [!NOTE] 与 Java 对照：没有虚析构这个问题
+> Java 没有 `delete`：对象由 GC 回收，回收时 JVM 按对象头里的类信息知道它的实际类型和大小，不存在"按变量的静态类型销毁"这回事。所以 Java 里既没有虚析构的概念，也不需要 `OperatorKernel` 这种只为了能被正确销毁而存在的基类。
 
 ### 4. 为什么 `TensorImpl` 有虚函数而 `Tensor` 没有
 
@@ -375,7 +433,10 @@ struct TORCH_API NestedTensorImpl : public c10::TensorImpl {
 
 Table: Tensor 与 TensorImpl 的分工
 
-Java 对照：Java 里所有对象都是"实体 + 引用"，`Tensor`/`TensorImpl` 的拆分没有对应物。Java 引用本身不能有方法，所以只能把所有行为放在对象上、全部走虚调用。C++ 把"轻量、可拷贝、无多态"的句柄和"重量、不可拷贝、有多态"的实体拆开，两边各取所需。
+C++ 把"轻量、可拷贝、无多态"的句柄和"重量、不可拷贝、有多态"的实体拆成两个类型，两边各取所需。
+
+> [!NOTE] 与 Java 对照：句柄与实体
+> Java 的对象变量也是"引用在手、实体在堆上"，但引用不是一个可以自己定义成员函数和布局的类型，行为都定义在实体的类上。C++ 的 `Tensor` 是一个真正的类型：8 字节，按值拷贝，自己带着几百个非虚成员函数，只把需要多态的那一小部分留给 `TensorImpl`。Java 里写一个持有实现对象的包装类可以模仿这种分工，但包装类的实例仍然是一个堆对象。
 
 ### 5. 手工 vtable：`PyInterpreterVTable`
 
@@ -437,7 +498,8 @@ struct C10_API PyInterpreter {
 
 `PyInterpreterVTable` 本身是一个普通的抽象类（用了编译器的 vtable），`PyInterpreter` 只是一个指向它的指针包装。`disarm()` 把 `vtable_` 换成 `libc10.so` 里一个所有方法都为空的实现。这里有两层间接：编译器 vtable 负责"哪个方法"，手工的 `vtable_` 指针负责"哪套实现、能不能换"。注意 `dispatch(op, stack)` 这个方法——它就是 C++ 回到 Python 执行算子的入口，参数是 `Stack*`，也就是 boxed 调用约定，第六章会解释为什么这里只能是 boxed。
 
-Java 对照：JVM 里一个类的方法表在类加载后固定，但类可以被卸载（class loader 被回收）；Java 用 GC 保证"还有引用就不会卸载"。C++ 的 `dlclose` 不看有没有人还持有指针，所以需要这种防御性设计。
+> [!NOTE] 与 Java 对照：代码被卸载
+> JVM 也会卸载类，但前提是加载它的 class loader 已经不可达，这要求它加载的类和这些类的实例都没有被引用——只要还有对象活着，它的类和方法表就在。C++ 的 `dlclose` 不检查有没有人还拿着指向这个库的指针或 vptr，所以 `PyInterpreter` 需要这种"故意泄漏 + 可替换 vtable"的防御性设计。
 
 ## 三、函数指针：最古老的运行期分派
 
@@ -464,7 +526,10 @@ BoxedKernelFunction* fn = &my_boxed_kernel;           // 加 * 才是指针
 
 然后在需要指针的地方写 `InternalBoxedKernelFunction* boxed_kernel_func_;`，在模板参数里写 `template <BoxedKernelFunction* func>`。这样写的好处是函数类型可以直接作为模板参数做特化（第六章的 `BoxedKernelWrapper<Result(Args...)>`）。
 
-Java 没有函数指针。最接近的是方法引用 `Foo::bar` 和函数式接口，但那是在堆上创建一个实现了接口的对象，调用仍是虚调用。C++ 的函数指针就是一个代码地址，8 字节，调用是一次间接跳转（`call *%rax`），没有对象、没有分配、没有 vtable 查找。
+函数指针就是一个代码地址，8 字节，调用是一次间接跳转（`call *%rax`），没有对象、没有分配、没有 vtable 查找。
+
+> [!NOTE] 与 Java 对照：没有函数指针
+> Java 里最接近的是方法引用 `Foo::bar` 和 lambda，但它们求值得到的是某个函数式接口的实例——一个对象，调用走接口方法，能否内联由 JIT 决定。C++ 的函数指针不是对象，不带任何状态，也没有接口这一层；要带状态得换成第四章的几种可调用对象。
 
 ### 2. 运行期函数指针与编译期函数指针
 
@@ -551,7 +616,10 @@ inline Return callUnboxedKernelFunction(
 1. 函数指针和 `void*` 互转在标准里是"条件支持"（conditionally-supported），POSIX 要求支持（`dlsym` 返回 `void*` 就依赖它），所有主流平台都可以。
 2. **cast 回去的签名必须和存进去时一字不差**。`Return(OperatorKernel*, DispatchKeySet, const Tensor&, const Tensor&)` 和 `Return(OperatorKernel*, DispatchKeySet, Tensor, Tensor)` 是不同类型，用错了就是 UB——不是编译错误，而是参数按错误的方式压栈，运行时出错或悄悄算错。这就是为什么 `KernelFunction::call<Return, Args...>` 要求调用方**显式写出模板参数**，以及 `OperatorEntry` 要记 `cpp_signature_` 在注册时校验签名（第九章）。
 
-这里的取舍是：用一点 UB 风险（由注册时的签名检查兜住）换取"一个非模板的 `KernelFunction` 能装任意签名的 kernel，调用时零额外开销"。Java 里没有对应物——JVM 的类型系统不允许擦掉方法签名后再 cast 回来，只能走接口。
+这里的取舍是：用一点 UB 风险（由注册时的签名检查兜住）换取"一个非模板的 `KernelFunction` 能装任意签名的 kernel，调用时零额外开销"。
+
+> [!NOTE] 与 Java 对照：擦掉签名再还原
+> Java 里没有不带检查的做法：引用不能强转成不相关的类型，转错了抛 `ClassCastException`。最接近的是 `MethodHandle`：签名作为 `MethodType` 跟着句柄走，`invokeExact` 的调用点签名对不上会抛 `WrongMethodTypeException`。C++ 的 `void*` 不带任何类型信息，签名对不上是未定义行为而不是异常，所以 PyTorch 要自己记一份 `CppSignature` 在注册时比对——等于手工补上 JVM 自带的那次检查，并且只在注册时做一次，不在每次调用时做。
 
 ## 四、`std::function`、`c10::function_ref`、函数对象与 lambda
 
@@ -559,7 +627,7 @@ inline Return callUnboxedKernelFunction(
 
 ### 1. `std::function`：拥有型的类型擦除，以及它的代价
 
-`std::function<R(Args...)>` 能装任何签名兼容的可调用对象——函数指针、lambda、带 `operator()` 的类、`std::bind` 的结果——并按值拥有它。它是 Java 函数式接口（`Runnable`、`Function<T,R>`）最直接的对应物。
+`std::function<R(Args...)>` 能装任何签名兼容的可调用对象——函数指针、lambda、带 `operator()` 的类、`std::bind` 的结果——并按值拥有它。
 
 代价有三项：
 
@@ -616,7 +684,8 @@ struct C10_API InefficientStdFunctionContext {
 
 [《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过 `DataPtr` 的删除器是裸函数指针 `DeleterFnPtr`，因为每个 tensor 都有一个 `DataPtr`，不能为它多做一次堆分配。只有 `torch.from_blob` 这类用户传任意闭包做删除器的接口，才退回到 `std::function`，并且把它包进一个显式命名为 "Inefficient" 的上下文对象里。
 
-Java 对照：Java 里每个 lambda 都是堆对象（除非 JIT 逃逸分析消除了它），每次调用都是接口调用；`std::function` 大致就是这个模型在 C++ 里的复现，所以它的代价对 Java 工程师来说"很正常"。不正常的是 C++ 有比它便宜得多的选项，热路径上用 `std::function` 会被 reviewer 打回。
+> [!NOTE] 与 Java 对照：std::function 与函数式接口
+> `std::function<R(Args...)>` 是 Java 函数式接口（`Runnable`、`Function<T,R>`）最直接的对应物：Java 的 lambda 求值得到一个接口实例（捕获了变量的一般要新建对象，除非被 JIT 的逃逸分析消除），调用是接口调用；`std::function` 的堆分配加间接调用大致就是这个代价模型。差别在于 Java 只有这一种模型，而 C++ 还有下面两节便宜得多的选项，所以在热路径上用 `std::function` 会被 reviewer 打回。
 
 ### 2. `c10::function_ref`：非拥有的类型擦除
 
@@ -777,7 +846,8 @@ void add_clamp_kernel(
 
 在 CUDA 代码里这个模式更普遍：`gpu_kernel(iter, []GPU_LAMBDA(scalar_t a, scalar_t b) -> scalar_t { return a + b; })`。kernel 函数是模板，lambda 类型是模板参数，编译出来的 PTX 里 lambda 体就是 kernel 体本身。
 
-Java 对照：Java 的策略模式（`Comparator<T>`、`Function<T,R>`）在语言层面永远是接口调用，能否内联取决于 JIT 在运行期观察到的调用点是否单态。C++ 模板在编译期就把策略"焊死"在调用点上——代价是每种策略一份代码（二进制体积），和无法在运行期换策略。
+> [!NOTE] 与 Java 对照：策略模式
+> Java 的策略（`Comparator<T>`、`Function<T,R>`）在语言层面总是接口调用，泛型擦除后 `sort(list, cmp)` 只有一份代码，能否内联取决于 JIT 在运行期看到的调用点是否只出现过一种实现。C++ 模板为每种策略类型各生成一份 `cpu_kernel`，策略在编译期就"焊死"在调用点上，内联有保证；代价是每种策略一份机器码（二进制体积），而且不能在运行期换策略。
 
 ### 4. 四种可调用抽象的对比
 
@@ -818,6 +888,11 @@ struct MyModel : ModelBase<MyModel> {          // 把自己传给基类
 `ModelBase<MyModel>::run` 里的 `static_cast<Derived*>(this)` 是安全的，因为 `this` 确实指向一个 `MyModel`（只有 `MyModel` 会以 `ModelBase<MyModel>` 为基类）。`run_impl` 不是虚函数，`sizeof(ModelBase<MyModel>)` 是 1（空类），没有 vptr。
 
 代价是：`ModelBase<A>` 和 `ModelBase<B>` 是两个无关的类型，不能放进同一个 `std::vector<ModelBase*>`。所以 CRTP 适合"实现复用 + 编译期定制"，不适合"运行期多态容器"。
+
+读 PyTorch 源码时，看到 `class X : public Base<X>` 就是 CRTP。看到 `static_cast<Derived*>(this)` 就是它在"向下转型"——这个 cast 在 CRTP 之外是危险的，在 CRTP 里是惯用法。
+
+> [!NOTE] 与 Java 对照：自限定泛型不是 CRTP
+> Java 里形式上最像的是自限定泛型：`class Foo implements Comparable<Foo>`、`Enum<E extends Enum<E>>`、builder 的 `B extends Builder<B>`。它们解决的是类型安全——让基类方法的参数或返回值是子类类型——不改变分派：泛型擦除后基类只有一份代码，里面对子类方法的调用仍是虚调用，能否内联看 JIT。C++ 模板为每个 `Derived` 各实例化一份基类代码，调用在编译期就绑定到 `Derived::run_impl`，这一点 Java 做不到。
 
 ### 2. 源码里的真实用例
 
@@ -910,12 +985,6 @@ Table: 虚函数、CRTP 与两者混用的对照
 
 第五行是选型时的分界线：需要把不同实现放进同一个容器、运行期才知道是哪个，就要有虚函数这一层；一个 `model.so` 里只有一个模型类的 AOTInductor 没有这个需求，所以整层省掉。
 
-### 3. Java 对照
-
-Java 里形式上最像的是自引用泛型 `class Foo implements Comparable<Foo>`，但它解决的是类型安全（`compareTo(Foo)` 而不是 `compareTo(Object)`），不是分派——`compareTo` 仍然是虚方法。Java 泛型在编译后被擦除，`Base<T>` 里没有办法 `(T) this` 拿到静态类型然后直接调用 `T` 的非虚方法（`T` 的方法本来也都是虚的）。所以 CRTP 在 Java 里没有对应物：Java 不需要它（JIT 会内联单态虚调用），也做不到它（没有编译期实例化）。
-
-读 PyTorch 源码时，看到 `class X : public Base<X>` 就是 CRTP。看到 `static_cast<Derived*>(this)` 就是它在"向下转型"——这个 cast 在 CRTP 之外是危险的，在 CRTP 里是惯用法。
-
 ## 六、类型擦除：`c10::KernelFunction` 的 boxed 与 unboxed 两条路径
 
 ### 1. 什么是类型擦除
@@ -927,7 +996,10 @@ Java 里形式上最像的是自引用泛型 `class Foo implements Comparable<Fo
 3. 构造时实例化一组"知道 `T`"的静态函数（或一个派生类），把它们的地址存进外壳；
 4. 之后外壳只通过这些地址操作被装的东西，再也不提 `T`。
 
-Java 里不需要这个技巧，因为所有对象都有统一基类 `Object` 和运行期类型信息，`List<Object>` 天然能装任何东西。C++ 没有统一基类，也没有默认的运行期类型信息，"把不同类型的东西装进同一个容器"必须手工做——要么加一个公共虚基类（侵入式，需要被装的类型配合），要么类型擦除（非侵入式，任何类型都行）。`std::shared_ptr` 的删除器、`std::any`、`std::function` 都是标准库里的类型擦除。
+C++ 没有统一基类，也没有默认的运行期类型信息，"把不同类型的东西装进同一个容器"必须手工做——要么加一个公共虚基类（侵入式，需要被装的类型配合），要么类型擦除（非侵入式，任何类型都行）。`std::shared_ptr` 的删除器、`std::any`、`std::function` 都是标准库里的类型擦除。
+
+> [!NOTE] 与 Java 对照：类型擦除不是泛型擦除
+> Java 不需要这个技巧：所有引用类型都继承 `Object`，对象头里带着类信息，`List<Object>` 天然能装任何对象，取出来 `instanceof` 或强转都有运行期检查。两个"擦除"也不是一回事：Java 的泛型擦除是编译器丢掉类型参数（`List<String>` 在运行期只是 `List`），对象自己的类型信息还在；C++ 的类型擦除是库作者手工把具体类型藏到函数指针后面，外壳里不留任何可以查询的类型信息，还原只能靠那几个"知道 `T`"的函数。
 
 `KernelFunction` 要擦的是 kernel 的**签名**。下面把它拆开看。
 
@@ -1358,7 +1430,8 @@ Table: 注册方式与调用方式的四种组合
     // in the common case.
 ```
 
-Java 对照：JVM 里所有方法调用本质上都是"boxed"的——参数类型信息在运行期一直存在，反射调用 `Method.invoke(Object... args)` 就是 boxed 调用约定，普通调用是 JIT 在此基础上特化出的快路径。C++ 没有默认的运行期类型信息，所以 PyTorch 必须**手工**维护两套调用约定，并手工写它们之间的转换。`IValue` 就是这套手工体系里的 `Object`。
+> [!NOTE] 与 Java 对照：boxed 调用与反射
+> boxed 调用约定对应 Java 的反射调用 `Method.invoke(Object obj, Object... args)`：参数装进 `Object[]`，基本类型要装箱，类型到运行期才检查；unboxed 对应普通的静态类型调用。差别在于谁来提供这两种方式：Java 里任何方法都能被反射调用，两种方式之间的转换由 JVM 负责；C++ 没有反射，PyTorch 必须**手工**维护两套调用约定，并用模板在注册时为每个 kernel 生成转换代码。`IValue` 就是这套手工体系里的 `Object`。
 
 ## 七、`c10::IValue`：手工实现的带类型标签的联合体
 
@@ -1468,6 +1541,21 @@ payload 是一个嵌套 union（类定义末尾）：
 
 一个 `IValue` 是 16 字节：8 字节 payload、4 字节 tag、4 字节对齐填充。没有堆分配（除非装的类型本身在堆上）。
 
+`IValue` 的类型集合是**封闭的**：能装什么由 `TORCH_FORALL_TAGS` 这张表写死，加一种类型要改这张表和一批 `isX` / `toX`；用户自定义类只能走 `Object`、`Capsule` 这两个通用 tag。算子 schema 里能出现的类型也因此只有固定的一组。
+
+> [!NOTE] 与 Java 对照：Object 与 IValue
+> 两者都是"能装任何参数的盒子"，boxed 调用的 `Stack` 与反射调用的 `Object[] args` 在概念上对应。但 `IValue` 不是基类：`Tensor` 不"是一个" `IValue`，把 `Tensor` 装进去是构造一个新的 `IValue` 值。
+>
+> | | Java `Object` | `c10::IValue` |
+> | :--- | :--- | :--- |
+> | 怎样统一不同类型 | 所有类的公共基类，任何类天然可用 | 手工枚举的封闭集合，加类型要改 `TORCH_FORALL_TAGS` |
+> | 类型信息在哪 | 每个对象的对象头里 | `IValue` 自己的 4 字节 tag |
+> | 存整数、浮点数 | 装箱成 `Integer` / `Double` 对象 | 直接放进 union，不分配 |
+> | 占多大 | 一个引用，加堆上的对象头和数据 | 固定 16 字节 |
+> | 拷贝 | 只能拷贝引用 | 值语义：拷贝 `IValue` 就拷贝值，装的是引用计数类型时计数加一 |
+>
+> Table: Java Object 与 c10::IValue 的对照
+
 ### 2. `isTensor` / `toTensor`：先问再拆
 
 对每种类型，`IValue` 提供 `isX()` 和 `toX()`。`toX()` 不做转换，tag 不对就抛异常：
@@ -1538,24 +1626,10 @@ inline at::Tensor& IValue::toTensor() & {
 
 不管装的是 `Tensor` 还是其他 `intrusive_ptr` 类型，都取出裸指针、`reclaim` 成一个临时 `intrusive_ptr`、让临时对象析构去减计数。这就是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲 `reclaim` 时说的"接回所有权"。`isIntrusivePtr()` 是从 tag 查一个编译期算好的位图。
 
-### 3. 与 Java `Object` 的异同
+> [!NOTE] 与 Java 对照：instanceof / 强转与 isX() / toX()
+> 用法上一一对应：`isTensor()` 相当于 `instanceof`，`toTensor()` 相当于向下转型，失败时一个抛 `c10::Error`，一个抛 `ClassCastException`。实现不同：`instanceof` 要看对象的类和它的继承层次，`isX()` 只比较 `IValue` 自己带的那个整数 tag；`toX()` 也不做任何转换，tag 不符就是错。
 
-| | Java `Object` | `c10::IValue` |
-|---|---|---|
-| 统一方式 | 所有类的公共基类 | 手工枚举的封闭类型集合（`TORCH_FORALL_TAGS`） |
-| 类型信息在哪 | 对象头里的类指针，每个对象都有 | `IValue` 自己的 4 字节 tag |
-| 存原始类型 | 装箱成 `Integer`/`Double` 对象，堆分配 | 直接放进 union，无分配 |
-| 大小 | 引用 4/8 字节 + 对象头 12/16 字节 + 数据 | 固定 16 字节 |
-| 类型判断 | `instanceof`，走类层次 | `isX()`，比较一个整数 |
-| 取值 | 向下转型，失败抛 `ClassCastException` | `toX()`，失败抛 `c10::Error` |
-| 加新类型 | 任意类天然可用 | 必须改 `TORCH_FORALL_TAGS` 和一堆 `isX/toX`；用户自定义类走 `Object`/`Capsule` 这两个通用 tag |
-| 值语义 | 没有，永远是引用 | 有：拷贝 `IValue` 拷贝值（对引用类型是计数 +1） |
-
-Table: Java Object 与 c10::IValue 的异同
-
-类比成立的地方：都是"能装任何东西的盒子"，boxed 调用约定和 Java 反射的 `Object[] args` 在概念上完全对应。类比会误导的地方：`IValue` 不是基类，`Tensor` 不"是一个" `IValue`，把 `Tensor` 装进 `IValue` 是构造一个新对象；`IValue` 的类型集合是**封闭的**，这是 PyTorch 的 schema 类型系统只有固定几十种类型的根本原因。
-
-### 4. `std::variant` 与 `std::visit`：标准库版本的 tagged union
+### 3. `std::variant` 与 `std::visit`：标准库版本的 tagged union
 
 C++17 标准库提供了 `IValue` 这种东西的通用版本：`std::variant<T1, T2, ...>` 是一个类型安全的 tagged union，自动管理成员的构造/析构，`std::visit` 按当前类型分派到一个可调用对象。
 
@@ -1600,9 +1674,10 @@ static Tensor _linalg_cond_helper(const Tensor& self, std::variant<Scalar, std::
 
 对新代码，两三种类型的"或"关系用 `std::variant`；要做一个完整的动态类型系统才需要 `IValue` 这种手工实现。
 
-Java 对照：Java 直到 sealed interfaces + pattern matching switch（Java 17/21）才有接近 `variant` + `visit` 的表达能力，之前只能靠 `instanceof` 链或访问者模式。C++ 的 `variant` 是值类型，不在堆上；Java 的 sealed 实现仍是对象。
+> [!NOTE] 与 Java 对照：sealed 接口与 variant
+> Java 里表达"几种类型之一"并让编译器检查分支是否写全，要用 sealed 接口（Java 17）加 `switch` 的模式匹配（Java 21），之前只能靠 `instanceof` 链或访问者模式；`std::holds_alternative` / `std::get` 则相当于 `instanceof` 加强转。差别在存储：`std::variant` 是值类型，几种候选就地放在同一块内存里；sealed 接口的每个实现仍是堆上的对象，变量里放的是引用。
 
-### 5. `enum class`
+### 4. `enum class`
 
 `IValue::Tag`、`DispatchKey`、`ScalarType` 都是 `enum class`（scoped enum，C++11）：
 
@@ -1624,7 +1699,10 @@ enum class ScalarType : int8_t {          // torch/headeronly/core/ScalarType.h
 
 与 C 风格 `enum` 的区别：枚举名不泄漏到外层作用域（必须写 `DispatchKey::CPU`），不隐式转成整数（`int x = key;` 编译错误，要 `static_cast<int>`），可以指定底层类型（`: uint16_t`）从而控制大小。`ScalarType : int8_t` 让它在 `TensorImpl` 里只占一个字节；`DispatchKey : uint16_t` 因为它的值超过 255。
 
-Java 对照：Java 的 `enum` 是完整的类——每个枚举值是一个单例对象，可以有字段、方法、构造函数。C++ 的 `enum class` 只是"有名字、有作用域、不隐式转换的整数"，没有方法。`toString(DispatchKey)`、`elementSize(ScalarType)` 这些都是自由函数，通常配一个 `switch`。这也是为什么 `TORCH_FORALL_TAGS` 这类 X-macro 在 C++ 里那么常见：Java 用 `values()` 遍历枚举，C++ 得靠宏生成 `switch` 的每个 `case`。
+`enum class` 只是"有名字、有作用域、不隐式转换的整数"，没有方法，也不能在运行期列出全部取值。`toString(DispatchKey)`、`elementSize(ScalarType)` 这些都是自由函数，通常配一个 `switch`。这也是 `TORCH_FORALL_TAGS` 这类 X-macro 在 C++ 里那么常见的原因：要靠宏生成 `switch` 的每个 `case`。
+
+> [!NOTE] 与 Java 对照：枚举
+> Java 的 `enum` 是完整的类：每个枚举值是一个单例对象，可以有字段、方法、构造函数，`values()` 能遍历全部取值。C++ 的 `enum class` 没有这些，换来的是它就是一个指定宽度的整数——可以直接当数组下标、塞进一个字节的字段、放进位集合，`DispatchKeySet` 和 `TensorImpl` 的布局都依赖这一点。
 
 ## 八、异常：`TORCH_CHECK` 抛出的是什么，如何跨越 C++/Python 边界
 
@@ -1731,13 +1809,23 @@ void torchCheckFail(
 
 ### 3. C++ 异常的几条规则
 
-Java 工程师需要校正的几点：
+写 C++ 异常代码要记住的几条：
 
 1. **没有 checked exception**。函数签名不声明会抛什么，编译器不检查。`noexcept` 是唯一的标注，意思是"保证不抛"——如果抛了，程序直接 `std::terminate`。析构函数默认是 `noexcept`（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)讲过 `~TensorBase() noexcept`），所以析构里不要做会抛的事。
 2. **按 `const&` 捕获**。`catch (const c10::Error& e)`，不要按值（会切片，丢掉派生类信息）。
 3. **异常与 RAII 配合是 C++ 错误处理的全部**。没有 `finally`；栈展开时所有局部对象按逆序析构，锁释放、引用计数递减、设备守卫恢复全在析构里发生（[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)的「异常安全是 RAII 的副产品」一节、[《并发、内存模型、TLS 与守卫》](/cpp-concurrency-memory-model-tls-and-guards.html)的守卫模式一章）。
 4. **异常不能穿过 C 边界**。通过函数指针回调进 C 代码（比如 CUDA runtime、Python C API）的 C++ 函数，如果向外抛异常，行为是未定义的。这是 8.4 节那些宏存在的原因。
 5. **异常穿过 `.so` 边界需要 ABI 一致**。`libtorch_cpu.so` 抛的 `c10::Error` 要被扩展 `.so` 里的 `catch (const c10::Error&)` 接住，两边对 `c10::Error` 的布局、RTTI、异常处理表的理解必须一致——编译器版本或 `_GLIBCXX_USE_CXX11_ABI` 不同就可能接不住。[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讲 ABI 时会回到这里。
+
+> [!NOTE] 与 Java 对照：受检异常、finally 与捕获方式
+>
+> | | Java | C++ |
+> | :--- | :--- | :--- |
+> | 签名里的异常声明 | 受检异常必须写进 `throws`，编译器检查调用方有没有处理 | 不声明会抛什么；只有 `noexcept` 表示"保证不抛"，违反时不是编译错误，而是运行期 `std::terminate` |
+> | 离开作用域时的清理 | `finally` 或 try-with-resources | 没有 `finally`，清理写在局部对象的析构函数里，栈展开时自动执行，使用处不用写任何语法 |
+> | 捕获到的是什么 | 总是对象的引用 | 取决于 `catch` 的写法：按值会切片，所以写 `const&` |
+>
+> Table: Java 与 C++ 异常规则的对照
 
 ### 4. 跨越 C++/Python 边界
 
@@ -1844,7 +1932,8 @@ Table: C++ 异常到 Python 异常的映射
 
 pybind11 绑定的函数不用这对宏，而是用 pybind11 自己的异常翻译器（`py::register_exception_translator`）做同样的事。C++ 异常怎样"变成"Python 异常、Python 异常（`python_error`）又怎样在 C++ 里传播、GIL 在这个过程中的状态，是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)的内容；本篇只需要知道：**C++ 异常在边界上被 catch 住、翻译成 Python 错误状态，永远不会穿过 C 代码**。
 
-Java 对照：JNI 有同样的边界。JNI 函数不能让 C++ 异常逃逸（会直接崩溃），要 catch 后调 `env->ThrowNew(cls, msg)` 设置 Java 侧的 pending exception，然后正常返回——和 `PyErr_SetString` + `return nullptr` 一一对应。
+> [!NOTE] 与 Java 对照：JNI 的同一条边界
+> 用 C++ 写 JNI 函数时规则相同：C++ 异常不能逃出 native 函数回到 JVM（行为未定义，通常是进程崩溃），要在函数内 `catch`，调 `env->ThrowNew(cls, msg)` 在 Java 侧挂起一个异常，然后正常返回——与这里的 `PyErr_SetString` + `return nullptr` 是同一个模式。
 
 ## 九、回到源码：从 `at::add` 到 CPU kernel 的完整链路
 
@@ -3129,7 +3218,7 @@ Table: demo 注册后各槽位的 KernelFunction 与对应的调用步骤
 **虚函数**
 
 1. 打算被当作基类通过指针删除的类，析构必须 `virtual`。反过来，值类型（`Tensor`、`IValue`、`KernelFunction`、`DispatchKeySet`）不要有虚函数——多一个 vptr 会改变大小和拷贝成本，也会让它不再是 trivially copyable。
-2. 覆盖虚函数一律写 `override`。少写一个 `const` 在 Java 里是新建方法，在 C++ 里加了 `override` 才会报错。
+2. 覆盖虚函数一律写 `override`。少写一个 `const` 就成了另一个不覆盖任何东西的函数，加了 `override` 才会报错。
 3. 叶子类标 `final`，让编译器有机会去虚化。PyTorch 里大量 `final` 不是为了禁止继承，而是声明"这是具体类型"。
 4. 不要在构造函数/析构函数里调虚函数期望调到派生类版本——那时对象的动态类型就是当前正在构造/析构的类。
 5. 热路径上避免虚调用。`TensorImpl::sizes()` 用一个字节的 policy 做快路径判断、只在需要时进 `sizes_custom()`，是"既要可扩展又要快"的范本。
@@ -3188,26 +3277,6 @@ Table: demo 注册后各槽位的 KernelFunction 与对应的调用步骤
 **异常**：`TORCH_CHECK` 失败抛 `c10::Error : std::exception`，子类 `IndexError`/`ValueError`/`TypeError`/`NotImplementedError` 决定跨到 Python 后的异常类型；`HANDLE_TH_ERRORS`/`END_HANDLE_TH_ERRORS` 在 C API 边界按类型 catch、`PyErr_SetString`、`return nullptr`。没有 checked exception，`noexcept` 是唯一标注，析构不抛，异常不穿 C 边界。
 
 **核心问题**：`Dispatcher::call` 算 `DispatchKeySet` → `OperatorEntry::lookup` 一次数组下标拿到 `KernelFunction` → `KernelFunction::call<Return, Args...>` 把 `void*` cast 回精确签名做一次间接调用 → 内联的包装链直达 kernel 函数体。全程无虚调用。签名一致性由注册时和 `typed<>()` 时的 `CppSignature` 检查保证。
-
-最后把 Java 对照集中列一次：
-
-| 概念 | Java | C++ | 类比失效的地方 |
-|---|---|---|---|
-| 方法分派 | 默认虚 | 默认非虚，`virtual` 才虚 | Java 无法表达"不可覆盖但可继承"以外的非虚方法 |
-| `@Override` | 注解，可省略 | `override` 关键字 | 语义相同，C++ 里省略不报错但会漏掉签名错误 |
-| 接口 | `interface` | 全纯虚的抽象类 | C++ 接口可以有数据成员和非虚方法 |
-| `clone()` | 覆盖 `Object.clone()` | 虚函数返回智能指针（`shallow_copy_and_detach`）或 CRTP 生成 | Java 无 CRTP |
-| 函数式接口 / lambda | 堆对象，接口调用 | 函数指针 / `std::function` / `function_ref` / 模板参数 | Java 只有一种代价模型 |
-| 策略模式 | 接口调用，JIT 可能内联 | 模板参数，编译期内联 | Java 不能保证内联；C++ 不能运行期换策略 |
-| `Object` | 统一基类 | `IValue`（手工 tagged union） | `IValue` 不是基类，类型集合封闭 |
-| `instanceof` / 向下转型 | 走类层次 | `isX()` / `toX()`、`std::holds_alternative` / `std::get` | — |
-| sealed interface + switch | Java 17/21 | `std::variant` + `std::visit` | `variant` 是值类型 |
-| `enum` | 完整的类 | `enum class`：带作用域的整数 | C++ 枚举没有方法和字段 |
-| 反射 `Method.invoke(Object...)` | 内建 | boxed 调用约定（`Stack*`） | C++ 的是手工维护的第二套约定 |
-| 异常 | checked/unchecked，`finally` | 只有 unchecked，`noexcept`，RAII | 异常不能穿过 C 边界和不兼容的 ABI 边界 |
-| JNI `ThrowNew` | 设置 pending exception 后返回 | `PyErr_SetString` + `return nullptr` | 概念直接对应 |
-
-Table: 多态与类型擦除：Java 对照汇总
 
 下一篇进入宏和静态注册：`TORCH_LIBRARY_IMPL(aten, CPU, m)` 这一行怎么在 `main` 之前跑起来、把本篇的 `KernelFunction` 塞进 `OperatorEntry`，`TORCH_CHECK` 为什么必须是宏，以及 torchgen 生成的那些文件长什么样。mini-c10 的 `register_add_kernels()` 会被 `MINI_LIBRARY_IMPL` 取代。
 

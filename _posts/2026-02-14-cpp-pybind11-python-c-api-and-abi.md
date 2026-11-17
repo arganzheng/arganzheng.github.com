@@ -71,6 +71,44 @@ static PyObject * THPVariable_contiguous(PyObject* self, PyObject* args, PyObjec
 
 ## 一、总览
 
+一次 `torch.ops.myops.op(t)` 调用从 Python 进入 C++ 再返回，要依次穿过下面这条链；链能跑起来的前提，是装着胶水和 kernel 的那个 `.so` 在 `import` 时通过了三层 ABI 的匹配。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360, "rankSpacing": 34}}}%%
+%% 图：一次 Python 调用穿过 Python / C++ 边界的全链，与扩展 .so 加载时要匹配的三层 ABI
+flowchart TB
+    OBJ["<b>Python 对象 torch.Tensor</b><br/>内存里是 THPVariable：PyObject_HEAD + at::Tensor cdata<br/>（第二章、第五章）"]
+    IN["<b>胶水入口：参数转换</b><br/>pybind11 的 type_caster 或 C API 的 PythonArgParser<br/>PyObject* → at::Tensor，全程持有 GIL<br/>（第三章、第七章）"]
+    REL["<b>gil_scoped_release</b><br/>进 kernel 前释放 GIL，作用域结束时重新获取<br/>（第四章）"]
+    K["<b>Dispatcher → C++ kernel</b><br/>只见 at::Tensor / IValue，不碰任何 PyObject<br/>（第八章、第九章）"]
+    OUT["<b>胶水出口：包装返回值、翻译异常</b><br/>THPVariable_Wrap：at::Tensor → PyObject*<br/>C++ 异常 → 设置 Python 异常并返回空指针<br/>（第三章、第五章）"]
+    RET["<b>回到 Python</b><br/>得到新的 torch.Tensor，或看到一个 Python 异常"]
+    TI["<b>TensorImpl</b><br/>C++ 堆上的张量本体，有自己的引用计数<br/>pyobj_slot 记着它的 Python 包装对象<br/>（第六章）"]
+    OBJ -- "调用进入扩展，此时已持有 GIL" --> IN
+    IN --> REL
+    REL --> K
+    K -- "返回 at::Tensor，或 throw" --> OUT
+    OUT --> RET
+    OBJ <-. "双向持有：cdata 强引用 ↔ pyobj_slot" .-> TI
+    TI -. "kernel 操作的是这一侧" .-> K
+    subgraph ABI["前提：import 这个 .so 时要同时匹配的三层 ABI，任何一层不匹配都加载失败（第十章到第十二章）"]
+        direction LR
+        A1["<b>CPython ABI</b><br/>cp312 / abi3"]
+        A2["<b>C++ 标准库 ABI</b><br/>_GLIBCXX_USE_CXX11_ABI<br/>GLIBCXX_3.4.x"]
+        A3["<b>PyTorch C++ ABI</b><br/>torch 版本、编译器、CUDA"]
+        A1 ~~~ A2 ~~~ A3
+    end
+    RET ~~~ ABI
+```
+
+- **Python 对象 `torch.Tensor`**：在内存里是一个 `THPVariable` 结构体，开头是所有 Python 对象共有的头部 `PyObject_HEAD`（引用计数 + 类型指针），后面嵌着一个 `at::Tensor` 句柄 `cdata`。由 `THPVariable_Wrap` 在第一次需要把某个 C++ 张量交给 Python 时创建，存在 Python 堆上。
+- **`TensorImpl`**：C++ 堆上的张量本体，有独立于 Python 的引用计数。它的 `pyobj_slot` 记着自己对应的 Python 包装对象，和 `cdata` 一起构成双向持有——同一个张量无论从哪一侧拿，得到的都是同一对对象。
+- **胶水入口**：解释器调用的 C 函数。pybind11 用模板为每个参数类型生成 `type_caster`，`torch.Tensor` 的方法则是直接用 C API 写的 `THPVariable_xxx` 加 `PythonArgParser`。两条路做的是同一件事：在持有 GIL 的情况下把 `PyObject*` 变成 C++ 值。
+- **`gil_scoped_release`**：一个 RAII 守卫，构造时释放 GIL，析构时重新获取。它划出一段不能触碰任何 `PyObject` 的区间，kernel 就在这段区间里运行。
+- **Dispatcher 与 kernel**：`libtorch` 里的纯 C++ 代码，不链接 Python。自定义算子用 `TORCH_LIBRARY` 注册到这里，调用时参数以 `IValue` 的形式压栈。
+- **胶水出口**：重新持有 GIL 后，`THPVariable_Wrap` 把返回的 `at::Tensor` 包成 `PyObject*`；kernel 抛出的 C++ 异常在这里被接住，翻译成 Python 异常。
+- **三层 ABI**：胶水和 kernel 都编译在扩展 `.so` 里。`import` 时动态链接器要在 CPython、C++ 标准库、PyTorch 三方的二进制接口上都对得上符号和类型布局，这条链才有机会执行第一步。
+
 ### 1. 两个运行时的边界
 
 开头两段代码里陌生的不是 C++ 语法，而是 Python 与 C++ 两个运行时之间的边界规则：C++ 对象怎么嵌进 Python 对象、引用计数谁负责、GIL 何时可以放、pybind11 与裸 Python C API 为什么并存、C++ 异常怎么变成 Python 异常、`import` 时的 undefined symbol 从哪里来。本文沿这条边界从内到外展开：先是 Python C API 与 pybind11 的基本机制（第二章到第四章），再是 PyTorch 绑定 `Tensor` 的具体做法与双向持有（第五章到第七章），然后沿一次 `torch.ops.myops.op(t)` 调用回答核心问题（第八章），最后是 ABI 与扩展的兼容契约（第九章到第十一章），并在 mini-c10 里复现一次 ABI 事故（第十二章）。
@@ -124,7 +162,10 @@ inline const at::Tensor& THPVariable_Unpack(PyObject* obj) {
 }
 ```
 
-这是 C 风格的"结构体前缀继承"，没有 vtable、没有 RTTI，完全靠约定。Java 对照：JNI 里的 `jobject` 是一个不透明句柄，你**永远不能**看到 Java 对象的内存布局，只能通过 `JNIEnv` 的函数去读字段；CPython 则把布局公开，C 代码直接解引用。这也是 CPython 扩展在解释器升级时容易碎的原因之一（后面 ABI 一节的 `abi3` 就是为解决这个问题）。
+这是 C 风格的"结构体前缀继承"，没有 vtable、没有 RTTI，完全靠约定。布局公开、C 代码直接解引用，也是 CPython 扩展在解释器升级时容易失效的原因之一（第十章的 `abi3` 就是为解决这个问题）。
+
+> [!NOTE] 与 Java 对照：jobject 是不透明句柄，PyObject* 是真实地址
+> JNI 交给 native 代码的 `jobject` 是一个间接句柄：看不到 Java 对象的内存布局，读写字段只能经 `JNIEnv` 的函数（`GetIntField` 等），所以 GC 可以移动对象、JVM 可以改布局而不影响已编译的 JNI 库。`PyObject*` 则是对象的真实地址，头文件公开了结构体定义，扩展直接读 `ob_type`、把它 cast 成自己的结构体——快，代价是对象不能移动，布局一变扩展就要重编。
 
 把一个 `torch.Tensor` 实例的这块内存和两种指针画在一起：
 
@@ -228,7 +269,8 @@ class TORCH_PYTHON_API THPPointer {
 
 它和 `std::unique_ptr` 的形状一模一样：只能移动、析构时释放、`release()` 交出所有权。`python_variable.cpp` 里 `THPVariable_get_names` 的 `THPObjectPtr tuple(PyTuple_New(size)); ... return tuple.release();` 就是"函数内用 RAII 保证异常安全（中途 `throw python_error()` 时自动 `Py_DECREF`），出口处把 new reference 交还给 C API 调用方"的标准写法——和[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里 `intrusive_ptr::release()` 的纪律完全一致。
 
-Java 对照：JNI 的 local reference 由 JVM 在 native 方法返回时自动释放，相当于一个"函数作用域的 borrowed reference"；global reference 需要显式 `NewGlobalRef/DeleteGlobalRef`，相当于 owned。区别在于 JNI 的 local ref 表有容量上限（默认 16 个，超出要 `EnsureLocalCapacity`），而 Python 的引用计数没有这种表。
+> [!NOTE] 与 Java 对照：JNI 的 local / global 引用不等于 borrowed / owned
+> 两边都分"短期拿来用"和"长期持有"两类，但 JNI 的 local reference 是 JVM 登记在册的引用：在 native 方法返回前它一直保证对象存活，返回时由 JVM 统一释放；要跨调用保存则显式 `NewGlobalRef` / `DeleteGlobalRef`。Python 的 borrowed reference 只是一个没有加过计数的裸指针，**不保证对象存活**——持有者一旦放手，指针立刻悬垂；new reference 也没有"函数返回时自动释放"这回事，每一个都要有人 `Py_DECREF`。JNI 这边的代价是 local reference 占用线程的引用表，循环里大量创建时要 `DeleteLocalRef` 或用 `PushLocalFrame` / `PopLocalFrame` 分批释放。
 
 ### 3. GIL：解释器的全局锁，也是"持有 PyObject 的许可证"
 
@@ -241,7 +283,8 @@ C API 的原语是 `PyEval_SaveThread()`（释放，返回当前线程状态）�
 
 一个常被忽略的点：`gil_scoped_release` 之后**不能析构任何 `py::object`**，因为析构会 `Py_DECREF`。这条规则和 PyTorch 的一个设计直接相关——`TensorImpl` 析构时可能要 `Py_DECREF` 它的 Python 包装对象，而析构可能发生在任何线程、任何 GIL 状态下。第五章会看到 PyTorch 怎么处理。
 
-Java 对照：JVM 没有 GIL，`JNIEnv*` 是线程私有的、任何时候都可以用（只要这个线程 attach 到了 JVM）。但 JNI 有一个相似的概念：`GetPrimitiveArrayCritical` 期间不能调用任何其他 JNI 函数、不能阻塞，因为它可能暂停了 GC。GIL 的"释放后不能碰 Python 对象"和这个约束方向相反但性质相同——都是"某个状态下有一类操作被禁止"。
+> [!NOTE] 与 Java 对照：JVM 没有 GIL，native 代码默认不挡别的线程
+> Java 线程进入 native 方法后，其他 Java 线程照常运行，垃圾回收一般也不必等它返回——所以 JNI 里没有"进计算前先放锁"这个动作。Python 正相反：从解释器进来的调用默认持有 GIL，C++ 不主动释放，整个进程里的其他 Python 线程就都停着。JNI 里性质相近的约束是 `GetPrimitiveArrayCritical`：从它返回到对应的 `Release` 之间不能调用其他 JNI 函数、不能阻塞，因为这段时间 JVM 可能为此推迟垃圾回收。两条规则方向相反（一个是"拿着的时候要快"，一个是"放掉以后别碰"），共同点是都划出一段禁止某类操作的区间。
 
 ### 4. `PyObject_Call`：从 C++ 调回 Python
 
@@ -346,7 +389,10 @@ static struct PyGetSetDef THPVariable_properties[] = {
 
 这是 C API 绑定一个属性的全部代价：一个 C 函数 + 表里一行。pybind11 的 `def_property_readonly` 最终生成的也是同样的东西，只是由模板代劳。
 
-Java 对照：JNI 没有"在 C 里定义 Java 类"这回事——类只能在 Java 侧定义，native 方法只是实现。CPython 允许扩展在 C 里从零定义一个类型，这给了 PyTorch 完全控制 `torch.Tensor` 内存布局和生命周期的能力，也是第五章"为什么不用 pybind11"的前提。
+CPython 允许扩展在 C 里从零定义一个类型，这给了 PyTorch 完全控制 `torch.Tensor` 内存布局和生命周期的能力，也是第五章"为什么不用 pybind11"的前提。
+
+> [!NOTE] 与 Java 对照：native 代码不能定义 Java 类的布局
+> Java 的类只能由字节码定义，native 方法只是其中某个方法的实现；JNI 的 `DefineClass` 也只是把一段现成的 class 文件字节交给 JVM 加载。对象里放什么字段、何时回收都由 JVM 决定，native 侧想挂一个 C++ 对象，只能往 `long` 字段里存指针。CPython 则让扩展填一张 `PyTypeObject` 表就得到一个新类型：实例多大、怎么分配、怎么析构、怎么参与垃圾回收，全由扩展自己写。
 
 ## 三、pybind11 的工作方式：模板生成胶水代码
 
@@ -432,7 +478,7 @@ py::object b = py::reinterpret_steal<py::object>(p);    // p 是 new reference�
       PyObject_GetAttrString(cls, "__torch_dispatch__"));                // GetAttr：new reference
 ```
 
-选错会导致两种后果：把 new reference 当 borrowed → 泄漏；把 borrowed 当 new → 多 `DECREF` 一次，use-after-free 或段错误。这是写 Python 绑定时最常见的 bug 类型，和 JNI 里忘记 `DeleteGlobalRef`（泄漏）或者把 local ref 存到静态变量里（悬垂）完全对应。
+选错会导致两种后果：把 new reference 当 borrowed → 泄漏；把 borrowed 当 new → 多 `DECREF` 一次，use-after-free 或段错误。这是写 Python 绑定时最常见的 bug 类型，和 JNI 里忘记 `DeleteGlobalRef`（泄漏）或者把 local ref 存到静态变量里（悬垂）是同一类错误。
 
 `py::tuple`、`py::dict`、`py::list`、`py::str`、`py::args`（就是 `tuple`）、`py::kwargs`（就是 `dict`）都是 `py::object` 的子类，只是多了类型检查和对应的方法。
 
@@ -548,7 +594,8 @@ PYBIND11_DECLARE_HOLDER_TYPE(T, c10::intrusive_ptr<T>, true)
 
 有了它，`py::class_<c10d::ProcessGroup, c10::intrusive_ptr<c10d::ProcessGroup>>` 这样的绑定就能让 Python 实例直接持有一个 `intrusive_ptr`。第三个参数 `true` 表示"这个智能指针总是可以从裸指针安全地重新构造"（intrusive 计数就住在对象里，所以是安全的；`shared_ptr` 就不行），这也是 `c10/util/intrusive_ptr.h` 开头把 `pybind11::class_` 声明为 `friend` 的原因——它要访问私有的裸指针构造函数。
 
-Java 对照：pybind11 的 holder 模型接近 JNI 里常见的"Java 对象存一个 `long nativeHandle` 字段指向 C++ 对象"的手工模式，只是 pybind11 把这层做进了类型系统，并且用 holder 的析构保证 C++ 对象跟着 Python 对象一起释放——Java 里这一步要靠 `Cleaner`/finalizer，时机不确定。
+> [!NOTE] 与 Java 对照：holder 与 long nativeHandle
+> JNI 项目里常见的手工做法是 Java 对象存一个 `long nativeHandle` 字段指向 C++ 对象，再靠 `close()` 或 `Cleaner` 去释放它。pybind11 的 holder 是同一个结构，只是做进了类型系统：Python 实例里直接放着一个智能指针。差别在释放时机——Python 实例的引用计数归零时立即析构 holder，C++ 对象随之释放（或减一次计数）；Java 的 `Cleaner` 要等垃圾回收发现对象不可达才运行，时机不确定，所以持有显存这类稀缺资源的 Java 封装通常要求显式 `close()`。
 
 ### 6. 异常翻译：C++ `throw` 如何变成 Python `raise`
 
@@ -631,7 +678,8 @@ PyTorch 的异常是 `c10::Error` 及其子类（`c10::IndexError`、`c10::Value
 
 双层 `try`：内层负责在异常路径上标记 warning 缓冲区（C++ 层 `TORCH_WARN` 出来的警告要在返回 Python 前统一变成 Python `warnings`），外层把任何 `std::exception` 翻译成 Python 异常并 `return nullptr`。所以每个 C API 风格的 `THPVariable_xxx` 函数第一行和最后一行都是这对宏——[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)说的"宏用来生成重复代码"在这里非常直观。
 
-Java 对照：JNI 里 C++ 异常**不能**穿过 native 边界（穿过就是未定义行为，通常直接 crash），必须手工 `catch` 后调用 `env->ThrowNew(cls, msg)`，然后正常返回；Java 异常也不会自动传到 C++，要用 `ExceptionCheck/ExceptionOccurred` 轮询。pybind11 和 PyTorch 在两个方向上都做了自动化：C++ → Python 靠翻译器，Python → C++ 靠 `python_error`/`error_already_set`。
+> [!NOTE] 与 Java 对照：异常在两个方向上都要有人接
+> JNI 和 Python C API 在最底层是同一个模型：native 函数不能让 C++ 异常飞出去（调用它的 JVM 或解释器不会替你 `catch`，结果是未定义行为，通常直接崩溃），只能"登记一个待抛出的异常，然后正常返回"——JNI 是 `env->ThrowNew(cls, msg)`，C API 是 `PyErr_SetString` 加 `return nullptr`。反方向也一样：调回托管代码后要自己检查有没有异常挂起，JNI 用 `ExceptionCheck`，C API 看返回值是不是空指针。不同的是 JNI 这两步都靠手写，而 pybind11 的翻译器和 `HANDLE_TH_ERRORS` 把 C++ → Python 自动化了，`error_already_set` / `python_error` 把 Python → C++ 也变成了普通的 C++ 异常。
 
 ## 四、GIL 的释放与获取：`gil_scoped_release` / `gil_scoped_acquire`
 
@@ -808,6 +856,9 @@ void ConcretePyInterpreterVTable::incref(PyObject* pyobj) const {
 
 先 `Py_IsInitialized()`，再 `gil_scoped_acquire`，然后所有 `py::object` 都在这个作用域内创建和销毁，异常在离开 GIL 作用域前接住。`hook(__VA_ARGS__)` 是 `py::object::operator()`，底下是 `PyObject_Call`。
 
+> [!NOTE] 与 Java 对照：gil_scoped_acquire 与 AttachCurrentThread
+> JNI 里一个不是由 JVM 创建的 C++ 线程要调 Java，得先 `AttachCurrentThread` 拿到本线程的 `JNIEnv*`，用完 `DetachCurrentThread`；`JNIEnv*` 不能跨线程传递。`gil_scoped_acquire` 也会为还没有 Python 线程状态的线程建立一个，这一半是对应的。不对应的是另一半：attach 之后 Java 线程之间互不排斥，而 `gil_scoped_acquire` 同时在抢全进程唯一的 GIL——拿到之前本线程阻塞，拿到之后其他 Python 线程都停下，所以这个作用域要尽量短。
+
 ### 5. 死锁模式
 
 最经典的一种：线程 A 持有一个 C++ `std::mutex` 然后去 `gil_scoped_acquire`；线程 B 持有 GIL 然后去锁同一个 `mutex`。两把锁的获取顺序不一致就是死锁。两个线程各拿着对方要的那把锁（粗线是已持有，虚线是在等待）：
@@ -827,7 +878,8 @@ flowchart TB
 
 通用的解法和任何多锁问题一样：固定顺序。对 Python 扩展来说自然的顺序是把 GIL 当作最外层的锁——需要同时持有 GIL 和某个 C++ 锁时先拿 GIL；已经持有 C++ 锁却需要回 Python 时，先放锁再拿 GIL。`c10/core/impl/PyInterpreter.h` 开头的 Note 提到了正是这个风险："acquiring the GIL could lead to deadlocks if someone is blocking on you while holding the GIL"——`TensorImpl` 的析构可能在任何线程、持有任何锁的情况下发生，而它要 `Py_DECREF`，这就是为什么 4.3 节的 `decref` 要格外小心。
 
-Java 对照：JVM 没有 GIL，但 JNI 有 `MonitorEnter/MonitorExit`，与 `synchronized` 是同一把锁；C++ 侧持有 `std::mutex` 再 `MonitorEnter` 一个被 Java 线程持有的监视器，死锁模式完全相同。区别在于 Python 里这个问题更常见，因为 GIL 是**所有** Python 操作共用的一把锁，任何 `py::object` 析构都可能要它。
+> [!NOTE] 与 Java 对照：同样的锁序反转，Python 里更容易碰到
+> JNI 的 `MonitorEnter` / `MonitorExit` 进出的就是 `synchronized` 用的那个对象监视器：C++ 线程持有 `std::mutex` 去 `MonitorEnter` 一个监视器，而持有该监视器的 Java 线程正经 native 方法等这把 `std::mutex`，就是同一种死锁。区别在于 Java 里必须有人显式写出这把监视器才会中招；Python 的 GIL 是所有 Python 操作共用的一把锁，一次 `py::object` 的析构、一条日志回调都在隐式地要它，所以 C++ 锁与 GIL 的顺序问题在扩展里常见得多。
 
 ## 五、PyTorch 如何绑定 `Tensor`：`THPVariable` 直接用 C API，为什么
 
@@ -1353,7 +1405,8 @@ static int THPVariable_traverse(PyObject* self, visitproc visit, void* arg) {
 
 以及一个诚实的告诫：为了性能不会遍历整个 autograd 图，所以"用户可以制造出无法回收的环"（issue 7343）。这类环的表现是显存不释放，[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)「回答核心问题」一节的四步排查里"autograd 保存"那一项的深层原因之一就在这里。
 
-Java 对照：JVM 的 GC 是全局可达性分析，跨 JNI 的引用只要注册成 global ref 就是根，不存在"C++ 对象持有 Java 对象导致的不可收集环"——代价是 C++ 侧持有 Java 对象**永远**阻止它被回收，需要显式删除。CPython 的引用计数 + 环检测则要求 C++ 侧配合报告；报告得对就能回收环，报告错就出 bug。两边的取舍不同，但"C++ 持有的托管对象要专门处理"这一点相同。
+> [!NOTE] 与 Java 对照：跨边界的环，两边的垃圾回收器都看不穿
+> JVM 的可达性分析能回收 Java 堆内部的任意环，不需要对象配合；但它看不进 C++ 堆。C++ 侧通过 global reference 持有一个 Java 对象时，这个引用就是 GC 根：如果那个 Java 对象又经 `nativeHandle` 持有这个 C++ 对象，这一对就一直活到有人 `DeleteGlobalRef`，JNI 没有让 native 代码"报告自己持有谁"的接口，只能改用 `NewWeakGlobalRef` 或显式释放来打破。CPython 的做法是把这件事交给扩展：`tp_traverse` 报告得对，穿过 C++ 对象的环就能被回收；多报或漏报，换来的是提前释放或泄漏。
 
 ## 七、回到源码：`torch/csrc/utils/pybind.h` 里的 caster
 
@@ -1734,7 +1787,8 @@ Table: 一次算子调用穿过边界的汇总
 
 这条路径和 `torch.add(t, 1)` 这类原生算子的路径（`PythonArgParser` → `dispatch_add` → `THPVariable_Wrap`）在结构上完全一样，只是原生算子不经过 `IValue`，用 `PythonArgs::tensor(i)` 直接把 `PyObject*` 变成 `at::Tensor` 再走 unboxed 调用——少两次转换，这是 5.2 节说的性能理由之一。
 
-Java 对照：一次 JNI 调用 `nativeScale(tensorObj, 2.0)`：`jobject` 进来是 local ref（borrowed 性质，方法返回自动失效）；要在 C++ 里存下来得 `NewGlobalRef`；C++ 对象要还回 Java 得 `NewObject` 或者往一个 `long` 字段里写指针。没有 GIL，但如果 C++ 侧要长时间运行，也要注意不要在持有 Java 监视器时阻塞。转换次数类似，只是 JNI 里每一步都是显式函数调用，pybind11 把它们藏进了模板。
+> [!NOTE] 与 Java 对照：同一次调用换成 JNI
+> 把它写成 `native long nativeScale(Tensor t, double s)`：`t` 以 `jobject` 进来，是一个 local reference，方法返回即失效，要留到返回之后得 `NewGlobalRef`；取出 C++ 张量是 `GetLongField` 读 `nativeHandle` 再 cast；结果还回 Java 要么 `NewObject` 构造一个包装对象，要么只返回一个 `long`。步骤与上面五次转换大体对应，区别有两点：JNI 的每一步都是手写的显式函数调用，pybind11 和 `IValue` 把它们收进了模板与 schema；JNI 没有 GIL 要交接，kernel 运行期间其他 Java 线程本来就不受影响。
 
 ## 九、`TORCH_LIBRARY` 还是 pybind11：vLLM 的选择，以及 libtorch stable ABI 的现状
 
@@ -1908,6 +1962,9 @@ class Tensor {
 
 它不再是 `intrusive_ptr<TensorImpl>`——因为 `TensorImpl` 的布局属于不稳定的 C++ ABI——而是一个 `shared_ptr` 包着不透明句柄 `AtenTensorHandle`，删除器调 C 函数 `aoti_torch_delete_tensor_object`。取 `sizes()`、`data_ptr()`、`device()` 都变成一次 C 函数调用。这是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)里 RAII 的又一次应用：用 `shared_ptr` 的自定义删除器把一个 C 句柄变成值语义的 C++ 对象。
 
+> [!NOTE] 与 Java 对照：JNI 天生就是那层稳定的 C 接口
+> `AtenTensorHandle` 加一组 `aoti_torch_*` 函数，和 `jobject` 加 `JNIEnv` 函数表是同一种设计：调用方只拿不透明句柄，所有访问都经过一张签名不变的 C 函数表，表后面的实现和对象布局可以随版本更换。JVM 从一开始就只给 native 代码这一个入口，所以同一个 JNI 库通常能跨多个 JDK 版本使用；PyTorch 先有的是直接暴露 C++ 类型的 `TORCH_LIBRARY`，stable ABI 是事后在它旁边补的一层，CPython 的 limited API（第十章的 `abi3`）也是同样的补法。
+
 注册宏 `STABLE_TORCH_LIBRARY` 的展开和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)的 `TORCH_LIBRARY` 同构——一个静态对象的构造函数在加载时运行——只是构造函数体里调的是 C 函数 `aoti_torch_library_init_def`（`torch/csrc/stable/library.h`）：
 
 ```cpp title="StableLibrary 的构造函数：调 C 函数注册"
@@ -1992,7 +2049,10 @@ PyTorch 2.x 中的变化：`torch/csrc/stable/` 和 `torch/headeronly/` 是 2.9 
 
 ## 十、ABI：name mangling、`_GLIBCXX_USE_CXX11_ABI`、`GLIBCXX_3.4.x` 与 manylinux
 
-前面所有内容都建立在一个前提上：扩展 `.so` 里对 `THPVariable_Wrap`、`c10::Error::Error`、`at::empty` 的调用，在加载时能找到 `libtorch_python.so`/`libc10.so`/`libtorch_cpu.so` 里对应的符号，而且**双方对这些符号背后的类型布局、调用约定的理解一致**。这就是 ABI（Application Binary Interface）。Java 工程师习惯了 JVM 提供的统一字节码——一个 `.class` 在任何 JVM 上都能加载。C++ 没有这种东西：ABI 由编译器、标准库、编译选项三者共同决定，任何一个不一致都可能导致加载失败或更糟的静默错误。
+前面所有内容都建立在一个前提上：扩展 `.so` 里对 `THPVariable_Wrap`、`c10::Error::Error`、`at::empty` 的调用，在加载时能找到 `libtorch_python.so`/`libc10.so`/`libtorch_cpu.so` 里对应的符号，而且**双方对这些符号背后的类型布局、调用约定的理解一致**。这就是 ABI（Application Binary Interface）。C++ 没有统一的二进制格式标准：ABI 由编译器、标准库、编译选项三者共同决定，任何一个不一致都可能导致加载失败或更糟的静默错误。
+
+> [!NOTE] 与 Java 对照：class 文件按名字链接，.so 把布局编进了机器码
+> class 文件的格式由 JVM 规范统一规定，旧版本编译出的 `.class` 能在更新的 JVM 上加载（反过来不行，会报 `UnsupportedClassVersionError`）；调用方只记着"类名 + 方法名 + 描述符"，字段偏移、对象大小是 JVM 在加载时现算的，所以被依赖的类加一个私有字段，调用方不用重编。C++ 调用方的机器码里已经写死了 `sizeof`、成员偏移和内联进来的函数体，符号名里还编着参数类型的全名——被依赖的库改了其中任何一样，旧的 `.so` 轻则找不到符号，重则照常加载、按错误的偏移读写内存。
 
 ### 1. Name mangling：类型信息编进符号名
 
@@ -2076,7 +2136,7 @@ strings /lib/x86_64-linux-gnu/libstdc++.so.6 | grep GLIBCXX_3.4    # 系统的 l
 objdump -T my_ext.so | grep GLIBCXX | sort -u                       # 扩展需要哪些版本
 ```
 
-典型场景是 conda 环境自带一个新 libstdc++（`$CONDA_PREFIX/lib/libstdc++.so.6`）而系统的旧，或者反过来；`LD_LIBRARY_PATH` 的顺序（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)的「搜索路径」一节）决定加载哪一个。Java 没有这个问题，因为 JVM 自己带全部运行时；C++ 的标准库是系统共享的，版本由部署环境决定。
+典型场景是 conda 环境自带一个新 libstdc++（`$CONDA_PREFIX/lib/libstdc++.so.6`）而系统的旧，或者反过来；`LD_LIBRARY_PATH` 的顺序（[《编译模型》](/cpp-compilation-model-from-cpp-to-shared-object.html)的「搜索路径」一节）决定加载哪一个。C++ 的标准库是系统共享的动态库，进程里实际用哪个版本由部署环境决定，不由扩展的作者决定。
 
 ### 4. manylinux：wheel 能假设的最低系统
 
@@ -2121,7 +2181,15 @@ CPython 提供了一个受限的 **limited API**（定义 `Py_LIMITED_API` 宏�
 
 Table: 扩展 .so 要同时匹配的三层 ABI
 
-Java 对照：这三层在 JVM 世界分别对应"class 文件版本号"（`major version 61` = Java 17，一个数字解决）、"没有对应物"（JVM 自带运行时）、"没有对应物"（Java 库之间只有源码级/字节码级兼容问题，没有二进制布局问题）。JNI 库倒是有同样的三层问题，但绝大多数 Java 项目从不写 JNI。
+> [!NOTE] 与 Java 对照：三层 ABI 在 JVM 上各对应什么
+>
+> | 层 | 纯 Java 库 | 说明 |
+> |---|---|---|
+> | 与运行时之间（CPython ABI） | class 文件版本号，如 Java 17 是 major version 61 | 一个数字，只要求 JVM 不比它旧 |
+> | 标准库（libstdc++） | 无对应问题 | 标准类库随 JDK 一起发布，不存在"系统里另有一份不同版本" |
+> | 库与库之间（PyTorch C++ ABI） | 只有按名字的链接错误，如 `NoSuchMethodError` | 没有布局、内联、编译器版本层面的不兼容 |
+>
+> 带 JNI 的 Java 库不在此列：它的 native 部分是普通的 `.so`，libstdc++、glibc、编译器这几层问题一样不少，只是 JNI 接口本身是稳定的 C 接口，不随 JDK 版本变。
 
 ### 6. MSVC 与 Windows
 
@@ -2741,12 +2809,12 @@ c10::Error::Error(char const*, mylib::string const&)
 20. 一个 C++ 对象如果同时被 Python 和 C++ 持有、且析构很慢或需要 GIL，用 `torch::impl::destroy_without_gil` 做 `shared_ptr` 删除器，或者按 `PyInterpreterVTable::decref` 的方式在析构里自己判断并获取 GIL。
 21. 自定义的 `PyTypeObject`（或 `py::class_` 加 `py::dynamic_attr()`）如果持有其他 Python 对象，要实现 `tp_traverse`/`tp_clear`，并且只报告自己**独占**的引用（6.3 节 NOTE [PyObject Traversal]）。
 
-**与 Java 直觉冲突的几处**
+**跨边界时容易想当然的几处**
 
-22. `PyObject*` 不是 `jobject` 那种不透明句柄，可以直接解引用——所以 CPython 版本一变扩展就要重编（`abi3` 除外）。
-23. 没有"native 方法返回时自动释放 local ref"这种事，每个 new reference 都要有人 `DECREF`。
+22. `PyObject*` 是布局公开的真实地址，扩展直接解引用——所以 CPython 版本一变扩展就要重编（`abi3` 除外）。
+23. 函数返回时不会有谁替你释放引用：每个 new reference 都要有人 `DECREF`，borrowed reference 则不保证对象还活着。
 24. C++ 异常可以在 pybind11 边界上自动翻译，但**不能**穿过 C API 风格的函数（`THPVariable_xxx`）——那些函数要用 `HANDLE_TH_ERRORS` 包住；也不能穿过 `extern "C"` 回调、析构函数、`noexcept` 函数。
-25. Java 只有一个 ABI（字节码版本号）；C++ 扩展有三个（CPython、标准库、PyTorch），每个都能让 `import` 失败。
+25. 一个 C++ 扩展要同时匹配三层 ABI（CPython、标准库、PyTorch），每一层都能让 `import` 失败；能加载也不代表布局一致。
 
 ## 十四、本文小结
 
@@ -2767,22 +2835,6 @@ c10::Error::Error(char const*, mylib::string const&)
 **`TORCH_LIBRARY` vs pybind11**：进计算图的算子必须走 `TORCH_LIBRARY`——可 trace、可注册 Meta/Autograd、可按 DispatchKey 分发、不依赖 `libtorch_python`。vLLM 全部如此，`REGISTER_EXTENSION` 只造一个空模块触发静态注册。v2.10.0 的 `torch/csrc/stable/` 在此之上再加一层 C shim（`STABLE_TORCH_LIBRARY`、`TORCH_BOX`、`torch::stable::Tensor`），目标是一个 `.so` 跨 PyTorch 版本；这层还年轻，覆盖面有限，vLLM 0.15 尚未使用，仍走 `TORCH_LIBRARY` 并钉死 PyTorch 版本。
 
 **ABI**：三层——CPython（`cp312`/`abi3`）、C++ 标准库（`_GLIBCXX_USE_CXX11_ABI` 的 `__cxx11` inline namespace、`GLIBCXX_3.4.x` 符号版本、libstdc++ vs libc++）、PyTorch 自身（版本、编译器、CUDA）。`c++filt` 是第一诊断工具。PyTorch 2.6/2.7 随 manylinux_2_28 切到 CXX11 ABI，v2.10.0 已经删掉了这个开关（`torch._C._GLIBCXX_USE_CXX11_ABI` 恒 `True`，`cpp_extension.py` 不再传 `-D`）。`cpp_extension.py` 自动处理头文件、链接库、`-std=c++17`、`TORCH_EXTENSION_NAME`，检查编译器种类、GCC ≥ 5、CUDA 大版本和 host 编译器区间；不检查也检查不了"PyTorch 版本一致"。
-
-Java 对照集中列一次：
-
-| 概念 | Java / JNI | Python / C++ | 类比失效的地方 |
-|---|---|---|---|
-| 托管对象句柄 | `jobject`，不透明 | `PyObject*`，布局公开可解引用 | CPython 扩展对解释器版本敏感 |
-| 引用生命周期 | local ref 自动释放、global ref 手工 | borrowed 不管、owned 手工 `DECREF`（RAII 化为 `py::object`） | Python 没有自动释放的 local ref |
-| 执行许可 | `JNIEnv*` 线程私有，随时可用 | GIL，全局一把，可显式释放 | Java 没有"放锁去跑 C++"这个动作 |
-| 长时间 native 计算 | 无特殊处理 | `gil_scoped_release` | — |
-| 异常跨边界 | 不能穿过，手工 `ThrowNew`/`ExceptionCheck` | pybind11 自动翻译；C API 风格用 `HANDLE_TH_ERRORS` | — |
-| 在 native 里定义类 | 不可能 | `PyTypeObject`/`py::class_` | Java 类只能在 Java 侧定义 |
-| C++ 持有托管对象 | global ref 是 GC 根，永不回收直到删除 | `tp_traverse` 报告给环 GC | Python 需要 C++ 侧配合才能收环 |
-| 二进制兼容 | class 文件版本号 | CPython ABI + 标准库 ABI + 库 ABI | JVM 统一了运行时，C++ 没有 |
-| 稳定 C 层 | JNI 本身就是稳定 C 接口 | `torch/csrc/stable/c/shim.h`、CPython limited API | C++ 需要额外造一层才有 |
-
-Table: pybind11 与 ABI：Java / JNI 对照汇总
 
 下一篇是工程闭环：这些 `.so` 怎么用 CMake 可靠地编出来、`import` 崩了怎么用 gdb/lldb 从 Python 进程一路断到 C++ kernel、怎么用 sanitizer 抓本篇提到的那些 use-after-free 和引用计数错误、怎么给 mini-c10 补上 gtest。
 
