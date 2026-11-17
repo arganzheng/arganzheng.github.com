@@ -6,6 +6,7 @@ subtitle: "Python for AI-Infra: Series Recap and Final Self-Test"
 tags: [Python, AI-Infra]
 catalog: true
 date: 2026-01-30 20:00:00
+updated: 2026-11-16
 ---
 
 七篇正文回答了一个问题：**在 AI-Infra 系统里，Python 不承担最重的计算，那它到底承担什么，为此需要掌握它的哪些机制**。答案是组织、调度、扩展、观测和交付——Python 是控制平面和胶水层。第一篇讲代码是怎么运转的，第二篇讲类型如何被表达与消费，第三篇讲任务如何协作，第四篇讲系统如何扩展而不失控，第五篇讲内存如何被占用与回收，第六篇讲怎么确认它真的对、出了问题怎么查，第七篇讲怎么把它可复现地交付出去。前六篇解决"写对"，第七篇解决"交付"。
@@ -14,7 +15,11 @@ date: 2026-01-30 20:00:00
 
 > **读完这七篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
-先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
+## 一、总览：系列回答的问题与主线
+
+系列的一句话主张是：**Python 的语法很容易，Python 工程不容易——难的不是怎么写，而是语法背后哪些机制在起作用、这些机制的代价是什么、什么时候不该用**。七篇沿同一条链递进（代码怎么运转 → 怎么写得健壮 → 怎么协作 → 怎么扩展 → 内存怎么优化 → 怎么确认没问题 → 怎么交付），用同一个参照系（Java：每个特性说明它对应什么、对照在哪里失效），例子取自同一批真实项目（PyTorch、vLLM、FastAPI、Pydantic）。这条链是有依赖的：不理解 `import` 的副作用就看不懂插件注册（一 → 四）；不理解注解如何被运行时消费就说不清 Pydantic 的校验从哪来（二 → 七）；不理解 GIL 就判断不了推理服务该起几个 worker（三 → 七）。
+
+整个系列的依赖放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -28,22 +33,17 @@ flowchart TB
     P2 -- "注解被 Pydantic 消费" --> P7["07 工程化与生产交付"]
     P3 -- "GIL 决定起几个 worker" --> P7
     P6 --> P7
-
 ```
-
-## 一、总览：系列回答的问题与主线
-
-系列的一句话主张是：**Python 的语法很容易，Python 工程不容易——难的不是怎么写，而是语法背后哪些机制在起作用、这些机制的代价是什么、什么时候不该用**。七篇沿同一条链递进（代码怎么运转 → 怎么写得健壮 → 怎么协作 → 怎么扩展 → 内存怎么优化 → 怎么确认没问题 → 怎么交付），用同一个参照系（Java：每个特性说明它对应什么、对照在哪里失效），例子取自同一批真实项目（PyTorch、vLLM、FastAPI、Pydantic）。这条链是有依赖的：不理解 `import` 的副作用就看不懂插件注册（一 → 四）；不理解注解如何被运行时消费就说不清 Pydantic 的校验从哪来（二 → 七）；不理解 GIL 就判断不了推理服务该起几个 worker（三 → 七）。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 判据 |
 |---|---|---|---|
 | 第一篇：语言机制与运行时原理（[上](/python-execution-model-scopes-imports-and-exceptions.html) · [下](/python-object-model-protocols-decorators-and-generators.html)） | 一段代码从被加载、创建对象、执行任务到释放资源，运行时做了什么？ | 每行"简单"语法背后是一个可替换的协议：`import` 是运行时动作，`obj.attr` 是一个固定算法，`model(x)` 查类型上的 `__call__`，装饰器在定义时执行一次，生成器是挂起的帧 | 属性查找：数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`<br/>`sys.path[0]` 由启动方式决定<br/>`sys.modules` 每进程一份<br/>`super()` 是 MRO 里的下一个<br/>`break` 不等于 `close()` |
-| 第二篇：类型系统与数据契约设计（[上](/python-type-expression-and-the-typing-toolbox.html) · [中](/python-type-information-distribution-and-consumption.html) · [下](/python-data-contract-design-dataclass-pydantic-and-settings.html)） | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器只把注解存进 `__annotations__`<br/>`@dataclass` 读注解只当字段清单、用 `exec` 生成代码<br/>Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部零开销；`Protocol` 3.8、`X \ | Y` 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
+| 第二篇：类型系统与数据契约设计（[上](/python-type-expression-and-the-typing-toolbox.html) · [中](/python-type-information-distribution-and-consumption.html) · [下](/python-data-contract-design-dataclass-pydantic-and-settings.html)） | 类型信息从哪来、被谁消费、怎么落成可执行的契约？ | 提供与消费拆成两层：解释器只把注解存进 `__annotations__`<br/>`@dataclass` 读注解只当字段清单、生成 `__init__` 等方法（CPython 标准库实现里用 `exec`）<br/>Pydantic 用元类在类创建时构建验证树 | 边界校验一次、内部零开销；`Protocol` 3.8、`X \ | Y` 3.10、`ParamSpec` 3.10、`Self` 3.11；`get_type_hints()` 比 `__annotations__` 多做三件事；`@runtime_checkable` 只查方法存在 |
 | [第三篇：并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html) | 瓶颈在哪？任务怎么协作？下游跟不上时系统怎么稳？ | 按瓶颈选模型不按 API 流行度：线程管阻塞 I/O，进程绕开 GIL，asyncio 管大量 I/O 协作；背压、超时、取消、批处理是过载时的稳定手段 | 线程池默认 $$\min(32, \text{cpu} + 4)$$<br/>OS 线程约 8 MB 栈、协程几 KB<br/>`fork` 只复制调用线程，3.14 起 Linux 默认 `forkserver`<br/>`/dev/shm` 默认 64 MB<br/>队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`<br/>FastAPI `def` 端点线程池 40 |
 | [第四篇：Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html) | 运行时怎么访问和改造程序结构？怎么用它做插件系统与路由，又不失控？ | 反射观察、元编程改造、动态加载导入<br/>插件化 = 注册表 + 发现 + 契约 + 边界<br/>动态机制只在启动时"选择"，热路径必须静态 | 侵入性递增：显式注册 → 装饰器 → 描述符 → `__init_subclass__` → 元类<br/>`getattr` ≈ 23 ns（2.3×）、`inspect.signature` ≈ 3700 ns（约 370×）<br/>三种发现机制<br/>用户输入能选名字、不能造名字 |
-| [第五篇：内存管理与优化](/python-memory-management-and-optimization.html) | 哪些内存归 Python、哪些在原生缓冲区或设备上？哪些操作复制或延长生命周期？增长怎么定位？ | 内存问题多数不是"泄漏"而是"被意外长期持有"；Python 归还内存是分层的，对象释放不等于 RSS 下降 | 引用计数归零立即释放，循环靠分代 GC，阈值 `(700, 10, 10)`<br/>pymalloc 管 ≤ 512 字节，arena 256 KB / pool 4 KB<br/>小整数 −5 到 256 缓存<br/>`memory_reserved` ≥ `memory_allocated`<br/>先分三类再找源 |
+| [第五篇：内存管理与优化](/python-memory-management-and-optimization.html) | 哪些内存归 Python、哪些在原生缓冲区或设备上？哪些操作复制或延长生命周期？增长怎么定位？ | 内存问题多数不是"泄漏"而是"被意外长期持有"；Python 归还内存是分层的，对象释放不等于 RSS 下降 | CPython 引用计数归零立即释放，循环靠分代 GC，3.12 及之前阈值 `(700, 10, 10)`（3.13 起默认值与分代方式有变）<br/>pymalloc 管 ≤ 512 字节，3.10+ 64 位 arena 1 MiB / pool 16 KiB（更早 256 KiB / 4 KiB）<br/>小整数 −5 到 256 缓存<br/>`memory_reserved` ≥ `memory_allocated`<br/>先分三类再找源 |
 | [第六篇：单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html) | 怎么验证行为符合预期？异步时序、Mock、动态调用、内存、卡死各用哪个工具？ | 工具不难，难在按症状选工具<br/>日志要分调试期与生产期<br/>`raise ... from` 与带上下文的日志是所有工具的前提 | `Mock` 不能 `await`、要用 `AsyncMock`<br/>替换"被测模块里实际用的名字"<br/>logger 与 handler 两道级别关卡<br/>库只建 logger 不配输出<br/>`python -X faulthandler`、`PYTHONTRACEMALLOC=25`、`pytest -W error::RuntimeWarning` |
-| [第七篇：项目工程化与生产交付](/python-engineering-and-production-delivery.html) | 依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？ | Python 把 Java 里由框架和编译器强制的事交还给你：锁文件进 CI、torch 交给固定 tag 的基础镜像、静态检查是编译器的替代品 | `pip install torch` 2 GB+、环境 5–8 GB、镜像 8–12 GB<br/>装 torch 用 `--index-url` 不用 `--extra-index-url`<br/>CUDA 三层、同大版本向前兼容<br/>GPU 服务每 GPU 一个 worker（4 × 14 GB = 56 GB）<br/>`uv sync --frozen`<br/>tag 不能是 `latest` |
+| [第七篇：项目工程化与生产交付](/python-engineering-and-production-delivery.html) | 依赖怎么声明和锁定、环境怎么隔离、质量怎么把关、制品怎么打包、镜像怎么分层？ | Python 把 Java 里由框架和编译器强制的事交还给你：锁文件进 CI、torch 交给固定 tag 的基础镜像、静态检查是编译器的替代品 | `pip install torch` 2 GB+、环境 5–8 GB、镜像 8–12 GB<br/>装 torch 用 `--index-url` 不用 `--extra-index-url`<br/>CUDA 三层、同大版本向前兼容<br/>GPU 服务每 GPU 一个 worker（4 × 14 GB = 56 GB）<br/>CI 用 `uv sync --locked`，镜像里 `--frozen`<br/>tag 不能是 `latest` |
 
 Table: 七篇的核心问题、结论与必记判据
 
@@ -189,11 +189,22 @@ Table: 本文的章节安排
 
 ### 1. import 是运行时动作
 
-第一篇建立的这一条，后面五篇各用了一次。`import` 查 `sys.modules`、找 finder、执行顶层代码，所以注册装饰器、算子注册、CUDA 初始化都是导入副作用，时机由导入顺序决定；`sys.path[0]` 由启动方式决定，同一文件可能以两个名字被执行两次。第四篇把它变成插件系统的前提："注册代码必须被执行"等价于"所属模块被导入过"，三种发现机制回答的都是"谁负责导入"，而"写了装饰器却找不到后端"的唯一根源就是第一篇那条规则。
+第一篇建立的这一条，后面四篇（四、三、六、七）都用到了。`import` 查 `sys.modules`、找 finder、执行顶层代码，所以注册装饰器、算子注册、CUDA 初始化都是导入副作用，时机由导入顺序决定；`sys.path[0]` 由启动方式决定，同一文件可能以两个名字被执行两次。第四篇把它变成插件系统的前提："注册代码必须被执行"等价于"所属模块被导入过"，三种发现机制回答的都是"谁负责导入"，而"写了装饰器却找不到后端"的唯一根源就是第一篇那条规则。
 
 第三篇在两处遇到它：`spawn` / `forkserver` 会重新导入主模块，所以多进程脚本必须写 `if __name__ == "__main__":`，否则子进程导入主模块时又创建进程池；`fork` 之后每个进程有自己的 `sys.modules`，主进程后来的注册子进程看不到。第六篇的 `monkeypatch` 必须替换"被测模块里实际使用的名字"（`service.download_model` 而不是 `loader.download_model`），因为 `from loader import download_model` 在导入时把名字绑定进了 `service` 的命名空间。第七篇的 src 布局与 editable 安装、容器里 `ENV PATH` 而不 `source activate`，都是在控制 `sys.path` 里有什么。
 
 ### 2. 边界校验一次，内部静态、零开销，启动时失败
+
+```mermaid
+%% 图：一个推理服务从 CI 到处理请求，四篇各自守的那道边界
+flowchart TB
+    CI["<b>CI 门禁（七）</b><br/>ruff、mypy、pytest、uv lock --check"] -- "通过才产出镜像" --> BOOT
+    BOOT["<b>启动（二、四）</b><br/>Settings() 校验配置<br/>导入插件、校验契约、预编译路由"] -- "readiness 通过才接流量" --> IN
+    IN["<b>请求入口（二）</b><br/>Pydantic 校验一次"] -- "转换成内部对象" --> HOT
+    HOT["<b>热路径（四、五）</b><br/>dataclass、已绑定的方法<br/>不反射、不反复转换数据表示"]
+    BOOT -. "配置 / 插件错误：拒绝启动" .-> FAIL["尽早失败"]
+    IN -. "非法输入：422" .-> FAIL
+```
 
 第二篇给出原则：外部数据不可信，在系统边界用 Pydantic 校验一次，进门后用零开销的 `@dataclass` 传递，靠 mypy 做静态保障；`BaseSettings` 让配置错误在 `Settings()` 那一瞬间暴露，而不是加载了几十 GB 权重之后。第四篇把同一条边界画在时间轴上：初始化阶段可以动态（导入、`inspect` 签名、插件校验、路由预编译），热路径必须静态（缓存好的字典、已绑定的方法引用）；插件契约在启动阶段验证，`REQUIRED` 插件失败就拒绝启动。
 
@@ -249,12 +260,12 @@ flowchart TB
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
 | `import` 只是声明依赖 | 它执行模块顶层代码，注册、CUDA 初始化都在这一步发生 | `import` 是运行时动作，副作用时机由导入顺序决定；顶层只做声明式的事 | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
-| `model.forward(x)` 与 `model(x)` 一样 | 调用语法查类型上的 `__call__`，hooks 挂在 `nn.Module.__call__` 里 | 直接调 `forward` 绕过全部 hook | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
-| `super()` 调父类 | 它调的是实例 MRO 中当前类之后的下一个 | 协作式多继承每一层都要调 `super()`，漏一层之后全被跳过 | [第一篇](/python-execution-model-scopes-imports-and-exceptions.html) |
+| `model.forward(x)` 与 `model(x)` 一样 | 调用语法查类型上的 `__call__`，hooks 挂在 `nn.Module.__call__` 里 | 直接调 `forward` 绕过全部 hook | [第一篇下](/python-object-model-protocols-decorators-and-generators.html) |
+| `super()` 调父类 | 它调的是实例 MRO 中当前类之后的下一个 | 协作式多继承每一层都要调 `super()`，漏一层之后全被跳过 | [第一篇下](/python-object-model-protocols-decorators-and-generators.html) |
 | 类型注解在运行时生效 | 解释器只把注解存进 `__annotations__` | 只有 Pydantic、beartype 这类消费者主动读取时才生效 | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
-| `@dataclass` 会按注解校验 | 它只读字段名与顺序、`exec` 生成 `__init__`，不理解注解语义 | `User(id="abc")` 静默通过；要校验用 Pydantic 或 `__post_init__` | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
-| 过了 mypy 就是被检查过了 | 默认不检查没标注的函数体 | `check_untyped_defs` 或 `strict` 才检查 | [第二篇](/python-type-expression-and-the-typing-toolbox.html) |
-| 多线程能加速 CPU 计算 | GIL 让字节码执行期间只有一个线程 | 线程只对阻塞 I/O 与释放了 GIL 的 C 扩展有效，纯 Python CPU 用进程 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
+| `@dataclass` 会按注解校验 | 它只读字段名与顺序、`exec` 生成 `__init__`，不理解注解语义 | `User(id="abc")` 静默通过；要校验用 Pydantic 或 `__post_init__` | [第二篇下](/python-data-contract-design-dataclass-pydantic-and-settings.html) |
+| 过了 mypy 就是被检查过了 | 默认不检查没标注的函数体 | `check_untyped_defs` 或 `strict` 才检查 | [第二篇中](/python-type-information-distribution-and-consumption.html) |
+| 多线程能加速 CPU 计算 | 默认（带 GIL）的 CPython 构建里，同一时刻只有一个线程执行字节码；3.13 起的 free-threaded 构建是另一回事 | 线程只对阻塞 I/O 与释放了 GIL 的 C 扩展有效，纯 Python CPU 用进程 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
 | 在协程里调 `requests.get()` 没问题 | Python 不会替你把阻塞变非阻塞，事件循环整个停摆 | 用异步客户端或 `asyncio.to_thread()`；虚拟线程里这样写才是对的 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
 | `Future.cancel()` 能停掉运行中的线程 | 只对未开始的任务有效，运行中的线程无法取消 | 线程不能取消、进程只能 kill、协程在下一个 `await` 点协作式取消 | [第三篇](/python-concurrency-asynchrony-and-task-collaboration.html) |
 | 子类自动注册应该用元类 | 元类改变类的类型、语义隐式、让 mypy 失效 | `__init_subclass__` 或类装饰器几乎总是更好；元类只在要控制类本身的行为时用 | [第四篇](/python-reflection-metaprogramming-and-plugin-architecture.html) |
@@ -292,7 +303,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   MRO 是 `Run → Metrics → Logging → Base → object`，返回 `["base", "logging", "metrics"]`（与第一篇 `Run(Logging, Metrics, Base)` 得到的 `["base", "metrics", "logging"]` 相反）。漏写后 `Logging` 之后的 `Base` 被跳过，`Logging.run` 里 `result` 未定义直接报错——链在它那里断了。
+   MRO 是 `Run → Metrics → Logging → Base → object`，返回 `["base", "logging", "metrics"]`（与第一篇下 `Run(Logging, Metrics, Base)` 得到的 `["base", "metrics", "logging"]` 相反）。漏写后 `Logging` 之后的 `Base` 被跳过，`Logging.run` 里 `result` 未定义直接报错——链在它那里断了。
 
    </details>
 
@@ -336,11 +347,11 @@ Table: 常见误区与正确说法
 
    </details>
 
-9. `gc.get_threshold()` 为 `(700, 10, 10)`。最少经过多少次 Gen 0 的"净分配"才会触发一次 Gen 2 回收？一个 100 字节的对象由谁分配？一个 arena 里有多少个 pool？
+9. 在 CPython 3.12 上，`gc.get_threshold()` 为 `(700, 10, 10)`。最少经过多少次 Gen 0 的"净分配"才会触发一次 Gen 2 回收？一个 100 字节的对象由谁分配？一个 arena 里有多少个 pool？
 
    <details markdown="1"><summary>答案</summary>
 
-   700 × 10 × 10 = 70000 次净分配（Gen 0 每 700 次一轮，10 轮触发 Gen 1，Gen 1 10 轮触发 Gen 2）；100 字节 ≤ 512 字节走 pymalloc；arena 256 KB ÷ pool 4 KB = 64 个 pool。GC 按分配计数触发，不按内存大小。
+   700 × 10 × 10 = 70000 次净分配（Gen 0 每 700 次一轮，10 轮触发 Gen 1，Gen 1 10 轮触发 Gen 2）；这是下限，CPython 还要求待回收的长寿对象超过已有长寿对象的 25% 才真做全量回收。100 字节 ≤ 512 字节走 pymalloc；3.10+ 64 位平台 1 MiB ÷ 16 KiB = 64 个 pool（更早的 256 KiB ÷ 4 KiB 也是 64）。GC 按分配计数触发，不按内存大小。这些都是 CPython 实现细节，3.13 起阈值和分代方式变了，见第五篇。
 
    </details>
 
@@ -390,7 +401,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：flat 布局下 `python -m pytest` 把仓库根放进 `sys.path`，测的是源码树而不是安装产物，`pyproject.toml` 漏了子包测试照样绿；src 布局把源码放到 `src/` 之外任何路径都找不到，测试只能导入 `pip install -e .` 之后的包，漏打包本地就报错。第七篇：镜像里 `uv sync --frozen --no-install-project --no-dev` 再 `COPY src/` 再 `uv sync --frozen --no-dev`，锁文件与声明不一致直接失败；第二篇的同类坑——`py.typed` 没进 `package-data` 也是"源码里有、wheel 里没有"。
+   第一篇：flat 布局下 `python -m pytest` 把仓库根放进 `sys.path`，测的是源码树而不是安装产物，`pyproject.toml` 漏了子包测试照样绿；src 布局把源码放到 `src/` 之外任何路径都找不到，测试只能导入 `pip install -e .` 之后的包，漏打包本地就报错。第七篇：CI 先 `uv sync --locked`，锁文件与声明不一致直接失败；镜像里再 `uv sync --frozen --no-install-project --no-dev`、`COPY src/`、`uv sync --frozen --no-dev`，按已核过的锁安装；第二篇的同类坑——`py.typed` 没进 `package-data` 也是"源码里有、wheel 里没有"。
 
    </details>
 
@@ -441,7 +452,7 @@ Table: 常见误区与正确说法
    <details markdown="1"><summary>答案</summary>
 
    **答案要点**：(1) `del` 只减引用计数，其他 view / storage 引用仍让数据活着；(2) 显存：`memory_reserved − memory_allocated` 是 caching allocator 缓存的空闲块，加 CUDA context 几百 MB，不是泄漏，`empty_cache()` 可归还但变慢；(3) CPU：pymalloc 的 arena 只有全部 pool 释放才归还 OS，对象释放不等于 RSS 下降；(4) 分三类定位：`tracemalloc` 快照对比看 Python 分配、涨而不涨看原生（`memray`）、`memory_summary()` 看设备；(5) 真正的长期持有多来自无界缓存、闭包、Task、`except ... as e` 的 traceback、小视图持有大缓冲区，用 `gc.get_referrers` / `objgraph` 找引用链。
-   **追问方向**：`__del__` 为什么不可靠；`gc.disable()` 为什么有框架敢用；`x[::2]` / `clone()` / `contiguous()` 哪些复制；GC 阈值 `(700, 10, 10)` 的含义。
+   **追问方向**：`__del__` 为什么不可靠；`gc.disable()` 为什么有框架敢用；`x[::2]` / `clone()` / `contiguous()` 哪些复制；GC 阈值 `(700, 10, 10)`（3.12 及之前）的含义。
    **好答案与一般答案的区别**：一般答案说"加 `gc.collect()` 和 `empty_cache()`"；好答案先把内存分层（Python 对象 / 分配器 / 原生 / 设备），再说每层用什么工具、什么现象不是泄漏。
 
    </details>
@@ -450,7 +461,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 抽象依赖写 `pyproject.toml`、锁文件（`uv.lock`，带 hash）提交并在 CI `uv sync --frozen`，两者不能互相替代；(2) torch 是几 GB 的平台相关二进制，`+cu121` 本地版本 PyPI 不接受，装它用 `--index-url` 不用 `--extra-index-url`，锁文件跨平台会失效；(3) 最有价值的一条：把 torch 与 CUDA 交给固定 tag 的基础镜像（不能 `latest`，记录 digest），项目依赖里不含 torch——同时解决体积、缓存、跨平台锁；(4) Dockerfile 按变化频率分层：基础层 → 依赖层（`--no-install-project --no-dev`）→ 代码层，权重不进镜像，`.dockerignore`，容器里仍用 venv 便于 `COPY --from`；(5) CI 门禁 `ruff check` + `ruff format --check` + `mypy src/` + `pytest` + `uv lock --check`，任一失败不产出制品——这是 Python 的"编译器"；(6) CUDA 三层兼容矩阵与四种典型报错。
+   **答案要点**：(1) 抽象依赖写 `pyproject.toml`、锁文件（`uv.lock`，带 hash）提交并在 CI `uv sync --locked`（不一致即失败；`--frozen` 跳过这项检查，留给镜像构建），两者不能互相替代；(2) torch 是几 GB 的平台相关二进制，`+cu121` 本地版本 PyPI 不接受，装它用 `--index-url` 不用 `--extra-index-url`，锁文件跨平台会失效；(3) 最有价值的一条：把 torch 与 CUDA 交给固定 tag 的基础镜像（不能 `latest`，记录 digest），项目依赖里不含 torch——同时解决体积、缓存、跨平台锁；(4) Dockerfile 按变化频率分层：基础层 → 依赖层（`--no-install-project --no-dev`）→ 代码层，权重不进镜像，`.dockerignore`，容器里仍用 venv 便于 `COPY --from`；(5) CI 门禁 `ruff check` + `ruff format --check` + `mypy src/` + `pytest` + `uv lock --check`，任一失败不产出制品——这是 Python 的"编译器"；(6) CUDA 三层兼容矩阵与四种典型报错。
    **追问方向**：库项目该不该加版本上界；conda 什么时候真的需要；`nvidia-smi` 的 CUDA Version 是什么；readiness 与 liveness 为什么要分。
    **好答案与一般答案的区别**：一般答案说"用 Docker 就可复现"；好答案说出可复现性的责任在锁文件与镜像 tag 之间怎么转移、代价是什么。
 
@@ -489,5 +500,5 @@ Table: 掌握程度的判据
 回到总纲：[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
 
 [^q0]: 七个：一段代码从加载到释放运行时做了什么（`import` 的三层查找、属性查找算法、`__call__` 与 hooks、生成器与 `with`）；类型信息从哪来被谁消费怎么落成契约（`__annotations__`、`@dataclass` 的 `exec` 与 Pydantic 的元类、边界校验一次）；瓶颈在哪、任务怎么协作、过载怎么稳（GIL、三种模型、背压 / 超时 / 取消 / 批处理）；运行时怎么观察与改造程序结构并做成插件系统而不失控（反射 / 元编程 / 动态加载、注册 → 发现 → 契约 → 边界、启动时选择热路径静态）；哪些内存归 Python、哪些操作复制或延长生命周期、增长怎么定位（引用计数 + 分代 GC + pymalloc、视图与副本、三类增长）；怎么验证行为符合预期、出问题用哪个工具（pytest / Mock / pytest-asyncio、按症状选工具的决策树）；怎么可复现地交付（抽象依赖与锁文件、torch 交给基础镜像、CUDA 三层、镜像分层、CI 门禁）。详见[第二章](#二逐篇回顾)。
-[^q1]: 属性查找顺序（数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`）；`sys.path[0]` 由启动方式决定、同一文件两个名字执行两次；`@dataclass` 用 `exec` 不校验、Pydantic 元类建验证树、v2 快一个数量级；线程池默认 $$\min(32, \text{cpu} + 4)$$、OS 线程约 8 MB、协程几 KB；`fork` 只复制调用线程、3.14 起 Linux 默认 `forkserver`、`/dev/shm` 默认 64 MB；队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`；`getattr` ≈ 23 ns、`inspect.signature` ≈ 3700 ns（约 370×）；GC 阈值 `(700, 10, 10)`、pymalloc ≤ 512 字节、arena 256 KB / pool 4 KB、小整数 −5 到 256；`memory_reserved` ≥ `memory_allocated`；`pip install torch` 2 GB+、镜像 8–12 GB 里 torch 占 5–7 GB、4 × 14 GB = 56 GB；`--index-url` 不用 `--extra-index-url`；`uv sync --frozen`、tag 不能 `latest`。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 属性查找顺序（数据描述符 → 实例字典 → 非数据描述符 → `__getattr__`）；`sys.path[0]` 由启动方式决定、同一文件两个名字执行两次；`@dataclass` 用 `exec` 不校验、Pydantic 元类建验证树、v2 快一个数量级；线程池默认 $$\min(32, \text{cpu} + 4)$$、OS 线程约 8 MB、协程几 KB；`fork` 只复制调用线程、3.14 起 Linux 默认 `forkserver`、`/dev/shm` 默认 64 MB；队列默认无界、`asyncio.Lock` 不可重入、`CancelledError` 是 `BaseException`；`getattr` ≈ 23 ns、`inspect.signature` ≈ 3700 ns（约 370×）；GC 阈值 `(700, 10, 10)`（CPython 3.12 及之前）、pymalloc ≤ 512 字节、arena 1 MiB / pool 16 KiB（3.10+ 64 位）、小整数 −5 到 256；`memory_reserved` ≥ `memory_allocated`；`pip install torch` 2 GB+、镜像 8–12 GB 里 torch 占 5–7 GB、4 × 14 GB = 56 GB；`--index-url` 不用 `--extra-index-url`；CI 用 `uv sync --locked`（`--frozen` 跳过一致性检查）、tag 不能 `latest`。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

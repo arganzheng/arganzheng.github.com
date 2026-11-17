@@ -37,8 +37,9 @@ flowchart TB
     CO -- "执行 def" --> FN["函数对象"]
     FN -- "每次调用" --> FR["执行帧（frame）"]
     FR -- "读一个名字（第三章）" --> LEGB["名称解析与闭包"]
-    FR -- "import torch（第四章）" --> IMP["模块查找与加载"]
-    FR -- "出错（第五章）" --> EXC["异常传播"]
+    FR -- "import torch（第四章）" --> IMP["finder / loader<br/>查找并加载模块"]
+    IMP -- "执行顶层代码" --> EFFECT["注册表、类定义生效"]
+    FR -- "出错（第五章）" --> EXC["异常沿帧链向上传播"]
 ```
 
 - **code object**：字节码、常量、名字表。导入源码模块时可缓存在 `__pycache__/*.pyc`；直接运行脚本不写这个缓存。
@@ -108,19 +109,7 @@ class Runner:
 
 ### 2. 本篇的主线：从源码到帧
 
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 160, "rankSpacing": 35, "curve": "linear"}}}%%
-%% 图：本篇主线：源码、函数对象与帧，以及 import 与异常
-flowchart TB
-    SRC["源码"] -- "编译" --> CO["code object"]
-    CO -- "执行 def，封装" --> FN["函数对象"]
-    FN -- "调用" --> FR["执行帧"]
-    FR -- "读名字" --> SCOPE["作用域与闭包"]
-    FR -- "执行 import" --> IMP["import 语句"]
-    IMP -- "finder / loader" --> MOD["模块对象"]
-    MOD -- "执行顶层代码" --> EFFECT["注册表、类定义生效"]
-    FR -- "发生异常" --> EXC["沿帧链向上传播"]
-```
+总览图里的每条边，对应后面一章：
 
 - **第二章，执行模型**：源码编译成 code object；执行 `def` 时封装成函数对象，调用函数时创建执行帧。类对象不是把 code object 直接封装起来：要先执行类体，再由元类创建，见[下篇第二章](/python-object-model-protocols-decorators-and-generators.html#二类与对象模型对象如何被创建和查找)。
 - **第三章，作用域与闭包**：帧里的名称怎么解析。
@@ -329,9 +318,9 @@ inner 2
 | 字段 | 内容 | 后面哪里用到 |
 |---|---|---|
 | `f_code` | 正在执行的 code object | 上一节：同一个 code object 可以同时有多帧在跑（递归） |
-| `f_locals` | 这次调用的局部变量 | 第三章：局部变量就存在这里，每次调用一份，互不影响 |
+| `f_locals` | 这次调用的局部变量的映射视图 | 第三章：局部变量每次调用一份，互不影响。CPython 实际把它们放在帧内部的局部槽位数组里，`f_locals` 是按需生成的视图：3.12 及之前是快照字典，3.13 起（PEP 667）是会写回槽位的代理 |
 | `f_globals` / `f_builtins` | 函数定义所在模块的字典、内置名称的字典 | 第三章：全局名称不存在帧里，帧只带着"去哪个字典找"的指针 |
-| `f_lineno` | 当前执行到哪一行 | 帧可以停在某一行，之后从这一行继续——生成器靠的就是它 |
+| `f_lineno` | 当前执行到哪一行 | 帧记着执行到哪条指令（行号由它换算），之后从那里继续——生成器靠的就是这个执行位置 |
 | `f_back` | 调用者的帧 | 调用栈就是沿 `f_back` 串起来的链；异常沿这条链往上找 `except` |
 
 Table: 帧对象的字段，以及各自在后面哪一章起作用
@@ -450,7 +439,7 @@ print(x, y, x is y)     # [1] [1] True
 `==` 比较值，`is` 比较身份。
 
 > [!NOTE] 与 Java 对照：值相等与身份相同
-> 对两个对象引用，Python 的 `==` 对应 Java 的 `equals()`，Python 的 `is` 对应 Java 的 `==`：
+> 对两个对象引用，Python 的 `==` 大致相当于 Java 的 `equals()`，Python 的 `is` 相当于 Java 的引用 `==`：
 >
 > | 想问的问题 | Python 写法 | Java 写法 |
 > | :--- | :--- | :--- |
@@ -460,7 +449,7 @@ print(x, y, x is y)     # [1] [1] True
 >
 > Table: 值相等与身份相同：Python 与 Java 的写法对照
 >
-> Java 的 `==` 在两边是 `int` 这类基本类型时也比较值；Python 没有基本类型与包装类型之分。小整数缓存会让身份比较看起来像值比较：Java 的 `Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就不能依赖这个结果；Python 也有对象复用。两边都应把值比较与身份比较分开。
+> 对照只到这里。Python 的 `==` 是运算符协议，`__eq__` 可以返回任意对象：NumPy 数组、`torch.Tensor` 的 `a == b` 逐元素比较，返回布尔数组 / 张量，`if a == b:` 会报“truth value is ambiguous”，要用 `torch.equal(a, b)` 或 `(a == b).all()`；Java 的 `equals()` 永远返回 `boolean`。Java 的 `==` 在两边是 `int` 这类基本类型时也比较值；Python 没有基本类型与包装类型之分。小整数缓存会让身份比较看起来像值比较：Java 的 `Integer a = 127, b = 127` 时 `a == b` 为 `true`，换成 1000 就不能依赖这个结果；Python 也有对象复用。两边都应把值比较与身份比较分开。
 
 回到 Python：对值做 `is` 判断结果不可预期：
 
@@ -473,7 +462,7 @@ q = int("1000")
 print(p == q, p is q)                         # True False  —— 运行时各自创建
 ```
 
-第一组为 `True` 只是因为编译器把同一 code object 里相同的常量合并进了常量表；第二组是运行时分别创建的两个对象。所以工程代码中 `is` 只用于单例：`is None`、`is True`、哨兵对象。
+第一组为 `True` 只是因为 CPython 编译器把同一 code object 里相同的常量合并进了常量表——这是实现细节：同样两行在交互式解释器里逐行输入，各自编译，`a is b` 就是 `False`；第二组是运行时分别创建的两个对象。所以工程代码中 `is` 只用于单例：`is None`、`is True`、哨兵对象。
 
 在 AI-Infra 中，名称绑定和别名会直接影响：
 
@@ -497,7 +486,7 @@ print(p == q, p is q)                         # True False  —— 运行时各�
 | `co_varnames` | 局部变量 | 本函数自己的变量（含参数），只有自己用 |
 | `co_cellvars` | cell 变量 | 本函数自己的变量，但内层函数也要用 |
 | `co_freevars` | 自由变量 | 不是本函数的，从外层函数借来的 |
-| `co_names` | 全局名称 | 既不是自己的、也不是外层函数的：运行时到模块和内置里按名字找（属性名也记在这张名单里） |
+| `co_names` | 全局名称 | 既不是自己的、也不是外层函数的：运行时到模块和内置里按名字找。这张名单其实是“按名字查的字符串表”，属性名、`import` 的模块名也记在这里，所以它不全是作用域意义上的全局变量 |
 
 Table: code object 上的四张名单，对应编译器给名字分的四类
 
@@ -897,7 +886,7 @@ print(json.decoder.__package__)   # json
 
 `import mypackage.model` 在解释器内部大致经历以下步骤（对照 [CPython 3.12.0 的 `Lib/importlib/_bootstrap.py`](https://github.com/python/cpython/blob/v3.12.0/Lib/importlib/_bootstrap.py) 中的 `_find_and_load` → `_find_spec` → `_load_unlocked`）：
 
-1. **缓存**：查 `sys.modules["mypackage.model"]`，命中且已完成初始化则直接返回。
+1. **缓存**：查 `sys.modules["mypackage.model"]`，命中就直接返回。若该模块还在执行顶层代码：别的线程会先等它的模块锁；同一线程里的循环导入拿到的就是这个半成品（§7）。
 2. 未命中：先确保父包 `"mypackage"` 已导入，递归走同一流程。
 3. **查找**：依次询问 `sys.meta_path` 里的每个 finder：`find_spec(name, path)`。第一个返回非 `None` 的 `ModuleSpec` 胜出；全部为 `None` 则抛 `ModuleNotFoundError`。
 4. `module_from_spec(spec)` 调用 `spec.loader.create_module(spec)` 创建模块对象；若返回 `None`，由导入系统创建。随后写入 `__name__`、`__spec__` 等元数据；有文件位置时还会设置 `__file__`。
@@ -1086,6 +1075,8 @@ Table: sys.path 的五个组成部分
 | `python -c` / 交互式 | `''`（当前目录） | `__main__` | `None` |
 
 Table: 不同启动方式下的 sys.path[0]、__name__ 与 __package__
+
+3.11 起加 `-P` 或设 `PYTHONSAFEPATH=1`，三种方式都不再把这一项插进 `sys.path`，下面说的“意外可导入”也就没了。
 
 用一个 src 布局的项目验证。`src/myproject/cli.py` 打印自己的身份，然后做一次相对导入：
 
@@ -1309,14 +1300,78 @@ finally:
     cleanup()                # 总是执行，包括 return 和未被捕获的异常
 ```
 
-异常发生时，解释器沿当前帧的 `f_back` 链向上寻找匹配的 `except`；每经过一帧，就把这一帧记进 `__traceback__`。找不到就终止线程（主线程则终止进程）。这就是第二章 §3 中看到的 traceback 结构。
+异常发生时，解释器沿当前帧的 `f_back` 链向上寻找匹配的 `except`；每经过一帧，就把这一帧记进 `__traceback__`。找不到时，子线程由 `threading.excepthook` 打印后结束，主线程打印 traceback 后以非零状态退出。这就是第二章 §3 中看到的 traceback 结构。
+
+上面是骨架。下面用一个能直接运行的三层调用，看异常往上走时依次经过谁：
+
+```python title="异常从 inner 向外传播：先过 finally，再过 __exit__，最后被 top 接住"
+import traceback
+
+
+class Ctx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        print("middle 的 __exit__ 收到", exc_type.__name__)
+        return False                     # 不抑制，继续往外抛
+
+
+def inner():
+    try:
+        raise ValueError("bad batch")
+    finally:
+        print("inner 的 finally")
+
+
+def middle():
+    with Ctx():
+        inner()
+    print("这一行不会执行")
+
+
+def top():
+    try:
+        middle()
+    except ValueError as exc:
+        names = [f.name for f in traceback.extract_tb(exc.__traceback__)]
+        print("top 接住：", exc, names)
+
+
+top()
+```
+
+```text title="运行输出（Python 3.12）"
+inner 的 finally
+middle 的 __exit__ 收到 ValueError
+top 接住： bad batch ['top', 'middle', 'inner']
+```
+
+```mermaid
+%% 图：ValueError 从 inner 向外传播：途经 finally 与 __exit__，在 top 的 except 处停下
+flowchart TB
+    I["<b>inner 的帧</b><br/>raise ValueError"] -- "本帧没有 except：先跑 finally" --> IF["inner 的 finally"]
+    IF -- "沿 f_back 到上一帧" --> M["<b>middle 的帧</b><br/>with 块里出错"]
+    M -- "调用 __exit__，返回 False" --> MX["Ctx.__exit__：不抑制"]
+    MX -- "沿 f_back 到上一帧" --> T["<b>top 的帧</b><br/>except ValueError 匹配"]
+    T --> STOP["传播停止<br/>__traceback__ 记着 top → middle → inner"]
+
+    classDef pass fill:#fff7e0,stroke:#c98a00,color:#222
+    classDef stop fill:#eefaf0,stroke:#4d9a5c,color:#222
+    class IF,MX pass
+    class T,STOP stop
+```
+
+- 异常每离开一帧，先执行这一帧里活动的 `finally` 和 `__exit__`，再到调用者那一帧找 `except`。
+- `__exit__` 返回真值会抑制异常，传播就停在那一层；`top` 就收不到了。
+- traceback 从接住它的那一帧记到抛出的那一帧，与第二章 §3 打印的顺序一致。
 
 > [!NOTE] 与 Java 对照：else 与 finally
 > 两门语言的 `finally` 都用于离开 `try` 结构时执行清理。Python 还提供 `else` 子句，只在 `try` 正常结束时运行，Java 没有对应子句。
 
 ### 2. `BaseException` 层级
 
-所有异常都继承自 `BaseException`，它的直接子类只有五个：
+所有异常都继承自 `BaseException`。3.11 起它的直接子类有五个（3.10 及之前没有 `BaseExceptionGroup`，是四个）：
 
 | `BaseException` 的直接子类 | 什么时候出现 | 业务代码是否捕获 |
 |---|---|---|
@@ -1367,7 +1422,7 @@ except OSError as exc:
 `from exc` 设置 `__cause__`，traceback 显示 "The above exception was the direct cause of the following exception"；不写 `from` 则隐式记录到 `__context__`，显示 "During handling of the above exception, another exception occurred"。两者都保留根因，区别只是措辞和意图的明确程度。`from None` 抑制链条——只在底层异常确实对调用方无意义时使用，否则排障时会丢掉关键信息。
 
 > [!NOTE] 与 Java 对照：保留异常原因
-> `raise RuntimeError(msg) from exc` 可类比 `throw new RuntimeException(msg, cause)`；Python 的 `__cause__` 对应 Java 的 `getCause()`。
+> `raise RuntimeError(msg) from exc` 可类比 `throw new RuntimeException(msg, cause)`；Python 的 `__cause__` 类似 Java 的 `getCause()`。差别是 Python 没写 `from` 时还会自动把正在处理的异常记到 `__context__`，Java 不传 `cause` 就没有这条链。
 
 ### 5. 记录并重抛：`raise` 与 `raise exc` 的区别
 
@@ -1398,7 +1453,7 @@ except Exception as exc:
 本篇讲的四种机制，都围绕**帧**这一个东西：
 
 - **执行模型**
-  - 源码在第一次导入时整模块编译成 code object；函数对象 = code + `__globals__` + 默认值 + cell。
+  - 源码在脚本启动或第一次导入时整模块编译成 code object；函数对象 = code + `__globals__` + 默认值 + cell。
   - 每次调用创建一个帧，帧里放局部变量与指令位置；名称是绑定到对象的标签，不是盒子。
 - **作用域与闭包**
   - 名称的归属在编译期决定（LEGB）；闭包 = 函数对象 + cell。
