@@ -220,7 +220,7 @@ $$
 10922 \times 1.3 = 14198.6 \to 14198
 $$
 
-再向上对齐。Llama 3 的 `params.json` 里 `multiple_of = 1024`：
+再向上对齐。Llama-3-8B 的配置里 `multiple_of = 1024`：
 
 $$
 \lceil 14198 / 1024 \rceil \times 1024 = 14 \times 1024 = 14336
@@ -232,7 +232,7 @@ $$
 d_{ff} = \text{multiple\_of} \cdot \left\lceil \frac{\text{ffn\_dim\_multiplier} \cdot \lfloor \frac{2}{3} \cdot 4d \rfloor}{\text{multiple\_of}} \right\rceil
 $$
 
-对 70B 验证一遍：$$\lfloor \frac{2}{3} \times 32768 \rfloor = 21845$$，$$\times 1.3 = 28398$$，对齐到 1024：$$\lceil 28398 / 1024 \rceil \times 1024 = 28 \times 1024 = 28672$$。与 config 一致（用 4096 对齐同样得到 $$7 \times 4096 = 28672$$；若用 Llama 2 的 256 对齐会得到 28416，与 config 不符）。
+对 70B 验证一遍：$$\lfloor \frac{2}{3} \times 32768 \rfloor = 21845$$，$$\times 1.3 = 28398$$，70B 的 `multiple_of` 是 4096（multiplier 同为 1.3）：$$\lceil 28398 / 4096 \rceil \times 4096 = 7 \times 4096 = 28672$$，与 config 一致。两个模型的这两个字段出自 Meta 的 [llama-models 仓库](https://github.com/meta-llama/llama-models/blob/main/models/sku_list.py)。
 
 为什么要对齐到 256 或 1024 的倍数？Tensor Core 的 GEMM 以 8、16、64、128 的 tile 分块，$$n$$ 或 $$k$$ 不是 tile 尺寸的倍数时会有边角块浪费算力；张量并行（TP）把 $$d_{ff}$$ 切成 8 份时，每份也需要仍是 tile 尺寸的倍数。$$14336 / 8 = 1792 = 14 \times 128$$，切 8 路 TP 后每张卡上的 FFN 中间维度仍是 128 的倍数。
 
@@ -270,7 +270,7 @@ Llama-3-8B 与 70B 的 K/V 投影输出宽度都是 1024，而 Q 的输出宽度
 
 ### 5. 去掉所有 bias
 
-GPT-2 的 attention / FFN 线性投影带 bias，LayerNorm 也有偏移参数；与 embedding 共享权重的 `lm_head` 本来就不带 bias。Llama-3-8B 的 `config.json` 里 `attention_bias: false`、`mlp_bias: false`，所有投影矩阵都没有 bias；embedding 和 lm_head 也没有。
+GPT-2 的 attention / FFN 线性投影带 bias，LayerNorm 也有偏移参数；与 embedding 共享权重的 `lm_head` 本来就不带 bias。Llama-3-8B 的 `config.json` 里写着 `attention_bias: false`，FFN 三个投影的 bias 由 `LlamaConfig` 的默认值 `mlp_bias = False` 关掉，所有投影矩阵都没有 bias；embedding 和 lm_head 也没有。
 
 参数量上 bias 从来不重要：一个 $$[4096, 4096]$$ 的矩阵有 16.78M 个权重，它的 bias 只有 4096 个，占 0.02%。去掉它的原因主要有三：
 
@@ -328,7 +328,7 @@ Llama-3（2024）与 DeepSeek-V3（2024 年末）是本系列贯穿的两个数�
 
 | 模型（发布） | 规模 | attention | 位置 / 长上下文 | FFN | 其他 |
 |---|---|---|---|---|---|
-| Qwen3-235B-A22B（2025.04） | 94 层，$$d = 4096$$，总 235B / 激活 22B | GQA 64 Q / 4 KV 头，$$d_{head} = 128$$，**QK-norm** | RoPE base $$10^6$$，40K 原生 | 128 个专家选 8，无共享专家，专家 $$d_{ff} = 1536$$ | dense 版 0.6B–32B 同一骨架 |
+| Qwen3-235B-A22B（2025.04） | 94 层，$$d = 4096$$，总 235B / 激活 22B | GQA 64 Q / 4 KV 头，$$d_{head} = 128$$，**QK-norm** | RoPE base $$10^6$$，原生 32K | 128 个专家选 8，无共享专家，专家 $$d_{ff} = 1536$$ | dense 版 0.6B–32B 同一骨架 |
 | Llama 4 Scout（2025.04） | 48 层，$$d = 5120$$，总 109B / 激活 17B | GQA 40 Q / 8 KV 头，QK-norm | 每 4 层 1 层**不加 RoPE**（NoPE），RoPE 层按 8192 分块 attention；标称 10M 上下文 | 16 个专家选 1 + 1 个共享专家 | 原生多模态：34 层 ViT + pixel-shuffle ÷4 的 early fusion |
 | Kimi K2（2025.07） | 61 层，$$d = 7168$$，总约 1T / 激活 32B | **MLA**（$$d_c = 512$$、$$d_h^R = 64$$），64 头（V3 是 128） | RoPE + YaRN，128K | 384 个专家选 8 + 1 个共享，专家 $$d_{ff} = 2048$$ | DeepSeek-V3 骨架、FP8 分块权重；`num_nextn_predict_layers = 0`，不带 MTP |
 | gpt-oss-120B（2025.08） | 36 层，$$d = 2880$$，总 117B / 激活 5.1B | GQA 64 Q / 8 KV 头，$$d_{head} = 64$$，带 bias 与可学习的 attention sink | **滑窗 128 与全局逐层交错**；YaRN 从 4K 扩到 128K | 128 个专家选 4，专家 $$d_{ff} = 2880$$ | MoE 权重以 **MXFP4** 发布，attention 与 embedding 保留高精度 |
@@ -343,7 +343,7 @@ Table: 2025 年几个代表性开放权重模型在路线图上的位置（配�
 - MXFP4 与 FP8 分块：线 2，见[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)与《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)。
 - Llama 4 的 early fusion：线 5，见[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)。
 
-QK-norm 是本篇五处改动之外近两年几乎成为默认的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，《浮点格式、数值稳定性与混合精度》讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
+QK-norm 是本篇五处改动之外Qwen3、Llama 4 Scout、Gemma 3 都采用的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，《浮点格式、数值稳定性与混合精度》讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
 
 ## 四、参数量：从 config.json 到 8.03B
 
@@ -617,7 +617,7 @@ Table: Llama-3.1-405B 参数量逐项代入
 
 公布值 405B。三个尺寸的模型都对上了，说明 dense Transformer 的参数量确实没有任何"隐藏"的部分——RoPE 没有参数，attention 计算没有参数，softmax 没有参数，全部权重就是这张表里的矩阵。
 
-顺便检查 405B 的 $$d_{ff}$$：$$\lfloor \frac{2}{3} \times 65536 \rfloor = 43690$$，$$\times 1.3 = 56797$$，但 config 里是 53248 $$= 3.25 d$$，不是 3.5d。这说明 405B 没有沿用 1.3 的 multiplier，Meta 在这个尺寸上重新选了 FFN 宽度：按同一条公式，multiplier 取 1.2、对齐到 4096 的倍数正好得到这个值（$$43690 \times 1.2 = 52428$$，$$\lceil 52428 / 4096 \rceil \times 4096 = 13 \times 4096 = 53248$$）。读 config 时以实际字段为准，推导公式只是帮助理解数字从哪里来，不能代替它。
+顺便检查 405B 的 $$d_{ff}$$：$$\lfloor \frac{2}{3} \times 65536 \rfloor = 43690$$，$$\times 1.3 = 56797$$，但 config 里是 53248 $$= 3.25 d$$，不是 3.5d。405B 没有沿用 1.3：它的配置是 `ffn_dim_multiplier = 1.2`、`multiple_of = 4096`，按同一条公式正好得到这个值（$$43690 \times 1.2 = 52428$$，$$\lceil 52428 / 4096 \rceil \times 4096 = 13 \times 4096 = 53248$$）。读 config 时以实际字段为准，推导公式只是帮助理解数字从哪里来，不能代替它。
 
 ### 9. 参数分布
 
@@ -1122,7 +1122,7 @@ DeepSeek-V3 一列里 MLA 的 187M 由[《Attention 变体与 KV cache》](/atte
    - `rope_theta: 1000000`：位置槽位，RoPE 且 base 调大以支持长上下文，线 1，[《位置编码与外推》](/positional-encoding-and-long-context.html)。
    - `hidden_act: silu` 配三个 FFN 矩阵：FFN 槽位，SwiGLU，本篇[第二章第 3 节](#3-gelu-两矩阵-ffn--swiglu-三矩阵)。
    - `attention_bias: false`：bias 槽位，本篇[第二章第 5 节](#5-去掉所有-bias)。
-   - config 里没写的 QK-norm 在它的 `modeling_qwen3.py` 里（`q_norm`、`k_norm`），属于训练稳定性一类，[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)。
+   - config 里没写的 QK-norm 在它的 `modeling_qwen3_moe.py` 里（`q_norm`、`k_norm`），属于训练稳定性一类，[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)。
 
    </details>
 
