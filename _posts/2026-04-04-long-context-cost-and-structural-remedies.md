@@ -174,7 +174,7 @@ Table: W = 4 的环形 KV 缓冲区：新位置覆盖最旧的槽
 > [!NOTE] Java 经验参照：定长环形缓冲区
 > 这就是容量固定的环形缓冲区（LMAX Disruptor 的 `RingBuffer`、日志框架里的定长异步队列）：序号一直递增，槽下标是「序号 mod 容量」，写满后新元素覆盖最旧的槽，内存占用与写入总量无关。对得上的还有一点：槽里的物理顺序不等于逻辑顺序，读的一方要靠序号判断新旧。对不上的地方是读法：队列的消费者按序号顺序取，attention 每一步把 $$W$$ 个槽全部读一遍做加权和。
 
-代价是信息只能通过层间传递向远处流动：第 $$\ell$$ 层的 token 能间接看到 $$\ell \cdot W$$ 之内的信息（每层扩一个窗口），32 层理论上是 131072，但每一跳都有损。事实上 Mistral 后续的模型（Mistral Large、Mixtral 的部分版本）取消了滑窗，回到 full attention，说明纯滑窗在长程精确检索任务上有代价。
+代价是信息只能通过层间传递向远处流动：第 $$\ell$$ 层的 token 能间接看到 $$\ell \cdot W$$ 之内的信息（每层扩一个窗口），32 层理论上是 131072，但每一跳都有损。事实上 Mistral 7B 自 v0.2 起（模型卡写明 No Sliding-Window Attention）和 Mixtral 都取消了滑窗，回到 full attention，说明纯滑窗在长程精确检索任务上有代价。
 
 ### 2. 全局层与局部层交错
 
@@ -437,7 +437,7 @@ Table: 长上下文对推理系统的五处影响（128K 请求，H100，BF16）
 
 **TTFT：单请求的算量下界。** 用户感知的首 token 延迟至少等于 prefill 时间。一个 128K 请求在单卡 8B 上的 TTFT 按峰值算至少 6.6 s、按 60% MFU 经验估约 11 s，要压到 1 s 以内需要 7–11 张卡并行处理同一个请求——这是序列并行的动机之一。
 
-**chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi，Agrawal 等 2023，其后续系统是 Sarathi-Serve；vLLM 与 SGLang 默认启用）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
+**chunked prefill 的必要性。** 如果调度器让一个 128K 请求一次性 prefill，它会独占 GPU 约 11 s，期间所有正在 decode 的请求全部停顿——它们的 token 间延迟从几十毫秒跳到 11 s。chunked prefill（Sarathi，Agrawal 等 2023，其后续系统是 Sarathi-Serve；vLLM 默认启用，SGLang 默认也切块，但把 prefill 块与 decode 混进同一个 batch 的 `enable_mixed_chunk` 默认关闭）把长 prefill 切成若干个 chunk（例如每次 2K–8K token），每个调度步里让一个 prefill chunk 与若干 decode 请求拼成一个 batch。decode 请求的 KV 读取是 memory-bound、prefill chunk 是 compute-bound，两者拼在一起恰好能同时用满带宽与算力。代价是长请求自己的 TTFT 略微变长，换来其他请求的延迟稳定。两种调度下同一段时间内 GPU 上发生的事对比如下（P = 128K 请求的 prefill，D = 已在 decode 的请求各出一个 token）：
 
 ![不分块与 chunked prefill 的时间轴](/img/in-post/long-context-cost-chunked-prefill-timeline.svg)
 
