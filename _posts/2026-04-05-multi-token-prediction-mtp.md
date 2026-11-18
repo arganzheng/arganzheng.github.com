@@ -6,12 +6,12 @@ subtitle: "Multi-Token Prediction: Denser Supervision from the Same Data, and a 
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-05 14:00:00
-updated: 2026-11-14
+updated: 2026-11-18
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第七篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只增加训练时的模块与目标；训练出来的 MTP 模块在推理时可以当投机解码的草稿——下一篇就讲投机解码。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第七篇，也是 DeepSeek-V3 三处改动（MLA、MoE、MTP）的最后一处。它不改主干，只增加训练时的模块与目标；训练出来的 MTP 模块在推理时可以当投机解码的草稿，投机解码本身见[《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-前面几篇改的都是**结构**：换归一化、换位置编码、换 FFN、换 attention 的 K/V、把 FFN 换成专家。这一篇改的是另一样东西——**训练目标**。从 GPT-2 起，模型学的一直是"看前文、预测下一个 token"，每个位置只有一个正确答案、一份监督信号。MTP（multi-token prediction，多 token 预测）让每个位置**额外**预测后面第 2、第 3 个 token：同一批数据，榨出两三倍的监督信号；训完之后那几个额外的预测头还能拿来做投机解码的草稿（下一篇），白送一个 1.8 倍的生成加速。DeepSeek-V3 把它写进了正式的训练配方，是 2024 年以后"改目标"这一条路上最成功的例子。
+前面几篇改的都是**结构**：换归一化、换位置编码、换 FFN、换 attention 的 K/V、把 FFN 换成专家。这一篇改的是另一样东西——**训练目标**。从 GPT-2 起，模型学的一直是"看前文、预测下一个 token"，每个位置只有一个正确答案、一份监督信号。MTP（multi-token prediction，多 token 预测）让每个位置**额外**预测后面第 2、第 3 个 token：同一批数据，榨出两三倍的监督信号；训完之后那几个额外的预测头还能拿来做投机解码的草稿，白送一个 1.8 倍的生成加速。DeepSeek-V3 把它写进了正式的训练配方，是 2024 年以后"改目标"这一条路上最成功的例子。
 
 这一篇讲清三件事：MTP 为什么可能有用、DeepSeek-V3 的 MTP 模块长什么样（它不是简单地多加几个输出头）、以及在[《Transformer 原理与实现》训出的那个 nanoGPT](/nanogpt-train-py-and-training-a-model-that-writes.html) 上挂一个 MTP 模块训一遍会看到什么——包括一个诚实的结果：小模型上主任务没有变好，但 MTP 头对"下下个 token"的命中率到了 45%。
 
@@ -21,28 +21,75 @@ updated: 2026-11-14
 
 ## 一、总览：为什么盯上训练目标
 
+MTP 只在训练时给主干加一个模块、一项 loss；训练结束后这个模块有两条去向。下图把训练和推理两段连起来，括号里是展开它的章节：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：MTP 的全貌：训练时主干之上多一个模块、多一项 loss，推理时这个模块丢掉或留作草稿
+flowchart TB
+    subgraph TRAIN["训练时"]
+        direction TB
+        DATA["<b>一条样本：$$T + 2$$ 个连续 token</b><br/>位置 i 有两个目标：$$t_{i+1}$$ 与 $$t_{i+2}$$（第二章）"]
+        TRUNK["<b>主干：L 个 block</b><br/>输出每个位置的表示 $$h_i$$，结构不因 MTP 改动"]
+        HEAD["<b>主头</b><br/>共享 lm_head 预测 $$t_{i+1}$$，得到主 loss"]
+        MTP["<b>MTP 模块（第二章）</b><br/>• 输入：$$h_i$$ 与真实 $$t_{i+1}$$ 的 embedding<br/>• 自有参数：两个 norm、一个投影、一个 block<br/>• 共享 lm_head 预测 $$t_{i+2}$$，得到 MTP loss"]
+        LOSS["<b>总 loss（第三章）</b><br/>主 loss + $$\lambda$$ × MTP loss，梯度经两个头回到主干"]
+        DATA --> TRUNK
+        TRUNK --> HEAD
+        TRUNK --> MTP
+        DATA -. "真实 $$t_{i+1}$$" .-> MTP
+        HEAD --> LOSS
+        MTP --> LOSS
+    end
+    LOSS --> W["<b>训练完的权重</b><br/>主干 + MTP 模块（DeepSeek-V3：671B + 11.5B）"]
+    W --> DROP["<b>去向一：丢掉（第四章）</b><br/>只部署主干，与普通 decoder-only 模型无异"]
+    W --> DRAFT["<b>去向二：留作草稿（第四章）</b><br/>每步多算一个 block，先猜出 $$t_{i+2}$$<br/>接受率为 p 时每步前进 $$1 + p$$ 个 token"]
+```
+
+- **一条样本**：取 batch 时比 next-token 训练多拿一个 token，每个位置就有了第二个目标 $$t_{i+2}$$；数据本身不变（[第二章第 2 节](#2-每个位置多预测一个数据的对齐)）。
+- **主干**：与没有 MTP 时逐层相同，MTP 只读它最后一层的 $$h_i$$。
+- **主头**：普通的 next-token 预测，主 loss 始终是训练的主任务。
+- **MTP 模块**：把 $$h_i$$ 与真实 $$t_{i+1}$$ 的 embedding 拼起来再过一个 block，用主干的 lm_head 预测 $$t_{i+2}$$。自有参数在 nanoGPT 上是 229,888 个（主干的 29%），在 DeepSeek-V3 上是 11.5B（1.7%）（[第二章第 1 节](#1-结构)）。
+- **总 loss**：MTP loss 乘 $$\lambda$$（DeepSeek-V3 取 0.3，后期 0.1）加到主 loss 上；喂真实 $$t_{i+1}$$ 使这项 loss 与主 loss 同样难度，不喂的并行头在玩具分布上高出 0.193 nats（[第三章](#三训练目标)）。
+- **训练完的权重**：主干与 MTP 模块是两组可以分开加载的权重，embedding 表与 lm_head 只存在主干里。
+- **去向一：丢掉**：推理时的结构、显存、速度与没训过 MTP 的模型相同，训练多花的那一份只留在主干权重的质量里（[第四章第 1 节](#1-丢掉)）。
+- **去向二：留作草稿**：MTP 模块每步多猜一个 token，主模型下一步验证；DeepSeek-V3 报告接受率 85–90%、吞吐约 1.8 倍（[第四章第 2 节](#2-当投机解码的-draft)）。
+
+图里的几样东西，训练时和两种推理方式下在不在、算不算进参数量各不相同：
+
+| 对象 | 训练时 | 推理：丢掉 MTP | 推理：留作草稿 | 算进参数量吗 |
+|---|---|---|---|---|
+| 主干权重（含 embedding 表与 lm_head） | 在，被主 loss 与 MTP loss 的梯度一起更新 | 在 | 在 | 算；DeepSeek-V3 的 671B 指的就是它 |
+| 共享的 embedding 表与 lm_head | 在；主头与 MTP 头各用一次，存储只有一份 | 在（主干自己要用） | 在；MTP 头每步再用一次 | 已含在主干里，不重复计（DeepSeek-V3 各 0.9B） |
+| MTP 模块自有参数：两个 norm、投影 $$M$$、一个 block | 在，与主干一起从头训练 | 不加载 | 加载 | 不在 671B 之内，另计 11.5B |
+| MTP 头的 logits 与 MTP loss | 每次前向算一份 $$[B, T, V]$$ 的 logits，与主头的同大，反向传播后释放 | 没有 | 只算最新位置的一行，抽出草稿后丢弃 | 不是参数；训练时占一份激活显存 |
+| 系数 $$\lambda$$ | 训练配置里的超参数，0.3 → 0.1 | 没有 | 没有 | 不是参数 |
+| 草稿 token $$\hat t_{i+2}$$ | 没有（训练喂的是真实 token） | 没有 | 每步产生一个，下一步被主模型接受或替换 | 不是参数 |
+
+Table: MTP 涉及的六样东西：训练时、两种推理方式下在不在，算不算进参数量
+
 ### 1. next-token 的信号有多稀
 
 标准的 next-token 训练用 teacher forcing（每个位置都喂真实的前文）：一句 $$T$$ 个 token 的话给出 $$T$$ 个训练信号，每个位置一个——"看到前 $$i$$ 个，第 $$i+1$$ 个是什么"。这已经比 RNN（recurrent neural network，循环神经网络） 时代高效得多，但它有两个可挑剔的地方：
 
 - **每个位置只学一步之内的事**。第 $$i$$ 个位置的表示 $$h_i$$ 被要求"含有预测 $$t_{i+1}$$ 的全部信息"，但没有任何直接的压力让它也考虑 $$t_{i+2}$$、$$t_{i+3}$$。可它在推理时要一步一步生成很长的序列——每步只看一步远，容易被局部最可能的 token 带偏（比如写代码时选了一个局部通顺、但两行后接不上的分支）。
-- **数据的每个 token 只被用一次**。预训练的瓶颈之一是高质量数据不够：公开可得的高质量文本在十几 T token 量级，重复使用又会折损——[《预训练》的《Scaling law》篇](/scaling-laws-and-compute-optimal-training.html#4-数据不够怎么办重复的有效-token)算过，同一份数据重复多遍，有效价值最多约 16 份。能从同一批 token 里多学一点，就是白赚。
+- **数据的每个 token 只被用一次**。预训练的瓶颈之一是高质量数据不够：公开可得的高质量文本在十几 T token 量级，重复使用又会折损——《预训练：从 tokenizer 到训练配方》的[《Scaling law》的「数据不够怎么办：重复的有效 token」一节](/scaling-laws-and-compute-optimal-training.html#4-数据不够怎么办重复的有效-token)算过，同一份数据重复多遍，有效价值最多约 16 份。能从同一批 token 里多学一点，就是白赚。
 
-MTP 的想法直接对着这两点：让位置 $$i$$ 同时预测 $$t_{i+1}, t_{i+2}, \ldots, t_{i+D}$$。表示 $$h_i$$ 要为更远的未来负责，"预谋"更长；同一批数据的监督信号变成 $$D$$ 倍。
+MTP 的想法直接对着这两点：让位置 $$i$$ 在 $$t_{i+1}$$ 之外再预测 $$t_{i+2}, \ldots, t_{i+1+D}$$（$$D$$ 是额外预测的 token 数，本文都按这个记法）。表示 $$h_i$$ 要为更远的未来负责，"预谋"更长；同一批数据的监督信号变成 $$1 + D$$ 倍。
 
 ### 2. 两条实现路线
 
 | | 并行头（Gloeckle 等，2024） | 顺序模块（DeepSeek-V3，2024） |
 |---|---|---|
-| 结构 | 主干之上并排 $$D$$ 个输出头，第 $$k$$ 个头直接从 $$h_i$$ 预测 $$t_{i+k}$$ | $$D$$ 个**串联**的小模块，第 $$k$$ 个吃"前一级的表示 + 真实的 $$t_{i+k}$$ 的 embedding"，预测 $$t_{i+k+1}$$ |
+| 结构 | 主干之上并排 $$1 + D$$ 个输出头，第 $$k$$ 个头直接从 $$h_i$$ 预测 $$t_{i+k}$$ | $$D$$ 个**串联**的小模块，第 $$k$$ 个吃"前一级的表示 + 真实的 $$t_{i+k}$$ 的 embedding"，预测 $$t_{i+k+1}$$ |
 | 预测 $$t_{i+2}$$ 时知道 $$t_{i+1}$$ 吗 | 不知道：跳过中间 token 直接猜 | 知道：训练时喂真实的 $$t_{i+1}$$，保持完整的因果链 |
-| 额外参数 | $$D - 1$$ 个 lm_head（不共享时很大） | 每级一个 Transformer block + 一个投影；embedding 与 lm_head 共享 |
+| 额外参数 | $$D$$ 个输出头（lm_head 不共享时很大） | 每级一个 Transformer block + 一个投影；embedding 与 lm_head 共享 |
 | 报告的收益 | 13B 以上、代码任务明显；小模型上可能变差 | 主任务全面小幅提升；第 2 个 token 的接受率 85–90% |
 | 推理 | 头可做自投机解码，约 3 倍 | 模块可丢弃，或做投机 draft，TPS 约 1.8 倍 |
 
 Table: 两条 MTP 路线
 
-本篇以 DeepSeek-V3 的顺序模块为主（它是被大规模验证过的版本），第三章解释"顺序"为什么重要。
+本篇以 DeepSeek-V3 的顺序模块为主（它是被大规模验证过的版本），[第三章第 2 节](#2-顺序为什么优于并行)解释"顺序"为什么重要。
 
 ### 3. 本文的章节安排
 
@@ -66,7 +113,7 @@ Table: 本文的章节安排
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 %% 图：DeepSeek-V3 的 MTP（D=1）：主干对位置 i 输出 h_i，主头预测 t_{i+1}；MTP 模块把 RMSNorm(h_i) 与 RMSNorm(Emb(t_{i+1})) 拼接、线性投影回 d 维、过一个 Transformer block 得到 h'_i，用共享的 lm_head 预测 t_{i+2}；embedding 表与 lm_head 两处共享，只有 norm、投影、block 是 MTP 自己的参数
 flowchart TB
-    subgraph MAIN["主干（第一至九篇讲的 Transformer）"]
+    subgraph MAIN["主干（普通的 decoder-only Transformer）"]
         direction TB
         IN["token $$t_1 \ldots t_T$$ → 共享 embedding"] --> L["L 个 block"] --> H["$$h_i$$：位置 i 的表示"]
         H --> HEAD1["<b>共享 lm_head → 预测 $$t_{i+1}$$</b><br/>主 loss $$L_{\text{main}}$$"]
@@ -100,6 +147,9 @@ flowchart TB
 Table: 一个 MTP 模块的自有参数：nanoGPT 与 DeepSeek-V3 两个尺度
 
 两列的差别全在分母：nanoGPT 主干只有 4 层，多一个 block 就是多四分之一以上；DeepSeek-V3 主干 61 层，多一层只占 1.7%。官方数字出自 DeepSeek-V3 仓库的权重说明（README_WEIGHTS，2024-12）：MTP 模块 11.5B 自有参数，另与主干共享 0.9B 的 embedding 和 0.9B 的输出头——"共享"在这里是字面意思，两张表不存第二份。
+
+> [!NOTE] Java 经验参照：共享是两个字段指向同一个对象
+> MTP 模块"共享" embedding 表与 lm_head，相当于 Java 里两个对象的字段指向同一个数组实例，而不是各自 `clone()` 一份：内存里只有一块存储，数参数时只数一次，经任何一方做的修改另一方都看得到。对不上的一点是修改的方式——这里不是后写的覆盖先写的，而是主 loss 与 MTP loss 各自算出的梯度先相加，再由优化器对这块存储更新一次。
 
 ### 2. 每个位置多预测一个：数据的对齐
 
@@ -197,7 +247,7 @@ $$D > 1$$ 时第 $$k$$ 级吃第 $$k-1$$ 级的输出和真实的 $$t_{i+k}$$，
 
 ### 2. 当投机解码的 draft
 
-或者留下来赚一笔：投机解码（下一篇）需要一个便宜的"草稿模型"先猜几个 token、再由主模型一次前向验证。MTP 模块正是一个现成的、**与主模型同源**的草稿生成器：
+或者留下来赚一笔：投机解码（[《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)）需要一个便宜的"草稿模型"先猜几个 token、再由主模型一次前向验证。MTP 模块正是一个现成的、**与主模型同源**的草稿生成器：
 
 1. decode 一步：主头给出 $$t_{i+1}$$ 的分布，抽出 $$\hat t_{i+1}$$；
 2. 把 $$h_i$$ 与 $$\text{Emb}(\hat t_{i+1})$$ 喂给 MTP 模块，得到 $$t_{i+2}$$ 的分布，抽出 $$\hat t_{i+2}$$——只多算了一个 block，不是整个模型；
@@ -227,15 +277,15 @@ flowchart TB
 
 Table: MTP 草稿的接受率与每步前进的 token 数
 
-"上限"假设多验证一个位置、多算一个 block 都不花时间——decode 受带宽限制时这近似成立（[第二篇](/transformer-flops-bytes-and-roofline.html)算过 decode 的 Tensor Core 大多空闲）。DeepSeek-V3 报告第 2 个 token 的接受率 85–90%，解码吞吐（TPS）约 1.8 倍，比 1.85–1.9 的上限略低，差的就是那一个 block 和多出来的 lm_head。
+"上限"假设多验证一个位置、多算一个 block 都不花时间——decode 受带宽限制时这近似成立（[《前向的算量与访存量》的「decode 权重 GEMM 的算术强度 = B」一节](/transformer-flops-bytes-and-roofline.html#4-decode-权重-gemm-的算术强度--b)算过 decode 的 Tensor Core 大多空闲）。DeepSeek-V3 报告第 2 个 token 的接受率 85–90%，解码吞吐（TPS）约 1.8 倍，比 1.85–1.9 的上限略低，差的就是那一个 block 和多出来的 lm_head。
 
-一个常见的误解是"用了 MTP 草稿，输出就是 MTP 模块说了算"。不是：草稿只决定**每步走几个 token**，每个 token 最终都由主模型的预测确认（greedy 时要求一致，采样时用下一篇的接受—拒绝规则），所以输出与不用草稿时相同，MTP 头猜错只会让这一步少走一个 token。
+一个常见的误解是"用了 MTP 草稿，输出就是 MTP 模块说了算"。不是：草稿只决定**每步走几个 token**，每个 token 最终都由主模型的预测确认（greedy 时要求一致，采样时用[《投机解码》的「算法与分布等式」一节](/speculative-decoding-draft-verify-and-payoff.html#2-算法与分布等式)的接受—拒绝规则），所以输出与不用草稿时相同，MTP 头猜错只会让这一步少走一个 token。
 
 与独立的小草稿模型比，MTP draft 的优点是它看得到主干的 $$h_i$$（不是从 token 重新算），所以又便宜又准；代价是推理时要多加载一个 block 的参数。
 
 ## 五、实验：给 nanoGPT 挂一个 MTP 模块
 
-在[《Transformer 原理与实现》训 nanoGPT 那一篇](/nanogpt-train-py-and-training-a-model-that-writes.html#十实跑08m-参数2000-步7-分钟)的设置上做（4 层 4 头 128 维、shakespeare_char、2000 步、CPU），加一个 $$D = 1$$ 的 MTP 模块，$$\lambda = 0.3$$。模块的实现 40 行，直接复用 nanoGPT 的 `Block` 与 `LayerNorm`：
+在《Transformer 原理与实现》的[《手搓 GPT（下）》的「实跑：0.8M 参数、2000 步、7 分钟」一节](/nanogpt-train-py-and-training-a-model-that-writes.html#十实跑08m-参数2000-步7-分钟)的设置上做（4 层 4 头 128 维、shakespeare_char、2000 步、CPU），加一个 $$D = 1$$ 的 MTP 模块，$$\lambda = 0.3$$。模块的实现 40 行，直接复用 nanoGPT 的 `Block` 与 `LayerNorm`：
 
 ```python title="MTPModule：复用 nanoGPT 的 Block 与 LayerNorm"
 class MTPModule(nn.Module):
@@ -277,9 +327,9 @@ class GPTWithMTP(nn.Module):
 loss = loss_main + lam * loss_mtp        # lam = 0.3
 ```
 
-[拼接 + 投影](#mtp-cat)与 [$$2d \to d$$ 的矩阵](#mtp-proj)是第二章第 1 节的第 2、3 样；[真实 $$t_{i+1}$$ 的 embedding](#mtp-feed)来自共享的 `wte`；[主 loss](#mtp-lmain) 与 [MTP loss](#mtp-l2) 的差别只是目标错开一位；[总 loss](#mtp-total) 是第三章的加权和。
+[拼接 + 投影](#mtp-cat)与 [$$2d \to d$$ 的矩阵](#mtp-proj)对应[第二章第 1 节](#1-结构)列的第 1、2 样（归一、拼接、投影）；[真实 $$t_{i+1}$$ 的 embedding](#mtp-feed)来自共享的 `wte`；[主 loss](#mtp-lmain) 与 [MTP loss](#mtp-l2) 的差别只是目标错开一位；[总 loss](#mtp-total) 是[第三章第 1 节](#1-一个加权和)的加权和。
 
-两个模型同一随机种子、同一数据顺序、同样 2000 步：
+两个模型同一随机种子、同一数据顺序、同样 2000 步，每 250 步在验证集上评一次。日志节选如下（中间各步见后面的表）：
 
 ```text title="带与不带 MTP 的训练日志对照"
 == 不带 MTP（基线）：4 层 4 头 d=128，2000 步，cpu
@@ -296,9 +346,24 @@ loss = loss_main + lam * loss_mtp        # lam = 0.3
   MTP 头对 t+2：val loss 1.8149，top-1 命中率 45.3%
 ```
 
+把两次训练每个评测点的读数并排（数字全部来自同一份日志）：
+
+| step | 基线主头 val loss | 带 MTP 主头 val loss | 差（带 MTP − 基线） | MTP 头 val loss | $$t_{i+2}$$ top-1 命中 |
+|---:|---:|---:|---:|---:|---:|
+| 250 | 2.4476 | 2.4517 | +0.0041 | 2.2061 | 36.2% |
+| 500 | 2.3182 | 2.2959 | −0.0223 | 2.0894 | 38.5% |
+| 750 | 2.1626 | 2.1844 | +0.0218 | 1.9888 | 41.0% |
+| 1000 | 2.0748 | 2.0926 | +0.0178 | 1.9329 | 42.6% |
+| 1250 | 2.0364 | 2.0057 | −0.0307 | 1.8812 | 43.5% |
+| 1500 | 1.9758 | 1.9822 | +0.0064 | 1.8606 | 44.0% |
+| 1750 | 1.9489 | 1.9654 | +0.0165 | 1.8376 | 44.8% |
+| 2000 | 1.9375 | 1.9364 | −0.0011 | 1.8149 | 45.3% |
+
+Table: 带与不带 MTP 的验证集读数：主头的差忽正忽负，MTP 头始终低于主头
+
 三个读数：
 
-1. **主任务没有变好**：1.9375 对 1.9364，差在噪声里。这与 Gloeckle 等的观察一致——他们在 0.3B–13B 上扫过规模，0.3B、0.6B 时 4-token 预测在 MBPP 上反而不如基线（pass@1 1.0 对 1.8、3.0 对 4.7），模型变大后才反超，13B 时 HumanEval 多解 12%、MBPP 多解 17%（论文附录表 S7 与摘要）；0.8M 参数、1 MB 数据的模型没有"预谋"的余地。DeepSeek-V3 报告的提升是在 671B / 14.8T token 上的。**在小模型上做实验然后宣称 MTP 无用或有用，都是错的**——这是 L4 实验方法论系列反复讲的"规模依赖的结论"。
+1. **主任务没有变好**：1.9375 对 1.9364；八个评测点里主头的差五正三负，幅度不超过 0.031，没有稳定的方向。这与 Gloeckle 等的观察一致——他们在 0.3B–13B 上扫过规模，0.3B、0.6B 时 4-token 预测在 [MBPP](# "tip: Mostly Basic Python Problems，约一千道入门级 Python 编程题组成的代码生成评测集，指标 pass@1 是一次生成就通过全部测试的比例")上反而不如基线（pass@1 1.0 对 1.8、3.0 对 4.7），模型变大后才反超，13B 时 [HumanEval](# "tip: OpenAI 发布的代码生成评测集，164 道手写 Python 函数题，每题附单元测试") 多解 12%、MBPP 多解 17%（论文附录表 S7 与摘要）；0.8M 参数、1 MB 数据的模型没有"预谋"的余地。DeepSeek-V3 报告的提升是在 671B / 14.8T token 上的。**在小模型上做实验然后宣称 MTP 无用或有用，都是错的**——[《算法工程师的实验方法论》的「能外推的与不能外推的」一节](/experimental-methodology-for-ai-algorithm-engineers.html#2-能外推的与不能外推的)把这类结论归为"随规模改变方向"的一类。
 2. **MTP 头很准**：对下下个字符 top-1 命中 45%，val loss 1.81 比主头的 1.94 还低——它知道真实的 $$t_{i+1}$$，又多了一层 block。这个 45% 就是把它当投机 draft 时的大致接受率（字符级；DeepSeek-V3 在 BPE（byte-pair encoding，反复合并最常见的相邻 pair 得到词表） token 上是 85–90%）。
 3. **代价**：多 29% 参数、每步慢 38%（多算一个 block 和一次 lm_head）。大模型上比例小得多（一层 / 61 层），但 lm_head 那一次是实打实的：MTP 头的 logits 与主头一样大，形状都是 $$[B, T, V]$$。词表 $$V = 128256$$、一条 4096 token 的样本、FP32 时，一份 logits 是 $$4096 \times 128256 \times 4$$ 字节 ≈ 1.96 GiB，MTP 再加一份。
 
@@ -315,7 +380,16 @@ loss = loss_main + lam * loss_mtp        # lam = 0.3
 
 Table: MTP 的账
 
-什么时候不该用：模型小、数据充足（信号密度不是瓶颈）；词表极大而算力紧张（每级多一次 lm_head）；任务本身对"预谋"不敏感。什么时候值得：数据受限的大模型预训练，以及**本来就打算做投机解码**的部署——后者几乎是白赚。
+不该用的三种情况：
+
+- 模型小、数据充足，信号密度不是瓶颈。
+- 词表极大而算力紧张，每级都要多算一次 lm_head。
+- 任务本身对"预谋"不敏感。
+
+值得用的两种情况：
+
+- 数据受限的大模型预训练。
+- **本来就打算做投机解码**的部署——草稿模块是训练顺带得到的，几乎是白赚。
 
 ## 七、本文小结
 
@@ -385,9 +459,5 @@ Table: MTP 的账
 
    $$1 + 0.85 = 1.85$$ 个。1.85 倍是假设验证两个位置、多算一个 block 都不花时间的上限；实际每步多一个 block 和一次 lm_head，所以略低。见[第四章第 2 节](#2-当投机解码的-draft)。
    </details>
-
-## 下一篇
-
-MTP 模块训练完可以丢掉，也可以留下来当草稿模型。[下一篇《现代 LLM 结构（08）：投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)讲它在推理侧的用法：先用草稿猜几个 token，再由主模型一次前向验证，为什么输出分布严格不变、期望一步接受几个、第二篇算出的 memory-bound 区间为什么让验证几乎免费、batch 大了收益为什么消失。
 
 [^q0]: **多花的**：每级一个 Transformer block + 一个 $$2d \to d$$ 投影的参数与前向 / 反向算力，加一次 lm_head（embedding 与 lm_head 共享，不额外加参数）。**可能多得的**：同一批数据的监督信号 ×$$(1 + D)$$，主干表示被逼着编码更远的未来（大模型上主任务小幅提升）；一个接受率 85–90% 的投机 draft。**顺序而非并行**：把真实的 $$t_{i+1}$$ 喂给预测 $$t_{i+2}$$ 的模块，保持完整因果链，loss 与主头同难度；并行头跳过中间 token，loss 偏高会干扰主干。**推理时**：可丢弃（模型与普通 decoder-only 无异），或保留当投机解码的 draft（多算一个 block，TPS ~1.8 倍）。详见[第二](#二deepseek-v3-的-mtp-模块)、[三](#三训练目标)、[四章](#四推理时它去哪了)。
