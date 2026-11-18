@@ -288,7 +288,7 @@ TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了�
 
 ![Llama-3-70B 在 TP=8 与 TP=16 下的 KV head 分配](/img/in-post/attention-variants-tp-kv-heads.svg)
 
-此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（data parallel，数据并行，每卡处理不同的请求），这个选择直接来自本节的算术。
+此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制。DeepSeek-V3 技术报告的部署方案里，attention 部分只用 TP4，其余并发靠 DP（data parallel，数据并行，每卡处理不同的请求），给出的理由是小的 TP 度能限制 TP 通信的开销。
 
 ## 四、MLA：把 K、V 压成一个 latent
 
@@ -449,7 +449,7 @@ $$
 (q^C_{t,h})^\top k^C_{j,h} = (q^C_{t,h})^\top W_{UK,h}\, c^{KV}_j = \left(W_{UK,h}^\top q^C_{t,h}\right)^\top c^{KV}_j
 $$
 
-把 $$W_{UK,h}^\top$$ 移到 query 一侧：先算 $$\tilde q_{t,h} = W_{UK,h}^\top q^C_{t,h} \in \mathbb{R}^{512}$$，这是**每步只做一次**的小计算（128 个 head 各一个 $$512 \times 128$$ 的矩阵向量乘），然后 $$\tilde q_{t,h}$$ 直接与 cache 里的 $$c^{KV}_j$$ 做 512 维点积。更进一步，$$W_{UK,h}^\top W_{UQ,h}$$ 可以离线乘成一个 $$512 \times 1536$$ 的矩阵，query 从 $$c^Q_t$$ 一步得到 $$\tilde q_{t,h}$$——这就是"把 $$W_{UK}$$ 吸进 $$W_{UQ}$$"。两种做法代数上等价，成本不同：**运行时重结合**（每步先 $$W_{UQ}$$ 再 $$W_{UK}^\top$$）不改权重字节；**离线预合并**把 128 个 $$[128, 1536]$$ 与 $$[128, 512]$$ 换成 128 个 $$[512, 1536]$$，常驻权重从约 $$128 \times 128 \times (1536 + 512) = 33.6$$M 涨到 $$128 \times 512 \times 1536 = 100.7$$M，每步多读这些字节。实际实现（vLLM、FlashMLA 等）多取运行时重结合，只把"在 latent 上做 attention"这一点吸收进去。
+把 $$W_{UK,h}^\top$$ 移到 query 一侧：先算 $$\tilde q_{t,h} = W_{UK,h}^\top q^C_{t,h} \in \mathbb{R}^{512}$$，这是**每步只做一次**的小计算（128 个 head 各一个 $$512 \times 128$$ 的矩阵向量乘），然后 $$\tilde q_{t,h}$$ 直接与 cache 里的 $$c^{KV}_j$$ 做 512 维点积。更进一步，$$W_{UK,h}^\top W_{UQ,h}$$ 可以离线乘成一个 $$512 \times 1536$$ 的矩阵，query 从 $$c^Q_t$$ 一步得到 $$\tilde q_{t,h}$$——这就是"把 $$W_{UK}$$ 吸进 $$W_{UQ}$$"。两种做法代数上等价，成本不同：**运行时重结合**（每步先 $$W_{UQ}$$ 再 $$W_{UK}^\top$$）不改权重字节；**离线预合并**把 128 个 $$[128, 1536]$$ 与 $$[128, 512]$$ 换成 128 个 $$[512, 1536]$$，常驻权重从约 $$128 \times 128 \times (1536 + 512) = 33.6$$M 涨到 $$128 \times 512 \times 1536 = 100.7$$M，每步多读这些字节。vLLM 的实现取运行时重结合（decode 时先把 q 乘上 $$W_{UK}$$，再与 latent 做点积），只把"在 latent 上做 attention"这一点吸收进去。
 
 再把 RoPE 部分拼上，完整的 score 是：
 
@@ -538,7 +538,7 @@ prefill 是 compute-bound，多 400 TFLOP 就是多 0.4 秒以上（按 989 TFLO
 
 一个自然的问题：如果 DeepSeek-V3 不用 MLA，而用一个"激进的 GQA"，能不能达到同样的 KV cache？每层 576 个数、$$d_{head} = 128$$，相当于 $$n_{kv} = 576 / 256 = 2.25$$ 个 KV 头——取 2 个 KV 头，128 个 query head 每 64 个共享一组 K、V，每层 512 个数，比 MLA 还少一点。缓存量上 GQA 完全做得到。
 
-差别在表达能力。GQA 的 2 个 KV 头意味着上下文里每个 token 只提供 2 个 128 维的 key 和 2 个 128 维的 value，128 个 query head 只能从这 2 组里选；MLA 的 128 个 head 各有自己的 $$W_{UK,h}$$、$$W_{UV,h}$$，从同一个 512 维 latent 里各取一个不同的 128 维投影——每个 head 看到的 key、value 都不同，只是它们共同被约束在一个 512 维子空间里。前者是"少几个头"，后者是"头很多但共享一个低秩底座"。DeepSeek-V2 论文里的消融是 MLA 优于同等 KV 预算的 GQA、甚至不弱于 MHA；这个结论的代价，就是下一节要列的那几条。
+差别在表达能力。GQA 的 2 个 KV 头意味着上下文里每个 token 只提供 2 个 128 维的 key 和 2 个 128 维的 value，128 个 query head 只能从这 2 组里选；MLA 的 128 个 head 各有自己的 $$W_{UK,h}$$、$$W_{UV,h}$$，从同一个 512 维 latent 里各取一个不同的 128 维投影——每个 head 看到的 key、value 都不同，只是它们共同被约束在一个 512 维子空间里。前者是"少几个头"，后者是"头很多但共享一个低秩底座"。DeepSeek-V2 论文的消融是两张表：dense 7B 模型上，MHA 明显好于 8 组的 GQA 和 MQA；MoE 模型上，MLA 在多数基准上好于 MHA，而 KV cache 只有 MHA 的 14%（小模型）和 4%（大模型），折合 2.25 组的 GQA。论文没有直接比较同等 KV 预算下的 MLA 与 GQA。MLA 这个结果的代价，就是下一节要列的那几条。
 
 另一个角度是把 GQA 看成 MLA 的特例：GQA 相当于 $$W_{UK}$$、$$W_{UV}$$ 是固定的 0/1 选择矩阵（每个 query head 直接选中它所属组的 K、V），$$d_c = 2 n_{kv} d_{head}$$，且没有 RoPE 解耦的需要（因为"升维"是恒等的，RoPE 可以直接加在缓存的 K 上）。MLA 把这两个选择矩阵变成可学习的稠密矩阵，换来更小的 $$d_c$$，也换来了 RoPE 不兼容的问题。
 
