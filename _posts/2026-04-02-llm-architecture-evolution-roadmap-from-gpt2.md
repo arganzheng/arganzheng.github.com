@@ -190,7 +190,7 @@ timeline
          : DeepSeek-V2 MLA
          : MTP；Qwen2-VL
          : DeepSeek-V3 FP8
-    2025 : QK-norm 成默认
+    2025 : QK-norm 用于 Qwen3、Llama 4、Gemma 3
          : Llama 4 NoPE 交错
          : Kimi K2 1T
          : gpt-oss MXFP4
