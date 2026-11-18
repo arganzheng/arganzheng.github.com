@@ -5,7 +5,7 @@ title: "现代 LLM 结构（06）：MoE 的路由、激活参数量与通信形�
 subtitle: "Mixture of Experts: Routing, Active Parameters and Communication Patterns"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-18
 date: 2026-04-05 10:00:00
 ---
 
@@ -19,6 +19,65 @@ date: 2026-04-05 10:00:00
 
 ## 一、总览：把三个"参数量"分开算
 
+一个 token 过一层 MoE 走五步：router 打分、取 top-$$k$$、把隐状态送到选中的专家、专家各算一遍 FFN、把结果送回来加权求和。下图画的是多卡部署下的这条路径，并标出三个"参数量"各落在图上哪一块、两次 all-to-all 出现在哪两条边、各部分在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 250}}}%%
+%% 图：一个 token 过 MoE 层的路径，以及总参数量、激活参数量、每步读取量各对应哪一部分
+flowchart TB
+    X["<b>输入 x</b><br/>token 所在卡上的 d 维隐状态"]
+    RT["<b>router 打分（第二章）</b><br/>$$W_r x$$ → E 个分数；参数只有 E × d"]
+    TK["<b>top-k 选择（第二章）</b><br/>k 个专家编号 + 门控权重 $$g_i$$，每层每 token 现算"]
+    LB["<b>负载均衡（第七章）</b><br/>辅助损失 / 容量因子 / 选择偏置 $$b_i$$<br/>让各专家收到的 token 数接近"]
+    X --> RT --> TK
+    LB -. "调整谁被选中" .-> TK
+    subgraph POOL["这一层的 E 个路由专家：权重全部驻留显存 → 总参数量（第三章）"]
+        direction LR
+        EA["<b>本 token 选中的 k 个</b><br/>• 参与计算 → 激活参数量 → FLOPs（第三章）<br/>• 每专家只有 Tk/E 行的小 GEMM（第六章）"]
+        EB["<b>batch 里其它 token 选中的</b><br/>这一步也要从 HBM 读一遍 → 每步读取量（第四章）"]
+        EC["<b>这一步没人选的</b><br/>只占显存，不读也不算"]
+    end
+    SH["<b>共享专家（第八章）</b><br/>不经 router，每个 token 都过"]
+    SUM["<b>加权合并</b><br/>$$y = \sum g_i \cdot \text{FFN}_i(x) + \text{FFN}_{\text{shared}}(x)$$"]
+    TK -->|"dispatch：all-to-all ①，x 发到专家所在的卡（第五章）"| EA
+    EA -->|"combine：all-to-all ②，专家输出发回 token 所在的卡（第五章）"| SUM
+    X --> SH --> SUM
+    classDef active fill:#dff0d8,stroke:#3c763d;
+    classDef readonly fill:#d9edf7,stroke:#31708f;
+    classDef idle fill:#f5f5f5,stroke:#aaaaaa,color:#888888;
+    classDef sh fill:#fcf8e3,stroke:#8a6d3b;
+    class EA active;
+    class EB readonly;
+    class EC idle;
+    class SH sh;
+```
+
+- **输入 x**：一个 token 在这一层的 $$d$$ 维隐状态，留在处理它所属序列的那张卡上；attention 部分与 dense 模型完全相同，MoE 只换 FFN（[第二章](#二从-dense-ffn-到-moe-层)）。
+- **router 打分**：一个 $$E \times d$$ 的线性层给每个专家打一个亲和度分数。DeepSeek-V3 每层 1.8M 参数，占全模型 0.016%，本身不花钱，但它决定后面每一步的流量（[第二章](#二从-dense-ffn-到-moe-层)）。
+- **top-k 选择**：取分数最高的 $$k$$ 个专家，分数归一化成门控权重 $$g_i$$。结果依赖输入，每层每 token 现算，无法提前知道哪张卡会忙（[第二章](#二从-dense-ffn-到-moe-层)）。
+- **负载均衡**：训练时让各专家收到的 token 数接近的三种手段——辅助损失、容量因子加丢弃、DeepSeek-V3 的选择偏置。不均衡时，最忙的那张卡决定整层的时间（[第七章](#七负载均衡)）。
+- **E 个路由专家（整个框）**：每个专家是一个独立的 SwiGLU FFN，$$E$$ 个都要放在显存里。这是**总参数量**：DeepSeek-V3 的 671B 里 97.4% 在这个框里（[第三章](#三参数量与激活参数量)）。
+- **本 token 选中的 k 个**：只有它们为这个 token 做计算。这是**激活参数量**，决定每 token 的 FLOPs：DeepSeek-V3 是 37B、74 GFLOPs（[第三章](#三参数量与激活参数量)）。一层的 token 被分到 $$E$$ 个专家上，每个专家的 GEMM 平均只有 $$Tk/E$$ 行（[第六章](#六grouped-gemm-的形态)）。
+- **batch 里其它 token 选中的**：同一步里别的 token 各选各的 $$k$$ 个，被任何一个 token 选中的专家，权重都要从 HBM 读一遍。这是**每步读取量**，决定 decode 的带宽：batch 为 32 时已是 434B（[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)）。
+- **这一步没人选的**：只占显存。batch 为 1 时 256 个专家里有 248 个是这种状态，batch 为 128 时只剩约 4 个。
+- **dispatch / combine**：专家分散在多张卡上时，隐状态要先发到专家所在的卡，算完再发回来，每层两次 all-to-all，每 token 每层共 168 KiB（[第五章](#五专家并行与-all-to-all)）。
+- **共享专家**：不经过 router、每个 token 都过的窄 FFN，行为等同于 dense FFN（[第八章](#八共享专家与-mtp)）。
+- **加权合并**：在 token 所在的卡上，把 $$k$$ 个专家的输出按 $$g_i$$ 加权，再加上共享专家的输出。
+
+图上出现的几样东西，产生的时机和存放的位置各不相同。哪些算进参数量、哪些只是一次前向里的临时量，容易混在一起：
+
+| 对象 | 什么时候产生 | 存在哪里 | 活多久 | 算进参数量 / 显存吗 |
+|---|---|---|---|---|
+| 专家权重（每个专家三个矩阵） | 训练得到，加载模型时放进显存 | 专家并行下只在持有该专家的那张卡上 | 整个服务期间 | 算进总参数量，是显存的大头 |
+| router 权重 $$W_r$$（$$E \times d$$） | 训练得到，加载模型时放进显存 | 每张处理 token 的卡上各有一份 | 整个服务期间 | 算进参数量，但只占 0.016% |
+| 选择偏置 $$b_i$$（DeepSeek-V3，每层 $$E$$ 个标量） | 训练中每步按负载统计加减一个小常数，不经过梯度 | 跟 router 放在一起 | 训练结束后固定 | 每层 256 个数，可忽略 |
+| 路由分数 $$s$$ | 每层、每个 token 进 MoE 时现算 | token 所在卡上的临时张量 $$[T, E]$$ | 取完 top-$$k$$ 即丢 | 不算；不进 KV cache，下一步重算 |
+| top-$$k$$ 专家编号与门控权重 $$g_i$$ | 紧接着路由分数 | token 所在卡上的临时张量 $$[T, k]$$ | 到本层加权合并结束 | 不算 |
+| dispatch 缓冲区（发往各专家的隐状态） | top-$$k$$ 之后，按专家分组时 | 发送卡与接收卡的通信缓冲区，每 token 每专家 $$d$$ 个元素 | 到专家算完 | 不算参数；占激活显存，大小随 batch 变 |
+| 专家输出与 combine 缓冲区 | 专家 GEMM 之后 | 专家所在卡，再发回 token 所在卡 | 到本层加权合并结束 | 不算参数；占激活显存 |
+
+Table: MoE 层里各对象的产生时机、存放位置与生命周期
+
 ### 1. 思路与基线模型
 
 要回答这个问题，需要把 MoE 层的结构、参数量的推导、decode 时的访存形态、专家并行引入的 all-to-all 通信、grouped GEMM 的形状与负载均衡逐个算一遍。全篇沿用系列的三个基线模型：Llama-3-70B 作为 dense 对照，Mixtral 8x7B 与 DeepSeek-V3 作为两种粒度的 MoE。所有数字都是从超参数推出来的理论值，不是实测。
@@ -29,14 +88,14 @@ date: 2026-04-05 10:00:00
 |---|---|---|
 | 二 | 从 dense FFN 到 MoE 层 | dense FFN 的参数与算量、MoE 层的结构、一段参考实现、Mixtral 与 DeepSeek-V3 两种粒度 |
 | 三 | 参数量与激活参数量 | Mixtral 8x7B、DeepSeek-V3 的总参数与激活参数；算量按激活参数算、显存按总参数算 |
-| 四 | decode 的访存形态 | 期望激活专家数的推导、每步实际读取的参数量、三个数分开算、大规模 EP 的动机 |
-| 五 | 专家并行与 all-to-all | dispatch 与 combine、每 token 每专家的字节数、节点受限路由、EP 与 TP 的对比 |
+| 四 | decode 的访存形态 | 期望激活专家数的推导、每步实际读取的参数量、三个数分开算、大规模专家并行（Expert Parallelism，EP）的动机 |
+| 五 | 专家并行与 all-to-all | dispatch 与 combine、每 token 每专家的字节数、节点受限路由、EP 与张量并行（Tensor Parallelism，TP）的对比 |
 | 六 | grouped GEMM 的形态 | 每专家平均行数、为什么 MoE 的 GEMM 天然低效 |
 | 七 | 负载均衡 | 辅助损失、容量因子与 token drop、aux-loss-free、负载不均对 EP 意味着什么 |
 | 八 | 共享专家与 MTP | 共享专家其实是 dense FFN；MTP 是内置的投机草稿 |
 | 九 | 实践 | `llm_cost.py` 的 MoE 支持 |
 | 十 | 本文小结 |  |
-| 十一 | 自测 | 5 道题 |
+| 十一 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -72,7 +131,7 @@ MoE 把一层里的一个 FFN 换成 $$E$$ 个结构相同、参数独立的 FFN
 
 $$s = \text{softmax}(W_r\, x) \quad \text{或} \quad s = \sigma(W_r\, x), \qquad W_r \in \mathbb{R}^{E \times d}$$
 
-Mixtral 用 softmax，DeepSeek-V3 用 sigmoid。sigmoid 在这里不是二分类：router 不是在 $$E$$ 个专家里"分类出一个"，而是给每个专家打一个**独立的亲和度分数**，选谁由下一步的 top-$$k$$ 决定，权重再在选中的 $$k$$ 个里归一化——所以分数只需要可比，不需要加起来等于 1。softmax 把 $$E$$ 个分数耦合在一起：一个专家的分数升高，其余全部被压低，256 个专家时每个的概率都很小、梯度也互相牵制；sigmoid 的分数逐专家独立，范围固定在 $$(0, 1)$$。DeepSeek-V3 选它还有一个直接原因：它的负载均衡不用辅助损失，而是给每个专家加一个只参与 top-$$k$$ 选择、不参与门控权重的偏置 $$b_i$$（过载的专家调低、欠载的调高），这个"选择分数 = $$s_i + b_i$$"的做法要求 $$s_i$$ 是各自独立的绝对值，在 softmax 的相对概率上做不干净（第七章第 3 节）。router 的参数量 $$d \cdot E$$ 相对专家可以忽略——DeepSeek-V3 每层 $$7168 \times 256 = 1.8$$M，58 层 106M，在 671B 里占 0.016%。
+Mixtral 用 softmax，DeepSeek-V3 用 sigmoid。sigmoid 在这里不是二分类：router 不是在 $$E$$ 个专家里"分类出一个"，而是给每个专家打一个**独立的亲和度分数**，选谁由下一步的 top-$$k$$ 决定，权重再在选中的 $$k$$ 个里归一化——所以分数只需要可比，不需要加起来等于 1。softmax 把 $$E$$ 个分数耦合在一起：一个专家的分数升高，其余全部被压低，256 个专家时每个的概率都很小、梯度也互相牵制；sigmoid 的分数逐专家独立，范围固定在 $$(0, 1)$$。DeepSeek-V3 选它还有一个直接原因：它的负载均衡不用辅助损失，而是给每个专家加一个只参与 top-$$k$$ 选择、不参与门控权重的偏置 $$b_i$$（过载的专家调低、欠载的调高），这个"选择分数 = $$s_i + b_i$$"的做法要求 $$s_i$$ 是各自独立的绝对值，在 softmax 的相对概率上做不干净（[第七章的「aux-loss-free」一节](#3-aux-loss-freedeepseek-v3-的偏置调节)）。router 的参数量 $$d \cdot E$$ 相对专家可以忽略——DeepSeek-V3 每层 $$7168 \times 256 = 1.8$$M，58 层 106M，在 671B 里占 0.016%。
 
 第二步，取分数最高的 $$k$$ 个专家（top-$$k$$），把它们的分数归一化为门控权重 $$g_i$$，其余专家的权重为 0：
 
@@ -82,7 +141,7 @@ $$g_i = \frac{s_i}{\sum_{j \in \text{TopK}(s)} s_j} \ \text{（} i \in \text{Top
 
 $$y = \sum_{i \in \text{TopK}(s)} g_i \cdot \text{FFN}_i(x) \ \big(+ \sum_{j=1}^{n_{shared}} \text{FFN}^{shared}_j(x)\big)$$
 
-括号里的共享专家是 DeepSeek 系列的做法：有 $$n_{shared}$$ 个专家不经过路由、对所有 token 都激活，第八章再讨论它的意义。
+括号里的共享专家是 DeepSeek 系列的做法：有 $$n_{shared}$$ 个专家不经过路由、对所有 token 都激活，[第八章](#八共享专家与-mtp)再讨论它的意义。
 
 把三步放在一起，一个 token 经过 MoE 层的数据流如下（以 $$k = 2$$ 为例，灰色是未被选中、这一步不参与计算的专家；共享专家绕过 router 直接接收输入）：
 
@@ -121,11 +180,11 @@ flowchart TB
 
 这个想法本身不新：Shazeer 等 2017 在 LSTM（long short-term memory，带门控记忆的 RNN） 上做过稀疏门控的 MoE 层，GShard（Lepikhin 等 2020）与 Switch Transformer（Fedus 等 2021）把它搬到 Transformer 并解决了大规模训练的均衡与并行问题。Mixtral（Jiang 等 2024）与 DeepSeek 系列让它成为开源模型的主流结构。结构层面几年没有大变，变的是粒度与规模，而正是粒度与规模决定了系统成本。
 
-还要注意 MoE 只替换 FFN，attention 部分与 dense 模型完全相同。因此一个 MoE 模型里 attention 的参数、KV cache、对上下文长度的二次方算量，都和同结构的 dense 模型一样——第六至八篇的所有结论直接适用。MoE 改变的只是 FFN 那一块的参数、算量与访存之间的比例关系。
+还要注意 MoE 只替换 FFN，attention 部分与 dense 模型完全相同。因此一个 MoE 模型里 attention 的参数、KV cache、对上下文长度的二次方算量，都和同结构的 dense 模型一样——[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)、[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)、[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)的结论直接适用。MoE 改变的只是 FFN 那一块的参数、算量与访存之间的比例关系。
 
 ### 3. 一段参考实现
 
-下面是 MoE 层的循环版参考实现，只为说明数据流；生产实现（vLLM 的 fused MoE kernel、Megatron 的 grouped GEMM）会把所有专家的计算合并成一个 grouped GEMM，第六章解释为什么：
+下面是 MoE 层的循环版参考实现，只为说明数据流；生产实现（vLLM 的 fused MoE kernel、Megatron 的 grouped GEMM）会把所有专家的计算合并成一个 grouped [GEMM](# "tip: general matrix multiply，通用矩阵乘法；记作 [M, K] × [K, N]，M 是行数（这里是 token 数）")，[第六章](#六grouped-gemm-的形态)解释为什么：
 
 ```python title="MoE 层的循环版参考实现"
 import torch
@@ -169,7 +228,7 @@ class MoELayer(nn.Module):
         return out
 ```
 
-`(idx == e).nonzero()` 这一步就是"把 token 按专家分组"。在单卡上它是一次 gather；在专家并行下，它变成跨 GPU 的 all-to-all——第五章的主题。
+`(idx == e).nonzero()` 这一步就是"把 token 按专家分组"。在单卡上它是一次 gather；在专家并行下，它变成跨 GPU 的 all-to-all——[第五章](#五专家并行与-all-to-all)的主题。
 
 ### 4. 两种粒度：Mixtral 与 DeepSeek-V3
 
@@ -222,7 +281,7 @@ $$58 \times 11.32\text{B} = 656.5\text{B}$$
 
 **dense 层 FFN。** 3 层，每层 $$3 \times 7168 \times 18432 = 396.4\text{M}$$，合计 1.19B。
 
-**MLA attention。** DeepSeek-V3 用 MLA（第四篇有完整推导），每层的权重是六个矩阵：
+**MLA attention。** DeepSeek-V3 用 MLA（Multi-head Latent Attention，多头潜变量注意力；完整推导见[《Attention 变体与 KV cache》的「MLA」一章](/attention-variants-and-kv-cache.html#四mla把-kv-压成一个-latent)），每层的权重是六个矩阵：
 
 | 矩阵 | 形状 | 参数量 | 含义 |
 |---|---|---|---|
@@ -258,6 +317,22 @@ $$22.99 + 11.41 + 1.19 + 1.85 \approx 37.4\text{B}$$
 
 技术报告取整写作 37B。注意这个 37B 里有 14.4B（attention + dense + embedding）是"dense 部分"，和 MoE 无关；路由专家只贡献 20.4B。
 
+把总参数与激活参数按组成部分并排放，差距全部出在路由专家那一行，其余各行两列相同：
+
+| 组成部分 | 总参数 | 每 token 激活 | 激活 / 总 |
+|---|---:|---:|---:|
+| 路由专家（58 层 × 256 个，每 token 用 8 个） | 653.91B | 20.43B | 3.1% |
+| 共享专家（58 层 × 1 个） | 2.55B | 2.55B | 100% |
+| MLA attention（61 层） | 11.41B | 11.41B | 100% |
+| dense 层 FFN（3 层） | 1.19B | 1.19B | 100% |
+| embedding 与 lm_head | 1.85B | 1.85B | 100% |
+| router（58 层） | 0.11B | 0.11B | 100% |
+| 合计 | 671.0B | 37.5B | 5.6% |
+
+Table: DeepSeek-V3 的总参数与每 token 激活参数，按组成部分
+
+合计行的 37.5B 比上面手算的 37.4B 多出的是 router；Mixtral 做同样的拆分只有三行：专家 45.10B 对 11.27B（8 选 2，25%），attention 1.34B 与 embedding 0.26B 两列相同。
+
 ### 4. 算量按激活参数算，显存按总参数算
 
 每 token 的前向 FLOPs 只和真正参与运算的参数有关：
@@ -270,11 +345,11 @@ $$\text{FLOPs/token} \approx 2 \times 37\text{B} = 74\text{ GFLOPs}$$
 
 $$671\text{B} \times 1\text{ byte} = 671\text{ GB}$$
 
-一台 8 卡 H100 的 HBM 总量是 $$8 \times 80 = 640$$ GB，放不下权重本身，更不用说 KV cache 与激活。至少要两台（1280 GB），而且两台也只是"放得下"。如果用 BF16，1342 GB，至少三台。DeepSeek 报告里的实际部署规模远大于此：prefill 用 4 节点 32 卡（EP32），decode 用 40 节点 320 卡（EP320）。为什么要用这么大的 EP，是第四章要算的东西。
+一台 8 卡 H100 的 [HBM](# "tip: high bandwidth memory，GPU 的显存；H100 每卡 80 GB，读取带宽约 3.35 TB/s") 总量是 $$8 \times 80 = 640$$ GB，放不下权重本身，更不用说 KV cache 与激活。至少要两台（1280 GB），而且两台也只是"放得下"。如果用 BF16，1342 GB，至少三台。DeepSeek 报告里的实际部署规模远大于此：prefill 用 4 节点 32 卡（EP32），decode 用 40 节点 320 卡（EP320）。EP 是专家并行（Expert Parallelism）的缩写，数字是卡数；为什么要用这么大的规模，是[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)要算的东西。
 
-值得一提的是，DeepSeek-V3 的显存压力几乎全部来自权重而不是 KV cache。MLA 让它的 KV cache 每 token 每层只有 $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，128K 上下文只要 8.6 GiB（第四篇的推导）。Llama-3-70B 的 GQA 每 token 320 KiB，128K 上下文 40 GiB。也就是说，两个模型的显存构成刚好相反：70B 是权重 141 GB、KV 随并发膨胀；V3 是权重 671 GB、KV 很小。这也是 V3 选择 MLA 的原因之一——权重已经占掉这么多，KV cache 必须压到极致，才能在 EP 集群的每张卡上留出足够的并发空间。
+值得一提的是，DeepSeek-V3 的显存压力几乎全部来自权重而不是 KV cache。MLA 让它的 KV cache 每 token 每层只有 $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，128K 上下文只要 8.6 GiB（[《Attention 变体与 KV cache》的「参数量与缓存量」一节](/attention-variants-and-kv-cache.html#3-参数量与缓存量)）。Llama-3-70B 的 GQA 每 token 320 KiB，128K 上下文 40 GiB。也就是说，两个模型的显存构成刚好相反：70B 是权重 141 GB、KV 随并发膨胀；V3 是权重 671 GB、KV 很小。这也是 V3 选择 MLA 的原因之一——权重已经占掉这么多，KV cache 必须压到极致，才能在 EP 集群的每张卡上留出足够的并发空间。
 
-Mixtral 也有同样的问题，只是数量级小：BF16 权重 93.4 GB，单张 H100 放不下，至少两卡；算量却只有 $$2 \times 12.9 \approx 26$$ GFLOPs/token，比 Llama-3-8B 的 15 GFLOPs 多不到一倍。它的 KV cache 与 Llama-3-8B 完全相同（每 token 128 KiB），两卡 TP 部署后剩余的显存足够放几十万 token 的 KV。从"算量像 13B、显存像 47B"这一点看，Mixtral 是理解 MoE 部署形态最温和的入门例子；DeepSeek-V3 则把同样的矛盾放大了一个数量级。
+Mixtral 也有同样的问题，只是数量级小：BF16 权重 93.4 GB，单张 H100 放不下，至少两卡；算量却只有 $$2 \times 12.9 \approx 26$$ GFLOPs/token，比 Llama-3-8B 的 15 GFLOPs 多不到一倍。它的 KV cache 与 Llama-3-8B 完全相同（每 token 128 KiB），两卡[张量并行](# "tip: Tensor Parallelism，TP：把每个权重矩阵切成几份放到几张卡上，每层末尾用一次 all-reduce 合并结果")部署后剩余的显存足够放几十万 token 的 KV。从"算量像 13B、显存像 47B"这一点看，Mixtral 是理解 MoE 部署形态最温和的入门例子；DeepSeek-V3 则把同样的矛盾放大了一个数量级。
 
 到这里，核心问题的前两个数已经有了：参数量 671B，激活参数量 37B。第三个数——每步实际读取的参数量——需要看 decode 时 batch 里的 token 是怎样分布在专家上的。
 
@@ -284,7 +359,11 @@ Mixtral 也有同样的问题，只是数量级小：BF16 权重 93.4 GB，单�
 
 decode 阶段每步为 batch 里的 $$B$$ 个序列各生成一个 token，这 $$B$$ 个 token 各自独立路由到 $$k$$ 个专家。问题是：一层的 $$E$$ 个专家中，有多少个至少被一个 token 选中？被选中的专家权重必须从 HBM 读出来，没被选中的不必。
 
-做两个简化假设：路由均匀（每个专家被某个 token 选中的概率相同），且 token 之间独立。在均匀假设下，一个 token 选 $$k$$ 个专家，某个特定专家在其中的概率是 $$k/E$$，不在其中的概率是 $$1 - k/E$$。$$B$$ 个 token 都不选它的概率是 $$(1 - k/E)^B$$，于是它被至少一个 token 选中的概率是 $$1 - (1 - k/E)^B$$。对 $$E$$ 个专家求期望：
+做两个简化假设：路由均匀（每个专家被某个 token 选中的概率相同），且 token 之间独立。
+
+先用能手算的小例子：$$E = 4$$ 个专家，每个 token 选 $$k = 1$$ 个，batch 里 $$B = 2$$ 个 token。某个专家没被第一个 token 选中的概率是 $$3/4$$，两个 token 都没选它的概率是 $$(3/4)^2 = 0.5625$$，所以它被至少一个 token 选中的概率是 $$0.4375$$；4 个专家合计期望 $$4 \times 0.4375 = 1.75$$ 个被激活——比 2 少，因为两个 token 有 $$1/4$$ 的概率撞到同一个专家上。
+
+一般情形同理。在均匀假设下，一个 token 选 $$k$$ 个专家，某个特定专家在其中的概率是 $$k/E$$，不在其中的概率是 $$1 - k/E$$。$$B$$ 个 token 都不选它的概率是 $$(1 - k/E)^B$$，于是它被至少一个 token 选中的概率是 $$1 - (1 - k/E)^B$$。对 $$E$$ 个专家求期望：
 
 $$\mathbb{E}[\text{激活专家数}] = E \cdot \left[1 - \left(1 - \frac{k}{E}\right)^B\right]$$
 
@@ -311,13 +390,13 @@ Mixtral 在 $$B = 8$$ 时就几乎读全部专家；DeepSeek-V3 在 $$B = 32$$ �
 
 $$N_{read}(B) = N_{always} + 58 \times \mathbb{E}[\text{激活专家数}](B) \times 44.04\text{M}$$
 
-其中 $$N_{always} = 671 - 653.9 \approx 17\text{B}$$（其中 embedding 0.93B 严格说只查表读一行，这里不细扣）。代入：
+其中 $$N_{always} = 671.0 - 653.9 = 17.1\text{B}$$（其中 embedding 0.93B 严格说只查表读一行，这里不细扣）。代入：
 
 | B | 期望激活专家 | 路由专家读取量 | 每步读取参数量 | FP8 字节数 |
-|---|---|---|---|---|
+|---:|---:|---:|---:|---:|
 | 1 | 8.0 | 20.4B | 37.6B | 37.6 GB |
-| 8 | 57.4 | 146.6B | 163.8B | 164 GB |
-| 32 | 163.3 | 417.1B | 434.3B | 434 GB |
+| 8 | 57.4 | 146.7B | 163.8B | 164 GB |
+| 32 | 163.3 | 417.2B | 434.3B | 434 GB |
 | 128 | 251.6 | 642.7B | 659.8B | 660 GB |
 | 512 | 256.0 | 653.9B | 671.0B | 671 GB |
 
@@ -325,7 +404,7 @@ Table: 不同 batch 下 DeepSeek-V3 每步读取的参数量
 
 对照 Llama-3-70B：无论 batch 多大，每步读 70.55B 参数，BF16 141 GB。
 
-也就是说，只有 $$B = 1$$ 时 DeepSeek-V3 的"每步读 37B"才成立。$$B = 32$$ 时它每步读的字节数（FP8 434 GB）已经是 Llama-3-70B（BF16 141 GB）的 3 倍；$$B = 128$$ 时是 4.7 倍。第二篇给出的 decode 时间下界是"权重字节数 / HBM 带宽"，按 H100 的 3.35 TB/s，假设权重能放在一张卡上（当然放不下，这里只为比较）：Llama-3-70B 每步下界 42 ms，DeepSeek-V3 在 $$B = 32$$ 时每步下界 130 ms。稀疏节省了算量，但没有节省访存——而 decode 恰恰是访存瓶颈的阶段。
+也就是说，只有 $$B = 1$$ 时 DeepSeek-V3 的"每步读 37B"才成立。$$B = 32$$ 时它每步读的字节数（FP8 434 GB）已经是 Llama-3-70B（BF16 141 GB）的 3 倍；$$B = 128$$ 时是 4.7 倍。[《前向的算量与访存量》的「时间下界」一章](/transformer-flops-bytes-and-roofline.html#六时间下界)给出的 decode 时间下界是"权重字节数 / HBM 带宽"，按 H100 的 3.35 TB/s，假设权重能放在一张卡上（当然放不下，这里只为比较）：Llama-3-70B 每步下界 42 ms，DeepSeek-V3 在 $$B = 32$$ 时每步下界 130 ms。稀疏节省了算量，但没有节省访存——而 decode 恰恰是访存瓶颈的阶段。
 
 ### 3. 三个数分开算
 
@@ -343,16 +422,28 @@ Table: DeepSeek-V3 与 Llama-3-70B 的三个数
 
 "部署 DeepSeek-V3 比 dense 70B 难得多"的原因是第一行和第三行：显存要 9.5 倍，中等 batch 下每步访存要 6–9 倍。只有第二行对 MoE 有利，而 decode 阶段的瓶颈本来就不在第二行。
 
+把这几个数按同一比例尺画成横条。每条左端的黄色段是每步必读的 17B，蓝色段是路由专家：
+
+![DeepSeek-V3 的总参数量、每步读取量与激活参数量（同一比例尺），与 Llama-3-70B 对比](/img/in-post/moe-compute-and-communication-three-numbers-bars.svg)
+
+激活参数量那一条比 Llama-3-70B 短一半，这是 MoE 省下的算量；每步读取量从 $$B = 1$$ 的同样长度出发，batch 到 32 就长过 Llama-3-70B 六倍，到 128 与总参数量几乎等长。
+
 ### 4. 大规模 EP 的动机
 
 出路只有两条。一条是把 batch 压到极小，让每步只读 $$k$$ 个专家——这放弃了吞吐，单卡也放不下 671 GB。另一条是把专家分散到很多张卡上：如果 256 个专家均匀分到 $$N$$ 张卡，每张卡每层只持有 $$256/N$$ 个专家，每步最多只需读自己那 $$256/N$$ 个，而不是全部 256 个。这就是专家并行（Expert Parallelism，EP）。
 
 以 EP32 为例（DeepSeek-V3 prefill 的配置），每卡每层 8 个路由专家，58 层共 $$58 \times 8 \times 44.04\text{M} = 20.4\text{B}$$ 参数，FP8 20.4 GB；加上复制到每卡的 attention、dense、共享专家等约 17 GB，每卡权重约 37 GB。EP320（decode 配置）时每卡每层只有 1 个专家，路由专家部分只有 2.55 GB。
 
-把不同 EP 规模下每卡的权重占用列出来。**这是一个简化模型**：FP8，路由专家均匀分布，非专家部分（attention、dense 层、共享专家）约 17 GB 按在每卡复制算。DeepSeek-V3 报告 3.4 节的真实部署与它有几处不同：attention 用 TP4 + 序列并行再做数据并行（prefill DP8、decode DP80），不是整份复制；共享专家在 decode 时**也当作一个路由目标**放在专门的卡上，每 token 实际选 9 个专家（8 路由 + 1 共享）；320 卡里 64 卡专门托管冗余专家与共享专家。所以下表 EP320 行的 19.6 GB 是简化模型的数，不是实况——实况里每卡权重更少、通信多一份。
+把不同 EP 规模下每卡的权重占用列出来。**这是一个简化模型**：FP8，路由专家均匀分布，非专家部分（attention、dense 层、共享专家）约 17 GB 按在每卡复制算。DeepSeek-V3 报告 3.4 节的真实部署与它有三处不同：
+
+- attention 用 TP4 + 序列并行再做数据并行（prefill DP8、decode DP80），不是整份复制；
+- 共享专家在 decode 时**也当作一个路由目标**放在专门的卡上，每 token 实际选 9 个专家（8 路由 + 1 共享）；
+- 320 卡里 64 卡专门托管冗余专家与共享专家。
+
+所以下表 EP320 行的 19.6 GB 是简化模型的数，不是实况——实况里每卡权重更少、通信多一份。
 
 | EP 规模 | 每卡每层路由专家数 | 每卡路由专家权重 | 每卡权重合计 | 剩余显存（80 GB 卡） |
-|---|---|---|---|---|
+|---:|---:|---:|---:|---:|
 | 1 | 256 | 654 GB | 671 GB | 放不下 |
 | 8 | 32 | 81.7 GB | 98.7 GB | 放不下 |
 | 16 | 16 | 40.9 GB | 57.9 GB | 22 GB |
@@ -401,7 +492,7 @@ Table: EP4 例子：每张卡持有的专家、token 与 router 结果
 
 Table: EP4 例子的 dispatch 流量矩阵：行 = token 所在卡，列 = 专家所在卡
 
-各专家实际收到的行数（也就是第六章 grouped GEMM 里每个专家的 M）：
+各专家实际收到的行数（也就是[第六章](#六grouped-gemm-的形态) grouped GEMM 里每个专家的 M）：
 
 | 专家 | e0 | e1 | e2 | e3 | e4 | e5 | e6 | e7 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -409,14 +500,21 @@ Table: EP4 例子的 dispatch 流量矩阵：行 = token 所在卡，列 = 专�
 
 Table: EP4 例子中每个专家收到的 token 数
 
-每卡**发出**的份数恒为 $$B_{local} \times k = 4$$，与路由无关；每卡**收到**的份数取决于路由结果，rank0 收 5 份、rank1 收 3 份，这就是负载不均在通信上的体现（第七章）。对角线上的格子是本卡专家，不走网络。combine 是这张矩阵的转置：每个专家把输出沿原路发回 token 所在卡，只是每份的字节数不同（下一节）。
+每卡**发出**的份数恒为 $$B_{local} \times k = 4$$，与路由无关；每卡**收到**的份数取决于路由结果，rank0 收 5 份、rank1 收 3 份，这就是负载不均在通信上的体现（[第七章](#七负载均衡)）。对角线上的格子是本卡专家，不走网络。combine 是这张矩阵的转置：每个专家把输出沿原路发回 token 所在卡，只是每份的字节数不同（下一节）。
+
+> [!NOTE] Java 经验参照：按 key 分区的 shuffle
+> dispatch 相当于 Spark / MapReduce 里的一次 shuffle：每条记录（token 的隐状态）按 key（专家编号）找到持有该分区的节点，所有节点两两互发，上面的流量矩阵就是 shuffle 的读写矩阵；某个专家收到的 token 特别多，对应数据倾斜，最慢的分区决定整个 stage 何时结束。对不上的有三处：
+>
+> - **分区函数**。shuffle 的分区器是固定的哈希，倾斜可以事先采样、加盐打散；这里的 key 是 router 在每一层对每个 token 现算出来的 top-$$k$$，算之前不知道流量矩阵长什么样，能调的只有训练时的均衡和部署时把热门专家多放几份。
+> - **往返**。shuffle 是单向的；这里每条记录复制成 $$k$$ 份发出去，算完还要沿原路发回来合并（combine）。
+> - **次数与延迟**。一次前向 58 层共 116 次，预算是毫秒，没有落盘、重试、推测执行的余地。
 
 ### 2. 字节数
 
 每个 token 发给每个专家的是一个长度 $$d = 7168$$ 的向量。DeepSeek-V3 的做法是 dispatch 用 FP8、combine 用 BF16（combine 要做加权求和，精度要求更高）：
 
 | 阶段 | 单位 | 字节数 |
-|---|---|---|
+|---|---|---:|
 | dispatch | 每 token 每专家 | 7168 × 1 B = 7168 B = 7 KiB |
 | combine | 每 token 每专家 | 7168 × 2 B = 14336 B = 14 KiB |
 
@@ -425,7 +523,7 @@ Table: dispatch 与 combine 每 token 每专家的字节数
 top-8：
 
 | 阶段 | 单位 | 字节数 |
-|---|---|---|
+|---|---|---:|
 | dispatch | 每 token 每层 | 8 × 7 KiB = 56 KiB |
 | combine | 每 token 每层 | 8 × 14 KiB = 112 KiB |
 | 合计 | 每 token 每层 | 168 KiB |
@@ -438,15 +536,15 @@ Table: top-8 下每 token 每层与全部 58 层的 all-to-all 字节数
 乘上 batch。一张卡持有 $$B_{local}$$ 个 token 时，每层要发出并收回 $$B_{local} \times 168$$ KiB：
 
 | B_local | 每层 all-to-all 字节 | 58 层合计 | 按 50 GB/s（IB）的传输时间下界 |
-|---|---|---|---|
+|---:|---:|---:|---:|
 | 32 | 5.25 MiB | 305 MiB | 6.4 ms |
 | 128 | 21 MiB | 1.19 GiB | 25 ms |
 
 Table: 每卡 B_local 个 token 时的 all-to-all 字节数与传输时间下界
 
-prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch + combine 共 $$4096 \times 168\text{ KiB} = 672$$ MiB，58 层 38 GiB。在 EP32 下这 4096 个 token 分摊在 32 张卡上，每卡每层收发 21 MiB、58 层 1.2 GiB；若全部走 50 GB/s 的 IB，每卡传输时间下界约 26 ms。而这 4096 个 token 的算量是 $$4096 \times 74\text{ GFLOPs} \approx 303$$ TFLOP，在 32 张 H100 上按 FP8 60% MFU 大约 8 ms。通信是计算的 3 倍以上——这说明 EP 下的 prefill 如果不把 all-to-all 与计算充分重叠、不把大部分流量留在 NVLink 域内，通信会主导时间。DeepSeek-V3 的节点受限路由（下一节）和 EP32 只跨 4 个节点的配置，都是在压这个比例。
+prefill 阶段的数字更直观：一个 4096 token 的序列，每层 dispatch + combine 共 $$4096 \times 168\text{ KiB} = 672$$ MiB，58 层 38 GiB。在 EP32 下这 4096 个 token 分摊在 32 张卡上，每卡每层收发 21 MiB、58 层 1.2 GiB；若全部走 50 GB/s 的 IB，每卡传输时间下界约 26 ms（IB 即 InfiniBand，跨节点的网络）。而这 4096 个 token 的算量是 $$4096 \times 74\text{ GFLOPs} \approx 303$$ TFLOP，在 32 张 H100 上按 FP8 60% [MFU](# "tip: model FLOPs utilization，模型算量 ÷（耗时 × 硬件峰值算力）；H100 的 FP8 峰值约 1979 TFLOPS") 大约 8 ms。通信是计算的 3 倍以上——这说明 EP 下的 prefill 如果不把 all-to-all 与计算充分重叠、不把大部分流量留在 NVLink 域内，通信会主导时间。DeepSeek-V3 的节点受限路由（下一节）和 EP32 只跨 4 个节点的配置，都是在压这个比例。
 
-作为参照，第二篇算过 Llama-3-70B 在 8 卡 TP 下每步 decode 的权重读取下界约 5 ms（141 GB / 8 卡 / 3.35 TB/s）。EP 下每卡的权重读取只剩几十 GB（约 10 ms），但 all-to-all 又添上了同一量级的通信时间——而且这个时间与 $$B_{local}$$ 线性增长，权重读取时间则不随 batch 增长。DeepSeek-V3 报告用 DualPipe、把通信 kernel 限制在少量 SM 上与计算重叠、以及自定义 all-to-all kernel，都是在处理这项开销。
+作为参照，[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html#1-decode约-45-ms约-220-tokens-的理想下界)算过 Llama-3-70B 在 8 卡 TP 下每步 decode 的权重读取下界约 5 ms（141 GB / 8 卡 / 3.35 TB/s）。EP 下每卡的权重读取只剩几十 GB（约 10 ms），但 all-to-all 又添上了同一量级的通信时间——而且这个时间与 $$B_{local}$$ 线性增长，权重读取时间则不随 batch 增长。DeepSeek-V3 报告用 DualPipe、把通信 kernel 限制在少量 [SM](# "tip: streaming multiprocessor，GPU 上的计算单元；H100 有 132 个") 上与计算重叠、以及自定义 all-to-all kernel，都是在处理这项开销。
 
 ### 3. 节点受限路由
 
@@ -496,35 +594,21 @@ flowchart TB
 
 ### 4. EP 与 TP 的对比
 
-MoE 的 FFN 有两种切法。先看两种切法下权重与 token 各自怎么分布（4 个专家、4 张卡，$$f = d_{ff}$$）：
+MoE 的 FFN 有两种切法。先看两种切法下每张卡持有哪些权重（4 个专家、4 张卡；蓝色矩形是一块权重，宽度代表 $$d_{ff}$$ 维，图中记作 f）：
 
-```text title="TP-4 与 EP-4 两种切法的权重与 token 分布"
-TP-4：切矩阵。每卡持有所有专家的 1/4（W_gate/W_up 切列，W_down 切行）
+![TP-4 与 EP-4 两种切法下每张卡持有的专家权重](/img/in-post/moe-compute-and-communication-tp-vs-ep-layout.svg)
 
-           expert0     expert1     expert2     expert3
-  rank0   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]     每卡 E 个瘦矩阵
-  rank1   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
-  rank2   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
-  rank3   [d, f/4]    [d, f/4]    [d, f/4]    [d, f/4]
+| | TP-4：切矩阵 | EP-4：切专家 |
+|---|---|---|
+| 每卡持有的权重 | 全部 $$E$$ 个专家，各 1/4（$$W_{gate}$$、$$W_{up}$$ 切列，$$W_{down}$$ 切行） | $$E/4$$ 个完整专家 |
+| token 是否移动 | 不移动：每卡对全部 token 算全部专家的局部结果 | 移动：dispatch → 本地 grouped GEMM → combine |
+| 通信 | 每层末尾 all-reduce 一个 $$[B, d]$$ | 每层两次 all-to-all |
+| 通信量与 $$k$$ 的关系 | 与 $$k$$、$$E$$ 无关 | 与 $$k$$ 成正比 |
+| DeepSeek-V3 的专家（7168 × 2048）在每卡上的形状 | TP-8：7168 × 256 的切片 | 完整的 7168 × 2048 |
 
-  token 不移动：每卡对全部 token 算全部专家的局部结果，
-  最后 all-reduce 一个 [B, d]，通信量与 k、E 无关
+Table: TP 与 EP 两种切法的对比
 
-EP-4：切专家。每卡持有 E/4 个完整专家
-
-           expert0     expert1     expert2     expert3
-  rank0    [d, f]         -           -           -        每卡 E/N 个完整矩阵
-  rank1       -        [d, f]         -           -
-  rank2       -           -        [d, f]         -
-  rank3       -           -           -        [d, f]
-
-  token 移动：dispatch all-to-all -> 本地 grouped GEMM -> combine all-to-all，
-  通信量与 k 成正比
-
-DeepSeek-V3 的专家 [7168, 2048]：TP-8 每卡切片 [7168, 256]，EP 每卡完整 [7168, 2048]
-```
-
-**张量并行（TP）** 切每个专家的矩阵：$$n$$ 卡 TP 下，每个专家的 $$W_{gate}, W_{up}$$ 按列切成 $$n$$ 份、$$W_{down}$$ 按行切成 $$n$$ 份，每张卡持有所有 $$E$$ 个专家的 $$1/n$$。每张卡对所有 token 算所有专家的局部结果，最后做一次 all-reduce。all-reduce 的通信量是标准结论：对 $$B$$ 个 token 的 $$[B, d]$$ 输出，每卡收发
+**张量并行（TP）** 切每个专家的矩阵：$$n$$ 卡 TP 下，每个专家的 $$W_{gate}, W_{up}$$ 按列切成 $$n$$ 份、$$W_{down}$$ 按行切成 $$n$$ 份，每张卡持有所有 $$E$$ 个专家的 $$1/n$$。每张卡对所有 token 算所有专家的局部结果，最后做一次 all-reduce。all-reduce 的通信量是标准结论：对 $$B$$ 个 token 的 $$[B, d]$$ 输出，每卡收发（推导见[《前向的算量与访存量》的「张量并行如何切这些形状」一节](/transformer-flops-bytes-and-roofline.html#4-张量并行如何切这些形状)）
 
 $$2 \cdot \frac{n-1}{n} \cdot B \cdot d \cdot \text{bytes/elem}$$
 
@@ -532,13 +616,13 @@ DeepSeek-V3 的 $$d = 7168$$、BF16、$$n = 8$$：每 token 每层 $$2 \times 7/
 
 **专家并行（EP）** 按专家切，通信是上一节的 168 KiB 每 token 每层，**与 $$k$$ 成正比，与 $$E$$ 无关**。
 
-按字节数看，DeepSeek-V3 的 EP 通信是 TP-8 的 6.7 倍。那为什么 DeepSeek-V3 不用 TP？三个原因：
+按字节数看，DeepSeek-V3 的 EP 通信是 TP-8 的 6.7 倍。那为什么 DeepSeek-V3 不用 TP？三个原因。
 
-第一，TP 的规模上限是一台机器。NVLink 域是 8 卡，跨节点 TP 会让每层两次 all-reduce（attention 与 FFN 各一次）走 IB，延迟不可接受。而 671 GB 权重两台机器都放不下多少 KV cache，TP-8 从一开始就不够。
+**1、TP 的规模上限是一台机器。**NVLink 域是 8 卡，跨节点 TP 会让每层两次 all-reduce（attention 与 FFN 各一次）走 IB，延迟不可接受。而 671 GB 权重两台机器都放不下多少 KV cache，TP-8 从一开始就不够。
 
-第二，TP 不减少每卡的专家读取数。TP-8 下每卡持有全部 256 个专家的 1/8，batch 32 时仍然要读 163 个专家的 1/8 切片——每卡读取量是 $$434 / 8 = 54$$ GB，而 EP32 每卡只读自己 8 个专家中被激活的（至多 $$8 \times 58 \times 44.04\text{M} = 20.4$$ GB，加上复制的 17 GB）。
+**2、TP 不减少每卡的专家读取数。**TP-8 下每卡持有全部 256 个专家的 1/8，batch 32 时仍然要读 163 个专家的 1/8 切片——每卡读取量是 $$434 / 8 = 54$$ GB，而 EP32 每卡只读自己 8 个专家中被激活的（至多 $$8 \times 58 \times 44.04\text{M} = 20.4$$ GB，加上复制的 17 GB）。
 
-第三，也是最根本的：GEMM 形状。专家的 $$d_{ff} = 2048$$，TP-8 切完每卡只剩 256 列，$$W_{gate}$$ 的切片是 $$[7168, 256]$$。这么瘦的矩阵，GEMM 的 N 维只有 256，Tensor Core 的 tile 利用率与访存效率都差。而 EP 下每卡的专家 GEMM 保持完整的 $$[7168, 2048]$$ 形状。Mixtral 的专家 $$d_{ff} = 14336$$，TP-8 切完还有 1792 列，GEMM 形状仍然健康，所以 Mixtral 在单机 8 卡上用 TP 是完全可行的选择——vLLM 的默认 MoE 部署就是这样。
+**3、最根本的是 GEMM 形状。**专家的 $$d_{ff} = 2048$$，TP-8 切完每卡只剩 256 列，$$W_{gate}$$ 的切片是 $$[7168, 256]$$。这么瘦的矩阵，GEMM 的 N 维只有 256，Tensor Core 的 tile 利用率与访存效率都差。而 EP 下每卡的专家 GEMM 保持完整的 $$[7168, 2048]$$ 形状。Mixtral 的专家 $$d_{ff} = 14336$$，TP-8 切完还有 1792 列，GEMM 形状仍然健康，所以 Mixtral 在单机 8 卡上用 TP 是完全可行的选择——vLLM 的默认 MoE 部署就是这样。
 
 粗略的判据：**专家少、每个专家宽（Mixtral），TP 划算，通信量小且 GEMM 形状好；专家多、每个专家窄（DeepSeek-V3），TP 切出来的矩阵太瘦，必须用 EP，接受 all-to-all 的代价。** 实际部署常常两者混用：attention 部分 TP 或数据并行，专家部分 EP。
 
@@ -555,7 +639,7 @@ $$\frac{T \cdot k}{E}$$
 个 token。代入：
 
 | 场景 | T | k | E | 每专家平均行数 Tk/E | dense FFN 的 M |
-|---|---|---|---|---|---|
+|---|---:|---:|---:|---:|---:|
 | DeepSeek-V3 prefill | 4096 | 8 | 256 | 128 | 4096 |
 | DeepSeek-V3 decode | 32 | 8 | 256 | 1 | 32 |
 | DeepSeek-V3 decode | 128 | 8 | 256 | 4 | 128 |
@@ -570,13 +654,23 @@ DeepSeek-V3 prefill 4096 token，每个专家只有 128 行；decode batch 32，
 
 Tensor Core GEMM kernel 以 tile 为单位计算，典型的 tile 是 128 × 128 或 128 × 256（M × N）。M = 128 恰好填满一个 tile，没有浪费，但一个专家的 GEMM 只有一个 tile 行，无法在 M 方向上做多 tile 的流水与负载分配；M = 1 时 tile 的 128 行中只有 1 行有效，算力利用率是 1/128。
 
-grouped GEMM 是对这个问题的工程回答：把 $$E$$ 个不同形状（行数各异）、共享 K 与 N 维的小 GEMM 打包成一个 kernel launch，让 GPU 的 SM 在专家之间做负载分配，避免 256 次 launch 的开销和 SM 空闲。CUTLASS 的 grouped GEMM、vLLM 的 fused MoE Triton kernel、Megatron 的 grouped GEMM 后端都是这个思路。它解决了 launch 开销与 SM 利用率问题，但没有改变每个专家 M 小这一事实：decode 阶段的 MoE 层，本质上还是在为每个专家读一遍 $$[7168, 2048]$$ 的权重然后只乘 1–4 行——第四章算过的"访存量按激活专家数"，正是这里的直接体现。
+grouped GEMM 是对这个问题的工程回答：把 $$E$$ 个不同形状（行数各异）、共享 K 与 N 维的小 GEMM 打包成一个 kernel launch，让 GPU 的 SM 在专家之间做负载分配，避免 256 次 launch 的开销和 SM 空闲。CUTLASS 的 grouped GEMM、vLLM 的 fused MoE Triton kernel、Megatron 的 grouped GEMM 后端都是这个思路。它解决了 launch 开销与 SM 利用率问题，但没有改变每个专家 M 小这一事实：decode 阶段的 MoE 层，本质上还是在为每个专家读一遍 $$[7168, 2048]$$ 的权重然后只乘 1–4 行——[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)算过的"访存量按激活专家数"，正是这里的直接体现。
 
-第一篇的参数量、第二篇的 FLOPs 在 MoE 上都成立；不成立的是第二篇 Roofline 分析中"batch $$B$$ 时权重 GEMM 算术强度约为 $$B$$ FLOP/byte"这条：MoE 层里每个专家的算术强度是 $$Tk/E$$ 而不是 $$T$$，比 dense 低 $$E/k = 32$$ 倍（DeepSeek-V3）。要让专家 GEMM 越过 H100 的 ridge point（约 295 FLOP/byte，BF16），需要每专家至少 300 行左右，即 $$T \geq 300 \times 32 \approx 9600$$ 个 token 同时在一层——这在 prefill 可以做到，在 decode 只有靠 EP 把大量并发请求的 token 汇聚到同一个专家上。DeepSeek-V3 用 EP320 做 decode，320 卡上的所有请求在每个专家上汇聚，是让专家 GEMM 有足够 M 的另一个理由。
+[《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)数参数的方法、[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的 FLOPs 在 MoE 上都成立；不成立的是后者 [Roofline 分析](/transformer-flops-bytes-and-roofline.html#4-decode-权重-gemm-的算术强度--b)中"batch $$B$$ 时权重 GEMM 算术强度约为 $$B$$ FLOP/byte"这条：MoE 层里每个专家的算术强度是 $$Tk/E$$ 而不是 $$T$$，比 dense 低 $$E/k = 32$$ 倍（DeepSeek-V3）。要让专家 GEMM 越过 H100 的 [ridge point](# "tip: Roofline 图上算力上限与带宽上限的交点：峰值算力 ÷ 显存带宽；算术强度低于它时受访存限制，高于它时受算力限制")（约 295 FLOP/byte，BF16），需要每专家至少 300 行左右，即 $$T \geq 300 \times 32 \approx 9600$$ 个 token 同时在一层——这在 prefill 可以做到，在 decode 只有靠 EP 把大量并发请求的 token 汇聚到同一个专家上。DeepSeek-V3 用 EP320 做 decode，320 卡上的所有请求在每个专家上汇聚，是让专家 GEMM 有足够 M 的另一个理由。
 
 ## 七、负载均衡
 
 前面所有推导都假设路由均匀。实际训练中 router 会自发地偏爱少数专家（被选多的专家训练得更好，因此被选得更多），如果不加干预会塌缩到几个专家上。负载不均既是建模问题，也是系统问题。
+
+本章讲三种训练时的均衡手段，再看不均衡在专家并行下的后果。三种手段作用在不同的位置：
+
+| 手段 | 作用在哪 | 怎么起作用 | 代价 | 谁在用 |
+|---|---|---|---|---|
+| 辅助损失 | 训练目标（经梯度改 router 权重） | 超载专家的平均路由概率被梯度压低 | 均衡与路由质量互相拉扯，系数 $$\alpha$$ 要调 | Switch Transformer、GShard |
+| 容量因子 + token drop | 专家的输入缓冲区（不改 router） | 每专家固定收 $$C \cdot Tk/E$$ 行，多的丢、少的补零 | 丢弃的 token 这一层不过 FFN<br/>补零的行空算<br/>训练与推理行为不一致 | Switch Transformer（$$C$$ = 1.0–1.25） |
+| 选择偏置 $$b_i$$（aux-loss-free） | top-$$k$$ 的排序分数（不经梯度） | 每步按负载统计给超载专家减 $$\gamma$$、欠载的加 $$\gamma$$ | 多一个训练目标之外的控制回路 | DeepSeek-V3（$$\gamma$$ = 0.001，不丢 token） |
+
+Table: 三种负载均衡手段的作用位置与代价
 
 ### 1. 辅助损失
 
@@ -598,22 +692,11 @@ $$\text{capacity} = C \cdot \frac{T \cdot k}{E}$$
 
 $$C = 1$$ 时容量恰好等于均匀分配下的平均行数；Switch Transformer 用 1.0–1.25。收到的 token 超过容量的专家丢弃多余 token——这些 token 在这一层不经过 FFN，只沿残差连接直接通过。$$C$$ 越大丢弃越少但填充（padding）越多、计算浪费越大。
 
-固定容量的动机是系统性的：训练框架希望每个专家的输入是一个形状固定的张量 $$[\text{capacity}, d]$$，这样 all-to-all 的缓冲区大小、GEMM 的形状在编译期就能确定，不需要动态分配。代价是两头浪费——欠载的专家要 padding 到 capacity，超载的专家要丢 token。以 DeepSeek-V3 prefill 4096 token、$$C = 1.25$$ 为例，每专家容量 160 行；若某个专家实际收到 200 行，40 行被丢弃（20%）；若只收到 80 行，另外 80 行是零填充，GEMM 的一半算力浪费。把几个专家的实际行数画在同一条容量线上：
+固定容量的动机是系统性的：训练框架希望每个专家的输入是一个形状固定的张量 $$[\text{capacity}, d]$$，这样 all-to-all 的缓冲区大小、GEMM 的形状在编译期就能确定，不需要动态分配。代价是两头浪费——欠载的专家要 padding 到 capacity，超载的专家要丢 token。以 DeepSeek-V3 prefill 4096 token、$$C = 1.25$$ 为例，每专家容量 160 行；若某个专家实际收到 200 行，40 行被丢弃（20%）；若只收到 80 行，另外 80 行是零填充，GEMM 的一半算力浪费。把四个专家的实际行数画在同一条容量线上（$$T = 4096$$，$$k = 8$$，$$E = 256$$，平均 128 行，$$C = 1.25$$）：
 
-```text title="容量因子下各专家的 padding 与 drop"
-T = 4096, k = 8, E = 256：平均 Tk/E = 128 行；C = 1.25 -> capacity = 160 行
-每个字符 = 8 行：# 实际 token   . 零填充 padding   x 超出容量被 drop
+![容量因子 1.25 下四个专家的填充与丢弃](/img/in-post/moe-compute-and-communication-capacity-padding-drop.svg)
 
-                                   avg  cap
-                                   128  160
-expert 0  rows=200  ################:####|xxxxx   40 行 drop（20%）
-expert 1  rows=160  ################:####|        恰好填满
-expert 2  rows=128  ################:....|        32 行 padding
-expert 3  rows= 80  ##########......:....|        80 行 padding，GEMM 一半浪费
-                    <-- 每专家固定 [160, d] 输入 -->
-```
-
-容量线两侧都是浪费：线右边的 token 被丢，线左边的空位被算。$$C$$ 只能在两种浪费之间移动，不能同时消除。
+每个专家的输入都是固定的 $$[160, d]$$。容量线两侧都是浪费：线右边的 token 被丢，线左边的空位被算。$$C$$ 只能在两种浪费之间移动，不能同时消除。
 
 推理时一般不丢弃（dropless），改用动态大小的 grouped GEMM——每个专家有多少行就算多少行，这正是 grouped GEMM 支持不等行数的原因。因此训练与推理在 token drop 上的行为存在差异，训练时被丢弃过的 token 在推理时会正常经过专家；这个差异在实践中通常可以接受，但它是"训练时的均衡策略如何影响推理形态"的一个例子。DeepSeek-V3 训练时就不做 token drop，避免了这个差异。
 
@@ -633,23 +716,11 @@ EP 下一层的时间由最慢的那张卡决定——所有卡都要等 combine
 - 它收到的 dispatch 字节数翻倍，发出的 combine 字节数翻倍——all-to-all 的完成时间由最大的收发方决定；
 - 其余 255 张卡在这一层的后半段空闲。
 
-用 4 张卡的时间线看"谁在等谁"（每格 = 均衡时一个阶段的时间）：
+用 4 张卡的时间线看"谁在等谁"（每卡 1 个专家，1 格 = 均衡时一个阶段的时间）：
 
-```text title="负载均衡与不均衡的 4 卡时间线"
-均衡（每专家都收到 Tk/E 行）：
-rank0-3     |disp|GEMM|comb|
-            0    1    2    3                        全层 = 3 格
+![负载均衡与不均衡时 4 张卡在一个 MoE 层内的时间线](/img/in-post/moe-compute-and-communication-load-imbalance-timeline.svg)
 
-不均衡（e2 收到 2x 平均）：
-rank0 (e0)  |disp    |GEMM|....|comb    |
-rank1 (e1)  |disp    |GEMM|....|comb    |
-rank2 (e2)  |disp    |GEMM GEMM|comb    |   <- 收 2x 字节、算 2x 行、发 2x 字节
-rank3 (e3)  |disp    |GEMM|....|comb    |
-            0        2    3    4        6           全层 = 6 格
-
-disp / comb 是 all-to-all，结束时间由最大收发方 rank2 决定，所有卡一起等；
-GEMM 阶段其余 3 张卡 1 格后算完（....），要等 rank2 算完才能进入 combine。
-```
+dispatch 与 combine 是 all-to-all，结束时间由收发量最大的 rank2 决定，所有卡一起等，各占 2 格；GEMM 阶段其余 3 张卡 1 格后算完，要空等 rank2 算完才能进入 combine。
 
 结果是这一层的耗时约为均衡时的 2 倍，全层的算力利用率降到约 50%。58 层里只要几层出现热点，整体吞吐就明显下降。这就是为什么 DeepSeek-V3 的部署方案里有"冗余专家"（把热门专家复制到多张卡上）与周期性根据负载统计重排专家的机制——EP 下负载均衡不再只是训练时的建模问题，而是推理时的调度问题。
 
@@ -657,13 +728,13 @@ GEMM 阶段其余 3 张卡 1 格后算完（....），要等 rank2 算完才能�
 
 ### 1. 共享专家其实是 dense FFN
 
-DeepSeek-V3 每个 MoE 层有 1 个共享专家，$$d_{ff} = 2048$$，不经过 router，对每个 token 都执行。从系统角度看它就是一个 dense 的窄 FFN：参数 44.04M，每 token 算量 $$2 \times 44.04\text{M}$$，每步无论 batch 多大都要读一遍。它可以在每张卡上复制、不参与 all-to-all——这是最简单的放法；DeepSeek-V3 的 decode 部署（报告 3.4.2）却没有这样做，而是把它也当作一个"每个 token 都会选中"的专家放在专门的卡上，一起走 all-to-all，每 token 发往 9 个目标。两种放法都合法，取舍是每卡显存与一份额外通信。58 层共 2.55B 参数，算进 37B 激活参数，也算进第四章的 $$N_{always}$$。
+DeepSeek-V3 每个 MoE 层有 1 个共享专家，$$d_{ff} = 2048$$，不经过 router，对每个 token 都执行。从系统角度看它就是一个 dense 的窄 FFN：参数 44.04M，每 token 算量 $$2 \times 44.04\text{M}$$，每步无论 batch 多大都要读一遍。它可以在每张卡上复制、不参与 all-to-all——这是最简单的放法；DeepSeek-V3 的 decode 部署（报告 3.4.2）却没有这样做，而是把它也当作一个"每个 token 都会选中"的专家放在专门的卡上，一起走 all-to-all，每 token 发往 9 个目标。两种放法都合法，取舍是每卡显存与一份额外通信。58 层共 2.55B 参数，算进 37B 激活参数，也算进[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)的 $$N_{always}$$。
 
 建模上的动机（DeepSeek-V2 论文）是让共享专家吸收所有 token 都需要的"通用知识"，使路由专家更专门化、减少专家间的冗余。系统上它是 MoE 层里唯一"行为像 dense"的部分，可以和 attention 一起用 TP、直接复制、或如上所述当作路由目标——前两种不增加 all-to-all 通信。
 
 ### 2. MTP：内置的投机草稿
 
-DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。投机解码的期望加速与接受率的关系，第八篇会展开。
+DeepSeek-V3 在主模型之外训练了一个多 token 预测（Multi-Token Prediction，MTP）模块，用第 $$t$$ 个位置的 hidden state 额外预测第 $$t+2$$ 个 token。推理时这个模块可以直接当作投机解码的草稿模型：主模型一步产生一个 token，MTP 头顺带猜出下一个，再由主模型验证。报告中的接受率在 85%–90%，相当于每步 decode 平均产出接近 1.8 个 token。MTP 模块的结构与训练目标见[《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html)，投机解码的期望加速与接受率的关系见[《投机解码——草稿、验证与收益条件》的「期望接受数与加速比」一节](/speculative-decoding-draft-verify-and-payoff.html#3-期望接受数与加速比)。
 
 ## 九、实践：llm_cost.py 的 MoE 支持
 
@@ -685,7 +756,7 @@ class ModelConfig:
     d_ff: int
     vocab: int
     tie_embeddings: bool = False
-    # 第四篇加入：MLA（mla_rank=0 表示 GQA/MHA）
+    # 《Attention 变体与 KV cache》加入：MLA（mla_rank=0 表示 GQA/MHA）
     mla_rank: int = 0        # d_c
     rope_dim: int = 0        # d_h^R
     q_lora_rank: int = 0
@@ -857,12 +928,12 @@ if __name__ == "__main__":
 
 几点核对：
 
-- Mixtral 总参数 46.70B、激活 12.88B，与第三章手算一致；
+- Mixtral 总参数 46.70B、激活 12.88B，与[第三章](#三参数量与激活参数量)手算一致；
 - DeepSeek-V3 总参数 671.03B，与技术报告的 671B 一致；激活 37.55B 比报告的 37B 略高，差别来自 router（0.11B）与 embedding 的计法（报告的 37B 是取整数字），正文统一用 37B 与 74 GFLOPs；
-- 期望激活专家数 $$B = 32$$ 时 163.3、$$B = 128$$ 时 251.6，与第四章的表一致；
+- 期望激活专家数 $$B = 32$$ 时 163.3、$$B = 128$$ 时 251.6，与[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)的表一致；
 - all-to-all 每 token 每层 168 KiB（DeepSeek-V3）、32 KiB（Mixtral，top-2、$$d = 4096$$、dispatch 与 combine 都按 BF16）。
 
-第八篇会在这个脚本上加投机解码的期望加速比，第十篇加 dtype 字节表与训练状态显存；量化与 LoRA 的列在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
+[《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)会在这个脚本上加投机解码的期望加速比，[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)加 dtype 字节表与训练状态显存；量化与 LoRA 的列在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
 
 ## 十、本文小结
 
@@ -876,33 +947,28 @@ MoE 把 dense 模型里绑在一起的三个数拆开了：
 
 本篇算出的数字汇总：
 
-```text title="本篇数字汇总：Mixtral、DeepSeek-V3 与 Llama-3-70B"
-                                 Mixtral 8x7B      DeepSeek-V3        Llama-3-70B（dense 对照）
-专家配置                          8 × 14336, top-2  256 × 2048, top-8  —
-                                                    + 1 共享
-每专家参数                        176.16M           44.04M             —（FFN 704.6M）
-总参数                            46.7B             671B               70.55B
-激活参数 / token                  12.9B             37B                70.55B
-FLOPs / token（≈ 2 × 激活）       ≈ 26 GFLOPs       74 GFLOPs          141 GFLOPs
-权重字节                          BF16 93.4 GB      FP8 671 GB         BF16 141 GB
-                                                    BF16 1342 GB
-期望激活专家数  B=1 / 32 / 128    2 / 8.0 / 8.0     8 / 163 / 252      —
-每步读取参数量  B=1               12.9B             37.6B              70.55B
-                B=32              46.7B             434B               70.55B
-                B=128             46.7B             660B               70.55B
-EP all-to-all / token / 层        32 KiB（BF16）    168 KiB            —
-                                                    （FP8 56 + BF16 112）
-TP-8 all-reduce / token / 层      —                 25 KiB             28 KiB
-grouped GEMM 每专家行数
-    prefill T=4096                1024              128                4096（dense M）
-    decode B=32                   8                 1                  32（dense M）
-```
+| 量 | Mixtral 8x7B | DeepSeek-V3 | Llama-3-70B（dense 对照） |
+|---|---:|---:|---:|
+| 专家配置 | 8 × 14336，top-2 | 256 × 2048，top-8，另有 1 个共享 | — |
+| 每专家参数 | 176.16M | 44.04M | —（FFN 704.6M） |
+| 总参数 | 46.7B | 671B | 70.55B |
+| 激活参数 / token | 12.9B | 37B | 70.55B |
+| FLOPs / token（≈ 2 × 激活） | ≈ 26 GFLOPs | 74 GFLOPs | 141 GFLOPs |
+| 权重字节 | BF16 93.4 GB | FP8 671 GB<br/>BF16 1342 GB | BF16 141 GB |
+| 期望激活专家数，B = 1 / 32 / 128 | 2 / 8.0 / 8.0 | 8 / 163 / 252 | — |
+| 每步读取参数量，B = 1 | 12.9B | 37.6B | 70.55B |
+| 每步读取参数量，B = 32 | 46.7B | 434B | 70.55B |
+| 每步读取参数量，B = 128 | 46.7B | 660B | 70.55B |
+| EP all-to-all / token / 层 | 32 KiB（BF16） | 168 KiB（FP8 56 + BF16 112） | — |
+| TP-8 all-reduce / token / 层 | — | 25 KiB | 28 KiB |
+| 每专家 GEMM 行数，prefill T = 4096 | 1024 | 128 | 4096（dense 的 M） |
+| 每专家 GEMM 行数，decode B = 32 | 8 | 1 | 32（dense 的 M） |
+
+Table: 本篇数字汇总：Mixtral 8x7B、DeepSeek-V3 与 Llama-3-70B
 
 所有数字都是从超参数推导的理论值。它们回答的是数量级问题：MoE 在哪里省了、在哪里没省、代价转移到了哪里。
 
-MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是第四篇的 MLA）。它还有第三处——不改结构、改**训练目标**的 MTP：每个位置多预测一个 token，训练时多一份监督信号，推理时白送一个投机解码的草稿。下一篇讲它。
-
-> **同一批数据，能不能榨出两倍的监督信号？多出来的那个预测头，推理时去哪了？**
+MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)里的 MLA）。它还有第三处——不改结构、改**训练目标**的 MTP：每个位置多预测一个 token，训练时多一份监督信号，推理时白送一个投机解码的草稿。[《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html)接着讲同一批数据怎样多出一份监督信号，以及多出来的预测头在推理时的去向。
 
 配套代码：[`transformer-and-llm/llm_cost_05_moe.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_05_moe.py)；第二章的最小 MoE 层在 [`moe_layer_minimal.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/moe_layer_minimal.py)。
 
@@ -920,7 +986,7 @@ MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是第四篇�
 
    <details markdown="1"><summary>答案</summary>
 
-   $$256 \times [1 - (1 - 8/256)^B]$$：$$B = 1$$ 是 8；$$B = 8$$ 是 $$256 \times (1 - 0.968^8) \approx 59$$；$$B = 64$$ 是 $$256 \times (1 - 0.968^{64}) \approx 224$$——中等 batch 就几乎读全部专家。
+   $$256 \times [1 - (1 - 8/256)^B]$$：$$B = 1$$ 是 8；$$B = 8$$ 是 $$256 \times (1 - 0.96875^8) \approx 57$$；$$B = 64$$ 是 $$256 \times (1 - 0.96875^{64}) \approx 222$$——中等 batch 就几乎读全部专家。
 
    </details>
 
@@ -928,7 +994,7 @@ MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是第四篇�
 
    <details markdown="1"><summary>答案</summary>
 
-   dispatch 把每个 token 的隐状态送到它选中的专家所在的卡，combine 把专家输出送回原卡加权求和；每 token 每层通信 $$2 \times k \times d \times$$ bytes（去与回），与 top-k、$$d$$、序列长度成正比，与专家参数量无关。
+   dispatch 把每个 token 的隐状态送到它选中的专家所在的卡，combine 把专家输出送回原卡加权求和；每 token 每层通信 $$k \times d \times$$（dispatch 每元素字节数 + combine 每元素字节数），DeepSeek-V3 是 $$8 \times 7168 \times (1 + 2) = 168$$ KiB；与 top-k、$$d$$、token 数成正比，与专家数 $$E$$ 和专家参数量无关。
 
    </details>
 
@@ -944,8 +1010,16 @@ MoE 是 DeepSeek-V3 在**结构**上的第二处改动（第一处是第四篇�
 
    <details markdown="1"><summary>答案</summary>
 
-   dense 37B 每步读 37B 参数、与 batch 无关；MoE 每步读的参数随 batch 从 37B 涨到 671B——batch 稍大就读 5–18 倍的字节，memory-bound 的 decode 时间随之涨。
+   dense 37B 每步读 37B 参数、与 batch 无关；MoE 每步读的参数随 batch 从 37B 涨到 671B——$$B = 8$$ 时 164B（4.4 倍），$$B = 32$$ 时 434B（11.6 倍），上限 18 倍，memory-bound 的 decode 时间随之涨。
 
    </details>
 
-[^q0]: 把三个「参数量」分开算：**总参数量** 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（[第三章](#三参数量与激活参数量)）；**激活参数量** 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半；**每步实际读取的参数量**决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已覆盖 434B 的权重，趋近 671B，所以 decode 读的字节几乎是 dense 70B 的 5 倍而算力用不满（[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来（[第五章](#五专家并行与-all-to-all)）；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（[第六章](#六grouped-gemm-的形态)）；专家负载不均让最忙的卡拖住所有卡（[第七章](#七负载均衡)）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。
+6. Mixtral 8x7B 的名字像是 $$8 \times 7\text{B} = 56\text{B}$$，实际总参数 46.7B、每 token 激活 12.9B。少掉的 9B 去哪了？激活为什么不是 $$2 \times 7\text{B} = 14\text{B}$$？
+
+   <details markdown="1"><summary>答案</summary>
+
+   8 份里重复计算的只应是专家：每层 8 个专家 $$8 \times 176.16\text{M} = 1.409$$B，32 层 45.10B；attention（每层 41.94M，共 1.34B）与 embedding / lm_head（0.26B）只有一份，合计 46.7B。激活 = 32 层 ×（attention 41.94M + 2 个专家 352.3M）+ 0.26B = 12.9B，占 27.6%。
+
+   </details>
+
+[^q0]: 把三个「参数量」分开算：**总参数量** 671B 决定显存——FP8 下也是 671 GB，一台 8 卡 H100（640 GB）放不下，必须多机（[第三章](#三参数量与激活参数量)）；**激活参数量** 37B 决定每 token 的 FLOPs——74 GFLOPs，只有 dense 70B 的一半；**每步实际读取的参数量**决定 decode 带宽——batch 为 1 时读 37B，但每个 token 各选 8 个专家，一个 batch 里被激活的专家数 $$E[1 - (1 - k/E)^B]$$ 在 $$B = 32$$ 时已覆盖 434B 的权重（dense 70B 的 6.2 倍；按字节是 FP8 434 GB 对 BF16 141 GB，3 倍），$$B = 128$$ 时 660B，趋近 671B，所以 decode 读的字节数倍于 dense 70B 而算力用不满（[第四章](#四decode-的访存形态稀疏收益随-batch-减弱)）。**难在哪**：显存逼着专家并行到多机，每层两次 all-to-all 把 token 送到专家所在的卡再送回来（[第五章](#五专家并行与-all-to-all)）；小 batch 下每个专家只分到几个 token，GEMM 碎成一堆小矩阵、MFU 极低（[第六章](#六grouped-gemm-的形态)）；专家负载不均让最忙的卡拖住所有卡（[第七章](#七负载均衡)）。dense 70B 一台机器 TP 就跑起来了，这些问题一个都没有。
