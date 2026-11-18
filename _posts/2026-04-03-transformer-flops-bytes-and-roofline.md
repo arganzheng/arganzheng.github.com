@@ -5,13 +5,13 @@ title: "现代 LLM 结构（02）：前向的算量与访存量"
 subtitle: "FLOPs, Bytes and Roofline: Prefill versus Decode"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 date: 2026-04-03 10:00:00
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第二篇，是后面所有专项共用的成本工具箱。第 01 篇数出了参数量，本篇把每个矩阵乘换成 FLOPs 与字节数，再放到 Roofline 上换算成时间：prefill 与 decode 为什么不同、decode 为什么受带宽限制、时间下界怎么算。第 03 篇起的每个专项都只算自己相对基线的增量，不再重讲这些定义。第八节「训练侧：激活值与 MFU」只在训练相关的篇目用到，第一遍可以跳过。完整地图见[总纲](/gpt2-to-llama-five-changes-and-parameter-count.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第二篇，是后面所有专项共用的成本工具箱。[《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)数出了参数量，本篇把每个矩阵乘换成 FLOPs 与字节数，再放到 Roofline 上换算成时间：prefill 与 decode 为什么不同、decode 为什么受带宽限制、时间下界怎么算。从[《位置编码与外推》](/positional-encoding-and-long-context.html)起的每个专项都只算自己相对基线的增量，不再重讲这些定义。[第八章「训练侧：激活值显存与 MFU」](#八训练侧激活值显存与-mfu)只在训练相关的篇目用到，第一遍可以跳过。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-本篇开始算账。第一篇把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度，结论可以压缩成一个公式：
+本篇开始算账。《从 GPT-2 到 Llama——五处改动与参数量》把一个 decoder-only Transformer 拆到了能数出每一个参数的粒度，结论可以压缩成一个公式：
 
 $$
 N \approx L \cdot \left[ d \cdot (d + 2 d_{kv} + d) + 3 \cdot d \cdot d_{ff} \right] + 2 \cdot V \cdot d
@@ -31,9 +31,61 @@ $$
 
 ## 一、总览：从参数表到成本表
 
+全篇是一条推导链：权重形状定下每个 GEMM 的 $$k$$、$$n$$，运行时再给出 $$m$$，由此算出 FLOPs 和字节数，两者相除得到算术强度，与硬件的 ridge point 一比，就知道时间由带宽还是由算力决定。prefill 与 decode 用的是同一组权重，只因为 $$m$$ 不同，在最后一步走向两边：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：从参数表到时间下界的推导链，prefill 与 decode 在算术强度处分开
+flowchart TB
+    P["<b>权重形状</b><br/>每个矩阵 #91;k, n#93;，参与 GEMM 的参数 $$N_{gemm} \approx 7.5\text{B}$$"]
+    M["<b>运行时的 m（第三章）</b><br/>• prefill：m = s，prompt 的 token 数<br/>• decode：m = B，batch 里的请求数"]
+    F["<b>FLOPs（第二章）</b><br/>• 权重项：每 token $$2N_{gemm}$$，共 m 个 token<br/>• attention 上下文项：每 token $$4dsL$$"]
+    BY["<b>每步从 HBM 读的字节（第四章）</b><br/>• 权重：15.0 GB，与 m 无关<br/>• KV cache：B × s × 128 KiB"]
+    I["<b>算术强度 I（第五章）</b><br/>• I = FLOPs ÷ 字节<br/>• H100 的 ridge point：989 TFLOPS ÷ 3.35 TB/s ≈ 295"]
+    R{"I 比 295 大还是小"}
+    MB["<b>decode：memory-bound（第六章）</b><br/>I ≈ B，读 KV 后更低<br/>时间 ≥ 字节 ÷ 带宽：B = 1 时 4.5 ms"]
+    CB["<b>prefill：compute-bound（第六章）</b><br/>I ≈ s，几千<br/>时间 ≥ FLOPs ÷ 峰值算力：8K 时 0.14 s"]
+    Q["<b>核心问题（第七章）</b><br/>只看权重要 B ≈ 295 才到 ridge<br/>8K 上下文下 KV cache 要 295 GiB，单卡放不下"]
+    T["<b>训练侧（第八章）</b><br/>每 token $$6N$$<br/>激活要留到反向，另占显存"]
+    P --> F
+    M --> F
+    P --> BY
+    M -. "B、s 决定 KV 的量" .-> BY
+    F --> I
+    BY --> I
+    I --> R
+    R -- "I 小于 295" --> MB
+    R -- "I 大于 295" --> CB
+    MB --> Q
+    F -. "反向再加 4N" .-> T
+```
+
+- **权重形状**：每个 `nn.Linear` 的 $$[k, n]$$ 由 `config.json` 决定，与输入无关。Llama-3-8B 全部 8.03B 参数里，参与矩阵乘的是 7.5B，输入 embedding 的 0.53B 只查表（[第二章第 3 节](#3-为什么-embedding-查表不算而-lm_head-要算)）。
+- **运行时的 m**：一次 GEMM 一起算多少行。prefill 把 prompt 的 $$s$$ 个 token 一次送入，$$m = s$$；decode 每步每个请求只算 1 个新 token，$$m = B$$（[第三章](#三prefill-与-decode同一组矩阵两种-gemm-形状)）。
+- **FLOPs**：一次 $$[m, k] \times [k, n]$$ 是 $$2mkn$$，所以每个参数每个 token 2 FLOPs，权重项每 token $$2N_{gemm} \approx 15.0$$ GFLOPs；attention 里 token 与 token 之间的乘法另算，每 token $$4dsL$$，随上下文长度增长（[第二章](#二算量flops-从哪里来)）。
+- **每步从 HBM 读的字节**：权重每步整读一遍，字节数只与 $$k \cdot n$$ 有关、与 $$m$$ 无关；KV cache 每 token 128 KiB，每步读 $$B \cdot s$$ 个 token 的量（[第四章](#四访存量每一步要从-hbm-读什么)）。
+- **算术强度 I**：每从 HBM 读 1 字节做多少次浮点运算。FLOPs 随 $$m$$ 线性增长而权重字节不变，所以权重 GEMM 的强度就是 $$m$$：decode 是 $$B$$，prefill 是 $$s$$（[第五章](#五roofline把-flops-和字节数放到同一张图上)）。
+- **I 比 295 大还是小**：ridge point 是峰值算力除以带宽，H100 约 295 FLOP/byte。强度低于它，Tensor Core 在等数据；高于它，带宽有富余（[第五章第 2 节](#2-算术强度与-ridge-point)）。
+- **decode：memory-bound**：时间下界是字节数除以带宽，$$B = 1$$ 时 4.5 ms、约 220 token/s；加上 KV cache 的读取后强度更低（[第六章第 1、2 节](#六时间下界)）。
+- **prefill：compute-bound**：时间下界是 FLOPs 除以峰值算力，8K prompt 约 0.14–0.16 s，按 60% 的经验效率估是 0.24–0.27 s（[第六章第 3 节](#3-prefill8k-约-024027-s128k-约-11-s)）。
+- **核心问题**：decode 要 compute-bound 需要 $$B \approx 295$$，但 8K 上下文下这个 batch 的 KV cache 是 295 GiB，而且总强度被 KV 读取压在 18 以下（[第七章](#七核心问题batch-多大-decode-才-compute-bound)）。
+- **训练侧**：每 token $$6N$$（前向 $$2N$$、反向 $$4N$$）；前向的激活要活到反向，每层 $$sbh(34 + 5as/h)$$ 字节（[第八章](#八训练侧激活值显存与-mfu)）。
+
+推导里反复出现五样放在显存里（或只在 kernel 内部出现）的东西。它们何时产生、存在哪、活多久、decode 每步读不读，各不相同；下表的大小按 Llama-3-8B、BF16：
+
+| 对象 | 何时产生 | 存在哪 | 活多久 | decode 每步读多少 | 大小 |
+|---|---|---|---|---|---|
+| 参与 GEMM 的权重（各层 7 个矩阵 + lm_head） | 加载模型时 | HBM | 整个服务进程 | 整读一遍，与 $$B$$ 无关 | 15.0 GB |
+| 输入 embedding 表 | 加载模型时 | HBM | 整个服务进程 | 只取 $$B$$ 行，每行 8 KiB | 1.05 GB，只占容量 |
+| KV cache | prefill 写入 prompt 的 $$s$$ 个 token；decode 每步追加 1 个 | HBM，每个请求一份 | 到请求结束 | 该请求全部历史 token 的 K、V | 每 token 128 KiB |
+| attention 中间结果（$$QK^\top$$ 的分数、softmax 后的权重 $$P$$） | 每步、每层的 attention kernel 内 | 推理时按块留在 SM 的片上内存，不写回 HBM | kernel 结束即丢 | 不读 | 不占 HBM |
+| 激活值（各层输入、FFN 中间结果） | 每步前向 | 推理：$$B$$ 小时多数留在 L2，prefill 时写回 HBM<br/>训练：HBM | 推理：下一个算子用完即丢<br/>训练：活到这一层反向结束 | 可忽略（MB 级） | decode $$B = 64$$：每层约 1.8 MB<br/>训练 8K 序列：每层约 1–11 GiB |
+
+Table: 权重、embedding 表、KV cache、attention 中间结果与激活值：产生时机、存放位置与每步读取量
+
 ### 1. 数字基线与约定
 
-全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。模型沿用第一篇的 Llama-3-8B、Llama-3-70B 与 DeepSeek-V3，形状表以第一篇为准。
+全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。模型沿用[《从 GPT-2 到 Llama——五处改动与参数量》的「参数量：从 config.json 到 8.03B」一章](/gpt2-to-llama-five-changes-and-parameter-count.html#四参数量从-configjson-到-803b)里的 Llama-3-8B、Llama-3-70B 与 DeepSeek-V3，形状表以那一章为准。
 
 ### 2. 本文的章节安排
 
@@ -45,7 +97,7 @@ $$
 | 五 | Roofline | 两条上限、算术强度与 ridge point、decode 权重 GEMM 的强度 ≈ B、读 KV 的强度 = g |
 | 六 | 时间下界 | decode ≈4.5–4.8 ms / 210–220 token/s 的理想下界、加上 KV cache、prefill 8K 与 128K |
 | 七 | 核心问题 | batch 多大 decode 才 compute-bound<br/>8K 上下文下单卡为什么不可达<br/>64 GB 预算 |
-| 八 | 训练侧 | 每层激活值 `sbh(34` + 5as/h)、FlashAttention 与重算、MFU 与 HFU |
+| 八 | 训练侧 | 每层激活值 $$sbh(34 + 5as/h)$$、FlashAttention 与重算、MFU 与 HFU |
 | 九 | 实践 | `llm_cost.py` 增加 FLOPs、字节数与时间下界；与实测对照的方法 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
@@ -90,9 +142,9 @@ $$
 2 \times 7.5 \times 10^9 \approx 15.0\ \text{GFLOPs/token}
 $$
 
-同样的方法：Llama-3-70B 总参数 70.55B，GEMM 部分 69.5B，每 token 约 139–141 GFLOPs（本系列统一取 141，即 $$2 \times 70.55\text{B}$$，两者差别在 embedding 那一项，不影响任何结论）。DeepSeek-V3 总参数 671B，但每个 token 只经过被路由到的 8 个专家加 1 个共享专家，**激活参数**约 37B，所以每 token 约 $$2 \times 37\text{B} = 74$$ GFLOPs——MoE 的全部意义就是让 $$N$$ 与 $$N_{active}$$ 分离，第六篇会展开。
+同样的方法：Llama-3-70B 总参数 70.55B，GEMM 部分 69.5B，每 token 约 139–141 GFLOPs（本系列统一取 141，即 $$2 \times 70.55\text{B}$$，两者差别在 embedding 那一项，不影响任何结论）。DeepSeek-V3 总参数 671B，但每个 token 只经过被路由到的 8 个专家加 1 个共享专家，**激活参数**约 37B，所以每 token 约 $$2 \times 37\text{B} = 74$$ GFLOPs——MoE 的全部意义就是让 $$N$$ 与 $$N_{active}$$ 分离，[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)会展开。
 
-这个近似里被忽略的项：RMSNorm（每 token 每层约 $$4d$$ 次运算）、RoPE、softmax、SwiGLU 里的逐元素乘法与激活函数、残差加法。它们都是 $$O(d)$$ 或 $$O(d_{ff})$$ 每 token，与 GEMM 的 $$O(d^2)$$ 相比小两到三个数量级。它们在 FLOPs 上可以忽略，**但在时间上不一定能忽略**——这些算子是 memory-bound 的，这是第八节讨论实测差距时要回来的一点。
+这个近似里被忽略的项：RMSNorm（每 token 每层约 $$4d$$ 次运算）、RoPE、softmax、SwiGLU 里的逐元素乘法与激活函数、残差加法。它们都是 $$O(d)$$ 或 $$O(d_{ff})$$ 每 token，与 GEMM 的 $$O(d^2)$$ 相比小两到三个数量级。它们在 FLOPs 上可以忽略，**但在时间上不一定能忽略**——这些算子是 memory-bound 的，[第八章的「MFU 与 HFU」一节](#3-mfu-与-hfu)和[第九章讨论实测差距](#3-与实测对照的方法与预期差距)时要回到这一点。
 
 ### 3. 为什么 embedding 查表不算，而 lm_head 要算
 
@@ -134,7 +186,7 @@ $$
 
 Table: 不同上下文长度下 attention 上下文项与权重项的比
 
-在 8K 上下文，attention 的上下文项是权重项的不到三分之一，"2N 近似"仍然好用；到 128K，它是权重项的 4.6 倍，模型每生成一个 token 的算量主要花在"看历史"而不是"过权重"上。对 Llama-3-70B（$$d = 8192$$，80 层）在 128K：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是它 141 GFLOPs 权重项的 2.4 倍。这一项对系统的意义，第五篇讲长上下文时会算得更细。
+在 8K 上下文，attention 的上下文项是权重项的不到三分之一，"2N 近似"仍然好用；到 128K，它是权重项的 4.6 倍，模型每生成一个 token 的算量主要花在"看历史"而不是"过权重"上。对 Llama-3-70B（$$d = 8192$$，80 层）在 128K：$$4 \times 8192 \times 131072 \times 80 \approx 344$$ GFLOPs，是它 141 GFLOPs 权重项的 2.4 倍。这一项对系统的意义，[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)会算得更细。
 
 ### 5. 训练的 6ND 与激活重算的 8N
 
@@ -143,7 +195,7 @@ Table: 不同上下文长度下 attention 上下文项与权重项的比
 - 前向：$$2N$$，如上；
 - 反向：每个 GEMM 要算两个梯度。对输入的梯度 $$\partial L / \partial X = \partial L / \partial Y \cdot W^\top$$ 是一次 $$[m, n] \times [n, k]$$，$$2mkn$$；对权重的梯度 $$\partial L / \partial W = X^\top \cdot \partial L / \partial Y$$ 是一次 $$[k, m] \times [m, n]$$，也是 $$2mkn$$。合计 $$4N$$。
 
-三个 GEMM 的输入来源画出来，就能看到反向为什么恰好是前向的两倍，以及为什么前向的激活 $$X$$ 必须保存到反向（第八节的激活显存问题就从这里来）：
+三个 GEMM 的输入来源画出来，就能看到反向为什么恰好是前向的两倍，以及为什么前向的激活 $$X$$ 必须保存到反向（[第八章](#八训练侧激活值显存与-mfu)的激活显存问题就从这里来）：
 
 ```mermaid
 %% 图：训练的三个 GEMM：前向一个，反向两个（dX 与 dW），前向的激活 X 必须保存到反向
@@ -181,7 +233,7 @@ $$
 6 \times 8.03 \times 10^9 \times 15 \times 10^{12} \approx 7.2 \times 10^{23}\ \text{FLOPs}
 $$
 
-一张 H100 的 BF16 峰值 989 TFLOPS，按 40% 的 MFU（第七节解释为什么这是一个合理甚至偏乐观的假设）有效算力约 396 TFLOPS：
+一张 H100 的 BF16 峰值 989 TFLOPS，按 40% 的 MFU（[第八章的「MFU 与 HFU」一节](#3-mfu-与-hfu)解释为什么这是一个合理甚至偏乐观的假设）有效算力约 396 TFLOPS：
 
 $$
 \frac{7.2 \times 10^{23}}{3.96 \times 10^{14} \times 3600} \approx 5.1 \times 10^5\ \text{GPU-小时}
@@ -197,15 +249,17 @@ $$
 
 prefill 把 prompt 的 $$s$$ 个 token 一次送入模型。每个 `nn.Linear` 看到的输入是 $$[s, k]$$（多请求时是 $$[\sum s_i, k]$$），GEMM 是 $$[s, k] \times [k, n]$$，$$m = s$$。以 Llama-3-8B、$$s = 8192$$ 为例，每层的几个 GEMM 形状是：
 
-```text title="prefill 每层 GEMM 的形状（s = 8192）"
-W_Q      [8192, 4096] x [4096, 4096]
-W_K, W_V [8192, 4096] x [4096, 1024]
-W_O      [8192, 4096] x [4096, 4096]
-gate, up [8192, 4096] x [4096, 14336]
-down     [8192, 14336] x [14336, 4096]
-QK^T     每 head [8192, 128] x [128, 8192]
-PV       每 head [8192, 8192] x [8192, 128]
-```
+| GEMM | 输入 $$[m, k]$$ | 另一个操作数 $$[k, n]$$ | 另一个操作数是什么 |
+|---|---|---|---|
+| $$W_Q$$ | [8192, 4096] | [4096, 4096] | 权重 |
+| $$W_K$$、$$W_V$$ | [8192, 4096] | [4096, 1024] | 权重 |
+| $$W_O$$ | [8192, 4096] | [4096, 4096] | 权重 |
+| gate、up | [8192, 4096] | [4096, 14336] | 权重 |
+| down | [8192, 14336] | [14336, 4096] | 权重 |
+| $$QK^\top$$（每 head） | [8192, 128] | [128, 8192] | 这段 prompt 自己的 K |
+| $$PV$$（每 head） | [8192, 8192] | [8192, 128] | 这段 prompt 自己的 V |
+
+Table: prefill 每层 GEMM 的形状（Llama-3-8B，s = 8192）
 
 $$m$$ 维是几千，$$k$$、$$n$$ 也是几千，这是 Tensor Core 最喜欢的形状：每读一次权重可以复用 8192 次。prefill 的总 FLOPs 是每 token 算量乘以 $$s$$（attention 项本身还随 $$s$$ 增长，所以是 $$s^2$$）。
 
@@ -213,13 +267,17 @@ $$m$$ 维是几千，$$k$$、$$n$$ 也是几千，这是 Tensor Core 最喜欢�
 
 decode 每步只处理每个请求最新的 1 个 token。batch 里有 $$B$$ 个请求，每个 `nn.Linear` 看到的输入是 $$[B, k]$$，GEMM 是 $$[B, k] \times [k, n]$$，$$m = B$$。$$B = 1$$ 时它退化为矩阵向量乘（GEMV）：
 
-```text title="decode 每层 GEMM 的形状（m = B）"
-W_Q      [B, 4096] x [4096, 4096]
-gate, up [B, 4096] x [4096, 14336]
-down     [B, 14336] x [14336, 4096]
-QK^T     每 head 每请求 [1, 128] x [128, s_i]
-PV       每 head 每请求 [1, s_i] x [s_i, 128]
-```
+| GEMM | 输入 $$[m, k]$$ | 另一个操作数 $$[k, n]$$ | 另一个操作数是什么 |
+|---|---|---|---|
+| $$W_Q$$ | [B, 4096] | [4096, 4096] | 权重 |
+| $$W_K$$、$$W_V$$ | [B, 4096] | [4096, 1024] | 权重（算出的 K、V 追加进 KV cache） |
+| $$W_O$$ | [B, 4096] | [4096, 4096] | 权重 |
+| gate、up | [B, 4096] | [4096, 14336] | 权重 |
+| down | [B, 14336] | [14336, 4096] | 权重 |
+| $$QK^\top$$（每 head、每请求） | [1, 128] | [128, $$s_i$$] | 请求 $$i$$ 的 KV cache 里的 K |
+| $$PV$$（每 head、每请求） | [1, $$s_i$$] | [$$s_i$$, 128] | 请求 $$i$$ 的 KV cache 里的 V |
+
+Table: decode 一步每层 GEMM 的形状（Llama-3-8B，m = B，请求 i 的上下文长 s_i）
 
 而 attention 的形状里 $$s$$ 仍然存在——它出现在 K、V 一侧，也就是 KV cache。这一步的算量是 $$B \times (2N_{gemm} + 4dsL)$$，是 prefill 的 $$1/s$$，但读的权重字节数与 prefill 一样多。这个不对称是全文的核心。
 
@@ -227,15 +285,16 @@ PV       每 head 每请求 [1, s_i] x [s_i, 128]
 
 对 Llama-3-8B、上下文 8K：
 
-```text title="prefill 与 decode 一步的算量对照"
-                        prefill (s=8192)            decode 一步 (B=1, s=8192)
-权重项                   8192 x 15.0 G = 123 TFLOP    15.0 GFLOPs
-attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因果掩码减半，见第五节）
-合计                     约 140 TFLOP                 19.3 GFLOPs
-比值                     约 7300 : 1
-```
+| 项 | prefill（s = 8192） | decode 一步（B = 1，s = 8192） |
+|---|---:|---:|
+| 权重项 | 8192 × 15.0 G = 123 TFLOP | 15.0 GFLOPs |
+| attention 上下文项 | 8192 × 4.29 G / 2 = 17.6 TFLOP | 4.29 GFLOPs |
+| 合计 | 约 140 TFLOP | 19.3 GFLOPs |
+| 读权重的字节 | 15.0 GB | 15.0 GB |
 
-一次 8K 的 prefill 等于 7000 多步 decode 的算量，但两者都要把 16 GB 权重读一遍。
+Table: prefill 与 decode 一步的算量与读权重字节对照（Llama-3-8B，8K 上下文）
+
+prefill 的 attention 项除以 2，是因为因果掩码下第 $$i$$ 个 token 只看前 $$i$$ 个 key（[第六章的「prefill」一节](#3-prefill8k-约-024027-s128k-约-11-s)）。两列合计之比约 7300 : 1：一次 8K 的 prefill 等于 7000 多步 decode 的算量，但两者读的权重字节一样多。
 
 这个不对称直接解释了推理引擎里几个常见设计：
 
@@ -243,24 +302,24 @@ attention 上下文项        8192 x 4.29 G /2 = 17.6 T   4.29 GFLOPs   （因�
 - **chunked prefill**：一个 8K 的 prefill 要占用 GPU 约四分之一秒，期间其他请求的 decode 全部停住。把 prefill 切成若干块与 decode 步交替执行，用 prefill 的高算术强度"填满" decode 步空闲的 Tensor Core；
 - **prefill/decode 分离**：两个阶段的瓶颈不同（一个吃算力，一个吃带宽），把它们放到不同的 GPU 上各自调优，中间通过网络传 KV cache。
 
+> [!NOTE] Java 经验参照：一遍全表扫描回答一批查询
+> 一张没有索引的表上来了 64 个查询，各扫一遍是 64 次全表 I/O；攒成一批，在一遍扫描里对每一行依次求 64 个谓词，I/O 只付一次，多出来的只是 CPU。decode 的一步就是对 15 GB 权重的一次"全表扫描"，$$B$$ 个请求共用这一遍读取，continuous batching 的收益就来自这里。对不上的地方：每个请求还有自己的 KV cache，那部分读取各读各的，不能共用（[第四章第 2 节](#2-kv-cache每-token-128-kib乘以上下文乘以-batch)）。
+
 以 chunked prefill 为例，把单张卡上的时间轴画出来，就能看到它解决的是什么：
 
-```text title="不切分与 chunked prefill 的单卡时间轴"
-不切分（一个 8K prefill 进来）：
-  |<--------- prefill 8K，约 240 ms，I 约 8000 --------->|d|d|d|d|d|
-  其他请求的 decode 在这 240 ms 里一步也走不了，token 间延迟出现尖峰
+![一个 8K prompt 到达时，不切分与 chunked prefill 的单卡时间轴](/img/in-post/transformer-flops-bytes-and-roofline-chunked-prefill-timeline.svg)
 
-chunked prefill（切成 8 块，每块 1K token 约 30 ms）：
-  |p1|d|p2|d|p3|d|p4|d|p5|d|p6|d|p7|d|p8|d|d|d|
-  每一步 = 一块 prefill（高 I，喂饱 Tensor Core）+ 一步 decode（低 I，读权重）
-  同一步里权重只读一遍，两类算子共用；首 token 慢了几步 decode，但 TBT 平稳
-```
+两行的差别有三点：
+
+1. **不切分**：8K 的 prefill（60% MFU 下约 240 ms，算术强度约 8000）独占 GPU，其他请求的 decode 在这 240 ms 里一步也走不了，[TBT](# "tip: time between tokens，同一个请求相邻两个输出 token 之间的间隔")出现一次 240 ms 的尖峰。
+2. **chunked prefill**：切成 8 块，每块 1K token。每一步的 batch 里是「一块 prefill 的 1024 个 token + 其他请求各 1 个 decode token」，权重只读一遍、两类 token 共用；这一步约 30 ms，由那 1024 个 prefill token 的算量决定，读权重的约 5 ms 被盖住。
+3. **代价与收益**：新请求的首 token 没有变快（8 步合计仍约 240 ms），其他请求的 TBT 从约 5 ms 变成约 30 ms，但不再有 240 ms 的停顿。
 
 这些设计能否成立、收益多大，都可以用本篇的数字直接估算，而不需要先实现出来。
 
 ### 4. 张量并行如何切这些形状
 
-prefill 与 decode 的 GEMM 里，$$m$$ 随阶段变，$$k, n$$ 由权重形状固定——它们也是张量并行切分的依据（形状来自第一篇的参数表；下面的 6144 与 28672 是融合后的 `qkv_proj`、`gate_up_proj` 宽度）。以 8 路 TP 为例，Megatron 的切法是：
+prefill 与 decode 的 GEMM 里，$$m$$ 随阶段变，$$k, n$$ 由权重形状固定——它们也是张量并行切分的依据（形状来自《从 GPT-2 到 Llama——五处改动与参数量》的参数表；下面的 6144 与 28672 是融合后的 `qkv_proj`、`gate_up_proj` 宽度）。以 8 路 TP 为例，Megatron 的切法是：
 
 - 融合后的 `qkv_proj` 按 $$n$$（列）切，每卡 $$n = 6144 / 8 = 768$$，即每卡 4 个 Q head、1 个 KV head——注意 $$n_{kv} = 8$$ 恰好允许 8 路 TP 每卡一个 KV head，超过 8 路就必须复制 KV head；
 - `o_proj` 按 $$k$$（行）切，每卡 $$k = 512$$，输出后 all-reduce；
@@ -283,7 +342,7 @@ Table: 8 路张量并行下各 GEMM 的切分与通信
 
 （$$r = 0 \ldots 7$$ 为卡号。）attention 内部的 $$QK^\top$$、softmax、$$PV$$ 按 head 独立，每卡只算自己那 4 个 Q head 和 1 个 KV head，也不需要通信。
 
-[《现代 LLM 结构（01）：从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)第四章说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样允许在 8 卡 TP 下每卡持有一个 KV head。
+[《从 GPT-2 到 Llama——五处改动与参数量》的「GELU 两矩阵 FFN → SwiGLU 三矩阵」一节](/gpt2-to-llama-five-changes-and-parameter-count.html#3-gelu-两矩阵-ffn--swiglu-三矩阵)说 $$d_{ff}$$ 对齐到 1024 的倍数，在这里体现为切 8 路后 $$1792 = 14 \times 128$$ 仍是 Tensor Core tile 的倍数。Llama-3-70B 的 $$n_{kv} = 8$$ 同样允许在 8 卡 TP 下每卡持有一个 KV head。
 
 ## 四、访存量：每一步要从 HBM 读什么
 
@@ -294,9 +353,9 @@ FLOPs 是成本的一半。另一半是每一步必须从 HBM 搬进 SM 的字�
 GPU 的片上 SRAM（H100 每个 SM 256 KB，共 132 个 SM，加 50 MB L2）放不下任何一层的权重，所以每一步 decode，每个**参与 GEMM 的**权重矩阵都要从 HBM 完整读一遍。这里要把两个数分开：
 
 - **驻留容量**：全部参数 BF16 每个 2 字节，$$8.03 \times 10^9 \times 2 = 16.06$$ GB。这是显存要放下的量，决定"能不能单卡"。
-- **每步流量**：第二章 §3 说过 embedding 是查表——每步只 gather 出 $$B$$ 行，不读整张 $$[V, d]$$ 表。所以每步真正流过 HBM 的权重是扣掉输入 embedding 的 525.3M 参数：$$(8.03 - 0.525) \times 10^9 \times 2 \approx 15.0$$ GB。lm_head 是 GEMM，照常算在里面。
+- **每步流量**：[第二章第 3 节](#3-为什么-embedding-查表不算而-lm_head-要算)说过 embedding 是查表——每步只 gather 出 $$B$$ 行，不读整张 $$[V, d]$$ 表。所以每步真正流过 HBM 的权重是扣掉输入 embedding 的 525.3M 参数：$$(8.03 - 0.525) \times 10^9 \times 2 \approx 15.0$$ GB。lm_head 是 GEMM，照常算在里面。
 
-两者差 7%。下文的时间下界按流量 15.0 GB 算；很多资料（包括本系列早期版本）直接用 16.06 GB，得到的 4.8 ms 是一个偏保守 7% 的近似，量级判断不受影响，但拿它当"物理下限"去核对实测就会差这 7%。对 tied embedding 的模型（如 Qwen2.5 小尺寸）lm_head 与 embedding 共享一张表，这张表作为 lm_head 仍要读一遍，流量就等于全部参数字节。
+两者差 7%。本文单独谈 $$B = 1$$ 的下界时按流量 15.0 GB 算（4.5 ms）；需要与 KV cache 相加的地方（[第六章第 2 节](#2-加上-kv-cache8k-上下文batch-64)、[第七章](#七核心问题batch-多大-decode-才-compute-bound)的表、[第九章](#九实践llm_costpy-增加-flops字节数与时间下界)的脚本）沿用更常见的粗算——直接拿全部 16.06 GB 当流量，单读权重就是 4.8 ms。粗算偏保守 7%，量级判断不受影响，但拿它当"物理下限"去核对实测就会差这 7%。对 tied embedding 的模型（如 Qwen2.5 小尺寸）lm_head 与 embedding 共享一张表，这张表作为 lm_head 仍要读一遍，流量就等于全部参数字节。
 
 流量与 $$B$$ 无关：batch 里 1 个请求和 100 个请求，权重都只读一遍。Llama-3-70B 是 141 GB——已经超过一张 80 GB 的 H100，必须切到至少两张卡上。DeepSeek-V3 BF16 是 1342 GB，FP8 是 671 GB，一台 8 卡 H100 节点（640 GB）连 FP8 权重都放不下。
 
@@ -316,7 +375,7 @@ $$
 2 \times 32 \times 8 \times 128 \times 2 = 131072\ \text{B} = 128\ \text{KiB}
 $$
 
-如果它用的是 MHA（$$n_{kv} = n_h = 32$$），这个数是 512 KiB——GQA 把 KV cache 压到四分之一，第四篇会详细推导各种 attention 变体下的这个数。Llama-3-70B 是 $$2 \times 80 \times 8 \times 128 \times 2 = 320$$ KiB。
+如果它用的是 MHA（$$n_{kv} = n_h = 32$$），这个数是 512 KiB——GQA 把 KV cache 压到四分之一，[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)会详细推导各种 attention 变体下的这个数。Llama-3-70B 是 $$2 \times 80 \times 8 \times 128 \times 2 = 320$$ KiB。
 
 decode 一步要读的 KV 字节数是：
 
@@ -330,11 +389,11 @@ $$
 64 \times 8192 \times 128\ \text{KiB} = 64\ \text{GiB}
 $$
 
-已经是权重的四倍。这个例子第五节会算完。
+已经是权重的四倍。这个例子在[第六章第 2 节](#2-加上-kv-cache8k-上下文batch-64)算完。
 
 ### 3. 激活值：decode 时可以忽略
 
-decode 每步每层的激活是 $$[B, d]$$ 与 $$[B, d_{ff}]$$ 量级的张量，$$B = 64$$ 时是 $$64 \times 14336 \times 2 = 1.8$$ MB，与 GB 量级的权重和 KV 相比差三个数量级，而且大部分能留在 L2 里。prefill 时激活是 $$[s, d_{ff}]$$，$$s = 8192$$ 时 235 MB 每层，需要写回 HBM，但 prefill 是 compute-bound（下面会证明），这些字节数不决定时间。真正让激活值成为问题的是**训练**，第七节单独讨论。
+decode 每步每层的激活是 $$[B, d]$$ 与 $$[B, d_{ff}]$$ 量级的张量，$$B = 64$$ 时是 $$64 \times 14336 \times 2 = 1.8$$ MB，与 GB 量级的权重和 KV 相比差三个数量级，而且大部分能留在 L2 里。prefill 时激活是 $$[s, d_{ff}]$$，$$s = 8192$$ 时 235 MB 每层，需要写回 HBM，但 prefill 是 compute-bound（[第六章的「prefill」一节](#3-prefill8k-约-024027-s128k-约-11-s)会验证），这些字节数不决定时间。真正让激活值成为问题的是**训练**，[第八章](#八训练侧激活值显存与-mfu)单独讨论。
 
 ## 五、Roofline：把 FLOPs 和字节数放到同一张图上
 
@@ -370,33 +429,16 @@ $$
 
 H100 SXM：$$989 / 3.35 \approx 295$$ FLOP/byte。A100：$$312 / 2.0 \approx 156$$。一段计算要吃满 H100 的 Tensor Core，每从 HBM 读一个字节，至少要做 295 次浮点运算；做不到，Tensor Core 就在等数据。
 
+> [!NOTE] Java 经验参照：循环在等内存，不是在等 CPU
+> 对一个 8 GB 的 `long[]` 求和，循环体只有一次加法：每读 8 字节做 1 次运算，算术强度 1/8。CPU 每秒能做的加法远多于内存每秒送得来的 `long`，耗时就是 8 GB 除以内存带宽——换更快的核没有用，把元素换成 `int`（字节减半）才有用。$$B = 1$$ 的 decode 是同一回事：数组换成 15 GB 的权重，内存换成 HBM，"换更窄的类型"就是量化。对不上的地方：CPU 上还有多级 cache 与预取，这里的 Roofline 只看 HBM 一层。
+
 注意 ridge point 的量级在几代 GPU 上都在上升：A100 的 156 到 H100 的 295，算力增长快于带宽增长。这意味着**同一个模型、同一个 batch，在新一代 GPU 上更容易 memory-bound**。
 
 ### 3. 图
 
-```text title="Roofline 图（ASCII）"
-  实际算力
-  (FLOP/s, 对数轴)
-     |
- 989T|- - - - - - - - - - - - - - - -+--------------------- 算力上限 (compute roof)
-     |                              /|
-     |                            /  |
-     |                          /    |
-     |          带宽上限        /      |
-     |      斜率 = 3.35 TB/s  /        |
-     |                      /          |
-     |                    /            |
-     |                  /              |
-   3T|                / x              |
-     |              /   decode B=1     |
-     |            /     I ~ 1          |
-     +----------/--------|-------------|------------------------> 算术强度 I
-             1         10           295          10^4      (FLOP/byte, 对数轴)
-                                  ridge point       prefill s=8192, I ~ 8000
-                    memory-bound  <--  |  -->  compute-bound
-```
+![Llama-3-8B 各算子在 H100 Roofline 上的位置](/img/in-post/transformer-flops-bytes-and-roofline-roofline.svg)
 
-左侧斜线是带宽上限，右侧水平线是算力上限。一个工作负载由它的算术强度决定落在横轴哪一点，垂直向上碰到的第一条线就是它能达到的算力。$$B = 1$$ 的 decode 落在 $$I \approx 1$$，能用的算力只有 3.35 TFLOPS——峰值的 0.3%。
+左侧斜线是带宽上限（斜率就是带宽 3.35 TB/s），右侧水平线是算力上限，两线在 ridge point 相交：左边 memory-bound，右边 compute-bound。一个工作负载由它的算术强度决定落在横轴哪一点，垂直向上碰到的第一条线就是它能达到的算力。先看两端的两个点：$$B = 1$$ 的 decode 落在 $$I \approx 1$$，能用的算力只有 3.35 TFLOPS——峰值的 0.3%；8K 的 prefill 落在 $$I \approx 8700$$，在算力上限上。中间几个点的横坐标在下面第 4、5 小节推出。
 
 Roofline 是一个粗粒度模型，它假设访存与计算完美重叠、所有字节只从 HBM 读一次、算力可以被完全用满。真实 kernel 的点总是落在两条线之下。但它的用法不在于精确预测，而在于回答两个问题：这段计算**应该**受什么限制？它现在离那个限制还有多远？前者决定优化方向（减字节还是减 FLOPs），后者决定还值不值得优化。
 
@@ -412,7 +454,7 @@ $$
 
 这个结论干净得令人不安：**BF16 decode 的算术强度在数值上就等于 batch 大小。**每 2 字节的权重被读进来，对 $$B$$ 个 token 各做一次乘加，共 $$2B$$ FLOPs。
 
-$$B = 1$$ 时 $$I = 1$$，距 ridge point 295 差两个多数量级。这就是"decode 是 memory-bound 的"这句话的全部含义：不是某个 kernel 写得不好，而是工作负载的算术强度天然比硬件的 ridge point 低两个数量级。任何 kernel 优化都不可能把 $$B = 1$$ 的 decode 变成 compute-bound；能做的只有提高 $$B$$（continuous batching）、减少每步读的字节（量化，见算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)）、或者一步产出多个 token（投机解码，第八篇）。
+$$B = 1$$ 时 $$I = 1$$，距 ridge point 295 差两个多数量级。这就是"decode 是 memory-bound 的"这句话的全部含义：不是某个 kernel 写得不好，而是工作负载的算术强度天然比硬件的 ridge point 低两个数量级。任何 kernel 优化都不可能把 $$B = 1$$ 的 decode 变成 compute-bound；能做的只有提高 $$B$$（continuous batching）、减少每步读的字节（量化，见算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)）、或者一步产出多个 token（[《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)）。
 
 顺便得到 FP8 的情况：权重字节减半，$$I_{\text{weight}} = 2B$$；同时 H100 FP8 算力翻倍到 1979 TFLOPS，ridge point 变为 $$1979 / 3.35 \approx 590$$。距离没有变：仍然需要 $$B \approx 295$$。量化在 decode 上的收益来自字节数减少，而不是算力提高。
 
@@ -424,7 +466,7 @@ $$
 I_{\text{KV}} = \frac{4 n_h d_{head} s}{4 n_{kv} d_{head} s} = \frac{n_h}{n_{kv}} = g
 $$
 
-它等于 GQA 的组大小 $$g$$，与 $$s$$、$$B$$ 都无关——每个请求的 KV 只被自己读，batch 不带来复用。Llama-3-8B 的 $$g = 4$$，70B 的 $$g = 8$$，MHA 是 1。这说明 KV cache 的读取是比权重更"顽固"的 memory-bound 部分：权重的强度随 $$B$$ 线性上升，KV 的强度是个常数。第四篇讲 MLA 时会看到，把 K、V 压成一个低秩向量再"吸收"到权重里，本质上就是把这个常数抬高。
+它等于 GQA 的组大小 $$g$$，与 $$s$$、$$B$$ 都无关——每个请求的 KV 只被自己读，batch 不带来复用。Llama-3-8B 的 $$g = 4$$，70B 的 $$g = 8$$，MHA 是 1。这说明 KV cache 的读取是比权重更"顽固"的 memory-bound 部分：权重的强度随 $$B$$ 线性上升，KV 的强度是个常数。《Attention 变体与 KV cache》讲 [MLA](# "tip: Multi-head Latent Attention，DeepSeek-V2 / V3 用的 attention 变体：每个 token 只缓存一个低维 latent 向量，而不是每个 head 的 K 和 V") 时会看到，把 K、V 压成一个低秩向量再"吸收"到权重里，本质上就是把这个常数抬高。
 
 把第 3–5 小节出现过的几类算子的 FLOPs、字节数与强度放在一起（每层或整模型均可，比值不变；$$m$$ 是该 GEMM 一起处理的行数）：
 
@@ -438,11 +480,7 @@ $$
 
 Table: 几类算子的 FLOPs、字节数与算术强度
 
-再把这些点按真实数值放到对数坐标的 Roofline 上（第 3 小节的示意图只标了两个点，这里是完整的一张）：
-
-![Llama-3-8B 各算子在 H100 Roofline 上的位置](/img/in-post/transformer-flops-bytes-and-roofline-roofline.svg)
-
-几个值得盯住的位置：$$B = 1$$ 的 decode 与 RMSNorm 落在同一点（$$I = 1$$），只能用 3.35 TFLOPS；纯权重的 decode 沿带宽线随 $$B$$ 向右上爬，到 $$B = 295$$ 才碰到 roof；但一旦加上 8K 上下文的 KV 读取，$$B = 64$$ 的点就被拉回到 $$I = 14.6$$，而且 $$B$$ 再大也越不过 $$I \approx 18$$ 那条线（第七节会算这个极限）；KV 读取本身钉在 $$I = g = 4$$ 不动；prefill 则在最右端吃满算力 roof。灰色虚线是 A100 的 roofline：ridge 从 156 挪到 295，同一个 $$B$$ 在 H100 上离 compute-bound 更远。
+回到[第 3 小节的 Roofline 图](#3-图)，图上每个点现在都有了出处。几个值得盯住的位置：$$B = 1$$ 的 decode 与 RMSNorm 落在同一点（$$I = 1$$），只能用 3.35 TFLOPS；纯权重的 decode 沿带宽线随 $$B$$ 向右上爬，到 $$B = 295$$ 才碰到 roof；但一旦加上 8K 上下文的 KV 读取，$$B = 64$$ 的点就被拉回到 $$I = 14.6$$，而且 $$B$$ 再大也越不过 $$I \approx 18$$ 那条线（[第七章第 2 节](#2-加上-kv-cache8k-上下文下单卡不可达)会算这个极限）；KV 读取本身钉在 $$I = g = 4$$ 不动；prefill 则在最右端吃满算力 roof。灰色虚线是 A100 的 roofline：ridge 从 156 挪到 295，同一个 $$B$$ 在 H100 上离 compute-bound 更远。
 
 ## 六、时间下界
 
@@ -460,19 +498,19 @@ $$
 \frac{1}{4.5\ \text{ms}} \approx 220\ \text{token/s}
 $$
 
-（按全部 16.06 GB 算是 4.8 ms / 208 token/s，本系列其他篇和地图里出现的就是这个粗算值，差 7%。）
+（按全部 16.06 GB 粗算是 4.8 ms / 208 token/s，差 7%。）
 
 这是什么性质的数字要说清：它是**同一算法、同一精度、权重冷读、按标称峰值带宽**的理想下界——实测通常达到它的 80–90%（有效带宽到不了标称值，还有 kernel launch、KV 读取、通信）。它**不是**"超过就是造假"的判据：量化改了字节数，投机解码一步产出多个 token，多张卡 TP 每张只读 $$1/n$$，H200/B200 带宽更高，任何一条都能让单流超过 220 token/s；反过来若一个 BF16 单卡 H100 的实测明显高于它，先查这四件事，而不是先怀疑数字。
 
 作为对照，这一步的算力时间是 $$19.3\ \text{GFLOPs} / 989\ \text{TFLOPS} \approx 0.02$$ ms，是访存时间的 1/230——与 $$I / I_{ridge} = 1/295$$ 同一量级。同样的算法，Llama-3-70B 若能放进一张卡：$$141 / 3.35 \approx 42$$ ms，约 24 token/s；A100 上的 8B 是 $$15.0 / 2.0 \approx 7.5$$ ms，133 token/s。
 
-这个 4.5 ms 值得多看一眼：它与模型的算力需求完全无关。把 Llama-3-8B 的 FFN 换成一半大小的 $$d_{ff}$$，FLOPs 减少 40%，权重字节也少约 40%，下界随字节一起降——决定它的是字节而不是 FLOPs；反过来把权重量化到 INT4（每参数约 0.53 字节，算法地图《高效推理与压缩》的量化篇会算精确的 4.25 bit），FLOPs 不变，下界降到约 1.3 ms。**对 decode 而言，"模型多大"的正确度量是字节，不是 FLOPs，也不是参数个数。**
+这个 4.5 ms 值得多看一眼：它与模型的算力需求完全无关。把 Llama-3-8B 的 FFN 换成一半大小的 $$d_{ff}$$，FLOPs 减少 40%，权重字节也少约 40%，下界随字节一起降——决定它的是字节而不是 FLOPs；反过来把权重量化到 INT4（每参数约 0.53 字节，[《高效推理与压缩》的《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)会算精确的 4.25 bit），FLOPs 不变，下界降到约 1.2 ms。**对 decode 而言，"模型多大"的正确度量是字节，不是 FLOPs，也不是参数个数。**
 
 这也解释了 70B 与 8B 在 decode 上的差距为什么是 8.8 倍而不是"参数多所以更慢"这种模糊的说法：141 GB 对 16 GB，字节数之比就是时间之比。用两张 H100 做 TP=2 跑 70B，每卡读 70 GB，下界 21 ms、约 48 token/s；用 8 卡 TP=8，每卡读 17.6 GB，下界 5.3 ms，接近单卡 8B 的速度——前提是 all-reduce 的时间被重叠掉。
 
 ### 2. 加上 KV cache：8K 上下文、batch 64
 
-$$B = 64$$、$$s = 8192$$，每步读：
+$$B = 64$$、$$s = 8192$$，每步读（权重按 16.06 GB 粗算，与第九章的脚本一致；按 15.0 GB 算是 83.7 GB、25.0 ms，差 1%）：
 
 $$
 \text{Bytes} = 16.06\ \text{GB} + 64\ \text{GiB} = 16.06 + 68.7 = 84.8\ \text{GB}
@@ -490,7 +528,7 @@ $$
 I = \frac{1.24\ \text{TFLOP}}{84.8\ \text{GB}} \approx 14.6\ \text{FLOP/byte}
 $$
 
-按第四节 $$I_{\text{weight}} = B$$ 的标度，它相当于一个**没有 KV cache 时 batch 约 15** 的 decode。名义 batch 64，Roofline 上的有效 batch 15，差距全是 KV cache 的读取。上下文越长，这个折损越大。
+按[第五章第 4 节](#4-decode-权重-gemm-的算术强度--b) $$I_{\text{weight}} = B$$ 的标度，它相当于一个**没有 KV cache 时 batch 约 15** 的 decode。名义 batch 64，Roofline 上的有效 batch 15，差距全是 KV cache 的读取。上下文越长，这个折损越大。
 
 ### 3. prefill：8K 约 0.24–0.27 s，128K 约 11 s
 
@@ -510,17 +548,23 @@ $$
 
 prefill 的字节数也值得算一次以确认它确实 compute-bound：读权重 16 GB，写 KV cache $$8192 \times 128\ \text{KiB} = 1$$ GiB，激活的读写按每层十几个 $$[8192, 4096]$$ 到 $$[8192, 14336]$$ 的张量估算约几 GB。总字节数在 20–30 GB 量级，带宽时间不到 10 ms，与 240 ms 的算力时间相比可以忽略——prefill 的算术强度在几千，Roofline 图上落在 ridge point 右侧很远。
 
+把本章三种情形的两项时间放到同一条对数轴上，每种情形里较大的那个点就是它的时间下界：
+
+![三种工作负载的访存时间与算力时间：较大者是时间下界](/img/in-post/transformer-flops-bytes-and-roofline-time-lower-bound.svg)
+
+两种 decode 的两个点相距一到两个数量级，访存时间在右；prefill 反过来，算力时间在右。$$B$$ 从 1 涨到 64，decode 的算力点右移了 80 倍，访存点只右移了 5.6 倍，两点在靠拢，但 8K 上下文下它们不会相遇（下一章）。
+
 ## 七、核心问题：batch 多大 decode 才 compute-bound？
 
 ### 1. 只看权重：B ≈ 295
 
-由第四节，BF16 decode 权重 GEMM 的算术强度 $$I = B$$，compute-bound 的条件是 $$I \ge I_{ridge}$$：
+由[第五章第 4 节](#4-decode-权重-gemm-的算术强度--b)，BF16 decode 权重 GEMM 的算术强度 $$I = B$$，compute-bound 的条件是 $$I \ge I_{ridge}$$：
 
 $$
 B \ge \frac{P_{peak}}{BW} = \frac{989 \times 10^{12}}{3.35 \times 10^{12}} \approx 295
 $$
 
-换一个角度验证：$$B$$ 个请求的算力时间 $$B \times 15.0\ \text{GFLOPs} / 989\ \text{TFLOPS}$$ 等于访存时间 4.8 ms 时，$$B = 4.8\ \text{ms} \times 989\ \text{TFLOPS} / 15.0\ \text{GFLOPs} \approx 316$$；差异来自这里用的 $$N_{gemm} = 7.5\text{B}$$ 而字节数用的 $$N = 8.03\text{B}$$。量级是 300 左右。A100 上是 156。
+换一个角度验证：$$B$$ 个请求的算力时间 $$B \times 15.0\ \text{GFLOPs} / 989\ \text{TFLOPS}$$ 等于访存时间 4.48 ms（15.0 GB / 3.35 TB/s）时，$$B = 4.48\ \text{ms} \times 989\ \text{TFLOPS} / 15.0\ \text{GFLOPs} \approx 295$$，两种算法是同一个式子。若访存时间用粗算的 4.8 ms（全部 16.06 GB），得到 316——差的还是 embedding 那 7%。量级是 300 左右。A100 上是 156。
 
 所以答案的前半段是：**在 H100 上，Llama-3-8B 的 decode 要到 batch 约 300 才从 memory-bound 转为 compute-bound。**
 
@@ -553,7 +597,7 @@ $$
 这是 batch 与上下文乘积的上限：$$B \times s \le 524288$$。几个点：
 
 | 上下文 s | 最大 batch B | 每步读 KV | 每步下界 | 每 token FLOPs | I (FLOP/byte) |
-|---|---|---|---|---|---|
+|---:|---:|---:|---:|---:|---:|
 | 1024 | 512 | 64 GiB | 25 ms | 15.5 G | 94 |
 | 2048 | 256 | 64 GiB | 25 ms | 16.1 G | 49 |
 | 8192 | 64 | 64 GiB | 25 ms | 19.3 G | 15 |
@@ -562,13 +606,17 @@ $$
 
 Table: 64 GB 的预算：B × s ≤ 52 万
 
-（每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；第五篇专门算这一项。）
+（每 token FLOPs = 权重 15.0 G + attention $$0.524\text{M} \times s$$，上下文越长 attention 项越重，所以 $$I$$ 下降得比 $$1/s$$ 慢；《长上下文的成本与结构手段》专门算这一项。）
 
 注意到当 KV cache 把显存填满时，每步读的 KV 字节数总是 64 GiB，与 $$s$$ 无关——总时间下界固定在约 25 ms，变的只是这 25 ms 里产出多少个 token。$$s = 1024$$ 时 $$B = 512$$，强度 94，是这张卡上离 ridge point 最近的配置，但仍差 3 倍。
 
 这张表还说明了一件事：在显存被 KV cache 填满的前提下，**吞吐与上下文长度成反比**。同样 25 ms 一步，1K 上下文能产出 512 个 token，128K 只能产出 4 个；每 token 的成本差 128 倍。这是长上下文服务比短上下文贵得多的直接原因，也是为什么服务方按"输入 token + 输出 token"计费而不是按请求数计费——它们对应的是真实的 HBM 字节数。
 
-答案的后半段：**考虑 KV cache 之后，B ≈ 295 在 8K 上下文下既放不下、也不会 compute-bound；单卡 Llama-3-8B 的 BF16 decode 在任何实际上下文长度下都是 memory-bound 的。**要改变这个结论，只能减字节：压缩 KV 的表示（第四篇 GQA/MLA）、量化权重与 KV cache（算法地图[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)第 03、05 篇），或者用多卡把权重读取分摊（tensor parallel 让每卡只读 $$1/n$$ 的权重，但也只提供 $$1/n$$ 的算力——ridge point 不变，只是每卡的 KV 显存变多了）。
+答案的后半段：**考虑 KV cache 之后，B ≈ 295 在 8K 上下文下既放不下、也不会 compute-bound；单卡 Llama-3-8B 的 BF16 decode 在任何实际上下文长度下都是 memory-bound 的。**要改变这个结论，只能减字节：
+
+- 压缩 KV 的表示：GQA、MLA，见[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)；
+- 量化权重与 KV cache：见《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)与[《KV cache 压缩：量化、驱逐与稀疏 attention》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)；
+- 用多卡把权重读取分摊：tensor parallel 让每卡只读 $$1/n$$ 的权重，但也只提供 $$1/n$$ 的算力——ridge point 不变，只是每卡留给 KV 的显存变多了。
 
 ## 八、训练侧：激活值显存与 MFU
 
@@ -611,7 +659,7 @@ $$
 
 Table: 每层反向需要的激活张量及其字节数
 
-代入 Llama-3-8B 的形状（$$h = 4096$$，$$a = 32$$，$$s = 8192$$，$$b = 1$$）：
+两项分别是：
 
 $$
 34 sbh = 34 \times 8192 \times 4096 = 1.14\ \text{GB} \approx 1.06\ \text{GiB}
@@ -621,13 +669,23 @@ $$
 5 a s^2 b = 5 \times 32 \times 8192^2 = 10.7\ \text{GB} = 10\ \text{GiB}
 $$
 
-每层约 11 GiB，32 层约 **354 GiB**——单是一个 8K 序列、micro-batch 为 1 的激活值就是四张 H100 的显存，而且其中 90% 是那个 $$s^2$$ 项。$$s^2$$ 项与线性项的比是 $$5as/(34h) = 5 \times 32 \times 8192 / (34 \times 4096) \approx 9.4$$；在 $$s = h \cdot 34 / (5a) = 870$$ 附近两者相等，超过这个长度 attention 矩阵就成为激活显存的主体。（Llama 用 SwiGLU 而非 GeLU、$$d_{ff} = 14336$$ 而非 $$4h$$、且没有 dropout，线性项的系数与 34 略有不同，但 $$s^2$$ 项的结论不变。）
+每层约 11 GiB，32 层约 **354 GiB**——单是一个 8K 序列、micro-batch 为 1 的激活值就超过四张 H100 的显存（354 GiB = 380 GB，四张是 320 GB），而且其中 90% 是那个 $$s^2$$ 项。$$s^2$$ 项与线性项的比是 $$5as/(34h) = 5 \times 32 \times 8192 / (34 \times 4096) \approx 9.4$$；在 $$s = h \cdot 34 / (5a) = 870$$ 附近两者相等，超过这个长度 attention 矩阵就成为激活显存的主体。（Llama 用 SwiGLU 而非 GeLU、$$d_{ff} = 14336$$ 而非 $$4h$$、且没有 dropout，线性项的系数与 34 略有不同，但 $$s^2$$ 项的结论不变。）
 
 ### 2. FlashAttention 与重算如何去掉 s² 项
 
 $$5as^2b$$ 全部来自把 $$[b, a, s, s]$$ 的 attention 矩阵物化到 HBM。FlashAttention（Dao 等 2022）不物化它：前向按块在 SRAM 里算 softmax 与 $$PV$$，只把输出 $$O$$（$$2sbh$$）和每行的 logsumexp（$$abs$$ 个数）写回；反向时按块重算 $$QK^\top$$ 与 softmax。代价是 attention 部分多了约一次 $$QK^\top$$ 的重算（每层 $$2ds$$ 每 token，远小于 $$2N$$），换来每层激活从 11 GiB 降到约 1 GiB。
 
-Korthikanti 等 2022 提出的选择性重算（selective recomputation）是同一个思路的另一面：不保存 $$s^2$$ 项的几个张量，反向时重算它们，只用 attention 的算量（不到总量的几分之一）就消掉了 90% 的激活显存；而全量重算（每层只保存输入，整层重做前向）代价是整个 $$2N$$，即第一节说的 $$8N$$。今天的训练框架（Megatron-LM、以及基于 FlashAttention 的任何实现）默认已经没有这个 $$s^2$$ 项，激活值显存回到与 $$s$$ 线性的量级——这才使 8K 以上的序列训练成为可能。
+Korthikanti 等 2022 提出的选择性重算（selective recomputation）是同一个思路的另一面：不保存 $$s^2$$ 项的几个张量，反向时重算它们，只用 attention 的算量（不到总量的几分之一）就消掉了 90% 的激活显存；而全量重算（每层只保存输入，整层重做前向）代价是整个 $$2N$$，即[第二章第 5 节](#5-训练的-6nd-与激活重算的-8n)说的 $$8N$$。今天的训练框架（Megatron-LM、以及基于 FlashAttention 的任何实现）默认已经没有这个 $$s^2$$ 项，激活值显存回到与 $$s$$ 线性的量级——这才使 8K 以上的序列训练成为可能。
+
+三种做法放在一起（Llama-3-8B 的形状，$$s = 8192$$，$$b = 1$$，32 层；激活按上面的估算式）：
+
+| 做法 | 每层保存到反向的东西 | 每层激活 | 32 层合计 | 硬件每 token 执行的 FLOPs |
+|---|---|---:|---:|---|
+| 全部保存（物化 attention 矩阵） | 线性项 $$34sbh$$ + 平方项 $$5as^2b$$ | 11.06 GiB | 354 GiB | $$6N$$ |
+| FlashAttention / 选择性重算 | 只留线性项 $$34sbh$$，平方项反向时按块重算 | 约 1.06 GiB | 约 34 GiB | $$6N$$ + attention 上下文项重算一次（每层约 $$2ds$$） |
+| 全量重算 | 只留每层的输入 $$2sbh$$；反向到哪一层，就把那一层的前向重做一遍 | 64 MiB | 约 2 GiB，外加正在反向的那一层的全部激活 | $$8N$$ |
+
+Table: 三种激活保存策略的显存与算量（Llama-3-8B，8K 序列，micro-batch 1）
 
 ### 3. MFU 与 HFU
 
@@ -656,11 +714,11 @@ MFU 与 HFU 的差别在有重算时才显现。全量重算下硬件每 token �
 - **GEMM 本身达不到峰值**：989 TFLOPS 是理想形状、理想频率下的数字，实际大 GEMM 在 70–80% 的峰值；功耗墙下频率会降；
 - **micro-batch 与 pipeline 的尾效应**、优化器步骤、数据加载、checkpoint 保存。
 
-把这些乘起来，$$0.8 \times 0.85 \times 0.8 \times 0.9 \approx 0.49$$——50% 左右是大规模训练在没有明显低效的情况下的自然上限。公开的大规模训练报告中 MFU 多在 35–45% 之间，与这个估算一致。
+四项各取一个中间值（非 GEMM 算子留下 0.8、通信 0.85、GEMM 自身效率 0.8、其余 0.9）相乘，$$0.8 \times 0.85 \times 0.8 \times 0.9 \approx 0.49$$——50% 左右是大规模训练在没有明显低效的情况下的自然上限。公开的大规模训练报告中 MFU 多在 35–45% 之间，与这个估算一致。
 
 ## 九、实践：llm_cost.py 增加 FLOPs、字节数与时间下界
 
-在第一篇脚本（`ModelConfig`、`GPU`、`param_count`）的基础上，本篇新增五个函数和一个打印表格。为了独立可运行，下面把骨架也一并给出。
+在《从 GPT-2 到 Llama——五处改动与参数量》的脚本（`ModelConfig`、`GPU`、`param_count`）的基础上，本篇新增五个函数和一个打印表格。为了独立可运行，下面把骨架也一并给出。
 
 ### 1. 新增函数
 
@@ -845,7 +903,7 @@ prefill 131072 causal=False     63.26 PFLOP  @60% MFU 106.598 s
 prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 ```
 
-几处对照：$$B = 1$$、8K 时一步 5.11 ms（4.8 ms 权重 + 0.3 ms 的 1 GiB KV），196 token/s；$$B = 64$$ 时 25.3 ms、有效强度 14.6；$$B = 295$$ 时 KV 读取 295 GiB，脚本没有检查容量，这一行在单卡上是不存在的配置——加一行 `assert weight_bytes + kv_bytes <= gpu.hbm_bytes` 就能让脚本自己拒绝它。70B 的表说明它在单卡上放不下（141 GB 权重），表里的时间是"假如放得下"的下界。
+几处对照：脚本的 `weight_bytes` 用的是全部 16.06 GB（粗算口径），所以 $$B = 1$$、8K 时一步 5.11 ms（4.8 ms 权重 + 0.3 ms 的 1 GiB KV），196 token/s；$$B = 64$$ 时 25.3 ms、有效强度 14.6；$$B = 295$$ 时 KV 读取 295 GiB，脚本没有检查容量，这一行在单卡上是不存在的配置——加一行 `assert weight_bytes + kv_bytes <= gpu.hbm_bytes` 就能让脚本自己拒绝它。70B 的表说明它在单卡上放不下（141 GB 权重），表里的时间是"假如放得下"的下界。
 
 ### 3. 与实测对照的方法与预期差距
 
@@ -864,34 +922,35 @@ prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 - 每个参数每 token 2 FLOPs，前向约 $$2N$$；embedding 查表不算，lm_head 要算；
 - attention 上下文项每层每 token $$4ds$$，随 $$s$$ 线性、prefill 总量随 $$s^2$$，128K 时超过权重项数倍；
 - 训练 $$6ND$$（前向 2N、反向 4N），重算 $$8N$$；Llama-3-8B 训 15T token 约 50 万 H100 GPU-小时（40% MFU）；
-- decode 每步读一遍权重（16.06 GB）加全部 KV cache（$$B \cdot s \cdot 128$$ KiB），激活可忽略；
+- decode 每步读一遍参与 GEMM 的权重（15.0 GB；驻留 16.06 GB）加全部 KV cache（$$B \cdot s \cdot 128$$ KiB），激活可忽略；
 - Roofline：ridge point $$P_{peak} / BW$$，H100 295、A100 156；BF16 decode 权重 GEMM 的算术强度 $$= B$$，KV 读取的强度 $$= g$$；
-- 单卡 Llama-3-8B：decode 下界 4.8 ms / 208 token/s；要 compute-bound 需 $$B \approx 295$$，但 8K 上下文下 KV cache 需要 295 GiB，且总强度趋于 18，因此不可达；64 GB 预算下 $$B \times s \le 52$$ 万 token；
+- 单卡 Llama-3-8B：decode 下界 4.5 ms / 约 220 token/s（按全部 16.06 GB 粗算是 4.8 ms / 208 token/s）；要 compute-bound 需 $$B \approx 295$$，但 8K 上下文下 KV cache 需要 295 GiB，且总强度趋于 18，因此不可达；64 GB 预算下 $$B \times s \le 52$$ 万 token；
 - prefill 8K 约 140–158 TFLOP，峰值下 0.14–0.16 s 是物理下限，60% MFU 下 0.24–0.27 s 是经验估计；
 - 训练激活 $$sbh(34 + 5as/h)$$，$$s = 8192$$ 时每层 11 GiB，其中 10 GiB 是 $$s^2$$ 项，FlashAttention 与选择性重算把它去掉；
 - MFU $$= \text{tokens/s} \times 6N / P_{peak}$$，8B 模型每卡 8200 token/s 即 40%，40–50% 已是好成绩。
 
 三个模型的数字汇总（BF16，H100 SXM 单卡，理论下界）：
 
-```text title="本篇数字汇总：三个模型的 FLOPs 与字节"
-                           Llama-3-8B      Llama-3-70B     DeepSeek-V3
-参数量 N                    8.03 B          70.55 B         671 B（激活 37 B）
-权重 FLOPs/token (2N)       15.0 GFLOPs     141 GFLOPs      74 GFLOPs（按激活参数）
-attention 项 @8K (4dsL)     4.29 GFLOPs     21.5 GFLOPs     约 14 GFLOPs（MLA 形态见第四篇）
-attention 项 @128K          68.7 GFLOPs     344 GFLOPs      约 229 GFLOPs（同上）
-权重字节                    16.06 GB        141 GB          1342 GB / FP8 671 GB
-KV bytes/token              128 KiB         320 KiB         68.6 KiB（MLA）
-decode 下界 (B=1, 读权重)   4.8 ms          42 ms（需 2+ 卡）  671 GB / (n 卡 x 3.35 TB/s)
-单流上限                    208 token/s     24 token/s      —
-compute-bound 所需 B        约 295          约 295          约 295（FP8 约 590 的 ridge, I=2B）
-prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
-训练 6ND @15T token         7.2e23 FLOP     6.3e24 FLOP     —
-                            约 51 万 GPU-h  约 450 万 GPU-h
-```
+| 量 | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
+|---|---:|---:|---:|
+| 参数量 $$N$$ | 8.03 B | 70.55 B | 671 B（激活 37 B） |
+| 权重 FLOPs/token（$$2N$$） | 15.0 GFLOPs | 141 GFLOPs | 74 GFLOPs（按激活参数） |
+| attention 项 @8K（$$4dsL$$） | 4.29 GFLOPs | 21.5 GFLOPs | 约 14 GFLOPs（按 $$4dsL$$ 估） |
+| attention 项 @128K | 68.7 GFLOPs | 344 GFLOPs | 约 229 GFLOPs（同上） |
+| 权重字节（驻留） | 16.06 GB | 141 GB | 1342 GB；FP8 671 GB |
+| KV bytes/token | 128 KiB | 320 KiB | 68.6 KiB（MLA） |
+| decode 下界（B = 1，只读权重） | 4.5 ms（粗算 4.8 ms） | 42 ms（需 2 卡以上） | 671 GB / (n 卡 × 3.35 TB/s) |
+| 单流上限 | 约 220 token/s（粗算 208） | 24 token/s | — |
+| compute-bound 所需 B | 约 295 | 约 295 | 约 295（FP8：ridge 590，$$I = 2B$$） |
+| prefill 8K @60% MFU | 0.24–0.27 s | 2.1–2.2 s | — |
+| 训练 $$6ND$$ @15T token | 7.2e23 FLOP | 6.3e24 FLOP | — |
+| 折合 H100 GPU-小时（40% MFU） | 约 51 万 | 约 450 万 | — |
 
-本篇的所有字节数都以 BF16 的 2 字节为默认，"每个字节里存了什么"留到第十篇。有了这把尺子，从下一篇起逐个打开今天的模型改过的部件，每一处都问同样的问题：改了什么、为什么、相对基线多算或少搬了什么。[下一篇《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)从第一个被换掉的部件开始：GPT-2 的位置表为什么被 RoPE 取代、RoPE 为什么在训练长度之外会失效、改 base 与 YaRN 各解决了什么。
+Table: 三个模型的 FLOPs、字节数与时间下界汇总
 
-> **BF16 的相对精度只有 FP16 的 1/8，为什么它反而成了训练的默认格式？**
+DeepSeek-V3 的 attention 是 MLA，KV 的形态与读法见[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)。
+
+本篇的所有字节数都以 BF16 的 2 字节为默认，"每个字节里存了什么"留到[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)。有了这把尺子，后面逐个打开今天的模型改过的部件，每一处都问同样的问题：改了什么、为什么、相对基线多算或少搬了什么。[《位置编码与外推》](/positional-encoding-and-long-context.html)从第一个被换掉的部件开始：GPT-2 的位置表为什么被 RoPE 取代、RoPE 为什么在训练长度之外会失效、改 base 与 YaRN 各解决了什么。
 
 配套代码：[`transformer-and-llm/llm_cost_02_flops_roofline.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_02_flops_roofline.py)。
 
@@ -901,7 +960,7 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
    <details markdown="1"><summary>答案</summary>
 
-   约 $$2N = 16$$ GFLOPs（embedding 查表不算，lm_head 的 $$2Vd = 1.05$$ G 要算，约 7%）；训练 $$6N \approx 48$$ GFLOPs，激活重算下 $$8N$$。
+   约 $$2N_{gemm} = 15.0$$ GFLOPs（embedding 查表不算，lm_head 的 $$2Vd = 1.05$$ G 要算，约 7%）；训练按惯例用总参数量，$$6N = 6 \times 8.03\text{B} \approx 48$$ GFLOPs，激活重算下 $$8N \approx 64$$ GFLOPs。
 
    </details>
 
@@ -917,7 +976,7 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
    <details markdown="1"><summary>答案</summary>
 
-   读 16.06 GB 权重 / 3.35 TB/s $$\approx 4.8$$ ms，约 208 token/s；由显存带宽决定，与算力无关——算力时间只有 0.016 ms。
+   读一遍参与 GEMM 的权重：15.0 GB / 3.35 TB/s $$\approx 4.5$$ ms，约 220 token/s（按全部 16.06 GB 粗算是 4.8 ms / 208 token/s）；由显存带宽决定，与算力无关——算力时间只有 15.0 GFLOPs / 989 TFLOPS $$\approx 0.015$$ ms。
 
    </details>
 
@@ -925,7 +984,7 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
    <details markdown="1"><summary>答案</summary>
 
-   权重 16.06 GB；KV $$64 \times 4096 \times 128$$ KiB $$= 32$$ GiB——已经是权重的两倍；FLOPs 约 $$64 \times 16$$ G $$= 1$$ TFLOP，总字节 50 GB，强度约 20 FLOP/字节，远低于 295，memory-bound。
+   权重 16.06 GB；KV $$64 \times 4096 \times 128$$ KiB $$= 32$$ GiB——已经是权重的两倍；每 token FLOPs 是 $$15.0 + 0.524\text{M} \times 4096 = 17.2$$ G，一步 $$64 \times 17.2$$ G $$= 1.1$$ TFLOP，总字节 $$16.06 + 34.4 = 50.4$$ GB，强度约 22 FLOP/字节，远低于 295，memory-bound。
 
    </details>
 
@@ -937,8 +996,8 @@ prefill 8K @60% MFU         0.24–0.27 s     2.1–2.2 s       —
 
    </details>
 
-[^q0]: 每个参数对每个 token 约 2 FLOPs（一次乘加），所以权重项是 $$2 N$$ FLOPs/token；attention 的 $$QK^\top$$ 与 $$PV$$ 再加 $$4 L s d$$ 每 token（$$s$$ 为当前上下文长度）。Llama-3-8B 短上下文下每 token 约 16 GFLOPs，prefill 一段 $$s$$ 个 token 的 prompt 就乘 $$s$$。详见[第二章](#二算量flops-从哪里来)、[第三章](#三prefill-与-decode同一组矩阵两种-gemm-形状)。
-[^q1]: decode 每步至少读一遍全部权重：Llama-3-8B BF16 是 16.06 GB，与 batch 无关；再加当前 batch 全部 token 的 KV cache（每 token 128 KiB × 上下文长度）与很小的激活。prefill 读同样的权重但一次服务几千个 token，所以每 token 摊到的字节少几个数量级。详见[第四章](#四访存量每一步要从-hbm-读什么)。
+[^q0]: 每个参数对每个 token 约 2 FLOPs（一次乘加），所以权重项是 $$2 N$$ FLOPs/token；attention 的 $$QK^\top$$ 与 $$PV$$ 再加 $$4 L s d$$ 每 token（$$s$$ 为当前上下文长度）。Llama-3-8B 短上下文下每 token 约 15 GFLOPs（参与 GEMM 的 7.5B 参数 × 2），prefill 一段 $$s$$ 个 token 的 prompt 就乘 $$s$$。详见[第二章](#二算量flops-从哪里来)、[第三章](#三prefill-与-decode同一组矩阵两种-gemm-形状)。
+[^q1]: decode 每步至少读一遍参与 GEMM 的全部权重：Llama-3-8B BF16 约 15.0 GB（驻留 16.06 GB，差的是只查表的输入 embedding），与 batch 无关；再加当前 batch 全部 token 的 KV cache（每 token 128 KiB × 上下文长度）与很小的激活。prefill 读同样的权重但一次服务几千个 token，所以每 token 摊到的字节少几个数量级。详见[第四章](#四访存量每一步要从-hbm-读什么)。
 [^q2]: 比值叫**算术强度**（FLOP/字节）；把它与硬件的 ridge point（峰值算力 / 显存带宽，H100 BF16 约 $$989 / 3.35 \approx 295$$）比：低于 ridge 时时间由字节数 / 带宽决定（memory-bound），高于时由 FLOPs / 算力决定（compute-bound）。时间下界就是两者取大。详见[第五章](#五roofline把-flops-和字节数放到同一张图上)、[第六章](#六时间下界)。
 [^q3]: 约 **295**：decode 中权重 GEMM 的算术强度恰好等于 batch 大小 $$B$$（每个权重被读一次、对 $$B$$ 个 token 各做 2 FLOPs），等于 H100 的 ridge 295 时转折。详见[第七章](#七核心问题batch-多大-decode-才-compute-bound)。
-[^q4]: 达不到。$$B = 295$$、上下文 8K 时 KV cache 要 295 GiB，80 GB 的卡放不下；而且 KV 读取的算术强度只有 $$g = 4$$（GQA 组数）且与 $$B$$ 无关，$$B$$ 越大 KV 流量占比越高，总强度趋于约 18——单卡 Llama-3-8B 的 decode 在任何可行 batch 下都是 memory-bound，64 GB 预算下 $$B \times s \le 52$$ 万 token 才是真正的约束。这就是推理系统「凑大 batch 但受 KV 显存限制」的来源，也是 KV 压缩有价值的原因。详见[第七章](#七核心问题batch-多大-decode-才-compute-bound)。
+[^q4]: 达不到。$$B = 295$$、上下文 8K 时 KV cache 要 295 GiB，80 GB 的卡放不下；而且 KV 读取的算术强度只有 $$g = 4$$（GQA 的组大小 $$n_h / n_{kv}$$）且与 $$B$$ 无关，$$B$$ 越大 KV 流量占比越高，总强度趋于约 18——单卡 Llama-3-8B 的 decode 在任何可行 batch 下都是 memory-bound，64 GB 预算下 $$B \times s \le 52$$ 万 token 才是真正的约束。这就是推理系统「凑大 batch 但受 KV 显存限制」的来源，也是 KV 压缩有价值的原因。详见[第七章](#七核心问题batch-多大-decode-才-compute-bound)。
