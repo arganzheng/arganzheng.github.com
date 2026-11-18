@@ -74,7 +74,7 @@ Table: 一张图进入多模态 LLM 的三段账
 | ViT 最后一层的输出 | encoder 前向结束时 | 5476 × 1280 × 2 B = 13.4 MiB | 交给 connector 后释放 | 瞬时激活，不占并发容量 |
 | image token 的 embedding（connector 的输出，后文各表的「encoder 输出」指这一项） | connector 之后 | 1369 × 8192 × 2 B = 21.4 MiB | decoder 的 prefill 读完即可释放 | 瞬时激活，不占并发容量 |
 | image token 的 KV | decoder prefill 时逐层写入 | 1369 × 320 KiB = 428 MiB | KV cache；decode 每一步都读，请求结束才释放 | KV 显存、并发容量 |
-| cross-attention 的图片 K、V（只在第五章的路线里有） | 图片特征就绪后投影一次 | Llama-3.2-11B-Vision：200 MiB | 与文字 KV 分开存放，大小不随文本增长，请求结束才释放 | KV 显存、并发容量 |
+| cross-attention 的图片 K、V（只在第五章的路线里有） | 图片特征就绪后投影一次 | Llama-3.2-11B-Vision-Instruct：200 MiB | 与文字 KV 分开存放，大小不随文本增长，请求结束才释放 | KV 显存、并发容量 |
 
 Table: 一张图在链路上产生的六个对象：何时产生、存在哪、活多久
 
@@ -87,7 +87,7 @@ Table: 一张图在链路上产生的六个对象：何时产生、存在哪、�
 | LLaVA-1.5-7B | 2023-10 | CLIP ViT-L/14，336 px，24 层 d=1024 | 2 层 MLP，不压缩 | Vicuna-7B（MHA） | 固定分辨率、最简单的 decoder-only 注入 |
 | Qwen2-VL-7B | 2024-08 | 自训 ViT，32 层 d=1280，原生动态分辨率 | 2×2 merge + MLP，÷4 | Qwen2-7B（GQA 4 KV 头） | 动态分辨率 + M-RoPE |
 | InternVL2-8B | 2024-07 | InternViT-300M，448 px，24 层 d=1024 | pixel-shuffle + MLP，÷4 | InternLM2.5-7B | 固定 tile + 动态 tile 数 |
-| Llama-3.2-11B-Vision | 2024-09 | ViT-H/14，560 px tile，32 局部 + 8 全局层 | 线性投影 | Llama-3.1-8B + 8 层 cross-attention | cross-attention 注入 |
+| Llama-3.2-11B-Vision-Instruct | 2024-09 | ViT-H/14，560 px tile，32 局部 + 8 全局层 | 线性投影 | Llama-3.1-8B + 8 层 cross-attention | cross-attention 注入 |
 
 Table: 贯穿全篇的四个多模态模型
 
@@ -145,7 +145,7 @@ $$\text{FLOPs}_{vit} = 2 N_{vit} \cdot n_p + 4 L_{vit}\, n_p^2\, d_{vit}$$
 |---|---|---|---|---|---|---|---|---|---|
 | CLIP ViT-L/14-336（LLaVA-1.5） | 24 | 1024 | 302 M | 336² | 577（含 CLS） | 0.35 T | 0.03 T | 0.38 T | 0.4 ms |
 | InternViT-300M（InternVL2） | 24 | 1024 | 302 M | 448² × 1 tile | 1025 | 0.62 T | 0.10 T | 0.72 T | 0.7 ms |
-| Qwen2-VL ViT | 32 | 1280 | 629 M | 1024² | 5476 | 6.89 T | 4.91 T | 11.8 T | 11.9 ms |
+| Qwen2-VL ViT | 32 | 1280 | 629 M（按 $$12 d^2 L$$ 估算，论文给 675M） | 1024² | 5476 | 6.89 T | 4.91 T | 11.8 T | 11.9 ms |
 | Qwen2.5-VL ViT（28 层 window + 4 层 full） | 32 | 1280 | 629 M | 1024² | 5476 | 6.89 T | 0.66 T | 7.55 T | 7.6 ms |
 | Llama-3.2 Vision ViT-H/14 | 32 + 8 | 1280 | 786 M | 560² × 4 tile | 6404 | 10.1 T | 8.4 T | 18.5 T | 18.7 ms |
 
@@ -167,7 +167,7 @@ Table: 四个 vision encoder 的参数量与 FLOPs
 |---|---|---|---|
 | 固定分辨率 | LLaVA-1.5 | 任何图缩放（或 pad）到 336² | 恒为 576 |
 | 固定 tile，动态 tile 数 | InternVL2、Llama 3.2 Vision | 图按长宽比切成 1–12（InternVL）或 1–4（Llama）个 448² / 560² 的 tile，各自过 encoder | 1024 × tile 数 / 1601 × tile 数 |
-| 原生动态分辨率 | Qwen2-VL / 2.5-VL | 边长凑到 28 的倍数后整图一次过 encoder，`min_pixels` / `max_pixels` 限制范围 | 从 4 个 patch 到默认上限 16384 × 4 个 patch |
+| 原生动态分辨率 | Qwen2-VL / 2.5-VL | 边长凑到 28 的倍数后整图一次过 encoder，`min_pixels` / `max_pixels` 限制范围 | 从 4 个 token（16 个 patch）到默认上限 16384 个 token（16384 × 4 个 patch） |
 
 Table: 四个模型的分辨率策略与 patch 数范围
 
@@ -417,9 +417,9 @@ Table: 三种模态的每单位 token 数与调节手段
 
 | 路线 | 代表 | 输出过程 | 成本按什么计 | 论文给出的数 |
 |---|---|---|---|---|
-| 离散图像 token 自回归 | Chameleon、Emu3 | 图像量化成离散 token，与文字在同一个自回归 Transformer 里逐个生成 | 输出 token 数：每 token 一个 decode 步，并累积一份 KV | Emu3：512×512 的图是 4096 个 token |
+| 离散图像 token 自回归 | Chameleon、Emu3 | 图像量化成离散 token，与文字在同一个自回归 Transformer 里逐个生成 | 输出 token 数：每 token 一个 decode 步，并累积一份 KV | Chameleon：512×512 的图是 1024 个 token<br/>Emu3：512×512 的图是 4096 个 token |
 | diffusion（与文字同一个 Transformer） | Transfusion | 在图像 patch 序列上反复去噪 | patch 数 × 去噪迭代数 | 图像可压到 16 个 patch；迭代数没有固定值 |
-| 理解与生成路径解耦 | Janus | 理解、生成各用一套视觉编码，再进统一的 Transformer | 生成侧 tokenizer 的输出 token 数，与输入侧 token 数无关 | 没有给出每图输出 token 数 |
+| 理解与生成路径解耦 | Janus | 理解、生成各用一套视觉编码，再进统一的 Transformer | 生成侧 tokenizer 的输出 token 数，与输入侧 token 数无关 | 384×384 的图、下采样 16 倍，每图 24 × 24 = 576 个 token |
 | 语音 | Qwen2.5-Omni | Thinker 出文本与高层表示 → Talker 自回归出语音 token → 滑窗 DiT 出波形 | 语音 token 的自回归步，加声学模型的计算 | 没有给出统一的每秒 token 数 |
 
 Table: 输出侧四条路线的计步单位
@@ -432,13 +432,13 @@ $$
 \Delta \text{KV}=N_{\text{img}}\cdot 2L n_{kv}d_h b
 $$
 
-因此 Emu3 这个 512×512 例子对应 4096 个图像 token / 自回归输出步，具体 KV 字节仍取决于解码器层数、KV heads、head dim 与精度：放到 Llama-3-8B 规格（每 token 128 KiB）上是 $$4096 \times 128\ \text{KiB} = 512$$ MiB，是输入一张 1024² 图（Qwen2-VL 式，171 MiB）的 3 倍，而且这 4096 步是串行的 decode 步，不是一次 prefill。Chameleon 的 token 数也取决于模型 tokenizer 与图像设置；本文不把某个分辨率下未能从论文摘录核实的数量写成通用值。
+因此 Emu3 这个 512×512 例子对应 4096 个图像 token / 自回归输出步，具体 KV 字节仍取决于解码器层数、KV heads、head dim 与精度：放到 Llama-3-8B 规格（每 token 128 KiB）上是 $$4096 \times 128\ \text{KiB} = 512$$ MiB，是输入一张 1024² 图（Qwen2-VL 式，171 MiB）的 3 倍，而且这 4096 步是串行的 decode 步，不是一次 prefill。Chameleon 论文给出的是 512×512 的图编成 1024 个离散 token（码本 8192），同样规格下是 $$1024 \times 128\ \text{KiB} = 128$$ MiB。
 
 ### 2. Diffusion 与理解 / 生成路径解耦
 
 [Transfusion](https://arxiv.org/html/2408.11039)对图像 patch 使用 diffusion 目标、对文本使用 next-token 目标，并在同一 Transformer 中联合建模；论文报告可将图像压到 16 个 patch。这里的 16 是 patch 数，不是去噪步数：每次去噪迭代都要对图像 patch 序列运行模型，论文没有给出可当作所有部署固定值的每图采样迭代数，所以不把它换算成固定 forward passes。
 
-[Janus](https://arxiv.org/html/2410.13848)把多模态理解与视觉生成的编码路径分开，再由统一 Transformer 处理；这让理解侧与生成侧可以各自选择合适的视觉表示，但论文摘录没有给出可直接用于统一 KV / decode 计算的每图输出 token 数。对成本估算，应分别取实际使用的理解 encoder 与生成 tokenizer / decoder 配置，而不能把输入侧 token 数直接当成输出侧长度。
+[Janus](https://arxiv.org/html/2410.13848)把多模态理解与视觉生成的编码路径分开，再由统一 Transformer 处理；这让理解侧与生成侧可以各自选择合适的视觉表示，论文里生成侧 tokenizer 的码本是 16,384、下采样 16 倍，图像统一缩放到 384×384，即每图 $$24 \times 24 = 576$$ 个生成 token。对成本估算，应分别取实际使用的理解 encoder 与生成 tokenizer / decoder 配置，而不能把输入侧 token 数直接当成输出侧长度。
 
 ### 3. 语音生成：Thinker、Talker 与声码器
 
