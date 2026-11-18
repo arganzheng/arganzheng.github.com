@@ -20,7 +20,7 @@ updated: 2026-11-16
 | 单元测试 | JUnit | pytest（见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)） |
 | 日志 | SLF4J + Logback | `logging`（同上文） |
 | 静态检查 | Checkstyle / SpotBugs | Ruff |
-| 类型检查 | 编译器内建 | mypy / pyright（见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)） |
+| 类型检查 | 编译器内建 | mypy / pyright（见[《类型系统（中）——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)） |
 | 打包产物 | jar / war | wheel / sdist |
 | 部署运行 | Docker / Kubernetes | Docker + ASGI server |
 
@@ -78,7 +78,7 @@ Table: 从项目声明到运行环境的交付对象
 
 - **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
 - **异步与并发**（asyncio、GIL、事件循环）→ [《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
-- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
+- **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《类型系统（中）——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
 - **`import` 机制、`sys.path` 与 src 布局** → [《模块与导入系统》](/python-modules-and-the-import-system.html)
 - **入口点做插件发现** → [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
@@ -255,7 +255,7 @@ markers = ["slow: marks tests as slow"]
 > [!NOTE] 与 Java 对照：工具配置的聚合
 > 与把 Checkstyle、SpotBugs、Surefire 配置集中到 `pom.xml` 类似。`[tool.*]` 由各工具自己读取，写进同一个文件不代表它们会被自动执行。
 
-> `[tool.mypy]` 的详细配置和渐进式引入策略见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
+> `[tool.mypy]` 的详细配置和渐进式引入策略见[《类型系统（中）——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)；`[tool.pytest.ini_options]` 的 marker 与 `asyncio_mode` 见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ### 6. 对照 Maven：像什么，不像什么
 
@@ -1048,7 +1048,7 @@ mypy src/              # 类型
 pytest                 # 行为
 ```
 
-> mypy 的详细配置和渐进引入策略，见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“静态分析与推理”；测试相关见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
+> mypy 的详细配置和渐进引入策略，见[《类型系统（中）——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“静态分析与推理”；测试相关见[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ### 5. 对照 Checkstyle / SpotBugs
 
@@ -1203,7 +1203,7 @@ myops = ["py.typed", "*.pyi"]
 
 这一步要检查最终 wheel。setuptools 69+ 默认尝试包含包内的 `.pyi` 和 `py.typed`，但其他后端、旧版本或排除配置可能不同；显式声明能表达意图，不能代替检查构建产物。
 
-> `py.typed`、PEP 561 和存根分发，见[《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“类型载体与分发”一节。
+> `py.typed`、PEP 561 和存根分发，见[《类型系统（中）——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的“类型载体与分发”一节。
 
 对带 CUDA 扩展的包，`.pyi` 存根几乎是必需的——类型检查器无法分析 `.so` 里的内容，只能靠存根知道 `myops._C.fused_attention` 的签名。
 

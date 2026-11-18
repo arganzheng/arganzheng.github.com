@@ -1,12 +1,12 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（09）：类型系统——数据契约设计"
+title: "Python 在 AI-Infra（09）：类型系统（下）——数据契约设计"
 subtitle: "Type System III: Data Contract Design"
 tags: [Python]
 catalog: true
 date: 2026-01-25 20:00:00 +0800
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 前两篇沿着"类型信息如何流动"展开：[《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)讲怎么写（`typing` 工具箱），[《类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。

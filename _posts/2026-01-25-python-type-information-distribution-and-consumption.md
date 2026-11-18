@@ -1,12 +1,12 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（08）：类型系统——类型信息的分发与消费"
+title: "Python 在 AI-Infra（08）：类型系统（中）——类型信息的分发与消费"
 subtitle: "Type System II: Distributing and Consuming Type Information"
 tags: [Python]
 catalog: true
 date: 2026-01-25 12:00:00 +0800
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 [《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：

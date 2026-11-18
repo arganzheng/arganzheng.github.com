@@ -1,13 +1,13 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（07）：类型系统——类型表达与 typing 工具箱"
+title: "Python 在 AI-Infra（07）：类型系统（上）——类型表达与 typing 工具箱"
 subtitle: "Type System I: Type Expression and the typing Toolbox"
 tags: [Python]
 catalog: true
 redirect_from:
   - /python-type-system-and-data-contract-design.html
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 
