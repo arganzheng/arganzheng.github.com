@@ -450,7 +450,7 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 | `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)展开 | 没有逐符号的导出标记；`public` 类默认就能被别的 jar 使用 |
 | `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | 最接近用常量表达式初始化的 `static final int`；`constexpr` 还能修饰函数和自定义类型，Java 没有对应 |
 | `final` | 类不能被继承 | `final class` |
-| `noexcept` | 函数**承诺**不让异常传给调用方。编译器不检查函数体是否真的不抛；运行时如果有异常要从这个函数里传出去，程序直接调用 `std::terminate` 终止，调用方收不到异常 | 没有对应。`throws` 是反方向：声明可能抛什么，由编译器检查 |
+| `noexcept` | 函数**承诺**不让异常传给调用方。编译器不检查函数体是否真的不抛；运行时如果有异常要从这个函数里传出去，程序调用 `std::terminate`，默认结果是整个进程异常退出。它不是 `try`/`catch`：异常没有被接住处理，程序也不会继续往下跑 | 没有对应。`throws` 是反方向：声明可能抛什么，由编译器检查 |
 | `Device::str()` | 作用域限定：`.cpp` 里定义头文件声明过的成员函数时写类名前缀 | 方法只能写在类体内 |
 
 Table: c10/core/Device.h 里 Java 没有的记号
@@ -518,22 +518,7 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 
 Table: 头文件通常包含的内容
 
-头文件会被间接包含很多次。一个同时包含 `Device.h` 和 `ScalarType.h` 的文件，会沿两条路径各拿到一次 `Exception.h`：
-
-```mermaid
-%% 图：同一个头文件经两条 #include 路径进入同一个翻译单元
-flowchart LR
-    A["a.cpp"] -->|"#include"| D["Device.h"]
-    A -->|"#include"| S["ScalarType.h"]
-    D -->|"#include"| E1["<b>Exception.h</b><br/>第一次：粘贴进来"]
-    S -->|"#include"| E2["<b>Exception.h</b><br/>第二次：再粘贴一遍，<br/>class Error 重复定义，编译失败"]
-    classDef ok fill:#eef4fb,stroke:#5b8dc9,color:#222
-    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
-    class A,D,S,E1 ok
-    class E2 bad
-```
-
-`#pragma once` 解决这个问题：同一个文件在同一个翻译单元里只展开一次，第二次直接跳过。
+头文件会被间接包含很多次。`Device.h` 包含 `Exception.h`，`ScalarType.h` 也包含 `Exception.h`，一个同时包含 `Device.h` 和 `ScalarType.h` 的文件里 `Exception.h` 就被粘贴两次——第二次会因为重复定义 `class Error` 而编译失败。`#pragma once` 解决这个问题：同一个文件在同一个翻译单元里只展开一次。
 
 传统写法是 include guard：
 
