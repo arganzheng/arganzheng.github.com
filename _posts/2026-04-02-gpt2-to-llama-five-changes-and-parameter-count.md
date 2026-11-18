@@ -7,32 +7,96 @@ tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-02 12:00:00 +0800
 redirect_from: /transformer-anatomy-and-parameter-count.html
-updated: 2026-10-18
+updated: 2026-11-18
 ---
 
 > **本篇在系列中的位置。** 现代 LLM 结构的第 01 篇，承接[系列总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)，从 GPT-2 走到 Llama，先认出现代模型改动的五个位置，再读真实配置并逐项数出参数。
 
-读完《Transformer 原理与实现》之后，GPT-2 的主干已经熟悉。现在拿到 Llama 的 `config.json`，哪些地方变了？这些变化分别解决什么问题，又怎样体现在模型参数量里？
+读完《Transformer 原理与实现》之后，GPT-2 的主干已经熟悉。现在拿到 Llama 的 `config.json`，**哪些地方变了，这些变化分别解决什么问题？[^q0]它们又怎样体现在模型参数量里？[^q1]**
 
 ## 一、总览：本文的章节安排
 
+GPT-2 和 Llama 的骨架相同：embedding → $$L$$ 个相同的层 → 最后一次归一化 → lm_head。五处改动都落在这条数据流的某个部件上，而每个带参数的部件有多大，由 `config.json` 的几个字段决定。下图以 Llama-3-8B 为例，实线是一个 token 的数据流，虚线是「哪个字段决定哪个部件的形状」，每个方框里写着它对应哪一处改动、贡献多少参数：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：从 GPT-2 的一层到 Llama 的一层：五处改动落在哪个部件，config.json 的字段怎样变成参数量（Llama-3-8B）
+flowchart TB
+    CFG["<b>config.json（第三章）</b><br/>• hidden_size 4096、num_hidden_layers 32<br/>• num_attention_heads 32、num_key_value_heads 8<br/>• intermediate_size 14336<br/>• vocab_size 128256、tie_word_embeddings false"]
+    EMB["<b>embed_tokens</b><br/>• 改动 ②：不再加位置表（第二章第 2 节）<br/>• 128256 × 4096 = 525.3M"]
+    subgraph LAYER["一层，共 32 层：每层 218.11M；改动 ⑤：所有投影不带 bias（第二章第 5 节）"]
+        direction TB
+        N1["<b>RMSNorm</b><br/>• 改动 ①：LayerNorm → RMSNorm（第二章第 1 节）<br/>• 只剩 $$\gamma$$：4,096"]
+        ATT["<b>attention：q、k、v、o 四个矩阵</b><br/>• 改动 ②：RoPE 旋转 Q、K，无参数<br/>• 改动 ④：GQA，K / V 投影宽 1024（第二章第 4 节）<br/>• 41.94M"]
+        N2["RMSNorm，$$\gamma$$：4,096"]
+        FFN["<b>FFN：gate、up、down 三个矩阵</b><br/>• 改动 ③：GELU 两矩阵 → SwiGLU 三矩阵（第二章第 3 节）<br/>• 3 × 4096 × 14336 = 176.16M"]
+        N1 --> ATT --> N2 --> FFN
+    end
+    HEAD["<b>final norm → lm_head</b><br/>• 4,096 + 128256 × 4096 = 525.3M<br/>• 不与 embedding 共享"]
+    SUM["<b>总参数（第四章）</b><br/>32 × 218.11M + 2 × 525.3M + 4,096<br/>= 8,030,261,248"]
+    CFG -. "词表、宽度" .-> EMB
+    CFG -. "宽度、头数、FFN 宽度" .-> LAYER
+    CFG -. "是否共享" .-> HEAD
+    EMB --> LAYER
+    LAYER --> HEAD
+    HEAD --> SUM
+```
+
+- **config.json**：七个字段加一个隐含的 `head_dim = 4096 / 32 = 128` 就定下全部矩阵的形状。逐字段的读法、GPT-2 small 与 Llama-3-8B 的对照表在[第三章](#三读配置把路线图落到-configjson-上)。
+- **embed_tokens**：按 token id 查一行，$$V \times d$$ 个参数。GPT-2 在这里还要加一张 1024 行的位置表，Llama 没有这张表，位置改由 attention 里的 RoPE 提供（[第二章第 2 节](#2-位置表--rope)）；这一项的大小与是否共享见[第四章第 4 节](#4-embeddinglm_head-与-tie)。
+- **RMSNorm**：每层两个，attention 和 FFN 之前各一个，只除以均方根、不减均值，参数只剩 $$\gamma$$（[第二章第 1 节](#1-layernorm--rmsnorm)）。全模型 266,240 个，占 0.003%。
+- **attention**：四个投影矩阵。GQA 把 K、V 投影的输出宽度从 4096 收到 1024（[第二章第 4 节](#4-mha--gqa本篇只取-kv-投影宽度)），RoPE 只旋转 Q、K，不带参数；四个矩阵的形状与 41.94M 的来历在[第四章第 2 节](#2-attention-的四个矩阵)。
+- **FFN**：三个矩阵，中间宽度 14336 = 3.5d（[第二章第 3 节](#3-gelu-两矩阵-ffn--swiglu-三矩阵)）。每层 176.16M，占一层的 80.8%（[第四章第 3 节](#3-ffn-的三个矩阵)）。
+- **去 bias**：不是某一个部件，而是上面七个矩阵和 lm_head 全部只有 `weight`（[第二章第 5 节](#5-去掉所有-bias)）。
+- **final norm → lm_head**：最后一个 RMSNorm 加一个 $$d \to V$$ 的矩阵。Llama 3 的 lm_head 与 embedding 各存一份，所以词表项要算两次。
+- **总参数**：每层 × 层数 + 首尾，逐项代入得到 8,030,261,248（[第四章第 6 节](#6-逐项代入-llama-3-8b)）；这些矩阵在 `modeling_llama.py` 里的名字见[第五章](#五对照-transformers-的-modeling_llamapy)，用脚本复算见[第六章](#六实践llm_costpy-第一版)。
+
+图里有的东西算进参数量，有的只在运行时出现，两类容易混：
+
+| 对象 | 什么时候产生 | 保存在哪里 | 算进参数量吗 |
+|---|---|---|---|
+| 七个投影矩阵（q、k、v、o、gate、up、down） | 训练得到，加载权重文件时读入 | 各 `nn.Linear` 的 `weight`，在 `state_dict` 里 | 算，每层 218.10M |
+| RMSNorm 的 $$\gamma$$ | 同上 | 各 `LlamaRMSNorm` 的 `weight` | 算，全模型 266,240 个 |
+| embedding 与 lm_head | 同上 | `embed_tokens.weight`、`lm_head.weight` | 算；不共享算两份 $$V \cdot d$$，共享算一份 |
+| RoPE 的频率与 $$\cos$$ / $$\sin$$ | 频率在构造模型时由 `rope_theta` 算出，$$\cos$$ / $$\sin$$ 每次前向按位置算 | 不写进权重文件的 buffer 与前向的临时张量 | 不算 |
+| K、V（`k_proj`、`v_proj` 的输出） | 每个 token 前向时算出 | 推理时留在 KV cache 里，直到这个请求结束 | 不算；占显存，随上下文长度增长 |
+| FFN 的中间激活 `[T, 14336]` | 每次前向 | 临时张量，算完 `down_proj` 就释放（训练时留到反向传播结束） | 不算 |
+
+Table: 本篇涉及的对象：何时产生、保存在哪里、是否算进参数量
+
+本文的章节安排：
+
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 一 | 五处改动 | 从 GPT-2 的槽位出发理解 Llama 的结构选择 |
-| 二 | 读配置 | 对照真实模型的 `config.json` 与结构路线 |
-| 三 | 参数量 | 从配置逐项推导到 8.03B |
-| 四 | 源码对照 | 在 `modeling_llama.py` 中找到对应实现 |
-| 五 | 实践 | 用 `llm_cost.py` 第一版复算参数量 |
+| 二 | 五处改动 | 从 GPT-2 的槽位出发理解 Llama 的结构选择 |
+| 三 | 读配置 | 对照真实模型的 `config.json` 与结构路线 |
+| 四 | 参数量 | 从配置逐项推导到 8.03B |
+| 五 | 源码对照 | 在 `modeling_llama.py` 中找到对应实现 |
+| 六 | 实践 | 用 `llm_cost.py` 第一版复算参数量 |
+| 七、八 | 小结与自测 | 本篇算出的数字汇总；六道自测题 |
 
-Table: GPT-2 到 Llama 的五处结构变化
+Table: 本文的章节安排
 
 ## 二、五处改动，每一处为什么
 
-decoder-only 的整体结构、残差流为什么把所有子层锁在宽度 $$d$$、pre-norm 为什么比 post-norm 好训，[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的第六、八章已经讲过，GPT-2 就是 pre-norm，这些在 Llama 里都没变。下面只讲变了的五处，每一处回答三个问题：GPT-2 的做法有什么问题、新做法怎么解决、代价（参数、算量、工程）是什么。
+decoder-only 的整体结构、残差流为什么把所有子层锁在宽度 $$d$$、pre-norm 为什么比 post-norm 好训，《Transformer 原理与实现》的[《Transformer 长什么样》在「残差连接与 LayerNorm」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#九残差连接与-layernorm让几十层能训)已经讲过，GPT-2 就是 pre-norm，这些在 Llama 里都没变。下面只讲变了的五处，每一处回答三个问题：GPT-2 的做法有什么问题、新做法怎么解决、代价（参数、算量、工程）是什么。
 
 ### 1. LayerNorm → RMSNorm
 
-LayerNorm（Ba 等 2016）对每个 token 的 $$d$$ 维向量减均值、除标准差，再乘 $$\gamma$$ 加 $$\beta$$：
+先用 3 个数手算，看两种归一化差在哪一步。取一个 token 的向量 $$x = (1, 2, 3)$$，令 $$\gamma = 1$$、$$\beta = 0$$，忽略 $$\epsilon$$：
+
+| 步骤 | LayerNorm（GPT-2） | RMSNorm（Llama） |
+|---|---|---|
+| 减均值 | 均值 2，得 (−1, 0, 1) | 不做 |
+| 算除数 | 标准差 $$\sqrt{2/3} = 0.816$$ | 均方根 $$\sqrt{14/3} = 2.160$$ |
+| 输出 | (−1.225, 0, 1.225) | (0.463, 0.926, 1.389) |
+| 输出的均值 | 0 | 0.926 |
+| 输出的均方根 | 1 | 1 |
+| 可学习参数 | $$\gamma$$、$$\beta$$，共 $$2d$$ 个 | $$\gamma$$，共 $$d$$ 个 |
+
+Table: 同一个向量 (1, 2, 3) 过 LayerNorm 与 RMSNorm 的手算对照
+
+两者都把向量的尺度拉到 1；差别只在 LayerNorm 多一步「把均值移到 0」，RMSNorm 保留了原来的均值方向。写成公式，LayerNorm（Ba 等 2016）对每个 token 的 $$d$$ 维向量减均值、除标准差，再乘 $$\gamma$$ 加 $$\beta$$：
 
 $$
 \text{LN}(x) = \gamma \odot \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}} + \beta, \quad \gamma, \beta \in \mathbb{R}^d
@@ -48,17 +112,29 @@ $$
 
 参数量 $$d$$。Llama-3-8B 每层两个 RMSNorm 共 $$2 \times 4096 = 8192$$ 个参数，加上最后的 final norm 4096 个，全模型 $$32 \times 8192 + 4096 = 266{,}240$$ 个，占总参数的 0.003%。**参数量上 Norm 可以忽略**。
 
-计算量上两者都是每 token $$O(d)$$；以 RMSNorm 为例：算一次平方和（$$d$$ 次乘加）、一次 rsqrt、$$d$$ 次缩放。与同一层里 attention 和 FFN 的 GEMM 每 token $$2 \times 218\text{M} \approx 436$$ MFLOPs 相比，Norm 每 token 只有约 $$3d \approx 12$$ KFLOPs，差五个数量级。但 Norm 是 memory-bound 的逐元素操作，它读写一遍 `[batch, seq, d]` 的激活值，在 decode 阶段的 kernel 数量和 launch 开销里占一席之地，推理引擎通常把它与相邻的残差加法融合成一个 kernel（vLLM 的 `fused_add_rms_norm` 即是）。RMSNorm 不需要均值统计；具体少多少读写与同步，取决于 kernel 是否融合、规约如何实现，不能直接等同于整个模型按同比例加速。
+计算量上两者都是每 token $$O(d)$$；以 RMSNorm 为例：算一次平方和（$$d$$ 次乘加）、一次 rsqrt、$$d$$ 次缩放。与同一层里 attention 和 FFN 的 GEMM 每 token $$2 \times 218\text{M} \approx 436$$ MFLOPs 相比，Norm 每 token 只有约 $$3d \approx 12$$ KFLOPs，差四个多数量级（约 3.5 万倍）。但 Norm 是 memory-bound 的逐元素操作，它读写一遍 `[batch, seq, d]` 的激活值，在 decode 阶段的 kernel 数量和 launch 开销里占一席之地，推理引擎通常把它与相邻的残差加法融合成一个 kernel（vLLM 的 `fused_add_rms_norm` 即是）。RMSNorm 不需要均值统计；具体少多少读写与同步，取决于 kernel 是否融合、规约如何实现，不能直接等同于整个模型按同比例加速。
 
-`rms_norm_eps` 字段（Llama 3 为 $$10^{-5}$$）是分母里的 $$\epsilon$$，防止除零。这个值与第十篇的数值稳定性有关：BF16 下 $$x_i^2$$ 的求和是否先转 FP32，直接影响 RMSNorm 的精度。
+`rms_norm_eps` 字段（Llama 3 为 $$10^{-5}$$）是分母里的 $$\epsilon$$，防止除零。这个值与[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)讲的数值稳定性有关：BF16 下 $$x_i^2$$ 的求和是否先转 FP32，直接影响 RMSNorm 的精度。
 
 ### 2. 位置表 → RoPE
 
-**GPT-2 的问题。** GPT-2 的位置信息来自一张学出来的表 `wpe`，形状 $$[1024, 768]$$：第 $$i$$ 个位置查第 $$i$$ 行加到 token 向量上（[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第六章）。表有几行，模型就最多能处理多长的上下文；第 1025 个位置没有对应的行，想加长只能扩表再训。而且它给的是**绝对**位置，「猫追狗」出现在第 3 个词还是第 300 个词，模型看到的是两组不同的向量，"相隔 2 个词"这种相对关系要靠模型自己从数据里学。
+**GPT-2 的问题。** GPT-2 的位置信息来自一张学出来的表 `wpe`，形状 $$[1024, 768]$$：第 $$i$$ 个位置查第 $$i$$ 行加到 token 向量上（[《Transformer 长什么样》的「位置 embedding」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#六位置-embedding告诉模型这是第几个-token)）。表有几行，模型就最多能处理多长的上下文；第 1025 个位置没有对应的行，想加长只能扩表再训。而且它给的是**绝对**位置，「猫追狗」出现在第 3 个词还是第 300 个词，模型看到的是两组不同的向量，"相隔 2 个词"这种相对关系要靠模型自己从数据里学。
 
 **RoPE 怎么做。** RoPE（Su 等 2021）不再往输入上加位置向量，而是在每层 attention 里，把 Q、K 向量的每两维看成一个平面上的点，按位置 $$i$$ 旋转角度 $$i\theta_j$$（不同的两维用不同的频率 $$\theta_j$$）。两个旋转过的向量做点积时，结果只和角度差 $$(i - j)\theta$$ 有关——**相对位置直接出现在 attention 分数里**，不需要模型去学。
 
-**代价。** RoPE 没有参数（旋转角由位置和固定频率算出），所以 Llama 的参数量里没有位置表这一项；每层每个 token 多一次逐元素的旋转，算量可以忽略。它没有"表的行数"这个硬上限，但训练时没见过的长度上效果仍会下降，这就引出了 NTK、YaRN 这些外推方法——波长与外推在[《现代 LLM 结构（03）：位置编码与外推》](/positional-encoding-and-long-context.html)展开。本篇只需要记住一点：**RoPE 让位置这一项从参数量公式里消失了**。
+用二维向量手算一遍。取 $$q = k = (1, 0)$$，每个位置转 $$\theta = 30°$$，位置 $$m$$ 上的向量就是原向量转 $$m \times 30°$$：
+
+| Q 的位置 | K 的位置 | Q 旋转后 | K 旋转后 | 点积 |
+|---:|---:|---|---|---:|
+| 3 | 1 | 转 90°：(0, 1) | 转 30°：(0.866, 0.5) | 0.5 |
+| 7 | 5 | 转 210°：(−0.866, −0.5) | 转 150°：(−0.866, 0.5) | 0.5 |
+| 7 | 1 | 转 210°：(−0.866, −0.5) | 转 30°：(0.866, 0.5) | −1 |
+
+Table: RoPE 的二维手算：点积只取决于两个位置的差
+
+前两行的绝对位置不同、都相隔 2 个位置，点积同为 $$\cos 60° = 0.5$$；第三行相隔 6 个位置，点积是 $$\cos 180° = -1$$。真实模型里 $$d_{head} = 128$$ 维被分成 64 个这样的二维平面，各用一个频率。
+
+**代价。** RoPE 没有参数（旋转角由位置和固定频率算出），所以 Llama 的参数量里没有位置表这一项；每层每个 token 多一次逐元素的旋转，算量可以忽略。它没有"表的行数"这个硬上限，但训练时没见过的长度上效果仍会下降，这就引出了 NTK、YaRN 这些外推方法——波长与外推在[《位置编码与外推》](/positional-encoding-and-long-context.html)展开。本篇只需要记住一点：**RoPE 让位置这一项从参数量公式里消失了**。
 
 ### 3. GELU 两矩阵 FFN → SwiGLU 三矩阵
 
@@ -70,7 +146,7 @@ $$
 \text{FFN}(x) = \sigma(x W_1)\, W_2, \quad W_1 \in \mathbb{R}^{d \times d_{ff}}, \; W_2 \in \mathbb{R}^{d_{ff} \times d}
 $$
 
-（沿用第四章第 2 节 $$Q = x W_Q$$ 的行向量约定：$$x$$ 是 $$[s, d]$$，矩阵右乘，形状按 $$[in, out]$$ 写。）
+（沿用[第四章第 2 节](#2-attention-的四个矩阵) $$Q = x W_Q$$ 的行向量约定：$$x$$ 是 $$[s, d]$$，矩阵右乘，形状按 $$[in, out]$$ 写。）
 
 $$\sigma$$ 是 ReLU 或 GELU，$$d_{ff} = 4d$$ 是从 Vaswani 等 2017 一直沿用到 GPT-3 的惯例。参数量 $$2 d \cdot d_{ff} = 8 d^2$$。
 
@@ -89,6 +165,40 @@ P_{ffn} = 3 \cdot d \cdot d_{ff}
 $$
 
 `transformers` 里对应 `gate_proj`、`up_proj`、`down_proj` 三个 `nn.Linear`，`hidden_act` 字段为 `silu`。
+
+门控在一个中间通道上的效果，可以用三组数看出来（$$\text{SiLU}(z) = z \cdot \text{sigmoid}(z)$$，`up` 分支都取 3）：
+
+| gate 分支的值 $$z$$ | $$\text{SiLU}(z)$$ | up 分支的值 | 两路相乘 |
+|---:|---:|---:|---:|
+| 2 | 1.762 | 3 | 5.285 |
+| 0 | 0 | 3 | 0 |
+| −2 | −0.238 | 3 | −0.715 |
+
+Table: SwiGLU 一个中间通道的手算：gate 分支决定 up 分支放行多少
+
+同一个 `up` 值 3，放行多少由 `gate` 分支说了算：这就是「两条投影相乘」。两种 FFN 的矩阵个数与形状对照如下，左边是 GPT-2 small，右边是 Llama-3-8B：
+
+```mermaid
+%% 图：GELU 两矩阵 FFN（GPT-2 small）与 SwiGLU 三矩阵 FFN（Llama-3-8B）的矩阵形状对照
+flowchart LR
+    subgraph OLD["GELU FFN：两个矩阵，共 4.72M"]
+        direction TB
+        A0["x #91;T, 768#93;"] --> A1["<b>c_fc 768→3072</b><br/>#91;T, 3072#93;"]
+        A1 --> A2["GELU，无参数"]
+        A2 --> A3["<b>c_proj 3072→768</b><br/>#91;T, 768#93;"]
+    end
+    subgraph NEW["SwiGLU FFN：三个矩阵，共 176.16M"]
+        direction TB
+        B0["x #91;T, 4096#93;"] --> B1["<b>gate_proj 4096→14336</b><br/>#91;T, 14336#93;"]
+        B0 --> B2["<b>up_proj 4096→14336</b><br/>#91;T, 14336#93;"]
+        B1 --> B3["SiLU(gate) ⊙ up，无参数"]
+        B2 --> B3
+        B3 --> B4["<b>down_proj 14336→4096</b><br/>#91;T, 4096#93;"]
+    end
+    OLD ~~~ NEW
+```
+
+GPT-2 small 的 4.72M 是 $$2 \times 768 \times 3072$$（不含 bias），中间宽度 $$4d$$；Llama-3-8B 的中间宽度是 $$3.5d$$，下面说明这个 14336 的来历。
 
 **代价。** 若中间宽度不变，矩阵从两个变三个，参数与主要 GEMM FLOPs 都增加 50%，还多一次逐元素乘法；把宽度缩到原来的 $$2/3$$ 才能维持近似相同的矩阵预算。Llama-3-8B 又主动加宽 FFN，因此并非只把 GELU 换成 SwiGLU 就能零成本提升。
 
@@ -122,7 +232,7 @@ $$
 d_{ff} = \text{multiple\_of} \cdot \left\lceil \frac{\text{ffn\_dim\_multiplier} \cdot \lfloor \frac{2}{3} \cdot 4d \rfloor}{\text{multiple\_of}} \right\rceil
 $$
 
-对 70B 验证一遍：$$\lfloor \frac{2}{3} \times 32768 \rfloor = 21845$$，$$\times 1.3 = 28398$$，对齐到 1024：$$\lceil 28398 / 1024 \rceil \times 1024 = 28 \times 1024 = 28672$$。与 config 一致（注意此处若用 256 对齐会得到 28416，说明 Llama 3 确实用的是 1024）。
+对 70B 验证一遍：$$\lfloor \frac{2}{3} \times 32768 \rfloor = 21845$$，$$\times 1.3 = 28398$$，对齐到 1024：$$\lceil 28398 / 1024 \rceil \times 1024 = 28 \times 1024 = 28672$$。与 config 一致（用 4096 对齐同样得到 $$7 \times 4096 = 28672$$；若用 Llama 2 的 256 对齐会得到 28416，与 config 不符）。
 
 为什么要对齐到 256 或 1024 的倍数？Tensor Core 的 GEMM 以 8、16、64、128 的 tile 分块，$$n$$ 或 $$k$$ 不是 tile 尺寸的倍数时会有边角块浪费算力；张量并行（TP）把 $$d_{ff}$$ 切成 8 份时，每份也需要仍是 tile 尺寸的倍数。$$14336 / 8 = 1792 = 14 \times 128$$，切 8 路 TP 后每张卡上的 FFN 中间维度仍是 128 的倍数。
 
@@ -130,13 +240,33 @@ $$
 
 Llama-3-8B 的 `num_attention_heads = 32`、`num_key_value_heads = 8`，表示 32 个 Q 头共用 8 组 K/V。动机是缩小 KV cache，而不是主要为了省参数；代价是 K/V 表示的共享，质量需训练与评测确认。Q 头数不变，所以 attention 的主要算量不会随 KV 一起缩成四分之一。
 
+「32 个 Q 头共用 8 组 K/V」的对应关系是按编号每 4 个一组：
+
+```mermaid
+%% 图：GQA 的分组：Llama-3-8B 的 32 个 Q 头每 4 个共用一组 K/V
+flowchart LR
+    Q0["Q 头 0、1、2、3"] --> K0["K/V 组 0"]
+    Q1["Q 头 4、5、6、7"] --> K1["K/V 组 1"]
+    QD["……"] --> KD["……"]
+    Q7["Q 头 28、29、30、31"] --> K7["K/V 组 7"]
+```
+
+| 项目 | 若仍是 MHA | GQA（Llama-3-8B） |
+|---|---:|---:|
+| Q 头数 / K、V 头数 | 32 / 32 | 32 / 8 |
+| $$W_Q$$ 的输出宽度 | 32 × 128 = 4096 | 32 × 128 = 4096 |
+| $$W_K$$、$$W_V$$ 的输出宽度 | 32 × 128 = 4096 | 8 × 128 = 1024 |
+| 每 token 每层缓存的 K、V 数值个数 | 2 × 4096 = 8192 | 2 × 1024 = 2048 |
+
+Table: 同一个 Llama-3-8B，MHA 与 GQA 在投影宽度和 KV 数值个数上的差别
+
 本篇参数账只需要一个派生宽度：
 
 $$
 d_{kv} = n_{kv} d_{head} = 8 \times 128 = 1024
 $$
 
-Llama-3-8B 与 70B 的 K/V 投影输出宽度都是 1024，而 Q 的输出宽度分别是 4096、8192。所以第四章的 $$W_K,W_V$$ 是 $$[d,1024]$$，不是 $$[d,d]$$。head 怎么分组、MHA / GQA / MQA 的区别、MLA 为什么不能套这条公式，以及每 token 的 KV 字节数，都在[《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)推导。
+Llama-3-8B 与 70B 的 K/V 投影输出宽度都是 1024，而 Q 的输出宽度分别是 4096、8192。所以第四章的 $$W_K,W_V$$ 是 $$[d,1024]$$，不是 $$[d,d]$$。head 怎么分组、MHA / GQA / MQA 的区别、MLA 为什么不能套这条公式，以及每 token 的 KV 字节数，都在[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)推导。
 
 ### 5. 去掉所有 bias
 
@@ -146,7 +276,7 @@ GPT-2 的 attention / FFN 线性投影带 bias，LayerNorm 也有偏移参数；
 
 - 结构上少一组可学习的常数偏移，是一个需要评测的简化，而不是等价变换。RMSNorm 不减均值，因此不能用“输入已中心化，bias 就没用”来解释，也不能保证后续矩阵总能吸收任意 bias；
 - PaLM（Chowdhery 等 2022）的报告指出去掉 bias 提升了大模型训练的稳定性；
-- 对系统而言，无 bias 的 GEMM 是纯 $$Y = XW$$，少一次 broadcast add 的 epilogue，量化时也少一个需要处理的浮点向量（INT4 权重量化只需要处理 $$W$$，见算法地图的《高效推理与压缩》）。
+- 对系统而言，无 bias 的 GEMM 是纯 $$Y = XW$$，少一次 broadcast add 的 epilogue，量化时也少一个需要处理的浮点向量（INT4 权重量化只需要处理 $$W$$，见《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)）。
 
 Qwen2 系列是一个例外，它在 Q、K、V 投影上保留 bias（`attention_bias: true`），据其报告是为了改善 RoPE 的长度外推。DeepSeek-V3 与 Llama 一样无 bias。本系列的参数量公式忽略 bias。
 
@@ -172,25 +302,25 @@ Table: GPT-2 small 与 Llama-3-8B 的逐项对照：骨架不变，五处改动�
 
 ### 2. 三代模型的实践地图：每个槽位在哪条线上、去哪一篇
 
-把 GPT-2 到 Llama 的五处改动放进三个具体模型的实践地图，每一行写"改了什么、为什么、影响哪笔账、属于哪条线、去第几篇看"：
+把 GPT-2 到 Llama 的五处改动放进三个具体模型的实践地图，每一行写「改了什么、为什么、影响哪笔账、属于哪条线、去哪一篇看」：
 
-| 槽位 | GPT-2 → Llama-3 | DeepSeek-V3 / VLM 的进一步变化 | 为什么改、影响哪笔账 | 线 | 展开位置 |
+| 槽位 | GPT-2 → Llama-3 | DeepSeek-V3 / VLM 的进一步变化 | 为什么改、影响哪笔账 | 演进线 | 展开位置 |
 |---|---|---|---|---|---|
-| 归一化与 bias | LayerNorm → RMSNorm；去 bias | DeepSeek-V3 也用 RMSNorm、无 bias | 简化归一化和投影；参数减少很小，数值行为仍需评测 | 2 | 本篇第二章第 1、5 节 |
-| FFN 的非线性 | GELU 两矩阵 → SwiGLU 三矩阵 | 每个专家仍是 SwiGLU，但不再只有一个 FFN | 门控增加表达能力；中间宽度要随矩阵数调整 | 2 | 本篇第二章第 3 节 |
-| 算量与字节 | 每个矩阵的形状 → GEMM | 同一套公式，MoE 按激活参数算、MLA 按吸收后形态算 | 参数量换成 FLOPs、字节与时间；prefill 与 decode 的瓶颈不同 | 工具 | [06 前向的算量与访存量](/transformer-flops-bytes-and-roofline.html) |
-| 位置表示 | 1024 行位置表 → RoPE | V3 用解耦 RoPE 与 YaRN；VLM 可扩成 M-RoPE | 表达顺序与相对位置；外推需要处理训练长度之外的分布 | 1 | [07 位置编码与外推](/positional-encoding-and-long-context.html) |
-| KV 表示 | MHA → GQA，32 个 Q 头共享 8 组 KV | MLA 缓存 512 维潜向量与 64 维位置键 | 减少每 token 的 KV；投影参数与 attention kernel 随之变化 | 1 / 2 | [08 Attention 变体与 KV cache](/attention-variants-and-kv-cache.html) |
-| 可见范围 | Llama-3 文本基线仍是全局 causal attention | 长度扩展不自动带来滑窗；局部 / 稀疏是另一组选择 | KV 线性、prefill attention 二次增长；改变可见 token 集才能改变这笔账 | 1 | [09 长上下文的成本与结构手段](/long-context-cost-and-structural-remedies.html) |
-| FFN 的份数 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩大模型规模而不同比例增加每 token 算量；总权重与通信仍昂贵 | 2 | [10 MoE 的路由、激活参数量与通信形态](/moe-compute-and-communication.html) |
-| 训练目标 | 默认只预测下一个 token | V3 加 1 层 MTP，训练时继续预测后一个 token | 增加训练模块与监督信号；推理可丢弃或用作草稿 | 3 | [11 MTP](/multi-token-prediction-mtp.html) |
-| 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | 3 | [12 投机解码](/speculative-decoding-draft-verify-and-payoff.html) |
-| 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder + connector，再拼进序列或经 cross-attention 层读入 | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | 4 | [13 多模态](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
-| 数值精度 | BF16 权重与计算 | V3 用 FP8 训练与推理（分块 scale） | 每个数占几个字节、误差在哪里积累、训练状态每参数几字节 | 2 | [14 浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html) |
+| 归一化与 bias | LayerNorm → RMSNorm；去 bias | DeepSeek-V3 也用 RMSNorm、无 bias | 简化归一化和投影；参数减少很小，数值行为仍需评测 | 2 | 本篇[第二章第 1 节](#1-layernorm--rmsnorm)、[第 5 节](#5-去掉所有-bias) |
+| FFN 的非线性 | GELU 两矩阵 → SwiGLU 三矩阵 | 每个专家仍是 SwiGLU，但不再只有一个 FFN | 门控增加表达能力；中间宽度要随矩阵数调整 | 2 | 本篇[第二章第 3 节](#3-gelu-两矩阵-ffn--swiglu-三矩阵) |
+| 算量与字节 | 每个矩阵的形状 → GEMM | 同一套公式，MoE 按激活参数算、MLA 按吸收后形态算 | 参数量换成 FLOPs、字节与时间；prefill 与 decode 的瓶颈不同 | 工具 | [《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html) |
+| 位置表示 | 1024 行位置表 → RoPE | V3 用解耦 RoPE 与 YaRN；VLM 可扩成 M-RoPE | 表达顺序与相对位置；外推需要处理训练长度之外的分布 | 1 | [《位置编码与外推》](/positional-encoding-and-long-context.html) |
+| KV 表示 | MHA → GQA，32 个 Q 头共享 8 组 KV | MLA 缓存 512 维潜向量与 64 维位置键 | 减少每 token 的 KV；投影参数与 attention kernel 随之变化 | 1 / 2 | [《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html) |
+| 可见范围 | Llama-3 文本基线仍是全局 causal attention | 长度扩展不自动带来滑窗；局部 / 稀疏是另一组选择 | KV 线性、prefill attention 二次增长；改变可见 token 集才能改变这笔账 | 1 | [《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html) |
+| FFN 的份数 | Llama 每 token 使用整个 dense FFN | V3：256 个路由专家选 8 个，另有 1 个共享专家 | 扩大模型规模而不同比例增加每 token 算量；总权重与通信仍昂贵 | 2 | [《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html) |
+| 训练目标 | 默认只预测下一个 token | V3 加 1 层 MTP，训练时继续预测后一个 token | 增加训练模块与监督信号；推理可丢弃或用作草稿 | 3 | [《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html) |
+| 解码流程 | 每步一次前向产出一个 token | 草稿 + 一次前向验证多个 token（MTP 模块可当草稿） | 不改结构与分布；只在小 batch 的 memory-bound 区间有收益 | 3 | [《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html) |
+| 输入模态 | 以上文本模型只有 token embedding | VLM 加 vision encoder + connector，再拼进序列或经 cross-attention 层读入 | 图像先算一次编码，再以 image token 或独立 KV 进入 decoder | 4 | [《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
+| 数值精度 | BF16 权重与计算 | V3 用 FP8 训练与推理（分块 scale） | 每个数占几个字节、误差在哪里积累、训练状态每参数几字节 | 2 | [《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html) |
 
 Table: 模型实践地图：各处变化的动机、成本、所在的演进线与后续专项
 
-这张表是阅读路线，不是"一款模型把所有优化都开齐"的配置表。例如 YaRN 不等于 sliding window，MTP 也不等于常规推理必须多跑一层；具体模型用了什么，以它的配置、实现与训练报告为准。Llama 和 DeepSeek-V3 本身是文本模型，不能把 VLM 的组件误读成它们共有的配置；第一篇再用 LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision 对照多模态接口。
+这张表是阅读路线，不是"一款模型把所有优化都开齐"的配置表。例如 YaRN 不等于 sliding window，MTP 也不等于常规推理必须多跑一层；具体模型用了什么，以它的配置、实现与训练报告为准。Llama 和 DeepSeek-V3 本身是文本模型，不能把 VLM 的组件误读成它们共有的配置；多模态接口由[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)用 LLaVA-1.5 / Qwen2-VL / Llama-3.2-Vision 对照。
 
 ### 3. 2025 年的对照：路线图上还有哪些点
 
@@ -205,11 +335,19 @@ Llama-3（2024）与 DeepSeek-V3（2024 年末）是本系列贯穿的两个数�
 
 Table: 2025 年几个代表性开放权重模型在路线图上的位置（配置摘自各自的 `config.json` 与技术报告）
 
-读法：每一列都是五条主线与一条辅线上的某一站。GQA 的 KV 头数从 Llama-3 的 8 收到 Qwen3 的 4、MLA 把头数从 128 减到 64——线 1 / 2 的 KV 账，第四篇；滑窗与全局交错、NoPE 层、分块 attention——线 1，第三、五篇；专家数从 256 到 384、top-k 从 8 到 1、有无共享专家——线 2，第六篇；MXFP4 与 FP8 分块——线 2，第十篇与量化专题；Llama 4 的 early fusion——线 5，第九篇。QK-norm 是本篇五处改动之外近两年几乎成为默认的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，第十篇讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
+读法：每一列都是[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)里五条主线与一条辅线上的某一站。
+
+- GQA 的 KV 头数从 Llama-3 的 8 收到 Qwen3 的 4、MLA 把头数从 128 减到 64：线 1 / 2 的 KV 账，见[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)。
+- 滑窗与全局交错、NoPE 层、分块 attention：线 1，见[《位置编码与外推》](/positional-encoding-and-long-context.html)与[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。
+- 专家数从 256 到 384、top-k 从 8 到 1、有无共享专家：线 2，见[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)。
+- MXFP4 与 FP8 分块：线 2，见[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)与《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)。
+- Llama 4 的 early fusion：线 5，见[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)。
+
+QK-norm 是本篇五处改动之外近两年几乎成为默认的第六处小改动（对 Q、K 各做一次 RMSNorm 再算点积，抑制 attention logit 增长，《浮点格式、数值稳定性与混合精度》讨论它的数值动机）。后面各篇的数字仍以 Llama-3 与 DeepSeek-V3 为准，读者可以把这张表里的任何一行代进同一组公式——这就是贯穿脚本 `llm_cost.py` 存在的理由。
 
 ## 四、参数量：从 config.json 到 8.03B
 
-现代 LLM 结构系列的第一笔账。第 02 篇的算量、第 04 篇的 KV、第 06 篇的激活参数都从这里取数，所以这一章把 Llama 算到最后一位。
+现代 LLM 结构系列的第一笔账。[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的算量、[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)的 KV 字节、[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)的激活参数都从这里取数，所以这一章把 Llama 算到最后一位。
 
 ### 1. 一层里的七个矩阵
 
@@ -334,18 +472,18 @@ $$
 
 注意 $$W_Q$$ 和 $$W_O$$ 随 $$d^2$$ 增长，而 $$W_K$$、$$W_V$$ 只随 $$d \cdot d_{kv}$$ 增长；70B 把 $$d$$ 翻倍、$$n_{kv}$$ 不变，K/V 投影在 attention 里的占比从 20% 降到 11%。
 
-$$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的算量与上下文长度 $$s$$ 成正比（每层每 token $$4 d s$$ FLOPs，第二篇推导），但对本篇的参数量没有贡献。RoPE 位置编码也没有参数，它只是对 Q、K 做一个由位置决定的旋转（第三篇）。这提醒：**参数量只衡量权重，不衡量 attention 对上下文的那部分计算**，两者在长上下文下会严重分离。
+$$QK^\top$$、softmax、$$PV$$ 这几步没有任何可学习参数，它们的算量与上下文长度 $$s$$ 成正比（每层每 token $$4 d s$$ FLOPs，[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)推导），但对本篇的参数量没有贡献。RoPE 位置编码也没有参数，它只是对 Q、K 做一个由位置决定的旋转（[《位置编码与外推》](/positional-encoding-and-long-context.html)）。这提醒：**参数量只衡量权重，不衡量 attention 对上下文的那部分计算**，两者在长上下文下会严重分离。
 
 ### 3. FFN 的三个矩阵
 
 | 模型 | d | d_ff | 3·d·d_ff | 占每层参数 |
 |---|---|---|---|---|
 | Llama-3-8B | 4096 | 14336 | 176,160,768 = 176.16M | 80.8% |
-| Llama-3-70B | 8192 | 28672 | 704,643,072 = 704.64M | 82.3% |
+| Llama-3-70B | 8192 | 28672 | 704,643,072 = 704.64M | 82.4% |
 
 Table: 两个模型的 FFN 参数量与占每层参数的比例
 
-$$d_{ff} / d = 3.5$$，对两个模型都成立。因此 SwiGLU FFN 的参数量可以记成 $$3 \times 3.5 \, d^2 = 10.5 \, d^2$$，比 attention 的 $$2d^2 + 2 d \cdot d_{kv} \approx 2.5 d^2$$ 大 4 倍多。**dense 模型每一层约 80% 的参数在 FFN 里**，这是 MoE 选择把 FFN 而不是 attention 换成专家的直接原因：参数大头在这里，把它"稀疏化"收益最大（第二篇）。
+$$d_{ff} / d = 3.5$$，对两个模型都成立。因此 SwiGLU FFN 的参数量可以记成 $$3 \times 3.5 \, d^2 = 10.5 \, d^2$$，比 attention 的 $$2d^2 + 2 d \cdot d_{kv} \approx 2.5 d^2$$ 大 4 倍多。**dense 模型每一层约 80% 的参数在 FFN 里**，这是 MoE 选择把 FFN 而不是 attention 换成专家的直接原因：参数大头在这里，把它「稀疏化」收益最大（[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)）。
 
 ### 4. embedding、lm_head 与 tie
 
@@ -353,6 +491,9 @@ embedding 矩阵 $$E \in \mathbb{R}^{V \times d}$$，lm_head $$W_{out} \in \math
 
 - GPT-2、Gemma、Qwen2.5 的小尺寸（0.5B、1.5B、3B）共享，只算一份 $$V \cdot d$$；
 - Llama 3 全系、DeepSeek-V3、Mixtral、Qwen2.5 的 7B 以上不共享，算两份。
+
+> [!NOTE] Java 经验参照：两个字段引用同一个对象
+> `tie_word_embeddings: true` 时，`embed_tokens.weight` 与 `lm_head.weight` 的关系和 Java 里两个字段持有同一个 `float[]` 的引用一样：通过任一个字段改数组，另一个字段读到的就是新值；统计堆占用时按对象算一次，不按字段算两次。数参数量也是按对象数，`model.parameters()` 对同一个张量只返回一次。对不上的是 `false` 的情形：那是两个形状相同、各自训练的独立矩阵，不是同一份数据的两个副本，所以要算两份。
 
 Llama-3-8B：$$V = 128256$$，$$d = 4096$$：
 
@@ -366,7 +507,7 @@ $$
 
 | 模型 | $$V$$ | $$d$$ | tie | $$V \cdot d$$ | embedding + lm_head | 占总参数 |
 |---|---|---|---|---|---|---|
-| Qwen2.5-0.5B | 151936 | 896 | 是 | 136M | 136M（一份） | 约 27% |
+| Qwen2.5-0.5B | 151936 | 896 | 是 | 136M | 136M（一份） | 约 28% |
 | Llama-2-7B | 32000 | 4096 | 否 | 131M | 262M | 3.9% |
 | Mistral-7B | 32000 | 4096 | 否 | 131M | 262M | 3.6% |
 | Llama-3-8B | 128256 | 4096 | 否 | 525M | 1.05B | 13.1% |
@@ -382,7 +523,7 @@ Table: 各模型 embedding + lm_head 的参数占比
 
 **参数量与显存。** Llama 2 的词表是 32000，Llama 3 扩到 128256（4 倍）。同样 $$d = 4096$$，embedding + lm_head 从 262M 涨到 1.05B，多出的 789M 参数在 BF16 下是 1.58 GB 显存。Llama-2-7B 到 Llama-3-8B 的"多出来的 1.3B"由三项构成：词表 +789M，FFN 从 11008 加宽到 14336 再 +1.31B，GQA 把 K/V 从 32 头减到 8 头省了 805M；净增 $$0.789 + 1.309 - 0.805 \approx 1.29$$B——词表只占其中六成，另一大块是 FFN 加宽。
 
-**lm_head 的算量。** lm_head 是一个 $$[m, d] \times [d, V]$$ 的 GEMM，每 token $$2 d V = 2 \times 4096 \times 128256 \approx 1.05$$ GFLOPs，占 Llama-3-8B 每 token 总 FLOPs（约 15 GFLOPs）的 7%。而 embedding 是查表，不是 GEMM，每 token 只读一行 $$d$$ 个数，FLOPs 为零。这就是为什么第二篇算每 token FLOPs 时用 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs：总参数减去 embedding 那 525M，因为它不参与乘加。
+**lm_head 的算量。** lm_head 是一个 $$[m, d] \times [d, V]$$ 的 GEMM，每 token $$2 d V = 2 \times 4096 \times 128256 \approx 1.05$$ GFLOPs，占 Llama-3-8B 每 token 总 FLOPs（约 15 GFLOPs）的 7%。而 embedding 是查表，不是 GEMM，每 token 只读一行 $$d$$ 个数，FLOPs 为零。这就是为什么[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算每 token FLOPs 时用 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs：总参数减去 embedding 那 525M，因为它不参与乘加。
 
 **词表越大，每个 token 编码的文本越多。** 128K 词表的 tokenizer 平均每个 token 对应的字符数比 32K 词表多约 15%（Llama 3 报告的数字），同一段文本的 token 数减少，prefill 和 decode 的总步数随之减少。对以 token 计价的推理服务而言，这是一个"隐形"的效率提升。
 
@@ -409,7 +550,7 @@ $$
 N = L \cdot P_{layer} + (1 + [\text{untied}]) \cdot V \cdot d + d
 $$
 
-其中 $$[\text{untied}]$$ 在不共享 embedding 时为 1，共享时为 0；最后的 $$d$$ 是 final norm。总纲里给的简化形式 $$N \approx L \cdot [d(d + 2d_{kv} + d) + 3 d \cdot d_{ff}] + 2 V d$$ 是省去 Norm 之后的同一个式子。
+其中 $$[\text{untied}]$$ 在不共享 embedding 时为 1，共享时为 0；最后的 $$d$$ 是 final norm。[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)里给的简化形式 $$N \approx L \cdot [d(d + 2d_{kv} + d) + 3 d \cdot d_{ff}] + 2 V d$$ 是省去 Norm 之后的同一个式子。
 
 ### 6. 逐项代入 Llama-3-8B
 
@@ -476,7 +617,7 @@ Table: Llama-3.1-405B 参数量逐项代入
 
 公布值 405B。三个尺寸的模型都对上了，说明 dense Transformer 的参数量确实没有任何"隐藏"的部分——RoPE 没有参数，attention 计算没有参数，softmax 没有参数，全部权重就是这张表里的矩阵。
 
-顺便检查 405B 的 $$d_{ff}$$：$$\lfloor \frac{2}{3} \times 65536 \rfloor = 43690$$，$$\times 1.3 = 56797$$，但 config 里是 53248 $$= 3.25 d$$，不是 3.5d。这说明 405B 没有沿用 1.3 的 multiplier（对应约 1.219），Meta 在这个尺寸上重新选了 FFN 宽度。读 config 时以实际字段为准，推导公式只是帮助理解数字从哪里来，不能代替它。
+顺便检查 405B 的 $$d_{ff}$$：$$\lfloor \frac{2}{3} \times 65536 \rfloor = 43690$$，$$\times 1.3 = 56797$$，但 config 里是 53248 $$= 3.25 d$$，不是 3.5d。这说明 405B 没有沿用 1.3 的 multiplier，Meta 在这个尺寸上重新选了 FFN 宽度：按同一条公式，multiplier 取 1.2、对齐到 4096 的倍数正好得到这个值（$$43690 \times 1.2 = 52428$$，$$\lceil 52428 / 4096 \rceil \times 4096 = 13 \times 4096 = 53248$$）。读 config 时以实际字段为准，推导公式只是帮助理解数字从哪里来，不能代替它。
 
 ### 9. 参数分布
 
@@ -488,7 +629,7 @@ Table: Llama-3.1-405B 参数量逐项代入
 | embedding | 0.525B | 6.5% | 1.051B | 1.5% |
 | lm_head | 0.525B | 6.5% | 1.051B | 1.5% |
 | **合计** | **8.030B** |  | **70.55B** |  |
-| 层内 attention / FFN | 19.2% / 80.8% |  | 17.6% / 82.3% |  |
+| 层内 attention / FFN | 19.2% / 80.8% |  | 17.6% / 82.4% |  |
 
 Table: Llama-3-8B 与 70B 的参数分布
 
@@ -496,11 +637,15 @@ Table: Llama-3-8B 与 70B 的参数分布
 
 **层内 FFN 占约 80%。** 这个比例由 $$d_{ff}/d = 3.5$$ 和 GQA 决定，对所有采用 SwiGLU + GQA 的 dense 模型大致相同。它意味着 dense 模型每 token 的 GEMM FLOPs 也有约 80% 花在 FFN 上（每参数 2 FLOPs），attention 的投影只占 20%——但这不包括 attention 对上下文的 $$QK^\top$$ 与 $$PV$$，那部分随 $$s$$ 增长，长上下文下会反过来成为主导。
 
-**embedding 占比随模型变大而消失。** $$V \cdot d$$ 随 $$d$$ 线性增长，而层参数随 $$L \cdot d^2$$ 增长。8B 时 embedding + lm_head 占 13%，70B 时 3%，405B（$$d = 16384$$、$$L = 126$$）时约 1%。所以谈"小模型"的参数量时必须说清楚是否含 embedding：Qwen2.5-0.5B 的 embedding（$$151936 \times 896 = 136\text{M}$$，tie）占了总参数的 27%，"0.5B"里只有 0.36B 是层参数。
+**embedding 占比随模型变大而消失。** $$V \cdot d$$ 随 $$d$$ 线性增长，而层参数随 $$L \cdot d^2$$ 增长。8B 时 embedding + lm_head 占 13%，70B 时 3%，405B（$$d = 16384$$、$$L = 126$$）时约 1%。所以谈"小模型"的参数量时必须说清楚是否含 embedding：Qwen2.5-0.5B 的 embedding（$$151936 \times 896 = 136\text{M}$$，tie）占了总参数的约 28%，"0.5B"里只有 0.36B 是层参数。
 
 从系统视角，这张分布表直接对应显存的分布：BF16 下 Llama-3-8B 的 16.06 GB 权重里，FFN 11.3 GB、attention 2.7 GB、embedding 与 lm_head 各 1.05 GB。做张量并行时，FFN 和 attention 的权重按列/行切到各卡，embedding 通常按词表切（vocab parallel），lm_head 同样按词表切并在 cross-entropy 处做规约——切法不同是因为它们的形状不同。
 
-这张表也决定了优化精力应该花在哪里。权重量化（算法地图《高效推理与压缩》第 03 篇）如果只量化 FFN 的三个矩阵而保留 attention 为 BF16，就已经覆盖了 70% 的字节；反过来，attention 投影的量化收益有限，很多量化方案对 `o_proj` 单独保留更高精度，显存代价约 3%（`o_proj` 占 8B 参数的 6.7%，从 4 bit 回到 16 bit 多出 $$0.54\text{B} \times 1.5$$ B ≈ 0.8 GB）；对 `down_proj` 这么做就贵得多——它一项占 23%。LoRA（算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)）默认只挂在 Q、K、V、O 四个矩阵上，覆盖的是那 17% 的参数；要覆盖 FFN 就得再挂 gate、up、down——按 Llama-3-8B 的形状，七个矩阵的 LoRA 参数量约是四个的 3.1 倍（FFN 矩阵更宽，$$r(d + d_{ff})$$ 对 $$r(d + d_{kv})$$）。embedding 与 lm_head 在 8B 上占 13%，是 INT4 量化通常跳过的部分——跳过它们意味着 8B 模型量化后的字节数是 $$6.98\text{B} \times 0.5 + 1.05\text{B} \times 2 \approx 5.6$$ GB，相对 BF16 的压缩比不是 4 倍而是不到 3 倍，这个差异在容量规划时不能忽略。
+这张表也决定了优化精力应该花在哪里：
+
+- **权重量化**（《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)）：只量化 FFN 的三个矩阵、保留 attention 为 BF16，就已经覆盖了 70% 的字节。attention 投影的量化收益有限，很多量化方案对 `o_proj` 单独保留更高精度：`o_proj` 占 8B 参数的 6.7%，从 4 bit 回到 16 bit 多出 $$0.54\text{B} \times 1.5$$ 字节 ≈ 0.8 GB。对 `down_proj` 这么做就贵得多，它一项占 23%。
+- **LoRA**（算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)）：默认只挂在 Q、K、V、O 四个矩阵上，覆盖的是那 17% 的参数。要覆盖 FFN 就得再挂 gate、up、down，按 Llama-3-8B 的形状，七个矩阵的 LoRA 参数量约是四个的 3.1 倍（FFN 矩阵更宽，$$r(d + d_{ff})$$ 对 $$r(d + d_{kv})$$）。
+- **跳过 embedding 的量化**：embedding 与 lm_head 在 8B 上占 13%，是 INT4 量化通常跳过的部分。跳过它们，8B 模型量化后的字节数是 $$6.98\text{B} \times 0.5 + 1.05\text{B} \times 2 \approx 5.6$$ GB，相对 BF16 的压缩比不是 4 倍而是不到 3 倍，容量规划时不能忽略。
 
 ### 10. 几种常见的算错方式
 
@@ -510,7 +655,7 @@ Table: Llama-3-8B 与 70B 的参数分布
 
 **漏掉不共享的 lm_head。** 只算一份 $$V \cdot d$$，Llama-3-8B 会少 525M（6.5%）。判断依据是 `tie_word_embeddings` 字段，缺省时 `transformers` 视为 true，但 Llama 3 的 config 显式写了 false。反过来 Gemma 与小尺寸的 Qwen2.5 是 true，多算一份会高估 20% 以上。
 
-**用 $$4d$$ 当 $$d_{ff}$$。** 传统 FFN 的直觉。对 Llama-3-8B，$$3 \times 4096 \times 16384 = 201\text{M}$$ 而不是 176M，每层多 14%。永远以 `intermediate_size` 为准。
+**用 $$4d$$ 当 $$d_{ff}$$。** 传统 FFN 的直觉。对 Llama-3-8B，$$3 \times 4096 \times 16384 = 201\text{M}$$ 而不是 176M，FFN 多算 14%。永远以 `intermediate_size` 为准。
 
 **忘了 SwiGLU 是三个矩阵。** 按两矩阵算 FFN，每层少 58.7M（33%），总数少 1.9B。看 `hidden_act` 是否为 `silu`/`swiglu` 类，或者直接看 `modeling_*.py` 里 MLP 有几个 `nn.Linear`。
 
@@ -518,11 +663,11 @@ Table: Llama-3-8B 与 70B 的参数分布
 
 **默认 $$n_h \cdot d_{head} = d$$。** 对 Llama 成立，对 DeepSeek-V3（$$128 \times 128 \ne 7168$$）和一些显式给出 `head_dim` 的模型不成立。公式里用 $$n_h d_{head}$$ 而不是 $$d$$ 作为 $$W_Q$$ 的列数、$$W_O$$ 的行数，就不会错。
 
-这些错误都可以用第六章的脚本避免：它按 config 字段逐项算，不依赖任何"通常等于"的假设。
+这些错误都可以用[第六章](#六实践llm_costpy-第一版)的脚本避免：它按 config 字段逐项算，不依赖任何"通常等于"的假设。
 
 ### 11. DeepSeek-V3 的 config：dense 公式在哪里失效
 
-DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都不是上面的形状；总纲的路线图概述了它与 Llama 的差异。本节列出 config 里的关键字段，并说明 attention、FFN 与训练目标的差异，推导留给第四篇（MLA）和第六篇（MoE）。
+DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都不是上面的形状；[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)的路线图概述了它与 Llama 的差异。本节列出 config 里的关键字段，并说明 attention、FFN 与训练目标的差异，推导留给[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)（MLA）和[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)（MoE）。
 
 ```json title="DeepSeek-V3 config.json 的关键字段"
 {
@@ -547,21 +692,40 @@ DeepSeek-V3 是本系列的第三个贯穿模型，它的 attention 和 FFN 都�
 }
 ```
 
-**attention 不再是四个矩阵。** `num_key_value_heads` 等于 `num_attention_heads`，看起来像 MHA，但 MLA（Multi-head Latent Attention）用低秩分解代替了直接的 $$W_K$$、$$W_V$$：K 和 V 先被压成一个 $$d_c = 512$$ 维（`kv_lora_rank`）的潜向量，再由两个上投影矩阵展开成 128 个 head；Q 同样经过 $$1536$$ 维（`q_lora_rank`）的低秩瓶颈。每个 head 的 Q/K 维度是 $$128 + 64 = 192$$（`qk_nope_head_dim` 不带 RoPE 的部分加 `qk_rope_head_dim` 带 RoPE 的部分），V 是 128。这样每层 attention 的参数约 187M（六个矩阵：$$7168 \times 1536$$、$$1536 \times 24576$$、$$7168 \times 576$$、$$512 \times 16384$$、$$512 \times 16384$$、$$16384 \times 7168$$），61 层约 11.4B——比同等 $$d$$ 下的 MHA 少，但更重要的是 KV cache 只需存那个 512 + 64 维的潜向量。这是第四篇的主题。
+**attention 不再是四个矩阵。** `num_key_value_heads` 等于 `num_attention_heads`，看起来像 MHA，但 MLA（Multi-head Latent Attention）用低秩分解代替了直接的 $$W_K$$、$$W_V$$：K 和 V 先被压成一个 $$d_c = 512$$ 维（`kv_lora_rank`）的潜向量，再由两个上投影矩阵展开成 128 个 head；Q 同样经过 $$1536$$ 维（`q_lora_rank`）的低秩瓶颈。每个 head 的 Q/K 维度是 $$128 + 64 = 192$$（`qk_nope_head_dim` 不带 RoPE 的部分加 `qk_rope_head_dim` 带 RoPE 的部分），V 是 128。这样每层 attention 的参数约 187M（六个矩阵：$$7168 \times 1536$$、$$1536 \times 24576$$、$$7168 \times 576$$、$$512 \times 16384$$、$$512 \times 16384$$、$$16384 \times 7168$$），61 层约 11.4B——比同等 $$d$$ 下的 MHA 少，但更重要的是 KV cache 只需存那个 512 + 64 维的潜向量。这是《Attention 变体与 KV cache》的主题。
 
-**FFN 不再是一组三矩阵。** 前 3 层（`first_k_dense_replace`）是 dense SwiGLU，$$d_{ff} = 18432$$，每层 $$3 \times 7168 \times 18432 = 396\text{M}$$。第 4 到 61 层是 MoE：每层 256 个路由专家加 1 个共享专家，每个专家是一个 $$d_{ff} = 2048$$ 的小 SwiGLU（$$3 \times 7168 \times 2048 = 44.04\text{M}$$），每层 257 个专家共 11.32B，58 层共 656.5B。每个 token 只经过 top-8 路由专家加 1 个共享专家，所以**总参数 671B，每 token 激活约 37B**——参数量与算量在 MoE 里第一次分离，这是第六篇的主题。
+**FFN 不再是一组三矩阵。** 前 3 层（`first_k_dense_replace`）是 dense SwiGLU，$$d_{ff} = 18432$$，每层 $$3 \times 7168 \times 18432 = 396\text{M}$$。第 4 到 61 层是 MoE：每层 256 个路由专家加 1 个共享专家，每个专家是一个 $$d_{ff} = 2048$$ 的小 SwiGLU（$$3 \times 7168 \times 2048 = 44.04\text{M}$$），每层 257 个专家共 11.32B，58 层共 656.5B。每个 token 只经过 top-8 路由专家加 1 个共享专家，所以**总参数 671B，每 token 激活约 37B**——参数量与算量在 MoE 里第一次分离，这是《MoE 的路由、激活参数量与通信形态》的主题。
 
-**训练目标还多了 MTP。** `num_nextn_predict_layers: 1` 表示增加一层 next-token 之后的预测模块：它接收主干隐状态与下一 token 的 embedding，再经过投影和 Transformer block 继续预测。它不是“所有主干层都多一份”，也不应混进主干 671B / 激活 37B 的口径里；训练时多付参数与算量，常规推理可以不用，保留下来则可做草稿。具体因果关系、参数与实跑见[《现代 LLM 结构（07）：MTP》](/multi-token-prediction-mtp.html)。
+**训练目标还多了 MTP。** `num_nextn_predict_layers: 1` 表示增加一层 next-token 之后的预测模块：它接收主干隐状态与下一 token 的 embedding，再经过投影和 Transformer block 继续预测。它不是“所有主干层都多一份”，也不应混进主干 671B / 激活 37B 的口径里；训练时多付参数与算量，常规推理可以不用，保留下来则可做草稿。具体因果关系、参数与实跑见[《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html)。
 
 **embedding 与 lm_head。** $$129280 \times 7168 = 926.7\text{M}$$，两份 1.85B，占 671B 的 0.3%。在 MoE 模型里 embedding 更加可以忽略。
 
-对本篇的意义在于：**参数量公式的骨架不变**——仍然是"每层参数 × 层数 + 首尾"，只是 attention 和 FFN 那两项要换成各自的形状。第六篇会把 `llm_cost.py` 扩展到能算 MoE 的总参数与激活参数。
+对本篇的意义在于：**参数量公式的骨架不变**——仍然是"每层参数 × 层数 + 首尾"，只是 attention 和 FFN 那两项要换成各自的形状。《MoE 的路由、激活参数量与通信形态》会把 `llm_cost.py` 扩展到能算 MoE 的总参数与激活参数。
 
 把三个模型放在一起看，能看到两条不同的放大路线。Llama 从 8B 到 70B 到 405B 是同一个形状按比例放大：$$d$$、$$L$$、$$n_h$$ 一起增长，$$d_{ff}/d$$ 和 $$n_{kv}$$ 基本不变，每 token 的算量与参数量同步增长。DeepSeek-V3 则是把参数量放大到 671B，但通过路由让每 token 只用其中 37B，算量停留在一个 40B 级 dense 模型的水平；代价是全部 671B 参数都必须常驻显存（FP8 下 671 GB，至少 9 张 H100 只放权重），以及专家之间的 all-to-all 通信。"参数量"这个词在 MoE 出现之后就不再单独对应成本，必须同时报总参数（决定显存）和激活参数（决定算量）——这是本系列反复强调"参数量只是成本的一个维度"的第一个具体例子。
 
 ## 五、对照 transformers 的 modeling_llama.py
 
 `transformers` 库里 `models/llama/modeling_llama.py` 是上面所有形状的代码形式。读它的时候只需要盯住每个 `nn.Linear(in_features, out_features, bias)` 的两个维度，就能与公式一一对应。以下按类结构描述，不引用具体行号（不同版本行号会变，类结构多年稳定）。
+
+五个类是一层套一层的持有关系，下图按「谁持有谁」连起来，方框里是成员名（也就是 `state_dict` 键名的一段）和 Llama-3-8B 下的形状：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：modeling_llama.py 的类持有关系与各成员的形状（Llama-3-8B）
+flowchart TB
+    CLM["<b>LlamaForCausalLM（第 4 节）</b>"]
+    CLM --> M["<b>model：LlamaModel（第 4 节）</b>"]
+    CLM ---> LH["<b>lm_head</b><br/>Linear 4096 → 128256，525.3M"]
+    M --> E["<b>embed_tokens</b><br/>Embedding 128256 × 4096，525.3M"]
+    M --> LS["<b>layers</b><br/>ModuleList：32 个 LlamaDecoderLayer（第 4 节）"]
+    M --> FN["<b>norm：LlamaRMSNorm（第 1 节）</b><br/>4,096"]
+    M --> RE["<b>rotary_emb</b><br/>无参数"]
+    LS --> A["<b>input_layernorm → self_attn：LlamaAttention（第 2 节）</b><br/>• q_proj 4096 → 4096<br/>• k_proj、v_proj 4096 → 1024<br/>• o_proj 4096 → 4096"]
+    LS --> F["<b>post_attention_layernorm → mlp：LlamaMLP（第 3 节）</b><br/>• gate_proj、up_proj 4096 → 14336<br/>• down_proj 14336 → 4096"]
+```
+
+权重文件里的键名就是沿这棵树从上往下拼出来的，例如 `model.layers.0.self_attn.k_proj.weight`，形状 `[1024, 4096]`。
 
 ### 1. LlamaRMSNorm
 
@@ -580,7 +744,7 @@ class LlamaRMSNorm(nn.Module):
         return self.weight * hidden_states.to(input_dtype)
 ```
 
-只有一个 `weight`，形状 `[hidden_size]`，对应 $$\gamma \in \mathbb{R}^d$$。没有 `bias`。注意 forward 里先转 FP32 再算平方和——这是第十篇会回来讨论的数值细节。
+只有一个 `weight`，形状 `[hidden_size]`，对应 $$\gamma \in \mathbb{R}^d$$。没有 `bias`。注意 forward 里先转 FP32 再算平方和——这是[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)会回来讨论的数值细节。
 
 ### 2. LlamaAttention
 
@@ -666,7 +830,7 @@ class LlamaDecoderLayer(nn.Module):
         return hidden_states
 ```
 
-这是 pre-norm 结构（[《Transformer 原理与实现（01）》第九章「残差连接与 LayerNorm」](/transformer-architecture-from-a-sentence-to-the-next-token.html#九残差连接与-layernorm让几十层能训)）的逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
+这是 pre-norm 结构（[《Transformer 长什么样》的「残差连接与 LayerNorm」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#九残差连接与-layernorm让几十层能训)）的逐字翻译：两个 RMSNorm（`input_layernorm`、`post_attention_layernorm`，名字里的 "layernorm" 是历史遗留，实际是 RMSNorm），两条残差。
 
 ```python title="LlamaModel 与 LlamaForCausalLM"
 class LlamaModel(LlamaPreTrainedModel):
@@ -684,7 +848,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
 ```
 
-`embed_tokens.weight` 形状 `[vocab_size, hidden_size]`，`lm_head.weight` 形状 `[vocab_size, hidden_size]`（同样是 `[out, in]`）。`tie_word_embeddings` 为 true 时两者指向同一个张量。`rotary_emb` 没有可学习参数，它在初始化时算好一张 $$\cos / \sin$$ 表作为 buffer。
+`embed_tokens.weight` 形状 `[vocab_size, hidden_size]`，`lm_head.weight` 形状 `[vocab_size, hidden_size]`（同样是 `[out, in]`）。`tie_word_embeddings` 为 true 时两者指向同一个张量。`rotary_emb` 没有可学习参数：它在初始化时由 `rope_theta` 算好频率向量 `inv_freq`，登记为不写进 `state_dict` 的 buffer（`persistent=False`），前向时再按位置算出 $$\cos$$ 与 $$\sin$$。
 
 用 `transformers` 验证参数量只需要：
 
@@ -829,8 +993,8 @@ if __name__ == "__main__":
 几点设计说明：
 
 - `ModelConfig` 的字段与 `config.json` 一一对应，`from_config_json` 负责翻译字段名并处理缺省（没有 `num_key_value_heads` 视为 MHA，没有 `head_dim` 用 $$d / n_h$$）。后面几篇会给它加 `mla_rank`、`n_experts` 等字段，dense 模型这些字段保持默认值即可；
-- `param_count` 返回字典而不是单个数字，因为第二篇算 FLOPs、第四篇算 KV cache、《LoRA 专题》算 LoRA 参数都需要按组件取值；
-- `GPU` 结构本篇用不到，先按系列约定放进来，第二篇的 `decode_step_time(cfg, gpu, batch, ctx)` 会用。
+- `param_count` 返回字典而不是单个数字，因为[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算 FLOPs、[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)算 KV cache、《LoRA 专题》算 LoRA 参数都需要按组件取值；
+- `GPU` 结构本篇用不到，先按系列约定放进来，《前向的算量与访存量》的 `decode_step_time(cfg, gpu, batch, ctx)` 会用。
 
 运行 `python llm_cost.py` 的输出：
 
@@ -890,7 +1054,7 @@ total                    70.554B    70,553,706,496
 }
 ```
 
-八个字段决定了全部 8,030,261,248 个参数：`hidden_size`、`intermediate_size`、`num_hidden_layers`、`num_attention_heads`、`num_key_value_heads`、`vocab_size`、`tie_word_embeddings`，以及隐含的 `head_dim = 4096 / 32`。`rope_theta = 500000` 是第三篇的主角（线 1），`max_position_embeddings = 8192` 是它的训练上下文长度，`torch_dtype` 标明权重以 BF16 存储、每参数 2 字节。
+八个字段决定了全部 8,030,261,248 个参数：`hidden_size`、`intermediate_size`、`num_hidden_layers`、`num_attention_heads`、`num_key_value_heads`、`vocab_size`、`tie_word_embeddings`，以及隐含的 `head_dim = 4096 / 32`。`rope_theta = 500000` 是[《位置编码与外推》](/positional-encoding-and-long-context.html)的主角（线 1），`max_position_embeddings = 8192` 是它的训练上下文长度，`torch_dtype` 标明权重以 BF16 存储、每参数 2 字节。
 
 可以试着把其他模型的 `config.json` 喂给脚本。几个 7B 级 dense 模型的关键字段与脚本输出如下，同一个公式对它们全部适用，差别只在字段取值：
 
@@ -903,15 +1067,21 @@ total                    70.554B    70,553,706,496
 
 Table: 几个 7B 级 dense 模型的 config 字段与脚本参数量
 
-Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$$V = 32000$$）会得到 7.24B，与 Llama-3-8B 的差恰好是词表从 32000 到 128256 多出的 $$2 \times 96256 \times 4096 = 789\text{M}$$；Qwen2.5-7B（$$d = 3584$$、$$L = 28$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{ff} = 18944$$、$$V = 152064$$）会得到 7.6B 左右，与公布的 7.61B 一致（它的 Q/K/V 有 bias，差的几十万个参数在脚本的忽略范围内）。DeepSeek-V3 的 config 喂进去会得到错误的结果，因为它的 attention 与 FFN 不是这个形状——那是第四篇和第六篇要扩展的。
+Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$$V = 32000$$）会得到 7.24B，与 Llama-3-8B 的差恰好是词表从 32000 到 128256 多出的 $$2 \times 96256 \times 4096 = 789\text{M}$$；Qwen2.5-7B（$$d = 3584$$、$$L = 28$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{ff} = 18944$$、$$V = 152064$$）会得到 7.6B 左右，与公布的 7.61B 一致（它的 Q/K/V 有 bias，差的几十万个参数在脚本的忽略范围内）。DeepSeek-V3 的 config 喂进去会得到错误的结果，因为它的 attention 与 FFN 不是这个形状——那是[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)和[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)要扩展的。
 
-## 七、小结
+## 七、本文小结
 
 本篇是现代 LLM 结构系列的第一篇：从 GPT-2 到 Llama 讲清五处关键改动，读取真实配置、计算 Llama-3-8B 的参数量，再对照 `modeling_llama.py` 并用 `llm_cost.py` 第一版复算。
 
 - **骨架从未变过**：embedding → $$L$$ 个相同的 block → norm → lm_head。每一处演进都是往某个槽位里换一个新填法：归一化、位置、attention 的 K/V、可见范围、FFN、FFN 的份数、bias、输出层、训练目标、解码流程、输入模态、数值格式；
-- **两种节奏**：部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；PaLM 与 DeepSeek-V2 / V3 则是一次打包多项。2023 年以后结构改动重新活跃的驱动力是推理成本——这是第 02 篇排在所有专项之前的原因；
-- **五条演进线与一条辅线**：更长的上下文（03 位置编码 → 04 KV 压缩 → 05 可见范围）；放大参数规模、压住每 token 成本（本篇的部件精简 → 04 GQA / MLA → 06 MoE → 10 低精度）；换掉 attention（05 线性 attention / SSM / 混合架构）；更密的训练信号、更快的生成（07 MTP → 08 投机解码）；输入理解与输出生成（09）；训练稳定性是辅线。GQA / MLA 是长上下文与成本线的交汇点；
+- **两种节奏**：部件级论文（RMSNorm 2019、SwiGLU 2020、RoPE 2021、MQA 2019）在 2023 年的 LLaMA / GQA 之后才成为默认；PaLM 与 DeepSeek-V2 / V3 则是一次打包多项。2023 年以后结构改动重新活跃的驱动力是推理成本——这是[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)排在所有专项之前的原因；
+- **五条演进线与一条辅线**：
+  - 线 1，更长的上下文：[《位置编码与外推》](/positional-encoding-and-long-context.html) → [《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)的 KV 压缩 → [《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)的可见范围；
+  - 线 2，放大参数规模、压住每 token 成本：本篇的部件精简 → GQA / MLA → [《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html) → [《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)的低精度；
+  - 线 3，换掉 attention：线性 attention、SSM 与混合架构（《长上下文的成本与结构手段》）；
+  - 线 4，更密的训练信号、更快的生成：[《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html) → [《投机解码——草稿、验证与收益条件》](/speculative-decoding-draft-verify-and-payoff.html)；
+  - 线 5，输入理解与输出生成：[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)；
+  - 辅线是训练稳定性。GQA / MLA 是长上下文与成本两条线的交汇点；
 - **五处改动**：RMSNorm 去掉减均值和 $$\beta$$；RoPE 用旋转把相对位置放进 attention 分数，位置表从参数里消失；SwiGLU 用三个矩阵换两个，中间宽度按三矩阵调整（Llama-3-8B 取 $$3.5d$$）；GQA 让 K/V 投影变窄，主要为省 KV cache；去 bias 换来训练稳定和更简单的 GEMM；
 - **参数量公式** $$N = L[d(2d + 2d_{kv}) + 3 d \cdot d_{ff} + 2d] + 2Vd + d$$，代入得 Llama-3-8B 精确到 8,030,261,248，70B 到 70,553,706,496，405B 到 405.85B；层内约 80% 参数在 FFN，embedding 在 8B 占 13%、70B 占 3%；MoE 出现之后"参数量"分成总参数（决定显存）与激活参数（决定算量）两个数。
 
@@ -924,34 +1094,39 @@ Mistral-7B（$$d = 4096$$、$$L = 32$$、$$n_{kv} = 8$$、$$d_{ff} = 14336$$、$
 | n_h / n_kv / d_head | 32 / 8 / 128 | 64 / 8 / 128 | 128 / MLA / 192（v 128） |
 | d_ff | 14336 | 28672 | 18432 dense / 2048 专家 |
 | vocab | 128256 | 128256 | 129280 |
-| attention 每层 | 41.94M | 151.0M | 约 187M（MLA，第四篇） |
-| FFN 每层 | 176.16M | 704.6M | 396M dense / 11.32B MoE（第六篇） |
+| attention 每层 | 41.94M | 151.0M | 约 187M（MLA） |
+| FFN 每层 | 176.16M | 704.6M | 396M dense / 11.32B MoE |
 | 每层合计 | 218.1M | 855.7M | — |
-| 所有层 | 6.98B | 68.45B | 约 668B |
+| 所有层 | 6.98B | 68.45B | 约 669B |
 | embedding + lm_head | 1.05B（13.1%） | 2.10B（3.0%） | 1.85B（0.3%） |
 | 总参数 | 8.03B | 70.55B | 约 671B |
-| 每 token 激活参数 | 8.03B | 70.55B | 约 37B（第六篇推导） |
-| 层内 FFN 占比 | 80.8% | 82.3% | — |
+| 每 token 激活参数 | 8.03B | 70.55B | 约 37B |
+| 层内 FFN 占比 | 80.8% | 82.4% | — |
 | BF16 权重字节数 | 16.06 GB | 141.1 GB | 1342 GB（FP8 671 GB） |
-| 每 token 权重 GEMM FLOPs | 约 15.0 G | 约 141 G | 约 74 G（第六篇推导） |
+| 每 token 权重 GEMM FLOPs | 约 15.0 G | 约 139 G（后面各篇取整为 141 G，即 $$2 \times 70.55$$B） | 约 74 G |
 
 Table: 本篇算出的数字：三个模型的维度、参数量与形状
 
-最后一行用到的关系是"每参数每 token 2 FLOPs，embedding 查表不计"，即 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs。这是第二篇的起点：有了每个矩阵的形状，就能算每个 GEMM 的 FLOPs 和要搬多少字节，把 prefill 与 decode 放到 Roofline 上，回答"一张 H100 跑 Llama-3-8B，decode 一个 token 最快多少毫秒"。
+DeepSeek-V3 一列里 MLA 的 187M 由[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)推导，MoE 的 11.32B、激活参数 37B 与 74 G 由[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)推导。最后一行用到的关系是「每参数每 token 2 FLOPs，embedding 查表不计」，即 $$2 \times (8.03 - 0.53)\text{B} \approx 15.0$$ GFLOPs、$$2 \times (70.55 - 1.05)\text{B} \approx 139$$ GFLOPs。这是[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的起点：有了每个矩阵的形状，就能算每个 GEMM 的 FLOPs 和要搬多少字节，把 prefill 与 decode 放到 Roofline 上，回答"一张 H100 跑 Llama-3-8B，decode 一个 token 最快多少毫秒"。
 
 配套代码：本章的脚本保存为 [`transformer-and-llm/llm_cost_01_params.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_01_params.py)，之后每篇一版，都在 [ai-learning-labs/transformer-and-llm](https://github.com/arganzheng/ai-learning-labs/tree/main/transformer-and-llm)。
 
 ## 八、自测
 
-1. 下面是 Qwen3-235B-A22B `config.json` 的一部分：`num_key_value_heads: 4`、`num_attention_heads: 64`、`num_experts: 128`、`num_experts_per_tok: 8`、`rope_theta: 1000000`、`hidden_act: silu`、`attention_bias: false`。逐项说出它相对 GPT-2 换了哪个槽位、属于哪条线、去哪一篇看推导。[^q0]
+1. 下面是 Qwen3-235B-A22B `config.json` 的一部分：`num_key_value_heads: 4`、`num_attention_heads: 64`、`num_experts: 128`、`num_experts_per_tok: 8`、`rope_theta: 1000000`、`hidden_act: silu`、`attention_bias: false`。逐项说出它相对 GPT-2 换了哪个槽位、属于哪条线、去哪一篇看推导。
 
    <details markdown="1"><summary>答案</summary>
 
-   `num_key_value_heads: 4` / `num_attention_heads: 64`：attention 的 K/V 槽位，GQA 16 个 Q 头共用一组 KV，线 1 / 2，第四篇；`num_experts: 128`、`num_experts_per_tok: 8`：FFN 的份数槽位，MoE，线 2，第六篇；`rope_theta: 1000000`：位置槽位，RoPE 且 base 调大以支持长上下文，线 1，第三篇；`hidden_act: silu` 配三个 FFN 矩阵：FFN 槽位，SwiGLU，本篇第二章；`attention_bias: false`：bias 槽位，本篇第二章。config 里没写的 QK-norm 在它的 `modeling_qwen3.py` 里（`q_norm`、`k_norm`），属于训练稳定性一类，第十篇。
+   - `num_key_value_heads: 4` / `num_attention_heads: 64`：attention 的 K/V 槽位，GQA 16 个 Q 头共用一组 KV，线 1 / 2，[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)。
+   - `num_experts: 128`、`num_experts_per_tok: 8`：FFN 的份数槽位，MoE，线 2，[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)。
+   - `rope_theta: 1000000`：位置槽位，RoPE 且 base 调大以支持长上下文，线 1，[《位置编码与外推》](/positional-encoding-and-long-context.html)。
+   - `hidden_act: silu` 配三个 FFN 矩阵：FFN 槽位，SwiGLU，本篇[第二章第 3 节](#3-gelu-两矩阵-ffn--swiglu-三矩阵)。
+   - `attention_bias: false`：bias 槽位，本篇[第二章第 5 节](#5-去掉所有-bias)。
+   - config 里没写的 QK-norm 在它的 `modeling_qwen3.py` 里（`q_norm`、`k_norm`），属于训练稳定性一类，[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)。
 
    </details>
 
-2. Qwen2.5-7B：$$L = 28$$、$$d = 3584$$、$$d_{ff} = 18944$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{head} = 128$$、$$V = 152064$$，embedding 与 lm_head 不共享（attention 有 bias，可忽略）。参数量约多少？[^q1]
+2. Qwen2.5-7B：$$L = 28$$、$$d = 3584$$、$$d_{ff} = 18944$$、$$n_h = 28$$、$$n_{kv} = 4$$、$$d_{head} = 128$$、$$V = 152064$$，embedding 与 lm_head 不共享（attention 有 bias，可忽略）。参数量约多少？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -971,7 +1146,7 @@ Table: 本篇算出的数字：三个模型的维度、参数量与形状
 
    <details markdown="1"><summary>答案</summary>
 
-   $$W_K, W_V$$ 从 $$4096 \times 4096$$ 各变成 $$4096 \times 1024$$，每层省 $$2 \times 4096 \times 3072 = 25.2$$M，32 层 805M，约 10%。省参数不是主要目的——主要目的是 KV cache 缩小 4 倍（第四篇），而 KV cache 是上下文拉长后最先撞到的显存项，所以它主要回答的是长上下文的问题；参数与算量的节省是次要收益。
+   $$W_K, W_V$$ 从 $$4096 \times 4096$$ 各变成 $$4096 \times 1024$$，每层省 $$2 \times 4096 \times 3072 = 25.2$$M，32 层 805M，约 10%。省参数不是主要目的——主要目的是 KV cache 缩小 4 倍（[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)），而 KV cache 是上下文拉长后最先撞到的显存项，所以它主要回答的是长上下文的问题；参数与算量的节省是次要收益。
 
    </details>
 
@@ -987,14 +1162,10 @@ Table: 本篇算出的数字：三个模型的维度、参数量与形状
 
    <details markdown="1"><summary>答案</summary>
 
-   prefill：$$m = 4096$$，$$[4096, 4096] \times [4096, 4096]$$；decode：$$m = B = 32$$，$$[32, 4096] \times [4096, 4096]$$。同一个矩阵，$$m$$ 差 128 倍——第二篇 Roofline 上两种完全不同的工作点。
+   prefill：$$m = 4096$$，$$[4096, 4096] \times [4096, 4096]$$；decode：$$m = B = 32$$，$$[32, 4096] \times [4096, 4096]$$。同一个矩阵，$$m$$ 差 128 倍——[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的 Roofline 上两种完全不同的工作点。
 
    </details>
 
 
-## 下一篇
-
-下一篇进入成本工具箱：[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)，把参数量换成 FLOPs、字节数与时间下界。
-
-[^q0]: **能，而且不需要看它的论文。** 对照[第二章](#二五处改动每一处为什么)的五处改动逐字段看：`num_key_value_heads: 4` 对 `num_attention_heads: 64` 是 attention 的 K/V 槽位——GQA，16 个 Q 头共用一组 KV，回答的是每 token 的 KV 字节（线 1 / 2，第四篇）；`num_experts: 128`、`num_experts_per_tok: 8`、没有共享专家，是 FFN 的份数槽位——MoE，回答参数量与每 token 算量的解耦（线 2，第六篇）；`rope_theta: 1e6`、`max_position_embeddings: 40960` 是位置槽位——RoPE 且 base 调大（线 1，第三篇）；`hidden_act: silu` 加 `gate_proj / up_proj / down_proj` 是 SwiGLU，`attention_bias: false`、`rms_norm_eps` 是去 bias 与 RMSNorm（线 2，本篇[第二章](#二五处改动每一处为什么)）；`torch_dtype: bfloat16` 是数值槽位（第十篇）。没换的槽位同样有信息：没有 `sliding_window` 或 `layer_types`，可见范围仍是全局 causal；没有 `num_nextn_predict_layers`，训练目标仍是 next-token；没有 `vision_config`，只有文本。
-[^q1]: **能。** 从 `config.json` 读七个数——$$L$$、$$d$$、$$d_{ff}$$、$$n_h$$、$$n_{kv}$$、$$d_{head}$$、$$V$$——代入 $$N = L[d(2d + 2d_{kv}) + 3 d \cdot d_{ff} + 2d] + 2Vd + d$$（$$d_{kv} = n_{kv} d_{head}$$；lm_head 与 embedding 不共享时是 $$2Vd$$），Llama-3-8B 算出 8,030,261,248、Llama-3-70B 算出 70,553,706,496，与 `safetensors` 的实际参数量精确一致（[第四章](#四参数量从-configjson-到-803b)）。**分配**：每层里 attention 四个矩阵 $$d(2d + 2d_{kv})$$、FFN 三个矩阵 $$3 d \cdot d_{ff}$$，SwiGLU 加宽后 FFN 占层内约 80%；embedding + lm_head 的 $$2Vd$$ 在 8B 上占 13%、70B 上占 3%——模型越大词表越不重要；RMSNorm 的 $$2d$$ 可忽略，bias 已经消失（[第五章](#五对照-transformers-的-modeling_llamapy)）。误差来源只有一个：漏算或多算 lm_head 是否 tied。
+[^q0]: **变了五处，每一处都能从 `config.json` 的字段认出来。** ① 归一化从 LayerNorm 换成 RMSNorm（`rms_norm_eps`），去掉减均值和 $$\beta$$，省一次均值统计。② 位置从 1024 行的位置表换成 RoPE（`rope_theta`），相对位置直接进入 attention 分数，位置不再占参数，也没有行数上限。③ FFN 从 GELU 两矩阵换成 SwiGLU 三矩阵（`hidden_act: silu`、`intermediate_size: 14336`），门控在等参数比较里损失更低，中间宽度按三矩阵重定为 $$3.5d$$。④ attention 从 MHA 换成 GQA（`num_key_value_heads: 8`），32 个 Q 头共用 8 组 K/V，每 token 的 KV 数值个数降到四分之一。⑤ 所有投影去掉 bias（`attention_bias: false`），GEMM 更简单，PaLM 报告训练更稳。同一套读法适用于别的模型：Qwen3-235B-A22B 的 `num_key_value_heads: 4` 对 `num_attention_heads: 64` 是 GQA，`num_experts: 128`、`num_experts_per_tok: 8` 是 MoE，`rope_theta: 1000000` 是调大 base 的 RoPE。详见[第二章](#二五处改动每一处为什么)与[第三章](#三读配置把路线图落到-configjson-上)。
+[^q1]: **逐项对应，能算到个位。** 从 `config.json` 读七个数——$$L$$、$$d$$、$$d_{ff}$$、$$n_h$$、$$n_{kv}$$、$$d_{head}$$、$$V$$——代入 $$N = L[d(2d + 2d_{kv}) + 3 d \cdot d_{ff} + 2d] + 2Vd + d$$（$$d_{kv} = n_{kv} d_{head}$$；lm_head 与 embedding 不共享时是 $$2Vd$$），Llama-3-8B 算出 8,030,261,248、Llama-3-70B 算出 70,553,706,496（[第四章](#四参数量从-configjson-到-803b)）。五处改动在这条公式里各有位置：RMSNorm 是每层的 $$2d$$，可忽略；RoPE 让位置表那一项消失；SwiGLU 是 $$3 d \cdot d_{ff}$$，占层内约 80%；GQA 把 K/V 投影从 $$2d^2$$ 降到 $$2 d \cdot d_{kv}$$，Llama-3-8B 全模型少 805M；去 bias 少掉的是每层 43,008 个、全模型约 1.4M，不到万分之二。embedding + lm_head 的 $$2Vd$$ 在 8B 上占 13%、70B 上占 3%。这些矩阵在源码里的名字见[第五章](#五对照-transformers-的-modeling_llamapy)。
