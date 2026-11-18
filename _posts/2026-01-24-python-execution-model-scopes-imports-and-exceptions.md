@@ -7,7 +7,7 @@ tags: [Python]
 catalog: true
 redirect_from:
   - /python-language-mechanisms-and-runtime-internals.html
-updated: 2026-11-16
+updated: 2026-11-18
 ---
 
 
@@ -857,7 +857,60 @@ flowchart LR
 
 ### 1. 模块是对象，包是带 `__path__` 的模块
 
-一个 `.py` 文件导入后就是一个模块对象，它的属性字典就是那份文件的全局命名空间：
+先说两个词：
+
+- **模块（module）**：一个 `.py` 文件。
+- **包（package）**：一个装着若干模块的目录，目录里放一个 `__init__.py`。包的用处是给模块分层起名——`mypackage.model` 读作"`mypackage` 目录下的 `model.py`"。
+
+下面这个目录里各有一个：
+
+```text title='一个模块 single.py 和一个包 mypackage'
+project/
+├── single.py            # 模块：一个文件
+└── mypackage/           # 包：一个带 __init__.py 的目录
+    ├── __init__.py      # 内容：print("执行 mypackage/__init__.py")
+    └── model.py         # 包里的模块，全名 mypackage.model
+```
+
+在 `project/` 下把两者都导入，看得到的是什么：
+
+```python title='分别导入模块 single 和包 mypackage'
+import single, mypackage
+
+print(type(single), type(mypackage))
+print(single.__file__)
+print(mypackage.__file__)
+print(hasattr(single, "__path__"), mypackage.__path__)
+print(hasattr(mypackage, "model"))
+
+import mypackage.model
+print(hasattr(mypackage, "model"), mypackage.model.__file__)
+```
+
+```text title='运行输出（Python 3.12）'
+执行 mypackage/__init__.py
+<class 'module'> <class 'module'>
+.../project/single.py
+.../project/mypackage/__init__.py
+False ['.../project/mypackage']
+False
+True .../project/mypackage/model.py
+```
+
+| | 模块 `single` | 包 `mypackage` |
+| :--- | :--- | :--- |
+| 磁盘上是什么 | 一个文件 `single.py` | 一个目录 `mypackage/` |
+| 导入时执行哪份代码 | `single.py` | `mypackage/__init__.py` |
+| 导入后得到的对象 | `module` 对象 | 也是 `module` 对象 |
+| `__path__` 属性 | 没有 | `['.../project/mypackage']` |
+
+Table: 模块与包导入后的对照
+
+- 导入一个包，执行的是它的 `__init__.py`，得到的同样是一个模块对象。所以在导入系统眼里，包就是**多了一个 `__path__` 属性**的模块。
+- `__path__` 是一个目录列表，回答"这个包的子模块去哪里找"。`import mypackage.model` 就是到 `mypackage.__path__` 列出的目录里找 `model.py`。
+- 导入包不会顺带导入它里面的模块：`import mypackage` 之后 `mypackage.model` 还不存在（输出第 6 行），执行过 `import mypackage.model` 才有（第 7 行）。
+
+模块对象的属性字典就是那份文件的全局命名空间：
 
 ```python title='导入后的 json 是一个模块对象，__dict__ 就是它的全局命名空间'
 import json, types
@@ -867,16 +920,7 @@ print(list(json.__dict__)[:6])
 # ['__name__', '__doc__', '__package__', '__loader__', '__spec__', '__path__']
 ```
 
-前几个名字是导入系统写入的元数据。`json.dumps` 这样的属性访问，就是在这个字典里查键。第二章说函数对象的 `__globals__` 指向定义它的模块命名空间——指的正是这个 `__dict__`。
-
-包是**多了一个 `__path__` 属性**的模块。`__path__` 是一个目录列表，告诉导入系统"这个包的子模块去哪里找"：
-
-```python title='包比模块多一个 __path__'
-print(json.__path__)      # ['.../lib/python3.12/json']
-print(json.__package__)   # json
-import json.decoder
-print(json.decoder.__package__)   # json
-```
+前几个名字是导入系统写入的元数据（标准库的 `json` 是一个包，所以也有 `__path__`）。`json.dumps` 这样的属性访问，就是在这个字典里查键。第二章说函数对象的 `__globals__` 指向定义它的模块命名空间——指的正是这个 `__dict__`。
 
 `mypackage/__init__.py` 是包被导入时执行的模块体。它有两个合理用途：把内部模块的公共对象提升到包级（`from .model import Model`），以及用 `__all__` 声明 `from mypackage import *` 的导出集合。`__all__` 只影响 `import *`、文档和静态分析工具，不是访问控制。
 
@@ -932,7 +976,17 @@ flowchart TB
 
 ### 3. 三层查找机制：`sys.meta_path`、`PathFinder` 与 loader
 
-Python 的导入系统不是"在目录里找 `.py` 文件"，而是一个三层协议。先看一个模块导入之后留下的痕迹：
+上一节的第 3 步"查找"和第 6 步"执行"由两种对象分工完成，中间靠一张记录交接：
+
+| 对象 | 做什么 |
+| :--- | :--- |
+| finder（查找器） | 回答"这个名字我找不找得到"，找到就交出一张 `ModuleSpec` |
+| `ModuleSpec` | 一张记录：模块叫什么、从哪来、由哪个 loader 加载 |
+| loader（加载器） | 按 `ModuleSpec` 把来源变成模块对象，并执行其中的代码 |
+
+Table: 导入系统里的三种对象
+
+每个导入过的模块都把自己那张 `ModuleSpec` 留在 `__spec__` 上：
 
 ```python title='打印 json 的 __spec__'
 import json
@@ -946,7 +1000,22 @@ ModuleSpec(name='json',
            submodule_search_locations=['/.../lib/python3.12/json'])
 ```
 
-`ModuleSpec` 是 finder 交给 loader 的"工单"：模块叫什么、从哪来（`origin`）、由谁加载（`loader`）、如果是包则子模块去哪找（`submodule_search_locations`，也就是 `__path__` 的来源）。
+四个字段依次是：模块叫什么、由谁加载（`loader`）、从哪来（`origin`）、如果是包则子模块去哪找（`submodule_search_locations`，也就是 `__path__` 的来源）。
+
+查找分三层，每一层都是"问一圈，谁认领归谁"。下图是全貌，后面按层展开：
+
+```mermaid
+%% 图：一条 import 语句经过的三层查找，以及每条路径最后由哪个 loader 加载
+flowchart TB
+    I["import 某个名字"] --> Q1{"第一层：依次问 sys.meta_path<br/>哪个 finder 认领这个名字？"}
+    Q1 -- "BuiltinImporter<br/>例：sys" --> M1["<b>内建模块</b><br/>C 代码已在解释器里，直接初始化"]
+    Q1 -- "FrozenImporter<br/>例：os" --> M2["<b>冻结模块</b><br/>字节码已在解释器里，直接执行"]
+    Q1 -- "PathFinder<br/>例：json、numpy" --> Q2{"第二层：逐项看 sys.path<br/>这一项是目录还是 zip？"}
+    Q2 -- "zip 文件" --> Z["<b>zipimporter</b><br/>从 zip 里读出 .py 并执行"]
+    Q2 -- "目录" --> Q3{"第三层：FileFinder 在目录里<br/>找到哪种后缀的文件？"}
+    Q3 -- "foo.py" --> S["<b>SourceFileLoader</b><br/>编译源码并执行"]
+    Q3 -- "foo.cpython-312-darwin.so" --> E["<b>ExtensionFileLoader</b><br/>把共享库装进进程，调用 PyInit_foo"]
+```
 
 **第一层：`sys.meta_path` 里的 finder**
 
@@ -965,7 +1034,33 @@ for finder in sys.meta_path:
 <class '_frozen_importlib_external.PathFinder'>
 ```
 
-三个内建 finder 各管一类来源：`BuiltinImporter` 负责编译进解释器的 C 模块（`math.__spec__` 的 `origin` 是 `'built-in'`，没有 `__file__`），`FrozenImporter` 负责冻结进解释器的启动模块，`PathFinder` 负责文件系统。第一个不是内建的——它是 setuptools 通过 `site-packages/distutils-precedence.pth` 装进来的，用来把 `import distutils` 重定向到 setuptools 自带的副本。这是一个真实生产环境中"第三方代码接管导入过程"的例子，后面 §5 的 editable 安装也用同样的手法。
+后三个是 Python 自带的，各管一类来源。拿三个模块各验证一个：
+
+```python title='sys、os、json 分别由哪个 finder 认领'
+import sys, os, json
+
+for name in ["sys", "os", "json"]:
+    spec = sys.modules[name].__spec__
+    print(name, spec.origin, spec.loader)
+```
+
+```text title='运行输出（Python 3.12）'
+sys built-in <class '_frozen_importlib.BuiltinImporter'>
+os frozen <class '_frozen_importlib.FrozenImporter'>
+json /.../lib/python3.12/json/__init__.py <_frozen_importlib_external.SourceFileLoader object at 0x...>
+```
+
+- **`BuiltinImporter` 管内建模块**：用 C 写、直接编译进 `python` 可执行文件的模块，例如 `sys`。磁盘上没有对应的文件，所以 `sys` 没有 `__file__` 属性。
+- **`FrozenImporter` 管冻结模块**：用 Python 写，但字节码在构建解释器时就嵌进了可执行文件，例如 `os` 和导入系统自己（`importlib` 的核心是 Python 代码，它没法靠"从磁盘导入"把自己导入进来）。
+- **`PathFinder` 管磁盘上的文件**：其余所有模块——标准库的 `json`、`pip` 装的 `numpy`、自己写的代码。它怎么找，是第二、三层的内容。
+
+前两个 finder 找到后自己就是 loader（输出里 `spec.loader` 就是它们本身）；`PathFinder` 则把加载交给别的 loader。
+
+列表里排第一的 `DistutilsMetaFinder` 不是 Python 自带的，是 setuptools 装进来的：
+
+- **它做什么**：Python 3.12 的标准库删掉了 `distutils`，setuptools 自带了一份副本。这个 finder 认领 `distutils` 这个名字，把它指到副本上——在这个 venv 里 `import distutils; print(distutils.__file__)` 输出 `.../site-packages/setuptools/_distutils/__init__.py`。
+- **它怎么进的列表**：setuptools 在 `site-packages` 下放了一个 `distutils-precedence.pth` 文件，解释器启动时会执行其中以 `import` 开头的那一行，那一行把这个 finder 插到 `sys.meta_path` 最前面。
+- **它说明什么**：`sys.meta_path` 是一个普通列表，排在前面的先被问到。第三方代码往前面插一个 finder，就能抢在 Python 自带的 finder 之前决定一个名字导入成什么。§5 的 editable 安装也用同样的手法。
 
 **第二层：`PathFinder` 沿 `sys.path` 找目录 finder**
 
@@ -994,7 +1089,52 @@ print(m.BYTECODE_SUFFIXES)     # ['.pyc']                                    →
 print(m.EXTENSION_SUFFIXES)    # ['.cpython-312-darwin.so', '.abi3.so', '.so'] → ExtensionFileLoader
 ```
 
-这张表说明了一件初学者容易漏掉的事：**`import` 能导入的不只是 `.py` 文件。** 同一条 `import foo` 语句，目录里如果是 `foo.py`，就编译执行它；如果是 `foo.cpython-312-darwin.so`（Linux 上是 `foo.cpython-312-x86_64-linux-gnu.so`），就把它当作**扩展模块**（extension module）加载——一个用 C / C++ 编译出来的共享库，只要它导出一个名为 `PyInit_foo` 的 C 函数。`ExtensionFileLoader` 就是 C 扩展进入 Python 的入口：它 `dlopen` 这个 `.so`，调用其中的 `PyInit_<name>` 函数拿到模块对象；从此 `foo.bar()` 调的是 C 函数，`import` 语句本身看不出任何差别。C++ 系列第一篇会从 C++ 这一侧讲 `torch/csrc/stub.c` 里那个 `PyInit__C` 长什么样、它又拉起了哪些 `.so`。看一个真实的扩展模块：
+这张表说明了一件初学者容易漏掉的事：**`import` 能导入的不只是 `.py` 文件。** 同一条 `import foo`，目录里是 `foo.py` 就编译执行它；是 `foo.cpython-312-darwin.so`（Linux 上是 `foo.cpython-312-x86_64-linux-gnu.so`）就把它当作**扩展模块**（extension module）加载——一个用 C / C++ 编译出来的共享库。
+
+亲手做一个最小的扩展模块。`foo.c` 只提供一个返回 42 的函数 `bar`：
+
+```c title='foo.c：一个最小的扩展模块'
+#include <Python.h>
+
+static PyObject *bar(PyObject *self, PyObject *args) {
+    return PyLong_FromLong(42);
+}
+
+static PyMethodDef methods[] = {
+    {"bar", bar, METH_NOARGS, "return 42"},
+    {NULL, NULL, 0, NULL},
+};
+
+static struct PyModuleDef def = {
+    PyModuleDef_HEAD_INIT, "foo", NULL, -1, methods,
+};
+
+// !ref pyinit-foo
+PyMODINIT_FUNC PyInit_foo(void) {
+    return PyModule_Create(&def);
+}
+```
+
+在 macOS、Apple clang、CPython 3.12 上编译并导入：
+
+```bash title='把 foo.c 编译成 foo.cpython-312-darwin.so 并导入'
+$ INC=$(python -c 'import sysconfig; print(sysconfig.get_paths()["include"])')
+$ cc -shared -undefined dynamic_lookup -I$INC foo.c -o foo.cpython-312-darwin.so
+$ python -c 'import foo; print(foo.bar()); print(foo.__spec__.loader)'
+42
+<_frozen_importlib_external.ExtensionFileLoader object at 0x...>
+```
+
+`ExtensionFileLoader` 做了两件事：用 [dlopen](# "tip: 操作系统提供的函数：在程序运行中途把一个共享库装进当前进程") 把 `.so` 装进进程，然后调用其中的 [`PyInit_foo`](#pyinit-foo) 拿到模块对象。从此 `foo.bar()` 调的是 C 函数，`import` 语句本身看不出任何差别。
+
+一个共享库要能被 `import foo` 加载，`PyInit_foo` 是 loader 向它要的唯一一个符号，但前后还各有一个条件：
+
+1. **文件名对得上**：`foo` 加上 `EXTENSION_SUFFIXES` 里的某个后缀，并且放在 `sys.path` 的某个目录里。否则 `FileFinder` 根本不认它——把上面的文件改名成 `qux.cpython-311-darwin.so`，`import qux` 得到的是 `ModuleNotFoundError: No module named 'qux'`。
+2. **导出 `PyInit_<模块名>`**：名字必须和模块名一致。把同一个文件复制成 `baz.so` 再 `import baz`，得到 `ImportError: dynamic module does not define module export function (PyInit_baz)`；一个不是为 Python 写的普通共享库也是这个报错。
+3. **`PyInit_foo` 返回一个模块对象**（或一份模块定义，由导入系统据此创建模块）。
+4. **二进制与当前解释器兼容**：它依赖的其他共享库找得到，编译时用的 Python 头文件与运行它的解释器一致。这一条导入系统不检查，文件名里的 `cpython-312-darwin` 标签就是为它准备的——标签不符的文件在第 1 条就被挡掉；裸的 `.so` 后缀没有标签，装错版本会在加载时报未定义符号或直接崩溃。
+
+`import torch` 时加载的 `torch._C` 走的是完全相同的路径：`torch/__init__.py` 里的 `from torch._C import *` 让 `PathFinder` 在 `torch/` 目录下找到 `_C.cpython-312-x86_64-linux-gnu.so`，由 `ExtensionFileLoader` 载入——数百 MB 的 libtorch 就这样进入进程。C++ 系列第一篇会从 C++ 这一侧讲 `torch/csrc/stub.c` 里那个 `PyInit__C` 长什么样、它又拉起了哪些 `.so`。numpy 也一样：
 
 ```python title='一个真实的 C 扩展模块：numpy 的 ExtensionFileLoader 与 .so 路径'
 import numpy, sys
@@ -1003,24 +1143,49 @@ print(m.__spec__.loader)   # <_frozen_importlib_external.ExtensionFileLoader obj
 print(m.__spec__.origin)   # .../site-packages/numpy/_core/_multiarray_umath.cpython-312-darwin.so
 ```
 
-`import torch` 时加载的 `torch._C` 走的是完全相同的路径：`torch/__init__.py` 里的 `from torch._C import *` 让 `PathFinder` 在 `torch/` 目录下找到 `_C.cpython-312-x86_64-linux-gnu.so`，由 `ExtensionFileLoader` 载入——数百 MB 的 libtorch 就这样进入进程。
+**三个可以直接用的入口**
 
-**为什么这套机制是插件系统的基础**
+查找和加载是分开的两步，中间的 `ModuleSpec` 是普通对象，所以这条流水线有三处可以从外面接进去：
 
-上面三层的每一层都是可编程的，这直接支撑了三类 AI-Infra 中的常见做法：
-
-① **不导入就能探测**。`importlib.util.find_spec` 只走查找阶段，不执行模块：
-
-```python title='不导入就能探测：find_spec("triton") 返回 None'
-import importlib.util
-print(importlib.util.find_spec("triton"))    # None —— 没装，且没有触发任何导入副作用
+```mermaid
+%% 图：导入流水线上的三个入口：只查找、插入自己的 finder、手工造一张 ModuleSpec
+flowchart LR
+    A["<b>查找</b><br/>sys.meta_path 里的 finder"] -- "ModuleSpec" --> B["<b>加载</b><br/>spec.loader"]
+    B --> C["模块对象"]
+    E1["<b>① find_spec()</b><br/>只做查找，到此为止"] -.-> A
+    E2["<b>② 自己写的 finder</b><br/>插到列表最前面，先被问到"] -.-> A
+    E3["<b>③ spec_from_file_location()</b><br/>不查找，直接造一张 spec"] -.-> B
 ```
 
-"如果装了 Triton/flash-attn 就用它"这类可选依赖判断，用 `find_spec` 比 `try: import` 更轻，因为后者会真的加载扩展库。
+| 想做的事 | 用哪个入口 | 在 AI-Infra 里的用处 |
+| :--- | :--- | :--- |
+| 判断一个库装没装，但不真的导入它 | ① `importlib.util.find_spec(name)` | "装了 Triton / flash-attn 就用它"的可选依赖判断 |
+| 让某个名字的导入失败、改道或被记录 | ② 往 `sys.meta_path` 最前面插一个 finder | 测试里模拟"依赖没装"；排查启动时到底导入了什么 |
+| 加载一个不在 `sys.path` 上的文件 | ③ `spec_from_file_location` + `module_from_spec` + `exec_module` | 加载刚编译到临时目录的 `.so`、按路径加载用户给的配置或插件文件 |
 
-② **往 `sys.meta_path` 插 finder 就能拦截导入**。下面这个 finder 让测试代码可以模拟"某个依赖没安装"：
+Table: 导入流水线的三个入口
 
-```python title='往 sys.meta_path 插一个 Blocker finder 模拟依赖未安装'
+**① 只查找，不导入。** 没装 triton、装了 numpy 的环境里：
+
+```python title='find_spec 只走查找：能判断装没装，但不执行模块'
+import importlib.util, sys
+
+print(importlib.util.find_spec("triton"))
+print(importlib.util.find_spec("numpy").origin)
+print("numpy" in sys.modules)
+```
+
+```text title='运行输出（Python 3.12）'
+None
+.../site-packages/numpy/__init__.py
+False
+```
+
+没装返回 `None`，装了返回它的 `ModuleSpec`。最后一行的 `False` 是要点：numpy 找到了，但没有被导入，它的 `.so` 也没有被加载。`try: import numpy` 也能判断装没装，代价是真的把它加载进来。
+
+**② 插一个自己的 finder。** finder 只需要一个 `find_spec` 方法：返回 `None` 表示"不归我管，问下一个"，返回 spec 或抛异常则查找到此结束。下面这个 finder 让测试可以模拟"numpy 没安装"：
+
+```python title='往 sys.meta_path 最前面插一个 Blocker，模拟 numpy 未安装'
 import importlib.abc, sys
 
 
@@ -1035,22 +1200,101 @@ class Blocker(importlib.abc.MetaPathFinder):
 
 
 sys.meta_path.insert(0, Blocker({"numpy"}))
-import numpy    # ModuleNotFoundError: numpy blocked for testing
+
+try:
+    import numpy
+except ModuleNotFoundError as e:
+    print("ModuleNotFoundError:", e)
+
+import json
+print("json 正常导入")
 ```
 
-`find_spec` 返回 `None` 表示"不归它管，问下一个"；返回 spec 或抛异常则终结查找。把 `Blocker` 换成一个记录 `fullname` 的 finder，就能看到 `import xml.dom.minidom` 实际请求了 `xml`、`xml.dom`、`xml.dom.domreg`、`xml.dom.minidom`、`copy`……——这是排查"启动时到底导入了什么"的最直接手段。
-
-③ **手工构造 spec 就能加载任意位置的文件**。PyTorch 的 JIT 扩展编译（`torch.utils.cpp_extension.load`）编译出 `.so` 之后，通过 `_import_module_from_library` 把它变成模块（`torch/utils/cpp_extension.py`）：
-
-```python title='手工构造 spec 加载任意位置的文件：spec_from_file_location'
-spec = importlib.util.spec_from_file_location(module_name, filepath)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+```text title='运行输出（Python 3.12）'
+ModuleNotFoundError: numpy blocked for testing
+json 正常导入
 ```
 
-`spec_from_file_location` 根据文件后缀自动选出 `ExtensionFileLoader`，剩下的两步就是 §2 中的第 4 和第 6 步。这里没有任何 `sys.path` 参与——所以刚编译出来的扩展可以放在临时目录里。
+numpy 明明装着，却导入失败：`Blocker` 排在最前面，先被问到，直接抛了异常。`json` 不在名单里，`Blocker` 返回 `None`，后面的 finder 照常处理。把 `find_spec` 的内容换成"打印名字、返回 `None`"，它就成了一个记录器：
 
-至此可以回答本节开头的问题：finder 决定"从哪找"、loader 决定"怎么变成模块"、`ModuleSpec` 是二者之间的契约。三层都可替换，所以 zip 包、命名空间包、editable 安装、被 mock 掉的依赖、JIT 编译出来的 `.so`，都能被同一条 `import` 语句处理。
+```python title='同一个位置插一个 Recorder：记录一条 import 实际请求了哪些模块'
+import importlib.abc, sys
+
+
+class Recorder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        print("请求导入:", fullname)
+        return None
+
+
+sys.meta_path.insert(0, Recorder())
+import xml.dom.minidom
+```
+
+```text title='运行输出（Python 3.12）'
+请求导入: xml
+请求导入: xml.dom
+请求导入: xml.dom.domreg
+请求导入: xml.dom.minidom
+请求导入: xml.dom.minicompat
+请求导入: xml.dom.xmlbuilder
+请求导入: copy
+请求导入: xml.dom.NodeFilter
+```
+
+一条 `import` 带出了八次查找。服务启动慢、想知道"启动时到底导入了什么"时，这是最直接的手段。
+
+**③ 手工造一张 spec，加载任意位置的文件。** 把前面编译出的 `foo.cpython-312-darwin.so` 挪到一个不在 `sys.path` 上的目录 `/tmp/elsewhere/`，`import foo` 找不到它，但可以按路径加载：
+
+```python title='spec_from_file_location：按文件路径加载，不经过 sys.path'
+import importlib.util
+
+path = "/tmp/elsewhere/foo.cpython-312-darwin.so"
+spec = importlib.util.spec_from_file_location("foo", path)   # 不查找，直接造 spec
+print(type(spec.loader).__name__)
+module = importlib.util.module_from_spec(spec)               # §2 的第 4 步
+spec.loader.exec_module(module)                              # §2 的第 6 步
+print(module.bar())
+```
+
+```text title='运行输出（Python 3.12）'
+ExtensionFileLoader
+42
+```
+
+`spec_from_file_location` 看后缀选出了 `ExtensionFileLoader`，剩下两行就是 §2 的第 4 步和第 6 步。PyTorch 的 JIT 扩展编译（`torch.utils.cpp_extension.load`）把 `.so` 编译到临时目录之后，用的正是这三行（`torch/utils/cpp_extension.py` 的 `_import_module_from_library`）。
+
+**小结：六个模块，同一条 `import`**
+
+把这一节出现过的模块放在一起，再加一个放进 zip 的 `inzip.py`，逐个打印它们的 loader 和来源：
+
+```python title='六个模块各由哪个 loader 加载、从哪来'
+import sys
+
+sys.path.insert(0, "/tmp/z/bundle.zip")     # zip 里有一个 inzip.py
+sys.path.insert(0, "/tmp/ext")              # 目录里有 foo.cpython-312-darwin.so
+import os, json, numpy, inzip, foo
+
+for name in ["sys", "os", "json", "numpy._core._multiarray_umath", "inzip", "foo"]:
+    spec = sys.modules[name].__spec__
+    loader = spec.loader
+    loader_name = getattr(loader, "__name__", type(loader).__name__)
+    print(f"{name:30} {loader_name:20} {spec.origin}")
+```
+
+```text title='运行输出（Python 3.12）'
+sys                            BuiltinImporter      built-in
+os                             FrozenImporter       frozen
+json                           SourceFileLoader     /.../lib/python3.12/json/__init__.py
+numpy._core._multiarray_umath  ExtensionFileLoader  .../site-packages/numpy/_core/_multiarray_umath.cpython-312-darwin.so
+inzip                          zipimporter          /tmp/z/bundle.zip/inzip.py
+foo                            ExtensionFileLoader  /tmp/ext/foo.cpython-312-darwin.so
+```
+
+六个模块来自解释器内部、源码文件、共享库和 zip，写法都是 `import 名字`，对应本节开头那张图里的五条路径（numpy 的 `.so` 和 `foo` 走同一条）：
+
+- finder 决定**从哪找**，loader 决定**怎么变成模块**，`ModuleSpec` 是两者之间交接的那张记录。
+- 每一层都是一个可以增删的列表（`sys.meta_path`、`sys.path_hooks`、后缀表），新增一种来源只需要加一个 finder 或 loader，`import` 语句不用变。editable 安装、测试里被屏蔽的依赖、JIT 编译出来的 `.so` 都是这样接进来的。
 
 ### 4. `sys.path` 的构成，以及 `python script.py` 与 `python -m` 的差别
 
