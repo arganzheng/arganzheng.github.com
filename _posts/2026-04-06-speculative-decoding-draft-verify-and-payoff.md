@@ -5,16 +5,16 @@ title: "现代 LLM 结构（08）：投机解码——草稿、验证与收益�
 subtitle: "Speculative Decoding: Drafts, Verification and When It Pays Off"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-18
 date: 2026-04-06 10:00:00
 redirect_from:
   - /speculative-decoding-and-lora.html
 comments_path: /speculative-decoding-and-lora.html
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第八篇。第 02 篇算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；第 07 篇的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第八篇。[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算出 batch 小时 decode 受带宽限制、Tensor Core 大多空闲；[《MTP——改训练目标而不改主干的多 token 预测》](/multi-token-prediction-mtp.html)的 MTP 模块给了一个现成的草稿来源。本篇不改结构、不改数值格式，改的是解码流程：先猜几个 token，再用一次前向验证，输出分布严格不变。LoRA 不在本系列：参数高效微调的账在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-第二篇算过 decode 的账：batch 为 $$B$$ 时权重 GEMM 的算术强度约等于 $$B$$，距 H100 的 ridge point 295 差两个数量级，每步时间被"把权重读一遍"钉在 4.8 ms 上，Tensor Core 几乎空转。第七篇的 MTP 模块在训练时多预测一个 token，推理时可以丢掉——也可以留下来当"草稿"。本篇把这两件事接起来：**既然多算几行几乎不花时间，能不能先猜几个 token，再用一次前向把它们全部验证掉？**
+[《前向的算量与访存量》的「核心问题：batch 多大 decode 才 compute-bound」一章](/transformer-flops-bytes-and-roofline.html#七核心问题batch-多大-decode-才-compute-bound)算过 decode 的账：batch 为 $$B$$ 时权重 [GEMM](# "tip: general matrix multiply，通用矩阵乘法；这里指一层线性变换对应的那次矩阵乘")的算术强度约等于 $$B$$，距 H100 的 [ridge point](# "tip: Roofline 图上平台与斜线的交点：算术强度低于它时时间由访存带宽决定，高于它时由算力决定。H100 的 BF16 ridge point 是 989 TFLOPS ÷ 3.35 TB/s ≈ 295 FLOP/byte") 295 差两个数量级，每步时间被"把权重读一遍"钉在 4.8 ms 上，Tensor Core 几乎空转。[《MTP》的「当投机解码的 draft」一节](/multi-token-prediction-mtp.html#2-当投机解码的-draft)里，MTP 模块在训练时多预测一个 token，推理时可以丢掉——也可以留下来当"草稿"。本篇把这两件事接起来：**既然多算几行几乎不花时间，能不能先猜几个 token，再用一次前向把它们全部验证掉？**
 
 投机解码（speculative decoding）就是这个想法。它不改结构、不改数值格式，只改解码流程；收益却不是无条件的。本篇要回答的核心问题是：
 
@@ -22,9 +22,63 @@ comments_path: /speculative-decoding-and-lora.html
 
 ## 一、总览：一个时间模型
 
+投机解码的一轮分两段花时间：草稿模型连出 $$\gamma$$ 个 token，目标模型用一次前向把它们全部验证掉；判定本身不做前向。下图把一轮的两段耗时、一轮的产出和加速比连在一起，并标出决定加速比的三个量——接受率 $$\alpha$$、草稿代价 $$c$$、验证行数 $$B(\gamma + 1)$$ 与 ridge 的关系——各自从哪里进来：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%% 图：投机解码的时间模型：一轮的两段耗时、期望产出与决定加速比的三个量
+flowchart TB
+    SRC["<b>草稿来源（第二章第 5 节）</b><br/>独立小模型、Medusa、EAGLE、n-gram、MTP 模块<br/>决定接受率 $$\alpha$$ 与单次代价 $$c$$"]
+    TM["<b>时间模型 T(m)（第一章第 2 节）</b><br/>$$T(m) = \max(\text{读一遍权重},\ 2Nm/F)$$<br/>Llama-3-8B、H100：m 小于 316 时恒为 4.8 ms"]
+    DR["<b>① 起草：草稿模型自回归 $$\gamma$$ 步</b><br/>耗时 $$\gamma \cdot c \cdot T(B)$$"]
+    VF["<b>② 验证：目标模型一次前向（第二章第 4 节）</b><br/>算 $$B(\gamma + 1)$$ 行，耗时 $$T(B(\gamma + 1))$$"]
+    AR["<b>③ 判定：逐个接受，首个拒绝处重采样（第二章第 2 节）</b><br/>不做前向；输出分布严格等于目标分布 $$p$$"]
+    OUT["<b>本轮产出（第二章第 3 节）</b><br/>1 到 $$\gamma + 1$$ 个，期望 $$\dfrac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$"]
+    SP["<b>加速比（第二章第 3、4 节）</b><br/>$$\dfrac{\text{期望产出} \times T(B)}{\gamma c \cdot T(B) + T(B(\gamma+1))}$$<br/>• $$B(\gamma+1)$$ 在 ridge 以下：$$\alpha$$ = 0.8、$$\gamma$$ = 4、$$c$$ = 0.1 时 2.4 倍<br/>• 越过 ridge：验证变贵，最低到 0.62 倍"]
+
+    SRC -->|"$$c$$"| DR
+    SRC -. "$$\alpha$$" .-> AR
+    TM -. "决定两段各花多久" .-> VF
+    DR -->|"$$\gamma$$ 个草稿 token 与各步的草稿分布 $$q$$"| VF
+    VF -->|"$$\gamma + 1$$ 个位置的目标分布 $$p$$"| AR
+    AR --> OUT
+    OUT --> SP
+    OUT -->|"KV 截到被接受的前缀，进入下一轮"| DR
+
+    classDef draft fill:#fdebd0,stroke:#b9770e;
+    classDef target fill:#d6eaf8,stroke:#2e6da4;
+    classDef res fill:#d5f5e3,stroke:#1e8449;
+    class SRC,DR draft;
+    class TM,VF target;
+    class OUT,SP res;
+```
+
+- **草稿来源**：草稿可以是一个独立小模型，也可以是挂在目标模型上的几个头、一层 Transformer、上下文里的 n-gram 或 MTP 模块。它们的区别归结为两个数：单个位置的接受率 $$\alpha$$，草稿一次前向相对目标一次前向的代价 $$c$$（[第二章第 5 节](#5-草稿从哪里来)）。
+- **时间模型 T(m)**：一次前向处理 $$m$$ 行的时间下界，取"把权重读一遍"与"把 FLOPs 算完"的较大者。$$m$$ 小于 316 时它是常数 4.8 ms，多算几行不多花时间（[本章第 2 节](#2-一个时间模型)）。
+- **① 起草**：草稿模型自回归 $$\gamma$$ 步，每步的代价是目标前向的 $$c$$ 倍，合计 $$\gamma \cdot c \cdot T(B)$$。这段时间不论草稿最后被接受几个都要花。
+- **② 验证**：目标模型对"前缀 + $$\gamma$$ 个草稿"做一次前向，一次得到 $$\gamma + 1$$ 个位置的分布。行数从 $$B$$ 变成 $$B(\gamma + 1)$$，权重仍只读一遍；它是否仍然只花 $$T(B)$$，取决于 $$B(\gamma + 1)$$ 有没有越过 ridge（[第二章第 4 节](#4-为什么验证-γ1-个-token-几乎免费以及何时不再免费)）。
+- **③ 判定**：从第 1 个草稿起，以概率 $$\min(1, p/q)$$ 接受；第一次拒绝时从残差分布重采样一个 token，本轮结束。这一步只是在已有的 $$p$$、$$q$$ 上做比较与采样，不做前向，并且保证输出分布与不投机时相同（[第二章第 2 节](#2-算法与分布等式)）。
+- **本轮产出**：最少 1 个（第 1 个草稿就被拒），最多 $$\gamma + 1$$ 个（全接受再加一个）。$$\alpha$$ = 0.8、$$\gamma$$ = 4 时期望 3.36 个（[第二章第 3 节](#3-期望接受数与加速比)）。
+- **加速比**：同样的产出，普通 decode 要花"期望产出 × $$T(B)$$"，投机解码花"起草 + 验证"。小 batch 下验证与一次普通前向同价，加速 2.4 倍；batch 大到 $$B(\gamma + 1)$$ 越过 ridge，分母里的验证项成倍增长，加速比降到 1 以下。
+
+一轮里先后出现六样东西。它们何时产生、存在哪里、被拒绝之后怎么处理，各不相同：
+
+| 对象 | 何时产生 | 存在哪里 | 活多久，被拒后怎么处理 |
+|---|---|---|---|
+| 草稿 token $$x_1, \ldots, x_\gamma$$ | 起草阶段，草稿模型逐个采样 | 暂接在这个请求的 token 序列末尾 | 被接受的成为正式输出<br/>首个被拒的及其后面的全部丢弃 |
+| 草稿分布 $$q_1, \ldots, q_\gamma$$ | 起草的每一步，草稿模型在词表上的输出 | 每个位置一行概率，留到判定 | 判定要用它算 $$p/q$$ 与残差，本轮结束即丢<br/>greedy 解码只比较 argmax，不必保留 |
+| 目标分布 $$p_1, \ldots, p_{\gamma+1}$$ | 验证前向，一次全部算出 | 每个位置一行概率 | 判定用完即丢，不跨轮 |
+| 重采样 token 或 bonus token | 判定阶段：首次拒绝时从残差分布抽，或全接受后从 $$p_{\gamma+1}$$ 抽 | 接在被接受的草稿之后，成为正式输出 | 每轮恰好一个；它的 KV 要到下一轮验证前向才算 |
+| 目标模型的 KV | 验证前向为输入的 $$\gamma + 1$$ 个位置各算一份 | 这个请求的 KV cache；要为草稿多留 $$\gamma$$ 个位置的空间 | 被接受位置的保留<br/>被拒位置及其后的丢弃（截断到被接受的前缀） |
+| 草稿模型的权重与 KV（草稿是独立小模型时） | 权重常驻；KV 在起草的每一步追加 | 同一张卡的显存，草稿模型自己的一份 KV cache | KV 同样截断到被接受的前缀，下一轮起草前补上重采样的 token<br/>Medusa 的头、n-gram 查找没有这一项 |
+
+Table: 一轮投机解码里六样对象的产生时机、存放位置与被拒后的去向
+
 ### 1. 本文的路线
 
-先把第二篇的 Roofline 压成一个时间模型（本章第 2 节），后面所有估算都用它；再讲投机解码本身：算法与"输出分布严格不变"的证明、期望接受数与加速比、验证多个 token 为什么几乎免费又何时不再免费、草稿从哪里来（第二章）；最后把它加进 `llm_cost.py`，合成文本模型的成本表（第三章）。
+1. 先把[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的 Roofline 压成一个时间模型（[本章第 2 节](#2-一个时间模型)），后面所有估算都用它。
+2. 再讲投机解码本身（[第二章](#二投机解码改变-m)）：算法与"输出分布严格不变"的证明、期望接受数与加速比、验证多个 token 为什么几乎免费又何时不再免费、草稿从哪里来。
+3. 最后把它加进 `llm_cost.py`，合成文本模型的成本表（[第三章](#三实践投机解码的期望加速比)）。
 
 ### 2. 一个时间模型
 
@@ -142,7 +196,13 @@ $$
 
 每个位置都从 $$p$$ 采样，且被接受的 token 之后的位置以它为条件——与目标模型自回归采样的联合分布逐位相同。greedy 解码是 $$p$$ 退化为 one-hot 的特例：接受当且仅当草稿与目标 argmax 一致。这个证明不依赖 $$q$$ 是什么——$$q$$ 只影响**效率**，不影响**正确性**。
 
-两点补充。第一，拒绝后的重采样分布 $$\text{norm}(\max(0, p - q))$$ 有直观含义：它只在 $$p(x) > q(x)$$ 的 token 上有质量，即"目标模型认为比草稿更可能"的那些 token——草稿高估的 token 已经被接受步骤按 $$p/q$$ 的比例采纳过了，剩下的概率质量正好是目标模型比草稿多出来的部分。第二，验证时目标模型输出的 $$\gamma + 1$$ 个分布只需要一次前向，是因为因果掩码下每个位置的输出只依赖它之前的 token，草稿序列的每个前缀恰好对应一个位置——这与 prefill 一次算出整个 prompt 所有位置的 KV 是同一件事，投机解码的验证本质上是一次长度为 $$\gamma + 1$$ 的小 prefill。KV cache 的回退要精确到位置：被拒绝的位置 $$i$$ **本身**的 KV 是按草稿 token $$x_i$$ 算的，也要丢掉（或覆盖），保留到 $$i - 1$$；重采样出的新 token 占据位置 $$i$$，它的 KV 在下一轮验证前向里才会算出来；全接受时的 bonus token 同理。这是引擎实现中需要处理的细节。用 $$\gamma = 4$$、前缀已有 100 个 token（位置 0–99，位置 99 是上一轮刚产出、KV 还没算的那个）、第 3 个草稿被拒绝为例：
+三点补充。
+
+**1、残差分布的含义。** 拒绝后的重采样分布 $$\text{norm}(\max(0, p - q))$$ 只在 $$p(x) > q(x)$$ 的 token 上有质量，即"目标模型认为比草稿更可能"的那些 token——草稿高估的 token 已经被接受步骤按 $$p/q$$ 的比例采纳过了，剩下的概率质量正好是目标模型比草稿多出来的部分。
+
+**2、$$\gamma + 1$$ 个分布为什么只要一次前向。** 因果掩码下每个位置的输出只依赖它之前的 token，草稿序列的每个前缀恰好对应一个位置——这与 prefill 一次算出整个 prompt 所有位置的 KV 是同一件事，投机解码的验证本质上是一次长度为 $$\gamma + 1$$ 的小 prefill。
+
+**3、KV cache 的回退要精确到位置。** 被拒绝的位置 $$i$$ **本身**的 KV 是按草稿 token $$x_i$$ 算的，也要丢掉（或覆盖），保留到 $$i - 1$$；重采样出的新 token 占据位置 $$i$$，它的 KV 在下一轮验证前向里才会算出来；全接受时的 bonus token 同理。用 $$\gamma = 4$$、前缀已有 100 个 token（位置 0–99，位置 99 是上一轮刚产出、KV 还没算的那个）、第 3 个草稿被拒绝为例：
 
 | 位置 | 99 | 100 | 101 | 102 | 103 |
 |---|---|---|---|---|---|
@@ -154,6 +214,9 @@ $$
 Table: γ = 4、第 3 个草稿被拒绝时一轮验证的输入、判定与 KV 回退
 
 这一轮产出 $$x_1, x_2, y_3$$ 三个 token；KV 保留到位置 101，$$y_3$$ 占据位置 102，作为下一轮验证前向的第一个输入，它的 KV 那时才算。
+
+> [!NOTE] Java 经验参照：乐观锁的"先做、提交时校验、失败回退"
+> 用版本号做乐观锁时，线程先不加锁把活干完，提交时比对版本号，对不上就丢掉这次结果重来。投机解码对得上的有三处：先做便宜的假设性工作（起草），在一个提交点统一校验（一次验证前向），失败只回退到最后一个有效状态（KV 截断到被接受的前缀）；冲突率高时乐观锁反而更慢，对应接受率 $$\alpha$$ 低时草稿白做。对不上的有两处。其一，乐观锁的校验是确定性的相等比较，这里采样解码时是以概率 $$\min(1, p/q)$$ 接受，保证的是**输出分布**与不投机时相同，而不是与"不投机时本来会抽到的那个 token"相同（只有 greedy 解码才退化成相等比较）。其二，失败不是整体重做：被拒位置之前的草稿照常保留，被拒的位置由残差分布直接给出替代 token，每轮至少前进 1 个。
 
 ### 3. 期望接受数与加速比
 
@@ -196,8 +259,8 @@ Table: 产出同样 3.36 个 token，普通 decode 与一轮投机解码的时�
 
 几个变体的数字：
 
-| alpha | gamma | E[tokens] | speedup(c=0.1) | speedup(c=0.02) |
-|---|---|---|---|---|
+| $$\alpha$$ | $$\gamma$$ | 期望产出 E[tokens] | 加速比（c = 0.1） | 加速比（c = 0.02） |
+|---:|---:|---:|---:|---:|
 | 0.6 | 4 | 2.31 | 1.65 | 2.13 |
 | 0.8 | 2 | 2.44 | 2.03 | 2.35 |
 | 0.8 | 4 | 3.36 | 2.40 | 3.11 |
@@ -206,7 +269,7 @@ Table: 产出同样 3.36 个 token，普通 decode 与一轮投机解码的时�
 
 Table: 投机解码几个 α、γ 组合的期望 token 数与加速比
 
-$$\gamma$$ 越大，期望接受数增长越慢（$$\alpha^\gamma$$ 衰减），而草稿成本线性增长；$$c = 0.1$$ 时 $$\gamma = 4$$ 与 $$\gamma = 8$$ 的加速比相同，最优 $$\gamma$$ 由 $$\alpha$$ 与 $$c$$ 共同决定。
+$$\gamma$$ 越大，期望接受数增长越慢（$$\alpha^\gamma$$ 衰减），而草稿成本线性增长；$$c = 0.1$$ 时 $$\gamma = 4$$ 与 $$\gamma = 8$$ 的加速比相同（都是 2.40），最优 $$\gamma$$ 由 $$\alpha$$ 与 $$c$$ 共同决定。
 
 ### 4. 为什么验证 γ+1 个 token 几乎免费——以及何时不再免费
 
@@ -232,24 +295,24 @@ $$
 
 **低于 1**。原因很朴素：投机解码是用 FLOPs 换延迟——每产出 3.36 个 token 要为 5 个位置做完整前向，FLOPs 效率是 $$3.36/5 = 67\%$$，被拒绝的 token 的计算是白做的。当 FLOPs 是瓶颈时，这笔交易亏本。
 
-用第一章的时间模型算 Llama-3-8B 在 H100 上各 batch 的加速比（$$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$，草稿成本按 $$c \cdot T(B)$$ 计）：
+用[第一章的时间模型](#2-一个时间模型)算 Llama-3-8B 在 H100 上各 batch 的加速比（$$\alpha = 0.8$$、$$\gamma = 4$$、$$c = 0.1$$，草稿成本按 $$c \cdot T(B)$$ 计）：
 
 $$
 \text{speedup}(B) = \frac{\mathbb{E}[\text{tokens}] \cdot T(B)}{\gamma c \cdot T(B) + T(B(\gamma + 1))}
 $$
 
-| batch B | T(B) ms | T(5B) ms | 加速比（峰值算力） | 加速比（60% MFU） |
-|---|---|---|---|---|
+| batch B | T(B) ms（峰值算力） | T(5B) ms（峰值算力） | 加速比（峰值算力） | 加速比（60% MFU） |
+|---:|---:|---:|---:|---:|
 | 1 | 4.79 | 4.79 | 2.40 | 2.40 |
 | 8 | 4.79 | 4.79 | 2.40 | 2.40 |
 | 32 | 4.79 | 4.79 | 2.40 | 2.40 |
-| 64 | 4.79 | 4.85 | 2.38 | 1.61 |
+| 64 | 4.79 | 4.86 | 2.38 | 1.61 |
 | 128 | 4.79 | 9.71 | 1.39 | 0.89 |
 | 256 | 4.79 | 19.4 | 0.76 | 0.62 |
 
 Table: 投机解码加速比随 batch 的变化
 
-第二列按 60% MFU 折算实际可达算力（593 TFLOPS，有效 ridge 约 177，转折 batch 约 35）：$$B = 64$$ 时验证前向已进入计算区，加速比掉到 1.6；$$B = 128$$ 时低于 1。再算上真实系统里草稿模型在大 batch 下的开销、每轮调度与采样的固定成本、以及 $$\alpha$$ 在不同位置并不独立同分布，**"batch 64 时没有收益"** 是这条曲线的工程表述——精确的转折位置随模型、硬件、$$\gamma$$ 移动，但它的量级由 $$\text{ridge}/(\gamma + 1)$$ 决定。
+最后一列按 60% [MFU](# "tip: Model FLOPs Utilization，模型算力利用率：实际用于模型计算的 FLOP/s 占硬件峰值算力的比例")折算实际可达算力（593 TFLOPS，有效 ridge 约 177，转折 batch 约 35；这一列的 $$T(B)$$、$$T(5B)$$ 也按 593 TFLOPS 重算，表中未列出）：$$B = 64$$ 时验证前向已进入计算区，加速比掉到 1.6；$$B = 128$$ 时低于 1。再算上真实系统里草稿模型在大 batch 下的开销、每轮调度与采样的固定成本、以及 $$\alpha$$ 在不同位置并不独立同分布，**"batch 64 时没有收益"** 是这条曲线的工程表述——精确的转折位置随模型、硬件、$$\gamma$$ 移动，但它的量级由 $$\text{ridge}/(\gamma + 1)$$ 决定。
 
 另一种常见的 decode 加速——weight-only 量化（把 BF16 权重压成 INT4，字节数降到四分之一；原理与方法在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)）——与本章的数字画在同一条 $$T(m)$$ 曲线上（对数坐标）：量化把 memory-bound 的平台**向下**移，投机解码把工作点**向右**推，两者的收益都止于平台与斜线的交点：
 
@@ -283,7 +346,7 @@ Table: 常见草稿方案的形态、代价 c 与接受率 α（文献通常报�
 
 ### 1. 脚本新增的函数
 
-延续贯穿全系列的 `llm_cost.py`，本篇新增 `roofline_step_time`（第一章的时间模型）与 `speculative_speedup`。配套仓库里这一版脚本（`llm_cost_07_quant_specdec_lora.py`）还带着 weight-only 量化字节数与 LoRA 参数量两组函数——它们原来与投机解码同在一篇，现在分别归入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；脚本原样保留以便独立运行与对照输出，下面只讲投机解码那一组。前几篇用到的 `param_count`、`forward_flops_per_token`、`kv_bytes_per_token` 同样重给 dense 版本（MLA 与 MoE 的版本在第四、六篇）。
+延续贯穿全系列的 `llm_cost.py`，本篇新增 `roofline_step_time`（第一章的时间模型）与 `speculative_speedup`。配套仓库里这一版脚本（`llm_cost_07_quant_specdec_lora.py`）还带着 weight-only 量化字节数与 LoRA 参数量两组函数——它们原来与投机解码同在一篇，现在分别归入算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；脚本原样保留以便独立运行与对照输出，下面只讲投机解码那一组。前几篇用到的 `param_count`、`forward_flops_per_token`、`kv_bytes_per_token` 同样重给 dense 版本（MLA 的版本在[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html#七实践给-llm_costpy-加上-kv-cache)，MoE 的版本在[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html#九实践llm_costpy-的-moe-支持)）。
 
 ```python title="llm_cost.py：时间模型与投机解码（脚本里同时带量化与 LoRA 两组函数）"
 from dataclasses import dataclass
@@ -318,7 +381,7 @@ def embedding_params(cfg):
     return cfg.vocab * cfg.hidden * (1 if cfg.tie_embeddings else 2)
 
 def param_count(cfg):
-    """第一篇的参数量（重给以便独立运行），返回 dict。"""
+    """参数量（重给以便独立运行），返回 dict。"""
     d = cfg.hidden
     q, kv = cfg.n_heads * cfg.head_dim, cfg.n_kv_heads * cfg.head_dim
     attn = d * q + d * kv + d * kv + q * d
@@ -413,11 +476,11 @@ Llama-3-70B: 70.55B  BF16 141.1 GB  INT4(g128) 4.25 bit -> 37.48 GB
   B= 256  peak 0.76  60%MFU 0.62  E[tokens]=3.36
 ```
 
-最后六行是本篇的数字：$$B \le 32$$ 时加速比稳定在 2.40，$$B = 64$$ 起按 60% MFU 折算的曲线先掉到 1.61，$$B = 128$$ 低于 1——与第二章第 4 节的表一致。70B 的 BF16 decode 下界 42 ms 是"假设能放进一张卡"的数值，实际放不进。
+前六行里本篇只用到 BF16 的字节数与 decode 下界 4.79 ms——它就是时间模型里的 $$T_{\text{mem}}$$；INT4 的 4.27 GB 与 W4A16 的 1.27 ms 对应第二章第 4 节图里下移的那条平台，LoRA 两行不属于本篇。最后六行是投机解码的数字：$$B \le 32$$ 时加速比稳定在 2.40，$$B = 64$$ 起按 60% MFU 折算的曲线先掉到 1.61，$$B = 128$$ 低于 1——与第二章第 4 节的表一致。70B 的 BF16 decode 下界 42 ms 是"假设能放进一张卡"的数值，实际放不进。
 
 ### 2. 文本模型的成本表
 
-前面各篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用第四、六篇的 MLA 与 MoE 版本函数）：
+前面各篇的数字合到一张表（H100 SXM，理论值；DeepSeek-V3 列用《Attention 变体与 KV cache》的 MLA 版本函数与《MoE 的路由、激活参数量与通信形态》的 MoE 版本函数）：
 
 |  | Llama-3-8B | Llama-3-70B | DeepSeek-V3 |
 |---|---|---|---|
@@ -431,7 +494,7 @@ Llama-3-70B: 70.55B  BF16 141.1 GB  INT4(g128) 4.25 bit -> 37.48 GB
 
 Table: 前面各篇数字的汇总：三个模型的权重、KV cache、decode 下界与投机解码
 
-DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述。下一篇（第九篇）给这张表加"一张 1024² 图片"一行，第十篇加精度一列（权重与 KV 换成 FP8 各是多少字节、训练状态每参数几字节）。
+DeepSeek-V3 的投机一行按其技术报告的 MTP 接受率转述。[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html#2-成本表新增的一列)给这张表加"一张 1024² 图片"一行，[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html#4-llm_costpydtype-字节表与训练状态)加精度一列（权重与 KV 换成 FP8 各是多少字节、训练状态每参数几字节）。
 
 ## 四、本文小结
 
@@ -457,7 +520,7 @@ Table: 投机解码的正确性、收益与边界
 
 Table: 本篇的数字：投机解码在三个模型上的账
 
-本篇只算了投机解码的账。怎么把接受率提上去（草稿的训练目标是蒸馏）、Medusa / EAGLE 的草稿各看到了什么、树状草稿怎么一次验证多条路径、何时投机反而变慢，在算法地图的[《高效推理与压缩》第 02 篇](/speculative-decoding-drafters-acceptance-and-trees.html)展开。[下一篇《现代 LLM 结构（09）：多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入从 token 换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV。
+本篇只算了投机解码的账。怎么把接受率提上去（草稿的训练目标是蒸馏）、Medusa / EAGLE 的草稿各看到了什么、树状草稿怎么一次验证多条路径、何时投机反而变慢，在《高效推理与压缩》系列的[《投机解码：草稿、接受率与树》](/speculative-decoding-drafters-acceptance-and-trees.html)展开。[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把输入从 token 换成图片：vision encoder 与 connector 加在哪里、一张图变成多少 token、这些 token 在 decoder 里占多少 KV。
 
 配套代码：[`transformer-and-llm/llm_cost_07_quant_specdec_lora.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_07_quant_specdec_lora.py)。
 
