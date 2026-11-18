@@ -5,15 +5,15 @@ title: "现代 LLM 结构（04）：Attention 变体与 KV cache"
 subtitle: "Attention Variants and the KV Cache: Deriving MHA, GQA, MQA and MLA"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-18
 date: 2026-04-04 10:00:00
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第四篇。第 01 篇讲了 GQA 为什么让 K/V 投影变窄，第 02 篇给了算术强度与 KV 读取的账，第 03 篇讲了 RoPE；本篇把 MHA → GQA → MQA → MLA 当作一条结构演进讲全，并同时算它们的成本：KV cache 的字节数、并发上限与 kernel 形态。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第四篇。[《从 GPT-2 到 Llama——五处改动与参数量》的「MHA → GQA」一节](/gpt2-to-llama-five-changes-and-parameter-count.html#4-mha--gqa本篇只取-kv-投影宽度)讲了 GQA 为什么让 K/V 投影变窄，[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)给了算术强度与 KV 读取的账，[《位置编码与外推》](/positional-encoding-and-long-context.html)讲了 RoPE；本篇把 MHA → GQA → MQA → MLA 当作一条结构演进讲全，并同时算它们的成本：KV cache 的字节数、并发上限与 kernel 形态。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-第二篇讲了 KV cache 为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（第二篇把它拆成"权重项"与"上下文项"算成时间），也是过去几年结构改动最集中的地方。
+《前向的算量与访存量》讲了 KV cache（把每个 token 的 key、value 存下来复用的缓存）为什么**有**：causal 结构下旧 token 的 K、V 不随新 token 改变，算一次存下来，decode 每步只算一个 token。这一篇讲它为什么要**省**：Llama-3-8B 每个 token 的 KV 是 128 KiB，一个 8K 请求 1 GiB，一张 80 GB 的卡除掉权重只能同时服务几十个这样的请求——而如果它还用 GPT-2 那种每个 Q 头各有一组 K/V 的 MHA，会是 512 KiB。attention 是 Transformer 里唯一成本随上下文增长的部分（[《前向的算量与访存量》的「attention 的上下文项」一节](/transformer-flops-bytes-and-roofline.html#4-attention-的上下文项每层每-token-4ds)把它拆成"权重项"与"上下文项"），也是过去几年结构改动最集中的地方。
 
-MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
+MHA（Multi-Head Attention，多头注意力）、MQA（Multi-Query Attention，多查询注意力）、GQA（Grouped-Query Attention，分组查询注意力）、MLA（Multi-head Latent Attention，多头潜变量注意力）四种结构，做的是同一件事的不同取舍：
 
 > **减少每个 token 的 KV cache 字节数，同时尽量不损失质量。**
 
@@ -23,9 +23,47 @@ MHA、MQA、GQA、MLA 四种结构，做的是同一件事的不同取舍：
 
 ## 一、总览：四种 attention、一把尺子
 
+decode（逐 token 生成）的每一步，每一层都做同一组动作：新 token 算出自己的 query 和一行要缓存的内容，把这一行追加进 KV cache，再用 query 把整份 cache 读一遍。四种结构改的只是「这一行里存什么」。下图画的是一层、一步里的数据流，并标出每个环节在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：decode 一步里 KV cache 的数据流，以及四种 attention 结构各自改了缓存行里存什么
+flowchart TB
+    X["<b>新 token 在这一层的输入</b><br/>decode 每步只有这一行（第二章）"]
+    X --> Q["<b>query：每个 query head 一份</b><br/>本步用完即丢，不进 cache"]
+    X --> ROW["<b>这个 token 的缓存行</b><br/>只算一次，之后不再修改（第二章）"]
+    ROW -- "追加一行" --> C["<b>KV cache：每层、每条序列一份</b><br/>已生成多少 token 就有多少行，每行大小由结构决定（BF16，全部层合计）<br/>• MHA：每个 head 各一组 K、V，Llama-3-8B 的形状下 512 KiB / token<br/>• GQA：8 组 K、V，128 KiB / token（第三章）<br/>• MQA：1 组 K、V，16 KiB / token（第三章）<br/>• MLA：512 维 latent + 64 维 RoPE key，DeepSeek-V3 为 68.6 KiB / token（第四章）"]
+    Q --> ATT
+    C -- "每步整份读一遍" --> ATT["<b>打分与加权求和</b><br/>• 每读 1 个缓存元素服务几个 query head，算术强度就是几 FLOP/byte：GQA 为 4 或 8（第三章）<br/>• MLA 用矩阵吸收直接在 latent 上算，128 个 head 共用一行，约 242 FLOP/byte（第四章）"]
+    ATT --> O["<b>这一层的 attention 输出</b><br/>交给 FFN 与下一层"]
+    PRE["<b>prefill：整段 prompt 同时在场</b><br/>序列长 × 序列长的 score 矩阵不落 HBM，由 FlashAttention 分块算（第五章）"] -.-> ATT
+    ENG["<b>推理引擎一侧的三个变量（第六章）</b><br/>• 分页：碎片率<br/>• prefix 共享：复用倍数<br/>• 量化：每个元素几字节"] -.-> C
+```
+
+- **新 token 的输入**：decode 每步每层只处理一个 token，形状 $$[B, d]$$；前面所有 token 的输入不再出现，它们留下的只有 cache 里的行（[第二章](#二为什么需要-kv-cache)）。
+- **query**：$$n_h$$ 个 head 各一份，只在本步打分时用一次，不缓存。
+- **缓存行**：MHA / GQA / MQA 存的是这个 token 的 $$k$$、$$v$$；MLA 存的是 latent $$c^{KV}$$ 和解耦的 RoPE key $$k^R$$。causal 结构保证它算出后不随后面的 token 变化（[「不缓存的代价」一节](#2-不缓存的代价)）。
+- **KV cache**：显存的主要消耗者，也是 decode 每一步都要整份读的 HBM 流量。每 token 字节数是 $$2 \cdot L \cdot n_{kv} \cdot d_{head} \cdot \text{bytes/elem}$$，四种结构改的是 $$n_{kv} \cdot d_{head}$$ 这一项（[「KV cache 的大小公式」一节](#3-kv-cache-的大小公式)、[第三章](#三mqa-与-gqa直接减少-kv-head)、[第四章](#四mla把-kv-压成一个-latent)）。
+- **打分与加权求和**：$$QK^\top$$ 与 $$PV$$ 两次乘法。它的算术强度与 batch 无关，只由「一个缓存元素被几个 query head 共用」决定（[「GQA 对 decode attention 算术强度的影响」一节](#3-gqa-对-decode-attention-算术强度的影响)）；MLA 要靠矩阵吸收才能不升维直接算（[「矩阵吸收」一节](#5-矩阵吸收)）。
+- **prefill**：$$s$$ 个 token 一起算，问题从「读 cache」换成「$$s \times s$$ 的中间矩阵放哪」（[第五章](#五attention-的中间结果与-flashattention-的-io-复杂度)）。
+- **推理引擎一侧的三个变量**：不改模型结构，改的是公式里的 bytes/elem、能用上的显存比例和多条请求之间的复用（[第六章](#六kv-cache-的工程变量)）。
+
+图里出现的几样东西容易混：哪些进 cache、哪些只活一步、每 token 占多少字节。下表按 BF16（每元素 2 字节）列出：
+
+| 对象 | 何时产生 | 存在哪里 | 活多久 | 每 token 字节数（BF16） |
+|---|---|---|---|---|
+| query $$q_t$$ | 每步、每层，由当前 token 现算 | 激活显存，kernel 里读进片上 | 本步本层用完即丢 | 不进 KV cache |
+| K、V 行（MHA / GQA / MQA） | 这个 token 第一次经过这一层时：prompt 里的在 prefill，生成的在它作为输入的那一步 | HBM 上的 KV cache | 到这条序列结束（或被驱逐）为止，期间只读不改 | 每层 $$2 \cdot n_{kv} \cdot d_{head} \cdot 2$$<br/>Llama-3-8B：每层 4,096 B，32 层共 128 KiB |
+| latent $$c^{KV}_t$$（MLA） | 同上 | HBM 上的 KV cache | 同上 | 每层 $$512 \times 2 = 1{,}024$$ B<br/>DeepSeek-V3 61 层共 61.0 KiB |
+| 解耦的 RoPE key $$k^R_t$$（MLA） | 同上，写入前已按该 token 的位置旋转好 | HBM 上的 KV cache，与 $$c^{KV}_t$$ 同一行 | 同上 | 每层 $$64 \times 2 = 128$$ B<br/>61 层共 7.6 KiB |
+| 升维后的 $$k^C$$、$$v^C$$（MLA） | 只在 prefill 的非吸收路径里临时算出 | 激活显存 | 这一层算完即丢 | 不进 KV cache（若缓存它们，是 3.81 MiB） |
+| attention 分数（score） | decode：每步每层 $$n_h \times t$$ 个<br/>prefill：每层 $$n_h \times s \times s$$ 个 | decode：片上<br/>prefill：FlashAttention 下只在 SRAM 里按块存在 | 算完即丢 | 不进 KV cache<br/>若在 HBM 上物化：8K、32 头每层 4 GiB |
+
+Table: 本文几个中间量的产生时机、存放位置、寿命与每 token 字节数
+
 ### 1. 模型与硬件基线
 
-本篇沿用全系列的三个模型：Llama-3-8B（$$d = 4096$$，32 层，32 头 / 8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 头 / 8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA）。硬件以 H100 SXM 为默认：80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS，ridge point 约 295 FLOP/byte。所有数字都是理论下界或估算，不是实测。
+本篇沿用全系列的三个模型：Llama-3-8B（$$d = 4096$$，32 层，32 头 / 8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 头 / 8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA）。硬件以 H100 SXM 为默认：80 GB HBM3（High Bandwidth Memory，显存），3.35 TB/s，BF16 dense 989 TFLOPS，[ridge point](# "tip: Roofline 模型里算力上限与带宽上限的交点，等于峰值 FLOP/s 除以带宽；算术强度低于它的计算受访存限制，高于它的受算力限制") 约 295 FLOP/byte。所有数字都是理论下界或估算，不是实测。
 
 ### 2. 本文的章节安排
 
@@ -54,13 +92,39 @@ $$
 
 其中 $$Q, K, V$$ 分别由输入 $$X \in \mathbb{R}^{s \times d}$$ 经 $$W_Q, W_K, W_V$$ 投影得到。$$K$$ 和 $$V$$ 的每一行只依赖对应位置那个 token 的输入，与后面的 token 无关——这个性质是 KV cache 存在的全部前提。
 
-第二篇的结论用一句话重述：decode 阶段每一步只处理一个新 token，权重 GEMM 的形状是 $$[B, d] \times [d, n]$$，算术强度约等于 batch 大小 $$B$$ FLOP/byte（BF16 权重每读 2 字节做 $$2B$$ FLOPs），而 H100 的 ridge point 是 $$989 / 3.35 \approx 295$$ FLOP/byte。$$B = 1$$ 时距 ridge 两个数量级，decode 是彻底的 memory-bound：Llama-3-8B 的 16.06 GB BF16 权重从 HBM 读一遍至少 4.8 ms，单请求上限约 208 token/s。
+[《前向的算量与访存量》的「decode 权重 GEMM 的算术强度」一节](/transformer-flops-bytes-and-roofline.html#4-decode-权重-gemm-的算术强度--b)的结论用一句话重述：decode 阶段每一步只处理一个新 token，权重 GEMM 的形状是 $$[B, d] \times [d, n]$$，算术强度约等于 batch 大小 $$B$$ FLOP/byte（BF16 权重每读 2 字节做 $$2B$$ FLOPs），而 H100 的 ridge point 是 $$989 / 3.35 \approx 295$$ FLOP/byte。$$B = 1$$ 时距 ridge 两个数量级，decode 是彻底的 memory-bound：Llama-3-8B 的 16.06 GB BF16 权重从 HBM 读一遍至少 4.8 ms，单请求上限约 208 token/s。
 
 这一篇要加的是 decode 时的第二项 HBM 流量：KV cache。
 
 ### 2. 不缓存的代价
 
-自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。把 decode 的前几步排开看，cache 每步只追加一行，但每步都要被整份读一遍：
+自回归生成第 $$t$$ 个 token 时，它的 query 要与前面全部 $$t$$ 个位置的 key 做点积，再对 $$t$$ 个 value 加权求和。这 $$t$$ 个位置的 $$K$$、$$V$$ 在生成第 $$t-1$$ 个 token 时已经算过一遍，而且**数值完全不变**（causal 模型里，前面的 token 看不到后面的 token）。
+
+先用 3 个 token 手算。下图「不缓存」一栏每步把前缀整段重算，「缓存 K、V」一栏只算新 token 那一行、把结果追加进 cache（数的是一层里的投影行数和 score 个数）：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：生成 3 个 token 时，不缓存与缓存 K、V 每步各算什么
+flowchart TB
+    subgraph YES["缓存 K、V：每步只算新 token 一行"]
+        direction TB
+        Y1["<b>第 1 步：输入 x1</b><br/>• 算 q1、k1、v1：1 行<br/>• cache 变成 #91;k1 v1#93;<br/>• score：q1·k1，1 个"]
+        Y2["<b>第 2 步：输入 x2</b><br/>• 算 q2、k2、v2：1 行<br/>• cache 追加成 #91;k1 v1#93;#91;k2 v2#93;<br/>• score：q2 对 k1、k2，2 个"]
+        Y3["<b>第 3 步：输入 x3</b><br/>• 算 q3、k3、v3：1 行<br/>• cache 追加成 3 行<br/>• score：q3 对 k1、k2、k3，3 个"]
+        YS["<b>合计</b><br/>投影 1 + 1 + 1 = 3 行，score 1 + 2 + 3 = 6 个，读 cache 1 + 2 + 3 = 6 行"]
+        Y1 --> Y2 --> Y3 --> YS
+    end
+    subgraph NO["不缓存：每步把前缀全部重算"]
+        direction TB
+        N1["<b>第 1 步：输入 x1</b><br/>• 算 q、k、v：1 行<br/>• score：1 × 1 = 1 个"]
+        N2["<b>第 2 步：输入 x1 x2</b><br/>• 算 q、k、v：2 行，k1、v1 与上一步完全相同<br/>• score：2 × 2 = 4 个"]
+        N3["<b>第 3 步：输入 x1 x2 x3</b><br/>• 算 q、k、v：3 行，k1 v1 k2 v2 又算一遍<br/>• score：3 × 3 = 9 个"]
+        NS["<b>合计</b><br/>投影 1 + 2 + 3 = 6 行，score 1 + 4 + 9 = 14 个"]
+        N1 --> N2 --> N3 --> NS
+    end
+```
+
+3 个 token 时差别是 6 行对 3 行、14 个对 6 个；$$s$$ 个 token 时不缓存的投影是 $$s(s+1)/2$$ 行、score 是 $$s(s+1)(2s+1)/6$$ 个，缓存后是 $$s$$ 行与 $$s(s+1)/2$$ 个。缓存没省掉的是读取：cache 每步只追加一行，但每步都要被整份读一遍。把 decode 的前几步排开看：
 
 | 步 | 本步新算 | KV cache（每层，只追加、不修改） | 读取 | score 行 |
 |---|---|---|---|---|
@@ -79,11 +143,14 @@ Table: decode 前几步的 KV cache 追加与读取
 - 权重项：$$t$$ 个 token × 每 token $$2N$$ FLOPs，Llama-3-8B 是 $$15.0 \text{ GFLOPs} \times t$$；
 - attention 项：$$QK^\top$$ 与 $$PV$$ 各 $$2 \cdot n_h \cdot d_{head} \cdot t^2$$，即每层 $$4 d t^2$$，随 $$t$$ 平方增长。
 
-也就是说不缓存时**每一步都是一次 $$t$$ 个 token 的 prefill**，单步 $$O(t^2)$$，生成 $$s$$ 个 token 累计 $$O(s^3)$$。缓存之后，每一步只算当前 token 的投影（权重项 $$2N$$ FLOPs），attention 项退化为 $$4 d t$$ 每层——单步 $$O(t)$$，累计 $$O(s^2)$$。
+也就是说不缓存时**每一步都是一次 $$t$$ 个 token 的 prefill**（一次处理整段前缀的前向），单步 $$O(t^2)$$，生成 $$s$$ 个 token 累计 $$O(s^3)$$。缓存之后，每一步只算当前 token 的投影（权重项 $$2N$$ FLOPs），attention 项退化为 $$4 d t$$ 每层——单步 $$O(t)$$，累计 $$O(s^2)$$。
 
-用 Llama-3-8B 在 $$t = 4096$$ 处生成一个 token 感受一下差距。不缓存：权重项 $$15.0 \times 4096 \approx 61$$ TFLOP，attention 项 $$0.524 \text{ M} \times 4096^2 \approx 8.8$$ TFLOP，合计约 70 TFLOP，H100 上按 60% MFU 约 0.12 秒——**一个 token**。缓存：权重项 15 GFLOPs，attention 项 $$0.524 \text{ M} \times 4096 \approx 2.1$$ GFLOPs，合计 17 GFLOPs，且瓶颈在读权重与读 KV 的几毫秒上。**算量**差了四个数量级（70 T 对 17 G）；**时间**差得少一些——0.12 s 对约 5 ms，二十几倍——因为缓存之后那一步是 memory-bound，时间不再由 FLOPs 决定。所以"要不要 KV cache"从来不是一个选项，问题只是它要占多少显存、怎么让它占得更少。
+用 Llama-3-8B 在 $$t = 4096$$ 处生成一个 token 感受一下差距。不缓存：权重项 $$15.0 \times 4096 \approx 61$$ TFLOP，attention 项 $$0.524 \text{ M} \times 4096^2 \approx 8.8$$ TFLOP，合计约 70 TFLOP，H100 上按 60% [MFU](# "tip: Model FLOPs Utilization，实际跑出的模型 FLOP/s 占硬件峰值 FLOP/s 的比例") 约 0.12 秒——**一个 token**。缓存：权重项 15 GFLOPs，attention 项 $$0.524 \text{ M} \times 4096 \approx 2.1$$ GFLOPs，合计 17 GFLOPs，且瓶颈在读权重与读 KV 的几毫秒上。**算量**差了四个数量级（70 T 对 17 G）；**时间**差得少一些——0.12 s 对约 5 ms，二十几倍——因为缓存之后那一步是 memory-bound，时间不再由 FLOPs 决定。所以"要不要 KV cache"从来不是一个选项，问题只是它要占多少显存、怎么让它占得更少。
 
 代价是显存：$$K$$、$$V$$ 每层每 token 都要留在 HBM 里，并且每一步都要被读一遍。
+
+> [!NOTE] Java 经验参照：只追加的前缀结果缓存
+> 处理一条只追加的日志时，把「前 $$t-1$$ 条已经算出的中间结果」留在一个 `ArrayList` 里，第 $$t$$ 条到来只算它自己那一项再 `add` 进去——KV cache 就是这种增量计算。对得上的地方：旧项算出后不可变，所以不需要任何失效逻辑，也可以被多个读者安全共享（第六章的 prefix 共享靠的就是这一点）。对不上的地方有两处：一是普通缓存命中后只读一项，KV cache 每一步要把全部 $$t$$ 行读一遍，它省的是计算，不省读取；二是它不能像 `LinkedHashMap` 的 LRU 那样淘汰中间项——每一行都参与每一步的 softmax，丢掉任何一行，输出就变了。所以它随序列长度线性增长，只能整条序列一起释放。
 
 ### 3. KV cache 的大小公式
 
@@ -93,7 +160,15 @@ $$
 \text{bytes/token} = 2 \cdot L \cdot n_{kv} \cdot d_{head} \cdot \text{bytes/elem}
 $$
 
-因子 2 是 K 与 V 两份；$$L$$ 是层数；$$n_{kv}$$ 是 KV head 数（MHA 下等于 $$n_h$$）；$$d_{head}$$ 是每个 head 的维度。代入三个模型（BF16，2 字节）：
+各因子的含义：
+
+- 2：K 与 V 两份；
+- $$L$$：层数，每层各有一份 cache；
+- $$n_{kv}$$：KV head 数（MHA 下等于 $$n_h$$）；
+- $$d_{head}$$：每个 head 的维度；
+- bytes/elem：每个元素的字节数，BF16 是 2。
+
+代入三个模型（BF16，2 字节）：
 
 - Llama-3-8B 若为 MHA（$$n_{kv} = 32$$）：$$2 \times 32 \times 32 \times 128 \times 2 = 524288$$ B = **512 KiB**；
 - Llama-3-8B 实际是 GQA（$$n_{kv} = 8$$）：$$2 \times 32 \times 8 \times 128 \times 2 = 131072$$ B = **128 KiB**；
@@ -145,7 +220,7 @@ $$g = 1$$ 是 MHA，$$g = n_h$$ 是 MQA。四种结构的差别，就是 query h
 
 ![MHA / GQA / MQA / MLA 的 query 到 KV head 映射](/img/in-post/attention-variants-q-to-kv-mapping.svg)
 
-Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——上一篇（第一篇）算出的每层 attention 41.94M，已经包含了这一节省。
+Llama-3-8B 的 128 KiB/token、70B 的 320 KiB/token，就是 GQA 下的数字。参数量上 Llama-3-8B 每层 $$W_K$$、$$W_V$$ 各 $$4096 \times 8 \times 128 = 4.19$$M，与 $$W_Q$$、$$W_O$$ 的 16.78M 相比只剩四分之一——[《从 GPT-2 到 Llama——五处改动与参数量》的「attention 的四个矩阵」一节](/gpt2-to-llama-five-changes-and-parameter-count.html#2-attention-的四个矩阵)算出的每层 attention 41.94M，已经包含了这一节省。
 
 在代码上，GQA 相对 [《Transformer 原理与实现》逐行读的 nanoGPT `model.py`](/nanogpt-model-py-line-by-line.html) 里的 `CausalSelfAttention` 只改三处：K、V 的投影变窄，拆头时 K、V 的头数用 $$n_{kv}$$，打分前把每组 K、V **复制** $$g$$ 份对齐到 $$n_h$$ 个 query head（`repeat_interleave`；用 SDPA（scaled dot-product attention，PyTorch 的融合 attention 函数） 时传 `enable_gqa=True` 可以省掉这次复制）：
 
@@ -207,13 +282,13 @@ GQA 的 $$g$$ 把这个数字从 1 提到 4 或 8，距 ridge point 295 仍差�
 
 ### 4. GQA 与张量并行的边界
 
-$$n_{kv}$$ 还悄悄决定了另一件事：tensor parallel 的切分粒度。attention 按 head 切分时，每张卡拿到 $$n_h / \text{TP}$$ 个 query head 和 $$n_{kv} / \text{TP}$$ 个 KV head。Llama-3-70B 的 8 个 KV 头意味着 TP = 8 时每卡恰好一个 KV 头、8 个 query head，KV cache 也恰好按卡均分——每卡每 token $$320 / 8 = 40$$ KiB。
+$$n_{kv}$$ 还决定了另一件事：tensor parallel（TP，张量并行，把一层的权重按 head / 列切到多张卡上）的切分粒度。attention 按 head 切分时，每张卡拿到 $$n_h / \text{TP}$$ 个 query head 和 $$n_{kv} / \text{TP}$$ 个 KV head。Llama-3-70B 的 8 个 KV 头意味着 TP = 8 时每卡恰好一个 KV 头、8 个 query head，KV cache 也恰好按卡均分——每卡每 token $$320 / 8 = 40$$ KiB。
 
 TP 一旦超过 $$n_{kv}$$（比如 70B 用 TP = 16），KV 头就不够分了，只能**复制**：两张卡持有同一个 KV 头的副本，各算 4 个 query head：
 
 ![Llama-3-70B 在 TP=8 与 TP=16 下的 KV head 分配](/img/in-post/attention-variants-tp-kv-heads.svg)
 
-此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（每卡处理不同的请求），这个选择直接来自本节的算术。
+此时每卡的 KV cache 不再随 TP 缩小，总的 KV 显存变成 $$\text{TP} / n_{kv}$$ 倍。这是为什么 8 个 KV 头的模型在 8 卡以上的 TP 收益递减，也是 Megatron 与 vLLM 里 `num_kv_heads` 与 TP 度之间要满足整除或复制关系的原因。MLA 只有一个（latent）KV 头，任何 TP 度下都必须整份复制——DeepSeek 自己的推理方案因此在 attention 部分不用 TP 而用 DP（data parallel，数据并行，每卡处理不同的请求），这个选择直接来自本节的算术。
 
 ## 四、MLA：把 K、V 压成一个 latent
 
@@ -354,7 +429,7 @@ $$
 
 上面那个 64 维的 $$k^R$$ 看起来是个补丁——为什么不直接把 RoPE 加在 $$k^C$$ 上，让 $$d_c = 512$$ 就够？
 
-RoPE 对位置 $$m$$ 的向量施加一个只依赖 $$m$$ 的旋转矩阵 $$R_m$$（细节在第三篇），它的关键性质是 $$R_m^\top R_n = R_{n-m}$$：点积只依赖相对位置。如果把 RoPE 直接加在压缩路径上，位置 $$t$$ 的 query 与位置 $$j$$ 的 key 的点积是：
+RoPE 对位置 $$m$$ 的向量施加一个只依赖 $$m$$ 的旋转矩阵 $$R_m$$（推导见[《位置编码与外推》的「相对性的完整形式」一节](/positional-encoding-and-long-context.html#2-相对性的完整形式)），它的关键性质是 $$R_m^\top R_n = R_{n-m}$$：点积只依赖相对位置。如果把 RoPE 直接加在压缩路径上，位置 $$t$$ 的 query 与位置 $$j$$ 的 key 的点积是：
 
 $$
 (R_t W_{UQ} c^Q_t)^\top (R_j W_{UK} c^{KV}_j) = (c^Q_t)^\top W_{UQ}^\top R_{j-t} W_{UK}\, c^{KV}_j
@@ -441,7 +516,7 @@ flowchart TB
 
 ### 6. 吸收后的算量与访存：decode 划算，prefill 不一定
 
-套用第三章第 3 节的推导：每读一个 KV 元素服务 128 个 query head，$$g = 128$$。更精确地算每个 cached token 每层：
+套用[「GQA 对 decode attention 算术强度的影响」一节](#3-gqa-对-decode-attention-算术强度的影响)的推导：每读一个 KV 元素服务 128 个 query head，$$g = 128$$。更精确地算每个 cached token 每层：
 
 - 读取：576 个 BF16，1152 字节；
 - FLOPs：128 个 head，每个 head 做 576 维点积（QK）与 512 维加权和（PV），各 2 FLOPs 每维：$$128 \times 2 \times (576 + 512) = 278528$$；
@@ -475,7 +550,10 @@ prefill 是 compute-bound，多 400 TFLOP 就是多 0.4 秒以上（按 989 TFLO
 
 1. **算量**：吸收后每个 head 的点积从 320 维变 1088 维，attention 核心 FLOPs 约 3.4 倍；decode 里被访存掩盖，prefill 里掩盖不了，因此要维护吸收/非吸收两条路径；
 2. **结构约束**：K、V 被限制在秩 512 的子空间里，RoPE 只能加在额外的 64 维上，与标准 RoPE 模型的位置编码行为不完全相同；DeepSeek 报告 MLA 在他们的训练设置下质量不低于 MHA，但这是一个特定规模、特定超参下的结论，不是低秩约束"免费"的证明；
-3. **工程复杂度**：head dim 576 不是标准 FlashAttention 的常规尺寸，需要专用 kernel（FlashMLA、FlashInfer 的 MLA 后端）；prefill 与 decode 的 cache 布局要能同时服务两条路径；KV 量化时 nope 与 rope 两段的数值范围不同，通常要分开处理；
+3. **工程复杂度**：
+   - head dim 576 不是标准 FlashAttention 的常规尺寸，需要专用 kernel（FlashMLA、FlashInfer 的 MLA 后端）；
+   - prefill 与 decode 的 cache 布局要能同时服务两条路径；
+   - KV 量化时 nope 与 rope 两段的数值范围不同，通常要分开处理；
 4. **不能从 MHA checkpoint 直接转换**：GQA 可以从 MHA 均值池化 uptrain 得到，MLA 的投影结构不同，需要从头训（或专门的转换方法）。
 
 ## 五、attention 的中间结果与 FlashAttention 的 IO 复杂度
@@ -523,9 +601,9 @@ $$
 - 因果：上三角 3 块整块跳过、对角 3 块半算、下三角 3 块全算，合计约 $$s^2/2$$；
 - sliding window：每行最多 $$w$$ 个要算，$$O(s \cdot w)$$，cache 只需保留最近 $$w$$ 个 token。
 
-第二篇的 prefill 数字会用到这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
+[《前向的算量与访存量》的「prefill」一节](/transformer-flops-bytes-and-roofline.html#3-prefill8k-约-024027-s128k-约-11-s)的 prefill 数字用到了这一点：Llama-3-8B 8K prefill 不利用掩码约 158 TFLOP，利用后约 140 TFLOP；128K 时 attention 项按 $$s^2/2$$ 计约 4.5 PFLOP，若不利用则是 9 PFLOP，比权重项的 2 PFLOP 多得多。128K 以上的 prefill，causal skip 不是优化，是必需。
 
-上图的滑窗掩码把每行的可见位置限制到最近 $$w$$ 个；要真正减少 FLOPs，kernel 必须跳过窗口外的块，而不只是填负无穷。窗口截断的质量代价、缓存驱逐、全局 / 局部交错和 attention sink 统一放在[《现代 LLM 结构（05）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。
+上图的滑窗掩码把每行的可见位置限制到最近 $$w$$ 个；要真正减少 FLOPs，kernel 必须跳过窗口外的块，而不只是填负无穷。窗口截断的质量代价、缓存驱逐、全局 / 局部交错和 attention sink 统一放在[《长上下文的成本与结构手段》的「缩短成本的结构手段」一章](/long-context-cost-and-structural-remedies.html#三缩短成本的结构手段)。
 
 ## 六、KV cache 的工程变量
 
@@ -535,11 +613,34 @@ $$
 
 早期实现按每条序列的最大长度预分配连续 KV 显存，一条 8K 上限、实际只用 500 token 的请求浪费 94%。PagedAttention（Kwon 等 2023，vLLM）把每条序列的 KV 切成固定大小的 block（默认 16 个 token），按需分配，逻辑块到物理块的映射表由 kernel 在读 KV 时查。
 
-它对上面公式的影响只有一项：**内部碎片率**。每条序列只有最后一个 block 不满，平均浪费半个 block；Llama-3-8B、block 16 时约 $$8 \times 128 \text{ KiB} = 1$$ MiB 每序列，相对于一条 8K 序列 1 GiB 的 KV 可以忽略。每 token 的字节数不变，变的是"能用上的比例"从几成提到接近 100%，第二章算的"约 52 万 token"这个容量才真的能被填满。
+下图是两条请求的块表。A、B 的前 32 个 token 是同一段 system prompt，各自的块表前两项指向同一批物理块（下一节的 prefix 共享），后面的块各用各的：
+
+```mermaid
+%% 图：分页后的 KV cache：两条序列的块表指向物理块池，相同前缀共用同一批块
+flowchart LR
+    A0["<b>序列 A 的块表 #91;0#93;</b><br/>token 0–15"]
+    A1["<b>序列 A 的块表 #91;1#93;</b><br/>token 16–31"]
+    A2["<b>序列 A 的块表 #91;2#93;</b><br/>token 32–47"]
+    B0["<b>序列 B 的块表 #91;0#93;</b><br/>token 0–15"]
+    B1["<b>序列 B 的块表 #91;1#93;</b><br/>token 16–31"]
+    B2["<b>序列 B 的块表 #91;2#93;</b><br/>token 32–36"]
+    P7["<b>物理块 7</b><br/>system prompt 前 16 个 token 的 KV，引用计数 2"]
+    P3["<b>物理块 3</b><br/>system prompt 后 16 个 token 的 KV，引用计数 2"]
+    P9["<b>物理块 9</b><br/>A 自己的 16 个 token，已写满"]
+    P4["<b>物理块 4</b><br/>B 自己的 5 个 token，未写满"]
+    A0 --> P7
+    B0 --> P7
+    A1 --> P3
+    B1 --> P3
+    A2 --> P9
+    B2 --> P4
+```
+
+分页对上面公式的影响只有一项：**内部碎片率**。每条序列只有最后一个 block 不满，平均浪费半个 block；Llama-3-8B、block 16 时约 $$8 \times 128 \text{ KiB} = 1$$ MiB 每序列，相对于一条 8K 序列 1 GiB 的 KV 可以忽略。每 token 的字节数不变，变的是"能用上的比例"从几成提到接近 100%，第二章算的"约 52 万 token"这个容量才真的能被填满。
 
 ### 2. prefix 共享
 
-同一个 system prompt、同一段 few-shot 示例、同一份文档被多条请求共用时，它们的 KV 在数值上完全相同（causal 模型的 KV 只依赖前缀）。分页之后，共享只是让多条序列的映射表指向同一批物理块，加引用计数即可。$$n$$ 条请求共享 $$p$$ 个 token 的前缀，省下 $$(n - 1) \cdot p \cdot \text{bytes/token}$$ 的显存和对应的 prefill 算量。对 Agent 类负载（几千 token 的工具描述 + 短 query），命中率通常很高，这是 KV cache 容量的一个乘数，而不是加数。
+同一个 system prompt、同一段 few-shot 示例、同一份文档被多条请求共用时，它们的 KV 在数值上完全相同（causal 模型的 KV 只依赖前缀）。分页之后，共享只是让多条序列的映射表指向同一批物理块，加引用计数即可。$$n$$ 条请求共享 $$p$$ 个 token 的前缀，省下 $$(n - 1) \cdot p \cdot \text{bytes/token}$$ 的显存和对应的 prefill 算量。例：16 条请求共用 4,096 token 的工具描述、各自再有 512 token，不共享要存 $$16 \times 4608 = 73728$$ 个 token 的 KV，共享后是 $$4096 + 16 \times 512 = 12288$$ 个，少 6 倍；按 Llama-3-8B 的 128 KiB/token 是 9 GiB 对 1.5 GiB。对 Agent 类负载（几千 token 的工具描述 + 短 query），命中率通常很高，这是 KV cache 容量的一个乘数，而不是加数。
 
 ### 3. 量化：字节数减半
 
@@ -553,11 +654,20 @@ $$
 \text{tokens} = \frac{\text{显存预算}}{2 L n_{kv} d_{head} \cdot \text{bytes/elem}} \times \frac{1}{1 + \text{碎片率}} \times \text{prefix 复用倍数}
 $$
 
-结构（GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$）决定分母里的元素个数，量化决定 bytes/elem，分页决定碎片率，prefix 共享决定复用倍数。四个乘子彼此独立，可以同时用：一个 MLA + FP8 KV + 分页 + prefix 缓存的服务栈，相对 MHA + BF16 + 预分配的朴素实现，KV 容量的差距可以有两到三个数量级。这四个因子里只有第一个必须在训练前决定，其余三个都是推理侧的选择——这也是为什么 KV cache 是推理系统里优化空间最大的一块。
+| 因子 | 改公式里的哪一项 | 什么时候定 | 量级（本文的例子） |
+|---|---|---|---|
+| 结构：GQA 的 $$n_{kv}$$、MLA 的 $$d_c + d_h^R$$ | 每层每 token 的元素个数 | 训练前 | Llama-3-8B：8,192 → 2,048，4 倍<br/>DeepSeek-V3：32,768 → 576，57 倍 |
+| 量化 | bytes/elem | 部署时 | BF16 → FP8：2 → 1，2 倍 |
+| 分页 | 碎片率 | 推理引擎实现 | 按 8K 上限预分配、实际 500 token：浪费 94%<br/>分页后：每序列平均浪费半个 block（8 个 token） |
+| prefix 共享 | 复用倍数 | 由负载决定 | 16 条请求共用 4,096 token 前缀、各自 512 token：6 倍 |
+
+Table: 决定 KV 容量的四个因子：各改公式里的哪一项、何时确定、量级
+
+四个乘子彼此独立，可以同时用：一个 MLA + FP8 KV + 分页 + prefix 缓存的服务栈，相对 MHA + BF16 + 预分配的朴素实现，KV 容量的差距可以有两到三个数量级。这四个因子里只有第一个必须在训练前决定，其余三个都是推理侧的选择——这也是为什么 KV cache 是推理系统里优化空间最大的一块。
 
 ## 七、实践：给 llm_cost.py 加上 KV cache
 
-本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取第一篇与第二篇的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
+本篇在贯穿脚本里新增 `attn_type` 字段（`"mha" | "gqa" | "mqa" | "mla"`）、MLA 用到的 `kv_lora_rank`（$$d_c$$）与 `qk_rope_head_dim`（$$d_h^R$$）字段，以及 `n_params`（总参数量，取 [《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html) 与 [《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html) 的结果，用来估权重显存）。新增三个函数：`kv_bytes_per_token`、`decode_attn_intensity`、`max_concurrency`。
 
 ```python title="llm_cost.py：kv_bytes_per_token、decode_attn_intensity、max_concurrency"
 from dataclasses import dataclass
@@ -707,10 +817,10 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 - 并发数是**只算权重与 KV cache 的上界**。实际引擎还要留激活（prefill 一个 chunk 的中间张量）、CUDA graph、框架自身的显存，vLLM 默认 `gpu_memory_utilization=0.9` 一类的预留会再压掉 10% 左右，可以用 `reserve_frac` 模拟；
 - Llama-3-8B 在一张 H100 上 128K 上下文只能放 3 条序列，这就是"长上下文 = 低并发"的定量版本；8K 上下文 59 条对应第二章"64 条 8K 序列"的估算（差别来自 16.06 GB 权重与 64 GiB 预算的取整）；
-- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（报告 3.4：attention TP4 × DP、专家 EP、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，见[《MoE 的路由、激活参数量与通信形态》第四章的「大规模 EP 的动机」](/moe-compute-and-communication.html#4-大规模-ep-的动机)；
+- DeepSeek-V3 的 FP8 权重 671 GB 放不进 8 张 H100（640 GB），表里用了 16 卡；即便如此每卡分到的 KV 预算只有约 38 GB，但因为每 token 只有 68.6 KiB，128K 上下文仍能放 66 条——这就是 MLA 对服务成本的意义。注意这一行假设 KV 在 16 卡间**完美分片**、权重均匀切分，是容量上界；真实部署（DeepSeek-V3 技术报告 3.4 节：attention TP4 × DP、专家 EP（expert parallel，专家并行）、冗余专家）里每卡的权重与 KV 预算都不同，并发要按实际布局重算，见[《MoE 的路由、激活参数量与通信形态》的「大规模 EP 的动机」一节](/moe-compute-and-communication.html#4-大规模-ep-的动机)；
 - FP8 KV 让每一格翻倍，且不改变模型结构，是所有优化中性价比最高的一项——前提是质量可接受。
 
-下一篇会给 `kv_bytes` 加上上下文长度扫描，把 RoPE 外推与 KV 显存放在同一张图里看。
+[《长上下文的成本与结构手段》的「实践」一章](/long-context-cost-and-structural-remedies.html#六实践llm_costpy-上下文长度扫描)给 `kv_bytes` 加上上下文长度扫描，看 KV、prefill 与中间量各随 $$s$$ 怎么涨。
 
 ## 八、本文小结
 
@@ -742,9 +852,7 @@ DeepSeek-V3      16    671GB    4231    2115     528     132
 
 Table: 本篇算出的数字：三个模型的 KV cache 与并发容量
 
-MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出来——RoPE 本身的频率、波长与外推代价在上一篇。本篇的 KV cache 公式里只有一个变量随请求变化：上下文长度 $$s$$。[下一篇《现代 LLM 结构（05）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)沿着 $$s$$ 往上走：KV、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink 与稀疏 attention 又把它们改成了什么。
-
-> **RoPE 的旋转频率如何决定模型"能看多远"？把 8K 训练的模型拉到 128K，哪些频率会失效，YaRN 与 Llama 3.1 的分段缩放各自修了什么？**
+MLA 的 K、V 之所以能压成 576 个数，前提是 RoPE 被单独拿了出来——RoPE 本身的频率、波长与外推代价在[《位置编码与外推》](/positional-encoding-and-long-context.html)。本篇的 KV cache 公式里只有一个变量随请求变化：上下文长度 $$s$$。[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)沿着 $$s$$ 往上走：KV、prefill 与中间量各涨成什么函数，sliding window、全局/局部交错、attention sink 与稀疏 attention 又把它们改成了什么。
 
 配套代码：[`transformer-and-llm/llm_cost_03_attention_kv.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/llm_cost_03_attention_kv.py)。
 
