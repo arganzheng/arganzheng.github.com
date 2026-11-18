@@ -85,7 +85,7 @@ Table: 权重、embedding 表、KV cache、attention 中间结果与激活值：
 
 ### 1. 数字基线与约定
 
-全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。模型沿用[《从 GPT-2 到 Llama——五处改动与参数量》的「参数量：从 config.json 到 8.03B」一章](/gpt2-to-llama-five-changes-and-parameter-count.html#四参数量从-configjson-到-803b)里的 Llama-3-8B、Llama-3-70B 与 DeepSeek-V3，形状表以那一章为准。
+全文所有数字都是**理论下界或估算**，用于建立数量级判断，不是任何实现的实测值。硬件基线取 H100 SXM（80 GB HBM3，3.35 TB/s，BF16 dense 989 TFLOPS，即 NVIDIA 产品页带稀疏的 1,979 TFLOPS 的一半）与 A100 80GB（2.0 TB/s，BF16 312 TFLOPS）的公开标称值。模型沿用[《从 GPT-2 到 Llama——五处改动与参数量》的「参数量：从 config.json 到 8.03B」一章](/gpt2-to-llama-five-changes-and-parameter-count.html#四参数量从-configjson-到-803b)里的 Llama-3-8B、Llama-3-70B 与 DeepSeek-V3，形状表以那一章为准。
 
 ### 2. 本文的章节安排
 
@@ -298,7 +298,7 @@ prefill 的 attention 项除以 2，是因为因果掩码下第 $$i$$ 个 token 
 
 这个不对称直接解释了推理引擎里几个常见设计：
 
-- **continuous batching**：既然一步 decode 无论 $$B$$ 是 1 还是 64 都要读一遍权重，把尽可能多的请求塞进同一步就是免费的吞吐。vLLM 一类引擎在每步之间动态加入新请求、移出结束的请求，就是为了让 $$m = B$$ 尽量大；
+- **continuous batching**（机制出自 Orca 的 iteration-level scheduling，[Yu 等，OSDI 2022](https://www.usenix.org/conference/osdi22/presentation/yu)）：既然一步 decode 无论 $$B$$ 是 1 还是 64 都要读一遍权重，把尽可能多的请求塞进同一步就是免费的吞吐。vLLM 一类引擎在每步之间动态加入新请求、移出结束的请求，就是为了让 $$m = B$$ 尽量大；
 - **chunked prefill**：一个 8K 的 prefill 要占用 GPU 约四分之一秒，期间其他请求的 decode 全部停住。把 prefill 切成若干块与 decode 步交替执行，用 prefill 的高算术强度"填满" decode 步空闲的 Tensor Core；
 - **prefill/decode 分离**：两个阶段的瓶颈不同（一个吃算力，一个吃带宽），把它们放到不同的 GPU 上各自调优，中间通过网络传 KV cache。
 
@@ -500,7 +500,7 @@ $$
 
 （按全部 16.06 GB 粗算是 4.8 ms / 208 token/s，差 7%。）
 
-这是什么性质的数字要说清：它是**同一算法、同一精度、权重冷读、按标称峰值带宽**的理想下界——实测通常达到它的 80–90%（有效带宽到不了标称值，还有 kernel launch、KV 读取、通信）。它**不是**"超过就是造假"的判据：量化改了字节数，投机解码一步产出多个 token，多张卡 TP 每张只读 $$1/n$$，H200/B200 带宽更高，任何一条都能让单流超过 220 token/s；反过来若一个 BF16 单卡 H100 的实测明显高于它，先查这四件事，而不是先怀疑数字。
+这是什么性质的数字要说清：它是**同一算法、同一精度、权重冷读、按标称峰值带宽**的理想下界——实测达不到它（有效带宽到不了标称值，还有 kernel launch、KV 读取、通信）。它**不是**"超过就是造假"的判据：量化改了字节数，投机解码一步产出多个 token，多张卡 TP 每张只读 $$1/n$$，H200/B200 带宽更高，任何一条都能让单流超过 220 token/s；反过来若一个 BF16 单卡 H100 的实测明显高于它，先查这四件事，而不是先怀疑数字。
 
 作为对照，这一步的算力时间是 $$19.3\ \text{GFLOPs} / 989\ \text{TFLOPS} \approx 0.02$$ ms，是访存时间的 1/230——与 $$I / I_{ridge} = 1/295$$ 同一量级。同样的算法，Llama-3-70B 若能放进一张卡：$$141 / 3.35 \approx 42$$ ms，约 24 token/s；A100 上的 8B 是 $$15.0 / 2.0 \approx 7.5$$ ms，133 token/s。
 
@@ -714,7 +714,7 @@ MFU 与 HFU 的差别在有重算时才显现。全量重算下硬件每 token �
 - **GEMM 本身达不到峰值**：989 TFLOPS 是理想形状、理想频率下的数字，实际大 GEMM 在 70–80% 的峰值；功耗墙下频率会降；
 - **micro-batch 与 pipeline 的尾效应**、优化器步骤、数据加载、checkpoint 保存。
 
-四项各取一个中间值（非 GEMM 算子留下 0.8、通信 0.85、GEMM 自身效率 0.8、其余 0.9）相乘，$$0.8 \times 0.85 \times 0.8 \times 0.9 \approx 0.49$$——50% 左右是大规模训练在没有明显低效的情况下的自然上限。公开的大规模训练报告中 MFU 多在 35–45% 之间，与这个估算一致。
+四项各取一个中间值（非 GEMM 算子留下 0.8、通信 0.85、GEMM 自身效率 0.8、其余 0.9）相乘，$$0.8 \times 0.85 \times 0.8 \times 0.9 \approx 0.49$$——50% 左右是大规模训练在没有明显低效的情况下的自然上限。公开报告的数字在它附近：[Llama 3](https://arxiv.org/abs/2407.21783) 为 38–43%，[PaLM](https://arxiv.org/abs/2204.02311) 为 46.2%，[MegaScale](https://arxiv.org/abs/2402.15627) 做了专门优化，在 12,288 张卡上训练 175B 模型达到 55.2%。
 
 ## 九、实践：llm_cost.py 增加 FLOPs、字节数与时间下界
 
@@ -909,7 +909,7 @@ prefill 131072 causal=True      40.74 PFLOP  @60% MFU 68.651 s
 
 验证的方法是用 vLLM 或 `transformers` 在一张 H100 上跑 Llama-3-8B BF16，固定 batch 与上下文长度，测 decode 每步时间（或 token 间延迟）与 prefill 时间，再与脚本的下界相除。这里不给出实测数字——它们随驱动、CUDA 版本、引擎版本、功耗设置而变，读者应当自己测——但可以预告差距的来源和量级：
 
-- **decode**：好的引擎能做到下界的 1.2–1.5 倍。差距来自：非 GEMM 算子（RMSNorm、RoPE、残差、采样）各自是一次访存往返，虽然字节数小但 kernel launch 与同步有固定开销，$$B$$ 小时每层十几个 kernel 的 launch 时间就能与 GEMV 本身相当；GEMV 类 kernel 达不到 100% 的带宽利用（通常 80–90%）；paged KV cache 的间接寻址；调度器在两步之间做的 CPU 工作（vLLM 用 CUDA graph 与异步调度压缩这部分）。
+- **decode**：好的引擎能做到下界的 1.2–1.5 倍。差距来自：非 GEMM 算子（RMSNorm、RoPE、残差、采样）各自是一次访存往返，虽然字节数小但 kernel launch 与同步有固定开销，$$B$$ 小时每层十几个 kernel 的 launch 时间就能与 GEMV 本身相当；GEMV 类 kernel 达不到 100% 的带宽利用；paged KV cache 的间接寻址；调度器在两步之间做的 CPU 工作（vLLM 用 CUDA graph 与异步调度压缩这部分）。
 - **prefill**：差距来自 GEMM 效率（大形状 GEMM 约 70–80% 峰值）、attention kernel 的效率（FlashAttention 在 H100 上通常低于 GEMM 的效率）、非 GEMM 算子的带宽时间——这些在 prefill 里读写 $$[s, d_{ff}]$$ 的激活，$$s = 8192$$ 时每个算子几百 MB，加起来不再可忽略。把 MFU 从 60% 调到 40% 再看，往往更接近。
 - **通用**：脚本假设权重与 KV 各读一遍，没有算激活写回、没有算 lm_head 输出的 $$[B, V]$$ logits（每 token 256 KB，BF16）、没有算采样。
 
