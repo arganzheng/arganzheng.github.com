@@ -7,7 +7,7 @@ tags: [C++, AI, AI-Infra]
 catalog: true
 redirect_from:
   - /cpp-compilation-model-and-project-layout.html
-updated: 2026-11-17
+updated: 2026-11-18
 ---
 
 
@@ -241,18 +241,72 @@ grep -n "version_string" Version.s | head -3
 5:__ZN7minic1014version_stringEv:         ; @_ZN7minic1014version_stringEv
 ```
 
-`minic10::version_string()` 在汇编里变成了 `_ZN7minic1014version_stringEv`（macOS 上还多一个前导下划线）。这个奇怪的名字是**符号**（symbol），第五章会讲它的编码规则。这里先记住一个事实：**编译器一次只看一个翻译单元**。编译 `Version.cpp` 时，它完全不知道 `hello.cpp` 的存在；它只知道 `Version.h` 里说过"有一个叫 `version_string` 的函数，返回 `std::string`"，于是放心地生成对它的调用或定义。
+`minic10::version_string()` 在汇编里变成了 `_ZN7minic1014version_stringEv`（macOS 上还多一个前导下划线）。这个名字是**符号**（symbol），第五章讲它的编码规则。
 
-这解释了 `stub.c` 里 `extern PyObject* initModule(void);` 的作用：告诉编译器"有这么一个函数，签名如此，定义在别处"，让编译器能生成 `return initModule();` 这条调用。真正的定义在 `torch/csrc/Module.cpp`，编译 `stub.c` 时编译器根本没看过它。
+> [!TIP] 背景：这里的汇编是真的汇编，而且跟 CPU 有关
+> `.s` 是某一种 CPU 指令集的汇编文本，一行指令对应一条机器指令。同一个函数 `int add(int a, int b) { return a + b; }`，用 `-O1` 分别为两种 CPU 生成（Apple clang 14，`-arch x86_64` 与 `-arch arm64`），函数体完全不同：
+>
+> | 目标 CPU | 生成的指令 |
+> |---|---|
+> | x86-64（Intel 和 AMD 的 64 位处理器用的是同一套指令集） | `pushq %rbp`<br/>`movq %rsp, %rbp`<br/>`leal (%rdi,%rsi), %eax`<br/>`popq %rbp`<br/>`retq` |
+> | ARM64（Apple M 系列、AWS Graviton） | `add w0, w1, w0`<br/>`ret` |
+>
+> Table: 同一个 add 函数在两种 CPU 上的汇编
+>
+> 所以从编译这一步起，产物就绑定了 CPU 架构和操作系统：`.s`、`.o`、`.so` 都只能用在对应的平台上，PyTorch 的 wheel 也因此按平台分别发布，文件名里带 `x86_64`、`aarch64`、`arm64` 这样的标记。Java 的 `.class` 是与 CPU 无关的字节码，翻成机器码的事由 JVM 在运行时做。
 
-C++ 编译器不会去找任何别的 `.cpp`；一个名字的签名是什么，它只信当前翻译单元里（也就是头文件粘贴进来的）那行声明。
+**编译器一次只看一个翻译单元。** 用 `hello.cpp` 来看：它调用了 `version_string()`，而函数体在 `Version.cpp` 里。只编译 `hello.cpp`，看调用处生成了什么：
+
+```bash title='只编译 hello.cpp：看 version_string 的调用处'
+clang++ -std=c++17 -I. -arch arm64 -S examples/hello.cpp -o hello.s
+grep -n "version_string" hello.s
+```
+
+```text title='hello.s 里只有一条跳转指令，没有函数体'
+25:	bl	__ZN7minic1014version_stringEv
+```
+
+`bl` 是 ARM64 的函数调用指令（x86-64 上这一行是 `callq __ZN7minic1014version_stringEv`）。整个 `hello.s` 里没有 `version_string` 的函数体，只有这一条「跳到名叫 `_ZN7minic1014version_stringEv` 的地方」。两次编译各自看到的东西：
+
+```mermaid
+%% 图：两个翻译单元各自编译：hello.cpp 只拿到声明，Version.cpp 才有函数体，链接器第一次同时看到两边
+flowchart TB
+    H["<b>Version.h</b><br/>std::string version_string();<br/>只有声明，没有函数体"]
+    subgraph TU1["编译 hello.cpp：看不到 Version.cpp"]
+        direction TB
+        A1["<b>hello.cpp 的翻译单元</b><br/>version_string 的声明<br/>+ main 的函数体"]
+        A2["<b>hello.o</b><br/>main：已定义<br/>version_string：只有一条调用，地址留空"]
+        A1 --> A2
+    end
+    subgraph TU2["编译 Version.cpp：看不到 hello.cpp"]
+        direction TB
+        B1["<b>Version.cpp 的翻译单元</b><br/>version_string 的声明<br/>+ version_string 的函数体"]
+        B2["<b>Version.o</b><br/>version_string：已定义"]
+        B1 --> B2
+    end
+    L["<b>链接器</b><br/>第一次同时看到两个 .o，<br/>把 hello.o 的调用对到 Version.o 的定义"]
+    H -- "#include 粘贴" --> TU1
+    H -- "#include 粘贴" --> TU2
+    TU1 --> L
+    TU2 --> L
+    classDef art fill:#eef4fb,stroke:#5b8dc9,color:#222
+    classDef lk fill:#fde7c8,stroke:#c98a00,color:#222
+    class H,A1,A2,B1,B2 art
+    class L lk
+```
+
+- 编译 `hello.cpp` 时，编译器不会去找 `Version.cpp`。它对 `version_string` 的全部了解，就是 `Version.h` 粘贴进来的那一行声明：有这么一个函数，不带参数，返回 `std::string`。凭这一行就能生成调用指令。
+- 编译 `Version.cpp` 时，编译器同样不知道 `hello.cpp` 的存在，也不知道有没有人调用 `version_string`。
+- 声明和定义对不对得上，要等链接器把两个 `.o` 放到一起才知道。
+
+`stub.c` 里的 `extern PyObject* initModule(void);` 是同一回事：它相当于 `hello.cpp` 里那行声明，让编译器能生成 `return initModule();` 这条调用；函数体在 `torch/csrc/Module.cpp`，编译 `stub.c` 时编译器没看过它。
 
 > [!NOTE] 与 Java 对照：编译器能看到多少
 > `javac` 编译 `A.java` 时如果引用了 `B`，会去 classpath 或源码路径上找 `B.class` 或 `B.java`，自己读出签名。C++ 编译器只能看到当前翻译单元：声明写错了（与真正的定义不一致），编译这一步发现不了，要到链接期甚至运行时才暴露。
 
 ### 4. 汇编：生成目标文件
 
-这一步的名字容易误解："汇编"（assemble）不是生成汇编语言，而是**把汇编语言翻成机器码**——上一步编译器输出的 `.s` 是人能读的汇编文本，汇编器（assembler）把每条汇编指令翻成对应的二进制机器指令，写进 `.o`（目标文件，object file）。名字来自它处理的**输入**是汇编语言，就像"编译器"的名字来自它处理的是源语言。目标文件 Linux 上是 ELF 格式，macOS 上是 Mach-O，Windows 上是 COFF。`-c` 让驱动程序停在这一步：
+这一步的名字容易误解："汇编"（assemble）不是生成汇编语言，而是**把汇编语言翻成机器码**：汇编器（assembler）把上一步的 `.s` 文本逐条翻成二进制机器指令，写进目标文件 `.o`（object file）。目标文件的格式随操作系统而定：Linux 是 ELF，macOS 是 Mach-O，Windows 是 COFF。`-c` 让驱动程序停在这一步：
 
 ```bash title='-c 停在汇编：生成 Version.o'
 clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
@@ -269,7 +323,7 @@ clang++ -std=c++17 -Wall -fPIC -I. -c minic10/core/Version.cpp -o Version.o
 
 ![链接做的两件事。左：链接前两个 .o 各有自己的符号表，hello.o 引用（U）version_string 而 Version.o 定义（T）它，地址都从 0 起；右：链接后的可执行文件装进进程的虚拟地址空间——代码段、数据段、堆、栈、动态库映射区各占一段——① 符号解析把每个 U 对到恰好一个 T，② 重定位把占位地址改成最终地址](/img/in-post/cpp-linking-symbol-resolution-and-relocation.svg)
 
-上面这张图画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母，第六章讲动态库的情况——`version_string` 在 `.so` 里时，②这一步推迟到运行时由 `ld.so` 完成。
+上面这张图画出这两件事。左边是链接前的两个 `.o`：各自的代码从地址 0 开始排，`hello.o` 的符号表里 `version_string` 标着 `U`（引用了、没定义），`Version.o` 里标着 `T`（定义了、对外可见）。右边是链接后的样子：可执行文件被装进进程的**虚拟地址空间**——每个进程一份，从低到高依次是代码段（`.text`）、全局变量（`.data` / `.bss`）、向上生长的堆、动态库的映射区、向下生长的栈；链接器给 `main` 和 `version_string` 各定下一个最终地址，再把 `hello.o` 里 `call ???` 的占位改成 `version_string` 的真实地址。第五章会用 `nm` 看这些字母。图里画的是 `version_string` 直接链进可执行文件的情况；它在 `.so` 里时，② 重定位这一步要推迟到运行时，见下面[「第五个阶段：加载」](#6-第五个阶段加载)一节。
 
 ```bash title='两条链接命令：编 libminic10.so 与链 hello'
 clang++ -std=c++17 -shared -o libminic10.so Version.o
@@ -303,7 +357,17 @@ multiple definition of `helper()'          # 不止一个人定义了
 
 ### 6. 第五个阶段：加载
 
-对动态库来说还有一个阶段在运行时：**加载**（loading）。链接 `hello` 时，链接器并没有把 `libminic10.so` 的代码拷进 `hello`，只是记录了一条"运行时需要 `libminic10.so`"和"`version_string` 在那个库里"。真正把库读进内存、把地址填上的是操作系统的**动态加载器**（Linux 上是 `ld-linux-x86-64.so.2`，也叫 `ld.so`），发生在程序启动时或 `dlopen` 时。第六章专门讲它。
+对动态库来说还有一个阶段在运行时：**加载**（loading）。上一节的图里，链接器对 `version_string` 做了 ① 符号解析和 ② 重定位两件事。`version_string` 在动态库里时，第 ② 件事在链接期做不了：库要到运行时才装进进程，装在哪个地址那时才知道。两件事于是拆到了两个时刻：
+
+| | `version_string` 在 `.o` 或 `.a` 里 | `version_string` 在 `libminic10.so` 里 |
+|---|---|---|
+| ① 符号解析 | 链接器，构建期 | 链接器先查一次，确认库里有这个符号，然后在 `hello` 里记下两条：运行时需要 `libminic10.so`、要用其中的 `version_string` |
+| ② 重定位：填上真实地址 | 链接器，构建期 | 动态加载器，程序启动或 `dlopen` 时：把库映射进进程，按名字再查一次，填上地址 |
+| 函数的机器码在哪 | 拷进了可执行文件 | 留在 `.so` 里，`hello` 里没有 |
+
+Table: 符号解析与重定位在静态链接和动态链接下各由谁完成
+
+**动态加载器**是操作系统提供的程序，Linux 上是 `ld-linux-x86-64.so.2`，也叫 `ld.so`。第六章专门讲它怎么找库、怎么填地址。
 
 ## 三、翻译单元、声明与定义、头文件
 
@@ -386,7 +450,7 @@ C10_API std::ostream& operator<<(std::ostream& stream, const Device& device);
 | `C10_API` | 一个**宏**，展开成"这个符号要从 `libc10.so` 导出给别人用"（Linux 上是 `__attribute__((visibility("default")))`）；第五章和[《宏、静态注册与代码生成》](/cpp-macros-static-registration-and-codegen.html)展开 | 没有逐符号的导出标记；`public` 类默认就能被别的 jar 使用 |
 | `constexpr int kVersionMajor = 0;` | **编译期常量**：值在编译时就确定，可以用在数组长度、模板参数这些必须编译期已知的地方；比 `const` 严格 | 最接近用常量表达式初始化的 `static final int`；`constexpr` 还能修饰函数和自定义类型，Java 没有对应 |
 | `final` | 类不能被继承 | `final class` |
-| `noexcept` | 函数保证不抛异常 | 没有对应 |
+| `noexcept` | 函数**承诺**不让异常传给调用方。编译器不检查函数体是否真的不抛；运行时如果有异常要从这个函数里传出去，程序直接调用 `std::terminate` 终止，调用方收不到异常 | 没有对应。`throws` 是反方向：声明可能抛什么，由编译器检查 |
 | `Device::str()` | 作用域限定：`.cpp` 里定义头文件声明过的成员函数时写类名前缀 | 方法只能写在类体内 |
 
 Table: c10/core/Device.h 里 Java 没有的记号
@@ -454,7 +518,22 @@ std::ostream& operator<<(std::ostream& stream, const Device& device) {
 
 Table: 头文件通常包含的内容
 
-头文件会被间接包含很多次。`Device.h` 包含 `Exception.h`，`ScalarType.h` 也包含 `Exception.h`，一个同时包含 `Device.h` 和 `ScalarType.h` 的文件里 `Exception.h` 就被粘贴两次——第二次会因为重复定义 `class Error` 而编译失败。`#pragma once` 解决这个问题：同一个文件在同一个翻译单元里只展开一次。
+头文件会被间接包含很多次。一个同时包含 `Device.h` 和 `ScalarType.h` 的文件，会沿两条路径各拿到一次 `Exception.h`：
+
+```mermaid
+%% 图：同一个头文件经两条 #include 路径进入同一个翻译单元
+flowchart LR
+    A["a.cpp"] -->|"#include"| D["Device.h"]
+    A -->|"#include"| S["ScalarType.h"]
+    D -->|"#include"| E1["<b>Exception.h</b><br/>第一次：粘贴进来"]
+    S -->|"#include"| E2["<b>Exception.h</b><br/>第二次：再粘贴一遍，<br/>class Error 重复定义，编译失败"]
+    classDef ok fill:#eef4fb,stroke:#5b8dc9,color:#222
+    classDef bad fill:#fdecea,stroke:#c0392b,color:#222
+    class A,D,S,E1 ok
+    class E2 bad
+```
+
+`#pragma once` 解决这个问题：同一个文件在同一个翻译单元里只展开一次，第二次直接跳过。
 
 传统写法是 include guard：
 
@@ -524,29 +603,39 @@ flowchart LR
 
 同一个改动在两种语言里的重编范围。Java 里 `Half` 的改动只要不改它对外的签名，增量编译到 `ScalarType` 就停了；C++ 里 `Half.h` 的文本是每个间接包含它的翻译单元的一部分，改一个字节，上千个 `.cpp` 的输入都变了。这带来了 C++ 项目特有的两个工程习惯：
 
-1. **前向声明**（forward declaration）。一行 `class Tensor;` 只告诉编译器"有一个叫 `Tensor` 的类"，不说它有哪些成员、多大——这就是前向声明。什么时候够用：只用它的**指针或引用**（`Tensor*`、`const Tensor&`）时，编译器不需要知道它多大，一个指针总是 8 字节。什么时候不够：按值持有成员（`Tensor t_;` 要知道多大）、调用成员函数、`sizeof`，这些都需要完整定义，必须 `#include`。所以头文件里能用前向声明就不 `#include`——包含者就不必因为 `Tensor.h` 变了而重编。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串前向声明，每一行都是"只说有、不说多大"：
+**1、前向声明（forward declaration）。** 一行 `class Tensor;` 只告诉编译器「有一个叫 `Tensor` 的类」，不说它有哪些成员、多大。够不够用，看编译器需不需要知道它的大小：
 
-   ```cpp title='TensorBody.h 开头的一串前向声明'
-   namespace c10 {
-   template <class T> class List;        // 前向声明一个类模板
-   template <class T> class IListRef;
-   }
+| 头文件里怎么用 `Tensor` | 前向声明够吗 | 原因 |
+|---|---|---|
+| `Tensor*`、`const Tensor&` 做参数、返回值或成员 | 够 | 指针和引用的大小是固定的，与 `Tensor` 多大无关 |
+| `Tensor t_;` 按值做成员 | 不够，要 `#include` | 要知道 `Tensor` 占多少字节 |
+| 调用成员函数、`sizeof(Tensor)` | 不够，要 `#include` | 要知道完整的成员列表 |
 
-   namespace at {
-   struct Generator;                     // 前向声明：struct 与 class 在这里等价
-   struct Type;
-   class DeprecatedTypeProperties;
-   class Tensor;                         // Tensor 自己也被前向声明——TensorBody.h 后面才定义它
-   } // namespace at
+Table: 前向声明什么时候够用
 
-   namespace torch { namespace autograd {
-   struct Node;                          // Tensor 只持有 Node 的指针，不需要 Node 的定义
-   }} // namespace torch::autograd
-   ```
+头文件里能用前向声明就不 `#include`，包含者就不必因为 `Tensor.h` 变了而重编。`aten/src/ATen/templates/TensorBody.h`（生成 `ATen/core/TensorBody.h` 的模板）开头就是一串前向声明：
 
-   这是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)会反复用到的规则。
+```cpp title='TensorBody.h 开头的一串前向声明'
+namespace c10 {
+template <class T> class List;        // 前向声明一个类模板
+template <class T> class IListRef;
+}
 
-2. **`-inl.h` 拆分和 `#include <iosfwd>`**：`Device.h` 包含 `<iosfwd>`（只有 `std::ostream` 的前向声明）而不是 `<ostream>`（完整定义），因为它只需要声明 `operator<<`。
+namespace at {
+struct Generator;                     // 前向声明：struct 与 class 在这里等价
+struct Type;
+class DeprecatedTypeProperties;
+class Tensor;                         // Tensor 自己也被前向声明——TensorBody.h 后面才定义它
+} // namespace at
+
+namespace torch { namespace autograd {
+struct Node;                          // Tensor 只持有 Node 的指针，不需要 Node 的定义
+}} // namespace torch::autograd
+```
+
+这是[《值、引用与所有权》](/cpp-value-semantics-ownership-and-raii.html)会反复用到的规则。
+
+**2、只包含够用的最小头文件。** `Device.h` 包含的是 `<iosfwd>`（只有 `std::ostream` 的前向声明）而不是 `<ostream>`（完整定义），因为它只需要声明 `operator<<`。
 
 ### 5. `extern` 与全局变量
 
@@ -568,7 +657,7 @@ ODR 的核心可以概括为两句话：
 1. 任何翻译单元里，一个变量、函数、类、枚举、模板最多只能有一个定义；
 2. 整个程序里，每个非 inline 的函数和变量**恰好**一个定义（用到了却没有 → undefined reference；多于一个 → multiple definition）。
 
-第二条有一个"非 inline"的限定，反过来说：**类、inline 函数、模板允许在多个翻译单元里各有一份定义。** 这听起来违反直觉，但它是头文件机制的必然结果：`Device.h` 里的 `is_cuda()` 是类内定义的 inline 函数，每个 `#include <c10/core/Device.h>` 的 `.cpp` 编出来的 `.o` 里都有一份 `is_cuda` 的机器码——编译器一次只看一个翻译单元，它没法知道别的 `.o` 里已经有了，也必须有一份才能内联。于是规则改成：多份可以，但**所有定义必须逐字相同**（token-for-token identical），链接器假定它们相同并任选一份、丢掉其余（下一章 `nm` 里标 `W` 的就是这种"可合并的弱定义"）。
+第二条有一个"非 inline"的限定，反过来说：**类、inline 函数、模板允许在多个翻译单元里各有一份定义。** 这是头文件机制的直接结果。`Device.h` 里的 `is_cuda()` 是类内定义的 inline 函数，每个包含 `Device.h` 的 `.cpp` 编出来的 `.o` 里都有一份它的机器码：编译器一次只看一个翻译单元，不知道别的 `.o` 里已经有了。
 
 ```mermaid
 %% 图：inline 函数的多份定义与链接器的合并：每个翻译单元各编一份，链接器按逐字相同的假定合并
@@ -583,7 +672,9 @@ flowchart LR
     class H,A,B,L,OUT box
 ```
 
-inline 函数为什么可以有多份定义——每个翻译单元各编一份，链接器按"逐字相同"的假定合并。危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
+规则于是改成：多份可以，但**所有定义必须逐字相同**（token-for-token identical）。链接器假定它们相同，任选一份、丢掉其余；下一章 `nm` 里标 `W` 的就是这种可合并的弱定义。
+
+危险在于**违反"逐字相同"不会报错**：如果 `a.cpp` 编译时定义了某个宏让 `is_cuda` 的函数体多了一行，两份就不同了，链接器照样任选一份——这是**未定义行为**，程序可能用了 A 文件的版本，也可能用了 B 文件的版本，也可能崩溃。
 
 > [!NOTE] 与 Java 对照：同名定义出现两份时
 > Java 里一个类只编出一份 `.class`，不会像 inline 函数那样每个使用者各带一份。classpath 上两个 jar 带了同一个全限定名的类时同样不报错，但结果是确定的：默认的委派模型下父加载器优先，同一个加载器按 classpath 顺序取先找到的那份，整个类来自同一处。C++ 的 ODR 违反是未定义行为，而且两份机器码可能已经分别内联进各自的调用处，连「统一用了哪一份」都保证不了。
@@ -753,12 +844,12 @@ REGISTER_DISPATCH(div_true_stub, &div_true_kernel)
 
 ### 5. 小结：四种链接属性
 
-| 写法 | 链接属性 | 多个翻译单元定义会怎样 | 典型用途 |
-|---|---|---|---|
-| 普通函数/变量 | 外部链接 | multiple definition 错误 | `.cpp` 里的实现 |
-| `inline`、类内成员函数、模板、`constexpr` | 外部链接 + 允许重复（vague linkage） | 合法，链接器任选一份，必须逐字相同 | 头文件里的小函数、模板 |
-| `static`、匿名命名空间 | 内部链接 | 互不相干 | `.cpp` 里的私有辅助 |
-| `extern` 声明 | 声明而非定义 | 不算定义 | 头文件里引用别处的变量 |
+| 写法 | 链接属性 | 多个翻译单元定义会怎样 | 典型用途 | Java 对照 |
+|---|---|---|---|---|
+| 普通函数/变量 | 外部链接 | multiple definition 错误 | `.cpp` 里的实现 | 类的非 `private` 成员：别的类按全限定名引用。同名类出现两份不报错，取类加载器先找到的那份 |
+| `inline`、类内成员函数、模板、`constexpr` | 外部链接 + 允许重复（vague linkage） | 合法，链接器任选一份，必须逐字相同 | 头文件里的小函数、模板 | 无：一个方法的字节码只在自己的 `.class` 里有一份，内联由 JIT 在运行时做 |
+| `static`、匿名命名空间 | 内部链接 | 互不相干 | `.cpp` 里的私有辅助 | 最接近 `private static` 方法，但那是访问权限检查，名字仍记在 `.class` 里 |
+| `extern` 声明 | 声明而非定义 | 不算定义 | 头文件里引用别处的变量 | 无：Java 没有单独的声明，签名由 `javac` 从 `.class` 或源码里读 |
 
 Table: 四种链接属性
 
@@ -784,16 +875,19 @@ nm -C Version.o
 
 每行三列：地址、类型字母、名字。类型字母最常用的几个：
 
-| 字母 | 含义 | 本例 |
-|---|---|---|
-| `T` | 本文件**定义**的全局函数（text 段） | `version_string()` |
-| `t` | 本文件定义的**局部**函数（内部链接） | `build_flavor()`——匿名命名空间的效果 |
-| `U` | **未定义**，需要别人提供 | `std::to_string`、`__cxa_begin_catch`（异常运行时） |
-| `W` | weak，inline/模板生成的可重复定义 | 下面 `hello.o` 里的 `version_number()` |
-| `D`/`d` | 已初始化的全局/局部数据 | |
-| `B`/`b` | 未初始化数据（bss） | |
+| 字母 | 全称 | 含义 | 本例 |
+|---|---|---|---|
+| `T` | **T**ext：代码段 `.text` | 本文件**定义**的函数，别的文件可以引用 | `version_string()` |
+| `t` | 同上，小写 | 本文件定义的函数，只在本文件可见（内部链接） | `build_flavor()`——匿名命名空间的效果 |
+| `U` | **U**ndefined | **未定义**：本文件引用了，需要别人提供 | `std::to_string`、`__cxa_begin_catch`（异常运行时） |
+| `W` | **W**eak | 弱定义：inline 函数、模板生成的可重复定义，链接器遇到多份时留一份 | 下面 `hello.o` 里的 `version_number()` |
+| `D` / `d` | **D**ata：数据段 `.data` | 有初始值的全局变量 | |
+| `B` / `b` | **B**SS：`.bss` 段，名字来自早期汇编器的指令 Block Started by Symbol | 没有初始值的全局变量，在文件里不占空间 | |
+| `R` / `r` | **R**ead-only：只读数据段 `.rodata` | 字符串字面量、`const` 全局常量 | |
 
 Table: nm 输出中常用的符号类型字母
+
+`T`、`D`、`B`、`R` 的大小写是同一条规则：大写表示外部可见（global），小写表示只在本文件可见（local）。
 
 再看 `hello.o`（只编译不链接 `examples/hello.cpp`）：
 
@@ -816,7 +910,18 @@ nm -C hello.o | grep minic10
 
 ### 2. Name mangling：符号名为什么长得像乱码
 
-C 的符号名就是函数名：`initModule`。C++ 支持重载、命名空间、模板，`minic10::version_string()` 和 `other::version_string(int)` 必须是不同的符号，所以编译器把命名空间、函数名、参数类型编码进符号名，这叫**名字修饰**（name mangling）。`minic10::version_string()` 修饰后是 `_ZN7minic1014version_stringEv`，逐段拆开：
+C 的符号名就是函数名：`initModule`。C++ 支持重载、命名空间、模板，几个同名函数必须得到不同的符号，所以编译器把命名空间、函数名、参数类型都编码进符号名，这叫**名字修饰**（name mangling）。把四个同名函数写进一个文件，编译后用 `nm` 看（Apple clang 14；表里去掉了 macOS 多出的前导下划线）：
+
+| 源码里的函数 | 修饰后的符号 | 与第一行的差别 |
+|---|---|---|
+| `std::string minic10::version_string()` | `_ZN7minic1014version_stringEv` | |
+| `std::string minic10::version_string(int)` | `_ZN7minic1014version_stringEi` | 重载：末尾的参数从 `v`（void）变成 `i`（int） |
+| `int minic10::version_string(double)` | `_ZN7minic1014version_stringEd` | 重载：参数是 `d`（double）。返回值从 `std::string` 换成了 `int`，符号里看不出来 |
+| `std::string other::version_string()` | `_ZN5other14version_stringEv` | 另一个命名空间：`7minic10` 变成 `5other` |
+
+Table: 重载与命名空间在修饰名里的体现
+
+重载在链接器眼里就是几个名字不同的普通符号，链接器不需要懂重载。普通函数的返回值类型不进修饰名（C++ 也不允许只靠返回值类型重载）。第一行逐段拆开：
 
 | 片段 | 含义 |
 |---|---|
@@ -878,7 +983,25 @@ Table: `initModule` 在 C 与 C++ 两侧的符号名
 
 Table: 静态库与动态库的差别
 
-静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。一个 `.o` 如果没有任何符号被别人引用——典型就是"只靠静态初始化把自己注册进全局表"的算子文件（[《宏、静态注册与代码生成》的「静态库：没被引用的目标文件会被丢掉」一节](/cpp-macros-static-registration-and-codegen.html#3-静态库没被引用的目标文件会被丢掉)）——就会被整个丢掉，注册代码根本不存在于最终产物里。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
+静态库有一个让很多人踩坑的性质：链接器从 `.a` 里只取**被引用了的** `.o`。
+
+```mermaid
+%% 图：链接器从静态库里只取被引用的目标文件（示意）
+flowchart LR
+    M["<b>main.o</b><br/>引用 add()"] --> LK["<b>链接器</b><br/>扫描 libops.a，<br/>只取能补上未定义符号的 .o"]
+    O1["<b>add.o</b><br/>定义 add()"] -->|"main.o 要它：取"| LK
+    O2["<b>mul.o</b><br/>定义 mul()"] -.->|"没人引用：不取"| LK
+    O3["<b>register_relu.o</b><br/>只有一个全局对象，<br/>构造时把 relu 注册进全局表"] -.->|"没人引用：不取"| LK
+    LK --> OUT["<b>可执行文件</b><br/>main.o + add.o，<br/>relu 的注册代码不在里面"]
+    classDef in fill:#eef4fb,stroke:#5b8dc9,color:#222
+    classDef drop fill:#f6f6f6,stroke:#999,color:#666
+    classDef lk fill:#fde7c8,stroke:#c98a00,color:#222
+    class M,O1,OUT in
+    class O2,O3 drop
+    class LK lk
+```
+
+图里的 `register_relu.o` 是典型的受害者：它只靠静态初始化把自己注册进全局表，没有任何符号被别人引用，于是被整个丢掉，注册代码不在最终产物里（[《宏、静态注册与代码生成》的「静态库：没被引用的目标文件会被丢掉」一节](/cpp-macros-static-registration-and-codegen.html#3-静态库没被引用的目标文件会被丢掉)）。`cmake/TorchConfig.cmake.in` 里 `append_wholearchive_lib_if_found(torch torch_cpu)` 用 `-Wl,--whole-archive` 强制链接器把 `libtorch_cpu.a` 全部拉进来，就是为了这个。PyTorch 的默认发布形态是动态库（`BUILD_SHARED_LIBS=ON`），不存在这个问题；vLLM、TorchServe 等下游一律链接动态库。
 
 > [!NOTE] 与 Java 对照：.jar 与两种库
 > Java 没有静态库与动态库之分。`.jar` 只是 `.class` 的 zip 包，没有链接过，运行时由类加载器从里面按需取类——在「运行时才加载、可以单独替换」这一点上像 `.so`。JVM 只加载真正用到的类，又有点像「`.a` 只取被引用的 `.o`」，但那是运行期的惰性，不是链接期的裁剪：没被引用的类仍在 jar 里，反射或 `ServiceLoader` 随时能把它加载出来，不会出现「注册代码被裁掉」的问题。
@@ -887,7 +1010,34 @@ Table: 静态库与动态库的差别
 
 动态库有自己的"公开/私有"概念。默认情况下，`.so` 里所有外部链接的符号都被导出（`nm -D` 能看到），任何人都能链接到它们。这有两个问题：符号表巨大（`libtorch_cpu.so` 有几十万个符号），加载慢；内部实现细节被人依赖，无法改动。
 
-GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `__attribute__((visibility("default")))` 逐个标出要导出的。PyTorch 就是这么做的。`cmake/public/utils.cmake` 里 `torch_compile_options` 函数对每个库目标：
+GCC/Clang 用 `-fvisibility=hidden` 把默认改成"全部不导出"，再用 `__attribute__((visibility("default")))` 逐个标出要导出的。一个最小的例子，库里三个函数，只有一个标了导出：
+
+```cpp title='lib.h 与 lib.cpp：三个函数，只有 exported 标了导出'
+// lib.h
+#define MY_API __attribute__((visibility("default")))
+MY_API int exported();
+int unmarked();
+
+// lib.cpp
+#include "lib.h"
+namespace { int helper() { return 1; } }
+int exported() { return helper(); }
+int unmarked() { return 2; }
+```
+
+用 `-fvisibility=hidden` 把它编成动态库，再让另一个程序同时调用 `exported()` 和 `unmarked()`（macOS，Apple clang 14）：
+
+| 函数 | 写法 | `lib.o` 里的类型字母 | 动态库导出了吗 | 库外的程序链接它 |
+|---|---|---|---|---|
+| `exported()` | 标了 `MY_API` | `T` | 导出 | 成功 |
+| `unmarked()` | 头文件里有声明，没有标记 | `T` | 没有 | 失败：`Undefined symbols: "unmarked()"`（GNU ld 的措辞是 `undefined reference`） |
+| `helper()` | 匿名命名空间 | `t` | 没有 | 头文件里没有它，调用都写不出来 |
+
+Table: 三种写法在 -fvisibility=hidden 下的导出结果
+
+`unmarked()` 这一行最容易踩：头文件里有声明，编译能过；库内部的其他 `.o` 也能调用它；只有库外的程序在链接期找不到它。
+
+PyTorch 就是这么做的。`cmake/public/utils.cmake` 里 `torch_compile_options` 函数对每个库目标：
 
 ```cmake title='cmake/public/utils.cmake：给每个库目标加 -fvisibility=hidden'
   if(NOT WIN32 AND NOT USE_ASAN)
@@ -999,7 +1149,50 @@ sequenceDiagram
 >
 > Table: Java 与 C++ 的「找不到」错误对应
 
-**2、只对名字，不对类型。** `ld.so` 按符号名查表，名字对上就填地址；参数类型只有修饰名里编码的那一点，返回值类型、结构体布局完全不检查，靠的是两边用同一份头文件编译。改了一个类的成员而没有重编所有使用者，不会有任何报错，程序静默地读错内存。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的核心。
+**2、只对名字，不对类型。** `ld.so` 按符号名查表，名字对上就填地址。修饰名里只有参数类型的名字，返回值类型、结构体里有哪些字段都不检查，靠的是两边用同一份头文件编译。下面是一个可以照着跑的例子，库和程序共用一个头文件：
+
+```cpp title='Options.h、Options.cpp、app.cpp：库和程序共用一个结构体'
+// Options.h
+struct Options {
+  int threads;
+  int batch;
+};
+int batch_of(const Options& o);
+
+// Options.cpp：编成动态库
+#include "Options.h"
+int batch_of(const Options& o) { return o.batch; }
+
+// app.cpp：链接这个库
+#include "Options.h"
+#include <iostream>
+int main() {
+  Options o{4, 32};
+  std::cout << "batch = " << batch_of(o) << '\n';
+}
+```
+
+先正常编译运行；然后把 `Options.h` 里两个字段换个顺序（`batch` 挪到 `threads` 前面），**只重编库、不重编 `app`**，再运行同一个 `app`（macOS，Apple clang 14）：
+
+```bash title='改头文件后只重编库，再运行原来的 app'
+clang++ -std=c++17 -shared -o libopt.dylib Options.cpp
+clang++ -std=c++17 app.cpp -L. -lopt -Wl,-rpath,@loader_path -o app
+./app          # batch = 32
+# 编辑 Options.h：把 int batch; 挪到 int threads; 前面
+clang++ -std=c++17 -shared -o libopt.dylib Options.cpp
+./app          # batch = 4
+```
+
+第二次运行没有任何报错，结果却从 32 变成了 4。库里 `batch_of` 的符号改动前后都是 `_Z8batch_ofRK7Options`：里面只有类型的名字 `Options`，没有它的字段布局，加载器照常填地址。两边对同一块 8 字节内存的理解却不一样了：
+
+| 偏移 | 内存里的值 | `app`（按旧头文件编）写入时认为这是 | 库（按新头文件编）读取时认为这是 |
+|---:|---:|---|---|
+| 0 | 4 | `threads` | `batch`，`batch_of` 读的就是这里 |
+| 4 | 32 | `batch` | `threads` |
+
+Table: 同一块内存在旧头文件和新头文件下的两种解释
+
+这个例子里读到的还是一个合法的整数；字段类型或结构体大小变了的时候，读到的是无关的内存。真实项目里它表现为：升级了 PyTorch 却没有重编自己的扩展，程序不报错地算错或崩溃。这是[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html#十abiname-mangling_glibcxx_use_cxx11_abiglibcxx_34x-与-manylinux)里「ABI」一章的核心。
 
 > [!NOTE] 与 Java 对照：字节码校验与只对名字
 > `.class` 带完整的类型信息，JVM 在链接时做校验和解析，签名对不上会报 `NoSuchMethodError`、`IncompatibleClassChangeError` 这类错误。`ld.so` 没有类型信息可查：同样是「改了一个类却没重编使用者」，Java 多半得到一个明确的链接错误，C++ 得到的是没有任何提示的内存错读。
@@ -1083,7 +1276,18 @@ flowchart TB
     )
 ```
 
-`_C.cpython-312-x86_64-linux-gnu.so` 在 `site-packages/torch/`，它的 RPATH 是 `$ORIGIN/lib`，即 `site-packages/torch/lib/`，`libtorch_python.so`、`libtorch_cpu.so`、`libc10.so` 全在那里。`torch/lib/` 里的各个 `.so` 之间的 RPATH 则是 `$ORIGIN`（同目录）。所以 `import torch` 不需要用户设任何环境变量。
+装好之后，各个文件的位置和它们烧进去的搜索路径：
+
+```text title='site-packages/torch 下各个 .so 的位置与搜索路径'
+site-packages/torch/
+├── _C.cpython-312-x86_64-linux-gnu.so   $ORIGIN/lib：到 lib/ 找 libtorch_python.so
+└── lib/
+    ├── libtorch_python.so               $ORIGIN：到同目录找 libtorch_cpu.so
+    ├── libtorch_cpu.so                  $ORIGIN：到同目录找 libc10.so
+    └── libc10.so
+```
+
+每个文件都只说「相对我自己的位置去哪找」，整个 `torch/` 目录装在哪里都能互相找到，所以 `import torch` 不需要用户设任何环境变量。
 
 查看一个二进制的 RPATH：
 
