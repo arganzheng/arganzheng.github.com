@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（05）：内存管理与优化
+title: Python 在 AI-Infra（12）：内存管理与优化
 subtitle: Python Memory Management and Optimization
 tags: [Python]
 catalog: true
@@ -304,7 +304,7 @@ class RequestContext:
 
 对于大量创建、结构稳定、生命周期较短的请求元数据或任务节点，`__slots__` 比较适合。
 
-> 关于 `__slots__` 与类对象模型的详细讨论，参见[《Python 对象如何工作》](/python-object-model-protocols-decorators-and-generators.html)。
+> 关于 `__slots__` 与类对象模型的详细讨论，参见[《对象模型与协议》](/python-object-model-and-protocols.html)。
 
 ### 5. 使用数据类表达结构化对象
 
@@ -1054,7 +1054,7 @@ def create_handler(large_model):
 
 在高并发服务中，应避免让短生命周期回调捕获不必要的大对象。
 
-> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《Python 对象如何工作》](/python-object-model-protocols-decorators-and-generators.html)。
+> 关于闭包的工作机制和常见陷阱（如延迟绑定），参见[《作用域与闭包》](/python-scopes-and-closures.html)。
 
 ### 3. 任务对象和异常对象也可能持有引用
 

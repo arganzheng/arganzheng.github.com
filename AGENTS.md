@@ -2211,6 +2211,20 @@ How it is built (`_plugins/moments.rb`):
   time — kramdown ids = strip backticks and punctuation, spaces → `-`, lowercase),
   each part got its own 总览 / 小结 / 自测 / 下一篇; body text untouched. Roadmap
   counts: Python 7 → 9, C++ 8 → 9, Infra total 102 → 105 (hours unchanged).
+  **Python series renumbered 2026-11-18** (author, Discussions #354 / #355:
+  「每个章节都很独立……拆分一下比较好」「全系列重排成连续的 01、02、03…」
+  「不需要考虑历史兼容性问题」): the two 01 posts became six, all dated
+  2026-01-24 (08:00 … 20:00) — 01 `python-execution-model-code-objects-functions-and-frames`,
+  02 `python-scopes-and-closures`, 03 `python-modules-and-the-import-system`,
+  04 `python-exceptions-and-failure-propagation`, 05 `python-object-model-and-protocols`,
+  06 `python-decorators-generators-and-context-managers` — the rest are 07–14 and
+  the recap is 15; titles carry no 上 / 下 and the series no longer speaks of 「讲」
+  (overview / recap / deck group the 14 posts into seven 部分). The two old URLs
+  were dropped with **no** `redirect_from` / `comments_path`, on the author's
+  instruction. Split rule used: one post answers one question a reader arrives
+  with; mechanisms that cannot be explained apart stay together; dependencies
+  point only to earlier posts; length is a result, not a criterion. Posts 01–04
+  were single chapters, so their `###` sections were promoted to `##` chapters.
   **L2 was expanded 2026-09-21** after reader feedback (#58 / #59 「整个系列
   太走马观花」): 6 → 10 body posts (01 什么是学习 · 02 线性回归 (new,
   `linear-regression-least-squares-ridge-and-lasso`) · 03 逻辑回归与奖励模型

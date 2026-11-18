@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（03）：并发、异步与任务协作
+title: Python 在 AI-Infra（10）：并发、异步与任务协作
 subtitle: Python Concurrency, Asynchrony, and Task Collaboration in AI Systems
 tags: [Python]
 catalog: true
@@ -519,7 +519,7 @@ def preprocess_batch(items: list[bytes]) -> list[list[int]]:
 
 Table: fork、spawn、forkserver 三种启动方式
 
-`spawn` 和 `forkserver` 都会重新导入主模块，所以任何用多进程的脚本必须写 `if __name__ == "__main__":` 保护——否则子进程导入主模块时又会创建进程池，无限递归。这在 Java 里完全没有对应概念。《代码如何被执行》里[`python script.py` 与 `python -m` 的差别](/python-execution-model-scopes-imports-and-exceptions.html#4-syspath-的构成以及-python-scriptpy-与-python--m-的差别)一节讲过 `__name__` 在两种启动方式下的取值，这里是它最实际的用途。
+`spawn` 和 `forkserver` 都会重新导入主模块，所以任何用多进程的脚本必须写 `if __name__ == "__main__":` 保护——否则子进程导入主模块时又会创建进程池，无限递归。这在 Java 里完全没有对应概念。《模块与导入系统》里[`python script.py` 与 `python -m` 的差别](/python-modules-and-the-import-system.html#五syspath-的构成以及-python-scriptpy-与-python--m-的差别)一章讲过 `__name__` 在两种启动方式下的取值，这里是它最实际的用途。
 
 Python 3.14 把 Linux 的默认从 `fork` 改成 `forkserver`，直接原因是 `fork` 与多线程混用不安全：`fork()` 只复制调用它的那个线程，其他线程持有的锁（包括 CUDA 运行时、日志库、`malloc` 内部的锁）在子进程里永远不会被释放。PyTorch 的 `DataLoader` 在 CUDA 已初始化的进程里用 `fork` 启动 worker 时报 `Cannot re-initialize CUDA in forked subprocess`，就是这类问题的表现。显式指定启动方式：
 
@@ -1956,7 +1956,7 @@ class BatchProcessor:
 
 **把它封装成装饰器**
 
-Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是《对象如何工作》里讲的[装饰器](/python-object-model-protocols-decorators-and-generators.html#四装饰器用闭包和描述符改写调用路径)在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
+Ray Serve 的 `@serve.batch` 让调用方"传一个、收一个"，攒批完全不可见。用上面的 `BatchProcessor` 加二十行就能做到同样的事——这也是《装饰器、生成器与上下文管理器》里讲的[装饰器](/python-decorators-generators-and-context-managers.html#二装饰器用闭包和描述符改写调用路径)在真实系统里的样子：装饰器收到的是那个"接收一批"的异步函数，返回的是一个"接收单个"的异步函数，中间藏着一个惰性启动的后台 Task：
 
 ```python title="把 BatchProcessor 封装成 @batched 装饰器"
 import functools

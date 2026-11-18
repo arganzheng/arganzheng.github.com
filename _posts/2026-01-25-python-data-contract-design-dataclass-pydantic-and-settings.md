@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（02 下）：类型系统——数据契约设计"
+title: "Python 在 AI-Infra（09）：类型系统——数据契约设计"
 subtitle: "Type System III: Data Contract Design"
 tags: [Python]
 catalog: true
@@ -9,7 +9,7 @@ date: 2026-01-25 20:00:00 +0800
 updated: 2026-11-16
 ---
 
-前两篇沿着"类型信息如何流动"展开：[上篇](/python-type-expression-and-the-typing-toolbox.html)讲怎么写（`typing` 工具箱），[中篇](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。
+前两篇沿着"类型信息如何流动"展开：[《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)讲怎么写（`typing` 工具箱），[《类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)讲怎么分发、谁消费（存根、mypy、运行时读注解）。本篇的组织轴切换——不再讨论类型信息本身，而是讨论**用这些能力去构建什么**：数据契约。
 
 所谓数据契约，就是对"一组数据长什么样"的正式约定。在 AI Infra 里它无处不在：推理服务的请求体与响应体、训练任务的配置文件、模型仓库里的元数据、Worker 之间传递的消息。Java 工程师熟悉的 Bean Validation、Jackson、`@ConfigurationProperties` 在这里对应的是 `@dataclass`、Pydantic `BaseModel`、`BaseSettings`——但它们不是一一对应的翻译，而是同一份类型注解的三种消费方式，各有适用位置。
 
@@ -90,7 +90,7 @@ class InferenceConfig(BaseModel):
 2. **运行时校验**：通过普通构造或 `model_validate()` 进入模型的数据，会按约束解析、转换并校验（`ge=1`、`le=32768`）；
 3. **文档 / Schema 生成**：把模型用于 FastAPI 路由后，框架将其 Schema 纳入 OpenAPI 文档。
 
-这就是"数据契约"的价值——一处声明，三处受益。而它能成立，靠的正是[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)讲的机制。
+这就是"数据契约"的价值——一处声明，三处受益。而它能成立，靠的正是[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)讲的机制。
 
 ```python title='同一份 InferenceConfig：输入字符串变成内部整数'
 config = InferenceConfig.model_validate(
@@ -101,7 +101,7 @@ print(config.max_tokens, type(config.max_tokens).__name__)  # 32 int
 
 这里使用 Python 3.10–3.12 的常见写法，Pydantic API 均按 v2；`BaseSettings` 来自独立的 `pydantic-settings` 包。
 
-> **前置阅读**：如果你想先搞清楚 `@dataclass` 和 Pydantic **怎么**读到类型注解、`exec` 代码生成和元类分别在什么时机介入，见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)「类型信息消费层（下）：动态消费」的"框架如何消费注解"一节。本章只讲用法与取舍。
+> **前置阅读**：如果你想先搞清楚 `@dataclass` 和 Pydantic **怎么**读到类型注解、`exec` 代码生成和元类分别在什么时机介入，见[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)「类型信息消费层（下）：动态消费」的"框架如何消费注解"一节。本章只讲用法与取舍。
 
 ### 1. dataclass：标准库的数据类
 
@@ -264,7 +264,7 @@ User(id="abc", name="Bob", email="not-an-email")
 #   value is not a valid email address
 ```
 
-注意两点：一是 `EmailStr` 需要安装可选依赖 `email-validator`（可用 `pip install 'pydantic[email]'`）；二是普通字段校验能**聚合多个错误**，而不是遇到第一个就中断——这正是[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)提到的"收集所有错误路径"。
+注意两点：一是 `EmailStr` 需要安装可选依赖 `email-validator`（可用 `pip install 'pydantic[email]'`）；二是普通字段校验能**聚合多个错误**，而不是遇到第一个就中断——这正是[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)提到的"收集所有错误路径"。
 
 **Field：默认值与约束**
 
@@ -288,7 +288,7 @@ class User(BaseModel):
     age: int = Field(default=18, ge=0, le=120)
 ```
 
-约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱)「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
+约束也可以写在 `Annotated` 里，这是 Pydantic v2 更推荐的形式，因为它让类型和元数据分离得更干净（见[《类型表达与 typing 工具箱》第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱)「类型信息提供层（上）：类型表达」的 `Annotated` 一节）：
 
 ```python title='约束写进 Annotated：Pydantic v2 推荐形式'
 from typing import Annotated
@@ -679,7 +679,7 @@ flowchart TB
 
 **在系统边界用 Pydantic 校验一次，内部传递 `@dataclass` 对象。**
 
-这正是[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)「静态与运行时的协作边界」中信任边界（Trust Boundary）模式在数据建模上的体现，对应第一章的输入分支。校验结论只覆盖当时检查的值和约束；后续修改、跨进程消息或另一套外部接口，可能形成新的边界。
+这正是[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)「静态与运行时的协作边界」中信任边界（Trust Boundary）模式在数据建模上的体现，对应第一章的输入分支。校验结论只覆盖当时检查的值和约束；后续修改、跨进程消息或另一套外部接口，可能形成新的边界。
 
 例如把前面的 `InferenceConfig` 转成调度器只读的参数：
 

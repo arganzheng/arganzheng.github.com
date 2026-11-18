@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（07）：项目工程化与生产交付
+title: Python 在 AI-Infra（14）：项目工程化与生产交付
 subtitle: Python Project Engineering and Production Delivery
 tags: [Python]
 catalog: true
@@ -79,7 +79,7 @@ Table: 从项目声明到运行环境的交付对象
 - **测试**（pytest、fixture、mock、覆盖率）与**日志配置** → [《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)
 - **异步与并发**（asyncio、GIL、事件循环）→ [《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)
 - **类型检查配置**（mypy / pyright）与**类型信息分发**（`py.typed`、PEP 561）→ [《类型系统——类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)
-- **`import` 机制、`sys.path` 与 src 布局** → [《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)
+- **`import` 机制、`sys.path` 与 src 布局** → [《模块与导入系统》](/python-modules-and-the-import-system.html)
 - **入口点做插件发现** → [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)
 
 > **示例约定**：工具链以 Python 3.11–3.12、uv 0.5、PyTorch 2.4、setuptools 75 为基线；NGC 镜像示例使用镜像自带的 Python / torch，版本由镜像清单另行确定，不能把它当成 PyTorch 2.4 的同义物。GPU 兼容性仍需在目标节点验证。
@@ -227,7 +227,7 @@ AI-Infra 项目如果要编译 CUDA kernel，基本都是 `scikit-build-core` �
 where = ["src"]
 ```
 
-> src 布局的原理和它与 `import` 机制的关系，见[《代码如何被执行——执行模型、作用域、导入与异常》](/python-execution-model-scopes-imports-and-exceptions.html)的"项目布局、测试与 editable 安装"一节。
+> src 布局的原理和它与 `import` 机制的关系，见[《模块与导入系统》](/python-modules-and-the-import-system.html)的"项目布局、测试与 editable 安装"一章。
 
 ### 5. 工具配置的聚合
 
@@ -912,10 +912,10 @@ ignore = [
 
 对 AI-Infra 项目，`ASYNC` 和 `B` 这两组规则的价值特别高：
 
-- `ASYNC` 能查出在协程里调用阻塞函数（`time.sleep`、同步 `requests`）这类问题——这正是[篇三](/python-concurrency-asynchrony-and-task-collaboration.html)讲的事件循环阻塞陷阱，Ruff 可以在 CI 里自动拦住一部分；
+- `ASYNC` 能查出在协程里调用阻塞函数（`time.sleep`、同步 `requests`）这类问题——这正是[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)讲的事件循环阻塞陷阱，Ruff 可以在 CI 里自动拦住一部分；
 - `B008`（函数默认值里调用函数）、`B023`（闭包里的循环变量延迟绑定）都是 Python 特有的陷阱，靠 review 很难每次都发现。
 
-`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[篇一](/python-execution-model-scopes-imports-and-exceptions.html)的"模块是对象，包是带 `__path__` 的模块"一节。
+`__init__.py` 那条 per-file-ignore 值得解释：`F401` 是"导入了但没使用"，但 `__init__.py` 里的导入往往是故意做**重导出**（对外暴露 API），并非无用。更规范的做法是配合 `__all__` 声明——见[《模块与导入系统》](/python-modules-and-the-import-system.html)的"模块是对象，包是带 `__path__` 的模块"一章。
 
 ### 2. 渐进式引入与 noqa 的边界
 

@@ -17,13 +17,13 @@ transition: slide
 
 | 链 | 篇 |
 |---|---|
-| 代码怎么运转 | 01 语言机制与运行时 |
-| 怎么写得健壮 | 02 类型系统与数据契约 |
-| 怎么协作 | 03 并发、异步与任务协作 |
-| 怎么扩展 | 04 动态机制与插件 |
-| 内存怎么优化 | 05 内存管理 |
-| 怎么确认没问题 | 06 测试、定位与调试 |
-| 怎么交付 | 07 工程化与生产交付 |
+| 代码怎么运转 | 01–06 语言机制与运行时 |
+| 怎么写得健壮 | 07–09 类型系统与数据契约 |
+| 怎么协作 | 10 并发、异步与任务协作 |
+| 怎么扩展 | 11 动态机制与插件 |
+| 内存怎么优化 | 12 内存管理 |
+| 怎么确认没问题 | 13 测试、定位与调试 |
+| 怎么交付 | 14 工程化与生产交付 |
 
 参照系是 Java；例子取自 PyTorch、vLLM、FastAPI、Pydantic。
 
@@ -33,7 +33,7 @@ transition: slide
 
 ---
 
-## 七篇怎么连起来
+## 七个部分怎么连起来
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -50,7 +50,7 @@ flowchart TB
 
 ---
 
-## 01 · 语言机制：每行「简单」语法背后是一个可替换的协议
+## 01–06 · 语言机制：每行「简单」语法背后是一个可替换的协议
 
 **`import` 是运行时动作；直接调 `forward` 绕过全部 hook**
 
@@ -63,14 +63,14 @@ flowchart TB
 | 生成器 | `break` 不等于 `close()`，`finally` 未必执行 |
 
 <aside class="notes" markdown="1">
-原文 /python-execution-model-scopes-imports-and-exceptions.html 与 /python-object-model-protocols-decorators-and-generators.html。
+原文六篇：/python-execution-model-code-objects-functions-and-frames.html、/python-scopes-and-closures.html、/python-modules-and-the-import-system.html、/python-exceptions-and-failure-propagation.html、/python-object-model-and-protocols.html、/python-decorators-generators-and-context-managers.html。
 结论原文：`import` 是**运行时动作**（执行模块顶层代码，注册与 CUDA 初始化都在这一步）；`obj.attr` 是一个固定算法；`model(x)` 查类型上的 `__call__`——**直接调 `forward` 绕过全部 hook**；装饰器在定义时执行一次；生成器是挂起的帧。
 补充要点：`import` 先把模块放进 `sys.modules` 再执行顶层代码（循环导入拿到半成品就在这个窗口）；顶层代码抛异常时模块会被删掉，下次 `import` 重新执行。名称属于哪个作用域在编译期按「本函数里有没有绑定」决定；循环里的 `lambda: i` 共享同一个 cell。
 </aside>
 
 ---
 
-## 02 · 类型系统：注解由谁消费
+## 07–09 · 类型系统：注解由谁消费
 
 **注解只是 `__annotations__`；Pydantic 在类创建时构建验证树**
 
@@ -110,7 +110,7 @@ flowchart LR
 
 ---
 
-## 03 · 并发：按瓶颈选模型，不按 API 流行度
+## 10 · 并发：按瓶颈选模型，不按 API 流行度
 
 **线程管 I/O、进程绕 GIL、asyncio 管大量协作**
 
@@ -164,7 +164,7 @@ flowchart TB
 
 ---
 
-## 04 · 动态机制与插件：只在启动时「选择」，热路径必须静态
+## 11 · 动态机制与插件：只在启动时「选择」，热路径必须静态
 
 **插件化 = 注册表 + 发现 + 契约 + 边界**
 
@@ -187,7 +187,7 @@ flowchart TB
 
 | 要点 | 细节 |
 |---|---|
-| 注册表为空 ⇔ 模块未被导入 | 第一篇的 import 副作用在这里兑现 |
+| 注册表为空 ⇔ 模块未被导入 | 《模块与导入系统》的 import 副作用在这里兑现 |
 | 用户输入能**选**名字、不能**造**名字（`getattr(module, user_input)` 是漏洞） | |
 
 <aside class="notes" markdown="1">
@@ -195,7 +195,7 @@ flowchart TB
 </aside>
 ---
 
-## 05 · 内存管理：多数不是「泄漏」，是「被意外长期持有」
+## 12 · 内存管理：多数不是「泄漏」，是「被意外长期持有」
 
 **对象释放 ≠ RSS 下降——arena 要等整个 pool 空**
 
@@ -230,7 +230,7 @@ flowchart TB
 
 ---
 
-## 06 · 测试、定位与调试：按症状选工具
+## 13 · 测试、定位与调试：按症状选工具
 
 **难在按症状选工具；`raise from` 与上下文日志是前提**
 
@@ -255,7 +255,7 @@ flowchart TB
 
 ---
 
-## 07 · 工程化与生产交付：Java 里框架强制的事交还给你
+## 14 · 工程化与生产交付：Java 里框架强制的事交还给你
 
 **锁文件进 CI；GPU 服务每 GPU 一个 worker**
 
@@ -287,14 +287,14 @@ flowchart TB
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
 flowchart TB
-    A["import 是运行时动作（01）"] --> B["顶层副作用：注册 · CUDA 初始化（01）"]
-    B --> C["注册表为空 ⇔ 模块未导入（04）"]
-    C --> D["发现：显式导入 / 包扫描 / 入口点（04）"]
-    A --> H["spawn 重导主模块 → __main__（03）"]
-    E["GIL：同一刻一个线程跑字节码（03）"] --> F["多进程是唯一绕开（03）"]
+    A["import 是运行时动作（03）"] --> B["顶层副作用：注册 · CUDA 初始化（03）"]
+    B --> C["注册表为空 ⇔ 模块未导入（11）"]
+    C --> D["发现：显式导入 / 包扫描 / 入口点（11）"]
+    A --> H["spawn 重导主模块 → __main__（10）"]
+    E["GIL：同一刻一个线程跑字节码（10）"] --> F["多进程是唯一绕开（10）"]
     F --> H
-    F --> G["每进程各自 sys.modules（03、05）"]
-    G --> I["每 GPU 一个 worker（07）"]
+    F --> G["每进程各自 sys.modules（10、12）"]
+    G --> I["每 GPU 一个 worker（14）"]
 ```
 
 ---
@@ -319,13 +319,13 @@ flowchart TB
 
 | 篇 | 一个判据 / 一个数 |
 |---|---|
-| 01 | 属性查找四步；`super()` = MRO 下一个；`sys.modules` 每进程一份 |
-| 02 | 解释器只存 `__annotations__`；边界校验一次、内部零开销 |
-| 03 | 线程池 min(32, cpu + 4)；线程 8 MB / 协程几 KB；`/dev/shm` 64 MB |
-| 04 | `inspect.signature` 370×；能选名字不能造名字 |
-| 05 | GC 阈值 (700, 10, 10)；pymalloc ≤ 512 B、arena 256 KB |
-| 06 | `AsyncMock`；`-X faulthandler`；`PYTHONTRACEMALLOC=25` |
-| 07 | `uv sync --locked`；`--index-url`；每 GPU 一个 worker |
+| 01–06 | 属性查找四步；`super()` = MRO 下一个；`sys.modules` 每进程一份 |
+| 07–09 | 解释器只存 `__annotations__`；边界校验一次、内部零开销 |
+| 10 | 线程池 min(32, cpu + 4)；线程 8 MB / 协程几 KB；`/dev/shm` 64 MB |
+| 11 | `inspect.signature` 370×；能选名字不能造名字 |
+| 12 | GC 阈值 (700, 10, 10)；pymalloc ≤ 512 B、arena 256 KB |
+| 13 | `AsyncMock`；`-X faulthandler`；`PYTHONTRACEMALLOC=25` |
+| 14 | `uv sync --locked`；`--index-url`；每 GPU 一个 worker |
 
 ---
 

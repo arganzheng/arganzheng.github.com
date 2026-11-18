@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（02 上）：类型系统——类型表达与 typing 工具箱"
+title: "Python 在 AI-Infra（07）：类型系统——类型表达与 typing 工具箱"
 subtitle: "Type System I: Type Expression and the typing Toolbox"
 tags: [Python]
 catalog: true
@@ -15,12 +15,12 @@ Python 是动态类型语言，但这不意味着"无类型"。自 Python 3.5 �
 
 与 Java 把类型声明、编译检查、`.class` 文件携带类型信息、运行时反射合为一体不同，Python 的类型系统由两个协作层构成——**类型信息提供层**和**类型信息消费层**。而在这两层之上，还有一层工程落地：用它们构建**数据契约**。
 
-本系列这一讲围绕的核心问题是：
+类型系统这三篇围绕的核心问题是：
 
 > **Python 的类型信息从哪里来、被谁消费，又如何在系统边界上落成可执行的数据契约？[^q0]**
 
 
-这条链路太长，一篇放不下，所以拆成三篇：**上篇**讲类型表达——`typing` 工具箱里每个工具解决什么问题（本篇）；**中篇**讲类型信息怎么分发、被谁消费——存根与 `py.typed`、mypy / pyright、运行时怎么读注解（[python-type-information-distribution-and-consumption](/python-type-information-distribution-and-consumption.html)）；**下篇**讲用这些能力构建数据契约——dataclass、Pydantic、序列化与配置（[python-data-contract-design-dataclass-pydantic-and-settings](/python-data-contract-design-dataclass-pydantic-and-settings.html)）。
+这条链路太长，一篇放不下，所以拆成三篇：本篇讲类型表达——`typing` 工具箱里每个工具解决什么问题；[《类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)讲类型信息怎么分发、被谁消费——存根与 `py.typed`、mypy / pyright、运行时怎么读注解；[《数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)讲用这些能力构建数据契约——dataclass、Pydantic、序列化与配置。
 
 本篇是上篇：**类型表达**。`typing` 模块的每个工具都会说明它解决什么问题、怎么用、Java 中对应什么、在 AI Infra 真实项目中长什么样。
 
@@ -65,7 +65,7 @@ Table: 本文的章节安排
 
 ## 二、类型表达：从基础注解到 typing 工具箱
 
-提供层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来，是本章的全部内容；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方，在[中篇第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)。
+提供层解决"类型信息从哪里来"。它包括两部分：**类型表达**——用什么语法和工具把类型意图写出来，是本章的全部内容；**类型载体与分发**——如何让没有源码注解的库也能提供类型信息给消费方，在[《类型信息的分发与消费》第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)。
 
 这一部分覆盖所有"把类型意图表达出来"的语法和工具——从 Python 内建的类型注解语法，到 `typing` 模块提供的高级类型构造，再到 `typing_extensions` 对旧版本的兼容。
 
@@ -872,7 +872,7 @@ Table: 实例类型与类对象类型：Python 与 Java 对照
 两个实质差异：
 
 1. **构造是一等操作。** Java 拿到 `Class<T>` 后要经过反射才能 `newInstance()`，还要处理一堆受检异常；Python 里 `c()` 就是普通调用，类型检查器甚至会**校验构造参数**——传错参数是静态错误，不是运行时才炸的 `NoSuchMethodException`。
-2. **类对象本身就是运行时令牌。** Java 的 `Class<T>` 常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），因为泛型被擦除后，方法体里不能直接取得 `T` 对应的类对象。Python 的类本来就是普通对象，直接把 `Foo` 传进去即可，`type[C]` 只是给这个参数写上静态约束：它要"一个类，而不是一个实例"。这不代表所有实例都会记住泛型实参：`list[int]` 这类声明可从注解中读取（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)），`[1, 2]` 本身却不记得元素类型。部分用户自定义泛型实例可能有 `__orig_class__` 元数据，但不能把它当作通用保证，更不会因此自动检查放进去的值。
+2. **类对象本身就是运行时令牌。** Java 的 `Class<T>` 常被用作"运行时类型令牌"（比如 `Gson.fromJson(json, Foo.class)`），因为泛型被擦除后，方法体里不能直接取得 `T` 对应的类对象。Python 的类本来就是普通对象，直接把 `Foo` 传进去即可，`type[C]` 只是给这个参数写上静态约束：它要"一个类，而不是一个实例"。这不代表所有实例都会记住泛型实参：`list[int]` 这类声明可从注解中读取（见[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)），`[1, 2]` 本身却不记得元素类型。部分用户自定义泛型实例可能有 `__orig_class__` 元数据，但不能把它当作通用保证，更不会因此自动检查放进去的值。
 
 **典型用途：工厂与注册表**
 
@@ -988,7 +988,7 @@ type(Model)        # <class 'type'>        类的类型是 type
 type(type)         # <class 'type'>        type 是自己的实例，递归终点
 ```
 
-所以自定义元类都写成 `class Meta(type)`：元类就是"类的类"，继承 `type` 才能拦截类的创建过程。Pydantic 的 `ModelMetaclass` 正是这么来的（见[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解) §2）。
+所以自定义元类都写成 `class Meta(type)`：元类就是"类的类"，继承 `type` 才能拦截类的创建过程。Pydantic 的 `ModelMetaclass` 正是这么来的（见[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解) §2）。
 
 两个用法之间的桥梁是：**如果一个类的元类是 `Meta`，那么这个类对象的类型就是 `Meta`**，可以直接用来注解：
 
@@ -1295,7 +1295,7 @@ Python 有三种主流的"结构化数据"定义方式：`TypedDict`（约束字
 
 `TypedDict` 与后两者的根本区别在于：**它不创建新的对象类型**。`MovieRecord` 在运行时就是一个普通 `dict`，类型约束只对静态检查器生效。所以如果数据本身已经是 dict（JSON API 返回值、配置文件解析结果），用 `TypedDict` 约束形状最自然；如果需要创建新的结构化对象，则用 `dataclass` 或 Pydantic。
 
-> 三者的完整对比、选型决策树以及"边界校验、内部传递"的工程模式，见[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」的选型指南一节。
+> 三者的完整对比、选型决策树以及"边界校验、内部传递"的工程模式，见[《数据契约设计》第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」的选型指南一节。
 
 **用 TypedDict 约束 `**kwargs`（3.12+）**
 
@@ -1989,7 +1989,7 @@ Table: Java 与 Python 类型系统对照
 
 本篇是三篇里的"词汇表"：`typing` 工具箱里每一个工具，解决的都是"**把一个类型意图写下来**"这件事里的一个具体困难——`Union` / `Optional` 写"可能性"，`TypeVar` 写"输入输出的类型关系"，`Protocol` 写"结构接口"，`TypedDict` 写"字典的形状"，`Annotated` 给类型挂元数据，`ParamSpec` 让装饰器不丢签名，`TypeGuard` / `TypeIs` 让收窄可表达，`overload` 写多签名。附录的速查表是这一篇的索引。
 
-写下来的类型意图**默认什么都不发生**——解释器只把它存进 `__annotations__`。谁来读它、怎么把它随包分发给别人、静态检查器和运行时框架各读到什么，是[中篇](/python-type-information-distribution-and-consumption.html)的内容；用它们构建数据契约（dataclass、Pydantic、配置），是[下篇](/python-data-contract-design-dataclass-pydantic-and-settings.html)的内容。
+写下来的类型意图**默认什么都不发生**——解释器只把它存进 `__annotations__`。谁来读它、怎么把它随包分发给别人、静态检查器和运行时框架各读到什么，是[《类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)的内容；用它们构建数据契约（dataclass、Pydantic、配置），是[《数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)的内容。
 
 ## 五、自测
 
@@ -2017,4 +2017,4 @@ Table: Java 与 Python 类型系统对照
 
    </details>
 
-[^q0]: **从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（[第二章](#二类型表达从基础注解到-typing-工具箱)、[中篇第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)）。**被谁消费**：人（当文档读）、IDE、静态检查器 mypy / pyright（不运行代码就推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（[中篇第三章](/python-type-information-distribution-and-consumption.html#三类型信息消费层上静态分析与推理)、[中篇第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把「类型 + 约束」变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)）。这条链路在 Python 里是拆开的，每一环都可以只用一部分，所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。
+[^q0]: **从哪里来**：开发者写在函数签名与类属性上的注解，解释器只把它存进 `__annotations__`，不检查也不转换；第三方库通过 stub（`.pyi`）与 `py.typed` 标记把类型信息随包分发（[第二章](#二类型表达从基础注解到-typing-工具箱)、[《类型信息的分发与消费》第二章](/python-type-information-distribution-and-consumption.html#二类型载体与分发存根typeshed-与-pytyped)）。**被谁消费**：人（当文档读）、IDE、静态检查器 mypy / pyright（不运行代码就推断与报错），以及运行时主动读注解的库——`dataclasses` 据此生成 `__init__`，Pydantic 据此生成校验器，FastAPI 据此解析请求（[《类型信息的分发与消费》第三章](/python-type-information-distribution-and-consumption.html#三类型信息消费层上静态分析与推理)、[《类型信息的分发与消费》第四章](/python-type-information-distribution-and-consumption.html#四类型信息消费层下动态消费运行时如何读取类型注解)）。**怎么落成数据契约**：在系统边界（配置文件、HTTP 请求、外部输入）用 Pydantic 模型把「类型 + 约束」变成可执行的解析与校验，错误在启动或入口处暴露；内部热路径用 `@dataclass` 传递、不做运行时检查（[《数据契约设计》第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)）。这条链路在 Python 里是拆开的，每一环都可以只用一部分，所以要自己决定在哪里投入：注解要写、边界要校验、热路径要干净。

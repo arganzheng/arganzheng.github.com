@@ -669,7 +669,7 @@ gitGraph TB:
 
 Table: wheel 矩阵的三个维度与 ABI 约束
 
-每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（[《Python 在 AI-Infra（07）：项目工程化与生产交付》的「AI-Infra 的依赖难题」一章](/python-engineering-and-production-delivery.html#五ai-infra-的依赖难题)讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
+每个组合一个 wheel，`torch==2.x.y+cu124` 的 `+cu124` 是本地版本标识（[《Python 在 AI-Infra（14）：项目工程化与生产交付》的「AI-Infra 的依赖难题」一章](/python-engineering-and-production-delivery.html#五ai-infra-的依赖难题)讨论过）。CUDA wheel 不再打包整个 CUDA Toolkit，而是依赖 `nvidia-*` 的 PyPI 包（cuBLAS、cuDNN、NCCL 各自是一个 wheel），`libtorch_cuda.so` 在加载时通过 rpath 找到它们。`libtorch` 压缩包提供纯 C++ 使用（CMake 的 `find_package(Torch)`）。
 
 《C++ 扩展与自定义算子》列出的五个因素在这里有了全貌：wheel 的每个维度都是 ABI 的一部分，C++ 扩展必须与其中一个具体组合匹配。Linux wheel 从 2.6 起分批、到 2.7 全部切到 cxx11 ABI（此前长期是旧 ABI），这是一次典型的"制品层面的破坏性变更"，扩展作者需要重新编译——第七章 §4 的话题。
 

@@ -73,7 +73,7 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 
 ### 3. 出问题先怀疑环境
 
-`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE 里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（第六篇"能复现"的一部分）。环境、打包与交付的完整做法在 Infra 01 第七篇。
+`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE 里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（第六篇"能复现"的一部分）。环境、打包与交付的完整做法在[《项目工程化与生产交付》](/python-engineering-and-production-delivery.html)。
 
 ## 三、流式过一遍语料
 
@@ -203,7 +203,7 @@ json.dump(asdict(cfg2), open(run_dir / "config.json", "w"))   # 存盘：datacla
 
 `transformers` 的 `TrainingArguments`、`peft` 的 `LoraConfig` 都是 `dataclass`，`Trainer(args=TrainingArguments(...))` 传的就是这样一个对象；命令行解析用 `argparse` 或 `HfArgumentParser`（直接从 `dataclass` 的字段生成参数），配置文件用 JSON / YAML 读成 `dict` 后 `TrainConfig(**d)` 展开。
 
-类型标注 `lr: float` 在运行时**不做检查**（传字符串也能构造），它服务的是阅读、IDE 补全与 `dataclass` 这类读标注的工具；要做校验用 `pydantic`。类型系统的完整讨论在 Infra 01 第二篇。
+类型标注 `lr: float` 在运行时**不做检查**（传字符串也能构造），它服务的是阅读、IDE 补全与 `dataclass` 这类读标注的工具；要做校验用 `pydantic`。类型系统的完整讨论在[《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)。
 
 ## 五、训练代码里的六个语法
 
@@ -345,7 +345,7 @@ if __name__ == "__main__":                          # 多进程必须放在这�
 - **进程 3.1× 而不是 8×**：每个进程是一个独立解释器，要启动、要把输入 `pickle` 过去、把结果 `pickle` 回来。任务越轻，序列化占比越大；`chunksize` 让每次传一批而不是一条，是最重要的调节旋钮。任务重（每条几毫秒以上）时能接近核数。
 - **进程间不共享内存**：全局变量在子进程里是拷贝，改了主进程看不见；传给 `Pool.map` 的函数必须是模块顶层可导入的（lambda 不行，因为要 `pickle` 函数本身）。
 
-`datasets` 的 `.map(num_proc=8)` 就是这个 `Pool`；GIL 的来历、`asyncio` 在什么时候比线程更合适、进程池与 `DataLoader` worker 的内部，在 Infra 01 第三篇。
+`datasets` 的 `.map(num_proc=8)` 就是这个 `Pool`；GIL 的来历、`asyncio` 在什么时候比线程更合适、进程池与 `DataLoader` worker 的内部，在[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)。
 
 ## 七、出错的时候
 
@@ -376,7 +376,7 @@ AssertionError: shape mismatch: x row has 2 features, w expects 3
 
 Table: 三类最常见的错误与第一反应
 
-形状错误在 PyTorch 里**经常不报错**——广播把 `[B, T]` 和 `[T, 1]` 加在一起也能算出一个结果（第二篇"能跑但错"）。在形状会变的地方写一句 `assert x.shape == (B, T, d), x.shape`，错了当场停在这一行，而不是在几百步之后的 loss 曲线上。要看某一行时的变量值，在那一行前写 `breakpoint()`，运行到那里会进入 pdb：`p x.shape` 打印、`n` 下一行、`c` 继续。测试与调试的系统做法在 Infra 01 第六篇。
+形状错误在 PyTorch 里**经常不报错**——广播把 `[B, T]` 和 `[T, 1]` 加在一起也能算出一个结果（第二篇"能跑但错"）。在形状会变的地方写一句 `assert x.shape == (B, T, d), x.shape`，错了当场停在这一行，而不是在几百步之后的 loss 曲线上。要看某一行时的变量值，在那一行前写 `breakpoint()`，运行到那里会进入 pdb：`p x.shape` 打印、`n` 下一行、`c` 继续。测试与调试的系统做法在[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ## 八、越过哪条线进 Infra 01
 
@@ -384,13 +384,13 @@ Table: 三类最常见的错误与第一反应
 
 | 本篇 | 你会用了 | 想知道机制去 |
 |---|---|---|
-| 三 | 生成器、迭代协议、`with open` | [01 第一篇](/python-execution-model-scopes-imports-and-exceptions.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
-| 四 | `dataclass`、类型标注 | [01 第二篇](/python-type-expression-and-the-typing-toolbox.html)：类型系统、`Protocol`、pydantic 与数据契约 |
-| 六 | `Pool`、GIL、`chunksize` | [01 第三篇](/python-concurrency-asynchrony-and-task-collaboration.html)：GIL、线程 / 进程 / asyncio 的选择、`DataLoader` worker |
-| 五 | 装饰器、`__call__`、`__getitem__` | [01 第四篇](/python-reflection-metaprogramming-and-plugin-architecture.html)：描述符、元类、算子注册表怎么用装饰器实现 |
-| 三 | 峰值内存、对象开销 | [01 第五篇](/python-memory-management-and-optimization.html)：引用计数、对象头、为什么一个 dict 比它的 JSON 大 5 倍 |
-| 七 | traceback、`assert`、`breakpoint()` | [01 第六篇](/python-unit-testing-troubleshooting-and-debugging.html)：pytest、性能剖析、线上排障 |
-| 二 | venv、`requirements` | [01 第七篇](/python-engineering-and-production-delivery.html)：打包、`pyproject`、镜像与交付 |
+| 三 | 生成器、迭代协议、`with open` | [《装饰器、生成器与上下文管理器》](/python-decorators-generators-and-context-managers.html)、[《对象模型与协议》](/python-object-model-and-protocols.html)、[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
+| 四 | `dataclass`、类型标注 | [《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)：类型系统、`Protocol`、pydantic 与数据契约 |
+| 六 | `Pool`、GIL、`chunksize` | [《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)：GIL、线程 / 进程 / asyncio 的选择、`DataLoader` worker |
+| 五 | 装饰器、`__call__`、`__getitem__` | [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)：描述符、元类、算子注册表怎么用装饰器实现 |
+| 三 | 峰值内存、对象开销 | [《内存管理与优化》](/python-memory-management-and-optimization.html)：引用计数、对象头、为什么一个 dict 比它的 JSON 大 5 倍 |
+| 七 | traceback、`assert`、`breakpoint()` | [《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)：pytest、性能剖析、线上排障 |
+| 二 | venv、`requirements` | [《项目工程化与生产交付》](/python-engineering-and-production-delivery.html)：打包、`pyproject`、镜像与交付 |
 
 Table: 本篇各章对应的 Infra 01 系列机制篇
 

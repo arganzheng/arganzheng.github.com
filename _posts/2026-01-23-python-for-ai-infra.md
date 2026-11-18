@@ -10,7 +10,7 @@ updated: 2026-11-16
 
 ## 总览：Python 在系统里负责哪一段
 
-《Python 在 AI-Infra：从语言机制到生产交付》包含**七讲、十篇正文，另有一篇总结自测**（第一讲拆成上下两篇、第二讲拆成上中下三篇，其余各一篇），面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
+《Python 在 AI-Infra：从语言机制到生产交付》包含**十四篇正文，另有一篇总结自测**，分成七个部分（语言机制六篇、类型系统三篇，其余各一篇），面向有后端工程经验（尤其是 Java 背景）、准备转向 AI-Infra 方向的工程师，系统梳理这个方向真正需要的 Python 能力：语言核心机制、类型系统与数据契约、并发与异步、反射与元编程、内存管理、测试与调试、以及工程化交付。
 
 它同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的**深入篇**：算法侧的[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)只讲训练代码里用到的 Python 子集，把语言机制与运行时交给这里——两张地图共享本系列，算法方向的读者按需读。
 
@@ -27,42 +27,42 @@ updated: 2026-11-16
 ```mermaid
 %% 图：推理服务启动时的装配与请求到来后的执行路径
 flowchart TB
-    ENV["<b>安装与启动</b><br/>07：锁定依赖、选择制品、加载配置"]
-    REG["<b>导入并装配后端</b><br/>01、04：模块执行、注册表、插件契约"]
-    REQ["<b>请求进入边界</b><br/>02：读取注解，校验并转换输入"]
-    QUEUE["<b>等待与调度</b><br/>03：有界队列、任务协作、取消与背压"]
-    CALL["<b>调用模型</b><br/>01：可调用对象与协议<br/>重计算交给原生库和 GPU"]
-    EXIT["<b>返回或失败退出</b><br/>05：释放引用与资源"]
-    OBS["<b>验证与定位</b><br/>06：测试重放路径<br/>异常链、日志记录结果"]
+    ENV["<b>安装与启动</b><br/>14：锁定依赖、选择制品、加载配置"]
+    REG["<b>导入并装配后端</b><br/>03、11：模块执行、注册表、插件契约"]
+    REQ["<b>请求进入边界</b><br/>07–09：读取注解，校验并转换输入"]
+    QUEUE["<b>等待与调度</b><br/>10：有界队列、任务协作、取消与背压"]
+    CALL["<b>调用模型</b><br/>05：可调用对象与协议<br/>重计算交给原生库和 GPU"]
+    EXIT["<b>返回或失败退出</b><br/>12：释放引用与资源"]
+    OBS["<b>验证与定位</b><br/>13：测试重放路径<br/>异常链、日志记录结果"]
     ENV --> REG
     REQ --> QUEUE --> CALL --> EXIT
     REG -- "启动完成，提供可调用后端" --> CALL
     EXIT -. "保留排错线索" .-> OBS
 ```
 
-测试在开发和回归时重放这些路径，日志与异常链则帮助定位实际运行中的问题。后面的七讲，就是拆开这条链上各个看似普通的动作。
+测试在开发和回归时重放这些路径，日志与异常链则帮助定位实际运行中的问题。后面的十四篇，就是拆开这条链上各个看似普通的动作。
 
 系列的逻辑链条是这样递进的：
 
 > **代码是怎么运转的 → 代码怎么写得健壮 → 如何高效协作 → 如何扩展 → 内存如何优化 → 如何确保没有问题、出了问题如何定位 → 怎么交付**
 
-每一步对应一讲，分篇见文末目录：
+每一步对应一个部分，分篇见文末目录：
 
-| 讲 | 主题 | 解决的问题 |
-|---|---|---|
-| 一 | 核心机制 | **代码是怎么运转的**——模块如何被加载、对象如何被调用、一行语法背后是哪些协议在起作用 |
-| 二 | 类型系统与数据契约 | **代码怎么写得健壮**——类型如何表达、被谁消费，以及如何在系统边界上强制数据契约 |
-| 三 | 并发与异步 | **如何高效协作**——如何组织任务，让资源既不闲着也不打架 |
-| 四 | 动态机制与架构实践 | **如何扩展**——如何让系统容纳变化，又不失控 |
-| 五 | 内存管理 | **内存如何优化**——内存如何分配与回收，开销来自哪里，增长与泄漏如何定位 |
-| 六 | 测试与调试 | **如何确保没有问题、出了问题如何定位**——如何验证行为真的符合预期，以及故障发生时用哪些工具排查 |
-| 七 | 工程化与交付 | **怎么交付**——怎么把这些代码变成一个可以交付的东西 |
+| 部分 | 篇 | 主题 | 解决的问题 |
+|---|---|---|---|
+| 一 | 01–06 | 核心机制 | **代码是怎么运转的**——模块如何被加载、对象如何被调用、一行语法背后是哪些协议在起作用 |
+| 二 | 07–09 | 类型系统与数据契约 | **代码怎么写得健壮**——类型如何表达、被谁消费，以及如何在系统边界上强制数据契约 |
+| 三 | 10 | 并发与异步 | **如何高效协作**——如何组织任务，让资源既不闲着也不打架 |
+| 四 | 11 | 动态机制与架构实践 | **如何扩展**——如何让系统容纳变化，又不失控 |
+| 五 | 12 | 内存管理 | **内存如何优化**——内存如何分配与回收，开销来自哪里，增长与泄漏如何定位 |
+| 六 | 13 | 测试与调试 | **如何确保没有问题、出了问题如何定位**——如何验证行为真的符合预期，以及故障发生时用哪些工具排查 |
+| 七 | 14 | 工程化与交付 | **怎么交付**——怎么把这些代码变成一个可以交付的东西 |
 
-Table: Python 系列七讲的主题与解决的问题
+Table: Python 系列七个部分的主题与解决的问题
 
 这条链条是有顺序依赖的：不理解 `import` 的副作用，就看不懂插件注册（一 → 四）；不理解类型注解如何被运行时消费，就说不清 Pydantic 的校验从哪来（二 → 七的配置管理）；不理解 GIL，就判断不了推理服务该起几个 worker（三 → 七的部署）。
 
-前六讲解决"写对"，第七讲解决"交付"。
+前六个部分解决"写对"，第七部分解决"交付"。
 
 
 ## 缩写
@@ -140,9 +140,16 @@ Table: Python 系列七讲的主题与解决的问题
 
 ### 1. 代码是怎么运转的：语言机制与运行时原理
 
-第一讲分上下两篇，沿着"一段代码的生命周期"这条线组织：执行模型与执行帧、作用域与闭包、模块与导入系统、类与对象模型（属性查找算法与描述符）、对象协议、装饰器、生成器、上下文管理器、异常处理，最后用一个推理组件把它们串起来完整追踪一遍。
+第一部分共六篇，沿着"一段代码的生命周期"这条线组织，每篇回答一个问题：
 
-这一篇的必要性在于：Python 里很多"看起来简单"的写法，背后都是可替换的机制。
+1. [《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)：一段源码从文本变成正在运行的代码，中间经过哪几种对象，各在什么时候产生？
+2. [《作用域与闭包》](/python-scopes-and-closures.html)：函数体里写下一个名称，Python 去哪里找它；外层函数返回后，内层函数为什么还能用它的变量？
+3. [《模块与导入系统》](/python-modules-and-the-import-system.html)：`import` 一个名字时去哪里找、找到之后做了什么；为什么换一种启动方式就 `ImportError`？
+4. [《异常处理与失败传播》](/python-exceptions-and-failure-propagation.html)：异常抛出后沿什么路径传播，什么样的处理方式是安全的？
+5. [《对象模型与协议》](/python-object-model-and-protocols.html)：对象怎么被创建，属性和方法怎么被找到，语法怎么交给对象自己决定？
+6. [《装饰器、生成器与上下文管理器》](/python-decorators-generators-and-context-managers.html)：这三种写法各在什么时候执行、改变了哪一段调用或执行过程？最后用一个推理组件把六篇串起来完整追踪一遍。
+
+这一部分的必要性在于：Python 里很多"看起来简单"的写法，背后都是可替换的机制。
 
 | 写法 | 背后的机制 |
 |---|---|
@@ -156,11 +163,11 @@ Table: 五种常见写法背后的可替换机制
 
 不理解这些机制，就只能把 AI-Infra 源码当成黑盒；理解之后，才能看出一个框架为什么这样设计。
 
-这一篇也回答了一个高频故障："为什么本地能跑，装到别的机器上就 `ImportError`"——答案在 `sys.path` 的构成、src 布局与 editable 安装的关系里。
+其中[《模块与导入系统》](/python-modules-and-the-import-system.html)回答了一个高频故障："为什么本地能跑，装到别的机器上就 `ImportError`"——答案在 `sys.path` 的构成、src 布局与 editable 安装的关系里。
 
 ### 2. 代码怎么写得健壮：类型系统与数据契约
 
-第二讲分上中下三篇，讨论 Python 的类型系统与数据契约。核心洞察是：与 Java 的类型声明、编译检查、`.class` 元数据和反射形成的链条不同，**Python 的注解默认不触发类型检查，需要另选消费者**。
+第二部分共三篇，讨论 Python 的类型系统与数据契约。核心洞察是：与 Java 的类型声明、编译检查、`.class` 元数据和反射形成的链条不同，**Python 的注解默认不触发类型检查，需要另选消费者**。
 
 1. **提供层**：注解语法、typing、typing_extensions .pyi 存根、typeshed、types-*、py.typed / PEP 561
 2. **消费层**：静态：mypy、pyright（开发时检查）动态：isinstance、get_type_hints、@dataclass、Pydantic、beartype（运行时读取）
@@ -168,11 +175,11 @@ Table: 五种常见写法背后的可替换机制
 
 这个拆分解释了很多困惑：为什么写了 `x: int = "hello"` 不报错（解释器不消费注解）；为什么 `@dataclass` 读注解却不校验（它只把注解当字段清单）；为什么 Pydantic 能做到校验（它在类创建时用元类构建了验证树）。
 
-下篇落到工程实践：数据契约的设计。什么时候用 `dataclass`、什么时候上 Pydantic、`TypedDict` 适合什么，以及核心原则——**在系统边界做校验，内部用 `dataclass` 等结构传递，避免无必要地重复校验**。`dataclass` 不自动检查字段类型，也不是对象创建“零开销”。
+[《数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)落到工程实践：数据契约的设计。什么时候用 `dataclass`、什么时候上 Pydantic、`TypedDict` 适合什么，以及核心原则——**在系统边界做校验，内部用 `dataclass` 等结构传递，避免无必要地重复校验**。`dataclass` 不自动检查字段类型，也不是对象创建“零开销”。
 
 ### 3. 如何高效协作：并发、异步与任务协作
 
-第三讲处理并发。前提认知是：AI-Infra 里 Python 通常不做重计算，但**吞吐、尾延迟和资源利用率很大程度上取决于 Python 是否正确组织了并发任务**。
+第三部分处理并发。前提认知是：AI-Infra 里 Python 通常不做重计算，但**吞吐、尾延迟和资源利用率很大程度上取决于 Python 是否正确组织了并发任务**。
 
 这一篇从 GIL 讲起——它是理解 Python 并发的前提，也是 Java 工程师最容易误判的地方。GIL 决定了：
 
@@ -186,7 +193,7 @@ Table: 五种常见写法背后的可替换机制
 
 ### 4. 如何扩展：Python 的动态机制与插件化实践
 
-第四讲讨论 Python 的动态能力。AI-Infra 系统必须应对持续变化——新模型结构、新硬件后端、新量化方式、新调度策略。硬编码的 `if backend == "cuda"` 很快会失控。
+第四部分讨论 Python 的动态能力。AI-Infra 系统必须应对持续变化——新模型结构、新硬件后端、新量化方式、新调度策略。硬编码的 `if backend == "cuda"` 很快会失控。
 
 这一篇先纠正一个常见的概念混淆：反射、元编程和插件化**不在同一个层次上**。前两者是 Python 提供的语言机制，插件化则是利用这些机制、再叠加导入系统与注册发现能力所构建出的架构模式。所以文章分两部分：
 
@@ -206,7 +213,7 @@ Table: 五种常见写法背后的可替换机制
 
 ### 5. 内存如何优化：分配机制、对象开销与泄漏定位
 
-第五讲讨论内存。AI-Infra 的内存问题有其特殊性：它同时涉及 Python 对象、大块张量、CPU 与 GPU 两套地址空间，而且增长往往是缓慢的，直到 OOM 才暴露。
+第五部分讨论内存。AI-Infra 的内存问题有其特殊性：它同时涉及 Python 对象、大块张量、CPU 与 GPU 两套地址空间，而且增长往往是缓慢的，直到 OOM 才暴露。
 
 这一篇先建立 CPython 机制层面的理解——引用计数、循环垃圾回收的分代策略、pymalloc 的分配器结构。这些机制解释了一类反直觉的现象：**为什么对象已经不可达、`gc.collect()` 也执行了，进程的 RSS 却没有下降**。答案在于内存归还是分层的：小对象占用的块可以先回到 pymalloc 的池里，底层内存未必立刻归还给操作系统；大块原生内存与 GPU 显存还有各自的分配器。
 
@@ -223,7 +230,7 @@ Table: 五种常见写法背后的可替换机制
 
 ### 6. 如何确保没有问题、出了问题如何定位：测试与调试
 
-第六讲讨论正确性保障。AI-Infra 代码的正确性往往不能靠阅读判断：逻辑正确但时序错误、类型匹配但运行时值不符、代码不报错但内存持续增长。
+第六部分讨论正确性保障。AI-Infra 代码的正确性往往不能靠阅读判断：逻辑正确但时序错误、类型匹配但运行时值不符、代码不报错但内存持续增长。
 
 这一篇分两部分。测试部分覆盖 pytest、fixture、Mock、异步测试、`monkeypatch`、覆盖率；调试部分覆盖 `pdb`、日志、异常链、`inspect`、`tracemalloc`、`faulthandler`、`cProfile`。
 
@@ -233,7 +240,7 @@ Table: 五种常见写法背后的可替换机制
 
 ### 7. 怎么交付：工程化与生产交付
 
-第七讲讨论工程化。前六讲讲"代码怎么写对"，这一篇讲"代码怎么变成可交付的东西"。
+第七部分讨论工程化。前六个部分讲"代码怎么写对"，这一篇讲"代码怎么变成可交付的东西"。
 
 Java 工程师在这里会遇到最大的落差：
 
@@ -253,18 +260,25 @@ Table: 依赖与交付：Java 与 Python 的落差
 
 ### 8. 系列总结与通关自测
 
-最后一篇不讲新内容：把七讲正文压成一张速查表并逐讲回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是七讲能不能连起来用；读完正文再做。
+最后一篇不讲新内容：把十四篇正文按七个部分压成一张速查表并逐部分回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十四篇能不能连起来用；读完正文再做。
 
 ## 章节目录（建议按顺序阅读）
 
-1. 语言机制与运行时原理：[上·代码如何被执行——执行模型、作用域、导入与异常](/python-execution-model-scopes-imports-and-exceptions.html) · [下·对象如何工作——对象模型、协议、装饰器与生成器](/python-object-model-protocols-decorators-and-generators.html)
-2. 类型系统与数据契约设计：[上·类型表达与 typing 工具箱](/python-type-expression-and-the-typing-toolbox.html) · [中·类型信息的分发与消费](/python-type-information-distribution-and-consumption.html) · [下·数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
-3. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
-4. [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
-5. [内存管理与优化](/python-memory-management-and-optimization.html)
-6. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
-7. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)
-8. [系列总结与通关自测](/python-for-ai-infra-series-recap-and-self-test.html)
+1. [代码如何被执行——code object、函数对象与执行帧](/python-execution-model-code-objects-functions-and-frames.html)
+2. [名称在哪里被解析——作用域与闭包](/python-scopes-and-closures.html)
+3. [代码如何被加载——模块与导入系统](/python-modules-and-the-import-system.html)
+4. [出错后怎么传播——异常处理与失败传播](/python-exceptions-and-failure-propagation.html)
+5. [对象如何工作——对象模型与协议](/python-object-model-and-protocols.html)
+6. [改写调用与执行过程——装饰器、生成器与上下文管理器](/python-decorators-generators-and-context-managers.html)
+7. [类型系统——类型表达与 typing 工具箱](/python-type-expression-and-the-typing-toolbox.html)
+8. [类型系统——类型信息的分发与消费](/python-type-information-distribution-and-consumption.html)
+9. [类型系统——数据契约设计](/python-data-contract-design-dataclass-pydantic-and-settings.html)
+10. [并发、异步与任务协作](/python-concurrency-asynchrony-and-task-collaboration.html)
+11. [Python 的动态机制及工程实践](/python-reflection-metaprogramming-and-plugin-architecture.html)
+12. [内存管理与优化](/python-memory-management-and-optimization.html)
+13. [单元测试、问题定位与调试实践](/python-unit-testing-troubleshooting-and-debugging.html)
+14. [项目工程化与生产交付](/python-engineering-and-production-delivery.html)
+15. [系列总结与通关自测](/python-for-ai-infra-series-recap-and-self-test.html)
 
 
 ## 前置要求与说明
@@ -273,10 +287,10 @@ Table: 依赖与交付：Java 与 Python 的落差
 
 **版本基线**：正文以 **Python 3.11+** 为基线，涉及新特性时会标注引入版本（如 `3.10+`、`3.12+`）。`typing_extensions` 可回移部分类型工具，不能让旧解释器解析新语法，也不能回移任意标准库功能；兼容旧版本仍需选择对应语法与 API。
 
-**关于时效性**：语言机制部分（前六讲）相对稳定。**第七讲是最容易过期的**——`uv` 仍在快速演进，PyTorch 的 CUDA 索引和版本矩阵每个大版本都在变。阅读时请以官方文档核对具体命令和版本号；但分层的思路、抽象依赖与锁定依赖的分工、把平台相关的重依赖交给基础镜像这些判断，应该会比具体工具活得更久。
+**关于时效性**：语言机制部分（前十三篇）相对稳定。**[《项目工程化与生产交付》](/python-engineering-and-production-delivery.html)是最容易过期的**——`uv` 仍在快速演进，PyTorch 的 CUDA 索引和版本矩阵每个大版本都在变。阅读时请以官方文档核对具体命令和版本号；但分层的思路、抽象依赖与锁定依赖的分工、把平台相关的重依赖交给基础镜像这些判断，应该会比具体工具活得更久。
 
 **关于 AI-Infra 系统本身**：本系列讲的是 Python 这门语言在 AI-Infra 中的用法，不是训练框架或推理系统的架构。张量计算如何执行、调度器如何组 batch、KV Cache 如何管理、多卡如何协同，这些属于系统层的话题，本系列只在需要时借用它们的源码作为语言特性的例子，不展开原理。
 
-**配套代码**：写文章时用来验证各个结论的小脚本（目前是第一讲的语言机制与第三讲的并发部分）在 [ai-learning-labs/python-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra)，只依赖标准库，`python3 xxx.py` 直接运行。
+**配套代码**：写文章时用来验证各个结论的小脚本（目前是前六篇的语言机制与[《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)的并发部分）在 [ai-learning-labs/python-for-ai-infra](https://github.com/arganzheng/ai-learning-labs/tree/main/python-for-ai-infra)，只依赖标准库，`python3 xxx.py` 直接运行。
 
 [^q0]: Python 承担的是**组织、调度、扩展、观测和交付**——控制平面和胶水层：真正吃算力的部分由 CUDA、C++、通信库与推理引擎完成。因此要掌握的不是写更短的代码，而是七条链条上的机制：代码怎么运转（对象模型、属性查找、特殊方法、描述符、生成器）→ 怎么写得健壮（类型信息、数据契约）→ 怎么协作（并发：线程 / GIL / asyncio / 多进程）→ 怎么扩展（反射、元编程、插件发现与注册）→ 内存怎么占用与回收（引用计数、GC、Tensor 生命周期）→ 怎么确保没问题、出了问题怎么定位（测试、可观测、调试）→ 怎么交付（打包、依赖、环境）。系列的篇目就按这条链排列。

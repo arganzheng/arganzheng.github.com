@@ -199,7 +199,7 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 
 [`dtype`](#cfg-dtype)：有 CUDA 且支持 bf16 就用 bf16，否则 fp16（要配 GradScaler，第七章）；CPU / MPS 上这一行会选 fp16，但第四章会看到 CPU 实际不用 autocast。
 
-[配置怎么改](#cfg-exec)：`configurator.py` 是作者自称"糟糕主意"的 47 行——把命令行 `--key=value` 解析后 `exec` 进 `globals()`，覆盖上面的默认值；配置文件（`config/train_shakespeare_char.py`）也是一段被 `exec` 的 Python。好处是每个变量就是一个普通全局名，代码里不用写 `config.xxx`；代价是没有类型检查、IDE 不认识、`exec` 一般被认为不安全（[《Python 在 AI-Infra（01 上）：代码如何被执行》](/python-execution-model-scopes-imports-and-exceptions.html)讲 `exec` 与作用域）。[《算法工程师的工具箱（01）：Python 使用层》](/python-in-use-for-algorithm-engineers.html)用 `dataclass` 做配置是更常规的选择；理解 nanoGPT 时只要记住：**`train.py` 里出现的每个小写全局变量都可以在命令行上 `--name=value` 改**。`config_keys` 把所有基础类型的全局名收集起来，之后一起存进 checkpoint 和 wandb。
+[配置怎么改](#cfg-exec)：`configurator.py` 是作者自称"糟糕主意"的 47 行——把命令行 `--key=value` 解析后 `exec` 进 `globals()`，覆盖上面的默认值；配置文件（`config/train_shakespeare_char.py`）也是一段被 `exec` 的 Python。好处是每个变量就是一个普通全局名，代码里不用写 `config.xxx`；代价是没有类型检查、IDE 不认识、`exec` 一般被认为不安全（[《Python 在 AI-Infra（01）：代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)讲 `exec` 与作用域）。[《算法工程师的工具箱（01）：Python 使用层》](/python-in-use-for-algorithm-engineers.html)用 `dataclass` 做配置是更常规的选择；理解 nanoGPT 时只要记住：**`train.py` 里出现的每个小写全局变量都可以在命令行上 `--name=value` 改**。`config_keys` 把所有基础类型的全局名收集起来，之后一起存进 checkpoint 和 wandb。
 
 ## 四、初始化与 I/O
 

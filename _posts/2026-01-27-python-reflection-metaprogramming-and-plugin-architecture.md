@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（04）：Python的动态机制及工程实践
+title: Python 在 AI-Infra（11）：Python的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
@@ -391,7 +391,7 @@ print(model.describe())
 
 ### 2. 装饰器：注入横切逻辑
 
-> 装饰器的基础用法在[《Python 语言机制与运行时原理》](/python-execution-model-scopes-imports-and-exceptions.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
+> 装饰器的基础用法在[《装饰器、生成器与上下文管理器》](/python-decorators-generators-and-context-managers.html)中已经覆盖，这里聚焦类型安全的装饰器写法和工程边界问题。
 
 装饰器本质上是一个接收可调用对象并返回新可调用对象的函数。
 
@@ -491,7 +491,7 @@ async def infer(request: dict) -> dict:
 
 ### 3. 描述符：属性访问背后的机制
 
-> 描述符的基本原理——它在属性查找顺序里的位置、数据描述符与非数据描述符的区别——在[《对象如何工作——对象模型、协议、装饰器与生成器》的「描述符协议」一节](/python-object-model-protocols-decorators-and-generators.html#4-描述符协议属性查找的可编程点)中已经介绍，这里侧重它在元编程和插件系统中的应用。
+> 描述符的基本原理——它在属性查找顺序里的位置、数据描述符与非数据描述符的区别——在[《对象模型与协议》的「描述符协议」一节](/python-object-model-and-protocols.html#4-描述符协议属性查找的可编程点)中已经介绍，这里侧重它在元编程和插件系统中的应用。
 
 描述符是 Python 属性系统的重要基础。实现了以下任意方法的对象，都可以参与属性访问控制：
 

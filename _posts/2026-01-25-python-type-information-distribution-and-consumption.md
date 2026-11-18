@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: "Python 在 AI-Infra（02 中）：类型系统——类型信息的分发与消费"
+title: "Python 在 AI-Infra（08）：类型系统——类型信息的分发与消费"
 subtitle: "Type System II: Distributing and Consuming Type Information"
 tags: [Python]
 catalog: true
@@ -9,7 +9,7 @@ date: 2026-01-25 12:00:00 +0800
 updated: 2026-11-16
 ---
 
-[上篇](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
+[《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)讲了怎么**写**类型：`typing` 工具箱里每个工具表达哪一种类型意图。但写下来的注解在 Python 里默认什么都不发生——解释器只是把它存进 `__annotations__`，不检查、不转换。类型信息要产生作用，得有人**读**它。本篇讲的就是这条链路的中间两段：
 
 - **分发**：写下的注解怎么随包发出去？没有源码注解的库（`torch._C` 这类 C 扩展）怎么提供类型信息？——`.pyi` 存根、typeshed、`types-*`、`py.typed` / PEP 561；
 - **消费**：谁在读注解、什么时候读、读到之后做什么？——静态一侧是 mypy / pyright 在开发时推理与检查；动态一侧是 `get_type_hints()`、`@dataclass` 的代码生成、Pydantic 的元类、beartype 的运行时校验。
@@ -18,7 +18,7 @@ updated: 2026-11-16
 
 > **一条 `x: Tensor | None` 从写下到起作用，经过了哪些环节？静态检查器和运行时框架读到的是同一份信息吗，各自能做什么、不能做什么？[^q0]**
 
-理解了"框架怎么读注解"，[下篇](/python-data-contract-design-dataclass-pydantic-and-settings.html)讨论"**用**这些框架怎么设计数据结构"时，dataclass 与 Pydantic 就不再是两个黑盒，而是同一份注解的两种消费方式。
+理解了"框架怎么读注解"，[《数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)讨论"**用**这些框架怎么设计数据结构"时，dataclass 与 Pydantic 就不再是两个黑盒，而是同一份注解的两种消费方式。
 
 ## 一、总览
 
@@ -483,7 +483,7 @@ reveal_type(identity(42))
 
 类型注解在运行时**默认被忽略**——Python 解释器不会因为 `x: int = "hello"` 而报错。但注解本身是保留在对象上的，任何代码都可以在运行时把它读出来加以利用：有的用来生成代码（`@dataclass`），有的用来生成校验器（Pydantic），有的用来做即时检查（beartype）。
 
-这一节关注的是**机制**：运行时工具通过什么途径拿到注解、在什么时机拿、拿到之后做了什么。至于用这些工具**怎么设计数据结构**（建模、校验、序列化、配置），是[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」的主题。
+这一节关注的是**机制**：运行时工具通过什么途径拿到注解、在什么时机拿、拿到之后做了什么。至于用这些工具**怎么设计数据结构**（建模、校验、序列化、配置），是[《数据契约设计》第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」的主题。
 
 ### 1. isinstance、`__annotations__` 与 get_type_hints()：原生能力
 
@@ -686,7 +686,7 @@ print(type(User))               # <class 'pydantic._internal._model_construction
 print(User.__pydantic_core_schema__ is not None)   # True
 ```
 
-上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[上篇第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。`User` 这个**类对象**是 `ModelMetaclass` 的实例；它能传给接受 `type[BaseModel]` 的函数，则是因为 `User` 是 `BaseModel` 的子类——前者说的是类由谁创建，后者说的是类之间的继承关系。
+上面 `type(User)` 打印出 `ModelMetaclass` 而不是 `type`，正是[《类型表达与 typing 工具箱》第二章](/python-type-expression-and-the-typing-toolbox.html#二类型表达从基础注解到-typing-工具箱) §7 "类的类型是 `type`，自定义元类则是 `type` 的子类"那条规则的直接体现。`User` 这个**类对象**是 `ModelMetaclass` 的实例；它能传给接受 `type[BaseModel]` 的函数，则是因为 `User` 是 `BaseModel` 的子类——前者说的是类由谁创建，后者说的是类之间的继承关系。
 
 > 元类本身的机制（`type` 的三参数形式、`__new__` 的拦截时机、与 `__init_subclass__` 的取舍）在[《Python 动态机制及 AI-Infra 实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)的"元类：控制类的创建过程"一节有完整展开，这里只关注它作为注解消费者的角色。
 
@@ -706,7 +706,7 @@ Table: @dataclass 与 Pydantic BaseModel 消费注解的两条路线
 > [!NOTE] 与 Java 对照：Lombok 与 Bean Validation
 > `@dataclass` 的作用接近 Lombok：根据字段声明补出构造器等方法，不校验值。Pydantic 的位置接近 Hibernate Validator，按声明的约束在运行时校验，但它还会做类型转换和 JSON Schema 生成，不是一一对应。时机也不同：Lombok 在编译期改 AST，`@dataclass` 在 `class` 语句执行完后、运行时生成方法。
 
-> **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见[下篇第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」。
+> **接下来**：这一节讲的是"框架怎么读注解"。至于**用**这些框架怎么设计数据结构——什么时候该用 `dataclass`、什么时候该上 Pydantic、如何做序列化和配置管理——见[《数据契约设计》第二章](/python-data-contract-design-dataclass-pydantic-and-settings.html#二工程落地数据契约设计)「工程落地：数据契约设计」。
 
 
 ### 3. beartype 与其他运行时检查工具
@@ -835,9 +835,9 @@ def __init__(self, config: ModelConfig) -> None:  # 只调用一次
 
 ## 五、本文小结
 
-上篇写下的注解，经过本篇的三段才起作用：**分发**——inline 注解随源码走，C 扩展与无注解的库靠 `.pyi` 存根，`py.typed` 告诉检查器"这个包的注解可信"，typeshed 与 `types-*` 补第三方的缺口；**静态消费**——mypy / pyright 在开发时做推理、收窄与兼容性检查，但只看到"写下来的"，看不到运行时的真实数据；**动态消费**——`__annotations__` / `get_type_hints()` 是原生入口，`@dataclass` 读注解生成代码（把注解当字段清单，不理解语义），Pydantic 用元类在类创建时读注解并编成校验器（理解语义），beartype 在调用时按注解检查。
+[《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)里写下的注解，经过本篇的三段才起作用：**分发**——inline 注解随源码走，C 扩展与无注解的库靠 `.pyi` 存根，`py.typed` 告诉检查器"这个包的注解可信"，typeshed 与 `types-*` 补第三方的缺口；**静态消费**——mypy / pyright 在开发时做推理、收窄与兼容性检查，但只看到"写下来的"，看不到运行时的真实数据；**动态消费**——`__annotations__` / `get_type_hints()` 是原生入口，`@dataclass` 读注解生成代码（把注解当字段清单，不理解语义），Pydantic 用元类在类创建时读注解并编成校验器（理解语义），beartype 在调用时按注解检查。
 
-两侧的分工可以收成一句话：**静态检查管"写得对不对"，运行时校验管"来的数据对不对"**——前者零运行时开销但看不见外部输入，后者看得见外部输入但每次都要付钱。所以边界上用运行时校验、内部靠静态检查，这就是[下篇](/python-data-contract-design-dataclass-pydantic-and-settings.html)数据契约设计的出发点。
+两侧的分工可以收成一句话：**静态检查管"写得对不对"，运行时校验管"来的数据对不对"**——前者零运行时开销但看不见外部输入，后者看得见外部输入但每次都要付钱。所以边界上用运行时校验、内部靠静态检查，这就是[《数据契约设计》](/python-data-contract-design-dataclass-pydantic-and-settings.html)数据契约设计的出发点。
 
 ## 六、自测
 
