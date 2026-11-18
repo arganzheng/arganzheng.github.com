@@ -313,7 +313,7 @@ Table: 本文的章节安排
 - 单位舍入 $$u = 2^{-(M+1)}$$（BF16 是 $$2^{-8}$$，FP32 是 $$2^{-24}$$），machine epsilon $$\varepsilon = 2^{-M}$$（BF16 是 $$2^{-7}$$）。
 - FP16 最大 65504、最小正规数 $$6.1 \times 10^{-5}$$，$$e^x$$ 在 $$x > 11.09$$ 溢出；BF16 / FP32 的阈值是 88.7。
 - 训练状态 16 B/参数（2 + 2 + 4 + 4 + 4）：8B 128.5 GB、70B 1128.9 GB、671B 10.7 TB；V3 配方 13 B/参数（master 与累积梯度仍 FP32、m/v BF16）约 8.7 TB。
-- FP8 分工：E4M3 存权重与激活，E5M2 存梯度。
+- FP8 的常见分工：E4M3 存权重与激活，E5M2 存梯度；DeepSeek-V3 全部用 E4M3。
 - 数值丢失的四个位置：大数吃小数、长求和、指数溢出（softmax 减最大值）、相消（Welford）；QK-norm 把 logit 上界压到 $$\sqrt{d_{head}} \cdot g_q g_k \approx 11.3 g_q g_k$$。
 
 **常见误解**："BF16 精度差所以不如 FP16"——深度学习选范围不选精度。"两个 kernel 结果逐位不同就是 bug"——BF16 GEMM 相对 FP32 参考的逐元素误差在 $$10^{-3}$$ 到 $$10^{-2}$$ 是正常的；差异在 $$\varepsilon$$ 到 $$\varepsilon \sqrt{k}$$ 之间是噪声，大几个数量级或有系统性符号才是 bug。
@@ -372,7 +372,7 @@ Table: "参数量"在各篇里被拆成的几个数
 - 《Attention 变体与 KV cache》里 V3 的 KV 可用 FP8 存成 34.3 KiB。
 - 《MoE 的路由、激活参数量与通信形态》的 dispatch 用 FP8、combine 用 BF16。
 
-《浮点格式、数值稳定性与混合精度》解释这些选择：指数位定范围、尾数位定精度；E4M3 存权重与激活、E5M2 存梯度；V3 的 128 分块与每 128 项提升 FP32 累加是同一个设计。scale 的粒度怎样决定一个离群值拖累多少邻居、FP8 为什么比 INT8 对离群值宽容，属于推理量化，在《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)。
+《浮点格式、数值稳定性与混合精度》解释这些选择：指数位定范围、尾数位定精度；常见分工是 E4M3 存权重与激活、E5M2 存梯度，V3 全部用 E4M3；V3 的 128 分块与每 128 项提升 FP32 累加是同一个设计。scale 的粒度怎样决定一个离群值拖累多少邻居、FP8 为什么比 INT8 对离群值宽容，属于推理量化，在《高效推理与压缩》的[《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)。
 
 "数值决定结构细节"的例子有三个：QK-norm 给 attention logit 加上界、《位置编码与外推》里 YaRN 的 attention 温度、《Attention 变体与 KV cache》里 MLA 的 nope / rope 两段数值范围不同、KV 量化时要分开处理。
 
