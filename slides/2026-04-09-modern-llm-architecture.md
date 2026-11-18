@@ -5,7 +5,7 @@ subtitle: "系列精华 · 十篇正文，按 ↓ 看结构改动与成本"
 permalink: /slides/modern-llm-architecture.html
 series: modern-llm-architecture
 date: 2026-04-09 23:30:00 +0800
-updated: 2026-11-17
+updated: 2026-11-18
 author: arganzheng
 description: "《现代 LLM 结构：从 GPT-2 到今天的演进》系列的分享用幻灯片：结构演进路线图、五处改动与参数量、Roofline、位置编码、KV cache、长上下文、MoE、MTP、投机解码、多模态与浮点格式。"
 theme: white
@@ -39,9 +39,11 @@ $$
 <aside class="notes" markdown="1">
 原文 /gpt2-to-llama-five-changes-and-parameter-count.html；完整路线图见 /llm-architecture-evolution-roadmap-from-gpt2.html。
 结论原文：沿着 GPT-2 的槽位比较现代模型，配置中的五处关键改动解释了 Llama 的结构选择；逐项计数得到 Llama-3-8B 的 **8,030,261,248** 个参数。
+表里的占比是对总参数；只看层内，FFN 占 80.8%（70B 是 82.4%）。词表占比 8B 13%、70B 3%，tied 的 Qwen2.5-0.5B 约 28%。Norm 每 token 约 12 KFLOPs，比一层 GEMM 的 436 MFLOPs 少四个多数量级（约 3.5 万倍）。DeepSeek-V3 所有层约 669B、总 671B。
 </aside>
 
 ---
+
 ## 02 · 前向的算量与访存量：一条 Roofline
 
 **decode 算术强度 ≈ B 远小于 ridge 295——就是 memory-bound**
@@ -50,7 +52,19 @@ $$
 
 <aside class="notes" markdown="1">
 原文 /transformer-flops-bytes-and-roofline.html。T ≥ max(FLOPs / P_peak, Bytes / BW)；ridge H100 295、A100 156、FP8 590。算力增长快于带宽，同一模型同一 batch 在新一代 GPU 上更容易 memory-bound。
-结论原文：每参数每 token 2 FLOPs；decode 每步把 16 GB 权重读一遍、**算术强度在数值上就等于 B**，ridge 是 989 / 3.35 ≈ **295**——这就是「decode 是 memory-bound」的全部含义。
+结论原文：每参数每 token 2 FLOPs；decode 每步把参与 GEMM 的约 15 GB 权重读一遍（驻留 16.06 GB）、**算术强度在数值上就等于 B**，ridge 是 989 / 3.35 ≈ **295**——这就是「decode 是 memory-bound」的全部含义。
+</aside>
+
+<!-- v -->
+
+### 时间下界：访存时间与算力时间取大
+
+![三种工作负载的访存时间与算力时间：较大者是时间下界](/img/in-post/transformer-flops-bytes-and-roofline-time-lower-bound.svg){: style="max-height: 400px"}
+
+**decode 由访存定（B = 1：4.5 ms 对 0.015 ms），prefill 由算力定（8K：142 ms）**
+
+<aside class="notes" markdown="1">
+原文 /transformer-flops-bytes-and-roofline.html 的「时间下界」一章。对数时间轴上每种负载两个点：decode B = 1 访存 4.5 ms、算力 0.015 ms；decode B = 64、8K 上下文访存 25.3 ms、算力 1.25 ms；prefill 8K 访存约 6–9 ms、算力 142 ms。
 </aside>
 
 <!-- v -->
@@ -60,10 +74,10 @@ $$
 | 量 | 数 |
 |---|---|
 | 每 token 权重 FLOPs | 2 × 7.5B = 15.0 G；attention 8K 4.3 G、128K 68.7 G |
-| decode B = 1 | 读 16.06 GB / 3.35 TB/s = **4.8 ms**、208 token/s；算力时间 0.02 ms |
+| decode B = 1 | 读 15.0 GB / 3.35 TB/s = **4.5 ms**、约 220 token/s（按驻留的 16.06 GB 粗算 4.8 ms / 208）；算力时间 0.015 ms |
 | 要 compute-bound | B ≈ 295，但 8K 下这些请求的 KV 要 295 GiB，剩 64 GB 放不下 |
 | KV 读取强度 | 常数 g = 4，不随 B 摊薄；总强度趋于 18 → **单卡任何可行 batch 都 memory-bound** |
-| 真正的约束 | B × s ≤ 52 万 token（64 GB / 128 KiB） |
+| 真正的约束 | B × s ≤ 52 万 token（按 64 GiB 粗算；每 token 128 KiB） |
 | prefill 8K | 因果三角约 140 TFLOP；峰值 0.14–0.16 s 是物理下限，60% MFU 约 0.24–0.27 s |
 
 <!-- v -->
@@ -71,14 +85,14 @@ $$
 
 ### 要点
 
-- 训练 6ND（激活重算 8ND）；激活 $$sbh(34 + 5as/h)$$，8K 时每层 11 GiB 其中 10 GiB 是 s² 项
+- 训练 6ND（激活重算 8ND）；激活 $$sbh(34 + 5as/h)$$，8K 时每层 11 GiB 其中 10 GiB 是 s² 项，32 层 354 GiB，超过四张 H100
 
 <!-- v -->
 
 
 ### 常见误区
 
-- 对 decode，「模型多大」的度量是字节不是 FLOPs：FFN 砍一半下界不变，INT4（量化专题）才降到 1.3 ms
+- 对 decode，「模型多大」的度量是字节不是 FLOPs：INT4（量化专题）FLOPs 不变，下界降到约 1.2 ms
 
 ---
 
@@ -89,8 +103,8 @@ $$
 ![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 水平线 4，NTK-aware 从 1 平滑升到 4，YaRN 高频不动、低频插值、中间过渡](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg){: style="max-height: 380px"}
 
 <aside class="notes" markdown="1">
-原文 /positional-encoding-and-long-context.html。λ_i = 2π · base^(2i/d_head)：base 10000、d_head 128 时从 6.28 到 5.4 万；base 500000 把最低频拉到 256 万，让 128K 可区分，但「见过」仍靠长序列训练。
-结论原文：RoPE 把 $$d_{head}$$ 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。
+原文 /positional-encoding-and-long-context.html。λ_i = 2π · base^(2i/d_head)：base 10000、d_head 128 时从 6.28 到 5.4 万；base 500000 把最低频拉到 256 万，让 128K 可区分，但「见过」仍靠长序列训练（此时 i = 40 的波长约 2.3 万，8K 训练里只转过 0.36 圈）。RoPE 每层算量约 15 KFLOPs，可忽略。
+结论原文：RoPE 把 $$d_{head}$$ 维向量看成 64 对复数，每对以自己的波长旋转；8K 训练时 **14 对低频维度没转完一圈**——推到 32K 出现从未见过的相位。**不是装不下，是没见过。**
 </aside>
 
 ---
@@ -140,16 +154,18 @@ flowchart TB
 
 <!-- v -->
 
-### 物化的 \(S = QK^\top\) 有多大，FlashAttention 省了什么
+### 物化的 $$S = QK^\top$$ 有多大，FlashAttention 省了什么
 
 - 8K 上下文、32 头：每层 $$s \times s$$ 的 logits **4 GiB**（BF16），写出 HBM 再读回
 - FlashAttention：分块 + online softmax，从不物化 S，HBM 流量降到 $$O(s^2 d^2 / M)$$；算量不变
-- 8B 单卡 8K 的最大并发约 **59**、128K 只有 **3**：KV 定并发
+- 8B 单卡放下权重后剩约 64 GB：8K 最大并发 **59**、128K 只有 **3**，KV 定并发
 - MLA 不是免费的：多算 3.4 倍 attention FLOPs、维护两条等价路径、专用 kernel、不能从 MHA checkpoint 直接转换
 
 ---
 
 ## 05 · 长上下文的成本与结构手段
+
+**KV 线性定并发，prefill 的 attention 二次定 TTFT**
 
 | | Llama-3-8B | Llama-3-70B |
 |---|---|---|
@@ -164,11 +180,22 @@ flowchart TB
 
 <!-- v -->
 
+### attention 项何时超过权重项
+
+![每 token 算量随上下文长度的变化：权重项与 attention 项的交叉点](/img/in-post/long-context-cost-attention-vs-weights-crossover.svg){: style="max-height: 400px"}
+
+**权重项是水平线，attention 项随 s 线性涨：8B 在约 28.6K 相交，70B 在约 53.8K**
+
+<aside class="notes" markdown="1">
+原文 /long-context-cost-and-structural-remedies.html 的「每 token 的 attention 算量与权重算量的交叉点」一节。8B：权重 15.0 GFLOPs，attention 128K 时 68.7；70B：权重 141，attention 128K 时 344。H100 放下 8B 权重后剩约 64 GB（59.5 GiB），8K 可放 59 个请求、128K 放 3 个。
+</aside>
+
+<!-- v -->
 
 ### 要点
 
-- 滑窗使 KV / 单步 attention 为 \(O(W)\)，整段 prefill 为 \(O(sW)\)（Mistral \(W=4096\)）但丢信息；sink + 滑窗保留开头 4 个 token
-- 交错局部 / 全局把系数变 \(1/k\)；MLA 减系数不减阶——两者正交可叠加
+- 滑窗使 KV / 单步 attention 为 $$O(W)$$，整段 prefill 为 $$O(sW)$$（Mistral $$W=4096$$）但丢信息；sink + 滑窗保留开头 4 个 token
+- 交错局部 / 全局把系数变 $$1/k$$；MLA 减系数不减阶——两者正交可叠加
 - 对 Infra：KV 定并发、二次项定 TTFT、chunked prefill 防一条 128K 请求独占 GPU 11 s
 
 ---
@@ -199,16 +226,23 @@ flowchart TB
 
 **总参数定显存、激活定算力、读到的专家定带宽——稀疏没省访存**
 
-| DeepSeek-V3，256 专家取 top-8 | B = 1 | B = 32 | B = 128 |
-|---|---|---|---|
-| 期望激活专家数 $$E[1 - (1 - k/E)^B]$$ | 8 | **163** | 252 |
-| 每步读取的专家参数（FP8） | 37 GB | **434 GB** | 660 GB |
-| 对比 dense 70B（BF16） | 141 GB | 141 GB | 141 GB |
+![DeepSeek-V3 的总参数量、每步读取量与激活参数量（同一比例尺），与 Llama-3-70B 对比](/img/in-post/moe-compute-and-communication-three-numbers-bars.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
 原文 /moe-compute-and-communication.html。Mixtral 8x7B：8 × 14336 取 top-2，总 46.7B、激活 12.9B，B = 8 就几乎读全部。V3 每专家 44.04M，58 个 MoE 层 + 1 共享专家。
 结论原文：**总参数定显存**（671B，FP8 也放不进 8 卡 640 GB）、**激活参数定 FLOPs**（37B，是 70B 的一半）、**每步实际读取的参数定 decode 带宽**——中等 batch 下几乎读全部专家，稀疏省了算量没省访存。
+图：同一比例尺的横条，每条左端约 17B 是每步必读的非路由专家部分。每步读取 B = 1 时 37.6B、B = 8 时 164B（激活的 4.4 倍）、B = 32 时 434B（11.6 倍）、B = 128 时 660B；Llama-3-70B 三个数都是 70.55B。434B 对 dense 70B：按参数 6.2 倍，按字节（FP8 434 GB 对 BF16 141 GB）3 倍。
 </aside>
+
+<!-- v -->
+
+### 数字：读到的专家随 batch 涨
+
+| DeepSeek-V3，256 专家取 top-8 | B = 1 | B = 8 | B = 32 | B = 128 |
+|---|---|---|---|---|
+| 期望激活专家数 $$E[1 - (1 - k/E)^B]$$ | 8 | 57.4 | **163** | 252 |
+| 每步读取的参数（FP8，1 B/参数） | 37.6 GB | 164 GB | **434 GB** | 660 GB |
+| 对比 dense 70B（BF16） | 141 GB | 141 GB | 141 GB | 141 GB |
 
 <!-- v -->
 
@@ -233,10 +267,22 @@ flowchart LR
 
 <!-- v -->
 
+### TP 切矩阵，EP 分专家
+
+![TP-4 与 EP-4 两种切法下每张卡持有的专家权重](/img/in-post/moe-compute-and-communication-tp-vs-ep-layout.svg){: style="max-height: 400px"}
+
+**TP 下每张卡仍要读全部专家的切片；EP 下每张卡只读自己的专家**
+
+<aside class="notes" markdown="1">
+原文 /moe-compute-and-communication.html 的「EP 与 TP 的对比」一节。4 个专家、4 张卡：TP-4 把每个专家的矩阵沿 f 维切成 4 条，每卡持有全部 4 个专家各 1/4 宽的切片；EP-4 矩阵不切，每个 rank 持有 1 个完整专家。对 V3，TP-8 把 2048 宽的专家切成 256 列，GEMM 太瘦。
+</aside>
+
+<!-- v -->
+
 ### 部署为什么难：EP 与 all-to-all
 
 - 出路是专家并行（EP32 每卡约 37 GB、EP320 每卡 19.6 GB，简化模型），代价：
-  - 每层**两次 all-to-all**：每 token 每层 dispatch FP8 56 KiB + combine BF16 112 KiB，是 TP-8 all-reduce 的 6.7 倍；4096 token 的 prompt 58 层共 38 GiB
+  - 每层**两次 all-to-all**：每 token 每层 168 KiB（= 8 × 7168 × 3 字节：dispatch FP8 56 KiB + combine BF16 112 KiB），是 TP-8 all-reduce 的 6.7 倍；4096 token 的 prompt 58 层共 38 GiB
   - 每专家 GEMM 只有 $$Tk/E$$ 行，强度比 dense 低 E/k = 32 倍，过 ridge 需一层里约 9600 个 token
   - 最慢的卡决定全层时间 → 节点受限路由（每 token 最多 4 个节点）、aux-loss-free 均衡、冗余专家
 - TP-8 不行：把 2048 宽的专家切成 256 列太瘦，且不减少每卡读的专家数
@@ -245,7 +291,7 @@ flowchart LR
 
 ## 07 · MTP：改训练目标而不改主干
 
-**多预测一位信号密度 ×(1+D)；推理时丢弃或当投机 draft**
+**额外预测 D 个 token，信号是 1 + D 倍；推理时丢弃或当投机 draft**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 220}}}%%
@@ -260,7 +306,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /multi-token-prediction-mtp.html。自有参数：2 个 RMSNorm + 2d→d 投影 + 1 个 block，约 11.5B，占 671B 的 1.7%；λ 0.3 → 0.1。
-结论原文：每个位置额外预测 $$t_{i+2}$$，信号密度 ×(1 + D)，主干被逼编码更远的未来；模块**顺序**喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
+结论原文：每个位置额外预测 $$t_{i+2}$$（D 是额外预测的 token 数，这里 D = 1），信号是 1 + D 倍，主干被逼编码更远的未来；模块**顺序**喂真实 $$t_{i+1}$$ 保持因果链（teacher forcing 的延伸）；推理时**丢弃**或当投机 draft。
 </aside>
 
 <!-- v -->
@@ -289,6 +335,7 @@ flowchart LR
 - 「MTP 头 loss 更低所以更强」——条件不同；「小模型没收益所以无效」——规模依赖
 
 ---
+
 ## 08 · 投机解码：草稿、验证与收益条件
 
 **一次前向验证 γ 个草稿——分布严格等于目标模型**
@@ -297,7 +344,7 @@ flowchart LR
 |---|---|---|
 | 期望产出 | $$(1-\alpha^{\gamma+1})/(1-\alpha)$$：α=0.8、γ=4 → 3.36 token | γ 越大增量越小，草稿成本线性涨 |
 | 加速比 | $$\mathbb{E}[\text{tokens}]/(\gamma c + 1)$$：c=0.1 → 2.4×，c=0.02 → 3.1× | 前提是验证 γ+1 个与验证 1 个同样贵 |
-| 转折 batch | ridge/(γ+1) ≈ 60；60% MFU 下 B=64 掉到 1.6、B=128 低于 1 | 完全 compute-bound 时 3.36/5.4 ≈ 0.62 |
+| 转折 batch | ridge/(γ+1) ≈ 60：B=64 时 T(5B) = 4.86 ms，刚过转折；60% MFU 下 B=64 掉到 1.6、B=128 低于 1 | 完全 compute-bound 时 3.36/5.4 ≈ 0.62 |
 | 草稿来源 | 独立小模型、Medusa、EAGLE、n-gram、MTP 模块（α≈0.85–0.9，1.8×） | 改 α 与 c，改不了收益区间 |
 
 Table: 投机解码的正确性、收益与边界
@@ -322,21 +369,33 @@ Table: 投机解码的正确性、收益与边界
 
 <!-- v -->
 
+### 21 MiB 与 428 MiB 为什么同时成立
+
+![一张图在一次请求里的时间线：image token 的 embedding 与 KV 各活多久](/img/in-post/multimodal-vision-encoder-cost-and-image-token-kv-lifetime.svg){: style="max-height: 400px"}
+
+**encoder 输出 21 MiB 活到 prefill 结束；KV 428 MiB 活到请求结束**
+
+<aside class="notes" markdown="1">
+原文 /multimodal-vision-encoder-cost-and-image-token-kv.html 的「三个数量级的对比」一节（70B 规格 decoder，1024² 一张图）。三个阶段：encoder 12 ms、decoder prefill 192 ms（190 TFLOP，H100 峰值）、decode 几秒到几十秒。条的高度与字节数成正比，时间轴未按比例。这句话是对驻留显存与并发容量说的；对首 token 延迟，encoder 的十几毫秒与 image token 的 prefill 都要算。
+</aside>
+
+<!-- v -->
+
 ### 三段各一笔账（70B 规格，1024² 一张图）
 
 | 段 | 账 | 数 |
 |---|---|---|
-| vision encoder（0.63B ViT，5476 patch） | $$2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}$$ | 11.8 TFLOP，attention 二次项占 42%；一次性 |
+| vision encoder（0.63B ViT，5476 patch） | $$2N_{vit}n_p + 4L_{vit}n_p^2 d_{vit}$$ | 11.8 TFLOP，attention 二次项占 42%（CLIP ViT-L/14-336 只占 9%）；一次性 |
 | connector | 决定 token 数 | MLP 不压缩 576 · 2×2 merge 1369 · resampler 定长；同一张图 576–6404 差 11 倍 |
-| decoder | prefill + KV | 193 TFLOP；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
+| decoder | prefill + KV | 190 TFLOP（H100 峰值约 192 ms）；**KV 428 MiB**，是 encoder 输出 21 MiB 的 **20 倍** |
 
 <!-- v -->
 
 
 ### 要点
 
-- 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8
-- cross-attention 注入（Llama 3.2 Vision）用 0.5B 参数换序列长度，图片 KV 800 → 200 MiB
+- 比值 $$2Ln_{kv}d_{head}/d_{model}$$：70B 20、8B 16、Qwen2-VL-7B 8（1369 token 的 KV 75 MiB）
+- cross-attention 注入（Llama 3.2 Vision）用 1.75B 参数换序列长度，图片 KV 800 → 200 MiB
 - 一分钟 720p 1 fps 视频 35,880 token；按像素预算，不按张数
 
 ---
@@ -378,7 +437,7 @@ Table: 投机解码的正确性、收益与边界
 
 ### 要点
 
-- 训练状态 **16 B / 参数**（bf16 权重 2 + 梯度 2 + fp32 主权重 4 + Adam m、v 8）：8B 128 GB、70B 1.1 TB、671B 10.7 TB
+- 训练状态 **16 B / 参数**（bf16 权重 2 + 梯度 2 + fp32 主权重 4 + Adam m、v 8）：8B 128.5 GB、70B 1128.9 GB、671B 10.7 TB
 - FP8 分工：E4M3 存权重与激活、E5M2 存梯度；V3 每 128 项提升到 FP32 累加，与 1 × 128 / 128 × 128 的分块 scale 对齐
 
 <!-- v -->
@@ -388,7 +447,7 @@ Table: 投机解码的正确性、收益与边界
 | 位置 | 例子 | 对策 |
 |---|---|---|
 | 大数吃小数 | 1.0 + 0.001 in BF16 | FP32 master weights |
-| 长求和 | k = 4096 的点积在 BF16 累加噪声 ε√k ≈ 25% | FP32 累加器 |
+| 长求和 | k = 4096 的点积在 BF16 中累加：噪声估计 u√k = 25%，高斯输入实测 7.2% | FP32 累加器 |
 | 指数溢出 | softmax 的 e^x，x > 11 在 FP16 溢出 | 减最大值 |
 | 相消 | 方差 = E[x²] − E[x]² | Welford |
 
@@ -398,6 +457,7 @@ Table: 投机解码的正确性、收益与边界
 ### 要点
 
 - 两个 kernel 的差异在 ε 到 ε√k 之间是噪声（BF16 GEMM 相对 FP32 参考 10⁻³–10⁻²）；大几个数量级或有系统性符号才是 bug
+- 单位舍入 $$u = 2^{-(M+1)}$$（BF16 是 2⁻⁸），machine epsilon $$\varepsilon = 2^{-M}$$（BF16 是 2⁻⁷）
 - QK-norm 把 attention logit 上界压到 $$\sqrt{d_{head}}\,g_q g_k \approx 11.3\,g_q g_k$$
 
 ---
@@ -424,11 +484,10 @@ flowchart TB
 
 <!-- v -->
 
-### 五条贯穿线
+### 四条贯穿线
 
 | 线 | 落点 |
 |---|---|
-| 一份代码 | 原理系列 01 六步手算 → 02 极小 GPT → 03 nanoGPT → 04 训起来；现代系列 01/02/04/06/07/08 在这些基线上逐项展开 |
 | 一条 Roofline | $$I_{weight} = B$$、$$I_{KV} = g$$；MLA 把 g 抬到 242；MoE 专家强度 Tk/E；投机转折 ridge/(γ+1)（量化专题的 W4A16 在 ridge/4） |
 | KV 与上下文 | 128 KiB/token 打开成四个乘子；B × s ≤ 显存 / KV；长上下文贵在 HBM 字节数不在调度 |
 | 「参数量」拆成几个数 | N → N_gemm 7.5B → 总 / 激活 / 每步读取 → bytes/param 推理 2、训练 16（4.25 bit 与可训练 0.52% 在两个专题） |
@@ -459,6 +518,7 @@ flowchart TB
 {: .fragments}
 
 ---
+
 ## 十篇的出口公式
 
 | 篇 | 一个公式 / 一个数 |
@@ -472,7 +532,7 @@ flowchart TB
 | 07 | $$\mathcal L_{main} + \lambda\bar{\mathcal L}_{MTP}$$；接受率 85–90%、1.8 倍 |
 | 08 | $$(1-\alpha^{\gamma+1})/(1-\alpha)$$ = 3.36；转折 ridge/(γ+1) ≈ 60 |
 | 09 | $$n_{img} = \lceil H/28\rceil\lceil W/28\rceil$$；KV / encoder 输出 = 20 |
-| 10 | BF16 单位舍入 2⁻⁸；16 B / 参数；ε√k |
+| 10 | BF16 单位舍入 2⁻⁸；16 B / 参数；累加噪声 u√k |
 
 ---
 
@@ -480,10 +540,10 @@ flowchart TB
 
 - **往前**：《深度学习基础》——反向传播、初始化 / 归一化 / 残差、优化器、RNN 到 attention 的来历
 - **往后（算法）**：《预训练》——tokenizer、scaling law、数据工程、训练配方
-- **往后（算法）**：《高效推理与压缩》——量化（第 02 篇 Roofline 的收益区间在它的第 03 篇）、投机解码的草稿怎么训；《LoRA 专题》——参数高效微调的四本账
-- **往后（Infra）**：《大模型推理系统揭秘》——把第 02 篇的 Roofline 变成 vLLM 的调度；《大规模训练工程》——把 16 B / 参数切到多卡
+- **往后（算法）**：《高效推理与压缩》——《训练后量化》用本系列的 Roofline 给量化划收益区间，《投机解码：草稿、接受率与树》讲草稿怎么训；《LoRA 专题》——参数高效微调的四本账
+- **往后（Infra）**：《大模型推理系统揭秘》——把《前向的算量与访存量》的 Roofline 变成 vLLM 的调度；《大规模训练工程》——把 16 B / 参数切到多卡
 - 系列总纲：`/llm-architecture-evolution-roadmap-from-gpt2.html`；通关自测在系列总结
 
 <aside class="notes" markdown="1">
-系列总结 /transformer-and-llm-series-recap-and-self-test.html：A 判断与计算 15 题、B 跨篇综合 5 题、C 面试题 7 题。
+系列总结 /transformer-and-llm-series-recap-and-self-test.html：A 判断与计算 11 题、B 跨篇综合 5 题、C 面试题 8 题。
 </aside>
