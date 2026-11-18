@@ -5,13 +5,13 @@ title: "现代 LLM 结构（03）：位置编码与外推"
 subtitle: "Positional Encoding and Extrapolation: RoPE Wavelengths and Context Extension"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 date: 2026-04-03 14:00:00
 ---
 
-> **本篇在系列中的位置。** 现代 LLM 结构系列的第三篇，也是第一个结构专项。第 01 篇只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推（在比训练时更长的序列上推理）为什么失败、各种长度扩展方法改了什么。下一篇的 MLA 要把 RoPE 从低秩压缩里解耦出来，需要这里的结论；上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在第 05 篇。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
+> **本篇在系列中的位置。** 现代 LLM 结构系列的第三篇，也是第一个结构专项。[《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)只讲到 RoPE 为什么替代位置表，本篇讲位置编码本身：RoPE 的推导与波长、外推（在比训练时更长的序列上推理）为什么失败、各种长度扩展方法改了什么。下一篇[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)的 [MLA](# "tip: Multi-head Latent Attention，DeepSeek-V2 / V3 的 attention 变体：把 K、V 压成一个低维 latent 再缓存") 要把 RoPE 从低秩压缩里解耦出来，需要这里的结论；上下文拉长之后的成本（KV cache、二次项 attention）与 sliding window 等结构手段在[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。完整地图见[总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
-[《Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token》](/transformer-architecture-from-a-sentence-to-the-next-token.html)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量。Llama 换成了 RoPE，没有表，也就没有写死的行数，但这不等于它能处理任意长度：模型凭什么知道一个 token 在第几个位置？超过训练长度之后它还认不认得？
+《Transformer 原理与实现》系列[《Transformer 长什么样》的「位置 embedding」一章](/transformer-architecture-from-a-sentence-to-the-next-token.html#六位置-embedding告诉模型这是第几个-token)的换序实验说明 attention 是集合运算——把输入 token 打乱，输出只是跟着换位置——所以位置必须显式喂给模型；GPT-2 的做法是查一张位置表，表的行数就是它的上下文长度 1024，上限写死在参数里，第 1025 个位置没有训练过的向量。Llama 换成了 RoPE，没有表，也就没有写死的行数，但这不等于它能处理任意长度：模型凭什么知道一个 token 在第几个位置？超过训练长度之后它还认不认得？
 
 这两个问题都由位置编码回答。它在参数量表里几乎不占位置（RoPE 一个参数都没有），在算量表里也可以忽略（一次逐元素乘加），却决定了模型在多长的序列上还"认得"位置。
 
@@ -21,19 +21,72 @@ date: 2026-04-03 14:00:00
 
 ## 一、总览：位置编码与上下文长度是什么关系
 
+RoPE 没有位置表，位置信息是算出来的：序号乘上一组固定频率得到相位，q、k 各按自己的相位旋转，做内积时两个相位相减，只剩相对距离。下图把这条链画出来，并标出序列超过训练长度时哪一环出问题、各种扩展方法各改哪一环：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：位置信息从序号到 attention 分数的链路，以及各种扩展方法改的是哪一环
+flowchart TB
+    PI["<b>Position Interpolation（第五章）</b><br/>位置除以 factor，压回训练范围"]
+    NTK["<b>换 base（第四、五章）</b><br/>NTK-aware、Llama 3 的 base 500000：低频端波长拉长"]
+    YARN["<b>YaRN、Llama 3.1（第五章）</b><br/>按波长分三段改频率；YaRN 另加温度修正"]
+    POS["<b>位置 m、n</b><br/>token 在序列里的序号，训练时最大到 L − 1"]
+    FREQ["<b>频率表（第三章）</b><br/>$$\theta_i = \text{base}^{-2i/d_{head}}$$，共 64 对<br/>波长 $$\lambda_i = 2\pi/\theta_i$$：6.28 到 5.4 万（第四章）"]
+    PHASE["<b>相位（第三章）</b><br/>$$m\theta_i$$：cos / sin 表里位置 m 的那一行"]
+    ROT["<b>旋转后的 q、k（第三章）</b><br/>$$R_m q$$ 用完即丢，$$R_n k$$ 写进 KV cache"]
+    SCORE["<b>attention 分数（第三章）</b><br/>内积里只剩 $$(m-n)\theta_i$$，只认相对距离"]
+    OOD["<b>超出训练长度（第四章）</b><br/>m − n 超过 L 后，波长大于 L 的低频对转到没见过的相位，分数失真"]
+    ALIBI["<b>ALiBi（第五章）</b><br/>不旋转，分数直接减 $$\mu_h (m-n)$$"]
+    PI -. "改位置" .-> POS
+    NTK -. "改 base" .-> FREQ
+    YARN -. "改各对的频率" .-> FREQ
+    POS --> PHASE
+    FREQ --> PHASE
+    PHASE --> ROT
+    ROT --> SCORE
+    SCORE --> OOD
+    YARN -. "分数除以温度 t" .-> SCORE
+    ALIBI -. "另一条路" .-> SCORE
+```
+
+- **位置 m、n**：token 的序号。训练长度为 $$L$$ 时，模型见过的相对距离 $$m - n$$ 最大是 $$L - 1$$。
+- **频率表**：$$d_{head} = 128$$ 维切成 64 对，第 $$i$$ 对的角频率 $$\theta_i = \text{base}^{-2i/d_{head}}$$，只由 base 和 $$d_{head}$$ 决定，没有可学习参数（[第三章](#三rope-的推导)）。换成波长 $$\lambda_i = 2\pi/\theta_i$$ 看，base 10000 时从 6.28 个 token 到 5.4 万个 token（[第四章](#四波长rope-的频谱)）。
+- **相位**：位置 $$m$$ 在第 $$i$$ 对上的转角 $$m\theta_i$$。实现里是 cos / sin 两张表，按位置取一行（[「实现：rotate_half 与 cos/sin 缓存」一节](#3-实现rotate_half-与-cossin-缓存)）。
+- **旋转后的 q、k**：q 按自己的位置 $$m$$ 转，k 按自己的位置 $$n$$ 转，互不依赖。k 只在写入 KV cache 时转一次，之后带着位置留在缓存里（[「RoPE 与 KV cache 的关系」一节](#4-rope-与-kv-cache-的关系)）。
+- **attention 分数**：两个旋转相乘，角度相减，内积里只剩 $$(m - n)\theta_i$$（[「相对性的完整形式」一节](#2-相对性的完整形式)）。
+- **超出训练长度**：$$L = 8192$$ 时波长大于 8192 的 14 对在训练里没转完一圈，推 32K 时它们转到从未见过的相位（[「为什么外推失败」一节](#3-为什么外推失败)）。
+- **Position Interpolation**：改的是位置，$$m \to m/\text{factor}$$，64 对一起被压缩（[第五章第 1 节](#1-position-interpolation把位置压回训练范围)）。
+- **换 base**：改的是频率表的生成参数。NTK-aware 把 base 乘上 $$\text{factor}^{d/(d-2)}$$（[第五章第 2 节](#2-ntk-aware-插值改-base-而不是改位置)）；Llama 3 直接用 base 500000 预训练（[第四章第 4 节](#4-base-10000--500000-解决了什么没解决什么)）。
+- **YaRN、Llama 3.1**：按波长把 64 对分成不动、线性混合、完全插值三段，逐对改 $$\theta_i$$；YaRN 另把分数除以温度 $$t$$，抵消长序列下 softmax 被摊薄（[第五章第 3 节](#3-yarn按波长分三段再修正温度)、[第 4 节](#4-llama-31-的分段缩放)）。
+- **ALiBi**：不走这条链，q、k 不带位置，直接在分数上减一个与距离成正比的惩罚（[第五章第 6 节](#6-alibi不旋转直接加线性惩罚)）。
+
+链上几样东西何时算出来、存在哪里、带不带位置，容易混在一起，尤其是「缓存里的 K 带不带位置」：
+
+| 对象 | 什么时候算 | 存在哪里、活多久 | 参数量 / 显存 |
+|---|---|---|---|
+| 频率表 $$\theta_i$$（HF 代码里的 `inv_freq`） | 模型加载时，由 `rope_theta`（base）、$$d_{head}$$ 和 `rope_scaling` 算一次 | 64 个数的 buffer，所有层共用；不写进 checkpoint | 0 参数，显存可忽略 |
+| cos / sin 表 | 引擎启动时按最大长度预计算，或每次前向按位置现算（因实现而异） | 预计算时常驻显存，所有层、所有请求共用 | 0 参数；$$L_{max} = 131072$$、BF16 时两张各 32 MiB |
+| 旋转后的 q | 每次前向、每一层，Q 投影之后 | 临时张量，这一层的 attention 算完就释放 | 不进 KV cache |
+| 旋转后的 k | 这个 token 第一次经过这一层时，转一次 | KV cache，活到请求结束 | 计入 KV cache；位置 $$n$$ 已经在数值里，后来的 query 不再对它做位置运算 |
+| v | 同 k，但不旋转 | KV cache，活到请求结束 | 计入 KV cache；不带位置 |
+| `rope_scaling` 配置 | 写在 `config.json` 里 | 加载时用来改频率表，之后不再变（Dynamic NTK 例外，见[第五章第 2 节](#2-ntk-aware-插值改-base-而不是改位置)） | 0 参数 |
+| 对照：GPT-2 的位置表 `wpe` | 训练学出来 | checkpoint 里的一个参数矩阵 | $$1024 \times 768 = 786{,}432$$ 个参数；行数就是长度上限 |
+
+Table: RoPE 链路上各对象的计算时机、存放位置与开销
+
 ### 1. 先把因果说清楚
 
 位置编码和长上下文常被放在一起讲，但两者不是"一个为另一个而生"的关系：
 
-- **位置编码解决的是顺序问题，不是长度问题。** 不加位置与掩码的 attention 对置换等变（第二章），位置编码是为了让"猫追狗"和"狗追猫"得到不同的表示；就算模型只处理 100 个 token，它也必须有。
-- **它约束的是位置能否外推，但不是长上下文能力的全部。** 位置方案决定模型在训练长度之外还认不认得位置：可学习位置表的行数就是硬上限（GPT-2 的 1024）；RoPE 没有表，没有硬上限，但超过训练长度后可能遇到未覆盖的相位与距离分布，效果不能保证（第四章）。Position Interpolation、NTK-aware、YaRN、Llama 3.1 的分段缩放都是在改 RoPE 的频率，让"见过的相位"覆盖更长的序列（第五章）。
-- **另一组问题是"用得起吗"——这些成本并不因换位置编码而消失。** 上下文拉长后，KV cache 线性增长、prefill 的 attention 算量二次增长、$$s \times s$$ 的 logits 不能物化；sliding window、全局/局部交错、attention sink、稀疏 attention 改的是 attention "看哪些 token"，与位置怎么编码无关。这组问题是下一篇[《现代 LLM 结构（04）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)的内容。
+- **位置编码解决的是顺序问题，不是长度问题。** 不加位置与掩码的 attention 对置换等变（[第二章](#二为什么需要位置编码)），位置编码是为了让"猫追狗"和"狗追猫"得到不同的表示；就算模型只处理 100 个 token，它也必须有。
+- **它约束的是位置能否外推，但不是长上下文能力的全部。** 位置方案决定模型在训练长度之外还认不认得位置：可学习位置表的行数就是硬上限（GPT-2 的 1024）；RoPE 没有表，没有硬上限，但超过训练长度后可能遇到未覆盖的相位与距离分布，效果不能保证（[第四章](#四波长rope-的频谱)）。Position Interpolation、NTK-aware、YaRN、Llama 3.1 的分段缩放都是在改 RoPE 的频率，让"见过的相位"覆盖更长的序列（[第五章](#五长上下文扩展方法)）。
+- **另一组问题是"用得起吗"——这些成本并不因换位置编码而消失。** 上下文拉长后，KV cache 线性增长、prefill 的 attention 算量二次增长、$$s \times s$$ 的 logits 不能物化；sliding window、全局/局部交错、attention sink、稀疏 attention 改的是 attention "看哪些 token"，与位置怎么编码无关。这组问题是[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)的内容。
 
 所以本篇只回答位置这一部分：位置怎么编码、为什么 RoPE 能处理相对位置、它的外推为什么失败、各种扩展方法各改了什么。
 
 ### 2. 数字基线
 
-数字基线与前几篇相同：Llama-3-8B（$$d = 4096$$，32 层，32 个 query 头、8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 个 query 头、8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$）。
+数字基线与[《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)、[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)相同：Llama-3-8B（$$d = 4096$$，32 层，32 个 query 头、8 个 KV 头，$$d_{head} = 128$$）、Llama-3-70B（$$d = 8192$$，80 层，64 个 query 头、8 个 KV 头）、DeepSeek-V3（$$d = 7168$$，61 层，128 头，MLA 的 $$d_c = 512$$、$$d_h^R = 64$$）。
 
 ### 3. 本文的章节安排
 
@@ -45,7 +98,7 @@ date: 2026-04-03 14:00:00
 | 五 | 长上下文扩展方法 | Position Interpolation、NTK-aware、YaRN、Llama 3.1 分段缩放、DeepSeek-V3/Qwen 的配置、ALiBi |
 | 六 | 实践 | NumPy 实现 RoPE 并验证相对性、波长表与三种缩放 |
 | 七 | 本文小结 |  |
-| 八 | 自测 | 3 道题 |
+| 八 | 自测 | 6 道题 |
 
 Table: 本文的章节安排
 
@@ -53,7 +106,19 @@ Table: 本文的章节安排
 
 ### 1. attention 是置换等变的（在没有 mask 时）
 
-单个 attention 头的计算是：
+先用三个 token 算一遍。取二维向量：猫 $$= (2, 0)$$、追 $$= (0, 2)$$、狗 $$= (2, 1)$$，令 $$W_Q = W_K = W_V = I$$（q、k、v 都等于输入向量本身），分数不除 $$\sqrt{d_{head}}$$。「猫」看三个 token 的分数是内积 $$4, 0, 4$$（对猫、追、狗），softmax 后权重 $$0.495, 0.009, 0.495$$，输出是三个 v 的加权和 $$(1.982, 0.514)$$。把两种词序、有无因果掩码的结果都算出来：
+
+| token | 输入向量 | 无 mask：「猫追狗」 | 无 mask：「狗追猫」 | causal mask：「猫追狗」 | causal mask：「狗追猫」 |
+|---|---|---|---|---|---|
+| 猫 | $$(2, 0)$$ | $$(1.982, 0.514)$$ | $$(1.982, 0.514)$$ | $$(2.000, 0.000)$$ | $$(1.982, 0.514)$$ |
+| 追 | $$(0, 2)$$ | $$(0.266, 1.851)$$ | $$(0.266, 1.851)$$ | $$(0.036, 1.964)$$ | $$(0.238, 1.881)$$ |
+| 狗 | $$(2, 1)$$ | $$(1.930, 0.776)$$ | $$(1.930, 0.776)$$ | $$(1.930, 0.776)$$ | $$(2.000, 1.000)$$ |
+
+Table: 三个 token 换序前后各自的 attention 输出
+
+没有 mask 时，每个 token 的输出在两种词序下完全相同：「猫」不管排第一还是第三，面对的都是同一组 {猫, 追, 狗}。谁追谁，从输出里看不出来。加上 causal mask 后三行都变了：排第一的 token 只看得到自己，输出就是自己的向量。
+
+一般情形的推导如下。单个 attention 头的计算是：
 
 $$
 \text{Attn}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_{head}}}\right) V
@@ -67,7 +132,7 @@ $$
 
 输出只是原输出的同样置换——这叫**置换等变**（输出跟着输入一起换位；"不变"是输出完全不动，那是对集合做 pooling 才有的性质）。换句话说，attention 把输入看作一个**集合**而不是序列：第 $$m$$ 个 token 的输出只取决于"其他 token 是什么"，与"它们在哪里"无关。FFN 是逐 token 的，RMSNorm 也是逐 token 的，所以整个 Transformer block 都是置换等变的。
 
-上面的推导有一个前提：**没有 mask**。加上因果掩码之后等变性就不再成立——固定的下三角 mask 在行置换下不再是下三角，第 $$m$$ 个位置能看到多少个 token 本身就泄露了它的序号（用 NumPy 验证：无 mask 时置换输入、输出最大差 $$10^{-7}$$；加 causal mask 后差 0.73）。所以严格说，causal 模型即便不加任何位置编码也能从"能看见几个"里学到一些顺序信息（确实有 NoPE 的实验），只是这种信号很弱、不显式、外推性差。
+上面的推导有一个前提：**没有 mask**。加上因果掩码之后等变性就不再成立——固定的下三角 mask 在行置换下不再是下三角，第 $$m$$ 个位置能看到多少个 token 本身就泄露了它的序号（上表后两列：同一个「猫」排第一时输出 $$(2, 0)$$，排第三时输出 $$(1.982, 0.514)$$）。所以严格说，causal 模型即便不加任何位置编码也能从"能看见几个"里学到一些顺序信息（确实有 NoPE，即 No Positional Encoding、不加位置编码的实验），只是这种信号很弱、不显式、外推性差。
 
 要让模型稳定地读懂"猫追狗"和"狗追猫"的区别，位置信息还是要显式注入。注入的方式分为两大类。
 
@@ -93,7 +158,10 @@ $$
 \text{score}(m, n) = \frac{q_m^\top k_n}{\sqrt{d_{head}}} + b_{m - n}
 $$
 
-T5 把 $$m - n$$ 分桶（距离越远桶越粗），每个桶每个 head 学一个标量。这类方法天然只依赖相对距离，但有两个工程上的代价：一是 bias 项 $$b_{m-n}$$ 是一个 $$s \times s$$ 的矩阵，要么显式物化，要么在 kernel 里逐元素查表，与 FlashAttention 一类的 fused kernel 配合并不顺手；二是它只能给 attention 分数加偏置，不能让 q、k 的内容与位置发生交互（"第 3 个位置上的名词"这样的联合特征无法表达）。
+T5 把 $$m - n$$ 分桶（距离越远桶越粗），每个桶每个 head 学一个标量。这类方法天然只依赖相对距离，但有两个工程上的代价：
+
+1. bias 项 $$b_{m-n}$$ 是一个 $$s \times s$$ 的矩阵，要么显式物化，要么在 kernel 里逐元素查表，与 FlashAttention 一类的 fused kernel 配合并不顺手。
+2. 它只能给 attention 分数加偏置，不能让 q、k 的内容与位置发生交互（"第 3 个位置上的名词"这样的联合特征无法表达）。
 
 RoPE 的目标是同时拿到两边的好处：**以绝对位置的形式实现**（每个 token 独立处理自己的 q、k，不需要 $$s \times s$$ 的额外矩阵），**得到相对位置的性质**（$$q_m^\top k_n$$ 只依赖 $$m - n$$）。
 
@@ -163,6 +231,9 @@ $$
 
 其中 $$q_i$$、$$k_i$$ 是第 $$i$$ 对对应的复数（旋转之前的内容）。这个式子里 $$m$$、$$n$$ 只以差的形式出现，所以 RoPE 给出的 attention 分数严格只依赖相对位置。同时它是对 q、k **逐 token 独立**施加的：算 $$q_m$$ 时只需要知道 $$m$$，不需要知道任何其他 token 的位置。这就是"以绝对位置的实现得到相对位置的性质"。
 
+> [!NOTE] Java 经验参照：各自打时间戳，比较时只看差
+> 用 `System.nanoTime()` 给事件打戳时，每个事件只读自己那一刻的时钟，不需要知道别的事件；读数本身没有意义（起点任意），两次读数相减才有意义，进程晚启动一小时，差值不变。RoPE 对 q、k 做的是同一件事：各自按自己的位置转，内积只依赖位置差，整体平移后不变。对不上的有两处：`nanoTime` 的差是一个标量，RoPE 的差是 64 个频率各不相同的转角；转角有周期，第 $$i$$ 对在距离相差 $$\lambda_i$$ 的整数倍时读数相同，要 64 对合起来才能区分——只看秒针分不出 1 分 05 秒和 2 分 05 秒，要连分针一起看。
+
 用实数矩阵写，位置 $$m$$ 的旋转是一个分块对角矩阵 $$R_m$$，每块是二维旋转：
 
 $$
@@ -171,7 +242,7 @@ $$
 
 旋转矩阵满足 $$R_m^\top R_n = R_{n - m}$$，所以 $$(R_m q)^\top (R_n k) = q^\top R_{n - m} k$$，与复数形式一致。
 
-再看一个直接的推论：与正弦编码不同，RoPE 对 $$e^{\mathrm{i}(m-n)\theta_i}$$ 的依赖是**乘性**的，相对距离通过 $$\cos((m-n)\theta_i)$$ 和 $$\sin((m-n)\theta_i)$$ 调制每一对的内积。高频对（$$\theta_i$$ 大）在距离变化几个 token 时就转过很多圈，对局部顺序敏感；低频对（$$\theta_i$$ 小）在几千个 token 内只转一小段弧，提供"大致离多远"的信息。这个直觉是第四章的基础。
+再看一个直接的推论：与正弦编码不同，RoPE 对 $$e^{\mathrm{i}(m-n)\theta_i}$$ 的依赖是**乘性**的，相对距离通过 $$\cos((m-n)\theta_i)$$ 和 $$\sin((m-n)\theta_i)$$ 调制每一对的内积。高频对（$$\theta_i$$ 大）在距离变化几个 token 时就转过很多圈，对局部顺序敏感；低频对（$$\theta_i$$ 小）在几千个 token 内只转一小段弧，提供"大致离多远"的信息。这个直觉是[第四章](#四波长rope-的频谱)的基础。
 
 ### 3. 实现：rotate_half 与 cos/sin 缓存
 
@@ -193,13 +264,13 @@ $$
 
 两种配对方式在数学上等价（只是维度的一个固定置换），但 checkpoint 的 $$W_Q$$、$$W_K$$ 行顺序要与配对方式一致——Llama 官方权重转成 HF 格式时对 q/k 投影做的那次 permute 就是为此。这是位置编码唯一会出现在"权重转换"环节的地方，也是一个常见的精度对不上的来源。
 
-计算上，$$\cos(m\theta_i)$$ 和 $$\sin(m\theta_i)$$ 与输入无关，可以预先算好一张 $$[L_{max}, d_{head}]$$ 的表（cos/sin 各一张，$$L_{max} = 131072$$、$$d_{head} = 128$$ 时 BF16 各 32 MiB；FP32 各 64 MiB），推理时按位置索引取行、与 q 和 k 做一次逐元素乘加。每 token 每层的额外算量约 $$6 \cdot n_h \cdot d_{head}$$ 次乘加（q 和 k 各三个逐元素操作），对 Llama-3-8B 是每层约 $$6 \times 4096 \times 2 \approx 49$$ KFLOPs，相比每层 436 MFLOPs 的权重 GEMM 是万分之一，可以忽略。它真正的开销在访存：这是一个逐元素的 memory-bound 操作，所以推理引擎通常把它融进 QKV 投影之后的 kernel 或 attention kernel 里（vLLM 的 `rotary_embedding` kernel 会在写入 KV cache 之前原位完成旋转）。
+计算上，$$\cos(m\theta_i)$$ 和 $$\sin(m\theta_i)$$ 与输入无关，可以预先算好一张 $$[L_{max}, d_{head}]$$ 的表（cos/sin 各一张，$$L_{max} = 131072$$、$$d_{head} = 128$$ 时 BF16 各 32 MiB；FP32 各 64 MiB），推理时按位置索引取行、与 q 和 k 做一次逐元素乘加。每个元素是两次乘、一次加，每 token 每层的额外算量是 $$3 \cdot (n_h + n_{kv}) \cdot d_{head}$$ 次浮点运算，对 Llama-3-8B（32 个 query 头、8 个 KV 头）是 $$3 \times 40 \times 128 = 15360$$，约 15 KFLOPs，相比每层 436 MFLOPs 的权重 GEMM 不到万分之一，可以忽略。它真正的开销在访存：这是一个逐元素的 memory-bound 操作，所以推理引擎通常把它融进 QKV 投影之后的 kernel 或 attention kernel 里（vLLM 的 `rotary_embedding` kernel 会在写入 KV cache 之前原位完成旋转）。
 
 ### 4. RoPE 与 KV cache 的关系
 
-第四篇讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因。相对位置 bias 一类方法（T5、Transformer-XL）其实也能缓存 K、V——bias 加在 logits 上、不进 K，每个新 query 只需算自己那一行 $$b_{m-n}$$（$$s$$ 个标量或一次查表），ALiBi 就是它的特例；区别在于 bias 是 attention kernel 里的一个额外项，而 RoPE 在 kernel 之前逐元素做完、kernel 本身不用知道位置。
+[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 KV cache 时默认存的是投影后的 $$K$$、$$V$$。有了 RoPE 之后，存的是**旋转后**的 $$k_n = R_n W_K x_n$$。因为 $$R_n$$ 只依赖 $$n$$，每个 token 的 key 只需要在它进入时旋转一次，之后所有 query 都可以直接用；这是 RoPE 与 KV cache 天然兼容的原因。相对位置 bias 一类方法（T5、Transformer-XL）其实也能缓存 K、V——bias 加在 logits 上、不进 K，每个新 query 只需算自己那一行 $$b_{m-n}$$（$$s$$ 个标量或一次查表），ALiBi 就是它的特例；区别在于 bias 是 attention kernel 里的一个额外项，而 RoPE 在 kernel 之前逐元素做完、kernel 本身不用知道位置。
 
-MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是第四篇 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
+MLA（DeepSeek-V2/V3）把 K、V 压成一个 512 维的 latent $$c$$，decode 时把 $$W_{UK}$$ 吸收进 query 一侧。问题是旋转矩阵 $$R_n$$ 夹在 $$W_{UK}$$ 与 $$c_n$$ 之间，无法与 $$W_{UK}$$ 交换次序，所以吸收后 $$c_n$$ 上没法再补 RoPE。DeepSeek 的解法是把位置信息分离到一个独立的 64 维 "decoupled RoPE" key 上（$$d_h^R = 64$$），与 latent 一起缓存——每层每 token $$(512 + 64) \times 2 = 1152$$ 字节，61 层 68.6 KiB，这是[《Attention 变体与 KV cache》的「MLA：把 KV 压成一个 latent」一章](/attention-variants-and-kv-cache.html#四mla把-kv-压成一个-latent)里 8.6 GiB（128K 上下文）的来源。位置编码的形式直接决定了 KV cache 的结构。
 
 ## 四、波长：RoPE 的频谱
 
@@ -237,7 +308,7 @@ $$
 
 即 $$i = 50, \ldots, 63$$ 共 14 对没转完一圈（$$\lambda_{50} \approx 8379$$，$$\lambda_{49} \approx 7256$$）。前 50 对（$$\lambda_i < 8192$$）在训练中都转过至少一整圈，模型见过它们所有的相位。
 
-对 base 500000，同样的条件给出 $$i > 34.98$$，即 $$i = 35, \ldots, 63$$ 共 29 对没转完一圈。base 越大，8K 训练下"没转完一圈"的维度**越多**，不是越少——这一点常被误解，后面第 4 小节会回到它。
+对 base 500000，同样的条件给出 $$i > 34.98$$，即 $$i = 35, \ldots, 63$$ 共 29 对没转完一圈。base 越大，8K 训练下"没转完一圈"的维度**越多**，不是越少——这一点常被误解，[本章第 4 节](#4-base-10000--500000-解决了什么没解决什么)会回到它。
 
 ### 3. 为什么外推失败
 
@@ -260,12 +331,12 @@ $$
 Llama 3 把 base 提到 500000，并在 8K 上下文上预训练。从波长表看，它**解决**的是：
 
 - 低频维度的波长被大幅拉长（$$i = 63$$ 从 5.4 万到 256 万，$$i = 48$$ 从 6283 到 11.8 万），在后续扩展到 128K 时，$$\lambda_i > 131072$$ 的维度对有 15 对（$$i \ge 49$$），它们在 128K 内仍然是"单调"的，能提供不重复的长距离位置信号。base 10000 下没有任何一对的波长超过 131072——128K 范围内每一对都至少转完了两圈，"相对距离 500 与 55000"在低频对上几乎不可区分（相位相差刚好接近一圈）。
-- 更大的 base 意味着同样的位置范围对应更小的相位变化，模型在 8K 训练后把上下文扩到 128K 时，需要"填补"的相位缺口相对更规则（YaRN 一类方法的分段处理正是利用这个几何结构，见第五章）。
+- 更大的 base 意味着同样的位置范围对应更小的相位变化，模型在 8K 训练后把上下文扩到 128K 时，需要"填补"的相位缺口相对更规则（YaRN 一类方法的分段处理正是利用这个几何结构，见[第五章](#五长上下文扩展方法)）。
 
 它**没有解决**的是：
 
-- **仍然需要在长序列上训练**。base 500000 在 8K 训练后，$$i \ge 35$$ 的 29 对都没转完一圈；直接推 32K 一样会遇到没见过的相位，只是出界的角度更小（$$i = 63$$ 从 $$1.15°$$ 到 $$4.6°$$，几乎不出界；但 $$i = 40$$ 波长约 2.2 万，出界很明显）。Llama 3.1 之所以能到 128K，是在 8K 预训练后分阶段用长序列继续训练了 800B token，再配合位置缩放，而不是换 base 就完事。
-- **高频维度不变**。$$\theta_0 = 1$$ 永远是 1，前十几对的波长几乎不受 base 影响（$$i = 16$$ 从 62.8 到 167）。这些维度负责局部顺序，本来就不是外推的瓶颈，但也说明改 base 只是对频谱的低端做了重新分配。
+- **仍然需要在长序列上训练**。base 500000 在 8K 训练后，$$i \ge 35$$ 的 29 对都没转完一圈；直接推 32K 一样会遇到没见过的相位，只是出界的角度更小（$$i = 63$$ 从 $$1.15°$$ 到 $$4.6°$$，几乎不出界；但 $$i = 40$$ 波长约 2.3 万，训练里只转过 0.36 圈，推 32K 要转到 1.43 圈，出界很明显）。Llama 3.1 之所以能到 128K，是在 8K 预训练后分阶段用长序列继续训练了 800B token，再配合位置缩放，而不是换 base 就完事。
+- **高频维度不变**。$$\theta_0 = 1$$ 永远是 1，最前面几对的波长受 base 影响很小（$$i = 4$$ 从 11.2 到 14.3），到 $$i = 16$$ 也只从 62.8 变到 167。这些维度负责局部顺序，本来就不是外推的瓶颈，但也说明改 base 只是对频谱的低端做了重新分配。
 - **attention 熵随长度增长**。把 softmax 的分母从 8192 项变成 131072 项，即便分数分布不变，注意力也会被摊薄——均匀分布的熵从 $$\ln 8192 \approx 9.0$$ 涨到 $$\ln 131072 \approx 11.8$$。这是所有位置编码都无法处理的问题，YaRN 的温度修正就是为它准备的。
 
 至此可以回答本篇的核心问题：**8K 训练的 RoPE 模型推不了 32K，是因为低频维度对在训练中没转完一圈，32K 上出现了从未见过的相位；改 base 是在频谱低端腾出更长的波长，让长距离位置在数学上可区分，但"见过"这件事只能靠训练。**
@@ -286,7 +357,7 @@ $$L' = 32768$$、factor 4 时，位置 32767 被映射到 8191.75，每一对的
 
 ### 2. NTK-aware 插值：改 base 而不是改位置
 
-NTK-aware 插值（最早由 bloc97 在 2023 年以社区帖子形式提出，后被 YaRN 论文正式化）的观察是：高频维度不需要插值（它们早就转完了所有相位），低频维度才需要。PI 对所有维度一视同仁地除以 factor 是浪费。
+NTK-aware 插值（NTK 是 Neural Tangent Kernel，神经正切核，这个名字来自"网络难以学习高频信号"的 NTK 理论分析；方法最早由 bloc97 在 2023 年以社区帖子形式提出，后被 YaRN 论文正式化）的观察是：高频维度不需要插值（它们早就转完了所有相位），低频维度才需要。PI 对所有维度一视同仁地除以 factor 是浪费。
 
 它的做法是改 base：
 
@@ -306,6 +377,9 @@ NTK-aware 的问题是它对高频维度**完全**不动，而某些中高频维
 
 还有一个与"改哪个量"无关、但工程上很重要的变体：**Dynamic NTK**（HF 的 `rope_scaling.type = "dynamic"`）。上面的 factor 是固定的——即使当前序列只有 2K，频谱也已经按 factor 4 拉长，短文本的分辨率白白受损。Dynamic 版把 factor 变成当前序列长度的函数：$$s \le L$$ 时 factor = 1，原频谱一点不动；$$s > L$$ 时实时重算 base' 与 cos/sin 表。论文里的定义是 $$\text{factor} = s/L$$；transformers 的实现（`modeling_rope_utils.py` 的 dynamic 分支，5.x）用的是 $$\text{base}' = \text{base} \cdot [\text{factor} \cdot s/L - (\text{factor} - 1)]^{d/(d-2)}$$，多了一个配置里的 `factor` 参与——读实现时要按具体版本对。代价在推理侧：base 随长度变，cos/sin 表不能预计算一次用到底，每当序列跨过 $$L$$ 后每步都要更新；更麻烦的是 KV cache 里已存的 k 是用**旧** base 旋转的，与新 base 下的 q 不一致——严格实现要么重算已缓存的 k（违背 KV cache 的初衷），要么接受这个不一致（HF 的实现选了后者）。这就是 vLLM 这类推理框架对 dynamic 支持有限、生产上多用静态 YaRN 的原因。
 
+> [!NOTE] Java 经验参照：缓存里的派生值与算它的配置
+> 缓存里存的如果是按某个配置算出来的派生值（按某一版序列化格式、某个 hash 种子生成的条目），配置中途变了，旧条目就和新请求对不上，只能整体失效重算，或者容忍不一致。KV cache 里的 k 是按写入时的 base 旋转过的派生值，Dynamic NTK 在序列变长时换 base，正是这种情形。静态 YaRN 的频率表在加载时定死，写缓存和查缓存始终用同一张表。
+
 ### 3. YaRN：按波长分三段，再修正温度
 
 YaRN（Yet another RoPE extensioN，Peng 等 2023）把 NTK-aware 的"按频率区分对待"做成了显式的分段规则。定义第 $$i$$ 对在训练长度内转过的圈数：
@@ -324,13 +398,15 @@ $$
 \theta_i' = (1 - \gamma_i) \cdot \frac{\theta_i}{\text{factor}} + \gamma_i \cdot \theta_i
 $$
 
-对 base 10000、$$d_{head} = 128$$、$$L = 8192$$：$$r_i > 32$$ 对应 $$\lambda_i < 256$$，即 $$i \le 25$$ 的 26 对不动；$$r_i < 1$$ 对应 $$\lambda_i > 8192$$，即 $$i \ge 50$$ 的 14 对完全插值；中间 24 对线性混合。这与第四章"没转完一圈"的分析完全对应：完全插值的恰好就是那 14 对。
+对 base 10000、$$d_{head} = 128$$、$$L = 8192$$：$$r_i > 32$$ 对应 $$\lambda_i < 256$$，即 $$i \le 25$$ 的 26 对不动；$$r_i < 1$$ 对应 $$\lambda_i > 8192$$，即 $$i \ge 50$$ 的 14 对完全插值；中间 24 对线性混合。这与[第四章](#2-训练长度-8k-时哪些维度对没转完一圈)"没转完一圈"的分析完全对应：完全插值的恰好就是那 14 对。
 
 把三种方法对每个维度对的缩放比 $$\theta_i / \theta_i'$$ 画在同一张图上（base 10000、$$d_{head} = 128$$、$$L = 8192$$、factor 4），三条曲线的形状就是三种方法的全部区别：
 
 ![PI、NTK-aware、YaRN 三种方法对 64 个维度对的缩放比：PI 是水平线 4，NTK-aware 从 1 指数过渡到 4，YaRN 在 \\(\lambda<256\\) 不动、\\(\lambda>8192\\) 完全插值、中间线性混合](/img/in-post/positional-encoding-and-long-context-rope-scaling.svg)
 
-PI 对所有维度一刀切；NTK-aware 用一条指数曲线让高频端少动、低频端多动，但 $$i = 40$$ 附近（波长约 2000、训练中转过 4 圈）仍被缩了 2.4 倍；YaRN 把这条曲线"拉直"成三段，$$i \le 25$$ 严格不动。
+- PI 对所有维度一刀切。
+- NTK-aware 用一条指数曲线让高频端少动、低频端多动，但 $$i = 40$$ 附近（波长约 2000、训练中转过 4 圈）仍被缩了 2.4 倍。
+- YaRN 把这条曲线"拉直"成三段，$$i \le 25$$ 严格不动。
 
 YaRN 的第二个部分是**attention 温度**。为了对抗长上下文下 softmax 被摊薄，它在 logits 上除以一个 $$t < 1$$：
 
@@ -370,7 +446,17 @@ $$
 
 与 YaRN 对照：$$L_0/\lambda_i$$ 就是 $$r_i$$；`low_freq_factor` 就是 $$\alpha = 1$$，`high_freq_factor` 就是 $$\beta = 4$$；中间段是同样的线性混合。Llama 3.1 的缩放**就是 YaRN 的分段规则**，只是把 $$\beta$$ 从 32 收紧到 4（更多维度被判定为"高频不动"），并且**没有**温度修正——Llama 3.1 用长序列继续训练来解决熵的问题，而不是靠温度。
 
-代入 base 500000：$$\lambda_i < 2048$$ 的是 $$i \le 28$$ 共 29 对（$$\lambda_{28} \approx 1957$$），完全不动；$$\lambda_i > 8192$$ 的是 $$i \ge 35$$ 共 29 对（$$\lambda_{35} \approx 8219$$），全部除以 8；中间 $$i = 29, \ldots, 34$$ 共 6 对混合（$$i = 32$$ 的 $$\theta$$ 缩小约 2.7 倍）。缩放后最低频一对的波长约 2047 万——128K 上下文在它上面只转过 0.6%。
+代入 base 500000，64 对分成三段：
+
+| 段 | 条件 | 维度对 | 对数 | 处理 |
+|---|---|---|---:|---|
+| 高频 | $$\lambda_i < 2048$$ | $$i \le 28$$（$$\lambda_{28} \approx 1957$$） | 29 | 不动 |
+| 中间 | $$2048 \le \lambda_i \le 8192$$ | $$i = 29, \ldots, 34$$ | 6 | 线性混合（$$i = 32$$ 的 $$\theta$$ 缩小约 2.7 倍） |
+| 低频 | $$\lambda_i > 8192$$ | $$i \ge 35$$（$$\lambda_{35} \approx 8219$$） | 29 | 除以 8 |
+
+Table: Llama 3.1 分段缩放下 64 个维度对的归属（base 500000）
+
+缩放后最低频一对的波长约 2047 万——128K 上下文在它上面只转过 0.6%。
 
 ### 5. DeepSeek-V3 与 Qwen 的 YaRN 配置
 
@@ -392,19 +478,27 @@ DeepSeek-V3 的 `config.json`：
 }
 ```
 
-各字段的含义：`type: yarn` 选择 YaRN 的三段规则；`original_max_position_embeddings: 4096` 是分段时用的 $$L$$；`factor: 40` 是扩展倍数（$$4096 \times 40 = 163840$$，即 `max_position_embeddings`）；`beta_fast: 32`、`beta_slow: 1` 分别是 $$\beta$$ 与 $$\alpha$$（YaRN 论文里的记法是 $$\beta$$ 对应快、$$\alpha$$ 对应慢）；`mscale` 与 `mscale_all_dim` 控制温度项 $$0.1 \cdot \text{mscale} \cdot \ln(\text{factor}) + 1$$ 如何施加——DeepSeek 只对 64 维的 decoupled RoPE 部分做旋转缩放，温度则乘到整个 attention 分数上。注意这里的 `rope_theta` 是 10000，DeepSeek 选择了"小 base + 大 factor 的 YaRN"路线，与 Llama 3 的"大 base + 小 factor"是两种到达同一目标的路径。
+各字段的含义：
+
+- `type: yarn`：选择 YaRN 的三段规则。
+- `original_max_position_embeddings: 4096`：分段时用的 $$L$$。
+- `factor: 40`：扩展倍数，$$4096 \times 40 = 163840$$，即 `max_position_embeddings`。
+- `beta_fast: 32`、`beta_slow: 1`：分别是 $$\beta$$ 与 $$\alpha$$（YaRN 论文里的记法是 $$\beta$$ 对应快、$$\alpha$$ 对应慢）。
+- `mscale`、`mscale_all_dim`：控制温度项 $$0.1 \cdot \text{mscale} \cdot \ln(\text{factor}) + 1$$ 如何施加——DeepSeek 只对 64 维的 decoupled RoPE 部分做旋转缩放，温度则乘到整个 attention 分数上。
+
+这里的 `rope_theta` 是 10000，DeepSeek 选择了"小 base + 大 factor 的 YaRN"路线，与 Llama 3 的"大 base + 小 factor"是两种到达同一目标的路径。
 
 Qwen2.5 的做法类似：预训练与默认配置是 32K，官方说明中给出的 128K 配置是在 `rope_scaling` 里填 `type: yarn`、`factor: 4.0`、`original_max_position_embeddings: 32768`。因为 HF 的 YaRN 实现是静态的（对所有长度都按 factor 缩放），Qwen 建议只在确实需要处理超过 32K 的输入时才启用它，否则短文本的性能会轻微下降——这正是前面说的"插值损伤高频维度分辨率"的体现。vLLM 与 SGLang 读的就是这几个字段。
 
-把第 1–5 节的方法按"改了哪个量、按什么规则改、还需要什么"放在一起对照：
+把[第 1 节](#1-position-interpolation把位置压回训练范围)到[第 5 节](#5-deepseek-v3-与-qwen-的-yarn-配置)的方法按"改了哪个量、按什么规则改、还需要什么"放在一起对照：
 
-| 方法 | 改的量 | 高频对 / 低频对 / 中间 | 温度修正 | 训练代价与采用者 |
+| 方法 | 改的量 | 高频对、低频对、中间各怎么处理 | 温度修正 | 训练代价与采用者 |
 |---|---|---|---|---|
-| Position Interpolation | 位置 $$m \to m/\text{factor}$$，等价于所有 $$\theta_i$$ ÷ factor | 全部 ÷ factor，一刀切；高频分辨率受损 | 无 | 约 1000 步微调（Llama → 32K）；早期社区扩展 |
-| NTK-aware | base $$\to \text{base} \cdot \text{factor}^{d/(d-2)}$$ | $$i = 0$$ 不动 / 最低频恰好 ÷ factor / 几何级数指数过渡 | 无 | 可不微调但效果有限；Llama 3 的 base 500000 在效果上等价于此 |
-| Dynamic NTK | 同 NTK-aware，但 factor $$= \max(1, s/L)$$ 随当前长度变 | 同上；$$s \le L$$ 时完全不动 | 无 | 无需训练；短文本零损伤，但 cos/sin 表要随长度重算、KV cache 中旧 k 与新 base 不一致，推理框架支持有限 |
-| YaRN | 按 $$r_i = L/\lambda_i$$ 分三段 | $$r_i > \beta$$ 不动 / $$r_i < \alpha$$ ÷ factor / 线性混合 | $$\sqrt{1/t} = 0.1\ln(\text{factor}) + 1$$，乘进 cos/sin 表 | 约 400 步微调（Llama 2 → 64K）；DeepSeek-V2/V3（factor 40）、Qwen2.5（factor 4） |
-| Llama 3.1 `llama3` | 同 YaRN 分段，$$\alpha = 1$$、$$\beta = 4$$ | $$\lambda_i < 2048$$ 不动（29 对）/ $$\lambda_i > 8192$$ ÷ 8（29 对）/ 线性混合（6 对） | 无，靠长序列训练解决熵 | 8K 预训练后分阶段长序列训练 800B token；Llama 3.1 |
+| Position Interpolation | 位置 $$m \to m/\text{factor}$$，等价于所有 $$\theta_i$$ ÷ factor | 高频：÷ factor，分辨率受损<br/>低频：÷ factor<br/>中间：÷ factor | 无 | 约 1000 步微调（Llama → 32K）；早期社区扩展 |
+| NTK-aware | base $$\to \text{base} \cdot \text{factor}^{d/(d-2)}$$ | 高频：$$i = 0$$ 不动<br/>低频：最低频一对恰好 ÷ factor<br/>中间：按几何级数过渡 | 无 | 可不微调但效果有限；Llama 3 的 base 500000 在效果上等价于此 |
+| Dynamic NTK | 同 NTK-aware，但 factor $$= \max(1, s/L)$$ 随当前长度变 | 同 NTK-aware<br/>$$s \le L$$ 时三段都不动 | 无 | 无需训练，短文本零损伤<br/>cos/sin 表要随长度重算<br/>KV cache 中旧 k 与新 base 不一致，推理框架支持有限 |
+| YaRN | 按 $$r_i = L/\lambda_i$$ 分三段 | 高频：$$r_i > \beta$$ 不动<br/>低频：$$r_i < \alpha$$ ÷ factor<br/>中间：线性混合 | $$\sqrt{1/t} = 0.1\ln(\text{factor}) + 1$$，乘进 cos/sin 表 | 约 400 步微调（Llama 2 → 64K）；DeepSeek-V2/V3（factor 40）、Qwen2.5（factor 4） |
+| Llama 3.1 `llama3` | 同 YaRN 分段，$$\alpha = 1$$、$$\beta = 4$$ | 高频：$$\lambda_i < 2048$$ 不动（29 对）<br/>低频：$$\lambda_i > 8192$$ ÷ 8（29 对）<br/>中间：线性混合（6 对） | 无，靠长序列训练解决熵 | 8K 预训练后分阶段长序列训练 800B token；Llama 3.1 |
 
 Table: RoPE 外推方法对照：改的量、规则与代价
 
@@ -430,7 +524,7 @@ ALiBi 的外推能力很好：训练 1K、推理 2K 几乎不掉 perplexity，�
 - 它无法表达内容与位置的交互——惩罚只依赖距离，与 q、k 的内容无关。
 - 工程上，bias 项要在 attention kernel 里逐元素加，FlashAttention 2 支持 ALiBi 但需要额外的分支；而 RoPE 只在进 kernel 之前对 q、k 做一次逐元素操作，kernel 本身完全不需要知道位置编码的存在。
 
-RoPE 加上第 1–5 节的缩放方法，成了 2023 年之后长上下文模型的事实标准。把第二章与本章出现过的五种位置编码放在一起，从 Infra 关心的几个维度对照：
+RoPE 加上本章第 1–5 节的缩放方法，成了 2023 年之后长上下文模型的事实标准。把[第二章](#二为什么需要位置编码)与本章出现过的五种位置编码放在一起，从 Infra 关心的几个维度对照：
 
 | 方案 | 注入位置 | 分数依赖 | 位置参数 | 超出训练长度 | KV cache 兼容 | 对 attention kernel 的要求 |
 |---|---|---|---|---|---|---|
@@ -552,9 +646,15 @@ NTK base' = 40890, YaRN sqrt(1/t) = 1.1386
 YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 ```
 
-三列的形状对应第五章的分析：PI 一刀切除以 4；NTK-aware 在 $$i = 0$$ 不动、在 $$i = 63$$ 恰好除以 4（$$2.887 \times 10^{-5} = 1.155 \times 10^{-4} / 4$$），中间几何过渡；YaRN 在 $$i \le 25$$ 完全不动，$$i \ge 50$$ 与 PI 相同，中间线性混合。想画图的话，对 `i` 画 `theta / new_theta`（缩放比）的三条曲线即可：PI 是水平线 4，NTK 是从 1 到 4 的指数曲线，YaRN 是从 1 到 4 的分段折线，用 `matplotlib.pyplot.semilogy` 把 $$\lambda_i$$ 画在同一横轴上能直接看到 8192 这条线落在 $$i \approx 50$$。
+三列的形状对应[第五章](#五长上下文扩展方法)的分析：
 
-把 base 换成 500000、按 Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 规则跑同一段逻辑（阈值改成 $$\lambda < 2048$$ 不动、$$\lambda > 8192$$ 除以 8），得到不动 29 对、混合 6 对、全插值 29 对，与第五章第 4 节一致。
+- PI 一刀切除以 4。
+- NTK-aware 在 $$i = 0$$ 不动、在 $$i = 63$$ 恰好除以 4（$$2.887 \times 10^{-5} = 1.155 \times 10^{-4} / 4$$），中间几何过渡。
+- YaRN 在 $$i \le 25$$ 完全不动，$$i \ge 50$$ 与 PI 相同，中间线性混合。
+
+想画图的话，对 `i` 画 `theta / new_theta`（缩放比）的三条曲线即可：PI 是水平线 4，NTK 是从 1 到 4 的指数曲线，YaRN 是从 1 到 4 的分段折线，用 `matplotlib.pyplot.semilogy` 把 $$\lambda_i$$ 画在同一横轴上能直接看到 8192 这条线落在 $$i \approx 50$$。
+
+把 base 换成 500000、按 Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 规则跑同一段逻辑（阈值改成 $$\lambda < 2048$$ 不动、$$\lambda > 8192$$ 除以 8），得到不动 29 对、混合 6 对、全插值 29 对，与[第五章第 4 节](#4-llama-31-的分段缩放)的表一致。
 
 ## 七、本文小结
 
@@ -563,7 +663,8 @@ YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 1. 无 mask 的 attention 是置换等变的，causal mask 只给弱的顺序信号，位置要显式注入。正弦编码是加性的，$$q^\top k$$ 展开后依赖绝对位置；可学习编码有硬上限；相对 bias 需要 $$s \times s$$ 的额外项。RoPE 把 $$d_{head}$$ 维向量看成 $$d_{head}/2$$ 个复数、第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，$$q_m^\top k_n = \text{Re}[\sum_i q_i \bar{k}_i e^{\mathrm{i}(m-n)\theta_i}]$$ 只依赖 $$m - n$$——以绝对位置的实现得到相对位置的性质，且与 KV cache 天然兼容。
 2. 每一对的波长 $$\lambda_i = 2\pi \cdot \text{base}^{2i/d_{head}}$$ 是理解一切的钥匙。base 10000、$$d_{head} = 128$$ 时从 6.28 到 5.4 万；训练长度 8K 时 $$i \ge 50$$ 的 14 对没转完一圈，推 32K 时这些维度出现从未见过的相位，是外推失败的根源。base 500000 把最低频波长拉到 256 万，让 128K 内的长距离在数学上可区分，但"见过"只能靠在长序列上训练；高频维度不变，attention 熵随长度增长的问题也不归它管。
 3. PI 把所有 $$\theta_i$$ 除以 factor；NTK-aware 用 $$\text{base}' = \text{base} \cdot \text{factor}^{d/(d-2)}$$ 使最低频恰好插值 factor 倍、最高频不动；YaRN 按 $$r_i = L/\lambda_i$$ 分三段（$$r > \beta$$ 不动、$$r < \alpha$$ 全插值、中间线性），再用 $$\sqrt{1/t} = 0.1 \ln(\text{factor}) + 1$$ 修正温度；Llama 3.1 的 `factor 8 / low 1 / high 4 / 8192` 就是 $$\alpha = 1$$、$$\beta = 4$$ 的 YaRN 分段规则、不带温度；DeepSeek-V3 与 Qwen2.5 直接用 YaRN 字段。ALiBi 用 $$2^{-8h/n_h}$$ 的线性惩罚，外推好但局部性先验太强、无法表达内容与位置交互，被 RoPE 取代。
-位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见第五篇[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。在那之前先看 attention 自己：[下一篇《现代 LLM 结构（04）：Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 MHA → GQA → MQA → MLA 各把每 token 的 KV 压到多少，其中 MLA 要把 RoPE 从低秩压缩里解耦出来单独缓存——用的正是本篇 $$R_m^\top R_n = R_{n-m}$$ 这条性质。
+
+位置方案只回答位置能否外推，不能保证模型在长文中检索与推理的质量；"用得起吗"——KV cache、prefill 的二次项和 sliding window 等结构手段——见[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)。在那之前先看 attention 自己：下一篇[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)讲 MHA → GQA → MQA → MLA 各把每 token 的 KV 压到多少，其中 MLA 要把 RoPE 从低秩压缩里解耦出来单独缓存——用的正是本篇 $$R_m^\top R_n = R_{n-m}$$ 这条性质。
 
 配套代码：RoPE 的 NumPy 实现与三种缩放的波长表在 [`rope_numpy.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/transformer-and-llm/rope_numpy.py)。
 
@@ -594,6 +695,30 @@ YaRN 不动 / 混合 / 全插值 的对数: 26 24 14
 
    </details>
 
+4. 把 base 从 10000 换成 500000，仍用 8K 训练（$$d_{head} = 128$$）：没转完一圈的维度对是变多还是变少？各是多少对？扩到 128K 后，还有多少对的波长超过 131072？
+
+   <details markdown="1"><summary>答案</summary>
+
+   变多：base 10000 是 $$i \ge 50$$ 的 14 对，base 500000 是 $$i \ge 35$$ 的 29 对（$$500000^{2i/128} > 1304$$ 给出 $$i > 34.98$$）。base 500000 下波长超过 131072 的是 $$i \ge 49$$ 的 15 对（$$\lambda_{49} \approx 14.5$$ 万）；base 10000 下一对都没有（最长波长 5.4 万）。大 base 换来的是 128K 内不重复的低频信号，"见过"仍要靠长序列训练。
+
+   </details>
+
+5. YaRN 用 factor 16 时，cos/sin 表要乘多少？attention 分数被放大多少倍？为什么乘在 cos/sin 表上而不改 attention kernel？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\sqrt{1/t} = 0.1 \ln 16 + 1 \approx 1.277$$；q、k 各放大 1.277 倍，内积放大 $$1/t \approx 1.63$$ 倍。乘在表上只改了进入 kernel 之前的 q、k，任何现成的 attention kernel 都不用知道温度的存在。
+
+   </details>
+
+6. Llama 3.1 的 `factor 8 / low_freq_factor 1 / high_freq_factor 4 / 8192`（base 500000，$$d_{head} = 128$$）把 64 对分成哪三段，各多少对？它与 YaRN 差在哪两处？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\lambda_i < 2048$$ 的 29 对（$$i \le 28$$）不动；$$\lambda_i > 8192$$ 的 29 对（$$i \ge 35$$）除以 8；中间 6 对（$$i = 29, \ldots, 34$$）线性混合。与 YaRN 的差别：$$\beta$$ 从 32 收紧到 4（$$\alpha$$ 同为 1）；没有温度修正，熵的问题靠长序列继续训练解决。
+
+   </details>
+
 
 [^q0]: RoPE 把 $$d_{head} = 128$$ 维拆成 64 对，第 $$i$$ 对以 $$\theta_i = \text{base}^{-2i/d_{head}}$$ 旋转，波长从 6.28 到 5.4 万（base 10000）；训练长度 8K 时 $$i \ge 50$$ 的 14 对低频维度还没转完一圈，推到 32K 这些维度出现训练时从未见过的相位，attention 分布崩掉——不是装不下，是没见过。PI / NTK / YaRN 是在不重训的前提下把「没见过的相位」映射回见过的范围。详见[第四章](#四波长rope-的频谱)、[第五章](#五长上下文扩展方法)。
-[^q1]: **解决了**：最低频波长拉到 256 万，128K 内的任何两个位置在数学上可区分，为长序列训练提供了可用的位置表示（Llama 3 的做法）。**没解决**：「见过」只能靠在长序列上真的训练，改 base 不省这笔钱；高频维度不受影响；attention 熵随长度增长、注意力被稀释的问题不归它管；成本也不归它管——128K 时 Llama-3-8B 每 token attention 68.7 GFLOPs 是权重项的 4.6 倍，prefill 约 11 秒，KV cache 16 GiB。详见[第五章](#五长上下文扩展方法)；成本见[《现代 LLM 结构（04）：长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html#二长上下文的成本)。
+[^q1]: **解决了**：最低频波长拉到 256 万，128K 内的任何两个位置在数学上可区分，为长序列训练提供了可用的位置表示（Llama 3 的做法）。**没解决**：「见过」只能靠在长序列上真的训练，改 base 不省这笔钱；高频维度不受影响；attention 熵随长度增长、注意力被稀释的问题不归它管；成本也不归它管——128K 时 Llama-3-8B 每 token attention 68.7 GFLOPs 是权重项的 4.6 倍，prefill 约 11 秒，KV cache 16 GiB。详见[第五章](#五长上下文扩展方法)；成本见[《长上下文的成本与结构手段》的「长上下文的成本」一章](/long-context-cost-and-structural-remedies.html#二长上下文的成本)。
