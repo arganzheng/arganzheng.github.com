@@ -561,7 +561,7 @@ Table: 头文件通常包含的内容
 // ...
 ```
 
-`ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)）。
+`ScalarType` 是 dtype，几乎每一个 ATen 文件都要用它。改一下 `c10/util/Half.h`，`ScalarType.h` 的所有包含者都要重编，也就是几乎整个 `libtorch_cpu.so`——上千个翻译单元，一小时级别。这就是 PyTorch 开发者对"往 c10 头文件里加东西"极其谨慎的原因，也是 `c10/CMakeLists.txt` 开头那段注释的背景（[下篇「三个命名空间对应三个层次」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#2-三个命名空间对应三个层次)）。
 
 Java 里改一个类，Gradle 这类构建工具的增量编译按类之间的依赖和对外签名（ABI）是否变化决定重编范围，通常到直接依赖它的类为止。C++ 的粒度是"文本包含"，粗得多——两边画出来：
 
@@ -1062,9 +1062,9 @@ PyTorch 就是这么做的。`cmake/public/utils.cmake` 里 `torch_compile_optio
 #endif
 ```
 
-`struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 里的 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
+`struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 里的 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，[下篇「小工程的每条命令在 PyTorch 里的写法」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-小工程的每条命令在-pytorch-里的写法)会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
 
-回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇「`setup.py`：`.so` 如何进 wheel」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#4-setuppyso-如何进-wheel)），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
+回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇「`stub.c` 与 `setup.py`：`_C` 是怎么编出来的」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#2-stubc-与-setuppy_c-是怎么编出来的)），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
 
 [《宏、静态注册与代码生成》的「符号可见性：注册为什么会消失」一章](/cpp-macros-static-registration-and-codegen.html#八符号可见性注册为什么会消失)会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
 
@@ -1443,7 +1443,7 @@ libc10.dylib  libomp.dylib  libshm.dylib  libtorch.dylib  libtorch_cpu.dylib
 libtorch_global_deps.dylib  libtorch_python.dylib
 ```
 
-`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是[下篇「`import torch` 时加载了什么」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#3-import-torch-时加载了什么)列的那些库（Linux 上后缀是 `.so`，CUDA wheel 多出 `libtorch_cuda`、`libc10_cuda`）。
+`include/` 下有 `ATen/`、`c10/`、`torch/`、`pybind11/` 等；`lib/` 下是[下篇「`import torch` 时加载了什么」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#4-import-torch-时加载了什么)列的那些库（Linux 上后缀是 `.so`，CUDA wheel 多出 `libtorch_cuda`、`libc10_cuda`）。
 
 ### 3. 编译（只编译）
 
@@ -1455,7 +1455,7 @@ g++ -std=c++17 -c hello_torch.cpp -o hello_torch.o \
 
 两个 `-I`：第一个让 `#include <c10/...>`、`<ATen/...>`、`<torch/csrc/...>` 能找到；第二个让 `#include <torch/torch.h>` 能找到（C++ 前端头文件在 `torch/csrc/api/include/` 下，和 `torch/csrc/` 是两套路径前缀）。`torch/CMakeLists.txt` 的 `TORCH_PYTHON_INCLUDE_DIRECTORIES` 和 `cpp_extension.py` 的 `include_paths()` 加的就是这两个。
 
-`-std=c++17` 是本系列基线 v2.10.0 的要求（[下篇「`c10/CMakeLists.txt`：最底层的库」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-c10cmakeliststxt最底层的库)）。**版本提醒**：2.14.0 的头文件已经要求 C++20——用 `-std=c++17` 编这一步会在 `torch/all.h` 第 5 行停住：
+`-std=c++17` 是本系列基线 v2.10.0 的要求（[下篇「小工程的每条命令在 PyTorch 里的写法」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-小工程的每条命令在-pytorch-里的写法)）。**版本提醒**：2.14.0 的头文件已经要求 C++20——用 `-std=c++17` 编这一步会在 `torch/all.h` 第 5 行停住：
 
 ```text title='-std=c++17 在 2.14.0 头文件上的报错：需要 C++20'
 torch/include/torch/csrc/api/include/torch/all.h:5:2: error: C++20 or later compatible compiler is required to use PyTorch.
