@@ -488,7 +488,7 @@ DeepSeek-V3 的 `config.json`：
 
 这里的 `rope_theta` 是 10000，DeepSeek 选择了"小 base + 大 factor 的 YaRN"路线，与 Llama 3 的"大 base + 小 factor"是两种到达同一目标的路径。
 
-Qwen2.5 的做法类似：预训练与默认配置是 32K，官方说明中给出的 128K 配置是在 `rope_scaling` 里填 `type: yarn`、`factor: 4.0`、`original_max_position_embeddings: 32768`。因为 HF 的 YaRN 实现是静态的（对所有长度都按 factor 缩放），Qwen 建议只在确实需要处理超过 32K 的输入时才启用它，否则短文本的性能会轻微下降——这正是前面说的"插值损伤高频维度分辨率"的体现。vLLM 与 SGLang 读的就是这几个字段。
+Qwen2.5 的做法类似：预训练与默认配置是 32K，官方说明中给出的 128K 配置是在 `rope_scaling` 里填 `type: yarn`、`factor: 4.0`、`original_max_position_embeddings: 32768`。模型卡说明 vLLM 目前只支持静态 YaRN（对所有长度都按 factor 缩放），因此 Qwen 建议只在确实需要处理超过 32K 的输入时才启用它，否则短文本的性能会轻微下降——这正是前面说的"插值损伤高频维度分辨率"的体现。vLLM 与 SGLang 读的就是这几个字段。
 
 把[第 1 节](#1-position-interpolation把位置压回训练范围)到[第 5 节](#5-deepseek-v3-与-qwen-的-yarn-配置)的方法按"改了哪个量、按什么规则改、还需要什么"放在一起对照：
 
