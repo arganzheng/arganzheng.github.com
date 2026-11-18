@@ -38,34 +38,137 @@ transition: slide
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
 flowchart TB
-    P1["01 语言机制"] --> P2["02 类型系统"]
-    P1 --> P3["03 并发与异步"]
-    P1 --> P4["04 动态机制"]
-    P1 --> P5["05 内存管理"]
-    P3 & P4 & P5 --> P6["06 测试与调试"]
-    P2 --> P7["07 工程化交付"]
+    P1["01–06 语言机制"] --> P2["07–09 类型系统"]
+    P1 --> P3["10 并发与异步"]
+    P1 --> P4["11 动态机制"]
+    P1 --> P5["12 内存管理"]
+    P3 & P4 & P5 --> P6["13 测试与调试"]
+    P2 --> P7["14 工程化交付"]
     P3 --> P7
     P6 --> P7
 ```
 
 ---
 
-## 01–06 · 语言机制：每行「简单」语法背后是一个可替换的协议
+## 01 · 执行模型：先整模块编译，再在帧里执行
 
-**`import` 是运行时动作；直接调 `forward` 绕过全部 hook**
+**没被调用的函数里有语法错误，整个模块也导不进来**
+
+| 形态 | 什么时候产生 | 里面有什么 |
+|---|---|---|
+| code object | 编译时：脚本启动或第一次导入，整个模块一起 | 字节码、常量表、名字表 |
+| 函数对象 | 执行到 `def` 时 | code + `__globals__` + 默认值 + cell |
+| 帧 | 每次调用时 | 局部变量、指令位置、`f_back` |
+
+<aside class="notes" markdown="1">
+原文 /python-execution-model-code-objects-functions-and-frames.html。
+结论原文：源码在脚本启动或第一次导入时，以整个模块为单位编译成 code object；执行到 `def` 时创建函数对象；每次调用创建一个帧。
+补充要点：`import` 的模块写 `.pyc`，直接运行的脚本不写；函数里的全局名称在定义它的模块里查找（`__globals__`）；traceback 就是沿 `f_back` 串起来的帧链；名称是绑定到对象的标签，`is` 只用于单例。
+</aside>
+
+---
+
+## 02 · 作用域与闭包：名称去哪找，编译期就定了
+
+**闭包 = 函数对象 + cell；cell 是共享的，调用时才读**
+
+| 写法 | 结果 | 原因 |
+|---|---|---|
+| 函数里 `x = x + 1`，`x` 是全局变量 | `UnboundLocalError` | 赋值让 `x` 在整个函数里都是局部变量 |
+| 循环里 `lambda: i` | 全返回最后一个值 | 几个函数共享同一个 cell |
+| `lambda i=i: i` | 0、1、2 | 默认值在创建函数时求值 |
+| `outer()` 返回后调用 `inner` | 还能读外层变量 | cell 被 `__closure__` 引用着 |
+
+<aside class="notes" markdown="1">
+原文 /python-scopes-and-closures.html。
+结论原文：名称属于哪个作用域在编译期按「本函数里有没有绑定」决定，运行时只是按位置取值；闭包 = 函数对象 + cell。
+补充要点：要改外层的名称用 `global` / `nonlocal`；每调用一次外层函数就新建一个 cell，两次得到的闭包互不影响。
+</aside>
+
+---
+
+## 03 · 模块与导入：`import` 是运行时动作
+
+**先登记进 `sys.modules`，再执行顶层代码**
+
+| 步骤 | 做什么 |
+|---|---|
+| 1. 查缓存 | `sys.modules` 里有就直接用 |
+| 2. 查找 | 依次问 `sys.meta_path` 里的 finder，得到 `ModuleSpec` |
+| 3. 登记 | 模块对象先放进 `sys.modules` |
+| 4. 执行 | loader 跑顶层代码：注册、CUDA 初始化都在这一步 |
+
+<aside class="notes" markdown="1">
+原文 /python-modules-and-the-import-system.html。
+结论原文：`import` 是**运行时动作**——执行模块顶层代码，注册与 CUDA 初始化都在这一步。
+补充要点：模块在顶层代码执行完之前就已在 `sys.modules` 里（循环导入拿到半成品就在这个窗口）；顶层代码抛异常时模块会被删掉，下次 `import` 重新执行。`.py`、`.so`、zip 里的文件只是不同的 loader，`torch._C` 由 `ExtensionFileLoader` 载入。
+</aside>
+
+<!-- v -->
+
+## 导入的四条规则
+
+| 对象 | 规则 |
+|---|---|
+| `sys.path[0]` | 由启动方式决定：`python script.py` 是脚本目录，`python -m` 是当前目录 |
+| `sys.modules` | 每进程一份——spawn 的子进程要重新导入 |
+| 同一文件两个名字 | 执行两次，注册表重复、`isinstance` 为 `False` |
+| editable 安装 | 不复制文件，只改查找路径 |
+
+---
+
+## 04 · 异常：沿帧链向上，途经每个 `finally`
+
+**日志不是处理：记录后用裸 `raise` 重抛**
+
+| 要做的决定 | 做法 |
+|---|---|
+| 捕获什么 | `Exception`；`BaseException` 会吞掉 Ctrl+C 和 `sys.exit()` |
+| 在哪一层翻译 | 模块或服务的公共接口处 |
+| 怎么保留根因 | `raise X from exc`，记在 `__cause__` |
+| 记录后怎么抛 | 裸 `raise`；`raise exc` 多一层 traceback |
+
+<aside class="notes" markdown="1">
+原文 /python-exceptions-and-failure-propagation.html。
+结论原文：异常沿帧链 `f_back` 向上传播，每离开一帧先执行这一帧里活动的 `finally` 和 `__exit__`；只记录不重抛是反模式。
+补充要点：`__exit__` 返回真值会抑制异常；只记录不重抛时 Worker 带着不一致的状态继续跑，分布式训练里表现为某个 rank 悄悄掉队。
+</aside>
+
+---
+
+## 05 · 对象模型与协议：`obj.attr` 是一个固定算法
+
+**直接调 `forward` 绕过全部 hook**
 
 | 机制 | 规则 |
 |---|---|
 | 属性查找 | 数据描述符 → 实例字典 → 非数据描述符 → `__getattr__` |
-| `sys.path[0]` | 由启动方式决定（脚本目录 / 当前目录 / 空） |
-| `sys.modules` | 每进程一份——spawn 的子进程要重新导入 |
-| `super()` | MRO 里的**下一个**，不是父类；协作式多继承漏一层之后全被跳过 |
-| 生成器 | `break` 不等于 `close()`，`finally` 未必执行 |
+| 特殊方法 | 在**类型**上查找，跳过实例字典 |
+| `super()` | MRO 里的**下一个**，不是父类；漏一层之后全被跳过 |
+| `nn.Module` | `__setattr__` 把子模块写进 `_modules`，`__getattr__` 取回 |
 
 <aside class="notes" markdown="1">
-原文六篇：/python-execution-model-code-objects-functions-and-frames.html、/python-scopes-and-closures.html、/python-modules-and-the-import-system.html、/python-exceptions-and-failure-propagation.html、/python-object-model-and-protocols.html、/python-decorators-generators-and-context-managers.html。
-结论原文：`import` 是**运行时动作**（执行模块顶层代码，注册与 CUDA 初始化都在这一步）；`obj.attr` 是一个固定算法；`model(x)` 查类型上的 `__call__`——**直接调 `forward` 绕过全部 hook**；装饰器在定义时执行一次；生成器是挂起的帧。
-补充要点：`import` 先把模块放进 `sys.modules` 再执行顶层代码（循环导入拿到半成品就在这个窗口）；顶层代码抛异常时模块会被删掉，下次 `import` 重新执行。名称属于哪个作用域在编译期按「本函数里有没有绑定」决定；循环里的 `lambda: i` 共享同一个 cell。
+原文 /python-object-model-and-protocols.html。
+结论原文：`obj.attr` 是一个固定算法；`model(x)` 查类型上的 `__call__`——**直接调 `forward` 绕过全部 hook**。
+补充要点：方法、`classmethod`、`staticmethod`、`property` 只是描述符 `__get__` 返回值不同；只定义 `__eq__` 会让 `__hash__` 变成 `None`。
+</aside>
+
+---
+
+## 06 · 装饰器、生成器、`with`：前五篇机制的组合
+
+**装饰器在定义时执行一次；生成器是挂起的帧**
+
+| 写法 | 什么时候执行 | 容易错的地方 |
+|---|---|---|
+| 装饰器 | 定义时一次，等于 `f = d(f)` | 模块没被导入，注册就不发生 |
+| 生成器 | `next()` 时才跑函数体 | `break` 不等于 `close()` |
+| `with` | 进入、退出各一次，异常时也执行 | `__exit__` 返回真值会吞掉异常 |
+
+<aside class="notes" markdown="1">
+原文 /python-decorators-generators-and-context-managers.html。
+结论原文：装饰器在定义时执行一次、返回替代对象，靠闭包记参数、靠描述符协议对方法透明；生成器是被挂起而非销毁的帧；`with` 展开为 `__enter__` / `__exit__`。
+补充要点：用类实现的装饰器用在方法上要补 `__get__`；需要确定性清理的生成器用 `finally` 里 `close()` 或 `contextlib.closing`。原文最后一章用一个推理组件把导入、创建、调用、流式、异常五个阶段完整追踪了一遍。
 </aside>
 
 ---
