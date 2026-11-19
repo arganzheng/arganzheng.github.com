@@ -5,10 +5,10 @@ title: "GPU Kernel 工程（03）：访存合并与 elementwise kernel"
 subtitle: "Memory Coalescing and Elementwise Kernels: Hitting the Bandwidth Ceiling"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
-上一篇写出了第一个 kernel：一个 BF16 的 `y = x + b`，每个线程处理一个元素。它能跑、结果正确，但没有回答"它跑得够快吗"。这一篇就回答这个问题，并把答案推到极限。
+[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)写出了第一个 kernel：一个 BF16 的 `y = x + b`，每个线程处理一个元素。它能跑、结果正确，但没有回答"它跑得够快吗"。这一篇就回答这个问题，并把答案推到极限。
 
 先把理论下界放在最前面，后面所有讨论都对着它算。BF16 的 `y = x + b` 对每个元素读 2 个 BF16、写 1 个 BF16，共 6 字节，做 1 次加法（1 FLOP）：
 
@@ -26,11 +26,54 @@ $$n = 2^{28}$$（每个 tensor 512 MiB，三个共 1.5 GiB ≈ 1.61 GB）时，$
 
 AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数、残差加、dtype 转换、RoPE、掩码、dropout、量化/反量化——都属于这一类。把它们写到带宽极限是最基本的功课，也是理解后面所有 kernel 的起点：GEMM 和 attention 的 tile 加载，本质上仍是这一篇讨论的访存模式。
 
-总纲给这一篇的核心问题是：
+[总纲](/gpu-kernel-engineering.html)给这一篇的核心问题是：
 
 > **一个 elementwise kernel 跑出了 90% 带宽，还有什么可优化的？[^q0]**
 
 ## 一、总览
+
+一个 elementwise kernel 的时间几乎全花在一条路径上：warp 发出加载指令，32 个地址被归并成 sector，经 L1、L2 到 HBM 取回，算完再原路写回。下图是这条路径，以及决定它能否跑满带宽的几个环节在哪一章展开：
+
+```mermaid
+%% 图：elementwise kernel 的访存路径：warp 的 32 个地址 → sector → L1 / L2 → HBM，以及决定带宽利用率的环节
+flowchart TB
+    HOST["<b>host 侧：TensorIterator 与 launch</b><br/>广播、合并维度、判断连续与对齐，选出 kernel（第五、六章）"]
+    WARP["<b>一个 warp 的一条加载指令</b><br/>32 个线程、32 个地址<br/>每线程 2 B（BF16 标量）或 16 B（int4）（第三章）"]
+    COAL["<b>合并：按 32 B sector 归并地址</b><br/>效率 = 有效字节 ÷ (sector 数 × 32 B)<br/>连续对齐 100%，跨步 ≥ 32 B 只剩 12.5%（第二章）"]
+    L1["<b>L1：每 SM 192 KB</b><br/>128 B cache line = 4 个 sector"]
+    L2["<b>L2：整卡 40 MB</b><br/>与 L1、HBM 之间都按 32 B sector 搬"]
+    HBM["<b>HBM2e：2.0 TB/s，延迟 ~600 ns</b><br/>BF16 add 每元素 6 B，$$n = 2^{28}$$ 时下界 0.81 ms<br/>实测能到约 90%（第八章）"]
+    REG["<b>寄存器</b><br/>BF16 转 float 计算，舍回 BF16 写出（第三章）"]
+    INF["<b>在飞请求（第四章）</b><br/>Little's law：整卡 ≈1.2 MB，每 SM ≈11 KB<br/>靠占用率 + ILP 填满"]
+    FUSE["<b>融合（第七章）</b><br/>到 90% 之后唯一的办法：减少 HBM 总字节数"]
+    HOST --> WARP --> COAL --> L1 --> L2 --> HBM
+    HBM -- "数据返回" --> REG
+    REG -- "store 同样按 sector 合并" --> COAL
+    INF -.-> HBM
+    FUSE -.-> HBM
+```
+
+- **host 侧**：`TensorIterator` 把 sizes / strides 整理成"连续一维"或"带 offset 计算的一般情况"，`gpu_kernel` 据此在三个 kernel 之间选（[第五章](#五非连续-tensorstride-与-broadcast)、[第六章](#1-入口与路径选择)）。
+- **warp 的加载指令**：硬件按 warp 而不是按线程访存；每线程一次搬几个字节，决定一条指令带回 64 B 还是 512 B（[第三章](#三向量化访存)）。
+- **合并**：决定效率的是 32 个地址一共碰了几个 sector，跨步、未对齐、AoS 都会多付 sector（[「访问模式与效率表」一节](#2-访问模式与效率表)、[「AoS 与 SoA」一节](#3-aos-与-soa)）。
+- **L1 / L2**：elementwise 数据只读一次，缓存几乎不命中；只读路径 `ld.global.nc` 的收益在于编译器可以重排加载（[「写入与只读路径」一节](#4-写入与只读路径)）。
+- **HBM**：理论下界只由字节数决定；最后 8–10% 由 DRAM 刷新、读写切换、启动收尾等吃掉（[「读者应看到的量级，以及为什么最后 8–10% 拿不到」一节](#7-读者应看到的量级以及为什么最后-810-拿不到)）。
+- **寄存器**：`int4` 搬运、`__nv_bfloat162` 拆开、float 计算，转换在 memory-bound kernel 里几乎免费（[「`float4`、`__nv_bfloat162` 与 `int4`」一节](#2-float4__nv_bfloat162-与-int4)）。
+- **在飞请求**：带宽 × 延迟给出必须同时在路上的字节数，32-bit 加载单靠占用率填不满，要向量化或 ILP（[「占用率与 Little's law」一节](#2-占用率与-littles-lawmemory-bound-为什么也需要多-warp)）。
+- **融合**：三个 elementwise 分开是每元素 16 B，融合成一个是 8 B，这是 Inductor 融合的收益来源（[第七章](#七融合90-之后)）。
+
+图里几样东西容易混：哪些在 HBM、哪些只在寄存器里活一次迭代、哪些在 host 侧就定好了。
+
+| 对象 | 谁产生、何时 | 存在哪里 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| 输入输出 tensor `x`、`b`、`y` | caching allocator，在算子调用时分配 | HBM | 到 tensor 释放 | 所有 SM、所有 kernel |
+| sector / cache line 的副本 | warp 加载未命中时由硬件搬入 | L2（整卡共享）<br/>L1（本 SM） | 直到被替换；elementwise 数据读一次就不再用 | L2：整卡<br/>L1：本 SM 的线程 |
+| `int4` 向量与 float 中间值 | 每个线程的加载与计算指令 | 寄存器 | 本次循环迭代 | 只有本线程 |
+| 中间结果 `t1`、`t2`（`silu(x + b) * y`） | 不融合：前一个 kernel 写出<br/>融合：同一个 kernel 内算出 | 不融合：HBM 上的完整 tensor<br/>融合：寄存器 | 不融合：到下一个 kernel 读完<br/>融合：一个元素算完即丢 | 不融合：后续 kernel<br/>融合：本线程 |
+| `OffsetCalculator`（sizes、strides、`IntDivider` 魔数） | host 侧 `make_offset_calculator(iter)`，每次 launch 前 | 被 lambda 按值捕获，作为 kernel 参数随 launch 传入 | 一次 launch | 这次 launch 的所有线程 |
+| `vectorized_elementwise_kernel` 的模板实例 | 编译 PyTorch 时，每种 `scalar_t` × `vec_size` 生成一份 | PyTorch 的 CUDA 库二进制 | 整个进程；launch 时按 dtype 与 `vec_size` 选中一份 | — |
+
+Table: elementwise kernel 里几个对象的产生时机、存放位置、寿命与可见范围
 
 ### 1. 答案先说在前面
 
@@ -40,13 +83,13 @@ AI 负载里除 GEMM 与 attention 之外的绝大多数算子——激活函数
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 一个 warp 的内存请求发生了什么 | 32 字节 sector 与 128 字节 cache line、访问模式与效率表、AoS 与 SoA、写入与只读路径 |
-| 三 | 向量化访存 | 为什么每线程 4 字节不够、float4 / `__nv_bfloat162` / int4、对齐要求与尾部处理 |
-| 四 | grid-stride loop 与占用率 | grid 不必等于元素数、Little's law 与 memory-bound 为什么也需要多 warp、占用率的约束 |
+| 二 | 一个 warp 的内存请求发生了什么 | 32 字节 sector 与 128 字节 cache line<br/>访问模式与效率表<br/>AoS 与 SoA<br/>写入与只读路径 |
+| 三 | 向量化访存 | 为什么每线程 4 字节不够<br/>float4 / `__nv_bfloat162` / int4<br/>对齐要求与尾部处理 |
+| 四 | grid-stride loop 与占用率 | grid 不必等于元素数<br/>Little's law 与 memory-bound 为什么也需要多 warp<br/>占用率的约束 |
 | 五 | 非连续 Tensor | 把线性 index 变成多维 offset、TensorIterator 在 host 侧做了什么 |
-| 六 | 读 ATen 的 elementwise 实现 | 入口与路径选择、`launch_vectorized_kernel` 与 `can_vectorize_up_to`、向量化与非向量化路径、`AT_DISPATCH` |
+| 六 | 读 ATen 的 elementwise 实现 | 入口与路径选择<br/>`launch_vectorized_kernel` 与 `can_vectorize_up_to`<br/>向量化与非向量化路径<br/>`AT_DISPATCH` |
 | 七 | 融合：90% 之后 | 三个 kernel 与一个 kernel、Inductor 融合的收益来源 |
-| 八 | 实践：把 BF16 add 推到 90% | 理论下界、naive / 向量化 / 向量化 + grid-stride 三个版本、通用 2D stride 版本、`load_inline` 测试、读者应看到的量级 |
+| 八 | 实践：把 BF16 add 推到 90% | 理论下界<br/>naive / 向量化 / 向量化 + grid-stride 三个版本<br/>通用 2D stride 版本<br/>`load_inline` 测试<br/>读者应看到的量级 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 5 道题 |
 
@@ -107,6 +150,9 @@ Table: A100 访存路径各级的粒度、延迟与带宽
 
 Table: 访问模式与访存效率
 
+> [!NOTE] Java 经验参照：按行遍历与按列遍历
+> 遍历 `double[][] a` 时，外层 `i`、内层 `j` 读 `a[i][j]` 比交换两层循环快：Java 的二维数组是数组的数组，每一行是一个独立的 `double[]`，行内元素连续，按行读能把 CPU 取进来的整条 cache line 用完，按列读每次跳到另一个数组，一条 line 只用上一个元素。对得上的是这半句：硬件按整段搬（GPU 上是 32 B sector），没用上的字节照样占带宽。对不上的是谁在连续读：CPU 上是一个线程按时间先后顺序读，GPU 上是一个 warp 的 32 个线程在同一条指令里读，所以 GPU 要的是**相邻线程读相邻地址**。照 CPU 的习惯让线程 i 顺序处理自己的一段连续区间，同一条指令里 32 个地址就相隔一整段，落进上表"跨步 8 及以上"那一行。
+
 BF16 是 2 字节，32 个线程连续读只有 64 B，占 2 个 sector——效率仍是 100%，但每条加载指令只带回 64 B，要靠更多指令才能填满带宽。这一点是下一章向量化的动机。
 
 需要注意：这张表算的是 L1/L2 层面的**请求效率**，HBM 侧因为 L2 会缓存被"浪费"的 sector，跨步访问在某些情况下的实际 DRAM 流量比表中略好；但 L2 命中率依赖数据能否留在 40 MB（A100）的 L2 里，对 GB 级的 tensor 不能指望。工程上直接按这张表估算即可。
@@ -138,7 +184,7 @@ struct Points { float* x; float* y; float* z; };   // 三个独立数组
 
 以上讨论的是加载；存储的合并规则相同——warp 的 32 个写地址按 sector 合并，部分写入的 sector 需要 L2 做字节掩码合并，效率同样按触碰的 sector 数计算。区别在于写不需要等待返回，warp 发出存储指令后可以立即继续，因此写延迟对 kernel 的影响远小于读延迟；但写流量在 HBM 侧同样占带宽，2 读 1 写的 `add` 中写占了三分之一。
 
-对只读数据，从 Volta 起 L1 与纹理缓存已经合并为同一块存储，用 `const T* __restrict__` 修饰的指针，编译器会生成 `ld.global.nc`（non-coherent，等价于 `__ldg`）加载，允许数据在 L1 中缓存且不必与其他 SM 的写入保持一致性。对 elementwise kernel 来说数据只读一次、L1 命中率为零，这条路径的收益不在缓存，而在于编译器得到"没有别名"的保证后可以自由重排加载与存储——把三条加载都提前发出、再统一计算和写回，这正是第四章要讨论的 ILP。
+对只读数据，从 Volta 起 L1 与纹理缓存已经合并为同一块存储，用 `const T* __restrict__` 修饰的指针，编译器会生成 `ld.global.nc`（non-coherent，等价于 `__ldg`）加载，允许数据在 L1 中缓存且不必与其他 SM 的写入保持一致性。对 elementwise kernel 来说数据只读一次、L1 命中率为零，这条路径的收益不在缓存，而在于编译器得到"没有别名"的保证后可以自由重排加载与存储——把三条加载都提前发出、再统一计算和写回，这正是[第四章](#2-占用率与-littles-lawmemory-bound-为什么也需要多-warp)要讨论的 ILP。
 
 ## 三、向量化访存
 
@@ -177,23 +223,29 @@ __device__ __forceinline__ int4 add_bf16x8(int4 xa, int4 ba) {
 
 `__bfloat1622float2` 把一对 BF16 转成 `float2`，`__floats2bfloat162_rn` 反向舍入打包。这里的 `reinterpret_cast` 作用在寄存器里的局部变量上，编译器会把它优化成纯寄存器操作，不产生额外访存。
 
-为什么不用 `__hadd2` 直接在 BF16 上加？对**单次**加法其实两条路结果通常逐位相同——`__hadd2` 也是 round-to-nearest-even，一次加法只舍入一次，先转 float 再加再舍回 BF16 的最终结果一样（第二篇实测里两版对齐就是这个原因）。差别在**多步**：一旦要连做几次运算（融合了 relu、乘、加，或累加），中间量留在 float 里只在最后舍入一次，逐步用 BF16 则每步都舍入，误差会累积；而转换和 FP32 运算在 memory-bound kernel 里几乎免费（前提是有足够 warp 把它们藏在访存后面）。所以本文所有 kernel 都遵循"BF16 存储、float 计算"的约定，与 ATen 的 `opmath_type` 做法一致——理由是多步精度与代码统一，不是单次加法更准。
+为什么不用 `__hadd2` 直接在 BF16 上加？对**单次**加法其实两条路结果通常逐位相同——`__hadd2` 也是 round-to-nearest-even，一次加法只舍入一次，先转 float 再加再舍回 BF16 的最终结果一样（[《CUDA 编程模型与第一个 kernel》的「Python/PyTorch 侧的等价脚手架」一节](/cuda-programming-model-and-first-kernel.html#4-pythonpytorch-侧的等价脚手架)里两版逐位对齐就是这个原因）。差别在**多步**：一旦要连做几次运算（融合了 relu、乘、加，或累加），中间量留在 float 里只在最后舍入一次，逐步用 BF16 则每步都舍入，误差会累积；而转换和 FP32 运算在 memory-bound kernel 里几乎免费（前提是有足够 warp 把它们藏在访存后面）。所以本文所有 kernel 都遵循"BF16 存储、float 计算"的约定，与 ATen 的 `opmath_type` 做法一致——理由是多步精度与代码统一，不是单次加法更准。
 
 ### 3. 对齐要求、`reinterpret_cast` 与尾部处理
 
 向量化加载有一个硬性要求：**地址必须按向量宽度对齐**。用 `int4` 读一个不是 16 字节倍数的地址，会触发 misaligned address 错误并让 kernel 崩溃。这带来三个工程细节。
 
-第一，**起始地址检查**。`cudaMalloc` 返回的指针至少 256 字节对齐，PyTorch 的 caching allocator 也保证 512 字节对齐，所以完整 tensor 的 `data_ptr()` 天然满足条件；但 `x[:, 1:]` 这样的切片、`storage_offset` 非零的 view 就不一定。host 侧要检查：
+**1、起始地址检查。**
+
+`cudaMalloc` 返回的指针至少 256 字节对齐，PyTorch 的 caching allocator 也保证 512 字节对齐，所以完整 tensor 的 `data_ptr()` 天然满足条件；但 `x[:, 1:]` 这样的切片、`storage_offset` 非零的 view 就不一定。host 侧要检查：
 
 ```cpp title="16 字节对齐检查"
 bool aligned16 = (reinterpret_cast<uintptr_t>(ptr) % 16) == 0;
 ```
 
-不满足时退回标量路径。ATen 的 `can_vectorize_up_to` 做的就是这件事，第六章会读它。
+不满足时退回标量路径。ATen 的 `can_vectorize_up_to` 做的就是这件事，[第六章](#2-launch_vectorized_kernel-与-can_vectorize_up_to)会读它。
 
-第二，**`reinterpret_cast` 的语义**。`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"只在 i 为 8 的倍数处访问"的直觉误导。
+**2、`reinterpret_cast` 的语义。**
 
-第三，**尾部**。$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。第八章的代码会给出完整写法。
+`reinterpret_cast<const int4*>(x)[i]` 表示"把 `x` 看成 `int4` 数组，取第 i 个"，也就是从 `x` 起第 $$16i$$ 字节处读 16 字节。它要求 `x` 本身 16 字节对齐，而不只是 `x + 16i`。这一点很容易被"只在 i 为 8 的倍数处访问"的直觉误导。
+
+**3、尾部。**
+
+$$n$$ 不是 8 的倍数时，最后 $$n \bmod 8$$ 个元素不能用 `int4` 读（会越界读取，甚至越界写入）。常见做法是：主循环只处理前 $$\lfloor n / 8 \rfloor \times 8$$ 个元素，剩余的由某个 block 的前几个线程用标量方式补齐。[第八章](#3-版本二向量化每线程-8-个元素)的代码会给出完整写法。
 
 三个细节合在一起，就是第八章向量化 kernel 的元素 ↔ 线程映射（BF16，每格 2 B）：
 
@@ -214,7 +266,7 @@ Table: 起始地址与向量化路径
 
 ### 1. grid 不必等于元素数
 
-上一篇的 kernel 用 `grid = ceil(n / blockDim)` 让每个线程恰好处理一个元素。这没有错，硬件的 block 调度器会依次把 block 派发到 SM 上，几十万个 block 也能跑完。但还有另一种写法：
+[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)里的 kernel 用 `grid = ceil(n / blockDim)` 让每个线程恰好处理一个元素。这没有错，硬件的 block 调度器会依次把 block 派发到 SM 上，几十万个 block 也能跑完。但还有另一种写法：
 
 ```cpp title="grid-stride 循环"
 for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
@@ -285,9 +337,22 @@ $$
 
 （寄存器分配按 warp 级、以 256 个为单位向上取整，实际值略小。）向量化 add kernel 每线程用 20–30 个寄存器，$$T = 256$$ 时 $$65536 / (32 \times 256) = 8$$ 个 block、2048 线程，占用率 100%。elementwise kernel 几乎不会遇到寄存器压力；用 `__launch_bounds__(256)` 告诉编译器 block 大小，可以防止它为了 ILP 过度分配寄存器。
 
+按每线程 32 个寄存器代入，不同 block 大小的结果：
+
+| block 线程数 $$T$$ | 寄存器限制 | 线程数限制 | block 数上限 | blocks_per_SM | 驻留线程 | 占用率 |
+|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 64 | 64 | 32 | 32 | 1024 | 50% |
+| 64 | 32 | 32 | 32 | 32 | 2048 | 100% |
+| 128 | 16 | 16 | 32 | 16 | 2048 | 100% |
+| 256 | 8 | 8 | 32 | 8 | 2048 | 100% |
+| 512 | 4 | 4 | 32 | 4 | 2048 | 100% |
+| 1024 | 2 | 2 | 32 | 2 | 2048 | 100% |
+
+Table: A100 上每线程 32 个寄存器时 block 大小与占用率
+
 block 大小本身对 elementwise kernel 影响不大，128 到 512 都常见。太小（如 32 或 64）会撞上每 SM 最多 32 个 block 的限制——32 个 block × 64 线程 = 2048 线程刚好够，但 32 × 32 = 1024 线程只有一半占用率；太大（1024）则一个 SM 最多只能驻留 2 个这样的 block（2048 线程上限，还要寄存器与 shared 允许），block 之间切换时的空档更难被填补，且尾部 block 的浪费更多。ATen 取 128、本文取 256，都是让每 SM 驻留 8–16 个 block 的选择，粒度足够细，调度器有余地。
 
-还有一个与占用率无关但常被忽视的因素：**每 SM 的 L1/LSU 事务数上限**。一条 warp 级加载指令覆盖 4 条 cache line 时，L1 需要 4 个周期（每周期处理一条 128 B 的 line）才能把它处理完——这不是坏事，恰恰说明 128-bit 加载让 LSU 的每条指令都在做满载的工作；反过来，2 字节的标量加载一条指令只占半条 line，L1 每周期能处理的有效字节数只有向量化时的 1/8。这就是第三章"naive 很难超过 70–80%"的微架构解释。
+还有一个与占用率无关但常被忽视的因素：**每 SM 的 L1/LSU 事务数上限**。一条 warp 级加载指令覆盖 4 条 cache line 时，L1 需要 4 个周期（每周期处理一条 128 B 的 line）才能把它处理完——这不是坏事，恰恰说明 128-bit 加载让 LSU 的每条指令都在做满载的工作；反过来，2 字节的标量加载一条指令只占半条 line：每条指令搬的有效字节只有向量化时的 1/8，L1 每周期处理的那条 line 也只用上一半。这就是[第三章](#1-为什么每线程-4-字节不够)"naive 很难超过 70–80%"的微架构解释。
 
 至此，把 elementwise kernel 写到带宽极限的三件事已经齐了：**合并（连续对齐）、向量化（16 B/线程）、足够的在飞请求（占用率 + ILP）**。第八章把它们落成代码，先解决另一个绕不开的问题——tensor 不连续怎么办。
 
@@ -317,11 +382,27 @@ int64_t off_b = i0 * bs0 + i1 * bs1;
 
 **broadcast 就是 stride 为 0**：`b` 的形状 `[1, d]` 扩展到 `[m, d]`，第 0 维的 stride 设为 0，所有行读同一段内存。不需要物化任何数据。
 
-两个性能提示。第一，只要最内维 stride 为 1，相邻线程仍访问相邻地址，合并不受影响；但如果最内维 stride 不是 1（如转置后的 `x.t()`，最内维 stride 是 4096 个元素 = 8 KiB），每个线程独占一个 sector，BF16 的效率只剩 $$2 / 32 = 6.25\%$$。这种情况下通常先 `contiguous()`（一次 transpose kernel 的代价通常小于低效访问——但它本身是一读一写，是否划算要按整条流水线算：`TensorIterator` 会按 stride 重排迭代顺序，很多情况下不必真的 copy），或者让 kernel 用 shared memory 做 tile 转置——那是第四篇的话题。第二，64 位整数除法在 GPU 上很慢（几十条指令），ATen 的做法是把除数预处理成"魔数 + 移位"（`IntDivider`），用乘法代替除法，且用 32 位 index。
+两个性能提示。
+
+**1、最内维 stride 决定合并。**
+
+只要最内维 stride 为 1，相邻线程仍访问相邻地址，合并不受影响；但如果最内维 stride 不是 1（如转置后的 `x.t()`，最内维 stride 是 4096 个元素 = 8 KiB），每个线程独占一个 sector，BF16 的效率只剩 $$2 / 32 = 6.25\%$$。这种情况下通常先 `contiguous()`（一次 transpose kernel 的代价通常小于低效访问——但它本身是一读一写，是否划算要按整条流水线算：`TensorIterator` 会按 stride 重排迭代顺序，很多情况下不必真的 copy），或者让 kernel 用 shared memory 做 tile 转置——见[《共享内存与 reduction》的「padding 与 swizzle」一节](/shared-memory-reduction-and-softmax.html#5-padding-与-swizzle)。
+
+**2、除法换成乘法。**
+
+64 位整数除法在 GPU 上很慢（几十条指令），ATen 的做法是把除数预处理成"魔数 + 移位"（`IntDivider`），用乘法代替除法，且用 32 位 index。
 
 ### 2. TensorIterator 在 host 侧做了什么
 
-PyTorch 的 elementwise 算子并不直接把 sizes/strides 传给 kernel，而是先经过 `TensorIterator`。它在 host 侧完成：形状广播、dtype 推断与类型提升、把可以合并的维度合并（例如 `[m, d]` 两维连续就当作一维 `[m·d]`）、按 stride 重排维度让最内维是访问最密的、判断所有操作数是否连续并检查 32 位索引是否够用——然后把一个"已经整理好的迭代空间"交给 CUDA 端。这样 kernel 只需要处理"连续一维"和"带 OffsetCalculator 的一般情况"两种形态。本文不展开它，只需要知道下一章读到的 `iter.is_contiguous()`、`iter.strides(i)` 这些信息就来自这里。
+PyTorch 的 elementwise 算子并不直接把 sizes/strides 传给 kernel，而是先经过 `TensorIterator`。它在 host 侧做这几件事：
+
+1. 形状广播；
+2. dtype 推断与类型提升；
+3. 把可以合并的维度合并（例如 `[m, d]` 两维连续就当作一维 `[m·d]`）；
+4. 按 stride 重排维度，让最内维是访问最密的；
+5. 判断所有操作数是否连续，并检查 32 位索引是否够用。
+
+然后把一个"已经整理好的迭代空间"交给 CUDA 端。这样 kernel 只需要处理"连续一维"和"带 OffsetCalculator 的一般情况"两种形态。本文不展开它，只需要知道下一章读到的 `iter.is_contiguous()`、`iter.strides(i)` 这些信息就来自这里。
 
 ## 六、读 ATen 的 elementwise 实现
 
@@ -449,7 +530,7 @@ inline C10_HOST_DEVICE int can_vectorize_up_to(const char *pointer) {
 }
 ```
 
-  `aligned_vector<scalar_t, N>` 是一个 `alignas(sizeof(scalar_t) * N)` 的结构体（`scalar_t val[N]`），它的对齐要求就是向量的字节宽度。这正是第三章说的"host 侧对齐检查"。
+  `aligned_vector<scalar_t, N>` 是一个 `alignas(sizeof(scalar_t) * N)` 的结构体（`scalar_t val[N]`），它的对齐要求就是向量的字节宽度。这正是[第三章](#3-对齐要求reinterpret_cast-与尾部处理)说的"host 侧对齐检查"。
 - `computeCapability != 90 && != 100` 时把 `vec_size` 压到 4：在 2.10 中，8 元素向量只在 Hopper/Blackwell 上启用——所以 **A100 上 BF16 的 `add` 实际用的是 4 × 2 B = 8 字节（64-bit）加载**，H100 上是 16 字节。源码注释说明这是为了规避一个 NVCC 数值问题，并控制二进制体积（vec8 实例只为 sm_90/sm_100 编译）。
 - `elems_per_thread<io_size>()`：`io_size` 是所有输入与输出元素大小之和（BF16 二元 op 为 6）；它等于 1 时每线程 16 个元素，否则 8 个。`num_threads()` 是 128（`thread_constants.h` 中定义为 `C10_WARP_SIZE * 4`）。所以一个 block 处理 $$128 \times 8 = 1024$$ 个元素，grid = $$\lceil N / 1024 \rceil$$——**不是 grid-stride**。
 
@@ -669,12 +750,12 @@ Table: 三个独立 kernel 与融合 kernel 的读写次数、字节数与相对
 从这个角度重新审视 elementwise 优化的边界：
 
 - 单个 elementwise kernel 的上限是带宽，可优化空间就是从 60% 到 90% 这段，手写与框架实现差距通常不超过 1.5 倍；
-- 一旦到了 90%，**唯一有意义的优化就是让它消失**：融合进邻居（Inductor、手写 fused kernel），或融合进 GEMM 的 epilogue（CUTLASS 的 epilogue fusion，第六篇）、attention 的输出阶段（第八篇）；
+- 一旦到了 90%，**唯一有意义的优化就是让它消失**：融合进邻居（Inductor、手写 fused kernel），或融合进 GEMM 的 epilogue（CUTLASS 的 epilogue fusion，见[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)）、attention 的输出阶段（见[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)）；
 - "少做"还包括：不物化 mask 而在 kernel 里按坐标判断、不物化 broadcast、用 in-place 减少一次分配、把 dtype 转换合并进相邻算子。
 
 关于 in-place 需要澄清一点：`x.add_(b)` 与 `y = x + b` 的字节数是一样的（都是 2 读 1 写），in-place 省的是显存分配与 caching allocator 的开销，不是带宽。真正减少字节的是"不要把中间结果写出去再读回来"。类似地，`x.to(torch.float32)` 后再做一次 FP32 的 elementwise，比直接在 kernel 里"读 BF16、float 计算、写 BF16"多了一读一写 FP32（8 B/元素），是常见的隐性浪费——本文所有 kernel 内部都用 float 计算，正是为了不需要这一步。
 
-融合并非没有代价。融合后的 kernel 寄存器更多、模板实例更多，Inductor 需要为每一种算子组合生成并编译一个新 kernel；对手写 kernel 而言，每个融合模式都是一份要维护、要测试的代码。所以融合的优先级应该由 profile 决定：先看时间线上哪些 elementwise kernel 相邻且合计占比高，再决定融合哪一段。第十篇会回到这个方法论。
+融合并非没有代价。融合后的 kernel 寄存器更多、模板实例更多，Inductor 需要为每一种算子组合生成并编译一个新 kernel；对手写 kernel 而言，每个融合模式都是一份要维护、要测试的代码。所以融合的优先级应该由 profile 决定：先看时间线上哪些 elementwise kernel 相邻且合计占比高，再决定融合哪一段。[《剖析、测试与贡献——把 kernel 做成产品》的「Nsight Systems：先看 kernel 之间」一节](/kernel-profiling-testing-and-contribution.html#三nsight-systems先看-kernel-之间)会回到这个方法论。
 
 这条边界也是本系列后面篇章的组织逻辑：reduction、GEMM、attention 之所以值得单独写 kernel，是因为它们的上限不再是"读一遍写一遍"，而有更多结构可以利用。
 
@@ -933,7 +1014,7 @@ ext = load_inline(
 
 `data_ptr<at::BFloat16>()` 同时做了 dtype 检查；`at::BFloat16` 与 `__nv_bfloat16` 都是 2 字节、位模式一致，`reinterpret_cast` 是安全的。`load_inline` 默认按当前 GPU 的架构编译（可用环境变量 `TORCH_CUDA_ARCH_LIST=8.0` 固定）。
 
-计时脚手架与第二篇一致：`bench(fn, warmup=10, iters=100, flush_l2=True)`，`cudaEvent` 计时，两次计时之间用一个 128 MB（≥ 2 × A100 L2）的缓冲区 `memset` 冲掉 L2，取中位数毫秒：
+计时脚手架与[《CUDA 编程模型与第一个 kernel》的「Python/PyTorch 侧的等价脚手架」一节](/cuda-programming-model-and-first-kernel.html#4-pythonpytorch-侧的等价脚手架)一致：`bench(fn, warmup=10, iters=100, flush_l2=True)`，`cudaEvent` 计时，两次计时之间用一个 128 MB（≥ 2 × A100 L2）的缓冲区 `memset` 冲掉 L2，取中位数毫秒：
 
 ```python title="bench：cudaEvent 计时与 L2 flush（Python 版）"
 _flush_buf = None
@@ -1020,7 +1101,7 @@ Table: A100 上 n = 2^28 各版本 elementwise kernel 的有效带宽（经验�
 - **L2 与 DRAM 页局部性**。写回策略、L2 分片之间的交叉带宽、DRAM 页打开/关闭，都不是 kernel 能控制的。
 - **功耗与频率**。带宽压满时 HBM 与 SM 的功耗都高，GPU 可能降频，标称值对应的是理想条件。
 
-这些因素合起来就是那道 90% 的墙。在它面前，继续调 block 大小、展开因子、grid 倍数，收益都在噪声范围内。此时应该做的事在第七章已经说过：融合，或者少做。
+这些因素合起来就是那道 90% 的墙。在它面前，继续调 block 大小、展开因子、grid 倍数，收益都在噪声范围内。此时应该做的事在[第七章](#七融合90-之后)已经说过：融合，或者少做。
 
 ## 九、本文小结
 
@@ -1062,7 +1143,7 @@ Table: 三版 BF16 add kernel（n = 2^28，理论下界 0.81 ms @ 2.0 TB/s）
   - `num_threads = 128`；vectorized 每线程 8 元素（`io_size = 1` 时 16）；`vec_size = min(16/sizeof, 对齐)`，非 sm_90/100 上 ≤ 4。
   - unrolled 每线程 4 元素；legacy `elementwise_kernel<128, 2 或 4>` + `OffsetCalculator`（`MAX_DIMS = 25`）。
 
-下一篇进入需要线程之间协作的 kernel。softmax、LayerNorm、RMSNorm 都要对一行做归约，而归约的结果要被同一行的所有元素使用——这需要 shared memory、warp shuffle 与 `__syncthreads()`，也需要 online softmax 把三遍读变成一遍。它们的理论下界仍然是"读一遍写一遍"，但实现的自由度和陷阱都比 elementwise 多得多。
+[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)进入需要线程之间协作的 kernel。softmax、LayerNorm、RMSNorm 都要对一行做归约，而归约的结果要被同一行的所有元素使用——这需要 shared memory、warp shuffle 与 `__syncthreads()`，也需要 online softmax 把三遍读变成一遍。它们的理论下界仍然是"读一遍写一遍"，但实现的自由度和陷阱都比 elementwise 多得多。
 
 ## 十、自测
 
@@ -1078,7 +1159,7 @@ Table: 三版 BF16 add kernel（n = 2^28，理论下界 0.81 ms @ 2.0 TB/s）
 
    <details markdown="1"><summary>答案</summary>
 
-   stride 12 字节，每 32 B sector 只用 4 字节，效率约 1/3（12.5%–33%）；改成 SoA（三个独立数组）或一次把整个 struct 读进寄存器再选用。
+   stride 12 字节，32 个 `x` 分布在 384 B、12 个 sector 里，有效 128 B，效率 33%；改成 SoA（三个独立数组）或一次把整个 struct 读进寄存器再选用。
 
    </details>
 
@@ -1106,4 +1187,4 @@ Table: 三版 BF16 add kernel（n = 2^28，理论下界 0.81 ms @ 2.0 TB/s）
 
    </details>
 
-[^q0]: 先看那 10% 能不能拿：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（[第二章](#二一个-warp-的内存请求发生了什么)）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞（[第二](#二一个-warp-的内存请求发生了什么)至[五章](#五非连续-tensorstride-与-broadcast)）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（[第六章](#六读-aten-的-elementwise-实现)）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B，融合成一个是 8 B——90% 带宽之后唯一的办法是减少总字节数，把相邻的 elementwise 合进一个 kernel、或合进前后 GEMM / reduction 的 epilogue，这是 Inductor 融合全部收益的来源（[第七章](#七融合90-之后)）。
+[^q0]: 先看那 10% 能不能拿：DRAM 可达带宽约为标称的 85–92%，90% 已经贴着物理上限，kernel 内部几乎没有余地（[「读者应看到的量级，以及为什么最后 8–10% 拿不到」一节](#7-读者应看到的量级以及为什么最后-810-拿不到)）。真正的优化在两个方向。**一是确认没有隐藏的浪费**：合并访存是否 100%（warp 的 32 个地址落在最少的 32 B sector 里；AoS 布局、非 1 的最内维 stride、未对齐都会多付 sector）；是否向量化到 16 字节 / 线程；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞（[第二](#二一个-warp-的内存请求发生了什么)至[五章](#五非连续-tensorstride-与-broadcast)）。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已经把这些做了，所以它能到 90%（[第六章](#六读-aten-的-elementwise-实现)）。**二是让 kernel 消失**：三个 elementwise 分开执行是每元素 16 B，融合成一个是 8 B——90% 带宽之后唯一的办法是减少总字节数，把相邻的 elementwise 合进一个 kernel、或合进前后 GEMM / reduction 的 epilogue，这是 Inductor 融合全部收益的来源（[第七章](#七融合90-之后)）。
