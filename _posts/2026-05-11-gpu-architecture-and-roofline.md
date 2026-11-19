@@ -5,7 +5,7 @@ title: "GPU Kernel 工程（01）：GPU 为什么这样设计——硬件结构�
 subtitle: "Why GPUs Look the Way They Do: Architecture and the Roofline Model"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-18
 ---
 
 这个系列要回答的问题是：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。要谈"极限"，先得知道极限在哪里。所以第一篇不写、也不运行任何完整的 kernel，只做一件事：把一块 GPU 拆开，看清它由什么组成、硬件如何把工作切成 warp 和 block 放到 SM 上、每个部分能以多快的速度搬数据和做乘加，然后把这些数字装进一个足够简单、又足够有用的模型——Roofline——用它回答：
@@ -16,6 +16,55 @@ updated: 2026-09-20
 
 ## 一、总览
 
+一个 kernel 跑多快，由两条路径中更慢的那条决定：指令从 launch 一路落到执行单元，数据从 HBM 一级级搬到寄存器。下图把 A100 上这两条路径画在一起，最后交给 Roofline 判定瓶颈：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：一次 kernel launch 在 A100 上的执行路径与数据路径，以及 Roofline 怎样判定瓶颈
+flowchart TB
+    L["<b>一次 kernel launch</b><br/>提交一批 thread block（grid）"]
+    L -->|"按空闲资源分派，block 不迁移（第三章）"| SM["<b>SM：整卡 108 个</b><br/>• 最多驻留 2048 线程 = 64 warp、32 block<br/>• 寄存器与 shared 用量决定实际驻留数（第四章）"]
+    SM --> SCH["<b>warp 调度器：每 SM 4 个</b><br/>每周期从就绪 warp 里挑一个发一条指令<br/>等内存的 warp 被切走，不乱序（第四章）"]
+    SCH -->|"FFMA：32 个 lane 各一次 FMA"| CC["<b>CUDA Core</b><br/>FP32 19.5 TFLOPS（第二章）"]
+    SCH -->|"mma.sync：整个 warp 一个小矩阵"| TC["<b>Tensor Core</b><br/>BF16 312 TFLOPS（第四章）"]
+    HBM["<b>HBM2e：80 GB，2.0 TB/s</b><br/>kernel 输入输出的来源与去处（第五章）"] -->|"所有 SM 的流量都经过"| L2["<b>L2：40 MB，整卡共享</b><br/>拦下多个 block 对同一数据的重复读（第五章）"]
+    L2 --> SHM["<b>L1 / shared：每 SM 192 KB</b><br/>block 内复用，整卡带宽约为 HBM 的 10 倍（第五章）"]
+    SHM --> REG["<b>寄存器：每 SM 256 KB</b><br/>线程私有，操作数从这里进执行单元（第五章）"]
+    REG --> CC
+    REG --> TC
+    CC --> RF["<b>Roofline</b><br/>$$T = \max(F / P_{peak},\ B / BW)$$<br/>$$I = F / B$$ 与 ridge 156 比：左边 memory-bound，右边 compute-bound（第六章）"]
+    TC --> RF
+    HBM -.->|"B：最小 HBM 字节数"| RF
+    RF -.->|"两条屋顶都没碰到"| LAT["<b>latency-bound</b><br/>驻留 warp 或在飞的访存太少（第九章）"]
+```
+
+- **一次 kernel launch**：交给硬件的是一批 block，不是一条指令流；launch 之间的空隙属于系统层，本系列不讨论（[第三章](#2-block硬件分派到-sm-的单位)、[第九章](#1-时间线上的间隙与色块)）。
+- **SM**：block 整块落到一个 SM、不迁移；一个 SM 能同时驻留几个 block，取线程数、block 数、寄存器、shared memory 四个上限里最紧的那个（[「驻留」一节](#3-驻留2048-个线程64-个-warp32-个-block)）。
+- **warp 调度器**：32 个线程一组同一条指令（SIMT），分歧的分支串行；一个 warp 等内存时调度器零开销切到另一个就绪 warp（[「延迟隐藏」一节](#2-延迟隐藏靠-warp-切换而不是乱序执行)）。
+- **CUDA Core**：一条 FFMA 是 32 个 lane 各做一次标量 FMA；6912 个单元 × 2 FLOP × 1.41 GHz ≈ 19.5 TFLOPS（[「一个 SM 长什么样」一节](#3-一个-sm-长什么样)）。
+- **Tensor Core**：与 CUDA Core 并列、由同一个调度器发射，一条 `mma.sync m16n8k16` 是 4096 FLOP，吞吐是 CUDA Core 的 16 倍（[「Tensor Core」一节](#4-tensor-core-在哪里和-cuda-core-是什么关系)）。
+- **HBM**：绝大多数 AI kernel 的下界就是把输入从这里读一遍、输出写一遍的时间（[第五章](#五内存层次容量带宽延迟)）。
+- **L2**：整卡共享；大 GEMM 之所以能跑到 compute-bound，靠它挡住 block 之间的重复读（[「GEMM 什么时候才真的 compute-bound」一节](#5-gemm-什么时候才真的-compute-bound)）。
+- **L1 / shared**：同一块 SRAM，shared 是程序员显式管理的 block 内公共存储，也是数据复用的场所（[「每一级是给谁用的」一节](#2-每一级是给谁用的)）。
+- **寄存器**：整卡 27 MiB，与 L2 同量级；每线程用得越多，能驻留的 warp 越少（[「容量数字决定了分块的尺寸」一节](#3-容量数字决定了分块的尺寸)）。
+- **Roofline**：一段计算的理论最短时间取算力时间与带宽时间的较大者；A100 BF16 的 ridge 是 156 FLOP/byte（[第六章](#六roofline-模型)）。
+- **latency-bound**：点悬在两条屋顶下方，带宽和算力利用率都低，要靠更多 warp、更多在飞的 load 解决（[「一张诊断决策图」一节](#2-一张诊断决策图)）。
+
+[第七章](#七硬件代际)的四代架构改的是图中各框的数字和指令（ridge 一代代右移，搬运越来越异步）；[第八章](#八工具链地图)的工具分别观察图中的不同环节：`-Xptxas -v` 看寄存器与 shared 用量，`ncu` 看单个 kernel 离屋顶多远，`nsys` 看 launch 之间的空隙。
+
+图里各级存储放的东西，最容易混的是「谁分配、谁能看见、活多久」：
+
+| 对象 | 谁分配 | 存在哪里 | 谁能看见 | 活多久 |
+|---|---|---|---|---|
+| 寄存器里的变量 | 编译器（ptxas）给每个线程分配同样多个，`-Xptxas -v` 打印个数 | SM 的寄存器文件 | 本线程；warp 内其它 lane 只能用 shuffle 读 | block 驻留期间，block 结束才释放 |
+| local memory（寄存器溢出） | 编译器在寄存器不够时 spill，SASS 里是 `LDL` / `STL` | 物理上在 HBM，名字里的 local 指作用域 | 本线程 | kernel 执行期间 |
+| shared memory 数组 | 程序员用 `__shared__` 声明，block 落到 SM 时划出 | SM 内的 L1 / shared SRAM | 同一个 block 的所有线程 | block 结束才释放 |
+| L1 cache 行 | 硬件自动装入 | SM 内，与 shared 共用一块 SRAM | 对程序员透明 | 由硬件替换 |
+| L2 cache 行 | 硬件自动装入 | 整卡共享的 40 MB | 对程序员透明，所有 SM 共用 | 由硬件替换，可能跨 kernel 留着——计时前要 flush L2 的原因（[「两个利用率」一节](#6-离屋顶多远两个利用率)） |
+| HBM 上的输入输出 tensor | host 调 `cudaMalloc` | HBM（全局内存） | 所有 kernel 的所有线程；host 经 `cudaMemcpy` | 直到 `cudaFree` |
+
+Table: 各级存储里的对象：谁分配、存在哪里、谁能看见、活多久
+
 ### 1. 硬件基线与数字约定
 
 本文的硬件基线是 A100 SXM 80GB，随文标注 H100 SXM 80GB 的对应数字。所有算力和带宽数字均为公开**标称值**的近似，实测会因型号、频率和功耗上限而有差异；本系列没有 GPU 实测数据，所有时间都是可推导的理论下界，或者用"通常能达到"的措辞给出的区间。
@@ -24,20 +73,20 @@ updated: 2026-09-20
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 两种设计目标：延迟与吞吐 | CPU 与 GPU 的晶体管预算怎么分、零开销上下文切换、一个 SM 长什么样 |
+| 二 | 两种设计目标：延迟与吞吐 | CPU 与 GPU 的晶体管预算怎么分<br/>零开销上下文切换<br/>一个 SM 长什么样 |
 | 三 | 硬件怎么组织工作 | warp：32 个 lane 一条指令（SIMT）<br/>block：分派到 SM 的单位<br/>硬件层级与编程模型名字的对应图 |
-| 四 | SM、warp 与 SIMT 的硬件实现 | 分歧怎么串行、靠 warp 切换而非乱序执行隐藏延迟、驻留上限、Tensor Core 与 CUDA Core 的关系 |
+| 四 | SM、warp 与 SIMT 的硬件实现 | 分歧怎么串行<br/>靠 warp 切换而非乱序执行隐藏延迟<br/>驻留上限<br/>Tensor Core 与 CUDA Core 的关系 |
 | 五 | 内存层次 | 寄存器 / shared / L1 / L2 / HBM 的容量、带宽、延迟一张表<br/>每一级给谁用<br/>容量决定分块尺寸 |
-| 六 | Roofline 模型 | 算术强度、两条屋顶、ridge point、四个例子、GEMM 何时真的 compute-bound、两个利用率、一个可运行的计算器 |
+| 六 | Roofline 模型 | 算术强度<br/>两条屋顶<br/>ridge point<br/>四个例子<br/>GEMM 何时真的 compute-bound<br/>两个利用率<br/>一个可运行的计算器 |
 | 七 | 硬件代际 | Volta / Ampere / Hopper / Blackwell 各自引入了什么 |
-| 八 | 工具链地图 | nvcc、PTX/SASS、cuobjdump、nsys、ncu、compute-sanitizer 各看什么 |
+| 八 | 工具链地图 | nvcc<br/>PTX / SASS<br/>cuobjdump、nvdisasm<br/>nsys、ncu<br/>compute-sanitizer |
 | 九 | 系统层与 kernel 层的边界 | 哪些瓶颈属于系统层<br/>本系列只讨论时间线上的实心色块<br/>一张诊断决策图 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
 
-本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
+本文不写 CUDA 代码。grid、block、thread 这些名字在代码里怎么写、怎么编号，是下一篇[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)的内容；本文只在第三章末尾给出硬件层级与这些名字的对应图，作为两篇之间的桥。
 
 ## 二、两种设计目标：延迟与吞吐
 
@@ -194,11 +243,11 @@ $$
 1. **warp**：32 个线程被当作一条指令的 32 个 **lane**——lane 就是这 32 个线程在 warp 里各占的那个位置，编号 0–31（下面 SIMT 图里的 lane 0 … lane 31），像一条 32 路宽的流水线上的 32 条车道。
 2. **block**：一批线程被当作一个整体分派到某个 SM。
 
-这两个词也是 CUDA 编程模型里的名字，但本章只讲它们在硬件上意味着什么；它们在代码里怎么写、怎么编号，是下一篇的内容。本章最后给出一张硬件层级与编程模型名字的对应图，作为两篇之间的桥。
+这两个词也是 CUDA 编程模型里的名字，但本章只讲它们在硬件上意味着什么；它们在代码里怎么写、怎么编号，见[《CUDA 编程模型与第一个 kernel》的「三层结构与内建变量」一节](/cuda-programming-model-and-first-kernel.html#1-三层结构与内建变量)。本章最后给出一张硬件层级与编程模型名字的对应图，作为两篇之间的桥。
 
 ### 1. warp：32 个线程，同一条指令，各自的数据——SIMT
 
-SM 调度的最小单位不是线程而是 **warp**：32 个线程在同一时刻执行**同一条指令**，但每个线程作用在自己的寄存器和自己的数据上。这里的"自己的寄存器"是字面意思：warp 里的 32 个线程**不共享**寄存器——编译器给 kernel 里每个线程分配同样多的寄存器（比如 40 个），32 个线程就各有自己那 40 个，物理上是寄存器文件里 32 份互不重叠的槽位，一条指令 `add r3, r1, r2` 在 32 个 lane 上各读各的 r1、r2、各写各的 r3。线程之间要交换数据只能走 shared memory，或者用 shuffle 指令在 warp 内互读（第四篇）。这也是上一章"寄存器文件被静态划分给每个 warp"的含义：一个 warp 占 32 × 每线程寄存器数个槽位，占满就不能再驻留新的 warp。这个执行方式叫 **SIMT**（Single Instruction, Multiple Threads）：
+SM 调度的最小单位不是线程而是 **warp**：32 个线程在同一时刻执行**同一条指令**，但每个线程作用在自己的寄存器和自己的数据上。这里的"自己的寄存器"是字面意思：warp 里的 32 个线程**不共享**寄存器——编译器给 kernel 里每个线程分配同样多的寄存器（比如 40 个），32 个线程就各有自己那 40 个，物理上是寄存器文件里 32 份互不重叠的槽位，一条指令 `add r3, r1, r2` 在 32 个 lane 上各读各的 r1、r2、各写各的 r3。线程之间要交换数据只能走 shared memory，或者用 shuffle 指令在 warp 内互读（[《共享内存与 reduction》的「`__shfl_*_sync` 家族」一节](/shared-memory-reduction-and-softmax.html#1-__shfl__sync-家族)）。这也是上一章"寄存器文件被静态划分给每个 warp"的含义：一个 warp 占 32 × 每线程寄存器数个槽位，占满就不能再驻留新的 warp。这个执行方式叫 **SIMT**（Single Instruction, Multiple Threads）：
 
 ```mermaid
 %% SIMT：一个 warp 的 32 个 lane 同一条指令、各自的数据；地址合并成一次事务
@@ -218,13 +267,13 @@ flowchart TB
     T31 --> M
 ```
 
-从程序员的角度，每个线程都是一个独立的标量程序：有自己的变量、自己的 `if`、自己的循环次数。从硬件的角度，一个 warp 就是一条 32 路宽的向量指令，每个线程占其中一个 **lane**。两种视角的差别在分支处显现：如果 32 个线程在一个 `if` 上走了不同的路，硬件只能把两条路径**先后**各执行一遍，每次让不满足条件的 lane "旁观"（被 mask 掉）。结果正确，但时间是两条路径之和。这叫 warp divergence，第四章展开。
+从程序员的角度，每个线程都是一个独立的标量程序：有自己的变量、自己的 `if`、自己的循环次数。从硬件的角度，一个 warp 就是一条 32 路宽的向量指令，每个线程占其中一个 **lane**。两种视角的差别在分支处显现：如果 32 个线程在一个 `if` 上走了不同的路，硬件只能把两条路径**先后**各执行一遍，每次让不满足条件的 lane "旁观"（被 mask 掉）。结果正确，但时间是两条路径之和。这叫 warp divergence，[第四章](#1-分歧怎么执行两条路径串行)展开。
 
-warp 这一层是**几乎所有性能问题发生的地方**：32 个 lane 是否走同一条分支、32 个 lane 发出的地址能否合并成一次内存事务（上图最后一步）、32 个 lane 访问 shared memory 会不会撞上同一个 bank。这些是第三、四篇的主题；这里先记住"32 个一组"这个数字。
+warp 这一层是**几乎所有性能问题发生的地方**：32 个 lane 是否走同一条分支、32 个 lane 发出的地址能否合并成一次内存事务（上图最后一步）、32 个 lane 访问 shared memory 会不会撞上同一个 bank。这些是[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)和[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的主题；这里先记住"32 个一组"这个数字。
 
 ### 2. block：硬件分派到 SM 的单位
 
-**一次 kernel launch 交给硬件的不是一个任务、也不是一条指令流，而是一批线程块。** 线程不是一个一个交给 SM 的。一次 kernel launch 提交的是一批 **thread block**（硬件文档里叫 CTA（cooperative thread array，CUDA 里的线程块），cooperative thread array），每个 block 有几十到上千个线程；硬件的全局调度器按 SM 的空闲资源把 block 逐个分派下去。**一个 block 只会落在一个 SM 上、从头到尾不迁移；一个 SM 可以同时驻留多个 block**：
+**一次 kernel launch 交给硬件的不是一个任务、也不是一条指令流，而是一批线程块。** 线程不是一个一个交给 SM 的。一次 kernel launch 提交的是一批 **thread block**（硬件文档里叫 CTA，cooperative thread array），每个 block 有几十到上千个线程；硬件的全局调度器按 SM 的空闲资源把 block 逐个分派下去。**一个 block 只会落在一个 SM 上、从头到尾不迁移；一个 SM 可以同时驻留多个 block**：
 
 ```mermaid
 %% block 分派：全局调度器把 thread block 逐个放到有空闲资源的 SM 上，一个 block 不迁移
@@ -265,11 +314,11 @@ block 落到 SM 之后，它的线程被按 32 个连续编号一组切成 warp�
 - **block 内的线程可以协作，block 之间不能。** 同一个 block 的线程在同一个 SM 上，因此可以共用这个 SM 里那块 192 KB 的 SRAM（shared memory）、可以在硬件屏障上互相等待；不同 block 可能在不同 SM 上、也可能一个已经结束一个还没开始，硬件不提供它们之间的廉价通信手段。
 - **block 之间彼此独立、无序。** 硬件不保证 block 的执行顺序，也不保证哪些 block 同时在跑；正因为不保证，同一份 kernel 才能不加修改地撒到 108 个、132 个或者下一代更多的 SM 上。
 
-一个 SM 上能同时驻留多少个 block、多少个 warp，受寄存器和 shared memory 总量限制，这就是第四章要算的 occupancy。
+一个 SM 上能同时驻留多少个 block、多少个 warp，受寄存器和 shared memory 总量限制，这就是[第四章](#3-驻留2048-个线程64-个-warp32-个-block)要算的 occupancy。
 
 ### 3. 硬件层级与编程模型名字的对应
 
-把本章和上一章拼起来，硬件一侧从整卡到一个执行 lane 有四层；CUDA 编程模型给其中每一层起了一个名字。下一篇会从这些名字出发写代码，这里先把对应关系画出来：
+把本章和上一章拼起来，硬件一侧从整卡到一个执行 lane 有四层；CUDA 编程模型给其中每一层起了一个名字。[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)会从这些名字出发写代码，这里先把对应关系画出来：
 
 ```mermaid
 %% 硬件四层（GPU → SM → warp → lane）与 CUDA 编程模型名字（grid → block → — → thread）的对应
@@ -294,7 +343,7 @@ flowchart TB
 |---|---|---|
 | 整块 GPU（108 个 SM） | **Grid** | 一次 launch 的全部 block 撒满整卡；block 间无序、无同步、无共享内存 |
 | 一个 SM | **Block** | 整块落到一个 SM，不迁移；block 内共享 shared memory，可在屏障上对齐 |
-| 一个 warp（32 lane） | （无名字） | 硬件按 32 个连续线程切分；同一条指令、分歧时串行、访存按 warp 合并 |
+| 一个 warp（32 lane） | （无名字） | 硬件按 32 个连续线程切分<br/>同一条指令<br/>分歧时串行<br/>访存按 warp 合并 |
 | 一个 lane | **Thread** | 有自己的寄存器、编号和分支路径 |
 
 Table: 硬件层级与编程模型名字的对应
@@ -327,9 +376,9 @@ if (threadIdx.x % 2 == 0) { a = f(x); } else { a = g(x); }
 if ((threadIdx.x / 32) % 2 == 0) { a = f(x); } else { a = g(x); }
 ```
 
-（`threadIdx.x` 是线程在 block 内的编号，下一篇详述；这里只需知道相邻编号的 32 个线程在同一个 warp 里。）最常见的分歧来源其实不是这种人为的奇偶分支，而是**边界检查**：数组长度不是 32 的倍数时，最后一个 warp 里有一部分线程要跳过计算。这种分歧只发生在一个 warp 上，代价可以忽略；真正要避免的是每个 warp 都会碰到的、按数据内容分歧的分支。
+（`threadIdx.x` 是线程在 block 内的编号，[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html#1-三层结构与内建变量)详述；这里只需知道相邻编号的 32 个线程在同一个 warp 里。）最常见的分歧来源其实不是这种人为的奇偶分支，而是**边界检查**：数组长度不是 32 的倍数时，最后一个 warp 里有一部分线程要跳过计算。这种分歧只发生在一个 warp 上，代价可以忽略；真正要避免的是每个 warp 都会碰到的、按数据内容分歧的分支。
 
-一个 warp 一条指令，这个事实还决定了访存的粒度：当一个 warp 执行一条 load 指令时，32 个 lane 各自给出一个地址，硬件把这些地址合并成尽量少的内存事务——现代 GPU（CC 6.0+）的粒度是 **32 字节的 sector**，128 字节的 cache line 由 4 个 sector 组成。如果 32 个 lane 的 4 字节地址恰好是连续对齐的 128 字节，只需 4 个 sector（一次请求，第三章 SIMT 图里的情形）；如果散落在 32 个不同的 sector 上，就要搬 32 个 sector = 1024 字节来拿 128 字节有用数据，有效带宽掉到 1/8（不是常说的 1/32——那是按 128 B cache line 数的老口径；实际 HBM 流量还受 L1/L2 复用影响，第三篇会用 sector 格子精确数）。这就是 coalescing，第三篇的主题。
+一个 warp 一条指令，这个事实还决定了访存的粒度：当一个 warp 执行一条 load 指令时，32 个 lane 各自给出一个地址，硬件把这些地址合并成尽量少的内存事务——现代 GPU（CC 6.0+）的粒度是 **32 字节的 sector**，128 字节的 cache line 由 4 个 sector 组成。如果 32 个 lane 的 4 字节地址恰好是连续对齐的 128 字节，只需 4 个 sector（一次请求，第三章 SIMT 图里的情形）；如果散落在 32 个不同的 sector 上，就要搬 32 个 sector = 1024 字节来拿 128 字节有用数据，有效带宽掉到 1/8（不是常说的 1/32——那是按 128 B cache line 数的老口径；实际 HBM 流量还受 L1/L2 复用影响，[《访存合并与 elementwise kernel》的「32 字节 sector 与 128 字节 cache line」一节](/memory-coalescing-and-elementwise-kernels.html#1-32-字节-sector-与-128-字节-cache-line)会用 sector 格子精确数）。这就是 coalescing，《访存合并与 elementwise kernel》的主题。
 
 ### 2. 延迟隐藏靠 warp 切换，而不是乱序执行
 
@@ -358,7 +407,7 @@ flowchart TB
 所以问题变成：**要有多少个 warp 才能把延迟填满？** 粗略地说，如果一次访存延迟是 $$L$$ 周期，而每个 warp 在两次访存之间只有 $$k$$ 条独立指令可以发射，那么每个调度器需要约 $$L / k$$ 个 warp 才能保证每周期都有活干。HBM 延迟按 600 周期算、$$k = 10$$ 的话就是 60 个 warp——而一个 SM 最多驻留 64 个 warp、分给 4 个调度器每个 16 个。这个粗算说明两件事：
 
 - 光靠 warp 数量填不满 HBM 延迟，还要靠**单个 warp 内部的并行度**（ILP）：一次发出多条互不依赖的 load，让它们同时在飞（在 flight），一次等待换回多份数据；
-- 驻留 warp 数太少时，SM 大部分时间在空转等数据，这种状态叫 **latency-bound**：既没碰到带宽上限，也没碰到算力上限。第六章讨论 Roofline 时会回到它。
+- 驻留 warp 数太少时，SM 大部分时间在空转等数据，这种状态叫 **latency-bound**：既没碰到带宽上限，也没碰到算力上限。[第九章](#1-时间线上的间隙与色块)划分瓶颈类型时会回到它。
 
 这里没有 OoO。一个 warp 内部的指令严格按程序顺序发射（编译器会做静态调度），硬件只在 warp 之间选择。硬件因此简单、面积小，把复杂度推给了编译器和程序员——这是 GPU 编程比 CPU 编程更"贴近硬件"的根本原因。
 
@@ -381,7 +430,7 @@ flowchart LR
 - 寄存器：65536 个 32-bit 寄存器，一个线程用 $$R$$ 个、block 有 $$T$$ 个线程，则最多 $$\lfloor 65536 / (R \cdot T) \rfloor$$ 个 block（实际分配以 warp 为粒度、按 256 个寄存器向上取整）；
 - shared memory：A100 每 SM 最大 164 KB，一个 block 用 $$S$$ 字节则最多 $$\lfloor 164\ \text{KB} / S \rfloor$$ 个 block。
 
-实际驻留 warp 数与 64 的比值叫 **occupancy**。举一个数：一个 block 256 线程、每线程 64 个寄存器，寄存器一项允许 $$65536 / (64 \times 256) = 4$$ 个 block = 32 个 warp，occupancy 50%。第二篇写第一个 kernel 时会用 `nvcc -Xptxas -v` 看到每个 kernel 的寄存器数，这个算式就派上用场。
+实际驻留 warp 数与 64 的比值叫 **occupancy**。举一个数：一个 block 256 线程、每线程 64 个寄存器，寄存器一项允许 $$65536 / (64 \times 256) = 4$$ 个 block = 32 个 warp，occupancy 50%。[《CUDA 编程模型与第一个 kernel》的「两个必备的编译选项」一节](/cuda-programming-model-and-first-kernel.html#4-两个必备的编译选项)会用 `nvcc -Xptxas -v` 看到每个 kernel 的寄存器数，这个算式就派上用场。
 
 ### 4. Tensor Core 在哪里，和 CUDA Core 是什么关系
 
@@ -405,7 +454,12 @@ $$
 
 对比 FP32 CUDA Core 的 19.5 TFLOPS，同一个 SM 里 Tensor Core 的吞吐是 CUDA Core 的 16 倍。H100 的第四代 Tensor Core 每 SM 每周期再翻倍到 2048 次 FMA，加上 SM 数和主频的提升，BF16 dense 达到约 989 TFLOPS；此外还支持 FP8，约 1979 TFLOPS。
 
-Tensor Core 有两个约束决定了后面几篇的很多设计：第一，它只做矩阵乘加，softmax、归一化、激活函数这些仍然要走 CUDA Core 和 SFU；第二，它的操作数要按照特定的 **fragment 布局**分散在 warp 的 32 个线程的寄存器里，数据从 shared memory 搬进寄存器时必须按这个布局排好——这是 `ldmatrix`、CUTLASS 的 `Layout`、Hopper 的 TMA 存在的原因。第六篇专门讨论。
+Tensor Core 有两个约束决定了后面几篇的很多设计：
+
+1. 它只做矩阵乘加，softmax、归一化、激活函数这些仍然要走 CUDA Core 和 SFU。
+2. 它的操作数要按照特定的 **fragment 布局**分散在 warp 的 32 个线程的寄存器里，数据从 shared memory 搬进寄存器时必须按这个布局排好——这是 `ldmatrix`、CUTLASS 的 `Layout`、Hopper 的 TMA 存在的原因。
+
+[《Tensor Core、CUTLASS 与 CuTe》的「fragment 布局与 ldmatrix」一节](/tensor-cores-cutlass-and-cute.html#三fragment-布局与-ldmatrix)专门讨论。
 
 ## 五、内存层次：容量、带宽、延迟
 
@@ -462,9 +516,9 @@ H100 对应的数字：shared/L1 每 SM 256 KB（shared 最大 228 KB），L2 50
 
 ### 2. 每一级是给谁用的
 
-**寄存器**是每个线程私有的，编译器分配，程序员不能直接控制，但能通过代码结构影响（一个线程持有的中间结果越多，寄存器越多，occupancy 越低）。第五篇的寄存器分块就是有意让每个线程在寄存器里持有一个 8×8 的输出 tile，用 occupancy 换数据复用。
+**寄存器**是每个线程私有的，编译器分配，程序员不能直接控制，但能通过代码结构影响（一个线程持有的中间结果越多，寄存器越多，occupancy 越低）。[《GEMM——从 naive 到分块》的寄存器分块](/gemm-from-naive-to-tiled.html#五v3寄存器分块含-v4-的加载优化)就是有意让每个线程在寄存器里持有一个 8×8 的输出 tile，用 occupancy 换数据复用。
 
-**shared memory** 是一个 block 内所有线程共享的、程序员显式管理的片上存储，物理上和 L1 是同一块 SRAM，比例可配置。它是 block 内线程协作的唯一高速通道：reduction 里跨线程求和、GEMM 里把 A、B 的 tile 装进来让所有线程复用、attention 里放 K、V 的分块。它被分成 32 个 bank，每个 bank 每周期服务一个 4 字节的访问，32 个线程恰好各访问一个不同 bank 时才能达到每周期 128 字节，否则发生 bank conflict、串行化。第四篇讨论。
+**shared memory** 是一个 block 内所有线程共享的、程序员显式管理的片上存储，物理上和 L1 是同一块 SRAM，比例可配置。它是 block 内线程协作的唯一高速通道：reduction 里跨线程求和、GEMM 里把 A、B 的 tile 装进来让所有线程复用、attention 里放 K、V 的分块。它被分成 32 个 bank，每个 bank 每周期服务一个 4 字节的访问，32 个线程恰好各访问一个不同 bank 时才能达到每周期 128 字节，否则发生 bank conflict、串行化。[《共享内存与 reduction》的「bank conflict」一节](/shared-memory-reduction-and-softmax.html#4-bank-conflict32-个-bank每个-4-字节)讨论。
 
 **L1** 对程序员透明，主要用于缓存全局内存读取和合并访存事务。**L2** 是整卡共享的，所有 SM 的 HBM 流量都经过它；它的存在让"多个 block 读同一份数据"时实际 HBM 流量低于理论值——这一点在讨论 GEMM 为什么能是 compute-bound 时很关键。
 
@@ -530,7 +584,7 @@ $$
 
 ### 4. 四个例子
 
-现在回答总纲提出的核心问题。
+现在回答[总纲](/gpu-kernel-engineering.html)提出的核心问题。
 
 **BF16 elementwise 加法** $$y = x + b$$，每个元素读 $$x$$、读 $$b$$、写 $$y$$，共 6 字节，做 1 次加法：
 
@@ -538,7 +592,7 @@ $$
 I = \frac{1}{6} \approx 0.17 \text{ FLOP/byte}
 $$
 
-距 A100 的 ridge 156 差三个数量级，这是彻底的 memory-bound；即便和 FP32 CUDA Core 的 ridge 10 比也差 60 倍。它的理论时间就是字节数除以带宽：$$x$$、$$b$$、$$y$$ 各 1 GiB（$$2^{29}$$ 个元素）时流量 3 GiB，在 A100 上 $$3 \times 2^{30} / 2.0 \times 10^{12} \approx 1.61$$ ms。**无论做什么优化，这个 kernel 都不可能快于 1.61 ms**；能做的只是让它接近这个数——第三篇的全部内容。
+距 A100 的 ridge 156 差三个数量级，这是彻底的 memory-bound；即便和 FP32 CUDA Core 的 ridge 10 比也差 60 倍。它的理论时间就是字节数除以带宽：$$x$$、$$b$$、$$y$$ 各 1 GiB（$$2^{29}$$ 个元素）时流量 3 GiB，在 A100 上 $$3 \times 2^{30} / 2.0 \times 10^{12} \approx 1.61$$ ms。**无论做什么优化，这个 kernel 都不可能快于 1.61 ms**；能做的只是让它接近这个数——[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的全部内容。
 
 **RMSNorm**，一行 $$d = 4096$$ 个 BF16 元素，读 8 KiB、写 8 KiB，每个元素约做 4 次运算（平方、累加、乘 rsqrt、乘权重）：
 
@@ -546,7 +600,7 @@ $$
 I \approx \frac{4 \times 4096}{16384} = 1 \text{ FLOP/byte}
 $$
 
-仍然是 memory-bound。8192 行时 128 MiB 流量，A100 理论时间约 67 µs。它比 elementwise 多了一个跨行的 reduction，需要 shared memory 或 warp shuffle，但性能目标不变：跑到带宽上限。第四篇。
+仍然是 memory-bound。8192 行时 128 MiB 流量，A100 理论时间约 67 µs。它比 elementwise 多了一个跨行的 reduction，需要 shared memory 或 warp shuffle，但性能目标不变：跑到带宽上限，见[《共享内存与 reduction》的「RMSNorm：读一次写一次」一节](/shared-memory-reduction-and-softmax.html#1-rmsnorm读一次写一次)。
 
 **attention decode**，Llama-3-8B（32 层、8 个 KV 头、32 个 Q 头、$$d_{head} = 128$$）生成一个 token，上下文长 $$s$$。每层要读全部 KV cache：$$2 \times 8 \times 128 \times 2 = 4$$ KiB 每 token 每层，32 层共 128 KiB 每 token；每层算量是 $$QK^T$$ 和 $$PV$$ 各 $$2 \times 32 \times 128 \times s$$，合计 $$4 \times 4096 \times s$$。两者相除：
 
@@ -554,7 +608,7 @@ $$
 I = \frac{4 \times 4096 \cdot s}{4096 \cdot s} = 4 \text{ FLOP/byte}
 $$
 
-这个 4 恰好是 GQA 的分组数（32 个 Q 头共享 8 个 KV 头）；MHA 时是 1。要注意 batch **不会**像权重 GEMM 那样线性抬高它：每个请求有自己的 KV，batch 加大时 FLOPs 与 KV 字节一起乘 $$B$$，比值不变——只有多个请求共享同一段 KV（前缀共享）时才会涨。所以 decode attention 的算术强度通常在 1–8 之间。$$s = 4096$$ 时 KV 读取 512 MiB，A100 理论 268 µs，memory-bound。这也解释了 PagedAttention 和各种 decode kernel 的优化方向都是"每读一次 KV 尽量多用"。第八篇。
+这个 4 恰好是 GQA 的分组数（32 个 Q 头共享 8 个 KV 头）；MHA 时是 1。要注意 batch **不会**像权重 GEMM 那样线性抬高它：每个请求有自己的 KV，batch 加大时 FLOPs 与 KV 字节一起乘 $$B$$，比值不变——只有多个请求共享同一段 KV（前缀共享）时才会涨。所以 decode attention 的算术强度通常在 1–8 之间。$$s = 4096$$ 时 KV 读取 512 MiB，A100 理论 268 µs，memory-bound。这也解释了 PagedAttention 和各种 decode kernel 的优化方向都是"每读一次 KV 尽量多用"，见[《Attention Kernel——FlashAttention 与 PagedAttention》的 decode 一节](/attention-kernels-flashattention-and-pagedattention.html#2-decodeq-只有一行每-token-读全部-kv)。
 
 **GEMM** $$4096 \times 4096 \times 4096$$，BF16：
 
@@ -566,7 +620,7 @@ $$
 I = \frac{2 \cdot 4096^3}{3 \cdot 4096^2 \cdot 2} = \frac{4096}{3} \approx 1365 \text{ FLOP/byte}
 $$
 
-远在 ridge 156 右侧，compute-bound。理论时间由算力决定：$$137.4 \times 10^9 / 312 \times 10^{12} \approx 0.44$$ ms，而搬 100.7 MB 只要 50 µs。如果不用 Tensor Core、只用 FP32 CUDA Core，则 $$137.4 / 19.5 \approx 7.0$$ ms。这就是第五、六篇的目标：从 naive 的几十甚至上百毫秒，走到 0.44 ms 的某个百分比。
+远在 ridge 156 右侧，compute-bound。理论时间由算力决定：$$137.4 \times 10^9 / 312 \times 10^{12} \approx 0.44$$ ms，而搬 100.7 MB 只要 50 µs。如果不用 Tensor Core、只用 FP32 CUDA Core，则 $$137.4 / 19.5 \approx 7.0$$ ms。这就是[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)和[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)的目标：从 naive 的几十甚至上百毫秒，走到 0.44 ms 的某个百分比。
 
 四个例子放到一张 Roofline 图上（A100，双对数坐标，示意）：
 
@@ -582,9 +636,15 @@ $$
 B_{tiled} = M \cdot N \cdot K \cdot \left(\frac{1}{BM} + \frac{1}{BN}\right) \text{ 个元素}
 $$
 
-比 naive 实现（每个输出元素独立读 $$2K$$ 个数，共 $$2MNK$$ 个元素）少了两个数量级（$$BM = BN = 128$$ 时的精确倍数第五篇推导）；但对全局内存的算术强度只有几十 FLOP/byte 的量级，**仍然低于 156**。也就是说，如果 tile 之间完全没有数据共享，128×128 的分块 GEMM 在 A100 上依然是 memory-bound。它在实践中能跑到 compute-bound，靠的是 L2：同时运行的 block 中有很多读的是 $$A$$ 的同一行块或 $$B$$ 的同一列块，40 MB 的 L2 把这些重复读取拦在了 HBM 之外，实际 HBM 流量远小于 $$B_{tiled}$$。
+比 naive 实现（每个输出元素独立读 $$2K$$ 个数，共 $$2MNK$$ 个元素）少了两个数量级（$$BM = BN$$ 时恰好少 $$BM$$ 倍，推导见[《GEMM——从 naive 到分块》的「分块把算术强度变成一个可设计的参数」一节](/gemm-from-naive-to-tiled.html#1-分块把算术强度变成一个可设计的参数)）；但对全局内存的算术强度只有几十 FLOP/byte 的量级，**仍然低于 156**。代入 4096³、$$BM = BN = 128$$、BF16 算一遍：
 
-这给出一个重要结论，后面 GEMM 篇会反复用到：**GEMM 是 compute-bound 不是天然的，而是 tile 足够大、片上复用足够多、并且 block 调度顺序对 L2 友好的结果**。小矩阵、瘦矩阵（decode 时 $$M = $$ batch size 只有几十）、或者 tile 太小，GEMM 都会滑回带宽屋顶。
+- 读取量：$$4096^3 \times 2 / 128 = 2^{30}$$ 个元素，即 2 GiB。
+- 算术强度：$$137.4\ \text{GFLOP} / 2.15\ \text{GB} \approx 64$$ FLOP/byte，低于 156。
+- 2 GiB 全走 HBM 要 $$2.15\ \text{GB} / 2.0\ \text{TB/s} \approx 1.07$$ ms，比 0.44 ms 的算力时间长。
+
+也就是说，如果 tile 之间完全没有数据共享，128×128 的分块 GEMM 在 A100 上依然是 memory-bound。它在实践中能跑到 compute-bound，靠的是 L2：同时运行的 block 中有很多读的是 $$A$$ 的同一行块或 $$B$$ 的同一列块，40 MB 的 L2 把这些重复读取拦在了 HBM 之外，实际 HBM 流量远小于 $$B_{tiled}$$。
+
+这给出一个重要结论，[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)会反复用到：**GEMM 是 compute-bound 不是天然的，而是 tile 足够大、片上复用足够多、并且 block 调度顺序对 L2 友好的结果**。小矩阵、瘦矩阵（decode 时 $$M = $$ batch size 只有几十）、或者 tile 太小，GEMM 都会滑回带宽屋顶。
 
 ### 6. 离屋顶多远：两个利用率
 
@@ -600,7 +660,7 @@ $$
 
 对 compute-bound kernel，Tensor Core 的利用率通常低一些：cuBLAS 在大方阵上一般能达到 BF16 峰值的 70–85%（受功耗降频、tile 边界浪费、流水线填充和排空影响），手写 GEMM 能到 cuBLAS 的 80–90% 已经是很好的成绩。所以对 4096³ 的 BF16 GEMM，读者在 A100 上跑出来的 cuBLAS 数字大致应该落在 0.5–0.65 ms 之间，而不是 0.44 ms。
 
-两个利用率都需要 $$T_{actual}$$，它的测量本身有讲究：要用 `cudaEvent` 而不是 CPU 时钟、要预热、要取多次运行的中位数，还要在两次运行之间把 L2 刷掉——否则一个 100 MB 的输入在第二次运行时有相当一部分还留在 40 MB 的 L2 里，测出来的"HBM 带宽"会超过 2.0 TB/s，让人误以为突破了屋顶。第二篇会给出一个统一的 `bench()` 函数处理这些细节，后面所有篇的数字都用它测。
+两个利用率都需要 $$T_{actual}$$，它的测量本身有讲究：要用 `cudaEvent` 而不是 CPU 时钟、要预热、要取多次运行的中位数，还要在两次运行之间把 L2 刷掉——否则一个 100 MB 的输入在第二次运行时有相当一部分还留在 40 MB 的 L2 里，测出来的"HBM 带宽"会超过 2.0 TB/s，让人误以为突破了屋顶。[《CUDA 编程模型与第一个 kernel》的「完整的 C++ 程序与 bench 脚手架」一节](/cuda-programming-model-and-first-kernel.html#3-完整的-c-程序与-bench-脚手架)会给出一个统一的 `bench()` 函数处理这些细节，后面所有篇的数字都用它测。
 
 还要注意 Roofline 里的 $$B$$ 是**算法的最小流量**，而 `ncu` 报告的是**实际发生的 HBM 流量**。两者的比值是另一个有用的诊断量：如果一个 elementwise kernel 的实际流量是理论值的 2 倍，说明有一半的读取没有被 cache line 复用或者写入触发了额外的读（例如非对齐、非合并的访存模式）；如果一个 GEMM 的实际流量是理论 100.7 MB 的 5 倍，说明 tile 之间的复用不够、L2 没有拦住重复读取。单看"带宽利用率 90%"不能区分"读得又快又省"和"读得快但读了很多遍"，两个数字要一起看。
 
@@ -700,9 +760,15 @@ timeline
 - **thread block cluster** 与**分布式 shared memory**（DSMEM）：多个 block 组成 cluster，可以直接读写彼此的 shared memory，在 block 之上多了一个协作层级；
 - **FP8**（E4M3/E5M2）Tensor Core，约 1979 TFLOPS dense；shared memory 每 SM 最大 228 KB；L2 50 MB；HBM3 3.35 TB/s。
 
-FlashAttention-3、CUTLASS 3.x 的 Hopper GEMM、DeepGEMM 都建立在 TMA + wgmma + warp specialization 之上，第六篇和第八篇会涉及。
+FlashAttention-3、CUTLASS 3.x 的 Hopper GEMM、DeepGEMM 都建立在 TMA + wgmma + warp specialization 之上，见[《Tensor Core、CUTLASS 与 CuTe》的「Hopper：TMA、wgmma 与 warp specialization」一节](/tensor-cores-cutlass-and-cute.html#五hoppertmawgmma-与-warp-specialization)和[《Attention Kernel——FlashAttention 与 PagedAttention》的「FlashAttention-2 与 FlashAttention-3」一节](/attention-kernels-flashattention-and-pagedattention.html#四flashattention-2-与-flashattention-3)。
 
-**Blackwell（B200，2024/2025，`sm_100`）**。第五代 Tensor Core，新增 FP4、FP6 精度；Tensor Core 指令再次改写为 `tcgen05` 系列，引入独立于寄存器和 shared memory 的 Tensor Memory（<span class="inline-tip" data-tip="Tensor Memory，Tensor Core 专用的片上存储">TMEM</span>）存放累加器，MMA 由单个线程发起、以 CTA pair 为单位执行；双 die 封装，HBM3e 带宽约 8 TB/s。它的编程模型与 Hopper 差异很大，本系列只在提到多架构适配时点到为止，不展开。
+**Blackwell（B200，2024/2025，`sm_100`）**。三处变化：
+
+1. 第五代 Tensor Core，新增 FP4、FP6 精度。
+2. Tensor Core 指令再次改写为 `tcgen05` 系列，引入独立于寄存器和 shared memory 的 Tensor Memory（<span class="inline-tip" data-tip="Tensor Memory，Tensor Core 专用的片上存储">TMEM</span>）存放累加器，MMA 由单个线程发起、以 CTA pair 为单位执行。
+3. 双 die 封装，HBM3e 带宽约 8 TB/s。
+
+它的编程模型与 Hopper 差异很大，本系列只在提到多架构适配时点到为止，不展开。
 
 四代的共同趋势可以用 Roofline 的语言概括：算力屋顶每代抬高 2–3 倍，带宽屋顶每代抬高不到 2 倍，ridge point 持续右移；硬件用越来越多的**异步**机制（cp.async → TMA、mma.sync → wgmma → tcgen05）让搬数据和算矩阵重叠，因为只有重叠才能同时接近两条屋顶。
 
@@ -728,7 +794,7 @@ flowchart TB
 | 工具 / 产物 | 它是什么 | 看什么 |
 | --- | --- | --- |
 | `nvcc` | CUDA 编译器驱动 | `-arch=sm_80` 选择目标；`-Xptxas -v` 打印每个 kernel 的寄存器数、shared/spill 字节数 |
-| `PTX` | 虚拟 ISA，与具体 GPU 无关的中间表示 | `nvcc -ptx` 生成；检查编译器是否发出了想要的指令（`ld.global.v4`、`cp.async`、`mma.sync`、`ldmatrix`）；Triton 的输出也是 PTX |
+| `PTX` | 虚拟 ISA，与具体 GPU 无关的中间表示 | `nvcc -ptx` 生成<br/>检查编译器是否发出了想要的指令（`ld.global.v4`、`cp.async`、`mma.sync`、`ldmatrix`）<br/>Triton 的输出也是 PTX |
 | `SASS` | 真实机器码，每代架构不同 | PTX 经 `ptxas` 汇编而来；寄存器分配、指令调度、是否有 spill（`LDL` / `STL`）都只有在这一层才能看到 |
 | `cuobjdump -sass` | 从可执行文件 / `.cubin` 反汇编 SASS | 快速查看最终指令序列；`-ptx` 可同时导出 PTX |
 | `nvdisasm` | 对 `.cubin` 反汇编并可输出控制流图 | 分析分支结构、循环体、指令延迟标注 |
@@ -738,7 +804,10 @@ flowchart TB
 
 Table: CUDA 工具链：各工具看什么
 
-看 `-Xptxas -v` 的输出是第二篇写完第一个 kernel 后要做的第一件事，`ncu` 是第十篇的主角。
+> [!NOTE] Java 经验参照：字节码 JIT 与 PTX JIT
+> `.class` 里的字节码与具体 CPU 无关，HotSpot 先解释执行，再在运行时把执行频繁的热点代码编译掉；PTX 也与具体 GPU 无关，遇到 fat binary 里没有对应 SASS 的 GPU 时由驱动把它编成 SASS。对得上的是「中间表示可移植，真实机器码在目标机器上生成」。对不上的有两处：CUDA 的常规做法是编译时就用 `-gencode` 把目标架构的 SASS 生成好，驱动 JIT 只是缺 SASS 时的兜底，不按热点挑代码；驱动编出的二进制会自动缓存到磁盘（Linux 默认 `~/.nv/ComputeCache`，`CUDA_CACHE_PATH` 可改），之后的运行直接复用。
+
+看 `-Xptxas -v` 的输出是[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)写完第一个 kernel 后要做的第一件事，`ncu` 是[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html#四nsight-compute看-kernel-内部)的主角。
 
 ## 九、系统层与 kernel 层的边界
 
@@ -755,7 +824,7 @@ Table: CUDA 工具链：各工具看什么
 - **memory-bound**：$$I < I_{ridge}$$，时间由字节数决定。优化目标是带宽利用率，手段是 coalescing、向量化、减少字节数（融合、低精度）、足够的 in-flight 请求；
 - **compute-bound**：$$I > I_{ridge}$$，时间由 FLOPs 决定。优化目标是算力利用率，手段是用上 Tensor Core、把数据搬运隐藏在计算后面、减少非矩阵指令的占比。
 
-还有第三种情况，它不是一类新的瓶颈，而是前两类都没有触及：**latency-bound**。kernel 的 occupancy 太低、每个 warp 的 in-flight 访存太少、或者 grid 太小填不满 108 个 SM，导致 SM 大部分时间在等——既没有把带宽用满，也没有把算力用满。它在 Roofline 图上的表现是**这个点悬在两条屋顶下方很远的地方**，带宽利用率和算力利用率都很低。诊断它靠 `ncu` 的 occupancy 与 warp stall 指标，解决它靠提高并行度：更多的 block、更少的寄存器、一次发出更多独立的 load。第二篇的 naive kernel 和第五篇的 naive GEMM 都是它的典型案例。
+还有第三种情况，它不是一类新的瓶颈，而是前两类都没有触及：**latency-bound**。kernel 的 occupancy 太低、每个 warp 的 in-flight 访存太少、或者 grid 太小填不满 108 个 SM，导致 SM 大部分时间在等——既没有把带宽用满，也没有把算力用满。它在 Roofline 图上的表现是**这个点悬在两条屋顶下方很远的地方**，带宽利用率和算力利用率都很低。诊断它靠 `ncu` 的 occupancy 与 warp stall 指标，解决它靠提高并行度：更多的 block、更少的寄存器、一次发出更多独立的 load。[《CUDA 编程模型与第一个 kernel》的第一个 kernel](/cuda-programming-model-and-first-kernel.html#5-结果应该落在哪里为什么跑不满)和[《GEMM——从 naive 到分块》的 naive GEMM](/gemm-from-naive-to-tiled.html#三v1naive每线程一个输出) 都是它的典型案例。
 
 ### 2. 一张诊断决策图
 
@@ -783,7 +852,7 @@ flowchart TD
 
 ## 十、本文小结
 
-这一篇没有写任何完整的 kernel，但建立了后面九篇都要用的坐标系：
+这一篇没有写任何完整的 kernel，但建立了后面各篇都要用的坐标系：
 
 - CPU 用晶体管买单线程延迟（分支预测、OoO、大 cache），GPU 用晶体管买吞吐（ALU、寄存器），并用零开销的 warp 切换代替 OoO 来隐藏延迟；所有驻留 warp 的状态同时住在寄存器文件里，因此驻留数受寄存器总量硬性限制（occupancy）；
 - 硬件组织工作的两种批量：**warp**（32 个 lane 执行同一条指令，SIMT；分歧串行、访存按 warp 合并）和 **block**（分派到一个 SM 的单位，不迁移；block 内可共用 SM 的 shared memory，block 之间独立无序）；硬件四层（整卡 → SM → warp → lane）对应编程模型的 grid → block →（warp）→ thread；
@@ -830,7 +899,7 @@ Table: A100 与 H100 的硬件基线数字
 
 Table: 四个 kernel 例子的算术强度与 Roofline 理论时间
 
-下一篇进入 CUDA 编程模型：第三章末尾那张对应图里的每个名字在代码里怎么写——`__global__`、`dim3`、内建变量、边界检查、block 与 grid 大小怎么选、二维 block 如何切成 warp——以及设备内存、stream、event、错误处理、nvcc 编译流程，然后写第一个 kernel、用 `cudaEvent` 正确计时，回答为什么一个看起来没问题的 vector add 只跑到带宽的一小部分：
+下一篇[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)进入 CUDA 编程模型：[第三章末尾那张对应图](#3-硬件层级与编程模型名字的对应)里的每个名字在代码里怎么写——`__global__`、`dim3`、内建变量、边界检查、block 与 grid 大小怎么选、二维 block 如何切成 warp——以及设备内存、stream、event、错误处理、nvcc 编译流程，然后写第一个 kernel、用 `cudaEvent` 正确计时，回答为什么一个看起来没问题的 vector add 只跑到带宽的一小部分：
 
 > **同样是 1 GiB 的 elementwise 加法，理论下界 1.61 ms 已经算出来了；第一个 naive kernel 会离它有多远，差距来自哪里？**
 
