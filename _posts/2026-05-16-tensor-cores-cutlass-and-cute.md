@@ -5,7 +5,7 @@ title: "GPU Kernel 工程（06）：Tensor Core、CUTLASS 与 CuTe"
 subtitle: "Tensor Cores, CUTLASS and CuTe: Programming the Matrix Units"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-18
 ---
 
 上一篇用 CUDA Core 把 GEMM 的分块结构讲透了。回顾一下那个结构，因为本篇要做的事情就是把它"接"到另一种计算单元上：
@@ -17,7 +17,7 @@ updated: 2026-11-13
 
 数据流是三段：**global → shared → 寄存器 → FMA**。这一版在 A100 上通常能达到 cuBLAS FP32 的 70–80%。
 
-但这个"cuBLAS FP32"本身就是个天花板很低的参照。A100 的 FP32 CUDA Core 标称 19.5 TFLOPS，而 BF16 Tensor Core 标称 312 TFLOPS（dense），相差 16 倍。一个 $$4096^3$$ 的 BF16 GEMM 是 $$2 \cdot 4096^3 \approx 137.4$$ GFLOP，在 Tensor Core 上理论时间 $$137.4 / 312 \approx 0.44$$ ms，在 FP32 CUDA Core 上是 $$137.4 / 19.5 \approx 7.0$$ ms。大模型训练和推理的全部矩阵乘法都跑在前者上，所以第五篇的 kernel 无论多精致，离生产环境中的 GEMM 还差一个数量级——差的就是 Tensor Core。
+但这个"cuBLAS FP32"本身就是个天花板很低的参照。A100 的 FP32 CUDA Core 标称 19.5 TFLOPS，而 BF16 Tensor Core 标称 312 TFLOPS（dense），相差 16 倍。一个 $$4096^3$$ 的 BF16 GEMM 是 $$2 \cdot 4096^3 \approx 137.4$$ GFLOP，在 Tensor Core 上理论时间 $$137.4 / 312 \approx 0.44$$ ms，在 FP32 CUDA Core 上是 $$137.4 / 19.5 \approx 7.0$$ ms。大模型训练和推理的全部矩阵乘法都跑在前者上，所以[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)里的 kernel 无论多精致，离生产环境中的 GEMM 还差一个数量级——差的就是 Tensor Core。
 
 这一篇要回答总纲的核心问题：
 
@@ -38,7 +38,7 @@ updated: 2026-11-13
 ```mermaid
 %% 图：三条 GEMM 数据流的演化：CUDA Core 的 FFMA、Ampere 的 mma.sync、Hopper 的 TMA + wgmma
 flowchart LR
-    subgraph cc["CUDA Core（第五篇）"]
+    subgraph cc["CUDA Core（《GEMM——从 naive 到分块》）"]
         direction TB
         g1["global"] -- "cp.async<br/>每线程 16 B" --> s1["<b>shared</b><br/>（padding / 转置）"]
         s1 -- "LDS.128<br/>任意布局" --> r1["<b>寄存器</b><br/>a_frag / b_frag"]
@@ -68,6 +68,37 @@ flowchart LR
 ```
 
 三条链越往右越短：寄存器这一级先从"任意布局"变成"硬件规定布局"，到 Hopper 干脆消失，操作数不再经过线程手里。
+
+图里每个方框的要点：
+
+- **CUDA Core 一列**（[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)的终点，作为对照）：
+  - **global**：A、B 在 HBM 里，每个线程用 `cp.async` 一次搬 16 字节进 shared。
+  - **shared（padding / 转置）**：A 转置存放或每行补一个元素，让后面的 `LDS.128` 没有 bank conflict。
+  - **寄存器 a_frag / b_frag**：每线程读 $$TM + TN = 16$$ 个数，放在哪个寄存器由程序员决定。
+  - **acc[8][8]**：64 个累加器只属于一个线程，每个 $$k$$ 做 64 条 FFMA 的 8×8 外积。
+- **Tensor Core · Ampere 一列**（[第四章](#四实践ampere-bf16-gemm)的 kernel）：
+  - **global**：搬运方式不变，仍是每线程 16 字节的 `cp.async`。
+  - **shared（XOR swizzle）**：16 字节 chunk 的位置按行号异或打乱，否则 `ldmatrix` 有 4–8 路 bank conflict（[「为什么 ldmatrix 下 shared memory 必须 swizzle」一节](#5-为什么-ldmatrix-下-shared-memory-必须-swizzle)）。
+  - **fragment a[4] b[2]**：一条 `ldmatrix.x4` 为整个 warp 装好，哪个 lane 的哪个寄存器放矩阵的哪个元素由 PTX ISA 规定（[第三章](#三fragment-布局与-ldmatrix)）。
+  - **acc[4]**：一个 $$16 \times 8$$ 的 FP32 结果分在 32 个线程里，每线程 4 个。一条 `mma.sync` 在 Tensor Core 上占 8 个周期，其间同一调度器只能再发 7 条其他指令（[「每 SM 每周期 1024 次乘加」一节](#2-每-sm-每周期-1024-次乘加)）。
+- **Tensor Core · Hopper 一列**（[第五章](#五hoppertmawgmma-与-warp-specialization)）：
+  - **global**：一个线程发一条 TMA 指令，按 `CUtensorMap` 的描述搬整个多维 tile，搬完由 mbarrier 按字节数通知（[「TMA」一节](#1-tma一条指令搬一个多维-tile)）。
+  - **shared（硬件 swizzle）**：swizzle 模式写在 tensor map 和 wgmma descriptor 里，地址置换由硬件完成。
+  - **acc[64+]**：`wgmma` 经 descriptor 直接读 shared，寄存器里只剩累加器，`m64n128k16` 每线程 64 个 float（[「wgmma」一节](#2-wgmma从-shared-memory-直接读操作数)）；搬运与计算分给 producer / consumer 两种 warpgroup（[「warp specialization」一节](#3-warp-specialization生产者与消费者)）。
+- 图外还有两层：CUTLASS / CuTe 把每一列的 tile 形状、fragment 布局、swizzle、流水深度变成模板参数与 Layout（[第六章](#六cutlass-与-cute)）；PyTorch 经 cuBLAS / cuBLASLt 用上这些 kernel（[第七章](#七pytorch-与-vllm-如何使用-tensor-core)）。
+
+图中几样东西容易混在一起：谁创建、放在哪一级存储、活多久、谁看得见。
+
+| 对象 | 谁创建、何时 | 存在哪里 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| A / B 的 tile（一个 stage） | 每个 k-tile 由 `cp.async`（Ampere）或 TMA（Hopper）写入 | shared memory，多个 stage 组成环形 buffer<br/>第四章 kernel：3 stage 共 48 KiB | 一轮：mma / wgmma 读完后被后面的 k-tile 覆盖 | 整个 block |
+| A / B fragment（`af`、`bf`） | 每个 k16 步由 `ldmatrix.x4` 装入 | 寄存器 | 一个 k16 步，下一步被覆盖 | 只有本线程；每线程只持有 A 的 8 个、B 的 4 个元素，32 个线程合起来才是一个操作数 |
+| 累加器 `acc` | kernel 开头清零，每条 mma 累加 | 寄存器<br/>第四章 kernel：每线程 64 个 float | 整个 K 循环，直到 epilogue 转成 BF16 写回 HBM | 只有本线程；一个 16×8 结果 tile 分在一个 warp 的 32 个线程里 |
+| `CUtensorMap`（Hopper） | host 端 `cuTensorMapEncodeTiled`，launch 之前 | 128 字节的不透明对象，作为 `__grid_constant__` kernel 参数传入（PTX 允许放在 `.param` / `.const` / `.global`） | 整个 kernel | 所有线程可读，实际只有发 TMA 的线程用 |
+| mbarrier `full[s]` / `empty[s]`（Hopper） | kernel 开头用 `mbarrier.init` 初始化 | shared memory，每个是 8 字节对齐的 `.b64` | 整个 kernel，每轮翻转一次 phase | block 内的线程；TMA 硬件按字节数 `complete_tx` |
+| wgmma matrix descriptor（Hopper） | consumer 线程按 stage 的 shared 地址现算 | 64 位寄存器 | 一条 `wgmma` | warpgroup 内各 warp 的值必须相同 |
+
+Table: Tensor Core GEMM 里几种对象的创建者、存放位置、寿命与可见范围
 
 ### 2. 数字约定与硬件要求
 
@@ -108,7 +139,13 @@ Ampere 上 BF16 的主力形状是 `m16n8k16`，指令写全是：
 mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32  D, A, B, C
 ```
 
-逐段读：`mma.sync` 是 warp 级同步矩阵乘加；`aligned` 要求 warp 内所有线程执行同一条指令；`m16n8k16` 是形状 $$M=16, N=8, K=16$$；`row.col` 表示 $$A$$ 按行主序、$$B$$ 按列主序给出（这两个修饰符对 BF16 是固定的，只有这一种组合）；`.f32.bf16.bf16.f32` 依次是 $$D$$、$$A$$、$$B$$、$$C$$ 的类型——输入 BF16，累加 FP32。
+逐段读：
+
+- `mma.sync`：warp 级同步矩阵乘加；
+- `aligned`：要求 warp 内所有线程执行同一条指令；
+- `m16n8k16`：形状 $$M=16, N=8, K=16$$；
+- `row.col`：$$A$$ 按行主序、$$B$$ 按列主序给出（这两个修饰符对 BF16 是固定的，只有这一种组合）；
+- `.f32.bf16.bf16.f32`：依次是 $$D$$、$$A$$、$$B$$、$$C$$ 的类型——输入 BF16，累加 FP32。
 
 ![FFMA 与 mma.sync 的一条指令](/img/in-post/tensor-cores-cutlass-and-cute-ffma-vs-mma.svg)
 
@@ -161,7 +198,7 @@ $$
 ![一个 warp 调度器的 mma 发射预算](/img/in-post/tensor-cores-cutlass-and-cute-mma-issue-budget.svg)
 
 - Tensor Core 饱和的条件：每 8 个周期至少发 1 条 mma，其余 ≤ 7 条指令完成装载 + 地址 + 控制；
-- 第五篇里「读 TM+TN 个数做 TM×TN 次 FMA」的指令配比在这里完全不够看。
+- [《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)里「读 TM+TN 个数做 TM×TN 次 FMA」的指令配比在这里完全不够看。
 
 
 这个数字对写 kernel 有一个直接的推论：一条 `m16n8k16` 是 2048 次乘加，一个 Tensor Core 每周期 256 次，所以**一条 mma 在 Tensor Core 上占 8 个周期**。要让 Tensor Core 饱和，每个调度器上必须每 8 个周期发出一条 mma。中间那 8 个周期，同一个调度器除了 mma 自己最多只能再发 7 条其他指令——装载 fragment、算地址、同步、循环控制，全部要挤在这个预算里。CUDA Core 版本的 GEMM 里，每个线程"从 shared memory 读 $$TM + TN$$ 个数、做 $$TM \cdot TN$$ 次 FMA"这种比例，在 Tensor Core 上完全不够看：**装载数据的指令必须极度高效**。这就是 `ldmatrix`（一条指令装满一个 fragment）、`cp.async`（不占寄存器的搬运）以及 Hopper 上 TMA（一条指令搬整个 tile）存在的理由。
@@ -278,7 +315,7 @@ Table: m16n8k16 的三个 fragment（c0…）
 
 **匹配硬件数据路径**。Tensor Core 从寄存器文件读操作数时，是按 quad（4 个线程）为单位取一行 A（或一列 B）的 16 个元素：4 个线程 × 2 个寄存器 × 2 个 BF16 = 16。`groupID` 选行、`t` 选行内的哪一段，正好让"取 A 的第 $$i$$ 行"变成"读第 $$i$$ 个 quad 的寄存器"。这个布局不是为程序员设计的，是硬件内部数据通路的直接暴露。
 
-**quad 共享一行**。同一 quad 的 4 个线程持有 A 的同一行（以及 C 的同一行）。这对 attention 类 kernel 至关重要：对 $$S = QK^T$$ 的每一行做 softmax 需要行内 max 和 sum，而一行的 8 列（一个 n8 tile）分布在同一 quad 的 4 个线程里，跨多个 n8 tile 的列仍然在这 4 个线程里。行内归约只需要 quad 内两次 `__shfl_xor_sync`（mask 1 和 2），不需要跨 warp、更不需要 shared memory。第八篇的 FlashAttention 实现直接依赖这一点。
+**quad 共享一行**。同一 quad 的 4 个线程持有 A 的同一行（以及 C 的同一行）。这对 attention 类 kernel 至关重要：对 $$S = QK^T$$ 的每一行做 softmax 需要行内 max 和 sum，而一行的 8 列（一个 n8 tile）分布在同一 quad 的 4 个线程里，跨多个 n8 tile 的列仍然在这 4 个线程里。行内归约只需要 quad 内两次 `__shfl_xor_sync`（mask 1 和 2），不需要跨 warp、更不需要 shared memory。[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html#5-实践二cuda-版核心循环骨架)里的 FlashAttention 核心循环直接依赖这一点。
 
 **D 的布局能直接作为下一次 mma 的 A**。比较 C/D 与 A 的布局：C 中线程持有 `(groupID, t*2..t*2+1)` 与 `(groupID+8, t*2..t*2+1)`，A 中线程持有 `(groupID, t*2..t*2+1)`、`(groupID+8, ...)`、以及列 +8 的两组。所以**两个相邻 n8 tile 的 C fragment 拼起来（$$16 \times 16$$），逐对把 FP32 转成 BF16x2，就得到一个合法的 A fragment**：
 
@@ -308,7 +345,12 @@ $$
 \text{row} = \text{lane} \bmod 16, \qquad \text{col} = 8 \cdot \lfloor \text{lane} / 16 \rfloor
 $$
 
-B fragment 稍有不同。`mma` 要求 B 是 $$K \times N$$ 列主序，即寄存器里是同一列 $$n$$ 的相邻两个 $$k$$。如果 B 在 shared memory 里按 **$$N \times K$$ 行主序**存放（每行是一个 $$n$$、沿 $$k$$ 连续），那么把它看成"行 = $$n$$、列 = $$k$$"的矩阵，`ldmatrix`（非转置）载入的 $$8 \times 8$$ 块给线程 `lane` 的就是 $$n = \text{lane}/4$$、$$k = (\text{lane}\%4) \cdot 2, +1$$——正是 `b0` 的布局。一条 `.x4` 可以装两个 n8 tile 的 `b0, b1`：lane 0–7 提供 $$n$$ 0–7、$$k$$ 0；lane 8–15 提供 $$n$$ 0–7、$$k$$ 8；lane 16–23 提供 $$n$$ 8–15、$$k$$ 0；lane 24–31 提供 $$n$$ 8–15、$$k$$ 8。
+B fragment 稍有不同。`mma` 要求 B 是 $$K \times N$$ 列主序，即寄存器里是同一列 $$n$$ 的相邻两个 $$k$$。如果 B 在 shared memory 里按 **$$N \times K$$ 行主序**存放（每行是一个 $$n$$、沿 $$k$$ 连续），那么把它看成"行 = $$n$$、列 = $$k$$"的矩阵，`ldmatrix`（非转置）载入的 $$8 \times 8$$ 块给线程 `lane` 的就是 $$n = \text{lane}/4$$、$$k = (\text{lane}\%4) \cdot 2, +1$$——正是 `b0` 的布局。一条 `.x4` 可以装两个 n8 tile 的 `b0, b1`：
+
+- lane 0–7 提供 $$n$$ 0–7、$$k$$ 0；
+- lane 8–15 提供 $$n$$ 0–7、$$k$$ 8；
+- lane 16–23 提供 $$n$$ 8–15、$$k$$ 0；
+- lane 24–31 提供 $$n$$ 8–15、$$k$$ 8。
 
 这个"B 按 $$N \times K$$ 行主序存放"的要求看起来别扭，但它正是 PyTorch `nn.Linear` 的权重布局：`weight` 的形状是 `[out_features, in_features]`，即 $$N \times K$$ 行主序，$$y = x W^T$$ 正好是这种 GEMM。CUTLASS 和 cuBLAS 把它叫做 "TN" GEMM（A 行主序、B 列主序），是 Tensor Core 上最自然的一种。
 
@@ -316,7 +358,7 @@ B fragment 稍有不同。`mma` 要求 B 是 $$K \times N$$ 列主序，即寄�
 
 如果 B 在 shared memory 里是 $$K \times N$$ 行主序（每行是一个 $$k$$、沿 $$n$$ 连续），`ldmatrix` 非转置载入给线程的就是"同一 $$k$$、相邻两个 $$n$$"，与 `b0` 需要的"同一 $$n$$、相邻两个 $$k$$"正好差一个转置。`ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16` 在载入时对每个 $$8 \times 8$$ 块做转置：线程 `lane` 得到的是第 `(lane%4)*2` 和 `+1` 行、第 `lane/4` 列的元素。这样 $$K \times N$$ 行主序的 B 也能一条指令装成 fragment。
 
-第八篇的 attention 就要用到它：$$O = P \cdot V$$ 中 $$V$$ 的存储是 `[seq, d]`，即 $$K \times N$$ 行主序，B fragment 必须用 `.trans` 装载。而 $$S = Q K^T$$ 中 $$K$$ 的存储 `[seq, d]` 恰好是 $$N \times K$$ 行主序，用非转置版本。同一个 kernel 里两种都出现，这是理解 FlashAttention 源码时的一个常见障碍。
+FlashAttention 就要用到它（见[《Attention Kernel——FlashAttention 与 PagedAttention》的「实践二：CUDA 版核心循环骨架」一节](/attention-kernels-flashattention-and-pagedattention.html#5-实践二cuda-版核心循环骨架)）：$$O = P \cdot V$$ 中 $$V$$ 的存储是 `[seq, d]`，即 $$K \times N$$ 行主序，B fragment 必须用 `.trans` 装载。而 $$S = Q K^T$$ 中 $$K$$ 的存储 `[seq, d]` 恰好是 $$N \times K$$ 行主序，用非转置版本。同一个 kernel 里两种都出现，这是理解 FlashAttention 源码时的一个常见障碍。
 
 ### 5. 为什么 ldmatrix 下 shared memory 必须 swizzle
 
@@ -324,7 +366,7 @@ B fragment 稍有不同。`mma` 要求 B 是 $$K \times N$$ 列主序，即寄�
 
 现在看实际访问模式。以 $$128 \times 32$$ 的 BF16 tile 为例，一行 32 个元素 = 64 字节 = 4 个 16 字节的 chunk。一个 phase 中的 8 个线程读 **8 个连续行的同一个 chunk**：地址是 $$r \cdot 64 + c \cdot 16$$，$$r = 0..7$$。bank 组编号是地址除以 16 再模 8，即 $$(4r + c) \bmod 8$$——$$r$$ 为偶数时都等于 $$c$$，奇数时都等于 $$c + 4$$。8 个访问只落在 2 个 bank 组上，**4 路 conflict**，`ldmatrix` 的吞吐直接掉到四分之一。如果 $$BK = 64$$（一行 128 字节），8 行同一 chunk 全落在同一个 bank 组，8 路 conflict。
 
-CUDA Core 版本的 GEMM 也有这个问题（第五篇通过 padding 或转置存储解决），但在 Tensor Core 版本里它更致命：前面算过，每 8 个周期就要发一条 mma，`ldmatrix` 慢 4 倍意味着 Tensor Core 大部分时间在等数据。
+CUDA Core 版本的 GEMM 也有这个问题（[《GEMM——从 naive 到分块》的「从全局到 shared 的加载：向量化、转置、bank conflict」一节](/gemm-from-naive-to-tiled.html#3-从全局到-shared-的加载向量化转置bank-conflict)用 padding 或转置存储解决），但在 Tensor Core 版本里它更致命：前面算过，每 8 个周期就要发一条 mma，`ldmatrix` 慢 4 倍意味着 Tensor Core 大部分时间在等数据。
 
 解决办法是 **swizzle**：不改变数据，只改变"逻辑 (row, chunk) → 物理 chunk"的映射，让 8 个连续行的同一逻辑 chunk 落在 8 个不同的物理 bank 组。对 64 字节的行，一个常用的映射是：
 
@@ -385,7 +427,7 @@ Table: BF16 mma GEMM 的设计参数
 - = 6 条装载 + 16 条 mma → mma 占 73% 的发射槽。
 
 
-为聚焦 Tensor Core 部分，本版假设 $$M, N$$ 是 128 的倍数、$$K$$ 是 32 的倍数（边界处理与第五篇相同：用 `cp.async` 的 src-size 操作数做零填充，或对残余 tile 走标量路径）。
+为聚焦 Tensor Core 部分，本版假设 $$M, N$$ 是 128 的倍数、$$K$$ 是 32 的倍数（边界处理与[《GEMM——从 naive 到分块》的「v6：边界处理」一节](/gemm-from-naive-to-tiled.html#七v6边界处理)相同：用 `cp.async` 的 src-size 操作数做零填充，或对残余 tile 走标量路径）。
 
 ### 3. 代码
 
@@ -606,7 +648,7 @@ Table: 3 stage 流水线逐轮的三个 stage 状态
 
 ### 4. 测试
 
-用 `load_inline` 接到 PyTorch，与 `torch.matmul` 对照（B 传入 `W` 本身即 $$N \times K$$，参考值是 `x @ W.T`）：
+用 `load_inline` 接到 PyTorch，与 `torch.matmul` 对照（B 传入 `W` 本身即 $$N \times K$$，参考值是 `x @ W.T`）。计时函数 `bench()` 来自[《CUDA 编程模型与第一个 kernel》的「Python/PyTorch 侧的等价脚手架」一节](/cuda-programming-model-and-first-kernel.html#4-pythonpytorch-侧的等价脚手架)：warmup、每次计时前 flush L2、取中位数。
 
 ```python title="用 load_inline 与 torch.matmul 对照测试"
 import torch
@@ -643,7 +685,7 @@ mod.bf16_gemm_tn(A, W, C)
 ref = A @ W.T
 torch.testing.assert_close(C, ref, rtol=1.6e-2, atol=1e-2)
 
-ms = bench(lambda: mod.bf16_gemm_tn(A, W, C))        # 第二篇的 bench()
+ms = bench(lambda: mod.bf16_gemm_tn(A, W, C))        # bench()：warmup 后取多次中位数
 ms_ref = bench(lambda: torch.matmul(A, W.T))
 flops = 2 * M * N * K
 print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 1e-3) / 1e12:.1f} TFLOPS")  # ms 要先换成秒
@@ -657,7 +699,7 @@ print(f"ours {flops / (ms * 1e-3) / 1e12:.1f} TFLOPS, cuBLAS {flops / (ms_ref * 
 
 - **warp tile 偏小**：$$64 \times 32$$ 的 shared memory 算术强度 21.3 FLOP/byte，占用 75% 的 shared 带宽；cuBLAS 用 $$64 \times 64$$ 或更大。
 - **只有 3 stage**：48 KiB 的静态上限限制了流水深度；opt-in 到 4–5 stage 能更好地覆盖 L2 miss 的延迟。
-- **没有 tile 调度优化**：`grid = (32, 32)` 的 1024 个 block 按 `blockIdx.x` 顺序分派，L2 中 A/B tile 的复用不如 swizzled 或 persistent 的 tile 顺序（cuBLAS 与 CUTLASS 的 `ThreadblockSwizzle` 做的正是这个），第十篇会再回到这个问题。
+- **没有 tile 调度优化**：`grid = (32, 32)` 的 1024 个 block 按 `blockIdx.x` 顺序分派，L2 中 A/B tile 的复用不如 swizzled 或 persistent 的 tile 顺序（cuBLAS 与 CUTLASS 的 `ThreadblockSwizzle` 做的正是这个；分组改变 tile 顺序的推导见[《Triton——块级编程与编译器的边界》的「matmul：`tl.dot` 与 L2 swizzle」一节](/triton-block-level-programming.html#3-matmultldot-与-l2-swizzle)）。
 - **epilogue 未向量化**：每个线程写 4 字节，一个 quad 写 16 字节连续，整个 warp 的 store 覆盖 8 行——按 32 字节 sector 算效率只有 50%。cuBLAS 通常经 shared memory 转置后以 128 位 store 写出。
 
 如果读者想再往上推，优先级依次是：换 $$64 \times 64$$ warp tile（block tile 128×256 或 256×128）、开 4–5 stage 的动态 shared memory、把 `ldmatrix` 与 `mma` 做软件流水（在做第 $$ks$$ 步 mma 的同时发出第 $$ks+1$$ 步的 ldmatrix，即"寄存器双缓冲"）。这三项加起来通常能把差距压到 5–10% 以内，也就是 CUTLASS 2.x 的水平。
@@ -736,6 +778,9 @@ Ampere kernel 中每个 warp 既搬数据又算矩阵，两种工作交织在同
 
 如此往复：producer 永远领先 STAGES-1 个 tile，consumer 永远有一组 wgmma 在飞。
 
+> [!NOTE] Java 经验参照：有界环形缓冲区
+> `full[s]` / `empty[s]` 加 STAGES 个 stage，结构上就是 `ArrayBlockingQueue`：定长数组 `items` 当环形 buffer，`putIndex` / `takeIndex` 走到末尾回到 0（≈ `kt % STAGES`），生产者在 `notFull` 上等（≈ `wait empty[s]`），消费者在 `notEmpty` 上等（≈ `wait full[s]`）。对不上的有三处：`ArrayBlockingQueue` 用一把 `ReentrantLock` 保护元素计数，mbarrier 没有锁，用 phase 位翻转表示「这一轮满了 / 空了」；`full[s]` 除了等 producer arrive，还要等 TMA 写完的字节数归零，Java 里「放进去」与「数据到了」是同一件事；consumer 不取走元素，而要等异步的 wgmma 读完一个 stage 才释放它，所以每轮释放的是上一个 stage。
+
 伪代码：
 
 ```text title="warp specialization 伪代码：producer 与 consumer"
@@ -788,7 +833,7 @@ vLLM 的 FP8 GEMM 配置里两种都出现，下一章会看到。
 
 ## 六、CUTLASS 与 CuTe
 
-手写 `mma.sync` kernel 之后再看 CUTLASS，会发现它做的事情与第四章完全对应，只是把每个决定（tile 形状、warp 排布、fragment 布局、swizzle、流水深度）变成了模板参数。
+手写 `mma.sync` kernel 之后再看 CUTLASS，会发现它做的事情与[第四章](#四实践ampere-bf16-gemm)完全对应，只是把每个决定（tile 形状、warp 排布、fragment 布局、swizzle、流水深度）变成了模板参数。
 
 ### 1. 2.x 与 3.x
 
@@ -856,7 +901,13 @@ flowchart TB
     class h1,h2,h3,h4,h5,h6,h7 h
 ```
 
-对应到第四章的手写 kernel：`bf16_gemm_tn()` 是 device 层；`bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；k 循环加流水是 `CollectiveMma`；`MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；`swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替人表达的东西。
+对应到第四章的手写 kernel：
+
+- `bf16_gemm_tn()` 是 device 层；
+- `bf16_gemm_tn_kernel` 的 `blockIdx` 解析和 epilogue 是 kernel 层；
+- k 循环加流水是 `CollectiveMma`；
+- `MT × NT` 个 `mma_bf16_16816` 加 6 条 `ldmatrix_x4` 是 `TiledMma` 与 `TiledCopy`；
+- `swz()` 和 `a_row/b_row` 这些索引公式就是 CuTe 要替人表达的东西。
 
 ### 3. CuTe：Layout 是从坐标到偏移的函数
 
@@ -868,7 +919,7 @@ $$
 
 `Shape` 给出每一维的大小，`Stride` 给出每一维走一步跨多少个元素，Layout 把一个多维坐标映射成一个一维偏移。这和 PyTorch 的 `size/stride` 是同一个概念，但有两点关键扩展：
 
-**层次化 shape**。shape 的每一维本身可以是一个 shape。`Shape<Shape<_2,_4>,_8>` 是一个"逻辑上二维、其中第一维内部又分成 2×4"的形状，配合 `Stride<Stride<_1,_2>,_8>`，坐标 $$((i, j), k)$$ 映射到 $$i + 2j + 8k$$。层次化让"一个 128×128 的 tile 被分成 2×4 个 warp tile、每个 warp tile 又被分成 32 个线程的份"这种嵌套结构可以写成一个 Layout。
+**层次化 shape**。shape 的每一维本身可以是一个 shape。`Shape<Shape<_2,_4>,_8>` 是一个"逻辑上二维、其中第一维内部又分成 2×4"的形状，配合 `Stride<Stride<_1,_2>,_8>`，坐标 $$((i, j), k)$$ 映射到 $$i + 2j + 8k$$。例如 $$((1, 3), 2) \to 1 + 6 + 16 = 23$$；$$i$$ 取 0–1、$$j$$ 取 0–3 时，$$i + 2j$$ 正好铺满 0–7，$$k$$ 每加 1 跳过这 8 个元素。层次化让"一个 128×128 的 tile 被分成 2×4 个 warp tile、每个 warp tile 又被分成 32 个线程的份"这种嵌套结构可以写成一个 Layout。
 
 **编译期整数**。`_128` 是 `Int<128>` 的别名，是类型而非值，所以 Layout 的绝大部分运算在编译期完成，生成的索引代码没有运行时开销。
 
@@ -888,11 +939,11 @@ ALayout = Layout<Shape <Shape <_4, _8>, Shape <_2, _2, _2>>,
                  Stride<Stride<_32, _1>, Stride<_16, _8, _128>>>
 ```
 
-读法：thread 坐标 $$(t, g)$$，$$t = \text{lane} \bmod 4$$ 的 stride 是 32 = $$16 \times 2$$，即 $$k = 2t$$；$$g = \text{lane}/4$$ 的 stride 是 1，即 $$m = g$$。value 坐标 $$(v_0, v_1, v_2)$$：$$v_0$$ stride 16 是 $$k + 1$$（同一寄存器里的第二个 BF16），$$v_1$$ stride 8 是 $$m + 8$$（`a1`），$$v_2$$ stride 128 是 $$k + 8$$（`a2`）。这正是第三章那张 A fragment 图，只是变成了一个可以被 `print_latex` 打印、可以和其他 Layout 组合的代数对象。
+读法：thread 坐标 $$(t, g)$$，$$t = \text{lane} \bmod 4$$ 的 stride 是 32 = $$16 \times 2$$，即 $$k = 2t$$；$$g = \text{lane}/4$$ 的 stride 是 1，即 $$m = g$$。value 坐标 $$(v_0, v_1, v_2)$$：$$v_0$$ stride 16 是 $$k + 1$$（同一寄存器里的第二个 BF16），$$v_1$$ stride 8 是 $$m + 8$$（`a1`），$$v_2$$ stride 128 是 $$k + 8$$（`a2`）。这正是[「m16n8k16 的三个 fragment」一节](#1-m16n8k16-的三个-fragment)那张 A fragment 图，只是变成了一个可以被 `print_latex` 打印、可以和其他 Layout 组合的代数对象。
 
 ### 4. 一个 CuTe 小程序
 
-下面用 CuTe 复现第四章的划分：128×128 的 tile → 8 个 warp（2×4，每个 64×32）→ 每个 warp 内 32 个线程。只用到 CuTe 头文件，可以在 host 上编译运行（`nvcc -std=c++17 -I<cutlass>/include cute_demo.cu`）：
+下面用 CuTe 复现[第四章](#四实践ampere-bf16-gemm)的划分：128×128 的 tile → 8 个 warp（2×4，每个 64×32）→ 每个 warp 内 32 个线程。只用到 CuTe 头文件，可以在 host 上编译运行（`nvcc -std=c++17 -I<cutlass>/include cute_demo.cu`）：
 
 ```cpp title="cute_demo.cu：用 CuTe 复现三层划分"
 // cute_demo.cu
@@ -1002,15 +1053,15 @@ struct sm90_fp8_config_M8192_K6144 {      // M >= 8192, K >= 6144
 };
 ```
 
-与第五篇和本篇的概念一一对应：
+与[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)和本篇的概念一一对应：
 
 - **`TileShape = Shape<_128,_128,_128>`** 就是 $$BM \times BN \times BK$$。FP8 一个元素 1 字节，$$BK = 128$$ 与 BF16 的 $$BK = 64$$ 搬同样多的字节。大形状用 $$256 \times 128$$，与上文"更大 tile → 更高 shared memory 算术强度"的分析一致。
 - **`ClusterShape = Shape<_2,_1,_1>`** 是 Hopper 新增的一层：2 个 block 组成一个 thread block cluster，沿 M 相邻的两个 block 共享同一个 B tile——TMA 的 multicast 可以把一次全局读取同时写进两个 SM 的 shared memory，把 B 的 L2 流量减半。
 - **`KernelSchedule`** 选主循环结构：`KernelTmaWarpSpecialized` 是 1 producer + 1 consumer；`...Pingpong` 与 `...Cooperative` 是上一章的两种双 consumer 调度；`FP8FastAccum` 表示用 wgmma 的快速累加模式（不做每条指令后的 FP32 归一化，精度略降、吞吐更高）。默认形状用 Pingpong 隐藏 epilogue，大形状用 Cooperative 拿大 tile。
 - **`EpilogueSchedule = TmaWarpSpecialized`**：epilogue 也用 TMA 写回（先把累加器写进 shared memory，再一条 TMA store 到全局），并与 mainloop 的 warp 角色配合。
-- **`StageCountAutoCarveout`**：从 shared memory 上限（H100 每 block 227 KB）减去 epilogue 需要的部分，剩下的全部用作 mainloop 的流水 stage——第五篇里"stage 数由 shared memory 容量决定"的自动版本。
-- **`PersistentScheduler`**：每个 SM 只启动固定数量的 block，循环领取 tile，替代"一个 block 一个 tile"的 grid——第十篇讨论 tile 顺序时会回来。
-- **`EVTCompute`（Epilogue Visitor Tree）**：融合算子以类型树表达。vLLM 的 `ScaledEpilogue`（`csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp`）是 `Sm90EVT<multiplies, ScaleA, Sm90EVT<multiplies, ScaleB, Accum>>`：先把 INT32/FP32 累加器逐列乘 `b_scale`、再逐行乘 `a_scale`，然后转成 BF16 写出——量化 GEMM 的反量化被融合进 epilogue，不需要额外 kernel。第九篇展开。
+- **`StageCountAutoCarveout`**：从 shared memory 上限（H100 每 block 227 KB）减去 epilogue 需要的部分，剩下的全部用作 mainloop 的流水 stage——[《GEMM——从 naive 到分块》的「Ampere 的 cp.async：绕过寄存器」一节](/gemm-from-naive-to-tiled.html#2-ampere-的-cpasync绕过寄存器)里"stage 数由 shared memory 容量决定"的自动版本。
+- **`PersistentScheduler`**：每个 SM 只启动固定数量的 block，循环领取 tile，替代"一个 block 一个 tile"的 grid，同时决定 tile 的领取顺序。
+- **`EVTCompute`（Epilogue Visitor Tree）**：融合算子以类型树表达。vLLM 的 `ScaledEpilogue`（`csrc/cutlass_extensions/epilogue/scaled_mm_epilogues_c3x.hpp`）是 `Sm90EVT<multiplies, ScaleA, Sm90EVT<multiplies, ScaleB, Accum>>`：先把 INT32/FP32 累加器逐列乘 `b_scale`、再逐行乘 `a_scale`，然后转成 BF16 写出——量化 GEMM 的反量化被融合进 epilogue，不需要额外 kernel，[《量化与融合 kernel》的「scale 的三种粒度与 epilogue」一节](/quantization-and-fused-kernels.html#2-scale-的三种粒度与-epilogue)展开。
 
 ### 6. Ampere 的 2.x 风格实例
 
@@ -1028,7 +1079,14 @@ struct sm80_config_default {              // M in (128, inf)
 };
 ```
 
-`cutlass_2x_gemm` 内部用 `cutlass::gemm::kernel::DefaultGemmWithVisitor<...>::GemmKernel` 组装，再包进 `device::GemmUniversalAdapter`。三层 tile 直接对应本篇 kernel：`TileShape<128,128,64>` 是 block tile（INT8 的 $$BK = 64$$ 与 BF16 的 32 字节数相同）；`WarpShape<64,64,64>` 是 warp tile，$$2 \times 2$$ 排布 4 个 warp（128 线程）；`InstructionShape<16,8,32>` 是 INT8 的 `mma.sync.m16n8k32`，BF16 就是 `<16,8,16>`；最后的 `5` 是 stage 数——$$5 \times (128 + 128) \times 64 \times 1$$ B = 80 KiB 的 shared memory，与源码注释的 81920 字节一致。不用 CUTLASS 直接写 Ampere kernel 的读者，可以把 `DefaultGemmConfiguration<OpClassTensorOp, Sm80, ...>` 中的默认值当作调参起点。
+`cutlass_2x_gemm` 内部用 `cutlass::gemm::kernel::DefaultGemmWithVisitor<...>::GemmKernel` 组装，再包进 `device::GemmUniversalAdapter`。三层 tile 和 stage 数直接对应本篇 kernel：
+
+- `TileShape<128,128,64>` 是 block tile（INT8 的 $$BK = 64$$ 与 BF16 的 32 字节数相同）；
+- `WarpShape<64,64,64>` 是 warp tile，$$2 \times 2$$ 排布 4 个 warp（128 线程）；
+- `InstructionShape<16,8,32>` 是 INT8 的 `mma.sync.m16n8k32`，BF16 就是 `<16,8,16>`；
+- 最后的 `5` 是 stage 数——$$5 \times (128 + 128) \times 64 \times 1$$ B = 80 KiB 的 shared memory，与源码注释的 81920 字节一致。
+
+不用 CUTLASS 直接写 Ampere kernel 的读者，可以把 `DefaultGemmConfiguration<OpClassTensorOp, Sm80, ...>` 中的默认值当作调参起点。
 
 vLLM 在 `scaled_mm_entry.cu` 中按 `get_sm_version_num()` 分派：sm_90 走 `cutlass_scaled_mm_sm90`（c3x），sm_89 走 `cutlass_scaled_mm_sm89`（c2x，Ada 有 FP8 mma），sm_80 走 `cutlass_scaled_mm_sm80`（c2x，仅 INT8），sm_75 走 Turing 版本；sm_100/sm_120 各有自己的 c3x 版本。它还做了本篇一直强调的布局检查：
 
@@ -1072,7 +1130,11 @@ Tensor& addmm_out_cuda_impl(Tensor& result, const Tensor& self, const Tensor& ma
 - **cuBLASLt 路径**（`gemm_and_bias`，在 `aten/src/ATen/cuda/CUDABlas.cpp` 中调用 `cublasLtMatmul`）：当 `self` 是可以广播成一维的 bias 时走这条路，通过 `CUBLASLT_MATMUL_DESC_EPILOGUE` 设置 `CUBLASLT_EPILOGUE_BIAS` / `RELU_BIAS` / `GELU_BIAS`，把 bias 加法和激活融合进 GEMM 的 epilogue——`nn.Linear` 后接 `GELU` 时，`torch._addmm_activation` 就是这条路，一个 kernel 完成。cuBLASLt 内部按问题形状、布局、对齐做启发式选择，选出的 kernel 在结构上就是本篇讲的那种（Ampere 上 `mma.sync` + `ldmatrix` + `cp.async` 多 stage，Hopper 上 TMA + wgmma + warp specialization）。
 - **cuBLAS 路径**（`at::cuda::blas::gemm`，调用 `cublasGemmEx` / `cublasGemmStridedBatchedEx`）：一般的 $$\alpha AB + \beta C$$，没有 epilogue 融合；激活单独再跑一个 elementwise kernel。
 
-所以对 PyTorch 用户，"Tensor Core 有没有用上"由 dtype 与对齐决定：BF16/FP16 输入默认走 Tensor Core；FP32 输入默认**不**走 TF32 Tensor Core，需要 `torch.backends.cuda.matmul.allow_tf32 = True`（或 `set_float32_matmul_precision("high")`）；维度不是 8（BF16）/ 16（INT8、FP8）的倍数时 cuBLAS 可能退到效率较低的 kernel，这也是为什么 vocab size、hidden size 通常对齐到 64 或 128。
+所以对 PyTorch 用户，"Tensor Core 有没有用上"由 dtype 与对齐决定：
+
+- BF16/FP16 输入默认走 Tensor Core；
+- FP32 输入默认**不**走 TF32 Tensor Core，需要 `torch.backends.cuda.matmul.allow_tf32 = True`（或 `set_float32_matmul_precision("high")`）；
+- 维度不是 8（BF16）/ 16（INT8、FP8）的倍数时 cuBLAS 可能退到效率较低的 kernel，这也是为什么 vocab size、hidden size 通常对齐到 64 或 128。
 
 把这几个分派条件画成一棵决策树，从 `torch.matmul` 到最终落在哪种计算单元、几个 kernel：
 
@@ -1114,7 +1176,7 @@ flowchart TB
 
 cuBLAS 覆盖了标准 dtype 的标准 GEMM，但推理系统需要的很多 GEMM 它不提供或不够快：per-token / per-channel scale 的 FP8/INT8 GEMM（反量化融合进 epilogue）、blockwise FP8（DeepSeek-V3 风格的 128×128 块 scale）、MoE 的 grouped GEMM（一次 launch 算多个专家、每个专家不同 M）、W4A8 混合精度。vLLM 用 CUTLASS 自己组装这些 kernel：上一章看到的 `scaled_mm_c3x_sm90.cu`、`scaled_mm_blockwise_sm90_fp8.cu`、`moe/grouped_mm_c3x_sm90.cu`、`cutlass_w4a8/` 都在同一目录树下。它们的共同结构是：**mainloop 直接复用 CUTLASS 的 `CollectiveBuilder`，只写 epilogue（EVT）和按形状选配置的 dispatch 表**——这正是 CUTLASS 分层的意义：Tensor Core 编程的困难部分（fragment 布局、swizzle、TMA descriptor、warp specialization）被封装在 collective 层，上层应用只做组合。
 
-第九篇讨论量化时会回到这些 kernel 的 epilogue 细节；第七篇会看到 Triton 版本的 fused MoE GEMM 如何用完全不同的方式（编译器自动选择 mma 布局与流水）达到相近的效果。
+[《量化与融合 kernel》](/quantization-and-fused-kernels.html)讨论量化时会回到这些 kernel 的 epilogue 细节；[《Triton——块级编程与编译器的边界》的「vLLM 的 fused_moe_kernel：grouped GEMM」一节](/triton-block-level-programming.html#2-vllm-的-fused_moe_kernelgrouped-gemm)会看到 Triton 版本的 fused MoE GEMM 如何用完全不同的方式（编译器自动选择 mma 布局与流水）达到相近的效果。
 
 ## 八、本文小结
 
@@ -1220,7 +1282,7 @@ Table: CUTLASS 3.x 层次与本篇手写 kernel 的对应
 
    <details markdown="1"><summary>答案</summary>
 
-   它一次读 8 行、每行 16 字节；行主序存放时这 8 行的 16 字节段落在相同的 bank 组里（行 stride 是 128 B 的倍数），8-way conflict；把每行的 16 字节块按行号 XOR 打乱（swizzle），8 行落到不同 bank，一次读完。写入 shared 时按同一规则存。
+   它一次读 8 行、每行 16 字节；行主序存放时这 8 行的 16 字节段会挤在少数几个 bank 组里：本篇 kernel 一行 64 B，8 行只落在 2 个 bank 组，4 路 conflict；一行 128 B 时全落在同一个 bank 组，8 路 conflict；把每行的 16 字节块按行号 XOR 打乱（swizzle），8 行落到不同 bank，一次读完。写入 shared 时按同一规则存。
 
    </details>
 
