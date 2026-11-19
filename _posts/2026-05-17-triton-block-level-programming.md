@@ -5,18 +5,82 @@ title: "GPU Kernel 工程（07）：Triton——块级编程与编译器的边�
 subtitle: "Triton: Block-Level Programming and Where the Compiler Stops"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
-前六篇一直在 CUDA 的世界里：每个线程算什么、warp 怎么合并访存、shared memory 怎么分块、`mma.sync` 怎么喂 fragment。到了第六篇，一个能跑到 cuBLAS 七八成性能的 BF16 GEMM 已经是两三百行代码，而且每一行都有"为什么这样写"的理由——tile 尺寸、bank conflict 的 padding、`cp.async` 的 stage 数、寄存器分块的形状。
+前六篇一直在 CUDA 的世界里：每个线程算什么、warp 怎么合并访存、shared memory 怎么分块、`mma.sync` 怎么喂 fragment。到了[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)，一个能跑到 cuBLAS 七八成性能的 BF16 GEMM 已经是两三百行代码，而且每一行都有"为什么这样写"的理由——tile 尺寸、bank conflict 的 padding、`cp.async` 的 stage 数、寄存器分块的形状。
 
 这一篇换一种写法。Triton 把"线程"从编程模型中拿掉：程序员以 **block** 为单位思考，写的是"这个 block 加载哪一块数据、做什么张量运算、存到哪里"，而线程到元素的映射、shared memory 的分配、向量化、软件流水、`mma` 指令的选择，全部交给编译器。代价是失去对这些东西的控制权。
 
-总纲对这一篇提出的核心问题是：
+[总纲](/gpu-kernel-engineering.html#7-triton块级编程与编译器的边界)对这一篇提出的核心问题是：
 
 > **Triton 的 matmul 比手写 CUDA 少 80% 的代码，性能只差 10%。那 10% 在哪里？[^q0] 什么场景下这 10% 值得手写？[^q1]**
 
 ## 一、总览
+
+Triton 把一个 kernel 拆成两半：程序员写一个 program 处理哪块数据、做什么张量运算，编译器决定这块数据怎么分给线程、经过哪几级存储、用哪条指令。下图以本文的 matmul 为例，上半部分是谁决定了什么，下半部分是生成的 kernel 跑起来时一个 K 迭代的数据路径，并标出每个环节在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%% 图：Triton matmul 从源码到 Tensor Core：程序员写什么、编译器决定什么、一个 K 迭代的数据走哪条路
+flowchart TB
+    SRC["<b>程序员写的：一个 program 的块级张量代码</b><br/>tl.program_id、tl.arange、tl.load / tl.store + mask、tl.dot<br/>没有 threadIdx、__shared__、__syncthreads（第二章）"]
+    KNOB["<b>launch 时定下的编译期参数</b><br/>• constexpr：BLOCK_M / N / K、GROUP_SIZE_M<br/>• num_warps、num_stages<br/>• 由 @triton.autotune 搜索或 @triton.heuristics 算出（第二章）"]
+    JIT["<b>JIT 编译与缓存</b><br/>按源码 hash、constexpr 取值、参数特化属性各编一份 cubin<br/>存进 ~/.triton/cache，命中就不再编（第二、四章）"]
+    TTGIR["<b>TTGIR：编译器给每个张量选 layout</b><br/>#blocked、#shared、#dot_op、#mma<br/>coalesce、pipeline、swizzle、插 barrier 都在这一层（第四章）"]
+    HBM["<b>HBM：A、B 的 K-tile</b><br/>program 由 GROUP_SIZE_M 分组排序，提高 L2 命中（第三章）"]
+    SMEM["<b>shared memory 环形缓冲</b><br/>num_stages 个 K-tile，cp.async 绕过寄存器直写（第二、四章）"]
+    FRAG["<b>寄存器：mma fragment 与 FP32 累加器</b><br/>ldmatrix 装成 #dot_op，mma.sync 累加到 #mma（第三、四章）"]
+    OUT["<b>写回 C</b><br/>#mma → #blocked 要经一次 shared memory 往返（第四章）"]
+    EDGE["<b>编译器的边界：那 10%</b><br/>• 流水与 warp 分工的精细控制<br/>• epilogue 的布局转换<br/>• 小 shape 的 tile 选择<br/>• 指令级调度（第六章）"]
+    PROD["<b>生产中的 Triton kernel</b><br/>Inductor 生成的融合 kernel、vLLM fused_moe_kernel、prefix-prefill attention（第五章）"]
+
+    SRC --> JIT
+    KNOB --> JIT
+    JIT --> TTGIR
+    TTGIR -- "生成的 kernel 运行时，一个 K 迭代" --> HBM
+    HBM -- "cp.async，每线程 16 B" --> SMEM
+    SMEM -- "ldmatrix" --> FRAG
+    FRAG -- "convert_layout + st.global" --> OUT
+    EDGE -. "差距集中在这几步" .-> FRAG
+    PROD -. "同一套原语与编译器" .-> SRC
+
+    classDef code fill:#dff5e1,stroke:#1e8449
+    classDef comp fill:#fdf1d6,stroke:#b9770e
+    classDef gmem fill:#f4f4f4,stroke:#666
+    classDef reg fill:#dde9f7,stroke:#2e6da4
+    classDef edge fill:#fde2e2,stroke:#c0392b
+    class SRC,KNOB,PROD code
+    class JIT,TTGIR comp
+    class HBM,OUT gmem
+    class SMEM,FRAG reg
+    class EDGE edge
+```
+
+- **程序员写的块级张量代码**：一个 program 对应 CUDA 的一个 block，代码操作的是形状在编译期已知的张量，边界靠 mask 而不是分支（[「一个 program 对应一个 CUDA block」一节](#1-一个-program-对应一个-cuda-block)、[「四个原语」一节](#2-四个原语program_idarangeloadstoremask)）。
+- **编译期参数**：tile 形状走 `tl.constexpr`，线程数与流水深度走 `num_warps` / `num_stages`，是程序员仅有的几个旋钮；怎么取值交给 autotune 或 heuristics（[「`num_warps` 与 `num_stages`」一节](#5-num_warps-与-num_stages暴露给用户的两个硬件旋钮)、[「`@triton.autotune` 与 `@triton.heuristics`」一节](#6-tritonautotune-与-tritonheuristics)）。
+- **JIT 编译与缓存**：每组 constexpr 取值与特化属性一份 cubin，首次调用时编译，之后命中磁盘缓存；`n = 1024` 与 `n = 1000` 可能是两份产物（[「`tl.constexpr`」一节](#4-tlconstexpr与-cuda-模板参数的对应)）。
+- **TTGIR**：CUDA 里手写的向量化、多 stage `cp.async`、`ldmatrix`、swizzle、`__syncthreads()` 位置，在这里都是 pass；读 `#blocked` 的 `sizePerThread` 就知道向量化有没有做成（[「编译流水线的六层」一节](#1-编译流水线的六层)、[「读 TTGIR」一节](#2-读-ttgirlayout-的编码)）。
+- **HBM 与 L2**：4096³ 的分块 GEMM 全局读取 2 GiB，一波 108 个 program 的工作集行主序约 36 MiB、`GROUP_SIZE_M = 8` 分组约 22 MiB，后者放得进 40 MB 的 L2（[「matmul：`tl.dot` 与 L2 swizzle」一节](#3-matmultldot-与-l2-swizzle)）。
+- **shared memory 环形缓冲**：`num_stages = 3` 时 3 个 K-tile 轮转，1 个被 `mma` 消费、2 个在飞，PTX 里是 `cp.async.wait_group 1`（[「`num_warps` 与 `num_stages`」一节](#5-num_warps-与-num_stages暴露给用户的两个硬件旋钮)、[「读 PTX」一节](#3-读-ptxmmacpasync-与-stage-数)）。
+- **寄存器：fragment 与累加器**：`128 × 128 × 32` 的 tile 每个 K-step 256 条 `mma.sync`，4 个 warp 各 64 条；FP32 累加器在 `num_warps = 4` 时每线程 128 个寄存器（[「matmul」一节](#3-matmultldot-与-l2-swizzle)）。
+- **写回 C**：累加器的 `#mma` 布局不适合合并写，`convert_layout` 是一次 shared memory 写 + 读 + 两次 barrier（[「读 TTGIR」一节](#2-读-ttgirlayout-的编码)）。
+- **编译器的边界**：四项差距合起来是「4096³ 达 cuBLAS 的 90–95%、小形状 70–85%」的来源（[第六章](#六编译器的边界那-10-在哪里)）。
+- **生产中的 Triton kernel**：Inductor 的 pointwise kernel 与手写 `add_kernel` 同构；`fused_moe_kernel` 是一份带 gather 的 grouped GEMM；prefix-prefill 是 Triton 写的 online softmax attention（[第五章](#五生产中的-triton-kernel)）。
+
+图里几样东西有的在寄存器、有的在 shared memory、有的在磁盘上，寿命从一个 K-step 到跨进程不等，最容易混的是编译缓存和 autotune 结果：
+
+| 对象 | 谁产生、何时 | 存在哪里 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| 块级张量（`offs`、`mask`、`a`、`b`） | 程序员在源码里写<br/>编译器按 `#blocked` layout 分给各线程 | 寄存器，每线程持有其中几段 | 一个 program 执行期间 | 本 program；每个元素只在持有它的线程里 |
+| shared memory 环形缓冲 | 编译器的 Pipeline pass 按 `num_stages` 分配，程序员不能声明 | shared memory，`128 × 128 × 32` BF16 每 stage 16 KiB | 一个 program，K 循环里逐 stage 覆盖 | 本 program 的全部 warp，编译器插入 barrier 之后 |
+| `#dot_op` fragment | 编译器生成 `ldmatrix` 从 shared memory 装入 | 寄存器 | 一个 K-step | 本 warp 的线程合起来构成 `mma` 的操作数 |
+| FP32 累加器 `acc` | 源码里的 `tl.zeros`，布局是 `#mma` | 寄存器，`num_warps = 4` 时每线程 128 个；不够时溢出到 local memory | 整个 K 循环，到 epilogue 写回 | 本线程 |
+| epilogue 的布局转换缓冲 | 编译器为 `convert_layout` 插入 | shared memory | 一次转换 | 本 program |
+| cubin 与各层 IR（ttir / ttgir / llir / ptx） | 首次遇到新的 constexpr / 特化组合时 JIT 编译 | 磁盘 `~/.triton/cache/<hash>/`（`TRITON_CACHE_DIR` 可改）；`CompiledKernel.asm` 里也有一份 | 跨进程，直到缓存被删 | 同一台机器上的所有进程 |
+| autotune 选中的 config | 新 key 首次出现时逐个 config 编译并计时 | 进程内字典，默认不落盘 | 到进程结束 | 本进程 |
+
+Table: 本文 Triton kernel 里各对象的产生者、存放位置、寿命与可见范围
 
 ### 1. 回答这个问题的三步
 
@@ -89,7 +153,12 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 
 **`tl.load(ptr + offs, mask=..., other=...)`**：`ptr + offs` 是一个**指针张量**（每个元素是一个地址），`tl.load` 按这些地址读出同形状的数据张量。`mask` 是同形状的布尔张量，为 False 的位置不发起访存、结果填 `other`（默认 0）。`tl.store(ptr + offs, value, mask=...)` 对称。**Triton 没有 `if (idx < n)` 这种线程级分支来做边界处理，一切边界都靠 mask**。
 
-**块级张量运算**：加减乘除、比较、`tl.where`、类型转换 `.to(tl.float32)` 都是逐元素的，支持 NumPy 风格的广播（`x[:, None]`、`y[None, :]`）；`tl.sum(x, axis)`、`tl.max(x, axis)` 沿某一维归约；`tl.exp`、`tl.log`、`tl.sqrt` 等数学函数；`tl.dot(a, b, acc)` 做 `[M, K] × [K, N]` 的矩阵乘并累加到 `acc`——这是唯一会被编译到 Tensor Core 的运算，要求输入是 FP16/BF16/FP8/INT8（或 TF32 的 FP32）、M/N/K 均不小于 16 且为 2 的幂。
+**块级张量运算**分四类：
+
+- 加减乘除、比较、`tl.where`、类型转换 `.to(tl.float32)` 都是逐元素的，支持 NumPy 风格的广播（`x[:, None]`、`y[None, :]`）；
+- `tl.sum(x, axis)`、`tl.max(x, axis)` 沿某一维归约；
+- `tl.exp`、`tl.log`、`tl.sqrt` 等数学函数；
+- `tl.dot(a, b, acc)` 做 `[M, K] × [K, N]` 的矩阵乘并累加到 `acc`——这是唯一会被编译到 Tensor Core 的运算，要求输入是 FP16/BF16/FP8/INT8（或 TF32 的 FP32）、M/N/K 均不小于 16 且为 2 的幂。
 
 **没有 `__syncthreads()`、没有 `__shared__`**。程序员不能声明 shared memory，也不需要同步：编译器会在需要跨线程交换数据的地方（归约、layout 转换、`tl.dot` 的操作数准备）自动分配 shared memory 并插入 barrier。
 
@@ -101,9 +170,9 @@ Triton 的核心原语只有几个，全部围绕"块级张量"：
 
 这就是 **layout** ——Triton 编译器为每个块级张量选定的"线程到元素的映射"。它不在源代码里，而是编译器中间表示（TTGIR）的一部分，第四章会读它的具体编码。这里先给出最重要的直觉：
 
-- 对于要合并访存的 `tl.load`，编译器会选"每个线程拿连续几个元素、相邻线程拿相邻段"的 layout，使一个 warp 的 32 个线程覆盖连续的 32 × 16 字节 = 512 字节，并把每个线程的 8 个 BF16（16 字节）合成一条 128 bit 的向量化 load——这正是第三篇手写 `__nv_bfloat162`/`uint4` 向量化访存所做的事，Triton 自动做了；
-- 对于 `tl.sum(x, axis=0)` 这类归约，编译器先在线程内累加自己持有的元素，再用 warp shuffle 在 warp 内归约，最后（如果跨 warp）经 shared memory 归约——第四篇的三段式 reduction，Triton 自动做了；
-- 对于 `tl.dot`，操作数会被转换成 `mma` 指令要求的 fragment 布局（第六篇手写的 `ldmatrix` + fragment 排布），结果落在 `mma` 输出的布局上。
+- 对于要合并访存的 `tl.load`，编译器会选"每个线程拿连续几个元素、相邻线程拿相邻段"的 layout，使一个 warp 的 32 个线程覆盖连续的 32 × 16 字节 = 512 字节，并把每个线程的 8 个 BF16（16 字节）合成一条 128 bit 的向量化 load——这正是[《访存合并与 elementwise kernel》的「`float4`、`__nv_bfloat162` 与 `int4`」一节](/memory-coalescing-and-elementwise-kernels.html#2-float4__nv_bfloat162-与-int4)手写 `__nv_bfloat162`/`uint4` 向量化访存所做的事，Triton 自动做了；
+- 对于 `tl.sum(x, axis=0)` 这类归约，编译器先在线程内累加自己持有的元素，再用 warp shuffle 在 warp 内归约，最后（如果跨 warp）经 shared memory 归约——[《共享内存与 reduction》的「reduction 的六个版本」一章](/shared-memory-reduction-and-softmax.html#四reduction-的六个版本)里的三段式 reduction，Triton 自动做了；
+- 对于 `tl.dot`，操作数会被转换成 `mma` 指令要求的 fragment 布局（[《Tensor Core、CUTLASS 与 CuTe》的「fragment 布局与 `ldmatrix`」一章](/tensor-cores-cutlass-and-cute.html#三fragment-布局与-ldmatrix)手写的 `ldmatrix` + fragment 排布），结果落在 `mma` 输出的布局上。
 
 **layout 是 Triton 把 CUDA 的线程级细节"藏起来"的具体机制**。它能被藏起来，是因为绝大多数 kernel 里"哪个线程拿哪个元素"只有几种合理的选择，编译器按访存模式和运算类型就能选对；它藏不好的场景，就是第六章要讲的边界。
 
@@ -131,10 +200,13 @@ Triton 藏起了线程，但留下两个与硬件直接相关的旋钮，都在 
 **`num_warps`**：一个 program 用多少个 warp，即 CUDA 的 `blockDim.x / 32`。默认 4（128 线程）。它决定：
 
 - 每个线程持有多少元素——一个 `[128, 128]` 的 FP32 累加器在 `num_warps=4` 时每线程 128 个寄存器，`num_warps=8` 时 64 个。累加器太大会导致寄存器溢出（spill 到 local memory），太小则每线程工作量不足、指令级并行受限；
-- occupancy——第二篇的公式在这里照样适用：每 SM 寄存器上限 65536，一个 block 用 `R × num_warps × 32` 个寄存器，`R` 由编译器分配，可以在 `kernel.n_regs` 里读到；`kernel.n_spills` 给出溢出数，不为 0 通常意味着该减 tile 或加 `num_warps`；
-- 一般经验：elementwise 用 4；处理 4096 以上长度的 softmax 行用 8 或 16；`[128, 256]` 的 matmul tile 用 8。
+- occupancy——[《CUDA 编程模型与第一个 kernel》的「两个必备的编译选项」一节](/cuda-programming-model-and-first-kernel.html#4-两个必备的编译选项)里的公式在这里照样适用：每 SM 寄存器上限 65536，一个 block 用 `R × num_warps × 32` 个寄存器，`R` 由编译器分配，可以在 `kernel.n_regs` 里读到；`kernel.n_spills` 给出溢出数，不为 0 通常意味着该减 tile 或加 `num_warps`；
+- 一般经验：
+  - elementwise 用 4；
+  - 处理 4096 以上长度的 softmax 行用 8 或 16；
+  - `[128, 256]` 的 matmul tile 用 8。
 
-**`num_stages`**：软件流水的深度，即编译器把 `for` 循环体（典型是 GEMM 的 K 循环）转换成多级流水时，同时在飞的迭代数。Ampere 上默认 3。它精确对应第五、六篇手写的**多 stage `cp.async` 流水**：`num_stages=3` 意味着 shared memory 里同时保有 3 个 K-tile 的缓冲区，一个在被 `mma` 消费，另两个正在从全局内存异步加载。把 K 循环的前几个迭代按缓冲区画出来，就能看到"3 个缓冲区、2 个在飞"是怎么轮转的，以及第四章读 PTX 时 `cp.async.wait_group` 后面那个数字从哪来：
+**`num_stages`**：软件流水的深度，即编译器把 `for` 循环体（典型是 GEMM 的 K 循环）转换成多级流水时，同时在飞的迭代数。Ampere 上默认 3。它精确对应[《GEMM——从 naive 到分块》的「v5：双缓冲与软件流水」一章](/gemm-from-naive-to-tiled.html#六v5双缓冲与软件流水)和[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html#四实践ampere-bf16-gemm)手写的**多 stage `cp.async` 流水**：`num_stages=3` 意味着 shared memory 里同时保有 3 个 K-tile 的缓冲区，一个在被 `mma` 消费，另两个正在从全局内存异步加载。把 K 循环的前几个迭代按缓冲区画出来，就能看到"3 个缓冲区、2 个在飞"是怎么轮转的，以及第四章读 PTX 时 `cp.async.wait_group` 后面那个数字从哪来：
 
 | K 迭代 | buf0 | buf1 | buf2 | 本迭代：先等、再算、再发 |
 |---|---|---|---|---|
@@ -217,7 +289,7 @@ def softmax_kernel(x_ptr, out_ptr, stride, N, BLOCK_N: tl.constexpr): ...
 
 ## 三、三个 kernel 的 Triton 版本
 
-现在用 Triton 重写第三、四、五篇的三个 kernel。每个都先给理论下界，再给代码，再与 CUDA 版对照代码量和通常能达到的性能。
+现在用 Triton 重写[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)、[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)、[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)与[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)里的三个 kernel。每个都先给理论下界，再给代码，再与 CUDA 版对照代码量和通常能达到的性能。
 
 ### 1. BF16 elementwise add
 
@@ -227,7 +299,7 @@ $$
 t_{\min} = \frac{1.61 \times 10^{9}\ \text{B}}{2.0 \times 10^{12}\ \text{B/s}} \approx 0.81\ \text{ms}
 $$
 
-任何实现都只能逼近这个数字。第三篇的 CUDA 版（每线程 8 个 BF16 的 `uint4` 向量化 + grid-stride）通常能达到标称带宽的 85–92%。
+任何实现都只能逼近这个数字。[《访存合并与 elementwise kernel》的「实践：把 BF16 add 推到 90%」一章](/memory-coalescing-and-elementwise-kernels.html#八实践把-bf16-add-推到-90)的 CUDA 版（每线程 8 个 BF16 的 `uint4` 向量化 + grid-stride）通常能达到标称带宽的 85–92%。
 
 **Triton 版**：
 
@@ -259,7 +331,7 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 几个细节：
 
 - **grid 是一个 lambda**，接收 `meta`（本次 launch 的全部 constexpr 与 `num_warps` 等），返回 grid 元组。这样 grid 的计算可以依赖 `BLOCK_SIZE`，在 autotune 的场景下尤其必要——不同 config 的 `BLOCK_SIZE` 不同，grid 也不同；
-- **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见第二章 §4）；
+- **`n_elements` 不是 constexpr**，它是普通的运行时整数（但会被 16 的倍数特化，见[「`tl.constexpr`」一节](#4-tlconstexpr与-cuda-模板参数的对应)）；
 - **mask 的形状**是 `[BLOCK_SIZE]`，与 `offs`、`x`、`y` 一致。最后一个 program 处理尾部时 `mask` 有 False 项，对应位置不读不写。用一个小 `n` 把 grid、`offs`、`mask` 三者的对应关系摆出来：`n = 2500`、`BLOCK_SIZE = 1024` 时 grid = `cdiv(2500, 1024)` = 3 个 program。
 
   | pid | offs = pid*1024 + arange(0, 1024) | mask = offs < 2500 | 实际访存 |
@@ -273,7 +345,7 @@ def triton_add(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
 
 - BF16 的加法：Triton 会把 `x + y` 编译成 BF16 → FP32 → 加 → BF16 的序列（Ampere 没有 BF16 的标量加法指令，与 CUDA 里 `__hadd` 的实现一致），结果与 PyTorch 的 `x + y` 逐位相同。
 
-编译器为它做的：`BLOCK_SIZE=1024`、`num_warps=4` → 128 线程各 8 个连续元素 → 每线程一条 128 bit 的 `ld.global.v4.b32`，一个 warp 一次读 512 字节连续内存，完全合并。这正是第三篇手写的向量化方案。**代码约 12 行 vs CUDA 版（含向量化、尾部处理、launch）约 50–80 行；性能通常与手写 CUDA 相当（都是带宽的 85–92%）**，因为 memory-bound kernel 只要访存模式对了就到顶了，没有留给手工优化的空间。
+编译器为它做的：`BLOCK_SIZE=1024`、`num_warps=4` → 128 线程各 8 个连续元素 → 每线程一条 128 bit 的 `ld.global.v4.b32`，一个 warp 一次读 512 字节连续内存，完全合并。这正是《访存合并与 elementwise kernel》手写的向量化方案。**代码约 12 行 vs CUDA 版（含向量化、尾部处理、launch）约 50–80 行；性能通常与手写 CUDA 相当（都是带宽的 85–92%）**，因为 memory-bound kernel 只要访存模式对了就到顶了，没有留给手工优化的空间。
 
 一个不同点：Triton 版没有做 grid-stride loop，`n=2^28` 时 grid 有 262144 个 program，靠硬件调度器轮转。对于纯 elementwise 这没有可测量的差别；如果想复用 program，可以在 kernel 里写 `for` 循环。
 
@@ -285,7 +357,7 @@ $$
 t_{\min} = \frac{134 \times 10^{6}}{2.0 \times 10^{12}} \approx 67\ \mu\text{s}
 $$
 
-这个下界假定每个元素只读一次。第四篇讨论过：朴素三遍实现（max、sum、normalize 各读一遍）读三次，要 3 倍时间；正确的做法是一行由一个 block 负责、把整行读进寄存器（或 shared memory）后在片上完成 max 与 sum，只读一遍全局内存。
+这个下界假定每个元素只读一次。[《共享内存与 reduction》的「softmax：三遍还是一遍，差的是读几次」一节](/shared-memory-reduction-and-softmax.html#2-softmax三遍还是一遍差的是读几次)讨论过：朴素三遍实现（max、sum、normalize 各读一遍）读三次，要 3 倍时间；正确的做法是一行由一个 block 负责、把整行读进寄存器（或 shared memory）后在片上完成 max 与 sum，只读一遍全局内存。
 
 **Triton 版**：一行一个 program，`BLOCK_N = next_power_of_2(N)`，整行作为一个 `[BLOCK_N]` 张量加载进寄存器。
 
@@ -319,7 +391,7 @@ def triton_softmax(x: torch.Tensor) -> torch.Tensor:
     return out
 ```
 
-这里的"两遍"（一遍 max、一遍 exp/sum）**全部在寄存器里**：`x` 加载一次后就是一个驻留在 128–512 个线程寄存器中的 `[BLOCK_N]` 张量，`tl.max` 和 `tl.sum` 是编译器生成的线程内累加 + warp shuffle + 跨 warp 的 shared memory 归约，与第四篇手写的 warp/block 版本在结构上等价。全局内存只读一次，所以理论上能贴近 67 µs 的下界；实际通常在带宽的 80–90%。
+这里的"两遍"（一遍 max、一遍 exp/sum）**全部在寄存器里**：`x` 加载一次后就是一个驻留在 128–512 个线程寄存器中的 `[BLOCK_N]` 张量，`tl.max` 和 `tl.sum` 是编译器生成的线程内累加 + warp shuffle + 跨 warp 的 shared memory 归约，与《共享内存与 reduction》手写的 warp/block 版本在结构上等价。全局内存只读一次，所以理论上能贴近 67 µs 的下界；实际通常在带宽的 80–90%。
 
 `other=float("-inf")` 是关键：被 mask 掉的列填 $$-\infty$$，于是不影响 `max`，`exp(-inf - m) = 0` 也不影响 `sum`。如果 `N` 本身就是 2 的幂，mask 全为 True，编译器会在特化后把它省掉。
 
@@ -335,7 +407,7 @@ $$
 t_{\min} = \frac{137.4 \times 10^{9}}{312 \times 10^{12}} \approx 0.44\ \text{ms}
 $$
 
-cuBLAS 在这个形状上通常能达到标称峰值的 70–80%，即 0.55–0.63 ms。第六篇手写的多 stage `cp.async` + `mma.sync` 版本通常在 cuBLAS 的 70–85%。
+cuBLAS 在这个形状上通常能达到标称峰值的 70–80%，即 0.55–0.63 ms。[《Tensor Core、CUTLASS 与 CuTe》的「实践：Ampere BF16 GEMM」一章](/tensor-cores-cutlass-and-cute.html#四实践ampere-bf16-gemm)手写的多 stage `cp.async` + `mma.sync` 版本通常在 cuBLAS 的 70–85%。
 
 **Triton 版**：
 
@@ -420,7 +492,7 @@ def triton_matmul(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 逐段解释。
 
-**K 循环与 `tl.dot`**。`a` 是 `[BLOCK_M, BLOCK_K]` 的 BF16 张量，`b` 是 `[BLOCK_K, BLOCK_N]`，`tl.dot(a, b, acc)` 计算 `acc += a @ b`，累加器是 FP32 的 `[BLOCK_M, BLOCK_N]`。编译器把它翻译成 Ampere 上的 `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32`——一个 `128 × 128 × 32` 的 tile 需要 $$(128/16) \times (128/8) \times (32/16) = 256$$ 条 `mma.sync`，分给 4 个 warp 各 64 条。这对应第六篇手写的 fragment 循环，但程序员不需要知道 `m16n8k16` 是什么。Hopper 上同一行 `tl.dot` 会被编译成 `wgmma.mma_async`。
+**K 循环与 `tl.dot`**。`a` 是 `[BLOCK_M, BLOCK_K]` 的 BF16 张量，`b` 是 `[BLOCK_K, BLOCK_N]`，`tl.dot(a, b, acc)` 计算 `acc += a @ b`，累加器是 FP32 的 `[BLOCK_M, BLOCK_N]`。编译器把它翻译成 Ampere 上的 `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32`——一个 `128 × 128 × 32` 的 tile 需要 $$(128/16) \times (128/8) \times (32/16) = 256$$ 条 `mma.sync`，分给 4 个 warp 各 64 条。这对应《Tensor Core、CUTLASS 与 CuTe》手写的 fragment 循环，但程序员不需要知道 `m16n8k16` 是什么。Hopper 上同一行 `tl.dot` 会被编译成 `wgmma.mma_async`。
 
 autotune 列表里的五个 config 看起来只是几组数字，但每一组都对应一份确定的资源账：shared memory 由 `(BLOCK_M + BLOCK_N) × BLOCK_K × 2 B × num_stages` 决定，累加器寄存器由 `BLOCK_M × BLOCK_N / (num_warps × 32)` 决定，tile 越大对 L2/HBM 的算术强度 `BLOCK_M × BLOCK_N / (BLOCK_M + BLOCK_N)` 越高但 program 越少。把它们算出来，就能看出 autotune 实际在什么之间取舍：
 
@@ -447,9 +519,9 @@ Table: matmul autotune 五个 config 的资源账
 
 ![行主序与分组 swizzle 下一波 program 覆盖的 tile](/img/in-post/triton-block-level-programming-l2-swizzle.svg)
 
-更一般地，一波 $$W$$ 个 program、分组大小 $$G$$ 时需要的 panel 数约为 $$G + W/G$$，在 $$G \approx \sqrt{W}$$ 时最小。这个工作集能否放进 L2 直接决定 A、B 的每个 tile 是从 L2 还是从 HBM 读进 SM。A100 的 L2 是 40 MB：22 MiB 能放下，36 MiB 放不下（且 L2 还要放 C 的写回和其他数据）。第五篇推导过分块 GEMM 的全局读取量是 $$M N K (1/B_N + 1/B_M)$$ 个元素——4096³、128 tile 时是 $$2 \times 4096^3 / 128 \times 2\ \text{B} = 2$$ GiB，是 96 MiB 最小流量的 21 倍。这 2 GiB 中有多少落在 L2、多少真去 HBM，就由 swizzle 决定。**L2 带宽约是 HBM 的数倍**，命中率的差异在 compute-bound 的 GEMM 上通常体现为 5–15% 的性能差别。
+更一般地，一波 $$W$$ 个 program、分组大小 $$G$$ 时需要的 panel 数约为 $$G + W/G$$，在 $$G \approx \sqrt{W}$$ 时最小。这个工作集能否放进 L2 直接决定 A、B 的每个 tile 是从 L2 还是从 HBM 读进 SM。A100 的 L2 是 40 MB：22 MiB 能放下，36 MiB 放不下（且 L2 还要放 C 的写回和其他数据）。[《GEMM——从 naive 到分块》的「分块把算术强度变成一个可设计的参数」一节](/gemm-from-naive-to-tiled.html#1-分块把算术强度变成一个可设计的参数)推导过分块 GEMM 的全局读取量是 $$M N K (1/B_N + 1/B_M)$$ 个元素——4096³、128 tile 时是 $$2 \times 4096^3 / 128 \times 2\ \text{B} = 2$$ GiB，是 96 MiB 最小流量的 21 倍。这 2 GiB 中有多少落在 L2、多少真去 HBM，就由 swizzle 决定。**L2 带宽约是 HBM 的数倍**，命中率的差异在 compute-bound 的 GEMM 上通常体现为 5–15% 的性能差别。
 
-映射公式本身：`group_id = pid // (G × num_pid_n)` 是第几组；`first_pid_m = group_id × G` 是组的起始行；组内偏移 `pid % num_pid_in_group` 按列主序拆成 `pid_m = first_pid_m + 偏移 % group_size_m`、`pid_n = 偏移 // group_size_m`。`group_size_m = min(num_pid_m - first_pid_m, G)` 处理最后一组不满 $$G$$ 行的情况。这段代码在 vLLM 的 `fused_moe_kernel` 里几乎逐字出现（第五章）。
+映射公式本身：`group_id = pid // (G × num_pid_n)` 是第几组；`first_pid_m = group_id × G` 是组的起始行；组内偏移 `pid % num_pid_in_group` 按列主序拆成 `pid_m = first_pid_m + 偏移 % group_size_m`、`pid_n = 偏移 // group_size_m`。`group_size_m = min(num_pid_m - first_pid_m, G)` 处理最后一组不满 $$G$$ 行的情况。这段代码在 vLLM 的 `fused_moe_kernel` 里几乎逐字出现（[「vLLM 的 `fused_moe_kernel`」一节](#2-vllm-的-fused_moe_kernelgrouped-gemm)）。
 
 **编译器为它做的**（细节见第四章）：为 `a`、`b` 的加载分配 shared memory 缓冲区并选择无 bank conflict 的 swizzled 布局；把 K 循环转成 `num_stages` 级的 `cp.async` 流水；把 `tl.dot` 翻译成 `mma.sync`，并为操作数生成 `ldmatrix`；在 epilogue 把 `mma` 输出布局转成适合合并写回的布局。
 
@@ -457,7 +529,7 @@ Table: matmul autotune 五个 config 的资源账
 
 ## 四、编译器做了什么：从 Python 到 cubin
 
-Triton matmul 能接近 cuBLAS，是因为编译器自动做了第五、六篇手工做的事。要理解"那 10% 在哪里"，先要看清编译器做了哪些、在哪一层做的。
+Triton matmul 能接近 cuBLAS，是因为编译器自动做了《GEMM——从 naive 到分块》与《Tensor Core、CUTLASS 与 CuTe》手工做的事。要理解"那 10% 在哪里"，先要看清编译器做了哪些、在哪一层做的。
 
 ### 1. 编译流水线的六层
 
@@ -478,7 +550,7 @@ flowchart TB
     ptx -- "ptxas：寄存器分配、指令调度" --> cubin
 
     m1["≈ 模板实例化 / if constexpr"]
-    m2["<b>≈ 第 3–6 篇手工做的全部：</b><br/>向量化、多 stage cp.async、ldmatrix<br/>bank conflict 消除、__syncthreads 位置"]
+    m2["<b>≈ 前几篇手写 CUDA 的全部：</b><br/>向量化、多 stage cp.async、ldmatrix<br/>bank conflict 消除、__syncthreads 位置"]
     m3["≈ 手写线程索引、shfl、inline PTX"]
     m4["= nvcc 后端，与 CUDA 相同"]
     ttir ~~~ m1
@@ -511,7 +583,7 @@ flowchart TB
 
 Table: Triton 编译流水线的六层
 
-重点是 TTGIR 那一层：**第五、六篇手工做的几乎所有优化——向量化、分块、流水、`ldmatrix`、swizzle、同步——都是 TTGIR 上的 pass**。程序员写的 `tl.load` + `tl.dot` + `for` 只是"意图"，性能来自这些 pass 的质量。这也解释了 Triton 的两个特性：为什么它对"规整"的代码（连续访存、标准 GEMM 循环）效果好——pass 的模式匹配到了；为什么对"不规整"的代码（间接寻址、带 mask 的 K 循环、数据依赖的循环边界）效果差——pass 匹配不上，退回保守的代码。
+重点是 TTGIR 那一层：**这两篇手工做的几乎所有优化——向量化、分块、流水、`ldmatrix`、swizzle、同步——都是 TTGIR 上的 pass**。程序员写的 `tl.load` + `tl.dot` + `for` 只是"意图"，性能来自这些 pass 的质量。这也解释了 Triton 的两个特性：为什么它对"规整"的代码（连续访存、标准 GEMM 循环）效果好——pass 的模式匹配到了；为什么对"不规整"的代码（间接寻址、带 mask 的 K 循环、数据依赖的循环边界）效果差——pass 匹配不上，退回保守的代码。
 
 ### 2. 读 TTGIR：layout 的编码
 
@@ -545,7 +617,7 @@ TTGIR 里的每个张量类型都带一个 layout 属性。以 `add_kernel`（`B
 #shared = #ttg.swizzled_shared<{vec = 8, perPhase = 2, maxPhase = 4, order = [1, 0]}>
 ```
 
-`vec = 8, perPhase = 2, maxPhase = 4` 就是编译器选的 XOR swizzle 参数，作用是让 `ldmatrix` 读 8 × 8 的子块时不发生 bank conflict——第六篇手工用 padding 或 XOR 解决的问题。再从 shared memory 读成 `#dot_op` 布局喂给 `mma`，结果落在：
+`vec = 8, perPhase = 2, maxPhase = 4` 就是编译器选的 XOR swizzle 参数，作用是让 `ldmatrix` 读 8 × 8 的子块时不发生 bank conflict——[《Tensor Core、CUTLASS 与 CuTe》的「为什么 ldmatrix 下 shared memory 必须 swizzle」一节](/tensor-cores-cutlass-and-cute.html#5-为什么-ldmatrix-下-shared-memory-必须-swizzle)手工解决的问题。再从 shared memory 读成 `#dot_op` 布局喂给 `mma`，结果落在：
 
 ```text title="#mma：nvidia_mma layout"
 #mma = #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [2, 2], instrShape = [16, 8]}>
@@ -574,9 +646,9 @@ flowchart TB
     mma -- "acc.to(bf16) 后 ttg.convert_layout<br/>= st.shared + bar.sync + ld.shared" --> blk2
     blk2 -- "st.global.v4.b32 + c_mask 谓词" --> gC
 
-    n1["<b>≈ 第 3 篇 uint4 向量化</b><br/>+ 第 5 篇多 stage cp.async"]
-    n2["<b>≈ 第 6 篇 ldmatrix</b><br/>+ padding / XOR swizzle"]
-    n3["<b>≈ 第 6 篇 fragment 循环</b><br/>+ __syncthreads 位置"]
+    n1["<b>≈《访存合并》的 uint4 向量化</b><br/>+《GEMM》的多 stage cp.async"]
+    n2["<b>≈《Tensor Core》的 ldmatrix</b><br/>+ padding / XOR swizzle"]
+    n3["<b>≈《Tensor Core》的 fragment 循环</b><br/>+ __syncthreads 位置"]
     n4["<b>epilogue 固有开销：</b><br/>一次 smem 往返 + 两次 barrier"]
     shr ~~~ n1
     dop ~~~ n2
@@ -604,7 +676,7 @@ flowchart TB
 `compiled.asm["ptx"]` 是文本，直接 `grep`：
 
 - `mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32` 出现 → `tl.dot` 用上了 Tensor Core。数一数它在循环体里出现的次数，应等于 $$(B_M/16)(B_N/8)(B_K/16)/\text{num\_warps}$$；如果看到的是 `fma.rn.f32`，说明 `tl.dot` 的输入 dtype 或形状不满足要求，退化成了 CUDA Core；
-- `cp.async.cg.shared.global` / `cp.async.commit_group` / `cp.async.wait_group N` 出现 → 多 stage 流水生效。**`wait_group` 后面的数字就是允许在飞的 group 数，等于 `num_stages - 2`**（`num_stages=3` 时是 `wait_group 1`，原因见第二章 §5 的缓冲区轮转图）——这是从 PTX 反推 stage 数最可靠的办法；
+- `cp.async.cg.shared.global` / `cp.async.commit_group` / `cp.async.wait_group N` 出现 → 多 stage 流水生效。**`wait_group` 后面的数字就是允许在飞的 group 数，等于 `num_stages - 2`**（`num_stages=3` 时是 `wait_group 1`，原因见[「`num_warps` 与 `num_stages`」一节](#5-num_warps-与-num_stages暴露给用户的两个硬件旋钮)的缓冲区轮转表）——这是从 PTX 反推 stage 数最可靠的办法；
 - `ldmatrix.sync.aligned.m8n8.x4.shared.b16` 出现 → 操作数从 shared memory 到 fragment 的搬运用了 `ldmatrix`（带 `.trans` 后缀说明折进了转置）；
 - `ld.global.v4.b32` / `st.global.v4.b32` → 128 bit 向量化访存；如果是 `ld.global.b16`，向量化失败；
 - `bar.sync 0` 的数量与位置对应 `__syncthreads()`；
@@ -651,9 +723,9 @@ def triton_poi_fused_add_mul_0(in_ptr0, in_ptr1, out_ptr0, xnumel, XBLOCK : tl.c
     tl.store(out_ptr0 + (x0), tmp4, xmask)
 ```
 
-对照第三章 §1 的手写 `add_kernel`，它的结构完全一样，只是命名规范化了：`xnumel` 是元素总数，`XBLOCK` 是 `BLOCK_SIZE`，`xindex`/`xmask` 是 `offs`/`mask`，`tmp*` 是融合进来的每一个 elementwise op。`@triton_heuristics.pointwise` 是 Inductor 自己的装饰器（在 `torch/_inductor/runtime/triton_heuristics.py`），它包装了 `triton.autotune`：按 `size_hints` 生成若干 `XBLOCK`/`num_warps` 候选，默认只选一个启发式配置，`torch.compile(mode="max-autotune")` 时才真正 benchmark。`_poi_` 表示 pointwise，`_red_` 表示 reduction（会多出 `rnumel`、`RBLOCK`、`tl.sum(..., 1)`），`_per_` 是 persistent reduction。
+对照[「BF16 elementwise add」一节](#1-bf16-elementwise-add)的手写 `add_kernel`，它的结构完全一样，只是命名规范化了：`xnumel` 是元素总数，`XBLOCK` 是 `BLOCK_SIZE`，`xindex`/`xmask` 是 `offs`/`mask`，`tmp*` 是融合进来的每一个 elementwise op。`@triton_heuristics.pointwise` 是 Inductor 自己的装饰器（在 `torch/_inductor/runtime/triton_heuristics.py`），它包装了 `triton.autotune`：按 `size_hints` 生成若干 `XBLOCK`/`num_warps` 候选，默认只选一个启发式配置，`torch.compile(mode="max-autotune")` 时才真正 benchmark。`_poi_` 表示 pointwise，`_red_` 表示 reduction（会多出 `rnumel`、`RBLOCK`、`tl.sum(..., 1)`），`_per_` 是 persistent reduction。
 
-一个重要的事实：**Inductor 的 matmul 默认不用 Triton**。`torch.mm`/`addmm`/`bmm` 在生成的代码里是 `extern_kernels.mm(...)`，即直接调 cuBLAS。只有 `mode="max-autotune"`（或 `torch._inductor.config.max_autotune_gemm=True`）时，Inductor 才会拿它的 Triton matmul 模板（`torch/_inductor/kernel/mm.py`，与第三章 §3 的写法同源，多了 epilogue 融合）与 cuBLAS 同台 benchmark，选快的那个。这本身就是对本文核心问题的一个工业界回答：**Triton 的 GEMM 在多数形状上不如 cuBLAS，但在能把后续 pointwise 融进 epilogue 的场景下可能反超，所以值得比一比**。
+一个重要的事实：**Inductor 的 matmul 默认不用 Triton**。`torch.mm`/`addmm`/`bmm` 在生成的代码里是 `extern_kernels.mm(...)`，即直接调 cuBLAS。只有 `mode="max-autotune"`（或 `torch._inductor.config.max_autotune_gemm=True`）时，Inductor 才会拿它的 Triton matmul 模板（`torch/_inductor/kernel/mm.py`，与[「matmul」一节](#3-matmultldot-与-l2-swizzle)的写法同源，多了 epilogue 融合）与 cuBLAS 同台 benchmark，选快的那个。这本身就是对本文核心问题的一个工业界回答：**Triton 的 GEMM 在多数形状上不如 cuBLAS，但在能把后续 pointwise 融进 epilogue 的场景下可能反超，所以值得比一比**。
 
 ### 2. vLLM 的 `fused_moe_kernel`：grouped GEMM
 
@@ -666,12 +738,14 @@ MoE 层的计算是：每个 token 被路由到 top-k 个 expert，每个 expert
 
 拿 `pid_m = 2` 这个 program 走一遍：
 
-```text title="pid_m = 2 的 program"
-off_experts = expert_ids[2] = 2              → B = W_2（b_ptr + 2 * stride_be）
-offs_token  = sorted_token_ids[8..12) = [1 6 P P]
-A 的行     = offs_token // top_k = [0 3 P P]  → gather x[0], x[3]（P 行被 token_mask 屏蔽，读 0、不写）
-C 的行     = offs_token 本身 = [1 6 P P]      → 写到 (token, slot) 展平后的输出行
-```
+| 量 | 怎么算 | 值 | 用途 |
+|---|---|---|---|
+| `off_experts` | `expert_ids[2]` | 2 | B = $$W_2$$（`b_ptr + 2 * stride_be`） |
+| `offs_token` | `sorted_token_ids[8..12)` | `[1 6 P P]` | 这个 tile 的 4 个 (token, slot) 对 |
+| A 的行 | `offs_token // top_k` | `[0 3 P P]` | gather `x[0]`、`x[3]`；P 行被 `token_mask` 屏蔽，读 0、不写 |
+| C 的行 | `offs_token` 本身 | `[1 6 P P]` | 写到 (token, slot) 展平后的输出行 |
+
+Table: pid_m = 2 的 program 取到的 expert、token 与读写行（P = 填充位）
 
 排序和填充由 `moe_align_block_size`（`vllm/model_executor/layers/fused_moe/moe_align_block_size.py`）在 kernel 之前完成。有了这两个数组，grouped GEMM 就变成了一个普通 GEMM：M 方向的 tile 编号 `pid_m` 通过 `expert_ids[pid_m]` 找到 expert，通过 `sorted_token_ids[pid_m * BLOCK_SIZE_M + arange]` 找到该 tile 的 token 行。核心片段（`vllm/model_executor/layers/fused_moe/fused_moe.py`，v0.20.0，`fused_moe_kernel`，略去量化分支）：
 
@@ -716,7 +790,7 @@ C 的行     = offs_token 本身 = [1 6 P P]      → 写到 (token, slot) 展�
     )
 ```
 
-与第三章 §3 的 matmul 对照，差别只有三处：
+与[「matmul」一节](#3-matmultldot-与-l2-swizzle)的 matmul 对照，差别只有三处：
 
 1. **A 的行是间接寻址的**：`offs_token[:, None] // top_k * stride_am`——`sorted_token_ids` 里存的是 (token, expert) 对的展平索引，除以 `top_k` 得到 token 行号，同一个 token 被路由到 top-k 个 expert 就会出现在 top-k 个 tile 里。这是一次 gather，编译器不能再假定行是连续的，但 K 方向（`offs_k`）仍然连续，向量化仍然可用；
 2. **B 的 expert 由 `off_experts * stride_be` 选定**：`b_ptr` 加上 expert 偏移后，其余与普通 GEMM 相同。`off_experts == -1` 是 expert 并行时"这个 expert 不在本 rank"的标记，直接写零返回；
@@ -755,7 +829,7 @@ K 循环与写回（同文件）：
 
 ### 3. vLLM 的 prefix-prefill attention kernel
 
-`vllm/v1/attention/ops/prefix_prefill.py` 里的 `_fwd_kernel` 是 vLLM 早期（V0 时代）用 Triton 实现的 chunked-prefill attention，V1 里仍作为某些配置的后端保留。它是下一篇 FlashAttention 的一个 Triton 预览。整体结构（v0.20.0，略去 FP8、sliding window、sink 等分支）：
+`vllm/v1/attention/ops/prefix_prefill.py` 里的 `_fwd_kernel` 是 vLLM 早期（V0 时代）用 Triton 实现的 chunked-prefill attention，V1 里仍作为某些配置的后端保留。它是[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)的一个 Triton 预览。整体结构（v0.20.0，略去 FP8、sliding window、sink 等分支）：
 
 ```python title="prefix_prefill.py：_fwd_kernel 的整体结构"
 @triton.jit
@@ -795,10 +869,24 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
     tl.store(Out + off_o, acc.to(Out.dtype.element_ty), mask=...)
 ```
 
-三层 grid `(batch, head, query 方向的 tile)`，每个 program 负责一个 head 的 `BLOCK_M` 行 query，在 K/V 方向上循环，用 `m_i`、`l_i`、`acc` 三个寄存器驻留的张量做 **online softmax**：$$m_{\text{new}} = \max(m, \max_j s_j)$$，$$l_{\text{new}} = l \cdot e^{m - m_{\text{new}}} + \sum_j e^{s_j - m_{\text{new}}}$$，`acc` 同步按 $$\alpha = e^{m - m_{\text{new}}}$$ 缩放。两次 `tl.dot`（QKᵀ 与 PV）都走 Tensor Core，$$S$$ 与 $$P$$ 从不落到全局内存——这就是 FlashAttention 的算法骨架，下一篇会从头推导。这里值得注意的两点：
+三层 grid `(batch, head, query 方向的 tile)`，每个 program 负责一个 head 的 `BLOCK_M` 行 query，在 K/V 方向上循环，用 `m_i`、`l_i`、`acc` 三个寄存器驻留的张量做 **online softmax**：$$m_{\text{new}} = \max(m, \max_j s_j)$$，$$l_{\text{new}} = l \cdot e^{m - m_{\text{new}}} + \sum_j e^{s_j - m_{\text{new}}}$$，`acc` 同步按 $$\alpha = e^{m - m_{\text{new}}}$$ 缩放。两次 `tl.dot`（QKᵀ 与 PV）都走 Tensor Core，$$S$$ 与 $$P$$ 从不落到全局内存——这就是 FlashAttention 的算法骨架，[《Attention Kernel》的「FlashAttention：分块 + online softmax + 不物化 S」一章](/attention-kernels-flashattention-and-pagedattention.html#三flashattention分块--online-softmax--不物化-s)会从头推导。
+
+用一行 query 的 4 个分数手算一遍：分数 `[1, 3, 2, 5]`，`BLOCK_N = 2`，分两个 tile 进来。
+
+| 步骤 | 本 tile 的分数 | $$m$$ | $$\alpha = e^{m_{\text{旧}} - m}$$ | $$l$$ |
+|---|---|---:|---:|---:|
+| 初始 | — | $$-\infty$$ | — | 0 |
+| tile 0 | `[1, 3]` | 3 | 0 | $$e^{-2} + e^{0} = 1.1353$$ |
+| tile 1 | `[2, 5]` | 5 | $$e^{-2} = 0.1353$$ | $$1.1353 \times 0.1353 + e^{-3} + e^{0} = 1.2034$$ |
+
+Table: online softmax 的 running max 与 running sum：分数 [1, 3, 2, 5]、每个 tile 2 个
+
+一次看完 4 个分数时，$$\sum_j e^{s_j - 5} = 0.0183 + 0.1353 + 0.0498 + 1 = 1.2034$$，与分块的结果相同。`acc` 也一样：tile 0 里按 $$m = 3$$ 加权累加的 V 行，在 tile 1 开头乘上 $$\alpha = 0.1353$$，就换算成了按 $$m = 5$$ 的权重。
+
+这里值得注意的两点：
 
 - **paged KV cache 的间接寻址**：`B_Loc` 是 block table，`bn` 是物理块号，`off_k` 由 `bn` 与块内偏移拼出。与 `fused_moe_kernel` 一样，这是 Triton 能写、cuBLAS/标准库不能写的"不规整"访存；
-- **`num_stages=1`**：launch 处显式传了 `num_stages=1`（文件顶部的注释也记录了原因）。attention 的内循环有数据依赖（`m_i`、`l_i` 跨迭代传递）、有间接寻址、有两个 `tl.dot`，Triton 的 pipeline pass 对它的收益有限甚至为负，所以关掉。这与 FlashAttention-2/3 手工设计的流水（K 与 V 的加载交错、softmax 与 `mma` 重叠）形成鲜明对比——那正是第六章要讨论的"10%"。
+- **`num_stages=1`**：launch 处显式传了 `num_stages=1`（文件顶部的注释也记录了原因）。attention 的内循环有数据依赖（`m_i`、`l_i` 跨迭代传递）、有间接寻址、有两个 `tl.dot`，Triton 的 pipeline pass 对它的收益有限甚至为负，所以关掉。这与 FlashAttention-2/3 手工设计的流水（K 与 V 的加载交错、softmax 与 `mma` 重叠）形成鲜明对比——那正是[第六章](#六编译器的边界那-10-在哪里)要讨论的"10%"。
 
 ## 六、编译器的边界：那 10% 在哪里
 
@@ -814,7 +902,14 @@ def _fwd_kernel(Q, K, V, K_cache, V_cache, B_Loc, sm_scale, ..., Out, ...,
 
 **寄存器级布局控制**。累加器在 `#mma` 布局上、写回要 `#blocked` 布局，中间的 `convert_layout` 是一次 shared memory 往返。手写 CUTLASS 可以让 epilogue 直接在 `mma` 输出的 fragment 上做 pointwise 并用 `stmatrix` 写回，避开这次转换；也可以把 $$P$$ 矩阵从 QKᵀ 的累加器布局直接"重解释"为下一个 `mma` 的 A 操作数布局（FlashAttention-2 的一个关键技巧，因为 `m16n8k16` 的 C 布局和 A 布局恰好兼容）。Triton 的编译器有时能识别这个兼容性并省掉转换，有时不能，程序员无法强制。
 
-**Hopper 特性的支持随版本演进**。`tl.dot` 在 sm_90 上自动选 `wgmma`；TMA 有 `tl.make_tensor_descriptor` / `tl.load_tensor_descriptor`（早期版本是 `_experimental_descriptor_load`）；`num_stages` 控制 TMA 流水；warp specialization 有自动 pass。但 FlashAttention-3 级别的手工调度——TMA multicast 到 cluster、`mbarrier` 的精细 arrive/wait 编排、`wgmma` 的异步 commit/wait 与 softmax 的手工重叠、FP8 的寄存器内转置——做不到。Triton 3.x 版本间 Hopper 后端的变化很大，写文档时的 API 与读者手上的版本可能不同，用前查所用版本的 `triton.language` 文档。
+**Hopper 特性的支持随版本演进**。已经能用的有四项：
+
+- `tl.dot` 在 sm_90 上自动选 `wgmma`；
+- TMA 有 `tl.make_tensor_descriptor` / `tl.load_tensor_descriptor`（早期版本是 `_experimental_descriptor_load`）；
+- `num_stages` 控制 TMA 流水；
+- warp specialization 有自动 pass。
+
+但 FlashAttention-3 级别的手工调度——TMA multicast 到 cluster、`mbarrier` 的精细 arrive/wait 编排、`wgmma` 的异步 commit/wait 与 softmax 的手工重叠、FP8 的寄存器内转置——做不到。Triton 3.x 版本间 Hopper 后端的变化很大，写文档时的 API 与读者手上的版本可能不同，用前查所用版本的 `triton.language` 文档。
 
 **非 2 的幂 block**。`tl.arange` 与所有 tile 形状必须是 2 的幂。对 $$N = 4096$$ 无所谓，对 head_dim = 96 或 hidden = 3072 × 1.5 这样的形状要 pad 到 128 或 8192 并 mask，浪费的算力和寄存器在 20–33% 之间。`prefix_prefill.py` 里 `BLOCK_DMODEL_PADDED` 与 `dim_mask` 就是在处理这个。
 
@@ -911,7 +1006,10 @@ matmul 一项把 `atol` 从 1e-5 放宽到 1e-2：两边都是 FP32 累加、最
 
 ### 2. 性能对照表模板
 
-用 `triton.testing.do_bench` 计时，它默认在每次迭代前刷 L2（写一个 256 MB 的缓冲区）、返回若干次运行的中位数毫秒，与第二篇定义的 `bench(fn, flush_l2=True)` 语义一致，Python 侧直接用它。CUDA 版通过第二篇的 `load_inline` 扩展接进来（此处记为 `cuda_add`、`cuda_softmax`、`cuda_matmul`）。
+用 `triton.testing.do_bench` 计时，它默认在每次迭代前刷 L2（写一个 256 MB 的缓冲区）、返回若干次运行的毫秒数。与[《CUDA 编程模型与第一个 kernel》的「Python/PyTorch 侧的等价脚手架」一节](/cuda-programming-model-and-first-kernel.html#4-pythonpytorch-侧的等价脚手架)定义的 `bench(fn, flush_l2=True)` 相比，刷 L2 这一点相同，统计量不同：`do_bench` 的 `return_mode` 默认是 `"mean"`（均值），要和 `bench` 一样取中位数，传 `return_mode="median"`。CUDA 版通过同一节的 `load_inline` 扩展接进来（此处记为 `cuda_add`、`cuda_softmax`、`cuda_matmul`）。
+
+> [!NOTE] Java 经验参照：JMH 的预热与 kernel 计时的预热
+> HotSpot 先解释执行字节码，方法跑热以后才由 JIT 编成机器码，所以 JMH 默认先跑 5 轮、每轮 10 秒的 warmup 再计时。Triton kernel 的第一次调用同样包含编译：JIT 生成 cubin，带 `@triton.autotune` 的还要把每个 config 编译、计时一遍，几秒到几分钟。`do_bench` 在估算单次耗时之前先调用一次 `fn()`，再按 `warmup`（默认 25 ms）换算出预热次数，编译和 autotune 都落在计时之外。对不上的地方：JMH 预热是等 JIT 按运行时 profile 逐级优化到稳态；Triton 的编译产物只由 constexpr 取值与参数特化属性决定，第一次调用之后不再变化。`do_bench` 每次计时前写 256 MB 缓冲区冲掉 L2，是 GPU 计时另加的一步，为的是每次都从 HBM 读输入。
 
 ```python title="用 do_bench 做 CUDA / Triton / PyTorch 性能对照"
 from triton.testing import do_bench
@@ -954,7 +1052,7 @@ for name, th, c, t, p in rows:
 
 读者在 A100 上跑出的数字大致应落在这个区间（理论列是可推导的下界，其余三列是经验区间，不是实测）：
 
-| kernel | 理论下界 | CUDA（第3–6篇） | Triton | PyTorch/cuBLAS |
+| kernel | 理论下界 | 手写 CUDA（前几篇） | Triton | PyTorch/cuBLAS |
 |---|---|---|---|---|
 | bf16 add, n=2^28 | 0.81 ms | 0.88–0.95 ms | 0.88–0.95 ms | 0.88–0.95 ms |
 | bf16 softmax, 8192×4096 | 0.067 ms | 0.075–0.085 ms | 0.075–0.085 ms | 0.075–0.085 ms |
@@ -962,7 +1060,7 @@ for name, th, c, t, p in rows:
 
 Table: 三个 kernel 在 A100 上的理论下界与 CUDA、Triton、PyTorch 的经验区间
 
-前两行三者相当——memory-bound kernel 到了带宽上限就没有区别。第三行 Triton 落在 cuBLAS 的 85–95%，手写的 `mma.sync` 版本（第六篇）反而可能不如 Triton——除非投入 CUTLASS 级别的工程量，否则编译器自动做的流水与 swizzle 比多数人手写的更好。
+前两行三者相当——memory-bound kernel 到了带宽上限就没有区别。第三行 Triton 落在 cuBLAS 的 85–95%，手写的 `mma.sync` 版本（《Tensor Core、CUTLASS 与 CuTe》）反而可能不如 Triton——除非投入 CUTLASS 级别的工程量，否则编译器自动做的流水与 swizzle 比多数人手写的更好。
 
 ### 3. 打印 TTGIR 与 PTX
 
@@ -1005,17 +1103,23 @@ grep -c "mma.sync" triton_dump/*/matmul_kernel.ptx
 grep "cp.async.wait_group" triton_dump/*/matmul_kernel.ptx | sort | uniq -c
 ```
 
-期望看到的：`#blocked` 里 `sizePerThread` 含 8（BF16 的 128 bit 向量化）；`#shared` 带 swizzle 参数；`#mma`（或 `#nvidia_mma`）`versionMajor = 2`（Ampere）；PTX 里 `mma.sync.m16n8k16` 与 `cp.async.cg.shared.global` 大量出现，`cp.async.wait_group` 的数字为 `num_stages - 2`；`n_spills` 为 0。如果 `sizePerThread` 是 1 或 `mma.sync` 计数为 0，回到第四章 §3 逐项排查。
+期望看到的：`#blocked` 里 `sizePerThread` 含 8（BF16 的 128 bit 向量化）；`#shared` 带 swizzle 参数；`#mma`（或 `#nvidia_mma`）`versionMajor = 2`（Ampere）；PTX 里 `mma.sync.m16n8k16` 与 `cp.async.cg.shared.global` 大量出现，`cp.async.wait_group` 的数字为 `num_stages - 2`；`n_spills` 为 0。如果 `sizePerThread` 是 1 或 `mma.sync` 计数为 0，回到[「读 PTX」一节](#3-读-ptxmmacpasync-与-stage-数)逐项排查。
 
 ## 八、本文小结
 
 这一篇把前六篇手工做的事交给了编译器，然后打开编译器看它做了什么、没做什么。
 
-**编程模型**：Triton 去掉了线程，程序员以 program（= CUDA block）为单位写块级张量代码；`tl.program_id`、`tl.arange`（2 的幂）、`tl.load/tl.store` + mask、`tl.dot` 是核心原语；线程到元素的映射（layout）、shared memory、同步全部由编译器决定；`tl.constexpr` 对应模板参数，`num_warps` 与 `num_stages` 是仅有的两个硬件旋钮；`@triton.autotune` 按 key 缓存搜索结果，首次运行有搜索代价。
+**编程模型**：
+
+- Triton 去掉了线程，程序员以 program（= CUDA block）为单位写块级张量代码；
+- `tl.program_id`、`tl.arange`（2 的幂）、`tl.load/tl.store` + mask、`tl.dot` 是核心原语；
+- 线程到元素的映射（layout）、shared memory、同步全部由编译器决定；
+- `tl.constexpr` 对应模板参数，`num_warps` 与 `num_stages` 是仅有的两个硬件旋钮；
+- `@triton.autotune` 按 key 缓存搜索结果，首次运行有搜索代价。
 
 **三个 kernel**：elementwise 12 行、softmax 25 行、matmul 60 行，分别对应 CUDA 的 50–80、100–150、200–300 行；memory-bound 的前两个性能与手写相当，matmul 通常达 cuBLAS 的 80–95%。
 
-**编译器做了什么**：TTGIR 层的 coalescing、pipeline、prefetch、layout 转换消除、swizzle、`mma` 选择——正是第三到六篇手工做的向量化、多 stage `cp.async`、`ldmatrix`、bank conflict 消除与 Tensor Core 编程。读 TTGIR 的 `#blocked`/`#shared`/`#mma` 与 PTX 的 `mma.sync`/`cp.async.wait_group`，能直接看到这些决定。
+**编译器做了什么**：TTGIR 层的 coalescing、pipeline、prefetch、layout 转换消除、swizzle、`mma` 选择——正是从[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)到[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)手工做的向量化、多 stage `cp.async`、`ldmatrix`、bank conflict 消除与 Tensor Core 编程。读 TTGIR 的 `#blocked`/`#shared`/`#mma` 与 PTX 的 `mma.sync`/`cp.async.wait_group`，能直接看到这些决定。
 
 **那 10%**：流水与 warp specialization 的精细控制、epilogue 的布局转换、小 shape 的 tile 选择、指令级调度。值得手写的场景：生产热点 GEMM/attention、需要特殊指令、需要压榨 Hopper、跨 block 协作。
 
@@ -1070,7 +1174,7 @@ Triton 的边界：
 - 128×128×32 BF16 tile：每 stage 16 KiB shared；256 条 m16n8k16 mma / tile / K-step
 - `GROUP_SIZE_M` swizzle：一波 108 program 的工作集，行主序 ≈ 36 MiB，G=8 分组 ≈ 22 MiB（A100 L2 40 MB）
 
-下一篇进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及第五章 §3 的 Triton 版为什么会在这些地方输给手写版本。
+[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)进入 attention：FlashAttention 为什么把 $$O(N^2)$$ 的 HBM 流量降到 $$O(N^2 d^2 / M)$$，FlashAttention-2 与 3 在 warp 分工和 Hopper 特性上做了什么，PagedAttention 的 block table 如何改变 decode 的访存模式——以及[「vLLM 的 prefix-prefill attention kernel」一节](#3-vllm-的-prefix-prefill-attention-kernel)的 Triton 版为什么会在这些地方输给手写版本。
 
 ## 九、自测
 
