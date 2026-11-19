@@ -6,9 +6,10 @@ subtitle: "GPU Kernel Engineering: Series Recap and Final Self-Test"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 date: 2026-05-20 20:00:00
+updated: 2026-11-18
 ---
 
-十一篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。第一篇把 GPU 拆开并建立 Roofline，第二篇写出第一个 kernel 并学会测量，第三、四篇把 memory-bound 的 elementwise 与 reduction 推到带宽墙，第五、六篇把 GEMM 从 naive 推到 Tensor Core，第七篇用 Triton 看编译器接管了哪一层，第八、九篇把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，第十篇讲怎么剖析、测试、接入框架并合入一个 PR；第十一篇用 Ascend C Add 对照 CUDA，区分可迁移的方法和必须重写的执行模型。
+十一篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。[《GPU 为什么这样设计——硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)把 GPU 拆开并建立 Roofline，[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)写出第一个 kernel 并学会测量，[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)与[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)把 memory-bound 的 elementwise 与 reduction 推到带宽墙，[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)与[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)把 GEMM 从 naive 推到 Tensor Core，[《Triton——块级编程与编译器的边界》](/triton-block-level-programming.html)看编译器接管了哪一层，[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)与[《量化与融合 kernel》](/quantization-and-fused-kernels.html)把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html)讲怎么剖析、测试、接入框架并合入一个 PR；[《从 CUDA 到昇腾——用 Ascend C 重写一个算子》](/ascend-cann-from-cuda-to-ascend-c.html)用 Ascend C Add 对照 CUDA，区分可迁移的方法和必须重写的执行模型。
 
 本文不讲新内容，做三件事：把十一篇压成一张表与十一段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十一篇能不能连起来用"。
 
@@ -39,11 +40,11 @@ flowchart TB
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
 | [第一篇：硬件结构与 Roofline](/gpu-architecture-and-roofline.html) | 在一块给定的 GPU 上，一段计算理论上最快能多快？ | $$T = \max(F / P_{peak},\ B / BW)$$，算术强度与 ridge 比定瓶颈类型；GPU 用零开销 warp 切换而非乱序执行隐藏延迟 | ridge：A100 BF16 156、FP32 约 10，H100 295<br/>elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365<br/>延迟 0 / 20–30 / 200 / 400–800 周期 |
-| [第二篇：CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html) | 五行的 vector add 跑出了理论带宽的多少？没跑满的去了哪里？ | 80–92%；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充 | 3 GiB → 1.6 ms 下界、实测 1.7–2.0 ms<br/>block 32 的倍数、常用 128–256<br/>event 计时<br/>L2 flush 128 MB ≥ 2 × 40 MB |
+| [第二篇：CUDA 编程模型与第一个 kernel](/cuda-programming-model-and-first-kernel.html) | 五行的 vector add 跑出了理论带宽的多少？没跑满的去了哪里？ | 80–92%；DRAM 可达带宽只有标称的 85–92%（实际屋顶 1.75–1.85 TB/s），其余在每线程工作量太小、grid 太小、launch 与尾部 | 3 GiB → 1.6 ms 下界、实测 1.7–2.0 ms<br/>block 32 的倍数、常用 128–256<br/>event 计时<br/>L2 flush 128 MB ≥ 2 × 40 MB |
 | [第三篇：访存合并与 elementwise](/memory-coalescing-and-elementwise-kernels.html) | 跑出 90% 带宽的 elementwise 还有什么可优化？ | 没有了，要么融合，要么少做：90% 贴着物理上限，之后唯一的优化是减少总字节数 | 32 B sector<br/>连续 100%、跨步 2 50%、跨步 ≥ 32 B 12.5%<br/>16 B/线程<br/>Little's law 1.2 MB 在飞、每 SM ≥ 22 warp<br/>三个 kernel 16 B → 融合 8 B |
 | [第四篇：共享内存与 reduction](/shared-memory-reduction-and-softmax.html) | 4096 维 RMSNorm 是 memory-bound 的，naive 为什么慢 10 倍？shared 与 shuffle 各解决什么？ | 慢在归约的形态不在字节数；shared 汇总跨 warp 的部分和，shuffle 在寄存器里 5 步完成 warp 内归约，sync 10 次 → 1 次 | 128 MiB → 67 µs<br/>bank = (addr / 4) mod 32，stride $$s$$ → gcd($$s$$, 32)-way<br/>$$d \le 1024$$ 一行一个 warp<br/>FP16 $$e^x$$ 溢出于 11.09、BF16/FP32 于 88.7<br/>online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$ |
 | [第五篇：GEMM 从 naive 到分块](/gemm-from-naive-to-tiled.html) | 4096³ FP32 GEMM 每一版读多少字节、算术强度多少、在 Roofline 哪个位置？ | 分块让算术强度成为可设计的参数；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令与流水，寄存器分块靠 ILP | 137.4 GFLOP、192 MiB、$$I = 683$$、7.0 ms<br/>naive 512 GiB、0.25、1–3%<br/>分块 $$MNK(1/BM + 1/BN)$$：128×128 → 4 GiB、32<br/>对 shared 0.25 → 2<br/>v5 到 FP32 峰值 70–80% |
-| [第六篇：Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html) | 同样 128×128 分块，CUDA Core 与 Tensor Core 版本结构差在哪？为什么必须关心 fragment 与 `ldmatrix`？ | 累加器从属于线程变成属于 warp、布局由指令规定<br/>`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 swizzle<br/>Hopper 交给 TMA + `wgmma` | 312 TFLOPS 是 FP32 的 16 倍<br/>`mma.sync.m16n8k16` = 4096 FLOP、占 8 周期<br/>BF16 4096³ 100.7 MB、$$I = 1365$$、0.44 ms<br/>未 swizzle 64 B 行 4 路 conflict<br/>手写到 cuBLAS 80–90% |
+| [第六篇：Tensor Core、CUTLASS 与 CuTe](/tensor-cores-cutlass-and-cute.html) | 同样 128×128 分块，CUDA Core 与 Tensor Core 版本结构差在哪？为什么必须关心 fragment 与 `ldmatrix`？ | 累加器从属于线程变成属于 warp、布局由指令规定<br/>`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 swizzle<br/>Hopper 交给 TMA + `wgmma` | 312 TFLOPS 是 FP32 的 16 倍<br/>`mma.sync.m16n8k16` = 4096 FLOP、占 8 周期<br/>BF16 4096³ 100.7 MB、$$I = 1365$$、0.44 ms<br/>未 swizzle 的 `ldmatrix`：64 B 行 4 路、128 B 行 8 路 conflict<br/>手写到 cuBLAS 80–90% |
 | [第七篇：Triton](/triton-block-level-programming.html) | Triton 的 matmul 少 80% 代码、只差 10%：那 10% 在哪里？何时值得手写？ | 编译器做了合并、流水、`ldmatrix`、swizzle、mma 选择<br/>差在 warp specialization、epilogue 布局转换、小 shape tile、指令调度<br/>热点 GEMM/attention、特殊指令、Hopper、跨 block 才手写 | 12 / 25 / 60 行对 50–80 / 100–150 / 200–300 行<br/>matmul 到 cuBLAS 80–95%<br/>`num_warps`、`num_stages` 两个旋钮<br/>`tl.arange` 要 2 的幂 |
 | [第八篇：FlashAttention 与 PagedAttention](/attention-kernels-flashattention-and-pagedattention.html) | $$N = 4096$$、$$d = 128$$ 的 attention 标准与 Flash 各读写多少 HBM？decode 每 token 读多少 KV，决定了什么？ | 不物化 $$S$$、$$P$$，靠 online softmax 逐块累加，从 memory-bound 变 compute-bound，省的是 IO 不是 FLOPs；decode 每步读全部 KV，分页只改地址不改字节 | 标准约 132 MiB、$$I \approx 62$$<br/>FA 约 66 MiB、实际近 4 MiB<br/>$$4N^2 d = 8.6$$ GFLOP<br/>$$\Theta(N^2 d^2 / M)$$<br/>每 token 128 KiB，$$B \times s >$$ 约 131k 时 KV 超过权重 |
 | [第九篇：量化与融合 kernel](/quantization-and-fused-kernels.html) | INT4 weight-only GEMM decode 快 3 倍、prefill 反而慢，用 Roofline 解释 | 用指令换字节：字节除以 4、FLOPs 不变、多一条反量化指令<br/>decode 在斜线上受益，prefill 在屋顶上不动甚至下沉<br/>FP8 字节与 FLOPs 同时减半 | BF16 $$I \approx M$$、W4A16 $$I \approx 4M$$，交叉点 $$M \approx 40$$<br/>decode 8 ms → 约 2 ms<br/>E4M3 max 448 无 inf<br/>residual + RMSNorm 10 → 8 B、RMSNorm + FP8 量化 7 → 3 B |
@@ -89,12 +90,29 @@ Table: 本文的章节安排
 
 **核心问题**：vector add 的 kernel 只有五行，它跑出了理论带宽的多少？没跑满的部分去了哪里？
 
-**结论**：$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 下界约 1.6 ms；五行 kernel 通常 1.7–2.0 ms，即 80–92%。差距四处：DRAM 的刷新、行切换与读写转向让可达带宽只有标称的 85–92%；每线程只搬 4 字节、在飞请求不够；launch 延迟与最后一波填不满 SM 的尾部；以及计时本身——CPU 时钟量到的是异步 launch 的提交时间。这一篇同时立下基础：`__global__` 描述单线程的工作、launch 立即返回；全局索引 $$i = \text{blockIdx.x} \cdot \text{blockDim.x} + \text{threadIdx.x}$$ 且边界检查不可省；block 线性化后每 32 个线程切一个 warp；`cudaFree` 隐含同步所以 PyTorch 用 Caching Allocator；异步错误在下一个同步点才报且粘性；SASS 同大版本内向前兼容、PTX 靠 JIT；Volta 之后 warp 内通信必须用 `_sync` 原语。
+**结论**：$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 下界约 1.6 ms；五行 kernel 通常 1.7–2.0 ms，即 80–92%。差距在四处：
+
+1. **可达带宽本身低于标称**：DRAM 的刷新、行切换与读写转向让任何 kernel 都只拿到标称的 85–92%，实际屋顶是 1.75–1.85 TB/s、下界 1.74–1.84 ms，这部分不可消除。
+2. **每线程工作量太小**：每线程只搬一个元素，warp 生命周期太短、在飞请求不够——可消除的部分里最大的一块。
+3. **grid 太小时 SM 没填满**：本例 grid 有一百万个 block，不存在这个问题，但 $$n = 10^5$$ 时就有。
+4. **launch 延迟与尾部**：几到十几 µs，对 1.6 ms 的 kernel 不到 1%，对 10 µs 的小 kernel 是一半。
+
+另外计时本身也会骗人：CPU 时钟量到的是异步 launch 的提交时间，必须用 event。
+
+这一篇同时立下基础：
+
+- `__global__` 描述单线程的工作、launch 立即返回；
+- 全局索引 $$i = \text{blockIdx.x} \cdot \text{blockDim.x} + \text{threadIdx.x}$$ 且边界检查不可省；
+- block 线性化后每 32 个线程切一个 warp；
+- `cudaFree` 隐含同步，所以 PyTorch 用 Caching Allocator；
+- 异步错误在下一个同步点才报且粘性；
+- SASS 同大版本内向前兼容、PTX 靠 JIT；
+- Volta 之后 warp 内通信必须用 `_sync` 原语。
 
 **必记**：
 
 - FP32 3 GiB 下界 1.6 ms、实测 1.7–2.0 ms；BF16 1.5 GiB 下界 0.8 ms、实测 0.85–1.0 ms；FLOPs 只要 14 µs。
-- 差距排序：可达带宽 > 每线程工作量太小 > launch / 尾部 > SM 填充。
+- 差距排序：可达带宽（不可消除）> 每线程工作量太小 > grid 太小 > launch / 尾部（不到 1%）。
 - block 32 的倍数、常用 128–256、上限 1024；二维 block (16, 16) 的一个 warp 跨两行。
 - 每 SM 上限（A100）：2048 线程 / 64 warp / 32 block / 65536 寄存器 / 164 KB shared。
 - 脚手架：event 计时、warmup ≥ 10、中位数、每次迭代前 memset 128 MB（≥ 2 × 40 MB L2）。
@@ -106,12 +124,18 @@ Table: 本文的章节安排
 
 **核心问题**：一个 elementwise kernel 跑出了 90% 带宽，还有什么可优化的？
 
-**结论**：没有了，要么融合，要么少做。90% 已贴着 DRAM 85–92% 的物理上限，kernel 内部几乎没有余地；剩下的工作分两步。一是确认没有隐藏的浪费：warp 的 32 个地址是否落在最少的 32 B sector 里（AoS、非 1 的最内维 stride、未对齐都多付 sector）；是否每线程 16 字节向量化，每条指令搬 512 B、指令数减到 1/8；在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞，128-bit 加载下每 SM 至少约 22 个 warp。ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已做了这些（128 线程、每线程 8 元素、只有最后一个 block 做边界检查），所以能到 90%。二是让 kernel 消失：三个 elementwise 分开是每元素 16 B，融合成一个是 8 B，这是 Inductor 融合全部收益的来源。
+**结论**：没有了，要么融合，要么少做。90% 已贴着 DRAM 85–92% 的物理上限，kernel 内部几乎没有余地；剩下的工作分两步。一是确认没有隐藏的浪费，三项检查：
+
+1. warp 的 32 个地址是否落在最少的 32 B sector 里（AoS、非 1 的最内维 stride、未对齐都多付 sector）；
+2. 是否每线程 16 字节向量化，每条指令搬 512 B、指令数减到 1/8；
+3. 在飞请求是否够——Little's law 要求 A100 约 1.2 MB 在飞，128-bit 加载下每 SM 至少约 22 个 warp。
+
+ATen 的 `gpu_kernel` → `launch_vectorized_kernel` 已做了这些（128 线程、每线程 8 元素、只有最后一个 block 做边界检查），所以能到 90%。二是让 kernel 消失：三个 elementwise 分开是每元素 16 B，融合成一个是 8 B，这是 Inductor 融合全部收益的来源。
 
 **必记**：
 
 - BF16 `y = x + b` 6 B/元素，$$n = 2^{28}$$ 时 1.61 GB → 0.81 ms。
-- 效率（32 线程 × 4 B）：连续对齐 4 sector 100%；偏移 4 B 5 sector 80%；跨步 2 50%；跨步 ≥ 32 B 12.5%；AoS 12 B 结构体读一个字段 33%。
+- 效率（32 线程 × 4 B）：连续对齐 4 sector 100%；偏移 4 B 5 sector 80%；跨步 2 50%；跨步 ≥ 32 B 12.5%；AoS 12 B 结构体读一个字段，32 个地址分布在 384 B、12 个 sector 里，有效 128 B，33%。
 - Little's law：2.0 TB/s × 600 ns ≈ 1.2 MB，每 SM ≈ 11 KB；128-bit 加载 ≥ 22 warp/SM，32-bit 需 88 warp（超上限 64）。
 - 三版：naive 60–80%、vec8 85–92%、vec8 + grid-stride 85–92%。
 - 融合：`silu(x + b) * y` 分开 5 读 3 写 16 B，融合 3 读 1 写 8 B。
@@ -123,7 +147,14 @@ Table: 本文的章节安排
 
 **核心问题**：一个 4096 维的 RMSNorm 读一次写一次，理论上是 memory-bound 的。为什么 naive 实现能慢 10 倍？shared memory 和 warp shuffle 各解决了哪部分？
 
-**结论**：下界是 8192 行 × 4096 BF16 读写 128 MiB、约 67 µs，算术强度约 1。naive 跑出 500–700 µs，慢在归约的形态：一个线程串行加 4096 个数是 latency-bound 的依赖链；`atomicAdd` 到同一地址串行化且结果不可复现；两个 launch 让中间结果往返 HBM；交错寻址的树形归约 10 级、每级一次 `__syncthreads()`，快 warp 等慢 warp，bank conflict 再串行化一部分。shared memory 解决跨 warp 的汇总——每个 warp 写一个数、一个 warp 读回 32 个数再归约；warp shuffle 解决 warp 内的归约——`__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared 不需要 sync；两者叠加 sync 从 10 次到 1 次，$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync。softmax 减 max 是为了 $$e^x$$ 不溢出；online softmax 一遍维护 $$(m, l)$$，合并满足结合律，是 FlashAttention 的数学基础。
+**结论**：下界是 8192 行 × 4096 BF16 读写 128 MiB、约 67 µs，算术强度约 1。naive 跑出 500–700 µs，慢在归约的形态、不在字节数，四种写法各有各的慢法：
+
+1. 一个线程串行加 4096 个数，是一条 latency-bound 的依赖链；
+2. `atomicAdd` 到同一地址串行化，且 float 加法不可复现；
+3. 两个 launch 让中间结果往返 HBM；
+4. 交错寻址的树形归约 10 级、每级一次 `__syncthreads()`，快 warp 等慢 warp，bank conflict 再串行化一部分。
+
+shared memory 解决跨 warp 的汇总——每个 warp 写一个数、一个 warp 读回 32 个数再归约；warp shuffle 解决 warp 内的归约——`__shfl_xor_sync` 在寄存器里 5 步完成，不碰 shared 不需要 sync；两者叠加 sync 从 10 次到 1 次，$$d \le 1024$$ 时一行一个 warp、零 shared 零 sync。softmax 减 max 是为了 $$e^x$$ 不溢出；online softmax 一遍维护 $$(m, l)$$，合并满足结合律，是 FlashAttention 的数学基础。
 
 **必记**：
 
@@ -133,6 +164,7 @@ Table: 本文的章节安排
 - 六版 reduction：sync 10 → 1，shared 流量 10 级树 → 32 个 float。
 - FP16 $$e^x$$ 溢出于 $$x > 11.09$$，BF16/FP32 于 $$x > 88.7$$。
 - online softmax：$$m' = \max(m, x)$$、$$l' = l e^{m - m'} + e^{x - m'}$$；合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$。
+- online softmax 的两处 $$-\infty$$ 守卫（局部更新、lane 合并）缺一不可：去掉合并处的守卫，$$d = 1, 7, 15$$ 的行 $$l$$ 是 NaN；去掉局部更新的守卫，含掩码位的行（如 $$d = 64$$、`x[5]` 为 $$-\infty$$）是 NaN。
 - fused residual + RMSNorm 读 3 写 2 → 读 2 写 2；均方在 FP32 累加，LayerNorm 用 Welford。
 
 **常见误解**："`__syncthreads()` 放在 `if` 里只影响那部分线程"——另一半永远到不了栅栏，死锁或静默错误。另一个："`atomicAdd` 汇总行和最简单"——串行化且 bit 级不可复现，累加要用两级归约。
@@ -141,15 +173,25 @@ Table: 本文的章节安排
 
 **核心问题**：一个 4096³ 的 FP32 GEMM，naive 实现要读多少字节？128×128 分块后要读多少？寄存器分块再压多少？每一步的算术强度是多少，对应 Roofline 上的哪个位置？
 
-**结论**：137.4 GFLOP、最少 192 MiB、算术强度 683 远超 FP32 的 ridge 10，理论 7.0 ms 由算力决定。但 naive 每次 FMA 配两次全局读，逻辑读取 512 GiB、$$I = 0.25$$，L1/L2 挡掉了 HBM 流量，343 GB 的 cache 请求与 3:1 的 load/FFMA 配比仍把它压在 1–3%。shared 分块把读取降到 $$MNK(1/BM + 1/BN)$$，128×128 是 4 GiB、$$I = 32$$ 过 ridge；但一线程一输出时每次 FMA 两条 LDS，对 shared 的 $$I = 0.25$$，每 SM 每周期 128 B 的 shared 带宽成了 25% 的天花板。寄存器分块减的是 shared 读取：8×8 外积读 16 个数做 64 次 FMA，$$I = 2$$，LDS 减 8 倍；约 128 个寄存器、25% 占用率，靠 ILP 而非 TLP。再加 `float4` 与 $$A$$ 转置、`cp.async` 多 stage 流水每 tile 一次同步、predicated 边界，到 FP32 峰值 70–80%、cuBLAS 80–90%。$$M = 1$$ 的 GEMV 算术强度 1，只能靠减权重字节加速。
+**结论**：137.4 GFLOP、最少 192 MiB、算术强度 683 远超 FP32 的 ridge 10，理论 7.0 ms 由算力决定。但 naive 每次 FMA 配两次全局读，逻辑读取 512 GiB、$$I = 0.25$$，L1/L2 挡掉了 HBM 流量，343 GB 的 cache 请求与 3:1 的 load/FFMA 配比仍把它压在 1–3%。shared 分块把读取降到 $$MNK(1/BM + 1/BN)$$，128×128 是 4 GiB、$$I = 32$$ 过 ridge；但一线程一输出时每次 FMA 两条 LDS，对 shared 的 $$I = 0.25$$，每 SM 每周期 128 B 的 shared 带宽只够 32 FLOP，是峰值（每 SM 每周期 64 FMA = 128 FLOP）的 25%，成了天花板。寄存器分块减的是 shared 读取：8×8 外积读 16 个数做 64 次 FMA，$$I = 2$$，LDS 减 8 倍；约 128 个寄存器、25% 占用率，靠 ILP 而非 TLP。再加 `float4` 与 $$A$$ 转置、`cp.async` 多 stage 流水每 tile 一次同步、predicated 边界，到 FP32 峰值 70–80%、cuBLAS 80–90%。$$M = 1$$ 的 GEMV 算术强度 1，只能靠减权重字节加速。
 
 **必记**：
 
-- 六版对 HBM 的 $$I$$ / 占峰值：v1 0.25 / 1–3%；v2 32×32 分块 8 / 10–20%；v3 寄存器分块 32 / 40–60%；v4 加载优化 55–70%；v5 `cp.async` 3-stage 70–80%；cuBLAS 85–95%。
 - 分块读取 $$MNK(1/BM + 1/BN) \times 4$$ B：128×128 → 4 GiB、32；32×32 → 16 GiB、8。
-- 对 shared 的 $$I$$：一线程一输出 0.25（上限 25%），8×8 外积 2。
+- 对 shared 的 $$I$$：一线程一输出 0.25——128 B/周期的 shared 带宽只够 32 FLOP，是峰值（64 FMA = 128 FLOP / 周期）的 25%；8×8 外积 2。
 - 默认 tile：BM = BN = 128、BK = 8、TM = TN = 8、256 线程、3 stage；shared $$S(BM + BN) \cdot BK \cdot 4$$ = 24 KB；1024 block / 216 并发 = 4.74 波，wave quantization 约 5%。
 - GEMV：BF16 $$I = 1$$、FP32 0.5，时间 = 权重字节 / 带宽。
+
+| 版本 | 对 HBM 的 $$I$$（FLOP/byte） | 占 FP32 峰值 |
+|---|---:|---:|
+| v1 naive | 0.25 | 1–3% |
+| v2 32×32 shared 分块 | 8 | 10–20% |
+| v3 8×8 寄存器分块 | 32 | 40–60% |
+| v4 加载优化（`float4` + $$A$$ 转置） | 32 | 55–70% |
+| v5 `cp.async` 3-stage | 32 | 70–80% |
+| cuBLAS | — | 85–95% |
+
+Table: 六个 SGEMM 版本对 HBM 的算术强度与占 FP32 峰值的比例
 
 **常见误解**："算术强度 683 所以怎么写都 compute-bound"——naive 的实际强度只有 0.25，分块才让它成为参数。另一个："25% 占用率一定没压满硬件"——寄存器分块用 128 个寄存器换 ILP，compute-bound GEMM 的常态就是低占用率 + 高 ILP。
 
@@ -182,6 +224,7 @@ Table: 本文的章节安排
 - `num_warps` 默认 4；`num_stages` Ampere 默认 3，PTX 里 `cp.async.wait_group` 的数字 = num_stages − 2。
 - 六层流水线：Python AST → TTIR → TTGIR → LLVM IR → PTX → cubin；TTGIR 的 `#blocked` / `#shared` / `#mma`。
 - GROUP_SIZE_M swizzle：一波 108 program 的工作集 36 MiB → 22 MiB，装进 40 MB L2。
+- `triton.testing.do_bench` 默认每次迭代前刷 L2，但 `return_mode` 默认是 `"mean"`（均值）；要和手写脚手架一样取中位数，得传 `return_mode="median"`。
 
 **常见误解**："用 Triton 就不必理解 warp、shared、coalescing"——`num_warps`、`num_stages`、2 的幂 tile、mask 都是执行模型的影子，出问题要读 TTGIR 与 PTX。另一个："4096³ 到 92% 说明什么都能做"——decode 形状上只有 60%，这正是 Marlin 一类手写 kernel 存在的场景。
 
@@ -213,7 +256,8 @@ Table: 本文的章节安排
 - magic number：`0x6400 | q` 是 FP16 的 $$1024 + q$$，每元素约一条指令，权重需 repack。
 - Roofline（A100）：BF16 $$I \approx M$$、交叉 156；W4A16 $$I \approx 4M$$、交叉约 40；FP8（H100 ridge 590）$$I \approx 2M$$、交叉约 295。
 - decode 下界 Llama-3-8B：BF16 16 GB / 2 TB/s = 8 ms；INT4 约 4.1 GB → 约 2 ms；FP8 H100 2.4 ms。
-- 融合：residual + RMSNorm 10 → 8 B（134 µs）、RMSNorm + 动态量化 7 → 3 B、SiLU-mul 6 B 已是下界、RoPE 4 B。
+- 融合：residual + RMSNorm 10 → 8 B（$$T = 8192$$、$$d = 4096$$ 时 256 MiB，理论 134 µs）、RMSNorm + 动态量化 7 → 3 B、SiLU-mul 6 B 已是下界、RoPE 4 B（$$T = 8192$$ 时 q、k 共 160 MiB，理论约 84 µs）。
+- 采样：$$V = 128256$$、$$B = 256$$ 的 logits 约 125 MiB，只读一遍约 66 µs，与一层 decode 同量级——所以 top-k / top-p 的排序与十几次 launch 才是瓶颈。
 - 验证：BF16 GEMM 对 FP32 参考 rtol 1.6e-2；量化 kernel 与反量化后的参考比，不与 FP16 比。
 
 **常见误解**："INT4 量化全面提速"——只减字节不减 FLOPs，收益只在 decode 一侧成立。另一个："融合快是因为省 launch"——赢的主要是字节，SiLU-mul 融合后 6 B 已是下界才只剩 launch 的收益。
@@ -222,25 +266,39 @@ Table: 本文的章节安排
 
 **核心问题**：Nsight Compute 报告 achieved occupancy 25%、long scoreboard stall 60%。这个 kernel 应该改什么？
 
-**结论**：答案是一个判断顺序。第一步看 SOL：Memory 或 Compute Throughput 接近 90% 时，25% 占用率与 60% long scoreboard 是无害表象（GEMM 常是低占用率 + 高 ILP），什么都不用改；两者都低才是 latency-bound，stall 原因才有诊断价值。第二步看占用率的限制因素：寄存器、shared 还是 grid 太小，分别对应 `__launch_bounds__` / 减少活跃变量、缩小 tile 或动态 shared、增大 grid 或 grid-stride。第三步不论如何加 ILP——memory-bound 靠在飞字节数而不是线程数压满带宽。第四步改完重测。剖析的前提是先算下界：同一个 1.6 TB/s，对 RMSNorm 是 80% 利用率"做到头了"，对 4096³ BF16 GEMM 则说明在反复读同一份数据（tiling 正确只需 0.23 TB/s）。nsys 看 kernel 之间、ncu 看 kernel 内部。正确性靠 FP32 参考、按 dtype 的 tolerance、边界 shape 与非连续输入；benchmark 靠 warmup、L2 flush、中位数与回归阈值；多架构靠 `__CUDA_ARCH__`、fatbin、运行时分派与 fallback；接入 PyTorch 靠 `TORCH_LIBRARY`、`register_fake`、`opcheck`；接入 vLLM 走 `csrc/` → `ops.h` → `torch_bindings.cpp` → `CMakeLists.txt` → `_custom_ops.py` → 层里的选择逻辑。
+**结论**：答案是一个判断顺序。第一步看 SOL：Memory 或 Compute Throughput 接近 90% 时，25% 占用率与 60% long scoreboard 是无害表象（GEMM 常是低占用率 + 高 ILP），什么都不用改；两者都低才是 latency-bound，stall 原因才有诊断价值。第二步看占用率的限制因素：寄存器、shared 还是 grid 太小，分别对应 `__launch_bounds__` / 减少活跃变量、缩小 tile 或动态 shared、增大 grid 或 grid-stride。第三步不论如何加 ILP——memory-bound 靠在飞字节数而不是线程数压满带宽。第四步改完重测。剖析的前提是先算下界：同一个 1.6 TB/s，对 RMSNorm 是 80% 利用率"做到头了"，对 4096³ BF16 GEMM 则说明在反复读同一份数据（tiling 正确只需 0.23 TB/s）。nsys 看 kernel 之间、ncu 看 kernel 内部。交付则是五件事：
+
+- **正确性**：FP32 参考、按 dtype 的 tolerance、边界 shape 与非连续输入；
+- **benchmark**：warmup、L2 flush、中位数与回归阈值；
+- **多架构**：`__CUDA_ARCH__`、fatbin、运行时分派与 fallback；
+- **接入 PyTorch**：`TORCH_LIBRARY`、`register_fake`、`opcheck`；
+- **接入 vLLM**：`csrc/` → `ops.h` → `torch_bindings.cpp` → `CMakeLists.txt` → `_custom_ops.py` → 层里的选择逻辑。
 
 **必记**：
 
 - SOL：> 80% 到顶；两者 < 40–50% 为 latency-bound；Memory 高只能减字节，Compute 高查 Tensor pipe。
-- Sectors/Req 理想 = 每线程字节数 × 32 / 32，8、32 为未合并；Local load/store 非零 = spill；寄存器 > 32 开始压占用率、128+ 是 GEMM 常态。
+- Sectors/Req 理想 = 每线程字节数 × 32 / 32，8、32 为未合并；Local load/store 非零 = spill；寄存器 > 32 开始压占用率、128+ 是 GEMM 常态；把 TM×TN 从 8×8 降到 4×8 能让寄存器减半，代价是每个输出摊到的 shared 读取从 $$1/8 + 1/8 = 0.25$$ 变成 $$1/4 + 1/8 = 0.375$$，是原来的 1.5 倍。
 - Llama-3-8B prefill $$M = 8192$$ 下界：QKV GEMM 1.32 ms、attention 1.76 ms、gate/up 6.2 ms、down 3.1 ms，memory-bound kernel 合计不到 1 ms；decode 时整层约为权重字节 / 带宽。
 - tolerance：FP32 ~1e-5、BF16 rtol 1.6e-2（归约类 atol 1e-2）；边界 shape 0 行、1 行、769、5125、> INT32。
 - 不 flush L2（A100 40 MB、H100 50 MB）量到的是 L2 带宽，数字虚高数倍。
+- 一个做对了的 fused add+RMSNorm 在 ncu 各节该落的区间是按字节数与硬件参数**推算**出来的（duration 约 150–175 µs 对理论 134 µs，SOL Memory 80–90%，Sectors/Req 16），不是实测报告；它和一个坏版本（SOL 两者都低、Sectors/Req 2、achieved occupancy 15%）的 stall 分布几乎一样，判断依据是 SOL 与占用率。
 
 **常见误解**："stall 原因是 profiler 最有用的信息"——只有 latency-bound 时才有诊断价值。另一个："kernel 快就能合入"——PR 还要 before/after 多 shape 多 GPU 的表、测试命令、精度评测、pre-commit。
 
 ### 11. 第十一篇：从 CUDA 到昇腾——用 Ascend C 重写一个算子
 
-**核心问题**：同一个 Add 迁到昇腾，哪些是算法不变量、哪些是 CUDA 特有的执行方式？
+**核心问题**：同一个 Add 迁到昇腾，哪些概念一对一映射、哪些没有对应物？为什么 Ascend C 要你显式写出搬入、计算、搬出三段，而 CUDA 不用？
 
 **结论**：不变的是每元素两读一写、一次加法，以及先核对正确性再测性能的方法。要重写的是每线程索引、访存和同步：`GetBlockIdx()` 先切出本核任务，再经 `DataCopy` 把输入从 GM 搬到 LocalTensor，Vector `Add` 计算，最后搬回 GM。`TPipe` 组织核内 buffer，`TQue` 的申请/释放管理生命周期、入队/出队表达生产者到消费者的依赖。它不是 warp，也不等价于 CUDA block 的全体线程栅栏。
 
-**必记**：固定 `float16[8,2048]` 样例启动 8 个逻辑块；每块 2048 元素、每轮 128 元素、16 轮。两个输入队列和一个输出队列各两块 buffer，payload 共 1536 B；全局逻辑流量 98304 B，算术强度 1/6 FLOP/B。这些是可复核的账本，不是实测带宽。
+三段必须显式写出来，是因为昇腾的 Vector 与 Cube 单元只能以核内 buffer 为输入输出，GM 与核内之间的搬运由 MTE 单元执行、而指挥 MTE 的是你的代码；CUDA 的线程可以直接从全局地址读进寄存器计算（cache 与访存流水把搬运隐藏了），shared 分块只是一项可选优化。
+
+**必记**：
+
+- 固定 `float16[8,2048]` 样例启动 8 个逻辑块；每块 2048 元素、每轮 128 元素、16 轮。
+- 两个输入队列和一个输出队列各两块 buffer，payload 共 1536 B；全局逻辑流量 98304 B，算术强度 1/6 FLOP/B。这些是可复核的账本，不是实测带宽。
+- 分离架构下（CANN 8.0.0 口径）AI Vector 核有 MTE2、MTE3、Vector、Scalar 四个执行单元与 GM、UB 两种存储；AI Cube 核有 MTE1、MTE2、Cube、Scalar 四个执行单元，加 L1、L0A、L0B、L0C、BT、Fixpipe。
+- Vector 指令的源与目标都在 Unified Buffer 里，首地址与操作长度通常要求 32 B 对齐（具体参考 API 约束）；`DataCopy` 的 `calCount * sizeof(T)` 不对齐时搬运量按 32 B **向下取整**，会静默少搬元素。
 
 **常见误解**：“双缓冲必然加速”——重叠机会同时伴随 buffer 容量、搬运粒度与同步开销的取舍。“没有 NPU 也测过性能”——普通 NumPy 参考、CANN CPU 调试、NPU 仿真和真机四者证明的事情不同；本篇只完成普通 CPU 上的账本，未编译或运行 Ascend C，没有真机性能数据。
 
@@ -248,33 +306,33 @@ Table: 本文的章节安排
 
 ### 1. 理论下界先行：先算、再测、再解释、再缩小
 
-这是十一篇共用的方法论。第一篇给出算法：字节数与 FLOPs 各除以峰值带宽与算力取大者，elementwise 3 GiB 是 1.61 ms、RMSNorm 128 MiB 是 67 µs、GEMM 4096³ BF16 是 0.44 ms。第二篇第一次把它用在测量上：先算 1.6 ms、再测 1.7–2.0 ms、再把差距拆成四处，同时立下 event 计时、warmup、中位数、L2 flush 的规矩。
+这是十一篇共用的方法论。[《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)给出算法：字节数与 FLOPs 各除以峰值带宽与算力取大者，elementwise 3 GiB 是 1.61 ms、RMSNorm 128 MiB 是 67 µs、GEMM 4096³ BF16 是 0.44 ms。[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)第一次把它用在测量上：先算 1.6 ms、再测 1.7–2.0 ms、再把差距拆成四处，同时立下 event 计时、warmup、中位数、L2 flush 的规矩。
 
-第三到九篇每篇的开头都是同一个动作：0.81 ms、67 µs、7.0 ms、0.44 ms、132 MiB 对 66 MiB、8 ms 对 2 ms。第十篇把它变成剖析的前提：没有下界，1.6 TB/s 的 DRAM 吞吐对 RMSNorm 是"做到头了"、对 GEMM 是"完全错了"，profiler 的每个百分比都无从判断。
+从[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)到[《量化与融合 kernel》](/quantization-and-fused-kernels.html)，每篇的开头都是同一个动作：0.81 ms、67 µs、7.0 ms、0.44 ms、132 MiB 对 66 MiB、8 ms 对 2 ms。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)把它变成剖析的前提：没有下界，1.6 TB/s 的 DRAM 吞吐对 RMSNorm 是"做到头了"、对 GEMM 是"完全错了"，profiler 的每个百分比都无从判断。
 
 ### 2. 算术强度与 ridge：一个量决定所有决定
 
-第一篇定义 $$I = F / B$$ 与 ridge，之后每篇的第一个判断都是把这两个数比一下。第三篇 $$I = 1/6$$、第四篇 ≈ 1，与 156 差三个数量级，目标只有带宽。第五篇让 $$I$$ 第一次成为可设计的参数：naive 0.25 → 128×128 分块 32 → 理论最少访存 683，同一个 GEMM 从 Roofline 最左端走到最右端；同时引入第二条屋顶——对 shared 的算术强度 0.25 卡在 25%，8×8 寄存器分块提到 2。
+[《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)定义 $$I = F / B$$ 与 ridge，之后每篇的第一个判断都是把这两个数比一下。[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)里是 $$I = 1/6$$、[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)里 ≈ 1，与 156 差三个数量级，目标只有带宽。[《GEMM》](/gemm-from-naive-to-tiled.html)让 $$I$$ 第一次成为可设计的参数：naive 0.25 → 128×128 分块 32 → 理论最少访存 683，同一个 GEMM 从 Roofline 最左端走到最右端；同时引入第二条屋顶——对 shared 的算术强度 0.25 卡在 25%，8×8 寄存器分块提到 2。
 
-第六篇给出 ridge 会移动的后果：Tensor Core 把 ridge 从 10 推到 156，同一个 $$I = 32$$ 的 tile 在 BF16 下回到斜线左边，所以需要更大的复用与 L2 命中（第七篇的 GROUP_SIZE_M swizzle 把一波的工作集从 36 MiB 压到 22 MiB）。第八篇 attention 的 $$I$$ 从 62 跳到 ≥ 125，瓶颈类型因此改变；第九篇 W4A16 把工作点右移 4 倍，只有斜线上的 decode 受益，交叉点 $$M \approx 40$$。第十篇的 SOL 就是 profiler 里的 Roofline。
+[《Tensor Core》](/tensor-cores-cutlass-and-cute.html)给出 ridge 会移动的后果：Tensor Core 把 ridge 从 10 推到 156，同一个 $$I = 32$$ 的 tile 在 BF16 下回到斜线左边，所以需要更大的复用与 L2 命中（[《Triton》](/triton-block-level-programming.html)的 GROUP_SIZE_M swizzle 把一波的工作集从 36 MiB 压到 22 MiB）。[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)里 attention 的 $$I$$ 从 62 跳到 ≥ 125，瓶颈类型因此改变；[《量化与融合 kernel》](/quantization-and-fused-kernels.html)里 W4A16 把工作点右移 4 倍，只有斜线上的 decode 受益，交叉点 $$M \approx 40$$。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)的 SOL 就是 profiler 里的 Roofline。
 
 ### 3. 字节数是 memory-bound 的唯一变量
 
-落在 ridge 左边后，时间 = 字节 / 带宽，优化归结为两件事：把带宽用满，然后减少字节。第二、三篇讲前者——合并到最少的 sector、16 字节向量化、Little's law 的 1.2 MB 在飞——到 85–92% 就是墙。第三篇第一次给出后者：三个 elementwise 分开 16 B、融合 8 B，"90% 之后唯一的优化是让 kernel 消失"。
+落在 ridge 左边后，时间 = 字节 / 带宽，优化归结为两件事：把带宽用满，然后减少字节。[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)与[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)讲前者——合并到最少的 sector、16 字节向量化、Little's law 的 1.2 MB 在飞——到 85–92% 就是墙。《访存合并》第一次给出后者：三个 elementwise 分开 16 B、融合 8 B，"90% 之后唯一的优化是让 kernel 消失"。
 
-之后每篇的 memory-bound 部分都是这句话的变奏。第四篇 fused residual + RMSNorm 读 3 写 2 → 读 2 写 2，online softmax 把读 3 次降到读 2 次。第八篇 FlashAttention 不物化 $$S$$、$$P$$，132 MiB → 66 MiB → 借 L2 约 4 MiB；decode 每步读 128 KiB × $$s$$ 的 KV，分页不改字节，减字节只能靠 KV 量化与 GQA。第九篇把它做成一张融合表——10 → 8、7 → 3、6 已是下界——并把权重字节除以 4 或 2。第十篇一句话收尾：SOL Memory 高时只能减字节。
+之后每篇的 memory-bound 部分都是这句话的变奏。[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)里 fused residual + RMSNorm 读 3 写 2 → 读 2 写 2，online softmax 把读 3 次降到读 2 次。[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)里 FlashAttention 不物化 $$S$$、$$P$$，132 MiB → 66 MiB → 借 L2 约 4 MiB；decode 每步读 128 KiB × $$s$$ 的 KV，分页不改字节，减字节只能靠 KV 量化与 GQA。[《量化与融合 kernel》](/quantization-and-fused-kernels.html)把它做成一张融合表——10 → 8、7 → 3、6 已是下界——并把权重字节除以 4 或 2。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)一句话收尾：SOL Memory 高时只能减字节。
 
 ### 4. 数据复用的层次：shared、寄存器、fragment、L2
 
-第一篇给出内存层次：每层带宽差一个数量级，shared 每 SM 每周期 128 B，是数据复用的场所，容量决定分块尺寸。第四篇第一次用它，但只用来汇总 32 个 warp 的部分和，bank conflict 与 padding 在这里是一段话。第五篇它变成主角：tile 搬进 shared 被 128 个线程反复读，全局读取减 128 倍；shared 带宽随即成为第二屋顶，寄存器成为第三层复用，`cp.async` 让搬运不经过寄存器。
+[《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)给出内存层次：每层带宽差一个数量级，shared 每 SM 每周期 128 B，是数据复用的场所，容量决定分块尺寸。[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)第一次用它，但只用来汇总 32 个 warp 的部分和，bank conflict 与 padding 在这里是一段话。[《GEMM》](/gemm-from-naive-to-tiled.html)里它变成主角：tile 搬进 shared 被 128 个线程反复读，全局读取减 128 倍；shared 带宽随即成为第二屋顶，寄存器成为第三层复用，`cp.async` 让搬运不经过寄存器。
 
-第六篇复用的单位从线程变成 warp：fragment 是硬件规定的寄存器布局，`ldmatrix` 按它装载，shared 必须 XOR swizzle；Hopper 的 `wgmma` 直接读 shared，寄存器只剩累加器。第七篇把这三层交给编译器——TTGIR 的 `#shared` 与 `#mma` 就是第五、六篇的手工决定，`num_stages` 就是 `cp.async` 的级数。第八篇多了一层 L2：$$K, V$$ 重读 $$N / B_r$$ 次但大多命中 L2，理论 66 MiB 实际近 4 MiB。
+[《Tensor Core》](/tensor-cores-cutlass-and-cute.html)里复用的单位从线程变成 warp：fragment 是硬件规定的寄存器布局，`ldmatrix` 按它装载，shared 必须 XOR swizzle；Hopper 的 `wgmma` 直接读 shared，寄存器只剩累加器。[《Triton》](/triton-block-level-programming.html)把这三层交给编译器——TTGIR 的 `#shared` 与 `#mma` 就是《GEMM》与《Tensor Core》的手工决定，`num_stages` 就是 `cp.async` 的级数。[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)多了一层 L2：$$K, V$$ 重读 $$N / B_r$$ 次但大多命中 L2，理论 66 MiB 实际近 4 MiB。
 
 ### 5. 在飞与占用率：延迟怎么隐藏
 
-第一篇说 GPU 用零开销的 warp 切换隐藏延迟，驻留数受寄存器限制，两条屋顶都没碰到就是 latency-bound。第二篇 vector add 的差距之一是每线程只搬 4 字节、在飞不够。第三篇给出定量版本：Little's law 要求 1.2 MB 在飞、每 SM 至少约 22 个 warp，grid-stride 提供的正是 ILP。
+[《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)说 GPU 用零开销的 warp 切换隐藏延迟，驻留数受寄存器限制，两条屋顶都没碰到就是 latency-bound。[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)里 vector add 的差距之一是每线程只搬一个元素、在飞不够。[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)给出定量版本：Little's law 要求 1.2 MB 在飞、每 SM 至少约 22 个 warp，grid-stride 提供的正是 ILP。
 
-第五篇把天平推向 ILP：寄存器分块用约 128 个寄存器换 8 倍的 LDS 减少，25% 占用率是 compute-bound GEMM 的常态；第六篇 Hopper 的 `setmaxnreg` 把 producer 压到 40 个寄存器、consumer 给 232 个，是同一个取舍。第八篇 decode 的 split-KV 解决另一种在飞不足——batch 小、head 少时 block 数填不满 SM。第十篇把这条线收成判断顺序：SOL 未满且 long scoreboard 高才是问题，先看占用率的限制因素，不论如何加 ILP。
+[《GEMM》](/gemm-from-naive-to-tiled.html)把天平推向 ILP：寄存器分块用约 128 个寄存器换 8 倍的 LDS 减少，25% 占用率是 compute-bound GEMM 的常态；[《Tensor Core》](/tensor-cores-cutlass-and-cute.html)里 Hopper 的 `setmaxnreg` 把 producer 压到 40 个寄存器、consumer 给 232 个，是同一个取舍。[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)里 decode 的 split-KV 解决另一种在飞不足——batch 小、head 少时 block 数填不满 SM。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)把这条线收成判断顺序：SOL 未满且 long scoreboard 高才是问题，先看占用率的限制因素，不论如何加 ILP。
 
 ```mermaid
 %% 图：kernel 优化的判断顺序：算术强度与 ridge 比较，memory-bound 只能减字节，compute-bound 上 Tensor Core，latency-bound 提在飞
@@ -294,15 +352,15 @@ flowchart TB
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
-| 理论下界 $$T = \max(F / P_{peak}, B / BW)$$ | 一至十 | 一定义<br/>二第一次测<br/>三至九每篇开头先算<br/>十把它作为读 profiler 的前提 |
-| 算术强度与 ridge | 一、三、四、五、六、八、九、十 | 一定义<br/>三、四判定 memory-bound<br/>五让它成为 tile 参数<br/>六 ridge 右移<br/>八、九瓶颈类型改变<br/>十的 SOL 分类 |
-| 融合 / 减字节 | 三、四、八、九、十 | 三 16 → 8 B<br/>四读 3 写 2 → 读 2 写 2<br/>八不物化 $$S$$<br/>九融合表与 INT4 / FP8<br/>十 Memory SOL 高时唯一的方向 |
-| online softmax $$(m, l)$$ | 四、七、八 | 四推导与合并公式<br/>七 Triton softmax<br/>八 FlashAttention 逐块累加、PagedAttention v2 的 reduce |
-| shared memory 与 bank conflict | 一、四、五、六、七 | 一容量与带宽<br/>四汇总与 padding<br/>五 tile 复用与第二屋顶<br/>六 swizzle 配合 `ldmatrix`<br/>七 `#shared` layout 自动做 |
-| 占用率与 ILP | 一、二、三、五、六、八、十 | 一寄存器限制驻留<br/>二、三 Little's law<br/>五 25% 占用率靠 ILP<br/>六 `setmaxnreg`<br/>八 split-KV<br/>十的判断顺序 |
-| `cp.async` / TMA 流水 | 五、六、七 | 五寄存器预取到多 stage `cp.async`<br/>六 TMA 与 producer / consumer<br/>七 `num_stages` |
-| Tensor Core 与 fragment | 一、五、六、七、八、九 | 一 16 倍算力<br/>五 CUDA Core 极限<br/>六 mma / `ldmatrix` / `wgmma`<br/>七 `tl.dot` 与 `#mma`<br/>八 FA 的两个 GEMM<br/>九 反量化后喂 mma |
-| decode 与 prefill | 五、八、九、十 | 五 GEMV $$I = 1$$<br/>八 decode 每步读全部 KV<br/>九 W4A16 交叉点 40<br/>十 decode 时整层翻转为权重字节 / 带宽 |
+| 理论下界 $$T = \max(F / P_{peak}, B / BW)$$ | 《硬件结构与 Roofline》 至 《剖析、测试与贡献》 | 《硬件结构与 Roofline》定义<br/>《CUDA 编程模型与第一个 kernel》第一次测<br/>中间各篇开头先算<br/>《剖析、测试与贡献》把它作为读 profiler 的前提 |
+| 算术强度与 ridge | 《硬件结构与 Roofline》、《访存合并》、《共享内存与 reduction》、《GEMM》、《Tensor Core》、《Attention Kernel》、《量化与融合 kernel》、《剖析、测试与贡献》 | 《硬件结构与 Roofline》定义<br/>《访存合并》、《共享内存与 reduction》判定 memory-bound<br/>《GEMM》让它成为 tile 参数<br/>《Tensor Core》里 ridge 右移<br/>《Attention Kernel》、《量化与融合 kernel》瓶颈类型改变<br/>《剖析、测试与贡献》的 SOL 分类 |
+| 融合 / 减字节 | 《访存合并》、《共享内存与 reduction》、《Attention Kernel》、《量化与融合 kernel》、《剖析、测试与贡献》 | 《访存合并》 16 → 8 B<br/>《共享内存与 reduction》读 3 写 2 → 读 2 写 2<br/>《Attention Kernel》不物化 $$S$$<br/>《量化与融合 kernel》的融合表与 INT4 / FP8<br/>《剖析、测试与贡献》：Memory SOL 高时唯一的方向 |
+| online softmax $$(m, l)$$ | 《共享内存与 reduction》、《Triton》、《Attention Kernel》 | 《共享内存与 reduction》推导与合并公式<br/>《Triton》 的 softmax<br/>《Attention Kernel》：FlashAttention 逐块累加、PagedAttention v2 的 reduce |
+| shared memory 与 bank conflict | 《硬件结构与 Roofline》、《共享内存与 reduction》、《GEMM》、《Tensor Core》、《Triton》 | 《硬件结构与 Roofline》：容量与带宽<br/>《共享内存与 reduction》：汇总与 padding<br/>《GEMM》：tile 复用与第二屋顶<br/>《Tensor Core》：swizzle 配合 `ldmatrix`<br/>《Triton》：`#shared` layout 自动做 |
+| 占用率与 ILP | 《硬件结构与 Roofline》、《CUDA 编程模型与第一个 kernel》、《访存合并》、《GEMM》、《Tensor Core》、《Attention Kernel》、《剖析、测试与贡献》 | 《硬件结构与 Roofline》：寄存器限制驻留<br/>《CUDA 编程模型与第一个 kernel》、《访存合并》：Little's law<br/>《GEMM》：25% 占用率靠 ILP<br/>《Tensor Core》：`setmaxnreg`<br/>《Attention Kernel》：split-KV<br/>《剖析、测试与贡献》的判断顺序 |
+| `cp.async` / TMA 流水 | 《GEMM》、《Tensor Core》、《Triton》 | 《GEMM》：寄存器预取到多 stage `cp.async`<br/>《Tensor Core》：TMA 与 producer / consumer<br/>《Triton》：`num_stages` |
+| Tensor Core 与 fragment | 《硬件结构与 Roofline》、《GEMM》、《Tensor Core》、《Triton》、《Attention Kernel》、《量化与融合 kernel》 | 《硬件结构与 Roofline》：16 倍算力<br/>《GEMM》：CUDA Core 极限<br/>《Tensor Core》：mma / `ldmatrix` / `wgmma`<br/>《Triton》：`tl.dot` 与 `#mma`<br/>《Attention Kernel》：FA 的两个 GEMM<br/>《量化与融合 kernel》：反量化后喂 mma |
+| decode 与 prefill | 《GEMM》、《Attention Kernel》、《量化与融合 kernel》、《剖析、测试与贡献》 | 《GEMM》：GEMV $$I = 1$$<br/>《Attention Kernel》：decode 每步读全部 KV<br/>《量化与融合 kernel》：W4A16 交叉点 40<br/>《剖析、测试与贡献》：decode 时整层翻转为权重字节 / 带宽 |
 
 Table: 贯穿十一篇的概念及其关系
 
@@ -310,18 +368,18 @@ Table: 贯穿十一篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| GPU 利用率 90% 说明 kernel 跑得好 | 利用率只说明有 kernel 在跑；访存糟糕的 kernel 可以占满 SM 只用 10% 带宽 | 用字节、FLOPs 与 Roofline 判断，比理论下界差多少 | [第一篇](/gpu-architecture-and-roofline.html) |
-| launch 后用 CPU 时钟计时 | launch 立即返回，量到的是提交时间 | `cudaEventRecord` 前后各一个 event | [第二篇](/cuda-programming-model-and-first-kernel.html) |
-| 跑到 90% 带宽还能在 kernel 内部再挤 | DRAM 可达带宽只有标称的 85–92% | 要么融合减字节，要么少做 | [第三篇](/memory-coalescing-and-elementwise-kernels.html) |
-| memory-bound 不需要高占用率 | 带宽 × 延迟约 1.2 MB 必须在飞 | 每 SM ≥ 22 warp（128-bit 加载）或足够 ILP | [第三篇](/memory-coalescing-and-elementwise-kernels.html) |
-| 用 `atomicAdd` 做行归约最简单 | 同地址串行化；float 加法不满足结合律、不可复现 | 树形归约 + warp shuffle；跨 block 只用原子计数 | [第四篇](/shared-memory-reduction-and-softmax.html) |
-| GEMM 算术强度 683 所以怎么写都 compute-bound | naive 实际强度 0.25，被 cache 请求与 load/FFMA 配比压在 1–3% | 分块才让 $$I$$ 成为可设计的参数：128×128 → 32 | [第五篇](/gemm-from-naive-to-tiled.html) |
-| 25% 占用率一定没压满硬件 | 寄存器分块用 128 个寄存器换 ILP | compute-bound GEMM 的常态是低占用率 + 高 ILP | [第五篇](/gemm-from-naive-to-tiled.html)、[第十篇](/kernel-profiling-testing-and-contribution.html) |
-| Tensor Core 只是更快的 FMA，替换内层循环即可 | 累加器归属、布局、装载指令、指令预算全变 | fragment + `ldmatrix` + swizzle；Hopper 用 TMA + `wgmma` | [第六篇](/tensor-cores-cutlass-and-cute.html) |
-| 用 Triton 就不必理解执行模型 | `num_warps`、`num_stages`、2 的幂 tile 都是执行模型的影子 | 性能直觉全来自 CUDA；出问题读 TTGIR 与 PTX | [第七篇](/triton-block-level-programming.html) |
-| FlashAttention 快是因为算得少 | FLOPs 略多于标准实现 | 快在不物化 $$N^2$$ 矩阵，HBM 132 MiB → 66 MiB（实际近 4 MiB） | [第八篇](/attention-kernels-flashattention-and-pagedattention.html) |
-| INT4 量化全面提速 | 只减字节不减 FLOPs，还多反量化指令 | 只在 decode（$$M$$ 小于约 40）赢；prefill 要 FP8 | [第九篇](/quantization-and-fused-kernels.html) |
-| stall 原因是 profiler 最有用的信息 | SOL 已满时等访存是正常的 | 先看 SOL 分类，两者都低时 stall 才有诊断价值 | [第十篇](/kernel-profiling-testing-and-contribution.html) |
+| GPU 利用率 90% 说明 kernel 跑得好 | 利用率只说明有 kernel 在跑；访存糟糕的 kernel 可以占满 SM 只用 10% 带宽 | 用字节、FLOPs 与 Roofline 判断，比理论下界差多少 | [《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html) |
+| launch 后用 CPU 时钟计时 | launch 立即返回，量到的是提交时间 | `cudaEventRecord` 前后各一个 event | [《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html) |
+| 跑到 90% 带宽还能在 kernel 内部再挤 | DRAM 可达带宽只有标称的 85–92% | 要么融合减字节，要么少做 | [《访存合并》](/memory-coalescing-and-elementwise-kernels.html) |
+| memory-bound 不需要高占用率 | 带宽 × 延迟约 1.2 MB 必须在飞 | 每 SM ≥ 22 warp（128-bit 加载）或足够 ILP | [《访存合并》](/memory-coalescing-and-elementwise-kernels.html) |
+| 用 `atomicAdd` 做行归约最简单 | 同地址串行化；float 加法不满足结合律、不可复现 | 树形归约 + warp shuffle；跨 block 只用原子计数 | [《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html) |
+| GEMM 算术强度 683 所以怎么写都 compute-bound | naive 实际强度 0.25，被 cache 请求与 load/FFMA 配比压在 1–3% | 分块才让 $$I$$ 成为可设计的参数：128×128 → 32 | [《GEMM》](/gemm-from-naive-to-tiled.html) |
+| 25% 占用率一定没压满硬件 | 寄存器分块用 128 个寄存器换 ILP | compute-bound GEMM 的常态是低占用率 + 高 ILP | [《GEMM》](/gemm-from-naive-to-tiled.html)、[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html) |
+| Tensor Core 只是更快的 FMA，替换内层循环即可 | 累加器归属、布局、装载指令、指令预算全变 | fragment + `ldmatrix` + swizzle；Hopper 用 TMA + `wgmma` | [《Tensor Core》](/tensor-cores-cutlass-and-cute.html) |
+| 用 Triton 就不必理解执行模型 | `num_warps`、`num_stages`、2 的幂 tile 都是执行模型的影子 | 性能直觉全来自 CUDA；出问题读 TTGIR 与 PTX | [《Triton》](/triton-block-level-programming.html) |
+| FlashAttention 快是因为算得少 | FLOPs 略多于标准实现 | 快在不物化 $$N^2$$ 矩阵，HBM 132 MiB → 66 MiB（实际近 4 MiB） | [《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html) |
+| INT4 量化全面提速 | 只减字节不减 FLOPs，还多反量化指令 | 只在 decode（$$M$$ 小于约 40）赢；prefill 要 FP8 | [《量化与融合 kernel》](/quantization-and-fused-kernels.html) |
+| stall 原因是 profiler 最有用的信息 | SOL 已满时等访存是正常的 | 先看 SOL 分类，两者都低时 stall 才有诊断价值 | [《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html) |
 
 Table: 常见误区与正确说法
 
@@ -357,7 +415,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   256 B 连续 = 8 个 sector，100%；stride 2 时 32 个地址跨 512 B = 16 个 sector，只用一半数据，50%——与第三篇 `float` 跨步 2 的结论相同，sector 按字节不按元素数。
+   256 B 连续 = 8 个 sector，100%；stride 2 时 32 个地址跨 512 B = 16 个 sector，只用一半数据，50%——与[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)里 `float` 跨步 2 的结论相同，sector 按字节不按元素数。
 
    </details>
 
@@ -381,7 +439,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$(128 / 16) \times (128 / 8) \times (32 / 16) = 8 \times 16 \times 2 = 256$$ 条；每条 4096 FLOP，合计约 1 MFLOP，对应从 shared 读 16 KiB——与第六篇"每字节 32 次乘加"一致。
+   $$(128 / 16) \times (128 / 8) \times (32 / 16) = 8 \times 16 \times 2 = 256$$ 条；每条 4096 FLOP，合计约 1 MFLOP，对应从 shared 读 16 KiB——与[《Tensor Core》](/tensor-cores-cutlass-and-cute.html)的"每字节 32 次乘加"一致。
 
    </details>
 
@@ -415,15 +473,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：下界 67 µs（8192 行）、可达 80–90% 带宽；1.0 TB/s 只有标称的 50%。第十篇：SOL Memory 50% 未到顶，是 latency-bound，stall 原因有诊断价值——barrier 高 = 同步太多。第四篇的处方：树形归约每级一次 `__syncthreads()` 是 10 次 sync，改成两级 warp shuffle 降到 1 次；$$d = 4096 > 1024$$ 所以仍是一行一个 block，再加第三篇的 16 字节向量化读行。
+   [《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)：下界 67 µs（8192 行）、可达 80–90% 带宽；1.0 TB/s 只有标称的 50%。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)：SOL Memory 50% 未到顶，是 latency-bound，stall 原因有诊断价值——barrier 高 = 同步太多。《共享内存与 reduction》的处方：树形归约每级一次 `__syncthreads()` 是 10 次 sync，改成两级 warp shuffle 降到 1 次；$$d = 4096 > 1024$$ 所以仍是一行一个 block，再加[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)的 16 字节向量化读行。
 
    </details>
 
-2. 第五篇的 128×128 tile 在 FP32 上是 compute-bound，为什么同一个 tile 在第六篇的 BF16 Tensor Core 上不够？Triton 的 matmul 靠什么补这一段？
+2. [《GEMM》](/gemm-from-naive-to-tiled.html)的 128×128 tile 在 FP32 上是 compute-bound，为什么同一个 tile 在[《Tensor Core》](/tensor-cores-cutlass-and-cute.html)的 BF16 Tensor Core 上不够？Triton 的 matmul 靠什么补这一段？
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：128×128 对 HBM 的 $$I = 32$$，FP32 ridge 10，compute-bound。第六篇：Tensor Core 把 ridge 推到 156，$$I = 32$$ 回到斜线左边，需要更大的复用——128×128×32 的 k-tile 与 64×64 warp tile——以及 L2 挡掉重读。第七篇：GROUP_SIZE_M swizzle 让一波 108 个 program 的工作集从约 36 MiB 压到约 22 MiB 装进 40 MB L2，实际 HBM 流量接近 100.7 MB 的最小值；第一篇早已说明 GEMM 只有 tile 足够大、L2 复用足够时才真正 compute-bound。
+   《GEMM》：128×128 对 HBM 的 $$I = 32$$，FP32 ridge 10，compute-bound。《Tensor Core》：Tensor Core 把 ridge 推到 156，$$I = 32$$ 回到斜线左边，需要更大的复用——128×128×32 的 k-tile 与 64×64 warp tile——以及 L2 挡掉重读。[《Triton》](/triton-block-level-programming.html)：GROUP_SIZE_M swizzle 让一波 108 个 program 的工作集从约 36 MiB 压到约 22 MiB 装进 40 MB L2，实际 HBM 流量接近 100.7 MB 的最小值；[《硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)早已说明 GEMM 只有 tile 足够大、L2 复用足够时才真正 compute-bound。
 
    </details>
 
@@ -431,7 +489,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第八篇：KV 每步 $$8192 \times 128$$ KiB = 1 GiB，远小于 16 GB 权重，$$B \times s = 8$$k 未到 131k，权重项占主导。第五篇：$$M = 1$$ 的 GEMV 算术强度 1，时间 = 权重字节 / 带宽 ≈ 8 ms（A100），分块与 Tensor Core 都帮不上。第九篇：W4A16 把权重字节除以 4，约 2 ms，是这一步唯一有效的大手段；FP8 在 H100 上 2.4 ms。第八篇：attention 用 split-KV 让足够多的 SM 同时读 KV；分页不改变字节数。第十篇：decode 下所有 GEMM 变成 $$M$$ 量级强度，nsys 还要看 kernel 之间的空隙。
+   [《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)：decode 的 KV 每步 $$8192 \times 128$$ KiB = 1 GiB，远小于 16 GB 权重，$$B \times s = 8$$k 未到 131k，权重项占主导。[《GEMM》](/gemm-from-naive-to-tiled.html)：$$M = 1$$ 的 GEMV 算术强度 1，时间 = 权重字节 / 带宽 ≈ 8 ms（A100），分块与 Tensor Core 都帮不上。[《量化与融合 kernel》](/quantization-and-fused-kernels.html)：W4A16 把权重字节除以 4，约 2 ms，是这一步唯一有效的大手段；FP8 在 H100 上 2.4 ms。《Attention Kernel》里 attention 用 split-KV 让足够多的 SM 同时读 KV；分页不改变字节数。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)：decode 下所有 GEMM 变成 $$M$$ 量级强度，nsys 还要看 kernel 之间的空隙。
 
    </details>
 
@@ -439,7 +497,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第九篇：residual + RMSNorm 分开 10 B、融合 8 B；RMSNorm + 动态量化分开 7 B、融合 3 B——收益全在字节。第三篇：memory-bound kernel 到 90% 后唯一的优化就是这种融合。第七篇：memory-bound 的 elementwise 与归约 Triton 与手写相当、代码量 1/5，正是 Triton 该用的场景；手写 CUDA 只在占总时间 30% 以上的热点 GEMM / attention、特殊指令、Hopper 特性、跨 block 协作时值得。第十篇：不论哪种写法都要 FP32 参考、量化结果与反量化参考比、`opcheck`。
+   [《量化与融合 kernel》](/quantization-and-fused-kernels.html)：residual + RMSNorm 分开 10 B、融合 8 B；RMSNorm + 动态量化分开 7 B、融合 3 B——收益全在字节。[《访存合并》](/memory-coalescing-and-elementwise-kernels.html)：memory-bound kernel 到 90% 后唯一的优化就是这种融合。[《Triton》](/triton-block-level-programming.html)：memory-bound 的 elementwise 与归约 Triton 与手写相当、代码量 1/5，正是 Triton 该用的场景；手写 CUDA 只在占总时间 30% 以上的热点 GEMM / attention、特殊指令、Hopper 特性、跨 block 协作时值得。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)：不论哪种写法都要 FP32 参考、量化结果与反量化参考比、`opcheck`。
 
    </details>
 
@@ -447,7 +505,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：推导它，让一行放不进寄存器的 softmax（128K 词表 logits 一行 250 KiB）一遍拿到统计量，读 3 次降到读 2 次。第八篇：FlashAttention 用它逐块累加 $$PV$$ 并在最后一次重缩放，所以 $$S$$、$$P$$ 不必物化；PagedAttention v2 与 Flash-decoding 的 reduce kernel 用同一公式合并各 partition 的 $$(O, \text{lse})$$；反向存 $$L = m + \log l$$ 重算 $$P$$。第十篇：归约类 kernel 对 FP32 参考用 BF16 rtol 1.6e-2、atol 放到 1e-2，并测 0 行、1 行、非对齐宽度与非连续输入。
+   [《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)：推导它，让一行放不进寄存器的 softmax（128K 词表 logits 一行 BF16 就是 250 KiB）一遍拿到统计量，读 3 次降到读 2 次。[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)：FlashAttention 用它逐块累加 $$PV$$ 并在最后一次重缩放，所以 $$S$$、$$P$$ 不必物化；PagedAttention v2 与 Flash-decoding 的 reduce kernel 用同一公式合并各 partition 的 $$(O, \text{lse})$$；反向存 $$L = m + \log l$$ 重算 $$P$$。[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)：归约类 kernel 对 FP32 参考用 BF16 rtol 1.6e-2、atol 放到 1e-2，并测 0 行、1 行、非对齐宽度与非连续输入。
 
    </details>
 
@@ -537,11 +595,11 @@ Table: 掌握程度的判据
 
 ### E. 跨硬件迁移题
 
-把 `n=16385` 的 FP16 Add 交给第十一篇的固定样例，只把 `TOTAL_LENGTH` 改大，会有什么问题？
+把 `n=16385` 的 FP16 Add 交给[《从 CUDA 到昇腾》](/ascend-cann-from-cuda-to-ascend-c.html)的固定样例，只把 `TOTAL_LENGTH` 改大，会有什么问题？
 
 <details markdown="1"><summary>答案</summary>
 
-整数除法的 `BLOCK_LENGTH = n / 8` 会漏掉余数；host 侧分配和文件长度也仍写死。即使改成向上取整，最后一个逻辑块和 tile 仍可能越界，非对齐搬运还需要型号/版本支持的实现。应先把有效长度、分配长度、每核划分与尾块写进 host tiling 合同，再实现合法搬运、计算和写回；用 0、1、127、129、16385 等边界验证。不能把 `if (i<n)` 直接套到一条批量 DataCopy 上，也不能把 padding 长度当成可越界访问的许可。
+整数除法的 `BLOCK_LENGTH = n / 8` 会漏掉余数；host 侧分配和文件长度也仍写死。即使改成向上取整，每核 1,250 个元素 = 9 × 128 + 98，尾块 98 个 half 是 196 B，不是 32 的倍数——`DataCopy` 的搬运量不对齐时按 32 B 向下取整，实际只搬 192 B，最后 2 个元素被静默丢掉，结果错而程序不报错。应先把有效长度、分配长度、每核划分与尾块写进 host tiling 合同，再实现合法搬运、计算和写回；用 0、1、127、129、16385 等边界验证。不能把 `if (i<n)` 直接套到一条批量 DataCopy 上，也不能把 padding 长度当成可越界访问的许可。
 
 </details>
 
@@ -550,7 +608,7 @@ Table: 掌握程度的判据
 十一篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是这些系列：
 
 - **框架层的运行时机制**（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何分显存、Inductor 如何决定融合哪些算子）在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)——本系列只说明"框架在 host 侧准备了什么"。
-- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放到不同节点上跑">PD</span> 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——第八篇只讨论分页之后 kernel 如何访问它。
+- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放到不同节点上跑">PD</span> 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——本系列的[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)只讨论分页之后 kernel 如何访问它。
 - **多卡通信**（NCCL、集合通信与计算的重叠、通信 kernel 本身）在[《通信与互联：从 NCCL 到 <span class="inline-tip" data-tip="remote direct memory access：网卡直接读写远端内存">RDMA</span>》](/communication-and-interconnect-for-ai-infra.html)。
 - 本系列在整张学习路径上的位置见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
@@ -562,7 +620,7 @@ Table: 掌握程度的判据
 
 - **框架层的运行时机制**：Dispatcher 如何选择 kernel、Autograd 如何调用反向 kernel、Caching Allocator 如何管理显存、Inductor 如何决定融合哪些算子。本系列在需要时说明"框架在 host 侧准备了什么"，但不展开这些机制的原理。
 - **系统层的性能问题**：Python 开销、kernel launch 开销、CPU-GPU 同步、数据加载、多卡通信。这些决定了 kernel 之外的时间花在哪里；本系列假设读者已经确认瓶颈在某个 kernel 内部。
-- **推理引擎的调度与内存管理**：continuous batching、KV cache 的分页管理、prefix caching、PD 分离。本系列第八篇只讨论分页之后 kernel 如何访问 KV cache。
+- **推理引擎的调度与内存管理**：continuous batching、KV cache 的分页管理、prefix caching、PD 分离。本系列的[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)只讨论分页之后 kernel 如何访问 KV cache。
 - **模型与算法**：注意力机制的设计动机、量化算法的校准方法、MoE 的路由策略。本系列把它们当作给定的数学定义，只讨论如何高效地算出来。
 - **C++ 语言本身**：模板、RAII、lambda 等在 kernel 的 host 侧代码中大量出现，本系列假设读者已经掌握。
 
