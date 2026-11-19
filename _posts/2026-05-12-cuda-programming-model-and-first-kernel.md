@@ -5,10 +5,10 @@ title: "GPU Kernel 工程（02）：CUDA 编程模型与第一个 kernel"
 subtitle: "The CUDA Programming Model and Your First Kernel, Measured"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
-上一篇建立了本系列的分析框架，用到的结论可以压缩成三个数字。GPU 的基本执行单位是 **warp**：32 个线程共用一个指令流，一条指令同时作用在 32 个数据上。以 A100 SXM 80GB 为默认分析对象（标称值）：HBM2e 带宽约 **2.0 TB/s**，BF16 Tensor Core 算力 312 TFLOPS，两者相除得到 Roofline 的拐点（ridge point）：
+上一篇[《GPU 为什么这样设计——硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)建立了本系列的分析框架，用到的结论可以压缩成三个数字。GPU 的基本执行单位是 **warp**：32 个线程共用一个指令流，一条指令同时作用在 32 个数据上。以 A100 SXM 80GB 为默认分析对象（标称值）：HBM2e 带宽约 **2.0 TB/s**，BF16 Tensor Core 算力 312 TFLOPS，两者相除得到 Roofline 的拐点（ridge point）：
 
 $$
 \text{ridge} = \frac{312 \times 10^{12}\ \text{FLOP/s}}{2.0 \times 10^{12}\ \text{byte/s}} \approx 156\ \text{FLOP/byte}
@@ -16,15 +16,62 @@ $$
 
 算术强度低于 156 FLOP/byte 的计算，时间下界由字节数决定：$$T \ge \text{bytes} / (2.0\ \text{TB/s})$$；高于它的，由 FLOPs 决定。一个 BF16 的 elementwise 加法 $$y = x + b$$，每元素读 4 字节、写 2 字节、做 1 次 FLOP，算术强度 $$1/6 \approx 0.17$$，距拐点差三个数量级，是彻底的 memory-bound——它的时间只由要搬多少字节决定。
 
-这一篇写这个 kernel。上一篇从硬件一侧讲了 SM、warp 和 block，并在末尾给出了硬件层级与 grid / block / thread 的对应图；本篇从这些名字出发，把 CUDA 编程模型讲清楚：代码在哪里运行、线程如何组织和编号、内存在哪里、什么时候真正开始执行、错误什么时候报出来、编译器把源码变成了什么。这些是后面八篇每一段代码都依赖的基础。然后回答总纲提出的核心问题：
+这一篇写这个 kernel。上一篇从硬件一侧讲了 SM、warp 和 block，并在[「硬件层级与编程模型名字的对应」一节](/gpu-architecture-and-roofline.html#3-硬件层级与编程模型名字的对应)给出了硬件层级与 grid / block / thread 的对应图；本篇从这些名字出发，把 CUDA 编程模型讲清楚：代码在哪里运行、线程如何组织和编号、内存在哪里、什么时候真正开始执行、错误什么时候报出来、编译器把源码变成了什么。这些是后面八篇每一段代码都依赖的基础。然后回答总纲提出的核心问题：
 
 > **vector add 的 kernel 只有五行，它跑出了理论带宽的多少？[^q0] 没跑满的部分去了哪里？[^q1]**
 
 ## 一、总览
 
+一个 vector add 从源码到跑完，要经过编译、分配、发射、执行、同步五步。下图按这条路径画出本篇讲的每个机制，并标出它在哪一章展开：
+
+```mermaid
+%% 图：一个 kernel 从源码到跑完：nvcc 编译、CPU 发射进 stream、block 落到 SM、warp 带 mask 执行、在同步点取回结果与错误
+flowchart TB
+    classDef h fill:#fef3c7,stroke:#b45309
+    classDef d fill:#dbeafe,stroke:#1d4ed8
+    classDef bot fill:#fee2e2,stroke:#b91c1c
+    SRC["<b>.cu 源码</b><br/>__global__ kernel 只写一个线程做什么（第二章）"]:::h
+    SRC --> NVCC["<b>nvcc 分离编译</b><br/>host 代码交给宿主编译器<br/>device 代码 → PTX → SASS，打包成 fatbin（第七章）"]:::h
+    NVCC --> HOST["<b>CPU 上的 host 程序</b><br/>控制流始终在这里（第二章）"]:::h
+    HOST -->|"cudaMalloc / cudaMemcpy（第四章）"| HBM
+    HOST -->|"kernel#lt;#lt;#lt;grid, block, 0, stream#gt;#gt;#gt;<br/>几微秒后立即返回（第五章）"| STREAM["<b>stream：GPU 上的有序队列</b><br/>memset、kernel、event 按提交顺序执行（第五章）"]:::d
+    STREAM --> GRID["<b>grid → block → thread</b><br/>每个 block 整块落到一个 SM，不迁移（第三章）"]:::d
+    NVCC -.->|"加载时 driver 挑匹配的 SASS<br/>没有就 JIT 编译 PTX（第七章）"| GRID
+    GRID --> WARP["<b>warp：32 个连续编号的线程</b><br/>一条指令 + 一个 active mask<br/>warp 内分支两路都走（第八章）"]:::d
+    WARP <-->|"每线程读 8 字节、写 4 字节"| HBM["<b>HBM 显存：标称 2.0 TB/s</b><br/>vector add 的瓶颈：3 GiB 至少 1.6 ms（第九章）"]:::bot
+    STREAM -.->|"event 记下 GPU 时间戳"| SYNC["<b>同步点</b><br/>cudaEventSynchronize、cudaMemcpy 等<br/>异步错误在这里才报出（第五、六章）"]:::h
+    SYNC -.->|"CPU 拿到时间、结果或错误码"| HOST
+```
+
+- **.cu 源码**：kernel 里没有循环，循环体拿出来、循环变量换成线程编号（[「三个函数限定符」一节](#2-三个函数限定符)）。
+- **nvcc 分离编译**：同一个文件拆成两路，device 一路先出 PTX（虚拟指令集）再出 SASS（某一代 GPU 的机器码），两者都可以嵌进 fatbin（[第七章](#七编译nvcc-做了什么)）。
+- **CPU 上的 host 程序**：分配显存、拷贝、发射、等待都由 CPU 发起；host 指针和 device 指针分属两个地址空间（[第二章](#二hostdevice-与-kernel)、[第四章](#四设备内存与数据搬运)）。
+- **stream**：launch 只是把命令放进队列；同一 stream 内有序，不同 stream 之间可以并发（[第五章](#五streamevent-与异步语义)）。
+- **grid → block → thread**：grid 大小向上取整，所以要边界检查；block 取 32 的倍数，常用 256（[第三章](#三线程层级gridblockthread)）。
+- **加载时的选择**：有匹配的 SASS 直接加载，没有就 JIT 编译 PTX，两样都没有报 `cudaErrorNoKernelImageForDevice`（[「`compute_XX` 与 `sm_XX` 的区别，以及前向兼容」一节](#3-compute_xx-与-sm_xx-的区别以及前向兼容)）。
+- **warp**：block 线性化后每 32 个线程一组，`x` 变化最快；分支只在 warp 内部发散才有代价（[「block 在硬件上如何切成 warp」一节](#5-block-在硬件上如何切成-warp)、[第八章](#八warp-的执行方式)）。
+- **HBM**：vector add 的算术强度约 0.08 FLOP/byte，时间只由字节数决定；等效带宽通常是标称值的 80–92%，差距的四个来源见[「结果应该落在哪里，为什么跑不满」一节](#5-结果应该落在哪里为什么跑不满)。
+- **同步点**：event 给 GPU 侧时间戳，计时靠它；越界这类异步错误要到下一个同步点才报出，而且是粘性的（[第五章](#五streamevent-与异步语义)、[第六章](#六错误处理)）。
+
+图里的几样东西分属不同的存储和寿命，读代码时容易混：
+
+| 对象 | 谁创建、何时 | 存在哪里 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| host 数组 `h_a` | host 代码分配 | host 内存 | 到 host 释放 | 只有 CPU 能解引用 |
+| device 数组 `d_a` | `cudaMalloc`（PyTorch 里由 Caching Allocator 切出） | HBM | 到 `cudaFree`（或还回缓存池） | 所有 kernel 的所有线程；CPU 只持有地址 |
+| 内建变量 `threadIdx` / `blockIdx` / `blockDim` / `gridDim` | 硬件在 launch 时按 grid、block 形状初始化 | 每线程只读的特殊寄存器（PTX 的 `%tid`、`%ctaid`、`%ntid`、`%nctaid`） | 线程的整个生命期 | 本线程 |
+| 线程局部变量（如 `i`） | 线程执行到时 | 寄存器，不够时溢出到 local memory | 到线程结束 | 只有本线程 |
+| launch 请求 | CPU 执行 `<<<…>>>` 时 | stream 的命令队列 | 到 GPU 取走执行 | — |
+| fatbin（SASS + PTX） | nvcc 编译时 | 嵌在可执行文件 / `.so` 里 | 随二进制文件 | driver 加载时从中挑选 |
+| JIT 出的 SASS | driver 首次加载、没有匹配 SASS 时 | 磁盘上的 compute cache（Linux 默认 `~/.nv/ComputeCache`） | 跨进程复用，driver 升级后作废 | 同一用户之后的进程 |
+| event 时间戳 | GPU 执行到 `cudaEventRecord` 的位置时 | event 对象里 | 到 `cudaEventDestroy` | CPU 用 `cudaEventElapsedTime` 读差值 |
+| 粘性错误状态 | kernel 执行中出错时 | CUDA 上下文 | 到进程结束 | 之后的每一次 CUDA 调用 |
+
+Table: CUDA 程序里几类对象的创建时机、存放位置、寿命与可见范围
+
 ### 1. 测量方法与性能数字的约定
 
-回答这个问题需要一套可靠的测量方法。本篇结束时会留下一个 benchmark 脚手架——事件计时、warmup、多次迭代取中位数、L2 flush——它会一直用到第十篇。
+回答这个问题需要一套可靠的测量方法。本篇结束时会留下一个 benchmark 脚手架——事件计时、warmup、多次迭代取中位数、L2 flush——它会一直用到[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html)。
 
 依照系列惯例，本文的所有性能数字要么是可推导的理论下界，要么用"通常能达到"的区间给出；本文没有 GPU 实测值，读者自己跑出的数字应当落在给出的区间里。
 
@@ -33,13 +80,13 @@ $$
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | host、device 与 kernel | 两个处理器、两个地址空间<br/>三个函数限定符<br/>发射一个 kernel |
-| 三 | 线程层级：grid、block、thread | 三层结构与内建变量、边界检查为什么不可省、block 与 grid 大小怎么选、block 如何切成 warp |
+| 三 | 线程层级：grid、block、thread | 三层结构与内建变量<br/>边界检查为什么不可省<br/>block 与 grid 大小怎么选<br/>block 如何切成 warp |
 | 四 | 设备内存与数据搬运 | cudaMalloc / cudaMemcpy / cudaFree，以及 PyTorch 为什么不直接用它们 |
-| 五 | stream、event 与异步语义 | kernel launch 是异步的、stream、event 的计时与依赖、cudaDeviceSynchronize 的代价 |
-| 六 | 错误处理 | 同步错误与异步错误、一个 `CUDA_CHECK` 宏、compute-sanitizer |
-| 七 | 编译：nvcc 做了什么 | host/device 分离编译、-arch / -gencode 与 fatbin、`compute_XX` 与 `sm_XX`、两个必备的编译选项 |
-| 八 | warp 的执行方式 | 一条指令一个 mask、分支发散的代价、独立线程调度、active mask 与部分 warp |
-| 九 | 第一个 kernel 的测量 | 先算理论、L2 flush 为什么必要、完整 C++ 程序与 bench 脚手架、PyTorch 侧等价脚手架、结果应该落在哪里 |
+| 五 | stream、event 与异步语义 | kernel launch 是异步的<br/>stream<br/>event 的计时与依赖<br/>cudaDeviceSynchronize 的代价 |
+| 六 | 错误处理 | 同步错误与异步错误<br/>一个 `CUDA_CHECK` 宏<br/>compute-sanitizer |
+| 七 | 编译：nvcc 做了什么 | host/device 分离编译<br/>-arch / -gencode 与 fatbin<br/>`compute_XX` 与 `sm_XX`<br/>两个必备的编译选项 |
+| 八 | warp 的执行方式 | 一条指令一个 mask<br/>分支发散的代价<br/>独立线程调度<br/>active mask 与部分 warp |
+| 九 | 第一个 kernel 的测量 | 先算理论<br/>L2 flush 为什么必要<br/>完整 C++ 程序与 bench 脚手架<br/>PyTorch 侧等价脚手架<br/>结果应该落在哪里 |
 | 十 | 本文小结 | 要点回顾与速查表 |
 | 十一 | 自测 | 5 道题 |
 
@@ -49,7 +96,7 @@ Table: 本文的章节安排
 
 ### 1. 两个处理器、两个地址空间
 
-一个 CUDA 程序同时运行在两个处理器上。**host** 是 CPU 和它的内存；**device** 是 GPU 和它的显存（HBM）。两边有各自独立的地址空间：host 上的指针不能在 GPU 上解引用，反之亦然。数据要从一边到另一边，必须显式拷贝（或者使用统一内存/pinned 内存这类机制，本系列不展开）。
+一个 CUDA 程序同时运行在两个处理器上。**host** 是 CPU 和它的内存；**device** 是 GPU 和它的显存（[HBM](# "tip: High Bandwidth Memory，高带宽内存；A100 SXM 80GB 用的是 HBM2e")）。两边有各自独立的地址空间：host 上的指针不能在 GPU 上解引用，反之亦然。数据要从一边到另一边，必须显式拷贝（或者使用统一内存/pinned 内存这类机制，本系列不展开）。
 
 控制流始终在 host 上。CPU 负责分配显存、拷贝数据、发起 GPU 上的计算、等待结果。GPU 上运行的每一段代码都是被 CPU"发射"（launch）出去的一个函数，这个函数叫 **kernel**：
 
@@ -171,7 +218,7 @@ int row = blockIdx.y * blockDim.y + threadIdx.y;   // 沿 M
 if (row < M && col < N) out[row * N + col] = ...;
 ```
 
-注意 `x` 对应最内层、连续变化的维度。这不是随意约定：下一节会看到同一 warp 里的线程是沿 `threadIdx.x` 连续编号的，而下一篇会说明让相邻线程访问相邻地址是 memory-bound kernel 的第一要求。
+注意 `x` 对应最内层、连续变化的维度。这不是随意约定：下一节会看到同一 warp 里的线程是沿 `threadIdx.x` 连续编号的，而下一篇[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)会说明让相邻线程访问相邻地址是 memory-bound kernel 的第一要求。
 
 上面 `vector_add_f32` 里把 `blockDim.x` 转成 `size_t` 再乘，是因为 `blockIdx.x * blockDim.x` 是两个 `unsigned int` 相乘，元素数超过 $$2^{32}$$ 时会溢出。本篇 $$n = 2^{28}$$ 不会触发，但养成习惯比事后排查便宜。
 
@@ -187,7 +234,7 @@ grid 大小是向上取整算出来的，所以最后一个 block 里通常有�
 
 - **必须是 32 的倍数。** block 在硬件上被切成 warp，每 32 个线程一个；block 大小 100 会得到 4 个 warp，其中最后一个只有 4 个线程有效，剩下 28 个 lane 的执行槽位白白浪费。
 - **128–256 是最常见的选择。** 上限是 1024。太小（比如 32）会让每个 SM 上驻留的 block 数触到"每 SM 最多 32 个 block"的限制，从而无法填满每 SM 2048 线程的容量；太大则让 block 成为粗粒度的调度单位，寄存器和 shared memory 的分配也更难与 SM 的容量匹配。
-- **与 occupancy 的关系一句话：** 一个 SM 能同时驻留多少个 block，由寄存器（65536 个 / SM）、shared memory、最大 32 block/SM、最大 2048 线程/SM 四个上限中最紧的那个决定；block 大小是这个计算的输入之一，具体展开留给下一篇讨论延迟隐藏时。
+- **与 occupancy 的关系一句话：** 一个 SM 能同时驻留多少个 block，由寄存器（65536 个 / SM）、shared memory、最大 32 block/SM、最大 2048 线程/SM 四个上限中最紧的那个决定；block 大小是这个计算的输入之一，具体展开留给[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的[「grid-stride loop 与占用率」一章](/memory-coalescing-and-elementwise-kernels.html#四grid-stride-loop-与占用率)。
 
 对一维 elementwise kernel，256 是一个几乎不会错的起点。
 
@@ -201,7 +248,7 @@ $$
 
 $$n = 2^{28}$$、block = 256 时 grid = 1,048,576 个 block。grid 的 x 维上限是 $$2^{31} - 1$$，y、z 维上限 65535，一维问题不必担心。
 
-要注意 grid 与 SM 数量的关系。A100 有 108 个 SM，如果 grid 只有几十个 block，大部分 SM 是空的；这是第九章"为什么跑不满"的原因之一。下一篇会引入 grid-stride loop，让 grid 大小与元素数解耦。
+要注意 grid 与 SM 数量的关系。A100 有 108 个 SM，如果 grid 只有几十个 block，大部分 SM 是空的；这是[「结果应该落在哪里，为什么跑不满」一节](#5-结果应该落在哪里为什么跑不满)列出的原因之一。《访存合并与 elementwise kernel》会引入 grid-stride loop，让 grid 大小与元素数解耦。
 
 ### 5. block 在硬件上如何切成 warp
 
@@ -237,7 +284,7 @@ $$
 - `block (16, 16)`：`linear = x + 16y` → 每两行合成一个 warp，共 8 个 warp；`warp 0 = (0..15, 0) ∪ (0..15, 1)`，`warp 1 = (0..15, 2) ∪ (0..15, 3)`，…
 - `block (8, 8)`：`linear = x + 8y` → 64 线程 = 2 个 warp，每个 warp 覆盖 4 行。
 
-这个划分决定了"哪 32 个线程会同时发出访存请求"，进而决定访存能否合并、shared memory 会不会 bank conflict——第三、四篇的核心。二维 block 里如果把行方向放在 `y`、列方向放在 `x`，那么 (16, 16) 的 block 里一个 warp 会跨两行；对行主序矩阵，这意味着一个 warp 的 32 个访问落在两段各 64 字节的连续地址上，而不是一段 128 字节。是好是坏取决于具体 kernel，但必须先知道这件事在发生。
+这个划分决定了"哪 32 个线程会同时发出访存请求"，进而决定访存能否合并、shared memory 会不会 bank conflict——[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)与[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的核心。二维 block 里如果把行方向放在 `y`、列方向放在 `x`，那么 (16, 16) 的 block 里一个 warp 会跨两行；对行主序矩阵，这意味着一个 warp 的 32 个访问落在两段各 64 字节的连续地址上，而不是一段 128 字节。是好是坏取决于具体 kernel，但必须先知道这件事在发生。
 
 同一个 block 内的线程可以通过 shared memory 通信、用 `__syncthreads()` 同步；不同 block 之间没有这两种手段（除了原子操作与 Hopper 的 cluster）。block 一旦开始执行就不会迁移到别的 SM，且 SM 会等到 block 内所有 warp 结束才释放它占的资源。
 
@@ -255,7 +302,18 @@ CUDA_CHECK(cudaMemcpy(h_c, d_c, bytes, cudaMemcpyDeviceToHost));       // device
 CUDA_CHECK(cudaFree(d_a));
 ```
 
-`cudaMalloc` 返回的是 device 地址空间里的指针，只能传给 kernel 或 CUDA API，不能在 host 上解引用。`cudaMemcpy` 对 host 来说是**同步**的——但同步到什么程度按方向不同（CUDA 12.6 Runtime API 的 sync-behavior 页）：D2H 等拷贝完成再返回；pageable 内存的 H2D 在数据进了 staging buffer 就可能返回、DMA 还没结束；D2D 对 host 不阻塞。它隐含的是"与默认流上之前的工作有序"，不是"等待所有 GPU 工作完成"。异步版本 `cudaMemcpyAsync` 需要配合 pinned host 内存才真正异步。
+`cudaMalloc` 返回的是 device 地址空间里的指针，只能传给 kernel 或 CUDA API，不能在 host 上解引用。`cudaMemcpy` 对 host 来说是**同步**的——但同步到什么程度按方向不同（CUDA 12.6 Runtime API 的 sync-behavior 页）：
+
+| 方向 | `cudaMemcpy` 什么时候返回 |
+|---|---|
+| H2D，pageable host 内存 | 先做一次 stream 同步再开始拷贝；数据进了 DMA 用的 staging buffer 就可能返回，DMA 未必结束 |
+| H2D，pinned host 内存 | 对 host 同步 |
+| D2H（pageable 或 pinned） | 拷贝完成才返回 |
+| D2D | host 侧不做同步，不阻塞 |
+
+Table: 同步版 `cudaMemcpy` 按拷贝方向的返回时机
+
+它隐含的是"与默认流上之前的工作有序"，不是"等待所有 GPU 工作完成"。异步版本 `cudaMemcpyAsync` 需要配合 pinned host 内存才真正异步。
 
 还有 `cudaMemset` / `cudaMemsetAsync`，把一段显存填成某个字节值；本篇会用它来做 L2 flush。
 
@@ -263,7 +321,7 @@ CUDA_CHECK(cudaFree(d_a));
 
 PyTorch 的每个 CUDA Tensor 的 Storage 背后并不是一次 `cudaMalloc`。原因一句话：**`cudaMalloc` 和 `cudaFree` 慢（微秒到毫秒级），并且 `cudaFree` 隐含一次设备同步**——它要等 GPU 上所有正在运行的工作结束，才能安全地回收这块内存。一个训练步里有成千次 Tensor 的创建与销毁，每次都同步会把 CPU-GPU 流水彻底打断。
 
-所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，**分配的起点**对齐是 512 字节（分配器的最小粒度），但 `data_ptr()` 是起点加 `storage_offset`——`x[1:]` 这样的连续切片 `is_contiguous()` 为 True、指针却只偏了 2 字节（CPU 上验证：base % 16 == 0，view % 16 == 2）。所以向量化访存前要在运行时检查指针对齐，不能"放心"（第三篇的 vec8 kernel 会做这个检查）。
+所以 PyTorch 用 **Caching Allocator**（`c10/cuda/CUDACachingAllocator.cpp`，v2.10.0）：向驱动申请大块显存后自己切分和复用，Tensor 释放时只是把块还回缓存池而不调 `cudaFree`。这也是为什么 `del` 一个 Tensor 后 `nvidia-smi` 显示的显存占用不会下降。本系列不展开分配器的机制；kernel 开发者需要知道的只是：从 PyTorch 拿到的 `data_ptr()` 是分配器切出来的一段地址，**分配的起点**对齐是 512 字节（分配器的最小粒度），但 `data_ptr()` 是起点加 `storage_offset`——`x[1:]` 这样的连续切片 `is_contiguous()` 为 True、指针却只偏了 2 字节（CPU 上验证：base % 16 == 0，view % 16 == 2）。所以向量化访存前要在运行时检查指针对齐，不能"放心"（[《访存合并与 elementwise kernel》的「对齐要求、`reinterpret_cast` 与尾部处理」一节](/memory-coalescing-and-elementwise-kernels.html#3-对齐要求reinterpret_cast-与尾部处理)会做这个检查）。
 
 ## 五、stream、event 与异步语义
 
@@ -306,6 +364,9 @@ sequenceDiagram
 ```
 
 异步是 GPU 编程性能模型的核心。CPU 可以连续发射几十个 kernel 而不等待，GPU 按顺序消化；只要 CPU 发射得比 GPU 执行得快，GPU 就不会空转。反过来，任何让 CPU 停下来等 GPU 的调用，都是流水线上的一个气泡。
+
+> [!NOTE] Java 经验参照：单线程 executor 与 stream
+> 把任务 `submit` 给 `Executors.newSingleThreadExecutor()`：调用立刻返回一个 `Future`，任务在后台线程上按提交顺序一个接一个执行，`future.get()` 才阻塞到结果出来。kernel launch 进同一条 stream 也是这样：`<<<…>>>` 立即返回，GPU 按提交顺序执行，`cudaStreamSynchronize` / `cudaEventSynchronize` 相当于 `get()`；在 `submit` 前后各读一次 `System.nanoTime()`，量到的同样只是提交开销。对不上的是错误：`get()` 抛出的 `ExecutionException` 只属于那一个任务，executor 照常执行后面的任务；CUDA 的异步错误不归属于哪次调用，在之后任意一个同步调用上报出，而且是粘性的——上下文坏了，之后所有调用都失败（[第六章](#六错误处理)）。
 
 ### 2. stream
 
@@ -488,6 +549,9 @@ PyTorch 的 wheel 就是这样构建的（`TORCH_CUDA_ARCH_LIST` 环境变量控
 
 JIT 的代价是第一次加载时几秒到几十秒的编译（结果缓存在 `~/.nv/ComputeCache`，默认上限可用 `CUDA_CACHE_MAXSIZE` 调），以及 JIT 出的代码可能不如 ptxas 针对该架构离线编译的优——它不知道新架构的调度细节，也无法用新架构独有的指令。所以生产环境的做法是：为所有目标架构提供 SASS，再附一份最高版本的 PTX 兜底。
 
+> [!NOTE] Java 经验参照：字节码与 PTX
+> `javac` 产出的字节码不绑定某种 CPU，由 JVM 在运行时编成本机机器码；PTX 同样不绑定某一代 GPU，由 driver 在加载时编成这张卡的 SASS，所以一份 PTX 能跑在编译时还不存在的架构上。对不上的有两处：HotSpot 先解释执行、找出热点方法再编译，CUDA 没有解释执行这一档，PTX 必须先编成 SASS 才能运行，而 fatbin 里有匹配的 SASS 时根本不做 JIT；JIT 出的 SASS 默认写进磁盘上的 compute cache，之后的进程直接复用，driver 升级后才作废。
+
 运行时加载 kernel 的选择过程：
 
 ```mermaid
@@ -523,9 +587,9 @@ ptxas info    : Used 16 registers, 380 bytes cmem[0]
 （具体寄存器数随 CUDA 版本略有不同，vector add 这样的 kernel 通常在十几个。）四个数字要看：
 
 - **registers**：每线程用了多少寄存器，直接决定 occupancy 上限。每 SM 65536 个寄存器，一个用 R 个寄存器、T 个线程的 block 最多能驻留 $$\lfloor 65536 / (R \cdot T) \rfloor$$ 个（还受其他限制）。R = 16、T = 256 时是 16，早已超过其他上限；R = 128 时只剩 2 个 block、512 线程，占 SM 容量的 25%。
-- **spill stores / loads**：寄存器不够时编译器把变量溢出到 local memory（实际在 L1/L2/HBM）。非零就要警惕，GEMM 篇会反复看这个数字。
+- **spill stores / loads**：寄存器不够时编译器把变量溢出到 local memory（实际在 L1/L2/HBM）。非零就要警惕，[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)会反复看这个数字。
 - **stack frame**：非零通常意味着递归、大数组或未内联的函数调用。
-- **smem**：静态 shared memory 用量，本篇的 kernel 没有，从第四篇开始有。
+- **smem**：静态 shared memory 用量，本篇的 kernel 没有，从[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)开始有。
 
 本系列所有 CUDA 示例的默认编译命令：
 
@@ -572,7 +636,7 @@ if ((threadIdx.x / 32) % 2 == 0) { ... }   // 偶数 warp 走、奇数 warp 不�
 if (i < n) c[i] = a[i] + b[i];       // 只有最后一个 warp 可能发散，可忽略
 ```
 
-所以 vector add 的边界检查几乎是免费的：$$2^{28}$$ 个元素里，只有 grid 末尾的一个 warp 可能有一部分 lane 被 mask。真正要警惕的是数据依赖的分支——按元素值决定走哪条路径——那是 warp 内每个 lane 各不相同的情形。第四篇的 reduction 和第八篇 attention 的因果掩码都会回到这个问题。
+所以 vector add 的边界检查几乎是免费的：$$2^{28}$$ 个元素里，只有 grid 末尾的一个 warp 可能有一部分 lane 被 mask。真正要警惕的是数据依赖的分支——按元素值决定走哪条路径——那是 warp 内每个 lane 各不相同的情形。[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的 reduction 和[《Attention Kernel——FlashAttention 与 PagedAttention》的「因果掩码在分块中的处理」一节](/attention-kernels-flashattention-and-pagedattention.html#2-因果掩码在分块中的处理)都会回到这个问题。
 
 ### 3. 独立线程调度：Volta 之后不能再假定 lockstep
 
@@ -615,7 +679,7 @@ if (i < n) v = got;
 
 `__activemask()` 返回"此刻哪些 lane 恰好活跃"，看起来像是 mask 的现成答案，但它**不是**同步点：独立线程调度下，两个本应一起到达的 lane 可能一先一后，`__activemask()` 只报告先到的那些。用 `__ballot_sync` 在一个明确的会合点算 mask 才是正确做法。
 
-对本篇的 vector add 这一切都用不上——它没有线程间通信。但第四篇的 warp shuffle reduction 会立刻用到。
+对本篇的 vector add 这一切都用不上——它没有线程间通信。但[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的[「warp 级原语与原子操作」一章](/shared-memory-reduction-and-softmax.html#五warp-级原语与原子操作)会立刻用到。
 
 ## 九、第一个 kernel 的测量
 
@@ -643,7 +707,7 @@ A100 有 40 MB L2。如果 benchmark 的工作集小于 40 MB（比如 $$n = 2^{
 
 重复 N 次，取中位数；之前先跑几次 warmup（触发 JIT / 模块加载、让频率爬上来；源码默认 `N = iters = 100`、`warmup = 10`）。
 
-本篇 $$n = 2^{28}$$ 的工作集是 3 GiB，远大于 L2，flush 与否差别不大；但脚手架要通用到第十篇的所有 kernel，其中很多（RMSNorm 一行 16 KiB、decode 阶段的小 GEMM）工作集都在 L2 以内，flush 是必需的。`triton.testing.do_bench` 默认也做同样的事。
+本篇 $$n = 2^{28}$$ 的工作集是 3 GiB，远大于 L2，flush 与否差别不大；但脚手架要通用到本系列直到[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html)的所有 kernel，其中很多（RMSNorm 一行 16 KiB、decode 阶段的小 GEMM）工作集都在 L2 以内，flush 是必需的。`triton.testing.do_bench` 默认也做同样的事。
 
 ### 3. 完整的 C++ 程序与 `bench` 脚手架
 
@@ -795,10 +859,10 @@ int main() {
 几处设计说明：
 
 - **warmup**：第一次 launch 包含上下文初始化、模块加载（可能触发 JIT）、GPU 从低功耗状态升频等一次性开销，可能比稳态慢几倍到几十倍。10 次 warmup 足以进入稳态。
-- **中位数而不是平均值**：GPU 计时的噪声是单边的——偶尔会有某次迭代因为时钟调整、其他进程抢占等原因慢很多，几乎不会有异常快的。平均值被这些离群点拉高，中位数不受影响。报告分布（最小值、中位数、P90）比一个数更好，第十篇会回到这个话题。
+- **中位数而不是平均值**：GPU 计时的噪声是单边的——偶尔会有某次迭代因为时钟调整、其他进程抢占等原因慢很多，几乎不会有异常快的。平均值被这些离群点拉高，中位数不受影响。报告分布（最小值、中位数、P90）比一个数更好，[《剖析、测试与贡献》的「benchmark 方法」一章](/kernel-profiling-testing-and-contribution.html#七benchmark-方法)会回到这个话题。
 - **event 记录在 flush 之后**：确保 memset 的时间不计入。
 - **只在 warmup 后同步一次**：`cudaEventSynchronize(stop)` 每次迭代都会等 GPU，本身就是同步点，能捕获异步错误；额外的 `cudaStreamSynchronize` 只是让 warmup 阶段的错误更早暴露。
-- **BF16 版本用 `__hadd`**：`cuda_bf16.h` 提供的 BF16 加法内建函数；在 sm_80 及以上是原生指令，在更老的架构上会展开成 FP32 转换再加。PyTorch 和 vLLM 的 BF16 elementwise 通常先转 float 计算再转回去，精度更好，下一篇会讨论两者的选择。
+- **BF16 版本用 `__hadd`**：`cuda_bf16.h` 提供的 BF16 加法内建函数；在 sm_80 及以上是原生指令，在更老的架构上会展开成 FP32 转换再加。PyTorch 和 vLLM 的 BF16 elementwise 通常先转 float 计算再转回去，精度更好，[《访存合并与 elementwise kernel》的「`float4`、`__nv_bfloat162` 与 `int4`」一节](/memory-coalescing-and-elementwise-kernels.html#2-float4__nv_bfloat162-与-int4)会讨论两者的选择。
 
 ### 4. Python/PyTorch 侧的等价脚手架
 
@@ -901,17 +965,28 @@ if __name__ == "__main__":
 
 ### 5. 结果应该落在哪里，为什么跑不满
 
-理论下界 1.6 ms、带宽 2.0 TB/s。读者在 A100 上跑上面的程序，FP32 版本的中位数通常会落在 **1.7–2.0 ms**，等效带宽 **1.6–1.9 TB/s**，即标称值的 **80–92%**；BF16 版本在 0.85–1.0 ms 附近。`torch.add` 会稍好一点，因为 ATen 的 elementwise kernel 做了向量化访存（下一篇的主题）。差距去了哪里，可以分成四个部分：
+理论下界 1.6 ms、带宽 2.0 TB/s。读者在 A100 上跑上面的程序，FP32 版本的中位数通常会落在 **1.7–2.0 ms**，等效带宽 **1.6–1.9 TB/s**，即标称值的 **80–92%**；BF16 版本在 0.85–1.0 ms 附近。`torch.add` 会稍好一点，因为 ATen 的 elementwise kernel 做了向量化访存（[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的主题）。差距去了哪里，可以分成四个部分：
 
-**（1）可达带宽本身低于标称值。** 2.0 TB/s 是 HBM 接口的峰值数据率。DRAM 需要周期性刷新（refresh），行切换有时序约束，读写方向切换（read-write turnaround）有惩罚，每个事务还带协议开销。这些让**任何 kernel** 都只能达到标称值的约 **85–92%**——这是第一篇提到过的"可达带宽"（achievable bandwidth）。用 `nvbandwidth` 或简单的 `cudaMemcpyDeviceToDevice` 测出的设备内拷贝带宽就是这个数字，它才是 elementwise kernel 应当对照的实际屋顶。以 1.75–1.85 TB/s 计，3 GiB 的实际下界是 1.74–1.84 ms。**所以一个跑到 1.8 ms 的 vector add 已经几乎贴着实际屋顶了**——这是本篇最重要的一个校准。
+**（1）可达带宽本身低于标称值。** 2.0 TB/s 是 HBM 接口的峰值数据率。DRAM 需要周期性刷新（refresh），行切换有时序约束，读写方向切换（read-write turnaround）有惩罚，每个事务还带协议开销。这些让**任何 kernel** 都只能达到标称值的约 **85–92%**——这就是"可达带宽"（achievable bandwidth）。用 `nvbandwidth` 或简单的 `cudaMemcpyDeviceToDevice` 测出的设备内拷贝带宽就是这个数字，它才是 elementwise kernel 应当对照的实际屋顶。以 1.75–1.85 TB/s 计，3 GiB 的实际下界是 1.74–1.84 ms。**所以一个跑到 1.8 ms 的 vector add 已经几乎贴着实际屋顶了**——这是本篇最重要的一个校准。
 
-**（2）launch 开销与尾部效应。** 一次 kernel launch 从 GPU 收到命令到第一个 warp 开始执行有几微秒的延迟；kernel 末尾，最后一波 block 结束时 SM 逐渐空闲，硬件不能瞬间填满——这叫尾部效应（tail effect）。两者合计在几微秒到十几微秒量级，对一个 1.6 ms 的 kernel 只占 1% 以下；但对一个 10 µs 的小 kernel（decode 阶段的典型情形）就是 50%。这是为什么小 kernel 永远跑不出高带宽、也是为什么融合（第三、九篇）重要。
+**（2）launch 开销与尾部效应。** 一次 kernel launch 从 GPU 收到命令到第一个 warp 开始执行有几微秒的延迟；kernel 末尾，最后一波 block 结束时 SM 逐渐空闲，硬件不能瞬间填满——这叫尾部效应（tail effect）。两者合计在几微秒到十几微秒量级，对一个 1.6 ms 的 kernel 只占 1% 以下；但对一个 10 µs 的小 kernel（decode 阶段的典型情形）就是 50%。这是为什么小 kernel 永远跑不出高带宽、也是为什么融合（[《访存合并与 elementwise kernel》的「融合：90% 之后」一章](/memory-coalescing-and-elementwise-kernels.html#七融合90-之后)、[《量化与融合 kernel》](/quantization-and-fused-kernels.html)）重要。
 
-**（3）grid 太小时 SM 未填满。** 本篇 grid 有一百万个 block，不存在这个问题。但如果 $$n$$ 只有 $$10^5$$，grid 只有 400 个 block，每个 SM 摊到不到 4 个 block、不到 1024 线程——占 SM 容量的一半，在飞的访存请求数不够，带宽自然上不去。第一篇讨论过的"GPU 靠并发隐藏延迟"在这里变成了具体的数字：一个 SM 要维持接近满带宽，需要足够多的字节在飞（bytes in flight ≈ 带宽 × 延迟；2 TB/s × 约 600 ns 的 HBM 延迟 ≈ 1.2 MB，摊到 108 个 SM 每个约 11 KB），每线程只发一个 4 字节的读请求时，需要几千个线程同时驻留才能凑够。
+**（3）grid 太小时 SM 未填满。** 本篇 grid 有一百万个 block，不存在这个问题。但如果 $$n$$ 只有 $$10^5$$，grid 只有 400 个 block，每个 SM 摊到不到 4 个 block、不到 1024 线程——占 SM 容量的一半，在飞的访存请求数不够，带宽自然上不去。[《GPU 为什么这样设计——硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)的[「延迟隐藏靠 warp 切换，而不是乱序执行」一节](/gpu-architecture-and-roofline.html#2-延迟隐藏靠-warp-切换而不是乱序执行)讲的"GPU 靠并发隐藏延迟"在这里变成了具体的数字：一个 SM 要维持接近满带宽，需要足够多的字节在飞（bytes in flight ≈ 带宽 × 延迟；2 TB/s × 约 600 ns 的 HBM 延迟 ≈ 1.2 MB，摊到 108 个 SM 每个约 11 KB），每线程只发一个 4 字节的读请求时，需要几千个线程同时驻留才能凑够。
 
-**（4）每线程一个元素，warp 数不足以隐藏延迟。** 这与（3）相关但不同。即使 grid 足够大，每个线程的工作也只是"读 8 字节、写 4 字节、结束"。一个 warp 发出加载请求后要等约几百个周期才能拿到数据，期间调度器必须切到别的 warp；而每个 warp 从开始到结束只发三条访存指令，warp 的生命周期太短，调度器频繁地在 block 退出和新 block 进驻之间切换，SM 的实际并发访存量达不到上限。解决方法是让每个线程做更多事：用 `float4` 一次读 16 字节（向量化访存），用 grid-stride loop 让一个线程处理多个元素。这两个手段是**下一篇**的全部内容，它们能把 elementwise kernel 从 80% 推到可达带宽的 95% 以上。
+**（4）每线程一个元素，warp 数不足以隐藏延迟。** 这与（3）相关但不同。即使 grid 足够大，每个线程的工作也只是"读 8 字节、写 4 字节、结束"。一个 warp 发出加载请求后要等约几百个周期才能拿到数据，期间调度器必须切到别的 warp；而每个 warp 从开始到结束只发三条访存指令，warp 的生命周期太短，调度器频繁地在 block 退出和新 block 进驻之间切换，SM 的实际并发访存量达不到上限。解决方法是让每个线程做更多事：用 `float4` 一次读 16 字节（向量化访存），用 grid-stride loop 让一个线程处理多个元素。这两个手段是下一篇[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的主线，它们能把 elementwise kernel 从 80% 推到可达带宽的 95% 以上。
 
-回到核心问题：**vector add 的五行 kernel 跑出了理论带宽的 80–90%，没跑满的部分主要是 DRAM 本身的物理开销（不可消除）、加上每线程一个元素造成的访存并发不足（下一篇消除）。** 一个只有五行的 kernel 能到这个水平，是因为它的访存模式恰好是理想的：warp 内 32 个线程读 32 个相邻的 float，正好是 128 字节一条 cache line。下一篇会说明这个"恰好"背后的规则，以及打破它的代价。
+四个来源并排看：
+
+| 来源 | 在本篇 FP32、$$n = 2^{28}$$ 上的量 | 能否消除 | 怎么处理 |
+|---|---|---|---|
+| （1）可达带宽低于标称 | 屋顶从 2.0 降到约 1.75–1.85 TB/s，下界从 1.61 ms 变成 1.74–1.84 ms | 不能，任何 kernel 都有 | 对照实测的设备内拷贝带宽，而不是标称值 |
+| （2）launch 与尾部 | 几到十几 µs，不到 1% | 只能摊薄 | 融合，减少 kernel 个数 |
+| （3）grid 太小 | 一百万个 block，不存在 | 能 | grid 远多于 SM 数，或用 grid-stride loop |
+| （4）每线程工作量太小 | 可消除部分里最大的一块 | 能 | `float4` 向量化 + grid-stride loop |
+
+Table: vector add 没跑满带宽的四个来源
+
+回到核心问题：**vector add 的五行 kernel 跑出了理论带宽的 80–90%，没跑满的部分主要是 DRAM 本身的物理开销（不可消除）、加上每线程一个元素造成的访存并发不足（《访存合并与 elementwise kernel》消除）。** 一个只有五行的 kernel 能到这个水平，是因为它的访存模式恰好是理想的：warp 内 32 个线程读 32 个相邻的 float，正好是 128 字节一条 cache line。[《访存合并与 elementwise kernel》的「一个 warp 的内存请求发生了什么」一章](/memory-coalescing-and-elementwise-kernels.html#二一个-warp-的内存请求发生了什么)会说明这个"恰好"背后的规则，以及打破它的代价。
 
 ## 十、本文小结
 
@@ -933,7 +1008,7 @@ if __name__ == "__main__":
 | --- | --- |
 | 全局索引（1D） | `i = blockIdx.x * blockDim.x + threadIdx.x`（乘法用 `size_t`） |
 | 全局索引（2D） | `row = blockIdx.y*blockDim.y + threadIdx.y`；`col` 用 `x` |
-| `block` 大小 | 32 的倍数；常用 128–256；上限 1024 |
+| `block` 大小 | 32 的倍数<br/>常用 128–256<br/>上限 1024 |
 | `grid` 大小 | `(n + block - 1) / block`；`x` 维上限 `2^31 - 1` |
 | `warp` 划分 | `linear = x + y*bdx + z*bdx*bdy`；`warp = linear / 32` |
 | 每 SM 上限（A100） | 2048 线程 / 64 warp / 32 block / 65536 寄存器 / 164 KB shared |
@@ -972,7 +1047,7 @@ Table: benchmark 脚手架要点：`bench(fn, warmup=10, iters=100, flush_l2=Tru
 | FP32 流量 | 3 GiB | 理论下界 ≈ 1.6 ms @ 2.0 TB/s；常见实测区间 1.7–2.0 ms |
 | BF16 流量 | 1.5 GiB | 理论下界 ≈ 0.8 ms；常见实测区间 0.85–1.0 ms |
 | FLOPs | 0.27 GFLOP → 14 µs @ 19.5 TFLOPS | 与访存差两个数量级 |
-| 可达带宽 | 标称的 85–92% | DRAM refresh、turnaround、协议开销 |
+| 可达带宽 | 标称的 85–92% | DRAM refresh<br/>读写 turnaround<br/>协议开销 |
 | 差距来源 | 可达带宽 > 每线程工作量太小 > launch/尾部 > SM 填充 | |
 
 Table: vector add 数字（A100，`n = 2^28`）
@@ -1020,4 +1095,4 @@ Table: vector add 数字（A100，`n = 2^28`）
    </details>
 
 [^q0]: 先算下界：$$n = 2^{28}$$ 个 float 的 `c = a + b` 读 2 写 1 共 3 GiB，A100 2.0 TB/s 下约 1.6 ms；五行 kernel 实测通常 1.7–2.0 ms，即理论带宽的 **80–92%**。详见[第九章](#九第一个-kernel-的测量)。
-[^q1]: 四处：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，任何 kernel 都拿不到这部分；launch 延迟与尾部——最后一波 block 填不满 132 个 SM；SM 填充不足——每线程只搬 4 字节，在飞的请求不够多；以及计时本身——用 CPU 时钟量一个异步 launch 量到的是提交时间，必须用 event。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256，下一篇的内容。详见[第五章](#五streamevent-与异步语义)、[第九章](#九第一个-kernel-的测量)。
+[^q1]: 四处：DRAM 的物理开销（刷新、行切换、读写转向）让可达带宽只有标称的 85–92%，任何 kernel 都拿不到这部分；launch 延迟与尾部——最后一波 block 填不满 108 个 SM；grid 太小时 SM 没有填满；每线程只搬一个元素，warp 生命周期太短，在飞的访存请求不够多。另外，计时必须用 event：用 CPU 时钟量一个异步 launch，量到的是提交时间。要接近 90% 以上：每线程搬 16 字节（`float4`）、grid-stride 摊薄固定开销、block 取 128–256，是[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的内容。详见[第五章](#五streamevent-与异步语义)、[第九章](#九第一个-kernel-的测量)。
