@@ -53,6 +53,23 @@ flowchart TB
     G8 & G9 --> G10["10 剖析测试"] --> G11["11 昇腾"]
 ```
 
+<!-- v -->
+
+### 优化的对象：字节走过的路，和 ridge 的哪一侧
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 600}}}%%
+flowchart LR
+    MEM["<b>字节走过的路（01）</b><br/>HBM 2 TB/s · L2 40 MB · shared 192 KB/SM<br/>寄存器 256 KB/SM · CUDA Core / Tensor Core"]
+    MEM --> J{"算术强度在 ridge 哪一侧"}
+    J -->|"低"| MB["<b>字节决定时间</b><br/>合并与向量化（03）<br/>shuffle 归约（04）<br/>融合与低精度（09）"]
+    J -->|"高"| CB["<b>FLOPs 决定时间</b><br/>分块抬强度（05）<br/>mma 与流水（06）"]
+```
+
+<aside class="notes" markdown="1">
+总纲 /gpu-kernel-engineering.html 的总览图。所有手段都落在这条路径的某一级，或者落在「少走一趟」上：02 是怎么写、怎么测，07 是同一组 kernel 的另一种写法，10 把它做成产品，11 换一套硬件。
+</aside>
+
 ---
 
 ## 01 · GPU 为什么这样设计：硬件结构与 Roofline
@@ -74,7 +91,7 @@ flowchart TB
 
 | 算子 | I（FLOP / Byte） | vs ridge 156（A100 BF16） |
 |---|---|---|
-| elementwise（add） | \(I=1/6\) | memory-bound，差三个数量级 |
+| elementwise（add） | $$I = 1/6$$ | memory-bound，差三个数量级 |
 | RMSNorm | ≈ 1 | memory-bound |
 | decode attention（GQA g = 4） | ≈ 4 | memory-bound |
 | GEMM 4096³ BF16 | ≈ 1365 | compute-bound |
@@ -90,7 +107,7 @@ flowchart TB
 
 ## 02 · 第一个 kernel：五行 vector add 跑出多少带宽
 
-**DRAM 可达带宽只有标称的 80–92%**
+**五行 kernel 跑出标称带宽的 80–92%；可达带宽本身只有标称的 85–92%**
 
 ```cuda
 __global__ void add(const float* a, const float* b, float* c, int n) {
@@ -109,7 +126,42 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 
 <aside class="notes" markdown="1">
 原文 /cuda-programming-model-and-first-kernel.html。
-结论原文：**80–92%**；DRAM 可达带宽只有标称的 85–92%，其余在每线程工作量太小、launch 与尾部、SM 填充。
+结论原文：五行 kernel 的实测等效带宽是标称的 **80–92%**；其中 DRAM 自身的物理开销让可达带宽只有标称的 85–92%，任何 kernel 都拿不到这部分。
+</aside>
+
+<!-- v -->
+
+### 从源码到跑完
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart LR
+    SRC["<b>.cu 源码</b><br/>只写一个线程"] --> HOST["<b>CPU host</b><br/>控制流在这里"]
+    HOST -->|"launch 立即返回"| ST["<b>stream</b><br/>有序队列"]
+    ST --> SM["<b>block → SM → warp</b><br/>整块落一个 SM"]
+    SM --> HBM["<b>HBM 2.0 TB/s</b><br/>3 GiB ≥ 1.6 ms"]
+    ST -.->|"event 时间戳"| SY["<b>同步点</b><br/>异步错误在此报出"]
+    classDef h fill:#fef3c7,stroke:#b45309
+    classDef d fill:#dbeafe,stroke:#1d4ed8
+    class SRC,HOST,SY h
+    class ST,SM,HBM d
+```
+
+<!-- v -->
+
+### 没跑满带宽的四个来源
+
+| 来源 | 量级 | 能不能消除 |
+|---|---|---|
+| DRAM refresh、行切换、读写 turnaround、协议开销 | 可达带宽只有标称的 85–92% | 不能 |
+| launch 延迟与尾部：最后一波 block 填不满 108 个 SM | 固定几微秒 | grid-stride 摊薄 |
+| grid 太小时 SM 没填满 | $$n = 10^5$$ 时只有 400 个 block | 调 grid |
+| 每线程只搬一个元素，在飞请求不够 | 需要约 1.2 MB 在飞 | 每线程搬 16 B |
+
+Table: vector add 没跑满带宽的四个来源
+
+<aside class="notes" markdown="1">
+原文 /cuda-programming-model-and-first-kernel.html。A100 是 108 个 SM。计时必须用 event：用 CPU 时钟量一个异步 launch，量到的是提交时间。
 </aside>
 
 ---
@@ -118,7 +170,7 @@ __global__ void add(const float* a, const float* b, float* c, int n) {
 
 **按 32 B sector 合并：连续 100%、跨步 2 是 50%、跨步 ≥32 B 是 12.5%**
 
-![四种访问模式触碰的 sector：连续对齐 4 个 100%，起点偏移 4 B 5 个 80%，跨步 2 8 个 50%，跨步 8 每线程独占一个 sector，32 个 12.5%](/img/in-post/memory-coalescing-access-patterns.svg){: style="max-height: 400px}
+![四种访问模式触碰的 sector：连续对齐 4 个 100%，起点偏移 4 B 5 个 80%，跨步 2 8 个 50%，跨步 8 每线程独占一个 sector，32 个 12.5%](/img/in-post/memory-coalescing-access-patterns.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /memory-coalescing-and-elementwise-kernels.html。90% 贴着物理上限，之后唯一优化是融合减少总字节数。
@@ -154,7 +206,10 @@ flowchart LR
 | 要点 | 细节 |
 |---|---|
 | 16 B / 线程的向量化加载 | 「memory-bound 不需要高占用率」——1.2 MB 必须在飞 |
-| 三个 elementwise kernel 各读写 16 B → 融合成一个 8 B | |
+| AoS 里只读一个字段 | stride 12 B，32 个 `x` 分布在 384 B、12 个 sector 里，有效 128 B，效率 **33%** |
+| 三个 elementwise kernel 各读写 16 B → 融合成一个 8 B | 90% 之后唯一的优化是减总字节数 |
+
+Table: 访存合并之后还能做的三件事
 
 ---
 
@@ -180,6 +235,20 @@ $$
 
 <!-- v -->
 
+### 一行数据走的路
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart LR
+    HBM["<b>HBM 一行 x</b><br/>8 KiB，读一次写一次"] -->|"16 B 向量化"| REG["<b>寄存器部分和</b><br/>FP32 累加"]
+    REG --> WS["<b>warp 内 32 → 1</b><br/>5 步 shfl_xor"]
+    WS --> BC["<b>整行标量广播</b><br/>rstd 或 m、l"]
+    BC --> OUT["<b>第二遍写回 y</b>"]
+    WS -. "d > 1024 多一跳" .-> SH["<b>shared 32 个部分和</b><br/>syncthreads 后 warp 0"] -.-> BC
+```
+
+<!-- v -->
+
 
 ### 常见误区
 
@@ -196,6 +265,26 @@ $$
 <aside class="notes" markdown="1">
 原文 /gemm-from-naive-to-tiled.html。137.4 GFLOP、192 MiB。「25% 占用率一定没压满硬件」——寄存器分块用 128 个寄存器换 ILP，compute-bound GEMM 的常态是低占用率 + 高 ILP。
 结论原文：4096³ FP32 的理论 I = 683、下界 7.0 ms；naive 实际读 512 GiB、I = 0.25、只到峰值 1–3%；**分块 $$MNK(1/BM + 1/BN)$$**：128 × 128 → 4 GiB、I = 32；瓶颈从 L1/L2 请求迁到 shared 带宽再迁到 LDS 指令，寄存器分块靠 ILP。
+一线程一输出时每次 FMA 要两条 LDS：对 shared 的强度 0.25 FLOP/B，每 SM 每周期 128 B 的 shared 带宽只够 32 FLOP，而峰值是每 SM 每周期 64 FMA = 128 FLOP——所以只到 25%。
+</aside>
+
+<!-- v -->
+
+### 六个版本：每解决一层瓶颈，下一层浮出来
+
+| 版本 | 做了什么 | $$I_{\text{HBM}}$$ | FP32 峰值 | 浮出的下一个瓶颈 |
+|---|---|---:|---:|---|
+| v1 naive | 一线程一输出，操作数全从全局读 | 0.25 | 1–3% | L1/L2 请求数、load 延迟 |
+| v2 shared 分块 | 32×32 tile 进 shared | 8 | 10–20% | shared 带宽，上限 25% |
+| v3 寄存器分块 | 每线程 8×8 外积 | 32 | 40–60% | LDS 指令数、bank conflict |
+| v4 加载优化 | float4 加载 + A 转置存入 | 32 | 55–70% | 加载与计算串行 |
+| v5 cp.async 流水 | 3 级环形 buffer，每 tile 一次同步 | 32 | 70–80% | LDS/FFMA 配比、残余 conflict |
+| cuBLAS | warp tile 重映射、swizzle、epilogue 重排 | —— | 85–95% | —— |
+
+Table: 六个版本的瓶颈迁移
+
+<aside class="notes" markdown="1">
+原文 /gemm-from-naive-to-tiled.html。百分比是对 FP32 峰值 19.5 TFLOPS 的比例。
 </aside>
 
 ---
@@ -209,13 +298,39 @@ $$
 | 312 TFLOPS | FP32 的 16 倍 |
 | `mma.sync.m16n8k16` | 4096 FLOP，占 8 周期 |
 | BF16 4096³ | 100.7 MB、I = 1365、下界 0.44 ms |
-| 未 swizzle 的 64 B 行 | 4 路 bank conflict |
+| 未 swizzle 时的 `ldmatrix` | 一行 64 B 落 2 个 bank 组 = 4 路 conflict；一行 128 B 全落一组 = 8 路 |
 | 手写到 cuBLAS | 80–90% |
 
 <aside class="notes" markdown="1">
 原文 /tensor-cores-cutlass-and-cute.html。
 结论原文：Tensor Core **不是更快的 FMA**——累加器从属于线程变成属于 warp、布局由指令规定；`mma` 只允许约 8 条伴随指令，装载必须用 `ldmatrix` 且 shared 必须 **swizzle**；Hopper 交给 TMA + `wgmma`。
 补充要点：CuTe 的 Layout = Shape + Stride：把 fragment 布局、swizzle、分块写成可组合的代数；CUTLASS 三层：collective（mma + 装载）→ kernel（分块调度）→ device（launch）
+</aside>
+
+<!-- v -->
+
+### 三条数据流：FFMA、mma.sync、wgmma
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart LR
+    subgraph cc["CUDA Core（05）"]
+        direction TB
+        s1["<b>shared</b><br/>padding / 转置"] -- "LDS.128" --> r1["<b>寄存器片段</b>"] -- "FFMA ×64" --> a1["<b>acc[8][8]</b><br/>属于线程"]
+    end
+    subgraph amp["Ampere（本篇）"]
+        direction TB
+        s2["<b>shared</b><br/>XOR swizzle"] -- "ldmatrix.x4" --> r2["<b>fragment</b>"] -- "mma 一条 4096 FLOP" --> a2["<b>acc[4]</b><br/>属于 warp"]
+    end
+    subgraph hop["Hopper"]
+        direction TB
+        s3["<b>shared</b><br/>硬件 swizzle"] -- "wgmma 读 shared" --> a3["<b>acc</b><br/>属于 warpgroup"]
+    end
+    cc ~~~ amp ~~~ hop
+```
+
+<aside class="notes" markdown="1">
+原文 /tensor-cores-cutlass-and-cute.html。三列的差别就是累加器归属、装载指令、swizzle 由谁负责；Hopper 省掉了寄存器这一跳。
 </aside>
 
 ---
@@ -234,7 +349,26 @@ $$
 原文 /triton-block-level-programming.html。
 结论原文：编译器替你做了合并、流水、`ldmatrix`、swizzle、mma 选择——matmul **少 80% 代码、到 cuBLAS 80–95%**；差的 10% 在 warp specialization、epilogue 布局转换、小 shape tile、指令调度。
 补充要点：两个旋钮：`num_warps`、`num_stages`；`tl.arange` 要 2 的幂——都是执行模型的影子；何时手写：热点 GEMM / attention、特殊指令、Hopper 特性、跨 block 协作
+计时用 `triton.testing.do_bench`：默认每次迭代前写 256 MB 冲掉 L2，但 `return_mode` 默认是 `"mean"`（均值），要中位数得传 `return_mode="median"`。
 </aside>
+
+<!-- v -->
+
+### 谁决定什么
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart LR
+    SRC["<b>程序员写</b><br/>块级张量代码<br/>没有 threadIdx"] --> JIT["<b>launch 时定下</b><br/>BLOCK、num_warps<br/>num_stages"]
+    JIT --> TTGIR["<b>编译器决定</b><br/>每个张量选 layout<br/>合并、流水、swizzle"]
+    TTGIR --> EDGE["<b>剩下那 10%</b><br/>warp 分工、epilogue<br/>小 shape、指令调度"]
+    classDef code fill:#dff5e1,stroke:#1e8449
+    classDef comp fill:#fdf1d6,stroke:#b9770e
+    classDef edge fill:#fde2e2,stroke:#c0392b
+    class SRC code
+    class JIT,TTGIR comp
+    class EDGE edge
+```
 
 <!-- v -->
 
@@ -249,7 +383,7 @@ $$
 
 **不物化 S、P：online softmax 逐块累加，HBM 132 → 66 MiB（近 4 MiB）**
 
-![一个 block 沿 K/V 块扫过去做了什么：逐块算 S_ij、更新 m 与 l、累加进 O_i](/img/in-post/attention-kernels-flash-tile-scan.svg){: style="max-height: 400px}
+![一个 block 沿 K/V 块扫过去做了什么：逐块算 S_ij、更新 m 与 l、累加进 O_i](/img/in-post/attention-kernels-flash-tile-scan.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
 原文 /attention-kernels-flashattention-and-pagedattention.html。FLOPs 略多；decode 每步读全部 KV，分页只改地址不改字节。
@@ -310,6 +444,7 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /quantization-and-fused-kernels.html。BF16 I ≈ M、W4A16 I ≈ 4M；E4M3 max 448 无 inf。
 结论原文：INT4 weight-only GEMM **字节 ÷ 4、FLOPs 不变、多一条反量化指令**——decode 在斜线上受益（8 → 约 2 ms），prefill 在屋顶上不动甚至下沉；FP8 字节与 FLOPs **同时**减半。
+采样也是一笔访存账：$$V = 128256$$、FP32、$$B = 256$$ 的 logits 约 125 MiB，只读一遍约 66 µs，与一层 decode 同量级——朴素 top-p 要先 `torch.sort` 整行，是时间线上清晰可见的一段。
 </aside>
 
 <!-- v -->
@@ -321,7 +456,7 @@ flowchart TB
 | residual + RMSNorm | 10 → 8 B |
 | RMSNorm + FP8 量化 | 7 → 3 B |
 | SiLU × up（SwiGLU 激活） | 三读一写 → 两读一写 |
-| RoPE + KV 写入 | 省一次往返 |
+| RoPE + KV 写入 | 省一次往返；Llama-3-8B、T = 8192 时 q 与 k 共 160 MiB 读写，A100 下界约 84 µs |
 
 <!-- v -->
 
@@ -347,6 +482,26 @@ flowchart TB
 原文 /kernel-profiling-testing-and-contribution.html。
 结论原文：ncu 先看 **Speed-of-Light**：访存或算力任一接近 90% 就什么都不用改；**两者都低才是 latency-bound**，再看占用率的限制因素、加 ILP、改完重测。
 补充要点：测试：BF16 rtol 1.6e-2；边界 shape 0、1、769、5125（非 2 的幂、非 tile 倍数）；接入：`TORCH_LIBRARY` + `register_fake` + `opcheck`——才能进 compile 与 vLLM
+每个 profiler 数字都要有参照：fused add+RMSNorm 的理论下界是 134 µs，实测 180 µs 就是 74% 带宽，可以接受；实测 400 µs 一定有问题。ncu 默认把时钟锁在基频，报告里的 duration 比 benchmark 慢一些，两者不要直接比。
+</aside>
+
+<!-- v -->
+
+### 顺序：先算下界，ncu 放最后
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart LR
+    T["<b>① 理论下界</b><br/>bytes / BW"] --> TP["<b>② torch.profiler</b><br/>哪个算子慢"] --> NS["<b>③ nsys</b><br/>时间线有空隙吗"]
+    NS --> G{"时间在 kernel<br/>之间还是内部"}
+    G -->|"之间"| BTW["<b>修 launch 与同步</b><br/>CUDA graph、去 .item()"]
+    G -->|"内部"| NCU["<b>④ ncu</b><br/>按 实测 / 下界 排<br/>只看 1–2 个 kernel"]
+```
+
+⑤ 按决策树改 kernel，回到 ①。
+
+<aside class="notes" markdown="1">
+原文 /kernel-profiling-testing-and-contribution.html。nsys 开销只有几个百分点，可以跑整个前向；ncu 要把一个 kernel 重放 40 次左右，所以用 `-k` / `-c` 过滤。文章里那张 fused add+RMSNorm 的 ncu 量级表是按字节数与硬件参数**推算**出来的参照区间，不是某次实测报告。
 </aside>
 
 <!-- v -->
@@ -375,6 +530,7 @@ Table: CUDA 与 Ascend C 的核心映射
 
 <aside class="notes" markdown="1">
 原文 /ascend-cann-from-cuda-to-ascend-c.html。版本钉 CANN 8.0.0 文档链接的 samples tag v0.2-8.0.0.beta1；本文环境没有 CANN / NPU。
+分离架构：AI Vector 核有 MTE2、MTE3、Vector、Scalar 四个执行单元和 GM、UB 两种存储；AI Cube 核有 MTE1、MTE2、Cube、Scalar 四个执行单元，以及 L1、L0A、L0B、L0C、BT、Fixpipe Buffer 加 GM。
 </aside>
 
 <!-- v -->
@@ -382,7 +538,7 @@ Table: CUDA 与 Ascend C 的核心映射
 ### 账本不是性能报告
 
 - 固定 FP16 `[8,2048]`：8 个逻辑块，每块 16 轮 × 128 元素。
-- 三队列各两块 buffer：payload **1536 B**；逻辑全局流量 **98304 B**；\(I=1/6\)。
+- 三队列各两块 buffer：payload **1536 B**；逻辑全局流量 **98304 B**；$$I = 1/6$$。
 - NumPy 账本只验证覆盖与参考值；CANN CPU 调试、仿真、真机不能互相冒充。
 - 本篇未编译或运行 Ascend C；**没有真实 NPU 性能数据**。
 
