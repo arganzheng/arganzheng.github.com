@@ -5,16 +5,70 @@ title: "GPU Kernel 工程（09）：量化与融合 kernel——推理系统的�
 subtitle: "Quantized and Fused Kernels: The Rest of the Inference Stack"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
-上一篇把 attention 讨论完了。一个 decoder layer 里除了 attention 和标准 GEMM，剩下的是一堆"小 kernel"：RMSNorm、RoPE、SiLU-mul、把 KV 写进分页 cache、把权重从 INT4 解开、把激活压成 FP8、MoE 的 token 重排、采样。它们单个都不复杂，但数量多、变化快，加起来占掉推理时间的一个可观比例——而且是 vLLM、SGLang 这些项目里 PR 最活跃的区域。
+[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)把 attention 讨论完了。一个 decoder layer 里除了 attention 和标准 GEMM，剩下的是一堆"小 kernel"：RMSNorm、RoPE、SiLU-mul、把 KV 写进分页 cache、把权重从 INT4 解开、把激活压成 FP8、MoE 的 token 重排、采样。它们单个都不复杂，但数量多、变化快，加起来占掉推理时间的一个可观比例——而且是 vLLM、SGLang 这些项目里 PR 最活跃的区域。
 
-这一篇把它们放在同一个方法论下过一遍：**先算这个 kernel 理论上要搬多少字节、做多少 FLOPs，再看实现，再解释差距。**核心问题是总纲提出的那个：
+这一篇把它们放在同一个方法论下过一遍：**先算这个 kernel 理论上要搬多少字节、做多少 FLOPs，再看实现，再解释差距。**核心问题是[总纲](/gpu-kernel-engineering.html)提出的那个：
 
 > **一个 INT4 weight-only GEMM，decode 时比 BF16 快 3 倍，prefill 时反而慢。用 Roofline 解释这个现象。**[^q0]
 
 ## 一、总览
+
+下图是一个 decoder layer 里 attention 之外的那部分：权重和激活以什么格式进 GEMM、在哪一级存储里被解开、GEMM 前后的小 kernel 各省掉哪些 HBM 往返。节点上标着展开它的章节：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：attention 之外的 kernel：量化权重与激活怎样进 GEMM，融合 kernel 省掉哪些 HBM 往返
+flowchart TB
+    RES["<b>残差流 x、residual</b><br/>HBM，BF16，每行 d 个元素"]
+    NQ["<b>fused add + RMSNorm（+ 动态量化）</b><br/>一行一个 block，中间值留在寄存器 / L1<br/>• 分开 13 B/元素，融合 7 B/元素（第五章）<br/>• W8A8 时顺带输出 FP8 激活和每 token 一个 scale（第四章）"]
+    W["<b>离线量化好的权重（HBM）</b><br/>• W4A16：packed INT4 + 每 128 个 k 一个 scale，约 4.15 bit/权重（第二、三章）<br/>• W8A8：FP8 E4M3 + per-channel 或 128×128 块 scale（第四章）"]
+    MAIN["<b>量化 GEMM 主循环</b><br/>tile 经 cp.async / TMA 进 shared memory<br/>• W4A16：寄存器里 lop3 + hfma2 解包成 BF16 fragment，再做 BF16 mma（第三章）<br/>• W8A8：FP8 直接进 Tensor Core；128×128 块 scale 每 128 个 k 在 CUDA Core 上乘一次（第四章）"]
+    RF["<b>Roofline 决定哪种量化划算（第三章）</b><br/>• decode，M 小：memory-bound，只看权重字节，W4A16 快约 3 倍<br/>• prefill，M 大：compute-bound，W4A16 多出解包指令反而略慢；W8A8 的 FLOPs 时间减半"]
+    EPI["<b>epilogue</b><br/>FP32 累加器 × $$s_a(i) \cdot s_b(j)$$，转 BF16 写回 HBM（第四章）"]
+    EW["<b>GEMM 之间的 memory-bound 小 kernel（第五章）</b><br/>• RoPE：就地旋转 q、k<br/>• reshape_and_cache：k、v 写进分页 KV cache<br/>• SiLU-and-mul：6 B/元素"]
+    MOE["<b>MoE 层的 FFN（第六章）</b><br/>topk_softmax → moe_align_block_size → grouped GEMM<br/>每个 expert 平均只分到 $$Tk/E$$ 行"]
+    SMP["<b>采样（第七章）</b><br/>top-k / top-p 选择、投机解码的拒绝采样"]
+    VER["<b>数值验证（第八章）</b><br/>与反量化后的参考比，不与原始权重比"]
+
+    RES --> NQ
+    NQ -- "W8A8：FP8 激活 + scale<br/>W4A16：BF16 激活" --> MAIN
+    W --> MAIN
+    MAIN --> EPI --> EW
+    RF -.-> MAIN
+    MAIN -. "FFN 换成 MoE" .-> MOE
+    EW -- "最后一层之后" --> SMP
+    VER -.-> MAIN
+```
+
+- **残差流**：每个子层的输入与输出，BF16，`[T, d]`；pre-norm 结构下它先加上一个子层的输出，再归一化给下一个子层（[「residual add + RMSNorm」一节](#3-residual-add--rmsnorm)）。
+- **fused add + RMSNorm（+ 动态量化）**：三步分开是三次 launch、13 B/元素，合成一个 kernel 是 7 B/元素，中间的 BF16 张量不落 HBM（[「融合为什么赢：只有字节」一节](#1-融合为什么赢只有字节)、[「动态量化 kernel」一节](#5-动态量化-kernelabsmax-reduction--cast以及与-rmsnorm-的融合)）。
+- **离线量化好的权重**：INT4 没有硬件类型，8 个装进一个 `uint32`，scale 另存一张小矩阵；FP8 E4M3 最大 448、无 inf（[第二章](#二低精度格式在-kernel-层的含义)）。
+- **量化 GEMM 主循环**：W4A16 的权重在寄存器里用 magic number 解成 BF16，Tensor Core 做的仍是 BF16 `mma`（[「INT4 打包与 magic number 反量化」一节](#4-int4-打包与magic-number反量化)、[「Marlin 的结构」一节](#3-marlin-的结构)）；W8A8 的 Tensor Core 直接吃 FP8，128×128 块 scale 依赖 $$k$$，只能在 K 循环里乘（[「per-block 128×128 scale」一节](#3-per-block-128128-scale为什么不能放-epilogue)）。
+- **Roofline**：INT4 只减字节、不减 FLOPs，所以只在 memory-bound 一侧划算；A100 上 INT4 的交叉点约 $$M = 40$$，BF16 约 156（[「Roofline 两侧」一节](#2-roofline-两侧核心问题的答案)）。
+- **epilogue**：scale 只依赖 $$i$$ 或只依赖 $$j$$ 时可以提出求和号，最后每个输出元素乘两个数（[「scale 的三种粒度与 epilogue」一节](#2-scale-的三种粒度与-epilogue)）。
+- **GEMM 之间的小 kernel**：算术强度都在 1 FLOP/byte 以下，时间就是字节数除以带宽；RoPE 与 `reshape_and_cache` 的难点在索引与 cache 布局（[第五章](#五融合-kernel-的常见模式)）。
+- **MoE 层的 FFN**：先按 expert 计数排序、pad 到 tile 大小，再让每个 M-tile 查自己的 expert 权重；每个 expert 的有效 $$M$$ 只有 $$Tk/E$$，比 dense FFN 更靠 memory-bound 一侧（[第六章](#六moe-的-kernel-流水线)、[「为什么 grouped GEMM 的效率低」一节](#4-为什么-grouped-gemm-的效率低)）。
+- **采样**：难点是对 128K 词表的排序 / 选择和小 launch 之间的同步，不是算力（[第七章](#七采样-kernel)）。
+- **数值验证**：量化误差是算法的事，验证 kernel 时参考侧用反量化后的权重（[第八章](#八数值验证tolerance-怎么定)）。十个 kernel 怎样接成一层前向，见[「组装 decoder layer 前向」一节](#5-组装-decoder-layer-前向)。
+
+图里的量化相关对象容易混：哪些离线算好、哪些每次前向现算，存在 HBM、shared memory 还是寄存器，活多久。下表以一个 $$4096 \times 4096$$ 的权重、$$T = 8192$$ 个 token 为例：
+
+| 对象 | 谁产生、何时 | 存在哪里 | 活多久 | 大小 |
+|---|---|---|---|---|
+| packed INT4 权重 | 离线量化；加载模型时 repack 成 Marlin 布局 | HBM<br/>每个 block 按 tile 经 `cp.async` 搬进 shared memory | 与模型同寿命<br/>shared memory 里的副本只活一个 stage | 8 MiB（BF16 为 32 MiB） |
+| per-group scale（W4A16） | 离线量化，每列每 128 个 k 一个 | HBM，`[K/128, N]` FP16/BF16<br/>主循环里取进寄存器 | 与模型同寿命 | $$32 \times 4096 \times 2$$ B = 256 KiB |
+| zero-point（可选） | 离线量化，非对称格式（如 AWQ）才有 | HBM，`[K/128, N/8]` INT4 打包<br/>对称格式的零点 8 直接折进 `SUB` / `ADD` 常数 | 与模型同寿命 | 64 KiB |
+| 反量化后的 BF16 / FP16 值 | 每个 block 每次载入一个权重 tile 后用 `lop3` + `hfma2` 现算 | 线程寄存器里的 B fragment | 喂给一条 `mma` 后即被下一批覆盖<br/>从不写回 shared memory 或 HBM | 不占显存<br/>代价是指令：同一权重被 $$M / BM$$ 个 block 各解一遍 |
+| FP32 累加器 | 每个 block 开始一个输出 tile 时清零 | 寄存器（Hopper `wgmma` 也是） | 一个输出 tile 的整个 K 循环 | 128×128 块 scale 时两套：Tensor Core 累加器每 128 个 k 清零，CUDA Core 上的 FP32 累加器活到 epilogue |
+| 激活的动态 scale（per-token） | 每次前向，由动态量化 kernel（或融合的 RMSNorm）对每行做 absmax 归约后算出 | block 内先在 shared memory，再写到 HBM 的 `scale[T]`（FP32） | 本次 GEMM 读完即丢，下一次前向重算 | $$8192 \times 4$$ B = 32 KiB |
+| FP8 激活 | 同一个 kernel：除以 scale、饱和、`cvt` | HBM，`[T, K]` | 本次 GEMM 读完即丢 | $$8192 \times 4096 \times 1$$ B = 32 MiB |
+| FP8 权重的 scale | 离线量化 | HBM<br/>per-channel 由 epilogue 读一次<br/>128×128 块 scale 由主循环每块读一次 | 与模型同寿命 | per-channel 4096 个 FP32<br/>块 scale $$32 \times 32 = 1024$$ 个 |
+| Marlin 的 `locks` / `C_tmp` | host 侧分配的 workspace | HBM | 一次 kernel 调用<br/>`locks` 做跨 block 的 barrier，`C_tmp` 存 FP32 部分和 | — |
+
+Table: 量化 GEMM 相关对象的产生时机、存放位置与寿命
 
 ### 1. 答案先说在前面
 
@@ -28,14 +82,14 @@ updated: 2026-09-14
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | 低精度格式在 kernel 层的含义 | 位布局与动态范围、累加精度、CUDA 类型与转换指令、INT4 打包与 magic number 反量化 |
-| 三 | Weight-only 量化 GEMM（W4A16） | INT4 tile → 寄存器解包 → mma fragment、Roofline 两侧的答案、Marlin、GPTQ / AWQ / Machete、目录导读 |
-| 四 | FP8 GEMM（W8A8）与动态量化 | 字节与 FLOPs 同时减半、scale 的三种粒度与 epilogue、per-block scale、Ampere fallback、动态量化 kernel |
-| 五 | 融合 kernel 的常见模式 | 融合为什么赢、bias + activation 与 SiLU-and-mul、residual + RMSNorm、RoPE、`reshape_and_cache` |
-| 六 | MoE 的 kernel 流水线 | 流水线、`topk_softmax`、`moe_align_block_size`、grouped GEMM 为什么效率低、目录导读 |
+| 二 | 低精度格式在 kernel 层的含义 | 位布局与动态范围<br/>累加精度<br/>CUDA 类型与转换指令<br/>INT4 打包与 magic number 反量化 |
+| 三 | Weight-only 量化 GEMM（W4A16） | INT4 tile → 寄存器解包 → mma fragment<br/>Roofline 两侧的答案<br/>Marlin<br/>GPTQ / AWQ / Machete<br/>目录导读 |
+| 四 | FP8 GEMM（W8A8）与动态量化 | 字节与 FLOPs 同时减半<br/>scale 的三种粒度与 epilogue<br/>per-block scale<br/>Ampere fallback<br/>动态量化 kernel |
+| 五 | 融合 kernel 的常见模式 | 融合为什么赢<br/>bias + activation 与 SiLU-and-mul<br/>residual + RMSNorm<br/>RoPE<br/>`reshape_and_cache` |
+| 六 | MoE 的 kernel 流水线 | 流水线<br/>`topk_softmax`<br/>`moe_align_block_size`<br/>grouped GEMM 为什么效率低<br/>目录导读 |
 | 七 | 采样 kernel | top-k / top-p、拒绝采样 |
 | 八 | 数值验证 | tolerance 怎么定 |
-| 九 | 实践 | fused residual + RMSNorm、SiLU-and-mul、RoPE、教学版 INT4 GEMV、组装 decoder layer 前向、预期量级 |
+| 九 | 实践 | fused residual + RMSNorm<br/>SiLU-and-mul<br/>RoPE<br/>教学版 INT4 GEMV<br/>组装 decoder layer 前向<br/>预期量级 |
 | 十 | 本文小结 |  |
 | 十一 | 自测 | 5 道题 |
 
@@ -81,7 +135,11 @@ Table: 常见数值格式的位分配、范围与相对精度
 
 ### 3. CUDA 类型与转换指令
 
-`cuda_bf16.h` 提供 `__nv_bfloat16` 与它的双元素打包 `__nv_bfloat162`；`cuda_fp16.h` 提供 `__half` 与 `__half2`；`cuda_fp8.h`（CUDA 11.8+）提供 `__nv_fp8_e4m3`、`__nv_fp8_e5m2` 及打包 `__nv_fp8x2_e4m3`、`__nv_fp8x4_e4m3`，底层存储是 `__nv_fp8_storage_t`（一个 `uint8_t`）。
+三个头文件提供低精度类型：
+
+- `cuda_bf16.h`：`__nv_bfloat16` 与它的双元素打包 `__nv_bfloat162`；
+- `cuda_fp16.h`：`__half` 与 `__half2`；
+- `cuda_fp8.h`（CUDA 11.8+）：`__nv_fp8_e4m3`、`__nv_fp8_e5m2` 及打包 `__nv_fp8x2_e4m3`、`__nv_fp8x4_e4m3`，底层存储是 `__nv_fp8_storage_t`（一个 `uint8_t`）。
 
 常用转换 intrinsic：
 
@@ -131,7 +189,13 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 
 ![一个 uint32 里 8 个 INT4 的位排布](/img/in-post/quantization-and-fused-kernels-int4-unpack.svg)
 
-逐行看：`lo` 取每个 16 位半字的低 4 位（第 0、4 个元素），或上 `0x6400` 得到 $$1024 + q$$；`SUB = 0x6408` 是 FP16 的 $$1032 = 1024 + 8$$，一次 `__hsub2` 同时完成"减 1024"和"减零点 8"。`hi` 取 bit 4 到 7（第 1、5 个元素），它们在尾数里的位置高了 4 位，表示的值是 $$1024 + 16q$$；`MUL = 0x2c00` 是 FP16 的 $$1/16$$，`ADD = 0xd480` 是 $$-72 = -(1024/16 + 8)$$，一次 `__hfma2` 完成 $$(1024 + 16q)/16 - 72 = q - 8$$。**四个元素、四条指令**（两条 `lop3`、一条 `hsub2`、一条 `hfma2`，均摊每元素一条），再乘 scale 是每两个元素一条 `hmul2`。BF16 版本同理，只是"magic"常数换成 `0x4300`（BF16 的 128，尾数 7 位，最低位权重 1）。这一招只用整数逻辑与 FP16 算术，比逐元素的 `cvt` + 减法 + 乘法（每元素 3 到 4 条）快得多，且不占用 Tensor Core。
+逐行看：
+
+1. `lo` 取每个 16 位半字的低 4 位（第 0、4 个元素），或上 `0x6400` 得到 $$1024 + q$$。
+2. `SUB = 0x6408` 是 FP16 的 $$1032 = 1024 + 8$$，一次 `__hsub2` 同时完成"减 1024"和"减零点 8"。例：$$q = 5$$ 时 `0x6405` 是 1029，减 1032 得 $$-3 = 5 - 8$$。
+3. `hi` 取 bit 4 到 7（第 1、5 个元素），它们在尾数里的位置高了 4 位，表示的值是 $$1024 + 16q$$；`MUL = 0x2c00` 是 FP16 的 $$1/16$$，`ADD = 0xd480` 是 $$-72 = -(1024/16 + 8)$$，一次 `__hfma2` 完成 $$(1024 + 16q)/16 - 72 = q - 8$$。同样 $$q = 5$$：$$1104 / 16 - 72 = -3$$。
+
+**四个元素、四条指令**（两条 `lop3`、一条 `hsub2`、一条 `hfma2`，均摊每元素一条），再乘 scale 是每两个元素一条 `hmul2`。BF16 版本同理，只是"magic"常数换成 `0x4300`（BF16 的 128，尾数 7 位，最低位权重 1）。这一招只用整数逻辑与 FP16 算术，比逐元素的 `cvt` + 减法 + 乘法（每元素 3 到 4 条）快得多，且不占用 Tensor Core。
 
 注意它假设权重的位排列已被预先打乱成"第 0、4 个元素在低半字，第 1、5 个在高半字"这种交错顺序——这就是 Marlin 需要 **repack** 步骤的原因之一。
 
@@ -139,7 +203,7 @@ __device__ inline void dequant<half2, vllm::kU4B8.id(), false>(int q,
 
 ### 1. 结构：INT4 tile → 寄存器解包 → mma fragment
 
-W4A16 的含义是：权重（W）4 位，激活（A）16 位，Tensor Core 做的仍然是 BF16/FP16 的 `mma`。所以 kernel 的主循环比第六篇的 BF16 GEMM 多了一段：
+W4A16 的含义是：权重（W）4 位，激活（A）16 位，Tensor Core 做的仍然是 BF16/FP16 的 `mma`。所以 kernel 的主循环比[《Tensor Core、CUTLASS 与 CuTe》的「实践：Ampere BF16 GEMM」一节](/tensor-cores-cutlass-and-cute.html#四实践ampere-bf16-gemm)里的 BF16 GEMM 多了一段：
 
 | BF16 GEMM 主循环 | W4A16 GEMM 主循环 |
 |---|---|
@@ -156,7 +220,7 @@ Table: BF16 GEMM 与 W4A16 GEMM 主循环对照
 
 ### 2. Roofline 两侧：核心问题的答案
 
-回到第一篇的 Roofline：一个 kernel 的时间是
+回到[《GPU 为什么这样设计——硬件结构与 Roofline》的「Roofline 模型」一节](/gpu-architecture-and-roofline.html#六roofline-模型)：一个 kernel 的时间是
 
 $$
 t = \max\left( \frac{\text{FLOPs}}{P_{peak}},\ \frac{\text{Bytes}}{BW} \right)
@@ -184,7 +248,13 @@ H100 上对应 4.8 ms 与 1.2 ms。理论上界是 4 倍（更准确是 $$16 / 4
 
 ![W4A16 与 BF16 GEMM 时间随 M 的变化](/img/in-post/quantization-and-fused-kernels-w4a16-roofline.svg)
 
-**交叉点**在哪里？INT4 GEMM 从 memory-bound 变 compute-bound 的 M 满足 $$4M \approx 156$$，即 $$M \approx 40$$；BF16 的交叉点是 $$M \approx 156$$。在 $$M < 40$$ 时 INT4 的收益随 M 减小而增大（趋近 4 倍）；$$40 < M < 156$$ 时 INT4 已经 compute-bound 而 BF16 还在 memory-bound，两者接近；$$M > 156$$ 时两者都 compute-bound，INT4 因反量化开销略慢。H100 上 ridge 是 295，交叉点约 $$M \approx 74$$。
+**交叉点**在哪里？INT4 GEMM 从 memory-bound 变 compute-bound 的 M 满足 $$4M \approx 156$$，即 $$M \approx 40$$；BF16 的交叉点是 $$M \approx 156$$。三个区域：
+
+- $$M < 40$$：INT4 的收益随 M 减小而增大（趋近 4 倍）；
+- $$40 < M < 156$$：INT4 已经 compute-bound 而 BF16 还在 memory-bound，两者接近；
+- $$M > 156$$：两者都 compute-bound，INT4 因反量化开销略慢。
+
+H100 上 ridge 是 295，交叉点约 $$M \approx 74$$。
 
 所以答案是：**INT4 weight-only 量化是一个"把字节换指令"的交易，只在 memory-bound 一侧划得来。**这也解释了为什么推理引擎会按 M 选不同的 kernel（vLLM 的 AWQ 非 Marlin 路径在 token 数达到 256 时改为先把权重整体反量化成 FP16、再走 cuBLAS），以及为什么 FP8 W8A8 这种"FLOPs 也减半"的方案在 Hopper 上更受欢迎。
 
@@ -194,7 +264,7 @@ Marlin（Frantar 等 2024，"Mixed Auto-Regressive Linear kernel"）是专门为
 
 1. **权重预先重排（repack）**成 `mma` fragment 友好的布局：一个 `int4`（16 字节）从 shared memory 读出来直接就是某个 warp 某条 `mma.m16n8k16` 需要的 B fragment 的打包形式，不需要 `ldmatrix` 转置，也不需要在寄存器间 shuffle。`csrc/quantization/marlin/gptq_marlin_repack.cu` 与 `awq_marlin_repack.cu` 做这件事，一次性离线完成。
 2. **`cp.async` 多 stage 流水**（默认 4 stage）：全局到 shared 的拷贝异步进行，同时 shared 到寄存器（`ldsm` 即 `ldmatrix`，用于 A）和 `mma` 并行；`cp_async_wait<stages - 2>` 控制流水深度。
-3. **反量化在寄存器中**完成，就是 §2.4 那段 `lop3` + `hfma2`，紧挨着 `mma` 发射。
+3. **反量化在寄存器中**完成，就是[「INT4 打包与 magic number 反量化」一节](#4-int4-打包与magic-number反量化)那段 `lop3` + `hfma2`，紧挨着 `mma` 发射。
 4. **striped partitioning**：把 B 矩阵按"条"分给 block，每个 block 处理一条覆盖多个列 slice 的斜带，保证 108 个 SM 在各种 N、K 形状下都有活干，同时尽量少做跨 block 的归约。
 5. **global reduce**：当一个列 slice 被多个 block 分摊 K 维时，用一个全局 `locks` 数组做 barrier，后到的 block 把部分和累加到先到者的输出上（有 FP16 与 FP32 两个版本）。
 6. **小 M 特化**：M ≤ 8 时用 `m_block_size_8` 走 `mma_trans` 路径，让一条 `m16n8k16` 的 16 行不至于浪费一半。
@@ -381,7 +451,18 @@ A100 没有 FP8 Tensor Core。FP8 权重在 Ampere 上只能是**存储格式**�
 
 ### 5. 动态量化 kernel：absmax reduction + cast，以及与 RMSNorm 的融合
 
-per-token 动态量化就是第四篇 reduction 的一个变体：一行 $$d$$ 个元素，先归约出 $$\max_k \lvert x_k \rvert$$，算 $$s = \max / 448$$（或 $$/127$$），再把每个元素除以 $$s$$、饱和、转 FP8 写出。vLLM 的实现：
+per-token 动态量化就是[《共享内存与 reduction》的「reduction 的六个版本」](/shared-memory-reduction-and-softmax.html#四reduction-的六个版本)的一个变体：一行 $$d$$ 个元素，先归约出 $$\max_k \lvert x_k \rvert$$，算 $$s = \max / 448$$（或 $$/127$$），再把每个元素除以 $$s$$、饱和、转 FP8 写出。一行 4 个数的例子：absmax 是 4.48，$$s = 4.48 / 448 = 0.01$$；E4M3 只有 3 位尾数，$$[32, 64)$$ 里的间隔是 4、$$[128, 256)$$ 里是 16，所以 37 和 230 都要舍入：
+
+| $$x$$ | $$x / s$$ | E4M3 编码值 | 反量化 $$s \cdot q$$ | 相对误差 |
+|---:|---:|---:|---:|---:|
+| 0.37 | 37 | 36 | 0.36 | 2.7% |
+| −1.2 | −120 | −120 | −1.20 | 0 |
+| 4.48 | 448 | 448 | 4.48 | 0 |
+| 2.3 | 230 | 224 | 2.24 | 2.6% |
+
+Table: 一行激活的 per-token FP8 量化（E4M3，round-to-nearest-even）
+
+vLLM 的实现：
 
 ```cpp title="dynamic_per_token_scaled_fp8_quant_kernel_strided"
 // csrc/quantization/w8a8/fp8/common.cu（v0.20.0）
@@ -438,7 +519,7 @@ __global__ void dynamic_per_token_scaled_fp8_quant_kernel_strided(
 
 Table: RMSNorm 与动态量化分开 / 融合的字节数
 
-融合节省 4/7 的流量，并且不需要物化 BF16 的中间张量。vLLM 的 `csrc/quantization/fused_kernels/fused_layernorm_dynamic_per_token_quant.cu` 就是这个融合，结构是三段：`compute_rms`（sum of squares 归约）→ `compute_dynamic_per_token_scales`（对**归一化后**的值 $$\text{bf16}(x \cdot \text{rms}) \cdot w$$ 做 absmax 归约，注意先转一次 BF16 再乘 $$w$$，让 scale 与非融合路径逐位一致）→ `norm_and_quant`（第三遍读 $$x$$，归一化、除 scale、`cvt`、写 FP8）。三遍读的后两遍在 L1/L2 里，HBM 流量还是上表的 3 B/元素。它还带 `has_residual` 模板参数，把 residual add 也吸进来（见下一章）。
+融合节省 4/7 的流量，并且不需要物化 BF16 的中间张量。vLLM 的 `csrc/quantization/fused_kernels/fused_layernorm_dynamic_per_token_quant.cu` 就是这个融合，结构是三段：`compute_rms`（sum of squares 归约）→ `compute_dynamic_per_token_scales`（对**归一化后**的值 $$\text{bf16}(x \cdot \text{rms}) \cdot w$$ 做 absmax 归约，注意先转一次 BF16 再乘 $$w$$，让 scale 与非融合路径逐位一致）→ `norm_and_quant`（第三遍读 $$x$$，归一化、除 scale、`cvt`、写 FP8）。三遍读的后两遍在 L1/L2 里，HBM 流量还是上表的 3 B/元素。它还带 `has_residual` 模板参数，把 residual add 也吸进来（见[「residual add + RMSNorm」一节](#3-residual-add--rmsnorm)）。
 
 ## 五、融合 kernel 的常见模式
 
@@ -485,7 +566,7 @@ flowchart TB
 
 ### 2. bias + activation 与 SiLU-and-mul
 
-最简单的模式：GEMM 输出 $$y$$，接 $$\text{act}(y + b)$$。分开做是 GEMM 写 $$y$$（2 B）、bias kernel 读写（4 B）、act kernel 读写（4 B），融合进 GEMM 的 epilogue 之后只有 GEMM 写一次（2 B）。这在 CUTLASS 里是 epilogue functor 的事，属于第六篇。
+最简单的模式：GEMM 输出 $$y$$，接 $$\text{act}(y + b)$$。分开做是 GEMM 写 $$y$$（2 B）、bias kernel 读写（4 B）、act kernel 读写（4 B），融合进 GEMM 的 epilogue 之后只有 GEMM 写一次（2 B）。这在 CUTLASS 里是 epilogue functor 的事，属于[《Tensor Core、CUTLASS 与 CuTe》的「CUTLASS 与 CuTe」一节](/tensor-cores-cutlass-and-cute.html#六cutlass-与-cute)。
 
 Llama 系模型的 FFN 用 SwiGLU（Swish-Gated Linear Unit，两路相乘再降维）：`gate_up` GEMM 一次输出 $$[T, 2d_{ff}]$$（前一半是 gate，后一半是 up），然后
 
@@ -578,7 +659,7 @@ Table: residual add 与 RMSNorm 分开 / 融合的字节数
   }
 ```
 
-注意两个细节：方差用的是**写回 BF16 之后**的 `temp`（`sum_squares` 在 `_f16Vec` 上算，先转 float），第二遍从 `residual_v` 重新读——这一读命中 L1/L2，不增加 HBM 流量，但省下了把一行 4096 个值留在寄存器里的压力。第九章的实现沿用这个结构。
+注意两个细节：方差用的是**写回 BF16 之后**的 `temp`（`sum_squares` 在 `_f16Vec` 上算，先转 float），第二遍从 `residual_v` 重新读——这一读命中 L1/L2，不增加 HBM 流量，但省下了把一行 4096 个值留在寄存器里的压力。[第九章](#1-fused-residual--rmsnorm)的实现沿用这个结构。
 
 ### 4. RoPE：两种布局，就地旋转
 
@@ -591,7 +672,7 @@ $$
 \begin{pmatrix} x_j \\ y_j \end{pmatrix}
 $$
 
-$$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position, rot_dim]`（前一半 cos、后一半 sin，FP32）。kernel 对每个 token 查 `positions[token]` 拿到那一行，对 q 的全部 head 与 k 的全部 KV head 就地旋转。字节数：q 与 k 各读写一次，每元素 4 B，Llama-3-8B 一个 token 的 q 是 $$32 \times 128 \times 2 = 8$$ KiB、k 是 2 KiB（GQA，8 个 KV head），$$T = 8192$$ 时共 160 MiB 读写，A100 下界约 80 µs——比 GEMM 小两个数量级，但它是每层都有的一次 launch。
+$$\cos$$ 与 $$\sin$$ 与输入无关，预先算成 `cos_sin_cache[max_position, rot_dim]`（前一半 cos、后一半 sin，FP32）。kernel 对每个 token 查 `positions[token]` 拿到那一行，对 q 的全部 head 与 k 的全部 KV head 就地旋转。字节数：q 与 k 各读写一次，每元素 4 B，Llama-3-8B 一个 token 的 q 是 $$32 \times 128 \times 2 = 8$$ KiB、k 是 2 KiB（GQA，8 个 KV head），$$T = 8192$$ 时共 160 MiB 读写，A100 下界约 84 µs——比 GEMM 小两个数量级，但它是每层都有的一次 launch。
 
 两种布局的差别在"哪两个分量组成一个平面"：
 
@@ -638,7 +719,7 @@ inline __device__ void apply_token_rotary_embedding(
 
 ### 5. `reshape_and_cache`：把新 token 的 KV 写进分页 cache
 
-上一篇讨论的 PagedAttention 从分页 cache 里读 KV；这一节是它的写入端。每个新 token 的 k、v（形状 `[num_tokens, num_kv_heads, head_size]`）要写到 cache 里由调度器指定的位置：`slot_mapping[token]` 给出一个全局 slot 编号，`block_idx = slot / block_size`、`block_offset = slot % block_size`。字节数：每 token 读 k、v 各 $$n_{kv} \cdot d_{head} \cdot 2$$ 字节、写同样多——Llama-3-8B 一层一个 token 是 4 KiB 读 4 KiB 写，纯拷贝。
+[《Attention Kernel》的「PagedAttention」一节](/attention-kernels-flashattention-and-pagedattention.html#六pagedattention分页-kv-cache-的-kernel-侧)讨论的 PagedAttention 从分页 cache 里读 KV；这一节是它的写入端。每个新 token 的 k、v（形状 `[num_tokens, num_kv_heads, head_size]`）要写到 cache 里由调度器指定的位置：`slot_mapping[token]` 给出一个全局 slot 编号，`block_idx = slot / block_size`、`block_offset = slot % block_size`。字节数：每 token 读 k、v 各 $$n_{kv} \cdot d_{head} \cdot 2$$ 字节、写同样多——Llama-3-8B 一层一个 token 是 4 KiB 读 4 KiB 写，纯拷贝。
 
 kernel 的全部复杂性来自 cache 的**布局**。v0.20.0 有两个 kernel：
 
@@ -804,10 +885,10 @@ A 的行地址是 `offs_token // top_k`（同一个 token 被 $$k$$ 个 expert �
 ![dense FFN 与 MoE grouped GEMM 的权重摊薄](/img/in-post/quantization-and-fused-kernels-moe-amortization.svg)
 
 - pad 行照样喂进 `mma`，算力白烧。
-- tile 数不均 → 有的 SM 早早空转，是第五篇 wave quantization 的放大版。
+- tile 数不均 → 有的 SM 早早空转，是[《GEMM——从 naive 到分块》的「wave quantization」一节](/gemm-from-naive-to-tiled.html#2-wave-quantization)的放大版。
 - 没分到 token 的 expert 不占 M-tile：`CEILDIV(0, 4) = 0`，它在 `cumsum` 里那一段长度为 0。全是 pad 的 tile 只在网格尾部，超出 `num_tokens_post_padded`，`expert_ids` 填 -1，kernel 一进来就 `return`。
 
-每个 expert 的 GEMM 是 $$[M_e, K] \times [K, N]$$，$$M_e$$ 是分到它的 token 数。平均 $$\bar{M}_e = Tk / E$$：DeepSeek-V3 decode batch 128 时 $$128 \times 8 / 256 = 4$$，prefill 4096 token 时也只有 128。用 §3.2 的公式，每个 expert GEMM 的算术强度约为 $$\bar{M}_e$$（BF16）——**每个 expert 的权重只被 $$Tk/E$$ 行摊薄**，而 dense FFN 的权重被全部 $$T$$ 行摊薄。所以同样 $$T$$ 下 MoE 的 FFN 部分比 dense 更靠 Roofline 的 memory-bound 一侧，交叉点要 $$Tk/E > 156$$，即 $$T > 156 E / k \approx 5000$$（DeepSeek-V3）。再加上 padding 浪费（每个 expert 平均浪费 `BLOCK_M/2` 行，$$E = 256$$、`BLOCK_M = 64` 时是 8192 行的空 `mma`）与负载不均（热门 expert 的 tile 多，冷 expert 只有一个 tile），grouped GEMM 达到的 MFU 通常显著低于同规模 dense GEMM。这也是 FP8 与 W4 权重对 MoE 模型收益更大的原因——它们几乎总在 memory-bound 一侧。
+每个 expert 的 GEMM 是 $$[M_e, K] \times [K, N]$$，$$M_e$$ 是分到它的 token 数。平均 $$\bar{M}_e = Tk / E$$：DeepSeek-V3 decode batch 128 时 $$128 \times 8 / 256 = 4$$，prefill 4096 token 时也只有 128。用[「Roofline 两侧」一节](#2-roofline-两侧核心问题的答案)的公式，每个 expert GEMM 的算术强度约为 $$\bar{M}_e$$（BF16）——**每个 expert 的权重只被 $$Tk/E$$ 行摊薄**，而 dense FFN 的权重被全部 $$T$$ 行摊薄。所以同样 $$T$$ 下 MoE 的 FFN 部分比 dense 更靠 Roofline 的 memory-bound 一侧，交叉点要 $$Tk/E > 156$$，即 $$T > 156 E / k \approx 5000$$（DeepSeek-V3）。再加上 padding 浪费（每个 expert 平均浪费 `BLOCK_M/2` 行，$$E = 256$$、`BLOCK_M = 64` 时是 8192 行的空 `mma`）与负载不均（热门 expert 的 tile 多，冷 expert 只有一个 tile），grouped GEMM 达到的 MFU 通常显著低于同规模 dense GEMM。这也是 FP8 与 W4 权重对 MoE 模型收益更大的原因——它们几乎总在 memory-bound 一侧。
 
 ### 5. `csrc/moe/` 目录导读
 
@@ -830,7 +911,7 @@ Table: `csrc/moe/` 目录导读
 
 ### 1. top-k / top-p：对 128K 的词表做选择
 
-生成阶段每个 token 都要从 `logits [B, V]` 里采样。$$V = 128256$$（Llama-3）时一行 512 KB（FP32），$$B = 256$$ 时 128 MiB——只读一遍是 64 µs，与一层 decode 的时间同量级。问题在于 top-k 与 top-p（nucleus）都需要**排序或选择**：top-p 要按概率降序累加到阈值，朴素实现是 `torch.sort` 一整行（128K 元素的 radix sort，多次 pass，每 pass 读写全行），再 cumsum、再 mask、再 `multinomial`——每 token 十几次 kernel launch 与几 MB 的中间张量，batch 大时是时间线上清晰可见的一段。
+生成阶段每个 token 都要从 `logits [B, V]` 里采样。$$V = 128256$$（Llama-3）时一行 512 KB（FP32），$$B = 256$$ 时约 125 MiB——只读一遍约 66 µs，与一层 decode 的时间同量级。问题在于 top-k 与 top-p（nucleus）都需要**排序或选择**：top-p 要按概率降序累加到阈值，朴素实现是 `torch.sort` 一整行（128K 元素的 radix sort，多次 pass，每 pass 读写全行），再 cumsum、再 mask、再 `multinomial`——每 token 十几次 kernel launch 与几 MB 的中间张量，batch 大时是时间线上清晰可见的一段。
 
 kernel 层的改进方向是**不排序**：用 radix select（按位分桶、只保留包含第 $$k$$ 大元素的那个桶继续）或"猜阈值 + 验证"的方式找到 top-k 的阈值，两三遍扫描完成；top-p 类似地用二分查找阈值使超过它的概率和恰好越过 $$p$$。vLLM v0.20.0 的 `csrc/sampler.cu` 有 `topKPerRowDecode` / `topKPerRowPrefill`（每行一个 block 做 top-k），`csrc/persistent_topk.cuh` 与 `topk.cu` 是更通用的实现；FlashInfer 提供了一组 `sampling` kernel（top-k、top-p、top-k+top-p 联合、min-p），用 rejection-based 的思路把采样与截断合成一个 kernel，不物化排序结果——这是目前 SGLang 与 vLLM 都会调用的实现。
 
@@ -845,6 +926,9 @@ kernel 层的改进方向是**不排序**：用 radix select（按位分桶、�
 **1. BF16 GEMM 的误差随 $$\sqrt{K}$$ 增长。**$$K$$ 个乘积在 FP32 里累加、最后转 BF16，误差有两个来源：输出的一次 BF16 舍入（相对 $$2^{-8} \approx 0.4\%$$），以及每个输入元素的 BF16 舍入误差（各约 $$\varepsilon = 2^{-8}$$ 相对）经 $$K$$ 项累加后的随机游走——绝对误差按 $$\varepsilon \sqrt{K}$$ 倍的"典型乘积大小"增长。对随机符号的数据，输出本身也是 $$\sqrt{K}$$ 倍的典型乘积大小，相对误差仍在 $$\varepsilon$$ 量级；但一旦输出因为正负抵消而偏小（这在真实激活里很常见），相对误差就会放大到 $$10^{-2}$$ 甚至更高。所以对 BF16 GEMM 用 `torch.testing.assert_close(out, ref, rtol=1.6e-2, atol=1e-5)` 是合理的起点（这是 PyTorch 对 BF16 的默认值），$$K$$ 越大 atol 要相应放宽；参考应当用 FP32 输入的 `torch.matmul`，而不是 BF16 的 cuBLAS——后者自己也有同量级误差，两个误差叠加会让你误判。
 
 **2. 量化 kernel 与"参考的量化实现"比，不与 FP16 比。**INT4 反量化 GEMM 的输出与 FP16 GEMM 的差异由**量化本身**决定（per-group 128、4 位时权重相对误差约 $$1/(2 \times 7) \approx 7\%$$ 量级），这是算法的事、不是 kernel 的事。验证 kernel 时，先用 Python 把打包权重按定义反量化成 FP32 矩阵 $$\hat{W} = s \cdot (q - z)$$，再算 $$x \hat{W}^T$$ 作为参考——这样差异只剩下 kernel 的累加顺序与舍入，应当在 BF16 GEMM 的 tolerance 内。FP8 同理：参考是 $$\text{dequant}(A_q) \cdot \text{dequant}(B_q)$$，不是原始的 $$A \cdot B$$。
+
+> [!NOTE] Java 经验参照：并行求和的结果不逐位相同
+> `DoubleStream.sum()` 的 Javadoc 写明：浮点和取决于加法顺序，这个方法的加法顺序故意不作规定，同样的输入可能得到不同的结果。所以测试里比较两个 `double` 和用 `assertEquals(expected, actual, delta)` 而不是 `==`。kernel 的情形一样：split-K、warp shuffle 归约、Tensor Core 内部的加法顺序都与参考实现不同，所以用 `rtol` / `atol`。对不上的一点：Java 的误差只来自 `double` 的加法顺序，量级约 $$10^{-16}$$；kernel 还有输入与输出的 BF16 / FP8 舍入，tolerance 要大十几个数量级，由格式的尾数位数决定，不由加法顺序决定。
 
 **3. FP8 per-tensor 的 outlier 效应要单独测。**一行激活里一个 300 的 outlier 会让 per-tensor scale 变成 $$300/448 \approx 0.67$$，此时绝对值小于 0.67 的元素全部量化为 0 或 $$\pm 0.67$$——这不是 bug，是格式的性质。测试数据要用有 outlier 的分布（如少数元素乘 100 的正态分布）而不是纯 `randn`，并检查 per-token 与 per-tensor 两种粒度下误差的差别是否符合预期。
 
@@ -863,11 +947,17 @@ Table: 各类 kernel 数值校验的 tolerance 经验表
 
 ## 九、实践：四个 kernel，组装成 decoder layer
 
-以下代码默认 `-arch=sm_80`，输入 BF16、累加 float。用第二篇的 `bench` 与 `torch.utils.cpp_extension.load_inline` 接到 Python；扩展机制不展开。
+以下代码默认 `-arch=sm_80`，输入 BF16、累加 float。用[《CUDA 编程模型与第一个 kernel》的 bench 脚手架](/cuda-programming-model-and-first-kernel.html#3-完整的-c-程序与-bench-脚手架) 与 `torch.utils.cpp_extension.load_inline` 接到 Python；扩展机制不展开。
 
 ### 1. fused residual + RMSNorm
 
-一行一个 block，两遍：第一遍 $$z = x + r$$ 写回 $$r$$、累加 $$z^2$$；block 归约得 $$\text{rstd} = 1/\sqrt{\text{mean}(z^2) + \epsilon}$$；第二遍从 $$r$$（L1/L2 命中）读 $$z$$，写 $$\text{out} = z \cdot \text{rstd} \cdot w$$。理论字节：8 B/元素。
+一行一个 block，分三步：
+
+1. 第一遍：$$z = x + r$$ 写回 $$r$$，同时累加 $$z^2$$；
+2. block 归约得 $$\text{rstd} = 1/\sqrt{\text{mean}(z^2) + \epsilon}$$；
+3. 第二遍：从 $$r$$（L1/L2 命中）读 $$z$$，写 $$\text{out} = z \cdot \text{rstd} \cdot w$$。
+
+理论字节：8 B/元素。
 
 ```cpp title="fused_add_rms_norm_kernel：两遍、8 B/元素"
 #include <cuda_bf16.h>
@@ -1121,29 +1211,38 @@ __global__ void w4a16_gemv_kernel(__nv_bfloat16* __restrict__ y,
 //     y, x, reinterpret_cast<const uint32_t*>(packed.data_ptr<int32_t>()), scales, M, N, K);
 ```
 
-逐行核对几处容易错的地方：`(packed >> (4 * j)) & 0xF` 先转 `int` 再转 `float` 再减 8，得到 $$-8$$ 到 $$7$$；`scol[w / WORDS_PER_GROUP]` 正确，因为字 $$w$$ 覆盖 $$k = 8w$$ 到 $$8w + 7$$，group 编号是 $$8w / G = w / (G/8)$$，且 $$G$$ 是 8 的倍数保证一个字不跨 group；`x + m * K + k0` 的字节偏移是 $$2(mK + 8w)$$，$$K$$ 为 8 的倍数时是 16 的倍数，`uint4` 读对齐；`acc[m]` 的归约用 `__shfl_xor_sync` 全 mask，因为 warp 里所有 lane 都活着（`n >= N` 的 return 是整 warp 一起的）。
+逐行核对四处容易错的地方：
 
-它与 Marlin 的差距：（1）不用 Tensor Core，$$M$$ 一大就 compute-bound 在 CUDA Core 的 19.5 TFLOPS 上——$$M = 8$$、$$N = K = 4096$$ 时 FLOPs 是 0.27 G，CUDA Core 需要 14 µs，已接近权重 8 MiB 的 4 µs 带宽时间的三倍，所以它只在 $$M \le 2$$ 时接近带宽下界；（2）解包用整数移位 + `cvt`（每元素约 3 条指令），Marlin 用 `lop3` + magic number（每元素约一条）；（3）没有 `cp.async` 流水，靠 warp 数量掩盖延迟——$$N = 4096$$ 时 1024 个 block、4096 个 warp，108 个 SM 每个约 38 个 warp，勉强够。
+1. `(packed >> (4 * j)) & 0xF` 先转 `int` 再转 `float` 再减 8，得到 $$-8$$ 到 $$7$$。
+2. `scol[w / WORDS_PER_GROUP]` 正确，因为字 $$w$$ 覆盖 $$k = 8w$$ 到 $$8w + 7$$，group 编号是 $$8w / G = w / (G/8)$$，且 $$G$$ 是 8 的倍数保证一个字不跨 group。
+3. `x + m * K + k0` 的字节偏移是 $$2(mK + 8w)$$，$$K$$ 为 8 的倍数时是 16 的倍数，`uint4` 读对齐。
+4. `acc[m]` 的归约用 `__shfl_xor_sync` 全 mask，因为 warp 里所有 lane 都活着（`n >= N` 的 return 是整 warp 一起的）。
 
-对照：`ref = x.float() @ W_hat.T`，`assert_close(y.float(), ref, rtol=1.6e-2, atol=1e-3)`。按第八章的原则，这里比的是 `W_hat` 而不是原始 `W`。
+它与 Marlin 的差距有三处：
+
+1. 不用 Tensor Core，$$M$$ 一大就 compute-bound 在 CUDA Core 的 19.5 TFLOPS 上——$$M = 8$$、$$N = K = 4096$$ 时 FLOPs 是 0.27 G，CUDA Core 需要 14 µs，已接近权重 8 MiB 的 4 µs 带宽时间的三倍，所以它只在 $$M \le 2$$ 时接近带宽下界。
+2. 解包用整数移位 + `cvt`（每元素约 3 条指令），Marlin 用 `lop3` + magic number（每元素约一条）。
+3. 没有 `cp.async` 流水，靠 warp 数量掩盖延迟——$$N = 4096$$ 时 1024 个 block、4096 个 warp，108 个 SM 每个约 38 个 warp，勉强够。
+
+对照：`ref = x.float() @ W_hat.T`，`assert_close(y.float(), ref, rtol=1.6e-2, atol=1e-3)`。按[第八章](#八数值验证tolerance-怎么定)的原则，这里比的是 `W_hat` 而不是原始 `W`。
 
 ### 5. 组装 decoder layer 前向
 
-把本篇的四个 kernel 与前几篇的 GEMM（第六篇 BF16 `mma.sync` GEMM）、attention（第八篇 FlashAttention 前向 / paged decode）按下面的顺序接起来，就是一个 Llama 风格 decoder layer。以 Llama-3-8B（$$d = 4096$$、32 个 q head、8 个 KV head、$$d_{head} = 128$$、$$d_{ff} = 14336$$）、$$T$$ 个 token 为例：
+把本篇的四个 kernel 与前几篇的 GEMM（[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html#四实践ampere-bf16-gemm)的 BF16 `mma.sync` GEMM）、attention（[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)的 FlashAttention 前向 / paged decode）按下面的顺序接起来，就是一个 Llama 风格 decoder layer。以 Llama-3-8B（$$d = 4096$$、32 个 q head、8 个 KV head、$$d_{head} = 128$$、$$d_{ff} = 14336$$）、$$T$$ 个 token 为例：
 
 | 步 | kernel | 输入 shape | 输出 shape | 来源 |
 |---|---|---|---|---|
 | 1 | `fused_add_rms_norm` | x [T,4096], residual [T,4096] | xn [T,4096] | 本篇 §9.1（第 0 层第一次用普通 RMSNorm） |
-| 2 | QKV GEMM | xn [T,4096] × Wqkv [6144,4096]ᵀ | qkv [T,6144] | 第六篇 BF16 GEMM，或 §9.4 INT4 GEMV（T 小） |
+| 2 | QKV GEMM | xn [T,4096] × Wqkv [6144,4096]ᵀ | qkv [T,6144] | 《Tensor Core、CUTLASS 与 CuTe》的 BF16 GEMM，或 §9.4 INT4 GEMV（T 小） |
 | ^^ | split | qkv | q [T,32,128], k [T,8,128], v [T,8,128] | view，不拷贝 |
 | 3 | `rope_neox` | positions [T], q, k（就地） | q, k | 本篇 §9.3 |
-| 4 | `reshape_and_cache` | k, v, slot_mapping [T] | paged K/V cache | 第八篇（写入端本篇 §5.5） |
-| 5 | attention | q, K cache, V cache, block_table | o [T,32,128] | 第八篇（prefill: flash；decode: paged） |
-| 6 | O GEMM | o.view(T,4096) × Wo [4096,4096]ᵀ | attn_out [T,4096] | 第六篇 / §9.4 |
+| 4 | `reshape_and_cache` | k, v, slot_mapping [T] | paged K/V cache | 《Attention Kernel》（写入端本篇 §5.5） |
+| 5 | attention | q, K cache, V cache, block_table | o [T,32,128] | 《Attention Kernel》（prefill: flash；decode: paged） |
+| 6 | O GEMM | o.view(T,4096) × Wo [4096,4096]ᵀ | attn_out [T,4096] | 《Tensor Core、CUTLASS 与 CuTe》 / §9.4 |
 | 7 | `fused_add_rms_norm` | attn_out, residual（就地） | xn2 [T,4096] | 本篇 §9.1；residual ← residual + attn_out |
-| 8 | gate_up GEMM | xn2 × Wgu [28672,4096]ᵀ | gu [T,28672] | 第六篇 / §9.4 |
+| 8 | gate_up GEMM | xn2 × Wgu [28672,4096]ᵀ | gu [T,28672] | 《Tensor Core、CUTLASS 与 CuTe》 / §9.4 |
 | 9 | `silu_and_mul` | gu [T,28672] | h [T,14336] | 本篇 §9.2 |
-| 10 | down GEMM | h × Wd [4096,14336]ᵀ | ffn_out [T,4096] | 第六篇 / §9.4 |
+| 10 | down GEMM | h × Wd [4096,14336]ᵀ | ffn_out [T,4096] | 《Tensor Core、CUTLASS 与 CuTe》 / §9.4 |
 
 Table: Llama 风格 decoder layer 的 10 步 kernel 序列
 
@@ -1178,7 +1277,7 @@ flowchart TB
     class in,out d
 ```
 
-绿色四个是本篇 §9 的 elementwise/row-wise kernel（memory-bound，融合的对象），黄色四个 GEMM 来自第六篇（T 大时 compute-bound，T 小时退化成读权重），蓝色两个是第八篇的 attention 读写端。分开数的话一层 10 次 launch；生产系统会继续把 ①+② 的量化、③+④、⑨ 进 ⑧ 的 epilogue 融掉。
+绿色四个是本篇 §9 的 elementwise/row-wise kernel（memory-bound，融合的对象），黄色四个 GEMM 来自《Tensor Core、CUTLASS 与 CuTe》（T 大时 compute-bound，T 小时退化成读权重），蓝色两个是《Attention Kernel》的 attention 读写端。分开数的话一层 10 次 launch；生产系统会继续把 ①+② 的量化、③+④、⑨ 进 ⑧ 的 epilogue 融掉。
 
 PyTorch eager 对照实现（省略 KV cache，用 `F.scaled_dot_product_attention` 做 attention）：
 
@@ -1230,7 +1329,7 @@ def decoder_layer_ref(h, residual, p, pos, cos_sin, n_h=32, n_kv=8, d_head=128):
 - **silu_and_mul** $$T = 8192$$、$$d_{ff} = 14336$$：6 B × 117 M = 672 MiB，下界约 350 µs，预期 **85% 到 90%** 带宽（它没有归约，比 norm 更容易跑满）。
 - **rope_neox** $$T = 8192$$：q + k 共 $$8192 \times 40 \times 128 \times 2 \times 2 = 160$$ MiB 读写，下界约 84 µs；每线程只读写 4 个 BF16，访存粒度小，通常 **60% 到 80%**。
 - **w4a16_gemv** $$M = 1$$、$$N = K = 4096$$：权重 8 MiB + scale 256 KiB，下界约 4.4 µs；BF16 GEMV 读 32 MiB 下界 16.8 µs。教学版通常能到带宽的 50% 到 70%（约 6 到 9 µs），对比 cuBLAS 的 BF16 GEMV（约 18 到 20 µs），**2 到 3 倍加速**；Marlin 在同样形状下接近 4 倍。$$M = 8$$ 时教学版因 CUDA Core 算力见顶，加速收窄到 1.5 倍以内，而 Marlin 仍保持接近 4 倍——这就是 Tensor Core 路径存在的理由。
-- **整层** decode（$$T = 1$$）：Llama-3-8B 一层权重 BF16 约 436 MB，读一遍 218 µs（A100），INT4 约 113 MB、57 µs；加上 KV cache 读取（上下文 $$s$$ 时 $$128$$ KiB $$\times s / 32$$ 每层）。elementwise kernel 在 $$T = 1$$ 时各只有几微秒，此时 kernel launch 开销（每个约 3 到 5 µs）与它们的执行时间同量级——这是第十篇讨论 CUDA Graph 与 launch 融合的动机。
+- **整层** decode（$$T = 1$$）：Llama-3-8B 一层权重 BF16 约 436 MB，读一遍 218 µs（A100），INT4 约 113 MB、57 µs；加上 KV cache 读取（上下文 $$s$$ 时 $$128$$ KiB $$\times s / 32$$ 每层）。elementwise kernel 在 $$T = 1$$ 时各只有几微秒，此时 kernel launch 开销（每个约 3 到 5 µs）与它们的执行时间同量级——这段 launch 间隙在时间线上怎么看、为什么要靠 CUDA graph 与算子融合去修，见[《剖析、测试与贡献——把 kernel 做成产品》的「Nsight Systems：先看 kernel 之间」一节](/kernel-profiling-testing-and-contribution.html#三nsight-systems先看-kernel-之间)。
 
 ## 十、本文小结
 
@@ -1287,7 +1386,7 @@ vLLM v0.20.0 csrc 导读：
 - `csrc/activation_kernels.cu`、`layernorm_kernels.cu`、`pos_encoding_kernels.cu`、`fused_qknorm_rope_kernel.cu`
 - `csrc/cache_kernels.cu`（reshape_and_cache / _flash）、`csrc/moe/`、`csrc/sampler.cu`、`topk.cu`
 
-到这里，decoder layer 的 kernel 全集已经凑齐：第三篇的 elementwise、第四篇的 norm 与 softmax、第五六篇的 GEMM、第八篇的 attention、本篇的 RoPE、SiLU-mul、fused norm、INT4 GEMV 与 KV 写入。它们能跑通一个 layer 的前向、能与 PyTorch eager 对照正确性。但"能跑"与"能进 vLLM 主线"之间还有一段距离：怎么用 Nsight Compute 确认离 Roofline 还有多远、怎么写 `opcheck` 通得过的测试、怎么用 `TORCH_LIBRARY` 注册成算子并让 `torch.compile` 认识它、怎么处理多架构编译。这是最后一篇的内容。
+到这里，decoder layer 的 kernel 全集已经凑齐：[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)的 elementwise、[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的 norm 与 softmax、[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)与[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)的 GEMM、[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)的 attention、本篇的 RoPE、SiLU-mul、fused norm、INT4 GEMV 与 KV 写入。它们能跑通一个 layer 的前向、能与 PyTorch eager 对照正确性。但"能跑"与"能进 vLLM 主线"之间还有一段距离：怎么用 Nsight Compute 确认离 Roofline 还有多远、怎么写 `opcheck` 通得过的测试、怎么用 `TORCH_LIBRARY` 注册成算子并让 `torch.compile` 认识它、怎么处理多架构编译。这是[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html)的内容。
 
 ## 十一、自测
 
