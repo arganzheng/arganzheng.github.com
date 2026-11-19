@@ -5,22 +5,61 @@ title: "GPU Kernel 工程（04）：共享内存与 reduction——softmax、Lay
 subtitle: "Shared Memory and Reductions: Softmax, LayerNorm and Online Softmax"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
-上一篇的 elementwise kernel 有一个共同特征：每个线程只管自己的元素，线程之间不需要说话。把访存合并、向量化、grid-stride 做对，带宽就能推到 90% 以上。
+[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)里的 kernel 有一个共同特征：每个线程只管自己的元素，线程之间不需要说话。把访存合并、向量化、grid-stride 做对，带宽就能推到 90% 以上。
 
 这一篇进入需要线程**协作**的 kernel。RMSNorm 要先知道整行的均方才能缩放每个元素；softmax 要先知道整行的最大值和指数和才能归一化每个元素。"先算出一个整行的标量，再用它处理每个元素"——这个模式叫 reduction，它是所有 norm、softmax、loss、统计类算子的核心，也是 FlashAttention 内循环的一半。
 
-总纲给这一篇的核心问题是：
+[总纲](/gpu-kernel-engineering.html)给这一篇的核心问题是：
 
 > **一个 4096 维的 RMSNorm，读一次写一次，理论上是 memory-bound 的。为什么 naive 实现能慢 10 倍？[^q0] shared memory 和 warp shuffle 各解决了哪部分？[^q1]**
 
 ## 一、总览
 
+RMSNorm、softmax、LayerNorm 的 kernel 走的是同一条数据路径：一行从 HBM 读进寄存器，在寄存器里先各自累加，再在 warp 内、block 内两级汇总成一个整行标量，广播回每个线程，最后第二遍写出。下图是这条路径，以及每一步在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：一个按行归约的 kernel 的数据路径：HBM → 寄存器 → warp shuffle → shared memory → 广播 → 写回
+flowchart TB
+    HBM["<b>HBM 上的一行 x</b><br/>d = 4096 的 BF16 行是 8 KiB；读一次、写一次就是全部流量（第二章）"]
+    HBM -->|"16 字节向量化、合并加载"| REG["<b>每线程寄存器里的部分和</b><br/>每个线程先在 FP32 里串行累加自己负责的元素（第四章 v5、第八章）"]
+    REG --> WS["<b>warp 内归约：32 → 1</b><br/>5 步 __shfl_xor_sync，不经过 shared memory、不需要栅栏（第四章 v6、第五章）"]
+    WS --> D{"一行只交给一个 warp？<br/>d ≤ 1024 时是（第六章）"}
+    D -->|"是：warp-per-row"| BC
+    D -->|"否：block-per-row"| SH["<b>shared memory 里的 32 个部分和</b><br/>每个 warp 的 lane 0 写一个，__syncthreads() 之后 warp 0 读回再 shuffle（第三章）"]
+    SH --> BC["<b>整行标量，广播给每个线程</b><br/>• RMSNorm：$$\text{rstd}$$<br/>• softmax：$$(m, l)$$，合并算子不是加法（第七章）<br/>• LayerNorm：$$(n, \mu, M_2)$$，Welford 合并（第八章）"]
+    BC --> OUT["<b>第二遍：写出 HBM 上的 y</b><br/>寄存器里的 $$x$$ 乘整行标量与 $$\gamma$$（第十章）"]
+    SH -.->|"一个输出要多个 block 分担时"| GL["<b>global staging buffer + 原子计数</b><br/>最后到达的 block 读回所有部分和收尾（第五章、第九章）"]
+```
+
+- **HBM 上的一行 x**：读 8 KiB、写 8 KiB，8192 行合计 128 MiB，A100 上的下界约 67 µs；算术强度约 1 FLOP/byte，所以这类 kernel 比的只是访存与归约的组织方式（[第二章](#二先算理论下界)）。
+- **每线程寄存器里的部分和**：归约的大部分加法在这里完成，每个线程处理 $$d / T$$ 个元素，只有最后的 $$T$$ 个部分和需要线程间通信；累加必须用 FP32（[「v5：每线程处理多个元素」一节](#5-v5每线程处理多个元素grid-stride-加载)、[「RMSNorm：均方在 FP32 累加」一节](#1-rmsnorm均方在-fp32-累加)）。
+- **warp 内归约**：32 个 lane 用 `__shfl_xor_sync` 直接读彼此的寄存器，5 步后每个 lane 都持有总和（[「v6：两级 shuffle」一节](#6-v6两级-shuffle现代写法)、[第五章](#五warp-级原语与原子操作)）。
+- **一行交给一个 warp 还是一个 block**：由 $$d$$ 决定。一个 warp 装得下整行时，warp 内归约的结果就是整行结果，零 shared、零 `__syncthreads()`（[第六章](#六一行一个-block还是一行一个-warp)）。
+- **shared memory 里的 32 个部分和**：不同 warp 之间只能经 shared memory 交换数据，代价是一次 `__syncthreads()`；它的容量、栅栏语义和 bank conflict 在[第三章](#三shared-memoryblock-内的公共草稿纸)。
+- **整行标量**：归约的对象可以是一个 float，也可以是一个元组，只要合并算子满足结合律就能走同一棵树——softmax 的 $$(m, l)$$ 在[第七章](#七softmaxsafe三遍两遍online)，LayerNorm 的 Welford 状态在[第八章](#八layernorm-与-rmsnorm)。
+- **第二遍写出**：行在寄存器里就直接用，不在就从 global 重读（刚读过，在 L2 里）；完整实现在[第十章](#十实践rmsnorm-与-online-softmax)。
+- **global staging buffer + 原子计数**：一行长到一个 block 不够时，多个 block 各写一个部分和，原子操作只用来计数、选出最后到达的 block 做确定性的最终归约（[「原子操作」一节](#4-原子操作什么时候用什么时候避免)、[「PyTorch `Reduce.cuh`」一节](#3-pytorch-reducecuh通用归约的三级结构)）。
+
+图里的几样中间结果分别在三级存储里，谁能看见、活多久各不相同，写错一处就是读到别人的垃圾或者死锁：
+
+| 对象 | 谁写、何时产生 | 存在哪里 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| 输入行 $$x$$、输出行 $$y$$ | host 分配；$$y$$ 由第二遍写出 | HBM（第二遍重读时多半命中 L2） | 由 host 管理，跨 kernel | 所有 block |
+| $$\gamma$$（RMSNorm / LayerNorm 的权重） | 模型加载时写好 | HBM，所有行共用，读过一次后留在 L2 | 跨 kernel | 所有 block |
+| 每线程的部分和、留在寄存器里的行片段（`buf[ITERS]`、`v[ITEMS]`） | 第一遍加载时由线程自己累加 | 寄存器 | 线程的寿命 | 只有本线程；同 warp 的 lane 通过 shuffle 读 |
+| 32 个 warp 部分和（`red[32]`、`shared[wid]`） | 每个 warp 的 lane 0 在 warp 内归约之后写 | shared memory，128 字节 | block 的寿命；不初始化，不跨 block 保留 | 同一 block 的所有线程，`__syncthreads()` 之后 |
+| 广播的整行标量（vLLM 的 `s_variance`） | 线程 0 在 block 归约之后写 | shared memory 里的一个 float | block 的寿命 | 同一 block 的所有线程，`__syncthreads()` 之后 |
+| staging buffer 与 semaphore（`Reduce.cuh`） | host 在 launch 前从 CUDA caching allocator 分配，semaphore 用 `cudaMemsetAsync` 清零；各 block 写部分和 | HBM | 一次归约调用 | 所有 block，写方 `__threadfence()` 之后 |
+
+Table: 一次按行归约里各中间结果的产生者、存放位置、寿命与可见范围
+
 ### 1. 三块知识与本文的路线
 
-回答它需要三块知识：shared memory（block 内线程交换数据的地方）、`__syncthreads()`（交换数据时的栅栏）、warp shuffle（不经过 shared memory 的 32 线程内交换）。本文先算理论下界，再把这三块讲清楚，然后用六个版本把一个 reduction 从 naive 推到接近极限，最后落到 softmax、LayerNorm/RMSNorm 两类真实 kernel，以及 online softmax 的推导——它是第八篇 FlashAttention 的数学基础。
+回答它需要三块知识：shared memory（block 内线程交换数据的地方）、`__syncthreads()`（交换数据时的栅栏）、warp shuffle（不经过 shared memory 的 32 线程内交换）。本文先算理论下界，再把这三块讲清楚，然后用六个版本把一个 reduction 从 naive 推到接近极限，最后落到 softmax、LayerNorm/RMSNorm 两类真实 kernel，以及 online softmax 的推导——它是[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)的数学基础。
 
 ### 2. 硬件基线
 
@@ -91,7 +130,18 @@ $$
 - **多次 kernel launch**。先 launch 一个 kernel 求平方和写回 global，再 launch 一个 kernel 读回来缩放。每次 launch 有几微秒的固定开销，中间结果还要往返 HBM 一次。
 - **shared memory bank conflict 或 `__syncthreads()` 太多**。用了 shared memory 但访问模式让 32 个线程撞到同一个 bank，或者 reduction 树的每一级都做一次 block 级同步——每次同步都让 block 里所有 warp 停下来等最慢的那个。
 
-这四个问题的解法分别是：让所有线程并行累加、用树形归约替代原子加、把两个阶段融合进一个 kernel、用 warp shuffle 替代 shared memory 归约的最后五级。下面从 shared memory 开始。
+四个来源与解法一一对应：
+
+| 慢的来源 | 解法 | 在哪一章 |
+|---|---|---|
+| 一个线程串行求和 | 所有线程并行累加各自的部分和 | [第四章](#四reduction-的六个版本) |
+| 每线程 `atomicAdd` 到同一个地址 | 树形归约替代原子加 | [第四章](#四reduction-的六个版本)、[第五章](#五warp-级原语与原子操作) |
+| 多次 kernel launch | 两个阶段融合进一个 kernel | [第八章](#八layernorm-与-rmsnorm)、[第十章](#十实践rmsnorm-与-online-softmax) |
+| bank conflict 或 `__syncthreads()` 太多 | warp shuffle 替代 shared memory 归约的最后五级 | [第三章](#三shared-memoryblock-内的公共草稿纸)、[第四章](#四reduction-的六个版本) |
+
+Table: naive RMSNorm 慢的四个来源与对应解法
+
+下面从 shared memory 开始。
 
 ## 三、shared memory：block 内的公共草稿纸
 
@@ -135,7 +185,7 @@ cudaFuncSetAttribute(k_dynamic,
 k_dynamic<<<grid, block, kSmem>>>(in, out, n);
 ```
 
-A100 上单 block 上限是 163 KB，H100 是 227 KB。GEMM 和 FlashAttention 的大 tile 都依赖这个 opt-in，第五、六、八篇会反复用到。
+A100 上单 block 上限是 163 KB，H100 是 227 KB。GEMM 和 FlashAttention 的大 tile 都依赖这个 opt-in，[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)、[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)、[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)会反复用到。
 
 ### 2. 容量、与 L1 的关系、生命周期
 
@@ -198,10 +248,11 @@ $$
 
 最经典的冲突场景是**二维 tile 的按列访问**。设 `__shared__ float tile[32][32]`，线程 `threadIdx.x` 访问 `tile[threadIdx.x][k]`（固定列 `k`，不同行）：
 
-```text title="tile[t][k] 按列访问：全部落在同一 bank"
-线程 t 访问的字地址 = t * 32 + k
-bank = (t * 32 + k) % 32 = k          ← 所有 32 个线程落在同一个 bank
-```
+$$
+\text{字地址}(t) = 32t + k, \qquad \text{bank}(t) = (32t + k) \bmod 32 = k
+$$
+
+右边与 $$t$$ 无关：32 个线程全部落在同一个 bank $$k$$。
 
 ![tile[32][32] 各元素所在的 bank](/img/in-post/shared-memory-reduction-and-softmax-bank-32.svg)
 
@@ -249,7 +300,7 @@ __device__ __forceinline__ int swz(int r, int c) { return c ^ (r & 31); }
 - 按列读逻辑列 0：找每行的「0」，它在行 r 落在物理列 r → 8 个线程 8 个不同 bank，无冲突。
 - 按行读行 r：8 个元素仍占满物理列 0..7 → 同样无冲突。
 
-XOR 是一个置换：对固定的 `r`，`c → c ^ r` 把 0..31 一一映射到 0..31，所以每行的 32 个元素仍然占满 32 个位置，不浪费空间；对固定的 `c`，不同的 `r` 给出不同的物理列，所以按列访问不再冲突。swizzle 是 CUTLASS/CuTe 里 shared memory layout 的标准做法（第六篇会看到 `Swizzle<3,3,3>` 这样的类型），因为 `ldmatrix` 和 Tensor Core 的 fragment 加载要求 16 字节对齐、padding 不好用。
+XOR 是一个置换：对固定的 `r`，`c → c ^ r` 把 0..31 一一映射到 0..31，所以每行的 32 个元素仍然占满 32 个位置，不浪费空间；对固定的 `c`，不同的 `r` 给出不同的物理列，所以按列访问不再冲突。swizzle 是 CUTLASS/CuTe 里 shared memory layout 的标准做法（[《Tensor Core、CUTLASS 与 CuTe》的「为什么 ldmatrix 下 shared memory 必须 swizzle」一节](/tensor-cores-cutlass-and-cute.html#5-为什么-ldmatrix-下-shared-memory-必须-swizzle)会看到 `Swizzle<3,3,3>` 这样的类型），因为 `ldmatrix` 和 Tensor Core 的 fragment 加载要求 16 字节对齐、padding 不好用。
 
 reduction 本身很少碰到 bank conflict，因为它的访问模式是连续的。但 Harris 那篇经典幻灯片里的"交错寻址"版本正好是一个 stride 为 2 的幂的例子，下一章会看到。
 
@@ -272,7 +323,7 @@ for (int s = 1; s < blockDim.x; s *= 2) {
 
 第一轮 `s=1`：偶数线程加相邻的奇数线程。第二轮 `s=2`：tid 为 4 的倍数的线程加 `tid+2`。……10 轮之后 `sdata[0]` 是总和。
 
-问题有三个。**分支发散**：`tid % (2*s) == 0` 在一个 warp 内一半为真一半为假（第一轮），之后是 1/4、1/8……但 warp 是整体调度的，只要 warp 里有一个线程活跃，整个 warp 就要走一遍，活跃线程越少浪费越大。**取模**：整数取模在 GPU 上不是单条指令。**bank conflict——常被误报**：很多资料（包括早期版本的本文）说 v1 活跃线程的地址 stride 是 $$2^k$$ 个字所以有 $$2^k$$-way 冲突。实际不是：v1 的活跃线程 tid 是 $$2^k$$ 的倍数，它们读 `sdata[tid]` 与 `sdata[tid + s]`，逐轮枚举同一 warp 内活跃 lane 的地址（$$s = 1 \ldots 512$$），每条 load 落到的 bank 都互不相同——没有冲突。真正有 bank conflict 的是 Harris 的**下一版**：把索引改写成 `i = 2*s*tid`（下段），那时同一 warp 的 32 个线程访问 stride 为 $$2s$$ 的连续地址，才是 2-way、4-way……v1 的两个问题只是分支发散与取模。
+问题有三个。**分支发散**：`tid % (2*s) == 0` 在一个 warp 内一半为真一半为假（第一轮），之后是 1/4、1/8……但 warp 是整体调度的，只要 warp 里有一个线程活跃，整个 warp 就要走一遍，活跃线程越少浪费越大。**取模**：整数取模在 GPU 上不是单条指令。**bank conflict——常被误报**：很多资料说 v1 活跃线程的地址 stride 是 $$2^k$$ 个字所以有 $$2^k$$-way 冲突。实际不是：v1 的活跃线程 tid 是 $$2^k$$ 的倍数，它们读 `sdata[tid]` 与 `sdata[tid + s]`，逐轮枚举同一 warp 内活跃 lane 的地址（$$s = 1 \ldots 512$$），每条 load 落到的 bank 都互不相同——没有冲突。真正有 bank conflict 的是 Harris 的**下一版**：把索引改写成 `i = 2*s*tid`（下段），那时同一 warp 的 32 个线程访问 stride 为 $$2s$$ 的连续地址，才是 2-way、4-way……v1 的两个问题只是分支发散与取模。
 
 Harris 的 v2 把 `if (tid % (2*s) == 0)` 换成 `int i = 2*s*tid; if (i < blockDim.x)`，前一半线程干活、后一半空闲——消除了发散和取模，但代价是**引入了** bank conflict：现在同一 warp 内相邻线程访问的地址差 $$2s$$ 个字，$$s = 1$$ 时就已经是 2-way，$$s$$ 每翻倍冲突路数翻倍。所以直接跳到下一步。
 
@@ -293,7 +344,11 @@ for (int s = blockDim.x / 2; s > 0; s >>= 1) {
 - v1：活跃线程隔开，同一 warp 内一半旁观（第一轮发散）。访问 `sdata[tid]`、`sdata[tid+s]` 时，活跃 lane 的 bank 互不相同 → 无冲突。Harris 改写成 `sdata[2·s·tid]` 的那一版才有 stride 2s 的 bank conflict。
 - v2：活跃线程是连续的前 s 个。`s ≥ 32` 时整 warp 活跃或整 warp 空闲；图里的 8 元素例子仍有 warp 内部分线程活跃。访问 `sdata[tid]`、`sdata[tid+s]` 是连续地址 → 无冲突。
 
-第一轮 `s=512`：前 512 个线程分别加后 512 个。活跃线程永远是连续的前 $$s$$ 个，所以：warp 要么全活跃要么全不活跃（$$s \ge 32$$ 时），没有发散；`sdata[tid]` 和 `sdata[tid+s]` 对连续的 tid 都是连续地址，没有 bank conflict；没有取模。
+第一轮 `s=512`：前 512 个线程分别加后 512 个。活跃线程永远是连续的前 $$s$$ 个，所以：
+
+1. warp 要么全活跃要么全不活跃（$$s \ge 32$$ 时），没有发散；
+2. `sdata[tid]` 和 `sdata[tid+s]` 对连续的 tid 都是连续地址，没有 bank conflict；
+3. 没有取模。
 
 减少了：发散、取模（v1 本来就没有 bank conflict，见上）。没变的是：10 次循环内的 `__syncthreads()`（1024 → 1 是 10 级，加装载后那一次共 11 次），以及一半的线程从第一轮起就闲着。
 
@@ -366,7 +421,7 @@ __syncthreads();
 // 然后接 v4
 ```
 
-这时 shared memory 树只做一次，处理的是每线程已经累加过 $$n / (\text{grid} \times \text{BLOCK})$$ 个元素的部分和。算法复杂度上这是 Brent 定理的应用：$$O(n / p)$$ 的串行累加加 $$O(\log p)$$ 的树，总工作量 $$O(n)$$ 而不是 $$O(n \log n)$$。而且串行累加部分是纯 load + FMA，可以被 ILP 和多 warp 完美地重叠——这正是 elementwise kernel 的访存模式，能推到带宽极限。
+这时 shared memory 树只做一次，处理的是每线程已经累加过 $$n / (\text{grid} \times \text{BLOCK})$$ 个元素的部分和。算法复杂度上这是 Brent 定理的应用：$$O(n / p)$$ 的串行累加加 $$O(\log p)$$ 的树，总工作量 $$O(n)$$ 而不是 $$O(n \log n)$$。而且串行累加部分是纯 load + FMA，可以被 [ILP](# "tip: Instruction-Level Parallelism，指令级并行：同一线程里互不依赖的指令可以重叠执行") 和多 warp 完美地重叠——这正是 elementwise kernel 的访存模式，能推到带宽极限。
 
 减少了：sync 和 shared 访问按处理元素数摊薄到接近零；每个 block 的固定开销（launch、树归约）被更多的数据分摊。
 
@@ -438,7 +493,7 @@ Table: `__shfl_xor_sync` 的蝶形交换（8 个 lane）
 
 Table: 六版对比
 
-回到总纲的问题：**shared memory 解决的是"block 内 32 个 warp 的部分和怎么汇总"**——它是唯一能让不同 warp 交换数据的地方；**warp shuffle 消灭的是最后 5 级同步**——32 个 lane 之内的交换不需要栅栏也不需要 shared memory。两者组合成 v6，就是今天所有生产 kernel（PyTorch、vLLM、CUB）里 block reduction 的形状。
+回到[开头的核心问题](#一总览)：**shared memory 解决的是"block 内 32 个 warp 的部分和怎么汇总"**——它是唯一能让不同 warp 交换数据的地方；**warp shuffle 消灭的是最后 5 级同步**——32 个 lane 之内的交换不需要栅栏也不需要 shared memory。两者组合成 v6，就是今天所有生产 kernel（PyTorch、vLLM、[CUB](# "tip: NVIDIA 的 CUDA C++ 并行原语库，提供 warp / block / device 级的 reduce、scan、sort 等原语")）里 block reduction 的形状。
 
 ## 五、warp 级原语与原子操作
 
@@ -484,7 +539,16 @@ __device__ float warp_sum_cg(float v) {
 
 **浮点非确定性**。float 加法不满足结合律：$$(a + b) + c \ne a + (b + c)$$。原子加的执行顺序由硬件调度决定，每次运行不同，结果的最后几位也就不同。对训练里要求 bitwise 可复现的场景（vLLM 里甚至有一个 `batch_invariant` 模式专门为此关掉某些优化路径），这是不可接受的。
 
-因此规则是：**block 内用树形归约，不用原子；跨 block 汇总少量值（比如每个 block 一个部分和、总共几百个 block）可以用原子，争用低、非确定性可控；热点地址（成千上万个线程加同一个位置）坚决避免**。替代方案是两阶段：每 block 把部分和写到 `partial[blockIdx.x]`，再 launch 一个小 kernel 归约这几百个值；或者用"最后到达的 block 负责收尾"的 semaphore 模式——PyTorch `Reduce.cuh` 的 `global_reduce` 就是这样，第九章会看到。
+> [!NOTE] Java 经验参照：`DoubleStream.sum()` 的结果为什么会变
+> `DoubleStream.sum()` 的 Javadoc 写明：浮点和取决于加法的顺序，这个方法有意不规定顺序，所以同一组输入的输出可能不同。原子加的非确定性是同一个原因：顺序交给了运行时，而浮点加法不满足结合律。对不上的地方：Java 不规定顺序是为了让实现可以用补偿求和（compensated summation）等办法减小误差；`atomicAdd` 只是按硬件到达顺序做普通的 FP32 加法，误差不会因此变小。
+
+因此规则是：
+
+1. **block 内用树形归约，不用原子**。
+2. **跨 block 汇总少量值（比如每个 block 一个部分和、总共几百个 block）可以用原子**，争用低、非确定性可控。
+3. **热点地址（成千上万个线程加同一个位置）坚决避免**。
+
+替代方案是两阶段：每 block 把部分和写到 `partial[blockIdx.x]`，再 launch 一个小 kernel 归约这几百个值；或者用"最后到达的 block 负责收尾"的 semaphore 模式——PyTorch `Reduce.cuh` 的 `global_reduce` 就是这样，第九章会看到。
 
 ## 六、一行一个 block，还是一行一个 warp
 
@@ -521,13 +585,15 @@ $$e^x$$ 增长得很快。FP16 的最大值是 65504，$$\ln 65504 \approx 11.09
 
 **三遍**（朴素）：
 
-```text title="三遍 softmax"
-pass 1:  m = max_j x_j                    读 x
-pass 2:  l = sum_j exp(x_j - m)           读 x
-pass 3:  y_i = exp(x_i - m) / l           读 x，写 y
-```
+| 遍 | 计算 | 依赖 | 访存 |
+|---|---|---|---|
+| 1 | $$m = \max_j x_j$$ | — | 读 $$x$$ |
+| 2 | $$l = \sum_j e^{x_j - m}$$ | 第 1 遍的 $$m$$ | 读 $$x$$ |
+| 3 | $$y_i = e^{x_i - m} / l$$ | 第 1 遍的 $$m$$、第 2 遍的 $$l$$ | 读 $$x$$，写 $$y$$ |
 
-读 3 次、写 1 次。当一行在寄存器里时这三遍就是三个寄存器循环，无所谓；不在寄存器里时是 3 次 HBM/L2 读。
+Table: 三遍 softmax 每一遍的计算、依赖与访存
+
+合计读 3 次、写 1 次。当一行在寄存器里时这三遍就是三个寄存器循环，无所谓；不在寄存器里时是 3 次 HBM/L2 读。
 
 **两遍**的常见想法是：pass 1 求 max，pass 2 同时算 $$e^{x_i - m}$$ 写到 $$y$$ 并累加 $$l$$，最后再乘一个 $$1/l$$。但"最后再乘"本身又是一遍读写 $$y$$，总流量变成读 2 次、写 2 次、再读写 1 次，反而更多。所以真正把遍数降下来的，不是重排这三步，而是**让 max 和 sum 在同一遍里出来**。
 
@@ -545,15 +611,18 @@ $$
 
 第一项把旧的和从"相对旧 max"换算成"相对新 max"——因为 $$\sum_{j<i} e^{x_j - m} \cdot e^{m - m_{\text{new}}} = \sum_{j<i} e^{x_j - m_{\text{new}}}$$；第二项是新元素相对新 max 的贡献。如果 $$m_{\text{new}} = m$$（新元素没有刷新最大值），修正因子 $$e^0 = 1$$，退化成普通累加。指数的参数永远 $$\le 0$$，不会溢出。
 
-```text title="online softmax 逐个吃进 (m, l) 的过程"
-x = [1, 3, 2, 5]，逐个吃进 (m, l)：
+用 $$x = [1, 3, 2, 5]$$ 逐个吃进 $$(m, l)$$，初值 $$(-\infty, 0)$$：
 
-看到 1    m=1   l = 1                                  = e⁰
-看到 3    m=3   l = 1·e^(1−3) + e⁰                     ← 旧和整体乘 e^(旧m−新m) 换算到新 max
-看到 2    m=3   l = (e^(−2) + 1)·e⁰ + e^(2−3)           ← max 没变，修正因子是 1
-看到 5    m=5   l = (…)·e^(3−5) + e⁰                    ← 再换算一次
-结束      m=5   l = e^(1−5) + e^(3−5) + e^(2−5) + e⁰    与"先求 max 再求和"完全一致，只扫了一遍
-```
+| 吃进 | $$m$$ | $$l$$ 的更新 | $$l$$ | 说明 |
+|---:|---:|---|---:|---|
+| 1 | 1 | $$0 + e^{0}$$ | 1.0000 | 第一个元素，$$l = 1$$ |
+| 3 | 3 | $$1 \cdot e^{1-3} + e^{0}$$ | 1.1353 | max 变了：旧和整体乘 $$e^{m - m_{\text{new}}}$$ 换算到新 max |
+| 2 | 3 | $$1.1353 \cdot e^{0} + e^{2-3}$$ | 1.5032 | max 没变，修正因子是 1 |
+| 5 | 5 | $$1.5032 \cdot e^{3-5} + e^{0}$$ | 1.2034 | 再换算一次 |
+
+Table: online softmax 逐个吃进 (m, l) 的过程（x = [1, 3, 2, 5]）
+
+结束时 $$l = e^{1-5} + e^{3-5} + e^{2-5} + e^{0} = 1.2034$$，与「先求 max 再求和」完全一致，只扫了一遍；归一化后 $$y = [0.0152, 0.1125, 0.0414, 0.8310]$$。
 
 一遍扫完，$$(m, l)$$ 就是最终的 max 和 sum。归一化仍需要再过一遍写出 $$y_i = e^{x_i - m} / l$$，所以 HBM 意义上的遍数是**读 2 次、写 1 次**，比三遍少一次读。
 
@@ -565,9 +634,12 @@ $$
 
 这个合并运算满足结合律和交换律，所以 $$(m, l)$$ 可以像普通求和一样做树形归约：每个线程先串行处理自己的元素得到局部 $$(m, l)$$，然后用 shuffle 两两合并，5 步得到 warp 的 $$(m, l)$$，再经 shared 合并 32 个 warp。这就是 online softmax 与第四章 reduction 框架的接口——归约的对象从一个 float 变成一对 float，合并算子从 `+` 变成上面的公式。
 
+> [!NOTE] Java 经验参照：`Stream.reduce` 的 identity、accumulator 与 combiner
+> Java 的三参数 `Stream.reduce(identity, accumulator, combiner)` 与这里的结构一一对上：identity 对应空状态 $$(-\infty, 0)$$，accumulator 对应「吃进一个元素」的单步更新，combiner 对应两个部分状态的合并。Javadoc 要求 combiner 满足结合律、identity 是 combiner 的单位元，并且 `combiner.apply(u, accumulator.apply(identity, t))` 等于 `accumulator.apply(u, t)`——把 $$(-\infty, 0)$$ 吃进 $$x$$ 得到 $$(x, 1)$$，再与 $$(m, l)$$ 合并，结果正是单步更新公式，这个条件成立；满足它，并行流才能按任意方式切分。对不上的地方：Java 的条件是对精确数学写的，GPU 上 $$(m, l)$$ 在 FP32 里合并，切分方式不同，结果的末几位就不同，[第五章](#4-原子操作什么时候用什么时候避免)的原子加和[第四章](#四reduction-的六个版本)的树形归约都受这一点影响。
+
 ### 4. 通向 FlashAttention
 
-在 attention 里，softmax 的输出 $$P = \text{softmax}(QK^T / \sqrt{d})$$ 不是终点，而是要接着乘 $$V$$。FlashAttention（Dao 等 2022）把 online softmax 再推一步：不仅 $$l$$ 可以在 max 变化时用 $$e^{m - m_{\text{new}}}$$ 修正，累加中的输出 $$O = \sum_j e^{x_j - m} v_j$$ 也可以用同一个因子修正。于是 $$K$$、$$V$$ 按块流过 shared memory，每个块更新 $$(m, l, O)$$ 三元组，$$S$$ 和 $$P$$ 永远不需要完整地写出来——这是第八篇的主题，那里会给出完整推导；本篇只需要记住：**FlashAttention 的数学核心就是上面那两行 $$(m, l)$$ 的递推与合并公式**。
+在 attention 里，softmax 的输出 $$P = \text{softmax}(QK^T / \sqrt{d})$$ 不是终点，而是要接着乘 $$V$$。FlashAttention（Dao 等 2022）把 online softmax 再推一步：不仅 $$l$$ 可以在 max 变化时用 $$e^{m - m_{\text{new}}}$$ 修正，累加中的输出 $$O = \sum_j e^{x_j - m} v_j$$ 也可以用同一个因子修正。于是 $$K$$、$$V$$ 按块流过 shared memory，每个块更新 $$(m, l, O)$$ 三元组，$$S$$ 和 $$P$$ 永远不需要完整地写出来——这是[《Attention Kernel——FlashAttention 与 PagedAttention》的「FlashAttention：分块 + online softmax + 不物化 S」一节](/attention-kernels-flashattention-and-pagedattention.html#三flashattention分块--online-softmax--不物化-s)的主题，那里会给出完整推导；本篇只需要记住：**FlashAttention 的数学核心就是上面那两行 $$(m, l)$$ 的递推与合并公式**。
 
 ## 八、LayerNorm 与 RMSNorm
 
@@ -580,7 +652,7 @@ $$
 只需要一次归约（平方和），比 LayerNorm 少一个均值，这是它在 Llama 系模型里取代 LayerNorm 的工程理由之一。实现上要注意：
 
 - **累加必须用 FP32**。BF16 只有 8 位尾数（约 3 位十进制有效数字），4096 个平方项在 BF16 里累加，误差会累计到百分之几；在 FP32 里累加，再转回 BF16 输出，误差只来自最后一次舍入。输入和 $$\gamma$$ 从 BF16 转 FP32 是一条 `cvt` 指令（或者 `__bfloat1622float2` 一次转两个），代价可以忽略。
-- **$$\epsilon$$ 加在均方上再开方**，不是加在开方之后。Llama 用 $$10^{-5}$$ 或 $$10^{-6}$$，`rsqrtf` 是硬件近似指令，误差在 FP32 的 2 ulp 之内，对 BF16 输出而言完全够。
+- **$$\epsilon$$ 加在均方上再开方**，不是加在开方之后。Llama 用 $$10^{-5}$$ 或 $$10^{-6}$$，`rsqrtf` 是硬件近似指令，误差在 FP32 的 2 [ulp](# "tip: unit in the last place，末位单位：某个浮点数与相邻可表示数之间的间距") 之内，对 BF16 输出而言完全够。
 - **第二遍要么重读 global，要么把行留在寄存器**。d = 4096、256 线程时，每线程 16 个 BF16（两个 16 字节向量），留在寄存器毫无压力；vLLM 选择重读——8 KiB 的行刚被读过，一定在 L2 里（大概率也在 L1 里），代价是一次 L2 hit 的延迟而不是一次 HBM 访问。两种做法在带宽利用上差异很小。
 
 ### 2. LayerNorm：Welford 与相消
@@ -599,7 +671,17 @@ $$
 n \leftarrow n + 1, \quad \delta = x - \mu, \quad \mu \leftarrow \mu + \frac{\delta}{n}, \quad M_2 \leftarrow M_2 + \delta \cdot (x - \mu)
 $$
 
-每一步只做"减去当前均值"这样量级相当的运算，没有大数相消。和 online softmax 一样，它有一个**合并公式**（Chan 等 1979），让两个部分状态 $$(n_a, \mu_a, M_{2,a})$$、$$(n_b, \mu_b, M_{2,b})$$ 可以并行归约：
+每一步只做"减去当前均值"这样量级相当的运算，没有大数相消。用 $$x = [1000, 1002, 1006]$$ 走一遍：
+
+| 吃进 $$x$$ | $$n$$ | $$\delta = x - \mu_{\text{旧}}$$ | $$\mu$$ | $$M_2$$ |
+|---:|---:|---:|---:|---:|
+| 1000 | 1 | 1000 | 1000 | $$0 + 1000 \times 0 = 0$$ |
+| 1002 | 2 | 2 | 1001 | $$0 + 2 \times 1 = 2$$ |
+| 1006 | 3 | 5 | 1002.667 | $$2 + 5 \times 3.333 = 18.667$$ |
+
+Table: Welford 递推在三个数上的过程
+
+方差 $$\sigma^2 = M_2 / n = 6.222$$，与直接按定义算的 $$(2.667^2 + 0.667^2 + 3.333^2) / 3$$ 相同。除第一步外，参与乘法的 $$\delta$$ 和 $$x - \mu$$ 都是个位数，而 $$E[x^2] - E[x]^2$$ 的做法要用两个约 $$10^6$$ 的数相减。和 online softmax 一样，它有一个**合并公式**（Chan 等 1979），让两个部分状态 $$(n_a, \mu_a, M_{2,a})$$、$$(n_b, \mu_b, M_{2,b})$$ 可以并行归约：
 
 $$
 n = n_a + n_b, \quad \delta = \mu_b - \mu_a, \quad \mu = \mu_a + \delta \cdot \frac{n_b}{n}, \quad M_2 = M_{2,a} + M_{2,b} + \delta^2 \cdot \frac{n_a n_b}{n}
@@ -613,12 +695,21 @@ RMSNorm 没有这个问题——它不减均值，$$\sum x^2$$ 直接就是要�
 
 Transformer 每一层里 norm 前面总有一个残差加：
 
-```text title="residual add 与 RMSNorm 的相邻两步"
+```python title="residual add 与 RMSNorm 的相邻两步"
 h = h + attn_out          # residual add（elementwise）
 x = rmsnorm(h) * gamma    # 下一层的输入
 ```
 
-分开实现是两个 kernel：residual add 读 2 写 1（读 h、attn_out，写 h），RMSNorm 读 1 写 1（读 h，写 x），共**读 3 写 2**，每元素 10 字节。融合成一个 kernel：读 h 和 attn_out，相加后就地写回 h（residual 流需要保留更新后的值供下一层用），同时累加平方和，第二遍用 rstd 缩放写出 x——**读 2 写 2**，每元素 8 字节，省 20%，还少一次 launch。vLLM 的 `fused_add_rms_norm` 就是这个 kernel，接口上 `input` 被就地改写为 norm 输出、`residual` 被就地改写为相加结果，下面读它的源码。
+分开实现是两个 kernel：residual add 读 2 写 1（读 h、attn_out，写 h），RMSNorm 读 1 写 1（读 h，写 x），共**读 3 写 2**，每元素 10 字节。融合成一个 kernel：读 h 和 attn_out，相加后就地写回 h（residual 流需要保留更新后的值供下一层用），同时累加平方和，第二遍用 rstd 缩放写出 x——**读 2 写 2**，每元素 8 字节，省 20%，还少一次 launch：
+
+| 做法 | kernel 数 | 每元素读 | 每元素写 | 每元素 HBM 字节（BF16） |
+|---|---:|---|---|---:|
+| 分开 | 2 | `h`、`attn_out`、`h` | `h`、`x` | 10 |
+| 融合 | 1 | `h`、`attn_out` | `h`、`x` | 8 |
+
+Table: residual add + RMSNorm 分开与融合的 HBM 流量
+
+融合版第二遍还要再读一次刚写回的 `h`，这一行刚被同一个 block 写过，通常命中 L2，不计入 HBM 流量。vLLM 的 `fused_add_rms_norm` 就是这个 kernel，接口上 `input` 被就地改写为 norm 输出、`residual` 被就地改写为相加结果，下面读它的源码。
 
 ## 九、读源码
 
@@ -785,7 +876,7 @@ __inline__ __device__ T BlockReduceSum(T val, T* shared) {
 
 `torch.sum`、`torch.mean`、`torch.var` 等所有通用归约走 `aten/src/ATen/native/cuda/Reduce.cuh` 的 `ReduceOp`。它要处理任意维度、任意 stride 的 reduction，所以结构比 softmax 复杂，但归约本身仍是三级：
 
-- **thread reduce**：每线程串行累加自己负责的元素。当归约维是最内层且连续（`reduction_on_fastest_striding_dimension && dim0 >= 128`）时启用 `vectorize_input`，用 `aligned_vector` 一次读 16 字节，且用 `input_vec_size` 个独立累加器（`value_list[i]`）打破相邻 FMA 之间的依赖链——这是第六章 v5 的 grid-stride 加载加上 ILP。
+- **thread reduce**：每线程串行累加自己负责的元素。当归约维是最内层且连续（`reduction_on_fastest_striding_dimension && dim0 >= 128`）时启用 `vectorize_input`，用 `aligned_vector` 一次读 16 字节，且用 `input_vec_size` 个独立累加器（`value_list[i]`）打破相邻 FMA 之间的依赖链——这是第四章 v5 的 grid-stride 加载加上 ILP。
 - **block_x_reduce / block_y_reduce**：block 内沿 x 或 y 方向归约。`block_x_reduce` 先用 shared 树把 `blockDim.x` 压到 32（每级一次 `__syncthreads()`），再用 `warp_shfl_down` 做最后 5 级——这是第四章的 v4 形状。`block_y_reduce` 沿 y 方向纯 shared 树。选 x 还是 y 取决于归约维是否是最内层：是则沿 x（连续线程读连续地址），否则沿 y（让 x 方向的线程各自对应不同的输出以保持合并访存）。
 - **global_reduce**：一行太长、一个 block 不够时，`ctas_per_output` 个 block 分担一个输出，每个 block 把部分和写进 global 的 staging buffer，`__threadfence()` 之后 `atomicAdd(&semaphores[blockIdx.x], 1)`——**最后一个到达的 block**（`prev_blocks_finished == gridDim.y - 1`）负责读回所有部分和做最终归约。这就是第五章说的"跨 block 汇总少量值用原子、但不用原子累加浮点"的模式：原子操作只用来计数，浮点归约仍是确定性的树。
 
@@ -948,7 +1039,14 @@ void rmsnorm_bf16(__nv_bfloat16* out, const __nv_bfloat16* in,
 }
 ```
 
-逐行核对：`in_v[threadIdx.x + it * BLOCK]` 让 warp 内 32 个线程读连续的 512 字节（4 条 128 字节 cache line，完全合并）；`buf[ITERS]` 在 d = 4096 时是 2 个 `uint4` = 8 个 32 位寄存器，整个 kernel 大约 30–40 个寄存器，occupancy 不受限；`red[32]` 是 128 字节 shared；`block_reduce_sum` 内部的 sync 都在所有线程都会执行的路径上（没有提前 return）。每行流量：读 8 KiB、写 8 KiB、读 `gamma` 8 KiB（L2 hit）。
+逐行核对：
+
+- `in_v[threadIdx.x + it * BLOCK]` 让 warp 内 32 个线程读连续的 512 字节（4 条 128 字节 cache line，完全合并）。
+- `buf[ITERS]` 在 d = 4096 时是 2 个 `uint4` = 8 个 32 位寄存器，整个 kernel 大约 30–40 个寄存器，occupancy 不受限。
+- `red[32]` 是 128 字节 shared。
+- `block_reduce_sum` 内部的 sync 都在所有线程都会执行的路径上（没有提前 return）。
+
+每行流量：读 8 KiB、写 8 KiB、读 `gamma` 8 KiB（L2 hit）。
 
 ### 3. softmax kernel：一行一个 warp，online 版本
 
@@ -1032,10 +1130,10 @@ void softmax_bf16(__nv_bfloat16* out, const __nv_bfloat16* in, int rows, int d,
 几处细节：
 
 - **初值**。$$m = -\infty, l = 0$$。第一个元素到来时 $$m_{\text{new}} = x_0$$，$$l = 0 \cdot e^{-\infty} + e^0 = 1$$，正确。`__expf(-INFINITY)` 返回 0，不是 NaN。
-- **空状态与 $$-\infty$$**。$$m = -\infty$$ 表示"还没有任何元素"。两处会出 NaN：（1）局部更新时输入本身是 $$-\infty$$（掩码位）——$$m - m_{\text{new}} = (-\infty) - (-\infty)$$；（2）合并时两个 lane 都为空（$$d < 32$$ 的空 lane，或整行被掩码）。早期版本只在合并处加守卫，用 CPU 按同样的递推跑 $$d = 1, 7, 15$$ 全部 NaN、$$d = 32$$ 含一个 $$-\infty$$ 的行全 NaN，而 `torch.softmax` 都是有限值——所以上面两处都加了 `m == -INFINITY` 的分支，让空状态的贡献恰好是 0；整行全 $$-\infty$$ 时 $$l = 0$$、输出 NaN，与 PyTorch 一致。测试要覆盖这些边界，而不只是 8192 × 4096 的随机矩阵。
+- **空状态与 $$-\infty$$**。$$m = -\infty$$ 表示"还没有任何元素"。两处会出 NaN：（1）局部更新时输入本身是 $$-\infty$$（掩码位）——$$m - m_{\text{new}} = (-\infty) - (-\infty)$$；（2）合并时两个 lane 都为空（$$d < 32$$ 的空 lane，或整行被掩码）。两处守卫缺一不可。用 Python 按上面 kernel 的递推逐 lane 模拟：去掉合并处的守卫，$$d = 1, 7, 15$$ 的随机行 $$l$$ 都是 NaN；去掉局部更新的守卫，$$d = 64$$、`x[5]` 为 $$-\infty$$ 的行（lane 5 先吃进 $$-\infty$$、再吃进一个有限值）$$l$$ 是 NaN；两处都有时与直接计算的 $$l$$ 一致，而 `torch.softmax` 在这些行上都是有限值——所以上面两处都加了 `m == -INFINITY` 的分支，让空状态的贡献恰好是 0；整行全 $$-\infty$$ 时 $$l = 0$$、输出 NaN，与 PyTorch 一致。测试要覆盖这些边界，而不只是 8192 × 4096 的随机矩阵。
 - **寄存器**。d = 4096 时 `v[128]` 占 128 个寄存器，加上其他约 20 个，接近 150；每 SM 65536 个寄存器，128 线程的 block 最多驻留 $$\lfloor 65536 / (150 \times 128) \rfloor = 3$$ 个 block、12 个 warp——occupancy 只有 19%。这是 warp-per-row 在 d = 4096 时的代价，也是 PyTorch 把 warp softmax 的上限定在 2048 的原因。d ≤ 1024 时 `v[32]` 很轻，occupancy 接近满。
 - **访存**。`x[lane + i*32]` 每次 warp 读 64 字节连续，是半条 cache line；下一次迭代读接下来的 64 字节，同一条 line 在 L1 里被用完，HBM 流量仍是每字节一次。改成 `__nv_bfloat162` 一次读两个可以把每次 warp 访问凑成 128 字节，是一个可选的小优化。
-- **`__expf` vs `expf`**。`__expf` 是硬件近似指令（SFU 的 `ex2` 加一次乘法），误差约 2 ulp，对 BF16 输出绰绰有余；`expf` 精度更高但要十几条指令。softmax 是 memory-bound 的，两者在带宽上看不出差别，但 d 小、行多时指令数会开始有影响。
+- **`__expf` vs `expf`**。`__expf` 是硬件近似指令（[SFU](# "tip: Special Function Unit，特殊函数单元：SM 里执行 sin、cos、倒数、平方根这类超越函数指令的硬件单元") 的 `ex2` 加一次乘法），误差约 2 ulp，对 BF16 输出绰绰有余；`expf` 精度更高但要十几条指令。softmax 是 memory-bound 的，两者在带宽上看不出差别，但 d 小、行多时指令数会开始有影响。
 
 ### 4. 对照测试与预期量级
 
@@ -1067,7 +1165,7 @@ torch.testing.assert_close(my_ext.softmax_fp32(x32), torch.softmax(x32, -1),
 
 BF16 的默认容差 rtol = 1.6e-2 对应约 4 个 BF16 ulp（BF16 存 7 位尾数、含隐含位 8 位有效数字，1 ulp 的相对大小在 $$2^{-8}$$ 到 $$2^{-7}$$ 之间随 binade 变）。softmax 的输出值很小（平均 $$1/d \approx 2.4 \times 10^{-4}$$），这时 **atol 才是主项**：$$1.6\times10^{-2} \times 2.4\times10^{-4} \approx 3.9 \times 10^{-6} < 10^{-5}$$，一个把每个概率都算大 5% 的错误结果也能通过（行和 1.05 照样 PASS）。所以对 softmax 不能只做逐元素 `assert_close`，还要检查每行和 ≈ 1、全部有限、非负，并加入 $$d < 32$$、非 2 的幂、含 $$-\infty$$ 的行这些边界样例。online 版本与三遍版本在数学上完全等价，差别只在 FP32 舍入的顺序，FP32 对照能验证这一点。
 
-性能上，先算下界：rows = 8192、d = 4096 的 RMSNorm 读写 128 MiB，A100 上 ≈ 67 µs；softmax 同样形状也是读 8 KiB 写 8 KiB 每行，下界相同。用第二篇的 `bench(fn, warmup=10, iters=100, flush_l2=True)` 计时，**读者跑出的数字大致应该落在：RMSNorm 75–85 µs（带宽的 80–90%），warp softmax 在 d ≤ 2048 时同样 80–90%，d = 4096 时因为 occupancy 下降通常掉到 60–75%**。如果 RMSNorm 落在 150 µs 以上，先查是否向量化（用 Nsight Compute 看 `ld.global.v4` 是否出现）、block 是否太大导致行少时并行度不足；落在 500 µs 以上，几乎一定是第二章列的四个 naive 问题之一。
+性能上，先算下界：rows = 8192、d = 4096 的 RMSNorm 读写 128 MiB，A100 上 ≈ 67 µs；softmax 同样形状也是读 8 KiB 写 8 KiB 每行，下界相同。用[《CUDA 编程模型与第一个 kernel》的「完整的 C++ 程序与 bench 脚手架」一节](/cuda-programming-model-and-first-kernel.html#3-完整的-c-程序与-bench-脚手架)里的 `bench(fn, warmup=10, iters=100, flush_l2=True)` 计时，**读者跑出的数字大致应该落在：RMSNorm 75–85 µs（带宽的 80–90%），warp softmax 在 d ≤ 2048 时同样 80–90%，d = 4096 时因为 occupancy 下降通常掉到 60–75%**。如果 RMSNorm 落在 150 µs 以上，先查是否向量化（用 Nsight Compute 看 `ld.global.v4` 是否出现）、block 是否太大导致行少时并行度不足；落在 500 µs 以上，几乎一定是第二章列的四个 naive 问题之一。
 
 作为参照，`torch.nn.functional.rms_norm` 和 vLLM 的 `rms_norm` 在同样形状上也处于同一区间——这个 kernel 没有太多花样，做对访存和归约之后，所有人写出来的都差不多。
 
@@ -1112,7 +1210,7 @@ Table: 本篇汇总：reduction 六版对比
   - RMSNorm / softmax，8192 行 × 4096 BF16：128 MiB → ≈ 67 µs。
   - 常见可达：RMSNorm 80–90% 带宽；warp softmax d ≤ 2048 时 80–90%。
 
-reduction 是"先算一个整行的标量，再作用回每个元素"。下一篇的 GEMM 是另一种协作：每个输出元素需要一整行和一整列，shared memory 的角色从"汇总 32 个部分和"变成"暂存被 128 个线程重复读取的 tile"，bank conflict 和 padding/swizzle 会从本篇的一段话变成决定性能的主角。
+reduction 是"先算一个整行的标量，再作用回每个元素"。[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)是另一种协作：每个输出元素需要一整行和一整列，shared memory 的角色从"汇总 32 个部分和"变成"暂存被 128 个线程重复读取的 tile"，bank conflict 和 padding/swizzle 会从本篇的一段话变成决定性能的主角。
 
 > **一个 4096×4096 的 BF16 GEMM 理论上只需要 0.44 ms（Tensor Core）或 7 ms（CUDA Core）。naive 实现为什么慢 50 倍？分块把访存量减少了多少？**
 
