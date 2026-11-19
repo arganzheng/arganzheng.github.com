@@ -5,18 +5,89 @@ title: "GPU Kernel 工程（10）：剖析、测试与贡献——把 kernel 做
 subtitle: "Profiling, Testing and Contributing: Turning a Kernel into a Product"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-18
 ---
 
 前九篇结束时，手上有一个用自己写的 kernel 跑通的 decoder layer 前向：RMSNorm、RoPE、BF16 Tensor Core GEMM、FlashAttention 前向、SiLU-mul、fused residual+RMSNorm、INT4 weight-only GEMM。它们能跑、结果和 PyTorch eager 对得上、每一个都在自己的 benchmark 里比 naive 版本快很多。
 
-但"能跑"和"能合入"之间还有一整段工程。一个 kernel 要成为别人敢用的东西，需要回答四个问题：它到底卡在哪里（剖析）；它在所有会遇到的输入上都对（测试）；它确实比原来快、而且以后不会悄悄变慢（benchmark）；它在别人的 GPU 上、在 `torch.compile` 下、在框架的调度路径里也能工作（多架构与接入）。这一篇讲的就是这四件事，最后用一个 kernel PR 的完整流程把它们串起来。
+但"能跑"和"能合入"之间还有一整段工程。一个 kernel 要成为别人敢用的东西，需要回答四个问题：
+
+1. 它到底卡在哪里（剖析）；
+2. 它在所有会遇到的输入上都对（测试）；
+3. 它确实比原来快、而且以后不会悄悄变慢（benchmark）；
+4. 它在别人的 GPU 上、在 `torch.compile` 下、在框架的调度路径里也能工作（多架构与接入）。
+
+这一篇讲的就是这四件事，最后用一个 kernel PR 的完整流程把它们串起来。
 
 总纲给这一篇的核心问题是：
 
 > **Nsight Compute 报告 achieved occupancy 25%、long scoreboard stall 60%。这个 kernel 应该改什么？[^q0]**
 
 ## 一、总览
+
+一个 kernel 从「为什么慢」到「别人敢用」，要过两段路：上半段是读报告，几个量一层决定一层，最后落到 Roofline 上的分类；下半段是做产品，源码变成 fatbin、注册成算子、接进框架，每一步都有测试和 benchmark 守着。下图画的是这两段，以及每个环节在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：读报告与做产品：launch 配置一层层决定 ncu 指标，kernel 产物经过 fatbin、算子注册、框架接入才被调用
+flowchart TB
+    subgraph R["读报告：哪个量决定哪个量"]
+        direction TB
+        cfg["<b>launch 配置与资源</b><br/>每 block 线程数、每线程寄存器、每 block shared、grid 大小（第四章）"]
+        occ["<b>occupancy</b><br/>theoretical：寄存器 / shared / warp 几个上限取最小<br/>achieved：再被 waves 与 tail 拉低（第四章）"]
+        fly["<b>在飞字节</b><br/>驻留 warp × 每 warp 独立请求数 × 每请求字节数（第五章）"]
+        sol["<b>SOL Memory / Compute</b><br/>实测吞吐 ÷ 峰值，即 Roofline 上的位置（第四章）"]
+        stall["<b>Warp State</b><br/>long scoreboard 等 stall 的占比（第四章）"]
+        bound["<b>理论下界</b><br/>bytes / BW 或 FLOPs / P_peak（第二章）"]
+        tree{"memory / compute /<br/>latency-bound？（第五章）"}
+        cfg --> occ --> fly
+        fly --> sol
+        fly --> stall
+        bound --> tree
+        sol --> tree
+        stall --> tree
+    end
+    subgraph P["做产品：kernel 经过哪几层才被调用"]
+        direction TB
+        cu["<b>my_ops.cu</b><br/>kernel + host 包装（第九章）"]
+        fat["<b>fatbin（嵌在 .so 里）</b><br/>每个 -gencode 目标一份 SASS，外加 PTX（第八章）"]
+        reg["<b>算子注册</b><br/>TORCH_LIBRARY schema + CUDA 实现 + register_fake（第九章）"]
+        op["<b>torch.ops.my_ops.rms_norm</b><br/>eager 与 torch.compile 都经 Dispatcher 调到它（第九章）"]
+        vllm["<b>接入 vLLM</b><br/>torch_bindings.cpp → _custom_ops.py → 层里的选择分支（第十章）"]
+        gate["<b>守门</b><br/>• pytest + opcheck（第六章）<br/>• benchmark 与回归阈值（第七章）<br/>• PR 与 CI 硬件矩阵（第十一章）"]
+        cu --> fat --> reg --> op --> vllm
+        gate -. "每次改动都要过" .-> op
+    end
+    tree -- "改 kernel" --> cu
+```
+
+- **launch 配置与资源**：线程数、寄存器数、shared memory 用量和 grid 大小都是写 kernel 时定下的，ncu 的 Launch Statistics 原样列出（[「Launch Statistics、Compute Workload Analysis 与 Source Counters」一节](#6-launch-statisticscompute-workload-analysis-与-source-counters)）。
+- **occupancy**：由上面几项按公式取最小得到 theoretical；achieved 还受 grid 是否填满、尾波长短影响（[「Occupancy：有多少 warp 在飞」一节](#5-occupancy有多少-warp-在飞)）。
+- **在飞字节**：真正决定能不能跑满带宽的量。A100 每 SM 要约 8 KB 在飞，occupancy 低时靠每个 warp 多发独立请求（ILP）补回来（[「回答核心问题」一节](#2-回答核心问题occupancy-25long-scoreboard-60)）。
+- **SOL Memory / Compute**：ncu 报告第一节，直接给出 kernel 在 Roofline 上的位置（[「GPU Speed of Light」一节](#2-gpu-speed-of-light与-roofline-的对应)）。
+- **Warp State**：warp 每发一条指令平均等多少周期、在等什么；只有在 SOL 两项都低时才有诊断价值（[「Warp State Statistics」一节](#4-warp-state-statisticswarp-在等什么)）。
+- **理论下界**：profiler 的每个百分比都要拿它当参照（[第二章](#二先算理论剖析之前要有一个参照数)）。
+- **分类与决策**：SOL 把 kernel 分成三类，三类的改法互斥（[第五章](#五从指标到优化方向)）。
+- **my_ops.cu**：本文贯穿全篇的例子，一个 BF16 RMSNorm kernel 加 host 包装（[「C++ 侧」一节](#2-c-侧torch_library--torch_library_impl)）。
+- **fatbin**：nvcc 为每个目标架构各编一份 SASS 放进同一个文件，运行时由驱动挑选（[第八章](#八多架构)）。
+- **算子注册**：schema 声明输入输出与可变性，fake kernel 声明输出形状，有了这两样 `torch.compile` 才不 graph break（[第九章](#九接入-pytorchtorch_libraryfake-kernel-与-opcheck)）。
+- **torch.ops.my_ops.rms_norm**：模型代码、测试和 benchmark 调的都是这个入口。
+- **接入 vLLM**：注册进 `torch.ops._C` 之后，还要在 Python 侧的层或量化方法里写「什么时候选它」（[第十章](#十接入-vllm)）。
+- **守门**：正确性测试（[第六章](#六正确性测试)）、benchmark（[第七章](#七benchmark-方法)）、PR 与 CI（[第十一章](#十一一个-kernel-pr-的完整流程)）。
+
+图下半段的几样产物容易搞混：哪些在编译期就定了、哪些是进程启动时才注册的、哪些只是磁盘上的报告。下表按产生的先后列出：
+
+| 对象 | 何时产生 | 存在哪里 | 活多久 | 谁读它 |
+|---|---|---|---|---|
+| SASS（sm_80、sm_90 …） | nvcc 编译期，每个 `-gencode ... code=sm_XX` 一份 | fatbin，嵌在扩展的 `.so` 里 | 与 `.so` 同寿，重编才变 | 驱动加载模块时按当前 GPU 挑一份 |
+| PTX（compute_90） | nvcc 编译期，`code=compute_90` 那一项 | 同一个 fatbin | 同上 | fatbin 里没有匹配的 SASS 时，驱动把它 JIT 成 SASS |
+| JIT 出来的 SASS | 第一次在没有匹配 SASS 的 GPU 上加载时 | 驱动的磁盘缓存（compute cache） | 驱动升级时自动失效 | 驱动；之后的进程不再重编 |
+| schema 与 CUDA 实现 | `.so` 被加载时，`TORCH_LIBRARY` / `TORCH_LIBRARY_IMPL` 的静态初始化 | 进程内 PyTorch 的算子注册表 | 进程结束 | `torch.ops.my_ops.rms_norm` 的每次调用 |
+| fake kernel | `import my_ops` 执行到 `register_fake` 时 | 同上，是一个 Python 函数 | 进程结束 | `torch.compile` / `torch.export` 追踪形状时、`opcheck` |
+| `.nsys-rep` / `.ncu-rep` | nsys / ncu 采集结束时 | 磁盘文件 | 手动删除前 | `nsys stats`、`nsys-ui`、`ncu-ui` |
+| `baseline.json` | `bench_rmsnorm.py --save` | 磁盘文件 | 下一次刷新 baseline 前 | `--compare` 判定回归 |
+
+Table: kernel 产物与剖析产物的产生时机、存放位置、寿命与读取者
 
 ### 1. 读报告与做产品
 
@@ -31,15 +102,15 @@ updated: 2026-09-14
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | 先算理论 | profiler 的数字为什么本身不说明问题、decoder layer 各 kernel 的理论下界 |
-| 三 | Nsight Systems | nsys 与 ncu 的分工、NVTX 标记 + nsys 找最耗时的 kernel、`torch.profiler` 与 nsys 的关系 |
-| 四 | Nsight Compute | 命令行、Speed of Light、Memory Workload、Warp State、Occupancy、Launch / Compute / Source Counters、一份典型报告 |
-| 五 | 从指标到优化方向 | 决策树、回答核心问题：occupancy 25%、long scoreboard 60% |
-| 六 | 正确性测试 | 参考实现与 tolerance、边界 shape 与非连续输入、vLLM tests/kernels 的组织、完整的 pytest 测试文件 |
-| 七 | benchmark 方法 | 测什么怎么测、与 baseline 比与回归阈值、完整的 benchmark 脚本 |
+| 三 | Nsight Systems | nsys 与 ncu 的分工<br/>NVTX 标记 + nsys 找最耗时的 kernel<br/>`torch.profiler` 与 nsys 的关系 |
+| 四 | Nsight Compute | 命令行<br/>Speed of Light<br/>Memory Workload<br/>Warp State<br/>Occupancy<br/>Launch / Compute / Source Counters<br/>一份典型报告 |
+| 五 | 从指标到优化方向 | 决策树<br/>回答核心问题：occupancy 25%、long scoreboard 60% |
+| 六 | 正确性测试 | 参考实现与 tolerance<br/>边界 shape 与非连续输入<br/>vLLM tests/kernels 的组织<br/>完整的 pytest 测试文件 |
+| 七 | benchmark 方法 | 测什么怎么测<br/>与 baseline 比与回归阈值<br/>完整的 benchmark 脚本 |
 | 八 | 多架构 | 编译期 `__CUDA_ARCH__` 与 fatbin、运行期按 compute capability 选择 |
-| 九 | 接入 PyTorch | `TORCH_LIBRARY`、fake kernel 与 opcheck |
+| 九 | 接入 PyTorch | 为什么要注册成算子<br/>C++ 侧 `TORCH_LIBRARY` + `TORCH_LIBRARY_IMPL`<br/>Python 侧编译加载、fake kernel 与 opcheck |
 | 十 | 接入 vLLM | csrc 的组织与注册、Python 侧的后端选择 |
-| 十一 | 一个 kernel PR 的完整流程 | 先讨论再写、PR 里要有什么、review 关注什么、CI 的硬件矩阵 |
+| 十一 | 一个 kernel PR 的完整流程 | 先讨论再写<br/>PR 里要有什么<br/>review 关注什么<br/>CI 的硬件矩阵 |
 | 十二 | 本文小结 | |
 | 十三 | 自测 | 5 道题 |
 
@@ -53,7 +124,7 @@ Nsight Compute 会告诉你一个 kernel 的 DRAM 吞吐是 1.6 TB/s。这是好
 
 所以同一个数字，在两个 kernel 上一个是"做到头了"，一个是"完全错了"。区分的依据只能是**理论下界**。
 
-本系列的 Roofline 模型（第一篇有完整讨论）用两个数描述硬件：峰值算力 $$P_{peak}$$ 与峰值带宽 $$BW$$；用一个数描述 kernel：算术强度 $$I = \text{FLOPs} / \text{bytes}$$。可达性能是
+本系列的 Roofline 模型（[《GPU 为什么这样设计——硬件结构与 Roofline》的「Roofline 模型」一节](/gpu-architecture-and-roofline.html#六roofline-模型)有完整讨论）用两个数描述硬件：峰值算力 $$P_{peak}$$ 与峰值带宽 $$BW$$；用一个数描述 kernel：算术强度 $$I = \text{FLOPs} / \text{bytes}$$。可达性能是
 
 $$
 P_{attainable} = \min(P_{peak},\ I \cdot BW)
@@ -63,7 +134,7 @@ $$
 
 ### 2. decoder layer 各 kernel 的理论下界
 
-把第九篇组装的 decoder layer 拆开，每个 kernel 先算一遍。取 Llama-3-8B 的形状（$$d = 4096$$、$$d_{ff} = 14336$$、32 个 query 头、8 个 KV 头、$$d_{head} = 128$$），一次 prefill 处理 $$M = 8192$$ 个 token，BF16：
+把[《量化与融合 kernel》的「组装 decoder layer 前向」一节](/quantization-and-fused-kernels.html#5-组装-decoder-layer-前向)里的 decoder layer 拆开，每个 kernel 先算一遍。取 Llama-3-8B 的形状（$$d = 4096$$、$$d_{ff} = 14336$$、32 个 query 头、8 个 KV 头、$$d_{head} = 128$$），一次 prefill 处理 $$M = 8192$$ 个 token，BF16：
 
 | kernel | 主要字节数（读+写） | FLOPs | 算术强度 | 类型 | A100 理论时间 |
 |---|---|---|---|---|---|
@@ -79,7 +150,7 @@ $$
 
 Table: Llama-3-8B 一层 decoder 在 M = 8192 prefill 下每个 kernel 的字节数、FLOPs 与 A100 理论时间
 
-GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——RMSNorm 实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是给出 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
+GEMM 的理论时间按 312 TFLOPS 算，memory-bound kernel 按 2.0 TB/s 算，attention 的 FLOPs 已经乘了因果掩码的 1/2。这张表有两个用途：一是给后面每一个 profiler 数字一个参照——fused add+RMSNorm（理论 134 µs）实测 180 µs 就是 74% 的带宽利用率，可以接受；实测 400 µs 就一定有问题；二是给出 profiler 应该先看谁：如果 GEMM 与 attention 各自达到峰值的 70% 以上，整层的时间就由它们主导，memory-bound kernel 加起来不到 1 ms，融合它们的收益上限就是这 1 ms 的一部分。
 
 decode 阶段（$$M = 1$$ 或几十）这张表会完全翻转：所有 GEMM 的算术强度都变成 $$M$$ 量级，全部 memory-bound，时间由读权重决定，整层理论时间约为权重字节 / 带宽。那时 profiler 要回答的问题变成"GEMV 类 kernel 的带宽利用率是多少"以及"kernel 之间的空隙有多大"。同一个 layer、两种形状、两套完全不同的瓶颈，这是 Nsight Systems 与 Nsight Compute 分工的起点。
 
@@ -119,13 +190,13 @@ flowchart TB
 
 ### 2. 用 NVTX 标记 + nsys 找出最耗时的 kernel
 
-对第九篇的 decoder layer，先在 Python 侧给每个阶段打 NVTX 标记，再只在 warmup 之后打开采集：
+对《量化与融合 kernel》组装的 decoder layer，先在 Python 侧给每个阶段打 NVTX 标记，再只在 warmup 之后打开采集：
 
 ```python title="run_layer.py：给各阶段打 NVTX 标记"
 # run_layer.py
 import torch
 
-layer = build_decoder_layer()          # 第九篇组装的 layer
+layer = build_decoder_layer()          # 《量化与融合 kernel》里组装的 layer
 x = torch.randn(8192, 4096, dtype=torch.bfloat16, device="cuda")
 
 for _ in range(5):                     # warmup：编译、cuBLAS 句柄、allocator 预热
@@ -167,7 +238,7 @@ nsys stats --report nvtx_kern_sum layer.nsys-rep
 `cuda_gpu_kern_sum` 输出一张按总时间排序的表，每行是一个 kernel 名（模板参数很长，用 `--format csv` 再处理更方便）。读法有三条：
 
 - **前几行加起来占多少**。如果 GEMM 与 attention 加起来超过 85%，融合小 kernel 的收益上限就在剩下的 15% 里，先优化 GEMM 与 attention。
-- **每个 kernel 的均值与理论下界的比值**。用第一节的表逐个除，比值最大（离 Roofline 最远）的就是下一步 ncu 的对象。
+- **每个 kernel 的均值与理论下界的比值**。用[「decoder layer 各 kernel 的理论下界」一节](#2-decoder-layer-各-kernel-的理论下界)的表逐个除，比值最大（离 Roofline 最远）的就是下一步 ncu 的对象。
 - **kernel 之间的空隙**。在 `nsys-ui` 里打开 `.nsys-rep`，把时间线放大到一个 NVTX 区间内，看相邻 kernel 之间是否有空白。空白通常来自：CPU 侧 Python 开销（每个算子几十微秒的 dispatch，在 decode 这种每个 kernel 只有几微秒的场景下会让 GPU 大部分时间空转）、显式或隐式的同步（`.item()`、`.cpu()`、`print(tensor)`）、分配器在 cache miss 时调用 `cudaMalloc`。这些都不是 kernel 的问题，不该用 ncu 去修，该用 CUDA graph、减少同步或者融合算子去修。
 
 同一个 decoder layer 在 prefill 与 decode 两种形状下，nsys 时间线的 CPU 行与 GPU 行长成完全不同的样子——空隙是不是问题，一眼就能看出来：
@@ -208,7 +279,12 @@ ncu --nvtx --nvtx-include "attn_norm/" -c 1 -o rms python run_layer.py
 ncu-ui rms_full.ncu-rep
 ```
 
-几个细节：`--set full` 包含所有 section，一个 kernel 会被重放 40 次左右，用 `-c` 限制数量；`-k regex:` 匹配的是 demangled 之后的函数名；`-lineinfo` 只加行号映射不影响优化（与 `-G` 不同，`-G` 会关闭优化，绝对不能用来剖析性能）。`torch.utils.cpp_extension.load` 编译时通过 `extra_cuda_cflags=["-lineinfo"]` 传入。还有一个容易忽略的点：ncu 默认把 GPU 时钟锁在基频（`--clock-control base`），所以 ncu 报告里的 duration 通常比 benchmark 测的慢一些，两者不要直接比；要看真实时钟下的表现加 `--clock-control none`。
+几个细节：
+
+1. `--set full` 包含所有 section，一个 kernel 会被重放 40 次左右，用 `-c` 限制数量。
+2. `-k regex:` 匹配的是 demangled 之后的函数名。
+3. `-lineinfo` 只加行号映射不影响优化（与 `-G` 不同，`-G` 会关闭优化，绝对不能用来剖析性能）。`torch.utils.cpp_extension.load` 编译时通过 `extra_cuda_cflags=["-lineinfo"]` 传入。
+4. 还有一个容易忽略的点：ncu 默认把 GPU 时钟锁在基频（`--clock-control base`），所以 ncu 报告里的 duration 通常比 benchmark 测的慢一些，两者不要直接比；要看真实时钟下的表现加 `--clock-control none`。
 
 ### 2. GPU Speed of Light：与 Roofline 的对应
 
@@ -224,13 +300,23 @@ ncu-ui rms_full.ncu-rep
 
 ### 3. Memory Workload Analysis：访存模式对不对
 
-这一节回答的是系列第三、四篇的问题——合并、向量化、bank conflict——在真实硬件上的答案。要看的指标：
+这一节回答的是[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)和[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的问题——合并、向量化、bank conflict——在真实硬件上的答案。要看的指标：
 
 **DRAM 吞吐（Memory Throughput，GB/s）**：直接与标称带宽比。同时看 DRAM 读写的总字节数，与理论最小字节数比：RMSNorm 一行 4096 BF16 读 8 KiB 写 8 KiB，8192 行是 128 MiB，如果 ncu 报出 DRAM 读了 200 MiB，说明有重复读——比如两遍 kernel 先算方差再归一化、而两遍之间行数据被从 L2 逐出。
 
 **L1/L2 hit rate**：memory-bound 的流式 kernel 的 L2 hit rate 本来就该低（每个字节只用一次），高反而说明有重复读被 L2 挡住了。GEMM 的 L2 hit rate 应该很高（多个 block 共享同一行/列的 tile）。
 
-**Sectors per request**：全局内存以 32 字节 sector 为单位传输，一个 warp 的一次加载指令是一个 request。理想 sector 数 = 一个 warp 请求的总字节数 / 32：每线程加载 4 字节（`float`）时 $$32 \times 4 / 32 = 4$$；每线程 16 字节（`float4` 或 8 个 BF16）时 16；每线程 2 字节（标量 BF16）时 2。实际值高于理想值就是未合并：8 表示线程间有 stride、32 表示每个线程访问一个独立 sector（完全散开，比如按列访问行主序矩阵）。ncu 在 "Memory Workload Analysis" 的表格里给出 `Sectors/Req`，也有单独的 **excessive sectors** 提示。对应的原始指标是 `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` 除以 `l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum`。
+**Sectors per request**：全局内存以 32 字节 sector 为单位传输，一个 warp 的一次加载指令是一个 request。理想 sector 数 = 一个 warp 请求的总字节数 / 32：
+
+| 每线程加载 | 一个 warp 的字节数 | 理想 Sectors/Req |
+|---|---:|---:|
+| 2 字节（标量 BF16） | 64 | 2 |
+| 4 字节（`float`） | 128 | 4 |
+| 16 字节（`float4` 或 8 个 BF16） | 512 | 16 |
+
+Table: 每线程加载宽度与理想 Sectors/Req
+
+实际值高于理想值就是未合并：8 表示线程间有 stride、32 表示每个线程访问一个独立 sector（完全散开，比如按列访问行主序矩阵）。ncu 在 "Memory Workload Analysis" 的表格里给出 `Sectors/Req`，也有单独的 **excessive sectors** 提示。对应的原始指标是 `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` 除以 `l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum`。
 
 **Shared memory bank conflicts**：`l1tex__data_bank_conflicts_pipe_lsu_mem_shared_op_ld.sum`（ld）与 `_st.sum`。shared memory 有 32 个 4 字节宽的 bank，一个 warp 的一次访问如果多个线程落到同一个 bank 的不同地址，就要串行成多次 wavefront。理想值是 0；GEMM 的 tile 加载如果没有 padding 或 swizzle，这个数字会与加载次数同量级。这一节还会给出 "shared memory wavefronts vs ideal" 的比值，直接告诉你差了几倍。
 
@@ -304,32 +390,25 @@ Table: 三种 kernel 配置的 occupancy 计算
 
 以 fused add+RMSNorm（8192 行 × 4096，BF16，一个 block 处理一行、256 线程、每线程 16 字节向量化加载）为例，一个已经做对了的版本在 A100 上报告的**典型形态**——不是实测，而是根据字节数、硬件参数与经验得出的、读者跑出来应该大致落在的区间：
 
-```text title="fused add+RMSNorm 的典型 ncu 报告形态"
-GPU Speed Of Light Throughput
-  Duration                         ~150–175 µs（理论下界 134 µs；ncu 锁基频时会更长）
-  Memory Throughput [%]            75–90         ← 已接近带宽屋顶
-  DRAM Throughput [%]              75–90
-  Compute (SM) Throughput [%]      10–25         ← 算力几乎空闲：memory-bound 的标志
+| ncu 节 | 指标 | 应落在的区间（推算，非实测） | 说明 |
+|---|---|---|---|
+| GPU Speed Of Light Throughput | Duration | ~150–175 µs | 理论下界 134 µs；ncu 锁基频时会更长 |
+| ^^ | Memory Throughput [%] | 75–90 | 已接近带宽屋顶 |
+| ^^ | DRAM Throughput [%] | 75–90 | |
+| ^^ | Compute (SM) Throughput [%] | 10–25 | 算力几乎空闲：memory-bound 的标志 |
+| Memory Workload Analysis | DRAM 读 + 写 | ≈ 256 MiB | x、residual 各读一次；两者各写一次 |
+| ^^ | L2 Hit Rate [%] | 30–55 | 流式，低是正常的；写分配会贡献一部分命中 |
+| ^^ | Sectors/Req（global load） | 16 | 每线程 16 B × 32 = 512 B = 16 sector，即理想值 |
+| ^^ | Shared bank conflicts | 0 或接近 0 | 只有 warp 归约的几十个字节走 shared |
+| Warp State Statistics | Warp Cycles Per Issued Instr. | 30–60 | |
+| ^^ | long scoreboard | 55–75% | 在等内存，且内存确实忙：正常 |
+| ^^ | barrier | 5–15% | 两次 `__syncthreads`（归约前后） |
+| ^^ | wait / not selected / 其他 | 剩余 | |
+| Occupancy | Theoretical | 100% | 256 线程、~30 寄存器、~1 KB shared → 8 block/SM |
+| ^^ | Achieved | 70–90% | 8192 block / (108 SM × 8) ≈ 9.5 wave，tail 小 |
+| Launch Statistics | Grid / Block | 8192 × 256 | Registers/Thread ~28–40，Waves Per SM ≈ 9.5 |
 
-Memory Workload Analysis
-  DRAM 读 + 写                     ≈ 256 MiB（x、residual 各读一次；两者各写一次）
-  L2 Hit Rate [%]                  30–55（流式，低是正常的；写分配会贡献一部分命中）
-  Sectors/Req（global load）        16（每线程 16 B × 32 = 512 B = 16 sector，即理想值）
-  Shared bank conflicts            0 或接近 0（只有 warp 归约的几十个字节走 shared）
-
-Warp State Statistics
-  Warp Cycles Per Issued Instr.    30–60
-  long scoreboard                  55–75%        ← 在等内存，且内存确实忙：正常
-  barrier                          5–15%         ← 两次 __syncthreads（归约前后）
-  wait / not selected / 其他        剩余
-
-Occupancy
-  Theoretical                      100%（256 线程、~30 寄存器、~1 KB shared → 8 block/SM）
-  Achieved                         70–90%        ← 8192 block / (108 SM × 8) ≈ 9.5 wave，tail 小
-
-Launch Statistics
-  Grid 8192 × Block 256，Registers/Thread ~28–40，Waves Per SM ≈ 9.5
-```
+Table: fused add+RMSNorm 做对了的版本在 ncu 各节应看到的量级（按字节数与硬件参数推算，不是实测输出）
 
 这份报告说"没什么可改的"：带宽利用率已经在 80% 上下，stall 集中在 long scoreboard 但 DRAM 已经忙，occupancy 高。剩下 10–20% 的差距来自 DRAM 读写切换、行尾的归约同步与 kernel 启动/收尾，是工程上接受的水平。
 
@@ -347,7 +426,7 @@ Launch Statistics
 
 Table: 做对了与有问题两个版本的 SOL 与 occupancy 对照
 
-对比一个**有问题**的版本的典型形态：同样的 kernel，如果每线程只做 2 字节标量加载、且一个 block 只有 128 线程、每 SM 驻留 block 数被 shared memory 限制在 3——报告会变成 SOL Memory 35–50%、SOL Compute 10–15%（两者都低：latency-bound）、Sectors/Req 2（合并了但每个请求只搬 64 B，LSU 指令数是向量化版本的 8 倍，LG throttle 上升）、theoretical occupancy 19%、achieved 15%、long scoreboard 70% 以上。这两份报告的 stall 分布几乎一样，结论完全相反——判断依据是 SOL 与 occupancy，而不是 stall 本身。这就是第五章决策树的起点。
+对比一个**有问题**的版本的典型形态：同样的 kernel，如果每线程只做 2 字节标量加载、且一个 block 只有 128 线程、每 SM 驻留 block 数被 shared memory 限制在 3——报告会变成 SOL Memory 35–50%、SOL Compute 10–15%（两者都低：latency-bound）、Sectors/Req 2（合并了但每个请求只搬 64 B，LSU 指令数是向量化版本的 8 倍，LG throttle 上升）、theoretical occupancy 19%、achieved 15%、long scoreboard 70% 以上。这两份报告的 stall 分布几乎一样，结论完全相反——判断依据是 SOL 与 occupancy，而不是 stall 本身。这就是[第五章](#五从指标到优化方向)决策树的起点。
 
 ## 五、从指标到优化方向
 
@@ -410,7 +489,7 @@ flowchart TB
 
 **第二步：找 occupancy 低的限制因素。** 看 Occupancy 一节的 "Block Limit" 三个数与 Launch Statistics 的 waves：
 
-- **寄存器**（Registers Per Thread 高，比如 128 以上）：这是 GEMM 类 kernel 的常态。选项是减小每线程的分块（TM×TN 从 8×8 到 4×8，寄存器减半，但 shared memory 读取量增加 1.33 倍），或者用 `__launch_bounds__(threads, minBlocksPerSM)` 让编译器把寄存器压到目标值，或者 `-maxrregcount`。后两者的风险是 spill——压到 local memory 反而更慢，改完必须回到 Memory Workload Analysis 确认 local 流量为零。
+- **寄存器**（Registers Per Thread 高，比如 128 以上）：这是 GEMM 类 kernel 的常态。选项是减小每线程的分块（TM×TN 从 8×8 到 4×8，寄存器减半，但每个输出摊到的 shared memory 读取量从 $$1/8 + 1/8 = 0.25$$ 变成 $$1/4 + 1/8 = 0.375$$，是原来的 1.5 倍），或者用 `__launch_bounds__(threads, minBlocksPerSM)` 让编译器把寄存器压到目标值，或者 `-maxrregcount`。后两者的风险是 spill——压到 local memory 反而更慢，改完必须回到 Memory Workload Analysis 确认 local 流量为零。
 - **shared memory**：减 tile、或者把 padding 换成 swizzle（padding 会让 128×32 的 BF16 tile 多占 1/16 到 1/8 的空间）。
 - **grid 太小**（waves < 1 或 achieved 远低于 theoretical）：这时问题不在 kernel 体内而在并行度。decode GEMM 的 $$M$$ 只有几十行、$$N/BN$$ 只有几十个 block 是典型情况。手段是 split-K（把 K 维切成多段各自算部分和再规约，block 数乘以段数）、更小的 tile、或者 stream-K 式的持久 kernel。
 - **theoretical 本身就是 25% 且是有意的**（大 tile GEMM）：那 occupancy 不是问题，跳到第三步。
@@ -515,7 +594,7 @@ def test_rms_norm(default_vllm_config, num_tokens, hidden_size, add_residual,
         )
 ```
 
-值得学的几点：宽度列表刻意混入 769 与 5125 这种非对齐值；`strided_input` 用切片制造非连续输入并断言它确实非连续；`forward_native` 是 PyTorch 组合算子的参考实现；最后一行的 `opcheck` 是 `tests/kernels/utils.py` 里对 `torch.library.opcheck` 的一层薄封装——把 `torch.allclose` patch 成支持 FP8 的版本，默认跑 `test_schema`、`test_autograd_registration`、`test_faketensor`、`test_aot_dispatch_dynamic` 四项。第九章会解释这四项检查的是什么。
+值得学的几点：宽度列表刻意混入 769 与 5125 这种非对齐值；`strided_input` 用切片制造非连续输入并断言它确实非连续；`forward_native` 是 PyTorch 组合算子的参考实现；最后一行的 `opcheck` 是 `tests/kernels/utils.py` 里对 `torch.library.opcheck` 的一层薄封装——把 `torch.allclose` patch 成支持 FP8 的版本，默认跑 `test_schema`、`test_autograd_registration`、`test_faketensor`、`test_aot_dispatch_dynamic` 四项。[第九章](#3-python-侧编译加载fake-kernelopcheck)会解释这四项检查的是什么。
 
 ### 4. 完整的 pytest 测试文件
 
@@ -626,7 +705,7 @@ def test_rms_norm_opcheck(rows, d, layout):
 
 ![make_input 四种布局在 storage 里的样子](/img/in-post/kernel-profiling-testing-and-contribution-storage-layouts.svg)
 
-运行 `pytest -v test_rms_norm.py`。参数化后第一个测试有 $$4 \times 5 \times 4 = 80$$ 个用例，每个几毫秒；加上边界、dtype 拒绝、大元素数与 opcheck，一分钟以内。这份文件覆盖了第 2 小节清单里除"多架构"之外的所有项——多架构靠在不同机器上跑同一份文件。
+运行 `pytest -v test_rms_norm.py`。参数化后第一个测试有 $$4 \times 5 \times 4 = 80$$ 个用例，每个几毫秒；加上边界、dtype 拒绝、大元素数与 opcheck，一分钟以内。这份文件覆盖了[「边界 shape、非连续输入与其他维度」一节](#2-边界-shape非连续输入与其他维度)清单里除"多架构"之外的所有项——多架构靠在不同机器上跑同一份文件。
 
 ## 七、benchmark 方法
 
@@ -636,9 +715,33 @@ benchmark 的目标是给出一个**可复现、可比较**的数字。四个来
 
 **warmup**：第一次调用包含 JIT 编译（Triton、`torch.compile`）、cuBLAS 句柄创建、CUDA context 初始化、分配器冷启动。至少跑 10–25 次再开始计时。
 
-**L2 flush**：A100 的 L2 是 40 MB，H100 是 50 MB。一个 128 MiB 的 RMSNorm 输入不会被 L2 装下，但一个 decode 阶段 16 MiB 的权重可以——连续测 100 次，后 99 次都从 L2 读，测出的"带宽"会超过 HBM 峰值。本系列第二篇的脚手架 `bench(fn, warmup=10, iters=100, flush_l2=True)` 在两次计时之间对一个 128 MB 缓冲区做 `cudaMemsetAsync` 把 L2 冲掉。Python 侧 `triton.testing.do_bench` 默认做同样的事（它在每次调用前写一个 256 MB 的缓冲区）。测"热 L2"还是"冷 L2"取决于生产环境里这个 kernel 前面跑的是什么，但**要说明测的是哪种**。
+> [!NOTE] Java 经验参照：JMH 的 warmup 与死代码消除
+> 用 JMH 测过 Java 方法的人对这一条不陌生：JMH 把迭代分成 `@Warmup` 和 `@Measurement` 两组，只统计后者，因为前几轮里混着 JIT 编译。GPU 上的 warmup 是同一回事——第一次调用里的 Triton / `torch.compile` 编译、cuBLAS 句柄创建都不该进数字。对不上的有两处：JMH 还要防死代码消除（结果没人用，编译器把计算整个删掉，所以 benchmark 方法要返回结果），这里没有这个问题，kernel 的输出写进显存，launch 不会被编译器删掉；反过来，下面的 L2 flush 在 JMH 里没有对应物，是 GPU benchmark 额外要处理的一层。
 
-**计时方式**：用 `torch.cuda.Event(enable_timing=True)` 在 GPU 时间线上打点，而不是 host 侧 `time.perf_counter()` 加 `synchronize()`——后者把 launch 开销与同步延迟算进去，对几微秒的 kernel误差是 100% 量级。vLLM 的 `benchmarks/kernels/benchmark_layernorm.py` 用的是 host 计时加 `synchronize`，配合 `--profile` 开关用 `cudaProfilerStart/Stop` 框定采集范围；它把多次迭代取平均，对几十微秒以上的 kernel 是够的，但对本文的目用更细的工具。
+**L2 flush**：A100 的 L2 是 40 MB，H100 是 50 MB。一个 128 MiB 的 RMSNorm 输入不会被 L2 装下，但一个 decode 阶段 16 MiB 的权重可以——连续测 100 次，后 99 次都从 L2 读，测出的"带宽"会超过 HBM 峰值。[《CUDA 编程模型与第一个 kernel》的「L2 flush 为什么必要」一节](/cuda-programming-model-and-first-kernel.html#2-l2-flush-为什么必要)里的脚手架 `bench(fn, warmup=10, iters=100, flush_l2=True)` 在两次计时之间对一个 128 MB 缓冲区做 `cudaMemsetAsync` 把 L2 冲掉。Python 侧 `triton.testing.do_bench` 默认做同样的事（它在每次调用前写一个 256 MB 的缓冲区）。测"热 L2"还是"冷 L2"取决于生产环境里这个 kernel 前面跑的是什么，但**要说明测的是哪种**。
+
+**计时方式**：用 `torch.cuda.Event(enable_timing=True)` 在 GPU 时间线上打点，而不是 host 侧 `time.perf_counter()` 加 `synchronize()`——后者把 launch 开销与同步延迟算进去，对几微秒的 kernel 误差是 100% 量级。vLLM 的 `benchmarks/kernels/benchmark_layernorm.py` 用的是 host 计时加 `synchronize`，配合 `--profile` 开关用 `cudaProfilerStart/Stop` 框定采集范围；它把多次迭代取平均，对几十微秒以上的 kernel 是够的，但对本文的目的要用更细的工具。
+
+一次计时迭代里，哪些动作在两个 event 之间、哪些在外面，决定了数字测的是什么：
+
+```mermaid
+%% 图：一次 benchmark 里哪些动作被计时：warmup 与 L2 flush 都在 start event 之外，只有被测 kernel 落在两个 event 之间
+flowchart TB
+    warm["<b>warmup</b><br/>JIT 编译、cuBLAS 句柄、分配器冷启动<br/>跑完不计时"]
+    subgraph iter["每次计时迭代，重复 N 次"]
+        direction TB
+        flush["<b>L2 flush</b><br/>写一块大于 L2 的缓冲区<br/>排在 start event 之前，不计时"]
+        start["start event"]
+        kern["<b>被测 kernel</b>"]
+        stop["end event"]
+        flush --> start --> kern --> stop
+    end
+    stat["<b>统计</b><br/>N 个 end − start 取中位数，必要时加 p90"]
+    warm --> flush
+    stop --> stat
+```
+
+`triton.testing.do_bench` 与[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)的 `bench` 都按这个顺序排：flush 在 start event 之前，所以它的时间不进数字。
 
 **统计量**：报告**中位数**（p50），必要时加 p90；不要报平均值——GPU 的时钟调整、其他进程的干扰会产生长尾，平均值被它们拉偏，中位数不会。`triton.testing.do_bench(fn, warmup=25, rep=100, return_mode="median")` 直接给中位数；`quantiles=[0.5, 0.9]` 返回 p50 与 p90。`torch.utils.benchmark.Timer(stmt, globals).blocked_autorange(min_run_time=1.0)` 是 PyTorch 自带的版本，返回 `Measurement` 对象，`.median` 是中位数、`.iqr` 是四分位距，它会自动调整每块的迭代数使总时间达到 `min_run_time`。
 
@@ -799,6 +902,9 @@ __device__ __forceinline__ void load_tile_async(/* ... */) {
 
 `__CUDA_ARCH__` 只在 device 编译阶段有定义，host 阶段没有——所以 host 代码里不能用它判断"当前 GPU 是什么"，只能用运行时查询。nvcc 用 `-gencode arch=compute_80,code=sm_80 -gencode arch=compute_90,code=sm_90 -gencode arch=compute_90,code=compute_90` 为每个目标各编译一份 SASS 打进同一个 fatbin，最后一项额外嵌入 PTX 供更新架构 JIT。代价是**编译时间与二进制体积随目标数线性增长**：一个几千行的 CUTLASS 模板实例化在三个架构上编三遍，vLLM 的完整编译在多架构下要几十分钟以上，wheel 体积也直接受影响。PyTorch 扩展通过 `TORCH_CUDA_ARCH_LIST="8.0;9.0"` 环境变量控制，vLLM 用 `CUDA_ARCHS` CMake 变量，并用 `cuda_archs_loose_intersection` 函数对每组 kernel 取"该 kernel 支持的架构"与"用户要求的架构"的交集——比如 Marlin 只在 `8.0+PTX` 以上编译、FP8 Marlin 只对 `8.9;12.0;12.1` 编译，这样不支持某个特性的架构就不会为它付编译时间。
 
+> [!NOTE] Java 经验参照：字节码 JIT 与 PTX JIT
+> fatbin 里的 PTX 与 `.class` 里的字节码地位相同：不绑定具体处理器的中间表示，运行时由 JIT 编成机器码——驱动把 PTX 编成当前 GPU 的 SASS，就像 JVM 把字节码编成当前 CPU 的机器码，换一代硬件不用重新分发。对不上的是默认路径：Java 程序分发的只有字节码，而 CUDA 扩展通常已经为目标架构预编好了 SASS，PTX 只在没有匹配 SASS 的新 GPU 上才被 JIT；JIT 的结果由驱动写进磁盘上的 compute cache，驱动升级时才失效，之后的进程直接复用。
+
 ### 2. 运行期：按 compute capability 选择
 
 host 侧按设备能力分派：
@@ -854,13 +960,22 @@ flowchart TB
     class host,a100,h100,newer run
 ```
 
-纯 CUDA 侧对应 `cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev)`。Python 侧是 `torch.cuda.get_device_capability()` 返回 `(major, minor)`，vLLM 封装成 `current_platform.has_device_capability(80)`。两个原则：**Hopper-only 路径必须有 fallback**——要么回到 sm_80 实现，要么明确报错并在 Python 侧提前选择别的后端，不能让用户在 A100 上看到一个 `no kernel image is available` 的运行时错误；**运行时分派的粒度放在 host 函数一级**，不要在 kernel 内部用 `if (cc >= 90)` 分支——kernel 内部用 `__CUDA_ARCH__` 在编译期决定，两个 SASS 各自最优。
+纯 CUDA 侧对应 `cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, dev)`。Python 侧是 `torch.cuda.get_device_capability()` 返回 `(major, minor)`，vLLM 封装成 `current_platform.has_device_capability(80)`。两个原则：
+
+1. **Hopper-only 路径必须有 fallback**——要么回到 sm_80 实现，要么明确报错并在 Python 侧提前选择别的后端，不能让用户在 A100 上看到一个 `no kernel image is available` 的运行时错误。
+2. **运行时分派的粒度放在 host 函数一级**，不要在 kernel 内部用 `if (cc >= 90)` 分支——kernel 内部用 `__CUDA_ARCH__` 在编译期决定，两个 SASS 各自最优。
 
 ## 九、接入 PyTorch：TORCH_LIBRARY、fake kernel 与 opcheck
 
 ### 1. 为什么要注册成算子
 
-第二到九篇用 `torch.utils.cpp_extension.load_inline` 把 kernel 暴露成一个普通的 Python 函数，测试与 benchmark 够用了。但一个普通函数对 PyTorch 是黑盒：`torch.compile` 遇到它会 graph break（Dynamo 不知道它对 tensor 做了什么，只能把图切开、把这个调用留给 eager）；`torch.export` 无法序列化它；autograd 不知道它有没有原地修改输入。把 kernel 注册成 **算子（operator）** 就是给 PyTorch 一份"它做了什么"的声明：一个 schema 字符串描述输入输出与可变性，一个 fake kernel 描述输出的 shape/dtype/device 如何由输入决定。有了这两样，编译器就能把它当成一个不透明但形状已知的节点放进图里。
+从[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)到[《量化与融合 kernel》](/quantization-and-fused-kernels.html)，各篇都用 `torch.utils.cpp_extension.load_inline` 把 kernel 暴露成一个普通的 Python 函数，测试与 benchmark 够用了。但一个普通函数对 PyTorch 是黑盒：
+
+- `torch.compile` 遇到它会 graph break（Dynamo 不知道它对 tensor 做了什么，只能把图切开、把这个调用留给 eager）；
+- `torch.export` 无法序列化它；
+- autograd 不知道它有没有原地修改输入。
+
+把 kernel 注册成 **算子（operator）** 就是给 PyTorch 一份"它做了什么"的声明：一个 schema 字符串描述输入输出与可变性，一个 fake kernel 描述输出的 shape/dtype/device 如何由输入决定。有了这两样，编译器就能把它当成一个不透明但形状已知的节点放进图里。
 
 ```mermaid
 %% 图：为什么要注册成算子：schema、CUDA 实现与 fake kernel 各就各位，eager 与 torch.compile 走不同路径都不 graph break
@@ -892,7 +1007,7 @@ flowchart TB
 
 ### 2. C++ 侧：TORCH_LIBRARY + TORCH_LIBRARY_IMPL
 
-下面是一个完整、可编译的最小示例。kernel 本身是第四篇的 RMSNorm：一个 block 处理一行，256 线程，warp shuffle 归约，BF16 输入、float 累加。为了让例子聚焦在注册机制上，加载是标量的（每线程 2 字节），第四章说过它的向量化版本长什么样。
+下面是一个完整、可编译的最小示例。kernel 本身是[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)的 RMSNorm：一个 block 处理一行，256 线程，warp shuffle 归约，BF16 输入、float 累加。为了让例子聚焦在注册机制上，加载是标量的（每线程 2 字节）；每线程 8 个 BF16 的向量化版本见[《共享内存与 reduction》的「RMSNorm kernel」一节](/shared-memory-reduction-and-softmax.html#2-rmsnorm-kernel一行一个-block8-个-bf16线程寄存器驻留)，它在 ncu 里的样子见[「一份典型 memory-bound kernel 的报告长什么样」一节](#7-一份典型-memory-bound-kernel-的报告长什么样)。
 
 ```cpp title="my_ops.cu：TORCH_LIBRARY + TORCH_LIBRARY_IMPL 注册 RMSNorm"
 // my_ops.cu
@@ -990,7 +1105,21 @@ TORCH_LIBRARY_IMPL(my_ops, CUDA, m) {
 }
 ```
 
-schema 字符串的写法与 ATen 的 `native_functions.yaml` 一致：`Tensor` 是只读输入；`Tensor!` 表示这个参数会被**原地修改**（vLLM 的 `rms_norm(Tensor! result, Tensor input, Tensor weight, float epsilon) -> ()` 就是 out 参数风格，输出写进 `result`、返回 `()`）；`Tensor?` 是可选；`Tensor!?` 是可选且可变；`int`/`float`/`bool`/`str` 对应 `int64_t`/`double`/`bool`/`std::string`；`int[]` 是 `IntArrayRef`；默认值写成 `int rope_dim_offset=0`。可变性标注不是文档，它决定 autograd 与 functionalization 如何处理这个算子——写错了 `opcheck` 会抓出来。
+schema 字符串的写法与 ATen 的 `native_functions.yaml` 一致：
+
+| schema 写法 | 含义 / C++ 侧类型 |
+|---|---|
+| `Tensor` | 只读输入 |
+| `Tensor!` | 这个参数会被**原地修改**（vLLM 的 `rms_norm(Tensor! result, Tensor input, Tensor weight, float epsilon) -> ()` 就是 out 参数风格，输出写进 `result`、返回 `()`） |
+| `Tensor?` | 可选 |
+| `Tensor!?` | 可选且可变 |
+| `int` / `float` / `bool` / `str` | `int64_t` / `double` / `bool` / `std::string` |
+| `int[]` | `IntArrayRef` |
+| `int rope_dim_offset=0` | 带默认值的参数 |
+
+Table: schema 字符串的类型写法
+
+可变性标注不是文档，它决定 autograd 与 functionalization 如何处理这个算子——写错了 `opcheck` 会抓出来。
 
 `x.data_ptr<at::BFloat16>()` 已经包含了 `storage_offset`，所以切片输入 `x[:, :d]`（stride(0) = 2d、stride(1) = 1）不需要拷贝，直接以 `x.stride(0)` 作为行步长传进去；转置输入 stride(1) 不为 1，会走 `.contiguous()`。
 
@@ -1059,7 +1188,7 @@ if __name__ == "__main__":
 - `test_faketensor`：fake kernel 是否存在、其输出的 metadata 是否与真实运行一致；
 - `test_aot_dispatch_dynamic`：在 `torch.compile` 的 AOTAutograd（ahead-of-time Autograd，编译前提前把前向、反向图都生成出来） 路径下（含 functionalization、动态 shape）算子的输出是否与 eager 相同。
 
-docstring 建议"用一组有代表性的输入多次调用 opcheck"——不同 shape、不同 stride、每个支持的设备。这就是第六章测试文件里 `test_rms_norm_opcheck` 参数化 layout 的原因。
+docstring 建议"用一组有代表性的输入多次调用 opcheck"——不同 shape、不同 stride、每个支持的设备。这就是[第六章测试文件](#4-完整的-pytest-测试文件)里 `test_rms_norm_opcheck` 参数化 layout 的原因。
 
 验证 `torch.compile` 不 graph break 有三种方法，示例里用了两种：`torch._dynamo.explain(f)(*args)` 返回 `graph_break_count` 与 `break_reasons`；`torch.compile(f, fullgraph=True)` 在有任何 break 时直接抛异常；第三种是环境变量 `TORCH_LOGS="graph_breaks"` 运行，日志里列出每个 break 的位置与原因。如果 fake kernel 没注册，Dynamo 会报 "missing fake kernel" 类的错误并 break——这是最常见的接入失败原因。
 
@@ -1102,7 +1231,7 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
 REGISTER_EXTENSION(TORCH_EXTENSION_NAME)
 ```
 
-与第九章的两段式（`TORCH_LIBRARY` + `TORCH_LIBRARY_IMPL`）相比，这里 `ops.def` 与 `ops.impl(name, torch::kCUDA, &fn)` 写在同一个块里，效果相同。注意 vLLM 的算子几乎都是 **out 参数风格**：输出 tensor 由 Python 侧分配好传进来（`Tensor! result`），算子返回 `()`。这样做的好处是 Python 侧控制内存（可以复用 buffer、配合 CUDA graph 固定地址），且返回 `()` 的算子不需要 fake kernel——输出的 metadata 就是传入 tensor 的 metadata，`torch.compile` 自然能追踪。只有返回新 tensor 的算子（如 `awq_gemm`、`gptq_gemm`）才需要 `register_fake`。文件末尾的 `REGISTER_EXTENSION` 生成 `PyInit__C`，让 `.so` 能被 `import` 语句加载。
+与[第九章](#2-c-侧torch_library--torch_library_impl)的两段式（`TORCH_LIBRARY` + `TORCH_LIBRARY_IMPL`）相比，这里 `ops.def` 与 `ops.impl(name, torch::kCUDA, &fn)` 写在同一个块里，效果相同。注意 vLLM 的算子几乎都是 **out 参数风格**：输出 tensor 由 Python 侧分配好传进来（`Tensor! result`），算子返回 `()`。这样做的好处是 Python 侧控制内存（可以复用 buffer、配合 CUDA graph 固定地址），且返回 `()` 的算子不需要 fake kernel——输出的 metadata 就是传入 tensor 的 metadata，`torch.compile` 自然能追踪。只有返回新 tensor 的算子（如 `awq_gemm`、`gptq_gemm`）才需要 `register_fake`。文件末尾的 `REGISTER_EXTENSION` 生成 `PyInit__C`，让 `.so` 能被 `import` 语句加载。
 
 `vllm/_custom_ops.py` 是 Python 侧包装层。每个算子一个薄函数，加上必要的 fake 注册：
 
@@ -1151,6 +1280,29 @@ kernel 注册进 `torch.ops._C` 只是让它可调用；决定"什么时候调�
 - **层级别**：`vllm/model_executor/layers/layernorm.py` 的 `RMSNorm` 继承 `CustomOp`，有 `forward_native`（纯 PyTorch 参考）与 `forward_cuda`（调 `ops.rms_norm` / `ops.fused_add_rms_norm`，还包含一段按 stride 与架构决定是否走另一个 fast path 的条件）。`CustomOp` 按平台与配置分派到 `forward_cuda`、`forward_hip`、`forward_cpu` 或回退 `forward_native`；`vllm/platforms/cuda.py` 里的 `has_device_capability(80)` 之类的判断在这一层大量出现。
 - **量化方法级别**：`vllm/model_executor/layers/quantization/fp8.py` 的 `Fp8LinearMethod` 在构造时根据 `cutlass_fp8_supported()`、设备能力与配置选择底层的 GEMM kernel 类（CUTLASS、Marlin 还是 PyTorch `_scaled_mm`），`apply()` 里再按 `use_marlin` 等标志调用。新的量化 GEMM kernel 接入点就在这里：实现一个 kernel 类、在选择逻辑里加一个条件。
 - **attention 后端级别**：`vllm/v1/attention/backends/` 下每个文件是一个后端（`flash_attn.py`、`flashinfer.py`、`triton_attn.py`、`flex_attention.py`、`mla/`），`registry.py` 注册它们，`vllm/platforms/cuda.py` 的 `get_attn_backend_cls` 按设备能力、dtype、head size、KV cache dtype 与用户配置选择。
+
+```mermaid
+%% 图：一个新 kernel 接入 vLLM 要经过的文件：C++ 侧注册进 torch.ops._C，Python 侧包装后由三个层次的选择逻辑决定何时调用
+flowchart TB
+    cu["<b>csrc/xxx.cu</b><br/>kernel 与 host 函数"]
+    hdr["<b>csrc/ops.h</b><br/>host 函数声明"]
+    bind["<b>csrc/torch_bindings.cpp</b><br/>ops.def 写 schema<br/>ops.impl(name, torch::kCUDA, #38;fn)"]
+    cmake["<b>CMakeLists.txt</b><br/>源文件加进 VLLM_EXT_SRC<br/>cuda_archs_loose_intersection 定架构"]
+    so["<b>_C 扩展（.so）</b><br/>REGISTER_EXTENSION 生成 PyInit__C"]
+    op["<b>torch.ops._C.xxx</b><br/>能调用了，但还没人调"]
+    wrap["<b>vllm/_custom_ops.py</b><br/>薄包装；返回新 tensor 的算子加 register_fake"]
+    subgraph sel["什么时候调它：Python 侧的选择逻辑"]
+        direction LR
+        layer["<b>层</b><br/>RMSNorm.forward_cuda"]
+        quant["<b>量化方法</b><br/>Fp8LinearMethod 选 GEMM 类"]
+        attn["<b>attention 后端</b><br/>get_attn_backend_cls"]
+    end
+    guard["<b>tests/kernels/ 与 benchmarks/kernels/</b><br/>正确性测试与 before/after 数字"]
+    cu --> hdr --> bind --> so
+    cu --> cmake --> so
+    so --> op --> wrap --> sel
+    guard -. "覆盖" .-> op
+```
 
 接入一个新 kernel 的完整路径是：`csrc/xxx.cu` 实现 → `csrc/ops.h` 声明 → `torch_bindings.cpp` 注册 → `CMakeLists.txt` 加源文件与架构 → `_custom_ops.py` 包装（返回新 tensor 的加 fake）→ 对应层或方法类里加选择分支 → `tests/kernels/` 加测试 → `benchmarks/kernels/` 加 benchmark。
 
