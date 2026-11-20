@@ -22,8 +22,8 @@ $$
 
 | 账 | 看什么 |
 |---|---|
-| 带宽 \(\beta\) | 链路速率、算法的带宽效率、协议的有效载荷比例 |
-| 延迟 \(\alpha\) | 步数、握手次数、kernel 启动、proxy 线程响应；MoE decode 再加**发起速率** |
+| 带宽 $$\beta$$ | 链路速率、算法的带宽效率、协议的有效载荷比例 |
+| 延迟 $$\alpha$$ | 步数、握手次数、kernel 启动、proxy 线程响应；MoE decode 再加**发起速率** |
 
 八篇同一个四段法：算一算 → 看一看 → 测一测 → 比一比；留下诊断工具集 comm-probe。
 
@@ -48,6 +48,32 @@ flowchart TB
     N4 & N5 --> N8["08 MoE 的通信"]
 ```
 
+<!-- v -->
+
+### 一次 all_reduce 的全路径：两本账在末端分叉
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 140}}}%%
+flowchart LR
+    PY["<b>dist.all_reduce</b><br/>c10d、Work、stream（05）"]
+    H["<b>NCCL host 侧</b><br/>查调优表选算法与协议（04）"]
+    D["<b>NCCL kernel</b><br/>每 channel 一个 block（04）"]
+    NVL["<b>节点内 NVLink</b><br/>单向 450 GB/s（02）"]
+    NET["<b>proxy 上网卡</b><br/>RDMA + GDR，50 GB/s（02、03）"]
+    ACC{"落在 α-β 拐点哪一侧（01）"}
+    BW["<b>带宽的账</b><br/>换链路、换算法、合并消息"]
+    LAT["<b>延迟的账</b><br/>减步数，逼出 custom AR（07）与 IBGDA（08）"]
+    PY --> H --> D
+    D --> NVL --> ACC
+    D --> NET --> ACC
+    ACC -->|"大"| BW
+    ACC -->|"小"| LAT
+```
+
+<aside class="notes" markdown="1">
+总纲「一次 all_reduce 的数据路径」那张全篇机制图的精简版：每一篇负责这条路径上的一段，第六篇的测量与排障贯穿全程。
+</aside>
+
 ---
 
 ## 01 · α-β 模型：1 GB 与 64 KB 是两本不同的账
@@ -57,9 +83,29 @@ flowchart TB
 ![ring all_reduce 的 T(S) 双对数曲线：延迟项水平渐近线与带宽项斜线在 S* = nαβ 处相交；n 变大整条曲线左端抬高、拐点右移，链路变快只压低右半段](/img/in-post/collective-communication-primitives-and-cost-model-alpha-beta-regimes.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
-原文 /collective-communication-primitives-and-cost-model.html。`busbw` = `algbw` × \(2(n-1)/n\)；8 卡 IB 拐点约 2 MB；tree 2⌈log₂n⌉ 步。「通信慢就换更快的网卡」——延迟主导的小消息对 β 不敏感。
+原文 /collective-communication-primitives-and-cost-model.html。`busbw` = `algbw` × $$2(n-1)/n$$；8 卡 IB 拐点约 2 MB；tree 2⌈log₂n⌉ 步。「通信慢就换更快的网卡」——延迟主导的小消息对 β 不敏感。
 结论原文：$$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$——带宽项与 n 无关、延迟项随 n 线性增长；8 卡 IB 上 **1 GB 约 70 ms（延迟占 0.2%）、64 KB 约 145 µs（带宽占 3%）**。
 各篇关键词：01 造一把尺子 T = α + S/β；02 给 β 填真实数字 PCIe / NVLink / IB；03 给 α 填真实数字——绕过 CPU；04 在探测到的拓扑上选 ring / tree、channel、协议；05 ProcessGroupNCCL、stream、重叠；07 custom all-reduce、KV 传输；08 all-to-all、DeepEP、GPU 发起。
+</aside>
+
+<!-- v -->
+
+### 从并行策略到理论时间：一条推算链
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 180}}}%%
+flowchart LR
+    W["<b>并行策略</b><br/>DP 梯度桶、TP 激活、MoE token、decode 小张量——定下 n 与 S"]
+    A["<b>算法</b><br/>ring 走 2(n−1) 步、每步 S/n 字节"]
+    M["<b>α-β 两项相加</b><br/>步数 × α ＋ 每 rank 字节数 / β"]
+    B["<b>换算成带宽</b><br/>algbw = S / T，busbw = algbw × 原语系数"]
+    W --> A --> M --> B
+```
+
+每一环都能单独核对：步数错了查算法，β 错了查链路，busbw 与硬件标称对不上才是真异常。
+
+<aside class="notes" markdown="1">
+原文第三章到第七章就是这条链的四节。原语给的是"每 rank 至少要收多少字节"的下界；两级算法把节点内、节点间分开各算一遍。
 </aside>
 
 ---
@@ -100,10 +146,20 @@ flowchart TB
 
 **TCP 2 次拷贝、RDMA 1 次、RDMA + GDR 0 次——上限 min(NIC, PCIe)**
 
-![显存到对端显存的三条路径：TCP、RDMA、RDMA + GDR](/img/in-post/rdma-and-gpudirect-three-paths.svg){: style="max-height: 420px}
+![显存到对端显存的三条路径：TCP、RDMA、RDMA + GDR](/img/in-post/rdma-and-gpudirect-three-paths.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
 原文 /rdma-and-gpudirect.html。
+</aside>
+
+<!-- v -->
+
+### 零拷贝的前提：一段内存先要被注册
+
+![内存注册做了什么：一段 MR 在应用、内核与网卡里的三份表示](/img/in-post/rdma-and-gpudirect-mr-translation.svg){: style="max-height: 400px"}
+
+<aside class="notes" markdown="1">
+`ibv_reg_mr` 做两件事：把页锁住不让换出 / 迁移，把虚拟地址到物理地址的映射灌进网卡的 MTT，换回一对 lkey / rkey。网卡此后用 rkey 直接写对端物理页，不经对端 CPU——这就是单边操作的底座，代价是注册本身是慢路径，所以 NCCL 要缓存 MR。
 </aside>
 
 <!-- v -->
@@ -122,7 +178,7 @@ flowchart TB
 
 ### 常见误区
 
-- 「RDMA 不开 GDR 也差不了多少」——A100 上 D2H 与 NIC DMA 共享主机内存，8 卡合计 800 GB/s 顶到内存带宽
+- 「RDMA 不开 GDR 也差不了多少」——主机内存成了汇聚点：A100 上实际到不了 HDR 的 25 GB/s，8 卡 H100 的 staging 流量合计 800 GB/s 顶到两 socket 内存带宽
 - 「`GPU Direct RDMA Disabled` 就设 `GDR_LEVEL=SYS`」——跨 root complex 的 P2P 可能只有几 GB/s；先修亲和，再用 `ib_write_bw --use_cuda` 证明路径能跑
 
 ---
@@ -145,10 +201,38 @@ flowchart TB
 
 <!-- v -->
 
+### 初始化期做完决策，执行期只查表
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 160}}}%%
+flowchart TB
+    subgraph INIT["初始化期 ncclCommInitRank：与消息无关，只做一次"]
+        direction LR
+        B["<b>bootstrap</b><br/>uniqueId 带 rank 0 的地址，TCP 环上两次 AllGather"]
+        X["<b>拓扑探测与路径计算</b><br/>PCIe 树、NVLink、网卡；每对设备一个类型与带宽"]
+        G["<b>图搜索与 channel</b><br/>nChannels 条 ring / tree，拼成全局环与双二叉树"]
+        T["<b>调优表</b><br/>每个算法 × 协议一对 lat 与 bw"]
+        B --> X --> G --> T
+    end
+    subgraph RUN["执行期 ncclAllReduce：每次调用"]
+        direction LR
+        E["<b>enqueue</b><br/>查表取 T 最小的组合，按消息大小缩 channel 数"]
+        K["<b>一个 kernel，nChannels 个 block</b><br/>节点内直写对端显存，跨机推 tail 让 proxy 上网卡"]
+        E --> K
+    end
+    INIT --> RUN
+```
+
+<aside class="notes" markdown="1">
+所以 `NCCL_DEBUG=INFO` 里那几行 TUNING / channel 日志是 init 时打的，执行期一行都不打——排障要看的决策全在启动那几百毫秒里。
+</aside>
+
+<!-- v -->
+
 
 ### 要点
 
-- 强行 Ring：NVSwitch 大消息慢约 2 倍、32 节点中小消息慢 4–7 倍
+- 强行 Ring：NVSwitch 1 GB 慢 1.9 倍（带宽的账）、32 节点中小消息慢 2–9 倍（延迟的账）
 
 <!-- v -->
 
@@ -163,10 +247,20 @@ flowchart TB
 
 **`wait()` 不是等通信完成，是当前 stream 等 end event；CPU 全程不停**
 
-![async_op=True 时两条 stream、两个 event 与一个 Work](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-async-streams-events.svg){: style="max-height: 420px}
+![async_op=True 时两条 stream、两个 event 与一个 Work](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-async-streams-events.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
 原文 /pytorch-communication-stack-processgroupnccl-and-streams.html。重叠的来源与失效的来源是同一套编排。
+</aside>
+
+<!-- v -->
+
+### 重叠成立，和它两种失效的样子
+
+![重叠成立与两种失效的 GPU 时间线](/img/in-post/pytorch-communication-stack-processgroupnccl-and-streams-overlap-timelines.svg){: style="max-height: 420px"}
+
+<aside class="notes" markdown="1">
+三段的 kernel 长度完全一样，变的只是怎么排。第一段没人等；第二段是**当前 stream 等 NCCL stream**（`wait()` 放早了，CPU 侧看不出任何异常）；第三段是**CPU 等 GPU**（`.item()` 的同步拷贝，或显存碎片触发的 `cudaFree`），空洞更长，因为新 kernel 也发不出去。
 </aside>
 
 <!-- v -->
@@ -175,7 +269,7 @@ flowchart TB
 
 | 量 | 数 |
 |---|---|
-| watchdog | 每 100 ms 轮询；`opTimeout_` 默认 10 分钟；heartbeat monitor 480 s 强杀 |
+| watchdog | 每 100 ms 轮询；`opTimeout_` 默认 10 分钟；heartbeat monitor 每 480 s 读一次心跳，watchdog 卡死后 8–16 分钟判定、再等最多 8 分钟强杀 |
 | DDP bucket 25 MiB | 节点内带宽项约 97 µs、跨机约 875 µs |
 | 1000 个 25 KB 各做一次 vs 合并一次 | 延迟项差 1000 倍——bucket 存在的理由 |
 
@@ -202,13 +296,14 @@ flowchart TB
 
 <!-- v -->
 
-### 参考线与 hang 的六类
+### 参考线与参数优先级
 
 | 参考线 | 值 |
 |---|---|
 | 8×H100 节点内 all_reduce busbw | 350–480 GB/s |
 | 2 节点 NDR，每 GPU | 40–48 GB/s |
-| 参数优先级 | env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` |
+| 拐点与平台 | 8×H100 节点内约 10 MB、64 卡跨机约 30 MB；到 90% 平台约 9 倍拐点 |
+| 参数优先级 | env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 代码默认值 |
 
 <!-- v -->
 
@@ -216,8 +311,29 @@ flowchart TB
 
 | hang 类型 | 各 rank 最后一次操作 |
 |---|---|
-| 少一次调用 / 多一次调用 / 顺序不同 / 形状不同 | **不一致**——Flight Recorder 对齐序号找出谁 |
-| 网络断 / 某 rank 死在计算里 | 一致——看 dmesg 与 py-spy |
+| A 形状或 dtype 不一致<br/>B 调用顺序 / 次数不一致<br/>C send / recv 不配对<br/>D 两个 communicator 交叉等待 | **不一致**——Flight Recorder 对齐 `collective_seq_id` 找出谁 |
+| E 某 rank 崩了或卡在非通信代码<br/>F 网络或硬件真的断了 | 一致——看进程数、dmesg 与 py-spy |
+
+<!-- v -->
+
+### 判别树：先数进程，再比 Flight Recorder
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+flowchart LR
+    S["<b>watchdog 报 timeout</b><br/>先收齐进程数、py-spy、FR dump、NCCL WARN、dmesg"]
+    S --> Q1{"进程数够吗"}
+    Q1 -->|"少了"| E1["<b>类 E：崩溃</b>"]
+    Q1 -->|"都在"| Q2{"各 rank 的 FR 记录一致吗"}
+    Q2 -->|"同序号、同为 started"| F1["<b>类 F：网络或硬件</b>"]
+    Q2 -->|"报 MISMATCH"| AB["<b>类 A / B：形状或次数不一致</b>"]
+    Q2 -->|"少一条、末条 completed"| E2["<b>类 E：卡在通信之外</b>"]
+    Q2 -->|"p2p 找不到配对"| C2["<b>类 C：send / recv 不配对</b>"]
+    Q2 -->|"停在不同 PG"| D2["<b>类 D：多 communicator 交叉</b>"]
+```
+
+<aside class="notes" markdown="1">
+第一层就是"所有 rank 都在等同一个不存在的东西，还是有一个 rank 在等别的东西"：前者查基础设施，后者查代码。</aside>
 
 <!-- v -->
 
@@ -228,7 +344,7 @@ flowchart TB
 
 ---
 
-## 07 · 推理侧的通信：decode TP 是纯 \(\alpha\) 的账
+## 07 · 推理侧的通信：decode TP 是纯 $$\alpha$$ 的账
 
 **custom all-reduce 30 → 10 µs：14 步 → 2 步 + CUDA Graph**
 
@@ -242,6 +358,29 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /inference-communication-custom-all-reduce-and-kv-transfer.html。
 结论原文：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
+</aside>
+
+<!-- v -->
+
+### 一次 all_reduce 要问六个后端：谁接
+
+`tensor_model_parallel_all_reduce(x)` 进 `CudaCommunicator`，六个后端按固定顺序各自回答「这一次我接不接」，第一个接的就执行：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 110}}}%%
+flowchart LR
+    Q1{"NCCL<br/>对称内存"}
+    Q2{"quick AR<br/>与 FlashInfer"}
+    Q3{"custom<br/>all-reduce"}
+    Q4{"torch<br/>对称内存"}
+    B["<b>PyNccl</b><br/>兜底"]
+    Q1 -->|"不接"| Q2 -->|"不接"| Q3 -->|"不接"| Q4 -->|"不接"| B
+```
+
+8 卡 H100 默认：≤ 256 KB 走 custom AR 的 one-shot，256 KB～64 MB 走对称内存的 NVSwitch 多播归约，更大交给 PyNccl。
+
+<aside class="notes" markdown="1">
+六个后端按固定顺序各自回答"这一次我接不接"，`CUSTOM_ALL_REDUCE_MAX_SIZES` 这张表（H100 8 卡 256 KB、6 卡 512 KB、4 卡 32 MB、2 卡 64 MB）决定交接点；`NCCL_SYMM_MEM_ALL_REDUCE_CONFIG` 定义 custom AR 的优势区间：8 卡 (16 KB, 128 KB)、4 卡 (16 KB, 512 KB)。
 </aside>
 
 <!-- v -->
@@ -275,6 +414,30 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /moe-communication-all-to-all-deepep-and-gpu-initiated.html。
 结论原文：通信矩阵由路由决定、每步不同、最慢的 rank 决定时间；prefill **按节点去重**把网卡上的份数从 7 压到 3.2；decode 是 1024 条 7.4 KB 的消息，**CPU proxy 给不了发起速率，IBGDA 让 warp 自己写 WQE 与 doorbell**。
+</aside>
+
+<!-- v -->
+
+### 一个 token 的来回：网卡上一个节点只走一份
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 150}}}%%
+flowchart LR
+    A["<b>router + 写发送 buffer</b><br/>每 token 选 k 个专家<br/>FP8 转换、按目标分段"]
+    B1["<b>同节点</b><br/>远程写对端<br/>channel 队列"]
+    B2["<b>跨节点</b><br/>一次 RDMA WRITE<br/>最窄的一段"]
+    F["<b>对端同号 GPU</b><br/>再经 NVLink<br/>转发给目标卡"]
+    E["<b>recv_x → GEMM</b><br/>最慢的 rank<br/>决定整层"]
+    C["<b>combine 回来</b><br/>转置的矩阵<br/>BF16"]
+    A --> B1 --> E
+    A --> B2 --> F --> E
+    E --> C
+```
+
+<aside class="notes" markdown="1">
+「网卡上一个节点只走一份」就是 7 → 3.2 那笔账的机制：先 RDMA 到对端节点的同号 GPU，再由它 NVLink 分发，剩下两跳落在快 9 倍的链路上。
+
+细节：发起网卡那一跳的是 CPU proxy（NCCL / normal kernel）或 warp 自己（IBGDA / low-latency kernel）；跨节点只传一份、由对端同号 GPU 按 SourceMeta 转发，是「网卡上一个节点只走一份」的来源；各 rank 收到的 token 数不同，combine 复用 dispatch 的 handle。
 </aside>
 
 <!-- v -->
@@ -341,7 +504,7 @@ flowchart TB
 
 ## 下一步
 
-- **往上**：《大规模训练》——这些原语怎么组成 DP / TP / PP / EP；《vLLM 源码》——TP decode 与 PD 分离里的 custom AR 与 KV 传输
+- **往上**：《大规模训练工程》——这些原语怎么组成 DP / TP / PP / EP；《大模型推理系统揭秘》——TP decode 与 PD 分离里的 custom AR 与 KV 传输
 - **往下**：《GPU Kernel 工程》——通信 kernel 也是 kernel
 - **实践**：comm-probe 在任何新机器上跑一遍
 - 原文总纲：`/communication-and-interconnect-for-ai-infra.html`；通关自测在系列总结
