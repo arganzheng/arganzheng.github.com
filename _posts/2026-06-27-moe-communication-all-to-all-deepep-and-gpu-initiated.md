@@ -5,14 +5,20 @@ title: "通信与互联（08）：MoE 的通信——all-to-all、DeepEP 与 GPU
 subtitle: "Communication for MoE: All-to-All, DeepEP and GPU-Initiated Networking"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-20
 ---
 
-前七篇处理的通信有一个共同点：参与者之间交换的字节数在调用之前就是确定的。all_reduce 的每个 rank 拿同样大小的 buffer，all_gather 的每个 rank 贡献同样大小的一片，KV 传输的 block 列表由 scheduler 事先算好。第一篇给 all_to_all 留了一句话——"$$n(n-1)$$ 条不同的流，无法从绕环一圈里得到好处，跨节点时会同时压满所有链路，是 MoE 训练最难对付的通信模式"——然后就再没有回来。本篇回到这里。
+前七篇处理的通信有一个共同点：参与者之间交换的字节数在调用之前就是确定的。all_reduce 的每个 rank 拿同样大小的 buffer，all_gather 的每个 rank 贡献同样大小的一片，KV 传输的 block 列表由 scheduler 事先算好。[《集合通信原语与代价模型》的「集合通信原语：语义、组合与下界」一节](/collective-communication-primitives-and-cost-model.html#二集合通信原语语义组合与下界)给 all_to_all 留了一句话——"$$n(n-1)$$ 条不同的流，无法从绕环一圈里得到好处，跨节点时会同时压满所有链路，是 MoE 训练最难对付的通信模式"——然后就再没有回来。本篇回到这里。
 
-MoE 把它变成了训练和推理里最重的一种通信。一层 MoE 的前向，每个 token 由 router 选出 top-k 个专家，专家分布在 EP 组的所有 rank 上，于是 token 要被**分发**（dispatch）到持有那些专家的 rank、算完再**收回**（combine）加权求和。两次通信都是 all_to_all 的形状，但和第一篇定义的 all_to_all 有三个不同：每个 rank 发给每个对端的**字节数由路由结果决定**、每次都不一样；发给同一个对端的 token 要在对端按专家**重排**成连续的段；对小 batch 的 decode，每条流只有几 KB 到几十 KB，而流的条数是 $$n(n-1)$$。第一个不同让 NCCL 的 all_to_all 必须先做一次通信交换长度；第二个让通信和排列操作纠缠在一起；第三个把问题从带宽的账推到延迟的账，而 NCCL 的延迟账在这里付不起——它的 send/recv 经 proxy 线程提交 RDMA 请求，一个 CPU 线程替一张 GPU 上的几十个 SM 逐条 post，跨节点的每一步都要经过它。
+MoE 把它变成了训练和推理里最重的一种通信。一层 MoE 的前向，每个 token 由 router 选出 top-k 个专家，专家分布在 EP 组的所有 rank 上，于是 token 要被**分发**（dispatch）到持有那些专家的 rank、算完再**收回**（combine）加权求和。两次通信都是 all_to_all 的形状，但和《集合通信原语与代价模型》定义的 all_to_all 有三个不同：
 
-DeepSeek 开源的 DeepEP 是对这三个不同的一份完整回答：一套面向 MoE 的 dispatch / combine kernel，节点内用 NVLink、节点间用 RDMA；高吞吐版本把路由、类型转换、重排和通信融成一个 kernel；低延迟版本用 NVSHMEM 的 IBGDA 让 GPU 的 warp 自己写网卡的工作队列和门铃，把 CPU proxy 从数据路径上彻底拿掉。它同时也是本系列最后一块拼图：第三篇讲 GPUDirect RDMA 时说"GPUDirect Async——GPU 自己触发网卡——本系列不展开"，第四篇讲 NCCL 时说"GPU kernel 不能提交 RDMA 请求，所以需要 proxy"。本篇展开前者，并解释后者为什么不再是一条铁律。
+1. 每个 rank 发给每个对端的**字节数由路由结果决定**，每次都不一样。
+2. 发给同一个对端的 token 要在对端按专家**重排**成连续的段。
+3. 对小 batch 的 decode，每条流只有几 KB 到几十 KB，而流的条数是 $$n(n-1)$$。
+
+第一个不同让 NCCL 的 all_to_all 必须先做一次通信交换长度；第二个让通信和排列操作纠缠在一起；第三个把问题从带宽的账推到延迟的账，而 NCCL 的延迟账在这里付不起——它的 send/recv 经 proxy 线程提交 RDMA 请求，一个 CPU 线程替一张 GPU 上的几十个 SM 逐条 post，跨节点的每一步都要经过它。
+
+DeepSeek 开源的 DeepEP 是对这三个不同的一份完整回答：一套面向 MoE 的 dispatch / combine kernel，节点内用 NVLink、节点间用 RDMA；高吞吐版本把路由、类型转换、重排和通信融成一个 kernel；低延迟版本用 NVSHMEM 的 IBGDA 让 GPU 的 warp 自己写网卡的工作队列和门铃，把 CPU proxy 从数据路径上彻底拿掉。它同时也是本系列最后一块拼图：[《RDMA 与 GPUDirect》的「GPUDirect 家族的其余成员」一节](/rdma-and-gpudirect.html#3-gpudirect-家族的其余成员)说"GPUDirect Async——GPU 自己触发网卡——本系列不展开"，[《NCCL 架构：拓扑探测、channel、算法与协议》的「proxy 线程：GPU 不能驱动网卡」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#5-proxy-线程gpu-不能驱动网卡)说"GPU kernel 不能提交 RDMA 请求，所以需要 proxy"。本篇展开前者，并解释后者为什么不再是一条铁律。
 
 本篇的核心问题是：
 
@@ -21,6 +27,57 @@ DeepSeek 开源的 DeepEP 是对这三个不同的一份完整回答：一套面
 本文的源码以 **NCCL 2.28.9**、**nccl-tests 2.18.3**、**PyTorch 2.12**、**vLLM v0.23.0（2026-06-14 发布）**、**Megatron-LM core_v0.18.0（2026-06-22 发布）**、**DeepEP v1.2.1（2025-09-15 发布）** 为准。NVSHMEM 本地没有源码树，本文只按 DeepEP 源码对它的使用方式和 NVSHMEM 公开文档描述概念，不引用其内部实现；DeepEP v1.2.1 的 `third-party/README.md` 要求 NVSHMEM 3.3.9 及以上。硬件数字沿用前几篇：H100 SXM 的 NVLink 双向合计 900 GB/s（单向 450 GB/s，标称）、InfiniBand NDR 400 Gb/s（单向约 50 GB/s）、PCIe 5.0 x16 单向约 64 GB/s。文中所有时间数字都是**理论下界或典型量级**，唯一的例外是 DeepEP README 里的官方性能表——引用时会注明它是 DeepSeek 在 H800 + CX7 400 Gb/s 环境下的官方数字，不是本文的实测。DeepEP README 用的模型形状（hidden 7168、top-8、256 专家、4096 token/rank 的 prefill 与 128 token/rank 的 decode）是 DeepSeek-V3/R1 的，本文的算例沿用它，方便和官方表对照。
 
 ## 一、总览：一层 MoE 的通信形态
+
+一个 token 的一份拷贝从本卡显存出发，到它的专家所在的那张卡上，再把结果带回来，中间要经过哪几段链路、每一段由谁发起，这就是本篇的全部内容。下图把这条路径画在一起：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 350}}}%%
+%% 图：一个 token 从 router 到专家再回来的通信路径：dispatch 按 topk_idx 分发，跨节点先 RDMA 到同号 GPU 再 NVLink 转发，combine 走转置的矩阵回来
+flowchart TB
+    R["<b>router：topk_idx #91;T, k#93;</b><br/>每个 token 选 k 个专家，通信矩阵每步都不同（第二章）"]
+    L["<b>谁发多少：布局与计数</b><br/>• NCCL 路径：counts 交换 + D2H 同步，不能进 CUDA Graph（第三章）<br/>• DeepEP normal：get_dispatch_layout、notify_dispatch，CPU 等一个 pinned 计数器（第五章）<br/>• DeepEP low-latency：不交换，接收槽位按最坏情况预留（第六章）"]
+    S["<b>本卡：写发送 buffer</b><br/>• FP8 转换、按目标 rank / 节点分段<br/>• normal kernel 占 20 个 SM 自旋收发（第五章）"]
+    NVL["<b>同节点的目标卡：NVLink</b><br/>• 远程写对端的 channel 环形队列，推 tail<br/>• 均匀路由下期望 1/N 的拷贝直接走这里（第二章）"]
+    NIC["<b>网卡：一次 RDMA WRITE</b><br/>• 发起者：CPU proxy 线程（NCCL）或 warp 自己写 WQE 敲 doorbell（IBGDA，第六章）<br/>• 单向约 50 GB/s，整条路径最窄的一段（第二章）"]
+    FWD["<b>对端节点的同号 GPU</b><br/>• 数据落进对称 RDMA buffer<br/>• 按 token 里的 SourceMeta 经 NVLink 转发给本节点的目标卡——网卡上一个节点只走一份（第五章）"]
+    E["<b>目标卡：recv_x</b><br/>• normal：按来源 rank 连续，框架再 permute 成按专家<br/>• low-latency：kernel 直接落成按本地专家分组（第六章）"]
+    G["<b>本地专家 grouped GEMM</b><br/>各 rank 收到的 token 数不同，整层时间由最慢的那个 rank 决定（第九章）"]
+    C["<b>combine：矩阵转置后走回来</b><br/>• 复用 dispatch 留下的 handle，不再算一次布局<br/>• BF16 回传，加权求和在转发点与最终接收端完成（第五章）"]
+    R --> L --> S
+    S -- "节点内" --> NVL --> E
+    S -- "跨节点" --> NIC --> FWD --> E
+    E --> G --> C
+    classDef net fill:#fde2e2,stroke:#c0392b;
+    classDef nvl fill:#e3f2e1,stroke:#2e7d32;
+    class NIC,FWD net;
+    class NVL,E nvl;
+```
+
+- **router**：通信矩阵由它决定，所以 all_to_all 的长度不在调用前确定，这是 MoE 通信区别于前七篇一切通信的地方（[第二章](#二算一算dispatch-与-combine-的账)）。
+- **布局与计数**：三条路径的分水岭在这里——要不要先用一次通信把「会收到多少」问出来、要不要让 CPU 等 GPU 一次（[第三章](#4-为什么变长-split-要先交换-counts两步两次-α一次-host-同步)、[第五章](#2-三步get_dispatch_layout--notify_dispatch--dispatch)、[第六章](#1-为什么-decode-要另一套-kernel)）。
+- **写发送 buffer**：FP8 转换、按目标分段与通信在 DeepEP 里是一个 kernel 的事，NCCL 路径要靠框架的 permute 单独做（[第五章](#5-sm-数fp8-与-dispatch-的返回布局)）。
+- **NVLink 一跳**：队列在接收方的显存里，发送方远程写、接收方本地轮询（[第五章](#3-intranode-kernelchannel-队列与-head--tail)）。
+- **网卡一跳**：整条路径上最窄的一段，也是「谁发起」这个问题唯一真正重要的地方——本篇后半全部在讲它（[第六章](#4-ibgda_devicecuhwarp-写-wqe更新-dbr敲-doorbell)）。
+- **同号 GPU 转发**：normal kernel 把发往同一节点的多份拷贝在网卡上合成一份，代价是节点内多走一遍 NVLink（[第二章](#2-跨节点的比例与-rdma-拷贝数)、[第五章](#4-internode-kernelrdma-到同号-gpunvlink-转发)）。
+- **recv_x 的布局**：「通信完还要不要再排一次序」是 normal 与 low-latency 的一个实际差别（[第六章](#2-dispatch--combine-的-send-与-recv-两阶段以及-hook)）。
+- **专家 GEMM**：热点专家让某个 rank 收到几倍的 token，整层的 all_to_all 都等它（[第九章](#1-专家热点如何体现为通信时间)）。
+- **combine**：通信矩阵是 dispatch 的转置，所以布局信息可以复用，但字节数因为 BF16 反而更多（[第二章](#1-每个-token-多少字节)）。
+
+图里跑的是 DeepEP 的几块 buffer 与队列，最容易混的是「谁创建、活在哪一侧、活多久、谁能看见」：
+
+| 对象 | 谁创建 | 活在哪 | 谁能看见 | 活多久 |
+|---|---|---|---|---|
+| NVLink buffer（`num_nvl_bytes`） | `Buffer::Buffer` 的一次 `cudaMalloc`（尾部另加 barrier 信号与两张指针表） | 本卡 HBM | 同节点的 8 张卡：`Buffer::sync` 里各自 `cudaIpcOpenMemHandle` 打开对端句柄后可直接 store | 到 `destroy()`：`cudaIpcCloseMemHandle` + `cudaFree` |
+| IPC 指针表<br/>（`buffer_ptrs_gpu`、`barrier_signal_ptrs_gpu`） | `Buffer::sync` 用 `cudaMemcpy` 把 8 个指针写进 NVL buffer 的尾部 | 本卡 HBM | 只有本卡的 kernel（作为 kernel 入参） | 同 NVL buffer |
+| RDMA buffer（`num_rdma_bytes`） | `Buffer::sync` → `internode::alloc` → `nvshmem_align`，从 NVSHMEM 对称堆分配 | 本卡 HBM，在每个 PE 的堆里偏移相同 | 所有 PE：normal 模式的 PE 集合是各节点的同号 GPU，low-latency 模式是全部 rank；对端用「本地指针 + PE 号」寻址 | 到 `destroy()`：`internode::free` + `finalize` |
+| channel 环形队列与 head / tail<br/>（`nvl_channel_x`、`channel_head_idx`、`channel_tail_idx`） | dispatch kernel 自己在 NVL buffer 上按「channel × 对端 rank」切指针 | **接收方**的 NVL buffer（源码注释：stored on the receiver side） | 发送方远程写数据与 tail，接收方本地读 tail、写 head | 一次 kernel 调用；显存本身一直在，语义每次重新划分 |
+| LL 的接收槽位与计数<br/>（`rdma_recv_x`、`rdma_recv_count`） | host 侧 `LowLatencyLayout` 在 RDMA buffer 上切分，奇偶各一份 | 接收方的对称堆 | 任何来源 rank 的 warp 直接写 `rdma_recv_x[本地专家][来源 rank][槽位]` | 只有两组 buffer，最多同时持有两次 LL 调用的结果 |
+| pinned 计数器<br/>（`moe_recv_counter` 等三个） | 构造函数里 `cudaMallocHost(..., cudaHostAllocMapped)` + `cudaHostGetDevicePointer` | 主机内存，同时映射进 GPU 地址空间 | GPU kernel 写，host 自旋读——normal kernel「CPU 等 GPU」的载体 | 整个 `Buffer` 的生命期 |
+| RC QP（IBGDA） | NVSHMEM 在 `internode::init` 时按 `NVSHMEM_IBGDA_NUM_RC_PER_PE` 建好 | 队列上下文在网卡上，WQ / DBR / doorbell 映射进 GPU 地址空间（设备端 `state->globalmem.rcs`） | 本卡任何一个 warp：`ibgda_get_rc(dst_pe, qp_id)` 取到就能写 | NVSHMEM 会话期间 |
+| dispatch 返回的 `handle` | `Buffer.dispatch`（`rank_prefix_matrix`、`channel_prefix_matrix`、`recv_src_idx`、`is_token_in_rank`、`send_head`） | 本卡 HBM，由 Python 持引用 | 调用方框架 | 到 combine 与反向传播用完 |
+| `comm_stream` | 构造函数 `at::cuda::getStreamFromPool(true)` | host 侧的 stream 句柄 | 框架通过 `get_comm_stream` 拿去做 event 依赖 | 整个 `Buffer` 的生命期 |
+
+Table: DeepEP 的对象：谁创建、活在哪、谁能看见、活多久
 
 ### 1. 四步：路由、dispatch、专家、combine
 
@@ -63,11 +120,11 @@ Table: dispatch 的通信矩阵：`C[i][j]` = rank i 发给 rank j 的 token 拷
 
 ### 2. 两本账在 MoE 上的落点
 
-用第一篇的记号。一层 MoE 的 dispatch，每个 rank 发出 $$T \times k$$ 份 token 拷贝，每份 $$H \times b$$ 字节（$$b$$ 是 dtype 字节数，FP8 dispatch 时再加每 128 个元素一个 fp32 的 scale）。均匀路由下 $$1 - 1/n$$ 的拷贝发往别的 rank、$$1 - 1/N$$ 的拷贝发往别的节点（$$N$$ 是节点数）。
+用[《集合通信原语与代价模型》的「α-β 模型」一节](/collective-communication-primitives-and-cost-model.html#四α-β-模型)的记号。一层 MoE 的 dispatch，每个 rank 发出 $$T \times k$$ 份 token 拷贝，每份 $$H \times b$$ 字节（$$b$$ 是 dtype 字节数，FP8 dispatch 时再加每 128 个元素一个 fp32 的 scale）。均匀路由下 $$1 - 1/n$$ 的拷贝发往别的 rank、$$1 - 1/N$$ 的拷贝发往别的节点（$$N$$ 是节点数）。
 
 **prefill / 训练**：$$T = 4096$$、$$k = 8$$、$$H = 7168$$，FP8 dispatch 每 rank 发出约 242 MB，BF16 combine 约 470 MB。这是**带宽的账**：算的是每张网卡要承担多少字节、NVLink 要承担多少字节、两者哪个先成为瓶颈。DeepEP 的 normal kernel 就是为这本账设计的，它的一个关键动作是让一份跨节点的 token 拷贝在网卡上只走一次，到了对端节点再由 NVLink 分发给同一节点的多个目标 GPU。
 
-**decode**：$$T = 128$$，同样的 $$k$$ 和 $$H$$，每 rank 发出约 7.6 MB，切成 1024 条 7.4 KB 的消息发往 64 个目标。这是**延迟的账**，但和第七篇 decode TP all_reduce 的延迟账不同：那里是一次 128 KB 的消息、时间全部是同步开销；这里是上千条小消息，时间取决于**每条消息的发起开销乘以条数**——谁来发起、能有多少个发起者并行、每次发起要跨几次 PCIe。DeepEP 的 low-latency kernel 让每个 warp 直接向网卡提交请求，发起者从一个 CPU 线程变成几百个 warp，这就是它的答案。
+**decode**：$$T = 128$$，同样的 $$k$$ 和 $$H$$，每 rank 发出约 7.6 MB，切成 1024 条 7.4 KB 的消息发往 64 个目标。这是**延迟的账**，但和[《推理侧的通信：custom all-reduce 与 KV 传输》的「算一算：decode 阶段 TP all_reduce 的账」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#二算一算decode-阶段-tp-all_reduce-的账)的延迟账不同：那里是一次 128 KB 的消息、时间全部是同步开销；这里是上千条小消息，时间取决于**每条消息的发起开销乘以条数**——谁来发起、能有多少个发起者并行、每次发起要跨几次 PCIe。DeepEP 的 low-latency kernel 让每个 warp 直接向网卡提交请求，发起者从一个 CPU 线程变成几百个 warp，这就是它的答案。
 
 同一层 MoE，prefill 和 decode 两本账的答案指向两套完全不同的 kernel，这也是 DeepEP 分成 normal 和 low-latency 两组的原因；vLLM 的 `deepep_high_throughput` 与 `deepep_low_latency` 两个后端、Megatron 的 `flex` dispatcher 都是它们的封装。
 
@@ -79,9 +136,9 @@ Table: dispatch 的通信矩阵：`C[i][j]` = rank i 发给 rank j 的 token 拷
 | 三 | NCCL 路径：ncclAlltoAll 在 2.28.9 里是什么、p2p 的调度与 proxy、PyTorch 的 `all_to_all_single` 与 `input_split_sizes`、为什么变长 split 要先交换 counts、为什么 decode 时不够用 |
 | 四 | Megatron 的三种 token dispatcher：AllGather、AllToAll、Flex（DeepEP）各自的通信量与适用条件 |
 | 五 | DeepEP 的 Buffer 与 normal kernel：对称显存布局、三步流程、intranode 的 channel 队列、internode 的 RDMA 到同号 GPU 再 NVLink 转发、SM 数与 FP8 dispatch |
-| 六 | DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与第三 / 四篇的对照表、NCCL 自己的 GIN |
+| 六 | DeepEP 的 low-latency kernel 与 GPU 发起的通信：worst-case buffer、send / recv 两阶段与 hook、NVSHMEM 的对称堆、IBGDA 让 warp 写 WQE 与 doorbell、与《RDMA 与 GPUDirect》《NCCL 架构》的对照表、NCCL 自己的 GIN |
 | 七 | 对称内存的一般化：PyTorch 2.12 的 `all_to_all_vdev` 与 `all_to_all_vdev_2d` |
-| 八 | vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与第七篇 custom all-reduce 的分工、EPLB |
+| 八 | vLLM 的 all2all 后端：All2AllBackend 的选项、各 manager 的 dispatch / combine、EP 与 DP / TP 的组合、与《推理侧的通信》里 custom all-reduce 的分工、EPLB |
 | 九 | 测一测与比一比：专家热点如何体现为通信时间、DeepEP 的 SM 数与 Config、NVSHMEM 环境变量、检查清单 |
 | 十 | 本文小结：要点、源码位置、comm-probe 的 `moe_a2a_model.py` 与 `a2a_bench.py` |
 
@@ -110,7 +167,7 @@ FP8 dispatch 的 scale 布局来自 DeepEP：`Buffer.dispatch` 的文档要求 F
 
 $$n$$ 个 rank 分在 $$N$$ 个节点上，每节点 $$p = n/N$$ 张卡。均匀路由下，一份拷贝的目标落在本节点的概率是 $$1/N$$，所以跨节点的比例是 $$1 - 1/N$$。$$N = 8$$ 时 7/8 的拷贝要过网卡。
 
-但"过网卡的拷贝数"取决于实现。**平坦的 all_to_all**（NCCL 的 send/recv、DeepEP 的 low-latency kernel）把每份拷贝直接发到目标 rank，一个 token 的 $$k$$ 份里期望 $$k(1 - 1/N)$$ 份走 RDMA。**按节点去重**（DeepEP 的 normal kernel）把发往同一节点的多份拷贝在网卡上合成一份，先 RDMA 到对端节点里**与自己同号的 GPU**，再由它经 NVLink 转发给该节点内的各目标 GPU；一个 token 走 RDMA 的份数是它的目标节点数（去掉本节点）。$$k$$ 个目标均匀落在 $$N$$ 个节点上时，期望的不同节点数是 $$N\left(1 - (1 - 1/N)^k\right)$$，乘上 $$1 - 1/N$$ 是期望的远端节点数：
+但"过网卡的拷贝数"取决于实现。**平坦的 all_to_all**（NCCL 的 send/recv、DeepEP 的 low-latency kernel）把每份拷贝直接发到目标 rank，一个 token 的 $$k$$ 份里期望 $$k(1 - 1/N)$$ 份走 RDMA。**按节点去重**（DeepEP 的 normal kernel）把发往同一节点的多份拷贝在网卡上合成一份，先 RDMA 到对端节点里**与自己同号的 GPU**，再由它经 NVLink 转发给该节点内的各目标 GPU；一个 token 走 RDMA 的份数是它的目标节点数（去掉本节点）。「一个 token 覆盖几个节点」的期望在最小的例子上可以手算。取 $$N = 2$$ 个节点、$$k = 2$$ 个目标，每份拷贝落在两个节点上的概率各 1/2，四种等概率的情形是 (A, A)、(A, B)、(B, A)、(B, B)，覆盖的不同节点数分别是 1、2、2、1，期望 $$(1 + 2 + 2 + 1) / 4 = 1.5$$ 个节点。要过网卡的只是其中的**远端**节点：对 A 上的那个 rank 来说，四种情形里有三种至少有一份落在 B（只有 (A, A) 没有），所以期望的远端节点数是 $$3/4 = 0.75$$ 份。一般地，$$k$$ 个目标均匀落在 $$N$$ 个节点上时，期望的不同节点数是 $$N\left(1 - (1 - 1/N)^k\right)$$（代入 $$N = k = 2$$ 得 $$2 \times (1 - 0.5^2) = 1.5$$，与手算一致），乘上 $$1 - 1/N$$ 就是期望的远端节点数（$$1.5 \times 0.5 = 0.75$$，也对得上）：
 
 | 方式 | 走 RDMA 的份数 / token | 每 rank 网卡字节（T = 4096，FP8 dispatch） |
 |---|---|---|
@@ -124,7 +181,7 @@ Table: N = 8 节点、k = 8 下走 RDMA 的份数与网卡字节
 
 ### 3. all_to_all 在 α-β 模型里
 
-第一篇的通式 $$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$ 对 all_to_all 要改两处。
+《集合通信原语与代价模型》的通式 $$T = \text{步数} \times \alpha + \text{每 rank 字节数} / \beta$$ 对 all_to_all 要改两处。
 
 **步数**。all_to_all 的直接算法只有一轮：每个 rank 同时向 $$n - 1$$ 个对端各发一条消息，没有 ring 那种 $$n - 1$$ 步的串行依赖。所以延迟项不随 $$n$$ 线性增长——这是它比 ring 好的地方。但"一轮"里有 $$n - 1$$ 条消息要**发起**，每条发起有自己的固定开销；发起者是一个 CPU proxy 线程时这 $$n - 1$$ 次串行，是 GPU 上的几百个 warp 时并行。这就是把 $$\alpha$$ 拆成"每轮的 α"和"每条消息的发起开销 × 条数"两项的原因，第六章会用 DeepEP 的官方数字反推它。
 
@@ -146,7 +203,11 @@ $$
 
 **搬多少字节**：每 token dispatch 59 KB（FP8）、combine 115 KB（BF16）；每 rank 每层 prefill 4096 token 时 dispatch 出向 242 MB、combine 470 MB。
 
-**走几步**：dispatch 一轮、combine 一轮，这是任何实现都要付的；NCCL 路径每个方向再加一次 counts 交换和一次 host 同步；DeepEP normal kernel 每个方向是 `get_dispatch_layout`、`notify_dispatch`（交换 counts，CPU 等一个 pinned 计数器）、`dispatch` 三个 kernel，combine 复用 handle 少一步；low-latency kernel 每个方向只有一个 kernel 的 send 阶段和一个 recv 阶段，没有 counts 交换。
+**走几步**：dispatch 一轮、combine 一轮，这是任何实现都要付的。三条路径在这之外各有自己的步数：
+
+1. NCCL 路径：每个方向再加一次 counts 交换和一次 host 同步。
+2. DeepEP normal kernel：每个方向是 `get_dispatch_layout`、`notify_dispatch`（交换 counts，CPU 等一个 pinned 计数器）、`dispatch` 三个 kernel，combine 复用 handle 少一步。
+3. DeepEP low-latency kernel：每个方向只有一个 kernel 的 send 阶段和一个 recv 阶段，没有 counts 交换。
 
 **时间**（`moe_a2a_model.py` 的输出，第十章给完整表）：
 
@@ -164,7 +225,7 @@ Table: EP=64 跨 8 节点的 prefill 与 decode 时间账（prefill 4096 token/r
 
 ### 5. prefill 与 decode 两种形态
 
-把上面的数字放回第一篇的曲线上：
+把上面的数字放回[《集合通信原语与代价模型》的「把消息大小的谱放到曲线上」一节](/collective-communication-primitives-and-cost-model.html#九把消息大小的谱放到曲线上)的曲线上：
 
 | 形态 | 每 rank 出向字节 | 消息条数 / 大小 | 主导项 | DeepEP 的 kernel |
 |---|---|---|---|---|
@@ -177,11 +238,11 @@ Table: prefill 与 decode 两种形态的对照
 
 ### 6. EP 与 TP / DP 叠加时通信怎样相加
 
-第一篇列过训练五种并行各自的通信，这里只说 EP 与其他并行组合时**多出来**的部分。
+[《集合通信原语与代价模型》的「训练：五种并行的通信模式」一节](/collective-communication-primitives-and-cost-model.html#1-训练五种并行的通信模式)列过训练五种并行各自的通信，这里只说 EP 与其他并行组合时**多出来**的部分。
 
 - **EP + TP（专家也切 TP）**：Megatron 的 `MoEAlltoAllTokenDispatcher` 先在 EP 组做 all_to_all，再在 TP 组做一次 all_gather（`dispatch_postprocess` 里 `gather_from_sequence_parallel_region(..., group=self.tp_group)`），combine 时先 reduce_scatter（TP）再 all_to_all（EP）。每层多两次 TP 集合通信，消息是 all_to_all 之后的全部本地 token。`MoEFlexTokenDispatcher` 的做法不同：把 TP × EP 当成一个平坦的组，`router_topk = tp_size × topk`、`num_experts = tp_size × num_experts`，让 DeepEP 一次 dispatch 把 token 同时送到所有 TP 副本——通信量与前者相同，但少了一次集合通信的 α。
 - **EP + DP（推理常见：attention 用 DP，MoE 用 EP）**：vLLM 的 EP 组就是 DP × TP 组平坦化的结果（第八章）。attention 部分各 DP rank 独立，到了 MoE 层所有 DP rank 的 token 一起做 dispatch；DP rank 之间的 batch 大小不同，dispatch 的 counts 交换必须覆盖 DP 维度。
-- **共享专家**：dense 的 shared expert 不需要通信，可以与 dispatch all_to_all 重叠；Megatron `token_dispatch` 里刻意把 `shared_experts.linear_fc1_forward_and_act` 放在 token 的 all_to_all 之后、probs 的 all_to_all 之前，让 GEMM 在通信进行时被启动——这是第五篇讲的 stream 级重叠的一个具体用法。
+- **共享专家**：dense 的 shared expert 不需要通信，可以与 dispatch all_to_all 重叠；Megatron `token_dispatch` 里刻意把 `shared_experts.linear_fc1_forward_and_act` 放在 token 的 all_to_all 之后、probs 的 all_to_all 之前，让 GEMM 在通信进行时被启动——这是[《PyTorch 的通信栈》的「async_op=True 与计算通信重叠」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#六async_optrue-与计算通信重叠)讲的 stream 级重叠的一个具体用法。
 
 其余（PP 的 send/recv、DP 的梯度 all_reduce）与 dense 模型相同，不重复。
 
@@ -211,11 +272,11 @@ FP8 是 NCCL 支持的 dtype；`taskAppend` 对 `ncclFloat8e4m3` / `ncclFloat8e5
 
 $$n$$ 对 send/recv 进了 planner 之后由 `scheduleP2pTasksToPlan`（`src/enqueue.cc`）安排。它按 `comm->p2pSchedule[round]` 的顺序逐轮取出 (sendRank, recvRank) 对，`ncclP2pSchedule`（`src/init.cc`）用一个二次剩余序列（源码注释给的 16 rank 例子：0, 1, 3, 6, 10, 15, 5, 12, …）生成每轮的对端偏移，让所有 rank 在同一轮不会同时打向同一个目标；多节点时先按节点分组（`p2pSchedGroupSize`），再在组内轮转，与 PXN 的聚合因子配合。每轮的任务被切到 `p2pnChannelsPerPeer` 个 p2p channel 上，所有轮合成**一次 kernel 启动**（`ncclDevFuncId_P2p()` 对应的 kernel），设备侧由 `src/device/sendrecv.h` 执行。
 
-节点内的对端走 P2P transport，kernel 直接读写对端显存（第四篇）。跨节点的对端走 NET transport：kernel 把数据写到 channel buffer、推 `tail`，proxy 线程的 `sendProxyProgress` 看到之后按 `NCCL_P2P_NET_CHUNKSIZE`（`src/init.cc` 默认 128 KB）切块调 `isend`，网卡完成后再由对端 proxy 推 `tail` 让接收 kernel 去读。第四篇第九章讲过这条链：**每一条跨节点消息的每一个 chunk 都要经过 CPU 线程一次**，而一个 rank 只有一个 progress 线程（`ncclProxyProgress`），它对所有活跃的 channel 与对端串行轮询（`progressOps`）。对 prefill 的几 MB 一条的消息这不是问题——chunk 大、条数少、带宽主导；对 decode 的 1024 条 7.4 KB 消息，每条都要 GPU 写 tail → proxy 发现 → `ibv_post_send` → 完成 → 对端 proxy 推 tail → 对端 kernel 发现，一个线程串行做上千遍。`NCCL_P2P_LL_THRESHOLD`（`src/enqueue.cc` 默认 16 KB）以下的 p2p 会用 LL 协议减少每步的同步，但发起者仍是 proxy。
+节点内的对端走 P2P transport，kernel 直接读写对端显存（[《NCCL 架构》的「transport 与 channel」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#六transport-与-channel)）。跨节点的对端走 NET transport：kernel 把数据写到 channel buffer、推 `tail`，proxy 线程的 `sendProxyProgress` 看到之后按 `NCCL_P2P_NET_CHUNKSIZE`（`src/init.cc` 默认 128 KB）切块调 `isend`，网卡完成后再由对端 proxy 推 `tail` 让接收 kernel 去读。[《NCCL 架构》的「执行期：enqueue、kernel 与 proxy」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#九执行期enqueuekernel-与-proxy)讲过这条链：**每一条跨节点消息的每一个 chunk 都要经过 CPU 线程一次**，而一个 rank 只有一个 progress 线程（`ncclProxyProgress`），它对所有活跃的 channel 与对端串行轮询（`progressOps`）。对 prefill 的几 MB 一条的消息这不是问题——chunk 大、条数少、带宽主导；对 decode 的 1024 条 7.4 KB 消息，每条都要 GPU 写 tail → proxy 发现 → `ibv_post_send` → 完成 → 对端 proxy 推 tail → 对端 kernel 发现，一个线程串行做上千遍。`NCCL_P2P_LL_THRESHOLD`（`src/enqueue.cc` 默认 16 KB）以下的 p2p 会用 LL 协议减少每步的同步，但发起者仍是 proxy。
 
 ### 3. PyTorch 的 all_to_all_single 与 input_split_sizes
 
-`torch.distributed.all_to_all_single(output, input, output_split_sizes=None, input_split_sizes=None, group=None, async_op=False)`（`torch/distributed/distributed_c10d.py`）的语义：`input` 沿第 0 维切成 `world_size` 段，第 j 段发给 rank j；`output` 的第 i 段来自 rank i。两个 split 参数为 `None` 时等分；否则 `input_split_sizes[j]` 是发给 rank j 的行数、`output_split_sizes[i]` 是从 rank i 收的行数，两者必须与对端的 `input_split_sizes` 互为转置，否则 hang 或数据错位——这是第六篇"参数不一致"一类 hang 在 MoE 里最常见的形态。
+`torch.distributed.all_to_all_single(output, input, output_split_sizes=None, input_split_sizes=None, group=None, async_op=False)`（`torch/distributed/distributed_c10d.py`）的语义：`input` 沿第 0 维切成 `world_size` 段，第 j 段发给 rank j；`output` 的第 i 段来自 rank i。两个 split 参数为 `None` 时等分；否则 `input_split_sizes[j]` 是发给 rank j 的行数、`output_split_sizes[i]` 是从 rank i 收的行数，两者必须与对端的 `input_split_sizes` 互为转置，否则 hang 或数据错位——这是[《nccl-tests、调优与排障》的「hang 的分类与定位工具」一节](/nccl-tests-tuning-and-debugging-hangs.html#六hang-的分类与定位工具)里"参数不一致"一类 hang 在 MoE 里最常见的形态。
 
 c10d 侧 `ProcessGroupNCCL::alltoall_base`（`torch/csrc/distributed/c10d/ProcessGroupNCCL.cpp`）分两条路：
 
@@ -237,7 +298,7 @@ flowchart TB
     U -. "只在 ROCm 或定义了 NCCL_ALLTOALLV_SUPPORTED 的构建里<br/>（PyTorch 自身不定义它）" .-> V
 ```
 
-两条路在 NCCL 内部殊途同归：都变成 $$n$$ 对 p2p 任务。差别只在 host 侧——等长版本 PyTorch 传一次 `ncclAlltoAll`，变长版本 PyTorch 自己循环 $$2n$$ 次 `ncclSend` / `ncclRecv`。`_nccl_should_send_recv` 在 NCCL > 2.13 时对 0 长度也照常发（源码注释：NCCL 2.12.10 起支持 0 字节 send/recv，跳过会导致各 rank 调用不匹配而死锁）。两条路都通过 `collective()` 包装成一个 `Work`（`OpType::ALLTOALL_BASE`，profiler 名 `nccl:all_to_all`），进入第五篇讲的 stream / event / watchdog 机制，也被第六篇的 Flight Recorder 记录为一次 collective。
+两条路在 NCCL 内部殊途同归：都变成 $$n$$ 对 p2p 任务。差别只在 host 侧——等长版本 PyTorch 传一次 `ncclAlltoAll`，变长版本 PyTorch 自己循环 $$2n$$ 次 `ncclSend` / `ncclRecv`。`_nccl_should_send_recv` 在 NCCL > 2.13 时对 0 长度也照常发（源码注释：NCCL 2.12.10 起支持 0 字节 send/recv，跳过会导致各 rank 调用不匹配而死锁）。两条路都通过 `collective()` 包装成一个 `Work`（`OpType::ALLTOALL_BASE`，profiler 名 `nccl:all_to_all`），进入[《PyTorch 的通信栈》的「ProcessGroupNCCL 的对象模型」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#三processgroupnccl-的对象模型)讲的 stream / event / watchdog 机制，也被《nccl-tests、调优与排障》的 Flight Recorder 记录为一次 collective。
 
 ### 4. 为什么变长 split 要先交换 counts：两步、两次 α、一次 host 同步
 
@@ -252,7 +313,7 @@ flowchart TB
 
 Table: 变长 all_to_all_single 做 dispatch 的四步
 
-第 2 步是一次额外的 α（跨节点十几到几十微秒，典型量级）；第 3 步是一次 host 同步，它让 CPU 停下来等 GPU，之后所有 kernel 的发射都要重新排队，对 decode 这种每层几百微秒的场景，一次几十微秒的同步不可忽略，更重要的是 **CUDA Graph 无法捕获它**——第七篇讲过 decode 几乎全部在 graph 回放里，一个不能捕获的 all_to_all 意味着整层 MoE 都要退出 graph。Megatron 的 `MoEAlltoAllTokenDispatcher` 把这件事做得很显式：`preprocess` 用 `gather_from_sequence_parallel_region(num_local_tokens_per_expert, group=self.tp_ep_group)` 交换每个专家的 token 数（这里选的是 all_gather，因为后面 `dispatch_postprocess` 排序也要用到全局分布），`cuda_sync_point` 记录同步必须发生在哪一步（`before_permutation_1` / `before_ep_alltoall` / `before_permutation_2` / `before_finish` / `no_sync`），`_maybe_dtoh_and_synchronize` 在那一步把 `input_splits` / `output_splits` 等拷到 CPU；类注释直接说明了这些 DtoH 在专门的 `cuda_dtoh_stream` 上做以便与主 stream 重叠。
+第 2 步是一次额外的 α（跨节点十几到几十微秒，典型量级）；第 3 步是一次 host 同步，它让 CPU 停下来等 GPU，之后所有 kernel 的发射都要重新排队，对 decode 这种每层几百微秒的场景，一次几十微秒的同步不可忽略，更重要的是 **CUDA Graph 无法捕获它**——[《推理侧的通信》的「CUDA Graph 与通信」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#五cuda-graph-与通信)讲过 decode 几乎全部在 graph 回放里，一个不能捕获的 all_to_all 意味着整层 MoE 都要退出 graph。Megatron 的 `MoEAlltoAllTokenDispatcher` 把这件事做得很显式：`preprocess` 用 `gather_from_sequence_parallel_region(num_local_tokens_per_expert, group=self.tp_ep_group)` 交换每个专家的 token 数（这里选的是 all_gather，因为后面 `dispatch_postprocess` 排序也要用到全局分布），`cuda_sync_point` 记录同步必须发生在哪一步（`before_permutation_1` / `before_ep_alltoall` / `before_permutation_2` / `before_finish` / `no_sync`），`_maybe_dtoh_and_synchronize` 在那一步把 `input_splits` / `output_splits` 等拷到 CPU；类注释直接说明了这些 DtoH 在专门的 `cuda_dtoh_stream` 上做以便与主 stream 重叠。
 
 对 combine 没有这个问题：combine 的 splits 就是 dispatch 的 splits 反过来，不用再交换。所以 NCCL 路径一层 MoE 的通信是 **3 次集合通信（counts、dispatch、combine）加 1 次 host 同步**，本文模型里记为 `nccl+cnt` 一列。
 
@@ -294,11 +355,17 @@ Megatron-LM core_v0.18.0 的 `megatron/core/transformer/moe/token_dispatcher.py`
 6. **token combine**：A2A(EP)
 7. **combine postprocess**：unpermute
 
-`token_dispatch` 调 `megatron/core/tensor_parallel/mappings.py` 的 `all_to_all`（`_AllToAll.apply`），后者就是 `torch.distributed.all_to_all_single(output, input, output_split_sizes, input_split_sizes, group)`，变长时 `output = input.new_empty([sum(output_split_sizes)] + ...)`——这行 `sum()` 要求 `output_split_sizes` 已经在 CPU 上，对应第三章第 4 节的 host 同步。token 和 probs 各做一次 all_to_all（两次调用），`use_nccl_stream=True` 时用 `async_op=True` 再立刻 `wait()`，让 NCCL 在 ProcessGroupNCCL 的内部 stream 上跑（第五篇）。
+`token_dispatch` 调 `megatron/core/tensor_parallel/mappings.py` 的 `all_to_all`（`_AllToAll.apply`），后者就是 `torch.distributed.all_to_all_single(output, input, output_split_sizes, input_split_sizes, group)`，变长时 `output = input.new_empty([sum(output_split_sizes)] + ...)`——这行 `sum()` 要求 `output_split_sizes` 已经在 CPU 上，对应第三章第 4 节的 host 同步。token 和 probs 各做一次 all_to_all（两次调用），`use_nccl_stream=True` 时用 `async_op=True` 再立刻 `wait()`，让 NCCL 在 ProcessGroupNCCL 的内部 stream 上跑（[《PyTorch 的通信栈》的「异步模式：async_op=True，内部 stream 与两个 event」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#3-异步模式async_optrue内部-stream-与两个-event)）。
 
 它的通信量是标准的 all_to_all：每 rank 发出 $$\frac{n-1}{n} T k H b$$（EP 组），TP > 1 时 `dispatch_postprocess` 再在 TP 组上 all_gather 一次 all_to_all 之后的全部本地 token（`output_splits_tp` 给出变长的 split）。`moe_pad_expert_input_to_capacity`（drop-and-pad）时 splits 变成常数 `capacity`，不再需要交换 counts，代价是丢 token 和补零。
 
-同步点的选择（`cuda_sync_point` 与 `cuda_dtoh_point`）是这个 dispatcher 最精细的部分：dropless 训练下 `num_out_tokens = T × topk` 是静态的，permute 不需要同步；EP > 1 时 `before_ep_alltoall` 之前必须拿到 splits；本地专家 > 1 且没有 fused permute 时 `before_permutation_2` 之前要拿到每专家 token 数。CUDA Graph 模式（`cuda_graph_impl != "none"` 且捕获 `moe_preprocess`）下 DtoH 点被推到 `before_ep_alltoall`，让 preprocess 那一段能被捕获——all_to_all 本身仍然不能。
+同步点的选择（`cuda_sync_point` 与 `cuda_dtoh_point`）是这个 dispatcher 最精细的部分，三种情形各不相同：
+
+- dropless 训练下 `num_out_tokens = T × topk` 是静态的，permute 不需要同步。
+- EP > 1 时，`before_ep_alltoall` 之前必须拿到 splits。
+- 本地专家 > 1 且没有 fused permute 时，`before_permutation_2` 之前要拿到每专家 token 数。
+
+CUDA Graph 模式（`cuda_graph_impl != "none"` 且捕获 `moe_preprocess`）下 DtoH 点被推到 `before_ep_alltoall`，让 preprocess 那一段能被捕获——all_to_all 本身仍然不能。
 
 ### 3. MoEFlexTokenDispatcher 与 _DeepepManager：DeepEP 的封装
 
@@ -344,7 +411,7 @@ DeepEP v1.2.1 的源码分三层：Python 的 `deep_ep/buffer.py`（`Buffer` 类
 
 `Buffer.__init__(group, num_nvl_bytes, num_rdma_bytes, low_latency_mode, num_qps_per_rank, ...)` 建两块 buffer，两块都是**对称的**：每个 rank 分配同样大小、对端的同一逻辑位置可以用同一个偏移访问。
 
-**NVLink buffer**（`num_nvl_bytes`）。C++ 构造函数 `Buffer::Buffer` 里 `cudaMalloc` 一块 `num_nvl_bytes + barrier_signal_bytes + buffer_ptr_bytes + barrier_signal_ptr_bytes`，`cudaIpcGetMemHandle` 导出句柄；Python 侧用 `dist.all_gather_object` 交换句柄和 device id，`Buffer::sync` 对同节点的每个对端 `cudaIpcOpenMemHandle(..., cudaIpcMemLazyEnablePeerAccess)`，把 8 个指针写进设备端数组 `buffer_ptrs_gpu`、把 8 个 barrier 信号指针写进 `barrier_signal_ptrs_gpu`。这与第七篇 custom all-reduce 的 `RankData` / `Signal` 是同一套机制：CUDA IPC + 每 rank 一块 + 指针表。`check_nvlink_connections`（`deep_ep/utils.py`）要求节点内的 rank 两两 NVLink 直连（PCIe 卡只允许 EP=2），原因与 custom AR 相同。
+**NVLink buffer**（`num_nvl_bytes`）。C++ 构造函数 `Buffer::Buffer` 里 `cudaMalloc` 一块 `num_nvl_bytes + barrier_signal_bytes + buffer_ptr_bytes + barrier_signal_ptr_bytes`，`cudaIpcGetMemHandle` 导出句柄；Python 侧用 `dist.all_gather_object` 交换句柄和 device id，`Buffer::sync` 对同节点的每个对端 `cudaIpcOpenMemHandle(..., cudaIpcMemLazyEnablePeerAccess)`，把 8 个指针写进设备端数组 `buffer_ptrs_gpu`、把 8 个 barrier 信号指针写进 `barrier_signal_ptrs_gpu`。这与[《推理侧的通信》的「看一看：custom all-reduce 的实现」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#三看一看custom-all-reduce-的实现)里 `RankData` / `Signal` 是同一套机制：CUDA IPC + 每 rank 一块 + 指针表。`check_nvlink_connections`（`deep_ep/utils.py`）要求节点内的 rank 两两 NVLink 直连（PCIe 卡只允许 EP=2），原因与 custom AR 相同。
 
 **RDMA buffer**（`num_rdma_bytes`）。`Buffer::sync` 在 `num_rdma_bytes > 0` 时初始化 NVSHMEM（`internode::init`，`runtime.cu`：`nvshmemx_set_attr_uniqueid_args` + `nvshmemx_init_attr(NVSHMEMX_INIT_WITH_UNIQUEID, ...)`，unique id 由 rank 0 或每个 RDMA 组的 root 生成、经 `all_gather_object` 分发），然后 `internode::alloc` → `nvshmem_align(alignment, size)` 从 NVSHMEM 的**对称堆**分配。对称堆的含义是：所有 PE 上这块 buffer 的大小相同、在各自堆里的偏移相同，于是"本地指针 + 对端 PE 号"就足以确定对端地址——kernel 里 `nvshmemi_get_p2p_ptr(dst_ptr, rank, dst_rank)` 对 NVLink 可达的对端返回一个可以直接 store 的映射地址，不可达时返回 0、走 RDMA（第六章）。normal 模式下 NVSHMEM 的 PE 集合是**每个节点同号 GPU 组成的 RDMA 组**（`nvshmem_rank = rdma_rank`，`num_nvshmem_ranks = num_rdma_ranks`），即 rank `r` 只与 `r % 8` 相同的其他节点 GPU 建 RDMA 连接；low-latency 模式下所有 rank 都是 PE。
 
@@ -373,11 +440,40 @@ normal 模式的一次 dispatch（`Buffer.dispatch`，无 handle 时）：
 2. **`notify_dispatch`**（`intranode.cu` / `internode.cu`）：把本 rank 要发给每个对端的 token 数写到对端的 buffer 里（节点内直接 store 到对端 IPC 映射的 buffer，节点间 `nvshmemi_ibgda_put_nbi_warp` 写到对端的对称 buffer），`barrier_block` 同步，然后每个 rank 算出自己总共会收到多少 token、每个本地专家收到多少、每个 channel 的前缀和（`channel_prefix_matrix`），并把总数写进 pinned 的 `moe_recv_counter`。C++ 侧 `Buffer::intranode_dispatch` / `internode_dispatch` 在 host 上自旋等这个计数器变为非负，超过 `NUM_CPU_TIMEOUT_SECS` 抛 `"DeepEP error: CPU recv timeout"`——这就是 README 那句"an implicit CPU wait for GPU received count signal will be involved"、也是 `fused_a2a.py` 注释里"not compatible with CUDA graph"的来源。它取代了 NCCL 路径的"counts all_to_all + D2H + 同步"，少了一次 torch 层的集合通信，但 host 同步仍在。
 3. **`dispatch`**：拿到接收总数后分配 `recv_x`、`recv_topk_idx` 等输出，启动数据 kernel。返回的 `handle`（`rank_prefix_matrix`、`channel_prefix_matrix`、`recv_src_idx`、`is_token_in_rank`、`send_head` 等）给 combine 与反向复用；带 handle 再调 `dispatch` 时跳过前两步（`cached` 模式）。
 
+三步里真正要留意的是中间那次 host 与 device 的往返——它是 normal kernel 不能进 CUDA Graph 的全部原因：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%% 图：normal kernel 一次 dispatch 的三步在 host 与 device 之间的往返，中间是 CPU 自旋等 pinned 计数器
+flowchart TB
+    H1["<b>host：启动 get_dispatch_layout</b><br/>在 Buffer 自己的 comm_stream 上"]
+    D1["<b>device：get_dispatch_layout</b><br/>topk_idx → num_tokens_per_rank、num_tokens_per_rdma_rank、num_tokens_per_expert、is_token_in_rank"]
+    H2["<b>host：把 pinned 计数器置 −1，启动 notify_dispatch</b><br/>总数与每个本地专家各一个计数器"]
+    D2["<b>device：notify_dispatch</b><br/>• 把要发给每个对端的 token 数写进对端 buffer<br/>• barrier_block 同步<br/>• 算出本 rank 会收到多少、每个本地专家多少、channel_prefix_matrix<br/>• 把总数写进 pinned 的 moe_recv_counter"]
+    W["<b>host：自旋等计数器变为非负</b><br/>• 整条路径上唯一的 host 同步<br/>• 超时抛 DeepEP error: CPU recv timeout<br/>• 它让这一层退出 CUDA Graph"]
+    H3["<b>host：按总数分配 recv_x、recv_topk_idx 等输出</b><br/>再启动数据 kernel"]
+    D3["<b>device：dispatch</b><br/>• 节点内走 channel 环形队列（第 3 节）<br/>• 跨节点先 RDMA 到同号 GPU 再 NVLink 转发（第 4 节）<br/>• 返回 handle 供 combine 与反向复用"]
+    H1 --> D1 --> H2 --> D2 --> W --> H3 --> D3
+    classDef host fill:#e8eef7,stroke:#34495e;
+    classDef dev fill:#e3f2e1,stroke:#2e7d32;
+    classDef wait fill:#fff4d6,stroke:#b9770e;
+    class H1,H2,H3 host;
+    class D1,D2,D3 dev;
+    class W wait;
+```
+
 `num_worst_tokens` 参数是一个绕开 host 同步的口子：给出接收上限就不等计数器、可以进 CUDA Graph，但 `Buffer.dispatch` 的文档标明它"for intranode only"。
 
 ### 3. intranode kernel：channel 队列与 head / tail
 
-`intranode.cu` 的 `dispatch` kernel 用 `num_sms` 个 block，**每两个 SM 一个 channel**（`num_channels = num_sms / 2`）：偶数 block 发、奇数 block 收。发送 block 里每个 warp 负责一个目标 rank，把属于该 channel 的 token 写进目标 rank 的 NVLink buffer 里为"本 channel × 本来源 rank"预留的一段环形队列（`nvl_channel_x`，容量 `num_max_nvl_chunked_recv_tokens` 个 token），每写一批（`num_max_nvl_chunked_send_tokens`）用 `st_release_sys_global` 推 `channel_tail_idx`；接收 block 里每个 warp 对应一个来源 rank，轮询 tail、把 token 从队列拷到 `recv_x` 的最终位置（位置由 `channel_prefix_matrix` 决定，直接落成按来源 rank 连续的布局）、推 `channel_head_idx` 释放槽位。head / tail 协议与第四篇 NCCL 的 Simple 协议同构，但队列在**接收方**的显存里、发送方远程写，接收方本地轮询——轮询不跨 NVLink。
+`intranode.cu` 的 `dispatch` kernel 用 `num_sms` 个 block，**每两个 SM 一个 channel**（`num_channels = num_sms / 2`）：偶数 block 发、奇数 block 收。发送 block 里若干个 warp 共同负责一个目标 rank（`num_send_warps_per_rank = num_send_warps / kNumRanks`），把属于该 channel 的 token 写进目标 rank 的 NVLink buffer 里为"本 channel × 本来源 rank"预留的一段环形队列（`nvl_channel_x`，容量 `num_max_nvl_chunked_recv_tokens` 个 token），每写一批（`num_max_nvl_chunked_send_tokens`）用 `st_release_sys_global` 推 `channel_tail_idx`；接收 block 里同样是若干个 warp 共同负责一个来源 rank（`num_recv_warps_per_rank`），轮询 tail、把 token 从队列拷到 `recv_x` 的最终位置（位置由 `channel_prefix_matrix` 决定，直接落成按来源 rank 连续的布局）、推 `channel_head_idx` 释放槽位。head / tail 协议与[《NCCL 架构》的「三种协议的机制」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#2-三种协议的机制)讲的 NCCL Simple 协议同构，但队列在**接收方**的显存里、发送方远程写，接收方本地轮询——轮询不跨 NVLink。
+
+![NVLink channel 的环形队列：队列在接收方显存里，发送方远程写数据并推 tail，接收方轮询 tail 读走再推 head](/img/in-post/moe-communication-nvl-channel-queue.svg)
+
+图里的八个槽位是这条队列在某一瞬间的样子：tail 指向发送方下一个要写的槽，head 指向接收方下一个要读的槽，两者之间是已经写好、等着被取走的 token，其余都是空位。发送方在写之前先读一次 head，算出已用槽位数 `tail − head`，剩余空位够一批（`num_max_nvl_chunked_send_tokens`）才继续，不够就自旋等——这也是 `Config` 的构造函数里 `num_max_nvl_chunked_send_tokens < num_max_nvl_chunked_recv_tokens` 那条断言的来源。源码的注释把归属写得很直白：senders are responsible for tails, and receivers are responsible for heads, stored on the receiver side。
+
+> [!NOTE] Java 经验参照：ArrayBlockingQueue 与 channel 队列
+> `ArrayBlockingQueue` 是一个定长数组加两个下标：生产者写 `putIndex`、消费者读 `takeIndex`，下标到头回到 0，满了生产者等、空了消费者等。这里的 channel 队列是同一个结构：`channel_tail_idx` 是 `putIndex`，`channel_head_idx` 是 `takeIndex`，容量是 `num_max_nvl_chunked_recv_tokens` 个 token，槽位同样按容量取模循环使用。对不上的地方有两处，而且都是这套设计的要点：队列的内存在**消费者**那一侧，生产者是跨 NVLink 的远程写，所以消费者轮询 tail 从不跨链路；满与空的判定没有锁、没有 `Condition`，靠自旋读对方的下标加 release / acquire 的内存序来保证。
 
 `Config` 的五个字段就是这套队列的参数：`num_sms`、`num_max_nvl_chunked_send_tokens` / `num_max_nvl_chunked_recv_tokens`、`num_max_rdma_chunked_send_tokens` / `num_max_rdma_chunked_recv_tokens`。`Buffer.get_dispatch_config(num_ranks)` / `get_combine_config` 是按 rank 数（2、4、8、16、24、32、64、128、144、160）查表的默认值，源码注释写着 `TODO: automatically tune`、README 建议在自己的集群上跑 tests 调优。不在表里的 rank 数直接 `assert` 失败。
 
@@ -422,11 +518,11 @@ flowchart TB
     class D1,D3,D5 nvl;
 ```
 
-红色节点是经网卡到达的，绿色是经 NVLink 到达的：平坦算法三份都过网卡（50 GB/s 的那段），去重后网卡只过一份，其余两跳落在 NVLink 上——第二章第 2 节"7 份压到 4.6 份"的算术就是这张图对全部 token 求期望。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和第四篇 PXN（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及第二篇 rail-optimized 网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"本 channel 要给对端节点每张卡多少 token"。
+红色节点是经网卡到达的，绿色是经 NVLink 到达的：平坦算法三份都过网卡（50 GB/s 的那段），去重后网卡只过一份，其余两跳落在 NVLink 上——第二章第 2 节"7 份压到 4.6 份"的算术就是这张图对全部 token 求期望。这正是第二章说的"网卡上只走一份、到节点内再 NVLink 分发"；`Buffer.dispatch` 的文档写明了它的拓扑要求："节点内的 rank 经 NVLink 可见，**同 GPU 序号**的 rank 经 RDMA 可见"——和[《NCCL 架构》的「PXN：借邻居的 NIC」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#4-pxn借邻居的-nic)（GPU 经 NVLink 借同节点另一张 GPU 的 NIC）以及[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》的「rail-optimized 设计」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#2-rail-optimized-设计)的网络（同号 GPU 的网卡在同一个 rail 上）是同一件事的三个侧面。RDMA 侧的对称 buffer 也是每 channel 一段环形队列（`rdma_channel_data`、`rdma_channel_head` / `rdma_channel_tail`），`SymBuffer` 模板按 "channel × 对端 RDMA rank" 切片；元数据 `rdma_channel_meta` 每 channel 每对端 `NUM_MAX_NVL_PEERS * 2 + 2` 个 int，就是"本 channel 要给对端节点每张卡多少 token"。
 
 combine 是镜像：`kNVLSender`（本地专家输出经 NVLink 送到同节点负责该来源节点的 GPU）、`kNVLAndRDMAForwarder`（把本节点 8 张卡送来的、同一个目标节点的结果**先归约**再 RDMA 发回去——combine 的加权求和一部分在转发点完成）、`kRDMAReceiver`、`kCoordinator`。
 
-Megatron `fused_a2a.py` 的 `get_buffer` 注释里有一句要单独记住："the adaptive routing configuration of the network **must be off**"；DeepEP 自己的 README 在 Network configurations 一节说得更细——重负载环境建议开 adaptive routing、轻负载用静态路由，因为它能消除路由冲突造成的拥塞但会增加延迟。两处说法的差别说明这是一个随版本与集群变化的配置项；它之所以值得关注，是因为 normal kernel 的 RDMA 队列（`rdma_channel_head` / `rdma_channel_tail` 与 `Config` 里 `num_max_rdma_chunked_send_tokens <= num_max_rdma_chunked_recv_tokens / 2` 那条关于 lazy head update 的断言）建立在同一条 RC QP 上写操作按序到达的前提上——第三篇讲的"RC QP 保证顺序"在应用层的一个具体依赖。碰到跨节点 dispatch 偶发超时时，交换机的路由模式是要查的一项。
+Megatron `fused_a2a.py` 的 `get_buffer` 注释里有一句要单独记住："the adaptive routing configuration of the network **must be off**"；DeepEP 自己的 README 在 Network configurations 一节说得更细——重负载环境建议开 adaptive routing、轻负载用静态路由，因为它能消除路由冲突造成的拥塞但会增加延迟。两处说法的差别说明这是一个随版本与集群变化的配置项；它之所以值得关注，是因为 normal kernel 的 RDMA 队列（`rdma_channel_head` / `rdma_channel_tail` 与 `Config` 里 `num_max_rdma_chunked_send_tokens <= num_max_rdma_chunked_recv_tokens / 2` 那条关于 lazy head update 的断言）建立在同一条 RC QP 上写操作按序到达的前提上——[《RDMA 与 GPUDirect》的「verbs 编程模型」一节](/rdma-and-gpudirect.html#三verbs-编程模型)讲的"RC QP 保证顺序"在应用层的一个具体依赖。碰到跨节点 dispatch 偶发超时时，交换机的路由模式是要查的一项。
 
 ### 5. SM 数、FP8 与 dispatch 的返回布局
 
@@ -438,7 +534,13 @@ FP8 dispatch 由调用方先量化：`x` 传 `(fp8_tensor, scales)` 二元组，
 
 ### 1. 为什么 decode 要另一套 kernel
 
-第三章第 5 节的表列了 NCCL 路径在 decode 上多付的五项，其中 normal kernel 已经解决了"多次拷贝"和"按节点去重"，但还剩三项：它仍要 `notify_dispatch` 和 CPU 等计数器（不能进 CUDA Graph）；它的 kernel 全程占 SM 自旋；它的 RDMA 发送经过 channel 队列的 tail / head 协议、按 chunk 批量提交，这是为 MB 级消息设计的流水线，对 7 KB 的消息每一层协议都是纯开销。low-latency kernel（`internode_ll.cu`）的设计目标是把这三项也拿掉，方法是三条：
+第三章第 5 节的表列了 NCCL 路径在 decode 上多付的五项，其中 normal kernel 已经解决了"多次拷贝"和"按节点去重"，但还剩三项：
+
+1. 它仍要 `notify_dispatch` 和 CPU 等计数器，所以不能进 CUDA Graph。
+2. 它的 kernel 从发到收全程占 SM 自旋。
+3. 它的 RDMA 发送经过 channel 队列的 tail / head 协议、按 chunk 批量提交——这是为 MB 级消息设计的流水线，对 7 KB 的消息每一层协议都是纯开销。
+
+low-latency kernel（`internode_ll.cu`）的设计目标是把这三项也拿掉，方法是三条：
 
 - **不交换 counts，按最坏情况预留接收空间。** `Buffer(group, 0, num_rdma_bytes, low_latency_mode=True, num_qps_per_rank=num_local_experts)`，`num_rdma_bytes` 由 `get_low_latency_rdma_size_hint(num_max_dispatch_tokens_per_rank, hidden, num_ranks, num_experts)` 算出。`csrc/config.hpp` 的 `LowLatencyLayout` 给出布局：每个本地专家为**每个来源 rank** 预留 `num_max_dispatch_tokens_per_rank` 个消息槽，接收 buffer 大小 `num_experts × num_max_dispatch_tokens_per_rank × num_bytes_per_msg`；发送 buffer、接收 buffer、信号 buffer 各**两份**（奇偶交替，让下一次 dispatch 不必等上一次 combine 清空）。README 的注释说 LL 模式"消耗的显存比 normal 多得多"，建议 `num_max_dispatch_tokens_per_rank`（decode 的 batch 上限）小于 256；EP=64、256 专家、hidden 7168、128 token 时接收 buffer 一份约 $$256 \times 128 \times 14{,}352 \approx 470$$ MB，两份近 1 GB。空间换掉了 counts 交换和 host 同步，于是 `low_latency_dispatch` 的文档可以写"compatible with CUDA graph"。
 - **计数随数据走。** 发送方把每个 token 直接写进对端 `[local_expert][src_rank][slot]` 的槽位，最后对该专家发一个原子加 `-num_tokens_sent - 1`（负数编码是为了和"0 = 还没到"区分）；接收方对每个 (本地专家, 来源 rank) 自旋等这个计数非零，然后知道要从哪几个槽读多少。
@@ -461,7 +563,7 @@ launcher(return_recv_hook ? LOW_LATENCY_SEND_PHASE : (LOW_LATENCY_SEND_PHASE | L
 if (return_recv_hook) recv_hook = [=]() { launcher(LOW_LATENCY_RECV_PHASE); };
 ```
 
-`return_recv_hook=True` 时只启动 send 阶段——kernel 发完所有 RDMA 请求就**退出**，SM 全部释放，RDMA 在网卡与对端显存之间继续进行，GPU 上什么都不在跑；框架在合适的时机调用 `hook()`，它再启动一次同一个 kernel、只执行 recv 阶段。README 的双 micro-batch 图和"不占用任何 SM 资源"说的就是这段窗口：batch A 的 dispatch 在飞，SM 全给 batch B 的 attention。这是第五篇"计算通信重叠"的极限形态——重叠的不是两个 kernel，而是一个 kernel 和一段没有 kernel 的时间。send 和 recv 不在同一个 kernel 里时不需要 `cg::this_grid().sync()`，源码里 `if (phases & LOW_LATENCY_SEND_PHASE) cg::this_grid().sync();` 只在合并执行时做一次 grid 同步。`low_latency_dispatch` 的文档同时警告：只有两组 buffer，任一时刻最多只能持有 2 次 LL kernel 的结果张量。
+`return_recv_hook=True` 时只启动 send 阶段——kernel 发完所有 RDMA 请求就**退出**，SM 全部释放，RDMA 在网卡与对端显存之间继续进行，GPU 上什么都不在跑；框架在合适的时机调用 `hook()`，它再启动一次同一个 kernel、只执行 recv 阶段。README 的双 micro-batch 图和"不占用任何 SM 资源"说的就是这段窗口：batch A 的 dispatch 在飞，SM 全给 batch B 的 attention。这是《PyTorch 的通信栈》"计算通信重叠"的极限形态——重叠的不是两个 kernel，而是一个 kernel 和一段没有 kernel 的时间。send 和 recv 不在同一个 kernel 里时不需要 `cg::this_grid().sync()`，源码里 `if (phases & LOW_LATENCY_SEND_PHASE) cg::this_grid().sync();` 只在合并执行时做一次 grid 同步。`low_latency_dispatch` 的文档同时警告：只有两组 buffer，任一时刻最多只能持有 2 次 LL kernel 的结果张量。
 
 把上面三段合成一张图——一次 LL dispatch 里数据、计数与 kernel 生命周期是怎么走的：
 
@@ -515,13 +617,13 @@ combine（`internode_ll.cu` 的 `combine<kUseLogFMT, kHidden, kNumMaxTopk, kNumM
 
 DeepEP 通过 NVSHMEM 用到的概念只有三个，都能在 `runtime.cu`、`internode.cu`、`internode_ll.cu` 与 `ibgda_device.cuh` 里看到：
 
-- **对称堆（symmetric heap）**：`nvshmem_align` 分配的内存在所有 PE 上大小、偏移一致；kernel 拿本地地址加对端 PE 号就能算出远端地址，不需要交换指针（对比 custom AR 和 normal 模式 NVL buffer 的 IPC 指针表）。第五篇讲的 PyTorch symmetric memory 是同一个思想在 c10d 里的实现，`set_backend("NVSHMEM")` 时底层就是 NVSHMEM（`torch/csrc/distributed/c10d/symm_mem/NVSHMEMSymmetricMemory.cpp`）。
+- **对称堆（symmetric heap）**：`nvshmem_align` 分配的内存在所有 PE 上大小、偏移一致；kernel 拿本地地址加对端 PE 号就能算出远端地址，不需要交换指针（对比 custom AR 和 normal 模式 NVL buffer 的 IPC 指针表）。[《PyTorch 的通信栈》的「对称内存：让 kernel 直接读写对端显存」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#4-对称内存让-kernel-直接读写对端显存)讲的 PyTorch symmetric memory 是同一个思想在 c10d 里的实现，`set_backend("NVSHMEM")` 时底层就是 NVSHMEM（`torch/csrc/distributed/c10d/symm_mem/NVSHMEMSymmetricMemory.cpp`）。
 - **单边 put / 原子操作**：`nvshmem_int64_p`、`nvshmemx_getmem_nbi_block` 这类 API 是 NVSHMEM 标准接口（PyTorch 的 `all_to_all_vdev` 用它们，第七章）；DeepEP 没有走标准 API，而是把 NVSHMEM 内部的 IBGDA 设备端函数复制到 `ibgda_device.cuh` 里加以简化（文件头与 README 的 License 一节说明了它引用 NVSHMEM 代码、受 NVSHMEM SLA 约束），用 `nvshmemi_ibgda_put_nbi_warp`（RDMA WRITE）、`nvshmemi_ibgda_amo_nonfetch_add`（远端原子加）、`nvshmemi_ibgda_rma_p`（写一个 int）、`nvshmemi_ibgda_quiet`（等本 QP 全部完成）四个原语完成所有通信。
-- **传输方式：IBRC vs IBGDA**。NVSHMEM 的 InfiniBand 传输有两种发起方式。**IBRC**（以及 UCX、libfabric 等）是"GPU 把请求写进一个队列，主机上的 proxy 线程取出来调 verbs 提交"——结构上与 NCCL 的 proxy 一样，只是队列的形式不同。**IBGDA**（InfiniBand GPUDirect Async）把 QP 的 work queue、doorbell record 和 doorbell 寄存器都映射进 GPU 的地址空间，GPU 线程直接写它们，网卡直接从 GPU 显存取 WQE；CPU 完全不在数据路径上。DeepEP 的 `third-party/README.md` 给了两种启用方式：改 NVIDIA 驱动参数 `NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"`（传统 IBGDA，让 GPU 能写网卡的 BAR），或者装 GDRCopy 加载 `gdrdrv`（"CPU-assisted IBGDA"：GPU 写 WQE，由 CPU 协助 post send，有小的性能损失）。第三篇讲的 GDRCopy 在这里出现了第三种用途。
+- **传输方式：IBRC vs IBGDA**。NVSHMEM 的 InfiniBand 传输有两种发起方式。**IBRC**（以及 UCX、libfabric 等）是"GPU 把请求写进一个队列，主机上的 proxy 线程取出来调 verbs 提交"——结构上与 NCCL 的 proxy 一样，只是队列的形式不同。**IBGDA**（InfiniBand GPUDirect Async）把 QP 的 work queue、doorbell record 和 doorbell 寄存器都映射进 GPU 的地址空间，GPU 线程直接写它们，网卡直接从 GPU 显存取 WQE；CPU 完全不在数据路径上。DeepEP 的 `third-party/README.md` 给了两种启用方式：改 NVIDIA 驱动参数 `NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"`（传统 IBGDA，让 GPU 能写网卡的 BAR），或者装 GDRCopy 加载 `gdrdrv`（"CPU-assisted IBGDA"：GPU 写 WQE，由 CPU 协助 post send，有小的性能损失）。[《RDMA 与 GPUDirect》的「GDRCopy：CPU 直接读写显存」一节](/rdma-and-gpudirect.html#1-gdrcopycpu-直接读写显存)讲的 GDRCopy 在这里出现了第三种用途。
 
 ### 4. ibgda_device.cuh：warp 写 WQE、更新 DBR、敲 doorbell
 
-第三篇讲 verbs 时说一次 RDMA WRITE 是 `ibv_post_send`：往 QP 的 send queue 写一个 WQE，更新 doorbell record，再写网卡的 doorbell 寄存器告诉它"有新工作"。第四篇说 GPU kernel 做不了这件事，所以要 proxy。`ibgda_device.cuh` 就是 GPU kernel 做这件事的代码：
+[《RDMA 与 GPUDirect》的「verbs 编程模型」一节](/rdma-and-gpudirect.html#三verbs-编程模型)说一次 RDMA WRITE 是 `ibv_post_send`：往 QP 的 send queue 写一个 WQE，更新 doorbell record，再写网卡的 doorbell 寄存器告诉它"有新工作"。[《NCCL 架构》的「proxy 线程：GPU 不能驱动网卡」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#5-proxy-线程gpu-不能驱动网卡)说 GPU kernel 做不了这件事，所以要 proxy。`ibgda_device.cuh` 就是 GPU kernel 做这件事的代码：
 
 ```cpp title="ibgda_device.cuh：nvshmemi_ibgda_put_nbi_warp"
 // csrc/kernels/ibgda_device.cuh，有删节
@@ -540,9 +642,9 @@ nvshmemi_ibgda_put_nbi_warp(uint64_t req_rptr, uint64_t req_lptr, size_t bytes, 
 
 `ibgda_submit_requests` 先 `__threadfence()` 保证 WQE 写完，用 `atomicCAS` 等到前面的槽位都已填好（多个 warp 并发占槽，提交必须按序），然后 `ibgda_post_send`：`ibgda_update_dbr` 用 `st_na_release` 把新的生产者下标写进 doorbell record，`ibgda_ring_db` 把一个 8 字节的控制段（`opmod_idx_opcode`、`qpn_ds`）`st_na_release` 到 `qp->tx_wq.bf`——这就是映射进 GPU 地址空间的**网卡 doorbell 寄存器**。默认情况下不是每条消息都敲门（`kNumRequestInBatch = 4`，每 4 条敲一次，`kAlwaysDoPostSend` 强制），`state->use_async_postsend` 为真时（CPU-assisted 模式）只更新 `prod_idx`，由 CPU 去敲。完成检查是 `ibgda_poll_cq`：GPU 轮询 CQ 里的 wqe counter，`nvshmemi_ibgda_quiet` 等到本 QP 的 `prod_idx` 全部完成。
 
-这段代码回答了第三、四篇留下的问题：**GPU 为什么"不能"驱动网卡，以及现在为什么能**。不能，是因为 QP 的队列、DBR 和 doorbell 页原本只映射给 CPU，verbs 库是 CPU 侧代码；能，是因为 IBGDA 让 NVSHMEM 在初始化时用 DevX 把这三样东西的地址交给 GPU（doorbell 页要经 `PeerMappingOverride` 允许 GPU 写另一个 PCIe 设备的 BAR），之后 GPU 线程对它们的 store 就是 PCIe 上的写事务，与 CPU 写没有区别。
+这段代码回答了《RDMA 与 GPUDirect》和《NCCL 架构》留下的问题：**GPU 为什么"不能"驱动网卡，以及现在为什么能**。不能，是因为 QP 的队列、DBR 和 doorbell 页原本只映射给 CPU，verbs 库是 CPU 侧代码；能，是因为 IBGDA 让 NVSHMEM 在初始化时用 DevX 把这三样东西的地址交给 GPU（doorbell 页要经 `PeerMappingOverride` 允许 GPU 写另一个 PCIe 设备的 BAR），之后 GPU 线程对它们的 store 就是 PCIe 上的写事务，与 CPU 写没有区别。
 
-**它拿掉了哪一部分 α。** 对比第四篇的 proxy 链路，先把两条路上的参与者画出来——同一条跨节点消息，从发送 kernel 到接收 kernel 各经过谁：
+**它拿掉了哪一部分 α。** 对比《NCCL 架构》的 proxy 链路，先把两条路上的参与者画出来——同一条跨节点消息，从发送 kernel 到接收 kernel 各经过谁：
 
 ```mermaid
 %% 图：NCCL NET 与 IBGDA 的参与者对比：前者两端各过一次 CPU proxy，后者 CPU 不在路径上、每个 warp 自己写 WQE 敲 doorbell
@@ -584,7 +686,7 @@ Table: 一条跨节点消息的发起：NCCL NET 与 IBGDA
 
 ### 5. 与第三、四篇的对照表
 
-| 项 | GPUDirect RDMA（第三篇） | NCCL NET 传输（第四篇） | DeepEP normal | DeepEP low-latency（IBGDA） |
+| 项 | GPUDirect RDMA（《RDMA 与 GPUDirect》） | NCCL NET 传输（《NCCL 架构》） | DeepEP normal | DeepEP low-latency（IBGDA） |
 |---|---|---|---|---|
 | 数据路径 | NIC DMA 直读写显存 | 同左（GDR），经 channel buffer | 同左，经对称 buffer 队列 | 同左，直接写对端专家槽位 |
 | 请求由谁发起 | CPU（`ibv_post_send`） | CPU proxy 线程 | GPU warp（IBGDA） | GPU warp（IBGDA） |
@@ -593,9 +695,9 @@ Table: 一条跨节点消息的发起：NCCL NET 与 IBGDA
 | 内存注册 | `ibv_reg_mr`，应用管理 | NCCL 注册 channel buffer / 用户 buffer 注册（`ncclCommRegister`） | NVSHMEM 对称堆一次注册 | 同左 |
 | 跨节点拓扑要求 | GPU 与 NIC 同 PCIe switch 最佳 | 同左；PXN 可借邻卡 NIC | 同号 GPU 之间 RDMA 可达 + 节点内 NVLink 全互联 | 所有 rank 之间 RDMA 可达（NVLink 可达的走 P2P） |
 | 适用消息 | 任意 | 大消息带宽最优；小消息受 proxy 限制 | prefill 级的 MB 消息 | decode 级的 KB 消息、上千条 |
-| CUDA Graph | — | 可捕获（第七篇） | 不可（CPU 等计数器） | 可 |
+| CUDA Graph | — | 可捕获（《推理侧的通信》） | 不可（CPU 等计数器） | 可 |
 
-Table: 与第三、四篇的对照表
+Table: 数据路径与发起者：《RDMA 与 GPUDirect》的 GPUDirect RDMA、《NCCL 架构》的 NET 传输与 DeepEP 两套 kernel 的对照
 
 ### 6. NCCL 自己的 GIN
 
@@ -605,7 +707,7 @@ NCCL 也在走这条路。2.28.9 的源码树里有一套**设备端 API**（`sr
 
 ## 七、对称内存的一般化：all_to_all_vdev
 
-第五篇和第七篇讲了 PyTorch symmetric memory（`torch/csrc/distributed/c10d/symm_mem/`）的基础和它在 all_reduce 上的用法，这里只讲它对 all_to_all 的意义。PyTorch 2.12 在 NVSHMEM 后端（`nvshmem_extension.cu`，`set_backend("NVSHMEM")`）下注册了三个算子（`SymmetricMemory.cpp` 的 schema）：
+《PyTorch 的通信栈》和[《推理侧的通信》的「对称内存与 NVLS：两条路径」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#4-对称内存与-nvls两条路径)讲了 PyTorch symmetric memory（`torch/csrc/distributed/c10d/symm_mem/`）的基础和它在 all_reduce 上的用法，这里只讲它对 all_to_all 的意义。PyTorch 2.12 在 NVSHMEM 后端（`nvshmem_extension.cu`，`set_backend("NVSHMEM")`）下注册了三个算子（`SymmetricMemory.cpp` 的 schema）：
 
 - symm_mem.all_to_all_vdev(input, out, in_splits, out_splits_offsets, group_name)
 - symm_mem.all_to_all_vdev_2d(input, out, in_splits, out_splits_offsets, group_name, major_align=None)
@@ -631,7 +733,7 @@ vLLM v0.23.0 用 `--all2all-backend`（`ParallelConfig.all2all_backend`，`vllm/
 - **flashinfer_nvlink_two_sided / flashinfer_nvlink_one_sided**：FlashInfer 的 MNNVL all-to-all（flashinfer_all2allv 是前者的临时别名）
 - **naive / pplx**：已移除，_validate_parallel_config 里告警并回落到 allgather_reducescatter
 
-`CudaCommunicator.__init__`（`vllm/distributed/device_communicators/cuda_communicator.py`）在 `use_all2all` 为真时按这个值实例化对应的 `*All2AllManager`（都在 `all2all.py`，基类 `All2AllManagerBase` 在 `base_device_communicator.py`），`dispatch_router_logits` / `dispatch` / `combine` 三个方法转发给它。与第七篇的 all_reduce 后端链不同，这里**没有运行时的 if 链**——一个进程只有一个 all2all manager，由配置决定。
+`CudaCommunicator.__init__`（`vllm/distributed/device_communicators/cuda_communicator.py`）在 `use_all2all` 为真时按这个值实例化对应的 `*All2AllManager`（都在 `all2all.py`，基类 `All2AllManagerBase` 在 `base_device_communicator.py`），`dispatch_router_logits` / `dispatch` / `combine` 三个方法转发给它。与[《推理侧的通信》的「后端选择链与 PyNccl」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#四后端选择链与-pynccl)的 all_reduce 后端链不同，这里**没有运行时的 if 链**——一个进程只有一个 all2all manager，由配置决定。
 
 ### 2. 三个 manager 的 dispatch / combine
 
@@ -663,7 +765,7 @@ def use_batched_dp_moe(self) -> bool:
 
 第一个属性上方的注释解释了原因：TP > 1 且 DP > 1 时，同一 DP rank 的 TP 副本持有相同的 token，如果每个副本都把全部 token dispatch 出去，专家会重复计算、通信也重复；所以 MoE 的输入先做 sequence parallel（每个 TP 副本只负责 1/TP 的 token），dispatch 在 EP 组上做。第二个属性说 low-latency 路径按"batched"的方式组织 DP 的输入——每个 DP rank 的 token 数补齐到 `max_num_tokens`，对应 LL kernel 的 `num_max_dispatch_tokens_per_rank`。
 
-与第七篇 custom all-reduce 的分工：一层里 attention 的 TP all_reduce 走 `CudaCommunicator.all_reduce` 的后端链（custom AR / symm mem / PyNccl），MoE 的 dispatch / combine 走 `all2all_manager`；两者用的是同一个 `CudaCommunicator`（`__init__` 里 `if "tp" not in unique_name` 决定是否建 custom AR，`use_all2all` 决定是否建 all2all manager），但互不替代。TP 的 all_reduce 是几十 KB 一次、节点内、归约；EP 的 all_to_all 是几 MB、跨节点、无归约但要重排，正好是第一篇两本账的两端。EP 跨节点、TP 不跨节点，是这两种通信各自的拓扑要求决定的。
+与《推理侧的通信》里 custom all-reduce 的分工：一层里 attention 的 TP all_reduce 走 `CudaCommunicator.all_reduce` 的后端链（custom AR / symm mem / PyNccl），MoE 的 dispatch / combine 走 `all2all_manager`；两者用的是同一个 `CudaCommunicator`（`__init__` 里 `if "tp" not in unique_name` 决定是否建 custom AR，`use_all2all` 决定是否建 all2all manager），但互不替代。TP 的 all_reduce 是几十 KB 一次、节点内、归约；EP 的 all_to_all 是几 MB、跨节点、无归约但要重排，正好是[《集合通信原语与代价模型》的「总览：三个变量、两本账、一条曲线」一节](/collective-communication-primitives-and-cost-model.html#一总览三个变量两本账一条曲线)两本账的两端。EP 跨节点、TP 不跨节点，是这两种通信各自的拓扑要求决定的。
 
 ### 4. EPLB
 
@@ -676,7 +778,7 @@ def use_batched_dp_moe(self) -> bool:
 all_to_all 的完成时间是**最慢的那一对**决定的：某个 rank 收到的 token 数是平均值的 3 倍，它的接收、它的专家 GEMM、以及所有等它 combine 的 rank 都慢 3 倍。在 profiler 里这表现为 dispatch kernel 的时间方差大、不同 rank 的 kernel 时长不一致，以及 combine 之前一段空等。三种量化它的方法：
 
 - **路由统计**。Megatron 的 `moe_utils.py` 有 `track_moe_metrics` / `save_to_aux_losses_tracker`，aux loss 本身就是负载均衡项；`get_dispatch_layout` 返回的 `num_tokens_per_expert` 与 `num_tokens_per_rank` 直接给出本 step 的分布，`max / mean` 就是"最慢 rank 比平均慢多少"的估计。
-- **DeepEP 的诊断张量**。`low_latency_dispatch` 接受 `cumulative_local_expert_recv_stats`（`[num_local_experts]`，累计每个本地专家收到的 token 数，文档说"useful for online service EP load balance monitoring"）和 `dispatch_wait_recv_cost_stats`（`[num_ranks, num_ranks]`，累计等待每个来源 rank 数据到达的时钟周期，"useful for detecting and precisely localizing slow anomalies"）；`low_latency_combine` 有对应的 `combine_wait_recv_cost_stats`。第六章第 2 节看到 recv 阶段用 `clock64()` 计时并 `atomicAdd` 到这个张量——它是按来源 rank 分列的等待时间矩阵，哪一列持续偏大，那个 rank 就是慢的（专家热点、网卡降速、或者它自己在等别人）。这是第六篇"各 rank 停在不同处"那一类问题在 MoE 里的专用工具。
+- **DeepEP 的诊断张量**。`low_latency_dispatch` 接受 `cumulative_local_expert_recv_stats`（`[num_local_experts]`，累计每个本地专家收到的 token 数，文档说"useful for online service EP load balance monitoring"）和 `dispatch_wait_recv_cost_stats`（`[num_ranks, num_ranks]`，累计等待每个来源 rank 数据到达的时钟周期，"useful for detecting and precisely localizing slow anomalies"）；`low_latency_combine` 有对应的 `combine_wait_recv_cost_stats`。第六章第 2 节看到 recv 阶段用 `clock64()` 计时并 `atomicAdd` 到这个张量——它是按来源 rank 分列的等待时间矩阵，哪一列持续偏大，那个 rank 就是慢的（专家热点、网卡降速、或者它自己在等别人）。这是[《nccl-tests、调优与排障》的「六类 hang」一节](/nccl-tests-tuning-and-debugging-hangs.html#2-六类-hang)里"各 rank 停在不同的步上"那一类问题在 MoE 里的专用工具。
 - **vLLM 的 EPLB 日志**。`log_balancedness=True` 时按 `log_balancedness_interval` 打印负载均衡度。
 
 热点的处理在通信层之外（aux loss、EPLB、冗余专家），但通信层能先判断"慢是因为不均还是因为链路"：如果 `num_tokens_per_rank` 均匀而某个 rank 仍慢，才去查它的网卡与拓扑（下一小节）。
@@ -712,9 +814,9 @@ Table: DeepEP 的配置项
   - `NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"`：传统 IBGDA；或装 GDRCopy + gdrdrv 走 CPU-assisted
 - **vLLM**：`--all2all-backend`、`VLLM_DEEPEP_BUFFER_SIZE_MB`、`VLLM_DEEPEP_HIGH_THROUGHPUT_FORCE_INTRA_NODE`、`VLLM_DEEPEP_LOW_LATENCY_USE_MNNVL`
 - **Megatron**：`--moe-token-dispatcher-type {allgather,alltoall,flex}`、`--moe-flex-dispatcher-backend {deepep,hybridep}`、`--moe-deepep-num-sms`、`--moe-router-dtype fp32`（DeepEP 要求 fp32 probs）
-- **NCCL**（走 `all_to_all_single` 时）：`NCCL_P2P_NET_CHUNKSIZE`（默认 128 KB）、`NCCL_P2P_LL_THRESHOLD`（默认 16 KB）、以及第六篇的 `NCCL_IB_*` / `NCCL_NET_GDR_LEVEL`
+- **NCCL**（走 `all_to_all_single` 时）：`NCCL_P2P_NET_CHUNKSIZE`（默认 128 KB）、`NCCL_P2P_LL_THRESHOLD`（默认 16 KB）、以及[《nccl-tests、调优与排障》的「调优参数：按作用层分类」一节](/nccl-tests-tuning-and-debugging-hangs.html#四调优参数按作用层分类)的 `NCCL_IB_*` / `NCCL_NET_GDR_LEVEL`
 
-[《推理侧的通信》的 KVConnector 一章](/inference-communication-custom-all-reduce-and-kv-transfer.html#七看一看kvconnector-与传输层)提过一件事，在这里要再说一次：vLLM 的 NixlConnector 注释解释它限制 UCX 线程数是因为"每个线程通过 DevX 分配 UAR（doorbell 页），过多会耗尽网卡的 UAR 空间，导致同机的 NVSHMEM（DeepEP）初始化失败"。IBGDA 的每条 QP 也要 doorbell 页——PD 分离与 EP 同机部署时，KV 传输和 MoE 通信在网卡资源上是竞争关系，`num_qps_per_rank × 对端数` 是要算的。
+[《推理侧的通信》的「看一看：KVConnector 与传输层」一节](/inference-communication-custom-all-reduce-and-kv-transfer.html#七看一看kvconnector-与传输层)提过一件事，在这里要再说一次：vLLM 的 NixlConnector 注释解释它限制 UCX 线程数是因为"每个线程通过 DevX 分配 UAR（doorbell 页），过多会耗尽网卡的 UAR 空间，导致同机的 NVSHMEM（DeepEP）初始化失败"。IBGDA 的每条 QP 也要 doorbell 页——PD 分离与 EP 同机部署时，KV 传输和 MoE 通信在网卡资源上是竞争关系，`num_qps_per_rank × 对端数` 是要算的。
 
 ### 4. 检查清单
 
@@ -722,11 +824,11 @@ Table: DeepEP 的配置项
 
 1. 算理论值：`moe_a2a_model.py` 给出网卡与 NVLink 的字节与时间；profiler 里 dispatch + combine 的时间与之比
    - 接近 → 带宽账，看第 2 步；差几倍 → 看第 3、4 步
-2. 网卡是否被跑满：`nvidia-smi topo -mp` 确认每 GPU 一张网卡且亲和正确（第二篇）；`ib_write_bw --use_cuda` 的数字是上限（第三篇）；DeepEP internode 的官方数字 43～58 GB/s 是 CX7 400G 上的参照
+2. 网卡是否被跑满：`nvidia-smi topo -mp` 确认每 GPU 一张网卡且亲和正确（[《硬件互联》的「读拓扑：nvidia-smi topo -m、lspci -tv 与 topo -mp」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)）；`ib_write_bw --use_cuda` 的数字是上限（[《RDMA 与 GPUDirect》的「测一测与比一比：诊断工具」一节](/rdma-and-gpudirect.html#十测一测与比一比诊断工具)）；DeepEP internode 的官方数字 43～58 GB/s 是 CX7 400G 上的参照
 3. 负载：`num_tokens_per_rank` 的 max / mean；`dispatch_wait_recv_cost_stats` 哪一列大
 4. 实现：allgather dispatcher 在大 EP 上多 n/k 倍字节；alltoall dispatcher 每层多一次 counts 交换 + 同步；flex/deepep 是否真的启用（`moe_flex_dispatcher_backend`、`fused_dispatch` 非 None）
 5. DeepEP 的 SM 数：`num_sms` 太小时 NVLink / 网卡跑不满；对照 README 的 SM 数与带宽
-6. 网络：adaptive routing 的设置（`get_buffer` 注释要求关）；`NVSHMEM_IB_SL` 隔离流量；RoCE 上的 PFC / ECN（第三篇）
+6. 网络：adaptive routing 的设置（`get_buffer` 注释要求关）；`NVSHMEM_IB_SL` 隔离流量；RoCE 上的 PFC / ECN（[《RDMA 与 GPUDirect》的「InfiniBand 与 RoCE v2」一节](/rdma-and-gpudirect.html#六infiniband-与-roce-v2)）
 
 **decode 的 MoE 通信慢**：
 
@@ -739,7 +841,7 @@ Table: DeepEP 的配置项
 
 **hang**：
 
-- `all_to_all_single` 的 `input_split_sizes` / `output_split_sizes` 不互为转置 → 第六篇 Flight Recorder 里 `nccl:all_to_all` 的 `inSplitSizes` / `outSplitSizes` 列
+- `all_to_all_single` 的 `input_split_sizes` / `output_split_sizes` 不互为转置 → [《nccl-tests、调优与排障》的「Flight Recorder：记录什么、怎么开、怎么 dump」一节](/nccl-tests-tuning-and-debugging-hangs.html#4-flight-recorder记录什么怎么开怎么-dump)里 `nccl:all_to_all` 的 `inSplitSizes` / `outSplitSizes` 列
 - DeepEP "CPU recv timeout" / "timeout (dispatch CPU)"（`NUM_CPU_TIMEOUT_SECS`）→ 某个 rank 没进 dispatch，或 notify 的写没到达（网卡 / QP 问题）
 - LL recv 阶段永远等不到 count → 注意 send 阶段对每一个 (目标 rank, 专家) 都会发计数，一个 token 都没有时发的是 -1，所以"等不到"只可能是对端没执行 send 阶段、或 RDMA 未完成；查对端是否卡在 `nvshmemi_ibgda_quiet`、网卡计数器与 QP 状态
 - 两块 LL buffer 被第三个结果占用（文档："cannot hold more than 2 low-latency kernels' result tensors"）
@@ -787,13 +889,13 @@ Table: 要点回顾
 | vLLM all2all | `vllm/config/parallel.py`：`All2AllBackend`、`ParallelConfig.all2all_backend`、`use_sequence_parallel_moe`、`use_batched_dp_moe`、`enable_eplb` / `EPLBConfig`<br/>`vllm/distributed/device_communicators/cuda_communicator.py`：`CudaCommunicator.__init__`（按后端建 manager）、`dispatch_router_logits` / `dispatch` / `combine`<br/>`all2all.py`：`AgRsAll2AllManager`、`DeepEPAll2AllManagerBase`、`DeepEPHTAll2AllManager`、`DeepEPLLAll2AllManager`、`NixlEPAll2AllManager`、`FlashInferNVLinkTwoSidedManager` / `OneSidedManager`、`MoriAll2AllManager`<br/>`base_device_communicator.py`：`All2AllManagerBase`<br/>`vllm/envs.py`：`VLLM_DEEPEP_BUFFER_SIZE_MB`、`VLLM_DEEPEP_HIGH_THROUGHPUT_FORCE_INTRA_NODE`、`VLLM_DEEPEP_LOW_LATENCY_USE_MNNVL` |
 | vLLM prepare / finalize | `vllm/model_executor/layers/fused_moe/all2all_utils.py`：`maybe_make_prepare_finalize`（`use_fp8_dispatch` 的判定）<br/>`prepare_finalize/deepep_ht.py`：`DeepEPHTPrepareAndFinalize._do_dispatch` / `prepare` / `finalize`<br/>`prepare_finalize/deepep_ll.py`：`DeepEPLLPrepareAndFinalize`（`SUPPORTED_HIDDEN_SIZES`、`prepare_async`、`_receiver`、`finalize_async`）<br/>`prepare_finalize/naive_dp_ep.py`、`nixl_ep.py`、`flashinfer_nvlink_*.py` |
 | vLLM EPLB | `vllm/distributed/eplb/eplb_state.py`：`EplbState`、`EplbStats`<br/>`policy/default.py`：`rebalance_experts`、`rebalance_experts_hierarchical`<br/>`rebalance_execute.py`：`rearrange_expert_weights_inplace` |
-| 工具 | nccl-tests `alltoall_perf`<br/>`ib_write_bw --use_cuda`（第三篇）<br/>`nvidia-smi topo -mp`（第二篇）<br/>torch profiler<br/>comm-probe `moe_a2a_model.py`、`a2a_bench.py`（下） |
+| 工具 | nccl-tests `alltoall_perf`<br/>`ib_write_bw --use_cuda`（《RDMA 与 GPUDirect》）<br/>`nvidia-smi topo -mp`（《硬件互联》）<br/>torch profiler<br/>comm-probe `moe_a2a_model.py`、`a2a_bench.py`（下） |
 
 Table: 本篇涉及的源码与工具位置
 
 ### 3. comm-probe 本篇增量：moe_a2a_model.py 与 a2a_bench.py
 
-**`moe_a2a_model.py`** 把第一篇的 `cost_model.py` 扩展到 all_to_all。输入模型形状（hidden、top-k、group-limited routing 的节点数）、EP 规模与每节点卡数、dtype、两条链路的 β 与 α，输出 prefill（按 DeepEP normal kernel 的节点去重建模）与 decode（按 low-latency 的平坦 all_to_all 建模）下每 rank 的字节数、网卡与 NVLink 各自的时间、dispatch / combine / 一层的理论时间、NCCL 路径多付的 counts 交换与同步，并在默认形状下把 DeepEP README 的官方 decode 数字并排列出、反推 `alpha_eff`。它不需要 GPU。
+**`moe_a2a_model.py`** 把《集合通信原语与代价模型》的 `cost_model.py` 扩展到 all_to_all。输入模型形状（hidden、top-k、group-limited routing 的节点数）、EP 规模与每节点卡数、dtype、两条链路的 β 与 α，输出 prefill（按 DeepEP normal kernel 的节点去重建模）与 decode（按 low-latency 的平坦 all_to_all 建模）下每 rank 的字节数、网卡与 NVLink 各自的时间、dispatch / combine / 一层的理论时间、NCCL 路径多付的 counts 交换与同步，并在默认形状下把 DeepEP README 的官方 decode 数字并排列出、反推 `alpha_eff`。它不需要 GPU。
 
 ```python title="comm-probe/moe_a2a_model.py"
 #!/usr/bin/env python3
@@ -915,7 +1017,7 @@ $ python3 moe_a2a_model.py --ep 64 --no-dedup-prefill   # 平坦 all_to_all（NC
   64     8   7.00    242.2   211.9   4238.9   1614.8    4258.9    8240.8  12499.7   12599.7           -         -
 ```
 
-读法。prefill 三行：EP=8 只有 NVLink，1.6 ms 对应 README intranode 153 GB/s 的量级；EP=16 只有一个远端节点，去重后每 token 网卡上只走 1 份，网卡时间反而小于 NVLink，瓶颈仍在 NVLink——这就是"节点内不是免费的"（第一篇第九章）在 MoE 上的版本；EP=64 网卡 2.8 ms 成为瓶颈，group routing 再压到 1.9 ms，平坦算法则是 4.2 ms。decode 三行的 `alpha_eff` 列是 README 官方延迟减去模型的字节项：dispatch 27～42 µs、combine 16～57 µs，随 EP 缓慢增长——这就是 IBGDA 路径上剩下的、模型归入 α 的全部固定开销（kernel 启动、WQE 与 doorbell、网卡与交换机、对端轮询）。如果换成 NCCL 路径，`nccl+cnt` 列多出的 100 µs 是 counts 交换与同步，而 proxy 的发起速率还没有算进去。第二个命令是 DeepSeek-V3 的设计点；第三个命令说明按节点去重值多少：EP=64 时一层少 4.3 ms。
+读法。prefill 三行：EP=8 只有 NVLink，1.6 ms 对应 README intranode 153 GB/s 的量级；EP=16 只有一个远端节点，去重后每 token 网卡上只走 1 份，网卡时间反而小于 NVLink，瓶颈仍在 NVLink——这就是"节点内不是免费的"（[《集合通信原语与代价模型》的「一次训练迭代的通信账」一节](/collective-communication-primitives-and-cost-model.html#2-一次训练迭代的通信账)）在 MoE 上的版本；EP=64 网卡 2.8 ms 成为瓶颈，group routing 再压到 1.9 ms，平坦算法则是 4.2 ms。decode 三行的 `alpha_eff` 列是 README 官方延迟减去模型的字节项：dispatch 27～42 µs、combine 16～57 µs，随 EP 缓慢增长——这就是 IBGDA 路径上剩下的、模型归入 α 的全部固定开销（kernel 启动、WQE 与 doorbell、网卡与交换机、对端轮询）。如果换成 NCCL 路径，`nccl+cnt` 列多出的 100 µs 是 counts 交换与同步，而 proxy 的发起速率还没有算进去。第二个命令是 DeepSeek-V3 的设计点；第三个命令说明按节点去重值多少：EP=64 时一层少 4.3 ms。
 
 **`a2a_bench.py`** 是用 `torch.distributed.all_to_all_single` 做 MoE dispatch 替身的最小 benchmark：对每个 token 数，分别测等长 split（走 `ncclAlltoAll`）、变长 split 但 splits 已知（只有数据 all_to_all）、以及框架真正要付的两步（counts all_to_all + `.tolist()` 同步 + 数据 all_to_all）。`--skew` 把一部分拷贝多路由到 rank 0，模拟专家热点。与 `moe_a2a_model.py` 的 `nccl+cnt` 列和 nccl-tests `alltoall_perf` 对照。
 
@@ -997,7 +1099,7 @@ if __name__ == "__main__":
     main()
 ```
 
-读法：`equal_us` 与 `v_only_us` 在同一字节数下应接近（NCCL 内部都是 send/recv 任务），`v_2step_us − v_only_us` 就是 counts 交换加 host 同步的代价，把它填进 `moe_a2a_model.py --alpha-sync`；`algbw` 一列在 4096 token 时应接近节点内 NVLink（单机）或网卡（多机）的量级，差得远先查第六篇的清单；`--skew 0.3` 之后所有列都会变慢——虽然只有 rank 0 多收，但 all_to_all 要等它。8 卡单机跑不出跨节点的部分，两机 16 卡才能看到网卡成为瓶颈；`torchrun` 的用法同第六篇。它没有 DeepEP 的对照，因为 DeepEP 自带 `tests/test_intranode.py`、`test_internode.py`、`test_low_latency.py`，README 建议直接用它们做调优——在同一台机器上跑一遍，`v_2step_us` 与 `test_low_latency.py` 的数字之差就是本篇第三、六章讲的全部内容的实测版。
+读法：`equal_us` 与 `v_only_us` 在同一字节数下应接近（NCCL 内部都是 send/recv 任务），`v_2step_us − v_only_us` 就是 counts 交换加 host 同步的代价，把它填进 `moe_a2a_model.py --alpha-sync`；`algbw` 一列在 4096 token 时应接近节点内 NVLink（单机）或网卡（多机）的量级，差得远先查[《nccl-tests、调优与排障》的「决策树」一节](/nccl-tests-tuning-and-debugging-hangs.html#九决策树)；`--skew 0.3` 之后所有列都会变慢——虽然只有 rank 0 多收，但 all_to_all 要等它。8 卡单机跑不出跨节点的部分，两机 16 卡才能看到网卡成为瓶颈；`torchrun` 的用法同[《nccl-tests、调优与排障》的「三种启动方式」一节](/nccl-tests-tuning-and-debugging-hangs.html#3-三种启动方式)。它没有 DeepEP 的对照，因为 DeepEP 自带 `tests/test_intranode.py`、`test_internode.py`、`test_low_latency.py`，README 建议直接用它们做调优——在同一台机器上跑一遍，`v_2step_us` 与 `test_low_latency.py` 的数字之差就是本篇第三、六章讲的全部内容的实测版。
 
 到这里，八篇文章各自给出的示例代码合起来就是 comm-probe 的全部（它们随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：`cost_model.py` 算理论值，`topo_map.py` 画拓扑并记录链路实测，`rdma_write.c` 验证 GDR 路径，`nccl_log_reader.py` 读 NCCL 的决策，`overlap_bench.py` 检查框架侧的重叠，`sweep.sh` 与 `hang_lab/` 跑 nccl-tests 曲线与 hang 剧本，`tp_ar_bench.py` 与 `kv_xfer/` 验收推理侧的两个后端，`moe_a2a_model.py` 与 `a2a_bench.py` 给 MoE 的 all_to_all 算账并测出 NCCL 路径的代价。
 
