@@ -5,10 +5,10 @@ title: "通信与互联（06）：nccl-tests、调优与排障——从带宽曲
 subtitle: "nccl-tests, Tuning and Debugging Hangs: From Bandwidth Curves to Flight Recorder"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-20
 ---
 
-前五篇建立了一条完整的因果链：第一篇的 α-β 模型给出一次集合通信的理论时间，第二、三篇给出链路能提供的 β 和 α，第四篇讲 NCCL 如何在探测到的拓扑上选 ring/tree、channel 数、算法与协议去逼近这个上限，第五篇讲 ProcessGroupNCCL 如何把 NCCL kernel 放到自己的 stream 上、watchdog 如何盯着每一个 `WorkNCCL`。这条链上每一环都可能出错，而错误的表现只有三种：**慢**、**卡**、**结果不对**。本篇的任务是把前五篇变成一套可操作的方法——面对这三种现象，先测什么、先看什么、先改什么。
+前五篇建立了一条完整的因果链：[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)的 α-β 模型给出一次集合通信的理论时间，[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)与[《RDMA 与 GPUDirect》](/rdma-and-gpudirect.html)给出链路能提供的 β 和 α，[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 NCCL 如何在探测到的拓扑上选 ring/tree、channel 数、算法与协议去逼近这个上限，[《PyTorch 的通信栈》](/pytorch-communication-stack-processgroupnccl-and-streams.html)讲 ProcessGroupNCCL 如何把 NCCL kernel 放到自己的 stream 上、watchdog 如何盯着每一个 `WorkNCCL`。这条链上每一环都可能出错，而错误的表现只有三种：**慢**、**卡**、**结果不对**。本篇的任务是把前五篇变成一套可操作的方法——面对这三种现象，先测什么、先看什么、先改什么。
 
 性能这一半的核心工具是 nccl-tests。它做的事情很简单：对一组消息大小依次调用同一个集合通信原语，报告时间、algbw 和 busbw。但这条曲线包含的信息远比"峰值多少 GB/s"多：小消息端的平台高度是 α，大消息端的平台高度是 β，拐点位置是二者之比，中段的每一次台阶都是算法或协议的切换点。学会读这条曲线，再配合 `NCCL_DEBUG=INFO` 里的几行决策日志，绝大多数"通信慢"的问题都能在一小时内定位到某一层。
 
@@ -24,28 +24,74 @@ updated: 2026-09-20
 
 ### 1. 两半、三种现象、一张层级图
 
-本篇分两半：**性能**这一半（第二到五章）回答"慢"——用 nccl-tests 测、用日志看决策、用参数调；**正确性**这一半（第六到八章）回答"卡"与"错"——hang 的分类与定位、timeout 的语义、数值问题。两半面对的是同样的六层，所以先把层级图放在这里。
+本篇分两半：**性能**这一半（第二到五章）回答"慢"——用 nccl-tests 测、用日志看决策、用参数调；**正确性**这一半（第六到八章）回答"卡"与"错"——hang 的分类与定位、timeout 的语义、数值问题。两半面对的是同样的一条路径，所以先把这条路径放在这里。
 
-一次 `dist.all_reduce` 从 Python 到线路要穿过六层，每一层都有自己的观测手段和典型故障：
+一次 `dist.all_reduce` 从 Python 到线路要穿过六层，上一层决定下一层能做什么，而三种现象进入这条路径的位置不同：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%% 图：一次 all_reduce 从 Python 到线路的路径，以及三种现象各从哪一头开始查
+flowchart TB
+    SYM{"现象：慢 · 卡 · 结果不对"}
+    FW["<b>框架：c10d</b><br/>• 建好 WorkNCCL 就返回，CPU 不等 GPU<br/>• watchdog 是整条路径上唯一的计时器（第七章）"]
+    DEC["<b>NCCL 决策层</b><br/>按消息大小在算法、协议、channel 数里挑一组（第四章）"]
+    TR["<b>NCCL transport</b><br/>节点内 P2P 还是 SHM，跨机 GDR 开没开（第四、五章）"]
+    LINK["<b>链路</b><br/>NVLink · PCIe · IB / RoCE，α 与 β 在这里定下（第二、三章）"]
+    KER["<b>对端的 NCCL kernel</b><br/>在 device flag 上自旋等数据，自己没有任何超时（第六章）"]
+    SYM -->|"卡 / 错：从上往下"| FW
+    SYM -->|"慢：从下往上"| LINK
+    FW -->|"enqueue 到自己的 stream"| DEC
+    DEC -->|"选中的组合定下步数与每步流量"| TR
+    TR -->|"每一步落到一条具体链路上"| LINK
+    LINK --> KER
+    KER -.->|"数据不来就一直等"| FW
+```
+
+- **现象**：慢、卡、结果不对三种，决定从哪一头开始查——慢从下往上先问链路能给多少，卡从上往下先问是不是调用不一致，错只出现在框架层与数值层（[第九章](#九决策树)把三种现象各展开成一棵树）。
+- **框架：c10d**：`dist.all_reduce` 把 `WorkNCCL` 放进队列就返回，Python 线程继续往下跑；整条路径上唯一在计时的是 watchdog 线程上这个 work 的 `opTimeout_`，默认 10 分钟（[第七章](#七timeout-的语义)）。
+- **NCCL 决策层**：同一个原语、不同的消息大小会选不同的算法与协议，所以 busbw 曲线中段的台阶是决策的台阶，不是硬件的台阶；`NCCL_ALGO` / `NCCL_PROTO` 的作用是把候选项删掉，用来对照而不是调优（[第四章第 2 小节](#2-算法与协议nccl_algonccl_proto)）。
+- **NCCL transport**：节点内走 P2P 还是 SHM、跨机有没有 GDRDMA，是大消息平台高低的第一位原因，一份 INFO 日志里的两行就能看出来（[第五章第 4 小节](#4-一份-info-日志里要找的八行)）。
+- **链路**：α 与 β 的上限在这一层，nccl-tests 的曲线只是把这两个数字量出来；平台低于参考线先怀疑这里（[第三章](#三带宽曲线的读法)）。
+- **对端的 NCCL kernel**：它只会自旋，不报错、也没有心跳——这是 hang 成为集合通信默认失败模式的全部原因（[第六章第 1 小节](#1-为什么-hang-是集合通信的默认失败模式)）。
+
+六层各自的典型故障与观测手段：
 
 | 层 | 典型故障 | 观测手段 |
 |---|---|---|
-| 框架（c10d） | 调用不一致 · 小消息没合并 · stream 依赖错 · `.item()` 打断重叠 | Flight Recorder · py-spy · torch.profiler · `TORCH_NCCL_DESYNC_DEBUG` |
-| NCCL 决策层（graph / tuning） | 算法 / 协议选错 · channel 太少 · 拓扑探测错 | `NCCL_DEBUG=INFO SUBSYS=GRAPH,TUNING` · `NCCL_TOPO_DUMP_FILE` · `NCCL_GRAPH_DUMP_FILE` |
-| NCCL transport（p2p / shm / net） | P2P 没走 NVLink · GDR 没开 · 回落到 Socket | `NCCL_DEBUG=INFO` 里的 "via P2P/…" "via NET/IB/…/GDRDMA" "GPU Direct RDMA Disabled …" |
-| 设备 kernel | 在 flag 上自旋等对端 | cuda-gdb · nvidia-smi 看 SM 占用不降 |
-| 网络（IB / RoCE） | 网卡亲和错 · PFC / ECN 没配 · 链路降速 · 丢包重传 | ibstat · `ib_write_bw` · 交换机计数器 · `NCCL_IB_HCA` · dmesg |
-| 硬件（PCIe / NVLink） | 链路降级 · 跨 NUMA · GPU 掉卡 | `nvidia-smi topo -m` · `nvidia-smi nvlink -s` · `lspci -vv` |
+| 框架（c10d） | 调用不一致<br/>小消息没合并<br/>stream 依赖错<br/>`.item()` 打断重叠 | Flight Recorder<br/>py-spy<br/>torch.profiler<br/>`TORCH_NCCL_DESYNC_DEBUG` |
+| NCCL 决策层（graph / tuning） | 算法 / 协议选错<br/>channel 太少<br/>拓扑探测错 | `NCCL_DEBUG=INFO SUBSYS=GRAPH,TUNING`<br/>`NCCL_TOPO_DUMP_FILE`<br/>`NCCL_GRAPH_DUMP_FILE` |
+| NCCL transport（p2p / shm / net） | P2P 没走 NVLink<br/>GDR 没开<br/>回落到 Socket | `NCCL_DEBUG=INFO` 里的 "via P2P/…" "via NET/IB/…/GDRDMA" "GPU Direct RDMA Disabled …" |
+| 设备 kernel | 在 flag 上自旋等对端 | cuda-gdb<br/>nvidia-smi 看 SM 占用不降 |
+| 网络（IB / RoCE） | 网卡亲和错<br/>PFC / ECN 没配<br/>链路降速<br/>丢包重传 | ibstat<br/>`ib_write_bw`<br/>交换机计数器<br/>`NCCL_IB_HCA`<br/>dmesg |
+| 硬件（PCIe / NVLink） | 链路降级<br/>跨 NUMA<br/>GPU 掉卡 | `nvidia-smi topo -m`<br/>`nvidia-smi nvlink -s`<br/>`lspci -vv` |
 
 Table: 一次 all_reduce 穿过的六层及其故障与观测手段
 
-三种现象在这张图上的排查方向不同。**慢**从下往上：先确认硬件和网络能提供的上限（第二、三篇的 nvbandwidth 与 `ib_write_bw`），再用 nccl-tests 看 NCCL 拿到了多少，最后看框架侧是否浪费了。**卡**从上往下：先用 Flight Recorder 判断是不是调用不一致，是则到此为止；不是再往下看 rank 是否存活、网络是否断开。**错**几乎只在框架层和数值层：归约顺序、算法差异、stream 竞争、NaN 传播。
+三种现象在这条路径上的排查方向不同：
+
+1. **慢**从下往上：先确认硬件和网络能提供的上限（[《硬件互联》的「测一测：每段链路的实际带宽」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#九测一测每段链路的实际带宽)与[《RDMA 与 GPUDirect》的「测一测与比一比：诊断工具」一节](/rdma-and-gpudirect.html#十测一测与比一比诊断工具)），再用 nccl-tests 看 NCCL 拿到了多少，最后看框架侧是否浪费了。
+2. **卡**从上往下：先用 Flight Recorder 判断是不是调用不一致，是则到此为止；不是再往下看 rank 是否存活、网络是否断开。
+3. **错**几乎只在框架层和数值层：归约顺序、算法差异、stream 竞争、NaN 传播。
+
+排障时手里会同时有好几样东西：几个环境变量、几份日志、一个环形缓冲、TCPStore 上的一个 key、两个后台线程。它们谁创建、活在哪、活多久、谁能看见各不相同，搞混了就会出现"改了环境变量却没生效""掉队的 rank 居然也有 dump""只剩最近几千条记录"这类困惑：
+
+| 对象 | 谁创建 | 活在哪 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| `NCCL_*` 整数参数 | 第一次调用对应的 `ncclParamXxx()` 时读环境变量并缓存（NCCL `src/misc/param.cc` 的 `ncclLoadParam`） | 进程内的静态变量 | 进程生命周期；启动后改环境变量无效，同一进程里两个 communicator 也不可能取到不同值 | 本进程的 NCCL；`NCCL_DEBUG=INFO` 的 `set by environment` 行把生效值打出来 |
+| `NCCL_CONF_FILE` / `~/.nccl.conf` 里的值 | `initEnv`（同文件，`std::call_once`）在首次读参数时注入一次，用 `setenv(..., 0)` 不覆盖已有环境变量 | 进程的环境变量表 | 进程生命周期 | 本进程；优先级低于真正的环境变量 |
+| `NCCL_DEBUG` 日志 | 每个进程的 NCCL（`src/debug.cc` 的 `ncclDebugInit`） | stdout，或 `NCCL_DEBUG_FILE` 展开 `%h` / `%p` 后的文件 | 文件持久，一进程一份 | 能读到文件的人；没有 rank 占位符，按 rank 命名要自己拼 |
+| Flight Recorder 环形缓冲 | 每个进程的 ProcessGroupNCCL，容量取 `TORCH_NCCL_TRACE_BUFFER_SIZE`（PyTorch 2.12 默认 2000） | 进程内存 | 写满后从头盖掉最旧的一条（`FlightRecorderDetail.hpp`），所以只保留最近 2000 次调用 | 本进程；dump 之后落成 `TORCH_NCCL_DEBUG_INFO_TEMP_FILE` 前缀加全局 rank 号的文件 |
+| TCPStore 上的 `exception_dump` key | 第一个超时 rank 的 watchdog（`ProcessGroupNCCL.hpp` 的 `kStoreDumpKey`） | rank 0 的 TCPStore | 写进去不删，作业后续都能查到 | 所有 rank 的 monitor 线程——这是没超时的掉队者也会 dump 的原因 |
+| watchdog 与 heartbeat monitor 线程 | ProcessGroupNCCL 构造时起 watchdog（`TORCH_NCCL_BLOCKING_WAIT=1` 时不起），watchdog 线程跑起来后再由它起 monitor（`Watchdog::run`） | 每个进程内 | process group 的生命周期 | 只看本进程的 work 队列：watchdog 判超时并广播，monitor 执行 dump 并在 watchdog 自己卡死时杀进程 |
+| RAS 监控网 | 每个进程的 RAS 线程（NCCL `src/ras/ras.cc`，`NCCL_RAS_ENABLE` 默认 1） | 进程之间一张独立于数据路径的 TCP 网 | 作业运行期间 | `ncclras` 连上任一进程（默认端口 28028）就能看到全作业 |
+
+Table: 排障时手里的几样东西：谁创建、活在哪、活多久、谁能看见
 
 ### 2. 四段法在本篇的落法
 
 总纲规定的"算一算、看一看、测一测、比一比"在本篇是主线而不是点缀：
 
-- **算一算**：用第一篇的 ring 公式预测 busbw 曲线的形状与拐点，算出"这条曲线应该长什么样"；
+- **算一算**：用[《集合通信原语与代价模型》的「ring all_reduce 的推导」一节](/collective-communication-primitives-and-cost-model.html#五ring-all_reduce-的推导)里的 ring 公式预测 busbw 曲线的形状与拐点，算出"这条曲线应该长什么样"；
 - **看一看**：读 `NCCL_DEBUG=INFO` 日志里 transport、算法、协议、channel 的决策，读 `src/misc/param.cc` 和 `src/debug.cc` 弄清环境变量与日志的机制；
 - **测一测**：nccl-tests 扫描，nccl-tests 之外还有 py-spy、gdb、Flight Recorder 这些"测卡在哪"的工具；
 - **比一比**：实测曲线与预测曲线的每一处偏差都对应一个检查项，本篇第九章把它们整理成决策树。
@@ -54,15 +100,15 @@ Table: 一次 all_reduce 穿过的六层及其故障与观测手段
 
 | 章 | 主题 | 内容 |
 |---|---|---|
-| 二 | nccl-tests：怎么测 | 编译、参数、三种启动方式、输出每一列的含义、测量纪律 |
-| 三 | 带宽曲线的读法 | 两个平台与拐点 · 用 α-β 模型预测拐点 · 三条参考线 · 五种异常形状 |
-| 四 | 调优参数：按作用层分类 | 参数如何被读取 · 算法/协议 · 并行度 · 缓冲 · 路径 · 网络 · Socket · 特殊功能 · 该动/少动/不动 |
-| 五 | 日志：`NCCL_DEBUG` 的三层 | 级别 · 子系统 · 按 rank 分文件 · 一份 INFO 日志里要找的八行 · RAS |
-| 六 | hang 的分类与定位工具 | 六类 hang · py-spy/gdb/cuda-gdb · Flight Recorder 记录什么、怎么 dump、`fr_trace.py` 怎么对齐 |
-| 七 | timeout 的语义 | init_process_group(timeout=) 约束什么 · watchdog 的时钟 · 为什么 checkpoint 卡住会变成 NCCL timeout · 回答核心问题 |
-| 八 | 正确性问题 | 浮点归约顺序 · 算法差异 · NaN 与 `TORCH_NCCL_NAN_CHECK` · 多 communicator/多 stream 竞争 |
+| 二 | nccl-tests：怎么测 | 编译与二进制<br/>参数<br/>三种启动方式<br/>输出每一列的含义<br/>测量纪律 |
+| 三 | 带宽曲线的读法 | 两个平台与拐点<br/>用 α-β 模型预测拐点<br/>三条参考线<br/>五种异常形状 |
+| 四 | 调优参数：按作用层分类 | 参数如何被读取<br/>算法与协议<br/>并行度<br/>缓冲<br/>路径<br/>网络<br/>Socket<br/>特殊功能<br/>该动 / 少动 / 不动 |
+| 五 | 日志：`NCCL_DEBUG` 的三层 | 级别<br/>子系统<br/>按 rank 分文件<br/>一份 INFO 日志里要找的八行<br/>RAS |
+| 六 | hang 的分类与定位工具 | 六类 hang<br/>py-spy / gdb / cuda-gdb<br/>Flight Recorder 记录什么、怎么 dump<br/>`fr_trace.py` 怎么对齐 |
+| 七 | timeout 的语义 | `init_process_group(timeout=)` 约束什么<br/>watchdog 的时钟<br/>为什么 checkpoint 卡住会变成 NCCL timeout<br/>回答核心问题 |
+| 八 | 正确性问题 | 浮点归约顺序<br/>算法差异<br/>NaN 与 `TORCH_NCCL_NAN_CHECK`<br/>多 communicator、多 stream 的竞争 |
 | 九 | 决策树 | 慢 / hang / 错 三棵树的展开版，从现象到检查项到处理方式 |
-| 十 | 本文小结 | 要点 · 检查项 · 源码位置 · comm-probe 的 `sweep.sh` 与 `hang_lab/` |
+| 十 | 本文小结 | 要点<br/>排障检查项<br/>源码与工具位置<br/>comm-probe 的 `sweep.sh` 与 `hang_lab/` |
 | 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
@@ -118,7 +164,7 @@ make -j MPI=1 MPI_HOME=/path/to/openmpi CUDA_HOME=/usr/local/cuda NCCL_HOME=/pat
 - **-M, --memory_report**：1 时结尾打印显存占用报告
 - **-u, --unalign**：把 send/recv buffer 故意偏移若干元素，测非对齐路径
 
-总 rank 数等于 进程数 × `-t` × `-g`。`-g 8` 单进程管 8 卡是最简单的节点内测试；多机则每进程一卡 `-g 1`，让 MPI 起 8 × 节点数个进程。nccl-tests 2.18.3 的结果表里**没有**算法/协议/channel 数这几列；要知道第四篇讲的"NCCL 为这个消息大小选了什么"，用 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=TUNING` 让 rank 0 在每次调用时打一行 `AllReduce: N Bytes -> Algo Ring proto LL128 channel{Lo..Hi}={0..15}`（NCCL `src/enqueue.cc`），再与结果表按消息大小对照。
+总 rank 数等于 进程数 × `-t` × `-g`。`-g 8` 单进程管 8 卡是最简单的节点内测试；多机则每进程一卡 `-g 1`，让 MPI 起 8 × 节点数个进程。nccl-tests 2.18.3 的结果表里**没有**算法/协议/channel 数这几列；要知道[《NCCL 架构：拓扑探测、channel、算法与协议》的「算法与协议」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#七算法与协议)讲的"NCCL 为这个消息大小选了什么"，用 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=TUNING` 让 rank 0 在每次调用时打一行 `AllReduce: N Bytes -> Algo Ring proto LL128 channel{Lo..Hi}={0..15}`（NCCL `src/enqueue.cc`），再与结果表按消息大小对照。
 
 ### 3. 三种启动方式
 
@@ -139,13 +185,13 @@ mpirun -np 16 -N 8 --hostfile hosts \
 
 `src/common.cu` 的 `run()` 里可以看到 MPI 只用来做几件事：`MPI_Comm_rank/size` 确定 rank、`MPI_Comm_split` 按 `NCCL_TESTS_SPLIT` 的 color 分组、`MPI_Bcast` 分发 `ncclUniqueId`、结果汇总（`Allreduce()` 里的 `MPI_Allreduce` 取时间的平均/最小/最大，以及错误数求和）。数据路径与 MPI 无关，所以 Slurm 下 `srun --mpi=pmix` 也可以。`localRank` 由 hostname 的哈希（`MPI_Allgather` 收集 `hostHashs`）算出，用它选 GPU；`NCCL_TESTS_DEVICE` 可以覆盖起始 GPU 编号。
 
-nccl-tests 本身**没有 torchrun 模式**。但很多集群没有 MPI，只有 PyTorch，这时等价的做法是一个几十行的 PyTorch 脚本在 torchrun 下做同样的扫描——第十章的 `sweep.sh` 附带了这个脚本（`torch_sweep.py`）。要注意它测的是"经过 ProcessGroupNCCL 的 NCCL"，多了第五篇讲的 event 记录、watchdog 与 stream 切换的开销，小消息端会比 nccl-tests 高几微秒，大消息端应当一致；如果大消息端也差很多，说明框架侧有问题（比如 `TORCH_NCCL_HIGH_PRIORITY`、stream 优先级、或者 tensor 不连续触发了拷贝）。
+nccl-tests 本身**没有 torchrun 模式**。但很多集群没有 MPI，只有 PyTorch，这时等价的做法是一个几十行的 PyTorch 脚本在 torchrun 下做同样的扫描——第十章的 `sweep.sh` 附带了这个脚本（`torch_sweep.py`）。要注意它测的是"经过 ProcessGroupNCCL 的 NCCL"，多了[《PyTorch 的通信栈》的「stream 语义」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#四stream-语义一次-all_reduce-的-streamevent-之舞)讲的 event 记录、watchdog 与 stream 切换的开销，小消息端会比 nccl-tests 高几微秒，大消息端应当一致；如果大消息端也差很多，说明框架侧有问题（比如 `TORCH_NCCL_HIGH_PRIORITY`、stream 优先级、或者 tensor 不连续触发了拷贝）。
 
 ### 4. 输出的每一列
 
 一次扫描的输出长这样（`src/util.cu` 的 `writeResultHeader` 决定列名，`writeResultFooter` 打结尾三行）：
 
-```text title="all_reduce_perf 一次扫描的输出"
+```text title="all_reduce_perf 一次扫描的输出格式（列名与结尾行取自源码，数字位置用 x 占位，不是某台机器的实测值）"
 # nccl-tests version 2.18.3 nccl-headers=22809 nccl-library=22809
 # Using devices
 #  Rank  0 Group  0 Pid  12345 on   hostname device  0 [0000:1a:00.0] NVIDIA H100 80GB HBM3
@@ -170,7 +216,7 @@ nccl-tests 本身**没有 torchrun 模式**。但很多集群没有 MPI，只有
 - out-of-place 与 in-place 是 send/recv buffer 不同与相同两种情况，正常两组数字接近；
 - 最后的 `Avg bus bandwidth` 是所有大小、out-of-place 与 in-place 两组 busbw 的算术平均（`common.cu` 里每打一行结果就 `bw[0] += busBw; bw_count[0]++`），只是一个粗略的回归比较值，不能当峰值用；`NCCL_TESTS_MIN_BW` 环境变量设一个 GB/s 阈值，平均值低于阈值的 90% 时该行标 `FAILED` 并返回非零退出码，用于 CI 验收。
 
-busbw 是唯一能与硬件带宽直接比较的数字，理由第一篇讲过：ring all_reduce 每个 rank 实际收发 $$\frac{2(n-1)}{n}S$$ 字节，busbw 就是这个流量除以时间，也就是"链路实际被驱动到了多少"。
+busbw 是唯一能与硬件带宽直接比较的数字，理由[《集合通信原语与代价模型》的「algbw 与 busbw」一节](/collective-communication-primitives-and-cost-model.html#七algbw-与-busbw)讲过：ring all_reduce 每个 rank 实际收发 $$\frac{2(n-1)}{n}S$$ 字节，busbw 就是这个流量除以时间，也就是"链路实际被驱动到了多少"。
 
 ### 5. 测量的纪律
 
@@ -183,19 +229,22 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由第一篇讲过�
 - **固定并记录环境**：NCCL 版本、`NCCL_*` 环境变量、驱动、固件、`nvidia-smi topo -m` 的输出与结果一起存档，否则三个月后无法解释两条曲线为什么不同；
 - **加 `-T`**：多机测试加 `-T 600`，网络有问题时得到一个错误而不是一个永远不退出的进程。
 
+> [!NOTE] Java 经验参照：JMH 的预热与 nccl-tests 的 `-w`
+> 用 JMH 测过方法耗时的人知道，不预热的数字没有意义：前几次调用跑在解释器或刚编译出的代码上，测到的是编译过程而不是方法本身。nccl-tests 的 `-w` 是同一件事，只是一次性开销换成了另一批——第一次调用要加载 kernel、建立连接、注册 buffer。两处对不上的地方有三个：nccl-tests 的预热在整个扫描开始前就把每个消息大小各跑一遍（`src/common.cu` 里 warm-up 循环整体位于 benchmark 循环之前），不是每个大小测之前再热一次；默认只预热 1 次（`warmup_iters = 1`），比 JMH 默认的预热轮次少得多，所以 `-w 5`～`-w 10` 几乎总要手动加上；JMH 里要防的常量折叠与死代码消除这里不存在——结果写在显存里，`-c 1` 还会去校验它。
+
 ## 三、带宽曲线的读法
 
 ### 1. 横轴、纵轴、两个平台与拐点
 
 把 `size` 取对数作横轴、`busbw` 也取对数作纵轴，一条健康的 all_reduce 曲线是一个 S 形（下图用 ring 模型和 8×H100 的典型参数画，非实测）：
 
-![健康的 all_reduce busbw 曲线：双对数坐标下左端是 45° 斜线，S_knee = nαβ 处为平台的一半，右端趋于带宽平台 β_eff](/img/in-post/nccl-tests-tuning-and-debugging-hangs-s-curve.svg)
+![健康的 all_reduce busbw 曲线：双对数坐标下左端是 45° 斜线，S_knee = nαβ 处为平台的一半，右端趋于带宽平台 β_eff（ring 模型示意，非实测）](/img/in-post/nccl-tests-tuning-and-debugging-hangs-s-curve.svg)
 
 左端 busbw 随 S 线性增长——因为时间几乎不变（被 α 主导），busbw = 常数系数 × S / T。在对数坐标下这是一条 45° 斜线，它的**纵向位置**由 α 决定：同样 1 MB 的消息，α 从 10 µs 变到 20 µs，这段曲线整体下移一半。看小消息端时应该直接看 `time` 列而不是 `busbw` 列：8 字节 all_reduce 的 time 就是这套系统的 α 下限（kernel 启动 + 一轮握手）。
 
 右端 busbw 趋于平台——时间被 S/β 主导，busbw 趋于链路的有效带宽 β_eff。平台高度与硬件标称值的比值就是"效率"，通常能达到的区间在 80～95%。
 
-中间是拐点区。第一篇定义了拐点：α 项与 β 项相等的消息大小。对 ring all_reduce：
+中间是拐点区。[《集合通信原语与代价模型》的「α-β 模型」一节](/collective-communication-primitives-and-cost-model.html#四α-β-模型)定义了拐点：α 项与 β 项相等的消息大小。对 ring all_reduce：
 
 $$
 2(n-1)\,\alpha = \frac{2(n-1)}{n}\cdot\frac{S}{\beta} \quad\Longrightarrow\quad S_{\text{knee}} = n\,\alpha\,\beta
@@ -216,11 +265,21 @@ $$
 
 Table: α-β 模型预测的几种场景的拐点
 
-这解释了几个常见的观察：为什么 8 卡节点内要到 64～128 MB 才接近平台；为什么 64 卡跨机的曲线在 256 MB 以下都"看起来没跑满"；为什么 DDP 默认 25 MB 的 bucket 在单机 8 卡上刚过拐点、在 64 卡上还在爬坡（这是为什么大规模下 NCCL 会为中等消息选 Tree——把 $$2(n-1)$$ 步的延迟项换成 $$2\log_2 n$$ 步）。
+这解释了三个常见的观察：
 
-把这些预测线叠在实测曲线上，就是第十章 `sweep.sh` 画的图。预测与实测的三种偏差各有含义：**平台低**是 β 的问题（路径、GDR、channel）；**左端整体偏低**（小消息 time 偏大）是 α 的问题（协议、跨 NUMA、proxy）；**中段偏离**是算法/协议切换的问题。下图用 ring 模型把三种偏差画在同一张对数坐标图上（8×H100 的典型参数，非实测）——α 的问题只动左半段，β 的问题只动右半段，切换点的问题只在拐点附近出现：
+1. 为什么 8 卡节点内要到 64～128 MB 才接近平台；
+2. 为什么 64 卡跨机的曲线在 256 MB 以下都"看起来没跑满"；
+3. 为什么 DDP 默认 25 MB 的 bucket 在单机 8 卡上刚过拐点、在 64 卡上还在爬坡——这也是为什么大规模下 NCCL 会为中等消息选 Tree，把 $$2(n-1)$$ 步的延迟项换成 $$2\log_2 n$$ 步。
 
-![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 \\(\alpha\\) 翻倍、\\(\beta\\) 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg)
+把这些预测线叠在实测曲线上，就是第十章 `sweep.sh` 画的图。预测与实测的偏差只有三种，各对应一类原因：
+
+1. **平台低**是 β 的问题：路径、GDR、channel 数；
+2. **左端整体偏低**（小消息 time 偏大）是 α 的问题：协议、跨 NUMA、proxy 线程；
+3. **中段偏离**是算法 / 协议切换点的问题。
+
+下图用 ring 模型把三种偏差画在同一张对数坐标图上（8×H100 的典型参数，非实测）——α 的问题只动左半段，β 的问题只动右半段，切换点的问题只在拐点附近出现：
+
+![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 \\(\alpha\\) 翻倍、\\(\beta\\) 减半、中段凹陷三种偏差的形状（ring 模型示意，非实测）](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg)
 
 ### 3. 三条参考线
 
@@ -245,7 +304,13 @@ Table: 三种典型环境的 all_reduce 参考线
 
 ### 4. 从 nccl-tests 到训练
 
-nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上限。训练时实际拿到的通常更低，差距来自三处：计算 kernel 与通信 kernel 争 SM（第五篇）；框架把 buffer 切成了比拐点小的块；多个 communicator（DP、TP、PP 各一个）的流量叠加在同一条链路上。所以 nccl-tests 的正确用法是**基线**：它排除框架因素后告诉你硬件加 NCCL 能到哪里；训练 profiler 里的通信 kernel 时长与它比，差距就是框架侧要解释的部分。
+nccl-tests 给出的是"这台机器、这个 NCCL、这个消息大小"的上限。训练时实际拿到的通常更低，差距来自三处：
+
+- 计算 kernel 与通信 kernel 争 SM（[《PyTorch 的通信栈》的「async_op=True 与计算通信重叠」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#六async_optrue-与计算通信重叠)）；
+- 框架把 buffer 切成了比拐点小的块；
+- 多个 communicator（DP、TP、PP 各一个）的流量叠加在同一条链路上。
+
+所以 nccl-tests 的正确用法是**基线**：它排除框架因素后告诉你硬件加 NCCL 能到哪里；训练 profiler 里的通信 kernel 时长与它比，差距就是框架侧要解释的部分。
 
 ### 5. 常见异常形状与原因
 
@@ -292,7 +357,13 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
   }
 ```
 
-三个后果值得记住。第一，值是**整数**（`strtoll`，支持 0x 前缀），且**只读一次**并缓存——进程启动后改环境变量无效，同一进程内两个 communicator 不可能用不同的 `NCCL_BUFFSIZE`。第二，`ncclLoadParam`（`src/misc/param.cc`）在 `NCCL_DEBUG=INFO` 且子系统含 `ENV` 时打印 `"%s set by environment to %lld."`，所以日志开头那一串 "set by environment" 就是本次生效的全部整数参数，排障时先核对这一段。第三，读取经过 `ncclGetEnv`，它先调用 `initEnv`（`src/misc/param.cc`）把 `NCCL_CONF_FILE` 指定的文件（未设时依次读 `~/.nccl.conf`、`/etc/nccl.conf`）里的 `KEY=VALUE` 用 `setenv(..., 0)` 注入——**不覆盖**已有环境变量，所以优先级是 环境变量 > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 代码默认值。2.28 还多了一层 `NCCL_ENV_PLUGIN`（`src/plugin/env.cc`），允许外部插件接管所有环境变量的读取，集群可以用它做统一配置下发。
+这个宏带来三个后果，都值得记住。
+
+**1、值是整数，而且只读一次。** 解析用 `strtoll`（支持 `0x` 前缀），结果缓存在函数内的静态变量里。所以进程启动之后再改环境变量无效，同一进程内的两个 communicator 也不可能用不同的 `NCCL_BUFFSIZE`——要换参数只能重启进程。
+
+**2、生效的参数会在日志里自报。** `ncclLoadParam`（`src/misc/param.cc`）在 `NCCL_DEBUG=INFO` 且子系统含 `ENV` 时打印 `"%s set by environment to %lld."`，所以日志开头那一串 "set by environment" 就是本次生效的全部整数参数，排障时先核对这一段：没出现在这里的参数一律是代码默认值。
+
+**3、环境变量之外还有配置文件，优先级是固定的。** 读取经过 `ncclGetEnv`，它先调用 `initEnv`（同文件，用 `std::call_once` 保证只做一次）把 `NCCL_CONF_FILE` 指定的文件（未设时依次读 `~/.nccl.conf`、`/etc/nccl.conf`）里的 `KEY=VALUE` 用 `setenv(..., 0)` 注入——**不覆盖**已有环境变量，所以优先级是 环境变量 > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 代码默认值。2.28 还多了一层 `NCCL_ENV_PLUGIN`（`src/plugin/env.cc`），允许外部插件接管所有环境变量的读取，集群可以用它做统一配置下发。
 
 字符串类参数不走 `NCCL_PARAM`，而是各自 `ncclGetEnv`：`NCCL_ALGO`、`NCCL_PROTO`（`src/graph/tuning.cc`）、`NCCL_IB_HCA`（`src/transport/net_ib.cc`）、`NCCL_SOCKET_IFNAME`（`src/misc/socket.cc`）、`NCCL_NET`、`NCCL_TOPO_DUMP_FILE`（`src/init.cc`）、`NCCL_GRAPH_DUMP_FILE`（`src/graph/search.cc`）、`NCCL_TOPO_FILE`（`src/graph/topo.cc`）。`NCCL_P2P_LEVEL`、`NCCL_P2P_DISABLE`、`NCCL_NET_GDR_LEVEL` 三个走 `src/graph/paths.cc` 的 `ncclGetLevel`，既接受 `LOC/NVL/PIX/PXB/PHB/SYS` 这类路径类型名，也兼容旧式数字。
 
@@ -305,11 +376,11 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 - **NCCL_PROTO=^LL128**：禁用 LL128（排查 LL128 在某些 PCIe 拓扑上的正确性问题时用）
 - **NCCL_PROTO="LL,Simple;allreduce:^LL"**：全局 LL+Simple，但 all_reduce 不用 LL
 
-作用层是第四篇讲的 tuning 决策：NCCL 对每个（原语、算法、协议）组合估算时间，取最小者；设置这两个变量是把某些组合从候选集里删掉。**它们是排障工具，不是调优工具**：怀疑 Tree 在某个消息大小上选错了，用 `NCCL_ALGO=Ring` 跑一遍对照就能确认；确认之后正确的动作是把结论反馈到 tuner plugin（`NCCL_TUNER_PLUGIN`）或升级 NCCL，而不是在生产环境固定一个算法——固定算法会让另一段消息大小变差。
+作用层是[《NCCL 架构：拓扑探测、channel、算法与协议》的「调优模型：NCCL 如何估算时间」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#八调优模型nccl-如何估算时间)讲的 tuning 决策：NCCL 对每个（原语、算法、协议）组合估算时间，取最小者；设置这两个变量是把某些组合从候选集里删掉。**它们是排障工具，不是调优工具**：怀疑 Tree 在某个消息大小上选错了，用 `NCCL_ALGO=Ring` 跑一遍对照就能确认；确认之后正确的动作是把结论反馈到 tuner plugin（`NCCL_TUNER_PLUGIN`）或升级 NCCL，而不是在生产环境固定一个算法——固定算法会让另一段消息大小变差。
 
 ### 3. 并行度：`NCCL_MIN_NCHANNELS`、`NCCL_MAX_NCHANNELS`、`NCCL_NTHREADS`
 
-`NCCL_MIN_NCHANNELS`、`NCCL_MAX_NCHANNELS`（`src/graph/connect.cc`）限定 channel 数的范围，上限是 `MAXCHANNELS` = 64（`src/include/device.h`）。每个 channel 是一个独立的 ring/tree 加一组 CUDA block 加自己的 buffer；channel 多，带宽高（更多 SM、更多并发的 NIC QP），但小消息延迟略增、占用的 SM 更多、与计算 kernel 的争抢更明显。第五篇讨论重叠时讲过：训练里通信 kernel 多占一个 SM 就少一个 SM 给 GEMM。
+`NCCL_MIN_NCHANNELS`、`NCCL_MAX_NCHANNELS`（`src/graph/connect.cc`）限定 channel 数的范围，上限是 `MAXCHANNELS` = 64（`src/include/device.h`）。每个 channel 是一个独立的 ring/tree 加一组 CUDA block 加自己的 buffer；channel 多，带宽高（更多 SM、更多并发的 NIC QP），但小消息延迟略增、占用的 SM 更多、与计算 kernel 的争抢更明显。[《PyTorch 的通信栈》的「async_op=True 与计算通信重叠」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#六async_optrue-与计算通信重叠)讨论重叠时讲过：训练里通信 kernel 多占一个 SM 就少一个 SM 给 GEMM。
 
 `NCCL_NTHREADS`（`src/graph/tuning.cc`）是每个 channel 的 CUDA block 线程数，Simple 协议默认 512（`NCCL_SIMPLE_MAX_NTHREADS`），PCIe 带宽受限的拓扑上默认降为 256；LL128 上限 640。它必须是 32 的倍数且在 64～640 之间，几乎没有理由手动设。
 
@@ -321,7 +392,7 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 
 ### 5. 路径选择：`NCCL_P2P_LEVEL`、`NCCL_P2P_DISABLE`、`NCCL_SHM_DISABLE`、`NCCL_NET_GDR_LEVEL`
 
-这组变量作用在第四篇讲的 transport 选择上，取值是第二篇讲的 `nvidia-smi topo -m` 里那套路径类型（`src/graph/topo.cc` 的 `topoPathTypeStr`：`LOC NVL NVB C2C PIX PXB P2C PXN PHB SYS NET DIS`）：
+这组变量作用在[《NCCL 架构：拓扑探测、channel、算法与协议》的「transport 与 channel」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#六transport-与-channel)讲的 transport 选择上，取值是[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》的「读拓扑：nvidia-smi topo -m」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)里那套路径类型（`src/graph/topo.cc` 的 `topoPathTypeStr`：`LOC NVL NVB C2C PIX PXB P2C PXN PHB SYS NET DIS`）：
 
 - `NCCL_P2P_LEVEL`：两张 GPU 距离不超过这个级别才用 CUDA P2P（NVLink 或 PCIe 直通），否则走 SHM。默认 `PXB`（`src/graph/paths.cc` 的 `p2pLevel = PATH_PXB`），即同一 PCIe switch 下允许，跨 CPU（PHB、SYS）不允许——因为跨 CPU 的 P2P 在很多平台上比经 host 内存中转还慢。`NCCL_P2P_DISABLE=1` 等价于 `NCCL_P2P_LEVEL=LOC`。
 - `NCCL_SHM_DISABLE=1`（`src/transport/shm.cc`）禁用共享内存传输，两张不能 P2P 的 GPU 会被迫走网络（哪怕在同一台机器上）。只在怀疑 SHM 路径有 bug 时用。
@@ -346,7 +417,7 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 ### 8. 特殊功能：`NCCL_CROSS_NIC`、`NCCL_NVLS_ENABLE`、`NCCL_COLLNET_ENABLE`
 
 - `NCCL_CROSS_NIC`（`src/graph/search.cc`，默认 2）：ring 跨机时是否允许从一张网卡出、另一张网卡进。0 强制同网卡（rail-optimized 网络，即每张网卡接到独立的 leaf 交换机时应设 0）；1 允许；2 让 NCCL 按拓扑决定。设错在 rail 网络上会让流量跨 spine，多机 busbw 下降且不稳定。
-- `NCCL_NVLS_ENABLE`（`src/transport/nvls.cc`，默认 2 = 自动）：Hopper 及之后 + NVSwitch 上启用 NVLink SHARP（多播归约）。如果第三节看到 H100 平台明显低于 400 GB/s，日志里没有 `NVLS multicast support is available`，检查驱动版本与 Fabric Manager。
+- `NCCL_NVLS_ENABLE`（`src/transport/nvls.cc`，默认 2 = 自动）：Hopper 及之后 + NVSwitch 上启用 NVLink SHARP（多播归约）。如果[第三章第 3 小节](#3-三条参考线)的参考线上看到 H100 平台明显低于 400 GB/s，日志里没有 `NVLS multicast support is available`，检查驱动版本与 Fabric Manager。
 - `NCCL_COLLNET_ENABLE`（`src/init.cc`）：启用 SHARP（IB 交换机内归约）之类的 CollNet 插件，需要网络侧支持与 `NCCL_NET_PLUGIN`；一般集群不具备，保持默认。
 
 ### 9. 该动、少动、几乎不动
@@ -432,7 +503,7 @@ NCCL_DEBUG=INFO NCCL_DEBUG_FILE=/shared/logs/nccl.%h.%p.log
 
 ### 4. 一份 INFO 日志里要找的八行
 
-拿到一份 `NCCL_DEBUG=INFO` 日志，不要从头读，直接 grep 这八样东西（第四篇的 `nccl_log_reader.py` 做的就是这个）：
+拿到一份 `NCCL_DEBUG=INFO` 日志，不要从头读，直接 grep 这八样东西（[《NCCL 架构：拓扑探测、channel、算法与协议》的「看一看与测一测：读一份 INFO 日志」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#十看一看与测一测读一份-info-日志)里 `nccl_log_reader.py` 做的就是这个）：
 
 | # | 日志行 | 看什么 |
 |---|---|---|
@@ -456,7 +527,7 @@ Table: INFO 日志里要找的八行
 
 NCCL 2.24 起内置了 RAS（Reliability, Availability, Serviceability）子系统，源码在 `src/ras/`，默认启用（`src/bootstrap.cc` 的 `NCCL_PARAM(RasEnable, "RAS_ENABLE", 1)`）。每个进程里一个 RAS 线程，进程之间用 TCP 组成一张监控网，与 NCCL 的数据路径完全独立。随 NCCL 一起编译的命令行工具 `ncclras`（`src/ras/client.cc`，`make install` 装到 `bin/`）连接到任一进程的 RAS 端口（默认 28028，`NCCL_RAS_ADDR` 可改），输出全作业的状态：
 
-```text title="ncclras 输出的作业摘要"
+```text title="ncclras 输出的作业摘要（格式取自源码，填的是本篇 8 节点 × 8 卡这个作业的形状）"
 ncclras -v          # 或 ncclras -f json
 Job summary
 ===========
@@ -473,7 +544,7 @@ Communicators
 
 ### 1. 为什么 hang 是集合通信的默认失败模式
 
-第四篇讲过 NCCL kernel 的工作方式：每个 channel 的 block 在 device 内存的 flag 上自旋，等对端把数据和 flag 写过来；数据到了就处理、再向下一跳写。**没有任何一处有超时**——kernel 不知道"对端应该在多久内到"，也没有心跳。第五篇讲过 CPU 侧：`ncclAllReduce` 在 enqueue 之后立即返回，Python 线程继续往下走，直到下一个需要 GPU 结果的同步点（`.item()`、`torch.cuda.synchronize()`、下一步的 `loss.backward()` 隐含的依赖）才阻塞在 `cudaStreamSynchronize` 或 event 等待上。
+[《NCCL 架构：拓扑探测、channel、算法与协议》的「执行期：enqueue、kernel 与 proxy」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#九执行期enqueuekernel-与-proxy)讲过 NCCL kernel 的工作方式：每个 channel 的 block 在 device 内存的 flag 上自旋，等对端把数据和 flag 写过来；数据到了就处理、再向下一跳写。**没有任何一处有超时**——kernel 不知道"对端应该在多久内到"，也没有心跳。[《PyTorch 的通信栈》的「stream 语义」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#四stream-语义一次-all_reduce-的-streamevent-之舞)讲过 CPU 侧：`ncclAllReduce` 在 enqueue 之后立即返回，Python 线程继续往下走，直到下一个需要 GPU 结果的同步点（`.item()`、`torch.cuda.synchronize()`、下一步的 `loss.backward()` 隐含的依赖）才阻塞在 `cudaStreamSynchronize` 或 event 等待上。
 
 于是一个 rank 少调一次 all_reduce 的后果是：其他 63 个 rank 的 kernel 在等它的数据，它们的 CPU 线程阻塞在同步点，日志停在同一行；而它自己已经跑到下一次 all_reduce 并阻塞在那里——它的 kernel 在等其他人。所有人都在等，没有人会报错。唯一会打破这个僵局的是 ProcessGroupNCCL 的 watchdog：每个 `WorkNCCL` 从创建起计时，超过 `opTimeout_` 就判定 timeout（`WorkNCCL::checkTimeout`），日志里出现 `Watchdog caught collective operation timeout: WorkNCCL(SeqNum=…, OpType=ALLREDUCE, NumelIn=…, NumelOut=…, Timeout(ms)=600000) ran for 600xxx milliseconds before timing out.`——这条会在**每一个** rank 上出现，因为每个 rank 都有一个等不到的 work。
 
@@ -520,6 +591,9 @@ cuda-gdb -p <pid>   →  (cuda-gdb) info cuda kernels     # 看到 ncclDevKernel
 - 都停在 all_reduce 但行号不同（一个在 step k 的 forward、其他在 step k 的 backward）：类 A 或 B，需要 Flight Recorder 确认是哪一次。
 
 py-spy 的局限是只能看到"卡在哪个调用"，看不到"卡的这个调用和别人的哪个调用配对"，也看不到已经完成的历史。这正是 Flight Recorder 补上的部分。
+
+> [!NOTE] Java 经验参照：jstack 的死锁报告与集合通信的 hang
+> 一个 Java 进程卡住时 `jstack` 打出全部线程栈，JVM 还能直接给出 "Found one Java-level deadlock" 并指出谁持有谁在等的锁——因为锁和持有者都在同一个 JVM 里，等待图是现成的。`py-spy dump` 对单个 rank 做的是同一件事，但到此为止：集合通信的等待图跨 64 个进程，而且有一半在 GPU 上——kernel 只在 flag 上自旋，没有任何一方记下"我在等谁"。没有组件能替你算出这张图，只能把 64 份记录按序号对齐自己拼出来，这正是下一节 Flight Recorder 与 `fr_trace.py` 的工作：手工重建那张 jstack 免费给出的等待图。
 
 ### 4. Flight Recorder：记录什么、怎么开、怎么 dump
 
@@ -661,12 +735,12 @@ Flight Recorder 之前的机制，仍然可用。开启后（`ProcessGroupNCCL.c
 
 它约束的是：**从 `WorkNCCL` 对象创建（即 CPU 线程调用 `dist.all_reduce` 的那一刻，`workStartTime_ = steady_clock::now()`）到 watchdog 观察到它的结束 event 完成之间的墙钟时间**。把 CPU 线程、计算 stream、NCCL stream 与 watchdog 的时间线并排，这个区间覆盖了什么、不覆盖什么就清楚了：
 
-![timeout 覆盖的区间：t0 时 CPU 调用 dist.all_reduce、workStartTime_ 起算；NCCL stream 先等计算 stream 上 30 s 的 GEMM，再跑自旋等对端的 NCCL kernel；watchdog 每 100 ms 检查一次；opTimeout_ 从 t0 计到 end event 完成](/img/in-post/nccl-tests-tuning-and-debugging-hangs-timeout-window.svg)
+![timeout 覆盖的区间：t0 时 CPU 调用 dist.all_reduce、workStartTime_ 起算；NCCL stream 先等计算 stream 上 30 s 的 GEMM，再跑自旋等对端的 NCCL kernel；watchdog 每 100 ms 检查一次；opTimeout_ 从 t0 计到 end event 完成（时间轴示意，不按比例）](/img/in-post/nccl-tests-tuning-and-debugging-hangs-timeout-window.svg)
 
 注意三点：
 
-- 时钟从 CPU enqueue 开始，不是从 kernel 开始执行。如果 NCCL stream 前面排着一个 30 秒的 GEMM（第五篇的 stream 依赖），这 30 秒也算在里面；
-- 它不约束 CPU 侧的任何等待。`work.wait()` 默认是 stream 级等待不阻塞 CPU（第五篇），Python 线程卡在别处与这个 timeout 无关——除非 `TORCH_NCCL_BLOCKING_WAIT=1`，那时 `wait()` 会在 CPU 上轮询 `isCompleted()` 并在同一个 timeout 后抛异常（这个模式下 2.12 不再创建 watchdog 线程，日志里会有 "TORCH_NCCL_BLOCKING_WAIT is enabled, NO watchdog thread is created"）；
+- 时钟从 CPU enqueue 开始，不是从 kernel 开始执行。如果 NCCL stream 前面排着一个 30 秒的 GEMM（stream 依赖见[《PyTorch 的通信栈》的「stream 语义」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#四stream-语义一次-all_reduce-的-streamevent-之舞)），这 30 秒也算在里面；
+- 它不约束 CPU 侧的任何等待。`work.wait()` 默认是 stream 级等待不阻塞 CPU（《PyTorch 的通信栈》），Python 线程卡在别处与这个 timeout 无关——除非 `TORCH_NCCL_BLOCKING_WAIT=1`，那时 `wait()` 会在 CPU 上轮询 `isCompleted()` 并在同一个 timeout 后抛异常（这个模式下 2.12 不再创建 watchdog 线程，日志里会有 "TORCH_NCCL_BLOCKING_WAIT is enabled, NO watchdog thread is created"）；
 - 它不是 NCCL 的机制。`libnccl.so` 里没有任何 timeout（IB 层的 `NCCL_IB_TIMEOUT` 是 QP 重传超时，只对物理丢包起作用），全部超时逻辑在 c10d 的 watchdog 线程里。用 PyNccl（vLLM）或裸 NCCL 的程序没有这层保护，hang 就是永远 hang——这是 RAS 存在的一个理由。
 
 ### 2. 为什么 checkpoint 保存或数据加载卡住会表现为 NCCL timeout
@@ -700,9 +774,25 @@ Table: watchdog 与 heartbeat monitor 合起来的时间线
 
 **为什么等到 timeout 才暴露**：因为 NCCL 的 kernel 在 flag 上自旋而没有超时概念，NCCL 库本身不区分"对端慢"与"对端不来"，CPU 线程在 enqueue 后早已返回。系统里唯一的计时器是 c10d watchdog 上每个 work 的 `opTimeout_`，默认 10 分钟。在这 10 分钟内没有任何组件有理由报错。"所有 rank 的日志都停在 all_reduce"只是因为 all_reduce 是每一步都要经过的同步点：不管谁掉队、因为什么掉队，其他人一定会停在下一次 all_reduce 上等他。
 
-**是谁的问题**：分三步。第一步数进程：`ps`/Slurm 看 64 个进程是否都在，少了的那个就是答案（类 E-崩溃），去看它的 stderr 与 dmesg。第二步看 Flight Recorder：timeout 时每个 rank 已自动 dump 到 `TORCH_NCCL_DEBUG_INFO_TEMP_FILE` 前缀 + rank 号，跑 `fr_trace.py`。如果它报出某个序号上的 `SIZE_OR_SYNTAX_MISMATCH` / `COLLECTIVE_TYPE_MISMATCH` 并给出 culprit，那是代码问题（类 A/B），culprit 就是掉队者——去看它那条 entry 的 Python 栈，通常是一个只在特定 rank 或特定数据上走的分支。如果某个 rank 比别人少一条且它的最后一条是 `completed`，它卡在通信之外（类 E-卡住），对它 `py-spy dump`。如果 64 份记录**完全一致**，都停在同一序号且都是 `started`，那不是任何 rank 的代码问题，是网络或硬件（类 F）：查每个节点的 `dmesg`（Xid、mlx5 错误）、`ibstat`（State/Rate）、NCCL WARN 日志（`Got completion … with error`），交换机侧看端口计数。第三步——如果 Flight Recorder 没开（`TORCH_NCCL_TRACE_BUFFER_SIZE=0`，或用的是默认关闭的版本），退而用 `py-spy dump` 全体比栈，或者事后在复现时开 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=COLL` 比各 rank 最后一行的 `opCount`。
+**是谁的问题**：分三步走。
 
-**是哪一次 all_reduce**：Flight Recorder 的 entry 有 `collective_seq_id`、`profiling_name`、`input_sizes`、`pg_name` 与调用时的 Python 栈。序号告诉你这是本 PG 的第几次集合通信；形状与 PG 名告诉你它是 DDP 的哪个 bucket、FSDP 的哪一层的 reduce_scatter、还是 TP 组的某次 all_reduce；Python 栈直接给出文件与行号。watchdog 日志里的 `PG status: last enqueued work: N, last completed work: K` 也给出同样的序号信息（FR dump 的 `pg_status` 里还有 `last_started_collective`），粒度粗一点。没有 Flight Recorder 时，`NCCL_DEBUG_SUBSYS=COLL` 的 `opCount` 是同一个东西的 NCCL 侧编号（每个 communicator 独立计数），配合 `count` 与 `datatype` 也能反推出是哪个 bucket。
+**第一步、数进程。** `ps` / Slurm 看 64 个进程是否都在，少了的那个就是答案（类 E-崩溃），去看它的 stderr 与 dmesg。
+
+**第二步、看 Flight Recorder。** timeout 时每个 rank 已自动 dump 到 `TORCH_NCCL_DEBUG_INFO_TEMP_FILE` 前缀 + rank 号，跑 `fr_trace.py`，三种结果指向三个方向：
+
+- 报出某个序号上的 `SIZE_OR_SYNTAX_MISMATCH` / `COLLECTIVE_TYPE_MISMATCH` 并给出 culprit：代码问题（类 A/B），culprit 就是掉队者——去看它那条 entry 的 Python 栈，通常是一个只在特定 rank 或特定数据上走的分支。
+- 某个 rank 比别人少一条、且它的最后一条是 `completed`：它卡在通信之外（类 E-卡住），对它 `py-spy dump`。
+- 64 份记录**完全一致**，都停在同一序号且都是 `started`：不是任何 rank 的代码问题，是网络或硬件（类 F）——查每个节点的 `dmesg`（Xid、mlx5 错误）、`ibstat`（State/Rate）、NCCL WARN 日志（`Got completion … with error`），交换机侧看端口计数。
+
+**第三步、没有 Flight Recorder 时退一步。** 如果它被关掉了（`TORCH_NCCL_TRACE_BUFFER_SIZE=0`），用 `py-spy dump` 全体比栈，或者事后在复现时开 `NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=COLL` 比各 rank 最后一行的 `opCount`。
+
+**是哪一次 all_reduce**：Flight Recorder 的 entry 有 `collective_seq_id`、`profiling_name`、`input_sizes`、`pg_name` 与调用时的 Python 栈。三样信息各回答一个问题：
+
+- 序号告诉你这是本 PG 的第几次集合通信；
+- 形状与 PG 名告诉你它是 DDP 的哪个 bucket、FSDP 的哪一层的 reduce_scatter、还是 TP 组的某次 all_reduce；
+- Python 栈直接给出文件与行号。
+
+watchdog 日志里的 `PG status: last enqueued work: N, last completed work: K` 也给出同样的序号信息（FR dump 的 `pg_status` 里还有 `last_started_collective`），粒度粗一点。没有 Flight Recorder 时，`NCCL_DEBUG_SUBSYS=COLL` 的 `opCount` 是同一个东西的 NCCL 侧编号（每个 communicator 独立计数），配合 `count` 与 `datatype` 也能反推出是哪个 bucket。
 
 "第 3000 步"这个信息本身也有用：如果 hang 稳定出现在同一步，几乎肯定是代码路径（第 3000 步做了 checkpoint / eval / 学习率调整 / 数据集切换）而不是网络；如果每次 hang 的步数不同，优先怀疑环境。
 
@@ -732,11 +822,11 @@ LL 和 LL128 协议在传输时把数据与 flag 打包（LL 8 字节数据 + 8 
 
 ### 4. 多 communicator 与多 stream 的数据竞争
 
-第五篇讲了 ProcessGroupNCCL 用自己的 stream，与计算 stream 靠 event 建依赖，输入 tensor 的生命周期靠 `recordStream` 或 stash 保护。当用户绕过这套机制时会出问题：
+[《PyTorch 的通信栈》的「输入 tensor 的生命周期与 Caching Allocator」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#五输入-tensor-的生命周期与-caching-allocator)讲了 ProcessGroupNCCL 用自己的 stream，与计算 stream 靠 event 建依赖，输入 tensor 的生命周期靠 `recordStream` 或 stash 保护。当用户绕过这套机制时会出问题：
 
 - **自建 stream 上调用集合通信而不建依赖**：`with torch.cuda.stream(s): dist.all_reduce(t)`——ProcessGroupNCCL 会让 NCCL stream 等待当前 stream `s`，但如果 `t` 是在默认 stream 上刚算出来的、而 `s` 与默认 stream 之间没有 event，all_reduce 可能读到旧值。症状是结果偶尔错、与负载相关。
 - **两个 PG 在两条 NCCL stream 上并发操作重叠的 buffer**：DP 组 all_reduce 的梯度 buffer 与 TP 组 all_reduce 的激活 buffer 不会重叠，但用户自己 `new_group` 出的多个组如果操作同一个 tensor 的不同 view 且不同步，会竞争。
-- **`async_op=True` 之后在 `wait()` 之前修改输入**：第五篇核心问题的答案——修改会被通信 kernel 读到，结果不确定。
+- **`async_op=True` 之后在 `wait()` 之前修改输入**：《PyTorch 的通信栈》核心问题的答案——修改会被通信 kernel 读到，结果不确定。
 - **输入 tensor 被 Caching Allocator 提前回收再分配给别的计算**：`TORCH_NCCL_AVOID_RECORD_STREAMS` 的 stash 机制（2.12 已是默认，再设该变量只会得到一条 deprecated 警告）防的就是这个；自写扩展直接调 NCCL 时没有这层保护。
 
 这类问题的共同签名是：**各 rank 的 all_reduce 结果不一致**（用 all_gather 收齐来比，或者 `TORCH_DISTRIBUTED_DEBUG=DETAIL` 让 c10d 对每次集合通信的输入做哈希并跨 rank 比对——`enableCollectiveHashDebug_`），并且随时序变化。定位手段是 `CUDA_LAUNCH_BLOCKING=1` 或强制在通信前后 `torch.cuda.synchronize()`——问题消失即证实是竞争，然后二分找缺失的依赖。
@@ -785,7 +875,26 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
 
 ### 2. hang
 
-hang 指 watchdog 报 timeout，或没有 watchdog 时进程不动：
+hang 指 watchdog 报 timeout，或没有 watchdog 时进程不动。整棵树只有两层判断：先数进程，再看各 rank 的 Flight Recorder 记录一致不一致——一致是环境问题，不一致是代码问题。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：hang 的判别树——先数进程数，再看各 rank 的 Flight Recorder 记录一致不一致
+flowchart TB
+    START["<b>watchdog 报 timeout 或进程不动</b><br/>先收齐：进程数、全体 py-spy dump、FR dump、NCCL WARN、dmesg"]
+    START --> Q1{"进程数够吗？"}
+    Q1 -->|"少了"| E1["<b>类 E-崩溃</b><br/>看缺失 rank 的 stderr 与 dmesg"]
+    Q1 -->|"都在"| Q2{"各 rank 的 FR 记录一致吗？"}
+    Q2 -->|"完全一致：同序号、同为 started"| Q3{"有 NCCL WARN 吗？"}
+    Q3 -->|"有"| F1["<b>类 F</b><br/>网络或 GPU 硬件"]
+    Q3 -->|"没有"| F2["<b>类 F 的静默版，或 NCCL bug</b><br/>cuda-gdb 确认 kernel 在自旋"]
+    Q2 -->|"某序号报 MISMATCH 并给出 culprit"| AB["<b>类 A / B</b><br/>形状或调用次数不一致"]
+    Q2 -->|"某 rank 少一条，且末条是 completed"| E2["<b>类 E-卡住</b><br/>卡在通信之外"]
+    Q2 -->|"p2p 条目找不到配对"| C2["<b>类 C</b><br/>send / recv 不配对"]
+    Q2 -->|"各 rank 停在不同 PG"| D2["<b>类 D</b><br/>多 communicator 交叉等待"]
+```
+
+每个叶子看什么、做什么：
 
 - **先做**：数进程数；收集全体 py-spy dump；收集 Flight Recorder dump；grep 全体 NCCL WARN；看 dmesg
 - **进程数少了** → 类 E-崩溃：看缺失 rank 的 stderr（OOM/异常）、dmesg（Killed process / Xid）
@@ -914,7 +1023,7 @@ Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`sweep.sh` 与 `hang_lab/`
 
-`sweep.sh` 对一组原语跑 nccl-tests 扫描、解析成 CSV、画出 busbw 曲线并叠上第一篇 `cost_model.py` 的 ring 预测：
+`sweep.sh` 对一组原语跑 nccl-tests 扫描、解析成 CSV、画出 busbw 曲线并叠上[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里 `cost_model.py` 的 ring 预测：
 
 ```bash title="comm-probe/sweep.sh"
 #!/usr/bin/env bash
@@ -957,7 +1066,7 @@ import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 def ring_allreduce_busbw(n, S, alpha, beta):
-    """第 1 篇 cost_model.py 的 ring 公式：T = 2(n-1)α + 2(n-1)/n · S/β；busbw = 2(n-1)/n · S / T"""
+    """《集合通信原语与代价模型》里 cost_model.py 的 ring 公式：T = 2(n-1)α + 2(n-1)/n · S/β；busbw = 2(n-1)/n · S / T"""
     T = 2 * (n - 1) * alpha + 2 * (n - 1) / n * S / beta
     return 2 * (n - 1) / n * S / T
 
@@ -1013,7 +1122,10 @@ for step in range(8):
 dist.destroy_process_group()
 ```
 
-另两个脚本只改一行：`count_mismatch.py` 在第 5 步让 rank 2 跳过 all_reduce（`if not (step == 5 and rank == 2): dist.all_reduce(t)`），之后它的第 6 次调用与别人的第 5 次配对，形状不同；`unpaired_sendrecv.py` 在每步 all_reduce 之后加一段流水线式的 send/recv（rank i 发给 i+1），并在第 5 步让 rank 1 不 recv，于是 rank 0 的 send 永远等不到配对，rank 0 先停；rank 1 没有可等的 recv，和其余 rank 一起走到第 6 步的 all_reduce，在那里被连锁拖住。
+另两个脚本各只改一行：
+
+- **`count_mismatch.py`**：第 5 步让 rank 2 跳过 all_reduce（`if not (step == 5 and rank == 2): dist.all_reduce(t)`），之后它的第 6 次调用与别人的第 5 次配对，形状不同。
+- **`unpaired_sendrecv.py`**：每步 all_reduce 之后加一段流水线式的 send/recv（rank i 发给 i+1），并在第 5 步让 rank 1 不 recv。于是 rank 0 的 send 永远等不到配对，rank 0 先停；rank 1 没有可等的 recv，和其余 rank 一起走到第 6 步的 all_reduce，在那里被连锁拖住。
 
 统一的启动与诊断剧本：
 
@@ -1049,7 +1161,7 @@ Table: 三种情形下 fr_trace.py 的预期输出与判读
 
 每个脚本都在 60 秒 timeout 后自动 dump 并退出，剧本第 4 步只是为了不等。跑完三个脚本，读者应当对"各 rank 最后一次操作一致还是不一致"这个判据、以及 py-spy 与 Flight Recorder 各自能回答什么问题有肌肉记忆——这是第九章决策树 hang 分支的全部基础。
 
-到这里，训练侧的通信从理论到测量到排障已经闭环。下一篇转向推理：decode 阶段每层一次几十 KB 的 TP all_reduce，纯延迟主导，NCCL 的固定开销成了主要成本；PD 分离的 KV 传输是点对点大块搬运，不需要归约也不需要 NCCL。两个场景都要用本篇的方法测、用第一篇的模型算，但答案会不一样。
+到这里，训练侧的通信从理论到测量到排障已经闭环。下一篇[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)转向推理：decode 阶段每层一次几十 KB 的 TP all_reduce，纯延迟主导，NCCL 的固定开销成了主要成本；PD 分离的 KV 传输是点对点大块搬运，不需要归约也不需要 NCCL。两个场景都要用本篇的方法测、用《集合通信原语与代价模型》的模型算，但答案会不一样。
 
 > **8 卡 TP 的 decode，每层一次 128 KB 的 all_reduce，NCCL 要 30 微秒，custom all-reduce 要 10 微秒。这 20 微秒省在哪里？为什么这个方法不能用在训练的梯度同步上？**
 
