@@ -5,10 +5,10 @@ title: "通信与互联（04）：NCCL 架构——拓扑探测、channel、算�
 subtitle: "NCCL Architecture: Topology Detection, Channels, Algorithms and Protocols"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-20
+updated: 2026-11-20
 ---
 
-前三篇把"硬件能做到什么"的上限摆出来了：[第一篇](/collective-communication-primitives-and-cost-model.html)给出 α-β 模型和 ring all_reduce 的 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$；[第二篇](/hardware-interconnect-pcie-nvlink-and-topology.html)给 α 和 β 填上数字——NVLink 每 GPU 双向合计 600/900 GB/s（A100/H100），PCIe 4.0 x16 单向约 32 GB/s，IB NDR 单向 50 GB/s——并用 `nvidia-smi topo -m` 的 `NV#`/`PIX`/`PXB`/`PHB`/`SYS` 描述任意两个设备之间的路径；[第三篇](/rdma-and-gpudirect.html)讲清了跨机时网卡如何绕过 CPU 和主机内存直接读写显存。这些都是"能力"。本篇讲的是 NCCL 如何把这些能力**组织**成一次集合通信：它怎么知道机器长什么样、怎么决定数据走哪条路、怎么把一个 all_reduce 切成多少条并行的流、用哪种算法和协议、以及 GPU 上的 kernel 与 CPU 上的线程如何配合把字节送上网卡。
+前三篇把"硬件能做到什么"的上限摆出来了：[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)给出 α-β 模型和 ring all_reduce 的 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$；[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)给 α 和 β 填上数字——NVLink 每 GPU 双向合计 600/900 GB/s（A100/H100），PCIe 4.0 x16 单向约 32 GB/s，IB NDR 单向 50 GB/s——并用 `nvidia-smi topo -m` 的 `NV#`/`PIX`/`PXB`/`PHB`/`SYS` 描述任意两个设备之间的路径；[《RDMA 与 GPUDirect》](/rdma-and-gpudirect.html)讲清了跨机时网卡如何绕过 CPU 和主机内存直接读写显存。这些都是"能力"。本篇讲的是 NCCL 如何把这些能力**组织**成一次集合通信：它怎么知道机器长什么样、怎么决定数据走哪条路、怎么把一个 all_reduce 切成多少条并行的流、用哪种算法和协议、以及 GPU 上的 kernel 与 CPU 上的线程如何配合把字节送上网卡。
 
 NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能用"，`NCCL_DEBUG=INFO` 之后它打出几百行看不懂的日志。但它的结构并不复杂，可以压缩成两段路径。**初始化期**（`ncclCommInitRank`）做的是一次性的、与消息无关的决策：探测拓扑、算路径、搜 ring 和 tree、决定 channel 数、为每一种算法×协议组合填一张预估时间的表。**执行期**（`ncclAllReduce`）做的是与消息相关的决策：查那张表选出最快的算法×协议、决定用几个 channel、把工作切好、启动一个 kernel，需要跨机时再由 CPU 上的 proxy 线程替 kernel 驱动网卡。本篇按这个顺序把两段路径走一遍，每一步都指到 NCCL 2.28.9 源码里对应的文件和函数。
 
@@ -23,6 +23,76 @@ NCCL 对大多数使用者是一个黑盒：`ncclCommInitRank` 之后它就"能�
 依照系列惯例，本文的性能数字要么来自源码里的模型常数（`src/graph/tuning.cc`、`src/graph/topo.h`），要么是可推导的理论值或"通常能达到"的区间，全部**非实测**。源码路径以 NCCL 2.28.9（2025-11 发布）为准；2.29 起 `src/transport/net_ib.cc` 拆成了目录，更新的版本可能继续调整目录结构，阅读时以你手上的版本对照。
 
 ## 一、总览：一次 ncclAllReduce 的两段路径
+
+一次 `ncclAllReduce` 的字节在物理上只有两条路可走：节点内由 GPU kernel 直接写进对端显存，跨机由 CPU 上的 proxy 线程把一块数据交给网卡。NCCL 的全部复杂度在**谁决定走哪条、切成几份、用哪种协议**——这些决定在 `ncclCommInitRank` 里一次做完，`ncclAllReduce` 只是查结果。下图是这两段路径，每个方框标出在哪一章展开：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
+%% 图：一次 ncclAllReduce 的两段路径：初始化期把机器拓扑算成 channel 与调优表，执行期查表启一个 kernel，字节经 NVLink 直达对端显存或经 proxy 上网卡
+flowchart TB
+  subgraph INIT["初始化期 ncclCommInitRank：与消息无关，只做一次"]
+    direction TB
+    B["<b>bootstrap</b><br/>uniqueId 里是 rank 0 的监听地址，TCP 环上两次 AllGather（第二章）"]
+    X["<b>拓扑探测 → ncclTopoSystem</b><br/>/sys 的 PCIe 树、NVML 的 NVLink、net 插件的 NIC（第三章）"]
+    P["<b>路径计算</b><br/>BFS 给每对设备一个类型与带宽，类型取沿途最差的一段（第四章）"]
+    G["<b>图搜索 → ncclTopoGraph</b><br/>在节点内找 nChannels 条 ring / tree，每条一份带宽配额（第五章）"]
+    C["<b>connect 与 channel</b><br/>局部图拼成全局 ring 与 double binary tree，channel 复制一倍（第六章）"]
+    T["<b>调优表 latencies / bandwidths</b><br/>每个组合一对 lat 与 bw（第七章、第八章）"]
+    B --> X --> P --> G --> C --> T
+  end
+  subgraph RUN["执行期 ncclAllReduce：每次调用，只查表不搜索"]
+    direction TB
+    E["<b>enqueue 与 plan</b><br/>任务入队、聚合、查表选算法 × 协议，按消息大小缩 channel 数（第九章）"]
+    K["<b>一个 kernel，nChannels 个 block</b><br/>每 block 一条 ring / tree，用 primitives 收发（第九章）"]
+    E --> K
+  end
+  T -. "查表取最小" .-> E
+  C -. "channel、连接、buffer" .-> K
+  K -- "节点内：直接写对端显存" --> NVL["<b>NVLink / PCIe P2P</b><br/>P2P 不可用时经主机共享内存 SHM 中转（第六章）"]
+  K -- "跨机：写满一个 slot，tail 加一" --> PX["<b>proxy 线程</b><br/>GPU 不能提交 RDMA，CPU 线程替它 isend / test，只靠 head / tail 同步（第九章）"]
+  PX --> NIC["<b>网卡</b><br/>开了 GPUDirect RDMA 就直接读显存"]
+  NVL --> PEER["<b>对端 GPU 显存</b><br/>两本账在这条路径上相加（第八章）"]
+  NIC --> PEER
+  classDef init fill:#e8f0fe,stroke:#3367d6;
+  classDef run fill:#e8f5e9,stroke:#2e7d32;
+  classDef hw fill:#fff3e0,stroke:#ef6c00;
+  class B,X,P,G,C,T init;
+  class E,K run;
+  class NVL,PX,NIC,PEER hw;
+```
+
+- **bootstrap**：uniqueId 是 rank 0 进程的监听地址加一个随机 magic，必须由带外渠道发给所有 rank；之后初始化期要交换的一切都在这个 TCP 环上 AllGather（[第二章](#二初始化uniqueid-与-bootstrap)）。
+- **拓扑探测**：每个 rank 只探测自己那张 GPU，节点内再把各自的 XML 融合成整机的树，所以每个 rank 看到的拓扑一样（[第三章](#三拓扑探测从-sys-和-nvml-到-xml-树)）。链路带宽填的是 NCCL 自己的保守估计，只用来排序和比较，不做绝对预测（[「链路带宽是怎么填的」一节](#4-链路带宽是怎么填的)）。
+- **路径计算**：路径类型有序，一条路径取最差的一段；`NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 的默认门限都是 `PXB`，这是「节点内落到 SHM」和「GDR 被关掉」的唯一判据（[第四章](#四路径计算path-type-与带宽)）。
+- **图搜索**：带宽不是连续搜的，而是从一张离散速度表里取一档，再回溯找尽可能多的 channel；8 卡 A100 + NVSwitch 上的结果是 12 条 20 GB/s 的 ring（[第五章](#五图搜索在拓扑上找-ring-与-tree)）。
+- **connect 与 channel**：channel 既是并行度单位（一条 ring 或一棵 tree、一个 kernel block、一份 proxy 工作），也是资源单位（每 peer 每方向约 9 MiB buffer）（[第六章](#六transport-与-channel)）。
+- **调优表**：七种算法 × 三种协议里哪些可用由拓扑决定（纯 PCIe 上 LL128 是关的），每个可用组合填一对 lat 与 bw（[第七章](#七算法与协议)、[第八章](#八调优模型nccl-如何估算时间)）。
+- **enqueue 与 plan**：`ncclAllReduce` 在 host 侧只做查表和填结构体，没有搜索；一个 group 里的多个操作可以合并进同一次 kernel 启动（[第九章](#九执行期enqueuekernel-与-proxy)）。
+- **kernel 与 primitives**：每个 block 的循环是「等对端就绪 → 读、归约、写 → 通知对端」，等待全是自旋（[「设备侧原语」一节](#4-设备侧原语)）。
+- **NVLink / PCIe P2P 与 SHM**：节点内不需要 CPU 参与搬数据，kernel 直接读写对端显存；P2P 被路径类型挡住时才落到 SHM，多两次主机内存往返（[「四种 transport 与选择顺序」一节](#1-四种-transport-与选择顺序)）。
+- **proxy 线程与网卡**：跨机的每一步都要 CPU 线程推进，而它是一个线程为整张卡的所有 channel 轮询，被抢占就是小消息抖动加大消息掉带宽（[「proxy 线程：GPU 不能驱动网卡」一节](#5-proxy-线程gpu-不能驱动网卡)）。
+- **对端 GPU 显存**：一次集合通信的时间就是这条路径上的两本账相加，NCCL 的调优模型是这个加法的参数化版本（[第八章](#八调优模型nccl-如何估算时间)）。
+
+图里的对象寿命差别很大，而且它们分布在四个地方：host 内存、显存、另一个线程、另一个进程的共享内存。下表按「谁创建、活在哪、活多久、谁能看见」列出本篇出现的关键对象：
+
+| 对象 | 谁创建 | 活在哪 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| `ncclComm` | `ncclCommInitRank` | host 内存，每个 rank 一个 | 到 `ncclCommDestroy` | 本进程；设备侧只看到 `devCommSetup` 拷进显存的精简副本 |
+| topo XML | `ncclTopoFillGpu` / `ncclTopoFillNet`<br/>节点内由 `ncclTopoFuseXml` 融合 | host 内存里的字符串树，可用 `NCCL_TOPO_DUMP_FILE` 落盘 | 转成 `ncclTopoSystem` 后就 `free` 掉 | 本 rank；融合后同节点各 rank 内容一致 |
+| `ncclTopoSystem` | `ncclTopoGetSystemFromXml` | host 内存（`comm->topo`） | 整个 comm，`commFree` 才 `ncclTopoFree` | 只有 host 侧代码，kernel 看不到 |
+| `ncclTopoGraph`（五种 pattern） | `ncclTopoCompute`<br/>第二次 AllGather 后各 rank 取最小值对齐 | host 内存（`comm->graphs[]`） | 整个 comm | host 侧；各 rank 必须一致，否则会选出不同算法而 hang |
+| channel（`ncclChannel`） | `initChannel` / `setupChannel`，条数由 `ncclTopoPostset` 定 | host 一份，`devCommSetup` 把 `ncclDevChannel` 拷进显存 | 整个 comm | 设备侧每个 block 只读自己那一条 |
+| ring / tree 结构 | `ncclBuildRings` / `ncclGetDtree`，装进 channel | 与 channel 同在（`ring.prev/next/userRanks`、`tree.up/down`） | 整个 comm | kernel 开头整块拷进 shared memory |
+| 连接（`ncclConnector`）与 FIFO buffer | transport 的 `setup` / `connect`，首次用到该算法时才建 | P2P 在显存、用 cuMem / IPC 句柄导给对端<br/>SHM 在主机共享内存<br/>NET 开 GDR 时在显存、否则在 pinned host 内存（LL 的 buffer 始终在 host） | 整个 comm | 每 channel、每 peer、每方向各一份，对端靠句柄映射 |
+| `head` / `tail` 计数器 | 与连接一起分配（`ncclSendMem` / `ncclRecvMem`） | NET 路径上在 pinned host 内存；开了 GDRCopy 时 `head` 放显存，让 CPU 直接写 | 整个 comm | GPU kernel 与 proxy 线程都读写，这是两者唯一的同步点 |
+| proxy service 线程 | `ncclProxyCreate` | host，一个 `proxyState` 一个线程 | 到 comm 销毁时 `pthread_join` | 本地 rank 通过 socket / UDS 与它通话 |
+| proxy progress 线程 | 第一次需要时由 service 线程 `ncclProxyProgressCreate` | host，同上 | 同上 | 它轮询本 GPU 所有 channel 的 `ncclProxyArgs` |
+| proxy op（`ncclProxyOp` → `ncclProxyArgs`） | 执行期生成，`ncclProxySaveOp` 投进 op 池 | op 池在 `/dev/shm` 的共享内存里，锁是 process-shared | 一次集合通信，`done` 后回收 | 本 GPU 的 progress 线程；PXN 时由另一个进程投进来 |
+| `ncclTaskColl` | `taskAppend`，每次 `ncclAllReduce` 一个 | host 内存，`comm->planner` 里按大小排序 | 到本 group 结束、被装进 kernel plan | 只有 host 侧 |
+| `ncclKernelPlan` | `scheduleCollTasksToPlan` | host 内存，加上拷给 kernel 的参数 | 一次 kernel 启动，结束后由 `reclaimer` 回收 | host 侧与这一次 kernel |
+| 调优表 `latencies` / `bandwidths` | `ncclTopoTuneModel`，初始化最后一步 | host 内存（`comm->latencies` / `comm->bandwidths`） | 整个 comm | host 侧的 `ncclTopoGetAlgoTime`；tuner 插件可以改 |
+
+Table: NCCL 关键对象的创建者、存放位置、寿命与可见范围
 
 ### 1. 初始化期与执行期
 
@@ -67,7 +137,7 @@ $$
 T(\text{algo}, \text{proto}, S) = \text{lat} \times \text{latCount} + \frac{S}{1000 \times \text{bw}}
 $$
 
-这就是第一篇的 $$\alpha + S/\beta$$，只不过 α 和 β 是按算法、协议和这台机器的拓扑分别算出来的。带宽的账决定 `bw`：图搜索的每 channel 带宽 × channel 数 × 协议效率 × 算法的 busbw 到 algbw 的换算比。延迟的账决定 `lat`：基础延迟 + 步数 × 每步硬件延迟。第八章会逐项拆。
+这就是[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)的 $$\alpha + S/\beta$$，只不过 α 和 β 是按算法、协议和这台机器的拓扑分别算出来的。带宽的账决定 `bw`：图搜索的每 channel 带宽 × channel 数 × 协议效率 × 算法的 busbw 到 algbw 的换算比。延迟的账决定 `lat`：基础延迟 + 步数 × 每步硬件延迟。第八章会逐项拆。
 
 ### 3. 版本与目录说明
 
@@ -96,7 +166,7 @@ Table: 本文的章节安排
 
 `ncclUniqueId` 是一个 128 字节的不透明结构（`NCCL_UNIQUE_ID_BYTES`，`src/nccl.h.in`）。`ncclGetUniqueId`（`src/init.cc`）调用 `bootstrapGetUniqueId`（`src/bootstrap.cc`）：由 rank 0 所在进程创建一个监听 socket，把它的地址和一个随机 magic 写进这 128 字节。这就是为什么它必须由一个进程生成、再通过带外渠道（MPI broadcast、PyTorch 的 TCPStore、文件）发给所有 rank——它是所有 rank 找到彼此的唯一线索。
 
-监听在哪张网卡上由两件事决定：如果设置了 `NCCL_COMM_ID`（形如 `ip:port`），`bootstrapNetInit` 用 `ncclFindInterfaceMatchSubnet` 找同一子网的接口；否则 `ncclFindInterfaces` 按 `NCCL_SOCKET_IFNAME`（`src/misc/socket.cc`）挑选。`NCCL_SOCKET_IFNAME` 影响的只是 **bootstrap 和 Socket transport** 走哪张网卡，不影响 IB 数据面（IB 的选择由 `NCCL_IB_HCA` 控制，见第六篇）。多网卡机器上 bootstrap 走错网卡（比如走到 docker0 或没有路由的管理网）是"初始化 hang"的经典原因，日志里对应的一行是 `Bootstrap: Using eth0:10.0.0.1<0>`。
+监听在哪张网卡上由两件事决定：如果设置了 `NCCL_COMM_ID`（形如 `ip:port`），`bootstrapNetInit` 用 `ncclFindInterfaceMatchSubnet` 找同一子网的接口；否则 `ncclFindInterfaces` 按 `NCCL_SOCKET_IFNAME`（`src/misc/socket.cc`）挑选。`NCCL_SOCKET_IFNAME` 影响的只是 **bootstrap 和 Socket transport** 走哪张网卡，不影响 IB 数据面（IB 的选择由 `NCCL_IB_HCA` 控制，见[《nccl-tests、调优与排障》的「调优参数按作用层分类」一节](/nccl-tests-tuning-and-debugging-hangs.html#四调优参数按作用层分类)）。多网卡机器上 bootstrap 走错网卡（比如走到 docker0 或没有路由的管理网）是"初始化 hang"的经典原因，日志里对应的一行是 `Bootstrap: Using eth0:10.0.0.1<0>`。
 
 ### 2. bootstrap 环与 AllGather
 
@@ -105,6 +175,36 @@ Table: 本文的章节安排
 1. 每个 rank 创建自己的监听 socket，把地址发给 root（uniqueId 里的那个地址）。rank 数超过 `NCCL_UID_STAGGER_THRESHOLD`（默认 256）时按 `NCCL_UID_STAGGER_RATE` 错开连接时间，避免几千个 rank 同时砸向 root。
 2. root 收齐所有 rank 的地址后，把 rank $$r+1$$ 的地址发给 rank $$r$$。于是每个 rank 只知道自己的下一跳，形成一个 TCP **环**。
 3. 之后所有 `bootstrapAllGather` 都在这个环上做：每个 rank 把数据发给 next、从 prev 收，转 $$n-1$$ 圈。这是 $$O(n)$$ 步的朴素实现，只在初始化用，不追求性能。
+
+四个 rank 时三步长这样——注意 root 只在第 1、2 步出现，第 3 步起它和别人一样只跟自己的 prev / next 说话：
+
+```mermaid
+%% 图：bootstrap 建环的三步：各 rank 把监听地址报给 root，root 回给每个 rank 下一跳的地址，之后所有 AllGather 都在这个环上转 n−1 圈
+flowchart TB
+  subgraph S1["第 1 步：各 rank 把自己的监听地址发给 root"]
+    direction TB
+    R1["<b>rank 0（root）</b><br/>地址来自 uniqueId"]
+    A1["rank 1"] --> R1
+    A2["rank 2"] --> R1
+    A3["rank 3"] --> R1
+  end
+  subgraph S2["第 2 步：root 把 rank r+1 的地址回给 rank r"]
+    direction TB
+    R2["<b>rank 0（root）</b><br/>收齐 4 个地址"]
+    R2 -- "rank 1 的地址" --> B0["rank 0 记下 next = 1"]
+    R2 -- "rank 2 的地址" --> B1["rank 1 记下 next = 2"]
+    R2 -- "rank 3 的地址" --> B2["rank 2 记下 next = 3"]
+    R2 -- "rank 0 的地址" --> B3["rank 3 记下 next = 0"]
+  end
+  subgraph S3["第 3 步：此后的 bootstrapAllGather 只在环上转 n−1 圈"]
+    direction LR
+    C0["rank 0"] --> C1["rank 1"] --> C2["rank 2"] --> C3["rank 3"] --> C0
+  end
+  S1 ~~~ S2
+  S2 ~~~ S3
+  classDef root fill:#fff3e0,stroke:#ef6c00;
+  class R1,R2 root;
+```
 
 bootstrap 还提供 `bootstrapSend/Recv`（点对点，按需建 socket）和 `bootstrapIntraNodeAllGather`（节点内子集），后面拓扑融合和 transport 连接信息交换都靠它们。默认走 TCP；`NCCL_OOB_NET_ENABLE=1` 可以改走 net 插件（比如 IB），这是新版本加的。
 
@@ -149,7 +249,7 @@ NCCL 内部的拓扑是一个图，节点类型六种，链路类型和路径类
 
 Table: NCCL 拓扑图的路径类型、字符串与同号的链路类型
 
-每条链路带一个带宽 `bw`（GB/s）。链路类型与路径类型"尽量对齐"（源码注释原话），所以 `NVL` 既是"一条 NVLink"也是"经 NVLink 的路径"，`PIX`/`PXB`/`PHB`/`SYS` 则只有路径含义——它们是 PCIe 路径按经过什么合成出来的。这套词表就是第二篇 `nvidia-smi topo -m` 用的那套，多出的几个是 NCCL 自己的：`NVB`（经一个中间 GPU 的 NVLink 两跳）、`C2C`（Grace-Hopper 的 CPU-GPU 链路）、`P2C`（GPU 经 C2C 到 CPU 再经 PCIe 到 NIC）、`PXN`（GPU 经 NVLink 到另一个 GPU 再到它的 NIC）。
+每条链路带一个带宽 `bw`（GB/s）。链路类型与路径类型"尽量对齐"（源码注释原话），所以 `NVL` 既是"一条 NVLink"也是"经 NVLink 的路径"，`PIX`/`PXB`/`PHB`/`SYS` 则只有路径含义——它们是 PCIe 路径按经过什么合成出来的。这套词表就是[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》的「读拓扑」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)里 `nvidia-smi topo -m` 用的那套，多出的几个是 NCCL 自己的：`NVB`（经一个中间 GPU 的 NVLink 两跳）、`C2C`（Grace-Hopper 的 CPU-GPU 链路）、`P2C`（GPU 经 C2C 到 CPU 再经 PCIe 到 NIC）、`PXN`（GPU 经 NVLink 到另一个 GPU 再到它的 NIC）。
 
 ### 2. 探测流程
 
@@ -214,7 +314,7 @@ Table: NCCL 拓扑图的路径类型、字符串与同号的链路类型
 
 Table: 建图时链路带宽的填法：NVLink、PCIe、CPU 间
 
-和第二篇的标称值比：A100 NVLink 单向标称 300 GB/s，NCCL 用 240；PCIe 4.0 x16 单向标称 32 GB/s，NCCL 用 24。NCCL 有意用"通常能达到"的数，因为这些数只用来**排序和比较**（走哪条路、搜几条 ring），不用来做绝对预测。日志里 `=== System : maxBw 240.0 totalBw 240.0 ===` 打的就是这套数。
+和《硬件互联》的标称值比：A100 NVLink 单向标称 300 GB/s，NCCL 用 240；PCIe 4.0 x16 单向标称 32 GB/s，NCCL 用 24。NCCL 有意用"通常能达到"的数，因为这些数只用来**排序和比较**（走哪条路、搜几条 ring），不用来做绝对预测。日志里 `=== System : maxBw 240.0 totalBw 240.0 ===` 打的就是这套数。
 
 ## 四、路径计算：path type 与带宽
 
@@ -233,9 +333,22 @@ remPath->type = std::max(path->type, type);                           // 整条�
 
 "取最大"是关键：路径类型是有序的，`LOC < NVL < NVB < C2C < PIX < PXB < P2C < PXN < PHB < SYS < NET`，一条路径的类型由它最差的一段决定。经过 CPU 就至少是 `PHB`；跨了两个 CPU（走了 `LINK_SYS`）就是 `SYS`。还有一条限制：只允许把 GPU 当作**一跳**中转（`path->count > 1` 时不再经 GPU 转发），这就是 `NVB` 的来源——没有 NVSwitch 的 NVLink 机器（比如 4 卡 NVLink 桥接）上两卡之间可能没有直连，经另一张卡转一跳。
 
+拿一台双路 AMD 机器上两个 NUMA 域里的 GPU 0 与 GPU 4 手算一遍，一共四跳（类型编号用上一节那张表，`LINK_PCI` 与 `PATH_PIX` 同为 4、`LINK_SYS` 与 `PATH_SYS` 同为 9）：
+
+| 跳 | 这一跳 | 链路类型 | 链路带宽 | 这一跳合成出的类型 | 累计路径类型 | 累计路径带宽 |
+|---|---|---|---:|---|---|---:|
+| 1 | GPU 0 → PCIe switch | `LINK_PCI`（4） | 24 | 两端都不是 CPU，沿用链路类型 `PIX`（4） | `PIX`（4） | 24 |
+| 2 | PCIe switch → CPU 0 | `LINK_PCI`（4） | 24 | 一端是 CPU → `PHB`（8） | `PHB`（8） | 24 |
+| 3 | CPU 0 → CPU 1 | `LINK_SYS`（9） | 16 | 沿用 `SYS`（9） | `SYS`（9） | 16 |
+| 4 | CPU 1 → GPU 4 | `LINK_PCI`（4） | 24 | 一端是 CPU → `PHB`（8） | `SYS`（9），取最大 | 16 |
+
+Table: GPU 0 到 GPU 4 的路径类型与带宽手算（双路 AMD、PCIe Gen4 x16）
+
+带宽取沿途最小值，落在 CPU 间那段的 16 GB/s（`AMD_BW`）；类型取沿途最大值，是 `SYS`。下一节的 `ncclTopoCheckP2p` 默认门限是 `PXB`（5），`SYS`（9）超了，所以这一对 GPU 不走 P2P，连接会落到 SHM。
+
 ### 2. LOC…SYS 词表与 nvidia-smi topo 的对应
 
-第二篇 `nvidia-smi topo -m` 的六个等级与 NCCL 词表一一对应：`NV#`↔`NVL`、`PIX`、`PXB`、`PHB`、`NODE`（同 CPU 不同 root complex）在 NCCL 里没有单独等级、归入 `PHB`、`SYS`↔`SYS`。NCCL 多出的 `NVB`/`C2C`/`P2C`/`PXN` 是 `nvidia-smi` 不区分的。所以看懂第二篇那张矩阵，就能预测 NCCL 会给每对设备打什么类型。
+[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)里 `nvidia-smi topo -m` 的六个等级与 NCCL 词表一一对应：`NV#`↔`NVL`、`PIX`、`PXB`、`PHB`、`NODE`（同 CPU 不同 root complex）在 NCCL 里没有单独等级、归入 `PHB`、`SYS`↔`SYS`。NCCL 多出的 `NVB`/`C2C`/`P2C`/`PXN` 是 `nvidia-smi` 不区分的。所以看懂《硬件互联》那张矩阵，就能预测 NCCL 会给每对设备打什么类型。
 
 `NCCL_DEBUG_SUBSYS=GRAPH` 下 `ncclTopoPrintPaths` 会把每个节点到所有 GPU/NET 的路径打出来，格式是 `GPU/0-0-7000 (2/240.0/NVL)`——括号里是跳数/带宽/类型。
 
@@ -245,13 +358,13 @@ remPath->type = std::max(path->type, type);                           // 整条�
 
 **`ncclTopoCheckP2p`**：两个 GPU 之间能否用 P2P transport（直接读写对端显存）。默认门限 `p2pLevel = PATH_PXB`——路径类型 ≤ PXB 才走 P2P，经过 CPU（PHB/SYS）不走。AMD CPU 且只有 2 张 GPU 时放宽到 `SYS`。用户可以用 `NCCL_P2P_LEVEL`（值是 `LOC`/`NVL`/`PIX`/`PXB`/`PHB`/`SYS`，或旧式数字）覆盖，`NCCL_P2P_DISABLE=1` 等价于 `LOC`（谁也不 P2P）。判定为不能 P2P 的 GPU 对，路径会被 `addInterStep` 改写成"经本地 CPU 中转"，后面选 transport 时就落到 SHM。此外还要通过 NVML 查 `cudaDeviceCanAccessPeer`——如果拓扑说有 NVLink 而 NVML 说不能 P2P，NCCL 会 `WARN("P2P is disabled between NVLINK connected GPUs …")`，这通常是硬件或驱动问题，`NCCL_IGNORE_DISABLED_P2P=1` 只是压住警告。
 
-**`ncclTopoCheckGdr`**：某个 GPU 到某个 NET 设备能否用 GPUDirect RDMA。前提是 NIC 和 GPU 都报告 `gdrSupport`（第三篇的 `nvidia-peermem` 或 DMA-BUF）。然后看距离：默认 `netGdrLevel = PATH_PXB`，`NCCL_NET_GDR_LEVEL` 覆盖。距离 > 门限就打 `GPU Direct RDMA Disabled for GPU %d / HCA %lx (distance %d > %d)`，此后这条 GPU→NIC 路径被改写成经 CPU（数据先拷到主机内存再发，第三篇讲过这条路多两次 PCIe 传输）。发送方向（`read=1`，NIC 从显存读）还受 `NCCL_NET_GDR_READ` 控制，默认 Ampere 之前只在有 NVLink 时开。
+**`ncclTopoCheckGdr`**：某个 GPU 到某个 NET 设备能否用 GPUDirect RDMA。前提是 NIC 和 GPU 都报告 `gdrSupport`（[《RDMA 与 GPUDirect》的「GPUDirect RDMA」一节](/rdma-and-gpudirect.html#八gpudirect-rdma)讲的 `nvidia-peermem` 或 DMA-BUF）。然后看距离：默认 `netGdrLevel = PATH_PXB`，`NCCL_NET_GDR_LEVEL` 覆盖。距离 > 门限就打 `GPU Direct RDMA Disabled for GPU %d / HCA %lx (distance %d > %d)`，此后这条 GPU→NIC 路径被改写成经 CPU（数据先拷到主机内存再发，《RDMA 与 GPUDirect》讲过这条路多两次 PCIe 传输）。发送方向（`read=1`，NIC 从显存读）还受 `NCCL_NET_GDR_READ` 控制，默认 Ampere 之前只在有 NVLink 时开。
 
 这两个门限是"比一比"阶段最常查的东西：日志里没有 `GDRDMA` 字样、或者 `GPU Direct RDMA Disabled … distance 8 > 5`，就是 GPU 和 NIC 跨了 root complex（PHB=8），要么换 NIC 亲和，要么明确接受 `NCCL_NET_GDR_LEVEL=SYS` 的代价。
 
 ### 4. PXN：借邻居的 NIC
 
-`ncclTopoComputePaths` 最后一段处理 PXN（PCI × NVLink）：如果 GPU g 到 NIC n 的路径不好（比如要过 CPU），但同节点另一张 GPU p 到 n 是 PXB 以内且 g 到 p 有 NVLink，就把 g→n 的路径改成 g→p→n，类型 `PXN`。数据先经 NVLink 到 p 的显存，再由 p 的 proxy 发到 n。这让 rail-optimized 网络（第二篇）上每个 GPU 都能用"自己 rail"的 NIC，也让多个 GPU 的流量在一张 NIC 上聚合。`NCCL_PXN_DISABLE=1` 关掉。日志里的表现是 `via NET/IB/0(1)/GDRDMA`——括号里的 1 是中转 rank——以及 `Connected all rings, use ring PXN 1 GDR 1`。
+`ncclTopoComputePaths` 最后一段处理 PXN（PCI × NVLink）：如果 GPU g 到 NIC n 的路径不好（比如要过 CPU），但同节点另一张 GPU p 到 n 是 PXB 以内且 g 到 p 有 NVLink，就把 g→n 的路径改成 g→p→n，类型 `PXN`。数据先经 NVLink 到 p 的显存，再由 p 的 proxy 发到 n。这让 rail-optimized 网络（[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》的「集群级拓扑」一节](/hardware-interconnect-pcie-nvlink-and-topology.html#八集群级拓扑fat-tree-与-rail-optimized)）上每个 GPU 都能用"自己 rail"的 NIC，也让多个 GPU 的流量在一张 NIC 上聚合。`NCCL_PXN_DISABLE=1` 关掉。日志里的表现是 `via NET/IB/0(1)/GDRDMA`——括号里的 1 是中转 rank——以及 `Connected all rings, use ring PXN 1 GDR 1`。
 
 ## 五、图搜索：在拓扑上找 ring 与 tree
 
@@ -271,7 +384,13 @@ Table: 五种 ncclTopoGraph 的 pattern 与 channel 数范围
 
 输出是 `nChannels`、每 channel 的 `bwIntra`（节点内）与 `bwInter`（出节点，经 NIC）、`typeIntra/typeInter`（用到的最差路径类型）、`sameChannels`、以及每个 channel 的 GPU 顺序 `intra[c*ngpus + i]` 和进出 NIC `inter[2c]`/`inter[2c+1]`。**搜索只在本节点的拓扑上做**：一条"channel"在这里是节点内 GPU 的一个排列，加上从哪个 NIC 进、从哪个 NIC 出。节点间怎么接是下一节 `connect.cc` 的事。
 
-三种 tree pattern 的区别是 NIC 流量怎么分：`TREE` 所有 NIC 流量都经第一个 GPU；`SPLIT_TREE` 父方向在第一个 GPU、子方向在第二个；`BALANCED_TREE` 父和一个子在第一个 GPU、另一个子在第二个。Hopper 及之后（`ccMin >= 90`）搜索时会把 `BALANCED_TREE` 退化成 `TREE`——调优模型里对应 `maxTreePattern == NCCL_TOPO_PATTERN_TREE` 时 tree 带宽乘 0.85。
+三种 tree pattern 的区别是 NIC 流量怎么分：
+
+1. `TREE`：所有 NIC 流量都经第一个 GPU。
+2. `SPLIT_TREE`：父方向在第一个 GPU、子方向在第二个。
+3. `BALANCED_TREE`：父和一个子在第一个 GPU、另一个子在第二个。
+
+Hopper 及之后（`ccMin >= 90`）搜索时会把 `BALANCED_TREE` 退化成 `TREE`——调优模型里对应 `maxTreePattern == NCCL_TOPO_PATTERN_TREE` 时 tree 带宽乘 0.85。
 
 ### 2. 搜索过程
 
@@ -355,7 +474,7 @@ Ring 01 : 5 -> 0 -> 3                      prev=5 在另一台机器，next=3 �
 
 ### 4. double binary tree
 
-`src/graph/trees.cc` 只有一百多行，值得读一遍。`ncclGetBtree` 用位运算建一棵"叶节点和内部节点交替"的二叉树：rank 的最低置位比特决定它在第几层，父节点是把该比特清零再置高一位，两个子节点是加减半个比特。`ncclGetDtree` 用它建两棵树：偶数个节点时第二棵是第一棵的**镜像**（rank $$r$$ 映射到 $$n-1-r$$），奇数时是**平移一位**。效果是：在第一棵树里是叶子的节点，在第二棵里是内部节点，反之亦然。第一篇讲过朴素二叉树的带宽只有一半（叶子只发不收或只收不发），两棵互补的树各承担一半数据，把带宽补回来——这就是第一篇 tree 一节的实现。
+`src/graph/trees.cc` 只有一百多行，值得读一遍。`ncclGetBtree` 用位运算建一棵"叶节点和内部节点交替"的二叉树：rank 的最低置位比特决定它在第几层，父节点是把该比特清零再置高一位，两个子节点是加减半个比特。`ncclGetDtree` 用它建两棵树：偶数个节点时第二棵是第一棵的**镜像**（rank $$r$$ 映射到 $$n-1-r$$），奇数时是**平移一位**。效果是：在第一棵树里是叶子的节点，在第二棵里是内部节点，反之亦然。[《集合通信原语与代价模型》的「tree all_reduce 与 double binary tree」一节](/collective-communication-primitives-and-cost-model.html#六tree-all_reduce-与-double-binary-tree)讲过朴素二叉树的带宽只有一半（叶子只发不收或只收不发），两棵互补的树各承担一半数据，把带宽补回来——这里就是它的实现。
 
 8 个节点时两棵树长这样（顶点是**节点**而不是 GPU；节点内 GPU 挂成链）：
 
@@ -415,7 +534,13 @@ struct ncclTransport* ncclTransports[NTRANSPORTS+1] = {
 };
 ```
 
-`selectTransport` 对一对 (self, peer) 按顺序调各 transport 的 `canConnect`，第一个说行的就用。P2P 的 `canConnect` 依赖第四章的 `ncclTopoCheckP2p`；SHM 要求同 host（`hostHash` 相同）且未 `NCCL_SHM_DISABLE`；NET 总是可以。所以同机默认 P2P，P2P 不行（跨 root complex 且没放宽 `NCCL_P2P_LEVEL`）落 SHM，跨机 NET。每个 transport 有 `send`/`recv` 两个 `ncclTransportComm`，各含 `setup`（分配 buffer、准备连接信息）、`connect`（拿到对端信息后建立连接）、`proxyProgress`（proxy 线程的推进函数，只有 NET/CollNet 有实质内容）等回调。
+`selectTransport` 对一对 (self, peer) 按顺序调各 transport 的 `canConnect`，第一个说行的就用。三个 `canConnect` 各看什么：
+
+1. P2P：依赖[第四章](#四路径计算path-type-与带宽)的 `ncclTopoCheckP2p`，也就是路径类型是否在 `NCCL_P2P_LEVEL` 以内。
+2. SHM：要求同 host（`hostHash` 相同）且没有设 `NCCL_SHM_DISABLE`。
+3. NET：总是可以。
+
+所以同机默认 P2P，P2P 不行（跨 root complex 且没放宽 `NCCL_P2P_LEVEL`）落 SHM，跨机 NET。每个 transport 有 `send`/`recv` 两个 `ncclTransportComm`，各含 `setup`（分配 buffer、准备连接信息）、`connect`（拿到对端信息后建立连接）、`proxyProgress`（proxy 线程的推进函数，只有 NET/CollNet 有实质内容）等回调。
 
 日志里每条连接一行，格式随 transport（`src/transport/p2p.cc` / `shm.cc` / `net.cc` 的 `INFO(NCCL_INIT|…)`）：
 
@@ -436,7 +561,7 @@ NVLS（`src/transport/nvls.cc`）不在这个数组里，它不是点对点 tran
 
 ### 2. 连接何时建立：lazy connect
 
-2.28 默认 `comm->runtimeConn = cuMemSupport && NCCL_RUNTIME_CONNECT(默认 1)`。开着时，`initTransportsRank` 只对每个 channel 调 `setupChannel`（分配 channel 结构、填 ring 的 userRanks），**不**建 ring/tree 连接；`ncclNvlsSetup`、`ncclCollNetSetup` 也只做资源准备。真正的 `ncclTransportRingConnect` / `ncclTransportTreeConnect` / `ncclNvlsTreeConnect` / `ncclTransportPatConnect`（`src/transport/generic.cc`）在**第一次有集合操作用到该算法时**才调——`ncclPrepareTasks` 发现 `comm->initAlgoChannels[algo] == false` 就标记 `algoNeedConnect`，`groupLaunch` 在 `ncclCollPreconnect` 里补建。所以日志里 `Connected all rings, use ring PXN 0 GDR 1` 和 `Connected all trees` 出现在 `Init COMPLETE` 之后、第一次 all_reduce 之前，是正常的；第一次 all_reduce 比后面慢几十到几百毫秒也是正常的（这对 PyTorch 侧的 timeout 有影响，第五篇会提）。
+2.28 默认 `comm->runtimeConn = cuMemSupport && NCCL_RUNTIME_CONNECT(默认 1)`。开着时，`initTransportsRank` 只对每个 channel 调 `setupChannel`（分配 channel 结构、填 ring 的 userRanks），**不**建 ring/tree 连接；`ncclNvlsSetup`、`ncclCollNetSetup` 也只做资源准备。真正的 `ncclTransportRingConnect` / `ncclTransportTreeConnect` / `ncclNvlsTreeConnect` / `ncclTransportPatConnect`（`src/transport/generic.cc`）在**第一次有集合操作用到该算法时**才调——`ncclPrepareTasks` 发现 `comm->initAlgoChannels[algo] == false` 就标记 `algoNeedConnect`，`groupLaunch` 在 `ncclCollPreconnect` 里补建。所以日志里 `Connected all rings, use ring PXN 0 GDR 1` 和 `Connected all trees` 出现在 `Init COMPLETE` 之后、第一次 all_reduce 之前，是正常的；第一次 all_reduce 比后面慢几十到几百毫秒也是正常的（这对 PyTorch 侧的 timeout 有影响，[《PyTorch 的通信栈》的「错误处理与超时」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#八错误处理与超时watchdog-与-heartbeat-monitor)会提）。
 
 send/recv 的连接则一直是按需的：`ncclSend/ncclRecv` 第一次碰到某个 peer 时，`p2pTaskAppend` 把 `connectSend/connectRecv[peer]` 的位图置上，`groupLaunch` 通过 `ncclP2PPreconnectFunc` → `ncclTransportP2pSetup` 建立。
 
@@ -461,13 +586,24 @@ send/recv 的连接则一直是按需的：`ncclSend/ncclRecv` 第一次碰到�
 
 ### 5. buffer 与 NCCL_STEPS
 
-每条连接的 Simple buffer（默认 4 MiB，`NCCL_BUFFSIZE` 覆盖）被切成 `NCCL_STEPS = 8` 个 slot，每个 512 KiB。发送方写第 `step % 8` 个 slot 然后把 `tail` 加一；接收方看到 `tail` 前进就读，读完把 `head` 加一；发送方在 `head + 8 > step` 之前不能再写。这是一个深度为 8 的流水线：任意时刻最多 8 个 slot 在飞。跨机时 proxy 线程也按同样的 `head`/`tail` 协议与 GPU 交互（第九章）。`NCCL_BUFFSIZE` 调大只对"链路带宽 × 往返延迟 > 8 × 512 KiB"的场景有意义，比如长距离 RoCE；一般不动。
+每条连接的 Simple buffer（默认 4 MiB，`NCCL_BUFFSIZE` 覆盖）被切成 `NCCL_STEPS = 8` 个 slot，每个 512 KiB。三方的约定只有三条：
+
+1. 发送方写第 `step % 8` 个 slot，写完把 `tail` 加一。
+2. 接收方看到 `tail` 前进就读那个 slot，读完把 `head` 加一。
+3. 发送方要等到 `step < head + 8` 才能写——也就是空闲 slot 数 = `head + 8 − tail`。
+
+![一条连接的 Simple buffer：8 个 slot 与 head 和 tail 计数器，head = 2、tail = 5 时 slot 2 到 4 在飞、slot 5 起可写](/img/in-post/nccl-architecture-steps-fifo.svg)
+
+这是一个深度为 8 的流水线：任意时刻最多 8 个 slot 在飞。跨机时 proxy 线程也按同样的 `head`/`tail` 协议与 GPU 交互（[第九章](#九执行期enqueuekernel-与-proxy)）。`NCCL_BUFFSIZE` 调大只对"链路带宽 × 往返延迟 > 8 × 512 KiB"的场景有意义，比如长距离 RoCE；一般不动。
+
+> [!NOTE] Java 经验参照：环形缓冲与 head / tail
+> 这正是 `ArrayBlockingQueue` 的结构：固定容量的数组、两个单调前进的下标、生产者在队满时等待、消费者取走后让出一格。NCCL 这里的 `head` / `tail` 也是单调递增的 64 位计数，取模才得到数组下标，所以不需要"区分空与满"的技巧。对不上的地方有两处：`ArrayBlockingQueue` 用一把锁加两个条件变量让线程睡下去，NCCL 两边都是自旋（GPU 在 `waitPeer` 里转，proxy 在 `test` 里轮询），没有唤醒机制；而且这个数组不在同一个地址空间里——P2P 时它在对端显存，跨机时它在 pinned 主机内存，由网卡搬运，所以"入队"是一次 RDMA write，不是一次 `offer`。
 
 ### 6. 两本账：channel 数的取舍
 
 **带宽的账**：一个 block（一个 channel）的 NVLink 吞吐是有限的——搜索给的每 channel 20 GB/s 就是经验上限，`perChMaxRingLL128Bws`/`perChMaxTreeBws` 表里也是每 channel 20–40 GB/s 量级。要把 240 GB/s 的 NVLink 或 8 张 NIC 打满，就必须有足够多的 channel。大消息时 nChannels 越大越好，直到链路饱和。
 
-**延迟的账**：每个 channel 是一个 block，多一个 block 就多一份 shared memory 加载、多一份 `head/tail` 握手、多占一个 SM（与计算 kernel 抢）；跨机时每个 channel 是一份独立的 proxy 工作、一组独立的 QP。消息小到每 channel 分不到几十 KB 时，切分本身的固定开销超过并行收益。所以 `topoGetAlgoInfo` 按大小缩 channel。`NCCL_MIN_NCHANNELS` 抬高下限的常见后果是小消息延迟变差、以及 SM 占用增加打断计算通信重叠（第五篇）。
+**延迟的账**：每个 channel 是一个 block，多一个 block 就多一份 shared memory 加载、多一份 `head/tail` 握手、多占一个 SM（与计算 kernel 抢）；跨机时每个 channel 是一份独立的 proxy 工作、一组独立的 QP。消息小到每 channel 分不到几十 KB 时，切分本身的固定开销超过并行收益。所以 `topoGetAlgoInfo` 按大小缩 channel。`NCCL_MIN_NCHANNELS` 抬高下限的常见后果是小消息延迟变差、以及 SM 占用增加打断计算通信重叠（[《PyTorch 的通信栈》的「async_op=True 与计算通信重叠」一节](/pytorch-communication-stack-processgroupnccl-and-streams.html#六async_optrue-与计算通信重叠)）。
 
 一个可操作的判断：如果 nccl-tests 曲线大消息端上不去而拓扑正确，看日志里 `coll channels` 是不是被 `NCCL_MAX_NCHANNELS` 或 `maxCTAs` 压低了；如果小消息延迟异常高，看 `channel{Lo..Hi}` 是不是被 `NCCL_MIN_NCHANNELS` 撑大了。
 
@@ -485,7 +621,7 @@ const char* ncclProtoStr[NCCL_NUM_PROTOCOLS] = { "LL", "LL128", "Simple" };
 | 算法 | 形状 | 延迟、带宽与适用范围 |
 |---|---|---|
 | Tree | 节点间 double binary tree + 节点内链；all_reduce 先 reduce 到根再 broadcast 下来（`runTreeUpDown` / `runTreeSplit`） | 延迟 O(log nNodes)，带宽比 ring 低（模型里 ×0.92，Hopper 上再 ×0.85） |
-| Ring | 第一篇的 ring：reduce_scatter + all_gather 各 n-1 步（`runRing`） | 带宽最优，延迟 O(n) |
+| Ring | [《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里的 ring：reduce_scatter + all_gather 各 n-1 步（`runRing`） | 带宽最优，延迟 O(n) |
 | CollNetDirect | 节点内每个 GPU 直接和"head"交换，head 通过 collnet 插件（IB SHARP）在交换机里归约 | 最多 8 GPU/节点 |
 | CollNetChain | 节点内是一条链，链头走 collnet | |
 | NVLS | NVLink SHARP：Hopper 起，NVSwitch 内做归约；数据写到多播地址，交换机归约后多播回来 | 约 2.18 引入；单机直接用，多机与 collnet 组合（NVLS 节点内 + SHARP 节点间） |
@@ -555,7 +691,9 @@ Table: 三种协议的有效载荷、同步方式、延迟与带宽
 
 - `NCCL_PROTO` / `NCCL_ALGO` 环境变量：`parseList` 支持 `ring,tree`、`^LL128`（排除）、`allreduce:tree;broadcast:ring`（按集合操作分别指定）。rank 0 会打 `NCCL_ALGO set by environment to …` 和一张 `Enabled NCCL Func/Proto/Algo Matrix`。
 - **LL128 默认"条件启用"**（`protoEnable = 2`）：要求节点内路径类型 ≤ `NVB`（必须是 NVLink）、节点间路径类型 ≤ `PXB`（Hopper 起放宽到 `PXN`/`P2C`，`NCCL_LL128_C2C`）、所有 GPU 计算能力相同且 ≥ 7.0。**纯 PCIe 机器上 LL128 是关的**。
-- 单机禁 NVLSTree；没有 collnet 时禁 CollNetDirect/CollNetChain 和多机的 NVLS；没有 NVSwitch 禁 CollNetDirect；NVLS/NVLSTree 只有 Simple；CollNet 只有 Simple；PAT 只有 Simple。
+- 剩下的清零规则按"谁依赖什么"分两类：
+  - 算法整行清零：单机禁 NVLSTree；没有 collnet 插件时禁 CollNetDirect 与 CollNetChain，多机的 NVLS 也一起禁；没有 NVSwitch 时禁 CollNetDirect。
+  - 只保留 Simple 一列：NVLS、NVLSTree、CollNetDirect、CollNetChain、PAT 这五种算法的 LL / LL128 组合一律为 0（collnet 那两行的源码注释只有一句 `Not used`）。
 
 把这些判定按 all_reduce 串起来，就是"初始化的拓扑输入 → 执行期候选集"的决策链（第八章的手算只在候选集里比大小）：
 
@@ -610,29 +748,31 @@ Table: ncclTopoTuneModel 的常数：基础延迟 `baseLatencies[algo][proto]` �
 
 对每个 (coll, algo, proto)，带宽这样算（`busBw` 是链路承载的流量，最后换成算法带宽）：
 
-```text title='带宽表的计算：Ring / Tree 各协议的 busBw 折算'
-bw      = nNodes <= 2 ? graph.bwIntra : graph.bwInter          （多机时瓶颈在网络）
-busBw   = graph.nChannels × bw
-Ring+LL     busBw = min(llMaxBw, busBw × 0.5)                   LL 50%，且有绝对上限
-Ring+LL128  busBw = min(busBw × 0.92, nChannels × perChMaxRingLL128Bw)
-Tree(all_reduce)  busBw = min(busBw × 0.92, nChannels × perChMaxTreeBw)；Tree+LL ÷3.8；Tree+LL128 ×7/9（单机）或 ×120/128
-Tree 且 pattern==TREE（Hopper）  ×0.85
-NVLS    intraBw = bwIntra × nvlsEfficiency × (nCh-1)/nCh × 2（all_reduce 两阶段流水）；bw = min(intraBw, interBw)
-PAT     ×0.75
-算法带宽 = busBw × ratio：Ring/NVLS/NVLSTree 乘 nRanks/nsteps（all_reduce 是 n/(2(n-1))，即第一篇 busbw→algbw 的反向）；Tree/CollNet 乘 0.5
-```
+| 步骤 / 组合 | 怎么算 | 系数的来处 |
+|---|---|---|
+| 起点 | `nNodes <= 2` 或算法是 CollNet 时 `bw = graph.bwIntra`，否则 `bw = graph.bwInter`<br/>`busBw = graph.nChannels × bw` | 三节点起瓶颈在网络，所以取出节点的那份带宽；CollNet 例外，它的归约在交换机里做 |
+| Ring + LL | `busBw = min(llMaxBw, busBw × 0.5)` | LL 的有效载荷 50%，另外还有一个绝对上限 `llMaxBws` |
+| Ring + LL128 | `busBw = min(busBw × 0.92, nChannels × perChMaxRingLL128Bw)` | LL128 的 120/128，再受每 channel 上限约束 |
+| Tree（all_reduce） | `busBw = min(busBw × 0.92, nChannels × perChMaxTreeBw)`<br/>Tree + LL 再 `min(busBw/3.8, llMaxBw)`<br/>Tree + LL128 再 `min(busBw × (单机 7/9，多机 120/128), nChannels × perChMaxTreeLL128Bw)` | 同一条链路上下两趟都要走 |
+| Tree 且 pattern 退化成 `TREE`（Hopper） | 再 × 0.85 | 这种 pattern 下所有 NIC 流量都挤在第一个 GPU |
+| NVLS | `intraBw = bwIntra × nvlsEfficiency × (nCh-1)/nCh × 2`<br/>`bw = min(intraBw, interBw)` | all_reduce 的两个阶段在 NVSwitch 里流水，所以乘 2 |
+| PAT | 再 × 0.75 | |
+| 最后换成算法带宽 | `算法带宽 = busBw × ratio`<br/>Ring / NVLS / NVLSTree 乘 `nRanks/nsteps`（all_reduce 即 $$n/(2(n-1))$$）<br/>Tree / CollNet 乘 0.5 | [《集合通信原语与代价模型》的「algbw 与 busbw」一节](/collective-communication-primitives-and-cost-model.html#七algbw-与-busbw)里那个换算的反向 |
+
+Table: 调优表里 busBw 的折算与换成算法带宽的系数
 
 延迟这样算（`intraLat` 取 NVLINK 或 PCI 表，`interLat` 取 NET 表再加图的 `latencyInter`，Simple 再加一次 flush 延迟）：
 
-```text title='延迟表的计算：Ring、Tree、CollNet、NVLS 的公式'
-Ring   lat = base + (nsteps - nInterSteps) × intraLat + nInterSteps × interLat
-           nsteps = 2(nRanks-1)，nInterSteps = 2(nNodes-1)；多机时 intraLat 至少是 netOverhead（Intel 1 µs、AMD 2 µs，Simple ×3）
-Tree   lat = base + 2 × ((nRanks/nNodes - 1) × intraLat + log2(nNodes) × interLat)
-CollNetDirect  lat = base + 2 × (min(1, ppn-1) × intraLat + (ppn-1) × 0.4) + interLat
-NVLS   lat = intraLat (25)，多机再 + interLat
-NVLSTree  lat = base + intraLat + 2 × log2(nNodes) × interLat
-PAT    lat = base + log2(nNodes) × interLat/3.5 + nRanks × 2.8
-```
+| 算法 | lat 的公式 | 公式里的量 |
+|---|---|---|
+| Ring | `base + (nsteps − nInterSteps) × intraLat + nInterSteps × interLat` | `nsteps = 2(nRanks−1)`<br/>all_reduce 的 `nInterSteps = 2(nNodes−1)`<br/>多机时 `intraLat` 至少取 netOverhead（Intel 1 µs、AMD 2 µs，Simple 再 ×3） |
+| Tree | `base + 2 × ((nRanks/nNodes − 1) × intraLat + log2(nNodes) × interLat)` | 节点内一条链 + 节点间 $$\log_2$$ 层树，reduce 与 broadcast 两趟所以乘 2 |
+| CollNetDirect | `base + 2 × (min(1, ppn−1) × intraLat + (ppn−1) × 0.4) + interLat` | `ppn = nRanks/nNodes`，每节点 GPU 数；0.4 µs 是源码注释里的 arity 串行化开销 |
+| NVLS | `intraLat`（NVLink 档是 25 µs），多机再加 `interLat` | 式子里没有 nRanks：一次多播归约的固定开销 |
+| NVLSTree | `base + intraLat + 2 × log2(nNodes) × interLat` | 节点内一步 NVLS，节点间仍是树的上下两趟 |
+| PAT | `base + log2(nNodes) × interLat/3.5 + nRanks × 2.8` | 节点间是 log 项，但还留着一个与 nRanks 成正比的线性项 |
+
+Table: 调优表里各算法 lat 的公式
 
 rank 0 在 `NCCL_DEBUG_SUBSYS=TUNING` 下把整张表打出来，格式 `%8.1f/%6.1f` 即 `延迟/带宽`：
 
@@ -679,12 +819,14 @@ ncclResult_t ncclTopoGetAlgoTime(struct ncclComm* comm, int coll, int algorithm,
 
 **机器一：8 卡 H100 + NVSwitch（单机）。** 可用算法：Ring、Tree、NVLS（有 NVSwitch、Hopper、`nvlsSupport`）。假设 ring 图 nChannels = 16、bwIntra = 24（H100 常见量级）、NVLS 图 nChannels = 8（每 GPU 一个 head）、bwIntra = 60（`sm90SpeedArrayIntra` 首项）。
 
-```text title='机器一（8 卡 H100 NVSwitch）各组合的 busBw、algbw 与 lat'
-Ring+Simple   busBw = 16×24 = 384 → algbw = 384×8/14 = 219 GB/s；lat = 8.4 + 14×3.4 = 56.0 µs
-Ring+LL128    busBw = min(384×0.92, 16×36.7) = 353 → 202 GB/s；lat = 14 + 14×1.9 = 40.6 µs
-Ring+LL       busBw = min(141, 384×0.5) = 141 → 80.6 GB/s；lat = 6.6 + 14×0.6 = 15.0 µs
-NVLS+Simple   intraBw = 60×0.85×7/8×2 = 89.3；busBw = 8×89.3 = 714 → algbw = 714×8/14 = 408 GB/s；lat = 25 µs
-```
+| 组合 | busBw（GB/s） | 算法带宽（GB/s） | lat（µs） | 代入 |
+|---|---:|---:|---:|---|
+| Ring+Simple | 384 | 219 | 56.0 | `16×24 = 384`，`384×8/14 = 219`；`8.4 + 14×3.4` |
+| Ring+LL128 | 353 | 202 | 40.6 | `min(384×0.92, 16×36.7) = 353`；`14 + 14×1.9` |
+| Ring+LL | 141 | 80.6 | 15.0 | `min(141, 384×0.5) = 141`（撞上 `llMaxBw`）；`6.6 + 14×0.6` |
+| NVLS+Simple | 714 | 408 | 25 | `intraBw = 60×0.85×7/8×2 = 89.3`，`8×89.3 = 714`，`714×8/14 = 408` |
+
+Table: 机器一（8 卡 H100 + NVSwitch）各组合的 busBw、算法带宽与延迟
 
 带宽的账 NVLS 大胜：ring 里每个 GPU 要经 NVLink 收发 $$\frac{2(n-1)}{n}S = 1.75S$$，而且要串行走 $$2(n-1)$$ 步；NVLS 把归约交给 NVSwitch，每个 GPU 只需把自己的份交给多播地址、再收一次结果，NVLink 上每卡的字节量仍约 $$2S$$，但一步完成、没有逐跳等待，链路能持续跑满，模型用 `nvlsEfficiency × 2` 表达这一点。延迟的账 NVLS 也不差：25 µs 是一次多播归约的固定开销，而 Ring+Simple 的 14 步累计 56 µs。所以只有 Ring+LL（15.0 µs）在小消息上能赢：解 $$15.0 + S/80.6\text{e}3 < 25 + S/408\text{e}3$$ 得 $$S \lesssim 1\ \text{MB}$$。**模型结论：1 MB 左右以下 Ring+LL（或 Tree+LL），以上全部 NVLS+Simple。** 这就是总纲说的"NVSwitch 机器上选了 NVLS + Simple"。
 
@@ -695,22 +837,35 @@ NVLS+Simple   intraBw = 60×0.85×7/8×2 = 89.3；busBw = 8×89.3 = 714 → algb
 
 **机器三：32 节点 × 8 卡 = 256 rank，节点内 NVSwitch，节点间 IB。** 多机时 `bw = bwInter`，假设 ring 图 nChannels = 8（搜出 4 条 × 翻倍）、bwInter = 12（每 NIC 分到的每 channel 带宽），Hopper。CPU 没指明，这里按 Intel 算：多机 ring 的节点内每步延迟至少取 `getNetOverhead` 的 1 µs（AMD 是 2 µs），Simple 再 ×3；LL 的带宽上限取 `llMaxBws` 里 Intel、≥ 4 节点档的 20.4。
 
-```text title='机器三（32 节点）Ring 与 Tree 各协议的账'
-Ring+Simple   busBw = 96 → algbw = 96 × 256/510 = 48.2 GB/s
-              lat = 8.4 + (510-62)×max(3.4, 1×3) + 62×(14+0) = 8.4 + 1523 + 868 = 2400 µs，大消息再 ×1.4（plateau）= 3360 µs
-Ring+LL128    busBw = min(96×0.92, 8×36.7) = 88.3 → algbw = 88.3 × 256/510 = 44.3 GB/s
-              lat = 14 + 448×max(1.9, 1) + 62×4.0 = 14 + 851 + 248 = 1113 µs
-Tree+Simple   busBw = min(96×0.92, 8×36.0) = 88.3，×0.85（Hopper TREE pattern）= 75.1 → algbw = 37.5 GB/s
-              lat = 8.4 + 2×(7×4.0 + 5×14) = 204 µs
-Tree+LL128    busBw = min(88.3×120/128, 8×29.0) = 82.8，×0.85 = 70.4 → algbw = 35.2 GB/s
-              lat = 14 + 2×(7×1.25 + 5×8.5) = 116.5 µs
-Tree+LL       busBw = min(88.3/3.8, 20.4) = 20.4，×0.85 = 17.3 → algbw = 8.7 GB/s
-              lat = 6.8 + 2×(7×0.6 + 5×5.0) = 65 µs
-Ring+LL       busBw = min(20.4, 96×0.5) = 20.4 → algbw = 20.4 × 256/510 = 10.2 GB/s
-              lat = 6.6 + 448×max(0.6, 1) + 62×2.7 = 6.6 + 448 + 167 = 622 µs
-```
+ring 图的 `busBw = 8 × 12 = 96`；Ring 系的算法带宽乘 `256/510`，Tree 系乘 0.5；ring 的 510 步里 62 步过网络、448 步在节点内。
+
+| 组合 | busBw 的代入（GB/s） | 算法带宽（GB/s） | lat（µs） | lat 的代入 |
+|---|---|---:|---:|---|
+| Ring+Simple | 96 | 48.2 | 2400 | `8.4 + 448×max(3.4, 1×3) + 62×14`<br/>大消息再吃 ×1.4 的 plateau = 3360 |
+| Ring+LL128 | `min(96×0.92, 8×36.7) = 88.3` | 44.3 | 1113 | `14 + 448×max(1.9, 1) + 62×4.0` |
+| Ring+LL | `min(20.4, 96×0.5) = 20.4` | 10.2 | 622 | `6.6 + 448×max(0.6, 1) + 62×2.7` |
+| Tree+Simple | `min(96×0.92, 8×36.0) = 88.3`<br/>再 ×0.85（Hopper 的 `TREE` pattern）= 75.1 | 37.5 | 204 | `8.4 + 2×(7×4.0 + 5×14)` |
+| Tree+LL128 | `min(88.3×120/128, 8×29.0) = 82.8`<br/>再 ×0.85 = 70.4 | 35.2 | 116.5 | `14 + 2×(7×1.25 + 5×8.5)` |
+| Tree+LL | `min(88.3/3.8, 20.4) = 20.4`<br/>再 ×0.85 = 17.3 | 8.7 | 65 | `6.8 + 2×(7×0.6 + 5×5.0)` |
+
+Table: 机器三（32 节点 × 8 卡）各组合的 busBw、算法带宽与延迟
 
 延迟的账差了一个数量级：ring 要走 510 步，其中 62 步过网络；tree 只要节点内 7 步 + 节点间 $$\log_2 32 = 5$$ 步、再乘 2。带宽的账 ring 好 30%（Simple 对 Simple）。先各自比协议：Tree 这边 $$116.5 + S/35.2\text{e}3 = 204 + S/37.5\text{e}3$$ 得 $$S \approx 50\ \text{MB}$$，50 MB 以下 Tree+LL128 更快；Ring 这边 LL128 不吃 plateau，$$1113 + S/44.3\text{e}3 = 3360 + S/48.2\text{e}3$$ 得 $$S \approx 1.2\ \text{GB}$$，在这之前都是 Ring+LL128 更快。Tree 与 Ring 的交叉点：$$204 + S/37.5\text{e}3 = 1113 + S/44.3\text{e}3$$ 得 $$S \approx 222\ \text{MB}$$（还没算 `treeCorrectionFactor` 在 100 MB 附近的 0.8 折，算上后交叉点略前移）。**25 MB 的 DDP bucket、几十 MB 的梯度分片都在 Tree 的区间（50 MB 以下是 Tree+LL128），两百多 MB 以上 Ring 才回来。** 这就是"跨 32 台机器时选了 Tree"。
+
+把三台机器的结果按消息大小摊平，就是一张"区间 → 组合"的表（交叉点都是上面几个方程解出来的模型值）：
+
+| 机器 | 消息区间 | 模型选出的组合 | 赢在哪 |
+|---|---|---|---|
+| 机器一：8 卡 H100 + NVSwitch | < 约 1 MB | Ring+LL | 延迟 15.0 µs 最低，NVLS 那 25 µs 的固定开销还摊不掉 |
+| ^^ | > 约 1 MB | NVLS+Simple | 算法带宽 408 GB/s，是 Ring+Simple 的 1.9 倍 |
+| 机器二：有 NVLink 无 NVSwitch | < 约 4.3 MB | Ring+LL128 | 延迟比 Simple 少 15 µs，带宽只差 9 GB/s |
+| ^^ | > 约 4.3 MB | Ring+Simple | 带宽 55 比 46 GB/s 高 |
+| 机器三：32 节点 × 8 卡 | < 约 0.6 MB | Tree+LL | 65 µs，三种协议里延迟最低 |
+| ^^ | 约 0.6 ～ 50 MB | Tree+LL128 | 延迟 116.5 µs，带宽已是 Tree+LL 的 4 倍 |
+| ^^ | 约 50 ～ 222 MB | Tree+Simple | Tree 这边带宽封顶在 37.5 GB/s |
+| ^^ | > 约 222 MB | Ring+LL128 | ring 的 44.3 GB/s 终于补回它多付的 900 µs 步数延迟 |
+
+Table: 三台机器上模型选出的算法 × 协议随消息大小的变化（简化模型，非实测）
 
 三个决定用的是同一个公式，不同的只是输入：
 
@@ -758,7 +913,7 @@ ncclResult_t (*getCollInfo)(void* context, ncclFunc_t collType, size_t nBytes,
 ncclResult_t (*finalize)(void* context);
 ```
 
-`init` 拿到的 `constants` 就是上面那张 `ncclTunerConstantsDefaults`，插件可以改它（比如把某个 `hwLatencies` 改成你实测的）；`getCollInfo` 拿到 NCCL 已经算好的 `collCostTable[algo][proto]`（就是 `ncclTopoGetAlgoTime` 的输出），可以改任何一格、或直接把不想要的置为 `NCCL_ALGO_PROTO_IGNORE`，还可以返回 `nChannels`。`ext-tuner/example/` 是一个读 CSV 配置的完整实现，`nccl_tuner.conf` 的每一行是 `collective_type,min_bytes,max_bytes,algorithm,protocol,channels,nNodes,nRanks,numPipeOps,regBuff`——按消息大小区间指定算法协议。它比环境变量精细得多，也是第六篇调优时"先测出曲线、再把交叉点写进配置"的落地方式。
+`init` 拿到的 `constants` 就是上面那张 `ncclTunerConstantsDefaults`，插件可以改它（比如把某个 `hwLatencies` 改成你实测的）；`getCollInfo` 拿到 NCCL 已经算好的 `collCostTable[algo][proto]`（就是 `ncclTopoGetAlgoTime` 的输出），可以改任何一格、或直接把不想要的置为 `NCCL_ALGO_PROTO_IGNORE`，还可以返回 `nChannels`。`ext-tuner/example/` 是一个读 CSV 配置的完整实现，`nccl_tuner.conf` 的每一行是 `collective_type,min_bytes,max_bytes,algorithm,protocol,channels,nNodes,nRanks,numPipeOps,regBuff`——按消息大小区间指定算法协议。它比环境变量精细得多，也是[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)调优时"先测出曲线、再把交叉点写进配置"的落地方式。
 
 ## 九、执行期：enqueue、kernel 与 proxy
 
@@ -822,7 +977,7 @@ group 里的两个任务：
 
 ### 4. 设备侧原语
 
-`src/device/all_reduce.h` 的 `runRing` 就是第一篇的 ring 算法逐字翻译：
+`src/device/all_reduce.h` 的 `runRing` 就是[《集合通信原语与代价模型》的「ring all_reduce 的推导」一节](/collective-communication-primitives-and-cost-model.html#五ring-all_reduce-的推导)那套 ring 算法的逐字翻译：
 
 ```cpp title='all_reduce.h 的 runRing：ring 算法逐字翻译'
 Primitives<T, RedOp, FanSymmetric<1>, 1, Proto, 0> prims(tid, nthreads, &ring->prev, &ring->next, work->sendbuff, work->recvbuff, ...);
@@ -841,7 +996,7 @@ Tree 的 all_reduce（`runTreeUpDown` / `runTreeSplit`）是两段：先沿 `dow
 
 ### 5. proxy 线程：GPU 不能驱动网卡
 
-GPU kernel 能直接读写对端显存（P2P）、能读写主机内存（SHM），但**不能提交 RDMA 请求**——verbs 的 `ibv_post_send` 是 CPU 侧的库调用，需要 CPU 写 QP 的 doorbell（第三篇）。所以跨机时每张 GPU 需要一个 CPU 线程替它做这件事，这就是 proxy。
+GPU kernel 能直接读写对端显存（P2P）、能读写主机内存（SHM），但**不能提交 RDMA 请求**——verbs 的 `ibv_post_send` 是 CPU 侧的库调用，需要 CPU 写 QP 的 doorbell（[《RDMA 与 GPUDirect》的「verbs 编程模型」一节](/rdma-and-gpudirect.html#三verbs-编程模型)）。所以跨机时每张 GPU 需要一个 CPU 线程替它做这件事，这就是 proxy。
 
 `ncclProxyCreate`（`src/proxy.cc`）在初始化时起 `ncclProxyService` 线程（处理连接建立等控制消息，本地 rank 通过 socket/UDS 与它通话），进度线程 `ncclProxyProgress` 在第一次需要时由 service 线程创建。进度线程的主循环：
 
@@ -863,7 +1018,7 @@ NET transport 的 `sendProxyProgress`（`src/transport/net.cc`）对每个 chann
 2. 看 `recvMem->tail`（GPU 写完一个 slot 后推进），如果 `connFifo[slot].size != -1` 说明 GPU 填好了这个 slot（LL/LL128 在 sysmem 时还要逐 line 验 flag），调 `ncclNet->isend`；
 3. 对 `done < transmitted` 的请求调 `ncclNet->test`，完成了就 `sendHead` 前进，GPU 可以复用该 slot。
 
-接收侧 `recvProxyProgress` 对称：先 `irecv` 把 slot 交给网卡，完成后（GDR 时可能还要 `iflush` 确保数据对 GPU 可见）推 `recvMem->tail` 让 GPU 去读。所有 GPU–proxy 之间的同步都靠 `head`/`tail` 这两个 64 位计数器，位于 GPU 能读写的内存里（`gdcSync` 开着时用 GDRCopy 让 CPU 直接写显存里的计数器，省一次 PCIe 往返——第三篇讲的 GDRCopy 用途）。
+接收侧 `recvProxyProgress` 对称：先 `irecv` 把 slot 交给网卡，完成后（GDR 时可能还要 `iflush` 确保数据对 GPU 可见）推 `recvMem->tail` 让 GPU 去读。所有 GPU–proxy 之间的同步都靠 `head`/`tail` 这两个 64 位计数器，位于 GPU 能读写的内存里（`gdcSync` 开着时用 GDRCopy 让 CPU 直接写显存里的计数器，省一次 PCIe 往返——[《RDMA 与 GPUDirect》的「GDRCopy 与 GPUDirect 家族」一节](/rdma-and-gpudirect.html#九gdrcopy-与-gpudirect-家族)讲的 GDRCopy 用途）。
 
 一个 slot 从发送端 GPU 写入到接收端 GPU 读走，五个参与者之间谁等谁：
 
@@ -898,7 +1053,7 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 为什么它是 hang 和性能问题的常见源头：
 
 - 它是**一个 CPU 线程**在为整张 GPU 的所有 channel 轮询。被抢占（CPU 超卖、绑核不当、`NCCL_PROXY_CPUSET` 没设而落在忙核上）就直接表现为小消息延迟抖动和大消息带宽掉一截。`[Proxy Progress] Device %d CPU core %d` 这行日志告诉你它跑在哪个核。
-- GPU 侧 kernel 在 `waitPeer` 里自旋等 `head`/`tail`，proxy 不推进它就永远等。所以"网络断了 / 对端 rank 死了 / QP 出错"在 GPU 上的表现是 kernel 自旋不退出，profiler 里是一条无限长的 `ncclDevKernel_*`——这是第六篇 hang 排查里 `cuda-gdb` 看到"kernel 在自旋"的来源。
+- GPU 侧 kernel 在 `waitPeer` 里自旋等 `head`/`tail`，proxy 不推进它就永远等。所以"网络断了 / 对端 rank 死了 / QP 出错"在 GPU 上的表现是 kernel 自旋不退出，profiler 里是一条无限长的 `ncclDevKernel_*`——这是[《nccl-tests、调优与排障》的「hang 的分类与定位工具」一节](/nccl-tests-tuning-and-debugging-hangs.html#六hang-的分类与定位工具)里 `cuda-gdb` 看到"kernel 在自旋"的来源。
 - 出错时 proxy 把 `asyncResult` 置位、打 `[Proxy Progress] … [Progress Thread]`，但 kernel 侧要靠 `abortFlag` 才会退出——`ncclCommAbort` 做的就是置这个 flag。
 - `NCCL_PROXY_DUMP_SIGNAL` 可以指定一个信号，收到时 `ncclDumpProxyState` 把所有活跃 proxyOp 的游标打出来——每个 channel 停在 `posted/transmitted/done` 的哪一步，一看便知是 GPU 没写、网卡没发、还是对端没收。
 
@@ -912,7 +1067,10 @@ GPU 侧的等待全部是自旋（`waitPeer`），proxy 侧的等待是 `test` �
 2. **调优时的流水线折扣**：`numPipeOps` > 1 时 tree 的延迟只算一次。
 3. **send/recv 必须成对放在 group 里**。`ncclSend` 和 `ncclRecv` 各自只是入队；如果 rank A 调 `ncclSend(to B)` 时不在 group 里，`ncclGroupEndInternal` 立刻启动一个只有 send 的 kernel，这个 kernel 会在 `waitPeer` 里等 B 的接收 buffer 就绪；而 B 要等 A 的 send kernel 返回后才会调 `ncclRecv`——如果 B 同时也在 `ncclSend(to A)` 里等 A 收，两边都在等对方先收，**死锁**。放在同一个 group 里，`ncclP2pSchedule`（`src/init.cc`）会把本轮所有 peer 的 send 和 recv 按固定的轮次表（每轮和一个 peer 互发互收）排进同一个 kernel 的不同 channel，同时进行，不存在"先后"。这也是为什么 `ncclSend/ncclRecv` 的连接是按 peer 懒建的，且 `p2pnChannels` 要是 2 的幂——channel 到 peer 的映射是位运算（`ncclP2pChannelForPart`）。
 
-第六篇 hang 分类里"send/recv 没有配对"就是第 3 条；第五篇会看到 PyTorch 的 `batch_isend_irecv` 和 `_coalescing_manager` 就是为了把这些调用包进一个 group。
+《nccl-tests、调优与排障》的 hang 分类里"send/recv 没有配对"就是第 3 条；[《PyTorch 的通信栈》](/pytorch-communication-stack-processgroupnccl-and-streams.html)里 PyTorch 的 `batch_isend_irecv` 和 `_coalescing_manager` 就是为了把这些调用包进一个 group。
+
+> [!NOTE] Java 经验参照：参与方必须一致的栅栏
+> 用过 `CyclicBarrier(4)` 的人踩过同一个坑：只要有一方没来 `await`，或者有人按 `CyclicBarrier(3)` 构造，所有线程就一起挂在那里，栈里看不出谁错了。集合通信是同一种约束，而且更严：每个 rank 都要调这一次集合操作，而且 count 与 datatype 必须相同（NCCL 文档的原话是"Failure to do so will result in undefined behavior, including hangs, crashes, or data corruption"），调用的先后次序也要一致——本节那个 send/recv 死锁就是次序不一致的最小例子。这也是[第二章](#二初始化uniqueid-与-bootstrap)里第二次 AllGather 要对各 rank 的图取最小值的原因——参数不一致会让它们选出不同算法，等价于参与方对不上。对不上的地方是：`CyclicBarrier` 的参与方数写在构造函数里，一眼能对；NCCL 的"参与方"是分布在几十台机器上的调用序列，只能靠日志里的 `opCount` 对齐（`NCCL_DEBUG_SUBSYS=COLL` 会打每次调用的 `opCount`）。
 
 ## 十、看一看与测一测：读一份 INFO 日志
 
@@ -997,7 +1155,7 @@ Table: 改拓扑文件观察 NCCL 决策变化的实验
 
 ### 4. 比一比：这一层的检查清单
 
-理论与实测有差距时，先按下面十步的顺序看日志（第六篇会把它并入完整的决策树）：
+理论与实测有差距时，先按下面十步的顺序看日志（[《nccl-tests、调优与排障》的「决策树」一节](/nccl-tests-tuning-and-debugging-hangs.html#九决策树)会把它并入完整的决策树）：
 
 1. `Using network` 是不是 IB（或你期望的插件）？不是 → 插件加载 / `NCCL_NET` / `NCCL_IB_HCA` / 权限。
 2. `Bootstrap: Using` 的接口对不对？错 → `NCCL_SOCKET_IFNAME`（只影响 bootstrap 与 Socket 数据面）。
@@ -1079,7 +1237,7 @@ Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：nccl_log_reader.py
 
-**做什么**：读一份（或多个 rank 拼在一起的）`NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,TUNING` 日志，提取：网络插件、bootstrap 接口、拓扑摘要（maxBw、GDR 判定）、图搜索结果（每种 pattern 的 nChannels/bw/type）、全局 ring（`Channel xx/yy`）与 tree（`Trees`）、channel 数、每条连接用的 transport、调优表（每个算法×协议的 lat/bw）、以及每次集合操作的算法协议决策。然后对每次决策，用调优表算出 NCCL 自己的预估时间，再用第一篇 `cost_model.py` 的 α-β 模型（输入第二篇填的链路 α、β）算理论时间，三者并列，供第六篇与 nccl-tests 实测对照。
+**做什么**：读一份（或多个 rank 拼在一起的）`NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,GRAPH,TUNING` 日志，提取：网络插件、bootstrap 接口、拓扑摘要（maxBw、GDR 判定）、图搜索结果（每种 pattern 的 nChannels/bw/type）、全局 ring（`Channel xx/yy`）与 tree（`Trees`）、channel 数、每条连接用的 transport、调优表（每个算法×协议的 lat/bw）、以及每次集合操作的算法协议决策。然后对每次决策，用调优表算出 NCCL 自己的预估时间，再用[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)的 `cost_model.py`（α-β 模型，输入《硬件互联》填的链路 α、β）算理论时间，三者并列，供[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)与 nccl-tests 实测对照。
 
 **输入**：日志文件路径；可选 `--alpha-us`、`--beta-gbps`（给 `cost_model.py`）。**输出**：一段结构化摘要（也可 `--json`）。
 
@@ -1089,7 +1247,7 @@ Table: 本篇涉及的源码与工具位置
 #!/usr/bin/env python3
 """nccl_log_reader.py: parse NCCL_DEBUG=INFO logs (INIT,GRAPH,TUNING) and compare with cost_model."""
 import re, sys, json, argparse, collections
-from cost_model import ring_allreduce_time   # 第一篇：T = 2(n-1)α + 2(n-1)/n · S/β，单位 µs / GB/s
+from cost_model import ring_allreduce_time   # 《集合通信原语与代价模型》：T = 2(n-1)α + 2(n-1)/n · S/β，单位 µs / GB/s
 
 LINE   = re.compile(r'^(?P<host>\S+):(?P<pid>\d+):(?P<tid>\d+) \[(?P<dev>\d+)\] NCCL INFO (?P<msg>.*)$')
 PATS = {   # 与源码 INFO() 格式串一一对应（文件: 函数）
@@ -1169,7 +1327,7 @@ if __name__ == '__main__':
     else: report(r, a.alpha_us, a.beta_gbps)
 ```
 
-三个对照列的含义：`nccl-model` 是 NCCL 用自己的调优表对**它选的**组合算出的时间；`table-min` 是同一张表里的最小值及其组合——两者不同就说明有 `NCCL_ALGO`/`NCCL_PROTO` 或 tuner 插件在干预；`alpha-beta ring` 是第一篇模型用第二篇实测的 α、β 算的 ring 理论时间——它与 `nccl-model` 的差距是"NCCL 的经验常数 vs 你机器的实际链路"，与第六篇 nccl-tests 实测的差距是"模型 vs 现实"。三列摆在一起，哪一层出了问题一眼可见。
+三个对照列的含义：`nccl-model` 是 NCCL 用自己的调优表对**它选的**组合算出的时间；`table-min` 是同一张表里的最小值及其组合——两者不同就说明有 `NCCL_ALGO`/`NCCL_PROTO` 或 tuner 插件在干预；`alpha-beta ring` 是《集合通信原语与代价模型》的模型用《硬件互联》实测的 α、β 算的 ring 理论时间——它与 `nccl-model` 的差距是"NCCL 的经验常数 vs 你机器的实际链路"，与《nccl-tests、调优与排障》里 nccl-tests 实测的差距是"模型 vs 现实"。三列摆在一起，哪一层出了问题一眼可见。
 
 下一篇往上走一层：PyTorch 是如何使用 NCCL 的。本篇讲清了 `ncclAllReduce` 返回时 kernel 只是被放进了 stream，那么框架侧的"异步"、"重叠"、"wait"到底各自意味着什么？
 
