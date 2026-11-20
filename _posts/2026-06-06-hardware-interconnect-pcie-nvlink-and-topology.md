@@ -5,10 +5,10 @@ title: "通信与互联（02）：硬件互联——PCIe、NVLink、NVSwitch 与
 subtitle: "Hardware Interconnect: PCIe, NVLink, NVSwitch and Network Topology"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-20
 ---
 
-上一篇把一次通信的时间写成 $$T = \alpha + S/\beta$$：α 是固定开销，β 是带宽，S 是字节数；ring all_reduce 在 n 个参与者上的时间是 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$。这个模型能算出"8 卡 1 GB 的 all_reduce 在 25 GB/s 的链路上大约 70 ms"，但它有两个空位：α 和 β 是多少，取决于数据走的是哪条链路。同一台机器上，两张 GPU 之间的 β 可能是 450 GB/s，也可能是 25 GB/s，也可能只有 10 GB/s，差 40 倍；α 可能是 2 微秒，也可能是 20 微秒。哪一个成立，由硬件拓扑决定。
+上一篇[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)把一次通信的时间写成 $$T = \alpha + S/\beta$$：α 是固定开销，β 是带宽，S 是字节数；ring all_reduce 在 n 个参与者上的时间是 $$T_{\text{ring}} = 2(n-1)\,\alpha + \frac{2(n-1)}{n}\cdot\frac{S}{\beta}$$。这个模型能算出"8 卡 1 GB 的 all_reduce 在 25 GB/s 的链路上大约 70 ms"，但它有两个空位：α 和 β 是多少，取决于数据走的是哪条链路。同一台机器上，两张 GPU 之间的 β 可能是 450 GB/s，也可能是 25 GB/s，也可能只有 10 GB/s，差 40 倍；α 可能是 2 微秒，也可能是 20 微秒。哪一个成立，由硬件拓扑决定。
 
 这一篇给 α 和 β 填上真实数字。一台 8 卡服务器内部有三种物理链路：GPU 之间的 NVLink（经 NVSwitch）、GPU 与网卡、CPU 之间的 PCIe、两颗 CPU 之间的 UPI / Infinity Fabric；节点之间有 InfiniBand 或 RoCE。每一种链路的速率差一个量级，数据从 GPU0 到 GPU1 走哪一种，取决于两张卡在机箱里的物理位置——而这个位置可以从 `nvidia-smi topo -m` 的一张矩阵里读出来。
 
@@ -26,9 +26,23 @@ updated: 2026-09-14
 
 ### 1. 节点内与节点间的两类路径
 
-把一台 8 卡服务器和它的邻居画成一张图，GPU 到 GPU 的数据只有下面几条路可走：
+把一台 8 卡服务器和它的邻居画成一张图，一次 GPU 到 GPU 的传输要穿过的东西全在上面：
 
 ![节点内与节点间的两类路径：8 卡服务器与邻居](/img/in-post/hardware-interconnect-node-paths.svg)
+
+图上每个方框在这条路径里各管一段：
+
+- **GPU**：路径的两端。它对外只有两类出口——NVLink，和一条 PCIe x16（A100 是 4.0、H100 是 5.0）。所有不走 NVLink 的流量（到 CPU、到网卡）都挤在这条 x16 上，见[第二章第 1 节](#1-从-gts-到-gbs)。
+- **NVSwitch**：每张卡的 12 / 18 条 NVLink 全部接进交换芯片，任意一对 GPU 都能用满发送方的全部链路，所以节点内的 β 与"谁和谁通信"无关，见[第三章第 2 节](#2-nvswitchany-to-any-全带宽)。
+- **PCIe switch**：一条 x16 上行、四条 x16 下行。同一个 switch 下的两个设备互访在 switch 内转发、不占上行，这就是 `nvidia-smi topo -m` 里的 `PIX`，见[第二章第 3 节](#3-p2p-事务走-switch-与走-root-complex)。
+- **root complex（含 IOMMU）**：PCIe 树的树根。跨 switch 的 P2P 要上行到它再下行，带宽打折；ACS 开着时连同一个 switch 内的 P2P 也被重定向到这里，见[第二章第 4 节](#4-为什么跨-root-complex-的-p2p-可能不可用acs-与-iommu)。
+- **UPI / Infinity Fabric**：两颗 CPU 之间的互联。跨它的路径就是 `SYS`，NCCL 按 CPU 型号估 6–40 GB/s，而且 GPUDirect RDMA 默认不在这条路径上启用，见[第五章第 3 节](#3-回答核心问题nv12pixsys)。
+- **DRAM 与 pinned buffer**：P2P 或 GPUDirect RDMA 走不通时，数据要在主机内存里落一次脚，PCIe 上多走一遍，见[第七章](#七主机内存在路径上的位置)。
+- **CPU 核与 proxy 线程**：NVLink 路径上它不参与；跨节点时它替 GPU 向网卡提交请求、轮询完成队列，它和 pinned buffer 落在哪个 NUMA 节点，决定这些操作要不要跨 UPI，见[第六章第 2 节](#2-为什么绑核会影响通信性能)。
+- **NIC（网卡）**：节点间唯一的出口。它的速率是按"一条 PCIe x16 刚好能喂饱它"选的，见[第四章第 3 节](#3-为什么-8-卡-h100-配-8-张-400-gbs-网卡)。
+- **IB / RoCE 交换网**：leaf 与 spine 两层。跨 leaf 的 β 由超额订阅比和同时跨 leaf 的流数决定，不再是一个常数，见[第八章](#八集群级拓扑fat-tree-与-rail-optimized)。
+
+把这些方框串起来，GPU 到 GPU 的数据只有下面几条路可走：
 
 - 节点内 GPU→GPU：
   - ① NVLink，经 NVSwitch（NV#），默认路径
@@ -38,7 +52,21 @@ updated: 2026-09-14
 - 节点间 GPU→GPU：
   - ⑤ GPU → PCIe → NIC → 网络 → NIC' → PCIe → GPU'，其中 GPU→NIC 一段本身也分 PIX/PXB/PHB/SYS
 
-①～④ 是节点内的四种路径，速率从快到慢；⑤ 是节点间，它的两端各含一段 GPU 到 NIC 的 PCIe 路径，这段路径的等级决定了 GPUDirect RDMA 能不能开、开了之后能跑多快（下一篇的主题）。
+①～④ 是节点内的四种路径，速率从快到慢；⑤ 是节点间，它的两端各含一段 GPU 到 NIC 的 PCIe 路径，这段路径的等级决定了 GPUDirect RDMA 能不能开、开了之后能跑多快（[《RDMA 与 GPUDirect》](/rdma-and-gpudirect.html)的主题）。
+
+每一段的带宽由不同的东西决定，查的地方也不同。本篇给出的数字分属三种口径，混用它们是这一层最容易出的错：
+
+| 路径上的段 | 带宽由什么决定 | 在本机哪里查到 | 本文数字的口径 |
+|---|---|---|---|
+| GPU ↔ GPU，经 NVLink（[第三章](#三nvlink-与-nvswitch)） | NVLink 代际 × 绑定的链路条数 | `nvidia-smi topo -m` 的 `NV#`<br/>`nvidia-smi nvlink -s` 的每条链路状态 | 标称（厂商规格，单向）<br/>NCCL 内部估算 |
+| GPU ↔ 同 switch 下的设备（[第二章](#二pcielane代际root-complex-与-p2p)） | PCIe 代际 × lane 数，两端取较窄的一方 | `lspci -vvv` 的 `LnkCap` 与 `LnkSta` | 理论（由 lane 数与编码算出）<br/>通常可达区间 |
+| 跨 switch / 跨 root complex（[第二章](#二pcielane代际root-complex-与-p2p)） | root complex 的 P2P 转发能力<br/>ACS 是否开启 | `lspci -vvv` 里的 `ACSCtl`<br/>`nvidia-smi topo -p2p r` | 通常可达区间（平台差异很大） |
+| 跨 socket，经 UPI（[第五章](#五读拓扑nvidia-smi-topo--mlspci--tv-与-topo--mp)、[第六章](#六numa-与亲和)） | CPU 型号 | `numactl -H`<br/>`/sys/bus/pci/devices/*/numa_node` | NCCL 内部估算（6–40 GB/s） |
+| GPU ↔ 主机内存（[第七章](#七主机内存在路径上的位置)） | GPU 的那条 PCIe x16，且内存必须是 pinned | `nvbandwidth` 的 H2D / D2H 测例 | 通常可达区间 |
+| 节点 ↔ 节点，经网卡（[第四章](#四网卡与网络infinibandroce-与-8-卡-8-网卡)） | IB / 以太网代际，且不超过网卡自己的 PCIe 链路 | `ibstat` 的端口速率<br/>`ib_write_bw` 的实测 | 标称（端口速率）<br/>通常可达区间 |
+| leaf ↔ spine（[第八章](#八集群级拓扑fat-tree-与-rail-optimized)） | 超额订阅比、同时跨 leaf 的流数 | 网络侧的端口与上行配置 | 由上面两项算出的区间 |
+
+Table: 路径上的每一段：带宽由什么决定、在哪里查、本文数字的口径
 
 ### 2. 三个量级的带宽
 
@@ -62,12 +90,12 @@ Table: 各种链路的单向带宽
 
 ### 3. 两本账在硬件层上的对应
 
-上一篇的"两本账"落到硬件上，各有各的来源：
+《集合通信原语与代价模型》的"两本账"落到硬件上，各有各的来源：
 
 - **带宽的账**看链路速率和路径上最窄的一段。GPU 经 PCIe 4.0 x16 发到网卡再上 HDR 200 Gb/s 的网络，瓶颈是 25 GB/s 的网卡而不是 32 GB/s 的 PCIe；如果这条路还要经过 CPU 的 root complex 和 UPI，瓶颈就变成 UPI 和 root complex 里的 P2P 转发能力。
 - **延迟的账**看路径上的跳数和每一跳的处理时间。NVLink 上 GPU 直接读写对端显存，一跳；PCIe P2P 经 switch 转发，一到两跳，每跳几百纳秒；经 root complex 要多穿一次 CPU 的 IOMMU 与内部互联；跨节点要经过网卡的 DMA、网络交换机、对端网卡，端到端的单边 RDMA WRITE 通常在 1–2 微秒量级（非实测）；如果不能绕过主机内存，还要加上两次拷贝和一次 CPU 参与。
 
-这一篇主要填带宽的账，因为它由硬件直接决定；延迟的账里硬件的贡献（链路延迟、跳数）通常只占一小部分，大部分来自软件——kernel 启动、协议握手、proxy 线程——留到第四篇。
+这一篇主要填带宽的账，因为它由硬件直接决定；延迟的账里硬件的贡献（链路延迟、跳数）通常只占一小部分，大部分来自软件——kernel 启动、协议握手、proxy 线程——留到[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)。
 
 ### 4. 本文的章节安排
 
@@ -89,7 +117,11 @@ Table: 本文的章节安排
 
 ### 1. 从 GT/s 到 GB/s
 
-PCIe 是点对点的串行链路，一条链路由若干 lane 组成，每个 lane 是一对差分线（一收一发），所以 PCIe 天然是全双工的：单向带宽与双向合计相差一倍。带宽由三个数决定：lane 数（x1/x4/x8/x16）、每 lane 的传输速率（GT/s，每秒多少次符号传输）、编码效率。
+PCIe 是点对点的串行链路，一条链路由若干 lane 组成，每个 lane 是一对差分线（一收一发），所以 PCIe 天然是全双工的：单向带宽与双向合计相差一倍。带宽由三个数决定：
+
+1. lane 数：x1 / x4 / x8 / x16；
+2. 每 lane 的传输速率：GT/s，即每秒多少次符号传输；
+3. 编码效率：每个符号里有多少是数据。
 
 | 代际 | 每 lane 速率 | 编码 | 每 lane 单向有效 | x16 单向 | x16 双向合计 |
 |---|---|---|---|---|---|
@@ -207,13 +239,24 @@ NCCLCHECK(kvConvertToInt(str, &speed, kvDictPciGen)); // Values in 100Mbps, per 
 NCCLCHECK(ncclTopoConnectNodes(node, parent, LINK_PCI, width*speed/80.0));
 ```
 
-`width*speed/80` 对 PCIe 3.0 x16 是 $$16 \times 60 / 80 = 12$$ GB/s，4.0 x16 是 24 GB/s，5.0 x16 是 48 GB/s——恰好是理论值 16/32/64 的 75%。`src/graph/topo.h` 里也定义了 `#define PCI_BW 12.0  // PCI Gen3 x16` 作为默认值。这说明两件事：NCCL 假设 PCIe 能达到理论值的四分之三；它对 PCIe 的估算只用来**比较路径**和**搜索 ring/tree**（第四篇），不是性能承诺。同一个文件里跨 CPU 的互联带宽按 CPU 型号取常量：`BDW_QPI_BW 6.0`、`SKL_QPI_BW 10.0`、`SRP_QPI_BW 22.0`、`ERP_QPI_BW 40.0`（Intel 各代）、`AMD_BW 16.0`、`ARM_BW 6.0`——这就是第一章表里"跨 socket 路径 NCCL 按 6–40 GB/s 估算"的来源。
+`width*speed/80` 对 PCIe 3.0 x16 是 $$16 \times 60 / 80 = 12$$ GB/s，4.0 x16 是 24 GB/s，5.0 x16 是 48 GB/s——恰好是理论值 16/32/64 的 75%。`src/graph/topo.h` 里也定义了 `#define PCI_BW 12.0  // PCI Gen3 x16` 作为默认值。这说明两件事：
+
+1. NCCL 假设 PCIe 能达到理论值的四分之三；
+2. 它对 PCIe 的估算只用来**比较路径**和**搜索 ring/tree**（见[《NCCL 架构》的「图搜索：在拓扑上找 ring 与 tree」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#五图搜索在拓扑上找-ring-与-tree)），不是性能承诺。
+
+同一个文件里跨 CPU 的互联带宽按 CPU 型号取常量：`BDW_QPI_BW 6.0`、`SKL_QPI_BW 10.0`、`SRP_QPI_BW 22.0`、`ERP_QPI_BW 40.0`（Intel 各代）、`AMD_BW 16.0`、`ARM_BW 6.0`——这就是第一章表里"跨 socket 路径 NCCL 按 6–40 GB/s 估算"的来源。
 
 ## 三、NVLink 与 NVSwitch
 
 ### 1. 每代 NVLink 的链路数与带宽
 
-NVLink 是 NVIDIA 专有的 GPU 间互联，与 PCIe 相比有三点本质区别：带宽高一个量级；GPU 之间直接以 load/store 语义访问对端显存（不是 DMA 拷贝，是 SM 里的一条访存指令可以落在对端 HBM 上）；支持原子操作和（Hopper 起）在交换机内做归约。每一代的规格：
+NVLink 是 NVIDIA 专有的 GPU 间互联，与 PCIe 相比有三点本质区别：
+
+1. 带宽高一个量级；
+2. GPU 之间直接以 load/store 语义访问对端显存——不是 DMA 拷贝，是 SM 里的一条访存指令可以落在对端 HBM 上；
+3. 支持原子操作，以及（Hopper 起）在交换机内做归约。
+
+每一代的规格：
 
 | GPU | NVLink 代际 | 每 GPU 链路数 | 每链路双向合计 | 每 GPU 双向合计 | 每 GPU 单向 |
 |---|---|---|---|---|---|
@@ -272,7 +315,7 @@ NVSwitch 把这变成了交换网络。每张 GPU 的所有链路全部接到 NV
 - ring 的每一步都以同样的带宽进行；
 - tree 的每条边也一样。
 
-NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——第四篇会看到它甚至不必真的搜索。
+NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——[《NCCL 架构》的「图搜索：在拓扑上找 ring 与 tree」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#五图搜索在拓扑上找-ring-与-tree)会看到它甚至不必真的搜索。
 
 ### 3. 为什么 NVLink 上的 all_reduce 几乎不受消息大小影响
 
@@ -284,11 +327,11 @@ NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——第四篇会�
 
 两本账的拐点在 $$S/\beta \cdot 1.75 = 14\alpha$$ 处，即 $$S \approx 14 \times 1.5\,\mu s \times 371\ \text{GB/s} / 1.75 \approx 4.5$$ MB。也就是说，**几 MB 以上的消息在 NVLink 上已经是带宽主导**，busbw 曲线在几 MB 之后就到平台是理所当然的。换到 IB：β 变成 50 GB/s（NDR 单向），α 变成跨节点的 5–10 µs 一步（proxy 线程参与、RDMA 往返、跨交换机），拐点 $$S \approx 14 \times 8\,\mu s \times 50\ \text{GB/s} / 1.75 \approx 3.2$$ MB——看起来差不多，但 IB 上的 β 低 7 倍，所以同样是"带宽主导"，达到平台的绝对时间长 7 倍，而且跨节点的 ring 跨越了多台机器、n 更大、步数更多，α 项还在增长。曲线形状差异的根源就是 β 差一个量级、α 也差近一个量级，而 NVLink 上两者的比值让拐点落在了很小的消息上。
 
-还有一个更直接的原因：NVLink 上 GPU 用 load/store 直接写对端显存，不需要 CPU proxy 线程参与，每一步的 α 里没有"CPU 轮询并提交网络请求"这一项——这一项在跨节点路径上是 α 的主要来源之一（第四篇 `src/proxy.cc`）。
+还有一个更直接的原因：NVLink 上 GPU 用 load/store 直接写对端显存，不需要 CPU proxy 线程参与，每一步的 α 里没有"CPU 轮询并提交网络请求"这一项——这一项在跨节点路径上是 α 的主要来源之一（[《NCCL 架构》的「执行期：enqueue、kernel 与 proxy」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#九执行期enqueuekernel-与-proxy)，`src/proxy.cc`）。
 
 ### 4. NVLink SHARP（NVLS）
 
-第三代 NVSwitch（Hopper）在交换机里加入了归约引擎，NVIDIA 叫 NVLink SHARP（SHARP 原本是 Mellanox 在 IB 交换机里做在网归约的技术名字）。GPU 把数据发到 NVSwitch 上的一个"多播地址"，switch 负责把来自多张卡的数据相加再分发回去。对 all_reduce 的意义：ring 里每张卡要经历 $$2(n-1)$$ 步、每步等上下游握手，而经 NVLS 每张卡只是把自己的 S 字节发给 switch、再收回归约好的 S 字节，步数降到常数，归约本身也从 GPU 卸载到了 switch；每卡的字节量（发 S 收 S）并不比 ring 的 $$1.75S$$ 少，省下的是步数、同步和 GPU 的归约工作。NCCL 从 2.17 起支持 NVLS 算法，`src/transport/nvls.cc` 里 `NCCL_PARAM(NvlsEnable, "NVLS_ENABLE", 2)` 控制它（默认 2 表示自动判断）。第四篇会讲它在调优表里如何与 Ring/Tree 竞争；这里只需要知道：H100 及之后的 NVSwitch 机器上，节点内大消息 all_reduce 的 busbw 可以**超过** NVLink 单向标称值——因为 nccl-tests 的 busbw 是用 ring 的 $$\frac{2(n-1)}{n}$$ 系数从完成时间反算出来的，NVLS 完成得比 ring 模型预估的快，反算值自然越过了"上限"。看到这种"超过理论值"的曲线不要惊讶，那是 NVLS 在工作。
+第三代 NVSwitch（Hopper）在交换机里加入了归约引擎，NVIDIA 叫 NVLink SHARP（SHARP 原本是 Mellanox 在 IB 交换机里做在网归约的技术名字）。GPU 把数据发到 NVSwitch 上的一个"多播地址"，switch 负责把来自多张卡的数据相加再分发回去。对 all_reduce 的意义：ring 里每张卡要经历 $$2(n-1)$$ 步、每步等上下游握手，而经 NVLS 每张卡只是把自己的 S 字节发给 switch、再收回归约好的 S 字节，步数降到常数，归约本身也从 GPU 卸载到了 switch；每卡的字节量（发 S 收 S）并不比 ring 的 $$1.75S$$ 少，省下的是步数、同步和 GPU 的归约工作。NCCL 从 2.17 起支持 NVLS 算法，`src/transport/nvls.cc` 里 `NCCL_PARAM(NvlsEnable, "NVLS_ENABLE", 2)` 控制它（默认 2 表示自动判断）。[《NCCL 架构》的「算法与协议」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#七算法与协议)会讲它在调优表里如何与 Ring/Tree 竞争；这里只需要知道：H100 及之后的 NVSwitch 机器上，节点内大消息 all_reduce 的 busbw 可以**超过** NVLink 单向标称值——因为 nccl-tests 的 busbw 是用 ring 的 $$\frac{2(n-1)}{n}$$ 系数从完成时间反算出来的，NVLS 完成得比 ring 模型预估的快，反算值自然越过了"上限"。看到这种"超过理论值"的曲线不要惊讶，那是 NVLS 在工作。
 
 ### 5. NCCL 眼中的 NVLink 带宽
 
@@ -333,10 +376,18 @@ Table: InfiniBand 的代际与端口速率
 
 RoCE v2（RDMA over Converged Ethernet）把 IB 的传输层原封不动地封进 UDP（目的端口 4791）/IP/以太网帧里，所以上层的 verbs 编程接口和 NCCL 的网络插件几乎不用改，网卡也是同一批 ConnectX，只是端口工作在以太网模式。差别在下面两层：
 
-- **寻址**：IB 用 LID（子网管理器分配的 16 位本地标识），RoCE 用 GID（映射自 IP 地址，所以有 `NCCL_IB_GID_INDEX` 的问题，下一篇讲）；
+- **寻址**：IB 用 LID（子网管理器分配的 16 位本地标识），RoCE 用 GID（映射自 IP 地址，所以有 `NCCL_IB_GID_INDEX` 的问题，见[《RDMA 与 GPUDirect》的「InfiniBand 与 RoCE v2」一节](/rdma-and-gpudirect.html#六infiniband-与-roce-v2)）；
 - **丢包**：IB 链路层是信用（credit）流控，接收方没有 buffer 发送方就不发，链路本身无损；以太网默认是有损的，交换机 buffer 满了就丢包。而 IB 传输层的 RC（Reliable Connection）用的是 Go-Back-N 重传：丢一个包，后面已经发出的所有包都要重发。100 Gb/s 以上的链路上千分之一的丢包率就能让有效带宽掉一半以上。
 
-所以 RoCE 网络必须做成"无损"或"近无损"，靠两套机制：**PFC**（Priority Flow Control，802.1Qbb）在某个优先级队列快满时逐跳发 PAUSE 帧，让上游停发，是逐跳的硬保证；**ECN**（Explicit Congestion Notification）让交换机在队列开始积压时给包打标记，接收方收到标记后发 CNP（Congestion Notification Packet）通知发送方降速，网卡上的 DCQCN 算法据此调节发送速率，是端到端的软调节。两者配合：ECN 先工作把速率压下来，PFC 作为最后的防线防止真丢包。这些配置分布在交换机（PFC 优先级、ECN 阈值、DSCP 到队列的映射）和网卡（`NCCL_IB_TC` 设置流量类别、DSCP 值、DCQCN 参数）两边，任何一边没配对，表现就是**多机 nccl-tests 的大消息带宽远低于单机、且抖动大**。第六篇的决策树里"多机远差于单机"一条，RoCE 环境下先查 PFC/ECN。
+所以 RoCE 网络必须做成"无损"或"近无损"，靠两套机制。它们的区别不在于谁更强，而在于**作用范围**：一个只管紧邻的一跳，一个跨越整条路径。
+
+![RoCE 的两套机制：PFC 逐跳暂停，ECN 与 CNP 端到端降速](/img/in-post/hardware-interconnect-pfc-ecn.svg)
+
+**1、PFC（Priority Flow Control，802.1Qbb）：逐跳的硬保证。** 某个优先级的入口队列长度超过阈值时，交换机向紧邻的上一跳发 PAUSE 帧，让它停发。图里每段链路上都有一个这样的反向箭头，而且只有一个——PFC 只作用在相邻两个以太网节点之间。拥塞持续存在时，PAUSE 就从拥塞点一跳一跳传回源端，沿途每一跳的队列都被按住，与拥塞无关的流跟着被拖慢；微软在 SIGCOMM 2016 的论文《RDMA over Commodity Ethernet at Scale》里把这类被连累的流叫 victim flow，并记下了他们在生产网络里真的撞上的 PFC 死锁。
+
+**2、ECN（Explicit Congestion Notification）：端到端的软调节。** 交换机在队列开始积压时给经过的包打标记，标记随数据一路走到接收方；接收方网卡收到后发一个 CNP（Congestion Notification Packet）回给发送方，发送方网卡上的 DCQCN 算法据此调节发送速率。图里这是一条从 spine 出发、绕到接收方再折回发送方的长路径——代价是要等标记走完这一圈才生效，好处是降速发生在源头，不会把上游链路一起按住。
+
+两者的分工也正是那篇论文的结论：DCQCN（靠 ECN 驱动）先把速率压下来，顺带减少 PFC 暂停帧的数量，而真正防住丢包的仍然是 PFC，它是最后一道防线。这些配置分布在交换机（PFC 优先级、ECN 阈值、DSCP 到队列的映射）和网卡（`NCCL_IB_TC` 设置流量类别、DSCP 值、DCQCN 参数）两边，任何一边没配对，表现就是**多机 nccl-tests 的大消息带宽远低于单机、且抖动大**。[《nccl-tests、调优与排障》的「决策树」一节](/nccl-tests-tuning-and-debugging-hangs.html#九决策树)里"多机远差于单机"一条，RoCE 环境下先查 PFC/ECN。
 
 ### 3. 为什么 8 卡 H100 配 8 张 400 Gb/s 网卡
 
@@ -357,7 +408,7 @@ Table: 每张 H100 的三条对外链路与整机汇总
 
 - **网卡速率与 GPU 的 PCIe 代际匹配。** 50 GB/s 的网卡占用 64 GB/s 的 PCIe 5.0 x16 的 78%。A100 时代同样：HDR 25 GB/s 对 PCIe 4.0 x16 的 32 GB/s，也是 78%。Blackwell 平台上 CX-8 800 Gb/s = 100 GB/s 已经超过 PCIe 5.0 x16 的 64 GB/s，所以这一代要么网卡走 PCIe 6.0 x16（128 GB/s，又回到 78%），要么改用 NVLink/C2C 之类的直连方式绕开 PCIe——具体取决于平台。网卡速率是按"一张 GPU 的 PCIe 链路能喂饱一张网卡"选的，再快 PCIe 就成了瓶颈。
 - **一张 GPU 配一张网卡，因为两张 GPU 共享一张网卡会让每卡的节点间带宽减半，而 PCIe 上行也不够。** GPU 与网卡放在同一个 switch 下，GPU 到网卡的 DMA（GPUDirect RDMA）在 switch 内完成，不占 CPU 方向的上行链路——这是拓扑上 `PIX` 的由来，也是 GPUDirect RDMA 能跑满的前提。
-- **节点内比节点间快 9 倍**，这就是分层算法（上一篇第七章）的物理依据：节点内先用 NVLink 做 reduce_scatter，只把 1/8 的数据送出网卡，再在节点间做 all_reduce，最后节点内 all_gather。不做分层直接在 64 卡上跑一个大 ring，每一步的带宽被最慢的那条边（网卡）限制在 50 GB/s，NVLink 的 450 GB/s 就浪费了。
+- **节点内比节点间快 9 倍**，这就是分层算法（[《集合通信原语与代价模型》的「分层与多级算法」一节](/collective-communication-primitives-and-cost-model.html#八分层与多级算法)）的物理依据：节点内先用 NVLink 做 reduce_scatter，只把 1/8 的数据送出网卡，再在节点间做 all_reduce，最后节点内 all_gather。不做分层直接在 64 卡上跑一个大 ring，每一步的带宽被最慢的那条边（网卡）限制在 50 GB/s，NVLink 的 450 GB/s 就浪费了。
 
 对代价模型：一次跨节点的 all_reduce，β 取网卡的 50 GB/s（NDR）或 25 GB/s（HDR）；节点内的那部分 β 取 NVLink 的 371–450 GB/s。两个 β 之间差 9 倍，所以跨节点通信的总时间几乎全部由网卡决定。
 
@@ -448,7 +499,7 @@ for (int i=0; i<system->nodes[resultType].count; i++) {
 }
 ```
 
-对 GPU0 来说，NIC0 与 NIC1 是 `PIX`（`PATH_PIX = 4`）且带宽最高，NIC4 是 `SYS`（`PATH_SYS = 9`）且带宽最低，所以候选集是 {NIC0, NIC1}；接着 `ncclTopoGetLocalNet` 用 GPU 编号（经 `mirrorBits` 打散）和 channel 编号在候选集里轮转，让 GPU0 与 GPU1 不至于都挤在 NIC0 上。这就是"NCCL 选 NIC0 而不是 NIC4"的完整机制：**不是配置出来的，是从 `/sys` 读出的 PCIe 树算出来的**。`NCCL_DEBUG=INFO` 里 `NCCL INFO Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA` 这一行的 `/0` 就是选中的网卡编号，`GDRDMA` 表示 GPUDirect RDMA 生效——如果这里出现的网卡与 `topo -m` 里 `PIX` 的那张不一致，或者少了 `GDRDMA`，就是拓扑识别出了问题（第六篇的排障项）。
+对 GPU0 来说，NIC0 与 NIC1 是 `PIX`（`PATH_PIX = 4`）且带宽最高，NIC4 是 `SYS`（`PATH_SYS = 9`）且带宽最低，所以候选集是 {NIC0, NIC1}；接着 `ncclTopoGetLocalNet` 用 GPU 编号（经 `mirrorBits` 打散）和 channel 编号在候选集里轮转，让 GPU0 与 GPU1 不至于都挤在 NIC0 上。这就是"NCCL 选 NIC0 而不是 NIC4"的完整机制：**不是配置出来的，是从 `/sys` 读出的 PCIe 树算出来的**。`NCCL_DEBUG=INFO` 里 `NCCL INFO Channel 00/0 : 0[0] -> 8[0] [send] via NET/IB/0/GDRDMA` 这一行的 `/0` 就是选中的网卡编号，`GDRDMA` 表示 GPUDirect RDMA 生效——如果这里出现的网卡与 `topo -m` 里 `PIX` 的那张不一致，或者少了 `GDRDMA`，就是拓扑识别出了问题（[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)的排障项）。
 
 ### 4. `lspci -tv`：看 PCIe 树本身
 
@@ -466,7 +517,18 @@ $ lspci -tv
  ...
 ```
 
-读法：`[0000:40]` 是一个 PCI 域/总线段，通常一颗 CPU 有几个这样的段；`01.0-[41-4f]` 是 root port，它下面覆盖总线 41–4f；`00.0-[42-4f]` 是 PCIe switch 的上游端口；再往下 `00.0-[43]`、`04.0-[44]`……是 switch 的四个下游端口，各挂一个设备。两张 GPU 与两张网卡出现在同一个 switch 的下游端口上，就是 `topo -m` 里 `PIX` 的来源；如果 GPU 与网卡分别挂在同一个 root complex 的不同 root port 下，就是 `PHB`/`NODE`；出现在不同的 `[0000:xx]` 段且这些段属于不同 CPU，就是 `SYS`。
+读法从左往右，每一级缩进对应树上的一层：
+
+1. `[0000:40]`：一个 PCI 域/总线段，通常一颗 CPU 有几个这样的段；
+2. `01.0-[41-4f]`：root port，它下面覆盖总线 41–4f；
+3. `00.0-[42-4f]`：PCIe switch 的上游端口；
+4. `00.0-[43]`、`04.0-[44]`……：switch 的四个下游端口，各挂一个设备。
+
+设备落在树上的哪个位置，就决定了 `topo -m` 给出哪个等级：
+
+- 两张 GPU 与两张网卡出现在**同一个 switch 的下游端口**上 → `PIX`；
+- GPU 与网卡分别挂在同一个 root complex 的**不同 root port** 下 → `PHB`/`NODE`；
+- 出现在**不同的 `[0000:xx]` 段**且这些段属于不同 CPU → `SYS`。
 
 配合 `lspci -vvv -s <BDF>` 可以看每个设备的 `LnkCap`（链路能力）与 `LnkSta`（链路当前状态）：
 
@@ -508,7 +570,7 @@ NCCL 内部对路径的分类与 `nvidia-smi` 几乎一一对应，定义在 `sr
 - `NCCL_P2P_LEVEL`：两张 GPU 之间的路径等级不超过它才用 P2P transport（直接读写对端显存），否则回落到 SHM。`src/graph/paths.cc` 的 `ncclTopoCheckP2p` 里默认值是 `int p2pLevel = PATH_PXB;`，注释写着 "By default don't use P2P across CPU Host Bridges and further apart"——也就是 `PHB` 和 `SYS` 默认不走 P2P，正是因为第二章第 3、4 节的原因。用户用 `NCCL_P2P_LEVEL=SYS` 可以强制打开（`ncclGetLevel` 同时接受 `LOC/PIX/PXB/PHB/SYS` 这些词和旧的数字写法）。
 - `NCCL_NET_GDR_LEVEL`：GPU 到网卡的路径等级不超过它才用 GPUDirect RDMA。`ncclTopoCheckGdr` 里默认 `int netGdrLevel = PATH_PXB;`。所以核心问题里 GPU0 到 NIC4 的 `SYS` 路径不会开 GDR。
 
-这两个变量在第四篇和第六篇还会出现；这里只需记住：**它们的取值就是 `nvidia-smi topo -m` 里的等级词，默认边界是 `PXB`，即"不跨 CPU"**。
+这两个变量在[《NCCL 架构》的「路径计算：path type 与带宽」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#四路径计算path-type-与带宽)和[《nccl-tests、调优与排障》的「调优参数：按作用层分类」一节](/nccl-tests-tuning-and-debugging-hangs.html#四调优参数按作用层分类)还会出现；这里只需记住：**它们的取值就是 `nvidia-smi topo -m` 里的等级词，默认边界是 `PXB`，即"不跨 CPU"**。
 
 ## 六、NUMA 与亲和
 
@@ -542,6 +604,38 @@ GPU 之间走 NVLink 的通信几乎不涉及 CPU，绑核对它没影响。受�
 - **proxy 线程**：跨节点通信时 NCCL 为每个 communicator 起一个 CPU 线程（`src/proxy.cc` 的 `ncclProxyService`）替 GPU 向网卡提交 RDMA 请求、轮询完成队列。这个线程读写的是网卡的 doorbell 寄存器和完成队列（在主机内存里）。如果它跑在 CPU1 上而网卡挂在 CPU0 下，每次 doorbell 写和 CQ 轮询都要跨 UPI，单次多几百纳秒；proxy 线程每秒要做几十万次这样的操作，累积起来直接抬高小消息的 α，也可能让它跟不上网卡的速度而拉低大消息的带宽。
 - **host staging 缓冲**：走 SHM transport 或没有 GDR 的网络路径时（第七章），数据要经过主机内存里的 pinned buffer。这块 buffer 分配在哪个 NUMA 节点，决定了 GPU 的 DMA 和网卡的 DMA 要不要跨 UPI 去读写它。NCCL 在初始化时**故意**把当前线程绑到 GPU 所属 NUMA 节点的 CPU 上再分配主机内存，就是为了让这些 buffer 落在正确的节点（Linux 默认 first-touch 策略：内存分配在首次触碰它的 CPU 所在节点）。
 - **用户进程本身**：PyTorch 的 Python 主线程、数据加载、`cudaMemcpy` 的 pinned buffer——它们与通信没有直接关系，但如果 8 个 rank 的进程全部挤在 CPU0 上，CPU0 的内存带宽和 UPI 就成了公共瓶颈。
+
+把前两条画在一起，差别就是"同一组操作要不要跨 UPI"：
+
+```mermaid
+%% 图：绑核绑对与绑错，决定 proxy 线程的 doorbell 写、CQ 轮询与 staging buffer 要不要跨 UPI
+flowchart TB
+  subgraph good["绑对了：rank 0 的进程在 NUMA 0 的核上"]
+    direction LR
+    GT["<b>proxy 线程</b><br/>跑在 CPU0 的核上"]
+    GB["<b>pinned staging buffer</b><br/>first-touch 落在 DRAM0"]
+    GN["<b>NIC0</b><br/>挂在 CPU0 的 PCIe switch 下"]
+    GT -- "doorbell 写、CQ 轮询<br/>不跨 UPI" --> GN
+    GT -- "本地内存读写" --> GB
+    GB -- "网卡 DMA 读<br/>不跨 UPI" --> GN
+  end
+  subgraph bad["绑错了：rank 0 的进程被绑到 NUMA 1 的核上"]
+    direction LR
+    BT["<b>proxy 线程</b><br/>跑在 CPU1 的核上"]
+    BB["<b>pinned staging buffer</b><br/>first-touch 落在 DRAM1"]
+    BN["<b>NIC0</b><br/>仍挂在 CPU0 下"]
+    BT == "每次 doorbell 写、每次 CQ 轮询<br/>都跨 UPI，单次多几百纳秒" ==> BN
+    BT -- "本地内存读写" --> BB
+    BB == "网卡 DMA 跨 UPI 去读" ==> BN
+  end
+  good ~~~ bad
+  classDef okc fill:#e3f2e1,stroke:#4a8a3a;
+  classDef badc fill:#fbe9e7,stroke:#c0392b;
+  class GT,GB,GN okc;
+  class BT,BB,BN badc;
+```
+
+图里上下两组的硬件完全一样，只有进程落在哪一侧不同。下面那一组里"网卡 DMA 跨 UPI 去读"那条边尤其容易被忽略：staging buffer 落在哪个节点，不是由谁分配它决定的，而是由**第一个碰它的 CPU** 决定的。
 
 因此训练脚本的标准做法是：rank i 的进程绑到 GPU i 所属 NUMA 节点的 CPU 上，`numactl --cpunodebind=<node> --membind=<node>` 或在 launcher 里按 `nvidia-smi topo -m` 最后两列设置。这不会让 NVLink 更快，但会让跨节点通信的 α 稍低、更稳定，并避免一个 socket 被压垮。
 
@@ -577,9 +671,12 @@ proxy 线程的亲和另有一个入口：`src/proxy.cc` 里 `ncclGetEnv("NCCL_P
 
 ### 1. pinned memory：DMA 的前提
 
-GPU 的 DMA 引擎和网卡的 DMA 引擎都按物理地址工作，且不理解操作系统的换页。普通 `malloc` 的内存可能被换出、物理页可能被内核挪动，设备不能直接 DMA 它。**pinned memory**（页锁定内存，`cudaHostAlloc`/`cudaMallocHost`，或 `mlock` 加设备注册）把一段虚拟地址固定在特定物理页上，并把物理地址告知设备，之后设备可以随时读写它。这是 GPU ↔ 主机内存拷贝跑满 PCIe 的前提（pageable 内存的拷贝要先由 CPU 拷进一块临时 pinned buffer，带宽掉到一半以下），也是 RDMA 内存注册（`ibv_reg_mr`，下一篇）在做的事。
+GPU 的 DMA 引擎和网卡的 DMA 引擎都按物理地址工作，且不理解操作系统的换页。普通 `malloc` 的内存可能被换出、物理页可能被内核挪动，设备不能直接 DMA 它。**pinned memory**（页锁定内存，`cudaHostAlloc`/`cudaMallocHost`，或 `mlock` 加设备注册）把一段虚拟地址固定在特定物理页上，并把物理地址告知设备，之后设备可以随时读写它。这是 GPU ↔ 主机内存拷贝跑满 PCIe 的前提（pageable 内存的拷贝要先由 CPU 拷进一块临时 pinned buffer，带宽掉到一半以下），也是 RDMA 内存注册（`ibv_reg_mr`，见[《RDMA 与 GPUDirect》的「内存注册的代价与 MR cache」一节](/rdma-and-gpudirect.html#七内存注册的代价与-mr-cache)）在做的事。
 
 pinned memory 有代价：分配慢（要 pin 页、建立映射），占用不能被换出的物理内存，且属于某个 NUMA 节点。NCCL 在初始化时预分配好各 transport 需要的 pinned buffer 并反复使用，就是为了不在通信路径上付这个代价。
+
+> [!NOTE] Java 经验参照：堆外缓冲与 pinned memory
+> `ByteBuffer.allocateDirect` 的文档把同一件事说了两遍：对 direct buffer，JVM 会"尽力直接在它上面做本地 I/O，也就是尽量避免在每次调用操作系统的本地 I/O 之前（或之后）把缓冲区的内容拷进（拷出）一块中间缓冲区"；而它"分配和释放的开销通常比非 direct buffer 高"，所以文档建议只给"大块、长寿命、确实要做本地 I/O"的缓冲用它。两句话换成 CUDA 的词就是本节：pageable 内存的拷贝要先经一块临时 pinned buffer，pinned 内存分配慢，所以 NCCL 预分配好反复用——连"大块、长寿命"的用法都一样。对不上的那一半是：direct buffer 只是把数据搬出了 GC 堆、地址不再被 GC 移动，操作系统照样可以把它换出；pinned memory 还要求物理页被锁住、物理地址交给设备的 DMA 引擎，所以它必须由驱动（`cudaHostAlloc`）分配，"在堆外"远远不够。
 
 ### 2. staging buffer：什么时候数据必须经过主机内存
 
@@ -631,7 +728,7 @@ flowchart TB
 
 对代价模型的意义：跨节点 β 不再是一个常数。同一 leaf 下的两台机器之间 β 是网卡速率；跨 leaf 时 β 取网卡速率与"上行带宽 ÷ 同时跨 leaf 的流数"的较小者。一个 512 卡的任务如果被打散在 16 台 leaf 上，它的 all_reduce 几乎每一步都跨 leaf，在 2:1 超额订阅的网络里 β 的有效值可能只有一半。这是"同一个任务换了机器分配就变慢"的常见原因。
 
-IB 网络另有一个特点：路由由子网管理器（Subnet Manager）静态计算，一条流走哪条上行路径在连接建立时就定了，不像以太网 ECMP 那样按流哈希。多条流哈希到同一条上行链路的冲突在两种网络里都存在，IB 的自适应路由（Adaptive Routing）和 NCCL 每个连接多 QP（`NCCL_IB_QPS_PER_CONNECTION`，第六篇）都是缓解手段。
+IB 网络另有一个特点：路由由子网管理器（Subnet Manager）静态计算，一条流走哪条上行路径在连接建立时就定了，不像以太网 ECMP 那样按流哈希。多条流哈希到同一条上行链路的冲突在两种网络里都存在，IB 的自适应路由（Adaptive Routing）和 NCCL 每个连接多 QP（`NCCL_IB_QPS_PER_CONNECTION`，见[《nccl-tests、调优与排障》的「调优参数：按作用层分类」一节](/nccl-tests-tuning-and-debugging-hangs.html#四调优参数按作用层分类)）都是缓解手段。
 
 ### 2. rail-optimized 设计
 
@@ -692,11 +789,11 @@ NCCL 对此有明确的配合。当一个 GPU 需要发给的目标 GPU 不在�
 | `p2pBandwidthLatencyTest` | cuda-samples | GPU 对 GPU 的 P2P 带宽与延迟（开/关 P2P 各一组） | 矩阵，GB/s 与 µs | 节点内 β 与 α |
 | `ib_write_bw` / `ib_read_bw` | perftest（rdma-core 生态） | 两台机器网卡到网卡的 RDMA WRITE / READ 带宽，`--use_cuda` 时源/目的换成显存 | MB/s 或 Gb/s | 节点间 β |
 | `ib_write_lat` / `ib_read_lat` | perftest | 单次 RDMA 操作的往返/单程延迟 | µs | 节点间 α 的硬件部分 |
-| `nccl-tests` | 第六篇 | 整条路径上的集合通信 | busbw 曲线 | 与模型预测比对 |
+| `nccl-tests` | [《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html) | 整条路径上的集合通信 | busbw 曲线 | 与模型预测比对 |
 
 Table: 带宽测量工具与它们测的路径
 
-前四个测**单段链路**，是本篇的工具；nccl-tests 测**整条路径**，把它们全部叠起来，留到第六篇。排障的顺序是从下往上：nccl-tests 的数字不对时，先用本篇的工具确认每一段链路各自是好的。
+前四个测**单段链路**，是本篇的工具；nccl-tests 测**整条路径**，把它们全部叠起来，留到《nccl-tests、调优与排障》。排障的顺序是从下往上：nccl-tests 的数字不对时，先用本篇的工具确认每一段链路各自是好的。
 
 ### 2. `nvbandwidth`：节点内的 PCIe 与 NVLink
 
@@ -719,22 +816,18 @@ nvbandwidth 是 NVIDIA 维护的带宽测试程序，用 `cudaMemcpyAsync`（cop
 
 ### 3. `p2pBandwidthLatencyTest`：P2P 开关对比
 
-cuda-samples 里的 `p2pBandwidthLatencyTest` 打印四张矩阵：P2P 关闭与开启时的单向带宽、双向带宽、以及延迟。它的价值在**对比**：
+cuda-samples 里的 `p2pBandwidthLatencyTest` 打印四张矩阵：P2P 关闭与开启时的单向带宽、双向带宽、以及延迟。矩阵的行是源 GPU、列是目的 GPU，对角线是本地拷贝。它的价值在**对比**同一对 GPU 在两种模式下的数字；下表把 GPU 0 那一行的四个量级并排放在一起：
 
-```text title='p2pBandwidthLatencyTest：P2P 关闭与开启的带宽、延迟矩阵'
-Unidirectional P2P=Disabled Bandwidth Matrix (GB/s)     ← 经主机内存 staging
-   D\D     0      1      2      3
-     0 1500.0  20.5   20.3   11.2                        ← 对角线是本地拷贝（HBM 带宽），11.2 是跨 socket
-Unidirectional P2P=Enabled Bandwidth Matrix (GB/s)      ← 直接访问对端显存
-   D\D     0      1      2      3
-     0 1500.0 270.1  269.8  268.9                        ← NVLink 全开
-P2P=Disabled Latency Matrix (us)
-     0   1.8   18.9   19.2   22.5
-P2P=Enabled Latency Matrix (us)
-     0   1.8    2.1    2.1    2.2
-```
+| GPU 0 → | 关 P2P 带宽 | 开 P2P 带宽 | 关 P2P 延迟 | 开 P2P 延迟 | 关 P2P 时走的路 |
+|---|---:|---:|---:|---:|---|
+| GPU 0（本地拷贝） | 1500 GB/s | 1500 GB/s | 1.8 µs | 1.8 µs | 不出 HBM |
+| GPU 1（同 socket） | 20.5 GB/s | 270.1 GB/s | 18.9 µs | 2.1 µs | 经主机内存 staging |
+| GPU 2（同 socket） | 20.3 GB/s | 269.8 GB/s | 19.2 µs | 2.1 µs | 经主机内存 staging |
+| GPU 3（跨 socket） | 11.2 GB/s | 268.9 GB/s | 22.5 µs | 2.2 µs | 经主机内存 staging，再跨 UPI |
 
-（示意数字，A100 量级，非实测。）P2P=Disabled 的那张矩阵是"如果 NCCL 回落到 SHM 会有多慢"的直接答案：带宽是 PCIe 的量级、延迟接近 20 µs；Enabled 之后带宽上到 NVLink、延迟降到 2 µs。如果 Enabled 与 Disabled 的数字一样，说明 P2P 实际没开（ACS、白名单、`cudaDeviceCanAccessPeer` 为 0），而 NCCL 会遇到同样的问题。延迟矩阵里 2 µs 的量级也是 NVLink 路径上 α 的硬件部分，可以直接填进代价模型。
+Table: p2pBandwidthLatencyTest 的矩阵里 GPU 0 那一行应有的量级（按 A100 的链路参数推算，不是实测输出）
+
+关 P2P 的那两列是"如果 NCCL 回落到 SHM 会有多慢"的直接答案：带宽是 PCIe 的量级、延迟接近 20 µs；Enabled 之后带宽上到 NVLink、延迟降到 2 µs。如果 Enabled 与 Disabled 的数字一样，说明 P2P 实际没开（ACS、白名单、`cudaDeviceCanAccessPeer` 为 0），而 NCCL 会遇到同样的问题。延迟矩阵里 2 µs 的量级也是 NVLink 路径上 α 的硬件部分，可以直接填进代价模型。
 
 ### 4. `ib_write_bw` / `ib_read_bw`：节点间的网卡到网卡
 
@@ -745,7 +838,7 @@ perftest 是 RDMA 世界的标准带宽/延迟测试。两台机器各运行一�
 ib_write_bw -d mlx5_0 -F --report_gbits -s 1048576 -D 10
 # 客户端（node-a），最后一个参数是服务器的 IP（带外 TCP 用来交换 QP 信息）
 ib_write_bw -d mlx5_0 -F --report_gbits -s 1048576 -D 10 node-b
-# 用显存作为源/目的（需要编译时开 CUDA 支持，下一篇展开）
+# 用显存作为源/目的（需要编译时开 CUDA 支持，《RDMA 与 GPUDirect》展开）
 ib_write_bw -d mlx5_0 -F --report_gbits -s 1048576 --use_cuda=0 node-b
 # 延迟
 ib_write_lat -d mlx5_0 -F -s 8 node-b
@@ -757,7 +850,7 @@ ib_write_lat -d mlx5_0 -F -s 8 node-b
 
 - 数字只有一半（HDR 上 ~100 Gb/s）：网卡的 PCIe 链路协商成了 x8 或 3.0，`lspci -vvv -s <NIC BDF>` 看 `LnkSta`；或者网卡在 `SYS` 位置、测试进程与 buffer 又在另一个 socket 上——perftest 用 `numactl` 绑到网卡所属的 NUMA 节点再测，差异会消失。
 - RoCE 上数字波动大或随时间下降：PFC/ECN 没配好导致丢包重传；用 `ethtool -S <ifname> | grep -i -E 'pause|discard|ecn'` 看计数器。
-- `--use_cuda` 后数字明显低于主机内存版：GPU 与网卡的路径不是 `PIX`/`PXB`，GDR 经 root complex 转发被打折，或者 `nvidia-peermem` 没加载——下一篇的主题。
+- `--use_cuda` 后数字明显低于主机内存版：GPU 与网卡的路径不是 `PIX`/`PXB`，GDR 经 root complex 转发被打折，或者 `nvidia-peermem` 没加载——见[《RDMA 与 GPUDirect》的「GPUDirect RDMA」一节](/rdma-and-gpudirect.html#八gpudirect-rdma)。
 
 ### 5. 比一比：差距的解释与检查清单
 
@@ -791,7 +884,7 @@ Table: 比一比：差距的解释与检查清单
 - NUMA 亲和影响的是 proxy 线程与 host staging buffer，不影响 NVLink 路径。NCCL 默认取"进程亲和 ∩ GPU 所属节点 CPU"，交集为空时放弃；`NCCL_IGNORE_CPU_AFFINITY=1` 强制用 GPU 的；`NCCL_PROXY_CPUSET` 钉 proxy 线程。
 - 数据必须经主机内存的两种情况：节点内 P2P 不可用（走 SHM）、节点间 GDR 不可用（走 host staging）。两者都多一次 PCIe 传输和 5–10 µs 的拷贝延迟。
 - 集群级：fat-tree 的超额订阅让跨 leaf 的 β 不再是常数；rail-optimized 把同编号 GPU 的流量收在同一台 leaf 下一跳完成，NCCL 用 PXN 经 NVLink 转发跨 rail 流量；任务应整机、同 leaf 组分配，GPU–NIC 映射必须一致。
-- 工具分段：nvbandwidth 测 PCIe 与 NVLink，p2pBandwidthLatencyTest 对比 P2P 开关，ib_write_bw/ib_read_bw/ib_write_lat 测网卡到网卡；nccl-tests 测整条路径（第六篇）。
+- 工具分段：nvbandwidth 测 PCIe 与 NVLink，p2pBandwidthLatencyTest 对比 P2P 开关，ib_write_bw/ib_read_bw/ib_write_lat 测网卡到网卡；nccl-tests 测整条路径（[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)）。
 
 ### 2. 排障检查项
 
@@ -827,7 +920,13 @@ Table: 本篇涉及的源码与工具位置
 
 ### 4. comm-probe 本篇增量：`topo_map.py`
 
-`topo_map.py` 做三件事：解析 `nvidia-smi topo -m` 得到 GPU–GPU 与 GPU–NIC 的等级矩阵；从 `/sys/bus/pci/devices/*` 找出所有 GPU 与 RDMA/以太网卡，沿 `/sys` 的真实路径向上找到它们各自挂在哪个 PCIe switch、哪个 root port、哪个 NUMA 节点；把这些拼成一张 GPU–PCIe switch–NIC–NUMA 的图，以文本树或 Graphviz DOT 输出。另外它维护一个 `measurements.json`，记录用 nvbandwidth、ib_write_bw、ib_write_lat 测出的每段链路数字，并按上一篇 `cost_model.py` 的输入格式导出 α 与 β。
+`topo_map.py` 做三件事：
+
+1. 解析 `nvidia-smi topo -m`，得到 GPU–GPU 与 GPU–NIC 的等级矩阵；
+2. 从 `/sys/bus/pci/devices/*` 找出所有 GPU 与 RDMA / 以太网卡，沿 `/sys` 的真实路径向上找到它们各自挂在哪个 PCIe switch、哪个 root port、哪个 NUMA 节点；
+3. 把这些拼成一张 GPU–PCIe switch–NIC–NUMA 的图，以文本树或 Graphviz DOT 输出。
+
+另外它维护一个 `measurements.json`，记录用 nvbandwidth、ib_write_bw、ib_write_lat 测出的每段链路数字，并按《集合通信原语与代价模型》里 `cost_model.py` 的输入格式导出 α 与 β。
 
 用法：
 
@@ -963,7 +1062,7 @@ if __name__ == "__main__":
 - **测量记录与导出**分开：`record` 只追加带标签的原始数字，`export` 取中位数生成 `cost_model.py` 的输入。中位数而不是最大值，是为了让代价模型的预测偏向"通常能达到"而不是"偶尔能达到"。
 - 在集群的每台机器上跑一次 `tree`，把输出做 diff，可以直接找出网卡插错槽位或 NUMA 归属异常的机器（第八章第 3 节）。
 
-有了这张拓扑图和这份测量记录，第一篇的代价模型就有了真实的 α 和 β。下一篇进入节点间路径的软件层：网卡是如何被驱动的、数据怎样从显存直接进网卡，以及这条路径上 GPUDirect 的开关分别意味着几次拷贝。
+有了这张拓扑图和这份测量记录，[《集合通信原语与代价模型》的「α-β 模型」一节](/collective-communication-primitives-and-cost-model.html#四α-β-模型)里的代价模型就有了真实的 α 和 β。[《RDMA 与 GPUDirect》](/rdma-and-gpudirect.html)进入节点间路径的软件层：网卡是如何被驱动的、数据怎样从显存直接进网卡，以及这条路径上 GPUDirect 的开关分别意味着几次拷贝。
 
 > **一段显存里的数据要发到另一台机器的显存，走 TCP、走 RDMA 不开 GPUDirect、走 RDMA 开 GPUDirect，分别经过几次拷贝、经过哪些 PCIe 链路？各自的带宽上限是多少？**
 
