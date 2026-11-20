@@ -5,14 +5,14 @@ title: "通信与互联（03）：RDMA 与 GPUDirect——绕过 CPU 和主机�
 subtitle: "RDMA and GPUDirect: Bypassing the CPU and Host Memory"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
-updated: 2026-09-14
+updated: 2026-11-20
 ---
 
-上一篇给出了节点间链路的物理上限：一张 NDR InfiniBand 网卡 400 Gb/s，约 50 GB/s 单向；一张 HDR 200 Gb/s，约 25 GB/s。也给出了它挂在哪里：每张 GPU 配一张网卡，两者在同一个 PCIe switch 下（`nvidia-smi topo -m` 里的 `PIX` 或 `PXB`），走 PCIe 4.0 x16（单向约 32 GB/s）或 PCIe 5.0 x16（单向约 64 GB/s）。这些数字是链路的能力，不是软件能拿到的带宽。软件拿到多少，取决于数据从显存到网线之间经过了什么。
+上一篇[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)给出了节点间链路的物理上限：一张 NDR InfiniBand 网卡 400 Gb/s，约 50 GB/s 单向；一张 HDR 200 Gb/s，约 25 GB/s。也给出了它挂在哪里：每张 GPU 配一张网卡，两者在同一个 PCIe switch 下（`nvidia-smi topo -m` 里的 `PIX` 或 `PXB`），走 PCIe 4.0 x16（单向约 32 GB/s）或 PCIe 5.0 x16（单向约 64 GB/s）。这些数字是链路的能力，不是软件能拿到的带宽。软件拿到多少，取决于数据从显存到网线之间经过了什么。
 
 TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须参与每个包收发的 CPU。这条路径在 10 Gb/s 时代设计得很合理，到 400 Gb/s 时代它的每一段都成了瓶颈：拷贝吃掉内存带宽，协议处理吃掉 CPU 核，中断和上下文切换吃掉延迟。RDMA（Remote Direct Memory Access）把这三件事全部从路径上拿掉：网卡直接读写应用的内存，内核不参与数据面，CPU 只负责下发请求和收完成通知。GPUDirect RDMA 再进一步，让"应用的内存"可以是显存——网卡的 DMA 引擎直接读写 GPU 的 HBM，主机内存彻底退出数据面。
 
-这一篇讲这两件事怎么工作、怎么用、怎么坏。它是系列里离硬件最近的一篇软件文章：verbs 接口是 C，NCCL 的 `src/transport/net_ib.cc` 是它唯一的网络传输实现（Socket 传输是回退路径），后面第四篇的 proxy 线程、第六篇的 `NCCL_IB_*` 环境变量、第七篇的 KV 传输，都建立在本篇的概念上。读完本篇，`NCCL_DEBUG=INFO` 日志里 `GPU Direct RDMA Enabled for GPU 0 / HCA 0` 和 `NET/IB : Got completion ... status=12` 这两行应该都能读懂。
+这一篇讲这两件事怎么工作、怎么用、怎么坏。它是系列里离硬件最近的一篇软件文章：verbs 接口是 C，NCCL 的 `src/transport/net_ib.cc` 是它唯一的网络传输实现（Socket 传输是回退路径），后面[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)的 proxy 线程、[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)的 `NCCL_IB_*` 环境变量、[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)的 KV 传输，都建立在本篇的概念上。读完本篇，`NCCL_DEBUG=INFO` 日志里 `GPU Direct RDMA Enabled for GPU 0 / HCA 0` 和 `NET/IB : Got completion ... status=12` 这两行应该都能读懂。
 
 本篇要回答总纲提出的核心问题：
 
@@ -31,31 +31,61 @@ TCP/IP 的路径上有内核协议栈、至少两次内存拷贝和一个必须�
 上面的箭头链只说了"经过谁"，没说"在哪条 PCIe 链路上"。把一台 8 卡机器里一对 GPU + NIC 所在的那一小片 PCIe 拓扑画出来，三条路径落在物理链路上的差别才看得清：A 和 B 都要上行穿过 root complex 进主机内存再下来，C 在 PCIe switch 内部就折返了。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
 %% 图：从显存到对端显存的三条路径：A、B 都要上行经 root complex 进主机内存，GPUDirect RDMA 在 PCIe switch 内折返
 flowchart TB
   subgraph host["主机侧（root complex 之上）"]
-    CPU["<b>CPU</b><br/>协议栈 + memcpy（仅路径 A 参与数据面）"]
-    MEM["<b>主机内存</b><br/>A：staging + socket buffer<br/>B：pinned staging"]
+    CPU["<b>CPU：协议栈与拷贝</b><br/>只有路径 A 要它参与数据面，每个 MSS 一次（第二章）"]
+    MEM["<b>主机内存</b><br/>• 路径 A：staging + 内核 socket buffer<br/>• 路径 B：pinned staging<br/>• 路径 C：不在数据面上"]
+    CTRL["<b>CPU：控制面</b><br/>• 初始化：开设备、分配 PD、注册 MR、建 QP 与 CQ（第三、五、七章）<br/>• 每个消息：post 一个 WR、poll 一个完成（第四章）"]
   end
-  RC["CPU 的 PCIe root complex"]
+  RC["<b>root complex</b><br/>CPU 的 PCIe 控制器；要经过它的 GPU–NIC 路径，NCCL 默认不开 GDR（第八章）"]
   subgraph sw["PCIe switch（GPU 与 NIC 同挂其下）"]
-    GPU["GPU HBM（经 BAR1 映射到 PCIe 地址空间）"]
-    NIC["NIC DMA 引擎"]
+    GPU["<b>GPU HBM</b><br/>数据的起点与终点，经 BAR1 映射进 PCIe 地址空间（第八章）"]
+    NIC["<b>NIC 的 DMA 引擎</b><br/>按 MR 的翻译表读写内存；分段、重传、ACK 都在网卡里（第三、六章）"]
   end
-  NET["网线（InfiniBand / RoCE）"]
+  NET["<b>网线</b><br/>InfiniBand 或 RoCE v2，NDR 单向 50 GB/s（第六章）"]
   CPU <--> MEM
   MEM <--> RC
-  GPU -- "A / B：D2H 拷贝，上行到主机内存" --> RC
-  RC -- "A / B：NIC DMA 从主机内存读走" --> NIC
-  GPU -- "C：NIC 直接 DMA 显存，switch 内转发，不到 root complex" --> NIC
+  GPU -- "A / B：D2H 拷贝，上行到主机内存（第二章）" --> RC
+  RC -- "A / B：NIC DMA 从主机内存读走（第二章）" --> NIC
+  GPU -- "C：NIC 直接 DMA 显存，switch 内转发，不到 root complex（第八章）" --> NIC
+  CTRL -. "写门铃、读完成队列，不碰数据（第四章）" .-> NIC
   NIC --> NET
   classDef hostc fill:#fde8e8,stroke:#b94a48;
+  classDef ctrlc fill:#fff3e0,stroke:#e08a1e;
   classDef swc fill:#e8f4fd,stroke:#3a7bd5;
   class CPU,MEM,RC hostc;
+  class CTRL ctrlc;
   class GPU,NIC swc;
 ```
 
-三条路径的**数据面**差别是拷贝次数和 PCIe 跳数，**控制面**差别是 CPU 参与的深度。RDMA 把 CPU 参与的控制面从"每个包"降到"每个 Work Request"——对 NCCL 这种一次 RDMA WRITE 搬几十 KB 到几 MB 的用法，就是每个消息一次（分段、重传、ACK 都由网卡在协议层完成），GPUDirect 把数据面从"两跳 PCIe 加一次主机内存往返"降到"PCIe switch 内部一跳"。第二章会给每条路径算出带宽上限，那张表是本篇核心问题的答案。
+- **CPU：协议栈与拷贝**：只有 TCP 路径需要它参与数据面——每个 MSS 做一次协议处理，数据在主机内存上来回两次（[「TCP 发送一段显存的完整路径」一节](#1-tcp-发送一段显存的完整路径)）。
+- **主机内存**：路径 A 当 staging 又当 socket buffer，路径 B 只当 pinned staging，路径 C 完全退出数据面。它是 400 Gb/s 下真正的汇聚点（[「算一算」一节](#2-算一算cpu-与内存能不能喂饱-400-gbs)）。
+- **CPU：控制面**：RDMA 把 CPU 从"每个包"挪到"每个消息"，代价是连接建立与内存注册这两项固定开销，必须在初始化时做完（[第五章](#五连接建立)、[第七章](#七内存注册的代价与-mr-cache)）。
+- **root complex**：路径 A / B 的数据都要上行穿过它再下来。它也是 GDR 的分界线：GPU 与网卡之间要经过它，NCCL 默认就不开 GDR（[「`NCCL_NET_GDR_LEVEL`」一节](#2-nccl_net_gdr_level距离多远还开-gdr)）。
+- **GPU HBM**：数据的起点与终点。网卡能直接读写它，靠的是一段显存被映射进 BAR1、从而出现在 PCIe 地址空间里（[「网卡怎么 DMA 到显存」一节](#1-网卡怎么-dma-到显存)）。
+- **NIC 的 DMA 引擎**：按 MR 的翻译表把虚拟地址翻成总线地址后读写内存（[第七章](#七内存注册的代价与-mr-cache)）；可靠传输由它完成，CPU 每个消息只 post 一次、poll 一次（[「Work Request、Completion Queue 与轮询」一节](#4-work-requestcompletion-queue-与轮询)）。
+- **网线**：InfiniBand 与 RoCE v2 共用同一套 verbs、同一份 `net_ib.cc`，差别在地址向量怎么填和网络要不要配无损（[第六章](#六infiniband-与-roce-v2)）。
+
+三条路径的**数据面**差别是拷贝次数和 PCIe 跳数，**控制面**差别是 CPU 参与的深度。RDMA 把 CPU 参与的控制面从"每个包"降到"每个 Work Request"——对 NCCL 这种一次 RDMA WRITE 搬几十 KB 到几 MB 的用法，就是每个消息一次（分段、重传、ACK 都由网卡在协议层完成），GPUDirect 把数据面从"两跳 PCIe 加一次主机内存往返"降到"PCIe switch 内部一跳"。[第二章](#4-三条路径的对照表)会给每条路径算出带宽上限，那张表是本篇核心问题的答案。
+
+图里是硬件；verbs 在它之上还有一层对象，读源码和看日志时最容易混的是"这东西谁建的、在哪一侧、活多久、对端看不看得见"：
+
+| 对象 | 谁创建 | 活在哪 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| `ibv_context`（设备句柄） | `ibv_open_device`，每张网卡一个 | 用户态句柄 + 内核的 uverbs 对象 | 到 `ibv_close_device` | 仅本进程 |
+| PD（Protection Domain） | `ibv_alloc_pd`<br/>NCCL 每张网卡一个，按 `pdRefs` 引用计数共享（`ncclIbInitCommDevBase`） | 内核与网卡里的一个保护域 | 引用计数回到 0 才 `ibv_dealloc_pd` | 仅本端：MR 与 QP 必须同 PD 才能配合 |
+| MR（Memory Region） | `ibv_reg_mr` / `ibv_reg_dmabuf_mr`<br/>NCCL 统一走 `ncclIbRegMrDmaBufInternal2` 的 cache | pin 住的页在主机内存或显存<br/>页表条目在网卡的 MPT / MTT | cache 引用计数回到 0 才真正反注册 | 本端凭 lkey，对端凭 rkey |
+| lkey / rkey | `ibv_reg_mr` 返回的两个 32 位数 | 只是数字，填在 `sge.lkey` 与 `wr.rdma.rkey` 里 | 与 MR 同寿 | lkey 不出本机<br/>rkey 要带外交给对端（[第五章](#五连接建立)） |
+| QP（Queue Pair） | `ibv_create_qp`<br/>NCCL 每条连接 `NCCL_IB_QPS_PER_CONNECTION` 个，轮转分配到合并的网卡上 | 发送 / 接收队列在主机内存，QP 上下文在网卡 | 到 `ibv_destroy_qp`，即连接关闭 | 本端持句柄<br/>对端只知道它的 QPN |
+| CQ（Completion Queue） | `ibv_create_cq`<br/>NCCL 每个通信端每网卡一个，深度 `2*MAX_REQUESTS*nqps` | 主机内存里的一圈 CQE，网卡写进来、用户态直接读 | 到 `ibv_destroy_cq` | 仅本端，可被多个 QP 共享 |
+| WR（Work Request） | 调用者填 `ibv_send_wr` 结构，`ibv_post_send` 把这条链挂进发送队列 | 结构体在调用者这边<br/>队列条目在 QP 的发送队列里 | 队列条目要等它之后某个 signaled 完成被 poll 出来才释放<br/>WR 指向的数据 buffer 要等完成后才能改（inline 除外） | 仅本端 |
+| 门铃（doorbell） | 网卡提供的寄存器，`ibv_post_send` 返回前由用户态写它通知网卡 | 网卡上 | 设备打开期间 | 仅本端 |
+| pinned 页 | `ibv_reg_mr` 时内核做的 `get_user_pages` | 主机物理内存，不可换出、不可迁移 | 到反注册 | 对应用透明，网卡凭总线地址访问 |
+| GPU BAR1 映射 | `nvidia-peermem` 的 `nvidia_p2p_get_pages`，或 DMA-BUF 的 `cuMemGetHandleForAddressRange` + attach | 显存，同时出现在 PCIe 地址空间的 BAR1 窗口里 | MR 存续期间 | 网卡（对它发 PCIe 事务）<br/>开了 GDRCopy 时 CPU 也能直接读写（[第九章](#九gdrcopy-与-gpudirect-家族)） |
+
+Table: verbs 与 GPUDirect 的关键对象：谁创建、活在哪、活多久、谁能看见
 
 ### 2. 两本账在这一层的形态
 
@@ -67,7 +97,7 @@ flowchart TB
 
 这不是巧合，是每一代"GPU + 网卡"的搭配都按 PCIe 不成为瓶颈来配的。
 
-**延迟的账**：一次 RDMA WRITE 的单向延迟在同一交换机下通常 1–2 µs（InfiniBand）到 2–4 µs（RoCE v2），TCP 同机房 RTT 通常 15–50 µs。差一个数量级，来源是内核协议栈、中断、上下文切换和拷贝。但 RDMA 的延迟里还有两项 TCP 没有的固定开销：**连接建立**（QP 状态机要走三步、带外交换连接信息）和**内存注册**（pin 页、建翻译表，GB 级 buffer 要几十到几百 ms）。这两项决定了 RDMA 程序的结构：连接与注册在初始化时一次做完，数据面只做 post 与 poll。NCCL 的 MR cache、`ncclCommRegister`，第七篇 KV 传输层预注册整个 KV pool，都是这本账的产物。
+**延迟的账**：一次 RDMA WRITE 的单向延迟在同一交换机下通常 1–2 µs（InfiniBand）到 2–4 µs（RoCE v2），TCP 同机房 RTT 通常 15–50 µs。差一个数量级，来源是内核协议栈、中断、上下文切换和拷贝。但 RDMA 的延迟里还有两项 TCP 没有的固定开销：**连接建立**（QP 状态机要走三步、带外交换连接信息）和**内存注册**（pin 页、建翻译表，GB 级 buffer 要几十到几百 ms）。这两项决定了 RDMA 程序的结构：连接与注册在初始化时一次做完，数据面只做 post 与 poll。NCCL 的 MR cache、`ncclCommRegister`，[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)里 KV 传输层预注册整个 KV pool，都是这本账的产物。
 
 ### 3. 本文的章节安排
 
@@ -119,10 +149,13 @@ Table: TCP 发送 1 GB 显存：每一步的执行者、总线与内存流量
 RDMA 通过三个设计把上面每一项成本移走：
 
 - **kernel bypass（内核旁路）**：数据面的所有操作——提交发送、提交接收、轮询完成——由用户态直接写网卡的门铃寄存器和读网卡写回的完成队列完成，不经过系统调用和内核协议栈。内核只在控制面参与：打开设备、分配保护域、注册内存、建立连接。
-- **zero copy（零拷贝）**：网卡的 DMA 引擎直接从应用注册过的 buffer 读数据、直接写到对端应用注册过的 buffer。没有 socket buffer，没有中间拷贝。前提是 buffer 必须**事先注册**（第七章），网卡要知道它的物理地址且它不能被换出。
+- **zero copy（零拷贝）**：网卡的 DMA 引擎直接从应用注册过的 buffer 读数据、直接写到对端应用注册过的 buffer。没有 socket buffer，没有中间拷贝。前提是 buffer 必须**事先注册**（[第七章](#七内存注册的代价与-mr-cache)），网卡要知道它的物理地址且它不能被换出。
 - **CPU offload（CPU 卸载）**：可靠传输——分段、重传、顺序、拥塞控制——全部由网卡硬件完成。CPU 每个**消息**（不是每个包）只做两件事：post 一个 Work Request，poll 一个 Work Completion。一个核能驱动一张 400 Gb/s 网卡，NCCL 的 proxy 线程就是这样一个核。
 
 三者合起来，路径 A 的四次主机内存访问变成路径 B 的两次（GPU 拷进来、网卡读出去），CPU 从每包参与变成每消息参与。再加上 GPUDirect RDMA，主机内存访问变成零次。
+
+> [!NOTE] Java 经验参照：零拷贝止于内核，RDMA 止于对端 CPU
+> `FileChannel.transferTo` 的文档说，许多操作系统能把字节直接从文件系统缓存送到目标 channel 而不真的拷贝它们；`ByteBuffer.allocateDirect` 则让 JVM 尽力直接在这块堆外缓冲上做本地 I/O，省掉进出 Java 堆的中转。这两件事省掉的都是**本机内部**的拷贝：协议栈照跑、中断照来、对端的 CPU 照样要把数据从 socket 里读出来。三个承诺里只有 zero copy 与它们同类，kernel bypass 和 CPU offload 是 Java 这一层拿不到的——尤其是单边 WRITE，连对端的进程都不必醒来（第四章）。
 
 ### 4. 三条路径的对照表
 
@@ -142,7 +175,7 @@ Table: TCP、RDMA 与 GPUDirect RDMA 三条路径的对照
 
 三点解读：
 
-- **路径 B 在 PCIe 4.0 上是不够的**。A100 的 PCIe 4.0 x16 单向 32 GB/s，如果 GPU 到主机的拷贝与网卡从主机的 DMA 都要走主机内存，两条 PCIe 链路都在用，但主机内存成了汇聚点；再加上 NCCL 非 GDR 路径下是 GPU kernel 直接往主机 buffer 写（第四篇会讲 proxy 与 staging buffer），实际能到网线上的带宽通常明显低于 HDR 的 25 GB/s。这就是 GPUDirect RDMA 不是"锦上添花"而是"必需"的原因。
+- **路径 B 在 PCIe 4.0 上是不够的**。A100 的 PCIe 4.0 x16 单向 32 GB/s，如果 GPU 到主机的拷贝与网卡从主机的 DMA 都要走主机内存，两条 PCIe 链路都在用，但主机内存成了汇聚点；再加上 NCCL 非 GDR 路径下是 GPU kernel 直接往主机 buffer 写（[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)会讲 proxy 与 staging buffer），实际能到网线上的带宽通常明显低于 HDR 的 25 GB/s。这就是 GPUDirect RDMA 不是"锦上添花"而是"必需"的原因。
 - **路径 C 的上限被 PCIe 而不是网卡限制**。H100 + NDR 是 min(50, 64)，PCIe 有 14 GB/s 余量；如果把 NDR 网卡插到 PCIe 4.0 的机器上，上限立刻降到 32 GB/s，网卡浪费三分之一。
 - **路径 C 要求 GPU 和网卡在同一 PCIe switch 下**。跨 root complex 时 DMA 要穿过 CPU 的 PCIe 控制器和 socket 间互联（UPI / Infinity Fabric），带宽可能只有几 GB/s，有的平台干脆不支持 P2P 事务，NCCL 会因为 `NCCL_NET_GDR_LEVEL` 默认值而拒绝开 GDR（第八章）。
 
@@ -163,13 +196,13 @@ RDMA 的用户态接口叫 **verbs**，由 rdma-core 的 `libibverbs` 提供，�
     - `ibv_qp`：Queue Pair，`ibv_create_qp()`；一条连接 = 一个发送队列 + 一个接收队列
   - `ibv_cq`：Completion Queue，`ibv_create_cq()`；网卡把完成通知写到这里，可被多个 QP 共享
 
-一个端口（port）上还有 `ibv_port_attr`（`ibv_query_port()`：链路层类型、LID、MTU、状态）和 GID 表（`ibv_query_gid()`）。这些是建连接时要交换的信息，第五章讲。
+一个端口（port）上还有 `ibv_port_attr`（`ibv_query_port()`：链路层类型、LID、MTU、状态）和 GID 表（`ibv_query_gid()`）。这些是建连接时要交换的信息，[第五章](#五连接建立)讲。
 
 NCCL 的封装在 `src/misc/ibvwrap.cc`：每个 verbs 函数有一个 `wrap_ibv_*` 版本，用 `dlopen` 加载 `libibverbs.so`（`src/misc/ibvsymbols.cc` 里的 `LOAD_SYM_VERSION` 按符号版本取 `ibv_reg_mr_iova2` 与 `ibv_reg_dmabuf_mr`），这样 NCCL 的二进制不需要链接时依赖 rdma-core，机器上没有 IB 时自动回退到 Socket 传输。`net_ib.cc` 里 `ncclIbInitCommDevBase` 一段能看到典型的初始化顺序：`wrap_ibv_alloc_pd`（每设备一个 PD，引用计数共享），然后 `wrap_ibv_create_cq`，CQ 深度是 `2*MAX_REQUESTS*ncclParamIbQpsPerConn()`。
 
 ### 2. Memory Region：lkey 与 rkey
 
-`ibv_reg_mr(pd, addr, length, access)` 把一段虚拟地址区间交给网卡。它做三件事（细节在第七章）：把这些页 pin 在物理内存里、把虚拟到物理的映射写进网卡的翻译表、返回两个 32 位的 key：
+`ibv_reg_mr(pd, addr, length, access)` 把一段虚拟地址区间交给网卡。它做三件事（细节在[第七章](#七内存注册的代价与-mr-cache)）：把这些页 pin 在物理内存里、把虚拟到物理的映射写进网卡的翻译表、返回两个 32 位的 key：
 
 - **lkey**（local key）：本地 post Work Request 时放在 `ibv_sge.lkey` 里，告诉网卡"这段本地地址属于哪个 MR"；
 - **rkey**（remote key）：交给对端，对端在 RDMA WRITE / READ 的 `wr.rdma.rkey` 里带上它，本地网卡收到后据此校验"对端是否有权访问这段内存"。
@@ -211,7 +244,7 @@ RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`nc
 - **接收要先 post**。对端的 SEND（以及 RDMA_WRITE_WITH_IMM）到达时，本地 Receive Queue 里必须已有一个 recv WR 等着，否则网卡回 RNR NAK（Receiver Not Ready），发送方按 `rnr_retry` 重试，重试用尽即 `IBV_WC_RNR_RETRY_EXC_ERR`。NCCL 的 `ncclIbIrecv` 在每个 QP 上 `wrap_ibv_post_recv` 一个 0 SGE 的 recv WR，就是为了接对端的 WITH_IMM。
 - **不 signaled 的 send 也占队列**。Send Queue 里的 WR 直到某个它之后的 signaled WR 完成被 poll 出来才算释放。全部用 unsignaled 会把队列填满且永远清不掉。`net_ib.cc` 的 `ncclIbPostFifo` 里那段长注释讲的就是这个坑：它周期性地给 FIFO 写请求加 `IBV_SEND_SIGNALED`，保证队列会被排空。
 
-轮询是纯用户态自旋，没有系统调用；也可以 `ibv_req_notify_cq` + `ibv_get_cq_event` 走中断等待，延迟高几微秒但不烧 CPU。NCCL 的 proxy 线程用自旋轮询（`ncclIbTest` 里的 `wrap_ibv_poll_cq(cq, 4, wcs, &wrDone)`），这是它需要一个专用核的原因，也是"proxy 线程被抢占导致通信慢"的根源——第四篇再讲。
+轮询是纯用户态自旋，没有系统调用；也可以 `ibv_req_notify_cq` + `ibv_get_cq_event` 走中断等待，延迟高几微秒但不烧 CPU。NCCL 的 proxy 线程用自旋轮询（`ncclIbTest` 里的 `wrap_ibv_poll_cq(cq, 4, wcs, &wrDone)`），这是它需要一个专用核的原因，也是"proxy 线程被抢占导致通信慢"的根源——[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)再讲。
 
 ## 四、单边与双边操作
 
@@ -226,7 +259,7 @@ verbs 提供两类数据操作：
 单边操作的优点正是它的缺点：对端不知道数据到了。要通知对端，有三种办法：
 
 1. **RDMA WRITE WITH IMMEDIATE**：变体 `IBV_WR_RDMA_WRITE_WITH_IMM`，写数据的同时附带 32 位立即数，对端会消耗一个 recv WR 并产生一个 `IBV_WC_RECV_RDMA_WITH_IMM` 完成，`wc.imm_data` 里是那 32 位。对端不需要为数据准备 recv buffer（recv WR 可以 0 SGE），只需要 poll。
-2. **数据里带 flag**：把 buffer 的最后几个字节当作标志位，接收方轮询内存。依赖 RDMA WRITE 的"最后一个字节最后到达"顺序保证，NCCL 的 LL / LL128 协议就是这种思路，第四篇讲。
+2. **数据里带 flag**：把 buffer 的最后几个字节当作标志位，接收方轮询内存。依赖 RDMA WRITE 的"最后一个字节最后到达"顺序保证，NCCL 的 LL / LL128 协议就是这种思路，[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲。
 3. **再发一个 SEND**：多一次操作，延迟多一个 α。
 
 ### 2. NCCL 为什么主要用 RDMA WRITE
@@ -267,7 +300,7 @@ lastWr->send_flags = IBV_SEND_SIGNALED;        // 只有最后一个 WR 产生�
 - **用 immediate 传大小**。`immData = reqs[0]->send.size`：接收方在 `ncclIbTest` 里 poll 到 `IBV_WC_RECV_RDMA_WITH_IMM` 时，`req->recv.sizes[0] = wc->imm_data`，从而得知实际收了多少字节——这就是 NCCL 检测接收完成的机制。多个请求合并（multi-send，`nreqs > 1`）时，立即数放不下多个大小，NCCL 改为再 RDMA WRITE 一个 `remSizesFifo` 数组到对端。
 - **与 adaptive routing 兼容**。IB 网络开 adaptive routing 后包可能走不同路径乱序到达，`RDMA_WRITE_WITH_IMM` 的完成要等它之前所有数据落地才产生（RC 语义保证），所以大于 `NCCL_IB_AR_THRESHOLD`（默认 8192 字节）的消息拆成"一个大 RDMA_WRITE + 一个 0 字节 RDMA_WRITE_WITH_IMM"，让立即数在数据全部到达后才触发对端完成。
 
-RDMA READ 在 NCCL 里只用于一个特殊目的：GDR 接收后的 **flush**（`ncclIbIflush`，`wr.opcode = IBV_WR_RDMA_READ`）。第八章解释为什么需要它。
+RDMA READ 在 NCCL 里只用于一个特殊目的：GDR 接收后的 **flush**（`ncclIbIflush`，`wr.opcode = IBV_WR_RDMA_READ`）。[第八章](#4-flush为什么收完还要读一次)解释为什么需要它。
 
 ### 3. 接收方怎么告诉发送方"往哪写"
 
@@ -360,7 +393,7 @@ NCCL 的 `struct ncclIbConnectionMetadata` 就是这个包：`qpInfo[]`（每个
 - **自己用 TCP**：双方本来就有 IP 连通性（bootstrap 也要用），开一个 socket 把 metadata 结构体发过去。简单、可控、与网络类型无关。
 - **`librdmacm`**：rdma-core 提供的连接管理库，用类似 socket 的 API（`rdma_create_id` / `rdma_resolve_addr` / `rdma_connect` / `rdma_accept`），走 IB 的 CM 协议或 RoCE 的 UDP 端口 4791 交换信息，并自动做路径解析、把 QP 推到 RTS。perftest 的 `ib_write_bw -R` 用它；UCX、libfabric 在底层也用它。
 
-NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` 到 `ncclIbListen` 监听的地址，然后 `ncclSocketProgress` 把 `ncclIbConnectionMetadata` 发过去；`ncclIbAccept` 对称地收。这个 socket 是 NCCL 的 bootstrap 基础设施（`src/misc/socket.cc`，走 `NCCL_SOCKET_IFNAME` 指定的网卡）的一部分，第四篇讲 bootstrap 时会再见到它。选 TCP 的理由是 NCCL 本来就有 socket 层、要处理多设备合并（`NCCL_IB_MERGE_NICS`）与多 QP 这些 `rdma_cm` 不直接支持的场景。整个过程是非阻塞状态机（`enum ncclIbCommState`），因为 NCCL 要同时建几百条连接。
+NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` 到 `ncclIbListen` 监听的地址，然后 `ncclSocketProgress` 把 `ncclIbConnectionMetadata` 发过去；`ncclIbAccept` 对称地收。这个 socket 是 NCCL 的 bootstrap 基础设施（`src/misc/socket.cc`，走 `NCCL_SOCKET_IFNAME` 指定的网卡）的一部分，[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 bootstrap 时会再见到它。选 TCP 的理由是 NCCL 本来就有 socket 层、要处理多设备合并（`NCCL_IB_MERGE_NICS`）与多 QP 这些 `rdma_cm` 不直接支持的场景。整个过程是非阻塞状态机（`enum ncclIbCommState`），因为 NCCL 要同时建几百条连接。
 
 延迟的账：一条 RC 连接的建立包含 TCP 三次握手、一次 metadata 往返、三次 `ibv_modify_qp`（每次几十微秒，涉及内核与固件），总计通常在毫秒级。8 卡 × 32 节点的 ring 加 tree，每个 rank 要建的连接数是 channel 数 × 邻居数，几十到上百条，这是 `ncclCommInitRank` 在大规模上要花几秒到几十秒的原因之一。
 
@@ -411,7 +444,32 @@ mlx5_0  1     3      0000:0000:0000:0000:0000:ffff:0a00:0105  10.0.1.5        v2
 
 ### 3. `NCCL_IB_GID_INDEX` 为什么经常要手工指定
 
-`net_ib.cc` 的 `ncclIbGetGidIndex` 是 NCCL 的选择逻辑：IB 链路层直接用索引 0（或 FLID 索引）；RoCE 下先看 `NCCL_IB_GID_INDEX`（`ncclParamIbGidIndex`，默认 -1），用户指定了就用，否则从索引 1 开始遍历 GID 表，用 `ncclUpdateGidIndex` 按三个条件筛选：地址族（`NCCL_IB_ADDR_FAMILY`，默认 IPv4）、RoCE 版本（`NCCL_IB_ROCE_VERSION_NUM`，默认 2）、以及可选的地址前缀（`NCCL_IB_ADDR_RANGE`）。近几年版本的自动选择在"一个端口一个 IPv4"的简单配置下通常能选对；需要手工指定的情形是：
+`net_ib.cc` 的 `ncclIbGetGidIndex` 是 NCCL 的选择逻辑，它是一棵两层的判定树：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 330}}}%%
+%% 图：NCCL 怎么给一个端口挑 GID 索引：IB 看有没有可路由的 FLID，RoCE 先看 NCCL_IB_GID_INDEX，否则遍历 GID 表按地址族、RoCE 版本与地址前缀择优
+flowchart TB
+  S["<b>ncclIbGetGidIndex</b><br/>为这张网卡的这个端口挑一个本端 GID 索引"]
+  S --> Q1{"端口的 link_layer 是 InfiniBand？"}
+  Q1 -- "是" --> F{"NCCL_IB_ROUTABLE_FLID_GID_INDEX 指的那条 GID<br/>FLID 字段非 0？"}
+  F -- "是" --> FU["<b>用这条</b><br/>IB 路由器场景，跨子网要走 FLID"]
+  F -- "否" --> Z["<b>用索引 0</b><br/>IB 子网内靠 dlid 寻址，GID 不参与"]
+  Q1 -- "否：RoCE" --> Q2{"NCCL_IB_GID_INDEX 大于等于 0？"}
+  Q2 -- "是" --> U["<b>用用户指定的索引</b><br/>也就是 show_gids 里目标 IP 那条 v2 行"]
+  Q2 -- "否：自动选" --> LP["<b>遍历 GID 表</b><br/>• 当前选择从索引 0 起<br/>• 索引 1 到 gid_tbl_len − 1 逐个当候选<br/>• 每次调 ncclUpdateGidIndex 比较"]
+  LP --> C{"候选的地址族、RoCE 版本、地址前缀都对，<br/>且不是 link-local？"}
+  C -- "都对" --> R["<b>换成这个候选</b><br/>继续看下一个索引"]
+  C -- "有一项不对" --> K["<b>保持当前选择</b><br/>继续看下一个索引"]
+```
+
+判定树里 RoCE 那一侧的三个条件各由一个环境变量给出：
+
+- **地址族**：`NCCL_IB_ADDR_FAMILY`，默认 IPv4；
+- **RoCE 版本**：`NCCL_IB_ROCE_VERSION_NUM`，默认 2，值从 `/sys/class/infiniband/<dev>/ports/<port>/gid_attrs/types/<index>` 读；
+- **地址前缀**：`NCCL_IB_ADDR_RANGE`，形如 `10.0.1.0/24`，不设就不筛。
+
+`NCCL_IB_GID_INDEX`（`ncclParamIbGidIndex`）默认 -1，即走自动选择。近几年版本的自动选择在"一个端口一个 IPv4"的简单配置下通常能选对；需要手工指定的情形是：
 
 - 端口有多个 IP（多 VLAN、bond 的子接口），自动选择可能挑到不可路由的那个；
 - 需要用 IPv6 而没设 `NCCL_IB_ADDR_FAMILY`；
@@ -445,6 +503,10 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 2. **建翻译表**：把每一页的物理地址写进网卡的 **MTT**（Memory Translation Table，mlx5 上通过 UMR 或直接 firmware 命令）。网卡收到带虚拟地址与 rkey 的请求时，先查 MPT（Memory Protection Table，按 key 索引，存权限与范围）再查 MTT 翻译。翻译表存在主机内存里，网卡上有 cache（类似 TLB），miss 时要多一次 PCIe 读。
 3. **返回 key**：lkey / rkey 是 MPT 的索引加一个 8 位的 key 版本。
 
+一段内存注册之后，它在三个地方各有一份表示；对端的请求到达时，网卡就是按这两张表把 rkey 和远端地址翻成一次 PCIe 事务的：
+
+![内存注册做了什么：一段 MR 在应用、内核与网卡里的三份表示](/img/in-post/rdma-and-gpudirect-mr-translation.svg)
+
 反注册（`ibv_dereg_mr`）逆过来：清 MTT、unpin。两者都是系统调用加 firmware 命令，慢。
 
 ### 2. 算一算：注册要多久，注册多少
@@ -457,6 +519,9 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 
 - **预注册的 staging buffer**：申请一大块、注册一次，数据发送前拷进去。多一次拷贝，但注册成本为零。NCCL 的 channel buffer（`NCCL_BUFFSIZE`，默认 4 MB 每 channel 每协议）就是这样：在连接建立时注册一次，后面所有传输都经它中转。
 - **注册用户 buffer + 缓存**：直接注册应用的 buffer，避免拷贝，用 cache 避免重复注册。适合同一块 buffer 反复使用的场景（训练的梯度 buffer、推理的 KV pool）。
+
+> [!NOTE] Java 经验参照：直接缓冲区的分配建议与 MR 注册
+> `ByteBuffer` 的文档建议把直接缓冲区留给"大的、长期存活的、会被底层本地 I/O 用到的"那些，因为它的分配和释放比堆内缓冲贵。MR 注册是同一条经验的加强版：注册不只是分配，还要 pin 页、写网卡的翻译表，GB 级 buffer 要几百毫秒，所以 NCCL 的 channel buffer 在建连接时注册一次、之后反复用，用户 buffer 靠 `ncclCommRegister` 在训练循环之前注册好。对不上的地方是：直接缓冲区只是不在 GC 堆上，页仍然可以被操作系统换出，网卡也不知道它在哪；MR 多出来的正是"钉住页"和"把物理地址告诉网卡"这两件事。
 
 ### 3. NCCL 的 MR cache
 
@@ -494,7 +559,7 @@ cache 是一个按起始地址排序的数组，查找是线性扫描（条目�
 
 NCCL 2.19 起提供 `ncclCommRegister(comm, buff, size, &handle)` / `ncclCommDeregister`（`src/register/register.cc`），让应用把自己的 buffer 预先注册到 communicator 上。注册后，集合通信若发现输入输出 buffer 已注册，可以让网卡（或 NVLink 对端）直接读写用户 buffer，跳过 channel buffer 的中转——这是 NCCL 的"user buffer registration"，对大消息能省掉一次显存内拷贝并减少 kernel 的工作量。
 
-实现是两级：`ncclRegister` 维护 communicator 级的 `ncclRegCache`（结构与 `ncclIbMrCache` 几乎相同：按地址排序、区间包含即命中、引用计数），真正到网络层的注册发生在第一次使用时，由 `src/transport/net.cc` 的 `ncclNetLocalRegisterBuffer` / `ncclNetGraphRegisterBuffer` 通过 proxy 调用网络插件的 `regMrDmaBuf`（DMA-BUF 可用时）或 `regMr`（回退到 peermem）。开关是 `NCCL_LOCAL_REGISTER`（默认 1）与 `NCCL_GRAPH_REGISTER`（CUDA Graph 捕获时自动注册，默认 1）。PyTorch 侧对应 `TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK` 之类的机制把 Caching Allocator 分出的大块自动注册——第五篇再讲。
+实现是两级：`ncclRegister` 维护 communicator 级的 `ncclRegCache`（结构与 `ncclIbMrCache` 几乎相同：按地址排序、区间包含即命中、引用计数），真正到网络层的注册发生在第一次使用时，由 `src/transport/net.cc` 的 `ncclNetLocalRegisterBuffer` / `ncclNetGraphRegisterBuffer` 通过 proxy 调用网络插件的 `regMrDmaBuf`（DMA-BUF 可用时）或 `regMr`（回退到 peermem）。开关是 `NCCL_LOCAL_REGISTER`（默认 1）与 `NCCL_GRAPH_REGISTER`（CUDA Graph 捕获时自动注册，默认 1）。PyTorch 侧对应 `TORCH_NCCL_USE_TENSOR_REGISTER_ALLOCATOR_HOOK` 之类的机制把 Caching Allocator 分出的大块自动注册——[《PyTorch 的通信栈》](/pytorch-communication-stack-processgroupnccl-and-streams.html)再讲。
 
 延迟的账提醒一句：注册是同步的、慢的，`ncclCommRegister` 应该在训练循环之前调用；在第一次集合通信时才触发的注册会让那一次通信明显变慢，profiler 里会看到一个孤立的长通信。
 
@@ -566,7 +631,7 @@ if (distance > netGdrLevel) {
 INFO(NCCL_GRAPH|NCCL_NET,"GPU Direct RDMA Enabled for GPU %d / HCA %lx (distance %d <= %d), read %d mode %s", ...);
 ```
 
-`distance` 是上一篇 `nvidia-smi topo -m` 的那套等级（NCCL 2.28 的 `topo.h` 里从近到远是 `LOC` 0 < `NVL` 1 < `NVB` 2 < `C2C` 3 < `PIX` 4 < `PXB` 5 < `P2C` 6 < `PXN` 7 < `PHB` 8 < `SYS` 9，第四篇讲 `paths.cc` 怎么算出来），默认阈值 `PATH_PXB`：GPU 与网卡在同一 PCIe switch 下（`PIX`）或经过多层 switch 但不经过 CPU（`PXB`）才开 GDR；要经过 CPU root complex（`PHB`）或跨 socket（`SYS`）就不开，退回主机内存 staging。原因是第二章表格最后一行：跨 root complex 的 P2P 事务在很多平台上带宽只有几 GB/s，甚至比走主机内存还慢，或者干脆不工作（IOMMU / ACS 配置）。`NCCL_NET_GDR_LEVEL=SYS` 可以强制开，只应在确认硬件路径可用（用 `ib_write_bw --use_cuda` 测过）后使用。
+`distance` 是上一篇[《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)里 `nvidia-smi topo -m` 的那套等级（NCCL 2.28 的 `topo.h` 里从近到远是 `LOC` 0 < `NVL` 1 < `NVB` 2 < `C2C` 3 < `PIX` 4 < `PXB` 5 < `P2C` 6 < `PXN` 7 < `PHB` 8 < `SYS` 9，[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 `paths.cc` 怎么算出来），默认阈值 `PATH_PXB`：GPU 与网卡在同一 PCIe switch 下（`PIX`）或经过多层 switch 但不经过 CPU（`PXB`）才开 GDR；要经过 CPU root complex（`PHB`）或跨 socket（`SYS`）就不开，退回主机内存 staging。原因是[第二章对照表后的第三条解读](#4-三条路径的对照表)：跨 root complex 的 P2P 事务在很多平台上带宽只有几 GB/s，甚至比走主机内存还慢，或者干脆不工作（IOMMU / ACS 配置）。`NCCL_NET_GDR_LEVEL=SYS` 可以强制开，只应在确认硬件路径可用（用 `ib_write_bw --use_cuda` 测过）后使用。
 
 日志里那一行 `GPU Direct RDMA Enabled for GPU 0 / HCA 0 (distance 4 <= 5)` 就是这个函数打的；看到 `Disabled ... (distance 8 > 5)` 说明 GPU 与网卡的亲和不对，去看 `nvidia-smi topo -mp`。
 
@@ -618,7 +683,7 @@ sequenceDiagram
 - 网卡与 GPU 的 PCIe 代际与宽度匹配：任何一端 x8 或降代都成为瓶颈（`lspci -vv` 看 `LnkSta`）；
 - 一张网卡只服务一张 GPU；两张 GPU 共享一张 NDR 时每张只有 25 GB/s。
 
-NCCL 在 GPU 找不到近的网卡时有一个补救：PXN（PCI × NVLink），让数据先经 NVLink 到一张离网卡近的 GPU，再由它做 GDR。`ncclTopoCheckGdr` 里 `distance == PATH_PXN` 那段就是用中转 GPU 的距离来判断。第四篇讲 channel 与 transport 时会回到 PXN。
+NCCL 在 GPU 找不到近的网卡时有一个补救：PXN（PCI × NVLink），让数据先经 NVLink 到一张离网卡近的 GPU，再由它做 GDR。`ncclTopoCheckGdr` 里 `distance == PATH_PXN` 那段就是用中转 GPU 的距离来判断。[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 channel 与 transport 时会回到 PXN。
 
 ## 九、GDRCopy 与 GPUDirect 家族
 
@@ -641,7 +706,7 @@ GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：
 - `NCCL_GDRCOPY_SYNC_ENABLE`（`src/transport/net.cc`，默认 1）：proxy 线程更新的接收 tail（`gdcSync`）放在显存里，GPU kernel 轮询本地 HBM 而不是主机内存，省掉 GPU 每次轮询跨 PCIe 的读延迟（约 1 µs）；
 - `NCCL_GDRCOPY_FLUSH_ENABLE`（默认 0）：用 CPU 经 BAR1 读一下显存代替 RDMA READ 做 flush。
 
-这些都是**延迟的账**上的优化：把 GPU 与 proxy 之间的同步变量放到"读的一方本地"，让轮询不跨 PCIe。对小消息（decode 阶段的 TP all_reduce、LL 协议）有效，对大消息带宽没有影响。默认关闭是因为需要 `gdrdrv` 模块且收益随平台而异；第七篇讨论推理侧延迟时会再评估它。
+这些都是**延迟的账**上的优化：把 GPU 与 proxy 之间的同步变量放到"读的一方本地"，让轮询不跨 PCIe。对小消息（decode 阶段的 TP all_reduce、LL 协议）有效，对大消息带宽没有影响。默认关闭是因为需要 `gdrdrv` 模块且收益随平台而异；[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)讨论推理侧延迟时会再评估它。
 
 ### 3. GPUDirect 家族的其余成员
 
@@ -649,9 +714,9 @@ GPUDirect 是一个品牌，下面是一族"让 X 直接访问显存、绕开主
 
 | 成员 | 谁访问显存 | 经过什么 | 本系列的位置 |
 |---|---|---|---|
-| GPUDirect P2P | 另一张 GPU | NVLink 或 PCIe P2P | 第二篇：NVLink / PCIe 拓扑<br/>第四篇：NCCL 的 P2P transport<br/>第七篇：CUDA IPC 与 custom all-reduce |
+| GPUDirect P2P | 另一张 GPU | NVLink 或 PCIe P2P | [《硬件互联：PCIe、NVLink、NVSwitch 与网络拓扑》](/hardware-interconnect-pcie-nvlink-and-topology.html)：NVLink / PCIe 拓扑<br/>[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)：NCCL 的 P2P transport<br/>[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)：CUDA IPC 与 custom all-reduce |
 | GPUDirect RDMA | 网卡 | PCIe P2P（BAR1） | 本篇 |
-| GPUDirect Storage | NVMe / 存储网卡 | PCIe P2P（cuFile API） | 第七篇提及：NIXL 的 GDS 后端；数据加载与 checkpoint 不在系列范围内 |
+| GPUDirect Storage | NVMe / 存储网卡 | PCIe P2P（cuFile API） | [《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)提及：NIXL 的 GDS 后端<br/>数据加载与 checkpoint 不在系列范围内 |
 | GPUDirect Async | GPU 自己触发网卡 | GPU 写网卡门铃 | NCCL 的设备侧网络（device-side networking，`ncclNetDeviceHandle_t`）方向，本系列不展开 |
 
 Table: GPUDirect 家族：P2P、RDMA、Storage、Async
@@ -700,9 +765,14 @@ client$ ib_write_lat -d mlx5_0 -x 3 -F -s 8 <server-ip>
 # DMA-BUF 路径（较新 perftest）：--use_cuda_dmabuf；多 QP：-q 4；用 rdma_cm 建连：-R
 ```
 
-预期数字（非实测，"通常能达到"）：NDR 400 Gb/s 的主机内存测试 1 MB 消息约 370–390 Gb/s（46–49 GB/s）；`--use_cuda` 在 GPU 与网卡同 switch 且 PCIe 5.0 下应与主机内存测试相差不到 5%；PCIe 4.0（A100 + NDR）会被 PCIe 卡在约 25–28 GB/s 即 200–220 Gb/s；`ib_write_lat` 在 IB 上 8 字节单向延迟通常 1–2 µs，RoCE 2–4 µs。
+四个预期数字（非实测，"通常能达到"）：
 
-**观察亲和差距**：把 `--use_cuda=0` 换成一张跨 root complex 的 GPU（`nvidia-smi topo -mp` 里与 `mlx5_0` 是 `SYS` 的那张），带宽通常掉到几 GB/s 甚至测试失败——这就是第二章表格里"跨 root complex 可能不可用或很慢"的实证，也是 `NCCL_NET_GDR_LEVEL` 默认不允许 `SYS` 的理由。
+- **主机内存版带宽**：NDR 400 Gb/s 上 1 MB 消息约 370–390 Gb/s（46–49 GB/s）。
+- **`--use_cuda` 版带宽**：GPU 与网卡同 switch 且 PCIe 5.0 时，应与主机内存版相差不到 5%。
+- **PCIe 4.0 上的上限**：A100 + NDR 会被 PCIe 卡在约 25–28 GB/s，即 200–220 Gb/s。
+- **延迟**：`ib_write_lat` 的 8 字节单向延迟在 IB 上通常 1–2 µs，RoCE 2–4 µs。
+
+**观察亲和差距**：把 `--use_cuda=0` 换成一张跨 root complex 的 GPU（`nvidia-smi topo -mp` 里与 `mlx5_0` 是 `SYS` 的那张），带宽通常掉到几 GB/s 甚至测试失败——这就是[第二章](#4-三条路径的对照表)说的跨 root complex 可能很慢甚至不可用的实证，也是 `NCCL_NET_GDR_LEVEL` 默认不允许 `SYS` 的理由。
 
 ### 4. 模块与权限：`lsmod`、`ulimit`
 
@@ -782,14 +852,14 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 
 ### 2. 排障检查项
 
-这一层出问题时先看什么（详细版在第十章第 5 节）：
+这一层出问题时先看什么（详细版在[「比一比：这一层的检查清单」一节](#5-比一比这一层的检查清单)）：
 
 - **多机带宽远低于单机、或 NCCL 日志出现 `NET/Socket`**：RDMA 没被使用。查 `ibstat` 状态、`/dev/infiniband` 是否可见、`ulimit -l`、`NCCL_IB_DISABLE` 没被误设、`NCCL_IB_HCA` 是否把网卡排除了。
 - **日志有 `GPU Direct RDMA Disabled ... (distance N > 3)`**：GPU 与网卡亲和不对或 peermem / DMA-BUF 不可用。查 `nvidia-smi topo -mp`、`lsmod | grep peermem`、`DMA-BUF is available` 日志。不要直接设 `NCCL_NET_GDR_LEVEL=SYS`，先用 `ib_write_bw --use_cuda` 证明跨 root complex 路径能跑。
 - **RoCE 上连接建立成功但传数据即 status=12**：GID 索引或 TC 错、或网络没配无损。`show_gids` 对索引；`NCCL_IB_TC` 对 DSCP；看网卡的 CNP / out_of_sequence 计数器。
 - **status=12 偶发、伴随带宽抖动**：丢包与重传。RoCE 查 PFC / ECN；IB 查线缆误码（`ibqueryerrors`）；两者都可试 `NCCL_IB_QPS_PER_CONNECTION=2` 分散路径。
-- **status=13（RNR）**：对端没有 post recv，通常对端 rank 已 hang 或崩溃，不是网络问题——转第六篇的 hang 排查。
-- **第一次集合通信特别慢、之后正常**：内存注册在数据面上发生。大 buffer 用 `ncclCommRegister` 预注册（PyTorch 侧的对应机制第五篇讲）；检查是否用了大页。
+- **status=13（RNR）**：对端没有 post recv，通常对端 rank 已 hang 或崩溃，不是网络问题——转[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)的 hang 排查。
+- **第一次集合通信特别慢、之后正常**：内存注册在数据面上发生。大 buffer 用 `ncclCommRegister` 预注册（PyTorch 侧的对应机制见[《PyTorch 的通信栈》](/pytorch-communication-stack-processgroupnccl-and-streams.html)）；检查是否用了大页。
 - **A100 + NDR 网卡只跑到 200 Gb/s 出头**：这是 PCIe 4.0 x16 单向 32 GB/s 的上限（扣掉协议开销约 28 GB/s），不是故障。
 - **`ib_write_bw` 主机内存版就不到线速**：问题在 NCCL 与 GPU 之下——网卡 PCIe 降速（`LnkSta`）、固件、MTU、线缆。先解决它。
 
@@ -825,15 +895,14 @@ Table: 本篇涉及的源码与工具位置
 
 **输入输出**：
 
-```text title='rdma_write.c 的编译、运行、输出与对照'
-编译   gcc -O2 rdma_write.c -o rdma_write -libverbs
-       nvcc -O2 -DUSE_CUDA -x c rdma_write.c -o rdma_write_cuda -libverbs -lcuda      # 显存版
-运行   server$ ./rdma_write -d mlx5_0 -g 3 -s 268435456                 # -g GID 索引（RoCE 必填；IB 填 0 或省略）
-       client$ ./rdma_write -d mlx5_0 -g 3 -s 268435456 <server-ip>     # -s 字节数
-输出   [client] wrote 268435456 bytes in 5.6 ms → 47.9 GB/s (383 Gb/s)   # 数字示意，非实测
-       [server] got IMM=268435456, verify OK
-对照   ib_write_bw -d mlx5_0 -x 3 -s 268435456 [--use_cuda=0]；不同 GPU（PIX vs SYS）各跑一遍，记录到 topo_map.py 的输出里
-```
+| 步骤 | 命令 / 输出 |
+|---|---|
+| 编译 | `gcc -O2 rdma_write.c -o rdma_write -libverbs`<br/>显存版：`nvcc -O2 -DUSE_CUDA -x c rdma_write.c -o rdma_write_cuda -libverbs -lcuda` |
+| 运行 | `server$ ./rdma_write -d mlx5_0 -g 3 -s 268435456`<br/>`client$ ./rdma_write -d mlx5_0 -g 3 -s 268435456 <server-ip>`<br/>`-g` 是 GID 索引（RoCE 必填，IB 填 0 或省略），`-s` 是字节数 |
+| 输出 | `[client] wrote 268435456 bytes in 5.6 ms -> 47.9 GB/s (383 Gb/s)`<br/>`[server] got IMM=268435456, verify OK`<br/>数字示意，非实测 |
+| 对照 | `ib_write_bw -d mlx5_0 -x 3 -s 268435456 [--use_cuda=0]`<br/>不同 GPU（`PIX` 与 `SYS`）各跑一遍，记录到 `topo_map.py` 的输出里 |
+
+Table: rdma_write.c 的编译、运行、输出与对照
 
 **关键实现片段**（约 110 行，去掉了参数解析、TCP 辅助函数 `tcp_listen_accept` / `tcp_connect` / `xchg`、错误检查宏与资源释放；完整版约 250 行）：
 
@@ -953,7 +1022,15 @@ int main(int argc, char **argv) {
 }
 ```
 
-几点与正文的对应：`conn_info` 就是 `ncclIbConnectionMetadata` 的最小子集；服务端提前 post 的 0 SGE recv 对应 `ncclIbIrecv` 里的 `wrap_ibv_post_recv`；`IBV_WR_RDMA_WRITE_WITH_IMM` + `IBV_SEND_SIGNALED` 对应 `ncclIbMultiSend` 的 `lastWr`；`poll_one` 对应 `ncclIbTest`；RTR 里 IB 与 RoCE 的分支对应 `ncclIbRtrQp`。与 NCCL 的差别是这里没有 FIFO——地址与 rkey 在建连接时一次性交换，因为只写一块 buffer。
+五处与正文的对应：
+
+- `conn_info` 就是 `ncclIbConnectionMetadata` 的最小子集；
+- 服务端提前 post 的 0 SGE recv 对应 `ncclIbIrecv` 里的 `wrap_ibv_post_recv`；
+- `IBV_WR_RDMA_WRITE_WITH_IMM` + `IBV_SEND_SIGNALED` 对应 `ncclIbMultiSend` 的 `lastWr`；
+- `poll_one` 对应 `ncclIbTest`；
+- RTR 里 IB 与 RoCE 的分支对应 `ncclIbRtrQp`。
+
+与 NCCL 的差别是这里没有 FIFO——地址与 rkey 在建连接时一次性交换，因为只写一块 buffer。
 
 **显存版需要改什么**：上面的代码在 `nvidia-peermem` 加载的机器上，`-DUSE_CUDA` 编译后不需要改任何 verbs 调用——`ibv_reg_mr` 接受 `cudaMalloc` 返回的指针，这是 peermem 路径"对应用透明"的含义。若没有 peermem（或想验证 DMA-BUF 路径），把第 2 步换成：
 
@@ -971,9 +1048,13 @@ int main(int argc, char **argv) {
 
 这正是 NCCL `src/transport/net.cc` 的做法：`cuMemGetHandleForAddressRange` → `regMrDmaBuf` → `close(dmabuf_fd)`；`net_ib.cc` 的 `ncclIbRegMrDmaBufInternal2` 用 `addr` 同时作为 `iova`，让远端地址空间与设备指针一致。DMA-BUF 版需要 `ibv_reg_dmabuf_mr` 存在（rdma-core ≥ 34，`IBVERBS_1.12`）、CUDA ≥ 11.7、内核 ≥ 5.12 且 NVIDIA 驱动支持——`cudaDeviceGetAttribute(..., cudaDevAttrDmaBufSupported ...)` 或 CUDA driver API 的 `CU_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORTED` 可以先查。
 
-**要观察的三件事**：（1）主机内存版与 `ib_write_bw` 的数字应接近；（2）显存版在 `PIX` 亲和下应与主机内存版接近，换到 `SYS` 亲和的 GPU 后带宽下降甚至 `ibv_reg_mr` 或 WRITE 失败——这就是 `NCCL_NET_GDR_LEVEL` 默认值的实证；（3）把 `-s` 从 8 字节扫到 256 MB，画出的曲线小消息端是 α（约 2 µs 一次 WRITE + 完成），大消息端逼近 min(NIC, PCIe)，与第一篇 `cost_model.py` 的 α-β 拐点对照：$$S^* = \alpha \beta \approx 2\,\mu s \times 50\ \text{GB/s} = 100\ \text{KB}$$——小于 100 KB 的消息在这条链路上是延迟主导的。
+**要观察的三件事**：
 
-下一篇进入 NCCL 本身。本篇讲清了网卡能做什么、一次 RDMA WRITE 怎么发出去；第四篇讲 NCCL 如何把 8 卡 × N 节点的 GPU、NVLink、PCIe、网卡组织成若干条 ring 和 tree，为每条建立 P2P / SHM / NET 传输，选算法、选协议、切 channel，让 proxy 线程替 GPU 驱动本篇的 `ncclIbIsend` / `ncclIbIrecv`：
+1. 主机内存版与 `ib_write_bw` 的数字应接近。
+2. 显存版在 `PIX` 亲和下应与主机内存版接近，换到 `SYS` 亲和的 GPU 后带宽下降、甚至 `ibv_reg_mr` 或 WRITE 失败——这就是 `NCCL_NET_GDR_LEVEL` 默认值的实证。
+3. 把 `-s` 从 8 字节扫到 256 MB，画出的曲线小消息端是 α（约 2 µs 一次 WRITE + 完成），大消息端逼近 min(NIC, PCIe)，与[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)的 `cost_model.py` 的 α-β 拐点对照：$$S^* = \alpha \beta \approx 2\,\mu s \times 50\ \text{GB/s} = 100\ \text{KB}$$——小于 100 KB 的消息在这条链路上是延迟主导的。
+
+下一篇进入 NCCL 本身。本篇讲清了网卡能做什么、一次 RDMA WRITE 怎么发出去；[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 NCCL 如何把 8 卡 × N 节点的 GPU、NVLink、PCIe、网卡组织成若干条 ring 和 tree，为每条建立 P2P / SHM / NET 传输，选算法、选协议、切 channel，让 proxy 线程替 GPU 驱动本篇的 `ncclIbIsend` / `ncclIbIrecv`：
 
 > **同一次 8 卡 all_reduce，NCCL 在 NVSwitch 机器上选了 NVLS + Simple，在没有 NVSwitch 的 NVLink 机器上选了 Ring + LL128，在纯 PCIe 机器上只剩 Simple / LL，跨 32 台机器时选了 Tree。它是根据什么做出这三个不同决定的？强行用 `NCCL_ALGO=Ring` 会付出什么？**
 
