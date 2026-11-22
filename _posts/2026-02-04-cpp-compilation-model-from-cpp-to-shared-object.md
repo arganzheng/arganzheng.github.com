@@ -11,7 +11,7 @@ updated: 2026-11-18
 ---
 
 
-`import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。先说清楚一件事：`import` 导入的不一定是 `.py` 文件。目录里如果放的是一个编译好的共享库 `_C.cpython-312-x86_64-linux-gnu.so`，同一条 `import` 语句会 `dlopen` 它并调用其中一个名为 `PyInit__C` 的 C 函数拿到模块对象——这是 Python 系列[《模块与导入系统》](/python-modules-and-the-import-system.html)讲的 `ExtensionFileLoader`。本篇从 C++ 这一侧接着讲：那个 `PyInit__C` 在哪、它编成了什么、又拉起了什么。它在 `torch/csrc/stub.c`，全文如下：
+`import torch` 背后，Python 解释器真正加载的第一个 C 语言文件只有 15 行。先说清楚一件事：`import` 导入的不一定是 `.py` 文件。目录里如果放的是一个编译好的共享库 `_C.cpython-312-x86_64-linux-gnu.so`，同一条 `import` 语句会用 `dlopen`（操作系统提供的函数，在运行时把一个共享库加载进当前进程）加载它，并调用其中一个名为 `PyInit__C` 的 C 函数拿到模块对象——这是 Python 系列[《模块与导入系统》](/python-modules-and-the-import-system.html)讲的 `ExtensionFileLoader`。本篇从 C++ 这一侧接着讲：那个 `PyInit__C` 在哪、它编成了什么、又拉起了什么。它在 `torch/csrc/stub.c`，全文如下：
 
 ```c title='torch/csrc/stub.c 全文：PyInit__C 只是转调 initModule'
 #include <Python.h>
@@ -1062,9 +1062,33 @@ PyTorch 就是这么做的。`cmake/public/utils.cmake` 里 `torch_compile_optio
 #endif
 ```
 
-`struct C10_API Device` 里的 `C10_API` 展开成 `__attribute__((__visibility__("default")))`，意思是"`Device` 的成员函数要从 `libc10.so` 导出"。`TORCH_API` 是 `libtorch_cpu.so` 的，`TORCH_CUDA_CPP_API`/`TORCH_CUDA_CU_API` 是 `libtorch_cuda.so` 的，`TORCH_PYTHON_API`（定义在 `torch/csrc/Export.h`）是 `libtorch_python.so` 的。`C10_BUILD_MAIN_LIB`、`CAFFE2_BUILD_MAIN_LIB`、`THP_BUILD_MAIN_LIB` 这些宏由 CMake 在编译对应库时定义（`c10/CMakeLists.txt` 里的 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，[下篇「小工程的每条命令在 PyTorch 里的写法」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-小工程的每条命令在-pytorch-里的写法)会看到），在 Windows 上区分 `dllexport`/`dllimport`，在 Linux 上两者一样。
+这段宏定义在 Linux 上只做一件事：`C10_API` 和 `TORCH_API` 都展开成 `__attribute__((__visibility__("default")))`，也就是上面小例子里的 `MY_API`。所以 `struct C10_API Device` 的意思是"`Device` 的成员函数要从 `libc10.so` 导出"。
 
-回到 `stub.c`：`__attribute__((visibility("default"))) PyObject* PyInit__C(void);` 那行就是在说"这个符号必须导出"——Python 解释器要 `dlsym` 它。如果 `_C.so` 用 `-fvisibility=hidden` 编译而没有这行，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。`_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇「`stub.c` 与 `setup.py`：`_C` 是怎么编出来的」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#2-stubc-与-setuppy_c-是怎么编出来的)），走的是默认可见性，但 PyTorch 仍显式写了这一行，保证换成 `-fvisibility=hidden` 也不会出问题。
+PyTorch 的每个动态库有一个自己的导出宏，写在哪个库的声明上，就表示这个符号由哪个库导出：
+
+| 导出宏 | 标在哪个库的符号上 | 编译这个库时定义的开关 | 定义位置 |
+|---|---|---|---|
+| `C10_API` | `libc10.so` | `C10_BUILD_MAIN_LIB` | `torch/headeronly/macros/Export.h` |
+| `TORCH_API` | `libtorch_cpu.so` | `CAFFE2_BUILD_MAIN_LIB` | 同上 |
+| `TORCH_CUDA_CPP_API`、`TORCH_CUDA_CU_API` | `libtorch_cuda.so` | `TORCH_CUDA_BUILD_MAIN_LIB` | 同上 |
+| `TORCH_PYTHON_API` | `libtorch_python.so` | `THP_BUILD_MAIN_LIB` | `torch/csrc/Export.h` |
+
+Table: PyTorch 各动态库的导出宏
+
+每个宏外面那层 `#ifdef C10_BUILD_MAIN_LIB … #else … #endif` 是为 Windows 准备的。Windows 要求同一个声明在两种场合写法不同：编译这个库自己时写 `dllexport`（导出），别的库包含这个头文件时写 `dllimport`（导入）。于是需要一个开关告诉头文件"现在是不是在编译这个库本身"，这个开关就是 `C10_BUILD_MAIN_LIB`：CMake 只在编译 `libc10.so` 的源文件时加上 `-DC10_BUILD_MAIN_LIB`（`c10/CMakeLists.txt` 里的 `target_compile_options(c10 PRIVATE "-DC10_BUILD_MAIN_LIB")`，[下篇「小工程的每条命令在 PyTorch 里的写法」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#1-小工程的每条命令在-pytorch-里的写法)会看到），其余几个库的开关见上表第三列。在 Linux 上 `C10_IMPORT` 就定义成 `C10_EXPORT`，两个分支展开结果相同，读代码时可以直接把 `C10_API` 当成"导出"。
+
+现在可以回答开头 `stub.c` 里那行声明的作用了：
+
+```c title='stub.c 里给 PyInit__C 加导出属性的声明'
+__attribute__((visibility("default"))) PyObject* PyInit__C(void);
+```
+
+1. Python 执行 `import torch._C` 时，先把 `_C.so` 加载进进程，然后拿字符串 `"PyInit__C"` 到这个库的**导出符号表**里查同名函数，查到就调用它。这个"按名字查符号"的函数叫 `dlsym`，[「`dlopen`：运行时显式加载」一节](#3-dlopen运行时显式加载)有一个完整的例子。
+2. 查的是导出符号表，所以没有导出的函数查不到，哪怕它的机器码就在 `_C.so` 里。
+3. 这行声明给 `PyInit__C` 标上 `visibility("default")`，保证它一定被导出。
+4. 假如 `_C.so` 用 `-fvisibility=hidden` 编译，又没有这行声明，`PyInit__C` 不会被导出，`import torch` 会报 `dynamic module does not define module export function (PyInit__C)`。
+
+实际上 `_C` 是由 `setup.py` 的 setuptools `Extension` 编译的（[下篇「`stub.c` 与 `setup.py`：`_C` 是怎么编出来的」一节](/cpp-project-layout-namespaces-libraries-and-cmake.html#2-stubc-与-setuppy_c-是怎么编出来的)），没有加 `-fvisibility=hidden`，所有符号默认导出，去掉这行也能工作。PyTorch 仍然显式写上它，这样以后编译选项改成 `-fvisibility=hidden` 也不会出问题。
 
 [《宏、静态注册与代码生成》的「符号可见性：注册为什么会消失」一章](/cpp-macros-static-registration-and-codegen.html#八符号可见性注册为什么会消失)会详细讨论可见性如何影响静态注册。这里只需要建立一个直觉：**一个符号在 PyTorch 的 `.so` 里能不能被扩展链接到，取决于它的声明上有没有 `C10_API`/`TORCH_API`**。没有这个宏的函数，即使在头文件里声明了，链接扩展时也会 undefined reference。这是给 PyTorch 加新 API 时最常见的遗漏之一。
 
@@ -1301,7 +1325,31 @@ clang++ -std=c++17 -I. examples/hello.cpp -L. -lminic10 -Wl,-rpath,'$ORIGIN' -o 
 
 ### 3. `dlopen`：运行时显式加载
 
-除了启动时按 `DT_NEEDED` 自动加载，程序还可以调 `dlopen("libfoo.so", flags)` 手工加载一个库，用 `dlsym` 按名字取符号。Python 的 `import` 一个 C 扩展就是 `dlopen` 它，然后 `dlsym("PyInit__C")`。
+除了启动时按 `DT_NEEDED` 自动加载，程序还可以在运行过程中自己加载一个库。POSIX 为此提供了一组函数，声明在 `<dlfcn.h>` 里，常用的是两个：
+
+| 函数 | 作用 | 返回值 |
+|---|---|---|
+| `dlopen(路径, flags)` | 把一个 `.so` 加载进当前进程（连同它 `DT_NEEDED` 里的依赖） | 代表这个库的句柄 |
+| `dlsym(句柄, "符号名")` | 在这个库的导出符号表里按名字查一个符号（dl = dynamic linking，sym = symbol） | 符号的地址，查不到返回 `NULL` |
+
+Table: dlopen 与 dlsym
+
+两者配合使用：先 `dlopen` 拿到句柄，再 `dlsym` 拿到函数地址，转成函数指针后就能调用。编译时不需要这个库的头文件，也不需要在链接命令里写它，库名和函数名都只是运行时的字符串：
+
+```c title='用 dlopen + dlsym 调用 libm.so.6 里的 cos'
+#include <dlfcn.h>
+#include <stdio.h>
+
+int main(void) {
+  void* handle = dlopen("libm.so.6", RTLD_NOW);         // 加载数学库
+  double (*fn)(double) = (double (*)(double))dlsym(handle, "cos");  // 按名字查 cos 的地址
+  printf("%f\n", fn(0.0));                               // 1.000000
+  dlclose(handle);
+  return 0;
+}
+```
+
+Python `import` 一个 C 扩展走的就是这两步：对 `_C.so` 调 `dlopen`，再用 `dlsym(handle, "PyInit__C")` 查到初始化函数并调用它，返回值就是模块对象。这也是 `PyInit__C` 必须出现在导出符号表里的原因（见[「符号可见性」一节](#4-符号可见性so-导出了什么)）。
 
 `dlopen` 有一个重要的 flag：`RTLD_LOCAL`（默认）还是 `RTLD_GLOBAL`。`RTLD_LOCAL` 加载的库的符号只对这个库自己及它的依赖可见；`RTLD_GLOBAL` 让它的符号进入全局命名空间，之后加载的任何库都能解析到它们。Python 默认用 `RTLD_LOCAL` 加载扩展，这就产生了一个问题：`libtorch_python.so` 依赖 MKL/OpenMP/CUDA runtime，而这些库自己又会 `dlopen` 插件并假定全局能看到它们的符号。
 

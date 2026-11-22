@@ -301,32 +301,38 @@ layers/
 
 每个 `.cpp` 旁边有一个同名的 `.h`，里面只有一行声明。
 
-<details markdown="1"><summary>五个源文件和四个头文件的完整内容</summary>
+五个源文件和四个头文件的完整内容如下，点文件名切换：
 
-```cpp title='layers 的全部源码'
-// ---- base/device.h ----
+<div class="code-tabs" data-labels="base/device.h|base/device.cpp|ops/add.h|ops/add.cpp|front/engine.h|front/engine.cpp|front/bind.h|front/bind.cpp|main.cpp" markdown="1">
+
+```cpp title='layers/base/device.h'
 #pragma once
 #include <string>
 namespace base { std::string device_name(); }
+```
 
-// ---- base/device.cpp ----
+```cpp title='layers/base/device.cpp'
 #include <base/device.h>
 namespace base { std::string device_name() { return "cpu"; } }
+```
 
-// ---- ops/add.h ----
+```cpp title='layers/ops/add.h'
 #pragma once
 namespace ops { int add(int a, int b); }
+```
 
-// ---- ops/add.cpp ----
+```cpp title='layers/ops/add.cpp'
 #include <ops/add.h>
 namespace ops { int add(int a, int b) { return a + b; } }
+```
 
-// ---- front/engine.h ----
+```cpp title='layers/front/engine.h'
 #pragma once
 #include <string>
 namespace front { std::string run(); }
+```
 
-// ---- front/engine.cpp ----
+```cpp title='layers/front/engine.cpp'
 #include <front/engine.h>
 #include <base/device.h>
 #include <ops/add.h>
@@ -335,23 +341,26 @@ std::string run() {
   return "1 + 2 = " + std::to_string(ops::add(1, 2)) + " on " + base::device_name();
 }
 }
+```
 
-// ---- front/bind.h ----
+```cpp title='layers/front/bind.h'
 #pragma once
 namespace front { void print_result(); }
+```
 
-// ---- front/bind.cpp ----
+```cpp title='layers/front/bind.cpp'
 #include <front/bind.h>
 #include <front/engine.h>
 #include <iostream>
 namespace front { void print_result() { std::cout << run() << '\n'; } }
+```
 
-// ---- main.cpp ----
+```cpp title='layers/main.cpp'
 #include <front/bind.h>
 int main() { front::print_result(); }
 ```
 
-</details>
+</div>
 
 整个构建规则是一份二十来行的 `CMakeLists.txt`：
 
