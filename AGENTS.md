@@ -1939,7 +1939,12 @@ How it is built (`_plugins/moments.rb`):
   (`less/extras.less` `.code-tabs`);
   `wechat-export.js` flattens groups into labelled blocks. Highlight
   comments anchored in a hidden panel simply stay hidden until that tab is
-  chosen — no special handling.
+  chosen — no special handling. **File tabs** (2026-11-22, C++ layout post:
+  「改成多个文件（tab）页面的代码块形式」): `data-labels="a.h|a.cpp|main.cpp"`
+  on the div names the tabs itself (one label per panel, for the files of a
+  small project in one language); such a group switches on its own (not
+  page-wide, not remembered), its bar wraps, and each fence still carries
+  its own `title=`.
 - Line numbers (`_plugins/code_lines.rb`, `:documents, :post_render` on
   posts): every `<pre><code>` line becomes `<span class="line">` (Rouge spans
   that cross lines are closed and reopened, textContent unchanged) and the

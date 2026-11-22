@@ -330,6 +330,9 @@ html.private-post:not(.author-ok) .private-post-gate { display: flex; }
 		&:hover { color: #24292f; }
 		&.is-active { color: @brand-primary; border-bottom-color: @brand-primary; }
 	}
+	// file tabs (data-labels): nine file names do not fit one row at 755px
+	&.code-tabs-files .code-tabs-bar { flex-wrap: wrap; }
+	&.code-tabs-files .code-tab { padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 500; }
 	&.code-tabs-ready > .highlighter-rouge { margin-top: 0; margin-bottom: 0; }
 	&.code-tabs-ready > .highlighter-rouge:not(.is-active) { display: none; }
 	// no JS: stack the panels, each labelled with its language

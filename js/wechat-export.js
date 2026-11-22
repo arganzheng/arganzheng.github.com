@@ -407,7 +407,7 @@
       group.querySelectorAll(':scope > .highlighter-rouge').forEach(function (panel) {
         panel.hidden = false;
         var tab = panel.getAttribute('data-lang') || 'code';
-        var label = { python: 'Python', java: 'Java', cpp: 'C++' }[tab] || tab;
+        var label = panel.getAttribute('data-tab-label') || { python: 'Python', java: 'Java', cpp: 'C++' }[tab] || tab;
         panel.parentNode.insertBefore(el('p', 'margin:0 0 4px;color:#57606a;font-size:13px;font-weight:600;', label), panel);
       });
     });

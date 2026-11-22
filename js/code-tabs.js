@@ -18,6 +18,11 @@
  * Java once switches every group on the page and the next post opens on Java.
  * Groups without the preferred language show their first panel. Without JS the
  * CSS stacks the panels and labels them (see less/extras.less).
+ *
+ * File tabs: `<div class="code-tabs" data-labels="a.h|a.cpp|main.cpp" markdown="1">`
+ * names the tabs itself (one label per panel, e.g. the files of a small
+ * project, all in one language). Such a group switches on its own: its choice
+ * is neither shared with other groups nor remembered.
  */
 (function () {
     'use strict';
@@ -54,19 +59,27 @@
         bar.className = 'code-tabs-bar';
         bar.setAttribute('role', 'tablist');
 
-        var tabs = panels.map(function (panel) {
-            var lang = langOf(panel);
+        var custom = (root.getAttribute('data-labels') || '').split('|')
+            .map(function (s) { return s.trim(); }).filter(Boolean);
+        var local = custom.length === panels.length;
+        if (local) root.classList.add('code-tabs-files');
+        var group = { local: local };
+
+        var tabs = panels.map(function (panel, index) {
+            var lang = local ? 'tab-' + index : langOf(panel);
             panel.setAttribute('data-lang', lang);
             panel.setAttribute('role', 'tabpanel');
+            if (local) panel.setAttribute('data-tab-label', custom[index]);
             var button = document.createElement('button');
             button.type = 'button';
             button.className = 'code-tab';
             button.setAttribute('role', 'tab');
             button.setAttribute('data-lang', lang);
-            button.textContent = LABELS[lang] || lang;
+            button.textContent = local ? custom[index] : (LABELS[lang] || lang);
             button.addEventListener('click', function () {
+                if (local) { group.show(lang); return; }
                 savePref(lang);
-                groups.forEach(function (g) { g.show(lang); });
+                groups.forEach(function (g) { if (!g.local) g.show(lang); });
             });
             bar.appendChild(button);
             return { lang: lang, panel: panel, button: button };
@@ -75,17 +88,15 @@
         root.insertBefore(bar, panels[0]);
         root.classList.add('code-tabs-ready');
 
-        var group = {
-            show: function (lang) {
-                var hit = tabs.some(function (t) { return t.lang === lang; });
-                tabs.forEach(function (t, i) {
-                    var on = hit ? t.lang === lang : i === 0;
-                    t.panel.classList.toggle('is-active', on);
-                    t.panel.hidden = !on;
-                    t.button.classList.toggle('is-active', on);
-                    t.button.setAttribute('aria-selected', on ? 'true' : 'false');
-                });
-            }
+        group.show = function (lang) {
+            var hit = tabs.some(function (t) { return t.lang === lang; });
+            tabs.forEach(function (t, i) {
+                var on = hit ? t.lang === lang : i === 0;
+                t.panel.classList.toggle('is-active', on);
+                t.panel.hidden = !on;
+                t.button.classList.toggle('is-active', on);
+                t.button.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
         };
         return group;
     }
