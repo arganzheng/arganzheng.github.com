@@ -206,7 +206,30 @@ flowchart LR
 - `dtype` 决定如何解释每个元素的二进制内容；
 - `device` 决定 Storage 位于 CPU、CUDA 还是其他设备。
 
-这些字段在源码里对应两个 C++ 对象，都位于[《PyTorch 整体介绍》代码地图](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
+这些字段在源码里对应两个 C++ 对象，都位于[《PyTorch 整体介绍》代码地图](/pytorch-overall-introduction.html#七第三张地图代码视角源码目录与库的分层)最底层的 `c10/core/`：Python 的 `torch.Tensor` 持有一个 `c10::TensorImpl`，`sizes`、`strides`、`storage_offset`、`dtype`、`device` 以及 Autograd 元数据都是它的成员；`TensorImpl` 再持有一个 `c10::StorageImpl`，里面只有数据指针、字节数和分配器。多个 `TensorImpl` 可以指向同一个 `StorageImpl`——这就是后文 view 的实现基础。
+
+以 `x = torch.arange(6).reshape(2, 3)` 和它的转置 `y = x.t()` 为例，两个 Python 变量背后各有一个 `TensorImpl`，各自记着自己的 shape 和 stride，但两者的 `storage_` 指向同一个 `StorageImpl`，6 个 int64 只存了一份：
+
+```mermaid
+%% 图：x 与 y = x.t() 背后的 C++ 对象：两个 TensorImpl 共用一个 StorageImpl
+flowchart TB
+    X["<b>x</b><br/>Python 的 torch.Tensor"]
+    Y["<b>y = x.t()</b><br/>Python 的 torch.Tensor"]
+    TX["<b>c10::TensorImpl</b><br/>sizes = (2, 3)<br/>strides = (3, 1)<br/>storage_offset = 0<br/>dtype = int64，device = cpu<br/>autograd_meta_ = 空"]
+    TY["<b>c10::TensorImpl</b><br/>sizes = (3, 2)<br/>strides = (1, 3)<br/>storage_offset = 0<br/>dtype = int64，device = cpu<br/>autograd_meta_ = 空"]
+    S["<b>c10::StorageImpl</b><br/>data_ptr_：数据区首地址<br/>size_bytes_ = 48（6 × 8 字节）<br/>allocator_：CPU 分配器"]
+    D["<b>数据区</b><br/>0　1　2　3　4　5"]
+
+    X --> TX
+    Y --> TY
+    TX -->|storage_| S
+    TY -->|storage_| S
+    S -->|data_ptr_| D
+```
+
+`x` 和 `y` 的区别全部在各自的 `TensorImpl` 里，`StorageImpl` 不知道有几个 Tensor 在用它，也不知道数据被解释成什么形状——它只管这 48 个字节在哪里、由谁分配和释放。
+
+本篇讨论的是源码上最底层的抽象，之所以放在系列最前面，是因为 Autograd、算子分发、Kernel 和显存分析都建立在这几个字段之上。
 
 ### 4. Tensor 的元素数量与占用空间
 
@@ -257,7 +280,11 @@ x = torch.arange(6)
 y = x.reshape(2, 3)
 ```
 
-如果底层布局满足条件，`y` 可以和 `x` 共享 Storage：
+如果底层布局满足条件，`y` 可以和 `x` 共享 Storage。`reshape(2, 3)` 的参数就是目标 shape，元素总数必须和原来相等（2 × 3 = 6）；其中一个位置可以写 `-1`，由 PyTorch 按总数推算，例如 `x.reshape(2, -1)` 等价于 `x.reshape(2, 3)`。
+
+![x 与 y = x.reshape(2, 3) 共享同一份 storage：x 按 stride (1,) 读成一行六个，y 按 stride (3, 1) 读成两行三列](/img/in-post/pytorch-tensor-reshape-shared-storage.svg)
+
+可以直接验证两者指向同一块 Storage：
 
 ```python title='验证 reshape 后共享 Storage'
 print(x.untyped_storage().data_ptr() == y.untyped_storage().data_ptr())   # 比较 Storage，而不是 data_ptr()
@@ -269,12 +296,14 @@ print(x.untyped_storage().data_ptr() == y.untyped_storage().data_ptr())   # 比�
 
 **`view()`**
 
-`view()` 要求现有 stride 能够支持目标形状：
+`view(*shape)` 的参数和 `reshape()` 一样是目标 shape，同样支持一个 `-1`。它只改 metadata、从不拷贝，因此要求现有 stride 能够支持目标形状：
 
 ```python title='view 要求 stride 支持目标形状'
 x = torch.arange(6)
 y = x.view(2, 3)
 ```
+
+这个例子的结果和上一节的图完全一样：`y` 的 shape 是 `(2, 3)`、stride 是 `(3, 1)`，与 `x` 共用一份 storage。
 
 如果布局不满足要求，`view()` 通常会直接报错，而不是自动复制。这里先给一个后面反复用到的词一个最短的定义：**contiguous**（连续）指 Tensor 的元素在底层存储里的顺序，和按行优先一个个数过去的逻辑顺序完全一致——上一章 `x` 是，`y` 不是。`view()` 能不能成功，本质上是在问"目标形状能不能用一组 stride 描述当前存储"；对 contiguous 的 Tensor 永远可以。第六章专门讲它。
 
@@ -286,7 +315,9 @@ y = x.view(2, 3)
 y = x.reshape(2, 3)
 ```
 
-它会在可能时返回 view，在不可能时创建拷贝。因此不能仅凭 `reshape()` 这个名字判断是否发生了内存复制。
+它会在可能时返回 view，在不可能时创建拷贝。因此不能仅凭 `reshape()` 这个名字判断是否发生了内存复制。下图左边是连续的 `x`，`reshape(6)` 只换了一套 metadata；右边是转置得到的 `y`（转置见[第五章](#五transposepermute-与-view)），它的逻辑顺序 `0 3 1 4 2 5` 和 storage 里的顺序不一致，`reshape(6)` 只能新分配一块 storage 把元素按逻辑顺序抄过去：
+
+![reshape(6) 的两种结果：连续的 x 返回共享 storage 的 view；转置得到的 y 不连续，按逻辑顺序 0 3 1 4 2 5 拷贝进新 storage](/img/in-post/pytorch-tensor-reshape-view-or-copy.svg)
 
 **`flatten()`**
 
@@ -297,7 +328,19 @@ y = x.flatten(1)
 print(y.shape)  # torch.Size([2, 12])
 ```
 
-这里`flatten(start_dim=1)` 的作用是：保持 start_dim 之前的维度不变，将从 start_dim 开始往后的所有维度“拉平”成一个维度。在这里，第 0 维（大小为 2）被保留。第 1 维和第 2 维（大小分别为 3 和 4）被合并。合并后的新维度大小为它们乘积：$$3 \times 4 = 12$$。
+完整签名是 `flatten(start_dim=0, end_dim=-1)`：把第 `start_dim` 维到第 `end_dim` 维（两端都包含）合并成一个维度，其余维度不动。两个参数都省略时，整个 Tensor 被拉平成一维；`end_dim=-1` 表示最后一维。
+
+这里 `flatten(1)` 即 `start_dim=1`：第 0 维（大小为 2）被保留，第 1 维和第 2 维（大小分别为 3 和 4）被合并，合并后的新维度大小是它们的乘积 $$3 \times 4 = 12$$。
+
+![x.flatten(1)：shape (2, 3, 4) 的两个 3×4 平面各自按行接成 12 个元素，得到 shape (2, 12)；storage 仍是 0 到 23 一条直线](/img/in-post/pytorch-tensor-flatten-start-dim.svg)
+
+| 调用 | 合并的维度 | 结果 shape |
+|---|---|---|
+| `x.flatten()` | 第 0、1、2 维 | `(24,)` |
+| `x.flatten(1)` | 第 1、2 维 | `(2, 12)` |
+| `x.flatten(0, 1)` | 第 0、1 维 | `(6, 4)` |
+
+Table: shape 为 (2, 3, 4) 的 x 用不同参数 flatten 的结果
 
 这种 flatten(1) 的操作在深度学习中非常常见，通常用于卷积层（Convolutional Layer）到全连接层（Linear Layer）的过渡，目的是保留样本数量（Batch Size，即第 0 维），同时将特征图的所有像素和通道展平为一维特征向量。
 
@@ -315,9 +358,33 @@ x2 = x1.squeeze(0)
 print(x2.shape)  # torch.Size([3, 4])
 ```
 
-`unsqueeze()` 和 `squeeze()` 通常是 metadata 操作，不需要复制数据。
+`unsqueeze(dim)` 在新 shape 的第 `dim` 个位置插入一个长度为 1 的维度，原来从这个位置起的维度依次后移。`x` 的 shape 是 `(3, 4)`，`unsqueeze(0)` 把 1 插在最前面，得到 `(1, 3, 4)`。`squeeze(dim)` 是反向操作：第 `dim` 维的长度是 1 就把它删掉，不是 1 则原样返回。
 
-需要注意：`squeeze()` 删除的是长度为 1 的维度。如果不指定维度，输入 shape 改变后，可能删除比预期更多的维度。
+长度为 1 的维度不增加元素，只是多套了一层：原来用两个下标 `x[i, j]` 取到的元素，现在要用三个下标，其中新维度上的下标只能是 0。换成更小的 `x = torch.arange(6).reshape(2, 3)`，把 1 插在三个不同位置，相当于在三个不同层次上套一层括号：
+
+![unsqueeze 把长度为 1 的维度插在不同位置：unsqueeze(0) 把整个 2×3 套成一组，unsqueeze(1) 把每一行各自套成一组，unsqueeze(2) 把每个元素各自套成一组](/img/in-post/pytorch-tensor-unsqueeze-squeeze.svg)
+
+| 调用 | 结果 shape | 原来的 `x[i, j]` 现在写成 |
+|---|---|---|
+| `x.unsqueeze(0)` | `(1, 2, 3)` | `y[0, i, j]` |
+| `x.unsqueeze(1)` | `(2, 1, 3)` | `y[i, 0, j]` |
+| `x.unsqueeze(2)` | `(2, 3, 1)` | `y[i, j, 0]` |
+
+Table: shape 为 (2, 3) 的 x 在三个位置 unsqueeze 的结果
+
+`unsqueeze()` 和 `squeeze()` 都只改 sizes 和 strides，不复制数据。常见用途是凑出算子要求的维数：给单张图片补上 batch 维（`(C, H, W)` → `(1, C, H, W)`），或者给向量补一维以便广播。
+
+`squeeze()` 不带参数时会删除**所有**长度为 1 的维度，结果的维数因此取决于输入 shape：
+
+| 调用 | 结果 shape | 说明 |
+|---|---|---|
+| `x.squeeze(0)` | `(3, 1)` | 只删第 0 维 |
+| `x.squeeze(1)` | `(1, 3, 1)` | 第 1 维长度是 3，不变 |
+| `x.squeeze()` | `(3,)` | 长度为 1 的两个维度都被删掉 |
+
+Table: shape 为 (1, 3, 1) 的 x 调用 squeeze 的结果
+
+典型的问题是 batch 维：模型输出的 shape 是 `(batch, 1)`，`squeeze()` 平时得到 `(batch,)`，batch 恰好为 1 时却得到零维的 `()`，下游代码就会出错。写 `squeeze(1)` 明确指定要删的维度可以避免这种情况。
 
 ### 5. `reshape` 不改变元素语义
 
@@ -335,7 +402,9 @@ y: [[0, 1, 2],
     [3, 4, 5]]
 ```
 
-如果业务语义要求交换维度，应该使用 `transpose()` 或 `permute()`，而不是把 `reshape()` 当成转置。
+如果业务语义要求交换维度，应该使用 `transpose()` 或 `permute()`，而不是把 `reshape()` 当成转置。同样把 2 × 3 变成 3 × 2，两者的结果并不相同：`reshape(3, 2)` 保持元素顺序、每两个切成一行，原来的行被拆散；`transpose(0, 1)` 让原来的行变成列。
+
+![x.reshape(3, 2) 与 x.transpose(0, 1) 的结果对比：reshape 按 0 1 2 3 4 5 的顺序重新分行，transpose 把行变成列得到 0 3 1 4 2 5](/img/in-post/pytorch-tensor-reshape-vs-transpose.svg)
 
 
 ## 四、Stride：逻辑索引如何映射到内存
@@ -357,7 +426,11 @@ print(x.shape)   # torch.Size([2, 3])
 print(x.stride()) # (3, 1)
 ```
 
-对于 `x[i, j]`，底层位置可以粗略计算为 `offset(i, j) = storage_offset + i × stride[0] + j × stride[1]`。这个例子里 `storage_offset = 0`、`stride = (3, 1)`，所以：
+对于 `x[i, j]`，底层位置可以粗略计算为 `offset(i, j) = storage_offset + i × stride[0] + j × stride[1]`。这个例子里 `storage_offset = 0`、`stride = (3, 1)`，所以读 `x[1, 2]` 时，从 storage 的第 0 格出发，行下标 1 走 1 × 3 格，列下标 2 再走 2 × 1 格，落在第 5 格：
+
+![读 x[1, 2] 的过程：从 storage_offset = 0 出发，i = 1 沿第 0 维走 1 × 3 格到第 3 格，j = 2 沿第 1 维走 2 × 1 格到第 5 格](/img/in-post/pytorch-tensor-stride-offset-walk.svg)
+
+六个元素都按同一个公式计算：
 
 | 元素 | 计算 | 底层位置 |
 |---|---|---|
@@ -451,7 +524,11 @@ print(x.stride()) # (3, 1)
 print(y.stride()) # (1, 3)
 ```
 
-`y` 通过新的 shape 和 stride 解释同一份数据：`x[i, j]` 落在 `i × 3 + j × 1`，`y[i, j]` 落在 `i × 1 + j × 3`。用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
+`transpose(dim0, dim1)` 的两个参数是要互换的两个维度的编号（从 0 开始，也可以用负数从后往前数，`-1` 是最后一维），顺序无关，`transpose(0, 1)` 和 `transpose(1, 0)` 相同。这里 `x` 只有两个维度，第 0 维是行、第 1 维是列，`transpose(0, 1)` 就是行列互换：`y[j, i]` 和 `x[i, j]` 是同一个元素，shape 从 `(2, 3)` 变成 `(3, 2)`。二维 Tensor 上它等价于 `x.t()` 和 `x.T`。
+
+对更高维的 Tensor，`transpose` 仍然只交换指定的两个维度，其余维度不动。例如 shape 为 `(2, 3, 4)` 的 Tensor，`transpose(0, 2)` 得到 `(4, 3, 2)`，`transpose(1, 2)` 得到 `(2, 4, 3)`。
+
+实现上，`transpose` 只是把 sizes 和 strides 里这两个位置的值各自对调，因此 `y` 通过新的 shape 和 stride 解释同一份数据：`x[i, j]` 落在 `i × 3 + j × 1`，`y[i, j]` 落在 `i × 1 + j × 3`。用同一份 storage 把两个视图画出来，可以看到 `y` 只是把 stride 的两个分量交换了，逐行读 `y` 时在 storage 里是跳着走的：
 
 ![x 与 y = x.t() 共享同一份 storage：x 的 stride (3, 1) 按逻辑顺序访问 0 1 2 3 4 5 连续；y 的 stride (1, 3) 访问 0 3 1 4 2 5 跳跃](/img/in-post/pytorch-tensor-transpose-shared-storage.svg)
 
@@ -467,15 +544,18 @@ print(x.shape)  # (2, 3, 4)
 print(y.shape)  # (4, 2, 3)
 ```
 
-`permute()` 通常也只是重新排列 sizes 和 strides：
+`permute(*dims)` 的参数是一份完整的新维度顺序：有几个维度就要写几个参数，每个维度编号恰好出现一次；**第 i 个参数写的是新的第 i 维取自旧的哪一维**。`permute(2, 0, 1)` 读作：新的第 0 维是原来的第 2 维（长度 4），新的第 1 维是原来的第 0 维（长度 2），新的第 2 维是原来的第 1 维（长度 3），所以 shape 从 `(2, 3, 4)` 变成 `(4, 2, 3)`。
 
-- 原始维度顺序：D0, D1, D2
-- 新顺序：D2, D0, D1
+![x.permute(2, 0, 1) 的维度对应：y 的第 0、1、2 维分别取自 x 的第 2、0、1 维，每个维度的长度和 stride 跟着一起搬，shape 从 (2, 3, 4) 变成 (4, 2, 3)，stride 从 (12, 4, 1) 变成 (1, 12, 4)](/img/in-post/pytorch-tensor-permute-dims.svg)
+
+和 `transpose` 一样，`permute()` 只是按这个顺序重新排列 sizes 和 strides，storage 不动。元素的对应关系是 `y[k, i, j] = x[i, j, k]`。`transpose(0, 1)` 是 `permute` 的特例，三维时等价于 `permute(1, 0, 2)`。
 
 这对图像、序列和批处理数据非常常见。例如不同模型可能采用：
 
 - NCHW：batch, channel, height, width
 - NHWC：batch, height, width, channel
+
+把 NCHW 的图像批转成 NHWC 就是 `x.permute(0, 2, 3, 1)`：N 留在第 0 维，H、W 前移，C 挪到最后。
 
 改变布局的逻辑解释不等于立刻复制数据，但后续算子可能更偏好某种物理布局。
 
@@ -546,6 +626,10 @@ z[0] = 200
 print(x[0])  # 100
 print(z[0])  # 200
 ```
+
+把三个 Tensor 和它们的 storage 画在一起：`x` 和 `y` 指向同一份 storage，对 `y[0, 0]` 的写入落在第 0 格，`x[0]` 读到的也是这一格；`z` 的 storage 是 `clone()` 时新分配的，之后的修改互不影响。
+
+![对 view 写入与对 clone 写入的区别：y[0, 0] = 100 写在 x 和 y 共享的 storage 第 0 格，x[0] 随之变成 100；z = x.clone() 有自己的 storage，z[0] = 200 不影响 x](/img/in-post/pytorch-tensor-view-write-through.svg)
 
 > [!NOTE] Java 经验参照：视图
 > Java 数组本身没有视图：`Arrays.copyOfRange()` 是拷贝，要共享底层数据得另用一层抽象，例如 `ByteBuffer.slice()` / `duplicate()` 或 `List.subList()`，对它们写入同样会透到原数据。PyTorch 里视图是默认行为——切片、`view()`、`transpose()` 返回的都是共享 Storage 的 Tensor，返回值的类型也看不出它是不是视图，要独立副本必须显式 `clone()`。
