@@ -6,6 +6,7 @@ subtitle: "Prompt and Context Engineering: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, Prompt Engineering, Context Engineering, Agent]
 catalog: true
 date: 2026-10-11 20:00:00
+updated: 2026-11-23
 ---
 
 六篇正文回答了一个问题：**模型这一步该看到什么、看多少、按什么顺序，以及怎样像管代码一样管它**。第一篇解剖上下文的七层，第二篇讲 system prompt 里稳定的模式与不稳定的措辞，第三篇讲结构化输出的机制与 schema 设计，第四篇讲预算与卸载 → 清理 → 压缩的处理顺序，第五篇讲缓存与排列，第六篇讲版本、评测门禁、两个跨工具标准与上下文 vs 检索的决策。六篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第二层：把"模型看到什么"当作一个**有预算、有顺序、有版本**的工程对象。
@@ -421,24 +422,17 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第二层。第六篇末尾的决策表把"要不要检索"交给了下一层：
+本系列讲的是模型这一步该看到什么：七层怎么排、怎么截、怎么缓存、怎么当代码管。检索怎么取、agent 循环怎么跑、评测集怎么建、注入怎么防，都紧邻这一层而不在本系列范围内——第六篇末尾的决策表就把"要不要检索"交给了下一层。往外走有这些方向：
 
-- **L3 检索与知识接入**：进上下文还是进权重、三类检索（词法 / 向量 / 结构化）、文档解析与分块、混合检索与 rerank、agentic retrieval、GraphRAG 与本体、检索评测。本系列讲的是检索结果作为上下文一层怎么排、怎么截；L3 讲怎么取。
-- **L4 工具、Agent 与运行时**：子 agent、持久化、压缩作为运行时机制、权限与沙箱、harness——本系列第四篇的处理顺序在 L4 变成运行时的实现。
-- **L5 评测、可观测与可追溯**：本系列反复说"跑评测集"、"用探针问题测"，L5 讲评测集怎么建、judge 怎么校准、trace 怎么记。
-- **L6 生产化与运营**：prompt injection 的分层防御（本系列第二篇的边界）、网关、预算与发布。
+- **检索本身**——进上下文还是进权重、三类检索（词法 / 向量 / 结构化）、文档解析与分块、混合检索与 rerank、agentic retrieval、GraphRAG 与本体、检索评测，见 [L3《检索与知识接入》](/retrieval-and-knowledge-access.html)；本系列只讲检索结果作为上下文的一层怎么排、怎么截，以及"要不要检索"的决策。
+- **agent 循环与运行时**——子 agent、持久化、压缩作为运行时机制、权限与沙箱、harness，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列第四篇的处理顺序在那里变成运行时的实现，讲子 agent 也只讲它作为上下文隔离手段的那一面。
+- **评测方法**——评测集怎么建、judge 怎么校准、trace 怎么记，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列反复说"改 prompt 要跑评测"、"用探针问题测"，但不讲评测本身。
+- **prompt injection 的防御**——分层防御，连着网关、预算与发布，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第二篇只指出它为什么不是 prompt 设计能解决的。
+- **模型内部**——注意力为什么是 $$n^2$$，本系列引用《现代 LLM 结构》系列的结论，不展开。
+- **前置**——[L1《模型作为组件》](/model-as-a-component.html)是本系列每一处"失效模式"与"账"的出处。
+- **地图定位**——本系列在整张地图上的位置（L2）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-前置的 [L1《模型作为组件》](/model-as-a-component.html)是本系列每一处"失效模式"与"账"的出处。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲检索本身**：分块、向量、rerank 属于 L3；本系列只讲检索结果作为上下文的一层怎么排、怎么截、以及"要不要检索"的决策。
-- **不讲 agent 循环与运行时**：子 agent、持久化、权限属于 L4；本系列讲子 agent 只讲它作为上下文隔离手段的那一面。
-- **不讲评测方法**：评测集怎么建、judge 怎么校准属于 L5；本系列只说"改 prompt 要跑评测"。
-- **不讲 prompt injection 的防御**：属于 L6；本系列只指出它为什么不是 prompt 设计能解决的。
-- **不讲模型内部**：注意力为什么是 $$n^2$$ 引用共享《现代 LLM 结构》系列的结论。
+回到总纲：[《Prompt 与上下文工程：模型这一步该看到什么》](/prompt-and-context-engineering.html)。
 
 
 [^q0]: 面对一个要放进模型的上下文：它的几万 token 由哪七层构成、哪层最大、各由谁维护（第一篇）；这条 prompt 技巧在推理模型上还有没有用、system prompt 的六部分齐不齐、每条规则可检验吗（第二篇）；这个 schema 会不会把拒答伪装成答案、推理字段在结论前吗、解析层的顺序对吗（第三篇）；工具返回 50K 该卸载、清理还是压缩，压缩线设在哪、压缩后 CLAUDE.md 还在吗、用户约束存活了吗（第四篇）；命中率 30% 是哪一层在破坏前缀、断点放在哪四层、TTL 选哪个（第五篇）；改了 system prompt 一个词上线前要做什么、AGENTS.md 与 SKILL.md 怎么写、这份资料该全放还是检索（第六篇）。详见[第一章](#一总览系列回答的问题与主线)。
