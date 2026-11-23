@@ -6,6 +6,7 @@ subtitle: "Mathematics for AI Algorithm Engineers: Series Recap and Final Self-T
 tags: [AI, LLM, Math]
 catalog: true
 date: 2026-01-15 20:00:00
+updated: 2026-11-23
 ---
 
 八篇正文回答了一个问题：**拿到一篇 LLM 论文能不能读懂它的每一个公式，给一个建模假设能不能推出它的训练 loss，给一个评测结果能不能判断差异是真的还是噪声**。前三篇是线性代数（形状与成本、向量的比较、正交与低秩），第四、五篇是概率（语言模型是一个条件分布、从最大似然推出交叉熵），第六篇是信息论（熵、交叉熵、KL 到 DPO），第七篇是微积分与优化（链式法则、$$p - y$$、策略梯度），第八篇是统计推断（置信区间与 scaling law 的拟合）。八篇合起来，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L0 层——后面每一层的公式都建在这一小块数学上。
@@ -511,27 +512,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-八篇讲的是后面所有层会反复用到的那一小块数学，有意不讲的部分各有去处：
+八篇讲的是后面所有层会反复用到的那一小块数学。有意不展开的内容，以及它们在哪个系列里：
 
-- **动手**：第五、七、八篇的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合），其余篇的算例是手算；从这里进入 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)，把形状规则、广播、交叉熵在代码里练一遍。
+- **不是数学教材**：每个概念只讲到后面用到的深度。SVD 讲到"任何矩阵可以分解成正交基与奇异值、截断即低秩近似"，不证明存在性；中心极限定理讲到"为什么可以用正态近似"，不证明。
+- **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法。用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
 - **反向传播的完整推导、初始化与归一化、Momentum / Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在第七篇的 SGD 之上，设计动机要到训练神经网络时才看得见，在 L3 [《深度学习基础》](/deep-learning-foundations.html)。
 - **Transformer 的完整算账、scaling law 的实验设计**：第一篇的两条规则与第八篇的拟合在 L4 [《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
 - **SFT、奖励模型、DPO 一族、PPO / GRPO 的配方**：第五、六、七篇给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
 - **量化、投机解码、LoRA 的工程**：第二、三、六篇给了范数、低秩与总变差，L6 [《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)展开。
-- **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法——用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
+- **代码**：前四篇与第六篇不配脚本，算例都是可以手算或用计算器算的数字，目的是建立"看到公式先代个数"的习惯；第五、七、八篇的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合）。系统的动手部分从 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)开始，把形状规则、广播、交叉熵在代码里练一遍。
+- **地图定位**：三张地图的分工与本系列在其中的位置见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
-三张地图的分工与本系列在其中的位置见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。回到总纲：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不是数学教材**：每个概念只讲到后面用到的深度。SVD 讲到"任何矩阵可以分解成正交基与奇异值、截断即低秩近似"，不证明存在性；中心极限定理讲到"为什么可以用正态近似"，不证明。
-- **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法。用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
-- **Momentum、Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在 SGD 之上，但设计动机要到训练神经网络时才看得见，放在 L3 深度学习基础系列。
-- **反向传播的完整推导**、**Transformer 的完整算账**、**scaling law 的实验设计**：分别在 L3、L4 系列。本系列只给它们需要的数学。
-- **代码**：前四篇与第六篇不配脚本，算例都是可以手算或用计算器算的数字，目的是建立"看到公式先代个数"的习惯；第五、七、八篇的图与实验在 labs `math-for-ai/`；系统的动手部分从 L1 工具箱开始。
-
+回到总纲：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)。
 
 [^q0]: 八个，每篇一个：看到矩阵乘法能写出形状与 FLOPs（$$2mnk$$、$$2N$$、$$6ND$$）；两个向量像不像有内积、范数、余弦三种算法、各在哪用；RoPE 为什么只剩相对位置、LoRA 为什么 0.52% 的参数够用；"语言模型是一个条件分布"每个词是什么、决定了哪四件事；能三行推出交叉熵、知道初始 loss 是 $$\ln V$$；分得清熵、交叉熵、KL、能从 KL 约束的最优策略推出 DPO；能用链式法则推 $$p - y$$、能对期望求导得到策略梯度；能算评测的置信区间、知道 $$D/N \approx 20$$ 从哪来。详见[第二章](#二逐篇回顾)。
 [^q1]: 形状规则 $$[m, k] \times [k, n] \to [m, n]$$ 与 $$2mnk$$；Llama-3-8B 一个 token 前向约 15 GFLOPs $$\approx 2N$$、训练 $$6ND$$；LoRA $$r = 16$$ 是 41.9M、0.52%；RoPE $$q^T R_{(n-m)\theta} k$$；$$d_k = 128$$ 时 score 标准差约 11.3；初始 loss $$\ln V$$，Llama-3 是 11.8；loss 1.8 ↔ PPL 6.05 ↔ 2.6 bit；$$H(p, q) = H(p) + D_{\mathrm{KL}}(p \Vert q)$$，RLHF 用 reverse；$$\pi^* \propto \pi_{\text{ref}}e^{r/\beta}$$ → DPO；$$\partial\mathcal{L}/\partial z = p - y$$；$$\mathbb{E}[\nabla\log\pi] = 0$$；HumanEval ±6.1%、显著差异 8.7 个点；Chinchilla $$E = 1.69$$、$$N_{\text{opt}} \propto C^{0.45}$$、$$D/N \approx 20$$。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
