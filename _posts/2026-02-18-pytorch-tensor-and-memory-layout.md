@@ -1176,9 +1176,9 @@ z = x + y
 - 其中一个为 1；
 - 某个维度不存在。
 
-先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节。
+先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，效果相当于先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节。
 
-第一步“在前面补一个长度为 1 的维度”，就是[前面介绍的 `unsqueeze`](#4-增加和删除维度)：`(3,)` 补成 `(1, 3)` 等于 `y.unsqueeze(0)`。所以这次广播可以手写成两个已经学过的操作，都只改元数据、不拷贝：
+第一步“在前面补一个长度为 1 的维度”，结果和[前面介绍的 `unsqueeze`](#4-增加和删除维度)一样：`(3,)` 补成 `(1, 3)` 等于 `y.unsqueeze(0)`。所以这次广播可以手写成两个已经学过的操作，都只改元数据、不拷贝：
 
 ```python title='广播 = unsqueeze 补维 + expand 扩展'
 y = torch.ones(3)
@@ -1191,6 +1191,18 @@ y2.untyped_storage().data_ptr() == y.untyped_storage().data_ptr()   # True：仍
 ```
 
 反过来，如果想让 `(3,)` 当成“三行一列”去广播，自动规则帮不上忙（它只会在前面补维），要自己写 `y.unsqueeze(1)` 得到 `(3, 1)`。
+
+要说明的是，上面是**等价写法**，不是 PyTorch 内部真的调用了这两个函数。查源码可以看到，`x + y` 既不调用 `unsqueeze`，也不生成 `expand` 视图，而是在遍历元素之前直接算出同样的 shape 和 stride：
+
+| 场景 | 源码位置 | 怎么处理前面缺的维度 |
+|---|---|---|
+| `x + y` 自动广播：算结果 shape | [`infer_size_impl`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/aten/src/ATen/ExpandUtils.cpp#L17-L45) | 从最后一维往前逐维比较，缺的维度当作长度 1：`sizeB = (dimB >= 0) ? b[dimB] : 1` |
+| `x + y` 自动广播：算每个输入的 stride | [`TensorIteratorBase::compute_strides`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/aten/src/ATen/TensorIterator.cpp#L1258-L1279) | 前面缺的维度 stride 直接填 0；长度为 1 而结果不为 1 的维度 stride 也填 0。不创建任何新 Tensor |
+| 手写 `y.expand(2, 3)` | [`inferExpandGeometryImpl`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/aten/src/ATen/ExpandUtils.cpp#L65-L117) | 同样把缺的维度当作长度 1，再把被扩展的维度 stride 置 0。所以 `y.expand(2, 3)` 不必先 `unsqueeze` 也能用 |
+
+Table: 广播在源码里的实现：三处都把缺的维度当作长度 1、stride 置 0，没有调用 unsqueeze
+
+三处得到的结果一致：`y` 按 `shape = (2, 3)`、`stride = (0, 1)` 被读取。`unsqueeze(0)` + `expand` 是理解这个结果最省事的方式，自动广播则连视图对象都省掉了。
 
 
 ![y.expand(2, 3)：第一步右对齐把 (3,) 补成 (1, 3)，等于 y.unsqueeze(0)；第二步造一个 shape=(2, 3)、stride=(0, 1) 的视图，两行都指向 y 的三个元素，不分配新 storage](/img/in-post/pytorch-tensor-expand-stride-zero.svg)
