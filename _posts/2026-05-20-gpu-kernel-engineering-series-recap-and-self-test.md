@@ -6,7 +6,7 @@ subtitle: "GPU Kernel Engineering: Series Recap and Final Self-Test"
 tags: [CUDA, Triton, GPU, AI, AI-Infra]
 catalog: true
 date: 2026-05-20 20:00:00
-updated: 2026-11-18
+updated: 2026-11-23
 ---
 
 十一篇正文回答了一个问题：**一个 kernel 为什么快、为什么慢，以及如何把它写到接近硬件极限**。[《GPU 为什么这样设计——硬件结构与 Roofline》](/gpu-architecture-and-roofline.html)把 GPU 拆开并建立 Roofline，[《CUDA 编程模型与第一个 kernel》](/cuda-programming-model-and-first-kernel.html)写出第一个 kernel 并学会测量，[《访存合并与 elementwise kernel》](/memory-coalescing-and-elementwise-kernels.html)与[《共享内存与 reduction》](/shared-memory-reduction-and-softmax.html)把 memory-bound 的 elementwise 与 reduction 推到带宽墙，[《GEMM——从 naive 到分块》](/gemm-from-naive-to-tiled.html)与[《Tensor Core、CUTLASS 与 CuTe》](/tensor-cores-cutlass-and-cute.html)把 GEMM 从 naive 推到 Tensor Core，[《Triton——块级编程与编译器的边界》](/triton-block-level-programming.html)看编译器接管了哪一层，[《Attention Kernel——FlashAttention 与 PagedAttention》](/attention-kernels-flashattention-and-pagedattention.html)与[《量化与融合 kernel》](/quantization-and-fused-kernels.html)把这些工具用到 attention、量化与融合 kernel 上组装出一个 decoder layer，[《剖析、测试与贡献——把 kernel 做成产品》](/kernel-profiling-testing-and-contribution.html)讲怎么剖析、测试、接入框架并合入一个 PR；[《从 CUDA 到昇腾——用 Ascend C 重写一个算子》](/ascend-cann-from-cuda-to-ascend-c.html)用 Ascend C Add 对照 CUDA，区分可迁移的方法和必须重写的执行模型。
@@ -605,25 +605,17 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-十一篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是这些系列：
+十一篇只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量、如何交付。紧挨着它的几层不在范围内，nsys 的时间线是它们与本系列的接口——当瓶颈在 kernel 之间而不是之内时，要去的是下面这几个方向：
 
-- **框架层的运行时机制**（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何分显存、Inductor 如何决定融合哪些算子）在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)——本系列只说明"框架在 host 侧准备了什么"。
-- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放到不同节点上跑">PD</span> 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——本系列的[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)只讨论分页之后 kernel 如何访问它。
+- **框架层的运行时机制**（Dispatcher 如何选到这个 kernel、Autograd 如何调用反向、Caching Allocator 如何分显存、Inductor 如何决定融合哪些算子）在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)——本系列在需要时说明"框架在 host 侧准备了什么"，但不展开这些机制的原理。
+- **系统层的性能问题**：Python 开销、kernel launch 开销、CPU-GPU 同步、数据加载。这些决定了 kernel 之外的时间花在哪里；本系列假设读者已经确认瓶颈在某个 kernel 内部。
+- **推理引擎的调度与内存管理**（continuous batching、KV cache 的分页管理、prefix caching、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放到不同节点上跑">PD</span> 分离）在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)——本系列的[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)只讨论分页之后 kernel 如何访问 KV cache。
 - **多卡通信**（NCCL、集合通信与计算的重叠、通信 kernel 本身）在[《通信与互联：从 NCCL 到 <span class="inline-tip" data-tip="remote direct memory access：网卡直接读写远端内存">RDMA</span>》](/communication-and-interconnect-for-ai-infra.html)。
+- **模型与算法**：注意力机制的设计动机、量化算法的校准方法、MoE 的路由策略。本系列把它们当作给定的数学定义，只讨论如何高效地算出来。
+- **C++ 语言本身**：模板、RAII、lambda 等在 kernel 的 host 侧代码中大量出现，本系列假设读者已经掌握。
 - 本系列在整张学习路径上的位置见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
 回到总纲：[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
-
-## 七、延伸阅读
-
-本系列只讨论单个 kernel 内部：它如何映射到硬件、如何访存、如何计算、如何测量。以下内容与它紧邻，但不在范围内：
-
-- **框架层的运行时机制**：Dispatcher 如何选择 kernel、Autograd 如何调用反向 kernel、Caching Allocator 如何管理显存、Inductor 如何决定融合哪些算子。本系列在需要时说明"框架在 host 侧准备了什么"，但不展开这些机制的原理。
-- **系统层的性能问题**：Python 开销、kernel launch 开销、CPU-GPU 同步、数据加载、多卡通信。这些决定了 kernel 之外的时间花在哪里；本系列假设读者已经确认瓶颈在某个 kernel 内部。
-- **推理引擎的调度与内存管理**：continuous batching、KV cache 的分页管理、prefix caching、PD 分离。本系列的[《Attention Kernel》](/attention-kernels-flashattention-and-pagedattention.html)只讨论分页之后 kernel 如何访问 KV cache。
-- **模型与算法**：注意力机制的设计动机、量化算法的校准方法、MoE 的路由策略。本系列把它们当作给定的数学定义，只讨论如何高效地算出来。
-- **C++ 语言本身**：模板、RAII、lambda 等在 kernel 的 host 侧代码中大量出现，本系列假设读者已经掌握。
-
 
 [^q0]: 总纲"最终目标"列出的九个：它读写多少字节、做多少 FLOP（Roofline 上的位置）；理论上最快多少、实际多少（带宽 / 算力利用率）；差距来自哪里（ncu 的指标）；访存模式对不对（合并、向量化、bank conflict）；线程协作方式对不对（shared、shuffle、同步）；用上 Tensor Core 了吗、用对了吗（mma、fragment、流水）；用 Triton 写会怎样（编译器能自动化到哪一层）；它在别的架构上会怎样（多架构与 fallback）；怎么证明它是对的、没变慢（测试、tolerance、benchmark）。跨到昇腾时还要区分逻辑块与线程、buffer 队列与 warp，并明确硬件验证边界。详见[第二章](#二逐篇回顾)。
 [^q1]: A100 2.0 TB/s、BF16 312 TFLOPS、FP32 19.5、108 个 SM；ridge A100 BF16 156、FP32 约 10、H100 295；$$T = \max(F / P_{peak}, B / BW)$$；elementwise $$I = 1/6$$、RMSNorm ≈ 1、decode attention ≈ 4、GEMM 4096³ ≈ 1365；DRAM 可达 85–92%；32 B sector、16 B/线程、Little's law 1.2 MB 在飞；bank = (addr / 4) mod 32；online softmax 合并 $$m = \max(m_a, m_b)$$、$$l = l_a e^{m_a - m} + l_b e^{m_b - m}$$；GEMM 4096³ 137.4 GFLOP、7.0 ms（FP32）/ 0.44 ms（BF16）、分块 $$MNK(1/BM + 1/BN)$$、128×128 → $$I = 32$$；`mma.sync.m16n8k16` = 4096 FLOP 占 8 周期；Triton matmul 到 cuBLAS 80–95%；attention 132 MiB → 66 MiB、decode 每 token 128 KiB、$$B \times s \approx$$ 131k 临界；W4A16 交叉点 $$M \approx 40$$；SOL > 80% 到顶、两者 < 40–50% latency-bound。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
