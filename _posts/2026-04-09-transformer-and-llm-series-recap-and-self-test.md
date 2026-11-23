@@ -6,7 +6,7 @@ subtitle: "Modern LLM Architecture: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-09 20:00:00
-updated: 2026-11-18
+updated: 2026-11-23
 ---
 
 十篇正文从 GPT-2 到今天的模型，回答现代 LLM 改了什么、为什么、花了什么：[《从 GPT-2 到 Llama——五处改动与参数量》](/gpt2-to-llama-five-changes-and-parameter-count.html)先读 Llama / DeepSeek / VLM 的真实配置并数出参数量，[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)把参数量换成算量、字节与时间（后面所有专项共用的尺子），其余八篇再逐项展开位置外推、attention 与 KV、长上下文结构、MoE、MTP、投机解码、多模态与浮点格式。量化与 LoRA 不在本系列，分别见算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)与[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。完整路线见[系列总纲](/llm-architecture-evolution-roadmap-from-gpt2.html)。
@@ -67,8 +67,7 @@ Table: 十篇的核心问题、结论与必记公式
 | 三 | 贯穿十篇的四条线：一条 Roofline、KV cache 与上下文长度、"参数量"拆成几个数、字节里存了什么 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 11 题、B 跨篇综合 5 题、C 面试题 8 题、D 掌握判据 |
-| 六 | 下一步 |
-| 七 | 延伸阅读：本系列不讲什么、去哪里看 |
+| 六 | 下一步：本系列不讲什么、去哪里看 |
 
 Table: 本文的章节安排
 
@@ -785,28 +784,20 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列算的是"模型作为计算对象"的账，几个方向紧邻但不在范围内：
+本系列算的是"模型作为计算对象"的账：它的结构与成本。以下内容与它紧邻，但不在范围内：
 
-- **这个模型怎么训出来**——tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、超参表里的数字从哪来，是同一张成本表的训练侧，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，用同样的方法算。
-- **多模态的训练与对齐方法、扩散模型**——[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)只把 vision encoder、connector 与 image token 当作计算对象算账；视觉-语言对齐怎么训、数据怎么配、扩散模型完全不同的成本结构，在[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。
-- **量化与参数高效微调**——权重、激活与 KV 怎么压到更少的位、误差怎么控制，在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)；LoRA 的四本账、选参与上线，在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
-- **kernel 实现、推理引擎的调度与内存管理、分布式并行的实现**——FlashAttention 的分块怎么写、PagedAttention 的 block 怎么管、TP / PP / EP 怎么切分与同步。本系列给出这些机制所依据的数字（IO 复杂度、KV 字节数、all-to-all 的量），不讲机制本身。
-
-回到总纲：[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
-
-## 七、延伸阅读
-
-本系列只讨论模型作为一个**计算对象**的结构与成本。以下内容与它紧邻，但不在范围内：
-
-- **预训练**：tokenizer 与词表、scaling law、数据工程、训练配方与稳定性——这个模型**怎么训出来**的账，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+- **预训练**：tokenizer 与词表、算力怎么分给参数与数据、15T token 从哪来、scaling law、数据工程、超参表里的数字从哪来、训练配方与稳定性——这个模型**怎么训出来**的账，是同一张成本表的训练侧，在紧接着的[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)，用同样的方法算。
 - **后训练**：SFT（supervised fine-tuning，监督微调）、RLHF（reinforcement learning from human feedback，基于人类反馈的强化学习） / DPO（Direct Preference Optimization，直接偏好优化）、蒸馏、评测。把一个基座模型变成对话模型的方法不在本系列。
 - **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。推导在算法地图的 L3 系列。
 - **kernel 实现**：FlashAttention 的分块与 online softmax 如何写、量化 GEMM 如何反量化、MoE 的 permute 与 grouped GEMM 如何实现。本系列只推导它们的 IO 复杂度与收益区间，把实现当作黑盒。
 - **推理引擎的调度与内存管理**：continuous batching、PagedAttention 的 block 管理、prefix caching、PD 分离。本系列给出这些机制所依据的数字，不讲机制本身。
 - **分布式并行的实现**：TP / PP / EP / 序列并行如何切分与同步、集合通信的算法。本系列在[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)讨论 EP 的通信**量**，不讨论通信**怎么做**。
+- **量化与参数高效微调**：权重、激活与 KV 怎么压到更少的位、误差怎么控制，在算法地图的[《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)；LoRA 的四本账、选参与上线，在[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
 - **框架 API**：`transformers`、PyTorch、vLLM 的使用方式。实践部分会调用它们做验证，但不解释它们。
 - **非 Transformer 结构**：状态空间模型（Mamba 一类）、线性 attention、扩散模型。它们改变了成本结构的基本形态，值得单独讨论，不进入本系列。
-- **多模态的训练与对齐方法**：《多模态：vision encoder 的算量与 image token 的 KV 代价》只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。这两部分在算法地图的 L7 系列[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)里展开。
+- **多模态的训练与对齐方法**：[《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)只把 vision encoder、connector 与 image token 当作计算对象来算账，不讨论视觉-语言对齐怎么训、数据怎么配；扩散模型（图像 / 视频生成）的成本结构与自回归 LLM 完全不同，不进入本系列。这两部分在算法地图的 L7 系列[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)里展开。
+
+回到总纲：[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 
 [^q0]: 十篇各自的核心问题，答案在[第二章](#二逐篇回顾)逐条给出：
 
