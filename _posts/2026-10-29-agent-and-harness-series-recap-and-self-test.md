@@ -6,6 +6,7 @@ subtitle: "Tools, Agents and the Harness: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, Agent, Harness, MCP, Coding Agent]
 catalog: true
 date: 2026-10-29 20:00:00
+updated: 2026-11-23
 ---
 
 九篇正文回答了一个问题：**模型怎么从回答变成做事，以及让这件事可靠需要什么**。第一篇解剖循环，第二篇讲工具的协议，第三篇讲运行时，第四篇讲长任务的上下文与子 agent，第五篇讲权限与沙箱，第六篇把 Codex、DeepSeek Harness、Claude Code、OpenHarness 放在一张表上，第七篇讲多 agent，第八篇讲记忆与人机分工，第九篇讲可靠性、评测与运营。九篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第四层：**harness**——模型之外的一切。
@@ -441,23 +442,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第四层。
+本系列讲的是模型之外的一切：循环、工具的协议、运行时、长任务的上下文与子 agent、权限与沙箱、多 agent、记忆与人机分工、可靠性。agent 的能力怎么训出来、检索怎么取、评测方法论本身、注入的完整防御体系、这些步骤怎么呈现给用户，都紧邻这一层而不在本系列范围内。往外走有这些方向：
 
-- **L5 评测、可观测与可追溯**：本系列第九篇的轨迹评测、trace、录制回放、在线 judge 在 L5 展开为方法论——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI 语义约定、失败分类学、物理世界的仿真。
-- **L6 生产化与运营**：prompt injection 的完整分层防御（本系列第五篇的"工具返回不可信"是它的输入）、网关、成本预算、发布与回滚、治理与审计。
-- **L7 产品与体验**：agent 的步骤怎么呈现给用户、审批的交互设计、后台 agent 的产品形态、信任的建立与校准。
+- **agent 能力的训练**——工具调用数据、多轮环境、RL 属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html) L5；RL 的 rollout 基础设施属于 [Infra 地图](/ai-infra-learning-roadmap.html) 10。
+- **检索**——agentic retrieval 的实现、三类检索、解析分块与检索评测属于 [L3《检索与知识接入》](/retrieval-and-knowledge-access.html)，它同时是本系列的前置（检索作为工具、本体）；本系列只把检索当作一类工具。
+- **评测方法论本身**——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI 语义约定、失败分类学、物理世界的仿真，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列第九篇用了轨迹评测、trace、录制回放与在线 judge，只讲 agent 专属的轨迹评测。
+- **prompt injection 的完整防御体系**——分层防御，连着网关、成本预算、发布与回滚、治理与审计，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第五篇的"工具返回不可信"是它的输入，讲它只讲权限与沙箱设计的那一面。
+- **agent 的产品形态**——步骤怎么呈现给用户、审批的交互设计、后台 agent 的形态、信任的建立与校准，见 [L7《产品与体验》](/ai-product-and-experience.html)。
+- **物理世界的 agent**——自动驾驶的 harness 在地图里作为对照案例，本系列只在第八篇的人机分工里引用它的 SAE 分级。
+- **前置**——[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存），以及上面提到的 L3。
+- **地图定位**——本系列在整张地图上的位置（L4）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-前置：[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（检索作为工具、本体）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)；agent 能力的训练在算法地图 L5，RL 的 rollout 基础设施在 Infra 地图 10。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲 agent 能力的训练**：工具调用数据、多轮环境、RL——属于算法地图 L5；RL 的 rollout 基础设施属于 Infra 地图 10。
-- **不讲检索**：agentic retrieval 属于 L3；本系列只把检索当作一类工具。
-- **不讲评测方法论本身**：judge、评测集运营属于 L5；本系列只讲 agent 专属的轨迹评测。
-- **不讲 prompt injection 的完整防御体系**：属于 L6；本系列讲它作为权限与沙箱设计的输入。
-- **不讲物理世界的 agent**：自动驾驶的 harness 在地图里作为对照案例，本系列只在第八篇的人机分工里引用它的 SAE 分级。
+回到总纲：[《工具、Agent 与 harness：模型怎么从回答变成做事》](/tools-agents-and-harness.html)。
 
 
 [^q0]: 面对一个要让模型做事的场景：要不要循环、卫士设在哪、两个生产循环各几层（1）；工具用 MCP 还是自定义、2026-07-28 版要改什么、几十个工具怎么办、中间结果怎么不进上下文（2）；任务中断怎么续、日志存什么、托管还是自托管（3）；第 40 步满了怎么办、什么交给子 agent、哪种子 agent（4）；这个调用自动 / 问人 / 禁止、沙箱用什么、五环防住了几环、审批疲劳怎么解（5）；四个 harness 各怎么解、学谁（6）；需要多 agent 吗、哪种模式、代价（7）；记忆存什么忘什么、人站在第几级、业务动作怎么验证（8）；可靠吗、轨迹怎么评、上生产还缺什么（9）。详见[第一章](#一总览系列回答的问题与主线)。
