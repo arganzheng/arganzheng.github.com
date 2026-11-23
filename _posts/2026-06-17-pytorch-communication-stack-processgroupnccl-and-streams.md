@@ -569,7 +569,7 @@ $$
 
 以默认节点（8 卡 H100 + NVSwitch）、一个 25 MB 的 DDP bucket 为例（非实测，理论值）：每 rank 收发 $$\frac{2\times 7}{8}\times 25\ \text{MB} \approx 43.75\ \text{MB}$$；NVLink 每 GPU 双向合计 900 GB/s、单向 450 GB/s，带宽项约 $$43.75\ \text{MB} / 450\ \text{GB/s} \approx 97\ \mu s$$；加上 $$14\alpha$$ 的延迟项（节点内 α 取几微秒量级），一次 bucket 的 all_reduce 在 100～150 µs 量级。跨机（每 GPU 一张 400 Gb/s ≈ 50 GB/s 单向的网卡）带宽项变成 $$43.75\ \text{MB} / 50\ \text{GB/s} \approx 875\ \mu s$$。
 
-同一时间 GPU 能算多少？H100 SXM 的 BF16 dense Tensor Core 标称约 990 TFLOPS，一个 $$8192^3$$ 的 BF16 GEMM 约 $$1.1\times 10^{12}$$ FLOP，理论下界约 1.1 ms，实际通常在 1.5～2 ms（非实测，"通常能达到"区间）。也就是说，一个大 GEMM 的时间足够掩盖一到两次跨机 bucket all_reduce。反向传播里每个 bucket 就绪后就发起 all_reduce、同时继续算下一层的梯度，通信几乎全部藏在计算后面——这是数据并行能 scale 的前提。反过来，如果重叠失效，每个 step 要多付出所有 bucket 的通信时间之和：梯度 1 GB 跨机约 35 ms，对一个 300 ms 的 step 是 12% 的损失。
+同一时间 GPU 能算多少？H100 SXM 的 BF16 dense Tensor Core 标称约 990 TFLOPS，一个 $$8192^3$$ 的 BF16 GEMM 约 $$1.1\times 10^{12}$$ FLOP，理论下界约 1.1 ms，实际约 1.45～1.5 ms——NVIDIA 的 Tilus 项目在 H100 SXM 上测同一形状的 cuBLAS 是 1.46 ms、752 TFLOPS，约为稠密峰值的 76%（注意这是 SXM；H100 NVL / PCIe 的峰值低两成，同一个 GEMM 要 2 ms 以上）。也就是说，一个大 GEMM 的时间足够掩盖一到两次跨机 bucket all_reduce（跨机带宽项 875 µs）。反向传播里每个 bucket 就绪后就发起 all_reduce、同时继续算下一层的梯度，通信几乎全部藏在计算后面——这是数据并行能 scale 的前提。反过来，如果重叠失效，每个 step 要多付出所有 bucket 的通信时间之和：梯度 1 GB 跨机约 35 ms，对一个 300 ms 的 step 是 12% 的损失。
 
 带宽的账说：重叠能省的是通信的全部时间，上限由"计算时间是否 ≥ 通信时间"决定。延迟的账说：重叠**不能**省掉 α——每次集合通信的 kernel 启动、握手、协议开销仍然发生，只是被藏起来了；小消息很多时，藏得住时间，藏不住 SM 占用。
 
@@ -577,7 +577,7 @@ $$
 
 两条 stream 上的 kernel 能否真的同时跑，由硬件决定，PyTorch 与 NCCL 都只能提供条件：
 
-**SM 资源。** NCCL kernel 的 grid 是 nChannels 个 block，每个 block 的线程数由 `NCCL_NTHREADS`（`src/graph/tuning.cc` 里 `NCCL_PARAM(Nthreads, "NTHREADS", -2)`）与协议决定，Simple 协议通常 512 线程。8 卡节点内 NCCL 一般用 2～32 个 channel，所以 NCCL kernel 占的是几个到几十个 SM，剩下的（H100 有 132 个）留给 GEMM。但 GEMM kernel 通常按"填满所有 SM"的 grid 启动，如果它先占满，NCCL kernel 就要等它的 block 退出才能插进去；反过来 NCCL 先占几个 SM，GEMM 的 block 少了几个位置，会慢一点（通常几个百分点，非实测）。`NCCL_MAX_CTAS` / `NCCL_MIN_CTAS`（`src/init.cc`）或 `ncclConfig_t` 的 `maxCTAs` 限制 NCCL 用的 block 数，是"用带宽换 SM"的旋钮。
+**SM 资源。** NCCL kernel 的 grid 是 nChannels 个 block，每个 block 的线程数由 `NCCL_NTHREADS`（`src/graph/tuning.cc` 里 `NCCL_PARAM(Nthreads, "NTHREADS", -2)`）与协议决定，Simple 协议通常 512 线程。8 卡节点内 NCCL 一般用 2～32 个 channel（上限是 `MAXCHANNELS`，NCCL 2.28.9 的 `src/include/device.h` 里是 64，32 只是常见取值而非上限），所以 NCCL kernel 占的是**几十个** SM——公开测量里 AllGather 大致占 132 个 SM 中的 24 个，节点内 P2P 默认 32 个——剩下的留给 GEMM。但 GEMM kernel 通常按"填满所有 SM"的 grid 启动，如果它先占满，NCCL kernel 就要等它的 block 退出才能插进去；反过来 NCCL 先占几个 SM，GEMM 的 block 少了几个位置，会慢一点（通常几个百分点，非实测）。`NCCL_MAX_CTAS` / `NCCL_MIN_CTAS`（`src/init.cc`）或 `ncclConfig_t` 的 `maxCTAs` 限制 NCCL 用的 block 数，是"用带宽换 SM"的旋钮。
 
 **优先级。** `TORCH_NCCL_HIGH_PRIORITY=1` 让 NCCL stream 成为高优先级：GEMM 的 block 陆续退出时，空出来的 SM 优先给 NCCL 的 block。这对"GEMM 先占满、NCCL 等不到 SM"的情况有效，代价是 GEMM 的尾部会慢一些。它不能抢占正在运行的 block。
 
@@ -622,7 +622,7 @@ Caching Allocator 那一行需要解释。`c10/cuda/CUDACachingAllocator.cpp` �
 
 ### 5. 合并：`all_reduce_coalesced`、`_coalescing_manager` 与 DDP bucket 的账
 
-回到 α-β：1000 个 25 KB 的梯度各做一次 all_reduce，延迟项 $$1000 \times 2(n-1)\alpha$$；合并成一个 25 MB 做一次，延迟项只有 $$2(n-1)\alpha$$，带宽项不变。节点内 NCCL 小消息延迟通常在 10～30 µs 量级（非实测），1000 次就是 10～30 ms，而 25 MB 一次的带宽项只有约 100 µs。这就是 DDP 为什么要把梯度攒成 bucket（默认 `bucket_cap_mb` 25 MB）再通信：**把 1000 次延迟主导的调用变成 1 次带宽主导的调用**。bucket 的划分规则不在本篇范围，但它在通信层的实现是本篇的内容。
+回到 α-β：1000 个 25 KB 的梯度各做一次 all_reduce，延迟项 $$1000 \times 2(n-1)\alpha$$；合并成一个 25 MB 做一次，延迟项只有 $$2(n-1)\alpha$$，带宽项不变。节点内 NCCL 小消息的**一次调用**（含 kernel launch 与框架开销）通常在 10～30 µs 量级（非实测；这和 nccl-tests 打印的 8 字节 2～3 µs 不是一个口径——后者只量 kernel 内的一轮握手），1000 次就是 10～30 ms，而 25 MB 一次的带宽项只有约 100 µs。这就是 DDP 为什么要把梯度攒成 bucket（默认 `bucket_cap_mb` 25 MB）再通信：**把 1000 次延迟主导的调用变成 1 次带宽主导的调用**。bucket 的划分规则不在本篇范围，但它在通信层的实现是本篇的内容。
 
 PyTorch 提供两级合并。`dist.all_reduce_coalesced(tensors)`（已标 deprecated，推荐用 `_coalescing_manager`）对应 `ProcessGroupNCCL::allreduce_coalesced` → `collectiveCoalesced`，一次 `WorkNCCL`、一次 event、一个 `ncclGroupStart/End` 里若干次 `ncclAllReduce`：
 
@@ -1087,7 +1087,7 @@ torchrun --nproc_per_node=8 overlap_bench.py --killer sync
 - 切到 `frag`：CPU 行上出现 `cudaFree`，其前后所有 GPU 行同时静止。`overlap` 掉到 0 附近且 `both_ms` 波动大——`cudaFree` 何时发生取决于 allocator 状态，这正是它难以从日志上定位的原因。
 - 切到 `sync`：`cudaDeviceSynchronize` 出现在两个 kernel 之间，效果与 `item` 类似，但它连 NCCL stream 一起等。
 
-**与理论对照。** 把 `ar_ms` 与[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html#4-comm-probe-本篇增量cost_modelpy)的 `cost_model.py` 给出的 ring 预测比：8 卡 NVSwitch 上 25 MB 的 all_reduce 理论带宽项约 97 µs（450 GB/s 单向），实测通常在 0.15～0.3 ms（非实测，"通常能达到"区间；小消息端更接近 α 主导）；`gemm_ms` 与 $$2 \cdot 8192^3 / (990 \times 10^{12})\ \text{s} \approx 1.1\ \text{ms}$$ 比。若 `none` 模式下 `both_ms` 明显大于 `max(gemm_ms, ar_ms)` 而 trace 上确实重叠，差额就是 SM 竞争的代价，可以用 `TORCH_NCCL_HIGH_PRIORITY=1` 或调 `NCCL_MAX_CTAS` 观察变化。
+**与理论对照。** 把 `ar_ms` 与[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html#4-comm-probe-本篇增量cost_modelpy)的 `cost_model.py` 给出的 ring 预测比：8 卡 NVSwitch 上 25 MB 的 all_reduce 理论带宽项约 97 µs（450 GB/s 单向），走 NCCL ring（PyNccl）路径时公开实测约 0.13～0.2 ms，即理论项的 1.3～1.6 倍；开 NCCL 对称内存的多播归约还能更低（小消息端则更接近 α 主导）；`gemm_ms` 与 $$2 \cdot 8192^3 / (990 \times 10^{12})\ \text{s} \approx 1.1\ \text{ms}$$ 比。若 `none` 模式下 `both_ms` 明显大于 `max(gemm_ms, ar_ms)` 而 trace 上确实重叠，差额就是 SM 竞争的代价，可以用 `TORCH_NCCL_HIGH_PRIORITY=1` 或调 `NCCL_MAX_CTAS` 观察变化。
 
 到这里，comm-probe 有了检查框架层的工具：`cost_model.py` 说通信该多快、`topo_map.py` 说链路能多快、`nccl_log_reader.py` 说 NCCL 选了什么、`overlap_bench.py` 说框架有没有把通信藏起来。[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)把这些工具和 nccl-tests 一起用到完整的测量与排障流程上：带宽曲线怎么读、哪个环境变量动哪一层、一个 64 卡任务在第 3000 步 hang 住时怎么在一小时内找到掉队的 rank。
 
