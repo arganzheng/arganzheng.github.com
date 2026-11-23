@@ -6,7 +6,7 @@ subtitle: "C++ for AI-Infra: Series Recap and Final Self-Test"
 tags: [C++, AI, AI-Infra]
 catalog: true
 date: 2026-02-15 20:00:00
-updated: 2026-11-17
+updated: 2026-11-23
 ---
 
 八篇正文回答了一个问题：**PyTorch 和 vLLM 的 C++ 源码里，这段代码为什么这样写**。每一篇各答其中一段：
@@ -520,25 +520,15 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-八篇讲的是 C++ 这门语言在 AI-Infra 项目里的用法，以及读懂这些项目 C++ 层所需的工程知识。四个方向紧邻但不在范围内：
+八篇讲的是 C++ 这门语言在 AI-Infra 项目里的用法，以及读懂这些项目 C++ 层所需的工程知识。以下内容与本系列的源码阅读对象紧密相关，但不在范围内：
 
-- **PyTorch 的机制本身**——Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式——本系列只借它们的 C++ 代码作为语言特性的例子，完整原理在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。
-- **CUDA 编程**——kernel 的写法、GPU 内存层次、性能优化——本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++（模板参数化 tile、RAII 管理 stream、宏做多架构分发），kernel 本身在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
-- **Python 语言本身**——[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)假设读者已了解 CPython 的引用计数与 GIL；它们的来历与 Python 侧的工程实践在[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
-- **通用 C++ 知识的完整覆盖**——STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分——不在任何一篇里，本系列只讲 AI-Infra 项目真正大量使用的那个子集。
-- 这一层在整张地图上的位置，以及语言层之后往哪走，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
+- **PyTorch 的机制本身**：Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式。本系列只借它们的 C++ 代码作为语言特性的例子，读者不需要事先理解这些机制；完整原理在[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。
+- **CUDA 编程**：kernel 的写法、GPU 内存层次、性能优化。本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++（模板参数化 tile、RAII 管理 stream、宏做多架构分发），kernel 本身在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
+- **Python 语言本身**：[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讨论 C++ 与 Python 的边界，假设读者已经了解 CPython 的引用计数和 GIL 是什么；它们的来历与 Python 侧的工程实践在[《Python 在 AI-Infra：从语言机制到生产交付》](/python-for-ai-infra.html)。
+- **通用 C++ 知识的完整覆盖**：STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分，不在任何一篇里——本系列只讲 AI-Infra 项目真正大量使用的那个子集。
+- **地图定位**：这一层在整张地图上的位置，以及语言层之后往哪走，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
 回到总纲：[《C++ 在 AI-Infra：从对象模型到算子扩展》](/cpp-for-ai-infra.html)。
-
-## 七、延伸阅读
-
-本系列只讲 C++ 这门语言在 AI-Infra 项目中的用法，以及读懂这些项目 C++ 层所需的工程知识。以下内容不在范围内，虽然它们与本系列的源码阅读对象紧密相关：
-
-- **PyTorch 的机制本身**：Autograd 如何构图、Dispatcher 的分发规则、`torch.compile` 的工作方式。本系列只借用它们的 C++ 代码作为语言特性的例子，读者不需要事先理解这些机制，也不会在本系列里学到它们的完整原理。
-- **CUDA 编程**：kernel 的写法、GPU 内存层次、性能优化。本系列停在 host 侧，只覆盖 CUDA 代码所依赖的 C++ 特性。
-- **Python 语言本身**：[《与 Python 之间》](/cpp-pybind11-python-c-api-and-abi.html)讨论 C++ 与 Python 的边界，假设读者已经了解 CPython 的引用计数和 GIL 是什么。
-- **通用 C++ 知识的完整覆盖**：STL 算法库、iostream、正则、文件系统、协程等在这些项目里很少出现的部分。
-
 
 [^q0]: 八个，每篇一个：
 
