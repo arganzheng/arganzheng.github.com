@@ -539,7 +539,7 @@ __device__ float warp_sum_cg(float v) {
 
 **浮点非确定性**。float 加法不满足结合律：$$(a + b) + c \ne a + (b + c)$$。原子加的执行顺序由硬件调度决定，每次运行不同，结果的最后几位也就不同。对训练里要求 bitwise 可复现的场景（vLLM 里甚至有一个 `batch_invariant` 模式专门为此关掉某些优化路径），这是不可接受的。
 
-> [!NOTE] Java 经验参照：`DoubleStream.sum()` 的结果为什么会变
+> [!NOTE] Java 经验参照：DoubleStream.sum() 的结果为什么会变
 > `DoubleStream.sum()` 的 Javadoc 写明：浮点和取决于加法的顺序，这个方法有意不规定顺序，所以同一组输入的输出可能不同。原子加的非确定性是同一个原因：顺序交给了运行时，而浮点加法不满足结合律。对不上的地方：Java 不规定顺序是为了让实现可以用补偿求和（compensated summation）等办法减小误差；`atomicAdd` 只是按硬件到达顺序做普通的 FP32 加法，误差不会因此变小。
 
 因此规则是：
@@ -634,7 +634,7 @@ $$
 
 这个合并运算满足结合律和交换律，所以 $$(m, l)$$ 可以像普通求和一样做树形归约：每个线程先串行处理自己的元素得到局部 $$(m, l)$$，然后用 shuffle 两两合并，5 步得到 warp 的 $$(m, l)$$，再经 shared 合并 32 个 warp。这就是 online softmax 与第四章 reduction 框架的接口——归约的对象从一个 float 变成一对 float，合并算子从 `+` 变成上面的公式。
 
-> [!NOTE] Java 经验参照：`Stream.reduce` 的 identity、accumulator 与 combiner
+> [!NOTE] Java 经验参照：Stream.reduce 的 identity、accumulator 与 combiner
 > Java 的三参数 `Stream.reduce(identity, accumulator, combiner)` 与这里的结构一一对上：identity 对应空状态 $$(-\infty, 0)$$，accumulator 对应「吃进一个元素」的单步更新，combiner 对应两个部分状态的合并。Javadoc 要求 combiner 满足结合律、identity 是 combiner 的单位元，并且 `combiner.apply(u, accumulator.apply(identity, t))` 等于 `accumulator.apply(u, t)`——把 $$(-\infty, 0)$$ 吃进 $$x$$ 得到 $$(x, 1)$$，再与 $$(m, l)$$ 合并，结果正是单步更新公式，这个条件成立；满足它，并行流才能按任意方式切分。对不上的地方：Java 的条件是对精确数学写的，GPU 上 $$(m, l)$$ 在 FP32 里合并，切分方式不同，结果的末几位就不同，[第五章](#4-原子操作什么时候用什么时候避免)的原子加和[第四章](#四reduction-的六个版本)的树形归约都受这一点影响。
 
 ### 4. 通向 FlashAttention
