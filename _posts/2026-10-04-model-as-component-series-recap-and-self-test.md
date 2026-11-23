@@ -6,6 +6,7 @@ subtitle: "The Model as a Component: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, API, Agent]
 catalog: true
 date: 2026-10-04 20:00:00
+updated: 2026-11-23
 ---
 
 六篇正文回答了一个问题：**把大模型当作系统里的一个组件，它的规格书是什么**。第一篇写它的失效模式，第二、三篇写它的接口（含推理模型的新维度），第四篇算它的账，第五篇讲怎么在几十个候选里选，第六篇讲调用它的客户端要处理什么。六篇合起来，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第一层的全部内容——**组件观**：模型是一个非确定性、会编造、按 token 计费、有上下文上限、供应商会换掉的组件，后面六层的每一种工程手段都是对它某一条性质的应对。
@@ -423,27 +424,19 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第一层。第一篇的七条失效模式是后面六层的索引：
+本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第一层：给一个没有规格书的组件写规格书。第一篇的七条失效模式是后面六层的索引，本系列在每一条失效模式与契约项上标出它们所在的层，自己不展开：
 
-- **L2 Prompt 与上下文工程**：应对指令遵循、prompt 敏感与上下文的有效长度——prompt 当代码管、上下文预算、压缩、缓存前缀的排列。
-- **L3 检索与知识接入**：应对幻觉与知识截止——进上下文还是进权重、三类检索、agentic retrieval、检索评测。
-- **L4 工具、Agent 与运行时**：应对越界——工具调用循环的运行时、权限与沙箱、durable execution、harness。
-- **L5 评测、可观测与可追溯**：应对非确定性与供应商变更——评测集、LLM-as-judge、trace、录制回放。
+- **模型内部**：Transformer 结构、注意力、KV cache 的机制属于共享的《Transformer 原理与实现》与《现代 LLM 结构》系列及算法地图；本系列只引用它们的结论（decode 是 memory-bound 的、KV 随上下文线性增长）。长上下文与图片为什么贵，出自[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)的 KV cache 与多模态两篇。
+- **L2 Prompt 与上下文工程**：prompt 当代码管、上下文预算、压缩、缓存前缀的排列，应对指令遵循、prompt 敏感与上下文的有效长度。本系列只把 prompt 敏感性当作失效模式、只讲 prompt 在缓存前缀里的位置，不讲 prompt 怎么写。
+- **L3 检索与知识接入**：进上下文还是进权重、三类检索、agentic retrieval、检索评测，应对幻觉与知识截止。
+- **L4 工具、Agent 与运行时**：工具调用循环的运行时、权限与沙箱、durable execution、harness，应对越界。
+- **L5 评测、可观测与可追溯**：评测集、LLM-as-judge、trace、录制回放，应对非确定性与供应商变更。本系列不讲评测方法，也不给"哪个模型最好"的结论——第五篇讲的是怎样用自己的评测集得出结论。
 - **L6 生产化与运营**：把第四篇的账与第六篇的客户端纪律做成网关、预算、发布与安全。
 - **L7 产品与体验**：把不确定性呈现给用户。
+- **推理引擎与自托管部署**：token 计费与 TTFT / TPOT 的形态来自 Infra 地图 09 [《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的前两篇；网关建设属于 Infra 地图。第五篇只给何时值得自托管的判据，不讲引擎怎么部署。
+- 三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-想理解本系列引用的结论从哪来：token 计费与 TTFT / TPOT 的形态来自 [Infra 地图 09《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的前两篇；长上下文与图片为什么贵来自共享系列[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)的 KV cache 与多模态两篇；三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲模型内部**：Transformer 结构、注意力、KV cache 的机制属于共享的《Transformer 原理与实现》与《现代 LLM 结构》系列及算法地图；本系列只引用它们的结论（decode 是 memory-bound 的、KV 随上下文线性增长）。
-- **不讲 prompt 怎么写**：这是 L2 上下文工程系列的内容；本系列只讲 prompt 敏感性作为失效模式与 prompt 在缓存前缀里的位置。
-- **不讲检索、Agent 循环、评测方法、网关建设**：分别属于 L3、L4、L5 与 Infra 地图 12。本系列在每一条失效模式与契约项上标出它们所在的层。
-- **不比较模型的能力**：不给"哪个模型最好"的结论。第五篇讲的是怎样自己得出结论。
-- **不讲自托管引擎的部署**：属于 Infra 地图 09。第五篇只讲何时值得自托管的判据。
-
+回到总纲：[《模型作为组件：契约、失效模式与选型》](/model-as-a-component.html)。
 
 [^q0]: 面对任何一个模型 API：它在自己的场景里会以哪七种方式失效、每种的代价与检测手段（第一篇）；一次工具调用的往返哪些步骤是自己的责任，结构化输出保证了什么、没保证什么，`store` 的默认值是什么（第二篇）；effort 从 `high` 调到 `low` 成本 / 延迟 / 质量各怎么变、为什么不能随意编辑历史（第三篇）；这次调用的五项成本各多少、第 20 轮是第 1 轮的多少倍、缓存能降到多少、TTFT 慢在哪一段（第四篇）；为什么榜单第一在自己的任务上不如第五、该怎么用评测集选、供应商下线通知来了做什么（第五篇）；哪些错误重试哪些不、超时怎么分层、发前怎么知道会不会超限（第六篇）。详见[第一章](#一总览系列回答的问题与主线)。
 
