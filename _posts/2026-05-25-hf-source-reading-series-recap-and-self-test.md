@@ -6,6 +6,7 @@ subtitle: "Reading the Hugging Face Source: Series Recap and Final Self-Test"
 tags: [Hugging Face, transformers, peft, trl, LoRA, AI]
 catalog: true
 date: 2026-05-25 20:00:00
+updated: 2026-11-23
 ---
 
 四篇正文回答了一个问题：**[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)那六行代码，执行时各经过哪些文件的哪些函数**。第一篇读模型的加载与一次前向，第二篇读 `generate` 的循环，第三篇读文本与数据两条流水线，第四篇读 LoRA 怎么挂上去与三种 loss 各在哪一行。本文把四篇压成一张「问题 → 文件 → 函数」的索引表，拎出贯穿五个库的四条设计线，再给一套自测。
@@ -50,7 +51,7 @@ Table: 四篇的核心问题、结论与必记项
 | 三 | 贯穿全系列的四条线：注册表、Rust / Arrow 内核、`-100`、`disable_adapter` |
 | 四 | 常见误区 |
 | 五 | 通关自测：判断与计算、跨篇综合、面试题、掌握判据 |
-| 六、七 | 下一步与延伸阅读 |
+| 六 | 下一步 |
 
 Table: 本文的章节安排
 
@@ -180,22 +181,20 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 的深入篇。往前，它读的每一段代码都对应地图里的一篇公式或结构图：模型侧对应 [L4 Transformer 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第一篇，`generate` 对应 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第七章，LoRA 对应 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》，三种 loss 对应[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)。往后，两条路：
-
-- **推理侧。**第二篇的 `_sample` 是静态 batch、Python 循环、每层 `cat` 的 KV cache——[vLLM 源码系列](/deep-dive-into-vllm.html)读 continuous batching 与 PagedAttention 怎么把这三件事各换掉一个。
-- **训练侧。**第四篇的 `GRPOTrainer` 采样与训练在同一进程——[verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)读 rollout 与 actor 分到不同 worker 之后同一条 GRPO loss 长什么样。
-
-## 七、延伸阅读
-
-本系列没有读的部分，需要时从下面进：
+本系列只读那六行代码在五个库里走到的调用链。往前，它读的每一段代码都对应地图里的一篇公式或结构图：模型侧对应 [L4 Transformer 系列](/transformer-and-llm-structure-implementation-and-evolution.html)第一篇，`generate` 对应 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》第七章，LoRA 对应 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》，三种 loss 对应[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)。往后的两条路，以及这几个库里没有读到的部分，从下面进：
 
 - **transformers 的其余目录。**`models/` 里 encoder、多模态（`Qwen2VLForConditionalGeneration` 的 `pixel_values` 怎么进 `inputs_embeds`）、`integrations/`（flash attention、bitsandbytes 量化的 `Linear4bit`）、`trainer.py`（trl 的三个 Trainer 都继承它：训练循环、梯度累积、`num_items_in_batch` 的来源）。
 - **accelerate。**`device_map="auto"` 的切分与 `dispatch_model`、多卡下 `Trainer` 的 DDP（Distributed Data Parallel，每卡一份完整模型） / FSDP（Fully Sharded Data Parallel，把参数、梯度、优化器状态切到各卡的数据并行） 包装——[Infra 地图](/ai-infra-learning-roadmap.html)的分布式训练系列。
 - **peft 的其他 tuner。**`tuners/` 目录下 DoRA（Weight-Decomposed Low-Rank Adaptation，把权重拆成幅度和方向）、AdaLoRA（Adaptive LoRA，按重要性给各层自适应分配秩的 LoRA 变体）、IA3（Infused Adapter by Inhibiting and Amplifying Inner Activations，只学几个逐元素缩放激活的向量）、prompt tuning，结构与 `lora/` 相同：一个 `Config`、一个 `Model`、一个 `Layer`。
 - **trl 的其他 Trainer。**`PPOTrainer`（带 value head）、`RewardTrainer`、`KTOTrainer`、`OnlineDPOTrainer`，以及 GRPO 的 vLLM 采样后端（`use_vllm=True`，`vllm_client.py`）。
 - **datasets 的 streaming。**`IterableDataset` 与 `iterable_dataset.py`：不落 Arrow、边下边用，`shuffle` 变成缓冲区随机——预训练规模的数据只能这样读。
+- **推理侧。**第二篇的 `_sample` 是静态 batch、Python 循环、每层 `cat` 的 KV cache——[vLLM 源码系列](/deep-dive-into-vllm.html)读 continuous batching 与 PagedAttention 怎么把这三件事各换掉一个。
+- **训练侧。**第四篇的 `GRPOTrainer` 采样与训练在同一进程——[verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)读 rollout 与 actor 分到不同 worker 之后同一条 GRPO loss 长什么样。
+- 本系列在整张地图上的位置（L4–L5 的深入篇）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 版本与文件名以总纲所述为准；这几个库的目录结构一年内会变，读的方法不变。
+
+回到总纲：[《读 Hugging Face 源码：从 from_pretrained 到 GRPO 的 loss》](/reading-hugging-face-source-code.html)。
 
 [^q0]: 五个：`from_pretrained` 怎么把三个文件变成 `nn.Module`（六步）；`generate` 一步做哪六件事、processor 串怎么装配；`tokenizer.json` 五段与 `map` 的 fingerprint；LoRA 怎么被 `setattr` 挂上去、`forward` 多的那一行；SFT 的 `-100`、`dpo_loss`、GRPO 的优势 / 裁剪 / 归一各在哪几行。
 [^q1]: `_LazyAutoMapping`、`torch.device("meta")`、`safe_open`、`ALL_ATTENTION_FUNCTIONS`、`ForCausalLMLoss`；`_get_logits_processor`、`unfinished_sequences`；normalizer → pre_tokenizer → model → post_processor → decoder、151665 / 151643 / 151936、`cache-<fingerprint>.arrow`；`inject_adapter`、`result + lora_B(lora_A(dropout(x))) * scaling`、`scaling = α/r`、8.8M（1.8%）；`build_labels`、`-logsigmoid(β·Δ)`、`(r − mean) / (std + 1e-4)`。
