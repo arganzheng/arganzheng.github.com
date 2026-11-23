@@ -6,6 +6,7 @@ subtitle: "Post-Training: Series Recap and Final Self-Test"
 tags: [AI, LLM, Post-Training, RLHF]
 catalog: true
 date: 2026-04-23 20:00:00
+updated: 2026-11-23
 ---
 
 八篇正文回答了一个问题：**一个只会续写的基座模型，经过哪几步变成能回答、能拒绝、能一步步推导、能调工具的模型——每一步的目标函数是什么、要几个模型在显存里、生成多少 token、怎么证明它真的变好了**。第一篇用 SFT 教格式，第二篇把人的判断造成一个可微的奖励，第三、四篇是用奖励改策略的在线与离线两种解法，第五篇把奖励换成验证器，第六篇把验证器推到多轮环境，第七篇把奖励换成教师的分布，第八篇是贯穿全程的度量。八篇合起来是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。
@@ -466,28 +467,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-八篇讲的是"从一个训好的基座出发，怎么把它变成对话、推理、Agent 模型并证明它变好了"，几个方向紧邻但不在范围内：
+八篇讲的是"从一个训好的基座出发，怎么把它变成对话、推理、Agent 模型并证明它变好了"。以下内容与它紧邻，但不在范围内：
 
-- **预训练与模型的成本账**（参数量、训练状态、$$6ND$$、tokenizer、数据管线、训练配方）是本系列的前提，在 L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)；交叉熵与 softmax 的梯度、AdamW 与调度、过拟合与多 epoch 在 L3 的[《深度学习基础》](/deep-learning-foundations.html)。
-- **RL 训练系统的实现**（rollout 引擎与训练器共置、权重同步、异步 rollout、算力配比）在 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)——本系列第三、五、六篇只给出算法对系统的要求。
-- **推理侧的算法优化**（解码、投机解码、量化、KV 压缩）在 L6 [《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)——第五篇的 test-time compute 只讲用推理算力换准确率的曲线。
-- **多模态后训练**在 L7 [《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)——方法相同，数据与评测不同。
-- **实验方法论**（可证伪的假设、小规模外推、控制随机性与复现）在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)——第八篇的统计只是它的一角。
-
-回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **预训练**：tokenizer、scaling law、数据工程、训练配方与稳定性，在《现代 LLM 结构》第一、二、十篇与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。本系列从一个训好的基座开始。
-- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)。本系列只讲算法对系统的要求与成本量级。
+- **预训练与模型的成本账**：tokenizer、scaling law、参数量与训练状态、$$6ND$$、数据工程、训练配方与稳定性，在 L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)第一、二、十篇与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；交叉熵与 softmax 的梯度、AdamW 与调度、过拟合与多 epoch 在 L3 的[《深度学习基础》](/deep-learning-foundations.html)。本系列从一个训好的基座开始。
+- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)。本系列第三、五、六篇只讲算法对系统的要求与成本量级。
 - **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6，见[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)。本系列第五篇的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
 - **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7，见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第三篇。方法与本系列相同，数据与评测不同。
+- **实验方法论**（可证伪的假设、小规模外推、控制随机性与复现）在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)——第八篇的统计只是它的一角。
 - **安全与对齐的规范性问题**：什么算有害、拒答的边界、红队方法论。本系列只讲把任何一种偏好训进模型的技术，不讨论偏好本身应该是什么。
 - **Agent 框架与产品层**：编排框架、记忆、多 Agent 协作、prompt 设计。第六篇只讲怎么用 RL 把工具调用训进模型；在模型之上怎么搭 Agent 属于应用地图。
 - **强化学习理论**：MDP、贝尔曼方程、收敛性证明。本系列只推到策略梯度与 PPO 的目标函数，把 LLM 当作"只有最后一步有奖励的单步 bandit"处理。
 
+回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 
 [^q0]: 八个：SFT 的每个开关（mask、packing、LoRA、epoch）各让模型变成什么样、怎么提前看到遗忘；70% 的 RM 为什么够用、在哪被钻空子；PPO 为什么四个模型、GRPO 用什么代替价值、算力花在哪；DPO 的奖励去了哪、在哪失效、与 PPO 差在哪；规则奖励为什么能训出长思维链、R1 四阶段各修什么、rollout 多多少；多轮 RL 差在哪一行公式、哪处 mask、哪段系统、瓶颈为什么在环境；三种蒸馏各学到什么、小模型为什么先蒸馏；分数涨了是能力、协议还是污染、judge 胜率里有多少是长度。详见[第二章](#二逐篇回顾)。
 [^q1]: SFT lr $$10^{-5}$$、8B 128 GB、LoRA $$r = 16$$ 差 0.001、遗忘 +0.02 / +0.62 / +0.01、67 GPU 小时；一致率 70–75%、$$\sigma(r_w - r_l)$$、1 epoch、7 GPU 小时、$$\text{KL}_{BoN} = \log N - (N-1)/N$$（16 → 1.83）、金奖励随 $$\sqrt{\text{KL}}$$ 先升后降；$$\beta$$ 0.01–0.05 到 0、PPO 288 GB / GRPO 160 GB、一步 410 万 token、$$12N$$、生成占 50–80% 墙钟；$$\pi^* \propto \pi_{ref} e^{r/\beta}$$、$$\hat r = \beta\log(\pi_\theta/\pi_{ref})$$、$$8N$$、9 GPU 小时；AIME 15.6 → 71.0、80 万 = 60 + 20 万、一步 1.3 亿 token、$$10^{22}$$–$$10^{23}$$、蒸馏 72.6 vs RL 47；48K 轨迹八成是环境、320 CPU·小时 vs 7 GPU·小时；256 KB/token、on-policy ≈ RL 的 1/10、1.5B 29% / 32B 72.6%；协议 5–15 点、1000 题 ±3、AIME ±18、MMLU ±0.8、长度控制 0.94 → 0.98。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
