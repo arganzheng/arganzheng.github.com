@@ -5,7 +5,7 @@ title: "多模态（10）：系列总结与通关自测"
 subtitle: "Multimodal Models: Series Recap and Final Self-Test"
 tags: [AI, LLM, Multimodal, Diffusion]
 catalog: true
-updated: 2026-11-11
+updated: 2026-11-23
 date: 2026-05-09 20:00:00
 ---
 
@@ -492,30 +492,21 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-九篇讲的是多模态模型的部件、数学与账，六个方向紧邻但不在范围内：
+九篇讲的是多模态模型的部件、数学与账。以下内容与它紧邻，但不在范围内：
 
 - **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在[《现代 LLM 结构（09）：多模态》](/multimodal-vision-encoder-cost-and-image-token-kv.html)——本系列引用它的结论，不重算。
-- **CNN 与 ViT 的基础**（patch embedding、残差）在[《深度学习基础》](/deep-learning-foundations.html)系列。
-- **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——第三篇的多模态对齐、第八篇的 Diffusion-DPO 直接用它们的形式。
+- **CNN 与 ViT 的基础**（patch embedding、残差）在 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》。
+- **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——第三篇只讲它们在多模态上的特殊之处，第八篇的 Diffusion-DPO 直接用它们的形式。
 - **概率与变分下界的数学**在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第六、七篇的推导需要高斯的性质、KL 与 ELBO。
-- **扩散模型的服务系统**（批处理、多 GPU 的步并行、compute-bound 的 serving）属于 [Infra 地图](/ai-infra-learning-roadmap.html)；**多模态 RAG 与 Agent 的截图操作**属于[应用地图](/ai-application-engineer-learning-roadmap.html)。
+- **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
+- **扩散模型的服务系统**（批处理、多 GPU 的步并行、compute-bound 的 serving）属于 [Infra 地图](/ai-infra-learning-roadmap.html)。
+- **应用层**（多模态 RAG、Agent 的截图操作）属于[应用地图](/ai-application-engineer-learning-roadmap.html)。
+- **PDF、Word、Excel、PPT 这类文件**不是一种模态，而是装着文本、表格和图片的容器。数字原生的文件解析成文本交给纯文本 LLM；扫描件和图表密集的页面渲染成图片交给 VLM，这一步依赖第二篇《VLM 的结构（下）》的动态分辨率。解析方式的选择、表格与阅读顺序的失败、分块与检索在[应用地图](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
+- 本系列在整张地图上的位置（L7）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 多模态的下一个形态大概率是统一的、原生的：多模态不再是 LLM 训好之后对齐上去的，而是从预训练第一天就在（Gemma 3、Kimi-VL、BAGEL、GPT-4o 已经这样做了）；理解与生成共享上下文；语音与视觉共享时间轴。那时九篇会合并成一个问题——一个 Transformer 怎么用一套表示处理世界的所有信号——但每一篇讲的部件与账仍在那里。
 
-回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)；回到地图：[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **成本的账**在 [现代 LLM 结构第九篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)：encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧的显存。本系列引用它的结论，不重算。
-- **CNN 与 ViT 的基础**在 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》。
-- **后训练方法本身**（SFT、DPO、RL）在 [L5](/post-training-from-sft-to-verifiable-rewards.html)；本系列第三篇只讲它们在多模态上的特殊之处。
-- **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
-- **扩散模型的服务系统**（批处理、多 GPU 的步并行）属于 Infra 地图。
-- **应用层**（多模态 RAG、Agent 的截图操作）属于应用地图。
-- **PDF、Word、Excel、PPT 这类文件**不是一种模态，而是装着文本、表格和图片的容器。数字原生的文件解析成文本交给纯文本 LLM；扫描件和图表密集的页面渲染成图片交给 VLM，这一步依赖第二篇《VLM 的结构（下）》的动态分辨率。解析方式的选择、表格与阅读顺序的失败、分块与检索在[应用地图](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
-
+回到总纲：[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)。
 
 [^q0]: 七个：编码器为什么选对比学习、它看不到什么（目标函数决定保留的信息）；一张图怎么进 LLM、占多少 token（connector、注入、分辨率的信息 vs token 交换）；训练分几阶段、冻结谁、幻觉从哪来（新旧参数、数据形状、三源三治）；语音为什么主流用离散 token、全双工时延由什么决定（RVQ、四段时延）；DDPM / score / flow 为什么是一件事、CFG 在采样什么分布；为什么在 latent 做、DiT 赢在哪、一张图与一次 LLM 推理怎么比；AR 与扩散各赢在哪、理解与生成能不能共享表示。详见[第二章](#二逐篇回顾)。
 [^q1]: $$I \ge \log B - \mathcal{L}$$ 与 CLIP 32K；576 / 729 token、$$28 \times 28$$ 像素/token 甜点、2×2 merge 4× 无损；Qwen2-VL token $$= HW / 28^2$$；MM1 45 / 45 / 10、POPE 85 → 90、文本混入 10–50%；RVQ $$8 \times 1024 = 2^{80}$$、Moshi 80 ms 帧 / 200 ms、半双工 1–3 s；$$\epsilon = -\sigma s$$、$$v = \epsilon - x_0$$、采样 $$\propto p(x) p(c \mid x)^w$$、$$w = 7.5$$；VAE f8 48×、DiT FID ∝ GFLOPs、SD 1.5 80 TFLOPs vs 7B LLM 14 TFLOPs、FLUX 2.8 PFLOPs；VAR 10 尺度 FID 1.73 vs DiT 2.27、栅格 AR 4096 步 100 s。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
