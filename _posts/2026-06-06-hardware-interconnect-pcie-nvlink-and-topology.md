@@ -323,9 +323,9 @@ NCCL 在 NVSwitch 机器上的拓扑搜索因此非常简单——[《NCCL 架�
 
 **带宽的账。** 8 卡 ring all_reduce，每卡收发 $$\frac{2(n-1)}{n} S = 1.75 S$$ 字节。H100 上 β 取 NVLink 单向 450 GB/s 的一个可达比例，比如 NCCL 内部的估算 $$18 \times 20.6 \approx 371$$ GB/s。S = 1 GB 时带宽项 $$1.75 \times 1\ \text{GB} / 371\ \text{GB/s} \approx 4.7$$ ms；S = 8 MB 时 $$\approx 38$$ µs。
 
-**延迟的账。** ring 有 $$2(n-1) = 14$$ 步，每步是一次 GPU 对 GPU 的 NVLink 写加一次同步。NVLink 一跳的硬件延迟在 1 µs 量级以下，加上 NCCL 协议层每步的 flag 检查，每步 α 取 1–2 µs（非实测，量级估计），14 步合计 15–30 µs；再加一次 kernel 启动的 5–10 µs。
+**延迟的账。** ring 有 $$2(n-1) = 14$$ 步，每步是一次 GPU 对 GPU 的 NVLink 写加一次同步。NVLink 一跳的硬件延迟在 1 µs 量级以下，但 NCCL 协议层每步还要做 flag 检查与 buffer 中转，所以每步的 α 要**按协议**查 NCCL 的调优表：`src/graph/tuning.cc` 的 `hwLatencies` 在 NVLink + Ring 这一档给出 LL 0.6 µs、LL128 1.9 µs、Simple 3.4 µs。几 MB 这个量级上 NCCL 选的是 LL128（它依赖 NVLink 的写序保证），所以每步取 **1.9 µs**，14 步合计约 27 µs；整次操作在步数之外还要加一个与步数无关的基础项 `baseLatencies`（Ring 的 LL128 档 14.0 µs，kernel 启动路径就在里面），合起来 40 µs 上下。
 
-两本账的拐点在 $$S/\beta \cdot 1.75 = 14\alpha$$ 处，即 $$S \approx 14 \times 1.5\,\mu s \times 371\ \text{GB/s} / 1.75 \approx 4.5$$ MB。也就是说，**几 MB 以上的消息在 NVLink 上已经是带宽主导**，busbw 曲线在几 MB 之后就到平台是理所当然的。换到 IB：β 变成 50 GB/s（NDR 单向），α 变成跨节点的 5–10 µs 一步（proxy 线程参与、RDMA 往返、跨交换机），拐点 $$S \approx 14 \times 8\,\mu s \times 50\ \text{GB/s} / 1.75 \approx 3.2$$ MB——看起来差不多，但 IB 上的 β 低 7 倍，所以同样是"带宽主导"，达到平台的绝对时间长 7 倍，而且跨节点的 ring 跨越了多台机器、n 更大、步数更多，α 项还在增长。曲线形状差异的根源就是 β 差一个量级、α 也差近一个量级，而 NVLink 上两者的比值让拐点落在了很小的消息上。
+两本账的拐点在 $$S/\beta \cdot 1.75 = 14\alpha$$ 处，即 $$S \approx 14 \times 1.9\,\mu s \times 371\ \text{GB/s} / 1.75 \approx 5.6$$ MB；若强制走 Simple（每步 3.4 µs），拐点右移到约 10 MB。也就是说，**几 MB 以上的消息在 NVLink 上已经是带宽主导**，busbw 曲线在几 MB 之后就到平台是理所当然的——[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)用同一个公式、更保守的 β = 200 GB/s 与每步 α = 3 µs 得到约 5 MB，两篇对得上。换到 IB：β 变成 50 GB/s（NDR 单向），α 变成跨节点的每步——NCCL 调优表 NET 档 Ring 是 LL 2.7 µs、LL128 4.0 µs、Simple 14 µs，几 MB 的跨节点消息走 Simple，取 14 µs（CPU proxy 线程发现请求、提交 RDMA、跨交换机往返都在这一项里）——拐点 $$S \approx 14 \times 14\,\mu s \times 50\ \text{GB/s} / 1.75 \approx 5.6$$ MB——与 NVLink 几乎相同，但 IB 上的 β 低 7 倍，所以同样是"带宽主导"，达到平台的绝对时间长 7 倍，而且跨节点的 ring 跨越了多台机器、n 更大、步数更多，α 项还在增长。曲线形状差异的根源就是 β 差一个量级、α 也差近一个量级，而 NVLink 上两者的比值让拐点落在了很小的消息上。
 
 还有一个更直接的原因：NVLink 上 GPU 用 load/store 直接写对端显存，不需要 CPU proxy 线程参与，每一步的 α 里没有"CPU 轮询并提交网络请求"这一项——这一项在跨节点路径上是 α 的主要来源之一（[《NCCL 架构》的「执行期：enqueue、kernel 与 proxy」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#九执行期enqueuekernel-与-proxy)，`src/proxy.cc`）。
 
@@ -368,7 +368,7 @@ InfiniBand 的速率按每 lane 的信号速率命名，一个端口通常是 4 
 
 Table: InfiniBand 的代际与端口速率
 
-"200 Gb/s"、"400 Gb/s"是数据速率（编码开销已经扣除），直接除 8 就是字节速率。RDMA 传输还有包头（IB 传输头 + 可能的 RoCE 的以太网/IP/UDP 头）和 ACK 开销，MTU 4096 字节时协议效率在 95% 以上，所以 `ib_write_bw` 测出来的大消息带宽通常是端口速率的 92–97%：HDR 上 23–24.5 GB/s，NDR 上 46–49 GB/s（非实测，常见区间）。NCCL 内部 `NET_BW 12.0` 是按 100 Gb/s 网卡写的默认值，实际会用网卡插件报告的速率覆盖。
+"200 Gb/s"、"400 Gb/s"是数据速率（编码开销已经扣除），直接除 8 就是字节速率。RDMA 传输还有包头（IB 传输头 + 可能的 RoCE 的以太网/IP/UDP 头）和 ACK 开销，MTU 4096 字节时协议效率在 95% 以上，所以 `ib_write_bw` 测出来的大消息带宽通常是端口速率的 92–97%：HDR 上 23–24.5 GB/s，NDR 上 46–49 GB/s（非实测，常见区间；AMD Instinct 的系统验收文档对 400G 口的单向合格线是 390 Gbps，即 97.5%，可作这个区间上沿的旁证）。这是 RDMA 层的上界，NCCL 的 busbw 还要再扣协议 flag 与 channel 调度，所以[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里给 8 卡 HDR 的 busbw 平台是略低一点的 22–24 GB/s——两个数不是一回事，别拿来互相对照。NCCL 内部 `NET_BW 12.0` 是按 100 Gb/s 网卡写的默认值，实际会用网卡插件报告的速率覆盖。
 
 一张网卡（HCA，Host Channel Adapter）在 `/sys/class/infiniband/` 下叫 `mlx5_0`、`mlx5_1`……每个 HCA 可以有一个或两个端口。8 卡训练机上通常是 8 张单端口 HDR 或 NDR 网卡（有的机器还有一两张双端口网卡专门给存储和管理流量）。
 
@@ -408,13 +408,13 @@ Table: 每张 H100 的三条对外链路与整机汇总
 
 - **网卡速率与 GPU 的 PCIe 代际匹配。** 50 GB/s 的网卡占用 64 GB/s 的 PCIe 5.0 x16 的 78%。A100 时代同样：HDR 25 GB/s 对 PCIe 4.0 x16 的 32 GB/s，也是 78%。Blackwell 平台上 CX-8 800 Gb/s = 100 GB/s 已经超过 PCIe 5.0 x16 的 64 GB/s，所以这一代要么网卡走 PCIe 6.0 x16（128 GB/s，又回到 78%），要么改用 NVLink/C2C 之类的直连方式绕开 PCIe——具体取决于平台。网卡速率是按"一张 GPU 的 PCIe 链路能喂饱一张网卡"选的，再快 PCIe 就成了瓶颈。
 - **一张 GPU 配一张网卡，因为两张 GPU 共享一张网卡会让每卡的节点间带宽减半，而 PCIe 上行也不够。** GPU 与网卡放在同一个 switch 下，GPU 到网卡的 DMA（GPUDirect RDMA）在 switch 内完成，不占 CPU 方向的上行链路——这是拓扑上 `PIX` 的由来，也是 GPUDirect RDMA 能跑满的前提。
-- **节点内比节点间快 9 倍**，这就是分层算法（[《集合通信原语与代价模型》的「分层与多级算法」一节](/collective-communication-primitives-and-cost-model.html#八分层与多级算法)）的物理依据：节点内先用 NVLink 做 reduce_scatter，只把 1/8 的数据送出网卡，再在节点间做 all_reduce，最后节点内 all_gather。不做分层直接在 64 卡上跑一个大 ring，每一步的带宽被最慢的那条边（网卡）限制在 50 GB/s，NVLink 的 450 GB/s 就浪费了。
+- **节点内比节点间快 7–9 倍**（H100 NVLink 单向标称 450 GB/s 对网卡 50 GB/s 是 9 倍；换成 NCCL 自己的可用估算 371 GB/s 是 7.4 倍。这里比的是**整机对整机**——8 × 450 GB/s 对 8 × 50 GB/s——与《集合通信原语与代价模型》里**每卡对每卡**的倍数相同，分子分母都乘了 8），这就是分层算法（[《集合通信原语与代价模型》的「分层与多级算法」一节](/collective-communication-primitives-and-cost-model.html#八分层与多级算法)）的物理依据：节点内先用 NVLink 做 reduce_scatter，只把 1/8 的数据送出网卡，再在节点间做 all_reduce，最后节点内 all_gather。不做分层直接在 64 卡上跑一个大 ring，每一步的带宽被最慢的那条边（网卡）限制在 50 GB/s，NVLink 的 450 GB/s 就浪费了。
 
-对代价模型：一次跨节点的 all_reduce，β 取网卡的 50 GB/s（NDR）或 25 GB/s（HDR）；节点内的那部分 β 取 NVLink 的 371–450 GB/s。两个 β 之间差 9 倍，所以跨节点通信的总时间几乎全部由网卡决定。
+对代价模型：一次跨节点的 all_reduce，β 取网卡的 50 GB/s（NDR）或 25 GB/s（HDR）；节点内的那部分 β 取 NVLink 的 371–450 GB/s。两个 β 之间差 7–9 倍，所以跨节点通信的总时间几乎全部由网卡决定。
 
 ### 4. 网卡在延迟账上的位置
 
-网卡路径的 α 也比 NVLink 大。一次 RDMA WRITE 从发起到对端可见，经过：发送方 GPU 数据在显存里就位 → CPU proxy 线程往网卡的发送队列写 Work Request（用户态，几百纳秒）→ 网卡 DMA 从显存读数据（PCIe 一次往返，约 1 µs）→ 网络传输与交换机转发（每跳几百纳秒，两层 fat-tree 三跳）→ 对端网卡 DMA 写入显存 → 完成通知回到 proxy 线程。端到端 1.5–3 µs（非实测，`ib_write_lat` 在两台直连机器上通常给出 1–2 µs 的数字）。而 NVLink 一跳不到 1 µs 且无 CPU 参与。跨节点 ring 每一步的 α 因此至少多几微秒，加上 proxy 线程的轮询周期和调度抖动，实际每步 5–10 µs 是常见的量级。64 KB 的 all_reduce 在 8 卡 NVLink 上可能 15–20 µs 完成，在 2 机 16 卡 IB 上通常要 50–100 µs——这两个数的差别几乎全是 α，与带宽无关。
+网卡路径的 α 也比 NVLink 大。一次 RDMA WRITE 从发起到对端可见，经过：发送方 GPU 数据在显存里就位 → CPU proxy 线程往网卡的发送队列写 Work Request（用户态，几百纳秒）→ 网卡 DMA 从显存读数据（PCIe 一次往返，约 1 µs）→ 网络传输与交换机转发（每跳几百纳秒，两层 fat-tree 三跳）→ 对端网卡 DMA 写入显存 → 完成通知回到 proxy 线程。端到端 1.5–3 µs（非实测，`ib_write_lat` 在两台直连机器上通常给出 1–2 µs 的数字）。而 NVLink 一跳不到 1 µs 且无 CPU 参与。跨节点 ring 每一步的 α 因此至少多几微秒。NCCL 调优表里 NET 档 Ring 的每步延迟按协议分三档：LL 2.7 µs、LL128 4.0 µs、Simple 14 µs（`src/graph/tuning.cc` 的 `hwLatencies`）；再摊上与步数无关的基础项 `baseLatencies`（Ring 的 LL / LL128 / Simple 为 6.6 / 14.0 / 8.4 µs）以及 proxy 线程的轮询周期与调度抖动，就是[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里「IB 上一步 5–20 µs」这个区间的来处。64 KB 这种小消息走 LL，一次 all_reduce 在 8 卡 NVLink 上可能 15–20 µs 完成（14 × 0.6 µs 再加基础项），在 2 机 16 卡 IB 上通常要 50–100 µs——这两个数的差别几乎全是 α，与带宽无关。
 
 ## 五、读拓扑：`nvidia-smi topo -m`、`lspci -tv` 与 `topo -mp`
 
@@ -879,7 +879,7 @@ Table: 比一比：差距的解释与检查清单
 - 节点内三种速度量级：NVLink（A100 单向 300 GB/s、H100 450 GB/s、Blackwell 900 GB/s；厂商的 600/900/1800 是双向合计）、PCIe（x16 单向 3.0/4.0/5.0 ≈ 16/32/64 GB/s，可达 80–90%）、跨 socket 的 UPI（NCCL 按 6–40 GB/s 估算）。节点间是网卡：HDR 25 GB/s、NDR 50 GB/s 单向。
 - PCIe 是树：root complex → switch → endpoint。同 switch 下的 P2P 在 switch 内转发（`PIX`/`PXB`），经 root complex（`PHB`/`NODE`）带宽打折且可能不支持，跨 socket（`SYS`）最差。ACS 会把 switch 内的 P2P 强制重定向到 root complex，是"拓扑完美但 P2P 慢"的首要嫌疑。
 - NVSwitch 让 8 卡任意两两之间都能用满全部 NVLink 链路（`NV12`/`NV18` 清一色），节点内 β 是常数。NVLink 上的 all_reduce 在几 MB 之后就是带宽主导，因为 β 大、α 小、且没有 CPU proxy 参与；NVLink SHARP（NVLS）在 Hopper 起让交换机做归约，busbw 可以超过 ring 的理论系数。
-- 8 卡配 8 张网卡、每张网卡的速率约为 GPU PCIe 链路的 78%（HDR/4.0、NDR/5.0、800G/6.0 都是这个比例），每张 GPU 与自己的网卡同 switch。整机 NVLink 交换容量是网卡总带宽的 9 倍，这是分层算法的物理依据。RoCE v2 必须配 PFC + ECN，否则 Go-Back-N 重传让带宽崩塌。
+- 8 卡配 8 张网卡、每张网卡的速率约为 GPU PCIe 链路的 78%（HDR/4.0、NDR/5.0、800G/6.0 都是这个比例），每张 GPU 与自己的网卡同 switch。整机 NVLink 交换容量是网卡总带宽的 7–9 倍（标称 450 GB/s 对 50 GB/s 是 9 倍，按 NCCL 可用估算 371 GB/s 是 7.4 倍），这是分层算法的物理依据。RoCE v2 必须配 PFC + ECN，否则 Go-Back-N 重传让带宽崩塌。
 - `nvidia-smi topo -m` 的六个等级 `NV#`/`PIX`/`PXB`/`PHB`/`NODE`/`SYS` 与 NCCL `src/graph/topo.h` 的 `PATH_NVL`/`PATH_PIX`/`PATH_PXB`/`PATH_PHB`/`PATH_SYS` 一一对应；`NCCL_P2P_LEVEL` 与 `NCCL_NET_GDR_LEVEL` 的默认边界都是 `PXB`，即"不跨 CPU"。NCCL 为 GPU 选网卡的规则是"带宽最大、其次路径最近"（`ncclTopoGetLocal`），所以 GPU0 选 `PIX` 的 NIC0 而不是 `SYS` 的 NIC4。
 - NUMA 亲和影响的是 proxy 线程与 host staging buffer，不影响 NVLink 路径。NCCL 默认取"进程亲和 ∩ GPU 所属节点 CPU"，交集为空时放弃；`NCCL_IGNORE_CPU_AFFINITY=1` 强制用 GPU 的；`NCCL_PROXY_CPUSET` 钉 proxy 线程。
 - 数据必须经主机内存的两种情况：节点内 P2P 不可用（走 SHM）、节点间 GDR 不可用（走 host staging）。两者都多一次 PCIe 传输和 5–10 µs 的拷贝延迟。
@@ -1072,7 +1072,7 @@ if __name__ == "__main__":
 
    <details markdown="1"><summary>答案</summary>
 
-   节点内由 NVLink（或 NVSwitch）限制，跨节点由网卡限制，且网卡还受它挂的 PCIe 链路限制；300 / 25 = 12 倍——整机 NVLink 交换容量约是网卡总带宽的 9 倍，是分层算法的物理依据。
+   节点内由 NVLink（或 NVSwitch）限制，跨节点由网卡限制，且网卡还受它挂的 PCIe 链路限制。这组参数下 300 / 25 = **12 倍**；整机对整机是 8 × 300 对 8 × 25，倍数不变，仍是 12 倍。换成 H100 + NDR（450 对 50）是 9 倍，按 NCCL 的可用估算（371 对 50）是 7.4 倍——不论取哪一组，节点内都比节点间快接近一个数量级，这是分层算法的物理依据。
 
    </details>
 
