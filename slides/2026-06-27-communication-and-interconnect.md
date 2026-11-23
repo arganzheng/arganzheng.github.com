@@ -169,7 +169,7 @@ flowchart LR
 | 量 | 数 |
 |---|---|
 | 上限 min(NIC, PCIe) | H100 / PCIe 5.0 / NDR = 50 GB/s；A100 / PCIe 4.0 / HDR = 25；**A100 配 NDR 被卡在 32** |
-| 延迟 | IB 1–2 µs、RoCE 2–4 µs、TCP 15–50 µs |
+| 延迟 | IB 与 RoCE 单向都约 1 µs（往返约 2）、TCP RTT 约 20–50 µs |
 | `NCCL_NET_GDR_LEVEL` | 默认 `PXB`（同一 switch 下才开 GDR） |
 | `NCCL_IB_TIMEOUT=20` | 4.3 s × 7 次重传 ≈ 30 s 后 status=12 |
 
@@ -290,7 +290,7 @@ flowchart TB
 ![ring 模型下的 busbw 曲线：延迟主导区、拐点区、带宽主导区，以及 α 翻倍、β 减半、中段凹陷三种偏差的形状](/img/in-post/nccl-tests-tuning-and-debugging-hangs-busbw-curve.svg){: style="max-height: 360px"}
 
 <aside class="notes" markdown="1">
-原文 /nccl-tests-tuning-and-debugging-hangs.html。8×H100 节点内拐点约 10 MB、64 卡跨机约 30 MB；参考线 8×H100 350–480 GB/s、2 节点 NDR 每 GPU 40–48。
+原文 /nccl-tests-tuning-and-debugging-hangs.html。8×H100 节点内拐点约 9 MB（Ring，β≈370；开 NVLS 约 12 MB）、64 卡跨机约 29 MB；参考线 8×H100 单机 350–480 GB/s、2 节点 ×8 H100 NDR 的跨机 busbw 330–470 GB/s。讲的时候务必点一句口径：α 是每跳（NCCL 另有整次调用的 baseLatencies），β 是每链路可达；「每 GPU 过网卡 40–48 GB/s」不是跨机 busbw，分层算法让节点间只搬 1/8 的数据，两者差约 8 倍。
 结论原文：曲线**左端看 α、右端看 β**、拐点 $$S_{knee} = n\alpha\beta$$，到 90% 平台约 9 倍拐点；hang 分六类，前四类各 rank 最后一次操作不一致、后两类一致；**Flight Recorder 按 `collective_seq_id` 对齐给出 culprit**。
 </aside>
 
@@ -300,9 +300,9 @@ flowchart TB
 
 | 参考线 | 值 |
 |---|---|
-| 8×H100 节点内 all_reduce busbw | 350–480 GB/s |
-| 2 节点 NDR，每 GPU | 40–48 GB/s |
-| 拐点与平台 | 8×H100 节点内约 10 MB、64 卡跨机约 30 MB；到 90% 平台约 9 倍拐点 |
+| 8×H100 节点内 all_reduce busbw | 350–480 GB/s（Ring 约 360–375、NVLS 约 470–482） |
+| 2 节点 ×8 H100 NDR，跨机 busbw | 330–470 GB/s（每 GPU 过网卡那一侧是 40–48，别混） |
+| 拐点与平台 | 8×H100 节点内约 9 MB（Ring）、64 卡跨机约 29 MB；到 90% 平台约 9 倍拐点 |
 | 参数优先级 | env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 代码默认值 |
 
 <!-- v -->
@@ -346,18 +346,20 @@ flowchart LR
 
 ## 07 · 推理侧的通信：decode TP 是纯 $$\alpha$$ 的账
 
-**custom all-reduce 30 → 10 µs：14 步 → 2 步 + CUDA Graph**
+**custom all-reduce 30 → 10 µs（对照传统 NCCL ring）：14 步 → 2 步 + CUDA Graph**
 
 | 量 | 数 |
 |---|---|
 | 128 KB | 8 × 8192 × 2 B（TP8、d = 8192、BF16） |
 | NCCL Ring + LL 模型 | 6.6 + 14 × 0.6 ≈ 15 µs |
 | custom AR | 36 个 block；8 卡 < 256 KB one-shot；上限 8 MB；只能节点内 |
+| 开 NCCL 对称内存后 | 8 卡 custom AR 的优势区间只剩 (16 KiB, 128 KiB) |
 | Llama-3-70B KV | 每 token 320 KB；4096 token 1.25 GiB；TP8 每 rank 160 MiB，400 Gb/s 约 3.4 ms |
 
 <aside class="notes" markdown="1">
 原文 /inference-communication-custom-all-reduce-and-kv-transfer.html。
 结论原文：8 卡 TP decode 每层 128 KB 的 all_reduce，NCCL 30 µs、custom all-reduce 10 µs——省在 launch 路径、**14 步 → 2 步**、无 channel buffer 中转、可捕获进 CUDA Graph；**KV 传输是纯 β 的点对点账**，单边 RDMA 比 NCCL 更自然。
+讲这页要加一句前提：这组数字对应的是**未启用 symmetric memory 的传统 NCCL ring**。开了 symmetric memory 之后，8 卡上 custom all-reduce 只在 32–64 KB 这一段占优，**128 KB 起就交回 NCCL**。依据是 vLLM v0.23.0 的 `all_reduce_utils.py` 里的 8 卡基准：2K–16K 对称内存更快（1.35–1.48 倍）、32K–64K custom AR 更快、128K–1G 对称内存快 1.12–6.14 倍；配置里 8 卡的 `custom_ar_preferred_ranges` 就是 (16 KiB, 128 KiB)。所以本页反复举的那个 128 KB，在开了对称内存的 8 卡机器上已经交回 NCCL；这页讲的是「传统 ring 路径为什么慢」的机制。
 </aside>
 
 <!-- v -->
@@ -462,7 +464,7 @@ flowchart LR
 |---|---|---|
 | 01 | ring 带宽项与 n 无关 | 延迟项随 n 线性；拐点 nαβ |
 | 02 | 单向 450 GB/s、PCIe 78%、整机 9 倍 | 路径等级 PIX / PXB / SYS |
-| 03 | 上限 min(NIC, PCIe) | IB 1–2 µs、TCP 15–50 µs；0 拷贝 |
+| 03 | 上限 min(NIC, PCIe) | IB 单向约 1 µs、TCP RTT 约 20–50 µs；0 拷贝 |
 | 04 | LL 50% / LL128 94% / Simple 100% 载荷 | ring 510 步 vs tree 24 步 |
 | 05 | bucket 25 MiB | 1000 次 vs 1 次差 1000 倍 |
 | 06 | 曲线右端、参考线 | 曲线左端、六类 hang |
@@ -493,11 +495,11 @@ flowchart LR
 |---|---|
 | 01 | $$T_{ring} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$；$$S^* = n\alpha\beta$$ |
 | 02 | NVLink 单向 300 / 450 / 900；PCIe 5.0 x16 64 GB/s；NDR 50 |
-| 03 | 拷贝 2 / 1 / 0 次；IB 1–2 µs；上限 min(NIC, PCIe) |
+| 03 | 拷贝 2 / 1 / 0 次；IB 单向约 1 µs；上限 min(NIC, PCIe) |
 | 04 | 决策在 init；LL 50% / LL128 94%；tree 2⌈log₂n⌉ |
 | 05 | NCCL stream 等 event、wait() 等 end event；watchdog 10 分钟 |
 | 06 | 左 α 右 β；90% 平台 ≈ 9 S_knee；Flight Recorder |
-| 07 | 128 KB：30 → 10 µs；14 → 2 步；KV 320 KB / token |
+| 07 | 128 KB：30 → 10 µs（对照传统 ring）；14 → 2 步；KV 320 KB / token |
 | 08 | 去重 7 → 3.2；decode 487 µs，3/4 是字节 |
 
 ---
