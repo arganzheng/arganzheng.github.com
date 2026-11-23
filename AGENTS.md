@@ -379,7 +379,12 @@ Pages has `https_enforced` on.
   modifier shortcuts and composed input are left alone.
 - GitHub-style callouts use `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`,
   or `[!CAUTION]` in a blockquote; `_plugins/callouts.rb` converts them and
-  `less/callouts.less` defines their styles.
+  `less/callouts.less` defines their styles. **A callout's title must not
+  contain inline code** (`> [!NOTE] Java 经验参照：straggler 与 \`CyclicBarrier\``):
+  the plugin's `MARKER` captures the title as `([^<\r\n]+)`, so kramdown's
+  `<code>` ends it — everything from the first backtick onwards drops into the
+  body as a separate paragraph. Write the identifier as plain text in the
+  title, or rename the title.
 - Colour themes are applied before CSS in `_includes/head.html` and use
   `data-theme="light"|"dark"|"sepia"`; `less/dark.less` and `less/sepia.less`
   hold scoped overrides. Sepia is a light theme, so never set
