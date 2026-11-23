@@ -5,7 +5,7 @@ title: "扩散模型推理基础设施（10）：系列总结与通关自测"
 subtitle: "Diffusion Model Inference Infrastructure: Series Recap and Final Self-Test"
 tags: [Diffusion, DiT, Video Generation, Inference, SGLang, vLLM, xDiT, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-23
 date: 2026-09-13 20:00:00
 ---
 
@@ -531,27 +531,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-九篇算的是扩散模型推理的账，四个方向紧邻但不在范围内：
-
-- **扩散模型的数学、结构与训练**（DDPM / flow matching、DiT 与 MMDiT、VAE、文生图与视频配方、步数蒸馏的方法）在算法地图的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇——本系列只用了"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
-- **LLM 推理系统**（KV cache、连续批处理、PagedAttention、投机解码、PD 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列在每处对照说明"扩散为什么不同"，第六篇的自回归视频是两条线重新交汇的地方。
-- **Transformer 一层的 FLOPs 与字节从哪来**、多模态理解模型的推理，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——第 02 篇的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
-- **kernel 的实现**（FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部）在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)——本系列只用了它们的接口与加速比。
-
-回到总纲：[《扩散模型推理基础设施：图像与视频生成的 serving》](/diffusion-model-inference-infrastructure.html)。
-
-## 七、延伸阅读
-
-本系列只讨论扩散模型（含 flow matching 模型，系统上无区别）**推理**的系统。以下内容与它紧邻，但不在范围内：
+九篇算的是扩散模型（含 flow matching 模型，系统上无区别）**推理**的账。以下方向与它紧邻，但不在范围内：
 
 - **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
-- **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧。
+- **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧，第六篇的自回归视频是两条线重新交汇的地方。
+- **Transformer 一层的 FLOPs 与字节从哪来**：在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)；第 02 篇的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
 - **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)第 09 篇与 vLLM 系列讲多模态输入的第九篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
 - **kernel 的实现**：FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部。它们在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只用它们的接口与加速比。
 - **集合通信的实现**：all-to-all、P2P、all-gather 的算法与调优。本系列只用它们的语义与带宽。
 - **扩散模型的后训练与 RL**：Diffusion-DPO、奖励微调、Flow-GRPO 的系统。它们的 rollout 就是本系列讲的推理，训练侧属于 RL 后训练基础设施系列的形态。
 - **训练侧的并行**：DiT 的 FSDP + SP 训练。第五篇只在对照处提及。
 
+回到总纲：[《扩散模型推理基础设施：图像与视频生成的 serving》](/diffusion-model-inference-infrastructure.html)。
 
 [^q0]: 九个：一次生成要多少 FLOPs、显存、几秒，瓶颈在哪（三段的账、$$P_\text{tok}$$、roofline）；单卡还能快多少、哪些优化不改图（$$\eta$$、Tensor Core 峰值、offload 判据、PSNR 门限）；几十步里多少步可以不算、代价是什么（$$T_\text{full} + T_\text{hit}\epsilon$$、阈值曲线、与蒸馏互斥）；视频为什么是 attention 负载、稀疏化能换回多少（$$N \approx 6d$$、block 粒度、Amdahl）；该切序列、切 CFG 还是切流水线，NVLink 与以太网为什么答案不同（通信量公式、USP、PipeFusion）；蒸馏到 4 步之后系统怎么变、自回归视频为什么又要 KV cache（失效三项、chunk KV、会话）；服务怎么排队、分卡、算钱，视频为什么是异步 job（卡数 = QPS × GPU·秒、分池、三段分离）；三个引擎各把这些放在哪、该选哪个；配置怎么推、质量怎么测、坏了从哪查。详见[第二章](#二逐篇回顾)。
 [^q1]: 每步 $$2P_\text{tok}N + 4LN^2d$$，FLUX 74.3 T、attention 20%、2.1 P、4.8 s；Wan 75,600 token、6.5 P / 步、attention 72%、650 P、24 min；算术强度 3,100 vs 拐点 295 vs LLM decode 的 2；150× FLOPs、0.8× 时间；eager 6.71 → compile 4.30 s（$$\eta$$ 0.31 → 0.49）；FP8 1.3–1.5×、PSNR > 35 dB 不可见、30–35 细看可见；TeaCache 0.4 → 1.8×、约 30 dB，上限约 2×、视频 4.4×；交叉点 $$N \approx 6d$$、Amdahl $$a$$ 0.72 $$s$$ 3.5 → 2.06×、上限 3.57×；TP $$4\frac{p-1}{p}Nd$$、Ulysses 是它的 $$1/p$$、PipeFusion 是它的 $$1/L$$，4×H100 1.63 s（2.63×）；schnell 0.30 P、0.8 s、1/7；KV 每 token 184 KB、chunk 0.86 GB、窗口 6 GB；100 QPS 670 → 80 张、每张 \$0.0047 → \$0.0006、Wan 一段 \$0.22；VAE 峰值 2 / 8 / 107 / 227 GiB。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
