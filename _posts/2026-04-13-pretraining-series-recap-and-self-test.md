@@ -6,6 +6,7 @@ subtitle: "Pretraining: Series Recap and Final Self-Test"
 tags: [Transformer, LLM, AI, Pretraining]
 catalog: true
 date: 2026-04-13 20:00:00
+updated: 2026-11-23
 ---
 
 五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，第二篇算 tokenizer 与词表，第三篇算算力怎么分给参数与数据，第四篇算 15T token 从哪来、丢掉的是什么，第五篇算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那张成本表的训练侧。
@@ -405,25 +406,15 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-五篇算的是"一个基座模型怎么训出来"的账，四个方向紧邻但不在范围内：
-
-- **模型作为计算对象的成本**（参数量、FLOPs、字节、KV cache、通信量的推导）是本系列的前提，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
-- **后训练**（SFT、RLHF / DPO、蒸馏、评测）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-- **深度学习基础的推导**（反向传播、初始化与归一化、优化器）在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)——第五篇直接用了它们的结论。
-- **分布式训练的实现**（TP / PP / EP 怎么切、checkpoint 怎么写、故障怎么恢复）在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列只算它们的量。
-
-回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
-
-## 七、延伸阅读
-
-本系列只讨论"一个基座模型**怎么训出来**"的账。以下内容与它紧邻，但不在范围内：
+五篇算的是"一个基座模型**怎么训出来**"的账。以下内容与它紧邻，但不在范围内：
 
 - **模型作为计算对象的成本**：参数量、FLOPs、字节数、KV cache、通信量的推导。它们是本系列的前提，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
 - **后训练**：SFT、RLHF / DPO、蒸馏、评测。把一个基座模型变成对话模型的方法在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
-- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第五篇直接使用它们的结论，推导在[《深度学习基础》](/deep-learning-foundations.html)。
+- **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第五篇直接使用它们的结论，推导在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 - **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
 - **数据管线的工程实现**：本系列算 CPU 小时与带宽，不讲 Spark / Ray / datatrove 的用法。
 
+回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 
 [^q0]: 四个：换一个 tokenizer 会怎样（$$2Vd$$ 与每字符成本）；给定算力模型多大、数据多少、训完要服务多少（Chinchilla 与推理感知的最优点）；15T token 从哪来、丢掉的是什么、够不够（漏斗、MinHash、配比 → epoch）；超参表里的每个数字从哪来、训练为什么会崩（$$\mu$$P、梯度噪声尺度、三个机制与六个开关）。详见[第二章](#二逐篇回顾)。
 [^q1]: 词表参数 $$2Vd$$、Llama-3-8B 的 13.1% 与 7.0%；英文 3.17 → 3.94 字符/token、每字符低 15%；$$L = E + A/N^\alpha + B/D^\beta$$ 与 $$C = 6ND$$、$$D/N \approx 20$$；固定 $$C$$ 缩 10 倍 loss +0.053；服务 100T token 时 24B / 13.8T；4 epoch 值 93%；漏斗 240T → 15T → 1.3–5.4T；MinHash 14 × 8 阈值 0.72；25% ≈ 7.5 epoch；lr 3e-4 → 8e-5 随宽度、batch 4M → 16M ramp；QK-norm 12592 → 22；spike 一次约 1 万 GPU 小时。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
