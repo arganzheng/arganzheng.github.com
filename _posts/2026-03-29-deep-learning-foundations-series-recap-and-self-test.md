@@ -6,6 +6,7 @@ subtitle: "Deep Learning Foundations: Series Recap and Final Self-Test"
 tags: [AI, Deep Learning, LLM]
 catalog: true
 date: 2026-03-29 20:00:00
+updated: 2026-11-23
 ---
 
 十篇正文回答了一个问题：**一个几十层甚至上百层的网络，为什么能训、什么时候不能训、训不动的时候该看哪个数字**。第一篇用三起两落的时间线串起阈值单元、感知机、反向传播、CNN、Embedding、RNN、attention 与 Transformer，也用 XOR 区分“能表示”与“能学会”；第二篇把「好」写成一个可求导的数，第三至第七篇是训练动力学——反向传播写出梯度，激活函数改变梯度，初始化 / 归一化 / 残差稳定深层，优化器定步长，正则化讨论泛化；后三篇分别讲视觉、表示与序列结构。十篇合起来，是 Transformer 组件的来历，也是读预训练技术报告中训练配方的公式出处。
@@ -647,28 +648,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-十篇讲的是"训练一个深网络时会发生什么"，几个方向紧邻但不在范围内：
+十篇讲的是"训练一个深网络时会发生什么"。几个方向紧邻但不在范围内，以及它们在哪个系列里：
 
-- **Transformer 本身**——attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导——在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。本系列第十篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
-- **预训练配方**——学习率、batch、warmup 的具体数值怎么随规模定，scaling law，数据配比——属于 L4，本系列只讲每个开关的原理与诊断。
-- **框架内部与数值格式**——Autograd 引擎、分布式通信、bf16 / fp8 的位布局——属于 Infra 地图的系列，本系列只到"框架在做什么"。
-- **泛化理论**（VC 维、PAC-Bayes）与**具体的 CNN / RNN 应用**（检测、分割、语音识别）不在本系列范围内。
-
-前置的三层如果读时觉得吃力，回去补：[L0 数学](/math-for-ai-algorithm-engineers.html)的链式法则、Jacobian、期望与方差、谱范数；[L1 工具](/tooling-for-ai-algorithm-engineers.html)的 NumPy 形状与训练循环；[L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)的过拟合、偏差 - 方差与正则化。本系列在[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)上是 L3，L4 之前的最后一层基础。
-
-回到总纲：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在 [《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)系列。本系列第十篇止于"attention 为什么被发明、为什么取代 RNN"。
-- **预训练配方**：具体的学习率、batch、warmup 数值怎么随规模定，scaling law，数据配比。属于 L4。本系列只讲每个开关的原理与诊断。
-- **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现。属于 Infra 地图 03 系列。本系列只到"框架在做什么"。
-- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作。在 现代 LLM 结构第十篇。
+- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。本系列第十篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
+- **预训练配方**：学习率、batch、warmup 的具体数值怎么随规模定，scaling law，数据配比。属于 L4，本系列只讲每个开关的原理与诊断。
+- **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现，属于 Infra 地图的[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。本系列只到"框架在做什么"。
+- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作，在《现代 LLM 结构》第十篇。
 - **泛化理论**：VC 维、Rademacher 复杂度、PAC-Bayes。本系列只讲现象与实践中的正则化手段，不做理论。
 - **具体的 CNN / RNN 应用**：目标检测、分割、语音识别的网络设计。本系列只讲两条结构史留给 Transformer 的遗产。
+- **本系列的前置**：读时觉得吃力就回去补——[L0 数学](/math-for-ai-algorithm-engineers.html)的链式法则、Jacobian、期望与方差、谱范数；[L1 工具](/tooling-for-ai-algorithm-engineers.html)的 NumPy 形状与训练循环；[L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)的过拟合、偏差 - 方差与正则化。
+- **地图定位**：本系列在[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)上是 L3，L4 之前的最后一层基础。
 
+回到总纲：[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 
 [^q0]: 八个问题：怎样手推两层网络反向传播并说出 $$6ND$$ 与激活为什么要存；sigmoid、ReLU 与门控激活怎样改变梯度；初始化 / 归一化 / 残差各修连乘哪一环；Adam 的矩、warmup 与 batch scaling；参数比样本多时何时泛化、何时过拟合；卷积为何能用更少参数表达局部结构；token id 怎样成为静态或上下文表示；RNN 为什么记不住、attention 如何从 seq2seq 瓶颈中诞生。详见[第二章](#二逐篇回顾)。
 [^q1]: $$\partial L/\partial W = X^T G$$、$$6ND$$、$$8ND$$；sigmoid 导数上限 0.25、$$0.25^{10}\approx9.54\times10^{-7}$$、三 seed 的 20 层激活对照；GPT-2 small embedding 表 38,597,376 个参数、约占 31.0%，完整 text8 词表 71,290、向量维度 100；$$\text{Var}(y) = n_{in}\sigma_w^2\text{Var}(x)$$、Kaiming $$2/n_{in}$$、$$2^{-32}$$、$$0.9^{128} \approx 10^{-6}$$；残差 $$I + J$$、$$1/\sqrt{2L}$$；Adam 第一步 $$\eta \cdot \text{sign}(g)$$、$$\beta_2 = 0.95$$ 记 20 步、8 字节 / 参数；$$N/D$$ 0.0005 对 1600；ResNet-50 25.6M / 8.2 GFLOPs；BPTT 20 步千分之四、$$b_f = 1$$、倒序 0% → 76%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
