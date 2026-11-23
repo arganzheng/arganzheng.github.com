@@ -297,12 +297,18 @@ $$
 
 | 链路 | β（单向） | α（每步，典型量级） | S\* = αβ |
 |---|---|---|---|
-| NVLink（节点内，NVSwitch） | ~200 GB/s（8 卡 ring 每 rank 通常能用到的量级；标称 H100 单向 450 GB/s） | ~3 µs | ~600 KB |
+| NVLink（节点内，NVSwitch） | ~200 GB/s（**保守输入**，取 8 卡 ring 每 rank 的下限量级；标称 H100 单向 450 GB/s） | ~3 µs | ~600 KB |
 | PCIe 4.0 x16 | 32 GB/s | ~5 µs | ~160 KB |
 | InfiniBand HDR | 25 GB/s | 5 ~ 20 µs | 125 KB ~ 500 KB |
 | InfiniBand NDR | 50 GB/s | 5 ~ 20 µs | 250 KB ~ 1 MB |
 
 Table: 几种链路的 β、α 与拐点 S\*（量级估计）
+
+两件事要说清楚，否则后面几章的数字会对不上。
+
+**1、表里的 α 是每一步（每一跳）的，不是整次集合通信的。** NCCL 自己的调优表就是这样分的：`src/graph/tuning.cc` 的 `hwLatencies` 按「硬件 × 算法 × 协议」给出每步的延迟——NVLink 上 Ring 是 LL 0.6 µs、LL128 1.9 µs、Simple 3.4 µs；PCIe 上 Ring Simple 5.7 µs；跨网卡（NET）上 Ring 是 LL 2.7 µs、LL128 4.0 µs、Simple 14 µs。整次操作在「步数 × 每步 α」之外还要再加一个与步数无关的基础项 `baseLatencies`（Ring 的 LL / LL128 / Simple 分别是 6.6 / 14.0 / 8.4 µs），它包含 kernel 启动路径与一次性的准备开销。所以本篇写「IB 上一步 5–20 µs」时，覆盖的是 NET 档三个协议再摊上基础项的范围；写「NVLink 上一步 2–5 µs」时对的是 Simple 档。
+
+**2、表里 NVLink 的 β 是刻意取低的。** 200 GB/s 是 8 卡 ring 里每个 rank 能稳定用到的下限量级，不是上限：NCCL 自己按 `src/graph/topo.h` 的每链路常数估算可用带宽（`SM80_NVLINK_BW 20.0` × 12 链路 = A100 约 240 GB/s，`SM90_NVLINK_BW 20.6` × 18 链路 = H100 约 371 GB/s），而多 channel 并行时实际能用到的比单条 ring 更高，后面「一次训练迭代的通信账」一节给的 300–400 GB/s busbw 区间就在这个水平上。用 200 GB/s 算出来的时间是上界，结论偏保守而不会偏乐观。
 
 有一个反直觉的地方值得先说：**链路越快，拐点越大**。NDR 的 α 与 HDR 差不多（延迟主要来自软件与握手，不是线速），但 β 翻倍，所以同样一条 256 KB 的消息在 HDR 上是带宽主导、在 NDR 上接近拐点。换更快的网卡对小消息帮助不大，这就是原因。
 
@@ -636,7 +642,7 @@ algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（10
 
 把本篇的模型和 nccl-tests 的曲线对起来，有四个可以直接读出的量。[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)会展开工具用法，这里给出读法：
 
-- **右端平台高度 vs β**：平台是 busbw 的饱和值，理论上等于链路单向带宽乘以协议效率。8 卡 HDR 上应在 20–23 GB/s（"通常能达到"，非实测）；平台远低于此，是路径或配置问题，不是算法问题。
+- **右端平台高度 vs β**：平台是 busbw 的饱和值，理论上等于链路单向带宽乘以协议效率。8 卡 HDR 上应在 22–24 GB/s（"通常能达到"，非实测）。这个上界来自 RDMA 层：裸 `ib_write_bw` 的大消息带宽是端口速率的 92–97%，HDR 上 23–24.5 GB/s（见《硬件互联》的「网卡与网络」一节；厂商验收线也在这个水平，AMD Instinct 对 400G 口的单向合格线是 390 Gbps，即 97.5%），NCCL 的 busbw 再扣掉协议 flag 与 channel 调度，落在它下沿一点。平台远低于 22 GB/s，是路径或配置问题，不是算法问题。
 - **左端平台 vs 步数 × α**：最小消息的时间 $$T_{\min} \approx (\text{步数}) \times \alpha$$。8 卡 ring 在 IB 上若 $$T_{\min} = 140$$ µs，则 α ≈ 10 µs；若是 400 µs，α ≈ 30 µs，该查跨 NUMA、proxy 线程、协议选择。
 - **拐点位置 vs nαβ**：曲线达到平台一半高度的 $$S$$ 大约是 $$n\alpha\beta$$。已知 $$n$$ 和 β，反推 α；与左端平台反推的 α 对不上，说明中间段有额外开销（比如算法切换点选得不好）。
 - **不同 n 的曲线平台是否重合**：按 busbw 画，2 卡与 8 卡的平台应该基本重合；不重合说明拓扑上某些 rank 之间的路径比其他 rank 差（比如跨了 PCIe switch 或 NUMA）。
@@ -647,7 +653,7 @@ algbw 一列随 $$n$$ 从 25 掉到 10，busbw 一列在 25 附近不动。（10
 
 ### 1. 两个 β、两个 α
 
-到目前为止的模型假设所有链路一样。真实的集群不是：节点内 8 张卡通过 NVSwitch 互联，每张卡单向几百 GB/s、一步几 µs；节点之间每张卡一张 400 Gb/s 网卡，单向 50 GB/s、一步十几 µs。两者带宽差 4–8 倍，延迟差 3–5 倍。
+到目前为止的模型假设所有链路一样。真实的集群不是：节点内 8 张卡通过 NVSwitch 互联，每张卡单向几百 GB/s、一步几 µs；节点之间每张卡一张 400 Gb/s 网卡，单向 50 GB/s、一步十几 µs。按标称值算，两者带宽差 7–9 倍（H100 NVLink 单向 450 GB/s 对网卡 50 GB/s 是 9 倍；用 NCCL 自己的可用估算 371 GB/s 算是 7.4 倍），延迟差约 4 倍（NCCL 调优表里 NET 档 Ring Simple 14 µs 对 NVLink 档 3.4 µs）。这里比的是**每张卡对每张卡**；《硬件互联》里「节点内比节点间快 9 倍」比的是**整机对整机**（8 × 450 GB/s 对 8 × 50 GB/s），两个口径的倍数相同，分子分母都乘了 8。
 
 一个跨 4 个节点、32 张卡的平坦 ring 会怎样？环上 32 条边中有 4 条跨节点（每个节点进一条、出一条），28 条在节点内。ring 的每一步所有 rank 同时收发，一步的时间由**最慢的那条边**决定；带宽项是 $$\frac{2(n-1)}{n}\frac{S}{\beta_{\min}}$$，$$\beta_{\min}$$ 是节点间链路。更糟的是每个节点只有一条出边跨节点，8 张网卡只用了 1 张——除非 NCCL 建多条环让不同的环从不同网卡出去（它确实这么做，这就是 channel，见《NCCL 架构》的[「transport 与 channel」一节](/nccl-architecture-topology-channels-algorithms-and-protocols.html#六transport-与-channel)）。
 
@@ -675,7 +681,7 @@ $$
 
 关键在节点间那一项的分子：$$S/p$$ 而不是 $$S$$。节点间要搬的总字节数没有少（$$p$$ 张卡各搬 $$S/p$$），但被摊到了 $$p$$ 张网卡上，每张网卡只需承载 $$1/p$$。
 
-用数字比一比。$$N = 4$$，$$p = 8$$，$$S = 1$$ GB，$$\beta_e = 25$$ GB/s，$$\alpha_e = 10$$ µs，$$\beta_i = 200$$ GB/s（8 卡 ring 每 rank 在 NVSwitch 上通常能用到的量级，非实测），$$\alpha_i = 3$$ µs：
+用数字比一比。$$N = 4$$，$$p = 8$$，$$S = 1$$ GB，$$\beta_e = 25$$ GB/s，$$\alpha_e = 10$$ µs，$$\beta_i = 200$$ GB/s（**保守输入**，取 8 卡 ring 每 rank 在 NVSwitch 上的下限量级，非实测；NCCL 自己的可用估算是 A100 约 240、H100 约 371 GB/s，多 channel 下更高，所以下面算出的节点内那一段是上界），$$\alpha_i = 3$$ µs：
 
 | 段 | 延迟项 | 带宽项 | 小计 |
 |---|---:|---:|---:|
@@ -806,8 +812,8 @@ Table: nccl-tests 的两个带宽（GB/s = 10⁹ B/s）
 
 | | 典型值 |
 |---|---|
-| β | IB HDR 25 GB/s · IB NDR 50 GB/s · PCIe 4.0 x16 32 GB/s · NVLink 8 卡 ring 每 rank ~200 GB/s |
-| α | IB 上一步 5–20 µs · NVLink 上一步 2–5 µs |
+| β | IB HDR 25 GB/s · IB NDR 50 GB/s · PCIe 4.0 x16 32 GB/s · NVLink 8 卡 ring 每 rank ~200 GB/s（保守输入，NCCL 可用估算 A100 约 240、H100 约 371 GB/s） |
+| α | 每步：IB 上 5–20 µs · NVLink 上 2–5 µs（Simple 档）；整次操作另加基础项，Ring 的 LL / LL128 / Simple 为 6.6 / 14.0 / 8.4 µs |
 | 8 卡 | IB ring 拐点 ~2 MB · NVLink ring 拐点 ~5 MB |
 | 从曲线反推 | α ≈ T<sub>min</sub> / 步数<br/>β ≈ busbw 平台 / 协议效率<br/>α ≈ 拐点 S / (nβ) |
 
