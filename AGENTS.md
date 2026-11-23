@@ -2357,11 +2357,20 @@ How it is built (`_plugins/moments.rb`):
   → `## 三、贯穿全系列的几条线` (+ concept table; at most one Mermaid, only for
   real dependencies between quantities) → `## 四、常见误区` table →
   `## 五、通关自测` (A 判断与计算 10 · B 跨篇综合 5 · C 面试题 6–8 with 答案要点 /
-  追问方向 / 好答案与一般答案的区别 · D 掌握判据) → `## 六、下一步` (links only
-  to other series' *overviews* and the maps) → `## 七、延伸阅读` (the
-  「本系列的边界」 paragraphs that used to live in the overview: what this
-  series deliberately does not cover and which series does, 2026-09-20)
-  → footnotes. **「二、逐篇回顾」 must answer, per post, the questions the
+  追问方向 / 好答案与一般答案的区别 · D 掌握判据) → `## 六、下一步`
+  → footnotes. **「六、下一步」 is one section**: an opening paragraph naming the
+  layer the series covers, then one bullet per adjacent topic it deliberately
+  leaves out — what the topic is, what this series does with it instead (takes
+  it only as input / only the transport layer / reads its structure without
+  optimising it), and a link to the series that owns it where there is one
+  (topics no series covers stay on the list without a link); the
+  「本系列在整张地图上的位置（Lx）」 bullet last, then a closing line
+  `回到总纲：[《…》](…)。`. It was two sections until 2026-11-23 — 六、下一步
+  (links to other series' overviews and the maps) and 七、延伸阅读 (the
+  「本系列的边界」 paragraphs that had moved out of the overview on 2026-09-20)
+  — which repeated each other topic by topic; the 28 recaps that had both were
+  merged, the 4 that only ever had 六、下一步 were already in this shape.
+  **「二、逐篇回顾」 must answer, per post, the questions the
   overview's 分章导读 raises for that post** (reader feedback 2026-09-17/20:
   「总纲每一篇都抛几个问题，系列总结务必回应」) — copy the questions into the
   核心问题 cell and give the checkable answer. No 本文小结, no
@@ -2428,7 +2437,7 @@ How it is built (`_plugins/moments.rb`):
   → 前置要求与说明 → 最终目标. **Not** in an overview: 「阅读路径建议」,
   「怎么学 / 材料 / 顺序」, a 「下一步做什么」 paragraph at the end of 最终目标
   (the recap's 下一步 owns that), 「本系列的边界」 (moved to the recap's
-  延伸阅读), a history paragraph such as 「这一层原来是一篇导读 / 这个系列的
+  下一步), a history paragraph such as 「这一层原来是一篇导读 / 这个系列的
   前身」 (no information for the reader), and a 前置要求 row for something the
   series itself teaches (L1 first post teaches the Python subset → Python is
   not a prerequisite). Version baselines (C++17, PyTorch v2.10.0, vLLM
