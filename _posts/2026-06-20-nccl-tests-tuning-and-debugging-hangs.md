@@ -229,7 +229,7 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由[《集合通信�
 - **固定并记录环境**：NCCL 版本、`NCCL_*` 环境变量、驱动、固件、`nvidia-smi topo -m` 的输出与结果一起存档，否则三个月后无法解释两条曲线为什么不同；
 - **加 `-T`**：多机测试加 `-T 600`，网络有问题时得到一个错误而不是一个永远不退出的进程。
 
-> [!NOTE] Java 经验参照：JMH 的预热与 nccl-tests 的 `-w`
+> [!NOTE] Java 经验参照：JMH 的预热与 nccl-tests 的 -w 参数
 > 用 JMH 测过方法耗时的人知道，不预热的数字没有意义：前几次调用跑在解释器或刚编译出的代码上，测到的是编译过程而不是方法本身。nccl-tests 的 `-w` 是同一件事，只是一次性开销换成了另一批——第一次调用要加载 kernel、建立连接、注册 buffer。两处对不上的地方有三个：nccl-tests 的预热在整个扫描开始前就把每个消息大小各跑一遍（`src/common.cu` 里 warm-up 循环整体位于 benchmark 循环之前），不是每个大小测之前再热一次；默认只预热 1 次（`warmup_iters = 1`），比 JMH 默认的预热轮次少得多，所以 `-w 5`～`-w 10` 几乎总要手动加上；JMH 里要防的常量折叠与死代码消除这里不存在——结果写在显存里，`-c 1` 还会去校验它。
 
 ## 三、带宽曲线的读法
@@ -242,7 +242,7 @@ busbw 是唯一能与硬件带宽直接比较的数字，理由[《集合通信�
 
 左端 busbw 随 S 线性增长——因为时间几乎不变（被 α 主导），busbw = 常数系数 × S / T。在对数坐标下这是一条 45° 斜线，它的**纵向位置**由 α 决定：同样 1 MB 的消息，α 从 10 µs 变到 20 µs，这段曲线整体下移一半。看小消息端时应该直接看 `time` 列而不是 `busbw` 列：8 字节 all_reduce 的 time 就是这套系统的 α 下限（kernel 启动 + 一轮握手）。
 
-右端 busbw 趋于平台——时间被 S/β 主导，busbw 趋于链路的有效带宽 β_eff。平台高度与硬件标称值的比值就是"效率"，通常能达到的区间在 80～95%。
+右端 busbw 趋于平台——时间被 S/β 主导，busbw 趋于链路的有效带宽 β_eff。平台高度与硬件标称值的比值就是"效率"：**NVLink 单机、Ring / Simple 协议、大消息**下通常能达到单向标称的 80～95%。这个判据有两个边界要记住：开启 NVLS 时 busbw 的校正系数不再适用，打印值会超过 100%（见[本章第 3 小节](#3-三条参考线)表后的第二点说明），拿 80～95% 去套会误判成"机器有问题"；而小消息（走 LL 协议，有效载荷只有 50%）与以太网 / TCP 栈上的跨机通信都远低于这个区间。
 
 中间是拐点区。[《集合通信原语与代价模型》的「α-β 模型」一节](/collective-communication-primitives-and-cost-model.html#四α-β-模型)定义了拐点：α 项与 β 项相等的消息大小。对 ring all_reduce：
 
@@ -254,16 +254,21 @@ $$
 
 ### 2. 用 α-β 模型预测拐点
 
-代入典型值（非实测；α 取"每步有效延迟"，含 kernel 内同步与协议握手）：
+代入典型值（非实测）。两个输入的口径要先说清，否则代进去的数会差一个量级：
 
-| 场景 | n | α (每步) | β (每 GPU 单向可达) | S_knee = n·α·β | 90% 平台 ≈ 9·S_knee |
+- **α 是"每一步/每一跳"的有效延迟**，含 kernel 内同步与协议握手，不是整次 all_reduce 的固定开销。NCCL 的成本模型也是这么分的：`src/graph/tuning.cc` 里 `hwLatencies` 是**每步**的量（NVLink 上 LL 0.6 µs、LL128 1.25–1.9 µs、Simple 3.4–4.0 µs；网络上 LL 2.7–5.0 µs、LL128 4.0–8.5 µs、Simple 14 µs），整次调用的固定开销另有一项 `baseLatencies`（Tree 6.8 / Ring 6.6 µs 起）。所以这里的 α ≈ 3 µs 与上一小节 8 B 那一行的 16–22 µs 不矛盾：后者是整次调用，等于 `baseLatencies` 加上若干步的 `hwLatencies`。
+- **β 是"每条链路、每 GPU 单向可达"的带宽**，不是上一小节那张表里的 busbw 平台。节点内两者恰好接近（每卡的出向链路就是瓶颈）；跨机时差得很远——每 GPU 过网卡只有 45 GB/s，而 busbw 平台在 330–470 GB/s，因为分层算法让节点间只搬 1/8 的数据。代模型时用 45，读 nccl-tests 输出时用 330–470。
+
+| 场景 | n | α (每步/每跳) | β (每链路、每 GPU 单向可达) | S_knee = n·α·β | 90% 平台 ≈ 9·S_knee |
 |---|---|---|---|---|---|
-| 8×H100 NVSwitch 节点内 | 8 | ~3 µs | ~400 GB/s | ~10 MB | ~90 MB |
-| 8×A100 NVSwitch 节点内 | 8 | ~3 µs | ~270 GB/s | ~6.5 MB | ~60 MB |
+| 8×H100 NVSwitch 节点内 | 8 | ~3 µs | ~370 GB/s（Ring） | ~9 MB | ~80 MB |
+| 8×A100 NVSwitch 节点内 | 8 | ~3 µs | ~230 GB/s | ~5.5 MB | ~50 MB |
 | 2 节点 ×8，NDR 400 每 GPU | 16 | ~10 µs | ~45 GB/s | ~7 MB | ~65 MB |
 | 8 节点 ×8，NDR 400 每 GPU | 64 | ~10 µs | ~45 GB/s | ~29 MB | ~260 MB |
 
 Table: α-β 模型预测的几种场景的拐点
+
+β 按算法取：H100 节点内 Ring 约 370 GB/s，开 NVLS 则约 480 GB/s，拐点随之右移到约 12 MB、90% 平台约 105 MB。不要取"哪一簇都不是"的中间值。
 
 这解释了三个常见的观察：
 
@@ -283,23 +288,30 @@ Table: α-β 模型预测的几种场景的拐点
 
 ### 3. 三条参考线
 
-下面是三种典型环境的 all_reduce busbw 曲线应有的样子。数字全部是"通常能达到"的区间，非实测；读者的机器落在区间内即为正常。
+下面是三种典型环境的 all_reduce busbw 曲线应有的样子。节点内 NVSwitch 两行与跨机前两行对照了公开发表的 nccl-tests 输出，跨机第三行按下面那条折算式算出，纯 PCIe 一行按瓶颈链路推算（标注为估算）；读者的机器落在区间内即为正常。
 
-| 类型 | 环境 | 8 B time | 1 MB busbw | 64 MB busbw | ≥1 GB busbw（平台） | 平台对应的硬件上限 |
+| 类型 | 环境 | 8 B time | 1 MB busbw | 64 MB busbw | ≥1 GB busbw（平台） | 平台受什么限制 |
 |---|---|---|---|---|---|---|
-| 节点内 NVSwitch | 8×H100 SXM + NVSwitch | 10–20 µs | 40–80 GB/s | 250–400 GB/s | 350–480 GB/s | NVLink 900 GB/s 双向合计 = 450 GB/s 单向 |
-| ^^ | 8×A100 SXM + NVSwitch | 12–25 µs | 30–60 GB/s | 150–230 GB/s | 220–280 GB/s | NVLink 600 GB/s 双向合计 = 300 GB/s 单向 |
-| 节点内 PCIe | 8×GPU 仅 PCIe 4.0（无 NVLink） | 20–40 µs | 5–10 GB/s | 10–20 GB/s | 10–25 GB/s | PCIe 4.0 x16 单向 32 GB/s，多卡共享上游、经 CPU 更低 |
-| 跨机 | 2 节点 ×8 H100，NDR 每 GPU | 25–45 µs | 15–25 GB/s | 35–45 GB/s | 40–48 GB/s | NDR 400 Gb/s = 50 GB/s 单向 |
-| ^^ | 2 节点 ×8 H100，HDR 每 GPU | 25–45 µs | 10–18 GB/s | 18–23 GB/s | 20–24 GB/s | HDR 200 Gb/s = 25 GB/s 单向 |
-| ^^ | 2 节点 ×8，每节点只有 1 张 NDR | 30–50 µs | 3–5 GB/s | 5–6 GB/s | 5–6.2 GB/s | 50 GB/s 被 8 张 GPU 分摊 |
+| 节点内 NVSwitch | 8×H100 SXM + NVSwitch | 16–22 µs | 40–80 GB/s | 250–400 GB/s | 350–480 GB/s | NVLink 900 GB/s 双向合计 = 450 GB/s 单向 |
+| ^^ | 8×A100 SXM + NVSwitch | 12–25 µs | 30–60 GB/s | 150–230 GB/s | 220–240 GB/s | NVLink 600 GB/s 双向合计 = 300 GB/s 单向，单向有效上限约 240 |
+| 节点内 PCIe | 8×GPU 仅 PCIe 4.0（无 NVLink） | 20–40 µs | 5–10 GB/s | 10–20 GB/s | 10–25 GB/s（估算） | PCIe 4.0 x16 单向 32 GB/s，多卡共享上游、经 CPU 更低 |
+| 跨机 | 2 节点 ×8 H100，NDR 每 GPU | 25–45 µs | 25–30 GB/s | 250–280 GB/s | 330–470 GB/s | 每 GPU 一张 NDR（50 GB/s）× 分层算法只搬 1/8 的数据 |
+| ^^ | 2 节点 ×8 H100，HDR 每 GPU | 25–45 µs | 20–25 GB/s | 130–150 GB/s | 约 195 GB/s | 每 GPU 一张 HDR（25 GB/s）× 分层算法只搬 1/8 的数据 |
+| ^^ | 2 节点 ×8，每节点只有 1 张 NDR | 30–50 µs | 5–10 GB/s | 40–48 GB/s | 45–50 GB/s | 整节点共享一张 NDR 的 50 GB/s × 分层算法折算 |
 
 Table: 三种典型环境的 all_reduce 参考线
 
-三点说明：
+四点说明：
 
+- 8 B 那一列是这套系统的 α 下限，**随算法与 NCCL 版本变化很大**：默认算法、NCCL 2.2x 一代的 8 卡 H100 上，Ring 约 16 µs、NVLS 约 22 µs（NVLS 的固定开销更高，小消息上并不划算）。NCCL 2.27 起的 symmetric-memory kernel 是按"延迟优先"设计的，1 KB 以内可以低到 8 µs 以下——所以看到远小于 16 µs 的 8 B 时间，先确认走的是不是这条路径，而不是怀疑测错了。
 - H100 NVSwitch 上 busbw 可以**超过** 450 GB/s 的单向标称值。原因是 busbw 的校正系数 $$\frac{2(n-1)}{n}$$ 假设的是 ring 的流量模式；开启 NVLS 后归约在 NVSwitch 内完成，步数从 $$2(n-1)$$ 降到常数，完成时间比 ring 模型预估的短（每卡发 S 收 S，字节量并不比 ring 少），按 ring 系数从时间反算 busbw 就会"超标"。看到 busbw 高于单向链路上限不是测错了，而是说明 NVLS 生效了；反过来如果 H100 节点上平台只有 300 GB/s 上下，先查 `NCCL_NVLS_ENABLE` 与 `NCCL_DEBUG=INFO` 里 "NVLS multicast support is available" 那一行。
-- 跨机曲线的平台由每 GPU 的网卡决定，而不是由 NVLink 决定。8 卡节点每 GPU 一张 400 Gb/s 网卡，all_reduce busbw 上限 50 GB/s；这是节点内 NVLink 平台的 1/8～1/10。多机训练的通信账几乎全部记在这一条线上。
+- 跨机曲线的平台由**每 GPU 网卡 × 分层算法的跨机流量占比**共同决定，不等于网卡速率本身。8 卡节点每 GPU 一张 400 Gb/s 网卡，每 GPU 过网卡的带宽上限是 50 GB/s；但 NCCL 跨机走的是分层算法——节点内先 reduce-scatter，节点间只搬每卡 1/8 的数据，节点内再 all-gather——所以 nccl-tests 打印的 busbw 在大规模下约 330–370 GB/s（约为单机 NVLS 平台的 0.7–0.8），两节点因为对 Tree 特别划算还会更高。这两个口径极容易混：Azure 公布的 ND H100 v5 参考数据干脆把它们分成 `BusBw-NVLS` 与 `BusBw-IBLoopback` 两列，后者（约 48 GB/s）才是"每 GPU 过自己那张网卡"的数。多机训练的通信账记在"每 GPU 网卡"这条线上，但读 nccl-tests 的输出时不要拿它直接当 busbw 的期望值。
+
+两者之间的换算可以直接算出来，不必记：节点间那一段要走两趟（先 reduce-scatter 把梯度归约到各节点，再 all-gather 把结果发回），所以每节点过网卡的字节是 $$2S$$，$$\text{algbw} = S / (2S / B_{\text{node}}) = B_{\text{node}} / 2$$，其中 $$B_{\text{node}}$$ 是这个节点的网卡总带宽；再乘上 busbw 的校正系数 $$\frac{2(n-1)}{n}$$（16 卡时是 1.875），得到
+
+$$\text{busbw} \approx 0.94 \times B_{\text{node}}$$
+
+8 张 NDR 的节点是 $$0.94 \times 400 \approx 375$$ GB/s，8 张 HDR 是 $$0.94 \times 200 \approx 188$$ GB/s，整节点只有一张 NDR 时是 $$0.94 \times 50 \approx 47$$ GB/s——表里跨机那三行的平台就是这么来的，和公开发表的 361–469 GB/s 对得上。
 - PCIe-only 机器的曲线不但平台低，而且形状可能不单调：跨 CPU socket 的 GPU 对经 UPI/QPI 通信，channel 数与 ring 走向对结果影响大；这类机器上 `NCCL_P2P_LEVEL` 与 `NCCL_SHM_DISABLE` 才是真正需要试的参数。
 
 ### 4. 从 nccl-tests 到训练
@@ -417,7 +429,7 @@ NCCL 的环境变量绝大多数经 `NCCL_PARAM` 宏定义（`src/include/param.
 ### 8. 特殊功能：`NCCL_CROSS_NIC`、`NCCL_NVLS_ENABLE`、`NCCL_COLLNET_ENABLE`
 
 - `NCCL_CROSS_NIC`（`src/graph/search.cc`，默认 2）：ring 跨机时是否允许从一张网卡出、另一张网卡进。0 强制同网卡（rail-optimized 网络，即每张网卡接到独立的 leaf 交换机时应设 0）；1 允许；2 让 NCCL 按拓扑决定。设错在 rail 网络上会让流量跨 spine，多机 busbw 下降且不稳定。
-- `NCCL_NVLS_ENABLE`（`src/transport/nvls.cc`，默认 2 = 自动）：Hopper 及之后 + NVSwitch 上启用 NVLink SHARP（多播归约）。如果[第三章第 3 小节](#3-三条参考线)的参考线上看到 H100 平台明显低于 400 GB/s，日志里没有 `NVLS multicast support is available`，检查驱动版本与 Fabric Manager。
+- `NCCL_NVLS_ENABLE`（`src/transport/nvls.cc`，默认 2 = 自动）：Hopper 及之后 + NVSwitch 上启用 NVLink SHARP（多播归约）。如果[第三章第 3 小节](#3-三条参考线)的参考线上看到 H100 单机平台明显低于 370 GB/s（370 大致是 Ring 与 NVLS 的分界：超过它基本就能确定 NVLS 在工作），日志里又没有 `NVLS multicast support is available`，检查驱动版本与 Fabric Manager。
 - `NCCL_COLLNET_ENABLE`（`src/init.cc`）：启用 SHARP（IB 交换机内归约）之类的 CollNet 插件，需要网络侧支持与 `NCCL_NET_PLUGIN`；一般集群不具备，保持默认。
 
 ### 9. 该动、少动、几乎不动
@@ -941,11 +953,12 @@ flowchart TB
   - 总 rank 数 = 进程 × `-t` × `-g`；`-b`/`-e`/`-f` 扫描，`-n`/`-w` 迭代预热（`-w` 默认仅 1），`-c 0` 关校验测性能；algo/proto/channel 看 NCCL 的 TUNING 日志
   - busbw = algbw × 系数（all_reduce 2(n-1)/n，all_gather/reduce_scatter/all_to_all (n-1)/n，broadcast 1），以各 `src/*.cu` 的 `*GetBw` 为准；只有 busbw 能和硬件比
 - **曲线**
-  - 左端斜线高度看 α（直接看 time 列），右端平台看 β，拐点 S_knee = n·α·β，到 90% 平台约 9·S_knee
-  - 8×H100 节点内 ≈ 10 MB 拐点、~90 MB 接近平台；64 卡跨机 ≈ 30 MB 拐点、~260 MB 接近平台（典型值，非实测）
-- **参考线**（全部非实测）
-  - 节点内：8×H100 NVSwitch 350–480 GB/s（NVLS 可超单向 450）；8×A100 220–280；PCIe-only 10–25
-  - 跨机：2 节点 NDR 每 GPU 40–48；HDR 20–24；每节点 1 张 NDR 5–6
+  - 左端斜线高度看 α（直接看 time 列），右端平台看 β，拐点 S_knee = n·α·β，到 90% 平台约 9·S_knee；α 是**每步/每跳**（NCCL 另有整次调用的 `baseLatencies`），β 是**每链路可达**（跨机 ≠ busbw 平台）
+  - 8×H100 节点内 Ring（β≈370）≈ 9 MB 拐点、~80 MB 接近平台，NVLS（β≈480）≈ 12 MB、~105 MB；64 卡跨机（β≈45）≈ 29 MB 拐点、~260 MB 接近平台（典型值，非实测）
+- **参考线**（节点内与跨机 H100 两行对照公开 nccl-tests 输出，其余为估算）
+  - 节点内：8×H100 NVSwitch 350–480 GB/s（Ring 约 360–375、NVLS 约 470–482，可超单向 450）；8×A100 220–240；PCIe-only 10–25
+  - 跨机 busbw：2 节点 ×8 H100 NDR 330–470；HDR 约 195；每节点 1 张 NDR 45–50
+  - 别把"每 GPU 过网卡"的 40–48 GB/s 当成跨机 busbw——分层算法让节点间只搬 1/8 的数据，两者差约 8 倍
 - **参数**
   - `NCCL_PARAM` 整数、只读一次、优先级 env > `NCCL_CONF_FILE` > `~/.nccl.conf` > `/etc/nccl.conf` > 默认
   - 字符串类走 `ncclGetEnv`；`P2P_LEVEL`/`NET_GDR_LEVEL` 走 `ncclGetLevel` 接受路径类型名
@@ -1179,7 +1192,7 @@ Table: 三种情形下 fr_trace.py 的预期输出与判读
 
    <details markdown="1"><summary>答案</summary>
 
-   左端由 $$\alpha$$ 决定（直接看 time 列）、右端平台由 $$\beta$$ 决定、拐点 $$S_{knee} = n\alpha\beta$$、到 90% 平台约 $$9 S_{knee}$$；8×H100 节点内约 10 MB 拐点、约 90 MB 接近平台（典型值）。
+   左端由 $$\alpha$$ 决定（直接看 time 列）、右端平台由 $$\beta$$ 决定、拐点 $$S_{knee} = n\alpha\beta$$、到 90% 平台约 $$9 S_{knee}$$。注意两个口径：$$\alpha$$ 是**每步/每跳**的延迟（约 3 µs），不是 8 B 那一行的整次调用开销（16–22 µs，它还含 NCCL 的 `baseLatencies`）；$$\beta$$ 是**每链路可达**带宽。8×H100 节点内 Ring（$$\beta \approx 370$$ GB/s）约 9 MB 拐点、约 80 MB 接近平台；开 NVLS（$$\beta \approx 480$$ GB/s）约 12 MB、约 105 MB（典型值）。
 
    </details>
 
