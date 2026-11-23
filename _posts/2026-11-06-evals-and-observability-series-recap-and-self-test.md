@@ -6,6 +6,7 @@ subtitle: "Evaluation, Observability and Traceability: Series Recap and Final Se
 tags: [AI, LLM, AI-Application, Evaluation, Observability, LLM-as-a-Judge]
 catalog: true
 date: 2026-11-06 20:00:00
+updated: 2026-11-23
 ---
 
 七篇正文回答了一个问题：**怎么知道改了之后更好了，出了事怎么追到那一步**。第一篇建评测集，第二篇讲评分与 judge 的校准，第三篇给指标矩阵，第四篇讲门禁、静默升级与在线评测，第五篇讲 trace 与 OpenTelemetry 的约定，第六篇讲可追溯的五项实践，第七篇讲运行时 guardrails 与物理世界的仿真。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层：**评测是测试，可观测是日志，可追溯是调试**——其他六层的每一次改进都靠这一层变成工程而不是猜测。
@@ -415,20 +416,17 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第五层。
+本系列讲的是怎么知道改了之后更好了、出了事怎么追到那一步：评测集、judge 的校准、指标矩阵、门禁与在线评测、trace 与约定、可追溯的五项实践、运行时 guardrails 与仿真。学术基准怎么设计、可观测的通用基础设施怎么运维、安全防御的全体系、仿真器怎么实现，都紧邻这一层而不在本系列范围内。往外走有这些方向：
 
-- **L6 生产化与运营**：本系列第四篇的门禁与灰度、第七篇的 guardrails 与 fallback 在 L6 里进入完整的生产体系——网关、成本工程、延迟工程、安全的分层防御（注入、供应链、EchoLeak 一类事件）、治理与合规（审计、EU AI Act）、发布与数据飞轮。
-- **L7 产品与体验**：本系列的失败分类里"技术对产品错"一类、拒答与不确定性的呈现、用户反馈的采集设计在 L7 展开。
-- **前置**：[L1](/model-as-a-component.html)（非确定性、选型、成本）、[L2](/prompt-and-context-engineering.html)（prompt 版本与门禁的雏形）、[L3](/retrieval-and-knowledge-access.html)（分开评）、[L4](/tools-agents-and-harness.html)（轨迹评测、会话日志、四层）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
+- **模型能力的基准测试方法论**——MMLU 一类学术基准的设计属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html)；本系列只讲应用自己的评测集与公开基准的使用边界。
+- **可观测的通用基础设施**——OTel Collector、存储后端、采样器的运维属于平台工程；本系列只讲 GenAI 专属的 span 与约定。
+- **生产体系与安全的全貌**——网关、成本工程、延迟工程、安全的分层防御（注入、供应链、EchoLeak 一类事件）、治理与合规（审计、EU AI Act）、发布与数据飞轮，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第四篇的门禁与灰度、第七篇的 guardrails 与 fallback 在那里进入完整的生产体系，本系列只讲安全的评测（红队集）与运行时拦截的位置。
+- **产品侧的呈现**——失败分类里"技术对产品错"那一类、拒答与不确定性的呈现、用户反馈的采集设计，见 [L7《产品与体验》](/ai-product-and-experience.html)。
+- **仿真器的实现**——渲染、物理引擎、传感器模型属于机器人 / 自动驾驶的专业领域；本系列只讲仿真在验证体系里的层次与它与数字 agent 评测的同构。
+- **前置**——[L1《模型作为组件》](/model-as-a-component.html)（非确定性、选型、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（prompt 版本与门禁的雏形）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（分开评）、[L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)（轨迹评测、会话日志、四层）。
+- **地图定位**——本系列在整张地图上的位置（L5）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲模型能力的基准测试方法论**：MMLU 一类的学术基准设计属于算法地图；本系列只讲应用自己的评测集与公开基准的使用边界。
-- **不讲可观测的通用基础设施**：OTel Collector、存储后端、采样器的运维属于平台工程；本系列只讲 GenAI 专属的 span 与约定。
-- **不讲安全防御的全体系**：prompt injection 的分层防御属于 L6；本系列只讲它的评测（红队集）与运行时拦截的位置。
-- **不讲仿真器的实现**：渲染、物理引擎、传感器模型属于机器人 / 自动驾驶的专业领域；本系列只讲仿真在验证体系里的层次与它与数字 agent 评测的同构。
+回到总纲：[《评测、可观测与可追溯：怎么知道改了之后更好了》](/evaluation-observability-and-traceability.html)。
 
 
 [^q0]: 面对一个要改动或上线的应用：评测集有吗、从哪来、多大、四字段齐吗、hold-out 与六元组绑了吗（1）；judge 的 kappa 多少、四类偏差量过吗、校正通过率多少、能做门禁吗、pointwise 还是 pairwise（2）；这个形态该评矩阵里哪些格、跑了几次、pass^k 多少、成本与质量一起报了吗（3）；这次改动过门禁了吗、噪声阈值多少、逐条 diff 看了吗、探针集在跑吗、影子与灰度怎么走、A/B 一因素吗、离线与在线相关吗（4）；trace 三级树全吗、按 `gen_ai.*` 钉版本了吗、敏感数据怎么处理、成本怎么分层（5）；出了事能录制回放复现吗、决策点日志有吗、失败分了类吗、反馈带 trace id 吗、事后分析五段写了吗（6）；运行时同步拦什么、高风险断言有依据吗、fallback 几级；物理世界的仿真层次、闭环、sim-to-real、覆盖率、影子（7）。详见[第一章](#一总览系列回答的问题与主线)。
