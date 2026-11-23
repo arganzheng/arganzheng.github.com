@@ -6,6 +6,7 @@ subtitle: "Efficient Inference and Model Compression: Series Recap and Final Sel
 tags: [AI, LLM, Inference, Quantization]
 catalog: true
 date: 2026-05-01 20:00:00
+updated: 2026-11-23
 ---
 
 六篇正文回答了一个问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。第一篇讲从分布里怎么取一个 token，第二篇讲唯一不改变分布的加速（投机解码），第三、四篇讲权重与激活的低比特表示（PTQ 与 QAT），第五篇讲训好之后还能对 KV 做什么，第六篇讲删掉一部分参数之后怎么恢复、以及一个 70B 怎么变成一个能用的 8B。六篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那条成本公式的算法侧。
@@ -439,26 +440,17 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-六篇算的是"训好之后、不改硬件与引擎，模型侧还能做什么"的账，几个方向紧邻但不在范围内：
+六篇算的是"训好之后、不改硬件与引擎，模型侧还能做什么"的账。以下内容与它紧邻，但不在范围内：
 
-- **成本公式本身**（Roofline、KV cache 的账、投机解码的基本形式、浮点格式、GQA / MLA 等结构选择）是本系列的前提，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——本系列在它的结论上继续，不重复推导。
-- **蒸馏的方法与评测方法论**（logits 级 KL、on-policy 蒸馏、benchmark 的方差与污染）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列第二、四、六篇把蒸馏当恢复工具引用，每篇的"怎么评"都是它的应用。
 - **系统侧的推理优化**（PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、投机与结构化输出在引擎里的实现）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；量化 kernel、在线 Hadamard 与 GEMM 的融合、2:4 与 FP8 的硬件细节在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)。
+- **成本公式与训练时就决定的结构选择**（Roofline、KV cache 的账、投机解码的基本形式、浮点格式，以及 GQA、MLA、MoE、sliding window 的成本账）是本系列的前提，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——结构的成本账集中在 04–06 篇，建模动机散在各篇；本系列在它的结论上继续，不重复推导，只在第五篇讨论训好之后对 KV 的处理时回指这些结构。
+- **蒸馏的方法与评测方法论**：logits 级 KL、on-policy 蒸馏在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》，benchmark 的方差与污染在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列第二、四、六篇把蒸馏当恢复精度的工具引用，每篇的"怎么评"都是它的应用。
+- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
+- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
 - **KL 与总变差距离**等信息论基础在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第二、四篇的核心度量来自那里。
 - 本系列在整张地图上的位置（L6）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **系统侧的推理优化**——PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、量化 kernel 的实现——不在本系列。它们在 [vLLM 系列](/deep-dive-into-vllm.html)与 [GPU Kernel 系列](/gpu-kernel-engineering.html)。
-- **训练时就决定的结构选择**——GQA、MLA、MoE、sliding window——它们的成本账在[现代 LLM 结构（04–06）](/llm-architecture-evolution-roadmap-from-gpt2.html)，建模动机散在各篇；本系列只在第五篇讨论训好之后对 KV 的处理时回指它们。
-- **蒸馏的方法本身**在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》；本系列第四、六篇把它当作恢复精度的工具引用。
-- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
-- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在 [现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
-
 
 [^q0]: 六个：采样参数怎么定、评测用 greedy 还是采样、温度改了 pass@k 怎么变（变形 / 截断 / 搜索、pass@1 与 pass@k 的相反响应）；投机解码在这个负载上有收益吗、草稿用什么、接受率预期多少（$$1 - \text{TV}$$、蒸馏训草稿、EAGLE 与 MTP、ridge 约束）；量化到几位、用哪种方法、group 多大、为什么这个模型量化后崩了（$$\Delta^2/12$$、重尾与离群、GPTQ / AWQ / 旋转）；需要 QAT 吗、怎么在部署前发现量化的任务退化（STE、末段 QAT、困惑度掩盖的四类任务、逐 token KL）；128K 的 KV 怎么压、哪种办法在这类任务上安全（key / value 的结构、FP8 → INT4 → 驱逐的安全序、sink）；一个 70B 怎么变成能用的 8B、剪枝 + 蒸馏还是从头训（余弦相似度、悬崖、Minitron 的 token 账）。详见[第二章](#二逐篇回顾)。
 [^q1]: 尾部总质量可达 10%、pass@1 最优 $$T \approx 0.2$$ 与 pass@100 约 0.8、推理模型 $$T = 0.6$$ / top-p 0.95；$$\alpha = 1 - \text{TV}$$、$$\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma+1}}{1 - \alpha}$$、接受长度 Medusa 2.5–3 → EAGLE-3 5–6.5、MTP 85–90%、$$B \cdot N_{tree} \lesssim \text{ridge}$$；$$\Delta^2/12$$ 与每少 1 bit ×4、$$15\sigma$$ 让 $$\Delta \approx 2.1\sigma$$、g128 = 4.156 bit、Hadamard 1000 → 17、70B 141 → 39.8 GB；Llama-3-8B W4 的 PPL +0.36 / MMLU −1–2 / GSM8K −3–6 / needle −10 以上、KL 0.01–0.05 nat、末段 QAT 5–10% token；70B 128K KV 40 → 20 → 12.5 → 3.1 GB、key per-channel / value per-token、sink 30–50%；余弦 0.85–0.95、悬崖 70B 约 40%、Minitron 94B token 对 8T 省 40×、蒸馏比继续预训练 +3–4 MMLU。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
