@@ -6,6 +6,7 @@ subtitle: "ML Compiler Internals: Series Recap and Final Self-Test"
 tags: [Compiler, MLIR, LLVM, Triton, TVM, GPU, AI-Infra]
 catalog: true
 date: 2026-12-04 20:00:00
+updated: 2026-11-23
 ---
 
 十三篇正文回答了总纲提出的一个问题：**一段块级的张量程序，怎样一步步变成一条条 GPU 指令，中间每一个决定是哪个 pass 凭什么分析做的。** 前四篇讲通用机制（IR / SSA / pass、LLVM、MLIR 的结构与变换），中间七篇顺着 Triton v3.8.0 的编译流水线自上而下逐站打开（前端、AxisInfo、layout、layout 优化、流水与异步、下降到 LLVM、缓存与运行时），第十二篇用 TVM 做对照，第十三篇讲工作台。全部真实 IR 在一台没有 NVIDIA GPU 的 Mac 上跑出来。这一篇不讲新内容：总表、逐篇回顾、贯穿的线、误区、三段式自测，最后是 Infra 地图的收束。
@@ -42,8 +43,7 @@ Table: 十三篇的核心问题、结论与必记
 | 三 | 贯穿十三篇的几条线与概念表 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
-| 六 | Infra 地图的收束与下一步 |
-| 七 | 延伸阅读 |
+| 六 | Infra 地图的收束与下一步，以及延伸阅读 |
 
 Table: 本文的章节安排
 
@@ -381,7 +381,9 @@ Table: 读完系列后可以追问到底的问题
 
 Infra 地图的十三个系列到此完成。
 
-## 七、延伸阅读
+### 延伸阅读
+
+本系列用到的论文、文档与教材：
 
 - LLVM：*LLVM Language Reference*；Chris Lattner & Vikram Adve, *LLVM: A Compilation Framework for Lifelong Program Analysis & Transformation*（CGO 2004）；NVPTX 后端文档 *User Guide for NVPTX Back-end*。
 - MLIR：Lattner et al., *MLIR: Scaling Compiler Infrastructure for Domain Specific Computation*（CGO 2021）；MLIR 官方文档的 *Language Reference*、*Dialect Conversion*、*Pattern Rewriting*、*Testing Guide*；*Toy* 教程。
@@ -389,6 +391,9 @@ Infra 地图的十三个系列到此完成。
 - TVM：Chen et al., *TVM: An Automated End-to-End Optimizing Compiler for Deep Learning*（OSDI 2018）；Feng et al., *TensorIR: An Abstraction for Automatic Tensorized Program Optimization*（ASPLOS 2023）；Shao et al., *Tensor Program Optimization with Probabilistic Programs*（MetaSchedule，NeurIPS 2022）；Ragan-Kelley et al., *Halide*（PLDI 2013）；TVM 仓库 `docs/deep_dive/tensor_ir/`。
 - 对照：XLA 的 *Operation Semantics* 与 *GPU backend* 文档；IREE 的 *Transform Dialect* 文档；PyTorch Inductor 的 `torch/_inductor/` 源码；CUTLASS 3 的 *CuTe* 文档。
 - 教材：Cooper & Torczon, *Engineering a Compiler*（SSA、数据流、寄存器分配的标准参考）；Muchnick, *Advanced Compiler Design and Implementation*。
+
+回到总纲：[《ML 编译器内部：从 SSA、MLIR 到 Triton 编译器》](/ml-compiler-internals.html)。
+
 
 [^q0]: 面对一段 Triton kernel 与它的 TTGIR / PTX：每个参数为什么有或没有 `tt.divisibility`、每个 `constexpr` 去了哪（5）；每条 load 的 AxisInfo 三元组与由此得到的向量宽度和谓词粒度（6）；每个张量的 layout 是默认的、Coalesce 给的还是 `dot` 决定的，写出它的基向量表，任一 `convert_layout` 走哪条路（7）；剩下的 `convert_layout` 两端被什么锚住、能不能重物化（8）；`num_stages` 变成了几个缓冲、几次 prologue load、`async_wait` 等谁，Hopper 上哪些变了、warp specialization 把什么给了谁（9）；每个 `bar.sync` 由哪次区间相交推出、`ttg.shared` 怎么算出来、`reduce` 的三级各多大（10）；这次调用落在哪个缓存目录、改了什么会重编、launcher 传了哪些参数、AMD 上同一 kernel 的 layout 与 ISA 长什么样（11）；同一 GEMM 用 TVM 调度怎么写、DLight 与 MetaSchedule 各自怎么得到它、两条路的风险各在哪（12）；出错时怎样二分到 pass 并固定成 lit（13）；以及这一切建在什么通用机制上——SSA 与数据流（1）、LLVM 的后端分工（2）、MLIR 的 Operation / Interface / Conversion（3、4）。详见[第一章](#一总览系列回答的问题与主线)与[第二章](#二逐篇回顾)。
 
