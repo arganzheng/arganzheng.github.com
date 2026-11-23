@@ -97,7 +97,7 @@ Table: verbs 与 GPUDirect 的关键对象：谁创建、活在哪、活多久�
 
 这不是巧合，是每一代"GPU + 网卡"的搭配都按 PCIe 不成为瓶颈来配的。
 
-**延迟的账**：一次 RDMA WRITE 的单向延迟在同一交换机下通常 1–2 µs（InfiniBand）到 2–4 µs（RoCE v2），TCP 同机房 RTT 通常 15–50 µs。差一个数量级，来源是内核协议栈、中断、上下文切换和拷贝。但 RDMA 的延迟里还有两项 TCP 没有的固定开销：**连接建立**（QP 状态机要走三步、带外交换连接信息）和**内存注册**（pin 页、建翻译表，GB 级 buffer 要几十到几百 ms）。这两项决定了 RDMA 程序的结构：连接与注册在初始化时一次做完，数据面只做 post 与 poll。NCCL 的 MR cache、`ncclCommRegister`，[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)里 KV 传输层预注册整个 KV pool，都是这本账的产物。
+**延迟的账**：一次 RDMA WRITE 的单向延迟在同一交换机下通常 1–2 µs——InfiniBand 与配置正确的 RoCE v2 在这个口径下并无差别（OSU 在同一平台、同一张 ConnectX-4 100 Gbps 上测得 IB 单向 1.05 µs、RoCE 单向 1.03 µs）；TCP 同机房 RTT 约 20–50 µs。差一个数量级，来源是内核协议栈、中断、上下文切换和拷贝。但 RDMA 的延迟里还有两项 TCP 没有的固定开销：**连接建立**（QP 状态机要走三步、带外交换连接信息）和**内存注册**（pin 页、建翻译表，GB 级 buffer 要几十到几百 ms）。这两项决定了 RDMA 程序的结构：连接与注册在初始化时一次做完，数据面只做 post 与 poll。NCCL 的 MR cache、`ncclCommRegister`，[《推理侧的通信：custom all-reduce 与 KV 传输》](/inference-communication-custom-all-reduce-and-kv-transfer.html)里 KV 传输层预注册整个 KV pool，都是这本账的产物。
 
 ### 3. 本文的章节安排
 
@@ -138,11 +138,11 @@ Table: TCP 发送 1 GB 显存：每一步的执行者、总线与内存流量
 
 ### 2. 算一算：CPU 与内存能不能喂饱 400 Gb/s
 
-400 Gb/s 是 50 GB/s 单向。只看步骤 2 的拷贝：一个核的 `memcpy` 通常 10–15 GB/s，喂 50 GB/s 需要 4–5 个核**只做拷贝**，加上协议处理（经验上一个核在启用卸载后能驱动 10–30 Gb/s 的 TCP 流），把一张 400 Gb/s 网卡跑满需要 15–40 个核。一台 8 卡服务器有 8 张这样的网卡，两个 CPU socket 合计通常 96–192 个核，全拿来做通信也未必够，而这些核本来该做数据加载和 Python 侧调度。
+400 Gb/s 是 50 GB/s 单向。只看步骤 2 的拷贝：一个核的 `memcpy` 通常 10–15 GB/s，喂 50 GB/s 需要 4–5 个核**只做拷贝**，加上协议处理——开满卸载（TSO/GRO、jumbo frame、packet steering）后一个核约能驱动 **42 Gb/s**，这是 Linux 协议栈在单条长流上的最好情况；长短流混跑时降到约 24 Gb/s（《Understanding Host Network Stack Overheads》，SIGCOMM 2021）——把一张 400 Gb/s 网卡跑满需要 **10–25 个核**。一台 8 卡服务器有 8 张这样的网卡，光通信就要 80–200 个核，两个 CPU socket 合计通常 96–192 个核，全拿来做通信也未必够，而这些核本来该做数据加载和 Python 侧调度。
 
 再看内存带宽。一个 socket 8 通道 DDR5-4800 的理论带宽约 300 GB/s。单张网卡满速收发时，步骤 1 到 4 加起来在主机内存上产生 4 × 50 = 200 GB/s 的流量（收发各 100 GB/s），8 张网卡是 1.6 TB/s——超出两个 socket 内存带宽的两倍以上。结论是硬的：**TCP 路径在 400 Gb/s 上不是"慢一点"，而是原理上跑不满**，因为它让主机内存和 CPU 成为每个字节都要经过的中转站。
 
-延迟的账也一样。TCP 单向延迟里，中断、软中断、拷贝、系统调用、协议处理各占几微秒，一次 RTT 在同机房通常 15–50 µs。对一次 decode 阶段几十 KB 的 all_reduce，α 项就是全部。
+延迟的账也一样。TCP 单向延迟里，中断、软中断、拷贝、系统调用、协议处理各占几微秒，一次 RTT 在同机房通常 20–50 µs：机架内的小消息在空载时约 23 µs、改用 busy-polling 能压到 18 µs（Google Snap，SOSP 2019），有负载时中位数回到约 47 µs（Homa，USENIX ATC 2021）。对一次 decode 阶段几十 KB 的 all_reduce，α 项就是全部。
 
 ### 3. RDMA 的三个承诺
 
@@ -169,7 +169,7 @@ RDMA 通过三个设计把上面每一项成本移走：
 | CPU 参与 | 每个 MSS：协议栈 + 拷贝 | 每个消息：post / poll | 每个消息：post / poll |
 | 单流带宽上限 | 受单核限制，通常几十 Gb/s | min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s（A100/PCIe 4.0：32 GB/s 的 PCIe 被 D2H 和 NIC DMA 共享主机内存，实际不到 25 GB/s） | min(NIC 50 GB/s, PCIe 5.0 64 GB/s) = 50 GB/s（A100/HDR：min(25, 32) = 25 GB/s） |
 | 8 卡 8 网卡合计 | 受 CPU 核数与内存带宽限制，很难接近 8 × 50 GB/s | 主机内存流量 8 × 2 × 50 = 800 GB/s 收发合计，接近或超过两 socket 内存带宽 | 8 × 50 = 400 GB/s，主机内存流量 0 |
-| 单向延迟量级 | 15–50 µs（RTT 量级） | 2–5 µs + 一次 PCIe 拷贝 | 1–2 µs（IB）/ 2–4 µs（RoCE） |
+| 单向延迟量级 | 20–50 µs（RTT 量级） | 2–5 µs + 一次 PCIe 拷贝 | 1–2 µs（IB 与配置正确的 RoCE v2 相当） |
 
 Table: TCP、RDMA 与 GPUDirect RDMA 三条路径的对照
 
@@ -491,7 +491,7 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 
 这些都是网络侧配置，NCCL 唯一能影响的是**流量分类**：`NCCL_IB_TC`（`ncclParamIbTc`，默认 -1，在 `ncclIbRtrQp` 里填到 `grh.traffic_class`）决定 RoCE 包的 DSCP 值（TC 的高 6 位），交换机按它映射到优先级队列；`NCCL_IB_SL`（`ncclParamIbSl`）对应 IB 的 Service Level。集群网络为 RoCE 配置的无损优先级如果对应 DSCP 26（TC = 104），NCCL 必须设 `NCCL_IB_TC=104` 才能落到无损队列——否则流量走有损队列，表现为多机带宽随规模急剧下降、日志里偶发 status 12。`NCCL_IB_FIFO_TC` 可以给控制面的 FIFO 写单独指定一个 TC（比如更高优先级），避免控制消息排在大数据后面。
 
-带宽的账上，配置正确的 RoCE v2 与同速率 IB 的大消息带宽相近（都能到线速的 90% 以上）；延迟的账上，RoCE 通常多 1–2 µs（以太网交换机的转发延迟与 UDP 封装），而且在拥塞下抖动更大。这是"IB 更省心、RoCE 更便宜但需要网络团队"这条经验的技术内容。
+带宽的账上，配置正确的 RoCE v2 与同速率 IB 的大消息带宽相近（都能到线速的 90% 以上）；延迟的账上，**空载、同 ToR 单跳、小消息的条件下两者的单向延迟都在 1 µs 量级**，RoCE 并不天生更慢：OSU 在同一平台、同一张 ConnectX-4 100 Gbps 上测得 IB 单向 1.05 µs、RoCE 单向 1.03 µs。差别不在空载延迟，而在**它需要一整套无损配置才能保持这个延迟**——PFC 加 ECN/DCQCN 一旦配错或网络进入有损与排队状态，尾延迟就会跑掉：微软在 2 万台服务器的生产数据中心里用 512 字节探测测到的 RDMA RTT p99 是 90 µs（同期 TCP 是 700 µs），而网络几乎空载时 RDMA p99 只有 50 µs——同一套 RoCE，p99 在排队下涨了近一倍（《RDMA over Commodity Ethernet at Scale》，SIGCOMM 2016）。这才是"IB 更省心、RoCE 更便宜但需要网络团队"这条经验的技术内容。
 
 ## 七、内存注册的代价与 MR cache
 
@@ -770,7 +770,7 @@ client$ ib_write_lat -d mlx5_0 -x 3 -F -s 8 <server-ip>
 - **主机内存版带宽**：NDR 400 Gb/s 上 1 MB 消息约 370–390 Gb/s（46–49 GB/s）。
 - **`--use_cuda` 版带宽**：GPU 与网卡同 switch 且 PCIe 5.0 时，应与主机内存版相差不到 5%。
 - **PCIe 4.0 上的上限**：A100 + NDR 会被 PCIe 卡在约 25–28 GB/s，即 200–220 Gb/s。
-- **延迟**：`ib_write_lat` 的 8 字节单向延迟在 IB 上通常 1–2 µs，RoCE 2–4 µs。
+- **延迟**：`ib_write_lat` 的 8 字节单向延迟在 IB 上通常 1–2 µs，配置正确的 RoCE v2 在同一量级。
 
 **观察亲和差距**：把 `--use_cuda=0` 换成一张跨 root complex 的 GPU（`nvidia-smi topo -mp` 里与 `mlx5_0` 是 `SYS` 的那张），带宽通常掉到几 GB/s 甚至测试失败——这就是[第二章](#4-三条路径的对照表)说的跨 root complex 可能很慢甚至不可用的实证，也是 `NCCL_NET_GDR_LEVEL` 默认不允许 `SYS` 的理由。
 
@@ -807,7 +807,7 @@ lspci -vv -s <NIC bdf> | grep -E "LnkSta|LnkCap"   # 网卡实际协商的 PCIe 
 ### 1. 要点回顾
 
 - **为什么 RDMA**
-  - TCP 路径每字节访问主机内存 4 次、每个 MSS 要 CPU 参与；400 Gb/s 需要 15–40 个核与超出内存带宽的流量，原理上跑不满
+  - TCP 路径每字节访问主机内存 4 次、每个 MSS 要 CPU 参与；400 Gb/s 需要 10–25 个核与超出内存带宽的流量，原理上跑不满
   - RDMA 三个承诺：
     - kernel bypass（数据面无系统调用）
     - zero copy（网卡直接读写注册过的 buffer）
@@ -1101,4 +1101,4 @@ int main(int argc, char **argv) {
    </details>
 
 [^q0]: **TCP**：每端 2 次拷贝（PCIe D2H/H2D + CPU memcpy），主机内存每字节访问 4 次；GPU x16 一次 + NIC x16 一次，都上行到 root complex；每个 MSS 要 CPU 参与。**RDMA 不开 GDR**：每端 1 次拷贝（到 pinned staging），主机内存每字节访问 2 次，PCIe 链路同上；数据面无系统调用，CPU 只在每个消息 post / poll。**RDMA + GPUDirect**：0 次拷贝，主机内存不在数据面上，GPU x16 与 NIC x16 各一次、在 PCIe switch 内转发，不到 root complex。详见[第二章](#二为什么需要-rdma)的三路径对照表与[第八章](#八gpudirect-rdma)。
-[^q1]: TCP 单流受单核限制，通常几十 Gb/s，8 卡 8 网卡也很难接近 8 × 50 GB/s。RDMA 无 GDR 约 min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s，但 A100 / PCIe 4.0 上 D2H 与 NIC DMA 共享主机内存，实际不到 25 GB/s，8 卡合计的主机内存流量 800 GB/s 会顶到两 socket 的内存带宽。RDMA + GDR 是 min(NIC, PCIe) = 50 GB/s（A100 / HDR：25 GB/s），8 卡 400 GB/s、主机内存流量 0；延迟 1–2 µs（IB）/ 2–4 µs（RoCE），TCP 是 15–50 µs。详见[第二章](#二为什么需要-rdma)、[第八章](#八gpudirect-rdma)。
+[^q1]: TCP 单流受单核限制，通常几十 Gb/s，8 卡 8 网卡也很难接近 8 × 50 GB/s。RDMA 无 GDR 约 min(NIC 50 GB/s, PCIe 5.0 64 GB/s, 主机内存) ≈ 50 GB/s，但 A100 / PCIe 4.0 上 D2H 与 NIC DMA 共享主机内存，实际不到 25 GB/s，8 卡合计的主机内存流量 800 GB/s 会顶到两 socket 的内存带宽。RDMA + GDR 是 min(NIC, PCIe) = 50 GB/s（A100 / HDR：25 GB/s），8 卡 400 GB/s、主机内存流量 0；延迟 1–2 µs（IB 与配置正确的 RoCE v2 相当），TCP 是 20–50 µs。详见[第二章](#二为什么需要-rdma)、[第八章](#八gpudirect-rdma)。
