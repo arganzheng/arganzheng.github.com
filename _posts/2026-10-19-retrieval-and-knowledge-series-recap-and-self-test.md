@@ -6,6 +6,7 @@ subtitle: "Retrieval and Knowledge Access: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, RAG, Retrieval, Embedding]
 catalog: true
 date: 2026-10-19 20:00:00
+updated: 2026-11-23
 ---
 
 七篇正文回答了一个问题：**私域知识怎么进入模型**。第一篇决定路（进上下文还是进权重），第二篇选检索的类型（词法、向量、结构化），第三、四篇讲流水线的两段（解析分块、索引混合 rerank），第五篇讲从流水线到 agentic，第六篇讲结构化知识（SQL、本体、图），第七篇讲怎么评、怎么运营。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第三层：把"让模型知道自己的业务"变成一组**可选择、可实现、可评测**的接入方式。
@@ -435,24 +436,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第三层。
+本系列讲的是私域知识怎么进入模型：进上下文还是进权重、用哪一类检索、怎么解析分块与索引、怎么评、怎么运营。模型本身怎么训、向量检索怎么部署、agent 循环怎么跑、评测方法论本身，都紧邻这一层而不在本系列范围内。往外走有这些方向：
 
-- **L4 工具、Agent 与运行时**：本系列第五篇把检索做成了 agent 的工具、第六篇把本体叫作 harness——L4 讲工具调用循环的运行时、权限与沙箱、durable execution、子 agent，以及 coding agent 与本体驱动业务 agent 两个 harness 案例的全貌。
-- **L5 评测、可观测与可追溯**：本系列第七篇用了 LLM-as-judge、评测集、trace，L5 讲它们本身：judge 的偏差与校准、评测集的运营、trace 的结构、录制回放。
-- **L6 生产化与运营**：prompt injection 的分层防御（Slack AI 事件的另一半）、网关、成本预算、发布与回滚。
-- **L2 Prompt 与上下文工程**：检索结果作为上下文一层的预算、位置、卸载——本系列反复引用的前置。
+- **微调的方法**——SFT / LoRA / DPO（Direct Preference Optimization，直接用偏好对训练模型的对齐方法） / 继续预训练属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html) L5；本系列只讲何时该微调与它不能做什么。
+- **embedding 模型怎么训**——对比学习属于算法地图；本系列只讲怎么选、怎么评。
+- **向量检索的算力与部署**——属于 [Infra 地图](/ai-infra-learning-roadmap.html)；本系列只讲索引结构的选择依据。
+- **agent 循环本身**——工具调用循环的运行时、权限与沙箱、durable execution、子 agent，以及 coding agent 与本体驱动业务 agent 两个 harness 案例的全貌，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列第五篇把检索做成了 agent 的工具、第六篇把本体叫作 harness，但只讲检索作为工具的设计要求，不讲循环控制与权限模型。
+- **评测方法论本身**——judge 的偏差与校准、评测集的运营、trace 的结构、录制回放，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列第七篇用了 LLM-as-judge、评测集与 trace，只讲检索专属的指标与分开评的原则。
+- **生产化与运营**——prompt injection 的分层防御（Slack AI 事件的另一半）、网关、成本预算、发布与回滚，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)。
+- **前置**——[L1《模型作为组件》](/model-as-a-component.html)是本系列"失效模式"（幻觉、知识截止）与"选型方法"（榜单缩范围、评测集决定）的出处；[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)讲检索结果作为上下文一层的预算、位置与卸载，是本系列反复引用的前置。
+- **地图定位**——本系列在整张地图上的位置（L3）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-前置的 [L1《模型作为组件》](/model-as-a-component.html)是本系列"失效模式"（幻觉、知识截止）与"选型方法"（榜单缩范围、评测集决定）的出处。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
-
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲微调的方法**：SFT / LoRA / DPO（Direct Preference Optimization，直接用偏好对训练模型的对齐方法） / 继续预训练属于算法地图 L5；本系列只讲何时该微调与它不能做什么。
-- **不讲 embedding 模型怎么训**：对比学习属于算法地图；本系列只讲怎么选、怎么评。
-- **不讲向量检索的算力与部署**：属于 Infra 地图；本系列只讲索引结构的选择依据。
-- **不讲 agent 循环本身**：agentic retrieval 里的循环控制、工具运行时、权限模型属于 L4；本系列只讲检索作为工具的设计要求。
-- **不讲评测方法论本身**：LLM-as-judge 的校准、评测集的运营属于 L5；本系列只讲检索专属的指标与分开评的原则。
+回到总纲：[《检索与知识接入：私域知识怎么进入模型》](/retrieval-and-knowledge-access.html)。
 
 
 [^q0]: 面对一份私域知识：它该进上下文还是进权重，微调能不能解决（第一篇）；该用 grep、向量还是 SQL，coding 场景要不要建索引，读写比怎么算（第二篇）；这批 PDF 用哪个梯级解析、三个静默失败怎么检测、块按什么切、要不要 contextual 前缀、权限怎么进元数据（第三篇）；用哪个 embedding、要不要混合与 rerank、权限在哪一步过滤、换模型怎么重建（第四篇）；固定流水线还是 agentic，改写 / HyDE / 多查询 / 路由 / 自检各解决什么，检索工具怎么设计（第五篇）；业务库建语义层、本体还是图，text-to-SQL 为什么两成（第六篇）；答错了是没找到还是找到了没说对，三个数字怎么定位，在线看什么，权限泄漏怎么测（第七篇）。详见[第一章](#一总览系列回答的问题与主线)。
