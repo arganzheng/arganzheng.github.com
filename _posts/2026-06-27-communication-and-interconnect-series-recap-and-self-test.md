@@ -6,7 +6,7 @@ subtitle: "Communication and Interconnect: Series Recap and Final Self-Test"
 tags: [NCCL, RDMA, GPU, AI, AI-Infra]
 catalog: true
 date: 2026-06-27 20:00:00
-updated: 2026-11-20
+updated: 2026-11-23
 ---
 
 八篇正文回答了一个问题：**一次 all_reduce 从调用到完成，数据在 PCIe、NVLink、InfiniBand 上是怎么流动的，为什么有时候是带宽的问题、有时候是延迟的问题**。[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)造尺子（α-β 模型与 ring 的推导），[《硬件互联》](/hardware-interconnect-pcie-nvlink-and-topology.html)与[《RDMA 与 GPUDirect》](/rdma-and-gpudirect.html)给尺子填上真实刻度（链路带宽、拓扑等级、RDMA 的三条路径），[《NCCL 架构》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 NCCL 如何在这些刻度上做决定，[《PyTorch 的通信栈》](/pytorch-communication-stack-processgroupnccl-and-streams.html)讲 PyTorch 如何使用 NCCL 而不浪费它，[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)把前五篇变成一条曲线和一棵决策树，[《推理侧的通信》](/inference-communication-custom-all-reduce-and-kv-transfer.html)与[《MoE 的通信》](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)把同一套方法用到推理的 decode TP、PD 分离和 MoE 的 all_to_all 上——那里 NCCL 不再是答案，绕开它的三种办法各自付了什么代价。
@@ -661,28 +661,19 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-八篇讨论的只是通信层：数据如何在 GPU 之间、节点之间流动，代价多少，如何测量与排障。几个方向紧邻但不在范围内：
+八篇讨论的只是通信层：数据如何在 GPU 之间、节点之间流动，由哪些软硬件承载，代价是多少，如何测量与排障。以下方向与它紧邻，但不在范围内：
 
-- **并行策略的设计与容错恢复**（DP / TP / PP / EP / FSDP 怎么切、hang 定位之后如何恢复训练）在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列只把它们产生的通信模式作为输入。
-- **推理引擎的调度与 KV cache 管理**（continuous batching、分页、prefix caching、PD 分离的调度策略）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——[《推理侧的通信》](/inference-communication-custom-all-reduce-and-kv-transfer.html)只讨论 KV 的传输层，不讨论何时搬、搬谁。
-- **kernel 内部**（custom all-reduce 与 DeepEP kernel 的访存与占用率优化）在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)——本系列读它们的结构，不优化它们。
-- **模型作为计算对象的算量**（参数量、FLOPs、KV cache 字节）在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)——本系列用到的每 token KV 字节与 hidden 维度从那里出发。
-- 本系列在整张地图上的位置（L3）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
-
-回到总纲：[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。
-
-## 七、延伸阅读
-
-本系列只讨论通信层：数据如何在 GPU 之间、节点之间流动，由哪些软硬件承载，代价是多少，如何测量与排障。以下内容与它紧邻，但不在范围内：
-
-- **并行策略的设计**：数据并行、张量并行、流水线并行、专家并行、FSDP / ZeRO 的分片规则与配置选择。本系列只把它们产生的通信模式（哪种原语、多大消息、多少参与者、在不在关键路径上）作为输入，不讨论怎么切分模型。
-- **训练系统的容错与弹性**：节点失败后的恢复、checkpoint、弹性伸缩。本系列[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)讨论如何定位一次 hang，但不讨论定位之后如何自动恢复训练。
-- **推理引擎的调度与 KV cache 管理**：continuous batching、分页管理、prefix caching、PD 分离的调度策略。本系列[《推理侧的通信》](/inference-communication-custom-all-reduce-and-kv-transfer.html)只讨论 KV 从一张卡搬到另一张卡的传输层，不讨论何时搬、搬谁。
-- **kernel 内部**：NCCL 的设备侧原语会读源码，vLLM 的 custom all-reduce kernel 与 DeepEP 的 dispatch / combine kernel 会讲结构，但不讨论如何优化一个 CUDA kernel 的访存与占用率。
+- **并行策略的设计**：数据并行、张量并行、流水线并行、专家并行、FSDP / ZeRO 的分片规则与配置选择，在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。本系列只把它们产生的通信模式（哪种原语、多大消息、多少参与者、在不在关键路径上）作为输入，不讨论怎么切分模型。
+- **训练系统的容错与弹性**：节点失败后的恢复、checkpoint、弹性伸缩，同在上面那个系列。本系列[《nccl-tests、调优与排障》](/nccl-tests-tuning-and-debugging-hangs.html)讨论如何定位一次 hang，但不讨论定位之后如何自动恢复训练。
+- **推理引擎的调度与 KV cache 管理**：continuous batching、分页管理、prefix caching、PD 分离的调度策略，在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)。本系列[《推理侧的通信》](/inference-communication-custom-all-reduce-and-kv-transfer.html)只讨论 KV 从一张卡搬到另一张卡的传输层，不讨论何时搬、搬谁。
+- **kernel 内部**：一个 CUDA kernel 的访存与占用率怎么优化，在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)。本系列会读 NCCL 的设备侧原语源码，也会讲 vLLM 的 custom all-reduce kernel 与 DeepEP 的 dispatch / combine kernel 的结构，但不优化它们。
+- **模型作为计算对象的算量**：参数量、FLOPs、KV cache 字节，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)——本系列用到的每 token KV 字节与 hidden 维度从那里出发。
 - **通用网络知识**：TCP/IP、以太网交换、路由。假设读者作为后端工程师已经具备；本系列只讲 RDMA 与 GPU 相关的部分。
 - **集群网络的物理设计与运维**：交换机选型、布线、fat-tree 的层数与超额订阅比。[《硬件互联》](/hardware-interconnect-pcie-nvlink-and-topology.html)会在拓扑一节提及它们对通信的影响，但不展开。
 - **NVIDIA 之外的通信栈**：AMD 的 RCCL 与 CUDA 版 NCCL 高度对应，华为 HCCL、Intel oneCCL 结构类似；正文在相关位置提及，不展开。
+- 本系列在整张地图上的位置（L3）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
+回到总纲：[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。
 
 [^q0]: 八个：这次通信传了多少字节、多少参与者、理论上要多久、是延迟还是带宽主导（α-β 模型、拐点 $$S^* = n\alpha\beta$$）；数据走了哪条物理链路、上限多少（`nvidia-smi topo -m` 的六个等级、NVLink / PCIe / IB 的单向带宽）；跨机时经过主机内存了吗、GPUDirect 生效了吗（三条路径、`NCCL_NET_GDR_LEVEL`）；NCCL 为什么选这个算法与协议、切了几个 channel（调优表、LL / LL128 / Simple、Ring / Tree / NVLS）；框架侧有没有浪费它、重叠发生了吗（stream / event 语义、重叠杀手、合并）；实测曲线和理论差在哪、hang 住是谁在哪一次操作上（曲线读法、六类 hang、Flight Recorder）；推理的小消息为什么绕开 NCCL、KV 该用什么传（custom all-reduce 的 α 账、单边 RDMA）；MoE 一层 all_to_all 搬多少字节、decode 为什么不能靠 proxy（每 token $$k$$ 份、按节点去重、发起速率与 IBGDA）。详见[第二章](#二逐篇回顾)。
 [^q1]: $$T_{\text{ring}} = 2(n-1)\alpha + \frac{2(n-1)}{n}\frac{S}{\beta}$$，8 卡 25 GB/s 上 1 GB 约 70 ms、64 KB 约 145 µs；拐点 $$S^* = n\alpha\beta$$、90% 平台约 $$9\,S^*$$；busbw = algbw × $$\frac{2(n-1)}{n}$$；NVLink 单向 A100 300 / H100 450 GB/s，PCIe 4.0 / 5.0 x16 单向 32 / 64 GB/s，HDR 25 / NDR 50 GB/s，网卡约为 PCIe 的 78%；GDR 上限 min(NIC, PCIe)，A100 配 NDR 卡在 32 GB/s；`NCCL_P2P_LEVEL` / `NCCL_NET_GDR_LEVEL` 默认 `PXB`；LL 50%、LL128 94%、Simple 接近 100%；32 节点 ring 510 步 vs tree 24 步；watchdog 100 ms、timeout 10 分钟、heartbeat 480 s；8×H100 拐点约 10 MB、平台 350–480 GB/s；decode TP 128 KB、NCCL 模型 15 µs、custom AR 14 步 → 2 步、8 卡 < 256 KB one-shot、上限 8 MB；Llama-3-70B KV 320 KB / token；MoE FP8 dispatch 59 KB、BF16 combine 115 KB、网卡份数 7 → 4.6 → 3.2、EP=64 decode 429 / 487 µs。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
