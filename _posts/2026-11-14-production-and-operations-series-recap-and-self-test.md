@@ -6,6 +6,7 @@ subtitle: "Production and Operations: Series Recap and Final Self-Test"
 tags: [AI, LLM, AI-Application, Production, 安全, Cost, Governance]
 catalog: true
 date: 2026-11-14 20:00:00
+updated: 2026-11-23
 ---
 
 七篇正文回答了一个问题：**一个能跑的 AI 应用怎样变成可靠、可控、可持续运营的产品**。第一篇网关，第二篇成本，第三篇延迟，第四篇安全，第五篇治理与合规，第六篇发布工程，第七篇飞轮与物理世界。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第六层：在**成本、质量、延迟、安全**四个维度上都有预算、有监控、有预案。
@@ -419,20 +420,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第六层。
+本系列讲的是一个能跑的 AI 应用怎样变成可靠、可控、可持续运营的产品：网关、成本、延迟、安全、治理与合规、发布工程、飞轮。模型怎么被 serving、通用后端怎么运维、攻击怎么实施、法律义务怎么解释、微调怎么做，都紧邻这一层而不在本系列范围内。往外走有这些方向：
 
-- **L7 产品与体验**：本系列的成本单位经济学（该不该做）、延迟的感知层（流式与进展呈现）、安全与合规的用户侧（告知、标识、拒答呈现）、飞轮的反馈入口设计——在 L7 从产品角度展开：场景选择、copilot → agent → 自动化的形态、人机分工与信任、不确定性的呈现、产品指标。
-- **前置**：[L1](/model-as-a-component.html)（成本公式、客户端工程、供应商变更）、[L2](/prompt-and-context-engineering.html)（缓存、prompt 版本）、[L3](/retrieval-and-knowledge-access.html)（权限过滤、微调顺序）、[L4](/tools-agents-and-harness.html)（四层、会话日志、六级）、[L5](/evaluation-observability-and-traceability.html)（门禁、trace、反馈绑定、仿真）。三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
+- **模型 serving 的基础设施**——推理引擎、GPU 调度、量化属于 [Infra 地图](/ai-infra-learning-roadmap.html) 09；本系列把模型当 API 消费。
+- **通用后端的 SRE**——Kubernetes、数据库、通用监控不重复，本系列只讲 AI 应用新增的维度。
+- **安全的攻击技术细节**——本系列只讲攻击链的结构与每一层的防御，不提供利用代码。
+- **法律意见**——合规那一篇讲的是工程上要建什么与公开的时间表，具体义务以法律顾问的解读为准。
+- **微调的方法**——属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html) L5；本系列只讲飞轮里微调的位置与数据要求。
+- **产品角度的同一批问题**——场景选择、copilot → agent → 自动化的形态、人机分工与信任、不确定性的呈现、产品指标，见 [L7《产品与体验》](/ai-product-and-experience.html)；本系列的成本单位经济学（该不该做）、延迟的感知层（流式与进展呈现）、安全与合规的用户侧（告知、标识、拒答呈现）、飞轮的反馈入口设计都在那里从产品一侧展开。
+- **前置**——[L1《模型作为组件》](/model-as-a-component.html)（成本公式、客户端工程、供应商变更）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（缓存、prompt 版本）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（权限过滤、微调顺序）、[L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)（四层、会话日志、六级）、[L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)（门禁、trace、反馈绑定、仿真）。
+- **地图定位**——本系列在整张地图上的位置（L6）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
-## 七、延伸阅读
-
-本系列有意不展开的内容，以及它们在哪个系列里：
-
-- **不讲模型 serving 的基础设施**：推理引擎、GPU 调度、量化属于 Infra 地图 09；本系列把模型当 API 消费。
-- **不讲通用后端的 SRE**：Kubernetes、数据库、通用监控不重复；只讲 AI 应用新增的维度。
-- **不讲安全的攻击技术细节**：只讲攻击链的结构与每层的防御；不提供利用代码。
-- **不提供法律意见**：合规一篇讲的是工程上要建什么与公开的时间表；具体义务以法律顾问的解读为准。
-- **不讲微调的方法**：飞轮里微调的位置与数据要求，方法属于算法地图 L5。
+回到总纲：[《生产化与运营：让 AI 应用可靠、可控、可持续地跑》](/production-and-operations-for-ai-applications.html)。
 
 
 [^q0]: 面对一个上线或已上线的应用：调用都经网关了吗、key 在哪、归因标签有吗、fallback 链声明了吗（1）；每任务成本 p50 / p95 多少、哪个功能烧钱、预算与梯子设了吗、价值 / 成本多少（2）；p95 在哪一段、缓存命中率多少、流式接了吗、agent 步数压了吗（3）；OWASP 十条各对哪层、EchoLeak 七环在自己这哪环拦、agent 配置可写吗、MCP 清单审过吗、key 在 prompt / 工作区 / 日志里吗（4）；审计链能回答七类问题吗、数据流图与合同一致吗、用途分类做了吗、标识做了吗、供应商变更登记了吗（5）；十类都版本化了吗、kill switch 有并演练了吗、版本钉了吗、五本 runbook 写了吗、四类 SLO 定了吗（6）；飞轮三判据满足吗、租户能关"用于改进"吗、微调数据筛了吗、物理系统分阶段与安全案例有吗（7）。详见[第一章](#一总览系列回答的问题与主线)。
