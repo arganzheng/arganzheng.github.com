@@ -6,7 +6,7 @@ subtitle: "Contributing to AI-Infra Open Source: Series Recap and Final Self-Tes
 tags: [Open Source, PyTorch, vLLM, AI, AI-Infra]
 catalog: true
 date: 2026-09-27 20:00:00
-updated: 2026-11-14
+updated: 2026-11-23
 ---
 
 四篇正文回答了一个问题：**面对一个百万行的开源项目，如何找到切入点、做出一个能被合入的改动**。第一篇讲怎么读——从符号、报错、issue 出发有目标地检索；第二篇讲怎么选——maintainer 已经写出了"想要什么"，选题是去读它们再查一次重；第三篇讲怎么交——每条规则都还原成"reviewer 的十分钟"的一个侧面；第四篇把前三篇放到两个真实 PR 的时间线上，量出时间花在哪里。样本始终是 PyTorch v2.14.0 与 vLLM v0.28.0，GitHub 上的动态信息截至 2026-09 用 `gh` 查询。
@@ -382,25 +382,16 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-四篇讨论的只是**如何参与**一个 AI-Infra 开源项目：阅读方法、选题方法、提交规范、协作规则。总纲划出的边界之外，几个方向紧邻但不在范围内：
+四篇讨论的只是**如何参与**一个 AI-Infra 开源项目：阅读方法、选题方法、提交规范、协作规则。以下方向与它紧邻，但不在范围内：
 
-- **任何一层的技术原理**——算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。这些内容在 AI-Infra 各层的技术系列里，入口是[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)——本系列在那张地图上是横切的第 12 个系列，"任何阶段，贡献者路径"。
-- **PyTorch 与 vLLM 之外项目的具体流程**——NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性对照；它们的规则以各自仓库的 `CONTRIBUTING.md` 为准，本系列教的是如何在半小时内读懂它们。
-
-还没决定走哪条线的读者，先看[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)，它把本系列放在"跑模型"一段的末尾，作为贡献者路径的收尾。
-
-回到总纲：[《AI-Infra 开源贡献指南（总纲）》](/contributing-to-ai-infra-open-source.html)。
-
-## 七、延伸阅读
-
-本系列只讨论**如何参与**一个 AI-Infra 开源项目：阅读方法、选题方法、提交规范、协作规则。以下内容与它紧邻，但不在范围内：
-
-- **任何一层的技术原理**：算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。第四篇走读 PR 时会解释那两个改动本身在做什么，但只到读懂这个 diff 所需的程度，不展开背后的机制。
+- **任何一层的技术原理**：算子怎么分发、kernel 怎么写、调度器怎么工作、通信怎么走。第四篇走读 PR 时会解释那两个改动本身在做什么，但只到读懂这个 diff 所需的程度，不展开背后的机制；这些内容在 AI-Infra 各层的技术系列里，入口是[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 - **git 与 GitHub 的基本操作**：fork、branch、rebase、解决冲突、开 PR。假设读者作为工程师已经熟练；本系列只讲这些操作在两个项目里的特殊约定（如 `ghstack`、`Signed-off-by`）。
 - **开源许可、CLA/DCO 的法律含义**：只说明两个项目各自要求什么，不讨论为什么。
 - **成为 maintainer 之后的工作**：triage、release management、governance。PyTorch 的 `docs/source/community/governance.md` 描述了 module maintainer 与 core maintainer 的机制，本系列只把它作为"谁有权批准 PR"的背景来读。
-- **PyTorch 与 vLLM 之外项目的具体流程**：NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性提及；它们的贡献规则请以各自仓库的文档为准。
+- **PyTorch 与 vLLM 之外项目的具体流程**：NCCL、Megatron-LM、FlashAttention、Triton、SGLang 在正文中只做定性对照；它们的贡献规则以各自仓库的 `CONTRIBUTING.md` 等文档为准，本系列教的是如何在半小时内读懂它们。
+- 本系列在[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)上是横切的第 12 个系列，"任何阶段，贡献者路径"；还没决定走哪条线的读者，先看[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)，它把本系列放在"跑模型"一段的末尾，作为贡献者路径的收尾。
 
+回到总纲：[《AI-Infra 开源贡献指南（总纲）》](/contributing-to-ai-infra-open-source.html)。
 
 [^q0]: 四个：给一个报错能不能两小时定位到函数、靠什么（登记表、生成代码、测试即规格、历史即注释）；maintainer 最想要哪类工作、怎么判断题一周后不被关（`actionable` / `help wanted`、maintainer 最后一条评论、open PR 数、RFC 门槛、硬件、政策）；reviewer 的十分钟要确认什么、diff / 描述 / 测试 / CI 各答哪个问题；小 PR 的时间花在哪、哪些可省哪些是正常成本（数据是正常成本，等待大半可省）。详见[第二章](#二逐篇回顾)。
 [^q1]: PyTorch 分层 `c10/` → `aten/` → `torch/csrc/` → `torch/` 与登记表 `native_functions.yaml`；vLLM `csrc/` → `vllm/` 与 `pyproject.toml` / `torch_bindings.cpp`；发布约 2 个月 vs 约 2 周；PyTorch 682 个标签、`actionable` 396 占不到 3%、四种状态标签；vLLM 63 个标签、RFC 门槛 >500 LOC 不含 kernel / data / config / test、stale 90 + 30 天；三条查重命令；PyTorch 2000 行硬上限、61 个 linter、148 个 workflow、48 个 `ciflow/*`、33 条 merge rule、4 个工作日可催；vLLM 6 个 open PR 上限、35 个 test_area、pre-commit 需 `verified` / `ready` 或 ≥4 合入 PR、`/ci run` 七步授权、2–3 天 / 7 天、DCO 每个 commit；#185344 +104 −0、27 天 3792 个点、3 小时 42 分收到 review、`merge -i`、进 v2.13.0；#47272 47 天无 review、6 个自己引入的失败、不在 v0.28.0。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
