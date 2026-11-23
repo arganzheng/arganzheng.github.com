@@ -6,7 +6,7 @@ subtitle: "Transformer Principles and Implementation: Series Recap and Self-Test
 tags: [Transformer, LLM, AI, AI-Infra]
 catalog: true
 date: 2026-04-01 23:00:00 +0800
-updated: 2026-11-18
+updated: 2026-11-23
 ---
 
 四篇正文沿着一条线，从静态结构走到一个训得出来的 GPT：[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)把 GPT-2 small 的每个方框打开，用 $$d = 4$$、3 个 token 的例子手算 attention；[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)让一个 token 在训练、prefill 与 decode 三种形态里流过这些方框，解释一次前向的 $$T$$ 个训练信号和 KV cache；[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)把这两篇的图落到 nanoGPT `model.py` 的 330 行，并与 HuggingFace GPT-2 对拍；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)读 `train.py`，在一台 MacBook 上把 0.8M 参数的模型训到能续写莎士比亚，再改层数看后果。四篇合起来，是[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)总纲里那条「图 → 数据流 → 代码 → 训练」的路径。
@@ -36,8 +36,7 @@ Table: 四篇正文的问题、结论与必记
 | 三 | 贯穿四篇的几条线：代码线、形状线、两种形态、算账线 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
-| 六 | 下一步 |
-| 七 | 延伸阅读：本系列不讲什么、去哪里读 |
+| 六 | 下一步：本系列不讲什么、去哪里读 |
 
 Table: 本文的章节安排
 
@@ -418,23 +417,18 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-- 主线的下一站是[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)：把本系列的 GPT-2 看成一组可替换的槽位，逐个讲 Llama 之后改了什么、改动怎样改变算量与显存。
-- 想知道[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)那 1 MB 文本换成 15T token 时差什么：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
-- 本系列在两张地图里的位置：[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)、[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
-
-回到总纲：[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)。
-
-## 七、延伸阅读
-
 本系列只讨论经典 GPT-2 结构的原理、数据流与最小实现。以下内容与它紧邻，但不在范围内：
 
-- **今天的结构改动**：RMSNorm、RoPE 的推导与外推、SwiGLU、GQA / MLA、长上下文、MoE、MTP、投机解码、浮点格式。本系列只在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)末尾列出 Llama 相对 GPT-2 的五处改动；逐项展开与算量 / 访存 / Roofline 的账在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。
-- **真实预训练**：BPE 分词与词表大小、数据抓取与去重、scaling law、训练配方与 loss spike。本系列用字符级分词和 1 MB 文本走通流水线；规模化之后的问题在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
+- **今天的结构改动**：RMSNorm、RoPE 的推导与外推、SwiGLU、GQA / MLA、长上下文、MoE、MTP、投机解码、浮点格式。本系列只在[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)末尾列出 Llama 相对 GPT-2 的五处改动；逐项展开与算量 / 访存 / Roofline 的账在主线的下一站[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)——它把本系列的 GPT-2 看成一组可替换的槽位，逐个讲 Llama 之后改了什么、改动怎样改变算量与显存。
+- **真实预训练**：BPE 分词与词表大小、数据抓取与去重、scaling law、训练配方与 loss spike。本系列用字符级分词和 1 MB 文本走通流水线；[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)那 1 MB 文本换成 15T token 时差什么，在[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 - **前置的深度学习基础**：反向传播、激活函数、初始化与归一化、优化器、RNN。本系列直接使用它们的结论，推导在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 - **kernel 内部**：FlashAttention 怎样不写出 $$[T, T]$$ 的表、Tensor Core 为什么要 64 对齐。本系列只说它省了什么，实现在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。
 - **多卡训练**：DDP 之外的张量 / 流水 / 序列 / 专家并行、ZeRO、分布式 checkpoint 与容错。[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)只读到 DDP 与单文件 `ckpt.pt`；其余在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
 - **推理服务**：KV cache 的内存管理（PagedAttention）、continuous batching、调度。[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)只讲 KV cache 为什么成立和多大；服务端的工程在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。
 - **训练之后**：SFT、RLHF / RLVR，以及采样策略、约束解码。见[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)与[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)。
+- **地图定位**：本系列在两张地图里的位置见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)与[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
+
+回到总纲：[《Transformer 原理与实现：从论文到手搓 GPT-2》](/transformer-and-llm-structure-implementation-and-evolution.html)。
 
 [^q0]: 四篇各一个核心问题，即总纲分章导读里的四问：GPT-2 的 decoder-only 结构从原始 encoder-decoder 怎么来、一个编号经过哪六种部件变成词表上的分布（[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)）；为什么一次前向有 $$T$$ 个训练信号、为什么推理时旧 token 不用重算（[《一个 token 的旅程》](/transformer-token-journey-training-and-inference.html)：causal mask + teacher forcing，KV cache）；能加载 GPT-2 权重、能训能生成的 Transformer 最少写哪些东西（[《手搓 GPT（上）》](/nanogpt-model-py-line-by-line.html)：四个类不到 90 行，加 `GPT` 的周边）；从 1.1 MB 文本到会续写的模型每一步代码在哪、改层数会怎样（[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)：参数与耗时线性、loss 收益递减）。详见[第二章](#二逐篇回顾)。
 
