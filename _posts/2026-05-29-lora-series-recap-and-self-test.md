@@ -6,6 +6,7 @@ subtitle: "LoRA Series: Recap and Final Self-Test"
 tags: [AI, LLM, LoRA, Post-Training, peft]
 catalog: true
 date: 2026-05-29 20:00:00
+updated: 2026-11-23
 ---
 
 三篇正文回答了一个问题：**为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好，每个旋钮该取多少，训完的东西怎么上线**。第一篇讲低秩假设、$$W + \frac{\alpha}{r}BA$$ 的梯度与四本账，并直接检验全量微调的 $$\Delta W$$ 有多低秩；第二篇把十三种配置在同一份数据上各训 80 步，每个旋钮给一组数字；第三篇从 adapter 文件走到 multi-LoRA 服务。本文把三篇压成一张速查表，拎出贯穿三篇的四条线，列常见误区，再给一套自测。
@@ -189,12 +190,16 @@ Table: 常见误区
 
 ## 六、下一步
 
+三篇讲的是 LoRA 本身：低秩假设与梯度、每个旋钮取多少、adapter 文件怎么上线。偏好数据与 RL、peft 的源码实现、multi-LoRA 的 kernel 与调度、量化算法本身不在范围内，各有去处：
+
 - 继续后训练：[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第二篇起的偏好数据、DPO、GRPO，本系列第三篇的 `disable_adapter()` 会在那里再出现。
 - 读实现：[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
 - 服务侧：[vLLM 系列第九篇](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
 - 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ（Activation-aware Weight Quantization，按激活大小保护重要通道的权重量化方法） / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
 
-## 七、延伸阅读
+### 延伸阅读
+
+本系列用到的原始论文与文档：
 
 - Hu 等 2021，*LoRA: Low-Rank Adaptation of Large Language Models*——原始论文；第 7 节的子空间分析是"$$r$$ 边际收益递减"的来源。
 - Aghajanyan 等 2020，*Intrinsic Dimensionality Explains the Effectiveness of Language Model Fine-Tuning*——低秩假设的出处。
@@ -206,3 +211,5 @@ Table: 常见误区
 - Meng 等 2024，*PiSSA*；Paischer 等 2024，*EVA*；Li 等 2023，*LoftQ*——三种初始化。
 - Sheng 等 2023，*S-LoRA: Serving Thousands of Concurrent LoRA Adapters*（S-LoRA：Scalable LoRA，同时服务上千个 adapter 的系统）；Chen 等 2023，*Punica*——multi-LoRA 服务的 kernel 与内存管理。
 - `peft` 文档的 *LoRA* 与 *Merging adapters* 两页——`LoraConfig` 每个字段的当前语义，比任何博客都准。
+
+回到总纲：[《LoRA 专题：SFT 的默认微调方式，从低秩假设到多租户服务》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
