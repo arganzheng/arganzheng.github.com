@@ -121,7 +121,7 @@ $$
 
 用 one-shot（每张卡直接读所有人的数据），每个 rank 读 7 份远端的 128 KB 共 896 KB，带宽项约 2 µs。两个数字都远小于任何一次同步的固定开销。[《集合通信原语与代价模型》的「四、α-β 模型」一节](/collective-communication-primitives-and-cost-model.html#四α-β-模型)给的判据是：当 $$S/\beta \ll \alpha$$ 时时间由 α 决定；这里 α 是十几微秒量级，128 KB 的消息离拐点差两个数量级。结论是：**decode TP all_reduce 的优化目标只有一个，压低每次调用的固定开销，带宽怎样都无关**。
 
-把它放回 decode step 的总时间里看意义。70B 模型 TP8 每张卡放 17.5 GB 权重，每步至少要把权重从 HBM 读一遍，H100 HBM3 约 3.35 TB/s（标称），下界约 5.2 ms。如果 160 次 all_reduce 每次 30 µs，通信 4.8 ms，与读权重的下界同量级；每次 10 µs，通信 1.6 ms。这就是 vLLM 愿意为此维护一个自己的 kernel 的原因。
+把它放回 decode step 的总时间里看意义。70B 模型 TP8 每张卡放 17.5 GB 权重，每步至少要把权重从 HBM 读一遍，H100 HBM3 约 3.35 TB/s（标称），下界约 5.2 ms。如果 160 次 all_reduce 每次 30 µs，通信 4.8 ms，与读权重的下界同量级；每次 10 µs，通信 1.6 ms。这就是 vLLM 愿意为此维护一个自己的 kernel 的原因（这两个数字的前提见本章第 4 小节：30 µs 对应的是传统 NCCL ring 路径，开了 NCCL 对称内存之后账要重算）。
 
 ### 3. NCCL 在这个区间的固定开销
 
@@ -158,7 +158,11 @@ Table: 8 卡单节点各算法与协议组合的 all_reduce 延迟估算（按 `
 
 ### 4. 30 µs 与 10 µs：20 µs 省在哪里
 
-把总纲核心问题里的两个数字当作量级：NCCL 路径约 30 µs，custom all-reduce 约 10 µs。差的 20 µs 分布在四处：
+把总纲核心问题里的两个数字当作量级：NCCL 路径约 30 µs，custom all-reduce 约 10 µs。
+
+这两个数字有个必须说清的前提：**它们对应的是未启用 symmetric memory 的传统 NCCL ring**。开了 symmetric memory 之后，8 卡上 custom all-reduce 只在 32–64 KB 这一段占优，**128 KB 起就交回 NCCL**。依据是 vLLM v0.23.0 的 `all_reduce_utils.py` 在 `NCCL_SYMM_MEM_ALL_REDUCE_CONFIG` 上方记下的 8 卡基准：2K–16K 是 NCCL 对称内存更快（1.35–1.48 倍），32K–64K 是 custom AR 更快，128K–1G 又是 NCCL 对称内存更快（1.12–6.14 倍）；配置里给 8 卡的 `custom_ar_preferred_ranges` 因此正是 `(16 KiB, 128 KiB)`，`always_use_above_world_size` 是 8。也就是说本章反复举的那个 128 KB，在开了对称内存的 8 卡机器上已经交回 NCCL 了。下面这张表拆的是"传统 ring 路径为什么慢"，它解释的是机制；具体某一次调用走谁，看[第四章的后端选择链](#四后端选择链与-pynccl)。
+
+差的 20 µs 分布在四处：
 
 | | NCCL（Ring + LL，经 ProcessGroupNCCL） | custom all-reduce |
 |---|---|---|
@@ -1061,5 +1065,5 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 
    </details>
 
-[^q0]: 128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项。详见[第二章](#二算一算decode-阶段-tp-all_reduce-的账)、[第三章](#三看一看custom-all-reduce-的实现)、[第五章](#五cuda-graph-与通信)。
+[^q0]: 128 KB 在 NVLink 上的传输时间 $$S/\beta < 1$$ µs，这次 all_reduce 的全部时间都是 $$\alpha$$。NCCL 的 15–30 µs 由固定开销构成：kernel launch 路径、Ring + LL 的 $$2(n-1) = 14$$ 步串行握手（每步约 0.6 µs）、经 channel buffer 中转的拷贝、以及不能捕获进 CUDA Graph 带来的每步 launch。vLLM 的 custom all-reduce 用 CUDA IPC 把 8 张卡的 buffer 互相映射进各自地址空间、用 `Signal` flag 做 barrier，one-shot 版本每张卡直接读 7 个对端的完整数据在本地归约——2 次 barrier、2 步、无中转、天然可捕获进 CUDA Graph；累加顺序固定所以 bit 级一致。省的就是 launch 路径、14 步 → 2 步、中转拷贝这三项。这笔账的前提是传统 NCCL ring 路径：开了 NCCL 的对称内存之后，8 卡上 custom AR 的优势区间只剩 16 KiB–128 KiB，128 KB 及以上又回到 NCCL 更快。详见[第二章](#二算一算decode-阶段-tp-all_reduce-的账)、[第三章](#三看一看custom-all-reduce-的实现)、[第四章](#四后端选择链与-pynccl)、[第五章](#五cuda-graph-与通信)。
 [^q1]: 它是为「小消息、节点内、地址固定」专门设计的：消息上限约 8 MB（one-shot 每卡要读 $$(n-1)S$$，流量 $$O(nS)$$ 而 ring 是 $$O(S)$$，大消息带宽账立刻输给 NCCL）；只能节点内（依赖 IPC 映射对端显存）；buffer 地址必须预先 IPC 注册且固定（梯度桶每步地址、大小都不同）；没有与计算重叠的 stream 编排、没有容错。训练的梯度桶 25 MiB、跨节点、每步变化，全部踩在它的限制上。详见[第三章](#三看一看custom-all-reduce-的实现)、[第四章](#四后端选择链与-pynccl)。
