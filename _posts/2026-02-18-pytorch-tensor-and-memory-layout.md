@@ -1025,29 +1025,33 @@ print(targets.device)
 
 ### 5. Meta Device 不是普通计算设备
 
-Meta Tensor 只有逻辑视图、没有物理存储：它携带本文讨论过的全部元数据——`shape`、`stride`、`storage_offset`、`dtype`、`device`、`layout`、`requires_grad`——唯独不分配 Storage 里的数据：
+Meta Tensor 只有逻辑视图、没有数据：它携带本文讨论过的全部元数据——`shape`、`stride`、`storage_offset`、`dtype`、`device`、`layout`、`requires_grad`——唯独不分配数据区。
+
+对照前面的 `TensorImpl` / `StorageImpl` 对象图，要分清三层：`TensorImpl`（元数据）、`StorageImpl`（记录字节数和数据指针的对象）、`data_ptr_` 指向的数据区（真正放数字的那段内存）。Meta Tensor 的前两层都在，`TensorImpl` 的 `storage_` 照常指向一个 `StorageImpl`，这个 `StorageImpl` 也照常记着 `size_bytes_ = 24`；缺的只是第三层——它的 `data_ptr_` 是空指针，没有任何数据区：
 
 ```python title='meta device 上的 Tensor：有全部元数据，没有数据'
 with torch.device("meta"):
     x = torch.empty(2, 3)
 
 print(x.shape, x.stride(), x.dtype, x.device)   # torch.Size([2, 3]) (3, 1) torch.float32 meta
-print(x.data_ptr())                              # 0：Storage 只记了"该有 24 字节"，没有真的分配
+print(x.untyped_storage().nbytes())              # 24：StorageImpl 对象存在，记着"该有 24 字节"
+print(x.data_ptr())                              # 0：StorageImpl 的 data_ptr_ 是空指针，数据区没有分配
 x + 1                                            # 可以：shape / dtype 照常推断，结果仍是 meta
 x.sum().item()                                   # 报错：没有数据可读
 ```
 
-![普通 Tensor 与 Meta Tensor：两者的元数据完全一样（shape、stride、storage_offset、dtype、layout、requires_grad），只有 device 不同；普通 Tensor 的 Storage 里有 6 个 float32、占 24 字节，Meta Tensor 的 Storage 只记 nbytes = 24、data_ptr() 为 0，没有分配任何数据，所以能推形状、不能读数值](/img/in-post/pytorch-tensor-meta-vs-regular.svg)
+![普通 Tensor 与 Meta Tensor：两边都有 TensorImpl 和 StorageImpl，元数据除 device 外完全一样，StorageImpl 都记着 size_bytes_ = 24；普通 Tensor 的 data_ptr_ 指向放着 6 个 float32 的数据区，Meta Tensor 的 data_ptr_ 是空指针、没有数据区，所以能推形状、不能读数值](/img/in-post/pytorch-tensor-meta-vs-regular.svg)
 
 | | 普通 Tensor（CPU / CUDA） | Meta Tensor |
 |---|---|---|
 | shape · stride · offset · dtype · layout · requires_grad | 有 | 有，一样可读、一样参与形状推断 |
 | device | `cpu` / `cuda:0` | `meta` |
-| Storage 里的数据 | 有，占 `numel × itemsize` 字节 | **没有**：Storage 只记录字节数，`data_ptr()` 为 0，不占内存 |
+| `StorageImpl` 对象 | 有，`size_bytes_` = `numel × itemsize` | 有，`size_bytes_` 一样照记 |
+| `data_ptr_` 指向的数据区 | 有，真实占 `numel × itemsize` 字节 | **没有**：`data_ptr_` 是空指针，`data_ptr()` 返回 0，不占内存 |
 | 能做什么 | 一切运算 | 只能做"算形状"的事：`x @ w` 得到正确 shape 的 meta 结果 |
 | 不能做什么 | — | 读数值：`.item()`、`print(x)` 的数值部分、`.tolist()` |
 
-Table: 普通 Tensor 与 Meta Tensor：元数据都有，差的只是 Storage 里的数据
+Table: 普通 Tensor 与 Meta Tensor：元数据和 StorageImpl 都有，差的只是 data_ptr_ 指向的数据区
 
 它适合：
 
@@ -1172,9 +1176,24 @@ z = x + y
 - 其中一个为 1；
 - 某个维度不存在。
 
-先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节：
+先说为什么要有这一步：逐元素相加要求两边每个位置一一对应，`(2, 3)` 有 6 个位置、`(3,)` 只有 3 个，不能直接对。最直白的办法是把 `y` 抄两份拼成 `(2, 3)` 再加——多占一份内存、多一次拷贝。`expand` 做的是同一件事的零成本版本：**不抄数据，只造一个看起来是 `(2, 3)` 的视图**，让第 0 行和第 1 行都指向 `y` 那 3 个格子。对 `(2, 3) + (3,)` 这个例子，PyTorch 实际做的是先把 `y` 右对齐补成 `(1, 3)`（顺带说明写法：`(3,)` 里的逗号表示"一元组"，它是一维的、缺的是**前面**的维度，所以补成一行三列而不是三行一列），再用 `expand` 得到一个 `shape=(2,3)`、`stride=(0,1)` 的视图，物理上不多占一个字节。
 
-![y.expand(2, 3)：第一步右对齐把 (3,) 补成 (1, 3)；第二步造一个 shape=(2, 3)、stride=(0, 1) 的视图，两行都指向 y 的三个元素，不分配新 storage](/img/in-post/pytorch-tensor-expand-stride-zero.svg)
+第一步“在前面补一个长度为 1 的维度”，就是[前面介绍的 `unsqueeze`](#4-增加和删除维度)：`(3,)` 补成 `(1, 3)` 等于 `y.unsqueeze(0)`。所以这次广播可以手写成两个已经学过的操作，都只改元数据、不拷贝：
+
+```python title='广播 = unsqueeze 补维 + expand 扩展'
+y = torch.ones(3)
+
+y1 = y.unsqueeze(0)      # 第一步补维：shape (3,) → (1, 3)，stride (1,) → (3, 1)
+y2 = y1.expand(2, 3)     # 第二步扩展：shape (1, 3) → (2, 3)，stride (3, 1) → (0, 1)
+
+torch.equal(x + y, x + y2)                      # True：与自动广播结果相同
+y2.untyped_storage().data_ptr() == y.untyped_storage().data_ptr()   # True：仍是 y 那 3 个格子
+```
+
+反过来，如果想让 `(3,)` 当成“三行一列”去广播，自动规则帮不上忙（它只会在前面补维），要自己写 `y.unsqueeze(1)` 得到 `(3, 1)`。
+
+
+![y.expand(2, 3)：第一步右对齐把 (3,) 补成 (1, 3)，等于 y.unsqueeze(0)；第二步造一个 shape=(2, 3)、stride=(0, 1) 的视图，两行都指向 y 的三个元素，不分配新 storage](/img/in-post/pytorch-tensor-expand-stride-zero.svg)
 
 ### 2. `expand()` 与 `repeat()`
 
