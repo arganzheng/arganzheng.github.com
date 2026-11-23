@@ -5,7 +5,7 @@ title: "RL 后训练基础设施（09）：系列总结与通关自测"
 subtitle: "RL Post-Training Infrastructure: Series Recap and Final Self-Test"
 tags: [RL, verl, vLLM, Megatron, Distributed Training, AI, AI-Infra]
 catalog: true
-updated: 2026-11-14
+updated: 2026-11-23
 date: 2026-09-03 20:00:00
 ---
 
@@ -503,29 +503,18 @@ Table: 掌握程度的判据
 
 八篇讲的是在线 RL 后训练的**系统**：生成、打分、训练三段怎样共享 GPU、怎样同步、怎样调度。写作时能看到的趋势每条对应一篇：推理引擎的 RL 接口在标准化（sleep / wake、按 tag 分区、`update_weights_from_*`、版本号、abort / resume 成为一等 API）；权重同步向"没有完整模型"收敛（增量、多源、点对点）；异步成为大规模任务的默认、准入控制与 decoupled loss 内建；环境成为公司级平台、训练与部署用同一个 agent；可观测的对象从训练器扩到整个循环。机制层已经稳定，实现层还在每个版本变——读者拿到的应该是前者。
 
-四个方向紧邻但不在范围内：
-
-- **RL 算法本身**（目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask）在算法地图的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列只用了"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，讨论 off-policy 修正时只讨论它对系统的要求。
-- **训练引擎内部**（并行策略、FSDP / Megatron 的实现、分布式 checkpoint、容错与弹性）在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)——本系列把训练器当作"能按给定并行配置跑一步、能导出分片权重"的黑盒。
-- **推理引擎内部**（调度、KV cache 管理、连续批处理、PagedAttention、投机解码、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放在不同实例">PD</span> 分离）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——本系列只用它的三个接口与吞吐特性。
-- **集群资源层**（Kubernetes / Ray 的调度、gang scheduling、沙箱平台）在[《AI 平台工程》](/ai-platform-engineering.html)——第八篇末尾给出的是引擎对平台的要求，平台怎样满足在那里。
-
-本系列在 Infra 学习路径里的位置，以及训练与推理两条主线为什么在这里会合，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。Infra 地图上与它相邻的下一块是扩散模型的推理基础设施——没有 KV cache、每步全量前向，是另一张完全不同的账。
-
-回到总纲：[《RL 后训练基础设施：rollout 与训练如何共享一组 GPU》](/rl-post-training-infrastructure.html)。
-
-## 七、延伸阅读
-
-本系列只讨论在线 RL 后训练的**系统**：生成、打分、训练三段怎样共享 GPU、怎样同步、怎样调度。以下内容与它紧邻，但不在范围内：
+以下方向与它紧邻，但不在范围内：
 
 - **RL 算法本身**：目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask。它们是算法地图 L5 的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；本系列只使用"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，第五篇讨论 off-policy 修正时只讨论它对系统的要求，不评价它对效果的影响。
 - **训练引擎内部**：并行策略、FSDP / Megatron 的实现、分布式 checkpoint 的格式、容错与弹性。它们在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；本系列把训练器当作"一个能按给定并行配置跑一步、能导出分片权重"的黑盒。
-- **推理引擎内部**：调度、KV cache 管理、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列只使用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。
+- **推理引擎内部**：调度、KV cache 管理、连续批处理、PagedAttention、投机解码、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放在不同实例">PD</span> 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列只使用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。
 - **集合通信的实现**：NCCL 的算法与调优、RDMA。本系列只用广播、all-gather、点对点的语义与带宽。
-- **集群资源层**：Kubernetes / Ray 的调度、gang scheduling、容器运行时、沙箱平台的实现。本系列第六、八篇给出 RL 任务对它们的要求，不讨论它们自身。
+- **集群资源层**：Kubernetes / Ray 的调度、gang scheduling、容器运行时、沙箱平台的实现，在[《AI 平台工程》](/ai-platform-engineering.html)；本系列第六、八篇给出 RL 任务对它们的要求，不讨论它们自身。
 - **SFT 与离线方法**：SFT、DPO 一族在系统上与预训练同构（读数据、训练），没有 rollout；蒸馏里的 on-policy 蒸馏与在线 RL 同构，第五篇会提及。
-- **多模态与 VLA（vision-language-action，视觉-语言-动作模型） 的 RL**：图像输入让 rollout 多一个 vision encoder、环境多一类观测，系统形态不变；正文在涉及处标注，不单列。
+- **多模态与 VLA（vision-language-action，视觉-语言-动作模型）的 RL**：图像输入让 rollout 多一个 vision encoder、环境多一类观测，系统形态不变；正文在涉及处标注，不单列。
+- 本系列在 Infra 学习路径里的位置，以及训练与推理两条主线为什么在这里会合，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。地图上与它相邻的下一块是扩散模型的推理基础设施——没有 KV cache、每步全量前向，是另一张完全不同的账。
 
+回到总纲：[《RL 后训练基础设施：rollout 与训练如何共享一组 GPU》](/rl-post-training-infrastructure.html)。
 
 [^q0]: 八个，与总纲的"最终目标"一一对应：一步里生成、打分、训练各花多少 GPU·秒、上限是多少（三段的账）；该共置、分离还是异步、GPU 怎么分（三种形态的交换）；每步的显存切换搬多少字节、要几秒（让渡接口与切换代价）；新权重怎么进推理引擎、传多少、走哪条链路、几秒（布局映射与传输）；异步之后 reward 曲线变了是 staleness 还是训推不一致（off-policy 的信号）；Agent 训练的沙箱要多少并发、GPU 在等什么（环境账与长尾调度）；verl 把权重同步与样本通路实现在哪（源码导读）；利用率差在哪一项、坏了从哪查（全步 MFU 与排障）。详见[第二章](#二逐篇回顾)。
 [^q1]: 每 token 约 $$12N_a$$、训练占一半生成六分之一；decode 步 ≈ 36 ms 与模型无关；8B 推理场景一步 810 s（生成 602、长尾 196、前向 72、训练 136）、全步 MFU 13%；共置 810 / 同步分离 1501 / 一步流水 764 / 异步 619 s，异步 ≈ 共置 − 长尾，$$f$$ 70% 时 2.55×；配比 $$n_r / n_t = T_{gen} / T_{train}$$ 按时间不按 FLOP；32B/8 卡切换 7 s < 2%，`gpu_memory_utilization` 0.5 → 0.85 让生成 745 → 610 s；671B FP8 同步经 rank 0 60–80 s、多源 12–20 s，235B 全量 246–266 s vs 增量 11–15 s；dense 每步 1–3%、MoE 0.02–0.05% 参数变化；bubble $$= T_{sync} / (k T_{mb} + T_{sync})$$；$$s \le 2$$–4 配修正无损，不一致 $$10^{-3}$$ / $$10^{-2}$$ / MoE > 1；Agent 8 万次执行、667–1300 CPU·h、1300–1800 沙箱、prefill 160–1600 s；MFU 瀑布 100 − 48.1 − 24.2 − 14.5 − 0.1 ≈ 13%。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
