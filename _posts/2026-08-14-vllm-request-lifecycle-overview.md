@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（03）：鸟瞰 vLLM：一个请求如何穿过整个推理系统？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-24
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`，commit `6e448d0ea9bf3d88d898b65449ca6dc2aec170ac`，2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。文中的 **V1** 指引擎架构及其源码包 `vllm/v1/`，不是一个可选的版本：旧的 V0 引擎在 v0.11.0（2025-10-02）中被整体移除，release notes 原话是 “V1 is the only engine in the codebase now”，所以 v0.27.1 里只有这一套引擎，没有 “V2 引擎”。名字里带 V2 的只是两个组件——模型执行层的新 ModelRunner 和 Ray 后端的 `RayExecutorV2`，见[第二章 2.4 节](#24-executorworker-与-modelrunner模型执行的设备抽象)。
@@ -27,6 +27,39 @@ updated: 2026-11-13
 顺序按“同一批东西换个角度看”排：进程视图紧接逻辑视图，因为两张图里是同一批模块，只是多了进程边界；开发视图紧挨部署视图，因为源码编译出的 wheel 和扩展模块，正是部署时装到每台机器上的东西。
 
 这样可以分清谁保存请求状态、谁决定这一步跑什么，以及 token 和调度结果怎样跨进程移动。
+
+五个视图不是五张独立的图，而是同一批东西被四次重新分组、最后由第五个视图验收：组件按调用关系分组是逻辑视图，同一批组件按进程边界重新分组是进程视图，按源码目录分组是开发视图，按物理设备分组是部署视图；场景视图不引入新东西，它沿时间轴走一遍请求，前四个视图分出的组在这条线上必须对得上。本篇按这条线组织，所以先给出全图：
+
+```mermaid
+%% 图：本篇主线：同一个系统被四次重新分组，再由场景视图验收
+flowchart TB
+    SYS["<b>同一个系统：vLLM v0.27.1</b><br/>• 一批 Python 对象、一批 kernel、一组进程<br/>• 换四种分组方式看，就是四个视图"]
+    SYS --> G1
+    subgraph G1["先看同一批组件的两种分组"]
+        direction LR
+        V1["<b>逻辑视图：按调用关系（第二章）</b><br/>• 控制面在 CPU，只碰元数据<br/>• 数据面在 GPU，只碰张量<br/>• 四类组件、四个对象域"] ~~~ V2["<b>进程视图：按进程边界（第三章）</b><br/>• 三类进程<br/>• 两道边界<br/>• 界上只有整数与列表"]
+    end
+    G1 --> G2
+    subgraph G2["再看代码与机器的两种分组"]
+        direction LR
+        V3["<b>开发视图：按源码目录（第四章）</b><br/>• 模块 ↔ 目录 ↔ 进程<br/>• 包依赖树与旁路 import<br/>• 编译出哪些制品"] ~~~ V4["<b>部署视图：按物理设备（第五章）</b><br/>• 进程落到几张卡、几个节点<br/>• 五种典型部署"]
+    end
+    G2 --> SC["<b>场景视图：沿时间轴验收（第六章）</b><br/>• 请求流：HTTP 进来到 SSE 结束<br/>• 数据流：一个 token 的去程与回程<br/>• 前四个视图分出的组必须对得上"]
+    classDef sys fill:#f5f5f5,stroke:#616161;
+    classDef view fill:#e3f2fd,stroke:#1565c0;
+    classDef sc fill:#e8f5e9,stroke:#2e7d32;
+    class SYS sys;
+    class V1,V2,V3,V4 view;
+    class SC sc;
+```
+
+逐节点要点：
+
+- **逻辑视图**（[第二章](#二逻辑视图静态系统拓扑自顶向下)）：控制面与数据面的分界是本篇最该先记住的一条线——跨这条线的只有整数和列表，权重、激活和 KV 张量从不越界，所以调度器用 Python 写也不拖慢 GPU。组件自顶向下分四类：接请求出文本、驱动每一轮、决定给谁算和 KV 放哪、把决定落到 GPU；换成对象的角度是四个域：请求域、调度域、显存域、模型域。
+- **进程视图**（[第三章](#三进程视图谁在什么进程里如何交互)）：三类进程是 API Server、EngineCoreProc 和 WorkerProc，两道边界分别是「文本变成 token id」和「控制面交给数据面」。进程边界同时也是可见性边界：调度器看得见块的引用计数和哈希，Worker 只看得见整数块号；文本只在 API Server 进程里存在。
+- **开发视图**（[第四章](#四开发视图模块在源码树的哪里)）：这一章的用处是「去哪读代码」——给出模块到目录的对照，以及哪些依赖方向是主干、哪些是旁路。
+- **部署视图**（[第五章](#五部署物理视图进程怎样落到-gpu-和节点上)）：同一套代码在单卡、同机多卡、多节点、数据并行和 PD 分离五种部署下进程数与 GPU 的对应关系不同，但变的只是中间那个 Executor。
+- **场景视图**（[第六章](#六场景视图1)）：它是前四个视图的验收——一次请求走完，每一跳传的是文本、token id 还是调度元数据，必须和前面分出的域、进程、边界完全对上。
 
 ### 2. 本文的章节安排
 
@@ -107,7 +140,7 @@ vLLM 把系统分成**控制面**和**数据面**两半：控制面在 CPU 上�
 
 **2、向上：`ModelRunnerOutput`，只有一个 Worker 回传。**
 
-主体是每个请求这一轮采样出的 token id，可选 logprobs。所有 rank 算的是同一个 batch，结果只需要其中一个 rank 交回。
+主体是每个请求这一轮采样出的 token id，可选 logprobs。全部 rank 推进的是同一个 batch，采样结果只需要一个 rank 交回；交回的那个是**流水线并行的最后一段、张量并行的第一个 rank**（`MultiprocExecutor._get_output_rank`：只有最后一段算得出 logits），其余 rank 的响应直接丢弃。
 
 **3、例外：少数请求会带一次张量或数组，都在 CPU 内存里，不涉及显存。**
 
@@ -142,7 +175,11 @@ vLLM 把系统分成**控制面**和**数据面**两半：控制面在 CPU 上�
 3. **model forward（GPU）**：逐层 launch kernel；纯 decode 时整张 CUDA Graph 一次 replay。
 4. **sample（GPU → CPU）**：采样出每个请求的下一个 token，拷回 CPU，打包成 `ModelRunnerOutput` 交回调度器。
 
-图中 ~0.05 ms、~0.1 ms 这些数字是估算，不是源码里的常量。四个阶段各落在哪些函数、第 2、4 阶段在一步之内谁等谁、唯一的同步点在哪，见[《GPU 执行：如何让每个 Token 算得更快？》第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)；EngineCore 一侧发出前向、取回结果的主循环见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
+图中 ~0.05 ms、~0.1 ms 这些数字是估算，不是源码里的常量。
+
+> [!NOTE] Java 经验参照：热点之外的那层可以慢
+>
+> 「调度逻辑用 Python 写、计算走原生代码」这种分工，在 JVM 世界里是熟悉的做法：业务编排留在 Java，矩阵运算交给 JNI 下面的原生库。差别在于这里的分界不是语言边界，而是**进程边界加设备边界**，而且边界上只允许传整数和列表——没有对象引用跨界，所以不存在 JNI 那种「跨界调用本身很贵、要尽量合并」的问题，一步只过两次界。另一个差别是判据：JNI 那边通常按调用次数算开销，这里的判据是一条不等式——只要 CPU 侧这一步的时间显著小于 GPU 侧的 forward 时间，它就被流水线盖住了。所以同一份 Python 调度代码，在 70B 多卡部署上完全看不出来，在小模型高吞吐的场景下就可能成为瓶颈。四个阶段各落在哪些函数、第 2、4 阶段在一步之内谁等谁、唯一的同步点在哪，见[《GPU 执行：如何让每个 Token 算得更快？》第二章第 3 节](/gpu-execution-kernels-and-graphs.html#3-一步之内的时序cpu-与-gpu-在哪里等谁)；EngineCore 一侧发出前向、取回结果的主循环见[《Scheduler》第五章第 5 节](/scheduler-batch-and-fairness.html#5-调度循环跑在哪里enginecoreproc-的三个线程与-step)。
 
 ### 2. 四类核心组件：从请求入口到 GPU
 
@@ -380,7 +417,11 @@ flowchart TB
 2. **`CachedRequestState` 是 `Request` 的只读镜像。** 两者字段高度重合（`num_computed_tokens`、`output_token_ids`、`block_ids`），但前者靠每步 `CachedRequestData` 的增量维护，从不反向同步；`Request` 才是权威。
 3. **`InputBatch` 的行号是临时的。** 请求结束后，`InputBatch` 会把尾行搬进空出来的行，行号随之变化；`BlockTable` 和 token ids 都按行号索引，所以必须和 `InputBatch` 同步搬行。`request_id` 是跨进程的稳定身份，行号只是 Worker 内一次 step 的临时坐标。
 
-Worker 侧从 `SchedulerOutput` 到这些张量的每一步在[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)逐个函数展开；第六章第 2 节的对象表则按进程和寿命把同一批对象再排一遍。
+> [!NOTE] Java 经验参照：权威副本与只读镜像
+>
+> `Request` 与 `CachedRequestState` 的关系，对着「权威数据源 + 靠事件流增量同步的本地缓存」这套熟悉的模式看是准确的：权威在一侧，镜像在另一侧，只有单向的增量消息，镜像从不反向写回。两处不一样。一是**没有失效重取这条兜底路径**——缓存不一致时常规做法是丢掉本地副本、回源重读；这里的镜像只能靠每一步的增量维护，一旦某一步的增量没对上，就不是慢一点而是算错，所以增量的内容（哪些 token 是新的、哪些块是新分的）必须和权威侧的状态机严格对应。二是**索引不稳定**：镜像里真正的身份是 `request_id`，而张量的下标是 `InputBatch` 的行号，行号会在请求结束时被尾行填补而改变——相当于本地缓存的数组下标会被压缩重排，所以任何按行号索引的东西（块表、token ids）都必须跟着一起搬。
+
+Worker 侧从 `SchedulerOutput` 到这些张量的每一步在[《GPU 执行》第二章](/gpu-execution-kernels-and-graphs.html#二forward-之前scheduleroutput-如何变成-gpu-张量)逐个函数展开；第六章第 2 节的对象表则按进程、寿命和可见范围把同一批对象再排一遍。
 
 ## 三、进程视图：谁在什么进程里，如何交互
 
@@ -831,21 +872,21 @@ sequenceDiagram
 
 注意 Detokenizer 不在 GPU 那一侧，而是在 API Server 进程的 `OutputProcessor` 里：EngineCore 回传的只有 token ids，文本是到这里才拼出来的。上图沿着数据走了一遍，但同一个请求在每一层其实是**不同的对象**——它们活在不同进程、寿命也不同。把这些对象排成一张表，就能看出"谁持有请求的真状态、谁只是一次性的快照"：
 
-| 对象 | 所在进程 | 生存期 | 它是什么 |
-|---|---|---|---|
-| HTTP JSON → `ChatCompletionRequest` | API Server | 一次 HTTP 连接 | 文本 prompt + 采样参数（用户视角） |
-| `EngineCoreRequest` | API Server → EngineCoreProc（msgspec 序列化过 ZMQ） | 只传一次 | 扁平的 IPC 载荷：`prompt_token_ids`、`sampling_params`、`arrival_time`… 已 tokenize，无状态 |
-| `Request` | EngineCoreProc（Scheduler 内部） | 从入队到 `free()` | **请求状态的唯一权威副本**：`status` 状态机、`num_computed_tokens`、`output_token_ids`、`block_hashes` |
-| `NewRequestData` / `CachedRequestData` | EngineCoreProc → WorkerProc（共享内存广播） | 一个 step | `SchedulerOutput` 里的两种"订单"：首次调度的请求带全量 `prompt_token_ids` + `block_ids`；已在 batch 里的只带增量 `new_token_ids` + `new_block_ids` |
-| `SchedulerOutput` | EngineCoreProc → WorkerProc | 一个 step | 上面两者 + `num_scheduled_tokens{req_id: n}` + `finished_req_ids` 等：这一轮"谁跑、跑多少、块在哪" |
-| `CachedRequestState` + `InputBatch` 行 | WorkerProc（Worker 常驻） | 从首次调度到 `finished_req_ids` | Worker 侧对 `Request` 的**镜像**，靠增量订单保持同步；`InputBatch` 是按行排列的持久 batch（`token_ids_cpu`、`block_table`） |
-| `ModelRunnerOutput` | WorkerProc → EngineCoreProc（`worker_response_mq`） | 一个 step | `req_ids` + `sampled_token_ids: list[list[int]]` + logprobs：只有采样结果，不含任何状态 |
-| `EngineCoreOutput(s)` | EngineCoreProc → API Server（ZMQ） | 一个 step | 每个请求的 `new_token_ids` + `finish_reason`；仍然只有 token ids |
-| `RequestOutput` | API Server（`OutputProcessor` 产出） | 一个 SSE chunk | 第一次出现**文本**：detokenize 后的增量 `text` + `token_ids` |
+| 对象 | 所在进程 | 生存期 | 谁能看见 | 它是什么 |
+|---|---|---|---|---|
+| HTTP JSON → `ChatCompletionRequest` | API Server | 一次 HTTP 连接 | 只有 API Server 进程——引擎侧从不见原始文本 | 文本 prompt + 采样参数（用户视角） |
+| `EngineCoreRequest` | API Server → EngineCoreProc（msgspec 序列化过 ZMQ） | 只传一次 | 发送方构造、接收方解开就丢 | 扁平的 IPC 载荷：`prompt_token_ids`、`sampling_params`、`arrival_time`… 已 tokenize，无状态 |
+| `Request` | EngineCoreProc（Scheduler 内部） | 从入队到 `free()` | 只有 EngineCoreProc；Worker 见不到它 | **请求状态的唯一权威副本**：`status` 状态机、`num_computed_tokens`、`output_token_ids`、`block_hashes` |
+| `NewRequestData` / `CachedRequestData` | EngineCoreProc → WorkerProc（共享内存广播） | 一个 step | 这一步的全部 WorkerProc，每个 rank 收到同一份 | `SchedulerOutput` 里的两种"订单"：首次调度的请求带全量 `prompt_token_ids` + `block_ids`；已在 batch 里的只带增量 `new_token_ids` + `new_block_ids` |
+| `SchedulerOutput` | EngineCoreProc → WorkerProc | 一个 step | 同上 | 上面两者 + `num_scheduled_tokens{req_id: n}` + `finished_req_ids` 等：这一轮"谁跑、跑多少、块在哪" |
+| `CachedRequestState` + `InputBatch` 行 | WorkerProc（Worker 常驻） | 从首次调度到 `finished_req_ids` | 只有本 WorkerProc；行号是进程内的临时坐标，调度器不知道 | Worker 侧对 `Request` 的**镜像**，靠增量订单保持同步；`InputBatch` 是按行排列的持久 batch（`token_ids_cpu`、`block_table`） |
+| `ModelRunnerOutput` | WorkerProc → EngineCoreProc（`worker_response_mq`） | 一个 step | 只有交回结果的那个 rank 发出，EngineCoreProc 收；其余 rank 的响应被丢弃 | `req_ids` + `sampled_token_ids: list[list[int]]` + logprobs：只有采样结果，不含任何状态 |
+| `EngineCoreOutput(s)` | EngineCoreProc → API Server（ZMQ） | 一个 step | EngineCoreProc 的输出线程发，API Server 的输出协程收 | 每个请求的 `new_token_ids` + `finish_reason`；仍然只有 token ids |
+| `RequestOutput` | API Server（`OutputProcessor` 产出） | 一个 SSE chunk | API Server 与客户端 | 第一次出现**文本**：detokenize 后的增量 `text` + `token_ids` |
 
 Table: 一个请求在各层的对象
 
-表里有两条规律。第一，**状态只在 EngineCoreProc 和 WorkerProc 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在 API Server 进程出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，EngineCoreProc 和 WorkerProc 完全不需要 tokenizer。
+表里有三条规律。第零，**「谁能看见」这一列的分界线就是进程边界**：同一个请求的信息在每一道边界上都被削掉一部分——过第一道边界丢掉文本，过第二道边界丢掉块的引用计数和哈希，只剩整数。第一，**状态只在 EngineCoreProc 和 WorkerProc 各有一份**：`Request` 是权威，`CachedRequestState` 是靠每步增量同步的镜像；所有跨进程的载荷（`EngineCoreRequest`、`SchedulerOutput`、`ModelRunnerOutput`、`EngineCoreOutputs`）都是无状态的一次性消息，读完即弃，也因此可以随意序列化、走任何 IPC 通道。第二，**文本只在 API Server 进程出现**：从 `EngineCoreRequest` 到 `EngineCoreOutputs` 全程都是 token ids，EngineCoreProc 和 WorkerProc 完全不需要 tokenizer。
 
 ## 七、本文小结
 
