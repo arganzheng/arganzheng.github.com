@@ -35,13 +35,17 @@ transition: slide
 %%{init: {"flowchart": {"wrappingWidth": 170}}}%%
 flowchart TB
     R1["01 负载画像"] --> R2["02 系统形态"]
-    R2 --> R3["03 共置"]
-    R2 --> R4["04 权重同步"]
-    R2 --> R5["05 异步"]
-    R1 --> R6["06 Agentic rollout"]
+    R2 -- "选了共置" --> R3["03 共置"]
+    R2 -- "三种都要" --> R4["04 权重同步"]
+    R2 -- "选了异步" --> R5["05 异步"]
+    R1 -- "把方差放大" --> R6["06 Agentic rollout"]
     R3 & R4 & R5 & R6 --> R7["07 verl 源码"]
     R7 --> R8["08 配置与排障"]
 ```
+
+<aside class="notes" markdown="1">
+不是八个并列主题，而是一个选择欠下的账由后面几篇分别去还：02 做的那次交换，决定了 03、04、05 哪几笔账要还。04 是三种形态都欠的，03 只有共置欠，05 只有异步欠；06 不引入新形态，但把长尾放大到让异步从「可以考虑」变成「必须」。
+</aside>
 
 ---
 
@@ -49,7 +53,7 @@ flowchart TB
 
 **FLOP 训练占一半、时间上生成占四分之三；全步 MFU 13%**
 
-![一步 RL：生成 rollout、打分、训练三段，生成 602 s、打分 72 s、训练 136 s](/img/in-post/rl-step-anatomy-three-jobs.svg){: style="max-height: 420px}
+![一步 RL：生成 rollout、打分、训练三段，生成 602 s、打分 72 s、训练 136 s](/img/in-post/rl-step-anatomy-three-jobs.svg){: style="max-height: 420px"}
 
 <aside class="notes" markdown="1">
 原文 /rl-step-anatomy-rollout-reward-train.html。每 token 约 12N_a；一步 6.8 EFLOP；KV 9.3 TB、分 1.4 波；decode 步 ≈ 36 ms。
@@ -79,6 +83,7 @@ flowchart TB
 <aside class="notes" markdown="1">
 原文 /rl-system-topologies-colocate-disaggregate-async.html。
 结论原文：**同步分离比共置更差**（两池轮流、任一时刻只有一个池在干活）；**异步 ≈ 共置 − 长尾**；共置对长尾线性敏感、异步不敏感；rollout : train **按时间配**不按 FLOP，异步 2 : 1。
+另一条值得单独说的：off-policy 的账在「让两池重叠」这一步就已经记下了，不是异步才有的代价——一步流水就已经是过期一步。异步做的只是把过期量从固定的 1 步变成可调的 k 步并把它控制住。
 </aside>
 
 <!-- v -->
@@ -282,9 +287,35 @@ flowchart LR
 <!-- v -->
 
 
-### 常见误区
+### 四样东西事后补不上
 
-- 「reward 为 0 就是环境出错」——0 是合法 reward；服务应返回错误码，reward 按源分组监控
+| 事后能补 | 事后补不上 |
+|---|---|
+| 三段时间、全步 MFU、淘汰计数、沙箱容器数、每实例 token/s、显存 reserved | 样本的生成版本号、采样时的 logprob、staleness 分布、reward 的数据源标签 |
+
+**右边四样正好对应要区分的四个原因——所以「开训前采集」是数据结构设计。**
+
+<aside class="notes" markdown="1">
+左边都是计时器与计数器，加上就有；右边四样只在产生的那一刻存在，而且必须存进数据结构（样本里、数据集里）——样本结构里少一个字段，排障路径就少一条。
+
+另一个误区：「reward 为 0 就是环境出错」——0 是合法 reward；服务应返回错误码，reward 按源分组监控。
+
+---
+
+## 每个对象活多久：只有四档
+
+| 寿命 | 住着什么 |
+|---|---|
+| 整个作业 | 训练状态、两份权重副本、参考模型、KV 池、常驻的 CUDA Graph 与 NCCL 缓冲、pinned 副本 |
+| 一波 rollout | 在飞请求与它们的 KV |
+| 一步 | 回答 token、三到四份 logprob、样本 batch |
+| 一次同步之内 | 完整张量、bucket、量化 scale、IPC handle |
+
+**跨档的只有三个：在飞轨迹、缓冲里的样本、上一版快照——正好是 checkpoint 要多存的三样。**
+
+<aside class="notes" markdown="1">
+全系列对象总表见系列总结第三章。另外三条读法：「在哪一侧」只有五个取值（训练侧、推理侧、CPU 内存、CPU 集群、持久存储）；同一个模型的权重在系统里同时存在四到五份（训练分片、推理副本、参考模型、offload 的那份，开 decoupled 或增量同步时还有上一版快照）；每步真正在动的只有三行——训练状态换手、新权重覆写推理副本、样本进出缓冲。
+</aside>
 
 ---
 
