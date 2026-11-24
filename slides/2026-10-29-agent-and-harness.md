@@ -290,9 +290,9 @@ flowchart TB
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 flowchart TB
     H["harness 五组件：循环 · 工具协议 · 运行时 · 上下文管理 · 权限沙箱"]
-    H --> C1["<b>Codex</b>（Rust）<br/>单核工作区 · 状态在对象 · 策略语言"]
-    H --> C2["<b>DeepSeek Harness</b>（TS）<br/>一切插件 · 日志即状态"]
-    C1 --> C3["<b>Claude Code</b>（TS，闭源）<br/>Agent SDK · 模式审批 · auto-compact"]
+    H --> C1["<b>Codex（Rust）</b><br/>单核工作区 · 状态在对象 · 策略语言"]
+    H --> C2["<b>DeepSeek Harness（TS）</b><br/>一切插件 · 日志即状态"]
+    C1 --> C3["<b>Claude Code（TS，闭源）</b><br/>Agent SDK · 模式审批 · auto-compact"]
     C2 --> C4["<b>OpenHarness</b><br/>Claude Code 的开源复刻"]
 
 ```
