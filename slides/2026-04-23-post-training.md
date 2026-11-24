@@ -144,10 +144,10 @@ flowchart LR
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 200}}}%%
 flowchart LR
-    X["一批 prompt"] --> POL["<b>策略 π_θ</b>（推理引擎里）<br/>rollout 1 条（PPO）或 G 条（GRPO）"]
-    POL --> RM["<b>奖励模型</b><br/>每条一个标量"] & REF["<b>参考 π_ref</b><br/>每 token log π_ref"] & V["<b>价值模型</b>（仅 PPO）<br/>逐 token GAE"]
+    X["一批 prompt"] --> POL["<b>策略 π_θ（推理引擎里）</b><br/>rollout 1 条（PPO）或 G 条（GRPO）"]
+    POL --> RM["<b>奖励模型</b><br/>每条一个标量"] & REF["<b>参考 π_ref</b><br/>每 token log π_ref"] & V["<b>价值模型（仅 PPO）</b><br/>逐 token GAE"]
     RM & REF --> SH["r_T − β·KL<br/>GRPO：组内 (r − mean)/std"]
-    SH & V --> UPD["<b>更新 π_θ</b>（训练器里）<br/>clip 目标 + KL 项"]
+    SH & V --> UPD["<b>更新 π_θ（训练器里）</b><br/>clip 目标 + KL 项"]
     UPD -- "同步权重" --> POL
     classDef model fill:#fff7e0,stroke:#c98a00,stroke-width:2px
     classDef ppo fill:#fff7e0,stroke:#c98a00,stroke-width:2px,stroke-dasharray:5 3
