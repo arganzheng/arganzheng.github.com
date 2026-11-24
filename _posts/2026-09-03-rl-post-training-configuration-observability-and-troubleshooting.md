@@ -8,9 +8,16 @@ catalog: true
 updated: 2026-11-13
 ---
 
-凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO，128 张卡，`separate_async`。可能的原因至少四个：staleness 涨了（回答变长、同步没跟上）；训推不一致变大了（某个实例的 vLLM 在上一次弹性扩容后版本不同）；某个沙箱池挂了、它上面的任务 reward 全是零；上一次权重同步漏了一部分参数（一个实例的 `update_weights` 超时，版本号却推进了）。它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
+凌晨两点，告警：reward 曲线从上升变成平台，步时间没变，日志里没有报错。这一步是训到第 400 步的 32B 推理模型 GRPO，128 张卡，`separate_async`。可能的原因至少四个：
 
-前七篇建立了账（第一篇）、形态（第二篇）、四个机制（第三到六篇）、代码（第七篇）。这一篇把它们变成两件可以照着做的事：**开训前**——给定模型、GPU 数、任务形态，按固定顺序推出系统形态、配比、两套并行配置、同步方式与异步参数，算出全步 MFU 的预期值并逐项拆解损失，为 RL 特有的状态设计 checkpoint，决定要不要为确定性付吞吐的代价，列出必须采集的指标；**开训后**——一张故障表，每一类只有 RL 系统才有的故障（跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏、Ray 对象存储溢出）的信号与排查路径，以及回到开头那十分钟的决策树。末尾是引擎对平台的要求，和全系列的总结。
+1. **staleness 涨了**：回答变长、同步没跟上；
+2. **训推不一致变大了**：某个实例的 vLLM 在上一次弹性扩容后版本不同；
+3. **某个沙箱池挂了**：它上面的任务 reward 全是零；
+4. **上一次权重同步漏了一部分参数**：一个实例的 `update_weights` 超时，版本号却推进了。
+
+它们在 reward 曲线上长得一样。十分钟内区分它们，靠的不是这十分钟里的机智，是开训前采集了哪些信号——这是本系列最后一篇的主题。
+
+前七篇建立了账（[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)）、形态（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)）、四个机制（[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)到[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)）、代码（[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)）。这一篇把它们变成两件可以照着做的事：**开训前**——给定模型、GPU 数、任务形态，按固定顺序推出系统形态、配比、两套并行配置、同步方式与异步参数，算出全步 MFU 的预期值并逐项拆解损失，为 RL 特有的状态设计 checkpoint，决定要不要为确定性付吞吐的代价，列出必须采集的指标；**开训后**——一张故障表，每一类只有 RL 系统才有的故障（跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏、Ray 对象存储溢出）的信号与排查路径，以及回到开头那十分钟的决策树。末尾是引擎对平台的要求，和全系列的总结。
 
 本篇的核心问题：
 
@@ -21,16 +28,15 @@ updated: 2026-11-13
 ## 一、总览
 
 ```mermaid
-%% 图：reward 曲线变平台时先看的四个信号
 %%{init: {"flowchart": {"wrappingWidth": 400}}}%%
+%% 图：reward 曲线变平台时先看的四个信号
 flowchart TB
     A["凌晨两点：reward 曲线变平台，步时间没变，日志没报错"] --> Q{"先看哪个信号？"}
-    Q --> S1["staleness 分布：版本差涨了？→ 回答变长、同步没跟上（第五篇）"]
-    S1 --> S2["训推 logprob 差：涨了？→ 引擎与训练器的数值不一致（第五篇）"]
+    Q --> S1["staleness 分布：版本差涨了？→ 回答变长、同步没跟上（《异步与 off-policy》）"]
+    S1 --> S2["训推 logprob 差：涨了？→ 引擎与训练器的数值不一致（《异步与 off-policy》）"]
     S2 --> S3["reward 分布：全对或全错的 prompt 比例？→ 组内没有梯度（GRPO 的方差为零）"]
     S3 --> S4["长尾：最长回答 / 平均回答？→ 一步的墙钟被几条轨迹拖着（第一、六篇）"]
     S4 --> D["这些指标要<b>提前</b>记：出事时才想加就晚了——第六章列全步 MFU 之外该看的每个数"]
-
 ```
 
 
@@ -51,7 +57,14 @@ Table: 那十分钟：四个原因、四个信号、四个动作
 
 ② 要和该实例应到达的同步版本比，不是直接和仍在更新的训练器比。版本号正常也不能证明参数完整：第七章④的静默错误还要靠同步校验或固定 prompt 对比排除。④ 的整体分布与淘汰样本指标也要分开看，`wait` 不会产生过期淘汰指标；口径见 verl v0.9.0 的 [`ReplayBuffer._evict_terminal_groups` 与 `ReplayBufferAsync._stale_terminal_keys`](https://github.com/volcengine/verl/blob/v0.9.0/verl/trainer/ppo/v1/replay_buffer.py)。
 
-四条都要在**开训前**接进面板：① 需要 reward 带数据源标签、按源聚合；② 需要每个实例暴露版本号；③ 需要同步形态下就开着 `rollout_probs_diff`（第五篇）；④ 需要 staleness 与长度分布逐步记录。缺任何一条，那十分钟就变成一个小时。
+四条都要在**开训前**接进面板：
+
+1. ① 需要 reward 带数据源标签、按源聚合；
+2. ② 需要每个实例暴露版本号；
+3. ③ 需要在同步形态下就开着 `rollout_probs_diff`（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）；
+4. ④ 需要 staleness 与长度分布逐步记录。
+
+缺任何一条，那十分钟就变成一个小时。
 
 ### 2. 配置与运维的分工
 
@@ -65,7 +78,33 @@ Table: 那十分钟：四个原因、四个信号、四个动作
 
 Table: 配置（开训前）与运维（开训后）的分工
 
-### 3. 本文的章节安排
+### 3. 哪些数事后补不上
+
+上一节说「缺任何一条，那十分钟就变成一个小时」，但这句话对不同的指标并不同样成立。下面这张表按**能不能事后补**把要看的数分成两类——这一列才是「开训前」这三个字真正的分量所在：
+
+| 要看的数 | 谁产生 | 在哪一侧 | 能不能事后补 | 不采的后果 |
+|---|---|---|---|---|
+| 三段时间（`timing_s/gen`、`old_log_prob`、`update_actor`） | driver 的计时器 | driver | 能，加上就有 | 全步 MFU 拆不出损失在哪一项 |
+| 全步 MFU | driver 按总 FLOP ÷（卡数 × 峰值 × 墙钟）算 | driver | 能 | 只能看绝对值，看不出与预期的差 |
+| **每条样本的生成版本号** | 推理 server 的 `global_steps`，随样本走 | 产生在推理 server，必须存进样本 | **不能**——那一刻没记就永远没有 | staleness 算不出来，四个原因的第一个直接变成不可观测 |
+| **采样时的逐 token logprob** | 推理引擎算 logits 时顺手得到 | 产生在推理 server，必须存进样本 | **不能** | `rollout_probs_diff` 无从计算，训推不一致无法判断（故障 ⑤） |
+| **staleness 分布** | `ReplayBuffer`，要上面两个版本号都在 | driver | **不能** | 异步的第一类原因看不见 |
+| **reward 的数据源标签** | 数据侧打上，奖励服务带回 | 产生在数据侧 | **不能**——标签要在数据进来时就打 | 某个沙箱池挂了看不出，只看到总 reward 变平（故障 ⑪） |
+| 每个实例当前的 `global_steps` | 推理 server 自己暴露 | 推理 server | 当前值能，历史趋势不能 | 版本漂移发现得晚（故障 ⑨） |
+| 四类淘汰计数 | `ReplayBuffer` 分别累加 | driver | 能 | 分不清有效 batch 变小是谁筛的（故障 ⑫） |
+| 活跃沙箱容器数与租约年龄 | 沙箱服务或平台 | CPU 集群 | 能 | 沙箱泄漏要等到集群耗尽才发现（故障 ⑥） |
+| 每实例 token/s 与 `response_length` 的 p50 / p99 | 推理 server | 推理 server | 能 | 长尾突增分不清是模型变了还是某台机器慢（故障 ⑬） |
+| `reserved` 与 `allocated` 显存 | 各 worker | 训练与推理 worker | 能 | 碎片累积型 OOM 事前没有预警（故障 ⑭） |
+
+Table: 要看的十一个数：谁产生、在哪一侧、能不能事后补、不采的后果
+
+三条结论：
+
+1. **只有四样东西事后补不上**：样本的生成版本号、采样时的 logprob、staleness 分布、reward 的数据源标签。它们的共同点是都只在产生的那一刻存在，而且都必须**存进数据结构**（样本里、数据集里），不是加一个计时器就能有的。
+2. **而这四样正好对应那十分钟里要区分的四个原因**。所以「开训前采集」这件事不是运维阶段的清单，是数据结构设计：样本结构里少一个字段，排障路径就少一条。
+3. **其余七行只要面板上有就行**，它们对应的是故障表里 ⑥ ⑨ ⑫ ⑬ ⑭ 那几类**单调变化型**故障——看趋势而不是看阈值，所以补上就能用，不需要重跑。
+
+### 4. 本文的章节安排
 
 | 章 | 内容 |
 |---|---|
@@ -87,12 +126,12 @@ Table: 本文的章节安排
 
 | 步 | 输入 | 输出 | 依据 |
 |---|---|---|---|
-| 1 | 模型规格 · B / G / P / L̄ / L_max · 卡数 · 任务形态 | 三段时间 T_thr / T_tail / T_fwd / T_train · KV 与并发 · 长尾占比 f | 第一篇的账 |
+| 1 | 模型规格 · B / G / P / L̄ / L_max · 卡数 · 任务形态 | 三段时间 T_thr / T_tail / T_fwd / T_train · KV 与并发 · 长尾占比 f | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的账 |
 | 2 | f · 卡数 · 模型大小 · 是否 Agent | 形态（sync / colocate_async / separate_async）· 配比 n_r : n_t · 沙箱数 | 第二、六篇 |
-| 3 | 模型大小 · n_t · 序列长度 | 训练侧：FSDP 或 Megatron<br/>TP / PP / EP / CP<br/>offload<br/>动态 token batch | 大规模训练系列 + 第三篇 |
-| 4 | 模型大小 · n_r · L_max · 并发目标 | 推理侧：TP / EP / DP 实例数<br/>gpu_memory_utilization<br/>max_num_seqs<br/>CUDA graph 尺寸<br/>dtype | 推理系列 + 第三篇 |
-| 5 | 形态 · 模型大小 · 训练后端 | 同步后端：naive / nccl / nixl / delta_sharded<br/>bucket<br/>量化传输<br/>LoRA 只传 adapter | 第四篇 |
-| 6 | 形态 · T_sync · T_mb | 异步参数：parameter_sync_step · max_off_policy_threshold · drop / wait · warmup · gen_batch_size · rollout_correction | 第五篇 |
+| 3 | 模型大小 · n_t · 序列长度 | 训练侧：FSDP 或 Megatron<br/>TP / PP / EP / CP<br/>offload<br/>动态 token batch | [《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html) + [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| 4 | 模型大小 · n_r · L_max · 并发目标 | 推理侧：TP / EP / DP 实例数<br/>gpu_memory_utilization<br/>max_num_seqs<br/>CUDA graph 尺寸<br/>dtype | [《大模型推理系统揭秘》](/deep-dive-into-vllm.html) + [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| 5 | 形态 · 模型大小 · 训练后端 | 同步后端：naive / nccl / nixl / delta_sharded<br/>bucket<br/>量化传输<br/>LoRA 只传 adapter | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| 6 | 形态 · T_sync · T_mb | 异步参数：parameter_sync_step · max_off_policy_threshold · drop / wait · warmup · gen_batch_size · rollout_correction | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
 
 Table: 从账推配置的六步：输入、输出与依据
 
@@ -195,7 +234,7 @@ DeepSeek-V3 规格，$$B = 512$$、$$G = 16$$、$$P = 1\text{K}$$、$$\bar L = 8
 
 Table: 训练侧与推理侧并行配置的选法
 
-两边的 TP / EP 不同是权重同步布局映射的来源（第四篇）；两边都要 EP 的 MoE 是最复杂的组合。
+两边的 TP / EP 不同是权重同步布局映射的来源（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)）；两边都要 EP 的 MoE 是最复杂的组合。
 
 ## 三、全步 MFU
 
@@ -203,7 +242,7 @@ Table: 训练侧与推理侧并行配置的选法
 
 $$U = \frac{\sum_{\text{三段}} \text{FLOP}}{n_{\text{全部 GPU}} \cdot F_{peak} \cdot T_{step}}$$
 
-分子是一步的全部有用 FLOP（生成 + 前向 + 训练，第一篇的 12N × token 数），分母是**全部** GPU（rollout 池 + 训练池 + RM 池）× 峰值 × 墙钟。它是整个 RL 步的利用率，与训练侧的 MFU（40% 上下）、decode 的 MFU（个位数）都不是一回事——**它才是要优化的数字**，而且它的理论上限本来就低（第一篇：13% 上限的配置很常见），所以看它的绝对值意义不大，看**它与预期值的差**、以及**差拆到哪几项**才有意义。
+分子是一步的全部有用 FLOP（生成 + 前向 + 训练，[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的 12N × token 数），分母是**全部** GPU（rollout 池 + 训练池 + RM 池）× 峰值 × 墙钟。它是整个 RL 步的利用率，与训练侧的 MFU（40% 上下）、decode 的 MFU（个位数）都不是一回事——**它才是要优化的数字**，而且它的理论上限本来就低（[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)：13% 上限的配置很常见），所以看它的绝对值意义不大，看**它与预期值的差**、以及**差拆到哪几项**才有意义。
 
 verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它的原料；`separate_async` 的 `_get_n_gpus_for_throughput` 把 standalone rollout 卡数也算进分母（否则会高估）。
 
@@ -218,7 +257,7 @@ verl 的 `perf/throughput`（token / 秒 / GPU）与 `perf/time_per_step` 是它
 | 峰值起点 | 100% | 全部卡全程按峰值算 | — |
 | decode 是 memory-bound | −48.1 个百分点 | `406 × (1 − 0.04) / 810` | 结构性，只能靠更大的 c / 更好的 kernel / MLA / FP8 缩短这段 |
 | 长尾 | −24.2 个百分点 | `196 / 810`：几条序列占着 64 张卡，近似空转 | 第二、五篇：`colocate_async` / `separate_async` / 部分 rollout |
-| 前向与训练未达峰值 | −14.5 个百分点 | `[72 × (1 − 0.5) + 136 × (1 − 0.4)] / 810` | 大规模训练系列的调优 |
+| 前向与训练未达峰值 | −14.5 个百分点 | `[72 × (1 − 0.5) + 136 × (1 − 0.4)] / 810` | [《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)的调优 |
 | 切换 + 同步 | 约 −0.1 个百分点 | 第三、四篇的亚秒级开销；810 s 已取整，这里只记量级 | 几乎不值得优化 |
 | 模型估算的上限 | ≈ 13% | `100 − 48.1 − 24.2 − 14.5 − 0.1 ≈ 13.1` | 再减实际运行的开销 |
 
@@ -226,7 +265,7 @@ Table: 8B 推理场景的 MFU 损失分解
 
 再减：Python / 调度开销、TransferQueue 读写、reward 计算等待、验证（`test_freq`）、checkpoint 保存……实测常在 8–10%。
 
-同一配置换 `separate_async`（42 : 22）：长尾等待项归零，用第二篇的 619 s 墙钟重算，`6.80e18 / (64 × 989e12 × 619) ≈ 17%`。训练池还包含 MFU 50% 的前向，不能只拿训练段的 40% 当整池 MFU 来加权。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
+同一配置换 `separate_async`（42 : 22）：长尾等待项归零，用[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的 619 s 墙钟重算，`6.80e18 / (64 × 989e12 × 619) ≈ 17%`。训练池还包含 MFU 50% 的前向，不能只拿训练段的 40% 当整池 MFU 来加权。**先砍长尾（一档形态），再看 decode 的 c（gpu_memory_utilization、FP8、TP），最后才是训练 MFU**——与预训练的优化顺序相反。
 
 ### 3. 三个容易高估的地方
 
@@ -266,7 +305,7 @@ verl 的做法（`_save_checkpoint` / `_load_checkpoint` / `_reissue_inflight_pr
 
 Table: 频率与代价
 
-大模型的 checkpoint 要**异步**（先拷到 CPU pinned 内存、后台写盘，训练继续）——verl 的 checkpoint 管理器（0.9 重写，YAML 配置）支持；`save_lora_only` 让 LoRA 训练只存 adapter。异步保存与第三篇的 offload、第五篇的 decoupled 快照三者都要 pinned 内存，要一起算。
+大模型的 checkpoint 要**异步**（先拷到 CPU pinned 内存、后台写盘，训练继续）——verl 的 checkpoint 管理器（0.9 重写，YAML 配置）支持；`save_lora_only` 让 LoRA 训练只存 adapter。异步保存与[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)的 offload、[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的 decoupled 快照三者都要 pinned 内存，要一起算。
 
 ### 3. 恢复语义
 
@@ -299,6 +338,10 @@ Table: 四种模式的恢复语义
 
 Table: 随机性的来源
 
+> [!NOTE] Java 经验参照：固定种子不够
+>
+> 「想复现就把随机种子固定住」——这条经验在 Java 里基本够用：种子定了、并发关了，两次运行给出同一个结果。这里不够，上面那张表里固定种子只消掉了第一行。剩下的随机性来自两处 Java 没有的地方：一是 GPU kernel 的浮点归约顺序（atomics、split-K）本身不保证可重复，二是**同一条序列在不同 batch 里会算出不同的 logits**——于是「两次运行一致」要连 batch 的组成都固定下来，而 RL 的 batch 组成取决于哪些轨迹先写完。所以确定性在这里不是一个开关，而是一笔要付吞吐的交易（训练慢 10–30%，`full_determinism` 还要求 `use_v1=false`）。
+
 ### 3. verl 的 `full_determinism`
 
 `docs/advance/determinism.md`：
@@ -317,7 +360,7 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
 
 ### 4. 部分确定性
 
-生产上退一步也有价值：固定采样种子 + 确定性训练算法（不管完成顺序）不能 bitwise 对齐，但能让两次运行的差异缩到"只来自 batch 组成"——足以区分"配置的作用"与"运气"的大部分情形。`rollout_probs_diff` 在确定性开启时应接近纯精度差（$$10^{-3}$$），它同时是训推不一致的基线（第五篇）。
+生产上退一步也有价值：固定采样种子 + 确定性训练算法（不管完成顺序）不能 bitwise 对齐，但能让两次运行的差异缩到"只来自 batch 组成"——足以区分"配置的作用"与"运气"的大部分情形。`rollout_probs_diff` 在确定性开启时应接近纯精度差（$$10^{-3}$$），它同时是训推不一致的基线（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）。
 
 ## 六、可观测
 
@@ -325,29 +368,29 @@ trainer.use_v1: false     # 必须：v1 按完成顺序收样本，跨运行不�
 
 按前七篇的顺序，每篇一组；括号里是 verl 现成的名字，没有的要自己加：
 
-- **第一篇 · 三段时间与吞吐**
+- **[《负载画像》](/rl-step-anatomy-rollout-reward-train.html) · 三段时间与吞吐**
   - timing_s/{gen, reward, old_log_prob, ref, adv, update_actor, update_weights, save_checkpoint, testing}
   - perf/total_num_tokens · perf/time_per_step · perf/throughput（含全部 GPU 的分母）· 全步 MFU（自算）
   - response_length/{mean, max, min, clip_ratio}（打满 L_max 的比例）· prompt_length/*
   - → 告警：response_length/mean 单步涨 > 20%；clip_ratio > 0.2（大量打满：L_max 设小了或模型在刷长度）
-- **第二篇 · 形态与配比**
+- **[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html) · 形态与配比**
   - trainer/idle_ratio · rollouter/idle_ratio（fully_async 的名字；v1 里用 gen 段等待时间 / 步时间近似）
   - 每个 rollout 实例的在飞请求数 · 每实例 token/s
   - → 告警：一侧 idle > 30% 持续 10 步 → 配比漂了
-- **第三篇 · 显存**
+- **[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) · 显存**
   - 每卡 memory_allocated / reserved 在 "Before resume weights / After update_weights / After resume kv_cache" 三点
   - vLLM 的 kv_cache_usage_perc · num_preemptions（KV 池不够时的抢占）
   - → 告警：reserved − allocated 持续增长（碎片）；preemption > 0
-- **第四篇 · 同步**
+- **[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) · 同步**
   - timing_s/update_weights · 传输字节 · 每实例 global_steps（版本）· delta 的 changed_ratio 与校验失败数
   - → 告警：任一实例版本落后 ≥ 1；同步耗时 > 步时间 10%
-- **第五篇 · off-policy**
+- **[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) · off-policy**
   - training/off_policy/evicted_samples · evicted_samples_staleness/{mean, max} · staleness 直方图（自加）
   - training/rollout_probs_diff_{mean, max, std}
   - actor/pg_clipfrac · actor/ppo_kl · rollout_correction 的 IS 权重统计与 mask 比例
   - 被训练样本长度 vs 生成样本长度（自加）· DAPO filtered 计数 · failure 组计数
   - → 告警：probs_diff_max 出现 > 1 的尖峰；staleness mean 超阈值一半；clipfrac 比基线翻倍
-- **第六篇 · 环境**
+- **[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) · 环境**
   - 每轮环境耗时分布（p50 / p99）· 轨迹轮数分布 · 沙箱队列深度 · 容器启动时间 · 执行超时率 · 失败率 · 活跃容器数 vs 上限
   - 按数据源分组的 reward（自加，最重要的一个）· reward 为 0 的比例按源
   - 前缀缓存命中率（vllm:prefix_cache_hits / queries）
@@ -366,7 +409,7 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 
 - **rollout trace**（`docs/advance/rollout_trace.rst`）：每条轨迹的每一轮——请求、响应、工具调用、耗时——落成可检索的记录（verl 支持 wandb weave / mlflow 一类的 trace 后端）。reward 异常时抽几条看轨迹，比任何聚合指标都快。
 - **`log_gpu_memory_usage`** 打开（`VERL_LOGGING_LEVEL=DEBUG`）：切换路径上每个点的显存。
-- **Ray timeline**（`ray_kwargs.timeline_json_file`）与 torch profiler（`global_profiler.steps`）：一步的时间线对到函数——第七篇的实践建议。
+- **Ray timeline**（`ray_kwargs.timeline_json_file`）与 torch profiler（`global_profiler.steps`）：一步的时间线对到函数——[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)的实践建议。
 
 ## 七、常见故障
 
@@ -380,7 +423,7 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 | ② 同步中途 OOM | update_weights 期间 OOM，训练与生成单独都不 OOM | 峰值 = 训练器 bf16 分片 + 推理权重区域 + 2 bucket + 一个完整参数（MoE 专家堆叠几 GB）+ caching allocator 保留段；expandable_segments 没关 | 缩 bucket<br/>确认 aggressive_empty_cache 与 set_expandable_segments(False) 在 resume 之前<br/>layered_summon=True（逐层 gather）<br/>MoE 大张量走 split_weight_chunks |
 | ③ 第 N 步才 OOM | 前几十步正常，回答变长后 OOM | dynamic bsz 的 token 上限没随长度调<br/>KV 池碎片<br/>激活峰值随最长序列涨 | ppo_max_token_len_per_gpu 留余量<br/>L_max 设硬上限<br/>response_length/max 告警 |
 | ④ sleep / wake 后静默错误 | reward 骤降到随机水平但无报错；greedy 输出乱码 | fp8 KV 的 scale 没重置、named_buffers 没恢复、MTP 草稿权重 level 2 后丢失、量化 scale 漏传、tied embedding 只更新一处 | 同步后用固定 prompt greedy 生成与训练器前向 argmax 对比（开训前就做一次）；slime 的 check_weight_update_equal 思路 |
-| ⑤ 训推差异 → NaN / reward 崩塌 | rollout_probs_diff_max 尖峰 → 几步后 pg_loss NaN 或 reward 掉到 0 | FP8 推理 + bf16 训练<br/>MoE 路由翻转<br/>采样 logprob 取错（温度前 / 后）<br/>chat template 不一致（Agent） | 开 TIS / MIS<br/>MoE 开 router replay<br/>核对 logprob 定义<br/>token 连续性检查（第六篇） |
+| ⑤ 训推差异 → NaN / reward 崩塌 | rollout_probs_diff_max 尖峰 → 几步后 pg_loss NaN 或 reward 掉到 0 | FP8 推理 + bf16 训练<br/>MoE 路由翻转<br/>采样 logprob 取错（温度前 / 后）<br/>chat template 不一致（Agent） | 开 TIS / MIS<br/>MoE 开 router replay<br/>核对 logprob 定义<br/>token 连续性检查（[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)） |
 | ⑥ 沙箱泄漏 | 活跃容器数单调上升<br/>CPU 集群逐渐耗尽<br/>新轨迹排队 | abort / 超时 / 异常路径没调 tool.release<br/>容器的子进程未回收<br/>镜像层堆积 | release 放 finally<br/>沙箱服务侧按轨迹 id 做租约（TTL）<br/>定期 GC 孤儿容器 |
 | ⑦ Ray 对象存储溢出 / spill | driver 内存涨<br/>日志 "object store is full"<br/>步时间逐渐变长 | v0 路径 DataProto 经 driver<br/>validation 的大 batch<br/>日志里存了整批 generations | 用 v1（TransferQueue）<br/>rollout_data_dir 分步落盘<br/>val batch 分块 |
 | ⑧ 缓冲永远填不满 | gen 段一直等<br/>缓冲深度不涨<br/>无报错 | 某些 prompt 卡在 running（一条 session 死在环境里）→ 组不终态<br/>DAPO 过滤淘汰过多、补发跟不上<br/>agent loop worker 协程数不够 | 轨迹级超时<br/>看 TransferQueue 里 running 状态的年龄<br/>filtered 计数<br/>加 agent.num_workers |
@@ -389,9 +432,13 @@ verl 0.9 的两条现成路径：`trainer.logger` 加 `rl_insight` 并设 `RL_IN
 | ⑪ reward 全零（某源） | 按源分组的 reward 某一源掉到 0，其他正常 | 该源的沙箱池 / 验证服务挂了<br/>镜像拉取失败<br/>某工具的 API 配额用尽 | 源级告警；reward 服务返回错误码而不是 0（0 是合法 reward，不能当错误用） |
 | ⑫ DAPO 过滤饥饿 | filtered 计数 / 步单调上升<br/>有效 batch 变小<br/>生成负担涨 | 模型变强、全对率升 | 调过滤阈值<br/>课程（换更难的数据）<br/>把过滤比例做成指标 |
 | ⑬ 长尾突增 | timing_s/gen 单步翻倍；response_length/max 打满 | 模型学到"越长越好"<br/>某实例慢（网卡 / 降频）<br/>L_max 太大 | clip_ratio 告警<br/>每实例 token/s<br/>部分 rollout |
-| ⑭ 显存碎片累积 | reserved 涨、allocated 不涨；几十步后 OOM | 两个 allocator 交替；expandable_segments 开关时机错 | 步末 empty_cache；核对开关顺序（第三篇） |
+| ⑭ 显存碎片累积 | reserved 涨、allocated 不涨；几十步后 OOM | 两个 allocator 交替；expandable_segments 开关时机错 | 步末 empty_cache；核对开关顺序（[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)） |
 
 Table: RL 系统特有的故障：信号、原因与排查
+
+> [!NOTE] Java 经验参照：集合通信挂住不是死锁，但更难看
+>
+> 故障 ① 的形状很像死锁：两个参与方各等对方，整体静默停住。但 Java 的死锁有工具兜着——`jstack` 一打就能看到两个线程各持一把锁等对方，JVM 甚至会在输出里直接写 "Found one Java-level deadlock"，因为锁的持有者和等待者都登记在运行时里。集合通信没有这样的登记：它要求组里每个 rank 都到场，而「谁没到」这件事没有任何一方知道——`py-spy` 打出来的是每个 rank 各自停在哪个 collective 上，看不出谁在等谁。所以这一类故障的排查方式是**对账**（比较各 rank 分别进到了哪一次 collective，找出那个根本没进来的），而不是读栈；而且要先靠 `nccl_timeout` 把静默挂住变成一个报错，否则连「出事了」都是靠步时间不动看出来的。
 
 ### 2. 排查的一般顺序
 
