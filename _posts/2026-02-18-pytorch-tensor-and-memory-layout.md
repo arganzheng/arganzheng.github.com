@@ -40,8 +40,8 @@ flowchart TB
     PY["<b>Python 的 torch.Tensor 对象</b><br/>名字 x、y 各绑定一个，本身只是句柄"]
     TA["<b>TensorImpl（x）</b><br/>sizes、strides、storage_offset（第三、四章）<br/>dtype（第八章）、device（第九章）<br/>Autograd 元数据与版本计数（第十章）"]
     TV["<b>TensorImpl（y = x.t()）</b><br/>自己的一套 sizes、strides、storage_offset"]
-    ST["<b>StorageImpl</b>（第七章）<br/>数据指针、字节数、Allocator<br/>x 与 y 共同持有"]
-    MEM["<b>设备内存</b>（第九、十二章）<br/>CPU 内存，或缓存分配器管理的显存"]
+    ST["<b>StorageImpl（第七章）</b><br/>数据指针、字节数、Allocator<br/>x 与 y 共同持有"]
+    MEM["<b>设备内存（第九、十二章）</b><br/>CPU 内存，或缓存分配器管理的显存"]
     OPV["<b>只改元数据的操作</b><br/>view、transpose、permute、切片、expand<br/>（第三、五、十一章）"]
     OPC["<b>产生新数据的操作</b><br/>clone、不连续时的 contiguous、<br/>改 dtype 或 device 的 .to()<br/>（第六、八、九章）"]
 
