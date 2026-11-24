@@ -468,6 +468,22 @@ flowchart LR
 
 <!-- v -->
 
+### 谁能看见：两道边界各削掉什么
+
+| 边界 | 过界前有什么 | 过界后只剩什么 |
+|---|---|---|
+| API Server → 引擎 | 原始 messages、工具定义、文本 | 一串 token id 加采样参数 |
+| 调度器 → Worker | 块对象、引用计数、块哈希、队列顺序 | 整数块号与「这一步推进几个 token」 |
+
+**可见性边界就是进程边界：执行侧不知道前缀是否命中。**
+
+<aside class="notes" markdown="1">
+原文：[/vllm-request-lifecycle-overview.html#3-核心数据对象四个域](/vllm-request-lifecycle-overview.html#3-核心数据对象四个域)，以及第六章第 2 节的对象表（该表有一列专门写「谁能看见」）。执行侧也不知道谁刚被抢占，所以依赖这两件事的优化只能放在调度侧。两条推论：文本只在 API Server 进程里存在，EngineCoreProc 与 WorkerProc 完全不需要 tokenizer；`KVCacheBlock` 对象不出 EngineCore，Worker 只收到整数，所以 Prefix Cache 命中与否它完全不知情——它只是少收到几个要算的 token。这一条也是《vLLM 与 SGLang》里最底层那处差异的来源：SGLang 的调度器与执行同进程，调度与执行看到同一棵基数树，于是「按命中情况在执行侧做优化」这件事在 SGLang 里是可能的，在 vLLM 里不可能。
+
+</aside>
+
+<!-- v -->
+
 ### 控制面开销：一步 decode 里 Python 占多少
 
 ![单次 Decode 迭代：Python 控制面与 GPU 数据面](/img/in-post/source-code-request-walkthrough-decode-iteration-timeline.svg){: style="max-height: 420px"}
@@ -550,7 +566,7 @@ flowchart TB
 ![KV Cache 从 Prefill 写入、Decode 追加到完成或抢占归还的生命周期](/img/in-post/kv-cache-memory-core-kv-cache-lifecycle.svg){: style="max-height: 400px"}
 
 <aside class="notes" markdown="1">
-原文：[/kv-cache-memory-core.html](/kv-cache-memory-core.html)。固定大小的块按需分配；请求持 block table。示例中 2,000 token 前缀对应 125 个整块，可由后续请求复用。Prefix Cache 两条容易忽略的规则：命中最多到 `num_tokens − 1`（最后一个 token 要重算出 logits，按块对齐后是最后一整块，2048 token 完全一致也只命中 127 块）；命中的块若还在空闲队列（`ref_cnt == 0`），也算进本次分配的容量，容量不够时一块都不 touch。驱逐：LRU，同一请求链尾先走，没写满的块插队首最先被分走。命中率塌掉的五种负载：前缀开头不稳定、工作集比块池大（LRU 轮转下接近零命中）、高负载、抢占与前缀无感的多实例路由、整块粒度。
+原文：[/kv-cache-memory-core.html](/kv-cache-memory-core.html)。固定大小的块按需分配；请求持 block table。示例中 2,000 token 前缀对应 125 个整块，可由后续请求复用。Prefix Cache 两条容易忽略的规则：命中最多到 `num_tokens − 1`（最后一个 token 要重算出 logits，按块对齐后是最后一整块，2048 token 完全一致也只命中 127 块）；命中的块若还在空闲队列（`ref_cnt == 0`），也算进本次分配的容量，容量不够时一块都不 touch。驱逐：LRU，同一请求链尾先走，没写满的块插队首最先被分走——驱逐发生在别人申请新块时顺手做，没有后台回收线程。顺带一个容易看错的指标：`vllm:kv_cache_usage_perc` 是「1 − 空闲队列长度 ÷ 总块数」，而空闲队列里有一大半块还装着有用的缓存，所以「用量 70%、空闲 30%」不等于「30% 是浪费」——接纳新请求取走的正是这些仍有缓存价值的块。命中率塌掉的五种负载：前缀开头不稳定、工作集比块池大（LRU 轮转下接近零命中）、高负载、抢占与前缀无感的多实例路由、整块粒度。
 </aside>
 
 <!-- v -->
@@ -1053,6 +1069,22 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 系列总结：[/deep-dive-into-vllm-series-recap-and-self-test.html](/deep-dive-into-vllm-series-recap-and-self-test.html)。《系列总结与通关自测》回顾十四篇正文并提供通关自测。
+</aside>
+
+---
+
+## 每个对象活多久：只有三档
+
+| 活多久 | 有哪些对象 |
+|---|---|
+| **整个实例** | 权重分片、KV 池、CUDA Graph 与它的固定输入 buffer、adapter 槽位、平台对象 |
+| **整个请求** | 请求对象与它在执行侧的镜像、块号列表、输出解析器的流式状态 |
+| **一步** | 调度结果、token 预算、输入张量与 slot_mapping、结构化输出的掩码 |
+
+**跨档的只有两个特例：KV 块，和 PD 分离的源块。**
+
+<aside class="notes" markdown="1">
+系列总结第三章第 2 节的全系列对象总表：[/deep-dive-into-vllm-series-recap-and-self-test.html#2-全系列的对象总表谁创建活在哪一侧活多久谁能看见](/deep-dive-into-vllm-series-recap-and-self-test.html#2-全系列的对象总表谁创建活在哪一侧活多久谁能看见)。那张表按十四篇各自的对象表合成，共 14 行，每行写明谁创建、活在哪一侧、活多久、谁能看见。两个跨档特例的细节：KV 块住在实例级的池子里，却按请求级的节奏分配与归还；PD 分离里 P 侧的源块由对端决定何时释放，比 P 侧的请求活得久。另外两条结论：显存里住着五样长期对象（权重、KV 池、CUDA Graph、adapter 槽位、激活峰值），它们互相挤占，而其中只有 KV 池是「越大越好」的，这是启动参数之间那些反直觉联动的来源；真正的 KV 张量从头到尾没动过——分页、复用、驱逐、抢占改的都是 CPU 侧那些块对象的字段和块号列表，唯一的例外是 PD 分离里跨机器的那次真实拷贝。
 </aside>
 
 ---
