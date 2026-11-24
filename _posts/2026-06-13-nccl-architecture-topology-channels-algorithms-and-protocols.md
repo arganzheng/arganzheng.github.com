@@ -642,7 +642,7 @@ Table: 七种算法各自的形状与适用范围
 
 协议决定"一个 GPU 怎么知道对端已经写完了一块数据"。三种协议是三种同步机制，代价不同。
 
-**Simple**（`src/device/prims_simple.h`）。数据和控制分离：发送方把数据写进对端 buffer 的一个 slot（512 KiB），然后**内存屏障**（`fence_acq_rel_sys`，系统范围的 acquire-release fence），再把 `tail` 计数器加一（`st_relaxed_sys_global`）。接收方轮询 `tail`（`ld_volatile_global`），看到前进了就知道整个 slot 的数据已经可见。一次同步覆盖 512 KiB，摊销后同步开销接近零，**带宽效率 ≈ 100%**。代价是那个 fence：它要等本 GPU 之前所有的写对系统可见（跨 PCIe/NVLink/网卡），在 NVLink 上是微秒级，再加上接收方轮询到 flag 的往返，是三种协议里**延迟最高**的。
+**Simple**（`src/device/prims_simple.h`）。数据和控制分离：发送方把数据写进对端 buffer 的一个 slot（512 KiB），然后**内存屏障**（`fence_acq_rel_sys`，系统范围的 acquire-release fence），再把 `tail` 计数器加一（`st_relaxed_sys_global`）。接收方轮询 `tail`（`ld_volatile_global`），看到前进了就知道整个 slot 的数据已经可见。一次同步覆盖 512 KiB，摊销后同步开销接近零，**带宽效率 ≈ 100%**。代价是那个 fence：它要等本 GPU 之前所有的写对系统可见（跨 PCIe/NVLink/网卡），在 NVLink 上是微秒级，再加上接收方轮询到 flag 的往返，是三种协议里**延迟最高**的——NCCL 自己的调优表给 NVLink 的每步延迟就是 Simple 3.4–4.0 µs 对 LL 0.6 µs（`src/graph/tuning.cc` 的 `hwLatencies`）。
 
 **LL**（Low Latency，`src/device/prims_ll.h`）。把 flag 和数据打包在一起：
 
