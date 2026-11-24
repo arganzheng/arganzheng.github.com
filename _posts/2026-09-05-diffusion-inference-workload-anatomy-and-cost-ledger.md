@@ -8,7 +8,13 @@ catalog: true
 updated: 2026-11-14
 ---
 
-一张 1024² 的图从 prompt 到像素，在 GPU 上是三段完全不同的计算：文本编码器跑一次，几百个 token、几十毫秒；去噪网络对整张 latent 做一次完整前向，重复几十步，占掉 97% 以上的时间；VAE 解码器跑一次，算力不多但显存峰值可能比前两段加起来还大。这三段各花多少 FLOP、多少字节、多少秒，是本系列后面八篇每一项优化的坐标系——不算清这张账，就不知道 TeaCache 省的是哪一项、序列并行切的是哪一项、蒸馏到 4 步改的是哪一个乘数。
+一张 1024² 的图从 prompt 到像素，在 GPU 上是三段完全不同的计算：
+
+1. **文本编码器**跑一次，几百个 token、几十毫秒；
+2. **去噪网络**对整张 latent 做一次完整前向，重复几十步，占掉 97% 以上的时间；
+3. **VAE 解码器**跑一次，算力不多，但显存峰值可能比前两段加起来还大。
+
+这三段各花多少 FLOP、多少字节、多少秒，是本系列后面八篇每一项优化的坐标系——不算清这张账，就不知道 TeaCache 省的是哪一项、序列并行切的是哪一项、蒸馏到 4 步改的是哪一个乘数。
 
 这一篇也要回答一个更根本的问题：**为什么这种负载的推理系统与 LLM 的几乎没有重叠？** 答案不在模型结构（DiT 就是 Transformer），而在一个数字：一次去噪前向的算术强度是几千 FLOP/字节，LLM decode 的是 2。前者在 batch 1 就撞上算力屋顶，后者在 batch 几十之前一直在带宽屋顶下——所有系统设计的分歧都从这里开始。
 
@@ -66,13 +72,13 @@ Table: FLUX.1-dev 一次生成三段的账
 
 - **算力全在 DiT**。文本编码器与 VAE 加起来不到 1% 的 FLOPs、3% 的时间。后面八篇的所有"加速"都是在加速 DiT 的那 28 次前向；文本编码器与 VAE 只在显存（它们的权重要不要常驻）与 VAE 解码的激活峰值上出现。
 - **一次 DiT 前向就是 compute-bound**。74 TFLOPs 除以读一遍 22 GiB 权重，算术强度 3,100 FLOP/字节，H100 的拐点是 295。不需要 batch，单请求就在算力屋顶上——这是与 LLM decode（强度 ≈ 1，batch 到约 300 才到拐点）最根本的差别。
-- **图像模型是 GEMM 负载**：4608 个 token 的 attention 只占每步 FLOPs 的 20%，其余是线性层。到视频的 75,600 个 token 时这个比例翻过来（72%），负载变成 attention 负载——第四篇的主题。
+- **图像模型是 GEMM 负载**：4608 个 token 的 attention 只占每步 FLOPs 的 20%，其余是线性层。到视频的 75,600 个 token 时这个比例翻过来（72%），负载变成 attention 负载——[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的主题。
 
 ### 2. 三本账：FLOP、字节、秒
 
-与《RL 后训练基础设施》第一篇一样，全系列用三本账记每个机制：
+与[《RL 后训练基础设施》的《负载画像》](/rl-step-anatomy-rollout-reward-train.html)一样，全系列用三本账记每个机制：
 
-| 账 | 记什么 | 第一篇给出 | 后面各篇在上面做的交换 |
+| 账 | 记什么 | 本篇给出 | 后面各篇在上面做的交换 |
 |---|---|---|---|
 | **FLOP** | 一次生成的总算量 = 三段之和；DiT 段 = 每步 FLOPs × 步数 × CFG 分支 | 每步的线性项与 attention 项 | 跨步缓存改"步数"的有效值（03）<br/>稀疏 attention 改 attention 项的系数（04）<br/>蒸馏改步数与 CFG（06） |
 | **字节** | 显存 = 权重 + 激活 + VAE 解码峰值；通信 = 多卡时每步搬的字节 | 三段的权重与激活 | offload 改权重常驻量（02）<br/>量化改权重字节数（02）<br/>并行引入通信字节（05） |
@@ -100,7 +106,33 @@ Table: 全系列的三本账
 
 Table: 记账符号与 FLUX.1-dev 的取值
 
-### 4. 本文的章节安排
+### 4. 一步里经手的东西：谁产生、谁消费、活多久
+
+上面那张三段图是一次生成的尺度，这张表是**一步**的尺度：FLUX 1024² 的某一步正在跑，从上一步交下来的 latent 到交给下一步的 latent，中间产生了哪些东西。后面八篇的每一项优化都是在动这张表里的某一行——[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)改第 6、8 行的精度，[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)让第 4 到 9 行整体不算，[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)对付第 7 行，[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)把第 4 行切到多卡。
+
+| 对象 | 形状 | 字节 | 谁产生 | 谁消费 | 活多久 |
+|---|---|---|---|---|---|
+| 1. latent $$x_t$$ | $$[16, 128, 128]$$ | 0.5 MiB | 上一步的采样器（第一步是随机噪声） | patch embed | 到下一步被覆盖 |
+| 2. 条件向量（时间步 + guidance + CLIP 池化） | $$[3072]$$ | 6 KiB | 时间步 embedder 与文本编码器 | 每层的 adaLN | 整次生成；只有时间步那一项每步变 |
+| 3. 文本 token 序列 | $$[512, 3072]$$ | 3 MiB | 文本编码器，一次生成只算一遍 | 双流块的文本流 | 整次生成 |
+| 4. 图像 token（残差流） | $$[4096, 3072]$$ | 24 MiB | patch embed | 57 层依次改写 | 一次前向 |
+| 5. 每层的 scale / shift / gate | 双流 $$2 \times 6 \times [3072]$$、单流 $$3 \times [3072]$$ | 每层 72 / 36 KiB | 该层的 adaLN 线性层 | 该层的 LayerNorm 与残差 | 该层 |
+| 6. Q / K / V | 各 $$[4608, 3072]$$ | 各 27 MiB | 该层的 QKV 投影 | FlashAttention | 该层的 attention 之内 |
+| 7. attention 分数矩阵 $$QK^\top$$ | $$[24, 4608, 4608]$$ | 0.95 GiB——**但它不存在** | FlashAttention 不物化它 | — | — |
+| 8. MLP 的中间激活 | $$[4608, 12288]$$ | 108 MiB | 该层 MLP 的升维投影 | GELU 与降维投影 | 该层 |
+| 9. 网络输出（速度预测 $$v$$） | $$[4096, 64]$$ | 0.5 MiB | 最后一层与 unpatchify | 采样器 | 一步 |
+| 10. 下一步的 latent $$x_{t-1}$$ | $$[16, 128, 128]$$ | 0.5 MiB | 采样器的 $$x + \Delta t \cdot v$$ | 下一步 | 到下一步 |
+
+Table: FLUX 1024² 一步里经手的十样东西
+
+四条读法：
+
+1. **跨步活下来的只有第 1 行和第 3 行。**第 3 行是文本编码器的输出，一次生成只算一遍；其余每一行每步从头重算。这就是"没有 KV cache"的准确含义：不是忘了做缓存，是**没有可以当键的东西**——每步的输入 $$x_t$$ 都是刚算出来的新值。
+2. **"同时活着"的峰值不在最大的那一行上。**第 4 行的残差流 24 MiB 整个前向都在，第 6、8 行各只在一层里活着。按一层里同时存活约十份 $$[N, d]$$ 张量估，峰值 270 MiB——[第五章](#五字节账权重激活与没有-kv-cache)那个数就是这么来的。
+3. **第 7 行是整张表里唯一一个"本来会有、被 kernel 消掉"的对象。**0.95 GiB 是 FLUX 一层的分数矩阵，已经是其余全部激活的三倍半；换到 Wan 的 75,600 个 token 就是一层 425 GiB。FlashAttention 在这里不是一项加速，是**让这类负载能存在的前提**。
+4. **一步的输入和输出都只有 0.5 MiB，中间却做了 74.3 TFLOPs。**这两个数之比就是"batch 为什么没用"的直观形式：GPU 不是在搬数据，是在算；再来一张 latent，74.3 T 就变成 148.6 T，时间老老实实翻倍。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -123,7 +155,7 @@ Table: 本文的章节安排
 
 **① 文本编码器。** prompt 经 tokenizer 变成几十到几百个 token，过一个预训练的文本模型，得到每个 token 的向量（$$[N_\text{txt}, d_\text{txt}]$$）与一个池化向量。这是一次普通的 encoder 前向——形态上就是 LLM 的 prefill，只是小：T5-XXL 4.7B 处理 512 个 token 约 5 TFLOPs。它的输出在整个去噪过程中不变，算一次即可。SD3 / FLUX 用 T5-XXL + CLIP，Qwen-Image 用 Qwen2.5-VL-7B，Wan 用 umT5-XXL，HunyuanVideo 用一个 MLLM——文本编码器的参数量常常与 DiT 同量级（FLUX 的 T5 是 4.7B，DiT 是 11.9B），但只跑一次，所以在 FLOP 账上可以忽略、在字节账上不能。
 
-**② 去噪网络。** 从一张标准高斯噪声 latent $$x_T$$ 出发，每一步网络接收当前的 $$x_t$$、时间步 $$t$$ 与文本条件，输出一个与 $$x_t$$ 同形状的预测（噪声 $$\epsilon$$ 或速度 $$v$$），采样器据此算出 $$x_{t-1}$$。重复 $$T$$ 步。**每一步都是对整张 latent 的一次完整前向**——没有哪一步可以只算一部分，也没有上一步的中间结果可以直接拿来用（第三篇讨论的"跨步冗余"是近似复用，不是精确复用）。这与 LLM 的 decode 形成对照：decode 每步只算一个新 token，靠 KV cache 免掉对历史 token 的重算；扩散的每步算的是全部 $$N$$ 个 token 的新值，没有"历史"可以缓存。
+**② 去噪网络。** 从一张标准高斯噪声 latent $$x_T$$ 出发，每一步网络接收当前的 $$x_t$$、时间步 $$t$$ 与文本条件，输出一个与 $$x_t$$ 同形状的预测（噪声 $$\epsilon$$ 或速度 $$v$$），采样器据此算出 $$x_{t-1}$$。重复 $$T$$ 步。**每一步都是对整张 latent 的一次完整前向**——没有哪一步可以只算一部分，也没有上一步的中间结果可以直接拿来用（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)讨论的"跨步冗余"是近似复用，不是精确复用）。这与 LLM 的 decode 形成对照：decode 每步只算一个新 token，靠 KV cache 免掉对历史 token 的重算；扩散的每步算的是全部 $$N$$ 个 token 的新值，没有"历史"可以缓存。
 
 **③ VAE 解码器。** 最终的 latent $$x_0$$（$$128 \times 128 \times 16$$）过一个卷积解码器，上采样 8 倍回到 $$1024 \times 1024 \times 3$$ 的像素。一次前向，几 TFLOPs；但卷积在全分辨率上工作，中间特征图是 $$[128, 1024, 1024]$$ 的 fp32 张量（512 MiB 一份），几份同时存活就是 GiB 级——它是三段里**显存峰值**最容易出问题的一段，尤其到视频。
 
@@ -134,9 +166,9 @@ Table: 本文的章节安排
 | 事实 | 系统含义 |
 |---|---|
 | 网络的输入与输出同形状（$$[N, c p^2]$$ 的 latent patch），每步一次完整前向 | 每步 FLOPs 相同、显存相同；步与步之间无状态可缓存 |
-| 采样沿一条平滑轨迹走，相邻步的输入与输出相似 | 第三篇：跨步缓存 |
-| 步数 $$T$$ 是采样器的参数，不是模型的：同一个模型可以跑 50 步、28 步、8 步，少了质量掉；蒸馏可以让 4 步甚至 1 步够用 | 步数是账上最大的可调乘数；第六篇 |
-| **Classifier-free guidance（CFG）**：为了让生成更遵循 prompt，每步跑两次前向——有条件的与无条件的（空 prompt）——按 $$\hat\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 合成 | 每步 FLOPs ×2<br/>两次前向可以拼成 batch 2 或放两组卡（第五篇的 CFG 并行）<br/>guidance 蒸馏（FLUX.1-dev、HunyuanVideo）把它烤进模型，$$g = 1$$ |
+| 采样沿一条平滑轨迹走，相邻步的输入与输出相似 | [《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)：跨步缓存 |
+| 步数 $$T$$ 是采样器的参数，不是模型的：同一个模型可以跑 50 步、28 步、8 步，少了质量掉；蒸馏可以让 4 步甚至 1 步够用 | 步数是账上最大的可调乘数；[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html) |
+| **Classifier-free guidance（CFG）**：为了让生成更遵循 prompt，每步跑两次前向——有条件的与无条件的（空 prompt）——按 $$\hat\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$ 合成 | 每步 FLOPs ×2<br/>两次前向可以拼成 batch 2 或放两组卡（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)的 CFG 并行）<br/>guidance 蒸馏（FLUX.1-dev、HunyuanVideo）把它烤进模型，$$g = 1$$ |
 | 采样器（DDIM、DPM-Solver、Euler for flow matching）本身的计算可忽略：对 $$[N, c p^2]$$ 做几次逐元素运算 | 不进账 |
 
 Table: 扩散推理的五个事实与系统含义
@@ -208,7 +240,7 @@ CFG 的合成同样可以手算：同一个位置条件分支预测 0.62、无�
 
 Table: FLUX.1-dev 1024² 28 步的 σ 序列（节选）
 
-偏移让开头在高噪声区多停留（前 7 步只走掉 $$\sigma$$ 的 10%），最后一步一口气走掉 0.105。每一步的 FLOPs 相同，但每一步改变 latent 的幅度不同——第三篇的跨步缓存利用的正是这种不均匀。
+偏移让开头在高噪声区多停留（前 7 步只走掉 $$\sigma$$ 的 10%），最后一步一口气走掉 0.105。每一步的 FLOPs 相同，但每一步改变 latent 的幅度不同——[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的跨步缓存利用的正是这种不均匀。
 
 **latent 怎样变成 4096 个 token。** VAE 编码出的 latent 是 $$[16, 128, 128]$$（通道 × 高 × 宽）。`_pack_latents` 把每个 $$2 \times 2$$ 的空间块的 16 个通道拼起来：`latents.view(b, 16, 64, 2, 64, 2).permute(0, 2, 4, 1, 3, 5).reshape(b, 64 * 64, 16 * 4)`——$$64 \times 64 = 4096$$ 个 token、每个 64 维（$$c p^2 = 16 \times 4$$）。网络的第一层 `x_embedder` 是一个 $$64 \to 3072$$ 的线性层，把每个 token 投到隐维度 $$d$$；最后一层 `proj_out` 再投回 64 维，所以输出与输入同形状。patch 边长 $$p = 2$$ 就是这里的"2 × 2"。
 
@@ -266,7 +298,7 @@ Table: 主流扩散模型的 latent 与 token 数
 
 ### 3. 视频：token 数的三个乘数
 
-Wan 720p 81 帧的 75,600 是 $$45 \times 80 \times 21$$：空间 $$\frac{720}{16} \times \frac{1280}{16} = 45 \times 80 = 3600$$，时间 21。**视频 token 数 = 一帧的 token 数 × latent 帧数**，5 秒 720p 是一张 720p 图的 21 倍、一张 1024² 图的 18 倍。这个数字进入 $$N^2$$ 之后是 340 倍——第四篇的全部内容由此而来。
+Wan 720p 81 帧的 75,600 是 $$45 \times 80 \times 21$$：空间 $$\frac{720}{16} \times \frac{1280}{16} = 45 \times 80 = 3600$$，时间 21。**视频 token 数 = 一帧的 token 数 × latent 帧数**，5 秒 720p 是一张 720p 图的 21 倍、一张 1024² 图的 18 倍。这个数字进入 $$N^2$$ 之后是 340 倍——[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的全部内容由此而来。
 
 ## 四、FLOP 账：每步 = 线性项 + attention 项
 
@@ -280,7 +312,7 @@ $$
 
 一次生成的 DiT 段：$$\text{FLOPs}_\text{DiT} = g \cdot T \cdot \text{FLOPs}_\text{fwd}$$。
 
-线性项是《现代 LLM 结构》第二篇的 $$2N$$ 每 token 规则；attention 项是 $$QK^\top$$（$$N \times d$$ 乘 $$d \times N$$，$$2N^2 d$$）加 $$PV$$（同样 $$2N^2 d$$），每层一次，与 head 数无关（$$h$$ 个 head 各 $$d/h$$ 维，乘起来仍是 $$d$$）。MMDiT 的联合 attention 里 $$N$$ 是文本加图像的总长。
+线性项是[《现代 LLM 结构》的《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)那条 $$2N$$ 每 token 规则；attention 项是 $$QK^\top$$（$$N \times d$$ 乘 $$d \times N$$，$$2N^2 d$$）加 $$PV$$（同样 $$2N^2 d$$），每层一次，与 head 数无关（$$h$$ 个 head 各 $$d/h$$ 维，乘起来仍是 $$d$$）。MMDiT 的联合 attention 里 $$N$$ 是文本加图像的总长。
 
 attention 项的 $$4 N^2 d$$ 写成循环就看得出来（单层，把 $$h$$ 个 head 的 $$d/h$$ 维拼起来看成 $$d$$ 维）：
 
@@ -354,6 +386,13 @@ Table: FLUX 一个 token 在一个 block 里经过的参数
 - 19 个双流块里，图像 token 只过图像流的权重（$$12 d^2$$：QKV 与输出投影 $$4d^2$$、MLP $$8d^2$$），文本 token 只过文本流的；两条流各 $$12 d^2$$，一个 token 只走一条；
 - adaLN 调制的线性层（每个双流块两条流各 $$6 d^2$$、每个单流块 $$3 d^2$$，合计 3.2B）只处理**一个**条件向量（时间步 + 池化文本），不随 $$N$$ 放大，FLOPs 可忽略——但权重字节数照算。
 
+
+> [!NOTE] Java 经验参照：装在包里的和真正执行到的
+>
+> 一个 11.9 B 参数的模型，一个 token 实际只经过 6.45 B——像一个有十几个分支的 `switch`：类文件里每条分支的字节码都在，一次调用只走一条。按"JAR 多大约等于跑起来多重"的直觉去估算力，会高估 85%。
+>
+> 不一样的是另一半。Java 里没走到的分支不占堆、不占带宽，JIT 甚至会把它从热路径上剪掉；这里没走到的那条流照样要常驻显存，FLUX 的 22.2 GiB 一个字节都少不了。于是同一个模型在两本账上是两个数：**显存按 $$P$$ 算，算力按 $$P_\text{tok}$$ 算**。把它们混成一个数，不是把显存算小了，就是把时间算长了。
+
 所以 $$P_\text{tok} = 57 \times 12 d^2 = 6.45\text{B}$$，是 $$P$$ 的 54%。用 $$P$$ 算会高估线性项 85%。11.9B 可以逐项对上：
 
 | 部分 | 算式 | 参数 |
@@ -423,11 +462,11 @@ VAE 解码的 FLOPs 按 SD 一族 $$f = 8$$ 解码器的经验密度 4.8 MFLOP /
 
 Table: 五个模型的权重显存
 
-文本编码器占了权重的三分之一到一半，而它只在开头跑一次——**三段不必同时在卡上**。文本编码器算完把它搬到 CPU（或干脆放在 CPU / 另一张卡上跑），VAE 只在最后加载，那么 DiT 段的显存需求就只有 DiT 自己的权重加激活：FLUX 22.5 GiB，24 GB 的 4090 勉强放得下。这是第二篇 offload 一节的起点，也是第七篇"三段分离"的起点。
+文本编码器占了权重的三分之一到一半，而它只在开头跑一次——**三段不必同时在卡上**。文本编码器算完把它搬到 CPU（或干脆放在 CPU / 另一张卡上跑），VAE 只在最后加载，那么 DiT 段的显存需求就只有 DiT 自己的权重加激活：FLUX 22.5 GiB，24 GB 的 4090 勉强放得下。这是[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) offload 一节的起点，也是[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)"三段分离"的起点。
 
 ### 2. 激活：为什么没有 KV cache
 
-LLM decode 的显存里，KV cache 常常比权重还大（vLLM 系列第五篇：一条 8K 上下文的 Llama-3-8B 请求 1 GiB）。扩散推理的激活账里**没有这一项**：
+LLM decode 的显存里，KV cache 常常比权重还大（[《大模型推理系统揭秘》的《KV Cache》](/kv-cache-memory-core.html)：一条 8K 上下文的 Llama-3-8B 请求 1 GiB）。扩散推理的激活账里**没有这一项**：
 
 - 每步是一次完整前向，attention 的 K / V 由这一步的 $$x_t$$ 算出来、用完即弃，下一步的 $$x_{t-1}$$ 不同，K / V 要重算。没有"历史 token 的 K / V 供新 token 查询"这种结构——所有 token 都是"新"的。
 - 唯一能跨步复用的是文本条件：cross-attention 模型的文本 K / V（Wan 每层 $$2 \times 512 \times 5120 \times 2$$ 字节 = 10 MiB，40 层 400 MiB），以及 MMDiT 里文本 token 的……什么都不能，因为它们也随每步的联合 attention 重算（文本流的输入每层都在变）。
@@ -443,7 +482,7 @@ LLM decode 的显存里，KV cache 常常比权重还大（vLLM 系列第五篇�
 
 Table: DiT 激活峰值
 
-没有 FlashAttention 时分数矩阵是 $$h \times N^2$$ 个数——Wan 的 $$40 \times 75600^2 \times 2$$ 字节 = 425 GiB，一层就放不下。**视频 DiT 的推理在 FlashAttention 之前是不可能的**，这也是为什么第四篇讨论的稀疏 attention 都要落到 block 粒度的 kernel 上：任何物化分数矩阵的做法在 $$N = 10^5$$ 上都不成立。
+没有 FlashAttention 时分数矩阵是 $$h \times N^2$$ 个数——Wan 的 $$40 \times 75600^2 \times 2$$ 字节 = 425 GiB，一层就放不下。**视频 DiT 的推理在 FlashAttention 之前是不可能的**，这也是为什么[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)讨论的稀疏 attention 都要落到 block 粒度的 kernel 上：任何物化分数矩阵的做法在 $$N = 10^5$$ 上都不成立。
 
 ### 3. VAE 解码的峰值
 
@@ -458,7 +497,7 @@ Table: DiT 激活峰值
 
 Table: VAE 解码的激活峰值
 
-视频的 VAE 解码不分块是不可能的，所以 3D VAE 的解码器都内建了时间分块（因果卷积让它按 chunk 解码）与空间 tiling；xDiT 的 Parallel VAE 与 vLLM-Omni 的 VAE patch 并行把它切到多卡。**VAE 解码是三段里 OOM 最常发生的一段**——它的 FLOPs 只有 0.1%，但显存峰值可以是 DiT 段的十倍。第二篇与第九篇都会回到这里。
+视频的 VAE 解码不分块是不可能的，所以 3D VAE 的解码器都内建了时间分块（因果卷积让它按 chunk 解码）与空间 tiling；xDiT 的 Parallel VAE 与 vLLM-Omni 的 VAE patch 并行把它切到多卡。**VAE 解码是三段里 OOM 最常发生的一段**——它的 FLOPs 只有 0.1%，但显存峰值可以是 DiT 段的十倍。[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)与[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)都会回到这里。
 
 ## 六、秒的账：为什么单请求就 compute-bound
 
@@ -477,7 +516,7 @@ H100 的拐点是 $$989 \text{ TFLOPS} / 3.35 \text{ TB/s} = 295$$。3,100 在�
 flowchart TB
     subgraph ROOF["H100 roofline 上的位置（算术强度从低到高）"]
         direction TB
-        A["LLM decode，batch 1：强度 2
+        A["LLM decode，batch 1：强度 1
 带宽屋顶：读 14 GB 权重 = 4 ms / token"] --- K["拐点 295 FLOP/字节（989 T / 3.35 TB/s）"]
         K --- B["DiT 一次前向，batch 1：强度 3,100（FLUX）
 算力屋顶：74 T / 989 T = 75 ms（100% MFU）"]
@@ -502,6 +541,12 @@ attention 主导，更深地在算力屋顶上"]
 
 Table: memory-bound 与 compute-bound 的对照
 
+> [!NOTE] Java 经验参照：CPU 密集还是 IO 密集
+>
+> 调线程池的第一步是判断任务属于哪一类：IO 密集（等数据库、等下游）就把线程数开到远大于核数，让等待被别的任务填上；CPU 密集就压到核数附近，再多只是上下文切换。roofline 是同一个判断换了一套坐标——算术强度在拐点以下是"等带宽"，以上是"在算"。
+>
+> 有两处对不上。一是"等带宽"这一侧：LLM decode 加 batch 是真的免费，那一遍权重读被一批请求共享了；而 Java 里 IO 密集任务加线程只是把等待重叠，下游该花的时间一点没省——这里省掉的是**真实的字节**。二是"在算"这一侧：Java 的 CPU 密集任务多开几个线程只是略微变慢（时间片轮转还在转），GPU 上 batch 2 是严格的两倍延迟，因为一次前向已经把所有 SM 占满，没有空隙可以穿插。所以扩散服务里不存在"把并发调大试试"这一步：batch 的收益在算账的时候就能定死，[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)只需要回答"哪个角落还有例外"。
+
 ### 2. 每步时间与 MFU
 
 $$
@@ -512,7 +557,7 @@ FLUX 一步 74.3 T，H100 峰值 989 T，$$\eta = 0.45$$ 时 167 ms，28 步 4.6
 
 - **eager 的 MFU 约 0.3**：几十个小算子（归一化、调制、RoPE、gate、残差加）各自一次 kernel launch、各自读写一遍 $$[N, d]$$，GEMM 之外的时间占了近半；
 - **编译后约 0.5**：小算子融合、launch 开销摊掉，GEMM 与 attention 本身各在 60–70% 的效率上；
-- 再往上是第二篇的内容：FA3、FP8、融合 kernel，SGLang 的 benchmark 在 Qwen-Image 上把每步从 125 ms 压到 83 ms。
+- 再往上是[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)的内容：FA3、FP8、融合 kernel，SGLang 的 benchmark 在 Qwen-Image 上把每步从 125 ms 压到 83 ms。
 
 | 模型 | 每前向 | $$g$$ | 每步（$$\eta = 0.45$$） | $$T$$ | DiT 段时间 | 实测参考 |
 |---|---|---|---|---|---|---|
@@ -524,7 +569,7 @@ FLUX 一步 74.3 T，H100 峰值 989 T，$$\eta = 0.45$$ 时 167 ms，28 步 4.6
 
 Table: 五个模型的每步时间与 DiT 段时间
 
-视频模型的实测通常比 $$\eta = 0.45$$ 的估算慢，原因是长序列 attention 在 eager 下的效率与显存压力（激活 14 GiB 加 CFG batch）；它们几乎总是在多卡上跑（第五篇）。
+视频模型的实测通常比 $$\eta = 0.45$$ 的估算慢，原因是长序列 attention 在 eager 下的效率与显存压力（激活 14 GiB 加 CFG batch）；它们几乎总是在多卡上跑（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)）。
 
 ### 3. 三段的时间
 
@@ -540,8 +585,8 @@ Table: 五个模型三段的时间
 
 文本编码器按 MFU 0.22（小 batch prefill）、VAE 按 0.05（fp32 卷积、memory-bound）估。两点值得记：
 
-- **VAE 解码 100 ms 不可忽视**——当 DiT 段被蒸馏到 4 步（第六篇：FLUX-schnell 0.67 s）时，VAE 的 0.1 s 变成 13%，文本编码器的 22 ms 变成 3%。少步模型的优化对象会移到这两段。
-- **视频的 VAE 解码是秒级**：Wan 7 s、HunyuanVideo 12 s，且要分块。在多卡把 DiT 段压到几分钟之后，VAE 解码的几秒与它的分块 / 并行开始进入账（第五篇的 Parallel VAE、第七篇的 VAE stage 分离）。
+- **VAE 解码 100 ms 不可忽视**——当 DiT 段被蒸馏到 4 步（[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)：FLUX-schnell 0.67 s）时，VAE 的 0.1 s 变成 13%，文本编码器的 22 ms 变成 3%。少步模型的优化对象会移到这两段。
+- **视频的 VAE 解码是秒级**：Wan 7 s、HunyuanVideo 12 s，且要分块。在多卡把 DiT 段压到几分钟之后，VAE 解码的几秒与它的分块 / 并行开始进入账（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)的 Parallel VAE、[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的 VAE stage 分离）。
 
 ## 七、与 LLM 推理的对照
 
@@ -596,7 +641,7 @@ Table: vLLM 系列的机制在扩散上的命运
 
 Table: FLUX 在不同分辨率下的账
 
-分辨率翻倍，像素 4 倍，线性项 4 倍，attention 16 倍：2048² 的一步是 1024² 的 5.6 倍，attention 占比从 20% 到 48%。**分辨率是图像服务里最贵的参数**，也是为什么服务要按分辨率分池、定价按像素（第七篇）。
+分辨率翻倍，像素 4 倍，线性项 4 倍，attention 16 倍：2048² 的一步是 1024² 的 5.6 倍，attention 占比从 20% 到 48%。**分辨率是图像服务里最贵的参数**，也是为什么服务要按分辨率分池、定价按像素（[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)）。
 
 ### 2. 帧数：视频的 $$N$$ 再乘一个维度
 
@@ -609,7 +654,7 @@ Table: FLUX 在不同分辨率下的账
 
 Table: Wan 720p 在不同帧数下的账
 
-帧数从 17 到 129（latent 帧 5 → 33，6.6 倍），每步时间 21 倍——因为 attention 项 $$\propto N^2$$ 并且已占大半。**视频时长是二次方的成本**，这是第四篇稀疏化与第六篇自回归（把长视频切成 chunk、让成本回到线性）的动机。
+帧数从 17 到 129（latent 帧 5 → 33，6.6 倍），每步时间 21 倍——因为 attention 项 $$\propto N^2$$ 并且已占大半。**视频时长是二次方的成本**，这是[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)稀疏化与[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)自回归（把长视频切成 chunk、让成本回到线性）的动机。
 
 ### 3. 步数：线性的乘数，也是最可改的
 
@@ -619,7 +664,7 @@ Table: Wan 720p 在不同帧数下的账
 
 Table: FLUX 1024² 在不同步数下的 DiT 段时间
 
-步数是账上唯一**线性且可以被算法侧直接改掉**的乘数：不重训只换采样器（DPM-Solver / UniPC）能从 50 到 20 步；步数蒸馏（LCM、Turbo、DMD2、FLUX-schnell）到 4 步甚至 1 步。从 28 到 4 是 7 倍——比本系列任何一项系统优化都大。第六篇讨论它对系统的全部后果。
+步数是账上唯一**线性且可以被算法侧直接改掉**的乘数：不重训只换采样器（DPM-Solver / UniPC）能从 50 到 20 步；步数蒸馏（LCM、Turbo、DMD2、FLUX-schnell）到 4 步甚至 1 步。从 28 到 4 是 7 倍——比本系列任何一项系统优化都大。[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)讨论它对系统的全部后果。
 
 ### 4. CFG：×2 或 ×1
 
@@ -631,7 +676,7 @@ Table: FLUX 1024² 在不同步数下的 DiT 段时间
 
 Table: CFG ×2 与 guidance 蒸馏 ×1 的时间
 
-CFG 把每步的前向翻倍。FLUX.1-dev 与 HunyuanVideo 把 guidance 蒸馏进了模型（$$g = 1$$），SD3 / Qwen-Image / Wan 没有。$$g = 2$$ 的模型有两条系统出路：两次前向放两组卡（第五篇的 CFG 并行，通信几乎为零）；或后半程不再算无条件分支（SGLang 的 CFG gating，有损）。
+CFG 把每步的前向翻倍。FLUX.1-dev 与 HunyuanVideo 把 guidance 蒸馏进了模型（$$g = 1$$），SD3 / Qwen-Image / Wan 没有。$$g = 2$$ 的模型有两条系统出路：两次前向放两组卡（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)的 CFG 并行，通信几乎为零）；或后半程不再算无条件分支（SGLang 的 CFG gating，有损）。
 
 ## 九、动手：`diffusion_ledger.py`
 
@@ -641,7 +686,7 @@ CFG 把每步的前向翻倍。FLUX.1-dev 与 HunyuanVideo 把 guidance 蒸馏�
 python diffusion_ledger.py                                   # 五个模型的默认账 + 放大器扫描
 python diffusion_ledger.py --model flux --gpu 4090           # 24 GB 卡：权重放不下的提示
 python diffusion_ledger.py --model wan --frames 129 --sweep  # 帧数怎样放大 attention 占比
-python diffusion_ledger.py --model flux --steps 4 --no-cfg   # 少步蒸馏后的账（第六篇）
+python diffusion_ledger.py --model flux --steps 4 --no-cfg   # 少步蒸馏后的账
 python diffusion_ledger.py --model qwen --mfu 0.6            # 换 MFU 假设
 ```
 
@@ -680,7 +725,7 @@ FLUX 默认账的输出（节选）：
 3. DiT 激活按 10 份 $$[N, d]$$ 张量；
 4. VAE 解码激活按 4 份全分辨率 128 通道 fp32 特征图。
 
-它们决定的是数量级，改动它们不会改变本文的任何结论。后面各篇不再给脚本，但每篇都会把新机制写成这张账上的一项修正——例如第三篇的跨步缓存把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"，第五篇的序列并行给每步加一项通信时间。
+它们决定的是数量级，改动它们不会改变本文的任何结论。后面各篇不再给脚本，但每篇都会把新机制写成这张账上的一项修正——例如[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的跨步缓存把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"，[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)的序列并行给每步加一项通信时间。
 
 ## 十、本文小结
 
@@ -716,7 +761,13 @@ $$
 
 ### 3. 本篇涉及的算法侧结论
 
-只用了三条：一步是一次对 $$N$$ 个 token 的完整前向；CFG 是两次前向；步数是采样器参数、可以被蒸馏。它们的来由在算法地图 《[多模态（06）：扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)》、《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》。
+只用了三条：
+
+1. 一步是一次对 $$N$$ 个 token 的完整前向；
+2. CFG 是两次前向；
+3. 步数是采样器参数，可以被蒸馏。
+
+它们的来由在算法地图 《[多模态（06）：扩散模型（上）：DDPM——加噪、去噪与「预测噪声」](/diffusion-models-ddpm-score-matching-and-flow-matching.html)》、《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》。
 
 ### 4. 下一篇
 
