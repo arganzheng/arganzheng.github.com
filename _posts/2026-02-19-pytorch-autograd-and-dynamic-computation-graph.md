@@ -198,7 +198,11 @@ x[0] → y[1] → loss：   1 × 4 =  4
 
 ![v 乘 Jacobian 的每一列，得到和 x 同形的 3 个数（14, 25, 36）；右侧对比 Jacobian 和这个乘积的大小](/img/in-post/pytorch-autograd-jacobian-vs-vjp.svg)
 
-这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**，数学上写作 `vᵀJ`。用 PyTorch 验证，`backward()` 得到的正是这三个数：
+这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**，数学上写作 `vᵀJ`。
+
+`vᵀJ` 和图里的"v 乘 J"是同一个运算，`ᵀ`（转置）只是书写约定。数学上向量默认写成一列，`v` 是 `2 × 1`，`J` 是 `2 × 3`，`2 × 1` 的矩阵不能放在 `2 × 3` 的左边相乘；转置成一行（`1 × 2`）之后才能乘，结果是 `1 × 3`，正好是 `x` 的 3 个分量。图里把 `v` 的两个数分别对着 `J` 的两行（`y[0]`、`y[1]`），算的就是这个"行向量乘矩阵"。PyTorch 的一维 Tensor 不区分行和列，所以下面的代码直接写 `v @ W`，不需要转置。
+
+用 PyTorch 验证，`backward()` 得到的正是这三个数：
 
 ```python title='backward 得到的 x.grad 等于 v 乘 J'
 v = torch.tensor([10., 1.])
@@ -209,34 +213,64 @@ print(x.grad)  # tensor([14., 25., 36.])
 print(v @ W)   # tensor([14., 25., 36.])
 ```
 
-#### 3.4 算 VJP 不需要先造出 Jacobian
+#### 3.4 算 VJP 不需要把 Jacobian 存成一个矩阵
 
-上面的验证里 `v @ W` 就是一次普通的矩阵乘法，直接用了手上已有的 `W`，没有另外构造一张 Jacobian。每种基本运算都有这样一条"给上游梯度 `v`，直接算出 `vᵀJ`"的公式：
+VJP 的定义是 `vᵀJ`，定义里有 `J`。这一节的标题说的是另一件事：**计算**这个结果时，不需要先在内存里构造一个 `m × n` 的矩阵 `J`，再做一次矩阵乘法。区分两点：
 
-| 运算 | Jacobian 的样子 | 反向时实际算什么 |
-|---|---|---|
-| 线性变换 `y = W x` | 就是 `W` | `v @ W`，一次矩阵乘法，代价与前向同阶 |
-| 逐元素运算 `y = relu(x)` | 对角矩阵：`x[i] > 0` 的位置是 1，其余是 0 | `v` 逐元素乘一个 0/1 掩码，不需要矩阵 |
+- `J` 在数学上一直存在，每种运算的 `J` 长什么样由这种运算的公式决定。
+- 实现上，每种运算都有一条专门的反向公式：输入是上游梯度 `v`，输出就是 `vᵀJ` 的结果。这条公式是把 `J` 的结构代进 `vᵀJ` 之后化简得到的，执行时只用到手上已有的 Tensor。
 
-Table: 两种运算的 Jacobian 与反向时实际执行的计算
+线性变换 `y = W x` 是最特殊的一种：它的 `J` 就是 `W`，而 `W` 本来就在内存里，所以反向直接拿 `W` 来乘，没有另外构造任何东西。上面验证里的 `v @ W` 就是这样。
 
-ReLU 的例子同样可以直接验证。`backward()` 的参数就是上游梯度 `v`：
+多数运算的 `J` 并不是某个现成的 Tensor。以 ReLU 为例，把它的 `J` 真的算出来：
+
+```python title='ReLU 的 Jacobian：一个对角矩阵，绝大部分是 0'
+x2 = torch.tensor([1., -2., 3.], requires_grad=True)
+print(torch.autograd.functional.jacobian(torch.relu, x2))
+# tensor([[1., 0., 0.],
+#         [0., 0., 0.],
+#         [0., 0., 1.]])
+```
+
+`y[i]` 只依赖 `x[i]`，所以只有对角线上可能不是 0：`x[i] > 0` 的位置是 1，其余是 0。`v` 乘这样一个对角矩阵，结果就是 `v` 的每个分量各乘对角线上对应的那个数。所以反向只需要 `v` 逐元素乘一个 0/1 掩码，这个 `3 × 3` 的矩阵从头到尾没有出现过。输入有 4096 个分量时，差别是 1677 万个数的矩阵对 4096 个数的掩码。
+
+| 运算 | Jacobian 的样子 | 反向时实际算什么 | 用到的已有 Tensor |
+|---|---|---|---|
+| 线性变换 `y = W x` | 就是 `W`（`m × n`） | `v` 乘 `W`，一次矩阵乘法，代价与前向同阶 | `W` |
+| 逐元素运算 `y = relu(x)` | `n × n` 对角矩阵：`x[i] > 0` 的位置是 1，其余是 0 | `v` 逐元素乘 0/1 掩码 | 前向的输出 `y`（用来判断哪些位置大于 0） |
+| 求和 `y = x.sum()` | `1 × n`，全是 1 | 把标量 `v` 复制成 `x` 的形状 | 无，只需要 `x` 的 shape |
+
+Table: 三种运算的 Jacobian 与反向时实际执行的计算
+
+ReLU 的反向可以直接验证。`backward()` 的参数就是上游梯度 `v`：
 
 ```python title='ReLU 的反向：上游梯度逐元素乘 0/1 掩码'
-x2 = torch.tensor([1., -2., 3.], requires_grad=True)
 y2 = torch.relu(x2)
 y2.backward(torch.tensor([5., 6., 7.]))
 
 print(x2.grad)  # tensor([5., 0., 7.])   x2[1] < 0，这一位的梯度被挡住
 ```
 
-PyTorch 把每个算子的这条公式写在 `tools/autograd/derivatives.yaml` 里，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
+PyTorch 把每个算子的这条公式写在 [`tools/autograd/derivatives.yaml`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/tools/autograd/derivatives.yaml) 里。上表三行对应的条目如下，`grad` 就是上游梯度 `v`：
+
+```yaml title='derivatives.yaml 里这三种运算的反向公式（节选）'
+- name: mv(Tensor self, Tensor vec) -> Tensor      # y = W x，self 是 W，vec 是 x
+  vec: self.conj().t().mv(grad)                    # 对 x 的梯度：W 转置后乘 v
+
+- name: relu(Tensor self) -> Tensor
+  self: threshold_backward(grad, result, 0)        # result 是前向输出，大于 0 的位置保留 grad
+
+- name: sum(Tensor self, *, ScalarType? dtype=None) -> Tensor
+  self: grad.expand_symint(self.sym_sizes())       # 把 grad 扩成 self 的形状
+```
+
+第一条写的是 `Wᵀv`，和 `vᵀW` 是同一组数（一个按列写，一个按行写）。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
 
 #### 3.5 小结
 
 - **Jacobian**：所有输出对所有输入的完整导数表，大小是"输出数 × 输入数"。
 - **VJP**：上游梯度 `v` 乘这张表的结果，大小只有"输入数"，和 `x` 同形。
-- **反向传播**：从 loss 出发，每经过一个运算就算一次 VJP，把得到的梯度当作下一个运算的上游梯度继续往回传。全程只搬运和数据同形的梯度，不构造任何一层的 Jacobian。PyTorch 的 `backward()` 做的就是这件事。
+- **反向传播**：从 loss 出发，每经过一个运算就算一次 VJP，把得到的梯度当作下一个运算的上游梯度继续往回传。全程只搬运和数据同形的梯度，不把任何一层的 Jacobian 构造成矩阵。PyTorch 的 `backward()` 做的就是这件事。
 
 ### 4. 为什么 backward 通常从标量 Loss 开始？
 
