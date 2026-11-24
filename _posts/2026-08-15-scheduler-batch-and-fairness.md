@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（04）：Scheduler：GPU 这一轮到底给谁用？
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-24
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -51,7 +51,63 @@ flowchart TB
 
 ## 一、总览：调度要回答的五个问题
 
-### 1. 从五个问题到一句话定义
+### 1. 一轮调度的主线
+
+五个问题并不是五个独立的机制，而是同一轮调度里先后要做的几件事：先定这一轮的计算额度，再按「已经在跑的优先、新来的用剩下的额度」分配，分配不到显存时才动抢占，最后把结果打成一份订单交给执行层。本篇按这条线组织，所以先给出全图：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：本篇主线：一轮调度从定预算到产出 SchedulerOutput
+flowchart TB
+    S["<b>一轮开始：定这一轮的 token 预算（第四章）</b><br/>• 预算是这一步最多处理多少 token<br/>• 它是计算额度，不是请求数"] --> R["<b>先推进 running 里的请求（第二章）</b><br/>• decode 每个要 1 个 token<br/>• 投机解码要 1+K 个<br/>• 请求随时加入、随时离开"]
+    R --> ALLOC{"要新块时<br/>KV 池还有吗？"}
+    ALLOC -->|有| W["<b>剩余预算分给 waiting（第三章）</b><br/>• 先查前缀缓存，命中的不用算<br/>• 剩下的按预算切块<br/>• 分不到块就停止接纳"]
+    ALLOC -->|没有| PRE["<b>抢占最晚到的那个（第六章）</b><br/>• KV 全部归还、已算 token 清零<br/>• 回到等待队列队头<br/>• 本轮抢占过就不接新请求"]
+    PRE --> W
+    W --> MIX["<b>三类需求统一表示（第五章）</b><br/>• prefill 一块、decode 一个、投机 1+K 个<br/>• 对调度器只是「本轮推进几个 token」"]
+    MIX --> OUT["<b>产出 SchedulerOutput（第五章第 4 节）</b><br/>• 谁跑、跑几个 token、块号在哪<br/>• 新请求带全量，老请求只带增量"]
+    OUT --> UPD["<b>执行后更新，进入下一轮</b><br/>• num_computed_tokens 往前走<br/>• 到终态的请求释放 KV"]
+    UPD -.->|"下一轮重新定预算"| S
+    classDef budget fill:#eef5ff,stroke:#5880b4,color:#1d3557
+    classDef mem fill:#eff9f4,stroke:#4b9477,color:#1f4a37
+    classDef bad fill:#ffebee,stroke:#c62828,color:#5a1a1a
+    classDef out fill:#ffffff,stroke:#a9b6c4,color:#243447
+    class S,R,MIX budget
+    class W mem
+    class PRE bad
+    class OUT,UPD out
+```
+
+逐节点要点：
+
+- **定这一轮的 token 预算**（[第四章第 2 节](#2-每一轮首先确定-token-budget)）：预算是一个每轮重置的局部额度，边分边减；它管「这一步算多少」，不管「能不能装下」。
+- **先推进 running 里的请求**（[第二章](#二continuous-batching为什么-batch-必须动态变化)）：顺序是固定的——已经接纳的请求先拿额度，所以它们不会被后来的新请求饿死；这就是 Continuous Batching 的全部内容。
+- **要新块时 KV 池还有吗**（[第四章第 8 节](#8-token-budget-与-kv-cache-是两个不同维度的约束)）：这是本篇最重要的一个分叉——预算和 KV 是两个独立的约束，预算有余而块不够是常态。
+- **剩余预算分给 waiting**（[第三章](#三chunked-prefill为什么一个-request-也不能一次吃完)）：新请求先查前缀缓存（命中的 token 一个都不用算），剩下的按预算切块，一条长 prompt 因此分几轮走完。
+- **抢占最晚到的那个**（[第六章](#六admission-control-与-preemptionkv-cache-不够怎么办)）：抢占的代价是丢掉已经算好的 KV、下次重算，所以本轮一旦抢占过就不再接纳新请求——否则刚腾出来的块马上又被新请求占走。
+- **三类需求统一表示**（[第五章](#五mixed-batch为什么-prefilldecode-与-speculative-可以共存)）：Mixed Batch 不是把三种 batch 拼起来，而是三类需求本来就都被折算成「本轮推进几个 token」这一个数。
+- **产出 SchedulerOutput**（[第五章第 4 节](#4-scheduleroutput调度完成后发生什么)）：这是控制面交给数据面的唯一载荷，全是整数和列表。
+- **执行后更新**（[第四章第 3 节](#3-request-还需要推进多少)）：`num_computed_tokens` 是贯穿本篇的那个数——它决定下一轮这个请求还要推进多少。
+
+### 2. 调度里的几个对象：谁创建、活在哪一侧、活多久、谁能看见
+
+上图每个方框背后都有一个具体对象。它们的寿命差别很大——有的跟实例一样长，有的只活一轮——看清这张表，后面各章就只是在这些对象上加操作：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| `waiting` 队列与 `running` 列表 | 调度器：请求到达时入 `waiting`，被接纳时移进 `running` | CPU 侧，引擎进程里各一份 | 整个实例 | 只有调度器 | 第二、六章 |
+| `Request`：`status` 状态机、`num_computed_tokens`、块哈希 | 调度器在请求进入时建 | CPU 侧 | 从入队到终态释放 | 调度器持有权威副本<br/>Worker 侧只有一份靠增量同步的镜像 | 第四、六章 |
+| 这一轮的 token 预算 | 每轮 `schedule()` 开头置为上限，边分边减 | CPU 侧，`schedule()` 的一个局部变量 | **一轮**，函数返回即消失 | 只有 `schedule()` 自己 | 第四章 |
+| 请求分到的 KV 块：块号列表与引用计数 | `allocate_slots()` 从块池里分 | 块对象在 CPU 侧，真正的 KV 张量在显存 | 请求活着期间；被抢占时整批归还 | 调度器看到块对象与引用计数<br/>Worker 只看到整数块号 | 第四、六章 |
+| `skipped_waiting` 队列 | 调度器发现某个等待请求暂时不可调度时放进去 | CPU 侧 | 跨轮保留，直到阻塞条件解除 | 只有调度器 | 第六章 |
+| `SchedulerOutput` | 每轮 `schedule()` 末尾打包 | CPU 侧，经共享内存广播 | **一轮** | 这一轮的全部 Worker | 第五章 |
+| `finished_req_ids` | 请求到终态时加进去 | CPU 侧 | 攒到下一次 `schedule()` 随订单下发，然后清空 | Worker 用它清掉自己镜像里那一行 | 第五、六章 |
+
+Table: 调度里的核心对象及其生命周期
+
+两件事值得先记住：**只有队列、`Request` 和块是跨轮存在的**，预算与订单都只活一轮，所以调度不是一次性的准入决定，而是每轮重做一次；**「谁能看见」这一列把对象分成两半**——引用计数、块哈希、队列顺序这些判断依据全部留在调度器一侧，过了进程边界只剩整数，所以 Worker 既不知道前缀是否命中，也不知道某个请求是不是刚被抢占过。
+
+### 3. 从五个问题到一句话定义
 
 vLLM 的调度可以理解为逐渐回答五个问题：
 
@@ -69,7 +125,7 @@ Table: 从五个问题到 vLLM 调度的定义
 
 > **在计算资源和 KV Cache 资源的双重约束下，每一轮动态决定哪些 Request 执行，以及每个 Request 本轮推进多少 token。**
 
-### 2. 本文的章节安排
+### 4. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -102,14 +158,7 @@ B、C 的 GPU 槽位空出来后，Batch 仍要等 A 到 Step 12 才结束。新
 
 ### 2. Continuous Batching
 
-LLM 的生成过程天然是迭代式的：
-
-1. Iteration 1
-2. Iteration 2
-3. Iteration 3
-4. ...
-
-因此，一个更合理的做法是：
+LLM 的生成过程天然是迭代式的：一轮一个 token，一个请求要几百轮，而同一时刻各个请求所处的轮次各不相同。既然执行本来就是一轮一轮的，批次就没有理由跨轮不变。因此，一个更合理的做法是：
 
 > **不再固定整个 Batch 的生命周期，而是在每一轮迭代开始之前重新决定本轮有哪些 Request 参与执行。**
 
@@ -185,23 +234,20 @@ Chunked Prefill 并不是免费优化。
 
 > **TTFT ↔ TPOT trade-off**
 
-如果长 Prompt 一次性执行：
+同一条长 Prompt，切与不切的两条后果正好反向：
 
-1. Long Request
-2. 快速完成 Prefill
-3. TTFT 较低
-4. 但：Decode Requests
-5. 被阻塞
-6. TPOT 出现尖峰
+| | 长 Prompt 一次性执行 | 采用 Chunked Prefill |
+|---|---|---|
+| 这条长请求的 Prefill | 一轮算完 | 拆成多个 Chunk，分几轮算完 |
+| 它自己的 TTFT | 较低 | 上升（要等几轮才出首 token） |
+| 同一批的 Decode 请求 | 这一轮被整个阻塞 | 每轮都能继续推进 |
+| 它们的 TPOT | 出现尖峰 | 更平稳 |
 
-如果采用 Chunked Prefill：
+Table: 长 Prompt 切与不切的两条后果
 
-1. Long Request
-2. Prefill 被拆成多个 Chunk
-3. TTFT 上升
-4. 但：Decode Requests
-5. 可以持续执行
-6. TPOT 更平稳
+> [!NOTE] Java 经验参照：给一个长任务切时间片
+>
+> Chunked Prefill 的形状就是协作式的时间片轮转：一个长任务不许一次占满一轮，切成几片、每轮只跑一片，让短任务也能往前走。两处不一样。第一，切的不是时间而是 token 数——所以片的大小是可预测的（预算里分到多少就算多少），不像时间片那样要靠抢占计时器。第二，也是更重要的一点：**片之间的中间结果必须留在显存里**。时间片轮转里一个任务让出 CPU，占用的是它自己那点栈；这里一条长 Prompt 让出这一轮，已经算完的那几块 KV 要一直占着 KV 池等下一轮，所以切得越细、这条请求压在显存上的时间越长，极端情况下还会把自己或别人挤到抢占。这是上表「TTFT 上升」之外第二笔代价。
 
 因此，Chunked Prefill 的本质不是简单的“把 Prompt 切小”。
 
@@ -344,11 +390,7 @@ vLLM 中有两个非常关键的量：
 
 例如：`Prompt = 2050 tokens`，而当前：`num_computed_tokens = 1024`，
 
-这意味着：
-
-1. 前 1024 tokens
-2. 已经完成计算
-3. 对应 KV Cache 已经建立
+这意味着前 1024 个 token 已经算完，它们的 KV 也已经写进块里；这一轮要推进的是第 1025 个 token 往后的部分。
 
 **`num_tokens_with_spec`**
 
@@ -683,12 +725,7 @@ flowchart TB
 
 > 上面的两个 `for` 循环并不是“Decode 循环”和“Prefill 循环”。
 
-它们更准确地表示：
-
-1. Running Requests
-2. Waiting Requests
-
-在这两个集合中，Scheduler 都是在做同一件事情：
+它们更准确地表示的是两个集合：正在跑的请求（running）和还在等的请求（waiting）。在这两个集合中，Scheduler 都是在做同一件事情：
 
 > **计算 Request 当前需要推进多少 token，并在本轮剩余 Token Budget 和其他资源约束下决定实际推进多少。**
 
@@ -840,12 +877,7 @@ Table: 一轮 512 预算里 Prefill、Decode、Speculative 共存
 
 这里非常容易产生误解。
 
-不要理解成：
-
-1. Prefill Batch + Decode Batch + Speculative Batch
-2. Mixed Batch
-
-更准确的理解是：
+不要理解成「先各自组出 Prefill Batch、Decode Batch、Speculative Batch，再把三者拼成一个 Mixed Batch」。更准确的理解是：
 
 ![Mixed Batch 是同一份预算下的统一分配](/img/in-post/scheduler-mixed-batch-one-budget.svg)
 
@@ -878,13 +910,7 @@ Table: 一轮 512 预算里 Prefill、Decode、Speculative 共存
 
 因此 `remaining > 1`。
 
-对于 Scheduler 来说，两者最终都只是：
-
-1. Request
-2. num_tokens_with_spec
-3. num_computed_tokens
-4. remaining tokens
-5. num_new_tokens
+对于 Scheduler 来说，两者走的是同一条计算链：从 `Request` 读出 `num_tokens_with_spec` 与 `num_computed_tokens`，相减得到 remaining tokens，再被本轮预算截一次得到 `num_new_tokens`。普通 decode 与投机解码的差别只体现在第一个量上。
 
 所以 Scheduler 不需要重新设计一套“Speculative Scheduler”，而是使用同一个 Token Budget 模型处理。
 
@@ -1034,13 +1060,11 @@ flowchart TB
     class C waiting
 ```
 
-vLLM V1 当前主要使用 **Recomputation** 思路：
+vLLM V1 当前主要使用 **Recomputation** 思路：抢占一个请求时，把它的 KV Cache 全部释放、`num_computed_tokens` 清零、状态改回 waiting 并插到队头，等轮到它时从头重新计算（能命中前缀缓存的那部分不用真算，见本节后面）。
 
-1. Preempt
-2. 释放该 Request 的 KV Cache
-3. num_computed_tokens = 0
-4. 重新进入 Waiting
-5. 恢复运行时重新计算
+> [!NOTE] Java 经验参照：抢占是丢掉已经做完的工作
+>
+> 「抢占」这个词容易让人想到线程被调度器换下去——线程的现场被保存，下次接着跑，代价只是一次上下文切换。这里完全不同：被抢占的请求**没有现场可保存**，它已经算出来的 KV 全部归还，恢复时要从头再算一遍。更接近的类比是数据库里长事务被回滚后重做，或者乐观锁冲突后的重试：已完成的工作被丢弃，代价与已经做了多少成正比。两处差别还要补上——这里没有冲突检测，抢占的触发条件只是「显存不够」；而且被丢的请求插到队头而不是队尾，所以它不会被反复饿死，但也意味着系统更容易在「抢占 → 立刻恢复 → 再抢占」之间震荡，这是本章最后要靠 Watermark 处理的问题。
 
 也就是说：
 
@@ -1196,12 +1220,7 @@ request.num_computed_tokens = 0
 
 ### 4. 为什么 Recomputation 不一定像想象中那么昂贵？
 
-乍看之下：
-
-1. Preemption
-2. KV Cache 全部释放
-3. 重新 Prefill
-4. 不是浪费大量计算吗？
+乍看之下这笔账很亏：抢占一次就释放全部 KV Cache，恢复时要把整条 Prompt 重新 Prefill 一遍——不是白算了吗？
 
 理论上确实如此。
 
@@ -1243,13 +1262,7 @@ request.num_computed_tokens = 0
   - C
   - D
 
-如果 D 被抢占：
-
-1. D
-2. Preempt
-3. Waiting Queue Head
-
-恢复时：
+如果 D 被抢占，它不是回到等待队列的尾部，而是插到**队头**。恢复时：
 
 - **Waiting**
   - D → A → B → ...
@@ -1280,14 +1293,7 @@ Table: A、B、C、D 四个请求的抢占与恢复逐步表
 
 ### 6. Watermark：给 KV Cache 留一点安全余量
 
-Scheduler 还需要避免一种非常糟糕的情况：
-
-1. 接纳 Request
-2. KV Cache 几乎耗尽
-3. 下一轮马上又不够
-4. 立即 Preemption
-5. 刚运行又被抢占
-6. 反复震荡
+Scheduler 还需要避免一种非常糟糕的情况：接纳一个新请求把 KV Cache 用到几乎耗尽，下一轮 running 里的请求要新块时马上又不够，于是刚跑起来的请求立刻被抢占，抢占腾出的块又被下一个新请求占走——系统在「接纳」和「抢占」之间反复震荡，每一轮都在做重复计算。
 
 因此可以预留一定比例的 KV Cache 作为安全余量。
 
@@ -1324,14 +1330,7 @@ required_blocks = (
 
 到这里，可以把 vLLM Scheduler 的整个设计串起来。
 
-传统推理系统更像：
-
-1. Request
-2. 固定 Batch
-3. 执行
-4. Batch 完成
-
-而 vLLM 更接近：
+传统推理系统更像一条直线：请求进来、凑成固定 Batch、执行一次、整个 Batch 一起完成。而 vLLM 更接近：
 
 ```mermaid
 %% 图：vLLM 的请求流：Waiting、Running、Preempted
@@ -1379,47 +1378,13 @@ flowchart TB
 
 > **vLLM Scheduler 并不是简单地维护一个“当前 Batch”。它实际上是在每一个 iteration 中，结合 Token Budget、Request 状态和 KV Cache 可用空间，动态决定哪些 Request 可以执行，以及每个 Request 本轮可以推进多少 token。**
 
-而 Continuous Batching、Chunked Prefill 和 Mixed Batch，实际上都可以从这个统一的资源调度模型中自然推导出来：
-
-```mermaid
-%% 图：Scheduler 的全貌：Token Budget、KV Cache、Mixed Batch
-flowchart TB
-    S["<b>Scheduler</b>"] --> TB["<b>Token Budget</b>"]
-    TB --> A["<b>Request A</b><br/>256 · Prefill"] & B["<b>Request B</b><br/>1 · Decode"] & C["<b>Request C</b><br/>5 · Spec Decode"]
-    A & B & C --> M["<b>Mixed Batch</b>"]
-    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
-    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
-    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
-    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
-    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
-    class S card
-    class TB compute
-    class A,B,C request
-    class M memory
-```
+而 Continuous Batching、Chunked Prefill 和 Mixed Batch，实际上都可以从这个统一的资源调度模型中自然推导出来：一份预算同时分给 prefill 的一块、decode 的一个和投机解码的 1+K 个，三者在调度器眼里没有类型差别，只有「本轮推进几个 token」的差别。
 
 最终形成一个非常重要的抽象：
 
 > **LLM Serving 的 Scheduler，本质上不是在调度“Batch”，而是在动态调度一组具有不同计算需求和不同 KV Cache 状态的 Request，并通过 Token Budget 将有限的 GPU 计算能力分配给它们。**
 
-这也是为什么 vLLM 能够在同一轮中同时处理：
-
-```mermaid
-%% 图：一轮 Mixed Batch 的组成
-flowchart TB
-    subgraph F["同一轮 GPU forward"]
-        direction LR
-        L["长 Prompt Prefill"] ~~~ C["Chunked Prefill"] ~~~ D["普通 Decode"] ~~~ S["Speculative Decode"] ~~~ N["新 Request Admission"]
-    end
-    classDef card fill:#ffffff,stroke:#a9b6c4,color:#243447
-    classDef compute fill:#eef5ff,stroke:#5880b4,color:#1d3557
-    classDef memory fill:#eff9f4,stroke:#4b9477,color:#1f4a37
-    classDef request fill:#e9f4ee,stroke:#70a582,color:#1f4a37
-    classDef waiting fill:#fff5e6,stroke:#d79a45,color:#5a3a0e,stroke-dasharray:5 4
-    class L,C,D,S,N card
-```
-
-而不需要为每一种 workload 设计一套完全独立的 Scheduler。
+这也是为什么同一轮 GPU forward 里可以同时有长 Prompt 的 Prefill、Chunked Prefill 的一块、普通 Decode、Speculative Decode 和刚被接纳的新请求五种东西，而不需要为每一种 workload 设计一套完全独立的 Scheduler。
 
 **Take Away**:
 
