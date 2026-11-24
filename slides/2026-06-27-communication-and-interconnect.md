@@ -123,7 +123,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /hardware-interconnect-pcie-nvlink-and-topology.html。
-结论原文：NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；**厂商标的 NVLink 带宽是双向合计，β 要用单向**。
+结论原文：NVLink 几百 GB/s、PCIe 与网卡几十、跨 socket 个位数到几十；`nvidia-smi topo -m` 的六个等级就是 NCCL 决策的输入；**厂商标的 NVLink 带宽是双向合计，β 要用单向**。两个口径要说清：PCIe 的 16/32/64 GB/s 是裸速率，大块传输实测约八成、小块 DMA 低得多；「网卡约为 PCIe 的 78%」是网卡净线速除以 PCIe 槽裸带宽的设计留量，不是协议效率。
 </aside>
 
 <!-- v -->
