@@ -841,7 +841,7 @@ You are Qwen, created by Alibaba Cloud. ...
 | PD 分离 | 参数随请求交接 | P、D 各编译一次，都落在 TTFT 上 |
 
 <aside class="notes" markdown="1">
-原文：[/output-changes-sampling-and-structured-output.html#3-变化落在哪几层](/output-changes-sampling-and-structured-output.html#3-变化落在哪几层)。KV Cache 一行是空的，这本身就是结论：输出语义的变化不影响状态怎么存，不同参数、不同 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比《请求形态的扩展》：LoRA 和多模态都要往块哈希里加 `extra_keys`）。代价：采样语义几乎为零，值得算的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`；结构化输出几乎全在 CPU 与 TTFT——编译、每步填 bitmask、FSM 推进，GPU 只有一个掩码 kernel。batch=64 全开 JSON：每步 H2D 64 × 16 KB = 1 MB。
+原文：[/output-changes-sampling-and-structured-output.html#5-变化落在哪几层](/output-changes-sampling-and-structured-output.html#5-变化落在哪几层)。KV Cache 一行是空的，这本身就是结论：输出语义的变化不影响状态怎么存，不同参数、不同 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比《请求形态的扩展》：LoRA 和多模态都要往块哈希里加 `extra_keys`）。代价：采样语义几乎为零，值得算的是 penalties（每步两张 `[B, V+1]` int64 直方图 + 历史输出上传）和 `seed`；结构化输出几乎全在 CPU 与 TTFT——编译、每步填 bitmask、FSM 推进，GPU 只有一个掩码 kernel。batch=64 全开 JSON：每步 H2D 64 × 16 KB = 1 MB。
 </aside>
 
 <!-- v -->
