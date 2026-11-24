@@ -3,7 +3,7 @@ layout: post
 title: 大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术（总纲）
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-17
+updated: 2026-11-24
 ---
 
 
@@ -101,20 +101,7 @@ updated: 2026-11-17
 
 ## 系列的整体主线
 
-十四篇正文可以读成一个问题被不断放大的过程：先说清楚难在哪、怎么衡量；再在一台机器上解决调度、内存、执行三个战场；一张卡不够时扩到多卡、一个实例不够时拆成多实例；然后看引擎如何承受四种外部变化——先是请求级的输入与输出，再是部署级的模型与硬件；最后展望它会长成什么，再用同一套框架对照 SGLang 验收。
-
-```mermaid
-%% 图：系列主线：问题定义 → 指标体系 → 系统全景 → 单机性能优化 → 多卡与集群扩展 → 输入、输出、模型与硬件适配 → 未来演进 → 对照 SGLang
-flowchart TB
-    P1["<b>问题定义</b><br/>01 为什么难"] --> P2["<b>指标体系</b><br/>02 怎么衡量"] --> P3["<b>系统全景</b><br/>03 一个请求的路径"]
-    P3 --> P4["<b>单机性能优化</b><br/>04 调度 · 05 KV Cache · 06 GPU 执行与投机解码"]
-    P4 --> P5["<b>多卡与集群扩展</b><br/>07 Multi-GPU · 08 PD 分离"]
-    P4 --> P6["请求级变化：每个请求都可能不同<br/>09 输入：LoRA 与多模态 · 10 输出：采样与结构化输出"]
-    P6 --> P6b["<b>部署级变化：实例启动时定下</b><br/>11 模型适配 · 12 硬件解耦"]
-    P5 --> P7["<b>未来演进</b><br/>13 下一站"]
-    P6b --> P7
-    P7 --> P9["<b>对照 SGLang</b><br/>14 两套系统"] --> P10["15 总结与通关自测"]
-```
+十四篇正文可以读成一个问题被不断放大的过程：先说清楚难在哪、怎么衡量；再在一台机器上解决调度、内存、执行三个战场；一张卡不够时扩到多卡、一个实例不够时拆成多实例；然后看引擎如何承受四种外部变化——先是请求级的输入与输出，再是部署级的模型与硬件；最后展望它会长成什么，再用同一套框架对照 SGLang 验收。单机三战场之后主线分成两支：规模这一支继续往外扩（多卡、多实例），适配这一支往内收（四种变化各停在哪一层），两支在「未来演进」会合。
 
 七段的分工：
 
@@ -132,6 +119,79 @@ flowchart TB
 Table: 系列主线的七段、所含篇目与各段回答的问题
 
 单机段与变化段的分界按一条标准划：**改不改输出**。投机解码用拒绝采样保证输出分布与逐个采样完全相同，改变的只是一次 forward 产出几个 token，所以是性能问题，完整地放在[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)；采样参数与结构化输出改变的是「输出什么」，属于变化段的[《输出在变》](/output-changes-sampling-and-structured-output.html)。
+
+> [!NOTE] Java 经验参照：把变化挡在接口后面
+>
+> 变化段四篇要回答的问题——新模型、新芯片、新请求形态进来时，改动应该停在哪一层——和在 Java 里加一层接口、让实现换掉而调用方不动，是同一类工程问题。不同之处有两点。一是注册时机：SPI 在类路径上就位，启动时扫一遍就行；这里的「实现」要同时和三处对上——它声明的 KV 规格决定块池怎么切、它选的 attention 后端决定 kernel 走哪条路、它的执行形状决定 CUDA Graph 能录哪几档，少对上一处就是启动报错或性能断崖。二是检验方式：接口做得好不好，这里有一个可以数的判据——核心代码里还剩多少处设备判断、模型目录外还要改几个文件，[《模型适配》](/model-adaptation-architecture.html)与[《硬件解耦》](/hardware-abstraction-and-portability.html)就按这个判据验收。
+
+### 贯穿全系列的量与量依赖
+
+七段讲的是顺序，下面这张图讲的是约束：全系列反复出现的量只有十来个，它们之间是一条从硬件和模型规格出发、最后落到 Goodput 的依赖链。每一篇其实都在这条链的某一处上动一个旋钮，而旋钮的代价总是落在链上另一处：
+
+```mermaid
+%% 图：贯穿全系列的量与量依赖：从硬件与模型规格到 Goodput
+flowchart TB
+    HW["<b>给定量：硬件与模型规格</b><br/>• 每卡显存、HBM 带宽、算力<br/>• 层数、KV head 数、head_dim、dtype<br/>• 参数量与并行度"] --> W["<b>每卡权重</b><br/>• 参数量 ÷ 并行度<br/>• 每个 decode 步都要整读一遍"]
+    HW --> KVT["<b>每 token 的 KV</b><br/>• 2 × 层数 × KV head × head_dim × 字节数<br/>• 再除以张量并行度"]
+    W --> POOL["<b>KV 池容量（《KV Cache》）</b><br/>• 显存份额 − 权重 − 激活峰值 − CUDA Graph<br/>• 剩下的全部切成固定大小的块"]
+    KVT --> POOL
+    POOL --> B["<b>并发上限（《Scheduler》《KV Cache》）</b><br/>• 池容量 ÷ 单请求的 KV，再被并发参数截一次<br/>• 前缀命中率越高，同样的池装得下越多请求"]
+    B --> TSTEP["<b>一步的时间（《GPU 执行》）</b><br/>• 权重读取是固定开销，被整批分摊<br/>• KV 读取随并发与上下文线性增长<br/>• 再加上这一步混进来的 prefill token"]
+    KVT --> TSTEP
+    W --> TSTEP
+    BUD["<b>每步的 token 预算（《Scheduler》）</b><br/>• 一步最多处理多少 token<br/>• 一条长 prompt 要切成几步"] --> TSTEP
+    TSTEP --> TPOT["<b>TPOT 与 ITL（《如何衡量》）</b><br/>• 纯 decode 步的时间就是 TPOT<br/>• 混进大 prefill 块的那一步就是 ITL 的 P99"]
+    TSTEP --> THRU["<b>吞吐（《如何衡量》）</b><br/>• 并发 ÷ 一步的时间<br/>• 并发涨得比步时间快，吞吐才涨"]
+    B --> THRU
+    BUD --> TTFT["<b>TTFT（《如何衡量》）</b><br/>• 排队时间 + prefill 时间<br/>• 预算越小，切块越多、排队越久"]
+    B --> TTFT
+    TPOT --> GOOD["<b>Goodput（《如何衡量》）</b><br/>• 同时满足 TTFT 与 TPOT 的请求数<br/>• 全系列每个旋钮最终都落在这个数上"]
+    TTFT --> GOOD
+    THRU --> GOOD
+    classDef given fill:#f5f5f5,stroke:#616161;
+    classDef mid fill:#e3f2fd,stroke:#1565c0;
+    classDef knob fill:#fff8e1,stroke:#f9a825;
+    classDef out fill:#e8f5e9,stroke:#2e7d32;
+    class HW given;
+    class W,KVT,POOL,B,TSTEP mid;
+    class BUD knob;
+    class TPOT,THRU,TTFT,GOOD out;
+```
+
+逐节点要点：
+
+- **给定量**：硬件与模型规格是外生的，一个实例启动后就不再变；全系列的算账都从这里出发，具体数字见[下文的版本与硬件基线](#版本与硬件基线)。
+- **每卡权重**：它是 decode 每一步的固定成本——不管这一步服务 1 个还是 256 个请求，这些字节都要从 HBM 读一遍。整个系列「为什么要把请求批在一起」的理由只有这一条，推导在[《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)。
+- **每 token 的 KV**：唯一随生成增长的量，由模型结构（GQA / MLA 的 KV head 数）和 KV 的 dtype 决定，是[《KV Cache》](/kv-cache-memory-core.html)全篇在压缩的那个数。
+- **KV 池容量**：权重、激活峰值和 CUDA Graph 都先从显存里扣，剩下的才是池子——所以[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)里多录几档 CUDA Graph，代价会出现在并发上。
+- **并发上限**：这是整个系列的瓶颈量。它不是由并发参数决定的，而是由池容量除以单请求 KV 决定的，参数只是在它之上再压一道，见[《Scheduler》](/scheduler-batch-and-fairness.html)与[《KV Cache》](/kv-cache-memory-core.html)。
+- **每步的 token 预算**：唯一同时作用在延迟两端的旋钮——调大它 prefill 切块变少（TTFT 降），但这一步变重（ITL 升），[《Scheduler》](/scheduler-batch-and-fairness.html)按这条取舍组织。
+- **一步的时间**：权重读取被分摊、KV 读取不能分摊、prefill token 按单价累加，三项合起来就是这一步多久，[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)逐项往下压。
+- **TPOT、吞吐与 TTFT**：三者都是「一步的时间」和「并发」的函数，所以不可能同时最优——这是[《如何衡量 LLM Serving》](/how-to-measure-llm-serving.html)要先把口径说清的原因。
+- **Goodput**：全系列的终点。多卡（[《Multi-GPU》](/multi-gpu-scaling-strategies.html)）改的是「给定量」里的并行度，PD 分离（[《PD 分离》](/prefill-decode-disaggregation.html)）把 prefill 那一项从 decode 实例的步时间里整个拿掉，走的都还是这条链。
+
+### 一个实例启动后，显存与内存里住着什么
+
+上面的量落到具体对象上，就是下面这张表。它也是全系列的分工表——每一篇负责其中一到两行：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 哪一篇讲它 |
+|---|---|---|---|---|---|
+| 模型权重 | 实例启动时按并行度切分加载 | 每张卡的显存，每卡一份分片 | 整个实例 | 全部请求共享 | [《模型适配》](/model-adaptation-architecture.html)<br/>[《Multi-GPU》](/multi-gpu-scaling-strategies.html) |
+| KV 池与其中的块 | 启动时按剩下的显存一次性划好、切成固定大小的块 | 每张卡的显存 | 整个实例；块在其中被反复分配与归还 | 一个块的内容只有引用它的请求看得见；前缀相同时可以被多个请求共用 | [《KV Cache》](/kv-cache-memory-core.html) |
+| 前缀哈希表与空闲块的 LRU 队列 | 块写满时按内容登记哈希 | CPU 侧，在引擎进程里 | 跨请求，直到块被逐出 | **只有调度器**——Worker 不知道某块是命中来的还是刚算的 | [《KV Cache》](/kv-cache-memory-core.html) |
+| 激活 | 每次 forward 现算 | 每张卡的显存 | 一次 forward 之内 | 没有别人 | [《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| CUDA Graph 录下的执行图 | 启动阶段按若干档每步 token 数分别录制 | 每张卡的显存 | 整个实例 | 每步按 token 数选一档重放；超出最大一档就不用图 | [《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| 请求对象：token id、采样参数、状态 | 收到请求时在 API Server 进程里建 | CPU 侧，经消息队列进引擎进程 | 整个请求 | 调度器看到全部；Worker 只拿到它在这一步 batch 里的那一行 | [《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)<br/>[《输出在变》](/output-changes-sampling-and-structured-output.html) |
+| 这一步的调度结果 | 调度器每步产出一份 | CPU 侧，经共享内存广播给各 Worker | **一步**，下一步重新产出 | 本步的全部 Worker | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| LoRA adapter 权重 | 请求第一次用到时装进 GPU 上的槽位 | 每张卡的显存，槽位数由参数定 | 比请求长、比实例短：槽位满了按最久未用换出 | 同一步里用同一个 adapter 的请求 | [《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html) |
+
+Table: 一个 vLLM 实例启动后，显存与内存里住着的对象及其生命周期
+
+三条贯穿全系列的事实可以先从这张表读出来：**只有 KV 池一行是「跨请求共享又按请求分配」的**，所以它既是容量问题也是公平问题；**只有调度结果一行的「活多久」是一步**，所以调度不是准入决定而是每步重做的决定；**「谁能看见」这一列的分界就是进程边界**——调度器看得见块的哈希，Worker 只看得见整数块号，这条边界是[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)把对象分成四个域的依据。
+
+> [!NOTE] Java 经验参照：自己管一块定长块池
+>
+> KV 池这一行最容易被读成「一个对象池」，照着连接池或 ByteBuffer 池的经验看，大体不错：定长、预先分好、用引用计数判断谁还在用。两处不一样。第一，这里没有兜底：JVM 里池子不够还可以新分配，最坏是堆变大、GC 变久；KV 池是启动时就定下的，不够就只能把某个请求已经算出来的 KV 整个丢掉、以后重新算一遍（[《Scheduler》](/scheduler-batch-and-fairness.html)的抢占），代价是重复计算而不是停顿。第二，块的内容有身份：两个请求的前缀相同，它们可以引用同一个块，所以这个池既在回收内存又在当缓存（[《KV Cache》](/kv-cache-memory-core.html)的 prefix cache），「归还」之后块不一定立刻能被别人用，要等它作为缓存被逐出。
 
 编排上有一个约定：每一篇先把要解决的矛盾摆出来，再讲 vLLM 怎么做。跨篇反复出现的概念——KV Cache、token 级调度、Prefill / Decode 两种 workload、边界与契约——在[《系列总结与通关自测》](/deep-dive-into-vllm-series-recap-and-self-test.html)的「贯穿线」里有专门的整理。
 
@@ -380,7 +440,14 @@ PD 分离紧跟多卡，是因为它和第七章同属“规模”这条线：�
 
 ### 14. 对照 SGLang：同一个请求穿过另一套系统
 
-最后用前十三篇建立的框架看第二个主流引擎。SGLang v0.5.18 与 vLLM 在同一个请求的路径上做了不同的选择：vLLM 一个调度器指挥 N 个被动 worker、调度结果跨进程传递，SGLang 每个 TP rank 各跑一份相同的调度器、与 ModelRunner 同进程；vLLM 一个 token 预算、无 prefill / decode 阶段、事后逐个抢占，SGLang 先 prefill 后 decode、用 `new_token_ratio` 预估准入、批量撤回带反馈；vLLM 的 KV 复用是块哈希表与引用计数，SGLang 是基数树（RadixAttention）与锁计数；PD 分离一边是 `KVConnector` 加外部 proxy，一边是内置的两级队列加 Rust 网关。本篇逐层并排这些差异，区分哪些来自两个项目的**出发点**（PagedAttention 的块 vs RadixAttention 的树）、哪些来自**定位**（执行层 vs 带编排）、哪些只是**时间差**，最后给出按工作负载而不是按 benchmark 的选择表，并解释一张吞吐图里藏着多少变量。
+最后用前十三篇建立的框架看第二个主流引擎。SGLang v0.5.18 与 vLLM 在同一个请求的路径上做了四处不同的选择：
+
+1. **调度器放在哪**：vLLM 一个调度器指挥 N 个被动 worker、调度结果跨进程传递；SGLang 每个 TP rank 各跑一份相同的调度器，与 ModelRunner 同进程。
+2. **一步怎么组**：vLLM 一个 token 预算、不分 prefill / decode 阶段、事后逐个抢占；SGLang 先 prefill 后 decode，用 `new_token_ratio` 预估准入、批量撤回带反馈。
+3. **KV 怎么复用**：vLLM 是块哈希表加引用计数；SGLang 是基数树（RadixAttention）加锁计数。
+4. **PD 分离怎么做**：vLLM 是 `KVConnector` 加外部 proxy；SGLang 是内置的两级队列加 Rust 网关。
+
+本篇逐层并排这些差异，区分哪些来自两个项目的**出发点**（PagedAttention 的块 vs RadixAttention 的树）、哪些来自**定位**（执行层 vs 带编排）、哪些只是**时间差**，最后给出按工作负载而不是按 benchmark 的选择表，并解释一张吞吐图里藏着多少变量。
 
 > **功能可以补，数据结构很难换：块与树各自决定了命中粒度、驱逐方式、锁定方式和调度器能看到什么。**
 
