@@ -92,7 +92,7 @@ Table: 本文的章节安排
 
 - 单向带宽：
   - NVLink A100 300 / H100 450 / Blackwell 900 GB/s（厂商 600 / 900 / 1800 是双向合计）
-  - PCIe x16 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s（实测 80–90%）
+  - PCIe x16 3.0 / 4.0 / 5.0 ≈ 16 / 32 / 64 GB/s（大块传输约 80–90%，小块 DMA 低得多）
   - HDR 25、NDR 50 GB/s
   - UPI 在 NCCL 估算里 6–40 GB/s
 - NCCL 内部常数：NVLink 每链路 20 / 20.6 / 40.1 GB/s（A100 / H100 / B200），PCIe = width × speed / 80（Gen4 x16 = 24）。
@@ -401,7 +401,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   不是。A100 的 PCIe 4.0 x16 单向 32 GB/s，扣掉协议开销约 28 GB/s，是这条 PCIe 链路的上限；NDR 的 50 GB/s 被 PCIe 卡住，网卡浪费三分之一。网卡速率约为 PCIe 链路的 78% 才是匹配的搭配（HDR 配 4.0、NDR 配 5.0）。
+   不是。A100 的 PCIe 4.0 x16 裸速率 32 GB/s，扣掉 128b/130b 编码是 31.5，再扣事务层开销约 28 GB/s——这是这条 PCIe 链路的上限，GPU 侧实测通常落在 25–26 GB/s；NDR 的 50 GB/s 被 PCIe 卡住，网卡浪费三分之一。网卡净线速约为 PCIe 槽裸带宽的 78% 才是匹配的搭配（HDR 配 4.0、NDR 配 5.0）——这个比例是设计留量，不是协议效率。
 
    </details>
 
