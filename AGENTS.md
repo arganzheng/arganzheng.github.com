@@ -604,7 +604,15 @@ Pages has `https_enforced` on.
   `A["<b>标题</b><br/>内容…"]`; `nodeTitles()` turns that leading
   `<b>…</b><br/>` into `span.mmd-title` (bold 700, 1.1em, block with 5px
   below — `less/theme-overrides.less`), and a formula inside a title is
-  measured at 1.1em too. KaTeX in diagrams is 1.05em (`.mermaid .katex`,
+  measured at 1.1em too. **A parenthetical that belongs to the title line
+  goes inside the `<b>`**: `A["<b>标题（第七章）</b><br/>…"]`, not
+  `A["<b>标题</b>（第七章）<br/>…"]` — `TITLE_RE` requires `</b>` to be
+  followed directly by `<br/>`, so the second form matches nothing and the
+  whole first line renders as plain body text (46 such boxes across 13 files
+  were moved on 2026-11-24). It is also inconsistent on its own terms: the
+  line reads 「标题（第七章）」 but only the part before the bracket is bold.
+  A first line that is `<b>名字</b>：一句说明` is *not* a title (the bold is
+  inline emphasis) — leave those as they are. KaTeX in diagrams is 1.05em (`.mermaid .katex`,
   `.mm-probe .katex` for the measuring box), not KaTeX's 1.21em, which made
   formulas look bigger than the title. The 2026-11-12 sweep marked ~1,950
   first lines in 205 posts; it left plain the first lines that are not a
