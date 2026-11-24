@@ -9,9 +9,9 @@ updated: 2026-11-23
 date: 2026-09-03 20:00:00
 ---
 
-八篇正文回答了一个问题：**一个 RL 后训练任务同时是一个推理服务和一个训练任务，这两样东西怎样共享一组 GPU，而不让任何一方在等另一方**。第一篇把一步 RL 拆成三个作业加两次同步、算清 FLOP / 字节 / 秒三本账；第二篇把共置、分离、异步三种形态放在同一张账上比较；第三到第六篇各解决形态带来的一个问题——共置要切显存、任何形态都要同步权重、异步要补 off-policy 的修正、Agent 要调度环境；第七篇把每个机制落到 verl 的函数与进程上，第八篇把前七篇变成配置推导、指标面板与故障表。八篇反复回到同一个场景算账：Llama-3-8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 × H100，一步 810 秒、全步 MFU 13%。
+八篇正文回答了一个问题：**一个 RL 后训练任务同时是一个推理服务和一个训练任务，这两样东西怎样共享一组 GPU，而不让任何一方在等另一方**。[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)把一步 RL 拆成三个作业加两次同步、算清 FLOP / 字节 / 秒三本账；[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)把共置、分离、异步三种形态放在同一张账上比较；中间四篇（《共置》《权重同步》《异步与 off-policy》[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)）各解决形态带来的一个问题——共置要切显存、任何形态都要同步权重、异步要补 off-policy 的修正、Agent 要调度环境；[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)把每个机制落到 verl 的函数与进程上，[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)把前七篇变成配置推导、指标面板与故障表。八篇反复回到同一个场景算账：Llama-3-8B、$$B = 512$$、$$G = 16$$、$$\bar L = 8\text{K}$$、64 × H100，一步 810 秒、全步 MFU 13%。
 
-本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。第八篇末尾那节系列总结的内容（八篇回顾、三种能力、趋势与边界）也并入本文。
+本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。《配置、可观测与排障》末尾那节系列总结的内容（八篇回顾、三种能力、趋势与边界）也并入本文。
 
 > **读完这八篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -53,7 +53,7 @@ Table: 八篇的核心问题、结论与必记公式
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿八篇的五条线：长尾、谁持有完整模型、版本号与 logprob 份数、配比按时间且会漂、推理引擎的三个接口 |
+| 三 | 贯穿八篇的五条线（长尾、谁持有完整模型、版本号与 logprob 份数、配比按时间且会漂、推理引擎的三个接口），以及全系列的对象总表 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 8 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -202,31 +202,31 @@ Table: 本文的章节安排
 
 ### 1. 长尾：从一个数字到一种形态的判据
 
-第一篇给出长尾的定义与量：最后一波里最长的回答多走 $$L_{max} - \bar L$$ 步，602 秒里 196 秒，且它不随卡数缩短——64 → 128 卡墙钟只降 35%，这是账里唯一不能用钱买的项。第二篇把它变成形态的判据：异步 ≈ 共置 − 长尾，收益几乎全部来自这一项，$$f$$ 从 10% 到 70% 对应 1.07× 到 2.55×，共置对它线性敏感、异步不敏感。第三篇给出共置的换挡阈值 $$f > 0.4$$ 至少换 `colocate_async`。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)给出长尾的定义与量：最后一波里最长的回答多走 $$L_{max} - \bar L$$ 步，602 秒里 196 秒，且它不随卡数缩短——64 → 128 卡墙钟只降 35%，这是账里唯一不能用钱买的项。[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)把它变成形态的判据：异步 ≈ 共置 − 长尾，收益几乎全部来自这一项，$$f$$ 从 10% 到 70% 对应 1.07× 到 2.55×，共置对它线性敏感、异步不敏感。[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)给出共置的换挡阈值 $$f > 0.4$$ 至少换 `colocate_async`。
 
-第五篇是长尾的另一面：吞掉长尾的手段——部分 rollout、流式缓冲——各自带来 staleness 的长度偏置、重 prefill、分段的 $$\pi_{old}$$；`wait` 策略无偏，但等的就是长尾，把异步的收益又还回去一部分。第六篇把长尾的来源从回答长度换成环境耗时，$$f > 0.8$$，共置同步在第二篇的表里是 3014 秒对 614 秒，异步从优化变成必需。第八篇的 MFU 瀑布里长尾是 −24.2 个百分点那一项，排在 decode memory-bound 的 −48.1 之后、任何训练侧优化之前——先砍长尾，与预训练的优化顺序相反。
+[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)是长尾的另一面：吞掉长尾的手段——部分 rollout、流式缓冲——各自带来 staleness 的长度偏置、重 prefill、分段的 $$\pi_{old}$$；`wait` 策略无偏，但等的就是长尾，把异步的收益又还回去一部分。[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)把长尾的来源从回答长度换成环境耗时，$$f > 0.8$$，共置同步在《系统形态》的表里是 3014 秒对 614 秒，异步从优化变成必需。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的 MFU 瀑布里长尾是 −24.2 个百分点那一项，排在 decode memory-bound 的 −48.1 之后、任何训练侧优化之前——先砍长尾，与预训练的优化顺序相反。
 
 ### 2. 谁持有完整模型：字节账的一条暗线
 
-第一篇的字节账说训练状态 $$16N$$ 均分后每卡 2 GB 不是问题，问题是推理权重副本每实例一份完整、KV 是集群显存的近两倍——"哪里放着一份完整的东西"从这里开始成为主线。第三篇的共置里，两方都要"尽量大"的那块显存（KV 池 vs 训练状态 + 激活）只能换手，常驻的部分（CUDA graph 池、两套 NCCL 缓冲、allocator 保留段）谁也让不出去，它们挤掉的 KV 池才是共置的真实代价；pinned 主机内存（32B/8 卡 520 GB）是训练状态在 CPU 上的那份完整拷贝。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的字节账说训练状态 $$16N$$ 均分后每卡 2 GB 不是问题，问题是推理权重副本每实例一份完整、KV 是集群显存的近两倍——"哪里放着一份完整的东西"从这里开始成为主线。[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)里，两方都要"尽量大"的那块显存（KV 池 vs 训练状态 + 激活）只能换手，常驻的部分（CUDA graph 池、两套 NCCL 缓冲、allocator 保留段）谁也让不出去，它们挤掉的 KV 池才是共置的真实代价；pinned 主机内存（32B/8 卡 520 GB）是训练状态在 CPU 上的那份完整拷贝。
 
-第四篇把这条线推到极致：朴素同步慢不是因为网络慢，是"全模型经过 rank 0 一张网卡并在它上面物化"；分桶让峰值显存与 $$N$$ 无关；增量同步的本质不是省字节，是没有任何 rank 持有完整模型，所以 0.5B 也快 1.3 倍、235B 快 21 倍且从 32B 到 235B 持平。第八篇的算例二把它变成配置约束：按时间算出的 384 : 128 在显存上放不下（训练侧每卡 84 GB），要取两个约束的交集——671B 这个规模显存约束几乎总是先到；pinned 内存要把 offload、decoupled 快照、异步 checkpoint 缓冲三者合算。
+[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)把这条线推到极致：朴素同步慢不是因为网络慢，是"全模型经过 rank 0 一张网卡并在它上面物化"；分桶让峰值显存与 $$N$$ 无关；增量同步的本质不是省字节，是没有任何 rank 持有完整模型，所以 0.5B 也快 1.3 倍、235B 快 21 倍且从 32B 到 235B 持平。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的算例二把它变成配置约束：按时间算出的 384 : 128 在显存上放不下（训练侧每卡 84 GB），要取两个约束的交集——671B 这个规模显存约束几乎总是先到；pinned 内存要把 offload、decoupled 快照、异步 checkpoint 缓冲三者合算。
 
 ### 3. 版本号与 logprob 的份数：正确性的两根线
 
-第一篇留下一个伏笔：多数框架默认重算旧策略 logprob，付 $$2N_a$$、8% 的时间，为的是训推不一致——推理引擎算出的 $$\log \pi$$ 与训练器的不同。第四篇在同步的末尾加上 `set_global_steps`：同步是版本号唯一的推进点，同步失败一半而版本号推进了比同步慢危险得多。第五篇把两根线接起来：staleness 按版本数算（$$s = \lfloor (\tau + w) / T_{sync} \rfloor$$），版本号错一步全部统计错一步；修正的系统要求是 logprob 的份数——重算 2 份修不一致、不重算 2 份修 staleness、decoupled 3 份两者都修——而部分 rollout 下重算是错的（分段的 behave 策略只有推理侧逐 token 记录的 logprob 才对），所以异步系统默认不重算、不一致直接进重要性比。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)留下一个伏笔：多数框架默认重算旧策略 logprob，付 $$2N_a$$、8% 的时间，为的是训推不一致——推理引擎算出的 $$\log \pi$$ 与训练器的不同。[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)在同步的末尾加上 `set_global_steps`：同步是版本号唯一的推进点，同步失败一半而版本号推进了比同步慢危险得多。[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)把两根线接起来：staleness 按版本数算（$$s = \lfloor (\tau + w) / T_{sync} \rfloor$$），版本号错一步全部统计错一步；修正的系统要求是 logprob 的份数——重算 2 份修不一致、不重算 2 份修 staleness、decoupled 3 份两者都修——而部分 rollout 下重算是错的（分段的 behave 策略只有推理侧逐 token 记录的 logprob 才对），所以异步系统默认不重算、不一致直接进重要性比。
 
-第六篇让轨迹跨的版本数更多（≈ 5），decoupled 接近必需，并加了一种不是数值的不一致——token 序列本身不一致（重新 tokenize 不幂等、chat template 轮边界）。第七篇把版本号一路带到 TransferQueue 的 tag，让 `ReplayBuffer` 能算 staleness；AReaL 的分歧点正在这里——版本对齐是 API 的一部分、三份 logprob 是默认。第八篇的十分钟决策树里，"每实例版本"是第二步，`rollout_probs_diff` 是第三步，`full_determinism` 下它应接近纯精度差 $$10^{-3}$$；故障表里"实例版本漂移"与"sleep / wake 后静默错误"都是这两根线的断点。
+[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)让轨迹跨的版本数更多（≈ 5），decoupled 接近必需，并加了一种不是数值的不一致——token 序列本身不一致（重新 tokenize 不幂等、chat template 轮边界）。[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)把版本号一路带到 TransferQueue 的 tag，让 `ReplayBuffer` 能算 staleness；AReaL 的分歧点正在这里——版本对齐是 API 的一部分、三份 logprob 是默认。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的十分钟决策树里，"每实例版本"是第二步，`rollout_probs_diff` 是第三步，`full_determinism` 下它应接近纯精度差 $$10^{-3}$$；故障表里"实例版本漂移"与"sleep / wake 后静默错误"都是这两根线的断点。
 
 ### 4. 配比按时间、且会漂
 
-第一篇结尾就说账是动态的：R1 一类的训练里回答长度从几百涨到上万，第一步适用的配比到第五百步可能让训练器空转一半。第二篇给出静态解 $$n_r / n_t = T_{gen} / T_{train}$$，强调按时间不按 FLOP（方向相反：FLOP 1 : 3、时间 2 : 1），并给出动态调的两条路——弹性 rollout 实例、训练池兼职 rollout（`HybridEngineMode`），后者意味着分离形态的训练池自己就是一个小共置系统。第四篇加上同步时间对配比的反向约束：$$T_{sync} / (k T_{mb} + T_{sync})$$ 决定 $$k$$ 能开多细，同步越快 staleness 越低而不多付空转。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)结尾就说账是动态的：R1 一类的训练里回答长度从几百涨到上万，第一步适用的配比到第五百步可能让训练器空转一半。[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)给出静态解 $$n_r / n_t = T_{gen} / T_{train}$$，强调按时间不按 FLOP（方向相反：FLOP 1 : 3、时间 2 : 1），并给出动态调的两条路——弹性 rollout 实例、训练池兼职 rollout（`HybridEngineMode`），后者意味着分离形态的训练池自己就是一个小共置系统。[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)加上同步时间对配比的反向约束：$$T_{sync} / (k T_{mb} + T_{sync})$$ 决定 $$k$$ 能开多细，同步越快 staleness 越低而不多付空转。
 
-第五篇说 $$k$$ 与 staleness 的关系有两种计法（版本数 vs 参数距离），第六篇加进第三个配比变量——沙箱并发数，以及生成式 RM 的第四个 GPU 负载，rollout : train 在 Agent RL 里更接近 1 : 1。第八篇把它们收成六步推导，并留下两个常犯的错：配比算完要用每侧自己的卡数重算两侧时间（一步是两侧的最大值，不是按比例缩短的总时间），以及用显存校验训练卡数。
+[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)说 $$k$$ 与 staleness 的关系有两种计法（版本数 vs 参数距离），[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)加进第三个配比变量——沙箱并发数，以及生成式 RM 的第四个 GPU 负载，rollout : train 在 Agent RL 里更接近 1 : 1。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)把它们收成六步推导，并留下两个常犯的错：配比算完要用每侧自己的卡数重算两侧时间（一步是两侧的最大值，不是按比例缩短的总时间），以及用显存校验训练卡数。
 
 ### 5. 推理引擎的三个接口
 
-第一篇划定边界：本系列只用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。第二篇让"批量生成"变成 server 模式的持续服务，绕开单控制器的同步点。第三篇是"让渡显存"：sleep / wake_up 按 `weights` / `kv_cache` 标签分区，`CuMemAllocator` 保虚拟地址，SGLang 的 `torch_memory_saver` 同一机制。第四篇是"加载权重"：`load_weights` 接 HF 名字的张量流、按自己的 TP / EP 切出分片，加上 `reset_prefix_cache` 与版本号。第六篇让"批量生成"再长出 OpenAI / Anthropic 兼容的一面，现成 harness 接进来，网关重建 token 序列。第七篇的结论是这三个接口在三家框架里写法趋同——是必然，不是 verl 的选择；第八篇说趋势是 vLLM 与 SGLang 把它们做成一等 API，训练框架的适配层会变薄。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)划定边界：本系列只用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)让"批量生成"变成 server 模式的持续服务，绕开单控制器的同步点。[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)是"让渡显存"：sleep / wake_up 按 `weights` / `kv_cache` 标签分区，`CuMemAllocator` 保虚拟地址，SGLang 的 `torch_memory_saver` 同一机制。[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)是"加载权重"：`load_weights` 接 HF 名字的张量流、按自己的 TP / EP 切出分片，加上 `reset_prefix_cache` 与版本号。[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)让"批量生成"再长出 OpenAI / Anthropic 兼容的一面，现成 harness 接进来，网关重建 token 序列。[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)的结论是这三个接口在三家框架里写法趋同——是必然，不是 verl 的选择；[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)说趋势是 vLLM 与 SGLang 把它们做成一等 API，训练框架的适配层会变薄。
 
 ```mermaid
 %% 图：RL 系统几个量的依赖关系：回答长度决定在飞 KV 与长尾占比，进而决定并发、形态、配比与 staleness，最后落到 logprob 的份数与修正
@@ -259,6 +259,37 @@ flowchart TB
 
 Table: 贯穿八篇的概念及其关系
 
+### 6. 全系列的对象总表
+
+八篇各有一张「这一篇新引入的东西住在哪、活多久」的表。把它们合起来，一个 RL 后训练作业从头到尾只有下面这些对象——每一篇其实都在改其中一到两行的归属或寿命：
+
+| 对象 | 谁持有 | 在哪一侧 | 活多久 | 哪一篇管它 |
+|---|---|---|---|---|
+| 训练状态（bf16 参数 + 梯度 + fp32 主参数 + Adam 两个动量） | 训练器（FSDP 或 Megatron） | 训练侧，按 DP / TP / PP 切片 | 整个作业（梯度只活一步） | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) 算它<br/>[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) 换手<br/>[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) 用它校验训练卡数 |
+| 推理引擎的权重副本 | 推理引擎 | 推理侧，按推理 TP / EP 切片 | 整个作业，每步被整体覆写一次 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| KV 池 | 推理引擎的块管理器 | 推理侧 | 整个作业；共置下每步释放再重建 | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) 的换手<br/>[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) 的跨轮驻留 |
+| 参考模型权重 | ref worker | 常驻 CPU，算 KL 时搬上卡 | 整个作业 | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)、[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| CUDA Graph 池、两套 NCCL 缓冲、CUDA context | 两套引擎各一份 | 卡上，谁也让不出去 | 整个作业 | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)（第三层代价） |
+| pinned 主机内存里的训练状态副本 | FSDP / Megatron 的 offload | CPU 内存 | 整个作业 | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)；[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) 要和 checkpoint 缓冲、decoupled 快照合算 |
+| 一波 rollout 的在飞请求与它们的 KV | 推理引擎的调度器 | 推理侧 | 一波生成；部分 rollout 下跨步存活 | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
+| 回答 token + 采样时的 logprob + 生成版本号 | 推理引擎产生，存进样本 | CPU 内存（TransferQueue） | 一步；异步下进缓冲可活 $$k$$ 步 | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)、[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) |
+| 重算的 logprob、参考 logprob、decoupled 的第三份 | 训练器的前向 | 训练侧 | 一步 | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)、[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
+| 上一版权重的 CPU 快照 | `DetachActorWorker` | CPU 内存 | 一步到整个作业 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)（增量 diff）、[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)（decoupled） |
+| 一次同步的中间对象（完整张量、bucket、量化 scale、IPC handle） | checkpoint engine | 两侧 | **一次同步之内** | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| 沙箱容器与它的会话 | 沙箱网关 | CPU 集群，几千个 | 一条轨迹 | [《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
+| replay buffer 里的组、四类淘汰计数 | driver 的 `ReplayBuffer` | driver | 组：入队到取出或淘汰<br/>计数：整个作业 | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)、[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) |
+| 权重版本号 `global_steps` | 推理 server | 推理 server，并随样本走 | 整个作业，每步加一 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)、[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)、[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) |
+| checkpoint（训练状态 + 数据进度 + 样本缓冲 + 在飞 prompt + 版本号） | 训练器与 driver | 持久存储 | 跨作业 | [《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) |
+
+Table: 全系列的十五类对象：谁持有、在哪一侧、活多久、哪一篇管它
+
+这张表能直接读出四条结论，它们是八篇合起来才看得见的：
+
+1. **寿命只有四档**：整个作业、一波 rollout、一步、一次同步之内。跨档的只有三个特例——部分 rollout 的在飞轨迹、异步下滞留在缓冲里的样本、上一版权重的 CPU 快照——而这三个正好是 RL 的 checkpoint 比预训练多存的三样东西。
+2. **「在哪一侧」只有五个取值**：训练侧、推理侧、CPU 内存、CPU 集群、持久存储。整个系列讲的就是对象在前两者之间**换手**（《共置》）、在前两者之间**复制**（《权重同步》），以及 CPU 内存怎样同时充当中转站（offload、快照、样本队列）和瓶颈。
+3. **同一个模型的权重在系统里同时存在四到五份**：训练分片、推理副本、参考模型、offload 到 CPU 的那份，开了 decoupled 或增量同步时还有上一版的快照。这是 RL 系统的显存账与纯训练、纯推理最根本的差别——也是为什么「两边都要尽量大」这件事在这里无解，只能换手。
+4. **每步都在动的只有三行**：训练状态换手、新权重覆写推理副本、样本进出缓冲。其余十二行要么常驻整个作业，要么在一次同步内就消失。所以「优化一个 RL 后训练系统」几乎总是在优化这三行——这也解释了为什么八篇里有四篇（《共置》《权重同步》《异步与 off-policy》《Agentic rollout》）都在讲同一件事的不同侧面。
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -287,7 +318,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$S = 8192$$ 条；$$T_{resp} = 8192 \times 4096 = 3.36 \times 10^7$$；$$T_{all} = 8192 \times 4596 = 3.77 \times 10^7$$；FLOP $$\approx 12 \times 8.03 \times 10^9 \times 3.77 \times 10^7 = 3.6$$ EFLOP；生成 $$2N_a T_{resp} = 0.54$$ EFLOP，约 15%——序列数与第一篇的基线相同，token 减半、FLOP 减半，比例不变。
+   $$S = 8192$$ 条；$$T_{resp} = 8192 \times 4096 = 3.36 \times 10^7$$；$$T_{all} = 8192 \times 4596 = 3.77 \times 10^7$$；FLOP $$\approx 12 \times 8.03 \times 10^9 \times 3.77 \times 10^7 = 3.6$$ EFLOP；生成 $$2N_a T_{resp} = 0.54$$ EFLOP，约 15%——序列数与[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的基线相同，token 减半、FLOP 减半，比例不变。
 
    </details>
 
@@ -303,7 +334,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   每条在飞 $$(1\text{K} + 4\text{K}) \times 256$$ KiB ≈ 1.3 GB；0.9：$$2 \times 80 \times 0.9 - 66 = 78$$ GB → $$c \approx 58$$；0.5：$$2 \times 80 \times 0.5 - 66 = 14$$ GB → $$c \approx 10$$。并发差近 6 倍、波数差近 6 倍——32B 共置下这个比例不开到 0.7 以上不可用，这是第三篇"该换分离"的第一个信号。
+   每条在飞 $$(1\text{K} + 4\text{K}) \times 256$$ KiB ≈ 1.3 GB；0.9：$$2 \times 80 \times 0.9 - 66 = 78$$ GB → $$c \approx 58$$；0.5：$$2 \times 80 \times 0.5 - 66 = 14$$ GB → $$c \approx 10$$。并发差近 6 倍、波数差近 6 倍——32B 共置下这个比例不开到 0.7 以上不可用，这是[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)"该换分离"的第一个信号。
 
    </details>
 
@@ -319,15 +350,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   异步按 $$T_{thr} : T_{train} = 300 : 300 = 1 : 1$$ → 32 : 32；一步流水要把长尾算进生成侧，$$T_{gen} : T_{train} = 1000 : 300 \approx 3.3 : 1$$ → 约 49 : 15。长尾越重，一步流水的配比越偏向 rollout 侧，而它仍要等长尾——这是第二篇说一步流水"几乎和共置一样敏感"的另一面。
+   异步按 $$T_{thr} : T_{train} = 300 : 300 = 1 : 1$$ → 32 : 32；一步流水要把长尾算进生成侧，$$T_{gen} : T_{train} = 1000 : 300 \approx 3.3 : 1$$ → 约 49 : 15。长尾越重，一步流水的配比越偏向 rollout 侧，而它仍要等长尾——这是[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)说一步流水"几乎和共置一样敏感"的另一面。
 
    </details>
 
-6. 70B 模型分别在 8 卡、16 卡、32 卡上共置，训练状态每卡多少 GB？按第三篇的边界哪些可行？
+6. 70B 模型分别在 8 卡、16 卡、32 卡上共置，训练状态每卡多少 GB？按《共置》的边界哪些可行？
 
    <details markdown="1"><summary>答案</summary>
 
-   $$16N = 1.13$$ TB：8 卡 141 GB / 卡——放不下，pinned 内存也放不下；16 卡 70 GB——贴着 $$16N / n \le 70$$ GB 的边界，加激活就超；32 卡 35 GB——可行，第三篇的决策表写的是 70B 要 32–64 卡、开 param offload、TP 度两侧都 ≥ 2。
+   $$16N = 1.13$$ TB：8 卡 141 GB / 卡——放不下，pinned 内存也放不下；16 卡 70 GB——贴着 $$16N / n \le 70$$ GB 的边界，加激活就超；32 卡 35 GB——可行，《共置》的决策表写的是 70B 要 32–64 卡、开 param offload、TP 度两侧都 ≥ 2。
 
    </details>
 
@@ -369,7 +400,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：省的是训练器等长尾的 196 s，rollout 与训练仍在同一组卡上轮流；代码上只多 `abort` / `resume` 与一个预热。第三篇：prefix cache 每步重置，被中断的序列续接时已生成前缀要重 prefill。第五篇：重 prefill 约一步 FLOP 的 6%、每次同步都付；一条序列由几个版本生成，$$\pi_{old}$$ 必须用推理侧 logprob（不重算），训推不一致直接进重要性比；`drop` 策略偏向短回答。
+   [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)：省的是训练器等长尾的 196 s，rollout 与训练仍在同一组卡上轮流；代码上只多 `abort` / `resume` 与一个预热。[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)：prefix cache 每步重置，被中断的序列续接时已生成前缀要重 prefill。[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)：重 prefill 约一步 FLOP 的 6%、每次同步都付；一条序列由几个版本生成，$$\pi_{old}$$ 必须用推理侧 logprob（不重算），训推不一致直接进重要性比；`drop` 策略偏向短回答。
 
    </details>
 
@@ -377,7 +408,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：先开训练侧 param + optimizer offload、缩 `cudagraph_capture_sizes`，把比例提到 0.7–0.85（8B 上 745 → 610 s 的差）；步与步之间 OOM 时有时无、长尾占四成以上、卡数上百是换分离的信号。换分离后：第四篇的跨机同步（32B 66 GB 全量 8–18 s、增量 6–12 s；同步形态下占步时间 10% 以上就上增量）；第二篇的配比（按时间定、会漂）与至少一步 off-policy；换来 KV 池开到 0.9、CUDA graph 常驻无所谓、两侧并行配置独立。
+   《共置》：先开训练侧 param + optimizer offload、缩 `cudagraph_capture_sizes`，把比例提到 0.7–0.85（8B 上 745 → 610 s 的差）；步与步之间 OOM 时有时无、长尾占四成以上、卡数上百是换分离的信号。换分离后：[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)的跨机同步（32B 66 GB 全量 8–18 s、增量 6–12 s；同步形态下占步时间 10% 以上就上增量）；《系统形态》的配比（按时间定、会漂）与至少一步 off-policy；换来 KV 池开到 0.9、CUDA graph 常驻无所谓、两侧并行配置独立。
 
    </details>
 
@@ -385,7 +416,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：训练状态 10.7 TB、推理 FP8 671 GB 要 32 卡一个实例，FLOP 与字节脱钩。第三篇：训练侧 TP × PP × EP 与推理侧 TP × EP 度不同，专家布局每步重切；共置能跑但同步几十秒，多数团队分离。第四篇：朴素同步 671 GB 经 rank 0 60–80 s，对 650 s 的步是 12%；多源 / P2P 12–20 s；`delta_sharded` 尚不支持 Megatron 训练侧，所以是 nccl / nixl 多源 + 量化传输。第八篇：按时间的配比 384 : 128 在显存上放不下 → 256 : 256；$$T_{sync}$$ 大则 $$T_{sync} / (k T_{mb} + T_{sync})$$ 要 $$k$$ 不小才能把空转压住，同步必须与生成重叠。
+   [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)：训练状态 10.7 TB、推理 FP8 671 GB 要 32 卡一个实例，FLOP 与字节脱钩。《共置》：训练侧 TP × PP × EP 与推理侧 TP × EP 度不同，专家布局每步重切；共置能跑但同步几十秒，多数团队分离。《权重同步》：朴素同步 671 GB 经 rank 0 60–80 s，对 650 s 的步是 12%；多源 / P2P 12–20 s；`delta_sharded` 尚不支持 Megatron 训练侧，所以是 nccl / nixl 多源 + 量化传输。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)：按时间的配比 384 : 128 在显存上放不下 → 256 : 256；$$T_{sync}$$ 大则 $$T_{sync} / (k T_{mb} + T_{sync})$$ 要 $$k$$ 不小才能把空转压住，同步必须与生成重叠。
 
    </details>
 
@@ -393,15 +424,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：一条轨迹的"在飞"可能是沙箱正在跑测试，推理引擎侧无请求可 abort，沙箱执行不可中断续接（状态在容器里），所以边界只有生成中与轮间；轨迹墙钟 800 s 对同步间隔 150 s，跨约 5 个版本。第五篇：分段的 behave 策略只能用推理侧逐 token 记录的 logprob，重算是错的；staleness 大且分段，要 3 份 logprob（behave / prox / $$\theta$$）的 decoupled 修正。第七篇：AReaL 从第一天就把 interruptible generation 当引擎的一等能力、decoupled 默认、准入端控制 staleness，系统与算法一起设计；verl 是 `separate_async` + `bypass_mode=false` + `wait` 近似它，选项要用户自己配对。
+   [《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)：一条轨迹的"在飞"可能是沙箱正在跑测试，推理引擎侧无请求可 abort，沙箱执行不可中断续接（状态在容器里），所以边界只有生成中与轮间；轨迹墙钟 800 s 对同步间隔 150 s，跨约 5 个版本。《异步与 off-policy》：分段的 behave 策略只能用推理侧逐 token 记录的 logprob，重算是错的；staleness 大且分段，要 3 份 logprob（behave / prox / $$\theta$$）的 decoupled 修正。[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)：AReaL 从第一天就把 interruptible generation 当引擎的一等能力、decoupled 默认、准入端控制 staleness，系统与算法一起设计；verl 是 `separate_async` + `bypass_mode=false` + `wait` 近似它，选项要用户自己配对。
 
    </details>
 
-5. 一次 `update_weights` 之后 reward 掉到随机水平、没有报错：链路上哪些东西可能漏了？在第七篇的十二步里哪一步加校验最便宜？
+5. 一次 `update_weights` 之后 reward 掉到随机水平、没有报错：链路上哪些东西可能漏了？在《verl 源码导读》的十二步里哪一步加校验最便宜？
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：level 2 sleep 后 `named_buffers`（RoPE 表）要恢复、fp8 KV 的 scale 要重置。第四篇的"权重之外的权重"：量化 scale、MTP 草稿、LoRA 合并态、tied embeddings、MLA 吸收后的张量、prefix cache 与外挂 connector。第七篇：在 #8 `load_weights` 完成后、#9 `set_global_steps` 之前加校验——按 bucket 或按层的校验和、桶数与字节数对预期、或固定 prompt 贪心生成与训练器前向 argmax 对比。第八篇：同步失败必须回滚版本号或强制重同步，否则 staleness 统计全错、`rollout_probs_diff` 持续偏大。
+   《共置》：level 2 sleep 后 `named_buffers`（RoPE 表）要恢复、fp8 KV 的 scale 要重置。《权重同步》的"权重之外的权重"：量化 scale、MTP 草稿、LoRA 合并态、tied embeddings、MLA 吸收后的张量、prefix cache 与外挂 connector。《verl 源码导读》：在 #8 `load_weights` 完成后、#9 `set_global_steps` 之前加校验——按 bucket 或按层的校验和、桶数与字节数对预期、或固定 prompt 贪心生成与训练器前向 argmax 对比。《配置、可观测与排障》：同步失败必须回滚版本号或强制重同步，否则 staleness 统计全错、`rollout_probs_diff` 持续偏大。
 
    </details>
 
@@ -497,20 +528,28 @@ Table: 常见误区与正确说法
 
 Table: 掌握程度的判据
 
-通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。这对应总纲的三种能力——算账（第一、二、八篇）、实现（第三到七篇）、运维（第五、八篇）。没过的部分回到第二章对应篇的"必记"，再回该篇正文。
+通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。这对应总纲的三种能力——算账（《负载画像》《系统形态》《配置、可观测与排障》）、实现（《共置》到《verl 源码导读》）、运维（《异步与 off-policy》《配置、可观测与排障》）。没过的部分回到[第二章](#二逐篇回顾)对应那一篇的"必记"，再回该篇正文。
 
 ## 六、下一步
 
-八篇讲的是在线 RL 后训练的**系统**：生成、打分、训练三段怎样共享 GPU、怎样同步、怎样调度。写作时能看到的趋势每条对应一篇：推理引擎的 RL 接口在标准化（sleep / wake、按 tag 分区、`update_weights_from_*`、版本号、abort / resume 成为一等 API）；权重同步向"没有完整模型"收敛（增量、多源、点对点）；异步成为大规模任务的默认、准入控制与 decoupled loss 内建；环境成为公司级平台、训练与部署用同一个 agent；可观测的对象从训练器扩到整个循环。机制层已经稳定，实现层还在每个版本变——读者拿到的应该是前者。
+八篇讲的是在线 RL 后训练的**系统**：生成、打分、训练三段怎样共享 GPU、怎样同步、怎样调度。写作时能看到的趋势每条对应一篇：
+
+1. **推理引擎的 RL 接口在标准化**：sleep / wake、按 tag 分区、`update_weights_from_*`、版本号、abort / resume 成为一等 API；
+2. **权重同步向"没有完整模型"收敛**：增量、多源、点对点；
+3. **异步成为大规模任务的默认**：准入控制与 decoupled loss 内建；
+4. **环境成为公司级平台**：训练与部署用同一个 agent；
+5. **可观测的对象从训练器扩到整个循环**。
+
+机制层已经稳定，实现层还在每个版本变——读者拿到的应该是前者。
 
 以下方向与它紧邻，但不在范围内：
 
-- **RL 算法本身**：目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask。它们是算法地图 L5 的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；本系列只使用"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，第五篇讨论 off-policy 修正时只讨论它对系统的要求，不评价它对效果的影响。
+- **RL 算法本身**：目标函数、PPO / GRPO 及其变体、奖励模型、可验证奖励、Agent RL 的公式与 mask。它们是算法地图 L5 的[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)（八篇）；本系列只使用"一步里生成多少 token、要几个模型、样本怎样进 loss"这些结论，[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)讨论 off-policy 修正时只讨论它对系统的要求，不评价它对效果的影响。
 - **训练引擎内部**：并行策略、FSDP / Megatron 的实现、分布式 checkpoint 的格式、容错与弹性。它们在[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；本系列把训练器当作"一个能按给定并行配置跑一步、能导出分片权重"的黑盒。
 - **推理引擎内部**：调度、KV cache 管理、连续批处理、PagedAttention、投机解码、<span class="inline-tip" data-tip="prefill–decode，prefill 与 decode 放在不同实例">PD</span> 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列只使用推理引擎的三个接口——批量生成、让渡显存、加载权重——与它的吞吐特性。
 - **集合通信的实现**：NCCL 的算法与调优、RDMA。本系列只用广播、all-gather、点对点的语义与带宽。
 - **集群资源层**：Kubernetes / Ray 的调度、gang scheduling、容器运行时、沙箱平台的实现，在[《AI 平台工程》](/ai-platform-engineering.html)；本系列第六、八篇给出 RL 任务对它们的要求，不讨论它们自身。
-- **SFT 与离线方法**：SFT、DPO 一族在系统上与预训练同构（读数据、训练），没有 rollout；蒸馏里的 on-policy 蒸馏与在线 RL 同构，第五篇会提及。
+- **SFT 与离线方法**：SFT、DPO 一族在系统上与预训练同构（读数据、训练），没有 rollout；蒸馏里的 on-policy 蒸馏与在线 RL 同构，《异步与 off-policy》会提及。
 - **多模态与 VLA（vision-language-action，视觉-语言-动作模型）的 RL**：图像输入让 rollout 多一个 vision encoder、环境多一类观测，系统形态不变；正文在涉及处标注，不单列。
 - 本系列在 Infra 学习路径里的位置，以及训练与推理两条主线为什么在这里会合，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。地图上与它相邻的下一块是扩散模型的推理基础设施——没有 KV cache、每步全量前向，是另一张完全不同的账。
 
