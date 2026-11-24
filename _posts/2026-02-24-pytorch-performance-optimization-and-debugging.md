@@ -30,14 +30,14 @@ updated: 2026-11-17
 %%{init: {"flowchart": {"wrappingWidth": 340}}}%%
 %% 图：一次训练 step 穿过的环节，以及五类瓶颈和显存各自所在的位置
 flowchart TB
-    DL["<b>DataLoader</b>（第七章 §8）<br/>worker 进程加载与 collate<br/>pin-memory 线程把 batch 放进 pinned memory"]
-    PY["<b>Python 训练循环</b>（第五章）<br/>解释执行、nn.Module 钩子、日志<br/>时间花在这里：Python-bound"]
-    OP["<b>每个算子的 CPU 路径</b>（第五章）<br/>Python Binding、Dispatcher、Autograd 记录、cudaLaunchKernel<br/>Kernel 太小时这段成本占主导：Launch-bound"]
-    ST["<b>CUDA Stream</b>（第二章）<br/>命令队列：入队即返回，GPU 按序取出"]
-    KN["<b>GPU 执行 Kernel</b>（第六章）<br/>搬数据先到显存带宽上限：Memory-bound<br/>做算术先到峰值算力上限：Compute-bound"]
-    SY["<b>同步点</b>（第七章）<br/>.item()、.cpu()、synchronize()<br/>CPU 阻塞到队列排空；过于频繁：Sync-bound"]
-    AL["<b>CUDA Caching Allocator</b>（第八章）<br/>向驱动申请 Segment，切成 Block 分给 Tensor<br/>reserved 与 allocated、碎片、峰值、泄漏"]
-    OB["<b>测量</b>（第二至四章）<br/>synchronize、CUDA Event 定计时边界<br/>torch.profiler、Nsight Systems 看两条时间线<br/>Nsight Compute 看单个 Kernel"]
+    DL["<b>DataLoader（第七章 §8）</b><br/>worker 进程加载与 collate<br/>pin-memory 线程把 batch 放进 pinned memory"]
+    PY["<b>Python 训练循环（第五章）</b><br/>解释执行、nn.Module 钩子、日志<br/>时间花在这里：Python-bound"]
+    OP["<b>每个算子的 CPU 路径（第五章）</b><br/>Python Binding、Dispatcher、Autograd 记录、cudaLaunchKernel<br/>Kernel 太小时这段成本占主导：Launch-bound"]
+    ST["<b>CUDA Stream（第二章）</b><br/>命令队列：入队即返回，GPU 按序取出"]
+    KN["<b>GPU 执行 Kernel（第六章）</b><br/>搬数据先到显存带宽上限：Memory-bound<br/>做算术先到峰值算力上限：Compute-bound"]
+    SY["<b>同步点（第七章）</b><br/>.item()、.cpu()、synchronize()<br/>CPU 阻塞到队列排空；过于频繁：Sync-bound"]
+    AL["<b>CUDA Caching Allocator（第八章）</b><br/>向驱动申请 Segment，切成 Block 分给 Tensor<br/>reserved 与 allocated、碎片、峰值、泄漏"]
+    OB["<b>测量（第二至四章）</b><br/>synchronize、CUDA Event 定计时边界<br/>torch.profiler、Nsight Systems 看两条时间线<br/>Nsight Compute 看单个 Kernel"]
     DL -- "取出 batch，发起 H2D 拷贝" --> PY
     PY -- "逐个调用算子" --> OP
     OP -- "提交 Kernel" --> ST
