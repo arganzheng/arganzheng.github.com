@@ -30,7 +30,14 @@ Table: 三个问题对应的三种工程
 
 单卡训练只有第一个问题的影子（模型放得下吗），多卡训练把第二个问题带进来（通信是不是白等了），而千卡级、持续几周的训练把第三个问题变成主角：Llama 3 405B 在 16K 张 H100 上训练，54 天的统计窗口里发生了 466 次任务中断，其中 419 次是意外中断——平均每三小时一次。在这个尺度上，"能跑起来"和"能跑完"之间隔着本系列的后半部分。
 
-系列的组织原则来自训练引擎自身的结构：**训练引擎围绕状态组织**。一个训练任务的全部状态就是四样东西——参数、梯度、优化器状态、激活值。所谓并行策略，是决定这四样东西**放在哪张卡上**；所谓 checkpoint，是把其中三样**写到持久存储**；所谓容错，是在一部分卡消失后**重建它们**；所谓稳定性，是保证它们的**数值不跑飞**。把这四样东西的字节数、位置、生命周期追踪清楚，就是理解训练引擎的全部。
+系列的组织原则来自训练引擎自身的结构：**训练引擎围绕状态组织**。一个训练任务的全部状态就是四样东西——参数、梯度、优化器状态、激活值。后面每一类工程都是在对这四样东西做一件事：
+
+1. 并行策略决定它们**放在哪张卡上**；
+2. checkpoint 把其中两样（参数与优化器状态）连同数据位置和随机状态**写到持久存储**；
+3. 容错是在一部分卡消失之后**重建它们**；
+4. 稳定性是保证它们的**数值不跑飞**。
+
+把这四样东西的字节数、位置、生命周期追踪清楚，就是理解训练引擎的全部。
 
 系列以三个框架为源码阅读对象：**Megatron-LM**（Megatron Core）、**DeepSpeed** 和 **torchtitan**。它们代表了三种不同的设计取向——Megatron 从模型结构出发切分，DeepSpeed 从优化器状态出发切分，torchtitan 用 PyTorch 原生的 DTensor 与 FSDP2 把切分做成可组合的——对照着读，比只读其中一个更容易看清"哪些是必然的，哪些是选择"。
 
@@ -45,13 +52,13 @@ Table: 三个问题对应的三种工程
 
 一千张 H100 每小时的租金以万美元计。同一个任务，MFU（Model FLOPs Utilization）从 35% 提到 45%，意味着同样的预算多训练 30% 的 token，或者提前一周结束。这不是"锦上添花"的优化，而是训练团队每天都在盯的数字。
 
-但 MFU 不是调几个参数就能上去的。它取决于并行维度的搭配、micro-batch 的大小、激活重计算的策略、通信与计算的重叠程度、数据加载是否跟得上、以及有没有一张卡在拖慢所有人。这些因素互相牵制：TP 越大通信越多，PP 越深气泡越大，激活重计算省显存但多算 30% 的前向。要在这个多维空间里找到好的配置，靠试是试不出来的，必须先会算。本系列第一到四篇就是教这套算法。
+但 MFU 不是调几个参数就能上去的。它取决于并行维度的搭配、micro-batch 的大小、激活重计算的策略、通信与计算的重叠程度、数据加载是否跟得上、以及有没有一张卡在拖慢所有人。这些因素互相牵制：TP 越大通信越多，PP 越深气泡越大，激活重计算省显存但多算 30% 的前向。要在这个多维空间里找到好的配置，靠试是试不出来的，必须先会算。这套算法由三篇给出：[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)和[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)把显存、通信量与 MFU 变成可以手算的公式，[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)把公式变成一组具体配置，并把算出来和跑出来的差额逐项拆开。
 
 ### 千卡任务的故障是常态，不是异常
 
 一张 GPU 的年故障率也许只有百分之几，但一千张卡放在一起，故障率是它的一千倍。Llama 3 论文给出的数字是：16K 张 H100，54 天，419 次意外中断，其中约 78% 归因于确认或疑似的硬件问题，GPU 本身（含 HBM）占了 58.7%。同一篇论文报告他们仍然维持了超过 90% 的有效训练时间，而且只有 3 次需要显著的人工介入。
 
-这两组数字之间的差距，就是容错工程的价值：checkpoint 写得够快够频繁、故障能被自动检测、任务能被自动重启、坏卡能被自动隔离、重启后数据顺序和随机状态能精确恢复。每一环都是具体的工程问题，有具体的数学（多久存一次 checkpoint 最优？）和具体的源码（`torch.distributed.checkpoint` 的异步保存是怎么实现的？）。本系列第五、六篇讨论这些。
+这两组数字之间的差距，就是容错工程的价值：checkpoint 写得够快够频繁、故障能被自动检测、任务能被自动重启、坏卡能被自动隔离、重启后数据顺序和随机状态能精确恢复。每一环都是具体的工程问题，有具体的数学（多久存一次 checkpoint 最优？）和具体的源码（`torch.distributed.checkpoint` 的异步保存是怎么实现的？）。它们分属[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)与[《容错与弹性》](/fault-tolerance-and-elastic-training.html)两篇。
 
 ### 三个框架的取舍值得对照着看
 
@@ -85,7 +92,7 @@ Table: Megatron-LM、DeepSpeed 与 torchtitan 的取舍
 
 ### 训练平台与训练基础设施团队
 
-你负责的不是某一个模型，而是让所有训练任务在集群上跑得快、跑得稳。你需要理解引擎对资源层提出了什么要求——checkpoint 的 I/O 模式、故障检测的信号、弹性伸缩的接口、需要采集哪些指标——才能设计出合适的调度、存储和监控。本系列第四到八篇是直接材料。
+你负责的不是某一个模型，而是让所有训练任务在集群上跑得快、跑得稳。你需要理解引擎对资源层提出了什么要求——checkpoint 的 I/O 模式、故障检测的信号、弹性伸缩的接口、需要采集哪些指标——才能设计出合适的调度、存储和监控。[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)、[《容错与弹性》](/fault-tolerance-and-elastic-training.html)和[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)三篇是直接材料。
 
 ### 想读懂 Megatron / DeepSpeed / torchtitan 源码的开发者
 
@@ -98,25 +105,87 @@ Table: Megatron-LM、DeepSpeed 与 torchtitan 的取舍
 
 ## 系列的整体主线
 
-十一篇文章按"先算清、再配好、再跑稳"的顺序推进：
+篇目的顺序不是按难度排的，而是按**量与量之间的依赖**排的：显存账决定要不要切分，切分方案决定通信量，分片边界决定 checkpoint 怎么写，checkpoint 开销与集群的故障间隔一起决定存多久一次。后一个量算不出来，总是因为前一个量没算清。
+
+```mermaid
+%% 图：从模型与集群规格到真实吞吐的量与量依赖
+flowchart TB
+    SPEC["<b>模型与集群规格</b><br/>• 参数量、层数、隐藏维、头数、序列长<br/>• 卡数、单卡 80 GB、BF16 约 989 TFLOPS<br/>• 节点内 NVLink、节点间 InfiniBand"]
+    MEM["<b>每卡字节数与每 token FLOP（第一篇）</b><br/>• 参数、梯度、优化器状态：每参数 16 或 18 字节<br/>• 激活：$$sbh(34 + 5as/h)$$<br/>• 算力：每 token $$6N$$ FLOP"]
+    MTBF["<b>集群平均故障间隔 $$M$$（第九篇）</b><br/>• 单卡 MTBF 除以卡数<br/>• 检测、重启、隔离各花多久"]
+    SHARD["<b>切分方案与通信量（第二篇）</b><br/>• 哪种状态被切、切成几份<br/>• 每 step 每卡的通信字节数<br/>• 走 NVLink 还是 InfiniBand"]
+    FRAME["<b>分片边界与进程组（第三到六篇）</b><br/>• 连续 buffer、ds_tensor、DTensor 三种住法<br/>• 何时 all-gather、何时释放"]
+    MFU["<b>MFU 与 step 时间（第七篇）</b><br/>• 气泡率 $$(p-1)/m$$、未重叠的通信、重计算<br/>• 配置的落点：TP、PP、DP、micro-batch"]
+    CKPT["<b>checkpoint 开销 $$\delta$$（第八篇）</b><br/>• 写多少字节由分片布局决定<br/>• 异步保存只暴露 staging 那一段"]
+    TAU["<b>checkpoint 间隔 $$\tau \approx \sqrt{2\delta M}$$</b><br/>• 故障后的期望回退是 $$\tau/2$$<br/>• 回退能落到哪一步，取决于数据与随机状态能否重放（第十篇）"]
+    EFF["<b>有效训练时间（第九、十、十一篇）</b><br/>• 有用训练时间除以总时间<br/>• 检测时间 + 重启时间 + 回退损失 + straggler"]
+    COST["<b>真实吞吐</b><br/>• MFU × 有效训练时间<br/>• 每个 token 的 GPU 小时与金额"]
+
+    SPEC --> MEM
+    SPEC -->|"卡数"| MTBF
+    MEM -->|"一张卡放不下"| SHARD
+    SHARD --> FRAME
+    FRAME --> MFU
+    FRAME -->|"分片布局"| CKPT
+    CKPT --> TAU
+    MTBF --> TAU
+    MTBF -->|"故障频率"| EFF
+    TAU -->|"回退损失"| EFF
+    MFU --> COST
+    EFF --> COST
+```
+
+逐节点要点：
+
+- **模型与集群规格**：系列唯一的外部输入，全部后续量都是它的函数。规格一变（换硬件、加长序列），下面每个量都要重算。
+- **每卡字节数与每 token FLOP**（[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)）：把规格换算成字节和 FLOP。它给出的是**需求**，和单卡 80 GB 一比就知道缺多少。
+- **集群平均故障间隔**（[「故障率数学：从 MTBF 到有效训练时间」](/fault-tolerance-and-elastic-training.html#二故障率数学从-mtbf-到有效训练时间)）：只由卡数决定，与切分方案无关，所以它和显存账并列、而不在它之后。
+- **切分方案与通信量**（[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）：把"放不下"换成"切成几份"，代价是通信字节数与链路。它的输出是 MFU 的输入之一。
+- **分片边界与进程组**（[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)、[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)）：同一个切分方案，三个框架把边界画在不同的地方（[「分片在内存里长什么样」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五分片在内存里长什么样)）。这个边界是图里唯一同时流向性能和可靠性两侧的量：它既决定通信能不能重叠，也决定 checkpoint 要写哪些字节。
+- **MFU 与 step 时间**（[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)）：把显存账、通信量与分片边界合成一个可测的数，再把算出来和跑出来的差额拆回具体项目（[「MFU 损失的七项拆解」](/thousand-gpu-configuration-and-mfu-tuning.html#六mfu-损失的七项拆解)）。
+- **checkpoint 开销**（[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)）：由分片布局推出要写多少字节、写成几个文件，再由异步保存决定其中多少暴露在 step 时间里。
+- **checkpoint 间隔**（[「多级存储与存多久一次」](/distributed-checkpoint-format-async-save-and-resharding.html#九多级存储与存多久一次)）：$$\delta$$ 与 $$M$$ 两条线在这里汇合，缺一个都算不出 $$\tau$$——这也是为什么 checkpoint 和容错必须一起读。
+- **有效训练时间**（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)、[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)、[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)）：回退损失只是其中一项，检测时间由监控决定、回退的落点由数据能否重放决定，所以这三篇都指向它。
+- **真实吞吐**：MFU 和有效训练时间是两个独立的乘数，只提一个的收益会被另一个吃掉——这是系列分成前后两半的理由（[「成本视角」](/long-running-training-observability-and-operations.html#七成本视角)）。
+
+十一篇文章就按这条依赖链推进：
 
 | 篇 | 主题 | 内容 |
 |---|---|---|
-| 第一篇 | 训练任务的状态解剖——显存账与 MFU 定义 | 四种状态的字节数<br/>每参数 16–18 字节<br/>激活的公式<br/>MFU 与 HFU |
-| 第二篇 | 并行策略全景——每种并行切的是哪种状态，通信量多少 | DP/ZeRO/FSDP<br/>TP<br/>PP<br/>SP/CP<br/>EP<br/>通信量与适用条件 |
-| 第三篇 | Megatron-LM——按模型结构切的架构与源码导读 | parallel_state<br/>buffer 与 bucket<br/>分布式优化器<br/>过程式 1F1B |
-| 第四篇 | DeepSpeed——从优化器状态切起的架构与源码导读 | ZeRO 优化器包装类<br/>ds_tensor 与 hook<br/>参数协调器<br/>pipe 引擎 |
-| 第五篇 | torchtitan——用 PyTorch 原生原语组合并行的架构与源码导读 | DeviceMesh<br/>DTensor<br/>ShardingConfig<br/>fully_shard<br/>动作表 1F1B |
-| 第六篇 | 三个框架对比——Megatron-LM、DeepSpeed 与 torchtitan | 三种取向<br/>三条时序并排<br/>all-gather 三种<br/>取舍与选型 |
-| 第七篇 | 千卡配置实战——并行搭配、micro-batch、激活重计算、MFU 调优 | 从模型与集群规格推出配置<br/>逐项排除 MFU 损失 |
-| 第八篇 | 分布式 checkpoint——格式、异步保存、重分片恢复 | 状态如何落盘<br/>存多久一次<br/>换并行配置怎么加载 |
-| 第九篇 | 容错与弹性——故障率数学、straggler、SDC、弹性训练 | MTBF 与有效训练时间<br/>torchrun 与 torchft<br/>坏卡检测与隔离 |
-| 第十篇 | 训练稳定性与数据管线——loss spike、梯度范数、数据混合、流式加载 | 数值不跑飞<br/>数据顺序可恢复<br/>数据加载不成为瓶颈 |
-| 第十一篇 | 长时训练的可观测与运维——指标、日志、hang 排查、值班手册 | 看什么<br/>怎么告警<br/>卡住了怎么查 |
+| [第一篇](/training-state-anatomy-memory-and-mfu.html) | 训练任务的状态解剖——显存账与 MFU 定义 | 四种状态的字节数<br/>每参数 16–18 字节<br/>激活的公式<br/>MFU 与 HFU |
+| [第二篇](/parallelism-strategies-which-state-to-shard.html) | 并行策略全景——每种并行切的是哪种状态，通信量多少 | DP/ZeRO/FSDP<br/>TP<br/>PP<br/>SP/CP<br/>EP<br/>通信量与适用条件 |
+| [第三篇](/megatron-lm-architecture-and-source-guide.html) | Megatron-LM——按模型结构切的架构与源码导读 | parallel_state<br/>buffer 与 bucket<br/>分布式优化器<br/>过程式 1F1B |
+| [第四篇](/deepspeed-architecture-and-source-guide.html) | DeepSpeed——从优化器状态切起的架构与源码导读 | ZeRO 优化器包装类<br/>ds_tensor 与 hook<br/>参数协调器<br/>pipe 引擎 |
+| [第五篇](/torchtitan-architecture-and-source-guide.html) | torchtitan——用 PyTorch 原生原语组合并行的架构与源码导读 | DeviceMesh<br/>DTensor<br/>ShardingConfig<br/>fully_shard<br/>动作表 1F1B |
+| [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) | 三个框架对比——Megatron-LM、DeepSpeed 与 torchtitan | 三种取向<br/>三条时序并排<br/>all-gather 三种<br/>取舍与选型 |
+| [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) | 千卡配置实战——并行搭配、micro-batch、激活重计算、MFU 调优 | 从模型与集群规格推出配置<br/>逐项排除 MFU 损失 |
+| [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) | 分布式 checkpoint——格式、异步保存、重分片恢复 | 状态如何落盘<br/>存多久一次<br/>换并行配置怎么加载 |
+| [第九篇](/fault-tolerance-and-elastic-training.html) | 容错与弹性——故障率数学、straggler、SDC、弹性训练 | MTBF 与有效训练时间<br/>torchrun 与 torchft<br/>坏卡检测与隔离 |
+| [第十篇](/training-stability-and-data-pipeline.html) | 训练稳定性与数据管线——loss spike、梯度范数、数据混合、流式加载 | 数值不跑飞<br/>数据顺序可恢复<br/>数据加载不成为瓶颈 |
+| [第十一篇](/long-running-training-observability-and-operations.html) | 长时训练的可观测与运维——指标、日志、hang 排查、值班手册 | 看什么<br/>怎么告警<br/>卡住了怎么查 |
 
 Table: 十一篇的主题与内容
 
 前七篇是**静态与稳态**：任务开始前怎么算、怎么配，跑起来后怎么跑满。后四篇是**长时**：几周的运行中会发生什么、怎么让它们不致命。
+
+### 全系列共用的状态对象口径
+
+上面每个量都落在某个具体对象上。这张表是全系列的口径：同一个名字在哪一篇出现，指的都是这里的同一个东西。四种"训练状态"（参数、梯度、优化器状态、激活值）之外，还有几样东西同样决定能不能恢复——数据游标、随机数状态、进程组——它们不占显存账的大头，但缺一样就无法精确续训。
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| 训练精度参数（bf16） | 模型构建后由分片包装接管：Megatron `distributed/distributed_data_parallel.py`、DeepSpeed `zero/partition_parameters.py`、PyTorch `fully_shard` | GPU HBM | 整个任务常驻；ZeRO-3 与 FSDP2 下只常驻本 rank 的分片 | 本 rank 只持有分片<br/>要完整张量必须 all-gather |
+| 梯度 | 反向传播写入；Megatron 累加进 `distributed/param_and_grad_buffer.py` 的连续 buffer（`_ParamAndGradBuffer`） | GPU HBM，bucket 内连续 | 反向产生，优化器 step 后清零或释放 | 本 rank 先只有本地梯度<br/>reduce-scatter 或 all-reduce 之后才是全局梯度 |
+| 优化器状态（fp32 主参数、一阶矩、二阶矩） | 优化器初始化：Megatron `optimizer/distrib_optimizer.py`、DeepSpeed ZeRO、FSDP2 下的 DTensor 优化器 | GPU HBM，可 offload 到主机内存 | 整个任务常驻 | 每 rank 只看自己的字节区间或分片<br/>要看全量只能通过 checkpoint 的 metadata |
+| 激活值 | 前向传播 | GPU HBM | 前向产生、反向消费；开了重计算的只活在重算窗口内 | 只有持有这段 micro-batch 与序列切片的 rank |
+| 通信 buffer | 进程组初始化与每次集合通信：NCCL 的缓冲区、DCP 的 staging 缓冲 | GPU HBM 加主机 pinned 内存 | 进程组存续期间；单次通信的临时 buffer 随调用释放 | 框架内部<br/>不进 checkpoint，但要计入显存账 |
+| DeviceMesh 与 ProcessGroup | 初始化阶段：Megatron `core/parallel_state.py`、torchtitan `distributed/parallel_dims.py` 的 `ParallelDims.build_mesh()` | CPU 侧 Python 对象，加设备侧 communicator | 整个任务；弹性重启后重建 | 每 rank 看到自己所属的各维子组 |
+| checkpoint 的 state_dict、planner、storage writer | 保存时刻：`torch/distributed/checkpoint/` 的 `state_dict_saver.py`、`planner.py`、`filesystem.py` | GPU → 主机 pinned 内存（`staging.py` 的 `DefaultStager`）→ 存储 | 一次保存调用；异步保存延长到后台写完 | `metadata.py` 让所有 rank 看到全局形状与分片位置 |
+| 数据加载器游标与 shuffle 索引 | dataset 构建：Megatron `core/datasets/gpt_dataset.py`、torchtitan `components/dataloader.py` | CPU 侧，在 dataloader 的 worker 进程里 | 整个任务，必须进 checkpoint | 每个 DP rank 一份自己的游标 |
+| 随机数状态 | 初始化 seed；TP 域内另有独立的 dropout RNG（Megatron `tensor_parallel/random.py` 的 RNG tracker） | CPU 与设备各一份 | 整个任务，必须进 checkpoint | 每 rank 自己的一份 |
+| 计时与故障检测记录 | 训练循环：Megatron `core/timers.py`、NVIDIA Resiliency Extension 的 `fault_tolerance` | CPU 侧 | 从一个 step 到一个告警窗口 | 监控侧与值班人<br/>不进 checkpoint |
+
+Table: 一次训练任务里的核心状态对象
 
 四条交织的线索：
 
@@ -130,18 +199,34 @@ Table: 十一篇的主题与内容
 
 ### 1. 训练任务的状态解剖：显存账与 MFU
 
-第一篇建立全系列的记账框架。它不讨论任何并行策略，只回答一个问题：**一个训练任务在一张卡上占多少字节、每秒做多少 FLOP，以及这两个数字的理论上限是什么？**
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)建立全系列的记账框架。它不讨论任何并行策略，只回答一个问题：**一个训练任务在一张卡上占多少字节、每秒做多少 FLOP，以及这两个数字的理论上限是什么？**
 
 这一篇会讨论：
 
-- 训练的四种状态：参数、梯度、优化器状态、激活值，以及它们在一个 step 内的生命周期——哪些常驻、哪些在前向产生反向消费、哪些只在优化器步骤出现；
-- 混合精度下的字节数推导：bf16 参数 2 字节 + bf16 梯度 2 字节 + fp32 主参数 4 字节 + Adam 的 fp32 一阶矩 4 字节 + 二阶矩 4 字节 = **每参数 16 字节**；若梯度用 fp32 而不是 bf16 存放（Megatron 默认把 bf16 梯度累加进一份 fp32 的 `main_grad`），梯度那一项从 2 字节变成 4 字节，合计从 16 变成 18 字节——多出来的 2 字节是 4 − 2，不是 fp32 本身的大小；一个 70B 模型光这部分就是 1.1–1.3 TB，任何一张卡都放不下——这就是所有并行策略的出发点；
-- 激活值的估算：Transformer 每层的激活字节数近似为 $$sbh\left(34 + 5\frac{as}{h}\right)$$（序列长 $$s$$、批大小 $$b$$、隐藏维 $$h$$、注意力头数 $$a$$），来自 Megatron 的激活重计算论文；其中随 $$s^2$$ 增长的项来自注意力分数矩阵，使用 FlashAttention 后基本消失；
-- 显存之外的开销：CUDA context、NCCL buffer、PyTorch Caching Allocator 的碎片与保留、临时 buffer——为什么 80 GB 的卡实际可用只有 70 多 GB；
-- 算力账：每个参数每个 token 前向 2 FLOP、反向 4 FLOP，合计 $$6N$$。三个数的来源：模型里几乎所有计算是矩阵乘，一个参数在前向里参与一次乘加 $$y \mathrel{+}= w \cdot x$$，乘与加各算 1 FLOP，所以是 2；反向要算两个梯度——对输入的 $$\partial L / \partial x$$（下一层要用）和对权重的 $$\partial L / \partial w$$，每个又是一次乘加，所以是 $$2 \times 2 = 4$$；合计 6（L3 深度学习基础系列第一篇手推了这一步）；注意力部分随序列长度增加的额外项；
-- MFU 的定义（来自 PaLM 论文）：观测到的吞吐（token/s）与在硬件峰值 FLOPS 下的理论最大吞吐之比，**不计**激活重计算的额外 FLOP；HFU（Hardware FLOPs Utilization）则计入重计算——为什么开了重计算后 HFU 会好看而 MFU 不会；
-- 当前的参考水平：Megatron-LM（SC'21）论文在 A100 集群上报告过 52% 的峰值算力利用率（其 FLOP 公式含全量重计算，按 PaLM 的口径更接近 HFU），Llama 3 405B 在 8K–16K 张 H100 上报告 38%–43%；千卡 H100 上 dense 模型做到 40% 以上是好成绩，做不到 30% 说明有明确的问题；
-- Megatron-LM 的 `megatron/training/theoretical_memory_usage.py` 与 `training.py` 里的 FLOPs 计算函数：把公式与源码对上。
+- **训练的四种状态**：参数、梯度、优化器状态、激活值，以及它们在一个 step 内的生命周期
+  - 哪些常驻
+  - 哪些在前向产生、反向消费
+  - 哪些只在优化器步骤出现
+- **混合精度下的字节数推导**
+  - bf16 参数 2 字节 + bf16 梯度 2 字节 + fp32 主参数 4 字节 + Adam 的 fp32 一阶矩 4 字节 + 二阶矩 4 字节 = **每参数 16 字节**
+  - 若梯度用 fp32 而不是 bf16 存放（Megatron 默认把 bf16 梯度累加进一份 fp32 的 `main_grad`），梯度那一项从 2 字节变成 4 字节，合计从 16 变成 18 字节——多出来的 2 字节是 4 − 2，不是 fp32 本身的大小
+  - 一个 70B 模型光这部分就是 1.1–1.3 TB，任何一张卡都放不下——这就是所有并行策略的出发点
+- **激活值的估算**
+  - Transformer 每层的激活字节数近似为 $$sbh\left(34 + 5\frac{as}{h}\right)$$（序列长 $$s$$、批大小 $$b$$、隐藏维 $$h$$、注意力头数 $$a$$），来自 Megatron 的激活重计算论文
+  - 其中随 $$s^2$$ 增长的项来自注意力分数矩阵，使用 FlashAttention 后基本消失
+- **显存之外的开销**：CUDA context、NCCL buffer、PyTorch Caching Allocator 的碎片与保留、临时 buffer——为什么 80 GB 的卡实际可用只有 70 多 GB；
+- **算力账**：每个参数每个 token 前向 2 FLOP、反向 4 FLOP，合计 $$6N$$。三个数的来源是
+  - 模型里几乎所有计算是矩阵乘，一个参数在前向里参与一次乘加 $$y \mathrel{+}= w \cdot x$$，乘与加各算 1 FLOP，所以是 2
+  - 反向要算两个梯度——对输入的 $$\partial L / \partial x$$（下一层要用）和对权重的 $$\partial L / \partial w$$，每个又是一次乘加，所以是 $$2 \times 2 = 4$$
+  - 合计 6（《深度学习基础》系列的《反向传播——手推一个两层网络》把前向 $$2mkn$$、反向 $$4mkn$$ 手推了一遍）
+  - 注意力部分还有随序列长度增加的额外项
+- **MFU 的定义**（来自 PaLM 论文）
+  - 观测到的吞吐（token/s）与在硬件峰值 FLOPS 下的理论最大吞吐之比，**不计**激活重计算的额外 FLOP
+  - HFU（Hardware FLOPs Utilization，硬件算力利用率）则计入重计算——为什么开了重计算后 HFU 会好看而 MFU 不会
+- **当前的参考水平**
+  - Megatron-LM（SC'21）论文在 A100 集群上报告过 52% 的峰值算力利用率（其 FLOP 公式含全量重计算，按 PaLM 的口径更接近 HFU），Llama 3 405B 在 8K–16K 张 H100 上报告 38%–43%
+  - 千卡 H100 上 dense 模型做到 40% 以上是好成绩，做不到 30% 说明有明确的问题
+- **公式与源码对账**：Megatron-LM 的 `megatron/training/theoretical_memory_usage.py` 与 `training.py` 里的 FLOPs 计算函数。
 
 核心问题是：
 
@@ -151,20 +236,38 @@ Table: 十一篇的主题与内容
 
 ### 2. 并行策略全景：每种并行切的是哪种状态
 
-第二篇按"切哪种状态、代价是什么通信"的框架把所有并行策略过一遍。它把并行策略当作**状态的放置方案**而不是一组 API。
+[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)按"切哪种状态、代价是什么通信"的框架把所有并行策略过一遍。它把并行策略当作**状态的放置方案**而不是一组 API。
 
 这一篇会覆盖：
 
-- 数据并行（DP）：复制全部状态、切数据；梯度 all-reduce 的通信量为每 step 约 $$2N$$ 字节每卡（$$N$$ 为参数字节数）；梯度 bucket 与反向计算的重叠；
-- ZeRO 的三级分片：Stage 1 切优化器状态、Stage 2 再切梯度、Stage 3 再切参数；每卡显存从 $$16N$$ 降到 $$16N/N_d$$，代价是 Stage 3 的通信量从 $$2N$$ 涨到 $$3N$$（前向 all-gather、反向 all-gather 与 reduce-scatter）；
-- FSDP 作为 ZeRO-3 的 PyTorch 原生实现：FSDP1 的 FlatParameter 与 FSDP2（`fully_shard`）的 per-parameter DTensor 分片；HSDP（Hybrid Sharded Data Parallel）在节点内分片、节点间复制的动机；
-- 张量并行（TP）：切矩阵的行或列，Megatron 式的 column-parallel 与 row-parallel 线性层配对；每层前向两次 all-reduce、反向两次；为什么 TP 几乎只在 NVLink 域内（8 卡）使用；
-- [序列并行](# "tip: sequence parallelism。Megatron-LM 2022 年提出的 TP 配套技术：TP 只切了矩阵乘，LayerNorm 与 dropout 在每张卡上仍是完整的一份激活，SP 把这部分也沿序列维切到 TP 组的各卡上；名字与 DeepSpeed-Ulysses / Ring Attention 那种切注意力的「序列并行 / 上下文并行（CP）」容易混，第二篇会分开讲")（SP，Megatron 意义下）：把 TP 域内 LayerNorm 与 dropout 的激活沿序列切开，all-reduce 变成 all-gather 加 reduce-scatter，通信量不变、激活显存下降；
-- 上下文并行（CP）：沿序列维切注意力本身，Ring Attention 与 DeepSpeed-Ulysses 两种做法的通信形态；长上下文训练为什么必须有它；
-- 流水线并行（PP）：按层切、以 micro-batch 流水；GPipe、1F1B、interleaved 1F1B、zero-bubble 调度；气泡率 $$\frac{p-1}{m}$$ 的推导（$$p$$ 为 stage 数、$$m$$ 为 micro-batch 数）；PP 的通信量最小（只传相邻 stage 之间的激活），所以放在跨节点的慢链路上；
-- 专家并行（EP）：MoE 的专家分布在不同卡上，token 通过 all-to-all 路由；EP 与 DP、TP 的组合方式；负载不均衡对通信和计算的双重影响；
-- 多维并行的组合顺序：为什么通常是 TP 最内（NVLink）、CP 次之、PP 再外、DP 最外；Llama 3 405B 在 16K 卡上的 TP=8、CP=1、PP=16、DP=128，以及 128K 长上下文阶段的 TP=8、CP=16、PP=16、DP=4，是这套逻辑的两个实例；
-- 通信原语与各并行的对应表：all-reduce、all-gather、reduce-scatter、all-to-all、点对点 send/recv 各服务于谁——本系列只用到它们的语义和通信量，不讨论其实现。
+- **数据并行（DP）**：复制全部状态、切数据
+  - 梯度 all-reduce 的通信量为每 step 约 $$2N$$ 字节每卡（$$N$$ 为参数字节数）
+  - 梯度 bucket 与反向计算的重叠
+- **ZeRO 的三级分片**：Stage 1 切优化器状态、Stage 2 再切梯度、Stage 3 再切参数
+  - 每卡显存从 $$16N$$ 降到 $$16N/N_d$$
+  - 代价是 Stage 3 的通信量从 $$2N$$ 涨到 $$3N$$（前向 all-gather、反向 all-gather 与 reduce-scatter）
+- **FSDP 作为 ZeRO-3 的 PyTorch 原生实现**
+  - FSDP1 的 FlatParameter 与 FSDP2（`fully_shard`）的 per-parameter DTensor 分片
+  - HSDP（Hybrid Sharded Data Parallel）在节点内分片、节点间复制的动机
+- **张量并行（TP）**：切矩阵的行或列
+  - Megatron 式的 column-parallel 与 row-parallel 线性层配对
+  - 每层前向两次 all-reduce、反向两次
+  - 为什么 TP 几乎只在 NVLink 域内（8 卡）使用
+- **[序列并行](# "tip: sequence parallelism。Megatron-LM 2022 年提出的 TP 配套技术：TP 只切了矩阵乘，LayerNorm 与 dropout 在每张卡上仍是完整的一份激活，SP 把这部分也沿序列维切到 TP 组的各卡上；名字与 DeepSpeed-Ulysses / Ring Attention 那种切注意力的「序列并行 / 上下文并行（CP）」容易混，《并行策略全景》会分开讲")（SP，Megatron 意义下）**：把 TP 域内 LayerNorm 与 dropout 的激活沿序列切开，all-reduce 变成 all-gather 加 reduce-scatter，通信量不变、激活显存下降；
+- **上下文并行（CP）**：沿序列维切注意力本身
+  - Ring Attention 与 DeepSpeed-Ulysses 两种做法的通信形态
+  - 长上下文训练为什么必须有它
+- **流水线并行（PP）**：按层切、以 micro-batch 流水
+  - GPipe、1F1B、interleaved 1F1B、zero-bubble 调度
+  - 气泡率 $$\frac{p-1}{m}$$ 的推导（$$p$$ 为 stage 数、$$m$$ 为 micro-batch 数）
+  - PP 的通信量最小（只传相邻 stage 之间的激活），所以放在跨节点的慢链路上
+- **专家并行（EP）**：MoE 的专家分布在不同卡上，token 通过 all-to-all 路由
+  - EP 与 DP、TP 的组合方式
+  - 负载不均衡对通信和计算的双重影响
+- **多维并行的组合顺序**：为什么通常是 TP 最内（NVLink）、CP 次之、PP 再外、DP 最外
+  - Llama 3 405B 在 16K 卡上的 TP=8、CP=1、PP=16、DP=128
+  - 以及 128K 长上下文阶段的 TP=8、CP=16、PP=16、DP=4，是这套逻辑的两个实例
+- **通信原语与各并行的对应表**：all-reduce、all-gather、reduce-scatter、all-to-all、点对点 send/recv 各服务于谁——本系列只用到它们的语义和通信量，不讨论其实现。
 
 核心问题是：
 
@@ -174,59 +277,121 @@ Table: 十一篇的主题与内容
 
 ### 3–6. 三个框架：Megatron-LM、DeepSpeed 与 torchtitan 的架构对比与源码导读
 
-第三、四、五篇进入源码，每篇读一个框架：Megatron-LM 把参数与梯度拍进两段连续 buffer、优化器按字节区间分片；DeepSpeed 让每个参数在不用时只剩碎片、用到才临时拼回；torchtitan 用 PyTorch 原生原语组合并行，常驻的是 fp32 分片。第六篇把三者放在一起对比：三种取向、三条时序、同一个动作的三种实现、各自的取舍。
+[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)三篇各读一个框架，一句话概括它们的住法：
+
+1. Megatron-LM 把参数与梯度拍进两段连续 buffer，优化器按字节区间分片；
+2. DeepSpeed 让每个参数在不用时只剩碎片，用到才临时拼回；
+3. torchtitan 用 PyTorch 原生原语组合并行，常驻的是 fp32 分片。
+
+[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)再把三者放在一起：三种取向、三条时序、同一个动作的三种实现、各自的取舍。
 
 这四篇会覆盖：
 
-- **Megatron-LM / Megatron Core**：`megatron/core/parallel_state.py` 如何初始化并管理 TP、PP、DP、CP、EP 各个进程组；`tensor_parallel/layers.py` 与 `mappings.py` 的 column/row-parallel 线性层与通信原语；`pipeline_parallel/schedules.py` 与 `p2p_communication.py` 的调度与点对点通信；`distributed/distributed_data_parallel.py` 与 `param_and_grad_buffer.py` 的梯度 bucket 与重叠；`optimizer/distrib_optimizer.py` 的分布式优化器（Megatron 版的 ZeRO-1）；`megatron/training/training.py` 的训练循环；
-- **DeepSpeed**：`deepspeed/runtime/engine.py` 的 `DeepSpeedEngine` 如何包裹用户模型；`deepspeed/runtime/zero/stage_1_and_2.py` 与 `stage3.py` 的分片实现；`partition_parameters.py` 如何在 Stage 3 下用 hook 在前向前 all-gather 参数、前向后释放；`deepspeed/runtime/pipe/` 的流水线引擎；JSON 配置驱动的设计及其代价；
-- **torchtitan**：`torchtitan/train.py` 与 `trainer.py` 的训练循环；`torchtitan/distributed/parallel_dims.py` 用 `DeviceMesh` 定义多维并行；`fsdp.py`、`pipeline_parallel.py`、`context_parallel/` 对 PyTorch 原生 API 的调用，以及 v0.3.0 用 `protocols/sharding.py` 的 `ShardingConfig` 与 `models/common/decoder_sharding.py` 描述 TP 切分的新路径；`torchtitan/components/` 里的 checkpoint、optimizer、metrics、dataloader；
-- 三者的共同底座——PyTorch 分布式：`torch/distributed/device_mesh.py` 的 DeviceMesh、`torch/distributed/tensor/` 的 DTensor 及其 `parallel/` 子包（TP 的原生实现）、`torch/distributed/fsdp/_fully_shard/` 的 FSDP2、`torch/distributed/pipelining/` 的 `stage.py` 与 `schedules.py`；
-- 对照阅读：同一个"前向时把分片参数 all-gather 回来"的动作，在 DeepSpeed Stage 3、FSDP1、FSDP2 里分别是怎么实现的，差别在哪；同一个 1F1B 调度在 Megatron 与 `torch.distributed.pipelining` 里的两种写法；
-- 各自的取舍：Megatron 的性能与侵入性（模型必须用它的层写）、DeepSpeed 的易用与调试难度、torchtitan 的清晰与功能覆盖面；以及 Megatron 近年把 FSDP 引入 `megatron/core/distributed/fsdp/` 所反映的趋势。
+- **Megatron-LM / Megatron Core**
+  - `megatron/core/parallel_state.py` 如何初始化并管理 TP、PP、DP、CP、EP 各个进程组
+  - `tensor_parallel/layers.py` 与 `mappings.py` 的 column/row-parallel 线性层与通信原语
+  - `pipeline_parallel/schedules.py` 与 `p2p_communication.py` 的调度与点对点通信
+  - `distributed/distributed_data_parallel.py` 与 `param_and_grad_buffer.py` 的梯度 bucket 与重叠
+  - `optimizer/distrib_optimizer.py` 的分布式优化器（Megatron 版的 ZeRO-1）
+  - `megatron/training/training.py` 的训练循环
+- **DeepSpeed**
+  - `deepspeed/runtime/engine.py` 的 `DeepSpeedEngine` 如何包裹用户模型
+  - `deepspeed/runtime/zero/stage_1_and_2.py` 与 `stage3.py` 的分片实现
+  - `partition_parameters.py` 如何在 Stage 3 下用 hook 在前向前 all-gather 参数、前向后释放
+  - `deepspeed/runtime/pipe/` 的流水线引擎
+  - JSON 配置驱动的设计及其代价
+- **torchtitan**
+  - `torchtitan/train.py` 与 `trainer.py` 的训练循环
+  - `torchtitan/distributed/parallel_dims.py` 用 `DeviceMesh` 定义多维并行
+  - `fsdp.py`、`pipeline_parallel.py`、`context_parallel/` 对 PyTorch 原生 API 的调用，以及 v0.3.0 用 `protocols/sharding.py` 的 `ShardingConfig` 与 `models/common/decoder_sharding.py` 描述 TP 切分的新路径
+  - `torchtitan/components/` 里的 checkpoint、optimizer、metrics、dataloader
+- **三者的共同底座——PyTorch 分布式**
+  - `torch/distributed/device_mesh.py` 的 DeviceMesh
+  - `torch/distributed/tensor/` 的 DTensor 及其 `parallel/` 子包（TP 的原生实现）
+  - `torch/distributed/fsdp/_fully_shard/` 的 FSDP2
+  - `torch/distributed/pipelining/` 的 `stage.py` 与 `schedules.py`
+- **对照阅读**
+  - 同一个"前向时把分片参数 all-gather 回来"的动作，在 DeepSpeed Stage 3、FSDP1、FSDP2 里分别是怎么实现的，差别在哪
+  - 同一个 1F1B 调度在 Megatron 与 `torch.distributed.pipelining` 里的两种写法
+- **各自的取舍**
+  - Megatron 的性能与侵入性（模型必须用它的层写）
+  - DeepSpeed 的易用与调试难度
+  - torchtitan 的清晰与功能覆盖面
+  - 以及 Megatron 近年把 FSDP 引入 `megatron/core/distributed/fsdp/` 所反映的趋势
 
 核心问题是：
 
 > **一个 bf16 参数在这三个框架里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？把这条链追清楚，三个框架的架构差异就全部显现了。**
 
-实践：在 8 卡上分别用三个框架跑同一个小模型，用 `torch.cuda.memory_stats` 与 profiler 验证每卡显存与通信模式是否与第一、二篇的计算一致。
+实践：在 8 卡上分别用三个框架跑同一个小模型，用 `torch.cuda.memory_stats` 与 profiler 验证每卡显存与通信模式是否与[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)、[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的计算一致。
 
 ### 7. 千卡配置实战：并行搭配、micro-batch、激活重计算与 MFU 调优
 
-第七篇把前六篇的知识变成决策过程：给定模型规格与集群规格，推出一组配置，然后逐项排查 MFU 损失。
+[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)把前六篇的知识变成决策过程：给定模型规格与集群规格，推出一组配置，然后逐项排查 MFU 损失。
 
 这一篇会覆盖：
 
-- 配置的推导顺序：先定 TP（受限于节点内卡数与显存）→ 再定 PP（把参数与优化器状态放下）→ 再定 DP（用满剩余的卡）→ 再定 CP（序列长度需要时）；每一步用第一、二篇的计算器验证显存与通信；
-- global batch、micro-batch 与梯度累积：global batch 由算法决定，micro-batch 由显存与 PP 气泡共同决定，梯度累积步数是二者之商；micro-batch 过小导致 GEMM 效率低，过大导致激活放不下或 PP 气泡大；
-- 激活重计算的三种策略：全量重计算（多花约一次前向的算力）、选择性重计算（只重算注意力部分，Megatron 论文的主张）、按层重计算若干层；`torch.utils.checkpoint` 与 Megatron `--recompute-*` 参数族；激活 offload 到 CPU 的场景；
-- 通信与计算的重叠：DP 梯度 reduce 与反向计算的重叠、TP 通信与 GEMM 的重叠、PP 的点对点与计算的重叠；重叠失败的常见原因（bucket 太小、stream 同步、CPU 侧发射太慢）；
-- MFU 损失的逐项拆解：PP 气泡、通信未重叠、重计算、数据加载等待、kernel 效率（GEMM 形状不友好）、CPU 开销、straggler；用 profiler 时间线给每一项标价；
-- 融合与低精度：Transformer Engine 的 FP8、融合的 LayerNorm/RoPE/交叉熵——它们在 MFU 上的贡献与代价；
-- `torch.compile` 在训练中的位置：torchtitan 的 per-block compile；与 FSDP2、TP 的兼容性；
-- 长时任务的配置纪律：配置写进版本控制、变更留痕、每次改动前后各跑一段基准。
+- **配置的推导顺序**：先定 TP（受限于节点内卡数与显存）→ 再定 PP（把参数与优化器状态放下）→ 再定 DP（用满剩余的卡）→ 再定 CP（序列长度需要时），每一步用前两篇的计算器验证显存与通信；
+- **global batch、micro-batch 与梯度累积**
+  - global batch 由算法决定，micro-batch 由显存与 PP 气泡共同决定，梯度累积步数是二者之商
+  - micro-batch 过小导致 GEMM 效率低，过大导致激活放不下或 PP 气泡大
+- **激活重计算**
+  - 三种策略：全量重计算（多花约一次前向的算力）、选择性重计算（只重算注意力部分，Megatron 论文的主张）、按层重计算若干层
+  - `torch.utils.checkpoint` 与 Megatron `--recompute-*` 参数族
+  - 激活 offload 到 CPU 的场景
+- **通信与计算的重叠**
+  - DP 梯度 reduce 与反向计算的重叠、TP 通信与 GEMM 的重叠、PP 的点对点与计算的重叠
+  - 重叠失败的常见原因：bucket 太小、stream 同步、CPU 侧发射太慢
+- **MFU 损失的逐项拆解**：PP 气泡、通信未重叠、重计算、数据加载等待、kernel 效率（GEMM 形状不友好）、CPU 开销、straggler，用 profiler 时间线给每一项标价；
+- **融合与低精度**：Transformer Engine 的 FP8、融合的 LayerNorm/RoPE/交叉熵——它们在 MFU 上的贡献与代价；
+- **`torch.compile` 在训练中的位置**：torchtitan 的 per-block compile，以及与 FSDP2、TP 的兼容性；
+- **长时任务的配置纪律**：配置写进版本控制、变更留痕、每次改动前后各跑一段基准。
 
 核心问题是：
 
 > **一个 70B dense 模型，1024 张 H100（128 节点 × 8 卡），序列长 8192，global batch 4M token。TP、PP、DP 各多少？micro-batch 多大？要不要重计算？预期 MFU 多少？跑出来只有 32%，缺的 10 个点去了哪里？**
 
-实践：用 torchtitan 在 8 卡上跑 Llama 3 8B，对比不同 TP/FSDP/重计算配置的 MFU，用 profiler 找到每种配置的主要损失项；再用计算器把结论外推到 1024 卡的配置。
+实践：用 torchtitan 在 8 卡上跑 Llama 3 8B，对比不同 TP/FSDP/重计算配置的 MFU，用 profiler 找到每种配置的主要损失项，再用计算器把结论外推到 1024 卡的配置。
 
 ### 8. 分布式 checkpoint：格式、异步保存与重分片恢复
 
-第八篇讲状态的持久化。checkpoint 是容错的基础，它的两个核心指标是**保存时间**（决定能存多频繁）和**恢复的灵活性**（能不能换并行配置加载）。
+[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)讲状态的持久化。checkpoint 是容错的基础，它的两个核心指标是**保存时间**（决定能存多频繁）和**恢复的灵活性**（能不能换并行配置加载）。
 
 这一篇会覆盖：
 
-- checkpoint 里有什么：模型参数、优化器状态（是参数的两到三倍）、学习率调度器、数据加载器的位置、随机数状态、迭代计数；缺任何一样都无法精确恢复；
-- 单文件 checkpoint 为什么不可行：405B 模型的完整状态约 6 TB，写一次要多久；rank 0 汇总的模式在千卡下的瓶颈；
-- 分片 checkpoint：每个 rank 写自己持有的分片；`torch.distributed.checkpoint`（DCP）的模型——`torch/distributed/checkpoint/` 下的 `state_dict_saver.py`、`planner.py`、`filesystem.py`、`metadata.py`：Planner 决定谁写什么、Storage 负责 I/O、metadata 记录每个张量的全局形状与分片位置；
-- 重分片（resharding）：DCP 加载时按 metadata 与当前分片布局的交集读取，允许保存与加载用不同的 TP/PP/DP；`resharding.py`；这是能在故障后用不同卡数恢复的前提；
-- Megatron 的 `megatron/core/dist_checkpointing/`：ShardedTensor 抽象、`strategies/` 下的多种后端、`optimizer.py` 对分布式优化器状态的处理、与 DCP 格式的互通；DeepSpeed 的 `deepspeed/runtime/checkpoint_engine/` 与 ZeRO checkpoint 的 universal checkpoint 转换；
-- 异步保存：先把状态拷到 CPU pinned memory（staging），再由后台线程或进程写入存储，训练继续；DCP 的 `async_save` 与 `staging.py`、`_async_executor.py`；Megatron 的 `--async-save`；异步保存的显存与主机内存代价；
-- 多级存储：本地 NVMe 作为一级、并行文件系统或对象存储作为二级；本地 checkpoint 让重启从邻居节点拿数据而不是从远端存储；
-- 存多久一次：Young 公式 $$\tau_{opt} \approx \sqrt{2\delta M}$$（$$\delta$$ 为一次 checkpoint 的开销时间、$$M$$ 为平均故障间隔）；把 Llama 3 的每三小时一次故障代入，得出异步保存为什么是必需的；
-- checkpoint 的校验与清理：写完后的完整性校验、保留策略、与训练框架版本的兼容性。
+- **checkpoint 里有什么**：模型参数、优化器状态（是参数的两到三倍）、学习率调度器、数据加载器的位置、随机数状态、迭代计数——缺任何一样都无法精确恢复；
+- **单文件 checkpoint 为什么不可行**
+  - 405B 模型的完整状态约 6 TB，写一次要多久
+  - rank 0 汇总的模式在千卡下的瓶颈
+- **分片 checkpoint**：每个 rank 写自己持有的分片，`torch.distributed.checkpoint`（DCP）的对象模型在 `torch/distributed/checkpoint/` 下
+  - `planner.py` 决定谁写什么
+  - `filesystem.py` 负责 I/O
+  - `metadata.py` 记录每个张量的全局形状与分片位置
+  - `state_dict_saver.py` 是入口
+- **重分片（resharding）**
+  - DCP 加载时按 metadata 与当前分片布局的交集读取（`resharding.py`），允许保存与加载用不同的 TP/PP/DP
+  - 这是能在故障后用不同卡数恢复的前提
+- **三个框架各自的实现**
+  - Megatron 的 `megatron/core/dist_checkpointing/`：ShardedTensor 抽象、`strategies/` 下的多种后端、`optimizer.py` 对分布式优化器状态的处理、与 DCP 格式的互通
+  - DeepSpeed 的 `deepspeed/runtime/checkpoint_engine/` 与 ZeRO checkpoint 的 universal checkpoint 转换
+- **异步保存**
+  - 先把状态拷到主机 pinned 内存（staging），再由后台线程或进程写入存储，训练继续
+  - DCP 的 `async_save` 与 `staging.py`、`_async_executor.py`
+  - Megatron 的 `--async-save`
+  - 异步保存的显存与主机内存代价
+- **多级存储**
+  - 本地 NVMe 作为一级、并行文件系统或对象存储作为二级
+  - 本地 checkpoint 让重启从邻居节点拿数据而不是从远端存储
+- **存多久一次**
+  - Young 公式 $$\tau_{opt} \approx \sqrt{2\delta M}$$（$$\delta$$ 为一次 checkpoint 的开销时间、$$M$$ 为平均故障间隔）
+  - 把 Llama 3 的每三小时一次故障代入，得出异步保存为什么是必需的
+- **checkpoint 的校验与清理**：写完后的完整性校验、保留策略、与训练框架版本的兼容性。
+
+> [!NOTE] Java 经验参照：异步 checkpoint 与双缓冲落盘
+>
+> DCP 的 `async_save` 和 Java 后端常写的"同步换缓冲、异步刷盘"是同一个结构：`staging.py` 的 `DefaultStager` 把 GPU 上的张量拷进一块主机 pinned 内存，这一段必须等（相当于把对象序列化进 ByteBuffer），拷完就交给后台执行器去写存储，训练线程立刻返回——换成 Java 就是 `CompletableFuture.runAsync` 拿着那块缓冲去写文件，业务线程只付了一次内存拷贝的钱。
+>
+> 不一样的地方有两处，而且都比 Java 侧更贵：这块缓冲的大小等于 checkpoint 本身（几百 GB 到 TB 级，所以主机内存要按它配），而且所有 rank 必须对"快照取在哪一个 iteration"达成一致——它是一次集合操作，不是各线程独立 flush。单机的 `CompletableFuture` 没有这一层约束，所以 Java 里"异步就等于不阻塞"的直觉在这里只对了一半。
 
 核心问题是：
 
@@ -236,73 +401,128 @@ Table: 十一篇的主题与内容
 
 ### 9. 容错与弹性：故障率数学、straggler、SDC 与弹性训练
 
-第九篇讨论长时训练最主要的敌人：硬件会坏，而且会以各种方式坏。
+[《容错与弹性》](/fault-tolerance-and-elastic-training.html)讨论长时训练最主要的敌人：硬件会坏，而且会以各种方式坏。
 
 这一篇会覆盖：
 
-- 故障率的数学：单卡的 MTBF 除以卡数就是集群的 MTBF；有效训练时间 = 有用训练时间 / 总时间，由故障频率、检测时间、重启时间、checkpoint 间隔和回退损失共同决定；Llama 3 论文的 419 次意外中断、78% 硬件、58.7% GPU、超过 90% 有效训练时间、3 次人工介入——把这些数字放进公式里；
-- 故障的分类：显式故障（进程崩溃、XID 错误、NCCL 报错）、隐式故障（hang、变慢）、静默故障（结果错但没有任何报错）；三类需要完全不同的检测手段；
-- 检测：NCCL watchdog 与 `TORCH_NCCL_*` 超时参数；心跳；训练循环级的 step 时间告警；框架层的 rank 监控（NVIDIA Resiliency Extension 的 `fault_tolerance` 模块、Megatron 的 `megatron/training/ft_integration.py`）；
-- 重启：`torchrun`（`torch/distributed/run.py`）与 `torch/distributed/elastic/` 的 agent、rendezvous（`elastic/rendezvous/` 下的 c10d 与 etcd 后端）、`--max-restarts`；进程组重建的成本；进程内重启（in-process restart，NVIDIA Resiliency Extension 的 `inprocess` 模块、Megatron 的 `inprocess_restart.py`）如何跳过进程拉起和 CUDA 初始化，把重启时间从分钟压到秒；
-- 弹性训练：卡数变化后怎么继续——torchft 的思路：把 DP 的各个副本组视为可独立失败的单元，用 Lighthouse 做 quorum，一组挂了其余组继续，坏组恢复后从活着的组拉参数；它与 DDP/FSDP/HSDP 的配合；torchtitan 的 `experiments/torchft/`；LocalSGD/DiLoCo 等异步方法在容错语境下的位置；
-- 坏卡隔离：从故障日志到节点的排除列表；`gpu_sniff_test.py` 这类启动前的硬件自检；调度器的配合（本系列只讲引擎侧提出的要求）；
-- straggler：一张慢卡拖慢整个同步训练；成因（降频、HBM 错误纠正、PCIe 降速、CPU 侧数据加载慢、网络链路差）；检测方法（每 rank 的计算时间与通信等待时间对比，Megatron 的 straggler 检测与 NVIDIA Resiliency Extension）；ByteDance Seed 与 NYU 2025 年（OSDI）关于 straggler 的 what-if 分析论文给出的结论：不少 straggler 不是硬件问题而是数据与调度不均衡；
-- silent data corruption（SDC）：GPU 算错但不报错，损失是错误的梯度污染全部副本；Llama 3 统计中 SDC 占 1.4%；检测方法——冗余计算、Megatron 的 `megatron/core/rerun_state_machine.py` 通过重跑一个 iteration 比对结果来发现不确定性、周期性的确定性校验；`fault_injector.py` 用于演练；
-- 确定性：可复现的训练是所有校验的前提；`torch.use_deterministic_algorithms`、NCCL 的算法选择、数据顺序的可复现。
+- **故障率的数学**
+  - 单卡的 MTBF 除以卡数就是集群的 MTBF
+  - 有效训练时间 = 有用训练时间 / 总时间，由故障频率、检测时间、重启时间、checkpoint 间隔和回退损失共同决定
+  - Llama 3 论文的 419 次意外中断、78% 硬件、58.7% GPU、超过 90% 有效训练时间、3 次人工介入——把这些数字放进公式里
+- **故障的分类**：显式故障（进程崩溃、XID 错误、NCCL 报错）、隐式故障（hang、变慢）、静默故障（结果错但没有任何报错），三类需要完全不同的检测手段；
+- **检测手段**
+  - NCCL watchdog 与 `TORCH_NCCL_*` 超时参数
+  - 心跳
+  - 训练循环级的 step 时间告警
+  - 框架层的 rank 监控：NVIDIA Resiliency Extension 的 `fault_tolerance` 模块、Megatron 的 `megatron/training/ft_integration.py`
+- **重启**
+  - `torchrun`（`torch/distributed/run.py`）与 `torch/distributed/elastic/` 的 agent、rendezvous（`elastic/rendezvous/` 下的 c10d 与 etcd 后端）、`--max-restarts`
+  - 进程组重建的成本
+  - 进程内重启（in-process restart，NVIDIA Resiliency Extension 的 `inprocess` 模块、Megatron 的 `inprocess_restart.py`）如何跳过进程拉起和 CUDA 初始化，把重启时间从分钟压到秒
+- **弹性训练**：卡数变化后怎么继续
+  - torchft 的思路：把 DP 的各个副本组视为可独立失败的单元，用 Lighthouse 做 quorum，一组挂了其余组继续，坏组恢复后从活着的组拉参数
+  - 它与 DDP/FSDP/HSDP 的配合，以及 torchtitan 的 `experiments/torchft/`
+  - LocalSGD/DiLoCo 等异步方法在容错语境下的位置
+- **坏卡隔离**
+  - 从故障日志到节点的排除列表
+  - `gpu_sniff_test.py` 这类启动前的硬件自检
+  - 调度器的配合（本系列只讲引擎侧提出的要求）
+- **straggler**：一张慢卡拖慢整个同步训练
+  - 成因：降频、HBM 错误纠正、PCIe 降速、CPU 侧数据加载慢、网络链路差
+  - 检测方法：每 rank 的计算时间与通信等待时间对比，Megatron 的 straggler 检测与 NVIDIA Resiliency Extension
+  - ByteDance Seed 与 NYU 2025 年（OSDI）关于 straggler 的 what-if 分析论文给出的结论：不少 straggler 不是硬件问题而是数据与调度不均衡
+- **silent data corruption（SDC）**：GPU 算错但不报错，损失是错误的梯度污染全部副本
+  - Llama 3 统计中 SDC 占 1.4%
+  - 检测方法：冗余计算、Megatron 的 `megatron/core/rerun_state_machine.py` 通过重跑一个 iteration 比对结果来发现不确定性、周期性的确定性校验
+  - `fault_injector.py` 用于演练
+- **确定性**：可复现的训练是所有校验的前提，手段是 `torch.use_deterministic_algorithms`、NCCL 的算法选择、数据顺序的可复现。
+
+> [!NOTE] Java 经验参照：straggler 与拖垮栅栏的慢线程
+>
+> 同步训练的每一次 all-reduce 都是一道栅栏，和 `CyclicBarrier.await()` 一样：先到的要等最后一个到，整个 step 的时间由最慢的 rank 决定。一张卡因为降频或 HBM 纠错慢了 10%，1023 张卡就一起慢 10%——这正是 Java 后端熟悉的"慢线程拖垮批处理"，排查思路也一样：先量每个参与者各自花了多久，再看谁在等。
+>
+> 失配在两处。一是等的方式：Java 线程在栅栏上阻塞会让出 CPU，而 NCCL 的等待默认是 GPU 上的忙等 kernel，快的卡一边等一边照常计费，所以慢 10% 真的等于多花 10% 的钱。二是没有"加线程"这个出路：栅栏的参与者数等于并行度，调小意味着改并行配置、重建进程组、重新加载 checkpoint，不是调一个线程池参数。
 
 核心问题是：
 
 > **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？其中检测、重启、加载 checkpoint、回退重算各占多少？把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？**
 
-实践：在 8 卡训练中注入故障（kill 一个 rank、人为拖慢一个 rank、篡改一个梯度），验证检测与恢复路径；用 torchrun 的弹性重启和 torchft 的副本组分别演练。
+实践：在 8 卡训练中注入故障（kill 一个 rank、人为拖慢一个 rank、篡改一个梯度），验证检测与恢复路径，再用 torchrun 的弹性重启和 torchft 的副本组分别演练。
 
 ### 10. 训练稳定性与数据管线：loss spike、梯度范数、数据混合与流式加载
 
-第十篇讨论硬件之外的两类长时问题：数值上模型会跑飞，数据上管线要跟得上、并且可恢复。两者被放在一起，因为 loss spike 的排查往往最终落到"那个 batch 里有什么"。
+[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)讨论硬件之外的两类长时问题：数值上模型会跑飞，数据上管线要跟得上、并且可恢复。两者被放在一起，因为 loss spike 的排查往往最终落到"那个 batch 里有什么"。
 
 这一篇会覆盖：
 
-- loss spike 的现象与成因：突然的 loss 跳升、有时自行恢复有时发散；成因包括学习率过高、bf16 精度不足、注意力 logit 增长、坏数据、优化器状态的时间性问题；
-- 预防手段：梯度裁剪（范数阈值通常为 1.0，`megatron/core/optimizer/clip_grads.py` 里跨 TP/PP/DP 的全局范数计算）、warmup、z-loss、QK-LayerNorm、embedding 不做 weight decay、fp32 累加与 fp32 优化器状态；
-- 处理手段：PaLM 论文的做法——回退到 spike 前约 100 步的 checkpoint，跳过之后的 200–500 个 batch；这依赖第八篇的 checkpoint 与本篇的数据顺序可复现；
-- 必须记录的数值信号：loss、梯度范数、参数范数、学习率、loss scale（fp16 时）、跳过的迭代数、梯度中零的数量（Megatron 的 `num_zeros_in_grad`）、注意力 logit 的最大值；它们的正常形态与异常形态；
-- tokenization 与预处理：离线 tokenize 成二进制索引格式（Megatron 的 `megatron/core/datasets/indexed_dataset.py` 及配套的预处理脚本），还是在线 tokenize；两者对 CPU、存储与可复现性的影响；
-- 数据混合：多来源按权重采样（`blended_dataset.py`、`blended_megatron_dataset_builder.py`）；多阶段训练中权重的变化；混合比例如何在 checkpoint 中记录以便恢复；
-- shuffle 与打包：epoch 级 shuffle 索引的生成与保存；文档打包成定长序列，`packed_seq_params.py` 与 cu_seqlens 让注意力不跨文档；序列长度课程（DeepSpeed 的 `data_pipeline/`）；
-- 流式加载：数据在对象存储上时的流式读取（Megatron datasets 的对象存储支持、torchtitan 的 `components/dataloader.py` 与 `hf_datasets/`、Hugging Face datasets 的 streaming、MosaicML StreamingDataset）；预取深度、worker 数与 pinned memory；
-- 可恢复的数据加载器：恢复后必须从精确的位置继续、不重复不遗漏；有状态的 DataLoader 与 checkpoint 中数据位置的记录；多 rank 下的一致性；
-- 数据加载对 MFU 的影响：如何判断是数据在等 GPU 还是 GPU 在等数据。
+- **loss spike 的现象与成因**
+  - 突然的 loss 跳升，有时自行恢复，有时发散
+  - 成因包括学习率过高、bf16 精度不足、注意力 logit 增长、坏数据、优化器状态的时间性问题
+- **预防手段**：梯度裁剪（范数阈值通常为 1.0，`megatron/core/optimizer/clip_grads.py` 里跨 TP/PP/DP 的全局范数计算）、warmup、z-loss、QK-LayerNorm、embedding 不做 weight decay、fp32 累加与 fp32 优化器状态；
+- **处理手段**：PaLM 论文的做法是回退到 spike 前约 100 步的 checkpoint，跳过之后的 200–500 个 batch——这依赖[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 checkpoint 与本篇的数据顺序可复现；
+- **必须记录的数值信号**：loss、梯度范数、参数范数、学习率、loss scale（fp16 时）、跳过的迭代数、梯度中零的数量（Megatron 的 `num_zeros_in_grad`）、注意力 logit 的最大值，以及它们各自的正常形态与异常形态；
+- **tokenization 与预处理**
+  - 离线 tokenize 成二进制索引格式（Megatron 的 `megatron/core/datasets/indexed_dataset.py` 及配套的预处理脚本），还是在线 tokenize
+  - 两者对 CPU、存储与可复现性的影响
+- **数据混合**
+  - 多来源按权重采样（`blended_dataset.py`、`blended_megatron_dataset_builder.py`）
+  - 多阶段训练中权重的变化
+  - 混合比例如何在 checkpoint 中记录以便恢复
+- **shuffle 与打包**
+  - epoch 级 shuffle 索引的生成与保存
+  - 文档打包成定长序列，`packed_seq_params.py` 与 cu_seqlens 让注意力不跨文档
+  - 序列长度课程（DeepSpeed 的 `data_pipeline/`）
+- **流式加载**
+  - 数据在对象存储上时的流式读取：Megatron datasets 的对象存储支持、torchtitan 的 `components/dataloader.py` 与 `hf_datasets/`、Hugging Face datasets 的 streaming、MosaicML StreamingDataset
+  - 预取深度、worker 数与 pinned memory
+- **可恢复的数据加载器**
+  - 恢复后必须从精确的位置继续、不重复不遗漏
+  - 有状态的 DataLoader 与 checkpoint 中数据位置的记录
+  - 多 rank 下的一致性
+- **数据加载对 MFU 的影响**：如何判断是数据在等 GPU 还是 GPU 在等数据。
 
 核心问题是：
 
 > **第 137,000 步 loss 从 2.1 跳到 4.8。是数据、学习率、还是数值精度？要回答这个问题，需要哪些信号在事前就被记录下来，需要哪些状态能被精确回放？**
 
-实践：给 torchtitan 训练加上完整的数值信号记录；构造一个坏 batch 触发 spike，用 checkpoint 回退与跳过 batch 演练恢复；验证数据加载器在中断恢复后的顺序精确一致。
+实践：给 torchtitan 训练加上完整的数值信号记录，构造一个坏 batch 触发 spike，用 checkpoint 回退与跳过 batch 演练恢复，最后验证数据加载器在中断恢复后的顺序精确一致。
 
 ### 11. 长时训练的可观测与运维：从指标到 hang 排查
 
-最后一篇讲把一个训练任务当作**服务**来运维：看什么、怎么告警、出问题怎么查、值班手册长什么样。
+[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)讲把一个训练任务当作**服务**来运维：看什么、怎么告警、出问题怎么查、值班手册长什么样。
 
 这一篇会覆盖：
 
-- 三层指标：任务层（loss、梯度范数、学习率、token/s、TFLOPS/GPU、MFU、step 时间及其抖动）、进程层（各 rank 的计算时间与通信等待时间、显存峰值与碎片、CPU 与数据加载队列）、硬件层（GPU 温度、功耗、频率、XID 错误、HBM 纠错计数、网络错包与重传）；
-- 指标采集的实现：Megatron 的 `timers.py` 与日志、torchtitan 的 `components/metrics.py`、`torch.cuda.memory_stats`、DCGM 导出的硬件指标；写入 TensorBoard/W&B 与 Prometheus 的分工；
-- 每 rank 的可见性：千卡下必须能按 rank 看数据，否则找不到 straggler 和异常节点；日志的 rank 标记、聚合与抽样；
-- hang 的排查：hang 是长时训练最常见也最难查的故障——所有进程都活着但没有进展；NCCL Flight Recorder（`torch/distributed/flight_recorder/` 与 c10d 的 `FlightRecorder.hpp`，通过 `TORCH_NCCL_TRACE_BUFFER_SIZE`、`TORCH_NCCL_DUMP_ON_TIMEOUT` 启用）记录每个集合通信的发起与完成状态，从中找出哪个 rank 没有到达哪次通信；`py-spy dump` 全部 rank 看 Python 栈；`TORCH_DISTRIBUTED_DEBUG`；常见成因（某 rank 的条件分支不一致、数据加载器在某 rank 上耗尽、死锁的点对点通信）；
-- 性能回归的排查：step 时间慢慢变长的常见原因（显存碎片、日志过多、数据加载队列、温度降频）；对比 profiler 时间线；只在少数 rank 上开 Nsight Systems 的做法；
-- 告警设计：什么该叫醒人（loss NaN、连续故障、有效训练时间跌破阈值、checkpoint 失败），什么只需记录；
-- 运维流程：开训前的检查清单（硬件自检、NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练）、值班手册、故障复盘模板；
-- 成本视角：把每一次故障、每一个 MFU 百分点换算成 GPU 小时与金额，用它决定优化的优先级。
+- **三层指标**
+  - 任务层：loss、梯度范数、学习率、token/s、TFLOPS/GPU、MFU、step 时间及其抖动
+  - 进程层：各 rank 的计算时间与通信等待时间、显存峰值与碎片、CPU 与数据加载队列
+  - 硬件层：GPU 温度、功耗、频率、XID 错误、HBM 纠错计数、网络错包与重传
+- **指标采集的实现**
+  - Megatron 的 `timers.py` 与日志、torchtitan 的 `components/metrics.py`、`torch.cuda.memory_stats`、DCGM 导出的硬件指标
+  - 写入 TensorBoard/W&B 与 Prometheus 的分工
+- **每 rank 的可见性**：千卡下必须能按 rank 看数据，否则找不到 straggler 和异常节点，所以日志要有 rank 标记、要能聚合与抽样；
+- **hang 的排查**：hang 是长时训练最常见也最难查的故障——所有进程都活着但没有进展
+  - NCCL Flight Recorder（`torch/distributed/flight_recorder/` 与 c10d 的 `FlightRecorder.hpp`，通过 `TORCH_NCCL_TRACE_BUFFER_SIZE`、`TORCH_NCCL_DUMP_ON_TIMEOUT` 启用）记录每个集合通信的发起与完成状态，从中找出哪个 rank 没有到达哪次通信
+  - `py-spy dump` 全部 rank 看 Python 栈
+  - `TORCH_DISTRIBUTED_DEBUG`
+  - 常见成因：某 rank 的条件分支不一致、数据加载器在某 rank 上耗尽、死锁的点对点通信
+- **性能回归的排查**
+  - step 时间慢慢变长的常见原因：显存碎片、日志过多、数据加载队列、温度降频
+  - 对比 profiler 时间线
+  - 只在少数 rank 上开 Nsight Systems 的做法
+- **告警设计**：什么该叫醒人（loss NaN、连续故障、有效训练时间跌破阈值、checkpoint 失败），什么只需记录；
+- **运维流程**：开训前的检查清单（硬件自检、NCCL 带宽测试、小规模 dry-run、checkpoint 恢复演练）、值班手册、故障复盘模板；
+- **成本视角**：把每一次故障、每一个 MFU 百分点换算成 GPU 小时与金额，用它决定优化的优先级。
 
 核心问题是：
 
 > **凌晨三点告警：step 时间从 12 秒变成 40 秒，没有报错。十分钟内你要判断是 straggler、数据、通信、还是硬件降频。你需要的每一个信号，在开训前有没有采集？**
 
-实践：为练手项目搭起完整的指标面板与告警规则；用 Flight Recorder 排查一次人为制造的 hang；写出这个项目的值班手册。
+实践分三步：为练手项目搭起完整的指标面板与告警规则，用 Flight Recorder 排查一次人为制造的 hang，最后写出这个项目的值班手册。
 
 ### 12. 系列总结与通关自测
 
-最后一篇不讲新内容：把十一篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十一篇能不能连起来用；读完正文再做。
+[《系列总结与通关自测》](/large-scale-training-series-recap-and-self-test.html)不讲新内容：把十一篇正文压成一张「问题 → 结论 → 必记数字」的表并逐篇回顾，拎出贯穿全系列的几条线与常见误区，然后给一套三段式通关自测——十道判断与计算、五道跨篇综合、若干道面试题，答案各自折叠，附「读过 / 掌握 / 能教人」的判据。各篇末尾的自测检验的是一篇读懂了没有，这一篇检验的是十一篇能不能连起来用，所以读完正文再做。
 
 ## 贯穿全系列的实践线
 
@@ -310,44 +530,50 @@ Table: 十一篇的主题与内容
 
 | 篇 | 项目的这一部分 | 内容 |
 |---|---|---|
-| 第一篇 | 显存与 MFU 计算器 | 四类状态字节数<br/>6N 算力<br/>step 时间下限 |
-| 第二篇 | 计算器加并行维度 | TP/PP/DP/CP/EP<br/>ZeRO 级别<br/>每 step 通信量 |
-| 第三篇 | Megatron 运行配置 | runs/megatron：TP2×PP2×DP2 分布式优化器 |
-| 第四篇 | DeepSpeed 运行配置 | runs/deepspeed：ZeRO-3 最小循环 |
-| 第五篇 | torchtitan 运行配置 | runs/titan：FSDP4×TP2 的 Trainer.Config |
-| 第六篇 | 三框架对照运行 | 同一小模型<br/>显存与通信模式与计算对账 |
-| 第七篇 | 8 卡 Llama 3 8B 调优 | 配置矩阵<br/>MFU 对比<br/>profiler 拆解<br/>外推到 1024 卡 |
-| 第八篇 | DCP 异步 checkpoint | 保存开销测量<br/>换并行配置加载<br/>loss 曲线衔接 |
-| 第九篇 | 故障注入与恢复演练 | kill rank<br/>拖慢 rank<br/>篡改梯度<br/>torchrun 与 torchft |
-| 第十篇 | 稳定性信号与数据管线 | 数值信号记录<br/>坏 batch 演练<br/>数据顺序精确恢复 |
-| 第十一篇 | 指标面板、hang 排查与值班手册 | 三层指标<br/>Flight Recorder<br/>告警规则 |
+| [第一篇](/training-state-anatomy-memory-and-mfu.html) | 显存与 MFU 计算器 | 四类状态字节数<br/>6N 算力<br/>step 时间下限 |
+| [第二篇](/parallelism-strategies-which-state-to-shard.html) | 计算器加并行维度 | TP/PP/DP/CP/EP<br/>ZeRO 级别<br/>每 step 通信量 |
+| [第三篇](/megatron-lm-architecture-and-source-guide.html) | Megatron 运行配置 | runs/megatron：TP2×PP2×DP2 分布式优化器 |
+| [第四篇](/deepspeed-architecture-and-source-guide.html) | DeepSpeed 运行配置 | runs/deepspeed：ZeRO-3 最小循环 |
+| [第五篇](/torchtitan-architecture-and-source-guide.html) | torchtitan 运行配置 | runs/titan：FSDP4×TP2 的 Trainer.Config |
+| [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) | 三框架对照运行 | 同一小模型<br/>显存与通信模式与计算对账 |
+| [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) | 8 卡 Llama 3 8B 调优 | 配置矩阵<br/>MFU 对比<br/>profiler 拆解<br/>外推到 1024 卡 |
+| [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) | DCP 异步 checkpoint | 保存开销测量<br/>换并行配置加载<br/>loss 曲线衔接 |
+| [第九篇](/fault-tolerance-and-elastic-training.html) | 故障注入与恢复演练 | kill rank<br/>拖慢 rank<br/>篡改梯度<br/>torchrun 与 torchft |
+| [第十篇](/training-stability-and-data-pipeline.html) | 稳定性信号与数据管线 | 数值信号记录<br/>坏 batch 演练<br/>数据顺序精确恢复 |
+| [第十一篇](/long-running-training-observability-and-operations.html) | 指标面板、hang 排查与值班手册 | 三层指标<br/>Flight Recorder<br/>告警规则 |
 
 Table: 训练账本项目在各篇的部分
 
-到第十一篇结束，读者手上有：一个能对任意模型与集群规格给出显存、通信量与 MFU 预期的计算器；一份在 8 卡上验证过、并有外推依据的训练配置；一套包含 checkpoint、故障恢复、数值监控和告警的运行方案。它不是一个千卡任务，但它是接手一个千卡任务时需要带的全部东西。
+十一篇走完，读者手上有三样东西：
+
+1. 一个能对任意模型与集群规格给出显存、通信量与 MFU 预期的计算器；
+2. 一份在 8 卡上验证过、并有外推依据的训练配置；
+3. 一套包含 checkpoint、故障恢复、数值监控和告警的运行方案。
+
+它不是一个千卡任务，但它是接手一个千卡任务时需要带的全部东西。
 
 与它平行的源码阅读线：
 
 | 篇 | 项目 | 文件 |
 |---|---|---|
-| 第一篇 | Megatron-LM | `megatron/training/theoretical_memory_usage.py`<br/>`megatron/training/training.py` 的 FLOPs 计算 |
-| 第二篇 | PyTorch | `torch/distributed/fsdp/_fully_shard/`<br/>`torch/distributed/tensor/parallel/`<br/>`torch/distributed/pipelining/schedules.py` |
-| 第三篇 | Megatron-LM | `megatron/core/parallel_state.py`<br/>`megatron/core/tensor_parallel/`<br/>`megatron/core/pipeline_parallel/`<br/>`megatron/core/distributed/`<br/>`megatron/core/optimizer/distrib_optimizer.py` |
-| 第四篇 | DeepSpeed | `deepspeed/runtime/engine.py`<br/>`deepspeed/runtime/zero/stage_1_and_2.py`<br/>`deepspeed/runtime/zero/stage3.py`<br/>`deepspeed/runtime/zero/partition_parameters.py`<br/>`deepspeed/runtime/pipe/` |
-| 第五篇 | torchtitan | `torchtitan/train.py`<br/>`torchtitan/trainer.py`<br/>`torchtitan/distributed/parallel_dims.py`<br/>`torchtitan/distributed/{fsdp,pipeline_parallel}.py`<br/>`torchtitan/protocols/sharding.py`<br/>`torchtitan/models/common/decoder_sharding.py` |
-| 第七篇 | torchtitan | `torchtitan/distributed/activation_checkpoint.py`<br/>`torchtitan/compile.py` |
+| [第一篇](/training-state-anatomy-memory-and-mfu.html) | Megatron-LM | `megatron/training/theoretical_memory_usage.py`<br/>`megatron/training/training.py` 的 FLOPs 计算 |
+| [第二篇](/parallelism-strategies-which-state-to-shard.html) | PyTorch | `torch/distributed/fsdp/_fully_shard/`<br/>`torch/distributed/tensor/parallel/`<br/>`torch/distributed/pipelining/schedules.py` |
+| [第三篇](/megatron-lm-architecture-and-source-guide.html) | Megatron-LM | `megatron/core/parallel_state.py`<br/>`megatron/core/tensor_parallel/`<br/>`megatron/core/pipeline_parallel/`<br/>`megatron/core/distributed/`<br/>`megatron/core/optimizer/distrib_optimizer.py` |
+| [第四篇](/deepspeed-architecture-and-source-guide.html) | DeepSpeed | `deepspeed/runtime/engine.py`<br/>`deepspeed/runtime/zero/stage_1_and_2.py`<br/>`deepspeed/runtime/zero/stage3.py`<br/>`deepspeed/runtime/zero/partition_parameters.py`<br/>`deepspeed/runtime/pipe/` |
+| [第五篇](/torchtitan-architecture-and-source-guide.html) | torchtitan | `torchtitan/train.py`<br/>`torchtitan/trainer.py`<br/>`torchtitan/distributed/parallel_dims.py`<br/>`torchtitan/distributed/{fsdp,pipeline_parallel}.py`<br/>`torchtitan/protocols/sharding.py`<br/>`torchtitan/models/common/decoder_sharding.py` |
+| [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) | torchtitan | `torchtitan/distributed/activation_checkpoint.py`<br/>`torchtitan/compile.py` |
 | | PyTorch | `torch/utils/checkpoint.py` |
 | | Megatron-LM | `megatron/core/pipeline_parallel/schedules.py` |
-| 第八篇 | PyTorch | `torch/distributed/checkpoint/{state_dict_saver,planner,filesystem,resharding,staging}.py` |
+| [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) | PyTorch | `torch/distributed/checkpoint/{state_dict_saver,planner,filesystem,resharding,staging}.py` |
 | | Megatron-LM | `megatron/core/dist_checkpointing/`<br/>`megatron/training/checkpointing.py` |
 | | torchtitan | `torchtitan/components/checkpoint.py`<br/>`torchtitan/components/checkpointer/` |
-| 第九篇 | PyTorch | `torch/distributed/run.py`<br/>`torch/distributed/elastic/agent/server/`<br/>`torch/distributed/elastic/rendezvous/` |
+| [第九篇](/fault-tolerance-and-elastic-training.html) | PyTorch | `torch/distributed/run.py`<br/>`torch/distributed/elastic/agent/server/`<br/>`torch/distributed/elastic/rendezvous/` |
 | | torchft | `torchft/manager.py`<br/>`torchft/process_group.py` |
 | | Megatron-LM | `megatron/core/rerun_state_machine.py`<br/>`megatron/training/{ft_integration,inprocess_restart}.py` |
-| 第十篇 | Megatron-LM | `megatron/core/optimizer/clip_grads.py`<br/>`megatron/core/datasets/{indexed_dataset,blended_dataset,gpt_dataset}.py` |
+| [第十篇](/training-stability-and-data-pipeline.html) | Megatron-LM | `megatron/core/optimizer/clip_grads.py`<br/>`megatron/core/datasets/{indexed_dataset,blended_dataset,gpt_dataset}.py` |
 | | torchtitan | `torchtitan/components/dataloader.py`<br/>`torchtitan/hf_datasets/` |
 | | DeepSpeed | `deepspeed/runtime/data_pipeline/` |
-| 第十一篇 | PyTorch | `torch/distributed/flight_recorder/`<br/>`torch/csrc/distributed/c10d/FlightRecorder.hpp` |
+| [第十一篇](/long-running-training-observability-and-operations.html) | PyTorch | `torch/distributed/flight_recorder/`<br/>`torch/csrc/distributed/c10d/FlightRecorder.hpp` |
 | | Megatron-LM | `megatron/core/timers.py` |
 | | torchtitan | `torchtitan/components/metrics.py` |
 
@@ -405,16 +631,16 @@ Table: 各篇平行的源码阅读线
 
 读完这套系列之后，面对任何一个大规模训练任务——无论是自己配的、别人交接的、还是出了问题要接手排查的——读者应该能够回答：
 
-| 问题 | 答案在 |
+| 问题 | 答案在哪一篇的哪一章 |
 |---|---|
-| 每张卡上放了哪些状态、多少字节？ | 第一篇：显存账 |
-| 每个 step 走了多少通信、走哪条链路？ | 第二篇：并行策略的通信量 |
-| 这个框架把参数与优化器状态存在哪里？ | 第六篇：三框架的状态放置 |
-| MFU 应该是多少？实际差在哪一项？ | 第七篇：损失拆解 |
-| checkpoint 多久存一次？换卡数能不能加载？ | 第八篇：Young 公式与重分片 |
-| 坏一张卡会损失多少时间？怎么缩短？ | 第九篇：故障率与恢复路径 |
-| loss 跳了，回退到哪一步、跳过哪些数据？ | 第十篇：稳定性信号与数据回放 |
-| 卡住了，哪个 rank 没到哪次通信？ | 第十一篇：Flight Recorder 与排查流程 |
+| 每张卡上放了哪些状态、多少字节？ | [《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)的[「混合精度的字节账：16 与 18」](/training-state-anatomy-memory-and-mfu.html#三混合精度的字节账16-与-18) |
+| 每个 step 走了多少通信、走哪条链路？ | [《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的[「组合：多维并行与 Llama 3 405B」](/parallelism-strategies-which-state-to-shard.html#七组合多维并行与-llama-3-405b) |
+| 这个框架把参数与优化器状态存在哪里？ | [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)的[「分片在内存里长什么样」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五分片在内存里长什么样) |
+| MFU 应该是多少？实际差在哪一项？ | [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)的[「MFU 损失的七项拆解」](/thousand-gpu-configuration-and-mfu-tuning.html#六mfu-损失的七项拆解) |
+| checkpoint 多久存一次？换卡数能不能加载？ | [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的[「重分片加载」](/distributed-checkpoint-format-async-save-and-resharding.html#五重分片加载)与[「多级存储与存多久一次」](/distributed-checkpoint-format-async-save-and-resharding.html#九多级存储与存多久一次) |
+| 坏一张卡会损失多少时间？怎么缩短？ | [《容错与弹性》](/fault-tolerance-and-elastic-training.html)的[「故障率数学：从 MTBF 到有效训练时间」](/fault-tolerance-and-elastic-training.html#二故障率数学从-mtbf-到有效训练时间) |
+| loss 跳了，回退到哪一步、跳过哪些数据？ | [《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的[「处理：回退与跳过」](/training-stability-and-data-pipeline.html#四处理回退与跳过) |
+| 卡住了，哪个 rank 没到哪次通信？ | [《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的[「hang 排查：Flight Recorder」](/long-running-training-observability-and-operations.html#三hang-排查flight-recorder) |
 
 Table: 读完大规模训练系列后应能回答的问题
 
