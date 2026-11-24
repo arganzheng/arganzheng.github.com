@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（10）：输出在变：采样参数与结构化输出
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-24
 redirect_from:
   - /decoding-extensions-sampling-speculative-and-structured-output.html
 comments_path: /decoding-extensions-sampling-speculative-and-structured-output.html
@@ -29,7 +29,52 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 ## 一、总览：输出契约与两类变化
 
-### 1. 输出契约：从 hidden_states 到 token
+### 1. 本篇的主线：两类变化在三个进程里各被吸收一段
+
+两类输出变化看起来都发生在最后那一步采样，实际上它们沿请求路径向上游捅了很深——一个 JSON schema 的代价全部落在调度器进程和 TTFT 上，一个 `repetition_penalty` 的代价全部落在 Worker 每一步的显存与带宽上。本篇按这条路径组织，所以先给出全图：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：本篇主线：输出语义的变化在三个进程里各被吸收一段
+flowchart TB
+    API["<b>API 进程：先校验，再决定后端（第三章第 1 节）</b><br/>• 校验采样参数与 schema<br/>• 为这个请求选结构化输出后端<br/>• tool_choice 在这里被翻成一条约束"] --> SCH["<b>调度器进程：编译一次，然后每步一张掩码（第三章）</b><br/>• 首次要编译 grammar，请求挂在一个等待状态上<br/>• 每步在 CPU 上为每行填一张词表大小的掩码，与 forward 重叠<br/>• 步后推进状态机；开投机时还要先过滤 draft"]
+    SCH --> RUN["<b>Worker：按行准备参数（第二章第 1、5 节）</b><br/>• 持久 batch 里按下标存每请求的采样参数<br/>• 增删行时要同步各处理器的状态<br/>• 开 penalties 时每步上传历史输出、重建直方图"]
+    RUN --> SMP["<b>Sampler：先共用、再分两路、最后按行合流（第二章第 2 节）</b><br/>• 掩码在进 Sampler 之前已经打好<br/>• 会改变 argmax 的处理共用一段<br/>• greedy 与随机采样分开算，再按行挑结果"]
+    SMP --> OUT["<b>API 进程：同一串 token 切成三个字段（第六章）</b><br/>• 不改变任何 token<br/>• reasoning 与 tool 两个解析器按流式状态切<br/>• 约束在前、解析在后，两者要配对"]
+    classDef cpu fill:#eef5ff,stroke:#5880b4;
+    classDef gpu fill:#eff9f4,stroke:#4b9477;
+    class API,SCH,OUT cpu;
+    class RUN,SMP gpu;
+```
+
+逐节点要点：
+
+- **API 进程先校验再选后端**（[第三章第 1 节](#1-约束在哪里生效四个位置)）：这一层拦掉的是参数本身不合法的请求；它也是 `tool_choice` 变成结构化输出约束的地方，所以第六章的解析和第三章的约束在这里就已经相遇。
+- **调度器进程编译一次、每步一张掩码**（[第三章](#三输出约束把-grammar-变成每步一张掩码)）：结构化输出的代价几乎全在这里——编译是几十到几百毫秒、直接加在 TTFT 上，每步填掩码是调度器进程的 CPU 工作。GPU 侧只多一个打掩码的 kernel。
+- **Worker 按行准备参数**（[第二章第 1](#1-从请求到张量参数在哪几层被接住)、[5 节](#5-penalties-的真实代价)）：采样参数住在跨步常驻的 batch 里按行号索引，所以请求增删时必须同步——这是[第二章第 4 节](#4-logitsprocessor-接口为什么它长成跟着-batch-变化的样子)那个接口长成那样的原因。penalties 是本篇唯一真正花显存与带宽的东西。
+- **Sampler 的流水线**（[第二章第 2 节](#2-sampler-的流水线)）：组织原则是「会不会改变 argmax」——会的放在共用段，不会的只在随机采样那一路算，最后按行挑。
+- **API 进程切成三个字段**（[第六章](#六输出解析同一串-token-拆成-contentreasoning-与-tool_calls)）：这一步不碰 token，只决定客户端看到的结构；它和前面两类变化的关系是「约束在前、解析在后」，两端的格式必须对上。
+- 有一行是空的：**KV Cache 完全不受影响**（[第三章](#三输出约束把-grammar-变成每步一张掩码)）。不同的采样参数、不同的 grammar 产出的都是普通 token，块哈希不用加键——这和[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)里两种变化都要加键正好相反。
+
+### 2. 输出语义带来的几个对象：谁创建、活在哪一侧、活多久、谁能看见
+
+两类变化新增的对象不多，但分布在三个进程里，寿命从「一步」到「跨请求」都有。代价落在谁身上，看这张表的「活在哪一侧」和「活多久」两列就够了：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| 请求自带的采样参数 | 客户端传入，API 进程校验 | 随请求进引擎，再按行存进 Worker 的常驻 batch | 整个请求 | 调度器与 Worker 都看到自己需要的那部分 | 第二章第 1 节 |
+| 常驻 batch 里按行排好的参数张量 | Worker 在请求首次进 batch 时写入，增删行时搬动 | Worker 侧 CPU，再拷到显存 | 跨步常驻 | 只有本 Worker；**按行号索引，所以搬行时必须同步** | 第二章第 1、4 节 |
+| penalties 要的历史输出与计数直方图 | 每步重新上传、重新建 | 显存 | **一步** | 只有 penalties 那一段处理 | 第二章第 5 节 |
+| 编译好的 grammar | 调度器进程在请求首次进来时异步编译，可按 schema 复用 | **调度器进程的 CPU 侧** | 比请求长：相同 schema 再来不必重编 | 只有调度器 | 第三章第 1、2 节 |
+| 这一步的掩码 | 调度器进程每步为每行填一份，随 RPC 下发 | CPU 侧产生，GPU 上应用 | **一步** | 本步全部 Worker | 第三章第 3 节 |
+| grammar 的状态机位置 | 每步结束后按已接受的 token 推进 | 调度器进程 | 整个请求 | 只有调度器；开投机时还要用它过滤 draft | 第三章第 1、4 节 |
+| 两个解析器的流式状态 | API 进程为每个请求各建一份 | **API Server 进程** | 整个请求 | 只有 API 进程；引擎完全不知道有解析这件事 | 第六章第 2 节 |
+
+Table: 输出语义带来的对象及其生命周期
+
+两件事值得先记住：**三样东西住在三个不同的进程里**——grammar 和掩码在调度器进程，采样参数和直方图在 Worker，解析状态在 API 进程；所以「结构化输出贵不贵」这个问题要分开看：它贵在调度器的 CPU 和 TTFT，不贵在 GPU。**只有参数张量一行是按行号索引的**，这解释了本篇最绕的那个接口为什么必须把「哪几行被加、被删、被换」告诉每一个处理器。
+
+### 3. 输出契约：从 hidden_states 到 token
 
 先把"最后一步"画清楚。[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的 forward 结束在 `hidden_states`；接下来是：
 
@@ -43,7 +88,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 输出语义的变化，就是对这三条约定的改写。
 
-### 2. 两类输出变化
+### 4. 两类输出变化
 
 | 变化 | 改的是什么 | 打破的约定 | 例子 |
 |---|---|---|---|
@@ -52,7 +97,7 @@ comments_path: /decoding-extensions-sampling-speculative-and-structured-output.h
 
 Table: 两类输出变化与它们打破的约定
 
-### 3. 变化落在哪几层
+### 5. 变化落在哪几层
 
 如果这两类变化只改 Sampler，本篇一章就够了。问题在于它们各自向上游捅了多深：
 
@@ -73,7 +118,7 @@ Table: 两类输出变化在各层的适配与代价
 
 KV Cache 一行是空的，这本身就是一个结论：**输出语义的变化不影响状态怎么存**——不同的采样参数、不同的 grammar 产生的都是普通 token，KV 与 prefix cache 不需要多一个键（对比《请求形态的扩展》，LoRA 和多模态都要往块哈希里加 `extra_keys`）。
 
-### 4. 回到前面的例子：这一步有多贵？
+### 6. 回到前面的例子：这一步有多贵？
 
 **回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token）。Llama-3 的词表是 128256，一行 fp32 logits 是 `128256 × 4 B ≈ 513 KB`；batch=64 时整个 logits 张量约 33 MB，按 3.35 TB/s 算读一遍只要 0.01 ms。和[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)里"一步 decode 约 10 ms"相比，**Sampler 本身的成本是可以忽略的**——这正是能在这里塞进那么多花样的原因。
 
@@ -83,7 +128,7 @@ KV Cache 一行是空的，这本身就是一个结论：**输出语义的变化
 2. **计数**：penalties 要为每个请求在 GPU 上建一张 `[vocab+1]` 的 int64 直方图，batch=64 就是 66 MB，而且每步重建；
 3. **CPU 上的状态机**：结构化输出每步要在调度器进程里为每个请求填一行 bitmask、推进一次 FSM，请求进来时还要编译 grammar——几十到几百毫秒，直接加在这个请求的 TTFT 上。
 
-### 5. 本文的章节安排
+### 7. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -177,6 +222,11 @@ flowchart TB
 "每请求不同参数"这件事在 GPU 上是免费的——一个 `[num_reqs]` 的向量广播到 `[num_reqs, V]` 上而已。**真正的成本在于每一步都要把这些参数张量维护好**，这是下一节 `LogitsProcessor` 接口存在的原因。
 
 ### 4. LogitsProcessor 接口：为什么它长成"跟着 batch 变化"的样子
+
+> [!NOTE] Java 经验参照：没有「重建一遍」这条退路
+>
+> 一个要被动接收「第 3 行删了、第 7 行搬到第 3 行」这种通知的接口，在应用代码里通常是设计味道不好的信号——常规做法是把集合当作不可变的，变了就重建一份视图，省掉同步的心智负担。这里不能这样，原因在于**状态是按行号索引的 GPU 张量**：每个处理器为 batch 里的每一行存着自己的东西（温度、惩罚系数、已输出 token 的计数），重建一份等于每步把这些张量重新拼一次、重新拷一次，而一步的预算只有十毫秒量级。所以接口被迫长成「告诉你哪几行被加、被删、被换」的样子，代价转移到了每个实现者身上——写一个自定义处理器时，最容易错的也正是这里：忘记处理搬行，表现是某个请求用上了另一个请求的采样参数。
+
 
 `LogitsProcessor`（`vllm/v1/sample/logits_processor/interface.py`）只有四个方法：
 
@@ -337,6 +387,11 @@ class StructuredOutputGrammar(ABC):                 # 请求级，一个请求�
 `validate_tokens()` / `rollback()` 两个方法不是 grammar 库的常规接口，它们是为投机解码加的（第 4 节）。
 
 ### 3. bitmask 的生成与应用
+
+> [!NOTE] Java 经验参照：预编译只省了一半
+>
+> 「把 schema 编译成状态机，再逐步用它判断下一个字符合不合法」对着正则预编译的经验很好理解：编译一次、之后反复用，所以编译贵一点没关系。这里只有前半句成立。差别在于**每一步都要把判断结果铺开成一张词表大小的位图**：正则是「拿一个字符来问一次」，这里是「在十几万个候选里标出哪些还合法」，而且 batch 里每个请求各要一张、每步重算一次。所以预编译省掉的是编译，省不掉这份每步的 CPU 工作，它也就成了结构化输出的主要代价。另一处差别是编译的位置：它发生在调度器进程里、而且是异步的，期间请求挂在一个等待状态上——换成熟悉的说法，相当于第一次调用某个接口时要先在另一个线程里生成一遍代理类，这段时间请求只能等着，这笔时间全部落在它的 TTFT 上。
+
 
 **形状**：xgrammar 的 bitmask 是 int32，每 32 个 token 一个 word，`128256 / 32 = 4008` 个 int32，**每行 16 KB**。`StructuredOutputManager.grammar_bitmask()` 第一次调用时一次性分配 `max_num_seqs × (1 + num_spec_tokens)` 行——每个请求 1 行给普通 token 或 bonus，K 行给 K 个 draft 位置。
 
