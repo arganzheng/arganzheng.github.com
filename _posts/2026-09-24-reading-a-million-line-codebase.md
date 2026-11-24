@@ -357,7 +357,7 @@ vLLM 版的一行链：
 %%{init: {"flowchart": {"wrappingWidth": 520}}}%%
 %% 图：vLLM 版的一行链：_custom_ops 到 .cu
 flowchart TB
-    A["<b>vllm/model_executor/layers/&lt;layer&gt;.py</b>"] --> B["<b>vllm/_custom_ops.py</b>（或 vllm/kernels/vllm_c.py 的 IR 实现）<br/>def &lt;name&gt;()：torch.ops._C.&lt;name&gt;(...)"]
+    A["<b>vllm/model_executor/layers/&lt;layer&gt;.py</b>"] --> B["<b>vllm/_custom_ops.py（或 vllm/kernels/vllm_c.py 的 IR 实现）</b><br/>def &lt;name&gt;()：torch.ops._C.&lt;name&gt;(...)"]
     B -->|CUDA| C["<b>csrc/libtorch_stable/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(...)"]
     B -->|CPU| D["<b>csrc/cpu/torch_bindings.cpp</b><br/>ops.def(#quot;&lt;name&gt;(...)#quot;) / ops.impl(..., torch::kCPU, ...)"]
     C --> E["<b>csrc/libtorch_stable/&lt;kernel&gt;.cu</b>"]
