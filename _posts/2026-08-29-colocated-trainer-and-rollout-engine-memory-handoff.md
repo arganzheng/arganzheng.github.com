@@ -12,7 +12,12 @@ updated: 2026-11-14
 
 2% 不值得写一篇。值得写的是这 7 秒之外的东西：推理引擎的 KV 池释放再建回来，里面的 prefix cache 全部作废；CUDA graph 捕获的是显存地址，地址变了图就废了——vLLM 的 sleep mode 用 CUDA 虚拟内存 API 把物理页摘下来而**保留虚拟地址**，正是为了不重捕获；训练器的 PyTorch caching allocator 与推理引擎的 `CuMemAllocator` 在同一块 HBM 上交替，一方保留着没释放的段另一方就挂不回来，所以切换前后要 `empty_cache`、要开关 `expandable_segments`；vLLM 启动时按 `gpu_memory_utilization` 定下的 KV 池大小是一次性的，共置下这个数字通常只有 0.5，**推理引擎在共置形态下只拿到半张卡的 KV 池，decode 吞吐比独占一张卡低 10–30%**——这才是共置真正的税，而它不出现在"切换耗时"这个指标里。
 
-这一篇把一次切换拆成每个动作：谁释放什么、走哪条链路、要几秒、留下什么隐性代价；然后看 vLLM 的 sleep / wake_up 与 `CuMemAllocator`、SGLang 的 `torch_memory_saver`、FSDP 与 Megatron 的 offload 路径各是怎样实现"让渡"的；再看 verl 的 hybrid worker——`ActorRolloutRefWorker`，一个进程里同时持有训练器、推理引擎与参考模型——怎样把这些动作排成序；最后回答共置的适用边界：模型多大、回答多长时该换分离。
+这一篇做四件事：
+
+1. 把一次切换拆成每个动作：谁释放什么、走哪条链路、要几秒、留下什么隐性代价；
+2. 看 vLLM 的 sleep / wake_up 与 `CuMemAllocator`、SGLang 的 `torch_memory_saver`、FSDP 与 Megatron 的 offload 路径各是怎样实现「让渡」的；
+3. 看 verl 的 hybrid worker——`ActorRolloutRefWorker`，一个进程里同时持有训练器、推理引擎与参考模型——怎样把这些动作排成序；
+4. 回答共置的适用边界：模型多大、回答多长时该换分离。
 
 本篇的核心问题：
 
@@ -60,9 +65,73 @@ Table: 32B 共置一步里显存的两次换手（verl v0.9.0 默认行为，每
 
 Table: 让渡的三种做法
 
-vLLM 的 sleep mode 做的关键一步，是让"丢弃再重建"**不改变虚拟地址**：`cuMemUnmap` 把物理页从虚拟地址上摘下、`cuMemRelease` 归还物理内存，虚拟地址空间仍然保留；`wake_up` 时 `cuMemCreate` 新的物理页再 `cuMemMap` 到**同一个地址**。于是所有持有这些地址的东西——CUDA graph、KV 块表、模型的 parameter 对象——都不用重建。第三章讲它。
+vLLM 的 sleep mode 做的关键一步，是让"丢弃再重建"**不改变虚拟地址**：`cuMemUnmap` 把物理页从虚拟地址上摘下、`cuMemRelease` 归还物理内存，虚拟地址空间仍然保留；`wake_up` 时 `cuMemCreate` 新的物理页再 `cuMemMap` 到**同一个地址**。于是所有持有这些地址的东西——CUDA graph、KV 块表、模型的 parameter 对象——都不用重建。[第三章](#三推理引擎的让渡vllm-的-sleep-mode)讲它。
 
-### 3. 本文的章节安排
+### 3. 共置的代价分三层，只有最小的那层看得见
+
+把上面两张表合起来看，这一篇的结论是一句话：**共置的代价有三层，而最常被当成指标盯的那一层是最小的**。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：共置的三层代价：看得见的 7 秒、看不见的四分之一、和永久占着的那十几 GB
+flowchart TB
+    NEED["<b>一张卡装不下两套东西（32B、8 卡）</b><br/>• 训练时每卡要 66 GB 训练状态，还要跑参考模型前向<br/>• 生成时每卡要 8 GB 推理权重，加尽量大的 KV 池<br/>• 加起来 150 GB，卡只有 80 GB"] --> SW["<b>于是每步换两次主人</b><br/>• 生成前：训练状态搬去 CPU，权重与 KV 池挂回 GPU<br/>• 训练前：反过来<br/>• 让渡只有三种做法：搬走、丢弃重建、不动"]
+    SW --> G1
+    subgraph G1["三层代价"]
+        direction TB
+        C1["<b>第一层：看得见的 7 秒</b><br/>• 一步两次切换搬 146 GB，主要走 PCIe<br/>• 步时间 5 分钟时占 2%；8B 可忽略，671B 也只有 4 秒<br/>• <b>搬运时间几乎从来不是放弃共置的理由</b>"] ~~~ C2["<b>第二层：看不见的四分之一</b><br/>• KV 池按启动时的 gpu_memory_utilization 一次性划定，共置默认 0.5<br/>• 8B 场景 KV 池 56 → 20 GB，并发 92 → 33，decode 吞吐 2600 → 1900 token/s<br/>• <b>生成时间多四分之一，远超切换的秒数——而它不出现在「切换耗时」里</b>"] ~~~ C3["<b>第三层：永久占着的那十几 GB</b><br/>• CUDA Graph 池、两套 NCCL 缓冲、两个 allocator 保留的段都没法让<br/>• 主机内存：8 卡 32B 要 520 GB pinned，一台机器的内存被吃掉一半"]
+    end
+    G1 --> EDGE["<b>所以边界画在这里</b><br/>• 该不该共置，看的是第二、三层还剩多少余量<br/>• 模型越大、回答越长，这两层涨得越快"]
+    classDef base fill:#f5f5f5,stroke:#616161;
+    classDef mid fill:#e3f2fd,stroke:#1565c0;
+    classDef small fill:#e8f5e9,stroke:#2e7d32;
+    classDef big fill:#ffebee,stroke:#c62828;
+    classDef res fill:#fff8e1,stroke:#f9a825;
+    class NEED base;
+    class SW mid;
+    class C1 small;
+    class C2 big;
+    class C3 res;
+    class EDGE mid;
+```
+
+逐节点要点：
+
+- **第一层**在[第五章](#五一次切换的时间线verl-的-hybrid-worker)按动作逐项算，八个动作合计约 7 秒。它之所以小，是因为真正大的那块（57 GB 训练状态）走的是 PCIe 但只搬两次，而 KV 池的 30 GB 根本不搬——只是把物理页摘下挂回。
+- **第二层**是本篇真正的主题，在[第六章](#六隐性代价)。它的性质和第一层完全不同：第一层是每步付一次的固定开销，第二层是**整个生成阶段每一秒都在付**的效率折扣。
+- **第三层**也在[第六章](#六隐性代价)。它的特点是两种形态都要付——分离形态下训练池和推理池各自也有 CUDA Graph 和 NCCL 缓冲——所以它不参与共置与分离的比较，但它决定了 `gpu_memory_utilization` 最多能开到多少。
+- **边界**在[第八章](#八适用边界)。判据不是「切换要几秒」，而是「把第二、三层扣掉之后，KV 池还剩不剩得下一波 rollout」。
+
+### 4. 共置下一张卡上住着什么，换手时各怎么处理
+
+下面这张表把 32B、8 卡共置下一张卡上的东西全列出来，按「换手时怎么处理」分组。最值得看的是第四列——**虚拟地址保不保留**，这一列解释了为什么「丢弃再重建」在这里不是一件昂贵的事：
+
+| 对象 | 谁管它 | 换手时怎么处理 | 虚拟地址 / 重建代价 | 32B 8 卡每卡 |
+|---|---|---|---|---|
+| 训练器的 bf16 参数分片 | FSDP + PyTorch caching allocator | 搬去 CPU 再搬回 | 地址会变，但没有别的东西持有它 | 8 GB |
+| 梯度 | 同上 | 更新完直接释放，不搬 | 下一步反向时重新分配 | 8 GB（峰值） |
+| fp32 主参数 + Adam 两个动量 | 同上 | 搬去 CPU 再搬回 | 同参数分片 | 49 GB |
+| 推理引擎的权重副本 | vLLM 的 `CuMemAllocator`（`weights` 标签） | sleep level 2 直接丢弃，唤醒后由权重同步写入新值 | **虚拟地址保留**，模型的 parameter 对象不用重建 | 8 GB |
+| KV 池 | `CuMemAllocator`（`kv_cache` 标签） | 丢弃物理页，唤醒时 map 新的物理页到同一地址 | **虚拟地址保留**，块表不用重建；但内容没了 | 约 30 GB |
+| prefix cache 的哈希表与引用计数 | 推理引擎的调度侧 | 整个清空 | 要重新填充，下一波请求全是 miss | 很小 |
+| CUDA Graph 的显存池 | vLLM，捕获时固定 | **不动** | 地址不变才不用重捕获——这就是 sleep mode 存在的全部理由 | 1–3 GB |
+| 两套 NCCL 通信器的缓冲 | 训练器与推理引擎各一份 | **不动** | 重建通信器要全组参与，代价远超省下的显存 | 几 GB |
+| CUDA context | 驱动 | **不动** | — | 每进程几百 MB |
+| pinned 主机内存里的训练状态副本 | FSDP 的 offload | 常驻 CPU，不上卡 | — | 57 GB（在内存里） |
+
+Table: 共置下一张卡上的十样东西：谁管它、换手时怎么处理、虚拟地址保不保留
+
+三条结论：
+
+1. **换手只有三种处理方式，而真正区分代价的是第四列**。「丢弃再重建」听起来最贵，实际上在这里最便宜——因为 CUDA 虚拟内存 API 让丢弃不改变地址，上层持有地址的东西（CUDA Graph、块表、parameter 对象）一个都不用重建。
+2. **内容丢了但结构还在**。KV 池重新挂回来之后地址对、块表对，只是里面的字节是垃圾——所以切换的代价一半是「重新填充」（prefix cache 全 miss）而不是「重新分配」，这件事还要由业务自己记住（fp8 KV 必须显式清零）。
+3. **「不动」那三行加起来十几 GB**，是两套引擎共存的固定税。它既不属于训练侧也不属于推理侧，却从 `gpu_memory_utilization` 的余量里扣——这是为什么这个参数不能按「80 GB 减去权重」去估。
+
+> [!NOTE] Java 经验参照：把内容丢掉但保留引用
+>
+> sleep mode 做的事情，在 Java 里恰好做不到：引用一定指向一个活对象，`SoftReference` 被清掉之后 `get()` 返回 null，每个调用方都得判空并走重建分支。CUDA 的虚拟内存 API 在这里给的正是 Java 没有的那一层——物理页摘掉、虚拟地址留着，于是 CUDA Graph、KV 块表、模型的 parameter 对象都不知道底下的内存换过一轮，一行重建代码都不用写。代价是安全性反过来了：拿到的地址读得通，内容却是垃圾，没有任何机制会告诉你这件事，必须由业务自己记住哪些区域醒来后需要重新写入（fp8 的 KV scale 要显式清零，漏了就是难查的静默错误）。
+
+### 5. 本文的章节安排
 
 | 章 | 内容 | 回答的问题 |
 |---|---|---|
@@ -103,7 +172,7 @@ Table: 共置形态下一张卡在训练时与生成时各要放下的东西（3
 
 有几样东西谁也让不出去，两种形态下都占着：
 
-- **两个 CUDA context 与两套 NCCL 通信器**：训练器的进程组（FSDP 的 all-gather / reduce-scatter）与推理引擎的进程组（TP 的 all-reduce）是独立的，各有自己的缓冲区与 channel；同一进程里两套通信器还可能互相干扰（第八篇的 hang 一类）。
+- **两个 CUDA context 与两套 NCCL 通信器**：训练器的进程组（FSDP 的 all-gather / reduce-scatter）与推理引擎的进程组（TP 的 all-reduce）是独立的，各有自己的缓冲区与 channel；同一进程里两套通信器还可能互相干扰（[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的 hang 一类）。
 - **CUDA graph 池**：vLLM 默认对一组 batch size 捕获 decode 的 CUDA graph，图里引用的中间缓冲在一个专用显存池里，这个池**不经过 `CuMemAllocator`**、不能 sleep。verl 的 `rollout.cudagraph_capture_sizes` 让你只捕获小 batch（如 `[1, 2, 4, 8, 16, 32]`），或者 `enforce_eager: true` 干脆不用 CUDA graph——代价是 decode 每步的 kernel 启动开销回来（8B 上每步几毫秒，与 36 毫秒的带宽时间相比是 10% 量级）。
 - **allocator 的保留段**：PyTorch caching allocator 释放张量时并不把显存还给驱动，只是标记为可复用；这些"reserved but not allocated"的段对另一个 allocator是黑洞。所以切换前要 `torch.cuda.empty_cache()`，verl 包了一层 `aggressive_empty_cache(force_sync=True)`（gc + synchronize + empty_cache）。
 
@@ -134,7 +203,11 @@ vLLM 的 `LLM.sleep(level)` / `wake_up(tags)`（v1 引擎里落在 `EngineCore.s
 - **level 1**：权重拷到 CPU（pinned），KV 池丢弃；—— 权重不变、只让 KV 的场景（LoRA、MTP 草稿模型）
 - **level 2**：权重与 KV 都丢弃，只保留 model.named_buffers() 的 CPU 副本；—— 权重马上要被新的覆盖：RL 共置的默认
 
-verl 的 hybrid 模式默认 **level 2**（`_sleep_hybrid()`）：新权重反正要从训练器来，level 1 的 CPU 副本是白搬 8 GB、白占 8 GB pinned 内存。只有三种情况退回 level 1——LoRA 只更新 adapter、base 权重不动；MTP 的草稿模型由 vLLM 自己初始化、权重同步覆盖不到它，level 2 丢了就没了；以及 NPU 上不支持 level 2。
+verl 的 hybrid 模式默认 **level 2**（`_sleep_hybrid()`）：新权重反正要从训练器来，level 1 的 CPU 副本是白搬 8 GB、白占 8 GB pinned 内存。只有三种情况退回 level 1：
+
+1. LoRA 只更新 adapter，base 权重不动，丢了没人补；
+2. MTP 的草稿模型由 vLLM 自己初始化，权重同步覆盖不到它，level 2 丢了就没了；
+3. NPU 上不支持 level 2。
 
 ### 2. `CuMemAllocator`：物理页摘下、虚拟地址不动
 
@@ -183,7 +256,7 @@ flowchart TB
 
 ### 3. 唤醒后要补的两件事
 
-`Worker.wake_up` 在 `allocator.wake_up` 之后做两件事：把 level 2 前保存的 `named_buffers()`（RoPE 的 cos/sin 表、归一化层的 running 统计一类不属于 `state_dict` 权重同步的缓冲）拷回去；若 KV 用 fp8，`post_kv_cache_wake_up()` 把 KV 块**清零**并把 `k_scale / v_scale` 重置为 1——新映射的物理页内容是随机的，fp8 的 scale 若留在 0 会让整个 KV 变成零。这两处是"丢弃再重建"的代价：**任何不经权重同步的状态都要显式恢复**，漏一个就是难查的静默错误（第八篇会回到"权重之外的权重"）。
+`Worker.wake_up` 在 `allocator.wake_up` 之后做两件事：把 level 2 前保存的 `named_buffers()`（RoPE 的 cos/sin 表、归一化层的 running 统计一类不属于 `state_dict` 权重同步的缓冲）拷回去；若 KV 用 fp8，`post_kv_cache_wake_up()` 把 KV 块**清零**并把 `k_scale / v_scale` 重置为 1——新映射的物理页内容是随机的，fp8 的 scale 若留在 0 会让整个 KV 变成零。这两处是"丢弃再重建"的代价：**任何不经权重同步的状态都要显式恢复**，漏一个就是难查的静默错误（[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)会回到"权重之外的权重"）。
 
 ### 4. SGLang：`torch_memory_saver`
 
@@ -218,7 +291,7 @@ D2H / H2D 要达到 25 GB/s 必须走 pinned 内存，pageable 内存只有几 G
 |---|---|---|
 | FSDP offload：8 卡 × (8 + 49 + 8) GB | 520 GB |  |
 | vLLM sleep level 1（若用）：8 × 8 GB | 64 GB | level 2 为 0 |
-| checkpoint engine 的 CPU 缓冲（第四篇） | 几到几十 GB |  |
+| checkpoint engine 的 CPU 缓冲（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)） | 几到几十 GB |  |
 
 Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
@@ -226,7 +299,7 @@ Table: 8 卡 32B 共置一台机器的 pinned 内存账
 
 ### 3. Megatron 一侧
 
-Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_distributed_optimizer`）把 fp32 主参数与 Adam 状态按 DP 均分。verl 的 Megatron 引擎有对应的 `offload_megatron_model_to_cpu` / `offload_megatron_optimizer` / `offload_megatron_copy_params`，多了一样要搬的东西：分布式优化器持有的**参数的 fp32 副本**（`copy_params`）。字节数与 FSDP 相同（都是 16N 均分），搬运方式同为 PCIe。差别在并行布局：Megatron 一侧是 TP × PP 的分片，推理引擎一侧是 TP（可能不同度）× DP 的分片，权重同步的布局映射复杂得多——第四篇。
+Megatron 的训练状态按 TP / PP / DP 切分，分布式优化器（`use_distributed_optimizer`）把 fp32 主参数与 Adam 状态按 DP 均分。verl 的 Megatron 引擎有对应的 `offload_megatron_model_to_cpu` / `offload_megatron_optimizer` / `offload_megatron_copy_params`，多了一样要搬的东西：分布式优化器持有的**参数的 fp32 副本**（`copy_params`）。字节数与 FSDP 相同（都是 16N 均分），搬运方式同为 PCIe。差别在并行布局：Megatron 一侧是 TP × PP 的分片，推理引擎一侧是 TP（可能不同度）× DP 的分片，权重同步的布局映射复杂得多——[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)。
 
 ### 4. 谁先谁后
 
@@ -347,7 +420,21 @@ Table: 各场景的切换搬运量、时间与占步时间的比例
 - **若 param_offload 关**：bf16 参数分片 8 GB（32B/8 卡）或 16 GB（8B/TP=1……即整份）
 - **若 optimizer_offload 关**：+49 GB —— 此时 KV 池只能开到 0.2–0.3
 
-经验值：训练侧两个 offload 都开、CUDA graph 只捕获小 batch，可以开到 0.8–0.85；只开 param offload 开到 0.6–0.7；都不开就是默认的 0.5 甚至更低。**这是共置形态里对墙钟影响最大的一个旋钮**，值得在 8 卡上逐档试、看 `timing_s/gen` 与 OOM 的边界。
+经验值：
+
+| 训练侧让出了什么 | `gpu_memory_utilization` 能开到 |
+|---|---|
+| param 与 optimizer 两个 offload 都开，且 CUDA Graph 只捕获小 batch | 0.8–0.85 |
+| 只开 param offload | 0.6–0.7 |
+| 都不开 | 0.5 甚至更低（即 verl 共置的默认值） |
+
+Table: 训练侧让出多少，决定推理侧的 `gpu_memory_utilization` 能开到多少
+
+**这是共置形态里对墙钟影响最大的一个旋钮**，值得在 8 卡上逐档试、看 `timing_s/gen` 与 OOM 的边界。
+
+> [!NOTE] Java 经验参照：两个内存池抢同一块内存
+>
+> 一个进程里同时跑着 PyTorch 的 caching allocator 和 vLLM 的 `CuMemAllocator`，各自管一块 HBM、互不知情——这和在一个 JVM 里跑两套各自预分配的 direct buffer 池是同一个局面。差别在出错时能不能看懂：Java 里一方不归还、另一方 `allocateDirect` 失败，抛的是 `OutOfMemoryError: Direct buffer memory`，栈指向真正在申请的那一行，而且 GC 会先尝试回收一轮再抛。这里一方保留着没释放的段、另一方 `cuMemMap` 挂不回来，报的是 CUDA OOM，栈往往指向一个无关的 kernel，而且**没有任何一方会替你回收对方的段**——所以切换前后得显式 `empty_cache`、开关 `expandable_segments`，把「归还」写成代码里的一步。
 
 ### 2. CUDA graph
 
@@ -358,7 +445,7 @@ vLLM 在启动时按 `cudagraph_capture_sizes`（默认从 1 到 `max_num_seqs` 
 权重换了，KV 里的内容全部作废，`reset_prefix_cache()` 是必须的。它的代价在两处：
 
 - **同一 prompt 的 $$G$$ 条回答共享 prompt 的 KV**——这是 GRPO 里 prefix cache 的主要用处（上一篇算过它省显存不省 FLOP）。一步之内不受影响，因为 reset 只在步边界。
-- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP（peta floating point operations，10^15 次浮点运算），不大，但它是部分 rollout 的固有开销，第五篇再算。
+- **部分 rollout**（`colocate_async` 模式）：被中断的序列在新权重下续接时，已生成的前半段必须**重新 prefill**——它的 KV 是旧权重算的，不能用。一条 8K 长的序列被中断，续接时先付 8K token 的 prefill（$$2N \times 8\text{K}$$）；一步里有几百条被中断就是几个 PFLOP（peta floating point operations，10^15 次浮点运算），不大，但它是部分 rollout 的固有开销，[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)再算。
 
 ### 4. 两个 allocator、一块 HBM
 
@@ -404,11 +491,11 @@ Table: 隐性代价的合计
 
 ### 2. 为什么不直接共享
 
-训练器的分片与推理引擎的分片布局不同（FSDP 按参数的第 0 维切成 8 份，vLLM TP = 8 按注意力头 / 列切），dtype 可能不同（训练 bf16 权重、推理可能 FP8），参数名不同（HF 命名 vs 融合的 QKV）。所以中间必须有一次"完整张量"的形态——all-gather 到完整、再由接收方切出自己的分片。第四篇把这层布局映射与跨机的传输方式展开。
+训练器的分片与推理引擎的分片布局不同（FSDP 按参数的第 0 维切成 8 份，vLLM TP = 8 按注意力头 / 列切），dtype 可能不同（训练 bf16 权重、推理可能 FP8），参数名不同（HF 命名 vs 融合的 QKV）。所以中间必须有一次"完整张量"的形态——all-gather 到完整、再由接收方切出自己的分片。[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)把这层布局映射与跨机的传输方式展开。
 
 ### 3. 共置下同步的代价
 
-8B 场景全模型 16 GB，all-gather + IPC 约 0.3 秒；32B 约 1 秒；DeepSeek-V3 规格 1.34 TB bf16 要几十秒——这时 all-gather 本身成了瓶颈（每卡接收 1.3 TB 的 31/32），MoE 的专家权重要先按 EP 布局 gather 再重切，第四篇专门讨论。共置的"同步在卡内"这个优点，在几百 B 的 MoE 上打了折扣。
+8B 场景全模型 16 GB，all-gather + IPC 约 0.3 秒；32B 约 1 秒；DeepSeek-V3 规格 1.34 TB bf16 要几十秒——这时 all-gather 本身成了瓶颈（每卡接收 1.3 TB 的 31/32），MoE 的专家权重要再按 EP 布局 gather 再重切，[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)专门讨论。共置的"同步在卡内"这个优点，在几百 B 的 MoE 上打了折扣。
 
 ## 八、适用边界
 
@@ -441,7 +528,7 @@ Table: 一张决策表
 4. 训练侧想换 Megatron 的 TP × PP × EP、推理侧想用不同的 EP 度——布局每步重切的代价开始接近同步本身；
 5. 卡数到 128 以上——共置的长尾浪费按卡数放大，分离的配比与跨机同步开销不随卡数变。
 
-分离不是免费的：它要跨机同步权重（第四篇）、要定配比（上一篇）、要接受至少一步的 off-policy（第五篇）。但它把本篇的全部问题——显存归属、KV 池上限、两个 allocator、pinned 内存——**一次性消掉**：推理引擎独占自己的卡，KV 池开到 0.9，CUDA graph 常驻无所谓，训练器的 offload 只为放下自己。
+分离不是免费的：它要跨机同步权重（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)）、要定配比（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)）、要接受至少一步的 off-policy（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）。但它把本篇的全部问题——显存归属、KV 池上限、两个 allocator、pinned 内存——**一次性消掉**：推理引擎独占自己的卡，KV 池开到 0.9，CUDA graph 常驻无所谓，训练器的 offload 只为放下自己。
 
 ## 九、本文小结
 
