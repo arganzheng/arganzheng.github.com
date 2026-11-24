@@ -32,10 +32,10 @@ z = x + y
 flowchart TB
     subgraph DEV["开发态：构建时与库加载时"]
         direction TB
-        DECL["<b>声明</b>（第二章）<br/>native_functions.yaml：Schema、variants、dispatch<br/>derivatives.yaml：反向公式"]
-        TG["<b>torchgen 代码生成</b>（第五章）<br/>Python 绑定、at::add、注册代码、Autograd 包装"]
-        IMPL["<b>手写实现</b>（第四章）<br/>aten/src/ATen/native/ 下的 at::native::add 等"]
-        REG["<b>注册</b>（第三章）<br/>TORCH_LIBRARY_IMPL 里的 m.impl<br/>共享库加载时执行"]
+        DECL["<b>声明（第二章）</b><br/>native_functions.yaml：Schema、variants、dispatch<br/>derivatives.yaml：反向公式"]
+        TG["<b>torchgen 代码生成（第五章）</b><br/>Python 绑定、at::add、注册代码、Autograd 包装"]
+        IMPL["<b>手写实现（第四章）</b><br/>aten/src/ATen/native/ 下的 at::native::add 等"]
+        REG["<b>注册（第三章）</b><br/>TORCH_LIBRARY_IMPL 里的 m.impl<br/>共享库加载时执行"]
         DECL --> TG --> REG
         IMPL --> REG
     end
@@ -44,11 +44,11 @@ flowchart TB
     end
     subgraph RUN["运行态：每次算子调用"]
         direction TB
-        ENTRY["<b>入口</b>（第六章）<br/>torch.add → Python 绑定 → at::add<br/>拿着 add.Tensor 的 OperatorHandle 进入 Dispatcher"]
-        KS["<b>DispatchKeySet</b>（第七章）<br/>各输入 Tensor 的 KeySet 做 OR<br/>加 TLS included、减 TLS excluded、掩掉 fallthrough"]
+        ENTRY["<b>入口（第六章）</b><br/>torch.add → Python 绑定 → at::add<br/>拿着 add.Tensor 的 OperatorHandle 进入 Dispatcher"]
+        KS["<b>DispatchKeySet（第七章）</b><br/>各输入 Tensor 的 KeySet 做 OR<br/>加 TLS included、减 TLS excluded、掩掉 fallthrough"]
         PICK{"取最高优先级的 DispatchKey<br/>查 dispatchTable_"}
-        WRAP["<b>包装 Key 的 KernelFunction</b>（第七章）<br/>如 AutogradCUDA：记录 AddBackward0"]
-        BACK["<b>后端 Key 的 KernelFunction</b>（第八章）<br/>CPU / CUDA / Meta：at::native::add<br/>TensorIterator → 逐元素 Kernel"]
+        WRAP["<b>包装 Key 的 KernelFunction（第七章）</b><br/>如 AutogradCUDA：记录 AddBackward0"]
+        BACK["<b>后端 Key 的 KernelFunction（第八章）</b><br/>CPU / CUDA / Meta：at::native::add<br/>TensorIterator → 逐元素 Kernel"]
         ENTRY --> KS --> PICK
         PICK -- "包装 Key" --> WRAP
         WRAP -- "去掉自身 Key，再次分发" --> PICK
