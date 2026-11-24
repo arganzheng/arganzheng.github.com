@@ -91,7 +91,7 @@ Table: verbs 与 GPUDirect 的关键对象：谁创建、活在哪、活多久�
 
 **带宽的账**：路径上每一段的带宽取最小值。
 
-- 路径 A 的最小值通常是 CPU 拷贝能力（一个核 memcpy 大约 10–15 GB/s，且拷贝在内存总线上是读加写两倍流量）。
+- 路径 A 的最小值通常是 CPU 拷贝能力（一个核的 `memcpy` 在 10 GB/s 量级（经验值，随内存代际与是否跨 NUMA 变化，用 `sysbench memory` 或 `mbw` 在本机测），且拷贝在内存总线上是读加写两倍流量）。
 - 路径 B 的最小值是 GPU 的 PCIe 链路，因为同一条链路既要承担 GPU 到主机的拷贝、又要和网卡 DMA 争抢主机内存带宽。
 - 路径 C 的最小值是 min(网卡, PCIe x16)——A100 配 PCIe 4.0 x16 单向 32 GB/s，配 HDR 25 GB/s 正好塞得下；H100 配 PCIe 5.0 x16 单向 64 GB/s，配 NDR 50 GB/s 也塞得下。
 
@@ -138,7 +138,7 @@ Table: TCP 发送 1 GB 显存：每一步的执行者、总线与内存流量
 
 ### 2. 算一算：CPU 与内存能不能喂饱 400 Gb/s
 
-400 Gb/s 是 50 GB/s 单向。只看步骤 2 的拷贝：一个核的 `memcpy` 通常 10–15 GB/s，喂 50 GB/s 需要 4–5 个核**只做拷贝**，加上协议处理——开满卸载（TSO/GRO、jumbo frame、packet steering）后一个核约能驱动 **42 Gb/s**，这是 Linux 协议栈在单条长流上的最好情况；长短流混跑时降到约 24 Gb/s（《Understanding Host Network Stack Overheads》，SIGCOMM 2021）——把一张 400 Gb/s 网卡跑满需要 **10–25 个核**。一台 8 卡服务器有 8 张这样的网卡，光通信就要 80–200 个核，两个 CPU socket 合计通常 96–192 个核，全拿来做通信也未必够，而这些核本来该做数据加载和 Python 侧调度。
+400 Gb/s 是 50 GB/s 单向。只看步骤 2 的拷贝：一个核的 `memcpy` 在 10 GB/s 量级，喂 50 GB/s 要好几个核**只做拷贝**，加上协议处理——开满卸载（TSO/GRO、jumbo frame、packet steering）后一个核约能驱动 **42 Gb/s**，这是 Linux 协议栈在单条长流上的最好情况；长短流混跑时降到约 24 Gb/s（《Understanding Host Network Stack Overheads》，SIGCOMM 2021）——把一张 400 Gb/s 网卡跑满需要 **10–25 个核**。一台 8 卡服务器有 8 张这样的网卡，光通信就要 80–200 个核，两个 CPU socket 合计通常 96–192 个核，全拿来做通信也未必够，而这些核本来该做数据加载和 Python 侧调度。
 
 再看内存带宽。一个 socket 8 通道 DDR5-4800 的理论带宽约 300 GB/s。单张网卡满速收发时，步骤 1 到 4 加起来在主机内存上产生 4 × 50 = 200 GB/s 的流量（收发各 100 GB/s），8 张网卡是 1.6 TB/s——超出两个 socket 内存带宽的两倍以上。结论是硬的：**TCP 路径在 400 Gb/s 上不是"慢一点"，而是原理上跑不满**，因为它让主机内存和 CPU 成为每个字节都要经过的中转站。
 
@@ -177,7 +177,7 @@ Table: TCP、RDMA 与 GPUDirect RDMA 三条路径的对照
 
 - **路径 B 在 PCIe 4.0 上是不够的**。A100 的 PCIe 4.0 x16 单向 32 GB/s，如果 GPU 到主机的拷贝与网卡从主机的 DMA 都要走主机内存，两条 PCIe 链路都在用，但主机内存成了汇聚点；再加上 NCCL 非 GDR 路径下是 GPU kernel 直接往主机 buffer 写（[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)会讲 proxy 与 staging buffer），实际能到网线上的带宽通常明显低于 HDR 的 25 GB/s。这就是 GPUDirect RDMA 不是"锦上添花"而是"必需"的原因。
 - **路径 C 的上限被 PCIe 而不是网卡限制**。H100 + NDR 是 min(50, 64)，PCIe 有 14 GB/s 余量；如果把 NDR 网卡插到 PCIe 4.0 的机器上，上限立刻降到 32 GB/s，网卡浪费三分之一。
-- **路径 C 要求 GPU 和网卡在同一 PCIe switch 下**。跨 root complex 时 DMA 要穿过 CPU 的 PCIe 控制器和 socket 间互联（UPI / Infinity Fabric），带宽可能只有几 GB/s，有的平台干脆不支持 P2P 事务，NCCL 会因为 `NCCL_NET_GDR_LEVEL` 默认值而拒绝开 GDR（第八章）。
+- **路径 C 要求 GPU 和网卡在同一 PCIe switch 下**。跨 root complex 时 DMA 要穿过 CPU 的 PCIe 控制器和 socket 间互联（UPI / Infinity Fabric），带宽可能掉到 1 GB/s 量级甚至更低，有的平台干脆不支持 P2P 事务，NCCL 会因为 `NCCL_NET_GDR_LEVEL` 默认值而拒绝开 GDR（第八章）。
 
 后面的章节按"怎么用（三、四、五章）→ 怎么配（六章）→ 代价在哪（七章）→ GPU 怎么接进来（八、九章）→ 怎么测（十章）"展开。
 
@@ -223,7 +223,7 @@ QP 是 RDMA 里"连接"的载体，由一个 Send Queue 和一个 Receive Queue 
 
 Table: QP 的三种类型：RC、UC、UD
 
-RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`ncclIbCreateQp` 里 `qpInitAttr.qp_type = IBV_QPT_RC`。RC 的代价是每对通信方要一个 QP，n 个节点全互联需要 O(n²) 个 QP，每个 QP 在网卡上占用上下文（几百字节到几 KB 的片上或主机内存缓存）。对 NCCL 这不是问题——ring / tree 里每个 rank 只和少数邻居通信；对全互联的 all_to_all 则是，这是 MoE 训练在超大规模上会碰到的一个 RDMA 层问题。
+RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`ncclIbCreateQp` 里 `qpInitAttr.qp_type = IBV_QPT_RC`。RC 的代价是每对通信方要一个 QP，n 个节点全互联需要 O(n²) 个 QP，每个 QP 在网卡上占用一份上下文（片上或主机内存缓存，具体大小随网卡型号而异）。对 NCCL 这不是问题——ring / tree 里每个 rank 只和少数邻居通信；对全互联的 all_to_all 则是，这是 MoE 训练在超大规模上会碰到的一个 RDMA 层问题。
 
 一个 QP 的容量在创建时定死：`cap.max_send_wr` / `max_recv_wr`（队列深度）、`max_send_sge` / `max_recv_sge`（每个 WR 最多几个分散聚合段）、`max_inline_data`（多小的数据可以直接塞进 WR 而不用 DMA）。NCCL 的选择是 `max_send_wr = 2*MAX_REQUESTS`（因为一次发送可能拆成一个 RDMA_WRITE 加一个 RDMA_WRITE_WITH_IMM，下一章讲）、`max_recv_wr = MAX_REQUESTS`、SGE 各 1、inline 默认 0（`NCCL_IB_USE_INLINE`）。
 
@@ -244,7 +244,7 @@ RC 是唯一同时提供可靠性和单边操作的类型，NCCL 只用 RC：`nc
 - **接收要先 post**。对端的 SEND（以及 RDMA_WRITE_WITH_IMM）到达时，本地 Receive Queue 里必须已有一个 recv WR 等着，否则网卡回 RNR NAK（Receiver Not Ready），发送方按 `rnr_retry` 重试，重试用尽即 `IBV_WC_RNR_RETRY_EXC_ERR`。NCCL 的 `ncclIbIrecv` 在每个 QP 上 `wrap_ibv_post_recv` 一个 0 SGE 的 recv WR，就是为了接对端的 WITH_IMM。
 - **不 signaled 的 send 也占队列**。Send Queue 里的 WR 直到某个它之后的 signaled WR 完成被 poll 出来才算释放。全部用 unsignaled 会把队列填满且永远清不掉。`net_ib.cc` 的 `ncclIbPostFifo` 里那段长注释讲的就是这个坑：它周期性地给 FIFO 写请求加 `IBV_SEND_SIGNALED`，保证队列会被排空。
 
-轮询是纯用户态自旋，没有系统调用；也可以 `ibv_req_notify_cq` + `ibv_get_cq_event` 走中断等待，延迟高几微秒但不烧 CPU。NCCL 的 proxy 线程用自旋轮询（`ncclIbTest` 里的 `wrap_ibv_poll_cq(cq, 4, wcs, &wrDone)`），这是它需要一个专用核的原因，也是"proxy 线程被抢占导致通信慢"的根源——[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)再讲。
+轮询是纯用户态自旋，没有系统调用；也可以 `ibv_req_notify_cq` + `ibv_get_cq_event` 走中断等待，延迟明显高于自旋但不烧 CPU。NCCL 的 proxy 线程用自旋轮询（`ncclIbTest` 里的 `wrap_ibv_poll_cq(cq, 4, wcs, &wrDone)`），这是它需要一个专用核的原因，也是"proxy 线程被抢占导致通信慢"的根源——[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)再讲。
 
 ## 四、单边与双边操作
 
@@ -395,7 +395,7 @@ NCCL 的 `struct ncclIbConnectionMetadata` 就是这个包：`qpInfo[]`（每个
 
 NCCL 选择前者：`ncclIbConnect` 里 `ncclSocketInit` + `ncclSocketConnect` 到 `ncclIbListen` 监听的地址，然后 `ncclSocketProgress` 把 `ncclIbConnectionMetadata` 发过去；`ncclIbAccept` 对称地收。这个 socket 是 NCCL 的 bootstrap 基础设施（`src/misc/socket.cc`，走 `NCCL_SOCKET_IFNAME` 指定的网卡）的一部分，[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)讲 bootstrap 时会再见到它。选 TCP 的理由是 NCCL 本来就有 socket 层、要处理多设备合并（`NCCL_IB_MERGE_NICS`）与多 QP 这些 `rdma_cm` 不直接支持的场景。整个过程是非阻塞状态机（`enum ncclIbCommState`），因为 NCCL 要同时建几百条连接。
 
-延迟的账：一条 RC 连接的建立包含 TCP 三次握手、一次 metadata 往返、三次 `ibv_modify_qp`（每次几十微秒，涉及内核与固件），总计通常在毫秒级。8 卡 × 32 节点的 ring 加 tree，每个 rank 要建的连接数是 channel 数 × 邻居数，几十到上百条，这是 `ncclCommInitRank` 在大规模上要花几秒到几十秒的原因之一。
+延迟的账：一条 RC 连接的建立包含 TCP 三次握手、一次 metadata 往返、三次 `ibv_modify_qp`（每次都要进内核并与固件交互，是数十微秒量级的经验观察），总计通常在毫秒级。8 卡 × 32 节点的 ring 加 tree，每个 rank 要建的连接数是 channel 数 × 邻居数，几十到上百条，这是 `ncclCommInitRank` 在大规模上要花几秒到几十秒的原因之一。
 
 ### 4. NCCL 的多 QP 与 adaptive routing
 
@@ -511,9 +511,9 @@ InfiniBand 的链路层信用机制保证不丢：接收方按 buffer 空间发�
 
 ### 2. 算一算：注册要多久，注册多少
 
-注册的成本与**页数**成正比。以 4 KB 页计，1 GB 有 262144 页；每页 pin 加写 MTT 通常 1–3 µs 量级（与内核版本、IOMMU、是否 THP 有关），1 GB 的注册通常要**几百毫秒**。用 2 MB 大页能把页数除以 512，时间降到几毫秒。GPU 显存注册（GPUDirect RDMA）走 `nvidia-peermem` 的 2 MB 页表，也是这个量级。
+注册的成本与**页数**成正比。以 4 KB 页计，1 GB 有 262144 页；每页 pin 加写 MTT 是微秒量级（经验值，与内核版本、IOMMU、是否 THP 有关），所以 1 GB 的注册要**上百毫秒**。用 2 MB 大页能把页数除以 512，时间降到几毫秒。GPU 显存注册（GPUDirect RDMA）走 `nvidia-peermem` 的 2 MB 页表，也是这个量级。
 
-翻译表的容量也有账：一张网卡的 MTT 条目上限通常在几百万到上亿的量级（`ibv_devinfo -v` 的 `max_mr_size` / `max_mr`），主机内存 4 KB 页注册 1 TB 需要 2.7 亿条目，会碰到上限；显存以 2 MB 页注册 80 GB 只需 4 万条。
+翻译表的容量也有账：一张网卡的 MTT 条目有上限，具体值查 `ibv_devinfo -v` 的 `max_mr` 与 `max_mr_size`，主机内存 4 KB 页注册 1 TB 需要 2.7 亿条目，会碰到上限；显存以 2 MB 页注册 80 GB 只需 4 万条。
 
 这就是为什么 RDMA 程序绝不在数据面上做注册：一次 16 MB 的传输在 50 GB/s 下只要 0.3 ms，而注册这 16 MB（4096 页）就要几 ms。**注册必须在初始化时做，且做一次用很多次**。两种策略：
 
@@ -553,7 +553,7 @@ for (int slot=0; /*true*/; slot++) {
 }
 ```
 
-cache 是一个按起始地址排序的数组，查找是线性扫描（条目数不多，通常几十个）；命中的条件是请求区间完全落在某个已注册区间内；`ncclIbDeregMr` 减引用，到 0 才真正 `wrap_ibv_dereg_mr`。这个 cache 服务的对象是 NCCL 内部的 channel buffer 与用户注册的 buffer，`regIsGlobal = 1`（`ncclIbGetPhysProperties`）表示一次注册对该设备上的所有连接有效。
+cache 是一个按起始地址排序的数组，查找是线性扫描（条目数不多，线性扫描足够快）；命中的条件是请求区间完全落在某个已注册区间内；`ncclIbDeregMr` 减引用，到 0 才真正 `wrap_ibv_dereg_mr`。这个 cache 服务的对象是 NCCL 内部的 channel buffer 与用户注册的 buffer，`regIsGlobal = 1`（`ncclIbGetPhysProperties`）表示一次注册对该设备上的所有连接有效。
 
 ### 4. 用户 buffer 注册：`ncclCommRegister`
 
@@ -689,14 +689,14 @@ NCCL 在 GPU 找不到近的网卡时有一个补救：PXN（PCI × NVLink），
 
 ### 1. GDRCopy：CPU 直接读写显存
 
-GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：**CPU 怎么低延迟地读写显存里的几个字节**。`cudaMemcpy` 走 DMA 引擎，一次调用固定开销几微秒到十几微秒，对 8 字节的 flag 太贵。GDRCopy（`libgdrapi`，内核模块 `gdrdrv`）把一段显存通过 BAR1 映射到 CPU 的虚拟地址空间，CPU 之后用普通的 load / store 访问它——一次 PCIe 事务，不到 1 µs：
+GPUDirect RDMA 解决的是"网卡访问显存"；还有一个更小的问题：**CPU 怎么低延迟地读写显存里的几个字节**。`cudaMemcpy` 走 DMA 引擎，一次调用的固定开销在微秒量级——搬 MB 级数据时可以忽略，对 8 字节的 flag 就是全部代价。GDRCopy（`libgdrapi`，内核模块 `gdrdrv`）把一段显存通过 BAR1 映射到 CPU 的虚拟地址空间，CPU 之后用普通的 load / store 访问它——一次 PCIe 事务，不到 1 µs：
 
 - **gdr_open()**：打开 /dev/gdrdrv
 - **gdr_pin_buffer(g, dptr, size, ...)**：pin 这段显存，拿到 BAR1 里的物理地址
 - **gdr_map(g, handle, &va, size)**：mmap 到 CPU 虚拟地址
 - **gdr_copy_to_mapping / from_mapping**：CPU 写 / 读（内部是带 write-combining 优化的 memcpy）
 
-代价是 BAR1 空间（A100 / H100 够大）和 CPU 对 BAR1 的写是 posted、读是 non-posted（读较慢，几百 ns 到 1 µs）。
+代价是 BAR1 空间（A100 / H100 够大）和 CPU 对 BAR1 的写是 posted、读是 non-posted（读在 1 µs 量级，比写慢一个数量级以上，所以 BAR1 适合写 flag、不适合当内存读）。
 
 ### 2. NCCL 用它做什么
 
@@ -768,11 +768,11 @@ client$ ib_write_lat -d mlx5_0 -x 3 -F -s 8 <server-ip>
 四个预期数字（非实测，"通常能达到"）：
 
 - **主机内存版带宽**：NDR 400 Gb/s 上 1 MB 消息约 370–390 Gb/s（46–49 GB/s）。
-- **`--use_cuda` 版带宽**：GPU 与网卡同 switch 且 PCIe 5.0 时，应与主机内存版相差不到 5%。
+- **`--use_cuda` 版带宽**：GPU 与网卡同 switch、大消息、PCIe 5.0 时，应与主机内存版相差 5% 左右。
 - **PCIe 4.0 上的上限**：A100 + NDR 会被 PCIe 卡在约 25–28 GB/s，即 200–220 Gb/s。
 - **延迟**：`ib_write_lat` 的 8 字节单向延迟在 IB 上通常 1–2 µs，配置正确的 RoCE v2 在同一量级。
 
-**观察亲和差距**：把 `--use_cuda=0` 换成一张跨 root complex 的 GPU（`nvidia-smi topo -mp` 里与 `mlx5_0` 是 `SYS` 的那张），带宽通常掉到几 GB/s 甚至测试失败——这就是[第二章](#4-三条路径的对照表)说的跨 root complex 可能很慢甚至不可用的实证，也是 `NCCL_NET_GDR_LEVEL` 默认不允许 `SYS` 的理由。
+**观察亲和差距**：把 `--use_cuda=0` 换成一张跨 root complex 的 GPU（`nvidia-smi topo -mp` 里与 `mlx5_0` 是 `SYS` 的那张），带宽通常掉到 1 GB/s 量级甚至测试失败——这就是[第二章](#4-三条路径的对照表)说的跨 root complex 可能很慢甚至不可用的实证，也是 `NCCL_NET_GDR_LEVEL` 默认不允许 `SYS` 的理由。
 
 ### 4. 模块与权限：`lsmod`、`ulimit`
 
