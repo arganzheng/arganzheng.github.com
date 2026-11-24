@@ -6,7 +6,7 @@ subtitle: "Deep Dive into vLLM: Series Recap and Final Self-Test"
 tags: [AI, AI-Infra, Inference]
 catalog: true
 date: 2026-08-25 20:00:00
-updated: 2026-11-17
+updated: 2026-11-24
 ---
 
 十四篇正文回答了一个问题：**一个文本生成请求，为什么会演化成一个涉及计算、显存、调度、通信与状态管理的复杂系统——vLLM 又是怎样把它组织起来的**。前三篇定义问题、立尺子、画全景（[《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)同时把对象分到四个域、把一次请求的生命周期放大到组件和关键方法，函数级的调用栈落在[《Scheduler》](/scheduler-batch-and-fairness.html)、[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)、[《输出在变》](/output-changes-sampling-and-structured-output.html)）；《Scheduler》、[《KV Cache》](/kv-cache-memory-core.html)、《GPU 执行》是单机上的三个战场（调度、KV Cache、GPU 执行，《GPU 执行》先讲调度结果怎样被翻译成 GPU 张量，让 forward 轮数变少的投机解码也归在执行）；[《Multi-GPU》](/multi-gpu-scaling-strategies.html)、[《PD 分离》](/prefill-decode-disaggregation.html)沿规模线扩到多卡与多实例；[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)、《输出在变》、[《模型适配》](/model-adaptation-architecture.html)、[《硬件解耦》](/hardware-abstraction-and-portability.html)看四种变化各停在哪一层——先是请求级的输入（multi-LoRA 与多模态）与输出（采样参数与结构化输出），再是部署级的模型与硬件；[《Serving Infra 的下一站》](/future-of-serving-infra.html)望向集群级的系统，[《vLLM 与 SGLang》](/vllm-vs-sglang.html)用同一套框架对照 SGLang。十四篇反复回到同一个请求算账：Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token。
@@ -338,25 +338,55 @@ Table: 派生指标在 batch=1 与 batch=32 下的量级
 
 这条线的方法论是：所有毫秒级、GB/s 级数字都是理论下界或量级估算（总纲的"版本与硬件基线"），用于建立判断，不是 benchmark——文中每个性能数字都只是量级示意，真正可迁移的是判断方法。
 
-### 2. KV Cache 是一切约束的源头
+### 2. 全系列的对象总表：谁创建、活在哪一侧、活多久、谁能看见
+
+十四篇各有一张对象表，合起来就是下面这一张。它是这个系列最该记住的东西——绝大多数「为什么会这样」的问题，答案都在某一行的「活在哪一侧」或「谁能看见」里：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 哪几篇讲它 |
+|---|---|---|---|---|---|
+| 模型权重分片 | 启动时按并行度切分加载 | 每张卡的显存 | 整个实例 | 全部请求共享 | [《Multi-GPU》](/multi-gpu-scaling-strategies.html)<br/>[《模型适配》](/model-adaptation-architecture.html) |
+| KV 池与其中的块 | 启动时按剩下的显存一次性划好 | 每张卡的显存 | 整个实例；块在其中反复分配与归还 | 一个块的内容只有引用它的请求看得见；前缀相同可共用 | [《KV Cache》](/kv-cache-memory-core.html) |
+| 前缀哈希表与空闲块队列 | 块写满时按内容登记 | 调度进程的 CPU 侧 | 跨请求，直到块被逐出 | **只有调度器**——执行侧不知道某块是命中来的还是刚算的 | [《KV Cache》](/kv-cache-memory-core.html)<br/>[《vLLM 与 SGLang》](/vllm-vs-sglang.html) |
+| 请求对象的权威副本 | 请求进入引擎时创建 | 调度进程 | 从入队到终态释放 | 调度器；执行侧只有一份靠增量同步的镜像 | [《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)<br/>[《Scheduler》](/scheduler-batch-and-fairness.html) |
+| 执行侧的镜像与它的行号 | Worker 首次见到该请求时加一行 | Worker 进程 | 到请求结束；删行时尾行搬上来填补 | 只有本 Worker；**行号是进程内的临时坐标** | [《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)<br/>[《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| 这一轮的调度结果 | 每步 `schedule()` 末尾打包 | CPU 侧，经共享内存广播 | **一步** | 本步全部 Worker | [《Scheduler》](/scheduler-batch-and-fairness.html)<br/>[《vLLM 与 SGLang》](/vllm-vs-sglang.html) |
+| 这一轮的 token 预算 | 每步开头置为上限，边分边减 | 调度进程里的一个局部变量 | **一步**，函数返回即消失 | 只有 `schedule()` 自己 | [《Scheduler》](/scheduler-batch-and-fairness.html) |
+| CUDA Graph 与它那块固定输入 buffer | 启动时按若干档每步 token 数分别录制 | 每张卡的显存 | 整个实例 | 每步按 token 数选一档重放 | [《GPU 执行》](/gpu-execution-kernels-and-graphs.html) |
+| adapter 的 GPU 槽位 | 启动时按上限一次买断，空着也占 | 每张卡的显存 | 整个实例；里面的内容按最久未用换出 | 同一步里用同一个 adapter 的请求 | [《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html) |
+| encoder 的输出 | prefill 前现算，按图片哈希记账 | 张量在显存，账在 CPU 侧 | **很短**：这张图的占位 token 全部 prefill 完就可释放 | 本实例的请求可按哈希共用 | [《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html) |
+| 编译好的 grammar 与每步的掩码 | 调度进程异步编译；掩码每步现填 | **调度进程的 CPU 侧** | grammar 比请求长（同 schema 可复用）；掩码一步 | 只有调度器 | [《输出在变》](/output-changes-sampling-and-structured-output.html) |
+| 两个输出解析器的流式状态 | API 进程为每个请求各建一份 | **API Server 进程** | 整个请求 | 只有 API 进程；引擎不知道有解析这件事 | [《输出在变》](/output-changes-sampling-and-structured-output.html) |
+| PD 分离里 P 侧的源块 | P 侧 prefill 写入后继续保留 | **P 实例的显存** | 到 D 通知读完——比 P 侧的请求活得久 | P 持有，D 按描述符按字节片段读 | [《PD 分离》](/prefill-decode-disaggregation.html) |
+| 平台对象（硬件能力的统一入口） | 启动最早阶段探测得到 | **每个进程各一份** | 整个进程 | 核心代码只通过它提问，不直接认芯片 | [《硬件解耦》](/hardware-abstraction-and-portability.html) |
+
+Table: 全系列的对象、生命周期与可见范围
+
+从这张表能直接读出四条结论：
+
+1. **「活多久」只有三档**：整个实例（权重、KV 池、CUDA Graph、adapter 槽位、平台对象）、整个请求（请求对象、镜像、解析状态）、一步（调度结果、预算、掩码）。跨档的只有两个特例——KV 块在实例级的池子里按请求级的节奏分配，PD 分离的源块由对端决定何时释放。
+2. **「谁能看见」的分界线就是进程边界**。引用计数、块哈希、队列顺序、grammar 状态全部留在调度进程，过了边界只剩整数；文本只在 API 进程里存在。所以「执行侧能不能利用某个信息」这个问题，查一下这一列就有答案。
+3. **显存里住着五样长期对象**：权重、KV 池、CUDA Graph、adapter 槽位、激活峰值。它们互相挤占，而其中只有 KV 池是「越大越好」的——这就是启动参数之间那些反直觉的联动的来源。
+4. **真正的 KV 张量从头到尾没动过**。分页、复用、驱逐、抢占、PD 交接，改的都是 CPU 侧那些块对象的字段和块号列表（唯一的例外是 PD 分离里跨机器的那次真实拷贝）。
+
+### 3. KV Cache 是一切约束的源头
 
 [《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)说它是唯一随时间增长的状态，决定并发上限、上下文上限与抢占时机，并算出 batch 256 时 KV 读取 24 GB 已超过权重——KV 不只是容量问题也是带宽问题。[《Scheduler》](/scheduler-batch-and-fairness.html)的 Admission Control、Watermark、LIFO 抢占全部由"KV 块够不够"触发，Token Budget 解决"算多少"，KV 解决"能不能装下"。[《KV Cache》](/kv-cache-memory-core.html)是它的正面：分页消灭内部碎片，Prefix Cache 让重算变便宜（这反过来解释了《Scheduler》为何选重算不选 swap），GQA / MLA / FP8 从源头缩小它。
 
 [《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的投机解码要为 draft 预留 `num_lookahead_tokens`、拒绝后回滚 `num_computed_tokens`；EAGLE 为拿 hidden state 主动少命中一块。[《Multi-GPU》](/multi-gpu-scaling-strategies.html)里 KV 跟着切法走：TP 按 head、PP 按层、CP 按 token 段、DP 各自一池且 prefix cache 不共享。[《PD 分离》](/prefill-decode-disaggregation.html)整篇是 KV 的交接：数据量、布局、就绪与回收时机、待交接 KV 变成显存占用。[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)一张图真正贵的是它的 KV 而非 encoder 输出，LoRA 与图片都要往块哈希里加键；[《模型适配》](/model-adaptation-architecture.html)最贵的适配是状态表示变化（`KVCacheSpec`）。[《Serving Infra 的下一站》](/future-of-serving-infra.html)说任何"未来方向"最后都撞回这堵墙。
 
-### 3. 调度的单位是 token，不是 request
+### 4. 调度的单位是 token，不是 request
 
 [《Scheduler》](/scheduler-batch-and-fairness.html)的空转图把问题量化：静态 Batch 的 48 个槽位只有 27 个有效，Continuous Batching 可以用满 48 个。同一篇再给出完整模型：每步先 running 后 waiting，每个请求只决定"这一轮推进多少 token"，prefill 与 decode 只是取值不同，Continuous Batching、Chunked Prefill、Mixed Batch、投机解码是同一模型的四种取值。[《如何衡量 LLM Serving》](/how-to-measure-llm-serving.html)的 token budget 旋钮解释了 TTFT 与 TPOT 之间的权衡。
 
 [《GPU 执行》](/gpu-execution-kernels-and-graphs.html)把取值推广到 `1 + K`："纯 decode batch"的定义随之变成每请求 `1 + K` 个 token，预算截断 draft 会让 batch 掉出 FULL 图。[《PD 分离》](/prefill-decode-disaggregation.html)在 D 侧多了一个等待远端 KV 的状态，请求就绪后才进入可调度集合。[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)给出这个模型的第一个例外——一张图必须整体编码，encoder 预算不够就把 `num_new_tokens` 截到图之前——以及 `max_loras` 这个新的准入约束；[《输出在变》](/output-changes-sampling-and-structured-output.html)的结构化输出请求在 grammar 编译完之前同样不进入可调度集合。[《Scheduler》](/scheduler-batch-and-fairness.html)在源码里找到这句话的原文：调度器没有严格的 prefill / decode 阶段，每请求让 `num_computed_tokens` 追赶 `num_tokens_with_spec`。
 
-### 4. Prefill 与 Decode：两种 workload 的一条主线
+### 5. Prefill 与 Decode：两种 workload 的一条主线
 
 [《为什么 LLM Serving 难》](/why-llm-serving-is-hard.html)建立判断：Prefill compute-bound（算术强度约 4100，高于拐点 295 十几倍），Decode memory-bound（约 1 FLOP/B）。[《如何衡量 LLM Serving》](/how-to-measure-llm-serving.html)由此把指标映射到阶段：TTFT 归 Prefill 与排队，TPOT / ITL 归 Decode。[《Scheduler》](/scheduler-batch-and-fairness.html)的 Chunked Prefill 与 Mixed Batch 是把两种 workload 塞进同一个 step 的办法；[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的四种浪费几乎全在 Decode 侧（97% 的时间），CUDA Graph 基本只对 decode 有意义，权重量化直接减半 decode 带宽，激活量化更利于 Prefill 的 GEMM，投机解码一节算出 memory-bound 与 compute-bound 的分界约 300 token / 步 / 卡，投机解码只在分界之下"免费"。
 
 [《PD 分离》](/prefill-decode-disaggregation.html)是这条线的终点：当共置干扰与配置耦合超过共享节省时，把两种 workload 分到两个资源域——P 偏大 batch、高 TP 追 TTFT，D 偏大并发、大 KV 池追 TPOT——但它同时提醒"Prefill compute-bound、Decode memory-bound 是起点不是定律"，Prefill batch 太小用不满算力，大 batch Decode 也能形成高效 GEMM。[《Serving Infra 的下一站》](/future-of-serving-infra.html)把 encoder 池、draft 池、多模型级联都归入"多阶段分布式执行"，理由相同：各阶段的最优硬件与配置不同。
 
-### 5. 边界与契约：让变化停在该停的层
+### 6. 边界与契约：让变化停在该停的层
 
 [《鸟瞰 vLLM》](/vllm-request-lifecycle-overview.html)先画出控制面 / 数据面的分离——所有这些边界里最外面的一道——以及三类进程与两道 IPC 边界，以及 Executor 把"进程怎么起"与"一轮怎么执行"分开；[《PD 分离》](/prefill-decode-disaggregation.html)的 `KVConnector` 是跨实例的状态交接契约，两侧 Scheduler 仍局部自治；[《请求形态的扩展》](/request-shapes-multi-lora-and-multimodal.html)、[《输出在变》](/output-changes-sampling-and-structured-output.html)的请求级变化（LoRA、图片、采样参数、grammar）随请求进来，靠请求对象上的字段、块哈希的键和 batch 维的张量逐请求处理；[《模型适配》](/model-adaptation-architecture.html)、[《硬件解耦》](/hardware-abstraction-and-portability.html)的部署级变化在实例启动时定下——《模型适配》把模型变化分到模型 / 运行时 / 算子三层，用 Protocol 契约表达能力，《硬件解耦》把硬件差异压到五层边界之下，Serving Core 只问能力不问芯片；[《Serving Infra 的下一站》](/future-of-serving-infra.html)说 vLLM 与上层系统之间的契约（KV 传输、能力发现、指标）是最活跃的演进点。同一个方法论贯穿：先问变化的性质（算什么 / 状态长什么样 / 怎么算 / 在哪个设备 / 在哪个实例），再决定它该停在哪一层。
 
