@@ -4,7 +4,7 @@ series: deep-dive-into-vllm
 title: 大模型推理系统揭秘（09）：请求形态的扩展：multi-LoRA 与多模态
 tags: [AI, AI-Infra, Inference]
 catalog: true
-updated: 2026-11-13
+updated: 2026-11-24
 ---
 
 > **NOTE** 本文基于 vLLM v0.27.1（tag `6e448d0`, 2026-08-11）源码剖析。文中文件路径、类名和函数名均以该版本为准；vLLM 迭代很快，阅读时请以你手上的版本对照。
@@ -34,7 +34,58 @@ updated: 2026-11-13
 
 ## 一、总览：假设在哪里破了
 
-### 1. 三个隐含假设
+### 1. 本篇的主线：一个带 adapter 和图片的请求，多走了哪几步
+
+三个假设破在三处，也在三处被缝回去。把这些缝补点按请求经过的顺序排一遍，就是本篇的主线——它和前八篇的链路完全重合，只是在三个固定位置各插了一层：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：本篇主线：一个带 adapter 和图片的请求在原有链路上多走的三步
+flowchart TB
+    IN["<b>请求带进来什么（第二章第 1 节）</b><br/>• messages、工具定义、模板开关<br/>• 一个 adapter 名<br/>• 几张图片或一段视频"] --> REND["<b>先压成一串 token id（第二章）</b><br/>• chat template 把对话与工具定义渲染成 prompt<br/>• 图片位置先放普通占位 token<br/>• 这一步不破坏任何假设，但模板与模型不配是最常见的线上故障"]
+    REND --> SCH["<b>调度：多了两种预算（第三章第 5 节、第四章第 3 节）</b><br/>• 一步内不同 adapter 的个数有上限，超了的请求推迟<br/>• encoder 另有一份计算预算和一块短期缓存<br/>• 分块不能把一张图切开"]
+    SCH --> HASH["<b>缝补一：块哈希多加一个键（第三、四章）</b><br/>• 加 adapter 名；加（图片哈希，块内偏移）<br/>• 否则同一串 token 在不同 adapter、不同图片下会错误复用 KV"]
+    HASH --> EMB["<b>缝补二：embedding 之后盖一层（第四章第 2 节）</b><br/>• 占位 token 查表得到「形状对、值错」的向量<br/>• 再按一张布尔掩码把 encoder 的输出散射进去"]
+    EMB --> LIN["<b>缝补三：线性层旁边加一项（第三章第 2 节）</b><br/>• token 不按 adapter 物理重排，只按分好组的行号名单去取<br/>• 每个 LoRA 层多两次 kernel"]
+    LIN --> KV["<b>写进 KV，之后与普通请求无区别</b><br/>• 两种扩展的代价形态相反：一个花显存，一个花 KV<br/>• 对照见第五章第 4 节"]
+    classDef inp fill:#eef5ff,stroke:#5880b4;
+    classDef patch fill:#fff8e1,stroke:#f9a825;
+    classDef out fill:#eff9f4,stroke:#4b9477;
+    class IN,REND,SCH inp;
+    class HASH,EMB,LIN patch;
+    class KV out;
+```
+
+逐节点要点：
+
+- **请求带进来什么**（[第二章第 1 节](#1-每个请求带进来什么)）：这一篇的全部变化都来自请求自己带的东西，所以它们是**请求级**的——同一个 batch 里每行都可能不同，不能靠启动参数一次定下。
+- **先压成一串 token id**（[第二章](#二从-messages-到-token-idchat-template-与工具定义)）：渲染发生在引擎之外的 API 进程里，产出的正是前八篇假设的那串 token，所以它不破坏假设；但它决定了前缀能不能命中，也决定了模型能不能看懂工具格式。
+- **调度多了两种预算**（[第三章第 5 节](#5-请求到-adapter-的映射如何进入调度与-kv)、[第四章第 3 节](#3-encoder-的独立执行与预算)）：原来只有一种预算（token），现在多了「活跃 adapter 数」和「encoder 计算量」两道闸，所以[《Scheduler》](/scheduler-batch-and-fairness.html)里「预算够但调不进来」又多了两个原因。
+- **缝补一：块哈希多加一个键**（[第三章第 5 节](#5-请求到-adapter-的映射如何进入调度与-kv)、[第四章第 5 节](#5-多模态-prefix-cache哈希与复用条件)）：三个假设里最危险的是第三个——它破了不会报错，只会算出错的结果，所以这一处是正确性问题而不是性能问题。
+- **缝补二：embedding 之后盖一层**（[第四章第 2 节](#2-多模态-token-与占位符如何进入-prompt)）：占位 token 照常查表，查出来的值是错的但形状是对的，再被掩码覆盖——「浪费一次查表」是为了让后面的 kernel 不必知道有多模态这件事。
+- **缝补三：线性层旁边加一项**（[第三章第 2 节](#2-同-batch-异构-adapter-的-kernel)）：关键是**不重排 token**——重排要搬数据，按行号名单取不用搬；代价是每层多两次 kernel 发射，这在 decode 里不便宜（见[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)的第一刀）。
+- **之后与普通请求无区别**（[第五章第 4 节](#4-两个扩展的开销对照)）：两种扩展的代价形态正好相反——adapter 是启动时买断的显存，图片是伴随请求全程的 KV。
+
+### 2. 输入变化带进来的几个新对象：谁创建、活在哪一侧、活多久、谁能看见
+
+这两种扩展总共只新增了几样东西，但它们的寿命从「一步」到「整个实例」横跨四个量级。这张表是本篇后面所有显存账的基础：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| 渲染后的 prompt（含工具定义） | API 进程里的 chat template | CPU 侧，随请求进引擎 | 整个请求 | 引擎只看到渲染结果，看不到原始 messages | 第二章 |
+| adapter 权重的 GPU 槽位 | 启动时按上限一次性买断，空着也占 | 每张卡的显存 | **整个实例**（槽位固定，里面的内容按最久未用换出） | 同一步里用这个 adapter 的请求 | 第三章第 3、4 节 |
+| adapter 权重的 CPU 副本 | 第一次加载时放进来，另一层最久未用淘汰 | 主机内存 | 比槽位里的内容长 | 换入时拷进 GPU 槽位 | 第三章第 3 节 |
+| 这一步的「token → adapter」行号名单 | 每步按 batch 组成现算 | CPU 侧算好，拷到显存 | **一步** | 只有 LoRA 的 kernel | 第三章第 2 节 |
+| 图片经处理器得到的张量 | API 进程里的输入处理，按内容缓存 | 主机内存 | 比单个请求长：同一张图再来可直接复用 | 随请求首次调度下发给 Worker | 第四章第 1 节 |
+| encoder 的输出 | Worker 在 prefill 前跑 encoder 得到，由 EngineCore 侧按图片哈希记账 | 张量在显存，账在 CPU 侧 | **很短**：这张图的占位 token 全部 prefill 完就可释放 | 本实例的请求可按哈希共用同一份 | 第四章第 4 节 |
+| 标记哪些位置要被覆盖的布尔掩码 | 每步现算 | 显存 | **一步** | 只有散射那一步 | 第四章第 2 节 |
+| 块哈希里多出来的那个键 | 块写满时随哈希一起算 | CPU 侧，在块的元数据里 | 跟着块 | 只有调度器——Worker 不知道隔离这件事 | 第三、四章 |
+
+Table: 输入变化带进来的新对象及其生命周期
+
+两件事值得先记住：**adapter 的显存是启动时买断的，图片的显存是跟着请求走的**——所以 multi-LoRA 的容量规划在启动参数里做完，多模态的容量规划必须按负载估算；**encoder 输出是全篇最短命的对象**，它只需要活到被盖进 embedding，真正长期占着显存的是那些图片占位 token 的 KV（第四章第 6 节会算这笔账）。
+
+### 3. 三个隐含假设
 
 把这条执行链路上的隐含假设摆出来：
 
@@ -48,7 +99,7 @@ Table: 执行链路上的三个隐含假设与谁打破它
 
 [《KV Cache》](/kv-cache-memory-core.html)讲 `hash_block_tokens()` 时留了一个 `extra_keys` 参数，说它"是隔离用的"——本篇就是它存在的理由。
 
-### 2. 三种输入变化分别惊动了谁
+### 4. 三种输入变化分别惊动了谁
 
 | | 调度器（[《Scheduler》](/scheduler-batch-and-fairness.html)） | KV Cache（[《KV Cache》](/kv-cache-memory-core.html)） | Model Runner / 执行（[《GPU 执行》](/gpu-execution-kernels-and-graphs.html)） | 模型侧 |
 |---|---|---|---|---|
@@ -60,14 +111,14 @@ Table: 三种输入变化惊动的模块
 
 最后一列的 `SupportsLoRA`、`SupportsMultiModal` 是 vLLM 模型类的**能力声明**：模型类实现这些接口协议（Protocol），引擎在加载时检查，据此启用对应路径——声明了 `SupportsLoRA`，加载器才会把它的线性层替换成带 LoRA 分支的 `*WithLoRA` 包装层；声明了 `SupportsMultiModal` 并在 `MultiModalRegistry` 里登记了输入处理器，引擎才会为它跑 encoder、合并 embedding。本篇只用到这两种声明的效果；能力声明与模型注册的完整机制见[《模型适配》](/model-adaptation-architecture.html)。
 
-### 3. 回到前面的例子
+### 5. 回到前面的例子
 
 **回到前面的例子**（Llama-3-70B、8×H100、TP=8、2050 token prompt、生成 300 token，每 token KV 320 KB、每卡 40 KB）。本篇会给它加两样东西：
 
 - **8 个 rank-16 的 LoRA 槽位**：静态显存约 **1.44 GB / 卡**——相当于每卡 36K token 的 KV，或者 15 个这样的请求；每步多 1120 次 kernel launch；
 - **把 2000 token 的 system prompt 换成一张图**：LLaVA 类 336×336 → 576 个 token，Qwen2-VL 类 1024×1024 → 1369 个 token（37×37）。encoder 输出 9–22 MB，但这些 token 的 KV 是 184–438 MB——**图片贵的不是 encoder 输出，是它占的 KV**。
 
-### 4. 本文的章节安排
+### 6. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -240,6 +291,11 @@ For each function call, return a json object with function name and arguments wi
 
 ### 5. 模板与模型不配时会怎样
 
+> [!NOTE] Java 经验参照：契约不在代码里，在权重里
+>
+> 「渲染端用一种格式写、解析端用另一种格式读」是序列化里最常见的事故，平时靠把两端的 schema 放在同一个地方来防。这里的麻烦是**契约的一端不在代码里**：模型被训练成按某一种格式输出工具调用，这个格式写在训练数据里、固化在权重里，仓库里能看到的只有 `tokenizer_config.json` 的模板和启动时选的那个解析器。于是三者必须同时对上——模板教给模型的格式、模型实际学会的格式、解析器认的格式——而其中第二项既不能编译期检查也不能单测。失配的表现也不像反序列化那样抛异常，而是沉默地退化：工具从来不被调用、`tool_calls` 永远是空的、或者模型停不下来。唯一的办法是上线前用一个真实请求把渲染结果和解析结果都打出来看一眼。
+
+
 **1、模板不渲染工具：请求成功，工具从不被调用。** 用 `--chat-template` 换上一份没有 `tools` 分支的模板（常见于手写的通用 ChatML 模板），vLLM 照样把 `tools` 传给 `apply_chat_template()`，模板不引用它，prompt 里就没有那 132 个 token 的工具段。模型不知道有工具，按普通问答作答；输出侧 parser 找不到 `<tool_call>`，`tool_calls` 为空，HTTP 200。没有报错是这类问题难查的原因——`/tokenize` 一看就知道工具段在不在。HF 上发布的模板不支持工具调用的模型，vLLM 在 `examples/tool_chat_template_*.jinja` 里备了一批（Hermes、Llama 3.1 / 3.2 JSON、Mistral、DeepSeek V3 等），用 `--chat-template` 指过去。
 
 **2、轮次标记不是这个模型的：答非所问、续写下一轮、或者停不下来。** 把别的模型家族的模板套到 Qwen2.5 上，比如 Llama 3 的 `<|start_header_id|>` / `<|eot_id|>`：这些串在 Qwen2.5 的词表里不是单个 token，`<|eot_id|>` 被切成 `[27, 91, 68, 354, 842, 91, 29]` 七个普通 token（`<`、`|`、`e`、`ot`、`_id`、`|`、`>`）。模型看到的是一段从没见过的"文本"，轮次边界和"现在轮到你"的信号都没了；它结束一轮靠的 `<|im_end|>` 在上文里一次也没出现，不一定会吐出来，吐不出来就一直生成到 `max_tokens`。同一类问题的另一面是停止集合：模板用来结束一轮的 token 如果既不是 tokenizer 的 `eos_token`、也不在 `generation_config.json` 的 `eos_token_id` 里（或者服务端用了 `--generation-config vllm`，不加载这个文件），第 2 节第 7 步就不会把它放进停止集合，模型吐出它之后也照样往下写。
@@ -345,6 +401,11 @@ ram = tl.load(token_indices_sorted_by_lora_ids + lora_m_indices_start + cta_m_of
 `LoRAMapping.is_prefill` 这个字段在 CUDA 上被忽略（`LoRAModelRunnerMixin._set_active_loras()` 注释："On cuda platforms we use the same kernels for prefill and decode"）——早期 Punica 区分 SGMV（Segmented Gather Matrix-Vector，分段聚合矩阵-向量乘，prefill 按段）和 BGMV（Block Gather Matrix-Vector，分块聚合矩阵-向量乘，decode 按行）两套 kernel，v0.27.1 的 Triton 实现统一了。
 
 ### 3. 槽位与 LRU：adapter 在 GPU 和 CPU 之间怎么换
+
+> [!NOTE] Java 经验参照：一次买断的槽位，不是按需增长的池
+>
+> 「GPU 上一排槽位 + CPU 上一层缓存 + 最久未用淘汰」这套结构，对着连接池加二级缓存的经验大体读得通，但有两处要改口。第一，**容量是一次买断的**：槽位数和每个槽位的大小在启动时由参数定下，哪怕线上只用到一个 adapter，其余槽位的显存也一直占着——对象池可以先小后大、按需增长，这里不能，因为显存要在启动 profile 时一并算进 KV 池的扣除项。第二，**换入的代价是一次拷贝而不是一次构造**：淘汰一个 adapter 不会释放槽位，只是把另一份权重从主机内存拷进同一块显存；所以命中率低时的表现不是「变慢一点」，而是每步多出一次 PCIe 传输，并且这段时间 GPU 在等。规划的办法也因此不同：对象池看 QPS 和持有时间，这里直接数「同时在线的 adapter 有几个」，让它不超过槽位数。
+
 
 上一节的 kernel 假定"每个活跃 adapter 的 A、B 已经在 GPU 上、按槽位堆好"。这一节讲这些槽位怎么来、adapter 怎么进出。先给一句话版本：**GPU 上一开始就按 `max_loras` 个空槽把显存买断，adapter 权重在"磁盘 → CPU 内存 → GPU 槽位"两级楼梯上换入换出，每级各有一个 LRU；GPU 层被淘汰只是把槽位让出来（权重还在 CPU 层），CPU 层被淘汰才是真正丢掉。**
 
