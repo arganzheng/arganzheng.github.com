@@ -10,7 +10,7 @@ updated: 2026-11-14
 
 LLM serving 用多卡有两个理由：权重放不下（70B 的 140 GB 要切到几张卡上）、每步读权重的时间要切短（memory-bound，TP 让每张卡只读 1/p）。扩散推理的多卡理由不同：FLUX 的 22 GiB 一张卡放得下；单请求已经 compute-bound，多卡的目标是**把一个请求的 FLOPs 分到 p 张卡上、让墙钟缩短 p 倍**——而视频再加一个：14 GiB 的激活与几分钟的单卡时间让单卡本身不可接受。目标不同，切法就不同。
 
-切一个 DiT 前向有四种刀法：切**序列**（每张卡持有 $$N/p$$ 个 token，attention 时交换 K / V 或交换 head——Ulysses、Ring、USP）、切 **CFG 分支**（条件与无条件各一组卡，每步末交换一次预测）、切**层 + patch**（每张卡持有几层、latent 切成 patch 流过各层——PipeFusion，利用第三篇的时间冗余让流水线不等）、切**权重**（LLM 的张量并行，或 FSDP 式的分片 + all-gather）。它们的通信量差几十倍，适合的互联从 NVLink 到以太网；混合并行把它们的乘积配成 GPU 数。xDiT 是这些方法的源头与参考实现，SGLang Diffusion 与 vLLM-Omni 都实现了其中的 USP 与 CFG 并行。
+切一个 DiT 前向有四种刀法：切**序列**（每张卡持有 $$N/p$$ 个 token，attention 时交换 K / V 或交换 head——Ulysses、Ring、USP）、切 **CFG 分支**（条件与无条件各一组卡，每步末交换一次预测）、切**层 + patch**（每张卡持有几层、latent 切成 patch 流过各层——PipeFusion，利用[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的时间冗余让流水线不等）、切**权重**（LLM 的张量并行，或 FSDP 式的分片 + all-gather）。它们的通信量差几十倍，适合的互联从 NVLink 到以太网；混合并行把它们的乘积配成 GPU 数。xDiT 是这些方法的源头与参考实现，SGLang Diffusion 与 vLLM-Omni 都实现了其中的 USP 与 CFG 并行。
 
 本篇要回答的核心问题是：
 
@@ -87,7 +87,33 @@ Table: xDiT 实测 FLUX.1-dev 各并行配置的时间
 - **NVLink 上用 USP，PCIe / 以太网上用 PipeFusion**：4 卡 H100 Ulysses 2.63×；两台以太网互联的 8×L40 上 Ulysses 的 1.2 GB / 步要 100 ms 以上（超过每卡的计算），PipeFusion 的 28 MB 可忽略，xDiT 用 Ulysses 4 × PipeFusion 4 让 16 卡比 8 卡再快 1.16 倍。
 - **扩散多卡的 scaling 不到线性**：4 卡 2.63×（66% 效率），因为每卡的 GEMM 变小（$$N/p$$ 行）、通信不能全部重叠、attention 的 all-to-all 有固定开销。这是与 LLM decode 的 TP（几乎线性，因为它切的是带宽）的又一个差别。
 
-### 2. 本文的章节安排
+### 2. 切完之后，每张卡上各持有什么
+
+通信量只是账的一半；另一半是**切完之后每张卡手里有什么、哪些东西必须和别人一致**。以 4 卡 Ulysses 跑 FLUX 1024²（$$N = 4608$$）为例：
+
+| 对象 | 每卡持有 | 要不要跨卡一致 | 在哪一刻对齐 | 不一致会怎样 |
+|---|---|---|---|---|
+| 1. DiT 权重 | **完整一份**（4 卡共 4 × 22.2 GiB） | 同一份 checkpoint | 加载时 | — |
+| 2. latent 与残差流的 token | $$N / 4 = 1152$$ 个 | 不需要，各卡各一片 | — | — |
+| 3. attention 里的 Q / K / V | all-to-all 之后变成"全部 $$N$$ 个 token 的 1/4 个 head" | 形状必须严丝合缝 | 每层四次 all-to-all | 少一个参与者就 hang |
+| 4. 文本 token（512 个） | 复制到每卡，或与图像 token 一起切 | 复制时天然一致 | — | 切法不整除要 padding |
+| 5. adaLN 的条件向量 | 完整复制 | 必须一致 | 各卡用同一个输入算，自然一致 | 画面撕裂 |
+| 6. 位置编码 | 各卡按自己 token 的**绝对**位置算 | — | 切分时必须带上位置索引 | 空间错位 |
+| 7. 初始噪声 | 同一张噪声被切开的 1/4 | 必须来自同一张 | 生成的那一刻 | 各卡各自采样 → 四条互不相干的横条 |
+| 8. 跨步缓存的残差与跳步决策 | 残差各存各的分片；决策必须全局一致 | 决策必须一致 | 每步一次 all-reduce | hang，或静默地出错图 |
+| 9. 稀疏 attention 的掩码 | 各卡按自己那片生成 | 由形状决定，自然一致 | — | — |
+| 10. 最终 latent | rank 0 收齐后解码 | — | 结尾一次 gather | — |
+
+Table: 4 卡 Ulysses 下每张卡持有的十样东西
+
+四条读法：
+
+1. **真正"每卡 1/p"的只有第 2、3、7 行——token 和它的噪声。**权重、条件向量、文本都是完整复制的，所以序列并行省的是**时间**不是显存：4 卡跑 FLUX 要 4 × 22.2 GiB，不是 22.2 GiB。这是它和张量并行、FSDP 最容易混的一点，也是[第三章](#三张量并行)说 TP"唯一的优势是切权重"的意思。
+2. **"不一致会怎样"有两种结果，要分开看**：第 3、8 行是**挂**（少一个参与者，集合通信等不到），第 5、6、7 行是**静默地错**（不报任何错，出一张坏图）。后一类难查得多，[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)把它们列进了故障表。
+3. **"在哪一刻对齐"这一列就是全部的集合通信点**：每层四次 all-to-all、每步一次 all-reduce、结尾一次 gather。任何让某张卡走上不同分支的逻辑——跳步、在线决定的稀疏模式、早停——都要先问一句：它会不会让这张卡少参加一次集合通信。
+4. **换成 PipeFusion，这张表整个翻过来**：第 1 行变成每卡只持 $$L/p$$ 层的权重，第 2 行变成 patch 依次流过本 stage、每卡在自己那几层上见过全部 token，并且多出一行"上一步的 stale K / V"（FLUX 4 stage 0.8 GB）。通信量从 1.2 GB 掉到 28 MB，代价全记在新多出来的那一行上。
+
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -106,6 +132,12 @@ Table: 本文的章节安排
 
 ## 二、多卡的目的
 
+> [!NOTE] Java 经验参照：加机器就能线性变快
+>
+> 无状态服务加一倍实例，吞吐基本翻倍——实例之间不说话，扩容近似线性。这条经验在这里只对一半：**用多卡跑多个请求**（data parallel）确实接近线性，**用多卡跑同一个请求**只有 4 卡 2.63×。
+>
+> 差别在于切的是什么。水平扩容切的是请求，请求之间零通信；序列并行切的是一个请求内部的张量，切完每层要通信四次。最接近的 Java 经验是 `parallelStream()` 在小集合上反而更慢——fork/join 的拆分与合并吃掉了收益。不同之处在于：那里的开销是一次性的拆分合并，这里是**每层付一次**，FLUX 有 57 层；而且每卡的 GEMM 也变小了（只剩 $$N/p$$ 行），GPU 本身的效率跟着下降。所以扩散服务里"延迟不够就加卡"是有上限的，到了某个卡数之后只能换"多实例跑多请求"，这正是[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)要定的那条线。
+
 ### 1. 三种目的、两种负载
 
 | 目的 | LLM serving | 扩散 |
@@ -116,7 +148,7 @@ Table: 本文的章节安排
 
 Table: 多卡的三种目的在 LLM 与扩散上的差别
 
-最后一行是关键：**如果只要吞吐，扩散不应该切请求**——四张卡各跑一个请求的吞吐（4 张 / 4.30 s）永远高于四张卡切一个请求（1 张 / 1.63 s = 2.63 张 / 4.30 s）。切请求是为了**延迟**：一张图 4.3 s 太慢、一段视频 24 分钟不可接受。服务的选型（第七篇）就是在延迟 SLO 与吞吐成本之间选 p。
+最后一行是关键：**如果只要吞吐，扩散不应该切请求**——四张卡各跑一个请求的吞吐（4 张 / 4.30 s）永远高于四张卡切一个请求（1 张 / 1.63 s = 2.63 张 / 4.30 s）。切请求是为了**延迟**：一张图 4.3 s 太慢、一段视频 24 分钟不可接受。服务的选型（[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)）就是在延迟 SLO 与吞吐成本之间选 p。
 
 ### 2. scaling 为什么不到线性
 
@@ -229,7 +261,7 @@ USP（Fang & Zhao 2024，xDiT 的"Unified Sequence Parallelism"）把两者做�
 - **文本 token**（MMDiT）：xDiT 与 SGLang 把文本 token 复制到每卡（"replicated prefix"），或与图像 token 一起切——两种都可以，复制更简单但 attention 里每卡多算一份；
 - **cross-attention 的文本 K / V**（Wan）：每卡复制，跨步缓存；
 - **文本编码器**：SGLang 的 fold（`--encoder-parallel fold`）把编码器权重按 TP 切到副本里的各张 DiT 卡上，文本编码也并行了；vLLM-Omni 的 `--text-encoder-tp-size` 与 xDiT 的 `--text_encoder_tp_degree` 是同一思路；
-- **跨步缓存的决策**（第三篇）：必须全局一致——all-reduce 信号后统一比阈值；
+- **跨步缓存的决策**（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)）：必须全局一致——all-reduce 信号后统一比阈值；
 - **VAE**：默认 rank 0 单卡解码（其他卡空等），或 Parallel VAE（第七章）。
 
 ## 五、CFG 并行与 data parallel
@@ -276,7 +308,13 @@ SGLang 与 vLLM-Omni 都支持 CFG 并行与 SP 叠加，CFG 模型在多卡上�
 
 ### 1. 用时间冗余换通信
 
-第三篇的观察：相邻步的激活高度相似。DistriFusion（Li 等 2024）与 PipeFusion（Wang 等 2024，xDiT）把它用到并行上：**attention 需要的"其他卡的 K / V"，用上一步的值代替**——上一步的 K / V 在这一步开始时已经在本地了，不必等本步的通信。误差与跨步缓存同源，同样在首步（没有上一步）全同步、之后用 stale 值。
+[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的观察：相邻步的激活高度相似。DistriFusion（Li 等 2024）与 PipeFusion（Wang 等 2024，xDiT）把它用到并行上：**attention 需要的"其他卡的 K / V"，用上一步的值代替**——上一步的 K / V 在这一步开始时已经在本地了，不必等本步的通信。误差与跨步缓存同源，同样在首步（没有上一步）全同步、之后用 stale 值。
+
+> [!NOTE] Java 经验参照：读到稍旧的缓存值
+>
+> "用上一步的 K / V"听起来就是本地缓存读到了一个还没刷新的值：允许一点点旧，换掉一次远程调用。Java 里这么做很常见，前提也很熟悉——旧值只是**暂时**不一致，下一次读就对了。
+>
+> 这里不是。旧值会被**写进结果**：这一步的输出就是拿上一步的 K / V 算出来的，没有"下一次读就对了"，误差只会沿着去噪轨迹往后累积。所以判据也不一样：缓存用 TTL（旧多久），这里用的是"旧的那一步和这一步有多像"——同一个 $$\Delta t$$，在 50 步模型上两步几乎一样、在 4 步模型上是两个完全不同的位置。这就是为什么 PipeFusion 和 DistriFusion 到了[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)的 4 步模型上直接失效：不是旧得太久，是这一步和上一步本来就不像。
 
 ### 2. DistriFusion：patch 并行 + 异步 all-gather
 
@@ -310,13 +348,13 @@ M 越大气泡越小，但 patch 越小 GEMM 效率越低
 
 流水线的气泡 $$\frac{p-1}{M+p-1}$$ 在单步内不小，但扩散有几十步、步与步之间可以**连续流水**（下一步的第一个 patch 紧接着本步的最后一个 patch 进入 stage 1，因为它用的是 stale K / V、不必等本步全部完成）——气泡只在整个生成的首尾出现一次。这是 PipeFusion 比 LLM 的流水线并行更好用的原因：LLM 的 decode 每步只有一个 token、流水线填不满；扩散每步有 $$M$$ 个 patch、几十步连续。
 
-PipeFusion 的适用面：**弱互联**——PCIe、以太网、跨节点。xDiT 的两台 8×L40 实验：1024² 上 Ulysses 4 × PipeFusion 4 让 16 卡比 8 卡再快 1.16 倍（Ulysses 在节点内、PipeFusion 跨节点）；4096² 上 Ulysses 2 × Ring 2 × PipeFusion 4 快 1.9 倍。NVLink 上不用它（USP 更好，PipeFusion 有气泡与 stale 误差）。**少步模型不用它**（第六篇：4 步之间无相似性，stale K / V 误差大；xDiT 对 FLUX-schnell 不用 PipeFusion）。
+PipeFusion 的适用面：**弱互联**——PCIe、以太网、跨节点。xDiT 的两台 8×L40 实验：1024² 上 Ulysses 4 × PipeFusion 4 让 16 卡比 8 卡再快 1.16 倍（Ulysses 在节点内、PipeFusion 跨节点）；4096² 上 Ulysses 2 × Ring 2 × PipeFusion 4 快 1.9 倍。NVLink 上不用它（USP 更好，PipeFusion 有气泡与 stale 误差）。**少步模型不用它**（[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)：4 步之间无相似性，stale K / V 误差大；xDiT 对 FLUX-schnell 不用 PipeFusion）。
 
 ## 七、Parallel VAE 与 FSDP
 
 ### 1. Parallel VAE
 
-第一篇的 VAE 解码峰值：1024² 2 GiB，2048² 8 GiB，Wan 81 帧 107 GiB。xDiT 的 FLUX 文档记录了 A100 80 GB 上 2048px 以上 VAE 直接 OOM（DiT 本身能跑）。Parallel VAE（DistVAE）把 latent 沿高度切成 $$p$$ 条带、每卡解码一条、卷积在边界需要邻居几个像素的 **halo**——每层交换边界几行；最后拼接。峰值降为 $$1/p$$，通信小（边界几行 × 通道数）。vLLM-Omni 的 `--vae-patch-parallel-size` 与 SGLang 的 parallel decode 是同一思路；tiling（第二篇）是单卡的替代——串行解码各 tile，时间不减但峰值降。视频上两者常叠加：时间分块 + 空间并行。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的 VAE 解码峰值：1024² 2 GiB，2048² 8 GiB，Wan 81 帧 107 GiB。xDiT 的 FLUX 文档记录了 A100 80 GB 上 2048px 以上 VAE 直接 OOM（DiT 本身能跑）。Parallel VAE（DistVAE）把 latent 沿高度切成 $$p$$ 条带、每卡解码一条、卷积在边界需要邻居几个像素的 **halo**——每层交换边界几行；最后拼接。峰值降为 $$1/p$$，通信小（边界几行 × 通道数）。vLLM-Omni 的 `--vae-patch-parallel-size` 与 SGLang 的 parallel decode 是同一思路；tiling（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)）是单卡的替代——串行解码各 tile，时间不减但峰值降。视频上两者常叠加：时间分块 + 空间并行。
 
 ### 2. FSDP / HSDP 推理：权重分片作为显存策略
 
@@ -351,7 +389,7 @@ Table: 单节点 NVLink 的并行选型
 
 ### 3. 视频上 SP 是必需
 
-Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 = 49 GiB，1080p 32 GiB 激活——80 GB 卡在 129 帧 / 1080p 上已放不下 VAE 与余量；单卡每步 29 s、50 步 24 分钟是任何服务都不能接受的延迟。SP 把激活切 $$1/p$$（每卡只持 $$N/p$$ 个 token 的 $$[N/p, d]$$ 张量）、时间切近 $$1/p$$——8 卡 USP 让 Wan 的一步从 29 s 到约 4 s、50 步 3–4 分钟，再加第四篇的单卡六倍到 40 s。视频模型的**训练**同样是 FSDP + SP（Wan 的报告），序列并行是 DiT 训练与推理共用的并行——这与 LLM 里"训练用 3D 并行、推理用 TP"的分工不同。
+Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 = 49 GiB，1080p 32 GiB 激活——80 GB 卡在 129 帧 / 1080p 上已放不下 VAE 与余量；单卡每步 29 s、50 步 24 分钟是任何服务都不能接受的延迟。SP 把激活切 $$1/p$$（每卡只持 $$N/p$$ 个 token 的 $$[N/p, d]$$ 张量）、时间切近 $$1/p$$——8 卡 USP 让 Wan 的一步从 29 s 到约 4 s、50 步 3–4 分钟，再加[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的单卡六倍到 40 s。视频模型的**训练**同样是 FSDP + SP（Wan 的报告），序列并行是 DiT 训练与推理共用的并行——这与 LLM 里"训练用 3D 并行、推理用 TP"的分工不同。
 
 ## 九、实现对照与实践
 
@@ -371,7 +409,7 @@ Wan 720p 81 帧：单卡激活 14.4 GiB + 权重 26.6 GiB，129 帧 22.7 + 26.6 
 
 Table: 多卡并行机制在四个引擎里的实现对照
 
-三个引擎的 `parallel_state` / `GroupCoordinator` 写法几乎相同——都从 vLLM / Megatron 演化来，第八篇对照。
+三个引擎的 `parallel_state` / `GroupCoordinator` 写法几乎相同——都从 vLLM / Megatron 演化来，[《三个引擎的对照》](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)对照。
 
 ### 2. 实践建议
 
@@ -427,7 +465,7 @@ Table: 多卡扩散并行的规则与数字小结
 
    <details markdown="1">
    <summary>答案</summary>
-   stale K / V 的前提是相邻步激活相似（第三篇的时间冗余）；4 步模型相邻步差别大，stale 值误差大且没有足够的步数摊掉首步的全同步。显存：DistriFusion 每卡存全部层、全部 token 的 K / V（$$2 N d L$$，FLUX 3.2 GB、Wan 62 GB）；PipeFusion 每卡只存自己 $$L/p$$ 层的（FLUX 4 stage 0.8 GB），且权重也切 $$1/p$$。详见[第六章](#六pipefusion-与-distrifusion)。
+   stale K / V 的前提是相邻步激活相似（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)里的时间冗余）；4 步模型相邻步差别大，stale 值误差大且没有足够的步数摊掉首步的全同步。显存：DistriFusion 每卡存全部层、全部 token 的 K / V（$$2 N d L$$，FLUX 3.2 GB、Wan 62 GB）；PipeFusion 每卡只存自己 $$L/p$$ 层的（FLUX 4 stage 0.8 GB），且权重也切 $$1/p$$。详见[第六章](#六pipefusion-与-distrifusion)。
    </details>
 
 5. 一个只关心吞吐（每小时多少张图）、不关心单张延迟的批量出图任务，8 张 H100 该怎么配？为什么？
