@@ -14,7 +14,7 @@ updated: 2026-09-20
 
 难在归因。硬件故障有 XID、有 NCCL 报错、有 rerun 比对；loss spike 只有一条曲线。学习率太高、bf16 精度不够、注意力 logit 长大、某个 batch 里混进了几千个重复 token、Adam 的二阶矩落后于参数的变化——每一种成因画出来的 loss 曲线都差不多。要把它们分开，靠的不是事后的推理，而是**事前就记下来的一组数值信号**：梯度范数、参数范数、学习率、loss scale、梯度里零的个数、注意力 logit 的最大值。这些信号在 spike 发生前的几十步里各有各的形状，事后对照才知道该改配置、还是该跳过那批数据。
 
-而"跳过那批数据"这一句，把本篇的另一半——数据管线——牵了进来。PaLM 的处理是回退到 spike 前约 100 步的 checkpoint、跳过随后的 200–500 个 batch；这个动作成立的前提是：checkpoint 能精确恢复（[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)）、数据加载器能从**精确的样本位置**继续、并且在任意 rank 上重放出**一样的样本序列**。一个训练任务的数据管线通常被当成"喂数据的"，但它同时是稳定性处理的基础设施：它要能被回放、能被跳过、能被记录进 checkpoint，而且不能成为 MFU 账上那 0.5 个点的"数据等待"。所以这两个题目放在同一篇。
+而"跳过那批数据"这一句，把本篇的另一半——数据管线——牵了进来。PaLM 的处理是回退到 spike 前约 100 步的 checkpoint、跳过随后的 200–500 个 batch；这个动作成立的前提是：checkpoint 能精确恢复（[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)）、数据加载器能从**精确的样本位置**继续、并且在任意 rank 上重放出**一样的样本序列**。一个训练任务的数据管线通常被当成"喂数据的"，但它同时是稳定性处理的基础设施：它要能被回放、能被跳过、能被记录进 checkpoint，而且不能成为 MFU 账上那 0.5 个点的"数据等待"。所以这两个题目放在同一篇。
 
 本篇要回答总纲提出的核心问题：
 
@@ -24,34 +24,121 @@ updated: 2026-09-20
 
 ## 一、总览
 
-### 1. 本篇用到的记账符号与前几篇的结论
+本篇有两个主题，而它们不是并列的两半：数据管线决定了"这一步喂进去的是哪一批 token"，稳定性这一侧的信号决定了"这一批 token 出了什么事"。所以先把两条线各自的环节摆出来，看清它们在哪里交汇，再按交汇点之后的两种处置分章。
 
-[第一篇《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)建立的符号，本篇只用这几个：$$N$$ 参数量；$$N_d, N_t, N_p, N_c$$ 数据 / 张量 / 流水线 / 上下文并行度，正文常写作 $$d, t, p, c$$；$$s, b, h, a, L$$ 序列长、micro-batch 内序列数、隐藏维、头数、层数；$$B$$ global batch（序列数）；$$\delta$$ 一次 checkpoint 的开销时间，$$M$$ 平均故障间隔。
+### 1. 本篇的主线：从采样顺序到一次处置
 
-三条前几篇的结论，本篇要反复用到，在此复述以求自治：
+```mermaid
+%% 图：稳定性线与数据线的环节及其在异常判定处的汇合
+flowchart TB
+    subgraph DATA["数据线"]
+        direction TB
+        D1["<b>存储与索引（第六章）</b><br/>• .bin / .idx：任意文档的任意片段 O(1) 随机访问<br/>• document / sample / shuffle 三个索引由 seed 定<br/>• 索引缓存的文件名带全部配置的哈希"]
+        D2["<b>混合与采样顺序（第六章）</b><br/>• BlendedDataset 按权重贪心选来源，不是随机采样<br/>• 混合比例在启动参数里，不进 checkpoint"]
+        D3["<b>位置 → 这一批 token（第七章）</b><br/>• consumed_train_samples 就是位置，一个整数<br/>• 按 dp_rank 切片，得到本 rank 这一步的 micro-batch"]
+        D1 --> D2 --> D3
+    end
+    subgraph STAB["稳定性线"]
+        direction TB
+        S1["<b>一步更新（第三章）</b><br/>• 前向反向，梯度在 fp32 里累积<br/>• 全局范数裁剪，再在 fp32 主参数上做 Adam 更新"]
+        S2["<b>每步记下的信号（第五章）</b><br/>• loss 的 avg 与 max、clip 之前的 grad norm<br/>• param norm、max attention logit、num_zeros_in_grad"]
+        S1 --> S2
+    end
+    J{"异常判定（第二章）<br/>五种成因的信号指纹"}
+    D3 -->|"喂进这一步"| S1
+    D3 -. 反查这一步各 rank 拿了哪些样本 .-> J
+    S2 --> J
+    J -->|"学习率、logit 增长或 bf16 的指纹"| FIX1["<b>数值与配置侧处置（第三章）</b><br/>• 降 LR、加长 warmup、查调度拐点<br/>• 开 QK-LayerNorm 或 qk_clip<br/>• 核对精度纪律那张检查表"]
+    J -->|"坏数据或优化器状态的指纹"| FIX2["<b>数据侧处置（第四章）</b><br/>• 回退到 spike 前约 100 步的 checkpoint<br/>• 跳过 200–500 个 batch<br/>• 反查到的样本特征加进过滤规则"]
+    FIX1 -. 改配置后重训一段 .-> S1
+    FIX2 -. 把位置往前拨 .-> D3
+    classDef dline fill:#deebf7,stroke:#2e75b6;
+    classDef sline fill:#e2efda,stroke:#548235;
+    classDef askq fill:#fff2cc,stroke:#bf9000;
+    classDef fixn fill:#fde9d9,stroke:#c0504d;
+    class D1,D2,D3 dline;
+    class S1,S2 sline;
+    class J askq;
+    class FIX1,FIX2 fixn;
+```
 
-- **为什么有 fp32 主参数与 fp32 优化器状态。** bf16 有 8 位指数、7 位尾数，相对精度约 $$2^{-8} \approx 0.4\%$$。一次 Adam 更新 $$\eta \cdot \hat m / \sqrt{\hat v}$$ 的量级约等于学习率 $$\eta \sim 10^{-4}$$，而参数本身的量级在 $$10^{-2}$$ 到 $$1$$ 之间——更新量与参数之比常常低于 $$2^{-8}$$，直接加到 bf16 参数上会被舍入成零。所以参数的"真身"必须以 fp32 存一份（主参数），Adam 的一阶矩、二阶矩也以 fp32 存，bf16 参数只是每步从主参数拷出来的计算用副本。这是每参数 16 字节的来源，也是本篇第三章"精度纪律"的出发点：**任何把这条链上的某一环降到 bf16 的做法，都是稳定性的潜在风险**。
-- **checkpoint 里必须有什么才能精确恢复。** 模型参数（fp32 主参数，不是 bf16 副本）、优化器状态、学习率调度器状态、迭代计数、**数据加载器的位置**、随机数状态（Python / NumPy / torch CPU / CUDA，Megatron 还有 TP 组的 RNG tracker）。缺任何一样，恢复后的 loss 曲线都与不中断的那条不重合。[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)讲了前四样怎么落盘；本篇第七章讲第五样。
-- **回退的思想。** [第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的有效训练时间公式里有一项"回退损失"：故障后从上一个 checkpoint 重来，checkpoint 之后算过的步全部作废。本篇把这个机制反过来用：**主动**回退到 spike 之前的 checkpoint，再**主动**改变之后的数据顺序（跳过一段），让训练走上另一条轨迹。它的代价就是[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)算过的那笔账：回退 $$k$$ 步等于损失 $$k$$ 步的算力，所以 checkpoint 间隔 $$\tau$$ 决定了"回退到 spike 前约 100 步"这句话能不能精确执行。
+逐节点要点：
 
-### 2. 两条线为什么是一条
+- **存储与索引**（[第六章](#六数据管线上存储与索引)）：离线预处理把文本变成 `.bin`/`.idx`，三个索引把"文档的集合"变成"定长样本的序列"；这一环的产出是只读的，全部 rank 共享。
+- **混合与采样顺序**（[第六章](#六数据管线上存储与索引)）：多来源按权重合成一条全局样本序列，顺序由 seed 唯一确定——这是后面"同一步能回放出同一批样本"的全部依据。
+- **位置 → 这一批 token**（[第七章](#七数据管线下加载与恢复)）：位置是一个整数，采样器从它开始数并按 `dp_rank` 切片；恢复、跳过、改 DP 度都是对这个整数的操作。
+- **一步更新**（[第三章](#三预防)）：六种预防手段都作用在这一环，目标是让单步更新的量级不越过稳定区。
+- **每步记下的信号**（[第五章](#五必须记录的信号)）：异常判定只能用事前记下来的数值，所以这一环不是"可观测性的附属品"，而是处置链上必需的一步。
+- **异常判定**（[第二章](#二loss-spike现象与成因)）：两条线在这里汇合——信号给出形态与前兆，数据管线给出"这一步各 rank 拿了哪些样本"，两样齐了才能把五种成因分开；判定的顺序见[「归因的方法」](#7-归因的方法)的决策树。
+- **数值与配置侧处置**（[第三章](#三预防)）：改的是配置与结构，常常要回退到异常开始之前重训一段。
+- **数据侧处置**（[第四章](#四处理回退与跳过)）：改的是数据位置而不是模型，所以它的可行性完全取决于数据线最后那一环。
+
+### 2. 本篇涉及的对象：谁创建、活在哪、活多久、谁能看见
+
+上面每个方框背后都有具体的对象在记状态。稳定性这一侧的对象多是"每步算一次、不记就没了"，数据这一侧的对象多是"启动时建好、整个任务只读"，而两侧真正决定"能不能精确续训"的只有少数几个——看清这张表，后面各章的机制就只是在这些对象上加操作：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| clip 之前的全局梯度范数与 `num_zeros_in_grad` | `MixedPrecisionOptimizer.step()` 每步算一次（`clip_grads.py` 的 `get_grad_norm_fp32` / `count_zeros_fp32`） | 在 GPU 上归约成标量，`.item()` 之后只是 CPU 侧的一个数 | 一步。不写进日志或 JSONL 就永远丢了 | 归约组内全部 rank 拿到同一个值<br/>只有写日志的那个 rank 会留档 | 第三、五章 |
+| spike 判定的基线（`max_values` / `large_value_counts`） | `RerunStateMachine.is_unexpectedly_large()` 用前 `num_samples`（默认 100）个样本估出每个 context 的最大值 | 每个 rank 的训练进程，CPU 侧的两个字典 | 整个任务：以 `ShardedObject` 随 `rerun_state_machine` 键进 checkpoint，仅 `torch_dist` 格式且 rerun 非 DISABLED 时保存 | 本 rank 自己判断<br/>"要不要拒绝这个结果"经全局归约才生效 | 第四章 |
+| 跳过列表 `iterations_to_skip` 与 tracker 文件 | 列表来自 `--iterations-to-skip`；`arguments.py` 再把 tracker 文件里重复出现的迭代号并进来 | 列表在每个 rank 的 `args` 里；tracker 文件在共享文件系统上 | 列表只活一次启动，**不进 checkpoint**<br/>tracker 文件跨任务累积 | 全部 rank 的 `args` 相同<br/>tracker 文件由下一次启动读 | 第四章 |
+| loss scale（`DynamicGradScaler`，只有 fp16 有） | 优化器构造时按 `--initial-loss-scale` 等建 | 训练进程里的一个标量；`found_inf` 在 GPU 上归约 | 整个任务：以 `grad_scaler` 键进优化器的 state_dict | 全 rank 一致，因为 inf 判定本身是全局的 | 第三章 |
+| 数据混合权重 `blend` | 启动参数 `--data-path` / `--train-data-path` → `BlendedMegatronDatasetConfig` | 启动时每个 rank 的 builder 里，之后只以索引数组的形式存在 | 只活一次启动，**不进 checkpoint**——恢复时换了配比不会报错 | 全部 rank；只能靠把启动参数进版本控制来核对 | 第六章 |
+| 三索引与混合两索引的 `.npy` 缓存 | rank 0 调 `helpers.cpp` 构建，其余 rank 等它 | `--data-cache-path` 下的文件；各 rank 用 `numpy.load(mmap_mode="r")` 只读映射 | 跨任务：文件名带 `unique_description_hash`，任一配置变了就重建 | 所有 rank 共享同一份<br/>同一个样本号在任何 rank 上映射到同一批 token | 第六章 |
+| 采样器的游标 `consumed_train_samples` | `train()` 在每一步**结束时**加一个 global batch | 每个 rank 的 `args`，CPU 侧的一个整数 | 整个任务：随 `args` 进 checkpoint，恢复后采样器从它重新数 | 全部 rank 相同<br/>可以被人为拨动——这就是"跳过 batch" | 第四、七章 |
+| `.bin` 的 mmap 与对象存储客户端（`_MMapBinReader` / `_S3BinReader`） | 每个 DataLoader worker 自己建：`IndexedDataset.__getstate__` 只传路径与几个开关，`__setstate__` 调 `initialize()` 重新打开 | worker 进程的地址空间（`persistent_workers=True`，worker 与任务同寿） | worker 存活期间；不进 checkpoint | 只有本 worker | 第六、七章 |
+| 预取队列里的 batch | DataLoader 的 worker 提前做出 `prefetch_factor × num_workers` 个 | worker 进程产出，经共享内存交给训练进程（`pin_memory=True` 时落在固定页上） | 到被训练进程取用为止；进程被 kill 时连同队列一起消失 | 只有本 rank 的训练进程<br/>位置按"已消费"而不是"已产出"记，它们消失才不会漏数据 | 第七章 |
+| torchtitan 的迭代器状态、残余 token buffer 与混合 RNG | `StatefulDataLoader` 每 `snapshot_every_n_steps` 次 `__next__` 拍一次快照<br/>buffer 由 `HuggingFaceTextDataset` 攒<br/>`InterleavedDataset` 存 `rng_state` | 各 DP rank 各一份，CPU 侧 | 整个任务：`pickle` 成 bytes 按 `dp_rank_{n}` 键进 DCP | 只有同一个 dp_rank（TP/PP 副本存的是同一份内容）<br/>DP 度变了直接被 `world_size` 断言拒绝 | 第七章 |
+| tokenizer（torchtitan 的在线路径） | `Trainer` 构造时 `config.tokenizer.build(tokenizer_path=...)`，再传给 dataset | 训练进程；`num_workers` 默认 0，所以 `encode()` 就在训练进程里跑 | 整个任务；不进 checkpoint——换了版本，同一份文本的 token 序列就变了 | 本 rank | 第六、七章 |
+
+Table: 稳定性与数据管线里的核心对象及其生命周期
+
+表里有三行决定"能不能精确续训"：**采样器的游标**是位置本身，**三索引缓存**保证同一个游标值在任何 rank、任何时刻映射到同一批 token，**混合权重**是唯一既影响样本序列、又完全不进 checkpoint 的那一个——前两样对上了而第三样被换掉，训练会"看起来正常地"继续，而数据顺序已经断裂。
+
+### 3. 本篇用到的记账符号与前几篇的结论
+
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)建立的符号，本篇只用这几个：
+
+| 符号 | 含义 |
+|---|---|
+| $$N$$ | 参数量 |
+| $$N_d, N_t, N_p, N_c$$ | 数据 / 张量 / 流水线 / 上下文并行度，正文常写作 $$d, t, p, c$$ |
+| $$s, b, h, a, L$$ | 序列长、micro-batch 内序列数、隐藏维、头数、层数 |
+| $$B$$ | global batch，按序列数计 |
+| $$\delta$$ | 一次 checkpoint 的开销时间 |
+| $$M$$ | 平均故障间隔 |
+| $$\tau$$ | checkpoint 间隔，按步计 |
+| $$k$$、$$n$$、$$w$$ | 回退的步数、跳过的 batch 数、告警到处置的延迟步数 |
+
+Table: 本篇用到的记账符号
+
+三条前几篇的结论，本篇要反复用到，在此复述以求自治。
+
+**1、为什么有 fp32 主参数与 fp32 优化器状态。** bf16 有 8 位指数、7 位尾数，相对精度约 $$2^{-8} \approx 0.4\%$$。一次 Adam 更新 $$\eta \cdot \hat m / \sqrt{\hat v}$$ 的量级约等于学习率 $$\eta \sim 10^{-4}$$，而参数本身的量级在 $$10^{-2}$$ 到 $$1$$ 之间——更新量与参数之比常常低于 $$2^{-8}$$，直接加到 bf16 参数上会被舍入成零。
+
+所以参数的"真身"必须以 fp32 存一份（主参数），Adam 的一阶矩、二阶矩也以 fp32 存，bf16 参数只是每步从主参数拷出来的计算用副本。这是每参数 16 字节的来源，也是本篇第三章"精度纪律"的出发点：**任何把这条链上的某一环降到 bf16 的做法，都是稳定性的潜在风险**。
+
+**2、checkpoint 里必须有什么才能精确恢复。** 模型参数（fp32 主参数，不是 bf16 副本）、优化器状态、学习率调度器状态、迭代计数、**数据加载器的位置**、随机数状态（Python / NumPy / torch CPU / CUDA，Megatron 还有 TP 组的 RNG tracker）。
+
+缺任何一样，恢复后的 loss 曲线都与不中断的那条不重合。[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)讲了前四样怎么落盘，本篇第七章讲第五样。
+
+**3、回退的思想。** 《容错与弹性》的[「有效训练时间的五项公式」](/fault-tolerance-and-elastic-training.html#2-有效训练时间的五项公式)里有一项"回退损失"：故障后从上一个 checkpoint 重来，checkpoint 之后算过的步全部作废。
+
+本篇把这个机制反过来用：**主动**回退到 spike 之前的 checkpoint，再**主动**改变之后的数据顺序（跳过一段），让训练走上另一条轨迹。它的代价就是《容错与弹性》算过的那笔账：回退 $$k$$ 步等于损失 $$k$$ 步的算力，所以 checkpoint 间隔 $$\tau$$ 决定了"回退到 spike 前约 100 步"这句话能不能精确执行。
+
+### 4. 两条线为什么是一条
 
 ![稳定性线与数据线在"那个 batch"处交汇](/img/in-post/training-stability-and-data-pipeline-stability-data-crossing.svg)
 
 两条线在两处相交。第一处是**归因**：排除了学习率和精度之后，剩下的嫌疑人就是数据，而要把嫌疑落实，必须能拿到"第 137,000 步各 rank 各拿了哪些样本"——这要求数据管线的每一步都是确定性的、可回放的。第二处是**处理**：跳过 batch 是通过改数据加载器的位置实现的，而不是改模型；这要求数据加载器的位置是 checkpoint 的一部分，并且能被人为地往前拨。
 
-### 3. 稳定性的三幕与数据管线的五环
+### 5. 稳定性的三幕与数据管线的五环
 
-本篇稳定性部分按"现象与成因 → 预防 → 处理"三幕展开，数据部分按五个环节展开：
+**稳定性按三幕展开。** 第二章是现象与成因——spike 的三种形态、五种成因各自的机理与它们在信号上的指纹。第三章是预防，把每一步更新的量级压在稳定区之内。第四章是处理，回退加跳过。贯穿三幕的是第五章的信号清单：三幕里的每一个判断都要有一个事前记下来的数值作依据，所以信号单独立章。
 
-- **稳定性  第二章 现象与成因    spike 的三种形态；五种成因各自的机理与在信号上的指纹**
-  - **第三章 预防**：全局梯度范数裁剪（跨 TP/PP/DP）· warmup · z-loss · QK-LayerNorm · WD 例外 · 精度纪律 · fp16 loss scale
-  - **第四章 处理**：PaLM 的回退 + 跳过；它依赖什么；Megatron 里对应的开关；回退多远、跳过多少的账
-  - **第五章 信号**：必须记录的清单；每个信号的正常与异常形态；三框架里在哪打印
-- **数据    第六章 存储与索引    离线 vs 在线 tokenize · .bin/.idx · 三个索引与缓存 · 混合与多阶段 · 打包与 cu_seqlens · DeepSpeed 课程**
-  - **第七章 加载与恢复**：流式读取（HF streaming / 对象存储 / StreamingDataset）· 有状态 DataLoader · 三框架的恢复语义 · 数据等待与 MFU
+**数据管线按五个环节展开。** 第六章走前四环——存储（离线 tokenize 成 `.bin`/`.idx`）、索引（document / sample / shuffle 三个数组与它们的缓存）、混合（多来源的确定性采样与多阶段配比）、打包（跨文档样本、`reset_attention_mask` 与 `cu_seqlens`）；第七章走最后一环，也是与稳定性耦合最紧的一环——加载与恢复（流式读取、位置怎么进 checkpoint、怎么被人为拨动、以及它什么时候会变成 MFU 账上的"数据等待"）。
 
-### 4. 三框架在"稳定性与数据"面上的对照
+### 6. 三框架在"稳定性与数据"面上的对照
 
 | 项目 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
 |---|---|---|---|
@@ -66,7 +153,7 @@ updated: 2026-09-20
 
 Table: 三框架在稳定性与数据面上的对照
 
-### 5. 本文的章节安排
+### 7. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -95,7 +182,13 @@ Table: 本文的章节安排
 
 Table: loss spike 的三种形态
 
-第一种最常见也最无害，多数时候不需要处理；第二种是本篇的主角，PaLM 描述的就是它；第三种一旦出现只能回退。三种形态在发生**之前**的信号上就有区别——这是第五章要讲的：发散往往在几百步前就能从 attention logit 最大值或 grad norm 的缓慢上升中看到，而瞬时 spike 事前没有任何征兆。
+三种形态的处置完全不同：
+
+1. 瞬时 spike 最常见也最无害，多数时候不需要处理。
+2. 可恢复 spike 是本篇的主角，PaLM 描述的就是它。
+3. 发散一旦出现只能回退。
+
+它们在发生**之前**的信号上也有区别——这是第五章要讲的：发散往往在几百步前就能从 attention logit 最大值或 grad norm 的缓慢上升中看到，而瞬时 spike 事前没有任何征兆。
 
 ### 2. 成因一：学习率
 
@@ -103,7 +196,7 @@ Table: loss spike 的三种形态
 
 - **warmup 太短**。训练初期 Adam 的二阶矩 $$\hat v$$ 还没有可靠的估计，$$\hat m / \sqrt{\hat v}$$ 的分母偏小、比值偏大；此时若 $$\eta$$ 已经到峰值，前几百步就会 spike。warmup 的作用就是让 $$\hat v$$ 先"热起来"。
 - **峰值 LR 对模型规模偏高**。同一个 LR 在 1B 模型上稳定，在 70B 上可能不稳定——这是训练配方问题，不在本篇范围；但工程上它的指纹很清楚：spike 在整个训练过程中**周期性**出现，且回退 + 跳过后在附近再次出现。
-- **batch 渐增或 LR 调度的拐点**。[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)提到的 `--rampup-batch-size`、以及 WSD（warmup-stable-decay）调度进入 decay 段的那一步，都是 LR 与 batch 关系发生变化的时刻；spike 恰好出现在这些拐点后几十步内，就该先查调度。
+- **batch 渐增或 LR 调度的拐点**。[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)提到的 `--rampup-batch-size`、以及 WSD（warmup-stable-decay）调度进入 decay 段的那一步，都是 LR 与 batch 关系发生变化的时刻；spike 恰好出现在这些拐点后几十步内，就该先查调度。
 
 LR 成因的信号指纹：**param norm 的增长速率在 spike 前变快**（步长大了），grad norm 在 spike 前几十步已经缓慢上升。
 
@@ -111,10 +204,17 @@ LR 成因的信号指纹：**param norm 的增长速率在 spike 前变快**（�
 
 先把"7 位尾数"换成一个数字。一个量级在 $$[0.5, 1)$$ 的 bf16 参数，相邻两个可表示值的间距（ulp）是 $$2^{-1} \times 2^{-7} = 2^{-8} \approx 0.0039$$；任何绝对值小于半个 ulp、即约 $$0.002$$ 的加数都会被舍入掉。而一次 Adam 更新的量级约等于学习率——$$3 \times 10^{-4}$$——比 $$0.002$$ 小一个量级。也就是说，**如果参数以 bf16 存放，绝大多数步的更新根本写不进去**；只有参数量级降到 $$10^{-2}$$ 以下的那些元素还能被更新到。这不是"精度略有损失"，而是"训练在多数参数上停止"。bf16 的 7 位尾数在四处会咬人：
 
-- **主参数**：上文已说，更新量小于 $$2^{-8}$$ 倍参数就会丢失。这在所有主流框架里都由 fp32 主参数解决，但要确认没有被关掉：Megatron 的 `--bf16` 路径走 `Float16OptimizerWithFloat16Params`（`megatron/core/optimizer/optimizer.py`），主参数在 `main_param`；torchtitan 的 FSDP2 用 `MixedPrecisionPolicy(param_dtype, reduce_dtype)`（`torchtitan/distributed/fsdp.py`；`ParallelismConfig.mixed_precision_param` 默认 bfloat16、`mixed_precision_reduce` 只允许 float32），分片参数本体保持 fp32，bf16 只是 all-gather 出来的计算副本。DeepSpeed 的 `bf16_optimizer.py` 同理。**用 `--use-precision-aware-optimizer` 一类把主参数或优化器状态压到 bf16/fp8 的选项，是显存与稳定性的交换**，开之前要有 loss 曲线对比。
-- **梯度累积**：$$m$$ 个 micro-batch 的梯度逐个相加，若在 bf16 里累加，后加的小梯度会被前面的大和吞掉。Megatron 的 `--accumulate-allreduce-grads-in-fp32` 让梯度 buffer 是 fp32（`arguments.py` 在 `--bf16` 下自动把它置 True，除非显式给了 `--grad-reduce-in-bf16`），代价是每参数多 2 字节（[第一篇《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)的 16 → 18）。torchtitan 的 FSDP2 `reduce_dtype=fp32` 让 reduce-scatter 在 fp32 里做。
-- **注意力 softmax**：logit 差值大时 $$\exp$$ 在 bf16 里分辨率不够，softmax 输出会出现精确的 0 和 1。Megatron `TransformerConfig.attention_softmax_in_fp32` 默认 True（`apply_query_key_layer_scaling` 时强制 True）；FlashAttention 与 TE fused attention 内部本来就以 fp32 累加。
-- **loss 与 logits**：最后一层的 $$s \times V$$ logits 若以 bf16 进入交叉熵，log-softmax 的精度不够。Megatron 的 `tensor_parallel/cross_entropy.py` 与 torchtitan 的损失函数都把 logits 提升到 fp32 再算。
+**1、主参数。** 更新量小于 $$2^{-8}$$ 倍参数就会丢失，这在所有主流框架里都由 fp32 主参数解决，但要确认没有被关掉。
+
+Megatron 的 `--bf16` 路径走 `Float16OptimizerWithFloat16Params`（`megatron/core/optimizer/optimizer.py`），主参数在 `main_param`。torchtitan 的 FSDP2 用 `MixedPrecisionPolicy(param_dtype, reduce_dtype)`（`torchtitan/distributed/fsdp.py`；`ParallelismConfig.mixed_precision_param` 默认 bfloat16、`mixed_precision_reduce` 只允许 float32），分片参数本体保持 fp32，bf16 只是 all-gather 出来的计算副本。DeepSpeed 的 `bf16_optimizer.py` 同理。**用 `--use-precision-aware-optimizer` 一类把主参数或优化器状态压到 bf16/fp8 的选项，是显存与稳定性的交换**，开之前要有 loss 曲线对比。
+
+**2、梯度累积。** $$m$$ 个 micro-batch 的梯度逐个相加，若在 bf16 里累加，后加的小梯度会被前面的大和吞掉。
+
+Megatron 的 `--accumulate-allreduce-grads-in-fp32` 让梯度 buffer 是 fp32（`arguments.py` 在 `--bf16` 下自动把它置 True，除非显式给了 `--grad-reduce-in-bf16`），代价是每参数多 2 字节（《训练任务的状态解剖》的[「混合精度的字节账：16 与 18」](/training-state-anatomy-memory-and-mfu.html#三混合精度的字节账16-与-18)）。torchtitan 的 FSDP2 `reduce_dtype=fp32` 让 reduce-scatter 在 fp32 里做。
+
+**3、注意力 softmax。** logit 差值大时 $$\exp$$ 在 bf16 里分辨率不够，softmax 输出会出现精确的 0 和 1。Megatron 的 `TransformerConfig.attention_softmax_in_fp32` 默认 True（`apply_query_key_layer_scaling` 时强制 True）；FlashAttention 与 TE fused attention 内部本来就以 fp32 累加。
+
+**4、loss 与 logits。** 最后一层的 $$s \times V$$ logits 若以 bf16 进入交叉熵，log-softmax 的精度不够。Megatron 的 `tensor_parallel/cross_entropy.py` 与 torchtitan 的损失函数都把 logits 提升到 fp32 再算。
 
 bf16 成因的指纹：spike **没有任何前兆**，grad norm 在同一步跳起然后立刻回落，且 `num_zeros_in_grad`（第五章）在该步异常。它更像是"偶发放大"而不是"逐渐失稳"。
 
@@ -163,13 +263,13 @@ flowchart TB
     C3 --> A3["<b>开 QK-LayerNorm / qk_clip</b><br/>回退到上升开始之前"]
     Q1 -->|否| Q2{"param norm 增速变快<br/>且 grad norm 缓升?"}
     Q2 -->|是| C1["成因一：学习率"]
-    C1 --> A1["降 LR / 加长 warmup / 查调度拐点<br/>回退到异常开始之前重训"]
+    C1 --> A1["<b>降 LR、加长 warmup、查调度拐点</b><br/>回退到异常开始之前重训"]
     Q2 -->|否| Q3{"global_max_loss 某个 rank<br/>远高于 avg?"}
     Q3 -->|是| C4["成因四：坏数据"]
     C4 --> A4["<b>反查该 rank 那一步的样本</b><br/>回退 + 跳过；特征加进过滤规则"]
     Q3 -->|否| Q4{"spike 前 grad norm<br/>有一段低于正常的平台?"}
     Q4 -->|是| C5["成因五：优化器状态"]
-    C5 --> A5["回退 ~100 步 + 跳过 200–500 batch<br/>让状态与数据错相"]
+    C5 --> A5["<b>回退 ~100 步 + 跳过 200–500 batch</b><br/>让状态与数据错相"]
     Q4 -->|否| Q5{"单步跳、立刻回落<br/>num_zeros_in_grad 异常?"}
     Q5 -->|是| C2["成因二：bf16 精度"]
     C2 --> A2["<b>通常不处理</b><br/>核对第三章的精度纪律检查表"]
@@ -212,7 +312,22 @@ $$
 \|g\|_2^2 = \sum_{\text{shard } i} \|g_i\|_2^2, \qquad \|g\|_\infty = \max_i \|g_i\|_\infty
 $$
 
-每张卡算自己那一片的平方和，在**恰好覆盖所有分片各一次**的进程组上 all-reduce SUM，再开方。麻烦全在"恰好一次"这四个字上：哪些参数在多张卡上有副本（TP 组内复制的 LayerNorm、PP 首尾共享的 embedding、非分布式优化器下 DP 组内完整的梯度副本），哪些参数只在一张卡上有（TP 切开的矩阵、分布式优化器的分片），决定了归约组该是谁、哪些副本该被跳过。算错的后果是安静的：范数被高估，clip 系数偏小，训练变慢但不报错。三个框架的做法：
+每张卡算自己那一片的平方和，在**恰好覆盖所有分片各一次**的进程组上 all-reduce SUM，再开方。麻烦全在"恰好一次"这四个字上：哪些参数在多张卡上有副本（TP 组内复制的 LayerNorm、PP 首尾共享的 embedding、非分布式优化器下 DP 组内完整的梯度副本），哪些参数只在一张卡上有（TP 切开的矩阵、分布式优化器的分片），决定了归约组该是谁、哪些副本该被跳过。
+
+"算错一次"的后果用三个分片就能算出来。设三张卡上的本地范数是 3、4、12，阈值 $$c = 1.0$$：
+
+| 分片与汇总量 | 正确：每个分片计一次 | 算错：第 2 个分片在 TP 组内有副本，被计了两次 |
+|---|---:|---:|
+| 分片 1（本地范数 3） | $$3^2 = 9$$ | 9 |
+| 分片 2（本地范数 4） | $$4^2 = 16$$ | 16 + 16 = 32 |
+| 分片 3（本地范数 12） | $$12^2 = 144$$ | 144 |
+| 归约出的平方和 | 169 | 185 |
+| 全局范数 $$\lVert g \rVert_2$$ | 13 | 13.60 |
+| 裁剪系数 $$c / \lVert g \rVert_2$$ | 0.0769 | 0.0735 |
+
+Table: 一个分片被重复计数时裁剪系数的变化
+
+多算一个 16，全局范数从 13 变成 13.60，裁剪系数小了 4.4%——这一步的每一个参数都被多缩小 4.4%，而没有任何报错、没有任何 NaN，曲线只是比应有的样子慢一点。**范数算错的后果就是这样安静的**：高估范数 → 系数偏小 → 训练变慢。三个框架的做法：
 
 先在 CPU 上把这个缩放实测一遍（`10_stab_toys.py clip`）——一次人为的大梯度：
 
@@ -230,11 +345,23 @@ clip 后全局范数  1.000  (max_norm=1.0)
 
 四个参数张量被**同一个标量**缩放——全局裁剪只改长度不改方向，这就是它能保住更新方向的原因。
 
-**Megatron** 的实现在 `megatron/core/optimizer/clip_grads.py`：`get_grad_norm_fp32(grads_for_norm, norm_type, grad_stats_parallel_group)` 先用 `multi_tensor_l2norm`（TE 或 Apex 的 multi-tensor kernel，一次 kernel 算一列 tensor 的范数）得到本地范数的平方和，然后在 `grad_stats_parallel_group` 上 all-reduce SUM、开方；`clip_grad_by_total_norm_fp32(parameters, max_norm, total_norm)` 用 `multi_tensor_scale` 原地缩放；`count_zeros_fp32()` 用同一个组归约梯度中零的个数。三处细节决定了它的正确性：
+**Megatron** 的实现在 `megatron/core/optimizer/clip_grads.py`，三个函数：
 
-- **哪些梯度参与范数。** `optimizer.py` 的 `MegatronOptimizer.get_main_grads_for_grad_norm()` 过滤掉两类会被重复计数的参数：`param_is_not_shared()`（被首尾 PP stage 共享的 embedding 只算一次）和 `param_is_not_tensor_parallel_duplicate()`（LayerNorm 权重这类在 TP 组内复制的参数只在 TP rank 0 计入）。漏掉这个过滤，$$\|g\|$$ 会被高估 $$t$$ 倍的一部分，clip 变得过于激进——这是自己写多维并行时最常见的 bug。
-- **在哪个组上归约。** `get_grad_stats_parallel_group()`：非分布式优化器时，DP 组的梯度 all-reduce 已经完成、每个 DP rank 手里是完整的 DP 平均梯度，所以只需在**模型并行组**（TP × PP）上归约；分布式优化器（`distrib_optimizer.py` 覆盖此方法）时每个 rank 只持有自己那一分片的主梯度，必须在**整个 world** 上归约。Megatron-FSDP 的 DTensor 梯度还要先在 DP 组上归约（`get_data_parallel_group_if_dtensor()`）。
-- **调用时序。** `MixedPrecisionOptimizer.step()` 的顺序是 `prepare_grads()`（拷到 fp32 主梯度、fp16 时 unscale 并查 inf）→ `clip_grad_norm()` → `count_zeros()`（若 `log_num_zeros_in_grad`）→ `step_with_ready_grads()`；返回 `(success, grad_norm, num_zeros_in_grad)`，`train_step()` 再用 `reduce_max_stat_across_model_parallel_group()` 把没有可训练参数的 rank 上的 None 补齐。所以 Megatron 日志里的 `grad norm` 是 **clip 之前**的全局范数——这正是要记的那个信号。
+- `get_grad_norm_fp32(grads_for_norm, norm_type, grad_stats_parallel_group)` 先用 `multi_tensor_l2norm`（TE 或 Apex 的 multi-tensor kernel，一次 kernel 算一列 tensor 的范数）得到本地范数的平方和，然后在 `grad_stats_parallel_group` 上 all-reduce SUM、开方。
+- `clip_grad_by_total_norm_fp32(parameters, max_norm, total_norm)` 用 `multi_tensor_scale` 原地缩放。
+- `count_zeros_fp32()` 用同一个组归约梯度中零的个数。
+
+三处细节决定了它的正确性。
+
+**1、哪些梯度参与范数。** `optimizer.py` 的 `MegatronOptimizer.get_main_grads_for_grad_norm()` 过滤掉两类会被重复计数的参数：`param_is_not_shared()` 让被首尾 PP stage 共享的 embedding 只算一次，`param_is_not_tensor_parallel_duplicate()` 让 LayerNorm 权重这类在 TP 组内复制的参数只在 TP rank 0 计入。
+
+漏掉这个过滤，$$\|g\|$$ 会被高估——高估多少就是上面那张三分片小表算的那件事，clip 变得过于激进。这是自己写多维并行时最常见的 bug。
+
+**2、在哪个组上归约。** 由 `get_grad_stats_parallel_group()` 决定，两种情形：非分布式优化器时，DP 组的梯度 all-reduce 已经完成、每个 DP rank 手里是完整的 DP 平均梯度，所以只需在**模型并行组**（TP × PP）上归约；分布式优化器（`distrib_optimizer.py` 覆盖此方法）时每个 rank 只持有自己那一分片的主梯度，必须在**整个 world** 上归约。Megatron-FSDP 的 DTensor 梯度还要先在 DP 组上归约（`get_data_parallel_group_if_dtensor()`）。
+
+**3、调用时序。** `MixedPrecisionOptimizer.step()` 的顺序是 `prepare_grads()`（拷到 fp32 主梯度、fp16 时 unscale 并查 inf）→ `clip_grad_norm()` → `count_zeros()`（若 `log_num_zeros_in_grad`）→ `step_with_ready_grads()`，返回 `(success, grad_norm, num_zeros_in_grad)`；`train_step()` 再用 `reduce_max_stat_across_model_parallel_group()` 把没有可训练参数的 rank 上的 None 补齐。
+
+所以 Megatron 日志里的 `grad norm` 是 **clip 之前**的全局范数——这正是要记的那个信号。
 
 **torchtitan** 的 `torchtitan/distributed/utils.py` `clip_grad_norm_(parameters, max_norm, norm_type, error_if_nonfinite, foreach, pp_mesh, ep_enabled)` 走 PyTorch 原生路径：`torch.nn.utils.get_total_norm(grads)`（`torch/nn/utils/clip_grad.py`，2.13 把 `_get_total_norm` 与 `_clip_grads_with_norm_` 以公开名导出）对一列 DTensor 梯度返回一个 placement 为 `_NormPartial` 的 DTensor（`torch/distributed/tensor/_ops/_math_ops.py`），`.full_tensor()` 触发按 $$p$$ 范数语义的归约——FSDP 与 TP 两个维度一次搞定；PP 不在 DTensor 的 mesh 里，所以再显式地在 `pp_mesh` 上 all-reduce $$p$$ 次幂之和。最后 `torch.nn.utils.clip_grads_with_norm_()` 缩放。EP 开启时走 `_clip_grad_norm_with_ep()`，因为专家参数与稠密参数在不同的 mesh 上。`trainer.py` 的 `train_step()` 把返回值 `grad_norm.item()` 交给 `MetricsProcessor.log()`。
 
@@ -281,9 +408,9 @@ weight decay 对 1-D 参数（LayerNorm 的 gain、bias）与 embedding 的作�
 - 注意力 softmax fp32（`attention_softmax_in_fp32`；或 fused attention 内部 fp32 累加）
 - logits → 交叉熵 fp32
 - RMSNorm / LayerNorm 的方差计算 fp32（融合 kernel 通常已保证）
-- FP8 只在 GEMM 输入上，首尾层保持 bf16（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)）
+- FP8 只在 GEMM 输入上，首尾层保持 bf16（《千卡配置实战》的[「融合、低精度与 torch.compile」](/thousand-gpu-configuration-and-mfu-tuning.html#七融合低精度与-torchcompile)）
 
-每一项都对应显存或带宽的代价，这就是为什么它们都是"可关的"；也是为什么[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)说 FP8 这类数值配置变更的前后基准必须含 loss 曲线。
+每一项都对应显存或带宽的代价，这就是为什么它们都是"可关的"；也是为什么《千卡配置实战》说 FP8 这类数值配置变更的前后基准必须含 loss 曲线。
 
 其中"梯度累积在 fp32"最直观（`10_stab_toys.py bf16`）：向 1.0 累加一万次 1e-3——
 
@@ -295,6 +422,12 @@ fp32 加完再转 bf16            = 11.0000
 ```
 
 bf16 累加器从第二步起就加不进去了（1e-3 小于 1.0 处半个 ulp 0.0039），一万次加法全部丢光。fp32 累加完再转 bf16 只损失 $$8 \times 10^{-4}$$——这正是"存 bf16、算 fp32"这条纪律的依据。
+
+> [!NOTE] Java 经验参照：累加器要比被累加的数宽
+>
+> Java 里把一大堆小 `float` 累加进一个 `float` 变量，和会越积越大、尾数位越来越不够，后面加的数被整个舍掉——所以求和、求均值的累加器一向用 `double`，再把结果转回 `float`。梯度累积在 fp32 里做是同一件事。
+>
+> 不一样的地方有两处。一是量级：`float` 有 24 位有效尾数，和要比加数大约 $$2^{24}$$ 倍（一千六百多万倍）才会把它完全吞掉；bf16 只有 8 位，这个倍数是 256，所以上面"1.0 加 0.001"第一步就已经吞掉了。二是对象：`double` → `float` 只影响"存下来的那个和"，而 bf16 主参数影响的是"下一步还能不能被更新"——更新被舍回原值，训练在那些参数上直接停住，不是结果精度差一点。
 
 ### 6. fp16 的 loss scale
 
@@ -308,7 +441,7 @@ PaLM 论文 Training Instability 一节的原话大意是：遇到 spike 时，�
 
 这个动作看起来简单，拆开是三个操作：
 
-1. **回退**：加载第 $$(T - k)$$ 步的 checkpoint，$$k \approx 100$$ → 依赖[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：checkpoint 密度与精确恢复
+1. **回退**：加载第 $$(T - k)$$ 步的 checkpoint，$$k \approx 100$$ → 依赖[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：checkpoint 密度与精确恢复
 2. **跳过**：让数据加载器从第 $$(T - k + n)$$ 步的位置开始，$$n \approx 200\text{–}500$$ → 依赖本篇第七章：数据位置可精确设置
 3. **继续**：其余一切（LR 调度、RNG、优化器状态）从 $$T - k$$ 的状态自然演进 → 依赖 checkpoint 完整
 
@@ -346,7 +479,7 @@ run2（从 step-140 恢复，跳过坏窗口）:
 
 ### 2. 三个前提
 
-- **checkpoint 够密。** "回退约 100 步"意味着 checkpoint 间隔 $$\tau \le 100$$ 步左右——对一个 5 s/step 的任务是 8 分钟一次。[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 Young 公式 $$\tau_{opt} \approx \sqrt{2\delta M}$$ 给的是容错最优的间隔，通常比这个长（$$\delta = 30$$ s、$$M = 3$$ h 时约 7 分钟，正好在量级上；$$M$$ 更大时 $$\tau_{opt}$$ 更长）。若 $$\tau$$ 是 1000 步，"回退 100 步"就变成"回退到 1000 步前"，多损失 900 步的算力。异步保存与本地 NVMe 一级存储（[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)）让密 checkpoint 的代价可承受。
+- **checkpoint 够密。** "回退约 100 步"意味着 checkpoint 间隔 $$\tau \le 100$$ 步左右——对一个 5 s/step 的任务是 8 分钟一次。[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 Young 公式 $$\tau_{opt} \approx \sqrt{2\delta M}$$ 给的是容错最优的间隔，通常比这个长（$$\delta = 30$$ s、$$M = 3$$ h 时约 7 分钟，正好在量级上；$$M$$ 更大时 $$\tau_{opt}$$ 更长）。若 $$\tau$$ 是 1000 步，"回退 100 步"就变成"回退到 1000 步前"，多损失 900 步的算力。异步保存与本地 NVMe 一级存储（《分布式 checkpoint》的[「多级存储与存多久一次」](/distributed-checkpoint-format-async-save-and-resharding.html#九多级存储与存多久一次)）让密 checkpoint 的代价可承受。
 - **数据顺序可确定、可回放。** 第七章的全部内容。
 - **能确定 spike 的起点。** 从曲线上看到 spike 的那一步 $$T$$ 未必是问题开始的那一步——成因五的"低平台"可能在 $$T$$ 前几百步就开始了。回退 100 步是经验值，若第五章的信号显示异常更早开始，就回退得更早。
 
@@ -354,28 +487,31 @@ run2（从 step-140 恢复，跳过坏窗口）:
 
 Megatron 0.18.0 把"跳过"做成了配置项：`TrainingConfig.iterations_to_skip`（`megatron/training/config/training_config.py`，CLI `--iterations-to-skip`，1-indexed 的迭代号列表）。`training.py` 的 `train()` 主循环在每步开头检查 `(iteration + 1) in args.iterations_to_skip`，命中则调 `dummy_train_step(train_data_iterator)`——它只从 data iterator 取一个 global batch 的数据并丢弃，不做前向反向——然后 `consumed_train_samples` 与 `skipped_train_samples` 各加一个 global batch，`iteration` 加一，`continue`。两个计数器同步增加的意义在于：**采样器的位置（consumed）与训练的进度（iteration）保持了原有的对应关系**，恢复时 `consumed_train_samples` 仍然等于 `iteration × global_batch_size`，`build_train_valid_test_data_loaders()` 里的"向后兼容"断言不会被破坏；`skipped_train_samples` 单独记账，让日志与 TensorBoard（`skipped-train-samples`）能看到跳过了多少。
 
-跳过的列表还可以**自动**生成：`--result-rejected-tracker-filename` 指定一个文件，`RerunStateMachine`（`megatron/core/rerun_state_machine.py`）在 `validate_result()` 拒绝某个结果时往里追加一行（含 jobID、rank、iteration、status）；下次启动时 `arguments.py` 调 `RerunStateMachine.get_skipped_iterations_from_tracker_file()`，把"同一 iteration 被记录不止一次"的迭代号追加到 `iterations_to_skip`。配合 `check_for_spiky_loss`（`RerunStateMachineConfig`，默认关）——`pretrain_gpt.py` 的 `loss_func()` 用 `is_unexpectedly_large(threshold=SPIKY_LOSS_FACTOR=10, context="loss")` 做拒绝函数：前 100 步采样 loss 的最大值，之后任一步的 loss 超过该最大值 10 倍即拒绝，`fatal=False`——以及 `--check-for-large-grads`（`param_and_grad_buffer.py` 的 `check_grads()` 在 DP 通信之前对每个 bucket 的梯度范数做同样的 10 倍检查），Megatron 就有了一条"检测 spike → 重跑确认（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 rerun 机制，区分瞬态硬件错误与可复现结果）→ 记录 → 下次启动自动跳过"的自动化路径。它不会自动回退，回退仍是人的决定：查信号、选 checkpoint、改 `--load`、加 `--iterations-to-skip`、重启。
+跳过的列表还可以**自动**生成：`--result-rejected-tracker-filename` 指定一个文件，`RerunStateMachine`（`megatron/core/rerun_state_machine.py`）在 `validate_result()` 拒绝某个结果时往里追加一行（含 jobID、rank、iteration、status）；下次启动时 `arguments.py` 调 `RerunStateMachine.get_skipped_iterations_from_tracker_file()`，把"同一 iteration 被记录不止一次"的迭代号追加到 `iterations_to_skip`。配合 `check_for_spiky_loss`（`RerunStateMachineConfig`，默认关）——`pretrain_gpt.py` 的 `loss_func()` 用 `is_unexpectedly_large(threshold=SPIKY_LOSS_FACTOR=10, context="loss")` 做拒绝函数：前 100 步采样 loss 的最大值，之后任一步的 loss 超过该最大值 10 倍即拒绝，`fatal=False`——以及 `--check-for-large-grads`（`param_and_grad_buffer.py` 的 `check_grads()` 在 DP 通信之前对每个 bucket 的梯度范数做同样的 10 倍检查），Megatron 就有了一条"检测 spike → 重跑确认（《容错与弹性》的[「SDC 与确定性」](/fault-tolerance-and-elastic-training.html#九sdc-与确定性)讲的 rerun 机制，区分瞬态硬件错误与可复现结果）→ 记录 → 下次启动自动跳过"的自动化路径。它不会自动回退，回退仍是人的决定：查信号、选 checkpoint、改 `--load`、加 `--iterations-to-skip`、重启。
 
 torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.py` 在 `global_avg_loss` 非有限时直接 `raise RuntimeError`（只拦 NaN/inf，不拦 spike）；跳过要靠加载 checkpoint 后手工迭代 dataloader 丢弃 $$n$$ 个 batch（第七章第 4 节）。DeepSpeed 的 `skipped_steps` 只覆盖 fp16 overflow 的自动跳步。
 
 ### 4. 回退多远、跳过多少：一笔账
 
-设 checkpoint 间隔 $$\tau$$ 步、spike 发生在第 $$T$$ 步、被人发现时已经到了 $$T + w$$ 步（$$w$$ 是告警到处置的延迟，值班响应通常 $$w$$ 在几十到几百步）。回退到 spike 前最近的 checkpoint $$T_c = \tau \lfloor (T - k) / \tau \rfloor$$，损失的算力是 $$T + w - T_c$$ 步；跳过 $$n$$ 个 batch 损失的是 $$n \times B$$ 个样本（不是算力，是数据——这些样本以后不会再见到，对多 epoch 训练可以补回来）。以 $$\tau = 100$$、$$k = 100$$、$$w = 50$$ 为例，一次处置的算力代价约 250–300 步，对一个 100 万步的任务是 0.03%；一个训练中 20 次 spike 合计不到 1%。**这笔账说明回退 + 跳过是便宜的**——贵的是发现它所需的信号与响应，以及让它成为可能的 checkpoint 密度与数据可回放性。
+设 checkpoint 间隔 $$\tau$$ 步、spike 发生在第 $$T$$ 步、被人发现时已经到了 $$T + w$$ 步（$$w$$ 是告警到处置的延迟，值班响应通常 $$w$$ 在几十到几百步）。回退到 spike 前最近的 checkpoint $$T_c = \tau \lfloor (T - k) / \tau \rfloor$$，损失的算力是 $$T + w - T_c$$ 步；跳过 $$n$$ 个 batch 损失的是 $$n \times B$$ 个样本（不是算力，是数据——这些样本以后不会再见到，对多 epoch 训练可以补回来）。以 $$\tau = 100$$、$$k = 100$$、$$w = 50$$ 为例，$$T - T_c$$ 落在 $$[k,\, k+\tau) = [100,\, 200)$$ 之间，一次处置的算力代价是 $$w + (T - T_c)$$，即约 150–250 步、均值约 200 步，对一个 100 万步的任务是 0.02%；一个训练中 20 次 spike 合计不到 0.5%。**这笔账说明回退 + 跳过是便宜的**——贵的是发现它所需的信号与响应，以及让它成为可能的 checkpoint 密度与数据可回放性。
 
 跳过多少：PaLM 的 200–500 覆盖了 $$\beta_2 = 0.95$$ 时 $$\hat v$$ 的 10–25 个时间常数，让优化器状态与那段数据充分"错相"。$$\beta_2$$ 更接近 1 时要跳得更多。
 
 ### 5. 处置流程
 
-把前四节压成值班时照着做的一张卡片（[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的值班手册会引用它）：
+把前四节压成值班时照着做的一张卡片（[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的值班手册会引用它）：
 
-- **1  确认形态      loss 单步跳 > 10% 且 grad norm 跳 > 3×？→ 是 spike。若 loss 已 NaN / 持续上升 → 发散，直接进入第 4 步**
-- **2  等一等        瞬时 spike 多数在 50–100 步内自行回落。设一个观察窗（例如 100 步），期间不动**
-- **3  读信号        对照第二章第 7 节的表：param norm 斜率 / max logit 趋势 / grad norm 低平台 / global_max_loss 指向的 rank**
-  - → LR 或 logit 成因：改配置（降 LR / 开 QK-norm），回退到异常开始之前的 checkpoint
-  - → 坏数据或优化器状态成因：进入第 4 步
-- **4  回退 + 跳过   选 spike 前 ~100 步的 checkpoint；Megatron 加 --iterations-to-skip 覆盖 spike 附近 200–500 步； torchtitan 加载后手工丢弃 n 个 batch；其余参数不变**
-- **5  验证          恢复后前 100 步的 loss 与原曲线在回退点衔接；spike 位置不再出现；replay_check 确认数据顺序只在跳过处有差异**
-- **6  留档          spike 步、成因判断、回退点、跳过范围、样本 id 反查结果 → 复盘表；若是坏数据，把特征加进过滤规则**
+1. **确认形态。** loss 单步跳 > 10% 且 grad norm 跳 > 3×，就按 spike 处理。若 loss 已经 NaN 或持续上升不回头，那是发散，直接进入第 4 步。
+2. **等一等。** 瞬时 spike 多数在 50–100 步内自行回落。设一个观察窗（例如 100 步），期间不动。
+3. **读信号。** 对照第二章第 7 节的指纹表看四样东西：param norm 的斜率、max attention logit 的趋势、grad norm 有没有低平台、`global_max_loss` 指向哪个 rank。
+   - 指向 LR 或 logit 增长：改配置（降 LR、开 QK-LayerNorm），回退到异常开始之前的 checkpoint。
+   - 指向坏数据或优化器状态：进入第 4 步。
+4. **回退 + 跳过。** 选 spike 前约 100 步的 checkpoint。Megatron 加 `--iterations-to-skip` 覆盖 spike 附近 200–500 步；torchtitan 在加载之后手工丢弃 $$n$$ 个 batch。其余参数一律不变——一次只动一个变量。
+5. **验证。** 三件事都要对上。
+   - 恢复后前 100 步的 loss 与原曲线在回退点衔接。
+   - spike 位置不再出现。
+   - `replay_check` 确认数据顺序只在跳过处有差异。
+6. **留档。** spike 步、成因判断、回退点、跳过范围、样本 id 反查结果写进复盘表。若是坏数据，把它的特征加进过滤规则。
 
 ## 五、必须记录的信号
 
@@ -395,11 +531,15 @@ torchtitan 与 DeepSpeed 没有等价的内建开关。torchtitan 的 `trainer.p
 | num_zeros_in_grad | 梯度中精确为零的元素数（Megatron） | 稳定，随模型固定 | 突增：梯度下溢（精度）或某部分参数收不到梯度（数据/mask） |
 | max attention logit | 全模型各层 logit 最大值（Megatron log_max_attention_logit） | 缓升后平台，< 50–100 | 单调升过 100：成因三，加 QK-norm 或 qk_clip |
 | n_tokens_seen / consumed samples | 数据位置 | 线性增长 | 恢复后不连续：数据位置没进 checkpoint，样本重复或遗漏 |
-| step time / data_loading(%) | [第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的 MFU 账 | 稳定；data_loading < 1% | data_loading 上升：管线跟不上（第七章第 6 节） |
+| step time / data_loading(%) | 《千卡配置实战》的[「MFU 损失的七项拆解」](/thousand-gpu-configuration-and-mfu-tuning.html#六mfu-损失的七项拆解) | 稳定；data_loading < 1% | data_loading 上升：管线跟不上（第七章第 6 节） |
 
 Table: 每步都应记录的信号清单
 
-三个补充：第一，**loss 与 grad norm 要记 clip 前的原始值**——clip 后的 grad norm 恒等于阈值，没有信息量。第二，grad norm 若能按 PP stage 或按层分组记录（Megatron 的 `check_grads()` 是按 bucket 算的，可以顺手记下来），能直接看出是哪一段网络出了问题。第三，这些信号要**逐步记录、长期保存**：spike 的归因要看它前几百步的形态，`log_interval = 100` 的日志分辨率不够；TensorBoard 事件文件够用，但[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)会讨论为什么要同时进 Prometheus。
+这张表有三个补充：
+
+1. **记 clip 之前的原始值。** clip 之后的 grad norm 恒等于阈值，没有信息量。
+2. **grad norm 尽量按 PP stage 或按层分组记。** Megatron 的 `check_grads()` 本来就是按 bucket 算的，可以顺手记下来；分组之后能直接看出是哪一段网络出了问题。
+3. **逐步记录、长期保存。** spike 的归因要看它前几百步的形态，`log_interval = 100` 的日志分辨率不够。TensorBoard 事件文件够用，但[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)会讨论为什么要同时进 Prometheus。
 
 ### 2. 三框架里在哪
 
@@ -414,7 +554,7 @@ Table: 每步都应记录的信号清单
 - **每步都记，不采样**。信号的存储成本是每步几十个浮点数，对任何任务都可以忽略。
 - **记原始值**。clip 前的 grad norm、unscale 后的真实梯度量级、按 token 加权的 loss。
 - **随 checkpoint 一起留档**。spike 归因要对照"spike 前 100 步的信号"与"那 100 步用了哪些样本"，后者要靠 consumed samples 与数据索引反查，所以信号文件里每一行都要有 step 与 consumed samples 两列。
-- **按 rank 可查**。至少 `global_max_loss` 这类聚合要保留是哪个 rank 贡献的极值；[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)会讲 per-rank 可见性的全套。
+- **按 rank 可查**。至少 `global_max_loss` 这类聚合要保留是哪个 rank 贡献的极值；[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)会讲 per-rank 可见性的全套。
 
 ## 六、数据管线（上）：存储与索引
 
@@ -457,7 +597,11 @@ flowchart TB
     class SMP,CNT hot;
 ```
 
-灰色环节在训练开始前或启动时只做一次，其产物（`.bin/.idx`、索引缓存）是所有 rank 共享的只读文件；蓝色环节每步都在跑；黄色的两处是同一个整数的生产者与消费者——数据位置进 checkpoint、恢复、跳过 batch，改的都只是它。
+图里三种颜色对应三种节奏：
+
+- 灰色环节在训练开始前或启动时只做一次，其产物（`.bin`/`.idx`、索引缓存）是所有 rank 共享的只读文件。
+- 蓝色环节每步都在跑。
+- 黄色的两处是同一个整数的生产者与消费者——数据位置进 checkpoint、恢复、跳过 batch，改的都只是它。
 
 ### 1. 离线 tokenize 还是在线
 
@@ -516,11 +660,15 @@ Table: GPTDataset 的三个索引数组
 
 第四章的"反查坏 batch"就是把这条链倒着走：`consumed_train_samples` 加 rank 的切片位置给出 `idx`，三次查表后拿到文档 id，去 `.bin` 里看那几个文档是什么。
 
-三个要点：
+三个要点。
 
-- **确定性。** 三个索引全部由 `numpy.random.RandomState(config.random_seed)` 生成（`--seed`），给定 seed、数据集、`sequence_length`、`num_samples`，索引是确定的。这是"数据顺序可回放"的第一层保证。
-- **缓存。** 索引写到 `path_to_cache`（`--data-cache-path`，缺省是 `.bin` 同目录下的 `cache/GPTDataset_indices/`），文件名带 `unique_description_hash`——数据集路径、split、seed、序列长、样本数等全部配置的哈希；任何一项变了就重新构建。只有 rank 0 构建（`torch.distributed.get_rank() == 0`），其余 rank 等待后 `numpy.load(mmap_mode="r")`。**缓存目录是 checkpoint 的伴生物**：恢复训练时若缓存被删，会重建出同样的索引（seed 相同）；但若有人改了数据集（哪怕只是重新预处理了同一份数据、文档顺序变了），`document_index` 就变了，`consumed_train_samples` 指向的是**另一批**样本——训练会"看起来正常地"继续，而实际上数据顺序已经断裂。0.18.0 的 `--dataloader-fast-cache-load` 与 `--dataloader-defer-npy-index-mmap` 是千卡启动优化：跳过存在性检查、延迟 mmap 到第一次访问。
-- **epoch 的处理。** `num_samples` 由 `train_iters × global_batch_size`（或 `train_samples`）决定，可能超过一个 epoch。`_get_num_epochs()` 算出需要几个 epoch，`_build_document_index()` 为每个 epoch 独立 shuffle 文档；最后一个不完整的 epoch 若少于 80%（`threshold = 0.80`）则 `separate_final_epoch = True`，其 shuffle 与前面的 epoch 分开，保证每份数据在被第二次看到之前，第一遍已经看完。
+**1、确定性。** 三个索引全部由 `numpy.random.RandomState(config.random_seed)` 生成（`--seed`），给定 seed、数据集、`sequence_length`、`num_samples`，索引是确定的。这是"数据顺序可回放"的第一层保证。
+
+**2、缓存。** 索引写到 `path_to_cache`（`--data-cache-path`，缺省是 `.bin` 同目录下的 `cache/GPTDataset_indices/`），文件名带 `unique_description_hash`——数据集路径、split、seed、序列长、样本数等全部配置的哈希，任何一项变了就重新构建。只有 rank 0 构建（`torch.distributed.get_rank() == 0`），其余 rank 等待后 `numpy.load(mmap_mode="r")`。
+
+**缓存目录是 checkpoint 的伴生物。** 恢复训练时若缓存被删，会重建出同样的索引（seed 相同）；但若有人改了数据集——哪怕只是重新预处理了同一份数据、文档顺序变了——`document_index` 就变了，`consumed_train_samples` 指向的是**另一批**样本，训练会"看起来正常地"继续，而实际上数据顺序已经断裂。0.18.0 的 `--dataloader-fast-cache-load` 与 `--dataloader-defer-npy-index-mmap` 是千卡启动优化：跳过存在性检查、延迟 mmap 到第一次访问。
+
+**3、epoch 的处理。** `num_samples` 由 `train_iters × global_batch_size`（或 `train_samples`）决定，可能超过一个 epoch。`_get_num_epochs()` 算出需要几个 epoch，`_build_document_index()` 为每个 epoch 独立 shuffle 文档；最后一个不完整的 epoch 若少于 80%（`threshold = 0.80`）则 `separate_final_epoch = True`，其 shuffle 与前面的 epoch 分开，保证每份数据在被第二次看到之前，第一遍已经看完。
 
 一个规模感：15T token、平均文档 1000 token、$$s = 8192$$ 的预训练，文档数 $$D \approx 1.5 \times 10^{10}$$，样本数 $$\approx 1.8 \times 10^9$$。`document_index`（int32）约 60 GB，`sample_index`（2 × int32）约 15 GB，`shuffle_index`（样本数不到 $$2^{32}$$ 时用 uint32）约 7 GB，`.idx` 里的 `sequence_pointers`（int64）与 `sequence_lengths`（int32）合计约 180 GB——这些全部是**每个 rank 都要打开**的文件。它们靠 `numpy.load(mmap_mode="r")` 与 `memmap` 只把访问到的页读进来，所以实际驻留远小于文件大小；但构建它们是 rank 0 上的单机任务（`helpers.cpp` 的 C++ 循环），15T 规模下要几十分钟到几小时。这就是为什么 0.18.0 加了 `--per-dataset-sequences-path`（`tools/build_sequences_per_dataset.py` 预先统计每个数据集的序列数与文档数，让 `__len__` 不必打开 `.idx`）、`--dataloader-fast-cache-load` 与 `--dataloader-defer-npy-index-mmap`：千卡任务的启动时间里，数据集构建往往是最大的一项，而每次故障重启都要再付一次。
 
@@ -528,7 +676,7 @@ Table: GPTDataset 的三个索引数组
 
 多来源按权重采样由两层实现。`BlendedMegatronDatasetBuilder`（`blended_megatron_dataset_builder.py`）读 `BlendedMegatronDatasetConfig.blend`（`--data-path w1 p1 w2 p2 ...`；不给权重则按各数据集的大小推）或 `blend_per_split`（`--train-data-path` / `--valid-data-path` / `--test-data-path` 各自独立的混合），为每个来源建一个 `GPTDataset`，样本数按 `_get_size_per_split_per_dataset(normalized_weights, target_size, surplus)` 分配——`surplus` 默认 0.005（`--mid-level-dataset-surplus`），多建 0.5% 的样本以吸收采样时的取整误差。然后 `BlendedDataset(datasets, weights, size, config)`（`blended_dataset.py`）造两个索引：`dataset_index[i]`（第 i 个样本来自哪个数据集，int16）与 `dataset_sample_index[i]`（在该数据集内的第几个样本），由 `helpers.cpp` 的 `build_blending_indices()` 生成——一个贪心算法：每一步选"当前实际比例落后于目标比例最多"的数据集，误差始终在一个样本以内，不是随机采样。这两个索引同样进 `path_to_cache`。`--data-path` 只给前缀不给权重时走 `build_exhaustive_blending_indices()`：每个数据集精确取完所有样本。
 
-**多阶段**（不同训练阶段用不同的混合比例，例如 Llama 3 的 annealing 阶段提高高质量数据的比例）在 0.18.0 里由 `--phase-transition-iterations t1,t2,...` 实现：`training.py` 的 `get_train_valid_test_num_samples()` 按当前 `iteration` 落在哪个阶段计算该阶段的 `train_samples`，`build_train_valid_test_data_loaders()` 把 `consumed_train_samples_in_current_phase` 设成 `(iteration − last_transition) × global_batch_size`——即**每个阶段的数据集从零开始计数**；到达阶段边界时训练保存 checkpoint 并退出（`should_exit` 路径里 `iteration in args.phase_transition_iterations`），由外层脚本换 `--data-path` 重启。`checkpointing.py` 的 `check_checkpoint_args()` 在多阶段下要求 `global_batch_size` 不变（阶段边界按 iteration 换算 sample 依赖它）。**混合比例本身不进 checkpoint**——它在启动参数里；这意味着"恢复时传了不同的 `--data-path`"不会报错，只会悄悄换数据。把启动参数进版本控制（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的配置纪律）是唯一的保护。
+**多阶段**（不同训练阶段用不同的混合比例，例如 Llama 3 的 annealing 阶段提高高质量数据的比例）在 0.18.0 里由 `--phase-transition-iterations t1,t2,...` 实现：`training.py` 的 `get_train_valid_test_num_samples()` 按当前 `iteration` 落在哪个阶段计算该阶段的 `train_samples`，`build_train_valid_test_data_loaders()` 把 `consumed_train_samples_in_current_phase` 设成 `(iteration − last_transition) × global_batch_size`——即**每个阶段的数据集从零开始计数**；到达阶段边界时训练保存 checkpoint 并退出（`should_exit` 路径里 `iteration in args.phase_transition_iterations`），由外层脚本换 `--data-path` 重启。`checkpointing.py` 的 `check_checkpoint_args()` 在多阶段下要求 `global_batch_size` 不变（阶段边界按 iteration 换算 sample 依赖它）。**混合比例本身不进 checkpoint**——它在启动参数里；这意味着"恢复时传了不同的 `--data-path`"不会报错，只会悄悄换数据。把启动参数进版本控制（《千卡配置实战》的[「配置纪律」](/thousand-gpu-configuration-and-mfu-tuning.html#八配置纪律)）是唯一的保护。
 
 torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `InterleavedDataset(datasets, weights, seed, stopping_strategy)`：用 `random.Random(seed).choices()` 按权重随机选来源——是随机采样而不是 Megatron 的确定性贪心——`state_dict()` 保存 RNG 状态与各来源的状态。`InterleavedHuggingFaceTextDataLoader` 与 `InterleavedChatDataLoader` 把它接到 `ParallelAwareDataloader` 上。DeepSpeed 没有混合的实现。
 
@@ -547,7 +695,7 @@ torchtitan 的对应物是 `torchtitan/hf_datasets/interleaved.py` 的 `Interlea
 
 右侧的块对角 mask 就是 `reset_attention_mask` 的效果：`u0` 之后的 token 看不到 EOD 及其之前的任何 token；左侧默认设置下 `u0` 能看到整段 doc 12，模型要自己学会"EOD 之前的内容与后面无关"。
 
-显式的打包——变长序列拼成一条、注意力 kernel 按 `cu_seqlens` 分段——走 `megatron/core/packed_seq_params.py` 的 `PackedSeqParams(qkv_format="thd", cu_seqlens_q, cu_seqlens_kv, cu_seqlens_q_padded, cu_seqlens_kv_padded, max_seqlen_q, max_seqlen_kv, ...)`，传给 TE 的 fused attention 与 RoPE kernel；`thd` 格式（token-major，没有 batch 维）让一个 micro-batch 就是一条打包序列，这就是[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)说"sequence packing 要求 `micro_batch_size = 1`"的原因。0.18.0 里造 `cu_seqlens` 的是 SFT 路径：`megatron/training/datasets/sft_dataset.py` 的 `SFTDataset.__getitem__()` 贪心地把对话塞进 `pack_length`，记录每条的累计长度到 `cu_seqlens`，CP 开启时把每条 pad 到 `2 × cp_size` 的倍数（CP 的负载均衡切分要求）；`pretrain_gpt.py` 的 `get_batch()` 拿到 `cu_seqlens` 与 `cu_seqlens_padded` 后构造 `PackedSeqParams`，并调 `update_seqlen_stats_from_cu_seqlens()` 让 FLOPs 计算按真实长度而不是 pad 后长度算——打包后 MFU 的分子要用真实 token 数。
+显式的打包——变长序列拼成一条、注意力 kernel 按 `cu_seqlens` 分段——走 `megatron/core/packed_seq_params.py` 的 `PackedSeqParams(qkv_format="thd", cu_seqlens_q, cu_seqlens_kv, cu_seqlens_q_padded, cu_seqlens_kv_padded, max_seqlen_q, max_seqlen_kv, ...)`，传给 TE 的 fused attention 与 RoPE kernel；`thd` 格式（token-major，没有 batch 维）让一个 micro-batch 就是一条打包序列，这就是[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)说"sequence packing 要求 `micro_batch_size = 1`"的原因。0.18.0 里造 `cu_seqlens` 的是 SFT 路径：`megatron/training/datasets/sft_dataset.py` 的 `SFTDataset.__getitem__()` 贪心地把对话塞进 `pack_length`，记录每条的累计长度到 `cu_seqlens`，CP 开启时把每条 pad 到 `2 × cp_size` 的倍数（CP 的负载均衡切分要求）；`pretrain_gpt.py` 的 `get_batch()` 拿到 `cu_seqlens` 与 `cu_seqlens_padded` 后构造 `PackedSeqParams`，并调 `update_seqlen_stats_from_cu_seqlens()` 让 FLOPs 计算按真实长度而不是 pad 后长度算——打包后 MFU 的分子要用真实 token 数。
 
 打包省多少直接算（`10_stab_toys.py packing`）：
 
@@ -561,17 +709,19 @@ pad-to-max(1758)：占用 21096 token 位，利用率 29.7%
 行 0 的 cu_seqlens = [0, 1758, 2682, 3310, 3817, 3983, 4056]
 ```
 
-
-
 torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，每个文档从 0 开始（`_positions_buffer.extend(range(len(sample_tokens) - 1))`），`torchtitan/models/common/attention.py` 的 `get_document_mask_mod(positions)` 用 `positions == 0` 识别文档起点、`cumsum` 得到文档 id、生成 FlexAttention 的块对角 mask；`create_varlen_metadata_for_document(positions)` 从同一信号造 `cu_seqlens` 给 varlen attention。**文档边界信息藏在 position ids 里而不是单独的字段**——这让 dataloader 的 state_dict 只需保存三个 buffer（`inputs_buffer`、`labels_buffer`、`positions_buffer`），也是 `load_state_dict()` 对缺失 `positions_buffer` 的旧 checkpoint 发出警告的原因（位置错了，文档 mask 就错了）。
 
 ### 6. DeepSpeed 的 `data_pipeline/`
 
 `deepspeed/runtime/data_pipeline/` 在 0.19.2 里有三样东西，都属于"数据效率"而不是"数据加载"：
 
-- **课程学习**（`curriculum_scheduler.py` `CurriculumScheduler`，`data_sampling/data_sampler.py` `DeepSpeedDataSampler`）：按 `difficulty`（例如序列长度、词频）给样本分簇（`data_analyzer.py` 的 `DataAnalyzer` / `DistributedDataAnalyzer` 离线算指标并写 `index_to_sample` / `index_to_metric` 文件），训练时按 `fixed_linear` / `fixed_root` / `fixed_discrete` / `custom` 调度逐步放开难度。这是 DeepSpeed 里**唯一带 `state_dict()` 的采样器**：保存 `consumed_samples`、`curriculum_step`、`current_difficulties`、`data_cluster_current_position`、`np_rng_state`，`engine.py` 在 `curriculum_learning_enabled()` 时把它以 `data_sampler` 键存进 checkpoint。序列长度课程（旧的 `curriculum_learning` legacy 配置，`curriculum_type = "seqlen"`）在 `engine.py` 里通过 `curriculum_seqlen` 传给模型，由模型截断输入——它改变的是每步的 token 数，MFU 账要跟着变。
-- **动态 batch**（`data_sampling/variable_batch_size_and_lr.py`）：`batch_by_seqlens()` 按 `max_tokens` 把变长样本组成 token 数近似相等的 micro-batch，`VariableBatchSizeLR` 按 batch 大小缩放 LR。
-- **随机层 token 丢弃**（`data_routing/basic_layer.py` `RandomLayerTokenDrop`）：Random-LTD，训练时随机丢一部分 token 不过某些层。
+**1、课程学习**（`curriculum_scheduler.py` 的 `CurriculumScheduler`，`data_sampling/data_sampler.py` 的 `DeepSpeedDataSampler`）：按 `difficulty`（例如序列长度、词频）给样本分簇，训练时按 `fixed_linear` / `fixed_root` / `fixed_discrete` / `custom` 调度逐步放开难度。分簇所需的指标由 `data_analyzer.py` 的 `DataAnalyzer` / `DistributedDataAnalyzer` 离线算出，写成 `index_to_sample` / `index_to_metric` 文件。
+
+这是 DeepSpeed 里**唯一带 `state_dict()` 的采样器**：保存 `consumed_samples`、`curriculum_step`、`current_difficulties`、`data_cluster_current_position`、`np_rng_state`，`engine.py` 在 `curriculum_learning_enabled()` 时把它以 `data_sampler` 键存进 checkpoint。序列长度课程（旧的 `curriculum_learning` legacy 配置，`curriculum_type = "seqlen"`）在 `engine.py` 里通过 `curriculum_seqlen` 传给模型，由模型截断输入——它改变的是每步的 token 数，MFU 账要跟着变。
+
+**2、动态 batch**（`data_sampling/variable_batch_size_and_lr.py`）：`batch_by_seqlens()` 按 `max_tokens` 把变长样本组成 token 数近似相等的 micro-batch，`VariableBatchSizeLR` 按 batch 大小缩放 LR。
+
+**3、随机层 token 丢弃**（`data_routing/basic_layer.py` 的 `RandomLayerTokenDrop`）：Random-LTD，训练时随机丢一部分 token 不过某些层。
 
 `deepspeed_io()` 在 `curriculum_learning_enabled()` 时把这些配置传给 `DeepSpeedDataLoader`；否则 DeepSpeed 的数据加载就是普通的 `torch.utils.data.DataLoader` 加 `DistributedSampler`（eval 路径）或用户传入的 sampler——**普通路径下 DeepSpeed 不保存任何数据位置**，恢复后从哪里继续是用户的责任。
 
@@ -581,7 +731,7 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 
 "流式"有两层意思：数据不在本地盘上（对象存储），或者数据不是预先索引好的文件（HF datasets 的 `streaming=True`）。
 
-**Megatron 的对象存储路径**：`IndexedDataset(path_prefix="s3://..." 或 "msc://...", mmap=False, object_storage_config=ObjectStorageConfig(path_to_idx_cache, bin_chunk_nbytes))`。`.idx` 整个下载到本地缓存（`--object-storage-cache-path`）；`.bin` 由 `_S3BinReader` 按 `bin_chunk_nbytes`（默认 256 MiB）的块按需拉取——源码注释解释了取值：块太小则每次 `read()` 都发请求，固定延迟占主导；块太大则一次请求阻塞太久。`_MultiStorageClientBinReader` 走 NVIDIA 的 Multi-Storage Client。索引缓存 `object_storage_cache_path` 是 `GPTDatasetConfig` 的独立字段。**随机访问语义不变**：sample/shuffle 索引照常工作，只是 `get()` 的延迟从页缓存变成了一次范围请求；预取靠 DataLoader worker 并行。
+**Megatron 的对象存储路径**：`IndexedDataset(path_prefix="s3://..." 或 "msc://...", mmap=False, object_storage_config=ObjectStorageConfig(path_to_idx_cache, bin_chunk_nbytes))`。`.idx` 整个下载到本地缓存（`--object-storage-cache-path`）。`.bin` 由 `_S3BinReader` 按 `bin_chunk_nbytes`（默认 256 MiB）的块按需拉取——源码注释解释了取值：块太小则每次 `read()` 都发请求，固定延迟占主导；块太大则一次请求阻塞太久。`_MultiStorageClientBinReader` 走 NVIDIA 的 Multi-Storage Client。索引缓存 `object_storage_cache_path` 是 `GPTDatasetConfig` 的独立字段。**随机访问语义不变**：sample/shuffle 索引照常工作，只是 `get()` 的延迟从页缓存变成了一次范围请求；预取靠 DataLoader worker 并行。
 
 **torchtitan 的 HF streaming 路径**：`HuggingFaceTextDataset` 用 `datasets.load_dataset(path, streaming=True)` 得到 `IterableDataset`，`datasets.distributed.split_dataset_by_node(ds, dp_rank, dp_world_size)` 按 rank 切分（HF 的实现是按 shard 分配、shard 数不整除时按样本轮转），然后逐样本 tokenize、进 buffer、每凑够 `seq_len` 个 token 吐一个样本。它被 `HuggingFaceTextDataLoader` 包进 `ParallelAwareDataloader`——`torchtitan/components/dataloader.py` 里它同时继承 `torchdata.stateful_dataloader.StatefulDataLoader` 与 `BaseDataLoader(Stateful)`。**`StatefulDataLoader` 不在 PyTorch 2.13.0 源码树里**（`torch/utils/data/` 下没有它），它来自独立的 `torchdata` 包（torchtitan 要求 `torchdata >= 0.8.0`）；它比 `torch.utils.data.DataLoader` 多的就是 `state_dict()` / `load_state_dict()`——保存各 worker 的迭代位置、随机状态、以及底层 dataset 的 `state_dict()`（如果 dataset 实现了）。
 
@@ -599,7 +749,7 @@ torchtitan 用另一种编码：`HuggingFaceTextDataset` 输出 `positions`，�
 
 Table: 数据流可恢复的三条要求
 
-第 ② 条最容易被忽略：`torch.utils.data.DataLoader` 有 `prefetch_factor × num_workers` 个 batch 在飞，进程被 kill 时它们就没了；若位置按"dataset 已产出的样本数"记，就会漏；按"训练已消费的样本数"记则安全。第 ③ 条在 PP 下有个细节：只有 PP 首尾 stage 真正读数据（Megatron 的 `get_batch()` 在中间 stage 返回 None），但 `consumed_train_samples` 是所有 rank 的 args 都有的一致值。
+第 ② 条最容易被忽略：`torch.utils.data.DataLoader` 有 `prefetch_factor × num_workers` 个 batch 在飞，进程被 kill 时它们就没了。所以位置按"dataset 已产出的样本数"记会漏数据，按"训练已消费的样本数"记才安全。第 ③ 条在 PP 下有个细节：只有 PP 首尾 stage 真正读数据（Megatron 的 `get_batch()` 在中间 stage 返回 None），但 `consumed_train_samples` 是所有 rank 的 args 都有的一致值。
 
 ### 3. Megatron：位置是一个整数
 
@@ -615,12 +765,31 @@ Megatron 的方案是最简单也最健壮的：**数据位置 = 训练已消费
 
 Table: 恢复、跳过、换 DP 都是对同一个整数的操作
 
-- **保存**：`args.consumed_train_samples`（以及 `skipped_train_samples`、`consumed_valid_samples`）是 `args` 的字段，`checkpointing.py` 的 `generate_state_dict()` 把整个 `args` 存进 `state_dict['args']`；`iteration` 单独存 `state_dict['iteration']`。**不保存 DataLoader 或 sampler 的任何对象状态**（`maybe_save_dataloader_state()` 只对 Megatron Energon 多模态加载器生效，源码注释明确说内建的文本加载器"creates index files upfront"，不需要保存）。
-- **恢复**：`load_checkpoint()` 从 `checkpoint_args` 读回 `consumed_train_samples`、`skipped_train_samples`、`consumed_valid_samples`，`update_num_microbatches(consumed_samples=...)` 让 batch 渐增的状态也对齐。`build_train_valid_test_data_loaders()` → `build_pretraining_data_loader(dataset, consumed_samples)`（`megatron/training/datasets/data_samplers.py`）→ `MegatronPretrainingSampler(total_samples, consumed_samples, micro_batch_size, data_parallel_rank, data_parallel_size)`。它的 `__iter__()` 就是 `for idx in range(self.consumed_samples, self.total_samples)`：每凑满 `micro_batch_size × data_parallel_size` 个连续的样本号，切出 `[dp_rank × mbs, (dp_rank + 1) × mbs)` 那一片给本 rank。位置、切分、顺序全部由这个整数与 DP 配置决定；`GPTDataset.__getitem__` 对同一个样本号在任何 rank、任何时刻返回同一批 token（第六章第 3 节的确定性索引）。
-- **三条要求的满足**：① 由 `consumed_train_samples` 在每步结束时（`train()` 里 `args.consumed_train_samples += iteration_sequences`）才增加保证——checkpoint 保存在步末，记的是已完成的步；② 预取中的 batch 不影响这个计数，恢复后 sampler 从 `consumed` 重新数，自然把它们再产出一遍；③ 所有 rank 的 `args` 相同。**改变 DP 大小也能恢复**（`micro_batch_size × data_parallel_size` 的分块变了，但样本号的全序不变，只是分给各 rank 的方式变了）——这是"位置是整数"相对于"位置是迭代器状态"的决定性优势，也是[第八篇《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)重分片恢复在数据侧的对应物。
-- **代价**：`dataloader_type = 'single'` 意味着单遍顺序扫过 shuffle 后的样本序列，多 epoch 靠 `GPTDataset` 在索引里预先拼好多个 epoch；`'cyclic'` 用 `MegatronPretrainingRandomSampler`（按 `consumed_samples // total_samples` 算 epoch、在 epoch 内以 `data_sharding` 方式随机），位置仍是整数。`'external'` 把一切交给用户。
+**1、保存。** `args.consumed_train_samples`（以及 `skipped_train_samples`、`consumed_valid_samples`）是 `args` 的字段，`checkpointing.py` 的 `generate_state_dict()` 把整个 `args` 存进 `state_dict['args']`，`iteration` 单独存 `state_dict['iteration']`。
+
+**不保存 DataLoader 或 sampler 的任何对象状态**：`maybe_save_dataloader_state()` 只对 Megatron Energon 多模态加载器生效，源码注释明确说内建的文本加载器"creates index files upfront"，不需要保存。
+
+**2、恢复。** `load_checkpoint()` 从 `checkpoint_args` 读回 `consumed_train_samples`、`skipped_train_samples`、`consumed_valid_samples`，`update_num_microbatches(consumed_samples=...)` 让 batch 渐增的状态也对齐。然后 `build_train_valid_test_data_loaders()` → `build_pretraining_data_loader(dataset, consumed_samples)`（`megatron/training/datasets/data_samplers.py`）→ `MegatronPretrainingSampler(total_samples, consumed_samples, micro_batch_size, data_parallel_rank, data_parallel_size)`。
+
+采样器的 `__iter__()` 就是 `for idx in range(self.consumed_samples, self.total_samples)`：每凑满 `micro_batch_size × data_parallel_size` 个连续的样本号，切出 `[dp_rank × mbs, (dp_rank + 1) × mbs)` 那一片给本 rank。位置、切分、顺序全部由这个整数与 DP 配置决定，而 `GPTDataset.__getitem__` 对同一个样本号在任何 rank、任何时刻返回同一批 token（第六章第 3 节的确定性索引）。
+
+**3、三条要求怎么满足。**
+
+- **① 精确位置**由 `consumed_train_samples` 在每步结束时（`train()` 里 `args.consumed_train_samples += iteration_sequences`）才增加来保证——checkpoint 保存在步末，记的是已完成的步。
+- **② 不重不漏**：预取中的 batch 不影响这个计数，恢复后采样器从 `consumed` 重新数，自然把它们再产出一遍。
+- **③ 多 rank 一致**：所有 rank 的 `args` 相同。
+
+**改变 DP 大小也能恢复。** `micro_batch_size × data_parallel_size` 的分块变了，但样本号的全序不变，只是分给各 rank 的方式变了。这是"位置是整数"相对于"位置是迭代器状态"的决定性优势，也是[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)重分片恢复在数据侧的对应物。
+
+**4、代价。** `dataloader_type = 'single'` 意味着单遍顺序扫过 shuffle 后的样本序列，多 epoch 靠 `GPTDataset` 在索引里预先拼好多个 epoch。`'cyclic'` 用 `MegatronPretrainingRandomSampler`（按 `consumed_samples // total_samples` 算 epoch、在 epoch 内以 `data_sharding` 方式随机），位置仍是整数。`'external'` 把一切交给用户。
 
 跳过 batch（第四章）在这套方案里就是让 `consumed_train_samples` 多加 $$n \times B$$——`dummy_train_step()` 做的正是这件事，只不过是通过真的迭代一次来"消费"。
+
+> [!NOTE] Java 经验参照：消费位点
+>
+> 这正是 Kafka 消费者的位点（offset）模型：位点是分区里单调递增的序号，要在**处理完**之后才提交，拉进客户端缓冲区但还没处理的记录不能算提交（否则重启就漏），`seek()` 能把位点拨到任意值，消费者个数变化后位点依然有效——因为它索引的是分区自身的全序，而不是某个客户端的游标。`consumed_train_samples` 的四条性质与此一一对应。
+>
+> 不一样的是"那条日志"从哪来。Kafka 的分区是 broker 上一份不可变的、真实存在的记录序列，位点指向哪条就是哪条；Megatron 没有 broker，样本的全序是每个 rank 用同一个 seed 加同一份索引缓存**各自重建**出来的。所以多了一个 Kafka 没有的失效模式：数据集或 seed 被换掉之后，同一个整数指向的是另一批样本，而没有任何一方会报错。另外 DP 度变化不是一次 rebalance 协商，而是 `(整数, dp_rank, dp_size)` 的纯函数重新算一遍切片。
 
 把这套机制在数轴上画出来，并用一个最小 sampler 实测（`10_stab_toys.py resume`）：
 
@@ -634,8 +803,6 @@ Table: 恢复、跳过、换 DP 都是对同一个整数的操作
   与不中断的第 7 步 batch [56..63] 相同: True
 ```
 
-
-
 ### 4. torchtitan：位置是迭代器状态
 
 torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distributed/checkpoint/stateful.py`）：任何实现了 `state_dict()` / `load_state_dict()` 的对象都可以放进 DCP 的 state 字典。`trainer.py` 构造 `Checkpointer` 时传入 `dataloader=self.dataloader`，`torchtitan/components/checkpointer/dcp.py` 把它以 `DATALOADER = "dataloader"` 键加入 `self.states`（同一字典里还有 `MODEL`、`OPTIMIZER`、`LR_SCHEDULER`、以及 `train_state`——`Trainer.state_dict()` 返回 `{"step", "ntokens_seen"}`）。保存时 DCP 对每个 `Stateful` 调 `state_dict()`。
@@ -644,7 +811,13 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 
 `HuggingFaceTextDataset.state_dict()` 存三个 token buffer（跨样本边界未凑满一个 `seq_len` 的残余）加位置：map-style 数据集（本地文件）存 `sample_idx` 与 `epoch`，恢复时 `_data.skip(sample_idx)` 并按 `epoch` 重放 `shuffle(seed=42 + epoch)`；streaming 数据集存 `_data.state_dict()`（HF 的 shard 级状态）。`ChatDataset` 多存 `pending_input_ids` / `pending_label_ids`——贪心打包时放不进当前包的那条样本。
 
-三条要求的满足方式：① `snapshot_every_n_steps`——`trainer.py` 把它设成 `checkpoint.interval × gradient_accumulation_steps × num_pipeline_parallel_microbatches`，即 `StatefulDataLoader` 每隔这么多次 `__next__` 拍一次 worker 状态快照，正好与 checkpoint 步对齐；② `StatefulDataLoader` 的状态记的是"已交给主进程的 batch 数"，worker 预取但未交付的不计，恢复后重新生成——这是它相对普通 DataLoader 的核心改进；③ 每个 DP rank 各存各的，一致性依赖所有 rank 在同一步保存（DCP 的集合语义保证）。跳过 batch 没有"整数加 n"的捷径：只能加载后对 dataloader 迭代 $$n$$ 次丢弃——`batch_generator()` 在 `StopIteration` 时抛 `DataloaderExhaustedError`，所以丢弃时要处理数据耗尽。
+三条要求的满足方式：
+
+- **① 精确位置**靠 `snapshot_every_n_steps`。`trainer.py` 把它设成 `checkpoint.interval × gradient_accumulation_steps × num_pipeline_parallel_microbatches`，即 `StatefulDataLoader` 每隔这么多次 `__next__` 拍一次 worker 状态快照，正好落在 checkpoint 步上。
+- **② 不重不漏**靠状态的定义。`StatefulDataLoader` 记的是"已交给主进程的 batch 数"，worker 预取但未交付的不计，恢复后重新生成——这是它相对普通 DataLoader 的核心改进。
+- **③ 多 rank 一致**靠 DCP。每个 DP rank 各存各的，一致性依赖所有 rank 在同一步保存，由 DCP 的集合语义保证。
+
+跳过 batch 没有"整数加 $$n$$"的捷径：只能加载之后对 dataloader 迭代 $$n$$ 次丢弃。`batch_generator()` 在 `StopIteration` 时抛 `DataloaderExhaustedError`，所以丢弃时要处理数据耗尽。
 
 `StatefulDataLoader` 实测同样的中断恢复（`10_stab_toys.py resume` 的 (b) 部分，torchdata 0.11）：
 
@@ -653,8 +826,6 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 新 loader 第 1 个 batch = [56, 57, 58, 59, 60, 61, 62, 63]
 与预期 [56..63] 相同: True
 ```
-
-
 
 ### 5. DeepSpeed
 
@@ -673,7 +844,7 @@ torchtitan 的方案跟随 PyTorch 生态的 `Stateful` 协议（`torch/distribu
 
 ### 6. 数据等待与 MFU：谁在等谁
 
-[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的七项拆解里，"数据等待"是 GPU 全空、CPU 线程停在 `DataLoader.__next__` 的那段空隙。反过来的情况——数据早就准备好、在队列里等 GPU——是健康状态，不需要处理。区分两者：
+《千卡配置实战》的[「MFU 损失的七项拆解」](/thousand-gpu-configuration-and-mfu-tuning.html#六mfu-损失的七项拆解)里，"数据等待"是 GPU 全空、CPU 线程停在 `DataLoader.__next__` 的那段空隙。反过来的情况——数据早就准备好、在队列里等 GPU——是健康状态，不需要处理。区分两者：
 
 | 现象 | GPU 等数据 | 数据等 GPU（健康） |
 |---|---|---|
@@ -687,7 +858,15 @@ Table: GPU 等数据与数据等 GPU 的区分
 
 torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_iterator)`，累计到 `MetricsProcessor.data_loading_times`，`log()` 时算出 `data_loading(s)` 与 `data_loading(%)`——这是三个框架里唯一开箱即用的"数据等待"指标。Megatron 没有直接的等价物，但 `--timing-log-level` 提高后 `batch-generator` 计时器（`get_batch()` 外层）给出同样的信息；profiler 是通用手段。
 
-出现等待时的处置顺序，按代价从低到高：`pin_memory=True`（Megatron 的 `build_pretraining_data_loader()` 固定开着；torchtitan `ParallelAwareDataloader.Config.pin_memory` 默认 False）；`num_workers` 从 2 加到 4–8（Megatron `--num-workers` 默认 2；torchtitan 默认 0，即主进程加载）；`prefetch_factor` 加深（torchtitan 默认 None → 2）；对象存储的 `bin_chunk_nbytes` 与并发；最后是把在线 tokenize 改成离线。一个粗算：一张 H100 上 Llama 3 8B、$$s = 8192$$、$$b = 1$$，一个 micro-batch 的前向反向约 0.3–0.4 s；DataLoader 只要能在这段时间里从任何地方读出 8192 个 token（int32 下 32 KB）就够了——本地 mmap 是微秒级，对象存储的一次范围请求是几十毫秒级，都远小于预算。**数据等待几乎从不是带宽问题，而是并发与调度问题**：worker 太少、在线 tokenize 太慢、worker 与 NCCL proxy 线程争同一批核（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html) straggler 成因之一）。
+出现等待时的处置顺序，按代价从低到高：
+
+1. 开 `pin_memory=True`。Megatron 的 `build_pretraining_data_loader()` 固定开着；torchtitan 的 `ParallelAwareDataloader.Config.pin_memory` 默认 False。
+2. `num_workers` 从 2 加到 4–8。Megatron 的 `--num-workers` 默认 2；torchtitan 默认 0，即在训练进程里加载。
+3. 加深 `prefetch_factor`。torchtitan 默认 None，`num_workers > 0` 时为 2。
+4. 调对象存储的 `bin_chunk_nbytes` 与并发度。
+5. 最后才是把在线 tokenize 改成离线——它要重跑一遍预处理。
+
+一个粗算：一张 H100 上 Llama 3 8B、$$s = 8192$$、$$b = 1$$，一个 micro-batch 的前向反向约 0.3–0.4 s；DataLoader 只要能在这段时间里从任何地方读出 8192 个 token（int32 下 32 KB）就够了——本地 mmap 是微秒级，对象存储的一次范围请求是几十毫秒级，都远小于预算。**数据等待几乎从不是带宽问题，而是并发与调度问题**：worker 太少、在线 tokenize 太慢、worker 与 NCCL proxy 线程争同一批核（《容错与弹性》的[「straggler：没有故障但有人拖慢所有人」](/fault-tolerance-and-elastic-training.html#八straggler没有故障但有人拖慢所有人)列的成因之一）。
 
 ## 八、本文小结
 
@@ -695,96 +874,89 @@ torchtitan 的 `batch_generator()` 用 `time.perf_counter()` 包住 `next(data_i
 
 - **三种形态**：瞬时（坏 batch / bf16 偶发）· 可恢复（LR / 优化器状态）· 发散（logit 增长 / 精度链断裂）
 - **五种成因**：LR：param norm 增速变快 · bf16：无前兆单步跳 · logit：max logit 单调升过 ~100 · 坏数据：可复现 · 优化器状态：grad norm 低平台后放大
-- **预防**：全局范数裁剪（Megatron `clip_grads.py` 三函数；去重 shared/TP-duplicate；分布式优化器在 world 上归约；torchtitan `_NormPartial` + PP all-reduce）· warmup（scheduler 进 ckpt）· QK-LayerNorm（`qk_layernorm` / `qk_clip`）· z-loss（Megatron 只有 MoE 路由的）· WD 例外（默认仅 1-D 与 bias）· 精度纪律七项 · fp16 loss scale
-- **处理**：PaLM：回退 ~100 步 + 跳过 200–500 batch；前提：ckpt 密度、数据可回放、能定位起点。Megatron：`--iterations-to-skip` → `dummy_train_step`；consumed 与 skipped 同步加；`--result-rejected-tracker-filename` + `check_for_spiky_loss` 自动生成。代价约 250–300 步/次，20 次 < 1%——便宜的是处置，贵的是信号与基础设施
-- **信号**：loss avg/max · grad norm（clip 前）· param norm · LR · loss scale · skipped iters · num_zeros · max attention logit · consumed samples · data_loading%；每步记、记原始值、随 ckpt 留档、按 rank 可查
-- **存储**：离线 tokenize → .bin/.idx（`_IndexWriter` 布局；`optimal_dtype` u16/i32）；GPTDataset 三索引由 seed 确定、缓存带配置哈希、rank 0 构建
+- **预防**：全局范数裁剪（Megatron `clip_grads.py` 三函数、去重 shared 与 TP-duplicate、分布式优化器在 world 上归约、torchtitan `_NormPartial` 加 PP all-reduce）· warmup（scheduler 进 ckpt）· QK-LayerNorm（`qk_layernorm` / `qk_clip`）· z-loss（Megatron 只有 MoE 路由的）· WD 例外（默认仅 1-D 与 bias）· 精度纪律七项 · fp16 loss scale
+- **处理**：
+  - PaLM 的做法：回退 ~100 步 + 跳过 200–500 batch。
+  - 三个前提：ckpt 密度、数据可回放、能定位起点。
+  - Megatron：`--iterations-to-skip` → `dummy_train_step`，consumed 与 skipped 同步加，`--result-rejected-tracker-filename` 加 `check_for_spiky_loss` 自动生成列表。
+  - 代价约 150–250 步 / 次（均值约 200），20 次不到 0.5%——便宜的是处置，贵的是信号与基础设施。
+- **信号**：loss avg/max · grad norm（clip 前）· param norm · LR · loss scale · skipped iters · num_zeros · max attention logit · consumed samples · data_loading% —— 每步记、记原始值、随 ckpt 留档、按 rank 可查
+- **存储**：离线 tokenize → `.bin`/`.idx`（`_IndexWriter` 布局、`optimal_dtype` 选 u16 或 i32）· GPTDataset 三索引由 seed 确定、缓存带配置哈希、rank 0 构建
 - **混合**：BlendedDataset 贪心 `build_blending_indices`（确定性）· surplus 0.5% · 多阶段 `--phase-transition-iterations` 每阶段从零计数、边界处存盘退出
 - **打包**：隐式（连续流 + `reset_attention_mask/position_ids`）· 显式（`cu_seqlens` → PackedSeqParams thd，mbs=1）· torchtitan 用 `positions==0` 编码边界
-- **恢复**：Megatron：位置 = `consumed_train_samples` 整数，sampler 从该处数，可换 DP；torchtitan：StatefulDataLoader 迭代器状态按 dp_rank 存，不可换 DP；DeepSpeed：仅课程学习有状态
-- **等待**：GPU 等数据 vs 数据等 GPU：profiler 空隙 ∩ `__next__`、torchtitan data_loading(%)、队列深度；几乎总是并发问题不是带宽问题
+- **恢复**：
+  - Megatron：位置 = `consumed_train_samples` 整数，采样器从该处数，可换 DP。
+  - torchtitan：`StatefulDataLoader` 的迭代器状态按 dp_rank 存，不可换 DP。
+  - DeepSpeed：只有课程学习有状态。
+- **等待**：GPU 等数据 vs 数据等 GPU，三个判据是 profiler 空隙 ∩ `__next__`、torchtitan 的 data_loading(%)、队列深度——几乎总是并发问题而不是带宽问题
 
 ### 2. 本篇涉及的源码位置
 
-```text title="本篇涉及的源码位置"
-项目                  路径                                                          关键符号 / 内容
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-Megatron Core         megatron/core/optimizer/clip_grads.py                         get_grad_norm_fp32 / clip_grad_by_total_norm_fp32 / count_zeros_fp32
-0.18.0                megatron/core/optimizer/optimizer.py                          MegatronOptimizer.get_main_grads_for_grad_norm / get_grad_stats_parallel_group / clip_grad_norm /
-                                                                                    count_zeros；MixedPrecisionOptimizer.prepare_grads / step（返回 success, grad_norm, num_zeros_in_grad）；
-                                                                                    Float16OptimizerWithFloat16Params
-                      megatron/core/optimizer/grad_scaler.py                        DynamicGradScaler（growth_factor / backoff_factor / growth_interval / hysteresis）
-                      megatron/core/optimizer/qk_clip.py                            clip_qk（log_max_only）；current_max_attn_logits 的 DP MAX 归约
-                      megatron/core/optimizer/__init__.py                           get_standard_config_overrides（1-D 与 bias 的 wd_mult=0；apply_wd_to_qk_layernorm；decoupled_lr）
-                      megatron/core/optimizer_param_scheduler.py                    OptimizerParamScheduler（lr_warmup_steps / lr_decay_style 含 WSD / state_dict）
-                      megatron/core/transformer/transformer_config.py               qk_layernorm / qk_l2_norm / qk_clip / qk_clip_threshold / qk_clip_alpha / log_max_attention_logit /
-                                                                                    attention_softmax_in_fp32 / apply_query_key_layer_scaling / moe_z_loss_coeff
-                      megatron/core/distributed/param_and_grad_buffer.py            check_grads（每 bucket 范数的 NaN/Inf/10× 检查）；DistributedDataParallelConfig.check_for_large_grads
-                      megatron/core/rerun_state_machine.py                          RerunStateMachine.validate_result / is_unexpectedly_large / get_skipped_iterations_from_tracker_file；
-                                                                                    RerunMode / RerunDiagnostic
-                      megatron/training/config/resilience_config.py                 RerunStateMachineConfig（rerun_mode / check_for_nan_in_loss / check_for_spiky_loss）
-                      megatron/training/config/training_config.py                   iterations_to_skip / log_params_norm / log_num_zeros_in_grad / log_max_attention_logit /
-                                                                                    log_loss_scale_to_tensorboard
-                      megatron/training/training.py                                 train_step（optimizer.step 返回值；clip_qk；skipped_iter）；training_log（TensorBoard 键名）；
-                                                                                    train（iterations_to_skip → dummy_train_step；consumed/skipped_train_samples）；dummy_train_step；
-                                                                                    get_train_valid_test_num_samples / build_train_valid_test_data_loaders（phase_transition）；
-                                                                                    update_seqlen_stats_from_cu_seqlens
-                      megatron/training/utils/common_utils.py                       calc_params_l2_norm / reduce_max_stat_across_model_parallel_group
-                      megatron/training/checkpointing.py                            generate_state_dict（args / iteration / opt_param_scheduler / rerun_state_machine / rng_state）；
-                                                                                    load_checkpoint（consumed_train_samples / skipped_train_samples / consumed_valid_samples）；
-                                                                                    get_rng_state；maybe_save_dataloader_state；check_checkpoint_args
-                      megatron/training/datasets/data_samplers.py                   build_pretraining_data_loader；MegatronPretrainingSampler（consumed_samples 起点、按 dp_rank 切片）；
-                                                                                    MegatronPretrainingRandomSampler
-                      megatron/training/datasets/sft_dataset.py                     SFTDataset（贪心打包、cu_seqlens、CP pad）
-                      megatron/training/arguments.py                                --data-path / --train-data-path / --phase-transition-iterations / --data-cache-path / --num-workers /
-                                                                                    --reset-attention-mask / --reset-position-ids / --object-storage-cache-path / --mid-level-dataset-surplus /
-                                                                                    --check-for-large-grads / --result-rejected-tracker-filename / --clip-grad / --initial-loss-scale
-                      megatron/core/datasets/indexed_dataset.py                     DType.optimal_dtype；_IndexWriter.write；_IndexReader；_MMapBinReader / _FileBinReader / _S3BinReader /
-                                                                                    _MultiStorageClientBinReader；IndexedDataset.get；IndexedDatasetBuilder.add_document / add_index / finalize
-                      megatron/core/datasets/gpt_dataset.py                         GPTDatasetConfig；GPTDataset._build_document_sample_shuffle_indices / _query_document_sample_shuffle_indices；
-                                                                                    _build_document_index / _build_shuffle_index / _get_ltor_masks_and_position_ids
-                      megatron/core/datasets/blended_dataset.py                     BlendedDataset（dataset_index / dataset_sample_index）
-                      megatron/core/datasets/blended_megatron_dataset_builder.py    BlendedMegatronDatasetBuilder；_get_size_per_split_per_dataset
-                      megatron/core/datasets/blended_megatron_dataset_config.py     blend / blend_per_split / path_to_cache / mid_level_dataset_surplus
-                      megatron/core/datasets/helpers.cpp                            build_sample_idx / build_blending_indices / build_exhaustive_blending_indices
-                      megatron/core/datasets/object_storage_utils.py                ObjectStorageConfig（path_to_idx_cache / bin_chunk_nbytes）
-                      megatron/core/packed_seq_params.py                            PackedSeqParams（qkv_format="thd" / cu_seqlens_* / *_padded）
-                      tools/preprocess_data.py · tools/merge_datasets.py            离线 tokenize 与合并
-                      pretrain_gpt.py                                               loss_func（check_for_spiky_loss，SPIKY_LOSS_FACTOR=10）；get_batch → PackedSeqParams
-DeepSpeed 0.19.2      deepspeed/runtime/zero/stage_1_and_2.py                       scaled_global_norm / get_grad_norm_direct / unscale_and_clip_grads / has_overflow / _has_inf_or_nan
-                      deepspeed/runtime/engine.py                                   skipped_steps；get_global_grad_norm；deepspeed_io；save/load 的 data_sampler 键
-                      deepspeed/runtime/data_pipeline/curriculum_scheduler.py       CurriculumScheduler
-                      deepspeed/runtime/data_pipeline/data_sampling/data_sampler.py DeepSpeedDataSampler（state_dict / load_state_dict）
-                      deepspeed/runtime/data_pipeline/data_sampling/data_analyzer.py    DataAnalyzer / DistributedDataAnalyzer
-                      deepspeed/runtime/data_pipeline/data_sampling/variable_batch_size_and_lr.py   batch_by_seqlens / VariableBatchSizeLR
-                      deepspeed/runtime/data_pipeline/data_routing/basic_layer.py   RandomLayerTokenDrop
-                      deepspeed/runtime/data_pipeline/constants.py                  CURRICULUM_LEARNING_* / DYNAMIC_BATCHING_*
-torchtitan v0.3.0     torchtitan/distributed/utils.py                               clip_grad_norm_（DTensor full_tensor + pp_mesh all-reduce）/ _clip_grad_norm_with_ep / set_determinism
-                      torchtitan/trainer.py                                         train_step（clip_grad_norm_ → optimizers.step；global_avg/max_loss；非有限 loss raise）；
-                                                                                    batch_generator（data_loading_times；DataloaderExhaustedError）；state_dict（step / ntokens_seen）；
-                                                                                    snapshot_every_n_steps 的推导
-                      torchtitan/components/metrics.py                              MetricsProcessor.log（全部指标键名）；data_loading_times
-                      torchtitan/components/dataloader.py                           BaseDataLoader；ParallelAwareDataloader（StatefulDataLoader 子类；按 dp_rank 的 state_dict；world_size 断言）；
-                                                                                    DataloaderExhaustedError
-                      torchtitan/hf_datasets/text_datasets.py                       HuggingFaceTextDataset（streaming；split_dataset_by_node；buffer 与 positions；state_dict）；
-                                                                                    HuggingFaceTextDataLoader；ChatDataset；InterleavedHuggingFaceTextDataLoader
-                      torchtitan/hf_datasets/interleaved.py                         InterleavedDataset（weights / seed / rng_state）
-                      torchtitan/components/checkpointer/dcp.py · base.py           DATALOADER / MODEL / OPTIMIZER / LR_SCHEDULER 键；states 字典；exclude_from_loading
-                      torchtitan/components/optimizer/lr_scheduler.py               LRSchedulersContainer（warmup_steps / decay_type / decay_ratio / min_lr_factor）
-                      torchtitan/models/common/attention.py                         get_document_mask_mod / create_varlen_metadata_for_document / VarlenMetadata
-                      torchtitan/config/configs.py                                  TrainingConfig.max_norm / seed / deterministic
-PyTorch v2.13.0       torch/nn/utils/clip_grad.py                                   get_total_norm / clip_grads_with_norm_ / clip_grad_norm_
-                      torch/distributed/tensor/_ops/_math_ops.py                    _NormPartial
-                      torch/distributed/checkpoint/stateful.py                      Stateful 协议
-```
+| 路径 | 关键符号 / 内容 |
+|---|---|
+| **Megatron Core 0.18.0** | |
+| `megatron/core/optimizer/clip_grads.py` | get_grad_norm_fp32 / clip_grad_by_total_norm_fp32 / count_zeros_fp32 |
+| `megatron/core/optimizer/optimizer.py` | MegatronOptimizer.get_main_grads_for_grad_norm / get_grad_stats_parallel_group / clip_grad_norm / count_zeros<br/>MixedPrecisionOptimizer.prepare_grads / step（返回 success、grad_norm、num_zeros_in_grad）<br/>Float16OptimizerWithFloat16Params（main_param）<br/>state_dict 里的 grad_scaler 键 |
+| `megatron/core/optimizer/grad_scaler.py` | DynamicGradScaler（growth_factor / backoff_factor / growth_interval / hysteresis） |
+| `megatron/core/optimizer/qk_clip.py` | clip_qk（log_max_only）<br/>current_max_attn_logits 的 DP MAX 归约 |
+| `megatron/core/optimizer/__init__.py` | get_standard_config_overrides（1-D 与 bias 的 wd_mult=0、apply_wd_to_qk_layernorm、decoupled_lr） |
+| `megatron/core/optimizer_param_scheduler.py` | OptimizerParamScheduler（lr_warmup_steps / lr_decay_style 含 WSD / state_dict） |
+| `megatron/core/transformer/transformer_config.py` | qk_layernorm / qk_l2_norm / qk_clip / qk_clip_threshold / qk_clip_alpha<br/>log_max_attention_logit<br/>attention_softmax_in_fp32 / apply_query_key_layer_scaling<br/>moe_z_loss_coeff |
+| `megatron/core/distributed/param_and_grad_buffer.py` | check_grads（每 bucket 范数的 NaN/Inf/10× 检查）<br/>DistributedDataParallelConfig.check_for_large_grads |
+| `megatron/core/rerun_state_machine.py` | RerunStateMachine.validate_result / is_unexpectedly_large（num_samples 默认 100，max_values / large_value_counts）<br/>get_skipped_iterations_from_tracker_file<br/>state_dict / load_state_dict（ShardedObject，按 rank 分片，仅 torch_dist 格式）<br/>RerunMode / RerunDiagnostic |
+| `megatron/training/config/resilience_config.py` | RerunStateMachineConfig（rerun_mode / check_for_nan_in_loss / check_for_spiky_loss） |
+| `megatron/training/config/training_config.py` | iterations_to_skip<br/>log_params_norm / log_num_zeros_in_grad / log_max_attention_logit / log_loss_scale_to_tensorboard |
+| `megatron/training/training.py` | train_step（optimizer.step 的返回值、clip_qk、skipped_iter）<br/>training_log（TensorBoard 键名）<br/>train（iterations_to_skip → dummy_train_step；consumed / skipped_train_samples）<br/>dummy_train_step<br/>get_train_valid_test_num_samples / build_train_valid_test_data_loaders（phase_transition）<br/>update_seqlen_stats_from_cu_seqlens |
+| `megatron/training/utils/common_utils.py` | calc_params_l2_norm / reduce_max_stat_across_model_parallel_group |
+| `megatron/training/checkpointing.py` | generate_state_dict（args / iteration / opt_param_scheduler / rerun_state_machine / rng_state）<br/>load_checkpoint（consumed_train_samples / skipped_train_samples / consumed_valid_samples）<br/>get_rng_state<br/>maybe_save_dataloader_state<br/>check_checkpoint_args |
+| `megatron/training/datasets/data_samplers.py` | build_pretraining_data_loader（pin_memory=True 固定开、num_workers>0 时 persistent_workers=True）<br/>MegatronPretrainingSampler（consumed_samples 起点、按 dp_rank 切片，自身无状态）<br/>MegatronPretrainingRandomSampler |
+| `megatron/training/datasets/sft_dataset.py` | SFTDataset（贪心打包、cu_seqlens、CP pad） |
+| `megatron/training/arguments.py` | --data-path / --train-data-path / --phase-transition-iterations / --data-cache-path / --num-workers<br/>--reset-attention-mask / --reset-position-ids<br/>--object-storage-cache-path / --mid-level-dataset-surplus<br/>--check-for-large-grads / --result-rejected-tracker-filename<br/>--clip-grad / --initial-loss-scale |
+| `megatron/core/datasets/indexed_dataset.py` | DType.optimal_dtype<br/>_IndexWriter.write / _IndexReader<br/>_MMapBinReader / _FileBinReader / _S3BinReader / _MultiStorageClientBinReader<br/>IndexedDataset.get<br/>`__getstate__` / `__setstate__` → initialize（每个 worker 自己重新打开 mmap）<br/>IndexedDatasetBuilder.add_document / add_index / finalize |
+| `megatron/core/datasets/gpt_dataset.py` | GPTDatasetConfig<br/>GPTDataset.`_build_document_sample_shuffle_indices` / `_query_document_sample_shuffle_indices`<br/>`_build_document_index` / `_build_shuffle_index`<br/>`_get_ltor_masks_and_position_ids` |
+| `megatron/core/datasets/blended_dataset.py` | BlendedDataset（dataset_index / dataset_sample_index） |
+| `megatron/core/datasets/blended_megatron_dataset_builder.py` | BlendedMegatronDatasetBuilder；_get_size_per_split_per_dataset |
+| `megatron/core/datasets/blended_megatron_dataset_config.py` | blend / blend_per_split / path_to_cache / mid_level_dataset_surplus |
+| `megatron/core/datasets/helpers.cpp` | build_sample_idx / build_blending_indices / build_exhaustive_blending_indices |
+| `megatron/core/datasets/object_storage_utils.py` | ObjectStorageConfig（path_to_idx_cache / bin_chunk_nbytes） |
+| `megatron/core/packed_seq_params.py` | PackedSeqParams（qkv_format="thd" / cu_seqlens_* / *_padded） |
+| `tools/preprocess_data.py`、`tools/merge_datasets.py` | 离线 tokenize 与合并 |
+| `pretrain_gpt.py` | loss_func（check_for_spiky_loss，SPIKY_LOSS_FACTOR=10）<br/>get_batch → PackedSeqParams |
+| **DeepSpeed 0.19.2** | |
+| `deepspeed/runtime/zero/stage_1_and_2.py` | scaled_global_norm / get_grad_norm_direct / unscale_and_clip_grads<br/>has_overflow / _has_inf_or_nan |
+| `deepspeed/runtime/engine.py` | skipped_steps<br/>get_global_grad_norm<br/>deepspeed_io<br/>save / load 的 data_sampler 键 |
+| `deepspeed/runtime/data_pipeline/curriculum_scheduler.py` | CurriculumScheduler |
+| `deepspeed/runtime/data_pipeline/data_sampling/data_sampler.py` | DeepSpeedDataSampler（state_dict / load_state_dict） |
+| `deepspeed/runtime/data_pipeline/data_sampling/data_analyzer.py` | DataAnalyzer / DistributedDataAnalyzer |
+| `deepspeed/runtime/data_pipeline/data_sampling/variable_batch_size_and_lr.py` | batch_by_seqlens / VariableBatchSizeLR |
+| `deepspeed/runtime/data_pipeline/data_routing/basic_layer.py` | RandomLayerTokenDrop |
+| `deepspeed/runtime/data_pipeline/constants.py` | CURRICULUM_LEARNING_* / DYNAMIC_BATCHING_* |
+| **torchtitan v0.3.0** | |
+| `torchtitan/distributed/utils.py` | clip_grad_norm_（DTensor full_tensor + pp_mesh all-reduce）<br/>_clip_grad_norm_with_ep<br/>set_determinism |
+| `torchtitan/trainer.py` | train_step（clip_grad_norm_ → optimizers.step、global_avg / max_loss、非有限 loss raise）<br/>batch_generator（data_loading_times、DataloaderExhaustedError）<br/>state_dict（step / ntokens_seen）<br/>snapshot_every_n_steps 的推导<br/>tokenizer 的构建（config.tokenizer.build） |
+| `torchtitan/components/metrics.py` | MetricsProcessor.log（全部指标键名）<br/>data_loading_times |
+| `torchtitan/components/dataloader.py` | BaseDataLoader<br/>ParallelAwareDataloader（StatefulDataLoader 子类、按 dp_rank 的 state_dict、world_size 断言）<br/>DataloaderExhaustedError |
+| `torchtitan/hf_datasets/text_datasets.py` | HuggingFaceTextDataset（streaming、split_dataset_by_node、inputs / labels / positions buffer、state_dict、reloop 的 shuffle(seed=42+epoch)）<br/>HuggingFaceTextDataLoader<br/>ChatDataset<br/>InterleavedHuggingFaceTextDataLoader |
+| `torchtitan/hf_datasets/interleaved.py` | InterleavedDataset（weights / seed / rng_state） |
+| `torchtitan/components/checkpointer/dcp.py`、`base.py` | DATALOADER / MODEL / OPTIMIZER / LR_SCHEDULER 键<br/>states 字典<br/>exclude_from_loading |
+| `torchtitan/components/optimizer/lr_scheduler.py` | LRSchedulersContainer（warmup_steps / decay_type / decay_ratio / min_lr_factor） |
+| `torchtitan/models/common/attention.py` | get_document_mask_mod / create_varlen_metadata_for_document / VarlenMetadata |
+| `torchtitan/config/configs.py` | TrainingConfig.max_norm / seed / deterministic |
+| **PyTorch v2.13.0** | |
+| `torch/nn/utils/clip_grad.py` | get_total_norm / clip_grads_with_norm_ / clip_grad_norm_ |
+| `torch/distributed/tensor/_ops/_math_ops.py` | _NormPartial |
+| `torch/distributed/checkpoint/stateful.py` | Stateful 协议 |
+
+Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：`signals/` 与 `data/replay_check.py`
 
 ```text title="train-ledger/signals/ 与 data/ 目录"
 train-ledger/
-  ledger/               第一、二篇
-  sweep/  mfu_breakdown.py   第七篇
-  ckpt/   chaos/        第五、六篇
+  ledger/               《训练任务的状态解剖》《并行策略全景》《容错与弹性》已给的账本
+  sweep/  mfu_breakdown.py   《千卡配置实战》
+  ckpt/                 《分布式 checkpoint》
+  chaos/                《容错与弹性》
   signals/
     logger.py           每步信号 → JSONL；纯 PyTorch 循环直接调用，torchtitan 用 hook 接
     plot.py             读 JSONL，画 loss / grad norm / param norm / max logit 四联图并标出 spike
@@ -1000,5 +1172,5 @@ def check(world_size, a="ids_uninterrupted", b="ids_resumed"):
 
    </details>
 
-[^q0]: 先看 spike 的形态与前兆：瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大。处理：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip`），代价约 250–300 步 / 次；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律。详见[第二](#二loss-spike现象与成因)至[四章](#四处理回退与跳过)。
+[^q0]: 先看 spike 的形态与前兆：瞬时（下一步就回来：坏 batch 或 bf16 偶发）、可恢复（几百步爬回：学习率或优化器状态）还是发散（一路上去：logit 增长或精度链断裂）。五种成因各有信号：**学习率**——param norm 增速在事前变快；**bf16 数值**——无前兆、单步跳；**logit 增长**——max attention logit 单调升过约 100；**坏数据**——换 seed 回放同一 batch 可复现；**优化器状态**——grad norm 在低平台后放大。处理：PaLM 的做法——回退约 100 步 + 跳过 200–500 个 batch（Megatron `--iterations-to-skip`），算力代价约 150–250 步 / 次；预防靠全局范数裁剪、warmup、QK-LayerNorm、z-loss、weight decay 例外、精度纪律。详见[第二](#二loss-spike现象与成因)至[四章](#四处理回退与跳过)。
 [^q1]: **事前记录**：loss 的 avg 与 max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查（[第五章](#五必须记录的信号)）。**精确回放**：要定位到第 137,000 步的 batch，数据管线必须确定性——离线 tokenize 的 `.bin/.idx`、`GPTDataset` 三个索引由 seed 确定、`BlendedDataset` 的贪心混合确定性、恢复位置由 `consumed_train_samples` 整数决定（Megatron 可换 DP 恢复，torchtitan 的 `StatefulDataLoader` 按 dp_rank 存不可换）；加上足够密的 checkpoint（[第六章](#六数据管线上存储与索引)、[第七章](#七数据管线下加载与恢复)）。便宜的是处置，贵的是信号与基础设施。
