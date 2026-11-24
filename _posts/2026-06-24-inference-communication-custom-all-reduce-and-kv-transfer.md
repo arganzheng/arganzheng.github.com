@@ -630,12 +630,12 @@ Table: Llama-3-70B 的 KV cache 账：每 token、每请求与 TP8 时每 rank
 
 | 场景 | 时间 |
 |---|---|
-| TP8 → TP8，每 rank 传 160 MiB | 160 MiB / 50 GB/s ≈ 3.4 ms（理论）；按 RDMA 通常 90% 效率约 3.7 ms<br/>8 个 rank 并行走 8 张网卡，请求整体也是 ≈ 3.4 ms |
+| TP8 → TP8，每 rank 传 160 MiB | 160 MiB / 50 GB/s ≈ 3.4 ms（理论）；按 RDMA 大消息约 90% 的线速效率算 3.7 ms（小消息单发会低得多）<br/>8 个 rank 并行走 8 张网卡，请求整体也是 ≈ 3.4 ms |
 | 只有一张网卡承担全部 1.25 GiB | ≈ 27 ms |
 
 Table: KV 传输时间的下界
 
-对比 prefill 本身：4096 token 的 70B 前向约 $$2 \times 70 \times 10^9 \times 4096 \approx 5.7 \times 10^{14}$$ FLOP，8 卡 H100 BF16 稠密算力 989 TFLOPS/卡（标称），按 50% 利用率约 145 ms。3.4 ms 的传输不到它的 3%；但如果传输被挤到一张网卡、或者没走 GPUDirect 经过了主机内存、或者 GPU 与 NIC 跨了 root complex（第二、三篇），27 ms 甚至更多就会显著吃掉 PD 分离本来要争取的 TTFT 收益。**KV 传输的账是带宽的账，而且是"每 GPU 一张网卡是否都被用上"的账**。
+对比 prefill 本身：4096 token 的 70B 前向约 $$2 \times 70 \times 10^9 \times 4096 \approx 5.7 \times 10^{14}$$ FLOP，8 卡 H100 BF16 稠密算力 989 TFLOPS/卡（标称）。prefill 的算力利用率取多少是个假设：取 50% 是 145 ms，按公开测量里 MoE + FP8 在 8×H100 上报的 30–36% 算是 200 ms 上下。两种取法下，3.4 ms 的传输都不到它的 3%；但如果传输被挤到一张网卡、或者没走 GPUDirect 经过了主机内存、或者 GPU 与 NIC 跨了 root complex（第二、三篇），27 ms 甚至更多就会显著吃掉 PD 分离本来要争取的 TTFT 收益。**KV 传输的账是带宽的账，而且是"每 GPU 一张网卡是否都被用上"的账**。
 
 ### 2. 什么时候传：一次性还是按层流水
 
@@ -840,7 +840,7 @@ TP all_reduce 延迟异常——decode 每 token 延迟比预期高、profiler �
 
 KV 传输的症状是 decode 侧 TTFT 高、`vllm:nixl_xfer_time_seconds` 直方图偏大、或日志里 `NixlKVConnectorStats` 的 `Throughput (MB/s)` 远低于网卡带宽。排查顺序：
 
-1. 算理论值：每请求字节数（[第六章](#六算一算pd-分离的-kv-传输)的公式）/ 每 rank 网卡单向带宽；`Throughput (MB/s)` 应达到它的 70–90%。
+1. 算理论值：每请求字节数（[第六章](#六算一算pd-分离的-kv-传输)的公式）/ 每 rank 网卡单向带宽；`Throughput (MB/s)` 应达到它的 70–90%——前提是 KV 按 ≥32–64 KiB 的页批量写；页太小或逐条小写会掉到线速的一两成。
 2. 走的是哪条路径？
    - `kv_buffer_device` 是 cuda 还是 cpu（cpu 多两次 PCIe 拷贝，且 host 缓冲区受 PCIe 带宽限制）
    - `UCX_LOG_LEVEL=info` 看 UCX 选了哪个 transport：跨节点期望 `rc_mlx5` / `dc_mlx5` + GPUDirect；看到 `tcp` 或 `cuda_copy` 说明退化了
@@ -1015,7 +1015,7 @@ print(f"efficiency:  {byts/secs/1e9/(nic_gbps/8)*100:.0f}% of NIC, {byts/secs/1e
 ```
 {% endraw %}
 
-注意 `probe.py` 里的每 rank 带宽是"传输进行期间"的平均值——`nixl_xfer_time_seconds` 只计时传输本身，不含握手与排队，所以它衡量的是数据面效率，正好用来和 `ib_write_bw` 比。差距在 10–20% 内是正常的软件开销；差一倍以上去查[第八章的「KV 传输慢：从路径到亲和」一节](#2-kv-传输慢从路径到亲和)——多数情况是 UCX 选了 `cuda_copy` 或 `tcp`，或者 8 个 rank 的流量挤在一两张网卡上。
+注意 `probe.py` 里的每 rank 带宽是"传输进行期间"的平均值——`nixl_xfer_time_seconds` 只计时传输本身，不含握手与排队，所以它衡量的是数据面效率，正好用来和 `ib_write_bw` 比。差一两成是正常的软件开销；差一倍以上去查[第八章的「KV 传输慢：从路径到亲和」一节](#2-kv-传输慢从路径到亲和)——多数情况是 UCX 选了 `cuda_copy` 或 `tcp`，或者 8 个 rank 的流量挤在一两张网卡上。
 
 到这里，comm-probe 的推理侧部分齐了：`tp_ar_bench.py` 用同一套 all_reduce 输入在 vLLM 的各后端之间切换，`kv_xfer/` 用一对 PD 实例把 NIXL 的传输带宽和《RDMA 与 GPUDirect》的 `ib_write_bw` 放在一起比。两个脚本都只做一件事——把本篇算出来的理论值（[第二章](#二算一算decode-阶段-tp-all_reduce-的账)的 α、[第六章](#六算一算pd-分离的-kv-传输)的字节数除以网卡带宽）和机器上实际跑出来的数字并排打印，差距就是[第八章](#八测一测与比一比推理侧的排障)两张清单要查的东西。
 
