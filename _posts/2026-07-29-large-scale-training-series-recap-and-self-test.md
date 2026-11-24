@@ -9,38 +9,15 @@ date: 2026-07-29 20:00:00
 updated: 2026-11-23
 ---
 
-十一篇正文回答了一个问题：**一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒**。前七篇是静态与稳态——第一篇算一张卡上四种状态的字节数与 FLOP，第二篇把每种并行写成"切哪种状态、付哪种通信"，第三至五篇各追一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里的一生，第六篇把三者放在一起对比，第七篇从模型与集群规格推出 70B / 1024 卡的配置并拆解 MFU 损失；后四篇是长时——第八篇把状态写到磁盘并允许换布局读回，第九篇算故障之后每一秒去了哪里，第十篇让数值不跑飞、数据可回放，第十一篇把任务当作服务来运维。十一篇合起来，是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)总纲里"训练引擎这一层"的全部。
+十一篇正文回答了一个问题：**一个千卡训练任务，怎么配、怎么跑满、怎么跑一个月不倒**。前七篇是静态与稳态——[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)算一张卡上四种状态的字节数与 FLOP，[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)把每种并行写成"切哪种状态、付哪种通信"，[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)各追一个 bf16 参数在对应框架里的一生，[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)把三者放在一起对比，[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)从模型与集群规格推出 70B / 1024 卡的配置并拆解 MFU 损失；后四篇是长时——[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)把状态写到磁盘并允许换布局读回，[《容错与弹性》](/fault-tolerance-and-elastic-training.html)算故障之后每一秒去了哪里，[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)让数值不跑飞、数据可回放，[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)把任务当作服务来运维。十一篇合起来，是[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)总纲里"训练引擎这一层"的全部。
 
 本文不讲新内容，做三件事：把十一篇压成一张表与十一段回顾，把贯穿十一篇的四条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十一篇能不能连起来用"：拿到一份模型规格和集群规格能不能算出配置，拿到一份故障统计能不能算出有效训练时间，凌晨三点 step 时间翻三倍能不能在十分钟内定位。
 
 > **读完这十一篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
-先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
-
-```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 200}}}%%
-%% 图：大规模训练全景：围绕四种状态组织——算账、切分、落盘、重建、稳数值、看指标
-flowchart TB
-    L1["<b>01 状态解剖</b><br/>参数 / 梯度 / 优化器状态 / 激活的字节数与 MFU"] --> L2["<b>02 并行策略全景</b><br/>每种并行切哪种状态、付哪种通信"]
-    L2 --> F
-    subgraph F["框架四篇：一个 bf16 参数的一生 × 三框架 + 对比"]
-        L3["03 Megatron-LM"]
-        L4["04 DeepSpeed"]
-        L5["05 torchtitan"]
-        L6["06 三框架对比"]
-    end
-    L2 & F --> L7["<b>07 千卡配置与 MFU 调优</b><br/>先算再试：并行搭配、micro-batch、重计算"]
-    L1 & L2 --> L8["<b>08 分布式 checkpoint</b><br/>把三样状态写到持久存储、重分片恢复"]
-    L8 --> L9["<b>09 容错与弹性</b><br/>故障率数学、straggler、SDC"]
-    L1 --> L10["<b>10 训练稳定性与数据管线</b><br/>让数值不跑飞、数据可回放"]
-    L8 --> L10
-    L7 & L9 & L10 --> L11["<b>11 可观测与运维</b><br/>让字节数与位置成为指标，hang 排查"]
-
-```
-
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**训练引擎围绕状态组织，先算再试**。一个训练任务的全部状态只有四样——参数、梯度、优化器状态、激活；并行策略是决定它们放在哪张卡上，checkpoint 是把其中三样写到持久存储，容错是在一部分卡消失后重建它们，稳定性是保证它们的数值不跑飞，可观测是让它们的字节数与位置成为指标。每一篇都先给公式、代入 Llama 3 的 8B / 70B / 405B 与 1024 或 16K 张 H100，再到 Megatron Core 0.18.0、DeepSpeed 0.19.2、PyTorch 2.13.0（toy 实测 2.14）与 torchtitan v0.3.0 的源码里把同一个系数找出来。配置不是试出来的，是算出来再用少量实验校准的；checkpoint 间隔不是拍脑袋，是一个平方根；有效训练时间不是运气，是一个五项公式。
+系列的一句话主张是：**训练引擎围绕状态组织，先算再试**。一个训练任务的全部状态只有四样——参数、梯度、优化器状态、激活；并行策略是决定它们放在哪张卡上，checkpoint 是把其中两样（参数与优化器状态）写到持久存储，容错是在一部分卡消失后重建它们，稳定性是保证它们的数值不跑飞，可观测是让它们的字节数与位置成为指标。每一篇都先给公式、代入 Llama 3 的 8B / 70B / 405B 与 1024 或 16K 张 H100，再到 Megatron Core 0.18.0、DeepSpeed 0.19.2、PyTorch 2.13.0（toy 实测 2.14）与 torchtitan v0.3.0 的源码里把同一个系数找出来。配置不是试出来的，是算出来再用少量实验校准的；checkpoint 间隔不是拍脑袋，是一个平方根；有效训练时间不是运气，是一个五项公式。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
@@ -53,8 +30,8 @@ flowchart TB
 | [第七篇：千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html) | 70B、1024 张 H100、$$s = 8192$$、global batch 4M：TP / PP / DP 各多少？micro-batch？重计算？预期 MFU？只有 32% 时缺的 10 个点在哪？ | 推导顺序 TP → PP → DP → CP<br/>每卡 token 少时选 PP + ZeRO-1 不选 FSDP<br/>MFU 损失拆成七项各自标价，先修配置错误 | 候选 A TP8 / PP4（$$v = 4$$）/ DP32，$$b = 1$$、$$m = 16$$，气泡 4.7%，每卡约 49 GB 不重计算<br/>FSDP128 每卡每 step 175 GB 节点间通信、3.5 s<br/>理论 2.0 s / step，目标 42% ≈ 4.75 s ≈ 88 万 token/s<br/>全量重计算 +33% FLOP 省 94% 激活<br/>FP8 step 时间降 20–25%<br/>缺的 10 个点：配置约 6、硬件约 2、结构约 0.5、管线约 0.5 |
 | [第八篇：分布式 checkpoint](/distributed-checkpoint-format-async-save-and-resharding.html) | 405B、6 TB 状态的 checkpoint 同步写要停几分钟？异步写代价是什么？剩 15 个节点能不能直接加载？ | 磁盘上是"全局张量的一组分片"而不是某个 rank 的内存映像，所以能零通信重分片；$$\delta$$ 从写入时间变成 staging 时间，异步不是优化是必需 | 落盘每参数 14（Megatron）或 12（FSDP2）字节，405B 5.7 TB<br/>单文件 19–95 分钟，分片写每卡 350 MB 秒级<br/>Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$、最小浪费 $$\sqrt{2\delta/M}$$<br/>$$M \approx 3.1$$ h 时 $$\delta = 10$$ min → 33%、2 s → 1.9%<br/>staging 内存 = 每卡唯一字节 ×（1–2） |
 | [第九篇：容错与弹性](/fault-tolerance-and-elastic-training.html) | 每次故障从发现到恢复要多久？检测、重启、加载、回退各占多少？85% → 95% 最该缩短哪一段？ | 故障是常态：$$M = M_{gpu}/N$$；先 $$\delta$$（同步改异步），再 $$T_d$$（hang 检测 10 分钟 → 1 分钟），再 $$T_r$$（进程重启 → 进程内），$$T_l$$ 最后 | $$G = \dfrac{1 - (T_d + T_r + T_l + \tau/2)/M}{1 + \delta/\tau}$$<br/>Llama 3：16K 卡 54 天 419 次意外中断、$$M \approx 3.1$$ h、单卡约 5 万小时、78% 硬件、58.7% GPU、1.4% SDC、>90% 有效、3 次人工<br/>16K 卡同步 71% → 异步 87% → 压检测与重启 94%<br/>NCCL watchdog 10 min、进程重启 2–5 min |
-| [第十篇：稳定性与数据管线](/training-stability-and-data-pipeline.html) | 第 137,000 步 loss 从 2.1 跳到 4.8——数据、学习率还是精度？哪些信号要事前记、哪些状态要能回放？ | 五种成因各有信号指纹，靠事前记录的原始值归因；处理是回退 + 跳过，前提是 checkpoint 密度与数据管线确定性 | 三种形态（瞬时 / 可恢复 / 发散）× 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态）<br/>max attention logit 单调升过约 100<br/>裁剪阈值 1.0<br/>PaLM 回退约 100 步 + 跳过 200–500 batch，代价约 250–300 步 / 次<br/>Megatron 位置 = `consumed_train_samples` 可换 DP，torchtitan `StatefulDataLoader` 不可换 |
-| [第十一篇：可观测与运维](/long-running-training-observability-and-operations.html) | 凌晨三点 step 时间 12 s → 40 s、没有报错：十分钟内怎么判断是 straggler、数据、通信还是降频？信号在开训前采了吗？ | 三层指标（任务 / 进程 / 硬件）、按 rank 看、以 step 为时钟<br/>"step 是否前进"是 hang 唯一可靠的信号<br/>Flight Recorder 指出哪个 rank 缺席哪次集合通信 | 四个嫌疑各一个决定性指标：Timers minmax / `data_loading(%)` / 通信等待 + IB 计数器 / `SM_CLOCK`<br/>FR 2.13.0 起默认开（2.14 实测 gloo 也写；buffer 2000、dump on timeout），要把 dump 路径接好、缓冲加到 2 万<br/>假设 2.5 美元 / 卡时：1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ 4.4 万美元，告警 + runbook 每次事故省约 30 min ≈ 512 GPU 小时 |
+| [第十篇：稳定性与数据管线](/training-stability-and-data-pipeline.html) | 第 137,000 步 loss 从 2.1 跳到 4.8——数据、学习率还是精度？哪些信号要事前记、哪些状态要能回放？ | 五种成因各有信号指纹，靠事前记录的原始值归因；处理是回退 + 跳过，前提是 checkpoint 密度与数据管线确定性 | 三种形态（瞬时 / 可恢复 / 发散）× 五种成因（LR / bf16 / logit / 坏数据 / 优化器状态）<br/>max attention logit 单调升过约 100<br/>裁剪阈值 1.0<br/>PaLM 回退约 100 步 + 跳过 200–500 batch，代价约 150–250 步 / 次（均值约 200）<br/>Megatron 位置 = `consumed_train_samples` 可换 DP，torchtitan `StatefulDataLoader` 不可换 |
+| [第十一篇：可观测与运维](/long-running-training-observability-and-operations.html) | 凌晨三点 step 时间 12 s → 40 s、没有报错：十分钟内怎么判断是 straggler、数据、通信还是降频？信号在开训前采了吗？ | 三层指标（任务 / 进程 / 硬件）、按 rank 看、以 step 为时钟<br/>"step 是否前进"是 hang 唯一可靠的信号<br/>Flight Recorder 指出哪个 rank 缺席哪次集合通信 | 四个嫌疑各一个决定性指标：Timers minmax / `data_loading(%)` / 通信等待 + IB 计数器 / `SM_CLOCK`<br/>FR 2.13.0 起默认开（buffer 2000、dump on timeout；gloo 的集合通信同样写进这个缓冲），要把 dump 路径接好、缓冲加到 2 万<br/>假设 2.5 美元 / 卡时：1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ 4.4 万美元，告警 + runbook 每次事故省约 30 min ≈ 512 GPU 小时 |
 
 Table: 十一篇的核心问题、结论与必记公式
 
@@ -114,12 +91,12 @@ Table: 本文的章节安排
 
 **核心问题**：一个 bf16 参数在 Megatron 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？
 
-**结论**：Megatron 从模型结构出发组织代码——TP 切矩阵、PP 切层。一个 DP 副本内的全部 bf16 参数拍进 `_ParamAndGradBuffer` 的连续内存、从不释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把 fp32 主参数与优化器状态切成 $$1/N_d$$，step 后 all-gather 更新过的 bf16 参数回 buffer。进程组由 `RankGenerator(order="tp-cp-ep-dp-pp")` 枚举填进全局变量。
+**结论**：Megatron 从模型结构出发组织代码——TP 切矩阵、PP 切层。一个 DP 副本内的全部 bf16 参数拍进 `_ParamAndGradBuffer` 的连续内存、从不释放；梯度经 DDP hook 累加进 `main_grad`（默认 fp32），bucket 满了就 reduce-scatter；`DistributedOptimizer` 按字节区间把 fp32 主参数与优化器状态切成 $$1/N_d$$，更新完分片后由 `step_with_ready_grads()` → `start_param_sync()` 发起 all-gather，把更新过的 bf16 参数拼回 buffer。进程组由 `RankGenerator(order="tp-cp-ep-dp-pp")` 枚举填进全局变量。
 
 **必记**：
 
 - 每参数常驻：$$2 + 4 + 12/N_d$$（默认 fp32 梯度）；通信 RS + AG = $$2N$$，两处都与计算重叠。
-- 1F1B：过程式三段循环 + `P2PCommunicator` 合并收发 + `deallocate_output_tensor` 释放已发出的激活。
+- 1F1B：过程式三段循环 + `P2PCommunicator` 合并收发 + `deallocate_output_tensor()` 释放已发出的激活（受 `ModelParallelConfig.deallocate_pipeline_outputs` 控制，默认关闭）。
 - 趋势：Megatron-FSDP 的 `ShardingStrategy` 四级——"只做 ZeRO-1"的立场在松动。
 
 **常见误解**："Megatron 的显存省在算法上"——它的 ZeRO-1 字节账与别家一致，省的是通信重叠与碎片。
@@ -128,7 +105,7 @@ Table: 本文的章节安排
 
 **核心问题**：一个 bf16 参数在 DeepSpeed Stage 3 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？
 
-**结论**：DeepSpeed 从优化器状态出发：ZeRO 逐级切 O → G → P。Stage 3 下 bf16 参数常驻 $$1/N_d$$ 碎片（`ds_tensor`），`param.data` 只是空壳；module 的 pre-forward hook 触发参数协调器按 trace 预取 all-gather、用完立即释放，反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区。进程组委托 `mpu` 或克隆 world。
+**结论**：DeepSpeed 从优化器状态出发：ZeRO 逐级切 O → G → P。Stage 3 下 bf16 参数常驻 $$1/N_d$$ 碎片（`ds_tensor`），`param.data` 被 `free_param()` 换成 `torch.empty(0)`——`param.shape` 读出来是 `(0,)`，真实形状只留在 `ds_shape`；module 的 pre-forward hook 触发参数协调器按 trace 预取 all-gather、用完立即释放，反向再来一次；fp32 主参数是优化器里的扁平 fp32 分区。进程组委托 `mpu` 或克隆 world。
 
 **必记**：
 
@@ -136,7 +113,7 @@ Table: 本文的章节安排
 - `param.data` 一个 step 里换四次身份——Stage 3 的一切能力与代价都在这一句里。
 - `deepspeed.zero.Init` 让模型从构造起就只有分片，不用它要先放得下完整模型。
 
-**常见误解**："ZeRO-3 参数在显存里"——它在，但只有 $$1/N_d$$；任何在 hook 之外摸参数的代码拿到的都是空张量，要 `GatheredParameters`。
+**常见误解**："ZeRO-3 参数在显存里"——它在，但只有 $$1/N_d$$；任何在 hook 之外摸参数的代码拿到的是 0 元素张量（形状在 `ds_shape` 里），要 `GatheredParameters`。
 
 ### 5. 第五篇：torchtitan——用原生原语组合
 
@@ -170,7 +147,7 @@ Table: 本文的章节安排
 
 **必记**：
 
-- 候选 A：TP8 / PP4（$$v = 4$$）/ DP32，$$b = 1$$、$$m = 16$$，气泡 4.7%，每卡静态 14 GB + 激活 27 GB + 开销 8 GB ≈ 49 GB，不需要重计算；候选 B：TP8 / PP2 / DP64，$$m = 8$$，约 62 GB。
+- 候选 A：TP8 / PP4（$$v = 4$$）/ DP32，$$b = 1$$、$$m = 16$$，气泡 4.7%，每卡静态 14 GB + 激活 27 GB + 开销 8 GB ≈ 49 GB，不需要重计算；候选 B：TP8 / PP2（$$v = 4$$）/ DP64，$$m = 8$$，约 62 GB。
 - 每 step 通信（候选 A）：TP 300 GB NVLink（须与 GEMM 重叠）、DP 8.8 GB → 0.18 s、PP 2.1 GB；FSDP128 版 175 GB 节点间、3.5 s，比 2.0 s 的计算时间还长。
 - 理论 2.0 s / step（$$6 \times 69.5\text{B} + 12Lhs = 4.81 \times 10^{11}$$ FLOP / token）；42% ≈ 4.75 s ≈ 88 万 token/s；32% ≈ 6.2 s。
 - 重计算：全量 +33% FLOP 省 94% 激活；选择性在 FlashAttention 下几乎不省；按层 $$N$$ 是"差一点"时最经济；先确认放不下再开。
@@ -206,7 +183,8 @@ Table: 本文的章节安排
 
 - Llama 3：16K 卡、54 天、466 次中断、419 次意外 → $$M \approx 3.1$$ h，反推单卡约 5 万小时（5.8 年）；78% 硬件、58.7% GPU、1.4% SDC；>90% 有效、3 次人工。
 - 1024 卡 $$M \approx 48.8$$ h，三个场景 93.8% → 98.9% 差别很小；16K 卡 A → B 提升 16 个点全部来自 $$\delta$$，B → C 再提升 8 个点来自检测与重启。
-- 超时默认值：NCCL watchdog 10 min、HeartbeatMonitor 8 min、inprocess `soft_timeout` 60 s；`TORCH_NCCL_ASYNC_ERROR_HANDLING=3` 把超时变成显式错误。
+- 超时默认值：NCCL watchdog 10 min、HeartbeatMonitor 8 min、inprocess `soft_timeout` 60 s、torchft `heartbeat_timeout_ms` 5 s（`join_timeout_ms` 60 s 只是等 straggler 的上限，心跳一超时新 quorum 立刻形成）；`TORCH_NCCL_ASYNC_ERROR_HANDLING=3` 把超时变成显式错误。
+- NVRx 的监视进程不随 worker 重启：`ft_launcher` 在拉起 worker **之前**就为每个 local rank fork 一个 `RankMonitorServer`，worker 重启时它只收到新的 cycle 号。
 - torchrun：`--max-restarts` 默认 0；rendezvous c10d / etcd、`min:max` + `last_call` 30 s、join 600 s、心跳 5 s。
 - what-if 论文（OSDI 2025）：42.5% 的任务因 straggler 至少慢 10%，尾部浪费 45%；先看是否每步换 rank。
 - 确定性：控制流必须确定、计算可带 tolerance；全局确定性很慢，只在校准与排查时开。
@@ -223,7 +201,7 @@ Table: 本文的章节安排
 
 - 信号清单：loss avg / max、clip 前的 grad norm、param norm、LR、loss scale、skipped iters、num_zeros、max attention logit、consumed samples、data_loading%——每步记原始值、随 checkpoint 留档、按 rank 可查。
 - 裁剪 $$g \leftarrow g \cdot \min(1, c/(\lVert g \rVert_2 + 10^{-6}))$$，$$c$$ 通常 1.0；clip 后的 grad norm 恒等于阈值、没有信息量。
-- 回退 + 跳过代价约 250–300 步 / 次，20 次 < 1%——便宜的是处置，贵的是信号与基础设施。
+- 回退 + 跳过代价约 150–250 步 / 次（均值约 200 步），对 100 万步的任务是 0.02%，一次训练里 20 次 spike 合计不到 0.5%——便宜的是处置，贵的是信号与基础设施。
 - weight decay 例外默认仅 1-D 参数与 bias；Megatron 的 z-loss 只有 MoE 路由的；`qk_clip_threshold` 默认 100。
 - 恢复语义：Megatron 位置 = `consumed_train_samples` 一个整数，可换 DP；torchtitan `StatefulDataLoader` 按 dp_rank 存迭代器状态，不可换 DP；DeepSpeed 仅课程学习有状态。
 - 数据等待几乎总是并发问题不是带宽问题：看 profiler 空隙 ∩ `__next__`、`data_loading(%)`、队列深度。
@@ -245,50 +223,65 @@ Table: 本文的章节安排
 - 告警：page 的是 step 停止、NaN、连续重启失败、checkpoint 失败、有效训练时间跌破、MFU 掉 15%、XID / DBE；其余 record。
 - 成本（假设 2.5 美元 / 卡时）：1024 卡一天 6.1 万美元；1 个 MFU 点 ≈ 30 天任务的 0.71 天 ≈ 4.4 万美元；hang 检测 10 分钟 vs 100 秒，乘每三小时一次就是 4–5 个百分点有效训练时间；告警 + runbook 每次事故省约 30 min ≈ 512 GPU 小时 ≈ 1,280 美元，一个月约 30 万美元。
 
-**常见误解**："GPU 利用率 100% 说明在正常训练"——NCCL kernel 自旋等对端时利用率也是 100%，只有 step 计数能区分"在跑"和"卡住"。另一个："Flight Recorder 是要额外开的调试工具"——2.13.0 起默认开着（toy 在 2.14 gloo 上也验证过），多数团队只是没把 dump 路径接到能拿到文件的地方。
+**常见误解**："GPU 利用率 100% 说明在正常训练"——NCCL kernel 自旋等对端时利用率也是 100%，只有 step 计数能区分"在跑"和"卡住"。另一个："Flight Recorder 是要额外开的调试工具"——2.13.0 起默认开着（`ProcessGroupGloo` 也往同一个缓冲写），多数团队只是没把 dump 路径接到能拿到文件的地方。
 
 ## 三、贯穿全系列的几条线
 
 ### 1. 状态线：四样东西的字节、位置、落盘与重建
 
-总纲的第一句话是"训练引擎围绕状态组织"，十一篇是这句话在十一个层面上的展开。第一篇给出四种状态的字节数与生命周期：前三样是 $$N$$ 的线性函数（16 或 18 字节 / 参数），激活是 token 数的线性函数（$$34sbh$$），激活峰值在前向末、梯度峰值在反向末。第二篇决定它们放在哪张卡：每一个"切"对应一种通信，DP 系切副本之间的分工、模型并行系切一份模型。第三至六篇把"放在哪"落到容器上——连续 buffer 的视图、$$1/N_d$$ 的碎片、`Shard(0)` 的 DTensor——同一个 bf16 参数三种存在方式。
+总纲的第一句话是"训练引擎围绕状态组织"，十一篇是这句话在十一个层面上的展开。[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)给出四种状态的字节数与生命周期：前三样是 $$N$$ 的线性函数（16 或 18 字节 / 参数），激活是 token 数的线性函数（$$34sbh$$），激活峰值在前向末、梯度峰值在反向末。[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)决定它们放在哪张卡：每一个"切"对应一种通信，DP 系切副本之间的分工、模型并行系切一份模型。框架四篇（[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)与[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)）把"放在哪"落到容器上——连续 buffer 的视图、$$1/N_d$$ 的碎片、`Shard(0)` 的 DTensor——同一个 bf16 参数三种存在方式。
 
 把四种状态摊成一张网格，各篇的分工一眼可见：
 
 ![四种状态与十一篇的关系网格：参数、梯度、优化器状态、激活四行，各列是各篇对它们做的事](/img/in-post/large-scale-training-recap-state-grid.svg)
 
-第八篇把其中三样写到磁盘：不需要梯度，所以落盘是 14 或 12 字节，且去掉 DP 复制后的唯一字节与并行配置无关——这是能重分片的前提。第九篇在一部分卡消失后重建它们：重分片加载是弹性训练在存储层的前提，torchft 从活着的副本组拉参数是另一种重建。第十篇保证它们的数值不跑飞：fp32 主参数与 fp32 优化器状态这条精度链上的任何一环降到 bf16 都是风险，数据加载器的位置也是必须进 checkpoint 的状态。第十一篇让它们的字节数与位置成为进程层指标（`memory_stats` 的 allocated / reserved / `inactive_split_bytes`），它们的变化成为告警。任何一个训练系统的问题，先问"哪种状态、多少字节、在哪张卡、什么时候动"。
+[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)把其中两样写到磁盘：梯度与激活都不存，所以落盘是 14 或 12 字节，且去掉 DP 复制后的唯一字节与并行配置无关——这是能重分片的前提。[《容错与弹性》](/fault-tolerance-and-elastic-training.html)在一部分卡消失后重建它们：重分片加载是弹性训练在存储层的前提，torchft 从活着的副本组拉参数是另一种重建。[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)保证它们的数值不跑飞：fp32 主参数与 fp32 优化器状态这条精度链上的任何一环降到 bf16 都是风险，数据加载器的位置也是必须进 checkpoint 的状态。[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)让它们的字节数与位置成为进程层指标（`memory_stats` 的 allocated / reserved / `inactive_split_bytes`），它们的变化成为告警。任何一个训练系统的问题，先问"哪种状态、多少字节、在哪张卡、什么时候动"。
 
 ### 2. 算账线：显存 → 通信 → MFU → checkpoint 间隔 → 有效训练时间 → GPU 小时
 
-每一篇加一项，最后换成同一个单位。第一篇是两本账：字节的账决定能不能跑（$$16N$$ + 激活 + 开销 ≤ 每卡显存），FLOP 的账决定最快能多快（step 下限 = tokens × FLOP/token ÷ 卡数 × 峰值），MFU 是两者之比。第二篇加通信量：$$2N$$、$$3N$$、$$sbh$$ 每层四次、气泡 $$\frac{p-1}{m}$$。第七篇把它们合成配置推导——候选 A 的 49 GB、300 GB NVLink、2.0 s 理论、42% 目标——并把 MFU 缺口拆成七项各自标价；"每卡 token 少选 ZeRO-1 不选 FSDP"是通信账直接推出的结论。
+每一篇加一项，最后换成同一个单位。[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)是两本账：字节的账决定能不能跑（$$16N$$ + 激活 + 开销 ≤ 每卡显存），FLOP 的账决定最快能多快（step 下限 = tokens × FLOP/token ÷ 卡数 × 峰值），MFU 是两者之比。[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)加通信量：$$2N$$、$$3N$$、$$sbh$$ 每层四次、气泡 $$\frac{p-1}{m}$$。[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)把它们合成配置推导——候选 A 的 49 GB、300 GB NVLink、2.0 s 理论、42% 目标——并把 MFU 缺口拆成七项各自标价；"每卡 token 少选 ZeRO-1 不选 FSDP"是通信账直接推出的结论。
 
-第八篇加 $$\delta$$ 与 $$M$$：Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$，最小浪费 $$\sqrt{2\delta/M}$$。第九篇把它嵌进五项公式 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M)/(1 + \delta/\tau)$$，Young 公式是忽略前三项时的一阶最优；同一套方案 1024 卡 98%、16K 卡 71% 到 94%，差别全在 $$M$$ 与各项的相对大小。第十一篇把所有项换成 GPU 小时与美元：1 个 MFU 点 4.4 万美元、一次 hang 的告警 + runbook 省 512 GPU 小时、checkpoint 间隔按 Young 调整每天省 550 GPU 小时——用它排优先级。这条线的意义不在精确（每项 ±10%），在于先算再试：不可能的配置开机前排除，"多久存一次"从拍脑袋变成一个平方根。
+[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)加 $$\delta$$ 与 $$M$$：Young 公式 $$\tau_{opt} = \sqrt{2\delta M}$$，最小浪费 $$\sqrt{2\delta/M}$$。[《容错与弹性》](/fault-tolerance-and-elastic-training.html)把它嵌进五项公式 $$G = (1 - (T_d + T_r + T_l + \tau/2)/M)/(1 + \delta/\tau)$$，Young 公式是忽略前三项时的一阶最优；同一套方案 1024 卡 98%、16K 卡 71% 到 94%，差别全在 $$M$$ 与各项的相对大小。[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)把所有项换成 GPU 小时与美元：1 个 MFU 点 4.4 万美元、一次 hang 的告警 + runbook 省 512 GPU 小时、checkpoint 间隔按 Young 调整每天省 550 GPU 小时——用它排优先级。这条线的意义不在精确（每项 ±10%），在于先算再试：不可能的配置开机前排除，"多久存一次"从拍脑袋变成一个平方根。
 
-### 3. 框架线：三种取向，每个主题一张对照表
+### 3. 框架线：三种取向，同一个对象的三个名字
 
-Megatron-LM 按模型结构切、DeepSpeed 按优化器状态切、torchtitan 用 PyTorch 原生原语组合，这三种取向在每一篇都有一张对照表。第三至六篇是进程组与状态容器：`RankGenerator` / mpu 委托 / `DeviceMesh`；`_ParamAndGradBuffer` / `ds_tensor` + 扁平分区 / DTensor。第七篇是配置面：`--tensor-model-parallel-size` 与 `recompute_*` 参数族 / JSON / `ParallelismConfig` 与 Python 配置函数；重计算、重叠、编译各有各的名字。第八篇是 checkpoint 格式：Megatron `ShardedTensor` 手写全局坐标、torch_dist 格式；DeepSpeed 每 rank 一份 `torch.save`、绑 DP 度、需 `ds_to_universal`；torchtitan `CheckpointManager` 包 `dcp.async_save`。
+Megatron-LM 按模型结构切、DeepSpeed 按优化器状态切、torchtitan 用 PyTorch 原生原语组合。取向不同，要做的事是同一套：把四种状态装进容器、把 rank 组织成进程组、把状态写到磁盘、在故障后重建、让它们可观测。所以读完三个框架，手里最该留下的是一张词典——同一个对象在三家里各自叫什么：
 
-第九篇是容错接口：Megatron 与 NVRx 覆盖检测、进程内重启、straggler、SDC、注入、预检六件事，torchtitan 是 torchft 的集成示范，DeepSpeed 基本依赖 torchrun。第十篇是稳定性与数据：全局范数在哪个组上归约（`grad_stats_parallel_group` / `_NormPartial` + PP all-reduce）、跳过 batch 有没有内建、数据位置以什么形式进 checkpoint。第十一篇是可观测面：Timers 的 max / minmax / all、`MetricsProcessor` 与每 rank JSONL、`StragglerDetector`。对照着读的收获是分清哪些是分布式训练本身的要求（优化器状态一定以 fp32 存在某处、ZeRO 三级的字节数三家一致），哪些是框架的选择（连续 buffer 还是碎片、argparse 还是 Python）；共同底座是 `torch.distributed`，趋势是分片成为数据的属性。
+| 对象 / 主题 | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 | 讲它的篇 |
+|---|---|---|---|---|
+| 进程组 | `RankGenerator(order="tp-cp-ep-dp-pp")` 枚举后填进全局变量 | 委托 `mpu`，或克隆 world | `DeviceMesh` 切成的几张视图 | 框架四篇 |
+| 常驻的 bf16 参数 | `_ParamAndGradBuffer` 里的一段视图，整个训练不释放 | $$1/N_d$$ 的 `ds_tensor` 碎片，`param.data` 是 0 元素张量 | 不常驻：`Shard(0)` 的 fp32 DTensor，用到时 unshard 出临时 bf16 | 框架四篇 |
+| 梯度 | 同一个 buffer 里的 fp32 `main_grad`，bucket 满了 reduce-scatter | 反向 hook 填 `IPGBucketZ3`，满了 reduce-scatter 进 `grad_partitions_flat_buffer` | 反向后 reduce-scatter 成 fp32 分片梯度（`MixedPrecisionPolicy` 的 `reduce_dtype`） | 框架四篇 |
+| fp32 主参数与优化器状态 | `DistributedOptimizer` 按 bucket 里的字节区间切成 $$1/N_d$$ | 优化器里的扁平 fp32 分区 | fp32 DTensor 分片本身就是主参数 | 框架四篇 |
+| 配置面 | argparse：`--tensor-model-parallel-size`、`recompute_*` 参数族 | 一份 JSON | 返回 `Trainer.Config` 的 Python 函数，TP 由声明式 `ShardingConfig` 描述 | 《千卡配置实战》 |
+| checkpoint 格式 | `ShardedTensor` 手写全局坐标（torch_dist 格式）；优化器分 `dp_reshardable` / `fully_reshardable` | 每 rank 一份 `torch.save`，绑 DP 度，换配置先 `ds_to_universal` | `CheckpointManager` 包 `dcp.async_save` | 《分布式 checkpoint》 |
+| 全局梯度范数在哪个组上归约 | `grad_stats_parallel_group`（分布式优化器时等于整个 world） | `scaled_global_norm` 按参数组算 | DTensor 的 `_NormPartial` 归约后，PP 组再 all-reduce | 《训练稳定性与数据管线》 |
+| 数据位置 | `consumed_train_samples` 一个整数，可换 DP 度 | 仅课程学习有状态 | `StatefulDataLoader` 按 dp_rank 存迭代器状态，不可换 DP 度 | 《训练稳定性与数据管线》 |
+| 容错接口 | 与 NVRx 配合，覆盖检测、进程内重启、straggler、SDC、故障注入、预检六件事 | 基本依赖 torchrun | torchft 的集成示范 | 《容错与弹性》 |
+| 可观测入口 | `Timers`（`--timing-log-option max / minmax / all`）与 `StragglerDetector` | `SynchronizedWallClockTimer` 与 monitor 后端 | `MetricsProcessor` 与每 rank 的结构化 JSONL | 《长时训练的可观测与运维》 |
+
+Table: 同一个对象在三个框架里的名字
+
+对照着读的收获是分清两件事：哪些是分布式训练本身的要求——优化器状态一定以 fp32 存在某处、ZeRO 三级的字节数三家一致、落盘字节与并行配置无关；哪些只是框架的选择——连续 buffer 还是碎片、argparse 还是 Python 函数、自己写全局坐标还是让 DTensor 自描述。共同底座是 `torch.distributed`，三家的趋势同向：Megatron-FSDP 的 `ShardingStrategy`、DeepSpeed 的 DeviceMesh、torchtitan 的 `ShardingConfig`——分片正在成为数据的属性。
 
 ### 4. 运维线：从恢复点到有人值班的系统
 
-后四篇是一条从"能恢复"到"自动恢复"到"知道要恢复"的线。第八篇的 checkpoint 是恢复点：提交标记、fsync、保留策略、版本兼容，异步保存让间隔短到几分钟。第九篇是自动化：三类故障三种检测手段——显式秒级、隐式靠超时、静默靠校验——torchrun 的 `_invoke_run` 循环、进程内重启、坏卡隔离与 `gpu_sniff_test` 预检，让 419 次中断里 416 次不需要人。第十篇是数值层的可观测：十个信号每步记原始值、随 checkpoint 留档，回退 + 跳过是有章法的处置而不是重启。
+后四篇是一条从"能恢复"到"自动恢复"到"知道要恢复"的线。[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 checkpoint 是恢复点：提交标记、fsync、保留策略、版本兼容，异步保存让间隔短到几分钟。[《容错与弹性》](/fault-tolerance-and-elastic-training.html)是自动化：三类故障三种检测手段——显式秒级、隐式靠超时、静默靠校验——torchrun 的 `_invoke_run` 循环、进程内重启、坏卡隔离与 `gpu_sniff_test` 预检，让 419 次中断里 416 次不需要人。[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)是数值层的可观测：十个信号每步记原始值、随 checkpoint 留档，回退 + 跳过是有章法的处置而不是重启。
 
-第十一篇把它们接成一个有人值班的系统：三层指标、"step 是否前进"的独立 watchdog、Flight Recorder 的 dump 路径、page 与 record 的边界、开训清单 13 项（FR 演练与 page 通路测试最常被跳过）、runbook 的"症状 → 五分钟检查 → 处置 → 升级"、复盘写检测时间与恢复分解。检测时间 $$T_d$$ 是有效训练时间公式里唯一完全由监控决定的一项——这条线的终点回到第九篇的公式。
+[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)把它们接成一个有人值班的系统：三层指标、"step 是否前进"的独立 watchdog、Flight Recorder 的 dump 路径、page 与 record 的边界、开训清单 13 项（FR 演练与 page 通路测试最常被跳过）、runbook 的"症状 → 五分钟检查 → 处置 → 升级"、复盘写检测时间与恢复分解。检测时间 $$T_d$$ 是有效训练时间公式里唯一完全由监控决定的一项——这条线的终点回到《容错与弹性》的五项公式。
 
-| 概念 | 出现的篇 | 关系 |
-|---|---|---|
-| 四种状态与每参数 16 / 18 字节 | 一、二、三至六、八、十 | 一定义<br/>二决定切法<br/>三至六落到容器<br/>八落盘去掉梯度成 14 / 12<br/>十解释 fp32 链为何不能降 |
-| 激活 $$34sbh$$ 与 micro-batch | 一、二、七 | 一给公式<br/>二说 TP + SP 除以 $$N_t$$、PP 在途 $$O(p)$$<br/>七算出 27 GB 并断定不需要重计算 |
-| 通信量 $$2N$$ / $$3N$$ | 二、三至六、七 | 二推导<br/>三至六在源码里找到 RS + AG 与 AG + AG + RS<br/>七用它否决 FSDP128 |
-| 气泡 $$\frac{p-1}{m}$$ | 二、七 | 二推导与交错；七用 $$v = 4$$ 把 18.8% 压到 4.7% |
-| MFU 与七项损失 | 一、七、九、十一 | 一定义（不含重计算）<br/>七拆七项<br/>九给 straggler 的成因与检测器<br/>十一给性能回归的决定性指标与每个点的价格 |
-| $$\delta$$、$$M$$、$$\tau_{opt}$$ | 八、九、十一 | 八推导 Young 公式<br/>九嵌进五项公式<br/>十一用它算每天省多少 GPU 小时 |
-| 重分片 / 换 DP 恢复 | 八、九、十 | 八给 DCP 的交集加载<br/>九作为弹性训练的存储前提<br/>十指出数据加载器位置能否换 DP 取决于表示 |
-| 检测时间 $$T_d$$ | 九、十一 | 九证明异步之后它是主导项；十一说它是唯一完全由监控决定的项，"step 是否前进"是唯一可靠信号 |
-| 回退与跳过 | 八、九、十 | 八的保留策略要留每 $$N$$ 小时一个<br/>九的 $$\tau/2$$ 是被动回退<br/>十把它反过来主动用 |
-| 三框架对照 | 三至十一 | 每篇一张表；取向不变（按结构 / 按优化器 / 原生原语），主题变 |
+| 概念 | 哪几篇讲它，各自做了什么 |
+|---|---|
+| 四种状态与每参数 16 / 18 字节 | 《训练任务的状态解剖》：定义四样状态、给出系数<br/>《并行策略全景》：决定每样切给谁<br/>框架四篇：落到连续 buffer 的视图 / $$1/N_d$$ 碎片 / DTensor 三种容器<br/>《分布式 checkpoint》：落盘去掉梯度，成 14 / 12 字节<br/>《训练稳定性与数据管线》：解释 fp32 精度链为何不能降 |
+| 激活 $$34sbh$$ 与 micro-batch | 《训练任务的状态解剖》：给公式<br/>《并行策略全景》：TP + SP 后除以 $$N_t$$、PP 在途 $$O(p)$$<br/>《千卡配置实战》：算出 27 GB 并断定不需要重计算 |
+| 通信量 $$2N$$ / $$3N$$ | 《并行策略全景》：推导<br/>框架四篇：在源码里找到 RS + AG 与 AG + AG + RS<br/>《千卡配置实战》：用它否决 FSDP128 |
+| 气泡 $$\frac{p-1}{m}$$ | 《并行策略全景》：推导与交错调度<br/>《千卡配置实战》：用 $$v = 4$$ 把 18.8% 压到 4.7% |
+| MFU 与七项损失 | 《训练任务的状态解剖》：定义（不含重计算）<br/>《千卡配置实战》：拆成七项并各自标价<br/>《容错与弹性》：给 straggler 的成因与检测器<br/>《长时训练的可观测与运维》：给性能回归的决定性指标与每个点的价格 |
+| $$\delta$$、$$M$$、$$\tau_{opt}$$ | 《分布式 checkpoint》：推导 Young 公式<br/>《容错与弹性》：嵌进五项公式<br/>《长时训练的可观测与运维》：用它算每天省多少 GPU 小时 |
+| 重分片 / 换 DP 恢复 | 《分布式 checkpoint》：DCP 的交集加载<br/>《容错与弹性》：把它当作弹性训练的存储前提<br/>《训练稳定性与数据管线》：数据加载器位置能否换 DP 取决于表示 |
+| 检测时间 $$T_d$$ | 《容错与弹性》：证明异步保存之后它是主导项<br/>《长时训练的可观测与运维》：唯一完全由监控决定的一项，"step 是否前进"是唯一可靠信号 |
+| 回退与跳过 | 《分布式 checkpoint》：保留策略要留每 $$N$$ 小时一个<br/>《容错与弹性》：$$\tau/2$$ 是被动回退<br/>《训练稳定性与数据管线》：把它反过来主动用 |
+| 三框架对照 | 框架四篇直到《长时训练的可观测与运维》：每篇一张表；取向不变（按结构切 / 按优化器状态切 / 原生原语组合），主题随篇变 |
 
 Table: 贯穿十一篇的概念及其关系
 
@@ -358,20 +351,20 @@ flowchart TB
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| bf16 训练每参数 2 字节，70B 只要 140 GB | 忘了梯度、fp32 主参数与 Adam 两个矩 | 每参数 16（或 18）字节，70B 1.13 TB，是一张 80 GB 卡的 14 倍 | [第一篇](/training-state-anatomy-memory-and-mfu.html) |
-| 开重计算后 MFU 上去了 | 重计算多算的 FLOP 只计入 HFU | MFU 不含重计算；全量重计算 HFU = 4/3 MFU | [第一篇](/training-state-anatomy-memory-and-mfu.html) |
-| TP 通信量最大所以最贵，能少就少 | 贵在关键路径上不可重叠，不只在量 | TP 锁在 NVLink 内 $$N_t \le 8$$；PP 量最小可重叠放最远 | [第二篇](/parallelism-strategies-which-state-to-shard.html) |
-| ZeRO-2 比 ZeRO-1 多通信 | all-reduce 本来就是 reduce-scatter + all-gather | ZeRO-1 / 2 都是 $$2N$$，只有 ZeRO-3 涨到 $$3N$$ | [第二篇](/parallelism-strategies-which-state-to-shard.html) |
-| FSDP2 比 FSDP1 通信少所以快 | 通信次数与量相同 | 差别是表示：每参数 DTensor 能与 TP、DCP、compile 组合 | [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
-| torchtitan 常驻一份 bf16 参数 | FSDP2 常驻的是 fp32 分片 | bf16 只在一层前向、反向的几十毫秒里存在，fp32 分片就是主参数 | [第六篇](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
-| 千卡上用 FSDP 代替 PP，没有气泡更快 | 每卡每 step 只有 4096 个 token，参数通信不随 token 摊薄 | FSDP128 每卡 175 GB / 3.5 s 盖不住；每卡 token 少选 PP + ZeRO-1 | [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) |
-| PP 加深激活就少 | 1F1B 第一个 stage 同时持有 $$p$$ 个 micro-batch 的激活 | PP 不减少激活总量；减少的是 micro-batch、SP、CP、重计算 | [第七篇](/thousand-gpu-configuration-and-mfu-tuning.html) |
-| checkpoint 大小随 TP / PP / DP 变 | 去掉 DP 复制后的唯一字节不变 | 落盘 14 或 12 字节 / 参数，与并行配置无关；这正是能重分片的前提 | [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) |
-| 异步 checkpoint 是锦上添花 | 3 小时 MTBF 下同步保存最小浪费 $$\sqrt{2\delta/M}$$ ≥ 10% | $$\delta$$ 从分钟到秒，浪费从 33% 到 1.9%；异步是必需 | [第八篇](/distributed-checkpoint-format-async-save-and-resharding.html) |
-| 有效训练时间低先缩短 checkpoint 间隔 | 间隔由 $$\tau_{opt} = \sqrt{2\delta M}$$ 决定，$$\delta$$ 不变缩间隔只是多付保存代价 | 先 $$\delta$$，再 $$T_d$$，再 $$T_r$$；回退项随 $$\delta$$ 自动变小 | [第九篇](/fault-tolerance-and-elastic-training.html) |
-| straggler = 坏卡，隔离节点即可 | 多数 straggler 是序列长度 / stage 不均衡，每步换 rank | 先看是否每步换 rank；是则查数据 packing 与 PP 布局 | [第九篇](/fault-tolerance-and-elastic-training.html) |
-| loss spike 就是脏数据 | 五种成因里两种是模型内部数值问题、一种是优化器状态 | 先看形态与信号指纹：param norm、max logit、grad norm 平台、可复现性 | [第十篇](/training-stability-and-data-pipeline.html) |
-| GPU 利用率 100% 说明训练正常 | hang 时 NCCL kernel 自旋等对端，利用率照样 100% | "step 是否前进"是 hang 唯一可靠信号，须由独立进程读取 | [第十一篇](/long-running-training-observability-and-operations.html) |
+| bf16 训练每参数 2 字节，70B 只要 140 GB | 忘了梯度、fp32 主参数与 Adam 两个矩 | 每参数 16（或 18）字节，70B 1.13 TB，是一张 80 GB 卡的 14 倍 | [《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html) |
+| 开重计算后 MFU 上去了 | 重计算多算的 FLOP 只计入 HFU | MFU 不含重计算；全量重计算 HFU = 4/3 MFU | [《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html) |
+| TP 通信量最大所以最贵，能少就少 | 贵在关键路径上不可重叠，不只在量 | TP 锁在 NVLink 内 $$N_t \le 8$$；PP 量最小可重叠放最远 | [《并行策略全景》](/parallelism-strategies-which-state-to-shard.html) |
+| ZeRO-2 比 ZeRO-1 多通信 | all-reduce 本来就是 reduce-scatter + all-gather | ZeRO-1 / 2 都是 $$2N$$，只有 ZeRO-3 涨到 $$3N$$ | [《并行策略全景》](/parallelism-strategies-which-state-to-shard.html) |
+| FSDP2 比 FSDP1 通信少所以快 | 通信次数与量相同 | 差别是表示：每参数 DTensor 能与 TP、DCP、compile 组合 | [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
+| torchtitan 常驻一份 bf16 参数 | FSDP2 常驻的是 fp32 分片 | bf16 只在一层前向、反向的几十毫秒里存在，fp32 分片就是主参数 | [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) |
+| 千卡上用 FSDP 代替 PP，没有气泡更快 | 每卡每 step 只有 4096 个 token，参数通信不随 token 摊薄 | FSDP128 每卡 175 GB / 3.5 s 盖不住；每卡 token 少选 PP + ZeRO-1 | [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) |
+| PP 加深激活就少 | 1F1B 第一个 stage 同时持有 $$p$$ 个 micro-batch 的激活 | PP 不减少激活总量；减少的是 micro-batch、SP、CP、重计算 | [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) |
+| checkpoint 大小随 TP / PP / DP 变 | 去掉 DP 复制后的唯一字节不变 | 落盘 14 或 12 字节 / 参数，与并行配置无关；这正是能重分片的前提 | [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html) |
+| 异步 checkpoint 是锦上添花 | 3 小时 MTBF 下同步保存最小浪费 $$\sqrt{2\delta/M}$$ ≥ 10% | $$\delta$$ 从分钟到秒，浪费从 33% 到 1.9%；异步是必需 | [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html) |
+| 有效训练时间低先缩短 checkpoint 间隔 | 间隔由 $$\tau_{opt} = \sqrt{2\delta M}$$ 决定，$$\delta$$ 不变缩间隔只是多付保存代价 | 先 $$\delta$$，再 $$T_d$$，再 $$T_r$$；回退项随 $$\delta$$ 自动变小 | [《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
+| straggler = 坏卡，隔离节点即可 | 多数 straggler 是序列长度 / stage 不均衡，每步换 rank | 先看是否每步换 rank；是则查数据 packing 与 PP 布局 | [《容错与弹性》](/fault-tolerance-and-elastic-training.html) |
+| loss spike 就是脏数据 | 五种成因里两种是模型内部数值问题、一种是优化器状态 | 先看形态与信号指纹：param norm、max logit、grad norm 平台、可复现性 | [《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html) |
+| GPU 利用率 100% 说明训练正常 | hang 时 NCCL kernel 自旋等对端，利用率照样 100% | "step 是否前进"是 hang 唯一可靠信号，须由独立进程读取 | [《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html) |
 
 Table: 常见误区与正确说法
 
@@ -411,7 +404,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-5. 第七篇候选 B（TP8 / PP2 / DP64，$$v = 4$$）如果把 micro-batch 改成 $$b = 2$$：$$m$$ 与气泡率各多少？显存还放得下吗？
+5. [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)的候选 B（TP8 / PP2 / DP64，$$v = 4$$）如果把 micro-batch 改成 $$b = 2$$：$$m$$ 与气泡率各多少？显存还放得下吗？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -427,7 +420,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-7. 第九篇场景 A（16K 卡：同步 $$\delta = 300$$ s、$$T_d = 600$$ s、$$T_r = 300$$ s、$$T_l = 120$$ s、$$\tau = 43$$ min）有效时间 70.8%。若只把 $$T_d$$ 压到 60 s、其余不动，$$G$$ 变成多少？说明了什么？
+7. [《容错与弹性》](/fault-tolerance-and-elastic-training.html)的场景 A（16K 卡：同步 $$\delta = 300$$ s、$$T_d = 600$$ s、$$T_r = 300$$ s、$$T_l = 120$$ s、$$\tau = 43$$ min）有效时间 70.8%。若只把 $$T_d$$ 压到 60 s、其余不动，$$G$$ 变成多少？说明了什么？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -455,7 +448,7 @@ Table: 常见误区与正确说法
 
     <details markdown="1"><summary>答案</summary>
 
-    每次差 600 − 100 = 500 s ≈ 8.3 min，× 1024 卡 ≈ 142 GPU 小时；一天 8 次约 1,140 GPU 小时 ≈ 2,800 美元——这还只是检测一项，第十一篇算上 runbook 的决策时间是每次约 30 min、每月约 30 万美元。
+    每次差 600 − 100 = 500 s ≈ 8.3 min，× 1024 卡 ≈ 142 GPU 小时；一天 8 次约 1,140 GPU 小时 ≈ 2,800 美元——这还只是检测一项，[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)算上 runbook 的决策时间是每次约 30 min、每月约 30 万美元。
 
     </details>
 
@@ -465,7 +458,9 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：13 GB 是每卡的 bf16 参数 + 梯度（TP × PP 切成 1/128 份、在 128 个 DP 副本上各有一份）+ 被 ZeRO-1 切成 1/128 的 fp32 主参数与两个矩；第八篇：checkpoint 去掉 DP 复制（每个参数只写一次）、去掉梯度，5.7 TB 分到 16K 卡才是 350 MB。第一篇：两者都从 $$N$$ 的线性函数出发，系数不同（常驻 16 / 18、落盘 14）。
+   - [《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)：13 GB 是每卡的 bf16 参数 + 梯度（TP × PP 切成 1/128 份、在 128 个 DP 副本上各有一份）+ 被 ZeRO-1 切成 1/128 的 fp32 主参数与两个矩。
+   - [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：checkpoint 去掉 DP 复制（每个参数只写一次）、去掉梯度，5.7 TB 分到 16K 卡才是 350 MB。
+   - [《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)：两者都从 $$N$$ 的线性函数出发，只是系数不同（常驻 16 / 18、落盘 14）。
 
    </details>
 
@@ -473,23 +468,30 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第八篇：能——DCP 的 `.metadata` 只有全局坐标，新的 FSDP 分片与磁盘块算交集、零通信重分片；第十篇：不能——torchtitan 的 `StatefulDataLoader` 按 dp_rank 存迭代器状态，DP 度变了状态对不上（Megatron 的 `consumed_train_samples` 一个整数则可以）；第九篇：替代方案是 torchft 的副本组模型——坏的 DP 副本退出 quorum、其余继续、恢复后从活着的副本拉参数——或者按第七篇的推导用同样的卡数换一组能整除的 TP / PP / DP。
+   - [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：模型与优化器能直接加载——DCP 的 `.metadata` 只有全局坐标，新的 FSDP 分片与磁盘块算交集、零通信重分片。
+   - [《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)：数据顺序不能——torchtitan 的 `StatefulDataLoader` 按 dp_rank 存迭代器状态，DP 度变了状态对不上（Megatron 的 `consumed_train_samples` 是一个整数，则可以）。
+   - [《容错与弹性》](/fault-tolerance-and-elastic-training.html)：替代方案是 torchft 的副本组模型——坏的 DP 副本退出 quorum、其余继续、恢复后从活着的副本拉参数——或者按《千卡配置实战》的推导用同样的卡数换一组能整除的 TP / PP / DP。
 
    </details>
 
-3. 第 137,000 步出现 spike，要按 PaLM 的做法回退到 spike 前约 100 步。候选 A 的配置（4.75 s / step）下，异步 checkpoint（$$\tau_{opt}$$ = 3.5 min）与同步 checkpoint（$$\tau_{opt}$$ = 61 min）各能回退到多远？这对第十篇的处理意味着什么？
+3. 第 137,000 步出现 spike，要按 PaLM 的做法回退到 spike 前约 100 步。候选 A 的配置（4.75 s / step）下，异步 checkpoint（$$\tau_{opt}$$ = 3.5 min）与同步 checkpoint（$$\tau_{opt}$$ = 61 min）各能回退到多远？这对《训练稳定性与数据管线》的处置意味着什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：4.75 s / step；第八篇：3.5 min ≈ 44 步一个 checkpoint，能回退到 spike 前 100–144 步之内；61 min ≈ 770 步一个，最近的 checkpoint 可能在 spike 前几百步，回退代价从第十篇说的 250–300 步涨到近千步。第十篇：回退 + 跳过成立的三个前提之一就是 checkpoint 密度——异步保存不只是容错的必需，也是稳定性处置的必需；另外第八篇的保留策略要留"每 $$N$$ 小时一个"供回退。
+   - [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)：候选 A 是 4.75 s / step。
+   - [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：异步的 3.5 min ≈ 44 步一个 checkpoint，能回退到 spike 前 100–144 步之内；同步的 61 min ≈ 770 步一个，最近的 checkpoint 可能在 spike 前几百步，一次处置的算力代价从约 150–250 步涨到近千步。
+   - [《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)：回退 + 跳过成立的三个前提之一就是 checkpoint 密度——异步保存不只是容错的必需，也是稳定性处置的必需；另外《分布式 checkpoint》的保留策略要留"每 $$N$$ 小时一个"供回退。
 
    </details>
 
-4. 候选 A 跑出 32%，七项拆解里 straggler 占了 2 个点、且每次都是同一个 rank。接下来按哪几篇的手段查？
+4. 候选 A 跑出 32%，七项拆解里 straggler 占了 2 个点、且每次都是同一个 rank。接下来按哪几篇的手段查，顺序是什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：多 rank trace 的计算时长 max − median 确认是 straggler 而非通信；第九篇：同一 rank 持续慢 → 硬件型（空间集中、时间持续），用 Megatron `StragglerDetector` 的 `elapsed()` 同一行看温度 / 功耗 / 频率，或 NVRx `Detector` 的 relative perf score，再用 `gpu_sniff_test` 跨 rank 找 outlier；第十一篇：对照硬件层 DCGM 的 `SM_CLOCK`（< 1.3 GHz 降频）、ECC、NVLink / PCIe 重放计数，确认后按第九篇隔离节点。若每步换 rank 则转第十篇查数据 packing。
+   - [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)：多 rank trace 的计算时长 max − median，确认是 straggler 而非通信。
+   - [《容错与弹性》](/fault-tolerance-and-elastic-training.html)：同一 rank 持续慢 → 硬件型（空间集中、时间持续），用 Megatron `StragglerDetector` 的 `elapsed()` 同一行看温度 / 功耗 / 频率，或 NVRx `Detector` 的 relative perf score，再用 `gpu_sniff_test` 跨 rank 找 outlier。
+   - [《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)：对照硬件层 DCGM 的 `SM_CLOCK`（< 1.3 GHz 即降频）、ECC、NVLink / PCIe 重放计数，确认后按《容错与弹性》隔离节点。
+   - 若每步换 rank，则不是硬件型，转《训练稳定性与数据管线》查数据 packing 与 PP 布局。
 
    </details>
 
@@ -497,7 +499,10 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三、五篇：Megatron 默认 DDP + 分布式优化器（ZeRO-1），torchtitan 默认 FSDP2（ZeRO-3）；第二、七篇：FSDP 每 micro-batch $$3N_{local}$$、$$m = 4$$ 时每卡 175 GB 节点间通信，ZeRO-1 是 $$2N_{local}$$ ≈ 8.8 GB——所以 torchtitan 在这个规格上也得开 PP；第三、五篇：每参数 $$2 + 4 + 12/N_d$$ vs $$16/N_d$$ + 临时 bf16；第八篇：落盘 12 字节（fp32 分片本身是主参数）vs 14 字节（bf16 参数 + fp32 主参数 + 两个矩）。
+   - [《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)与[《torchtitan》](/torchtitan-architecture-and-source-guide.html)：Megatron 的自然写法是 DDP + 分布式优化器（ZeRO-1），torchtitan 的是 FSDP2（ZeRO-3）。
+   - 《并行策略全景》与《千卡配置实战》：FSDP 每 micro-batch $$3N_{local}$$、$$m = 4$$ 时每卡 175 GB 节点间通信，ZeRO-1 是 $$2N_{local}$$ ≈ 8.8 GB——所以 torchtitan 在这个规格上也得开 PP。
+   - 每参数字节：Megatron $$2 + 4 + 12/N_d$$ vs torchtitan $$16/N_d$$ + 临时 bf16。
+   - [《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)：落盘 torchtitan 12 字节（fp32 分片本身就是主参数）vs Megatron 14 字节（bf16 参数 + fp32 主参数 + 两个矩）。
 
    </details>
 
@@ -508,7 +513,7 @@ Table: 常见误区与正确说法
    <details markdown="1"><summary>答案</summary>
 
    **答案要点**：(1) 先算三个与配置无关的数：静态状态 $$18N \approx 1.27$$ TB、每 step $$2.02 \times 10^{18}$$ FLOP → 理论 2.0 s、每层每 micro-batch 激活 285 MB（TP8 + SP + FlashAttention）；(2) TP = 8 锁 NVLink 域、开 SP；(3) PP 放下 $$N/(t \cdot p)$$ 与 $$p$$ 个在途 micro-batch：PP4 每卡 49 GB、PP2 62 GB、PP1 89 GB 放不下；(4) DP = 32，$$m = 16$$，$$v = 4$$ 交错把气泡从 18.8% 压到 4.7%；(5) 不开重计算、不开 CP；(6) DP 用 ZeRO-1 不用 FSDP——每卡 4096 token，FSDP 175 GB / 3.5 s 盖不住；(7) 预期 MFU 40–45%，目标 42% ≈ 4.75 s。
-   **追问方向**：$$b = 2$$ 会怎样（激活 54 GB，太紧）；$$s$$ 拉到 32K 后哪一步变（CP）；FSDP 什么时候合适（每卡 token 多、m 小）；Llama 3 405B 为什么是 TP8 / CP16 / PP16 / DP128。
+   **追问方向**：$$b = 2$$ 会怎样（激活 54 GB，太紧）；$$s$$ 拉到 32K 后哪一步变（CP）；FSDP 什么时候合适（每卡 token 多、m 小）；Llama 3 405B 的 16K 卡阶段为什么是 TP8 / CP1 / PP16 / DP128，而 128K 长上下文阶段改成 TP8 / CP16 / PP16 / DP4。
    **好答案与一般答案的区别**：一般答案报一组并行度；好答案先算出每卡显存、每 step 各类通信量与理论时间，再说每个维度为什么落在那条链路上。
 
    </details>
@@ -547,7 +552,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先看形态：瞬时 / 可恢复 / 发散，缩小到两三种成因；(2) 对照事前记录的信号指纹：param norm 增速（LR）、无前兆单步跳（bf16）、max attention logit 单调升过 100（logit 增长）、grad norm 低平台后放大（优化器状态）、换 seed 回放可复现（坏数据）；(3) 处理：回退约 100 步 + 跳过 200–500 个 batch（`--iterations-to-skip`），代价约 250–300 步；(4) 事前准备：十个信号每步记原始值（clip 前的 grad norm）、随 checkpoint 留档、按 rank 可查；(5) 数据管线确定性可回放：离线 tokenize、seed 决定的索引、位置进 checkpoint；(6) 预防开关：全局范数裁剪在正确的组上归约、warmup、QK-LayerNorm、z-loss、WD 例外、精度纪律。
+   **答案要点**：(1) 先看形态：瞬时 / 可恢复 / 发散，缩小到两三种成因；(2) 对照事前记录的信号指纹：param norm 增速（LR）、无前兆单步跳（bf16）、max attention logit 单调升过 100（logit 增长）、grad norm 低平台后放大（优化器状态）、换 seed 回放可复现（坏数据）；(3) 处理：回退约 100 步 + 跳过 200–500 个 batch（`--iterations-to-skip`），代价约 150–250 步（均值约 200）；(4) 事前准备：十个信号每步记原始值（clip 前的 grad norm）、随 checkpoint 留档、按 rank 可查；(5) 数据管线确定性可回放：离线 tokenize、seed 决定的索引、位置进 checkpoint；(6) 预防开关：全局范数裁剪在正确的组上归约、warmup、QK-LayerNorm、z-loss、WD 例外、精度纪律。
    **追问方向**：为什么全局范数算错会"安静地"过度裁剪；`qk_clip` 与 QK-LayerNorm 的区别；恢复时换 DP 度数据位置对不对得上。
    **好答案与一般答案的区别**：一般答案说"降 lr、跳过坏数据"；好答案把五种成因与五个信号一一对应，并指出便宜的是处置、贵的是信号与基础设施。
 
@@ -557,7 +562,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 这是 hang：唯一可靠的信号是"step 是否前进"，告警必须由独立于训练进程的 watchdog 读取；(2) Flight Recorder 在 2.13.0 起默认开着（toy 实测 2.14 gloo 也写），watchdog 超时 → 广播 dump 信号 → 各 rank 写文件，前提是开训前把 `TORCH_FR_DUMP_TEMP_FILE` 指到可收集的路径、缓冲加到 2 万；(3) `torchfrtrace` 对齐所有 rank 的记录，指出第几次集合通信上哪些 rank 缺席、或谁发了尺寸不同的张量；(4) 手动路径：`py-spy dump --native` 全部 rank，多数停在 wait、少数停在别处 → 少数是嫌疑人；(5) 常见成因：某 rank 条件分支不一致、数据加载器在某 rank 耗尽、点对点死锁；(6) FR 报 "No errors found" → 转硬件路径（dmesg XID、DCGM、IB 计数器）；(7) 定位后按 runbook 处置：隔离节点、重启、从 checkpoint 恢复，复盘时写下检测时间与恢复分解。
+   **答案要点**：(1) 这是 hang：唯一可靠的信号是"step 是否前进"，告警必须由独立于训练进程的 watchdog 读取；(2) Flight Recorder 在 2.13.0 起默认开着（`ProcessGroupGloo` 也往同一个缓冲写），watchdog 超时 → 广播 dump 信号 → 各 rank 写文件，前提是开训前把 `TORCH_FR_DUMP_TEMP_FILE` 指到可收集的路径、缓冲加到 2 万；(3) `torchfrtrace` 对齐所有 rank 的记录，指出第几次集合通信上哪些 rank 缺席、或谁发了尺寸不同的张量；(4) 手动路径：`py-spy dump --native` 全部 rank，多数停在 wait、少数停在别处 → 少数是嫌疑人；(5) 常见成因：某 rank 条件分支不一致、数据加载器在某 rank 耗尽、点对点死锁；(6) FR 报 "No errors found" → 转硬件路径（dmesg XID、DCGM、IB 计数器）；(7) 定位后按 runbook 处置：隔离节点、重启、从 checkpoint 恢复，复盘时写下检测时间与恢复分解。
    **追问方向**：为什么 `TORCH_NCCL_ASYNC_ERROR_HANDLING` 要保持 3；`TORCH_DISTRIBUTED_DEBUG=DETAIL` 为什么不上生产；hang 检测从 10 分钟到 90 秒值多少有效训练时间。
    **好答案与一般答案的区别**：一般答案说"看日志、重启"；好答案说出 hang 为什么只有 step 计数能发现，以及 Flight Recorder 的链路与边界。
 
@@ -567,7 +572,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先确认口径：MFU 不含重计算、按 bf16 标称峰值算，别拿 HFU 比；(2) 拿一份完整 `ProfilerStep` 的 trace 按七项拆解——气泡、未重叠通信、重计算、数据等待、kernel 效率、CPU 发射——多 rank trace 测第七项 straggler；(3) 每项对照第七篇的正常范围预算表（气泡率 × 前后向时间、TP 未盖住 0.2–0.4 s、数据等待 ≈ 0、CPU 0.1–0.3 s、straggler < 2%）；(4) 顺序：配置错误（重叠没开、bucket 太大、多余同步、SM 争抢、CPU 发得晚，约 6 个点）读一遍启动脚本就能修 → 硬件（降频、坏卡，约 2 个点，用第九篇的检测器隔离）→ 管线（数据等待，第十篇）→ 结构（pipeline 布局，约 0.5 个点）；(5) 每个点的价格：42% 下一个点是吞吐的 2.4%，30 天任务约 0.71 天、4.4 万美元；(6) 纪律：改一个变量、前后各 100 step 基准 + trace、配置进 git。
+   **答案要点**：(1) 先确认口径：MFU 不含重计算、按 bf16 标称峰值算，别拿 HFU 比；(2) 拿一份完整 `ProfilerStep` 的 trace 按七项拆解——气泡、未重叠通信、重计算、数据等待、kernel 效率、CPU 发射——多 rank trace 测第七项 straggler；(3) 每项对照《千卡配置实战》的正常范围预算表（气泡率 × 前后向时间、TP 未盖住 0.2–0.4 s、数据等待 ≈ 0、CPU 0.1–0.3 s、straggler < 2%）；(4) 顺序：配置错误（重叠没开、bucket 太大、多余同步、SM 争抢、CPU 发得晚，约 6 个点）读一遍启动脚本就能修 → 硬件（降频、坏卡，约 2 个点，用第九篇的检测器隔离）→ 管线（数据等待，第十篇）→ 结构（pipeline 布局，约 0.5 个点）；(5) 每个点的价格：42% 下一个点是吞吐的 2.4%，30 天任务约 0.71 天、4.4 万美元；(6) 纪律：改一个变量、前后各 100 step 基准 + trace、配置进 git。
    **追问方向**：FP8 能拿几个点、为什么不是 2 倍；step 时间慢慢变长（性能回归）与一开始就低有什么不同；每卡 token 少时 FSDP 与 PP 哪个通信便宜。
    **好答案与一般答案的区别**：一般答案列一堆可能原因；好答案把 10 个点分到七项各自标价，先修便宜的、最后才碰结构。
 
@@ -583,7 +588,7 @@ Table: 常见误区与正确说法
 
 Table: 掌握程度的判据
 
-通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；算不出来的题先回第一篇把符号与两本账重建一遍——十一篇里所有数字都是从那两本账推出来的。
+通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点。没过的部分回到第二章对应篇的"必记"，再回该篇正文；算不出来的题先回[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)把符号与两本账重建一遍——十一篇里所有数字都是从那两本账推出来的。
 
 ## 六、下一步
 
@@ -591,15 +596,33 @@ Table: 掌握程度的判据
 
 - **集合通信的实现**：NCCL 的算法（Ring、Tree）、protocol、channel、拓扑探测、RDMA 与 GPUDirect、nccl-tests 与调优参数。本系列只使用 all-reduce、all-gather、reduce-scatter、all-to-all、send/recv 的**语义和通信量**，把它们的耗时当作由链路带宽决定的黑盒。
 - **kernel 内部**：GEMM、attention、融合算子的实现与优化。本系列把 kernel 效率当作 MFU 损失的一个来源，讨论如何测量它的份额，不讨论如何提高它。
-- **模型的算量与显存推导**：Transformer 每一层的 FLOP 与激活字节数的逐项推导。本系列第一篇直接使用它们的结论公式（$$6N$$、激活估算式），不从矩阵形状重新推导。
-- **算法与训练配方**：学习率、batch size 的选择、数据配比的算法依据、评测。本系列第十篇讨论 loss spike 的**工程**处理与数据管线的**工程**实现，不讨论它们对模型质量的影响。
-- **集群资源层**：Kubernetes/Slurm 的调度、gang scheduling、GPU 切分、并行文件系统与对象存储的选型与配置。本系列第八、九篇给出引擎对它们的要求，不讨论它们自身。
+- **模型的算量与显存推导**：Transformer 每一层的 FLOP 与激活字节数的逐项推导。本系列的《训练任务的状态解剖》直接使用它们的结论公式（$$6N$$、激活估算式），不从矩阵形状重新推导。
+- **算法与训练配方**：学习率、batch size 的选择、数据配比的算法依据、评测。本系列的《训练稳定性与数据管线》讨论 loss spike 的**工程**处理与数据管线的**工程**实现，不讨论它们对模型质量的影响。
+- **集群资源层**：Kubernetes/Slurm 的调度、gang scheduling、GPU 切分、并行文件系统与对象存储的选型与配置。本系列的《分布式 checkpoint》与《容错与弹性》给出引擎对它们的要求，不讨论它们自身。
 - **推理引擎**：训练完成的模型如何被服务。
 - **后训练特有的系统问题**：RLHF（reinforcement learning from human feedback，基于人类反馈的强化学习）中生成与训练的协同、多模型的调度。本系列以预训练为主线，SFT 在系统层面与预训练同构；RL 后训练的系统另有[《RL 后训练基础设施：rollout 与训练如何共享一组 GPU》](/rl-post-training-infrastructure.html)。
 - 以上方向在本站各自的去处，以及本系列在整张地图上的位置，见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
 回到总纲：[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
 
-[^q0]: 八个，即总纲"最终目标"的八问：每张卡上放了哪些状态、多少字节（第一篇的显存账）；每个 step 走了多少通信、走哪条链路（第二篇的五元组）；这个框架把参数与优化器状态存在哪里（第三篇：一个 bf16 参数的一生）；MFU 应该是多少、实际差在哪一项（第七篇的推导与七项拆解）；checkpoint 多久存一次、换卡数能不能加载（第八篇的 Young 公式与重分片）；坏一张卡会损失多少时间、怎么缩短（第九篇的五项公式）；loss 跳了回退到哪一步、跳过哪些数据（第十篇的信号与数据回放）；卡住了哪个 rank 没到哪次通信（第十一篇的 Flight Recorder）。详见[第二章](#二逐篇回顾)。
-[^q1]: 每参数 16 字节（Megatron 18），70B 1.13 TB、405B 6.49 TB；激活每层 $$34sbh$$（TP + SP 后除以 $$N_t$$）；每 token $$6N + 6Lsh$$；DP / ZeRO-1 / ZeRO-2 通信 $$2N$$、ZeRO-3 $$3N$$；TP $$N_t \le 8$$；气泡 $$\frac{p-1}{m}$$、交错除以 $$v$$；组合顺序 TP → CP → PP → DP；70B / 1024 卡：TP8 / PP4（$$v = 4$$）/ DP32、$$m = 16$$、每卡 49 GB、理论 2.0 s、目标 42% ≈ 4.75 s；落盘 14 或 12 字节、405B 5.7 TB；$$\tau_{opt} = \sqrt{2\delta M}$$、最小浪费 $$\sqrt{2\delta/M}$$，$$M \approx 3.1$$ h 时 $$\delta$$ 10 min → 33%、2 s → 1.9%；$$G = (1 - (T_d + T_r + T_l + \tau/2)/M)/(1 + \delta/\tau)$$，16K 卡 71% → 87% → 94%；Llama 3 的 419 次 / 54 天、78% 硬件、1.4% SDC、>90% 有效；NCCL watchdog 10 min；PaLM 回退约 100 步 + 跳过 200–500 batch；max attention logit 约 100；1 个 MFU 点 ≈ 4.4 万美元。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q0]: 八个，即总纲"最终目标"的八问，答案在[第二章](#二逐篇回顾)逐条给出：
+
+    1. 每张卡上放了哪些状态、多少字节——[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)的显存账。
+    2. 每个 step 走了多少通信、走哪条链路——[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的五元组。
+    3. 这个框架把参数与优化器状态存在哪里——[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)里"一个 bf16 参数的一生"。
+    4. MFU 应该是多少、实际差在哪一项——[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)的推导与七项拆解。
+    5. checkpoint 多久存一次、换卡数能不能加载——[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)的 Young 公式与重分片。
+    6. 坏一张卡会损失多少时间、怎么缩短——[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的五项公式。
+    7. loss 跳了回退到哪一步、跳过哪些数据——[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的信号与数据回放。
+    8. 卡住了哪个 rank 没到哪次集合通信——[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的 Flight Recorder。
+
+[^q1]: 按六类记，详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)：
+
+    1. **字节与算力**：每参数 16 字节（Megatron fp32 累加梯度 18），70B 1.13 TB、405B 6.49 TB；激活每层 $$34sbh$$（TP + SP 后除以 $$N_t$$）；每 token $$6N + 6Lsh$$。
+    2. **通信与气泡**：DP / ZeRO-1 / ZeRO-2 通信 $$2N$$、ZeRO-3 $$3N$$；TP $$N_t \le 8$$；气泡 $$\frac{p-1}{m}$$、交错后除以 $$v$$；组合顺序 TP → CP → PP → DP。
+    3. **一份配置**：70B / 1024 卡 TP8 / PP4（$$v = 4$$）/ DP32、$$m = 16$$、每卡 49 GB、理论 2.0 s、目标 42% ≈ 4.75 s。
+    4. **落盘与间隔**：落盘 14 或 12 字节、405B 5.7 TB；$$\tau_{opt} = \sqrt{2\delta M}$$、最小浪费 $$\sqrt{2\delta/M}$$，$$M \approx 3.1$$ h 时 $$\delta$$ = 10 min → 33%、2 s → 1.9%。
+    5. **故障与恢复**：$$G = (1 - (T_d + T_r + T_l + \tau/2)/M)/(1 + \delta/\tau)$$，16K 卡 71% → 87% → 94%；Llama 3 的 419 次 / 54 天、78% 硬件、1.4% SDC、>90% 有效；NCCL watchdog 10 min。
+    6. **数值与成本**：PaLM 回退约 100 步 + 跳过 200–500 batch；max attention logit 约 100；1 个 MFU 点 ≈ 4.4 万美元。
+
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
