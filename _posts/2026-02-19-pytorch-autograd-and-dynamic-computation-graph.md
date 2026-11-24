@@ -134,18 +134,109 @@ dz/dx = 3 × 2x = 6x
 
 ### 3. 从标量到向量
 
-实际模型很少只有一个标量输入和一个标量输出。更常见的情况是 `y = f(x)`，其中 `x` 和 `y` 都是向量或 Tensor。
+实际模型很少只有一个标量输入和一个标量输出。更常见的情况是 `y = f(x)`，其中 `x` 和 `y` 都是向量或 Tensor。这一节用一个能手算的例子把三件事讲清楚：多个输入、多个输出时"导数"长什么样；它为什么大到存不下；反向传播实际算的是什么。
 
-严格来说，这时的导数由 **Jacobian**（雅可比矩阵）描述——`y` 的每个分量对 `x` 的每个分量各有一个偏导数，排成一张表：`J[i, j] = ∂y[i] / ∂x[j]`，`y` 有 `m` 个分量、`x` 有 `n` 个分量，`J` 就是 `m × n` 的矩阵。
+#### 3.1 一个能手算的例子
 
-先用小数字看这张表有多大：一个 `[4096] → [4096]` 的线性层，Jacobian 是 `4096 × 4096 = 1677 万`个数，**一个样本、一层**就 64 MB（float32）；几十层、每层的 J 都存下来，训练根本跑不动。
+取 3 个输入、2 个输出的线性变换 `y = W x`：
 
-但训练其实**从来不需要这张表本身**。回头看链式法则：`dz/dx = dz/dy × dy/dx`。当 `z` 是标量 loss 时，`dz/dy` 是一个和 `y` 同形的向量 `v`（长 `m`），`dy/dx` 是 Jacobian `J`（`m × n`），两者一乘：`vᵀJ` 是 `[1 × m] × [m × n] = [1 × n]`，结果和 `x` 同形，只有 `n` 个数。
+```python title='3 个输入、2 个输出：y = W x'
+import torch
 
-这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**。关键在于：算 `vᵀJ` 不必先把 `J` 造出来。以线性层 `y = W x` 为例，`J = W`，`vᵀJ = vᵀW`——就是一次普通的矩阵乘法，代价与前向同阶；对逐元素运算 `y = relu(x)`，`J` 是对角阵，`vᵀJ` 就是 `v` 逐元素乘一个 0/1 掩码，连矩阵都不用碰。每种基本运算都有自己"给上游梯度 `v`，直接吐出 `vᵀJ`"的公式，PyTorch 把它们写在 `tools/autograd/derivatives.yaml` 里，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
+W = torch.tensor([[1., 2., 3.],
+                  [4., 5., 6.]])
+x = torch.tensor([1., 0., -1.], requires_grad=True)
 
-所以两者的区别一句话：**Jacobian 是"所有输出对所有输入"的完整导数表，VJP 是"一个具体方向 `v` 下"这张表的一行组合，只有输入那么大。** 反向传播从 loss 出发、一层层把 `v` 传回去，每层算一次 VJP——始终只搬和数据同形的梯度，从不物化 Jacobian。PyTorch 的 `backward()` 正是沿着计算图计算这种 VJP。
+y = W @ x
+print(y)  # tensor([-2., -2.], grad_fn=<MvBackward0>)
+```
 
+把矩阵乘法按分量写开，就是两个普通的算式：
+
+```text title='按分量写开的两个算式'
+y[0] = 1·x[0] + 2·x[1] + 3·x[2]
+y[1] = 4·x[0] + 5·x[1] + 6·x[2]
+```
+
+#### 3.2 Jacobian：每个输出对每个输入各有一个导数
+
+一个输入、一个输出时，导数是一个数。现在有 2 个输出、3 个输入，"某个输出对某个输入的导数"一共有 `2 × 3 = 6` 个。例如 `x[1]` 增加 1，`y[0]` 增加 2、`y[1]` 增加 5，所以 `∂y[0]/∂x[1] = 2`、`∂y[1]/∂x[1] = 5`。把 6 个数按"行是输出、列是输入"排成一张表，这张表就叫 **Jacobian**（雅可比矩阵），记作 `J`：
+
+| | `x[0]` | `x[1]` | `x[2]` |
+|---|---:|---:|---:|
+| `y[0]` | 1 | 2 | 3 |
+| `y[1]` | 4 | 5 | 6 |
+
+Table: y = W x 的 Jacobian：第 i 行第 j 列是 ∂y[i] / ∂x[j]，这个例子里它正好等于 W
+
+一般地，`y` 有 `m` 个分量、`x` 有 `n` 个分量，`J` 就是 `m × n` 的矩阵，`J[i, j] = ∂y[i] / ∂x[j]`。PyTorch 可以把这张表直接算出来，结果和上表一致：
+
+```python title='用 torch.autograd.functional.jacobian 算出整张表'
+J = torch.autograd.functional.jacobian(lambda t: W @ t, x)
+print(J)
+# tensor([[1., 2., 3.],
+#         [4., 5., 6.]])
+```
+
+这张表的问题是大。一个 `[4096] → [4096]` 的线性层，Jacobian 是 `4096 × 4096`，约 1677 万个数，**一个样本、一层**就 64 MB（float32）；几十层、每层的 `J` 都存下来，训练根本跑不动。
+
+#### 3.3 训练只需要"上游梯度乘这张表"
+
+训练要的不是这张表，而是 **loss 对 `x` 的梯度**。loss 是一个标量，所以这个梯度和 `x` 同形，只有 3 个数。
+
+假设 `y` 后面还接了别的运算，最后得到 loss，并且反向传播已经算出了 loss 对 `y` 的梯度 `v = (10, 1)`。它的意思是：`y[0]` 增加 1，loss 增加 10；`y[1]` 增加 1，loss 增加 1。这个从后面传回来的梯度叫**上游梯度**。
+
+现在问 loss 对 `x[0]` 的梯度。`x[0]` 通过两条路影响 loss，把两条路加起来（这就是上一节的链式法则，只是路变成了两条）：
+
+```text title='x[0] 影响 loss 的两条路'
+x[0] → y[0] → loss：  10 × 1 = 10
+x[0] → y[1] → loss：   1 × 4 =  4
+                       合计   14
+```
+
+`x[1]`、`x[2]` 同理，得到 `10 × 2 + 1 × 5 = 25` 和 `10 × 3 + 1 × 6 = 36`。写成矩阵运算，就是行向量 `v` 乘矩阵 `J`：
+
+![v 乘 Jacobian 的每一列，得到和 x 同形的 3 个数（14, 25, 36）；右侧对比 Jacobian 和这个乘积的大小](/img/in-post/pytorch-autograd-jacobian-vs-vjp.svg)
+
+这个乘积叫 **Vector-Jacobian Product（VJP，向量–Jacobian 积）**，数学上写作 `vᵀJ`。用 PyTorch 验证，`backward()` 得到的正是这三个数：
+
+```python title='backward 得到的 x.grad 等于 v 乘 J'
+v = torch.tensor([10., 1.])
+loss = (v * y).sum()      # 构造一个 loss，使 loss 对 y 的梯度正好是 v
+loss.backward()
+
+print(x.grad)  # tensor([14., 25., 36.])
+print(v @ W)   # tensor([14., 25., 36.])
+```
+
+#### 3.4 算 VJP 不需要先造出 Jacobian
+
+上面的验证里 `v @ W` 就是一次普通的矩阵乘法，直接用了手上已有的 `W`，没有另外构造一张 Jacobian。每种基本运算都有这样一条"给上游梯度 `v`，直接算出 `vᵀJ`"的公式：
+
+| 运算 | Jacobian 的样子 | 反向时实际算什么 |
+|---|---|---|
+| 线性变换 `y = W x` | 就是 `W` | `v @ W`，一次矩阵乘法，代价与前向同阶 |
+| 逐元素运算 `y = relu(x)` | 对角矩阵：`x[i] > 0` 的位置是 1，其余是 0 | `v` 逐元素乘一个 0/1 掩码，不需要矩阵 |
+
+Table: 两种运算的 Jacobian 与反向时实际执行的计算
+
+ReLU 的例子同样可以直接验证。`backward()` 的参数就是上游梯度 `v`：
+
+```python title='ReLU 的反向：上游梯度逐元素乘 0/1 掩码'
+x2 = torch.tensor([1., -2., 3.], requires_grad=True)
+y2 = torch.relu(x2)
+y2.backward(torch.tensor([5., 6., 7.]))
+
+print(x2.grad)  # tensor([5., 0., 7.])   x2[1] < 0，这一位的梯度被挡住
+```
+
+PyTorch 把每个算子的这条公式写在 `tools/autograd/derivatives.yaml` 里，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
+
+#### 3.5 小结
+
+- **Jacobian**：所有输出对所有输入的完整导数表，大小是"输出数 × 输入数"。
+- **VJP**：上游梯度 `v` 乘这张表的结果，大小只有"输入数"，和 `x` 同形。
+- **反向传播**：从 loss 出发，每经过一个运算就算一次 VJP，把得到的梯度当作下一个运算的上游梯度继续往回传。全程只搬运和数据同形的梯度，不构造任何一层的 Jacobian。PyTorch 的 `backward()` 做的就是这件事。
 
 ### 4. 为什么 backward 通常从标量 Loss 开始？
 
@@ -363,47 +454,59 @@ print(x.grad)  # tensor(4.)
 
 等条件影响。
 
-### 2. Leaf Tensor
+### 2. Leaf Tensor 与 non-leaf Tensor
 
-一个常见的 leaf Tensor 是用户直接创建、并设置了 `requires_grad=True` 的 Tensor：
+先给定义。PyTorch 判断 leaf 只看一件事：**这个 Tensor 有没有 `grad_fn`**。没有 `grad_fn` 就是 leaf（`is_leaf=True`），有 `grad_fn` 就是 non-leaf（源码：[`VariableHooks::is_leaf`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.cpp#L517-L523)）。`grad_fn` 记录"这个 Tensor 是哪个运算算出来的"，[本章第 4 节](#4-grad_fn)细讲。按这条规则，Tensor 分成三种情况：
 
-```python title='用户直接创建的 Tensor 是 leaf'
-x = torch.tensor(2.0, requires_grad=True)
-print(x.is_leaf)  # True
-```
+| 情况 | `requires_grad` | `grad_fn` | `is_leaf` | 例子 |
+|---|---|---|---|---|
+| 不需要梯度的 Tensor | `False` | `None` | `True` | 输入数据、标签；它们之间的运算结果；`detach()` 的结果 |
+| 用户直接创建、需要梯度的 Tensor | `True` | `None` | `True` | `torch.tensor(2.0, requires_grad=True)`；`nn.Parameter` |
+| 由需要梯度的 Tensor 算出来的结果 | `True` | 有 | `False` | `y = x * 2`；每一层的输出；loss |
 
-由运算产生的结果通常不是 leaf：
+Table: leaf 与 non-leaf 的三种情况
 
-```python title='运算结果不是 leaf'
-y = x * 2
-print(y.is_leaf)  # False
-```
+前两种都是 leaf，区别在于要不要梯度。第三种是 non-leaf：只要一个运算的输入里至少有一个需要梯度，Autograd 就给结果挂上 `grad_fn`，这个结果就是计算图中间的节点。
 
-模型参数通常也是 leaf Tensor：
-
-```python title='模型参数也是 leaf'
+```python title='三种情况各验证一次'
+import torch
 from torch import nn
 
-layer = nn.Linear(4, 2)
-for parameter in layer.parameters():
-    print(parameter.is_leaf)
+a = torch.ones(2)                    # 不需要梯度
+b = a * 2                            # 不需要梯度的 Tensor 之间的运算结果
+print(b.is_leaf, b.requires_grad, b.grad_fn)   # True False None
+
+x = torch.tensor(2.0, requires_grad=True)      # 用户直接创建、需要梯度
+print(x.is_leaf, x.grad_fn)                    # True None
+
+layer = nn.Linear(4, 2)                        # 模型参数是 nn.Parameter
+print([p.is_leaf for p in layer.parameters()]) # [True, True]
+
+y = x * 2                                      # 由需要梯度的 Tensor 算出来
+print(y.is_leaf, y.grad_fn)                    # False <MulBackward0 object at 0x...>
 ```
 
-Autograd 默认会把最终梯度保存在 leaf Tensor 的 `.grad` 中。对于 non-leaf Tensor，虽然它参与了计算图，但默认不一定保留 `.grad`。
+这个区分直接决定梯度存在哪里：**`backward()` 只把梯度写进"需要梯度的 leaf"的 `.grad`**，也就是上表第二种。训练时这一种就是模型参数，Optimizer 更新的也正是它们。
 
-### 3. 为什么 non-leaf 的 `.grad` 可能是 `None`？
+### 3. non-leaf 的 `.grad` 默认是 `None`
 
-```python title='non-leaf 的 .grad 默认为 None'
+non-leaf Tensor 参与了反向传播，梯度确实流经它，但 Autograd 用完就丢，不写进它的 `.grad`。这是确定的默认行为，没有例外：
+
+```python title='non-leaf 的 .grad 默认是 None'
 x = torch.tensor(2.0, requires_grad=True)
 y = x * 2
 z = y * 3
 z.backward()
 
 print(x.grad)  # tensor(6.)
-print(y.grad)  # 通常为 None
+print(y.grad)  # None，同时 PyTorch 会给出一条 UserWarning
 ```
 
-如果确实需要查看 non-leaf Tensor 的梯度，要在**第一次** backward 之前调用 `retain_grad()`——上面那段代码 `z.backward()` 已经跑过，图里保存的中间值被释放了，接着再 `z.backward()` 会报 "Trying to backward through the graph a second time"。重新前向一遍：
+读 `y.grad` 时 PyTorch 会警告"正在访问 non-leaf Tensor 的 `.grad`"，提醒这个值不会被填充。
+
+想让某个 non-leaf Tensor 保留梯度，唯一的办法是对它显式调用 `retain_grad()`。它在这个 Tensor 的 `grad_fn` 上注册一个钩子，反向传播经过时把梯度复制一份写进 `.grad`（源码：[`VariableHooks::retain_grad`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.cpp#L592-L632)；对 leaf 调用它什么都不做）。
+
+`retain_grad()` 要在 backward 之前调用。上面那段代码 `z.backward()` 已经跑过，图里保存的中间值被释放了，接着再 `z.backward()` 会报 "Trying to backward through the graph a second time"。重新前向一遍：
 
 ```python title='backward 之前调 retain_grad() 才能拿到 y.grad'
 x = torch.tensor(2.0, requires_grad=True)
@@ -415,7 +518,7 @@ z.backward()
 print(y.grad)            # tensor(3.)
 ```
 
-这会要求 Autograd 额外保留该梯度，因此调试时可以使用，生产热路径中不要无差别对大量中间 Tensor 调用 `retain_grad()`。
+每个调用了 `retain_grad()` 的 Tensor 都会多保留一份和它同形的梯度，因此调试时可以使用，生产热路径中不要无差别对大量中间 Tensor 调用。
 
 ### 4. `grad_fn`
 
@@ -520,6 +623,62 @@ optimizer.zero_grad(set_to_none=True)
 3. Optimizer 读取 `.grad` 更新参数；
 4. `zero_grad()` 清理 `.grad`。
 
+#### `.grad` 只放原始梯度，不放 Optimizer 的状态
+
+`.grad` 里只有一种东西：loss 对这个参数的原始梯度，或者多次 backward 累加的结果。Adam 的动量、SGD 的 momentum 这些"历史信息"不在 `.grad` 里，它们由 Optimizer 自己保存在 `optimizer.state[param]` 里。
+
+Autograd 和 Optimizer 是两个独立的部件：Autograd 只负责算出梯度并写进 `.grad`；Optimizer 只负责读 `.grad`、更新自己的状态、再改参数。以 Adam 为例，一个参数对应三处数据：
+
+| 数据 | 存在哪里 | 谁写入 | 什么时候变 | 保存 checkpoint 时在哪里 |
+|---|---|---|---|---|
+| 参数值 | 参数 Tensor 本身 | `optimizer.step()` | 每次 step | `model.state_dict()` |
+| 当前梯度 | `param.grad` | `loss.backward()` | 每次 backward 累加；`zero_grad()` 清掉 | 不保存 |
+| 一阶矩 `exp_avg`（梯度的滑动平均，即动量） | `optimizer.state[param]` | `optimizer.step()` | 每次 step；`zero_grad()` 不动它 | `optimizer.state_dict()` |
+| 二阶矩 `exp_avg_sq`（梯度平方的滑动平均） | `optimizer.state[param]` | `optimizer.step()` | 同上 | `optimizer.state_dict()` |
+| 步数 `step` | `optimizer.state[param]` | `optimizer.step()` | 每次 step 加 1 | `optimizer.state_dict()` |
+
+Table: 一个参数在 Adam 训练中对应的数据：位置、写入者和生命周期
+
+下面这段代码把三处数据都打印出来：
+
+```python title='Adam 走一步之后：.grad 仍是原始梯度，动量在 optimizer.state 里'
+import torch
+from torch import nn
+
+torch.manual_seed(0)
+model = nn.Linear(2, 1)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+p = model.weight
+
+print(len(optimizer.state))    # 0：第一次 step 之前，Optimizer 还没有任何状态
+
+loss = model(torch.ones(1, 2)).sum()
+loss.backward()
+optimizer.step()
+
+print(p.grad)
+# tensor([[1., 1.]])           step 之后 .grad 还是原始梯度，没有被改成动量
+
+print(optimizer.state[p])
+# {'step': tensor(1.),
+#  'exp_avg': tensor([[0.1000, 0.1000]]),       (1 - 0.9) × 梯度
+#  'exp_avg_sq': tensor([[0.0010, 0.0010]])}    (1 - 0.999) × 梯度²
+
+optimizer.zero_grad()
+print(p.grad)                        # None：梯度被清掉
+print(optimizer.state[p]['exp_avg']) # tensor([[0.1000, 0.1000]])：状态原样保留
+```
+
+这段代码对应三个结论：
+
+- **`step()` 不改 `.grad`**：Adam 读走梯度后，把一阶矩、二阶矩写进自己的 `state`，`.grad` 保持不变（源码：[`Adam._init_group`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/optim/adam.py#L140-L193) 在第一次 step 时为每个有梯度的参数创建这三项）。
+- **`zero_grad()` 不清状态**：它只清 `.grad`。Adam 的状态从第一次 step 起一直存在，直到 Optimizer 对象被销毁。
+- **恢复训练要存两份**：`model.state_dict()` 里只有参数，`optimizer.state_dict()` 里才有 `exp_avg`、`exp_avg_sq` 和 `step`。只存前者，恢复后 Adam 的动量从零开始。
+
+不同 Optimizer 的状态不同：不带 momentum 的 SGD 没有任何状态（`optimizer.state` 是空的）；带 momentum 的 SGD 每个参数存一个 `momentum_buffer`；Adam 每个参数存上面三项。Adam 的两个矩各和参数同形，所以用 Adam 训练时，每个参数除了自身和梯度，还要多占两份同样大小的内存。完整的显存账见[《混合精度、显存的账与多卡》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html#1-16-字节--参数)，Optimizer 状态的更多细节见[《Module 与训练系统》](/pytorch-module-and-training-system.html#6-optimizer-state)。
+
+#### 顺序排错的后果
+
 这个顺序排错时，常见的后果有四种：
 
 1. 梯度重复累积；
@@ -556,13 +715,58 @@ optimizer.step()
 
 ### 4. `optimizer.zero_grad(set_to_none=True)`
 
-把梯度置零和把梯度设为 `None` 不是完全相同的操作：
+`zero_grad()` 清梯度有两种做法，由参数 `set_to_none` 决定。从 PyTorch 2.0 起默认值是 `True`：
 
-```python title='把梯度设为 None 而不是填零'
-optimizer.zero_grad(set_to_none=True)
+| 写法 | 清理后 `param.grad` 是什么 | 含义 |
+|---|---|---|
+| `zero_grad(set_to_none=True)`（默认） | `None` | 这个参数现在没有梯度 |
+| `zero_grad(set_to_none=False)` | 一个全 0 的 Tensor | 这个参数有梯度，值是 0 |
+
+Table: zero_grad 的两种清理方式
+
+设为 `None` 更省：不用把整块梯度内存写一遍 0，下一次 backward 也不用做"旧值 + 新值"，直接把新梯度放上去。
+
+两种做法在大多数训练循环里结果相同，因为每个参数每一步都会参与 forward，backward 会给它写上新梯度。**差别出现在某个参数这一步没有参与 forward 的时候**，例如多个任务头轮流训练、条件分支只走了一边。这时 backward 不会碰这个参数：
+
+- 用 `None` 清理：它的 `.grad` 保持 `None`。Optimizer 遍历参数时遇到 `grad is None` 直接跳过（源码：[SGD](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/optim/sgd.py#L89)、[Adam](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/optim/adam.py#L152) 都是 `if p.grad is not None:` 才处理），这个参数这一步完全不动。
+- 用 0 清理：它的 `.grad` 是全 0 的 Tensor。Optimizer 认为它有梯度，照常执行更新。梯度本身是 0，但 weight decay、momentum、Adam 的动量这些不只看当前梯度的项仍然会改动参数。
+
+下面用带 weight decay 的 SGD 验证。`w` 和 `u` 第一步都参与，第二步只有 `w` 参与：
+
+```python title='第二步没用到 u：None 时 u 不动，0 时 u 仍被 weight decay 改小'
+import torch
+from torch import nn
+
+def run(set_to_none):
+    w = nn.Parameter(torch.tensor([1.0]))
+    u = nn.Parameter(torch.tensor([1.0]))
+    optimizer = torch.optim.SGD([w, u], lr=0.1, weight_decay=0.1)
+
+    (w * 2 + u * 3).sum().backward()      # 第 1 步：w 和 u 都参与
+    optimizer.step()
+
+    optimizer.zero_grad(set_to_none=set_to_none)
+    (w * 2).sum().backward()              # 第 2 步：只有 w 参与
+    before = u.item()
+    optimizer.step()
+    print(u.grad, round(before, 4), '->', round(u.item(), 4))
+
+run(True)    # None 0.69 -> 0.69              u 被跳过
+run(False)   # tensor([0.]) 0.69 -> 0.6831    u 仍被 weight decay 改小
 ```
 
-设为 `None` 可以避免不必要的填零，并让后续 backward 在需要时重新分配梯度。但业务代码不能无条件假设 `parameter.grad` 一定是 Tensor。正确性和性能都需要根据训练循环验证。
+所以原来那句"业务代码不能无条件假设 `parameter.grad` 一定是 Tensor"指的是两件事：
+
+1. **读 `.grad` 之前要判空**。统计梯度范数、写日志、手动改梯度的代码，如果直接写 `p.grad.norm()`，遇到这一步没参与 forward 的参数、被冻结的参数，或者在 `zero_grad()` 之后、`backward()` 之前读取，都会因为 `None` 报错。应当写成：
+
+   ```python title='读 .grad 之前先判空'
+   for name, p in model.named_parameters():
+       if p.grad is None:
+           continue
+       print(name, p.grad.norm())
+   ```
+
+2. **两种清理方式可能给出不同的训练结果**。如果模型里有参数不是每一步都参与 forward，同时又用了 weight decay、momentum 或 Adam，那么选 `None` 还是 0 会改变这些参数的更新，需要明确想要哪一种行为。
 
 ### 5. 多次 backward 与计算图释放
 
@@ -593,7 +797,39 @@ y.backward()
 
 例如 `y = x²`，反向时需要 `∂y/∂x = 2x`，因此 Autograd 需要保留 `x`，或者保留足以计算梯度的信息。对于 ReLU `y = max(0, x)`，反向时需要知道 forward 阶段哪些位置大于 0。不同算子会保存不同的中间信息。
 
-这些被保存的中间值统称**激活值**（activation）。它们从 forward 保存到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html#八空间维度显存)分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
+`SavedVariable` 和**激活值**（activation）不是同一个东西，但两者指向的数据大部分重合：
+
+- **激活值**是模型层面的说法，指 forward 过程中每一层算出来的中间结果。
+- **`SavedVariable`** 是 Autograd 内部的一个 C++ 类（源码：[`saved_variable.h`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/saved_variable.h)）。每个 `grad_fn` 节点用它把"反向时要用的 Tensor"存住：它持有对这个 Tensor 的引用，并记下保存那一刻的版本号，反向时用来检查这个 Tensor 有没有被原地修改过。
+
+一个 `SavedVariable` 里存的可以是激活值，也可以不是；一个激活值也不一定被存。存什么由每个算子的导数公式决定，在 Python 里可以通过 `grad_fn` 上以 `_saved_` 开头的属性看到：
+
+| 算子 | 导数需要什么 | `grad_fn` 上保存了什么 | 存的是不是激活值 |
+|---|---|---|---|
+| `y = a * b` | 另一个操作数 | `_saved_self`（`a`）、`_saved_other`（`b`） | 看 `a`、`b` 是什么：上一层的输出是激活值；权重、输入数据不是 |
+| `y = a.exp()` | 输出本身（导数就是 `y`） | `_saved_result`（`y`） | 是，存的是这个算子自己的输出 |
+| `y = relu(a)` | 输出里哪些位置大于 0 | `_saved_result`（`y`） | 是 |
+| `y = a + b` | 不需要任何 Tensor | 没有保存 Tensor | 这个激活值没有被 `+` 保存 |
+
+Table: 几个算子在 grad_fn 上保存的内容（PyTorch 2.15 实测）
+
+```python title='查看 grad_fn 上保存了哪些 Tensor'
+import torch
+
+a = torch.tensor([1., 2.], requires_grad=True)
+b = torch.tensor([3., 4.], requires_grad=True)
+
+m = a * b
+print(m.grad_fn._saved_self is a, m.grad_fn._saved_other is b)   # True True：存的就是输入本身，没有复制
+
+e = a.exp()
+print(torch.equal(e.grad_fn._saved_result, e))                    # True：存的是输出
+
+s = a + b
+print([n for n in dir(s.grad_fn) if n.startswith('_saved')])      # ['_saved_alpha']：只有一个标量系数，没有 Tensor
+```
+
+所以准确的说法是：**训练时被图保存下来的 Tensor，绝大部分是激活值；`SavedVariable` 是保存它们用的容器。** 这些被保存的激活值从 forward 一直保留到 backward 用完为止，是训练时显存占用中随 batch 和序列长度线性增长的那部分，通常比参数本身大得多。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html#八空间维度显存)分析显存构成时，激活值是主要对象；那里的 Activation Checkpointing 做的事就是不保存、反向时重算。
 
 ### 2. 保存输出可能保存整张图
 
@@ -721,9 +957,37 @@ print(y.requires_grad)  # True
 print(z.requires_grad)  # False
 ```
 
-`detach()` 返回一个不再沿原计算图传播梯度的 Tensor。它通常与原 Tensor 共享底层数据，所以 detach 改变的是 Autograd 关系，它不等于 clone，也不等于数据复制。
+`z` 和 `y` 的关系是：**两个不同的 Tensor 对象，共用同一块数据，Autograd 信息各管各的**。
 
-如果需要既切断梯度又创建独立数据，可以使用：
+![y 和 z 是两个 Tensor 对象，指向同一块数据；y 的 grad_fn 能回到 x，z 没有 grad_fn](/img/in-post/pytorch-autograd-detach-shares-storage.svg)
+
+| | `y` | `z = y.detach()` |
+|---|---|---|
+| 数据 | 一块内存 | 同一块内存，没有复制 |
+| `requires_grad` | `True` | `False` |
+| `grad_fn` | `MulBackward0` | `None` |
+| `is_leaf` | `False` | `True` |
+| 反向传播 | 梯度经过 `y` 回到 `x` | 梯度到 `z` 为止，不会回到 `x` |
+
+Table: y 与 y.detach() 的对比
+
+"共用同一块数据"意味着原地修改 `z` 会同时改掉 `y`：
+
+```python title='z 和 y 共用数据：原地改 z，y 也变'
+x = torch.tensor([1., 2., 3.], requires_grad=True)
+y = x * 2
+z = y.detach()
+
+print(z.data_ptr() == y.data_ptr())   # True：同一块内存
+
+z[0] = 100.
+print(y)                              # tensor([100.,   4.,   6.], grad_fn=<MulBackward0>)
+print(y._version, z._version)         # 1 1：两者共用一个版本计数器
+```
+
+版本计数器记录这块数据被原地修改了多少次。`detach()` 让 `z` 和 `y` 共用同一个计数器（源码：[`detach`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/VariableTypeManual.cpp#L451-L469) 调用 [`make_variable_non_differentiable_view`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.h#L878-L900)，把 `y` 的版本计数器设给结果），所以通过 `z` 做的原地修改 Autograd 看得见：如果某个算子反向时要用 `y` 原来的值，`backward()` 会报 "one of the variables needed for gradient computation has been modified by an inplace operation"，不会悄悄算出错误的梯度。
+
+所以 detach 改变的只是 Autograd 关系，它不等于 clone，也不复制数据。如果需要既切断梯度、又得到一份互不影响的数据，可以使用：
 
 ```python title='既切断梯度又复制数据：detach().clone()'
 z = y.detach().clone()
@@ -736,7 +1000,52 @@ with torch.no_grad():
     output = model(inputs)
 ```
 
-在这个上下文中，通常不会为 Tensor 运算构建 Autograd 图，适合不需要训练的计算。
+在这个上下文中执行的运算不会构建 Autograd 图：结果的 `requires_grad` 是 `False`、没有 `grad_fn`，即使输入需要梯度。适合不需要训练的计算。
+
+#### 必须搭配 `with` 吗？
+
+不是必须用 `with`，但必须让它"进入"才生效。`torch.no_grad()` 这个调用本身只是创建一个上下文管理器对象，真正关闭梯度的是进入它的那一步。有三种生效的写法：
+
+```python title='no_grad 的三种写法，以及一种不生效的写法'
+x = torch.ones(2, requires_grad=True)
+
+# 写法一：with 语句，作用于缩进块
+with torch.no_grad():
+    print((x * 2).requires_grad)      # False
+
+# 写法二：装饰器，作用于整个函数；写 @torch.no_grad 不带括号也可以
+@torch.no_grad()
+def predict(t):
+    return t * 2
+
+print(predict(x).requires_grad)       # False
+
+# 写法三：torch.set_grad_enabled(False)，当作函数直接调用就生效，要自己负责恢复
+torch.set_grad_enabled(False)
+print((x * 2).requires_grad)          # False
+torch.set_grad_enabled(True)
+
+# 不生效：只调用、不进入
+torch.no_grad()
+print((x * 2).requires_grad)          # True，梯度记录没有被关闭
+```
+
+推荐前两种：离开 `with` 块或函数返回时会自动恢复原来的状态，抛异常也一样。写法三适合开关由变量决定的场合，通常也配合 `with` 使用：`with torch.set_grad_enabled(is_train):`。
+
+#### 底层实现
+
+`no_grad` 只做一件事：把当前线程的一个布尔标志 `grad_mode` 改成 `False`，退出时改回原值。
+
+| 步骤 | 做了什么 | 源码 |
+|---|---|---|
+| 进入 | 记下当前值，再调用 `torch.set_grad_enabled(False)` | [`no_grad.__enter__`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/autograd/grad_mode.py#L81-L86) |
+| 标志存在哪里 | 线程局部的 `AutogradState` 里的 `grad_mode_` 位 | [`GradMode`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/c10/core/GradMode.cpp#L5-L11)、[`AutogradState`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/c10/core/AutogradState.h) |
+| 算子怎么用它 | 每个可微算子先问"输入里有没有需要梯度的"；标志为 `False` 时这个判断直接返回 `false`，于是不创建 `grad_fn`、不保存任何 Tensor | [`compute_requires_grad`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/functions/utils.h#L59-L65) |
+| 退出 | 把标志恢复成进入前的值 | 同第一行 |
+
+Table: no_grad 的实现：一个线程局部的布尔标志
+
+也就是说，`no_grad` 下算子照常执行，只是跳过了"记录反向信息"这一段。得到的 Tensor 是普通 Tensor，离开 `no_grad` 之后可以正常参与需要梯度的计算。
 
 ```python title='推理常见组合：model.eval() 加 no_grad'
 model.eval()
@@ -752,7 +1061,7 @@ with torch.no_grad():
 不能用其中一个代替另一个。
 
 > [!NOTE] Java 经验参照：ThreadLocal 开关
-> `with torch.no_grad():` 的作用方式接近在 try-with-resources 里改一个 `ThreadLocal` 标志、退出时恢复原值：它只影响当前线程在这段代码里执行的运算。它不是模型对象的属性，也不是进程级的全局配置；在别的线程里跑的计算不受影响，需要在那个线程里自己进入 `no_grad()`。
+> `with torch.no_grad():` 的作用方式接近在 try-with-resources 里改一个 `ThreadLocal` 标志、退出时恢复原值：它只影响当前线程在这段代码里执行的运算。它不是模型对象的属性，也不是进程级的全局配置；在别的线程里跑的计算不受影响，需要在那个线程里自己进入 `no_grad()`。实测：在 `with torch.no_grad():` 块里新建一个线程，线程里 `torch.is_grad_enabled()` 仍是 `True`。
 
 ### 3. `torch.inference_mode()`：更强的推理上下文
 
@@ -761,22 +1070,152 @@ with torch.inference_mode():
     output = model(inputs)
 ```
 
-`inference_mode()` 面向纯推理场景，除了不记录梯度，还会进一步减少 Autograd 相关的元数据和版本计数开销。
+`inference_mode()` 面向纯推理场景。用法和 `no_grad()` 一样：不是必须用 `with`，但必须进入才生效。
 
-它的约束也更强：在该模式中创建的 Tensor 不应被当作普通的、可以随时参与梯度计算的 Tensor 使用。适合明确隔离的推理路径，不适合包住一段之后还需要训练的混合逻辑。
+```python title='inference_mode 的两种写法，以及一种不生效的写法'
+x = torch.ones(2, requires_grad=True)
+
+with torch.inference_mode():          # 写法一：with 语句
+    out = x * 2
+
+@torch.inference_mode()               # 写法二：装饰器
+def predict(t):
+    return t * 2
+
+print(out.requires_grad, out.is_inference())   # False True
+
+torch.inference_mode()                # 不生效：只创建了对象，没有进入
+print(torch.is_inference_mode_enabled())       # False
+```
+
+#### 底层实现：比 `no_grad` 多做了什么
+
+`no_grad` 只改一个标志，算子仍然会经过 Autograd 这一层，只是在里面发现"不用记录"后放行。`inference_mode` 进一步让算子**完全绕过 Autograd 这一层**，并且让新建的 Tensor 不带 Autograd 需要的簿记信息。进入时做三件事（源码：[`c10::InferenceMode`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/c10/core/InferenceMode.h#L54-L74)）：
+
+| 做了什么 | 效果 |
+|---|---|
+| 把线程局部的 `grad_mode` 设为 `False`、`inference_mode` 设为 `True` | `no_grad` 的效果全部具备：`torch.is_grad_enabled()` 是 `False` |
+| 把 Autograd 相关的 dispatch key 加入当前线程的"排除集合" | 算子分发时直接跳到后端实现，不进入 Autograd 的包装代码 |
+| 把 `ADInplaceOrView` 这个 dispatch key 移出"包含集合" | 原地操作和 view 操作不再维护版本号和 view 关系 |
+
+Table: 进入 inference_mode 时修改的线程局部状态
+
+dispatch key 是 PyTorch 决定"一次算子调用依次经过哪几层处理"的机制，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)会展开讲；这里只需要知道 Autograd 是其中一层，`inference_mode` 把这一层整个跳过了。
+
+在这个模式里新建的 Tensor 叫 **inference tensor**。它和普通 Tensor 的差别在创建时就定下了（源码：[`TensorImpl` 构造函数](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/c10/core/TensorImpl.cpp#L165-L192)）：
+
+| | 普通 Tensor（包括 `no_grad` 下创建的） | inference tensor |
+|---|---|---|
+| Autograd 相关的 dispatch key | 有 | 没有 |
+| 版本计数器 | 有，每次原地修改加 1 | 没有，读 `_version` 会报错 |
+| `is_inference()` | `False` | `True` |
+
+Table: 普通 Tensor 与 inference tensor 的差别
+
+省掉的就是这些簿记：不分配版本计数器、不维护 view 关系、算子少走一层分发。
+
+#### 代价：inference tensor 离开后受限制
+
+因为没有版本计数器，Autograd 无法检查一个 inference tensor 是否被原地修改过，所以离开 `inference_mode` 之后对它有两条限制：
+
+```python title='inference tensor 离开 inference_mode 之后的限制'
+x = torch.ones(2, requires_grad=True)
+with torch.inference_mode():
+    c = torch.ones(2)
+
+(x + c).sum().backward()   # 可以：加法的反向不需要保存 c
+
+(x * c).sum().backward()
+# RuntimeError: Inference tensors cannot be saved for backward.
+# 乘法的反向需要 c 的值，要把 c 保存进图里，这一步被拒绝
+
+c.add_(1)
+# RuntimeError: Inplace update to inference tensor outside InferenceMode is not allowed.
+```
+
+官方文档的说法是"inference tensor 不能参与 autograd"。源码里实际的检查更窄：只有当它需要**被保存下来供反向使用**时才报错（[`SavedVariable` 构造函数](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/saved_variable.cpp#L28-L44)里的注释说明了这一点），而一个 Tensor 会不会被保存取决于具体算子的导数公式。写代码时按文档那条更严的规则来最省心：**`inference_mode` 里产生的 Tensor 不要再拿去参与训练**；确实需要，就先 `clone()` 得到一个普通 Tensor。
+
+因此 `inference_mode` 适合明确隔离的推理路径，不适合包住一段之后还需要训练的混合逻辑；后者用 `no_grad()`。
 
 ### 4. 三者的区别
 
 | 机制 | 是否创建新 Tensor | 是否复制数据 | 是否连接原计算图 | 典型用途 |
 |---|---:|---:|---:|---|
 | `detach()` | 是一个新的 Tensor 视图 | 通常否 | 否 | 将结果交给日志、缓存或非梯度逻辑 |
-| `no_grad()` | 由内部操作决定 | 由内部操作决定 | 不记录新图 | 验证、评估、临时关闭梯度 |
-| `inference_mode()` | 由内部操作决定 | 由内部操作决定 | 不记录新图且约束更强 | 独立的高性能推理路径 |
+| `no_grad()` | 由内部操作决定 | 由内部操作决定 | 不记录新图；结果是普通 Tensor，之后可以参与训练 | 验证、评估、临时关闭梯度 |
+| `inference_mode()` | 由内部操作决定 | 由内部操作决定 | 不记录新图；结果是 inference tensor，之后不能被保存进图、不能原地修改 | 独立的高性能推理路径 |
 | `detach().clone()` | 是 | 是 | 否 | 需要独立数据和独立梯度关系 |
 
 Table: detach()、no_grad()、inference_mode() 与 detach().clone() 的区别
 
-### 5. 与 `model.eval()` 的完整组合
+### 5. `model.train()` 与 `model.eval()`
+
+前面几节的例子都直接写了 `model.eval()`，这里单独说明它和 `model.train()` 是什么。
+
+每个 `nn.Module` 上有一个布尔属性 `training`，新建的模型默认是 `True`。这两个方法只做一件事：改这个属性，并且递归改所有子模块的（源码：[`Module.train`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/nn/modules/module.py#L2899-L2937)）：
+
+| 调用 | 效果 |
+|---|---|
+| `model.train()` | 把 `model` 和它所有子模块的 `training` 设为 `True` |
+| `model.eval()` | 等价于 `model.train(False)`，全部设为 `False` |
+
+Table: train() 与 eval() 的效果
+
+它们不执行任何计算，也不碰 Autograd。这个属性的作用是让少数"训练和推理行为不同"的层在 `forward` 里读它、选择走哪条分支。最常见的是两种层：
+
+| 层 | `training=True`（训练） | `training=False`（推理） |
+|---|---|---|
+| `Dropout(p)` | 随机把一部分位置置 0，其余位置乘 `1 / (1 - p)` | 什么都不做，原样输出 |
+| `BatchNorm` | 用当前 batch 的均值、方差做归一化，并更新 `running_mean` / `running_var` | 用保存好的 `running_mean` / `running_var` 做归一化，不再更新它们 |
+
+Table: Dropout 与 BatchNorm 在两种模式下的行为
+
+`Linear`、`Conv2d`、`LayerNorm`、激活函数这些层不读 `training`，两种模式下行为相同。
+
+```python title='train / eval 改的是 training 属性，Dropout 和 BatchNorm 据此改变行为'
+import torch
+from torch import nn
+
+net = nn.Sequential(nn.Linear(4, 4), nn.Dropout(0.5), nn.BatchNorm1d(4))
+print(net.training, [m.training for m in net])   # True [True, True, True]
+net.eval()
+print(net.training, [m.training for m in net])   # False [False, False, False]
+
+x = torch.ones(1, 6)
+drop = nn.Dropout(0.5)
+torch.manual_seed(0)
+print(drop(x))    # tensor([[0., 0., 2., 0., 0., 0.]])   训练：随机置 0，留下的乘 2
+drop.eval()
+print(drop(x))    # tensor([[1., 1., 1., 1., 1., 1.]])   推理：原样输出
+
+bn = nn.BatchNorm1d(1)
+bn(torch.tensor([[1.], [3.]]))
+print(bn.running_mean)    # tensor([0.2000])   训练：统计量被更新
+bn.eval()
+bn(torch.tensor([[10.], [30.]]))
+print(bn.running_mean)    # tensor([0.2000])   推理：统计量不变
+```
+
+`eval()` 和 `no_grad()` / `inference_mode()` 管的是两件互不相干的事，谁也替代不了谁：
+
+| | 控制什么 | 状态存在哪里 | 不做什么 |
+|---|---|---|---|
+| `model.train()` / `model.eval()` | Dropout、BatchNorm 等层走哪条分支 | 每个 Module 对象的 `training` 属性 | 不关闭梯度：`eval()` 之后 forward 照样建图、照样占激活内存 |
+| `no_grad()` / `inference_mode()` | Autograd 是否记录计算图 | 当前线程的标志 | 不改变层的行为：`train()` 状态下 Dropout 照样随机置 0 |
+
+Table: eval() 与 no_grad() / inference_mode() 的职责对照
+
+```python title='两者互不替代：只 eval 仍然建图，只 no_grad 时 Dropout 仍然生效'
+net.eval()
+out = net(torch.ones(2, 4))
+print(out.requires_grad)        # True：eval() 没有关闭梯度
+
+net.train()
+with torch.no_grad():
+    print(net[1](torch.ones(1, 6)))   # 仍有位置被置 0：no_grad 没有关掉 Dropout
+```
+
+只写 `eval()` 不关梯度，推理会白白占用内存；只关梯度不写 `eval()`，推理结果会带随机性，BatchNorm 的统计量还会被推理数据改掉。所以两者要一起写。
 
 推理代码通常写成：
 
@@ -789,16 +1228,15 @@ with torch.inference_mode():
 
 训练代码通常写成：
 
-```python title='训练代码：train 加 enable_grad 再 backward'
+```python title='训练代码：train 之后 forward、backward'
 model.train()
 
-with torch.enable_grad():
-    predictions = model(inputs)
-    loss = criterion(predictions, targets)
-    loss.backward()
+predictions = model(inputs)
+loss = criterion(predictions, targets)
+loss.backward()
 ```
 
-`train()`、`eval()`、`enable_grad()`、`no_grad()` 和 `inference_mode()` 分别控制不同的状态和上下文，不应该把它们当成同一类 API。
+梯度记录默认就是开启的，训练代码不需要写 `torch.enable_grad()`；它只在需要于 `no_grad()` 块内部临时重新打开梯度时才用。验证跑完之后要记得调回 `model.train()`，否则后面的训练会在 Dropout 关闭、BatchNorm 统计量冻结的状态下进行。`train()` / `eval()` 在 Module 体系里的更多细节见[《Module 与训练系统》](/pytorch-module-and-training-system.html#1-train-与-eval)。
 
 ## 八、自定义 `autograd.Function`
 
