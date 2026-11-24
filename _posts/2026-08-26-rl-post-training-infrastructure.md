@@ -19,7 +19,7 @@ catalog: true
 
 系列的组织原则来自这个负载自身的结构：**RL 训练的一步是三个形态不同的作业加两次同步**。生成是一个 serving 作业，打分是一次或几次前向（或一个外部服务），训练是一个常规的分布式训练步；两次同步是"样本从推理引擎到训练器"与"权重从训练器到推理引擎"。把三个作业的算力、显存、时间和两次同步的字节数与耗时追踪清楚，就是理解 RL 基础设施的全部；系统形态（共置 / 分离 / 异步）、权重同步的传输方式、Agent 环境的调度，都是在这张账上做交换。
 
-系列以一个框架为源码阅读对象：**verl**（ByteDance Seed 发起、社区维护，HybridFlow 论文的开源实现）。选它不是因为它唯一，而是因为它是当前的事实标准，且**一套代码覆盖了本系列要讲的全部形态**——共置 / 分离 / 异步三种 trainer 模式、FSDP 与 Megatron 两种训练后端、vLLM 与 SGLang 两种推理后端、NCCL / NIXL / 增量三种权重同步方式、agent loop 与沙箱网关。每一篇的机制都能在 verl 里找到对应的实现，8 卡实践也全部用它。第七篇末尾用一节对照两个取向相反的框架——**slime**（智谱，只绑 Megatron + SGLang、参数原样透传、刻意不做抽象，GLM 系列的 RL 框架）与 **AReaL**（蚂蚁，从第一天起就是完全异步的设计，论文把异步的算法修正写得最清楚）——看同一个问题上它们与 verl 的分歧点在哪，以此分清哪些是这类负载的必然，哪些是 verl 的选择。OpenRLHF 作为最早的 Ray + vLLM 开源实现只在历史脉络里提及。
+系列以一个框架为源码阅读对象：**verl**（ByteDance Seed 发起、社区维护，HybridFlow 论文的开源实现）。选它不是因为它唯一，而是因为它是当前的事实标准，且**一套代码覆盖了本系列要讲的全部形态**——共置 / 分离 / 异步三种 trainer 模式、FSDP 与 Megatron 两种训练后端、vLLM 与 SGLang 两种推理后端、NCCL / NIXL / 增量三种权重同步方式、agent loop 与沙箱网关。每一篇的机制都能在 verl 里找到对应的实现，8 卡实践也全部用它。[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)末尾用一节对照两个取向相反的框架——**slime**（智谱，只绑 Megatron + SGLang、参数原样透传、刻意不做抽象，GLM 系列的 RL 框架）与 **AReaL**（蚂蚁，从第一天起就是完全异步的设计，论文把异步的算法修正写得最清楚）——看同一个问题上它们与 verl 的分歧点在哪，以此分清哪些是这类负载的必然，哪些是 verl 的选择。OpenRLHF 作为最早的 Ray + vLLM 开源实现只在历史脉络里提及。
 
 
 ## 缩写
@@ -85,14 +85,14 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 八篇文章按"先算账、再定形态、再解决形态带来的三个问题、最后读源码与配置"的顺序推进：
 
-1. 第一篇：负载画像 —— 一步 RL 里发生什么：三段作业的算力、显存与时间账（生成 / 打分 / 训练的 FLOPs 与 MFU · 四个模型的显存 · KV cache 的量 · 为什么 rollout 占一半以上）
-2. 第二篇：系统形态 —— 共置、分离与异步：三种拓扑的利用率、气泡与正确性代价（单控制器与 worker 组 · 时分复用 vs 空分复用 · rollout : train 的 GPU 配比）
-3. 第三篇：共置 —— 训练器与推理引擎在同一组 GPU 上共存（显存归属切换 · sleep / wake_up 与 memory saver · CUDA graph 与 KV 池的重建代价）
-4. 第四篇：权重同步 —— 从训练分片到推理分片（布局映射与重分片 · NCCL 广播 / CUDA IPC / NIXL · 量化传输与增量同步 · 一次同步多少秒）
-5. 第五篇：异步与 off-policy —— 把同步的墙拆掉之后要补什么（staleness 上限 · 部分 rollout · 重要性比与训推不一致 · 样本缓冲与流式数据）
-6. 第六篇：Agentic rollout —— 多轮、工具、沙箱与环境服务（agent loop · 几千容器的沙箱集群 · 长尾轨迹调度 · reward 服务化 · 环境账与 GPU 账）
-7. 第七篇：verl 源码导读 —— 从一个 GRPO 配置追到每个 worker；末尾对照 slime 与 AReaL（单控制器 · worker 组 · rollout server · checkpoint engine · 样本通路 · 两个反例的分歧点）
-8. 第八篇：配置、可观测与排障 —— 从一张卡的比例到一条 hang 的排查 GPU 配比 · 两套并行配置 · 全步 MFU · RL 状态的 checkpoint · 确定性 · 常见故障
+1. [第一篇：负载画像 —— 一步 RL 里发生什么](/rl-step-anatomy-rollout-reward-train.html)：三段作业的算力、显存与时间账（生成 / 打分 / 训练的 FLOPs 与 MFU · 四个模型的显存 · KV cache 的量 · 为什么 rollout 占一半以上）
+2. [第二篇：系统形态 —— 共置、分离与异步](/rl-system-topologies-colocate-disaggregate-async.html)：三种拓扑的利用率、气泡与正确性代价（单控制器与 worker 组 · 时分复用 vs 空分复用 · rollout : train 的 GPU 配比）
+3. [第三篇：共置 —— 训练器与推理引擎在同一组 GPU 上共存](/colocated-trainer-and-rollout-engine-memory-handoff.html)（显存归属切换 · sleep / wake_up 与 memory saver · CUDA graph 与 KV 池的重建代价）
+4. [第四篇：权重同步 —— 从训练分片到推理分片](/weight-sync-from-training-shards-to-inference-shards.html)（布局映射与重分片 · NCCL 广播 / CUDA IPC / NIXL · 量化传输与增量同步 · 一次同步多少秒）
+5. [第五篇：异步与 off-policy —— 把同步的墙拆掉之后要补什么](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)（staleness 上限 · 部分 rollout · 重要性比与训推不一致 · 样本缓冲与流式数据）
+6. [第六篇：Agentic rollout —— 多轮、工具、沙箱与环境服务](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)（agent loop · 几千容器的沙箱集群 · 长尾轨迹调度 · reward 服务化 · 环境账与 GPU 账）
+7. [第七篇：verl 源码导读 —— 从一个 GRPO 配置追到每个 worker](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)；末尾对照 slime 与 AReaL（单控制器 · worker 组 · rollout server · checkpoint engine · 样本通路 · 两个反例的分歧点）
+8. [第八篇：配置、可观测与排障 —— 从一张卡的比例到一条 hang 的排查](/rl-post-training-configuration-observability-and-troubleshooting.html)（GPU 配比 · 两套并行配置 · 全步 MFU · RL 状态的 checkpoint · 确定性 · 常见故障）
 
 前两篇是**账与形态**：一步里每样东西花多少，三种形态各自把 GPU 用到几成。中间四篇是**形态带来的四个问题**：共置要切显存、任何形态都要同步权重、异步要修正、Agent 要调度环境。后两篇是**源码与运维**。
 
@@ -100,7 +100,78 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 - 账本线：FLOPs · 显存 · 字节数 · 秒 —— 每篇都把新引入的机制记进同一张账
 - 形态线：共置 / 分离 / 异步 —— 每个机制在三种形态下各是什么样
-- 框架线：每个机制在 verl 里的实现位置；第七篇对照 slime 与 AReaL
+- 框架线：每个机制在 verl 里的实现位置；[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)对照 slime 与 AReaL
+
+### 一个选择带出下一个问题
+
+上面是顺序，下面这张图是因果：八篇之间不是八个并列的主题，而是**一个选择欠下的账由后面几篇分别去还**。把两样对 GPU 用法相反的东西放到一组卡上，就必须在利用率、显存和正确性之间做一次交换；交换一旦做了，就欠下几笔必须解决的账——选共置欠的是显存换手，选异步欠的是算法修正，权重同步是三种形态都欠的，Agent 轨迹则把方差放大到让这笔账不得不还：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
+%% 图：一个选择带出下一个问题：从三段作业到形态，再到形态欠下的四笔账
+flowchart TB
+    JOB["<b>一步 = 三个作业 + 两次同步（《负载画像》）</b><br/>• 生成：memory-bound 的 decode，要 KV 池<br/>• 打分：几次前向，或一个外部服务<br/>• 训练：compute-bound 的 GEMM，要参数、梯度与优化器状态<br/>• 同步：样本进训练器、权重回推理引擎"] --> CONFLICT["<b>生成与训练抢同一组卡</b><br/>• 用法相反：一个吃带宽，一个吃算力<br/>• 显存互斥：一个要 KV 池，一个要优化器状态<br/>• 中间有墙：不生成完就不能开始训练"]
+    CONFLICT --> SHAPE["<b>形态是三种交换（《系统形态》）</b><br/>• 共置：省卡，换来每步两次显存换手<br/>• 分离：两边各自满载，换来配比难题<br/>• 异步：拆掉同步墙，换来 off-policy"]
+    SHAPE --> G1
+    subgraph G1["形态欠下的四笔账，各是一篇"]
+        direction TB
+        MEM["<b>只有共置要还：显存在两套引擎之间换手（《共置》）</b><br/>• 一步内搬两次：让出 KV 池 → 装入优化器状态 → 再换回来<br/>• 代价是秒级的卸载、重载与 CUDA Graph 重捕获"] ~~~ SYNC["<b>三种形态都要还：训练分片 → 推理分片（《权重同步》）</b><br/>• 名字、形状、切法三套都不一样，中间要一张映射表<br/>• 代价是一次 all-gather 加一次广播，几秒到几十秒"] ~~~ OFF["<b>只有异步要还：样本不再 on-policy（《异步与 off-policy》）</b><br/>• staleness 上限、部分 rollout、重要性比<br/>• 代价是多存几份 logprob，和一条不再单调的 reward 曲线"] ~~~ ENV["<b>Agent 把方差放大：环境要调度（《Agentic rollout》）</b><br/>• 一条轨迹是几十轮模型与环境交替<br/>• 环境耗时的方差远大于回答长度的方差——长尾从「有点浪费」变成「不异步就跑不动」"]
+    end
+    G1 --> CODE["<b>四笔账在 verl 里各落在哪（《verl 源码导读》）</b><br/>• 一个配置文件怎样变成一组 Ray worker<br/>• 一步数据流的九个阶段，每个机制对应哪个类"]
+    CODE --> OPS["<b>从账推配置、从信号推原因（《配置、可观测与排障》）</b><br/>• 配比、两套并行配置、同步方式怎么定<br/>• 全步 MFU 差在哪一项，一条 hang 从哪开始查"]
+    classDef base fill:#f5f5f5,stroke:#616161;
+    classDef pick fill:#fff8e1,stroke:#f9a825;
+    classDef debt fill:#e3f2fd,stroke:#1565c0;
+    classDef land fill:#e8f5e9,stroke:#2e7d32;
+    class JOB,CONFLICT base;
+    class SHAPE pick;
+    class MEM,SYNC,OFF,ENV debt;
+    class CODE,OPS land;
+```
+
+逐节点要点：
+
+- **一步 = 三个作业 + 两次同步**：全系列的记账单位。三个作业的 FLOPs、显存与秒数，加上两次同步的字节数与耗时，就是这个系统的全部开销，推导在[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)。
+- **生成与训练抢同一组卡**：矛盾只有这三条，后面所有机制都是在化解其中一条。注意「显存互斥」是硬的——不是变慢，是装不下。
+- **形态是三种交换**：这是全系列唯一一个真正的选择点，[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)把它写成一张决策表。后面四篇都是这个选择的后果，不是独立的优化项。
+- **显存换手**：只有共置形态需要。它是三笔账里唯一一笔「做了选择才有」的纯开销——分离形态根本不存在这个问题，详见[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)。
+- **权重同步**：三种形态都绕不开，因为训练器和推理引擎对同一份权重的切法不同。共置下它走进程内的 IPC，分离下它走跨机的 RDMA，异步下它还要带一个版本号，详见[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)。
+- **off-policy 修正**：只有异步形态需要，而且它是全系列唯一一笔**算法上的**账——前面几笔都只影响多久，这一笔影响训出来的模型，详见[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)。
+- **环境调度**：Agent 训练不引入新的形态，但它把长尾放大一到两个数量级，于是异步从「可以考虑」变成「必须」，详见[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)。
+- **落到源码与运维**：[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)按「配置 → worker → 一步数据流」把四笔账串回一个系统，[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)反过来从一个异常信号倒推回它落在哪笔账上。
+
+### 一个 RL 作业跑起来后，这组卡上住着什么
+
+上面这几笔账其实都是同一个问题的不同侧面：**同一块显存上住着好几样生命周期不同的东西，而它们互相挤占**。下面这张表是全系列的对象清单，每一篇都在改其中一到两行的归属或寿命：
+
+| 对象 | 谁持有 | 在哪一侧 | 活多久 | 一步之间会不会换手 |
+|---|---|---|---|---|
+| 训练状态（bf16 参数 + 梯度 + fp32 主参数 + Adam 两个动量，每参数 16 字节） | 训练器（FSDP 或 Megatron） | 训练侧，按 DP / TP / PP 切片 | 整个作业 | **会**：共置下训练段搬进显存、生成段搬回 CPU（[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)） |
+| 推理引擎的权重副本（bf16 或 FP8） | 推理引擎（vLLM 或 SGLang） | 推理侧，按推理 TP 切片 | 整个作业 | 不换手，但每步被整体覆写一次（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)） |
+| KV 池 | 推理引擎的块管理器 | 推理侧 | 整个作业；共置下每步被释放再重建 | **会**：生成段独占，训练段整块让出（[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)） |
+| 参考模型权重（算 KL 用） | ref worker | 训练侧 | 整个作业 | 常驻 CPU，要算 KL 时才搬上卡 |
+| 奖励模型权重，或外部奖励服务 | RM worker，或集群里的另一批机器 | 看奖励的形态：生成式 RM 在卡上，规则校验与代码沙箱完全不在 GPU 上 | 整个作业 | 不换手（[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)） |
+| 一波 rollout 的在飞请求与它们的 KV | 推理引擎的调度器 | 推理侧 | 一波生成 | 部分 rollout 会让没写完的轨迹跨步存活（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)） |
+| 一步的训练样本（token、logprob、advantage） | 单控制器与样本队列 | CPU 内存，按 DP 维切给各 worker | 一步；异步下进 replay buffer 后可活 $$k$$ 步 | 不换手，但会跨步滞留——这就是 staleness（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)） |
+| 沙箱容器与它的会话状态 | 沙箱网关 | 集群里的 CPU 节点，几千个容器 | 一条轨迹 | 不在 GPU 上，但 GPU 在等它（[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)） |
+| checkpoint（训练状态 + 数据进度 + 样本缓冲 + 版本号） | 训练器与控制器 | 持久存储 | 跨作业 | 恢复语义比预训练多三样东西（[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)） |
+
+Table: 一个 RL 作业跑起来后，一组 GPU 与它周边住着的九样东西
+
+这张表能直接读出四件事：
+
+1. **寿命只有三档**：整个作业、一波 rollout、一步。跨档的只有两个特例——部分 rollout 的在飞轨迹，和异步下滞留在缓冲里的样本，而这两个特例正是[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)全篇要处理的东西。
+2. **一张卡上有两份权重**。训练侧一份、推理侧一份，格式和切法都不同，还要每步对齐一次——这是 RL 系统与纯训练、纯推理系统最根本的差别，也是[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)存在的理由。
+3. **真正会换手的只有两行**：训练状态和 KV 池。其余的要么常驻、要么根本不在 GPU 上。所谓「共置的切换代价」，说到底就是这两行在一步里各搬两次。
+4. **有三样东西完全不在 GPU 上**：沙箱容器、规则类奖励、样本队列。它们一分 GPU 显存都不占，却能让一整组卡闲着——[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)算的就是这笔账。
+
+> [!NOTE] Java 经验参照：在线服务与批处理混部
+>
+> 一组卡上既要跑一个推理服务又要跑一个训练任务，和在一组机器上把在线服务与离线批处理混部，是同一类资源问题。差别在兜底上：混部时操作系统和 JVM 会按时间片调度，两边都慢一点，但都能跑下去，内存不够还有换页和 GC 顶着；GPU 显存既没有分页也没有换页，两套引擎的常驻显存加起来超了，结果不是变慢而是起不来。所以这里没有「调度器帮你让一让」这回事——让出显存必须是业务代码的显式动作（调用 `sleep` 把 KV 池整块释放、把优化器状态搬去 CPU），而让多少、什么时候让，写在配置文件里。
+
+> [!NOTE] Java 经验参照：一步的墙钟等于最慢那条回答
+>
+> 一波 rollout 要等全部回答写完才能进训练，墙钟由最长的那条决定——这和 `CompletableFuture.allOf` 或 `CountDownLatch` 等一批任务的行为一样，长尾直接变成等待。不成立的地方在于处置方式：线程池里的慢任务可以超时取消、重试，结果丢了不影响正确性；这里的长回答不能丢，因为丢掉就改变了训练样本的长度分布，而最长的那批往往恰好是推理链最完整、信息量最大的样本。所以[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的办法不是超时丢弃，而是把没写完的轨迹连着 KV 一起存下来、下一轮接着写。
 
 
 ## 章节结构与分章导读
@@ -114,7 +185,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 - 一步的结构：$$B$$ 个 prompt × $$G$$ 条回答 × 平均长度 $$\bar L$$ 的 rollout；参考模型与（若有）奖励模型 / 价值模型的前向；策略的前向 + 反向；两次同步——样本进训练器、权重回推理引擎；
 - FLOPs 的拆分：生成 $$2N$$、参考前向 $$2N$$、RM 前向 $$2N_{RM}$$、策略训练 $$6N$$，合计约 $$12N$$ 每 token；PPO 再加价值网络约 $$8N$$；**按 FLOPs 训练占一半、生成只占六分之一**；
 - 时间的拆分：训练与前向是大 GEMM，MFU 40% 上下；生成是 decode，每步一个 token、memory-bound，对话长度下 MFU 只有 10% 上下，长思维链下 KV 读取占了带宽的大半、只剩个位数；再加长尾——同一波里最长的回答决定这一波何时结束——**按时间生成占一半以上**，HybridFlow（verl）与 OpenRLHF 的论文都报告 rollout 占 60–80%；
-- 显存的四份：训练状态（bf16 参数 + 梯度 + fp32 主参数与 Adam 状态，每参数 16 字节，来自大规模训练系列第一篇的公式）、参考模型与 RM 的 bf16 权重、推理引擎的权重副本、KV cache；对话 RLHF 的 4096 条 × 1300 token 在 Llama-3-8B 规格下是 680 GiB 的 KV，推理模型 8K–32K 的回答是它的 8 到 64 倍——**任何一张卡都放不下全部，rollout 必须分波或分卡**；
+- 显存的四份：训练状态（bf16 参数 + 梯度 + fp32 主参数与 Adam 状态，每参数 16 字节，公式来自[《大规模训练工程》的《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)）、参考模型与 RM 的 bf16 权重、推理引擎的权重副本、KV cache；对话 RLHF 的 4096 条 × 1300 token 在 Llama-3-8B 规格下是 680 GiB 的 KV，推理模型 8K–32K 的回答是它的 8 到 64 倍——**任何一张卡都放不下全部，rollout 必须分波或分卡**；
 - 三段作业的形态对比：生成是 serving（请求、批、KV 池、连续批处理），训练是分布式训练步（并行、梯度、优化器），打分要么是 prefill 形态的前向、要么是外部服务（规则验证器、代码沙箱、生成式 RM）——它们对 GPU 的用法为什么互斥；
 - 推理模型与 Agent 把账放大了什么：$$\bar L$$ 从 1K 到 32K 让 rollout 的 token 数与 KV 多一到两个数量级、墙钟从分钟到几十分钟；Agent 轨迹里八成 token 来自环境，训练要过它们的前向却不产生梯度，每个有效 token 的代价是单轮的 5 倍；
 - 公开配方的账：DeepSeekMath / R1 的 GRPO、Kimi k1.5、Qwen3 的后训练报告里能推出的 rollout 规模、GPU 数与步时间。
@@ -134,8 +205,8 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 - HybridFlow 的编程模型（verl 的论文）：**单控制器**负责 RL 算法的数据流（一步里谁先谁后、样本怎么流），**多个 worker 组**（actor、rollout、ref、critic、RM）各自用 SPMD 方式跑自己的分布式计算；这个模型为什么让"换算法"与"换系统形态"互不干扰，以及它的代价（控制器与 worker 之间的数据搬运）；
 - **共置（colocate）**：所有角色在同一组 GPU 上**时分复用**——生成时显存归推理引擎，训练时归训练器；优点是每个阶段都能用满全部 GPU、权重同步在卡内完成；代价是显存要在两种状态之间切换、阶段之间无法重叠、长尾拖住所有卡；
 - **分离（disaggregate）**：rollout 与训练在不同的 GPU 池上**空分复用**；优点是两种负载各用适合自己的并行配置、可以重叠；代价是配比要事先定好、权重同步要跨机器、配比不对就有一方空转；
-- **异步（async）**：分离之上再去掉每步的同步墙——训练用 $$k$$ 步前的权重生成的样本，生成不等训练；GPU 利用率最高，代价是 off-policy 与它的算法修正（第五篇）；
-- 三种形态的利用率模型：把第一篇的三段时间代入，共置的利用率 = 各段 MFU 的时间加权，分离的利用率取决于配比与两侧时间是否相等，异步趋近两侧各自的 MFU；一个简单的数学模型给出每种形态在不同 $$\bar L$$ 方差下的期望利用率；
+- **异步（async）**：分离之上再去掉每步的同步墙——训练用 $$k$$ 步前的权重生成的样本，生成不等训练；GPU 利用率最高，代价是 off-policy 与它的算法修正（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）；
+- 三种形态的利用率模型：把[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的三段时间代入，共置的利用率 = 各段 MFU 的时间加权，分离的利用率取决于配比与两侧时间是否相等，异步趋近两侧各自的 MFU；一个简单的数学模型给出每种形态在不同 $$\bar L$$ 方差下的期望利用率；
 - rollout : train 的 GPU 配比怎么定：由两侧的时间比决定，而时间比随训练推进变化（回答变长、KV 变多），所以生产系统里配比是可调的——verl 的动态资源调度（trainer 节点的 GPU 按策略在 rollout 与训练之间切换）；
 - verl 的三种 trainer 模式——`sync`（共置同步）、`colocate_async`（共置异步）、`separate_async`（分离异步）——与上面三种形态的对应；它们共享一套控制流、样本缓冲与指标，所以换形态只是换配置。
 
@@ -143,7 +214,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 > **同样 64 张卡、同样的 GRPO 配置，共置、分离（48 : 16）与异步三种形态下，一步的墙钟时间与 GPU 利用率各是多少？回答长度的方差从小变大时，哪种形态先撑不住？**
 
-实践：给账本加系统形态维度：输入形态与配比，输出各阶段的 GPU 利用率、气泡与一步的墙钟；用第一篇的公开配方验证。
+实践：给账本加系统形态维度：输入形态与配比，输出各阶段的 GPU 利用率、气泡与一步的墙钟；用[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的公开配方验证。
 
 ### 3. 共置：训练器与推理引擎在同一组 GPU 上共存
 
@@ -188,7 +259,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 ### 5. 异步与 off-policy：把同步的墙拆掉之后要补什么
 
-第五篇讨论异步形态引入的算法与系统问题。它的前提是第二篇的结论：只要回答长度有方差，同步形态就有大量的等待；拆掉同步墙能换回利用率，但样本不再严格 on-policy。
+第五篇讨论异步形态引入的算法与系统问题。它的前提是[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的结论：只要回答长度有方差，同步形态就有大量的等待；拆掉同步墙能换回利用率，但样本不再严格 on-policy。
 
 这一篇会覆盖：
 
@@ -199,7 +270,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 - 样本通路：rollout 完成一条就进**样本缓冲**（replay buffer），训练器取够一个 batch 就更新；缓冲的淘汰规则（过期、DAPO 式过滤掉全对 / 全错的组、失败的 rollout）；流式数据加载与"变长 global batch"；
 - 异步下的权重同步频率与方式：不再是"每步一次、全员停下"，而是推理引擎在请求之间换权重、或多个推理实例轮流更新；正在生成的请求怎么办——中断重来、还是记下版本继续；
 - 异步的可观测：off-policy 指标（staleness 分布、$$\rho$$ 的分布、被裁掉的比例）、缓冲区深度、两侧的等待时间；
-- verl 的 `colocate_async` / `separate_async` 里这些机制的实现：replay buffer、staleness 策略、流式 dataloader、异步 checkpoint 恢复；AReaL 的完全异步设计（rollout controller + 样本缓冲 + 版本管理）作为原型在第七篇对照。
+- verl 的 `colocate_async` / `separate_async` 里这些机制的实现：replay buffer、staleness 策略、流式 dataloader、异步 checkpoint 恢复；AReaL 的完全异步设计（rollout controller + 样本缓冲 + 版本管理）作为原型在[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)对照。
 
 核心问题是：
 
@@ -209,7 +280,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 ### 6. Agentic rollout：多轮、工具、沙箱与环境服务
 
-第六篇讨论 rollout 不再是"推理引擎批量生成"、而是"模型与环境交替几十轮"时系统的变化。它是第五篇异步的最强动机：环境的耗时方差比生成长度的方差大得多。
+第六篇讨论 rollout 不再是"推理引擎批量生成"、而是"模型与环境交替几十轮"时系统的变化。它是[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的最强动机：环境的耗时方差比生成长度的方差大得多。
 
 这一篇会覆盖：
 
@@ -237,7 +308,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 - **worker 组织**：`verl/single_controller/` 的 `RayWorkerGroup` 与 `@register` 分发装饰器（单控制器怎样把一次调用广播到一组 SPMD 进程并收回结果）；`verl/workers/` 的角色（actor / rollout / ref / critic / RM）与 model engine 抽象（FSDP、Megatron、VeOmni 后端在同一个 `TrainingWorker` 接口后面）；Ray 的资源池与 placement group 怎样表达共置与分离；
 - **rollout 的接入**：server 模式——vLLM / SGLang 作为独立服务启动，agent loop 与 reward 通过 HTTP 调它；`sleep` / `wake_up` 在哪里被调用、CUDA graph 与 KV 池的重建发生在哪一步；
 - **权重同步**：checkpoint engine 的三条路（NCCL 广播、NIXL / Mooncake、`delta_sharded`）在代码里怎样被选择、分桶与流水在哪一层、量化传输的 scale 在哪算；Megatron-Bridge 的参数名映射怎样被调用；
-- **样本通路与异步**：replay buffer 的入队 / 淘汰 / 取 batch、staleness 的 `drop` / `wait`、流式 dataloader、异步 checkpoint 恢复——第五篇的机制各落在哪个类；
+- **样本通路与异步**：replay buffer 的入队 / 淘汰 / 取 batch、staleness 的 `drop` / `wait`、流式 dataloader、异步 checkpoint 恢复——[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的机制各落在哪个类；
 - **agent loop**：多轮 rollout 的循环、工具调用的解析、continuous token 的边界处理、uni-agent 网关的会话；
 - **对照一节**：**slime** 与 verl 的分歧点——不做后端抽象、只绑 Megatron + SGLang 并原样透传参数（`--sglang-*`），训练 / rollout / Data Buffer 三段通路；为什么"少一层抽象"在这类系统里可以是优点，代价是什么。**AReaL** 与 verl 的分歧点——从第一天就是完全异步：rollout controller、样本缓冲、`generate` / `update_weights` 两类请求交错、部分 rollout 与版本管理是核心而不是可选项；它的 decoupled PPO loss 为什么必须与系统一起设计。OpenRLHF 作为最早的 Ray + vLLM 实现在脉络里提一句：哪些设计被 verl 继承。
 
@@ -253,7 +324,7 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 这一篇会覆盖：
 
-- 配置的推导顺序：先按第一篇算三段的时间 → 按第二篇选形态与配比 → 训练侧的并行配置（FSDP / Megatron 的 TP / PP / EP / CP，与预训练相同的逻辑但 batch 形态不同——变长、按 token 数打包）→ 推理侧的并行配置（vLLM 的 TP / EP / DP、KV 池大小、最大并发）→ 权重同步方式；MoE 模型两侧都要 EP，长上下文训练侧要 CP；
+- 配置的推导顺序：先按[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)算三段的时间 → 按[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)选形态与配比 → 训练侧的并行配置（FSDP / Megatron 的 TP / PP / EP / CP，与预训练相同的逻辑但 batch 形态不同——变长、按 token 数打包）→ 推理侧的并行配置（vLLM 的 TP / EP / DP、KV 池大小、最大并发）→ 权重同步方式；MoE 模型两侧都要 EP，长上下文训练侧要 CP；
 - 全步 MFU：把三段的 FLOPs 除以全部 GPU 的峰值 × 墙钟，得到整个 RL 步的利用率——它才是要优化的数字；逐项拆解损失（rollout 长尾、切换、同步、训练 MFU、环境等待）；
 - **RL 状态的 checkpoint**：除了训练状态，还有样本缓冲、数据集位置、rollout 引擎里正在生成的请求、异步下的策略版本表；恢复时重放还是丢弃进行中的 rollout；异步 trainer 的恢复语义；
 - **确定性**：RL 的 reward 曲线对随机性极敏感，排障的前提是两次运行能对齐——vLLM 的确定性推理、训练侧的确定性算法、采样种子；"bitwise 对齐的 reward 曲线"是可以做到的，代价是什么；
@@ -277,33 +348,37 @@ verl 的核心目录是本系列的源码阅读线。读完后你应该能在 `v
 
 | 篇 | 练手内容 | 要点 |
 |---|---|---|
-| 第一篇 | RL 一步账本 | 三段 FLOPs · 显存 · KV · 时间 · 利用率上限（配套脚本） |
-| 第二篇 | 账本加系统形态 | 共置 / 分离 / 异步 · 配比 · 气泡与墙钟 |
-| 第三篇 | 8 卡共置 GRPO | 切换耗时与显存归属对账 · sleep level 对比 |
-| 第四篇 | 最小的 FSDP2 → vLLM 权重同步 | gather · 映射 · NCCL 广播 · collective_rpc · 各段耗时 |
-| 第五篇 | 异步对比实验 | k = 0 / 1 / 2 / 4 · 吞吐与 reward · 训推 logprob 差 |
-| 第六篇 | 最小沙箱环境与多轮 RL | 容器化执行 · 环境时间分布 · GPU 空闲比例 |
-| 第七篇 | verl 一步的时间线对函数 | Ray dashboard · profiler · 切换 / 同步 / 等待各落在哪一段 |
-| 第八篇 | 面板、故障注入与值班手册 | 全步 MFU · 三类故障定位 · 配置推导记录 |
+| [第一篇：负载画像](/rl-step-anatomy-rollout-reward-train.html) | RL 一步账本 | 三段 FLOPs · 显存 · KV · 时间 · 利用率上限（配套脚本） |
+| [第二篇：系统形态](/rl-system-topologies-colocate-disaggregate-async.html) | 账本加系统形态 | 共置 / 分离 / 异步 · 配比 · 气泡与墙钟 |
+| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | 8 卡共置 GRPO | 切换耗时与显存归属对账 · sleep level 对比 |
+| [第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html) | 最小的 FSDP2 → vLLM 权重同步 | gather · 映射 · NCCL 广播 · collective_rpc · 各段耗时 |
+| [第五篇：异步与 off-policy](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) | 异步对比实验 | k = 0 / 1 / 2 / 4 · 吞吐与 reward · 训推 logprob 差 |
+| [第六篇：Agentic rollout](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) | 最小沙箱环境与多轮 RL | 容器化执行 · 环境时间分布 · GPU 空闲比例 |
+| [第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | verl 一步的时间线对函数 | Ray dashboard · profiler · 切换 / 同步 / 等待各落在哪一段 |
+| [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | 面板、故障注入与值班手册 | 全步 MFU · 三类故障定位 · 配置推导记录 |
 
 Table: 各篇末尾「实践」对应的动手内容
 
-只有第一篇的账本有配套脚本（`ai-learning-labs` 的 `rl-post-training-infra/`），后面各篇把新引入的机制直接用公式与表格记进这张账，不再单独给脚本——它们要验证的东西（切换耗时、同步秒数、staleness 曲线）都要在真实 GPU 上量，纸面模型给出的是量之前该期待的数字。到第八篇结束，读者手上有：一套能对任意模型、任务形态与 GPU 数给出三段时间、利用率上限与推荐系统形态的算法；一份在 8 卡上验证过、有外推依据的 GRPO 配置；一套包含权重同步、异步控制、环境调度、checkpoint 与告警的运行方案。
+只有[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的账本有配套脚本（`ai-learning-labs` 的 `rl-post-training-infra/`），后面各篇把新引入的机制直接用公式与表格记进这张账，不再单独给脚本——它们要验证的东西（切换耗时、同步秒数、staleness 曲线）都要在真实 GPU 上量，纸面模型给出的是量之前该期待的数字。读完[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)，读者手上有三样东西：
+
+1. 一套算法：对任意模型、任务形态与 GPU 数，给出三段时间、利用率上限与推荐的系统形态；
+2. 一份配置：在 8 卡上验证过、有外推依据的 GRPO 配置；
+3. 一套运行方案：包含权重同步、异步控制、环境调度、checkpoint 与告警。
 
 与它平行的源码阅读线：
 
 | 篇 | 项目 | 源码位置与看点 |
 |---|---|---|
-| 第一篇 | verl | `verl/trainer/ppo/` 的一步控制流（只看阶段划分） |
-| 第二篇 | verl | `verl/trainer/ppo/v1/` 三种 trainer 模式 · `verl/single_controller/` · Ray 资源池 |
-| 第三篇 | vLLM | `vllm/device_allocator/cumem.py` · sleep / wake_up 路径；SGLang `torch_memory_saver` |
-| 第三篇 | verl | `verl/workers/` 的 hybrid engine 与 sleep / wake_up 调用点 |
-| 第四篇 | verl | checkpoint engine（NCCL / NIXL / delta_sharded）· 权重名映射；Megatron-Bridge |
-| 第四篇 | vLLM | collective_rpc 与 load_weights 路径 |
-| 第五篇 | verl | replay buffer 与 staleness 策略 · 流式 dataloader · 异步 checkpoint 恢复 |
-| 第六篇 | verl | agent loop · continuous token · uni-agent 网关 |
-| 第七篇 | verl | main_ppo 入口 · `verl/single_controller/` · `verl/workers/` · `verl/trainer/ppo/v1/`；对照 slime 的三段通路与 AReaL 的 rollout controller |
-| 第八篇 | verl | off-policy 与 MoE 负载指标 · 异步 checkpoint 恢复；vLLM 确定性推理 |
+| [第一篇：负载画像](/rl-step-anatomy-rollout-reward-train.html) | verl | `verl/trainer/ppo/` 的一步控制流（只看阶段划分） |
+| [第二篇：系统形态](/rl-system-topologies-colocate-disaggregate-async.html) | verl | `verl/trainer/ppo/v1/` 三种 trainer 模式 · `verl/single_controller/` · Ray 资源池 |
+| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | vLLM | `vllm/device_allocator/cumem.py` · sleep / wake_up 路径；SGLang `torch_memory_saver` |
+| [第三篇：共置](/colocated-trainer-and-rollout-engine-memory-handoff.html) | verl | `verl/workers/` 的 hybrid engine 与 sleep / wake_up 调用点 |
+| [第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html) | verl | checkpoint engine（NCCL / NIXL / delta_sharded）· 权重名映射；Megatron-Bridge |
+| [第四篇：权重同步](/weight-sync-from-training-shards-to-inference-shards.html) | vLLM | collective_rpc 与 load_weights 路径 |
+| [第五篇：异步与 off-policy](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) | verl | replay buffer 与 staleness 策略 · 流式 dataloader · 异步 checkpoint 恢复 |
+| [第六篇：Agentic rollout](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) | verl | agent loop · continuous token · uni-agent 网关 |
+| [第七篇：verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | verl | main_ppo 入口 · `verl/single_controller/` · `verl/workers/` · `verl/trainer/ppo/v1/`；对照 slime 的三段通路与 AReaL 的 rollout controller |
+| [第八篇：配置、可观测与排障](/rl-post-training-configuration-observability-and-troubleshooting.html) | verl | off-policy 与 MoE 负载指标 · 异步 checkpoint 恢复；vLLM 确定性推理 |
 
 Table: 与实践线平行的源码阅读线
 
@@ -314,7 +389,7 @@ Table: 与实践线平行的源码阅读线
 
 - 理解分布式训练的状态与并行：知道 FSDP / Megatron 把参数、梯度、优化器状态切在哪、每参数 16 字节从哪来、TP / PP / DP / EP 各是什么（[《大规模训练工程》](/large-scale-training-from-parallelism-to-fault-tolerance.html)前两篇的内容）；
 - 理解 LLM 推理引擎的基本机制：prefill 与 decode 的形态差别、KV cache 的字节数、连续批处理、TP 部署（[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)前五篇的内容）；
-- 知道 GRPO / PPO 一步在做什么：采样、打分、更新，参考模型与 KL，重要性比与 clip（[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)第三篇的内容；本系列第一篇会用一节复述所需的最小集）；
+- 知道 GRPO / PPO 一步在做什么：采样、打分、更新，参考模型与 KL，重要性比与 clip（[《后训练》的《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)讲的内容；本系列[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)会用一节复述所需的最小集）；
 - 会用 Ray 启动多进程任务、读 Python 源码、用 profiler 看时间线；
 - 至少一台 8 卡 GPU 机器（Ampere 或更新）用于实践；几百卡的内容以计算外推与公开数据为主。
 
@@ -327,7 +402,7 @@ Table: 与实践线平行的源码阅读线
 ### 框架与版本基线
 
 - **verl v0.9.0**（2026-08-14）为全系列的源码对象：统一的 v1 trainer（`sync` / `colocate_async` / `separate_async`）、model engine（FSDP / Megatron / VeOmni）、rollout server 模式、checkpoint engine（含 `delta_sharded`）、agent loop 与 uni-agent；它 pin 的 vLLM 与 SGLang 版本随文标注；
-- 对照框架只在第七篇末节与个别机制处出现：**slime v0.3.0**（2026-05-31）；**AReaL** 以其论文（Fu 等 2025，arXiv 2505.24298）与当前文档的异步机制为准；OpenRLHF 只提脉络，不引源码；
+- 对照框架只在[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)末节与个别机制处出现：**slime v0.3.0**（2026-05-31）；**AReaL** 以其论文（Fu 等 2025，arXiv 2505.24298）与当前文档的异步机制为准；OpenRLHF 只提脉络，不引源码；
 - 推理引擎以 **vLLM v0.27.1** 为主（与《大模型推理系统揭秘》一致），SGLang 作为对照；训练器以 **PyTorch 2.13.0** 的 FSDP2 与 **Megatron Core 0.18.0** 为准（与《大规模训练工程》一致）；
 - 硬件以 **H100 SXM**（80 GB HBM3，BF16 dense 约 989 TFLOPS）为默认分析对象，节点内 8 卡 NVLink、节点间 InfiniBand；模型以 **Llama-3-8B / Qwen3-32B** 规格的 dense 模型与 **DeepSeek-V3** 规格的 MoE 为主要算例；给出的公开数字均注明来源（HybridFlow、AReaL、DeepSeek-R1、Kimi k1.5、各框架的 release note），实测会因集群与版本而异。
 
@@ -355,14 +430,18 @@ Table: 与实践线平行的源码阅读线
 
 读完这套系列之后，面对任何一个 RL 后训练任务——无论是自己配的、别人交接的、还是利用率上不去要接手排查的——读者应该能够回答：
 
-- 一步里生成、打分、训练各花多少 GPU·秒？上限是多少？：→ 第一篇：三段的账
-- 这个任务该共置、分离还是异步？GPU 怎么分？：→ 第二篇：三种形态的交换
-- 每步的显存切换搬多少字节、要几秒？：→ 第三篇：让渡接口与切换代价
-- 新权重怎么进推理引擎？传多少、走哪条链路、几秒？：→ 第四篇：布局映射与传输
-- 异步之后 reward 曲线变了，是 staleness 还是训推不一致？：→ 第五篇：off-policy 的信号
-- Agent 训练的沙箱要多少并发？GPU 在等什么？：→ 第六篇：环境账与长尾调度
-- verl 把权重同步 / 样本通路实现在哪？：→ 第七篇：源码导读
-- 利用率差在哪一项？坏了从哪查？：→ 第八篇：全步 MFU 与排障
+| 读者带着的问题 | 去哪一篇 | 那一篇给的答案 |
+|---|---|---|
+| 一步里生成、打分、训练各花多少 GPU·秒？上限是多少？ | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) | 三段的 FLOPs、显存与秒数，和它们之间的比例 |
+| 这个任务该共置、分离还是异步？GPU 怎么分？ | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html) | 三种形态各换掉什么，一张决策表 |
+| 每步的显存切换搬多少字节、要几秒？ | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) | 让渡接口与一次切换的时间线 |
+| 新权重怎么进推理引擎？传多少、走哪条链路、几秒？ | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) | 布局映射的三套命名，与四类传输方式的耗时 |
+| 异步之后 reward 曲线变缓，是 staleness 还是训推不一致？ | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) | 三个 off-policy 来源各自的信号与修正 |
+| Agent 训练的沙箱要多少并发？GPU 在等什么？ | [《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) | 环境账与 GPU 账，和长尾轨迹的调度 |
+| verl 把权重同步、样本通路实现在哪？ | [《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html) | 从一个 GRPO 配置追到每个 worker |
+| 利用率差在哪一项？坏了从哪开始查？ | [《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) | 全步 MFU 的损失分解与三类故障的信号 |
+
+Table: 读者带着的八个问题各去哪一篇
 
 最终目标是三种能力：
 
