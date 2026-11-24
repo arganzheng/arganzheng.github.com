@@ -41,7 +41,7 @@ verl v0.9.0 的代码量不小（`verl/` 下十几万行），这一篇只走一
 
 Table: 一个 bf16 分片的旅程：从 update_actor 到推理引擎
 
-十二步、四类进程（driver、hybrid worker、vLLM server / EngineCore、AgentLoopWorker）、三条链路（Ray RPC、NVLink all-gather、CUDA IPC + ZMQ）。分离形态下第 2 步走 `nccl` / `nixl` / `delta_sharded` 后端，第 6–8 步换成 checkpoint engine 的 `send_weights` / `receive_weights`（第四篇），其余不变。
+十二步、四类进程（driver、hybrid worker、vLLM server / EngineCore、AgentLoopWorker）、三条链路（Ray RPC、NVLink all-gather、CUDA IPC + ZMQ）。分离形态下第 2 步走 `nccl` / `nixl` / `delta_sharded` 后端，第 6–8 步换成 checkpoint engine 的 `send_weights` / `receive_weights`（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)），其余不变。
 
 ### 2. 进程地图
 
@@ -82,18 +82,50 @@ flowchart TB
     H0 -. 按键取样本 .-> TQ
 ```
 
-### 3. 本文的章节安排
+### 3. verl 里的对象：住在哪个进程、谁创建、谁能看见
+
+进程地图画的是「有哪几类进程」，下面这张表是「每类进程里住着什么」。读源码时最容易迷路的不是函数调用关系，而是**手上这个对象属于哪个进程、能看见什么**——前六篇的每个机制都对应这张表里的一到两行：
+
+| 对象 | 住在哪个进程 | 谁创建 | 活多久 | 谁能看见它 |
+|---|---|---|---|---|
+| `TaskRunnerV1` / `PPOTrainerSync` | driver | `main_ppo` 入口 | 整个作业 | 只有 driver——算法流程就这一份 |
+| `RayWorkerGroup`（一组 Ray actor 的句柄） | driver 持句柄，actor 在 GPU 节点 | driver 启动时 | 整个作业 | driver 能按组调用；组内 rank 彼此通过集合通信可见 |
+| `RayResourcePool`（placement group） | Ray 调度器 | driver 按配置创建 | 整个作业 | Ray 调度器与 driver；worker 自己不知道 |
+| `ActorRolloutRefWorker`（hybrid worker） | 每张卡一个 GPU 进程 | worker 组创建时 | 整个作业 | 只有本进程；一个进程里同时持训练器、ref 与推理引擎的句柄 |
+| model engine（`FSDPEngine` / `MegatronEngine`） | hybrid worker 进程内 | worker 初始化时 | 整个作业 | 只有本进程 |
+| `RolloutReplica` / `vLLMHttpServer` | 独立的 server 进程 | worker 或 driver 按 `nnodes` 起 | 整个作业 | agent loop 通过 HTTP / Ray RPC 看见；driver 通过 checkpoint engine 看见 |
+| vLLM `EngineCore` | 每张卡一个进程，与 hybrid worker 共置 | vLLM server 启动时 | 整个作业 | 只有 server 自己；它看不见训练侧的任何东西 |
+| `AgentLoopWorker` 与它的几千个协程 | CPU 侧 Ray actor | `AgentLoopManager` | 整个作业；协程一条轨迹 | 只有本进程 |
+| `RewardWorker` | CPU 侧 Ray actor | `RewardLoopManager` | 整个作业 | 只有本进程 |
+| TransferQueue 的元数据服务与存储单元 | CPU 侧 Ray actor | `tq.init()` | 整个作业；键在一步内 | 所有进程都能按键访问——**这是跨进程唯一的数据通路** |
+| `KVBatchMeta`（键与状态标签） | driver 内存 | `ReplayBuffer` 查元数据服务得到 | 一步 | 只有 driver——**控制器上流过的只有它，没有张量** |
+| `ReplayBuffer` | driver | trainer 初始化时 | 整个作业；组在里面活到被取出或淘汰 | 只有 driver |
+| `CheckpointEngineManager` | driver 持有，两侧各有 engine | trainer 初始化时 | 整个作业 | driver 发起，两侧 worker 执行 |
+
+Table: verl 里的十三类对象：住在哪个进程、谁创建、活多久、谁能看见
+
+三条读法：
+
+1. **「谁能看见」这一列的分界线就是进程边界**，而 verl 里真正跨进程的数据通路只有两条：Ray RPC（走元数据与控制命令）和 TransferQueue（走张量）。看源码时碰到一个张量，先问它是从哪条通路来的，就不会把 driver 的代码和 worker 的代码读混。
+2. **只有 hybrid worker 那一行是「一个进程里住着好几套东西」**——训练器、ref、推理引擎的句柄都在里面，这正是共置形态的形状，也是[第五章](#五hybrid-workeractorrolloutrefworker-与-model-engine)要展开的那一行。分离形态下这一行会拆成两个进程，其余十二行不变。
+3. **寿命几乎全是「整个作业」**。只有三样东西短命：协程（一条轨迹）、TransferQueue 的键（一步）、`KVBatchMeta`（一步）。这解释了为什么 verl 的启动很慢而每步很快——绝大部分对象只建一次。
+
+> [!NOTE] Java 经验参照：声明式远程调用，但它会改方法的语义
+>
+> `actor_wg.update_actor(batch)` 看起来是一次本地方法调用，`@register` 装饰器把它变成对一组远端进程的调用——这和 Java 里用注解生成远程代理（RMI stub、声明式 HTTP 客户端）是同一个套路：调用方不写传输代码。不成立的地方在于装饰器改的东西更多：那边的代理是一对一的，参数原样送过去、返回值原样带回来；这里 `dispatch_mode` 决定参数要不要**切开**、切成几份、哪个 rank 拿哪一份，以及返回值只收一个 rank 的还是全收。也就是说它改变的是方法的语义，不只是传输。写错了不会报参数类型错误：要么在组内的集合通信上静默挂住，要么让每个 rank 都拿到整份数据（本该各拿一份），训练照跑而等效 batch 已经不是你配的那个。
+
+### 4. 本文的章节安排
 
 | 章 | 内容 | 对应前文 |
 |---|---|---|
-| 二 | 入口：配置到 trainer | 第二篇的编程模型 |
-| 三 | 单控制器：`RayWorkerGroup` 与 `@register` | 第二篇 |
-| 四 | 资源池与共置：worker 怎样落到卡上 | 第二、三篇 |
-| 五 | hybrid worker：`ActorRolloutRefWorker` 与 model engine | 第三篇 |
-| 六 | rollout server：实例、负载均衡、sleep / wake | 第三、六篇 |
-| 七 | 一步的数据流：`_step_once` 的九个阶段 | 第一篇 |
-| 八 | 权重同步：checkpoint engine 的三条路 | 第四篇 |
-| 九 | 样本通路与异步：TransferQueue、replay buffer、agent loop | 第五、六篇 |
+| 二 | 入口：配置到 trainer | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的编程模型 |
+| 三 | 单控制器：`RayWorkerGroup` 与 `@register` | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html) |
+| 四 | 资源池与共置：worker 怎样落到卡上 | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)、[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| 五 | hybrid worker：`ActorRolloutRefWorker` 与 model engine | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| 六 | rollout server：实例、负载均衡、sleep / wake | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)、[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
+| 七 | 一步的数据流：`_step_once` 的九个阶段 | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) |
+| 八 | 权重同步：checkpoint engine 的三条路 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| 九 | 样本通路与异步：TransferQueue、replay buffer、agent loop | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)、[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
 | 十 | 对照：slime 与 AReaL 在哪里分道 | — |
 | 十一 | 小结 | — |
 
@@ -251,7 +283,7 @@ for resource_pool, class_dict in self.resource_pool_to_cls.items():
     spawn_wg = wg_dict.spawn(prefix_set=class_dict.keys())                # 按前缀拆回几个"虚拟"组
 ```
 
-`WorkerDict` 在一个进程里持有 `{"actor_rollout_ref": ActorRolloutRefWorker(...), "critic": TrainingWorker(...)}`，方法名加前缀（`actor_rollout_ref_update_actor`）；`spawn` 生成的每个虚拟组把前缀去掉、重新绑定，控制器看到的仍是 `self.actor_rollout_wg.update_actor(...)` 与 `self.critic_wg.update_critic(...)`——**同一批进程、两个句柄**。这就是"共置"在代码里的形状：不是两个进程共享一张卡，是一个进程里两个对象轮流用显存。PPO 的 critic 与 actor 在同一进程里，第一篇算的"两套 16N"就在同一个 CUDA context 里。
+`WorkerDict` 在一个进程里持有 `{"actor_rollout_ref": ActorRolloutRefWorker(...), "critic": TrainingWorker(...)}`，方法名加前缀（`actor_rollout_ref_update_actor`）；`spawn` 生成的每个虚拟组把前缀去掉、重新绑定，控制器看到的仍是 `self.actor_rollout_wg.update_actor(...)` 与 `self.critic_wg.update_critic(...)`——**同一批进程、两个句柄**。这就是"共置"在代码里的形状：不是两个进程共享一张卡，是一个进程里两个对象轮流用显存。PPO 的 critic 与 actor 在同一进程里，[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)算的"两套 16N"就在同一个 CUDA context 里。
 
 ## 五、hybrid worker：`ActorRolloutRefWorker` 与 model engine
 
@@ -277,18 +309,18 @@ ActorRolloutRefWorker（verl/workers/engine_workers.py）        —— 角色�
 
 | 方法 | 分发 | 做什么 | 对应 |
 |---|---|---|---|
-| compute_log_prob(data) | nd_compute("actor") | actor.infer_batch → 旧策略 log π | 第一篇：重算 2N；第五篇：bypass 时跳过 |
-| compute_ref_log_prob(data) | nd_compute("ref") | ref.to(cuda) → infer → ref.to(cpu)（若 offload） | 第三篇：ref 的 8 GB 往返 |
-| update_actor(data) | nd_compute("actor") | actor.train_mini_batch：train_mode() 里按 offload 配置把参数 / 优化器搬上 GPU → 逐 mini-batch train_batch → 退出时搬回 CPU | 第一篇：6N；第三篇：优化器状态往返 |
+| compute_log_prob(data) | nd_compute("actor") | actor.infer_batch → 旧策略 log π | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)：重算 2N；[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)：bypass 时跳过 |
+| compute_ref_log_prob(data) | nd_compute("ref") | ref.to(cuda) → infer → ref.to(cpu)（若 offload） | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)：ref 的 8 GB 往返 |
+| update_actor(data) | nd_compute("actor") | actor.train_mini_batch：train_mode() 里按 offload 配置把参数 / 优化器搬上 GPU → 逐 mini-batch train_batch → 退出时搬回 CPU | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html)：6N；[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)：优化器状态往返 |
 | update_weights(global_steps, mode) | ONE_TO_ALL（async） | 第一章表的 #4–#9 | 第三、四篇 |
-| save_model_to_cpu / restore_model_from_cpu（DetachActorWorker） | ONE_TO_ALL | decoupled PPO 的 π_prox 快照 | 第五篇 |
-| execute_checkpoint_engine(method) | DP_COMPUTE | 转发给 checkpoint engine（prepare / init_process_group / finalize） | 第四篇 |
+| save_model_to_cpu / restore_model_from_cpu（DetachActorWorker） | ONE_TO_ALL | decoupled PPO 的 π_prox 快照 | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
+| execute_checkpoint_engine(method) | DP_COMPUTE | 转发给 checkpoint engine（prepare / init_process_group / finalize） | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
 
 Table: @register 方法的分发方式与前六篇的对应
 
 ### 4. 引擎的边界
 
-`verl/workers/engine/base.py` 的 `BaseEngine` 是训练后端的接口：`initialize / forward_backward_step / optimizer_step / to / get_per_tensor_param / save_checkpoint / load_checkpoint`。FSDP 与 Megatron 的实现各在自己目录（`engine/fsdp/transformer_impl.py`、`engine/megatron/transformer_impl.py`）。**本系列把训练器当黑盒**的边界就在这里：RL 侧只调这几个方法。换 Megatron 只是 `actor.strategy=megatron` 加 `megatron_config`，worker 与 trainer 不变；`get_per_tensor_param` 里 Megatron-Bridge 的映射（第四篇）藏在 `MegatronEngine` 内。
+`verl/workers/engine/base.py` 的 `BaseEngine` 是训练后端的接口：`initialize / forward_backward_step / optimizer_step / to / get_per_tensor_param / save_checkpoint / load_checkpoint`。FSDP 与 Megatron 的实现各在自己目录（`engine/fsdp/transformer_impl.py`、`engine/megatron/transformer_impl.py`）。**本系列把训练器当黑盒**的边界就在这里：RL 侧只调这几个方法。换 Megatron 只是 `actor.strategy=megatron` 加 `megatron_config`，worker 与 trainer 不变；`get_per_tensor_param` 里 Megatron-Bridge 的映射（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)）藏在 `MegatronEngine` 内。
 
 ## 六、rollout server：实例、负载均衡、sleep / wake
 
@@ -316,7 +348,7 @@ Table: RolloutReplica 的三种初始化方式
 
 ### 2. 负载均衡与客户端
 
-`LLMServerManager.get_client(client_cls)` 返回 `LLMServerClient`（sync）或 `FullyAsyncLLMServerClient`（async，带 abort 后的重试）。客户端持有所有 server 的地址与 handle；`generate(request_id, prompt_ids, sampling_params)` 第一轮选在飞请求最少的 server，同一 `request_id` 之后的轮次粘到同一个 server（第六篇的粘性路由）。`separate_async` 里还有一个 **global load balancer**（Ray actor），standalone 与 hybrid 两组 replica 都注册进它，`add_servers / remove_servers` 就是训练池兼职 rollout 时的开关（第二篇）。
+`LLMServerManager.get_client(client_cls)` 返回 `LLMServerClient`（sync）或 `FullyAsyncLLMServerClient`（async，带 abort 后的重试）。客户端持有所有 server 的地址与 handle；`generate(request_id, prompt_ids, sampling_params)` 第一轮选在飞请求最少的 server，同一 `request_id` 之后的轮次粘到同一个 server（[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)的粘性路由）。`separate_async` 里还有一个 **global load balancer**（Ray actor），standalone 与 hybrid 两组 replica 都注册进它，`add_servers / remove_servers` 就是训练池兼职 rollout 时的开关（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)）。
 
 ### 3. sleep / wake 的调用链
 
@@ -332,7 +364,7 @@ PPOTrainerSync.on_step_end → CheckpointEngineManager.update_weights(global_ste
           其中 rollout.resume(tags) → server_handle.wake_up.remote(tags) → engine.wake_up(tags) → Worker.wake_up → CuMemAllocator.wake_up(tags) → reset_prefix_cache
 ```
 
-第三篇讲的每个动作都在这条链上：`_sleep_hybrid` 选 level、`_get_wake_up_tags` 默认 `["kv_cache", "weights"]` 但 `update_weights` 里分两次各传一个、`clear_kv_cache` 顺带清 mm / encoder cache。
+[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)讲的每个动作都在这条链上：`_sleep_hybrid` 选 level、`_get_wake_up_tags` 默认 `["kv_cache", "weights"]` 但 `update_weights` 里分两次各传一个、`clear_kv_cache` 顺带清 mm / encoder cache。
 
 ## 七、一步的数据流：`_step_once` 的九个阶段
 
@@ -362,7 +394,7 @@ def _step_once(self, metrics, timing_raw, sample_batch_size):
     return batch
 ```
 
-然后 `fit()` 里：`_save_checkpoint`（按 `save_freq`）→ `on_step_end()`（sync：`update_weights`）→ `_validate`（按 `test_freq`）→ `_compute_metrics` → `tq.kv_clear(batch.keys)` 清掉这一步的样本。`marked_timer` 的名字就是日志里的 `timing_s/gen`、`timing_s/old_log_prob`、`timing_s/update_actor`、`timing_s/update_weights`——第一篇算的三段时间在这里各有一个计时器；`perf/throughput` 是 token 数 / (步时间 × GPU 数)。
+然后 `fit()` 里：`_save_checkpoint`（按 `save_freq`）→ `on_step_end()`（sync：`update_weights`）→ `_validate`（按 `test_freq`）→ `_compute_metrics` → `tq.kv_clear(batch.keys)` 清掉这一步的样本。`marked_timer` 的名字就是日志里的 `timing_s/gen`、`timing_s/old_log_prob`、`timing_s/update_actor`、`timing_s/update_weights`——[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)算的三段时间在这里各有一个计时器；`perf/throughput` 是 token 数 / (步时间 × GPU 数)。
 
 ### 2. `_compute_old_log_prob` 与 `_update_actor`
 
@@ -371,17 +403,17 @@ def _step_once(self, metrics, timing_raw, sample_batch_size):
 ```text title="_compute_old_log_prob 与 _update_actor"
 _compute_old_log_prob(batch)
   → self.actor_rollout_wg.compute_log_prob(batch)        # nd_compute("actor") 分发；worker 从 TQ 取张量、infer_batch、写回 log_probs 列
-  → 若 rollout.calculate_log_probs：calculate_debug_metrics 算 training/rollout_probs_diff_* 指标   # 第五篇的训推不一致基线
+  → 若 rollout.calculate_log_probs：calculate_debug_metrics 算 training/rollout_probs_diff_* 指标   # 训推不一致的基线，见《异步与 off-policy》
 _update_actor(batch)
   → self.actor_rollout_wg.update_actor(batch)            # 阻塞调用；worker：train_mini_batch → train_mode()（按 offload 配置搬上 GPU）→ 逐 mini-batch train_batch（micro-batch 循环、loss_fn = ppo policy loss）→ 退出时搬回 CPU
   → 收回 actor/* 指标（pg_loss、clip 比例、grad_norm、entropy）
 ```
 
-worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / <span class="inline-tip" data-tip="Group Sequence Policy Optimization，用序列级重要性比做 clip 的 GRPO 变体">GSPO</span> / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（第五篇）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
+worker 侧的 `train_batch` 在 `TrainingWorker` 里；loss 函数 `verl/trainer/ppo/core_algos.py` 的 `compute_policy_loss_*`（按 `actor.policy_loss.loss_mode` 选 vanilla / <span class="inline-tip" data-tip="Group Sequence Policy Optimization，用序列级重要性比做 clip 的 GRPO 变体">GSPO</span> / clip-cov / …）加 `rollout_correction` 的 IS 权重与 mask（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）。**RL 算法的全部代码在 `core_algos.py` 一个文件里**，系统代码不碰它。
 
 ### 3. 数据在哪
 
-v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`（`{uid}_{session}_{index}` 列表）、`tags`（每条的元数据）。张量在 TransferQueue 的存储单元里；worker 收到 `KVBatchMeta` 后按键 `tq.kv_batch_get(...)` 取自己那份、算完 `kv_batch_put` 新列（`log_probs`、`ref_log_prob`、`advantages`）。driver 上只有 `_compute_advantage` 会真的取张量（reward 与 mask 这几列，小），算 GRPO 的组内归一化后写回。第二篇说的"控制器只拿元数据"就是这个。
+v1 里 `batch` 是 `KVBatchMeta`：`partition_id`（"train" / "val"）、`keys`（`{uid}_{session}_{index}` 列表）、`tags`（每条的元数据）。张量在 TransferQueue 的存储单元里；worker 收到 `KVBatchMeta` 后按键 `tq.kv_batch_get(...)` 取自己那份、算完 `kv_batch_put` 新列（`log_probs`、`ref_log_prob`、`advantages`）。driver 上只有 `_compute_advantage` 会真的取张量（reward 与 mask 这几列，小），算 GRPO 的组内归一化后写回。[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)说的"控制器只拿元数据"就是这个。
 
 一步里各阶段读写哪些列（`_step_once` 的编号）：
 
@@ -431,21 +463,33 @@ driver 一直只持有键和标签；张量只在第 7 阶段经过 driver，而
   - send_weights(engine)：首次 seed 走 engine.get_per_tensor_param 的全量；之后 engine.get_per_tensor_param_delta_shard → 稀疏 gather → bucket → 广播
   - receive：稀疏负载 → SGLang custom_weight_loader（delta_loader.apply_delta）原地覆盖
 
-第四篇的每个概念都在这三个类里：bucket（`bucket_size`）、双缓冲（`send_buf / recv_buf`）、元数据与字节分离（ZMQ + NCCL）、`TensorMeta.chunk_offset`（大张量切块）、`magic_recv` 缓冲。
+[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)的每个概念都在这三个类里：bucket（`bucket_size`）、双缓冲（`send_buf / recv_buf`）、元数据与字节分离（ZMQ + NCCL）、`TensorMeta.chunk_offset`（大张量切块）、`magic_recv` 缓冲。
 
 ### 3. 版本号
 
-`update_weights(global_steps)` 一路把 `global_steps` 带到最后：`ServerAdapter.update_weights` 末尾 `server_handle.set_global_steps.remote(global_steps)`，server 记下；agent loop 从 server 的响应里拿到版本、写进 `AgentLoopOutput` 的元数据 → TransferQueue 的 tag → `ReplayBuffer` 算 staleness（第五篇）。
+`update_weights(global_steps)` 一路把 `global_steps` 带到最后：`ServerAdapter.update_weights` 末尾 `server_handle.set_global_steps.remote(global_steps)`，server 记下；agent loop 从 server 的响应里拿到版本、写进 `AgentLoopOutput` 的元数据 → TransferQueue 的 tag → `ReplayBuffer` 算 staleness（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）。
 
 ## 九、样本通路与异步
 
 ### 1. TransferQueue
 
-v1 的样本存储（外部包 `transfer_queue`，Ascend 开源）：一个**元数据服务**（键 → 标签、状态）加若干**存储单元**（键 → 张量字典），都是 Ray actor。`tq.init(config.transfer_queue)` 起它们；`AgentLoopManagerTQ` 把每条轨迹 `kv_put`；`ReplayBuffer` 只查元数据服务选键；worker 按键 `kv_batch_get`；步末 `kv_clear`。它替代了 v0 里"DataProto 在 driver 与 worker 之间来回"的路径，是 v1 能把 sync 与 async 统一的前提——**异步的本质是样本的生产与消费解耦，解耦点就是这个 KV 存储**。
+v1 的样本存储（外部包 `transfer_queue`，Ascend 开源）：一个**元数据服务**（键 → 标签、状态）加若干**存储单元**（键 → 张量字典），都是 Ray actor。一步里它被用到五次：
+
+1. `tq.init(config.transfer_queue)` 起这些 actor；
+2. `AgentLoopManagerTQ` 把每条轨迹 `kv_put` 进存储单元；
+3. `ReplayBuffer` 只查元数据服务，选出这一步要训练的键；
+4. 各 worker 按键 `kv_batch_get` 自己那一片；
+5. 步末 `kv_clear`。
+
+> [!NOTE] Java 经验参照：消息里只带 id，不带数据
+>
+> 控制器上只流过 `KVBatchMeta`（键与状态标签），张量留在存储单元里由 worker 按键自取——这就是把大对象放进共享存储、消息里只带一个 id 的老做法，目的一样：别让编排层变成数据瓶颈。不成立的地方在取的那一端。Java 里 `get(id)` 是一对一的，拿到的就是那个对象，失败就重试或报错；这里「按键自取」是几十个 GPU 进程同时去取**同一个键的不同切片**，键的分配必须和并行布局对得上——算错了不是找不到数据，是取到了别人该拿的那一片，静默地训错。所以这一层的接口不是 `get(id)`，而是「给我这个键里属于我这个 dp rank 的那一段」。
+
+它替代了 v0 里"DataProto 在 driver 与 worker 之间来回"的路径，是 v1 能把 sync 与 async 统一的前提——**异步的本质是样本的生产与消费解耦，解耦点就是这个 KV 存储**。
 
 ### 2. `ReplayBuffer` 的取样
 
-`replay_buffer.py`（第五篇讲过语义，这里看形状）：
+`replay_buffer.py`（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)讲过语义，这里看形状）：
 
 ```text title="ReplayBuffer.sample() 的循环"
 ReplayBuffer.sample(global_steps, partition_id, batch_size)
@@ -466,7 +510,7 @@ ReplayBufferAsync 覆盖：_stale_terminal_keys（drop）· _has_enough_samples�
 
 ### 4. 异步 checkpoint 恢复
 
-`_save_checkpoint` 存训练状态（引擎的 `save_checkpoint`）、dataloader 位置、`global_steps`；异步模式下 TransferQueue 里已完成但未训练的样本与在飞的 prompt 不进 checkpoint。`_load_checkpoint` 后 `fit()` 开头调 `_reissue_inflight_prompts()`：把上次 pending / running 状态的 prompt 重新提交（用恢复后的权重重新生成），已 finished 的保留——第八篇 RL 状态 checkpoint 的具体形状。
+`_save_checkpoint` 存训练状态（引擎的 `save_checkpoint`）、dataloader 位置、`global_steps`；异步模式下 TransferQueue 里已完成但未训练的样本与在飞的 prompt 不进 checkpoint。`_load_checkpoint` 后 `fit()` 开头调 `_reissue_inflight_prompts()`：把上次 pending / running 状态的 prompt 重新提交（用恢复后的权重重新生成），已 finished 的保留——[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)里 RL 状态 checkpoint 的具体形状。
 
 ## 十、对照：slime 与 AReaL 在哪里分道
 
@@ -504,7 +548,12 @@ for rollout_id in range(args.start_rollout_id, args.num_rollout):
 
 Table: verl 与 slime 的分歧
 
-slime 的赌注是：**"少一层抽象"在这类系统里是优点**——Megatron 与 SGLang 各自的新特性（新的并行、新的 kernel、新的量化）不需要 slime 改一行就能用（参数透传），排障时调用栈短、每一步都能对到两个上游的文档。代价是绑定：换 FSDP 或 vLLM 要重写；异步的形态由用户的 rollout 函数决定，框架不提供 staleness 的统一控制；多后端组合（FSDP 训练 + SGLang 推理）不存在。对一个只用 Megatron + SGLang、模型是自家的团队，这个赌注是合理的；verl 的抽象层服务的是"任意组合"的需求，代价是每层抽象都要跟着上游演进（0.9 的 breaking changes 里一半是这类）。
+slime 的赌注是：**"少一层抽象"在这类系统里是优点**——Megatron 与 SGLang 各自的新特性（新的并行、新的 kernel、新的量化）不需要 slime 改一行就能用（参数透传），排障时调用栈短、每一步都能对到两个上游的文档。代价是绑定，三处：
+
+1. 换 FSDP 或 vLLM 要重写；
+2. 异步的形态由用户的 rollout 函数决定，框架不提供 staleness 的统一控制；
+3. 多后端组合（FSDP 训练 + SGLang 推理）不存在。
+对一个只用 Megatron + SGLang、模型是自家的团队，这个赌注是合理的；verl 的抽象层服务的是"任意组合"的需求，代价是每层抽象都要跟着上游演进（0.9 的 breaking changes 里一半是这类）。
 
 ### 2. AReaL：异步是主线
 
@@ -570,7 +619,15 @@ Table: verl 源码索引
 
 ### 3. 下一篇
 
-代码追完，剩下的是把前七篇变成决策与运维：给定模型、GPU 数与任务形态，按什么顺序推出系统形态、配比、两套并行配置、同步方式；跑起来后全步 MFU 怎么算、损失拆到哪几项；RL 状态的 checkpoint 除了训练状态还有什么；两次运行怎样对齐到 bitwise；以及那些只有 RL 系统才有的故障——跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏——各自的信号与排查路径：
+代码追完，剩下的是把前七篇变成决策与运维，五个问题：
+
+1. 给定模型、GPU 数与任务形态，按什么顺序推出系统形态、配比、两套并行配置、同步方式；
+2. 跑起来后全步 MFU 怎么算、损失拆到哪几项；
+3. RL 状态的 checkpoint 除了训练状态还有什么；
+4. 两次运行怎样对齐到 bitwise；
+5. 那些只有 RL 系统才有的故障——跨引擎的 NCCL hang、同步中途的 OOM、sleep 之后的静默错误、训推差异导致的 reward 崩塌、沙箱泄漏——各自的信号与排查路径。
+
+
 
 > **凌晨两点告警：reward 曲线从上升变成平台，步时间没变，没有报错。十分钟内你要判断是 staleness 涨了、是训推不一致、是某个沙箱池挂了导致 reward 全为零、还是权重同步漏了一部分参数。你需要的每一个信号，在开训前有没有采集？**
 
