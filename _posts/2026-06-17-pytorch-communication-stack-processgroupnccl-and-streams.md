@@ -569,7 +569,7 @@ $$
 
 以默认节点（8 卡 H100 + NVSwitch）、一个 25 MB 的 DDP bucket 为例（非实测，理论值）：每 rank 收发 $$\frac{2\times 7}{8}\times 25\ \text{MB} \approx 43.75\ \text{MB}$$；NVLink 每 GPU 双向合计 900 GB/s、单向 450 GB/s，带宽项约 $$43.75\ \text{MB} / 450\ \text{GB/s} \approx 97\ \mu s$$；加上 $$14\alpha$$ 的延迟项（节点内 α 取几微秒量级），一次 bucket 的 all_reduce 在 100～150 µs 量级。跨机（每 GPU 一张 400 Gb/s ≈ 50 GB/s 单向的网卡）带宽项变成 $$43.75\ \text{MB} / 50\ \text{GB/s} \approx 875\ \mu s$$。
 
-同一时间 GPU 能算多少？H100 SXM 的 BF16 dense Tensor Core 标称约 990 TFLOPS，一个 $$8192^3$$ 的 BF16 GEMM 约 $$1.1\times 10^{12}$$ FLOP，理论下界约 1.1 ms，实际约 1.45～1.5 ms——NVIDIA 的 Tilus 项目在 H100 SXM 上测同一形状的 cuBLAS 是 1.46 ms、752 TFLOPS，约为稠密峰值的 76%（注意这是 SXM；H100 NVL / PCIe 的峰值低两成，同一个 GEMM 要 2 ms 以上）。也就是说，一个大 GEMM 的时间足够掩盖一到两次跨机 bucket all_reduce（跨机带宽项 875 µs）。反向传播里每个 bucket 就绪后就发起 all_reduce、同时继续算下一层的梯度，通信几乎全部藏在计算后面——这是数据并行能 scale 的前提。反过来，如果重叠失效，每个 step 要多付出所有 bucket 的通信时间之和：梯度 1 GB 跨机约 35 ms，对一个 300 ms 的 step 是 12% 的损失。
+同一时间 GPU 能算多少？H100 SXM 的 BF16 dense Tensor Core 标称约 990 TFLOPS，一个 $$8192^3$$ 的 BF16 GEMM 约 $$1.1\times 10^{12}$$ FLOP，理论下界约 1.1 ms，实际约 1.45～1.5 ms——NVIDIA 的 Tilus 项目在 H100 SXM 上测同一形状的 cuBLAS 是 1.46 ms、752 TFLOPS，约为稠密峰值的 76%（注意这是 SXM；H100 NVL / PCIe 的峰值低两成，同一个 GEMM 要 2 ms 以上）。也就是说，一个大 GEMM 的时间足够掩盖一到两次跨机 bucket all_reduce（跨机带宽项 875 µs）。反向传播里每个 bucket 就绪后就发起 all_reduce、同时继续算下一层的梯度，通信几乎全部藏在计算后面——这是数据并行能 scale 的前提。反过来，如果重叠失效，每个 step 要多付出所有 bucket 的通信时间之和：梯度 1 GB 跨机约 35 ms，相当于 step 时间的十分之一量级——按一个 300 ms 的 step（随模型与并行配置而异，这里只是代入一个数）算是 12%。
 
 带宽的账说：重叠能省的是通信的全部时间，上限由"计算时间是否 ≥ 通信时间"决定。延迟的账说：重叠**不能**省掉 α——每次集合通信的 kernel 启动、握手、协议开销仍然发生，只是被藏起来了；小消息很多时，藏得住时间，藏不住 SM 占用。
 
@@ -577,7 +577,7 @@ $$
 
 两条 stream 上的 kernel 能否真的同时跑，由硬件决定，PyTorch 与 NCCL 都只能提供条件：
 
-**SM 资源。** NCCL kernel 的 grid 是 nChannels 个 block，每个 block 的线程数由 `NCCL_NTHREADS`（`src/graph/tuning.cc` 里 `NCCL_PARAM(Nthreads, "NTHREADS", -2)`）与协议决定，Simple 协议通常 512 线程。8 卡节点内 NCCL 一般用 2～32 个 channel（上限是 `MAXCHANNELS`，NCCL 2.28.9 的 `src/include/device.h` 里是 64，32 只是常见取值而非上限），所以 NCCL kernel 占的是**几十个** SM——公开测量里 AllGather 大致占 132 个 SM 中的 24 个，节点内 P2P 默认 32 个——剩下的留给 GEMM。但 GEMM kernel 通常按"填满所有 SM"的 grid 启动，如果它先占满，NCCL kernel 就要等它的 block 退出才能插进去；反过来 NCCL 先占几个 SM，GEMM 的 block 少了几个位置，会慢一点（通常几个百分点，非实测）。`NCCL_MAX_CTAS` / `NCCL_MIN_CTAS`（`src/init.cc`）或 `ncclConfig_t` 的 `maxCTAs` 限制 NCCL 用的 block 数，是"用带宽换 SM"的旋钮。
+**SM 资源。** NCCL kernel 的 grid 是 nChannels 个 block，每个 block 的线程数由 `NCCL_NTHREADS`（`src/graph/tuning.cc` 里 `NCCL_PARAM(Nthreads, "NTHREADS", -2)`）与协议决定，Simple 协议通常 512 线程。8 卡节点内 NCCL 一般用 2～32 个 channel（上限是 `MAXCHANNELS`，NCCL 2.28.9 的 `src/include/device.h` 里是 64，32 只是常见取值而非上限），所以 NCCL kernel 占的是**几十个** SM——公开测量里 AllGather 大致占 132 个 SM 中的 24 个，节点内 P2P 默认 32 个——剩下的留给 GEMM。但 GEMM kernel 通常按"填满所有 SM"的 grid 启动，如果它先占满，NCCL kernel 就要等它的 block 退出才能插进去；反过来 NCCL 先占几个 SM，GEMM 的 block 少了几个位置，会慢一点——量级是几个百分点，而且不只是少几个 block 的算力：被挤走的 block 变成尾部 straggler，拉长的是 GEMM 的关键路径。`NCCL_MAX_CTAS` / `NCCL_MIN_CTAS`（`src/init.cc`）或 `ncclConfig_t` 的 `maxCTAs` 限制 NCCL 用的 block 数，是"用带宽换 SM"的旋钮。
 
 **优先级。** `TORCH_NCCL_HIGH_PRIORITY=1` 让 NCCL stream 成为高优先级：GEMM 的 block 陆续退出时，空出来的 SM 优先给 NCCL 的 block。这对"GEMM 先占满、NCCL 等不到 SM"的情况有效，代价是 GEMM 的尾部会慢一些。它不能抢占正在运行的 block。
 
