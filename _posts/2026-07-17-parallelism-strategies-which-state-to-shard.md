@@ -8,9 +8,17 @@ catalog: true
 updated: 2026-09-21
 ---
 
-上一篇算出了一个数字：混合精度 + Adam 下，每个参数在训练时要占 16 字节。一个 70B 的模型光是参数、梯度和优化器状态就是 1.13 TB，还没算激活；405B 是 6.5 TB。任何一张 80 GB 的卡都放不下其中的零头。所以这些字节必须被切开放到很多卡上——**怎么切**，就是并行策略的全部内容。
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)算出了一个数字：混合精度 + Adam 下，每个参数在训练时要占 16 字节。一个 70B 的模型光是参数、梯度和优化器状态就是 1.13 TB，还没算激活；405B 是 6.5 TB。任何一张 80 GB 的卡都放不下其中的零头。所以这些字节必须被切开放到很多卡上——**怎么切**，就是并行策略的全部内容。
 
-习惯上并行策略被当作一组 API：DDP、FSDP、`ColwiseParallel`、`Schedule1F1B`、`--tensor-model-parallel-size 8`。这样理解的问题是你记住了十几个名字，却回答不了"这个配置为什么慢"。换一个角度：训练的状态只有四样——参数、梯度、优化器状态、激活——每一种并行策略无非是决定**这四样东西的哪一样、沿哪个维度、切到哪一组卡上**，然后为这个决定付出**一种特定形态的通信**。DP 什么都不切、只切数据，代价是每步一次梯度 all-reduce；ZeRO-3 把三种常驻状态都切了，代价是每步多一次参数 all-gather；TP 切矩阵，代价是每层四次激活大小的集合通信；PP 切层，代价是气泡；CP 切序列，代价是 K/V 在卡间流动；EP 切专家，代价是 all-to-all。
+习惯上并行策略被当作一组 API：DDP、FSDP、`ColwiseParallel`、`Schedule1F1B`、`--tensor-model-parallel-size 8`。这样理解的问题是你记住了十几个名字，却回答不了"这个配置为什么慢"。换一个角度：训练的状态只有四样——参数、梯度、优化器状态、激活——每一种并行策略无非是决定**这四样东西的哪一样、沿哪个维度、切到哪一组卡上**，然后为这个决定付出**一种特定形态的通信**。六种策略各付一种代价：
+
+- DP 什么都不切、只切数据，代价是每步一次梯度 all-reduce。
+- ZeRO-3 把三种常驻状态都切了，代价是每步多一次参数 all-gather。
+- TP 切矩阵，代价是每层四次激活大小的集合通信。
+- PP 切层，代价是气泡。
+- CP 切序列，代价是 K/V 在卡间流动。
+- EP 切专家，代价是 all-to-all。
+
 
 把每种策略写成同一个五元组——**切哪种状态 / 每 step 通信量 / 走哪条链路 / 能否与计算重叠 / 适用条件**——它们就可以放在同一张表里比较，而"该用几维并行、每维多少"这个问题也就变成了一道有公式可套的算术题。本篇就是把这张表填满。
 
@@ -18,19 +26,19 @@ updated: 2026-09-21
 
 > **每种并行都在"复制"和"切分"之间做交换：复制多占显存，切分多花通信。给定一个模型和一个集群的拓扑（节点内 NVLink、节点间 InfiniBand），每个维度的通信量是多少、走哪条链路、和计算能不能重叠？[^q0] 这决定了它该放在几维并行的哪一层。**
 
-本篇不碰任何一个框架的进程组代码（那是 [Megatron-LM 架构与源码导读](/megatron-lm-architecture-and-source-guide.html) 到 [三个框架对比](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的内容），只在每一节末尾指出 PyTorch 2.13.0 与 Megatron Core 0.18.0 里对应实现的位置，方便读者按图索骥。通信原语（all-reduce、all-gather、reduce-scatter、all-to-all、send/recv）只用它们的**语义和每卡通信量**，耗时当作由链路带宽决定的黑盒。
+本篇不碰任何一个框架的进程组代码（那是 [《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html) 到 [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的内容），只在每一节末尾指出 PyTorch 2.13.0 与 Megatron Core 0.18.0 里对应实现的位置，方便读者按图索骥。通信原语（all-reduce、all-gather、reduce-scatter、all-to-all、send/recv）只用它们的**语义和每卡通信量**，耗时当作由链路带宽决定的黑盒。
 
 ## 一、总览
 
-### 1. 符号与第一篇的结论
+### 1. 符号与记账口径
 
-本篇沿用 [训练任务的状态解剖](/training-state-anatomy-memory-and-mfu.html)（上一篇）的记账符号，用到的复述如下：
+本篇沿用[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)的记账符号，用到的复述如下：
 
 | 符号 | 含义 |
 |---|---|
 | $$N$$ | 参数量（个数）。混合精度 + Adam 下每参数 16 字节：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + fp32 一阶矩 4 + fp32 二阶矩 4 → 常驻状态 16N 字节（fp32 累加梯度则 18N） |
 | $$N_d, N_t, N_p, N_c, N_e$$ | 五个并行度：数据 / 张量 / 流水 / 上下文 / 专家。放在一起是因为它们的乘积就是总卡数：$$N_{\text{GPU}} = N_t \cdot N_c \cdot N_p \cdot N_d$$。EP 不在乘积里：专家层的 $$N_e$$ 张卡就是 DP 副本里的卡，只是在专家层换一种分组（例如 $$N_d = 8$$、$$N_e = 4$$ 时，8 张卡对注意力层是 8 个 DP 副本，对专家层是 2 个 EP 组、每组 4 卡各持 1/4 的专家），所以总卡数不变，见[第六章第 6 节](#6-ep-与-dptp-的组合) |
-| $$s, b, h, a, L$$ | 序列长、micro-batch 大小、隐藏维、注意力头数、层数。放在一起是因为激活的大小由这五个数决定（第一篇的 $$34sbh$$ 每层） |
+| $$s, b, h, a, L$$ | 序列长、micro-batch 大小、隐藏维、注意力头数、层数。放在一起是因为激活的大小由这五个数决定（《训练任务的状态解剖》里的 $$34sbh$$ 每层） |
 | $$m$$ | 每个 DP 副本每 step 的 micro-batch 数（梯度累积步数） |
 
 Table: 本篇沿用的记账符号
@@ -67,11 +75,20 @@ Table: 五个原语的每卡通信量
 
 Table: 六种并行各切哪种状态
 
-读这张表的方式：**每一行"切"的格子越多，显存越省；每一个"切"都对应一种通信**。DP 那一行只在"梯度→归约"处有通信；ZeRO-3 在参数一格多了一次 all-gather；TP 的三个"切"是免费的（矩阵切开后梯度和优化器状态自然跟着切），它的代价在激活那一格——层内切开的激活要在层边界处拼回来。PP 同理，三个状态的"切"不产生通信，代价是 stage 之间传激活和气泡。
+读这张表的方式：**每一行"切"的格子越多，显存越省；每一个"切"都对应一种通信**。
 
 把表格画成图：每个格子是这一行对这一种状态的处理——实心圆是切分、空心圆是复制、橙色是"部分切分或临时拼全"；列底是这种并行的主要通信与链路。
 
 ![四种训练状态在六种并行下的切分与主通信](/img/in-post/parallelism-states-grid.svg)
+
+逐列看这张图，也就是二到六章各自要讲的那一列：
+
+- **DP**（[第二章](#二数据并行与-zero切优化器状态梯度参数)）：四种状态都是复制的，只有"梯度→归约"那一格有通信——每 step 一次 all-reduce，走节点间链路，可与反向重叠。
+- **ZeRO-1 / 2 / 3 与 FSDP**（[第二章](#二数据并行与-zero切优化器状态梯度参数)）：把优化器状态、梯度、参数依次切到 DP 组上；ZeRO-3 在参数那一格多出一次 all-gather，通信从 $$2N$$ 涨到 $$3N$$。
+- **TP / SP**（[第三章](#三张量并行与序列并行)）：参数、梯度、优化器状态这三个"切"是免费的（矩阵切开后梯度和优化器状态自然跟着切），代价全在激活那一格——层内切开的激活要在层边界处拼回来，每层前向 2 次、反向 2 次集合通信，而且在关键路径上，所以锁在 NVLink 内。
+- **CP**（[第四章](#四上下文并行)）：参数仍然是复制的，切的是激活里连注意力一起算的那部分；K/V 块在卡间点对点流动，可与分块注意力重叠。
+- **PP**（[第五章](#五流水线并行)）：三个状态按层切，同样不产生通信，代价是 stage 之间传激活和**气泡**。
+- **EP**（[第六章](#六专家并行)）：只切专家那部分参数，通信形态换成 all-to-all，量随路由结果和负载不均浮动。
 
 这张图还揭示了另一件事：**数据并行系（DP/ZeRO/FSDP）与模型并行系（TP/SP/PP/CP/EP）是正交的**，表里第一列就是这个分组：
 
@@ -81,9 +98,9 @@ Table: 六种并行各切哪种状态
 
 SP 不单独占一维：它复用 TP 的进程组，参数、梯度、优化器状态都跟着 TP 切，只是把 TP 在层边界处仍然完整的那部分激活也按序列切开，所以放在模型并行系、紧跟 TP。CP 和 EP 的卡数也不另乘：CP 对参数来说是副本（梯度在 DP × CP 上归约），EP 的卡从 DP 里划出。
 
-同一套切法在推理侧也用（vLLM 的 TP / PP / EP / DP），但账完全不同，因为**推理只有两种状态**——权重与 KV cache——没有梯度、没有优化器状态、没有为反向保存的激活。把两边放在一张表里对照，能看清每种并行在训练里多出来的那部分是什么：
+同一套切法在推理侧也用（[《Multi-GPU：一张卡不够时如何扩展？》](/multi-gpu-scaling-strategies.html)里的 TP / PP / EP / DP），但账完全不同，因为**推理只有两种状态**——权重与 KV cache——没有梯度、没有优化器状态、没有为反向保存的激活。把两边放在一张表里对照，能看清每种并行在训练里多出来的那部分是什么：
 
-| 策略 | 训练侧切什么、代价是什么（本篇） | 推理侧切什么、代价是什么（[vLLM 系列第七篇](/multi-gpu-scaling-strategies.html)） | 差别的来源 |
+| 策略 | 训练侧切什么、代价是什么（本篇） | 推理侧切什么、代价是什么 | 差别的来源 |
 |---|---|---|---|
 | DP | 复制模型，切数据<br/>每 step 梯度 all-reduce $$2N$$，可与反向重叠 | 复制模型，各副本独立服务不同请求<br/>**副本之间不通信**（只有调度器分发请求） | 推理没有梯度要归约，DP 退化成"多开几个实例" |
 | ZeRO / FSDP | 切优化器状态 / 梯度 / 参数<br/>前向前 all-gather 参数 | **不存在**<br/>没有优化器状态和梯度可切<br/>权重放不下时用 TP / PP | ZeRO 切的三种状态推理侧有两种根本没有 |
@@ -94,7 +111,7 @@ SP 不单独占一维：它复用 TP 的进程组，参数、梯度、优化器�
 
 Table: 训练侧与推理侧并行策略的对照
 
-一句话概括：**推理侧的并行是本篇的子集**——去掉所有与梯度、优化器状态有关的行和列，剩下的就是 vLLM 那篇讨论的东西；反过来，推理侧对延迟的极端敏感（decode 每步只算一个 token）是本篇用不上的约束。两篇都需要理解的读者，建议先读本篇把"四种状态"看全，再看推理篇里哪两种消失了。本篇专注训练侧，即"状态有四种、每一种怎么切"。
+一句话概括：**推理侧的并行是本篇的子集**——去掉所有与梯度、优化器状态有关的行和列，剩下的就是《Multi-GPU：一张卡不够时如何扩展？》讨论的东西；反过来，推理侧对延迟的极端敏感（decode 每步只算一个 token）是本篇用不上的约束。两篇都需要理解的读者，建议先读本篇把"四种状态"看全，再看那一篇里哪两种消失了。本篇专注训练侧，即"状态有四种、每一种怎么切"。
 
 **能亲手跑的部分**：本篇二到六章各有一段"亲手验证"，用 `torch.distributed` 的 gloo 后端在**一台笔记本的 4 个 CPU 进程**之间真的做 all-reduce / reduce-scatter / all-gather / all-to-all / send-recv——语义与 NCCL 在 GPU 之间完全一样，只是慢——把并行版的结果与单进程算一遍的参考值逐格对数。脚本是 [`ai-learning-labs/large-scale-training/02_parallelism_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/large-scale-training/02_parallelism_toys.py)，全部跑完十秒，不需要 GPU。文中贴的输出都是它跑出来的。
 
@@ -141,7 +158,26 @@ rank = tp_r + 2·dp_r + 4·pp_r；TP 最内、TP rank 相邻。物理节点按 r
 
 如果每节点放 8 张卡、TP = 8，TP 仍在节点内；这时 DP 组才会跨节点走 IB。
 
-### 4. 本文的章节安排
+### 4. 本篇出现的对象：谁创建、活在哪一侧、活多久
+
+二到六章讲的六种切法，落到代码里就是下面这些对象。它们的差别不只在"切什么"，还在**谁把它建起来、它住在 CPU 还是 GPU、活一个 step 还是活整个任务、哪些 rank 认得它**——后面每讲一种切法，都是往这张表里添一行：
+
+| 对象 | 本篇章节 | 谁创建 | 活在哪一侧 | 生命周期 | 哪些 rank 看得见 |
+|---|---|---|---|---|---|
+| ProcessGroup（一个并行维度的通信子） | 第一、七章 | `torch.distributed.init_process_group()`<br/>Megatron `parallel_state.py` 的 `initialize_model_parallel()` 用 `RankGenerator` 按 `"tp-cp-ep-dp-pp"` 逐维建组 | CPU 侧句柄 + 每张卡上的 NCCL 通信子 | 整个任务 | 只有组内的 rank 持有本组句柄 |
+| DeviceMesh | 第二、七章 | `torch/distributed/device_mesh.py` 的 `init_device_mesh()`；`mesh["tp"]` 与 `_flatten()` 取子 mesh | CPU 侧，按维度持有上面的 ProcessGroup | 整个任务 | mesh 覆盖的全部 rank，各持同一份视图 |
+| 参数分片 | 第二章 | FSDP2 `fully_shard()` 把每个参数变成 `Shard(0)` 的 `DTensor`<br/>FSDP1 由 `FlatParamHandle` 切 `FlatParameter` | GPU 显存，常驻 | 整个任务 | 本 rank 只认自己那一段；`DTensor` 带全局形状，所以能按参数名重分片 |
+| all-gather 出来的完整参数 | 第二章 | `FSDPParamGroup.unshard()` → `foreach_all_gather()` | GPU，临时的连续 buffer | 前向一段 + 反向一段，`reshard()` 即释放<br/>`reshard_after_forward=False` 时常驻 | 同一个 FSDP 组内每张卡各有一份相同的副本 |
+| 梯度 bucket | 第二章 | DDP 的 `Reducer`（25 MiB，`kDefaultBucketBytesCap`）<br/>Megatron 的 `_ParamAndGradBucket` / `_ParamAndGradBucketGroup` | GPU，连续 buffer | 一个 step：反向中装满即发，归约后（ZeRO-2 起）只留本 rank 那一段 | 组内各 rank 的划分与归约顺序必须一致 |
+| 优化器状态分片（fp32 主参数、一阶矩、二阶矩） | 第二章 | Megatron `DistributedOptimizer` 的 `shard_fp32_from_float16_groups`<br/>FSDP2 下就是建在 `DTensor` 上的普通优化器 | GPU（可 offload 到 CPU） | 整个任务 | 只有本 rank；它只更新自己那 $$1/N_d$$ |
+| 在途激活队列（每个 micro-batch 的输入激活） | 第五章 | `torch/distributed/pipelining/stage.py` 的 `PipelineStage`<br/>Megatron 的 `forward_backward_pipelining_without_interleaving()` | GPU，本 stage 的卡 | 从该 micro-batch 的前向到它的反向；1F1B 下 stage $$i$$ 同时在途 $$p - i$$ 个 | 只有本 stage 的卡 |
+| 环上流动的 K/V 块 | 第四章 | `context_parallel()` 里的 `_RingRotater`（`_AllToAllRotater` / `_AllGatherRotater`） | GPU，CP 组内 | 一次注意力调用之内，每步换一块 | 依次被 CP 组的每张卡看到一遍 |
+| dispatch / combine 的 token buffer 与 split 计数 | 第六章 | `MoEAlltoAllTokenDispatcher`：`input_splits` / `output_splits` / `num_global_tokens_per_local_expert` | GPU；计数先用一次小的集合通信交换（Megatron 用 all-gather 取全局分布） | 一个 MoE 层的前向；反向按互换的 split 再建一次 | EP 组内 |
+| 路由结果（专家编号与权重） | 第六章 | MoE 层的路由线性层（容量与辅助损失在 `moe_utils.py`） | GPU，本 rank | 从路由算出到 combine 回来加权求和 | 只有本 rank——combine 回来要靠它还原 token 顺序 |
+
+Table: 本篇涉及的核心对象：创建者、所在侧、生命周期与可见范围
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -165,6 +201,9 @@ Table: 本文的章节安排
 
 它能扩展的另一个原因是**重叠**：反向传播是从最后一层往前算的，某一层的梯度算完就可以开始 all-reduce，不必等整个反向结束。DDP 把参数按反向顺序分成若干 bucket（默认 25 MiB 一桶，PyTorch 2.13.0 `torch/csrc/distributed/c10d/reducer.hpp` 的 `kDefaultBucketBytesCap`），一个桶内的梯度都就位就发出去。只要每层的通信时间小于该层的反向计算时间，DP 的通信就被完全藏住，step 时间与单卡一样。这个条件在 $$N_d$$ 增大时不会变差（通信量不随 $$N_d$$ 变），只在**计算变少**时变差——micro-batch 太小、或者模型被 TP/PP 切得太碎，每层的反向时间就盖不住它的梯度通信了。
 
+> [!NOTE] Java 经验参照：梯度 bucket 与批量刷盘
+> `BufferedOutputStream` 把零散的小写入攒在一个定长数组里，满了才真正落盘，用一次大 I/O 摊薄每次的固定开销。DDP 的梯度 bucket 是同一个结构：默认 25 MiB 一桶，装满即发，而攒的同时反向还在往前算，正好把通信叠在计算上。不一样的地方在"刷"这个动作——它是一次集合通信，组内每张卡都要对同一个桶一起发起，顺序也必须一致，所以 `DistributedDataParallel` 的文档要求各进程的参数注册顺序完全相同，归约按注册顺序的逆序进行（`torch/nn/parallel/distributed.py` 的类文档）；`BufferedOutputStream` 只有本地一方，什么时候 flush 没有对端在等。
+
 ### 2. ZeRO-1 / ZeRO-2：切优化器状态与梯度，通信量不变
 
 DP 的浪费在优化器状态：$$N_d$$ 张卡各存一份完全相同的 fp32 主参数、一阶矩、二阶矩（$$12N$$ 字节），然后各自做一遍完全相同的更新。ZeRO（Rajbhandari et al. 2020）的观察是这份状态可以按参数切成 $$N_d$$ 份，每张卡只负责更新自己那 $$1/N_d$$ 的参数。
@@ -173,7 +212,7 @@ DP 的浪费在优化器状态：$$N_d$$ 张卡各存一份完全相同的 fp32 
 
 **ZeRO-2** 再切梯度。观察是：reduce-scatter 之后，每张卡只需要自己负责的那 $$1/N_d$$ 梯度，其余 $$(N_d-1)/N_d$$ 可以在 reduce-scatter 完成的瞬间释放。于是梯度显存也降到 $$2N/N_d$$，每卡 $$2N + 14N/N_d$$。通信量仍是 $$2N$$——什么都没多。实现上要求梯度按 bucket 在反向过程中即时 reduce-scatter 并释放，而不是攒到反向结束。
 
-Megatron 的分布式优化器（`megatron/core/optimizer/distrib_optimizer.py`）就是 ZeRO-1 这一级，`--use-distributed-optimizer` 打开；它的 reduce-scatter 与 all-gather 都以 bucket 为单位与计算重叠（[Megatron-LM 架构与源码导读](/megatron-lm-architecture-and-source-guide.html) 展开）。
+Megatron 的分布式优化器（`megatron/core/optimizer/distrib_optimizer.py`）就是 ZeRO-1 这一级，`--use-distributed-optimizer` 打开；它的 reduce-scatter 与 all-gather 都以 bucket 为单位与计算重叠（[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html) 展开）。
 
 **亲手验证 all-reduce = reduce-scatter + all-gather**（`02_parallelism_toys.py zero`）。4 个进程，进程 $$r$$ 的"梯度"是 8 个数 $$10r + [0, 1, \ldots, 7]$$。DP 做一次 all-reduce；ZeRO-1 换成 reduce-scatter（进程 $$r$$ 只拿到第 $$r$$ 段两个元素的和）→ 各自"更新"自己那段（这里用 ×0.5 代替优化器）→ all-gather 拼回：
 
@@ -195,7 +234,11 @@ ZeRO-3    2    2     4      0     24     48   3.0  0.0e+00
 （≈xN 用 4 卡精确值 (n−1)/n·N = 6 个 fp32 元素折算；每卡通信字节按每个原语分别计）
 ```
 
-三种量同时能对上：常驻列是§二.4 显存表的缩影（优化器 16 → 4，梯度 8 → 2，参数 8 → 2）；通信列是 2N / 2N / 2N / 3N 在 4 卡上的精确值——ZeRO-3 比 ZeRO-1/2 多的就是一次参数 all-gather（48 B = 两次 ≈N，其中一次是反向前的，另一次本来就在下步前向）；最后一列是更新后参数与单进程跑一遍的差，四种放置都是 0，说明切分只换了存储方式、不换结果。
+三种量同时能对上：
+
+1. 常驻列是本章第 4 节显存表的缩影（优化器 16 → 4，梯度 8 → 2，参数 8 → 2）。
+2. 通信列是 2N / 2N / 2N / 3N 在 4 卡上的精确值——ZeRO-3 比 ZeRO-1/2 多的就是一次参数 all-gather（48 B = 两次 ≈N，其中一次是反向前的，另一次本来就在下步前向）。
+3. 最后一列是更新后参数与单进程跑一遍的差，四种放置都是 0，说明切分只换了存储方式、不换结果。
 
 60 = 0 + 10 + 20 + 30 是四个进程第 0 个元素之和。reduce-scatter 之后进程 0 手里只有两个数——这就是 ZeRO-2 能把梯度显存降到 $$2N/N_d$$ 的原因：其余六个数它再也不需要了。
 
@@ -304,14 +347,14 @@ Table: FSDP2 一个通信组在一个 step 里的通信
 
 - 不同参数可以用不同 dtype，可以单独冻结。
 - 能与 TP 的 DTensor 自然组合：一个参数同时有 `Shard(0)` 的 FSDP 维和 `Shard(1)` 的 TP 维。
-- checkpoint 能按参数名重分片（[分布式 checkpoint](/distributed-checkpoint-format-async-save-and-resharding.html)）。
+- checkpoint 能按参数名重分片（[《分布式 checkpoint》](/distributed-checkpoint-format-async-save-and-resharding.html)）。
 
 `_fsdp_api.py` 里还有两个常用开关：
 
 - `MixedPrecisionPolicy`：all-gather 出来的参数用什么 dtype 计算，reduce-scatter 用什么 dtype 归约。
-- `reshard_after_forward`：第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关。它还可以是一个整数：前向后不完全释放，而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
+- `reshard_after_forward`：本章第 3 节里 $$3N$$ 与 $$2N$$ 之间的开关。它还可以是一个整数：前向后不完全释放，而是重分片到一个更小的组（例如节点内 8 卡），让反向的 all-gather 只在节点内做。
 
-两代的显存与通信量相同，差别在**可组合性**：FSDP2 是 torchtitan 与 PyTorch 原生 TP/PP/CP 组合的基础，[三个框架对比](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的对照会反复用到。
+两代的显存与通信量相同，差别在**可组合性**：FSDP2 是 torchtitan 与 PyTorch 原生 TP/PP/CP 组合的基础，[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的对照会反复用到。
 
 ### 6. HSDP：节点内切、节点间复制
 
@@ -460,11 +503,14 @@ Z.sum().backward()                           # ⑦ 反向自动走 g（恒等）
 TP 前向 + 反向与单卡逐格相等: True
 ```
 
-与上面两张手算表逐格一致。这 20 行就是 TP 的全部机制；生产实现多出来的是把 $$f$$ / $$g$$ 换成 all-gather / reduce-scatter（SP，下面第 5 节）、把反向的 all-reduce 与权重梯度的 GEMM 重叠（`LinearWithGradAccumulationAndAsyncCommunication`），以及把它们塞进几十层里。
+与上面两张手算表逐格一致。这 20 行就是 TP 的全部机制；生产实现多出来的是把 $$f$$ / $$g$$ 换成 all-gather / reduce-scatter（SP，本章第 5 节）、把反向的 all-reduce 与权重梯度的 GEMM 重叠（`LinearWithGradAccumulationAndAsyncCommunication`），以及把它们塞进几十层里。
 
 ### 4. 为什么 TP 不出节点
 
 第二个原因更硬：这四次 all-reduce **在关键路径上**。行切层的输出必须归约完才能加残差、过 LayerNorm、进下一个子层；列切层反向对 $$X$$ 的梯度必须归约完才能继续往前传。没有别的计算可以填进这段等待（Megatron 的 `LinearWithGradAccumulationAndAsyncCommunication` 能把反向里对输入的梯度 all-reduce 与对权重的梯度 GEMM 重叠，能藏一部分但不是全部）。
+
+> [!NOTE] Java 经验参照：关键路径上的集合通信与 CyclicBarrier
+> `CyclicBarrier.await()` 的开销有两部分：同步本身不产出任何结果，以及最慢的那个线程决定全体何时继续。TP 每层那四次 all-reduce 有同样的两部分——组内每张卡都要到场，最慢的一张定节奏，而下一个 GEMM 就在等它，等待时间直接加进 step 时间。对不上的是 all-reduce 还要**搬数据**：它的耗时主要由载荷（$$sbh$$ 个元素）和链路带宽决定，而不是参与者的多少，所以把 $$N_t$$ 从 8 降到 4 并不能让它便宜一半（系数只是 $$2(N_t-1)/N_t$$）——`CyclicBarrier` 没有载荷这一项。
 
 所以 TP 的每一次通信都直接加在 step 时间上，它对**延迟**和**带宽**都敏感。8 卡 NVLink 上一次几百 MB 的 all-reduce 是一两毫秒；跨 IB 是十几毫秒；乘以每层四次、几十层、十几个 micro-batch，差别是 step 时间的几倍。这就是 TP 几乎只在 NVLink 域内使用、$$N_t \le 8$$（NVL72 一类机器上可以更大）成为惯例的原因。放到第一章的五元组里：TP **切参数、梯度、优化器状态与层内激活；每层 $$4 \times 2sbh$$ 元素；NVLink；不可重叠；节点内**。
 
@@ -682,7 +728,13 @@ $$p = 2$$ 张卡、$$v = 2$$，共 4 个 stage，卡 0 持 stage {0, 2}、卡 1 
 
 Table: Interleaved 1F1B 的时间表
 
-代价：stage 边界从 $$p - 1$$ 个变成 $$pv - 1$$ 个，PP 的点对点通信量乘以 $$v$$；调度更复杂；每张卡在途的激活也多了。Megatron 的 `--num-layers-per-virtual-pipeline-stage` 就是这个 $$v$$。$$p = 16$$、$$m = 16$$、$$v = 8$$ 时气泡从 48% 降到 10.5%。
+代价有三项：
+
+1. stage 边界从 $$p - 1$$ 个变成 $$pv - 1$$ 个，PP 的点对点通信量乘以 $$v$$。
+2. 调度更复杂。
+3. 每张卡在途的激活也多了。
+
+Megatron 的 `--num-layers-per-virtual-pipeline-stage` 就是这个 $$v$$。$$p = 16$$、$$m = 16$$、$$v = 8$$ 时气泡从 48% 降到 10.5%。
 
 ### 5. Zero-bubble：把反向拆成两半
 
@@ -696,7 +748,7 @@ PP 的通信量是所有维度里最小的：每个 micro-batch 在每个 stage 
 
 ### 7. 实现的位置
 
-PyTorch 2.13.0 的 `torch/distributed/pipelining/schedules.py` 把调度做成了可枚举的类：单 stage 每卡的 `ScheduleGPipe` 与 `Schedule1F1B`（基类 `PipelineScheduleSingle`）；多 stage 每卡的 `ScheduleInterleaved1F1B`、`ScheduleLoopedBFS`、`ScheduleInterleavedZeroBubble`（论文的 ZB-H1 / ZB1P）、`ScheduleZBVZeroBubble`（ZB-V，要求每卡恰好两个 stage）、`ScheduleDualPipeV`（基类 `PipelineScheduleMulti`，运行时是 `_PipelineScheduleRuntime`，它把调度表达成一张按时间步排列的动作表——前向、反向输入、反向权重、send、recv——逐步执行）；`get_schedule_class()` 按名字取类。每个 stage 是 `stage.py` 的 `PipelineStage`，负责 send/recv 与形状推断。Megatron 0.18.0 的 `megatron/core/pipeline_parallel/schedules.py` 是过程式写法：`forward_backward_pipelining_without_interleaving()` 是 1F1B，`forward_backward_pipelining_with_interleaving()` 是 interleaved 1F1B，`get_forward_backward_func()` 按 PP 与 VP 大小选择其一；点对点在 `p2p_communication.py`。两种写法的对照是 [三个框架对比](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的内容。
+PyTorch 2.13.0 的 `torch/distributed/pipelining/schedules.py` 把调度做成了可枚举的类：单 stage 每卡的 `ScheduleGPipe` 与 `Schedule1F1B`（基类 `PipelineScheduleSingle`）；多 stage 每卡的 `ScheduleInterleaved1F1B`、`ScheduleLoopedBFS`、`ScheduleInterleavedZeroBubble`（论文的 ZB-H1 / ZB1P）、`ScheduleZBVZeroBubble`（ZB-V，要求每卡恰好两个 stage）、`ScheduleDualPipeV`（基类 `PipelineScheduleMulti`，运行时是 `_PipelineScheduleRuntime`，它把调度表达成一张按时间步排列的动作表——前向、反向输入、反向权重、send、recv——逐步执行）；`get_schedule_class()` 按名字取类。每个 stage 是 `stage.py` 的 `PipelineStage`，负责 send/recv 与形状推断。Megatron 0.18.0 的 `megatron/core/pipeline_parallel/schedules.py` 是过程式写法：`forward_backward_pipelining_without_interleaving()` 是 1F1B，`forward_backward_pipelining_with_interleaving()` 是 interleaved 1F1B，`get_forward_backward_func()` 按 PP 与 VP 大小选择其一；点对点在 `p2p_communication.py`。两种写法的对照是 [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 的内容。
 
 ## 六、专家并行
 
@@ -704,7 +756,11 @@ PyTorch 2.13.0 的 `torch/distributed/pipelining/schedules.py` 把调度做成�
 
 MoE 把每层的 FFN 换成 $$E$$ 个专家，每个 token 由路由器选 $$k$$ 个（通常 $$k = 1$$ 或 2）专家处理。参数量随 $$E$$ 线性增长，但每个 token 的计算量只与 $$k$$ 有关——这是 MoE 的全部吸引力，也是它的状态形态与 dense 模型的全部差别：**参数很多、每个参数被很少的 token 用到**。
 
-对放置来说这意味着：专家参数不能像 dense 参数那样靠 TP 切——一个专家的 FFN 矩阵本来就不大（与 dense 的 FFN 同尺寸），切成 8 份每份的 GEMM 太小、效率差；也不适合完全靠 ZeRO-3 切——每层前向要 all-gather 全部 $$E$$ 个专家的参数，但每张卡的 token 只用其中 $$k$$ 个。自然的方案是**专家并行**：把 $$E$$ 个专家分到 $$N_e$$ 张卡上，每卡 $$E/N_e$$ 个；专家参数、梯度、优化器状态各切 $$1/N_e$$，不需要通信维持；非专家部分（注意力、embedding）在 EP 组内是复制的，仍靠 DP/ZeRO 或 TP 切。
+对放置来说这意味着：专家参数不能像 dense 参数那样靠 TP 切——一个专家的 FFN 矩阵本来就不大（与 dense 的 FFN 同尺寸），切成 8 份每份的 GEMM 太小、效率差；也不适合完全靠 ZeRO-3 切——每层前向要 all-gather 全部 $$E$$ 个专家的参数，但每张卡的 token 只用其中 $$k$$ 个。自然的方案是**专家并行**：
+
+- 把 $$E$$ 个专家分到 $$N_e$$ 张卡上，每卡 $$E/N_e$$ 个。
+- 专家参数、梯度、优化器状态各切 $$1/N_e$$，不需要通信维持。
+- 非专家部分（注意力、embedding）在 EP 组内是复制的，仍靠 DP/ZeRO 或 TP 切。
 
 ### 2. 一个 token 的旅程：路由 → dispatch → 专家 → combine
 
@@ -725,7 +781,7 @@ Table: 一个 token 在 MoE 层的旅程
 
 ④ 里每个专家的 GEMM 都很小（例子里 1–2 个 token；真实训练里每专家几十到几千个 token），所以实现上把一张卡上所有专家的 GEMM 打包成一个 **grouped GEMM**（一次 kernel 启动、按段处理），而不是逐个专家发 kernel——这是 MoE 的算力效率问题，本篇只记住它存在。
 
-**反向**走完全相同的路、方向相反：损失对 $$y$$ 的梯度经过 ⑥ 的加权 → 经 ⑤ 的反向（一个 dispatch 形状的 all-to-all）回到专家所在的卡 → 专家的两个 GEMM 反向，得到**专家权重的梯度**（只在持有它的卡上，不需要任何归约——与 TP 一样"免费"）与对输入的梯度 → 经 ③ 的反向（一个 combine 形状的 all-to-all）回到 token 原来的卡。所以每层前向 2 次、反向 2 次 all-to-all，与 TP 的 2 + 2 次 all-reduce 对称。all-to-all 的反向是"split 互换的 all-to-all"这件事，第 7 节的代码里就是十行。
+**反向**走完全相同的路、方向相反：损失对 $$y$$ 的梯度经过 ⑥ 的加权 → 经 ⑤ 的反向（一个 dispatch 形状的 all-to-all）回到专家所在的卡 → 专家的两个 GEMM 反向，得到**专家权重的梯度**（只在持有它的卡上，不需要任何归约——与 TP 一样"免费"）与对输入的梯度 → 经 ③ 的反向（一个 combine 形状的 all-to-all）回到 token 原来的卡。所以每层前向 2 次、反向 2 次 all-to-all，与 TP 的 2 + 2 次 all-reduce 对称。all-to-all 的反向是"split 互换的 all-to-all"这件事，本章第 7 节的代码里就是十行。
 
 ### 3. all-to-all 通信量
 
@@ -746,7 +802,7 @@ $$
 - **通信**：all-to-all 的每卡时间由**收到最多 token 的那张卡**决定，其余卡等它；不均衡度 $$\rho$$（最忙的卡的负载 / 平均负载）直接乘在通信时间上。
 - **计算**：最忙的专家所在的卡要算 $$\rho$$ 倍的 GEMM，同一 step 内其他卡等它——这是一个结构性的 straggler，每层都发生。
 
-有多不均？第 7 节的 toy（8 个专家、$$k = 2$$、随机初始化的路由器、64 个 token）跑出来是：
+有多不均？本章第 7 节的 toy（8 个专家、$$k = 2$$、随机初始化的路由器、64 个 token）跑出来是：
 
 ```text title="MoE toy 的负载不均：各进程与各专家收到的 token 数"
 各进程收到的 token 数: [42, 32, 13, 41]   平均 32，最忙 / 平均 = ρ = 1.31
@@ -762,13 +818,13 @@ C = \left\lceil \text{CF} \times \frac{T \cdot k}{E} \right\rceil,\qquad
 \text{例：}\ T = 64,\ k = 2,\ E = 8,\ \text{CF} = 1.25 \ \Rightarrow\ C = \lceil 1.25 \times 16 \rceil = 20
 $$
 
-$$T k / E$$ 是"完全均匀时每个专家该收到几个"（例子里 16），CF 是容许超出的倍数。上面那组负载里 21、21、22 三个专家超过 20，各丢 1–2 个 token。代价是训练信号被截断：被丢的 token 这一层等于没学；好处是通信与计算的上界确定了，buffer 可以预分配。推理侧一般不丢 token（会改变输出），所以 vLLM 那篇把 CF 讲成"buffer 大小"的问题；训练侧它是"丢多少"的问题。
+$$T k / E$$ 是"完全均匀时每个专家该收到几个"（例子里 16），CF 是容许超出的倍数。上面那组负载里 21、21、22 三个专家超过 20，各丢 1–2 个 token。代价是训练信号被截断：被丢的 token 这一层等于没学；好处是通信与计算的上界确定了，buffer 可以预分配。推理侧一般不丢 token（会改变输出），所以推理侧的[「Capacity Factor（CF）：专家容量因子」](/multi-gpu-scaling-strategies.html#5-capacity-factorcf专家容量因子)一节把 CF 讲成"buffer 大小"的问题；训练侧它是"丢多少"的问题。
 
 **辅助损失**（load balancing loss）从根上让路由器均匀：记 $$f_e$$ 为路由到专家 $$e$$ 的 token 比例、$$P_e$$ 为路由器给专家 $$e$$ 的平均概率，Switch Transformer 的辅助损失是 $$\alpha E \sum_e f_e P_e$$——两者都均匀（$$= 1/E$$）时取最小值 $$\alpha$$，某个专家既常被选中（$$f_e$$ 大）又被给了高概率（$$P_e$$ 大）时变大。它与主目标冲突（有时最好的专家就该多干活），所以 $$\alpha$$ 很小（$$10^{-2}$$ 量级）。DeepSeek-V3 换了一种"无辅助损失"的做法：给每个专家一个可调偏置加到路由分数上，负载高就调低，不进梯度。Megatron 的 `megatron/core/transformer/moe/moe_utils.py` 里 `switch_load_balancing_loss_func()` 与 `get_capacity()` 分别对应这两种手段。放进五元组时 EP 的通信量要带上 $$\rho$$：**切专家的参数、梯度、优化器状态与路由后的激活；每层 $$4 \cdot \rho \cdot \frac{sb}{N_c} k h$$；all-to-all；不可重叠（可分块流水）；尽量节点内，负载均衡是前提**。
 
 ### 5. 分块流水：把 all-to-all 藏进专家计算
 
-第 3 节说 all-to-all 在关键路径上——专家要等 token 到齐。但"到齐"可以是分批的：把本卡的 token 切成几块，第 0 块在算专家时第 1 块正在路上：
+本章第 3 节说 all-to-all 在关键路径上——专家要等 token 到齐。但"到齐"可以是分批的：把本卡的 token 切成几块，第 0 块在算专家时第 1 块正在路上：
 
 | 时间 → | $$t_0$$ | $$t_1$$ | $$t_2$$ | $$t_3$$ | $$t_4$$ |
 |---|---|---|---|---|---|
@@ -841,7 +897,11 @@ EP 前向与「每个 token 自己算」的最大误差（各进程）: ['0.0e+0
 EP 本地专家梯度与完整梯度的最大误差（各进程）  : ['9.5e-07', '4.8e-07', '4.8e-07', '4.8e-07']
 ```
 
-三件事在输出里同时看到：每个进程**发出**的都是 32 个（16 token × 2），**收到**的却从 13 到 42——这就是 $$\rho$$；dispatch 矩阵的每一列之和就是每个进程收到的数，第 2 列最小、因为进程 2 的两个专家（E4、E5）冷门；前向误差是 0（同样的浮点数以同样的顺序相加），反向 $$10^{-6}$$ 量级（累加顺序不同）——专家权重的梯度只在持有它的进程上、且不需要归约就已经是完整的，验证了第 2 节"与 TP 一样免费"的说法。
+三件事在输出里同时看到：
+
+1. 每个进程**发出**的都是 32 个（16 token × 2），**收到**的却从 13 到 42——这就是 $$\rho$$。
+2. dispatch 矩阵的每一列之和就是每个进程收到的数，第 2 列最小，因为进程 2 的两个专家（E4、E5）冷门。
+3. 前向误差是 0（同样的浮点数以同样的顺序相加），反向 $$10^{-6}$$ 量级（累加顺序不同）——专家权重的梯度只在持有它的进程上、且不需要归约就已经是完整的，验证了本章第 2 节"与 TP 一样免费"的说法。
 
 
 
@@ -928,7 +988,7 @@ Table: 16 卡 TP=4、DP=2、PP=2 的 rank 布局
 
 ### 3. Llama 3 405B 代入
 
-Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Table 5）：8K GPU 与 16K GPU 上 $$s = 8192$$，TP = 8、CP = 1、PP = 16、DP = 64 或 128；长上下文阶段 $$s = 131072$$，TP = 8、**CP = 16**、PP = 16、DP = 4（四维乘积 8192 张卡）。（本系列总纲把两档合写成 "TP=8/CP=16/PP=16/DP=128"，乘起来是 262144 张卡，不是 16384——正确的是上面两档；正文以论文为准。）模型：126 层、$$h = 16384$$、128 个头、8 个 K/V 头、词表 128256，$$N = 405 \times 10^9$$。
+Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Table 5）：8K GPU 与 16K GPU 上 $$s = 8192$$，TP = 8、CP = 1、PP = 16、DP = 64 或 128；长上下文阶段 $$s = 131072$$，TP = 8、**CP = 16**、PP = 16、DP = 4（四维乘积 8192 张卡）。模型：126 层、$$h = 16384$$、128 个头、8 个 K/V 头、词表 128256，$$N = 405 \times 10^9$$。
 
 **状态放置**（16K GPU、$$s = 8192$$ 档，ZeRO-1 式的分布式优化器）：
 
@@ -944,7 +1004,7 @@ Llama 3 论文（Dubey et al. 2024）给出的 405B 训练配置有三档（Tabl
 
 Table: Llama 3 405B 的状态放置
 
-最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（[千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html)）。
+最后一行说明了两件事：常驻状态只有 13 GB，80 GB 显存的大头是**在途激活**；以及为什么 405B 需要选择性重计算或更小的 $$v$$ 才能把激活压进 80 GB（[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)）。
 
 **通信量**（global batch 16M token → 每 step 2048 个序列，每个 DP 副本 16 个，$$b = 1$$ 则 $$m = 16$$；6N 算力 $$3.9 \times 10^{22}$$ FLOP，16384 × 989 TFLOPS 标称 × 41% MFU 下 step 约 5.9 s）：
 
@@ -971,11 +1031,11 @@ Table: Llama 3 405B 长上下文档的通信量
 
 CP 那一行是 GQA 的功劳：K/V 总维度 1024 只有 $$h$$ 的 1/16，再被 TP 切 8 份，每卡每块 K/V 只有 4 MB，16 倍的序列长度只多了 47 GB 的**可重叠**跨节点通信。这正是"CP 放在 TP 之外、PP 之内"的实例——它跨节点，但通信量和形态都比 DP 温和。
 
-气泡一行则解释了为什么 405B 的 PP = 16 不是灾难：$$m = 16$$、$$v = 1$$ 的气泡是 48%，与论文报告的 38–43% MFU 不相容，所以实际调度里 stage 必须再切（interleaved，$$v > 1$$）或 $$m$$ 更大；论文第 3.3 节也确实描述了对流水线调度的修改。这是 [三个框架对比](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 比较两种 1F1B 实现、[千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html) 讨论 micro-batch 与 $$v$$ 取值的起点。
+气泡一行则解释了为什么 405B 的 PP = 16 不是灾难：$$m = 16$$、$$v = 1$$ 的气泡是 48%，与论文报告的 38–43% MFU 不相容，所以实际调度里 stage 必须再切（interleaved，$$v > 1$$）或 $$m$$ 更大；论文第 3.3 节也确实描述了对流水线调度的修改。这是 [《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html) 比较两种 1F1B 实现、[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) 讨论 micro-batch 与 $$v$$ 取值的起点。
 
 ### 4. 三框架对照
 
-三个框架实现的是同一张表，但各自覆盖的格子与默认取向不同——源码细节是后面四篇的内容（[Megatron-LM](/megatron-lm-architecture-and-source-guide.html)、[DeepSpeed](/deepspeed-architecture-and-source-guide.html)、[torchtitan](/torchtitan-architecture-and-source-guide.html)、[三框架对比](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)）：
+三个框架实现的是同一张表，但各自覆盖的格子与默认取向不同——源码细节是后面四篇的内容（[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html)、[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)）：
 
 | | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan（PyTorch 原生 API） |
 |---|---|---|---|
@@ -1002,9 +1062,9 @@ Table: 三框架对并行策略的覆盖
 |---|---|---|---|
 | all-reduce | 所有卡的 buffer 求和，结果每卡一份 | ≈ 2S | DP 梯度<br/>TP（无 SP）每层 2 + 2 次<br/>HSDP 组间梯度 |
 | all-gather | 每卡一段，拼成完整的一份给每卡 | ≈ S | ZeRO-1/2 更新后的参数<br/>ZeRO-3/FSDP 前向与反向前的参数<br/>SP 进列切层前的激活 |
-| reduce-scatter | 每卡一份完整输入，求和后每卡拿一段 | ≈ S | ZeRO-1/2/3 的梯度；SP 行切层后的激活 |
-| all-to-all | 第 i 卡的第 j 块发给第 j 卡（转置） | ≈ S；n(n−1) 条流 | EP 的 token dispatch / combine；Ulysses 的 Q/K/V/O 转置 |
-| send / recv | 一对一 | S | PP 的 stage 边界激活与梯度；Ring Attention 的 K/V 块 |
+| reduce-scatter | 每卡一份完整输入，求和后每卡拿一段 | ≈ S | ZeRO-1/2/3 的梯度<br/>SP 行切层后的激活 |
+| all-to-all | 第 i 卡的第 j 块发给第 j 卡（转置） | ≈ S<br/>n(n−1) 条流 | EP 的 token dispatch / combine<br/>Ulysses 的 Q/K/V/O 转置 |
+| send / recv | 一对一 | S | PP 的 stage 边界激活与梯度<br/>Ring Attention 的 K/V 块 |
 
 Table: 通信原语与并行策略的对应
 
@@ -1051,7 +1111,7 @@ Table: 本篇涉及的源码位置
 
 ### 3. train-ledger 本篇增量：ledger/parallel.py
 
-[训练任务的状态解剖](/training-state-anatomy-memory-and-mfu.html) 的账本给出一个模型的四类状态字节数；本篇给它加上并行维度：输入 `ParallelConfig(tp, pp, dp, cp, ep, zero_stage, …)`，输出每卡常驻状态与每 step 各并行维度、各原语的通信字节数，以及 PP 气泡率。它只依赖上一篇的 `ledger.model.ModelSpec` 与 `ledger.memory.state_bytes()`，不依赖 torch。
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html) 的账本给出一个模型的四类状态字节数；本篇给它加上并行维度：输入 `ParallelConfig(tp, pp, dp, cp, ep, zero_stage, …)`，输出每卡常驻状态与每 step 各并行维度、各原语的通信字节数，以及 PP 气泡率。它只依赖《训练任务的状态解剖》的 `ledger.model.ModelSpec` 与 `ledger.memory.state_bytes()`，不依赖 torch。
 
 ```python title="ledger/parallel.py：并行即状态放置"
 """train-ledger / ledger/parallel.py -- parallelism as state placement.
@@ -1309,9 +1369,9 @@ if __name__ == "__main__":
         report(llama3_70b(), cfg)
 ```
 
-几点实现说明。通信量按第一章的口径计算：`coll_bytes` 返回每卡**发出**的字节数，all-reduce 用 $$2(n-1)/n$$、其余三个集合原语用 $$(n-1)/n$$。TP 的 all-gather + reduce-scatter 对与一次 all-reduce 等价，所以 SP 打开时只是把同一份量拆成两行记。CP 的 K/V 块用 `kv_heads`（GQA）并除以 TP；`ModelSpec` 若没有 `kv_heads` 字段则退化为 MHA。DP 一段用的是本卡的 $$N_{\text{local}}$$——TP/PP 切了之后 DP 组内交换的只是本卡那一份；`grad_replicas` 是 $$N_d \times N_c$$，因为 CP 各卡持有同一份参数。HSDP 通过 `hsdp_shard` 打开，多出一行组间 all-reduce。气泡率返回的是占总时间的份额 $$\frac{(p-1)/v}{m + (p-1)/v}$$。这里的激活估算只给一层、一个 micro-batch 的数，在途 micro-batch 数与重计算策略是 [千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html) 的内容。
+几点实现说明。通信量按第一章的口径计算：`coll_bytes` 返回每卡**发出**的字节数，all-reduce 用 $$2(n-1)/n$$、其余三个集合原语用 $$(n-1)/n$$。TP 的 all-gather + reduce-scatter 对与一次 all-reduce 等价，所以 SP 打开时只是把同一份量拆成两行记。CP 的 K/V 块用 `kv_heads`（GQA）并除以 TP；`ModelSpec` 若没有 `kv_heads` 字段则退化为 MHA。DP 一段用的是本卡的 $$N_{\text{local}}$$——TP/PP 切了之后 DP 组内交换的只是本卡那一份；`grad_replicas` 是 $$N_d \times N_c$$，因为 CP 各卡持有同一份参数。HSDP 通过 `hsdp_shard` 打开，多出一行组间 all-reduce。气泡率返回的是占总时间的份额 $$\frac{(p-1)/v}{m + (p-1)/v}$$。这里的激活估算只给一层、一个 micro-batch 的数，在途 micro-batch 数与重计算策略是 [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) 的内容。
 
-运行输出（`python -m ledger.parallel`，`ledger/model.py` 里的 `llama3_405b()` / `llama3_70b()` 是 [训练任务的状态解剖](/training-state-anatomy-memory-and-mfu.html) 定义的模型规格，`kv_heads=8`；字节数为二进制单位）：
+运行输出（`python -m ledger.parallel`，`ledger/model.py` 里的 `llama3_405b()` / `llama3_70b()` 是 [《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html) 定义的模型规格，`kv_heads=8`；字节数为二进制单位）：
 
 ```text title="python -m ledger.parallel 的输出：405B 与 70B 两种配置"
 llama3-405b: tp=8 cp=1 pp=16 dp=128 ep=1 zero=1 sp=True mb=1 m=16 -> 16384 GPUs
@@ -1372,9 +1432,9 @@ llama3-70b: tp=1 cp=1 pp=1 dp=1024 ep=1 zero=3 sp=True mb=1 m=1 -> 1024 GPUs
   total per GPU per step:   391.94 GB  (nvlink     0.00 B, ib   391.94 GB)
 ```
 
-每一组都对应正文的一处。前两组是第七章第 3 节的 Llama 3 两档配置，TP 的 220 GB、DP 的 12.6 GB、PP 的 1 GB、CP 的 47 GB（二进制 44.3 GiB）、48% 与 32% 的气泡都从这里来。第三组是"如果 405B 只用 FSDP"：常驻状态只有 377 MB，但一层激活 4.25 GB × 126 层根本放不下，而且每卡每 step 要在 IB 上搬 2.2 TB——$$3N$$ 的通信作用在**整个模型**上，而 TP × PP = 128 把它缩到了 1/128；这就是为什么 ZeRO-3 不能替代模型并行去训 405B。后三组是 70B 在 1024 卡上的三种放置：TP 8 / PP 8 与 TP 8 / PP 4 的 NVLink 流量一样（TP 通信只与总层数和 micro-batch 数有关），差别在 PP 的气泡（18% 对 8.6%，后者用了 $$v = 2$$）和每卡显存（4.9 GB 对 9.0 GB）；纯 HSDP（分片组 64 卡）常驻 16.4 GB 放得下，但 IB 上 392 GB 的通信是前两者的 40–80 倍——它能否被反向藏住，取决于 [千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html) 要测的重叠效率。
+每一组都对应正文的一处。前两组是第七章第 3 节的 Llama 3 两档配置，TP 的 220 GB、DP 的 12.6 GB、PP 的 1 GB、CP 的 47 GB（二进制 44.3 GiB）、48% 与 32% 的气泡都从这里来。第三组是"如果 405B 只用 FSDP"：常驻状态只有 377 MB，但一层激活 4.25 GB × 126 层根本放不下，而且每卡每 step 要在 IB 上搬 2.2 TB——$$3N$$ 的通信作用在**整个模型**上，而 TP × PP = 128 把它缩到了 1/128；这就是为什么 ZeRO-3 不能替代模型并行去训 405B。后三组是 70B 在 1024 卡上的三种放置：TP 8 / PP 8 与 TP 8 / PP 4 的 NVLink 流量一样（TP 通信只与总层数和 micro-batch 数有关），差别在 PP 的气泡（18% 对 8.6%，后者用了 $$v = 2$$）和每卡显存（4.9 GB 对 9.0 GB）；纯 HSDP（分片组 64 卡）常驻 16.4 GB 放得下，但 IB 上 392 GB 的通信是前两者的 40–80 倍——它能否被反向藏住，取决于 [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) 要测的重叠效率。
 
-这个脚本给出的是**每卡显存与通信量**，还没有时间。把通信量换成时间需要链路带宽与重叠效率，把气泡率换成 MFU 需要 micro-batch 大小与重计算策略——这些是 [千卡配置实战](/thousand-gpu-configuration-and-mfu-tuning.html) 的内容。而在此之前，先要看清三个框架各自是怎么把本篇的每一行变成代码的。
+这个脚本给出的是**每卡显存与通信量**，还没有时间。把通信量换成时间需要链路带宽与重叠效率，把气泡率换成 MFU 需要 micro-batch 大小与重计算策略——这些是 [《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html) 的内容。而在此之前，先要看清三个框架各自是怎么把本篇的每一行变成代码的。
 
 > **一个 bf16 参数在 Megatron-LM、DeepSpeed、torchtitan 里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？**
 
