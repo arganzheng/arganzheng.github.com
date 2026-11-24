@@ -81,7 +81,32 @@ Table: 六种手段逐项叠加的账
 - **量化的收益来自 Tensor Core 峰值，不来自字节**：FLUX 单请求已经 compute-bound，权重从 22 GiB 变 11 GiB 本身不提速；提速的是 FP8 Tensor Core 的 2× 吞吐。这与 LLM decode 里"权重减半 → 时间减半"的逻辑相反。
 - **24 GB 卡上的问题首先是装下**：不量化要靠 offload（慢 3–5 倍，因为每步搬 22 GiB 权重过 PCIe），量化到 INT4 之后 6.5 GiB 常驻，才谈得上快。
 
-### 2. 本文的章节安排
+### 2. 这九样东西，哪些搬得走
+
+单卡优化听起来是六种手段，落到显存上只有一个问题：**在某个时刻，哪些东西必须在卡上**。把一次 FLUX 1024² 生成里占显存的东西列出来，上面那张图的每条边都能对上这张表里的一行。
+
+| 对象 | 字节（FLUX 1024²） | 什么时候必须在卡上 | 不在卡上时放哪、搬一次多久 |
+|---|---|---|---|
+| 1. 文本编码器权重（T5-XXL + CLIP） | 9.0 GiB | 文本编码的那 22 ms | CPU 内存；PCIe 4.0 ×16 约 25 GB/s，搬一次约 0.4 s |
+| 2. DiT 权重（bf16） | 22.2 GiB | 每一步的全部 57 层 | 模型级 offload：每次生成搬一次约 0.9 s；逐层：**每步**搬一遍，+0.9 s |
+| 3. DiT 权重（SVDQuant INT4） | 6.5 GiB | 同上 | 不用搬，常驻 |
+| 4. 残差流与一层的激活 | 270 MiB | 一次前向期间 | 搬不了 |
+| 5. latent 与文本 embedding | 0.5 MiB + 4 MiB | 全程 | 搬不了，也不值得 |
+| 6. VAE 解码器权重（fp32） | 320 MiB | 解码的那 102 ms | CPU 内存；搬一次约 13 ms |
+| 7. VAE 的全分辨率特征图（fp32） | 2.0 GiB | 解码期间 | 搬不了；tiling 切 4 块降到 0.5 GiB，代价是重叠区重算 |
+| 8. 编译产物与 CUDA graph | 几十 MiB（BCG 每卡 +5 GB 捕获显存） | 捕获之后常驻 | 换不出去；换一个分辨率直接作废 |
+| 9. 缓存的 prompt embedding | 每条 4 MiB | 从不 | 常驻 CPU 内存，一千条 4 GiB |
+
+Table: 一次 FLUX 1024² 生成里占显存的九样东西，哪些搬得走
+
+四条读法：
+
+1. **搬得走的只有三行权重（第 1、2、6 行）。**激活、latent、编译产物都搬不了，所以 offload 的上限是算得出来的：三段合计 31.5 GiB 最多压到 DiT 段的 22.5 GiB（模型级），再往下就只能逐层——而逐层付的不是显存，是第 2 行每步重搬一遍。
+2. **24 GB 的卡上跑 12B 只有两条路**：让第 2 行每步搬一遍（整步慢到 PCIe 的 0.9 s，比计算本身还长），或者把第 2 行换成第 3 行（6.5 GiB 常驻，代价是一份质量预算）。没有第三条。
+3. **第 7 行是唯一一个"不搬也能变小"的**：tiling 改的是算法，代价记在接缝和重算上，不记在 PCIe 上。到了视频它不是可选项——107 GiB 没有任何一张卡装得下。
+4. **第 8 行是全表唯一会被请求内容作废的东西。**换一个分辨率就要重编译、重捕获，于是"按分辨率分桶"不只是调度上的公平问题，而是保住第 8 行的前提——这条线一直通到[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的分池。
+
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -101,7 +126,7 @@ Table: 本文的章节安排
 
 ### 1. 三种粒度
 
-第一篇的字节账：FLUX 三段权重 31.5 GiB，但 DiT 段只需 22.5 GiB。offload 的全部内容就是**让不在用的部分不占显存**，粒度从粗到细有三种：
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的字节账：FLUX 三段权重 31.5 GiB，但 DiT 段只需 22.5 GiB。offload 的全部内容就是**让不在用的部分不占显存**，粒度从粗到细有三种：
 
 ```mermaid
 %% 图：offload 的三种粒度：模型级三段轮流上卡，顺序级逐层搬入搬出，分组级在另一条 stream 上预取下一组
@@ -135,6 +160,12 @@ flowchart TB
 
 Table: offload 的三种粒度
 
+> [!NOTE] Java 经验参照：释放内存是免费的
+>
+> JVM 里"把不用的东西放掉"几乎不用想：作用域结束、引用断开，后台 GC 自己回收，你付出的只是一点 CPU。显存不是这样——offload 里的"放掉"是一次真实的搬运，而且**要用的时候还得搬回来**。FLUX 的 DiT 权重 22.2 GiB 过 PCIe 4.0 ×16 是 0.9 秒，比这一步的计算（154 ms）还长六倍。
+>
+> 于是判断标准也换了。Java 里判断的是"占不占得住堆"，这里判断的是"每步付不付得起运费"：同一个逐层 offload 开关，在 Wan 这种一层算 0.73 s 的视频模型上几乎免费（搬运 27 ms 完全藏在计算后面），在 FLUX 这种一层算 2.7 ms 的图像模型上让每步慢六倍。更没有对应物的是：GC 不会因为你多开一个线程就变慢，而这里的搬运和计算抢的是同一条 PCIe——所以 SGLang 对视频模型默认开它、对图像模型建议关掉它。
+
 分组预取的收益完全取决于**每层的计算时间与搬运时间之比**。Wan 14B 一层权重 0.67 GB、搬运 27 ms（25 GB/s），而一层的计算在 720p 81 帧上是 29 s / 40 = 0.73 s——搬运只占 4%，可以完全藏在计算后面；SGLang 的文档给出 Wan A14B 显存从 40 GB 降到约 11 GB、速度几乎不变，并且对 Wan / MOVA 一类视频模型**默认开启**。FLUX 一层权重 0.39 GB、搬运 16 ms，而 1024² 上一层计算只有 154 / 57 = 2.7 ms——搬运是计算的 6 倍，逐层 offload 会让每步慢到 H2D 的速度（≈ 22 GiB / 25 GB/s ≈ 0.9 s）。所以同一个 flag 在视频模型上"免费"、在图像模型上"慢 6 倍"，SGLang 的性能指南明确建议图像模型关掉它（`--dit-layerwise-offload false`），并给出 `--dit-offload-prefetch-size` 调预取深度。
 
 两条 stream 怎样交替，按时间排开看最清楚。预取深度 1（卡上同时只有"正在算的一层"与"正在搬的下一层"），FLUX 1024² 一步的开头：
@@ -157,7 +188,7 @@ Table: FLUX 逐层预取的两条 stream（预取深度 1）
 
 - **CPU offload**（`--text-encoder-cpu-offload`）：用时搬到 GPU（T5-XXL 9 GiB，0.4 s），算完搬回。SGLang 对显存 < 30 GB 的卡自动开启；
 - **留在 CPU 上算**：T5-XXL 512 token 在 CPU 上几秒，比搬运还慢，一般不做；
-- **独立服务 / 独立卡**：文本编码器作为一个 stage 单独部署，输出 embedding 传给 DiT 的卡——第七篇的三段分离；vLLM-Omni 的 stage-based 部署与 SGLang 的 disaggregation 都支持；
+- **独立服务 / 独立卡**：文本编码器作为一个 stage 单独部署，输出 embedding 传给 DiT 的卡——[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的三段分离；vLLM-Omni 的 stage-based 部署与 SGLang 的 disaggregation 都支持；
 - **不加载**：SD3 允许推理时不加载 T5（只用两个 CLIP），省 9 GiB，代价是文字渲染与复杂 prompt 变差（算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》的消融）。
 
 另一个细节：**prompt embedding 缓存**。同一个 prompt 被反复请求（同 prompt 多 seed、批量出图）时，文本编码器的输出可以按 prompt 缓存——vLLM-Omni 的 `PromptEmbedCache`（`diffusion/cache/prompt_embed_cache.py`：包住 pipeline 的 `encode_prompt`，按可哈希的调用参数做 LRU）；每条 4 MiB，缓存一千条 4 GiB。diffusers 的 `text_kv_cache` hook（`hooks/text_kv_cache.py`）是另一回事：在一次生成之内把每个 block 的文本 K / V 投影算一次、跨步复用，目前只接了 NucleusMoE-Image 的 block。这是扩散推理里唯一像"前缀缓存"的东西。
@@ -182,13 +213,13 @@ DiT 的 attention 是标准的双向 self-attention（无因果 mask），$$N = 
 
 Table: FLUX attention 各后端的效率
 
-图像模型 attention 只占 20%，换后端的端到端收益有限（FA2 → FA3 约 5–10%）；到视频的 72–87% 时它成了主项（第四篇）。
+图像模型 attention 只占 20%，换后端的端到端收益有限（FA2 → FA3 约 5–10%）；到视频的 72–87% 时它成了主项（[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)）。
 
 ### 2. SageAttention：为什么扩散能容忍 8-bit 的 Q·K
 
 SageAttention 把 $$Q$$、$$K$$ 按 block 平滑后量化到 INT8，用 INT8 Tensor Core 算 $$QK^\top$$（Ada / Hopper 上 INT8 吞吐是 bf16 的 2×），softmax 后的 $$P$$ 与 $$V$$ 用 FP16 / FP8 累加。它的误差在 LLM 上会累积到 logits、改变采样的 token；在扩散上却几乎不可见——两个原因：
 
-- **每一步的误差被后续步的去噪吸收**：扩散的每步是在预测"当前 latent 里的噪声"，一步的小误差相当于多加了一点噪声，下一步会把它当作噪声去掉。这是扩散模型对近似计算（低精度 attention、跨步缓存、稀疏 attention）普遍鲁棒的根源，也是第三、四篇的前提；
+- **每一步的误差被后续步的去噪吸收**：扩散的每步是在预测"当前 latent 里的噪声"，一步的小误差相当于多加了一点噪声，下一步会把它当作噪声去掉。这是扩散模型对近似计算（低精度 attention、跨步缓存、稀疏 attention）普遍鲁棒的根源，也是[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)与[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的前提；
 - **输出是像素而不是离散 token**：LLM 的一个 logit 错位就换了一个词，图像的一个像素值偏 1/255 不可见。
 
 代价仍然存在：SageAttention 在细节纹理、文字渲染上有可测的 PSNR 下降（对基线图 30–35 dB），所以三个引擎都把它列在"有损"栏，SGLang 除了全局的 `--attention-backend sage_attn`，还允许按请求覆盖（采样参数 `--attention-backend-override sage_attn`，在 breakable CUDA graph、`torch.compile` 下会被拒绝），不必全局开。
@@ -203,7 +234,7 @@ FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate
 
 `torch.compile`（Inductor 后端）把逐元素算子融合进相邻的 GEMM 或彼此融合（一层的十几个小算子变成三四个融合 kernel），消掉多数 launch 与中间张量的读写；`mode="max-autotune"` 再为每个 GEMM 形状挑最优的 Triton / cuBLAS 配置。xDiT 实测 FLUX 单卡 6.71 → 4.30 s（1.56×），4 卡 USP 下更大（2.6×，因为每卡的 GEMM 更小、开销占比更高）。
 
-扩散是编译的理想负载，理由都在第一篇的账上：
+扩散是编译的理想负载，理由都在[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的账上：
 
 | 性质 | 对编译的意义 |
 |---|---|
@@ -213,10 +244,16 @@ FLUX 一层的算子：adaLN 调制（从条件向量算出 scale / shift / gate
 
 Table: 扩散负载对编译友好的性质
 
+> [!NOTE] Java 经验参照：JIT 会自己把热路径编译掉
+>
+> "跑够多次就会被编译优化"是 JVM 给的直觉，扩散在这个直觉下是最理想的负载：一次生成同一张图跑 28 遍，形状一个字节都不变。xDiT 实测的 1.56× 就是这么来的。
+>
+> 三处不一样。**编译是阻塞的**：`torch.compile` 第一次前向要 1–3 分钟，期间什么都跑不了；JVM 的 JIT 在后台编译，解释器照常执行，用户感觉不到。**形状是编译的一部分**：传一个 768×1344 进来就是一次全新的编译，而 JVM 不会因为你传了不同长度的数组而重新编译方法——这就是"重编译风暴"这种故障只在这边存在的原因，也是服务必须预先声明一组分辨率（`--warmup-resolutions`）的原因。**结果会变**：融合改了浮点运算顺序，输出与 eager 不是 bit-exact（同类手段的实测量级是 SSIM 0.984 / PSNR 39.7 dB）；JIT 编译前后的 Java 方法返回值是一样的，这里要先接受"编译会让图片差一点点"，再去判断差多少。
+
 代价：
 
 - **编译时间**：FLUX 第一次前向 1–3 分钟（`max-autotune` 更久）。服务启动时要 warmup（SGLang 的 `--warmup-mode request`）；
-- **动态分辨率 = 重编译**：用户请求 1024² 与 768×1344 是两个形状，各编译一次；分辨率组合多时是"重编译风暴"（第九篇的故障之一）。对策：只允许一组预定义分辨率（SGLang 的 `--warmup-resolutions 1024x1024 768x1344` 启动时预编译）、或 `dynamic=True` 用符号形状（Inductor 对 GEMM 的调优会变弱）；
+- **动态分辨率 = 重编译**：用户请求 1024² 与 768×1344 是两个形状，各编译一次；分辨率组合多时是"重编译风暴"（[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)的故障之一）。对策：只允许一组预定义分辨率（SGLang 的 `--warmup-resolutions 1024x1024 768x1344` 启动时预编译）、或 `dynamic=True` 用符号形状（Inductor 对 GEMM 的调优会变弱）；
 - **数值漂移**：融合改变了浮点运算顺序，输出与 eager 不 bit-exact，但 A/B 时要知道这不是 bug。同类"只改执行方式、不改模型"的手段的量级可以参考 SGLang 对 breakable CUDA graph（下一节）的实测：Qwen-Image 固定 seed 对 eager SSIM 0.984 / PSNR 39.7 dB，肉眼不可见；编译本身的漂移要按同样方法对基线图测。
 
 ### 3. CUDA graph 与 breakable CUDA graph
@@ -229,7 +266,7 @@ CUDA graph 的问题是全图必须静态：attention 的某些后端、集合�
 
 ### 1. 收益的来源
 
-第一篇的 roofline：FLUX 单请求在算力屋顶上。量化在这里的收益**不是**"读的字节少了"（LLM decode 的逻辑），而是：
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的 roofline：FLUX 单请求在算力屋顶上。量化在这里的收益**不是**"读的字节少了"（LLM decode 的逻辑），而是：
 
 | 精度 | H100 Tensor Core 峰值 | 相对 bf16 | 权重字节 |
 |---|---|---|---|
@@ -248,7 +285,7 @@ FP8 只对**线性层的 GEMM**（占 FLUX 每步的 80%）生效，attention �
 - **权重**：按通道或按 block 的 scale，离线量化一次（NVIDIA ModelOpt 产出的 FP8 checkpoint，SGLang 用 `--transformer-path` 加载；diffusers 通过 `torchao` / `PipelineQuantizationConfig`）；
 - **激活**：动态的 per-tensor 或 per-token scale，每个 GEMM 前算一次（在线量化）；
 - **哪些层不量化**：输入投影、输出投影、adaLN 的 MLP 通常留 bf16——它们小、对精度敏感；
-- **质量**：FP8 对 FLUX 一类的 DiT 几乎无损（PSNR > 35 dB），是三个引擎都推荐的"第一个有损选项"。FP8 的 NaN 是最常见的故障：激活里的离群值让 per-tensor scale 饱和——第九篇。
+- **质量**：FP8 对 FLUX 一类的 DiT 几乎无损（PSNR > 35 dB），是三个引擎都推荐的"第一个有损选项"。FP8 的 NaN 是最常见的故障：激活里的离群值让 per-tensor scale 饱和——[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)。
 
 ### 3. SVDQuant / Nunchaku：W4A4
 
@@ -316,7 +353,7 @@ Table: PSNR 与每像素平均偏差的换算
 
 偏差 2–3 个灰度级肉眼分不出，8 个灰度级集中在文字边缘与细纹理上时就能看见——这就是下面三档阈值的来由。注意它是**平均**：30 dB 可能是全图均匀偏 8 级，也可能是大部分像素不变、一个手指整个画错，所以 PSNR 之外还要看 LPIPS 与目测。
 
-第九篇展开。经验阈值：PSNR > 35 dB 不可见，30–35 dB 细看可见，< 28 dB 明显。FP8 通常 > 35，SVDQuant INT4 在 30 上下，NF4 W4A16 更低。
+[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)展开。经验阈值：PSNR > 35 dB 不可见，30–35 dB 细看可见，< 28 dB 明显。FP8 通常 > 35，SVDQuant INT4 在 30 上下，NF4 W4A16 更低。
 
 ## 六、融合 kernel：引擎的"fast path"
 
@@ -338,18 +375,18 @@ Table: DiT 特有的融合 kernel 模式
 
 ### 1. 峰值的来源
 
-第一篇：FLUX 1024² 的 VAE 解码激活 2 GiB、Wan 720p 81 帧 107 GiB。解码器的最后几级在像素分辩率上以 128 通道 fp32 工作，一份特征图 = 像素数 × 128 × 4 字节。VAE 默认 **fp32**（bf16 下重建有色带与色偏——VAE 的激活范围大、对精度敏感，SGLang 的 `--vae-precision bf16` 明确标为有损）。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)：FLUX 1024² 的 VAE 解码激活 2 GiB、Wan 720p 81 帧 107 GiB。解码器的最后几级在像素分辩率上以 128 通道 fp32 工作，一份特征图 = 像素数 × 128 × 4 字节。VAE 默认 **fp32**（bf16 下重建有色带与色偏——VAE 的激活范围大、对精度敏感，SGLang 的 `--vae-precision bf16` 明确标为有损）。
 
 ### 2. tiling 与 slicing
 
 - **Tiling**（`vae.enable_tiling()`）：把 latent 切成重叠的空间 tile（如 $$64 \times 64$$ latent → $$512 \times 512$$ 像素）逐个解码，重叠区域线性混合掩盖接缝；峰值降为一个 tile 的量（1024² 切 4 块 → 0.5 GiB），时间略增（重叠部分重算）；
 - **Slicing**（`enable_slicing()`）：batch 里的多张图逐张解码——只对 batch > 1 有用；
-- **视频的时间分块**：3D VAE 的因果卷积让解码器可以按 latent 帧的 chunk 顺序解码（Wan 的 VAE 内建：每次解一个 latent 帧、缓存前面几帧的特征作为因果上下文），峰值从 107 GiB 降到一帧的量（1.3 GiB）；空间上再 tiling。HunyuanVideo 的 VAE 同样有 `enable_tiling` 的时空版本；接缝（尤其时间上的闪烁）是第九篇的故障之一；
-- **多卡**：xDiT 的 Parallel VAE 与 vLLM-Omni 的 `--vae-patch-parallel-size`——第五篇。
+- **视频的时间分块**：3D VAE 的因果卷积让解码器可以按 latent 帧的 chunk 顺序解码（Wan 的 VAE 内建：每次解一个 latent 帧、缓存前面几帧的特征作为因果上下文），峰值从 107 GiB 降到一帧的量（1.3 GiB）；空间上再 tiling。HunyuanVideo 的 VAE 同样有 `enable_tiling` 的时空版本；接缝（尤其时间上的闪烁）是[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)的故障之一；
+- **多卡**：xDiT 的 Parallel VAE 与 vLLM-Omni 的 `--vae-patch-parallel-size`——[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)。
 
 ### 3. VAE 的时间
 
-第一篇按 MFU 0.05 估 1024² 解码 100 ms、Wan 7 s。它是 memory-bound 的卷积链，融合（GroupNorm + SiLU）、bf16（有损）、channels-last 布局各能省一些；在少步模型上（FLUX-schnell 4 步 DiT 0.6 s）它占到 15%，成为第二个优化对象——第六篇。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)按 MFU 0.05 估 1024² 解码 100 ms、Wan 7 s。它是 memory-bound 的卷积链，融合（GroupNorm + SiLU）、bf16（有损）、channels-last 布局各能省一些；在少步模型上（FLUX-schnell 4 步 DiT 0.6 s）它占到 15%，成为第二个优化对象——[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)。
 
 ## 八、叠加顺序与收益表
 
@@ -368,9 +405,9 @@ FA3 · torch.compile（或 breakable CUDA graph）· warmup 预定义分辩率"]
 FP8 线性层 · SageAttention
 门限：PSNR > 35 dB"]
     S3 --> S4["有损 II：可见但可接受
-SVDQuant INT4（消费卡）· 跨步缓存（第三篇）· 稀疏 attention（第四篇）
+SVDQuant INT4（消费卡）· 跨步缓存（《跨步冗余》）· 稀疏 attention（《视频：长序列 attention》）
 门限：按产品定，PSNR 30 dB 上下"]
-    S4 --> S5["还不够 → 多卡（第五篇）或换模型（第六篇：少步）"]
+    S4 --> S5["还不够 → 多卡（《多卡并行》）或换模型（《少步与自回归》）"]
 
     classDef ok fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef warn fill:#fff7e0,stroke:#c98a00,color:#222
@@ -408,7 +445,7 @@ Table: FLUX.1-dev 1024² 28 步各配置的时间与显存
 
 Table: Wan2.1-14B 720p 单卡各配置的时间与显存
 
-视频模型的单卡优化里 **attention 后端是主项、量化是次项**——与图像相反。再往下就是第四篇的稀疏 attention 与第五篇的多卡。
+视频模型的单卡优化里 **attention 后端是主项、量化是次项**——与图像相反。再往下就是[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的稀疏 attention 与[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)的多卡。
 
 ### 4. 实现对照
 
@@ -421,14 +458,14 @@ Table: Wan2.1-14B 720p 单卡各配置的时间与显存
 | CUDA graph | — | `--enable-breakable-cuda-graph`（`runtime/breakable_cuda_graph/`） | 无通用的 DiT CUDA graph；个别 pipeline（DreamZero）对编码器用 `torch.compile` 的 `reduce-overhead` 模式 | — |
 | FP8 | `torchao` / `PipelineQuantizationConfig` | ModelOpt checkpoint：`--transformer-path` | `quantization_config` 设 `fp8`（在线动态 FP8，`--diffusion-quantization-config`；入口 `vllm_omni/quantization/factory.py`）；`diffusion/quantization/hsdp_fp8.py` 是它与 FSDP 的兼容层 | `--use_fp8_gemms`（`core/utils/runner_utils.py::quantize_linear_layers_to_fp8`、`model_executor/layers/fp8_linear.py`） |
 | INT4 / NVFP4 | `NunchakuLiteQuantizationConfig`（`quantizers/nunchaku/`） | `--enable-svdquant --transformer-weights-path`；`runtime/pipelines/flux_2_nvfp4.py` | ModelOpt NVFP4（`modelopt_fp4`）、SVDQuant NVFP4（`quantization/svdquant_config.py`） | `--use_fp4_gemms`（`quantize_linear_layers_to_fp4` / `_to_nvfp4`，部分模型） |
-| VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.use-tiling` / `use-temporal-tiling` 等；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（第五篇） |
+| VAE 分块 | `vae.enable_tiling()` / `enable_slicing()` | `--vae-config.use-tiling` / `use-temporal-tiling` 等；`runtime/pipelines_core/stages/` | `distributed/vae_patch_parallel.py`、`--vae-use-tiling` | Parallel VAE（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)） |
 | 融合 fast path | — | `runtime/layers/fused_scale_shift_gate.py`、`--quality high` | `diffusion/layers/fused_qk_norm_rope.py` 等 | — |
 
 Table: 单卡优化机制在四个引擎里的实现对照
 
 ### 5. 实践建议
 
-一张 24 GB 以上的卡、diffusers、FLUX.1-dev、20 个固定 prompt 与 seed：按第 1 小节的顺序逐项打开，每一项记录每步耗时（用 `torch.cuda.Event` 夹住 transformer 的 forward，排除第一次编译）、峰值显存（`torch.cuda.max_memory_allocated`）、对基线图的 PSNR / SSIM / LPIPS。该看的：compile 的 1.5×、FA3 的 5–10%、FP8 的 1.3–1.4×、SVDQuant 在 4090 上的 3×；PSNR 从 > 40（compile）到 ~36（FP8）到 ~30（INT4）；文字与手指最先变。把这条"加速比—质量"曲线画出来，它是第九篇配置推导的输入。
+一张 24 GB 以上的卡、diffusers、FLUX.1-dev、20 个固定 prompt 与 seed：按第 1 小节的顺序逐项打开，每一项记录每步耗时（用 `torch.cuda.Event` 夹住 transformer 的 forward，排除第一次编译）、峰值显存（`torch.cuda.max_memory_allocated`）、对基线图的 PSNR / SSIM / LPIPS。该看的：compile 的 1.5×、FA3 的 5–10%、FP8 的 1.3–1.4×、SVDQuant 在 4090 上的 3×；PSNR 从 > 40（compile）到 ~36（FP8）到 ~30（INT4）；文字与手指最先变。把这条"加速比—质量"曲线画出来，它是[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)配置推导的输入。
 
 ## 九、本文小结
 
@@ -449,11 +486,11 @@ Table: 单卡扩散执行的规则与数字小结
 
 ### 下一篇
 
-单卡把 $$\eta$$ 从 0.31 推到 0.5 以上之后，下一个大项是账上的 $$T$$：28 步里有多少步的网络输出与上一步几乎相同、可以不算？第三篇讨论跨步冗余——TeaCache、First-Block Cache、Cache-DiT 一族的缓存与跳步，它们把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"。
+单卡把 $$\eta$$ 从 0.31 推到 0.5 以上之后，下一个大项是账上的 $$T$$：28 步里有多少步的网络输出与上一步几乎相同、可以不算？[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)讨论跨步冗余——TeaCache、First-Block Cache、Cache-DiT 一族的缓存与跳步，它们把"$$T$$"换成"$$T_\text{full} + T_\text{hit} \cdot \epsilon$$"。
 
 ## 十、自测
 
-1. 逐层 offload（`--dit-layerwise-offload`）在 Wan 14B 视频上"几乎免费"，在 FLUX 图像上让每步慢好几倍。用第一篇的数字解释：判据是什么？两个模型各是多少？
+1. 逐层 offload（`--dit-layerwise-offload`）在 Wan 14B 视频上"几乎免费"，在 FLUX 图像上让每步慢好几倍。用[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的数字解释：判据是什么？两个模型各是多少？
 
    <details markdown="1">
    <summary>答案</summary>
@@ -478,7 +515,7 @@ Table: 单卡扩散执行的规则与数字小结
 
    <details markdown="1">
    <summary>答案</summary>
-   每个新的 $$(H, W)$$ 组合都是新形状，触发重编译（FLUX 一次 1–3 分钟），分辩率组合多时不断重编译。对策：只允许一组预定义分辩率并在启动时预编译（`--warmup-resolutions`）；或 `dynamic=True` 用符号形状（GEMM 调优变弱）。第九篇称之为"重编译风暴"。详见[第四章](#四编译与-cuda-graph)。
+   每个新的 $$(H, W)$$ 组合都是新形状，触发重编译（FLUX 一次 1–3 分钟），分辩率组合多时不断重编译。对策：只允许一组预定义分辩率并在启动时预编译（`--warmup-resolutions`）；或 `dynamic=True` 用符号形状（GEMM 调优变弱）。[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)称之为"重编译风暴"。详见[第四章](#四编译与-cuda-graph)。
    </details>
 
 5. SageAttention 把 Q·K 量化到 INT8，LLM 上会改变生成的 token，扩散上却几乎不可见。两个原因？它仍然被列为"有损"，最先坏的是什么？
