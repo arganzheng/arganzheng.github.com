@@ -77,9 +77,9 @@ Table: 路径上的每一段：带宽由什么决定、在哪里查、本文数�
 | NVLink（每 GPU 总计） | A100 第三代，12 链路 | 300 GB/s | 600 GB/s | NCCL 内部按每链路 20 GB/s 估算 |
 | NVLink（每 GPU 总计） | H100 第四代，18 链路 | 450 GB/s | 900 GB/s | NCCL 内部按每链路 20.6 GB/s 估算 |
 | NVLink（每 GPU 总计） | Blackwell 第五代，18 链路 | 900 GB/s | 1.8 TB/s | NCCL 内部按每链路 40.1 GB/s 估算 |
-| PCIe x16 | 3.0 | ≈ 16 GB/s | ≈ 32 GB/s | 实测通常 80–90% |
-| PCIe x16 | 4.0 | ≈ 32 GB/s | ≈ 64 GB/s | 实测通常 80–90% |
-| PCIe x16 | 5.0 | ≈ 64 GB/s | ≈ 128 GB/s | 实测通常 80–90% |
+| PCIe x16 | 3.0 | ≈ 16 GB/s | ≈ 32 GB/s | 大块传输约 80–90% |
+| PCIe x16 | 4.0 | ≈ 32 GB/s | ≈ 64 GB/s | 大块传输约 80–90% |
+| PCIe x16 | 5.0 | ≈ 64 GB/s | ≈ 128 GB/s | 大块传输约 80–90% |
 | InfiniBand 端口 | HDR 200 Gb/s | ≈ 25 GB/s | ≈ 50 GB/s | 一张网卡一个端口 |
 | InfiniBand 端口 | NDR 400 Gb/s | ≈ 50 GB/s | ≈ 100 GB/s | 一张网卡一个端口 |
 | CPU 间互联 | UPI / Infinity Fabric | 数十 GB/s | — | NCCL 按 CPU 型号取 6–40 GB/s |
@@ -93,7 +93,7 @@ Table: 各种链路的单向带宽
 《集合通信原语与代价模型》的"两本账"落到硬件上，各有各的来源：
 
 - **带宽的账**看链路速率和路径上最窄的一段。GPU 经 PCIe 4.0 x16 发到网卡再上 HDR 200 Gb/s 的网络，瓶颈是 25 GB/s 的网卡而不是 32 GB/s 的 PCIe；如果这条路还要经过 CPU 的 root complex 和 UPI，瓶颈就变成 UPI 和 root complex 里的 P2P 转发能力。
-- **延迟的账**看路径上的跳数和每一跳的处理时间。NVLink 上 GPU 直接读写对端显存，一跳；PCIe P2P 经 switch 转发，一到两跳，每跳几百纳秒；经 root complex 要多穿一次 CPU 的 IOMMU 与内部互联；跨节点要经过网卡的 DMA、网络交换机、对端网卡，端到端的单边 RDMA WRITE 通常在 1–2 微秒量级（非实测）；如果不能绕过主机内存，还要加上两次拷贝和一次 CPU 参与。
+- **延迟的账**看路径上的跳数和每一跳的处理时间。NVLink 上 GPU 直接读写对端显存，一跳；PCIe P2P 经 switch 转发，一到两跳，每跳亚微秒级；经 root complex 要多穿一次 CPU 的 IOMMU 与内部互联；跨节点要经过网卡的 DMA、网络交换机、对端网卡，端到端的单边 RDMA WRITE 通常在 1–2 微秒量级（非实测）；如果不能绕过主机内存，还要加上两次拷贝和一次 CPU 参与。
 
 这一篇主要填带宽的账，因为它由硬件直接决定；延迟的账里硬件的贡献（链路延迟、跳数）通常只占一小部分，大部分来自软件——kernel 启动、协议握手、proxy 线程——留到[《NCCL 架构：拓扑探测、channel、算法与协议》](/nccl-architecture-topology-channels-algorithms-and-protocols.html)。
 
@@ -196,7 +196,7 @@ flowchart TB
 
 所以 PCIe P2P 的带宽从"同 switch"到"跨 socket"是一条下坡路：
 
-1. 同 switch 下能接近链路带宽的 80–90%；
+1. 同 switch 下大块传输能接近链路带宽的 80–90%；
 2. 经 root complex 通常明显更低，且随 CPU 平台差异很大；
 3. 跨 socket 最差。
 
@@ -208,7 +208,7 @@ NCCL 对这几段各有一个内部估算值，见本章第 5 节。
 
 第一类是**平台不支持经 root complex 的 P2P**。某些 CPU 或 BIOS 不允许根端口之间转发 P2P 事务，或者转发时不保证写顺序；NVIDIA 驱动维护一份平台白名单，白名单之外跨 root complex 的 P2P 会被直接禁用。此时 NCCL 会回落到经主机内存的 SHM transport（第七章）。
 
-第二类是 **ACS（Access Control Services）**。ACS 是 PCIe switch 下游端口上的一组安全特性，本意是在虚拟化场景下防止一个设备直接访问另一个设备——启用 ACS 的 Source Validation / P2P Request Redirect 后，switch 不再直接在下游端口之间转发 P2P TLP，而是把它们全部**重定向到 root complex**，由 IOMMU 做地址翻译和权限检查再送回来。结果是：即使两张 GPU 在同一个 switch 下，P2P 流量也被迫走 root complex，带宽掉到经 root complex 的水平，延迟翻倍；某些平台上干脆失败。裸金属、单租户的训练机上通常在 BIOS 里关闭 ACS，或者用 `setpci` 清掉每个下游端口的 ACS 控制位——但要清楚这是在关闭 PCIe 的访问控制，设备之间不再有 IOMMU 隔离，只应在理解风险、且机器不跑不可信负载时做；容器或虚机场景下如果需要 IOMMU 隔离，就要接受这个代价，或者用 ATS（Address Translation Services）让设备缓存翻译结果。检查方法：
+第二类是 **ACS（Access Control Services）**。ACS 是 PCIe switch 下游端口上的一组安全特性，本意是在虚拟化场景下防止一个设备直接访问另一个设备——启用 ACS 的 Source Validation / P2P Request Redirect 后，switch 不再直接在下游端口之间转发 P2P TLP，而是把它们全部**重定向到 root complex**，由 IOMMU 做地址翻译和权限检查再送回来。结果是：即使两张 GPU 在同一个 switch 下，P2P 流量也被迫走 root complex，带宽退到经 root complex 的水平、延迟明显上升，某些平台上干脆失败；掉多少要用本章第九节的 nvbandwidth 在本机测。裸金属、单租户的训练机上通常在 BIOS 里关闭 ACS，或者用 `setpci` 清掉每个下游端口的 ACS 控制位——但要清楚这是在关闭 PCIe 的访问控制，设备之间不再有 IOMMU 隔离，只应在理解风险、且机器不跑不可信负载时做；容器或虚机场景下如果需要 IOMMU 隔离，就要接受这个代价，或者用 ATS（Address Translation Services）让设备缓存翻译结果。检查方法：
 
 ```bash title='找出开启 ACS 的 PCIe 桥与 IOMMU 状态'
 # 找出所有开启了 ACS 的 PCIe 桥（ACSCtl 里 SrcValid+ / ReqRedir+ 即为开启）
@@ -221,7 +221,7 @@ dmesg | grep -i -E 'DMAR|IOMMU' | head
 cat /proc/cmdline    # 看有没有 intel_iommu=on / amd_iommu=on / iommu=pt
 ```
 
-一台"看起来拓扑完美"的机器，P2P 带宽却只有 PCIe 直连的一半，ACS 是第一个要查的。
+一台"看起来拓扑完美"的机器，P2P 带宽却明显低于 PCIe 直连，ACS 是第一个要查的。
 
 ### 5. NCCL 如何估算 PCIe 带宽
 
@@ -406,7 +406,7 @@ Table: 每张 H100 的三条对外链路与整机汇总
 
 三个观察：
 
-- **网卡速率与 GPU 的 PCIe 代际匹配。** 50 GB/s 的网卡占用 64 GB/s 的 PCIe 5.0 x16 的 78%。A100 时代同样：HDR 25 GB/s 对 PCIe 4.0 x16 的 32 GB/s，也是 78%。Blackwell 平台上 CX-8 800 Gb/s = 100 GB/s 已经超过 PCIe 5.0 x16 的 64 GB/s，所以这一代要么网卡走 PCIe 6.0 x16（128 GB/s，又回到 78%），要么改用 NVLink/C2C 之类的直连方式绕开 PCIe——具体取决于平台。网卡速率是按"一张 GPU 的 PCIe 链路能喂饱一张网卡"选的，再快 PCIe 就成了瓶颈。
+- **网卡速率与 GPU 的 PCIe 代际匹配。** 50 GB/s 的网卡占用 64 GB/s 的 PCIe 5.0 x16 的 78%——这是网卡净线速除以 PCIe 槽裸带宽的设计留量，不是协议效率。A100 时代同样：HDR 25 GB/s 对 PCIe 4.0 x16 的 32 GB/s，也是 78%。Blackwell 平台上 CX-8 800 Gb/s = 100 GB/s 已经超过 PCIe 5.0 x16 的 64 GB/s，所以这一代要么网卡走 PCIe 6.0 x16（128 GB/s，又回到 78%），要么改用 NVLink/C2C 之类的直连方式绕开 PCIe——具体取决于平台。网卡速率是按"一张 GPU 的 PCIe 链路能喂饱一张网卡"选的，再快 PCIe 就成了瓶颈。
 - **一张 GPU 配一张网卡，因为两张 GPU 共享一张网卡会让每卡的节点间带宽减半，而 PCIe 上行也不够。** GPU 与网卡放在同一个 switch 下，GPU 到网卡的 DMA（GPUDirect RDMA）在 switch 内完成，不占 CPU 方向的上行链路——这是拓扑上 `PIX` 的由来，也是 GPUDirect RDMA 能跑满的前提。
 - **节点内比节点间快 7–9 倍**（H100 NVLink 单向标称 450 GB/s 对网卡 50 GB/s 是 9 倍；换成 NCCL 自己的可用估算 371 GB/s 是 7.4 倍。这里比的是**整机对整机**——8 × 450 GB/s 对 8 × 50 GB/s——与《集合通信原语与代价模型》里**每卡对每卡**的倍数相同，分子分母都乘了 8），这就是分层算法（[《集合通信原语与代价模型》的「分层与多级算法」一节](/collective-communication-primitives-and-cost-model.html#八分层与多级算法)）的物理依据：节点内先用 NVLink 做 reduce_scatter，只把 1/8 的数据送出网卡，再在节点间做 all_reduce，最后节点内 all_gather。不做分层直接在 64 卡上跑一个大 ring，每一步的带宽被最慢的那条边（网卡）限制在 50 GB/s，NVLink 的 450 GB/s 就浪费了。
 
@@ -414,7 +414,7 @@ Table: 每张 H100 的三条对外链路与整机汇总
 
 ### 4. 网卡在延迟账上的位置
 
-网卡路径的 α 也比 NVLink 大。一次 RDMA WRITE 从发起到对端可见，经过：发送方 GPU 数据在显存里就位 → CPU proxy 线程往网卡的发送队列写 Work Request（用户态，几百纳秒）→ 网卡 DMA 从显存读数据（PCIe 一次往返，约 1 µs）→ 网络传输与交换机转发（每跳几百纳秒，两层 fat-tree 三跳）→ 对端网卡 DMA 写入显存 → 完成通知回到 proxy 线程。端到端 1.5–3 µs（非实测，`ib_write_lat` 在两台直连机器上通常给出 1–2 µs 的数字）。而 NVLink 一跳不到 1 µs 且无 CPU 参与。跨节点 ring 每一步的 α 因此至少多几微秒。NCCL 调优表里 NET 档 Ring 的每步延迟按协议分三档：LL 2.7 µs、LL128 4.0 µs、Simple 14 µs（`src/graph/tuning.cc` 的 `hwLatencies`）；再摊上与步数无关的基础项 `baseLatencies`（Ring 的 LL / LL128 / Simple 为 6.6 / 14.0 / 8.4 µs）以及 proxy 线程的轮询周期与调度抖动，就是[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里「IB 上一步 5–20 µs」这个区间的来处。64 KB 这种小消息走 LL，一次 all_reduce 在 8 卡 NVLink 上可能 15–20 µs 完成（14 × 0.6 µs 再加基础项），在 2 机 16 卡 IB 上通常要 50–100 µs——这两个数的差别几乎全是 α，与带宽无关。
+网卡路径的 α 也比 NVLink 大。一次 RDMA WRITE 从发起到对端可见，经过：发送方 GPU 数据在显存里就位 → CPU proxy 线程往网卡的发送队列写 Work Request（用户态，几百纳秒）→ 网卡 DMA 从显存读数据（PCIe 一次往返，约 1 µs）→ 网络传输与交换机转发（每跳亚微秒级，两层 fat-tree 三跳；交换机厂商不公布 port-to-port 延迟指标）→ 对端网卡 DMA 写入显存 → 完成通知回到 proxy 线程。端到端 1.5–3 µs（非实测，`ib_write_lat` 在两台直连机器上通常给出 1–2 µs 的数字）。而 NVLink 一跳不到 1 µs 且无 CPU 参与。跨节点 ring 每一步的 α 因此至少多几微秒。NCCL 调优表里 NET 档 Ring 的每步延迟按协议分三档：LL 2.7 µs、LL128 4.0 µs、Simple 14 µs（`src/graph/tuning.cc` 的 `hwLatencies`）；再摊上与步数无关的基础项 `baseLatencies`（Ring 的 LL / LL128 / Simple 为 6.6 / 14.0 / 8.4 µs）以及 proxy 线程的轮询周期与调度抖动，就是[《集合通信原语与代价模型》](/collective-communication-primitives-and-cost-model.html)里「IB 上一步 5–20 µs」这个区间的来处。64 KB 这种小消息走 LL，一次 all_reduce 在 8 卡 NVLink 上可能 15–20 µs 完成（14 × 0.6 µs 再加基础项），在 2 机 16 卡 IB 上通常要 50–100 µs——这两个数的差别几乎全是 α，与带宽无关。
 
 ## 五、读拓扑：`nvidia-smi topo -m`、`lspci -tv` 与 `topo -mp`
 
@@ -428,7 +428,7 @@ Table: 每张 H100 的三条对外链路与整机汇总
 | `NV#` | 经 # 条绑定的 NVLink | GPU ↔ NVSwitch ↔ GPU | # × 25 GB/s（第三/四代），A100 NV12 = 300，H100 NV18 = 450 |
 | `PIX` | 至多经过一个 PCIe bridge | 同一个 PCIe switch 下 | 接近 PCIe 链路带宽（4.0 x16 ≈ 25–28，5.0 x16 ≈ 50–55） |
 | `PXB` | 经过多个 PCIe bridge，但不经 host bridge | 两级 PCIe switch 之间 | 略低于 PIX |
-| `PHB` | 经过 PCIe host bridge（通常即 CPU 的 root complex） | 同一颗 CPU 下不同根端口 | 受 root complex 转发能力限制，通常明显低于 PIX；Intel 平台可能只有一半 |
+| `PHB` | 经过 PCIe host bridge（通常即 CPU 的 root complex） | 同一颗 CPU 下不同根端口 | 受 root complex 转发能力限制，通常明显低于 PIX；NCCL 为此对 Intel 平台的 GPU–GPU PCIe 带宽单独打折（`src/graph/topo.cc`） |
 | `NODE` | 经过 PCIe 与同一 NUMA 节点内多个 host bridge 之间的互联 | 同一 NUMA 节点、不同 host bridge | 与 PHB 相近或更低 |
 | `SYS` | 经过 PCIe 与 NUMA 节点之间的 SMP 互联（QPI/UPI） | 跨 CPU socket | 最低，NCCL 按 CPU 型号估 6–40 GB/s，且 P2P 可能不可用 |
 
@@ -576,7 +576,7 @@ NCCL 内部对路径的分类与 `nvidia-smi` 几乎一一对应，定义在 `sr
 
 ### 1. socket、内存节点与 PCIe 设备的归属
 
-双路服务器有两颗 CPU，每颗有自己的内存控制器和自己的 PCIe root complex。操作系统把"一颗 CPU + 它直连的内存 + 它直连的 PCIe 设备"叫一个 NUMA 节点。跨节点访问内存要经过 UPI，延迟高 50–100%、带宽受 UPI 限制；跨节点访问 PCIe 设备同理。每个 PCIe 设备属于且只属于一个 NUMA 节点，内核在 `/sys` 里给出：
+双路服务器有两颗 CPU，每颗有自己的内存控制器和自己的 PCIe root complex。操作系统把"一颗 CPU + 它直连的内存 + 它直连的 PCIe 设备"叫一个 NUMA 节点。跨节点访问内存要经过 UPI，延迟明显高于本地、带宽受 UPI 限制（具体幅度随平台差异很大，用 Intel MLC 在本机测）；跨节点访问 PCIe 设备同理。每个 PCIe 设备属于且只属于一个 NUMA 节点，内核在 `/sys` 里给出：
 
 ```bash title='按 /sys 查每张 GPU / NIC 的 NUMA 节点与本地 CPU'
 # 每张 GPU 属于哪个 NUMA 节点、本地 CPU 是哪些
@@ -624,7 +624,7 @@ flowchart TB
     BT["<b>proxy 线程</b><br/>跑在 CPU1 的核上"]
     BB["<b>pinned staging buffer</b><br/>first-touch 落在 DRAM1"]
     BN["<b>NIC0</b><br/>仍挂在 CPU0 下"]
-    BT == "每次 doorbell 写、每次 CQ 轮询<br/>都跨 UPI，单次多几百纳秒" ==> BN
+    BT == "每次 doorbell 写、每次 CQ 轮询<br/>都跨 UPI，单次多出一段亚微秒开销" ==> BN
     BT -- "本地内存读写" --> BB
     BB == "网卡 DMA 跨 UPI 去读" ==> BN
   end
@@ -671,7 +671,7 @@ proxy 线程的亲和另有一个入口：`src/proxy.cc` 里 `ncclGetEnv("NCCL_P
 
 ### 1. pinned memory：DMA 的前提
 
-GPU 的 DMA 引擎和网卡的 DMA 引擎都按物理地址工作，且不理解操作系统的换页。普通 `malloc` 的内存可能被换出、物理页可能被内核挪动，设备不能直接 DMA 它。**pinned memory**（页锁定内存，`cudaHostAlloc`/`cudaMallocHost`，或 `mlock` 加设备注册）把一段虚拟地址固定在特定物理页上，并把物理地址告知设备，之后设备可以随时读写它。这是 GPU ↔ 主机内存拷贝跑满 PCIe 的前提（pageable 内存的拷贝要先由 CPU 拷进一块临时 pinned buffer，带宽掉到一半以下），也是 RDMA 内存注册（`ibv_reg_mr`，见[《RDMA 与 GPUDirect》的「内存注册的代价与 MR cache」一节](/rdma-and-gpudirect.html#七内存注册的代价与-mr-cache)）在做的事。
+GPU 的 DMA 引擎和网卡的 DMA 引擎都按物理地址工作，且不理解操作系统的换页。普通 `malloc` 的内存可能被换出、物理页可能被内核挪动，设备不能直接 DMA 它。**pinned memory**（页锁定内存，`cudaHostAlloc`/`cudaMallocHost`，或 `mlock` 加设备注册）把一段虚拟地址固定在特定物理页上，并把物理地址告知设备，之后设备可以随时读写它。这是 GPU ↔ 主机内存拷贝跑满 PCIe 的前提（pageable 内存的拷贝要先由 CPU 拷进一块临时 pinned buffer，带宽明显下降——同一台机器上 `bandwidthTest` 的 pinned 与 pageable 两行就是这个差距），也是 RDMA 内存注册（`ibv_reg_mr`，见[《RDMA 与 GPUDirect》的「内存注册的代价与 MR cache」一节](/rdma-and-gpudirect.html#七内存注册的代价与-mr-cache)）在做的事。
 
 pinned memory 有代价：分配慢（要 pin 页、建立映射），占用不能被换出的物理内存，且属于某个 NUMA 节点。NCCL 在初始化时预分配好各 transport 需要的 pinned buffer 并反复使用，就是为了不在通信路径上付这个代价。
 
@@ -820,7 +820,7 @@ cuda-samples 里的 `p2pBandwidthLatencyTest` 打印四张矩阵：P2P 关闭与
 
 | GPU 0 → | 关 P2P 带宽 | 开 P2P 带宽 | 关 P2P 延迟 | 开 P2P 延迟 | 关 P2P 时走的路 |
 |---|---:|---:|---:|---:|---|
-| GPU 0（本地拷贝） | 1500 GB/s | 1500 GB/s | 1.8 µs | 1.8 µs | 不出 HBM |
+| GPU 0（本地拷贝） | 1200–1350 GB/s | 1200–1350 GB/s | 1.8 µs | 1.8 µs | 不出 HBM，约为 HBM2e 标称 1555 GB/s 的八成 |
 | GPU 1（同 socket） | 20.5 GB/s | 270.1 GB/s | 18.9 µs | 2.1 µs | 经主机内存 staging |
 | GPU 2（同 socket） | 20.3 GB/s | 269.8 GB/s | 19.2 µs | 2.1 µs | 经主机内存 staging |
 | GPU 3（跨 socket） | 11.2 GB/s | 268.9 GB/s | 22.5 µs | 2.2 µs | 经主机内存 staging，再跨 UPI |
@@ -876,7 +876,7 @@ Table: 比一比：差距的解释与检查清单
 
 ### 1. 要点回顾
 
-- 节点内三种速度量级：NVLink（A100 单向 300 GB/s、H100 450 GB/s、Blackwell 900 GB/s；厂商的 600/900/1800 是双向合计）、PCIe（x16 单向 3.0/4.0/5.0 ≈ 16/32/64 GB/s，可达 80–90%）、跨 socket 的 UPI（NCCL 按 6–40 GB/s 估算）。节点间是网卡：HDR 25 GB/s、NDR 50 GB/s 单向。
+- 节点内三种速度量级：NVLink（A100 单向 300 GB/s、H100 450 GB/s、Blackwell 900 GB/s；厂商的 600/900/1800 是双向合计）、PCIe（x16 单向 3.0/4.0/5.0 ≈ 16/32/64 GB/s，大块传输可达 80–90%，小块会低得多）、跨 socket 的 UPI（NCCL 按 6–40 GB/s 估算）。节点间是网卡：HDR 25 GB/s、NDR 50 GB/s 单向。
 - PCIe 是树：root complex → switch → endpoint。同 switch 下的 P2P 在 switch 内转发（`PIX`/`PXB`），经 root complex（`PHB`/`NODE`）带宽打折且可能不支持，跨 socket（`SYS`）最差。ACS 会把 switch 内的 P2P 强制重定向到 root complex，是"拓扑完美但 P2P 慢"的首要嫌疑。
 - NVSwitch 让 8 卡任意两两之间都能用满全部 NVLink 链路（`NV12`/`NV18` 清一色），节点内 β 是常数。NVLink 上的 all_reduce 在几 MB 之后就是带宽主导，因为 β 大、α 小、且没有 CPU proxy 参与；NVLink SHARP（NVLS）在 Hopper 起让交换机做归约，busbw 可以超过 ring 的理论系数。
 - 8 卡配 8 张网卡、每张网卡的速率约为 GPU PCIe 链路的 78%（HDR/4.0、NDR/5.0、800G/6.0 都是这个比例），每张 GPU 与自己的网卡同 switch。整机 NVLink 交换容量是网卡总带宽的 7–9 倍（标称 450 GB/s 对 50 GB/s 是 9 倍，按 NCCL 可用估算 371 GB/s 是 7.4 倍），这是分层算法的物理依据。RoCE v2 必须配 PFC + ECN，否则 Go-Back-N 重传让带宽崩塌。
