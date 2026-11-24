@@ -13,15 +13,48 @@ date: 2026-07-18 18:00:00
 
 
 
-上一篇（[02《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）给出每参数 16 字节与各并行维度的通信账。本篇沿同一条 bf16 参数的生命线读 torchtitan v0.3.0：常驻的是 fp32 `Shard(0)` DTensor 分片，bf16 只在每层计算期间临时出现。参数通信由 FSDP hook 与 DTensor placement 驱动。三个框架并排的对照在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 torchtitan。
+[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)给出每参数 16 字节与各并行维度的通信账。本篇沿同一条 bf16 参数的生命线读 torchtitan v0.3.0：常驻的是 fp32 `Shard(0)` DTensor 分片，bf16 只在每层计算期间临时出现。参数通信由 FSDP hook 与 DTensor placement 驱动。三个框架并排的对照在[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 torchtitan。
 
 > **一个 bf16 参数在 torchtitan 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
 ## 一、总览
 
-先看 train-ledger 的 8 卡配置：FSDP 4 × TP 2，开启 sequence parallel（SP），不启用 PP。FSDP 的 `dp_shard` 组沿四张卡切分，TP 组两张卡配对。F1 画出这张网格，以及某一层 unshard 之后的参数形态。
+本篇按「配置 → 网格 → 分片 → 一次 step」的顺序组织，因为 torchtitan 自己就是这个顺序：配置函数说要什么并行度，`ParallelDims` 把 world rank 排成网格，模型先在 meta 设备上定形状再按网格分片，之后每个 step 都在这组分片上做 unshard、计算、reduce-scatter。下图是这条主线，每个方框标出对应的章节。
 
-![F1：8 张 rank 排成 4×2 的 DeviceMesh，上排 tp0（rank 0/2/4/6）、下排 tp1（rank 1/3/5/7）；卡名下方的彩色横条按 dp_shard 位着色（dp0 蓝、dp1 绿、dp2 橙、dp3 紫）；同一列两张卡是 TP 组，同一行四张卡是 dp_shard 组；每张卡常驻 fp32 参数、梯度和 Adam 状态的分片；下方显示某层 unshard 后沿 dp_shard 临时拼出的 bf16 参数](/img/in-post/torchtitan-f1-device-mesh.svg)
+```mermaid
+%% 图：一次 step 在 torchtitan 里的主线
+flowchart TB
+    CFG["<b>配置函数（第四章）</b><br/>• 一个返回 Trainer.Config 的 Python 函数<br/>• 本篇用 FSDP 4 × TP 2、开 SP、无 PP"]
+    DIMS["<b>ParallelDims.build_mesh()（第五章）</b><br/>• 1D world mesh 用 _unflatten() 展开成多维视图<br/>• 按轴名取 dataloading / loss / dense / sparse<br/>• 每条轴对应一个 ProcessGroup"]
+    META["<b>Trainer.__init__ 装配（第六章第 2 节）</b><br/>• meta 设备上构造：只有形状，没有存储<br/>• 先并行化，再 to_empty + init_weights<br/>• 优化器拿到的已经是分片"]
+    PPCP["<b>pipeline_llm() 与 context_parallel/（第六章第 5 节）</b><br/>• PP 先按 stage 切 module、建 PipelineStage<br/>• 每个 model part 再各自做下面两步<br/>• CP 切序列，cp 轴并入 FSDP 分片维"]
+    TP["<b>ShardingConfig → Module.parallelize()（第六章第 3 节）</b><br/>• state_shardings 声明参数 placement<br/>• 输入 / 输出 shardings 声明激活 placement<br/>• distribute_tensor 把参数变成 DTensor"]
+    FSDP["<b>apply_fsdp_to_decoder()（第六章第 4 节）</b><br/>• 每个 Transformer 层一个 fully_shard 单元<br/>• 参数沿 dp_shard 切成 fp32 Shard(0)<br/>• MixedPrecisionPolicy 定 bf16 算、fp32 归约"]
+    STEP["<b>train_step()（第六章第 6、7 节）</b><br/>• 计算前 unshard：all-gather 出完整 bf16<br/>• 反向后 foreach_reduce：fp32 reduce-scatter<br/>• clip_grad_norm_ 直接在分片上算范数"]
+    COMP["<b>components/ 的常驻组件（第六章第 1、7 节）</b><br/>• OptimizersContainer：AdamW 在本地分片上更新<br/>• CheckpointManager：DCP 直接存 DTensor 分片<br/>• MetricsProcessor：loss_mesh 上归约后记录"]
+    ACT["<b>_Action 动作表（第七章）</b><br/>• PP 调度翻译成按时间步排列的动作<br/>• UNSHARD / RESHARD / REDUCE_GRAD 也是动作"]
+    CFG --> DIMS --> META --> PPCP --> TP --> FSDP --> STEP --> COMP
+    COMP -. "下一个 step" .-> STEP
+    STEP -. "开 PP 时由动作表驱动" .-> ACT
+    classDef plan fill:#e0f2fe,stroke:#0369a1;
+    classDef shard fill:#fde68a,stroke:#b45309;
+    class CFG,DIMS plan;
+    class TP,FSDP shard;
+```
+
+- **配置函数**（[第四章](#四最小任务runstitan)）：一次运行就是一个返回 `Trainer.Config` 的函数，并行度、精度、批次、数据集、profiler 都写在里面，没有另一套 YAML 需要对照。
+- **`ParallelDims.build_mesh()`**（[第五章](#五进程组paralleldims-与-devicemesh)）：先建一维 world mesh，再按不同轴顺序 `_unflatten()` 出几张视图；后面所有并行模块都只按轴名取子网格，不需要自己枚举 rank。
+- **`Trainer.__init__`**（[第六章第 2 节](#2-trainer__init__装配顺序就是架构)）：装配顺序就是架构——meta 构造、并行化、`to_empty()`、`init_weights()`、再建优化器，所以参数第一次拿到真实存储时已经知道自己属于哪张卡。
+- **`pipeline_llm()` 与 `context_parallel/`**（[第六章第 5 节](#5-pp-与-cp)）：PP 是最外层的切分，它先把 module 切成 stage，再对每个 model part 调用 `parallelize_fn`；CP 只切序列，不改参数形状。本篇的 8 卡配置两者都不开。
+- **`ShardingConfig`**（[第六章第 3 节](#3-tp从-parallelstyle-到-shardingconfig)）：v0.3.0 默认把 TP / SP 的切法写成声明式配置，通信由 source 与 destination placement 的差异推导，而不是在模型代码里手写 all-reduce。
+- **`apply_fsdp_to_decoder()`**（[第六章第 4 节](#4-fsdp2apply_fsdp_to_decoder)）：决定参数什么时候是分片、什么时候是完整的——一层一个 FSDP 单元，一层一次 all-gather。
+- **`train_step()`**（[第六章第 7 节](#7-训练循环train_step)，参数状态的逐时刻变化在[第 6 节](#6-一个-bf16-参数的一生torchtitan)）：循环里能看到的集合通信只有全局 token 数与范数归约，参数通信全藏在 FSDP hook 与 DTensor 的 placement 转换里。
+- **`components/` 的组件**（[第六章第 1 节](#1-目录地图)）：优化器、checkpoint、metrics 都是可替换的 `Configurable`，它们直接消费 DTensor 分片，不需要先把参数拼回完整形状。
+- **`_Action` 动作表**（[第七章](#七1f1bpytorch-的动作表写法)）：PyTorch 把 1F1B 这类过程式调度翻译成一张动作表，连 FSDP 的 unshard / reshard 都是表里的一行，所以自定义调度可以用 CSV 描述。
+
+先看 train-ledger 的 8 卡配置：FSDP 4 × TP 2，开启 sequence parallel（SP），不启用 PP。FSDP 的 `dp_shard` 组沿四张卡切分，TP 组两张卡配对。下面这张 DeviceMesh 网格图画出 8 张卡的排列，以及某一层 unshard 之后的参数形态。
+
+![8 张 rank 排成 4×2 的 DeviceMesh，上排 tp0（rank 0/2/4/6）、下排 tp1（rank 1/3/5/7）；卡名下方的彩色横条按 dp_shard 位着色（dp0 蓝、dp1 绿、dp2 橙、dp3 紫）；同一列两张卡是 TP 组，同一行四张卡是 dp_shard 组；每张卡常驻 fp32 参数、梯度和 Adam 状态的分片；下方显示某层 unshard 后沿 dp_shard 临时拼出的 bf16 参数](/img/in-post/torchtitan-f1-device-mesh.svg)
 
 同一列的两张卡组成 TP 组。开了 SP 之后，TP 组内的通信是激活的 all-gather 与 reduce-scatter：`colwise_config()` 让输出按最后一维切，`rowwise_config(output_sp=True)` 把 Partial 输出 reduce-scatter 成序列维分片（不开 SP 才是 all-reduce）。同一行的四张卡组成 `dp_shard` 组，负责参数 all-gather 与梯度 reduce-scatter。每张 rank 常驻该 TP 矩阵切片在四个 `dp_shard` rank 中的一份 fp32 DTensor 参数、fp32 梯度以及 Adam 的 $$m,v$$。norm 参数在 TP 维复制，不再按 TP 切；16 层各两个 norm 加最终 norm 共 67,584 个参数，只占 tied 总量 $$N$$ 的约 0.0055%。
 
@@ -33,9 +66,9 @@ date: 2026-07-18 18:00:00
 4. 反向前再 unshard 一次；梯度按 fp32 reduce-scatter 回各 rank 的分片，完整 bf16 参数与梯度释放。
 5. AdamW 在本地 fp32 分片上更新。更新结果已经是参数分片，不需要再做一次 all-gather；下个 step 前向时按需取回。
 
-先定义字节账里的符号：$$N$$ 是 tied 后的模型参数总数，$$N_d=4$$ 是 FSDP `dp_shard` 度数，$$N_t=2$$ 是 TP 度数。Llama 3.2 1B 的 `_1b()` 显式设置 `enable_weight_tying=True`，所以 embedding 与 lm_head 共用权重。按实际形状求和后 $$N=1,235,814,400$$；03、04 使用未绑定 embedding/head 的 $$1,498,482,688$$，差值正是词表矩阵 $$128256\times2048$$。`set_decoder_sharding_config()` 把 `tok_embeddings` 与 `lm_head` 的 weight 都声明为 TP `S(0)`，这块共享词表矩阵计入下面的 TP 切分部分。
+先定义字节账里的符号：$$N$$ 是 tied 后的模型参数总数，$$N_d=4$$ 是 FSDP `dp_shard` 度数，$$N_t=2$$ 是 TP 度数。Llama 3.2 1B 的 `_1b()` 显式设置 `enable_weight_tying=True`，所以 embedding 与 lm_head 共用权重。按实际形状求和后 $$N=1,235,814,400$$；[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html)与[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html)两篇使用未绑定 embedding/head 的 $$1,498,482,688$$，差值正是词表矩阵 $$128256\times2048$$。`set_decoder_sharding_config()` 把 `tok_embeddings` 与 `lm_head` 的 weight 都声明为 TP `S(0)`，这块共享词表矩阵计入下面的 TP 切分部分。
 
-每个由 TP 切开的参数元素，在每张卡上对应 fp32 参数 4 字节、fp32 梯度 4 字节、Adam 的 $$m,v$$ 共 8 字节。01《状态解剖》的[混合精度字节账](/training-state-anatomy-memory-and-mfu.html#三混合精度的字节账16-与-18)推导了 16 字节这个系数。因此 TP 切开的主要参数，每卡常驻：
+每个由 TP 切开的参数元素，在每张卡上对应 fp32 参数 4 字节、fp32 梯度 4 字节、Adam 的 $$m,v$$ 共 8 字节。《训练任务的状态解剖》的[「混合精度的字节账：16 与 18」](/training-state-anatomy-memory-and-mfu.html#三混合精度的字节账16-与-18)一节推导了 16 字节这个系数。因此 TP 切开的主要参数，每卡常驻：
 
 - fp32 参数分片：$$4(N-N_r)/(N_dN_t)$$ 字节。
 - fp32 梯度分片：$$4(N-N_r)/(N_dN_t)$$ 字节。
@@ -44,7 +77,41 @@ date: 2026-07-18 18:00:00
 
 这里 $$N_r=67,584$$ 是 TP 复制的 norm 参数数。总量为 $$16(N-N_r)/(N_dN_t)+16N_r/N_d$$，约 **2.472 GB（2.303 GiB）/卡**；若把 norm 也近似当成 TP 切分，误差约 0.135 MB/卡。
 
+公式里只有两个除法，代进去逐项算一遍就能核对：TP 切开的参数数是 $$N-N_r=1{,}235{,}746{,}816$$，每卡分到 $$(N-N_r)/(N_dN_t)=1{,}235{,}746{,}816/8=154{,}468{,}352$$ 个元素；norm 不按 TP 切，每卡分到 $$N_r/N_d=67{,}584/4=16{,}896$$ 个元素。
+
+| 状态 | 每卡元素数 | 字节/元素 | 每卡字节 |
+|---|---:|---:|---:|
+| fp32 参数分片 | 154,468,352 | 4 | 617,873,408 |
+| fp32 梯度分片 | 154,468,352 | 4 | 617,873,408 |
+| Adam 的 $$m,v$$ | 154,468,352 | 8 | 1,235,746,816 |
+| TP 复制的 norm 状态（参数 + 梯度 + $$m,v$$） | 16,896 | 16 | 270,336 |
+| 合计 | | | 2,471,763,968 |
+
+Table: 8 卡 FSDP 4 × TP 2 下每卡常驻状态的逐项字节
+
+合计 2,471,763,968 字节就是上面的 2.472 GB。最后一行的 270,336 字节是 norm 少切一次 TP 的代价：若它也按 TP 切，这一项只有 135,168 字节，差额正是那 0.135 MB。
+
 一个 Transformer 层有 60,821,504 个参数，其中 attention / FFN 矩阵经 TP 切半，norm 在 TP 间复制。某 rank 在该层 unshard 后临时持有约 30.41M 个 bf16 参数，约 **60.8 MB**；这是完整 `dp_shard` 维、仍为 TP 半片的参数。prefetch 还可能让下一层的参数提前进入显存。
+
+读源码时最容易混的不是函数调用，而是「这个东西是谁造的、它在谁的内存里、什么时候没了」。下表把本篇会反复出现的对象列在一起，后面各章只展开其中一个。
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| `ParallelDims` | `Trainer.__init__` 调 `ParallelDims.from_config()` | CPU 侧的 dataclass | 整个 run | 所有组件；各 rank 一份相同副本 |
+| `DeviceMesh` 视图（dense、dataloading、loss、sparse） | `ParallelDims.build_mesh()` | CPU 侧对象，背后是各轴的 communicator | 整个 run | 全部 rank 必须以同样顺序创建；并行模块按轴名取子网格 |
+| `ShardingConfig` 与 `SpmdLayout` | 模型自己的 sharding 函数，如 `set_llama3_sharding_config()` | CPU 侧元数据，挂在 module 上 | 整个 run，`Module.parallelize()` 时解析成 placement | 各 rank 完全相同，是 SPMD 的契约 |
+| fp32 `Shard(0)` DTensor 参数分片 | `fully_shard()` 定布局，`to_empty()` + `init_weights()` 分配并写值 | GPU 显存，常驻 | 整个 run | 本 rank 直接看到的是 `to_local()` 的本地块，完整张量要 `full_tensor()` |
+| 完整 bf16 参数（unshard 的结果） | `FSDPParamGroup.unshard()` 里的 `foreach_all_gather()` 与 `foreach_all_gather_copy_out()` | GPU 显存，临时 | 从 `pre_forward` 到 `post_forward` 的 `reshard()`，反向前再出现一次 | 只有本 rank 正在计算的那个 FSDP 单元 |
+| `FSDPState`、`FSDPParamGroup`、`FSDPParam` | `fully_shard()` | CPU 侧状态对象，管 GPU 上的 buffer 与 stream | 整个 run | 本 rank；根单元首次前向 `_lazy_init()` 时把同一个 `FSDPCommContext` 分发给所有单元 |
+| fp32 梯度分片（`.grad`） | `post_backward()` 的 `foreach_reduce()` | GPU 显存 | 反向结束到下一个 step 的 `zero_grad()` | 本 rank；已经 reduce-scatter 过，是全局梯度的一份 |
+| AdamW 的 $$m,v$$ | 首次 `optimizers.step()` 惰性创建 | GPU 显存，常驻 | 整个 run，随 checkpoint 存取 | 本 rank 的分片 |
+| `PipelineStage` 的收发 buffer | `PipelineStage._prepare_forward_infra()` 在首个 micro-batch 按推断形状分配 | GPU 显存 | 整个 run，按 micro-batch 复用 | 本 PP rank 与 P2P 另一端的相邻 stage |
+| 数据加载游标（`sample_idx`、`epoch`） | `HuggingFaceTextDataset` 迭代时推进 | CPU 侧 | 整个 run，进 checkpoint | 同一个 batch rank：state_dict 的键是 `dp_rank_0`、`dp_rank_1` 这样的 rank 名，DP 度数变了不能直接恢复 |
+| checkpoint 的 staging buffer | `CheckpointManager` 在 `async_mode="async_with_pinned_mem"` 下保存时 | CPU 的 pinned memory，内容从显存拷出 | 到 `maybe_wait_for_staging()` 等到 `staging_future` 完成 | 本 rank 的后台线程 |
+
+Table: torchtitan 里核心对象的创建者、所在侧与生命周期
+
+两条规律贯穿全表：常驻的东西都是分片，完整形状只在一层计算的那一瞬间出现；CPU 侧只有描述（mesh、placement、配置和游标），GPU 侧才有数据。
 
 ## 二、来龙去脉
 
@@ -68,27 +135,33 @@ Table: torchtitan 的来龙去脉
 
 ## 三、核心抽象
 
-torchtitan 的调用链从用户配置向下进入模型并行化、FSDP 与张量布局。F2 的箭头从上层指向下层，表示「上层调用 / 依赖下层」。
+torchtitan 的调用链从用户配置向下进入模型并行化、FSDP 与张量布局。下面这张七层调用关系图的箭头从上层指向下层，表示「上层调用 / 依赖下层」。
 
-![F2：配置函数、Trainer、模型并行化、FSDP / PP、DTensor、DeviceMesh 到 ProcessGroup 的七层调用关系，箭头向下表示上层调用或依赖下层](/img/in-post/torchtitan-f2-abstractions.svg)
+![配置函数、Trainer、模型并行化、FSDP / PP、DTensor、DeviceMesh 到 ProcessGroup 的七层调用关系，箭头向下表示上层调用或依赖下层](/img/in-post/torchtitan-f2-abstractions.svg)
 
 - 配置函数返回 `Trainer.Config`，由第四章的运行配置选中。
 - `Trainer` 负责装配组件、训练 step 与 checkpoint，见第六章第 1、7 节。
 - `parallelize_llama()`、`ShardingConfig`、`pipeline_llm()` 描述模型级 TP / SP / CP / PP，见第六章第 3、5 节。
 - `fully_shard()`、`FSDPState`、`FSDPParamGroup` 与 `PipelineStage` 管理参数和 stage，见第六章第 4、5、6 节。
-- `DTensor` 与 placement 表示张量分布，`redistribute()` 根据布局变化触发通信，见下方 F3。
+- `DTensor` 与 placement 表示张量分布，`redistribute()` 根据布局变化触发通信，见下面那张 placement 布局图。
 - `DeviceMesh` 把 mesh 轴映射到 rank 与进程组，见第五章。
 - `ProcessGroup` 执行 all-gather、reduce-scatter、all-reduce 等 collective。
 
-可以把 DTensor 想成「带着座位图的 Tensor」：Tensor 记录数值，DeviceMesh 记录 rank 网格，placement 记录每一维是切片、复制还是部分和。F3 用 4×4 编号张量展示三种布局；箭头表示 `redistribute()` 触发的通信。
+可以把 DTensor 想成「带着座位图的 Tensor」：Tensor 记录数值，DeviceMesh 记录 rank 网格，placement 记录每一维是切片、复制还是部分和。下面这张 placement 布局图用 4×4 编号张量展示三种布局；箭头表示 `redistribute()` 触发的通信。
 
-![F3：4×4 toy 张量在 Shard(0)、Replicate、Partial 三种 placement 下的本地值；箭头标出 all-gather、all-reduce、reduce-scatter](/img/in-post/torchtitan-f3-placements.svg)
+![4×4 toy 张量在 Shard(0)、Replicate、Partial 三种 placement 下的本地值；箭头标出 all-gather、all-reduce、reduce-scatter](/img/in-post/torchtitan-f3-placements.svg)
 
-玩具输出中，`Shard(0)` 把 W 的四行分给两个 rank，各持两行；`Replicate` 让每个 rank 都看到完整 W；`Partial` 的每 rank 本地张量只含自己的部分和，合并后恢复 W。`Shard(0) → Replicate` 对应 all-gather，`Partial → Replicate` 对应 all-reduce，`Partial → Shard(0)` 对应 reduce-scatter。toy 的最后一步就是 `partial.redistribute(placements=[Shard(0)])`：两个 rank 的部分和经 reduce-scatter 后，各自拿回与 `Shard(0)` 分片一致的 2×4 本地块。
+玩具输出里，三种 placement 各自的本地张量是：
+
+- `Shard(0)`：W 的四行分给两个 rank，各持两行。
+- `Replicate`：每个 rank 都看到完整的 W。
+- `Partial`：每个 rank 的本地张量只含自己的部分和，合并后才恢复 W。
+
+布局之间的转换就是三种集合通信：`Shard(0) → Replicate` 对应 all-gather，`Partial → Replicate` 对应 all-reduce，`Partial → Shard(0)` 对应 reduce-scatter。toy 的最后一步就是 `partial.redistribute(placements=[Shard(0)])`：两个 rank 的部分和经 reduce-scatter 后，各自拿回与 `Shard(0)` 分片一致的 2×4 本地块。
 
 ## 四、最小任务：runs/titan
 
-train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、$$h=2048$$、32 个 attention 头 / 8 个 K/V 头、FFN 8192、词表 128256、序列长 $$s=8192$$）。06 的 [train-ledger 对账](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)里 Megatron、DeepSpeed 两份按未绑定 embedding/head 的参数数计，torchtitan 行与本篇一样按 v0.3.0 `_1b()` 的 tied 配置计数。以下保留配置函数，键名来自 torchtitan v0.3.0：
+train-ledger 里的练手配置是 FSDP 4 × TP 2，模型取 Llama 3.2 1B 的形状（16 层、$$h=2048$$、32 个 attention 头 / 8 个 K/V 头、FFN 8192、词表 128256、序列长 $$s=8192$$）。《三个框架对比》的[「train-ledger 三框架对账」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)一节里，Megatron、DeepSpeed 两份按未绑定 embedding/head 的参数数计，torchtitan 行与本篇一样按 v0.3.0 `_1b()` 的 tied 配置计数。以下保留配置函数，键名来自 torchtitan v0.3.0：
 
 ```python title="runs/titan/ledger_llama3_1b.py"
 """train-ledger / runs/titan/ledger_llama3_1b.py -- Llama 3.2 1B shape, 8 GPUs: FSDP 4 x TP 2.
@@ -149,19 +222,22 @@ def llama3_1b_fsdp4_tp2() -> Trainer.Config:
 
 ## 五、进程组：ParallelDims 与 DeviceMesh
 
-8 张卡时，先问「哪几张卡一起做 TP，哪几张卡一起做 FSDP all-gather？」`ParallelDims.build_mesh()` 把 1D world rank 展开为 4×2 网格，mesh 轴顺序是 `("dp_shard", "tp")`，TP 在最内维。toy `mesh` 用 PyTorch API 创建同一张网格，打印每张卡坐标和进程组：
+8 张卡时，先问「哪几张卡一起做 TP，哪几张卡一起做 FSDP all-gather？」`ParallelDims.build_mesh()` 把 1D world rank 展开为 4×2 网格，mesh 轴顺序是 `("dp_shard", "tp")`，TP 在最内维。toy `mesh` 用 PyTorch API 创建同一张网格，打印每张卡的坐标和所在进程组，整理成下表：
 
-```text title="8-rank DeviceMesh toy"
-rank 0: dp_shard=0 tp=0       rank 1: dp_shard=0 tp=1
-rank 2: dp_shard=1 tp=0       rank 3: dp_shard=1 tp=1
-rank 4: dp_shard=2 tp=0       rank 5: dp_shard=2 tp=1
-rank 6: dp_shard=3 tp=0       rank 7: dp_shard=3 tp=1
+| rank | `dp_shard` 坐标 | `tp` 坐标 | 与谁一起做 TP | 与谁一起做 FSDP all-gather |
+|---:|---:|---:|---|---|
+| 0 | 0 | 0 | 0、1 | 0、2、4、6 |
+| 1 | 0 | 1 | 0、1 | 1、3、5、7 |
+| 2 | 1 | 0 | 2、3 | 0、2、4、6 |
+| 3 | 1 | 1 | 2、3 | 1、3、5、7 |
+| 4 | 2 | 0 | 4、5 | 0、2、4、6 |
+| 5 | 2 | 1 | 4、5 | 1、3、5、7 |
+| 6 | 3 | 0 | 6、7 | 0、2、4、6 |
+| 7 | 3 | 1 | 6、7 | 1、3、5、7 |
 
-TP groups:        [0,1] [2,3] [4,5] [6,7]
-dp_shard groups:  [0,2,4,6] [1,3,5,7]
-```
+Table: 8 卡 FSDP 4 × TP 2 下每个 rank 的 mesh 坐标与所在进程组
 
-同一行是 TP 组，同一列是 `dp_shard` 组。toy 的实际输出会先列出 rank 0 所在组，再按行列列出完整矩阵；上面把每组压成一行方便对照。
+两列进程组就是两条轴：`dp_shard` 坐标相同、`tp` 坐标不同的两张卡组成 TP 组；`tp` 坐标相同、`dp_shard` 坐标不同的四张卡组成 `dp_shard` 组，参数 all-gather 与梯度 reduce-scatter 发生在后者。toy 的输出按 rank 逐行打印坐标，再单独列出这两组进程组，上表把它们并到一行方便对照。
 
 `ParallelDims` 是从 `ParallelismConfig` 构造的 dataclass。它保存 `dp_replicate`、`dp_shard`、`cp`、`tp`、`pp`、`ep` 与 `world_size`；当 `data_parallel_shard_degree=-1` 时，用 world size 除以其它并行度推导。`_validate()` 检查各维乘积等于 world size。
 
@@ -234,11 +310,11 @@ v0.3.0 中没有 `components/data/`，相关代码分在三处：
 - checkpoint：`components/checkpoint.py` 与 `components/checkpointer/`；
 - metrics：`components/metrics.py`，另有 `observability/` 目录。
 
-### 2. Trainer.__init__：装配顺序就是架构
+### 2. `Trainer.__init__`：装配顺序就是架构
 
-meta 构造的价值不在于「省几次分配」，而在于参数第一次获得真实存储时，已经知道自己属于哪张卡。F4 把这个时序与 toy 实测的每 rank 参数字节放在一起。
+meta 构造的价值不在于「省几次分配」，而在于参数第一次获得真实存储时，已经知道自己属于哪张卡。下面这张五阶段时序图把这个时序与 toy 实测的每 rank 参数字节放在一起。
 
-![F4：meta 构造、fully_shard、to_empty、init_weights、optimizer.step 五个阶段；2-rank CPU toy 每 rank 参数存储为 0、0、14,336、14,336、参数加 m/v 共 71,680 字节](/img/in-post/torchtitan-f4-meta-stages.svg)
+![meta 构造、fully_shard、to_empty、init_weights、optimizer.step 五个阶段；2-rank CPU toy 每 rank 参数存储为 0、0、14,336、14,336、参数加 m/v 共 71,680 字节](/img/in-post/torchtitan-f4-meta-stages.svg)
 
 玩具模型只有 7,168 个逻辑参数。meta 与 `fully_shard` 之后都没有参数存储；`to_empty()` 后每 rank 有 14,336 B 的 fp32 参数分片。首次 AdamW step 后，toy 观测到 m、v 共 57,344 B；图里最后一格把参数与 m/v 合计为 71,680 B。真实 Llama 3.2 1B 的数字见总览，不能把 toy 的绝对字节数当成生产模型显存。
 
@@ -273,30 +349,50 @@ Trainer.__init__(config: Trainer.Config)
 
 ### 3. TP：从 ParallelStyle 到 ShardingConfig
 
-02 的[列切、行切与 f/g 共轭图](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)先画出矩阵和反向通信。torchtitan v0.3.0 默认的 `spmd_types` 与 `full_dtensor` 后端保留相同的并行语义，但把切分方案写进模型的 sharding 配置。
+《并行策略全景》的[「张量并行与序列并行」](/parallelism-strategies-which-state-to-shard.html#三张量并行与序列并行)一节先画出矩阵、列切行切的配对与反向通信。torchtitan v0.3.0 默认的 `spmd_types` 与 `full_dtensor` 后端保留相同的并行语义，但把切分方案写进模型的 sharding 配置。
 
 - **切什么**：`torchtitan/protocols/sharding.py` 的 `ShardingConfig` 描述参数 / buffer placement、输入和输出的 source / destination placement，以及可选的 `local_map`。`SpmdLayout` 按 mesh 轴名描述布局，例如 `{DP: R, CP: R, TP: S(0)}`。
-- **方案在哪**：`models/common/decoder_sharding.py` 的 `colwise_config()` 把权重按 0 维切、输出按最后一维切；`rowwise_config(output_sp=...)` 把权重按 1 维切，输出从 `Partial` 转为 `Replicate`（all-reduce）或 `Shard(1)`（reduce-scatter，也就是 SP）。`norm_config()`、`set_gqa_attention_sharding()`、`set_dense_ffn_sharding()` 与 `set_decoder_sharding_config()` 组合出 decoder 方案。Llama 3 的 `set_llama3_sharding_config()` 把这些配置挂到具体子模块。
+- **方案在哪**：`models/common/decoder_sharding.py` 里的几个函数拼出 decoder 的方案。
+  - `colwise_config()`：权重按 0 维切，输出按最后一维切。
+  - `rowwise_config(output_sp=...)`：权重按 1 维切，输出从 `Partial` 转为 `Replicate`（all-reduce）或 `Shard(1)`（reduce-scatter，也就是 SP）。
+  - `norm_config()`、`set_gqa_attention_sharding()`、`set_dense_ffn_sharding()` 与 `set_decoder_sharding_config()`：把上面两种配出整个 decoder 的方案。
+  - Llama 3 的 `set_llama3_sharding_config()`：把这些配置挂到具体子模块上。
 - **谁执行**：`protocols/module.py` 的 `Module.parallelize(parallel_dims)` 递归调用 `_distribute_states()`，用 `distribute_tensor()` 把参数变为 DTensor，再包装 forward 的输入 / 输出 redistribute。通信由布局变化推导；SPMD 类型检查可在开发时验证 source / destination placement。
 
 因此 TP 的实现不在 `distributed/tensor_parallel.py`（v0.3.0 只留 `NoParallel` 风格类），而在 `protocols/` 与 `models/common/`。`partial_dtensor` 后端保留旧路径；默认 `spmd_types` 路径将模型并行方案与模型结构分开表达。
 
 ### 4. FSDP2：apply_fsdp_to_decoder
 
-FSDP2 这一层要回答两个问题：参数什么时候从分片变完整，什么时候恢复为分片？`apply_fsdp_to_decoder()` 把 `fully_shard()` 装到 embedding、每个 Transformer block 与最后的 norm / lm_head 上。
+FSDP2 这一层要回答两个问题：参数什么时候从分片变完整，什么时候恢复为分片？`apply_fsdp_to_decoder()` 把 `fully_shard()` 装到 embedding、每个 Transformer block、最后的 norm / lm_head 以及根模块上。
 
-```text title="apply_fsdp_to_decoder 做的事"
-mp_policy = MixedPrecisionPolicy(param_dtype=bf16, reduce_dtype=fp32, cast_forward_inputs=False)
-                                                       training.mixed_precision_param / mixed_precision_reduce
-reshard_after_forward = "default" → not pp_enabled     get_fsdp_reshard_after_forward_policy；PP 下默认不 reshard，避免每个 micro-batch 都 all-gather
-fully_shard(tok_embeddings, mesh, mp_policy, reshard_after_forward)
-for block in layers:  fully_shard(block, ...)          每个 Transformer 层一个 FSDP 单元
-fully_shard([norm, lm_head], ..., reshard_after_forward=False)    最后几层前向后不释放：反向马上要用
-```
+| 步骤 | 调用 | 关键参数 | 为什么这样 |
+|---|---|---|---|
+| 定混合精度 | `MixedPrecisionPolicy(...)` | `param_dtype=bf16`、`reduce_dtype=fp32`、`cast_forward_inputs=False` | 两个 dtype 取自 `training.mixed_precision_param` 与 `mixed_precision_reduce`：all-gather 出来的参数按 bf16 计算，梯度按 fp32 归约 |
+| 定 reshard 策略 | `get_fsdp_reshard_after_forward_policy()` | `"default"` 解析为 `not pp_enabled` | 开 PP 时默认前向后不释放，避免每个 micro-batch 都重新 all-gather |
+| 词表与输出层 | 权重绑定时 `fully_shard([tok_embeddings, norm, lm_head])`；不绑定时 `tok_embeddings` 一个单元、`[norm, lm_head]` 一个单元 | 这两种写法的 `reshard_after_forward` 都只在策略为 `"always"` 时才为真 | 绑定后 embedding 与 lm_head 是同一个参数，放进一个单元才不会重复 all-gather；末尾几层前向后不释放，因为反向马上要用 |
+| 每个 Transformer 层 | 遍历 `model.layers` 调 `fully_shard(transformer_block)` | `reshard_after_forward` 用第二行解析出的值 | 一层一个 FSDP 单元，就是一层一次 all-gather，这是显存与通信次数的折中点 |
+| 根模块 | `fully_shard(model)` | 只传 mesh 与 `mp_policy`，不传 `reshard_after_forward` | 首次前向 `_lazy_init()` 时这个单元认定自己是 root：它把同一个 `FSDPCommContext` 分发给所有单元，而没有显式指定的 `reshard_after_forward` 在 root 上被置为不释放（否则刚放掉就要为反向重新取回） |
+| 关掉梯度自动除法 | `disable_fsdp_gradient_division(model)` | 对每个 `FSDPModule` 调 `set_gradient_divide_factor(1.0)` | 梯度缩放改由训练循环按全局有效 token 数做，见本章第 7 节的 `global_valid_tokens` |
+
+Table: `apply_fsdp_to_decoder()` 给模型装上 FSDP 单元的步骤
+
+本篇的 Llama 3.2 1B 走的是绑定权重那一支（`_1b()` 里 `enable_weight_tying=True`），所以 `tok_embeddings`、`norm`、`lm_head` 被放进同一个 FSDP 单元，16 个 Transformer 层各占一个；根模块上那次 `fully_shard()` 没有剩下的参数可切，作用是让它成为 root。
 
 `parallelize_llama()` 最后总会调用 `apply_fsdp_to_decoder()`，即使 `dp_shard=1`；源码注释说明仍需安装 `MixedPrecisionPolicy`。PyTorch FSDP2 的 `fully_shard()` 为 module 安装动态 FSDP 子类、`FSDPState` 与 `FSDPParamGroup`；组内每个参数对应一个 `FSDPParam`。`_init_sharded_param()` 沿 mesh 的数据并行 shard 维切分，dtype 保持 fp32。TP 已经把参数变成 DTensor 时，FSDP 在其布局上再增加 dp_shard 维。
 
-前向 hook 调用 `pre_forward()` 与 `unshard()`。`foreach_all_gather()` 把分片复制进连续 buffer 并执行 all-gather；`wait_for_unshard()` 后 `foreach_all_gather_copy_out()` 将参数按 `param_dtype` 转为 bf16 并暂挂到 module。`post_forward()` 调用 `reshard()`，释放 bf16 并恢复 fp32 分片。反向前再次 unshard，`_backward_prefetch()` 可提前发通信；`post_backward()` 通过 `foreach_reduce()` 将梯度按 fp32 reduce-scatter，结果写入分片参数的 `.grad`。`FSDPCommContext` 管 all-gather、reduce-scatter、all-reduce stream。
+> [!NOTE] Java 经验参照：FlatParameter 与每参数分片
+>
+> FSDP1 的 `FlatParameter` 相当于把一组字段按 offset 拼进一个 `ByteBuffer` 再整块发出去：传得快，但手上只剩一块字节，谁想按字段读写都得自己带着 offset 元数据——优化器、checkpoint 和 TP 的组合因此都要专门适配。FSDP2 让每个参数保留自己的对象（一个 `Shard(0)` 的 DTensor），只在 `foreach_all_gather()` 里临时拷进连续 buffer，相当于「对象照旧，发送时才打包」。不一样的地方在动机：Java 里拼 buffer 多半为了省 GC 和系统调用，这里省的是集合通信的次数，而且 FSDP2 并没有退回逐参数通信——一个单元仍然只发一次 all-gather。
+
+装好之后，每个 FSDP 单元在一个 step 里按固定顺序被 hook 触发：
+
+1. `pre_forward()` 调 `unshard()`：`foreach_all_gather()` 把本 rank 的分片复制进连续 buffer，发出一次 all-gather。
+2. `wait_for_unshard()` 等这次通信结束，`foreach_all_gather_copy_out()` 把参数按 `param_dtype` 转成 bf16 并暂挂到 module 上。
+3. `post_forward()` 调 `reshard()`：释放完整 bf16 参数，恢复 fp32 分片。
+4. 反向前再 unshard 一次，`_backward_prefetch()` 可以提前把下一个单元的通信发出去。
+5. `post_backward()` 用 `foreach_reduce()` 把梯度按 fp32 reduce-scatter，结果写进分片参数的 `.grad`。
+
+这几步的集合通信跑在 `FSDPCommContext` 管理的 all-gather、reduce-scatter、all-reduce 三条 stream 上，与计算流分开，才有重叠的余地。
 
 ```mermaid
 %% 图：FSDP2 的对象关系：fully_shard 装上 FSDPState，FSDPParamGroup 驱动 unshard / reshard，三条专用 stream 做集合通信
@@ -335,7 +431,12 @@ bf16 计算与 fp32 参考存在舍入差；toy 用 `max|diff|` 展示该误差�
 
 ### 5. PP 与 CP
 
-**PP**（`distributed/pipeline_parallel.py`）。`pipeline_llm()` 是 `ModelSpec.pipelining_fn`：`_get_pipeline_metadata()` 计算 PP rank 到 stage 的映射，支持 looped / V 形分配；`_generate_llm_fqn_per_model_part()` 按 `pipeline_parallel_layers_per_stage` 或 `module_fqns_per_model_part` 划分 module，首末 stage 可少几层以平衡 embedding / lm_head。`_pipeline_module_split()` 对每个 stage 深拷贝模型、删去不属于它的 module，并创建 `torch.distributed.pipelining.PipelineStage`。随后每个 model part 执行 `parallelize_fn`，TP 与 FSDP 都在 stage 内部应用。
+**PP**（`distributed/pipeline_parallel.py`）。`pipeline_llm()` 是 `ModelSpec.pipelining_fn`，它分四步把一个模型切成 stage：
+
+1. `_get_pipeline_metadata()` 计算 PP rank 到 stage 的映射，支持 looped 与 V 形分配。
+2. `_generate_llm_fqn_per_model_part()` 按 `pipeline_parallel_layers_per_stage` 或 `module_fqns_per_model_part` 划分 module，首末 stage 可以少几层，用来平衡 embedding / lm_head 的开销。
+3. `_pipeline_module_split()` 对每个 stage 深拷贝模型、删去不属于它的 module，并创建 `torch.distributed.pipelining.PipelineStage`。
+4. 每个 model part 再各自执行 `parallelize_fn`，所以 TP 与 FSDP 都是在 stage 内部应用的。
 
 `_build_pipeline_schedule()` 用 `get_schedule_class()` 选择 `"1F1B"`、`"Interleaved1F1B"`、`"ZBVZeroBubble"` 等 schedule；`n_microbatches=local_batch_size/pipeline_parallel_microbatch_size`，`scale_grads=False`，梯度缩放由全局 token 数归一化。配置 `pipeline_parallel_schedule_csv` 时，`_PipelineScheduleRuntime` 可加载自定义动作表。训练时 `Trainer.pp_forward_backward_step()` 调用 `pp_schedule.step(...)`。
 
@@ -343,9 +444,9 @@ bf16 计算与 fp32 参考存在舍入差；toy 用 `max|diff|` 展示该误差�
 
 ### 6. 一个 bf16 参数的一生：torchtitan
 
-这条生命周期要分清两种存储：fp32 DTensor 分片常驻；完整 bf16 参数只在计算前取回。F5 按时间将计算、通信与参数状态对齐。
+这条生命周期要分清两种存储：fp32 DTensor 分片常驻；完整 bf16 参数只在计算前取回。下面这张参数生命周期三泳道图按时间将计算、通信与参数状态对齐。
 
-![F5：fully_shard 参数生命周期三泳道；fp32 Shard(0) 分片常驻，前向和反向计算使用完整 bf16 临时参数，unshard / reshard 与 reduce-scatter 分别落在通信泳道](/img/in-post/torchtitan-f5-param-lifecycle.svg)
+![fully_shard 参数生命周期三泳道；fp32 Shard(0) 分片常驻，前向和反向计算使用完整 bf16 临时参数，unshard / reshard 与 reduce-scatter 分别落在通信泳道](/img/in-post/torchtitan-f5-param-lifecycle.svg)
 
 | 时刻 | 事件 | 参数状态 |
 |---|---|---|
@@ -381,7 +482,7 @@ Table: 一个 bf16 参数的一生：torchtitan
 
 Table: 一个 feed_forward.w1.weight 的源码逐时刻
 
-**常驻字节**：主要 TP 切分参数的 fp32 参数、fp32 梯度、Adam m/v 合计 16 字节/参数，再除以 $$N_dN_t$$；TP 复制的 norm 单独按 $$N_d$$ 切。**临时项**：正在计算层的完整 dp_shard bf16 参数（TP 半片约 60.8 MB），以及可能预取的下一层。**通信量**：前向 all-gather、反向 all-gather、梯度 reduce-scatter 合计约 $$3N$$；PP 下 `reshard_after_forward=False` 可复用前向参数，约 $$2N$$。通信量沿用 02 的定义，TP 复制 norm 对总数只作微小修正。
+**常驻字节**：主要 TP 切分参数的 fp32 参数、fp32 梯度、Adam m/v 合计 16 字节/参数，再除以 $$N_dN_t$$；TP 复制的 norm 单独按 $$N_d$$ 切。**临时项**：正在计算层的完整 dp_shard bf16 参数（TP 半片约 60.8 MB），以及可能预取的下一层。**通信量**：前向 all-gather、反向 all-gather、梯度 reduce-scatter 合计约 $$3N$$；PP 下 `reshard_after_forward=False` 可复用前向参数，约 $$2N$$。通信量沿用《并行策略全景》的定义，TP 复制 norm 对总数只作微小修正。
 
 torchtitan 的一个取舍是 fp32 分片既是模型参数也是主参数，没有另一份独立 fp32 master copy。`training.dtype="float32"` 是默认值；代价是未并行化模型占 4 字节/参数，收益是少一次 bf16→fp32 主参数拷贝、少一份状态，checkpoint 保存这份 fp32 权重即可。
 
@@ -415,11 +516,21 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 4. checkpoint staging 完成后才允许 optimizer 修改参数。
 5. 最后更新参数、学习率并记录全局指标。
 
-与 Megatron 的 `train_step()` 对照：这里没有 `zero_grad_buffer`，梯度 buffer 由 FSDP 管；没有 `no_sync`，FSDP2 可用 `set_requires_gradient_sync()` 控制，但默认每个累积步都 reduce-scatter，梯度直接累积在分片上；没有显式 `finalize_model_grads`，TP 的部分和由 DTensor redistribute 完成。训练循环里可见的集合通信主要是 `dist_sum_tensor` 与范数归约；参数通信藏在 FSDP hook 和 DTensor placement 转换里。
+> [!NOTE] Java 经验参照：异步 checkpoint 的等待点
+>
+> `maybe_wait_for_staging()` 等的是 `staging_future.result()`，和 Java 里用 `future.get()` 守一次后台拷贝是同一回事：后台线程把这一份状态拷进另一块缓冲（这里是 CPU 的 pinned memory），主线程在改这份共享数据之前必须先等拷贝结束，否则存下去的是改了一半的参数。两处不一样：它等的只是「拷出显存」这一步，真正写盘由另一个 future 负责（`maybe_wait_for_saving()`）；而 `async_mode` 默认是 `"disabled"`，此时根本没有 future，这一行直接返回。
+
+与 Megatron 的 `train_step()` 对照，这里少了三样东西：
+
+- 没有 `zero_grad_buffer`：梯度 buffer 由 FSDP 管。
+- 没有 `no_sync`：FSDP2 可以用 `set_requires_gradient_sync()` 控制，但默认每个累积步都 reduce-scatter，梯度直接累积在分片上。
+- 没有显式 `finalize_model_grads`：TP 的部分和由 DTensor 的 redistribute 完成。
+
+训练循环里能看到的集合通信主要是 `dist_sum_tensor` 与范数归约，参数通信藏在 FSDP hook 和 DTensor 的 placement 转换里。
 
 ## 七、1F1B：PyTorch 的动作表写法
 
-同一个 1F1B 调度（[《并行策略全景》的流水线并行一章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)），PyTorch 先写过程式，再把过程翻译成动作表。Megatron 的过程式时序见 [03 的 F4](/megatron-lm-architecture-and-source-guide.html#七1f1bmegatron-的过程式写法)；本篇不另画图。
+同一个 1F1B 调度（《并行策略全景》的[「流水线并行」](/parallelism-strategies-which-state-to-shard.html#五流水线并行)一节），PyTorch 先写过程式，再把过程翻译成动作表。Megatron 的过程式时序见《Megatron-LM》的[「1F1B：Megatron 的过程式写法」](/megatron-lm-architecture-and-source-guide.html#七1f1bmegatron-的过程式写法)一节，本篇不另画图。
 
 `torch/distributed/pipelining/schedules.py` 的 `Schedule1F1B._step_microbatches()` 与 Megatron 的循环结构几乎逐行对应：warmup 用 `get_fwd_recv_ops()`、`forward_one_chunk()`、`get_fwd_send_ops()`；稳态把上一轮 `fwd_sends` 与本轮 `bwd_recvs` 合并进一次 `_batch_p2p()`。注释称此段为「1B1F」——先反向再前向，与 Megatron 的「1F1B」是切入点不同。
 
@@ -427,7 +538,7 @@ metrics_processor.log(step, global_avg_loss, global_max_loss, grad_norm, ...)   
 
 `Schedule1F1B._get_pipeline_order()` 把过程翻译成按时间步排列的 `_Action` 表。`_ComputationType` 包含 `FORWARD`、`FULL_BACKWARD`、`BACKWARD_INPUT`、`BACKWARD_WEIGHT`、`SEND_F` / `RECV_F` / `SEND_B` / `RECV_B`、`UNSHARD` / `RESHARD`、`REDUCE_GRAD`。`_PipelineScheduleRuntime` 执行该表：`_add_send_recv()` 插入配对通信动作，`_add_unshard_reshard()` 插入 FSDP unshard / reshard，`_merge_bw()` 合并相邻的 input / weight backward。`ScheduleInterleaved1F1B`、`ScheduleInterleavedZeroBubble`、`ScheduleZBVZeroBubble`、`ScheduleDualPipeV` 通过重写 `_calculate_single_rank_operations()` 生成动作表；`_load_csv()` 也可加载手写 CSV，torchtitan 的 `pipeline_parallel_schedule_csv` 接在这里。
 
-06 并排比较三种训练循环：[Megatron、DeepSpeed 与 PyTorch pipeline](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七1f1b调度写死在哪一层)。
+《三个框架对比》的[「1F1B：调度写死在哪一层」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#七1f1b调度写死在哪一层)一节把 Megatron、DeepSpeed 与 PyTorch 这三种写法并排比较。
 
 ## 八、本文小结
 
@@ -439,14 +550,14 @@ torchtitan 中，一个 bf16 参数的一生可以压成一句话：meta 上先�
 
 | 路径 | 内容 |
 |---|---|
-| torchtitan `train.py`、`trainer.py` | `main()`；`Trainer`（`Config`、`__init__`、`init_distributed()`、`forward_backward_step()`、`_forward_backward_body()`、`pp_forward_backward_step()`、`train_step()`、`train()`） |
-| torchtitan `config/configs.py`、`README.md` | `TrainingConfig`（`dtype`、`mixed_precision_param`、`mixed_precision_reduce`、`local_batch_size`、`global_batch_size`、`seq_len`）、`ParallelismConfig`（`data_parallel_replicate_degree`、`data_parallel_shard_degree`、`tensor_parallel_degree`、`enable_sequence_parallel`、`pipeline_parallel_degree`、`pipeline_parallel_schedule`、`pipeline_parallel_microbatch_size`、`context_parallel_degree`、`fsdp_reshard_after_forward`、`spmd_backend`）、`CommConfig`、`DebugConfig`；配置函数 |
-| torchtitan `distributed/parallel_dims.py`、`full_dtensor.py` | `ParallelDims`（`from_config()`、`build_mesh()`、`get_mesh()`、`get_optional_mesh()`）、`MeshAxisName`、`SpmdLayout`；`resolve_fsdp_mesh()` |
+| torchtitan `train.py`、`trainer.py` | `main()`<br/>`Trainer`（`Config`、`__init__`、`init_distributed()`、`forward_backward_step()`、`_forward_backward_body()`、`pp_forward_backward_step()`、`train_step()`、`train()`） |
+| torchtitan `config/configs.py`、`README.md` | `TrainingConfig`（`dtype`、`mixed_precision_param`、`mixed_precision_reduce`、`local_batch_size`、`global_batch_size`、`seq_len`）<br/>`ParallelismConfig`（`data_parallel_replicate_degree`、`data_parallel_shard_degree`、`tensor_parallel_degree`、`enable_sequence_parallel`、`pipeline_parallel_degree`、`pipeline_parallel_schedule`、`pipeline_parallel_microbatch_size`、`context_parallel_degree`、`fsdp_reshard_after_forward`、`spmd_backend`）<br/>`CommConfig`、`DebugConfig`<br/>配置函数 |
+| torchtitan `distributed/parallel_dims.py`、`full_dtensor.py` | `ParallelDims`（`from_config()`、`build_mesh()`、`get_mesh()`、`get_optional_mesh()`）<br/>`MeshAxisName`、`SpmdLayout`<br/>`resolve_fsdp_mesh()` |
 | torchtitan `distributed/fsdp.py`、`pipeline_parallel.py`、`context_parallel/api.py`、`utils.py` | `apply_fsdp_to_decoder()`、`get_fsdp_reshard_after_forward_policy()`<br/>`pipeline_llm()`、`_build_pipeline_schedule()`、`_pipeline_module_split()`<br/>`apply_cp_to_forward()`、`prepare_context_parallel_input()`<br/>`init_distributed()`、`clip_grad_norm_()`、`set_pg_timeouts()`、`dist_sum_tensor()` |
 | torchtitan `protocols/module.py`、`sharding.py`<br/>`models/common/decoder_sharding.py`<br/>`models/llama3/{__init__,parallelize,sharding,config_registry}.py` | `Module.parallelize()`、`_distribute_states()`<br/>`ShardingConfig`、`LocalMapConfig`、`resolve_placements()`<br/>`colwise_config()`、`rowwise_config()`、`norm_config()`、`set_decoder_sharding_config()`<br/>`model_registry()`、`parallelize_llama()`、`set_llama3_sharding_config()`、`llama3_debugmodel()` |
 | torchtitan `components/{metrics,checkpoint,dataloader,loss}.py`、`components/optimizer/`、`tools/profiler.py` | `MetricsProcessor`、`DeviceMemoryMonitor.get_peak_stats()`<br/>`CheckpointManager`<br/>`BaseDataLoader`<br/>`CrossEntropyLoss`、`ChunkedLossWrapper`<br/>`OptimizersContainer`、`default_adamw()`、`LRSchedulersContainer`<br/>`Profiler.Config` |
 | PyTorch 2.14.1 `torch/distributed/fsdp/_fully_shard/` | `_fully_shard.py` 的 `fully_shard()`、`FSDPModule`（`unshard()`、`reshard()`、`set_reshard_after_forward()`、`set_modules_to_forward_prefetch()`、`set_requires_gradient_sync()`）<br/>`_fsdp_state.py` 的 `FSDPState`（`_pre_forward()`、`_post_forward()`、`_pre_backward()`）<br/>`_fsdp_param_group.py` 的 `FSDPParamGroup`（`unshard()`、`wait_for_unshard()`、`reshard()`、`pre_forward()`、`post_forward()`、`pre_backward()`、`post_backward()`、`_backward_prefetch()`）、`FSDPCommContext`<br/>`_fsdp_param.py` 的 `FSDPParam`（`_init_sharded_param()`、`to_unsharded()`、`to_sharded()`、`all_gather_inputs()`）、`ShardedState`<br/>`_fsdp_collectives.py` 的 `foreach_all_gather()`、`foreach_all_gather_copy_out()`、`foreach_reduce()`<br/>`_fsdp_api.py` 的 `MixedPrecisionPolicy`、`DataParallelMeshDims`、`CPUOffloadPolicy` |
-| PyTorch 2.14.1 `torch/distributed/fsdp/_flat_param.py`、`_runtime_utils.py` | FSDP1：`FlatParameter`、`FlatParamHandle`（`shard()`、`unshard()`、`_all_gather_flat_param()`、`_use_unsharded_flat_param()`、`_use_unsharded_views()`、`reshard()`）；`_pre_forward()`、`_pre_forward_unshard()`、`_post_forward_reshard()`、`_prefetch_handle()` |
+| PyTorch 2.14.1 `torch/distributed/fsdp/_flat_param.py`、`_runtime_utils.py` | FSDP1：`FlatParameter`、`FlatParamHandle`（`shard()`、`unshard()`、`_all_gather_flat_param()`、`_use_unsharded_flat_param()`、`_use_unsharded_views()`、`reshard()`）<br/>`_pre_forward()`、`_pre_forward_unshard()`、`_post_forward_reshard()`、`_prefetch_handle()` |
 | PyTorch 2.14.1 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`、`_load_csv()`、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`<br/>`PipelineStage` 的 forward / backward 与 send / recv 方法<br/>`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
 | PyTorch 2.14.1 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`<br/>`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`<br/>`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
 | train-ledger `runs/titan/`、`probe_memory.py` | 本篇练手配置与探针，见第四章 |
@@ -467,7 +578,7 @@ Table: 本篇涉及的源码位置
 
    <details markdown="1"><summary>答案</summary>
 
-   meta 设备只有形状，没有存储；并行化确定每个参数怎么切后，`to_empty` 才在真实设备上分配本 rank 的分片，再由 `init_weights` 写入数值。F4 的 toy 显示了这一分配顺序。
+   meta 设备只有形状，没有存储；并行化确定每个参数怎么切后，`to_empty` 才在真实设备上分配本 rank 的分片，再由 `init_weights` 写入数值。五阶段时序图里的 toy 数字显示了这一分配顺序。
 
    </details>
 
@@ -479,7 +590,7 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-4. F3 中为什么 `Shard(0) → Replicate` 是 all-gather，而 `Partial → Replicate` 是 all-reduce？
+4. placement 布局图中为什么 `Shard(0) → Replicate` 是 all-gather，而 `Partial → Replicate` 是 all-reduce？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -487,7 +598,7 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-5. F1 的 TP 与 `dp_shard` 两组分别负责什么？
+5. DeviceMesh 网格图里的 TP 与 `dp_shard` 两组分别负责什么？
 
    <details markdown="1"><summary>答案</summary>
 
