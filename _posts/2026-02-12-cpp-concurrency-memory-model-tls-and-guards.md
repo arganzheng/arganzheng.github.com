@@ -77,15 +77,15 @@ struct C10_API NoGradGuard : public AutoGradMode {
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 %% 图：torch.no_grad() 背后的并发机制：守卫改写 TLS、Dispatcher 读 TLS，以及线程边界上的三种处理
 flowchart TB
-    PY["<b>with torch.no_grad():</b><br/>Python 上下文管理器"] -- "进入 / 退出（第九章）" --> G["<b>RAII 守卫</b>（第六、七、八章）<br/>构造：存旧值、设新值<br/>析构：恢复旧值"]
-    G -- "读写当前线程那一份" --> TLS["<b>thread_local 状态</b>（第五章）<br/>autograd_state_tls：grad mode<br/>raw_local_dispatch_key_set<br/>current_streams"]
-    TLS -- "每次算子调用读取" --> DISP["<b>Dispatcher 与 autograd kernel</b>（第七、九章）<br/>included / excluded 集合参与选 dispatch key<br/>GradMode::is_enabled() 决定是否建反向图"]
+    PY["<b>with torch.no_grad():</b><br/>Python 上下文管理器"] -- "进入 / 退出（第九章）" --> G["<b>RAII 守卫（第六、七、八章）</b><br/>构造：存旧值、设新值<br/>析构：恢复旧值"]
+    G -- "读写当前线程那一份" --> TLS["<b>thread_local 状态（第五章）</b><br/>autograd_state_tls：grad mode<br/>raw_local_dispatch_key_set<br/>current_streams"]
+    TLS -- "每次算子调用读取" --> DISP["<b>Dispatcher 与 autograd kernel（第七、九章）</b><br/>included / excluded 集合参与选 dispatch key<br/>GradMode::is_enabled() 决定是否建反向图"]
     TLS -- "新线程从初始值开始，不继承" --> BND{"任务交给另一个线程"}
-    BND -- "at::launch、autograd 引擎" --> TS["<b>ThreadLocalState</b>（第九章）<br/>调用方拍快照，工作线程用守卫装上"]
-    BND -- "at::parallel_for" --> PF["<b>intra-op 线程</b>（第十章）<br/>OpenMP 线程组或原生线程池<br/>不传播 TLS，循环体只做算术"]
-    BND -- "CUDA kernel launch" --> CU["<b>当前 stream</b>（第十一章）<br/>各线程向自己的当前 stream 入队<br/>launch 不加锁"]
-    PF -- "任务队列被多个线程共享" --> TP["<b>c10::ThreadPool</b>（第二章）<br/>mutex + condition_variable + 队列"]
-    TS -- "闭包里的 Tensor 跨线程拷贝、销毁" --> RC["<b>intrusive_ptr 引用计数</b>（第三、四章）<br/>std::atomic：relaxed 增、acq_rel 减"]
+    BND -- "at::launch、autograd 引擎" --> TS["<b>ThreadLocalState（第九章）</b><br/>调用方拍快照，工作线程用守卫装上"]
+    BND -- "at::parallel_for" --> PF["<b>intra-op 线程（第十章）</b><br/>OpenMP 线程组或原生线程池<br/>不传播 TLS，循环体只做算术"]
+    BND -- "CUDA kernel launch" --> CU["<b>当前 stream（第十一章）</b><br/>各线程向自己的当前 stream 入队<br/>launch 不加锁"]
+    PF -- "任务队列被多个线程共享" --> TP["<b>c10::ThreadPool（第二章）</b><br/>mutex + condition_variable + 队列"]
+    TS -- "闭包里的 Tensor 跨线程拷贝、销毁" --> RC["<b>intrusive_ptr 引用计数（第三、四章）</b><br/>std::atomic：relaxed 增、acq_rel 减"]
     classDef tls fill:#e8f4f8,stroke:#00788f;
     classDef shared fill:#fdf2e3,stroke:#c98a2b;
     class TLS,G,CU tls;
