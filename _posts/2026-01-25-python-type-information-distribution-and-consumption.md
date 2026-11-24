@@ -29,10 +29,10 @@ updated: 2026-11-18
 %% 图：一行注解从写下、发布到被静态检查器和运行时库读取的路径
 flowchart TB
     W["<b>库作者写下</b><br/>max_tokens: int | None = None<br/>C 扩展另写 .pyi 存根"]
-    W --> PUB["<b>打包发布</b>（第二章）<br/>.py / .pyi 与 py.typed 一起进 wheel<br/>没注解的库由 types-* 或 typeshed 补"]
-    PUB --> ST["<b>开发时：mypy / pyright</b>（第三章）<br/>不 import、不执行代码<br/>按查找顺序读源码或存根，推理并报错"]
+    W --> PUB["<b>打包发布（第二章）</b><br/>.py / .pyi 与 py.typed 一起进 wheel<br/>没注解的库由 types-* 或 typeshed 补"]
+    PUB --> ST["<b>开发时：mypy / pyright（第三章）</b><br/>不 import、不执行代码<br/>按查找顺序读源码或存根，推理并报错"]
     PUB --> IMP["<b>运行时：import 执行 class 语句</b><br/>解释器求值注解，存进 __annotations__<br/>（3.14 起改为首次读取时才求值）"]
-    IMP --> RT["<b>运行时库读取</b>（第四章）<br/>dataclass：类定义时生成 __init__<br/>Pydantic：类定义时建验证器，实例化时校验<br/>beartype：每次调用时检查"]
+    IMP --> RT["<b>运行时库读取（第四章）</b><br/>dataclass：类定义时生成 __init__<br/>Pydantic：类定义时建验证器，实例化时校验<br/>beartype：每次调用时检查"]
 ```
 
 两条读取路径互不依赖：mypy 从不执行代码，`__annotations__` 也不会因为 mypy 报错而改变。静态检查器防的是代码写错，运行时库处理的是进来的数据。
