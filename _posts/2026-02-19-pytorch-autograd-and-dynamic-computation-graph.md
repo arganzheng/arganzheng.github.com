@@ -50,13 +50,13 @@ optimizer.step()
 %%{init: {"flowchart": {"wrappingWidth": 360}}}%%
 %% 图：一个训练 step 里 Autograd 的对象与流转
 flowchart TB
-    LEAF["<b>leaf Tensor（参数、输入）</b><br/>requires_grad=True，grad_fn 为 None（第四章）"]
+    LEAF["<b>需要梯度的 leaf Tensor（模型参数）</b><br/>requires_grad=True，grad_fn 为 None（第四章）"]
     OP["<b>forward 的算子执行</b><br/>x * x、relu、sum，立即算出数值（第三章）"]
     OUT["<b>non-leaf Tensor，直到 loss</b><br/>grad_fn 指向创建它的反向节点（第四章）"]
     NODE["<b>反向节点 Node</b><br/>MulBackward0、SumBackward0 等<br/>知道这一步的 VJP 怎么算（第二章）"]
     SAVED["<b>SavedVariable</b><br/>反向要用的 forward 输入或输出（第六章）"]
     ENGINE["<b>Engine</b><br/>从 loss.grad_fn 出发，逆序执行各节点（第五章）"]
-    ACC["<b>AccumulateGrad</b><br/>每个 leaf 对应一个，是图的终点"]
+    ACC["<b>AccumulateGrad</b><br/>每个需要梯度的 leaf 对应一个，是图的终点（第四章）"]
     GRAD["<b>leaf 的 .grad</b><br/>各路梯度累加在这里（第五章）"]
     OPT["<b>Optimizer</b><br/>step 读 .grad 更新参数，zero_grad 清空"]
 
@@ -79,12 +79,12 @@ flowchart TB
     class OP,ENGINE,OPT run;
 ```
 
-- **leaf Tensor**：用户或 `nn.Module` 直接创建的 Tensor，模型参数都是。它没有 `grad_fn`，反向传播的结果最终写到它的 `.grad` 上。
+- **leaf Tensor**：没有 `grad_fn` 的 Tensor，也就是不由"被 Autograd 记录的运算"产生的 Tensor。它分两种：`requires_grad=True` 的 leaf（模型参数都是）是反向传播的终点，梯度最终写到它的 `.grad` 上；`requires_grad=False` 的 leaf（输入数据、标签）不参与反向传播，`.grad` 一直是 `None`。图里画的是前一种。
 - **non-leaf Tensor**：运算的结果，forward 执行到那一行时产生。它的 `grad_fn` 指向一个反向节点；`loss` 是最后一个 non-leaf。
 - **反向节点（`Node`）**：forward 每执行一个需要梯度的算子就创建一个，C++ 基类是 `torch/csrc/autograd/function.h` 的 `Node`。内置算子的节点由 `tools/autograd/derivatives.yaml` 里的公式生成，自定义算子的节点调用 `autograd.Function.backward`（第八章）。节点之间用 `next_functions` 连接，这些节点和边就是计算图。
 - **`SavedVariable`**：节点为了算 VJP 而保存的 forward 输入或输出（激活值）。它从 forward 活到 backward 用完，是训练显存里随 batch 增长的那部分；in-place 报错也来自它的版本检查（第十章）。
 - **Engine**：`loss.backward()` 进入 `torch/csrc/autograd/engine.cpp` 的 `Engine::execute`。它从 `loss.grad_fn` 出发，按依赖关系逆序调用每个节点，把上游梯度变成传给下一个节点的梯度。
-- **`AccumulateGrad` 与 `.grad`**：每个需要梯度的 leaf 在图里对应一个 `AccumulateGrad` 节点，它把传到这里的梯度累加（`+=`）到 leaf 的 `.grad`。`.grad` 一直留在参数上，直到 `zero_grad()` 清掉。
+- **`AccumulateGrad` 与 `.grad`**：leaf 自己的 `grad_fn` 是 `None`，但每个需要梯度的 leaf 在反向图里对应一个 `AccumulateGrad` 节点，用到它的算子节点通过 `next_functions` 指向这个节点。它把传到这里的梯度累加（`+=`）到 leaf 的 `.grad`。`.grad` 一直留在参数上，直到 `zero_grad()` 清掉。
 - **Optimizer**：不属于 Autograd，只读 `.grad`。图和保存值在 backward 后释放，`.grad` 和参数留下来。
 
 ### 1. 本文的主线
@@ -456,7 +456,7 @@ print(x.grad)  # tensor(4.)
 
 ### 2. Leaf Tensor 与 non-leaf Tensor
 
-先给定义。PyTorch 判断 leaf 只看一件事：**这个 Tensor 有没有 `grad_fn`**。没有 `grad_fn` 就是 leaf（`is_leaf=True`），有 `grad_fn` 就是 non-leaf（源码：[`VariableHooks::is_leaf`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.cpp#L517-L523)）。`grad_fn` 记录"这个 Tensor 是哪个运算算出来的"，[本章第 4 节](#4-grad_fn)细讲。按这条规则，Tensor 分成三种情况：
+先给定义。PyTorch 判断 leaf 只看一件事：**这个 Tensor 有没有 `grad_fn`**。没有 `grad_fn` 就是 leaf（`is_leaf=True`），有 `grad_fn` 就是 non-leaf（源码：[`VariableHooks::is_leaf`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.cpp#L517-L523)）。`grad_fn` 记录"这个 Tensor 是哪个运算算出来的"，[本章第 4 节](#4-grad_fn-与-accumulategrad)细讲。按这条规则，Tensor 分成三种情况：
 
 | 情况 | `requires_grad` | `grad_fn` | `is_leaf` | 例子 |
 |---|---|---|---|---|
@@ -486,7 +486,45 @@ y = x * 2                                      # 由需要梯度的 Tensor 算�
 print(y.is_leaf, y.grad_fn)                    # False <MulBackward0 object at 0x...>
 ```
 
-这个区分直接决定梯度存在哪里：**`backward()` 只把梯度写进"需要梯度的 leaf"的 `.grad`**，也就是上表第二种。训练时这一种就是模型参数，Optimizer 更新的也正是它们。
+这个区分直接决定梯度存在哪里：**`backward()` 只把梯度写进"需要梯度的 leaf"的 `.grad`**，也就是上表第二种，并且它要实际参与了 loss 的计算。训练时这一种就是模型参数，Optimizer 更新的也正是它们。第一种（输入数据、标签）虽然也是 leaf，反向传播不会为它计算梯度，`.grad` 一直是 `None`。
+
+#### 是不是 leaf 看的是结果，不是创建方式
+
+"用户直接创建的是 leaf、运算出来的是 non-leaf"只是常见情况，不是判定规则。规则只有"有没有 `grad_fn`"，所以两个方向都有反例。
+
+**运算结果也可以是 leaf。** 只要这次运算没有被 Autograd 记录，结果就没有 `grad_fn`：
+
+| 情况 | 例子 | 结果 |
+|---|---|---|
+| 所有输入都不需要梯度 | `c = a + b`，`a`、`b` 的 `requires_grad` 都是 `False` | `c.is_leaf` 为 `True` |
+| 在关闭梯度记录的上下文里运算 | `with torch.no_grad(): q = x * 2`，即使 `x` 需要梯度 | `q.is_leaf` 为 `True` |
+| 显式切断 | `z = y.detach()` | `z.is_leaf` 为 `True` |
+
+Table: 运算结果仍是 leaf 的三种情况
+
+`no_grad()` 和 `detach()` 在[第七章](#七detachno_grad-与-inference_mode)细讲。
+
+**自己创建的 Tensor 也可能不是 leaf。** 常见的写法是创建时写了 `requires_grad=True`，后面又接了一次设备转移或类型转换：
+
+```python title='创建后再接一次 .to()：得到的是 non-leaf，.grad 是 None'
+w = torch.randn(3, 3, requires_grad=True).to(torch.float64)   # .cuda() 同理
+print(w.is_leaf, w.grad_fn)     # False <ToCopyBackward0 object at 0x...>
+
+w.sum().backward()
+print(w.grad)                   # None，并给出 UserWarning
+```
+
+`requires_grad=True` 的那个 Tensor 是 `torch.randn(...)` 的返回值，它才是 leaf。`.to()`、`.cuda()` 是可微算子，对它再算一次得到的 `w` 带着 `grad_fn`（`ToCopyBackward0`），是 non-leaf。梯度写到了那个没有变量名的临时 Tensor 上，`w.grad` 是 `None`，把 `w` 交给 Optimizer 也不会被正确更新。正确的写法是让"需要梯度"成为最后一步：
+
+```python title='两种正确写法：创建时直接指定 dtype / device，或最后再 requires_grad_()'
+w = torch.randn(3, 3, dtype=torch.float64, requires_grad=True)
+print(w.is_leaf)    # True
+
+w = torch.randn(3, 3).to(torch.float64).requires_grad_()
+print(w.is_leaf)    # True
+```
+
+模型参数不会遇到这个问题，原因见[本章第 5 节](#5-requires_grad-与-parameter)。
 
 ### 3. non-leaf 的 `.grad` 默认是 `None`
 
@@ -520,23 +558,72 @@ print(y.grad)            # tensor(3.)
 
 每个调用了 `retain_grad()` 的 Tensor 都会多保留一份和它同形的梯度，因此调试时可以使用，生产热路径中不要无差别对大量中间 Tensor 调用。
 
-### 4. `grad_fn`
+### 4. `grad_fn` 与 `AccumulateGrad`
 
 ```python title='leaf 没有 grad_fn，non-leaf 有'
 x = torch.tensor(2.0, requires_grad=True)
-y = x * 2
+y = x * 3
 
 print(x.grad_fn)  # None
-print(y.grad_fn)  # 类似 <MulBackward0 ...>
+print(y.grad_fn)  # <MulBackward0 object at 0x...>
 ```
 
-leaf Tensor 通常没有由其他 Tensor 运算产生的 `grad_fn`；non-leaf Tensor 通常会带有指向反向节点的 `grad_fn`。
+`grad_fn` 指向一个反向节点，记录"这个 Tensor 是哪个运算算出来的"。leaf 不是被记录的运算的结果，所以 `grad_fn` 是 `None`；non-leaf 的 `grad_fn` 指向创建它的那个节点。
 
-可以通过 `next_functions` 观察部分反向关系：
+`x.grad_fn` 是 `None`，不代表 `x` 在反向图里没有节点。梯度最终要写进 `x.grad`，做这件事的是一个专门的节点 **`AccumulateGrad`**：每个需要梯度的 leaf 对应一个，用到这个 leaf 的算子节点通过 `next_functions` 指向它。
 
-```python title='用 next_functions 看反向关系'
+```mermaid
+%% 图：y = x * 3 的反向图：MulBackward0 的 next_functions 指向 x 的 AccumulateGrad，AccumulateGrad 把梯度累加进 x.grad；常数 3 对应 None
+flowchart LR
+    y["<b>y</b>（non-leaf）<br/>requires_grad=True"]
+    mul(["<b>MulBackward0</b>"])
+    acc(["<b>AccumulateGrad</b><br/>variable 指向 x"])
+    none["None<br/>常数 3 不需要梯度"]
+    x["<b>x</b>（leaf）<br/>requires_grad=True<br/>grad_fn 为 None"]
+    g["x.grad"]
+
+    y -. "y.grad_fn" .-> mul
+    mul -->|"next_functions[0]"| acc
+    mul -->|"next_functions[1]"| none
+    acc -->|"x.grad += 梯度"| g
+    acc -. "variable" .-> x
+    x -. "grad_accumulator_（弱引用）" .-> acc
+
+    classDef tensor fill:#e3f2fd,stroke:#1565c0;
+    classDef gradfn fill:#fff3e0,stroke:#ef6c00;
+    classDef const fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray:4 2;
+    class x,y,g tensor;
+    class mul,acc gradfn;
+    class none const;
+```
+
+用 `next_functions` 可以直接看到这个节点：
+
+```python title='next_functions 里能看到 x 的 AccumulateGrad'
 print(y.grad_fn.next_functions)
+# ((<AccumulateGrad object at 0x...>, 0), (None, 0))
+#   第一个输入 x：需要梯度的 leaf，对应 AccumulateGrad
+#   第二个输入 3：不需要梯度，对应 None，反向传播不往这边走
+
+acc = y.grad_fn.next_functions[0][0]
+print(acc.variable is x)   # True：这个节点知道要把梯度写给谁
 ```
+
+这样三种 Tensor 在反向图里的位置就齐了：
+
+| Tensor | Python 里的 `grad_fn` | 在反向图里对应什么 | 源码字段（`AutogradMeta`） |
+|---|---|---|---|
+| non-leaf | 创建它的反向节点 | 这个反向节点，位于图的中间 | `grad_fn_` |
+| 需要梯度的 leaf | `None` | 一个 `AccumulateGrad` 节点，位于图的终点 | `grad_accumulator_` |
+| 不需要梯度的 leaf | `None` | 没有节点，`next_functions` 里是 `None` | 无 |
+
+Table: 三种 Tensor 在反向图里对应的节点
+
+`AccumulateGrad` 的三个细节，都能在源码里对上：
+
+- **用到时才创建**。leaf 刚创建时没有这个节点；第一次有需要记录的运算用到它时才创建，之后复用（源码：[`grad_accumulator`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/variable.cpp#L293-L320)）。
+- **leaf 对它是弱引用**。真正持有这个节点的是用到它的算子节点；图释放后它也跟着释放，下一次 forward 再建。
+- **写入方式是累加**。`.grad` 为空时直接放上新梯度，否则加到旧值上（源码：[`accumulate_grad.h`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/functions/accumulate_grad.h)）。[第五章](#2-梯度默认会累积)的"梯度默认会累积"就来自这里。
 
 这些对象属于 Autograd 的运行时实现细节，不应该依赖具体类名编写业务逻辑。它们的价值主要在于调试和理解计算图。
 
@@ -550,6 +637,16 @@ from torch import nn
 
 weight = nn.Parameter(torch.randn(4, 2))
 print(weight.requires_grad)  # True
+```
+
+`nn.Parameter` 一定是 leaf，即使传进去的是一个运算结果。它在构造时会先把传入的 Tensor 从原来的计算图上切下来（相当于 `detach()`），再设置 `requires_grad`，所以之前的运算历史不会带进来（源码：[`Parameter.__new__`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/nn/parameter.py#L51-L67) 调用的 [`_make_subclass`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/csrc/autograd/python_variable.cpp#L639-L667)）。这也是[本章第 2 节](#2-leaf-tensor-与-non-leaf-tensor)那个 `.to()` 的问题不会出现在模型参数上的原因：
+
+```python title='把一个 non-leaf 包成 nn.Parameter：得到的是 leaf'
+t = torch.randn(2, requires_grad=True) * 2
+print(t.is_leaf)                 # False
+
+p = nn.Parameter(t)
+print(p.is_leaf, p.grad_fn)      # True None
 ```
 
 当 Parameter 被赋值为 Module 的属性时，Module 会将它注册到参数集合中。Optimizer 再从 Module 的参数中取得它们并更新。
@@ -1676,7 +1773,7 @@ Autograd 的核心任务，是把数学上的链式法则变成一次沿动态�
 ### 2. 关键对象
 
 - **requires_grad**：是否需要追踪梯度
-- **leaf Tensor**：通常是用户或模型直接持有的参数节点
+- **leaf Tensor**：没有 `grad_fn` 的 Tensor；其中 `requires_grad=True` 的（模型参数）在反向图里对应一个 `AccumulateGrad` 节点，梯度写进它的 `.grad`
 - **grad_fn**：当前 Tensor 对应的反向关系
 - **.grad**：保存到 Tensor 或 Parameter 上的梯度状态
 
