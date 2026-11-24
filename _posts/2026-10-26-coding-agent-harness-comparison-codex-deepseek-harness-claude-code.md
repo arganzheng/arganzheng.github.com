@@ -24,9 +24,9 @@ catalog: true
 %% 图：四个 harness 与 harness 的五个组件
 flowchart TB
     H["一个 harness 的五个组件：循环（一）· 工具协议（二）· 运行时（三）· 上下文管理（四）· 权限与沙箱（五）"]
-    H --> C1["<b>Codex</b>（Rust，开源）<br/>单核大工作区 · 状态在对象 · 专用策略语言 · 三平台原生沙箱"]
-    H --> C2["<b>DeepSeek Harness</b>（TS，MIT）<br/>一切都是插件 · 日志即状态 · 可读事件 · 沙箱是接缝"]
-    C1 --> C3["<b>Claude Code</b>（TS，产品闭源）<br/>Agent SDK 对外 · 规则 + 模式审批 · auto-compact"]
+    H --> C1["<b>Codex（Rust，开源）</b><br/>单核大工作区 · 状态在对象 · 专用策略语言 · 三平台原生沙箱"]
+    H --> C2["<b>DeepSeek Harness（TS，MIT）</b><br/>一切都是插件 · 日志即状态 · 可读事件 · 沙箱是接缝"]
+    C1 --> C3["<b>Claude Code（TS，产品闭源）</b><br/>Agent SDK 对外 · 规则 + 模式审批 · auto-compact"]
     C2 --> C4["<b>OpenHarness</b><br/>对 Claude Code 的开源复刻，读它看结构"]
 
 ```
