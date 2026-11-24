@@ -184,7 +184,22 @@ print(J)
 
 训练要的不是这张表，而是 **loss 对 `x` 的梯度**。loss 是一个标量，所以这个梯度和 `x` 同形，只有 3 个数。
 
-假设 `y` 后面还接了别的运算，最后得到 loss，并且反向传播已经算出了 loss 对 `y` 的梯度 `v = (10, 1)`。它的意思是：`y[0]` 增加 1，loss 增加 10；`y[1]` 增加 1，loss 增加 1。这个从后面传回来的梯度叫**上游梯度**。
+先定义 `v`。把最终的标量 loss 记作 `L`，**`v` 就是 `L` 对 `y` 的梯度**：`v[i] = ∂L/∂y[i]`。它和 `y` 同形，这个例子里有 2 个数。`v` 不是这一层自己算出来的：`y` 后面还接了别的运算才得到 `L`，反向传播从 `L` 往回走，先经过后面那些运算，走到这一层时 `v` 已经算好了。因为它是从后面传回来的，所以叫**上游梯度**。
+
+这个例子里假设 `v = (10, 1)`。它的意思是：`y[0]` 增加 1，`L` 增加 10；`y[1]` 增加 1，`L` 增加 1。
+
+到这里，这一节用到的符号都齐了：
+
+| 符号 | 含义 | 形状（本例） | 谁提供 |
+|---|---|---|---|
+| `x` | 这一步运算的输入 | 3 | 前向 |
+| `y` | 这一步运算的输出 | 2 | 前向 |
+| `J` | 这一步运算的 Jacobian，`J[i, j] = ∂y[i]/∂x[j]` | `2 × 3` | 由这一步运算本身决定 |
+| `L` | 最终的标量 loss | 一个数 | 整个计算的最后一步 |
+| `v` | 上游梯度，`v[i] = ∂L/∂y[i]` | 2，和 `y` 同形 | 反向传播中排在后面的运算传回来 |
+| `vᵀJ` | 这一步反向要算的结果，`∂L/∂x` | 3，和 `x` 同形 | 这一步运算的反向公式 |
+
+Table: 这一节用到的符号
 
 现在问 loss 对 `x[0]` 的梯度。`x[0]` 通过两条路影响 loss，把两条路加起来（这就是上一节的链式法则，只是路变成了两条）：
 
@@ -194,7 +209,13 @@ x[0] → y[1] → loss：   1 × 4 =  4
                        合计   14
 ```
 
-`x[1]`、`x[2]` 同理，得到 `10 × 2 + 1 × 5 = 25` 和 `10 × 3 + 1 × 6 = 36`。写成矩阵运算，就是行向量 `v` 乘矩阵 `J`：
+`x[1]`、`x[2]` 同理，得到 `10 × 2 + 1 × 5 = 25` 和 `10 × 3 + 1 × 6 = 36`。写成一般的式子，对每个 `j`，把所有经过 `y[i]` 的路加起来：
+
+```text title='loss 对 x[j] 的梯度：对所有输出 i 求和'
+∂L/∂x[j] = Σᵢ ∂L/∂y[i] × ∂y[i]/∂x[j] = Σᵢ v[i] × J[i, j]
+```
+
+右边正是"行向量 `v` 乘矩阵 `J`"的第 `j` 个分量：
 
 ![v 乘 Jacobian 的每一列，得到和 x 同形的 3 个数（14, 25, 36）；右侧对比 Jacobian 和这个乘积的大小](/img/in-post/pytorch-autograd-jacobian-vs-vjp.svg)
 
@@ -202,7 +223,9 @@ x[0] → y[1] → loss：   1 × 4 =  4
 
 `vᵀJ` 和图里的"v 乘 J"是同一个运算，`ᵀ`（转置）只是书写约定。数学上向量默认写成一列，`v` 是 `2 × 1`，`J` 是 `2 × 3`，`2 × 1` 的矩阵不能放在 `2 × 3` 的左边相乘；转置成一行（`1 × 2`）之后才能乘，结果是 `1 × 3`，正好是 `x` 的 3 个分量。图里把 `v` 的两个数分别对着 `J` 的两行（`y[0]`、`y[1]`），算的就是这个"行向量乘矩阵"。PyTorch 的一维 Tensor 不区分行和列，所以下面的代码直接写 `v @ W`，不需要转置。
 
-用 PyTorch 验证，`backward()` 得到的正是这三个数：
+有的教材把同一个结果写成 `Jᵀv`。区别只在结果写成一行还是一列：`vᵀJ` 是 `1 × 3` 的行，`Jᵀv` 是 `3 × 1` 的列，3 个数相同。如果用二维的列向量（shape 为 `(3, 1)`、`(2, 1)`）手推，要得到和 `x` 同形的列向量，应当用 `Jᵀv`。
+
+用 PyTorch 验证。`backward()` 本身不返回梯度（返回值是 `None`），它把算出的结果写进 `x.grad`，写进去的正是这三个数：
 
 ```python title='backward 得到的 x.grad 等于 v 乘 J'
 v = torch.tensor([10., 1.])
@@ -212,6 +235,18 @@ loss.backward()
 print(x.grad)  # tensor([14., 25., 36.])
 print(v @ W)   # tensor([14., 25., 36.])
 ```
+
+`loss = (v * y).sum()` 是为了得到一个标量而构造的：这个 loss 对 `y[i]` 的导数正好是 `v[i]`。也可以不构造 loss，直接把 `v` 作为上游梯度传给 `backward()`，结果相同：
+
+```python title='直接把上游梯度 v 传给 backward()'
+x = torch.tensor([1., 0., -1.], requires_grad=True)
+y = W @ x
+y.backward(v)             # 等价写法：y.backward(gradient=v)
+
+print(x.grad)  # tensor([14., 25., 36.])
+```
+
+"写进 `x.grad`"是累加，不是覆盖：如果不清空 `x.grad`，再做一次同样的前向和 `backward()`，`x.grad` 会变成 `tensor([28., 50., 72.])`。[第五章](#2-梯度默认会累积)讲这个行为。
 
 #### 3.4 算 VJP 不需要把 Jacobian 存成一个矩阵
 
@@ -266,10 +301,79 @@ PyTorch 把每个算子的这条公式写在 [`tools/autograd/derivatives.yaml`]
 
 第一条写的是 `Wᵀv`，和 `vᵀW` 是同一组数（一个按列写，一个按行写）。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html#二开发态1定义算子)会讲这个文件怎样参与算子定义。
 
-#### 3.5 小结
+#### 3.5 输入输出是高维 Tensor 时也一样
+
+"向量–Jacobian 积"这个名字里是向量，实际的 Tensor 往往是二维或更高维的。做法没有变，PyTorch 也不会先把 Tensor 展平成一维再算。
+
+以一个 batch 的线性层为例：输入 `X` 的 shape 是 `(4, 3)`，输出 `Y = X @ A.T` 的 shape 是 `(4, 5)`。"每个输出元素对每个输入元素的导数"有 `(4 × 5) × (4 × 3) = 240` 个，Jacobian 是一个 shape 为 `(4, 5, 4, 3)` 的四维 Tensor。上游梯度 `V` 和 `Y` 同形，是 `(4, 5)`；要算的结果和 `X` 同形，是 `(4, 3)`。反向公式直接在这些形状上算，这里是一次矩阵乘法 `V @ A`：
+
+```python title='二维输入输出：反向直接算 V @ A，结果与"V 乘四维 Jacobian"一致'
+X = torch.randn(4, 3, requires_grad=True)
+A = torch.randn(5, 3)
+Y = X @ A.T                      # shape (4, 5)
+V = torch.randn(4, 5)            # 上游梯度，和 Y 同形
+
+Y.backward(V)
+print(X.grad.shape)                      # torch.Size([4, 3])，和 X 同形
+print(torch.allclose(X.grad, V @ A))     # True
+
+# 对照：真的把 Jacobian 造出来，再让 V 和它在 Y 的两个维度上对应相乘、求和
+J = torch.autograd.functional.jacobian(lambda t: t @ A.T, X.detach())
+print(J.shape)                           # torch.Size([4, 5, 4, 3])
+print(torch.allclose(torch.einsum('ij,ijkl->kl', V, J), X.grad))   # True
+```
+
+规则可以概括成一句：**上游梯度和输出同形，算出的梯度和输入同形**，不管它们是几维。
+
+#### 3.6 延伸：另一个方向的 JVP，以及 `torch.func`
+
+这一小节是延伸内容，跳过不影响后文。
+
+**VJP 对应反向模式，另一个方向是 JVP。** Jacobian 可以从两边乘：
+
+| | VJP：`vᵀJ` | JVP：`J u` |
+|---|---|---|
+| 向量从哪边来 | `v` 和输出同形，是 loss 对输出的梯度 | `u` 和输入同形，是输入的一个变化方向 |
+| 结果 | 和输入同形：loss 对每个输入的梯度 | 和输出同形：输入沿 `u` 变化时每个输出的变化率 |
+| 对应的自动微分方式 | 反向模式（reverse-mode）：先做完前向，再从输出往回传 | 前向模式（forward-mode）：跟着前向一起算，从输入往后传 |
+| 一次计算得到 | 一个标量输出对**所有输入**的梯度 | **所有输出**对一个输入方向的导数 |
+| 适合 | 输出少、输入多 | 输入少、输出多 |
+
+Table: VJP 与 JVP 对照
+
+训练时输出是一个标量 loss，输入是全部参数，属于"输出少、输入多"：做一次反向就得到所有参数的梯度。如果用前向模式，每个参数方向都要单独算一次。所以 `backward()` 用的是反向模式，本文后面讲的也都是它。
+
+**`torch.func` 提供了不经过 `.grad` 的函数式接口。** 它们把 VJP、JVP 直接作为返回值给出，输入不需要设 `requires_grad`，也不会写任何 Tensor 的 `.grad`：
+
+```python title='torch.func 的 vjp、jvp、jacrev、jacfwd'
+from torch.func import vjp, jvp, jacrev, jacfwd
+
+f = lambda t: W @ t
+x = torch.tensor([1., 0., -1.])          # 不需要 requires_grad
+v = torch.tensor([10., 1.])
+
+out, vjp_fn = vjp(f, x)                  # 返回前向输出和一个函数
+print(vjp_fn(v))                         # (tensor([14., 25., 36.]),)   vᵀJ
+print(x.grad)                            # None，没有写 .grad
+
+u = torch.tensor([1., 0., 0.])           # 输入的变化方向：只动 x[0]
+print(jvp(f, (x,), (u,)))                # (tensor([-2., -2.]), tensor([1., 4.]))   前向输出，J u
+
+print(jacrev(f)(x))                      # 完整的 Jacobian，用 VJP 算
+print(jacfwd(f)(x))                      # 完整的 Jacobian，用 JVP 算
+# 两者都是 tensor([[1., 2., 3.],
+#                  [4., 5., 6.]])
+```
+
+`J u` 的结果 `(1, 4)` 是 `J` 的第一列：`x[0]` 增加 1 时，`y[0]` 增加 1、`y[1]` 增加 4。
+
+需要完整 Jacobian 时，`jacrev` 相当于对每个输出各做一次 VJP（每次得到 `J` 的一行），`jacfwd` 相当于对每个输入各做一次 JVP（每次得到 `J` 的一列），所以输出少时用 `jacrev`，输入少时用 `jacfwd`。它们用 `vmap` 把这些次计算合成一批执行（源码：[`jacrev`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/_functorch/eager_transforms.py#L686-L694)、[`jacfwd`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/_functorch/eager_transforms.py#L1380-L1392)）。前面 3.2 用的 `torch.autograd.functional.jacobian` 默认是在 Python 循环里[逐个输出元素调用一次 `autograd.grad`](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/torch/autograd/functional.py#L808-L815)，它的文档也建议改用 `torch.func.jacrev` / `jacfwd`；本文用它只是为了展示 Jacobian 的样子。
+
+#### 3.7 小结
 
 - **Jacobian**：所有输出对所有输入的完整导数表，大小是"输出数 × 输入数"。
-- **VJP**：上游梯度 `v` 乘这张表的结果，大小只有"输入数"，和 `x` 同形。
+- **上游梯度 `v`**：loss 对这一步输出的梯度，和输出同形，由反向传播中排在后面的运算传回来。
+- **VJP**：上游梯度 `v` 乘这张表的结果（`vᵀJ`），也就是 loss 对这一步输入的梯度，大小只有"输入数"，和 `x` 同形。
 - **反向传播**：从 loss 出发，每经过一个运算就算一次 VJP，把得到的梯度当作下一个运算的上游梯度继续往回传。全程只搬运和数据同形的梯度，不把任何一层的 Jacobian 构造成矩阵。PyTorch 的 `backward()` 做的就是这件事。
 
 ### 4. 为什么 backward 通常从标量 Loss 开始？
