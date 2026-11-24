@@ -24,11 +24,33 @@ Llama 3 论文（Dubey et al. 2024）给了一组值得反复引用的数字：1
 
 ## 一、总览
 
-![405B 一次 checkpoint 的 5.7 TB 拆成四类状态，以及 rank-0 汇总与分片写两条路径的时间账](/img/in-post/distributed-checkpoint-6tb-breakdown.svg)
+这一篇按**一次 checkpoint 的生命周期**组织：要存什么、有多少字节 → 为什么不能写成一个文件 → 保存与加载这两条流水线上的对象与算法 → 怎样把训练的停顿挪到后台 → 三个框架各自的实现 → 存多久一次、留多久。先看这条主线。
 
-### 1. 本篇用到的记账符号与结论
+### 1. 一次 checkpoint 的主线：从 state_dict 到 load
 
-第一篇建立的符号，本篇只用下面这些，在此复述以求自治：
+保存与加载各是一条流水线，两条线在磁盘上的目录里汇合：
+
+![保存与加载的两条流水线](/img/in-post/distributed-checkpoint-save-load-pipelines.svg)
+
+图里每个节点的要点，括号里是本篇展开它的章节：
+
+- **保存侧 `state_dict()`**（[第二章](#二checkpoint-里有什么为什么缺一样都不行)）：把参数、优化器状态、调度器、数据位置、RNG、步数收进一个 dict，值是本 rank 持有的那一块（Megatron 的 `ShardedTensor` 或 PyTorch 的 DTensor）。
+- **staging**（[第六章](#六异步保存)）：把这些块从显存拷进主机内存。同步保存可以不做（边写边拷），异步保存必需——拷完训练就能继续，这段时间就是训练真正停下的 δ。
+- **plan：谁写哪一段**（[第四章](#四dcp-的对象模型)）：每个 rank 列出自己要写的块，汇总到 coordinator 去重（同一块在多个 DP 副本上只留一份）再发回。
+- **write：每 rank 写数据块，coordinator 最后写 `.metadata`**（[第四章](#四dcp-的对象模型)）：块的字节落进各自的 `__i_k.distcp`，块的全局坐标与全局形状落进 `.metadata`；后者原子写入，它的出现等于"这份 checkpoint 完整"。
+- **读 `.metadata`**（[第五章](#五重分片加载)）：加载侧先把元数据读回来——每个张量的全局形状、所有块的坐标、每块在哪个文件的哪个偏移。
+- **plan：按新的分片布局重映射**（[第五章](#五重分片加载)）：每个 rank 拿自己的新本地块与磁盘上的块逐维求交集，得到一串 `ReadItem`。这一步是"卡数变了还能加载"的全部机关。
+- **read 与 `set_state_dict()`**（[第五章](#五重分片加载)）：只读交集那部分字节，`narrow` 之后 `copy_` 进本地张量，再装回模型与优化器。整个加载没有 rank 间通信。
+
+两条线的交汇点就是中间那个目录：保存写下的数据块和 `.metadata`，正是加载要读的东西。后面所有的设计都由三个观察决定：
+
+- **磁盘上是全局张量的一组分片**，而不是某个 rank 的内存映像。所以加载时的分片布局可以与保存时不同。
+- **`.metadata` 最后写**，它的出现就等于"这个 checkpoint 完整"，所以写它必须是原子的。
+- **只有 staging 必须由训练进程做**，而且要在 GPU 空闲时做；其余步骤都可以挪到后台线程或进程，这就是异步保存。
+
+### 2. 本篇用到的记账符号与结论
+
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)建立的符号，本篇只用下面这些，在此复述以求自治：
 
 | 符号 | 含义 |
 |---|---|
@@ -45,29 +67,21 @@ Table: 本篇用到的记账符号
 - **训练态每参数 16 字节**：bf16 参数 2 + bf16 梯度 2 + fp32 主参数 4 + Adam 一阶矩 4 + 二阶矩 4（Megatron 用 fp32 累积梯度时为 18）。checkpoint 不需要梯度——它每 step 重算——所以**落盘每参数 14 字节**（Megatron 路径：bf16 参数 + fp32 主参数 + 两个矩）或 **12 字节**（FSDP2 路径：参数本身就是 fp32，bf16 副本是前向时临时 cast 出来的）。405B 模型按 14 字节算是 5.7 TB，这就是总纲说的"约 6 TB"。
 - **每参数的 checkpoint 字节与并行配置无关**。TP、PP、DP 决定每个张量被切成几块、放在哪张卡，但去掉 DP 复制之后的**唯一字节数**不变。这是分片 checkpoint 能重分片的前提，也是算写入时间时的分母。
 
-### 2. 一次 checkpoint 的两条路径
+这两条结论，加上写路径的两种选择，合起来就是 405B 的这张账（右半边的数字在第三章展开）：
 
-保存与加载各是一条流水线，两条线在磁盘上的目录里汇合：
-
-![保存与加载的两条流水线](/img/in-post/distributed-checkpoint-save-load-pipelines.svg)
-
-两条线的交汇点就是这个目录：保存写下的数据块和 `.metadata`，正是加载要读的东西。后面所有的设计都由三个观察决定：
-
-- **磁盘上是全局张量的一组分片**，而不是某个 rank 的内存映像。所以加载时的分片布局可以与保存时不同。
-- **`.metadata` 最后写**，它的出现就等于"这个 checkpoint 完整"，所以写它必须是原子的。
-- **只有 staging 必须由训练进程做**，而且要在 GPU 空闲时做；其余步骤都可以挪到后台线程或进程，这就是异步保存。
+![405B 一次 checkpoint 的 5.7 TB 拆成四类状态，以及 rank-0 汇总与分片写两条路径的时间账](/img/in-post/distributed-checkpoint-6tb-breakdown.svg)
 
 ### 3. 三框架在 checkpoint 上的对照
 
 {: style="overflow-wrap:anywhere"}
 | | Megatron Core 0.18.0 | DeepSpeed 0.19.2 | torchtitan v0.3.0 |
 |---|---|---|---|
-| <span style="white-space:nowrap">分片抽象</span> | `ShardedTensor` / `ShardedObject`（`megatron/core/` `dist_checkpointing/` `mapping.py`） | 无；每 rank 的 state_dict 直接 `torch.save` | DTensor（FSDP2 / TP 原生） |
-| <span style="white-space:nowrap">磁盘格式</span> | `torch_dist`（DCP 文件 + `common.pt` + `metadata.json`）；也可 `torch` / `torch_dcp` / `fsdp_dtensor` | `mp_rank_XX_model_states.pt` + `zero_pp_rank_X_` `mp_rank_XX_optim_states.pt` | DCP：`step-N/__i_0.distcp` + `.metadata`（可导出 HF safetensors） |
+| <span style="white-space:nowrap">分片抽象</span> | `ShardedTensor` / `ShardedObject`（`megatron/core/` `dist_checkpointing/` `mapping.py`） | 无——每 rank 的 state_dict 直接 `torch.save` | DTensor（FSDP2 / TP 原生） |
+| <span style="white-space:nowrap">磁盘格式</span> | `torch_dist`（DCP 文件 + `common.pt` + `metadata.json`）<br/>也可 `torch` / `torch_dcp` / `fsdp_dtensor` | `mp_rank_XX_model_states.pt` + `zero_pp_rank_X_` `mp_rank_XX_optim_states.pt` | DCP：`step-N/__i_0.distcp` + `.metadata`（可导出 HF safetensors） |
 | <span style="white-space:nowrap">底层写入</span> | DCP `FileSystemWriter` 的子类 `FileSystemWriterAsync` | CheckpointEngine：Torch / Fast / Decoupled / Nebula / DataStates | DCP `FileSystemWriter` |
 | <span style="white-space:nowrap">异步保存</span> | `--async-save`<br/>nvrx 或 mcore 策略<br/>可持久后台 worker | `writer.decoupled = true`（独立进程） | `checkpoint.async_mode = async / async_with_pinned_mem` |
 | <span style="white-space:nowrap">写入去重 / 并行</span> | `FullyParallelSaveStrategyWrapper` 在 DP 副本间分摊写入 | `data_parallel = replica/socket/machine` | DCP `DefaultSavePlanner` 去重 |
-| <span style="white-space:nowrap">重分片</span> | 模型：任意 TP/PP/DP；优化器按 `sharding_type`（`dp_reshardable` / `fully_reshardable`） | ZeRO 文件绑定 DP 度；换配置需先转 universal checkpoint（`ds_to_universal.py`） | 任意 DP / TP（DTensor 决定）；PP 需切分点一致 |
+| <span style="white-space:nowrap">重分片</span> | 模型：任意 TP/PP/DP<br/>优化器按 `sharding_type`（`dp_reshardable` / `fully_reshardable`） | ZeRO 文件绑定 DP 度<br/>换配置需先转 universal checkpoint（`ds_to_universal.py`） | 任意 DP / TP（DTensor 决定）<br/>PP 需切分点一致 |
 | <span style="white-space:nowrap">本地 / 多级存储</span> | `non_persistent_ckpt_type = local` + replication（借 nvidia-resiliency-ext） | 无内置 | 无内置（`keep_latest_k` 清理） |
 
 Table: 三框架在 checkpoint 上的对照
@@ -79,8 +93,8 @@ DeepSpeed 这一列后文只在第八章展开一节：它的 checkpoint 是"每
 | 章 | 主题 | 内容 |
 |---|---|---|
 | 二 | checkpoint 里有什么 | 六类内容各多少字节、缺了会怎样；三框架各自怎么组装 `state_dict` |
-| 三 | 为什么不能写成一个文件 | 405B 的算术：rank-0 汇总的三个瓶颈<br/>分片写的账<br/>三种目录长什么样 |
-| 四 | DCP 的对象模型 | `dcp.save` 的四步<br/>Planner / StorageWriter / Metadata 三组类<br/>`state_dict` 一侧的 API<br/>对象模型图 |
+| 三 | 为什么不能写成一个文件 | 405B 的算术：rank-0 汇总的三个瓶颈<br/>分片写的账<br/>三框架的目录与文件 |
+| 四 | DCP 的对象模型 | `dcp.save` 的四步<br/>Planner / StorageWriter / Metadata 三组类<br/>`state_dict` 一侧的 API<br/>对象模型图<br/>各对象谁创建、活在哪一侧、活多久 |
 | 五 | 重分片加载 | `dcp.load` 的流程<br/>`resharding.py` 怎么算交集（带数字例子）<br/>能与不能重分片的边界<br/>回答"15 个节点" |
 | 六 | 异步保存 | 三段时间线<br/>DefaultStager / StagingOptions<br/>线程还是进程<br/>staging 主机内存代价（数字）<br/>隐藏成本 |
 | 七 | Megatron 的 `dist_checkpointing` | ShardedTensor<br/>`serialization.save/load`<br/>strategies<br/>分布式优化器的四种分片<br/>CheckpointConfig 参数族 |
@@ -102,15 +116,15 @@ Table: 本文的章节安排
 | 模型参数 | 2（bf16）或 4 | 前向的输入 | 没有模型 |
 | 优化器状态 + fp32 主参数 | 8（Adam m, v）+ 4 | Adam 的更新量 = lr · m / (sqrt(v) + ε)，m、v 是历史梯度的指数平均<br/>fp32 主参数是 bf16 参数无法表示的小更新的累积处 | 从零开始的 m、v 会让前几百步的更新量偏大，loss 明显上翘<br/>bf16 参数上直接累加小更新会被舍掉，训练"停滞" |
 | 学习率调度器 | —（几个标量） | 当前 lr、warmup 进度、衰减阶段 | lr 从 warmup 起点重来，等价于一次大 lr 冲击 |
-| 数据加载器位置 | —（几 KB 到 MB） | 下一个要读的 sample 是谁；shuffle 的 epoch 与 offset | 重复看一遍已训过的数据（过拟合）或跳过一段（欠训练），且不可复现 |
+| 数据加载器位置 | —（几 KB 到 MB） | 下一个要读的 sample 是谁<br/>shuffle 的 epoch 与 offset | 重复看一遍已训过的数据（过拟合）或跳过一段（欠训练），且不可复现 |
 | RNG 状态 | —（每 rank 几 KB） | dropout mask、数据 shuffle、MoE 的随机路由<br/>Megatron 还有 TP 组内的 CUDA RNG tracker | loss 曲线在重启处出现一个小台阶<br/>跨 TP 的 dropout 不一致会直接算错 |
-| 迭代计数与累计量 | —（几个标量） | step、已见 token 数、累计 FLOP；决定调度器与数据位置的重建 | 退出条件错；日志与曲线断裂 |
+| 迭代计数与累计量 | —（几个标量） | step、已见 token 数、累计 FLOP<br/>决定调度器与数据位置的重建 | 退出条件错<br/>日志与曲线断裂 |
 
 Table: 精确恢复必需的六类内容
 
 前两行是字节的大头：Adam 的两个矩加 fp32 主参数是参数本身的 6 倍（若参数按 bf16 算）。后四行几乎不占空间，但缺了任何一样都不再是"精确恢复"，只是"从一个不错的初始化重新开始"。总纲里说"优化器状态是参数的两到三倍"，就是 12 字节比 2 到 4 字节。
 
-对照[第一篇](/training-state-anatomy-memory-and-mfu.html)的四种状态，要存的恰好是其中两种**常驻状态**：
+对照[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)里的[「四种状态与一张卡」](/training-state-anatomy-memory-and-mfu.html#1-四种状态与一张卡)，要存的恰好是其中两种**常驻状态**：
 
 ![checkpoint 要存什么：四种状态里的两种常驻状态 + 几样小东西](/img/in-post/distributed-checkpoint-what-to-save.svg)
 
@@ -146,7 +160,7 @@ Table: 落盘字节的分布：8B 与 405B
 **Megatron**：`generate_state_dict()`（`megatron/training/checkpointing.py`）
 
 - 产出 `args`、`checkpoint_version`（当前是 3.0）、`iteration`、`model`（PP 多个虚拟 stage 时是 `model0`、`model1`…）、`optimizer`、`opt_param_scheduler`、`rng_state`。
-- 可选 `rerun_state_machine`（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 SDC 检测状态）与 `num_floating_point_operations_so_far`。
+- 可选 `rerun_state_machine`（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)里的 SDC 检测状态）与 `num_floating_point_operations_so_far`。
 - `--ckpt-format torch_dist` 时 `model` 与 `optimizer` 来自 `sharded_state_dict()`，值是 `ShardedTensor`；其他格式来自普通 `state_dict()`。
 - RNG 由 `get_rng_state()` 收集 Python、NumPy、torch CPU、CUDA 四个生成器，加 TP 组的 `CudaRNGStatesTracker`。在 `torch_dist` 格式下包成一个按 `(pp_rank, tp_rank)` 分片的 `ShardedObject`：RNG 状态是"按 TP/PP 位置存、DP 内相同"的东西，这个分片形状精确表达了它的语义。
 - 数据加载器位置走单独的文件（`maybe_save_dataloader_state()`），因为它按 DP rank 分片、与模型无关。
@@ -189,13 +203,25 @@ Table: 三框架 state_dict 的 key 对照
 - 就算不合并、各存各的，换一种 PP 切法（比如改成 4 个 stage）之后，`state[0]` 又指向别的参数了，旧文件没法对上。
 - 按 FQN 编址之后，key 变成 `state["layers.4.attention.wq.weight"]`，和 PP 怎么切、这个参数在哪个 rank 上都无关。
 
-所以难点有三层：key 要从下标换成 FQN；每个状态张量的形状和分片要跟着对应参数走（FSDP2 下 m、v 与参数一样是 `Shard(0)` 的 DTensor）；加载时优化器可能还没跑过一步，state 是空的，要先造出来才能往里装。三个框架都要把优化器状态**重新按 FQN 编址**：
+所以难点有三层：
+
+1. key 要从下标换成 FQN。
+2. 每个状态张量的形状和分片要跟着对应参数走（FSDP2 下 m、v 与参数一样是 `Shard(0)` 的 DTensor）。
+3. 加载时优化器可能还没跑过一步，state 是空的，要先造出来才能往里装。
+
+三个框架都要把优化器状态**重新按 FQN 编址**：
 
 - PyTorch 的 `torch/distributed/checkpoint/state_dict.py` 提供 `get_optimizer_state_dict()`，内部 `_get_optim_state_dict()` 把下标换成参数 FQN，并在 FSDP2 / TP 下让每个状态张量跟随对应参数的 DTensor 布局（`m`、`v` 与参数同形状、同分片）；`set_optimizer_state_dict()` 反向映射，且在优化器尚未跑过一步（state 为空）时先 `_init_optim_state()` 造出零状态再装。
 - torchtitan 的 `OptimizersContainer.state_dict()` 调 `torchtitan/components/optimizer/utils.py` 的 `get_flat_optim_state_dict()`，把多个 optimizer（每个 PP stage 一个）的状态拍平成一个 FQN 键的 dict；`load_flat_optim_state_dict()` 反向。
 - Megatron 的 `megatron/core/dist_checkpointing/optimizer.py` 提供 `get_param_id_to_sharded_param_map()` 与 `make_sharded_optimizer_tensor()`：先建 `param id → 模型 ShardedTensor` 的映射，再给每个优化器状态造一个与对应参数**同分片描述**的 `ShardedTensor`（key 加前缀 `optimizer.state.exp_avg.` 等）。分布式优化器的情况更复杂，第七章第 3 节单独讲。
 
 结论：优化器状态在磁盘上必须表达成"参数 X 的 m 的第几块"，而不是"rank 7 的 optimizer 的第 12 个状态"。这一转换做对了，重分片才有可能。
+
+> [!NOTE] Java 经验参照：按名字编址，而不是按顺序编址
+>
+> `state[0]`、`state[1]` 这种下标编址，和 Java 里 `Serializable` 的默认序列化是同一类问题：写出去的字节绑在类当时的字段布局上，改一次类结构（加字段、换顺序、拆类）旧数据就对不上——这也是后端最终都改成按名字编址（JSON 的字段名、protobuf 的字段号）的原因。`get_optimizer_state_dict()` 把 `state[0]` 换成 `state["layers.4.attention.wq.weight"]`，做的就是这件事。
+>
+> 失配在两处。一是光有名字不够：每个状态张量还得带上全局形状和这一块在全局张量里的坐标，读的时候才能把几段拼回一个完整张量——对象序列化没有这一层几何信息，所以 Java 侧"改成按字段名就兼容了"的经验在这里只覆盖一半。二是 protobuf 的字段号是人为钉死的稳定 ID，而 FQN 是模块路径，改一层 `nn.Module` 的名字它就变了，所以仍要有兼容逻辑兜着（`dist_ckpt_strictness`、`allow_partial_load`，以及 Megatron 处理旧 QKV 布局的 `fix_query_key_value_ordering()`）。
 
 ## 三、为什么不能写成一个文件：405B 的算术
 
@@ -233,35 +259,23 @@ Table: rank-0 汇总的三个瓶颈
 
 这里出现了一个新的瓶颈：**计划阶段的集合通信**。DCP 的每个 rank 要把"打算写哪些张量的哪些块"发给 coordinator 汇总去重，16384 个 rank 每个几千个 `WriteItem`，这一次 gather 的对象序列化与反序列化在 Python 里做，可能比写数据本身还慢。Megatron 与 DCP 都为此加了**计划缓存**：结构不变时只做第一次（Megatron 的 `ckpt_assume_constant_structure`、DCP `DefaultSavePlanner(enable_plan_caching=True)`），第四章会看到实现。
 
-### 4. 三种目录长什么样
+### 4. 三框架的目录长什么样
 
 分片 checkpoint 在磁盘上不是一个文件而是一个目录。三个框架的目录长得不一样，但结构一致——数据文件按写入者分、元数据集中：
 
-```text title="DCP / torchtitan：step-1000/"
-__0_0.distcp        rank 0 写的数据
-__1_0.distcp        rank 1 写的数据
-…
-__N_0.distcp
-.metadata           全局元数据：每个 key 的全局形状 + 所有块的位置
-                    + 每块在哪个文件的哪个偏移
-```
+| 目录 | 文件 | 内容 | 谁写 |
+|---|---|---|---|
+| DCP / torchtitan<br/>`step-1000/` | `__0_0.distcp` … `__N_0.distcp` | 数据块的字节 | 每个 rank 写自己的那个（或那几个） |
+| ^^ | `.metadata` | 每个 key 的全局形状<br/>所有块的全局坐标<br/>每块在哪个文件的哪个偏移 | coordinator，全部数据文件之后 |
+| Megatron `torch_dist`<br/>`iter_0001000/` | `__0_0.distcp` … `__N_0.distcp`、`.metadata` | 同 DCP | 同 DCP |
+| ^^ | `common.pt` | 非分片对象：`args`、`iteration`、调度器状态等 | rank 0 |
+| ^^ | `metadata.json` | 格式后端与版本（`CheckpointingConfig`） | rank 0，在 finalize 里 |
+| ^^ | `../latest_checkpointed_iteration.txt` | 提交标记：加载哪个 iteration | rank 0，在 finalize 里 |
+| DeepSpeed ZeRO<br/>`global_step1000/` | `mp_rank_XX_model_states.pt` | 模型参数（bf16），每个 TP/PP 位置一份 | 该位置的 DP 副本中的一个 rank |
+| ^^ | `zero_pp_rank_X_` `mp_rank_XX_optim_states.pt` | ZeRO 分片：该 rank 的 fp32 展平缓冲与优化器状态 | 每个 DP rank 各一份 |
+| ^^ | `../latest` | 提交标记：指向最新 tag | `checkpoint_engine.commit()` |
 
-```text title="Megatron torch_dist：iter_0001000/"
-__0_0.distcp … __N_0.distcp           同 DCP
-.metadata                             同 DCP
-common.pt                             非分片对象：args、iteration、调度器状态等（rank 0 写）
-metadata.json                         格式后端与版本
-../latest_checkpointed_iteration.txt
-```
-
-```text title="DeepSpeed ZeRO：global_step1000/"
-mp_rank_00_model_states.pt                   每个 TP/PP 位置一份：模型参数（bf16）
-mp_rank_01_model_states.pt
-zero_pp_rank_0_mp_rank_00_optim_states.pt    每个 DP rank 一份 ZeRO 分片
-zero_pp_rank_1_mp_rank_00_optim_states.pt
-…
-../latest                                    指向最新 tag
-```
+Table: 三框架的 checkpoint 目录与文件
 
 DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程（`FileSystemWriter(thread_count=k)` 时每 rank 产出 k 个文件）。Megatron 的 `torch_dist` 格式**就是** DCP 的目录再加两个文件；这是两者互通的物理基础，第七章展开。DeepSpeed 的文件名把 `mp_rank`（TP×PP 位置）和 `zero_pp_rank`（DP 位置）编进去了——文件与并行布局一一对应，这正是它换布局要先转换的原因。
 
@@ -308,6 +322,12 @@ DCP 的 `__{rank}_{n}.distcp` 文件名里 `n` 是该 rank 的第几个写线程
 - `finish()` 在 `Metadata` 里填 `version`（`CURRENT_DCP_VERSION`，当前 "1.0.0"）与 `storage_data`（每个 `MetadataIndex` → 文件名、偏移、长度），pickle 到 `.metadata.tmp`，fsync，再 `rename` 成 `.metadata`。`rename` 在 POSIX 文件系统上是原子的，所以"目录里有 `.metadata`"与"checkpoint 完整"等价——加载器只看这个文件。
 - `FileSystemWriter` 同时继承 `BlockingAsyncStager`（`staging.py`），所以它既是写入者也是一个 stager；`async_save()` 若发现 `storage_writer` 本身是 `AsyncStager` 且没传单独的 stager，就直接用它做 staging（第六章）。
 - `SerializationFormat` 枚举（`TORCH_SAVE` / `SAFETENSORS`）决定每个块的序列化方式；`hf_storage.py` 的 `HuggingFaceStorageWriter` / `HuggingFaceStorageReader` 在其上实现 safetensors 目录格式，torchtitan 的 HF 导出用的就是它。
+
+> [!NOTE] Java 经验参照：提交标记与原子 rename
+>
+> "先把数据写完并 fsync，再原子地放上一个标记文件"这套协议，Java 后端写配置快照、写索引段时是一样的：`FileChannel.force(true)` 之后 `Files.move(tmp, dst, ATOMIC_MOVE)`，读的一侧只认目标文件在不在，半成品永远看不到。DCP 的 `finish()` 做的正是这两步——`.metadata.tmp` 写完 fsync（`sync_files=True` 时），再 `rename` 成 `.metadata`。
+>
+> 失配在两处。一是提交是分布式的：数据文件由几千个 rank 各自 fsync，coordinator 要收齐所有 `WriteResult` 才写标记，所以这个"提交点"背后挂着一次集合通信，不是单机的一次系统调用。二是没有回滚：标记没写成的那次保存，已经落盘的 `.distcp` 不会被自动清掉（`finish()` 只会在 rename 前删掉同名的旧 `.metadata`），要靠保留策略或下一次同名保存覆盖——Java 里 `ATOMIC_MOVE` 失败只需删掉那一个临时文件。
 
 ### 4. Metadata：磁盘上有什么
 
@@ -375,11 +395,35 @@ class AppState(Stateful):
 
 ![DCP 的对象模型图](/img/in-post/distributed-checkpoint-dcp-object-model.svg)
 
+### 7. 这些对象谁创建、活在哪一侧、活多久
+
+图里的方框容易被当成"同一层的东西"，其实它们的归属差别很大：有的只在一个 rank 的 Python 堆里活几毫秒，有的要跨保存常驻几十 GB 主机内存，有的一旦落盘就是这份 checkpoint 唯一的真相。把它们并排列出来：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| `state_dict` 及其中的 `ShardedTensor` / DTensor | 训练进程调 `state_dict()` / `get_state_dict()`（DCP 在 `_stateful_to_state_dict()` 里替你调） | 显存：值就是本 rank 持有的那一块（`cpu_offload=True` 时才在主机） | 一次保存；staging 之后就可以释放 | 只有本 rank，且只看得到自己的分片 | 二、四 |
+| `SavePlan` / `WriteItem` | 每个 rank 的 `planner.create_local_plan()` | 主机：纯 Python 对象 | 一次保存的计划阶段；`enable_plan_caching` / `ckpt_assume_constant_structure` 时跨保存复用 | 本 rank 创建<br/>gather 后 coordinator 看到全部<br/>scatter 回来各 rank 只拿自己那份 | 四 |
+| `Metadata`（全局形状 + 块坐标） | coordinator 的 `planner.create_global_plan()`，`storage_writer.finish()` 补上 `storage_data` 与 `version` | 主机 → 磁盘 | 内存副本只活一次保存；落盘后与 checkpoint 同寿 | 内存里只有 coordinator 有<br/>落盘后任何进程都能读 | 四、五 |
+| `__i_k.distcp` 数据文件 | 每个 rank 的 `storage_writer.write_data()`（异步保存时在后台线程或 checkpoint 子进程里执行） | 磁盘：PFS 或本地 NVMe | 持久，由保留策略删 | 文件系统上所有 rank 与离线工具 | 三、四、九 |
+| `.metadata` 提交标记 | coordinator 的 `finish()`：`.metadata.tmp` → fsync → `rename` | 磁盘 | 与 checkpoint 目录同寿 | 同上；它在不在就是"这份 checkpoint 完不完整" | 四、九 |
+| `DefaultStager` 的 pinned / 共享内存缓冲 | 第一次 `stage()` 时由 `StateDictStager` 按 storage 分配 | 主机：pinned（`use_shared_memory=True` 时在 `/dev/shm`） | 跨保存常驻、按 storage 复用，`close()` 才释放；`async_save` 自建的那个用完即关 | 本 rank 的训练进程<br/>共享内存模式下还有同节点的 checkpoint 子进程 | 六 |
+| `staging_completion` / `upload_completion` future | `async_save()` 返回时 | 主机：训练进程 | 从本次保存到被 `result()` 等到 | 只有调用者（训练循环主线程） | 六 |
+| `LoadPlan` / `ReadItem` | 加载时每个 rank 的 `planner.create_local_plan()`，由本地块 ∩ 磁盘块算出 | 主机：纯 Python 对象 | 一次加载的计划阶段 | 只有本 rank——加载不需要全局计划，也不需要通信 | 五 |
+
+Table: DCP 各对象的创建者、所在侧、生命周期与可见性
+
+两行值得单独记住。一是 `Metadata` 的内存副本只在 coordinator 手里，而落盘之后它对谁都可见、且不带任何 rank / TP / PP 信息——这就是下一章重分片的全部前提。二是 stager 的缓冲是唯一"跨保存常驻"的大块内存，它的尺寸等于本 rank 唯一持有的 checkpoint 字节，所以配主机内存时要按它算（第六章第 4 节）。
+
 ## 五、重分片加载
 
 ### 1. `dcp.load` 的流程
 
-`state_dict_loader.py` 的 `load()` 与保存对称：`storage_reader.read_metadata()` 读回 `Metadata`；`local_step()` 里 `planner.set_up_planner(state_dict, metadata, is_coordinator)`、`planner.create_local_plan()`、`storage_reader.prepare_local_plan()`；`global_step()` 里 `create_global_plan()`（默认实现原样返回——加载不需要去重，每个 rank 读自己要的）；然后 `read_data()`：`storage_reader.read_data(plan, planner)` 按 `ReadItem` 逐个读文件片段，`planner.resolve_tensor(read_item)` 给出目标张量的对应切片（`torch/distributed/_shard/_utils.py` 的 `narrow_tensor_by_index()`），`copy_` 进去，`planner.commit_tensor()` 收尾。
+`state_dict_loader.py` 的 `load()` 与保存对称，也是四步：
+
+1. `storage_reader.read_metadata()` 读回 `Metadata`。
+2. `local_step()`（每个 rank）：`planner.set_up_planner(state_dict, metadata, is_coordinator)` → `planner.create_local_plan()` → `storage_reader.prepare_local_plan()`。
+3. `global_step()`（coordinator）：`create_global_plan()` 的默认实现原样返回——加载不需要去重，每个 rank 读自己要的。
+4. `read_data()`（每个 rank）：`storage_reader.read_data(plan, planner)` 按 `ReadItem` 逐个读文件片段，`planner.resolve_tensor(read_item)` 给出目标张量的对应切片（`torch/distributed/_shard/_utils.py` 的 `narrow_tensor_by_index()`），`copy_` 进去，`planner.commit_tensor()` 收尾。
 
 关键在 `DefaultLoadPlanner.create_local_plan()` → `create_default_local_load_plan()`：对 state_dict 里每个 key，取 `metadata.state_dict_metadata[fqn]`，先检查全局形状一致（`md.size != obj.size()` 直接 `ValueError`），再 `_create_read_items(fqn, md, obj)`。若 `obj` 是 DTensor，只在当前 rank 属于其 mesh 时（`device_mesh.get_coordinate() is not None`）生成读请求，并由 `_create_chunk_from_dtensor()` 算出本地块的全局坐标；若是普通 tensor，本地块就是整个张量。
 
@@ -437,7 +481,7 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 假设原配置 16 节点 128 卡、TP=8、PP=1、FSDP=16。坏了一个节点、只剩 15 个，能不能直接加载？
 
-分两层看。**checkpoint 层**：可以。FSDP 从 16 变 15，每个参数的 DTensor 分片从 16 块变 15 块，`create_read_items_for_chunk_list()` 为每个新块算出与旧块的交集——大多数新块跨两个旧块，各发两个读请求；优化器状态跟随参数，同样处理；`train_state`、`lr_scheduler` 是标量，任何 rank 都能读。**训练层**：global batch 是 $$d \times b \times m$$，DP 从 16 变 15 时要么 $$m$$ 或 $$b$$ 跟着变（Megatron 会因 global batch 不能被 $$d \times b$$ 整除而报错），要么接受 global batch 变成原来的 15/16 并相应改 lr。torchtitan 从 `TrainingConfig.global_batch_size` 与 `local_batch_size` 重算 `gradient_accumulation_steps`：原来 global batch 512 条序列 = $$16 \times 4 \times 8$$，DP 变 15 后 $$512 / (15 \times 4)$$ 不整除，同样报错。所以答案是：**DCP 层面直接加载没有问题，需要人为决定的是训练配方在 15/16 规模下怎么办**——这是[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的起点（torchft 的副本组模型允许 DP 副本数动态变化）。
+分两层看。**checkpoint 层**：可以。FSDP 从 16 变 15，每个参数的 DTensor 分片从 16 块变 15 块，`create_read_items_for_chunk_list()` 为每个新块算出与旧块的交集——大多数新块跨两个旧块，各发两个读请求；优化器状态跟随参数，同样处理；`train_state`、`lr_scheduler` 是标量，任何 rank 都能读。**训练层**：global batch 是 $$d \times b \times m$$，DP 从 16 变 15 时要么 $$m$$ 或 $$b$$ 跟着变（Megatron 会因 global batch 不能被 $$d \times b$$ 整除而报错），要么接受 global batch 变成原来的 15/16 并相应改 lr。torchtitan 从 `TrainingConfig.global_batch_size` 与 `local_batch_size` 重算 `gradient_accumulation_steps`：原来 global batch 512 条序列 = $$16 \times 4 \times 8$$，DP 变 15 后 $$512 / (15 \times 4)$$ 不整除，同样报错。所以答案是：**DCP 层面直接加载没有问题，需要人为决定的是训练配方在 15/16 规模下怎么办**——这是[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的起点（torchft 的副本组模型允许 DP 副本数动态变化）。
 
 重分片本身可以用一个 4 → 3 的缩小例看清（toy `reshard` 实测的块表）：
 
@@ -481,7 +525,7 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 注意 `train_state` 这个标量只落在 `__1_0.distcp` 里——planner 自动去重，四个 DP 副本不重复写。
 
-数据加载器是另一个坑：`StatefulDataLoader` 的状态按 DP rank 存，16 份状态装到 15 个 rank 里没有自然的映射。Megatron 的 dataloader 状态文件也是按 DP rank 分的。实践中的做法是记录**全局已消费的 sample 数**，重启时用它重建每个 rank 的起点，而不是恢复每个 rank 的私有迭代器状态——[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)讲。
+数据加载器是另一个坑：`StatefulDataLoader` 的状态按 DP rank 存，16 份状态装到 15 个 rank 里没有自然的映射。Megatron 的 dataloader 状态文件也是按 DP rank 分的。实践中的做法是记录**全局已消费的 sample 数**，重启时用它重建每个 rank 的起点，而不是恢复每个 rank 的私有迭代器状态——[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的[「Megatron：位置是一个整数」](/training-stability-and-data-pipeline.html#3-megatron位置是一个整数)讲这件事。
 
 ## 六、异步保存
 
@@ -498,19 +542,28 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 `state_dict_saver.py` 的 `async_save()` 做四件事：
 
 1. 检查进程组含 CPU 后端（`torch.device("cpu") in pg._device_types`），否则报错要求用 `cpu:gloo,cuda:nccl` 初始化——后台线程里的 plan 通信不能走 NCCL。
-2. 确定 stager：传了 `async_stager` 用它；没传但 `storage_writer` 是 `AsyncStager`（`FileSystemWriter` 就是），用 `storage_writer`；两者都没有，则创建 `DefaultStager(StagingOptions(False, False, False, False))`——注意这四个 `False`：**默认路径不用 pinned memory、不用共享内存、不异步 staging、不用 non-blocking 拷贝**，是最保守也最慢的配置。
+2. 确定 stager，按三条规则依次判断：
+   - 传了 `async_stager` 就用它（调用者自己负责最后 `close()`）；
+   - 没传但 `storage_writer` 本身是 `AsyncStager`（`FileSystemWriter` 就是），用 `storage_writer`；
+   - 两者都没有，创建 `DefaultStager(StagingOptions(False, False, False, False))`，并在保存完成后自动关掉它。注意这四个 `False`：**默认路径不用 pinned memory、不用共享内存、不异步 staging、不用 non-blocking 拷贝**，是最保守也最慢的配置（`StagingOptions` 这个 dataclass 自己的字段默认值反而全是 `True`，所以手写 `DefaultStager()` 拿到的是全开的那一套）。
 3. `state_dict = _stateful_to_state_dict(state_dict)`，然后 `async_stager.stage(state_dict)`——这一步在调用线程里跑，是 δ 的主体。
 4. 按 `async_checkpointer_type` 选 `_ThreadBasedAsyncCheckpointExecutor` 或 `_ProcessBasedAsyncCheckpointExecutor`，`execute_save()` 把 staged dict 交给它，返回 `Future`。若 stager 返回的是 `Future`（异步 staging），则返回 `AsyncSaveResponse(staging_completion, upload_completion)` 两个 future。
 
 `staging.py` 里有三个 stager：
 
 - `BlockingAsyncStager`：用 `torch/distributed/_state_dict_utils.py` 的 `_create_cpu_state_dict()` + `_copy_state_dict()` 同步拷到 CPU；`cache_staged_state_dict=True` 时保留一份 pinned 的 CPU state_dict 复用，省去每次分配与 pin 的时间（pin 一大块内存本身要几百毫秒），代价是常驻主机内存。`FileSystemWriter(cache_staged_state_dict=...)` 就是把这个参数传给它。
-- `DefaultStager(StagingOptions)`：全功能版。`use_pinned_memory` 用 pinned 内存；`use_shared_memory` 把 CPU 张量放进共享内存（进程式 executor 需要）；`use_async_staging` 在单线程 `ThreadPoolExecutor` 里做拷贝，返回 `Future`；`use_non_blocking_copy` 在单独的 `torch.Stream` 上发 `copy_(non_blocking=True)` 再 `synchronize()`。底层是 `_state_dict_stager.py` 的 `StateDictStager`：按 storage 而不是按 tensor 缓存 CPU 副本（`WeakIdKeyDictionary`），同一 storage 的多个视图只拷一次，且**下一次保存时若源 storage 没变则复用已分配的 pinned 缓冲**——这就是 torchtitan `ModelWrapper` 要保证 state_dict 里张量的 storage 稳定的原因。
+- `DefaultStager(StagingOptions)`：全功能版，四个开关各管一件事。
+  - `use_pinned_memory`：用 pinned 内存。
+  - `use_shared_memory`：把 CPU 张量放进共享内存（进程式 executor 需要）。
+  - `use_async_staging`：在单线程 `ThreadPoolExecutor` 里做拷贝，返回 `Future`。
+  - `use_non_blocking_copy`：在单独的 `torch.Stream` 上发 `copy_(non_blocking=True)` 再 `synchronize()`。
+
+  底层是 `_state_dict_stager.py` 的 `StateDictStager`：按 storage 而不是按 tensor 缓存 CPU 副本（`WeakIdKeyDictionary`），同一 storage 的多个视图只拷一次，且**下一次保存时若源 storage 没变则复用已分配的 pinned 缓冲**——这就是 torchtitan `ModelWrapper` 要保证 state_dict 里张量的 storage 稳定的原因。
 - `_ReplicationStager`：把 staged dict 同时发给另一个 rank 做副本，是第九章"邻居恢复"在 DCP 里的实验性实现。
 
 ### 3. 线程还是进程
 
-`_async_thread_executor.py` 的 `_ThreadBasedAsyncCheckpointExecutor` 在一个单 worker 的 `ThreadPoolExecutor` 里调 `save()`。简单，但线程受 GIL 约束：plan 阶段的 pickle、`torch.save` 的序列化都持 GIL，与训练循环的 Python 部分争抢。训练循环若是 CPU 发射受限的（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)的第七项损失），后台保存会直接拉长 step 时间。
+`_async_thread_executor.py` 的 `_ThreadBasedAsyncCheckpointExecutor` 在一个单 worker 的 `ThreadPoolExecutor` 里调 `save()`。简单，但线程受 GIL 约束：plan 阶段的 pickle、`torch.save` 的序列化都持 GIL，与训练循环的 Python 部分争抢。训练循环若是 CPU 发射受限的（[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)拆 MFU 损失时的第六项，[「CPU 发射开销」](/thousand-gpu-configuration-and-mfu-tuning.html#7-cpu-发射开销)），后台保存会直接拉长 step 时间。
 
 `_async_process_executor.py` 的 `_ProcessBasedAsyncCheckpointExecutor` 用 `multiprocessing` 的 `spawn` 起一个常驻的 `_AsyncCheckpointProcess`，子进程用 `_ProcessGroupInitInfo` 里的信息自己初始化一个 gloo 进程组（所以所有 rank 的子进程组成了一个平行的"checkpoint 世界"），通过 `Pipe` 接收保存请求；staged dict 必须在共享内存里（`use_shared_memory=True`），子进程直接读，不再拷贝。GIL 问题消失，代价是多一个进程、一套进程组、以及 `/dev/shm` 的容量——容器默认的 64 MB shm 显然不够，得挂大。torchtitan 的 `async_with_pinned_mem` 模式就是 `PROCESS` executor + 四个 `True` 的 `StagingOptions`。
 
@@ -619,7 +672,7 @@ Table: DistributedOptimizer 的四种分片
 
 ### 4. `CheckpointConfig` 与参数族
 
-Megatron 0.18.0 的 CLI 参数由 dataclass 生成（[第七篇《千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
+Megatron 0.18.0 的 CLI 参数由 dataclass 生成（[《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)讲过 `megatron/training/argument_utils.py` 的 `ArgumentGroupFactory`：字段名下划线换连字符）。checkpoint 相关字段在 `megatron/training/config/training_config.py` 的 `CheckpointConfig`，对应的 CLI：
 
 | 字段（CLI） | 含义 |
 |---|---|
@@ -686,8 +739,12 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 
 并行文件系统或对象存储是 checkpoint 的最终归宿，但它有两个问题：聚合带宽是全集群共享的（几百 GB/s 到 1 TB/s 量级），恢复时 16K 张卡同时读 5.7 TB 要几十秒到几分钟；而且它是共享基础设施，别的任务在写时你的读会变慢。本地 NVMe 每节点几 GB/s、全集群加起来几十 TB/s，且没人跟你争。于是形成两级：
 
-- **一级：本地 NVMe（或内存）**：每 N₁ 步一次；每 rank 写自己的分片到本机；秒级；不持久（节点坏了就没了）
-- **二级：PFS / 对象存储**：每 N₂ ≫ N₁ 步一次；持久；恢复时从这里读
+| 层级 | 介质 | 频率 | 写到哪、多快 | 持久性 |
+|---|---|---|---|---|
+| 一级 | 本地 NVMe，或主机内存 | 每 N₁ 步一次 | 每 rank 写自己的分片到本机，秒级 | 不持久：节点坏了它那份分片就没了 |
+| 二级 | 并行文件系统 / 对象存储 | 每 N₂ ≫ N₁ 步一次 | 分片写到共享存储，由聚合带宽决定 | 持久，恢复时从这里读 |
+
+Table: 两级 checkpoint 存储的分工
 
 一级 checkpoint 的问题是"节点坏了它的分片就没了"，解法是**副本**：每个 rank 的本地分片同时发一份给另外一个或几个节点（走 NCCL / RDMA，带宽远高于 PFS）。恢复时坏节点的替代者从持有副本的邻居节点拿数据，其余节点从自己的本地盘读——整个恢复不碰 PFS。Megatron 的 `non_persistent_ckpt_type="local"` 加 `--replication --replication-jump J --replication-factor F` 就是这个模型：`megatron/training/training.py` 从 nvidia-resiliency-ext 导入 `LocalCheckpointManager` 与 `CliqueReplicationStrategy`，rank $$n$$ 的副本放在 $$n + J, n + 2J, \ldots$$；`non_persistent_local_ckpt_algo` 的 `fully_parallel` / `atomic` 决定本地写法。以 8 个节点、J=2、F=3 为例，副本的放置是：
 
@@ -695,13 +752,27 @@ torchtitan v0.3.0 把 checkpoint 放在 `torchtitan/components/checkpointer/`：
 
 恢复路径：节点 3 故障 → 替代节点上线 → 从节点 5（+J）或节点 7（+2J）拉回 S3；其余节点从本机 NVMe 读自己的 S_n。整个恢复不碰 PFS。
 
-DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)）。
+DCP 侧 `staging.py` 的 `_ReplicationStager` 与 `_pg_transport.py` 的 `PGTransport`（通过进程组直接传 state_dict）是同一思路的构件，2.13 里仍是内部 API，torchft 用后者做副本组之间的状态同步（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的[「恢复：从邻居拉参数而不是从存储读」](/fault-tolerance-and-elastic-training.html#4-恢复从邻居拉参数而不是从存储读)）。
 
 多级存储改变了 Young 公式里的两个量：一级 checkpoint 的 δ 更小（本地写），所以 τ₁ 可以更短；二级只需要保证"节点整批丢失"这种低频事件下的恢复，τ₂ 可以按更低的故障率算。
 
 ### 2. Young 公式的推导
 
-设 checkpoint 间隔 τ、每次开销 δ、故障服从均值为 M 的指数分布（M ≫ τ）。每个周期的长度是 τ + δ，其中有用工作 τ。故障发生时，从上一个 checkpoint 到故障点的工作作废，故障均匀落在周期内，期望作废 τ/2（严格说还要加重启与加载时间 R，[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)把 R 放进有效训练时间公式，这里先忽略）。单位时间的浪费由两项组成：
+先用数字看一眼这笔账的形状。取 δ = 60 s（分片同步写的量级）、M = 11135 s（≈ 3.09 h，下一节 Llama 3 的数字），试几个保存间隔，把"存 checkpoint 占掉的比例"和"故障后回退重算占掉的比例"分开算：
+
+| 间隔 τ | 存的开销 δ/τ | 回退的开销 τ/(2M) | 合计浪费 |
+|---:|---:|---:|---:|
+| 5 min（300 s） | 20.0% | 1.3% | 21.3% |
+| 10 min（600 s） | 10.0% | 2.7% | 12.7% |
+| 19.3 min（1156 s） | 5.2% | 5.2% | **10.4%** |
+| 40 min（2400 s） | 2.5% | 10.8% | 13.3% |
+| 80 min（4800 s） | 1.3% | 21.6% | 22.8% |
+
+Table: δ = 60 s、M ≈ 3.09 h 时几个保存间隔的两项开销
+
+两件事一眼可见。一是存太勤浪费在写上、存太疏浪费在重算上，两头都不划算；二是最低点恰好落在两列相等的那一行。下面把这个最低点算出来。
+
+设 checkpoint 间隔 τ、每次开销 δ、故障服从均值为 M 的指数分布（M ≫ τ）。每个周期的长度是 τ + δ，其中有用工作 τ。故障发生时，从上一个 checkpoint 到故障点的工作作废，故障均匀落在周期内，期望作废 τ/2（严格说还要加重启与加载时间 R，[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的[「有效训练时间的五项公式」](/fault-tolerance-and-elastic-training.html#2-有效训练时间的五项公式)把 R 放进来，这里先忽略）。单位时间的浪费由两项组成：
 
 $$
 f(\tau) = \frac{\delta}{\tau} + \frac{\tau}{2M}
@@ -729,21 +800,33 @@ Llama 3 论文的 54 天、419 次意外中断给出 $$M \approx 54 \times 24 / 
 
 Table: 代入 Llama 3：几个 δ 下的 τ_opt 与浪费
 
+这张表就是 toy `young` 打印的（δ 那列是 §三.2–3 的每个写入者时间，「每天保存次数」是 24h / τ_opt）。
+
 三个读法。第一，同步保存在 3 小时 MTBF 下**无论如何调间隔**都要浪费 10% 以上，这是"异步保存为什么是必需的"的定量回答——Llama 3 论文报告的 >90% 有效训练时间，在同步保存下算不出来。
 
 ![Young 公式曲线：保存开销 δ/τ 与回退损失 τ/(2M) 的和，最低点 τ_opt = 根号下 2δM](/img/in-post/distributed-checkpoint-young-formula.svg)
 
-toy `young` 打印的就是下面这张表（δ 那列是 §三.2–3 的每个写入者时间，「每天保存」是 24h / τ_opt）。
-
-第二，异步保存把最优间隔压到几分钟，此时约束变成第六章第 5 节的"后台写入时间 < 间隔"：5.7 TB 在 3.5 分钟内写完需要 27 GB/s 的聚合带宽，PFS 做得到；每天 400 次、每次 5.7 TB 是 2.3 PB/天的写入量，**保留策略**必须跟上（下一节）。第三，δ 之外还有 R——检测、重启、加载——[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)会看到它在 Llama 3 的规模上是分钟级，与 δ 同量级甚至更大，所以把 δ 压到秒级之后，下一个要压的是 R。
+第二，异步保存把最优间隔压到几分钟，此时约束变成第六章第 5 节的"后台写入时间 < 间隔"：5.7 TB 在 3.5 分钟内写完需要 27 GB/s 的聚合带宽，PFS 做得到；每天 400 次、每次 5.7 TB 是 2.3 PB/天的写入量，**保留策略**必须跟上（下一节）。第三，δ 之外还有 R——检测、重启、加载——[《容错与弹性》](/fault-tolerance-and-elastic-training.html)会看到它在 Llama 3 的规模上是分钟级，与 δ 同量级甚至更大，所以把 δ 压到秒级之后，下一个要压的是 R。
 
 ### 4. 校验、保留与版本兼容
 
 **校验**。一个 checkpoint 目录"完整"的判据是提交标记的存在：DCP 的 `.metadata`（fsync 后原子 rename）、Megatron 的 `latest_checkpointed_iteration.txt`（异步保存的 finalize 回调里写）、DeepSpeed 的 `latest`（`commit()` 里写）。三者都要求**数据文件全部 fsync 之后才写标记**——`FileSystemWriter(sync_files=True)` 默认如此，关掉它保存会快但崩溃时可能留下"标记在、数据不全"的目录。内容级校验：Megatron 的 `verify_integrity=True` 在保存时 `save_integrity_manifest()` 对每个文件算哈希、加载时 `verify_integrity_manifest()` 比对（`dist_checkpointing/validation.py`）；`ckpt_load_validate_sharding_integrity` 检查每块恰好被一个 main replica 访问。最可靠的校验是**加载一次**：写完后在另一组进程里 `dcp.load` 到 `_EmptyStateDictLoadPlanner`（`default_planner.py`，从 metadata 重建空 state_dict 再填充）并比对若干张量的 checksum——练手项目的 `reshard_check.py` 顺带做这件事。
 
-**保留**。每 3.5 分钟 5.7 TB 不能全留。常见策略是三层：最近 k 个（torchtitan 的 `keep_latest_k`，后台线程删）；每 N 小时留一个（供 loss spike 回退——[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html) PaLM 的做法要回退到 spike 前约 100 步）；里程碑永久保留（每 1000 亿 token 之类）。Megatron 的 `cleanup_old_non_persistent_checkpoint()` 只管一级本地 checkpoint 的清理（`leave_ckpt_num`），二级由外部脚本管。删除本身要异步——`_async_delete_checkpoint_impl()`、torchtitan 的 `purge_thread` 都是为此。
+**保留**。每 3.5 分钟 5.7 TB 不能全留。常见策略是三层：
 
-**版本兼容**。三个层次：格式版本（DCP `Metadata.version` "1.0.0"、`_version.py` 里对 2.3 以前展平方式的兼容判断；Megatron `metadata.json` 的 `sharded_backend` 与 `sharded_backend_version`）、内容版本（Megatron `checkpoint_version` 3.0，`fix_query_key_value_ordering()` 兼容 < 2.0 的 QKV 交错布局）、框架版本（`args` 存进 checkpoint，`check_checkpoint_args()` 比对）。实践原则是：checkpoint 目录里必须能找到写它的框架 commit 与配置；升级框架前先用新版本加载旧 checkpoint 跑 10 步比对 loss。`DefaultLoadPlanner(allow_partial_load=True)` 与 Megatron 的 `dist_ckpt_strictness=log_unexpected` 是处理"新版本多了一个 buffer"这类小差异的开关。
+1. **最近 k 个**：torchtitan 的 `keep_latest_k`，由后台线程删。
+2. **每 N 小时留一个**：供 loss spike 回退——[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)里 PaLM 的做法要回退到 spike 前约 100 步。
+3. **里程碑永久保留**：每 1000 亿 token 之类。
+
+Megatron 的 `cleanup_old_non_persistent_checkpoint()` 只管一级本地 checkpoint 的清理（`leave_ckpt_num`），二级由外部脚本管。删除本身要异步——`_async_delete_checkpoint_impl()`、torchtitan 的 `purge_thread` 都是为此。
+
+**版本兼容**。三个层次：
+
+1. **格式版本**：DCP 的 `Metadata.version`（"1.0.0"）与 `_version.py` 里对 2.3 以前展平方式的兼容判断；Megatron `metadata.json` 的 `sharded_backend` 与 `sharded_backend_version`。
+2. **内容版本**：Megatron 的 `checkpoint_version` 3.0，`fix_query_key_value_ordering()` 兼容 < 2.0 的 QKV 交错布局。
+3. **框架版本**：`args` 存进 checkpoint，`check_checkpoint_args()` 加载时比对。
+
+实践原则是：checkpoint 目录里必须能找到写它的框架 commit 与配置；升级框架前先用新版本加载旧 checkpoint 跑 10 步比对 loss。`DefaultLoadPlanner(allow_partial_load=True)` 与 Megatron 的 `dist_ckpt_strictness=log_unexpected` 是处理"新版本多了一个 buffer"这类小差异的开关。
 
 ## 十、本文小结
 
@@ -923,7 +1006,7 @@ Llama 3 集群 MTBF ≈ 3.09 h
 1024 卡、单卡 MTBF 2 年：集群 MTBF 17.1 h
 ```
 
-[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 `ledger/availability.py` 会 import 这里的 `CheckpointPlan`，把检测、重启、加载时间 R 加进去得到完整的有效训练时间。
+[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 `ledger/availability.py` 会 import 这里的 `CheckpointPlan`，把检测、重启、加载时间 R 加进去得到完整的有效训练时间。
 
 **`ckpt/async_dcp.py`** 在单节点 8 卡上测第六章的两个数：`async_save` 返回前的阻塞时间（≈ staging）与 `future.result()` 的总时间，以及保存期间与平时的 step 时间差。模型故意用小的（几亿参数），让现象而不是 I/O 绝对量成为主角：
 
@@ -1036,7 +1119,13 @@ if __name__ == "__main__":
     main()
 ```
 
-预期看到的**定性**规律（数字随机器与存储而异）：`sync` 的 `blocking` 等于全部写入时间，`step_during_save` 无意义；`async` 的 `blocking` 是同步 staging 的时间（这个模型每卡约 0.6 GB 的 fp32 参数 + 矩，不 pin 的拷贝要几百毫秒），`step_during_save` 比 `step_before` 高——线程式写入在 GIL 上与训练争；`async_pinned` 的 `blocking` 降到几十毫秒（拷贝在后台 stream 上、只在 `opt.step` 前等），`step_during_save` 的上浮更小（写入在另一个进程），代价是 `pinned_host`（`torch.cuda.host_memory_stats()` 报告的 pinned 分配量）多出一份常驻副本。把 `--steps` 与 `--save-at` 拉大、每隔几步存一次，可以直接测出"后台写入时间"这个异步保存的间隔下限。
+三个模式要比的是同一组量落在哪一侧（绝对数字随机器与存储而异，这里只说方向）：
+
+1. **`sync`**：`blocking` 等于全部写入时间，`step_during_save` 没有意义。
+2. **`async`**：`blocking` 是同步 staging 的时间（这个模型每卡约 0.6 GB 的 fp32 参数 + 矩，不 pin 的拷贝要几百毫秒），`step_during_save` 高于 `step_before`——线程式写入在 GIL 上与训练争。
+3. **`async_pinned`**：`blocking` 降到几十毫秒（拷贝在后台 stream 上、只在 `opt.step` 前等），`step_during_save` 的上浮更小（写入在另一个进程），代价是 `pinned_host`（`torch.cuda.host_memory_stats()` 报告的 pinned 分配量）多出一份常驻副本。
+
+把 `--steps` 与 `--save-at` 拉大、每隔几步存一次，可以直接测出"后台写入时间"这个异步保存的间隔下限。
 
 **`ckpt/reshard_check.py`** 验证第五章：用不同的 DP×TP 布局加载 `async_dcp.py` 存的 checkpoint，比对参数与 loss。用 `--nproc_per_node 8` 跑，`--tp` 取 1、2、4；也可以用 `--nproc_per_node 6` 跑 `--tp 1`，重现"15 个节点而不是 16 个"的那种不整除分片：
 
@@ -1103,9 +1192,9 @@ if __name__ == "__main__":
     main()
 ```
 
-`--tp 1`、`--tp 2`、`--tp 4` 三次运行打印的 `loss_on_fixed_batch` 应在 bf16 噪声内相同（TP 改变 GEMM 的归约顺序，最后几位会不同），`mismatched` 应为空；`--nproc_per_node 6 --tp 1` 走的是[第五篇《torchtitan》](/torchtitan-architecture-and-source-guide.html)第 2 节那种"一个本地块跨两个磁盘块"的路径。想看 `ReadItem` 长什么样，给 `dcp.load` 传一个继承 `DefaultLoadPlanner`、在 `create_local_plan()` 里打印 `plan.items` 的 planner 即可。做完这两步，读者手上有：一个能量化"异步保存到底省了多少、代价在哪"的脚本，和一个能证明"换布局加载后模型没变"的脚本——[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 chaos 演练（kill 一个 rank 后用少一个节点的配置重启）直接复用它们。
+`--tp 1`、`--tp 2`、`--tp 4` 三次运行打印的 `loss_on_fixed_batch` 应在 bf16 噪声内相同（TP 改变 GEMM 的归约顺序，最后几位会不同），`mismatched` 应为空；`--nproc_per_node 6 --tp 1` 走的是本文[「交集是怎么算的」](#2-交集是怎么算的)那种"一个本地块跨两个磁盘块"的路径。想看 `ReadItem` 长什么样，给 `dcp.load` 传一个继承 `DefaultLoadPlanner`、在 `create_local_plan()` 里打印 `plan.items` 的 planner 即可。做完这两步，读者手上有：一个能量化"异步保存到底省了多少、代价在哪"的脚本，和一个能证明"换布局加载后模型没变"的脚本——[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的 chaos 演练（kill 一个 rank 后用少一个节点的配置重启）直接复用它们。
 
-checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 Young 公式里的 M 是给定的，δ 之外的 R——从故障发生到训练恢复的检测、重启、加载时间——本篇一直放在括号里。下一篇把它们拿出来：一千张卡平均几小时坏一张，每次从发现到恢复要多久，哪一段最该缩短。
+checkpoint 解决的是"状态怎么安全落盘、怎么灵活装回"。但 Young 公式里的 M 是给定的，δ 之外的 R——从故障发生到训练恢复的检测、重启、加载时间——本篇一直放在括号里。[《容错与弹性》](/fault-tolerance-and-elastic-training.html)把它们拿出来：一千张卡平均几小时坏一张，每次从发现到恢复要多久，哪一段最该缩短。
 
 > **一千张卡平均每几小时坏一张。每次故障从发现到恢复训练要多久？其中检测、重启、加载 checkpoint、回退重算各占多少？把有效训练时间从 85% 提到 95%，最该缩短的是哪一段？**
 
