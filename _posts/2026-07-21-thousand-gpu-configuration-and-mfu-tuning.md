@@ -10,7 +10,7 @@ updated: 2026-09-20
 
 > **更新 @2026-09-06**：本文 torchtitan 部分基于 v0.3.0 刷新；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 为准。
 
-前三篇把一个训练任务拆成了四种状态、把并行策略拆成了"复制还是切分"的选择、把三个框架拆成了"一个 bf16 参数的一生"。这些是零件。本篇把零件装回去：拿到一份模型规格和一份集群规格，坐下来算出一组配置，跑起来，然后面对那个所有人都会遇到的数字——**MFU 比预期低了 10 个点**。
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)把一个训练任务拆成了四种状态，[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)把并行策略拆成了"复制还是切分"的选择，[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)把三个框架拆成了"一个 bf16 参数的一生"。这些是零件。本篇把零件装回去：拿到一份模型规格和一份集群规格，坐下来算出一组配置，跑起来，然后面对那个所有人都会遇到的数字——**MFU 比预期低了 10 个点**。
 
 配置一个千卡任务没有搜索空间可以穷举。TP、PP、DP、CP 四个维度、micro-batch、重计算策略、重叠开关、精度、编译，任意组合都要几分钟到几十分钟才能跑出一个 MFU 数字，一千张卡一小时的成本以万美元计。所以配置不是"试出来"的，而是**算出来、再用少量实验校准**的：先用显存账和通信量排除掉放不下和明显亏的组合，剩下两三个候选，各跑一段基准，用 profiler 看损失在哪，再决定。本篇前半部分是这套推导，后半部分是这套校准。
 
@@ -20,15 +20,64 @@ updated: 2026-09-20
 
 > **一个 70B dense 模型，1024 张 H100（128 节点 × 8 卡），序列长 8192，global batch 4M token。TP、PP、DP 各多少？[^q0] micro-batch 多大？[^q1] 要不要重计算？[^q2] 预期 MFU 多少？[^q3] 跑出来只有 32%，缺的 10 个点去了哪里？[^q4]**
 
-依照系列惯例：硬件数字一律取公开标称值（H100 SXM bf16 dense 989 TFLOPS、HBM 80 GB、NVLink 单向 450 GB/s、每 GPU 一张 400 Gb/s 网卡即 50 GB/s）；推导出的显存与时间是账本数字；第六章那张"32% 是怎么来的"的表是**构造的示例**，用来演示拆解方法，不是任何一台集群的实测。源码以 Megatron Core 0.18.0、PyTorch 2.13.0 为准，torchtitan 依更新声明以 v0.3.0 为准。
+依照系列惯例，本篇的数字分三类：
+
+- 硬件数字一律取公开标称值：H100 SXM bf16 dense 989 TFLOPS、HBM 80 GB、NVLink 单向 450 GB/s、每 GPU 一张 400 Gb/s 网卡即 50 GB/s。
+- 推导出的显存与时间是账本数字，不是实测。
+- 第六章那张"32% 是怎么来的"的表是**构造的示例**，用来演示拆解方法，不是任何一台集群的实测。
+
+源码以 Megatron Core 0.18.0、PyTorch 2.13.0 为准，torchtitan 依更新声明以 v0.3.0 为准。
 
 ## 一、总览
 
-![70B 放进 1024 张 H100 的四步：TP、PP、DP、CP 各定了什么，以及最终的五元组与预期 MFU 区间](/img/in-post/thousand-gpu-configuration-70b-four-steps.svg)
+本篇按**配置的时间顺序**组织：先把一组配置算出来（第二至四章），再把它跑起来、让通信藏进计算（第五章），然后用 profiler 把实测与预期的差距拆成七项并逐项处置（第六、七章），最后把定版的配置留痕（第八章）。整条链画成一张图。三个菱形是要做判断的地方，也是链上三处会折回去改配置的位置：
+
+```mermaid
+%% 图：千卡配置的决策链：从一份规格到一份定版配置，每一步落在哪一章
+flowchart TB
+    IN["<b>输入：模型规格与集群规格</b><br/>• N、L、h、a、s<br/>• 卡数、节点内卡数、每卡显存<br/>• NVLink 与网卡带宽"] --> PAR["<b>四步定并行度（第二章）</b><br/>• TP 锁在 NVLink 域内并开 SP<br/>• PP 放下参数与在途激活<br/>• DP 用满剩下的卡<br/>• CP 只为长序列"]
+    PAR --> BATCH["<b>定 micro-batch 与梯度累积（第三章）</b><br/>• B 由训练配方给定，不可动<br/>• m = B / (d × b)<br/>• b 小 GEMM 差、b 大气泡大"]
+    BATCH --> MEM{"每卡显存<br/>放得下吗？"}
+    MEM -- "放不下" --> RC["<b>加激活重计算或 offload（第四章）</b><br/>• 按多花的算力从少到多加<br/>• 每档记下多花的 FLOP"]
+    RC --> BATCH
+    MEM -- "放得下" --> OVL["<b>打开重叠开关（第五章）</b><br/>• DP：bucket 与反向、参数 all-gather 与下一次前向<br/>• TP：分块流水，前提是开 SP<br/>• PP：isend/irecv"]
+    OVL --> BASE["<b>跑基准：100 个稳态 step 加一份 trace</b><br/>• step 时间的中位数与 p95<br/>• token/s、MFU、峰值显存"]
+    BASE --> OK{"MFU 到预期区间了吗？"}
+    OK -- "没到" --> BRK["<b>七项损失拆解（第六章）</b><br/>• 气泡、未重叠通信、重计算<br/>• 数据等待、kernel 效率、CPU 发射<br/>• straggler"]
+    BRK --> FIX{"超支的是哪一类？"}
+    FIX -- "配置错误" --> OVL
+    FIX -- "结构或 batch 不对" --> PAR
+    FIX -- "硬件" --> HW["<b>隔离坏节点后重跑</b><br/>• 开训前的体检脚本<br/>• 把坏节点换掉"]
+    HW --> BASE
+    OK -- "到了" --> PERF["<b>再榨一层：融合、FP8、编译（第七章）</b><br/>• 融合是无风险基线<br/>• FP8 只快 GEMM<br/>• CUDA Graph 只治 CPU 发射"]
+    PERF --> LOCK["<b>定版与留痕（第八章）</b><br/>• 配置进版本控制<br/>• 改一个变量、前后各跑一次基准<br/>• 变更表"]
+    classDef dec fill:#fff7e0,stroke:#c8a038;
+    classDef act fill:#e8f2ff,stroke:#3d6fb4;
+    class MEM,OK,FIX dec;
+    class PAR,BATCH,RC,OVL,BRK,PERF,LOCK act;
+```
+
+逐节点要点：
+
+- **输入：模型规格与集群规格**：$$N$$、$$L$$、$$h$$、$$a$$、$$s$$ 与卡数、节点内卡数、每卡显存、两条链路的带宽。这十来个数决定了后面每一步的可选集。
+- **四步定并行度**（[第二章](#二从规格推配置70b--1024-h100-的完整推导)）：顺序固定为 TP → PP → DP → CP，因为每一步的上限由上一步的结果决定。
+- **定 micro-batch 与梯度累积**（[第三章](#三global-batchmicro-batch-与梯度累积)）：$$B$$ 是算法参数，配置只能决定它怎么被切成 $$d \times b \times m$$。
+- **每卡显存放得下吗**：唯一的硬约束。放不下只有两条路——加重计算，或退回去换一组并行度。
+- **加激活重计算或 offload**（[第四章](#四激活重计算与-offload)）：用算力或 PCIe 带宽换显存，所以改完要回到上一步重算 batch 与气泡。
+- **打开重叠开关**（[第五章](#五通信与计算的重叠)）：三类通信各有各的重叠机制和前提，开关打开不等于重叠发生。
+- **跑基准**：同一份数据、同一个 seed、100 个稳态 step，外加一份 trace。没有这份存档，后面的拆解无从比较。
+- **MFU 到预期区间了吗**：预期区间是算出来的（第二章第 7 节），不是拍的；偏离多少决定要不要开始拆。
+- **七项损失拆解**（[第六章](#六mfu-损失的七项拆解)）：一份 trace 测前六项、多 rank 测第七项，每一项在时间线上有自己的形状。
+- **超支的是哪一类**：配置错误回到重叠开关，结构或 batch 不对回到并行度，硬件问题交给隔离——这个分叉决定了修复成本的量级。
+- **隔离坏节点后重跑**：profiler 只能指出 straggler 存在，修它要换硬件。
+- **再榨一层：融合、FP8、编译**（[第七章](#七融合低精度与-torchcompile)）：放在前面几项都正常之后做，顺序颠倒就是在给一份错配置加速。
+- **定版与留痕**（[第八章](#八配置纪律)）：千卡任务要跑几周，配置会被改几十次，不留痕就无法归因。
+
+第 4 节那张决策流程图是"四步定并行度"这一步的放大。
 
 ### 1. 本篇用到的记账符号与结论
 
-第一、二篇建立的符号，本篇只用下面这些，在此复述以求自治：
+[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)与[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)建立的符号，本篇只用下面这些，在此复述以求自洽：
 
 | 符号 | 含义 |
 |---|---|
@@ -67,19 +116,56 @@ Table: 四种并行的每 step 每卡通信量
 | 项 | 内容 |
 |---|---|
 | 自由度 | TP · PP · DP · CP 的乘积 = 卡数<br/>micro-batch b<br/>重计算策略<br/>（EP 仅 MoE） |
-| 约束 1 | 显存：静态状态 + 在途激活 + 开销 ≤ 80 GB（留 10% 给碎片） |
+| 约束 1 | 显存：静态状态 + 在途激活 + 8 GB 开销 ≤ 80 GB<br/>8 GB 是 CUDA context、NCCL buffer、库 workspace 与分配器碎片的预留，约占 80 GB 的一成 |
 | 约束 2 | 通信：每类通信量 / 对应链路带宽 ≪ 计算时间，且能被重叠 |
 | 约束 3 | 算法：global batch 由训练配方定，不是性能参数 |
 
 Table: 千卡配置的自由度与约束
 
-三类约束的地位不同。显存是硬约束，放不下就是放不下；通信是软约束，超了只是慢；global batch 是外部给定的，配置只能决定它怎么被切成 micro-batch。所有推导都是在这三条边界内找 MFU 的最大值。
+三类约束的地位不同：
 
-### 3. 决策流程
+1. **显存是硬约束**：放不下就是放不下。
+2. **通信是软约束**：超了只是慢。
+3. **global batch 是外部给定的**：配置只能决定它怎么被切成 micro-batch。
 
-![并行配置的决策流程](/img/in-post/thousand-gpu-configuration-parallel-config-decision-flow.svg)
+所有推导都是在这三条边界内找 MFU 的最大值。
 
-### 4. 三框架在"配置面"上的对照
+### 3. 本篇涉及的旋钮与量
+
+配置面上来回说的那些名词，一半是人定的旋钮，一半是旋钮决定出来的量。它们住在不同的地方、活不同的时长、也不是都看得见，这张表是后面各章的词表：
+
+| 对象 | 谁决定 / 创建 | 活在哪一侧 | 活多久 | 谁能看见 | 本篇章节 |
+|---|---|---|---|---|---|
+| global batch $$B$$ | 训练配方（算法侧）给定 | CPU 侧的配置对象，每个 rank 一份相同副本 | 整个训练期恒定（只有 batch 渐增期例外） | 全部 rank 一致 | 三 |
+| micro-batch $$b$$ | 配置者按显存与 GEMM 效率定 | CPU 侧配置 → 决定每次前向张量的第一维 | 一个 micro-batch 的前向加反向 | 同一 DP 副本内的全部 rank | 三 |
+| 梯度累积步数 $$m$$ | 由 $$B$$、$$d$$、$$b$$ 算出（Megatron `get_num_microbatches()`、torchtitan `gradient_accumulation_steps`） | CPU 侧调度循环的计数器 | 一个 step | 本 rank 的调度器 | 三 |
+| 在途激活 | autograd 在前向时保存 | GPU HBM | 从该层前向到它的反向；1F1B 下第一个 stage 要扛 $$p$$ 个 micro-batch 的量 | 本 rank 的 autograd 图 | 二、四 |
+| 重计算时重做出来的中间值 | 反向里 checkpoint 重放前向产生 | GPU HBM | 一层（或一组层）的反向之内 | 只有这一段反向 | 四 |
+| 优化器分片（fp32 主参数 + 两个动量） | 分布式优化器在初始化时按 DP 组切分 | GPU HBM，常驻 | 整个训练期 | 本 DP 组内只有这一个 rank 持有这一份 | 二 |
+| 梯度 bucket | DDP 包装模型时从一段连续 buffer 里切出视图（Megatron `_ParamAndGradBuffer`） | GPU HBM，常驻；内容每 step 刷新 | buffer 整个训练期常驻，一个 bucket 的内容活到它的 reduce-scatter 完成 | 本 DP 组 | 五 |
+| 流水线气泡 | 由 $$p$$、$$m$$、$$v$$ 与 stage 是否均衡决定，不由人直接设 | 表现为 GPU 计算 stream 上的空闲 | 集中在每个 step 的 warmup 与 cooldown 两段，稳态里没有 | profiler 时间线上看得见：只有 SendRecv、没有计算 kernel | 二、六 |
+| profiler trace | `torch.profiler` 在指定的那几个 step 导出 | CPU 侧的一个 JSON 文件 | 落盘后长期保存，是基准对比的凭据 | 只采样了的那几个 rank | 六、八 |
+
+Table: 本篇的旋钮与量：谁决定、活在哪、活多久、谁能看见
+
+表里前三行是**人定的旋钮**，中间五行是**旋钮决定出来的量**，最后一行是**观测这些量的材料**。一个配置改动引起的连锁反应就是沿这张表往下走：动 $$b$$ 会同时改掉 $$m$$、在途激活和气泡，所以第三章会把这三者放在一张表里一起看。
+
+### 4. 决策流程
+
+四步放大之后是这样的——每一步的上限各有来源，定完之后剩下的卡才是下一步的可选集：
+
+![四步定并行度的判据：每一步的上限由什么决定、定完之后还剩多少卡给下一步](/img/in-post/thousand-gpu-configuration-parallel-config-decision-flow.svg)
+
+按图读这几步，细节分别在后面各章：
+
+- **TP**（[第二章](#二从规格推配置70b--1024-h100-的完整推导)）：上限是 NVLink 域的卡数；开序列并行后激活也除以 $$t$$。
+- **PP**（第二章）：决定每卡参数份额与在途激活。$$p$$ 越大显存越松、气泡越大，所以先用交错调度压气泡，而不是先加 $$m$$。
+- **DP**（第二章）：用满剩下的卡；选 ZeRO-1 还是 ZeRO-3 / FSDP，看的是每卡每 step 的 token 数。
+- **CP**（第二章）：只在 $$s$$ 大到一层激活或注意力放不下时启用。
+- **micro-batch 与重计算**（[第三章](#三global-batchmicro-batch-与梯度累积)、[第四章](#四激活重计算与-offload)）：先按不重计算算一遍显存，放不下时再按多花算力从少到多的顺序加重计算。
+- **算账与跑基准**（[第六章](#六mfu-损失的七项拆解)）：账本负责筛到两三个候选，基准与 profiler 负责在候选之间定夺。
+
+### 5. 三框架在"配置面"上的对照
 
 同一件事三个框架各有各的名字，本篇正文以 Megatron 和 torchtitan 为主：
 
@@ -95,7 +181,7 @@ Table: 三框架在配置面上的对照
 
 DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Megatron 的 ZeRO-1 一致，重计算沿用 `deepspeed/runtime/activation_checkpointing/checkpointing.py`，读者按对照表映射即可。
 
-### 5. 本文的章节安排
+### 6. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -112,6 +198,8 @@ DeepSpeed 这一列后文不再展开：它的配置面是 JSON，概念与 Mega
 Table: 本文的章节安排
 
 ## 二、从规格推配置：70B / 1024 H100 的完整推导
+
+![70B 放进 1024 张 H100 的四步：TP、PP、DP、CP 各定了什么，以及最终的五元组与预期 MFU 区间](/img/in-post/thousand-gpu-configuration-70b-four-steps.svg)
 
 ### 1. 输入
 
@@ -267,7 +355,11 @@ $$
 
 ![global batch 的积木：一格 micro-batch，m 格叠成一个 DP 副本的一步，d 列拼成 global batch](/img/in-post/thousand-gpu-configuration-batch-blocks.svg)
 
-三个量里只有 $$B$$ 是算法参数：它由训练配方定，与卡数无关；卡数变了只能动 $$d$$ 和 $$m$$，不能动 $$B$$。$$b$$ 是每次前向的序列数，由显存与 GEMM 效率决定；$$m$$ 是商，同时也是 PP 的 micro-batch 数和梯度累积步数——**在 PP 下这两个概念是同一个数**，Megatron 的 `megatron/core/num_microbatches_calculator.py` 的 `get_num_microbatches()` 返回的就是它，torchtitan 的 `Trainer` 用 `global_batch_size // (local_batch_size × dp_degree)` 算出 `gradient_accumulation_steps`，PP 下再由 `pipeline_parallel_microbatch_size` 把 `local_batch_size` 切成流水 micro-batch。
+三个量的身份完全不同：
+
+1. **$$B$$ 是算法参数**：由训练配方定，与卡数无关。卡数变了只能动 $$d$$ 和 $$m$$，不能动 $$B$$。
+2. **$$b$$ 是性能参数**：每次前向喂进去的序列数，由显存与 GEMM 效率决定。
+3. **$$m$$ 是前两者的商**：它同时是 PP 的 micro-batch 数和梯度累积步数——**在 PP 下这两个概念是同一个数**。Megatron 的 `megatron/core/num_microbatches_calculator.py` 的 `get_num_microbatches()` 返回的就是它；torchtitan 的 `Trainer` 用 `global_batch_size // (local_batch_size × dp_degree)` 算出 `gradient_accumulation_steps`，PP 下再由 `pipeline_parallel_microbatch_size` 把 `local_batch_size` 切成流水 micro-batch。
 
 等价性有个必须注意的细节：梯度累积里每一步的 loss 要按累积步数平均，否则梯度会大 $$m$$ 倍。CPU toy 实测（`07_config_toys.py accum`）：
 
@@ -346,7 +438,13 @@ selective: 反向期保存的激活     41.0 MiB（ 36.3%），FLOP  66.57 G（1
 
 Table: Megatron 重计算的参数族
 
-`transformer_config.py` 的 `__post_init__` 做了全部合法性检查：`full` 必须配 `recompute_method` 与 `recompute_num_layers`；`selective` 不能带 `recompute_num_layers`；`recompute_modules` 里 `moe_act` 要求 grouped GEMM。实现入口在 `megatron/core/transformer/transformer_block.py` 的 `TransformerBlock`，它调用 `megatron/core/recompute.py` 的 `checkpointed_forward()`，底层是 `megatron/core/tensor_parallel/random.py` 的 `checkpoint()`（`CheckpointFunction`，负责保存并恢复 TP 的 RNG 状态，这是 Megatron 不直接用 `torch.utils.checkpoint` 的原因），或在 TE 可用时用 TE 的 checkpoint。
+`transformer_config.py` 的 `__post_init__` 做了全部合法性检查，三条最常撞上的是：
+
+- `full` 必须配 `recompute_method` 与 `recompute_num_layers`；
+- `selective` 不能带 `recompute_num_layers`；
+- `recompute_modules` 里出现 `moe_act` 时要求 grouped GEMM。
+
+实现入口在 `megatron/core/transformer/transformer_block.py` 的 `TransformerBlock`，它调用 `megatron/core/recompute.py` 的 `checkpointed_forward()`，底层是 `megatron/core/tensor_parallel/random.py` 的 `checkpoint()`（`CheckpointFunction`，负责保存并恢复 TP 的 RNG 状态，这是 Megatron 不直接用 `torch.utils.checkpoint` 的原因），或在 TE 可用时用 TE 的 checkpoint。
 
 PP 下还有一个细粒度旋钮：`ModelParallelConfig.num_microbatches_with_partial_activation_checkpoints`——只对前若干个 micro-batch 做重计算（它们在 1F1B 里存活最久），`schedules.py` 的 `forward_step()` 通过 `checkpoint_activations_microbatch` 参数传入。它没有 CLI 参数（`arguments.py` 的 exclude 列表里明确列出），要在代码里设。
 
@@ -373,6 +471,12 @@ torchtitan v0.3.0 的 `torchtitan/distributed/activation_checkpoint.py` 在这�
 ### 1. DP 梯度 reduce 与反向的重叠
 
 反向是从最后一层往前算的，第 $$L$$ 层的梯度算完时前面 $$L-1$$ 层还在算——这段时间足够把第 $$L$$ 层的梯度 reduce 出去。实现上把参数按反向顺序分到若干 bucket，一个 bucket 的梯度全部就位就发一次 reduce-scatter。Megatron 在 `megatron/core/distributed/distributed_data_parallel_config.py` 的 `DistributedDataParallelConfig` 里有全部旋钮：`overlap_grad_reduce`（`--overlap-grad-reduce`）、`bucket_size` / `num_buckets`（`--ddp-bucket-size` / `--ddp-num-buckets`）、`pad_buckets_for_high_nccl_busbw`（把 bucket 补到 $$2^{16}$$ 的倍数，因为 ring 算法的每卡消息是 bucket_size/dp_size，对齐才有高 busbw）、`average_in_collective`。分布式优化器之后的参数 all-gather 同理与**下一个 step 的前向**重叠：`overlap_param_gather`（`--overlap-param-gather`），`align_param_gather` 让各 PP stage 同时发起以免互相等。
+
+> [!NOTE] Java 经验参照：梯度 bucket 与带缓冲的输出流
+>
+> `BufferedOutputStream` 把一串小写攒成一大块再落盘，摊薄的是每次系统调用的固定开销；梯度 bucket 攒的是一串小张量，摊薄的是每次集合通信的启动延迟和 ring 算法在小消息上跑不满的带宽——"攒够一批再发一次"这一层是一样的。
+>
+> 两处不一样。一是这段缓冲不是可以随时换掉的数组：`_ParamAndGradBuffer` 在 DDP 包装模型时就分配好一整段连续显存，每个 bucket 只是它上面的一个视图，大小定下来就不改了。二是"刷"不能 fire-and-forget：优化器更新之前必须等全部 bucket 的通信完成，所以 bucket 大小不只影响吞吐，还决定反向结束后有多少通信没有计算可盖——它既是吞吐旋钮，也是延迟旋钮。
 
 有一个陷阱：梯度累积期间不能 reduce。$$m$$ 个 micro-batch 只有最后一个的反向该触发通信，前 $$m-1$$ 个要关掉——Megatron 在 `schedules.py` 里通过 `no_sync_func` / `disable_grad_sync()` / `enable_grad_sync()` 做这件事；FSDP2 是 `set_requires_gradient_sync(False)`（`torch/distributed/fsdp/_fully_shard/_fully_shard.py` 的 `FSDPModule`），并可用 `set_reshard_after_backward(False)` 让累积期间不重新分片参数、省掉下一次 all-gather。**重叠只在最后一个 micro-batch 的反向里发生**，所以 DP 通信能藏起来的上限是"一次反向的时间"，$$m$$ 越大这个上限相对越宽松。把一个 step 的两条 stream 摆在同一根时间轴上（以 4 个 bucket 为例）：
 
@@ -403,7 +507,7 @@ Megatron 走 Transformer Engine 的 userbuffers：`ModelParallelConfig.tp_comm_o
 |---|---|---|
 | DP 的 reduce-scatter 全部堆在反向结束后 | overlap 没开；或 bucket 太大（一个 bucket 覆盖半个模型） | 开 overlap_grad_reduce；bucket 调到 每卡消息 ≥ 拐点大小 即可，不要更大 |
 | 一个 bucket 一发就等它完成 | 通信 stream 与计算 stream 之间有多余的同步 | 查 .item()、torch.cuda.synchronize()、日志里的 tensor 打印 |
-| 通信 kernel 与计算 kernel 交替而不并行 | 通信 kernel 占了太多 SM，计算 kernel 没有 SM 可用； 或计算 kernel 把 SM 占满，通信 kernel 排不进去 | 减 NCCL channel 数；或让 GEMM 留出 SM（TE userbuffers 的做法） |
+| 通信 kernel 与计算 kernel 交替而不并行 | 通信 kernel 占了太多 SM，计算 kernel 没有 SM 可用；或计算 kernel 把 SM 占满，通信 kernel 排不进去 | 减 NCCL channel 数；或让 GEMM 留出 SM（TE userbuffers 的做法） |
 | TP 的 all-gather 每次都暴露 | 没开 SP（通信是 all-reduce，不可分块）；或 M 太小 | 开 SP<br/>b 或 s 加大<br/>确认 tp_comm_overlap / async TP 实际生效（看日志） |
 | p2p 有等待但两边都空闲 | 相邻 stage 的 micro-batch 顺序不一致、或 stage 层数不均 | 查 pipeline 布局；用 --decoder-first/last-pipeline-num-layers 平衡 |
 | CPU 侧发射慢，通信虽异步但发得晚 | 每个 step 几千个小 kernel，Python 跟不上 GPU | 第六章第 7 节<br/>CUDA Graph<br/>融合 |
@@ -476,7 +580,7 @@ flowchart TB
 
 ### 5. 数据等待
 
-两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)讨论数据管线；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
+两个 `ProfilerStep` 之间、优化器 kernel 结束到下一个 step 第一个 kernel 开始的空隙，且 CPU 线程正处在 DataLoader 的 `__next__`（trace 里是 `enumerate(DataLoader)#_MultiProcessingDataLoaderIter.__next__` 一类的 op），就是数据等待。健康状态下这个空隙应当接近零：DataLoader 有 worker 进程预取，GPU 算这个 step 时下一个 batch 早已就位。出现等待的原因几乎都在 CPU 侧：worker 数不够、在线 tokenize、对象存储的流式读取抖动、`pin_memory` 没开、CPU 被 NCCL proxy 线程和 worker 争抢。数据管线本身归[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)的[「数据管线（上）：存储与索引」](/training-stability-and-data-pipeline.html#六数据管线上存储与索引)；本篇只需要知道怎么把它从 MFU 账里分离出来——它和 CPU 发射开销都是"GPU 全空"，区别只在 CPU 线程当时在做什么。
 
 ### 6. kernel 效率与 GEMM 形状
 
@@ -490,7 +594,13 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 
 ### 8. straggler
 
-同步训练里最慢的 rank 决定每一次集合通信何时完成。单个 rank 的 trace 上它表现为集合通信 kernel 的时长远超字节数除以带宽——多出来的是在等别人。确认要靠多 rank 的 trace（Megatron 的 `--profile-ranks` 一次采几个不同节点的 rank）：各 rank 计算 kernel 的总时长若相差超过 2–3%，就有 straggler；最慢的那个 rank 的通信时长反而最短（它是被等的那个）。成因在第九篇展开（降频、HBM 纠错、PCIe 降速、网络链路差、数据不均衡），本篇只需把它从通信项里分出来：**通信项是"带宽不够或没重叠"，straggler 项是"有人来晚了"**，两者在时间线上都是通信 kernel 变长，靠跨 rank 对比才能区分。
+同步训练里最慢的 rank 决定每一次集合通信何时完成。单个 rank 的 trace 上它表现为集合通信 kernel 的时长远超字节数除以带宽——多出来的是在等别人。确认要靠多 rank 的 trace（Megatron 的 `--profile-ranks` 一次采几个不同节点的 rank）：各 rank 计算 kernel 的总时长若相差超过 2–3%，就有 straggler；最慢的那个 rank 的通信时长反而最短（它是被等的那个）。成因在[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的[「straggler：没有故障但有人拖慢所有人」](/fault-tolerance-and-elastic-training.html#八straggler没有故障但有人拖慢所有人)展开（降频、HBM 纠错、PCIe 降速、网络链路差、数据不均衡），本篇只需把它从通信项里分出来：**通信项是"带宽不够或没重叠"，straggler 项是"有人来晚了"**，两者在时间线上都是通信 kernel 变长，靠跨 rank 对比才能区分。
+
+> [!NOTE] Java 经验参照：straggler 与 CyclicBarrier
+>
+> 同步训练每个 step 末尾（以及每层的 TP 通信）都是一道 `CyclicBarrier`：一组参与者必须会合才能进入下一轮，最慢的那个决定全组何时过关，一张卡慢 20% 全组就慢 20%，而且这道屏障每个 step 都要再付一次。
+>
+> 不一样的是可见性。`CyclicBarrier` 里谁慢一目了然——快的线程阻塞在 `await()`，慢的那个还在干活；GPU 上恰好相反，慢的那个 rank 的集合通信 kernel 时长**最短**（它是被等的那一个），长的是其他人。所以单个 rank 的 trace 指不出是谁慢，必须采多个 rank 的 trace 比计算时长。
 
 ### 9. 回答核心问题：缺的 10 个点去了哪里
 
@@ -504,12 +614,32 @@ GPU 计算 stream 上有空隙、CPU 线程在忙、又不在 DataLoader 里—�
 | 4 数据等待 | 0 | 0.05 s | +0.05 | ~0.5 | 在线 tokenize，2 个 worker | 离线 tokenize<br/>worker 数 ≥ 4<br/>pin_memory |
 | 5 kernel 效率 | 3.2 s | 3.4 s | +0.2 | ~1.5 | --no-bias-swiglu-fusion / --no-rope-fusion 被示例脚本带进来；词表未 pad | 去掉两个 no-fusion；--make-vocab-size-divisible-by 128 |
 | 6 CPU 发射开销 | 0.2 s | 0.45 s | +0.25 | ~1.5 | b=1、无 CUDA Graph、每 step 数千个小 kernel | cuda_graph_impl=local；或 b=2 配 v 更大 |
-| 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)）；开训前跑 gpu_sniff_test |
+| 7 straggler | 0.1 s | 0.45 s | +0.35 | ~2 | 节点 37 一张卡持续降频，所有 DP reduce-scatter 等它 | 隔离该节点（[《容错与弹性》](/fault-tolerance-and-elastic-training.html)）<br/>开训前跑 gpu_sniff_test |
 | 合计 | 4.75 s → 42% | 6.2 s → 32% | +1.45 | ~10 |  |  |
 
 Table: 缺的 10 个 MFU 点的拆解表（构造）
 
-"折成 MFU 点"按 $$\Delta_i / 1.45 \times 10$$ 分摊。这张表说明的方法论比数字重要：七项里有四项（2、3、5、6）是**配置错误**，靠读一遍启动脚本就能修，加起来 6 个点；一项（7）是**硬件问题**，profiler 只能指出它存在、修它要靠[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的手段；一项（1）是**结构问题**，要改 pipeline 布局；一项（4）是**管线问题**，归[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)。先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
+"折成 MFU 点"一列按 $$\Delta_i / 1.45 \times 10$$ 等比分摊。为什么要分摊、而不是一项一项地算，用四行数就能算清——$$T_{ideal}$$ 固定是 2.0 s，去掉某一项后 MFU 等于 2.0 除以剩下的 step 时间：
+
+| 去掉的项 | 超出 $$\Delta$$ | 去掉后的 step 时间 | 去掉后的 MFU | 比 32.3% 高出 |
+|---|---:|---:|---:|---:|
+| 2 未重叠通信 | 0.40 s | 5.80 s | 34.5% | +2.2 点 |
+| 7 straggler | 0.35 s | 5.85 s | 34.2% | +1.9 点 |
+| 6 CPU 发射开销 | 0.25 s | 5.95 s | 33.6% | +1.4 点 |
+| 七项全部去掉 | 1.45 s | 4.75 s | 42.1% | +9.8 点 |
+
+Table: 单独去掉一项换来多少 MFU
+
+单项提升加起来（2.2 + 1.9 + 1.4 + …）比 9.8 小：MFU 是 step 时间的倒数，先修掉一项之后分母变小，剩下的每一项能换来的点数反而更多。所以上表那一列用等比分摊，让七项之和正好是那 10 个点。第九章 `mfu_breakdown.py` 打印的 "MFU pts" 用的是另一个口径——一阶近似 $$\Delta_i T_{ideal} / T_{step}^2$$（0.40 s 那项算出 2.1 点，与这里的 2.2 点接近），单项够用，七项相加会偏小。
+
+这张表说明的方法论比数字重要。七项按"谁来修"分成四类：
+
+1. **配置错误**：四项（2、3、5、6），加起来 6 个点，靠读一遍启动脚本就能修。
+2. **硬件问题**：一项（7），约 2 个点。profiler 只能指出它存在，修它要靠[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的手段。
+3. **结构问题**：一项（1），要改 pipeline 布局。
+4. **管线问题**：一项（4），归[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)。
+
+先修配置错误，再查硬件，最后才碰结构——这是从 32% 回到 42% 的顺序。
 
 ![缺的 10 个 MFU 点的瀑布图：从目标 42% 逐项扣掉七项损失到实测 32%](/img/in-post/thousand-gpu-configuration-mfu-waterfall.svg)
 
@@ -521,7 +651,13 @@ Table: 缺的 10 个 MFU 点的拆解表（构造）
 
 H100 的 FP8 tensor core 峰值是 bf16 的两倍（1979 对 989 TFLOPS 标称）。MFU 按 bf16 峰值算的话，FP8 GEMM 会让 GEMM 部分的"达峰率"看起来超过 100%——更规范的做法是按实际精度的峰值算，或者只比 token/s。FP8 的收益全部在 GEMM：GEMM 时间大约减少 30–40%（不是 50%，因为量化、缩放、转置有开销，且小 GEMM 本来就不受算力限制）；非 GEMM kernel、通信、气泡、CPU 开销一样不变。所以 FP8 对 step 时间的贡献取决于 GEMM 占比：候选 A 里 GEMM 约占计算时间的 70%，FP8 能带来 20–25% 的 step 时间下降，相当于 MFU（按 bf16 峰值）从 42% 到 52% 左右——这是它被广泛使用的原因。
 
-约束：Megatron 通过 TE 集成（`--fp8-format hybrid` 等，`TransformerConfig.fp8 / fp8_recipe`，recipe 有 `tensorwise / delayed / mxfp8 / blockwise`；`megatron/core/extensions/transformer_engine.py` 的 `TELinear / TELayerNormColumnParallelLinear / TERowParallelLinear` 是 FP8 生效的层）；首尾层常保持 bf16（`first_last_layers_bf16`）；`delayed` recipe 需要跨 step 的 amax 历史，与 checkpoint 和重计算都有交互（重计算时 amax 不能被重算两次，TE 的 checkpoint 路径处理这一点）。torchtitan 用 torchao 的 `Float8LinearConverter`（`torchtitan/components/quantization/float8.py`；`llama3_405b()` 默认开，`filter_fqns=["lm_head"]` 排除输出层；recipe 为 `rowwise` / `rowwise_with_gw_hp`，任一维不是 16 的倍数的线性层自动跳过），要求 `torch.compile` 才有性能（`model_compile_enabled` 传给 converter；否则量化 op 不融合，反而变慢）。收敛性不在本篇范围，但要说一句：FP8 是数值配置的变更，第八章的"前后基准"对它必须包含 loss 曲线对比，不能只看 MFU。
+约束分两边。
+
+**1、Megatron 走 Transformer Engine 的集成。** 开关是 `--fp8-format hybrid` 这一族与 `TransformerConfig.fp8` / `fp8_recipe`，recipe 有 `tensorwise` / `delayed` / `mxfp8` / `blockwise`；真正让 FP8 生效的层是 `megatron/core/extensions/transformer_engine.py` 的 `TELinear` / `TELayerNormColumnParallelLinear` / `TERowParallelLinear`，不走这几个类的线性层仍然是 bf16。两个细节：首尾层常被留在 bf16（`first_last_layers_bf16`）；`delayed` recipe 需要跨 step 的 amax 历史，所以它与 checkpoint 和重计算都有交互——重计算时 amax 不能被统计两次，这件事由 TE 的 checkpoint 路径处理。
+
+**2、torchtitan 走 torchao 的 `Float8LinearConverter`**（`torchtitan/components/quantization/float8.py`）。`llama3_405b()` 默认开，`filter_fqns=["lm_head"]` 排除输出层，recipe 为 `rowwise` 或 `rowwise_with_gw_hp`，任一维不是 16 的倍数的线性层自动跳过。它要求 `torch.compile`（`model_compile_enabled` 传给 converter）才有性能：不编译的话量化 op 不融合，反而变慢。
+
+收敛性不在本篇范围，但要说一句：FP8 是数值配置的变更，第八章的"前后基准"对它必须包含 loss 曲线对比，不能只看 MFU。
 
 ### 2. 融合 kernel
 
@@ -533,7 +669,15 @@ H100 的 FP8 tensor core 峰值是 bf16 的两倍（1979 对 989 TFLOPS 标称�
 
 torchtitan 的编译策略在 `torchtitan/distributed/compile.py` 的 `apply_compile()`：**对每个 transformer block 单独 `compile(backend=..., fullgraph=True)`**，而不是编译整个模型。理由是重复结构：80 个 block 结构相同，Dynamo 只需追踪一次、其余命中缓存，编译时间从几十分钟降到几分钟；`fullgraph=True` 保证 block 内没有 graph break。收益在第六章第 6、7 项：Inductor 把 norm / RoPE / 激活函数 / residual 融成少数 Triton kernel，一个 block 的 kernel 数从几十降到十几，CPU 发射开销与非 GEMM 时间同时下降；`MemoryBudgetAC` 只有在它之上才可用。
 
-顺序很重要。`torchtitan/models/llama3/parallelize.py` 的 `parallelize_llama()` 的次序是：TP（`model.parallelize`）→ AC（`ac_config.build().apply(model)`）→ compile（`apply_compile`）→ FSDP（`apply_fsdp_to_decoder`）。TP 在 compile 之前是因为 DTensor 的 TP 是模块级改写，编译器看到的是已经并行的 block，通信 op 进入图中（这也是 async TP 能做的前提）；AC 在 compile 之前是因为 `checkpoint_wrapper` 要包住整个 block 才能被 Dynamo 当作一个 higher-order op 处理；FSDP 在 compile 之后是因为 `fully_shard` 的 pre/post-forward hook 在被编译的 block 外面，编译区域内没有 FSDP 的通信——这样 FSDP2 的隐式预取和 reshard 不受编译影响，代价是 FSDP 的 all-gather 不能被编译器改写。`apply_compile()` 还设置了两个 Dynamo 开关：`capture_scalar_outputs`（MoE 的动态形状）和 `skip_fwd_side_effects_in_bwd_under_checkpoint`（AC 重算时不重放前向的 Python 副作用，比如 RoPE cache 更新——这是 compile + AC 组合时的已知语义差异，`activation_checkpoint.py` 的 `_disable_dynamo_lru_cache()` 处理的是 SAC + PP + FlexAttention 的另一个交互）。
+顺序很重要。`torchtitan/models/llama3/parallelize.py` 的 `parallelize_llama()` 的次序是：TP（`model.parallelize`）→ AC（`ac_config.build().apply(model)`）→ compile（`apply_compile`）→ FSDP（`apply_fsdp_to_decoder`）。三处先后各有理由。
+
+**1、TP 在 compile 之前。** DTensor 的 TP 是模块级改写，所以编译器看到的是已经并行的 block，通信 op 进入了图里——这也是 async TP 能把 all-gather 与 matmul 改写成分块流水的前提。
+
+**2、AC 在 compile 之前。** `checkpoint_wrapper` 要包住整个 block，Dynamo 才能把它当作一个 higher-order op 处理；包在编译区域里面的话它就只是一堆普通调用。
+
+**3、FSDP 在 compile 之后。** `fully_shard` 的 pre/post-forward hook 落在被编译的 block 外面，编译区域内没有 FSDP 的通信，于是 FSDP2 的隐式预取和 reshard 不受编译影响；代价是 FSDP 的 all-gather 也就不能被编译器改写。
+
+`apply_compile()` 还设置了两个 Dynamo 开关：`capture_scalar_outputs`（MoE 的动态形状）和 `skip_fwd_side_effects_in_bwd_under_checkpoint`（AC 重算时不重放前向的 Python 副作用，比如 RoPE cache 更新——这是 compile + AC 组合时的已知语义差异，`activation_checkpoint.py` 的 `_disable_dynamo_lru_cache()` 处理的是 SAC + PP + FlexAttention 的另一个交互）。
 
 Megatron 没有等价的 per-block compile；它的路径是 TE 的融合 kernel 加 CUDA Graph（`cuda_graph_impl`）。两者达到的效果相似（少 kernel、少发射），实现哲学不同：一个靠编译器，一个靠手写 kernel 加录制回放。
 
@@ -549,7 +693,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 
 **每次改动前后各跑一段基准**。基准是同一份数据、同一个 seed、至少 100 个稳态 step（跳过 warmup 和 batch 渐增期），记录 step 时间的中位数与 p95、token/s、MFU、`max_memory_allocated`、loss 曲线，加一份 profiler trace 存档。只改一个变量。MFU 变化小于 1 个点视为噪声——千卡任务的 step 时间本身有 1–2% 的抖动。
 
-**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。[第十一篇《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)的值班手册会引用这张表；[第九篇《容错与弹性》](/fault-tolerance-and-elastic-training.html)的故障复盘也会。
+**变更留痕**。一张表：日期、改了什么、为什么、前后基准的数字、trace 文件的位置、谁批准的。[《长时训练的可观测与运维》](/long-running-training-observability-and-operations.html)[「运维流程」](/long-running-training-observability-and-operations.html#六运维流程)一节的值班手册会引用这张表，[《容错与弹性》](/fault-tolerance-and-elastic-training.html)的故障复盘也会。
 
 ## 九、本文小结
 
@@ -560,7 +704,7 @@ CUDA Graph 只解决第 7 项（CPU 发射开销），对 kernel 效率和通信
 - **三个 batch**：B = d·b·m；B 是算法参数；PP 下 m 既是 micro-batch 数也是梯度累积步；b 小 GEMM 差、b 大气泡大，通常 1 或 2。
 - **重计算**：全量 +33% FLOP 省 94% 激活；选择性在 FlashAttention 下几乎不省；按层 N 是「差一点」时最经济；先确认放不下再开。
 - **重叠**：DP 靠 bucket 与反向重叠、all-gather 与下一前向重叠，只在最后一个 micro-batch 发生；TP 靠分块流水（TE userbuffers / async TP），须开 SP；PP 靠 isend/irecv；失败五因：没开 / bucket 太大 / 多余同步 / SM 争抢 / CPU 发得晚。
-- **七项拆解**：气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项。缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（[第十篇《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）。
+- **七项拆解**：气泡 · 未重叠通信 · 重计算 · 数据等待 · kernel 效率 · CPU 发射 · straggler；一份 trace 测前六项，多 rank 测第七项。缺的 10 个点：配置错误 ~6（先修）、硬件 ~2（隔离）、结构 ~0.5（布局）、管线 ~0.5（[《训练稳定性与数据管线》](/training-stability-and-data-pipeline.html)）。
 - **FP8 / 融合 / 编译**：FP8 只快 GEMM，step 时间降 20–25%；融合是无风险基线；per-block compile 顺序 TP → AC → compile → FSDP；CUDA Graph 只治 CPU 开销。
 - **纪律**：配置进 git、启动时打印全部参数；改一个变量、前后各 100 step 基准 + trace；变更表。
 
@@ -613,7 +757,7 @@ Table: 本篇涉及的源码位置
 
 ```text title="train-ledger/sweep/ 目录"
 train-ledger/
-  ledger/            第一、二篇：model.py memory.py flops.py parallel.py
+  ledger/            显存与算力账本：model.py memory.py flops.py parallel.py
   sweep/
     recipes.py       torchtitan 配置矩阵（Python 配置函数，v0.3.0 的方式）
     run_sweep.sh     逐个跑、收集日志与 trace
@@ -809,18 +953,23 @@ if __name__ == "__main__":
 
 几点说明。第一，"MFU pts" 一列按 $$\Delta_i \cdot T_{ideal} / T_{step}^2$$ 折算——把该项归零后 MFU 的一阶提升量。第二，kernel 效率项用 `ideal_s` 作基准，所以它把 GEMM 未达峰与非 GEMM kernel 两者都算进去，想分开看就对照 `gemm_s / attn_s` 与总 `compute_s`。第三，`recompute` 用"反向 GEMM 超出前向两倍"的差法，对 torchtitan 的 `SelectiveAC`（重算一半 mm）和 `FullAC` 有效，对只重算非 GEMM 的策略会低估。第四，最后一行的 residual 是自检：七项加理论时间应当接近 step 时间，差得多说明分类规则（GEMM 名字模式、DataLoader op 名）需要按你的 trace 调整——kernel 名字随 cuBLAS/TE 版本变，这份列表不是权威。
 
-读者在 8 卡上应当能看到这些**定性**规律（数字随机器而异，这里不给）：`tp2` 比 `tp1` 的 `comm_exposed` 明显更高（TP 通信在 8 卡内走 NVLink 但 8B 模型的 GEMM 太小盖不住），`asynctp` 把它压回去一部分；`ac_full` 的 `recompute` 接近前向 GEMM 时间，`ac_sel` 约为其一半；`compile` 同时降低 `cpu_launch` 与 `kernel_eff`（非 GEMM 部分），kernel 数量减少数倍；`b2` 让 `cpu_launch` 占比减半。
+在 8 卡上应当能看到四条**定性**规律（数字随机器而异，这里不给）：
+
+1. `tp2` 比 `tp1` 的 `comm_exposed` 明显更高——TP 通信在 8 卡内走 NVLink，但 8B 模型的 GEMM 太小，盖不住它；`asynctp` 能把它压回去一部分。
+2. `ac_full` 的 `recompute` 接近一份前向 GEMM 的时间，`ac_sel` 约为其一半。
+3. `compile` 同时降低 `cpu_launch` 与 `kernel_eff`（非 GEMM 的那部分），kernel 数量减少数倍。
+4. `b2` 让 `cpu_launch` 的占比减半。
 
 ### 4. 外推到 1024 卡
 
-8 卡的结论有两类。**比率类**（compile 减少多少 CPU 开销、全量重计算多算多少、TP 独占能藏多少）随规模基本不变，可以直接搬到千卡的预算表里。**绝对量类**（通信时间、气泡、显存）随并行度变化，要用账本重算。`sweep/extrapolate.py` 做的就是后一件事——它不跑任何 GPU 代码，只调用[第二篇《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)的 `ledger.parallel`：
+8 卡的结论有两类。**比率类**（compile 减少多少 CPU 开销、全量重计算多算多少、TP 独占能藏多少）随规模基本不变，可以直接搬到千卡的预算表里。**绝对量类**（通信时间、气泡、显存）随并行度变化，要用账本重算。`sweep/extrapolate.py` 做的就是后一件事——它不跑任何 GPU 代码，只调用[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)那一篇留下的 `ledger.parallel`：
 
 ```python title="sweep/extrapolate.py：8 卡校准量 + 账本 → 1024 卡预算"
 # train-ledger/sweep/extrapolate.py（节选）— 8 卡校准量 + 账本 → 1024 卡预算
-from ledger.model import llama3_70b                       # 第一篇：结构常量（seq_len=8192）
-from ledger.memory import state_bytes                     # 第一篇：四类状态字节数
-from ledger.flops import step_time_lower_bound            # 第一篇：6N + 12Lhs / 峰值
-from ledger.parallel import ParallelConfig, place, activation_bytes_per_layer  # 第二篇
+from ledger.model import llama3_70b                       # 《训练任务的状态解剖》：结构常量（seq_len=8192）
+from ledger.memory import state_bytes                     # 《训练任务的状态解剖》：四类状态字节数
+from ledger.flops import step_time_lower_bound            # 《训练任务的状态解剖》：6N + 12Lhs / 峰值
+from ledger.parallel import ParallelConfig, place, activation_bytes_per_layer  # 《并行策略全景》
 
 model = llama3_70b()
 st = state_bytes(model, precision="bf16", optimizer="adam")
@@ -863,7 +1012,11 @@ for cfg in (ParallelConfig(tp=8, pp=4, dp=32, zero_stage=1, micro_batch=1, num_m
 
    <details markdown="1"><summary>答案</summary>
 
-   全量：+33% FLOP，省 94% 激活；选择性（只重算注意力分数）：FlashAttention 下分数矩阵本来就不物化，几乎不省；按层 $$N$$：重算前 $$N$$ 层，线性可调，“差一点放不下”时最经济。原则：先确认放不下再开。
+   - 全量：+33% FLOP，省 94% 激活。
+   - 选择性（只重算注意力分数）：FlashAttention 下分数矩阵本来就不物化，几乎不省。
+   - 按层 $$N$$：重算前 $$N$$ 层，线性可调，“差一点放不下”时最经济。
+
+   原则：先确认放不下再开。
 
    </details>
 
