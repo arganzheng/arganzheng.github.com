@@ -17,7 +17,7 @@ updated: 2026-11-14
 }
 </style>
 
-第二篇的结论是异步把长尾吞掉、把一步的墙钟从 12 分钟压到 5 分钟。代价写得很轻："样本过期"。这一篇把这个代价展开——它其实是三个不同的东西，各有各的机制、各有各的信号，混在一起时 reward 曲线只会告诉你"变缓了"，不会告诉你为什么。
+[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的结论是异步把长尾吞掉、把一步的墙钟从 12 分钟压到 5 分钟。代价写得很轻："样本过期"。这一篇把这个代价展开——它其实是三个不同的东西，各有各的机制、各有各的信号，混在一起时 reward 曲线只会告诉你"变缓了"，不会告诉你为什么。
 
 第一个是 **staleness**：训练用第 $$t$$ 步的权重更新，样本由第 $$t - k$$ 步的权重生成，重要性比 $$\pi_\theta / \pi_{old}$$ 偏离 1，PPO 的 clip 开始大量触发；更隐蔽的是，**过期程度与回答长度相关**——长回答生成得慢、更容易过期——所以"丢弃过期样本"这个看似中性的策略会系统性地丢掉长回答，改变训练数据的长度分布。第二个是**训推不一致**：推理引擎（vLLM，可能 FP8，FlashInfer 的 attention，TP 的 all-reduce 顺序）算出的 $$\log \pi$$ 与训练器（FSDP，bf16，FlashAttention）算出的**本来就不同**，哪怕权重逐位相同；这个差在 dense 模型上每 token $$10^{-3}$$ 量级，在 MoE 上因为路由的不连续可以大一个数量级，8K token 的序列级比值会爆——它是一种与异步无关、但在异步里被放大的 off-policy。第三个是**缓冲区的淘汰规则**：DAPO 过滤掉全对 / 全错的组、失败的 rollout 被丢、过期的被 drop——每一条规则都在改变进入训练的样本分布，而它们的效果与前两者纠缠在一起。
 
@@ -61,7 +61,13 @@ reward 曲线本身分不出这三个原因。要靠各自的信号，再选重�
 
 Table: off-policy 的三个原因、要记的信号与处理
 
-三个原因在 reward 曲线上不可分，在这些信号上可分：staleness 涨、不一致不变、淘汰不变——先查生成用时与缓冲等待，再查参数漂移；同一权重下的不一致涨（尤其换了 FP8 或 MoE 后）——同步形态下也会有；淘汰计数涨、被训练样本变短——是规则在筛数据。这里别把样本落后的版本数与第七章的同步频率 $$k$$ 混用：后者越大，同样用时跨越的版本数反而越少。**没有事前记录，这三者事后无法区分**，因为它们都表现为"重要性比偏离 1 + reward 斜率变缓"。
+三个原因在 reward 曲线上不可分，在这些信号上可分：
+
+1. **staleness 涨、不一致不变、淘汰不变**——先查生成用时与缓冲等待，再查参数漂移；
+2. **同一权重下的不一致涨**（尤其换了 FP8 或 MoE 之后）——注意这一项同步形态下也会有；
+3. **淘汰计数涨、被训练样本变短**——是规则在筛数据，不是系统在过期。
+
+这里别把样本落后的版本数与[第七章](#七异步下的权重同步)的同步频率 $$k$$ 混用：后者越大，同样用时跨越的版本数反而越少。**没有事前记录，这三者事后无法区分**，因为它们都表现为"重要性比偏离 1 + reward 斜率变缓"。
 
 ### 2. off-policy 的三个来源
 
@@ -76,9 +82,38 @@ Table: off-policy 的三个原因、要记的信号与处理
 
 Table: 异步系统里训练样本偏离当前策略的三处来源
 
-第二个来源在同步形态下**也存在**——这是第一篇说"多数框架默认重算旧策略 logprob"的原因；异步把它放大是因为异步系统更倾向于**不重算**（省下 2N 的前向、且 π_old 在部分 rollout 下本来就是分段的），直接用推理侧的 $$\log \pi$$ 当 $$\pi_{old}$$，于是不一致直接进了重要性比。
+第二个来源在同步形态下**也存在**——这是[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)说"多数框架默认重算旧策略 logprob"的原因；异步把它放大是因为异步系统更倾向于**不重算**（省下 2N 的前向、且 π_old 在部分 rollout 下本来就是分段的），直接用推理侧的 $$\log \pi$$ 当 $$\pi_{old}$$，于是不一致直接进了重要性比。
 
-### 3. 本文的章节安排
+### 3. 一条样本身上要带着什么
+
+上一节说"没有事前记录，这三者事后无法区分"。那到底要记什么？下面这张表把异步系统里每条样本（以及它周边）携带的东西列出来——最后一列是本篇最该记住的部分：**不记下来会怎样**。
+
+| 对象 | 谁写的 | 活多久 | 不记下来的后果 |
+|---|---|---|---|
+| 回答的 token 序列 | 推理引擎的采样器 | 一步训练；留在缓冲里时更久 | — |
+| 生成时的权重版本号 | 推理 server（权重同步成功时记下 `global_steps`） | 跟着样本走 | staleness 算不出来，三个原因的第一个就无法观测 |
+| 训练时的权重版本号 | 控制器取 batch 时 | 一步 | 同上 |
+| 采样时的逐 token $$\log \pi_{rollout}$$ | 推理引擎（算 logits 时顺手得到） | 跟着样本走 | 训推不一致无法度量；TIS / MIS 和 decoupled PPO 全部做不了 |
+| 重算的 $$\log \pi_{old}$$（训练器算的那份） | 训练器的一次前向 | 一步 | 只能拿推理侧那份当 $$\pi_{old}$$，不一致直接进重要性比 |
+| 分段的 $$\pi_{old}$$（部分 rollout 下前后段来自不同版本） | 推理引擎按段记 | 跟着样本走 | 一条跨版本的回答被当成单一策略生成的，重要性比算错且无从察觉 |
+| 上一版权重的 CPU 快照 | `DetachActorWorker` 在同步前留下 | 一步到整个作业 | decoupled PPO 的第三份 logprob 算不出来 |
+| 一个 GRPO 组在缓冲里的状态（已完成几条、是否被淘汰） | replay buffer | 从入队到取出或淘汰 | 补发逻辑没有依据，组不完整就进训练 |
+| 在飞但未完成的轨迹（含它的 KV） | 推理引擎的调度器 | 跨步存活，直到写完或被丢 | 部分 rollout 无从续接，只能重新 prefill |
+| 四类淘汰的计数器（过期 / DAPO / 失败 / 超时） | replay buffer 各自累加 | 整个作业 | 第三个原因无法观测：只看到 batch 变了，不知道是谁筛的 |
+
+Table: 异步系统里一条样本身上要带着的十样东西：谁写的、活多久、不记下来的后果
+
+三条结论：
+
+1. **这张表的右半边几乎全是「事后补不上」**。版本号、采样时的 logprob、分段边界都只有在那一刻才存在，过了就没了——所以异步形态的可观测性不是运维阶段的事，是数据结构设计的一部分。
+2. **三个 off-policy 来源各自对应表里的一组行**：版本号两行管 staleness，两份 logprob 管训推不一致，淘汰计数器管筛选。少记哪一组，对应的那个原因就从「可分」变成「不可分」。
+3. **跨步存活的只有三行**：缓冲里的组、在飞未完成的轨迹、上一版权重的快照。它们正好是 checkpoint 要多存的三样东西（[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的 RL 状态 checkpoint），也是异步系统比同步系统难恢复的全部原因。
+
+> [!NOTE] Java 经验参照：读到旧快照
+>
+> 训练用 $$k$$ 步前的权重生成的样本，形式上很像 MVCC 下读到一个旧快照：读不阻塞写，于是吞吐上去了。不成立的地方在于旧数据的性质。数据库里的旧快照是「正确但过时的事实」，想要新的就重读一次；这里的旧样本不是过时的事实，而是**另一个策略的行为**——它携带的梯度指向那个旧策略该走的方向。所以没有「重读」这个修法，只能在损失里乘一个重要性比把它折价，而折价这件事本身也有代价：比值太小等于这批样本白生成了。这是为什么 staleness 要有上限，而不是「反正能修正，过期多少都行」。
+
+### 4. 本文的章节安排
 
 {: .async-rl-table}
 | 章 | 内容 | 回答的问题 |
@@ -153,7 +188,7 @@ Table: 回答长度与 staleness 的关系
 
 最后一项只统计**因过期被淘汰的组**，不是训练 batch 的 staleness 分布。verl v0.9.0 的 `ReplayBuffer._evict_terminal_groups` 按 `当前 global_steps − prompt global_steps + 1` 记跨度，比本文的纯版本差多 1；对阈值前先统一口径。
 
-版本号的来源是第四篇末尾的 `set_global_steps`——权重同步成功后推理实例记下版本，agent loop 把它写进每条轨迹的元数据。**版本号错一步，所有 staleness 统计都错一步**。
+版本号的来源是[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)末尾的 `set_global_steps`——权重同步成功后推理实例记下版本，agent loop 把它写进每条轨迹的元数据。**版本号错一步，所有 staleness 统计都错一步**。
 
 ## 三、部分 rollout
 
@@ -181,7 +216,7 @@ Kimi k1.5 的报告（Kimi Team 2025）最早把它写清楚：每一轮 rollout
 
 ### 4. 代价三：中断本身
 
-`abort` 是推理引擎侧的操作：调度器把在飞请求标记取消、释放它们的 KV 块、返回已生成的 token。vLLM 的 `pause_scheduler(mode="abort")` 与 SGLang 的 `abort_request` 都是毫秒级。但 agent loop 一侧要能接住"请求被中断、返回了部分结果"——对单轮生成只是拼接后重提；对多轮 Agent 轨迹（第六篇），中断发生在工具调用中间时，工具的状态（沙箱里的文件、数据库连接）要保持到续接——**多轮场景下部分 rollout 的边界只能在轮与轮之间**，一轮之内的生成要么完成要么整轮重来。
+`abort` 是推理引擎侧的操作：调度器把在飞请求标记取消、释放它们的 KV 块、返回已生成的 token。vLLM 的 `pause_scheduler(mode="abort")` 与 SGLang 的 `abort_request` 都是毫秒级。但 agent loop 一侧要能接住"请求被中断、返回了部分结果"——对单轮生成只是拼接后重提；对多轮 Agent 轨迹（[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)），中断发生在工具调用中间时，工具的状态（沙箱里的文件、数据库连接）要保持到续接——**多轮场景下部分 rollout 的边界只能在轮与轮之间**，一轮之内的生成要么完成要么整轮重来。
 
 ## 四、算法修正的系统要求
 
@@ -227,11 +262,11 @@ Table: 同一个陈旧 token 在普通 PPO 与 decoupled PPO 下的处理
 
 前一个比值是重要性权重（不求梯度），修正 staleness；后一个是 PPO 的信任域，围着一个**稳定的** $$\pi_{prox}$$ 而不是围着各条样本各自的 $$\pi_{behave}$$。系统要为它提供三份 logprob：$$\log \pi_{behave}$$（推理侧记录）、$$\log \pi_{prox}$$（训练器用快照前向）、$$\log \pi_\theta$$（训练时前向）——比同步 PPO 多一份。
 
-verl 的 `separate_async` trainer 实现了它，用的手段很直接（`trainer_separate_async.py` 的 `_compute_old_log_prob`）：一个同步周期有 $$k$$ 个 mini-batch，第一个 mini-batch 时把当前权重存到 CPU（`save_model_to_cpu(0)`）作为 $$\pi_{prox}$$；之后每个 mini-batch 先存当前权重、恢复快照 0、算 old_log_prob、再恢复当前——**每个 mini-batch 多两次权重的 CPU 往返**（32B 每次 66 GB，PCIe 几秒），换来周期内所有 mini-batch 用同一个 $$\pi_{prox}$$。`DetachActorWorker` 是为这个 CPU 快照能力换的 worker 类。第四篇提过增量同步可以直接对着这个快照做 diff，两个机制共用一份 CPU 副本。
+verl 的 `separate_async` trainer 实现了它，用的手段很直接（`trainer_separate_async.py` 的 `_compute_old_log_prob`）：一个同步周期有 $$k$$ 个 mini-batch，第一个 mini-batch 时把当前权重存到 CPU（`save_model_to_cpu(0)`）作为 $$\pi_{prox}$$；之后每个 mini-batch 先存当前权重、恢复快照 0、算 old_log_prob、再恢复当前——**每个 mini-batch 多两次权重的 CPU 往返**（32B 每次 66 GB，PCIe 几秒），换来周期内所有 mini-batch 用同一个 $$\pi_{prox}$$。`DetachActorWorker` 是为这个 CPU 快照能力换的 worker 类。[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)提过增量同步可以直接对着这个快照做 diff，两个机制共用一份 CPU 副本。
 
 ### 3. 重算还是不重算
 
-第一篇算过重算旧策略 logprob 是一步 FLOP 的六分之一、时间的 8%。异步下的三个选项：
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)算过重算旧策略 logprob 是一步 FLOP 的六分之一、时间的 8%。异步下的三个选项：
 
 {: .async-rl-table}
 | 选项 | π_old 来自 | 多付的前向 | 修正了什么 | 没修正什么 |
@@ -279,7 +314,16 @@ Table: 训推不一致的来源与逐 token logprob 差
 
 ### 4. MoE 的特殊处理
 
-路由翻转让"逐 token 的比值"失去意义——两边走了不同的专家，比值不是 $$\pi_\theta / \pi_{old}$$ 而是两个不同函数的比。缓解的方向有三：**路由回放**（router replay：推理时记录每个 token 选中的专家，训练时强制走同样的专家——verl 0.9 的 CI 里有 "router-replay" 的测试项）；**推理侧确定性**（消掉并列翻转的随机部分，第八篇）；**屏蔽**（MIS 把翻转的 token 去掉，代价是丢 1–5% 的 token）。这也是第一篇 MoE 场景表里那行"MoE 的 decode 效率问题在别处"的另一半：MoE 在 RL 里的麻烦不只是 all-to-all，还有这层路由不一致。
+> [!NOTE] Java 经验参照：同一份输入在两套实现上算出不同结果
+>
+> 同一个计算换一套实现、结果差最后几位——这件事在 Java 里也常见（不同 JDK 的 `Math.pow`、并行流求和的 reduce 顺序），通常的处理是比较时留一点容差。这里容差救不了场：那几位的差不是用来比较的，它直接进了重要性比 $$\exp(\log \pi_{train} - \log \pi_{rollout})$$，而一条几千 token 的序列是逐 token 相乘——dense 模型每 token 1e-3 量级的差累起来，序列级比值就能偏离一个量级，于是 PPO 的 clip 在严格同步的形态下也会无故大量触发。所以办法只有两条：要么重算（让两份 logprob 出自同一套实现），要么把这个差值本身当成一个要盯的指标。
+
+路由翻转让"逐 token 的比值"失去意义——两边走了不同的专家，比值不是 $$\pi_\theta / \pi_{old}$$ 而是两个不同函数的比。缓解的方向有三：
+
+1. **路由回放**（router replay）：推理时记录每个 token 选中的专家，训练时强制走同样的专家——verl 0.9 的 CI 里有 "router-replay" 的测试项；
+2. **推理侧确定性**：消掉并列翻转的随机部分（[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)）；
+3. **屏蔽**：MIS 把翻转的 token 去掉，代价是丢 1–5% 的 token。
+这也是[《负载画像》](/rl-step-anatomy-rollout-reward-train.html) MoE 场景表里那行"MoE 的 decode 效率问题在别处"的另一半：MoE 在 RL 里的麻烦不只是 all-to-all，还有这层路由不一致。
 
 ## 六、样本缓冲
 
@@ -348,7 +392,7 @@ wait 策略不在这里丢组，而是在取样时检查在飞的组：有组的
 
 ### 1. 频率
 
-第四篇算过 rollout 池的空转比例 $$T_{sync} / (k T_{mb} + T_{sync})$$。异步下 $$k$$（`parameter_sync_step`）是 staleness 与效率的直接旋钮：
+[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)算过 rollout 池的空转比例 $$T_{sync} / (k T_{mb} + T_{sync})$$。异步下 $$k$$（`parameter_sync_step`）是 staleness 与效率的直接旋钮：
 
 {: .async-rl-table}
 | k | 同步间隔（32B，T_mb = 60 s） | 典型 staleness（8K 回答） | rollout 空转（同步 15 s） | rollout 空转（增量 6 s） |
@@ -371,7 +415,7 @@ Table: 频率
 
 ### 3. 实例间的版本混合
 
-滚动更新或部分实例更新失败时，同一时刻不同实例持有不同版本——样本的 staleness 不再只由时间决定，还由"落在哪个实例上"决定。verl 的动态资源调度（第二篇）里 hybrid 实例激活时要先同步权重，就是为了不让它们带着旧版本加入。**每个实例的当前版本**应该是一个可观测量（`set_global_steps` 落在每个 server 上），第八篇的排障表里"权重同步漏了一部分"就是从这里看出来的。
+滚动更新或部分实例更新失败时，同一时刻不同实例持有不同版本——样本的 staleness 不再只由时间决定，还由"落在哪个实例上"决定。verl 的动态资源调度（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)）里 hybrid 实例激活时要先同步权重，就是为了不让它们带着旧版本加入。**每个实例的当前版本**应该是一个可观测量（`set_global_steps` 落在每个 server 上），[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的排障表里"权重同步漏了一部分"就是从这里看出来的。
 
 ## 八、信号与诊断
 
@@ -438,7 +482,7 @@ Table: 三个典型模式
 
 Table: 异步机制在 verl 源码中的落点与配置
 
-最后一行是异步系统特有的：checkpoint 里不只有训练状态，还有缓冲区（已完成的样本）与在飞的 prompt；恢复时已完成的保留、在飞的重发（用恢复后的权重重新生成）。第八篇的 RL 状态 checkpoint 回到这里。
+最后一行是异步系统特有的：checkpoint 里不只有训练状态，还有缓冲区（已完成的样本）与在飞的 prompt；恢复时已完成的保留、在飞的重发（用恢复后的权重重新生成）。[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)的 RL 状态 checkpoint 回到这里。
 
 ### 2. AReaL：准入控制而不是消费淘汰
 
@@ -447,7 +491,7 @@ AReaL 从第一天就是异步的（论文标题里的 "Large-Scale Asynchronous
 - verl 在**消费端**控制：请求一律提交给推理实例，样本完成后进缓冲，训练器取样时检查跨越的版本数，超了就 drop 或 wait。生成侧不知道 staleness 这回事。
 - AReaL 在**准入端**控制：rollout controller 维护当前训练版本，`max_head_offpolicyness` 限制"一个新请求开始时最多落后几个版本"，落后太多就不让开始（阻塞提交），配合 interruptible generation 让在飞的请求随版本推进续接。缓冲里的样本 staleness 由此被**上界**住，不需要事后 drop——也就没有第二章的长度偏置。
 
-两种做法的交换：准入控制让生成侧的并发随训练进度起伏（版本落后时新请求被卡住，推理实例可能空转），消费淘汰让生成侧满负荷但会浪费被 drop 的算力并引入偏置。AReaL 的另一半是 decoupled PPO 从一开始就是默认（`use_decoupled_loss: true` 要求 `recompute_logprobs: true`，即三份 logprob），而 verl 是 opt-in。第七篇对照两个框架时会回到这一点：**AReaL 把异步的正确性当作主线设计，verl 把它当作 v1 trainer 的一种模式**——前者在异步上更干净，后者在同步 / 共置 / 分离之间切换更自由。
+两种做法的交换：准入控制让生成侧的并发随训练进度起伏（版本落后时新请求被卡住，推理实例可能空转），消费淘汰让生成侧满负荷但会浪费被 drop 的算力并引入偏置。AReaL 的另一半是 decoupled PPO 从一开始就是默认（`use_decoupled_loss: true` 要求 `recompute_logprobs: true`，即三份 logprob），而 verl 是 opt-in。[《verl 源码导读》](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)对照两个框架时会回到这一点：**AReaL 把异步的正确性当作主线设计，verl 把它当作 v1 trainer 的一种模式**——前者在异步上更干净，后者在同步 / 共置 / 分离之间切换更自由。
 
 ### 3. slime 与 meituan 实现的位置
 
