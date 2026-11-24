@@ -64,7 +64,7 @@ flowchart TB
 
 Table: 三本账：FLOP、字节、秒各怎么算、各决定什么
 
-FLOP 账在算法侧已经算过（[《后训练》第三篇](/online-rl-ppo-grpo-and-the-rlhf-trio.html)第六章），本篇复述并补上 prompt、前缀缓存与"旧策略要不要重算"三个细节。字节账与秒的账是本篇的主体：前者决定什么放得下、什么必须让路，后者决定三段的时间比例——而这个比例就是第二篇选系统形态、定 GPU 配比的依据。
+FLOP 账在算法侧已经算过（[《后训练》的《在线 RL：PPO、GRPO 与 RLHF 三件套》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)第六章），本篇复述并补上 prompt、前缀缓存与"旧策略要不要重算"三个细节。字节账与秒的账是本篇的主体：前者决定什么放得下、什么必须让路，后者决定三段的时间比例——而这个比例就是第二篇选系统形态、定 GPU 配比的依据。
 
 ### 3. 记账符号
 
@@ -188,7 +188,7 @@ PPO / GRPO 允许对同一批样本做 $$\mu$$ 个 epoch 的更新（clip 就是
 
 ### 1. 每 token 的系数
 
-一个参数量为 $$N_a$$（激活参数）的 Transformer，每个 token 的前向约 $$2N_a$$ FLOP、反向约 $$4N_a$$，前向 + 反向 $$6N_a$$（[《现代 LLM 结构》第二篇](/transformer-flops-bytes-and-roofline.html)；注意力的 $$s^2$$ 项在这里忽略，8K 序列上它约占 5–10%）。生成一个 token 是一次前向，也是 $$2N_a$$。于是 GRPO 一步：
+一个参数量为 $$N_a$$（激活参数）的 Transformer，每个 token 的前向约 $$2N_a$$ FLOP、反向约 $$4N_a$$，前向 + 反向 $$6N_a$$（[《现代 LLM 结构》的《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)；注意力的 $$s^2$$ 项在这里忽略，8K 序列上它约占 5–10%）。生成一个 token 是一次前向，也是 $$2N_a$$。于是 GRPO 一步：
 
 | 部分 | FLOP / token | 过多少 token | 说明 |
 |---|---|---|---|
@@ -248,7 +248,7 @@ PPO 的重要性比需要 $$\log \pi_{old}$$——采样时策略的对数概率
 
 Table: 一步里的四份显存
 
-①的 16 字节来自[《大规模训练工程》第一篇](/training-state-anatomy-memory-and-mfu.html)；FSDP / ZeRO-3 把它均分到全部训练卡上，64 卡时每卡只有 2 GB——**训练状态在这个规模下不是问题**，问题是 ③ 和 ④。
+①的 16 字节来自[《大规模训练工程》的《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)；FSDP / ZeRO-3 把它均分到全部训练卡上，64 卡时每卡只有 2 GB——**训练状态在这个规模下不是问题**，问题是 ③ 和 ④。
 
 ③ 是推理引擎自己持有的一份权重，与训练器的分片是两份独立的拷贝（布局不同、可能精度不同），同步 ② 就是刷新它。TP = 1 时每张卡上完整一份 16 GB；32B 模型 TP = 2 每卡 33 GB；DeepSeek-V3 FP8 671 GB 分到 32 张卡每卡 21 GB。
 
@@ -294,7 +294,7 @@ $$t_{step} = \frac{\text{权重副本} + c \cdot (P + \bar L/2) \cdot k_{kv}}{t 
 
 ### 3. 前向与训练
 
-三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM）；训练取 0.4（[《大规模训练工程》第七篇](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
+三个前向与训练是算力受限的常规负载，时间 = FLOP ÷（卡数 × 峰值 × MFU）。prefill 形态的前向 MFU 取 0.5（整条序列一次算、大 GEMM）；训练取 0.4（[《大规模训练工程》的《千卡配置实战》](/thousand-gpu-configuration-and-mfu-tuning.html)的水平；RL 的训练 batch 是变长序列打包，MFU 比预训练略低）。8B 推理场景：参考 + 旧策略前向 $$2.28 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.5) = 72$$ 秒；训练 $$3.43 \text{ EFLOP} / (6.33 \times 10^{16} \times 0.4) = 136$$ 秒。
 
 ### 4. 两次同步
 
@@ -388,7 +388,7 @@ Table: 生成、前向与训练三个作业的特征对照
 
 ### 2. Agent 环境
 
-多轮工具调用的 RL（[《后训练》第六篇](/agentic-rl-tool-use-environments-and-trajectories.html)）改变的是账的**组成**：
+多轮工具调用的 RL（[《后训练》的《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)）改变的是账的**组成**：
 
 - 一条轨迹几万 token，其中约八成来自环境（工具返回、文件内容、测试输出），只有两成是模型生成的；生成 FLOP 按两成算，但参考前向、旧策略前向、训练要过**全部** token——每个有效训练 token 的代价是单轮的约 5 倍；
 - 前缀缓存从"省显存"变成"省 FLOP"：几十轮里每轮把新增部分 prefill 进已有的 KV，累计 prefill 从 $$O(\text{轮数}^2)$$ 降到线性，没有它 prefill 会超过 decode；
@@ -402,7 +402,7 @@ Table: 生成、前向与训练三个作业的特征对照
 DeepSeek-V3 规格（671B 总参数、37B 激活）改变的是**FLOP 与字节的比例**：
 
 - FLOP 按 $$N_a = 37\text{B}$$ 算，一步 31 EFLOP，只比 32B dense 多 13%；
-- 权重字节按 $$N = 671\text{B}$$ 算：训练状态 10.7 TB（256 卡每卡 42 GB——训练侧的 FP8 与 EP 是必需，[《大规模训练工程》第二篇](/parallelism-strategies-which-state-to-shard.html)），推理副本 FP8 671 GB 要 32 张卡一个实例；
+- 权重字节按 $$N = 671\text{B}$$ 算：训练状态 10.7 TB（256 卡每卡 42 GB——训练侧的 FP8 与 EP 是必需，[《大规模训练工程》的《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)），推理副本 FP8 671 GB 要 32 张卡一个实例；
 - decode 每步读的权重是被路由到的专家——并发几千条时几乎全部专家都被命中，等于读 671 GB / 32 卡 = 21 GB 每卡，与 dense 模型"读全部权重"相同；
 - MLA 把 $$k_{kv}$$ 压到约 70 KB，KV 总量 5 TB，是 GQA 8B 模型的一半——这是它能把 8192 条序列放进一波的原因；
 - 权重同步 1.34 TB（bf16 训练侧）或 671 GB（量化后），跨机几十秒——[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)的增量同步与量化传输就是为这个量级设计的；
@@ -554,19 +554,21 @@ Table: rl_ledger.py 改一个参数看账怎么变
 
 ### 2. 公式速查
 
-```text title="公式速查"
-FLOP        F = 2N_a T_resp + 2N_a BP + (2 + 2[重算] + 2[RM]) N_a T_all + 6N_a T_all (+ 8N_a T_all [PPO])
-KV 总量     T_all × k_kv                    k_kv(GQA) = 2 × 层 × KV头 × 头维 × 2 B
-单实例并发   c = ⌊(0.9 t M − 权重副本) / ((P + L̄/2) k_kv)⌋
-decode 步   t_step = (权重副本 + c (P + L̄/2) k_kv) / (t · BW · η_bw)      ≈ 0.9 M / (BW η_bw) 当 KV 填满
-生成时间     T_resp / (实例数 · c) × t_step  +  (L_max − L̄) × 权重副本 / (t · BW · η_bw)
-前向 / 训练  FLOP / (n · F_peak · η)
-全步 MFU    F / (n · F_peak · 一步墙钟)
-```
+| 要算的量 | 公式 | 备注 |
+|---|---|---|
+| FLOP | $$F = 2N_a T_{resp} + 2N_a BP + (2 + 2_{[\text{重算}]} + 2_{[RM]}) N_a T_{all} + 6N_a T_{all}$$ | PPO 再加 $$8N_a T_{all}$$ |
+| KV 总量 | $$T_{all} \times k_{kv}$$ | GQA 下 $$k_{kv} = 2 \times 层 \times \text{KV 头} \times 头维 \times 2$$ 字节 |
+| 单实例并发 | $$c = \lfloor (0.9\,t M - \text{权重副本}) / ((P + \bar L/2)\,k_{kv}) \rfloor$$ | $$t$$ 是一个实例占的卡数 |
+| decode 一步 | $$t_{step} = (\text{权重副本} + c (P + \bar L/2) k_{kv}) / (t \cdot BW \cdot \eta_{bw})$$ | KV 填满时约等于 $$0.9 M / (BW\,\eta_{bw})$$ |
+| 生成时间 | $$T_{resp} / (\text{实例数} \cdot c) \times t_{step} + (L_{max} - \bar L) \times \text{权重副本} / (t \cdot BW \cdot \eta_{bw})$$ | 第二项是长尾 |
+| 前向与训练 | $$\text{FLOP} / (n \cdot F_{peak} \cdot \eta)$$ | $$\eta$$ 取 0.5 / 0.4 |
+| 全步 MFU | $$F / (n \cdot F_{peak} \cdot \text{一步墙钟})$$ | 分母是全部卡乘全部时间 |
+
+Table: 本篇公式速查
 
 ### 3. 本篇涉及的算法侧结论
 
-本篇只用了[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)的三个结论：GRPO 一步的采样结构（$$B$$、$$G$$、组内归一化）、需要参考模型与旧策略的对数概率、$$\mu = 1$$ 是常见配方。方法本身（目标函数、优势、clip、KL 估计）见那个系列的第三、五、六篇。
+本篇只用了[《后训练》](/post-training-from-sft-to-verifiable-rewards.html)的三个结论：GRPO 一步的采样结构（$$B$$、$$G$$、组内归一化）、需要参考模型与旧策略的对数概率、$$\mu = 1$$ 是常见配方。方法本身（目标函数、优势、clip、KL 估计）见那个系列的[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)、[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)与[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)。
 
 ### 4. 下一篇
 

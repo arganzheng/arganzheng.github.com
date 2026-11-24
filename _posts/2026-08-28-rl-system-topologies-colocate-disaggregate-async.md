@@ -315,7 +315,7 @@ Table: verl `fully_async_policy` 公开实验：共置同步 vs 异步
 
 Table: 异步的三个刻度
 
-verl 的 `fully_async` 文档把它们叫做 mode a–d，同一实验里从"流式"到"流式 + staleness 0.5 + 部分 rollout"，收益从 1.6 倍到 2.35 倍。每往下一档，系统多一个机制、算法多一个要修正的偏差——第五篇的内容。
+verl 的 `fully_async` 文档把它们叫做 mode a–d，同一实验里从"流式"到"流式 + staleness 0.5 + 部分 rollout"，收益从 1.6 倍到 2.35 倍。每往下一档，系统多一个机制、算法多一个要修正的偏差——[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的内容。
 
 ### 4. 异步付出的
 
