@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-11-14
 ---
 
-第一篇的账里有一个翻转：FLUX 一步 74 TFLOPs 里 attention 占 20%，Wan2.1-14B 生成 5 秒 720p 的一步 6.5 PFLOPs 里 attention 占 72%，HunyuanVideo 129 帧占 87%。同样是 DiT，图像模型是 GEMM 负载，视频模型是 attention 负载——因为 $$N$$ 从 4 千变成了 7 万到 12 万，$$4 L N^2 d$$ 压过了 $$2 P_\text{tok} N$$。前两篇的手段在视频上仍然有效但不够：编译与量化只改线性项那 28%，跨步缓存跳的是整步；要动 attention 这 72%，需要另一类冗余——**token 与 token 之间的冗余**：一个 token 对绝大多数其他 token 的注意力接近零，尤其是空间上远、时间上远的那些。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的账里有一个翻转：FLUX 一步 74 TFLOPs 里 attention 占 20%，Wan2.1-14B 生成 5 秒 720p 的一步 6.5 PFLOPs 里 attention 占 72%，HunyuanVideo 129 帧占 87%。同样是 DiT，图像模型是 GEMM 负载，视频模型是 attention 负载——因为 $$N$$ 从 4 千变成了 7 万到 12 万，$$4 L N^2 d$$ 压过了 $$2 P_\text{tok} N$$。前两篇的手段在视频上仍然有效但不够：编译与量化只改线性项那 28%，跨步缓存跳的是整步；要动 attention 这 72%，需要另一类冗余——**token 与 token 之间的冗余**：一个 token 对绝大多数其他 token 的注意力接近零，尤其是空间上远、时间上远的那些。
 
 这一篇先把视频的账算细（token 从哪来、attention 占比怎样随帧数与分辨率变化、为什么 FlashAttention 之前视频 DiT 不可能推理），再看 2025 年收敛出来的几类稀疏 attention（Sparse VideoGen、Radial Attention、Sliding Tile Attention、VSA）各利用哪种结构、稀疏怎样落到 kernel 的 block 上才换回时间、以及 Amdahl 定律给它们的上限。
 
@@ -61,6 +61,12 @@ Table: Wan2.1-14B 720p 不同帧数的账
 
 帧数 17 → 129（latent 帧 5 → 33，6.6 倍）：线性项 6.6 倍、attention 44 倍、每步 21 倍。**视频时长是二次方的成本**。
 
+> [!NOTE] Java 经验参照：一个二次方的接口
+>
+> 「帧数 6.6 倍、attention 44 倍」在后端看就是一个 $$O(n^2)$$ 的接口被当成 $$O(n)$$ 的在用——像嵌套循环里的 N+1 查询，数据量小时没人发现，一上量就塌。
+>
+> 两处不一样。一是**改不掉**：N+1 查询可以改成一次 `IN` 查询，而这里的 $$N^2$$ 来自全 3D attention，它换来的是时间一致性，是模型结构的选择（[第五章](#五全-3d-attention-与它的替代)），系统侧只能压系数不能降阶。二是**调用方看不见**：用户把视频从 5 秒改成 20 秒，直觉是贵 4 倍，实际是 16 倍。所以生成服务的计费和限流必须建立在形状上（分辨率 × 帧数 × 步数），不能建立在请求数上——这一点一直通到[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的成本一节。
+
 稀疏化的收益受 Amdahl 定律约束：attention 占比 $$a$$、稀疏后 attention 时间变为 $$1/s$$，端到端加速 $$= 1 / \big((1-a) + a/s\big)$$：
 
 | attention 占比 $$a$$ | attention 加速 $$s$$ | 端到端 |
@@ -80,7 +86,30 @@ Table: Amdahl 定律下稀疏 attention 的端到端加速
 - **稀疏必须落到 kernel 的 block 粒度**：任何"算出注意力分数再置零"的做法在 $$N = 10^5$$ 上都不成立（分数矩阵 425 GiB）；稀疏要在 FlashAttention 的分块循环里**跳过整块**，所以稀疏模式的设计与 token 的排布方式（layout）是同一个问题。
 - **稠密 attention 在视频上有天然的稀疏结构**：注意力随时空距离衰减（Radial 的"能量衰减"）、head 分成关注同帧内的与关注同位置跨帧的（SVG 的 spatial / temporal head）——稀疏方法都是在把这些结构显式化。
 
-### 2. 本文的章节安排
+### 2. 稀疏 attention 在运行时额外持有什么
+
+四类稀疏方法的差别，用"它们在运行时各自多持有什么状态"看最清楚——这一列也决定了它们在服务里能不能预生成、能不能跨请求复用。Wan2.1-14B 720p 81 帧（$$N = 75{,}600$$、40 层、$$d = 5120$$）：
+
+| 额外状态 | 字节 | 谁算的、什么时候 | 活多久 | 换一个 prompt 还作不作数 |
+|---|---|---|---|---|
+| 1. block 稀疏掩码 / 索引表（Radial、STA） | $$591 \times 591$$ 个块，bool 掩码 350 KB | 请求开始时按 $$(F, H, W)$$ 生成一次 | 整次生成 | **作数**：只与形状有关，与内容无关 |
+| 2. 每个 head 选 spatial 还是 temporal（SVG） | 每层每 head 一个 bit，合计几百字节 | **每一步**在线 profiling | 一步 | 不作数：每步重算 |
+| 3. profiling 的采样子集与两种掩码下的误差（SVG） | 临时，$$N$$ 的 1–2% | 每步每 head | 一步之内 | — |
+| 4. 语义簇分配与置换索引（SVG2） | $$[N]$$ 的 int32，300 KB | 每步一次 k-means | 一步 | 不作数 |
+| 5. 置换后的 Q / K / V 副本（temporal head） | 每张 $$[75{,}600, 5120]$$ bf16 = 738 MiB | 每层每步一次 gather | 该层的 attention 之内 | — |
+| 6. 长度外推的 LoRA 权重（Radial 4× 长度） | 几十 MiB | 离线训练 | 常驻 | 作数，但与目标长度绑定 |
+| 7. 每个 head 的窗口大小（STA） | 几十个整数的配置 | 离线写死 | 常量 | 作数 |
+
+Table: 四类稀疏 attention 在运行时额外持有的状态
+
+四条读法：
+
+1. **掩码本身小到可以忽略**：350 KB 对着 14.4 GiB 的激活。稀疏 attention 的运行时成本不在掩码上，在第 2 到 5 行——**决定稀疏模式**的那部分开销。静态方法的这几行是空的，所以它们被称作"零开销"。
+2. **最后一列正好把四类方法分成两半**，而且这一列决定了它们在服务里的位置：静态掩码可以按"分辨率 × 帧数"预生成并缓存，在线 profiling 不行，每一步都要重新付。自适应换来的是对快速大运动的鲁棒，代价就记在这一列上。
+3. **第 5 行是唯一量级不小的一行。**置换要物化一份 Q / K / V，但它仍然划算：一次 $$[N, d]$$ 的 gather 读写约 1.5 GB、H100 上半毫秒量级，而它换掉的是整块整块的 attention——Wan 上一层 attention 是百毫秒量级，置换不到它的 1%。
+4. **第 1 行和[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)里的编译产物是同一类东西**：按形状生成、与内容无关、换形状作废。所以服务侧对它们的处理也该是同一套——按分辨率与帧数分桶，不让请求随意指定形状。
+
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -101,7 +130,7 @@ Table: 本文的章节安排
 
 ### 1. 3D VAE
 
-图像 VAE 把 $$H \times W \times 3$$ 压到 $$\frac{H}{8} \times \frac{W}{8} \times 16$$；视频 3D VAE 在此之上把时间压 $$f_t = 4$$ 倍：$$F$$ 帧 → $$\frac{F - 1}{4} + 1$$ 个 latent 帧。"+1"来自**因果卷积**：第一帧单独编码（不看后面的帧），之后每 4 帧压成 1 个 latent 帧。因果性有两个系统上的好处：图像可以当作单帧视频（图像与视频联合训练）；解码可以按 chunk 顺序进行（第二篇的时间分块、第六篇的流式）。Wan、HunyuanVideo、CogVideoX 都自训了 3D VAE，压缩率 4 × 8 × 8 = 256 倍（每个 latent 值对应 256 个像素值，再乘 16 通道 / 3 通道 → 48 倍的数据压缩）。
+图像 VAE 把 $$H \times W \times 3$$ 压到 $$\frac{H}{8} \times \frac{W}{8} \times 16$$；视频 3D VAE 在此之上把时间压 $$f_t = 4$$ 倍：$$F$$ 帧 → $$\frac{F - 1}{4} + 1$$ 个 latent 帧。"+1"来自**因果卷积**：第一帧单独编码（不看后面的帧），之后每 4 帧压成 1 个 latent 帧。因果性有两个系统上的好处：图像可以当作单帧视频（图像与视频联合训练）；解码可以按 chunk 顺序进行（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)的时间分块、[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)的流式）。Wan、HunyuanVideo、CogVideoX 都自训了 3D VAE，压缩率 4 × 8 × 8 = 256 倍（每个 latent 值对应 256 个像素值，再乘 16 通道 / 3 通道 → 48 倍的数据压缩）。
 
 ### 2. 时空 patch
 
@@ -161,11 +190,11 @@ $$d$$ 越大，交叉点越远：Wan 的 $$d = 5120$$ 让它在同样的 $$N$$ �
 
 ### 2. 激活
 
-FlashAttention 下每层的激活随 $$N$$ 线性：10 份 $$[N, d]$$ 的 bf16 张量，Wan 81 帧 $$10 \times 75600 \times 5120 \times 2 = 7.2$$ GiB，CFG batch 2 → 14.4 GiB；加权重 26.6 GiB → 41 GiB，80 GB 卡放得下，但已经没有多少余量给 VAE。129 帧 22.7 GiB 激活 + 26.6 GiB 权重 = 49 GiB。这是视频模型多卡的第一个理由（第五篇）：不是快，是**放下**。
+FlashAttention 下每层的激活随 $$N$$ 线性：10 份 $$[N, d]$$ 的 bf16 张量，Wan 81 帧 $$10 \times 75600 \times 5120 \times 2 = 7.2$$ GiB，CFG batch 2 → 14.4 GiB；加权重 26.6 GiB → 41 GiB，80 GB 卡放得下，但已经没有多少余量给 VAE。129 帧 22.7 GiB 激活 + 26.6 GiB 权重 = 49 GiB。这是视频模型多卡的第一个理由（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)）：不是快，是**放下**。
 
 ### 3. 3D VAE 解码
 
-第一篇：Wan 720p 81 帧不分块 107 GiB、HunyuanVideo 129 帧 227 GiB。3D VAE 的解码器**必须**按时间 chunk（因果卷积允许）与空间 tile 分块，或用 Parallel VAE 切到多卡。它在时间账上也不可忽略（7–12 s），当 DiT 段被多卡与稀疏压到几十秒时，VAE 解码开始占 10–20%。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)：Wan 720p 81 帧不分块 107 GiB、HunyuanVideo 129 帧 227 GiB。3D VAE 的解码器**必须**按时间 chunk（因果卷积允许）与空间 tile 分块，或用 Parallel VAE 切到多卡。它在时间账上也不可忽略（7–12 s），当 DiT 段被多卡与稀疏压到几十秒时，VAE 解码开始占 10–20%。
 
 ## 五、全 3D attention 与它的替代
 
@@ -190,7 +219,7 @@ FlashAttention 下每层的激活随 $$N$$ 线性：10 份 $$[N, d]$$ 的 bf16 �
 | **Radial Attention** | 2025.06 | 静态掩码：时间距离 ≤ 1 的帧块全算，时间距离每翻倍、计算密度减半（$$O(n \log n)$$）；块内空间窗口随距离收缩 | 掩码由 $$(F, H, W)$$ 决定，与内容无关 | 默认长度下无需训练（1.9×）；扩到 2–4× 长度需 LoRA 微调 | HunyuanVideo 默认长度 1.9×；4× 长度下比稠密快 3.7×、训练成本降 4.4× |
 | **Sliding Tile Attention（STA）** | 2025.02 | 每个 token 只看时空局部窗口（3D 滑窗），窗口对齐到 tile | 静态，按 head 配窗口大小（有配置文件） | 无（可选微调） | HunyuanVideo attention 58–91% 稀疏、attention 1.4–3.5×，端到端约 1.6–2× |
 | **VSA（Video Sparse Attention）** | 2025 | 粗粒度：把 token 分成 cube，先在 cube 级算一遍 attention 选 top-k cube，再在选中的 cube 里算细粒度 | **可训练**：粗粒度分支参与训练 | 需要（FastWan 用它训练） | attention 2.5×，训练与推理同用 |
-| **SageAttention** | 2024 | 不稀疏：INT8 / FP8 的 Q·K | — | 无 | attention 2–3×（第二篇） |
+| **SageAttention** | 2024 | 不稀疏：INT8 / FP8 的 Q·K | — | 无 | attention 2–3×（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)） |
 
 Table: 视频稀疏 attention 的四类方法
 
@@ -209,6 +238,12 @@ Radial 的另一个贡献是**用稀疏换长度**：稠密 attention 的模型�
 ### 1. block 粒度
 
 FlashAttention 把 $$Q$$ 与 $$K / V$$ 各切成 $$B_q \times B_k$$ 的块（FA2 128×64、FA3 128×128），外层循环 $$Q$$ 块、内层循环 $$K / V$$ 块，每对块做一次小 GEMM 与在线 softmax。**稀疏只有在这个粒度上"跳过整个 $$K / V$$ 块"才省时间**：一个块里哪怕只有一个 token 要算，整块都得算。所以稀疏模式必须让"要算的 token 对"在 $$N \times N$$ 矩阵上聚成对齐到 128×128 的块——稀疏度的定义也应当按块算。
+
+> [!NOTE] Java 经验参照：跳过了就省下了
+>
+> 循环里 `if (skip) continue;` 跳掉 75% 的迭代，就省下大约 75% 的时间——这条等式在 JVM 上基本成立，省多少和跳多少是一回事。
+>
+> 在这里它彻底不成立。kernel 以 $$128 \times 128$$ 的块为最小调度单位，一个块里只要有一个 token 对需要算，整块就得算完。于是可以出现"稀疏度 75%、加速 0%"：下一节那个 12 token 的例子里，非零元素均匀散在全部 16 个块里，一个块都跳不掉。这带来一个 Java 里很少遇到的约束——**稀疏模式的设计和数据排布的设计是同一个问题**，要让该算的 token 对在矩阵上聚成对齐的块，就得先把 token 重排（SVG 的置换、STA 的 3D tile）。最接近的 Java 经验大概是手写 SIMD 或者按 cache line 对齐数据结构：算法和内存布局不能分开想。
 
 ### 2. layout 变换
 
@@ -237,23 +272,23 @@ $$N = 75,600$$、块 128：$$591 \times 591 = 35$$ 万个块，一个 bool 掩�
 
 ### 1. SageAttention 在视频上
 
-第二篇讲过 SageAttention 的 INT8 Q·K 在图像上端到端只有 5–10%（attention 占 20%）；视频上 attention 占 72%，同样的 2–3× attention 加速变成端到端 1.5–1.8×。它与稀疏**正交、可叠加**（稀疏决定算哪些块，8-bit 决定每块怎么算）——SGLang 的 `sage_sla_attn` 就是两者的组合。
+[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)讲过 SageAttention 的 INT8 Q·K 在图像上端到端只有 5–10%（attention 占 20%）；视频上 attention 占 72%，同样的 2–3× attention 加速变成端到端 1.5–1.8×。它与稀疏**正交、可叠加**（稀疏决定算哪些块，8-bit 决定每块怎么算）——SGLang 的 `sage_sla_attn` 就是两者的组合。
 
 ### 2. Wan2.1-14B 720p 81 帧 50 步的叠加账（单卡 H100，$$\eta$$ 0.45 基线）
 
 | 配置 | 线性 28% | attention 72% | 每步 | 50 步 | 说明 |
 |---|---|---|---|---|---|
-| 基线（FA2 eager） | 8.2 s | 21 s | 29 s | 24 min | 第一篇 |
+| 基线（FA2 eager） | 8.2 s | 21 s | 29 s | 24 min | [《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html) |
 | + FA3 | 8.2 | 12.4（1.7×） | 20.6 | 17 min | 无损 |
 | + compile + FP8（线性） | 5.5 | 12.4 | 17.9 | 15 min | 只作用于 28% |
 | + SageAttention | 5.5 | 6.2（再 2×） | 11.7 | 9.8 min | 有损 I |
 | + 稀疏 80%（STA / SVG，kernel 效率 70%） | 5.5 | 2.4（再 2.6×） | 7.9 | 6.6 min | 有损 II |
 | + TeaCache 跳 40%（视频上可行） | ×0.6 | ×0.6 | 4.7 | 3.9 min | 有损 II，与稀疏正交 |
-| + 8 卡 USP（第五篇，效率 80%） | | | 0.74 | **37 s** | 加 VAE 解码 7 s |
+| + 8 卡 USP（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)，效率 80%） | | | 0.74 | **37 s** | 加 VAE 解码 7 s |
 
 Table: Wan2.1-14B 720p 81 帧 50 步的叠加账
 
-从 24 分钟到 40 秒：**单卡的四项拿到 6×，多卡拿到另一个 6×**。这张表也说明视频服务的形态：单卡不可能给出可接受的延迟，多卡是必需的（第五篇），少步蒸馏（第六篇：FastWan 3 步）再拿一个 10×。
+从 24 分钟到 40 秒：**单卡的四项拿到 6×，多卡拿到另一个 6×**。这张表也说明视频服务的形态：单卡不可能给出可接受的延迟，多卡是必需的（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)），少步蒸馏（[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)：FastWan 3 步）再拿一个 10×。
 
 ## 九、实现对照与实践
 
@@ -295,7 +330,7 @@ Table: 视频扩散的规则与数字小结
 
 ### 下一篇
 
-单卡的六倍到头了，Wan 的一步仍要 5 秒、50 步 4 分钟，激活 14 GiB 挤在权重旁边。下一篇把请求切到多张卡上：为什么 LLM 的张量并行在这里不划算、序列并行（Ulysses / Ring / USP）与 CFG 并行怎样切、PipeFusion 怎样利用第三篇的时间冗余在 PCIe 与以太网上做流水线、Parallel VAE 怎样解决 107 GiB 的解码峰值。
+单卡的六倍到头了，Wan 的一步仍要 5 秒、50 步 4 分钟，激活 14 GiB 挤在权重旁边。下一篇把请求切到多张卡上：为什么 LLM 的张量并行在这里不划算、序列并行（Ulysses / Ring / USP）与 CFG 并行怎样切、PipeFusion 怎样利用[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的时间冗余在 PCIe 与以太网上做流水线、Parallel VAE 怎样解决 107 GiB 的解码峰值。
 
 ## 十一、自测
 
