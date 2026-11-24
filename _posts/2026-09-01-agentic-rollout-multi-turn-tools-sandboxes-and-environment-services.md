@@ -10,15 +10,24 @@ updated: 2026-09-14
 
 前五篇的 rollout 是一件事：推理引擎批量生成。Agent 训练里它变成了一个分布式系统：模型生成一段，解析出工具调用，某个容器里跑一次测试（几十秒），结果追加进上下文，再生成——重复二十轮；同一时刻几千条这样的轨迹在跑，每条占着一个有状态的沙箱；reward 不是一个规则函数，是"测试通过了几个"。500 个代码任务 × $$G = 8$$ × 20 轮是 **8 万次容器执行**，每次 30 秒就是 **670 个 CPU·小时**——与模型侧这一步的十几个 GPU·小时按价格算是同一量级；要在 30 分钟内跑完，需要 **1300 到 1800 个并发沙箱**，取决于沙箱能否在两轮之间释放。
 
-GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。答案不太好看：decode 大约 500 秒，其余时间在等环境；同一时刻在生成的请求只有几百条、摊到每张卡几十条，decode 的带宽利用率比单轮 RL 还低；而 **prefill 可能比 decode 更贵**——一条轨迹二十轮、上下文涨到 40K，如果每轮都把整个上下文重新 prefill，8B 模型这一步的 prefill 是 26 EFLOP、1600 秒，与整个窗口一样长；有完美的前缀缓存它是 160 秒。两者之间差十倍，决定因素是**几千条轨迹的 KV 有多少能在两轮之间留在显存里**——而按第一篇的账，留不下多少。
+GPU 这一侧在这 30 分钟里做了什么，是这篇更想回答的问题。答案不太好看：decode 大约 500 秒，其余时间在等环境；同一时刻在生成的请求只有几百条、摊到每张卡几十条，decode 的带宽利用率比单轮 RL 还低；而 **prefill 可能比 decode 更贵**——一条轨迹二十轮、上下文涨到 40K，如果每轮都把整个上下文重新 prefill，8B 模型这一步的 prefill 是 26 EFLOP、1600 秒，与整个窗口一样长；有完美的前缀缓存它是 160 秒。两者之间差十倍，决定因素是**几千条轨迹的 KV 有多少能在两轮之间留在显存里**——而按[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的账，留不下多少。
 
-这一篇讨论 rollout 变成"模型与环境交替"之后系统的变化：agent loop 的结构与 token 连续性问题；推理引擎侧的前缀缓存、KV 驻留与粘性路由；沙箱集群——容器的启动、状态、并发、隔离，以及它与 GPU 集群的配比；环境与 reward 的服务化（把 Claude Code、mini-SWE-agent 一类现成的 harness 直接接进 RL）；环境耗时方差带来的长尾与调度；最后把环境的账加进前五篇的 GPU 账。它是第五篇异步的最强动机：环境耗时的方差比生成长度的方差大一个量级，同步形态在这里基本不可用。
+这一篇讨论 rollout 变成"模型与环境交替"之后系统的变化：
+
+1. agent loop 的结构与 token 连续性问题；
+2. 推理引擎侧的前缀缓存、KV 驻留与粘性路由；
+3. 沙箱集群——容器的启动、状态、并发、隔离，以及它与 GPU 集群的配比；
+4. 环境与 reward 的服务化（把 Claude Code、mini-SWE-agent 一类现成的 harness 直接接进 RL）；
+5. 环境耗时方差带来的长尾与调度；
+6. 最后把环境的账加进前五篇的 GPU 账。
+
+它是[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的最强动机：环境耗时的方差比生成长度的方差大一个量级，同步形态在这里基本不可用。
 
 本篇的核心问题：
 
 > **500 个代码任务 × $$G = 8$$ × 20 轮，每轮跑一次几十秒的测试。一步 rollout 要多少次容器执行、多少 CPU·小时、并发多少个沙箱才能在 30 分钟内完成？[^q0] GPU 这一侧在这 30 分钟里做了什么？[^q1]**
 
-版本：verl v0.9.0（`verl/experimental/agent_loop/`、`verl/trainer/ppo/v1/agent_loop_tq.py`、`docs/advance/agent_loop.rst`、`reward_loop.rst`、uni-agent）、vLLM v0.27.1 的前缀缓存与 OpenAI 兼容接口。算法侧（Agent RL 的 mask、奖励、轨迹级优势）在[《后训练》第六篇](/agentic-rl-tool-use-environments-and-trajectories.html)，本篇只用它的结论：轨迹是样本，环境 token 不进 loss。
+版本：verl v0.9.0（`verl/experimental/agent_loop/`、`verl/trainer/ppo/v1/agent_loop_tq.py`、`docs/advance/agent_loop.rst`、`reward_loop.rst`、uni-agent）、vLLM v0.27.1 的前缀缓存与 OpenAI 兼容接口。算法侧（Agent RL 的 mask、奖励、轨迹级优势）在[《后训练》的《Agent RL》](/agentic-rl-tool-use-environments-and-trajectories.html)，本篇只用它的结论：轨迹是样本，环境 token 不进 loss。
 
 ## 一、总览
 
@@ -32,7 +41,6 @@ flowchart TB
     end
     LOOP --> RW["环境服务：判分（跑测试 / 比对）→ reward → 训练器"]
     N["几千条轨迹同时在跑：GPU 在等沙箱时空着，沙箱在等 GPU 时空着；最慢的那条决定这一步何时结束（第六章）"] -.-> LOOP
-
 ```
 
 
@@ -40,29 +48,33 @@ flowchart TB
 
 500 任务 × $$G = 8$$ = 4000 条轨迹，每条 20 轮，每轮：模型生成约 400 token（约 10 秒的 decode 延迟）→ 测试执行 30 秒 → 返回约 1600 token 的输出。8B 模型、32 张 H100 做 rollout。
 
-```text title="4000 条轨迹 × 20 轮的环境侧账"
-环境侧
-  容器执行次数          4000 × 20 = 80,000 次
-  环境 CPU 时间         80,000 × 30 s = 2.4 M CPU·s = 667 CPU·小时（按每次执行 1 核算；测试常吃 2–4 核，则 1300–2700）
-  一条轨迹的墙钟        20 × (10 + 30) s ≈ 800 s（不排队）
-  30 分钟内完成所需并发   有状态沙箱（整条轨迹占着）：4000 × 800 s / 1800 s ≈ 1800 个
-                        两轮之间可释放（快照 / 无状态）：80,000 × 30 s / 1800 s ≈ 1300 个
-  机器                  1800 个沙箱 × 2 vCPU × 4 GB ≈ 45 台 80 核 / 320 GB 的 CPU 机器 —— 与 4 台 8 卡 GPU 机器并列
-GPU 侧（32 卡）
-  生成 token           4000 × 20 × 400 = 32 M
-  decode 时间           32 M / (32 卡 × ~2000 token/s) ≈ 500 s —— 占 30 分钟的 28%
-  同时在生成的请求      4000 条轨迹 × (10 / 40) ≈ 1000 条 → 每卡 31 条并发 → decode 步只读 16 GB 权重 + 少量 KV，带宽利用低
-  prefill              前缀缓存全命中：Σ 新增 token = 4000 × 40 K = 160 M → 2.6 EFLOP → 160 s
-                        全部重算：Σ 每轮整个上下文 = 4000 × 20 × 20 K（平均）= 1.6 B → 26 EFLOP → 1600 s
-                        实际：KV 驻留决定，两者之间
-  训练要过的 token      4000 × 40 K = 160 M（八成是环境的，不进 loss 但过前向 + 反向）
-```
+| 环境侧的量 | 怎么算 | 结果 |
+|---|---|---|
+| 容器执行次数 | 4000 条轨迹 × 20 轮 | 80,000 次 |
+| 环境 CPU 时间 | 80,000 × 30 s | 2.4 M CPU·s = 667 CPU·小时（按每次执行 1 核算；测试常吃 2–4 核，则 1300–2700） |
+| 一条轨迹的墙钟 | 20 × (10 + 30) s | 约 800 s（不排队） |
+| 30 分钟内完成所需的沙箱并发 | 有状态沙箱（整条轨迹占着）：4000 × 800 s / 1800 s<br/>两轮之间可释放（快照 / 无状态）：80,000 × 30 s / 1800 s | 约 1800 个<br/>约 1300 个 |
+| 机器 | 1800 个沙箱 × 2 vCPU × 4 GB | 约 45 台 80 核 / 320 GB 的 CPU 机器——与 4 台 8 卡 GPU 机器并列 |
+
+Table: 4000 条轨迹 × 20 轮的环境侧账
+
+| GPU 侧的量（32 卡） | 怎么算 | 结果 |
+|---|---|---|
+| 生成 token | 4000 × 20 × 400 | 32 M |
+| decode 时间 | 32 M / (32 卡 × 约 2000 token/s) | 约 500 s——占 30 分钟的 28% |
+| 同时在生成的请求 | 4000 条轨迹 × (10 / 40) | 约 1000 条 → 每卡 31 条并发 → decode 步只读 16 GB 权重加少量 KV，带宽利用低 |
+| prefill（前缀缓存全命中） | Σ 新增 token = 4000 × 40 K = 160 M → 2.6 EFLOP | 160 s |
+| prefill（全部重算） | Σ 每轮整个上下文 = 4000 × 20 × 20 K（平均）= 1.6 B → 26 EFLOP | 1600 s |
+| prefill（实际） | 由 KV 驻留决定 | 落在上面两者之间 |
+| 训练要过的 token | 4000 × 40 K | 160 M（八成是环境的，不进 loss，但要过前向加反向） |
+
+Table: 同一步在 GPU 侧（32 卡）的账
 
 三个结论：
 
 - **环境是第三个池**：Agent RL 的集群里 GPU 旁边有一个与之匹配的 CPU 集群，规模按"沙箱并发数"配，它是配比里的新变量；GPU 池空转的主要原因从"等最长的回答"变成"等最慢的测试"。
 - **GPU 侧的账从 decode 主导变成 prefill 与 decode 并列**，且 prefill 的量取决于 KV 能否跨轮驻留——32 张卡的 KV 池 1.8 TB，4000 条 40K 的轨迹要 20 TB，大部分轮次的 KV 会在等环境的 30 秒里被逐出，重新 prefill 是常态。
-- **异步是必需**：一条轨迹 800 秒，最慢的（测试超时、重试）几千秒，环境耗时的长尾占比 $$f$$ 轻易到 0.8 以上——第二篇的表里共置同步在这一行是 3000 秒对 600 秒。
+- **异步是必需**：一条轨迹 800 秒，最慢的（测试超时、重试）几千秒，环境耗时的长尾占比 $$f$$ 轻易到 0.8 以上——[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的表里共置同步在这一行是 3000 秒对 600 秒。
 
 ### 2. 从批量生成到分布式系统
 
@@ -77,7 +89,35 @@ GPU 侧（32 卡）
 
 Table: 单轮 RL 与 Agent RL 的 rollout 对照
 
-### 3. 本文的章节安排
+### 3. 一条轨迹活着的 800 秒里，各处住着什么
+
+单轮 RL 的一条样本只在推理引擎里有东西；Agent RL 的一条轨迹活着的那 800 秒里，同时在三个地方占着资源。下面这张表的第四列是本篇全部数字的来源：**哪些东西在等环境的那 30 秒里还留着，哪些被收走了**。
+
+| 对象 | 在哪一侧 | 活多久 | 等环境的 30 秒里还在不在 | 谁在等它 |
+|---|---|---|---|---|
+| 轨迹的上下文 token（最终涨到 40K） | agent loop worker 的内存（CPU） | 整条轨迹 | 在，几十 KB 而已 | — |
+| 轨迹的 KV | 推理引擎的 KV 池 | 理想情况整条轨迹，实际按逐出策略 | **常常不在**——4000 条 40K 的轨迹要 20 TB，32 卡的池只有 1.8 TB | 下一轮的 prefill：不在就要重算整个上下文 |
+| 沙箱容器与它的文件系统状态 | CPU 集群 | 整条轨迹（有状态）或一次执行（无状态 / 快照） | 在，而且正是它在干活 | 轨迹的下一轮 |
+| 工具网关里的会话 | 网关进程 | 整条轨迹 | 在 | 粘性路由要靠它找回同一个沙箱与同一个推理实例 |
+| `AgentLoopBase.run()` 的协程 | agent loop worker（Ray actor，CPU 进程） | 整条轨迹 | 在，但挂在 `await` 上 | 几千条轨迹是几千个协程，几十个进程扛着 |
+| 一次工具调用的中间结果 | 沙箱 → 网关 → worker | 一轮 | 本轮结束即丢 | — |
+| reward 判分任务 | reward 服务（跑测试或比对） | 轨迹结束后一次 | 还没开始 | 训练器 |
+| 轨迹级的 mask（哪些位置是环境写的） | agent loop worker | 整条轨迹到训练结束 | 在 | 训练的 loss：八成位置不进 loss，但要过前向与反向 |
+| 各层的超时 / 重试 / 丢弃计数 | 网关、沙箱调度器、replay buffer 各一套 | 整个作业 | 在 | 诊断：没有它就分不清长尾来自哪一层 |
+
+Table: 一条 agent 轨迹活着时，三个地方各住着什么、等环境时还剩什么
+
+三条结论：
+
+1. **只有一行是「常常不在」的，而它决定了十倍的差距**。轨迹的上下文、沙箱状态、会话、协程都很便宜，留着就留着；唯一贵的是 KV，而它恰好是等环境时最先被逐出的——于是 prefill 在 160 秒与 1600 秒之间的位置，完全由这一行说了算（[第三章](#三推理引擎侧)）。
+2. **状态分散在三个地方，而它们的失效后果不同**：KV 丢了只是慢（重 prefill），沙箱状态丢了这条轨迹就废了（跑了十九轮的工作目录没法重建），会话丢了则两者都找不回来。所以沙箱与会话要做持久与粘性，KV 只需要「尽量留」。
+3. **最后一行是三份而不是一份**。超时和重试在网关、沙箱调度器、样本缓冲三层各有一套策略，各自改变样本分布——[第六章](#六长尾与调度)把它们列成一张表，因为只看总的「这一步慢了」分不出是哪一层在筛。
+
+> [!NOTE] Java 经验参照：挂起时留下多少状态
+>
+> 模型生成完要等一个几十秒的外部调用——这是典型的同步阻塞 IO，Java 的办法是异步化：线程还回池子，内存里只留一个很小的 continuation，几千个并发连接也扛得住。这里照搬不了，因为「还回池子」要扔掉的不是一个小对象，而是这条轨迹几十到几百 MB 的 KV；扔了，下一轮就得把 40K 的上下文整个重新 prefill 一遍。所以本篇的前缀缓存、KV 驻留、KV 卸载到主机内存这几节，本质上都是在回答同一个问题：**挂起的时候留下多少状态**。这是 Java 的异步 IO 不需要面对的取舍——那边的 continuation 小到可以认为免费。
+
+### 4. 本文的章节安排
 
 | 章 | 内容 | 回答的问题 |
 |---|---|---|
@@ -108,7 +148,7 @@ Table: 一条 20 轮的轨迹
 
 reward 在轨迹结束后算：最后一次测试通过的比例 / 是否全部通过 → 0 或 1（或分数）。
 
-轨迹是**一条样本**：`prompt_ids`（首轮的 prompt）、`response_ids`（之后全部 token，模型生成的与环境返回的交错）、`response_mask`（1 = 模型生成、0 = 环境返回）。训练时 loss 只算 mask = 1 的位置，但前向与反向要过全部位置——第一篇算过，每个有效训练 token 的代价是单轮的约 5 倍。GRPO 的组是同一任务的 $$G$$ 条轨迹，优势按组内归一化，与单轮相同。
+轨迹是**一条样本**：`prompt_ids`（首轮的 prompt）、`response_ids`（之后全部 token，模型生成的与环境返回的交错）、`response_mask`（1 = 模型生成、0 = 环境返回）。训练时 loss 只算 mask = 1 的位置，但前向与反向要过全部位置——[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)算过，每个有效训练 token 的代价是单轮的约 5 倍。GRPO 的组是同一任务的 $$G$$ 条轨迹，优势按组内归一化，与单轮相同。
 
 ### 2. token 连续性
 
@@ -118,7 +158,7 @@ reward 在轨迹结束后算：最后一次测试通过的比例 / 是否全部�
 - **chat template 的轮边界**：Qwen、GLM、MiniMax 各家的模板在 assistant 输出与 tool 消息之间插入的特殊 token 不同，有的还要在 assistant 段末尾补 `<|im_end|>\n`；模板写错一个换行，训练分布就带上一个系统偏移。verl 0.9 的 **Continuous Token** 机制（`continuous_token_wiring`）就是把这层做成可复用的 builder，按模型家族处理边界，默认关闭、需要显式打开。
 - **思考内容的处理**：推理模型的 `<think>` 段在多轮里是保留在上下文还是丢弃（Qwen3 的模板默认只保留最后一轮的思考），决定了上下文长度与训练时看到的序列——要与采样时一致。
 
-这些问题在单轮 RL 里不存在（一次生成、无需拼接），在 Agent RL 里是第五篇"训推不一致"的另一个来源：不是数值上的不一致，是**序列本身不一致**。
+这些问题在单轮 RL 里不存在（一次生成、无需拼接），在 Agent RL 里是[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)"训推不一致"的另一个来源：不是数值上的不一致，是**序列本身不一致**。
 
 ### 3. 每条轨迹一个协程
 
@@ -132,7 +172,7 @@ verl 的实现形状（`docs/advance/agent_loop.rst`）：`AgentLoopManager` 把
 
 第 $$i$$ 轮的上下文 = 前 $$i - 1$$ 轮的全部 + 本轮新增。没有前缀缓存，每轮 prefill 整个上下文：一条轨迹的总 prefill token 是 $$\sum_i C_i \approx$$ 轮数 × 平均上下文 = $$20 \times 20\text{K} = 400\text{K}$$；有前缀缓存（前 $$i - 1$$ 轮的 KV 还在），只 prefill 新增：总量 = 最终上下文 $$40\text{K}$$。**十倍**。
 
-第一篇说过单轮 RL 里前缀缓存"省显存不省 FLOP"，Agent RL 里它是 FLOP 的决定因素：4000 条轨迹 × 400K = 1.6B token 的 prefill = 26 EFLOP（8B），32 卡 MFU 0.5 下 1600 秒；线性时 160 秒。
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)说过单轮 RL 里前缀缓存"省显存不省 FLOP"，Agent RL 里它是 FLOP 的决定因素：4000 条轨迹 × 400K = 1.6B token 的 prefill = 26 EFLOP（8B），32 卡 MFU 0.5 下 1600 秒；线性时 160 秒。
 
 ### 2. KV 驻留：缓存能命中多少
 
@@ -159,15 +199,15 @@ Table: 改善 KV 驻留的四个方向与代价
 
 - 负载不均：实例的负载由"落在它上面的轨迹在哪一阶段"决定，等环境的轨迹不占算力但占 KV；实例间的并发差异可达几倍。
 - 与部分 rollout 的冲突：权重同步时 abort 后重提，若路由到别的实例，前缀缓存全丢；verl 的动态调度里 `enable_rebalance` 会清掉粘性缓存、让重提的请求重新分配——那是主动放弃缓存换负载均衡。
-- 实例故障：一个实例挂了，它上面几百条轨迹的缓存全丢，重提到别处全部重 prefill——异构弹性 rollout（第四篇 NIXL 那条路）的代价之一。
+- 实例故障：一个实例挂了，它上面几百条轨迹的缓存全丢，重提到别处全部重 prefill——异构弹性 rollout（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)里 NIXL 那条路）的代价之一。
 
 ### 4. 低并发的 decode
 
-同一时刻只有约四分之一的轨迹在生成（10 秒生成 / 40 秒一轮），32 张卡上 1000 条并发请求、每卡 31 条。回到第一篇的 decode 模型：每步读 16 GB 权重 + 31 × 20K × 128 KiB ≈ 80 GB 的 KV，共 96 GB / 2 TB/s ≈ 48 毫秒，出 31 个 token → **每卡 650 token/s**，是单轮 RL（2600）的四分之一。KV 读取占了每步的 80%——长上下文让 Agent RL 的 decode 是"KV 带宽受限"而不是"权重带宽受限"。MLA 或 KV 量化在这里的收益比单轮 RL 大得多。
+同一时刻只有约四分之一的轨迹在生成（10 秒生成 / 40 秒一轮），32 张卡上 1000 条并发请求、每卡 31 条。回到[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的 decode 模型：每步读 16 GB 权重 + 31 × 20K × 128 KiB ≈ 80 GB 的 KV，共 96 GB / 2 TB/s ≈ 48 毫秒，出 31 个 token → **每卡 650 token/s**，是单轮 RL（2600）的四分之一。KV 读取占了每步的 80%——长上下文让 Agent RL 的 decode 是"KV 带宽受限"而不是"权重带宽受限"。MLA 或 KV 量化在这里的收益比单轮 RL 大得多。
 
 ### 5. 接口形态
 
-推理引擎以**服务**形态存在（第二篇的 server 模式），两种接口：
+推理引擎以**服务**形态存在（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)的 server 模式），两种接口：
 
 - **token in / token out**（`generate(prompt_ids, sampling_params)`）：agent loop 自己维护 token 序列，拼接、mask、logprob 全在 loop 侧，训练所需的一切都精确——verl 内置的 tool agent loop 走这条路。
 - **OpenAI 兼容的 chat completion**：接受 messages、返回文本。它的意义是**接入现成的 agent 框架**——Claude Code、mini-SWE-agent、OpenHands 一类 harness 只会说 OpenAI / Anthropic 的协议，不会给你 token id。代价是 token 连续性（第二章第 2 节）要由服务侧重建：网关记录每次请求实际用的 token 序列与 logprob，事后拼成训练样本。verl 的 uni-agent gateway 做的正是这层。
@@ -222,6 +262,10 @@ Table: 各类任务的环境耗时、轮数与环境 : 模型配比
 
 每个任务（SWE-bench 的每个 issue）有自己的仓库、依赖、Python 版本——**镜像是按任务的**，几千个任务几千个镜像、每个几 GB。每步 rollout 要在几十台机器上各起几十个容器，镜像分发是启动时间的大头：预热（把本步会用到的镜像提前拉到节点）、分层共享（基础层复用）、镜像仓库的带宽（几十台机器同时拉 5 GB 是几百 GB 的流量）。热池只能对"通用镜像"预起，任务专属的镜像只能预拉。SWE-bench 规模的训练里，**镜像管理是沙箱平台的主要工程量**，不是容器运行时。
 
+> [!NOTE] Java 经验参照：会话黏性，而且是两重的
+>
+> 一条轨迹的后续轮次必须回到同一个容器，因为上一轮改过的文件在那里——这就是把请求按 session 粘到同一台应用服务器。不成立的地方有两处。一是状态能不能外置：Java 里把会话放进 Redis 就能让服务器变无状态，粘性只是优化；这里的「状态」是一个跑了十九轮的工作目录（改过的代码、装过的依赖、起着的进程），没法序列化进共享存储，所以粘性是硬要求，丢了这条轨迹就废了。二是粘性有两重：轨迹既要粘在同一个沙箱上（为了文件），也要粘在同一个推理实例上（为了 KV 前缀缓存），而这两件事的调度目标并不一致——沙箱按 CPU 负载分，推理实例按 KV 命中率分。这是 Agent RL 的调度比普通在线服务难的根本原因。
+
 ## 五、环境与 reward 的服务化
 
 ### 1. 为什么是服务
@@ -234,7 +278,12 @@ agent loop 需要环境，训练器需要 reward，推理引擎需要都不知�
 
 ### 2. 黑盒 agent 与网关
 
-verl 0.9 的 **uni-agent** 走到了这一步：一个网关（Uni-Agent Gateway）在推理引擎前面，对外是 OpenAI / Anthropic 兼容的 endpoint；Claude Code、mini-SWE-agent 或任何说这两种协议的 harness 直接把它当模型用；网关记录每个会话里每次请求的 token 序列、采样的 logprob、版本号，会话结束后拼成一条训练轨迹进样本缓冲。release note 的数字是 **1000+ 个并发有状态会话**。
+verl 0.9 的 **uni-agent** 走到了这一步，三件事：
+
+1. 一个网关（Uni-Agent Gateway）站在推理引擎前面，对外是 OpenAI / Anthropic 兼容的 endpoint；
+2. Claude Code、mini-SWE-agent 或任何说这两种协议的 harness 直接把它当模型用，不用为 RL 改一行；
+3. 网关记录每个会话里每次请求的 token 序列、采样的 logprob、版本号，会话结束后拼成一条训练轨迹进样本缓冲。
+release note 的数字是 **1000+ 个并发有状态会话**。
 
 它解决的是"训练用的 agent 与部署用的 agent 是同一个"——训练时的 prompt 组织、工具定义、重试逻辑与线上一致，训练分布不漂移。代价在网关：
 
@@ -254,7 +303,7 @@ slime 的 `slime/agent` 模块、AReaL 的 `RolloutWorkflow`（`arun_episode`）
 
 Table: 三种 reward，一条通路
 
-verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM 的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（第二篇 `PPOTrainerSeparateAsync.__init__` 里的断言）。
+verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三种做成同一个接口：轨迹完成 → 分块发给 reward worker 并行算 → 结果写回样本。生成式 RM 的推理实例由 `reward.reward_model.enable_resource_pool` 决定是独立池还是共置——`separate_async` 模式**要求独立池**，因为 standalone rollout 实例从不暂停、没有空闲显存给 RM 用（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)提到的 `PPOTrainerSeparateAsync.__init__` 里的断言）。
 
 生成式 RM 是第四个 GPU 负载：它也是 decode（评判要生成理由）或 prefill（打分只要一次前向），也有自己的权重（可能是另一个模型，不需要同步；也可能就是策略自己——self-reward，那就要同步）。规模上它常与 rollout 同量级（每条轨迹评一次、输入是整条轨迹 40K token），在 GPU 配比里要单独算一列。
 
@@ -274,7 +323,7 @@ verl 的 **Reward Loop**（`RewardLoopManager` + 若干 `RewardWorker`）把三�
 
 Table: 环境方差
 
-$$f$$（长尾占比）在这里轻易到 0.8 以上：一步里 95% 的轨迹 15 分钟完成，最后 5% 卡在超时与重试上再花 30 分钟。**同步形态下 GPU 在这 30 分钟里几乎全空**。第二篇那张表的最后两行——异步 / 共置 2.5 到 4.9 倍——就是这个场景。
+$$f$$（长尾占比）在这里轻易到 0.8 以上：一步里 95% 的轨迹 15 分钟完成，最后 5% 卡在超时与重试上再花 30 分钟。**同步形态下 GPU 在这 30 分钟里几乎全空**。[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)那张表的最后两行——异步 / 共置 2.5 到 4.9 倍——就是这个场景。
 
 ### 2. 轨迹级的超时、重试与丢弃
 
@@ -283,16 +332,22 @@ $$f$$（长尾占比）在这里轻易到 0.8 以上：一步里 95% 的轨迹 1
 | 单次工具调用 | 超时（如 120 s）→ 返回 "timeout" 给模型，轨迹继续 | 沙箱服务 |
 | 单轮生成 | max_tokens；生成被 abort（权重同步）→ 续接 | 推理引擎 / agent loop |
 | 轨迹 | 最大轮数；总时长上限 → 强制结束、按当前状态算 reward | agent loop |
-| 组 | G 条里有失败 → failure 组 → 淘汰 / padding / 补发（第五篇） | replay buffer |
+| 组 | G 条里有失败 → failure 组 → 淘汰 / padding / 补发（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)） | replay buffer |
 | 步 | 缓冲里终态组够了就训练，不等剩下的 | trainer |
 
 Table: 轨迹级的超时、重试与丢弃
 
-每一层的选择都是分布上的取舍：超时返回给模型让它"学会处理超时"（但训练数据里多了超时样本）；强制结束的轨迹 reward 通常是 0，会让模型学到"别做太多轮"（可能是好事也可能不是）；failure 组丢弃偏向"不出错的任务"。第五篇的诊断表在这里要加一列：**各层超时 / 重试 / 丢弃的计数与它们的任务分布**。
+每一层的选择都是分布上的取舍：
+
+1. 超时返回给模型，让它"学会处理超时"——但训练数据里从此多了超时样本；
+2. 强制结束的轨迹 reward 通常是 0，会让模型学到"别做太多轮"——可能是好事，也可能不是；
+3. failure 组丢弃，偏向"不出错的任务"。
+
+[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的诊断表在这里要加一列：**各层超时 / 重试 / 丢弃的计数与它们的任务分布**。
 
 ### 3. 部分 rollout 只能在轮边界
 
-第五篇的部分 rollout 在这里受限：权重同步要 abort 在飞请求，但一条 Agent 轨迹的"在飞"可能是**沙箱正在跑测试**——推理引擎侧没有请求可 abort。可行的边界只有"一轮生成的中间"（abort 生成、保存 token、续接——与单轮相同）和"轮与轮之间"（等本轮工具返回、下一轮用新权重）；沙箱执行本身不能中断续接（状态在容器里）。所以 Agent RL 里一条轨迹跨的版本数 ≈ 轨迹墙钟 / 同步间隔 = 800 / 150 ≈ 5，比单轮 RL 大，staleness 的上限要放宽、decoupled loss 更接近必需。
+[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)的部分 rollout 在这里受限：权重同步要 abort 在飞请求，但一条 Agent 轨迹的"在飞"可能是**沙箱正在跑测试**——推理引擎侧没有请求可 abort。可行的边界只有"一轮生成的中间"（abort 生成、保存 token、续接——与单轮相同）和"轮与轮之间"（等本轮工具返回、下一轮用新权重）；沙箱执行本身不能中断续接（状态在容器里）。所以 Agent RL 里一条轨迹跨的版本数 ≈ 轨迹墙钟 / 同步间隔 = 800 / 150 ≈ 5，比单轮 RL 大，staleness 的上限要放宽、decoupled loss 更接近必需。
 
 ### 4. 调度的两个目标
 
@@ -302,7 +357,7 @@ agent loop 的调度器同时要满足：**沙箱利用率**（不让容器闲�
 
 ### 1. 把环境加进账本
 
-第一篇的三本账加一本：
+[《负载画像》](/rl-step-anatomy-rollout-reward-train.html)的三本账加一本：
 
 | 账 | 项 | 公式 | 本例 / 说明 |
 |---|---|---|---|
@@ -378,7 +433,7 @@ flowchart TB
     Q --> F["组内 G 条都结束：组 uid 的 tag 置 status=finished"] --> B["ReplayBuffer 看到组终态"] --> TR["trainer 取 batch → 训练"]
 ```
 
-与单轮 RL 唯一不同的是图中间那个循环——推理引擎、缓冲、训练器都不知道这是 Agent 轨迹。这是 agent loop 抽象的价值：**Agent RL 对基础设施的新要求全部落在 rollout 一侧**，形态（第二篇）、显存（第三篇）、同步（第四篇）、异步（第五篇）的机制原样适用。
+与单轮 RL 唯一不同的是图中间那个循环——推理引擎、缓冲、训练器都不知道这是 Agent 轨迹。这是 agent loop 抽象的价值：**Agent RL 对基础设施的新要求全部落在 rollout 一侧**，形态（[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)）、显存（[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)）、同步（[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)）、异步（[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)）的机制原样适用。
 
 ### 3. 多模态
 
