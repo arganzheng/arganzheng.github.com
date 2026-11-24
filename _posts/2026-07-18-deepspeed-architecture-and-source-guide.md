@@ -13,7 +13,7 @@ date: 2026-07-18 14:00:00
 
 
 
-上一篇（[02《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)）给了 ZeRO-1/2/3 的字节账与通信账。本篇沿同一条 bf16 参数的生命线进 DeepSpeed 0.19.2 的源码：Stage 3 里 `param.data` 只是一个壳，完整的 bf16 参数在用到前由 hook all-gather 出来、用完立即打碎，常驻的是每参数 $$1/N_d$$ 的 `ds_tensor` 碎片和扁平 fp32 分区。三个框架并排的对照在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 DeepSpeed。
+[《并行策略全景》](/parallelism-strategies-which-state-to-shard.html)给了 ZeRO-1/2/3 的字节账与通信账。本篇沿同一条 bf16 参数的生命线进 DeepSpeed 0.19.2 的源码：Stage 3 里 `param.data` 只是一个壳，完整的 bf16 参数在用到前由 hook all-gather 出来、用完立即打碎，常驻的是每参数 $$1/N_d$$ 的 `ds_tensor` 碎片和扁平 fp32 分区。三个框架并排的对照在[《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 DeepSpeed。
 
 > **一个 bf16 参数在 DeepSpeed Stage 3 里存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0]**
 
@@ -21,9 +21,47 @@ date: 2026-07-18 14:00:00
 
 DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器这条轴切状态——优化器状态、梯度、参数分三级切到 $$N_d$$ 份。与 Megatron 不同，模型不需要用它的层写：任意一个 `nn.Module` 包进 `DeepSpeedEngine` 就能用 ZeRO-3。
 
-先看 train-ledger 的 8 卡配置：ZeRO-3、DP=8，模型形状沿用 03 的 Llama 3.2 1B（$$L=16$$、$$h=2048$$、$$f=8192$$、$$v=128256$$，总计约 1,498,482,688 个参数）。F1 画的是每卡常驻什么，以及算到某一层 k 时完整参数从哪里来。
+这条主线贯穿全篇：参数在构造时就被切碎，engine 把用户模型连同进程组一起包起来，训练循环的三个调用分别触发取回、归约与更新。
 
-![F1：上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后，每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg)
+```mermaid
+%% 图：从 deepspeed.initialize 到 engine.step 的一条主线
+flowchart TB
+    INIT["<b>deepspeed.zero.Init（第六章第 4 节）</b><br/>• 每个 nn.Module 构造完就分片<br/>• 本 rank 只留 ds_tensor（$$1/N_d$$ 碎片）<br/>• param.data 换成 0 元素空张量，形状记在 ds_shape"]
+    PG["<b>进程组：utils/groups.py（第五章）</b><br/>• 传了 mpu 就把模型并行的组委托给它<br/>• 没传时 DP 组是 _clone_world_group()<br/>• DP 组就是 ZeRO 切状态的那一维"]
+    ENG["<b>deepspeed.initialize()（第六章第 2 节）</b><br/>• 建 DeepSpeedEngine，持有用户的 nn.Module<br/>• 按 JSON 的 optimizer 段建基础优化器<br/>• 用 _do_optimizer_sanity_check() 挑包装类"]
+    STAGE{"zero_optimization.stage"}
+    S12["<b>DeepSpeedZeroOptimizer（第六章第 3 节）</b><br/>• Stage 1 / 2：参数每卡仍是整份<br/>• param group 拍平成 bit16_groups_flat<br/>• 本 rank 只持有一段 fp32 分区"]
+    S3["<b>DeepSpeedZeroOptimizer_Stage3（第六章第 4 节）</b><br/>• 给每个子 module 注册四个 hook<br/>• 建 bf16 / fp32 扁平分区与梯度分区 buffer<br/>• 参数协调器按 trace 预取"]
+    FWD["<b>engine(batch)（第六章第 4、6 节）</b><br/>• pre-forward hook 调 fetch_sub_module<br/>• all-gather 拼出完整 bf16 参数<br/>• post-forward hook 立即 partition() 打碎"]
+    BWD["<b>engine.backward(loss)（第六章第 3、4 节）</b><br/>• 反向前再 all-gather 同一层参数<br/>• 梯度进 IPG bucket，满则 reduce-scatter<br/>• 本 rank 只留自己分区的梯度"]
+    STEP["<b>engine.step()（第六章第 6 节）</b><br/>• 不在梯度累积边界就只计数<br/>• 边界上 Adam 更新 fp32 分区<br/>• 新值拷回 ds_tensor，不 all-gather 参数"]
+    INIT --> ENG
+    PG --> ENG
+    ENG --> STAGE
+    STAGE -- "1 / 2" --> S12
+    STAGE -- "3" --> S3
+    S12 --> FWD
+    S3 --> FWD
+    FWD --> BWD
+    BWD --> STEP
+    STEP -- "下一个 step 的前向 hook 按需再取回" --> FWD
+```
+
+逐个节点：
+
+- **`deepspeed.zero.Init`**（[第六章第 4 节](#4-stage-3ds_tensor-与-hook)）：上下文管理器，在每个 `nn.Module` 构造结束时拦截，把参数切成 $$N_d$$ 段，本 rank 只留 `ds_tensor`，完整模型从不在一张卡上出现。
+- **进程组**（[第五章](#五进程组groupspy-的委托与自建)）：`deepspeed.initialize(mpu=...)` 传进来的对象接管模型并行的分组，没传时 DP 组就是整个 world 的克隆——ZeRO 切的 $$N_d$$ 就是这一组的大小。
+- **`deepspeed.initialize()`**（[第六章第 2 节](#2-deepspeedengine包裹用户模型)）：建 `DeepSpeedEngine`，把用户模型存进 `self.module`，按 JSON 建基础优化器，再决定用哪个包装类。
+- **`zero_optimization.stage`**（[第六章第 2 节](#2-deepspeedengine包裹用户模型)）：ZeRO 路径上的分叉点。Stage 1 / 2 与 Stage 3 是两个类、两个文件，不是同一个类里的开关。
+- **`DeepSpeedZeroOptimizer`**（[第六章第 3 节](#3-stage-1--2扁平分区)）：Stage 1 / 2 的包装类，参数仍是整份，切的是 fp32 主参数与（Stage 2 的）梯度。
+- **`DeepSpeedZeroOptimizer_Stage3`**（[第六章第 4 节](#4-stage-3ds_tensor-与-hook)）：Stage 3 的包装类，连参数本体也切，代价是要在 module 边界上挂 hook 把参数取回来。
+- **`engine(batch)`**（[第六章第 4 节](#4-stage-3ds_tensor-与-hook)、[第 6 节](#6-训练循环forward--backward--step)）：前向每进一个 module，hook 就 all-gather 它的参数，算完立即释放。
+- **`engine.backward(loss)`**（[第六章第 3 节](#3-stage-1--2扁平分区)、[第 4 节](#4-stage-3ds_tensor-与-hook)）：反向再取回一次参数，梯度攒进 bucket 后 reduce-scatter，每个 rank 只留自己那一段。
+- **`engine.step()`**（[第六章第 6 节](#6-训练循环forward--backward--step)）：只在梯度累积边界真的更新；更新后不把参数拼回来，留给下一个 step 的前向 hook。
+
+先看 train-ledger 的 8 卡配置：ZeRO-3、DP=8，模型形状沿用[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html#一总览)的 Llama 3.2 1B（$$L=16$$、$$h=2048$$、$$f=8192$$、$$v=128256$$，总计约 1,498,482,688 个参数）。下面这张 ZeRO-3 分片图画的是每卡常驻什么，以及算到某一层 k 时完整参数从哪里来。
+
+![上排是 W_k 的 8 个常驻分片；下排是前向 pre-hook all-gather 后，每卡临时持有的完整 bf16 W_k](/img/in-post/deepspeed-f1-8-gpus-zero3.svg)
 
 上排每个 rank 的色条是同一个权重 $$W_k$$ 的 1/8 切片；下面三行分别是 bf16 `ds_tensor`、bf16 梯度分区、fp32 主参数与 Adam 的 $$m,v$$，每份也各占 1/8。前向 pre-hook 把 8 片拼成完整 $$W_k$$，所以下排 8 张卡暂时都有一整份 bf16 权重；算完即 release，回到上排状态。
 
@@ -36,15 +74,22 @@ DeepSpeed 是微软开源的训练框架，底座是 ZeRO：它沿着优化器�
 5. `step()` 时 Adam 更新 fp32 主参数分片，新值拷回 `ds_tensor`。
 6. `step()` 不 all-gather 参数；下一个 step 的前向 hook 按需再取回。
 
-第二步到第四步的「每卡只拿 1/8」折成字节，按 03 的参数总量 $$N\approx1.50\times10^9$$ 算（bf16 参数占 2 字节）：
+第二步到第四步的「每卡只拿 1/8」折成字节，按同一个 Llama 3.2 1B 的参数总量 $$N\approx1.50\times10^9$$ 算：
 
-- bf16 参数分片 $$2N/N_d$$。
-- 梯度分区 $$2N/N_d$$：0.19.2 里 `data_types.grad_accum_dtype` 默认取模型 dtype（`runtime/engine.py` 的 `get_data_types()`），`bf16.enabled=true` 且不设 `data_types` 时梯度累积分区是 bf16，`grad_partitions_flat_buffer` 按 `gradient_accumulation_dtype` 分配（`stage3.py`）。
-- fp32 主参数 + Adam 的 $$m,v$$ 共 $$12N/N_d$$。
-- 常驻合计 $$16N/N_d$$，DP=8 时约 3.0 GB / 卡。
-- 临时项：正在算的那一层完整的 bf16 参数，每层约 60.8M 参数 ≈ 121.6 MB；预取几层就乘几，深度由 `stage3_prefetch_bucket_size` 与 `stage3_max_live_parameters` 控制。
+| 常驻项 | 每参数字节 | 8 卡之和 | 每卡（$$N_d = 8$$） |
+|---|---:|---:|---:|
+| bf16 参数分片 `ds_tensor` | 2 | 3.00 GB | 375 MB |
+| bf16 梯度分区 | 2 | 3.00 GB | 375 MB |
+| fp32 主参数 + Adam 的 $$m$$、$$v$$ | 12 | 17.98 GB | 2,248 MB |
+| 合计 | 16 | 23.98 GB | 2,997 MB |
 
-三框架的异同和取舍放在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html)，本篇只读 DeepSpeed。
+Table: ZeRO-3、DP=8 时每卡的常驻字节（$$N \approx 1.50 \times 10^9$$）
+
+每一行都是「每参数字节 × $$N / N_d$$」，所以合计就是 $$16N/N_d$$，约 3.0 GB / 卡。梯度分区那一行是 2 字节而不是 4：0.19.2 里 `data_types.grad_accum_dtype` 默认取模型 dtype（`runtime/engine.py` 的 `get_data_types()`），`bf16.enabled=true` 且不设 `data_types` 时梯度累积分区是 bf16，`grad_partitions_flat_buffer` 按 `gradient_accumulation_dtype` 分配（`stage3.py`）。
+
+表里没有的是临时项：正在算的那一层完整的 bf16 参数，每层约 60.8M 参数 ≈ 121.6 MB；预取几层就乘几，深度由 `stage3_prefetch_bucket_size` 与 `stage3_max_live_parameters` 控制。
+
+三框架的异同和取舍放在《三个框架对比》，本篇只读 DeepSpeed。
 
 ## 二、来龙去脉
 
@@ -69,9 +114,9 @@ Table: DeepSpeed 的来龙去脉
 
 ## 三、核心抽象
 
-DeepSpeed 的对象按从下到上的依赖关系读。F2 把六层叠起来：最下面是进程组与通信，往上依次是构造时分片的参数、hook 与参数协调器、ZeRO 优化器包装类、`DeepSpeedEngine`；最上面是用户自己的训练循环。箭头一律指向下方，含义是「上层调用 / 依赖下层」。
+DeepSpeed 的对象按从下到上的依赖关系读。下面这张依赖关系图把六层叠起来：最下面是进程组与通信，往上依次是构造时分片的参数、hook 与参数协调器、ZeRO 优化器包装类、`DeepSpeedEngine`；最上面是用户自己的训练循环。箭头一律指向下方，含义是「上层调用 / 依赖下层」。
 
-![F2：DeepSpeed 六层抽象的依赖关系，箭头向下表示「上层调用 / 依赖下层」](/img/in-post/deepspeed-f2-abstractions.svg)
+![DeepSpeed 六层抽象的依赖关系，箭头向下表示「上层调用 / 依赖下层」](/img/in-post/deepspeed-f2-abstractions.svg)
 
 - `groups.py` / `pipe/topology.py` / `comm` 提供进程组与通信原语，详见第五章。
 - `zero.Init` / `ds_tensor` 让参数从构造起就是分片，详见第六章第 4 节。
@@ -80,9 +125,36 @@ DeepSpeed 的对象按从下到上的依赖关系读。F2 把六层叠起来：�
 - `DeepSpeedEngine` 包装模型、接入 optimizer 与调度，详见第六章第 2、6 节。
 - 用户训练循环只需要 `engine(batch)`、`engine.backward(loss)`、`engine.step()` 三个调用，详见第六章第 6 节。
 
+这六层里真正占内存、决定行为的是下面这些对象。把它们按「谁创建、活在哪一侧、活多久、谁能看见」排开，三级 ZeRO 的差别就是表里被切开的行数不同：
+
+| 对象 | 谁创建 | 活在哪一侧 | 活多久 | 谁能看见 |
+|---|---|---|---|---|
+| `DeepSpeedEngine` | `deepspeed.initialize()`（`deepspeed/__init__.py`） | CPU 上的 Python 对象，持有放在 GPU 上的 `self.module` | 整个训练 | 本 rank 的进程 |
+| `param.ds_tensor`（bf16 碎片，Stage 3） | `zero.Init._post_init_method()` → `_partition()` | GPU | 整个训练常驻 | 只有本 rank，其余 $$N_d - 1$$ 段要 all-gather 才看得到 |
+| 完整的 `param.data`（Stage 3） | `PartitionedParameterCoordinator.fetch_sub_module()` 里的 `all_gather_coalesced()` | GPU | 一个 module 的前向（或反向）窗口，`release_sub_module()` 即释放<br/>小于 `stage3_param_persistence_threshold` 的参数（`ds_persist`）例外 | DP 组里每个 rank 各有一份相同的完整值 |
+| `param.ds_secondary_tensor`（ZeRO++ hpZ） | `_partition()`，设了 `zero_hpz_partition_size` 时 | GPU | 整个训练 | 节点内的二级参数分区组（`_create_zero_param_parallel_group()`） |
+| `fp16_partitioned_groups_flat[i]`（Stage 3） | `_create_fp16_partitions_with_defragmentation()`，sub-group 内各 `ds_tensor` 的拼接 | GPU | 整个训练 | 本 rank |
+| `fp32_partitioned_groups_flat[i]`（Stage 3 的 fp32 主参数） | `_create_fp32_partitions()` | GPU；`offload_optimizer` 时按 `self.device` 落到 CPU，`pin_memory=true` 则是锁页内存 | 整个训练 | 本 rank 的用户优化器——Adam 只看得到这一段 |
+| `grad_partitions_flat_buffer`（Stage 3 的梯度分区） | `_setup_for_real_optimizer()`，长度 = 本 rank 各参数分片元素数之和 | 与 fp32 分区同侧（`self.device`） | 整个训练，一次分配后按参数切成视图 | 本 rank |
+| IPG bucket（`IPGBucketZ3`，每种通信 dtype 一个） | Stage 3 构造时；`contiguous_gradients=true` 时在 `_setup_for_real_optimizer()` 预分配 `reduce_bucket_size` 个元素 | GPU | 从第一个梯度就位到 bucket 满、reduce-scatter 完成 | 本 rank |
+| `bit16_groups_flat[i]`（Stage 1 / 2） | `DeepSpeedZeroOptimizer` 构造时把一个 param group 拍平拼接 | GPU | 整个训练 | 每个 rank 都是完整一份，各参数的 `.data` 是它的视图 |
+| `single_partition_of_fp32_groups[i]`（Stage 1 / 2 的 fp32 主参数） | 同上，取本 rank 那一段做 fp32 克隆 | GPU；`offload_optimizer` 时 CPU | 整个训练 | 本 rank 的用户优化器 |
+| `grads_in_partition`（Stage 1 / 2 本 rank 分区梯度的连续缓冲，`contiguous_gradients=true` 时才有） | 第一次有梯度要拷进分区时惰性分配 | GPU | 分配后整个训练复用 | 本 rank |
+| `self.data_parallel_group` | `groups._get_data_parallel_group()`：有 `mpu` 则委托，否则 `_clone_world_group()` | 通信库里的 communicator | 整个训练 | 组内所有 rank |
+
+Table: DeepSpeed 的核心对象：谁创建、活在哪一侧、活多久、谁能看见
+
+对着表看三级的差别：
+
+1. **Stage 1 只切 `single_partition_of_fp32_groups` 那一行。** 参数（`bit16_groups_flat`）和梯度在每张卡上都是整份，归约是 all-reduce，`grads_in_partition` 里只是顺便把本 rank 分区的梯度拷成连续内存。
+2. **Stage 2 多切梯度。** bucket 归约后只保留本 rank 分区的那一段，其余 `param.grad` 立即释放。
+3. **Stage 3 才动 `ds_tensor` 与完整 `param.data` 那两行。** 参数本体切成碎片，完整的 `param.data` 从一个常驻对象变成只活在 module 窗口里的临时对象。
+
+「谁能看见」这一列跟着变：Stage 1 / 2 里任何 rank 随时都能读到完整参数，Stage 3 里只有 hook 打开的那个窗口内才能。
+
 ## 四、最小任务：runs/deepspeed
 
-train-ledger 里的练手配置是 ZeRO-3、DP 8，模型形状沿用 03 的 Llama 3.2 1B。三个框架并排的对账与预期数字在 06 的 [train-ledger 一节](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
+train-ledger 里的练手配置是 ZeRO-3、DP 8，模型形状沿用同一个 Llama 3.2 1B。三个框架并排的对账与预期数字在《三个框架对比》的[「train-ledger 三框架对账」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#3-train-ledger-三框架对账)，这里只留 DeepSpeed 这份配置（`runs/deepspeed/ds_config.json`，键名以 0.19.2 `runtime/constants.py` 与 `zero/config.py` 为准）：
 
 ```json title="runs/deepspeed/ds_config.json"
 {
@@ -115,9 +187,15 @@ train-ledger 里的练手配置是 ZeRO-3、DP 8，模型形状沿用 03 的 Lla
 JSON 键分四组看：
 
 - **批次**：`train_micro_batch_size_per_gpu` × `gradient_accumulation_steps` × DP 数推出 `train_batch_size`（这里 1 × 2 × 8 = 16），`train_batch_size` 本身省略不写。
-- **精度与优化器**：`bf16.enabled` 决定模型 dtype，也连带决定默认的梯度累积 dtype（第一章的账）；`optimizer` 段建 AdamW，`gradient_clipping` 在 step 里做裁剪。
-- **ZeRO 阈值**：`stage3_prefetch_bucket_size` 控制每次顺带预取的参数量，对应 F5 里「同时活着的完整参数」；`stage3_param_persistence_threshold` 决定多小的参数在 forward/backward 期间保持完整（`ds_persist`，见第六章第 4、5 节）；`stage3_max_live_parameters`、`stage3_max_reuse_distance` 分别封顶在途完整参数和「很快又用的参数不释放」的距离；`reduce_bucket_size` 是梯度 IPG bucket 的大小（第六章第 3 节）；`sub_group_size` 把参数切成 sub-group，每个 sub-group 一对 bf16 / fp32 扁平分区（第六章第 4 节）。
-- **记录**：`wall_clock_breakdown` 与 `flops_profiler` 打印耗时与 FLOPs，对照第一章的每卡字节账与第六章第 5 节的通信过程。
+- **精度与优化器**：`bf16.enabled` 决定模型 dtype，也连带决定默认的梯度累积 dtype（本文第一章的字节账）；`optimizer` 段建 AdamW，`gradient_clipping` 在 step 里做裁剪。
+- **ZeRO 阈值**：这一段的六个键各管一件事。
+  - `stage3_prefetch_bucket_size`：每次顺带预取的参数量，对应第六章第 4 节参数驻留曲线图里的「同时活着的完整参数」。
+  - `stage3_param_persistence_threshold`：多小的参数在前向、反向期间一直保持完整（`ds_persist`，见第六章第 4、5 节）。
+  - `stage3_max_live_parameters`：封顶同时活着的完整参数总量。
+  - `stage3_max_reuse_distance`：「很快又要用」的距离之内不释放。
+  - `reduce_bucket_size`：梯度 IPG bucket 的大小（第六章第 3 节）。
+  - `sub_group_size`：把参数切成 sub-group，每个 sub-group 一对 bf16 / fp32 扁平分区（第六章第 4 节）。
+- **记录**：`wall_clock_breakdown` 与 `flops_profiler` 打印耗时与 FLOPs，对照本文第一章的每卡字节账与第六章第 5 节的通信过程。
 
 `train_ds.py` 的骨架：
 
@@ -160,7 +238,11 @@ def main():
 
 <details markdown="1"><summary>源码细节：MoE、hpZ、autoTP 各自建的组</summary>
 
-`_create_expert_and_data_parallel()` / `_create_expert_data_and_model_parallel()` 为 MoE 建 `ep` 与 `expt-dp` 组，按 `ep_size` 命名存进字典（`_get_expert_parallel_group(group_name)`）；`_create_zero_param_parallel_group()` 为 ZeRO++ 的 hpZ（`zero_hpz_partition_size`）建节点内的「二级参数分区组」，Stage 3 反向时的参数 all-gather 走它（`ds_secondary_tensor`）；`_init_tp_mesh_device()` 为 autoTP（`tensor_parallel` 配置）调用 `dist.initialize_mesh_device()`（`deepspeed/comm/comm.py`）建一个 `(data_parallel, tensor_parallel)` 的二维 DeviceMesh——这是 DeepSpeed 里少数用到 DeviceMesh 的地方。
+`groups.py` 自己建的组有三类：
+
+- **MoE**：`_create_expert_and_data_parallel()` / `_create_expert_data_and_model_parallel()` 建 `ep` 与 `expt-dp` 组，按 `ep_size` 命名存进字典（`_get_expert_parallel_group(group_name)`）。
+- **ZeRO++ 的 hpZ**：`_create_zero_param_parallel_group()` 按 `zero_hpz_partition_size` 建节点内的「二级参数分区组」，Stage 3 反向时的参数 all-gather 走它（`ds_secondary_tensor`）。
+- **autoTP**：`_init_tp_mesh_device()` 为 `tensor_parallel` 配置调用 `dist.initialize_mesh_device()`（`deepspeed/comm/comm.py`），建一个 `(data_parallel, tensor_parallel)` 的二维 DeviceMesh——这是 DeepSpeed 里少数用到 DeviceMesh 的地方。
 
 </details>
 
@@ -198,18 +280,26 @@ deepspeed/
 
 **直觉**：包一层 engine。DeepSpeed 的入口是 `deepspeed.initialize(model=..., optimizer=..., config=...)`，返回一个 `DeepSpeedEngine`（`runtime/engine.py`）。它继承 `nn.Module`，持有用户的 `self.module`，用户之后调用的是 `engine(batch)`、`engine.backward(loss)`、`engine.step()` 三个方法，模型代码一行不改。构造函数的顺序：
 
-```text title="DeepSpeedEngine.__init__ 的顺序"
-DeepSpeedEngine.__init__
-  _configure_distributed_model(model)        把 module 移到设备、转 dtype；确定 data_parallel_group / seq_data_parallel_group / expert_data_parallel_group
-                                             非 ZeRO 时广播参数使各 DP rank 一致
-  _configure_optimizer(client_optimizer, model_parameters)
-    _configure_basic_optimizer()             按 JSON 的 optimizer 段建 Adam / AdamW / FusedAdam …
-    → zero_optimization().stage > 0 ?        _configure_zero_optimizer(basic_optimizer)
-        stage 1 / 2                          DeepSpeedZeroOptimizer(...)      （stage_1_and_2.py）
-        stage 3                              DeepSpeedZeroOptimizer_Stage3(...)（stage3.py）
-      : bf16 ?                               _configure_bf16_optimizer()
-      : fp16 ?                               _configure_fp16_optimizer()
-  _configure_lr_scheduler()
+```mermaid
+%% 图：DeepSpeedEngine 构造时的三步与优化器包装类的挑选
+flowchart TB
+    MODEL["<b>_configure_distributed_model(model)</b><br/>• 按 bf16 / fp16 转参数 dtype，未用 zero.Init 时把 module 移到设备<br/>• 取 data_parallel_group、seq_data_parallel_group、expert_data_parallel_group<br/>• 未用 zero.Init 构造时 _broadcast_model() 对齐各 rank 的初始参数"]
+    OPT["<b>_configure_optimizer(client_optimizer, model_parameters)</b><br/>• 用户没传优化器时 _configure_basic_optimizer() 按 JSON 建 Adam / AdamW / FusedAdam…<br/>• 传了就直接作为 basic_optimizer<br/>• _check_for_duplicates() 查同一参数是否出现在多个 param group"]
+    PICK{"_do_optimizer_sanity_check()"}
+    ZSTAGE{"zero_optimization_stage()"}
+    S12["<b>DeepSpeedZeroOptimizer</b><br/>stage_1_and_2.py，Stage 1 / 2"]
+    S3["<b>DeepSpeedZeroOptimizer_Stage3</b><br/>stage3.py，Stage 3"]
+    OTHER["<b>不走 ZeRO 包装类的几条路</b><br/>• bf16 参数 + fp32 梯度累积（ZeRO-1 或流水线）：_configure_bf16_optimizer()<br/>• fp16、或 bf16 参数 + bf16 累积：_configure_fp16_optimizer()<br/>• apex amp：amp.initialize()<br/>• 纯 fp32：basic_optimizer 原样使用"]
+    SCHED["<b>_configure_lr_scheduler()</b>"]
+    MODEL --> OPT
+    OPT --> PICK
+    PICK -- "ZERO_OPTIMIZATION" --> ZSTAGE
+    PICK -- "其他返回值" --> OTHER
+    ZSTAGE -- "1 / 2" --> S12
+    ZSTAGE -- "3" --> S3
+    S12 --> SCHED
+    S3 --> SCHED
+    OTHER --> SCHED
 ```
 
 所以 DeepSpeed 的「ZeRO 优化器」是一个**优化器包装类**：它接管用户优化器的 `param_groups`，把里面的参数替换成分片；ZeRO 的一切——分片、hook、通信——都在这个包装类里，engine 只在 `backward()` 与 `step()` 里调用它。这与 Megatron（DDP 负责梯度通信、优化器负责参数分片与 all-gather，两个类）和 torchtitan（FSDP 负责一切通信、优化器是普通的）都不同。三种「谁持有分片、谁发起通信」的归属画在一起（黄色 = 分片与集合通信所在的类）：
@@ -261,9 +351,9 @@ flowchart TB
 
 **问题**：Stage 1/2 不切参数本身，参数在每张卡上仍是整份——怎么让「优化器状态切 1/N_d」又不破坏参数的完整地址？
 
-**直觉**：把一个 param group 里所有参数先拍平成一段连续内存，每段切成 $$N_d$$ 份，每个 rank 拿自己那份的 fp32 拷贝去更新；参数的 `.data` 仍是扁平张量里的视图，更新后 all-gather 拼回整段。F3 用三个参数 A（5 个元素）、B（4 个）、C（2 个）走一遍：总数 11，pad 到 12，DP=4 时每段 3 个元素——分片边界落在参数内部，rank 1 那段前两个元素是 A3、A4，第三个是 B0。
+**直觉**：把一个 param group 里所有参数先拍平成一段连续内存，每段切成 $$N_d$$ 份，每个 rank 拿自己那份的 fp32 拷贝去更新；参数的 `.data` 仍是扁平张量里的视图，更新后 all-gather 拼回整段。下面这张扁平分区图用三个参数 A（5 个元素）、B（4 个）、C（2 个）走一遍：总数 11，pad 到 12，DP=4 时每段 3 个元素——分片边界落在参数内部，rank 1 那段前两个元素是 A3、A4，第三个是 B0。
 
-![F3：param group 拍平拼接成 bit16_groups_flat，pad 到 N_d 倍数后切成 N_d 段，每个 rank 克隆自己那段的 fp32 副本](/img/in-post/deepspeed-f3-flat-partition.svg)
+![param group 拍平拼接成 bit16_groups_flat，pad 到 N_d 倍数后切成 N_d 段，每个 rank 克隆自己那段的 fp32 副本](/img/in-post/deepspeed-f3-flat-partition.svg)
 
 `stage_1_and_2.py` 的 `DeepSpeedZeroOptimizer` 构造时，对每个 param group：
 
@@ -271,7 +361,19 @@ flowchart TB
 2. `get_data_parallel_partitions()` 把扁平张量均分成 `dp_size` 段，得到 `parallel_partitioned_bit16_groups[i]`。
 3. `single_partition_of_fp32_groups[i]` = 本 rank 那一段的 fp32 克隆（`.detach().clone().float()`）——**fp32 主参数**，$$1/N_d$$。用户优化器的 `param_groups[i]['params']` 被替换成这一个 fp32 张量。
 
-梯度路径：`create_gradient_handling_hooks()` 给每个参数注册梯度 hook，`reduce_ready_partitions_and_remove_grads()` 把就位的梯度攒进 IPG（independent partition gradient）bucket（`IPGBucket`，大小 `reduce_bucket_size`，默认 5e8 元素），满了就 `reduce_ipg_grads()` → `average_tensor()`：Stage 2（`partition_grads=True`）时按分区归属把 bucket 里的梯度分别 reduce 到各自的 owner（`reduce_scatter=True` 时用 reduce-scatter），本 rank 只保留自己分区的梯度、其余立即释放；Stage 1 时 all-reduce、所有梯度保留。`overlap_comm=True` 时通信在单独的 stream 上与反向重叠；`contiguous_gradients=True` 时本 rank 分区的梯度拷进一段连续内存以减少碎片。
+梯度路径：`create_gradient_handling_hooks()` 给每个参数注册梯度 hook，`reduce_ready_partitions_and_remove_grads()` 把就位的梯度攒进 IPG（independent partition gradient）bucket（`IPGBucket`，大小 `reduce_bucket_size`，默认 5e8 元素），满了就 `reduce_ipg_grads()` → `average_tensor()`。归约这一步是 Stage 1 与 Stage 2 唯一的分歧：
+
+- **Stage 2**（`partition_grads=True`）：按分区归属把 bucket 里的梯度分别 reduce 到各自的 owner（`reduce_scatter=True` 时用 reduce-scatter），本 rank 只保留自己分区的梯度，其余立即释放。
+- **Stage 1**：all-reduce，所有梯度在每张卡上都保留。
+
+另有两个开关改变这条路径的形态：
+
+- `overlap_comm=True`：通信放在单独的 stream 上，与反向计算重叠。
+- `contiguous_gradients=True`：本 rank 分区的梯度拷进一段连续内存（`grads_in_partition`，第一次用到时按本 rank 分区的元素数分配）以减少碎片。
+
+> [!NOTE] Java 经验参照：IPG bucket 与带缓冲的批量写
+>
+> 梯度先攒进 bucket、满了才归约，和 `BufferedOutputStream` 攒满缓冲才真正 `write()` 是同一个权衡：调用次数少了、单次大了，总开销下降。不一样的是 flush 的自由度——`BufferedOutputStream` 何时 flush 只由本线程决定，而 bucket 的归约是集合通信，DP 组里各 rank 得刷同一批梯度、顺序一致，所以 `reduce_bucket_size` 不只是缓冲大小，它同时决定了各 rank 的同步点有多密。还有一处：flush 完缓冲就空了，而 bucket 归约完，本 rank 还要把属于自己分区的那一段梯度留下来。
 
 `step()`：检查溢出（fp16 时）→ 梯度裁剪 → 对每个 group `_optimizer_step(i)`：用户优化器在 fp32 分区上更新 → `bit16_partitions[partition_id].data.copy_(fp32_partition.data)`（fp32 → bf16，只写本 rank 那一段）→ `all_gather_dp_groups()` 把各 rank 的 bf16 段拼成完整的 `bit16_groups_flat`。因为参数的 `.data` 是扁平张量的视图，all-gather 完成的瞬间所有参数就是更新后的值。
 
@@ -283,7 +385,11 @@ flowchart TB
 
 **直觉**：靠 module 边界上的 hook。每个 module 前向前 all-gather 自己的参数、用完释放，反向对称；取回的时机按第一个 step 记录的执行顺序预取。整个机制分在四个文件里，按参数的生命周期读。
 
-**分片（`partition_parameters.py`）**。`deepspeed.zero.Init` 是一个上下文管理器（类 `Init`，继承 `InsertPostInitMethodToModuleSubClasses`）：在它里面构造的每个 `nn.Module`，其 `__init__` 结束后会被 `_post_init_method()` 拦截，对每个参数调用 `_convert_to_deepspeed_param()`。这个函数给参数挂上一组 `ds_*` 属性——`ds_status`（`AVAILABLE` / `NOT_AVAILABLE` / `INFLIGHT`）、`ds_shape`、`ds_numel`、`ds_tensor`（**分片**，本 rank 持有的 $$1/N_d$$ 一维碎片）、`ds_process_group`、`ds_persist`（小于 `stage3_param_persistence_threshold` 的参数在前向、反向期间保持完整，只在 step 前后短暂分片）、`ds_secondary_tensor`（hpZ 的节点内二级副本）——以及一组方法：`all_gather()`、`all_gather_coalesced()`、`partition()`、`ds_summary()`。随后 `_partition()` 把参数的完整数据切成 `dp_size` 段、只留本 rank 的一段进 `ds_tensor`，然后 `free_param()` 把 `param.data` 换成一个空张量。**从这一刻起，模型里的 `nn.Parameter` 只是一个壳**，形状对但没有数据。若不用 `zero.Init`，`DeepSpeedZeRoOffload.__init__`（`parameter_offload.py`）里的 `_convert_to_zero_parameters()` 会对已构造好的模型做同样的转换，但那要求模型先能完整放进内存。
+**分片（`partition_parameters.py`）**。`deepspeed.zero.Init` 是一个上下文管理器（类 `Init`，继承 `InsertPostInitMethodToModuleSubClasses`）：在它里面构造的每个 `nn.Module`，其 `__init__` 结束后会被 `_post_init_method()` 拦截，对每个参数调用 `_convert_to_deepspeed_param()`。这个函数给参数挂上一组 `ds_*` 属性——`ds_status`（`AVAILABLE` / `NOT_AVAILABLE` / `INFLIGHT`）、`ds_shape`、`ds_numel`、`ds_tensor`（**分片**，本 rank 持有的 $$1/N_d$$ 一维碎片）、`ds_process_group`、`ds_persist`（小于 `stage3_param_persistence_threshold` 的参数在前向、反向期间保持完整，只在 step 前后短暂分片）、`ds_secondary_tensor`（hpZ 的节点内二级副本）——以及一组方法：`all_gather()`、`all_gather_coalesced()`、`partition()`、`ds_summary()`。随后 `_partition()` 把参数的完整数据切成 `dp_size` 段、只留本 rank 的一段进 `ds_tensor`，然后 `free_param()` 把 `param.data` 换成一个空张量。**从这一刻起，模型里的 `nn.Parameter` 只是一个壳**：`free_param()` 把 `param.data` 换成 `torch.empty(0)`，所以 `param.shape` 读出来是 `(0,)`，真实形状记在 `ds_shape` 里。若不用 `zero.Init`，`DeepSpeedZeRoOffload.__init__`（`parameter_offload.py`）里的 `_convert_to_zero_parameters()` 会对已构造好的模型做同样的转换，但那要求模型先能完整放进内存。
+
+> [!NOTE] Java 经验参照：ds_tensor 与 Hibernate 的延迟加载
+>
+> Stage 3 的参数像 Hibernate 的延迟加载代理：对象的壳在手上，值不在，等真正用到时才去取。有两处不一样，而且都会咬人。一是 Hibernate 在 session 关掉后访问字段会抛 `LazyInitializationException`，而 DeepSpeed 不拦截属性访问——窗口之外读 `param.data` 拿到的是 `torch.empty(0)`（`free_param()`），不报错，真实形状只留在 `ds_shape` 里。二是取回不是本地一次查询，而是一次集合通信：`GatheredParameters.__enter__` 调的是 `all_gather`，DP 组里每个 rank 都要以相同顺序进入同一次取回，少一个或顺序不同的后果是死锁，不是变慢（`partition_parameters.py` 里对参数按 `ds_id` 排序，注释写的就是防这件事）。
 
 实验室的 toy（`04_deepspeed_toys.py shards`，4 个 gloo rank）把这一步按参数打印出来——每个参数独立分片，`param.data` 是空壳、`ds_tensor` 是本 rank 的那一段：
 
@@ -297,9 +403,9 @@ rank0: b:  param.data=(0,), ds_tensor=(1,)，参数原形状=(2,)，numel=2
 
 `PartitionedParameterCoordinator` 里有两个提高效率的机制。**trace**：第一个 step 记录 module 的执行顺序（`record_module()`），之后按这个顺序**预取**——`fetch_sub_module()` 在取回当前 module 的参数时，顺带发起后面几个 module 的 all-gather（总量由 `stage3_prefetch_bucket_size` 控制），`stage3_max_live_parameters` 限制同时活着的完整参数总数、`stage3_max_reuse_distance` 决定「很快又要用」的参数不释放。**coalesced all-gather**：`all_gather_coalesced()`（`partition_parameters.py` 里的 `_all_gather_coalesced()`）把一个 module 的多个参数拼成一次 `all_gather_into_tensor` 调用，返回 `AllGatherCoalescedHandle`，`wait()` 时再拆回各参数。
 
-预取换的是显存。toy 的 `memory` 子实验在每个 hook 事件后记录活着的完整参数字节数：不预取时峰值是一层的 48 B，预取一层时峰值是两层的 88 B。F5 用 toy 事件序列画出锯齿形状，再把每个 live layer 按真实 bf16 层大小 121.6 MB 缩放；图上是模型量级，不是 toy 的 48 / 88 B。原始 toy 数字仍列在下面。
+预取换的是显存。toy 的 `memory` 子实验在每个 hook 事件后记录活着的完整参数字节数：不预取时峰值是一层的 48 B，预取一层时峰值是两层的 88 B。下面这张参数驻留曲线图用 toy 事件序列画出锯齿形状，再把每个 live layer 按真实 bf16 层大小 121.6 MB 缩放；图上是模型量级，不是 toy 的 48 / 88 B。原始 toy 数字仍列在下面。
 
-![F5：按 toy hook 事件绘制的完整参数驻留曲线，并以真实一层 bf16 权重 121.6 MB 缩放；预取一层时峰值升至两层](/img/in-post/deepspeed-f5-live-params-sawtooth.svg)
+![按 toy hook 事件绘制的完整参数驻留曲线，并以真实一层 bf16 权重 121.6 MB 缩放；预取一层时峰值升至两层](/img/in-post/deepspeed-f5-live-params-sawtooth.svg)
 
 ```text title="python 04_deepspeed_toys.py memory（prefetch_depth=1 节选）"
 forward gather layer0     live_full_parameter_bytes=48
@@ -346,17 +452,17 @@ sequenceDiagram
 
 **梯度（`stage3.py`）**。`create_reduce_and_remove_grad_hooks()` 给每个参数注册 `reduce_partition_and_remove_grads` hook；梯度就位后进 IPG bucket（`IPGBucketZ3`），满了 `__reduce_and_partition_ipg_grads()` → `__avg_scatter_grads()`（reduce-scatter）→ `partition_grads()` 把本 rank 分区的梯度写进梯度分区或 `fp32_partitioned_groups_flat[sub_group].grad`（取决于 `gradient_accumulation_dtype`，默认 bf16 梯度分区），然后 `param.grad = None`。反向结束时该参数本身也已被 `_post_backward_module_hook` 释放。
 
-**fp32 主参数与 step（`stage3.py`）**。参数按 `sub_group_size`（默认 1e9 元素）分成若干 sub-group，每个 sub-group 有一个扁平的 bf16 分区 `fp16_partitioned_groups_flat[i]`（各参数 `ds_tensor` 的拼接）和一个扁平的 fp32 分区 `fp32_partitioned_groups_flat[i]`（`_create_fp32_partitions()`，`offload_optimizer` 时放 CPU pinned memory）。`step()` 对每个 sub-group：`_prepare_fp32_grad_for_sub_group()` → `_optimizer_step(i)`（用户优化器只看到这个 fp32 分区）→ `_reassign_or_swap_out_partitioned_parameters()` 把 fp32 分区拷回 bf16 分区（`fp16_partitioned_groups_flat[i].data.copy_(fp32_partitioned_groups_flat[i].data)`）。`_post_step()` 只 all-gather `persistent_parameters`——其余参数**不在 step 里 all-gather**，等下一 step 前向的 hook 按需取回。这就是第二篇里「ZeRO-3 省掉优化器后那次 all-gather」的代码位置。
+**fp32 主参数与 step（`stage3.py`）**。参数按 `sub_group_size`（默认 1e9 元素）分成若干 sub-group，每个 sub-group 有一个扁平的 bf16 分区 `fp16_partitioned_groups_flat[i]`（各参数 `ds_tensor` 的拼接）和一个扁平的 fp32 分区 `fp32_partitioned_groups_flat[i]`（`_create_fp32_partitions()`，`offload_optimizer` 时放 CPU pinned memory）。`step()` 对每个 sub-group：`_prepare_fp32_grad_for_sub_group()` → `_optimizer_step(i)`（用户优化器只看到这个 fp32 分区）→ `_reassign_or_swap_out_partitioned_parameters()` 把 fp32 分区拷回 bf16 分区（`fp16_partitioned_groups_flat[i].data.copy_(fp32_partitioned_groups_flat[i].data)`）。`_post_step()` 只 all-gather `persistent_parameters`——其余参数**不在 step 里 all-gather**，等下一 step 前向的 hook 按需取回。这就是《并行策略全景》[「ZeRO-3：切参数，通信 2N → 3N」](/parallelism-strategies-which-state-to-shard.html#3-zero-3切参数通信-2n--3n)里「ZeRO-3 省掉优化器后那次 all-gather」的代码位置。
 
 ### 5. 一个 bf16 参数的一生：DeepSpeed Stage 3
 
 **问题**：`param.data` 在一个 step 里变几次身份，每次都因为什么？
 
-**直觉**：它只有「被用到的那一刻」是完整的。F4 把一个 `nn.Linear.weight` 的一个 step 画成三条泳道：上面是计算事件，中间是通信事件，下面是 `param.data` 的身份——空壳 → 完整 → 空 → 完整 → 空。
+**直觉**：它只有「被用到的那一刻」是完整的。下面这张参数生命周期图把一个 `nn.Linear.weight` 的一个 step 画成三条泳道：上面是计算事件，中间是通信事件，下面是 `param.data` 的身份——空壳 → 完整 → 空 → 完整 → 空。
 
-![F4：一个 Linear.weight 的前向、反向各 all-gather 一次、各释放一次；梯度 reduce-scatter；step 只更新 fp32 shard 不 all-gather](/img/in-post/deepspeed-f4-param-lifecycle.svg)
+![一个 Linear.weight 的前向、反向各 all-gather 一次、各释放一次；梯度 reduce-scatter；step 只更新 fp32 shard 不 all-gather](/img/in-post/deepspeed-f4-param-lifecycle.svg)
 
-toy 的 `lifecycle` 子实验用 4 个 rank 真跑这一组事件，输出和 F4 逐格对应（每个参数两次 gather、两次 release）：
+toy 的 `lifecycle` 子实验用 4 个 rank 真跑这一组事件，输出和上面这张参数生命周期图逐格对应（每个参数两次 gather、两次 release）：
 
 ```text title="python 04_deepspeed_toys.py lifecycle（一个参数的轨迹，rank0）"
 W1.data: 空壳 -> 完整 (3, 4)（all-gather）
@@ -392,9 +498,14 @@ Table: 一个 bf16 参数的一生：DeepSpeed Stage 3 源码逐时刻
 
 **常驻**：bf16 碎片 $$2N/N_d$$、fp32 主参数 + m + v $$12N/N_d$$、梯度分区 $$2N/N_d$$（`grad_accum_dtype` 默认跟模型 dtype，即 bf16）——合计 $$16N/N_d$$；设 `data_types.grad_accum_dtype="fp32"` 则变 $$4N/N_d$$、合计 $$18N/N_d$$。**临时**：正在前向 / 反向的那几层的完整 bf16 参数（预取深度决定有几层）。**通信**：每层前向一次 all-gather、反向一次 all-gather、一次 reduce-scatter，合计 $$3N$$。
 
-与 Megatron 的时序放在一起，最大的差别是 **`param.data` 的身份是流动的**：Megatron 的 `weight.data` 从头到尾是 buffer 里同一段视图；DeepSpeed Stage 3 的 `weight.data` 在一个 step 里被替换四次（空 → 完整 → 空 → 完整 → 空）。这带来 Stage 3 的两个著名代价：任何在 hook 之外访问参数的代码（自定义的权重初始化、`param.data` 的手工操作、把参数当普通张量传给别的函数）都会拿到空张量，需要用 `deepspeed.zero.GatheredParameters` 显式取回；以及调试困难——参数「不在」的时候栈里看不到原因。`stage3_module_granularity_threshold` 与 `leaf_module` 配置（`DeepSpeedZeroLeafModuleConfig`）让 hook 挂在更粗的 module 上，是对这个代价的折衷。
+与 Megatron 的时序放在一起，最大的差别是 **`param.data` 的身份是流动的**：Megatron 的 `weight.data` 从头到尾是 buffer 里同一段视图；DeepSpeed Stage 3 的 `weight.data` 在一个 step 里被替换四次（空 → 完整 → 空 → 完整 → 空）。这带来 Stage 3 的两个著名代价：
 
-「前向前 all-gather」这个机制也就是本节说的 pre-forward hook 取回——它与 FSDP1、FSDP2 的逐项并排在 [06《三个框架对比》](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五分片在内存里长什么样)。
+1. **hook 之外访问参数会拿到空张量。** 自定义的权重初始化、`param.data` 的手工操作、把参数当普通张量传给别的函数，都落在窗口之外，要用 `deepspeed.zero.GatheredParameters` 显式取回。
+2. **不好调试。** 参数「不在」的那一刻，栈里看不到是谁把它释放的，只能回到 hook 的注册点和协调器的 trace 上找。
+
+`stage3_module_granularity_threshold` 与 `leaf_module` 配置（`DeepSpeedZeroLeafModuleConfig`）让 hook 挂在更粗的 module 上，是对这个代价的折衷。
+
+「前向前 all-gather」这个机制也就是本节说的 pre-forward hook 取回——它与 FSDP1、FSDP2 的逐项并排在《三个框架对比》的[「分片在内存里长什么样」](/megatron-deepspeed-torchtitan-architecture-and-source-guide.html#五分片在内存里长什么样)。
 
 ### 6. 训练循环：forward / backward / step
 
@@ -432,7 +543,13 @@ Table: DeepSpeed 训练循环的三个调用
 
 `TrainSchedule.steps()` 是一个生成器，共 `2 × (micro_batches + stages - 1)` 步，每步 yield 一组 `PipeInstruction`——`RecvActivation`、`ForwardPass`、`SendActivation`、`RecvGrad`、`BackwardPass`、`SendGrad`、`LoadMicroBatch`、最后一步加 `ReduceTiedGrads`、`ReduceGrads`、`OptimizerStep`；`_exec_schedule()` 用 `_INSTRUCTION_MAP` 把每种指令映射到 `_exec_forward_pass()`、`_exec_send_activations()` 等方法。这是介于 Megatron 的过程式与 PyTorch pipelining 的动作表之间的第三种写法：调度是声明的（指令序列），执行是解释的。`num_pipe_buffers()` 返回 `min(stages - stage_id, micro_batches)`——就是 1F1B 在途 micro-batch 数 $$p - i$$。PP 与 ZeRO 的组合有限制：`_configure_zero_optimizer()` 在 `PipelineModule` 下强制 `overlap_comm=False`，Stage 3 与 PP 不兼容。
 
-JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtime/zero/config.py` 的 `DeepSpeedZeroConfig` 有四十多个字段，其中 Stage 3 的六个阈值（`stage3_prefetch_bucket_size`、`stage3_param_persistence_threshold`、`stage3_max_live_parameters`、`stage3_max_reuse_distance`、`sub_group_size`、`reduce_bucket_size`）共同决定显存峰值与通信重叠程度，但它们之间的关系不在任何一个地方被算出来——用户要靠经验或 `see_memory_usage` 的日志调。而且配置里有大量隐式耦合：`train_batch_size`、`train_micro_batch_size_per_gpu`、`gradient_accumulation_steps` 三者给两个推第三个；`bf16.enabled` 与 `fp16.enabled` 互斥；`zero_optimization.offload_optimizer` 只在 Stage 1–3 有效但 Stage 1/2 与 3 的行为不同。JSON 无法表达这些约束，只能在 `DeepSpeedConfig` 的校验里报错。
+JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtime/zero/config.py` 的 `DeepSpeedZeroConfig` 有四十多个字段，其中 Stage 3 的六个阈值（`stage3_prefetch_bucket_size`、`stage3_param_persistence_threshold`、`stage3_max_live_parameters`、`stage3_max_reuse_distance`、`sub_group_size`、`reduce_bucket_size`）共同决定显存峰值与通信重叠程度，但它们之间的关系不在任何一个地方被算出来——用户要靠经验或 `see_memory_usage` 的日志调。而且配置里有大量隐式耦合：
+
+- `train_batch_size`、`train_micro_batch_size_per_gpu`、`gradient_accumulation_steps` 三者给两个推第三个。
+- `bf16.enabled` 与 `fp16.enabled` 互斥。
+- `zero_optimization.offload_optimizer` 只在 Stage 1–3 有效，但 Stage 1/2 与 Stage 3 的行为不同。
+
+JSON 无法表达这些约束，只能在 `DeepSpeedConfig` 的校验里报错。
 
 ## 七、本文小结
 
@@ -450,7 +567,7 @@ JSON 配置是 DeepSpeed 易用性的来源，也是它的代价所在。`runtim
 | DeepSpeed 0.19.2 `deepspeed/runtime/pipe/{module,engine,schedule,topology,p2p}.py` | `PipelineModule`、`LayerSpec`、`TiedLayerSpec`、`_partition_layers()`<br/>`PipelineEngine`（`train_batch()`、`_exec_schedule()`、`_exec_forward_pass()` 等）<br/>`TrainSchedule`（`steps()`、`num_pipe_buffers()`）、`PipeInstruction` 子类<br/>`ProcessTopology`、`PipeModelDataParallelTopology`、`PipelineParallelGrid` |
 | DeepSpeed 0.19.2 `deepspeed/utils/groups.py`、`comm/comm.py` | `mpu` 委托、`_get_data_parallel_group()`、`_clone_world_group()`、`_create_expert_and_data_parallel()`、`_create_zero_param_parallel_group()`、`_init_tp_mesh_device()`；`initialize_mesh_device()`、`init_distributed()` |
 | train-ledger `runs/deepspeed/`、`probe_memory.py` | 本篇练手配置与探针，见第四章 |
-| labs `large-scale-training/04_deepspeed_toys.py`、`04_deepspeed_figures.py` | 本篇的 ZeRO-3 toy（shards / lifecycle / memory）与 F1–F5 生成脚本 |
+| labs `large-scale-training/04_deepspeed_toys.py`、`04_deepspeed_figures.py` | 本篇的 ZeRO-3 toy（shards / lifecycle / memory）与插图生成脚本 |
 
 
 
@@ -482,7 +599,7 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-4. F4 里 `param.data` 在一个 step 内变了几次身份？如果一段代码在 forward 之外直接读 `weight.data`，会拿到什么？
+4. 参数生命周期图里 `param.data` 在一个 step 内变了几次身份？如果一段代码在 forward 之外直接读 `weight.data`，会拿到什么？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -490,7 +607,7 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-5. F5 里 prefetch=1 的峰值为什么几乎是 prefetch=0 的两倍？对应的 JSON 配置是什么？
+5. 参数驻留曲线图里 prefetch=1 的峰值为什么几乎是 prefetch=0 的两倍？对应的 JSON 配置是什么？
 
    <details markdown="1"><summary>答案</summary>
 
