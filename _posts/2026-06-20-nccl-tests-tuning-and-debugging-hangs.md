@@ -294,7 +294,7 @@ Table: α-β 模型预测的几种场景的拐点
 |---|---|---|---|---|---|---|
 | 节点内 NVSwitch | 8×H100 SXM + NVSwitch | 16–22 µs | 40–80 GB/s | 250–400 GB/s | 350–480 GB/s | NVLink 900 GB/s 双向合计 = 450 GB/s 单向 |
 | ^^ | 8×A100 SXM + NVSwitch | 12–25 µs | 30–60 GB/s | 150–230 GB/s | 220–240 GB/s | NVLink 600 GB/s 双向合计 = 300 GB/s 单向，单向有效上限约 240 |
-| 节点内 PCIe | 8×GPU 仅 PCIe 4.0（无 NVLink） | 20–40 µs | 5–10 GB/s | 10–20 GB/s | 10–25 GB/s（估算） | PCIe 4.0 x16 单向 32 GB/s，多卡共享上游、经 CPU 更低 |
+| 节点内 PCIe | 8×GPU 仅 PCIe 4.0（无 NVLink） | 20–40 µs | 5–10 GB/s | 10–20 GB/s | 不超过本机实测的两卡 P2P 带宽，量级 10–25 GB/s（推算） | 单卡 x16 实测约 25 GB/s，再被多卡共享上游、经 CPU 中转摊薄 |
 | 跨机 | 2 节点 ×8 H100，NDR 每 GPU | 25–45 µs | 25–30 GB/s | 250–280 GB/s | 330–470 GB/s | 每 GPU 一张 NDR（50 GB/s）× 分层算法只搬 1/8 的数据 |
 | ^^ | 2 节点 ×8 H100，HDR 每 GPU | 25–45 µs | 20–25 GB/s | 130–150 GB/s | 约 195 GB/s | 每 GPU 一张 HDR（25 GB/s）× 分层算法只搬 1/8 的数据 |
 | ^^ | 2 节点 ×8，每节点只有 1 张 NDR | 30–50 µs | 5–10 GB/s | 40–48 GB/s | 45–50 GB/s | 整节点共享一张 NDR 的 50 GB/s × 分层算法折算 |
@@ -876,7 +876,7 @@ grep -H "Out of bounds" check.*.log     # 全部应为 "0 OK"
   - `via NET/IB/<dev>` 的 dev 与 GPU 不亲和 → 拓扑探测或容器拓扑可见性问题；`NCCL_TOPO_FILE` 兜底
   - RoCE：ibstat 的 `port_rcv_errors` / 交换机丢包计数上升 → PFC/ECN、`NCCL_IB_TC` 与交换机队列不一致
   - 带宽不稳、时高时低 → ECMP 哈希不均：`NCCL_IB_QPS_PER_CONNECTION=2/4`；或 rail 网络上 `NCCL_CROSS_NIC=0`
-  - 都正常但仍差 20%+ → `NCCL_BUFFSIZE`（高延迟链路）；NCCL 版本；固件
+  - 都正常但平台仍明显低于参考线（差一两成以上）→ `NCCL_BUFFSIZE`（高延迟链路）；NCCL 版本；固件
 - **小消息延迟高（time 列左端偏大）**
   - `NCCL_DEBUG_SUBSYS=TUNING` 看 proto：小消息应为 LL/LL128；是 Simple → 查 `NCCL_PROTO` 是否被设置、LL128 是否被拓扑禁用
   - 进程绑核：numactl / taskset 是否让进程与 GPU、网卡在同一 NUMA
