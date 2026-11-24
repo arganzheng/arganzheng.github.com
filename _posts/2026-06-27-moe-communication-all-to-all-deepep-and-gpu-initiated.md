@@ -197,7 +197,7 @@ $$
 
 ### 4. 核心问题的数字：EP=64 跨 8 节点
 
-取 DeepEP README 的形状：$$H = 7168$$、$$k = 8$$、256 个专家、EP=64（8 节点 × 8 卡，每 rank 4 个专家），网卡 NDR 单向 50 GB/s，NVLink 按 150 GB/s，α 跨节点一步 20 µs（典型量级，非实测）。
+取 DeepEP README 的形状：$$H = 7168$$、$$k = 8$$、256 个专家、EP=64（8 节点 × 8 卡，每 rank 4 个专家），网卡 NDR 单向 50 GB/s，NVLink 按 150 GB/s，α 跨节点一步 20 µs——这是模型的输入假设，不是实测：量级参照 NCCL 调优表给网络 Simple 档的每步 14 µs 取整，而 DeepEP 走 IBGDA 由 GPU 自己发 WQE、不经 proxy，所以只能当量级参照。
 
 **每个 token 跨多少条链路**：8 份拷贝，均匀路由下期望 7 份出节点、1 份留在节点内。出节点的一份走 GPU → PCIe → NIC → IB 交换机 → 对端 NIC → PCIe → 对端 GPU；平坦算法到此为止，DeepEP normal kernel 到达的是对端节点的同号 GPU，再加一跳 NVLink 到真正的目标。按节点去重后，一个 token 期望只有约 4.6 份（不限制节点）或 3.2 份（限 4 节点）走网卡。combine 原路返回，链路数翻倍。
 
@@ -990,7 +990,7 @@ if __name__ == "__main__":
     main()
 ```
 
-默认参数下的输出（DeepSeek-V3 形状；β_NVL 150 GB/s、β_NIC 50 GB/s、α 节点内 5 µs / 跨节点 20 µs、counts 交换加同步 30 µs——全部是典型量级，非实测）：
+默认参数下的输出（DeepSeek-V3 形状；β_NVL 150 GB/s、β_NIC 50 GB/s、α 节点内 5 µs / 跨节点 20 µs、counts 交换加同步 30 µs——全部是模型的输入假设，不是实测；注意它们与第十章从 README 的实测时间反推出的 α_eff（dispatch 27–42 µs、combine 16–57 µs）是两个不同的量，后者已经把 kernel 内的同步与排队都算进去了）：
 
 ```text title="moe_a2a_model.py 默认参数下的输出"
 $ python3 moe_a2a_model.py
