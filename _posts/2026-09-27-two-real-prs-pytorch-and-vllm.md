@@ -94,7 +94,30 @@ Table: 两个 PR 的基本事实
 
 两个 PR 分别体现了总纲列出的两套流程的全部要素：PyTorch 的 ghstack、模块标签、`@pytorchbot merge`、多 workflow CI、`merge_rules.yaml` 的权限；vLLM 的标题前缀、Purpose / Test Plan / Test Result、`Signed-off-by`、Buildkite 按领域触发、`ready` 标签、`/ci run`。类型上一个是需要 benchmark 数据的算子级改动，一个是需要端到端测试的系统级改动。有两条选取标准是放宽的，第二章会说明。
 
-### 4. 本文的章节安排
+### 4. 七个阶段里，哪些事外面根本看不见
+
+上一节那张表给的是每个阶段去哪里取数据。但走读有一条硬边界：**`gh` 能取到的只有 GitHub 上留下痕迹的东西**，而两个 PR 里最长的那一段恰好都在痕迹之外。下表把每个阶段的可见与不可见分开列：
+
+| 阶段 | GitHub 上留下的痕迹 | 走读能算出什么 | 外面看不见、只有自己记得的 |
+|---|---|---|---|
+| 起点 | issue 创建时间、`Fixes #`、前置 PR | issue 到 PR 开出的间隔：#185344 的 27 天、#47272 的 124 天 | 这段里到底在做什么。#185344 只能推断为在采数据，#47272 的 63 天连推断都做不了 |
+| 阅读 | PR 最终改了哪些文件 | 改动落在哪一层 | 读过但最后没改的文件、走错的路、有意避开的更大改法 |
+| diff | 每个 commit 的时间与内容 | 推送的节奏 | force-push 覆盖掉的那几版——#47272 首日两次、07-21 又一次，从 PR 页上再也看不到 |
+| 测试与数据 | 新增的测试文件、描述里的数字表 | 测试放在哪、数字长什么样 | 采那 3792 个点花掉的机时、失败的拟合、没进 PR 的实验 |
+| CI | 每次 run 的编号、起止时间、失败项 | CI 的墙上时间与失败归因（2 个无关的 docs 失败 vs 6 个自己引入的） | 提交前在本地跑过哪些测试、有没有 `rg` 过边界用例 |
+| review | 评论与 commit 的时间戳、标签事件 | 等 review 与往返各占多少 | 第 8 天有没有想起该 ping 却没发、哪条意见自己其实不同意 |
+| 合入之后 | 合入时间、`git tag --contains` 的结果 | 合入到发布的间隔：32 天打 tag、37 天发布，对比截至 09-07 还没发布 | 有没有回访这个改动、有没有在等可能的 revert |
+
+Table: 七个阶段的可见痕迹与不可见部分
+
+四条读法：
+
+1. **走读算得出来的全是「谁在等谁」，算不出来的全是「作者在干什么」。** 两个 PR 最长的那一段都落在后一类：#185344 的 27 天只能推断为采数据，#47272 的 63 天连推断都做不了。所以第八章那份复盘模板的第 0 节「事实」可以照抄 GitHub，第 8 节「时间去了哪里」只有作者自己能填。
+2. **force-push 是唯一会抹掉痕迹的动作。** 它覆盖的版本在 PR 页上不留任何记录，所以回应 review 意见时不要 force-push 打乱 review 上下文，而复盘里要自己记下改过几版、每版改了什么。
+3. **看不见不等于不重要，而且可省与不可省的判断全在第四列。** #185344 的 42 分钟往返是可省的，27 天的数据是不可省的——只看 GitHub 的时间线会得出一个错误结论：「这个 PR 五天就合了，很顺」。
+4. **第四列过期得非常快**，几周之后作者自己也记不清提交前跑过哪些测试、哪条意见当时为什么没争。所以复盘要在合入当天写，不要攒。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -183,7 +206,7 @@ issue 下的讨论只有两条。2026-05-27 @christopher-hesse 问："Shouldn't 
 2. 两个后端各自是哪个函数、在哪个文件
 3. 有没有用户可控的开关会绕过这个选择
 
-用第一篇的方法，从 Python API 追到 CUDA 实现（在 PyTorch v2.14.0 检出根目录执行）：
+用[《读懂一个百万行的代码库》](/reading-a-million-line-codebase.html)的方法，从 Python API 追到 CUDA 实现（在 PyTorch v2.14.0 检出根目录执行）：
 
 ```bash title="从 linalg_lu_factor_ex 追到 CUDA 实现"
 # 1. API 名 → native_functions.yaml 里的算子声明
@@ -288,6 +311,12 @@ Check mergeability of ghstack PR  pull_request  success   .github/workflows/chec
 
 这两个失败直接影响了合入。`.github/merge_rules.yaml` 的 "Linear Algebra" 规则要求 `mandatory_checks_name` 为 `EasyCLA`、`Lint`、`pull`——它是这个文件命中的第一条规则（`patterns` 里有 `aten/src/ATen/native/cuda/linalg/**`，`approved_by` 是 mruberry、lezcano、IvanYashchuk 三人），所以 IvanYashchuk 的 approve 算数。`pull` 里的失败只有被 Dr. CI 归为 flaky 或 broken trunk 的才会被 `trymerge.py` 自动放过（`get_classifications` 加 `IGNORABLE_FAILED_CHECKS_THESHOLD`，至多 10 个）；这两个被归为 New Failures，`@pytorchbot merge` 就会拒绝。第 6 节的时间线里能看到这一步。
 
+> [!NOTE] Java 经验参照：Jenkins 上的「这不是我的问题」
+>
+> 「主干本来就是红的」这件事你一定遇过，判断方法也一样：先看同一个任务在主干上的最近几次结果，再看失败的 step 和退出码——这里退出码 127 是「命令找不到」，一个只改 `.cpp` 的 PR 不可能引起它，和 Jenkins 上看到 `No such file or directory` 时的推断完全同构。
+>
+> 对不上的是你手上的权限。Jenkins 里你通常能自己点 Rebuild、能进 workspace 看现场、能让有权限的人点一下 override 强行放过；这里外部贡献者**什么都点不了**：PyTorch 的 `ciflow/*` 标签要写权限才能打，vLLM 的 Buildkite 要 reviewer 敲 `/ci run`。能用的只有三样——`gh pr checks` 看清单、Dr. CI 的归因、以及 `@pytorchbot merge -i` 这个「带着已知无关失败合入」的显式入口。最后这个值得单独记住：它把 Jenkins 世界里一次口头的 override 变成了一条留在 PR 上的命令，谁放过了什么、什么时候放过的，都是可查的记录。
+
 ### 6. review
 
 review 全部发生在 PR 开出后四小时内的一个窗口里，然后是四天后的一次 ping 与一次批准。
@@ -306,6 +335,12 @@ review 全部发生在 PR 开出后四小时内的一个窗口里，然后是四
 
 **12:30 与 13:03** 两个 "Update" commit 落地第一轮修改。**2026-05-31 11:32**，作者在 Blackwell 那条讨论下补了验证结果："OK, no need to modify things when testing cusolver/cublas on CUDA 13.2 each with/without fp64 emulation enabled. The fp64 advantage really kicks in at quite large sizes, very much away from the captured decision boundary."，11:40–12:01 三个 "Update" commit，11:41 ping："@IvanYashchuk, could you give it another review pass?"
 
+> [!NOTE] Java 经验参照：feature branch 加 squash 与 ghstack 的 commit 列表
+>
+> GitHub 上的 Java 项目大多是一个 feature branch 一个 PR、合入时 squash，所以读 PR 的习惯动作是逐个 commit 看作者的思路。这个习惯在 ghstack 的 PR 上会失效。ghstack 把一叠相互依赖的改动各自开成一个 PR，而每个 PR 页上的 commit 不是逻辑步骤——这里是 8 个一律叫 "Update"、正文只有 `[ghstack-poisoned]` 的重推记录，逐个点开什么也看不出来。
+>
+> 正确的读法是看最终态加上「两点之间的差异」：取第一个与最后一个 commit 做 compare，再把 ghstack rebase 从 main 带进来的变化剔掉，剩下的才是 review 导致的真实改动——这个 PR 里正好三处。Java 侧还有一个对不上的地方：`squash and merge` 之后主干上只剩一个 commit，而这里主干上的 commit 是合入机器人生成的，正文带着 PR 描述全文与 `Pull Request resolved:` 链接，所以读历史的人不需要像读 squash commit 那样回头翻 PR 页。
+
 用 `gh api repos/pytorch/pytorch/compare/ccaaba92...f642e3f2` 取第一个与最后一个 commit 之间该文件的差异，剔除 ghstack rebase 带进来的 main 变化之后，review 导致的代码改动正好三处：`about 3200 points` → `about 3800 points`；删掉 `// Authored with Claude.`；把原来关于 Blackwell 的注释换成 "NOTE: additionally validated on Blackwell CUDA 13.2 with FP64 emulation on/off for cuSOLVER (on by default for cuBLAS). No severe mispredictions observed."——同时把一个注释里的全角破折号换成了 `-`。阈值常数一个没变。
 
 **2026-06-01 14:05，@IvanYashchuk** 批准并评论 `@pytorchbot merge`。14:08 pytorchmergebot："Merge started…ETA 0-4 Hours"。14:13："Merge failed. Reason: 1 mandatory check(s) failed. The first few are: - pull / linux-docs / build-docs-cpp-false"。14:20 作者 `@pytorchbot merge -i`。14:22 bot："Your change will be merged while ignoring the following 2 checks…"。14:23 打上 `Merged` 标签、关闭 PR。
@@ -314,7 +349,7 @@ review 全部发生在 PR 开出后四小时内的一个窗口里，然后是四
 
 ### 7. 合入之后
 
-合入 commit 是 main 上的 `230db5d50ab7`，commit message 由 pytorchmergebot 组装：PR 描述全文 + `Pull Request resolved: https://github.com/pytorch/pytorch/pull/185344` + `Approved by: https://github.com/IvanYashchuk`。第一篇讲的"顺着 `Pull Request resolved:` 找到当时的讨论"，就是指这一行。
+合入 commit 是 main 上的 `230db5d50ab7`，commit message 由 pytorchmergebot 组装：PR 描述全文 + `Pull Request resolved: https://github.com/pytorch/pytorch/pull/185344` + `Approved by: https://github.com/IvanYashchuk`。[《读懂一个百万行的代码库》](/reading-a-million-line-codebase.html)讲的"顺着 `Pull Request resolved:` 找到当时的讨论"，就是指这一行。
 
 进了哪个版本：
 
@@ -653,17 +688,17 @@ Table: 两张时间线并排
 
 两个走读里出现的每一个环节，都能在前三篇找到对应的方法与文件：
 
-| 走读中的环节 | 前三篇 | 对应小节 | 本文出处 |
+| 走读中的环节 | 哪一篇讲 | 对应小节 | 本文出处 |
 |---|---|---|---|
-| 从 `torch.linalg.lu_factor_ex` 追到 `lu_factor` | <span style="white-space:nowrap">第一篇</span> | 入口点与符号追踪（`native_functions.yaml` → stub → `REGISTER_CUDA_DISPATCH`） | 三.2 |
+| 从 `torch.linalg.lu_factor_ex` 追到 `lu_factor` | [《读懂一个百万行的代码库》](/reading-a-million-line-codebase.html) | 入口点与符号追踪（`native_functions.yaml` → stub → `REGISTER_CUDA_DISPATCH`） | 三.2 |
 | 从 "Maximum concurrency" 日志追到 `get_kv_cache_configs` | ^^ | 从一个符号追到底（`rg` 从日志字符串反查） | 四.2 |
 | `test_linalg_lu_family` / `tests/v1/core` 当规格说明 | ^^ | 用测试当文档 | 三.2 · 四.4 |
 | `Pull Request resolved:` 与 `Approved by:` | ^^ | git log 即注释 | 三.7 |
 | `git tag --contains` · `RELEASE.md` 的分支切点 | ^^ | changelog 与 release note | 三.7 · 四.7 |
-| issue #181999 的标签与 `actionable` 的缺席 | <span style="white-space:nowrap">第二篇</span> | 标签体系（`labeler.yml` · `actionable` 的含义） | 三.1 |
+| issue #181999 的标签与 `actionable` 的缺席 | [《找到切入点》](/finding-your-entry-point-in-open-source.html) | 标签体系（`labeler.yml` · `actionable` 的含义） | 三.1 |
 | issue #35541 的 stale 关闭与部分修复的历史 | ^^ | 查重（`gh issue view --comments` · `gh pr list --search`） | 四.1 · 四.7 |
 | #52530 与 #48724：相邻问题的边界与过期的"不重复"声明 | ^^ | 先讨论再动手 · 查重不是一次性的 | 四.6 · 四.7 |
-| +104 −0，旧逻辑只限到 ROCm；只修启动容量不碰调度器 | <span style="white-space:nowrap">第三篇</span> | 最小 diff | 三.3 · 四.3 |
+| +104 −0，旧逻辑只限到 ROCm；只修启动容量不碰调度器 | [《做出一个能被合入的改动》](/landing-a-mergeable-change.html) | 最小 diff | 三.3 · 四.3 |
 | 3792 点命中率表 · 复现脚本前后对比 | ^^ | benchmark 数据 · 测试 | 三.4 · 四.4 |
 | ghstack 的 8 个 Update commit | ^^ | ghstack | 三.6 |
 | `Signed-off-by` · `Co-authored-by: Claude` | ^^ | DCO 与签名 · AI 辅助政策 | 四.1 |
@@ -682,7 +717,7 @@ Table: 走读环节与前三篇小节的映射
 
 ## 八、贡献日志：复盘模板
 
-本篇给贡献日志加最后一页：按走读的格式复盘自己在第三篇提交的那个 PR。无论它合入了、还在等、还是关掉了，都按同样的表填。模板里的命令以自己的仓库与编号代入；时间戳统一从 `gh` 取，不要凭记忆。
+本篇给贡献日志加最后一页：按走读的格式复盘自己在[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)提交的那个 PR。无论它合入了、还在等、还是关掉了，都按同样的表填。模板里的命令以自己的仓库与编号代入；时间戳统一从 `gh` 取，不要凭记忆。
 
 ```markdown title="PR 复盘模板"
 # 复盘：<OWNER/REPO> #<N> — <标题>
