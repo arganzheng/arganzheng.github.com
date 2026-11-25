@@ -231,6 +231,44 @@ Llama 3 的六轮：每轮用**最新的策略**对 prompt 采样多条 → RM�
 
 把迭代压到每一步：每步对 batch 里的 prompt 用当前策略采两条，用 RM 或 judge 判哪条好，立刻做一步 DPO（Guo 等 2024 的 OAIF；`trl` 的 `OnlineDPOTrainer`）。这已经是在线 RL 了——有采样、有打分、每步更新——只是更新规则用 DPO 的 loss 而不是策略梯度。它与 GRPO 的差别只在 loss 的形状（成对的 $$\log\sigma$$ 对 组内归一化的优势），成本与系统需求（推理引擎、RM 在线打分）与[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)相同。这说明"在线 / 离线"与"DPO / PPO"是两个独立的轴：**DPO 是一个 loss，不是一种训练范式**。
 
+三种做法的一步并排看，差别在采样有没有、闭环在哪里合上：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 190}}}%%
+%% 图：拒绝采样 + SFT、离线 DPO 与在线 DPO 的一步
+flowchart LR
+    subgraph RS["拒绝采样 + SFT"]
+        direction TB
+        RS1["当前策略对每个 prompt 采 $$K$$ 条"] --> RS2["RM 打分，只留最高的一条"]
+        RS2 --> RS3["在（prompt, 最佳回答）上算交叉熵"]
+        RS3 --> RS4["更新策略"]
+        RS4 -. "下一轮重新采样" .-> RS1
+    end
+    subgraph OF["离线 DPO"]
+        direction TB
+        OF1["固定的偏好集 $$(x, y_w, y_l)$$"] --> OF2["<b>四次前向</b><br/>• 策略：$$y_w$$、$$y_l$$ 各一次<br/>• 参考：各一次，可预计算"]
+        OF2 --> OF3["DPO loss"]
+        OF3 --> OF4["更新策略"]
+    end
+    subgraph ON["在线 DPO"]
+        direction TB
+        ON1["当前策略对每个 prompt 采 2 条"] --> ON2["RM 或 judge 判哪条好"]
+        ON2 --> ON3["<b>四次前向</b><br/>• 策略、参考各两次"]
+        ON3 --> ON4["DPO loss"]
+        ON4 --> ON5["更新策略"]
+        ON5 -. "下一步重新采样" .-> ON1
+    end
+
+    RS ~~~ OF ~~~ ON
+
+    classDef data fill:#eef6ff,stroke:#5b8fd6,color:#222
+    classDef loss fill:#fff7e0,stroke:#c98a00,stroke-width:2px,color:#222
+    class RS1,OF1,ON1 data
+    class RS3,OF3,ON4 loss
+```
+
+离线 DPO 那一列没有回边：数据在训练开始前就定了，策略走到数据没覆盖的地方也不会有新样本。迭代 DPO 是在它外面套一层按轮的回边，在线 DPO 把回边收到每一步；后两者的 loss 与离线 DPO 完全相同。
+
 ### 4. 为什么 on-policy 数据重要
 
 2024 年多篇工作从不同角度得到同一结论：Tajwar 等 2024 用受控实验说明，让偏好优化有效的两个要素是 **on-policy 采样**与**负梯度**（压低坏样本）——有这两样，具体用哪个 loss 差别不大；Tülu 3 的消融显示同量的偏好数据，on-policy 的（用自家模型池采样）显著优于 off-policy 的（UltraFeedback）；Llama 3 与 Nemotron 都用迭代形态。原因回到第三章第 5 节：DPO 只约束数据覆盖的地方，数据越接近策略要去的地方，约束越有效。**离线 DPO 的上限由数据与策略的距离决定，而不是由 loss 决定。**
