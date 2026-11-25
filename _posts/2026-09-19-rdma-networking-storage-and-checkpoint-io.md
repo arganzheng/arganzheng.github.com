@@ -41,6 +41,12 @@ Table: 网络与存储层的引擎需求
 
 前五条是网络，后三条是存储。它们有一个共同点：**引擎自己检测能力、自己降级**。NCCL 找不到 IB 设备就用 socket，找不到 peermem 就走 host 内存；PyTorch 的 `dcp.save` 写不完就等。降级不报错，所以平台层必须主动验证"引擎走的是不是铺的那条路"。
 
+> [!NOTE] Java 经验参照：配置应用成功就等于生效
+>
+> 后端配置有一条让人放松的性质：错了会炸。数据库 URL 写错抛 `No suitable driver`，连接池连不上启动就失败，Bean 注入不进来应用根本起不来——"能跑起来"本身就是一道检查。NCCL 把这条性质拿掉了：它在初始化时**探测环境并自己选路**，找不到 IB 设备就走 socket，找不到 `nvidia_peermem` 就让数据绕一趟 host 内存。程序照常跑，没有异常、没有 WARN，只是一步 all-reduce 从几秒变成几十秒。
+>
+> 所以这一层的交付标准不是"NetworkAttachmentDefinition 应用成功、Pod 里能看到第二张网卡"，而是"从 `NCCL_DEBUG=INFO` 里读到它确实选了 IB 并开了 GDR"。本篇第六章整章都在做这件事。
+
 ### 2. K8s 的空缺
 
 原生 Kubernetes 在这一层留下四个洞：
@@ -54,7 +60,37 @@ Table: 网络与存储层的引擎需求
 
 ![平台机制全局图：网络与存储](/img/in-post/rdma-networking-storage-and-checkpoint-io-platform-overview.svg)
 
-### 4. 本文的章节安排
+### 4. 这一层在内核、进程和存储上各留下什么
+
+网络和存储放在同一篇，是因为它们服务的是同一件事：让 GPU 不等。但它们留下的东西分布在三个很不一样的地方，而**最容易出问题的那一档不在任何 API 对象里**。
+
+| 对象 | 谁创建 | 住在哪里 | 活多久 |
+|---|---|---|---|
+| `NetworkAttachmentDefinition` | 管理员 | etcd | 长期——它是"第二张网卡长什么样"的类型定义 |
+| OFED / DOCA 驱动、`nvidia_peermem` | Network Operator 与 GPU Operator 的驱动容器 | 宿主机内核 | 到节点重启或驱动升级；两个 Operator 还要协调先后顺序 |
+| RDMA 子系统的 netns 模式（shared / exclusive） | 节点配置 | 节点内核 | 到改配置或重启；节点级的开关，决定容器里能不能看到自己的 RDMA 设备 |
+| 容器里的第二块网卡（SR-IOV 的 VF，或共享的 HCA） | Multus 加 RDMA / SR-IOV device plugin | 容器的 netns | Pod 的一生 |
+| NCCL 选定的通信路径（IB 还是 socket、GDR 开不开） | NCCL 自己，初始化时枚举 `/dev/infiniband/uverbs*` **探测一次** | 进程内存 | 进程的一生——探测不到就**静默降级**，中途不会再试 |
+| PVC 与挂载点 | CSI driver | 容器 | Pod 的一生 |
+| FUSE 客户端进程（缓存层的挂载实现） | DaemonSet 或 per-PVC 的 mount Pod | 节点 | 到它重启为止；重启时使用者的 I/O 中断 |
+| 节点本地 NVMe 上的缓存块 | 缓存层 | 节点磁盘 | 到被淘汰；它在不在，决定下一次读是本地速度还是对象存储速度 |
+| 异步 checkpoint 的 host 内存副本 | 训练进程 stage 的那一步 | 主机内存，每节点上百 GB | 从 stage 到 upload 结束——**这段时间里节点宕机，这一份就没了** |
+| checkpoint 分片文件 | 每个 rank 写自己那一份 | 并行文件系统或对象存储 | 比写它的作业活得长 |
+| 模型权重 | 一次写 | 对象存储 | 跨集群、跨重建，是推理扩容的"源" |
+
+Table: 网络与存储这一层在内核、进程和存储上留下的东西
+
+四条读法：
+
+**1、三个地方，三种可见性。**内核那一档（驱动、netns 模式）要 ssh 上节点看；持久存储那一档（checkpoint、权重、缓存块）是文件，看得见也数得清；最麻烦的是中间一档——NCCL 选的路径、host 内存里那份还没上传的副本——它们不在任何 API 对象里，`kubectl` 看不到，只能从日志和指标里倒推。
+
+**2、NCCL 那一行就是本篇要做验证的全部理由。**能力探测只在进程启动时做一次，探测不到不报错，只是**降级**：没有 IB 设备就走 socket，没有 peermem 就经 host 内存中转。于是"平台铺好了 RDMA"和"引擎真的走了 RDMA"是两件必须分别确认的事——这是整个系列里唯一一处配置成功不等于生效、必须靠读 `NCCL_DEBUG=INFO` 收尾的地方。
+
+**3、异步 checkpoint 换掉的不只是带宽，还换掉了一段寿命。**同步写是"存储在 1 分钟里被压满"，异步写是"每节点上百 GB 的 host 内存驻留到上传完成"。所以它有两个容易被漏掉的后果：训练 Pod 的 `requests.memory` 要算上这一份；多了一个故障窗口——节点在 upload 完成前宕机，最新那份就没了，只能退回上一份。
+
+**4、表里只有两样东西比写它的进程活得长：checkpoint 和权重。**这一层的全部工作——聚合写带宽、分片、异步、缓存、预热——都是在为这两样的读写路径服务。网络这半篇让 GPU 之间不等，存储这半篇让 GPU 和数据之间不等，合起来才是"喂饱"。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -137,7 +173,7 @@ Multus 的配置选项（`docs/configuration.md`）里和本篇相关的有三�
 
 `networks` 注解跨 namespace 引用写成 `<namespace>/<name>`；`resourceName` 把 NAD 与第四章的 device plugin 关联起来——Pod 请求了 `nvidia.com/hostdev: 1`，kubelet 分配了某个 PCI 设备，Multus 从 kubelet 的设备分配记录（checkpoint 文件或 PodResources API）读到结果，再以 `deviceID` 传给 `host-device` 或 `sriov` CNI，让 CNI 知道要把哪张网卡搬进 Pod。
 
-网卡也可以不经 device plugin、改由 DRA 分配（第二篇讲过 DRA 的 `ResourceClaim` 与 `ResourceSlice`）。Multus v4.3.1 起接上了这条路（`pkg/draclient/draclient.go`，用法见 `docs/how-to-use.md` 的 DRA 一节，要求 Kubernetes 1.34+ 与 `resource.k8s.io/v1`）：NAD 上照样写 `resourceName` 注解；Multus 读完 kubelet 的设备分配后，再按 Pod 的 `status.resourceClaimStatuses` 取每个 `ResourceClaim` 的分配结果，到本节点的 `ResourceSlice` 里查被分到的设备，设备属性 `k8s.cni.cncf.io/resourceName` 与 NAD 注解相等时，把同一设备的 `k8s.cni.cncf.io/deviceID` 属性当作 `deviceID` 传给 CNI。落到部署上有三点：
+网卡也可以不经 device plugin、改由 DRA 分配（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)讲过 DRA 的 `ResourceClaim` 与 `ResourceSlice`）。Multus v4.3.1 起接上了这条路（`pkg/draclient/draclient.go`，用法见 `docs/how-to-use.md` 的 DRA 一节，要求 Kubernetes 1.34+ 与 `resource.k8s.io/v1`）：NAD 上照样写 `resourceName` 注解；Multus 读完 kubelet 的设备分配后，再按 Pod 的 `status.resourceClaimStatuses` 取每个 `ResourceClaim` 的分配结果，到本节点的 `ResourceSlice` 里查被分到的设备，设备属性 `k8s.cni.cncf.io/resourceName` 与 NAD 注解相等时，把同一设备的 `k8s.cni.cncf.io/deviceID` 属性当作 `deviceID` 传给 CNI。落到部署上有三点：
 
 1. DRA 网卡驱动必须在 `ResourceSlice` 上为每个网络设备发布这两个属性；
 2. 没有这两个属性的设备（例如同一个 Pod 里的 GPU claim）被跳过，device plugin 那条路的分配结果不受影响；
@@ -774,7 +810,7 @@ $$
 - `FileSystemWriter(path, single_file_per_rank=True, sync_files=True, thread_count=1, per_thread_copy_ahead=10_000_000)`（`filesystem.py`）：默认每 rank 一个文件加一个全局 `.metadata`；`thread_count` 决定每个 rank 的 I/O 并发，`sync_files` 决定是否 `fsync`；
 - `torch.distributed.checkpoint.state_dict.get_state_dict(model, optimizers, options=StateDictOptions(...))` 把 FSDP/DDP 模型与优化器的状态取成 DCP 能处理的形式。
 
-分片 checkpoint 不改变总量（还是 1 TB），但把写压力从一个进程摊到 64 个进程、从一个节点摊到 8 个节点，让"每 rank 260 MB/s"成为一个每个进程都能轻松做到的数字，瓶颈回到存储系统的聚合吞吐上。它还带来一个平台层的后果：**恢复时 rank 数可以变**——DCP 按元数据重新分片（`resharding.py`），16 节点存的 checkpoint 可以用 8 节点恢复。这对第三篇讲的弹性与抢占很重要。
+分片 checkpoint 不改变总量（还是 1 TB），但把写压力从一个进程摊到 64 个进程、从一个节点摊到 8 个节点，让"每 rank 260 MB/s"成为一个每个进程都能轻松做到的数字，瓶颈回到存储系统的聚合吞吐上。它还带来一个平台层的后果：**恢复时 rank 数可以变**——DCP 按元数据重新分片（`resharding.py`），16 节点存的 checkpoint 可以用 8 节点恢复。这对[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)讲的弹性与抢占很重要。
 
 ### 4. 异步 checkpoint：把 1 分钟变成 1 秒
 
@@ -799,6 +835,12 @@ $$
 
 Table: 同步与异步 checkpoint 的算术
 
+> [!NOTE] Java 经验参照：异步化就是把活扔给线程池
+>
+> Java 里把一次 IO 异步化几乎是免费的：`executor.submit(() -> write(data))`，主线程立刻返回，多出来的只是队列里一个任务对象。异步 checkpoint 的"扔"这个动作本身就很贵——要先把状态从显存拷到 host 内存，而这份副本是每节点上百 GB 的 pinned memory，还要一直驻留到上传结束。
+>
+> 于是它改变的不只是时序，还有三样容量规划里的东西：训练 Pod 的 `requests.memory` 要算上这一份；后台上传会和训练抢 CPU 和网卡（所以存储网最好与 RDMA 网分开）；多了一个"最新一份还没落盘"的故障窗口。这不是 fire-and-forget，是拿内存和一致性换时间。
+
 异步 checkpoint 把存储带宽需求降了一个量级以上，代价是每节点上百 GB 的 host 内存和"最新一份可能还没落盘"的语义。平台要做的是：给训练 Pod 留够 host 内存（`resources.requests.memory` 要算上这一份）、存储网与 RDMA 网分开（否则后台写会和 all_reduce 抢带宽）、并监控 upload 的完成时间是否一直小于 checkpoint 间隔——一旦超过就会积压。
 
 把同一套算术（14 字节/参数、30 分钟一次、同步要求 1 分钟写完）推到别的规模上，能看出哪一项随什么变化。下面全是推算，不是实测：
@@ -812,7 +854,11 @@ Table: 同步与异步 checkpoint 的算术
 
 Table: 不同任务规模下 checkpoint 的写带宽需求
 
-三个规律：**聚合写带宽只跟状态总量挂钩**，与卡数无关——同一个 70B 从 64 卡扩到 1024 卡，存储侧的 16.7 GB/s 一分不少，只是摊到每节点、每 rank 的份额变小了；**千卡训练更大的模型时，同步写要的聚合带宽（这里 95 GB/s）对大多数集群配套的并行文件系统都是很高的要求**（能否达到以具体部署为准），异步才把它拉回到几 GB/s 的量级——这是"千卡任务默认异步 checkpoint"的算术依据；**异步的 host 内存代价随节点数摊薄**，反而是小集群跑大模型（第一行）最吃紧：8 卡节点要拿出近 100 GB host 内存放副本。
+三个规律：
+
+1. **聚合写带宽只跟状态总量挂钩**，与卡数无关——同一个 70B 从 64 卡扩到 1024 卡，存储侧的 16.7 GB/s 一分不少，只是摊到每节点、每 rank 的份额变小了；
+2. **千卡训练更大的模型时，同步写要的聚合带宽（这里 95 GB/s）对大多数集群配套的并行文件系统都是很高的要求**（能否达到以具体部署为准），异步才把它拉回到几 GB/s 的量级——这是"千卡任务默认异步 checkpoint"的算术依据；
+3. **异步的 host 内存代价随节点数摊薄**，反而是小集群跑大模型（第一行）最吃紧：8 卡节点要拿出近 100 GB host 内存放副本。
 
 ### 5. `dcp-bench.py`：测这两个数字
 
@@ -914,20 +960,26 @@ if __name__ == "__main__":
     main()
 ```
 
-用它能回答三个问题：这个 PVC 的聚合写吞吐是多少（同步模式的 `agg`）；异步模式下训练实际被阻塞多久（`stage`）；线程数（`--threads`，即 `FileSystemWriter.thread_count`）和每 rank 数据量怎样影响这两个数字。把 `--gb-per-rank` 设成真实任务每 rank 的状态大小、`--nnodes` 设成真实节点数，得到的就是这个集群上这个任务的 checkpoint 时间下界。
+用它能回答三个问题：
+
+1. 这个 PVC 的聚合写吞吐是多少（同步模式的 `agg`）；
+2. 异步模式下训练实际被阻塞多久（`stage`）；
+3. 线程数（`--threads`，即 `FileSystemWriter.thread_count`）和每 rank 数据量怎样影响这两个数字。
+
+把 `--gb-per-rank` 设成真实任务每 rank 的状态大小、`--nnodes` 设成真实节点数，得到的就是这个集群上这个任务的 checkpoint 时间下界。
 
 ## 九、推理侧的权重分发
 
 ### 1. 问题：扩容时间被 I/O 主导
 
-一个 70B BF16 模型的权重约 140 GB。推理副本扩容时，从对象存储拉到本地、加载进显存，这一步的时间由"读 140 GB 的吞吐"决定：1 GB/s 要两分多钟，200 MB/s 要十几分钟。而扩容往往是并发的——高峰来了要同时起 4 个副本，4 个副本同时读同一份文件，对象存储或文件系统的热点就出现了。第六篇讲扩缩容时会把这一段计入"扩容时间分解"；本篇讨论平台能做什么。
+一个 70B BF16 模型的权重约 140 GB。推理副本扩容时，从对象存储拉到本地、加载进显存，这一步的时间由"读 140 GB 的吞吐"决定：1 GB/s 要两分多钟，200 MB/s 要十几分钟。而扩容往往是并发的——高峰来了要同时起 4 个副本，4 个副本同时读同一份文件，对象存储或文件系统的热点就出现了。[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)讲扩缩容时会把这一段计入"扩容时间分解"；本篇讨论平台能做什么。
 
 ### 2. 三种方案与 GPUDirect Storage
 
 | 方案 | 做法 | 适合 | 代价 / 边界 |
 |---|---|---|---|
 | 节点本地 NVMe 缓存 | 权重第一次读时落到节点 NVMe（缓存层 CSI 自动做，或 `DaemonSet` 预热），后续副本直接本地读 | 同一模型在同一批节点上反复扩缩（最常见的情况） | 首个副本仍要冷读<br/>缓存占盘<br/>节点池变动后要重新预热<br/>缓存驱逐策略 |
-| 权重进镜像 | 把权重打进容器镜像的一层，靠镜像仓库与节点镜像缓存分发（第二篇的镜像预热与 P2P 分发同样适用） | 模型固定、版本少、节点数多（边缘/固定部署） | 镜像几十～上百 GB：仓库压力、拉取时间、版本更新要重打镜像；镜像层不共享权重 |
+| 权重进镜像 | 把权重打进容器镜像的一层，靠镜像仓库与节点镜像缓存分发（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)的镜像预热与 P2P 分发同样适用） | 模型固定、版本少、节点数多（边缘/固定部署） | 镜像几十～上百 GB：仓库压力、拉取时间、版本更新要重打镜像；镜像层不共享权重 |
 | P2P 分发 | 节点之间互相传（Dragonfly 这类 P2P 镜像/文件分发，或缓存层自带的节点间读） | 大规模并发扩容（几十副本同时起） | 需要额外的 P2P 组件<br/>首个种子仍是冷读<br/>占用节点间网络（要与 RDMA 网分开） |
 | GPUDirect Storage（GDS） | 存储 → 显存的 DMA 路径（`nvidia-fs` 驱动，GPU Operator `spec.gds.enabled` 部署），绕过 host 内存 | 单节点本地 NVMe 或支持 GDS 的并行文件系统上、CPU 成为瓶颈时 | 需要 GDS 支持的文件系统与驱动<br/>引擎要用 `cuFile` API 读<br/>GPU Operator 里标为实验性 |
 
