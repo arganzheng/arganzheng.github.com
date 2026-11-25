@@ -8,7 +8,11 @@ catalog: true
 updated: 2026-11-14
 ---
 
-上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方：Pod `Running`，`torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；或者容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；或者一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
+上一篇结束在一个 Pending 的 Pod 上：`resources.limits` 里写了 `nvidia.com/gpu: 1`，`kubectl describe` 里是 `0/3 nodes are available: 3 Insufficient nvidia.com/gpu`。原因很直接——没有任何组件告诉 kubelet 这台机器上有 GPU。但把 device plugin 装上、Pod 调度成功之后，故障并没有结束，只是换了地方，变成三种：
+
+1. Pod `Running`，但 `torch.cuda.is_available()` 返回 `False`，日志里一行 `CUDA driver version is insufficient for CUDA runtime version`；
+2. 容器根本起不来，`kubectl describe` 里是 `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.1`；
+3. 一切正常，直到某个 kernel 启动时报 `the provided PTX was compiled with an unsupported toolchain`。
 
 这些报错都不是 Kubernetes 的问题，也不是引擎的问题。它们来自一件事：一个容器要用上 GPU，必须让四层软件——内核态驱动、用户态驱动库、CUDA Runtime、上层库——在版本上互相接受，而这四层分别由四个不同的角色控制：内核驱动由节点管理员（或 GPU Operator 的驱动容器）装，用户态驱动库由 Container Toolkit 从宿主机挂进容器，CUDA Runtime 随镜像（或 pip wheel）走，上层库由训练框架和推理引擎自己带。这四个角色互不知情，只靠 NVIDIA 定义的三条兼容规则维系。
 
@@ -48,7 +52,38 @@ updated: 2026-11-14
 
 镜像是这张图的第五个参与者：它带 CUDA Runtime 和上层库，不带驱动；它的体积决定 Pod 从 `Scheduled` 到 `Running` 的时间。
 
-### 4. 本文的章节安排
+### 4. 这一层在节点上留下了什么，各活多久
+
+"让容器用上 GPU"这件事做完之后，节点上多出十来样东西。它们的寿命差别很大，而这一层几乎所有难查的故障，都是两样不同寿命的东西被当成同一样东西了。
+
+| 对象 | 谁放的 | 在哪里 | 活多久 |
+|---|---|---|---|
+| NVIDIA 内核模块 | 宿主机的包，或 GPU Operator 的驱动容器 | 宿主机内核 | 到节点重启或驱动升级 |
+| `libcuda.so`（驱动的用户态库） | 随驱动一起，注入容器 | 宿主机，容器里是挂进去的 | 与驱动同生共死；版本必须不低于容器里的 toolkit |
+| CUDA Runtime、cuDNN、框架 | 镜像 | 容器文件系统 | Pod 的一生；换一次要重新拉几个 GB |
+| 镜像层 | 一次 pull | 节点磁盘 | 到被 kubelet GC；它在不在，决定下一次扩容是几十秒还是几分钟 |
+| CDI spec（`/etc/cdi/nvidia.yaml`） | `nvidia-ctk cdi generate` | 宿主机文件 | 到下一次生成——**驱动变了它不会自己变** |
+| 注入结果（设备节点、mounts、hooks） | 运行时在创建容器时并入 OCI spec | 容器 | 容器的一生，创建之后改不了 |
+| device plugin 的 socket 与 `ListAndWatch` 流 | 插件自己 `Register` | `/var/lib/kubelet/device-plugins/` | 到插件重启；重启要重新注册、重新推送整个列表 |
+| `allocatable` 里的 `nvidia.com/gpu: 8` | kubelet，按 `ListAndWatch` 推来的内容写 | 节点对象 | 到下一次推送；一张卡报关键 Xid 就减一，已占用它的 Pod 不驱逐 |
+| 设备 ID → 容器的分配 | kubelet 的 `Allocate` | kubelet 的 checkpoint 文件 | Pod 的一生；checkpoint 让 kubelet 重启后还认得这笔分配 |
+| GFD 打的节点标签 | GPU Feature Discovery | 节点对象 | 周期刷新；换卡或改 MIG 配置后由它纠正 |
+| `ResourceSlice`（DRA 的设备清单） | DRA 驱动 | etcd | 驱动在就持续更新，是计数模型的属性化替代 |
+| `ResourceClaim` 的分配结果 | 调度器，节点侧由 `NodePrepareResources` 落实 | etcd，加节点上准备好的 CDI 设备名 | 绑定它的 Pod 的一生 |
+
+Table: 让容器用上 GPU 之后，节点上多出来的东西
+
+四条读法：
+
+**1、这张表只有三段寿命，而故障都发生在段的边界。**内核段（驱动）、节点段（CDI spec、插件进程、节点标签）、容器段（CUDA Runtime、注入结果、分配记录）。本篇的三章正好各管一条边界：第二章的三条兼容规则是内核段与容器段之间的版本契约，第三章的 Toolkit / CDI 是内核段的东西怎么进容器段，第四章的 device plugin 是节点段怎么把内核段的卡数告诉 K8s。
+
+**2、唯一会"过期"的是 CDI spec。**它是驱动状态的一份快照，驱动升级了它不知道，于是容器里挂进去的还是旧库的路径。v1.20.0 默认的 `jit-cdi` 正是针对这一点：不读磁盘上的文件，每次创建容器时即时算一份等价的编辑——等于把这份 spec 的寿命从"节点段"缩到"容器段"，整类"驱动升完没重新 generate"的故障就不存在了。
+
+**3、`nvidia.com/gpu` 是推上来的，不是查出来的。**kubelet 不会去数卡，它只接收插件通过 `ListAndWatch` 推送的列表。没有插件，节点上就没有这个键，值按零处理——[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)开篇那个一直 Pending 的 Pod，全部原因就是这一行不存在。推送模型也解释了健康检查的行为：卡坏了不是 kubelet 发现的，是插件重发了一次列表。
+
+**4、DRA 换掉的是其中两行。**`ResourceSlice` 顶替"`allocatable` 里的一个整数"，`ResourceClaim` 顶替"kubelet checkpoint 里的一笔分配"。换掉之后，推上来的是属性而不是计数，分配结果有了自己的 API 对象——可以被 `kubectl get`、被调度器按 CEL 选择、被审计。第六章讲这件事。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -128,6 +163,10 @@ Table: 驱动与 CUDA 版本的查法
 - 第 2 层通过 `ldconfig` 从系统路径找。容器里这条路径由 Container Toolkit 铺好——它把宿主机的 `libcuda.so.580.x` 挂到容器的 `/usr/lib/x86_64-linux-gnu/` 并跑一次 `ldconfig`。
 
 所以"镜像里 CUDA 13.1"和"节点驱动 580"这两个数字分别由两个不相关的过程决定，兼容规则是它们之间唯一的契约。`torch.version.cuda`、`nvidia-smi` 的 `CUDA Version`、`nvcc --version` 三个数字互不相同是正常的，分别是第 3 层、第 2 层上限、以及构建时的 Toolkit。
+
+> [!NOTE] Java 经验参照：依赖都在包里，换台机器也一样跑
+>
+> fat jar 把依赖全部固化，容器镜像又把整个用户态固化，"在我机器上能跑"在 JVM 世界基本被消灭了——镜像一样，行为就一样。GPU 这一层**故意**少了一块：`libcuda.so` 不在镜像里，它属于宿主机驱动，运行时才挂进去。于是同一个镜像在两台机器上的行为可以不同，差别由一个镜像作者看不到的数字决定。所以这一层没有"打包一次到处跑"，只有一条**跨越镜像边界的版本契约**（本章三条兼容规则），以及一个负责在运行时把宿主机那一块补进来的组件（下一章的 Container Toolkit）。排障时第一步不是看镜像，是把两边的版本都打出来。
 
 ### 5. 核心问题的三个组合
 
@@ -322,14 +361,14 @@ NVIDIA k8s-device-plugin v0.20.0 的入口在 `cmd/nvidia-device-plugin/main.go`
 
 | 字段 | 取值 / 默认 | 作用 |
 |---|---|---|
-| `flags.migStrategy` | `none` \| `single` \| `mixed` | MIG 设备怎么上报（第四篇展开）；默认 `none` |
+| `flags.migStrategy` | `none` \| `single` \| `mixed` | MIG 设备怎么上报（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)展开）；默认 `none` |
 | `flags.failOnInitError` | 默认 `true` | 节点没驱动时插件直接退出而不是空转 |
 | `flags.nvidiaDriverRoot` | `"/"` 或 `"/run/nvidia/driver"` | 驱动在宿主机的根，GPU Operator 驱动容器用后者 |
 | `flags.plugin.deviceListStrategy` | `envvar` \| `volume-mounts` \| `cdi-annotations` \| `cdi-cri`（可多选） | `Allocate` 用什么方式传设备列表；默认 `envvar` |
 | `flags.plugin.deviceIDStrategy` | `uuid` \| `index` | `NVIDIA_VISIBLE_DEVICES` 里放 UUID 还是索引；默认 `uuid` |
 | `flags.plugin.passDeviceSpecs` | 默认 `false` | `Allocate` 是否直接返回 `/dev/nvidia*` 的 `DeviceSpec` |
 | `flags.plugin.sharedDevicesAllocationPolicy` | `distributed` \| `packed` | 共享/MIG 设备的偏好分配策略 |
-| `sharing.timeSlicing` / `sharing.mps` |  | 把一张卡上报为 N 个副本（第四篇） |
+| `sharing.timeSlicing` / `sharing.mps` |  | 把一张卡上报为 N 个副本（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)） |
 | `resources.gpus[]` / `resources.mig[]` |  | 按型号模式改资源名（如 `nvidia.com/a100` 与 `nvidia.com/h100` 分开上报） |
 
 Table: device plugin 的相关 flags
@@ -347,7 +386,7 @@ Table: device plugin 的相关 flags
 - `cdi-annotations`：`Annotations["cdi.k8s.io/nvidia-device-plugin_<响应 uuid>"] = "k8s.device-plugin.nvidia.com/gpu=GPU-uuid1,…"`，由 nvidia-container-runtime 的 CDI 模式解析；
 - `cdi-cri`：填 `CdiDevices`，即 `api.proto` 里 `ContainerAllocateResponse.cdi_devices`，kubelet 通过 CRI 直接传给支持 CDI 的 containerd / CRI-O，不再需要 nvidia-container-runtime。
 
-另有 `passDeviceSpecs=true` 时填 `Devices`（`DeviceSpec` 的 host_path / container_path / permissions），让 kubelet 直接创建设备节点——这对 CPU Manager 静态策略或 `hostPID` 等场景有用。GDRCopy、GDS、MOFED 开关分别加 `NVIDIA_GDRCOPY=enabled` 等环境变量，Toolkit 据此多挂对应的库（第五篇 RDMA 时再见）。
+另有 `passDeviceSpecs=true` 时填 `Devices`（`DeviceSpec` 的 host_path / container_path / permissions），让 kubelet 直接创建设备节点——这对 CPU Manager 静态策略或 `hostPID` 等场景有用。GDRCopy、GDS、MOFED 开关分别加 `NVIDIA_GDRCOPY=enabled` 等环境变量，Toolkit 据此多挂对应的库（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) RDMA 时再见）。
 
 ### 4. 健康检查与 Pending 的读法
 
@@ -373,6 +412,10 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 
 这三条正是 DRA 的设计目标（第六章）。在 DRA 普及之前，K8s 生态用 GFD 标签、Volcano / Kueue 的调度扩展、HAMi 的 API 拦截各自绕过一条，后面几篇会逐一遇到。
 
+> [!NOTE] Java 经验参照：接口定好了，实现可以随便换
+>
+> device plugin 看着就是一个标准的 SPI：实现 gRPC 接口、注册、由宿主调用，厂商各自提供实现——和 JDBC 驱动或 `ServiceLoader` 是同一个形状。不同的地方在数据模型：这个接口能表达的全部信息是**资源名、设备 ID 字符串、健康与否**。换成 Java 的说法，相当于一个资源池接口只有 `register(String name, int count)`，没有属性、没有容量，调用方想说"要 80 GB 显存的那一种"根本无从说起。在自己的代码里遇到这种接口，加个重载或者换个库就完了；这里它是 kubelet 与所有硬件厂商之间的公共契约，改它要走 KEP、要全生态跟进。于是七年里大家各自绕路——GFD 打标签、调度器插件、API 拦截——直到 DRA 把接口整个换掉。
+
 ## 五、GPU Operator：ClusterPolicy 驱动的一套组件
 
 ### 1. 组件与 ClusterPolicy 字段
@@ -387,10 +430,10 @@ device plugin 模型在 2018 年定型，它的边界今天看得很清楚：
 | `toolkit` | `ToolkitSpec` | `enabled`<br/>`container-toolkit` 镜像（默认 v1.20.0）<br/>`env`（如 `CONTAINERD_CONFIG`） |
 | `devicePlugin` | `DevicePluginSpec` | `enabled`<br/>`k8s-device-plugin` 镜像（默认 v0.20.0）<br/>`config`（`DevicePluginConfig`：ConfigMap 名与默认项，内容即第四章的 `Config`）<br/>`mps` |
 | `gfd` | `GPUFeatureDiscoverySpec` | `enabled`；GFD 与 device plugin 同一镜像 |
-| `dcgmExporter` | `DCGMExporterSpec` | `enabled`<br/>`dcgm-exporter` 镜像（默认 4.6.0-4.8.3）<br/>`serviceMonitor`（第八篇） |
+| `dcgmExporter` | `DCGMExporterSpec` | `enabled`<br/>`dcgm-exporter` 镜像（默认 4.6.0-4.8.3）<br/>`serviceMonitor`（[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)） |
 | `dcgm` | `DCGMSpec` | 独立 `nv-hostengine`，默认关闭（exporter 内嵌） |
 | `mig` | `MIGSpec` | `strategy`：`none` \| `single` \| `mixed`，同时喂给 GFD 与 device plugin |
-| `migManager` | `MIGManagerSpec` | `enabled`<br/>`k8s-mig-manager` 镜像（默认 v0.15.0）<br/>`config`（`MIGPartedConfigSpec`）——第四篇 |
+| `migManager` | `MIGManagerSpec` | `enabled`<br/>`k8s-mig-manager` 镜像（默认 v0.15.0）<br/>`config`（`MIGPartedConfigSpec`）——[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
 | `cdi` | `CDIConfigSpec` | `enabled`（默认 `true`）：Toolkit 配成 CDI 模式、device plugin 用 `cdi-annotations,cdi-cri` |
 | `validator` | `ValidatorSpec` | `operator-validator`：在每个节点上依次验证 `driver` / `toolkit` / `cuda` / `plugin` 是否就绪 |
 | `hostPaths` | `HostPathsSpec` | `rootFS`（默认 `/`）、`driverInstallDir`（默认 `/run/nvidia/driver`）、`kubeletRootDir` |
@@ -449,7 +492,7 @@ flowchart TB
     DS --> GFD
     L3 -.->|"某项改为 false = 该组件从此节点撤走"| DS
     L4 --> USE1["Pod nodeSelector / nodeAffinity<br/>按型号、显存、驱动大版本选节点"]
-    L4 --> USE2["Kueue ResourceFlavor 分池（第三篇）"]
+    L4 --> USE2["Kueue ResourceFlavor 分池（《AI 任务调度》）"]
     classDef lbl fill:#fff8e1,stroke:#f9a825;
     classDef comp fill:#e3f2fd,stroke:#1565c0;
     classDef use fill:#e6f4ea,stroke:#2e7d32;
@@ -458,7 +501,7 @@ flowchart TB
     class USE1,USE2 use;
 ```
 
-这组标签是 device plugin 时代"按属性选卡"的全部手段：Pod 写 `nodeSelector: {nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3}` 或用 `nodeAffinity` 表达"`nvidia.com/gpu.memory` 大于某值"（标签是字符串，只能用 `In` 枚举，不能比大小）。第三篇 Kueue 的 `ResourceFlavor` 也靠这些标签把"H100 池"和"A100 池"分开。`nvidia.com/cuda.driver.major` 标签则可以用来把 CUDA 13 的镜像只调度到驱动 ≥ 580 的节点——把第二章的兼容规则前移到调度期，虽然粗糙，但比容器起不来好。
+这组标签是 device plugin 时代"按属性选卡"的全部手段：Pod 写 `nodeSelector: {nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3}` 或用 `nodeAffinity` 表达"`nvidia.com/gpu.memory` 大于某值"（标签是字符串，只能用 `In` 枚举，不能比大小）。[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) Kueue 的 `ResourceFlavor` 也靠这些标签把"H100 池"和"A100 池"分开。`nvidia.com/cuda.driver.major` 标签则可以用来把 CUDA 13 的镜像只调度到驱动 ≥ 580 的节点——把第二章的兼容规则前移到调度期，虽然粗糙，但比容器起不来好。
 
 ### 3. 驱动容器与 hostPaths
 
@@ -466,7 +509,7 @@ flowchart TB
 
 ### 4. Helm 安装与 values
 
-GPU Operator 用 Helm 安装，chart 的 `values.yaml`（`deployments/gpu-operator/values.yaml`）顶层键与 `ClusterPolicySpec` 一一对应，`clusterPolicy.deployCR: true`（默认）时由 `templates/clusterpolicy.yaml` 渲染出 `ClusterPolicy`。练手项目的最小 values 与安装命令见第九章第 3 节。三个节点级前提在装之前就要确认：容器运行时是 containerd 或 CRI-O（Operator 自动探测，`operator.defaultRuntime` 字段已废弃）；节点内核有对应的驱动容器镜像（或改 `driver.enabled: false` 自装驱动）；没有其他 device plugin 在同一节点上报 `nvidia.com/gpu`（HAMi、云厂商自带插件都会冲突，第四篇再谈）。
+GPU Operator 用 Helm 安装，chart 的 `values.yaml`（`deployments/gpu-operator/values.yaml`）顶层键与 `ClusterPolicySpec` 一一对应，`clusterPolicy.deployCR: true`（默认）时由 `templates/clusterpolicy.yaml` 渲染出 `ClusterPolicy`。练手项目的最小 values 与安装命令见第九章第 3 节。三个节点级前提在装之前就要确认：容器运行时是 containerd 或 CRI-O（Operator 自动探测，`operator.defaultRuntime` 字段已废弃）；节点内核有对应的驱动容器镜像（或改 `driver.enabled: false` 自装驱动）；没有其他 device plugin 在同一节点上报 `nvidia.com/gpu`（HAMi、云厂商自带插件都会冲突，[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)再谈）。
 
 ## 六、DRA：从计数到属性
 
@@ -597,7 +640,7 @@ kubectl get resourceslice -o yaml | grep -A3 "memory:"          # 看驱动发�
 
 - **属性**：`ResourceSlice.spec.devices[].attributes / capacity` + CEL 选择器。按显存、型号、计算能力、驱动版本选卡成为调度期语义，不再靠节点标签近似。
 - **拓扑**：`constraints.matchAttribute` 让"多个设备的某属性相同"成为硬约束；v1.37 新增的 `derivedAttributes`（`DeviceDerivedAttribute`，CEL 计算的虚拟属性）允许跨驱动对齐——例如 GPU 与 RDMA 网卡的 NUMA 节点，changelog 里明确以此为例；`resource.kubernetes.io/numaNode` 成为标准属性名（KEP-6072）。
-- **共享**：`allowMultipleAllocations` + `capacity.requestPolicy`（consumable capacity，`DRAConsumableCapacity`）让一个设备被多个 claim 各取一部分容量；`sharedCounters` / `consumesCounters`（`DRAPartitionableDevices`）让 MIG 这类"从同一块物理资源切出的分区"被正确记账——第四篇会回到这里。
+- **共享**：`allowMultipleAllocations` + `capacity.requestPolicy`（consumable capacity，`DRAConsumableCapacity`）让一个设备被多个 claim 各取一部分容量；`sharedCounters` / `consumesCounters`（`DRAPartitionableDevices`）让 MIG 这类"从同一块物理资源切出的分区"被正确记账——[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)会回到这里。
 
 Kubernetes v1.37.0 的 `CHANGELOG/CHANGELOG-1.37.md` 给出的 DRA 状态：核心 API GA（1.34 起）；`DRAExtendedResource`（`DeviceClass.extendedResourceName`，让 `nvidia.com/gpu: 1` 这种传统请求由 DRA 满足，kubelet devicemanager 的 `isDRAExtendedResource` 据此放行）GA；Device Taints and Tolerations GA；`DRAResourceClaimDeviceStatus` GA；Prioritized List（`firstAvailable`）1.36 GA、1.37 锁定；DRA 设备健康 gRPC 升 v1；DRA Workload resource claims（PodGroup 级 claim，与 gang scheduling 相关）升 Beta 但默认关闭；派生属性、兼容性组（`compatibilityGroups`）、资源池状态、`SkipNodeOperations` 为 Alpha。也就是说：按属性选卡、按 NVLink 域约束、DRA 接管 `nvidia.com/gpu` 请求，在 v1.37 都是可以在生产集群上开的功能；共享与分区还在 Beta / Alpha。
 
@@ -662,11 +705,11 @@ devel 到 base 通常能去掉 5 GB 以上；`--no-cache-dir` 与清理 apt 列�
 
 ### 4. 拉取时间的算术
 
-一个 10 GB（压缩）镜像拉到一台新节点的时间由三段组成：registry 到节点的网络传输、解压（gzip 解压单线程通常 100–300 MB/s，zstd 快数倍）、写入节点磁盘。以 registry 出口 500 MB/s、gzip 解压 200 MB/s 估算，传输约 20 s，解压约 50 s（层可并行解压，但 containerd 默认并发有限），加上元数据与校验，**2–3 分钟**是常见量级；registry 带宽被同时扩容的几十个 Pod 分摊时，十分钟也不罕见。对比第六篇会讲的推理扩容时间分解——调度 + 拉镜像 + 拉权重 + 加载显存 + 预热——拉镜像在冷节点上是第一或第二大项。训练侧类似：32 个 Pod 同时拉 12 GB 的 NGC 镜像，registry 是瞬时 400 GB 的出口压力。
+一个 10 GB（压缩）镜像拉到一台新节点的时间由三段组成：registry 到节点的网络传输、解压（gzip 解压单线程通常 100–300 MB/s，zstd 快数倍）、写入节点磁盘。以 registry 出口 500 MB/s、gzip 解压 200 MB/s 估算，传输约 20 s，解压约 50 s（层可并行解压，但 containerd 默认并发有限），加上元数据与校验，**2–3 分钟**是常见量级；registry 带宽被同时扩容的几十个 Pod 分摊时，十分钟也不罕见。对比[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)会讲的推理扩容时间分解——调度 + 拉镜像 + 拉权重 + 加载显存 + 预热——拉镜像在冷节点上是第一或第二大项。训练侧类似：32 个 Pod 同时拉 12 GB 的 NGC 镜像，registry 是瞬时 400 GB 的出口压力。
 
 四个层次的对策：
 
-- **减体积**：多阶段构建、统一基底、不在镜像里放模型权重（权重走第五篇的存储路径）。
+- **减体积**：多阶段构建、统一基底、不在镜像里放模型权重（权重走[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的存储路径）。
 - **预热**：GPU 节点池加入集群时用一个 DaemonSet 把常用镜像拉一遍（`initContainers` 引用目标镜像并立刻退出，主容器是 `pause`）；或用 kube-fledged 这类控制器按 CRD 维护"每个节点该有哪些镜像"。节点自动扩缩容场景下，把镜像烤进节点系统盘镜像（云厂商的自定义 OS image）是最彻底的预热。
 - **P2P 分发**：Dragonfly、Kraken 这类工具让节点之间互相传层，registry 只出一份；适合几十节点同时拉同一镜像的训练任务启动。
 - **按需加载**：stargz / Nydus / SOCI 让容器在层未完全下载时就启动，按访问懒加载文件。对 CUDA 镜像效果有限——`import torch` 就会触碰大部分 `.so`，但对"镜像里有 devel 层但运行时用不到"的场景有用。
@@ -701,9 +744,9 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 ### 3. 什么场景不该用
 
 - **单租户、节点已装驱动、卡型单一的小集群**：不需要 GPU Operator。装 Container Toolkit 与 device plugin 两个包，配一个 `RuntimeClass`，比多维护一个 Operator 便宜。Operator 的价值在多节点组、多驱动版本、需要 MIG 与监控一起管的时候。
-- **今天的生产训练集群**：不要把 DRA 作为唯一路径。NVIDIA DRA driver 在 GPU Operator v26.7.0 中是实验性；Kueue、Volcano 对 DRA claim 的配额与 gang 语义支持程度以第三篇对应版本为准。用 device plugin + GFD 标签 + 调度器扩展，DRA 在测试集群上跟进。
+- **今天的生产训练集群**：不要把 DRA 作为唯一路径。NVIDIA DRA driver 在 GPU Operator v26.7.0 中是实验性；Kueue、Volcano 对 DRA claim 的配额与 gang 语义支持程度以[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)对应版本为准。用 device plugin + GFD 标签 + 调度器扩展，DRA 在测试集群上跟进。
 - **消费级 GPU（开发机、边缘）**：forward compat 不可用，跨大版本的 CUDA 镜像只能靠升驱动。选镜像时以节点驱动为上限，而不是反过来。
-- **要求秒级冷启动的推理场景**：任何镜像方案都不够，问题要从镜像转到"节点常驻 + 权重预加载"（第六篇）。
+- **要求秒级冷启动的推理场景**：任何镜像方案都不够，问题要从镜像转到"节点常驻 + 权重预加载"（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）。
 
 ## 九、本文小结
 
