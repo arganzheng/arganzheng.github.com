@@ -29,7 +29,7 @@ flowchart LR
     c4["<b>AccelerateMatmul</b><br/>7 个"]
     c5["<b>RemoveLayoutConversions ②</b><br/>3 个"]
     c6["<b>OptimizeDotOperands</b><br/>（本例无变化）"]
-    c7["<b>… Pipeline（第九篇）…</b><br/>1 个"]
+    c7["<b>… Pipeline（见《软件流水》）…</b><br/>1 个"]
     c0 --> c1 --> c2 --> c3 --> c4 --> c5 --> c6 --> c7
 
     classDef hot fill:#fdf1d6,stroke:#b9770e
@@ -59,7 +59,7 @@ Coalesce 之后的循环体（上一篇 §六.2）：
 
 ![Coalesce 之后循环体里的多余转换](/img/in-post/triton-compiler-layout-optimization-coalesce-redundant-converts.svg)
 
-这不是"消掉相邻的一对逆转换"就能解决的：`load` 的结果是 `#blocked6`，`dot` 要 `#dot_op`，两者之间的 `#blocked1` 是默认 layout 留下的痕迹，没有任何 op 真的需要它。要做的是**沿 def-use 链重新决定每个值的 layout**——让 `load` 出来的值直接以 `dot` 需要的 layout 存在，或者让中间所有逐元素运算都跟着某一端的 layout 走。这是一个全局问题，不适合写成局部 pattern（第四篇 §三.2），所以这个 pass 是 1600 行手写的两阶段算法。
+这不是"消掉相邻的一对逆转换"就能解决的：`load` 的结果是 `#blocked6`，`dot` 要 `#dot_op`，两者之间的 `#blocked1` 是默认 layout 留下的痕迹，没有任何 op 真的需要它。要做的是**沿 def-use 链重新决定每个值的 layout**——让 `load` 出来的值直接以 `dot` 需要的 layout 存在，或者让中间所有逐元素运算都跟着某一端的 layout 走。这是一个全局问题，不适合写成局部 pattern（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §三.2），所以这个 pass 是 1600 行手写的两阶段算法。
 
 ### 2. 锚点
 
@@ -147,6 +147,10 @@ flowchart TB
 Table: 后向重物化的代价模型
 
 典型的重物化：`make_range → splat → addi → expand_dims → broadcast → addptr` 这样的地址运算链，全是廉价的整数 op、结果只喂给一个 load，把它们在 load 想要的 layout 下重算一遍，比把算好的指针张量经 shared memory 转一次便宜得多。lit 测试 `combine.mlir` 的 `@remat`：两个 `make_range` 相乘再转 layout，重物化后 `make_range` 直接生在目标 layout 上，转换消失。
+
+> [!NOTE] Java 经验参照：重算还是搬运，寄存器分配器每天在做同一道选择题
+> 「把一段计算在目标 layout 下重算一遍，换掉一次 shared memory 往返」，这道题 JIT 的寄存器分配器做了几十年：一个值活得太久、寄存器不够时，是 spill 到栈上再 reload，还是干脆在用的地方重新算一次（rematerialization）？`ldc`、`iconst`、一次 `getstatic` 这类廉价又无副作用的定义，C2 宁可重算也不 spill——判据和上面这张代价表一模一样：**重算的代价 vs 搬运的代价，再加一条「这个值还有没有别人在用」**。
+> 不同在一个量级和一个范围。量级：那边搬的是 4 字节、省的是一次栈访问；这里搬的是 32 KB、省的是一次整块 shared memory 往返加两道 barrier。范围：C2 只在单个值上重算，而这里重算的是一整条后向切片（`make_range → splat → addi → broadcast → addptr`），所以才需要「切片外还有没有使用者」这一行来判断会不会白算两遍。
 
 `backwardRematerialization` 在一个 `do … while (changed)` 里反复跑到没有转换能消为止。然后是三种 **hoist**：
 
@@ -244,7 +248,7 @@ if (mmaResult.versionMajor == 3) {                                          // H
 rewriter.replaceOpWithNewOp<ConvertLayoutOp>(dotOp, dotOp.getType(), newDot->getResult(0));   // 结果转回原 layout
 ```
 
-Ampere 与 Hopper 的根本差别在这里：`mma.sync` 的操作数在**寄存器**里（所以是 `#dot_op` 分布式 layout），`wgmma` 的操作数在 **shared memory** 里（B 必须，A 可选），所以 v3 路径把操作数变成 `ttg.local_alloc` 出来的 `memdesc`，`tt.dot` 变成 `ttng.warp_group_dot`。第九篇讲 `wgmma` 的异步语义。Blackwell 的 `BlockedToMMAv5` 又不同：累加器进 Tensor Memory（`ttng.tmem_alloc`），`tt.dot` 变成 `ttng.tc_gen5_mma`。
+Ampere 与 Hopper 的根本差别在这里：`mma.sync` 的操作数在**寄存器**里（所以是 `#dot_op` 分布式 layout），`wgmma` 的操作数在 **shared memory** 里（B 必须，A 可选），所以 v3 路径把操作数变成 `ttg.local_alloc` 出来的 `memdesc`，`tt.dot` 变成 `ttng.warp_group_dot`。[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)讲 `wgmma` 的异步语义。Blackwell 的 `BlockedToMMAv5` 又不同：累加器进 Tensor Memory（`ttng.tmem_alloc`），`tt.dot` 变成 `ttng.tc_gen5_mma`。
 
 ### 5. `F32DotTC`
 
@@ -265,7 +269,7 @@ Ampere 与 Hopper 的根本差别在这里：`mma.sync` 的操作数在**寄存�
 
 Table: OptimizeDotOperands 的四条 pattern
 
-对本例（无转置、Ampere）没有变化。它在 GPU Kernel 系列第七篇提到的"把转置折进 `ldmatrix.trans`"是 Ampere 上的对应效果，由第十篇的 `local_load` lowering 按 shared layout 的 order 决定是否发 `.trans`。
+对本例（无转置、Ampere）没有变化。《GPU Kernel 工程》的《Triton——块级编程与编译器的边界》提到的"把转置折进 `ldmatrix.trans`"是 Ampere 上的对应效果，由[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `local_load` lowering 按 shared layout 的 order 决定是否发 `.trans`。
 
 ### 2. OptimizeThreadLocality
 
@@ -290,15 +294,15 @@ tt.store %c_ptrs_62, %0, %mask_68 : tensor<128x128x!tt.ptr<bf16>, #blocked1>
 
 两个锚之间只有 `truncf` 一个逐元素 op。前向传播：从 `dot` 传下来 `#mma`，从 `store` 传上来 `#blocked1`（store 的操作数），`%c` 收到两个 layout；冲突消解——`%c` 的定义 op 是 `truncf`，不是访存 op，规则偏向 `#mma`；于是 `truncf` 留在 `#mma`，`store` 的操作数处插 `#mma → #blocked1` 的转换。后向重物化：转换的源是 `truncf(acc)`，`acc` 来自 `dot`——`canBeRemat` 对 `DotOpInterface` 返回 false，切片在这里断掉，无法重物化。三种 hoist 只有第一种适用（`truncf` 已经在转换之前）。**所以它留下了**：两端都是硬件决定的 layout，而这两个硬件决定——Tensor Core 的输出 fragment 与合并访存的线程排布——就是不一样的。
 
-它的代价：`[128, 128]` bf16 = 32 KB 经 shared memory 往返（`ttg.shared = 32768` 正是它——`metadata["shared"]` 里的 32768 字节全部是这一次转换的 scratch，流水线的两个缓冲区 `2 × 128 × 32 × 2 + 2 × 32 × 128 × 2 = 32 KB` 与它复用同一段地址，第十篇的 `AllocateSharedMemory` 会讲复用），两个 barrier。相对整个 kernel（K = 512 时循环 16 次、每次 2 × 8 KB 的 load 加 32 条 `mma`）它是几个百分点的开销，是 GPU Kernel 系列第七篇说的"那 10%"里可以指名的一块。
+它的代价：`[128, 128]` bf16 = 32 KB 经 shared memory 往返（`ttg.shared = 32768` 正是它——`metadata["shared"]` 里的 32768 字节全部是这一次转换的 scratch，流水线的两个缓冲区 `2 × 128 × 32 × 2 + 2 × 32 × 128 × 2 = 32 KB` 与它复用同一段地址，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `AllocateSharedMemory` 会讲复用），两个 barrier。相对整个 kernel（K = 512 时循环 16 次、每次 2 × 8 KB 的 load 加 32 条 `mma`）它是几个百分点的开销，是 《GPU Kernel 工程》里说的"那 10%"中可以指名的一块。
 
 ### 2. 能不能不转？
 
-Gluon（第九篇）里可以：用户直接用 `#mma` layout 做 store——每个 lane 持有的 2 个相邻 bf16 = 32 bit，`st.global.b32`，warp 内 4 个 lane 覆盖一行的 8 列、8 组 lane 覆盖 8 行——每条 store 指令 32 个 lane 写 8 行 × 16 字节，不是合并访存，但省掉了 shared memory 往返。孰优孰劣取决于 epilogue 占比，编译器的固定策略选了合并访存。`hoistConvertOnTopOfExtOrBroadcast` 让它至少搬 bf16 而不是 f32。
+Gluon（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)）里可以：用户直接用 `#mma` layout 做 store——每个 lane 持有的 2 个相邻 bf16 = 32 bit，`st.global.b32`，warp 内 4 个 lane 覆盖一行的 8 列、8 组 lane 覆盖 8 行——每条 store 指令 32 个 lane 写 8 行 × 16 字节，不是合并访存，但省掉了 shared memory 往返。孰优孰劣取决于 epilogue 占比，编译器的固定策略选了合并访存。`hoistConvertOnTopOfExtOrBroadcast` 让它至少搬 bf16 而不是 f32。
 
 ### 3. 两个实验：attention 的 P·V
 
-核心问题第二问。attention 里 `P = softmax(Q Kᵀ)` 出自第一个 `dot`（`#mma`），要作为 A 操作数进第二个 `dot`（`#dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>`）。这个 `#mma → #dot_op` 的转换走哪条路？用第七篇 §四.6 的判定直接问编译器——写一个只含这个转换的 TTGIR，lower 到 LLVM 方言，数 shared memory 指令与 barrier：
+核心问题第二问。attention 里 `P = softmax(Q Kᵀ)` 出自第一个 `dot`（`#mma`），要作为 A 操作数进第二个 `dot`（`#dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>`）。这个 `#mma → #dot_op` 的转换走哪条路？用[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html) §四.6 的判定直接问编译器——写一个只含这个转换的 TTGIR，lower 到 LLVM 方言，数 shared memory 指令与 barrier：
 
 ```mlir title="mma2dot.mlir：只含 #mma → #dot_op 的转换"
 #mma = #ttg.nvidia_mma<{versionMajor = 2, versionMinor = 0, warpsPerCTA = [4, 1], instrShape = [16, 8]}>
@@ -384,6 +388,6 @@ Table: warpsPerCTA = [2, 2] 时 P·V 转换的开销
 
 到此为止，IR 的 layout 已经定下：load 用 `#blocked`、`dot` 用 `#mma` 与 `#dot_op`、epilogue 一次转换。但循环还是朴素的"load → dot → load → dot"：每次迭代等 load 完成再算。下一篇讲循环变换：软件流水怎样被分解成 `AssignLatencies`（给 load 标提前几个迭代）、`ScheduleLoops`（给每个 op 分 stage）、`Pipeline`（按调度展开：`num_stages` 个 shared memory 缓冲、`async_copy`、`async_wait`、prologue / epilogue）三步；为什么最终 TTGIR 里 `num_stages = 3` 对应两个缓冲、K = 32 被拆成两个 16 的子切片；Hopper 的 TMA 与 `wgmma` 怎样把"异步"推到硬件；warp specialization 怎样把 load 与 MMA 交给不同的 warp；Blackwell 的 `tcgen05` 与 TMEM；以及 Gluon——把这一切交回给程序员的显式 layout 语言。
 
-[^q0]: 一端是 `tt.dot`：`isLayoutAnchor` 对 `DotOpInterface` 返回真，它的结果 layout 是 `#mma`——Tensor Core 指令 `mma.m16n8k16` 的 C fragment 在各 lane 寄存器里的硬件规定布局，任何 pass 不能改；`canBeRemat` 对 `dot` 返回假，后向重物化的切片到它就断，无法把 `truncf(acc)` 在 `#blocked1` 下重算。另一端是 `tt.store`：张量 16384 个元素 ≥ 128 线程，`isExpensiveLoadOrStore` 为真，是锚点，layout 是 Coalesce 按 AxisInfo 选的 `#blocked1 = <{[1, 8], [2, 16], [4, 1]}>`——每线程 8 个连续 bf16 一条 128 bit store。两个锚之间只有 `truncf`，前向传播让它收到两个 layout，冲突消解规则对非访存 op 偏向 `#mma`，于是转换落在 store 的操作数处；`hoistConvertOnTopOfExtOrBroadcast` 把它排在 `truncf` 之后（搬 bf16 而非 f32）。第七篇 §四.6 的判定：`#mma` 的行低位在 lane 位、`#blocked1` 的行在 lane 高位与 warp 位，`quotient(warp)` 失败，只能走 shared memory——`ttg.shared = 32768` 就是它的 scratch。详见[第二章 §2、§4](#二removelayoutconversions)与[第五章 §1](#五剩下的那一个)。
+[^q0]: 一端是 `tt.dot`：`isLayoutAnchor` 对 `DotOpInterface` 返回真，它的结果 layout 是 `#mma`——Tensor Core 指令 `mma.m16n8k16` 的 C fragment 在各 lane 寄存器里的硬件规定布局，任何 pass 不能改；`canBeRemat` 对 `dot` 返回假，后向重物化的切片到它就断，无法把 `truncf(acc)` 在 `#blocked1` 下重算。另一端是 `tt.store`：张量 16384 个元素 ≥ 128 线程，`isExpensiveLoadOrStore` 为真，是锚点，layout 是 Coalesce 按 AxisInfo 选的 `#blocked1 = <{[1, 8], [2, 16], [4, 1]}>`——每线程 8 个连续 bf16 一条 128 bit store。两个锚之间只有 `truncf`，前向传播让它收到两个 layout，冲突消解规则对非访存 op 偏向 `#mma`，于是转换落在 store 的操作数处；`hoistConvertOnTopOfExtOrBroadcast` 把它排在 `truncf` 之后（搬 bf16 而非 f32）。[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html) §四.6 的判定：`#mma` 的行低位在 lane 位、`#blocked1` 的行在 lane 高位与 warp 位，`quotient(warp)` 失败，只能走 shared memory——`ttg.shared = 32768` 就是它的 scratch。详见[第二章 §2、§4](#二removelayoutconversions)与[第五章 §1](#五剩下的那一个)。
 
 [^q1]: 因为 `mma.m16n8k16` 的 C fragment 与 A fragment 在 **lane 位上完全相同**：两者都是 lane 高 3 位选 8 行、低 2 位选相邻列对，差别只在寄存器位（C 的两个 n-tile 对应 A 一个 k16 的两半）。所以 `#mma → #dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>` 的 `minimalCvtLayout` 能把 `warp` 与 `lane` 都 `quotient` 掉、只剩 `register`，`cvtReordersRegisters` 为真——每个线程自己重排寄存器，零 shared memory、零 barrier。第五章 §3 的实验证实：`warpsPerCTA = [4, 1]` 下该转换 lower 出的代码里 `st.shared` 与 `nvvm.barrier` 都是 0，而同一张量到 `#blocked` 是 8 条 `st.shared.v4` 加 3 个 barrier。条件是 4 个 warp 全在 M 上：`#dot_op` 的 A 要求每个 warp 持有自己 M 块的**全部 K**，若第一个 dot 用 `[2, 2]` 把 N（第二个 dot 的 K）分到两个 warp，同一实验变成 8 条 `st.shared` 加 15 个 barrier。`warpsPerTileV2` 检测到链式 dot 时把所有 warp 放在 M 上（`{numWarps, 1}`），正是为了保住这条寄存器级路径——这就是 FlashAttention 在 Triton 里 P 不落 shared memory 的机制。详见[第五章 §3](#五剩下的那一个)。
