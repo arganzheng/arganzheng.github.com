@@ -293,7 +293,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 <aside class="notes" markdown="1">
 原文 /triton-compiler-lowering-tritongpu-to-llvm.html。
 结论原文：张量 → 每线程 struct；`applyLinearLayout` 把基向量 XOR 成地址算术；`load` 按 `vec` 发谓词 `ld.global.vN`；`reduce` 三级由规约维落在 register / lane / warp 位决定；`convert_layout` 三条路；`AllocateSharedMemory` **着色复用**；`Membar` 区间相交插 barrier——**TTGIR 里一个 barrier 都没有**。
-补充要点：`mma.sync` 是内联汇编——LLVM 对它无知（第二篇）
+补充要点：`mma.sync` 是内联汇编——LLVM 对它无知（见《LLVM》那一篇）
 </aside>
 
 ---
@@ -381,6 +381,27 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 ---
 
+## 另一条贯穿线：产物只有四档寿命
+
+| 寿命 | 典型的东西 | 后果 |
+|---|---|---|
+| 一个 pass 内 | AxisInfo、Membar 的读写区间、重物化的代价估算 | 看不到，只能用专门的打印开关现场重算 |
+| 一次编译内 | TTIR / TTGIR、layout、提示属性、shared 偏移 | 下降到 LLVM 时整体消失 |
+| 按 hash 落盘 | `.ttir` … `.cubin`、34 字段元数据 | key 不变就一直命中，跨进程跨机器 |
+| 永久 | pass 的 `.cpp` / `.td`、lit 测试 | 唯一会被下一个人读到的东西 |
+
+**IR 只记结果，不记理由**——所以定位靠逐 pass dump 加二分，而不是读日志
+
+<aside class="notes" markdown="1">
+这张表是排障方法的根据。`MLIR_ENABLE_DUMP` 做的事，就是把第二档临时拍成第三档（每个 pass 之后落一份 IR），二分法建立在这一点上；第一档根本没法「存下来再看」。
+「改了没生效」有两个相反的版本：第三档太长（改了 `.cpp` 没重建，`libtriton.so` 哈希不变，命中旧 cubin）；第一档太短（改了提示但分析结论没变，而你看不到分析本身）。
+用户能写进第二档的只有 `tl.multiple_of` 一族的提示属性，它不是断言——写错了不报错，直接生成错位的向量访存。
+第四档是唯一留给下一个人的：一个 pass 的决定只在 lit 测试里被写成可执行的事实，这就是 Triton PR 必须带 lit 测试的原因。
+详见系列总结 §三.3。
+</aside>
+
+---
+
 ## 常见误区（一）
 
 - 「Triton 编译器决定寄存器数」——`ptxas` 决定
@@ -421,7 +442,7 @@ def add(x_ptr, y_ptr, n, BLOCK: tl.constexpr):
 
 ## 下一步
 
-- **往上**：《GPU Kernel 工程》第 7 篇——Triton 的使用侧与边界；《PyTorch 深度实践》第 7 篇——Inductor 生成的正是 Triton
-- **往下**：《GPU Kernel 工程》第 6 篇——`mma` / `ldmatrix` / swizzle 手写版
-- **实践**：《参与 AI-Infra 开源》——第 13 篇的工作台在 Triton PR 里怎么用
+- **往上**：《GPU Kernel 工程》的《Triton——块级编程与编译器的边界》——使用侧与边界；《PyTorch 深度实践》的《编译执行与图优化》——Inductor 生成的正是 Triton
+- **往下**：《GPU Kernel 工程》的《Tensor Core、CUTLASS 与 CuTe》——`mma` / `ldmatrix` / swizzle 的手写版
+- **实践**：《AI-Infra 开源贡献指南》——《编译器开发者的工作台》那一套在真实 Triton PR 里怎么用
 - 原文总纲：`/ml-compiler-internals.html`；通关自测在系列总结
