@@ -154,6 +154,7 @@ lora:
   level: 2
   name: LoRA 专题：SFT 的默认微调方式
   overview: /lora-for-sft-from-low-rank-hypothesis-to-serving.html
+  slides: /slides/lora.html
   roadmap: ai-algorithm
   number: 8
 efficient-inference:
