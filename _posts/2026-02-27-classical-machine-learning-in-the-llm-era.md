@@ -19,27 +19,27 @@ catalog: true
 
 所以这一层的价值不在"模型"而在**方法论**。本系列不按教科书的顺序复述算法，而是反过来：把 LLM 工作里实际出现的经典机器学习列出来，每一处从概念本身讲起（假设读者没学过），说明它在 LLM 上的重现、要懂到什么程度、以及一个用 scikit-learn 几十行就能跑出来的数字。
 
-举一个例子说明这个系列的取法。"奖励模型会过拟合、导致 reward hacking"是 L5 里一句常见的话；本系列第一篇先用 30 个点拟合一条正弦曲线把**过拟合**本身画出来（多项式次数从 1 到 25，训练误差一路降、验证误差在次数 15 之后飙升），再讲奖励模型为什么是过拟合的典型（8B 参数的特征提取器 + 几万对偏好数据），最后指出经典解法——更多数据、正则化（RLHF 的 KL 项）、早停、集成——每一条在 L5 里的对应物。第三篇再用逻辑回归拟合一个 Bradley-Terry 模型，看到"奖励模型的 loss 就是逻辑回归的 loss 作用在分差上"，并把标注噪声从小调到大，看模型准确率始终贴着标注一致率的上限走。
+举一个例子说明这个系列的取法。"奖励模型会过拟合、导致 reward hacking"是 L5 里一句常见的话；本系列的[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)先用 30 个点拟合一条正弦曲线把**过拟合**本身画出来（多项式次数从 1 到 25，训练误差一路降、验证误差在次数 15 之后飙升），再讲奖励模型为什么是过拟合的典型（8B 参数的特征提取器 + 几万对偏好数据），最后指出经典解法——更多数据、正则化（RLHF 的 KL 项）、早停、集成——每一条在 L5 里的对应物。[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)再用逻辑回归拟合一个 Bradley-Terry 模型，看到"奖励模型的 loss 就是逻辑回归的 loss 作用在分差上"，并把标注噪声从小调到大，看模型准确率始终贴着标注一致率的上限走。
 
 系列覆盖的范围可以概括为一张"重现表"：
 
 | 经典概念 | 在 LLM 工作里的重现 | 在哪一篇 |
 |---|---|---|
-| 训练 / 验证 / 测试集划分、测试集泄漏 | benchmark 污染：测试题混进预训练语料；在同一 benchmark 上反复调参 | 第一篇 |
-| 过拟合与欠拟合 | 奖励模型过拟合 → reward hacking；SFT 多 epoch 后的记忆 | 第一篇 |
-| 偏差 - 方差权衡、集成 | 多次采样投票（self-consistency）、多个 judge 取平均、模型融合（model soup） | 第一篇 |
-| 正则化 | weight decay、dropout、RLHF 里的 KL 惩罚（把参考模型当先验） | 第一篇 |
-| 线性回归、梯度下降、Ridge / Lasso | 学习率上限与条件数<br/>weight decay 就是 Ridge<br/>Lasso 的稀疏 | 第二篇 |
-| 逻辑回归、softmax 回归 | 每个分类头的原型<br/>语言模型的输出层<br/>奖励模型 = 特征提取器（LLM）+ 逻辑回归头 | 第三篇 |
-| 朴素贝叶斯、KNN、决策树 | 词袋文本分类<br/>embedding 检索、few-shot 示例选择<br/>可解释的规则 | 第四篇 |
-| SVM 与核方法 | 间隔思想（margin loss）；核 = 相似度加权——attention 是一个核平滑器 | 第五篇 |
-| 随机森林、梯度提升 | 表格数据仍是首选<br/>数据质量打分的特征模型<br/>为什么用小模型 | 第六篇 |
-| 聚类 | 数据多样性分析、按主题配比、找垃圾簇 | 第七篇 |
-| 降维（PCA） | embedding 可视化<br/>各向异性<br/>低秩直觉 | 第八篇 |
-| MinHash 与 LSH | 万亿 token 的近似去重；三层去重 | 第九篇 |
-| 精确率 / 召回率 / F1 / AUC | 过滤器的漏放与误杀、奖励模型与 judge 的评估 | 第十篇 |
-| 类别不平衡、校准、Cohen's κ | 过滤器对少数类文本的误杀<br/>模型输出概率是否可信<br/>judge 的一致性 | 第十篇 |
-| 交叉验证、置信区间、配对检验、多重比较 | 评测集怎么划、MMLU 的 ±0.8、A/B 差异是否显著、20 个 benchmark 领先 12 个算不算 | 第十篇 |
+| 训练 / 验证 / 测试集划分、测试集泄漏 | benchmark 污染：测试题混进预训练语料；在同一 benchmark 上反复调参 | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| 过拟合与欠拟合 | 奖励模型过拟合 → reward hacking；SFT 多 epoch 后的记忆 | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| 偏差 - 方差权衡、集成 | 多次采样投票（self-consistency）、多个 judge 取平均、模型融合（model soup） | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| 正则化 | weight decay、dropout、RLHF 里的 KL 惩罚（把参考模型当先验） | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| 线性回归、梯度下降、Ridge / Lasso | 学习率上限与条件数<br/>weight decay 就是 Ridge<br/>Lasso 的稀疏 | [《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html) |
+| 逻辑回归、softmax 回归 | 每个分类头的原型<br/>语言模型的输出层<br/>奖励模型 = 特征提取器（LLM）+ 逻辑回归头 | [《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html) |
+| 朴素贝叶斯、KNN、决策树 | 词袋文本分类<br/>embedding 检索、few-shot 示例选择<br/>可解释的规则 | [《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) |
+| SVM 与核方法 | 间隔思想（margin loss）；核 = 相似度加权——attention 是一个核平滑器 | [《SVM 与核方法》](/svm-and-kernel-methods.html) |
+| 随机森林、梯度提升 | 表格数据仍是首选<br/>数据质量打分的特征模型<br/>为什么用小模型 | [《集成》](/ensembles-random-forest-and-gradient-boosting.html) |
+| 聚类 | 数据多样性分析、按主题配比、找垃圾簇 | [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
+| 降维（PCA） | embedding 可视化<br/>各向异性<br/>低秩直觉 | [《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html) |
+| MinHash 与 LSH | 万亿 token 的近似去重；三层去重 | [《去重》](/deduplication-minhash-and-lsh-probabilities.html) |
+| 精确率 / 召回率 / F1 / AUC | 过滤器的漏放与误杀、奖励模型与 judge 的评估 | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 类别不平衡、校准、Cohen's κ | 过滤器对少数类文本的误杀<br/>模型输出概率是否可信<br/>judge 的一致性 | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 交叉验证、置信区间、配对检验、多重比较 | 评测集怎么划、MMLU 的 ±0.8、A/B 差异是否显著、20 个 benchmark 领先 12 个算不算 | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 
 Table: 经典机器学习概念在 LLM 工作里的重现表
 
@@ -96,11 +96,11 @@ SVM 与 LDA 退场了，但"测试集只能看一次"、"参数远多于样本�
 
 ### 做数据工程的人
 
-预训练数据的质量过滤、去重、配比、多样性分析，每一件都是经典机器学习在万亿 token 上的工程化。第六、七、九篇直接对应。
+预训练数据的质量过滤、去重、配比、多样性分析，每一件都是经典机器学习在万亿 token 上的工程化。[《集成》](/ensembles-random-forest-and-gradient-boosting.html)、[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)与[《去重》](/deduplication-minhash-and-lsh-probabilities.html)直接对应。
 
 ### 要做评测、要读实验结果的人
 
-第十篇讲评估的全部工具：混淆矩阵、阈值权衡、AUC、校准、Cohen's κ、置信区间、配对检验、多重比较——以及每一个在 LLM 评测里的陷阱。
+[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)讲齐了评估工具：混淆矩阵、阈值权衡、AUC、校准、Cohen's κ、置信区间、配对检验、多重比较——以及每一个在 LLM 评测里的陷阱。
 
 
 ## 系列的整体主线
@@ -122,12 +122,12 @@ SVM 与 LDA 退场了，但"测试集只能看一次"、"参数远多于样本�
 
 Table: 十篇的主题与内容
 
-监督学习按输出分两大类——**回归**（预测一个连续值：房价 320 万、这条回答得 7.3 分）与**分类**（预测一个类别：是 / 不是垃圾邮件、这道题答对 / 答错）。两类各有一篇打底：第二篇的线性回归是回归的原型——"特征加权求和"直接当预测值；第三篇的逻辑回归虽然名字里有"回归"，做的是**分类**——它把同样的加权和再过一个 sigmoid 函数（把任意实数压到 0～1 之间的 S 形曲线，第三篇第二章画它）变成"属于正类的概率"。这里先记住这一对区别就够，两篇会各自从零讲起。回归这一侧只有第二篇一篇专讲，但不是只有线性回归。主流的回归算法有五类：
+监督学习按输出分两大类——**回归**（预测一个连续值：房价 320 万、这条回答得 7.3 分）与**分类**（预测一个类别：是 / 不是垃圾邮件、这道题答对 / 答错）。两类各有一篇打底：[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)讲的是回归的原型——"特征加权求和"直接当预测值；[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)讲的逻辑回归虽然名字里有"回归"，做的是**分类**——它把同样的加权和再过一个 sigmoid 函数（把任意实数压到 0～1 之间的 S 形曲线，[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)第二章画它）变成"属于正类的概率"。这里先记住这一对区别就够，两篇会各自从零讲起。回归这一侧只有[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)一篇专讲，但不是只有线性回归。主流的回归算法有五类：
 
-1. **线性回归**及其正则版本 Ridge / Lasso——第二篇；
-2. **回归树**（CART）：每片叶子输出落进这一格的样本均值——第六篇，梯度提升的每一棵都是回归树；
-3. **树的集成**：随机森林回归、梯度提升（GBDT、XGBoost、LightGBM）——第六篇，梯度提升就是在一个一维回归问题上手写的；
-4. **KNN 回归与核回归**：取相近样本的值做平均或按相似度加权——第五篇讲核回归，它和 attention 是同一个公式；
+1. **线性回归**及其正则版本 Ridge / Lasso——[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)；
+2. **回归树**（CART）：每片叶子输出落进这一格的样本均值——[《集成》](/ensembles-random-forest-and-gradient-boosting.html)，梯度提升的每一棵都是回归树；
+3. **树的集成**：随机森林回归、梯度提升（GBDT、XGBoost、LightGBM）——[《集成》](/ensembles-random-forest-and-gradient-boosting.html)，梯度提升就是在一个一维回归问题上手写的；
+4. **KNN 回归与核回归**：取相近样本的值做平均或按相似度加权——[《SVM 与核方法》](/svm-and-kernel-methods.html)讲核回归，它和 attention 是同一个公式；
 5. **支持向量回归**（SVR）：把 SVM 的"间隔"换成一条宽 ε 的管道，管道内的误差不计——本系列不展开。
 
 LLM 时代真正常用的回归问题——奖励模型打分、scaling law 拟合——用的正是第 1 类线性模型与它的变体。
@@ -212,7 +212,7 @@ Table: 贯穿十篇的三条线索：概念、数字、LLM 里的对应
 
 ### 4. 三个基础分类器：朴素贝叶斯、KNN 与决策树
 
-第四篇看三个思路完全不同的分类器，并给出七个分类器在同一份数据上的地图（与第五、六篇共用）。
+第四篇看三个思路完全不同的分类器，并给出七个分类器在同一份数据上的地图（[《SVM 与核方法》](/svm-and-kernel-methods.html)和[《集成》](/ensembles-random-forest-and-gradient-boosting.html)沿用这张地图）。
 
 这一篇会覆盖：
 
@@ -356,7 +356,7 @@ Table: 各篇配套脚本做的事
 
 案例脚本（`case_01_housing_split.py` … `case_10_bank_marketing.py`）对应上面"各篇的真实数据案例"那张表，数据下载与缓存在 `_data.py`。
 
-二十个脚本跑完、改过参数，L2 就够了。最值得改着玩的三个：第三篇的奖励模型（把标注噪声调大，看准确率贴着上限走）、第六篇的梯度提升（把学习率调到 1.0 看它过拟合）、第十篇的配对检验（把分歧题数调小，看显著性消失）。
+二十个脚本跑完、改过参数，L2 就够了。最值得改着玩的三个：[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)的奖励模型（把标注噪声调大，看准确率贴着上限走）、[《集成》](/ensembles-random-forest-and-gradient-boosting.html)的梯度提升（把学习率调到 1.0 看它过拟合）、[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)的配对检验（把分歧题数调小，看显著性消失）。
 
 与它平行的阅读线：
 
@@ -376,14 +376,21 @@ Table: 各篇平行的阅读线
 
 ### 前置要求
 
-- [L0 数学](/math-for-ai-algorithm-engineers.html)：第二篇的范数（Ridge / Lasso）、第三篇的 SVD（PCA）、第四篇的贝叶斯公式、第五篇的交叉熵、第六篇的 Bradley-Terry、第七篇的梯度下降、第八篇的置信区间；
-- [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)第一篇：NumPy 与 Pandas 的基本操作；scikit-learn 的接口（`fit` / `predict` / `score`）在本系列第一篇出现时用一段话介绍。
+- [L0 数学](/math-for-ai-algorithm-engineers.html)：
+  - [《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)的范数（Ridge / Lasso）
+  - [《正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的 SVD（PCA）
+  - [《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)的贝叶斯公式
+  - [《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)的交叉熵
+  - [《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)的 Bradley-Terry
+  - [《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)的梯度下降
+  - [《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)的置信区间
+- [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)的[《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html)：NumPy 与 Pandas 的基本操作；scikit-learn 的接口（`fit` / `predict` / `score`）在本系列的[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)里用一段话介绍。
 
 不要求：学过任何机器学习课程；有 GPU。
 
 ### 版本与基线
 
-- scikit-learn 1.x 的接口；数据全部是它自带的小数据集（乳腺癌 569 条、手写数字 1797 条）或合成数据（`make_classification` 等）；第七、八篇的句向量与权重谱用本地缓存的 Qwen2.5-0.5B（CPU 可跑）；
+- scikit-learn 1.x 的接口；数据全部是它自带的小数据集（乳腺癌 569 条、手写数字 1797 条）或合成数据（`make_classification` 等）；[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)与[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)的句向量与权重谱用本地缓存的 Qwen2.5-0.5B（CPU 可跑）；
 - 引用的真实数字：FineWeb 的去重参数（$$b = 14, r = 8$$）与 FineWeb-Edu 的分数阈值、Llama-3-8B 的参数量、Chinchilla 的 $$D / N \approx 20$$；
 - 各篇深化的小节（手算、反例、实现层对照）与配套子实验在 2026 年 10 月补入，新输出追加在 `expected/` 对应文件末尾、旧记录原样保留；少数病态问题（高次多项式、近奇异设计矩阵）的数字随 BLAS / 平台会变，正文已逐处说明；
 - 论文引用以第一作者与年份标注。
@@ -410,16 +417,16 @@ Table: 各篇平行的阅读线
 
 | 问题 | 答案在 |
 |---|---|
-| benchmark 涨了 5 个点，是真的还是泄漏？ | 第一篇：测试集只能看一次、n-gram 检测；第十篇：置信区间与配对 |
-| `weight_decay=0.1`、学习率发散、要不要标准化——这些配置在做什么？ | 第二篇：Ridge = weight decay、$$2/\lambda_{\max}$$、条件数 |
-| 奖励模型准确率 80% 为什么 RL 还钻空子？上限在哪？ | 第一篇：过拟合；第三篇：标注一致性 |
-| RAG 为什么是 KNN？attention 为什么是核回归？ | 第四篇：检索与维度灾难；第五篇：核 = 相似度加权 |
-| 数据过滤为什么用 fastText 而不是 LLM？阈值怎么定？ | 第六篇：算力账；第十篇：精确率 / 召回率 |
-| 这批语料里有什么主题？某个主题占太多怎么发现？ | 第七篇：聚类 |
-| 为什么任意两句的余弦都在 0.7 以上？LoRA 的低秩假设从哪来？ | 第八篇：各向异性、有效维度 |
-| Jaccard 0.7 视为重复是怎么来的？ | 第九篇：S 曲线在 0.685 过 50% |
-| judge 与人一致率 80% 够不够？长度偏好怎么消？ | 第十篇：κ、系统误差 |
-| "20 个 benchmark 领先 12 个"算不算领先？ | 第十篇：多重比较，随机期望 10 ± 2.2 |
+| benchmark 涨了 5 个点，是真的还是泄漏？ | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：测试集只能看一次、n-gram 检测；[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：置信区间与配对 |
+| `weight_decay=0.1`、学习率发散、要不要标准化——这些配置在做什么？ | [《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)：Ridge = weight decay、$$2/\lambda_{\max}$$、条件数 |
+| 奖励模型准确率 80% 为什么 RL 还钻空子？上限在哪？ | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：过拟合；[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)：标注一致性 |
+| RAG 为什么是 KNN？attention 为什么是核回归？ | [《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)：检索与维度灾难；[《SVM 与核方法》](/svm-and-kernel-methods.html)：核 = 相似度加权 |
+| 数据过滤为什么用 fastText 而不是 LLM？阈值怎么定？ | [《集成》](/ensembles-random-forest-and-gradient-boosting.html)：算力账；[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：精确率 / 召回率 |
+| 这批语料里有什么主题？某个主题占太多怎么发现？ | [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
+| 为什么任意两句的余弦都在 0.7 以上？LoRA 的低秩假设从哪来？ | [《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)：各向异性、有效维度 |
+| Jaccard 0.7 视为重复是怎么来的？ | [《去重》](/deduplication-minhash-and-lsh-probabilities.html)：S 曲线在 0.685 过 50% |
+| judge 与人一致率 80% 够不够？长度偏好怎么消？ | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：κ、系统误差 |
+| "20 个 benchmark 领先 12 个"算不算领先？ | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：多重比较，随机期望 10 ± 2.2 |
 
 Table: 读完经典机器学习系列后应能回答的问题
 
@@ -431,8 +438,8 @@ Table: 读完经典机器学习系列后应能回答的问题
 
 [^q0]: 至少这些：奖励模型训两个 epoch 后 RL 开始钻空子 = **过拟合**；benchmark 涨 5 个点结果测试题在训练数据里 = **测试集泄漏**；judge 给长回答打高分 = **评估偏差**；数据过滤器把某类文本全滤掉 = 分类器的**类别不平衡 / 阈值**问题；weight decay = Ridge；attention = 核回归；奖励模型 = 逻辑回归作用在分差上；embedding 各向异性 = 降维前要中心化；去重阈值 = MinHash 的 S 曲线。经典解法基本仍成立——更多数据、正则化（RLHF 的 KL 项）、早停、集成、去污染、校准、分层抽样——变的是规模与成本：不能对 8B 的奖励模型做 10 折交叉验证，所以更依赖小规模消融与置信区间。
 [^q1]: `lstsq` 解的是正规方程 $$X^\top X w = X^\top y$$，即最小二乘的闭式解 $$w = (X^\top X)^{-1}X^\top y$$（数值上用 SVD / QR 而不是求逆）。梯度下降的步数由条件数决定：特征尺度差异大 → $$X^\top X$$ 的最大 / 最小特征值比大 → 沿平坦方向要走几百步；学习率超过 $$2/\lambda_{\max}$$ 就沿最陡方向振荡发散，所以要标准化特征、或用自适应步长。`weight_decay=0.1` 就是 Ridge：对 $$L_2$$ 正则 $$\lambda\lVert w\rVert^2$$ 求导得到每步让 $$w$$ 乘 $$(1-\eta\lambda)$$ 的「衰减」，闭式解变成 $$(X^\top X + \lambda I)^{-1}X^\top y$$；AdamW 把这一项从梯度里拿出来单独作用于参数，与在 loss 里加 $$L_2$$ 在 Adam 下不等价。
-[^q2]: 把线性输出过一个 sigmoid $$\sigma(z)=1/(1+e^{-z})$$ 压到 $$(0,1)$$，并把 loss 从平方误差换成对数损失（伯努利的负对数似然），这就是逻辑回归。奖励模型就是它：Bradley-Terry 假设 $$P(y_w \succ y_l)=\sigma(r(y_w)-r(y_l))$$，pairwise loss $$-\log\sigma(r_w - r_l)$$ 正是逻辑回归的 loss 作用在**分差**上，特征提取器换成了 8B 参数的 Transformer。准确率到 80% 就上不去，是因为它贴着标注一致率的上限走：人与人的偏好一致率本身只有 70–80%，标签里的噪声不可学，第三篇把标注噪声从小调到大，模型准确率始终跟着一致率走。
-[^q3]: 朴素在条件独立假设：给定类别，假设各特征（词）互相独立，于是 $$p(x\mid c)=\prod_i p(x_i\mid c)$$，参数只需数词频——假设明显不真（词之间强相关），但分类结果常常仍对，因为只要排序对就行。不训练的分类器 KNN（看最近的 $$k$$ 个邻居投票）在 LLM 工作里到处都是，因为 embedding 检索、few-shot 示例选择、去重判定、RAG 的 top-k 本质上都是 KNN——它的全部成本在推理时的距离计算与索引。决策树一定过拟合是因为它可以一直分裂直到每个叶子只剩一个样本、训练误差为零——深度不限的树是零偏差高方差模型，所以要剪枝、限深，或者用第六篇的集成把方差平均掉。
+[^q2]: 把线性输出过一个 sigmoid $$\sigma(z)=1/(1+e^{-z})$$ 压到 $$(0,1)$$，并把 loss 从平方误差换成对数损失（伯努利的负对数似然），这就是逻辑回归。奖励模型就是它：Bradley-Terry 假设 $$P(y_w \succ y_l)=\sigma(r(y_w)-r(y_l))$$，pairwise loss $$-\log\sigma(r_w - r_l)$$ 正是逻辑回归的 loss 作用在**分差**上，特征提取器换成了 8B 参数的 Transformer。准确率到 80% 就上不去，是因为它贴着标注一致率的上限走：人与人的偏好一致率本身只有 70–80%，标签里的噪声不可学，[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)把标注噪声从小调到大，模型准确率始终跟着一致率走。
+[^q3]: 朴素在条件独立假设：给定类别，假设各特征（词）互相独立，于是 $$p(x\mid c)=\prod_i p(x_i\mid c)$$，参数只需数词频——假设明显不真（词之间强相关），但分类结果常常仍对，因为只要排序对就行。不训练的分类器 KNN（看最近的 $$k$$ 个邻居投票）在 LLM 工作里到处都是，因为 embedding 检索、few-shot 示例选择、去重判定、RAG 的 top-k 本质上都是 KNN——它的全部成本在推理时的距离计算与索引。决策树一定过拟合是因为它可以一直分裂直到每个叶子只剩一个样本、训练误差为零——深度不限的树是零偏差高方差模型，所以要剪枝、限深，或者把多棵树集成起来平均掉方差（见[《集成》](/ensembles-random-forest-and-gradient-boosting.html)）。
 [^q4]: 因为在所有能分开训练集的直线里，离两类最近样本都最远的那条（最大间隔）对扰动最不敏感，泛化误差的上界只依赖间隔而不依赖维度——这是统计学习理论给出的理由；间隔只由少数支持向量决定。核技巧：SVM 的解只用到样本间的内积 $$\langle x_i, x_j\rangle$$，把它换成核函数 $$K(x_i,x_j)$$ 就等价于在一个（可能无限维的）特征空间里画直线，而从不显式计算那个空间的坐标——计算量仍是 $$O(n^2)$$ 个核值。attention 与核回归的关系：Nadaraya-Watson 核回归 $$\hat y(q)=\sum_i \frac{K(q,k_i)}{\sum_j K(q,k_j)} v_i$$，取 $$K=\exp(q^\top k/\sqrt d)$$ 就是 softmax attention——attention 是以 query 为中心、用指数核加权的核回归。
 [^q5]: 单棵深树是低偏差、高方差；对 $$B$$ 棵在不同 bootstrap 样本与随机特征子集上训出的树取平均，偏差不变、方差按 $$\rho\sigma^2 + (1-\rho)\sigma^2/B$$ 下降（树之间相关性 $$\rho$$ 越低降得越多）——这就是随机森林不过拟合的原因。梯度提升叫「梯度」是因为每棵新树拟合的是当前 loss 对预测值的负梯度（平方损失下就是残差），整个过程是在函数空间里做梯度下降。预训练数据过滤用 fastText 与 GBDT 而不是 LLM，是算力账：要给 240T token 的网页打分，fastText 每秒几十万文档、GBDT 在几十个统计特征上同样便宜，而一个 LLM 过一遍 240T token 的成本与预训练本身同量级；LLM 只用来给几十万条样本打标签，再训小分类器去过滤全量。
 [^q6]: PCA 求的是中心化数据协方差矩阵 $$X^\top X/n$$ 的特征向量；对 $$X=U\Sigma V^\top$$ 做 SVD，$$X^\top X = V\Sigma^2 V^\top$$，所以右奇异向量 $$V$$ 就是主成分、奇异值平方正比于方差——SVD 直接给出 PCA 且数值更稳。4096 维 embedding 「看」靠降维到二维（PCA 看全局方差方向，t-SNE / UMAP 看局部邻域）；二维图上的距离**不能**直接信——t-SNE / UMAP 只保局部邻域、簇间距离与簇大小没有意义，PCA 的两个分量通常只解释百分之几的方差。任意两句话余弦都在 0.7 以上是 embedding 的**各向异性**：所有向量挤在一个窄锥里、共享一个大的公共分量，所以要先减均值 / 白化（或用对比学习训练的模型），再比余弦才有区分度。
