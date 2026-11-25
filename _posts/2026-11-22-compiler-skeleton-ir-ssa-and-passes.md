@@ -95,8 +95,8 @@ Table: javac 与 HotSpot 各是哪一段
 
 两点对照到 ML 编译器时特别有用：
 
-- **IR 是可以序列化、跨进程的**：`.class` 文件就是被写到磁盘上的 IR。Triton 的编译缓存（第十一篇）保存的 `.ttir` / `.ttgir` / `.llir` 文件是同一回事——IR 的文本形式。
-- **JIT 与 AOT 的区别在"何时"而不在"怎么"**：C2 和 native-image 用的是同一套优化，只是一个在运行时（有 profile、有实参类型）、一个在构建时。`torch.compile` 和 Triton 都是 JIT——在第一次调用时才知道 shape、dtype 和 `constexpr` 的值，编译器拿这些值做特化，这是它们比 AOT 的 nvcc 多出的一块信息（第五篇）。
+- **IR 是可以序列化、跨进程的**：`.class` 文件就是被写到磁盘上的 IR。Triton 的编译缓存（[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)）保存的 `.ttir` / `.ttgir` / `.llir` 文件是同一回事——IR 的文本形式。
+- **JIT 与 AOT 的区别在"何时"而不在"怎么"**：C2 和 native-image 用的是同一套优化，只是一个在运行时（有 profile、有实参类型）、一个在构建时。`torch.compile` 和 Triton 都是 JIT——在第一次调用时才知道 shape、dtype 和 `constexpr` 的值，编译器拿这些值做特化，这是它们比 AOT 的 nvcc 多出的一块信息（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）。
 
 ### 3. nvcc：两级后端
 
@@ -118,7 +118,7 @@ flowchart LR
     class nvvm,ptx ir
 ```
 
-它有**两级后端**：LLVM 的 NVPTX 后端把 IR 编成 PTX，PTX 是一种虚拟指令集（有无限多寄存器、与具体 GPU 代际无关）；`ptxas` 再把 PTX 编成某一代 GPU 的真实机器码 SASS，寄存器分配、指令调度这些"真正的后端工作"发生在 `ptxas` 里。这个结构决定了后面几篇的一个事实：**Triton 生成的 LLVM IR 和 PTX 里都没有寄存器数量的概念，spill 是 `ptxas` 决定的**（第二篇、第十一篇）。Triton 复用的是这张图的后半段——从 NVVM IR 往右，与 nvcc 完全相同；它替换的是前半段：前端不是 C++ 的 EDG 而是 Python 的 `ast`，中端在进入 LLVM 之前多了两层张量级的 IR（TTIR、TTGIR）。
+它有**两级后端**：LLVM 的 NVPTX 后端把 IR 编成 PTX，PTX 是一种虚拟指令集（有无限多寄存器、与具体 GPU 代际无关）；`ptxas` 再把 PTX 编成某一代 GPU 的真实机器码 SASS，寄存器分配、指令调度这些"真正的后端工作"发生在 `ptxas` 里。这个结构决定了后面几篇的一个事实：**Triton 生成的 LLVM IR 和 PTX 里都没有寄存器数量的概念，spill 是 `ptxas` 决定的**（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)、[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)）。Triton 复用的是这张图的后半段——从 NVVM IR 往右，与 nvcc 完全相同；它替换的是前半段：前端不是 C++ 的 EDG 而是 Python 的 `ast`，中端在进入 LLVM 之前多了两层张量级的 IR（TTIR、TTGIR）。
 
 ## 三、IR 的形态
 
@@ -178,7 +178,7 @@ flowchart TB
     inc --> cond
 ```
 
-五个基本块，一条回边（`for.inc → for.cond`）。循环在 CFG 里就是"有回边的强连通子图"——这个定义后面会用到：**CFG 上的 IR 已经丢掉了"这是一个 for 循环"这一信息**，循环要靠分析（找回边、找支配关系）重新发现。MLIR 的 `scf.for` 之所以存在，就是为了不丢这个信息（第三篇）。
+五个基本块，一条回边（`for.inc → for.cond`）。循环在 CFG 里就是"有回边的强连通子图"——这个定义后面会用到：**CFG 上的 IR 已经丢掉了"这是一个 for 循环"这一信息**，循环要靠分析（找回边、找支配关系）重新发现。MLIR 的 `scf.for` 之所以存在，就是为了不丢这个信息（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）。
 
 ### 3. 用 clang 看一段 `-O0` 的 LLVM IR
 
@@ -238,8 +238,8 @@ for.end:                                          ; preds = %for.cond
 1. ① 四个 `alloca`：前端给每个局部变量（包括两个参数）在栈上开一个槽。`s`、`i` 在 IR 里不是值，而是**内存地址**；对它们的每次读写都是显式的 `load` / `store`。这是 `-O0` 的 IR 最显眼的特点，也是下一章 SSA 要消掉的东西。
 2. ② `br label %for.cond`：无条件跳转。每个基本块以一条终结指令（`br` / `ret` / `switch` …）结束，这是"单出口"的形式化。
 3. ③ `for.cond` 后面的注释 `preds = %for.inc, %entry` 是 CFG 的边：这个块有两个前驱。LLVM IR 的文本形式直接把 CFG 打印出来了。
-4. ④ `getelementptr inbounds i32, ptr %2, i64 %idxprom`：地址计算 `a + i * sizeof(int)`。LLVM 不用整数乘法表达地址，而用一条专门的指令，让优化器知道"这是在做指针算术、元素类型是 `i32`"。Triton 的 `tt.addptr` 是同一个设计（第五篇）。
-5. ⑤ `mul nsw i32 %4, 2`：`nsw`（no signed wrap）是前端从 C 语义得到的"有符号溢出是未定义行为"，传给优化器当作可以利用的假设。IR 上的这种标记（LLVM 叫 flag 和 attribute，MLIR 叫 attribute）是前端把源语言知识传给中端的通道——Triton 前端标在函数参数上的 `tt.divisibility = 16` 就是这种通道（第六篇）。
+4. ④ `getelementptr inbounds i32, ptr %2, i64 %idxprom`：地址计算 `a + i * sizeof(int)`。LLVM 不用整数乘法表达地址，而用一条专门的指令，让优化器知道"这是在做指针算术、元素类型是 `i32`"。Triton 的 `tt.addptr` 是同一个设计（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）。
+5. ⑤ `mul nsw i32 %4, 2`：`nsw`（no signed wrap）是前端从 C 语义得到的"有符号溢出是未定义行为"，传给优化器当作可以利用的假设。IR 上的这种标记（LLVM 叫 flag 和 attribute，MLIR 叫 attribute）是前端把源语言知识传给中端的通道——Triton 前端标在函数参数上的 `tt.divisibility = 16` 就是这种通道（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）。
 6. ⑥ 每次循环，`s` 被 `load` 一次、`store` 一次。语义上正确，但如果就这样生成机器码，`s` 就真的每次迭代都要经过内存。
 
 ### 4. IR 的三个设计维度
@@ -249,14 +249,14 @@ for.end:                                          ; preds = %for.cond
 | 维度 | 一端 | 另一端 | 例子 |
 |---|---|---|---|
 | 抽象层级 | 接近源语言：张量、循环、函数调用 | 接近机器：寄存器、地址、跳转 | TTIR（张量）→ LLVM IR（标量 / 向量）→ PTX（虚拟寄存器）→ SASS |
-| 控制流表示 | 结构化：循环、分支是带"体"的节点 | 非结构化：基本块 + 跳转 | MLIR 的 `scf.for` / `scf.if` vs LLVM 的 `br`；Triton 到 `make_llir` 才做 `scf → cf` 的转换（第十篇） |
+| 控制流表示 | 结构化：循环、分支是带"体"的节点 | 非结构化：基本块 + 跳转 | MLIR 的 `scf.for` / `scf.if` vs LLVM 的 `br`；Triton 到 `make_llir` 才做 `scf → cf` 的转换（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)） |
 | 数据结构 | 线性序列（指令有顺序） | 图（指令是节点，只有依赖边，没有顺序） | LLVM IR、MLIR 是线性的；HotSpot C2 的 Sea of Nodes、TVM Relax 的 dataflow block 是图 |
 
 Table: IR 的三个设计维度
 
 抽象层级决定了**能做什么优化**：在张量层能做算子融合，因为"这两个 op 都是逐元素的"是一眼可见的；到了标量层，同一个信息埋在两个循环嵌套里，要用多面体分析才能找回来。控制流表示决定了**循环优化的成本**：结构化 IR 上"循环体"就是一个 Region，非结构化 IR 上要先用支配关系找出自然循环。数据结构决定了**调度自由度**：图 IR 上指令没有顺序，调度是后端的事；线性 IR 上顺序是语义的一部分，重排要证明合法。
 
-LLVM IR 在这三个维度上各选了一端：低层、非结构化、线性。这在 2003 年是正确的——它的目标是做 C / C++ 的通用后端。MLIR（第三篇）的出发点正是让每个维度都可以选：抽象层级由方言决定，控制流可以结构化也可以不结构化，同一个基础设施承载所有层。
+LLVM IR 在这三个维度上各选了一端：低层、非结构化、线性。这在 2003 年是正确的——它的目标是做 C / C++ 的通用后端。MLIR（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）的出发点正是让每个维度都可以选：抽象层级由方言决定，控制流可以结构化也可以不结构化，同一个基础设施承载所有层。
 
 ## 四、SSA
 
@@ -313,7 +313,7 @@ for.end:                                          ; preds = %for.cond
 
 `alloca` 全部消失，`s` 和 `i` 变成了循环头的两个 φ：`%s.0 = phi i32 [ 0, %entry ], [ %add, %for.inc ]` 读作"`s.0` 在从 `entry` 进入时是 0，从 `for.inc` 进入时是上一轮算出的 `%add`"。整个函数里再没有一条 `load` / `store` 作用在局部变量上，只剩下对数组 `a` 的那一条真正的内存读。
 
-前端为什么不直接生成 SSA，而要先 `alloca` 再靠 `mem2reg`？因为**生成正确的 φ 需要知道 CFG 的支配关系**（§3），而前端逐条翻译语法树时 CFG 还没建完。"先用内存、再提升"把两件事解耦：前端只管翻译，SSA 构造交给一个通用 pass。这个模式在 MLIR 里同样存在——很多前端先生成 `memref.alloca` + `memref.load/store`，再靠 `mem2reg` 类的 pass 提升。Triton 的前端是例外：它在生成 IR 时就直接产出 SSA，靶子是结构化控制流——每个 Python 变量名在 `CodeGenerator` 里对应"当前的 SSA 值"，遇到 `for` 时先把循环体**空跑一遍**看哪些名字的值变了，变了的就是循环携带值，作为 `scf.for` 的 iter_args 传进去（第五篇 `_find_carries`）。结构化控制流让它不需要算支配边界：汇合点只有 `scf.for` / `scf.if` 的出口这几个固定位置。
+前端为什么不直接生成 SSA，而要先 `alloca` 再靠 `mem2reg`？因为**生成正确的 φ 需要知道 CFG 的支配关系**（§3），而前端逐条翻译语法树时 CFG 还没建完。"先用内存、再提升"把两件事解耦：前端只管翻译，SSA 构造交给一个通用 pass。这个模式在 MLIR 里同样存在——很多前端先生成 `memref.alloca` + `memref.load/store`，再靠 `mem2reg` 类的 pass 提升。Triton 的前端是例外：它在生成 IR 时就直接产出 SSA，靶子是结构化控制流——每个 Python 变量名在 `CodeGenerator` 里对应"当前的 SSA 值"，遇到 `for` 时先把循环体**空跑一遍**看哪些名字的值变了，变了的就是循环携带值，作为 `scf.for` 的 iter_args 传进去（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) `_find_carries`）。结构化控制流让它不需要算支配边界：汇合点只有 `scf.for` / `scf.if` 的出口这几个固定位置。
 
 ### 3. 为什么 SSA 让一切变简单
 
@@ -368,7 +368,7 @@ flowchart TB
 
 φ 的放置规则（Cytron 等人 1991 年的算法）：**对变量 v，在 v 的每个定义所在块的支配边界（及其迭代闭包）放 φ**。`s` 在 `entry` 和 `for.body` 各有一个定义，DF(entry) ∪ DF(for.body) = {for.cond}，所以 `s` 的 φ 恰好放一个，在 `for.cond`。`n` 只在入口定义，DF(entry) 为空，不放 φ。这就是 `mem2reg` 输出里 φ 的位置和数量的来源。
 
-支配树的用处远不止放 φ。"A 支配 B"意味着"在 A 里成立的事实，到 B 仍然成立"（中间没有别的路径进来）——这让沿支配树遍历做分析成为可能：LLVM 的 `GVN`、`EarlyCSE` 都是沿支配树走的；MLIR 的 `DominanceInfo` 是 pattern rewrite 里判断"能不能把这个值挪到那里用"的依据（第四篇）；Triton 的 `RemoveLayoutConversions` 在把 `convert_layout` 沿 def-use 链推动时，也要用支配关系保证被推到的位置能看到所需的值（第八篇）。
+支配树的用处远不止放 φ。"A 支配 B"意味着"在 A 里成立的事实，到 B 仍然成立"（中间没有别的路径进来）——这让沿支配树遍历做分析成为可能：LLVM 的 `GVN`、`EarlyCSE` 都是沿支配树走的；MLIR 的 `DominanceInfo` 是 pattern rewrite 里判断"能不能把这个值挪到那里用"的依据（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)）；Triton 的 `RemoveLayoutConversions` 在把 `convert_layout` 沿 def-use 链推动时，也要用支配关系保证被推到的位置能看到所需的值（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）。
 
 ### 5. SSA 的退出：φ 消除
 
@@ -378,11 +378,11 @@ flowchart TB
 
 HotSpot C2 和 Graal 用的 IR 叫 **Sea of Nodes**（Cliff Click，1995）。它把 SSA 推到极致：不但值是节点、use-def 是边，**控制流也是节点和边**——没有基本块，`if` 是一个节点，两个分支是它的两条控制输出边，φ 变成一个"根据控制输入选值"的 Region 节点。指令之间只有依赖边、没有顺序，所以"把一条指令移出循环"不需要显式移动——它本来就没有位置，只要它不依赖循环内的值，调度时自然会被放到循环外。
 
-代价是**调度**变成了一个必须做的步骤（要给节点分配基本块和顺序才能生成代码），而且 IR 难以打印和阅读——这是 Sea of Nodes 没有成为主流的原因之一。LLVM 和 MLIR 都选了线性 IR：指令有顺序，可读、可打印、可 diff（lit 测试正是建立在文本形式上的，第十三篇）。MLIR 保留了一点图的味道：Op 之间没有隐式的顺序依赖时，pass 可以自由移动它们，判断依据是 `MemoryEffects` 接口（第三篇）。
+代价是**调度**变成了一个必须做的步骤（要给节点分配基本块和顺序才能生成代码），而且 IR 难以打印和阅读——这是 Sea of Nodes 没有成为主流的原因之一。LLVM 和 MLIR 都选了线性 IR：指令有顺序，可读、可打印、可 diff（lit 测试正是建立在文本形式上的，[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)）。MLIR 保留了一点图的味道：Op 之间没有隐式的顺序依赖时，pass 可以自由移动它们，判断依据是 `MemoryEffects` 接口（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）。
 
 ### 7. MLIR 的选择：Block 参数代替 φ
 
-预告第三篇的一个细节：MLIR 没有 φ 指令。它用**基本块参数**（block arguments）表达同一件事——一个块可以像函数一样声明参数，跳转到它的每个前驱在跳转指令里传实参：
+预告[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)的一个细节：MLIR 没有 φ 指令。它用**基本块参数**（block arguments）表达同一件事——一个块可以像函数一样声明参数，跳转到它的每个前驱在跳转指令里传实参：
 
 ```text title="MLIR 的块参数"
   cf.br ^loop(%c0, %c0 : i32, i32)       // 跳到 ^loop，传 s=0, i=0
@@ -391,7 +391,7 @@ HotSpot C2 和 Graal 用的 IR 叫 **Sea of Nodes**（Cliff Click，1995）。�
   cf.br ^loop(%s_next, %i_next : i32, i32)
 ```
 
-这与 φ 等价（φ 的每个 `[value, pred]` 对应一个前驱的一个实参），但把"谁传了什么"放在跳转指令上而不是目标块的开头，避免了 φ 的两个别扭之处：φ 必须放在块的最前面、多个 φ 之间的语义是"并行赋值"而不是顺序执行。更重要的是，结构化控制流的 `scf.for` 用同一套机制表达**循环携带值**（iter_args）：循环体的 Region 有一个 Block，它的参数就是本轮的 `s` 和 `i`；`scf.yield` 传出的值就是下一轮的参数。Triton 的 `for` 循环里的累加器（`acc = tl.dot(a, b, acc)`）在 TTIR 里正是 `scf.for` 的 iter_arg（第五篇）。
+这与 φ 等价（φ 的每个 `[value, pred]` 对应一个前驱的一个实参），但把"谁传了什么"放在跳转指令上而不是目标块的开头，避免了 φ 的两个别扭之处：φ 必须放在块的最前面、多个 φ 之间的语义是"并行赋值"而不是顺序执行。更重要的是，结构化控制流的 `scf.for` 用同一套机制表达**循环携带值**（iter_args）：循环体的 Region 有一个 Block，它的参数就是本轮的 `s` 和 `i`；`scf.yield` 传出的值就是下一轮的参数。Triton 的 `for` 循环里的累加器（`acc = tl.dot(a, b, acc)`）在 TTIR 里正是 `scf.for` 的 iter_arg（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）。
 
 ## 五、数据流分析
 
@@ -423,6 +423,10 @@ flowchart TB
     more -- "否" --> done
 ```
 
+> [!NOTE] Java 经验参照：「变量可能尚未初始化」就是一次数据流分析
+> 这四个要素对 Java 工程师不是新东西，只是以前没叫这个名字。`javac` 拒绝编译「variable s might not have been initialized」时，跑的正是一个前向 must 分析（JLS 第 16 章的 definite assignment）：格是「已确定赋值 / 未必赋值」，传递函数是每条语句对这个事实的影响，汇合取交集——所以 `if` 只有一个分支赋了值就不算。同一章的 definite unassignment 管 `final` 变量不被赋两次。
+> 它也带着数据流分析共同的性质：**保守**。`if (true) s = 1;` 之后 `javac` 认为 `s` 已赋值（常量条件被特判），但把 `true` 换成一个值恒为真的 `boolean` 变量就不认——分析不会去证明那个变量恒真，宁可报错也不放过。Triton 的 `AxisInfo` 在同一个意义上保守：推不出对齐就当成 1，于是少一次向量化，但不会生成错的访存。差别在于代价的方向：`javac` 保守的后果是编译失败，编译器优化里保守的后果是慢。
+
 ### 2. 实例：活跃变量
 
 **活跃**（live）：变量 v 在程序点 p 活跃，如果从 p 出发存在一条路径，在 v 被重新赋值之前读了 v。它是后向、may（并集）分析：
@@ -443,7 +447,7 @@ flowchart TB
 
 Table: sum 函数活跃变量分析的不动点
 
-结论：`for.end` 的入口只有 `s` 活跃——`a`、`n`、`i` 在循环结束后没人再读。用途：寄存器分配要知道哪些值同时活跃（同时活跃的值不能共用寄存器）；死代码消除要知道一个赋值之后变量是否还活跃（不活跃的赋值可以删）。Triton 的 `AllocateSharedMemory`（第十篇）对 shared memory 缓冲区做的是同一件事：算每个缓冲区的活跃区间，区间不重叠的可以共用同一段偏移。
+结论：`for.end` 的入口只有 `s` 活跃——`a`、`n`、`i` 在循环结束后没人再读。用途：寄存器分配要知道哪些值同时活跃（同时活跃的值不能共用寄存器）；死代码消除要知道一个赋值之后变量是否还活跃（不活跃的赋值可以删）。Triton 的 `AllocateSharedMemory`（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）对 shared memory 缓冲区做的是同一件事：算每个缓冲区的活跃区间，区间不重叠的可以共用同一段偏移。
 
 ### 3. 实例：常量传播与它的格
 
@@ -459,7 +463,7 @@ Table: sum 函数活跃变量分析的不动点
 
 汇合：两条路径都说是 5，合并得 5；一条说 5、一条说 7，合并得 ⊤；任何值与 ⊥ 合并得那个值（⊥ 是"还没有信息"，不是"有冲突"）。传递函数：`c = a + b` 在 a、b 都是常量时得到常量，否则 ⊤。
 
-在 SSA 上这个分析可以做成**稀疏**的（sparse）：不用沿 CFG 逐块传播，只沿 use-def 边传播——一个值的格元素改变时，只需重新计算它的直接使用者。LLVM 的 `SCCP`（Sparse Conditional Constant Propagation）就是这样，它还顺带把"条件恒为真"的分支另一边标成不可达。MLIR 把这个模式做成了框架：`SparseForwardDataFlowAnalysis` 让你只定义格和传递函数，传播由框架做（第四篇）。**Triton 的 `AxisInfo` 就是这个框架上的一个分析**：格元素是每一维的（divisibility, contiguity, constancy）三元组，join 取最保守值，传递函数是每种 op 的规则（第六篇）。
+在 SSA 上这个分析可以做成**稀疏**的（sparse）：不用沿 CFG 逐块传播，只沿 use-def 边传播——一个值的格元素改变时，只需重新计算它的直接使用者。LLVM 的 `SCCP`（Sparse Conditional Constant Propagation）就是这样，它还顺带把"条件恒为真"的分支另一边标成不可达。MLIR 把这个模式做成了框架：`SparseForwardDataFlowAnalysis` 让你只定义格和传递函数，传播由框架做（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)）。**Triton 的 `AxisInfo` 就是这个框架上的一个分析**：格元素是每一维的（divisibility, contiguity, constancy）三元组，join 取最保守值，传递函数是每种 op 的规则（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）。
 
 ### 4. 精度、代价与"保守正确"
 
@@ -474,7 +478,7 @@ Table: sum 函数活跃变量分析的不动点
 
 Table: 分析精度的几个维度
 
-编译器是在编译时间和结果质量之间选点。JIT 编译器（C2、Triton）有额外的手段：**特化**。C2 拿 profile 里"这个虚调用 99% 是 `ArrayList`"做推测性内联；Triton 拿实参"这个整数是 16 的倍数"直接标成 IR 上的事实，分析从一个更精确的起点出发（第五、六篇）。
+编译器是在编译时间和结果质量之间选点。JIT 编译器（C2、Triton）有额外的手段：**特化**。C2 拿 profile 里"这个虚调用 99% 是 `ArrayList`"做推测性内联；Triton 拿实参"这个整数是 16 的倍数"直接标成 IR 上的事实，分析从一个更精确的起点出发（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)与[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）。
 
 ## 六、经典优化，每个在 `opt` 上跑一遍
 
@@ -502,7 +506,7 @@ define i32 @f(i32 %x) {
 }
 ```
 
-五条指令剩一条：`3 + 4` 被折成 7，`x * 8` 变成 `x << 3`（强度削减：乘 2 的幂变移位），`(x*8 + 7) - 7` 抵消成 `x << 3`。`instcombine` 是 LLVM 里模式匹配式优化的集大成者：几千条"看到这个形状就改成那个形状"的规则。MLIR 的 canonicalization pattern、Triton 的 `Combine` pass 是同一类东西（第四、五篇）。
+五条指令剩一条：`3 + 4` 被折成 7，`x * 8` 变成 `x << 3`（强度削减：乘 2 的幂变移位），`(x*8 + 7) - 7` 抵消成 `x << 3`。`instcombine` 是 LLVM 里模式匹配式优化的集大成者：几千条"看到这个形状就改成那个形状"的规则。MLIR 的 canonicalization pattern、Triton 的 `Combine` pass 是同一类东西（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)与[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）。
 
 ### 2. 公共子表达式消除与 GVN
 
@@ -529,7 +533,7 @@ define i32 @g(i32 %x, i32 %y) {
 }
 ```
 
-`%c` 与 `%a` 是同一个运算作用在同一对 SSA 值上，`%c` 的所有使用被替换成 `%a`，然后 `%d` 也和 `%b` 相同，`%e = add %b, %d` 变成 `add %b, %b`。`early-cse` 沿支配树走一遍、用哈希表记住见过的表达式；`gvn`（全局值编号）更强，能处理跨分支的等价。Triton 的流水线里 `add_cse` 出现了四次，`LoopAwareCSE` 是它的循环感知版本——每次大变换之后都要再消一遍重复（`make_ttgir` 的顺序见第七、八篇）。
+`%c` 与 `%a` 是同一个运算作用在同一对 SSA 值上，`%c` 的所有使用被替换成 `%a`，然后 `%d` 也和 `%b` 相同，`%e = add %b, %d` 变成 `add %b, %b`。`early-cse` 沿支配树走一遍、用哈希表记住见过的表达式；`gvn`（全局值编号）更强，能处理跨分支的等价。Triton 的流水线里 `add_cse` 出现了四次，`LoopAwareCSE` 是它的循环感知版本——每次大变换之后都要再消一遍重复（`make_ttgir` 的顺序见[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)与[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）。
 
 ### 3. 死代码消除
 
@@ -551,7 +555,7 @@ define i32 @h(i32 %x) {
 }
 ```
 
-`%unused` 没有使用者且没有副作用，删掉。"没有副作用"由指令类型决定：`mul` 没有，`store` 和 `call` 有（除非标了 `readnone` 等属性）。MLIR 把这件事做成了接口：Op 声明自己的 `MemoryEffects`，`Pure` trait 表示既无副作用又不读内存；通用的 DCE 只看接口不看具体 Op（第三篇）。`symbol-dce` 是它的模块级版本：删掉没人引用的函数——Triton 内联所有子函数之后跑它，把已经被内联的原函数删掉。
+`%unused` 没有使用者且没有副作用，删掉。"没有副作用"由指令类型决定：`mul` 没有，`store` 和 `call` 有（除非标了 `readnone` 等属性）。MLIR 把这件事做成了接口：Op 声明自己的 `MemoryEffects`，`Pure` trait 表示既无副作用又不读内存；通用的 DCE 只看接口不看具体 Op（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）。`symbol-dce` 是它的模块级版本：删掉没人引用的函数——Triton 内联所有子函数之后跑它，把已经被内联的原函数删掉。
 
 ### 4. 循环不变量外提
 
@@ -621,7 +625,7 @@ define i32 @m(i32 %a) {
 }
 ```
 
-调用被替换成函数体的副本（`%r.i` 的 `.i` 后缀是内联器给复制进来的值加的），`@sq` 因为是 `internal` 且不再被引用而被删掉。内联本身不省多少时间，它的价值是**打开优化的边界**：内联之后 `%x` 就是 `%a`，其他所有分析都能穿过原来的函数调用。C2 的性能大半来自内联（这也是为什么方法大小超过 `FreqInlineSize` 会显著影响性能）。Triton 走极端：`make_ttir` 的第一个 pass 是 inliner，**把所有 `@triton.jit` 子函数内联进 kernel**，之后的所有分析和优化都不需要考虑函数调用——AxisInfo 不需要过程间传播、layout 不需要跨函数一致（第五篇）。
+调用被替换成函数体的副本（`%r.i` 的 `.i` 后缀是内联器给复制进来的值加的），`@sq` 因为是 `internal` 且不再被引用而被删掉。内联本身不省多少时间，它的价值是**打开优化的边界**：内联之后 `%x` 就是 `%a`，其他所有分析都能穿过原来的函数调用。C2 的性能大半来自内联（这也是为什么方法大小超过 `FreqInlineSize` 会显著影响性能）。Triton 走极端：`make_ttir` 的第一个 pass 是 inliner，**把所有 `@triton.jit` 子函数内联进 kernel**，之后的所有分析和优化都不需要考虑函数调用——AxisInfo 不需要过程间传播、layout 不需要跨函数一致（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）。
 
 ### 6. 一张表
 
@@ -656,7 +660,7 @@ Table: 经典优化、依赖的分析与三家实现
 
 Table: LLVM pass 的粒度
 
-MLIR 把这个分级泛化成"作用在任意一种 Op 上"：`OperationPass<ModuleOp>`、`OperationPass<func::FuncOp>`，或者作用在任何带 Region 的 Op 上——因为在 MLIR 里模块、函数、循环都只是 Op（第四篇）。
+MLIR 把这个分级泛化成"作用在任意一种 Op 上"：`OperationPass<ModuleOp>`、`OperationPass<func::FuncOp>`，或者作用在任何带 Region 的 Op 上——因为在 MLIR 里模块、函数、循环都只是 Op（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)）。
 
 pass 又分两类：**analysis** 只计算信息不改 IR（支配树、活跃变量、AxisInfo），**transformation** 改 IR。两者的关系是依赖与失效：一个 transform pass 可以请求一个 analysis 的结果（如果算过就直接用缓存），改完 IR 之后要声明自己**保留**了哪些 analysis（LLVM 的 `PreservedAnalyses`）——没保留的会被丢弃，下次有人要就重算。这是 pass 基础设施最容易出 bug 的地方：一个 pass 改了 CFG 却声称保留了支配树，下一个 pass 拿着过时的支配树做出错误的移动。MLIR 的做法更保守：默认所有 analysis 在 pass 之后全部失效，除非显式 `markAnalysesPreserved`。
 
@@ -683,11 +687,11 @@ def make_ttir(mod, metadata, opt, capability):
     return mod
 ```
 
-读法与 `-O2` 完全一样：先内联（打开边界），Hopper 之前的架构把张量描述符改写成普通指针（那些架构没有 TMA），规范化，Triton 特有的模式组合（`dot + add → dot(acc)` 等），广播重排，消重，删掉被内联的函数，展开被标注的循环。`make_ttgir` 是同样形状的三十多行，`make_llir` 又是二十多行——**读懂一个 MLIR 编译器，第一件事就是找到这个列表**。第五到第十篇按这个列表的顺序走。
+读法与 `-O2` 完全一样：先内联（打开边界），Hopper 之前的架构把张量描述符改写成普通指针（那些架构没有 TMA），规范化，Triton 特有的模式组合（`dot + add → dot(acc)` 等），广播重排，消重，删掉被内联的函数，展开被标注的循环。`make_ttgir` 是同样形状的三十多行，`make_llir` 又是二十多行——**读懂一个 MLIR 编译器，第一件事就是找到这个列表**。读 Triton 源码的六篇（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)到[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）按这个列表的顺序走。
 
 ### 3. 观察 pipeline：print-after-all
 
-pass manager 提供的最重要的调试手段是**在每个 pass 之后打印 IR**：LLVM 的 `-print-after-all`，MLIR 的 `--mlir-print-ir-after-all`，Triton 的 `MLIR_ENABLE_DUMP=1`。有了它，"哪个 pass 把这个 load 从 128 bit 变成了 32 bit"变成一个二分查找：找到 IR 第一次变坏的位置。第十三篇讲这套方法的完整流程。
+pass manager 提供的最重要的调试手段是**在每个 pass 之后打印 IR**：LLVM 的 `-print-after-all`，MLIR 的 `--mlir-print-ir-after-all`，Triton 的 `MLIR_ENABLE_DUMP=1`。有了它，"哪个 pass 把这个 load 从 128 bit 变成了 32 bit"变成一个二分查找：找到 IR 第一次变坏的位置。[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)讲这套方法的完整流程。
 
 ## 八、lowering 与渐进式下降
 
@@ -710,7 +714,7 @@ Table: 每一层表示 sum 循环的方式与丢掉的信息
 
 理论上前端可以直接生成机器码。实际没有编译器这么做，因为一步到位意味着**所有优化都要在同一层做**，而没有一层同时拥有所有需要的信息。所以是**渐进式下降**（progressive lowering）：多层 IR，每层做适合它的优化，然后下降一层。
 
-LLVM 的历史局限是它**只有一层**中端 IR：所有前端都要把自己的高层语义压平到 LLVM IR 才能用它的优化，压平的时候高层信息就丢了——clang 丢掉了 C++ 的对象模型（所以 C++ 特有的优化只能在 clang 前端里做），Swift 为此在 LLVM IR 之上加了一层 SIL，Rust 加了 MIR，Julia 加了自己的 SSA IR。每个项目重新发明一遍 IR 基础设施——打印、解析、验证、pass manager、pattern rewrite——这正是 MLIR 要解决的问题（第三篇）。
+LLVM 的历史局限是它**只有一层**中端 IR：所有前端都要把自己的高层语义压平到 LLVM IR 才能用它的优化，压平的时候高层信息就丢了——clang 丢掉了 C++ 的对象模型（所以 C++ 特有的优化只能在 clang 前端里做），Swift 为此在 LLVM IR 之上加了一层 SIL，Rust 加了 MIR，Julia 加了自己的 SSA IR。每个项目重新发明一遍 IR 基础设施——打印、解析、验证、pass manager、pattern rewrite——这正是 MLIR 要解决的问题（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）。
 
 Triton 的分层是这条原则的直接应用：
 
@@ -730,7 +734,7 @@ flowchart TB
     class ttgir hot
 ```
 
-TTIR 和 TTGIR 之间的那条线是 Triton 最重要的设计决定：**layout 什么时候进入 IR**。太早，AxisInfo 这类与 layout 无关的分析要在每种 layout 上重做；太晚，layout 相关的优化没有位置做。Triton 的选择是 `ConvertTritonToTritonGPU` 这一步（第七篇）——它之前的一切都不知道线程存在，它之后的一切都以 layout 为中心。
+TTIR 和 TTGIR 之间的那条线是 Triton 最重要的设计决定：**layout 什么时候进入 IR**。太早，AxisInfo 这类与 layout 无关的分析要在每种 layout 上重做；太晚，layout 相关的优化没有位置做。Triton 的选择是 `ConvertTritonToTritonGPU` 这一步（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)）——它之前的一切都不知道线程存在，它之后的一切都以 layout 为中心。
 
 ### 3. 抽象层次与"对的那一层"
 
@@ -754,9 +758,9 @@ Triton 的用户能影响第二个（写 Gluon 或加 `tl.multiple_of` 提示）
 
 它做不到的：
 
-1. **算子融合**：如果 `t = a * b` 和 `out = t + c` 是两个分开的循环嵌套，把它们合成一个（省掉 `t` 的一次写和一次读）需要证明两个循环的迭代空间相同、`t` 在别处没有使用者、合并后的访存顺序合法。这在标量 CFG 上是**多面体分析**（polyhedral analysis）的课题——LLVM 有 Polly 做这件事，但它对循环的形式要求很严，稍有指针别名或非仿射下标就放弃。而在张量层，同样的信息是一眼可见的：两个 op 的输入输出 shape 相同、都是 `Pure` 的逐元素 op、`t` 只有一个使用者。Inductor 的融合决策就是在 FX / Inductor IR 的张量层做的（《PyTorch 深度实践》第七篇）。
+1. **算子融合**：如果 `t = a * b` 和 `out = t + c` 是两个分开的循环嵌套，把它们合成一个（省掉 `t` 的一次写和一次读）需要证明两个循环的迭代空间相同、`t` 在别处没有使用者、合并后的访存顺序合法。这在标量 CFG 上是**多面体分析**（polyhedral analysis）的课题——LLVM 有 Polly 做这件事，但它对循环的形式要求很严，稍有指针别名或非仿射下标就放弃。而在张量层，同样的信息是一眼可见的：两个 op 的输入输出 shape 相同、都是 `Pure` 的逐元素 op、`t` 只有一个使用者。Inductor 的融合决策就是在 FX / Inductor IR 的张量层做的（《PyTorch 深度实践》的《编译执行与图优化》）。
 2. **layout**：`a` 在内存里是行优先还是列优先、在 GPU 上每个线程持有哪些元素、要不要先转置到 shared memory——这些在标量 IR 上根本**不是一个概念**：标量 IR 只看到地址算术，不知道这些地址来自一个二维张量。Triton 把 layout 做成类型的一部分，就是为了让编译器能对它推理。
-3. **匹配矩阵指令**：`mma.sync` 一条指令算一个 16×8×16 的矩阵乘。要从三层标量循环里识别出"这是一个矩阵乘、可以用 `mma` 替换"，是模式匹配的噩梦（LLVM 有 `llvm.matrix.*` intrinsic，但那是让前端把矩阵语义传下来，不是让优化器从循环里发现）。在张量层，`tt.dot` 就是一个 op，`AccelerateMatmul` 直接为它选指令（第八篇）。
+3. **匹配矩阵指令**：`mma.sync` 一条指令算一个 16×8×16 的矩阵乘。要从三层标量循环里识别出"这是一个矩阵乘、可以用 `mma` 替换"，是模式匹配的噩梦（LLVM 有 `llvm.matrix.*` intrinsic，但那是让前端把矩阵语义传下来，不是让优化器从循环里发现）。在张量层，`tt.dot` 就是一个 op，`AccelerateMatmul` 直接为它选指令（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）。
 4. **内存规划**：张量的生命周期、原地更新、缓冲区复用，在图层是一个区间调度问题；到了标量层，每个张量已经是一个 `alloca` 或一个指针参数，编译器不再知道它们之间的关系。
 5. **自动微分与分布式切分**：这两个是"程序变换"而不是"优化"——从前向图生成反向图，或把一个张量运算切到多卡——它们只在张量层有定义。
 
@@ -764,7 +768,7 @@ Triton 的用户能影响第二个（写 Gluon 或加 `tl.multiple_of` 提示）
 
 ### 2. GPU 让问题多了一维
 
-CPU 编译器不需要决定线程映射——线程是操作系统的事，编译器只管一个线程的指令流。GPU 编译器不同：一个 kernel 是几万个线程的行为，**哪个线程算哪个元素**是编译目标的一部分。nvcc 把这个决定完全留给程序员（`threadIdx.x` 是程序员写的），编译器只优化单线程的代码；Triton 把它接过来（程序员写块级代码，编译器决定线程映射），于是需要一个能表达和推理线程映射的 IR——这就是 TTGIR 的 layout。这一维是 ML 编译器区别于传统编译器最大的地方，也是本系列第七到第十篇的全部内容。
+CPU 编译器不需要决定线程映射——线程是操作系统的事，编译器只管一个线程的指令流。GPU 编译器不同：一个 kernel 是几万个线程的行为，**哪个线程算哪个元素**是编译目标的一部分。nvcc 把这个决定完全留给程序员（`threadIdx.x` 是程序员写的），编译器只优化单线程的代码；Triton 把它接过来（程序员写块级代码，编译器决定线程映射），于是需要一个能表达和推理线程映射的 IR——这就是 TTGIR 的 layout。这一维是 ML 编译器区别于传统编译器最大的地方，也是本系列从[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)到[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)这四篇的全部内容。
 
 ### 3. 三类 ML 编译器
 
@@ -778,7 +782,7 @@ ML 编译器不是一种东西，按作用的层和输入分三类：
 
 Table: 三类 ML 编译器
 
-三类是叠着用的：Inductor（图）生成 Triton（kernel）生成 LLVM IR（后端）。本系列的主体是第二类，用第三类做地基（第二篇），第十二篇用 TVM 同时对照第一、二类。
+三类是叠着用的：Inductor（图）生成 Triton（kernel）生成 LLVM IR（后端）。本系列的主体是第二类，用第三类做地基（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)），[《TVM》](/tvm-schedule-language-and-auto-tuning.html)用 TVM 同时对照第一、二类。
 
 ### 4. 家谱
 
@@ -823,7 +827,7 @@ flowchart TB
 
 ### 5. 同一个 matmul，谁做决定
 
-预告第十二篇的对照表，这里先放三列：
+预告[《TVM》](/tvm-schedule-language-and-auto-tuning.html)的对照表，这里先放三列：
 
 | 决定 | CUDA C++（nvcc） | Triton | TVM（MetaSchedule） |
 |---|---|---|---|
@@ -836,7 +840,7 @@ flowchart TB
 
 Table: 同一个 matmul 谁做决定
 
-三者把"决定权"放在了不同的位置：nvcc 全给程序员，Triton 把中间几层交给编译器的固定策略，TVM 交给搜索。没有哪个是对的——每种放法把"可能做错"的风险放在了不同地方，第十二篇算这个账。
+三者把"决定权"放在了不同的位置：nvcc 全给程序员，Triton 把中间几层交给编译器的固定策略，TVM 交给搜索。没有哪个是对的——每种放法把"可能做错"的风险放在了不同地方，[《TVM》](/tvm-schedule-language-and-auto-tuning.html)算这个账。
 
 ## 十、本文小结
 
@@ -883,7 +887,7 @@ Table: 同一个 matmul 谁做决定
 
 ## 下一篇
 
-第一篇建立了词汇：IR、SSA、数据流分析、pass、lowering。这些词最成熟的实现是 LLVM，它也是 Triton、TVM、XLA 最后都要落到的那一层。下一篇讲 LLVM 本身：IR 的完整结构、pass manager、后端的三件事（指令选择、调度、寄存器分配），以及 GPU 特有的部分——NVPTX 后端怎样表示地址空间和 `nvvm` intrinsic，PTX 为什么是"虚拟"的，`ptxas` 作为第二个编译器决定了什么。
+这一篇建立了词汇：IR、SSA、数据流分析、pass、lowering。这些词最成熟的实现是 LLVM，它也是 Triton、TVM、XLA 最后都要落到的那一层。下一篇讲 LLVM 本身：IR 的完整结构、pass manager、后端的三件事（指令选择、调度、寄存器分配），以及 GPU 特有的部分——NVPTX 后端怎样表示地址空间和 `nvvm` intrinsic，PTX 为什么是"虚拟"的，`ptxas` 作为第二个编译器决定了什么。
 
 [^q0]: LLVM 上的优化指**标量层**的改写：`fmul + fadd → fma` 的指令组合、把最内层循环的若干次标量运算打包成 SIMD 的向量化、循环展开、不变量外提、寄存器级的复制传播——全部以"一个线程的一条指令流"为对象，依赖 SSA 的 use-def 链和 CFG 上的数据流分析。Triton 上的优化指**张量层**的改写：为 `tensor<128x64xf32>` 选每线程持有哪些元素的 layout（Coalesce）、消除 layout 转换（RemoveLayoutConversions）、把 `tt.dot` 匹配到 Tensor Core 指令（AccelerateMatmul）、把 K 循环的 load 提前若干迭代（Pipeline）、把三个逐元素 op 放进同一个 kernel 而不落回显存——以"一个块级张量运算"为对象，依赖的是 shape、layout 和 AxisInfo 这类张量级的信息。详见[第八章](#八lowering-与渐进式下降)与[第九章](#九ml-为什么需要自己的编译器)。
 
