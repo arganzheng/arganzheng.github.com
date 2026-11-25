@@ -396,7 +396,7 @@ flowchart TB
 
 ## 下一步
 
-- **算法侧**：《多模态》第 6–8 篇——DDPM、flow matching、DiT 本身
-- **往下**：《GPU Kernel 工程》第 8 篇——FlashAttention 的 block 粒度；《通信与互联》——Ulysses 的 all-to-all
+- **算法侧**：《多模态》讲扩散的那三篇——DDPM、flow matching、DiT 本身
+- **往下**：《GPU Kernel 工程》的《Attention Kernel》——FlashAttention 的 block 粒度；《通信与互联》——Ulysses 的 all-to-all
 - **往旁**：《vLLM 源码》——对照：有 KV、memory-bound、不可预测的流
 - 原文总纲：`/diffusion-model-inference-infrastructure.html`；通关自测在系列总结

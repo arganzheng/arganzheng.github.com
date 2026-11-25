@@ -41,14 +41,14 @@ flowchart TB
 loop(task):
     ctx = [system, tools, task]
     for step in 1..MAX_STEPS:                       # 卫士 ①：步数
-        resp = model(ctx)                           # 一次调用（《模型作为组件》第 2 篇的契约）
-        ctx.append(resp.message)                    # 含 thinking 块（《模型作为组件》第 3 篇）
+        resp = model(ctx)                           # 一次调用（《模型作为组件》的《API 契约（一）》）
+        ctx.append(resp.message)                    # 含 thinking 块（《模型作为组件》的《API 契约（二）》）
         if no resp.tool_calls: return resp.text     # 终止条件 A：模型说完了
         for call in resp.tool_calls:                # 可并行
             if is_repeat(call, ctx): warn(ctx)       # 卫士 ②：重复调用
             if not permitted(call): result = deny(call)   # 权限（第五篇）
             else: result = run(call, timeout=T)     # 卫士 ③：单次超时；沙箱（第五篇）
-            ctx.append(tool_result(call.id, result))       # 配对（《模型作为组件》第 2 篇）
+            ctx.append(tool_result(call.id, result))       # 配对（《模型作为组件》的《API 契约（一）》）
         if tokens(ctx) > BUDGET: compact(ctx)       # 卫士 ④：预算；压缩（第四篇）
     return partial(ctx)                             # 终止条件 B：预算耗尽，交付部分结果
 ```

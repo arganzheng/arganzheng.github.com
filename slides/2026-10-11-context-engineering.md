@@ -289,6 +289,6 @@ flowchart LR
 
 ## 下一步
 
-- **同一路线**：《模型作为组件》——契约与账是这里的前提；《检索与知识》——第六篇「上下文 vs 检索」的另一半；《工具、Agent 与 Harness》——工具返回那一层从哪来
-- **往下**：《vLLM 源码》第 5 篇——prompt caching 在引擎里就是 Prefix Cache 的块哈希
+- **同一路线**：《模型作为组件》——契约与账是这里的前提；《检索与知识》——《结构化知识》「上下文 vs 检索」的另一半；《工具、Agent 与 Harness》——工具返回那一层从哪来
+- **往下**：《vLLM 源码》的《KV Cache》——prompt caching 在引擎里就是 Prefix Cache 的块哈希
 - 原文总纲：`/prompt-and-context-engineering.html`；通关自测在系列总结

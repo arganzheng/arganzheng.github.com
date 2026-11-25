@@ -367,7 +367,7 @@ flowchart TB
 
 ## 下一步
 
-- **往上**：《PyTorch 深度实践》第 5–6 篇——Dispatcher 与自定义算子的使用侧；《Python 在 AI-Infra》——边界的另一端
+- **往上**：《PyTorch 深度实践》的《Dispatcher 与算子系统》《C++ 扩展与自定义算子》——使用侧；《Python 在 AI-Infra》——边界的另一端
 - **往下**：《GPU Kernel 工程》——kernel 本身；《ML 编译器》——生成 C++ / Triton 的那一层
 - **实践**：《参与 AI-Infra 开源》——《构建、调试与测试工具链》的工具链在真实 PR 里怎么用
 - 原文总纲：`/cpp-for-ai-infra.html`；通关自测在系列总结

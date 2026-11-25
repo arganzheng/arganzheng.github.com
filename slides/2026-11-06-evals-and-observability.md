@@ -371,6 +371,6 @@ flowchart TB
 
 ## 下一步
 
-- **同一路线**：《生产与运维》——门禁之后的发布、SLO 与 runbook；《产品与体验》——量「有用」不是「用了」；《工具、Agent 与 harness》第 9 篇——轨迹评测
-- **算法侧**：《经典机器学习》第 10 篇——校准、judge 一致率、多重比较；《后训练》第 8 篇——benchmark 的三关
+- **同一路线**：《生产与运维》——门禁之后的发布、SLO 与 runbook；《产品与体验》——量「有用」不是「用了」；《工具、Agent 与 harness》的《可靠性、评测与运营 agent》——轨迹评测
+- **算法侧**：《经典机器学习》的《评估》——校准、judge 一致率、多重比较；《后训练》的《评测》——benchmark 的三关
 - 原文总纲：`/evaluation-observability-and-traceability.html`；通关自测在系列总结

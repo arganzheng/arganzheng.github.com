@@ -487,6 +487,6 @@ flowchart TB
 
 ## 下一步
 
-- **同一路线**：《Prompt 与上下文工程》——第 4 篇压缩的应用侧；《检索与知识》——agentic retrieval 与本体；《评测与可观测》——轨迹评测与 trace；《生产与运维》——运营 agent
-- **Infra 侧**：《RL 后训练 Infra》第 6 篇——训练 agent 的 rollout 是同一个循环
+- **同一路线**：《Prompt 与上下文工程》——《上下文预算与压缩》压缩的应用侧；《检索与知识》——agentic retrieval 与本体；《评测与可观测》——轨迹评测与 trace；《生产与运维》——运营 agent
+- **Infra 侧**：《RL 后训练 Infra》的《Agentic rollout》——训练 agent 的 rollout 是同一个循环
 - 原文总纲：`/tools-agents-and-harness.html`；通关自测在系列总结

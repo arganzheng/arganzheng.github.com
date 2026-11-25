@@ -595,7 +595,7 @@ Table: CUDA 与 Ascend C 的核心映射
 
 ## 下一步
 
-- **往上**：《PyTorch 深度实践》第 6、8 篇——自定义算子怎么接入、profiler 怎么读；《vLLM 源码》——FlashAttention / PagedAttention 在引擎里的位置
+- **往上**：《PyTorch 深度实践》的《C++ 扩展与自定义算子》《性能优化与调试》——自定义算子怎么接入、profiler 怎么读；《vLLM 源码》——FlashAttention / PagedAttention 在引擎里的位置
 - **往旁**：《ML 编译器》——Triton 之后编译器还做了什么；《通信与互连》——kernel 之外的另一半时间
-- **算法侧**：《现代 LLM 结构》第 02 篇的 Roofline 是同一张图
+- **算法侧**：《现代 LLM 结构》的《前向的算量与访存量》的 Roofline 是同一张图
 - 原文总纲：`/gpu-kernel-engineering.html`；通关自测在系列总结

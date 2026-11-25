@@ -373,7 +373,7 @@ flowchart TB
 
 - **原文**：总纲 [/classical-machine-learning-in-the-llm-era.html](/classical-machine-learning-in-the-llm-era.html) · 总结与通关自测 [/classical-ml-series-recap-and-self-test.html](/classical-ml-series-recap-and-self-test.html)
 - **配套代码**：[ai-learning-labs/classical-ml](https://github.com/arganzheng/ai-learning-labs/tree/main/classical-ml)——每篇一个手写机制脚本 + 一个 `case_*.py` 真实数据案例（加州房价、垃圾短信、MNIST、泰坦尼克、Adult、RFM、Eigenfaces、wikitext 去重、银行营销）
-- **往后读**：L3 [深度学习基础](/deep-learning-foundations.html)；评估那一篇的统计工具在数学系列[第八篇](/statistical-inference-and-fitting-scaling-laws.html)
+- **往后读**：L3 [深度学习基础](/deep-learning-foundations.html)；评估那一篇的统计工具在数学系列的[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)
 
 <aside class="notes" markdown="1">
 收尾。
