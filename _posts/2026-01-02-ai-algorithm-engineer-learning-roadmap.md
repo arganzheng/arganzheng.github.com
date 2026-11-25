@@ -408,7 +408,7 @@ L0–L2 最初写成三篇导读，只回答"学到什么深度、在哪里用�
 | L1 | `algorithm-tooling/` | numpy、torch（CPU）、pandas、matplotlib；HF 一篇需 transformers / peft / trl 与 Qwen2.5-0.5B |
 | L1 深入 | `python-for-ai-infra/` | Python 3.10+ 标准库 |
 | L2 | `classical-ml/` | numpy、scikit-learn、matplotlib（《聚类》《降维》的句向量用本地缓存的 Qwen2.5-0.5B） |
-| L3 | `deep-learning-foundations/` | NumPy、PyTorch（CPU）；九篇案例脚本均可本机运行 |
+| L3 | `deep-learning-foundations/` | NumPy、PyTorch（CPU）；九篇案例脚本都能在笔记本 CPU 上跑完 |
 | L4 | `transformer-and-llm/` 与 `modern-llm-architecture/` | Transformer 原理与实现系列的 attention 手算、带 KV cache 的极小 GPT、vendored nanoGPT 与实训；现代 LLM 结构系列的参数量与成本表脚本、MTP 实验<br/>预训练系列的实验<br/>纯 Python + PyTorch |
 | L5 | `post-training/` | PyTorch + transformers / trl / peft；MPS 或 CUDA |
 | L4–L5 深入 | `hf-source-reading/` | transformers / tokenizers / datasets / peft / trl<br/>本地缓存的 Qwen2.5-0.5B 与 `no_robots`<br/>CPU 可跑 |

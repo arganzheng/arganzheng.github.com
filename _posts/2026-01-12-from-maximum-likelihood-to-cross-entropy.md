@@ -324,7 +324,7 @@ Table: 同一组 logits，直接算 softmax 溢出成 NaN，先减最大值则�
 
 ### 4. logits 的差与"自信"
 
-回到第六章：随机初始化的模型 logits 差不多大，softmax 接近均匀，loss ≈ $$\ln V$$。训练让正确 token 的 logit 比其他的高出几个单位，概率就压到它上面。用缓存在本机的 GPT-2（1.24 亿参数）看两个真实位置（`sampling` 段）：
+回到第六章：随机初始化的模型 logits 差不多大，softmax 接近均匀，loss ≈ $$\ln V$$。训练让正确 token 的 logit 比其他的高出几个单位，概率就压到它上面。用 GPT-2（1.24 亿参数）看两个真实位置（`sampling` 段）：
 
 | 前文 | 第一名 token | 它的概率 | 前十名合计 | 累计到 90% 需要多少个 token |
 |---|---|---:|---:|---:|
