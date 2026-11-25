@@ -9,7 +9,7 @@ date: 2026-12-04 20:00:00
 updated: 2026-11-23
 ---
 
-十三篇正文回答了总纲提出的一个问题：**一段块级的张量程序，怎样一步步变成一条条 GPU 指令，中间每一个决定是哪个 pass 凭什么分析做的。** 前四篇讲通用机制（IR / SSA / pass、LLVM、MLIR 的结构与变换），中间七篇顺着 Triton v3.8.0 的编译流水线自上而下逐站打开（前端、AxisInfo、layout、layout 优化、流水与异步、下降到 LLVM、缓存与运行时），第十二篇用 TVM 做对照，第十三篇讲工作台。全部真实 IR 在一台没有 NVIDIA GPU 的 Mac 上跑出来。这一篇不讲新内容：总表、逐篇回顾、贯穿的线、误区、三段式自测，最后是 Infra 地图的收束。
+十三篇正文回答了总纲提出的一个问题：**一段块级的张量程序，怎样一步步变成一条条 GPU 指令，中间每一个决定是哪个 pass 凭什么分析做的。** 前四篇讲通用机制（IR / SSA / pass、LLVM、MLIR 的结构与变换），中间七篇顺着 Triton v3.8.0 的编译流水线自上而下逐站打开（前端、AxisInfo、layout、layout 优化、流水与异步、下降到 LLVM、缓存与运行时），[《TVM》](/tvm-schedule-language-and-auto-tuning.html)用 TVM 做对照，[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)讲工作台。全部真实 IR 在一台没有 NVIDIA GPU 的 Mac 上跑出来。这一篇不讲新内容：总表、逐篇回顾、贯穿的线、误区、三段式自测，最后是 Infra 地图的收束。
 
 > **读完这十三篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -40,7 +40,7 @@ Table: 十三篇的核心问题、结论与必记
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：每篇的结论与常见误解，并回答总纲的分章问题 |
-| 三 | 贯穿十三篇的几条线与概念表 |
+| 三 | 贯穿十三篇的五条线、产物的四档寿命与概念表 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | Infra 地图的收束与下一步，以及延伸阅读 |
@@ -152,14 +152,44 @@ matmul kernel（`[128, 128, 32]`、bf16、`num_warps = 4`、`num_stages = 3`、`
 
 Table: 一个 matmul kernel 的完整路径
 
-### 2. 四条线
+### 2. 五条线
 
-- **IR + pass + lowering**：每一站都是"读 IR 的某种信息 → 做一个决定 → 写回 IR"；信息在哪一层还在，决定就要在哪一层做（第一篇 §八 → 第七篇把 layout 放进类型 → 第九篇把 `scf` 保留到最后）。
+- **IR + pass + lowering**：每一站都是"读 IR 的某种信息 → 做一个决定 → 写回 IR"；信息在哪一层还在，决定就要在哪一层做（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八 → [《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)把 layout 放进类型 → [《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)把 `scf` 保留到最后）。
 - **局部改写 + 前后隔离 + 全局清理**：Coalesce、AccelerateMatmul、`ConvertTritonToTritonGPU` 都只改自己的 op、用 `convert_layout` 隔离，`RemoveLayoutConversions` 统一收拾——每个 pass 保持简单，正确性靠 verifier 与不变量。
-- **接口让分析与 op 解耦**：LICM 不认识 `scf.for`（第三篇），`Membar` 不认识 `cp.async`（第十篇），AMD 后端复用全部 layout pass（第十一篇）——靠 `LoopLikeOpInterface`、`MemoryEffectsOpInterface`、`DistributedEncodingTrait`。
-- **谁决定**：从 XLA / Inductor（编译器全决定）到 Triton（用户定 tile）到 TVM 调度 / CUTLASS / Gluon（用户全决定）是一条轴；风险随位置移动；每个系统都在补另一端（第十二篇 §九）。
+- **接口让分析与 op 解耦**：LICM 不认识 `scf.for`（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)），`Membar` 不认识 `cp.async`（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)），AMD 后端复用全部 layout pass（[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)）——靠 `LoopLikeOpInterface`、`MemoryEffectsOpInterface`、`DistributedEncodingTrait`。
+- **谁决定**：从 XLA / Inductor（编译器全决定）到 Triton（用户定 tile）到 TVM 调度 / CUTLASS / Gluon（用户全决定）是一条轴；风险随位置移动；每个系统都在补另一端（[《TVM》](/tvm-schedule-language-and-auto-tuning.html) §九）。
+- **每样东西活多久**：分析结果只活在一个 pass 里、IR 与 layout 活一次编译、落盘产物按 hash 跨进程、仓库里的 lit 测试永久——而「为什么这么决定」从来不留痕。排障时手上能有什么证据，完全由这条线决定（下一节）。
 
-### 3. 概念表
+### 3. 一次编译产出的东西，只有四档寿命
+
+前面十三篇出现过的每一样东西，按「活多久」归类只有四档，外加一类从来不留痕的：
+
+| 寿命档 | 具体是什么 | 谁产出 | 什么时候没的 | 哪一篇讲 |
+|---|---|---|---|---|
+| 只活在一个 pass 里 | AxisInfo 的三元组（contiguity / divisibility / constancy） | `AxisInfoAnalysis` | IR 一改就失效，留下的只有它影响过的 layout 与向量宽度 | 06 |
+| ^^ | shared memory 的活跃区间与着色结果 | `AllocateSharedMemory` | 写出偏移之后即弃 | 10 |
+| ^^ | 读写区间（`BlockInfo`） | `Membar` | 插完 barrier 即弃 | 10 |
+| ^^ | 重物化的代价估算、冲突消解的中间状态 | `RemoveLayoutConversions` | 做完决定即弃 | 08 |
+| 活一次编译 | TTIR / TTGIR 的 op 与类型 | 前端与各 pass 原地改写 | 下降到 LLVM 方言时整体消失 | 05、10 |
+| ^^ | layout（张量类型上的 encoding） | `ConvertTritonToTritonGPU` 与各 layout pass | 同上：被 `applyLinearLayout` 展开成索引算术 | 07、08 |
+| ^^ | 提示属性 `tt.divisibility` 一族、`tt.latency`、`tt.num_stages` | 前端按实参标；`tl.multiple_of` / `tl.range` 挂 | 挂在那一个 op 上，op 被替换就不跟着走 | 05、06、09 |
+| ^^ | shared memory 偏移、mbarrier、分区结构 | `AllocateSharedMemory`、`Pipeline`、warp specialization | 变成 PTX 里的 `bar.sync` / `mbarrier` 指令，来历不再可见 | 09、10 |
+| 按 hash 落盘，跨进程 | `.source` / `.ttir` / `.ttgir` / `.llir` / `.ptx` / `.cubin` | 每一级 `compile_ir` | key 五成分有一个变才重算 | 11 |
+| ^^ | 34 字段的 `.json` 元数据（`n_regs`、`n_spills`、`shared`……） | 各级往同一个字典累积，加载时回查驱动 | 同上 | 11 |
+| 永久 | pass 的 `.cpp` 与 `.td` 声明 | 开发者 | —— | 13 |
+| ^^ | lit 测试（最小 `.mlir` 加几行 CHECK） | 开发者从一个失败用例缩出来 | —— | 13 |
+| 从来不留痕 | 「为什么选了这个 layout」「为什么这个循环没流水化」的依据 | 各 pass 的代价模型与条件判断 | 当场作废：IR 只记结果，不记理由 | 13 |
+
+Table: 全系列产物的四档寿命
+
+四条读法：
+
+1. **排障时手上有什么，由档位决定**。能二分的只有第三档；`MLIR_ENABLE_DUMP` 做的事，正是把第二档临时拍成第三档（每个 pass 之后的 IR 落一份），整套二分定位法就建立在这一点上。第一档根本没有办法「存下来再看」，只能用 `triton-opt -test-print-alignment` 这类专门的打印开关现场重算一遍。
+2. **「改了没生效」有两个相反的版本**，分别来自两端。第三档太长：改了 `.cpp` 却没重建，`libtriton.so` 的哈希不变，命中的是旧 cubin。第一档太短：改了一处提示，分析重算之后结论没变，而你看不到分析本身，只看到最终的 PTX 还是老样子——这时要打印的是 AxisInfo，不是 PTX。
+3. **用户能写进第二档的只有提示属性**。`tl.multiple_of` 一族是整个流水线上唯一一处「人直接给编译器一个事实」的接口，而它不是断言也不是运行时检查：说错了没人发现，生成的宽访存会读写错位的地址。
+4. **第四档是唯一会被下一个人读到的**。一个 pass 的决定，在 IR 里只留结果、在缓存里只留产物，唯一把它写成可执行事实的地方是 lit 测试——这就是给 Triton 提 PR 必须带 lit 测试的原因，也是读一个陌生 pass 时先读它的 `test/` 目录比读 `.cpp` 更快的原因。
+
+### 4. 概念表
 
 | 概念 | 一句话 | 篇 |
 |---|---|---|
@@ -263,7 +293,7 @@ Table: 常见误区与事实
 10. 判断：TVM 的 `sch.vectorize` 在任何循环上都能调用成功。
 
     <details markdown="1"><summary>答案</summary>
-    错。它要求该循环下的 block 是"局部完整 block"或"局部规约 block"且循环是空间轴等条件；第十二篇 §四.2 中 `decompose_reduction` 之后对 `Y_update` 内层调用被 `ScheduleError` 拒绝。
+    错。它要求该循环下的 block 是"局部完整 block"或"局部规约 block"且循环是空间轴等条件；[《TVM》](/tvm-schedule-language-and-auto-tuning.html) §四.2 中 `decompose_reduction` 之后对 `Y_update` 内层调用被 `ScheduleError` 拒绝。
     </details>
 
 ### B. 跨篇综合（5 题）
@@ -271,7 +301,7 @@ Table: 常见误区与事实
 1. 用户把 `tl.load(x_ptr + offs, mask=offs < n)` 改成 `tl.load(x_ptr + offs, mask=offs < n, other=0.0)` 后 kernel 变慢了。沿着 05 → 06 → 09 → 10 解释可能的原因链。
 
    <details markdown="1"><summary>答案</summary>
-   `other` 让 load 的 lowering 多出 `mov` 默认值（第十篇），本身代价小；但若这个 load 在循环里被流水化，`LowerLoops` 对带非零 `other` 的 load 不能直接用 `cp.async`（它无法写默认值，第九篇 §二.4 的注释）——要么退回"寄存器里流水"（发 remark "severe performance degradation"）、要么在 `local_load` 之后加 `select`（多一次 shared memory 读后修补）。`other=0.0` 恰好是零——`cp.async` 的 `src_size = 0` 语义能写零，Triton 对零值有特殊处理；若写成非零常量或张量就走慢路。排查：`MLIR_ENABLE_DIAGNOSTICS=remarks` 看有没有那条 remark，对比两版 TTGIR 里 `async_copy_global_to_local` 是否存在。
+   `other` 让 load 的 lowering 多出 `mov` 默认值（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)），本身代价小；但若这个 load 在循环里被流水化，`LowerLoops` 对带非零 `other` 的 load 不能直接用 `cp.async`（它无法写默认值，[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §二.4 的注释）——要么退回"寄存器里流水"（发 remark "severe performance degradation"）、要么在 `local_load` 之后加 `select`（多一次 shared memory 读后修补）。`other=0.0` 恰好是零——`cp.async` 的 `src_size = 0` 语义能写零，Triton 对零值有特殊处理；若写成非零常量或张量就走慢路。排查：`MLIR_ENABLE_DIAGNOSTICS=remarks` 看有没有那条 remark，对比两版 TTGIR 里 `async_copy_global_to_local` 是否存在。
    </details>
 
 2. 一个 attention kernel 在 Ampere 上第二个 `tl.dot` 之前出现了一次经 shared memory 的 `convert_layout`（P 从 `#mma` 到 `#dot_op`）。用 07 与 08 说明它出现的条件，并给出两种消除办法。
@@ -321,7 +351,7 @@ Table: 常见误区与事实
 4. `num_stages` 在 Ampere 与 Hopper 上分别变成什么？为什么 Hopper 多一个缓冲？
 
    <details markdown="1"><summary>答案</summary>
-   要点见 B.3 与第九篇 §三 / §四：latency、stage 差、`cp.async` + `commit_group` + `wait_group`；`wgmma` 异步与 `pendings = 1`；TMA + mbarrier 把 iter_args 从 15 降到 4。追问：`async_wait {num}` 的语义。
+   要点见 B.3 与[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §三 / §四：latency、stage 差、`cp.async` + `commit_group` + `wait_group`；`wgmma` 异步与 `pendings = 1`；TMA + mbarrier 把 iter_args 从 15 降到 4。追问：`async_wait {num}` 的语义。
    </details>
 
 5. Membar 分析是什么、为什么必要、它保守在哪。
@@ -333,13 +363,13 @@ Table: 常见误区与事实
 6. Triton 的编译缓存 key 由什么组成？团队分发缓存时会遇到什么问题？
 
    <details markdown="1"><summary>答案</summary>
-   五成分（第十一篇 §三）；分发问题见第十一篇自测 2：架构、`ptxas` 版本、wheel 字节、登记环境变量、`extern_libs` 路径、组文件的绝对路径；解法是远端缓存后端。追问：改 pass 不生效的第一件事查什么。
+   五成分（[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html) §三）；分发问题见《缓存、运行时与 AMD 对照》自测 2：架构、`ptxas` 版本、wheel 字节、登记环境变量、`extern_libs` 路径、组文件的绝对路径；解法是远端缓存后端。追问：改 pass 不生效的第一件事查什么。
    </details>
 
 7. 比较 Triton、TVM、CUTLASS 三种"写高性能 GEMM"的方式：谁决定什么、搜索空间、风险、可移植性。
 
    <details markdown="1"><summary>答案</summary>
-   第十二篇 §九 的表：Triton 用户定 tile、编译器定其余、autotune 几十个、风险在启发式、NVIDIA / AMD；TVM 调度作者（或 DLight / MetaSchedule）定一切、原语保正确、空间 10⁶、风险在作者 / 规则 / 搜索、多后端源码生成；CUTLASS 用户定一切、模板、profiler 枚举、风险在用户与编译时间、仅 NVIDIA。追问：Gluon 在哪个位置、为什么出现。
+   [《TVM》](/tvm-schedule-language-and-auto-tuning.html) §九 的表：Triton 用户定 tile、编译器定其余、autotune 几十个、风险在启发式、NVIDIA / AMD；TVM 调度作者（或 DLight / MetaSchedule）定一切、原语保正确、空间 10⁶、风险在作者 / 规则 / 搜索、多后端源码生成；CUTLASS 用户定一切、模板、profiler 枚举、风险在用户与编译时间、仅 NVIDIA。追问：Gluon 在哪个位置、为什么出现。
    </details>
 
 ### D. 掌握判据
@@ -356,7 +386,7 @@ Table: 掌握程度的判据
 
 ## 六、Infra 地图的收束与下一步
 
-本系列是[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十二个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)第七篇画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)第七篇（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
+本系列是[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十二个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)《layout 系统与 Linear Layout》（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
 
 读完它之后，面对一个 Triton kernel 的性能或正确性问题，追问可以一直到底：
 
@@ -374,10 +404,10 @@ Table: 读完系列后可以追问到底的问题
 
 下一步：
 
-- 想给 Triton 提 PR：第十三篇的工作台 + [《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)的流程；从 `test/` 里一个 lit 用例开始读、从一个 `emitRemark` 的改进开始写。
+- 想给 Triton 提 PR：[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)的工作台 + [《AI-Infra 开源贡献指南》](/contributing-to-ai-infra-open-source.html)的流程；从 `test/` 里一个 lit 用例开始读、从一个 `emitRemark` 的改进开始写。
 - 想给新硬件接后端：B.4 的清单，`third_party/amd` 是范例；先让 lit 全绿再谈性能。
-- 想在 MLIR 生态里横向迁移：IREE、torch-mlir、StableHLO 用的是同一套基础设施（第三、四篇），差别只在方言与 pass。
-- 想做 GPU 上的极致性能而不想等编译器：Gluon（第九篇 §七）或 CUTLASS，两者在设计空间轴上是邻居。
+- 想在 MLIR 生态里横向迁移：IREE、torch-mlir、StableHLO 用的是同一套基础设施（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)与[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)），差别只在方言与 pass。
+- 想做 GPU 上的极致性能而不想等编译器：Gluon（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §七）或 CUTLASS，两者在设计空间轴上是邻居。
 
 Infra 地图的十三个系列到此完成。
 
