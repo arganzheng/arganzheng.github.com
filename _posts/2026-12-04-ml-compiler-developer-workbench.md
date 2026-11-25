@@ -44,7 +44,7 @@ TRITON_BUILD_PROTON=OFF pip install -e . -v     # 约 10–20 分钟（M 系列�
 本系列写作时遇到的两个 macOS 特有问题及解法：
 
 - **`ptxas` 下载失败**：`CMakeLists.txt` 的 `download_and_copy_dependencies` 会从 NVIDIA 下载 `cuda_nvcc`（含 `ptxas`）、`cuda_cuobjdump`、`cuda_nvdisasm` 与 `cuda_cudart`；网络不通时用 `TRITON_PTXAS_PATH` / `TRITON_CUOBJDUMP_PATH` / `TRITON_NVDISASM_PATH` / `TRITON_CUDACRT_PATH` / `TRITON_CUDART_PATH` 指向任意已有路径跳过下载（`build_helpers.py::download_and_copy` 见 override 就不下）。
-- **没有真的 `ptxas`**：`compile()` 在 `make_cubin` 会调它。写一个假 `ptxas` 脚本——对 `--version` 回答 `Cuda compilation tools, release 12.9, V12.9.86`（`NvidiaTool.from_path` 用正则 `release (\d+\.\d+)` 解析），其余情况 `touch` 输出文件——就能把 `ttir → ttgir → llir → ptx` 四级全部跑通，`cubin` 是 0 字节。第五篇起所有 dump 都这样来的。AMD 路径连这个都不需要：`hsaco` 由进程内的 LLVM 与 lld 产出。
+- **没有真的 `ptxas`**：`compile()` 在 `make_cubin` 会调它。写一个假 `ptxas` 脚本——对 `--version` 回答 `Cuda compilation tools, release 12.9, V12.9.86`（`NvidiaTool.from_path` 用正则 `release (\d+\.\d+)` 解析），其余情况 `touch` 输出文件——就能把 `ttir → ttgir → llir → ptx` 四级全部跑通，`cubin` 是 0 字节。[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)起所有 dump 都这样来的。AMD 路径连这个都不需要：`hsaco` 由进程内的 LLVM 与 lld 产出。
 
 产物：`python/triton/_C/libtriton.so`（Python 绑定 + 全部 pass）、`build/cmake.<platform>/bin/triton-opt`、`triton-tensor-layout`、`triton-llvm-opt`、`triton-lsp`（编辑器用的 MLIR 语言服务器）、`unittest/**` 下的 gtest 二进制。`make triton-opt`（`ninja -C $(BUILD_DIR) triton-opt`）只重建这一个工具，改一个 pass 之后 20 秒内能用。
 
@@ -70,16 +70,16 @@ Table: Triton 的三层测试
 MLIR_ENABLE_DUMP=1 TRITON_ALWAYS_COMPILE=1 python my_kernel.py 2> dump.log
 ```
 
-拿第五篇那个 BF16 `matmul_kernel` 实测：Triton v3.8.0，第五篇的 `ASTSource` 写法，`sm_80`，`BLOCK_M=BLOCK_N=128`、`BLOCK_K=32`、`num_warps=4`、`num_stages=3`。`dump.log` 里有 **72 次** `IR Dump Before …`，每个 pass 之前一次。另外还有 2 段 `SoftwarePipeliner internal IR Dump After: LowerLoops / ExpandLoops`，是 Pipeline pass 自己打的中间结果，`grep -c "IR Dump"` 会数成 74。
+拿[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)那个 BF16 `matmul_kernel` 实测：Triton v3.8.0，[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)的 `ASTSource` 写法，`sm_80`，`BLOCK_M=BLOCK_N=128`、`BLOCK_K=32`、`num_warps=4`、`num_stages=3`。`dump.log` 里有 **72 次** `IR Dump Before …`，每个 pass 之前一次。另外还有 2 段 `SoftwarePipeliner internal IR Dump After: LowerLoops / ExpandLoops`，是 Pipeline pass 自己打的中间结果，`grep -c "IR Dump"` 会数成 74。
 
 72 次按顺序去掉重复，就是 `make_ttir` + `make_ttgir` + `make_llir` 的完整 pass 表，共 70 个。多出来的 2 次是 Inliner 内嵌的 canonicalize（`default-pipeline=canonicalize`）：它按 `tt.func` 逐个 dump，这个 kernel 上是 `@matmul_kernel` 两次、被内联的 `tl.zeros` helper 一次，表里只记一次。所以这个数随 kernel 变。`MLIR_ENABLE_DUMP=matmul_kernel` 只 dump 这个 kernel，实测 70 次，helper 那次和 `CanonicalizeLLVMIR` 都不在里面：
 
 | 阶段 | 讲解 | 序号 | pass（按执行顺序） |
 |---|---|---|---|
-| `make_ttir` | <span style="white-space:nowrap">第五篇</span> | <span style="white-space:nowrap">1–9</span> | `InlinerPass` → `CanonicalizerPass` → `TritonRewriteTensorDescriptorToPointer` → `CanonicalizerPass` → `TritonCombineOps` → `TritonReorderBroadcast` → `CSEPass` → `SymbolDCEPass` → `TritonLoopUnroll` |
-| `make_ttgir` | <span style="white-space:nowrap">第七、八篇</span> | <span style="white-space:nowrap">10–19</span> | `ConvertTritonToTritonGPU` → `TritonGPUCoalesce` → `TritonGPUF32DotTC` → `TritonGPUPlanCTAPass` → `TritonGPURemoveLayoutConversions` → `TritonGPUOptimizeThreadLocality` → `TritonGPUAccelerateMatmul` → `TritonGPURemoveLayoutConversions` → `TritonGPUOptimizeDotOperands` → `CanonicalizerPass` |
-| ^^ | <span style="white-space:nowrap">第九篇</span> | <span style="white-space:nowrap">20–49</span> | `TritonNvidiaGPUOptimizeDescriptorEncodingPass` → `TritonLoopAwareCSE` → `TritonGPUFuseNestedLoops` → `CanonicalizerPass` → `TritonLoopInvariantCodeMotion` → `CanonicalizerPass` → `TritonGPUCombineTensorSelectAndIf` → `NVGPUWarpSpecialization` → `TritonGPUAssignLatencies` → `TritonGPUScheduleLoops` → `TritonGPUPipeline` → `CanonicalizerPass` → `TritonLoopAwareCSE` → `TritonGPUPrefetch` → `TritonGPUOptimizeDotOperands` → `CanonicalizerPass` → `TritonGPUCoalesceAsyncCopy` → `TritonNvidiaGPUOptimizeTMemLayoutsPass` → `TritonNvidiaGPUFuseTMEMLoadReducePass` → `TritonGPURemoveLayoutConversions` → `TritonNvidiaGPUInterleaveTMemPass` → `TritonGPUReduceDataDuplication` → `TritonGPUReorderInstructions` → `TritonLoopAwareCSE` → `SymbolDCEPass` → `TritonGPUFenceInsertion` → `TritonNvidiaGPUMMALoweringPass` → `SCCPPass` → `CSEPass` → `CanonicalizerPass` |
-| `make_llir` | <span style="white-space:nowrap">第十篇</span> | <span style="white-space:nowrap">50–70</span> | `TritonGPUCombineTensorSelectAndIf` → `TritonGPUAllocateWarpGroups` → `SCFToControlFlowPass` → `GluonInline` → `AllocateSharedMemoryNv` → `TritonTensorMemoryAllocationPass` → `TritonNvidiaGPUCheckMatmulTwoCTAPass` → `TritonGPUProxyFenceInsertion` → `TritonNvidiaGPUTMemBarrierInsertionPass` → `ConvertTritonGPUToLLVM` → `InitializeWSClusterBarriers` → `CanonicalizeLLVMIR` → `CSEPass` → `ConvertWarpSpecializeToLLVM` → `ReconcileUnrealizedCastsPass` → `ConvertNVGPUToLLVM` → `CanonicalizerPass` → `CSEPass` → `SymbolDCEPass` → `ConvertNVVMToLLVMPass` → `LLVMDIScope` |
+| `make_ttir` | <span style="white-space:nowrap">[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)</span> | <span style="white-space:nowrap">1–9</span> | `InlinerPass` → `CanonicalizerPass` → `TritonRewriteTensorDescriptorToPointer` → `CanonicalizerPass` → `TritonCombineOps` → `TritonReorderBroadcast` → `CSEPass` → `SymbolDCEPass` → `TritonLoopUnroll` |
+| `make_ttgir` | [《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)<br/>[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) | <span style="white-space:nowrap">10–19</span> | `ConvertTritonToTritonGPU` → `TritonGPUCoalesce` → `TritonGPUF32DotTC` → `TritonGPUPlanCTAPass` → `TritonGPURemoveLayoutConversions` → `TritonGPUOptimizeThreadLocality` → `TritonGPUAccelerateMatmul` → `TritonGPURemoveLayoutConversions` → `TritonGPUOptimizeDotOperands` → `CanonicalizerPass` |
+| ^^ | <span style="white-space:nowrap">[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)</span> | <span style="white-space:nowrap">20–49</span> | `TritonNvidiaGPUOptimizeDescriptorEncodingPass` → `TritonLoopAwareCSE` → `TritonGPUFuseNestedLoops` → `CanonicalizerPass` → `TritonLoopInvariantCodeMotion` → `CanonicalizerPass` → `TritonGPUCombineTensorSelectAndIf` → `NVGPUWarpSpecialization` → `TritonGPUAssignLatencies` → `TritonGPUScheduleLoops` → `TritonGPUPipeline` → `CanonicalizerPass` → `TritonLoopAwareCSE` → `TritonGPUPrefetch` → `TritonGPUOptimizeDotOperands` → `CanonicalizerPass` → `TritonGPUCoalesceAsyncCopy` → `TritonNvidiaGPUOptimizeTMemLayoutsPass` → `TritonNvidiaGPUFuseTMEMLoadReducePass` → `TritonGPURemoveLayoutConversions` → `TritonNvidiaGPUInterleaveTMemPass` → `TritonGPUReduceDataDuplication` → `TritonGPUReorderInstructions` → `TritonLoopAwareCSE` → `SymbolDCEPass` → `TritonGPUFenceInsertion` → `TritonNvidiaGPUMMALoweringPass` → `SCCPPass` → `CSEPass` → `CanonicalizerPass` |
+| `make_llir` | <span style="white-space:nowrap">[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)</span> | <span style="white-space:nowrap">50–70</span> | `TritonGPUCombineTensorSelectAndIf` → `TritonGPUAllocateWarpGroups` → `SCFToControlFlowPass` → `GluonInline` → `AllocateSharedMemoryNv` → `TritonTensorMemoryAllocationPass` → `TritonNvidiaGPUCheckMatmulTwoCTAPass` → `TritonGPUProxyFenceInsertion` → `TritonNvidiaGPUTMemBarrierInsertionPass` → `ConvertTritonGPUToLLVM` → `InitializeWSClusterBarriers` → `CanonicalizeLLVMIR` → `CSEPass` → `ConvertWarpSpecializeToLLVM` → `ReconcileUnrealizedCastsPass` → `ConvertNVGPUToLLVM` → `CanonicalizerPass` → `CSEPass` → `SymbolDCEPass` → `ConvertNVVMToLLVMPass` → `LLVMDIScope` |
 
 Table: dump.log 里的 70 个 pass（matmul_kernel，sm_80，Triton v3.8.0，72 次 dump 按顺序去重）
 
@@ -96,7 +96,7 @@ triton-opt a.ttgir --tritongpu-accelerate-matmul --mlir-print-ir-after-failure  
 triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute-capability=80   # 第十篇的实验
 ```
 
-命令行名与 `compiler.py` 里的 `passes.ttgpuir.add_xxx` 一一对应（第四篇 §七）。`--mlir-print-op-generic` 看通用形式，`--mlir-print-debuginfo` 看 `loc`，`--mlir-disable-threading` 让崩溃栈可读。`triton-opt --help | rg tritongpu` 列出全部 pass 与选项。
+命令行名与 `compiler.py` 里的 `passes.ttgpuir.add_xxx` 一一对应（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §七）。`--mlir-print-op-generic` 看通用形式，`--mlir-print-debuginfo` 看 `loc`，`--mlir-disable-threading` 让崩溃栈可读。`triton-opt --help | rg tritongpu` 列出全部 pass 与选项。
 
 调试构建（`TRITON_BUILD_WITH_CCACHE`、`DEBUG=1 pip install -e .`，或 CMake `-DCMAKE_BUILD_TYPE=Debug`）多出两样：`-debug-only=tritongpu-coalesce`（每个 pass 用 `LDBG(...)` 打的内部日志——`Coalesce.cpp` 打 order、perThread 的每一步，`RemoveLayoutConversions.cpp` 打代价模型的两个数），Python 侧对应 `TRITON_LLVM_DEBUG_ONLY=tritongpu-coalesce`；以及 MLIR 的 `-debug-only=greedy-rewriter`（每条 pattern 的 `notifyMatchFailure` 原因）。发行版 wheel 没有这些。
 
@@ -109,7 +109,7 @@ triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute
 | ptxas | `TRITON_DUMP_PTXAS_LOG=1`；`disable_ptxas_opt` / `TRITON_DISABLE_PTXAS_OPT` | 寄存器、spill、`ptxas` 的警告 |
 | SASS | `TRITON_KERNEL_DUMP=1` 自动生成 `.sass`（`cuobjdump -sass`）；`nvdisasm` | 最终指令、寄存器编号、`STL / LDL`（spill 的痕迹） |
 | AMD | `AMDGCN_ENABLE_DUMP=1`；`k.asm["amdgcn"]` 末尾的 `; NumVgprs / ScratchSize / Occupancy` | 无需加载即知寄存器与 spill |
-| layout | `triton-tensor-layout -l "<attr>" -t "tensor<…>"`（`--use-hw-view`） | 任意 layout 的线程 ↔ 元素表（第七篇） |
+| layout | `triton-tensor-layout -l "<attr>" -t "tensor<…>"`（`--use-hw-view`） | 任意 layout 的线程 ↔ 元素表（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)） |
 | 性能 | Proton（`proton` 命令，`TRITON_BUILD_PROTON`）、Nsight Compute + `-lineinfo`（默认开）+ `USE_IR_LOC=ttgir` | SASS 行对回 Python / TTGIR 行 |
 
 Table: 更低层的 dump 开关与工具
@@ -136,15 +136,15 @@ flowchart TB
 
 几个关键工具的细节：
 
-- **`triton.compile("X.ttgir")`**（第十一篇 §二）：`IRSource` 从该阶段**之后**继续。要能把中间 IR 编到底，IR 必须是某个阶段边界（`ttgir` 边界是 `make_ttgir` 结束）；pass 中间的 IR 不能直接用 `compile()`，但可以先用 `triton-opt` 把剩余的 `make_ttgir` pass 跑完（按 §三.1 的表接着跑），再交给 `compile()`。或者用 **override**：`TRITON_KERNEL_OVERRIDE=1` 加 override 目录里的 `X.ttgir`，`compile()` 在 `ttgir` 阶段用你的文件替换产物——适合"手改一处再跑"。
+- **`triton.compile("X.ttgir")`**（[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html) §二）：`IRSource` 从该阶段**之后**继续。要能把中间 IR 编到底，IR 必须是某个阶段边界（`ttgir` 边界是 `make_ttgir` 结束）；pass 中间的 IR 不能直接用 `compile()`，但可以先用 `triton-opt` 把剩余的 `make_ttgir` pass 跑完（按 §三.1 的表接着跑），再交给 `compile()`。或者用 **override**：`TRITON_KERNEL_OVERRIDE=1` 加 override 目录里的 `X.ttgir`，`compile()` 在 `ttgir` 阶段用你的文件替换产物——适合"手改一处再跑"。
 - **`TRITON_INTERPRET=1`**：`python/triton/runtime/interpreter.py` 用 numpy 逐 op 解释 TTIR 语义（每个 `tl.*` 函数有 numpy 实现），CPU 上跑、可以 `print` 与 `pdb`。它是"编译器错还是 kernel 错"的分界线。
 - **崩溃的复现**：pass 崩溃时 MLIR 打印一个 reproducer（含 `{-# external_resources: { mlir_reproducer: { pipeline: "...", ... } } #-}` 元数据）；保存成 `.mlir`，`triton-opt repro.mlir --run-reproducer` 用同样的 pipeline 重跑——Triton 自己的 `AGENTS.md` 把这条写成了给编码代理的规则。
-- **verifier 报错**：`error: 'tt.dot' op operand … layout mismatch` 这类错误在 pass 之后的 `-verify-each` 处报出（第三篇 §五.2），报错位置就是出错的 pass；`--mlir-print-ir-after-failure` 给出当时的 IR。
+- **verifier 报错**：`error: 'tt.dot' op operand … layout mismatch` 这类错误在 pass 之后的 `-verify-each` 处报出（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html) §五.2），报错位置就是出错的 pass；`--mlir-print-ir-after-failure` 给出当时的 IR。
 - **结果错但不崩**是最难的，二分是唯一可靠的办法；两份 IR 的 diff 里通常只有几个 op 不同——用 `--mlir-print-ir-after-change` 只看改动的 pass 减少噪音。
 
 ### 2. 一个例子的量级
 
-本系列第八篇的 `convert_layout` 计数（23 → 3 → 7 → 3）就是这个流程的一半：`after_coalesce.ttgir` 逐 pass 跑 `triton-opt`、每一步 `rg -c convert_layout`。若某一步结果错了，`diff` 前后两份 IR、删无关行、写 lit——整个流程在没有 GPU 的机器上可以做到第 ⑦ 步；只有 ④ ⑤ 的"跑、比对"需要 GPU（或用解释器替代 ④）。半小时是熟练之后的量级，第一次做一小时。
+[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的 `convert_layout` 计数（23 → 3 → 7 → 3）就是这个流程的一半：`after_coalesce.ttgir` 逐 pass 跑 `triton-opt`、每一步 `rg -c convert_layout`。若某一步结果错了，`diff` 前后两份 IR、删无关行、写 lit——整个流程在没有 GPU 的机器上可以做到第 ⑦ 步；只有 ④ ⑤ 的"跑、比对"需要 GPU（或用解释器替代 ④）。半小时是熟练之后的量级，第一次做一小时。
 
 ## 五、写一个 lit 测试
 
@@ -193,7 +193,11 @@ module {
 ```
 {% endraw %}
 
-这 16 行就是第六篇核心问题的可执行版本。写它时漏掉了 `%c1024` 那条 remark，`triton-opt` 报 `error: unexpected remark: %c1024_i32 = arith.constant 1024 : i32 => …`——**测试框架逼你把每个值的分析结果都写出来**，这正是它作为文档的价值。把 `divisibility = [1024]` 故意改成 `[512]`，报 `expected remark "…" was not produced` 加一条 `unexpected remark`——两个方向都会抓。
+这 16 行就是[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)核心问题的可执行版本。写它时漏掉了 `%c1024` 那条 remark，`triton-opt` 报 `error: unexpected remark: %c1024_i32 = arith.constant 1024 : i32 => …`——**测试框架逼你把每个值的分析结果都写出来**，这正是它作为文档的价值。把 `divisibility = [1024]` 故意改成 `[512]`，报 `expected remark "…" was not produced` 加一条 `unexpected remark`——两个方向都会抓。
+
+> [!NOTE] Java 经验参照：这是快照测试，但断言的是你关心的那几行
+> lit 加 FileCheck 的形状，Java 工程师在快照 / approval 测试里见过：跑一遍、把输出和一份期望文本比对。差别在**断言的粒度**。快照测试通常比对全文，于是有个人尽皆知的毛病——改一个无关的字段，几十个快照一起变红，久而久之大家条件反射地「重新录制」，测试就失去了意义。
+> `CHECK` 系列把这件事从工具层解决了：`CHECK-LABEL` 锚定作用域、`CHECK` 只要求按顺序出现（中间多少行都行）、`CHECK-NOT` 断言两点之间不出现某物、`CHECK-DAG` 允许乱序、`%[[A:.+]]` 捕获一个你并不关心具体值的 SSA 名。写出来的测试只钉住这个 pass 真正负责的那几点，别的 pass 改了输出也不会连带红一片。写 lit 测试时值得先问一句：这一条 `CHECK` 钉的是不是这个 pass 的职责？
 
 ### 2. 最小化原则
 
@@ -201,7 +205,7 @@ Triton 的 PR 模板要求 lit 测试遵守 MLIR 的 [FileCheck best practices](
 
 1. 只保留出错 pass 的**输入**层级的 IR（不是 TTIR 从头编）；
 2. 删掉与目标 op 无数据依赖的所有 op（用 `-symbol-dce`、`-canonicalize` 自动删死代码，再手删）；
-3. 把 load 出来的值换成函数参数（`tt.func @f(%a: tensor<…, #layout>)`——`RemoveLayoutConversions` 把函数参数当锚点正是为了方便写测试，第八篇 §二.2）；
+3. 把 load 出来的值换成函数参数（`tt.func @f(%a: tensor<…, #layout>)`——`RemoveLayoutConversions` 把函数参数当锚点正是为了方便写测试，[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) §二.2）；
 4. 把 shape 缩到能复现的最小 2 的幂；`num_warps` 缩到 1 或 2；
 5. `-split-input-file` + `// -----` 分隔符让一个文件放多个独立用例，共享 `#layout` 定义要在每段里重写。
 
@@ -211,7 +215,7 @@ Triton 的 PR 模板要求 lit 测试遵守 MLIR 的 [FileCheck best practices](
 
 ### 1. 加一个 pass 的清单
 
-第四篇 §七 的链，反过来就是操作步骤：
+[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §七 的链，反过来就是操作步骤：
 
 | 步 | 文件 | 内容 |
 |---|---|---|
@@ -225,15 +229,15 @@ Triton 的 PR 模板要求 lit 测试遵守 MLIR 的 [FileCheck best practices](
 
 Table: 加一个 pass 的清单
 
-`triton-opt` 通过 `registerTritonGPUPasses()`（`bin/RegisterTritonDialects.h`）自动认识新 pass——`Passes.td` 生成的 `registerXxx` 被它调用，不用改 `triton-opt.cpp`。开发期不想每次全量 `make`：把 pass 编成插件（第四篇 §三.5），`triton-opt --load-pass-plugin`（`test/Plugins/` 有例子）。
+`triton-opt` 通过 `registerTritonGPUPasses()`（`bin/RegisterTritonDialects.h`）自动认识新 pass——`Passes.td` 生成的 `registerXxx` 被它调用，不用改 `triton-opt.cpp`。开发期不想每次全量 `make`：把 pass 编成插件（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §三.5），`triton-opt --load-pass-plugin`（`test/Plugins/` 有例子）。
 
 ### 2. 加一条 pattern
 
-改写类的小改动多数不需要新 pass，而是往已有 pass 的 pattern 集里加一条（`Combine.cpp` 的 `populate…Patterns`、`ConvertLayoutOp::getCanonicalizationPatterns`）。纪律：所有修改经 `rewriter`（第四篇 §三.1）；先 `notifyMatchFailure` 排除不匹配的情况再改写；为每个分支写 lit 用例（匹配的、不匹配的各一个，`CHECK-NOT` 断言不匹配时没动）。`-debug-only=greedy-rewriter`（调试构建）看你的 pattern 为什么没命中。
+改写类的小改动多数不需要新 pass，而是往已有 pass 的 pattern 集里加一条（`Combine.cpp` 的 `populate…Patterns`、`ConvertLayoutOp::getCanonicalizationPatterns`）。纪律：所有修改经 `rewriter`（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §三.1）；先 `notifyMatchFailure` 排除不匹配的情况再改写；为每个分支写 lit 用例（匹配的、不匹配的各一个，`CHECK-NOT` 断言不匹配时没动）。`-debug-only=greedy-rewriter`（调试构建）看你的 pattern 为什么没命中。
 
 ### 3. 改 layout 相关代码
 
-第七篇的 Linear Layout 与第十篇的 lowering 是最容易改错又最难用 lit 测出的地方——lit 只能断言 IR 文本，不能断言"这个 layout 转换生成的代码语义正确"。三层验证：
+[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)的 Linear Layout 与[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 lowering 是最容易改错又最难用 lit 测出的地方——lit 只能断言 IR 文本，不能断言"这个 layout 转换生成的代码语义正确"。三层验证：
 
 1. **C++ 单元测试**：`unittest/Tools/LinearLayoutTest.cpp`（65 个 `TEST_F`：`compose`、`invertAndCompose`、`quotient`、`reshape`……直接构造基向量表断言结果）与 `unittest/Dialect/TritonGPU/LinearLayoutConversionsTest.cpp`（112 个：每种 `#blocked` / `#mma` / `#dot_op` / shared 参数组合 → 期望的基向量表）。新 layout 或改转换函数，先在这里加用例——毫秒级、无 GPU。
 2. **`triton-tensor-layout`** 肉眼核对小 shape 的线程表。
@@ -252,13 +256,13 @@ Table: 加一个 pass 的清单
 1. **lit 测试的 diff**（`test/**/*.mlir`）：新增或改变的 `CHECK` 行**就是行为变化的精确陈述**——先读它，知道"改动前输出 A、改动后输出 B"。
 2. **`Passes.td` / `*.td` 的 diff**：有没有新 op、新属性、新选项——接口变化。
 3. **C++ 的 diff**：实现。有了 1 和 2，这部分是"怎么做到的"而不是"做了什么"。
-4. **`compiler.py` 的 diff**：pass 顺序变了没有——顺序改动的影响面最大（第八篇的两次 `RemoveLayoutConversions` 夹着 `AccelerateMatmul` 就是顺序敏感的例子）。
+4. **`compiler.py` 的 diff**：pass 顺序变了没有——顺序改动的影响面最大（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的两次 `RemoveLayoutConversions` 夹着 `AccelerateMatmul` 就是顺序敏感的例子）。
 
 PR 描述按模板要求写"为什么"（链接到 cbea.ms 的 commit 规范），并声明测试层级（`/test`、`/unittest`、`/python/test` 三选一或说明为何不需要）。`CODEOWNERS` 把 `lib/Dialect/TritonGPU/Transforms/Pipeliner/`、`third_party/nvidia/`、`third_party/amd/`、`python/triton/experimental/gluon/` 等目录分给不同维护者——看一个 PR 由谁 review 就知道它属于哪个子系统。`CONTRIBUTING.md` 的设计原则一句话："functional bug fixes … with minimized unit tests" 总是接受；性能改动要看"usefulness 与 complexity 的权衡"；"design changes that neither fix known functional nor performance issues are automatically considered controversial"。
 
 ### 2. 跟上游 LLVM
 
-Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM main 的新 commit（"LLVM bump" PR）。这类 PR 的 diff 几乎全是 API 适配：MLIR 的 builder 签名（`rewriter.create<Op>` → `Op::create(rewriter, …)`，3.8 已完成这次迁移）、属性从 `!nvvm.annotations` 迁到函数属性、`ConversionPatternRewriter` 的行为变化。读它们是了解 MLIR API 演化最直接的途径；自己改 Triton 时以当前 pin 的 API 为准（`~/.triton/llvm/llvm-<hash>/include/mlir/`），不要看 Homebrew 版 LLVM 的头文件——两者可能差几个月。第二篇 §三.3 提到的"3.8 release only" hack（关掉 `slp-copyable-elements`）就是 pin 与 `ptxas` 之间不同步的补丁，下一个 bump 会删掉。
+Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM main 的新 commit（"LLVM bump" PR）。这类 PR 的 diff 几乎全是 API 适配：MLIR 的 builder 签名（`rewriter.create<Op>` → `Op::create(rewriter, …)`，3.8 已完成这次迁移）、属性从 `!nvvm.annotations` 迁到函数属性、`ConversionPatternRewriter` 的行为变化。读它们是了解 MLIR API 演化最直接的途径；自己改 Triton 时以当前 pin 的 API 为准（`~/.triton/llvm/llvm-<hash>/include/mlir/`），不要看 Homebrew 版 LLVM 的头文件——两者可能差几个月。[《LLVM》](/llvm-the-shared-backend-and-nvptx.html) §三.3 提到的"3.8 release only" hack（关掉 `slp-copyable-elements`）就是 pin 与 `ptxas` 之间不同步的补丁，下一个 bump 会删掉。
 
 ## 八、本文小结
 
@@ -275,7 +279,7 @@ Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM mai
 1. `MLIR_ENABLE_DUMP=1` 对一个 Gluon kernel 会 dump 多少个 pass？为什么比 `tl` kernel 少得多？
 
    <details markdown="1"><summary>答案</summary>
-   `make_ttir` 不存在（Gluon 直接生成 TTGIR）；`make_ttgir` 走 `is_gluon` 分支，只有 inliner、canonicalizer、`resolve_auto_encodings`、`allocate_warp_groups` 等几个不改 layout 的 pass（第九篇 §七.3）；`make_llir` 与 `tl` 相同（约 20 个）。总数约 25–30，而 `tl` 的 matmul kernel 是 70 个 pass（72 次 dump）。少的正是 Coalesce、RemoveLayoutConversions、AccelerateMatmul、Pipeline、WarpSpecialization 等全部自动决策 pass。
+   `make_ttir` 不存在（Gluon 直接生成 TTGIR）；`make_ttgir` 走 `is_gluon` 分支，只有 inliner、canonicalizer、`resolve_auto_encodings`、`allocate_warp_groups` 等几个不改 layout 的 pass（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §七.3）；`make_llir` 与 `tl` 相同（约 20 个）。总数约 25–30，而 `tl` 的 matmul kernel 是 70 个 pass（72 次 dump）。少的正是 Coalesce、RemoveLayoutConversions、AccelerateMatmul、Pipeline、WarpSpecialization 等全部自动决策 pass。
    </details>
 
 2. 你手改了 dump 出来的 `X.ttgir`（删掉一个 `convert_layout`、把两端 layout 改成一致），想验证性能。用哪条路径最快把它跑起来？会在哪一步被拒绝？
@@ -287,7 +291,7 @@ Triton 每隔几周把 `cmake/llvm-info.json` 的 `llvm_hash` 推进到 LLVM mai
 3. 一条你新加的 canonicalization pattern 在 lit 测试里不触发，但你确信形状匹配。列出三个最可能的原因与各自的排查手段。
 
    <details markdown="1"><summary>答案</summary>
-   (1) pattern 没注册进该 pass 的 `RewritePatternSet`（或注册到了另一个 op 的 `getCanonicalizationPatterns`）——在 `matchAndRewrite` 开头加 `LDBG` / `llvm::errs()` 看是否被调用。(2) 匹配条件比想象的严：`matchPattern(…, m_Constant())` 对 `arith.constant dense<…>` 的张量常量与标量常量行为不同、`getDefiningOp<T>()` 遇到中间的 `convert_layout` 返回空（第五篇 §六.2 的 `addptr` 隔着 `broadcast` 就是此类）——调试构建 `-debug-only=greedy-rewriter` 看 `notifyMatchFailure` 的原因。(3) 另一条 benefit 更高的 pattern 先改写了同一个 op（或 `fold` 先动了手），你的 pattern 看到的已经不是原形状——`--mlir-print-ir-after-all` 与 `-debug-only=greedy-rewriter` 的顺序日志。
+   (1) pattern 没注册进该 pass 的 `RewritePatternSet`（或注册到了另一个 op 的 `getCanonicalizationPatterns`）——在 `matchAndRewrite` 开头加 `LDBG` / `llvm::errs()` 看是否被调用。(2) 匹配条件比想象的严：`matchPattern(…, m_Constant())` 对 `arith.constant dense<…>` 的张量常量与标量常量行为不同、`getDefiningOp<T>()` 遇到中间的 `convert_layout` 返回空（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §六.2 的 `addptr` 隔着 `broadcast` 就是此类）——调试构建 `-debug-only=greedy-rewriter` 看 `notifyMatchFailure` 的原因。(3) 另一条 benefit 更高的 pattern 先改写了同一个 op（或 `fold` 先动了手），你的 pattern 看到的已经不是原形状——`--mlir-print-ir-after-all` 与 `-debug-only=greedy-rewriter` 的顺序日志。
    </details>
 
 4. 为什么 AxisInfo 的测试用 `-verify-diagnostics` + `expected-remark` 而不是 FileCheck？这种方式的代价是什么？
