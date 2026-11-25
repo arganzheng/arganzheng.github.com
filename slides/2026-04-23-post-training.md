@@ -114,12 +114,21 @@ flowchart LR
 
 ### 过优化曲线：代理奖励单调涨，金奖励先升后降
 
-| 量 | 公式 / 数 |
-|---|---|
-| 金奖励随 KL | $$R_{gold}(d) = d(\alpha - \beta\log d)$$，$$d = \sqrt{\text{KL}}$$：先升后降 |
-| best-of-N 的 KL | $$\log N - (N-1)/N$$：N = 16 → **1.83 nats**——不训 RL 就能预演 |
-| 系数 | RM 变大、数据变多，β 变小——曲线顶点右移 |
-| 训 RL 前的探针 | 长度相关、BoN 扫描、对抗探针 |
+**红：代理 RM；蓝：金 RM，峰就是 KL 预算。best-of-N 的 KL = $$\log N - (N-1)/N$$，N = 16 → 1.83 nats，不训 RL 就能预演**
+
+```mermaid
+%%{init: {"xyChart": {"width": 900, "height": 300, "plotReservedSpacePercent": 60}, "themeVariables": {"xyChart": {"plotColorPalette": "#c0392b, #5b8fd6"}}}}%%
+%% 图：代理奖励与金奖励随 KL 距离的变化（示意）
+xychart-beta
+    x-axis "d = √KL(π ‖ π₀)" ["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4"]
+    y-axis "奖励（示意）" 0 --> 3.5
+    line [0, 0.49, 0.95, 1.39, 1.8, 2.19, 2.55, 2.89, 3.2]
+    line [0, 0.44, 0.75, 0.94, 1.0, 0.94, 0.75, 0.44, 0]
+```
+
+<aside class="notes" markdown="1">
+金奖励的函数形式：BoN $$d(\alpha - \beta d)$$，RL $$d(\alpha - \beta\log d)$$，$$d = \sqrt{\text{KL}}$$；曲线的 α、β 是示意值。RM 越大、数据越多，β 越小，峰越往右。训 RL 前的探针：长度相关、BoN 扫描、对抗探针。原文 /preference-data-and-reward-models.html。
+</aside>
 
 <!-- v -->
 
