@@ -53,6 +53,10 @@ Table: 系列的组织：资源层与交付层
 
 这两组数字经常互相矛盾。一个把单卡吞吐做到极限的推理服务，可能独占了一张 80 GB 的卡却只用了 20 GB 显存；一个 MFU 很高的训练任务，可能因为等 gang scheduling 凑齐 64 张卡而空转了两个小时。**引擎的目标是把给定的资源用满，平台的目标是让给出去的资源尽可能少而够用**。后者是本系列的主题。
 
+> [!NOTE] Java 经验参照：加机器就能扛更多
+>
+> 后端的扩容经验是一条近乎线性的曲线：无状态服务加副本，数据库加读库，加多少机器就多扛多少流量。GPU 集群上这条曲线是阶梯形的，有两处不成立。一是**容量不是标量**：一个 32 卡的训练作业要求 32 个 Pod 同时拿到卡，集群里空着 31 张等于空着 0 张；二是**卡的位置算在容量里**：这 32 张卡还要落在同一个 NVLink 域或同一组交换机下，散开了加的是卡时而不是吞吐。所以"还剩多少容量"这个问题在平台这一层要换成"还能凑出几组什么形状的卡"。
+
 ### K8s 不是为 AI 负载设计的
 
 Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Pod 独立的、资源需求是 CPU 和内存这样可压缩或可细分的。AI 负载几乎逐条违背这些假设：
@@ -64,9 +68,21 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 所以 K8s 上的 AI 平台，实际上是在原生对象之上叠了一层又一层的扩展：device plugin 和 DRA 解决"GPU 是什么"，Volcano 和 Kueue 解决"多 Pod 一起调度"，LeaderWorkerSet 解决"多 Pod 一个副本"，Multus 和 RDMA device plugin 解决"第二张网卡"。每一层扩展都在填一个原生假设的洞。理解这些洞在哪里，比记住每个组件的安装命令重要得多。
 
+> [!NOTE] Java 经验参照：requests 和 limits 就像 -Xms 和 -Xmx
+>
+> 一台机器上跑几个 JVM，各自的 -Xmx 之和可以大于物理内存——靠的是它们不会同时用满，超卖是常态，紧张了还有 GC 可以挤一挤。`nvidia.com/gpu` 这类扩展资源没有这两条：K8s 要求它的 requests 等于 limits（写了不等会被拒），kubelet 把一个设备 ID 交给某个容器后就从可用集合里删掉，谁也挤不出来。要在一张卡上放两个负载，不能靠"反正用不满"，得换一套机制——时间片、MPS 或 HAMi，各有各的隔离语义和代价，这是[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)整篇要讲的事。
+
 ### 交付层的问题在引擎之外
 
-一个 vLLM 进程能服务一个模型。一个平台要服务几十个模型、几百个租户、多种硬件、不同的 SLA：有的模型要 PD 分离，有的一张卡就够；有的租户要保证延迟，有的只要便宜；同一个模型有 FP8 和 BF16 两个版本要做 A/B；一个新版本上线要灰度和回滚；每个请求要计 token 数记账。这些问题都不在引擎内部，引擎也不应该关心它们。它们构成了交付层：Serving 平台管副本的生命周期，网关管请求的路由和配额，可观测管指标、日志和账单。
+一个 vLLM 进程能服务一个模型。一个平台要服务几十个模型、几百个租户、多种硬件、不同的 SLA，于是多出五类问题：
+
+1. 有的模型要 PD 分离，有的一张卡就够；
+2. 有的租户要保证延迟，有的只要便宜；
+3. 同一个模型有 FP8 和 BF16 两个版本要做 A/B；
+4. 一个新版本上线要灰度和回滚；
+5. 每个请求要计 token 数记账。
+
+这些问题都不在引擎内部，引擎也不应该关心它们。它们构成了交付层：Serving 平台管副本的生命周期，网关管请求的路由和配额，可观测管指标、日志和账单。
 
 这一层和传统微服务的交付有相似的骨架，但每个环节都被 LLM 的特性扭曲了：请求是流式的、时长差几十倍、成本按 token 计而不是按次计、扩容一个副本要几分钟加载权重而不是几秒。直接套用微服务的经验会踩很多坑，本系列的交付层三篇就是为这些坑而写。
 
@@ -101,16 +117,52 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ## 系列的整体主线
 
-八篇文章分两部分。前四篇是资源层，按"一个训练任务从提交到跑起来要经过的层"自下而上推进；后三篇是交付层，按"一个推理请求从进入到计费要经过的层"自外向内推进。第一篇是两者共同的起点：
+八篇文章分两部分。[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)是两者共同的起点，它只问引擎要什么、原生 K8s 缺什么；接下来四篇是资源层，按"一个训练作业从提交到跑起来要穿过的层"自下而上推进——先能看见一张卡，再能一次拿到一组卡，再把一张卡分给几个负载，最后让卡之间通得上、数据喂得上；最后三篇是交付层，按"把引擎一层层往外包"推进：先把引擎包成一个能扩缩容的副本，再在它前面放网关，最后把两层的数读出来算账。
 
-1. 第一篇：引擎的需求清单与平台的整体架构 —— 建立组织视角
-2. 第二篇：容器里的 GPU —— 驱动、CUDA、device plugin、DRA、镜像
-3. 第三篇：AI 任务调度 —— gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
-4. 第四篇：GPU 共享与切分 —— MIG、时间片、MPS、HAMi
-5. 第五篇：网络与存储 —— RDMA 进容器、并行文件系统与对象存储、checkpoint I/O
-6. 第六篇：Serving 平台 —— KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容
-7. 第七篇：模型网关与多租户 —— 路由、配额、限流、灰度
-8. 第八篇：可观测、成本与 FinOps —— 从 DCGM 到 token 账单
+1. [《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html) —— 建立组织视角
+2. [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) —— 驱动、CUDA、device plugin、DRA、镜像
+3. [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) —— gang scheduling、队列与配额、拓扑感知；Volcano / Kueue / Slurm / Ray
+4. [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) —— MIG、时间片、MPS、HAMi
+5. [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) —— RDMA 进容器、并行文件系统与对象存储、checkpoint I/O
+6. [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) —— KServe / Triton / Ray Serve / llm-d，LLM 服务的形态与扩缩容
+7. [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) —— 路由、配额、限流、灰度
+8. [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) —— 从 DCGM 到 token 账单
+
+这八篇在图上是两条路径，它们在同一组 GPU 上相遇：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
+%% 图：八篇串成一条链：资源层交出卡，交付层把引擎包成服务放到这些卡上，最后两层一起算账
+flowchart TB
+  NEED["<b>引擎提了什么要求</b><br/>《引擎的需求清单与平台的整体架构》<br/>• 训练：W 个进程同时起、能开 RDMA 设备、checkpoint 按时写完<br/>• 推理：显存是硬约束、负载信号只在引擎内部"]
+  subgraph RES["资源层：一个训练作业自下而上穿过四层"]
+    direction TB
+    R2["<b>先能看见一张卡</b><br/>《容器里的 GPU》<br/>驱动 → Container Toolkit → device plugin → DRA"]
+    R3["<b>再能一次拿到一组卡</b><br/>《AI 任务调度》<br/>gang · 队列与配额 · 拓扑感知"]
+    R4["<b>一张卡分给几个负载</b><br/>《GPU 共享与切分》<br/>MIG · 时间片 · MPS · HAMi"]
+    R5["<b>卡之间通得上、数据喂得上</b><br/>《网络与存储》<br/>RDMA 进容器 · 并行文件系统 · checkpoint I/O"]
+    R2 --> R3 --> R4 --> R5
+  end
+  CARDS["<b>一组配好的卡</b><br/>资源层的输出，也是交付层副本落上去的地方"]
+  subgraph DEL["交付层：把引擎一层层往外包"]
+    direction TB
+    D6["<b>先把引擎包成一个副本</b><br/>《Serving 平台》<br/>副本形态 · 扩缩容 · 灰度 · PD 分离"]
+    D7["<b>再在它前面放网关</b><br/>《模型网关与多租户》<br/>按模型名与 KV 状态选副本 · 按 token 限流与计费"]
+    D6 --> D7
+    D7 -. "一个请求反向走：先撞配额，再落到某个副本" .-> D6
+  end
+  OBS["<b>最后把两层的数读出来算账</b><br/>《可观测、成本与 FinOps》<br/>分配率 85% · SM_ACTIVE 35% · 每百万 token 多少钱"]
+  NEED --> RES
+  RES --> CARDS
+  CARDS --> DEL
+  DEL --> OBS
+```
+
+图上有三件事是正文分散在各篇里说的：
+
+1. **资源层的每个决定都会在交付层收到账单。**[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)把一张 H100 切成七份，分配率立刻上去，但[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的副本从此只有 1/7 的算力份额，[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)看到的 TTFT 和每百万 token 成本是这两个决定的合成结果。所以这三篇不是三个话题，是同一笔账的三个记账口。
+2. **请求走的方向和交付层的写作方向相反。**正文从引擎往外包：先副本，再网关，再账单；而一个请求是从外往里走：先撞上网关的配额，再被路由到某个副本，最后在账单上留下一行。读的时候按正文顺序，排查线上问题时按请求顺序——[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)在时间上发生在[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)之前。
+3. **每一层都是同样的四段。**引擎要求 → 原生 K8s 的空缺 → 平台的机制 → 这个机制引入的新代价。八篇的章节结构因此是一致的，跳着读也不会丢上下文。
 
 三条交织的线索：
 
@@ -126,11 +178,47 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 - **代价与边界**：这个机制引入了什么新问题，什么场景下不该用
 
 
+## 一个作业跑起来时，集群里多了哪些东西、各活多久
+
+上面那张图说的是机制。换一个角度看同一件事：一个训练作业从提交到跑起来、一个请求从进门到计费，会在集群里留下一串东西，它们**住在不同的地方、由不同的组件创建、寿命差了七八个数量级**。这张表把八篇里出现的主要对象按寿命从长到短排一遍——平台工程里绝大多数"说不清为什么"的故障，在这张表上都能找到解释。
+
+| 对象 | 谁创建它 | 住在哪里 | 活多久 | 哪一篇讲 |
+|---|---|---|---|---|
+| 账单行与 GPU 小时分摊 | 成本引擎（OpenCost 或自己的脚本） | 长期存储（Thanos / Mimir 一类） | 永久——同比对账要求至少 13 个月保留 | [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) |
+| 数据集与模型权重 | 用户 | 对象存储 | 跨集群、跨重建，是一切的"源" | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| checkpoint | 训练作业自己 | 并行文件系统或对象存储 | **比写它的作业活得长**——作业挂了靠它恢复 | ^^ |
+| ClusterQueue 的配额与 cohort | 平台管理员 | etcd | 跨作业、跨集群重启，是管理员的策略而不是某个作业的状态 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) |
+| Workload / PodGroup（一个作业的准入记录） | Kueue / Volcano 的控制器 | etcd | 作业从提交到结束；suspended 期间它是作业唯一的存在形式 | ^^ |
+| NVIDIA 内核模块 | GPU Operator 的 driver DaemonSet | 宿主机内核 | 到节点重启或驱动升级为止 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| MIG 的 GI / CI 几何 | mig-parted，按节点标签触发 | GPU 的硬件配置 | 到下一次重配；而重配要求受影响的卡上**没有任何进程** | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
+| CDI spec（`/etc/cdi/nvidia.yaml`） | `nvidia-ctk cdi generate` | 宿主机文件 | 到下次生成；驱动换了而它没重新生成就是过期的 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| `nvidia.com/gpu: 8` 这个计数 | device plugin 的 `ListAndWatch` | 节点对象的 `allocatable` | 到插件下一次重发；一张卡报关键 Xid 就减一，已占用它的 Pod 不受影响 | ^^ |
+| ResourceClaim 的分配结果 | 调度器 + DRA 驱动 | etcd，加节点上准备好的 CDI 设备名 | 绑定它的 Pod 的一生 | ^^ |
+| 容器里的 CUDA Runtime 与框架 | 镜像 | 容器文件系统 | Pod 的一生；换一次就要重新拉几个 GB | ^^ |
+| KV cache | 推理引擎进程 | 显存 | Pod 的一生——重启即清空，命中率要从零重新爬 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
+| FUSE 客户端进程（缓存层的挂载点） | CSI driver 的 DaemonSet 或 mount Pod | 节点 | 到它重启为止，重启时使用者的 I/O 中断 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| EPP 的前缀索引、在途负载、flow control 队列 | Endpoint Picker 进程 | 进程内存，**每副本各一份** | 进程的一生 | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) |
+| 一个请求的路由决定与配额预扣 | 网关 | 内存 | 一个请求；不在当场记下来就永远没有 | ^^ |
+| DCGM 的一次采样 | DCGM Exporter | 被 Prometheus 抓走 | 默认 30 秒一个点，没抓到的那一刻不会再回来 | [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) |
+
+Table: 八篇里的主要对象，按寿命从长到短
+
+这张表读出四条结论：
+
+**1、寿命只有五档，而且档位之间不能互相代替。**永久（账单）、跨节点（etcd 里的对象、共享存储上的文件）、节点（驱动、MIG 几何、CDI spec）、Pod（容器里的库、KV cache、ResourceClaim）、请求（路由决定、配额预扣）。想把一样东西挪到更长的档位，要么给它找一个外部存储，要么接受它每次重建。
+
+**2、平台的大多数故障是寿命错配。**驱动升级是节点档的动作，它打断的是 Pod 档的训练作业；MIG 几何是硬件档的，改它要先驱逐卡上所有 Pod；CDI spec 是文件档的，驱动变了它不会自己变（这正是 jit-cdi 改成每次容器创建时即时生成的原因）；EPP 的状态是进程档的，所以它加副本不加吞吐。遇到一个解释不了的平台故障，第一个问题是**"这两样东西是不是不在同一档"**。
+
+**3、只有两样东西比它的创建者活得长：checkpoint 和账单。**前者让作业可以死，后者让集群可以被审计。其余每一样东西的寿命都被某个进程、Pod 或节点夹着——这也是为什么这两样的写入路径（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的聚合写带宽、[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)的 label 基数）值得单独花一章。
+
+**4、最短那档决定了可观测性的上限。**请求档的东西——被限流拒掉的请求、流式断开时已生成的 token 数、这次路由为什么选了这个副本——不在当场记下就永远拿不回来。这就是为什么租户账单以网关侧为准、引擎侧只做对账。
+
+
 ## 章节结构与分章导读
 
 ### 1. 引擎的需求清单与平台的整体架构
 
-第一篇建立整个系列的组织视角。它不装任何组件，只回答一个问题：**训练框架和推理引擎到底对平台提出了哪些要求？**
+[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)建立整个系列的组织视角。它不装任何组件，只回答一个问题：**训练框架和推理引擎到底对平台提出了哪些要求？**
 
 这一篇会讨论：
 
@@ -153,7 +241,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 2. 容器里的 GPU：驱动、CUDA、device plugin 与镜像
 
-第二篇解决最基础的问题：一个容器怎样才能用上 GPU。这个问题看起来只是"装个插件"，实际上涉及内核驱动、用户态库、容器运行时和 K8s 四层之间的版本契约。
+[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)解决最基础的问题：一个容器怎样才能用上 GPU。这个问题看起来只是"装个插件"，实际上涉及内核驱动、用户态库、容器运行时和 K8s 四层之间的版本契约。
 
 这一篇会覆盖：
 
@@ -174,7 +262,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 3. AI 任务调度：gang scheduling、队列与拓扑感知
 
-第三篇进入调度。默认的 kube-scheduler 一个 Pod 一个 Pod 地调度，对训练任务来说这是致命的：32 个 Pod 调度了 30 个，剩下 2 个等不到资源，前 30 个占着 GPU 空转，其他任务也进不来——死锁。
+[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)进入调度。默认的 kube-scheduler 一个 Pod 一个 Pod 地调度，对训练任务来说这是致命的：32 个 Pod 调度了 30 个，剩下 2 个等不到资源，前 30 个占着 GPU 空转，其他任务也进不来——死锁。
 
 这一篇会覆盖：
 
@@ -196,7 +284,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 4. GPU 共享与切分：MIG、时间片、MPS 与 HAMi
 
-第四篇处理利用率问题。一张 80 GB 的 H100 跑一个 7B 模型的推理服务，显存用了 20 GB、算力峰值不到 30%——剩下的部分怎么给别人用？这个问题在推理和开发环境里非常普遍，而 device plugin 的默认答案是"不能"。
+[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)处理利用率问题。一张 80 GB 的 H100 跑一个 7B 模型的推理服务，显存用了 20 GB、算力峰值不到 30%——剩下的部分怎么给别人用？这个问题在推理和开发环境里非常普遍，而 device plugin 的默认答案是"不能"。
 
 这一篇会覆盖：
 
@@ -217,7 +305,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 5. 网络与存储：RDMA 进容器、并行文件系统与 checkpoint I/O
 
-第五篇讲两种"喂饱 GPU"的管道。多机训练的速度上限由节点间网络决定，训练能否长期运行由 checkpoint 能否按时写完决定。这两件事在单机上都不存在，上了集群就成为主要瓶颈。
+[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)讲两种"喂饱 GPU"的管道。多机训练的速度上限由节点间网络决定，训练能否长期运行由 checkpoint 能否按时写完决定。这两件事在单机上都不存在，上了集群就成为主要瓶颈。
 
 这一篇会覆盖：
 
@@ -239,7 +327,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 6. Serving 平台：从 InferenceService 到 llm-d
 
-第六篇转入交付层。一个 vLLM 进程加一个 Service 就是最简单的推理服务，但它没有扩缩容、没有多节点副本、没有灰度、没有 PD 分离。Serving 平台把这些补上。
+[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)转入交付层。一个 vLLM 进程加一个 Service 就是最简单的推理服务，但它没有扩缩容、没有多节点副本、没有灰度、没有 PD 分离。Serving 平台把这些补上。
 
 这一篇会覆盖：
 
@@ -260,7 +348,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 ### 7. 模型网关与多租户：路由、配额与灰度
 
-第七篇讲请求进入平台后的第一站。一个模型网关在传统 API 网关的基础上，要多做几件 LLM 特有的事：按模型名路由到不同后端、按 KV cache 状态选副本、按 token 而不是按请求限流、对流式响应计费。
+[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)讲请求进入平台后的第一站。一个模型网关在传统 API 网关的基础上，要多做几件 LLM 特有的事：按模型名路由到不同后端、按 KV cache 状态选副本、按 token 而不是按请求限流、对流式响应计费。
 
 这一篇会覆盖：
 
@@ -277,7 +365,7 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 > **两个租户共用一个 70B 模型的 4 个副本，A 租户的配额是 B 的三倍。当两者同时打满时，网关应该按什么规则决定哪个请求排队、排在哪个副本上？"配额"在这里指的是 GPU 时间、token 数还是请求数？**
 
-实践：在第六篇的服务前面部署一个实现了 Gateway API Inference Extension 的网关，配 `InferencePool` 和 Endpoint Picker，对比轮询与 KV cache 感知路由下的 TTFT 分布；为两个 API key 配不同的 TPM 配额并验证限流行为。
+实践：在[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的服务前面部署一个实现了 Gateway API Inference Extension 的网关，配 `InferencePool` 和 Endpoint Picker，对比轮询与 KV cache 感知路由下的 TTFT 分布；为两个 API key 配不同的 TPM 配额并验证限流行为。
 
 ### 8. 可观测、成本与 FinOps
 
@@ -309,16 +397,16 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 系列的练手项目是**在一个小 K8s 集群上从零搭一个能跑训练任务和推理服务的最小 AI 平台**。它不追求生产级的高可用，但每一层都用真实组件、每一个决定都能对照到前面讨论的引擎需求：
 
-- **第一篇**：裸 K8s 集群 · 一个 Pending 的 GPU Pod；三到四节点，先不装任何 GPU 组件
-- **第二篇**：GPU Operator · 版本不匹配的复现 · DRA 初试；Pod 能看到 GPU，读懂兼容报错
-- **第三篇**：Kueue + Kubeflow Trainer · Volcano 对照；2 节点 DDP 任务从 suspended 到 admitted
-- **第四篇**：MIG 或 HAMi 切分 · 两个共卡的推理服务；压测对比吞吐，验证隔离
-- **第五篇**：Multus + RDMA device plugin · nccl-tests；存储 CSI · 分布式 checkpoint 吞吐
-- **第六篇**：LLMInferenceService 或 LWS · KEDA 扩缩容；多副本 vLLM，测扩容延迟
-- **第七篇**：Inference Gateway · InferencePool · 租户配额；对比轮询与 KV 感知路由
-- **第八篇**：DCGM + Prometheus + Grafana · 成本分摊；一张看板，一份账单
+- **[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)**：裸 K8s 集群 · 一个 Pending 的 GPU Pod；三到四节点，先不装任何 GPU 组件
+- **[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)**：GPU Operator · 版本不匹配的复现 · DRA 初试；Pod 能看到 GPU，读懂兼容报错
+- **[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)**：Kueue + Kubeflow Trainer · Volcano 对照；2 节点 DDP 任务从 suspended 到 admitted
+- **[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)**：MIG 或 HAMi 切分 · 两个共卡的推理服务；压测对比吞吐，验证隔离
+- **[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)**：Multus + RDMA device plugin · nccl-tests；存储 CSI · 分布式 checkpoint 吞吐
+- **[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)**：LLMInferenceService 或 LWS · KEDA 扩缩容；多副本 vLLM，测扩容延迟
+- **[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)**：Inference Gateway · InferencePool · 租户配额；对比轮询与 KV 感知路由
+- **[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)**：DCGM + Prometheus + Grafana · 成本分摊；一张看板，一份账单
 
-到第八篇结束，读者手上有一个能提交训练任务、能部署和扩缩推理服务、能按租户限流、能看到利用率和成本的平台。它的每个组件都是生产环境里在用的，差别只在规模和高可用配置。硬件要求会在每篇标注：
+八篇走完，读者手上有一个能提交训练任务、能部署和扩缩推理服务、能按租户限流、能看到利用率和成本的平台。它的每个组件都是生产环境里在用的，差别只在规模和高可用配置。硬件要求会在每篇标注：
 
 - 大部分内容用云上三到四台单卡实例就能完成；
 - MIG 需要 A100 / H100 这类数据中心 GPU；
@@ -328,13 +416,13 @@ Kubernetes 的核心假设是：工作负载是长驻的、无状态的、单 Po
 
 | 篇 | 源码与文档 |
 |---|---|
-| 第二篇 | k8s-device-plugin `cmd/nvidia-device-plugin` · `api/config/v1`；kubernetes KEP-4381（DRA structured parameters） |
-| 第三篇 | kueue `apis/kueue/v1beta2` · `pkg/scheduler`<br/>volcano `pkg/scheduler/plugins/gang`<br/>trainer `pkg/runtime` |
-| 第四篇 | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
-| 第五篇 | network-operator NicClusterPolicy CRD<br/>k8s-rdma-shared-dev-plugin<br/>nccl-tests<br/>PyTorch `torch/distributed/checkpoint` |
-| 第六篇 | kserve `pkg/apis/serving/v1alpha2/llm_inference_service_types.go`<br/>lws `api/leaderworkerset/v1`<br/>llm-d 架构文档 |
-| 第七篇 | gateway-api-inference-extension `api/v1`（InferencePool）；llm-d-router `pkg/epp`（Endpoint Picker 的调度插件） |
-| 第八篇 | dcgm-exporter 的默认指标表<br/>vLLM `docs/design/metrics.md`<br/>OpenCost 的 GPU 计费逻辑 |
+| [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) | k8s-device-plugin `cmd/nvidia-device-plugin` · `api/config/v1`；kubernetes KEP-4381（DRA structured parameters） |
+| [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) | kueue `apis/kueue/v1beta2` · `pkg/scheduler`<br/>volcano `pkg/scheduler/plugins/gang`<br/>trainer `pkg/runtime` |
+| [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) | k8s-device-plugin `internal/rm`（MIG 与 sharing 的资源上报）；HAMi `pkg/scheduler` · libvgpu 的拦截点 |
+| [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) | network-operator NicClusterPolicy CRD<br/>k8s-rdma-shared-dev-plugin<br/>nccl-tests<br/>PyTorch `torch/distributed/checkpoint` |
+| [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) | kserve `pkg/apis/serving/v1alpha2/llm_inference_service_types.go`<br/>lws `api/leaderworkerset/v1`<br/>llm-d 架构文档 |
+| [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) | gateway-api-inference-extension `api/v1`（InferencePool）；llm-d-router `pkg/epp`（Endpoint Picker 的调度插件） |
+| [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) | dcgm-exporter 的默认指标表<br/>vLLM `docs/design/metrics.md`<br/>OpenCost 的 GPU 计费逻辑 |
 
 Table: 与实践线平行的源码与文档阅读线
 
@@ -359,7 +447,7 @@ Table: 与实践线平行的源码与文档阅读线
 
 ### 组件与版本基线
 
-正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（每篇文章只引用早于其发布日期的版本；Slinky slurm-operator v1.2.2 发布于 2026-09-02，早于引用它的第一、三篇）：
+正文所有 CRD 字段、资源名、指标名与配置项均按以下版本核对（每篇文章只引用早于其发布日期的版本；Slinky slurm-operator v1.2.2 发布于 2026-09-02，早于引用它的[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)与[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)）：
 
 - Kubernetes **v1.37.0**（DRA 的 `resource.k8s.io/v1` 自 1.34 GA）；device plugin 路径对更早版本同样适用，随文标注；
 - NVIDIA 侧：GPU Operator **v26.7.0**、k8s-device-plugin **v0.20.0**、Container Toolkit **v1.20.0**、DCGM Exporter **4.6.0-4.8.3**、Network Operator **v26.7.0**、k8s-rdma-shared-dev-plugin **v1.5.4**、DRA driver k8s-dra-driver-gpu **v0.5.0**、mig-parted / k8s-mig-manager **v0.15.0**；CUDA 12.x 为默认基线，CUDA 13.x 的驱动要求随文标注；
@@ -373,7 +461,7 @@ Table: 与实践线平行的源码与文档阅读线
 
 ### 关于云厂商托管服务与其他硬件
 
-本系列以自建 K8s 集群为主线，因为托管服务（各云的 K8s GPU 节点池、托管推理服务）把本系列要讨论的大部分机制封装掉了。正文会在相关位置说明托管服务替你做了哪一步、代价是什么。AMD GPU 有对应的 device plugin 和 Operator，机制与 NVIDIA 侧高度对应，会在第二篇和第四篇提及差异；国产加速器不在范围内。
+本系列以自建 K8s 集群为主线，因为托管服务（各云的 K8s GPU 节点池、托管推理服务）把本系列要讨论的大部分机制封装掉了。正文会在相关位置说明托管服务替你做了哪一步、代价是什么。AMD GPU 有对应的 device plugin 和 Operator，机制与 NVIDIA 侧高度对应，会在[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)和[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)提及差异；国产加速器不在范围内。
 
 
 ## 章节目录
@@ -393,14 +481,18 @@ Table: 与实践线平行的源码与文档阅读线
 
 读完这套系列之后，面对一个 GPU 集群上的任何异常——任务 Pending、训练变慢、服务超时、账单超支——读者应该能够沿着平台的层次追问下去：
 
-- Pod 为什么看不到 GPU？：→ 第二篇：驱动、Container Toolkit、device plugin 的链条
-- 任务为什么 Pending？配额够却调度不上？：→ 第三篇：gang、队列、拓扑约束、碎片
-- 两个服务共卡时为什么互相影响？：→ 第四篇：隔离层次与故障域
-- 多机训练为什么比单机慢这么多？：→ 第五篇：RDMA 是否生效、NCCL 走了哪条路
-- checkpoint 为什么写不完？：→ 第五篇：存储带宽与 checkpoint 形态
-- 服务为什么扩容慢、扩了还是超时？：→ 第六篇：扩缩容指标、冷启动、副本形态
-- 请求为什么在一个副本上排队而另一个空着？：→ 第七篇：路由策略与 Endpoint Picker
-- 利用率 35% 的差距去了哪里？钱花在哪个团队？：→ 第八篇：指标层次与成本分摊
+| 看到的症状 | 去哪一篇 | 在那一篇里查什么 |
+|---|---|---|
+| Pod 为什么看不到 GPU？ | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) | 驱动、Container Toolkit、device plugin 这条链断在哪一节 |
+| 任务为什么 Pending？配额够却调度不上？ | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) | gang、队列、拓扑约束、碎片 |
+| 两个服务共卡时为什么互相影响？ | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) | 隔离层次与故障域 |
+| 多机训练为什么比单机慢这么多？ | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) | RDMA 是否生效、NCCL 走了哪条路 |
+| checkpoint 为什么写不完？ | ^^ | 存储带宽与 checkpoint 形态 |
+| 服务为什么扩容慢、扩了还是超时？ | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) | 扩缩容指标、冷启动、副本形态 |
+| 请求为什么在一个副本上排队而另一个空着？ | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) | 路由策略与 Endpoint Picker |
+| 利用率 35% 的差距去了哪里？钱花在哪个团队？ | [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) | 指标层次与成本分摊 |
+
+Table: 从症状到篇目的查法
 
 最终目标是三种能力：
 
@@ -411,4 +503,4 @@ Table: 与实践线平行的源码与文档阅读线
 这是把引擎变成可共享的资源池和可交付的服务的那一层——引擎再快，没有它也到不了用户手里。
 
 [^q0]: 切分：节点级用 Kubernetes 的 device plugin / DRA 把 GPU 暴露为可调度资源，卡级用 MIG / 时间片 / MPS 切给小任务，网络级配好 RDMA（SR-IOV、GPUDirect）与拓扑标签；调度：训练任务要 gang scheduling（`WORLD_SIZE` 个 Pod 同时起、否则死锁）、队列与配额（Volcano / Kueue）、拓扑感知（同一 NVLink 域 / 同一 IB 交换机下放一组）；喂饱：数据从对象存储 / 并行文件系统到本地缓存与预取、checkpoint 的写带宽、镜像与 CUDA / 驱动兼容链。训好的模型变成可运维服务：镜像 + 推理引擎 + 模型仓库 → Deployment / KServe 一类的服务抽象 → 扩缩容看引擎指标（`vllm:num_requests_waiting`、KV 使用率，而不是 CPU 利用率）→ 网关做路由 / 灰度 / 限流 → 监控 TTFT / TPOT / 吞吐 / 错误率与成本归因。平台的每个设计决定都是被引擎的某个需求推出来的，系列按这条线分篇。
-[^q1]: **能跑**：驱动 535 原生支持 CUDA 12.2，镜像里 CUDA 12.4 的 PyTorch 靠 **CUDA 次版本兼容（minor version compatibility）**——同一大版本（12.x）内，新 toolkit 编出的程序可以在旧驱动上跑，前提是只用运行时 API 与 PTX / cubin 已有的功能；代码调用了 12.4 **新增的 API** 时，那个调用会在运行时返回 `cudaErrorCallRequiresNewerDriver`（或在 libcuda 里找不到符号），其余功能正常——所以能跑，但那条新 API 不能用。宿主机驱动 **470**（CUDA 11.4）：跨大版本不适用次版本兼容，要走 **forward compatibility 包**（只在数据中心卡上可用，把 12.x 的 libcuda 用户态库装进容器）才能跑 12.4 的程序；没有这个包就直接 `CUDA driver version is insufficient`。三条规则：驱动 ≥ toolkit 版本（总是行）、同大版本内次版本兼容（新 API 除外）、跨大版本需 forward-compat 包（数据中心卡）。第二篇用 GPU Operator 装驱动并故意构造不匹配的镜像来读这些报错。
+[^q1]: **能跑**：驱动 535 原生支持 CUDA 12.2，镜像里 CUDA 12.4 的 PyTorch 靠 **CUDA 次版本兼容（minor version compatibility）**——同一大版本（12.x）内，新 toolkit 编出的程序可以在旧驱动上跑，前提是只用运行时 API 与 PTX / cubin 已有的功能；代码调用了 12.4 **新增的 API** 时，那个调用会在运行时返回 `cudaErrorCallRequiresNewerDriver`（或在 libcuda 里找不到符号），其余功能正常——所以能跑，但那条新 API 不能用。宿主机驱动 **470**（CUDA 11.4）：跨大版本不适用次版本兼容，要走 **forward compatibility 包**（只在数据中心卡上可用，把 12.x 的 libcuda 用户态库装进容器）才能跑 12.4 的程序；没有这个包就直接 `CUDA driver version is insufficient`。三条规则：驱动 ≥ toolkit 版本（总是行）、同大版本内次版本兼容（新 API 除外）、跨大版本需 forward-compat 包（数据中心卡）。[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)用 GPU Operator 装驱动并故意构造不匹配的镜像来读这些报错。
