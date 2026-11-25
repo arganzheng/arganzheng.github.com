@@ -20,7 +20,7 @@ updated: 2026-10-27
 
 > **一个 bf16 参数在这三个框架里各自存在哪里、什么时候被 all-gather、什么时候被释放、它的 fp32 主副本在哪张卡上？[^q0] 把这条链追清楚，三个框架的架构差异就全部显现了。**
 
-依照系列惯例，通信原语只用语义和通信量；版本基线是 Megatron Core 0.18.0、DeepSpeed 0.19.2、torchtitan v0.3.0、PyTorch 2.14.0。
+依照系列惯例，通信原语只用语义和通信量；版本基线是 Megatron Core 0.18.0、DeepSpeed 0.19.2、torchtitan v0.3.0、PyTorch 2.13.0。
 
 ## 一、总览：同一个 $$W_k$$，三种住法
 
@@ -140,7 +140,7 @@ Table: 三框架用到的 torch.distributed 层次
 
 Megatron 与 DeepSpeed 诞生于 DeviceMesh 和 DTensor 之前，各自手写了进程组管理、集合通信调用和流水线调度；torchtitan 诞生于之后，是这些原生 API 的参考用法。[《torchtitan》](/torchtitan-architecture-and-source-guide.html)讲过，这条路在 v0.3.0 又往前走了一步：参数的切分方式不再由 `ColwiseParallel` 这类 API 逐个 module 指定，而是由一份声明式的 `ShardingConfig` 描述。
 
-源码引用版本：Megatron Core core_v0.18.0、DeepSpeed v0.19.2、torchtitan v0.3.0、PyTorch v2.14.0。各框架的目录地图与逐文件导读在[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html#六源码导读)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html#六源码导读按优化器状态切)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html#六源码导读用原生原语组合)各自的「源码导读」一章；torchtitan 一处与旧版用法不同要先说明：v0.2.x 用 TOML 文件配置一次运行，v0.3.0 已经不是——`torchtitan/config/README.md` 明确说一次运行由一个返回 `Trainer.Config` 的 Python 函数描述，本篇引用的配置写法都是 v0.3.0 的。
+源码引用版本：Megatron Core core_v0.18.0、DeepSpeed v0.19.2、torchtitan v0.3.0、PyTorch v2.13.0。各框架的目录地图与逐文件导读在[《Megatron-LM》](/megatron-lm-architecture-and-source-guide.html#六源码导读)、[《DeepSpeed》](/deepspeed-architecture-and-source-guide.html#六源码导读按优化器状态切)、[《torchtitan》](/torchtitan-architecture-and-source-guide.html#六源码导读用原生原语组合)各自的「源码导读」一章；torchtitan 一处与旧版用法不同要先说明：v0.2.x 用 TOML 文件配置一次运行，v0.3.0 已经不是——`torchtitan/config/README.md` 明确说一次运行由一个返回 `Trainer.Config` 的 Python 函数描述，本篇引用的配置写法都是 v0.3.0 的。
 
 ## 二、来龙去脉：三条线怎么走到今天
 
@@ -369,7 +369,7 @@ Step 8: 0REDUCE_GRAD 1REDUCE_GRAD
 
 - **Megatron**：`forward_backward_pipelining_without_interleaving()` 是过程式三段循环，收发由 `P2PCommunicator` 合成一次 `batch_isend_irecv`。
 - **DeepSpeed**：`TrainSchedule.steps()` 是生成器，每步 yield 一组 `PipeInstruction`，由 `PipelineEngine._exec_schedule` 查表执行。
-- **PyTorch**：`Schedule1F1B` 的过程结构与 Megatron 几乎逐行对应，但调度可以翻译成一张 `_Action` 动作表、由 `_PipelineScheduleRuntime` 解释执行——上面那段就是 torch 2.14 在 CPU 上真实生成的表（两个 rank 各自的 F/B 步序，末行 `REDUCE_GRAD` 是 `_add_reduce_grad` 自动附加的梯度归约）。
+- **PyTorch**：`Schedule1F1B` 的过程结构与 Megatron 几乎逐行对应，但调度可以翻译成一张 `_Action` 动作表、由 `_PipelineScheduleRuntime` 解释执行——上面那段是在 CPU 上真实生成的表（两个 rank 各自的 F/B 步序，末行 `REDUCE_GRAD` 是 `_add_reduce_grad` 自动附加的梯度归约）；它跑在 PyTorch 2.14 上，但生成动作表的 `_Action`、`_add_send_recv`、`_add_unshard_reshard`、`_merge_bw` 与 2.13.0 逐字节相同。
 
 两处代码展开分别在[《Megatron-LM》的「1F1B：Megatron 的过程式写法」](/megatron-lm-architecture-and-source-guide.html#七1f1bmegatron-的过程式写法)和[《torchtitan》的「1F1B：PyTorch 的动作表写法」](/torchtitan-architecture-and-source-guide.html#七1f1bpytorch-的动作表写法)。
 

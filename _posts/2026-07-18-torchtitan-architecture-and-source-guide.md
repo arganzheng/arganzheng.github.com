@@ -8,8 +8,7 @@ catalog: true
 date: 2026-07-18 18:00:00
 ---
 
-> [!NOTE]
-> 本文按 torchtitan v0.3.0 的源码路径讲解；该版 release 验证 PyTorch 2.14.0，本文的 CPU/gloo 玩具在 PyTorch 2.14.1 上运行。
+> **更新 @2026-09-06**：本文按 torchtitan v0.3.0 的源码路径刷新；PyTorch 源码引用仍以 2.13.0 为准（FSDP2、`torch.distributed.pipelining`、DTensor 的文件与符号未变）。文中的 CPU/gloo 玩具跑在 PyTorch 2.14.1 上。
 
 
 
@@ -546,7 +545,7 @@ torchtitan 中，一个 bf16 参数的一生可以压成一句话：meta 上先�
 
 主要 TP 切分状态的常驻账是 $$16(N-N_r)/(N_dN_t)$$，TP 复制 norm 再加 $$16N_r/N_d$$；通信约 $$3N$$，PP 下不 reshard 可约为 $$2N$$。最重要的差异在表示方式：每个参数都是携带 mesh 和 placement 的 DTensor，DCP、TP、FSDP 与 `clip_grad_norm_` 可组合使用。
 
-本篇涉及的源码位置（torchtitan v0.3.0 与 PyTorch 2.14.1；torchtitan v0.3.0 release 验证 PyTorch 2.14.0）：
+本篇涉及的源码位置（torchtitan v0.3.0 与 PyTorch 2.13.0）：
 
 | 路径 | 内容 |
 |---|---|
@@ -556,10 +555,10 @@ torchtitan 中，一个 bf16 参数的一生可以压成一句话：meta 上先�
 | torchtitan `distributed/fsdp.py`、`pipeline_parallel.py`、`context_parallel/api.py`、`utils.py` | `apply_fsdp_to_decoder()`、`get_fsdp_reshard_after_forward_policy()`<br/>`pipeline_llm()`、`_build_pipeline_schedule()`、`_pipeline_module_split()`<br/>`apply_cp_to_forward()`、`prepare_context_parallel_input()`<br/>`init_distributed()`、`clip_grad_norm_()`、`set_pg_timeouts()`、`dist_sum_tensor()` |
 | torchtitan `protocols/module.py`、`sharding.py`<br/>`models/common/decoder_sharding.py`<br/>`models/llama3/{__init__,parallelize,sharding,config_registry}.py` | `Module.parallelize()`、`_distribute_states()`<br/>`ShardingConfig`、`LocalMapConfig`、`resolve_placements()`<br/>`colwise_config()`、`rowwise_config()`、`norm_config()`、`set_decoder_sharding_config()`<br/>`model_registry()`、`parallelize_llama()`、`set_llama3_sharding_config()`、`llama3_debugmodel()` |
 | torchtitan `components/{metrics,checkpoint,dataloader,loss}.py`、`components/optimizer/`、`tools/profiler.py` | `MetricsProcessor`、`DeviceMemoryMonitor.get_peak_stats()`<br/>`CheckpointManager`<br/>`BaseDataLoader`<br/>`CrossEntropyLoss`、`ChunkedLossWrapper`<br/>`OptimizersContainer`、`default_adamw()`、`LRSchedulersContainer`<br/>`Profiler.Config` |
-| PyTorch 2.14.1 `torch/distributed/fsdp/_fully_shard/` | `_fully_shard.py` 的 `fully_shard()`、`FSDPModule`（`unshard()`、`reshard()`、`set_reshard_after_forward()`、`set_modules_to_forward_prefetch()`、`set_requires_gradient_sync()`）<br/>`_fsdp_state.py` 的 `FSDPState`（`_pre_forward()`、`_post_forward()`、`_pre_backward()`）<br/>`_fsdp_param_group.py` 的 `FSDPParamGroup`（`unshard()`、`wait_for_unshard()`、`reshard()`、`pre_forward()`、`post_forward()`、`pre_backward()`、`post_backward()`、`_backward_prefetch()`）、`FSDPCommContext`<br/>`_fsdp_param.py` 的 `FSDPParam`（`_init_sharded_param()`、`to_unsharded()`、`to_sharded()`、`all_gather_inputs()`）、`ShardedState`<br/>`_fsdp_collectives.py` 的 `foreach_all_gather()`、`foreach_all_gather_copy_out()`、`foreach_reduce()`<br/>`_fsdp_api.py` 的 `MixedPrecisionPolicy`、`DataParallelMeshDims`、`CPUOffloadPolicy` |
-| PyTorch 2.14.1 `torch/distributed/fsdp/_flat_param.py`、`_runtime_utils.py` | FSDP1：`FlatParameter`、`FlatParamHandle`（`shard()`、`unshard()`、`_all_gather_flat_param()`、`_use_unsharded_flat_param()`、`_use_unsharded_views()`、`reshard()`）<br/>`_pre_forward()`、`_pre_forward_unshard()`、`_post_forward_reshard()`、`_prefetch_handle()` |
-| PyTorch 2.14.1 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`、`_load_csv()`、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`<br/>`PipelineStage` 的 forward / backward 与 send / recv 方法<br/>`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
-| PyTorch 2.14.1 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`<br/>`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`<br/>`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_fully_shard/` | `_fully_shard.py` 的 `fully_shard()`、`FSDPModule`（`unshard()`、`reshard()`、`set_reshard_after_forward()`、`set_modules_to_forward_prefetch()`、`set_requires_gradient_sync()`）<br/>`_fsdp_state.py` 的 `FSDPState`（`_pre_forward()`、`_post_forward()`、`_pre_backward()`）<br/>`_fsdp_param_group.py` 的 `FSDPParamGroup`（`unshard()`、`wait_for_unshard()`、`reshard()`、`pre_forward()`、`post_forward()`、`pre_backward()`、`post_backward()`、`_backward_prefetch()`）、`FSDPCommContext`<br/>`_fsdp_param.py` 的 `FSDPParam`（`_init_sharded_param()`、`to_unsharded()`、`to_sharded()`、`all_gather_inputs()`）、`ShardedState`<br/>`_fsdp_collectives.py` 的 `foreach_all_gather()`、`foreach_all_gather_copy_out()`、`foreach_reduce()`<br/>`_fsdp_api.py` 的 `MixedPrecisionPolicy`、`DataParallelMeshDims`、`CPUOffloadPolicy` |
+| PyTorch 2.13.0 `torch/distributed/fsdp/_flat_param.py`、`_runtime_utils.py` | FSDP1：`FlatParameter`、`FlatParamHandle`（`shard()`、`unshard()`、`_all_gather_flat_param()`、`_use_unsharded_flat_param()`、`_use_unsharded_views()`、`reshard()`）<br/>`_pre_forward()`、`_pre_forward_unshard()`、`_post_forward_reshard()`、`_prefetch_handle()` |
+| PyTorch 2.13.0 `torch/distributed/pipelining/schedules.py`、`stage.py`、`_backward.py` | `Schedule1F1B`、`_Action`、`_ComputationType`、`_PipelineScheduleRuntime`、`_load_csv()`、`_add_send_recv()`、`_add_unshard_reshard()`、`_merge_bw()`、`_batch_p2p()`<br/>`PipelineStage` 的 forward / backward 与 send / recv 方法<br/>`stage_backward()`、`stage_backward_input()`、`stage_backward_weight()` |
+| PyTorch 2.13.0 `torch/distributed/device_mesh.py`、`tensor/_api.py`、`tensor/parallel/style.py` | `DeviceMesh`（`__getitem__`、`get_group()`、`_flatten()`、`_unflatten()`）、`init_device_mesh()`<br/>`DTensor`（`redistribute()`、`to_local()`、`full_tensor()`）、`distribute_tensor()`<br/>`ColwiseParallel`、`RowwiseParallel`、`SequenceParallel` |
 | train-ledger `runs/titan/`、`probe_memory.py` | 本篇练手配置与探针，见第四章 |
 
 Table: 本篇涉及的源码位置

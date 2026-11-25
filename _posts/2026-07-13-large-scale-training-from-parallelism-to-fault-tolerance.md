@@ -10,7 +10,7 @@ updated: 2026-09-06
 
 ## 内容简介
 
-> **更新 @2026-09-06**：本文"框架与版本基线"及第三至十一篇的 torchtitan / torchft 部分基于 torchtitan v0.3.0、torchft v0.2.0 刷新（两者发布于本系列之后）；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
+> **更新 @2026-09-06**：本文"框架与版本基线"及后续各篇的 torchtitan / torchft 部分基于 torchtitan v0.3.0、torchft v0.2.0 刷新（两者发布于本系列之后）；其余源码引用仍以 PyTorch 2.13.0 / Megatron Core 0.18.0 / DeepSpeed 0.19.2 为准。
 
 《大规模训练工程：从并行策略到容错恢复》是一组共十一篇正文加一篇总结的系列文章，面向已经会用 PyTorch 写训练循环、了解 DDP、准备把训练任务从几张卡放大到几百几千张卡的工程师，系统讲解一个大规模训练任务是如何被**配置、跑满、并且长期跑住**的。
 
@@ -602,7 +602,7 @@ Table: 各篇平行的源码阅读线
 - PyTorch **v2.13.0**（2026-07 发布）；重点使用 FSDP2（`fully_shard`）、DTensor、`torch.distributed.checkpoint`、`torch.distributed.pipelining`、torchrun 与 Flight Recorder；
 - Megatron-LM 以 **Megatron Core 0.18.0**（`core_v0.18.0`，2026-06 发布）为准，源码路径以 `megatron/core/` 与 `megatron/training/` 为主；参数名和默认值变化较快，正文随文标注；
 - DeepSpeed 以 **v0.19.2**（2026-06 发布）为准，源码路径以 `deepspeed/runtime/` 为主；
-- torchtitan 以 **v0.3.0** 为准、torchft 以 **v0.2.0** 为准。这两个版本发布于本系列之后（2026-09 与 2026-08）：torchtitan 在系列开始前唯一的 tag 是半年前的 v0.2.2，目录结构已与主线相去甚远；torchft 则没有更早的 tag。因此涉及它们的文章（第三至八篇）在开头带有"更新 @2026-09-06"声明，标明哪一部分按新版本刷新过，其余项目仍以上面的版本为准；
+- torchtitan 以 **v0.3.0** 为准、torchft 以 **v0.2.0** 为准。这两个版本发布于本系列之后（2026-09 与 2026-08）：torchtitan 在系列开始前唯一的 tag 是半年前的 v0.2.2，目录结构已与主线相去甚远；torchft 则没有更早的 tag。因此凡是读到它们源码的文章，开头都带有"更新"声明，标明哪一部分按新版本刷新过，其余项目仍以上面的版本为准；
 - NVIDIA Resiliency Extension 以 **v0.6.0**（2026-05 发布）为准；
 - 硬件以 **H100 SXM（80 GB HBM3，BF16 dense 约 989 TFLOPS）** 为默认分析对象，节点内 8 卡 NVLink、节点间 InfiniBand；给出的公开 MFU 与故障数字均注明来源（Megatron-LM 论文、PaLM 论文、Llama 3 论文），实测会因集群与版本而异。
 
