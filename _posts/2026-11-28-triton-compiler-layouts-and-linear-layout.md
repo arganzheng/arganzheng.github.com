@@ -49,11 +49,15 @@ Table: 本文的章节安排
 
 ### 2. 为什么放在类型里
 
-Triton 把 layout 作为 `RankedTensorType` 的 encoding（上上篇 §八.2），而不是 pass 内部的一张表。三个后果：
+Triton 把 layout 作为 `RankedTensorType` 的 encoding（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html) §八.2），而不是 pass 内部的一张表。三个后果：
 
 1. **每个 op 的每个操作数和结果都带 layout**，任何 pass 打开 IR 就能看到，不需要重算；`--mlir-print-ir-after-all` 出来的每一步 IR 都自带完整的线程映射。
 2. **verifier 检查一致性**：`arith.addi %a, %b` 要求两个操作数类型相同，所以 layout 也必须相同；`tt.load` 的 `SameLoadStoreOperandsAndResultEncoding`；`tt.dot` 的结果与累加器同 layout。layout 不一致的 IR 是**非法**的，会在 pass 之后的 verifier 处报错，而不是生成错误的代码。
-3. **改 layout 只有一种方式**：`ttg.convert_layout %x : tensor<…, #A> -> tensor<…, #B>`。它是 TTGIR 里唯一允许输入输出 layout 不同的 op（除了 `load` / `store` 与内存打交道、`reduce` / `expand_dims` 按规则变换）。第八篇的 `RemoveLayoutConversions` 整个 pass 就是围绕这一个 op。
+3. **改 layout 只有一种方式**：`ttg.convert_layout %x : tensor<…, #A> -> tensor<…, #B>`。它是 TTGIR 里唯一允许输入输出 layout 不同的 op（除了 `load` / `store` 与内存打交道、`reduce` / `expand_dims` 按规则变换）。[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的 `RemoveLayoutConversions` 整个 pass 就是围绕这一个 op。
+
+> [!NOTE] Java 经验参照：对象字段布局也是编译器定的，区别在它不是类型的一部分
+> 「元素怎么排」这件事 JVM 里也有，只是轮不到开发者管：对象的字段顺序由虚拟机按对齐和压缩指针重排，`@Contended` 顶多让它给某个字段留一整条缓存行，想看真实布局得用 JOL（Java Object Layout）把它打印出来——和这里用 `triton-tensor-layout` 打印一个 layout 是同一个动作。
+> 关键的不同在于**它是不是类型的一部分**。Java 的字段布局只存在于 JVM 内部，不出现在任何签名里，于是没有任何一段 Java 代码能对它做变换；Triton 把 layout 写进 `RankedTensorType`，于是 verifier 能检查它、pass 能传播和改写它、Gluon 甚至让用户直接写它。上面三条后果，根源都是这一点。
 
 ### 3. 模块属性
 
@@ -133,7 +137,7 @@ warpsPerCTA[order[rank - 1]] = numWarps / prevWarps;
 layout 一趟覆盖的 tile 和张量 shape 未必相等：
 
 - **tile 小于 shape**（常态）：`[32, 32]` 的 tile 铺一个 `[128, 32]` 的张量要铺 4 趟，每趟每线程多 8 个寄存器——所以 A tile 每线程持 32 个元素。铺的顺序按 `order`。
-- **tile 大于 shape**：`threadsPerWarp = [4, 8]`、`sizePerThread = [1, 8]` 在第 1 维覆盖 64 列，张量只有 32 列——多出来的线程**回绕**（wrap），持有前面线程同一份元素的**副本**。GPU Kernel 系列第七篇画过这张图。副本不是错误，但它是浪费：这些线程做的访存和运算都是重复的。智能构造正是为了避免它——它按 shape 算需要几个线程，不多给。
+- **tile 大于 shape**：`threadsPerWarp = [4, 8]`、`sizePerThread = [1, 8]` 在第 1 维覆盖 64 列，张量只有 32 列——多出来的线程**回绕**（wrap），持有前面线程同一份元素的**副本**。《GPU Kernel 工程》的《Triton——块级编程与编译器的边界》画过这张图。副本不是错误，但它是浪费：这些线程做的访存和运算都是重复的。智能构造正是为了避免它——它按 shape 算需要几个线程，不多给。
 
 Linear Layout 用一个词统一这两种情况：layout 是**非单射**的（多个硬件位置映到同一个下标 = 复制），且通过 `ensureLayoutNotSmallerThan` 补寄存器维来覆盖整个 shape（§四.4）。
 
@@ -159,7 +163,7 @@ Tensor Core 指令的**输出**在寄存器里的固定布局。`versionMajor = 
 
 ![m16n8 累加器在 32 个 lane 上的分布](/img/in-post/triton-compiler-layouts-mma-m16n8-acc.svg)
 
-lane t 持有 `(t / 4, (t % 4) × 2 + {0, 1})` 和 `(t / 4 + 8, …)`——这是 PTX ISA 手册里 `mma.m16n8k16` 的 C fragment 图，**硬件规定的**，编译器无法选择。`#nvidia_mma` 就是把硬件规定写成一个 layout 属性，让它能与别的 layout 做同样的运算（转换、比较）。更大的张量按 `warpsPerCTA` 与重复次数铺：`[128, 128]` 在 `warpsPerCTA = [2, 2]` 下每个 warp 负责 `[64, 64]`，是 4 × 8 = 32 条 `m16n8` 的输出，每线程 32 × 4 = 128 个 f32 寄存器——第二篇说的"累加器是最大的寄存器消耗者"的具体数字。
+lane t 持有 `(t / 4, (t % 4) × 2 + {0, 1})` 和 `(t / 4 + 8, …)`——这是 PTX ISA 手册里 `mma.m16n8k16` 的 C fragment 图，**硬件规定的**，编译器无法选择。`#nvidia_mma` 就是把硬件规定写成一个 layout 属性，让它能与别的 layout 做同样的运算（转换、比较）。更大的张量按 `warpsPerCTA` 与重复次数铺：`[128, 128]` 在 `warpsPerCTA = [2, 2]` 下每个 warp 负责 `[64, 64]`，是 4 × 8 = 32 条 `m16n8` 的输出，每线程 32 × 4 = 128 个 f32 寄存器——[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)说的"累加器是最大的寄存器消耗者"的具体数字。
 
 ### 6. `#dot_op`
 
@@ -167,7 +171,7 @@ lane t 持有 `(t / 4, (t % 4) × 2 + {0, 1})` 和 `(t / 4 + 8, …)`——这�
 #ttg.dot_op<{opIdx = 0, parent = #mma, kWidth = 2}>
 ```
 
-`tt.dot` 的**输入**（A 是 `opIdx = 0`，B 是 `opIdx = 1`）所要求的布局。它是 `parent`（累加器的 `#mma` layout）的函数：给定累加器怎么分布在 warp 上，A 的第 i 行块必须在负责第 i 行块的 warp 里、B 同理，且每个 lane 持有的 A / B 片段要与 `mma.sync` 的 A / B fragment 图一致。`kWidth` 是每个线程沿 K 维连续持有的元素数——BF16 是 2（一个 32 位寄存器装两个），FP8 是 4，决定了从 shared memory 用 `ldmatrix` 取操作数时的粒度。`ConvertTritonToTritonGPU` 就给 `tt.dot` 的操作数插 `convert_layout` 到 `#dot_op`（第四篇 §四.4 的合法性条件），此时 parent 还是临时的 `#blocked`；第八篇 `AccelerateMatmul` 把 parent 换成 `#mma`。
+`tt.dot` 的**输入**（A 是 `opIdx = 0`，B 是 `opIdx = 1`）所要求的布局。它是 `parent`（累加器的 `#mma` layout）的函数：给定累加器怎么分布在 warp 上，A 的第 i 行块必须在负责第 i 行块的 warp 里、B 同理，且每个 lane 持有的 A / B 片段要与 `mma.sync` 的 A / B fragment 图一致。`kWidth` 是每个线程沿 K 维连续持有的元素数——BF16 是 2（一个 32 位寄存器装两个），FP8 是 4，决定了从 shared memory 用 `ldmatrix` 取操作数时的粒度。`ConvertTritonToTritonGPU` 就给 `tt.dot` 的操作数插 `convert_layout` 到 `#dot_op`（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §四.4 的合法性条件），此时 parent 还是临时的 `#blocked`；[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) `AccelerateMatmul` 把 parent 换成 `#mma`。
 
 ## 四、Linear Layout
 
@@ -347,13 +351,13 @@ $$
 
 ### 7. 与 CuTe 对照
 
-`LinearLayout.h` 的注释专门比较了 NVIDIA CUTLASS 3 的 CuTe（GPU Kernel 系列第六篇）：两者都是"可编程、可组合的 layout 代数"，都取代了各自前身的手写特例。差别：LL 的维有名字（CuTe 编号）；CuTe 支持嵌套与非 2 的幂 shape（LL 不支持——所以 LL 不能表示 padding，Triton 的 `#padded_shared` 是 LL 之外的补充）；CuTe 的 swizzle 是 layout 之后的独立一步，LL 里 swizzle 就是 layout；**LL 可以被程序搜索**——"找一个读入某寄存器 layout 时无 bank conflict 的 shared layout"是一个可以在 LL 上求解的问题（`chooseShemLayoutForRegToRegConversion`、`GenericSwizzling.cpp`），CuTe 靠人选；LL 在编译器里运行、不在 GPU 关键路径上，不需要 CuTe 那样的 C++ 模板技巧。
+`LinearLayout.h` 的注释专门比较了 NVIDIA CUTLASS 3 的 CuTe（《GPU Kernel 工程》的《Tensor Core、CUTLASS 与 CuTe》）：两者都是"可编程、可组合的 layout 代数"，都取代了各自前身的手写特例。差别：LL 的维有名字（CuTe 编号）；CuTe 支持嵌套与非 2 的幂 shape（LL 不支持——所以 LL 不能表示 padding，Triton 的 `#padded_shared` 是 LL 之外的补充）；CuTe 的 swizzle 是 layout 之后的独立一步，LL 里 swizzle 就是 layout；**LL 可以被程序搜索**——"找一个读入某寄存器 layout 时无 bank conflict 的 shared layout"是一个可以在 LL 上求解的问题（`chooseShemLayoutForRegToRegConversion`、`GenericSwizzling.cpp`），CuTe 靠人选；LL 在编译器里运行、不在 GPU 关键路径上，不需要 CuTe 那样的 C++ 模板技巧。
 
 ## 五、初始 layout：`ConvertTritonToTritonGPU`
 
 ### 1. 默认 layout
 
-第四篇 §四.4 讲了这个 pass 的 Dialect Conversion 骨架。TypeConverter 对每个无 encoding 的张量调：
+[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §四.4 讲了这个 pass 的 Dialect Conversion 骨架。TypeConverter 对每个无 encoding 的张量调：
 
 ```cpp title="getDefaultBlockedEncoding"
 BlockedEncodingAttr getDefaultBlockedEncoding(ctx, shape, numWarps, threadsPerWarp, numCTAs) {
@@ -385,9 +389,9 @@ Table: matmul 各 shape 的默认 layout
 %a_ptrs   = tt.expand_dims %offs_m_2 {axis = 1 : i32} : tensor<128xi32, #ttg.slice<{dim = 1, parent = #blocked}>> -> tensor<128x1xi32, #blocked>
 ```
 
-`TritonExpandDimsPattern` 的做法：结果 `[128, 1]` 取默认 layout P，然后**要求输入是 `#slice<{dim = axis, parent = P}>`**——这是唯一让 `expand_dims` 不需要任何数据移动的输入 layout（`expand_dims` 只是给每个元素加一个恒为 0 的下标，线程持有关系不变）。输入 `%offs_m_2` 原本是默认的 `#blocked2`，pattern 插一个 `convert_layout` 到 `#slice`。转换后的 IR 因此**到处是 `convert_layout`**——本例有 16 个——它们是 Dialect Conversion 的 target materialization 与各 pattern 的局部决定叠出来的。第八篇的 `RemoveLayoutConversions` 会把大部分消掉，把 `make_range` 直接生成到 `#slice` layout 上（最终 TTGIR 里 `make_range` 的类型就是 `#slice`，没有前面的 `convert_layout`）。
+`TritonExpandDimsPattern` 的做法：结果 `[128, 1]` 取默认 layout P，然后**要求输入是 `#slice<{dim = axis, parent = P}>`**——这是唯一让 `expand_dims` 不需要任何数据移动的输入 layout（`expand_dims` 只是给每个元素加一个恒为 0 的下标，线程持有关系不变）。输入 `%offs_m_2` 原本是默认的 `#blocked2`，pattern 插一个 `convert_layout` 到 `#slice`。转换后的 IR 因此**到处是 `convert_layout`**——本例有 16 个——它们是 Dialect Conversion 的 target materialization 与各 pattern 的局部决定叠出来的。[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的 `RemoveLayoutConversions` 会把大部分消掉，把 `make_range` 直接生成到 `#slice` layout 上（最终 TTGIR 里 `make_range` 的类型就是 `#slice`，没有前面的 `convert_layout`）。
 
-`TritonDotPattern` 给 `tt.dot` 的操作数插到 `#dot_op<{opIdx, parent = #blocked8}>`，其中 `#blocked8 = <{[4, 4], [1, 32], [4, 1], [1, 0]}>` 是一个专为 FMA 路径准备的累加器 layout（每线程 4×4 的块）；第八篇 `AccelerateMatmul` 会把它换成 `#mma`。
+`TritonDotPattern` 给 `tt.dot` 的操作数插到 `#dot_op<{opIdx, parent = #blocked8}>`，其中 `#blocked8 = <{[4, 4], [1, 32], [4, 1], [1, 0]}>` 是一个专为 FMA 路径准备的累加器 layout（每线程 4×4 的块）；[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) `AccelerateMatmul` 会把它换成 `#mma`。
 
 ## 六、Coalesce：为访存重选 layout
 
@@ -398,7 +402,7 @@ Table: matmul 各 shape 的默认 layout
 ```mermaid
 %% 图：buildCoalescedEncoding 的算法：查 AxisInfo 定 order，找同切片的访存 op，取每线程元素数的最大值再用总数与 store 上限截断，构造 sizePerThread
 flowchart TB
-    ptr["取指针操作数 ptr，查 AxisInfo（第六篇）"]
+    ptr["取指针操作数 ptr，查 AxisInfo（《AxisInfo》那一篇）"]
     order["order = 按 contiguity 从大到小排各维<br/>（getOrderFromContiguity）"]
     slice["找出与本 op 在同一 def-use 切片里、同 shape、同 order 的其他访存 op<br/>（同一批指针算术喂出来的 load / store 应共享 layout）"]
     per["perThread = max over 这些 op 的 getNumElementsPerThread<br/>= min(divisibility / 元素字节数, contiguity, 该 op 每线程上限)"]
@@ -409,7 +413,7 @@ flowchart TB
     ptr --> order --> slice --> per --> cap --> store --> build --> rewrite
 ```
 
-对 A 的 load：`a_ptrs` 的 AxisInfo 是 contiguity `[1, 32]`、divisibility `[2, 16]`（第六篇 §八）。`order = [1, 0]`（第 1 维连续）；`getNumElementsPerThread` 沿 `order[0] = 1`：`min(16 / 2 = 8, 32) = 8`；元素总数 / 线程数 = 4096 / 128 = 32 ≥ 8；load 不受 store 限制 → `perThread = 8`；`sizePerThread = [1, 8]`；智能构造 → `threadsPerWarp = [8, 4]`、`warpsPerCTA = [4, 1]`。这就是 `#blocked6`。对 B：`b_ptrs` contiguity `[1, 128]`、divisibility `[2, 16]` → `perThread = min(8, 128) = 8`，`[32, 128]` 上智能构造 → `#blocked7 = <{[1, 8], [2, 16], [4, 1]}>`。对 C 的 store：`c_ptrs` 同样 `perThread = 8`，`[128, 128]` 上智能构造得到的参数与 `#blocked7` 完全相同——MLIR 的属性唯一化让它们是**同一个**对象，所以 TTGIR 里 store 的 layout 也写 `#blocked7`。
+对 A 的 load：`a_ptrs` 的 AxisInfo 是 contiguity `[1, 32]`、divisibility `[2, 16]`（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html) §八）。`order = [1, 0]`（第 1 维连续）；`getNumElementsPerThread` 沿 `order[0] = 1`：`min(16 / 2 = 8, 32) = 8`；元素总数 / 线程数 = 4096 / 128 = 32 ≥ 8；load 不受 store 限制 → `perThread = 8`；`sizePerThread = [1, 8]`；智能构造 → `threadsPerWarp = [8, 4]`、`warpsPerCTA = [4, 1]`。这就是 `#blocked6`。对 B：`b_ptrs` contiguity `[1, 128]`、divisibility `[2, 16]` → `perThread = min(8, 128) = 8`，`[32, 128]` 上智能构造 → `#blocked7 = <{[1, 8], [2, 16], [4, 1]}>`。对 C 的 store：`c_ptrs` 同样 `perThread = 8`，`[128, 128]` 上智能构造得到的参数与 `#blocked7` 完全相同——MLIR 的属性唯一化让它们是**同一个**对象，所以 TTGIR 里 store 的 layout 也写 `#blocked7`。
 
 `perThread` 的上限 `128 / bitwidth`（NVIDIA 最宽向量访存）藏在 `getMaxElementsPerThread(op)` 里；bf16 是 8。所以 Coalesce 的目标就是**让每个线程持有一条 128 bit 访存能覆盖的连续元素，且不超过 AxisInfo 能证明的对齐与连续**。
 
@@ -433,7 +437,7 @@ flowchart TB
 %69 = ttg.convert_layout %68 : tensor<128x128xf32, #blocked8> -> tensor<128x128xf32, #blocked>
 ```
 
-Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后各一个 `convert_layout`），不管别人。于是一个 K 迭代里有 8 个 `convert_layout`：A、B 两个 load 各带进来一对（%59 %61、%62 %64），另外 4 个（%65 %66 %67 %69）是 `ConvertTritonToTritonGPU` 给 `tt.dot` 留下的。③ 把刚 load 进来的 A 从 coalesced layout 转回默认，%65 又把它转到 `#dot_op`——两次转换，中间那个默认 layout 毫无用处。这是**局部决定的必然结果**：每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。把这些转换消掉、让 layout 沿 def-use 链传播到一致，是下一篇 `RemoveLayoutConversions` 的工作。最终 TTGIR 里循环体只剩两个 `convert_layout`（A、B 从 load 的 `#blocked` 到 `#dot_op`——这两个在 Ampere 上会变成经 shared memory 的 `ldmatrix` 路径，第八篇），累加器直接生在 `#mma` 上。
+Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后各一个 `convert_layout`），不管别人。于是一个 K 迭代里有 8 个 `convert_layout`：A、B 两个 load 各带进来一对（%59 %61、%62 %64），另外 4 个（%65 %66 %67 %69）是 `ConvertTritonToTritonGPU` 给 `tt.dot` 留下的。③ 把刚 load 进来的 A 从 coalesced layout 转回默认，%65 又把它转到 `#dot_op`——两次转换，中间那个默认 layout 毫无用处。这是**局部决定的必然结果**：每个 pass 只保证自己的 op 拿到想要的 layout，用 `convert_layout` 与外界隔离。把这些转换消掉、让 layout 沿 def-use 链传播到一致，是下一篇 `RemoveLayoutConversions` 的工作。最终 TTGIR 里循环体只剩两个 `convert_layout`（A、B 从 load 的 `#blocked` 到 `#dot_op`——这两个在 Ampere 上会变成经 shared memory 的 `ldmatrix` 路径，[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)），累加器直接生在 `#mma` 上。
 
 ## 七、shared memory 的 layout
 
@@ -451,9 +455,9 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 
 ### 2. `#nvmma_shared`、`#padded_shared` 与 `memdesc`
 
-- `#ttg.nvmma_shared<{swizzlingByteWidth = 128, transposed = false, elementBitWidth = 16}>`：Hopper 的 `wgmma` 与 TMA 要求的固定 shared memory 布局（128 / 64 / 32 字节 swizzle 模式，硬件定义），Hopper 路径上 `tt.dot` 的操作数直接从这种布局的 shared memory 喂给 `wgmma`（第九篇）。
+- `#ttg.nvmma_shared<{swizzlingByteWidth = 128, transposed = false, elementBitWidth = 16}>`：Hopper 的 `wgmma` 与 TMA 要求的固定 shared memory 布局（128 / 64 / 32 字节 swizzle 模式，硬件定义），Hopper 路径上 `tt.dot` 的操作数直接从这种布局的 shared memory 喂给 `wgmma`（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)）。
 - `#ttg.padded_shared<[…]>`：用 padding 而不是 XOR 避 conflict（AMD 路径常用）；LL 不能表示 padding，所以它有单独的 `paddedLinearLayout` 处理。
-- 类型是 `!ttg.memdesc<128x32xbf16, #shared, #smem>`（`memdesc` = memory descriptor：shape、元素类型、layout、内存空间）。`ttg.local_alloc` 分配、`ttg.local_load` / `local_store` 读写、`ttg.memdesc_index` 取多缓冲的一片、`ttg.async_copy_global_to_local` 直接从 global 拷进来（`cp.async`）。第九篇的流水化把 load 变成这些 op；第十篇的 `AllocateSharedMemory` 给每个 `memdesc` 分偏移。
+- 类型是 `!ttg.memdesc<128x32xbf16, #shared, #smem>`（`memdesc` = memory descriptor：shape、元素类型、layout、内存空间）。`ttg.local_alloc` 分配、`ttg.local_load` / `local_store` 读写、`ttg.memdesc_index` 取多缓冲的一片、`ttg.async_copy_global_to_local` 直接从 global 拷进来（`cp.async`）。[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)的流水化把 load 变成这些 op；[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `AllocateSharedMemory` 给每个 `memdesc` 分偏移。
 
 ## 八、本文小结
 
@@ -476,7 +480,7 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 2. `[64, 64]` 的 `#mma` 累加器（§四.3 第二张表）要 `tt.reduce` 沿 dim 1（每行求和）。结果 layout 是 `#slice<{dim = 1, parent = #mma}>`。规约需要哪几级通信？用基向量表回答。
 
    <details markdown="1"><summary>答案</summary>
-   看列号（dim1）由哪些输入位决定：寄存器位 1、4、8（(0,1)、(0,16)、(0,32)）、lane 位 1、2（(0,2)、(0,4)）、warp 位 1（(0,8)）。所以同一行的 64 个元素分布在：每线程 8 个寄存器（2³）× 4 个 lane（2²）× 2 个 warp。规约三级：先线程内把 8 个寄存器加起来，再 warp 内 4 个 lane 用 2 次 `shfl.sync.bfly`（跨 lane 位 1、2），再跨 2 个 warp 经 shared memory。若换成默认 `#blocked`（列号全在 lane 位 1..16 与 warp 位 1），是线程内 0 次、shuffle 5 次、跨 warp 1 次——第十篇的 `OptimizeThreadLocality` 就是为了把规约维尽量挪进寄存器位。
+   看列号（dim1）由哪些输入位决定：寄存器位 1、4、8（(0,1)、(0,16)、(0,32)）、lane 位 1、2（(0,2)、(0,4)）、warp 位 1（(0,8)）。所以同一行的 64 个元素分布在：每线程 8 个寄存器（2³）× 4 个 lane（2²）× 2 个 warp。规约三级：先线程内把 8 个寄存器加起来，再 warp 内 4 个 lane 用 2 次 `shfl.sync.bfly`（跨 lane 位 1、2），再跨 2 个 warp 经 shared memory。若换成默认 `#blocked`（列号全在 lane 位 1..16 与 warp 位 1），是线程内 0 次、shuffle 5 次、跨 warp 1 次——[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `OptimizeThreadLocality` 就是为了把规约维尽量挪进寄存器位。
    </details>
 
 3. Coalesce 对一个 `tl.store(ptrs, x)`，AxisInfo 给 `ptrs` 沿最快维 contiguity 64、divisibility 64 字节，元素 f32，`num_warps = 4`，张量 `[64, 64]`。`sizePerThread` 是多少？如果是 `tl.load` 呢？为什么不同？
@@ -494,7 +498,7 @@ Coalesce **只改 load / store 自己**（① ② ③ 是它的手法：前后�
 5. 为什么 `#slice<{dim, parent}>` 要作为一种 layout 存在，而不是让 `tt.reduce` 的结果直接取一个新的 `#blocked`？
 
    <details markdown="1"><summary>答案</summary>
-   两个原因。(1) **信息**：规约的 lowering 必须知道输入的哪些线程 / 寄存器持有同一行的元素才能决定"线程内加 → shuffle → shared memory"的分工；`#slice` 把父 layout 完整保留，lowering 直接从父 layout 的基向量读出这些信息；一个独立的 `#blocked` 丢掉了与输入的对应关系。(2) **零成本**：`#slice` 的语义"父 layout 压掉一维"恰好是规约完成后数据自然所在的位置（同一行的线程都持有该行的结果，是复制），不需要任何数据移动；同理 `expand_dims` 的输入取结果的 `#slice` 也是零移动。若结果取别的 layout，规约后还要一次 `convert_layout`。第八篇 `RemoveLayoutConversions` 大量依赖"`slice` 与 `expand_dims` 互为逆"这个性质来推 layout。
+   两个原因。(1) **信息**：规约的 lowering 必须知道输入的哪些线程 / 寄存器持有同一行的元素才能决定"线程内加 → shuffle → shared memory"的分工；`#slice` 把父 layout 完整保留，lowering 直接从父 layout 的基向量读出这些信息；一个独立的 `#blocked` 丢掉了与输入的对应关系。(2) **零成本**：`#slice` 的语义"父 layout 压掉一维"恰好是规约完成后数据自然所在的位置（同一行的线程都持有该行的结果，是复制），不需要任何数据移动；同理 `expand_dims` 的输入取结果的 `#slice` 也是零移动。若结果取别的 layout，规约后还要一次 `convert_layout`。[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) `RemoveLayoutConversions` 大量依赖"`slice` 与 `expand_dims` 互为逆"这个性质来推 layout。
    </details>
 
 ## 下一篇
