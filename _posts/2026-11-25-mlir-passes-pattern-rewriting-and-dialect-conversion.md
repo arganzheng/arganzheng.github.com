@@ -9,7 +9,7 @@ catalog: true
 
 上一篇的 IR 是静态的。这一篇讲怎么改它。MLIR 提供三种变换机制，复杂度递增：**pass** 是变换的作用单位（"对这个 Op 做一次什么"）；**pattern rewrite** 是局部改写（"看到这个形状就换成那个形状"，类型不变）；**dialect conversion** 是全局的类型与方言替换（"把所有 A 方言的 op 换成 B 方言的、所有 X 类型换成 Y 类型"，中间状态可能类型不一致）。Triton 编译器的每一个 pass 都属于其中一种，分辨它属于哪一种，是读它的第一步。
 
-第四种东西不改 IR，但几乎每个变换都依赖它：**数据流分析框架**。第六篇的 AxisInfo 建在它上面，本篇把框架本身讲清楚。
+第四种东西不改 IR，但几乎每个变换都依赖它：**数据流分析框架**。[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)的 AxisInfo 建在它上面，本篇把框架本身讲清楚。
 
 总纲对这一篇提出的核心问题是：
 
@@ -128,8 +128,12 @@ struct MulPow2ToShift : public OpRewritePattern<arith::MulIOp> {
 };
 ```
 
-1. ① **match 阶段**：只读，判断形状。`matchPattern` + `m_ConstantInt` 是 MLIR 的匹配器小语言（`m_Zero()`、`m_Constant()`、`m_Op<AddIOp>()` 可以嵌套）。失败时返回 `notifyMatchFailure`——在 debug 构建里 `-debug-only=greedy-rewriter` 会打印这些原因，是第十三篇"为什么这条 pattern 没命中"的第一手信息。
+1. ① **match 阶段**：只读，判断形状。`matchPattern` + `m_ConstantInt` 是 MLIR 的匹配器小语言（`m_Zero()`、`m_Constant()`、`m_Op<AddIOp>()` 可以嵌套）。失败时返回 `notifyMatchFailure`——在 debug 构建里 `-debug-only=greedy-rewriter` 会打印这些原因，是[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)"为什么这条 pattern 没命中"的第一手信息。
 2. ② ③ **rewrite 阶段**：改 IR。**所有修改必须通过 `rewriter`**——`rewriter.create`（或 `Op::create(rewriter, …)`）、`rewriter.replaceOp`、`rewriter.eraseOp`、`rewriter.modifyOpInPlace(op, [&]{ … })`、`rewriter.replaceAllUsesWith`。直接调 `op->erase()` 或 `op->setOperand()` 是错误的：driver 靠 rewriter 的通知维护工作表（哪些 op 变了、要重新检查），绕过它 driver 就不知道 IR 变了，轻则错过优化机会，重则悬空指针。这是写 MLIR pattern 的第一纪律，也是 Triton 代码审查里最常见的一类 bug。
+
+> [!NOTE] Java 经验参照：绕过 rewriter 等于遍历集合时直接改集合
+> 「所有修改必须通过 `rewriter`」这条纪律，Java 工程师在另一个场景下被教过：遍历一个集合时直接 `list.remove(x)`，下一次 `next()` 就是 `ConcurrentModificationException`；要删只能走 `Iterator.remove()`，因为迭代器得同步自己的游标。这里的 driver 就是那个迭代器——它维护着一张工作表，`rewriter.replaceOp` / `eraseOp` 在改 IR 的同时通知它「这些 op 变了、它们的使用者要重新入表」。直接 `op->erase()` 相当于绕开迭代器改集合。
+> 不同的是**失败方式**：Java 那边有 modCount 检查，当场抛异常；MLIR 这边没有守卫，driver 不知道 IR 变了，轻则少做一轮优化（看起来像「这条 pattern 没生效」），重则拿着已经被删的 op 的指针继续跑——崩在哪一行和真正的错误往往隔着好几个 pass。
 
 `OpRewritePattern<MulIOp>` 限定匹配的 op 类型；`RewritePattern` 基类可以匹配任意 op（Triton 的 `Combine.cpp` 里 `CombineSelectMaskedLoadPattern` 用 `RewritePattern(arith::SelectOp::getOperationName(), benefit, ctx)` 是老写法，等价）。构造函数的 `benefit` 参数（默认 1）决定多条 pattern 同时匹配一个 op 时谁先试。
 
@@ -164,7 +168,7 @@ flowchart TB
 - **不动点**：一条 pattern 的输出可能是另一条的输入（`mul → shl` 之后，`shl` 又可能与相邻的 `shl` 合并），driver 反复扫直到没有变化。`max-iterations=10` 是保险——两条互相抵消的 pattern（A 把 x 变成 y，B 把 y 变成 x）会无限循环，达到上限时报 `pattern rewrite did not converge`。
 - **fold 优先**：每个 op 的 `fold()` 方法（ODS `hasFolder`）在 pattern 之前试。`fold` 与 pattern 的区别：`fold` **不能创建新 op**，只能返回一个已有的 `Value` 或一个 `Attribute`（常量），所以它可以在任何地方安全调用（builder 在创建 op 时也会先试 fold）；pattern 可以做任何改写。`addptr %p, 0 → %p` 是 fold，`addptr(addptr(p, a), b) → addptr(p, a + b)` 要新建一个 `addi`，是 pattern。
 - **DCE 内置**：无使用者且无内存效应的 op 顺手删掉（这就是 `Pure` trait 的价值）。
-- **局部性**：pattern 只看一个 op 及其操作数 / 使用者的邻域，不做全局分析。需要全局信息的变换（"这个 layout 要不要沿整条 def-use 链传播"）不适合写成 pattern，Triton 的 `RemoveLayoutConversions` 因此是手写的两阶段算法而不是 pattern 集（第八篇）。
+- **局部性**：pattern 只看一个 op 及其操作数 / 使用者的邻域，不做全局分析。需要全局信息的变换（"这个 layout 要不要沿整条 def-use 链传播"）不适合写成 pattern，Triton 的 `RemoveLayoutConversions` 因此是手写的两阶段算法而不是 pattern 集（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）。
 
 ### 3. Canonicalization
 
@@ -190,7 +194,7 @@ flowchart TB
 %2 = arith.subi %1, %0 : i32              // 没有化成 7
 ```
 
-`3 + 4` 折了、两个 `muli` 被 CSE 合并了，但 `(x*8 + 7) - x*8 = 7` 没有——`arith` 方言没有这条 canonicalization pattern；LLVM 的 `instcombine` 有。这是分工：MLIR 各方言的 canonicalizer 只做**规范化**（常量右移、恒等式、显然的折叠），代数简化留给 LLVM 层——Triton 的 LLVM IR 最后会过一遍 `-O3`（第二篇），那里会把它化掉。读 TTGIR 时看到没被简化的算术不要奇怪。
+`3 + 4` 折了、两个 `muli` 被 CSE 合并了，但 `(x*8 + 7) - x*8 = 7` 没有——`arith` 方言没有这条 canonicalization pattern；LLVM 的 `instcombine` 有。这是分工：MLIR 各方言的 canonicalizer 只做**规范化**（常量右移、恒等式、显然的折叠），代数简化留给 LLVM 层——Triton 的 LLVM IR 最后会过一遍 `-O3`（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)），那里会把它化掉。读 TTGIR 时看到没被简化的算术不要奇怪。
 
 ### 4. 声明式 pattern：DRR 与 PDLL
 
@@ -346,7 +350,11 @@ func.func @mm(%arg0: memref<4x8xf32>, %arg1: memref<8x4xf32>, %arg2: memref<4x4x
 
 ① `arith.constant 0 : index` 变成了 `llvm.mlir.constant : i64`（`index` 在 LLVM 里是 64 位整数），但它的使用者 ② `scf.for` 不在这次转换的范围内、仍要 `index` 类型——driver 插了一个 `builtin.unrealized_conversion_cast` 把 `i64` "假装"成 `index`。这个 op 没有语义（它"未实现"），只是类型系统上的桥。当后面 `scf.for` 也被转换、它的操作数变成 `i64` 时，会出现 `cast(cast(x : i64 → index) : index → i64)`，`--reconcile-unrealized-casts` 把这种往返对消掉；如果最后还剩下无法消除的 cast，说明有一部分 IR 没转干净，那个 pass 会报错——这是多步 lowering 的一致性检查。
 
-Triton 的 `TritonGPUToLLVM` 也依赖它：第六篇 AxisInfo 的 visitor 表里有一条 `UnrealizedConversionCastOpAxisInfoVisitor`，注释说"TritonGPUToLLVM 在 partial conversion 过程中需要查 AxisInfo，此时图里有 `unrealized_conversion_cast`"——就是这个中间状态。
+Triton 的 `TritonGPUToLLVM` 也依赖它：[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)里的 visitor 表有一条 `UnrealizedConversionCastOpAxisInfoVisitor`，注释说"TritonGPUToLLVM 在 partial conversion 过程中需要查 AxisInfo，此时图里有 `unrealized_conversion_cast`"——就是这个中间状态。
+
+> [!NOTE] Java 经验参照：桥接两套类型的临时适配器
+> 泛型擦除之后，`class StringBox implements Box<String>` 里的 `get()` 返回 `String`，而调用方按 `Box.get()` 的擦除签名期望 `Object`——`javac` 自动生成一个 bridge method 把两套签名接起来。`unrealized_conversion_cast` 是同一类产物：转换只做了一半，一半 op 已经用 `i64`、另一半还要 `index`，driver 就插一个没有语义的桥让 IR 在中途仍然类型自洽。
+> 差别在于**能不能留下来**。bridge method 是最终产物的一部分，永久留在 class 文件里（`javap -c` 能看到，栈轨迹里也会出现）；`unrealized_conversion_cast` 必须在整条下降结束前全部消干净，`--reconcile-unrealized-casts` 消不掉就报错。所以在 MLIR 里，这个 op 出现在最终 IR 中永远是一个 bug 信号，而不是一个实现细节。
 
 ### 4. Triton 的 `ConvertTritonToTritonGPU`
 
@@ -377,7 +385,7 @@ TritonGPUTypeConverter::TritonGPUTypeConverter(MLIRContext *context, int numWarp
 }
 ```
 
-① ② ③ 是核心问题第二问的答案：TypeConverter 定义"无 layout 的 `tensor<shape x T>` → 带默认 `#blocked` 的同 shape 张量"，其他类型（指针、标量、已带 layout 的张量）原样。默认 layout 由 `getDefaultBlockedEncoding` 按 shape、`num_warps`、`threads_per_warp` 算出（第七篇）。④ 当某个 pattern 需要带 layout 的操作数而拿到的是别的 layout（或来自另一次转换）时，桥接 op 是 `ttg.convert_layout`——在这个转换里 layout 的桥接有真实语义（数据在线程间重排），所以不用 `unrealized_conversion_cast`。
+① ② ③ 是核心问题第二问的答案：TypeConverter 定义"无 layout 的 `tensor<shape x T>` → 带默认 `#blocked` 的同 shape 张量"，其他类型（指针、标量、已带 layout 的张量）原样。默认 layout 由 `getDefaultBlockedEncoding` 按 shape、`num_warps`、`threads_per_warp` 算出（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)）。④ 当某个 pattern 需要带 layout 的操作数而拿到的是别的 layout（或来自另一次转换）时，桥接 op 是 `ttg.convert_layout`——在这个转换里 layout 的桥接有真实语义（数据在线程间重排），所以不用 `unrealized_conversion_cast`。
 
 **ConversionTarget**：
 
@@ -393,7 +401,7 @@ addDynamicallyLegalOp<triton::DotOp>([](triton::DotOp dotOp) -> bool {       // 
 addDynamicallyLegalOp<triton::FuncOp>(...所有参数 / 结果的 tensor 类型都带 encoding...);
 ```
 
-`tt.dot` 的合法性更严——不只是"有 layout"，而是操作数必须是 `#dot_op` layout；对应的 `TritonDotPattern` 为 a、b 各插一个 `convert_layout` 到 `#dot_op<{opIdx=0/1, parent=#blocked}>`。这是 `AccelerateMatmul`（第八篇）的起点。
+`tt.dot` 的合法性更严——不只是"有 layout"，而是操作数必须是 `#dot_op` layout；对应的 `TritonDotPattern` 为 a、b 各插一个 `convert_layout` 到 `#dot_op<{opIdx=0/1, parent=#blocked}>`。这是 `AccelerateMatmul`（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）的起点。
 
 **Patterns**：`GenericOpPattern<Op>` 覆盖绝大多数；特殊的几个——`ArithConstantPattern`（`dense<0.0>` 常量的属性类型也要带 layout）、`TritonExpandDimsPattern`（结果 layout 是 `#slice` 的逆：父 layout 由结果推出）、`TritonDotPattern`、`TritonReducePattern`（结果 layout = `#slice<{dim, parent}>`）、`TritonBroadcastPattern`、`SCFForPattern` / `SCFIfPattern` / `SCFWhilePattern`（Region 签名转换：`rewriter.convertRegionTypes` 把 Block 参数换类型）、`CFBranchPattern` / `CFCondBranchPattern`。
 
@@ -408,7 +416,7 @@ partial 而不是 full：允许 `builtin.module`、`tt.func` 这些不在动态�
 
 回到核心问题第一问：**为什么不能用 greedy rewrite**——因为每个 op 的合法状态依赖邻居同时转换，greedy 的"每一步后 IR 合法"做不到；Dialect Conversion 允许中间状态类型不一致（用 adaptor 传已转换的操作数、用 materialization 桥接、把所有改动记录到最后提交），并在结束时以合法性检查保证没有漏网的 op。`scf.for` 的 iter_args / Block 参数 / yield / 结果四处同步换类型，只有 `convertRegionTypes` + 延迟提交能做到。
 
-`TritonGPUToLLVM`（第十篇）是同一框架的第二个实例：TypeConverter 把 `tensor<…, #layout>` 变成 `!llvm.struct<(f32, f32, …)>`（每线程持有的元素数由 layout 算出），`!tt.ptr<T>` 变成 `!llvm.ptr<1>`，`!ttg.memdesc` 变成 `!llvm.ptr<3>` 加偏移；合法目标是 `llvm` 与 `nvvm` 方言；几十个 `ConvertOpToLLVMPattern`。
+`TritonGPUToLLVM`（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）是同一框架的第二个实例：TypeConverter 把 `tensor<…, #layout>` 变成 `!llvm.struct<(f32, f32, …)>`（每线程持有的元素数由 layout 算出），`!tt.ptr<T>` 变成 `!llvm.ptr<1>`，`!ttg.memdesc` 变成 `!llvm.ptr<3>` 加偏移；合法目标是 `llvm` 与 `nvvm` 方言；几十个 `ConvertOpToLLVMPattern`。
 
 ## 五、一条完整的下降
 
@@ -438,7 +446,7 @@ scf.for %arg3 = %c0 to %c4 step %c1 {
 }
 ```
 
-这一步是第一篇 §八说的"丢信息"最直观的一次：`linalg.matmul` 一个 op 里的"这是矩阵乘"到这里变成了三层循环加标量乘加，再往下没有任何 pass 知道它曾是矩阵乘。Triton 的 `tt.dot` 不走这条路——它保持为一个 op 直到 `DotOpToLLVM` 直接变成 `mma.sync`。
+这一步是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八说的"丢信息"最直观的一次：`linalg.matmul` 一个 op 里的"这是矩阵乘"到这里变成了三层循环加标量乘加，再往下没有任何 pass 知道它曾是矩阵乘。Triton 的 `tt.dot` 不走这条路——它保持为一个 op 直到 `DotOpToLLVM` 直接变成 `mma.sync`。
 
 **第二步**：`--convert-scf-to-cf`（Region → Block + 跳转，上一篇 §七.2）。
 
@@ -459,7 +467,7 @@ llvm.func @mm(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: i64, %arg3: i64, %arg4:
 
 ① 一个 `memref<4x8xf32>` 参数变成了 7 个参数（数据指针、对齐指针、偏移、2 个 size、2 个 stride）——这是 memref 的 TypeConverter：`memref` → 一个 `!llvm.struct<(ptr, ptr, i64, array<2 x i64>, array<2 x i64>)>` 描述符，函数边界上再拆成标量。三个 memref 参数变成 21 个 LLVM 参数。对比 Triton：`!tt.ptr<bf16>` 就是一个 `!llvm.ptr<1>`，没有描述符——Triton 的指针语义比 memref 简单得多，这是它的 lowering 比 IREE 那条路轻的原因之一。
 
-**第四步**：`mlir-translate --mlir-to-llvmir` 得到真正的 LLVM IR（236 行），再交给第二篇的 LLVM 后端。
+**第四步**：`mlir-translate --mlir-to-llvmir` 得到真正的 LLVM IR（236 行），再交给[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)的 LLVM 后端。
 
 **运行**：加一个 `main` 用 `linalg.fill` 填 A 全 1、B 全 2、C 全 0，调 `mm`，用 runner 工具库打印：
 
@@ -484,7 +492,7 @@ Unranked Memref base@ = 0x9f7001000 rank = 2 offset = 0 sizes = [4, 4] strides =
 
 ### 1. 框架
 
-`mlir/Analysis/DataFlowFramework.h` 提供第一篇 §五 那套东西的通用实现：
+`mlir/Analysis/DataFlowFramework.h` 提供[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §五 那套东西的通用实现：
 
 | 概念 | 类 | 说明 |
 |---|---|---|
@@ -526,11 +534,11 @@ func.func @g(%arg0: i1) -> i32 {
 }
 ```
 
-两个分支各算出 12，`scf.if` 的结果 lattice = join(12, 12) = 12（第一篇 §五.3 的格：相同常量的 join 是该常量），`%s = 12 × 7 = 84`。若把 else 分支改成 13，join(12, 13) = ⊤，`%s` 不再是常量。
+两个分支各算出 12，`scf.if` 的结果 lattice = join(12, 12) = 12（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §五.3 的格：相同常量的 join 是该常量），`%s = 12 × 7 = 84`。若把 else 分支改成 13，join(12, 13) = ⊤，`%s` 不再是常量。
 
 ### 3. AxisInfo 怎样接进来
 
-第六篇讲过：`AxisInfoAnalysis : SparseForwardDataFlowAnalysis<Lattice<AxisInfo>>`，实现 `visitOperation`（查 visitor 表）、`setToEntryState`（悲观值 + 函数参数属性）、`visitNonControlFlowArguments`（`scf.for` 归纳变量）。`AxisInfo::join` 取 gcd。`ModuleAxisInfoAnalysis::initialize` 创建 solver、装载分析、`initializeAndRun(funcOp)`，然后把每个值的结果抄进一张 map。框架把循环的不动点、分支的汇合、稀疏传播全部包掉，Triton 只写了传递规则。
+[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)讲过：`AxisInfoAnalysis : SparseForwardDataFlowAnalysis<Lattice<AxisInfo>>`，实现 `visitOperation`（查 visitor 表）、`setToEntryState`（悲观值 + 函数参数属性）、`visitNonControlFlowArguments`（`scf.for` 归纳变量）。`AxisInfo::join` 取 gcd。`ModuleAxisInfoAnalysis::initialize` 创建 solver、装载分析、`initializeAndRun(funcOp)`，然后把每个值的结果抄进一张 map。框架把循环的不动点、分支的汇合、稀疏传播全部包掉，Triton 只写了传递规则。
 
 ## 七、Triton 的一个 pass 从哪里来
 
@@ -554,7 +562,7 @@ flowchart TB
 - `mlir-tblgen -gen-pass-decls` 生成 `impl::TritonGPUCoalesceBase`（一个 CRTP 基类，实现 `getArgument`、`getDependentDialects`、选项解析）和 `createTritonGPUCoalesce()` 工厂函数。
 - `Coalesce.cpp` 只写 `runOnOperation`。
 - `python/src/passes.cc` 用一行宏把工厂函数绑成 Python 里的 `add_coalesce`；带选项的用 `ADD_PASS_WRAPPER_1/2/…`（`add_pipeline(pm, num_stages, dump_enabled)`）。
-- `triton-opt` 通过 `registerTritonGPUPasses()` 拿到同一批 pass，所以 `compiler.py` 里的每一个 `add_xxx` 都能在命令行以 `--tritongpu-xxx` 单独运行——第十三篇的调试方法建立在这个对应关系上。
+- `triton-opt` 通过 `registerTritonGPUPasses()` 拿到同一批 pass，所以 `compiler.py` 里的每一个 `add_xxx` 都能在命令行以 `--tritongpu-xxx` 单独运行——[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)的调试方法建立在这个对应关系上。
 
 同一条链也存在于 `lib/Dialect/Triton/Transforms/Passes.td`（TTIR 级 pass，Python 名 `passes.ttir.*`）、`lib/Conversion/TritonToTritonGPU/Passes.td`、`third_party/nvidia/.../Passes.td`（`nvidia.passes.ttnvgpuir.*`）。
 
