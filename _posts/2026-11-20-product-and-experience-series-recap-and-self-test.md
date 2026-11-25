@@ -9,7 +9,7 @@ date: 2026-11-20 20:00:00
 updated: 2026-11-23
 ---
 
-五篇正文回答了一个问题：**在"组件会出错"的前提下怎么做产品决策**。第一篇选场景（锯齿状边界、demo–产品鸿沟），第二篇选形态（copilot → agent → 自动化、后台 agent 的兴起），第三篇校准信任（过度与不足、八种手段），第四篇呈现不确定与非对话形态，第五篇量真实价值并回流。五篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第七层，也是应用地图的最后一层：从模型组件到可信的产品。
+五篇正文回答了一个问题：**在"组件会出错"的前提下怎么做产品决策**。从[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)到[《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)，五篇依次是五个决策：选场景（锯齿状边界、demo–产品鸿沟）、选形态（copilot → agent → 自动化、后台 agent 的兴起）、校准信任（过度与不足、八种手段）、呈现不确定与非对话形态、量真实价值并回流。五篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第七层，也是应用地图的最后一层：从模型组件到可信的产品。
 
 本文不讲新内容：总表、逐篇回顾、贯穿的线、误区、三段式自测，最后是整张应用地图的收束。
 
@@ -90,7 +90,15 @@ Table: 本文的章节安排
 
 ### 1. 边界
 
-第一篇找边界（按任务、用评测集量），第二篇按边界选形态（边界内可自动化、边界上人机协作、边界外只给材料），第三篇在边界处校准信任（边界内放手、边界外核对），第四篇在边界外诚实呈现不确定，第五篇用绕过行为重新定位边界——边界随模型移动，所以第五篇的回流让第一篇的判断可更新。
+边界贯穿五篇：
+
+- [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)：找边界（按任务、用评测集量）
+- [《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)：按边界选形态（边界内可自动化、边界上人机协作、边界外只给材料）
+- [《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)：在边界处校准信任（边界内放手、边界外核对）
+- [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)：在边界外诚实呈现不确定
+- [《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)：用绕过行为重新定位边界
+
+边界随模型移动，所以指标的回流让找边界的判断可更新。
 
 ```mermaid
 %% 图：边界这条线怎么穿过五篇——第一篇按任务粒度用评测集量出边界内 / 上 / 外；第二篇按边界选形态（内：可自动化；上：人机协作；外：只给材料）；第三篇在边界处校准信任（内放手、外核对）；第四篇在边界外诚实呈现不确定与拒答；第五篇用绕过行为与负信号重新定位边界；边界随模型移动，回流让判断可更新
@@ -106,7 +114,14 @@ flowchart TB
 
 ### 2. 诚实
 
-第三篇的八手段都是"让用户看到真实的能力与不确定"，第四篇的三原则第一条是诚实，第五篇的反指标是对团队自己的诚实（不用虚荣指标骗自己），第一篇的"审外推"是对决策者的诚实。校准信任的唯一方法是让人看到真实。
+四篇都落在诚实上：
+
+- [《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)的八手段都是"让用户看到真实的能力与不确定"
+- [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)的三原则第一条是诚实
+- [《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)的反指标是对团队自己的诚实（不用虚荣指标骗自己）
+- [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)的"审外推"是对决策者的诚实
+
+校准信任的唯一方法是让人看到真实。
 
 ```mermaid
 %% 图：诚实对着三个方向——对用户：第三篇的八种手段与第四篇的三原则让用户看到真实的能力与不确定（不隐藏不确定、不隐藏能力）；对团队自己：第五篇的反指标不用消息数与生成占比骗自己，自报与实测两个都报；对决策者：第一篇的审外推——引用的数字来自哪些任务、被用到了哪些任务
@@ -260,7 +275,7 @@ Table: 常见误区与正确说法
    场景（1）：拆任务——读与抽取（边界内、可验证）、查政策（边界内、有引用）、判断（边界上：多数规则明确、例外需人）、审批生效（不可逆对外）；不外推。形态（2）：抽取与查询自动化，判断做成后台 agent 交付"建议 + 依据"的提案，审批由人批准才生效（不可逆止于提案），例外转人。信任（3）：审批人看到依据（政策条款引用、预算数据）与不确定标记，高额与例外结构性二次确认，onboarding 说清 AI 不判断的情形。呈现（4）：提案以结构化卡片（生成式 UI：申请要点、匹配的政策、预算余额、建议与理由、不确定处），审批带影响范围与"批一类"（小额常规）。指标（5）：北极星"正确审批的比例 × 周期缩短"，护栏含错批率、核对率、转人比、每单成本；回流负信号进评测集、绕过（审批人另查系统）说明呈现缺信息。
    </details>
 
-2. 一个 coding agent 产品从同步形态改为后台形态后，采纳率翻倍但合并率下降、revert 上升。用第二、三、五篇诊断。
+2. 一个 coding agent 产品从同步形态改为后台形态后，采纳率翻倍但合并率下降、revert 上升。用[《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)、[《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)与[《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)诊断。
 
    <details markdown="1"><summary>答案</summary>
    形态（2）：后台让用户交出更大的任务（好），但交付物变大、审阅变难（5,000 行 PR 没人细看）——任务粒度与交付物大小要控。信任（3）：审阅落点存在但审阅质量下降——过度信任（核对率随 PR 大小下降），合并了不该合的 → revert。指标（5）：采纳率是采纳指标不是北极星，北极星应是"合并且未 revert 的 PR × 通过率"，它在下降；补核对率（评论数 / 审阅时长 per PR）、编辑 vs 重写、按任务大小分层。修：限任务粒度、PR 拆小、审阅时突出高风险变更、CI 门禁更严、成本与合并率并列。
@@ -272,7 +287,7 @@ Table: 常见误区与正确说法
    2024：数字来自边界内任务，外推到全部——本可以拆任务、量边界、只对边界内的任务减负荷、保留人的能力（1）；形态本可以是"AI 第一响应 + 人处理例外"从一开始（2）。2025：客户要能找到人、复杂与情绪化处理不了——信任不足与边界外用 AI 更差的表现；本可以有升级到人的明确路径与拒答呈现（3、4）。指标：处理时间 11 → 2 分钟是护栏不是北极星，一次解决率与满意度才是——若从一开始量它们，问题早暴露（5）。2026 的混合模式是正确形态，代价是失去的经验与再招的成本。
    </details>
 
-4. 设计一个"AI 分析师"的呈现与形态：用户上传数据，AI 分析并给结论。用第二、四篇。
+4. 设计一个"AI 分析师"的呈现与形态：用户上传数据，AI 分析并给结论。用[《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)与[《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)。
 
    <details markdown="1"><summary>答案</summary>
    形态（2）：多步、可等、有落点（报告）→ 后台 agent 交付报告草稿；简单查询走对话；数据边界外（数据质量差、问题不明确）先澄清。呈现（4）：结论用生成式 UI（图表 + 表格 + 结论卡片）而非一段文字；每个结论带依据（数据来源、计算过程可展开——<span class="inline-tip" data-tip="programmatic tool calling，模型写一段程序批量调工具">PTC</span> 的程序可见）；不确定用行为梯子（"若排除异常值则…"给候选）；分析步骤分层可展开；结论标注"推断"与"数据直接支持"；导出为可编辑的表格与图（用户会绕过去 Excel——预防它）。
@@ -281,7 +296,7 @@ Table: 常见误区与正确说法
 5. 把本系列五篇与前六层对应：每篇把前面哪些机制翻译成了产品决策。
 
    <details markdown="1"><summary>答案</summary>
-   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》单位经济学 → 价值维度。形态（2）：《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级 → 形态梯子；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》运行时与 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》上下文管理 → 后台 agent 成立的条件；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》中间物 → 审阅落点。信任（3）：L3 引用正确率与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》记忆来源 → 显示依据；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》确认门与审批 → 结构性核对；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》问人 → 推信号。呈现（4）：《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》出口 → 拒答与行为梯子；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》 `justification` → 审批三要素；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》事件流与 L5 决策点 → 步骤分层；《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》结构化输出与 《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 MCP Apps → 生成式 UI；《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》感知延迟 → 流式与骨架。指标（5）：《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》会话单位与第四篇在线信号 → 矩阵；《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》反馈绑定与 《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》飞轮 → 回流；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》 → 成本 vs 价值。
+   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》单位经济学 → 价值维度。形态（2）：《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级 → 形态梯子；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》运行时与 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》上下文管理 → 后台 agent 成立的条件；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》中间物 → 审阅落点。信任（3）：L3 引用正确率与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》记忆来源 → 显示依据；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》确认门与审批 → 结构性核对；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》问人 → 推信号。呈现（4）：《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》出口 → 拒答与行为梯子；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》 `justification` → 审批三要素；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》事件流与 L5 决策点 → 步骤分层；《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》结构化输出与 《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 MCP Apps → 生成式 UI；《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》感知延迟 → 流式与骨架。指标（5）：《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》会话单位与同系列[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的在线信号 → 矩阵；《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》反馈绑定与 《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》飞轮 → 回流；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》 → 成本 vs 价值。
    </details>
 
 ### C. 面试题（7 题）
