@@ -48,7 +48,7 @@ flowchart TB
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
 | [第一篇：深度模型演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html) | 深度模型如何从感知机走到 Transformer？ | 结构偏置逐步解决线性表达、梯度传播、视觉与序列建模问题<br/>能表示不等于能学会 | XOR：ADALINE 最小二乘 MSE 0.25<br/>MLP H=2 有 13/20 seeds 达到 100%，H=4 为 20/20 |
-| [第二篇：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本；label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/405$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
+| [第二篇：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本<br/>label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/405$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
 | [第三篇：反向传播](/backpropagation-by-hand.html) | 不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？ | 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian<br/>梯度与被求导的量同形<br/>每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向<br/>$$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存 | $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$<br/>$$6ND$$，激活重算 $$8ND$$<br/>实测比值 2.00<br/>激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB<br/>梯度检查 float64、相对误差 $$< 10^{-6}$$ |
 | [第四篇：激活函数](/activation-functions-from-sigmoid-to-swiglu.html) | 为什么网络需要非线性？sigmoid、ReLU、GELU 与 SwiGLU 的梯度和代价有什么不同？ | sigmoid 饱和使深层梯度连乘衰减<br/>ReLU 正半轴梯度为 1<br/>GELU / SiLU 平滑门控，SwiGLU 把门控用于 FFN | $$\sigma'(x)\le0.25$$，$$0.25^{10}\approx9.54\times10^{-7}$$<br/>20 层 MLP 三 seed 准确率：sigmoid 10.64%，tanh 90.48%，SiLU 92.88% |
 | [第五篇：初始化、归一化与残差](/initialization-normalization-and-residual.html) | 64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？ | 深网络的稳定性是连乘问题<br/>初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路<br/>三样必须同用，Pre-Norm 是当前摆法 | $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$<br/>$$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$<br/>残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性<br/>GPT-2 缩放 $$1/\sqrt{2L}$$<br/>Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96<br/>0.02 |
@@ -87,7 +87,7 @@ Table: 十个案例与原论文图一览
 | 七 | `case_07_reg_toys.py` wd-poly / dropout | λ=1e-3 测试 MSE 0.0401 vs λ=0 的 7.3×10⁴；inverted dropout 大样本输出均值 0.997 ≈ 1 |
 | 八 | `case_08_cnn_toys.py` conv-as-matrix / receptive-field | 卷积展开矩阵与 conv2d 差 0（4×16、36 非零、9 自由参数）；3 层 3×3 感受野公式=实测=7 |
 | 九 | `case_09_emb_toys.py` onehot-lookup | 查表与 one-hot 乘差 0；序列 [2,0,2] 的 W.grad 只有第 0、2 行非零，第 2 行恰 2 倍 |
-| 十 | `case_10_rnn_toys.py` bptt-decay / lstm-gate | 标量 w=0.5 时 30 步梯度剩 8.5×10⁻¹⁹；矩阵版谱半径 1.5 时 ‖J‖ 反而涨到 17.4；0.99³⁰=0.740 |
+| 十 | `case_10_rnn_toys.py` bptt-decay / lstm-gate | 标量 w=0.5 时 30 步梯度剩 8.5×10⁻¹⁹<br/>矩阵版谱半径 1.5 时 ‖J‖ 反而涨到 17.4<br/>0.99³⁰=0.740 |
 
 Table: 各篇小玩具与关键实测数（labs `deep-learning-foundations/`）
 

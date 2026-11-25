@@ -420,7 +420,7 @@ CIFAR-10（$$32^2$$）上从零训两个小模型（同一个 U-Net，约 35M �
 | 项 | 公式 | 备注 |
 |---|---|---|
 | 分数 | $$s = \nabla \log p_t$$，指向密度上升最快的方向；DSM 目标 $$-\epsilon/\sigma$$ | 一维混合高斯先看峰与谷；加噪让稀疏区域的分数更平滑 |
-| 参数化 | $$s=-\epsilon/\sigma_t$$；$$\hat x_0=(x_t+\sigma_t^2s)/\alpha_t$$；线性路径 $$v=\epsilon-x_0$$ | 不同输出可线性换算；速度公式依赖直线路径 |
+| 参数化 | $$s=-\epsilon/\sigma_t$$<br/>$$\hat x_0=(x_t+\sigma_t^2s)/\alpha_t$$<br/>线性路径 $$v=\epsilon-x_0$$ | 不同输出可线性换算；速度公式依赖直线路径 |
 | Tweedie | $$\mathbb{E}[x_0 \mid x_t] = (x_t + \sigma_t^2 s)/\alpha_t$$ | DDPM 采样循环里的 $$\hat x_0$$ 是沿分数修正后的后验均值 |
 | SDE / ODE | 反向 SDE $$dx = [f - g^2 s] dt + g\, d\bar w$$；概率流 ODE $$dx = [f - \frac{1}{2} g^2 s] dt$$ | 边缘分布相同；ODE 确定，可用数值求解器 |
 | flow matching | $$x_t = (1-t) x_0 + t \epsilon$$，$$\mathcal{L} = \lVert v_\theta - (\epsilon - x_0) \rVert^2$$ | 条件速度的期望 = 边缘速度；与 $$\epsilon$$ 线性换算 |

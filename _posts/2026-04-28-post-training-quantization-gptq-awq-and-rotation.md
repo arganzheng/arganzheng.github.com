@@ -154,7 +154,7 @@ flowchart TB
     subgraph w4["W4A16（weight-only）"]
         direction TB
         h4["<b>HBM：INT4 权重 + scale/zero</b><br/>读 1/4 的字节"] --> dq["<b>SM 片上反量化 → BF16</b><br/>移位、掩码、× s、+ z<br/>每个权重元素做一次，与 m 无关"]
-        a4["HBM：BF16 activations #91;m, k#93;<br/>不量化"] --> tc4["<b>BF16 Tensor Core GEMM</b><br/>FLOPs 不变 = 2mkn"]
+        a4["<b>HBM：BF16 activations #91;m, k#93;</b><br/>不量化"] --> tc4["<b>BF16 Tensor Core GEMM</b><br/>FLOPs 不变 = 2mkn"]
         dq --> tc4
         tc4 --> o4["BF16 输出"]
     end
@@ -288,6 +288,8 @@ GPTQ 一次处理一列权重。它先把这一列量化到整数格点，再调
 | 只量化第一列 | $$[0.5,0.6]$$ | $$[1.10,0.98]$$ | 0.0200 |
 | GPTQ 补偿第二列 | $$[0.5,0.7098]$$ | $$[1.2098,1.0678]$$ | 0.000244 |
 
+Table: GPTQ 补偿第一列之后的权重、层输出与平方误差
+
 在这个局部步骤里，校准样本上的平方误差和约缩小 82 倍；它比较的是第一列量化后、第二列还未量化的状态，不是完整 INT4 模型的最终误差。
 
 OBS（Optimal Brain Surgeon，Hassibi & Stork 1993）最初解决的是剪枝：把第 $$q$$ 个权重置零，再调整其余权重，让层输出尽量不变。这里的二次误差是 $$\mathcal{E}(\delta)=\delta^\top H\delta$$，其中 $$\delta$$ 是权重变化。令 $$\delta_q=-w_q$$ 就能表示第 $$q$$ 个权重被置零。下面折叠的是拉格朗日推导。
@@ -348,6 +350,8 @@ AWQ 把大激活通道对应的权重列放大，再把同一通道的激活缩�
 |---|---|---|---|---|---:|---:|
 | RTN | $$[1,1,1,1]$$ | $$[1,1,3,7]$$ | $$[0.1357,0.1357,0.4071,0.9500]$$ | $$[0.2,10,0.3,0.1]$$ | 1.6014 | −0.6276 |
 | AWQ | $$[1,2.5,1,1]$$ | $$[1,4,3,7]$$ | $$[0.1357,0.5429,0.4071,0.9500]$$ | $$[0.2,4,0.3,0.1]$$ | 2.4157 | +0.1867 |
+
+Table: RTN 与通道缩放在同一行权重上的量化误差对照
 
 未量化时两种写法的输出都是 $$Y=2.229$$。对第二列权重，缩放前的相对舍入误差是 32.1%，缩放后是 8.6%；整行输出误差的绝对值从 0.6276 降到 0.1867。这个例子里第二列放大后仍没撑大整个组的范围，因此其他列的量化步长不变。
 
@@ -582,7 +586,7 @@ Table: Llama-3.1-70B 各量化配置的权重字节
 
 | 项 | 规则 / 公式 | 备注 |
 |---|---|---|
-| 收益 | $$T(m) = \max(W_{bytes}/BW,\ 2Nm/F)$$；decode 强度 ≈ B，ridge ≈ 295 | 8B：BF16 4.8 ms → W4A16 1.27 ms；转折 batch ≈ ridge/4 ≈ 79；prefill 不兑现 |
+| 收益 | $$T(m) = \max(W_{bytes}/BW,\ 2Nm/F)$$；decode 强度 ≈ B，ridge ≈ 295 | 8B：BF16 4.8 ms → W4A16 1.27 ms<br/>转折 batch ≈ ridge/4 ≈ 79<br/>prefill 不兑现 |
 | 形式 | $$\hat w = s(q - z)$$；per-tensor / per-channel / per-group | INT4 g128 实为 4.16–4.25 bit；70B 141 → 37.5–40.6 GB |
 | 噪声 | 舍入误差方差 $$\Delta^2 / 12$$；每少 1 bit 方差 ×4 | 裁剪与舍入的权衡：高斯 4-bit 最优 $$\alpha \approx 2.5$$–$$3\sigma$$ |
 | 传播 | 输出误差 $$\text{tr}(E H E^\top)$$，$$H = \mathbb{E}[XX^\top]$$ | 激活大的通道上权重误差被放大——显著通道的根源 |
@@ -594,7 +598,7 @@ Table: Llama-3.1-70B 各量化配置的权重字节
 | 格式 | INT4 / FP4 / NF4<br/>MXFP4（32 块 E8M0）/ NVFP4（16 块 E4M3）<br/>GGUF k-quants | 非均匀格点匹配高斯；微缩放 = 小 group |
 | 敏感层 | 首尾层、out_proj / down_proj、lm_head、MoE 路由 | 混合精度：敏感层 6–8 bit |
 | 成本 | 量化 1–4 小时；W4A16 的 dequant 在 compute-bound 区间变慢 | 70B：141 → 40 GB，两卡变一卡 |
-| 选型 | prefill 重用 W8A8 / FP8；decode 重用 W4A16；装不下先 W4 | FP8 相对精度对离群宽容；DeepSeek-V3 的 128 分块 scale |
+| 选型 | prefill 重用 W8A8 / FP8<br/>decode 重用 W4A16<br/>装不下先 W4 | FP8 相对精度对离群宽容；DeepSeek-V3 的 128 分块 scale |
 
 Table: 训练后量化的规则与公式小结
 

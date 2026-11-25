@@ -312,7 +312,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 | GRPO | 第一篇的模型 + 第二篇的 RM | → 在线 RL；奖励 / KL / 长度曲线 | 第三篇 |
 | DPO | 同一份偏好数据 | → DPO；与 GRPO 的输出对照 | 第四篇 |
 | RLVR | Qwen2.5-1.5B-Instruct + GSM8K 答案匹配 | → 推理模型；长度与准确率曲线，best-of-N | 第五篇 |
-| Agent RL | Qwen2.5-1.5B-Instruct + Python 计算器工具 | → 多轮 GRPO；工具输出 mask 的对照；轨迹长度分布 | 第六篇 |
+| Agent RL | Qwen2.5-1.5B-Instruct + Python 计算器工具 | → 多轮 GRPO<br/>工具输出 mask 的对照<br/>轨迹长度分布 | 第六篇 |
 | 蒸馏 | 第五篇的模型为教师 | → 0.5B 学生；三种蒸馏对照 | 第七篇 |
 | 评测 | lm-evaluation-harness 的协议对照 | → judge 的偏差测量；置信区间 | 第八篇 |
 

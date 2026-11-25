@@ -294,9 +294,13 @@ VLM 的评测里应包含**纯文本 benchmark 的回归**（MMLU、GSM8K、Huma
 
 ### 1. 各阶段的算力
 
-以一个 7B LLM + 400M 编码器、图片平均 576 token、文本 200 token 的配置估算（每样本约 800 token）：
+以一个 7B LLM + 400M 编码器、图片平均 576 token、文本 200 token 的配置估算（每样本约 800 token）。算力按模块在计算图里的位置分三种算：
 
-| 阶段 | 样本数 | token 数 | 训练参数 | FLOPs（可训部分 $$6PT$$；冻结但在可训模块**之后**的部分要前向 + 对输入的反向 $$\approx 4PT$$；冻结且在可训模块**之前**的部分只前向 $$2PT$$） | 8 × H100 时间（40% MFU） |
+1. **可训部分**：前向、对权重的反向、对输入的反向都要算，$$6PT$$。
+2. **冻结、但位于可训模块之后**：梯度要穿过它回到可训模块，所以算前向加对输入的反向，$$\approx 4PT$$。
+3. **冻结、且位于可训模块之前**：只算前向，$$2PT$$。
+
+| 阶段 | 样本数 | token 数 | 训练参数 | FLOPs | 8 × H100 时间（40% MFU） |
 |---|---|---|---|---|---|
 | 1 对齐（只训 MLP） | 558K | 4.5 亿 | 20M（MLP）<br/>ViT 在 connector 之前可 `no_grad`（$$2P$$）<br/>LLM 在 connector **之后**，梯度要穿过它回到 connector——不算 $$dW$$ 但要算 $$dX$$（$$\approx 4P$$），把 LLM 包进 `no_grad` 会让 connector 拿不到梯度（CPU 验证：`connector.weight.grad` 存在、`backbone.grad is None`；加 `no_grad` 后输出 `requires_grad=False`） | $$4 \times 7B \times 4.5 \times 10^8 + 2 \times 0.3B \times 4.5 \times 10^8 \approx 1.3 \times 10^{19}$$ | 约 1.1 小时 |
 | 2 预训练 | 10M | 80 亿 | 全部 7.4B | $$6 \times 7.4B \times 8 \times 10^9 \approx 3.6 \times 10^{20}$$ | 约 32 小时 |
