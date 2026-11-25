@@ -60,7 +60,7 @@ flowchart TB
     class stir hot
 ```
 
-v0.26 把原来的 `tir` 模块拆成两个：**`tirx`**——核心 IR 定义与 lowering pass（`PrimFunc`、`Buffer`、`SBlock`、表达式、语句），**`s_tir`**（Schedulable TIR）——调度原语、MetaSchedule、DLight、tensor intrinsic。TVMScript 里两者都通过 `from tvm.script import tirx as T` 访问。这与 MLIR 的"基础设施 / 内容"分离（第三篇）是同一种冲动：IR 与操作 IR 的工具分开。TVM 的目标列表（LLVM CPU、CUDA、Metal、OpenCL、Vulkan、ROCm、WebGPU、Hexagon……）比 Triton 宽得多——**它的代码生成器输出的是目标语言的源码或 LLVM IR，而不是某一家 GPU 的 PTX**，可移植性是设计目标之一。
+v0.26 把原来的 `tir` 模块拆成两个：**`tirx`**——核心 IR 定义与 lowering pass（`PrimFunc`、`Buffer`、`SBlock`、表达式、语句），**`s_tir`**（Schedulable TIR）——调度原语、MetaSchedule、DLight、tensor intrinsic。TVMScript 里两者都通过 `from tvm.script import tirx as T` 访问。这与 MLIR 的"基础设施 / 内容"分离（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)）是同一种冲动：IR 与操作 IR 的工具分开。TVM 的目标列表（LLVM CPU、CUDA、Metal、OpenCL、Vulkan、ROCm、WebGPU、Hexagon……）比 Triton 宽得多——**它的代码生成器输出的是目标语言的源码或 LLVM IR，而不是某一家 GPU 的 PTX**，可移植性是设计目标之一。
 
 ## 三、TensorIR
 
@@ -286,7 +286,7 @@ extern "C" __global__ void __launch_bounds__(256) main_kernel(float* __restrict_
     ...
 ```
 
-① 调度里**没有写** barrier，两个 `threadgroup_barrier` / `__syncthreads` 是 lowering 的 `ThreadSync` pass 按 shared memory 的读写依赖插入的——与 Triton 的 `Membar`（第十篇 §九）同一件事、同一种分析（先写后读、先读后写）。② `vectorize(vec)` 变成 `float4`——Triton 里这是 AxisInfo + `getVectorSize` 的自动结果，这里是调度作者写的 `factors=[…, 4]` 加一句 `vectorize`。
+① 调度里**没有写** barrier，两个 `threadgroup_barrier` / `__syncthreads` 是 lowering 的 `ThreadSync` pass 按 shared memory 的读写依赖插入的——与 Triton 的 `Membar`（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html) §九）同一件事、同一种分析（先写后读、先读后写）。② `vectorize(vec)` 变成 `float4`——Triton 里这是 AxisInfo + `getVectorSize` 的自动结果，这里是调度作者写的 `factors=[…, 4]` 加一句 `vectorize`。
 
 **TVM 生成的是 CUDA C 源码而不是 PTX**：`nvcc`（或 NVRTC）是它的后端，`__launch_bounds__(256)` 对应 Triton 的 `nvvm.reqntid`；Tensor Core 用 `wmma::mma_sync` 或内联 PTX（`T.ptx_mma`）；寄存器分配、指令调度全部交给 `nvcc` + `ptxas`——两个第二编译器。
 
@@ -314,7 +314,7 @@ Tensor Core 在 TVM 里是**用户（或规则）显式替换的 intrinsic**：`
 
 ### 3. 生成的 LLVM IR（CPU）
 
-`lib.inspect_source("ll")`：1168 行，入口 `define dllexport i32 @__tvm_ffi_main(ptr %self_handle, ptr %args, i32 %num_args, ptr %result)`——TVM 的 packed function 调用约定（参数是 `Any` 数组，`MakePackedAPI` 生成解包代码），对应 Triton 的 C launcher；向量类型 `<4 x float>`、`<8 x float>`，5 处 `llvm.fmuladd`。再往下是第二篇的 LLVM。
+`lib.inspect_source("ll")`：1168 行，入口 `define dllexport i32 @__tvm_ffi_main(ptr %self_handle, ptr %args, i32 %num_args, ptr %result)`——TVM 的 packed function 调用约定（参数是 `Any` 数组，`MakePackedAPI` 生成解包代码），对应 Triton 的 C launcher；向量类型 `<4 x float>`、`<8 x float>`，5 处 `llvm.fmuladd`。再往下是[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)的 LLVM。
 
 ## 七、DLight 与 MetaSchedule
 
@@ -324,7 +324,7 @@ Tensor Core 在 TVM 里是**用户（或规则）显式替换的 intrinsic**：`
 
 `python/tvm/s_tir/dlight/gpu/` 里每个文件是一条规则：`Matmul`、`GEMV`、`LowBatchGEMV`、`Reduction`、`GeneralReduction`、`Transpose`、`RMSNorm`、`Fallback`。`dl.ApplyDefaultSchedule(rules...)(mod)` 对模块里每个 PrimFunc 按顺序试规则，第一个匹配的给出调度。规则是**确定性的 Python 代码**——一串调度原语加几个按 shape / dtype / 目标查表的参数——零搜索时间，是 MLC-LLM 编译 LLM 的默认路径。
 
-`Matmul` 规则在 `sm_80` 上对一个 Relax 模型里的 `[128, 1024] × [1024, 1024]` f16 矩阵乘（§八）排出的调度，就是 Triton 第七到十篇讲的全部决定的**显式版本**——`MatmulTensorization::apply` 的骨架：
+`Matmul` 规则在 `sm_80` 上对一个 Relax 模型里的 `[128, 1024] × [1024, 1024]` f16 矩阵乘（§八）排出的调度，就是 Triton 那边从 [《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html) 到 [《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html) 讲的全部决定的**显式版本**——`MatmulTensorization::apply` 的骨架：
 
 ```python title="MatmulTensorization::apply 的骨架"
 micro_size_x = micro_size_y = micro_size_k = 16; warp_size = 32
@@ -373,7 +373,11 @@ for ax1_0_1_ax2_0_1_fused in T.thread_binding(8, thread="blockIdx.y"):
                 ... T.tvm_mma_sync(C.data, ..., A.data, ..., B.data, ..., C.data, ...)   # tensorize → wmma::mma_sync
 ```
 
-对照 Triton 第七到九篇：`blockIdx / threadIdx.y` 的排布是 `warpsPerCTA`；`cache_read("shared.dyn")` + `vectorize(4)` 是 Coalesce；`storage_align(…, 16, 8)` 是 `#swizzled_shared`（用 padding 而非 XOR）；`software_pipeline_stage` 是 `num_stages` 与 `ScheduleLoops`；`wmma.matrix_a` 是 `#dot_op`；`wmma.accumulator` 是 `#mma`；`tensorize` 是 `AccelerateMatmul` + `DotOpToLLVM`。**每一个 Triton 自动决定，这里是一行显式代码**——写在规则里而不是编译器里，所以用户可以复制一条规则改掉某一行（DLight 文档专门讲怎么写自定义规则）。
+对照 Triton 的 [《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)、[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) 与[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)：`blockIdx / threadIdx.y` 的排布是 `warpsPerCTA`；`cache_read("shared.dyn")` + `vectorize(4)` 是 Coalesce；`storage_align(…, 16, 8)` 是 `#swizzled_shared`（用 padding 而非 XOR）；`software_pipeline_stage` 是 `num_stages` 与 `ScheduleLoops`；`wmma.matrix_a` 是 `#dot_op`；`wmma.accumulator` 是 `#mma`；`tensorize` 是 `AccelerateMatmul` + `DotOpToLLVM`。**每一个 Triton 自动决定，这里是一行显式代码**——写在规则里而不是编译器里，所以用户可以复制一条规则改掉某一行（DLight 文档专门讲怎么写自定义规则）。
+
+> [!NOTE] Java 经验参照：JMH 教过的那件事，自动调优全要再做一遍
+> 搜索调优的底座是测量，而「测准」本身是门手艺——写过 JMH 的人都熟：不预热测的是解释执行、不 fork 测的是上一次编译留下的 profile 污染、没有黑洞的话整段计算会被 JIT 当死代码删掉，于是得到一个漂亮得不真实的数字。TVM 这边一样要处理 GPU 的预热、时钟频率没拉满、上一次测量留在 L2 里的数据。
+> 差别在于**测量之后做什么**。JMH 只负责给你一个可信的数字，判断留给人；MetaSchedule 把数字喂回代价模型，用它决定下一批候选怎么采样——测量偏差不只是让你看错一个结论，而是会把整个搜索引到错误的方向上。所以自动调优框架对「测得准」的要求比 benchmark 框架更高，而不是更低。
 
 ### 2. MetaSchedule：搜索
 
@@ -407,7 +411,7 @@ def apply_trace(sch):
 XGB iter 0: tr-p-rmse 0.362819 → iter 21: 0.03891（代价模型在 16 个样本上拟合）
 ```
 
-最优 trace 的决策：`i` 切成 `[128, 1, 2, 1]`、`j` 切成 `[1, 8, 4, 8]`、`k` 切成 `[128, 2]`、展开 256；后处理（`enter_postproc` 之后）把 `meta_schedule.parallel / vectorize / unroll` 注解落实成 `parallel(l40)`、`vectorize(l41)`、`pragma_auto_unroll_max_step`，最后 `decompose_reduction`。搜索的产物是一个**数据库**（`work_dir` 下的 JSON：每条 trace 与其测得的时间），`MetaScheduleApplyDatabase` 在编译时按 PrimFunc 的结构哈希查表应用——第十一篇 Triton 缓存的对应物，只是缓存的是调度而不是二进制。
+最优 trace 的决策：`i` 切成 `[128, 1, 2, 1]`、`j` 切成 `[1, 8, 4, 8]`、`k` 切成 `[128, 2]`、展开 256；后处理（`enter_postproc` 之后）把 `meta_schedule.parallel / vectorize / unroll` 注解落实成 `parallel(l40)`、`vectorize(l41)`、`pragma_auto_unroll_max_step`，最后 `decompose_reduction`。搜索的产物是一个**数据库**（`work_dir` 下的 JSON：每条 trace 与其测得的时间），`MetaScheduleApplyDatabase` 在编译时按 PrimFunc 的结构哈希查表应用——[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html) Triton 缓存的对应物，只是缓存的是调度而不是二进制。
 
 ## 八、Relax 与 MLC-LLM
 
@@ -459,7 +463,7 @@ Table: 各编译器的设计空间对照
 3. CPU matmul 五步调度 1089 → 52 μs，每步 IR 可见；`vectorize` 在 `decompose_reduction` 之后被形式化检查拒绝——原语顺序也是调度的一部分。
 4. GPU 调度十四行：`split / reorder / bind / cache_read("shared") / vectorize / cache_write("local")`；生成 Metal 在 Mac GPU 上跑到 700 GFLOP/s，同一调度生成 CUDA C；barrier 由 `ThreadSync` 插入（= Membar），`float4` 由 `vectorize` 显式指定（= AxisInfo + `getVectorSize`）。TVM 输出目标语言源码，`nvcc` + `ptxas` 是它的后端。
 5. `s_tir` pipeline 四十多个 pass 与 Triton `make_llir` 同题异构（缓冲收缩复用、流水展开、barrier、向量化、host / device 拆分、packed API）；`tensorize` 用 TVMScript 描述 + 实现的 intrinsic 做模式替换，`wmma.matrix_a` scope 是 `#dot_op` 的对应物。
-6. DLight 的 `Matmul` 规则把 Triton 第七到九篇的每个自动决定写成一行显式原语（`storage_align` 代替 swizzle、`software_pipeline_*` 注解代替 `num_stages`、`tensorize` 代替 `AccelerateMatmul`）；MetaSchedule 用带 `sample_*` 决策点的 trace 表示空间，进化搜索 + XGBoost 代价模型 + 真机测时，32 次试验 148 → 132 μs，产物是可复用的调度数据库。
+6. DLight 的 `Matmul` 规则把 Triton 在 layout、layout 优化与软件流水三篇里的每个自动决定写成一行显式原语（`storage_align` 代替 swizzle、`software_pipeline_*` 注解代替 `num_stages`、`tensorize` 代替 `AccelerateMatmul`）；MetaSchedule 用带 `sample_*` 决策点的 trace 表示空间，进化搜索 + XGBoost 代价模型 + 真机测时，32 次试验 148 → 132 μs，产物是可复用的调度数据库。
 7. Relax 图层 → legalize → 融合的 PrimFunc → DLight / MetaSchedule → 多后端 VM，MLC-LLM 靠它跨 CUDA / Metal / Vulkan / WebGPU。
 8. 设计空间是一条轴：编译器决定一切（XLA、IREE、Inductor）— 用户定 tile（Triton）— 用户定一切（TVM 调度、CUTLASS、Gluon）；风险随位置从"编译器启发式"移向"作者水平与可移植性"。搜索空间的大小取决于正确性由谁保证：原语级形式化检查让 TVM 搜 10⁶，pass 不变量让 Triton 只能列几十个。
 
