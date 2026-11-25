@@ -17,9 +17,9 @@ catalog: true
 
 > **私域知识该进上下文还是进权重？三类检索各适合什么，coding agent 为什么只用 grep？文档怎么解析与切块？embedding 与 rerank 怎么选？检索什么时候该从流水线变成 agent 的工具？结构化知识怎么接？怎么知道检索出了问题还是生成出了问题？[^q0]**
 
-七篇沿这条线走。**第一篇**先决定路：按知识的类型（会变的事实、结构化业务数据、非结构化文档、领域术语、流程性技能、海量领域语料）选接入方式，说明为什么微调不是灌知识的工具、默认顺序为什么是 prompt → few-shot → 检索 / 工具 → 微调。**第二篇**讲三类检索，用 coding agent 的架构分歧做主线实例：Claude Code、Codex、Cline 的 agentic grep 与 Cursor、Windsurf 的向量索引各自换了什么、为什么把 grep 的经验搬到企业文档上会失败、为什么 embedding 存的是相似不是关系（问"谁调用了 chargeCard"向量索引给你长得像的，不是调用者）。**第三篇**讲文档处理：解析的三个梯级（规则抽取 → 布局模型 Docling / Marker / MinerU → 视觉语言模型 Mistral OCR 4 / PaddleOCR-VL——0.9B 参数的开放模型在 OmniDocBench 上 96.34 分超过 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59）、三个静默失败（阅读顺序、表格、页眉页脚）、分块策略、Anthropic 的 contextual retrieval（给每块加上下文让检索失败率降 49%、加 rerank 降 67%）、元数据里的权限。**第四篇**讲索引与检索：embedding 模型的选法（MTEB 的局限——版本不可比、二元相关性、榜单领先者未必是生产默认）、向量索引（HNSW / IVF、量化、过滤）、向量库的选择、BM25 + 向量的混合与 RRF、cross-encoder rerank 为什么是性价比最高的一步、增量更新与删除、**权限过滤必须在检索时做**。**第五篇**讲从流水线到 agentic retrieval：固定的 query → top-k → 生成 与"检索是 agent 的一个工具、模型自己决定查什么查几轮"各适合什么，query 改写、多跳、供应商内置的 file search，以及 agentic 检索对工具描述与上下文预算（L2）的要求。**第六篇**讲结构化知识：text-to-SQL 的真实水平与语义层的必要、本体作为业务世界的 harness（对象、属性、关系、动作、权限）、GraphRAG 与 LazyGraphRAG 解决什么（全局性问题、关系）、图谱构建的成本。**第七篇**讲评测与运营：检索与生成分开评（recall@k、MRR、nDCG vs faithfulness、answer relevance、context precision）、评测集从真实查询采样、在线信号、索引新鲜度、权限泄漏作为一个评测项（Slack AI 与 Copilot 的公开事件）。
+七篇沿这条线走。**[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)**先决定路：按知识的类型（会变的事实、结构化业务数据、非结构化文档、领域术语、流程性技能、海量领域语料）选接入方式，说明为什么微调不是灌知识的工具、默认顺序为什么是 prompt → few-shot → 检索 / 工具 → 微调。**[《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)**用 coding agent 的架构分歧做主线实例：Claude Code、Codex、Cline 的 agentic grep 与 Cursor、Windsurf 的向量索引各自换了什么、为什么把 grep 的经验搬到企业文档上会失败、为什么 embedding 存的是相似不是关系（问"谁调用了 chargeCard"向量索引给你长得像的，不是调用者）。**[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)**讲文档处理：解析的三个梯级（规则抽取 → 布局模型 Docling / Marker / MinerU → 视觉语言模型 Mistral OCR 4 / PaddleOCR-VL——0.9B 参数的开放模型在 OmniDocBench 上 96.34 分超过 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59）、三个静默失败（阅读顺序、表格、页眉页脚）、分块策略、Anthropic 的 contextual retrieval（给每块加上下文让检索失败率降 49%、加 rerank 降 67%）、元数据里的权限。**[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)**讲索引与检索：embedding 模型的选法（MTEB 的局限——版本不可比、二元相关性、榜单领先者未必是生产默认）、向量索引（HNSW / IVF、量化、过滤）、向量库的选择、BM25 + 向量的混合与 RRF、cross-encoder rerank 为什么是性价比最高的一步、增量更新与删除、**权限过滤必须在检索时做**。**[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)**：固定的 query → top-k → 生成 与"检索是 agent 的一个工具、模型自己决定查什么查几轮"各适合什么，query 改写、多跳、供应商内置的 file search，以及 agentic 检索对工具描述与上下文预算（L2）的要求。**[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)**：text-to-SQL 的真实水平与语义层的必要、本体作为业务世界的 harness（对象、属性、关系、动作、权限）、GraphRAG 与 LazyGraphRAG 解决什么（全局性问题、关系）、图谱构建的成本。**[《检索评测与运营》](/retrieval-evaluation-and-operations.html)**：检索与生成分开评（recall@k、MRR、nDCG vs faithfulness、answer relevance、context precision）、评测集从真实查询采样、在线信号、索引新鲜度、权限泄漏作为一个评测项（Slack AI 与 Copilot 的公开事件）。
 
-系列的组织原则：**先决定要不要检索、检索哪一类，再讲怎么做**。第一、二篇是决策，第三到六篇是实现，第七篇是验证。每篇都把手段接回 L1 的失效模式（检索对付的是幻觉与知识截止）与 L2 的上下文预算（检索结果是上下文的一层，取多少、放哪由 L2 决定）。
+系列的组织原则：**先决定要不要检索、检索哪一类，再讲怎么做**。[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)与[《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)是决策，第三到六篇是实现，[《检索评测与运营》](/retrieval-evaluation-and-operations.html)是验证。每篇都把手段接回 L1 的失效模式（检索对付的是幻觉与知识截止）与 L2 的上下文预算（检索结果是上下文的一层，取多少、放哪由 L2 决定）。
 
 
 ## 缩写
@@ -30,7 +30,7 @@ catalog: true
 
 ### RAG 的问题不在向量库
 
-2023–2024 年的 RAG 教程把检索等同于"切块、embedding、向量库、top-k"。这套流水线能在 demo 上跑通，上线后的问题几乎都不在向量库：**解析**把两栏 PDF 的两列逐行交错成流畅的胡话、把财务表格压成一段丢了行列；**分块**把一个函数切成两半、把"第 3 条"与它所属的章节分开；**查询**与文档的词汇不匹配（"报销标准" vs "差旅费用规定"）而向量相似度没有救回来；**权限**在生成时才过滤，模型已经在检索结果里看到了它不该看的；**评测**只看最终答案，分不清是没找到还是找到了没说对。一个公开的开源解析器基准的作者写道："文档解析是 RAG 流水线里最大的静默失败来源——一个打乱阅读顺序、丢掉表格、抹平标题的解析器产出干净的 markdown，同时悄悄毁掉检索质量。"本系列按这些真实的失败点组织，向量库只是第四篇的一节。
+2023–2024 年的 RAG 教程把检索等同于"切块、embedding、向量库、top-k"。这套流水线能在 demo 上跑通，上线后的问题几乎都不在向量库：**解析**把两栏 PDF 的两列逐行交错成流畅的胡话、把财务表格压成一段丢了行列；**分块**把一个函数切成两半、把"第 3 条"与它所属的章节分开；**查询**与文档的词汇不匹配（"报销标准" vs "差旅费用规定"）而向量相似度没有救回来；**权限**在生成时才过滤，模型已经在检索结果里看到了它不该看的；**评测**只看最终答案，分不清是没找到还是找到了没说对。一个公开的开源解析器基准的作者写道："文档解析是 RAG 流水线里最大的静默失败来源——一个打乱阅读顺序、丢掉表格、抹平标题的解析器产出干净的 markdown，同时悄悄毁掉检索质量。"本系列按这些真实的失败点组织，向量库只是[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)的一节。
 
 ### 三类检索的分工在 2025–2026 年变得清楚
 
@@ -54,7 +54,7 @@ coding agent 的架构分歧是最好的教材。Anthropic 在 2025 年 9 月的
 
 ### 做知识库、客服、企业搜索的应用工程师
 
-RAG 是你的主战场。第三、四、七篇是核心：解析、分块、混合检索、rerank、评测。
+RAG 是你的主战场。[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)、[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)与[《检索评测与运营》](/retrieval-evaluation-and-operations.html)是核心：解析、分块、混合检索、rerank、评测。
 
 ### 做 coding agent 或 agent 平台的工程师
 
@@ -85,9 +85,9 @@ Table: 七篇的主题与建立的东西
 
 三条贯穿的线：
 
-- **先问知识是什么类型，再问怎么接。** 会变的事实永远不进权重；有 schema 的数据走 SQL / API / 本体；非结构化文档走检索；风格与格式才考虑微调。第一篇的表是全系列的入口。
-- **检索的失败大多在检索之前。** 解析、分块、元数据决定了向量库里有什么；向量库的参数只决定怎么找。第三篇比第四篇重要。
-- **检索与生成分开评。** 没找到与找到了没说对是两种病、两种药；混在一起就不知道该改哪一半。第七篇是全系列的验收。
+- **先问知识是什么类型，再问怎么接。** 会变的事实永远不进权重；有 schema 的数据走 SQL / API / 本体；非结构化文档走检索；风格与格式才考虑微调。[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)的表是全系列的入口。
+- **检索的失败大多在检索之前。** 解析、分块、元数据决定了向量库里有什么；向量库的参数只决定怎么找。[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)比[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)重要。
+- **检索与生成分开评。** 没找到与找到了没说对是两种病、两种药；混在一起就不知道该改哪一半。[《检索评测与运营》](/retrieval-evaluation-and-operations.html)是全系列的验收。
 
 
 ## 章节结构与分章导读
@@ -108,7 +108,7 @@ Table: 七篇的主题与建立的东西
 
 > 核心问题：**解析有哪三个梯级、各在什么文档上够用？三个静默失败是什么？分块怎么选？contextual retrieval 为什么有效？元数据里为什么必须有权限？[^q3]**
 
-解析的三个梯级：**规则抽取**（PyMuPDF4LLM 一类读 PDF 自带的文本层，毫秒级、免费、对数字原生 PDF 够用、对扫描件无效）→ **布局模型**（Docling——IBM 2025 年捐给 LF AI & Data、MIT 许可，Marker，MinerU：布局检测 + 表格结构模型，本地运行，复杂表格与多栏的最强开源选项）→ **视觉语言模型**（Mistral OCR 4：每千页 4 美元、170 种语言、边界框与置信度、可自托管单容器；PaddleOCR-VL-1.6：0.9B 参数、Apache 2.0、OmniDocBench 96.34 分高于 Gemini 3 Pro 92.91 与 GPT-5.2 86.59；LlamaParse；DeepSeek-OCR 2）——唯一能可靠处理扫描、手写、密集财务表格与公式的梯级。三个静默失败：阅读顺序（两栏逐行交错）、表格（压成段落后数字失去行列）、页眉页脚（每块都被注入同一段噪声）。分块：固定、递归、语义、按结构（标题 / 函数 / 条款），块大小与重叠的权衡，代码与法律条款为什么要按结构切；late chunking（先整篇 embedding 再切）与 Anthropic 的 **contextual retrieval**（用模型给每块生成一段"这块在文档里的位置与含义"前置到块上再 embedding + BM25，检索失败率降 49%，加 rerank 降 67%——prompt caching 让这一步的成本可接受，《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。元数据：来源、时间、章节路径、**权限**——权限不在元数据里就无法在检索时过滤（第四篇）。
+解析的三个梯级：**规则抽取**（PyMuPDF4LLM 一类读 PDF 自带的文本层，毫秒级、免费、对数字原生 PDF 够用、对扫描件无效）→ **布局模型**（Docling——IBM 2025 年捐给 LF AI & Data、MIT 许可，Marker，MinerU：布局检测 + 表格结构模型，本地运行，复杂表格与多栏的最强开源选项）→ **视觉语言模型**（Mistral OCR 4：每千页 4 美元、170 种语言、边界框与置信度、可自托管单容器；PaddleOCR-VL-1.6：0.9B 参数、Apache 2.0、OmniDocBench 96.34 分高于 Gemini 3 Pro 92.91 与 GPT-5.2 86.59；LlamaParse；DeepSeek-OCR 2）——唯一能可靠处理扫描、手写、密集财务表格与公式的梯级。三个静默失败：阅读顺序（两栏逐行交错）、表格（压成段落后数字失去行列）、页眉页脚（每块都被注入同一段噪声）。分块：固定、递归、语义、按结构（标题 / 函数 / 条款），块大小与重叠的权衡，代码与法律条款为什么要按结构切；late chunking（先整篇 embedding 再切）与 Anthropic 的 **contextual retrieval**（用模型给每块生成一段"这块在文档里的位置与含义"前置到块上再 embedding + BM25，检索失败率降 49%，加 rerank 降 67%——prompt caching 让这一步的成本可接受，《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。元数据：来源、时间、章节路径、**权限**——权限不在元数据里就无法在检索时过滤（[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)）。
 
 ### 4. 索引、混合检索与 rerank
 
@@ -201,19 +201,28 @@ Table: 本系列的版本与事实基线
 
 | 追问 | 答案来自 |
 |---|---|
-| 这类知识该进上下文还是进权重？微调能解决吗？ | 第一篇 |
-| 该用 grep、向量还是 SQL？coding 场景要不要建索引？ | 第二篇 |
-| 这批 PDF 该用哪个梯级的解析器？块该按什么切？ | 第三篇 |
-| 该用哪个 embedding？要不要混合与 rerank？权限怎么过滤？ | 第四篇 |
-| 这个场景该固定流水线还是让 agent 自己查？ | 第五篇 |
-| 这个业务库该建语义层、本体还是图？ | 第六篇 |
-| 答错了——是没找到还是找到了没说对？ | 第七篇 |
+| 这类知识该进上下文还是进权重？微调能解决吗？ | [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html) |
+| 该用 grep、向量还是 SQL？coding 场景要不要建索引？ | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) |
+| 这批 PDF 该用哪个梯级的解析器？块该按什么切？ | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) |
+| 该用哪个 embedding？要不要混合与 rerank？权限怎么过滤？ | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) |
+| 这个场景该固定流水线还是让 agent 自己查？ | [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html) |
+| 这个业务库该建语义层、本体还是图？ | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) |
+| 答错了——是没找到还是找到了没说对？ | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) |
 
 Table: 读完系列后应能回答的追问
 
 这就是 L3 要建立的能力：**把"让模型知道自己的业务"从一个含糊的愿望变成一组可选择、可实现、可评测的接入方式**。
 
-[^q0]: 七篇各答一问。进上下文还是进权重：事实进上下文（检索 / 直接查系统），行为（风格、格式、工具习惯）才进权重，默认顺序 prompt → few-shot → 检索 / 工具 → 微调（第一篇）。三类检索：词法 / 精确适合精确标识符与可迭代的 agent，向量适合措辞不一致的非结构化文档，结构化适合有 schema 的关系；coding agent 只用 grep 是因为代码符号精确、agent 能多轮迭代、向量索引有过期税而 embedding 存的是相似不是关系（第二篇）。解析三梯级（规则 → 布局模型 → 视觉语言模型），分块按结构、contextual retrieval 给每块加上下文（第三篇）。embedding 用 MTEB 缩范围再按语言 / 长度 / 维度 / 许可选，HNSW vs IVF，混合检索 + RRF，rerank 是性价比最高的一步，权限必须在检索时过滤（第四篇）。流水线适合高并发问答、agentic retrieval 适合召回不确定的多跳任务（第五篇）。结构化知识走语义层 / 本体 / GraphRAG，不走向量库（第六篇）。检索与生成分开评：recall@k 低改检索、faithfulness 低改生成，权限泄漏是评测项（第七篇）。
+[^q0]: 七篇各答一问：
+
+    - [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)：事实进上下文（检索 / 直接查系统），行为（风格、格式、工具习惯）才进权重，默认顺序 prompt → few-shot → 检索 / 工具 → 微调。
+    - [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)：词法 / 精确适合精确标识符与可迭代的 agent，向量适合措辞不一致的非结构化文档，结构化适合有 schema 的关系；coding agent 只用 grep 是因为代码符号精确、agent 能多轮迭代、向量索引有过期税而 embedding 存的是相似不是关系。
+    - [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)：解析三梯级（规则 → 布局模型 → 视觉语言模型），分块按结构、contextual retrieval 给每块加上下文。
+    - [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)：embedding 用 MTEB 缩范围再按语言 / 长度 / 维度 / 许可选，HNSW vs IVF，混合检索 + RRF，rerank 是性价比最高的一步，权限必须在检索时过滤。
+    - [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)：流水线适合高并发问答、agentic retrieval 适合召回不确定的多跳任务。
+    - [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)：结构化知识走语义层 / 本体 / GraphRAG，不走向量库。
+    - [《检索评测与运营》](/retrieval-evaluation-and-operations.html)：检索与生成分开评：recall@k 低改检索、faithfulness 低改生成，权限泄漏是评测项。
+
 [^q1]: 因为微调擅长**行为**（风格、格式、术语用法、工具调用习惯）而不是**事实**：拿产品手册做 SFT，模型记住一部分、编造另一部分、手册一更新全部作废、答不出「这句话出自哪一条」——事实要能引用、能更新、能按权限过滤，三条微调都做不到。进上下文的：会变的事实（价格、库存、政策、工单状态）→ 检索或直接查系统；结构化业务数据与关系 → SQL / API / 本体；非结构化文档 → 检索；流程性技能 → 示例 + 工具。进权重的：领域术语与表达习惯（量大且稳定时）、流程性技能（示例不够时 SFT）、海量领域语料的整体适应（继续预训练，贵，且仍要配检索）。顺序 prompt → few-shot → 检索 / 工具 → 微调，是因为代价与不可逆性递增：prompt 分钟级可改、few-shot 不动模型、检索要建管线但事实可更新可引用、微调要数据与训练且每次知识变化都要重训——先用便宜可逆的手段把能解决的解决掉，微调只留给剩下的行为问题。
 [^q2]: 词法 / 精确（grep、glob、BM25、全文索引）：有精确标识符、范围可枚举、agent 能多轮迭代的语料；不适合词汇不匹配与千万级文档。向量 / 语义（embedding + ANN）：非结构化文档、用户问法与文档措辞不一致、大规模语料；不适合精确匹配与关系推理。结构化（SQL、API、图谱、本体）：有 schema 的数据与「对什么对象做什么动作」；不适合自由文本。Claude Code 放弃向量库而 Cursor 没有，分歧的轴是**过期税**：代码库里符号精确、agent 可以 grep 几轮迭代，而 embedding 在你重命名一个函数后就过期，保持索引同步要付 Merkle 树、按块哈希缓存、远端向量库（turbopuffer）这一整套机器；Cursor 要在编辑器里对整个大仓库做即时补全与跨文件理解、愿意付这个税，Claude Code 的交互是多轮任务、grep + LSP 够用且永不过期。embedding 存的是相似不是关系：问「谁调用了 chargeCard」向量索引给你长得像的文本，不是调用者——关系要靠 LSP / 图谱 / SQL。
 [^q3]: 三个梯级：**规则抽取**（PyMuPDF4LLM 一类读 PDF 文本层，毫秒级免费）对数字原生 PDF 够用、对扫描件无效；**布局模型**（Docling、Marker、MinerU：布局检测 + 表格结构模型，本地运行）对复杂表格与多栏是最强开源选项；**视觉语言模型**（Mistral OCR 4 每千页 4 美元、PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 分、LlamaParse、DeepSeek-OCR 2）是唯一能可靠处理扫描、手写、密集财务表格与公式的梯级。三个静默失败：阅读顺序（两栏逐行交错）、表格（压成段落后数字失去行列）、页眉页脚（每块都被注入同一段噪声）——都不报错、只在答案里出现。分块：固定 / 递归 / 语义 / 按结构（标题、函数、条款）——优先按结构，块大小按检索粒度与上下文预算定，带重叠。contextual retrieval 有效，是因为块一旦切开就丢了「它属于哪份文档的哪一节」，检索时查询与孤立块不匹配；让模型给每块生成一句上下文（文档名、章节、这块讲什么）前置到块里再 embedding / 索引，Anthropic 报告检索失败率下降约 49%（配合 rerank 约 67%），成本靠 prompt caching 压到每百万 token 约 1 美元。

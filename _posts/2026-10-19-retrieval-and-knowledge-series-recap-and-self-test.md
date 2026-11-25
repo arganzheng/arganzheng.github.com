@@ -9,7 +9,7 @@ date: 2026-10-19 20:00:00
 updated: 2026-11-23
 ---
 
-七篇正文回答了一个问题：**私域知识怎么进入模型**。第一篇决定路（进上下文还是进权重），第二篇选检索的类型（词法、向量、结构化），第三、四篇讲流水线的两段（解析分块、索引混合 rerank），第五篇讲从流水线到 agentic，第六篇讲结构化知识（SQL、本体、图），第七篇讲怎么评、怎么运营。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第三层：把"让模型知道自己的业务"变成一组**可选择、可实现、可评测**的接入方式。
+七篇正文回答了一个问题：**私域知识怎么进入模型**。[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)决定走哪条路，[《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)选检索的类型（词法、向量、结构化），[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)与[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)讲流水线的两段（解析分块、索引混合 rerank），[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)讲固定流水线与 agentic 两种形态，[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)讲 SQL、本体与图，[《检索评测与运营》](/retrieval-evaluation-and-operations.html)讲怎么评、怎么运营。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第三层：把"让模型知道自己的业务"变成一组**可选择、可实现、可评测**的接入方式。
 
 本文不讲新内容：一张总表与七段回顾，贯穿七篇的四条线，常见误区，然后是三段式通关自测——判断与计算、跨篇综合、面试题。
 
@@ -133,7 +133,7 @@ Table: 本文的章节安排
 
 ### 1. 先问类型，再问方法
 
-第一篇的知识类型表是入口，第二篇的三类检索按前提选，第六篇的三种结构化按问题类型选，第五篇的两种形态按三问选。每一处决策都是"这份知识 / 这个问题属于哪一类"，方法随类型定。
+[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)的知识类型表是入口，[《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)按前提选，[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)的三种结构化手段按问题类型选，[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)的两种形态按三问选。每一处决策都是"这份知识 / 这个问题属于哪一类"，方法随类型定。
 
 ```mermaid
 %% 图：全系列的决策入口——先问这件事是事实还是行为（第一篇），事实再问有没有 schema（第六篇：SQL / 本体 / 图）、满足词法三前提吗（第二篇：grep / BM25 还是向量），再问问题形态是定位型还是多跳探索（第五篇：流水线还是 agentic）；行为走 few-shot → SKILL.md → 微调；每一步的方法都随类型定
@@ -159,7 +159,7 @@ flowchart TB
 
 ### 2. 失败在上游
 
-第三篇比第四篇重要：解析与分块决定向量库里有什么，索引参数只决定怎么找。第七篇的分开评把这条线变成可测的：recall@50 低先看解析分块，再看 embedding。
+[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)比[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)重要：解析与分块决定向量库里有什么，索引参数只决定怎么找。[《检索评测与运营》](/retrieval-evaluation-and-operations.html)的分开评把这条线变成可测的：recall@50 低先看解析分块，再看 embedding。
 
 ```mermaid
 %% 图：检索质量失败在上游：知识类型决定检索类型，解析分块决定库里有什么，索引决定怎么找，recall@50 低先看解析分块
@@ -183,7 +183,7 @@ flowchart TB
 
 ### 3. 权限贯穿每一层
 
-第一篇（权重没有权限概念）、第三篇（权限进元数据）、第四篇（召回时过滤）、第五篇（工具内部按用户过滤、内置 file search 的粒度）、第六篇（语义层与本体是权限的落点）、第七篇（不该看到查询集）。检索系统放大权限错误，所以权限不是某一篇的事。
+[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)（权重没有权限概念）、[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)（权限进元数据）、[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)（召回时过滤）、[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)（工具内部按用户过滤、内置 file search 的粒度）、[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)（语义层与本体是权限的落点）、[《检索评测与运营》](/retrieval-evaluation-and-operations.html)（不该看到查询集）。检索系统放大权限错误，所以权限不是某一篇的事。
 
 ```mermaid
 %% 图：权限在每一层的落点——权重没有权限概念（一）；解析时 ACL 进块的元数据并与源系统同步（三）；两路召回时过滤，不在 rerank 后、更不在生成后（四）；检索工具内部按调用用户过滤，模型绕不过（五）；语义层与本体定义谁能看哪个指标、做哪个动作（六）；「不该看到」查询集定期跑（七）
@@ -199,31 +199,31 @@ flowchart TB
 
 ### 4. 选型同构、评测同源
 
-embedding 与 rerank 的选型（第四篇）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同一方法：榜单缩范围、自己的集决定、警惕榜单的失真、算隐藏成本（重建）。评测集（第七篇）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的评测集同源：从真实流量采、几十条起、每周补、hold-out、版本化、作为门禁。
+embedding 与 rerank 的选型（[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的模型选型同一方法：榜单缩范围、自己的集决定、警惕榜单的失真、算隐藏成本（重建）。评测集（[《检索评测与运营》](/retrieval-evaluation-and-operations.html)）与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的评测集同源：从真实流量采、几十条起、每周补、hold-out、版本化、作为门禁。
 
 ### 5. 概念表
 
 | 概念 | 出处 | 一句话 |
 |---|---|---|
-| 事实 vs 行为 | 第一篇 | 事实进上下文（可引用、可更新、可过滤），行为进权重 |
-| 四问 | 第一篇 | 会变？有 schema？要引用？按用户不同？任一为是不进权重 |
-| 词法三前提 | 第二篇 | 精确标识符、可枚举、能迭代 |
-| 过期税 | 第二篇 | 索引付在写路径，agentic 付在读路径；看读写比 |
-| 点 vs 边 | 第二篇 | embedding 是相似不是关系；关系归结构化 |
-| 三个梯级 | 第三篇 | 规则 → 布局模型 → VLM，先低后高 |
-| 三个静默失败 | 第三篇 | 阅读顺序、表格、页眉页脚 |
-| contextual retrieval | 第三篇 | 每块前置位置与含义说明，−49% / −67% |
-| 父子块 | 第三篇 | 小块检索、大块返回 |
-| RRF | 第四篇 | $$\sum 1/(k + \text{rank})$$，只按排名融合 |
-| rerank | 第四篇 | cross-encoder 精排 top-20，性价比最高，降 k |
-| 召回时过滤 | 第四篇 | 权限进查询、过滤下推、与源同步 |
-| 双写切换 | 第四篇 | 换 embedding / 分块 / 前缀的全量重建流程 |
-| 级联 | 第五篇 | 流水线默认、agentic 兜底 |
-| 语义层 | 第六篇 | 业务概念写一次、模型对它生成查询、权限落点 |
-| 本体 | 第六篇 | 对象 + 关系 + 动作 + 权限，业务世界的 harness |
-| LazyGraphRAG | 第六篇 | 图的价值在查询时遍历，索引不必算好一切 |
-| 分开评 | 第七篇 | recall@k / 固定检索下的生成 / 端到端三个数字 |
-| 不该看到查询集 | 第七篇 | 权限泄漏作为评测项进 CI |
+| 事实 vs 行为 | [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html) | 事实进上下文（可引用、可更新、可过滤），行为进权重 |
+| 四问 | [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html) | 会变？有 schema？要引用？按用户不同？任一为是不进权重 |
+| 词法三前提 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) | 精确标识符、可枚举、能迭代 |
+| 过期税 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) | 索引付在写路径，agentic 付在读路径；看读写比 |
+| 点 vs 边 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) | embedding 是相似不是关系；关系归结构化 |
+| 三个梯级 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) | 规则 → 布局模型 → VLM，先低后高 |
+| 三个静默失败 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) | 阅读顺序、表格、页眉页脚 |
+| contextual retrieval | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) | 每块前置位置与含义说明，−49% / −67% |
+| 父子块 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) | 小块检索、大块返回 |
+| RRF | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) | $$\sum 1/(k + \text{rank})$$，只按排名融合 |
+| rerank | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) | cross-encoder 精排 top-20，性价比最高，降 k |
+| 召回时过滤 | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) | 权限进查询、过滤下推、与源同步 |
+| 双写切换 | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) | 换 embedding / 分块 / 前缀的全量重建流程 |
+| 级联 | [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html) | 流水线默认、agentic 兜底 |
+| 语义层 | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) | 业务概念写一次、模型对它生成查询、权限落点 |
+| 本体 | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) | 对象 + 关系 + 动作 + 权限，业务世界的 harness |
+| LazyGraphRAG | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) | 图的价值在查询时遍历，索引不必算好一切 |
+| 分开评 | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) | recall@k / 固定检索下的生成 / 端到端三个数字 |
+| 不该看到查询集 | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) | 权限泄漏作为评测项进 CI |
 
 Table: 贯穿七篇的概念表
 
@@ -231,26 +231,26 @@ Table: 贯穿七篇的概念表
 
 | 误区 | 为什么错 | 出处 |
 |---|---|---|
-| "把手册 SFT 进模型就学会了" | SFT 学分布不学事实；编造、遗忘、不可引用、不可更新 | 第一篇 |
-| "prompt 调不好就微调" | 跳过 few-shot 与检索；微调是末端的行为优化 | 第一篇 |
-| "RAG 就是向量库" | 三类之一；词法与结构化各有领地 | 第二篇 |
-| "Claude Code 不用向量库所以向量检索过时了" | 代码满足词法三前提，企业文档不满足 | 第二篇 |
-| "向量索引比 grep 省 token" | 检索结果作为上下文进每轮，噪声多时更费；看精确度 | 第二篇 |
-| "用向量库找'谁调用了这个函数'" | embedding 是点不是边；用 LSP / 图 | 第二篇 |
-| "直接调 OCR API" | 开放文档 VLM 更准更便宜，先规则抽取按需升级 | 第三篇 |
-| "固定长度切一切" | 切断函数、条款、表格；按结构切 | 第三篇 |
-| "生成后过滤权限" | 模型已看到；权限进元数据、召回时过滤 | 第三、四篇 |
-| "MTEB 榜首直接用" | 版本不可比、二元相关性、领域<br/>查询集决定<br/>换模型全量重建 | 第四篇 |
-| "只上向量就够" | 精确匹配抓不住；BM25 + RRF 是默认 | 第四篇 |
-| "rerank 太慢不要" | 只精排 top-20，几十到几百毫秒，且降 k 省钱 | 第四篇 |
-| "全部改成 agentic" | 成本延迟不定；级联——流水线默认、agentic 兜底 | 第五篇 |
-| "检索工具返回全文" | 上下文爆炸；摘要 + 引用，全文另取 | 第五篇 |
-| "对裸 schema 做 text-to-SQL" | 企业级两成；语义层 | 第六篇 |
-| "本体是一种检索" | 它是 harness：动作 + 权限 | 第六篇 |
-| "上 GraphRAG 提升 RAG 效果" | 只对全局 / 多跳有用；索引贵几十到几百倍 | 第六篇 |
-| "只看端到端准确率" | 分不清检索还是生成；三个数字 | 第七篇 |
-| "合成评测集就够了" | 措辞贴合原文高估 recall；真实查询决定 | 第七篇 |
-| "权限泄漏是安全团队的事" | 检索放大权限错误；不该看到查询集进 CI | 第七篇 |
+| "把手册 SFT 进模型就学会了" | SFT 学分布不学事实；编造、遗忘、不可引用、不可更新 | [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html) |
+| "prompt 调不好就微调" | 跳过 few-shot 与检索；微调是末端的行为优化 | [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html) |
+| "RAG 就是向量库" | 三类之一；词法与结构化各有领地 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) |
+| "Claude Code 不用向量库所以向量检索过时了" | 代码满足词法三前提，企业文档不满足 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) |
+| "向量索引比 grep 省 token" | 检索结果作为上下文进每轮，噪声多时更费；看精确度 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) |
+| "用向量库找'谁调用了这个函数'" | embedding 是点不是边；用 LSP / 图 | [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html) |
+| "直接调 OCR API" | 开放文档 VLM 更准更便宜，先规则抽取按需升级 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) |
+| "固定长度切一切" | 切断函数、条款、表格；按结构切 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html) |
+| "生成后过滤权限" | 模型已看到；权限进元数据、召回时过滤 | [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)与[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) |
+| "MTEB 榜首直接用" | 版本不可比、二元相关性、领域<br/>查询集决定<br/>换模型全量重建 | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) |
+| "只上向量就够" | 精确匹配抓不住；BM25 + RRF 是默认 | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) |
+| "rerank 太慢不要" | 只精排 top-20，几十到几百毫秒，且降 k 省钱 | [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html) |
+| "全部改成 agentic" | 成本延迟不定；级联——流水线默认、agentic 兜底 | [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html) |
+| "检索工具返回全文" | 上下文爆炸；摘要 + 引用，全文另取 | [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html) |
+| "对裸 schema 做 text-to-SQL" | 企业级两成；语义层 | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) |
+| "本体是一种检索" | 它是 harness：动作 + 权限 | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) |
+| "上 GraphRAG 提升 RAG 效果" | 只对全局 / 多跳有用；索引贵几十到几百倍 | [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html) |
+| "只看端到端准确率" | 分不清检索还是生成；三个数字 | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) |
+| "合成评测集就够了" | 措辞贴合原文高估 recall；真实查询决定 | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) |
+| "权限泄漏是安全团队的事" | 检索放大权限错误；不该看到查询集进 CI | [《检索评测与运营》](/retrieval-evaluation-and-operations.html) |
 
 Table: 常见误区与正确说法
 
@@ -338,16 +338,16 @@ Table: 常见误区与正确说法
    （1）先在检索评测集上分别消融：只换模型、只改分块、只加前缀、全改，确认每步的收益（否则不知道哪个起作用）；（2）三个改动都触发全量重建——向量空间变、块边界变、块内容变；（3）评测集的标注块 id 随分块变化失效，要重标或用可映射的 id（最容易漏）；（4）新索引双写、评测通过、灰度切流、旧索引保留；（5）自托管的容量规划（8B 模型的 embedding 吞吐）、版本钉住；（6）配套换 Qwen3-Reranker 一起评；（7）contextual 前缀的生成成本用 prompt caching 控制；（8）权限元数据在新块上完整；（9）更新 L2 的预算（块大小变了）。
    </details>
 
-4. 一个 text-to-SQL 数据分析 agent 在演示数据库上 90% 正确，接入真实数仓后 25%。用第六篇诊断，用第五、七篇设计验证与评测。
+4. 一个 text-to-SQL 数据分析 agent 在演示数据库上 90% 正确，接入真实数仓后 25%。用[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)诊断，用[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)与[《检索评测与运营》](/retrieval-evaluation-and-operations.html)设计验证与评测。
 
    <details markdown="1"><summary>答案</summary>
-   诊断：真实数仓的列名不可读、业务规则隐含在报表 SQL 里、多表关系未声明、同名异义——模型不知道该查什么，这与 Spider 2.0 上前沿模型只有两成一致。改：建语义层（最常查的 50 个指标 / 维度 / 实体 / 关系），模型对语义层生成查询，权限在语义层；概念多时先检索相关概念再组合（第五篇的检索找对象）。验证：生成的查询过语法 / 只读 / 成本 / 超时四道门，结果回模型自检（L4 工具循环）。评测：从真实 BI 查询采（问题，正确 SQL 或结果）50–100 条，按执行结果匹配率评，分"找对概念"与"组合正确"两层；在线看零结果率、超时率、用户修改查询的比例。
+   诊断：真实数仓的列名不可读、业务规则隐含在报表 SQL 里、多表关系未声明、同名异义——模型不知道该查什么，这与 Spider 2.0 上前沿模型只有两成一致。改：建语义层（最常查的 50 个指标 / 维度 / 实体 / 关系），模型对语义层生成查询，权限在语义层；概念多时先检索相关概念再组合（[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)的检索找对象）。验证：生成的查询过语法 / 只读 / 成本 / 超时四道门，结果回模型自检（L4 工具循环）。评测：从真实 BI 查询采（问题，正确 SQL 或结果）50–100 条，按执行结果匹配率评，分"找对概念"与"组合正确"两层；在线看零结果率、超时率、用户修改查询的比例。
    </details>
 
 5. 把本系列七篇与 L1 的七条失效模式、L2 的六篇对应起来：检索主要对付哪几条失效？检索结果作为上下文的一层受 L2 哪几篇约束？
 
    <details markdown="1"><summary>答案</summary>
-   失效：幻觉（检索给依据与引用——第三、四、七篇的 faithfulness）、知识截止（会变的事实随时查——第一篇、第五篇的工具）、越界（本体把动作约束住——第六篇）、上下文标称 ≠ 有效（检索让模型只看相关的几块而不是全文——第二篇）。L2 约束：第一篇（检索结果是 ⑤ 层，占多少预算）、第四篇（agentic 检索的返回要卸载、旧结果要清理）、第五篇（检索结果放动态段末尾，否则毁缓存前缀）、第六篇（全放 / 检索 / agentic 的决策表是本系列的入口）、第三篇（元数据路由用结构化输出抽过滤条件）。
+   失效：幻觉（检索给依据与引用——[《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)、[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)与[《检索评测与运营》](/retrieval-evaluation-and-operations.html)的 faithfulness）、知识截止（会变的事实随时查——[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)、[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)的工具）、越界（本体把动作约束住——[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)）、上下文标称 ≠ 有效（检索让模型只看相关的几块而不是全文——[《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)）。L2 约束（都在《Prompt 与上下文工程》里）：[《上下文的解剖》](/anatomy-of-the-context-window.html)（检索结果是 ⑤ 层，占多少预算）、[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)（agentic 检索的返回要卸载、旧结果要清理）、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)（检索结果放动态段末尾，否则毁缓存前缀）、[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)（全放 / 检索 / agentic 的决策表是本系列的入口）、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)（元数据路由用结构化输出抽过滤条件）。
    </details>
 
 ### C. 面试题（7 题）
@@ -441,8 +441,8 @@ Table: 掌握程度的判据
 - **微调的方法**——SFT / LoRA / DPO（Direct Preference Optimization，直接用偏好对训练模型的对齐方法） / 继续预训练属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html) L5；本系列只讲何时该微调与它不能做什么。
 - **embedding 模型怎么训**——对比学习属于算法地图；本系列只讲怎么选、怎么评。
 - **向量检索的算力与部署**——属于 [Infra 地图](/ai-infra-learning-roadmap.html)；本系列只讲索引结构的选择依据。
-- **agent 循环本身**——工具调用循环的运行时、权限与沙箱、durable execution、子 agent，以及 coding agent 与本体驱动业务 agent 两个 harness 案例的全貌，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列第五篇把检索做成了 agent 的工具、第六篇把本体叫作 harness，但只讲检索作为工具的设计要求，不讲循环控制与权限模型。
-- **评测方法论本身**——judge 的偏差与校准、评测集的运营、trace 的结构、录制回放，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列第七篇用了 LLM-as-judge、评测集与 trace，只讲检索专属的指标与分开评的原则。
+- **agent 循环本身**——工具调用循环的运行时、权限与沙箱、durable execution、子 agent，以及 coding agent 与本体驱动业务 agent 两个 harness 案例的全貌，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)把检索做成了 agent 的工具、[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)把本体叫作 harness，但只讲检索作为工具的设计要求，不讲循环控制与权限模型。
+- **评测方法论本身**——judge 的偏差与校准、评测集的运营、trace 的结构、录制回放，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列[《检索评测与运营》](/retrieval-evaluation-and-operations.html)用了 LLM-as-judge、评测集与 trace，只讲检索专属的指标与分开评的原则。
 - **生产化与运营**——prompt injection 的分层防御（Slack AI 事件的另一半）、网关、成本预算、发布与回滚，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)。
 - **前置**——[L1《模型作为组件》](/model-as-a-component.html)是本系列"失效模式"（幻觉、知识截止）与"选型方法"（榜单缩范围、评测集决定）的出处；[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)讲检索结果作为上下文一层的预算、位置与卸载，是本系列反复引用的前置。
 - **地图定位**——本系列在整张地图上的位置（L3）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
@@ -450,7 +450,17 @@ Table: 掌握程度的判据
 回到总纲：[《检索与知识接入：私域知识怎么进入模型》](/retrieval-and-knowledge-access.html)。
 
 
-[^q0]: 面对一份私域知识：它该进上下文还是进权重，微调能不能解决（第一篇）；该用 grep、向量还是 SQL，coding 场景要不要建索引，读写比怎么算（第二篇）；这批 PDF 用哪个梯级解析、三个静默失败怎么检测、块按什么切、要不要 contextual 前缀、权限怎么进元数据（第三篇）；用哪个 embedding、要不要混合与 rerank、权限在哪一步过滤、换模型怎么重建（第四篇）；固定流水线还是 agentic，改写 / HyDE / 多查询 / 路由 / 自检各解决什么，检索工具怎么设计（第五篇）；业务库建语义层、本体还是图，text-to-SQL 为什么两成（第六篇）；答错了是没找到还是找到了没说对，三个数字怎么定位，在线看什么，权限泄漏怎么测（第七篇）。详见[第一章](#一总览系列回答的问题与主线)。
+[^q0]: 面对一份私域知识，能回答下面七组问题：
+
+    - [《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)：它该进上下文还是进权重，微调能不能解决
+    - [《三类检索》](/three-kinds-of-retrieval-lexical-vector-structured.html)：该用 grep、向量还是 SQL，coding 场景要不要建索引，读写比怎么算
+    - [《文档解析与分块》](/document-parsing-and-chunking-for-retrieval.html)：这批 PDF 用哪个梯级解析、三个静默失败怎么检测、块按什么切、要不要 contextual 前缀、权限怎么进元数据
+    - [《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)：用哪个 embedding、要不要混合与 rerank、权限在哪一步过滤、换模型怎么重建
+    - [《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)：固定流水线还是 agentic，改写 / HyDE / 多查询 / 路由 / 自检各解决什么，检索工具怎么设计
+    - [《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)：业务库建语义层、本体还是图，text-to-SQL 为什么两成
+    - [《检索评测与运营》](/retrieval-evaluation-and-operations.html)：答错了是没找到还是找到了没说对，三个数字怎么定位，在线看什么，权限泄漏怎么测
+
+    详见[第一章](#一总览系列回答的问题与主线)。
 
 [^q1]: 数字：*Fine-Tuning or Retrieval?* 检索显著优于微调；PaddleOCR-VL-1.6 0.9B 参数 OmniDocBench 96.34 > Gemini 3 Pro 92.91 > GPT-5.2 86.59；Mistral OCR 4 每千页 \$4、170 语言；Anthropic contextual retrieval −49% / 加 rerank −67%；块 200–800 token、重叠 10–20%；Qwen3-Embedding-8B MMTEB 70.58、Gemini Embedding 68.32、Gemini 输入 2K vs Cohere v4 128K；RRF $$k = 60$$；top-50 → RRF → top-20 → rerank → top-5；Spider 2.0 两成左右；GraphRAG 索引贵几十到几百倍；p95 是 p50 的 5–10 倍；评测集 50–100 条起；judge 一致率 ≥ 85%。结论：事实进上下文行为进权重；四问；词法三前提；过期税看读写比；点不是边；先低后高的梯级；三个静默失败；权限进元数据召回时过滤；换 embedding 全量重建双写切换；级联；语义层；本体是 harness；建图先数问题；分开评三个数字；不该看到查询集。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 
