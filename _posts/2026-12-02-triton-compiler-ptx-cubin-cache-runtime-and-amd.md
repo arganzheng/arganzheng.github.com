@@ -169,7 +169,7 @@ Table: dump 与 override 的环境变量
 // third_party/nvidia/backend/driver.c: load_binary(name, data, shared, device)
 cuModuleLoadData(&mod, data);                                                // cubin 字节 → CUmodule（驱动此时若发现是 PTX 会 JIT）
 cuModuleGetFunction(&fun, mod, name);
-cuFuncGetAttribute(&n_regs, CU_FUNC_ATTRIBUTE_NUM_REGS, fun);                // 第二篇 §七.3
+cuFuncGetAttribute(&n_regs, CU_FUNC_ATTRIBUTE_NUM_REGS, fun);                // 《LLVM》§七.3
 cuFuncGetAttribute(&n_spills, CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, fun); n_spills /= 4;
 cuFuncGetAttribute(&n_max_threads, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, fun);
 if (shared > 49152 && shared_optin > 49152)                                   // 动态 shared memory 超过 48 KB 要 opt-in
@@ -286,7 +286,7 @@ llvm.attach_datalayout(llvm_mod, "amdgcn-amd-amdhsa", arch, target_features)
 kernel_fn.add_fn_attr("amdgpu-flat-work-group-size", f"1,{total_warps_num * warp_size}")   # 1,256
 if waves_per_eu: kernel_fn.add_fn_attr("amdgpu-waves-per-eu", f"{waves_per_eu},{waves_per_eu}")   # 占用率提示 → 寄存器上限
 kernel_fn.add_fn_attr("denormal-fp-math-f32", "preserve-sign" if allow_flush_denorm else "ieee")
-llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3, arch, '', [], enable_fp_fusion, ...)     # 注意：这里传了 arch → 有 TargetMachine（NVIDIA 路径没有，第二篇 §三.3）
+llvm.optimize_module(llvm_mod, llvm.OPTIMIZE_O3, arch, '', [], enable_fp_fusion, ...)     # 注意：这里传了 arch → 有 TargetMachine（NVIDIA 路径没有，见《LLVM》§三.3）
 ```
 
 ```llvm title="AMDGPU 的 LLVM 函数签名"

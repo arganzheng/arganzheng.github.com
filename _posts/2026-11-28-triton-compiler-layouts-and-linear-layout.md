@@ -345,7 +345,7 @@ $$
 
 换一个目标 layout C：register 管列的低位、lane 管列的高位、warp 管行（只把 A 里 register 与 lane 的角色对调）。$$C$$ 是单位矩阵，$$C^{-1} A = A$$，第三行是 $$(0, 0, 1)$$，第三列也只有这一个 1：warp 剥得掉，剩下 register 与 lane 互换，数据只在同一个 warp 的两个线程之间移动，对应 ④ 的 warp 内 shuffle。真实的 layout 只是位数更多（12 位），判定的方式与这两个 3 × 3 矩阵相同。
 
-回答核心问题第二问。看两张表里**行号的低位**由谁决定：`#blocked` 里行 1 是 **warp 位 2**，行 2、4 是**寄存器位** 1、2；`#mma` 里行 1、2、4 是 **lane 位** 4、8、16。所以 `dst⁻¹ ∘ src` 把源的 warp 位 2 映到目标的 lane 位 4——**源 warp 2 的数据要进目标的另一个 lane**，跨了 warp；同时源的寄存器位映到目标的 lane 位（第 2、4 行要从寄存器进 lane）。`quotient(warp)` 在第一步就失败（warp 位不是恒等），`outDims` 含 `warp`，`cvtNeedsSharedMemory` 为真。这个转换是 `[128, 128]` 累加器写回前经历的那一次 shared memory 往返（GPU Kernel 系列第七篇提到的 epilogue 固有开销）——第八篇讨论它为什么消不掉。
+回答核心问题第二问。看两张表里**行号的低位**由谁决定：`#blocked` 里行 1 是 **warp 位 2**，行 2、4 是**寄存器位** 1、2；`#mma` 里行 1、2、4 是 **lane 位** 4、8、16。所以 `dst⁻¹ ∘ src` 把源的 warp 位 2 映到目标的 lane 位 4——**源 warp 2 的数据要进目标的另一个 lane**，跨了 warp；同时源的寄存器位映到目标的 lane 位（第 2、4 行要从寄存器进 lane）。`quotient(warp)` 在第一步就失败（warp 位不是恒等），`outDims` 含 `warp`，`cvtNeedsSharedMemory` 为真。这个转换是 `[128, 128]` 累加器写回前经历的那一次 shared memory 往返（《GPU Kernel 工程》提到的 epilogue 固有开销）——[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)讨论它为什么消不掉。
 
 反例：`#blocked<{[1, 8], [8, 4], [4, 1]}>` → `#blocked<{[1, 4], [8, 4], [4, 1]}>`（只改每线程元素数，行列分配不变）的复合映射在 `warp` 和 `lane` 上都是恒等，剥完只剩 `register`——零成本，每个线程把 8 个寄存器看成两组 4 个而已。
 

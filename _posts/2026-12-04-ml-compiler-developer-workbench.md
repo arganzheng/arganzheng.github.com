@@ -93,7 +93,7 @@ Table: dump.log 里的 70 个 pass（matmul_kernel，sm_80，Triton v3.8.0，72 
 triton-opt kernel.ttir --convert-triton-to-tritongpu="target=cuda:80 num-warps=4 threads-per-warp=32 num-ctas=1" -o a.ttgir
 triton-opt a.ttgir --tritongpu-coalesce --tritongpu-remove-layout-conversions --mlir-print-ir-after-all 2> steps.log
 triton-opt a.ttgir --tritongpu-accelerate-matmul --mlir-print-ir-after-failure   # 只在失败时打印
-triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute-capability=80   # 第十篇的实验
+triton-opt x.ttgir --allocate-shared-memory --convert-triton-gpu-to-llvm=compute-capability=80   # 《TritonGPU 到 LLVM 的下降》里的实验
 ```
 
 命令行名与 `compiler.py` 里的 `passes.ttgpuir.add_xxx` 一一对应（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html) §七）。`--mlir-print-op-generic` 看通用形式，`--mlir-print-debuginfo` 看 `loc`，`--mlir-disable-threading` 让崩溃栈可读。`triton-opt --help | rg tritongpu` 列出全部 pass 与选项。
