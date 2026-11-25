@@ -9,7 +9,7 @@ date: 2026-10-04 20:00:00
 updated: 2026-11-23
 ---
 
-六篇正文回答了一个问题：**把大模型当作系统里的一个组件，它的规格书是什么**。第一篇写它的失效模式，第二、三篇写它的接口（含推理模型的新维度），第四篇算它的账，第五篇讲怎么在几十个候选里选，第六篇讲调用它的客户端要处理什么。六篇合起来，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第一层的全部内容——**组件观**：模型是一个非确定性、会编造、按 token 计费、有上下文上限、供应商会换掉的组件，后面六层的每一种工程手段都是对它某一条性质的应对。
+六篇正文回答了一个问题：**把大模型当作系统里的一个组件，它的规格书是什么**。[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)写它的失效模式，[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)与[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)写它的接口（含推理模型的新维度），[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)算它的账，[《选型》](/model-selection-beyond-leaderboards.html)讲怎么在几十个候选里选，[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)讲调用它的客户端要处理什么。六篇合起来，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第一层的全部内容——**组件观**：模型是一个非确定性、会编造、按 token 计费、有上下文上限、供应商会换掉的组件，后面六层的每一种工程手段都是对它某一条性质的应对。
 
 本文不讲新内容，做三件事：把六篇压成一张表与六段回顾，把贯穿六篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"六篇能不能连起来用"。
 
@@ -122,7 +122,7 @@ Table: 本文的章节安排
 
 ### 1. 每条失效对应一种应对，应对在后面的层
 
-第一篇的七条失效是整个应用地图的索引。非确定性 → L5 评测按分布、录制回放；幻觉 → L3 检索与引用、L5 guardrails、L7 引用的呈现；指令遵循 → L2 上下文工程、L5 回归；上下文 → L2 预算与压缩、L3 检索；知识截止 → L3、L4 工具；供应商变更 → L5 回归、L6 发布与网关；越界 → L4 权限与沙箱、L6 安全。读后面六个系列时，每一种手段都应该能回答"它在对付第一篇的哪一条"。
+[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的七条失效是整个应用地图的索引。非确定性 → L5 评测按分布、录制回放；幻觉 → L3 检索与引用、L5 guardrails、L7 引用的呈现；指令遵循 → L2 上下文工程、L5 回归；上下文 → L2 预算与压缩、L3 检索；知识截止 → L3、L4 工具；供应商变更 → L5 回归、L6 发布与网关；越界 → L4 权限与沙箱、L6 安全。读后面六个系列时，每一种手段都应该能回答"它在对付[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的哪一条"。
 
 ```mermaid
 %% 图：七条失效模式各由后面哪一层对付——这张图是整个应用地图的索引：左列是第一篇的七条失效，右列是 L2–L7 六个系列，每条边是一种具体手段
@@ -149,7 +149,7 @@ flowchart LR
 
 ### 2. 契约的每一项都有成本含义
 
-第二、三篇的契约与第四篇的账是一张表的两面：消息的排列决定缓存能否命中（tools → system → messages 的顺序，动态内容放后面）；工具定义占 token 且在前缀里；结构化输出注入的 schema 算 token；effort 决定思考 token；服务端状态不省输入的钱；思考块进历史后成为可缓存的输入。学契约时同时问"这一项在账上是哪一格"，是这个系列的方法。
+[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲的契约与[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)算的账是一张表的两面：消息的排列决定缓存能否命中（tools → system → messages 的顺序，动态内容放后面）；工具定义占 token 且在前缀里；结构化输出注入的 schema 算 token；effort 决定思考 token；服务端状态不省输入的钱；思考块进历史后成为可缓存的输入。学契约时同时问"这一项在账上是哪一格"，是这个系列的方法。
 
 ```mermaid
 %% 图：契约的每一项在账上的位置：effort 决定思考 token 进成本与 TTFT，前缀顺序决定缓存命中率，上下文长度与轮数决定 prefill 成本
@@ -173,7 +173,7 @@ flowchart TB
 
 ### 3. 供应商会变，应用要对变化免疫
 
-2026 年内四家都发生过"没改代码但行为变了"：Sonnet 5 的默认 thinking 与新 tokenizer、Fable 5.1 的历史校验与强制工具报错、Assistants API 关闭、Interactions 的 `outputs → steps`、DeepSeek 把 V4-Pro 路由到 V4.1 Flash、OpenAI 三批下线二十多个快照。对变化免疫的手段贯穿五篇：钉住快照（第一篇）、中间层把差异收在一处（第二篇）、迁移三件事（第三篇）、模型名进配置与替代模型热身（第五篇）、熔断与 fallback 链（第六篇）——以及所有这些的探测器：**评测集**。
+2026 年内四家都发生过"没改代码但行为变了"：Sonnet 5 的默认 thinking 与新 tokenizer、Fable 5.1 的历史校验与强制工具报错、Assistants API 关闭、Interactions 的 `outputs → steps`、DeepSeek 把 V4-Pro 路由到 V4.1 Flash、OpenAI 三批下线二十多个快照。对变化免疫的手段贯穿五篇：钉住快照（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）、中间层把差异收在一处（[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)）、迁移三件事（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）、模型名进配置与替代模型热身（[《选型》](/model-selection-beyond-leaderboards.html)）、熔断与 fallback 链（[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）——以及所有这些的探测器：**评测集**。
 
 ```mermaid
 %% 图：对供应商变化免疫的五道手段与它们共同的探测器——钉快照、中间层、迁移三件事、配置化的模型名与热身的替代模型、熔断与 fallback，每一道都在某一篇里；变化能不能被提前发现，只取决于评测集
@@ -194,27 +194,27 @@ flowchart LR
 
 ### 4. 按分布，按任务
 
-两个单位的转换是这个系列的思维习惯。**按分布不按单次**：非确定性让单次结果没有意义，评测每题跑 $$k$$ 次看通过率与方差（第一、五篇），延迟看 p50 / p99（第四篇），每任务成本看 p50 / p95（第四篇）。**按任务不按 token**：价目是每 token 的，产品关心每任务的；一个便宜的模型多走几步或完成率低，每任务可能更贵（第四、五篇）；effort 的选择也是按任务（第三篇）。
+两个单位的转换是这个系列的思维习惯。**按分布不按单次**：非确定性让单次结果没有意义，评测每题跑 $$k$$ 次看通过率与方差（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)与[《选型》](/model-selection-beyond-leaderboards.html)），延迟看 p50 / p99（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)），每任务成本看 p50 / p95（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。**按任务不按 token**：价目是每 token 的，产品关心每任务的；一个便宜的模型多走几步或完成率低，每任务可能更贵（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)与[《选型》](/model-selection-beyond-leaderboards.html)）；effort 的选择也是按任务（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。
 
 ### 5. 概念表
 
 | 概念 | 出处 | 一句话 |
 |---|---|---|
-| batch 不变性 | 第一篇 | kernel 在不同 batch 大小下数值路径不同；公开 API 因此不可复现 |
-| 有效上下文长度 | 第一篇 | 模型能可靠利用的长度，远小于标称；用自己的资料做针测 |
-| 工具调用往返 | 第二篇 | 决定 → 校验 / 权限 / 执行 → 配对送回 → 循环；模型只做决定与读结果 |
-| 约束解码 | 第二篇 | schema 编译为自动机，不合法 token 概率置零；保证形状不保证语义 |
-| 服务端状态 | 第二篇 | `previous_response_id` / `previous_interaction_id`<br/>默认存储<br/>不省 token 费<br/>绑定供应商 |
-| effort | 第三篇 | 思考深度的倾向参数；选档靠三条曲线 |
-| 推理状态 | 第三篇 | thinking block / reasoning item / thought signature<br/>只搬运不读写<br/>历史只追加 |
-| 缓存前缀 | 第四篇 | 逐字节相同前缀的 KV<br/>tools → system → messages<br/>写 1.25× 读 0.1× |
-| 二次增长 | 第四篇 | $$N$$ 轮不缓存的输入 $$NS + N(N-1)m/2$$；缓存乘 0.1 |
-| TTFT / TPOT | 第四篇 | 排队 + prefill + 思考 / 每 token 时间；输入长度 → TTFT，输出长度 → 总时长，模型大小 → TPOT |
-| 选择偏差（榜单） | 第五篇 | 多测选最好即使同一 checkpoint 也抬分 |
-| 级联 | 第五篇 | 先小后大，$$c_s + (1-f) c_l$$，不漏难题 |
-| 弃用周期 | 第五篇 | 通知期、快照可钉性、替代路径、多云 |
-| 重试预算 | 第六篇 | 重试不超过总量的比例；防雪崩也防账单 |
-| 四层超时 | 第六篇 | 连接 / 首事件 / 事件间 / 总 |
+| batch 不变性 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) | kernel 在不同 batch 大小下数值路径不同；公开 API 因此不可复现 |
+| 有效上下文长度 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) | 模型能可靠利用的长度，远小于标称；用自己的资料做针测 |
+| 工具调用往返 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) | 决定 → 校验 / 权限 / 执行 → 配对送回 → 循环；模型只做决定与读结果 |
+| 约束解码 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) | schema 编译为自动机，不合法 token 概率置零；保证形状不保证语义 |
+| 服务端状态 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) | `previous_response_id` / `previous_interaction_id`<br/>默认存储<br/>不省 token 费<br/>绑定供应商 |
+| effort | [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) | 思考深度的倾向参数；选档靠三条曲线 |
+| 推理状态 | [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) | thinking block / reasoning item / thought signature<br/>只搬运不读写<br/>历史只追加 |
+| 缓存前缀 | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) | 逐字节相同前缀的 KV<br/>tools → system → messages<br/>写 1.25× 读 0.1× |
+| 二次增长 | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) | $$N$$ 轮不缓存的输入 $$NS + N(N-1)m/2$$；缓存乘 0.1 |
+| TTFT / TPOT | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) | 排队 + prefill + 思考 / 每 token 时间；输入长度 → TTFT，输出长度 → 总时长，模型大小 → TPOT |
+| 选择偏差（榜单） | [《选型》](/model-selection-beyond-leaderboards.html) | 多测选最好即使同一 checkpoint 也抬分 |
+| 级联 | [《选型》](/model-selection-beyond-leaderboards.html) | 先小后大，$$c_s + (1-f) c_l$$，不漏难题 |
+| 弃用周期 | [《选型》](/model-selection-beyond-leaderboards.html) | 通知期、快照可钉性、替代路径、多云 |
+| 重试预算 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) | 重试不超过总量的比例；防雪崩也防账单 |
+| 四层超时 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) | 连接 / 首事件 / 事件间 / 总 |
 
 Table: 贯穿五篇的概念表
 
@@ -222,22 +222,22 @@ Table: 贯穿五篇的概念表
 
 | 误区 | 为什么错 | 出处 |
 |---|---|---|
-| "temperature = 0 加 seed 就能复现" | 公开 API 的 batch 大小随负载变，kernel 不 batch 不变；只能自托管做到 | 第一篇 |
-| "源材料没错，机器人就不会说错" | 幻觉是高概率续写不是转述；哈姆法院案里源材料正确、输出编造、诊所仍负责 | 第一篇 |
-| "标称 1M 就能放 1M" | NoLiMa 32K 处 11/13 模型掉到基线一半以下；且 >272K / 200K 加价 | 第一、四篇 |
-| "system prompt 是权限更高的通道" | 它只是上下文里一段被标记的文本，与工具返回里的注入竞争 | 第一、二篇 |
-| "用了 strict 模式就不会有错误输出" | 只保证 schema 形状<br/>值可以编造<br/>拒答会被伪装成答案 | 第二篇 |
-| "服务端状态省 token 钱" | 每轮模型仍读完整上下文，输入照样计费；只改变谁传历史 | 第二篇 |
-| "把模型名从 4.6 改成 5 就迁移完了" | thinking 默认开启、采样参数 400、tokenizer 多 30%、`max_tokens` 含思考 | 第一、三、六篇 |
-| "effort 越高越好" | 简单任务高档可能更差（过度思考）<br/>账单差 6 倍<br/>三条曲线取饱和最低档 | 第三篇 |
-| "缓存写入加价所以缓存不划算" | 写 1.25× + 读 0.1× = 1.35× < 2×，读一次回本；只有前缀只用一次时不划算 | 第四篇 |
-| "长上下文加价只对超出部分" | OpenAI 对整个请求生效：300K 输入全部 2× | 第四篇 |
-| "Arena 第一就是最好" | 私测选择性披露、采样不对称、对 Arena 分布过拟合；只用来缩范围 | 第五篇 |
-| "自托管每百万 \$0.8 比 API 便宜" | 满载数字<br/>利用率 30% 时翻三倍<br/>还有 Infra 团队成本 | 第五篇 |
-| "路由比级联省钱所以用路由" | 只省 2–3 个百分点却会漏难题；级联不漏 | 第五篇 |
-| "429 了就重试" | `insufficient_quota` 也是 429，不可重试；重试要有预算 | 第六篇 |
-| "一个总超时就够" | 短了误杀长回答，长了对卡死连接等太久；要四层 | 第六篇 |
-| "用户关了页面请求就结束了" | 不传播到上游则供应商继续生成并计费 | 第六篇 |
+| "temperature = 0 加 seed 就能复现" | 公开 API 的 batch 大小随负载变，kernel 不 batch 不变；只能自托管做到 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) |
+| "源材料没错，机器人就不会说错" | 幻觉是高概率续写不是转述；哈姆法院案里源材料正确、输出编造、诊所仍负责 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) |
+| "标称 1M 就能放 1M" | NoLiMa 32K 处 11/13 模型掉到基线一半以下；且 >272K / 200K 加价 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)与[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| "system prompt 是权限更高的通道" | 它只是上下文里一段被标记的文本，与工具返回里的注入竞争 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)与[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
+| "用了 strict 模式就不会有错误输出" | 只保证 schema 形状<br/>值可以编造<br/>拒答会被伪装成答案 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
+| "服务端状态省 token 钱" | 每轮模型仍读完整上下文，输入照样计费；只改变谁传历史 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
+| "把模型名从 4.6 改成 5 就迁移完了" | thinking 默认开启、采样参数 400、tokenizer 多 30%、`max_tokens` 含思考 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)与[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
+| "effort 越高越好" | 简单任务高档可能更差（过度思考）<br/>账单差 6 倍<br/>三条曲线取饱和最低档 | [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) |
+| "缓存写入加价所以缓存不划算" | 写 1.25× + 读 0.1× = 1.35× < 2×，读一次回本；只有前缀只用一次时不划算 | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| "长上下文加价只对超出部分" | OpenAI 对整个请求生效：300K 输入全部 2× | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| "Arena 第一就是最好" | 私测选择性披露、采样不对称、对 Arena 分布过拟合；只用来缩范围 | [《选型》](/model-selection-beyond-leaderboards.html) |
+| "自托管每百万 \$0.8 比 API 便宜" | 满载数字<br/>利用率 30% 时翻三倍<br/>还有 Infra 团队成本 | [《选型》](/model-selection-beyond-leaderboards.html) |
+| "路由比级联省钱所以用路由" | 只省 2–3 个百分点却会漏难题；级联不漏 | [《选型》](/model-selection-beyond-leaderboards.html) |
+| "429 了就重试" | `insufficient_quota` 也是 429，不可重试；重试要有预算 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
+| "一个总超时就够" | 短了误杀长回答，长了对卡死连接等太久；要四层 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
+| "用户关了页面请求就结束了" | 不传播到上游则供应商继续生成并计费 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
 
 Table: 常见误区与正确说法
 
@@ -307,10 +307,10 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 一个客服应用在 2026 年 7 月 1 日把模型从 Claude Sonnet 4.6 改成 Sonnet 5，其他不变。列出它在接下来一周可能遇到的全部问题，按第一、三、四、六篇的顺序归类。
+1. 一个客服应用在 2026 年 7 月 1 日把模型从 Claude Sonnet 4.6 改成 Sonnet 5，其他不变。列出它在接下来一周可能遇到的全部问题，按[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)、[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)与[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的顺序归类。
 
    <details markdown="1"><summary>答案</summary>
-   第一篇（供应商变更）：行为变了但代码没变。第三篇：adaptive thinking 默认开启——思考 token 出现、TTFT 变长、`max_tokens` 被思考占掉导致截断；设了 `temperature` 的请求 400。第四篇：账单上涨——思考 token 按输出价 + 新 tokenizer 多 30% 输入 token；缓存命中率可能因 tokenizer 变化而在切换当天归零重建。第六篇：按轮数保留的历史因 token 数增加而偶发超限 400；本地 token 估算失效。修法：effort 选档、`max_tokens` 重设、去掉采样参数、按 token 而非轮数保留历史、重新校准计数、在评测集上重跑。
+   [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)（供应商变更）：行为变了但代码没变。[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)：adaptive thinking 默认开启——思考 token 出现、TTFT 变长、`max_tokens` 被思考占掉导致截断；设了 `temperature` 的请求 400。[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)：账单上涨——思考 token 按输出价 + 新 tokenizer 多 30% 输入 token；缓存命中率可能因 tokenizer 变化而在切换当天归零重建。[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)：按轮数保留的历史因 token 数增加而偶发超限 400；本地 token 估算失效。修法：effort 选档、`max_tokens` 重设、去掉采样参数、按 token 而非轮数保留历史、重新校准计数、在评测集上重跑。
    </details>
 
 2. 一个 agent 任务 25 步，每步思考 2,500、可见输出 300、新增工具结果 1,500 token，system + 工具定义 15,000。用 GPT-5.6 Terra（\$2 / \$12，读 \$0.20，写 \$2.50）估算：（a）思考总成本；（b）若历史只追加、全程命中缓存，输入侧约多少；（c）若第 10 步有人把一条早期工具结果换成摘要，会怎样。
@@ -319,22 +319,22 @@ Table: 常见误区与正确说法
    （a）25 × 2,500 = 62,500 思考 token × \$12 = \$0.75；可见输出 25 × 300 × 12 = \$0.09。（b）每步新增约 2,500 + 300 + 1,500 = 4,300 token 按写入价 2.5，其余按读价 0.2：写入 15,000 + 25 × 4,300 = 122,500 × 2.5 = \$0.306；读取 $$\sum_{k=2}^{25}[15{,}000 + (k-2) \times 4{,}300] = 24 \times 15{,}000 + 276 \times 4{,}300 = 360{,}000 + 1{,}186{,}800 = 1{,}546{,}800$$ × 0.2 = \$0.309；输入侧约 \$0.62。不缓存则 (360,000 + 15,000 + 1,186,800 + 107,500) × 2 ≈ \$3.3。（c）从改动处起前缀失效：第 10 步重写整个前缀（约 15,000 + 8 × 4,300 = 49,400 token × 2.5），之后重新累积；若是 OpenAI 的 reasoning item 由服务端管理则改动本身可能被拒；在 Anthropic 上会触发 thinking block 的历史校验（400 或丢弃）。
    </details>
 
-3. 你要为一个法律文书审查产品选模型。用第五篇的流程走一遍：硬约束有哪些？榜单怎么用？评测集从哪来、评什么？供应商风险看什么？把第一篇的哪几条失效模式列进规格书？
+3. 你要为一个法律文书审查产品选模型。用[《选型》](/model-selection-beyond-leaderboards.html)的流程走一遍：硬约束有哪些？榜单怎么用？评测集从哪来、评什么？供应商风险看什么？把[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的哪几条失效模式列进规格书？
 
    <details markdown="1"><summary>答案</summary>
    硬约束：数据可能不能出域（客户合同）→ 区域版本或自托管；长文档 → 有效上下文针测 + 加价门限；知识截止（法规更新）→ 必须配检索。榜单：在预算内的模型里取与法律 / 长文本最接近的 benchmark 前几名做短名单。评测集：从真实文书采 50 份，标注应发现的问题与引用的条款，评分用规则（条款号精确匹配）+ judge（问题描述质量）+ 人工抽检；每模型 × effort 跑 3 次。供应商风险：通知期、多云可用性（合规审计要求）、快照可钉性。规格书重点：幻觉（编造判例与条款——引用校验必做，哈姆 / Avianca 的代价）、上下文有效长度、知识截止、供应商变更（法规审查结果不能因模型静默升级而变——评测门禁）。
    </details>
 
-4. 一个流式对话接口 p99 TTFT 突然从 1.5 s 变成 15 s，错误率不变，输出速度不变。用第四、六篇的分解与第一篇的失效表给出排查顺序。
+4. 一个流式对话接口 p99 TTFT 突然从 1.5 s 变成 15 s，错误率不变，输出速度不变。用[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)和[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)里的分解、[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的失效表给出排查顺序。
 
    <details markdown="1"><summary>答案</summary>
-   TTFT = 排队 + prefill + 思考，输出速度不变排除 decode 侧。顺序：（1）缓存命中率——有人在前缀里加了动态内容 / 改了工具定义 / 历史被修改（第四篇第二章、第三篇第五章）；（2）思考 token 数——模型升级把 thinking 默认开启或 effort 被调高（第三篇、第一篇供应商变更）；（3）输入长度分布——是否有一批长文档请求进来（第一篇上下文、第四篇 prefill）；（4）排队——供应商状态页、429 / 529 比例、客户端令牌桶是否在排队、是否撞了层级限额（第六篇）；（5）重试——p99 常来自退避重试，看重试率是否上升。
+   TTFT = 排队 + prefill + 思考，输出速度不变排除 decode 侧。顺序：（1）缓存命中率——有人在前缀里加了动态内容 / 改了工具定义 / 历史被修改（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)第二章、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)第五章）；（2）思考 token 数——模型升级把 thinking 默认开启或 effort 被调高（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)、[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)供应商变更）；（3）输入长度分布——是否有一批长文档请求进来（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)上下文、[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) prefill）；（4）排队——供应商状态页、429 / 529 比例、客户端令牌桶是否在排队、是否撞了层级限额（[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）；（5）重试——p99 常来自退避重试，看重试率是否上升。
    </details>
 
-5. 第一篇的 PocketOS 事件与第六篇的"工具幂等"、第二篇的"工具结果是不可信输入"、第三篇的"绕过障碍"是同一个问题的几个面。把它们连成一段话，说明为什么应用侧的四道防线比"更聪明的模型"更重要。
+5. [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的 PocketOS 事件与[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的"工具幂等"、[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)的"工具结果是不可信输入"、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)的"绕过障碍"是同一个问题的几个面。把它们连成一段话，说明为什么应用侧的四道防线比"更聪明的模型"更重要。
 
    <details markdown="1"><summary>答案</summary>
-   模型遇到障碍时生成"绕过"的计划是它的固有倾向（第一篇的越界、第三篇的推理会把"完成任务"放在"不越界"之前）；计划能否变成灾难取决于应用侧：工具拿到的权限范围（最小权限、环境隔离——PocketOS 的 token 权限过宽且 staging 能碰生产）、有没有确认门（不可逆动作二次确认）、动作是否幂等可回滚（备份与主数据分离、重试不重复执行——第六篇）、以及模型读到的工具结果是否被当作可信指令（第二篇：注入可以让模型"决定"执行破坏性动作）。模型的判断准确率永远不是 100%，四道防线把错误的上限从"删掉生产库"压到"一次被拒绝的调用"；PocketOS 四道都没有，Replit 事后加的正是环境分离与回滚。这就是 L4 与 L6 的内容。
+   模型遇到障碍时生成"绕过"的计划是它的固有倾向（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的越界、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)的推理会把"完成任务"放在"不越界"之前）；计划能否变成灾难取决于应用侧：工具拿到的权限范围（最小权限、环境隔离——PocketOS 的 token 权限过宽且 staging 能碰生产）、有没有确认门（不可逆动作二次确认）、动作是否幂等可回滚（备份与主数据分离、重试不重复执行——[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）、以及模型读到的工具结果是否被当作可信指令（[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)：注入可以让模型"决定"执行破坏性动作）。模型的判断准确率永远不是 100%，四道防线把错误的上限从"删掉生产库"压到"一次被拒绝的调用"；PocketOS 四道都没有，Replit 事后加的正是环境分离与回滚。这就是 L4 与 L6 的内容。
    </details>
 
 ### C. 面试题（7 题）
@@ -343,7 +343,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 失效模式表——七条，每条在本场景的形态、代价、检测手段、应对层、状态（第一篇）；(2) 契约——用哪个入口、消息 / 工具 / 结构化输出 / 流式的约定、状态放哪一侧、`store` 设置（第二篇）；(3) 推理配置——effort 各档的三条曲线、`max_tokens`、历史只追加的约束（第三篇）；(4) 成本与延迟预算——每类请求的五项 token 与单价、缓存命中率目标、TTFT / 总时长 SLO（第四篇）；(5) 选型与替代——主模型、替代模型、评测集、弃用通知的处理流程（第五篇）；(6) 客户端纪律——错误分类、重试策略、四层超时、限流器、token 计数、fallback 链（第六篇）。
+   **答案要点**：(1) 失效模式表——七条，每条在本场景的形态、代价、检测手段、应对层、状态（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）；(2) 契约——用哪个入口、消息 / 工具 / 结构化输出 / 流式的约定、状态放哪一侧、`store` 设置（[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)）；(3) 推理配置——effort 各档的三条曲线、`max_tokens`、历史只追加的约束（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）；(4) 成本与延迟预算——每类请求的五项 token 与单价、缓存命中率目标、TTFT / 总时长 SLO（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）；(5) 选型与替代——主模型、替代模型、评测集、弃用通知的处理流程（[《选型》](/model-selection-beyond-leaderboards.html)）；(6) 客户端纪律——错误分类、重试策略、四层超时、限流器、token 计数、fallback 链（[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）。
    **追问方向**：规格书里哪一项最常被漏掉（供应商变更的探测）；怎么维护（评测集与 trace）。
    **好答案与一般答案的区别**：一般答案列 API 参数；好答案先写失效模式再写接口，并把每一项接到后面某一层的手段与一个可测的指标上。
 
@@ -394,7 +394,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 当天：在推荐替代模型（与你配置里的替代模型）上跑全量评测集，含 effort 各档，看三列；(2) 第一周：按第三篇的迁移三件事调整——effort、`max_tokens`、历史编辑逻辑；调 prompt；重新校准 token 计数（tokenizer 可能变）；(3) 灰度切换 1% → 10% → 100%，看在线指标；(4) 关闭日前一周完成；(5) 更新配置里的主 / 替代模型，替代模型继续每月热身。四天（DeepSeek V4-Pro 的情形）：只有自动化能做到——评测集跑分脚本、配置化的模型名、已经热身过的替代模型；做不到的团队要接受在别名上被换模型，或提前迁到有快照与更长通知期的供应商。
+   **答案要点**：(1) 当天：在推荐替代模型（与你配置里的替代模型）上跑全量评测集，含 effort 各档，看三列；(2) 第一周：按[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)的迁移三件事调整——effort、`max_tokens`、历史编辑逻辑；调 prompt；重新校准 token 计数（tokenizer 可能变）；(3) 灰度切换 1% → 10% → 100%，看在线指标；(4) 关闭日前一周完成；(5) 更新配置里的主 / 替代模型，替代模型继续每月热身。四天（DeepSeek V4-Pro 的情形）：只有自动化能做到——评测集跑分脚本、配置化的模型名、已经热身过的替代模型；做不到的团队要接受在别名上被换模型，或提前迁到有快照与更长通知期的供应商。
    **追问方向**：为什么钉快照也不够（快照也有下线日）；服务端状态带来的额外锁定。
    **好答案与一般答案的区别**：一般答案说"换个模型名"；好答案把评测、迁移三件事、灰度、时间表说全，并指出四天通知期只能靠事先的自动化。
 
@@ -424,21 +424,30 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第一层：给一个没有规格书的组件写规格书。第一篇的七条失效模式是后面六层的索引，本系列在每一条失效模式与契约项上标出它们所在的层，自己不展开：
+本系列是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的第一层：给一个没有规格书的组件写规格书。[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的七条是后面六层的索引，本系列在每一条失效模式与契约项上标出它们所在的层，自己不展开：
 
 - **模型内部**：Transformer 结构、注意力、KV cache 的机制属于共享的《Transformer 原理与实现》与《现代 LLM 结构》系列及算法地图；本系列只引用它们的结论（decode 是 memory-bound 的、KV 随上下文线性增长）。长上下文与图片为什么贵，出自[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)的 KV cache 与多模态两篇。
 - **L2 Prompt 与上下文工程**：prompt 当代码管、上下文预算、压缩、缓存前缀的排列，应对指令遵循、prompt 敏感与上下文的有效长度。本系列只把 prompt 敏感性当作失效模式、只讲 prompt 在缓存前缀里的位置，不讲 prompt 怎么写。
 - **L3 检索与知识接入**：进上下文还是进权重、三类检索、agentic retrieval、检索评测，应对幻觉与知识截止。
 - **L4 工具、Agent 与运行时**：工具调用循环的运行时、权限与沙箱、durable execution、harness，应对越界。
-- **L5 评测、可观测与可追溯**：评测集、LLM-as-judge、trace、录制回放，应对非确定性与供应商变更。本系列不讲评测方法，也不给"哪个模型最好"的结论——第五篇讲的是怎样用自己的评测集得出结论。
+- **L5 评测、可观测与可追溯**：评测集、LLM-as-judge、trace、录制回放，应对非确定性与供应商变更。本系列不讲评测方法，也不给"哪个模型最好"的结论——[《选型》](/model-selection-beyond-leaderboards.html)讲的是怎样用自己的评测集得出结论。
 - **L6 生产化与运营**：把本系列《成本与延迟的账》的账与《客户端工程》的客户端纪律做成网关、预算、发布与安全。
 - **L7 产品与体验**：把不确定性呈现给用户。
-- **推理引擎与自托管部署**：token 计费与 TTFT / TPOT 的形态来自 Infra 地图 09 [《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的前两篇；网关建设属于 Infra 地图。第五篇只给何时值得自托管的判据，不讲引擎怎么部署。
+- **推理引擎与自托管部署**：token 计费与 TTFT / TPOT 的形态来自 Infra 地图 09 [《大模型推理系统揭秘》](/deep-dive-into-vllm.html)的[《为什么 LLM Serving 比传统 DL 推理难？》](/why-llm-serving-is-hard.html)与[《如何衡量一个 LLM Serving 系统？》](/how-to-measure-llm-serving.html)；网关建设属于 Infra 地图。[《选型》](/model-selection-beyond-leaderboards.html)只给何时值得自托管的判据，不讲引擎怎么部署。
 - 三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
 回到总纲：[《模型作为组件：契约、失效模式与选型》](/model-as-a-component.html)。
 
-[^q0]: 面对任何一个模型 API：它在自己的场景里会以哪七种方式失效、每种的代价与检测手段（第一篇）；一次工具调用的往返哪些步骤是自己的责任，结构化输出保证了什么、没保证什么，`store` 的默认值是什么（第二篇）；effort 从 `high` 调到 `low` 成本 / 延迟 / 质量各怎么变、为什么不能随意编辑历史（第三篇）；这次调用的五项成本各多少、第 20 轮是第 1 轮的多少倍、缓存能降到多少、TTFT 慢在哪一段（第四篇）；为什么榜单第一在自己的任务上不如第五、该怎么用评测集选、供应商下线通知来了做什么（第五篇）；哪些错误重试哪些不、超时怎么分层、发前怎么知道会不会超限（第六篇）。详见[第一章](#一总览系列回答的问题与主线)。
+[^q0]: 面对任何一个模型 API，能回答下面六组问题：
+
+    - [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)：它在自己的场景里会以哪七种方式失效、每种的代价与检测手段
+    - [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)：一次工具调用的往返哪些步骤是自己的责任，结构化输出保证了什么、没保证什么，`store` 的默认值是什么
+    - [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)：effort 从 `high` 调到 `low` 成本 / 延迟 / 质量各怎么变、为什么不能随意编辑历史
+    - [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)：这次调用的五项成本各多少、第 20 轮是第 1 轮的多少倍、缓存能降到多少、TTFT 慢在哪一段
+    - [《选型》](/model-selection-beyond-leaderboards.html)：为什么榜单第一在自己的任务上不如第五、该怎么用评测集选、供应商下线通知来了做什么
+    - [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)：哪些错误重试哪些不、超时怎么分层、发前怎么知道会不会超限
+
+    详见[第一章](#一总览系列回答的问题与主线)。
 
 [^q1]: 数字：1000 次贪心 18 种结果 → 1 种；NoLiMa 32K 处 11/13 模型掉到基线一半以下、GPT-4o 99.3% → 69.7%；Air Canada 812.02 加元、PocketOS 9 秒、约 700 个 agent；Responses 默认存 30 天；Sonnet 5 `low` → `high` 6 倍、tokenizer 多 30%；价目跨三个量级、输出价 = 输入价 × 4–6、读 0.1×（Fable 5.1 0.025×、DeepSeek 0.02×）、写 1.25×、1.35× vs 2×、>272K 输入 2× 输出 1.5×、峰时 ×2、Batch 50%；$$NS + N(N-1)m/2$$ 与 0.1 系数、590K → 87.8K；27 个变体、约 20% vs 29.7%、+112%；大小价差 5–20 倍、级联 $$c_s + (1-f)c_l$$；OpenAI 3–6 个月、Anthropic ≥ 1 年、DeepSeek 4 天；full jitter、重试预算 10%、四层超时、峰值 TPM = QPS × 60 × 每请求 token。结论：失效是性质不是 bug；工具调用是协议；strict 保证形状不保证语义；思考是状态只搬运；历史只追加；按分布、按任务；榜单只缩范围；评测集是唯一的探测器。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 

@@ -17,7 +17,7 @@ catalog: true
 
 > **模型这个组件的契约是什么？它以哪些方式失效？花多少钱、多慢？怎么在几十个候选里选一个？调用它的客户端要处理哪些其他第三方服务没有的失败？[^q0]**
 
-答案分五部分。**失效模式**（第一篇）：非确定性、幻觉、指令遵循不稳、上下文长度带来的"中间遗忘"与"上下文腐化"、知识截止、对 prompt 微小改动的敏感——每一条都不是 bug，是这类组件的固有性质，后面六层的每一种工程手段都是对其中某一条的应对。**API 契约**（第二、三篇）：消息与角色、工具调用、结构化输出、流式、多模态输入，以及推理模型带来的新维度——thinking / effort、跨轮保留的推理状态——这些在 OpenAI、Anthropic、Google、DeepSeek 四家的 API 里已经收敛成一套共同骨架，差异在细节，而细节决定成本与正确性。**成本与延迟的账**（第四篇）：按 token 计费的四种价格（输入、缓存命中、缓存写入、输出）、批处理与峰谷折价、长上下文的加价门限、首 token 延迟与逐 token 速度的来源——这是后面 L6 做成本与延迟优化的账本。**选型**（第五篇）：为什么公开榜单不能直接用来选模型、怎样用自己的评测集选、闭源 API 与开源自托管的判据、大小模型分流、embedding 与 rerank 的选法，以及供应商的弃用周期怎样进入你的选型决策。**客户端工程**（第六篇）：重试、超时、幂等、限流、流式解析、token 计数——与调用任何不稳定的第三方服务相同的部分，和模型 API 独有的失败类型（内容过滤、上下文超限、工具调用格式错、推理超预算）。
+答案分五部分。**[失效模式](/llm-failure-modes-nondeterminism-hallucination-and-context.html)**：非确定性、幻觉、指令遵循不稳、上下文长度带来的"中间遗忘"与"上下文腐化"、知识截止、对 prompt 微小改动的敏感——每一条都不是 bug，是这类组件的固有性质，后面六层的每一种工程手段都是对其中某一条的应对。**API 契约**（[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)与[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）：消息与角色、工具调用、结构化输出、流式、多模态输入，以及推理模型带来的新维度——thinking / effort、跨轮保留的推理状态——这些在 OpenAI、Anthropic、Google、DeepSeek 四家的 API 里已经收敛成一套共同骨架，差异在细节，而细节决定成本与正确性。**[成本与延迟的账](/token-cost-and-latency-ledger-for-llm-applications.html)**：按 token 计费的四种价格（输入、缓存命中、缓存写入、输出）、批处理与峰谷折价、长上下文的加价门限、首 token 延迟与逐 token 速度的来源——这是后面 L6 做成本与延迟优化的账本。**[选型](/model-selection-beyond-leaderboards.html)**：为什么公开榜单不能直接用来选模型、怎样用自己的评测集选、闭源 API 与开源自托管的判据、大小模型分流、embedding 与 rerank 的选法，以及供应商的弃用周期怎样进入你的选型决策。**[客户端工程](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)**：重试、超时、幂等、限流、流式解析、token 计数——与调用任何不稳定的第三方服务相同的部分，和模型 API 独有的失败类型（内容过滤、上下文超限、工具调用格式错、推理超预算）。
 
 系列的组织原则是**先知道病，再学药**：L2 到 L6 的每一种工程手段——上下文工程、检索、评测、guardrails、网关——都是对《失效模式》里某一条失效模式的应对。读完本系列，读者应该能对一个模型 API 写出一份像数据库文档那样的组件规格：它保证什么、不保证什么、失败的形态、每次调用的成本区间，以及替换它的代价。
 
@@ -62,11 +62,11 @@ demo 到产品之间的那些问题——为什么有时候答错、为什么慢
 
 ### 要做模型选型决策的技术负责人
 
-第五篇专讲选型：榜单为什么不能直接用、评测集怎么从几十条开始、闭源与开源的判据、大小模型分流的账。第四篇给出四家当前价目的对照与一次调用的成本公式。
+[《选型》](/model-selection-beyond-leaderboards.html)专门回答：榜单为什么不能直接用、评测集怎么从几十条开始、闭源与开源的判据、大小模型分流的账。[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)给出四家当前价目的对照与一次调用的成本公式。
 
 ### 算法与 Infra 工程师
 
-你造模型或跑模型，想知道你的产出在应用侧被怎样使用、评测与反馈从哪里来。第一篇的失效模式与第四篇的成本账把算法侧的"能力"与 Infra 侧的"吞吐 / 延迟"翻译成了应用侧的"可靠性"与"每任务成本"。
+你造模型或跑模型，想知道你的产出在应用侧被怎样使用、评测与反馈从哪里来。[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)与[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)把算法侧的"能力"与 Infra 侧的"吞吐 / 延迟"翻译成了应用侧的"可靠性"与"每任务成本"。
 
 
 ## 系列的整体主线
@@ -86,9 +86,9 @@ Table: 六篇的主题与建立的东西
 
 三条贯穿全系列的线：
 
-- **每一条失效模式对应一种工程应对。** 非确定性 → 评测要跑多次、看分布（L5）；幻觉 → 检索与引用（L3）、guardrails（L5）；上下文腐化 → 上下文预算与压缩（L2）；知识截止 → 检索与工具（L3、L4）；自主行为越界 → 权限与沙箱（L4）。第一篇建立这张对应表，后面几层填内容。
-- **契约的每一项都有成本含义。** 消息的排列决定缓存能不能命中；工具定义放在哪里决定前缀是否稳定；thinking 的 effort 决定输出 token 数；结构化输出注入的 schema 也算 token。第二、三篇讲契约时同时标出它在第四篇账上的位置。
-- **供应商会变，应用要对变化免疫。** 模型名要可配置、版本要钉住、评测集要能在供应商发通知的当天跑出回归、客户端要能在一个模型下线时切到替代模型。第五、六篇讲怎样做到。
+- **每一条失效模式对应一种工程应对。** 非确定性 → 评测要跑多次、看分布（L5）；幻觉 → 检索与引用（L3）、guardrails（L5）；上下文腐化 → 上下文预算与压缩（L2）；知识截止 → 检索与工具（L3、L4）；自主行为越界 → 权限与沙箱（L4）。[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)建立这张对应表，后面几层填内容。
+- **契约的每一项都有成本含义。** 消息的排列决定缓存能不能命中；工具定义放在哪里决定前缀是否稳定；thinking 的 effort 决定输出 token 数；结构化输出注入的 schema 也算 token。[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)与[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲契约时同时标出它在[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)里的位置。
+- **供应商会变，应用要对变化免疫。** 模型名要可配置、版本要钉住、评测集要能在供应商发通知的当天跑出回归、客户端要能在一个模型下线时切到替代模型。[《选型》](/model-selection-beyond-leaderboards.html)与[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)讲怎样做到。
 
 
 ## 章节结构与分章导读
@@ -109,7 +109,7 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**推理模型的"思考"在 API 上是什么？effort 参数控制什么、花多少钱？thinking block 为什么要原样送回？它对 prompt caching 有什么影响？[^q3]**
 
-2026 年，四家的主力模型都是推理模型，而且"思考"的控制方式在收敛：OpenAI 的 `reasoning.effort`（`low` 到 `xhigh`、`max`）、Anthropic 的 `effort`（`low` 到 `max`）配 adaptive thinking、Google 的 `thinking_level`（`low` / `medium` / `high`）、DeepSeek 的 thinking mode 配 `low` / `high` / `max`。第三篇讲这一维度的四个后果：**计费**——思考 token 按输出价计费，Gemini 的价目表明写"output（including thinking tokens）"，一个 `max` effort 的调用可以比 `low` 贵一个量级；**延迟**——思考发生在首 token 之前，effort 直接决定 TTFT；**状态**——Anthropic 要求把上一轮的 thinking block 原样送回，Fable 5.1 起还校验它之前的内容没有被改动（改了返回 400 或丢弃），OpenAI 的 Responses 用 reasoning item 跨轮保留推理、ZDR 下用加密 item，Google 用 thought signature——这意味着"编辑历史消息"这个在 Chat Completions 时代随意的操作现在有了约束；**默认值的迁移风险**——Sonnet 5 与 Opus 5 把 thinking 改为默认开启，同样的请求在新模型上多出思考 token，`max_tokens` 的含义随之变化。
+2026 年，四家的主力模型都是推理模型，而且"思考"的控制方式在收敛：OpenAI 的 `reasoning.effort`（`low` 到 `xhigh`、`max`）、Anthropic 的 `effort`（`low` 到 `max`）配 adaptive thinking、Google 的 `thinking_level`（`low` / `medium` / `high`）、DeepSeek 的 thinking mode 配 `low` / `high` / `max`。[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲这一维度的四个后果：**计费**——思考 token 按输出价计费，Gemini 的价目表明写"output（including thinking tokens）"，一个 `max` effort 的调用可以比 `low` 贵一个量级；**延迟**——思考发生在首 token 之前，effort 直接决定 TTFT；**状态**——Anthropic 要求把上一轮的 thinking block 原样送回，Fable 5.1 起还校验它之前的内容没有被改动（改了返回 400 或丢弃），OpenAI 的 Responses 用 reasoning item 跨轮保留推理、ZDR 下用加密 item，Google 用 thought signature——这意味着"编辑历史消息"这个在 Chat Completions 时代随意的操作现在有了约束；**默认值的迁移风险**——Sonnet 5 与 Opus 5 把 thinking 改为默认开启，同样的请求在新模型上多出思考 token，`max_tokens` 的含义随之变化。
 
 ### 4. 成本与延迟的账：一次调用花多少钱、慢在哪一段
 
@@ -191,23 +191,30 @@ Table: 本系列的版本与价目基线
 
 | 追问 | 答案来自 |
 |---|---|
-| 这个组件在自己的场景里会以哪几种方式失效？每种的代价与检测手段是什么？ | 第一篇 |
-| 一次工具调用的往返在协议上经过哪几步？哪些配对与截断是自己的责任？ | 第二篇 |
-| 结构化输出的 strict 保证了什么？没保证什么？ | 第二篇 |
-| 把 effort 从 `high` 调到 `low`，成本、延迟、质量各怎么变？怎么测？ | 第三篇 |
-| 为什么不能随意编辑历史消息？改了会怎样？ | 第三篇 |
-| 这次调用花了多少钱？四类 token 各多少？缓存有没有命中？ | 第四篇 |
-| 多轮对话第 20 轮的成本是第 1 轮的多少倍？缓存能把它降到多少？ | 第四篇 |
-| 为什么榜单第一的模型在自己的任务上不如第五？该怎么选？ | 第五篇 |
-| 供应商通知模型三个月后下线，该在哪一天知道、做什么？ | 第五篇、第六篇 |
-| 哪些错误该重试、哪些重试只是再花一次钱？流式中断怎么处理？ | 第六篇 |
-| 发请求前怎么知道它会不会超上下文？换了模型 token 数为什么变了？ | 第六篇 |
+| 这个组件在自己的场景里会以哪几种方式失效？每种的代价与检测手段是什么？ | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) |
+| 一次工具调用的往返在协议上经过哪几步？哪些配对与截断是自己的责任？ | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
+| 结构化输出的 strict 保证了什么？没保证什么？ | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
+| 把 effort 从 `high` 调到 `low`，成本、延迟、质量各怎么变？怎么测？ | [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) |
+| 为什么不能随意编辑历史消息？改了会怎样？ | [《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) |
+| 这次调用花了多少钱？四类 token 各多少？缓存有没有命中？ | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| 多轮对话第 20 轮的成本是第 1 轮的多少倍？缓存能把它降到多少？ | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| 为什么榜单第一的模型在自己的任务上不如第五？该怎么选？ | [《选型》](/model-selection-beyond-leaderboards.html) |
+| 供应商通知模型三个月后下线，该在哪一天知道、做什么？ | [《选型》](/model-selection-beyond-leaderboards.html)、[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
+| 哪些错误该重试、哪些重试只是再花一次钱？流式中断怎么处理？ | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
+| 发请求前怎么知道它会不会超上下文？换了模型 token 数为什么变了？ | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
 
 Table: 读完系列后应能回答的追问
 
-这份能力就是这一层要建立的**组件观**。有了它，L2 到 L7 的每一种工程手段都有了明确的目标：它在对付第一篇的哪一条失效、它在第四篇的账上换的是什么。
+这份能力就是这一层要建立的**组件观**。有了它，L2 到 L7 的每一种工程手段都有了明确的目标：它在对付[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的哪一条、在[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)里换的是什么。
 
-[^q0]: 答案分五部分，各对应一篇。契约 = API 形状：消息与角色、工具调用往返、结构化输出、流式、多模态、推理模型的 effort 与跨轮推理状态——四家已收敛成一套骨架（第二、三篇）。失效方式：非确定性（temperature = 0 也不保证复现）、幻觉、指令遵循不稳、「中间遗忘」与上下文腐化、知识截止、对 prompt 微改敏感、能执行动作后的自主行为失效——都是固有性质不是 bug（第一篇）。钱与慢：$$C = n_{in}p_{in} + n_{hit}p_{hit} + n_{write}p_{write} + n_{out}p_{out}$$，输出价是输入的 4–5 倍、四家价目跨三个量级，TTFT = 网络 + 排队 + prefill、思考在首 token 之前（第四篇）。选型：榜单失真，用自己几十条起的评测集缩范围，再按大小模型分流、闭源 vs 自托管、弃用周期判断（第五篇）。客户端独有的失败：429 / 529 / 上下文超限 400 / 内容过滤 / 工具格式错 / 推理超预算的分类重试，流式中断只能重发，发请求前算 token（第六篇）。
+[^q0]: 答案分五部分，各对应一篇：
+
+    - **契约**（API 的形状）：消息与角色、工具调用往返、结构化输出、流式、多模态、推理模型的 effort 与跨轮推理状态——四家已收敛成一套骨架（[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)与[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。
+    - **失效方式**：非确定性（temperature = 0 也不保证复现）、幻觉、指令遵循不稳、「中间遗忘」与上下文腐化、知识截止、对 prompt 微改敏感、能执行动作后的自主行为失效——都是固有性质不是 bug（[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）。
+    - **钱与慢**：$$C = n_{in}p_{in} + n_{hit}p_{hit} + n_{write}p_{write} + n_{out}p_{out}$$，输出价是输入的 4–5 倍、四家价目跨三个量级，TTFT = 网络 + 排队 + prefill、思考在首 token 之前（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。
+    - **选型**：榜单失真，用自己几十条起的评测集缩范围，再按大小模型分流、闭源 vs 自托管、弃用周期判断（[《选型》](/model-selection-beyond-leaderboards.html)）。
+    - **客户端独有的失败**：429 / 529 / 上下文超限 400 / 内容过滤 / 工具格式错 / 推理超预算的分类重试，流式中断只能重发，发请求前算 token（[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）。
+
 [^q1]: 结果不同是因为推理端点的非确定性主要来自 **batch 不变性的缺失**（同一请求与不同邻居一起批处理时 kernel 的归约顺序不同）而不只是浮点并发，所以 temperature = 0 只是去掉了采样随机性、去不掉 batch 带来的差异——评测必须按分布、每题跑多次。自信地编造发生在模型「知道格式但不知道事实」的地方：被问到训练数据里没有或稀疏的具体事实（判例、引用、数字、人名）、被要求必须给答案、以及上下文里没有可引用的材料时——Mata v. Avianca、Deloitte 报告退款、哈姆法院判决都是这一类。上下文中间的信息更容易被忽略是 Lost in the Middle 与后续 RULER / NoLiMa / Context Rot 研究的共同结论：注意力对开头与结尾更敏感，有效上下文长度远小于标称值（NoLiMa 里 11 个模型在 32K 处掉到短上下文基线的一半以下），所以重要信息放两端、无关内容不要进来。
 [^q2]: 共同结构：消息与角色（system / user / assistant / tool）、多模态内容块、工具定义与调用、结构化输出、流式、以及无状态（Chat Completions / Messages）与服务端存状态（Responses / Interactions）两种状态模型。工具调用一轮往返：模型返回带 `tool_call_id` 的 `tool_call` → 应用执行 → 把结果作为 `tool` 消息按 id 配对送回 → 模型继续；并行调用的顺序、结果截断、失败的表达都在应用侧——它是协议不是功能。结构化输出：strict 模式保证**语法**（输出一定是合法且符合 schema 的 JSON，靠约束解码），不保证**语义**（字段可以填满编造的值），且对 schema 特性有限制。流式的事件模型：SSE 事件流，增量 delta 按类型（文本、工具调用参数分片、推理块、usage、结束原因）拼接，应用负责重组与中断处理。另一个要点：服务端状态的默认值——Responses 默认存 30 天、Chat Completions 对新账户也默认存，隐私敏感要显式 `store: false`。
 [^q3]: 「思考」在 API 上是一段生成在可见回答之前、按输出价计费、通常不可见或只给摘要的 token（OpenAI 的 reasoning item、Anthropic 的 thinking block、Google 的 thought signature）。effort 控制这段的预算档位——OpenAI `reasoning.effort`（low 到 xhigh / max）、Anthropic `effort`（low 到 max）配 adaptive thinking、Google `thinking_level`、DeepSeek 的 low / high / max——思考 token 按输出价计费，`max` 比 `low` 可以贵一个量级，且思考发生在首 token 之前、直接决定 TTFT。thinking block 要原样送回，是因为跨轮推理状态在模型侧有意义（它是后续工具调用与回答的依据），Anthropic 从 Fable 5.1 起校验之前的内容未被改动（改了返回 400 或丢弃），OpenAI 用 reasoning item（ZDR 下加密 item）、Google 用 thought signature 保留——「编辑历史」在推理模型上不再自由。对缓存的影响：推理块是前缀的一部分，改动或删除会让后续前缀失配、缓存失效；多轮工具调用里保留它反而让缓存连续命中。
