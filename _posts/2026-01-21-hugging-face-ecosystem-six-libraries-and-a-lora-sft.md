@@ -270,6 +270,8 @@ for step, batch in enumerate(loader):  # Dataset.__getitem__ + collate_fn
 | LoRA 的 $$A$$、$$B$$ 被挂到每个线性层旁边，基座冻结 | `get_peft_model` | [挂 LoRA](#peft)：改造 `nn.Module`，基座参数 `requires_grad=False` |
 | AdamW 只更新 $$A$$、$$B$$ | `Trainer` 只把 `requires_grad=True` 的参数交给优化器 | [建优化器](#opt) |
 | bf16、梯度裁剪、学习率调度、日志、checkpoint | `SFTConfig` 的字段：`bf16=True`、`max_grad_norm`、`lr_scheduler_type` / `warmup_steps`、`logging_steps` / `save_steps` | [autocast](#autocast)、[梯度裁剪](#clip)、[调度器](#sched) 与 [`sched.step()`](#schedstep)、[日志](#log) |
+| 权重按 `dtype` 装进显存，每个 batch 搬到 GPU | `from_pretrained(dtype=...)`；batch 的搬运由 `Trainer` 的 `_prepare_inputs` 做 | [加载模型](#load)<br/>[搬到 GPU](#todevice) |
+| **前向、反向、更新、清梯度这四步与普通训练循环逐字相同**——SFT 的特殊性全在数据与 `labels` 上，不在这四行里 | `Trainer.training_step` 与 `_inner_training_loop`，反向走 `accelerate` | [前向](#forward)<br/>[反向](#backward)<br/>[更新](#step)<br/>[清梯度](#zero) |
 
 Table: SFTTrainer 一次训练背后发生的事
 
