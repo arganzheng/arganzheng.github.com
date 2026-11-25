@@ -302,7 +302,7 @@ Python 承担组织、调度、扩展、观测和交付——控制平面；C++ 
 
 ### 选修：ML 编译器内部
 
-十三篇加一篇总结。`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 06 中从用户视角覆盖——这对绝大多数 AI-Infra 工作已经足够。选修补的是这两篇下面的东西：编译器本身的机制（IR、SSA、pass、pattern rewrite、dialect conversion、数据流分析）与 Triton 编译器源码里这些机制怎样落地——从 Python AST 到 TTIR、AxisInfo、layout 系统与 Linear Layout、layout 优化与 Tensor Core 路径、软件流水与 Hopper / Blackwell / warp specialization / Gluon、TritonGPU 到 LLVM 的下降、缓存与运行时、AMD 后端对照；再用 TVM 的调度语言做对照，最后是编译器开发者的工作台。全部真实 IR 在一台没有 GPU 的 Mac 上用 `triton-opt` 与从源码构建的 Triton v3.8.0 跑出来。它只对准备读 Triton / MLIR 源码、给编译器提 PR、或给新硬件接后端的读者必要，不进入主线；读它之前至少读过 06 的第七篇。
+十三篇加一篇总结。`torch.compile` 的用法与 Inductor 的工作方式在 03 中覆盖，Triton 的编译流水线在 06 中从用户视角覆盖——这对绝大多数 AI-Infra 工作已经足够。选修补的是这两篇下面的东西：编译器本身的机制（IR、SSA、pass、pattern rewrite、dialect conversion、数据流分析）与 Triton 编译器源码里这些机制怎样落地——从 Python AST 到 TTIR、AxisInfo、layout 系统与 Linear Layout、layout 优化与 Tensor Core 路径、软件流水与 Hopper / Blackwell / warp specialization / Gluon、TritonGPU 到 LLVM 的下降、缓存与运行时、AMD 后端对照；再用 TVM 的调度语言做对照，最后是编译器开发者的工作台。全部真实 IR 在一台没有 GPU 的 Mac 上用 `triton-opt` 与从源码构建的 Triton v3.8.0 跑出来。它只对准备读 Triton / MLIR 源码、给编译器提 PR、或给新硬件接后端的读者必要，不进入主线；读它之前至少读过 06 的《Triton——块级编程与编译器的边界》。
 
 
 ## 系列之间的依赖
@@ -342,12 +342,12 @@ graph LR
 - **01、02 → 03**：读 PyTorch 源码需要两门语言。Python 部分主要用到 01 的动态机制和内存管理；C++ 部分主要用到 02 的所有权、模板和静态注册。
 - **03 → 04、05**：Transformer 原理与实现、现代 LLM 结构分别建立结构与成本的模型基础。
 - **04、05 → 06、09**：kernel 系列的 attention 和量化篇、vLLM 系列的 KV cache 和量化篇，都把模型结构当作已知。
-- **03 → 07**：通信系列假设读者知道并行策略需要哪些集合通信原语；03 的第九篇建立了这个需求。
+- **03 → 07**：通信系列假设读者知道并行策略需要哪些集合通信原语；03 的《分布式 PyTorch》建立了这个需求。
 - **06、07 → 08、09**：两类引擎都建立在 kernel 和通信之上。
 - **08、09 → 10**：RL 后训练把训练器与推理引擎放进同一个循环；它把两者当作黑盒使用，但读者必须知道黑盒里的状态放在哪、KV cache 有多大，才能理解显存切换与权重同步在搬什么。
 - **05、09 → 11**：扩散推理系列的每个结论都是对照 LLM serving 说的（没有 KV、compute-bound、batch 无益、时长可预测），读者必须先知道 09 的那一套是什么；05 给出 $$2PN + 4LN^2d$$ 的算量规则，11 的账在它上面加了"每 token 经过的参数"与序列长度这两个维度。
 - **08、09、10、11 → 12**（读完其中一个即可进入，其余按负载补）：平台的设计决定来自引擎的需求；RL 任务对平台的要求（两类 GPU 池、沙箱集群、不同的弹性语义）与预训练、推理服务都不同，生成服务又多出按形状分池、GPU·秒计费与异步 job。
-- **06 → 14（选修）**：编译器系列顺着 Triton 的编译流水线自上而下，把 06 第七篇那张六层图的每一层打开；读者要先会写 Triton kernel、读过 TTGIR 与 PTX。03 的第七篇（Dynamo → AOTAutograd → Inductor）是它的另一个入口，但不是必需。
+- **06 → 14（选修）**：编译器系列顺着 Triton 的编译流水线自上而下，把 06 的《Triton——块级编程与编译器的边界》那张六层图的每一层打开；读者要先会写 Triton kernel、读过 TTGIR 与 PTX。03 的《编译执行与图优化》（Dynamo → AOTAutograd → Inductor）是它的另一个入口，但不是必需。
 
 "自治"和"依赖"并不矛盾：依赖描述的是**最佳阅读顺序**，自治保证的是**任何一个系列都能单独读懂**。每个系列都会在正文中保留理解它自己所需的最小知识集，深入的展开只在一个系列出现。例如集合通信原语的语义在 03 和 07 都会出现，但 NCCL 的实现细节只在 07；CUDA 执行模型的最小概念在 03 中出现，完整展开只在 06。
 
@@ -417,19 +417,19 @@ Table: 主线技术与同位替代品
 
 - **算法与训练方法**：预训练配方、数据配比、SFT、RLHF / DPO / GRPO、评测、多模态的对齐训练、扩散模型的数学与配方。这些属于[算法工程师的地图](/ai-algorithm-engineer-learning-roadmap.html)；04、05 是两条路径的交点，11 只讲扩散模型的推理系统。
 - **经典机器学习与前 Transformer 时代的深度学习**：scikit-learn 一族、XGBoost、CNN / RNN 的模型谱系。AI-Infra 的负载以 Transformer 为主，CNN 时代的推理基础设施（TensorRT、Triton Inference Server）只在 12 作为 serving 平台出现。残差连接、LayerNorm 这些 Transformer 借用的部件，04 在需要处直接给出；想系统补的话，算法地图的 [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)与 [L3 深度学习基础](/deep-learning-foundations.html)两个系列各十篇。
-- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（现代 LLM 结构 01）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（09 第三篇）、离线 tokenization 与 `.bin / .idx` 索引（08 第十篇）。算法侧的完整讲法在预训练系列[第二篇](/tokenizer-vocabulary-and-token-efficiency.html)。
+- **NLP 基础与 tokenizer**：分词算法（BPE / SentencePiece）、词向量、n-gram。tokenizer 在本图中只以它对系统的影响出现：词表大小决定 embedding 与 lm_head 的参数量（现代 LLM 结构 01）、tokenize / detokenize 在推理引擎里留在 CPU 侧的进程（09 的《鸟瞰 vLLM：一个请求如何穿过整个推理系统？》）、离线 tokenization 与 `.bin / .idx` 索引（08 的《训练稳定性与数据管线》）。算法侧的完整讲法在预训练系列的[《分词与词表：BPE、词表大小与 token 效率》](/tokenizer-vocabulary-and-token-efficiency.html)。
 - **通用后端与云原生知识**：K8s 本身、网络基础、Linux 系统编程。假设读者作为后端工程师已经具备；12 只讲它们在 AI 负载下的特殊之处。
 - **数学的系统课程**：不从零讲线性代数、概率与优化。但 AI-Infra 用到的数学是一个很小的子集，列出来比一句"另有课程"更有用；每一条在算法地图的 [L0 数学系列](/math-for-ai-algorithm-engineers.html)里都有一篇从定义讲起：
 
   | 数学 | 用在哪里 | L0 系列 |
   |---|---|---|
-  | 矩阵乘法的形状规则、转置、分块 | 现代 LLM 结构第一、二篇的参数量与 FLOPs；06 的 GEMM 分块 | [第一篇](/vectors-matrices-shapes-and-flops.html) |
-  | 范数、误差的相对与绝对量 | 现代 LLM 结构第十篇的数值误差与量化误差 | [第二篇](/inner-product-norms-and-cosine-similarity.html) |
-  | softmax、交叉熵、KL 散度 | 现代 LLM 结构第八篇的投机解码分布等式；06 的 online softmax | [第五](/from-maximum-likelihood-to-cross-entropy.html)、[六篇](/entropy-cross-entropy-and-kl-to-dpo.html) |
-  | 期望、概率分布的基本操作 | 现代 LLM 结构第六篇的期望激活专家数、第八篇的期望接受长度 | [第四篇](/probability-basics-language-model-as-conditional-distribution.html) |
-  | 链式法则 | 03 第三篇的 Autograd | [第七篇](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
-  | 指数加权平均 | 08 第一篇的 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
-  | 幂律与对数坐标 | 预训练系列的 scaling law、06 与 07 的 Roofline 与带宽-延迟模型 | [第八篇](/statistical-inference-and-fitting-scaling-laws.html) |
+  | 矩阵乘法的形状规则、转置、分块 | 现代 LLM 结构《从 GPT-2 到 Llama》《前向的算量与访存量》的参数量与 FLOPs；06 的 GEMM 分块 | [《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html) |
+  | 范数、误差的相对与绝对量 | 现代 LLM 结构《浮点格式、数值稳定性与混合精度》的数值误差与量化误差 | [《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html) |
+  | softmax、交叉熵、KL 散度 | 现代 LLM 结构《投机解码》的分布等式；06 的 online softmax | [《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)、[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html) |
+  | 期望、概率分布的基本操作 | 现代 LLM 结构《MoE 的路由、激活参数量与通信形态》的期望激活专家数、《投机解码》的期望接受长度 | [《概率入门》](/probability-basics-language-model-as-conditional-distribution.html) |
+  | 链式法则 | 03 的《自动求导与动态计算图》 | [《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html) |
+  | 指数加权平均 | 08 的《训练任务的状态解剖》里 Adam 状态与它的 8 字节/参数 | 算法地图 L3 [优化器](/optimizers-from-sgd-to-adamw.html)一篇 |
+  | 幂律与对数坐标 | 预训练系列的 scaling law、06 与 07 的 Roofline 与带宽-延迟模型 | [《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html) |
 
   Table: AI-Infra 用到的数学子集及其在 L0 系列中的位置
 
@@ -478,14 +478,14 @@ Table: 十四个系列总览：层、篇数与时长
 | 02 | `cpp-for-ai-infra/` | C++17 编译器 + make；mini-c10 逐篇长成 |
 | 04 | `transformer-and-llm/` | Transformer 原理与实现的手算、极小 GPT 与 nanoGPT 实训 |
 | 05 | `modern-llm-architecture/` | 参数量、FLOPs、访存、KV 与结构演进的计算脚本，纯 Python 为主 |
-| 10 | `rl-post-training-infra/` | 第一篇的账本，纯 Python；后续实验需 verl 与 8 卡 |
-| 11 | `diffusion-inference-infra/` | 第一篇的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
+| 10 | `rl-post-training-infra/` | 《负载画像》的账本，纯 Python；后续实验需 verl 与 8 卡 |
+| 11 | `diffusion-inference-infra/` | 《负载画像》的账本（三段 FLOPs / 显存 / 时间、五个模型预设），纯 Python |
 
 Table: 配套代码按系列的目录与依赖
 
 03、06–09、12、13、14 以源码走读为主，示例直接给出命令与输出，暂无单独目录（14 的全部 IR 由文中给出的 `triton-opt` / `mlir-opt` / `llc` 命令在本地复现）。
 
-**哪些需要硬件，哪些不需要**：01、02、03、04、05 与两本账本（10、11 第一篇）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。06 GPU Kernel 与 07 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 06 的全部实验；08 大规模训练与 10 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。09 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 14 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
+**哪些需要硬件，哪些不需要**：01、02、03、04、05 与两本账本（10 与 11 的《负载画像》）在笔记本上就能跑——Python、C++ 编译器、CPU 版 PyTorch 足够，03 的 Dispatcher 与 Autograd 走读也可以在 CPU 上打断点单步跟。06 GPU Kernel 与 07 通信必须有 NVIDIA 卡（Mac 的 MPS 不能跑 CUDA，FlashAttention、NCCL 也没有 Mac 实现），按小时租一张卡足以完成 06 的全部实验；08 大规模训练与 10 的 verl 实验要多卡，文中给的是源码走读与可以对照日志验算的账本。09 vLLM 在 CPU 上能装能跑（`VLLM_TARGET_DEVICE=cpu`），足够走读调度与 KV 管理的代码路径，但性能数字要在卡上看。没有卡不妨碍读完这张地图——所有"千卡""H100"的数字都是算出来的，读者可以用同一套公式验算。选修 14 特意全程不用 GPU：Homebrew 的 LLVM（`mlir-opt` / `opt` / `llc`）与 macOS 上从源码构建的 Triton 编译器（`triton-opt`、lit 测试、从 Python 编到 PTX 与 AMD ISA）足够跑出文中每一份 IR，只有最后把 cubin 跑起来那一步需要卡。
 
 
 
