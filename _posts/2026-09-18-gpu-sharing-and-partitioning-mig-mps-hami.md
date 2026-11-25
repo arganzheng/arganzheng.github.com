@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-11-14
 ---
 
-月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE`（dcgm-exporter 4.6.0-4.8.3 默认的 `etc/default-counters.csv` 里这一行是注释掉的，这个集群的监控已经在 counters CSV 里把它打开，做法见第八篇）白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
+月底看账单，推理平台上一张 80 GB 的 H100 每小时几美元，一个月跑满是四位数。再看 DCGM 的曲线：这张卡上唯一的服务是一个 7B 模型的 vLLM 副本，`DCGM_FI_DEV_FB_USED` 常年 22 GB 左右，`DCGM_FI_PROF_SM_ACTIVE`（dcgm-exporter 4.6.0-4.8.3 默认的 `etc/default-counters.csv` 里这一行是注释掉的，这个集群的监控已经在 counters CSV 里把它打开，做法见[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)）白天峰值不到 30%，夜里几乎是零。也就是说，这张卡四分之三的显存和七成以上的算力在付费但没有产出。集群里这样的卡有几十张：每个团队的每个小模型都要"一张卡"，因为 `nvidia.com/gpu: 1` 是 device plugin 唯一听得懂的请求。
 
 于是有人把两个服务塞到同一张卡上——直接在 Pod 里不声明 GPU、用 `hostPath` 挂上 `/dev/nvidia*`。省了一半的钱，也带来了新的事故：一个服务的请求突增、KV cache 把显存吃到 79 GB，另一个服务在 `cudaMalloc` 上抛出 OOM 崩掉；两个服务的进程在同一张卡上轮转，尾延迟从 80 ms 涨到 300 ms，而且没人能说清楚哪个服务该为这 220 ms 负责。
 
@@ -63,7 +63,35 @@ Table: 四层共享机制及其在 K8s 上的接线（从左到右隔离由弱�
 
 HAMi 不是第五层，而是**在时间片之上用软件补上显存与算力配额**：它的隔离强度介于时间片与 MPS 之间，但请求模型比两者都细（按 MB 而不是按 1/N），而且不要求节点级统一配置。这四层加 HAMi 构成本篇的全部选项。
 
-### 4. 本文的章节安排
+### 4. 切分之后多出什么对象，改它们各要付什么
+
+上面那张表按"隔离强弱"排。换一个维度看同一组方案——每种切分会在系统里留下一个配置对象，这个对象住在哪一层、改它要停什么，决定了一个集群能多频繁地调整切分比例。
+
+| 对象 | 谁创建 | 住在哪里 | 活多久 / 改它要付什么 |
+|---|---|---|---|
+| MIG 的 GI / CI 几何 | mig-parted，由节点标签 `nvidia.com/mig.config` 触发 | GPU 的硬件配置 | 到下一次重配；重配要求受影响的卡上没有进程，实际操作上先驱逐这些卡上的全部 Pod |
+| `nvidia.com/mig.config.state` 标签 | MIG Manager 自己回写 | 节点对象 | 与上一行同步；`pending` / `rebooting` / `success` / `failed` 是重配过程**唯一**能看到的进度 |
+| `nvidia.com/mig-3g.20gb` 这类资源名 | device plugin 按 `migStrategy` 上报 | 节点 `allocatable` | 插件进程期；从 `single` 换到 `mixed`，资源名变了，所有 Pod 的 requests 都要跟着改 |
+| 时间片的 N 个副本设备 | device plugin 的 `sharing.timeSlicing` | 节点 `allocatable` | 插件进程期；**节点级、所有卡一起**，改 ConfigMap 后插件重启 |
+| MPS 的 control daemon 与合并后的 context | mps-control-daemon | 节点上的常驻进程 | 守护进程的一生；它挂了，这张卡上所有客户端一起挂 |
+| HAMi 的 `gpumem` / `gpucores` 请求 | 用户写在 Pod spec 里 | Pod 对象 | Pod 的一生；**每个 Pod 自己说了算**，不用动节点配置 |
+| HAMi 注入容器的 `libvgpu.so` | HAMi 的组件在创建容器时注入 | 容器内 | Pod 的一生；它在容器里拦 CUDA 调用，换版本要重建 Pod |
+| HAMi 调度器里的每卡显存与算力账 | scheduler extender | 调度器内存，结果写回节点注解 | 随调度实时加减 |
+| 引擎一次划走的那块显存 | vLLM 启动时按 `--gpu-memory-utilization` | 显存 | 进程的一生——**划完不归还** |
+
+Table: 四种切分各自留下的配置对象，以及改一次要付什么
+
+四条读法：
+
+**1、这张表里藏着一条轴：隔离越硬，配置对象离硬件越近，改它的影响半径越大。**HAMi 的配额写在 Pod spec 里，改一个 Pod；时间片和 MPS 写在 device plugin 的 ConfigMap 里，改一次是整个节点的所有卡；MIG 写在硬件上，改之前要先把卡清空。所以"选哪一层隔离"同时是在选"多久能改一次配比、改一次要停多少东西"——一个季度调一次的集群和一天换几次模型的集群，合适的答案不一样。这一条在只看隔离强度的对照表上是看不出来的。
+
+**2、显存那一行是所有共卡事故的源头。**引擎在启动时一次划定、划完不归还，不存在运行时协商。所以同卡的两个引擎必须在**启动之前**就把各自的 `--gpu-memory-utilization` 之和压到 1 以下——没有任何一层机制会在运行时把显存要回来，MIG 不会，HAMi 的 `gpumem` 也只是在分配时记账。
+
+**3、MPS 的 control daemon 是表里唯一一个"自己挂了会拖垮别人"的对象。**它是节点级的单点，服务的却是 Pod 级的客户端。用 MPS 换吞吐，等于把同卡几个服务的可用性绑在一个守护进程上。
+
+**4、MIG 重配是一次跨档位的动作，而它几乎不可观测。**它要同时动硬件（销毁重建 GI）、节点服务（先停 DCGM 一类的 GPU 客户端）和 Pod（驱逐），但没有任何 API 对象描述这个过程——只有 `mig.config.state` 这一个标签在跳。排这类故障时第一件事就是看它停在哪个值上。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -87,6 +115,12 @@ Table: 本文的章节安排
 CUDA 从来不禁止多个进程同时打开一张 GPU。默认计算模式（`Default`）下，每个进程创建自己的 CUDA context，驱动在这些 context 之间做时间片轮转。所以"不隔离"和"时间片"在硬件层面是同一件事——差别只在 K8s 侧：不隔离指的是绕过 device plugin，在 Pod 里用 `hostPath` 挂 `/dev/nvidia*` 或直接设 `NVIDIA_VISIBLE_DEVICES`，让 kubelet 完全不知道这个 Pod 用了 GPU。
 
 它的代价不在 GPU 上，在调度上：kubelet 的资源账本里这张卡是空的，调度器可以把一个 `nvidia.com/gpu: 1` 的 Pod 也放上来，与这些"隐形"进程争抢；节点扩缩容、驱逐、成本分摊都看不到它们。这是开发机上的做法，不是平台的做法。本篇后面不再讨论它，但要记住：**时间片方案的 GPU 行为与它完全一样**，只是多了 kubelet 的账本。
+
+> [!NOTE] Java 经验参照：装进两个容器就互不干扰
+>
+> 后端部署的默认假设：两个服务各自一个容器，CPU 由 cgroup 按份额分，内存有上限，一个进程 OOM 内核只杀它自己，文件系统互相看不见。这套假设在 GPU 上几乎整条落空——两个容器里的 CUDA 进程共用同一个驱动、同一张卡的显存地址空间，**容器边界在这里什么都没拦住**：显存没有 cgroup，超了是自己 `cudaMalloc` 失败（或者更糟，把邻居挤掉）；一个进程触发的 Xid 或非法地址访问可以把同卡的另一个进程一起带走。
+>
+> 换句话说，在 CPU 世界里"隔离"是部署方式的免费附赠，在 GPU 世界里它是一个要单独选型、单独付代价的功能——而本篇四层里只有 MIG 是硬件级的那种隔离。
 
 ### 2. 时间片：驱动层的轮转
 
@@ -469,6 +503,12 @@ flowchart TB
 - 算力份额是**节流**而非分区：`gpucores: 40` 的容器在邻居空闲时也只能用到约 40%（`gpuCorePolicy: default`；`force` / `disable` 见 `NvidiaConfig.GPUCorePolicy`）。
 - **故障域仍是整卡**：拦截库管不住 Xid。一个容器触发 GPU 重置，同卡所有容器一起死。
 
+> [!NOTE] Java 经验参照：限一下就能超卖，紧张时再挤一挤
+>
+> cgroup 的 `cpu.shares` 是相对权重：邻居闲着时你可以用满整台机器，大家都忙时按权重分。靠这条，一台机器塞下 `-Xmx` 之和远超物理内存的几个 JVM 是常态。GPU 这边要分两头看。
+>
+> **算力侧只是形似**：HAMi 的 `gpucores: 40` 默认是**节流上限**而不是权重，邻居空着你也到不了 60%（除非改 `gpuCorePolicy`）；MIG 更彻底，切走的 SM 就是切走了，一个 GI 空闲时它的资源就闲着。**显存侧完全不成立**：没有"回收"这个动作，所以超卖的后果不是"紧张时慢一点"，而是第二个进程直接起不来。planning 的方式因此不一样——CPU 上按峰值的一个分位数规划，显存上只能按确定要用的那个数加起来不超过 1。
+
 ### 3. 调度：scheduler extender
 
 按显存选卡需要调度器知道每张卡的剩余显存，kube-scheduler 不知道。HAMi 用 **scheduler extender** 补上（`pkg/scheduler`）：
@@ -511,7 +551,13 @@ HAMi 的 CHANGELOG 记录 v2.8.0 "Support DRA (Dynamic Resource Allocation) via 
 
 NVIDIA vGPU（历史上的 GRID，含面向计算的 vCS/vComputeServer 许可）在 hypervisor 层把一张物理 GPU 切成若干虚拟 GPU 分给虚拟机：每个 vGPU 有固定的显存配额（按 profile，如 A100 的 `A100-10C`），算力按时间片或 MIG 后端调度；需要宿主机安装 vGPU Manager 驱动、虚拟机内安装 guest 驱动，并购买许可。它解决的是**虚拟机之间**的 GPU 共享——VDI、云厂商的 GPU 实例、多租户强隔离场景。
 
-容器场景下它不是主流，原因有三：容器与宿主机共享内核与驱动，不存在 hypervisor 这一层来做切分；vGPU 的时间片后端在隔离上并不比 MIG 强、在灵活性上不如 HAMi；许可成本与运维复杂度都高于开源方案。GPU Operator 对它的支持面向 KubeVirt 这类"K8s 上跑虚拟机"的场景：`ClusterPolicy.spec.sandboxWorkloads`（`SandboxWorkloadsSpec`）、`spec.vgpuManager`（`VGPUManagerSpec`），节点标签 `nvidia.com/gpu.workload.config` 取 `container` / `vm-passthrough` / `vm-vgpu`（`controllers/state_manager.go`）；device plugin 侧的 GFD 会在虚拟机内打出 `nvidia.com/vgpu.present`、`nvidia.com/vgpu.host-driver-version` 标签（README "Catalog of Labels"）。如果平台的租户边界是虚拟机而不是命名空间，vGPU 是那一层的答案；本系列的主线是容器，不再展开。
+容器场景下它不是主流，原因有三：
+
+1. 容器与宿主机共享内核与驱动，不存在 hypervisor 这一层来做切分；
+2. vGPU 的时间片后端在隔离上并不比 MIG 强，在灵活性上不如 HAMi；
+3. 许可成本与运维复杂度都高于开源方案。
+
+GPU Operator 对它的支持面向 KubeVirt 这类"K8s 上跑虚拟机"的场景：`ClusterPolicy.spec.sandboxWorkloads`（`SandboxWorkloadsSpec`）、`spec.vgpuManager`（`VGPUManagerSpec`），节点标签 `nvidia.com/gpu.workload.config` 取 `container` / `vm-passthrough` / `vm-vgpu`（`controllers/state_manager.go`）；device plugin 侧的 GFD 会在虚拟机内打出 `nvidia.com/vgpu.present`、`nvidia.com/vgpu.host-driver-version` 标签（README "Catalog of Labels"）。如果平台的租户边界是虚拟机而不是命名空间，vGPU 是那一层的答案；本系列的主线是容器，不再展开。
 
 ## 七、切分对引擎的影响与决策树
 
@@ -622,8 +668,8 @@ Table: 三个小模型与一张 A100 的三种方案
 
 - **训练不切分**。所有方案对 NCCL 负载都没有意义，MIG 甚至让 NCCL 不可用。
 - **共享策略是节点级的**：时间片 / MPS 的 ConfigMap、MIG 的几何、HAMi 的 device plugin 都以节点为单位生效。一个节点池一种策略，用标签与调度器的 flavor / 队列把负载分到对应的池。
-- **利用率的收益上限由负载的互补性决定**。两个都在高峰打满算力的服务共卡，任何机制都只是让它们各拿一半；共享的收益来自负载的时间错峰与资源维度互补（一个吃显存不吃算力，一个反之）。平台在决定切分之前，应先用第八篇的 `SM_ACTIVE` 与 `FB_USED` 曲线确认这种互补确实存在。
-- **切分让成本分摊与容量规划复杂化**：账单要按 GI、按 `gpumem` 而不是按卡算，队列配额要按 profile 或按显存 MB 设——这些都要在第三篇的 Kueue / Volcano 配置与第八篇的成本模型里同步改。
+- **利用率的收益上限由负载的互补性决定**。两个都在高峰打满算力的服务共卡，任何机制都只是让它们各拿一半；共享的收益来自负载的时间错峰与资源维度互补（一个吃显存不吃算力，一个反之）。平台在决定切分之前，应先用[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)的 `SM_ACTIVE` 与 `FB_USED` 曲线确认这种互补确实存在。
+- **切分让成本分摊与容量规划复杂化**：账单要按 GI、按 `gpumem` 而不是按卡算，队列配额要按 profile 或按显存 MB 设——这些都要在[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的 Kueue / Volcano 配置与[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)的成本模型里同步改。
 
 ## 十、实践：`mini-platform/share/`
 
@@ -885,7 +931,7 @@ echo "== phase 4: A after drill";             bench "$A" a-after 16
 | 共卡但显存上限要被强制、邻居 OOM 不能波及自己 | kubelet 不理解显存，无法表达"20 GB" | MPS（`sharing.mps`，1/N pinned memory limit）；HAMi（`nvidia.com/gpumem` + `libvgpu.so` 拦截） | MPS 实验性、均分、独占计算模式；HAMi 软件隔离、故障域整卡、替换调度器与 device plugin |
 | 有 SLA 的服务要硬隔离：算力、带宽、故障都不受邻居影响 | 无任何硬件分区概念 | MIG：MIG Manager + `nvidia.com/mig.config` + mig-parted；device plugin `migStrategy=single/mixed` 上报 `nvidia.com/mig-<profile>` | 几何枚举与碎片<br/>改配置要排空节点<br/>单进程、无 NCCL<br/>仅数据中心卡 |
 | 调度器按"剩余显存 ≥ X"选卡 | 默认调度器只计数 | HAMi scheduler extender（Filter / Bind，binpack / spread）；DRA 的 `SharedCounters` / `AllowMultipleAllocations`（v1.37 beta） | extender 是额外的调度跳与单点；DRA 切分语义与驱动支持仍在演进 |
-| 训练要整卡与 NCCL | — | 不切分；MIG 节点池与训练池分开 | 训练卡的利用率问题只能靠调度与排队解决（第三、八篇） |
+| 训练要整卡与 NCCL | — | 不切分；MIG 节点池与训练池分开 | 训练卡的利用率问题只能靠调度与排队解决（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)、[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)） |
 
 Table: 引擎需求、K8s 空缺、平台机制与代价
 
