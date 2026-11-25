@@ -26,6 +26,8 @@ catalog: true
 | 含随机指针的复制 | 哈希 `old → new` 两趟；或交织节点 $$O(1)$$ 空间 | |
 | 回文判断 | 中点 + 反转后半 + 比较 + 恢复 | |
 
+Table: 题面线索、对应做法与代码骨架
+
 ## 二、模板
 
 ### 1. 节点定义与哑节点
@@ -124,6 +126,8 @@ while (fast != null && fast.next != null) {
 | 1 | 1 | 2 | 1 → None；2 → 3 |
 | 2 | 2 | 3 | 2 → 1 → None；3 |
 | 3 | 3 | None | 3 → 2 → 1 → None |
+
+Table: LC 206 反转链表：prev 与 cur 的逐步推演
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -427,6 +431,8 @@ static ListNode sortList(ListNode head) {
 | 删除排序链表中的重复元素 II（LC 82） | 哑节点 + 跳过整段相等值 |
 | LRU 缓存（LC 146） | 哈希 + 双向链表（13 篇） |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -437,6 +443,8 @@ static ListNode sortList(ListNode head) {
 | 递归深度 | 默认 1000，长链递归反转会崩；`sys.setrecursionlimit` 治标 | 默认栈约 512 KB–1 MB，几万层会 `StackOverflowError` |
 | 空判断 | `while fast and fast.next` | `while (fast != null && fast.next != null)`，短路求值顺序不能反 |
 | 哑节点 | `ListNode(0, head)` | 需要有两个参数的构造器，或 `new ListNode(0); dummy.next = head` |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -455,6 +463,8 @@ static ListNode sortList(ListNode head) {
 | LC 328 奇偶链表 | 两条链再接 |
 | LC 61 旋转链表 | 成环再断 |
 
+Table: 链表题单
+
 ## 七、小结
 
 | 骨架 | 用途 | 记住 |
@@ -465,6 +475,8 @@ static ListNode sortList(ListNode head) {
 | 快慢指针 | 中点 / 判环 / 入口 | `while fast and fast.next`；切分时 `fast = head.next` |
 | 双指针对齐 | 倒数第 $$k$$ / 相交 | 先走 $$k$$ 步 / 各走 A + B |
 | 堆 | 多路合并 | 元组带序号 |
+
+Table: 骨架速查：用途与要记住的点
 
 链表题写完后一定用 `[]`、`[1]`、`[1, 2]` 三个输入过一遍——绝大多数 bug 在这三个输入上暴露。
 

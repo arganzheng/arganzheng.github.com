@@ -27,6 +27,8 @@ catalog: true
 | 单词接龙、状态转换、八数码 | BFS on 状态图（双向 BFS 加速） | 隐式：由规则生成邻居 |
 | 复制一张图 | DFS + 哈希 `old → new` | |
 
+Table: 题面线索、对应算法与建图方式
+
 ## 二、模板
 
 ### 1. 网格 DFS（洪水填充）
@@ -651,6 +653,8 @@ static int networkDelayTime(int[][] times, int n, int k) {
 | 欧拉路径（LC 332 重新安排行程） | Hierholzer，邻接表用堆保证字典序 |
 | 强连通分量 | Tarjan / Kosaraju，面试极少要求现场写 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -662,6 +666,8 @@ static int networkDelayTime(int[][] times, int n, int k) {
 | 字符串改一位 | 切片拼接（每次新串） | `toCharArray()` 改后 `new String(cs)`，改完记得还原 |
 | `set` 迭代时删 | 不能边遍历边删；上面代码删的是另一个 `set` | 同样；`words.remove` 返回布尔可以省一次 `contains` |
 | 无穷大 | `float("inf")`，`dict.get(v, inf)` | `Integer.MAX_VALUE`，加法前先判断 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -681,6 +687,8 @@ static int networkDelayTime(int[][] times, int n, int k) {
 | LC 1584 连接所有点的最小费用 | Kruskal |
 | LC 433 最小基因变化 | 与 127 同型 |
 
+Table: 图论题单
+
 ## 七、小结
 
 | 算法 | 用于 | 复杂度 | 关键细节 |
@@ -692,6 +700,8 @@ static int networkDelayTime(int[][] times, int n, int k) {
 | 并查集 | 动态连通、分组 | 均摊近 $$O(1)$$ | 路径压缩 + 按大小合并 |
 | Dijkstra | 正权最短路 | $$O(E \log E)$$ | 堆 + 懒删除；弹出时比较 dist |
 | 双向 BFS | 状态空间大的最短步数 | $$O(b^{d/2})$$ | 扩展小的一侧 |
+
+Table: 各个算法的用途、复杂度与关键细节
 
 图题的三步：**看出是图 → 建图（显式邻接表或隐式邻居函数）→ 套模板**。visited 的位置和"入队时还是出队时标记"想清楚，剩下的就是抄模板。
 

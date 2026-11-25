@@ -29,6 +29,8 @@ AI-Infra 岗的手撕题和算法岗不同：不考 DP，考**系统**——一�
 | "写 paged KV cache 的块分配器" | Python | 空闲块池、引用计数、COW | 碎片？抢占？前缀缓存？ |
 | "写一个限流器" | Python | 令牌桶懒补充、漏桶 | 分布式限流？突发怎么处理？ |
 
+Table: Infra 岗手撕的出题方式、语言、考点与追问
+
 ## 二、并发原语
 
 ### 1. 线程安全的 LRU
@@ -192,6 +194,8 @@ for i0: for k0: for j0: for i in block: for k in block: for j in block: ...
 | ikj | 8.3 ms | 32 | 11× |
 | blocked（bs = 64） | 12 ms | 22 | 8× |
 
+Table: 矩阵乘法各种写法的时间、GFLOP/s 与加速比
+
 **ikj 为什么快 11 倍**：内层循环对 `B` 和 `C` 是连续访问（stride 1），每个 cache line 的 16 个 float 全用上，且编译器能向量化成 SIMD；ijk 的内层对 `B` 是 stride $$n$$，每次访问都可能 miss。**分块为什么在这里反而慢**：$$n = 512$$ 的三个矩阵共 3 MB，M 系列的 L2 有 16 MB，ikj 已经全在 cache 里；分块只增加了循环开销、缩短了向量化的内层长度。分块在矩阵**不能**装进 cache 时才有用（$$n = 2048$$、48 MB 时仍是 ikj 快——因为硬件预取器对 stride-1 流很有效）。真正的 BLAS 分块是为**寄存器**分块（micro-kernel 4×4 或 8×8 全在寄存器里）加 panel packing，不是简单的三重块循环。
 
 面试里这道题的价值不在写出分块，而在**测了再说**：说"分块一定快"是背书，测出来解释为什么不快才是理解。
@@ -312,6 +316,8 @@ class TokenBucket:
 | 释放共享块不看引用 | 另一分支读到脏数据 | `ref == 0` 才回收 |
 | 令牌桶不加锁 | 并发请求超发 | `Lock`；分布式用原子脚本 |
 
+Table: 常见陷阱：现象与修法
+
 ## 六、常见追问
 
 | 追问 | 要点 |
@@ -328,6 +334,8 @@ class TokenBucket:
 | vLLM 的 block table 存在哪里？ | GPU 上的 int 数组，kernel 按它把逻辑位置翻译成物理地址 |
 | 限流器怎么做到集群级？ | 中心化（Redis + Lua）或本地配额 + 周期同步；或按实例平分配额 |
 
+Table: 常见追问与答题要点
+
 ## 七、小结
 
 | 题 | 结构 / 算法 | 一句话 |
@@ -340,6 +348,8 @@ class TokenBucket:
 | ring allreduce | reduce-scatter + all-gather | 每 rank $$2\frac{N-1}{N}V$$，与 $$N$$ 无关 |
 | paged KV | 空闲池 + 引用计数 + COW | fork 零拷贝、写时才复制一块 |
 | 令牌桶 | 时间戳懒补充 | 允许突发、长期匀速 |
+
+Table: 各道题的结构 / 算法与一句话要点
 
 配套代码：[`coding-interview/infra/`](https://github.com/arganzheng/ai-learning-labs/tree/main/coding-interview/infra)——`concurrency.py`（前三题 + allreduce、paged KV、令牌桶，`python concurrency.py` 跑全部自检）、`memory_pool.cpp`、`blocked_gemm.cpp`、`topk_lru.cpp`（`make run`）。
 

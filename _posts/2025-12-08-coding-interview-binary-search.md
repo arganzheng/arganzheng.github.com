@@ -28,6 +28,8 @@ catalog: true
 | 平方根、开 k 次方 | `m * m > x` | `first_true - 1` |
 | 数据范围 $$10^9$$ 以上、答案是一个整数 | 想值域二分 | |
 
+Table: 题面线索、谓词与要求的答案
+
 判断能不能二分只看一条：**谓词是否单调**——存在一个分界点，左边全假右边全真（或反过来）。"数组有序"只是它的特例。
 
 ## 二、模板
@@ -412,6 +414,8 @@ static double findMedianSortedArrays(int[] a, int[] b) {
 | 答案不是整数 | 值域二分到精度，或把问题离散化 |
 | 三分查找（单峰函数极值） | 两个三等分点比较；面试少见，说得出即可 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -423,6 +427,8 @@ static double findMedianSortedArrays(int[] a, int[] b) {
 | 谓词传参 | `lambda`，可捕获外部变量 | `IntPredicate`，lambda 捕获的局部变量必须 effectively final |
 | 向上取整 | `(p + k - 1) // k` 或 `-(-p // k)` | `(p + k - 1) / k`；`Math.ceil` 是浮点，别用 |
 | $$\pm\infty$$ | `float("inf")` | `Integer.MIN_VALUE / MAX_VALUE`，注意不能再做加减 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -442,6 +448,8 @@ static double findMedianSortedArrays(int[] a, int[] b) {
 | LC 719 找出第 K 小的数对距离 | 值域二分 + 双指针计数 |
 | LC 287 寻找重复数（二分解） | 值域二分：`count(<= x) > x` |
 
+Table: 二分题单
+
 ## 七、小结
 
 | 题型 | 搜索空间 | 谓词 | 复杂度 |
@@ -452,6 +460,8 @@ static double findMedianSortedArrays(int[] a, int[] b) {
 | 答案二分 | 答案值域 | `feasible(x)`（贪心模拟） | $$O(n \log V)$$ |
 | 值域第 k 小 | 值域 | `count_le(x) >= k` | $$O(n \log V)$$ |
 | 两数组中位数 | 短数组的切分点 | 左半最大 ≤ 右半最小 | $$O(\log \min(m, n))$$ |
+
+Table: 各类题型的搜索空间、谓词与复杂度
 
 写二分只做两件事：**写出谓词并确认它单调**、**确定搜索区间 `[lo, hi)` 的含义**。剩下的交给 `first_true`。
 

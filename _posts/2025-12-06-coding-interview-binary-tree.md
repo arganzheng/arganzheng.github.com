@@ -26,6 +26,8 @@ catalog: true
 | 路径和等于 K 的路径数 | 树上前缀和 + 哈希（01 篇的树版）、回溯撤销 | 前序 |
 | 展开为链表、右指针 | 原地改指针 | 前序 / Morris |
 
+Table: 题面线索、对应做法与遍历顺序
+
 ## 二、模板
 
 ### 1. 递归三要素
@@ -197,6 +199,8 @@ flowchart TB
 | p = 5, q = 4 | `dfs(5)` 命中 p 直接返回 5（不再往下）<br/>`dfs(1)` 子树无目标返回 `None`<br/>root 收到左 5、右 `None` | 5 |
 | p = 6, q = 4 | `dfs(5)`：左 `dfs(6)` 返 6，右 `dfs(2)` 返 4，两侧都有 → 返回 5；root 收到左 5、右 `None` | 5 |
 | p = 6, q = 8 | `dfs(5)` 返 6（来自左），`dfs(1)` 返 8（来自右），root 两侧都有 | 3 |
+
+Table: LC 236 最近公共祖先：几次查询的递归过程与结果
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -492,6 +496,8 @@ private static int dfs(TreeNode n, long pre, int target, Map<Long, Integer> coun
 | 子树是否相同 / 子结构（LC 572） | 每个节点尝试匹配；或序列化后做字符串匹配 |
 | N 叉树 | `for child in node.children`，其余同 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -503,6 +509,8 @@ private static int dfs(TreeNode n, long pre, int target, Map<Long, Integer> coun
 | 迭代器消费 token | `it = iter(list)`; `next(it)` | `Deque<String>` 的 `poll()` |
 | 空树 | `deque([root] if root else [])` | 先 `if (root == null) return out;` |
 | 三元表达式 | `l or r` 利用真值（节点对象为真） | `l != null ? l : r` |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -522,6 +530,8 @@ private static int dfs(TreeNode n, long pre, int target, Map<Long, Integer> coun
 | LC 108 有序数组转 BST | 取中点为根递归 |
 | LC 116 填充右侧指针 | 层序或上一层链 |
 
+Table: 二叉树题单
+
 ## 七、小结
 
 | 题型 | 返回给父节点 | 在哪更新答案 | 代表题 |
@@ -532,6 +542,8 @@ private static int dfs(TreeNode n, long pre, int target, Map<Long, Integer> coun
 | 构建类 | 建好的子树根 | — | 105 · 106 · 108 · 297 |
 | 计数类 | — | 前序位置用哈希，离开时撤销 | 437 |
 | 按层 | — | BFS 每轮一层 | 102 · 199 · 111 |
+
+Table: 各类题型：返回给父节点什么、在哪更新答案
 
 写树题时先用一句话回答"返回什么"，再写终止条件，最后填后序位置的合并逻辑——顺序对了，代码基本不会错。
 

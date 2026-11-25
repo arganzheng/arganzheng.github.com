@@ -28,6 +28,8 @@ updated: 2026-09-15
 | "softmax 数值稳定性" | 减最大值 | log-softmax 怎么写？ |
 | "FlashAttention 的核心思想用代码表达" | online softmax | 为什么能分块？块间怎么合并？ |
 
+Table: attention 的出题方式、考点与通常的追问
+
 ## 二、形状推演
 
 设 batch $$B$$、序列长 $$T$$、模型维 $$D$$、头数 $$H$$、每头维 $$d = D / H$$。
@@ -235,6 +237,8 @@ flowchart TB
 | `attention_online` | `sdpa` | 任意块大小 |
 | RoPE | 相对位置性质 | 不同绝对位置、同一相对距离的内积相等 |
 
+Table: 手写实现与参考实现的对拍结果
+
 面试时不一定能跑对拍，但要能**说出对拍的方法**——这本身就是加分项。
 
 ## 五、数值与形状陷阱
@@ -252,6 +256,8 @@ flowchart TB
 | RoPE 配对方式与权重不一致 | loss 不降、生成乱码 | 确认相邻配对还是 `rotate_half` |
 | `nn.MultiheadAttention` 的 `attn_mask` | True 表示**屏蔽** | 与自己 mask 的语义取反 |
 
+Table: 数值与形状陷阱：现象与修法
+
 ## 六、常见追问
 
 | 追问 | 要点 |
@@ -267,6 +273,8 @@ flowchart TB
 | causal attention 能不能只算下三角省一半？ | FlashAttention 的块级跳过就是这样做的；朴素实现算全矩阵再 mask |
 | 训练与推理的 attention 有什么不同？ | 训练一次算全序列（teacher forcing）；推理 prefill 全序列 + decode 逐 token 用 KV cache |
 
+Table: 常见追问与答题要点
+
 ## 七、小结
 
 | 组件 | 一句话 | 关键形状 / 公式 |
@@ -278,6 +286,8 @@ flowchart TB
 | RoPE | 相邻两维按位置旋转，只加在 Q、K | $$\theta_i = \text{base}^{-2i/d}$$；内积依赖 $$s - t$$ |
 | KV cache | 缓存历史的 K、V，新 token 只算自己 | 每 token $$2 L H_{kv} d \cdot \text{bytes}$$ |
 | online softmax | 分块扫描，最大值变时重缩放 $$\ell$$、acc | 显存 $$O(T^2) \to O(T)$$ |
+
+Table: attention 家族各组件的关键形状与公式
 
 配套代码：[`coding-interview/ai/attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/coding-interview/ai/attention.py)，`python attention.py` 打印形状推演与数值示例，`--check` 跑全部对拍。
 

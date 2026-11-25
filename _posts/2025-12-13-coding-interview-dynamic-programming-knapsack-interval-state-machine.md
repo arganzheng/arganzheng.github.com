@@ -26,6 +26,8 @@ catalog: true
 | "正则 / 通配符匹配" | 二维匹配 | `f[i][j]`：`s[:i]` 与 `p[:j]` 是否匹配 |
 | "访问所有节点的最短路 / 分配任务" | 状压 DP | `f[mask][last]` |
 
+Table: 题面线索、状态形状与状态定义
+
 ## 二、模板
 
 ### 1. 背包（一维滚动）
@@ -118,6 +120,8 @@ return free;
 | 5 | 0, 1, 5, 6 |
 | 11 | 0, 1, 5, 6, **11** |
 | 5 | 0, 1, 5, 6, 10, 11 |
+
+Table: LC 416 分割等和子集：逐个物品处理后可达的容量
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -305,6 +309,8 @@ static int maxProfitK(int k, int[] prices) {
 | 309 | 卖出后冷冻一天 | 三状态：`hold` / `sold`（今天刚卖）/ `rest` |
 | 714 | 每笔手续费 | 卖出时 `hold + p − fee` |
 
+Table: 买卖股票各道题的约束与状态
+
 **追问**：*冷冻期（LC 309）*——`hold = max(hold, rest − p)`，`sold = hold + p`，`rest = max(rest, sold)`；答案 `max(sold, rest)`。注意买入只能从 `rest` 转来（`sold` 后必须冷冻一天）。*为什么 `hold` 初始化为 −∞*——第一天之前不可能持有；Java 用 `MIN_VALUE / 2` 防止加 `p` 溢出。
 
 ### 5. LC 337 打家劫舍 III
@@ -438,6 +444,8 @@ static boolean isMatchWildcard(String s, String p) {
 | 状压 DP（LC 847 访问所有节点最短路） | `(node, mask)` 上 BFS，$$O(n \cdot 2^n)$$ |
 | 数位 DP | 面试极少，说得出"按位枚举 + 是否贴上界"即可 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -449,6 +457,8 @@ static boolean isMatchWildcard(String s, String p) {
 | 多重赋值 | `hold, free = ..., ...` 同时更新 | 先算到临时变量再赋值，否则 `free` 用到已更新的 `hold` |
 | 元组返回 | `return take, skip` | `int[]{take, skip}` |
 | 三重循环性能 | 戳气球 $$n = 300$$，$$2.7 \times 10^7$$ 次，Python 约 3 秒接近超时 | 无压力 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -468,6 +478,8 @@ static boolean isMatchWildcard(String s, String p) {
 | LC 847 访问所有节点的最短路径 | 状压 BFS |
 | LC 698 划分为 k 个相等的子集 | 状压 DP 或回溯 |
 
+Table: 背包、区间、状态机与树形 DP 题单
+
 ## 七、小结
 
 | 形状 | 状态 | 转移的关键 | 代表题 |
@@ -478,6 +490,8 @@ static boolean isMatchWildcard(String s, String p) {
 | 状态机 | `hold` / `free` × 次数 | 同时更新；−∞ 初始化 | 121–714 |
 | 树形 | 后序返回元组 | `(选, 不选)` 或 `(链, 更新)` | 337 · 968 |
 | 匹配 | `f[i][j]` 布尔 | `*` 的两个分支：匹配空 / 再吃一个 | 10 · 44 |
+
+Table: 各种形状：状态、转移的关键与代表题
 
 背包只记一条：**倒序 = 一次，正序 = 无限**。区间只记一条：**最后一个被处理的是谁**。状态机只记一条：**画出状态转移图再写代码**。
 

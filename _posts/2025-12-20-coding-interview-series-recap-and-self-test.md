@@ -40,6 +40,8 @@ date: 2025-12-20 20:00:00
 | [18 经典 ML 与指标](/coding-interview-classical-ml-and-metrics.html) | k-means 为什么收敛，AUC 怎样 $$O(n \log n)$$？ | 模型 = 目标 + 优化<br/>AUC = 正样本秩和 $$- n_+(n_+ + 1)/2$$ 除 $$n_+ n_-$$<br/>conv = im2col + GEMM | 逻辑回归梯度 $$X^\top(p - y) / n$$<br/>NDCG 折扣 $$1 / \log_2(i + 1)$$<br/>$$H_\text{out} = \lfloor (H + 2p - k) / s \rfloor + 1$$<br/>im2col 大 $$k_h k_w$$ 倍 |
 | [19 Infra 并发与系统](/coding-interview-infra-concurrency-and-systems.html) | 一把锁保护什么、条件变量为什么 `while`？ | `get` 也要锁<br/>两个条件变量各叫各的<br/>异常进 Future<br/>空闲链表嵌在块内<br/>分块要测了再说 | ring allreduce 每 rank $$2\frac{N - 1}{N}V$$ 与 $$N$$ 无关<br/>ikj 比 ijk 快 11 倍<br/>paged KV fork 只加引用、写时复制一块 |
 
+Table: 每篇回答的问题、一句话结论与必记的数字
+
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
@@ -49,6 +51,8 @@ date: 2025-12-20 20:00:00
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试手撕题 8 题、D 掌握判据 |
 | 六 | 下一步 |
+
+Table: 本文的章节安排
 
 ## 二、逐篇回顾
 
@@ -398,6 +402,8 @@ date: 2025-12-20 20:00:00
 | $$p - y$$ 型梯度 | 15、18 | 15 softmax-CE 对 logits；18 逻辑回归 $$X^\top(p - y) / n$$ 是二分类版 |
 | 拒绝采样 | 16 | 投机解码是 LC 470 / 528 一类"用一个分布生成另一个分布"的 AI 版 |
 
+Table: AI 手撕与 torch 对拍涉及的概念及其关系
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
@@ -414,6 +420,8 @@ date: 2025-12-20 20:00:00
 | mask 填 0 或 `-1e4` 就够 | 0 经 softmax 仍有权重；fp16 下 `-1e4` 相对不够小 | `-inf` 或 `torch.finfo(dtype).min` | [第 14 篇](/coding-interview-attention-from-scratch.html) |
 | weight decay 加进梯度就是 AdamW | 那是 L2 正则，衰减项被 $$\sqrt{\hat{v}}$$ 归一化 | 解耦：$$\lambda\theta$$ 直接加在更新里 | [第 17 篇](/coding-interview-losses-and-training-algorithms.html) |
 | 矩阵乘法分块一定更快 | $$n = 512$$ 时 3 MB 装进 16 MB L2，分块只加循环开销 | 先测再说；ikj 快 11 倍，分块 8 倍 | [第 19 篇](/coding-interview-infra-concurrency-and-systems.html) |
+
+Table: 常见误区与正确的说法
 
 ## 五、通关自测
 
@@ -819,6 +827,8 @@ date: 2025-12-20 20:00:00
 | 读过 | 能说出十九篇各讲哪种模式或哪个组件；知道前缀和、单调栈、`first_true`、大小为 K 的堆、KV cache、DPO 这些名词 |
 | 掌握 | A 组能不翻书做对 8 题以上<br/>B 组能说出每题用了哪两篇的什么<br/>拿到一道没见过的中等题能在五分钟内说出模式、模板与复杂度，写完能用最小边界输入走查<br/>AI 手撕题能写出实现并说出对拍方法与自检基准值 |
 | 能教人 | C 组每题能给出全部要点并预判追问<br/>能解释每个反直觉结论为什么成立（`max_freq` 不减也对、`tails` 不是 LIS、增量解码不需要 mask、分块反而慢、拒绝后要从残差重采）<br/>能把一道题的两种解法与各自适用场景讲清 |
+
+Table: 掌握程度的判据
 
 通关标准：A 组至少 8 题、B 组至少 4 题、C 组每题能说出一半以上要点并在 15 分钟内写出关键代码。没过的部分回到第二章对应篇的"必记"，再回该篇正文；然后按总纲的练法——每篇题单的每道题做两遍，第一遍限时 30 分钟独立做，第二遍一周后不看资料重写，卡点集中的模式回来重读。
 

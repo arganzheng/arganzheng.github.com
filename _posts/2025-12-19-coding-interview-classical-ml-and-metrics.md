@@ -29,6 +29,8 @@ LLM 时代的面试仍然会让你手写 k-means、逻辑回归、PCA——不�
 | "写 conv2d" | im2col、输出尺寸公式 | 参数量？FLOPs？为什么 GPU 上这样做？ |
 | "写 NMS / IoU" | 排序 + 抑制 | 复杂度？soft-NMS？ |
 
+Table: 经典 ML 与评测指标的出题方式、考点与追问
+
 ## 二、经典模型
 
 ### 1. k-means
@@ -248,6 +250,8 @@ NMS 是贪心：每轮取剩余最高分的框、删掉与它 IoU 超过阈值�
 | `knn_predict`（k = 1） | 最近邻的标签 |
 | `kmeans` | 收敛后中心 = 簇均值（不动点） |
 
+Table: 手写实现与参考实现的对拍结果
+
 ## 六、陷阱
 
 | 陷阱 | 现象 | 修法 |
@@ -266,6 +270,8 @@ NMS 是贪心：每轮取剩余最高分的框、删掉与它 IoU 超过阈值�
 | NMS 阈值语义 | `>` 还是 `>=` 压掉 | 与参考实现一致（torchvision 是 `>`） |
 | 逻辑回归 L2 正则加在 bias 上 | 偏置被拉向 0 | 只正则 $$w$$ |
 
+Table: 常见陷阱：现象与修法
+
 ## 七、常见追问
 
 | 追问 | 要点 |
@@ -282,6 +288,8 @@ NMS 是贪心：每轮取剩余最高分的框、删掉与它 IoU 超过阈值�
 | 1×1 卷积干什么？ | 跨通道线性组合 = 每个像素上的全连接；用来升降维（bottleneck） |
 | 为什么 NMS 要按类别分开做？ | 不同类的框重叠是正常的（人骑马）；class-wise NMS |
 
+Table: 常见追问与答题要点
+
 ## 八、小结
 
 | 组件 | 核心 | 复杂度 |
@@ -294,6 +302,8 @@ NMS 是贪心：每轮取剩余最高分的框、删掉与它 IoU 超过阈值�
 | NDCG | $$\sum (2^{rel} - 1) / \log_2(i + 1)$$，除理想值 | $$O(k \log k)$$ |
 | conv2d | im2col → GEMM | $$O(N H_o W_o C_o C_i k^2)$$ |
 | NMS | 按分排序、贪心压制 | 最坏 $$O(M^2)$$ |
+
+Table: 各组件的核心与复杂度
 
 配套代码：[`coding-interview/ai/classical_ml_metrics.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/coding-interview/ai/classical_ml_metrics.py)。
 

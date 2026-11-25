@@ -27,6 +27,8 @@ catalog: true
 | "除自身以外""左边 / 右边的信息" | 前缀积 / 后缀积两趟 | 左右信息分别一趟，第二趟原地乘 |
 | "只出现一次的数""不用额外空间" | 异或 | $$a \oplus a = 0$$ |
 
+Table: 题面线索、对应做法与原因
+
 前缀和的核心恒等式只有一条：
 
 $$
@@ -148,6 +150,8 @@ static int firstMissingPositive(int[] nums) {
 | 2 | 2 | 3 | count[0] = 1 → 子数组 [1, 2] | 1 | {0: 1, 1: 1, 3: 1} |
 | 3 | 3 | 6 | count[3] = 1 → 子数组 [3] | 2 | {…, 6: 1} |
 
+Table: LC 560 和为 K 的子数组：前缀和与计数的逐步推演
+
 答案 2。每一步查到的 `count[pre − k]` 就是"以当前位置结尾、和为 $$k$$ 的子数组个数"。
 
 **追问**：
@@ -240,6 +244,8 @@ flowchart TB
 | 2 | 3 | 2 | 4 | 8 |
 | 3 | 4 | 6 | 1 | 6 |
 
+Table: LC 238 除自身以外数组的乘积：两趟扫描的逐位结果
+
 <div class="code-tabs" markdown="1">
 ```python
 def product_except_self(nums):
@@ -283,6 +289,8 @@ static int[] productExceptSelf(int[] nums) {
 | [2, 3, 20] | diff[2] += 20，diff[4] −= 20 | |
 | [2, 5, 25] | diff[2] += 25，diff[6] −= 25 | |
 | 结果 | diff = [10, 45, −10, −20, 0, −25] | [10, 55, 45, 25, 25] |
+
+Table: LC 1109 航班预订统计：差分数组与前缀和还原
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -332,6 +340,8 @@ static int[] corpFlightBookings(int[][] bookings, int n) {
 | 只出现一次的数 → 其他数出现三次（LC 137） | 按位统计 mod 3，或两变量状态机 |
 | 只出现一次的数 → 有两个（LC 260） | 全体异或得 $$a \oplus b$$，取最低位 1 分两组各自异或 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -342,6 +352,8 @@ static int[] corpFlightBookings(int[][] bookings, int n) {
 | 整数溢出 | 无 | 前缀和用 `long`；`Integer` 用 `equals` 比较 |
 | 遍历时修改 | 遍历 `dict` 时不能增删 key | 同样会 `ConcurrentModificationException` |
 | 交换 | `a[i], a[j] = a[j], a[i]` | 三行临时变量 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -358,6 +370,8 @@ static int[] corpFlightBookings(int[][] bookings, int n) {
 | LC 169 多数元素 | Boyer–Moore 投票 |
 | LC 2536 子矩阵元素加 1 | 二维差分 |
 
+Table: 数组、哈希与前缀和题单
+
 ## 七、小结
 
 | 用法 | 记什么 | 换掉什么 |
@@ -368,6 +382,8 @@ static int[] corpFlightBookings(int[][] bookings, int n) {
 | 原地哈希 | 值 $$v$$ → 下标 $$v - 1$$ | 额外的哈希表 |
 | 差分 | 端点的增减 | 每次区间操作的 $$O(\text{len})$$ |
 | 前缀积 / 后缀积 | 左积写在输出里，右积一个变量 | 除法与 $$O(n^2)$$ |
+
+Table: 用法速查：记什么、换掉什么
 
 这一篇的每个模板都是 $$O(n)$$ 时间换 $$O(n)$$（或 $$O(1)$$）空间。下一篇讲另一种把 $$O(n^2)$$ 压到 $$O(n)$$ 的办法——不用额外空间，而是让两个指针只往一个方向走。
 

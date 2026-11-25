@@ -31,6 +31,8 @@ updated: 2026-09-15
 | "写梯度裁剪" | 全局范数 | 按值裁剪与按范数裁剪的区别？ |
 | "写 LoRA 层" | 低秩分解、缩放、合并 | B 为什么初始化为 0？推理时怎么零开销？ |
 
+Table: 损失函数与训练算法的出题方式、考点与追问
+
 ## 二、分类与蒸馏损失
 
 ### 1. 交叉熵
@@ -232,6 +234,8 @@ class LoRALinear:
 | `clip_grad_norm` | `torch.nn.utils.clip_grad_norm_` |
 | `LoRALinear.merge` | `forward` 与合并后的 `x @ W'` |
 
+Table: 手写实现与参考实现的对拍结果
+
 ## 八、陷阱
 
 | 陷阱 | 现象 | 修法 |
@@ -250,6 +254,8 @@ class LoRALinear:
 | LoRA 先算 `A @ B` | 失去低秩收益 | `(x @ A) @ B` |
 | cosine 忘 `min(1, progress)` | 训练超出 total 步后 lr 回升 | 截断 |
 
+Table: 常见陷阱：现象与修法
+
 ## 九、常见追问
 
 | 追问 | 要点 |
@@ -265,6 +271,8 @@ class LoRALinear:
 | QLoRA 是什么？ | 冻结权重量化到 4 bit（NF4）、LoRA 在 bf16 上训练，前向时反量化 |
 | 梯度累积与 batch size 的关系？ | 累积 $$k$$ 步等价于 batch × $$k$$（loss 要除 $$k$$）；BatchNorm 除外 |
 
+Table: 常见追问与答题要点
+
 ## 十、小结
 
 | 组件 | 公式一句 | 关键行 |
@@ -279,6 +287,8 @@ class LoRALinear:
 | AdamW | $$\theta -= \eta(\hat{m}/(\sqrt{\hat{v}} + \epsilon) + \lambda\theta)$$ | 解耦的 $$\lambda\theta$$ |
 | 裁剪 | $$g \leftarrow g \cdot \min(1, c / \|g\|)$$ | 全局范数 |
 | LoRA | $$W + \frac{\alpha}{r} AB$$ | B = 0，`(xA)B` |
+
+Table: 各组件的公式与关键代码行
 
 配套代码：[`coding-interview/ai/losses_training.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/coding-interview/ai/losses_training.py)。
 

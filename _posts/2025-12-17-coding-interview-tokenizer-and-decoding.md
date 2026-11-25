@@ -28,6 +28,8 @@ updated: 2026-09-15
 | "投机解码的接受规则" | $$\min(1, p/q)$$ + 残差重采样 | 证明无偏；接受率与 $$p, q$$ 距离的关系 |
 | "repetition penalty 怎么实现" | 对已出现 token 的 logit 惩罚 | 正负 logit 为什么处理不同？ |
 
+Table: tokenizer 与解码的出题方式、考点与追问
+
 ## 二、BPE
 
 ### 1. 训练
@@ -229,6 +231,8 @@ $$
 | 蓄水池 | 每个元素频率与 $$k/n$$ 偏差 < 0.02 |
 | 投机解码 | 输出频率与 $$p$$ 各分量偏差 < 0.01 |
 
+Table: 对拍要检查什么、怎么检查
+
 ## 八、陷阱
 
 | 陷阱 | 现象 | 修法 |
@@ -245,6 +249,8 @@ $$
 | 投机解码拒绝后从 $$p$$ 重采 | 分布偏离 $$p$$（接受的部分已经拿了 $$\min(p, q)$$） | 从残差 $$\max(0, p - q)$$ 重采 |
 | 蓄水池用 `random() < k / i` 再随机选位置 | 正确但两次随机 | `randint(1, i) <= k` 一次搞定 |
 
+Table: 常见陷阱：现象与修法
+
 ## 九、常见追问
 
 | 追问 | 要点 |
@@ -259,6 +265,8 @@ $$
 | 接受率低怎么办？ | 换更像 target 的 draft（同家族小模型、Medusa 头、EAGLE）；树形 draft 提高每次验证的期望接受数 |
 | 约束解码（JSON、语法）怎么做？ | 每步用状态机 / 语法把不合法 token 的 logit 置 $$-\infty$$ |
 
+Table: 常见追问与答题要点
+
 ## 十、小结
 
 | 组件 | 核心一句 | 验证 |
@@ -269,6 +277,8 @@ $$
 | beam search | log 域累加、每步剪到 $$b$$、eos 移出、长度归一化 | $$b = 1$$ 即贪心 |
 | 蓄水池 | 第 $$i$$ 个以 $$k/i$$ 替换 | 每元素 $$k/n$$ |
 | 投机解码 | 接受 $$\min(1, p/q)$$，拒绝后从 $$\max(0, p-q)$$ 重采 | 输出分布 $$= p$$ |
+
+Table: 各组件的核心一句与验证方法
 
 配套代码：[`coding-interview/ai/tokenizer_decoding.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/coding-interview/ai/tokenizer_decoding.py)。
 

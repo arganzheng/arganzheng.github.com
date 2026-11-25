@@ -27,6 +27,8 @@ catalog: true
 | "两个字符串的公共 / 距离 / 匹配" | `f[i][j]` = `a[:i]` 与 `b[:j]` 的答案 | 1143 · 72 · 97 |
 | "回文子串 / 子序列" | `f[i][j]` = 区间 $$[i, j]$$（下一篇） | 5 · 516 |
 
+Table: 题面线索、状态形状与代表题
+
 **判断能不能 DP**：问题能分成子问题；子问题的最优解能拼出原问题的最优解（最优子结构）；子问题大量重复（否则直接递归就行）。反例：最长简单路径没有最优子结构。
 
 ## 二、五步法
@@ -55,6 +57,8 @@ flowchart TB
 | $$a$$ | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | `f[a]`（coins = 1, 2, 5） | 0 | 1 | 1 | 2 | 2 | 1 | 2 | 2 | 3 | 3 | 2 | **3** |
+
+Table: LC 322 零钱兑换：f 数组逐容量的填表结果
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -196,6 +200,8 @@ static int maxProduct(int[] nums) {
 | **d** | 0 | 1 | 2 | 2 |
 | **e** | 0 | 1 | 2 | **3** |
 
+Table: LC 1143 最长公共子序列：二维表的填表过程
+
 <div class="code-tabs" markdown="1">
 ```python
 def longest_common_subsequence(a, b):
@@ -253,6 +259,8 @@ flowchart TB
 | **r** | 3 | 2 | 2 | 2 |
 | **s** | 4 | 3 | 3 | 2 |
 | **e** | 5 | 4 | 4 | **3** |
+
+Table: LC 72 编辑距离：二维表的填表过程
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -377,6 +385,8 @@ static boolean wordBreak(String s, List<String> wordDict) {
 | 交错字符串（LC 97） | `f[i][j]` = `s1[:i]` 与 `s2[:j]` 能否交错成 `s3[:i+j]` |
 | 不同的子序列（LC 115） | 计数版 LCS：相等时 `f[i−1][j−1] + f[i−1][j]` |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -388,6 +398,8 @@ static boolean wordBreak(String s, List<String> wordDict) {
 | 切片子串查询 | `s[j:i] in words` 每次拷贝 | `substring` 同样拷贝；可用 `startsWith(word, j)` 避免 |
 | 二维表滚动 | `f, g = g, f` 交换两行 | 交换引用 `int[] t = prev; prev = cur; cur = t;` 并清零 |
 | `>>>` | 无（无溢出问题） | 无符号右移做 mid，避免溢出 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -407,6 +419,8 @@ static boolean wordBreak(String s, List<String> wordDict) {
 | LC 97 交错字符串 | 二维布尔 |
 | LC 1277 统计全为 1 的正方形子矩阵 | `sum(f)` |
 
+Table: 线性与二维 DP 题单
+
 ## 七、小结
 
 | 状态形状 | 含义 | 答案 | 代表题 |
@@ -415,6 +429,8 @@ static boolean wordBreak(String s, List<String> wordDict) {
 | `f[i]`：以 $$i$$ 结尾 | 必须包含第 $$i$$ 个 | `max(f)` | 300 · 53 · 152 |
 | `f[i][j]`：格子 | 到 $$(i, j)$$ / 以 $$(i, j)$$ 为右下角 | `f[m][n]` / `max` | 62 · 64 · 221 |
 | `f[i][j]`：两个前缀 | `a[:i]` 与 `b[:j]` | `f[m][n]` | 1143 · 72 · 97 |
+
+Table: 各种状态形状：含义与答案在哪
 
 写 DP 先用一句话把状态定义写在注释里，再问"最后一步是什么"得到转移——这两步做对，代码是两层循环加一个取最值。
 

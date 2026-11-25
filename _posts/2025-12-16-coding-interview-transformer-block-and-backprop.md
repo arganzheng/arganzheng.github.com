@@ -28,6 +28,8 @@ updated: 2026-09-15
 | "不用框架训练一个两层网络" | 前向、反向、更新循环 | loss 为什么下降？学习率大了会怎样？ |
 | "实现一个自动求导" | 计算图、拓扑序、`_backward` 闭包 | 为什么梯度要累加而不是赋值？ |
 
+Table: Transformer block 的出题方式、考点与追问
+
 ## 二、Transformer block 的结构
 
 ```mermaid
@@ -98,6 +100,8 @@ GELU 有精确版（$$x \Phi(x)$$，用 `erf`）和 tanh 近似，两者差 $$10
 | FFN | $$W_{fc}$$ $$D \times 4D$$、$$W_{proj}$$ $$4D \times D$$ + bias | $$8D^2 + 5D$$ |
 | 2 个 LayerNorm | $$\gamma, \beta$$ 各 $$D$$ | $$4D$$ |
 | **合计** | | $$12D^2 + 13D \approx 12D^2$$ |
+
+Table: 一个 Transformer block 各部分的参数量
 
 整个模型：$$L \times 12D^2$$ + 嵌入 $$V \times D$$ + 位置 $$T_{\max} \times D$$（+ 输出头 $$V \times D$$，若不与嵌入共享）。
 
@@ -255,6 +259,8 @@ class Value:
 | `gpt_params` | `nn.MultiheadAttention + Linear×2 + LayerNorm×2` 的 `numel` 之和 |
 | `Value` | `torch.tensor(requires_grad=True)` 的标量运算 |
 
+Table: 手写实现与参考实现的对拍结果
+
 ## 六、陷阱
 
 | 陷阱 | 现象 | 修法 |
@@ -269,6 +275,8 @@ class Value:
 | 拓扑序错 | 某节点的 grad 未算完就被用 | 后序 DFS 再反转 |
 | 忘记 `zero_grad` | 跨 step 梯度累积 | 每步清零（micrograd 里手动置 0） |
 | He / Xavier 初始化写错方差 | loss 不降或 `nan` | ReLU 用 $$\sqrt{2/\text{in}}$$ |
+
+Table: 常见陷阱：现象与修法
 
 ## 七、常见追问
 
@@ -285,6 +293,8 @@ class Value:
 | 自动求导和符号求导、数值求导的区别？ | 数值：有限差分，$$O(n)$$ 次前向<br/>符号：表达式膨胀<br/>自动：精确、一次反向 $$O(1)$$ 倍前向成本 |
 | 前向模式与反向模式？ | 反向模式一次得到所有输入的梯度（输出是标量时最优）；前向模式一次得到一个方向导数 |
 
+Table: 常见追问与答题要点
+
 ## 八、小结
 
 | 组件 | 前向 | 反向 |
@@ -295,6 +305,8 @@ class Value:
 | LayerNorm | $$\gamma \hat{x} + \beta$$ | $$dx = \frac{1}{\sigma}(d\hat{x} - \overline{d\hat{x}} - \hat{x}\,\overline{d\hat{x} \odot \hat{x}})$$ |
 | 参数量 | 每层 $$12D^2$$ | GPT-2 small 124M |
 | FLOPs | 前向 $$2N + 4TDL$$ 每 token | 训练 $$6N$$ |
+
+Table: 各组件的前向与反向
 
 配套代码：[`coding-interview/ai/transformer_block.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/coding-interview/ai/transformer_block.py)。
 

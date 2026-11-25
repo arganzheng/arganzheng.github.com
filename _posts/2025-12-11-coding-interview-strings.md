@@ -30,6 +30,8 @@ catalog: true
 | 括号 / 解码 / 计算器 | 栈（03 篇） | |
 | 无重复最长子串 / 最小覆盖 | 滑动窗口（02 篇） | |
 
+Table: 题面线索、对应做法与备注
+
 ## 二、模板
 
 ### 1. 中心扩展
@@ -446,6 +448,8 @@ static List<String> findRepeatedDnaSequences(String s) {
 | 版本号比较（LC 165） | `split('.')` 后逐段 `int` 比较，缺段补 0 |
 | 单词规律 / 同构字符串（LC 290 / 205） | 双向映射 |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -458,6 +462,8 @@ static List<String> findRepeatedDnaSequences(String s) {
 | 字符串比较 | `<` 按字典序 | `compareTo`；`==` 比较引用（**错误**），用 `equals` |
 | 原地修改 | 不可能，转 `list` | `toCharArray()` 修改后 `new String(cs)` |
 | `strip` / `split` | `split()` 无参数按任意空白且丢空串 | `trim().split("\\s+")`；`split` 是正则 |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -478,6 +484,8 @@ static List<String> findRepeatedDnaSequences(String s) {
 | LC 1044 最长重复子串 | 二分 + 滚动哈希 |
 | LC 6 Z 字形变换 | 按行模拟 |
 
+Table: 字符串题单
+
 ## 七、小结
 
 | 技巧 | 复杂度 | 关键细节 | 代表题 |
@@ -489,6 +497,8 @@ static List<String> findRepeatedDnaSequences(String s) {
 | 竖式 | $$O(mn)$$ | `res[i+j+1]`<br/>统一进位<br/>去前导零 | 43 · 415 |
 | 自定义排序 | $$O(n \log n \cdot L)$$ | `a+b` vs `b+a`<br/>证明传递性<br/>全零特判 | 179 |
 | 滚动哈希 | $$O(n)$$ | 小字母表位压缩无冲突；否则 mod 大素数 + 验证 | 187 · 1044 |
+
+Table: 各个技巧的复杂度与关键细节
 
 字符串题写完一定过三个输入：**空串、单字符、全相同字符**。
 

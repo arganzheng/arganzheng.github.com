@@ -28,6 +28,8 @@ catalog: true
 | "最小栈""最大栈" | 辅助栈同步存极值 | $$O(1)$$ |
 | "有序表：插入、删除、查第 k 小、查排名" | Python 没有内置 → `sortedcontainers` / 手写平衡结构；Java `TreeMap` | $$O(\log n)$$ |
 
+Table: 题面线索、结构组合与每个操作的做法
+
 设计题的通用思路：**先写出每个操作要做的事，再问"哪一步不是 O(1)"，给那一步加一个索引结构**。
 
 ## 二、主讲题
@@ -623,6 +625,8 @@ static class NumArray {
 | LC 715 Range 模块 | 有序区间表 | Python 用 `sortedcontainers`，Java `TreeMap` |
 | LC 295 数据流中位数 | 双堆 | 08 篇 |
 
+Table: 其他常考设计题的结构与关键点
+
 **有序表**是 Python 面试的一个尴尬点：标准库没有平衡树。选项：`bisect` + `list`（插入 $$O(n)$$，$$n \le 10^4$$ 时可接受）、`sortedcontainers.SortedList`（第三方，说明面试环境是否允许）、或用堆 / 树状数组绕过。Java 直接用 `TreeMap` / `TreeSet`。
 
 ## 四、两种语言的坑
@@ -637,6 +641,8 @@ static class NumArray {
 | 位运算 `lowbit` | `i & -i` 直接可用（任意精度） | `i & -i` 同样正确（补码） |
 | 类里的辅助方法 | 前置下划线约定私有 | `private` |
 | 空容器判断 | `if not self.buckets[f]` | `isEmpty()`；`get` 可能返回 `null` |
+
+Table: Python 与 Java 的坑对照
 
 ## 五、题单
 
@@ -655,6 +661,8 @@ static class NumArray {
 | LC 715 Range 模块 | 有序区间 |
 | LC 1472 设计浏览器历史 | 两个栈或数组 + 指针 |
 
+Table: 设计题题单
+
 ## 六、小结
 
 | 题 | 组合 | 每步为什么 O(1) / O(log n) |
@@ -664,6 +672,8 @@ static class NumArray {
 | Trie | 26 叉树 + `end` | 沿字符走 $$O(L)$$；多单词搜索共享前缀剪枝 |
 | O(1) 随机集 | 数组 + 值 → 下标 | 删除时末尾换位再弹 |
 | 树状数组 | `lowbit` 分块 | 更新 / 查询各走 $$O(\log n)$$ 个节点 |
+
+Table: 各道设计题的结构组合与每步为什么是 O(1) / O(log n)
 
 设计题的写法：**先列操作，再找瓶颈步骤，给它加索引；写代码前画出结构图**。写完用容量 1 / 容量 0 / 重复 key / 删最后一个元素四个边界过一遍。
 

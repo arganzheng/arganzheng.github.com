@@ -27,6 +27,8 @@ catalog: true
 | "滑动窗口的最大 / 最小值" | 单调双端队列 | 队尾弹出永不再当最值的元素；队首过期则弹 |
 | "去掉 k 个数字使结果最小""字典序最小子序列" | 单调栈 + 剩余配额 | 弹出比当前大的，直到配额用完 |
 
+Table: 题面线索、对应结构与弹出时结算什么
+
 单调栈处理的问题有个共同形状：**每个元素想知道离它最近的、满足某种大小关系的邻居**。暴力是 $$O(n^2)$$，单调栈让每个元素入栈一次、出栈一次，$$O(n)$$。
 
 ## 二、模板
@@ -135,6 +137,8 @@ static boolean isValid(String s) {
 | c | 追加 | "c" | | |
 | ] | 弹 ("a", 2)：cur = "a" + "c"×2 | "acc" | | [("", 3)] |
 | ] | 弹 ("", 3)：cur = "" + "acc"×3 | "accaccacc" | | [] |
+
+Table: LC 394 字符串解码：栈、cur 与 num 的逐字符推演
 
 <div class="code-tabs" markdown="1">
 ```python
@@ -361,6 +365,8 @@ static int largestRectangleArea(int[] heights) {
 | 6 | 6 | 弹 5、4 | [6] | | 6 |
 | 7 | 7 | 弹 6 | [7] | | 7 |
 
+Table: LC 239 滑动窗口最大值：单调队列的逐步推演
+
 <div class="code-tabs" markdown="1">
 ```python
 def max_sliding_window(nums, k):
@@ -407,6 +413,8 @@ static int[] maxSlidingWindow(int[] nums, int k) {
 | 最小栈（LC 155） | 辅助栈同步存"当前最小"，每个操作 $$O(1)$$ |
 | 用栈实现队列 / 用队列实现栈（LC 232 / 225） | 两个栈，倒一次均摊 $$O(1)$$（13 篇） |
 
+Table: 常见追问与应对
+
 ## 五、两种语言的坑
 
 | | Python | Java |
@@ -418,6 +426,8 @@ static int[] maxSlidingWindow(int[] nums, int k) {
 | 字符判数字 | `ch.isdigit()` | `Character.isDigit(c)`；`c - '0'` 转数字 |
 | 字符串拼接 | `cur += ch` 在 CPython 有优化，但正规写法用 `list` + `join` | 用 `StringBuilder`；`String +=` 在循环里是 $$O(n^2)$$ |
 | 空栈取顶 | `stack[-1]` 抛 `IndexError` | `peek()` 返回 `null`<br/>`pop()` 抛 `NoSuchElementException`<br/>空判 `isEmpty()` |
+
+Table: Python 与 Java 的坑对照
 
 ## 六、题单
 
@@ -436,6 +446,8 @@ static int[] maxSlidingWindow(int[] nums, int k) {
 | LC 862 和至少为 K 的最短子数组 | 前缀和 + 单调队列 |
 | LC 1696 跳跃游戏 VI | DP + 单调队列优化窗口最大值 |
 
+Table: 栈、单调栈与单调队列题单
+
 ## 七、小结
 
 | 结构 | 不变式 | 弹出时结算 | 代表题 |
@@ -444,6 +456,8 @@ static int[] maxSlidingWindow(int[] nums, int k) {
 | 单调递减栈 | 栈底到栈顶递减 | 被弹者的右侧第一个更大 = 当前；左侧第一个更大 = 新栈顶 | 739 · 496 · 503 |
 | 单调递增栈 | 递增 | 被弹者的左右第一个更小 → 以它为高的最大宽度 | 84 · 85 · 907 |
 | 单调队列 | 下标递增、值递减 | 队尾弹掉永不再当最值者；队首弹掉过期者 | 239 · 862 · 1696 |
+
+Table: 各种结构的不变式与弹出时结算什么
 
 哨兵是这类题的通用技巧：开头的哨兵让栈永远非空，结尾的哨兵让所有元素在循环内被结算。写单调栈时先决定"递增还是递减""要不要含相等"，再写比较符。
 
