@@ -9,7 +9,7 @@ date: 2026-10-11 20:00:00
 updated: 2026-11-23
 ---
 
-六篇正文回答了一个问题：**模型这一步该看到什么、看多少、按什么顺序，以及怎样像管代码一样管它**。第一篇解剖上下文的七层，第二篇讲 system prompt 里稳定的模式与不稳定的措辞，第三篇讲结构化输出的机制与 schema 设计，第四篇讲预算与卸载 → 清理 → 压缩的处理顺序，第五篇讲缓存与排列，第六篇讲版本、评测门禁、两个跨工具标准与上下文 vs 检索的决策。六篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第二层：把"模型看到什么"当作一个**有预算、有顺序、有版本**的工程对象。
+六篇正文回答了一个问题：**模型这一步该看到什么、看多少、按什么顺序，以及怎样像管代码一样管它**。[《上下文的解剖》](/anatomy-of-the-context-window.html)解剖上下文的七层，[《prompt 设计》](/prompt-design-patterns-vs-wording.html)讲 system prompt 里稳定的模式与不稳定的措辞，[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)讲结构化输出的机制与 schema 设计，[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)讲预算与卸载 → 清理 → 压缩的处理顺序，[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)讲缓存与排列，[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)讲版本、评测门禁、两个跨工具标准与上下文 vs 检索的决策。六篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第二层：把"模型看到什么"当作一个**有预算、有顺序、有版本**的工程对象。
 
 本文不讲新内容：一张总表与六段回顾，贯穿六篇的四条线，常见误区，然后是三段式通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验"这一篇读懂了没有"，这里检验"六篇能不能连起来用"。
 
@@ -122,7 +122,7 @@ Table: 本文的章节安排
 
 ### 1. 预算：每一段都要为占的位置辩护
 
-第一篇建立预算的物理基础（$$n^2$$、Context Rot），第二篇让 system prompt 精炼（最小规则集、删冗余技巧、few-shot 只留格式），第三篇让 schema 精炼（限深度、稳定），第四篇给每层配额与处理顺序，第六篇的 SKILL.md 把渐进披露做成标准。共同的问题只有一个：这一段值不值得占这份注意力。
+[《上下文的解剖》](/anatomy-of-the-context-window.html)建立预算的物理基础（$$n^2$$、Context Rot），[《prompt 设计》](/prompt-design-patterns-vs-wording.html)让 system prompt 精炼（最小规则集、删冗余技巧、few-shot 只留格式），[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)让 schema 精炼（限深度、稳定），[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)给每层配额与处理顺序，[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的 SKILL.md 把渐进披露做成标准。共同的问题只有一个：这一段值不值得占这份注意力。
 
 ```mermaid
 %% 图：预算这条线在六篇里的落点——第一篇给物理基础（n² 注意力、Context Rot），第二篇精炼 system prompt，第三篇精炼 schema，第四篇给每层配额与处理顺序，第六篇把渐进披露做成 SKILL.md 标准；每一篇都在回答同一个问题：这一段值不值得占这份注意力
@@ -140,7 +140,7 @@ flowchart LR
 
 ### 2. 顺序即成本
 
-同一个排列原则同时服务三个目标：**注意力**（第一篇：相关的放末尾、稳定的放开头）、**缓存**（第五篇：变化频率递增、动态段最后、只追加）、**压缩存活**（第四篇：常驻层不在历史里所以不受压缩影响，动态的被摘要）。第二篇的 Claude Code 把环境信息放末尾、第三篇的 schema 稳定、第六篇的新版本第一轮全写，都是这条线上的点。
+同一个排列原则同时服务三个目标：**注意力**（[《上下文的解剖》](/anatomy-of-the-context-window.html)：相关的放末尾、稳定的放开头）、**缓存**（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：变化频率递增、动态段最后、只追加）、**压缩存活**（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)：常驻层不在历史里所以不受压缩影响，动态的被摘要）。[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的 Claude Code 把环境信息放末尾、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)的 schema 稳定、[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的新版本第一轮全写，都是这条线上的点。
 
 ```mermaid
 %% 图：顺序即成本：变化频率决定排列，排列同时决定缓存命中率、注意力利用与压缩后存活，最后落到成本与 TTFT
@@ -163,7 +163,7 @@ flowchart TB
 
 ### 3. 可恢复性
 
-上下文里放**引用**而不是**内容**，内容在外面（文件、存储、磁盘上的 CLAUDE.md）：第一篇的长期记忆压缩后从磁盘重注入，第四篇的卸载留路径 + 预览、Manus 的"文件系统即上下文"、Codex 的会话记忆，第六篇的 SKILL.md 只常驻描述。可恢复的压缩几乎免费，不可恢复的（摘要）才有损——这是处理顺序的依据。
+上下文里放**引用**而不是**内容**，内容在外面（文件、存储、磁盘上的 CLAUDE.md）：[《上下文的解剖》](/anatomy-of-the-context-window.html)的长期记忆压缩后从磁盘重注入，[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的卸载留路径 + 预览、Manus 的"文件系统即上下文"、Codex 的会话记忆，[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的 SKILL.md 只常驻描述。可恢复的压缩几乎免费，不可恢复的（摘要）才有损——这是处理顺序的依据。
 
 ```mermaid
 %% 图：可恢复性——上下文里放引用、内容在外面：CLAUDE.md 的真身在磁盘（压缩后重注入）、工具返回卸载到文件（留路径 + 预览）、SKILL.md 正文按需读、Codex 的会话记忆是结构化状态；只有摘要是把内容本身改写了，所以只有它有损、放最后
@@ -191,28 +191,28 @@ flowchart LR
 
 ### 4. prompt 是代码
 
-第二篇的"模式 vs 措辞"（换模型只调措辞）、第三篇的 schema 稳定与顺序效应评测、第五篇的"命中率骤降接部署时间线"、第六篇的整个生命周期与 AGENTS.md / SKILL.md 在版本库里——都是同一件事：prompt 有版本、有测试、有发布、有回滚，模型升级是依赖升级。评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》建的）是这条线的探测器。
+[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的"模式 vs 措辞"（换模型只调措辞）、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)的 schema 稳定与顺序效应评测、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)的"命中率骤降接部署时间线"、[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的整个生命周期与 AGENTS.md / SKILL.md 在版本库里——都是同一件事：prompt 有版本、有测试、有发布、有回滚，模型升级是依赖升级。评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》建的）是这条线的探测器。
 
 ### 5. 概念表
 
 | 概念 | 出处 | 一句话 |
 |---|---|---|
-| 七层 | 第一篇 | 系统指令、工具与技能、长期记忆、历史、检索、工具返回、当前输入；按变化频率 / 维护者 / 可压缩性分 |
-| 注意力预算 | 第一篇 | $$n^2$$ 两两关系、长序列能力外推；有限、边际递减 |
-| 渐进披露 | 第一、六篇 | 常驻一行描述，用到时再加载；SKILL.md 是它的规范 |
-| 模式 vs 措辞 | 第二篇 | 结构性决定不随模型变；具体句子随模型调 |
-| eagerness / tool preamble | 第二篇 | GPT-5 guide：主动性档位与工具预算；调用前后说一句 |
-| 约束解码 | 第三篇 | schema → 自动机 → 每步屏蔽不合法 token；数学保证 |
-| 字段顺序即生成顺序 | 第三篇 | 推理字段前置让结论以推理为条件 |
-| 拒答出口 | 第三篇 | strict 下没有出口会把拒答伪装成答案 |
-| 卸载 / 清理 / 压缩 | 第四篇 | 可恢复 → 几乎免费 → 有损且贵；顺序按此 |
-| 复述 | 第四篇 | todo.md 每步重写，目标回末尾，压缩的材料 |
-| 探针问题 | 第四篇 | 压缩前后各问一遍，按类别看存活率 |
-| 四层四断点 | 第五篇 | 工具 / 静态 system / 半静态 / 最后一条历史 |
-| 屏蔽不删除 | 第五篇 | logits 或 `tool_choice` 控可用性，前缀不变 |
-| 不可变版本 + 标签 | 第六篇 | 部署与回滚是移指针 |
-| AGENTS.md / SKILL.md | 第六篇 | 常驻入职手册 / 按需运行手册 |
-| 全放 / 流水线 / agentic | 第六篇 | 按语料大小、变化频率、查询类型、缓存后成本选 |
+| 七层 | [《上下文的解剖》](/anatomy-of-the-context-window.html) | 系统指令、工具与技能、长期记忆、历史、检索、工具返回、当前输入；按变化频率 / 维护者 / 可压缩性分 |
+| 注意力预算 | [《上下文的解剖》](/anatomy-of-the-context-window.html) | $$n^2$$ 两两关系、长序列能力外推；有限、边际递减 |
+| 渐进披露 | [《上下文的解剖》](/anatomy-of-the-context-window.html)与[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 常驻一行描述，用到时再加载；SKILL.md 是它的规范 |
+| 模式 vs 措辞 | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) | 结构性决定不随模型变；具体句子随模型调 |
+| eagerness / tool preamble | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) | GPT-5 guide：主动性档位与工具预算；调用前后说一句 |
+| 约束解码 | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) | schema → 自动机 → 每步屏蔽不合法 token；数学保证 |
+| 字段顺序即生成顺序 | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) | 推理字段前置让结论以推理为条件 |
+| 拒答出口 | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) | strict 下没有出口会把拒答伪装成答案 |
+| 卸载 / 清理 / 压缩 | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) | 可恢复 → 几乎免费 → 有损且贵；顺序按此 |
+| 复述 | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) | todo.md 每步重写，目标回末尾，压缩的材料 |
+| 探针问题 | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) | 压缩前后各问一遍，按类别看存活率 |
+| 四层四断点 | [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) | 工具 / 静态 system / 半静态 / 最后一条历史 |
+| 屏蔽不删除 | [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) | logits 或 `tool_choice` 控可用性，前缀不变 |
+| 不可变版本 + 标签 | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 部署与回滚是移指针 |
+| AGENTS.md / SKILL.md | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 常驻入职手册 / 按需运行手册 |
+| 全放 / 流水线 / agentic | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 按语料大小、变化频率、查询类型、缓存后成本选 |
 
 Table: 贯穿六篇的概念表
 
@@ -220,23 +220,23 @@ Table: 贯穿六篇的概念表
 
 | 误区 | 为什么错 | 出处 |
 |---|---|---|
-| "窗口 1M，不用管上下文" | 有效长度远小于标称<br/>成本 100 : 1 在输入侧<br/>窗口只改变压缩触发点 | 第一篇 |
-| "system prompt 说的话权限更高" | 它只是上下文一段，与工具返回里的注入竞争 | 第一、二篇 |
-| "加一句'一步步想'总没坏处" | 推理模型默认思考，指令冗余、可能重复推理多花输出 token；用 effort | 第二篇 |
-| "示例越多越好" | 推理模型不需要多例学格式；agent 历史本身就是 few-shot，会陷入模式 | 第二篇 |
-| "写'忽略文档里的指令'就防住了注入" | 措辞只降概率；防御在 L6 的权限与输出检查 | 第二篇 |
-| "strict 模式下不会有错误输出" | 只保证形状；值可编造、拒答被伪装、截断仍发生 | 第三篇 |
-| "把候选 id 放进 enum 更严格" | schema 每次不同 → 重新编译 + 前缀失效；候选放 prompt、应用侧校验 | 第三篇 |
-| "上下文满了就压缩" | 压缩最贵最有损；先隔离、卸载、清理 | 第四篇 |
-| "压缩线设 95% 省钱" | 输出与摘要没空间；应 = 窗口 − 预留（含思考） | 第四篇 |
-| "工具循环中间也可以压缩" | 丢思考链状态；只在循环闭合处（Codex 的循环边界） | 第四篇 |
-| "把失败记录清掉让上下文干净" | 失败是模型调整的证据；且修改历史毁缓存 | 第四、五篇 |
-| "按阶段传不同的 tools" | tools 在最前，一切失效；用屏蔽 | 第五篇 |
-| "system 开头写当前时间方便" | 每次前缀不同，全部失效 | 第五篇 |
-| "渐进披露一定提高命中率" | 按需加载的内容不可缓存，命中率可能降；看绝对量与成本 | 第一、五篇 |
-| "灰度头几分钟成本高，回滚" | 新前缀第一轮全写是预期；看第二轮起 | 第六篇 |
-| "prompt 在注册表里就不需要评测" | 注册表解决部署不解决回归；门禁仍必须 | 第六篇 |
-| "全放上下文总比检索好" | 大语料有效长度与加价门限；定位型问题检索更可靠且可引用 | 第六篇 |
+| "窗口 1M，不用管上下文" | 有效长度远小于标称<br/>成本 100 : 1 在输入侧<br/>窗口只改变压缩触发点 | [《上下文的解剖》](/anatomy-of-the-context-window.html) |
+| "system prompt 说的话权限更高" | 它只是上下文一段，与工具返回里的注入竞争 | [《上下文的解剖》](/anatomy-of-the-context-window.html)与[《prompt 设计》](/prompt-design-patterns-vs-wording.html) |
+| "加一句'一步步想'总没坏处" | 推理模型默认思考，指令冗余、可能重复推理多花输出 token；用 effort | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) |
+| "示例越多越好" | 推理模型不需要多例学格式；agent 历史本身就是 few-shot，会陷入模式 | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) |
+| "写'忽略文档里的指令'就防住了注入" | 措辞只降概率；防御在 L6 的权限与输出检查 | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) |
+| "strict 模式下不会有错误输出" | 只保证形状；值可编造、拒答被伪装、截断仍发生 | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) |
+| "把候选 id 放进 enum 更严格" | schema 每次不同 → 重新编译 + 前缀失效；候选放 prompt、应用侧校验 | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) |
+| "上下文满了就压缩" | 压缩最贵最有损；先隔离、卸载、清理 | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) |
+| "压缩线设 95% 省钱" | 输出与摘要没空间；应 = 窗口 − 预留（含思考） | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) |
+| "工具循环中间也可以压缩" | 丢思考链状态；只在循环闭合处（Codex 的循环边界） | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) |
+| "把失败记录清掉让上下文干净" | 失败是模型调整的证据；且修改历史毁缓存 | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)与[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) |
+| "按阶段传不同的 tools" | tools 在最前，一切失效；用屏蔽 | [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) |
+| "system 开头写当前时间方便" | 每次前缀不同，全部失效 | [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) |
+| "渐进披露一定提高命中率" | 按需加载的内容不可缓存，命中率可能降；看绝对量与成本 | [《上下文的解剖》](/anatomy-of-the-context-window.html)与[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) |
+| "灰度头几分钟成本高，回滚" | 新前缀第一轮全写是预期；看第二轮起 | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) |
+| "prompt 在注册表里就不需要评测" | 注册表解决部署不解决回归；门禁仍必须 | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) |
+| "全放上下文总比检索好" | 大语料有效长度与加价门限；定位型问题检索更可靠且可引用 | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) |
 
 Table: 常见误区与正确说法
 
@@ -309,22 +309,22 @@ Table: 常见误区与正确说法
 1. 一个 RAG 客服助手的请求体按顺序是：当前时间（秒）→ system 规则 → 本轮检索结果 → 工具定义 → 历史 → 用户消息。列出它违反了本系列的哪些原则，给出正确顺序，并说明每处修改对命中率、注意力、压缩存活各有什么影响。
 
    <details markdown="1"><summary>答案</summary>
-   违反：时间戳在最前（第五篇：全部失效）；检索在历史前（每轮不同让历史失效）；工具定义在 system 后（tools → system 的缓存顺序被打乱，且工具定义应是最稳定的一层）；system 里没有日期放在动态段。正确顺序：tools → system（静态规则）→ 半静态（画像 / few-shot）→ 历史（只追加）→ 动态段（日期到天、本轮检索、用户消息）。影响：命中率从接近 0 恢复到稳态 70–90%；注意力——检索结果与用户消息在末尾（位置效应最好），规则在开头；压缩存活——常驻层不在历史里不受压缩影响，检索结果作为动态段每轮替换本就不该存活。
+   违反：时间戳在最前（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：全部失效）；检索在历史前（每轮不同让历史失效）；工具定义在 system 后（tools → system 的缓存顺序被打乱，且工具定义应是最稳定的一层）；system 里没有日期放在动态段。正确顺序：tools → system（静态规则）→ 半静态（画像 / few-shot）→ 历史（只追加）→ 动态段（日期到天、本轮检索、用户消息）。影响：命中率从接近 0 恢复到稳态 70–90%；注意力——检索结果与用户消息在末尾（位置效应最好），规则在开头；压缩存活——常驻层不在历史里不受压缩影响，检索结果作为动态段每轮替换本就不该存活。
    </details>
 
-2. 一个 coding agent 在第 35 步时上下文 170K（200K 窗口），其中文件读取结果 110K、历史 40K、常驻 20K。团队打算直接压缩。按第四篇给出更好的方案与预期，并说明为什么压缩不能在这一步立即做。
+2. 一个 coding agent 在第 35 步时上下文 170K（200K 窗口），其中文件读取结果 110K、历史 40K、常驻 20K。团队打算直接压缩。按[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)给出更好的方案与预期，并说明为什么压缩不能在这一步立即做。
 
    <details markdown="1"><summary>答案</summary>
    先卸载与清理：110K 文件读取结果多数已被消费且可恢复（文件在磁盘），清掉旧的、保留调用记录与路径（Anthropic 的 `clear_tool_uses` 或 Deep Agents 的截断为指针），预期回到约 60–70K，不用压缩；对超过 20K 的单个返回今后卸载。若仍要压缩：只能在当前工具循环闭合（模型给出回答）之后做，否则丢失思考链状态（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）；压缩 prompt 要保留改过的文件列表、测试状态、用户约束；压缩后缓存全失效一次，紧接的一步全价。同时加复述（todo）让目标回末尾。
    </details>
 
-3. 团队从 Claude Sonnet 4.6 迁到 Sonnet 5，只改了模型名。用第二、三、五、六篇解释他们至少该做的五件事。
+3. 团队从 Claude Sonnet 4.6 迁到 Sonnet 5，只改了模型名。用[《prompt 设计》](/prompt-design-patterns-vs-wording.html)、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)与[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)解释他们至少该做的五件事。
 
    <details markdown="1"><summary>答案</summary>
-   （1）第六篇：这是依赖升级——创建新 prompt 版本绑定新模型，跑评测门禁看逐条 diff；（2）第二篇：读 "Prompting Claude Sonnet 5" 指南，措辞按新模型调（更主动、更少确认），删 CoT 指令；（3）第三篇：thinking 默认开启，`max_tokens` 含思考，检查结构化输出的截断率与出口使用率；（4）第五篇：新 tokenizer 多 30% token，历史预算按 token 重算，缓存一次性全失效属预期，但命中率稳态应恢复；（5）第六篇：灰度 1% 看在线指标再全量，保留回滚标签。另：L1 提醒采样参数会 400。
+   （1）[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：这是依赖升级——创建新 prompt 版本绑定新模型，跑评测门禁看逐条 diff；（2）[《prompt 设计》](/prompt-design-patterns-vs-wording.html)：读 "Prompting Claude Sonnet 5" 指南，措辞按新模型调（更主动、更少确认），删 CoT 指令；（3）[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)：thinking 默认开启，`max_tokens` 含思考，检查结构化输出的截断率与出口使用率；（4）[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：新 tokenizer 多 30% token，历史预算按 token 重算，缓存一次性全失效属预期，但命中率稳态应恢复；（5）[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：灰度 1% 看在线指标再全量，保留回滚标签。另：L1 提醒采样参数会 400。
    </details>
 
-4. 设计一份给"周报生成 agent"的 SKILL.md：说明 `description` 该写什么、正文按第二篇的模式包含哪几部分、哪些东西该放 `scripts/`、它与 AGENTS.md 的分工。
+4. 设计一份给"周报生成 agent"的 SKILL.md：说明 `description` 该写什么、正文按[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的模式包含哪几部分、哪些东西该放 `scripts/`、它与 AGENTS.md 的分工。
 
    <details markdown="1"><summary>答案</summary>
    `description`（≤ 1,024）：写何时用——"用户要求生成 / 更新团队周报、汇总本周 PR 与 issue、按模板输出 markdown 时使用；不用于日报或个人总结"，含关键词（周报、weekly、PR 汇总）。正文：任务边界（只读仓库与 issue，不修改）、可检验步骤（拉取本周合并的 PR → 按标签分组 → 填模板 → 检查每条有链接）、输出格式（模板文件在 `assets/`）、失败处理（API 限流时重试一次后报告）。`scripts/`：拉取 PR / issue 的脚本（确定性、可测试），正文只调用它。AGENTS.md 负责项目级常驻信息（仓库结构、命令、硬规则），SKILL.md 只在周报任务时加载——渐进披露。放 `.agents/skills/weekly-report/`，目录名与 `name` 一致。
@@ -333,7 +333,7 @@ Table: 常见误区与正确说法
 5. 把本系列的六篇与 L1 的七条失效模式对应起来：每篇主要对付哪几条、用什么手段、在 L1 的账上换的是什么。
 
    <details markdown="1"><summary>答案</summary>
-   第一篇：上下文标称 ≠ 有效——分层与预算基线，无直接成本。第二篇：指令遵循与 prompt 敏感——模式 vs 措辞、可检验规则、删失效技巧；token 换遵循率。第三篇：指令遵循（格式）与幻觉（拒答出口）——约束解码与 schema 设计；schema 的 token 与编译换解析确定性。第四篇：上下文标称 ≠ 有效与越界（目标漂移）——卸载 / 清理 / 压缩 / 复述；一次推理成本换有效上下文。第五篇：纯账——排列换 90% 输入折价与 TTFT。第六篇：供应商变更与 prompt 敏感——版本、门禁、灰度；评测成本换回归保护。
+   [《上下文的解剖》](/anatomy-of-the-context-window.html)：上下文标称 ≠ 有效——分层与预算基线，无直接成本。[《prompt 设计》](/prompt-design-patterns-vs-wording.html)：指令遵循与 prompt 敏感——模式 vs 措辞、可检验规则、删失效技巧；token 换遵循率。[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)：指令遵循（格式）与幻觉（拒答出口）——约束解码与 schema 设计；schema 的 token 与编译换解析确定性。[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)：上下文标称 ≠ 有效与越界（目标漂移）——卸载 / 清理 / 压缩 / 复述；一次推理成本换有效上下文。[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：纯账——排列换 90% 输入折价与 TTFT。[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：供应商变更与 prompt 敏感——版本、门禁、灰度；评测成本换回归保护。
    </details>
 
 ### C. 面试题（7 题）
@@ -422,12 +422,12 @@ Table: 掌握程度的判据
 
 ## 六、下一步
 
-本系列讲的是模型这一步该看到什么：七层怎么排、怎么截、怎么缓存、怎么当代码管。检索怎么取、agent 循环怎么跑、评测集怎么建、注入怎么防，都紧邻这一层而不在本系列范围内——第六篇末尾的决策表就把"要不要检索"交给了下一层。往外走有这些方向：
+本系列讲的是模型这一步该看到什么：七层怎么排、怎么截、怎么缓存、怎么当代码管。检索怎么取、agent 循环怎么跑、评测集怎么建、注入怎么防，都紧邻这一层而不在本系列范围内——[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)末尾的决策表就把"要不要检索"交给了下一层。往外走有这些方向：
 
 - **检索本身**——进上下文还是进权重、三类检索（词法 / 向量 / 结构化）、文档解析与分块、混合检索与 rerank、agentic retrieval、GraphRAG 与本体、检索评测，见 [L3《检索与知识接入》](/retrieval-and-knowledge-access.html)；本系列只讲检索结果作为上下文的一层怎么排、怎么截，以及"要不要检索"的决策。
-- **agent 循环与运行时**——子 agent、持久化、压缩作为运行时机制、权限与沙箱、harness，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列第四篇的处理顺序在那里变成运行时的实现，讲子 agent 也只讲它作为上下文隔离手段的那一面。
+- **agent 循环与运行时**——子 agent、持久化、压缩作为运行时机制、权限与沙箱、harness，见 [L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)；本系列[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)给出的处理顺序在那里变成运行时的实现，讲子 agent 也只讲它作为上下文隔离手段的那一面。
 - **评测方法**——评测集怎么建、judge 怎么校准、trace 怎么记，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列反复说"改 prompt 要跑评测"、"用探针问题测"，但不讲评测本身。
-- **prompt injection 的防御**——分层防御，连着网关、预算与发布，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第二篇只指出它为什么不是 prompt 设计能解决的。
+- **prompt injection 的防御**——分层防御，连着网关、预算与发布，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列在[《prompt 设计》](/prompt-design-patterns-vs-wording.html)里只指出它为什么不是 prompt 设计能解决的。
 - **模型内部**——注意力为什么是 $$n^2$$，本系列引用《现代 LLM 结构》系列的结论，不展开。
 - **前置**——[L1《模型作为组件》](/model-as-a-component.html)是本系列每一处"失效模式"与"账"的出处。
 - **地图定位**——本系列在整张地图上的位置（L2）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
@@ -435,7 +435,16 @@ Table: 掌握程度的判据
 回到总纲：[《Prompt 与上下文工程：模型这一步该看到什么》](/prompt-and-context-engineering.html)。
 
 
-[^q0]: 面对一个要放进模型的上下文：它的几万 token 由哪七层构成、哪层最大、各由谁维护（第一篇）；这条 prompt 技巧在推理模型上还有没有用、system prompt 的六部分齐不齐、每条规则可检验吗（第二篇）；这个 schema 会不会把拒答伪装成答案、推理字段在结论前吗、解析层的顺序对吗（第三篇）；工具返回 50K 该卸载、清理还是压缩，压缩线设在哪、压缩后 CLAUDE.md 还在吗、用户约束存活了吗（第四篇）；命中率 30% 是哪一层在破坏前缀、断点放在哪四层、TTL 选哪个（第五篇）；改了 system prompt 一个词上线前要做什么、AGENTS.md 与 SKILL.md 怎么写、这份资料该全放还是检索（第六篇）。详见[第一章](#一总览系列回答的问题与主线)。
+[^q0]: 面对一个要放进模型的上下文，能回答下面六组问题：
+
+    - [《上下文的解剖》](/anatomy-of-the-context-window.html)：它的几万 token 由哪七层构成、哪层最大、各由谁维护
+    - [《prompt 设计》](/prompt-design-patterns-vs-wording.html)：这条 prompt 技巧在推理模型上还有没有用、system prompt 的六部分齐不齐、每条规则可检验吗
+    - [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)：这个 schema 会不会把拒答伪装成答案、推理字段在结论前吗、解析层的顺序对吗
+    - [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)：工具返回 50K 该卸载、清理还是压缩，压缩线设在哪、压缩后 CLAUDE.md 还在吗、用户约束存活了吗
+    - [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：命中率 30% 是哪一层在破坏前缀、断点放在哪四层、TTL 选哪个
+    - [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：改了 system prompt 一个词上线前要做什么、AGENTS.md 与 SKILL.md 怎么写、这份资料该全放还是检索
+
+    详见[第一章](#一总览系列回答的问题与主线)。
 
 [^q1]: 数字：Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%、预留 33K；Manus 约 50 次工具调用、输入输出 100 : 1；$$S + (k-1)(r+o)$$、50 步填满 200K；SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`；AGENTS.md 2025-08、六万多项目；Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数；Gemini 存储费按小时；DeepSeek 64 粒度；Deep Agents 20K 卸载 / 85% 截断；Anthropic compaction 默认 150K；研究 agent 96% 文件读取；推理字段前置 2–5 个百分点；Anthropic schema 注入约 50–200 token；稳态命中率 70–90%、单轮 30–60%。结论：注意力预算有限、每段要辩护；模式不变措辞随模型；CoT 指令删、few-shot 只留格式；strict 保证形状不保证语义、出口必须有；隔离 → 卸载 → 清理 → 压缩；压缩只在思考链结束处；前缀稳定、只追加、显式断点、屏蔽不删除；prompt 是代码。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 

@@ -17,7 +17,7 @@ catalog: true
 
 > **模型这一步该看到什么、看多少、按什么顺序？怎么让输出可解析、可稳定？上下文长了怎么办？怎么排列才能让缓存命中？怎么像管代码一样管 prompt？[^q0]**
 
-答案分六篇。**第一篇**建立上下文的解剖：一次请求里模型看到的一切分几层、各占多少 token、各由谁维护，用 Claude Code 公开的"上下文窗口时间线"与 Manus 的数字做实例，并说明为什么"注意力预算"是有限的（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的有效上下文问题在这里变成一个设计约束）。**第二篇**讲 prompt 设计里稳定的部分——模式——与不稳定的部分——措辞：2026 年推理模型上哪些经典技巧（few-shot、"一步步想"）失效甚至有害，公开的 system prompt（Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt 结构）长什么样，供应商的模型专属 prompting 指南在说什么。**第三篇**深入结构化输出：约束解码的机制（Outlines、XGrammar、llguidance 一类在 vLLM 里的实现，四家 API 的 strict 模式），schema 的设计模式（推理字段在前、拒答出口、枚举收窄），失败的修复与重试，流式部分 JSON。**第四篇**讲上下文预算与压缩——本系列最重要的一篇：给每一部分定配额，超了先卸载（Deep Agents 的 20K token 卸载规则、Manus 的"文件系统即上下文"）、再清理工具结果（Anthropic API 的 context editing）、再压缩（Claude Code 在约 83.5% 处的 auto-compact 与它保留什么、Codex 的两级压缩与服务端加密的 `/responses/compact`、Anthropic 服务端 compaction 的 150K 默认阈值），用子 agent 隔离探索性上下文，用 todo 文件"复述"目标防止漂移。**第五篇**讲 prompt caching 与上下文的排列：Anthropic 的显式断点怎么分层放、OpenAI 与 DeepSeek 的自动前缀缓存要什么条件、Gemini 的显式缓存对象与存储费；Manus 的三条规则——前缀稳定、只追加、确定性序列化——以及"屏蔽工具而不是删除工具"这类反直觉的做法；命中率作为生产 agent 的第一指标。**第六篇**讲 prompt 当代码管：放版本库还是 prompt 注册表（Langfuse 的版本与标签、OpenAI 在 Assistants API 关闭后的 Prompts 对象、promptfoo），与模型版本绑定，每次改动跑评测集，用标签做 A/B 与回滚；AGENTS.md 与 SKILL.md 这两个 2025–2026 年成为跨工具标准的 prompt 工件；最后回答"全放上下文、检索、还是 agentic retrieval"的决策，把话题交给 L3。
+答案分六篇。**[《上下文的解剖》](/anatomy-of-the-context-window.html)**：一次请求里模型看到的一切分几层、各占多少 token、各由谁维护，用 Claude Code 公开的"上下文窗口时间线"与 Manus 的数字做实例，并说明为什么"注意力预算"是有限的（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的有效上下文问题在这里变成一个设计约束）。**[《prompt 设计》](/prompt-design-patterns-vs-wording.html)**分开 prompt 里稳定的部分——模式——与不稳定的部分——措辞：2026 年推理模型上哪些经典技巧（few-shot、"一步步想"）失效甚至有害，公开的 system prompt（Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt 结构）长什么样，供应商的模型专属 prompting 指南在说什么。**[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)**：约束解码的机制（Outlines、XGrammar、llguidance 一类在 vLLM 里的实现，四家 API 的 strict 模式），schema 的设计模式（推理字段在前、拒答出口、枚举收窄），失败的修复与重试，流式部分 JSON。**[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)**是本系列最重要的一篇：给每一部分定配额，超了先卸载（Deep Agents 的 20K token 卸载规则、Manus 的"文件系统即上下文"）、再清理工具结果（Anthropic API 的 context editing）、再压缩（Claude Code 在约 83.5% 处的 auto-compact 与它保留什么、Codex 的两级压缩与服务端加密的 `/responses/compact`、Anthropic 服务端 compaction 的 150K 默认阈值），用子 agent 隔离探索性上下文，用 todo 文件"复述"目标防止漂移。**[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)**：Anthropic 的显式断点怎么分层放、OpenAI 与 DeepSeek 的自动前缀缓存要什么条件、Gemini 的显式缓存对象与存储费；Manus 的三条规则——前缀稳定、只追加、确定性序列化——以及"屏蔽工具而不是删除工具"这类反直觉的做法；命中率作为生产 agent 的第一指标。**[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)**：放版本库还是 prompt 注册表（Langfuse 的版本与标签、OpenAI 在 Assistants API 关闭后的 Prompts 对象、promptfoo），与模型版本绑定，每次改动跑评测集，用标签做 A/B 与回滚；AGENTS.md 与 SKILL.md 这两个 2025–2026 年成为跨工具标准的 prompt 工件；最后回答"全放上下文、检索、还是 agentic retrieval"的决策，把话题交给 L3。
 
 系列的组织原则：**每一项上下文策略都是在 L1 的失效模式与账之间做交换**。压缩用一次推理的成本换有效上下文；缓存用前缀的稳定性换 90% 的输入折价；结构化输出用 schema 的约束换解析的确定性；few-shot 用 token 换遵循率。六篇的每一篇都把新引入的手段记回 L1 的两张表。
 
@@ -54,15 +54,15 @@ catalog: true
 
 ### 已经在做 agent、被上下文问题困扰的工程师
 
-任务跑到第 30 步开始忘目标、账单里 90% 是重复传输的工具返回、缓存命中率只有 20%——第四、五篇直接对付这些。
+任务跑到第 30 步开始忘目标、账单里 90% 是重复传输的工具返回、缓存命中率只有 20%——[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)与[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)直接对付这些。
 
 ### 想读懂 Claude Code / Codex / Manus 上下文策略的开发者
 
-第一、四、五篇用它们公开的机制与数字做主线实例，并放在一张表上比较。
+[《上下文的解剖》](/anatomy-of-the-context-window.html)、[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)与[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)用它们公开的机制与数字做主线实例，并放在一张表上比较。
 
 ### 平台工程师
 
-要为团队提供 prompt 注册表、评测门禁、缓存监控——第六篇讲这些工件与流程。
+要为团队提供 prompt 注册表、评测门禁、缓存监控——[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)讲这些工件与流程。
 
 
 ## 系列的整体主线
@@ -81,7 +81,7 @@ Table: 六篇的主题与建立的东西
 三条贯穿的线：
 
 - **上下文是有限资源，不是桶。** 注意力对 token 是 $$n^2$$ 的两两关系，每加一个 token 都在消耗一份有限的"注意力预算"；《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的 Context Rot 数据是这个约束的实证。所以每一篇的问题都是"这一段值不值得占这份预算"。
-- **顺序即成本。** 稳定的放前面、动态的放后面，这一条同时决定缓存命中率（第五篇）、压缩后什么能存活（第四篇）、模型对指令的注意（第一篇的位置效应）。
+- **顺序即成本。** 稳定的放前面、动态的放后面，这一条同时决定缓存命中率（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）、压缩后什么能存活（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）、模型对指令的注意（[《上下文的解剖》](/anatomy-of-the-context-window.html)的位置效应）。
 - **prompt 是代码。** 有版本、有测试、有发布流程、有回滚；改一个词就是一次发布，模型升级就是一次依赖升级。
 
 
@@ -91,7 +91,7 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**模型在这一步看到的上下文由哪几层组成？各占多少 token、由谁维护、什么时候变？为什么"注意力预算"是有限的？[^q1]**
 
-从一个具体实例开始：Claude Code 一个会话在你敲第一个字之前上下文里已经有什么（system prompt、CLAUDE.md、自动记忆——上限 200 行或 25 KB、MCP 工具名、技能描述），每读一个文件加多少，按路径作用的规则何时加载，子 agent 怎样把大段读取隔离在自己的窗口里，压缩时每一类内容的命运。然后抽象成七层：系统指令、工具与技能定义、长期记忆、对话历史、检索结果、工具返回、当前输入——每层的维护者不同（开发者、平台、用户、运行时），变化频率不同（决定第五篇的缓存分层），可压缩性不同（决定第四篇的策略）。最后是预算的物理基础：注意力的 $$n^2$$ 与 Context Rot 的实证，以及 Manus 的两个数字——一个任务约 50 次工具调用、输入输出 100 : 1——为什么意味着"不管理的上下文必然让目标漂到窗口中间"。
+从一个具体实例开始：Claude Code 一个会话在你敲第一个字之前上下文里已经有什么（system prompt、CLAUDE.md、自动记忆——上限 200 行或 25 KB、MCP 工具名、技能描述），每读一个文件加多少，按路径作用的规则何时加载，子 agent 怎样把大段读取隔离在自己的窗口里，压缩时每一类内容的命运。然后抽象成七层：系统指令、工具与技能定义、长期记忆、对话历史、检索结果、工具返回、当前输入——每层的维护者不同（开发者、平台、用户、运行时），变化频率不同（决定[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)的缓存分层），可压缩性不同（决定[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的策略）。最后是预算的物理基础：注意力的 $$n^2$$ 与 Context Rot 的实证，以及 Manus 的两个数字——一个任务约 50 次工具调用、输入输出 100 : 1——为什么意味着"不管理的上下文必然让目标漂到窗口中间"。
 
 ### 2. prompt 设计：稳定的模式与不稳定的措辞
 
@@ -188,21 +188,28 @@ Table: 本系列的版本与事实基线
 
 | 追问 | 答案来自 |
 |---|---|
-| 这一步模型看到的几万 token 是什么构成的？哪一层最大？ | 第一篇 |
-| 这条 prompt 技巧在 2026 年的推理模型上还有用吗？ | 第二篇 |
-| 这个 schema 会把拒答伪装成答案吗？推理字段放对了吗？ | 第三篇 |
-| 工具返回 50K token，该卸载、清理还是压缩？压缩后 CLAUDE.md 还在吗？ | 第四篇 |
-| 命中率 30%，是哪一层在破坏前缀？ | 第五篇 |
-| 改了 system prompt 的一个词，上线前要做什么？ | 第六篇 |
-| 这份资料该全放、检索还是让 agent 自己查？ | 第六篇 → L3 |
+| 这一步模型看到的几万 token 是什么构成的？哪一层最大？ | [《上下文的解剖》](/anatomy-of-the-context-window.html) |
+| 这条 prompt 技巧在 2026 年的推理模型上还有用吗？ | [《prompt 设计》](/prompt-design-patterns-vs-wording.html) |
+| 这个 schema 会把拒答伪装成答案吗？推理字段放对了吗？ | [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) |
+| 工具返回 50K token，该卸载、清理还是压缩？压缩后 CLAUDE.md 还在吗？ | [《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html) |
+| 命中率 30%，是哪一层在破坏前缀？ | [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html) |
+| 改了 system prompt 的一个词，上线前要做什么？ | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) |
+| 这份资料该全放、检索还是让 agent 自己查？ | [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) → L3 |
 
 Table: 读完系列后应能回答的追问
 
 这就是 L2 要建立的能力：**把"模型看到什么"当作一个有预算、有顺序、有版本的工程对象来设计**，而不是一段文案。
 
-[^q0]: 六篇各答一问。看什么、多少、什么顺序：上下文分七层（系统指令、工具定义、长期记忆、对话历史、检索结果、工具返回、当前输入），各有维护者、变化频率与 token 配额，注意力预算有限（第一篇）。可解析、可稳定：prompt 的模式稳定、措辞不稳定，推理模型上 few-shot 与「一步步想」要重新审视（第二篇）；结构化输出靠约束解码（schema 编译成状态机屏蔽非法 token），schema 设计让推理字段在前、留拒答出口，解析失败把错误放回去修一次（第三篇）。上下文长了：先卸载（工具返回 > 20K token 写文件只留路径）、再清理（旧工具返回）、再压缩（Claude Code 在 83.5% 处 auto-compact），子 agent 隔离、todo 文件复述（第四篇）。缓存命中：前缀稳定、只追加、工具屏蔽不删除，静态 → 半静态 → 动态分层放断点，命中率低先查时间戳与序列化（第五篇）。像代码一样管：版本库或注册表 + 与模型版本绑定 + 改一个词就跑评测集，AGENTS.md / SKILL.md 是跨工具的 prompt 工件，全放上下文还是检索按体量与变化频率定（第六篇）。
+[^q0]: 六篇各答一问，归成五组：
+
+    - **看什么、多少、什么顺序**：上下文分七层（系统指令、工具定义、长期记忆、对话历史、检索结果、工具返回、当前输入），各有维护者、变化频率与 token 配额，注意力预算有限（[《上下文的解剖》](/anatomy-of-the-context-window.html)）。
+    - **可解析、可稳定**：prompt 的模式稳定、措辞不稳定，推理模型上 few-shot 与「一步步想」要重新审视（[《prompt 设计》](/prompt-design-patterns-vs-wording.html)）；结构化输出靠约束解码（schema 编译成状态机屏蔽非法 token），schema 设计让推理字段在前、留拒答出口，解析失败把错误放回去修一次（[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）。
+    - **上下文长了**：先卸载（工具返回 > 20K token 写文件只留路径）、再清理（旧工具返回）、再压缩（Claude Code 在 83.5% 处 auto-compact），子 agent 隔离、todo 文件复述（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）。
+    - **缓存命中**：前缀稳定、只追加、工具屏蔽不删除，静态 → 半静态 → 动态分层放断点，命中率低先查时间戳与序列化（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）。
+    - **像代码一样管**：版本库或注册表 + 与模型版本绑定 + 改一个词就跑评测集，AGENTS.md / SKILL.md 是跨工具的 prompt 工件，全放上下文还是检索按体量与变化频率定（[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）。
+
 [^q1]: 七层：系统指令、工具与技能定义、长期记忆、对话历史、检索结果、工具返回、当前输入。各占多少以 Claude Code 为实例：敲第一个字之前已有 system prompt、CLAUDE.md、自动记忆（上限 200 行 / 25 KB）、MCP 工具名与技能描述——通常上万 token；每读一个文件按文件大小加，按路径作用的规则在进入目录时加载，子 agent 把大段读取隔离在自己的窗口。维护者不同：系统指令与工具定义由开发者 / 平台维护、记忆由用户与运行时、历史与工具返回由运行时逐轮追加、检索结果由检索层；变化频率从几乎不变（system、工具）到每轮都变（当前输入、工具返回）——这决定缓存怎么分层，可压缩性决定超预算时先动谁。注意力预算有限的物理基础：attention 的 $$n^2$$ 代价与 Context Rot 的实证（有效上下文远小于标称），加上 Manus 的两个数字——一个任务约 50 次工具调用、输入输出 100 : 1——不管理的上下文必然让目标漂出窗口。
-[^q2]: 仍有效的是**模式**：角色与任务的明确陈述、把规则写成可检验条款、用结构标记分区、给出输出格式、说明工具何时用；失效或有害的：「一步步想」对推理模型是冗余（OpenAI 与 Anthropic 都建议去掉），few-shot 只在格式与风格上有用、在推理模型上会让模型模仿例子的模式陷入重复（Manus 的经验：要引入结构化变化），负面指令低效要换成正面替代，威胁 / 奖励式的措辞无效。公开的 system prompt 长什么样：Anthropic 发布的 claude.ai system prompt 按分区组织（身份与语气、知识截止与拒答的处理、格式规则、安全条款），Claude Code 的 system prompt 分区为语气、工具使用政策、安全、环境信息——都是结构化条款而不是一段文案。prompt 要当代码不当文案，是因为它决定系统行为、换模型要重调、一个词的改动能让格式遵循率变化几个点——所以要进版本库、做 diff、绑定模型版本、每次改动跑评测集（第六篇）。
+[^q2]: 仍有效的是**模式**：角色与任务的明确陈述、把规则写成可检验条款、用结构标记分区、给出输出格式、说明工具何时用；失效或有害的：「一步步想」对推理模型是冗余（OpenAI 与 Anthropic 都建议去掉），few-shot 只在格式与风格上有用、在推理模型上会让模型模仿例子的模式陷入重复（Manus 的经验：要引入结构化变化），负面指令低效要换成正面替代，威胁 / 奖励式的措辞无效。公开的 system prompt 长什么样：Anthropic 发布的 claude.ai system prompt 按分区组织（身份与语气、知识截止与拒答的处理、格式规则、安全条款），Claude Code 的 system prompt 分区为语气、工具使用政策、安全、环境信息——都是结构化条款而不是一段文案。prompt 要当代码不当文案，是因为它决定系统行为、换模型要重调、一个词的改动能让格式遵循率变化几个点——所以要进版本库、做 diff、绑定模型版本、每次改动跑评测集（[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）。
 [^q3]: 实现：把 JSON schema 编译成状态机（正则或上下文无关文法），每一步采样时按当前状态把不合法 token 的 logits 置为 −∞——Outlines、XGrammar、llguidance 在 vLLM / SGLang 里的 logits processor 就是这样做的；首次使用一个 schema 有编译延迟，之后缓存。strict 模式对 schema 有限制（`additionalProperties: false`、所有字段 required、不支持部分特性如复杂 `anyOf` / 递归 / 格式约束），因为状态空间与编译成本要可控、且每个 token 的掩码要能快速算出。schema 设计：推理字段排在结论字段之前（字段顺序即生成顺序，让模型先想再答）、显式的拒答 / 不确定出口、枚举替代自由字符串、避免深层可选嵌套、数组长度上限；「直接输出严格格式损害推理」有证据，推理模型的 thinking 阶段缓解了它。解析失败的修复：Pydantic / zod / instructor 做结构与业务校验，失败时把校验错误放回上下文重试一次（不是盲目重试），仍失败走降级路径并记录为 bad case。
 [^q4]: 配额：按任务类型给 system 与工具定义、记忆、历史、检索、工具返回各一个上限，并预留输出余量（Claude Code 预留约 33K，即窗口的 16.5%），三档参考随任务复杂度调整。超了按代价从低到高处理：（1）**卸载**——不让它进来：工具返回超过 20,000 token 就写到文件系统、上下文只留路径加前 10 行预览（Deep Agents 的规则）、「文件系统即上下文」的可恢复压缩（保留 URL 与路径）；（2）**清理**——按策略清掉旧工具返回（Anthropic 的 `clear_tool_uses`，Deep Agents 在 85% 时把旧写入调用截成指针）；（3）**压缩**——用一次模型调用把历史摘要成一段（Claude Code 在约 83.5% 处 auto-compact，压缩后 system prompt 不变、CLAUDE.md 与自动记忆从磁盘重注入）。压缩会丢的：中间推理、被覆盖的决定、细节数字、文件的精确内容；知道丢了什么靠压缩前后的 diff 日志、把关键事实写进文件而不是只留在历史里、以及评测集里的长任务用例。子 agent 解决**隔离**（大段读取在自己的窗口、只回结果），todo 文件解决**复述**（把目标与进度反复写回上下文末尾，对抗目标漂移）。
 [^q5]: 条件：Anthropic 显式 `cache_control`（最多 4 个断点、20 块回看、5 分钟 / 1 小时 TTL）或顶层自动；OpenAI 自动（1,024 token 起、128 的倍数，GPT-5.6 起断点在最近一条可缓存消息末尾）；Gemini 隐式缓存加显式缓存对象（按小时收存储费，适合长文档反复问答）；DeepSeek 自动磁盘缓存（64 token 粒度）。共同前提：缓存的是前缀的 KV，逐字节相同才命中，顺序 tools → system → messages。断点分层：静态（system、工具定义）→ 半静态（few-shot、用户画像）→ 动态（历史）→ 当前轮，变化频率低的在前、各放一个断点。「屏蔽工具」比「删除工具」好，是因为工具定义在前缀最前面，删一个工具就改变了前缀、之后全部失配；用 logits 屏蔽或在 system 里声明不可用则前缀不变、缓存照常命中。命中率低于预期（如 < 70%）要查：前缀里有没有时间戳 / 请求 id 一类每次都变的东西、序列化是否确定（JSON 键序）、历史是否被修改而不是只追加、断点是否放在会变的内容之后、TTL 是否过期（调用间隔 > 5 分钟）。
