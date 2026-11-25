@@ -115,7 +115,7 @@ flowchart LR
 
 Table: 运行时参数与 constexpr 参数
 
-`constexpr` 是 Triton 与 C++ 模板参数的对应物：`BLOCK_M=128` 编出来的 kernel 里，所有 shape 都是字面量 `128`，`tl.arange(0, BLOCK_M)` 的上界是一个属性而不是一个操作数（`TT_MakeRangeOp` 的 `I32Attr:$start, I32Attr:$end`）。这也是为什么张量的 shape 必须是 `constexpr`：MLIR 的 `tensor<128x32xbf16>` 类型要求维度是编译期常量，编译器所有的 layout 推理（第七篇）都建立在 shape 已知之上。
+`constexpr` 是 Triton 与 C++ 模板参数的对应物：`BLOCK_M=128` 编出来的 kernel 里，所有 shape 都是字面量 `128`，`tl.arange(0, BLOCK_M)` 的上界是一个属性而不是一个操作数（`TT_MakeRangeOp` 的 `I32Attr:$start, I32Attr:$end`）。这也是为什么张量的 shape 必须是 `constexpr`：MLIR 的 `tensor<128x32xbf16>` 类型要求维度是编译期常量，编译器所有的 layout 推理（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)）都建立在 shape 已知之上。
 
 ### 3. 源码哈希与依赖
 
@@ -136,7 +136,7 @@ flowchart TB
     hit{"kernel_cache#91;key#93; 命中？"}
     pack["_pack_args → signature · constexprs · attrs"]
     src["ASTSource(fn, signature, constexprs, attrs)"]
-    compile["triton.compile(src, target, options)<br/>（磁盘缓存再查一次，第十一篇）"]
+    compile["triton.compile(src, target, options)<br/>（磁盘缓存再查一次，见《缓存、运行时与 AMD 对照》）"]
     launch["kernel.run(grid, stream, …实参)"]
     args --> binder --> key --> hit
     hit -- "否" --> pack --> src --> compile --> launch
@@ -185,7 +185,7 @@ Table: 一次调用的 specialization 列表
 
 三件事值得停一下：
 
-1. **等于 1 的整数被提升为 `constexpr`**。`stride_ak = 1` 意味着 A 是行优先、K 方向连续。如果它只是一个 `i32` 参数，编译器无法知道 `offs_k * stride_ak` 是连续的，第六篇的 AxisInfo 会把 contiguity 算成 1，第七篇的 Coalesce 就选不出向量化的 layout。把 1 烧进 IR 之后，`offs_k * 1` 被折叠成 `offs_k`，连续性一路可见。代价是：传 stride 为 1 和不为 1 的张量会编出两个 kernel。这是 Triton 前端最重要的一个"特化即优化"的决定。
+1. **等于 1 的整数被提升为 `constexpr`**。`stride_ak = 1` 意味着 A 是行优先、K 方向连续。如果它只是一个 `i32` 参数，编译器无法知道 `offs_k * stride_ak` 是连续的，[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)的 AxisInfo 会把 contiguity 算成 1，[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)的 Coalesce 就选不出向量化的 layout。把 1 烧进 IR 之后，`offs_k * 1` 被折叠成 `offs_k`，连续性一路可见。代价是：传 stride 为 1 和不为 1 的张量会编出两个 kernel。这是 Triton 前端最重要的一个"特化即优化"的决定。
 2. **16 的倍数只是一个标记**。`"D"` 不会改变参数类型，它变成函数参数上的属性 `tt.divisibility = 16`（`BaseBackend.parse_attr`），供 AxisInfo 使用。为什么是 16？因为 16 字节是 GPU 一条向量访存指令的宽度（`ld.global.v4.b32`），指针对齐到 16 是向量化的前提。
 3. **特化 key 就是内存缓存的 key**。`compute_cache_key` 把 specialization 列表和 options（`num_warps`、`num_stages` 等）拼成字符串，查 `kernel_cache`。所以"同一个函数会被编译多次"的精确说法是：**每一组不同的（dtype、`D` 标记、等于 1 的整数、`constexpr` 值、编译选项）编译一次**。`M` 从 1024 换成 1000（不再是 16 的倍数）会触发一次新编译；换成 2048 不会。
 
@@ -202,7 +202,7 @@ Table: 一次调用的 specialization 列表
 
 Table: ASTSource 的字段
 
-`ASTSource.hash()` 把这四样哈希在一起（`fn.cache_key`、`attrs`、排序后的 `signature`、`constants`），是磁盘缓存 key 的一部分（第十一篇）。注意这里**没有实参的值**——`M = 1024` 这个数不在 `ASTSource` 里，只有"`M` 是 `i32` 且是 16 的倍数"这两个事实在。编译器看到的世界就是这么多。
+`ASTSource.hash()` 把这四样哈希在一起（`fn.cache_key`、`attrs`、排序后的 `signature`、`constants`），是磁盘缓存 key 的一部分（[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)）。注意这里**没有实参的值**——`M = 1024` 这个数不在 `ASTSource` 里，只有"`M` 是 `i32` 且是 16 的倍数"这两个事实在。编译器看到的世界就是这么多。
 
 `triton.compile(src, target, options)` 之后的事在 `compile()` 函数里：先查磁盘缓存，未命中则 `src.make_ir(...)` 调 `ast_to_ttir` 得到 TTIR 模块，然后按后端 `add_stages` 给出的顺序（`ttir → ttgir → llir → ptx → cubin`）依次运行，每一步的产物写进缓存目录。本文只走到 `ttir` 这一格。
 
@@ -234,7 +234,7 @@ def ast_to_ttir(fn, src, context, options, codegen_fns, module_map, module=None)
 2. ② `constexpr` 参数的类型是 `constexpr_type(value)`——一个把值本身当类型的包装，这样在函数体里引用 `BLOCK_M` 得到的就是 Python 整数 128；
 3. ③ `ASTFunction` 是函数原型，`serialize` 时把参数类型翻译成 MLIR 类型（`!tt.ptr<bf16>`、`i32`），`constexpr` 参数被跳过，属性挂在对应位置；
 4. ④ 一次遍历生成整个函数；
-5. ⑤ `verify()` 运行每个 op 的 verifier（第三篇讲过：ODS 里的 `TypesMatchWith`、`hasVerifier` 生成的检查）——前端生成的 IR 在这里被 MLIR 检查一遍。
+5. ⑤ `verify()` 运行每个 op 的 verifier（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)讲过：ODS 里的 `TypesMatchWith`、`hasVerifier` 生成的检查）——前端生成的 IR 在这里被 MLIR 检查一遍。
 
 ### 2. `CodeGenerator` 是一个 `ast.NodeVisitor`
 
@@ -301,7 +301,7 @@ def add(self, input, other, sanitize_overflow):
         return self.tensor(self.builder.create_add(input.handle, other.handle), input.type)      # ③
 ```
 
-这就是核心问题的第二问的答案：**分派发生在编译期，依据是操作数的 Triton 类型**。① 指针加整数是 `tt.addptr`——一个专门的 op，让后面的 AxisInfo（第六篇）知道"这是地址算术、元素类型是 bf16、偏移的单位是元素而不是字节"，让 `Combine` pass 能把 `addptr(addptr(p, a), b)` 合并成 `addptr(p, a + b)`；② ③ 数值加法用 MLIR 标准的 `arith` 方言，Triton 不重复发明。如果 `x_ptr + offsets` 被翻译成 `arith.addi`，指针就退化成了整数，所有依赖"这是一个指针"的分析都做不了。
+这就是核心问题的第二问的答案：**分派发生在编译期，依据是操作数的 Triton 类型**。① 指针加整数是 `tt.addptr`——一个专门的 op，让后面的 AxisInfo（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）知道"这是地址算术、元素类型是 bf16、偏移的单位是元素而不是字节"，让 `Combine` pass 能把 `addptr(addptr(p, a), b)` 合并成 `addptr(p, a + b)`；② ③ 数值加法用 MLIR 标准的 `arith` 方言，Triton 不重复发明。如果 `x_ptr + offsets` 被翻译成 `arith.addi`，指针就退化成了整数，所有依赖"这是一个指针"的分析都做不了。
 
 `binary_op_type_checking_impl` 还做两件事：**隐式类型提升**（`i32 + i64 → i64`，`bf16 + f32 → f32`，规则在 `computation_type_impl`）和**隐式广播**（`broadcast_impl_value`）。Triton 的广播比 NumPy 严格：两个张量的秩必须相同，对应维度要么相等要么其一为 1；标量与张量相加时标量被 `tt.splat` 成同 shape。`offs_m[:, None]` 是 `tt.expand_dims`（`[128] → [128, 1]`），`offs_k[None, :]` 是 `[32] → [1, 32]`，两者相加时各自 `tt.broadcast` 到 `[128, 32]`。
 
@@ -332,6 +332,10 @@ if (hasattr(fn, '__self__') and _is_triton_value(fn.__self__)) or language.core.
 - `if` 的条件是 `constexpr` 时（`visit_If` 的 `else` 分支），**只遍历活的那一支**——另一支的代码根本不生成 IR，这是 `if BLOCK_M >= 128:` 这种编译期分支的实现，对应 C++ 的 `if constexpr`；
 - `for i in tl.static_range(n)` 在 Python 层展开：`visit_For` 对 `static_range` 直接 `for i in range(...)` 遍历循环体 n 次，每次把 `i` 设为 `constexpr(i)`。生成的 IR 里没有循环，只有 n 份循环体。
 
+> [!NOTE] Java 经验参照：`static final boolean DEBUG = false` 那一招
+> 编译期折叠掉一个分支，Java 里有个老办法：`static final boolean DEBUG = false;` 之后 `if (DEBUG) { … }` 整段不进字节码，`javap -c` 看不到——JLS 把这种「常量变量」的条件语句特判掉，连 unreachable code 的报错都不给。`BLOCK_M: tl.constexpr` 加 `if BLOCK_M >= 128:` 是同一件事：条件在生成 IR 之前就定了，另一支的 IR 根本不生成。
+> 两处不同。一是**谁决定值**：Java 的常量写死在代码里，改它要重新编译整个类；`constexpr` 的值来自调用时的实参，每出现一个新值就编一份新 kernel——这正是上一节那张特化表的来历。二是**折叠发生得更早**：Java 的折叠在 javac 里，面对的是源码；Triton 这一层折叠发生在 IR 还没生成时，用的是 Python 自己的 `__add__`，所以 `BLOCK_K * stride_ak` 在 IR 里连一条 `arith.muli` 都不会出现。
+
 ### 6. 控制流：`for` 到 `scf.for`
 
 普通的 `for k in range(0, K, BLOCK_K)` 生成 `scf.for`。`visit_For` 的步骤（`code_generator.py`）：
@@ -356,9 +360,9 @@ flowchart TB
     dry --> erase --> forop --> real --> yield_ --> after
 ```
 
-这是前端做 SSA 构造的方式（第一篇 §四.7 的预告）：结构化控制流让"汇合点"只有 `scf.for` 的入口和出口，不需要支配边界——空跑一遍找出哪些变量需要成为 iter_args 就够了。代价是**循环体被翻译两次**（编译时间），以及一条限制：`_verify_loop_carried_variable` 要求携带变量在循环前后类型相同——循环里不能改变张量的 shape 或 dtype，因为 block 参数的类型是固定的。
+这是前端做 SSA 构造的方式（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §四.7 的预告）：结构化控制流让"汇合点"只有 `scf.for` 的入口和出口，不需要支配边界——空跑一遍找出哪些变量需要成为 iter_args 就够了。代价是**循环体被翻译两次**（编译时间），以及一条限制：`_verify_loop_carried_variable` 要求携带变量在循环前后类型相同——循环里不能改变张量的 shape 或 dtype，因为 block 参数的类型是固定的。
 
-`tl.range(..., num_stages=, loop_unroll_factor=, warp_specialize=, flatten=)` 是带选项的 `range`：选项变成 `scf.for` 上的属性（`tt.num_stages`、`tt.loop_unroll_factor`、`tt.warp_specialize`、`tt.flatten`），供第九篇的流水化 pass 和本篇 §六 的 `LoopUnroll` 读取。
+`tl.range(..., num_stages=, loop_unroll_factor=, warp_specialize=, flatten=)` 是带选项的 `range`：选项变成 `scf.for` 上的属性（`tt.num_stages`、`tt.loop_unroll_factor`、`tt.warp_specialize`、`tt.flatten`），供[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)的流水化 pass 和本篇 §六 的 `LoopUnroll` 读取。
 
 `if` 的处理（`visit_If`）分三路：条件是 `constexpr` → 编译期选择一支；条件是标量 `tl.tensor` 且分支里**没有 `return`** → `scf.if`（两支各一个 Region，两支都赋值的变量成为 `scf.if` 的结果，与 `for` 一样用 liveins 差分找出来）；分支里有 `return` → 退回到 `cf.cond_br` + 基本块（`visit_if_top_level`），因为 `scf.if` 的 Region 里不能有 `return`。`while` → `scf.while`，条件与循环体各一个 Region。多元素张量作条件直接报错：`Boolean value of Tensor with more than one value is ambiguous`——GPU 上一个 block 的所有线程必须走同一条控制流。
 
@@ -511,14 +515,14 @@ module {
 4. ④ `offs_n` 用的 `make_range` 是 `%offs_m_0`——`tl.arange(0, BLOCK_M)` 与 `tl.arange(0, BLOCK_N)` 相同（都是 0..128），**CSE 把两个合并成了一个**，名字保留了先出现的那个。
 5. ⑤ `offs_m[:, None]` 是 `tt.expand_dims {axis = 1}`，结果 `tensor<128x1xi32>`；它被命名为 `%a_ptrs`，因为它是 `a_ptrs = …` 这一行里生成的第一个值。
 6. ⑥ 第一个 `tt.addptr`：`a_ptr`（`tt.splat` 成 `[128, 1]` 的指针张量）加 `offs_m[:, None] * stride_am`。`stride_am` 是运行时参数，所以 `arith.muli` 保留；对比 `stride_ak = 1`：`offs_k[None, :] * 1` **在 IR 里根本不存在**——`constexpr(1)` 与张量相乘时 `semantic.mul` 生成 `muli %x, dense<1>`，canonicalize 把它折成 `%x`。
-7. ⑦ 第二个 `tt.addptr`：两边先各自 `tt.broadcast` 到 `[128, 32]`（指针从 `[128, 1]`、偏移从 `[1, 32]`）。注意 `Combine` 的 `CombineAddPtrPattern` **没有**把 ⑥ ⑦ 合成一个——模式要求 `addptr(addptr(p, a), b)` 直接嵌套，而这里两个 `addptr` 之间隔着一个 `tt.broadcast`（⑥ 的结果是 `[128, 1]`，⑦ 作用在 `[128, 32]` 上）。这条模式命中的是 `p + a + b` 三者同 shape 的写法。第六篇的 AxisInfo 对这两个 `addptr` 分别推理，结果与合并后相同。
+7. ⑦ 第二个 `tt.addptr`：两边先各自 `tt.broadcast` 到 `[128, 32]`（指针从 `[128, 1]`、偏移从 `[1, 32]`）。注意 `Combine` 的 `CombineAddPtrPattern` **没有**把 ⑥ ⑦ 合成一个——模式要求 `addptr(addptr(p, a), b)` 直接嵌套，而这里两个 `addptr` 之间隔着一个 `tt.broadcast`（⑥ 的结果是 `[128, 1]`，⑦ 作用在 `[128, 32]` 上）。这条模式命中的是 `p + a + b` 三者同 shape 的写法。[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)的 AxisInfo 对这两个 `addptr` 分别推理，结果与合并后相同。
 8. ⑧ `scf.for`：三个 iter_args 正是 `_find_carries` 空跑找出的 `a_ptrs`、`b_ptrs`、`acc`（顺序是它们在 liveins 里的顺序），结果 `%acc_21:3` 是三个值的元组，`%acc_21#2` 取第三个。归纳变量 `%k` 是 `i32`（`0`、`K`、`32` 都是 i32，类型提升后仍是 i32）。
 9. ⑨ `tt.dot %a, %b, %acc_36`：累加器直接是 `acc`（用户写的就是 `tl.dot(a, b, acc)` 形式，不需要 `Combine` 折叠）。`inputPrecision = tf32` 是 `CUDAOptions.default_dot_input_precision` 的默认值——对 bf16 输入无效（这个属性只影响 f32 输入），但前端总是写上。
 10. ⑩ `a_ptrs += 32`：`tt.addptr` 加常量张量 `%cst`；`b_ptrs += BLOCK_K * stride_bk`：`stride_bk` 是运行时值，所以是 `arith.muli %stride_bk, %c32_i32` 再 `tt.splat`——**这个乘法在循环里每轮重算**：`make_ttir` 没有 LICM，`TritonLICM` 在 `make_ttgir` 里才把它提出去。
 11. ⑪ `c_ptrs` 复用了 `%a_ptrs`（`offs_m[:, None]` 那个 `expand_dims`）——又是 CSE：同一个 `offs_m[:, None]` 在 `a_ptrs`、`c_ptrs`、`mask` 三行里各写了一次，IR 里只有一个。
 12. ⑫ mask：`offs_m[:, None] < M` 是 `[128, 1]` 上的 `cmpi slt`（`M` 被 `splat` 到 `[128, 1]`），`offs_n[None, :] < N` 是 `[1, 128]` 上的；两者各 `broadcast` 到 `[128, 128]` 再 `andi`。比较发生在广播**之前**（各 128 个元素，而不是 16384 个）——这里是前端按 Python 求值顺序自然得到的：`<` 的两边各是一个 `[128, 1]`（或 `[1, 128]`）张量与一个标量，标量 `splat` 到小 shape 就比较了，`&` 才需要广播到 `[128, 128]`。如果用户写成 `tl.broadcast_to(offs_m[:, None], (128, 128)) < M`，前端会在 16384 个元素上比较，此时才轮到 `ReorderBroadcast` 把比较挪回广播之前。
 
-这份 TTIR 是后面六篇的起点：第六篇给它的每个整数 / 指针值算 AxisInfo，第七篇给每个 `tensor<…>` 加上 layout。
+这份 TTIR 是后面六篇的起点：[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)给它的每个整数 / 指针值算 AxisInfo，[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)给每个 `tensor<…>` 加上 layout。
 
 ## 六、`make_ttir`：TTIR 级的 pass
 
@@ -537,7 +541,7 @@ module {
 
 Table: make_ttir 的 pass 列表
 
-`Combine` 值得多看两眼，它是第四篇两种 pattern 写法的实例。DRR 那一条（`Combine.td`）：
+`Combine` 值得多看两眼，它是[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)两种 pattern 写法的实例。DRR 那一条（`Combine.td`）：
 
 ```text title="Combine.td 的 CombineAddPtrPattern"
 def CombineAddPtrPattern : Pat<
@@ -561,7 +565,7 @@ C++ 那几条（`Combine.cpp` 的 `runOnOperation` 里注册的）：
 
 Table: Combine.cpp 的 pattern
 
-它们的共同点：都是**用户写法的多样性 → 编译器认得的一种形状**。`tl.dot(a, b) + c` 和 `tl.dot(a, b, c)` 对用户是两种写法，对 `AccelerateMatmul`（第八篇）只应该是一种。这是第一篇说的 canonicalization 在 Triton 里的具体形式。
+它们的共同点：都是**用户写法的多样性 → 编译器认得的一种形状**。`tl.dot(a, b) + c` 和 `tl.dot(a, b, c)` 对用户是两种写法，对 `AccelerateMatmul`（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）只应该是一种。这是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)说的 canonicalization 在 Triton 里的具体形式。
 
 `ReorderBroadcast` 的动机是访存量：`tl.exp(x[:, None])` 如果先广播到 `[128, 128]` 再算 `exp`，是 16384 次 `exp`；先在 `[128, 1]` 上算再广播，是 128 次。前端按 Python 的求值顺序生成的是前者（`x[:, None]` 先 `expand_dims`，与另一个操作数运算时 `broadcast`，然后 `exp`），这个 pass 把它换成后者。
 
@@ -617,7 +621,7 @@ Table: Combine.cpp 的 pattern
 
 ## 下一篇
 
-前端产出的 TTIR 里，函数参数上挂着 `tt.divisibility = 16`，`stride_ak = 1` 已经折叠进了地址运算，`addptr` 链已经合并。这些信息接下来要被一个分析消费：对 IR 里每一个整数和指针张量，沿每一维推出它的元素值有什么规律——最大 2 幂因子是多少、连续递增的段有多长、相等的段有多长。这个分析叫 `AxisInfo`，第七篇的 Coalesce 靠它选 layout，第十篇的 load / store lowering 靠它决定向量宽度。下一篇专讲它：三个属性的精确定义、每种 op 的传递规则、它建在 MLIR 数据流框架上的方式，以及信息是怎样在一次不经意的运算里丢掉的。
+前端产出的 TTIR 里，函数参数上挂着 `tt.divisibility = 16`，`stride_ak = 1` 已经折叠进了地址运算，`addptr` 链已经合并。这些信息接下来要被一个分析消费：对 IR 里每一个整数和指针张量，沿每一维推出它的元素值有什么规律——最大 2 幂因子是多少、连续递增的段有多长、相等的段有多长。这个分析叫 `AxisInfo`，[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)的 Coalesce 靠它选 layout，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 load / store lowering 靠它决定向量宽度。下一篇专讲它：三个属性的精确定义、每种 op 的传递规则、它建在 MLIR 数据流框架上的方式，以及信息是怎样在一次不经意的运算里丢掉的。
 
 [^q0]: 分两条路。**`constexpr` 的值**：binder 对标注了 `tl.constexpr` 的参数直接产出 `("constexpr", 值)`，`_pack_args` 把它放进 `ASTSource.constants`（按参数位置索引），`ast_to_ttir` 用 `constexpr_type(value)` 把它作为参数"类型"交给 `CodeGenerator`——在函数体里引用 `BLOCK_M` 得到的是 Python 整数 128，参与运算时在 Python 层折叠，与张量运算时物化为 `arith.constant`，作为 shape 时直接进入 `tensor<128x…>` 类型。**16 的倍数**：`native_specialize_impl`（`specialize.cc`）对整数实参检查 `(val & 15) == 0`、对张量检查 `(data_ptr & 15) == 0`，命中则 `spec_key = "D"`；`_pack_args` 经 `BaseBackend.parse_attr` 把 `"D"` 变成 `[["tt.divisibility", 16]]` 放进 `ASTSource.attrs`；`ASTFunction.serialize` 在生成 `tt.func` 时把它挂成对应形参的属性 `%M: i32 {tt.divisibility = 16 : i32}`。另有一条：等于 1 的整数被 binder 直接提升为 `("constexpr", 1)`，走第一条路。两条路的结果都进入特化 key，所以不同的对齐 / 常量组合编译成不同的 kernel。详见[第三章](#三调用时特化缓存与-astsource)与[第四章](#四翻译codegenerator-怎样把-ast-变成-ir)。
 
