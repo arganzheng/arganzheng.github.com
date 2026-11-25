@@ -7,9 +7,9 @@ tags: [Compiler, MLIR, Triton, GPU, AI-Infra]
 catalog: true
 ---
 
-上一篇结束时，matmul kernel 的 TTIR 已经就位：函数参数上挂着 `tt.divisibility = 16`，`stride_ak = 1` 折叠进了地址运算，`addptr` 链合并成了一个。这些信息接下来要被**一个分析**消费。它决定第七篇的 Coalesce 给每个 load / store 选什么 layout，决定第十篇的 lowering 把一条 `tt.load` 变成一条 `ld.global.v4.b32` 还是四条 `ld.global.b32`，决定一个带 mask 的 store 能不能用一个谓词覆盖八个元素。它叫 `AxisInfo`。
+上一篇结束时，matmul kernel 的 TTIR 已经就位：函数参数上挂着 `tt.divisibility = 16`，`stride_ak = 1` 折叠进了地址运算，`addptr` 链合并成了一个。这些信息接下来要被**一个分析**消费。它决定[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)的 Coalesce 给每个 load / store 选什么 layout，决定[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 lowering 把一条 `tt.load` 变成一条 `ld.global.v4.b32` 还是四条 `ld.global.b32`，决定一个带 mask 的 store 能不能用一个谓词覆盖八个元素。它叫 `AxisInfo`。
 
-Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这种提示，一头是 dump 出来的 TTGIR 里 `sizePerThread = [8]` 还是 `[1]`。中间那段——编译器怎样从"`M` 是 16 的倍数"推到"`c_ptrs` 沿第 1 维每 8 个元素对齐到 16 字节"——是这一篇的内容。它也是第一篇讲的数据流分析在 Triton 里最重要的实例。
+Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这种提示，一头是 dump 出来的 TTGIR 里 `sizePerThread = [8]` 还是 `[1]`。中间那段——编译器怎样从"`M` 是 16 的倍数"推到"`c_ptrs` 沿第 1 维每 8 个元素对齐到 16 字节"——是这一篇的内容。它也是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)讲的数据流分析在 Triton 里最重要的实例。
 
 总纲对这一篇提出的核心问题是：
 
@@ -33,6 +33,20 @@ Triton 用户接触过它的两个末端：一头是 `tl.multiple_of(x, 16)` 这
 | 十一 | 自测 | 5 道题 |
 
 Table: 本文的章节安排
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
+%% 图：AxisInfo 的来路与去路：三处入口 → 逐 op 传递 → gcd 汇合到不动点 → 几个上界取 min 决定向量宽度
+flowchart TB
+  SRC["<b>入口：信息只有三个来源</b><br/>• 函数参数上的 tt.divisibility = 16（前端按实参值标上）<br/>• tl.multiple_of / max_contiguous / max_constancy：在定义那个值的 op 上挂属性<br/>• 常量与 make_range 自带的精确值<br/>其余一切从悲观初值出发：三个属性全是 1"]
+  PROP["<b>传播：每种 op 一条传递函数</b><br/>• splat / expand_dims / broadcast 搬维度<br/>• addi、addptr 取 gcd，muli 相乘<br/>• remsi、乘一个运行时 stride、两个 arange 相加，都把 contiguity 打回 1"]
+  JOIN["<b>汇合：join 全程取 gcd，循环迭代到不动点</b><br/>• 分支与 iter_args 多路汇合时留更保守的那个<br/>• 循环体 yield 的值流回 block 参数再算一轮，直到不再变化"]
+  MIN["<b>出口：向量宽度是几个上界取 min</b><br/>• 128 bit 能装几个元素<br/>• divisibility ÷ 元素字节数<br/>• contiguity<br/>• layout 给每线程的连续元素数<br/>• mask 的 constancy：一个谓词管几个元素<br/>任何一个掉到 1，整条访存就退成标量"]
+  USE["<b>谁拿去用</b><br/>• Coalesce 选 sizePerThread<br/>• LoadStoreOpToLLVM 定向量宽度与谓词个数<br/>• mask 全真判断、TMA 描述符的对齐检查"]
+  SRC --> PROP --> JOIN --> MIN --> USE
+```
+
+这条链上有一件事值得先记住：推理结果**不写进 IR**，只活在分析的状态里，IR 改一次就得重算——想看只能用第八章的 `triton-opt -test-print-alignment` 打出来。
 
 源码：`include/triton/Analysis/AxisInfo.h`、`lib/Analysis/AxisInfo.cpp`（约 1500 行，本文覆盖其中所有传递规则）、`test/Analysis/test-alignment.mlir`（1290 行 lit 测试，本文引用的每个"预期结果"都来自它）、消费者在 `lib/Dialect/TritonGPU/Transforms/CoalesceUtils.cpp`、`Utility.cpp` 与 `third_party/nvidia/lib/TritonNVIDIAGPUToLLVM/LoadStoreOpToLLVM.cpp`。
 
@@ -115,7 +129,7 @@ class AxisInfo {
 
 | 值的来源 | 初值 | 信息从哪来 |
 |---|---|---|
-| 函数参数（entry block 的 block argument） | 读 `tt.func` 参数上的属性 `tt.divisibility` / `tt.contiguity` / `tt.constancy` | 前端按实参的 `D` 标记挂上的（第五篇 §三.2）；`ModuleAxisInfoAnalysis` 也会为 `noinline` 函数从调用点推出来挂上（§五.5） |
+| 函数参数（entry block 的 block argument） | 读 `tt.func` 参数上的属性 `tt.divisibility` / `tt.contiguity` / `tt.constancy` | 前端按实参的 `D` 标记挂上的（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §三.2）；`ModuleAxisInfoAnalysis` 也会为 `noinline` 函数从调用点推出来挂上（§五.5） |
 | 有定义 op 的值 | 读 op 上的**可丢弃属性**（discardable attribute）`tt.divisibility` / `tt.contiguity` / `tt.constancy` | `tl.multiple_of(x, v)`、`tl.max_contiguous(x, v)`、`tl.max_constancy(x, v)`：`semantic.py` 里它们只做一件事——`x.handle.set_attr("tt.divisibility", …)`，把属性挂在**定义 `x` 的那个 op** 上，返回 `x` 本身 |
 | 其他 block 的参数（`scf.for` 的 iter_args、`scf.if` 的结果） | 全 1，随后由汇合决定（§五） | — |
 
@@ -143,7 +157,7 @@ AxisInfo::initDimVectorFromHint(op->getDiscardableAttr("tt.constancy"), &newCons
 | `arith.constant c`（标量） | 1 | `highestPowOf2Divisor(c)` | 1 | c | `constant 128`：div 128 |
 | `arith.constant dense<c>`（张量） | 每维 1 | 每维 `highestPowOf2Divisor(c)` | 每维 = shape | c | `tl.zeros` / `tl.full`；`dense<1>`：div 1、const = shape |
 | `tt.get_program_id` | 1 | 1 | 1 | — | 没有专门的 visitor，落到悲观值：编译器对 `pid` 一无所知 |
-| `ub.poison` | 全 $$2^{62}$$ | 全 $$2^{62}$$ | 全 $$2^{62}$$ | — | 前端给归纳变量的占位符（第五篇 §四.6）；poison 永远不会被读到，给最乐观的值让它不拖累汇合 |
+| `ub.poison` | 全 $$2^{62}$$ | 全 $$2^{62}$$ | 全 $$2^{62}$$ | — | 前端给归纳变量的占位符（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §四.6）；poison 永远不会被读到，给最乐观的值让它不拖累汇合 |
 
 Table: 叶子 op 的 AxisInfo 初值
 
@@ -294,7 +308,7 @@ Table: 除法与取模的传递规则
 
 Table: 逻辑、选择、移位、极值与类型转换的传递规则
 
-`load` 的规则是理解"AxisInfo 只关于地址、不关于数据"的一个好例子：`tl.load(ptr)` 的结果是内存里的数，编译器不可能知道它们是否连续；但如果 `ptr` 沿某一维 constancy 为 32（32 个线程读同一个地址），结果沿那一维也是 32 个相同的值——第十篇的 elementwise lowering 会用这个 constancy 做去重，让 32 个相同元素的运算只做一次。
+`load` 的规则是理解"AxisInfo 只关于地址、不关于数据"的一个好例子：`tl.load(ptr)` 的结果是内存里的数，编译器不可能知道它们是否连续；但如果 `ptr` 沿某一维 constancy 为 32（32 个线程读同一个地址），结果沿那一维也是 32 个相同的值——[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 elementwise lowering 会用这个 constancy 做去重，让 32 个相同元素的运算只做一次。
 
 ## 五、汇合与循环：分析怎样收敛
 
@@ -315,7 +329,7 @@ gcd 是格上的 meet：结果比两边都保守，且是最不保守的那个�
 
 ### 2. 建在 MLIR 数据流框架上
 
-`AxisInfoAnalysis` 继承 `mlir::dataflow::SparseForwardDataFlowAnalysis<Lattice<AxisInfo>>`（第四篇讲过这个框架）。它只需要实现三件事：
+`AxisInfoAnalysis` 继承 `mlir::dataflow::SparseForwardDataFlowAnalysis<Lattice<AxisInfo>>`（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)讲过这个框架）。它只需要实现三件事：
 
 | 方法 | 做什么 |
 |---|---|
@@ -335,7 +349,7 @@ for (auto op : operands)
     return success();                  // 跳过，等操作数就绪后框架会再来
 ```
 
-未初始化的 lattice 用 rank 0 表示，与"悲观值"（全 1）区分开——这就是第一篇说的 ⊥ 与 ⊤ 的区别：⊥ 是"还不知道"，join 时被另一边吸收；全 1 是"知道了，什么规律都没有"，join 时把另一边拉下来。
+未初始化的 lattice 用 rank 0 表示，与"悲观值"（全 1）区分开——这就是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)说的 ⊥ 与 ⊤ 的区别：⊥ 是"还不知道"，join 时被另一边吸收；全 1 是"知道了，什么规律都没有"，join 时把另一边拉下来。
 
 ### 3. 循环：iter_args 的不动点
 
@@ -359,7 +373,7 @@ scf.for %k = %c0 to %K step %c32 iter_args(%acc = %acc0, %a_ptrs = %a_ptrs0, %b_
 
 ### 5. 跨函数
 
-`make_ttir` 把一切内联，所以 AxisInfo 通常在一个函数内就完成。`noinline=True` 的函数例外：`ModuleAxisInfoAnalysis` 沿调用图（`CallGraph<AxisInfoMapT>`）后序遍历——先分析调用者，把每个调用点实参的 AxisInfo（只处理标量）以 `gcd` 合并后写成被调函数参数的 `tt.divisibility` / `tt.contiguity` / `tt.constancy` 属性，再分析被调函数。一个函数被多处调用时拿到的是所有调用点的 gcd——第一篇 §五.4 说的"上下文不敏感"。
+`make_ttir` 把一切内联，所以 AxisInfo 通常在一个函数内就完成。`noinline=True` 的函数例外：`ModuleAxisInfoAnalysis` 沿调用图（`CallGraph<AxisInfoMapT>`）后序遍历——先分析调用者，把每个调用点实参的 AxisInfo（只处理标量）以 `gcd` 合并后写成被调函数参数的 `tt.divisibility` / `tt.contiguity` / `tt.constancy` 属性，再分析被调函数。一个函数被多处调用时拿到的是所有调用点的 gcd——[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §五.4 说的"上下文不敏感"。
 
 ## 六、消费者：三个公式
 
@@ -374,7 +388,7 @@ maxContig    = axisInfo->getContiguity(order[0]);
 alignment    = min(maxMultiple, maxContig);
 ```
 
-`order[0]` 是 layout 里最快变化的维（第七篇），TTIR 阶段还没有 layout 时取最后一维。**alignment = min(对齐能撑几个元素, 连续能撑几个元素)**。对 matmul 的 `a_ptrs`（bf16，第 1 维 contiguity 32、divisibility 16 字节）：maxMultiple = 16 / 2 = 8，maxContig = 32，alignment = **8**——每个线程最多连续拿 8 个 bf16 = 16 字节 = 一条 128 bit load。
+`order[0]` 是 layout 里最快变化的维（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)），TTIR 阶段还没有 layout 时取最后一维。**alignment = min(对齐能撑几个元素, 连续能撑几个元素)**。对 matmul 的 `a_ptrs`（bf16，第 1 维 contiguity 32、divisibility 16 字节）：maxMultiple = 16 / 2 = 8，maxContig = 32，alignment = **8**——每个线程最多连续拿 8 个 bf16 = 16 字节 = 一条 128 bit load。
 
 ### 2. `getContiguity(ptr)` 与向量宽度
 
@@ -453,7 +467,7 @@ Table: 常见的信息杀手写法
 triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 ```
 
-`triton-opt` 从 Triton 的构建目录里拿（`build/cmake.*/bin/triton-opt`，在 macOS 上也能构建）。每条 remark 带源码位置——`test-print-alignment` 用 op 的 `loc` 报告，所以能看到每个值来自 Python 的哪一行。把位置去掉、只留 op 与结果，matmul kernel 的地址链是（对照第五篇 §五.3 的 TTIR，SSA 名字这里是编号形式）：
+`triton-opt` 从 Triton 的构建目录里拿（`build/cmake.*/bin/triton-opt`，在 macOS 上也能构建）。每条 remark 带源码位置——`test-print-alignment` 用 op 的 `loc` 报告，所以能看到每个值来自 Python 的哪一行。把位置去掉、只留 op 与结果，matmul kernel 的地址链是（对照[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §五.3 的 TTIR，SSA 名字这里是编号形式）：
 
 ```text title="matmul kernel 地址链的 AxisInfo"
 %0 = tt.get_program_id x : i32                               => contiguity = [1], divisibility = [1], constancy = [1]
@@ -504,7 +518,7 @@ triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 - `%44`：`tt.load` 的结果全 1——数据没有规律；
 - `%38` / `%40`：两个比较各得到 constancy 16（`M`、`N` 的 `tt.divisibility = 16` 与 `offs` 的 contiguity 128、divisibility 128 取 gcd），`andi` 后 mask 是 `[16, 16]`。`getMaskAlignment` 沿 `order[0] = 1` 读到 16，与数据向量宽度 8 取 min 后是 8：**写回的 store 每 8 个 bf16 一条指令、一个谓词**。若 `M`、`N` 传的不是 16 的倍数，这里是 `[1, 1]`，store 退化为 8 条带独立谓词的标量指令。
 
-另一条路是 `TRITON_ENABLE_LLVM_DEBUG=1 TRITON_LLVM_DEBUG_ONLY=axis-info`（源码里的 `#define DEBUG_TYPE "axis-info"`）：编译时打印每次 `getAlignment` / `getContiguity` 的输入输出（`LDBG` 宏），能直接看到 Coalesce 与 lowering 拿到了什么数——第十三篇讲这套调试开关。
+另一条路是 `TRITON_ENABLE_LLVM_DEBUG=1 TRITON_LLVM_DEBUG_ONLY=axis-info`（源码里的 `#define DEBUG_TYPE "axis-info"`）：编译时打印每次 `getAlignment` / `getContiguity` 的输入输出（`LDBG` 宏），能直接看到 Coalesce 与 lowering 拿到了什么数——[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)讲这套调试开关。
 
 ## 九、对照：LLVM 里的同类分析
 
@@ -517,7 +531,11 @@ triton-opt matmul_kernel.ttir -test-print-alignment -o /dev/null 2>&1 | head -60
 
 Table: LLVM 里的同类分析
 
-AxisInfo 的独特之处在于它是**按张量维度**的：LLVM 的分析作用在标量上，一个 128 元素的数组的连续性在 LLVM 里要靠 SCEV 分析循环归纳变量才能得到；Triton 把张量当作一个值，一次分析就给出每一维的规律。这正是第一篇说的"在信息还在的那一层做分析"：连续性在张量层是 `make_range` 一个 op 的属性，到了标量层就变成了要重新发现的东西。
+> [!NOTE] Java 经验参照：C2 的类型格与范围检查消除
+> 这张表里的每一行，JVM 里都有一个对应物。C2 在 SSA 图上传播的 `TypeInt` 是一个带 [lo, hi] 区间和 null 性的格，传播方式、汇合取并、循环里迭代到不动点，与这里一模一样；它最著名的用途是**范围检查消除**：能证明 `0 <= i < a.length` 就删掉那条隐式的边界检查。写 Java 的人也早就知道「推不出来就慢一点」是什么感觉——把循环上界换成一个方法调用，range check 就回来了。
+> 两处不同。一是**推什么**：C2 推的是区间（够不够得着数组边界），AxisInfo 推的是 2 的幂因子与连续段长（能不能合并成一条宽访存）——表的最后一行说得很清楚，两者正交，AxisInfo 不知道 `offs < n` 是否恒真。二是**有没有运行时信息**：C2 手里有 profile，可以赌「这个分支从没走过」，赌错了去优化重来；Triton 的编译只看 IR，没有可赌的东西，推不出来就只能退到最保守的那一档。
+
+AxisInfo 的独特之处在于它是**按张量维度**的：LLVM 的分析作用在标量上，一个 128 元素的数组的连续性在 LLVM 里要靠 SCEV 分析循环归纳变量才能得到；Triton 把张量当作一个值，一次分析就给出每一维的规律。这正是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)说的"在信息还在的那一层做分析"：连续性在张量层是 `make_range` 一个 op 的属性，到了标量层就变成了要重新发现的东西。
 
 ## 十、本文小结
 
