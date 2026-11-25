@@ -424,7 +424,7 @@ CUDA 仍是系列主线。
 
 ### 10. 剖析、测试与贡献：把 kernel 做成产品
 
-CUDA 主线的第十篇讲把一个"能跑"的 kernel 变成"能合入"的 kernel 需要的全部工程：读 profiler、写测试、做 benchmark、处理多架构、接入框架。
+CUDA 主线的[《剖析、测试与贡献》](/kernel-profiling-testing-and-contribution.html)讲把一个"能跑"的 kernel 变成"能合入"的 kernel 需要的全部工程：读 profiler、写测试、做 benchmark、处理多架构、接入框架。
 
 这一篇会覆盖：
 

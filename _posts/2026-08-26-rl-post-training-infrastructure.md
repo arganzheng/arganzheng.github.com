@@ -70,7 +70,7 @@ Table: 把组件放进 RL 循环之后才出现的五个问题
 
 ### 训练平台与调度团队
 
-你负责让 RL 任务和预训练、SFT 任务在同一个集群上跑。RL 任务对平台的要求与它们不同：一个任务里有两类形态相反的 GPU 负载、可能还有一个几千容器的沙箱集群、一个 reward 服务、一个 Ray 集群；它的弹性、checkpoint 与故障恢复语义也不同。本系列第二、六、八篇是引擎对平台提出的要求。
+你负责让 RL 任务和预训练、SFT 任务在同一个集群上跑。RL 任务对平台的要求与它们不同：一个任务里有两类形态相反的 GPU 负载、可能还有一个几千容器的沙箱集群、一个 reward 服务、一个 Ray 集群；它的弹性、checkpoint 与故障恢复语义也不同。本系列的[《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html)、[《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html)与[《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html)是引擎对平台提出的要求。
 
 ### 想读懂 verl 源码的开发者
 
@@ -316,7 +316,7 @@ Table: 一个 RL 作业跑起来后，一组 GPU 与它周边住着的九样东�
 
 > **一个 bf16 参数从优化器更新完成，到推理引擎用它生成下一个 token，在 verl 里经过哪些函数、哪些进程、哪条链路？把这条链追清楚，前六篇的机制就全部落到了代码上；再问 slime 和 AReaL 在这条链的哪一段做了不同的选择，就知道哪些是必然、哪些是取舍。**
 
-实践：在 8 卡上用 verl 跑一个小模型的 GRPO，打开 Ray dashboard 与 profiler，把一步的时间线对到本篇讲的每个函数上；把第三、四、五篇量到的切换、同步、等待各落在时间线的哪一段标出来。
+实践：在 8 卡上用 verl 跑一个小模型的 GRPO，打开 Ray dashboard 与 profiler，把一步的时间线对到本篇讲的每个函数上；把[《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html)、[《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)与[《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html)量到的切换、同步、等待各落在时间线的哪一段标出来。
 
 ### 8. 配置、可观测与排障：从一张卡的比例到一条 hang 的排查
 
