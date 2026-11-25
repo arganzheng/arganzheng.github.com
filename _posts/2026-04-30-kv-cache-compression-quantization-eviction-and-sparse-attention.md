@@ -165,6 +165,8 @@ PyramidKV（Cai 等 2024）的观察：不同层的 attention 模式不同——
 | 9 | 问题前缀 | 0.6 | 0.08 |
 | 10 | 问题 | 0.3 | 0.04 |
 
+Table: 10 个 token 的驱逐示例：累计 attention 与问题窗口 attention 分数
+
 ![10 个 token 的驱逐示例：H2O 按累计分数选留，SnapKV 按问题 attention 选留；只有 SnapKV 保留低历史分数的 needle](/img/in-post/kv-cache-compression-eviction-scores.svg)
 
 H2O 留下 $$\{1,2,5,8,9,10\}$$，StreamingLLM 留下 sink 1 和最近的 6–10，SnapKV 留下问题分数最高的较早 token 4、7、6，再加最近的 8–10。needle 是 token 4，只有 SnapKV 把它留住。

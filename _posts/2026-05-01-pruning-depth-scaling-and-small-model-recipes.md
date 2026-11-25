@@ -86,6 +86,8 @@ SparseGPT（Frantar & Alistarh 2023）把 GPTQ 的工程改造用在剪枝上：
 | 3 | 0.80 | 1 | 0.80 | 0.80 |
 | 4 | 1.00 | 1 | 1.00 | 1.00 |
 
+Table: 一行权重上幅度分数与 Wanda 分数的对照
+
 ![同一行权重用幅度分数和 Wanda 分数排序，并比较剪枝后的输出](/img/in-post/pruning-wanda-magnitude-example.svg)
 
 两种方法都剪掉四个通道中分数最低的一个。幅度剪掉通道 1，输出从 4.15 降到 2.15；Wanda 剪掉通道 2，输出是 3.80。通道 1 的权重较小，但它乘上了大输入。
