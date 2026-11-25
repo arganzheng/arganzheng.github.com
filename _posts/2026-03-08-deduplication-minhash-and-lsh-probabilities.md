@@ -46,7 +46,7 @@ Table: 去重的三步：变换、关键式子与解决什么
 | 四 | LSH | 分组分桶（图）<br/>S 曲线 $$1 - (1 - s^r)^b$$<br/>FineWeb 的 $$b = 14, r = 8$$ 是怎么定的 |
 | 五 | 一个能跟踪的小例子 | 六段文本、六个真随机排列、$$b = 3, r = 2$$：签名矩阵 → 分 band → 候选 → 精确复核，逐对解释命中与漏掉<br/>理论公式 vs 仿射 hash vs 相关 hash 族（图）<br/>候选召回率 ≠ 去重阈值 ≠ 保留策略；近重复不传递时连通分量 vs 贪心 |
 | 六 | 在 2000 段文本上跑一遍 | 200 万对 vs 267 个候选；实测的召回贴着 S 曲线 |
-| 七 | 三层去重 | 精确 / 模糊 / 语义各抓什么；用第七篇的句子试一遍 |
+| 七 | 三层去重 | 精确 / 模糊 / 语义各抓什么；用[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)的句子试一遍 |
 | 八 | 工程上的几件事 | 词级 vs 字符级、精确去重先做、跨文档 vs 文档内、去重多少合适 |
 | 九 | 案例：给 wikitext 去重 | 14,813 段真实语料：暴力要 16 分钟，MinHash-LSH 1.5 秒找到 213 个候选<br/>注入的 500 个近重复按改动比例的召回贴着 S 曲线<br/>语料自带的模板段 |
 | 十 | 本文小结 |  |
@@ -156,7 +156,7 @@ est = np.mean(MinHash(128).signature(A) == MinHash(128).signature(B))          #
 
 ### 4. $$k$$ 个签名的估计误差
 
-每个签名相等与否是一次成功概率为 $$J$$ 的伯努利试验（第三篇：抛一枚正面概率为 $$J$$ 的硬币），$$k$$ 次里正面的比例平均起来正好是 $$J$$（**无偏**——没有系统性的高估或低估），但单次估计会抖，抖动的标准差是 $$\sqrt{J(1 - J) / k}$$——抛 $$k$$ 次硬币估正面概率的经典公式，$$k$$ 越大越准、但精度只按 $$\sqrt k$$ 提高。真的量一下——同一对文本（$$J = 0.644$$），换 200 组随机系数各估一次：
+每个签名相等与否是一次成功概率为 $$J$$ 的伯努利试验（[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)：抛一枚正面概率为 $$J$$ 的硬币），$$k$$ 次里正面的比例平均起来正好是 $$J$$（**无偏**——没有系统性的高估或低估），但单次估计会抖，抖动的标准差是 $$\sqrt{J(1 - J) / k}$$——抛 $$k$$ 次硬币估正面概率的经典公式，$$k$$ 越大越准、但精度只按 $$\sqrt k$$ 提高。真的量一下——同一对文本（$$J = 0.644$$），换 200 组随机系数各估一次：
 
 ![横轴签名个数 k（8 到 1024，对数轴），纵轴 200 次估计的标准差（对数轴）：红色实测点几乎落在灰色虚线的理论曲线上，从 k = 8 的 0.16 一路下降到 k = 1024 的 0.014，一条斜率 −1/2 的直线](/img/in-post/classical-ml-09-minhash-error-vs-k.svg)
 
@@ -418,7 +418,7 @@ Table: 2000 段文本上的去重结果
 
 ## 七、三层去重
 
-MinHash 抓的是"字面上大部分相同"。实际的去重是三层，各抓不同的东西。用第七篇那 78 句话试一遍——其中 6 句是同一个模板换了数字，12 句体育是意思相关但措辞完全不同的句子：
+MinHash 抓的是"字面上大部分相同"。实际的去重是三层，各抓不同的东西。用[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)那 78 句话试一遍——其中 6 句是同一个模板换了数字，12 句体育是意思相关但措辞完全不同的句子：
 
 | 句子组 | 精确 hash 相同 | 字符 5-gram Jaccard（均值） | 减均值后的 embedding 余弦（均值） |
 |---|---:|---:|---:|
@@ -432,11 +432,11 @@ Table: 三类句子组在三层去重指标上的表现
 |---|---|---|---|---|
 | **精确去重** | 整段（或归一化后）取一个 hash，相同即重复 | 逐字相同的转载 | 改了一个字的 | 最低，一趟 hash |
 | **模糊去重**（本篇） | n-gram + MinHash + LSH | 改了几个词的模板页、近似转载（Jaccard 0.70） | 意思相同但措辞不同的（Jaccard 0.00） | 中，签名 + 一次分桶 |
-| **语义去重** | embedding → 聚类（第七篇）→ 簇内按余弦去重（SemDeDup） | 同一件事的不同写法（余弦 0.46 vs 无关 −0.20） | 阈值难定；可能把"合理的复述"也去掉 | 高，要过一遍 embedding 模型 |
+| **语义去重** | embedding → 聚类（[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)）→ 簇内按余弦去重（SemDeDup） | 同一件事的不同写法（余弦 0.46 vs 无关 −0.20） | 阈值难定；可能把"合理的复述"也去掉 | 高，要过一遍 embedding 模型 |
 
 Table: 三层去重各抓到什么与成本
 
-三层由便宜到贵依次做：精确去重先去掉一大半（几乎零成本、零误差），MinHash 处理剩下的近重复，语义去重看预算与目标——它对"提高数据多样性"有用，但阈值比 Jaccard 更难解释（第八篇的各向异性：不减均值的余弦全在 0.7 以上，根本没法设阈值）。
+三层由便宜到贵依次做：精确去重先去掉一大半（几乎零成本、零误差），MinHash 处理剩下的近重复，语义去重看预算与目标——它对"提高数据多样性"有用，但阈值比 Jaccard 更难解释（[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)的各向异性：不减均值的余弦全在 0.7 以上，根本没法设阈值）。
 
 ## 八、工程上的几件事
 
@@ -523,7 +523,7 @@ Table: 注入的近重复按改动比例的召回
 
 - **案例**：wikitext-2 的 14,813 段，暴力 1.1 亿对要 16 分钟，MinHash-LSH 1.5 秒出 213 个候选；注入的近重复改 2% 的词召回 98%、改 5%（Jaccard 0.68，卡在阈值上）61%、改 10% 6%——漏掉的是阈值的定义不是 bug；语料自带的模板段（同型军舰条目）$$J = 0.77$$。
 
-配套代码：本文全部数字与图由 [`classical-ml/09_minhash_lsh.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/09_minhash_lsh.py) 产生（`tiny` / `estimate` / `error` / `scurve` / `dedup` / `semantic` / `trace` / `family` / `retain` 九个子实验，纯 NumPy；第九章案例由 [`case_09_wikitext_dedup.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_09_wikitext_dedup.py) 产生，wikitext-2 通过 `datasets` 下载约 4 MB；`semantic` 复用第七篇的句向量），CPU 上一分钟内跑完。
+配套代码：本文全部数字与图由 [`classical-ml/09_minhash_lsh.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/09_minhash_lsh.py) 产生（`tiny` / `estimate` / `error` / `scurve` / `dedup` / `semantic` / `trace` / `family` / `retain` 九个子实验，纯 NumPy；第九章案例由 [`case_09_wikitext_dedup.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/classical-ml/case_09_wikitext_dedup.py) 产生，wikitext-2 通过 `datasets` 下载约 4 MB；`semantic` 复用[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)的句向量），CPU 上一分钟内跑完。
 
 ## 十一、自测
 
