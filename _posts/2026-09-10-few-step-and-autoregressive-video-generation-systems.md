@@ -8,9 +8,9 @@ catalog: true
 updated: 2026-11-14
 ---
 
-前五篇都在一个前提下做交换：28 步、50 步，每步一次完整前向。步数 $$T$$ 是第一篇账上最大的可调乘数，但前五篇没有动它——因为它不是系统能改的，是算法侧的：换更好的采样器（50 → 20 步）、步数蒸馏（→ 4 步、1 步）、guidance 蒸馏（去掉 CFG 的 ×2）。这一篇不讨论这些方法怎么做（在算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》），只讨论**它们做成之后系统怎么变**：当 FLUX.1-dev 的 28 步变成 FLUX.1-schnell 的 4 步、一张图从 4.3 s 变成 0.7 s，前五篇的结论哪些失效、哪些不变、哪些新问题出现。
+前五篇都在一个前提下做交换：28 步、50 步，每步一次完整前向。步数 $$T$$ 是[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)账上最大的可调乘数，但前五篇没有动它——因为它不是系统能改的，是算法侧的：换更好的采样器（50 → 20 步）、步数蒸馏（→ 4 步、1 步）、guidance 蒸馏（去掉 CFG 的 ×2）。这一篇不讨论这些方法怎么做（在算法地图 《[多模态（08）：Latent diffusion、DiT 与文生图配方](/latent-diffusion-dit-and-text-to-image-recipes.html)》），只讨论**它们做成之后系统怎么变**：当 FLUX.1-dev 的 28 步变成 FLUX.1-schnell 的 4 步、一张图从 4.3 s 变成 0.7 s，前五篇的结论哪些失效、哪些不变、哪些新问题出现。
 
-然后是一个更大的变化。视频模型一直是"一次前向处理整段视频的全部 token、重复几十步"——双向 attention，生成第 1 帧时要看第 81 帧。2024 年底开始的**自回归视频**（CausVid、Self-Forcing）把它改成"一个 chunk 一个 chunk 地生成，每个 chunk 只看前面的"——因果 attention 加少步蒸馏，单卡实时流式。于是一个在第一篇里被宣布"没有"的东西回来了：**KV cache**。已生成 chunk 的 K / V 被缓存供后面的 chunk 查询，滑动窗口决定它多大，服务形态从批任务变成会话——vLLM 系列的一部分方法在这里重新出现。
+然后是一个更大的变化。视频模型一直是"一次前向处理整段视频的全部 token、重复几十步"——双向 attention，生成第 1 帧时要看第 81 帧。2024 年底开始的**自回归视频**（CausVid、Self-Forcing）把它改成"一个 chunk 一个 chunk 地生成，每个 chunk 只看前面的"——因果 attention 加少步蒸馏，单卡实时流式。于是一个在[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)里被宣布"没有"的东西回来了：**KV cache**。已生成 chunk 的 K / V 被缓存供后面的 chunk 查询，滑动窗口决定它多大，服务形态从批任务变成会话——vLLM 系列的一部分方法在这里重新出现。
 
 本篇要回答的核心问题是：
 
@@ -60,6 +60,12 @@ FLUX.1-dev → schnell 的账（H100，$$\eta$$ 0.45）：
 | SP 4 卡 | 1.63 s（延迟） | ~0.3 s；xDiT 8×A100 0.82 s（含全部） | — |
 
 Table: FLUX.1-dev 与 schnell 的账
+
+> [!NOTE] Java 经验参照：换算法胜过一切调优
+>
+> 一个 $$O(n^2)$$ 改成 $$O(n \log n)$$，收益常常超过 JVM 参数、连接池、缓存加起来的总和。步数蒸馏就是这个级别的事：7× 一项，顶得上前五篇系统侧全部手段的总和。
+>
+> 两处不一样。一是**这件事不归你做**：换算法在 Java 里是写代码，这里是重新训练一个模型（几万 GPU 小时），系统工程师只能决定用不用、怎么用。二是**换了算法之后，此前的调优会作废**：跨步缓存、PipeFusion、CFG 并行同时失效（[第三章](#三失效与不变)逐项复核）。Java 里换个排序算法不会让连接池配置失效，这里却会——因为那些优化吃的不是"代码跑得快"，而是"步数多、相邻步像、有两个分支"这三个前提，蒸馏把三个前提一起拿掉了。
 
 三个结论：
 
@@ -132,7 +138,7 @@ Table: 步数蒸馏前后的账
 FLUX 的文本编码器 22 ms + VAE 102 ms 在 dev 上是 2.6%，在 schnell 上是 15.6%；SD3-Turbo 上是 47%。少步模型的优化对象转移：
 
 - **VAE 解码**：fp32 卷积链的 100 ms 变成主项之一——bf16 VAE（有损）、融合的 GroupNorm + SiLU、TAESD 一类的**轻量解码器**（几 MB、几毫秒、质量略降，实时预览用）；
-- **文本编码器**：prompt embedding 缓存（第二篇）命中时直接省 22 ms；
+- **文本编码器**：prompt embedding 缓存（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)）命中时直接省 22 ms；
 - **采样器与 Python 开销**：4 步里每步的 Python 调度、采样器的逐元素运算、kernel launch 从"每步 150 ms 里的几毫秒"变成"每步 170 ms 里的几毫秒"再变成"每步 40 ms（SD3-Turbo）里的几毫秒"——10% 以上，CUDA graph 的理由。
 
 ## 三、失效与不变
@@ -162,12 +168,12 @@ Table: 前五篇的优化在少步模型上的失效与不变
 
 ### 1. 批处理何时有意义
 
-第一篇：单请求 compute-bound，batch 不提吞吐。这个结论的前提是**一个请求的 GEMM 已经填满 GPU**——FLUX 1024² 的 $$[4608, 3072] \times [3072, 12288]$$ 是。它在两种情况下不成立：
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)：单请求 compute-bound，batch 不提吞吐。这个结论的前提是**一个请求的 GEMM 已经填满 GPU**——FLUX 1024² 的 $$[4608, 3072] \times [3072, 12288]$$ 是。它在两种情况下不成立：
 
 - **小模型 × 低分辨率**：SD-Turbo 512²（0.86B U-Net，$$N \approx 1024$$）、SD3-Turbo 512²（$$N = 1357$$，$$d = 1536$$）的 GEMM 是 $$[1357, 1536] \times [1536, 6144]$$，H100 上 MFU 不到 30%——batch 4 把它填满，吞吐近 3×；
 - **固定开销占比大**：少步下每步的 launch / 调度开销不随 batch 增长，batch 摊薄它。
 
-所以少步 + 小模型的实时场景（第五章）恰恰是批处理有意义的场景；FLUX-schnell 1024² 仍然不是——它每步仍是 74 TFLOPs 的大 GEMM。SGLang 的动态批处理（第七篇）合并的正是这类"形状兼容的小请求"。
+所以少步 + 小模型的实时场景（第五章）恰恰是批处理有意义的场景；FLUX-schnell 1024² 仍然不是——它每步仍是 74 TFLOPs 的大 GEMM。SGLang 的动态批处理（[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)）合并的正是这类"形状兼容的小请求"。
 
 ### 2. 多卡的意义
 
@@ -204,7 +210,7 @@ flowchart TB
 ```
 
 - **Stream batch**：把处于不同去噪步的连续帧拼成一个 batch，一次前向推进所有帧各一步——每次前向完成一帧，吞吐从 $$1/T$$ 变成 $$1$$（小模型的 GEMM 未饱和，batch $$T$$ 几乎不增加时间）；延迟不变（每帧仍经历 $$T$$ 步），这是吞吐与延迟的经典分离；
-- **Residual CFG**：无条件分支只算一次（或每隔几帧一次），复用它的残差——第三篇 CFG gating 的原型；
+- **Residual CFG**：无条件分支只算一次（或每隔几帧一次），复用它的残差——[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html) CFG gating 的原型；
 - **相似性过滤**：输入帧与上一帧几乎相同时跳过生成、直接复用输出——摄像头静止时省掉全部计算；
 - **预计算**：prompt embedding、噪声、采样器系数全部预先算好；**tiny VAE**（TAESD）做解码。
 
@@ -306,7 +312,7 @@ Table: 自回归 Wan 1.3B 480p 每个 chunk 的 FLOPs
 
 Table: 自回归视频的 KV 字节数
 
-对比第一篇 Llama-3-8B 的 KV：128 KB / token（GQA 8 head）。**自回归视频的 KV 每 token 比 LLM 还大**（无 GQA、$$d$$ 大），且一个 chunk 就是几千 token——vLLM 系列的 KV 管理问题（分页、驻留、换出）在这里重现，vLLM-Omni 的 `diffusion_kv/` 直接复用了 vLLM 的分页 KV 管理器与 PagedAttention 适配。
+对比[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html) Llama-3-8B 的 KV：128 KB / token（GQA 8 head）。**自回归视频的 KV 每 token 比 LLM 还大**（无 GQA、$$d$$ 大），且一个 chunk 就是几千 token——vLLM 系列的 KV 管理问题（分页、驻留、换出）在这里重现，vLLM-Omni 的 `diffusion_kv/` 直接复用了 vLLM 的分页 KV 管理器与 PagedAttention 适配。
 
 ### 2. 滑动窗口与长视频
 
@@ -318,7 +324,31 @@ Table: 自回归视频的 KV 字节数
 
 ## 八、服务形态：从批任务到会话
 
-### 1. 什么回来了
+### 1. 一个会话里住着什么
+
+"从批任务到会话"具体变了什么，把一个会话持有的东西列出来最清楚（Self-Forcing、Wan2.1-1.3B 底座、480p、窗口 21 个 latent 帧）：
+
+| 对象 | 字节 | 住在哪 | 活多久 | 会话被换出或迁移时 |
+|---|---|---|---|---|
+| 1. DiT 权重（1.3B bf16） | 2.6 GiB | GPU，所有会话共享 | 常驻 | 不动 |
+| 2. 已生成 chunk 的 K / V | **6.0 GB**（满窗口） | GPU | 滑动窗口之内 | **必须跟着走**：这是会话的全部记忆 |
+| 3. 当前 chunk 的 latent | 4,680 个 token | GPU | 这个 chunk 的 4 步 | 把抢占点选在 chunk 边界就不用带 |
+| 4. 文本 embedding | 几 MiB | GPU 或 CPU | 整个会话 | 跟着走，或按 prompt 重算（几十毫秒） |
+| 5. 控制信号队列（相机、动作） | 几字节 | CPU 侧的会话对象 | 每 chunk 读一次 | 跟着走 |
+| 6. 已发出的帧 | — | 客户端 | 发出即不再持有 | 不用管 |
+| 7. 当前帧位置与步计数 | 几个整数 | 会话对象 | 整个会话 | 跟着走 |
+| 8. 滑出窗口被丢掉的 K / V | — | 已释放 | — | 找不回来了 |
+
+Table: 一个自回归视频会话里住着的八样东西
+
+四条读法：
+
+1. **贵的只有第 2 行。**6.0 GB 是 1.3B 权重的两倍多；换出一个会话就是把它搬过 PCIe，约 0.24 秒，相当于生成一个 chunk（12 帧、约 0.7 秒）的三分之一。抢占因此比双向扩散贵得多——后者抢占只要丢掉当前这一步的激活。
+2. **第 4 行是唯一一个"不搬、重算更便宜"的。**几十毫秒的文本编码换掉几 MiB 的搬运，这与 LLM serving 里 recompute 和 swap 的权衡是同一个判断，只是这里重算的对象是文本编码器而不是 prefill。
+3. **第 8 行是这类系统独有的代价。**LLM 丢掉窗口外的 KV 只是"记不住前文"，这里丢掉的是画面内容的锚点，表现为颜色漂移与主体变形，而且会被不可逆地写进之后的每一帧。
+4. **和[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)那张一步的表相比，多出来的行全都挂在"会话"而不是"请求"上**（第 2、5、7 行）。扩散推理第一次有了跨请求的状态——这就是调度从批任务队列变成有状态会话的全部原因。
+
+### 2. 什么回来了
 
 | vLLM 系列的概念 | 双向多步扩散 | 自回归少步视频 |
 |---|---|---|
@@ -333,9 +363,15 @@ Table: 自回归视频的 KV 字节数
 
 Table: vLLM 系列的概念在自回归少步视频上回来了什么
 
-第一篇那张"08 的机制在扩散上大半用不上"的表，在自回归视频上要重新画：大半又用得上了。**因果化让视频生成在系统形态上向 LLM serving 收敛**——这是 SGLang 与 vLLM 两个 LLM 引擎恰好适合承载它的原因之一。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)那张"08 的机制在扩散上大半用不上"的表，在自回归视频上要重新画：大半又用得上了。**因果化让视频生成在系统形态上向 LLM serving 收敛**——这是 SGLang 与 vLLM 两个 LLM 引擎恰好适合承载它的原因之一。
 
-### 2. 会话与控制信号
+> [!NOTE] Java 经验参照：把会话外置就能无状态
+>
+> 服务要有状态时，后端的标准答案是把 session 放进 Redis：任何一个实例都能接手，扩缩容、滚动发布、故障转移都不受影响，粘性路由只是优化而不是必需。
+>
+> 这里做不到。会话状态是 6 GB 的 K / V，而且它必须待在 GPU 显存里才能被 attention 读到。外置意味着每个 chunk 都要把它搬进搬出，0.24 秒的搬运对上 0.7 秒的生成——等于把吞吐砍掉三分之一。所以这是**硬粘性**：一个会话落到哪张卡上，就只能在那张卡上活到结束。扩缩容时不能靠"等老实例把请求放完"（会话可以持续几分钟甚至不结束），故障转移等于丢掉这段视频的记忆。这是生成服务从批任务走向会话之后，运维上最实在的一处变化。
+
+### 3. 会话与控制信号
 
 交互式应用（世界模型：用户按方向键、相机移动）在 chunk 之间注入控制信号，模型据此生成下一 chunk。SGLang 的 `realtime/` 模块（`session.py`、`control_signals.py`）把它做成会话：一个长连接、服务端持有 KV 与状态、客户端流式收帧、随时发控制。LingBot World、SANA-WM（world model）的 realtime pipeline 是这个形态的第一批生产实现。这一部分在 2026 年仍在快速变化，本文只指出形态。
 
@@ -390,11 +426,11 @@ Table: 少步与自回归视频的规则与数字小结
    TeaCache：0×——4 步之间相对差 50% 以上，没有步会命中（或命中即坏），schnell 上零收益。VAE bf16：总时间 0.80 → 0.75 s，约 7%——在 dev 上同样的改动只有 1%。少步模型的优化对象转移到另两段。详见[第二章](#二少步的账)、[第三章](#三失效与不变)。
    </details>
 
-2. 第一篇说"batch 对扩散几乎不提吞吐"，第五章说 StreamDiffusion 用 stream batch 把吞吐提到接近 $$T$$ 倍。两者矛盾吗？
+2. [《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)说"batch 对扩散几乎不提吞吐"，第五章说 StreamDiffusion 用 stream batch 把吞吐提到接近 $$T$$ 倍。两者矛盾吗？
 
    <details markdown="1">
    <summary>答案</summary>
-   不矛盾。前提不同：第一篇的 FLUX 1024² 单请求的 GEMM（$$[4608, 3072] \times [3072, 12288]$$）已填满 GPU，batch 只是线性增加时间。StreamDiffusion 的 SD-Turbo 512²（0.86B，$$N \approx 1024$$）GEMM 小、单请求 MFU 不到 30%，batch $$T$$ 几乎不增加时间——batch 的收益来自填满未饱和的 GPU，与步数无关；少步 + 小模型恰好是这个区间。详见[第四章](#四少步下的新形态)、[第五章](#五实时交互streamdiffusion)。
+   不矛盾。前提不同：[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)里的 FLUX 1024² 单请求的 GEMM（$$[4608, 3072] \times [3072, 12288]$$）已填满 GPU，batch 只是线性增加时间。StreamDiffusion 的 SD-Turbo 512²（0.86B，$$N \approx 1024$$）GEMM 小、单请求 MFU 不到 30%，batch $$T$$ 几乎不增加时间——batch 的收益来自填满未饱和的 GPU，与步数无关；少步 + 小模型恰好是这个区间。详见[第四章](#四少步下的新形态)、[第五章](#五实时交互streamdiffusion)。
    </details>
 
 3. Self-Forcing（Wan 1.3B，$$d$$ 1536，30 层，480p 一帧 1,560 token）的 KV cache 每 token 多少字节？为什么比 Llama-3-8B 的 128 KB 还大？
@@ -415,7 +451,7 @@ Table: 少步与自回归视频的规则与数字小结
 
    <details markdown="1">
    <summary>答案</summary>
-   两个原因：最近的 chunk 对当前生成的影响最大（attention 随时间距离衰减，第四篇），量化误差在这里最伤；当前 chunk 去噪完成后还要重算一次 clean 版本的 K / V 覆盖进缓存，量化中间状态没有意义。旧 chunk 影响小、且不再改变，INT4 / INT2 的误差可接受——与 LLM 的 KV 量化按"最近 token 保留高精度"同构，粒度是 chunk。详见[第七章](#七kv-cache-的回归)。
+   两个原因：最近的 chunk 对当前生成的影响最大（attention 随时间距离衰减，见[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)），量化误差在这里最伤；当前 chunk 去噪完成后还要重算一次 clean 版本的 K / V 覆盖进缓存，量化中间状态没有意义。旧 chunk 影响小、且不再改变，INT4 / INT2 的误差可接受——与 LLM 的 KV 量化按"最近 token 保留高精度"同构，粒度是 chunk。详见[第七章](#七kv-cache-的回归)。
    </details>
 
 6. 自回归 Wan 1.3B 480p，chunk 4,680 token、窗口 21 帧。生成第 7 个 chunk 时一次前向的 attention 是多少？为什么从第 7 个 chunk 起每个 chunk 的成本不再增长，而双向模型把视频加长一倍成本要涨到约 4 倍？
@@ -429,4 +465,4 @@ Table: 少步与自回归视频的规则与数字小结
 
 [^q1]: Self-Forcing 配置（Wan2.1-1.3B，$$d = 1536$$，30 层，无 GQA，480p 一帧 $$30 \times 52 = 1560$$ token）：每 token K + V $$= 2 \times 1536 \times 2 \text{ B} \times 30 = 184$$ KB；一个 chunk 3 个 latent 帧 4,680 token → 0.86 GB；rolling 窗口 21 个 latent 帧（约 5 秒）→ 6.0 GB。720p 乘 2.3，14B 底座每 token 819 KB。窗口大小是显存与每 chunk attention 成本（$$\propto N_q N_{kv}$$）的线性乘数。详见[第七章](#七kv-cache-的回归)。
 
-[^q2]: 第一篇的"没有 KV cache"成立于双向多步模型：每步对全部 token 做完整前向，K / V 由本步的带噪输入算出、用完即弃，没有"历史 token 供新 token 查询"的结构。自回归视频把 attention 改成因果、按 chunk 生成：第 $$k$$ 个 chunk 的 Q 要查询第 $$1 \ldots k-1$$ 个 chunk 的 K / V，而那些 chunk 已经生成完、K / V 不再变（用 clean 版本重算一次后写入缓存）——"历史"出现了，缓存它就省掉了对历史 chunk 的重算。随之回归的还有滑动窗口、分页驻留、流式输出、会话状态与不可预测的时长——视频生成在系统形态上向 LLM serving 收敛。详见[第六章](#六自回归视频)、[第八章](#八服务形态从批任务到会话)。
+[^q2]: [《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)里"没有 KV cache"这个结论成立于双向多步模型：每步对全部 token 做完整前向，K / V 由本步的带噪输入算出、用完即弃，没有"历史 token 供新 token 查询"的结构。自回归视频把 attention 改成因果、按 chunk 生成：第 $$k$$ 个 chunk 的 Q 要查询第 $$1 \ldots k-1$$ 个 chunk 的 K / V，而那些 chunk 已经生成完、K / V 不再变（用 clean 版本重算一次后写入缓存）——"历史"出现了，缓存它就省掉了对历史 chunk 的重算。随之回归的还有滑动窗口、分页驻留、流式输出、会话状态与不可预测的时长——视频生成在系统形态上向 LLM serving 收敛。详见[第六章](#六自回归视频)、[第八章](#八服务形态从批任务到会话)。
