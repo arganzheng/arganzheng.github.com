@@ -433,11 +433,11 @@ Table: 掌握程度的判据
 
 六篇讲的是"用"，每一篇背后都有一个"改"或"为什么"，它们不在范围内，各有去处：
 
-- **Python 的机制**：第一篇只讲训练代码里那一小撮语法的用法；它们在解释器里怎么实现——GIL 的来历、生成器怎么暂停恢复、描述符与元类、内存模型、C 扩展、打包交付——在 Infra 地图的[《Python for AI Infra》](/python-for-ai-infra.html)，它是本系列第一篇的深入篇，两张地图共享，紧接本系列发布。
+- **Python 的机制**：第一篇只讲训练代码里那一小撮语法的用法；它们在解释器里怎么实现——GIL 的来历、生成器怎么暂停恢复、描述符与元类、内存模型、C 扩展、打包交付——在 Infra 地图的[《Python for AI Infra》](/python-for-ai-infra.html)，它是本系列《Python 使用层》的深入篇，两张地图共享，紧接本系列发布。
 - **PyTorch 内部**：Dispatcher、Autograd 引擎、编译、分布式通信栈的实现，在 Infra 地图的[《深入 PyTorch》](/deep-dive-into-pytorch.html)——同样两张地图共享，本系列讲"用"，它讲"改"。
 - **GPU 编程**：CUDA、kernel、Tensor Core、让 profiler 表里那个算子快起来，在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只到"读 profiler 知道慢在哪"。
 - **并行策略的选择与实现**：张量 / 流水 / 专家并行、checkpoint、容错、MFU，在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；本系列只到 DDP / FSDP 启用。
-- **每个训练概念的原理**：混合精度为什么能工作、梯度裁剪剪的是什么、warmup 为什么必须，分别在 L4《现代 LLM 结构》第十篇与 L3 深度学习基础系列。本系列只讲怎么用、在训练循环的哪一行。
+- **每个训练概念的原理**：混合精度为什么能工作、梯度裁剪剪的是什么、warmup 为什么必须，分别在 L4《现代 LLM 结构》的《浮点格式、数值稳定性与混合精度》与 L3 深度学习基础系列。本系列只讲怎么用、在训练循环的哪一行。
 - **后训练算法本身**：SFT 的数据、DPO / GRPO 的原理，在 L5 后训练系列。本系列只到"用 `trl` 跑起来、知道去哪读源码"。
 - **本系列的前置**：形状规则与 FLOPs、LoRA 的参数量、交叉熵、置信区间，在 [L0《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)；六篇里每个"L0 第几篇"的引用都指向它。
 - **地图定位**：这一层在整张地图上的位置，以及 L2 经典机器学习之后往哪走，见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。

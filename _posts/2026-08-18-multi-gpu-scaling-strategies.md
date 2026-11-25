@@ -86,7 +86,7 @@ Table: 五种并行策略的选择表
 
 这张表里最值得单独说的是 **DP**：它和其余四个不是一类东西。TP/PP/EP/CP 解决的都是"装不下"，是被迫拆分；**DP 解决的是"想要更多"，前提恰恰是单卡装得下**。所以生产部署里通常是"先用 TP/PP/EP/CP 把模型塞进一组卡，再用 DP 把这组卡整体复制 N 份来放大吞吐"——DP 永远是最外层。
 
-这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 <span class="inline-tip" data-tip="Zero Redundancy Optimizer：零冗余优化器，把优化器状态/梯度/参数分片到各卡">ZeRO</span> / <span class="inline-tip" data-tip="Fully Sharded Data Parallel：全分片数据并行，PyTorch 自带的 ZeRO 式实现">FSDP</span> 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列第二篇《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
+这五种切法训练侧也全都在用，但训练多出三种状态——梯度、优化器状态、为反向保存的激活——所以训练侧还有 <span class="inline-tip" data-tip="Zero Redundancy Optimizer：零冗余优化器，把优化器状态/梯度/参数分片到各卡">ZeRO</span> / <span class="inline-tip" data-tip="Fully Sharded Data Parallel：全分片数据并行，PyTorch 自带的 ZeRO 式实现">FSDP</span> 这一族（切优化器状态与梯度），TP / PP / EP 也各多一半反向的通信。本篇只讲推理侧；训练侧的完整账（四种状态 × 六种切法、每 step 通信量、Llama 3 405B 的代入）在[大规模训练系列的《并行策略全景》《并行策略全景——每种并行切的是哪种状态》](/parallelism-strategies-which-state-to-shard.html)，那篇开头有一张两侧逐项对照的表。
 
 下面按 DP → TP → PP → EP → CP 的顺序展开，再汇总为组合策略，最后进入多 GPU 推理的性能深水区——通信优化。
 
@@ -708,7 +708,7 @@ PP 既可以用于训练，也可以用于推理，但两者关注的问题不�
 
 Table: 训练 PP 与推理 PP 的不同
 
-训练 PP 的那一列——GPipe 与 1F1B 的时间表、气泡率 $$(p-1)/m$$ 的推导、interleaved 与 zero-bubble 调度——在[大规模训练系列第二篇的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)；那篇的 EP 一章也把 dispatch / combine 的**反向**（split 互换的 all-to-all）讲了一遍，是本文 EP 一节推理流程的另一半。
+训练 PP 的那一列——GPipe 与 1F1B 的时间表、气泡率 $$(p-1)/m$$ 的推导、interleaved 与 zero-bubble 调度——在[大规模训练系列的《并行策略全景》的第五章](/parallelism-strategies-which-state-to-shard.html#五流水线并行)；那篇的 EP 一章也把 dispatch / combine 的**反向**（split 互换的 all-to-all）讲了一遍，是本文 EP 一节推理流程的另一半。
 
 ### 7. PP 对 KV cache 有什么影响
 

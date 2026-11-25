@@ -445,8 +445,8 @@ Table: 掌握程度的判据
 - **系统侧的推理优化**（PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、投机与结构化输出在引擎里的实现）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；量化 kernel、在线 Hadamard 与 GEMM 的融合、2:4 与 FP8 的硬件细节在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)。
 - **成本公式与训练时就决定的结构选择**（Roofline、KV cache 的账、投机解码的基本形式、浮点格式，以及 GQA、MLA、MoE、sliding window 的成本账）是本系列的前提，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——结构的成本账集中在 04–06 篇，建模动机散在各篇；本系列在它的结论上继续，不重复推导，只在第五篇讨论训好之后对 KV 的处理时回指这些结构。
 - **蒸馏的方法与评测方法论**：logits 级 KL、on-policy 蒸馏在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》，benchmark 的方差与污染在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列第二、四、六篇把蒸馏当恢复精度的工具引用，每篇的"怎么评"都是它的应用。
-- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的第六篇。
-- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
+- **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的《扩散模型（上）：DDPM》。
+- **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在[现代 LLM 结构的《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
 - **KL 与总变差距离**等信息论基础在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第二、四篇的核心度量来自那里。
 - 本系列在整张地图上的位置（L6）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 

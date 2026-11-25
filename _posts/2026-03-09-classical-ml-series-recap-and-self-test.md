@@ -482,7 +482,7 @@ Table: 掌握程度的判据
 - **不推导**：SVM 的对偶与 KKT 条件、EM 算法的收敛、XGBoost 的二阶展开、核方法的再生核 Hilbert 空间、PAC 学习理论。它们是很好的数学练习，但不在最小集里；想看严格版本翻 Bishop 或 ESL。
 - **深度学习基础**（L3）：神经网络、反向传播、优化器、正则化在深度网络里的具体形态。那里的过拟合、正则化、学习率、评估全是本系列的概念换了一个模型；本系列只到"逻辑回归是分类头的原型、softmax 回归是输出层"。
 - **后训练算法本身**（L5）：奖励模型怎么训、RLHF 怎么做、DPO 是什么。本系列只到"奖励模型是逻辑回归、会过拟合、上限是标注一致性"。
-- **预训练的数据工程**（L4）：怎么抓、怎么清洗、配比怎么定，在预训练系列第四篇。本系列只给它用到的分类器、聚类、去重三个工具。
+- **预训练的数据工程**（L4）：怎么抓、怎么清洗、配比怎么定，在预训练系列的《预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账》。本系列只给它用到的分类器、聚类、去重三个工具。
 - **深度无监督学习**（L7）：自编码器、VAE、VQ-VAE，在多模态系列。
 - **本系列的前置**：[L0 数学](/math-for-ai-algorithm-engineers.html)（范数、SVD、贝叶斯公式、交叉熵、Bradley-Terry、梯度下降、置信区间）与 [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)（NumPy、Pandas、scikit-learn 的接口）。标准误、置信区间、p 值的定义在《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》，第十篇的配对检验与多重比较直接用了它。
 - **地图定位**：这些系列在[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L3 至 L7 层各有总纲。

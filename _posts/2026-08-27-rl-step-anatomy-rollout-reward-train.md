@@ -85,7 +85,7 @@ FLOP 账在算法侧已经算过（[《后训练》的《在线 RL：PPO、GRPO 
 
 Table: 全系列的记账符号
 
-四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《现代 LLM 结构》第四篇](/attention-variants-and-kv-cache.html)）：
+四个场景的模型（KV 字节数按 bf16、$$2 \times$$ 层数 $$\times$$ KV 头数 $$\times$$ 头维 $$\times$$ 2 字节算；DeepSeek-V3 的 MLA 每层只缓存 $$d_c = 512$$ 加 $$d_h^R = 64$$，见[《现代 LLM 结构》的《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)）：
 
 | 模型 | N | N_a | 层 | KV 头 × 头维 | k_kv | 推理侧权重 |
 |---|---|---|---|---|---|---|
@@ -276,7 +276,7 @@ rollout 与训练在不同的卡上，各自的显存只放自己的东西：推
 
 ### 1. decode 的时间模型
 
-decode 每一步对每条在飞的序列生成一个 token，这一步要把**全部权重读一遍**（$$2N_a$$ 字节，MoE 是被路由到的专家）、把**每条序列的 KV 读一遍**（$$c \times (P + \bar L/2) \times k_{kv}$$），而算的只有 $$2N_a \times c$$ FLOP。以 8B、$$c = 92$$ 为例：读 16 GB 权重加 $$92 \times 4596 \times 128 \text{ KiB} = 55.4$$ GB 的 KV，共 71.5 GB；算 $$2 \times 8 \times 10^9 \times 92 = 1.5 \times 10^{12}$$ FLOP。H100 读 71.5 GB 要 21 毫秒（3.35 TB/s），算 1.5 TFLOP（tera floating point operations，10^12 次浮点运算） 要 1.5 毫秒——**相差 14 倍，decode 是纯 memory-bound**，与推理服务里的结论相同（[《大模型推理系统揭秘》第一篇](/why-llm-serving-is-hard.html)）。
+decode 每一步对每条在飞的序列生成一个 token，这一步要把**全部权重读一遍**（$$2N_a$$ 字节，MoE 是被路由到的专家）、把**每条序列的 KV 读一遍**（$$c \times (P + \bar L/2) \times k_{kv}$$），而算的只有 $$2N_a \times c$$ FLOP。以 8B、$$c = 92$$ 为例：读 16 GB 权重加 $$92 \times 4596 \times 128 \text{ KiB} = 55.4$$ GB 的 KV，共 71.5 GB；算 $$2 \times 8 \times 10^9 \times 92 = 1.5 \times 10^{12}$$ FLOP。H100 读 71.5 GB 要 21 毫秒（3.35 TB/s），算 1.5 TFLOP（tera floating point operations，10^12 次浮点运算） 要 1.5 毫秒——**相差 14 倍，decode 是纯 memory-bound**，与推理服务里的结论相同（[《大模型推理系统揭秘》的《为什么 LLM Serving 比传统 DL 推理难？》](/why-llm-serving-is-hard.html)）。
 
 于是一个 decode 步的时间：
 

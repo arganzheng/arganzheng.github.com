@@ -308,7 +308,7 @@ For each function call, return a json object with function name and arguments wi
 
 ## 三、multi-LoRA：同一个 batch，每一行乘不同的权重
 
-> LoRA 训练侧的原理与选参见算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；其[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)算了 multi-LoRA 与合并模型两种服务方案的账，本文讲 kernel 与调度。
+> LoRA 训练侧的原理与选参见算法地图的[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)；其[《工程：adapter 文件、合并、多 LoRA 服务与参考模型》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)算了 multi-LoRA 与合并模型两种服务方案的账，本文讲 kernel 与调度。
 
 ### 1. 一段回顾
 

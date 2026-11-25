@@ -50,7 +50,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 算法侧与系统侧的分界需要说清楚
 
-一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[本系列第三篇](/post-training-quantization-gptq-awq-and-rotation.html)第二章，依据是[《现代 LLM 结构》第二篇](/transformer-flops-bytes-and-roofline.html)的 Roofline）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
+一个常见的误分类是把 PagedAttention、continuous batching 归入"推理算法"。它们不是——它们是内存管理与调度，对模型透明。反过来，量化 kernel（Marlin、Machete）、投机解码在引擎里的实现（vLLM 的 `SpecDecodeWorker`）、KV 量化的存储格式，是系统工作，但它们**实现**的是本系列讲的算法。分界线是：**算法决定"算什么"，系统决定"怎么算得快"**。算法工程师需要知道系统侧的约束——比如 W4A16 的收益只在 memory-bound 区间兑现（[本系列《训练后量化：误差模型、GPTQ、AWQ 与旋转》](/post-training-quantization-gptq-awq-and-rotation.html)第二章，依据是[《现代 LLM 结构》的《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的 Roofline）、投机解码在大 batch 下反而变慢——因为这些约束决定了算法的适用范围；但不需要写 kernel。
 
 ### 现有材料的断层
 
@@ -73,7 +73,7 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### Infra 工程师，想知道引擎里那些算法从哪来
 
-你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[（08）](/speculative-decoding-draft-verify-and-payoff.html)，以及 [vLLM 系列第六篇](/gpu-execution-kernels-and-graphs.html)（低精度推理与投机解码两章），是本系列的系统侧对应。
+你在 vLLM 系列里见过 `speculative_config`、`quantization="awq"`、`kv_cache_dtype="fp8"`，想知道背后的算法怎么选、为什么有效。这个系列是那些开关的算法侧说明；反过来，[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)与[（08）](/speculative-decoding-draft-verify-and-payoff.html)，以及 [vLLM 系列的《GPU 执行：如何让每个 Token 算得更快？》](/gpu-execution-kernels-and-graphs.html)（低精度推理与投机解码两章），是本系列的系统侧对应。
 
 
 ## 系列的整体主线
@@ -205,7 +205,7 @@ Table: 系列建议的动手顺序
 ### 前置要求
 
 - [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 02、04、08 篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
-- 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》（蒸馏）与[第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)（评测）：本系列的恢复手段与评测方法论都来自那里。
+- 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》（蒸馏）与[《后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染》](/evaluating-llms-benchmarks-judges-and-contamination.html)：本系列的恢复手段与评测方法论都来自那里。
 - [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
 
 ### 版本与基线

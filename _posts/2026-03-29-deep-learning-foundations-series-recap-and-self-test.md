@@ -653,7 +653,7 @@ Table: 掌握程度的判据
 - **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。本系列第十篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
 - **预训练配方**：学习率、batch、warmup 的具体数值怎么随规模定，scaling law，数据配比。属于 L4，本系列只讲每个开关的原理与诊断。
 - **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现，属于 Infra 地图的[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。本系列只到"框架在做什么"。
-- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作，在《现代 LLM 结构》第十篇。
+- **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作，在《现代 LLM 结构》的《浮点格式、数值稳定性与混合精度》。
 - **泛化理论**：VC 维、Rademacher 复杂度、PAC-Bayes。本系列只讲现象与实践中的正则化手段，不做理论。
 - **具体的 CNN / RNN 应用**：目标检测、分割、语音识别的网络设计。本系列只讲两条结构史留给 Transformer 的遗产。
 - **本系列的前置**：读时觉得吃力就回去补——[L0 数学](/math-for-ai-algorithm-engineers.html)的链式法则、Jacobian、期望与方差、谱范数；[L1 工具](/tooling-for-ai-algorithm-engineers.html)的 NumPy 形状与训练循环；[L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)的过拟合、偏差 - 方差与正则化。
