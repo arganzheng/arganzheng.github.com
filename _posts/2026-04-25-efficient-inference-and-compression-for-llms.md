@@ -65,11 +65,11 @@ Table: 系列六篇各改成本公式的哪一项
 
 ### 已经在用量化工具、但对原理与选型生疏的工程师
 
-你用过 GPTQ 或 AWQ，知道 GGUF 的 Q4_K_M，但不清楚 GPTQ 的 Hessian 在补偿什么、AWQ 的 α 为什么是 0.5 附近、为什么有的模型量化后在某类任务上崩了。第三、四篇是为你写的：从量化误差的统计模型出发推导每种方法，最后一章讲怎么评一个量化模型。
+你用过 GPTQ 或 AWQ，知道 GGUF 的 Q4_K_M，但不清楚 GPTQ 的 Hessian 在补偿什么、AWQ 的 α 为什么是 0.5 附近、为什么有的模型量化后在某类任务上崩了。[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)与[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)是为你写的：从量化误差的统计模型出发推导每种方法，最后一章讲怎么评一个量化模型。
 
 ### 做推理模型、被解码长度与成本困扰的工程师
 
-推理模型的输出是几千到几万 token，解码成本主导一切。第二篇（投机解码在长输出上的收益）、第五篇（KV 在长序列上的压缩）、第一篇（采样参数对推理模型评测的影响）直接相关。
+推理模型的输出是几千到几万 token，解码成本主导一切。[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)讲长输出上的投机收益，[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)讲 KV 在长序列上的压缩，[《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)讲采样参数对推理模型评测的影响，这三篇直接相关。
 
 ### Infra 工程师，想知道引擎里那些算法从哪来
 
@@ -117,11 +117,11 @@ KV 量化：KV 字节 ÷ 2–4
     class EVAL ev
 ```
 
-四条线可以叠加，但叠加的收益不是相乘：量化后的模型做投机解码，验证前向更早进入 compute-bound；KV 量化与 KV 驱逐都在减少 KV 字节，第二个的边际收益取决于第一个做了多少；剪枝后的模型再量化，两种误差叠加。第六篇末尾用一张总表把六篇的方法放在"分布是否改变 × 收益区间 × 代价 × 适用负载"的坐标上。
+四条线可以叠加，但叠加的收益不是相乘：量化后的模型做投机解码，验证前向更早进入 compute-bound；KV 量化与 KV 驱逐都在减少 KV 字节，第二个的边际收益取决于第一个做了多少；剪枝后的模型再量化，两种误差叠加。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)末尾用一张总表把六篇的方法放在"分布是否改变 × 收益区间 × 代价 × 适用负载"的坐标上。
 
 贯穿六篇的三条线索：
 
-- **推导线**：拒绝采样的分布等式（第二篇，从 [《现代 LLM 结构》的投机解码篇](/speculative-decoding-draft-verify-and-payoff.html) 的证明出发讲怎么提高接受率）、量化误差的统计模型与 OBS 的拉格朗日推导（第三篇）、STE 的梯度与 NF4 的分位推导（第四篇）、KV 离群值的通道结构（第五篇）、OBS 在剪枝上的形式（第六篇）——每种方法的目标函数都能写出来。
+- **推导线**：拒绝采样的分布等式（[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)，从 [《现代 LLM 结构》的投机解码篇](/speculative-decoding-draft-verify-and-payoff.html) 的证明出发讲怎么提高接受率）、量化误差的统计模型与 OBS 的拉格朗日推导（[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)）、STE 的梯度与 NF4 的分位推导（[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)）、KV 离群值的通道结构（[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)）、OBS 在剪枝上的形式（[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)）——每种方法的目标函数都能写出来。
 - **成本线**：每种方法改了成本公式的哪一项、收益区间在哪（回到 Roofline）、量化的元数据占多少字节、草稿模型训练要多少算力、剪枝 + 蒸馏比从头训省多少 token。
 - **评测线**：每种方法的退化集中在哪类任务、用什么评测能看到、公开报告里的"无损"在什么协议下成立。
 
@@ -204,9 +204,9 @@ Table: 系列建议的动手顺序
 
 ### 前置要求
 
-- [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 02、04、08 篇：Roofline、KV cache 的账、投机解码的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列第三篇自己算。
+- [《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)的三篇：[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)的 Roofline，[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)的 KV cache 账，[《投机解码》](/speculative-decoding-draft-verify-and-payoff.html)的分布等式与收益区间。本系列在这三篇的结论上继续，不重复它们的推导；量化"省多少、什么时候省得到"的 Roofline 账在本系列的[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)里自己算。
 - 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》（蒸馏）与[《后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染》](/evaluating-llms-benchmarks-judges-and-contamination.html)：本系列的恢复手段与评测方法论都来自那里。
-- [L0 数学系列](/math-for-ai-algorithm-engineers.html)的信息论部分：KL、总变差距离在第二、四篇里是核心度量。
+- [《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)的信息论部分：总变差距离与 KL 分别是本系列[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)与[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的核心度量。
 
 ### 版本与基线
 
@@ -233,13 +233,13 @@ Table: 系列建议的动手顺序
 | 追问 | 答案来自 |
 |---|---|
 | 这个负载（batch、输出长度、上下文长度）的瓶颈是权重字节、KV 字节还是算力？哪条线的收益最大？ | 总纲 · 现代 LLM 结构系列 |
-| 采样参数怎么定？评测时用 greedy 还是采样？温度改了 pass@k 怎么变？ | 第一篇 |
-| 投机解码在这个负载上有收益吗？草稿用什么？接受率预期多少？ | 第二篇 |
-| 量化到几位、用哪种方法、group 多大？为什么这个模型量化后崩了？ | 第三篇 |
-| 需要 QAT 吗？怎么在部署前发现量化的任务退化？ | 第四篇 |
-| 128K 上下文的 KV 怎么压？哪种办法在这类任务上安全？ | 第五篇 |
-| 一个 70B 怎么变成一个能用的 8B？剪枝 + 蒸馏还是从头训？ | 第六篇 |
-| 这些方法叠加时收益怎么算？代价怎么叠加？ | 第六篇总表 |
+| 采样参数怎么定？评测时用 greedy 还是采样？温度改了 pass@k 怎么变？ | [《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html) |
+| 投机解码在这个负载上有收益吗？草稿用什么？接受率预期多少？ | [《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html) |
+| 量化到几位、用哪种方法、group 多大？为什么这个模型量化后崩了？ | [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html) |
+| 需要 QAT 吗？怎么在部署前发现量化的任务退化？ | [《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) |
+| 128K 上下文的 KV 怎么压？哪种办法在这类任务上安全？ | [《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
+| 一个 70B 怎么变成一个能用的 8B？剪枝 + 蒸馏还是从头训？ | [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html) |
+| 这些方法叠加时收益怎么算？代价怎么叠加？ | [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)总表 |
 
 Table: 读完高效推理系列后应能回答的追问
 

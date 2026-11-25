@@ -9,9 +9,17 @@ date: 2026-05-01 20:00:00
 updated: 2026-11-23
 ---
 
-六篇正文回答了一个问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。第一篇讲从分布里怎么取一个 token，第二篇讲唯一不改变分布的加速（投机解码），第三、四篇讲权重与激活的低比特表示（PTQ 与 QAT），第五篇讲训好之后还能对 KV 做什么，第六篇讲删掉一部分参数之后怎么恢复、以及一个 70B 怎么变成一个能用的 8B。六篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那条成本公式的算法侧。
+六篇正文回答了一个问题：**不改硬件、不改推理引擎，怎么让同一个模型更快、更小、更便宜——以及每种办法让模型的输出改变了多少**。
 
-本文不讲新内容，做三件事：把六篇压成一张表与六段回顾，把贯穿六篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"六篇能不能连起来用"。第六篇末尾的系列总表也一并收进本文。
+1. [《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)：从分布里怎么取一个 token；
+2. [《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)：唯一不改变分布的加速；
+3. [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)与[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：权重与激活的低比特表示（PTQ 与 QAT）；
+4. [《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)：训好之后还能对 KV 做什么；
+5. [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)：删掉一部分参数之后怎么恢复、以及一个 70B 怎么变成一个能用的 8B。
+
+六篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那条成本公式的算法侧。
+
+本文不讲新内容，做三件事：把六篇压成一张表与六段回顾，把贯穿六篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"六篇能不能连起来用"。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)末尾的系列总表也一并收进本文。
 
 > **读完这六篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -149,7 +157,7 @@ Table: 本文的章节安排
 
 **核心问题**：剪掉 25% 的层，困惑度只升 0.3，为什么下游任务掉一半？蒸馏能恢复多少？
 
-**结论**：剪掉的东西不能靠更好的舍入找回来，必须靠训练恢复，所以剪枝几乎总是"剪枝 + 蒸馏"。非结构化剪枝的重要性得分来自第三篇同一套 OBS 推导，$$\mathcal{E}_q = w_q^2/[H^{-1}]_{qq}$$（SparseGPT），Wanda 用一阶的 $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert_2$$ 在 50% 稀疏下与之接近——"哪些权重重要"的一阶答案是"乘大激活的那些"，与 AWQ 同一个观察；但非结构化 50% 在 GPU 上不变快，只有 2:4 被 Tensor Core 兑现，且 decode 的权重字节只到 5/8。层裁剪的依据是残差结构 $$h_{l+1} = h_l + f_l(h_l)$$：中后层输入输出的余弦相似度 0.85–0.95，是残差流上的小修正，删掉困惑度几乎不变、MMLU 到悬崖前几乎平坦；但 GSM8K 可从 50 掉到 10 以下，因为生成任务要 100–300 token 每步精确、中后层正是做多步组合的地方、后训练写进深层的格式与指令遵循最脆弱。宽度剪枝按激活统计估重要性（Minitron）或学 mask（Sheared LLaMA）；剪宽度恢复后精度最好、剪深度延迟降最多。恢复必须蒸馏：Minitron 同样 94B token，蒸馏比继续预训练高 3–4 MMLU 点；恢复后仍低于原模型、推理类任务恢复最慢、且要重做后训练。第六篇末尾把六篇放到一张"分布是否改变 × 收益区间 × 代价 × 退化集中在哪"的总表上，回答"70B 怎么变成能用的 8B"。
+**结论**：剪掉的东西不能靠更好的舍入找回来，必须靠训练恢复，所以剪枝几乎总是"剪枝 + 蒸馏"。非结构化剪枝的重要性得分来自[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)同一套 OBS 推导，$$\mathcal{E}_q = w_q^2/[H^{-1}]_{qq}$$（SparseGPT），Wanda 用一阶的 $$\lvert w_{ij} \rvert \cdot \lVert X_j \rVert_2$$ 在 50% 稀疏下与之接近——"哪些权重重要"的一阶答案是"乘大激活的那些"，与 AWQ 同一个观察；但非结构化 50% 在 GPU 上不变快，只有 2:4 被 Tensor Core 兑现，且 decode 的权重字节只到 5/8。层裁剪的依据是残差结构 $$h_{l+1} = h_l + f_l(h_l)$$：中后层输入输出的余弦相似度 0.85–0.95，是残差流上的小修正，删掉困惑度几乎不变、MMLU 到悬崖前几乎平坦；但 GSM8K 可从 50 掉到 10 以下，因为生成任务要 100–300 token 每步精确、中后层正是做多步组合的地方、后训练写进深层的格式与指令遵循最脆弱。宽度剪枝按激活统计估重要性（Minitron）或学 mask（Sheared LLaMA）；剪宽度恢复后精度最好、剪深度延迟降最多。恢复必须蒸馏：Minitron 同样 94B token，蒸馏比继续预训练高 3–4 MMLU 点；恢复后仍低于原模型、推理类任务恢复最慢、且要重做后训练。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)末尾把六篇放到一张"分布是否改变 × 收益区间 × 代价 × 退化集中在哪"的总表上，回答"70B 怎么变成能用的 8B"。
 
 **必记**：
 
@@ -166,35 +174,35 @@ Table: 本文的章节安排
 
 ### 1. 分布变了多少：从"有意改"到"不变"到"可控"到"任务依赖"
 
-这是总纲那张表的第四列，六篇按它排序。第一篇的采样参数是**有意**改分布——温度、截断、惩罚、约束每一个都在改，所以它必须放在最前面：不先固定采样，后面任何"量化前后差多少"的比较都混进了采样噪声（第四篇的协议一致性直接引用它：温度对结果的影响可能大于量化）。第二篇是系列里唯一**不变**的方法，拒绝采样保证输出严格等于目标分布，代价是接受率 $$1 - \text{TV}$$ 决定收益——不变的是分布，变的是速度；一旦用 typical acceptance 放松验证，它就掉进了后面几篇的范畴。
+这是总纲那张表的第四列，六篇按它排序。[《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)的采样参数是**有意**改分布——温度、截断、惩罚、约束每一个都在改，所以它必须放在最前面：不先固定采样，后面任何"量化前后差多少"的比较都混进了采样噪声（[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的协议一致性直接引用它：温度对结果的影响可能大于量化）。[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)是系列里唯一**不变**的方法，拒绝采样保证输出严格等于目标分布，代价是接受率 $$1 - \text{TV}$$ 决定收益——不变的是分布，变的是速度；一旦用 typical acceptance 放松验证，它就掉进了后面几篇的范畴。
 
-第三、四篇的量化是**可控的噪声**：有 $$\Delta^2/12$$ 的统计模型，有逐 token KL 的直接度量（4-bit 0.01–0.05 nat），每种方法在最小化一个写得出来的目标。第五篇的 KV 量化沿用这个框架（FP8 KV 的 KL 0.001 nat），但驱逐跳出了它——丢掉的是信息不是精度，退化**任务依赖**且可以很大（摘要上 80% 无损、needle 上 20% 失败）；训练时稀疏又回到"不变"，因为模型从来就只看那些块。第六篇的剪枝改变最大、恢复后变小，且恢复不了的部分集中在推理类任务。
+[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)与[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的量化是**可控的噪声**：有 $$\Delta^2/12$$ 的统计模型，有逐 token KL 的直接度量（4-bit 0.01–0.05 nat），每种方法在最小化一个写得出来的目标。[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)的 KV 量化沿用这个框架（FP8 KV 的 KL 0.001 nat），但驱逐跳出了它——丢掉的是信息不是精度，退化**任务依赖**且可以很大（摘要上 80% 无损、needle 上 20% 失败）；训练时稀疏又回到"不变"，因为模型从来就只看那些块。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)的剪枝改变最大、恢复后变小，且恢复不了的部分集中在推理类任务。
 
-度量分布改变的工具也在递进：第二篇用 TV（接受率），第四篇用 KL（Pinsker 把两者连起来：$$\text{TV} \le \sqrt{\text{KL}/2}$$，这正是训草稿用前向 KL 蒸馏的依据），第五、六篇用任务准确率随预算 / 剪枝比例的曲线。
+度量分布改变的工具也在递进：[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)用 TV（接受率），[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)用 KL（Pinsker 把两者连起来：$$\text{TV} \le \sqrt{\text{KL}/2}$$，这正是训草稿用前向 KL 蒸馏的依据），[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)与[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)用任务准确率随预算 / 剪枝比例的曲线。
 
 ### 2. 成本公式的哪一项，收益止于哪个区间
 
-每 token 的成本 = （权重字节 + KV 字节）/ 带宽 ÷ 每次前向产出的 token 数 + 算力项。第二篇改分母：一次前向产出 $$\mathbb{E}[\text{tokens}]$$ 个 token，但验证 $$N_{tree}$$ 个位置"几乎免费"只在 $$B \cdot N_{tree} \lesssim \text{ridge}$$ 内成立——batch 8 × 64 节点 = 512 已过 H100 的 ridge（295）。第三篇改权重字节：W4A16 除以 4，但 GEMM 仍是 BF16、dequant 是额外算力，所以收益止于 memory-bound 区间，prefill 与大 batch 上反而变慢；要让算力项也变，得用 W8A8 / FP8 / W4A4。第五篇改 KV 字节：Llama-3-70B 在约 40K 上下文时 KV 读取超过权重读取，此后 KV 量化的边际收益大于权重量化；驱逐与稀疏改的是 KV 的数量而不是每元素字节。第六篇改参数数量：结构化剪枝在任何硬件上兑现，非结构化 50% 在 GPU 上不变快，2:4 只在 compute-bound 区间有效、decode 字节只到 5/8。
+每 token 的成本 = （权重字节 + KV 字节）/ 带宽 ÷ 每次前向产出的 token 数 + 算力项。[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)改分母：一次前向产出 $$\mathbb{E}[\text{tokens}]$$ 个 token，但验证 $$N_{tree}$$ 个位置"几乎免费"只在 $$B \cdot N_{tree} \lesssim \text{ridge}$$ 内成立——batch 8 × 64 节点 = 512 已过 H100 的 ridge（295）。[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)改权重字节：W4A16 除以 4，但 GEMM 仍是 BF16、dequant 是额外算力，所以收益止于 memory-bound 区间，prefill 与大 batch 上反而变慢；要让算力项也变，得用 W8A8 / FP8 / W4A4。[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)改 KV 字节：Llama-3-70B 在约 40K 上下文时 KV 读取超过权重读取，此后 KV 量化的边际收益大于权重量化；驱逐与稀疏改的是 KV 的数量而不是每元素字节。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)改参数数量：结构化剪枝在任何硬件上兑现，非结构化 50% 在 GPU 上不变快，2:4 只在 compute-bound 区间有效、decode 字节只到 5/8。
 
-叠加的规则由此而来，总纲预告、第五篇第八章与第六篇第八章落实：量化后的模型做投机，两者消耗的是同一段 memory-bound 余量，转折 batch 变小；KV 量化让长上下文下投机的验证成本减半；剪枝后再量化，两种误差不相加而是相乘——剪后模型对同样 W4 的困惑度增量大 1.5–2 倍。同一个 Roofline 决定了每条线的边界，也决定了它们叠加时谁先撞墙。
+叠加的规则由此而来，总纲预告、[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)第八章与[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)第八章落实：量化后的模型做投机，两者消耗的是同一段 memory-bound 余量，转折 batch 变小；KV 量化让长上下文下投机的验证成本减半；剪枝后再量化，两种误差不相加而是相乘——剪后模型对同样 W4 的困惑度增量大 1.5–2 倍。同一个 Roofline 决定了每条线的边界，也决定了它们叠加时谁先撞墙。
 
 ### 3. 离群值与同一套二阶数学
 
-第三篇建立的两件事贯穿其后三篇。第一件是**输出误差 $$= \text{tr}(E H E^\top)$$、$$H = \mathbb{E}[XX^\top]$$**：同样的权重误差落在激活大的通道上被放大。它在第三篇是 GPTQ 用 $$H^{-1}$$ 补偿与 AWQ 保护显著通道的根源；在第六篇是 OBS 的剪枝形式 $$w_q^2/[H^{-1}]_{qq}$$（SparseGPT）与 Wanda 的 $$\lvert w \rvert \cdot \lVert X \rVert$$——GPTQ 与 SparseGPT 是同一个拉格朗日推导的两个约束（量化到格点 vs 置零），AWQ 与 Wanda 是同一个一阶观察的两个用法。
+[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)建立的两件事贯穿其后三篇。第一件是**输出误差 $$= \text{tr}(E H E^\top)$$、$$H = \mathbb{E}[XX^\top]$$**：同样的权重误差落在激活大的通道上被放大。它在这一篇是 GPTQ 用 $$H^{-1}$$ 补偿与 AWQ 保护显著通道的根源；在[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)是 OBS 的剪枝形式 $$w_q^2/[H^{-1}]_{qq}$$（SparseGPT）与 Wanda 的 $$\lvert w \rvert \cdot \lVert X \rVert$$——GPTQ 与 SparseGPT 是同一个拉格朗日推导的两个约束（量化到格点 vs 置零），AWQ 与 Wanda 是同一个一阶观察的两个用法。
 
-第二件是**离群值的两类来源**：通道级离群来自 LayerNorm 的 $$\gamma$$、约 6.7B 起相变；massive activations 出现在少数 token 上、值达数千、作用是常数偏置。第三篇用 SmoothQuant 迁移前者、per-token 动态处理后者、Hadamard 旋转把两者摊平。第五篇把同一结构追到 KV：key 继承 hidden state 的通道级离群、value 没有，所以 KIVI 的粒度是非对称的；massive activation 落在第一个 token 上让它的 key 与所有 query 点积都大——这就是 attention sink，驱逐它就崩，StreamingLLM 必须保留它。第六篇里承担 sink 功能的 head 与 retrieval head 一样，是校准集激活范数看不出、却不能剪的。可学习的 sink 标量（gpt-oss）是训练侧一并解决量化与驱逐难题的办法。
+第二件是**离群值的两类来源**：通道级离群来自 LayerNorm 的 $$\gamma$$、约 6.7B 起相变；massive activations 出现在少数 token 上、值达数千、作用是常数偏置。[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)用 SmoothQuant 迁移前者、per-token 动态处理后者、Hadamard 旋转把两者摊平。[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)把同一结构追到 KV：key 继承 hidden state 的通道级离群、value 没有，所以 KIVI 的粒度是非对称的；massive activation 落在第一个 token 上让它的 key 与所有 query 点积都大——这就是 attention sink，驱逐它就崩，StreamingLLM 必须保留它。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)里承担 sink 功能的 head 与 retrieval head 一样，是校准集激活范数看不出、却不能剪的。可学习的 sink 标量（gpt-oss）是训练侧一并解决量化与驱逐难题的办法。
 
 ### 4. 困惑度是平均，任务看关键 token
 
-第一篇先给了评测的前提：采样参数是协议里最大的一项，pass@1 与 pass@k 不能用同一组参数报，选择题用约束解码还是自由回答再抽取可以差好几个点。第三篇给了退化不均匀的第一个层面——敏感层（首尾层、out_proj / down_proj、lm_head、MoE 路由）与校准集分布（英文网页上校准的模型在中文与代码上损失更大）。
+[《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)先给了评测的前提：采样参数是协议里最大的一项，pass@1 与 pass@k 不能用同一组参数报，选择题用约束解码还是自由回答再抽取可以差好几个点。[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)给了退化不均匀的第一个层面——敏感层（首尾层、out_proj / down_proj、lm_head、MoE 路由）与校准集分布（英文网页上校准的模型在中文与代码上损失更大）。
 
-第四篇把它变成一个明确的机制：困惑度是所有 token 的平均，容易的 token 从 0.9 到 0.88 贡献 0.02，关键的 token 从 0.4 到 0.3 或被翻转；Llama-3-8B W4 的 PPL +0.36、MMLU −1–2、GSM8K −3–6、needle −10 以上相差一个量级。先掉的四类任务（多步推理、长上下文、低资源语言与代码、指令细节）与"退化集中在难题"是判断任何压缩方法的清单，逐 token KL 的 P99 是不需要 benchmark 的直接度量。第五篇的 needle 是驱逐方法的试金石，理由相同：needle 在被读到时是"不重要"的，摘要看不到它的缺失。第六篇以最极端的形式重演——删 25% 层 PPL +0.3、MMLU 悬崖前平坦、GSM8K 从 50 掉到 10 以下，因为多选只要"大致对"的残差流、生成要每步精确，而后训练写进深层的格式遵循在预训练文本的困惑度里完全看不到。六篇里每一个"无损"的声明，都要问在哪个指标、哪类任务、什么协议下。
+[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)把它变成一个明确的机制：困惑度是所有 token 的平均，容易的 token 从 0.9 到 0.88 贡献 0.02，关键的 token 从 0.4 到 0.3 或被翻转；Llama-3-8B W4 的 PPL +0.36、MMLU −1–2、GSM8K −3–6、needle −10 以上相差一个量级。先掉的四类任务（多步推理、长上下文、低资源语言与代码、指令细节）与"退化集中在难题"是判断任何压缩方法的清单，逐 token KL 的 P99 是不需要 benchmark 的直接度量。[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)的 needle 是驱逐方法的试金石，理由相同：needle 在被读到时是"不重要"的，摘要看不到它的缺失。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)以最极端的形式重演——删 25% 层 PPL +0.3、MMLU 悬崖前平坦、GSM8K 从 50 掉到 10 以下，因为多选只要"大致对"的残差流、生成要每步精确，而后训练写进深层的格式遵循在预训练文本的困惑度里完全看不到。六篇里每一个"无损"的声明，都要问在哪个指标、哪类任务、什么协议下。
 
 ### 5. 蒸馏与"在训练阶段就为部署设计"
 
-系列不讲蒸馏的方法（那在后训练系列），但把它当工具用了三次，且每次教师都是"更大的自己"或"全精度的自己"。第二篇：训草稿就是蒸馏——最小化 KL$$(p \parallel q)$$、on-policy、目标模型是教师，DistillSpec 把加速比再提高 10–45%。第四篇：QAT + 蒸馏几乎总是优于交叉熵，教师是量化前的自己，Gemma 3 用 5000 步蒸馏把 PTQ 的退化压回一半。第六篇：剪枝后必须蒸馏恢复，Minitron 同样 94B token 蒸馏比继续预训练高 3–4 MMLU 点，教师前向多花 60% 算力。三处的理由相同：目标是每个位置的完整分布而不是一个正确 token，任务是"恢复到原样"而不是重新学习。
+系列不讲蒸馏的方法（那在后训练系列），但把它当工具用了三次，且每次教师都是"更大的自己"或"全精度的自己"。[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)：训草稿就是蒸馏——最小化 KL$$(p \parallel q)$$、on-policy、目标模型是教师，DistillSpec 把加速比再提高 10–45%。[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：QAT + 蒸馏几乎总是优于交叉熵，教师是量化前的自己，Gemma 3 用 5000 步蒸馏把 PTQ 的退化压回一半。[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)：剪枝后必须蒸馏恢复，Minitron 同样 94B token 蒸馏比继续预训练高 3–4 MMLU 点，教师前向多花 60% 算力。三处的理由相同：目标是每个位置的完整分布而不是一个正确 token，任务是"恢复到原样"而不是重新学习。
 
-与此并行的是另一条趋势——**把部署需求提前到训练阶段**。第二篇的 MTP 头兼作训练目标与草稿，与主模型联合训练所以接受率 85–90% 高于事后训的 EAGLE；第四篇的 Llama 3.2 与 Gemma 3 由厂商发布 QAT 版本，因为只有厂商有训练数据、全精度教师与算力；第五篇的 NSA / MoBA、MLA、跨层共享把 KV 效率设计进结构，让推理时的压缩需求变小；第六篇的 Llama 3.2 用剪枝做初始化、再用预训练规模的 9T token 蒸馏。这是总纲说的"压缩不再是部署工程师的事后处理，而是模型发布的一部分"在六篇里的具体形态。
+与此并行的是另一条趋势——**把部署需求提前到训练阶段**。[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)的 MTP 头兼作训练目标与草稿，与主模型联合训练所以接受率 85–90% 高于事后训的 EAGLE；[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的 Llama 3.2 与 Gemma 3 由厂商发布 QAT 版本，因为只有厂商有训练数据、全精度教师与算力；[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)的 NSA / MoBA、MLA、跨层共享把 KV 效率设计进结构，让推理时的压缩需求变小；[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)的 Llama 3.2 用剪枝做初始化、再用预训练规模的 9T token 蒸馏。这是总纲说的"压缩不再是部署工程师的事后处理，而是模型发布的一部分"在六篇里的具体形态。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -318,7 +326,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：W4A16 把权重字节除以 4，decode 在 memory-bound 区间快 2.5–3.5 倍，但 dequant 是额外算力、区间缩到 $$B \lesssim \text{ridge}/4$$；第二篇：树验证要 $$B \cdot N_{tree} \lesssim \text{ridge}$$。两者消耗的是同一段 memory-bound 余量——量化让每步更快、也让验证 60 个节点更早进入 compute-bound，转折 batch 变小（总纲预告的"叠加收益不相乘"）。都是延迟工具：batch 1–4 上两者叠加有效，吞吐服务上先放弃投机。
+   [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)：W4A16 把权重字节除以 4，decode 在 memory-bound 区间快 2.5–3.5 倍，但 dequant 是额外算力、区间缩到 $$B \lesssim \text{ridge}/4$$；[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)：树验证要 $$B \cdot N_{tree} \lesssim \text{ridge}$$。两者消耗的是同一段 memory-bound 余量——量化让每步更快、也让验证 60 个节点更早进入 compute-bound，转折 batch 变小（总纲预告的"叠加收益不相乘"）。都是延迟工具：batch 1–4 上两者叠加有效，吞吐服务上先放弃投机。
 
    </details>
 
@@ -326,7 +334,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：$$T = 0.6$$、top-p 0.95、关掉重复惩罚、不 greedy，评测多次采样报均值；第二篇：长输出是投机收益最大的负载，EAGLE-3 在 $$T = 0.6$$ 下接受率略降仍 2.5–4×，但 128K 下验证 $$N_{tree}$$ 个节点的 KV 读取要专门 kernel；第五篇：FP8 KV 必开、INT4 谨慎（生成误差在几万 token 的链上累积）、不驱逐（推理链每一步都可能被回看）；第四篇：R1-Distill 的 4-bit 在 AIME 掉 5–10 点，比非推理模型敏感，选 W8A8 / FP8 权重或 QAT 版本，并用 AIME / GPQA 多次采样而不是 MMLU 判断。
+   [《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)：$$T = 0.6$$、top-p 0.95、关掉重复惩罚、不 greedy，评测多次采样报均值；[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)：长输出是投机收益最大的负载，EAGLE-3 在 $$T = 0.6$$ 下接受率略降仍 2.5–4×，但 128K 下验证 $$N_{tree}$$ 个节点的 KV 读取要专门 kernel；[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)：FP8 KV 必开、INT4 谨慎（生成误差在几万 token 的链上累积）、不驱逐（推理链每一步都可能被回看）；[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：R1-Distill 的 4-bit 在 AIME 掉 5–10 点，比非推理模型敏感，选 W8A8 / FP8 权重或 QAT 版本，并用 AIME / GPQA 多次采样而不是 MMLU 判断。
 
    </details>
 
@@ -334,15 +342,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：GPTQ W4 的 +0.36 对应 MMLU −1–2、GSM8K −3–6、needle −10 以上，均值 KL 0.01–0.05 nat；第六篇：删 25% 层 PPL +0.3–0.5 但 GSM8K 可从 50 掉到 10 以下、格式遵循被破坏、chat template 都可能不遵循——剪枝远更坏，因为删的是做多步组合的层与后训练写进深层的能力。区分用第四篇的任务组合（GSM8K、RULER、IFEval、逐 token KL 的 P99）：量化的 KL 集中在数字、代码符号等关键 token 上但均值小；剪枝的 KL 均值与 P99 都大，且 IFEval 崩。剪枝模型还要按第六篇蒸馏恢复后重做 SFT / DPO。
+   [《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：GPTQ W4 的 +0.36 对应 MMLU −1–2、GSM8K −3–6、needle −10 以上，均值 KL 0.01–0.05 nat；[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)：删 25% 层 PPL +0.3–0.5 但 GSM8K 可从 50 掉到 10 以下、格式遵循被破坏、chat template 都可能不遵循——剪枝远更坏，因为删的是做多步组合的层与后训练写进深层的能力。区分用[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的任务组合（GSM8K、RULER、IFEval、逐 token KL 的 P99）：量化的 KL 集中在数字、代码符号等关键 token 上但均值小；剪枝的 KL 均值与 P99 都大，且 IFEval 崩。剪枝模型还要按[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)蒸馏恢复后重做 SFT / DPO。
 
    </details>
 
-4. 激活的离群值在第三篇与第五篇里分别怎么处理？为什么 SmoothQuant 的静态 $$s_j$$ 不能顺手解决 KV 的问题？
+4. 激活的离群值在[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)与[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)里分别怎么处理？为什么 SmoothQuant 的静态 $$s_j$$ 不能顺手解决 KV 的问题？
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：通道级离群（LayerNorm $$\gamma$$）用 SmoothQuant 的 per-channel 静态 $$s_j$$ 迁移到权重，massive activations（少数 token 上数千）迁移不掉——为少数 token 放大 $$s_j$$ 会毁掉该通道在其他 token 上的精度，要靠 per-token 动态或 Hadamard 旋转。第五篇：key 继承通道级离群，KIVI 让每个通道有自己的 scale（沿 token 分组 per-channel）而不是迁移——KV 是存起来被反复读的，没有"权重"一侧可以迁；massive activation 落在第一个 token 上成了 attention sink，它不是要消除的噪声而是 softmax 的垃圾桶，驱逐即崩。QuaRot 在 K 与 Q 之间、V 与 O 之间加的旋转是把第三篇的办法用到 KV 上（W4A4KV4）。
+   [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)：通道级离群（LayerNorm $$\gamma$$）用 SmoothQuant 的 per-channel 静态 $$s_j$$ 迁移到权重，massive activations（少数 token 上数千）迁移不掉——为少数 token 放大 $$s_j$$ 会毁掉该通道在其他 token 上的精度，要靠 per-token 动态或 Hadamard 旋转。[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)：key 继承通道级离群，KIVI 让每个通道有自己的 scale（沿 token 分组 per-channel）而不是迁移——KV 是存起来被反复读的，没有"权重"一侧可以迁；massive activation 落在第一个 token 上成了 attention sink，它不是要消除的噪声而是 softmax 的垃圾桶，驱逐即崩。QuaRot 在 K 与 Q 之间、V 与 O 之间加的旋转是把[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)的办法用到 KV 上（W4A4KV4）。
 
    </details>
 
@@ -350,7 +358,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：Minitron 式按激活重要性剪宽度（精度优先）到 8B，几种候选形状各 ~2B token 短训选优，再以 70B 为教师做 ~100B token 的 logits 蒸馏（教师前向约 $$70/(3 \times 8) \approx 2.9$$ 倍学生训练算力——比 Minitron 15B → 8B 的 0.6 倍重得多），恢复后重做 SFT / DPO；第四篇：QAT 并入恢复末段（Llama 3.2 的顺序：剪枝 → 蒸馏 → SFT + QAT → DPO），或末段几百 GPU 小时以全精度的自己为教师；第三篇：最后 PTQ 到 W4A16（剪后模型对量化更敏感 1.5–2×，退化要重测）+ 第五篇的 FP8 KV；第二篇：需要低延迟再训一个 EAGLE-3 头（1–2 天 8 卡）。评测按第四篇：GSM8K / MATH、RULER、IFEval、逐 token KL，不是 MMLU；推理类任务恢复最慢，是"能用"的判据。
+   [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)：Minitron 式按激活重要性剪宽度（精度优先）到 8B，几种候选形状各 ~2B token 短训选优，再以 70B 为教师做 ~100B token 的 logits 蒸馏（教师前向约 $$70/(3 \times 8) \approx 2.9$$ 倍学生训练算力——比 Minitron 15B → 8B 的 0.6 倍重得多），恢复后重做 SFT / DPO；[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：QAT 并入恢复末段（Llama 3.2 的顺序：剪枝 → 蒸馏 → SFT + QAT → DPO），或末段几百 GPU 小时以全精度的自己为教师；[《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html)：最后 PTQ 到 W4A16（剪后模型对量化更敏感 1.5–2×，退化要重测）+ [《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)的 FP8 KV；[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)：需要低延迟再训一个 EAGLE-3 头（1–2 天 8 卡）。评测按[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)：GSM8K / MATH、RULER、IFEval、逐 token KL，不是 MMLU；推理类任务恢复最慢，是"能用"的判据。
 
    </details>
 
@@ -443,11 +451,11 @@ Table: 掌握程度的判据
 六篇算的是"训好之后、不改硬件与引擎，模型侧还能做什么"的账。以下内容与它紧邻，但不在范围内：
 
 - **系统侧的推理优化**（PagedAttention、continuous batching、chunked prefill、PD 分离、prefix caching、投机与结构化输出在引擎里的实现）在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；量化 kernel、在线 Hadamard 与 GEMM 的融合、2:4 与 FP8 的硬件细节在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)。
-- **成本公式与训练时就决定的结构选择**（Roofline、KV cache 的账、投机解码的基本形式、浮点格式，以及 GQA、MLA、MoE、sliding window 的成本账）是本系列的前提，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——结构的成本账集中在 04–06 篇，建模动机散在各篇；本系列在它的结论上继续，不重复推导，只在第五篇讨论训好之后对 KV 的处理时回指这些结构。
-- **蒸馏的方法与评测方法论**：logits 级 KL、on-policy 蒸馏在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》，benchmark 的方差与污染在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列第二、四、六篇把蒸馏当恢复精度的工具引用，每篇的"怎么评"都是它的应用。
+- **成本公式与训练时就决定的结构选择**（Roofline、KV cache 的账、投机解码的基本形式、浮点格式，以及 GQA、MLA、MoE、sliding window 的成本账）是本系列的前提，在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)——结构的成本账集中在[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)、[《长上下文的成本与结构手段》](/long-context-cost-and-structural-remedies.html)、[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)三篇，建模动机散在各篇；本系列在它的结论上继续，不重复推导，只在[《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html)讨论训好之后对 KV 的处理时回指这些结构。
+- **蒸馏的方法与评测方法论**：logits 级 KL、on-policy 蒸馏在 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》，benchmark 的方差与污染在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列的[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)、[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)、[《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html)三篇把蒸馏当恢复精度的工具引用，每篇的"怎么评"都是它的应用。
 - **扩散模型的推理加速**（步数蒸馏、一致性模型）是另一套数学，放在 L7 多模态系列的《扩散模型（上）：DDPM》。
 - **硬件相关的格式细节**（FP8 的 E4M3 / E5M2、Tensor Core 对 2:4 的支持）在[现代 LLM 结构的《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)与 GPU Kernel 系列；本系列只用它们的结论。
-- **KL 与总变差距离**等信息论基础在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第二、四篇的核心度量来自那里。
+- **KL 与总变差距离**等信息论基础在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——[《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html)的总变差距离与[《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html)的 KL 都来自那里。
 - 本系列在整张地图上的位置（L6）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《高效推理与压缩（算法侧）：解码、投机、量化与 KV》](/efficient-inference-and-compression-for-llms.html)。
