@@ -10,7 +10,7 @@ updated: 2026-11-14
 
 周一早上，集群里有 40 张空闲的 GPU。算法团队提交了一个 4 节点 32 卡的预训练任务，`kubectl get pods` 显示 30 个 Pod `Running`、2 个 `Pending`。`describe` 那两个 Pending 的 Pod，事件是 `0/12 nodes are available: 12 Insufficient nvidia.com/gpu`——剩下的 8 张卡分散在四台机器上，每台两张，而这个任务的每个 Pod 要 8 张。30 个已经起来的 Pod 在 `torchrun` 的 rendezvous 里等那两个永远不会来的同伴，占着 30 张卡什么也不算。另一个团队的 8 卡任务也在 Pending：它要的 8 张卡本来在，现在被这 30 个 Pod 中的某几个占了一部分。集群分配率 95%，有效利用率接近零，而且没有任何一方会自己退让。
 
-这不是配置错误，是默认 kube-scheduler 的工作方式与训练任务的形态之间的根本不匹配：调度器一个 Pod 一个 Pod 地决定，训练任务却是要么全部起来、要么全部没用。第一篇把这条需求列进了"原生 Kubernetes 满足不了"的那一栏，第二篇讲了单个容器怎样拿到 GPU；本篇讲**一组容器怎样一起拿到一组 GPU**——这是 AI 平台资源层里最核心、也最容易被低估的一层。
+这不是配置错误，是默认 kube-scheduler 的工作方式与训练任务的形态之间的根本不匹配：调度器一个 Pod 一个 Pod 地决定，训练任务却是要么全部起来、要么全部没用。[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)把这条需求列进了"原生 Kubernetes 满足不了"的那一栏，[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)讲了单个容器怎样拿到 GPU；本篇讲**一组容器怎样一起拿到一组 GPU**——这是 AI 平台资源层里最核心、也最容易被低估的一层。
 
 它包含三个层层递进的问题。第一，**同时性**：一组 Pod 要作为一个整体被调度，这就是 gang scheduling。第二，**公平性**：集群是多个团队共用的，谁先谁后、谁能用多少、空闲的卡能不能借给别人、借出去的能不能收回——这是队列与配额。第三，**位置**：32 张卡在同一机柜还是横跨四个机柜，对 all_reduce 的带宽差几倍；同一台机器的 8 张卡要一起给出去而不是被四个小任务各拿两张——这是拓扑感知。Kubernetes 生态里有两个主流项目在填这三个洞，走的路却完全不同：Volcano 换掉调度器，Kueue 在调度器前面加一道闸门。理解这两条路的差别，比记住任何一个 CRD 的字段重要。
 
@@ -30,7 +30,7 @@ updated: 2026-11-14
 
 ### 1. 引擎的需求
 
-训练框架对调度层提出的要求，可以从第一篇的需求表里抽出四条，每一条都能对应到一次真实的故障：
+训练框架对调度层提出的要求，可以从[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)的需求表里抽出四条，每一条都能对应到一次真实的故障：
 
 | 需求 | 来源 | 不满足时的现象 |
 |---|---|---|
@@ -67,7 +67,37 @@ Kueue 不碰 Pod 的节点选择，它只决定"这个任务现在能不能开�
 
 在两条路线之上是任务的表达层：Kubeflow Trainer 的 `TrainJob` 把 `torchrun` 的参数翻译成 JobSet，并按 `TrainingRuntime` 里的 `podGroupPolicy` 生成 Volcano 的 PodGroup 或让 Kueue 接管；KubeRay 的 `RayJob` / `RayCluster` 对 Ray 做同样的事。Slurm 作为对照贯穿全文：它二十年前就把 gang、partition、backfill、GRES 和拓扑做完了，K8s 生态在重新发明其中的大部分。
 
-### 4. 本文的章节安排
+### 4. 一个作业排队时，控制面里住着什么
+
+训练作业和在线服务最大的差别是：它**在拿到卡之前就已经存在很久了**。这段时间它不占 GPU，但在控制面里是一串对象。把这些对象按寿命排一遍，调度这一层的排障顺序就出来了。
+
+| 对象 | 谁创建 | 住在哪里 | 活多久 |
+|---|---|---|---|
+| `ClusterQueue` / `LocalQueue` / `ResourceFlavor` / `Cohort` | 平台管理员 | etcd | 长期——它们是策略不是状态，改一次影响之后所有作业 |
+| `PriorityClass`、节点的拓扑标签 | 管理员 / NFD | etcd、节点对象 | 长期；TAS 与 HyperNode 都只认标签 |
+| `Workload` | Kueue 控制器，作业一创建就有 | etcd | 从创建到 `Finished`；**suspended 期间它是这个作业唯一的存在形式**，那时还没有 Pod |
+| `PodGroup`（Volcano 路线） | 作业的控制器 | etcd | 作业期；没 ready 时由 gang 插件在它上面打 `Unschedulable` condition |
+| JobSet → Job → Pod 三层对象 | Kubeflow Trainer | etcd | 作业期；一个 `TrainJob` 背后是三层 |
+| cohort 里的借出与借入 | Kueue 的每次准入与释放 | 调度器缓存，从 ClusterQueue 的 status 读得到 | 随别人的准入与结束实时加减 |
+| `TopologyAssignment`（TAS 选定的域与节点） | flavorassigner，在准入那一刻 | Workload 的 status | 作业期——但它是**准入时算出的一张快照** |
+| `waitForPodsReady` 的计时器 | Kueue | 控制器内存 | 从准入到超时；超时就驱逐 Workload、重新排队 |
+| rendezvous 的 c10d TCP store | rank 0 的进程 | `MASTER_ADDR` 那个 Pod 的内存 | 一次 rendezvous；任一 Pod 重建就要重来 |
+| Volcano 的 `Session` | 调度器，每周期一个（默认 1 秒） | 调度器内存 | **一个周期**：开 session → 快照集群 → 跑 action → 提交绑定 → 丢弃 |
+| 抢占与回收的受害者决定 | 一次 action 之内 | 同上 | 一个调度周期 |
+
+Table: 一个作业排队到跑起来，控制面里先后出现的对象
+
+四条读法：
+
+**1、排队的作业不占卡，但占着一串对象。**顺序是 `Workload` → `PodGroup` → JobSet / Job → Pod，而 Pod 是最后才出现的。所以这一层的排障要**从 Workload 的 conditions 读起**（`WaitingForQuota`、`NoMatchingFlavor`、`ExceedsMaxQuota`、`TopologyPlacementFailed`……），而不是从 `kubectl describe pod` 读起——排队的时候根本没有 Pod 可 describe。
+
+**2、最短的两行寿命是一秒。**Volcano 的 Session 和它里面做出的抢占决定，每个周期重新来过：重新快照、重新排序、重新决定。调度是一个**无记忆**的循环，"上一秒能调上、这一秒不行"不是 bug 而是模型。要让行为稳定，只能靠写进对象里的约束（gang 的 `minMember`、TAS 的注解、优先级），不能指望调度器记得上次。
+
+**3、拓扑保证是准入时的保证，不是运行时的保证。**`TopologyAssignment` 在准入那一刻按当时的空闲容量算出，而作业要跑几个小时。中间节点被别的 Pod 占了、下线了，这张快照不会重算。所以拓扑感知解决的是"别一开始就散开"，不解决"跑着跑着邻居变了"。
+
+**4、配额的借用是表里唯一一个寿命跨作业的运行时数。**它在 cohort 这个集合里随别人的准入与结束实时加减，所以一个队列的"可用额度"不是一个静态数字——同一个作业先后提交两次，可以一次准入、一次等待，而队列的配置一个字都没改。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -121,6 +151,12 @@ gang scheduling 的定义只有一句：**一组 Pod 要么全部（或至少 `m
 - 需要一个**阈值**：不是所有任务都要求 100% 成员。`minMember` 让弹性训练（比如 torchrun 的 `--nnodes=2:4`）表达"最少 2 个节点就能开始"。
 
 `minMember` 在 Volcano 里是 `PodGroupSpec.MinMember`（`volcano staging/src/volcano.sh/apis/pkg/apis/scheduling/v1beta1/types.go`），字段注释就是这个定义："if there's not enough resources to start all tasks, the scheduler will not start anyone"。同一个 struct 里还有更细的 `MinTaskMember`（每个 task 角色的最少数目，比如 master 1 + worker 至少 3）和 v1.15 引入的 `SubGroupPolicy`（把一个 PodGroup 再分成若干子组，每个子组内部要求同时性和拓扑一致，`MinSubGroups` 是子组级别的 gang 阈值）。
+
+> [!NOTE] Java 经验参照：排队交给线程池就行
+>
+> 后端的任务队列模型：任务进队列，空闲 worker 取一个执行，取谁都一样。训练作业要的是"同时占住 32 个 worker"，取 30 个不是进度 30/32，是**负收益**——那 30 个占着卡什么都不做，还把别人挡在外面。
+>
+> 这个语义 Java 里其实有：`Semaphore.acquire(32)` 就是全有或全无的，拿不满一个都不拿。真正的错配在于**谁来喊这一嗓子**。原生 Kubernetes 相当于让 32 个线程各自 `acquire(1)`，没有任何一处知道它们属于同一件事；要改成一次 `acquire(32)`，就得先有一个表达"这 32 个 Pod 是一组"的对象（`PodGroup` / `Workload.spec.podSets`），再有一个认这个对象的调度器。所以这一节的结论不是"K8s 少了个功能"，而是"K8s 少了个名词"。
 
 ### 3. 为什么必须在调度器层面实现
 
@@ -261,6 +297,12 @@ Table: gangPlugin 注册的六类回调
 
 `OnSessionClose` 里 gang 插件还负责把没 ready 的 Job 的 PodGroup 打上 `Unschedulable` condition，消息形如 `X/Y tasks in gang unschedulable: pod group is not ready, Z Pending, ...`——这是排障时最先该看的一行。
 
+> [!NOTE] Java 经验参照：加了优先级就能插队
+>
+> `PriorityBlockingQueue` 的语义很干净：高优先级任务一来就排到队头，下一个空出来的 worker 就取它，等待时间上界等于当前最长的那个任务。GPU 调度里这条经验在两处落空。
+>
+> 第一，worker 不会"空出来"。要让一个 32 卡的高优作业现在就跑，得先杀掉正在跑的低优作业，而杀掉的代价是它上次 checkpoint 之后的全部进度——所以优先级在这里不是"谁先被取走"，是"谁有资格发起一次有代价的抢占"。第二，默认配置下这件事根本不会发生：gang 插件不允许把一个正在跑的 Job 打到 `minMember` 以下，而训练作业通常 `minAvailable == replicas`，于是它在 task 级的 `preempt` / `reclaim` 里永远不会被选为受害者。把优先级配上去却发现高优作业照样等着，多半就是撞上了这一条。
+
 ### 4. Queue 的三个配额语义
 
 `QueueSpec`（`scheduling/v1beta1/types.go`）里有三个配额字段（`capability`、`deserved` 是 `v1.ResourceList`，`guarantee` 是包着一层 `resource` 的 `Guarantee`），`volcano docs/design/capacity-scheduling.md` 给出了它们的定义：
@@ -269,7 +311,7 @@ Table: gangPlugin 注册的六类回调
 - **deserved**：应得。这部分资源"可以借给别的队列，也可以收回来"——它是 reclaim 的基准线
 - **guarantee**：保底。这部分资源即使队列空着也不借出去，永远留着
 
-三者的关系是 `guarantee ≤ deserved ≤ capability`。用第一篇的两团队场景解释：A、B 各 `deserved: 16` 卡。B 空闲时 A 可以用到 `capability`（设为 32 就能跑那个 32 卡任务）；B 提交任务时，`reclaim` action 会发现 A 的用量超过了 `deserved`，从 A 手里收回超出的部分——但只收 `deserved` 以外的，A 的 16 卡是它的。如果 A 还设了 `guarantee: 8`，那么即使 A 一个任务都没有，B 也最多用到 `96 - 8`。
+三者的关系是 `guarantee ≤ deserved ≤ capability`。用[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)的两团队场景解释：A、B 各 `deserved: 16` 卡。B 空闲时 A 可以用到 `capability`（设为 32 就能跑那个 32 卡任务）；B 提交任务时，`reclaim` action 会发现 A 的用量超过了 `deserved`，从 A 手里收回超出的部分——但只收 `deserved` 以外的，A 的 16 卡是它的。如果 A 还设了 `guarantee: 8`，那么即使 A 一个任务都没有，B 也最多用到 `96 - 8`。
 
 把队列 A 的用量画成一条数轴，三个字段就是三条刻度线，每一段的"归属"不同（Kueue 的对应字段一并标出，第四章会展开）：
 
@@ -288,7 +330,15 @@ Table: 队列 A 用量各区间的归属
 
 `QueueSpec.Reclaimable`（默认 `true`，`volcano pkg/scheduler/api/queue_info.go` 的 `QueueInfo.Reclaimable`）决定这个队列借出去的资源能不能被收回；`QueueSpec.Priority` 决定队列之间的调度顺序和回收顺序（"Higher values are prioritized for scheduling and considered later during reclamation"）；`QueueSpec.Parent` 支持层级队列（`docs/design/hierarchical-queue-on-capacity-plugin.md`）；`QueueSpec.DequeueStrategy` 的 `fifo` / `traverse`（默认）决定队头 Job 调不上时是阻塞还是跳过——和 Kueue 的 `StrictFIFO` / `BestEffortFIFO` 一一对应。
 
-其他常用 plugin 一句话：`priority` 按 `PriorityClass` 排 Job 和 task；`drf` 按 dominant resource fairness 排 Job（多资源维度下的公平）；`binpack` 给节点打分时偏好"已经装得比较满"的节点，参数 `binpack.weight`、`binpack.resources`（`volcano pkg/scheduler/plugins/binpack/binpack.go`）——对 GPU 集群非常重要，它减少了第二章那种"每台机器剩两张卡"的碎片；`predicates` 和 `nodeorder` 复用 kube-scheduler 的 Filter / Score 逻辑；`sla` 给等待过久的 Job 加权；`numaaware` 处理 NUMA 拓扑；`network-topology-aware` 是第六章的主角。
+其他常用 plugin 各一句话：
+
+- `priority`：按 `PriorityClass` 排 Job 和 task；
+- `drf`：按 dominant resource fairness 排 Job（多资源维度下的公平）；
+- `binpack`：给节点打分时偏好"已经装得比较满"的节点，参数 `binpack.weight`、`binpack.resources`（`volcano pkg/scheduler/plugins/binpack/binpack.go`）——对 GPU 集群非常重要，它减少了第二章那种"每台机器剩两张卡"的碎片；
+- `predicates` 与 `nodeorder`：复用 kube-scheduler 的 Filter / Score 逻辑；
+- `sla`：给等待过久的 Job 加权；
+- `numaaware`：处理 NUMA 拓扑；
+- `network-topology-aware`：第六章的主角。
 
 ## 四、Kueue：调度器之前的配额闸门
 
@@ -341,7 +391,7 @@ Table: Kueue 的五个对象
 
 全部在 `kueue apis/kueue/v1beta2/` 下对应的 `*_types.go`。几个字段值得逐个解释。
 
-**ResourceFlavor 是 Kueue 表达异构的方式。** `ResourceFlavorSpec.NodeLabels` 是一组标签，比如 `nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3`（第二篇讲过这个标签由 GPU Feature Discovery 打上）。ClusterQueue 里每个 flavor 单独给配额：H100 flavor 16 张、A100 flavor 32 张。Workload 准入时 Kueue 按 flavor 在 ClusterQueue 里的**顺序**尝试（`FlavorFungibility` 控制"当前 flavor 要借用/抢占才能放下时，是先试下一个 flavor 还是就地借"），选中后把该 flavor 的 `nodeLabels` 作为 `nodeSelector` 写进 Pod——这是 Kueue 影响 Pod 落点的唯一方式（TAS 之前）。
+**ResourceFlavor 是 Kueue 表达异构的方式。** `ResourceFlavorSpec.NodeLabels` 是一组标签，比如 `nvidia.com/gpu.product: NVIDIA-H100-80GB-HBM3`（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)讲过这个标签由 GPU Feature Discovery 打上）。ClusterQueue 里每个 flavor 单独给配额：H100 flavor 16 张、A100 flavor 32 张。Workload 准入时 Kueue 按 flavor 在 ClusterQueue 里的**顺序**尝试（`FlavorFungibility` 控制"当前 flavor 要借用/抢占才能放下时，是先试下一个 flavor 还是就地借"），选中后把该 flavor 的 `nodeLabels` 作为 `nodeSelector` 写进 Pod——这是 Kueue 影响 Pod 落点的唯一方式（TAS 之前）。
 
 **cohort 是借用的边界。** `ClusterQueueSpec.CohortName` 只是一个名字，同名的 ClusterQueue 组成一个 cohort，彼此可以借用未使用的 `nominalQuota`。每个 `ResourceQuota` 上有两个限制借用的字段：`BorrowingLimit`（最多从别人那里借多少；null = 不限）和 `LendingLimit`（最多借给别人多少，等价于"我为自己保留 `nominalQuota - lendingLimit`"；null = 全部可借）。对照 Volcano：`nominalQuota` ≈ `deserved`，`nominalQuota + borrowingLimit` ≈ `capability`，`nominalQuota - lendingLimit` ≈ `guarantee`。如果创建了显式的 `Cohort` 对象，还可以用 `CohortSpec.ParentName` 组成树、在 cohort 层持有不属于任何 ClusterQueue 的公共配额。
 
@@ -349,7 +399,12 @@ Table: Kueue 的五个对象
 
 ### 3. 调度周期
 
-`kueue pkg/scheduler/scheduler.go` 的 `Scheduler.schedule` 每轮做四件事：对缓存做快照（`cache.Snapshot`）；取每个 ClusterQueue 的队头 Workload，调用 `nominate` 为每个候选算 flavor 分配（`kueue pkg/scheduler/flavorassigner/flavorassigner.go` 的 `FlavorAssigner.Assign`）——这一步决定"用哪个 flavor、要不要借用、要不要抢占"；按 cohort 内的顺序对候选逐个 `processEntry`，需要抢占的调用 `kueue pkg/scheduler/preemption/preemption.go` 的 `Preemptor.GetTargets` 选受害者、`IssuePreemptions` 发出驱逐；最后对可以准入的 Workload 写 `status.admission` 并设置 `QuotaReserved` condition。
+`kueue pkg/scheduler/scheduler.go` 的 `Scheduler.schedule` 每轮做四件事：
+
+1. 对缓存做快照（`cache.Snapshot`）；
+2. 取每个 ClusterQueue 的队头 Workload，调用 `nominate` 为每个候选算 flavor 分配（`kueue pkg/scheduler/flavorassigner/flavorassigner.go` 的 `FlavorAssigner.Assign`）——这一步决定"用哪个 flavor、要不要借用、要不要抢占"；
+3. 按 cohort 内的顺序对候选逐个 `processEntry`，需要抢占的调用 `kueue pkg/scheduler/preemption/preemption.go` 的 `Preemptor.GetTargets` 选受害者、`IssuePreemptions` 发出驱逐；
+4. 对可以准入的 Workload 写 `status.admission` 并设置 `QuotaReserved` condition。
 
 Workload 的 `status.conditions` 里有一串 reason 常量（`workload_types.go`）能告诉你它卡在哪：`WaitingForQuota`（配额不够）、`NoMatchingFlavor`（没有 flavor 能覆盖它请求的资源）、`ExceedsMaxQuota`（比 `nominalQuota + borrowingLimit` 还大，永远进不去）、`TopologyPlacementFailed`（TAS 找不到满足拓扑约束的域）、`WaitingForPreemptedWorkloads`（已选好受害者，等它们退出）、`UnsatisfiedAdmissionChecks`（配额有了，但 AdmissionCheck 没过）。`flavorassigner.go` 生成的消息形如 `couldn't assign flavors to pod set node: insufficient unused quota for nvidia.com/gpu in flavor h100, 16 more needed`——这是 `kubectl describe workload` 里最有用的一行。
 
@@ -444,7 +499,7 @@ Table: Volcano v1.15.2 与 Kueue v0.19.4 对比
 
 ### 1. 为什么位置重要
 
-第一篇把"节点间高带宽低延迟网络"列为训练的资源需求，这里只需要两个事实：同一台 8 卡机器内 GPU 之间走 NVLink，带宽是跨机 RDMA 网络的数倍到十数倍；跨机流量在同一台 leaf 交换机下是一跳，跨 spine 是三跳，带宽被更多任务分享。all_reduce 的时间由最慢的那条链路决定。所以对调度器的要求有两层：
+[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)把"节点间高带宽低延迟网络"列为训练的资源需求，这里只需要两个事实：同一台 8 卡机器内 GPU 之间走 NVLink，带宽是跨机 RDMA 网络的数倍到十数倍；跨机流量在同一台 leaf 交换机下是一跳，跨 spine 是三跳，带宽被更多任务分享。all_reduce 的时间由最慢的那条链路决定。所以对调度器的要求有两层：
 
 - **节点内**：一个 Pod 要 8 张卡时，应该给它整台机器，而不是让四个 2 卡任务各拿两张，把整机拆散——这是 binpack 的事，Volcano 的 `binpack` 插件、kube-scheduler 的 `NodeResourcesFit` 用 `MostAllocated` 策略都能做；
 - **节点间**：32 个 Pod 应该落在同一个 leaf 交换机（或同一 rack、同一 block）下的 32 台机器上，找不到就退到下一级——这需要调度器知道"哪些节点在同一个域"，原生的 node affinity 只能表达"落在 rack=r1"，不能表达"落在同一个 rack，哪个都行"。
@@ -504,7 +559,7 @@ Volcano 用一个专门的 CRD 描述网络拓扑：`topology.volcano.sh/v1alpha
 两边的拓扑感知都依赖节点上有正确的层级标签，而 Kubernetes 自己不产生这些标签。来源有三类：
 
 - **云厂商**：托管 K8s 的 GPU 节点池通常带有 placement group / zone 级别的标签（`topology.kubernetes.io/zone` 是 K8s 的 well-known label；更细的机柜级标签各云名字不同——Kueue 文档用 `cloud.provider.com/topology-block` / `-rack` 作占位，本文沿用，**实际名字以所用云的文档为准**）；
-- **NVIDIA 侧**：GPU Feature Discovery 打的是 GPU 属性标签（第二篇的 `nvidia.com/gpu.product` 等），不是机柜标签；k8s-device-plugin v0.20.0 的 `internal/lm/imex.go` 会为 NVLink 多机域（GB200 NVL72 这类 IMEX 系统）打 `nvidia.com/gpu.clique` 标签——这是一个真实的"哪些节点在同一个 NVLink 域"的拓扑标签，可以直接作为 Topology 的一级；
+- **NVIDIA 侧**：GPU Feature Discovery 打的是 GPU 属性标签（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)的 `nvidia.com/gpu.product` 等），不是机柜标签；k8s-device-plugin v0.20.0 的 `internal/lm/imex.go` 会为 NVLink 多机域（GB200 NVL72 这类 IMEX 系统）打 `nvidia.com/gpu.clique` 标签——这是一个真实的"哪些节点在同一个 NVLink 域"的拓扑标签，可以直接作为 Topology 的一级；
 - **自建集群**：从 InfiniBand 子网管理器（UFM）或交换机的 LLDP 信息生成，Volcano 的 HyperNode 发现器就是做这件事的；否则只能由管理员按机柜手工打标签。
 
 没有正确的标签，拓扑感知等于没有；标签打错（两台不同 rack 的机器标了同一个值）比没有更糟——调度器会自信地把任务放到一个"假"域里。
@@ -518,7 +573,7 @@ Volcano 用一个专门的 CRD 描述网络拓扑：`topology.volcano.sh/v1alpha
 于是抢占策略有一个简单的算术：让一个高优先级任务提前 $$T_{\text{wait}}$$ 开始，代价是被抢任务丢掉的 $$N_{\text{gpu}} \times (T_{\text{since\_ckpt}} + T_{\text{restart}})$$。只有当前者的价值明显大于后者时抢占才划算。这给出三条推论：
 
 - **抢占应该以整个任务为单位**。抢掉一个 gang 任务的 3 个 Pod，剩下的 29 个 Pod 会一直等到 rendezvous 超时，损失更大——这正是 Volcano gang 插件禁止把 Job 打到 `minMember` 以下的原因；Kueue 的抢占天然是 Workload 级的。
-- **抢占前应该给被抢者存 checkpoint 的机会**。K8s 的 `terminationGracePeriodSeconds` 加上训练框架对 SIGTERM 的处理（收到信号先存一次 checkpoint 再退出）能把损失压到 $$T_{\text{restart}}$$；这要求 grace period 至少覆盖一次 checkpoint 写入的时间（第五篇会算这个时间），几十秒到几分钟。
+- **抢占前应该给被抢者存 checkpoint 的机会**。K8s 的 `terminationGracePeriodSeconds` 加上训练框架对 SIGTERM 的处理（收到信号先存一次 checkpoint 再退出）能把损失压到 $$T_{\text{restart}}$$；这要求 grace period 至少覆盖一次 checkpoint 写入的时间（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)会算这个时间），几十秒到几分钟。
 - **checkpoint 间隔应该和抢占频率匹配**。集群上抢占越频繁，checkpoint 就该越密；反过来，如果平台承诺某个队列的任务不会被抢（Kueue 的 `lendingLimit` 保住 nominal、Volcano 的 `guarantee`），那个队列里的任务可以把 checkpoint 间隔拉长。
 
 ### 2. 三层优先级的交互
@@ -640,7 +695,7 @@ SchedMD 的 Slinky 项目有两个方向。检出里的 `slurm-operator` v1.2.2 
 
 Ray 有自己的调度器：任务和 actor 在 Ray 集群内部按逻辑资源（`num_cpus`、`num_gpus`、自定义资源）分配到 worker，**placement group** 提供 gang 语义——一组 bundle 要么全部预留成功要么全部失败，`STRICT_PACK` / `PACK` / `SPREAD` / `STRICT_SPREAD` 策略表达"同一节点"或"分散"。所以在 Ray 的世界里，本篇讨论的 gang 和局部性问题在**Ray 集群内部**已经解决了——前提是 Ray 集群本身有足够的节点。
 
-KubeRay 负责 Ray 集群本身（`kuberay ray-operator/apis/ray/v1/`）：`RayCluster`（`HeadGroupSpec` + `WorkerGroupSpecs[]`，每个 worker group 有 `Replicas` / `MinReplicas` / `MaxReplicas`、`RayStartParams`、Pod 模板）、`RayJob`（`RayClusterSpec` + `Entrypoint` + `SubmissionMode`，可选 `ShutdownAfterJobFinishes`）、`RayService`（Serving 用，第六篇）。于是 GPU 资源经过两层调度：
+KubeRay 负责 Ray 集群本身（`kuberay ray-operator/apis/ray/v1/`）：`RayCluster`（`HeadGroupSpec` + `WorkerGroupSpecs[]`，每个 worker group 有 `Replicas` / `MinReplicas` / `MaxReplicas`、`RayStartParams`、Pod 模板）、`RayJob`（`RayClusterSpec` + `Entrypoint` + `SubmissionMode`，可选 `ShutdownAfterJobFinishes`）、`RayService`（Serving 用，[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）。于是 GPU 资源经过两层调度：
 
 - **第一层**：K8s 调度器把 RayCluster 的 head / worker Pod 放到节点上（每个 Pod 请求 N 张 nvidia.com/gpu）
 - **第二层**：Ray 调度器把任务 / actor / placement group 放到 worker 上（按 Pod 里可见的 GPU 数）
@@ -702,7 +757,7 @@ Table: 机制线上的这一段：调度
 
 **抢占与 checkpoint 的耦合。** 平台开启抢占之后，训练脚本必须处理 SIGTERM、checkpoint 间隔必须适配、`terminationGracePeriodSeconds` 必须够长——这三件事分属训练代码、训练配置和平台配置三个地方，任何一个没跟上，抢占就从"提高集群利用率"变成"浪费 GPU 时"。
 
-**这一层不该做的事。** 调度器不负责 GPU 的切分（第四篇）、不负责 RDMA 网卡的分配（第五篇，那是 device plugin 和 Multus 的事，调度器只看资源计数）、不负责推理服务的扩缩容（第六篇，那是 HPA/KEDA）。把这些塞进调度器插件是常见的过度设计。
+**这一层不该做的事。** 调度器不负责 GPU 的切分（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)）、不负责 RDMA 网卡的分配（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)，那是 device plugin 和 Multus 的事，调度器只看资源计数）、不负责推理服务的扩缩容（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)，那是 HPA/KEDA）。把这些塞进调度器插件是常见的过度设计。
 
 ## 十二、实践：mini-platform/sched/
 
@@ -738,7 +793,7 @@ spec:
     effect: NoSchedule
 ```
 
-`nvidia.com/gpu.present` 是 GPU Feature Discovery 打的标签（第二篇）；生产里通常按 `nvidia.com/gpu.product` 为每种卡建一个 flavor。
+`nvidia.com/gpu.present` 是 GPU Feature Discovery 打的标签（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)）；生产里通常按 `nvidia.com/gpu.product` 为每种卡建一个 flavor。
 
 `sched/kueue/clusterqueue-a.yaml`：
 
