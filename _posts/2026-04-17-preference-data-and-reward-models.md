@@ -102,7 +102,7 @@ Table: 偏好数据的三种形态
 
 Table: 偏好数据从哪来
 
-2024 年后开源配方的偏好数据几乎全是 AI 标或混合的——Tülu 3 的偏好数据用 GPT-4o 当 judge、UltraFeedback 是 DPO 时代的标配；商业配方保留了人标（Llama 3 的 RM 数据全部人标），但也让标注者从"选一个"变成"选一个并可以改写它"——编辑后的回答作为第三个、比 chosen 更好的样本进入训练。**AI 标注的成本低两个数量级，代价是继承了 judge 模型的偏差**（第六章与第八篇）。
+2024 年后开源配方的偏好数据几乎全是 AI 标或混合的——Tülu 3 的偏好数据用 GPT-4o 当 judge、UltraFeedback 是 DPO 时代的标配；商业配方保留了人标（Llama 3 的 RM 数据全部人标），但也让标注者从"选一个"变成"选一个并可以改写它"——编辑后的回答作为第三个、比 chosen 更好的样本进入训练。**AI 标注的成本低两个数量级，代价是继承了 judge 模型的偏差**（第六章与[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)）。
 
 ### 3. 标注协议
 
@@ -127,7 +127,7 @@ Table: 偏好数据从哪来
 
 **AI 标**：一对比较是一次 judge 调用，输入两千 token、输出几十到几百 token（带评语时更多）；按 GPT-4 级 API 价格，一对约 0.02–0.05 美元。10 万对几千美元，几小时。**便宜两个数量级**，且可以随时重标（策略变了、标准变了）。用开源模型自己跑 judge 更便宜：70B 模型、2000 token 输入 + 200 token 输出，每对 $$2 \times 70\text{B} \times 2200 \approx 3 \times 10^{14}$$ FLOPs，10 万对 $$3 \times 10^{19}$$，H100 上不到一个 GPU 日。
 
-代价在质量：AI 标注的一致率与人相近（Lee 等报告约 75%），但**偏差方向一致**——所有 judge 都偏爱长回答、列表、自信语气（第八篇），而人标的偏差在标注者之间部分抵消。用 AI 标的数据训 RM，再用 RM 训策略，策略学到的是 judge 的口味。
+代价在质量：AI 标注的一致率与人相近（Lee 等报告约 75%），但**偏差方向一致**——所有 judge 都偏爱长回答、列表、自信语气（见[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)），而人标的偏差在标注者之间部分抵消。用 AI 标的数据训 RM，再用 RM 训策略，策略学到的是 judge 的口味。
 
 ## 三、Bradley-Terry：成对比较就是逻辑回归
 
@@ -145,7 +145,7 @@ $$
 P(y_w \succ y_l \mid x) = \sigma\big(r_\phi(x, y_w) - r_\phi(x, y_l)\big)
 $$
 
-这与逻辑回归 $$P(\text{label} = 1) = \sigma(w^\top \Delta)$$ 是同一个东西：**特征是两个回答的差、标签恒为 1（chosen 胜）**。Elo 分数是它的在线版本（每场比赛后按预测误差更新实力），Arena 的排行榜是它在"模型"这个粒度上的应用（第八篇），Thurstone 模型把 $$\sigma$$ 换成正态 CDF——形状几乎相同。
+这与逻辑回归 $$P(\text{label} = 1) = \sigma(w^\top \Delta)$$ 是同一个东西：**特征是两个回答的差、标签恒为 1（chosen 胜）**。Elo 分数是它的在线版本（每场比赛后按预测误差更新实力），Arena 的排行榜是它在"模型"这个粒度上的应用（见[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)），Thurstone 模型把 $$\sigma$$ 换成正态 CDF——形状几乎相同。
 
 ### 2. loss 与梯度
 
@@ -161,7 +161,7 @@ $$
 \nabla_\phi \mathcal{L} = -\mathbb{E}\left[ \big(1 - \sigma(\Delta)\big) \big(\nabla_\phi r_\phi(x, y_w) - \nabla_\phi r_\phi(x, y_l)\big) \right],\qquad \Delta = r_w - r_l
 $$
 
-权重 $$1 - \sigma(\Delta) = \sigma(-\Delta)$$ 是"RM 目前认为 $$y_l$$ 更好的概率"：已经排对且差距大的对（$$\Delta \gg 0$$）几乎不产生梯度，排错的对（$$\Delta < 0$$）权重接近 1。这与逻辑回归的梯度完全相同，也与第四篇 DPO 的梯度权重同形——DPO 的推导正是把这里的 $$r$$ 换成策略与参考的对数比。
+权重 $$1 - \sigma(\Delta) = \sigma(-\Delta)$$ 是"RM 目前认为 $$y_l$$ 更好的概率"：已经排对且差距大的对（$$\Delta \gg 0$$）几乎不产生梯度，排错的对（$$\Delta < 0$$）权重接近 1。这与逻辑回归的梯度完全相同，也与[《离线 RL》](/offline-rl-dpo-and-its-family.html)里 DPO 的梯度权重同形——DPO 的推导正是把这里的 $$r$$ 换成策略与参考的对数比。
 
 一个实现细节：$$\log \sigma(\Delta) = -\text{softplus}(-\Delta)$$，直接算 $$\log(\sigma(\cdot))$$ 在 $$\Delta$$ 很负时下溢，要用 `logsigmoid`。
 
@@ -169,9 +169,9 @@ $$
 
 loss 只依赖**差** $$r_w - r_l$$，所以对每个 prompt，$$r$$ 加任意常数 $$c(x)$$ 都不改变 loss——**奖励的绝对值没有意义，只有同一 prompt 下的相对值有意义**。这带来三个后果：
 
-- 不同 prompt 的奖励不能直接比较（一个 prompt 下 +3 与另一个 prompt 下 −1 说不了谁更好），RL 里用它做 baseline 时要按 prompt 归一化——GRPO 的组内归一化（第三篇）正是这么做的；
+- 不同 prompt 的奖励不能直接比较（一个 prompt 下 +3 与另一个 prompt 下 −1 说不了谁更好），RL 里用它做 baseline 时要按 prompt 归一化——GRPO 的组内归一化（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)）正是这么做的；
 - RM 训完后奖励的整体尺度是自由的，InstructGPT 训完后加一个偏置让 SFT 示范的平均奖励为 0，纯为了让 RL 的数值好看；
-- 奖励的**尺度**（$$\Delta$$ 的典型大小）也只由数据决定：数据里的对越"容易"，训出的 $$\Delta$$ 越大。这个尺度与 RL 里的 KL 系数 $$\beta$$ 直接相乘，换一个 RM 就要重调 $$\beta$$；第三篇的奖励白化（whitening）是为了消掉它。
+- 奖励的**尺度**（$$\Delta$$ 的典型大小）也只由数据决定：数据里的对越"容易"，训出的 $$\Delta$$ 越大。这个尺度与 RL 里的 KL 系数 $$\beta$$ 直接相乘，换一个 RM 就要重调 $$\beta$$；[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的奖励白化（whitening）是为了消掉它。
 
 ### 4. margin：把"好多少"用起来
 
@@ -203,7 +203,7 @@ $$
 
 ### 1. 结构与初始化
 
-RM 是一个 Transformer 加一个标量头：把语言模型的 lm_head（$$d \times V$$）换成一个 $$d \times 1$$ 的线性层，取**序列最后一个 token** 的隐状态过它得到 $$r$$。"最后一个 token"要处理 padding：右 padding 时取最后一个非 pad 位置，左 padding 时直接取末位；HF 的 `AutoModelForSequenceClassification` 按 `pad_token_id` 自动找，pad token 没设对是 RM 训不动的常见原因。输入是 prompt 与回答按 chat template 渲染后的完整序列（第一篇的模板在这里必须一致）。
+RM 是一个 Transformer 加一个标量头：把语言模型的 lm_head（$$d \times V$$）换成一个 $$d \times 1$$ 的线性层，取**序列最后一个 token** 的隐状态过它得到 $$r$$。"最后一个 token"要处理 padding：右 padding 时取最后一个非 pad 位置，左 padding 时直接取末位；HF 的 `AutoModelForSequenceClassification` 按 `pad_token_id` 自动找，pad token 没设对是 RM 训不动的常见原因。输入是 prompt 与回答按 chat template 渲染后的完整序列（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的模板在这里必须一致）。
 
 初始化从 **SFT 模型**而不是基座：RM 要判断的是对话风格的回答，SFT 模型已经在这个分布上；InstructGPT、Llama 2 / 3 都这么做。标量头随机初始化（或零初始化），它是 RM 里唯一从零学的部分——这也是 RM 能用几万对数据训出来的原因：**它不是在学"什么是好回答"，是在学把模型已有的内部表示投影到一个标量上**。
 
@@ -225,17 +225,17 @@ Table: 公开配方的 RM 超参
 
 InstructGPT 用 6B 的 RM 给 175B 的策略打分，理由是"RM 大了训练不稳定、且 175B 的 RM 太贵"；Llama 2 反过来，RM 与策略同规格，理由是"RM 必须至少和策略一样博学，否则策略知道的事 RM 判不了"。后者成了 2024 年后的默认。Gao 等 2022 的实验支持它：RM 越大，策略能在"过优化"之前推得越远（第五章第 3 节的常数随 RM 规模改善）。
 
-但同规格的 RM 让 RL 的显存账多一份策略大小的权重（第三篇：PPO 的四个模型里 RM 是推理权重，8B 规格 16 GB），且每步 rollout 后要对全部样本做一次 RM 前向——$$2 N_{RM}$$ FLOPs 每 token。
+但同规格的 RM 让 RL 的显存账多一份策略大小的权重（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)：PPO 的四个模型里 RM 是推理权重，8B 规格 16 GB），且每步 rollout 后要对全部样本做一次 RM 前向——$$2 N_{RM}$$ FLOPs 每 token。
 
 ### 4. 训练的账
 
 RM 训练是 SFT 的账再乘 2（每对两条序列）：8B 规格、10 万对、每条序列 1000 token、1 个 epoch，$$D = 2 \times 10^8$$ token，$$C = 6 \times 8\text{B} \times 2 \times 10^8 = 9.6 \times 10^{18}$$ FLOPs，H100 上 40% MFU 约 **7 GPU 小时**；Llama 2 的 290 万对、70B 规格也只有约 5000 GPU 小时。训练状态与 SFT 相同（16 字节/参数），一对的两条序列要同时在显存里，激活值是 SFT 的两倍。
 
-推理侧的账更重要：RM 在 RL 里每步都要跑。GRPO 一步 512 个 prompt × 8 个回答 × 1000 token = 400 万 token，8B 的 RM 前向 $$2 \times 8\text{B} \times 4\text{M} = 6.6 \times 10^{16}$$ FLOPs，H100 上约 3 分钟——与 rollout 生成的时间同量级（第三篇算全账）。拒绝采样（第四篇）对 100 万 prompt × 8 个回答打分，$$1.3 \times 10^{20}$$ FLOPs，几百 GPU 小时。**RM 的成本在用，不在训。**
+推理侧的账更重要：RM 在 RL 里每步都要跑。GRPO 一步 512 个 prompt × 8 个回答 × 1000 token = 400 万 token，8B 的 RM 前向 $$2 \times 8\text{B} \times 4\text{M} = 6.6 \times 10^{16}$$ FLOPs，H100 上约 3 分钟——与 rollout 生成的时间同量级（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)算全账）。拒绝采样（[《离线 RL》](/offline-rl-dpo-and-its-family.html)）对 100 万 prompt × 8 个回答打分，$$1.3 \times 10^{20}$$ FLOPs，几百 GPU 小时。**RM 的成本在用，不在训。**
 
 ### 5. 集成与权重平均
 
-单个 RM 的两个问题——分布外不可靠、被策略针对性利用——都能用多个 RM 缓解。**集成**（Coste 等 2023）：训 $$k$$ 个 RM（不同种子或数据子集），取均值作奖励、取方差作不确定性，方差大的样本降权或惩罚；策略要同时骗过 $$k$$ 个 RM 比骗过一个难。代价是 $$k$$ 倍的 RM 前向与显存。**权重平均**（WARM，Ramé 等 2024）：把从同一个 SFT 初始化、不同种子训出的 $$k$$ 个 RM 的权重直接平均，得到一个 RM——与第一篇 SFT 的模型平均同一原理（同一盆地内的线性插值），零推理开销，鲁棒性介于单模型与集成之间。Llama 3 没有做集成，而是靠每轮重训与更多数据。
+单个 RM 的两个问题——分布外不可靠、被策略针对性利用——都能用多个 RM 缓解。**集成**（Coste 等 2023）：训 $$k$$ 个 RM（不同种子或数据子集），取均值作奖励、取方差作不确定性，方差大的样本降权或惩罚；策略要同时骗过 $$k$$ 个 RM 比骗过一个难。代价是 $$k$$ 倍的 RM 前向与显存。**权重平均**（WARM，Ramé 等 2024）：把从同一个 SFT 初始化、不同种子训出的 $$k$$ 个 RM 的权重直接平均，得到一个 RM——与[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的模型平均同一原理（同一盆地内的线性插值），零推理开销，鲁棒性介于单模型与集成之间。Llama 3 没有做集成，而是靠每轮重训与更多数据。
 
 ## 五、Reward hacking
 
@@ -276,7 +276,7 @@ $$
 
 代理奖励随 $$d$$ 单调上升，**金奖励先升后降**——存在一个最优的 KL 距离，越过它策略"看起来"更好、实际更差。两个常数的规律：$$\alpha$$（初期的收益率）几乎不随代理 RM 的大小变，$$\beta$$（衰减率）随代理 RM 变大、数据变多而减小——**RM 越大越好不是因为初期学得快，是因为能推得更远才开始退化**。RL 与 best-of-N 在同一 KL 下的金奖励接近，说明这条曲线主要由 RM 决定、与优化器关系不大。
 
-这张图是整个 RLHF 的操作指南：优化不是越多越好，有一个 KL 预算；预算的大小由 RM 的质量决定；超预算的迹象是代理奖励继续涨、人评开始掉。第三篇的 KL 惩罚系数 $$\beta$$ 与早停就是在管理这个预算。
+这张图是整个 RLHF 的操作指南：优化不是越多越好，有一个 KL 预算；预算的大小由 RM 的质量决定；超预算的迹象是代理奖励继续涨、人评开始掉。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的 KL 惩罚系数 $$\beta$$ 与早停就是在管理这个预算。
 
 ### 4. best-of-N 的 KL 账
 
@@ -286,7 +286,7 @@ $$
 \text{KL}(\pi_{\text{BoN}} \| \pi_0) = \log N - \frac{N - 1}{N}
 $$
 
-$$N = 4$$：0.64 nats；$$N = 16$$：1.83；$$N = 64$$：3.17；$$N = 256$$：4.55。这给了两个有用的换算。第一，**BoN 是一把免费的 KL 尺**：不训任何东西，用 BoN 在 $$N$$ = 1 到 256 上扫一遍，看输出的长度、格式、人评怎么变，就能在训 RL 之前预览"策略被 RM 推 0.6 到 4.5 nats 之后是什么样"。第二，它是 RL 的下界对照：一次 RL 训练如果把策略推到 KL = 3 而效果不如 BoN-64，说明优化器在浪费 KL 预算。BoN 的代价是推理 $$N$$ 倍，所以它在数据生成（拒绝采样，第四篇）与 test-time compute（第五篇）里用，在线服务不用。
+$$N = 4$$：0.64 nats；$$N = 16$$：1.83；$$N = 64$$：3.17；$$N = 256$$：4.55。这给了两个有用的换算。第一，**BoN 是一把免费的 KL 尺**：不训任何东西，用 BoN 在 $$N$$ = 1 到 256 上扫一遍，看输出的长度、格式、人评怎么变，就能在训 RL 之前预览"策略被 RM 推 0.6 到 4.5 nats 之后是什么样"。第二，它是 RL 的下界对照：一次 RL 训练如果把策略推到 KL = 3 而效果不如 BoN-64，说明优化器在浪费 KL 预算。BoN 的代价是推理 $$N$$ 倍，所以它在数据生成（拒绝采样，[《离线 RL》](/offline-rl-dpo-and-its-family.html)）与 test-time compute（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)）里用，在线服务不用。
 
 ### 5. 训 RL 之前的探测清单
 
@@ -304,23 +304,23 @@ RM 训完、RL 开始前，几个小时能做完的检查：
 
 Table: 训 RL 之前的 RM 探测清单
 
-这些检查的共同点：**用 RM 自己的打分行为暴露它的偏差**，而不是等 RL 训完再看。第八篇的 judge 偏差测量与这里几乎是同一套方法。
+这些检查的共同点：**用 RM 自己的打分行为暴露它的偏差**，而不是等 RL 训完再看。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的 judge 偏差测量与这里几乎是同一套方法。
 
 ### 6. 对策
 
 | 对策 | 做什么 | 代价 |
 |---|---|---|
-| KL 约束 | RL 目标里的 $$-\beta \text{KL}(\pi \Vert \pi_{ref})$$，限制策略离开 RM 可靠区的距离 | $$\beta$$ 太大学不动、太小 hacking；第三篇 |
+| KL 约束 | RL 目标里的 $$-\beta \text{KL}(\pi \Vert \pi_{ref})$$，限制策略离开 RM 可靠区的距离 | $$\beta$$ 太大学不动、太小 hacking；[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
 | 长度控制 | 奖励里减 $$\lambda \cdot$$ 长度<br/>或按长度分桶归一化奖励<br/>或 RM 训练时对 chosen / rejected 做长度平衡 | 可能压掉真正需要长回答的任务 |
 | 迭代重训 | 每轮 RL 后用新策略采样、重新标注、重训 RM（Llama 2 / 3 的做法） | 每轮一批标注 |
 | 集成 / 平均 | 第四章第 5 节 | $$k$$ 倍推理或零 |
 | 奖励整形 | 裁剪极端奖励、白化、对不确定样本降权 | 超参 |
-| 规则奖励 | 能验证的部分（格式、长度上限、是否含代码块）用规则，RM 只管剩下的 | 只覆盖可验证的部分——第五篇把它推到极致 |
+| 规则奖励 | 能验证的部分（格式、长度上限、是否含代码块）用规则，RM 只管剩下的 | 只覆盖可验证的部分——[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把它推到极致 |
 | 早停 | 按人评或 held-out judge 而不是代理奖励决定停 | 需要额外的评测 |
 
 Table: 对抗 reward hacking 的对策与代价
 
-没有一条能单独解决问题，实践里全部叠加。而 2025 年推理模型的路线（第五篇）给出了一个釜底抽薪的答案：**在能用规则验证的领域，不用 RM**——奖励不再是代理，Goodhart 就没有入口。RM 退回到规则覆盖不到的地方：开放式对话、写作、有帮助程度。
+没有一条能单独解决问题，实践里全部叠加。而 2025 年推理模型的路线（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)）给出了一个釜底抽薪的答案：**在能用规则验证的领域，不用 RM**——奖励不再是代理，Goodhart 就没有入口。RM 退回到规则覆盖不到的地方：开放式对话、写作、有帮助程度。
 
 ## 六、生成式 RM 与 judge 作为奖励
 
@@ -332,15 +332,15 @@ Table: 对抗 reward hacking 的对策与代价
 - **能利用推理**：判断数学题的解答要一步步验，标量头做不到，生成式可以（GenRM，Zhang 等 2024：把"验证"当作下一 token 预测来训，用 CoT 判断的准确率显著高于标量 RM）；
 - **能带标准**：rubric（评分细则）写在 prompt 里，改标准不用重训——Constitutional AI 的宪法、Kimi K2 的自评 rubric 都是这个形态；DeepSeek 2025 年的 GRM 进一步让模型先生成适用于该 prompt 的原则、再按原则打分，并用多次采样投票提高一致性（把 test-time compute 用在 RM 上）。
 
-代价是成本：标量 RM 一次前向 $$2N$$ FLOPs/token，只有 prefill；生成式要 decode 几百个评语 token，按第二篇的 decode 账是 memory-bound 的几百步，**每次判断慢一到两个数量级**。RL 里每步几千次判断时这个差距决定了能不能用；所以生成式 RM 多用在离线场景（标数据、拒绝采样、评测），在线 RL 里用它要靠异步（第六篇）或缓存。
+代价是成本：标量 RM 一次前向 $$2N$$ FLOPs/token，只有 prefill；生成式要 decode 几百个评语 token，按《现代 LLM 结构》里[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)算的 decode 账是 memory-bound 的几百步，**每次判断慢一到两个数量级**。RL 里每步几千次判断时这个差距决定了能不能用；所以生成式 RM 多用在离线场景（标数据、拒绝采样、评测），在线 RL 里用它要靠异步（[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)）或缓存。
 
 ### 2. judge 的偏差
 
-生成式 RM 就是第八篇的 LLM-as-judge，偏差也相同：位置偏差（偏爱先出现的回答）、长度偏差、自我偏好（偏爱与自己同家族的文风）、对格式与自信的偏好。当它做奖励时这些偏差直接被 RL 放大——用 GPT-4 当 judge 训出的模型会长得像 GPT-4。对策也相同：交换顺序取平均、长度控制、多 judge 投票、rubric 里明确写"不以长度为标准"。第八篇展开。
+生成式 RM 就是[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的 LLM-as-judge，偏差也相同：位置偏差（偏爱先出现的回答）、长度偏差、自我偏好（偏爱与自己同家族的文风）、对格式与自信的偏好。当它做奖励时这些偏差直接被 RL 放大——用 GPT-4 当 judge 训出的模型会长得像 GPT-4。对策也相同：交换顺序取平均、长度控制、多 judge 投票、rubric 里明确写"不以长度为标准"。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)展开。
 
 ### 3. PRM 与 ORM
 
-到此为止的 RM 都是**结果奖励模型**（ORM）：看整个回答给一个分。对多步推理，还可以给**每一步**打分——过程奖励模型（PRM，Lightman 等 2023 的 PRM800K：人标 80 万个推理步骤的对错）。PRM 的信号更密、能定位错在哪一步，但标注贵一个数量级、且更容易被 hack（策略学会写"看起来对"的步骤）。第五篇讨论 R1 为什么放弃了 PRM。
+到此为止的 RM 都是**结果奖励模型**（ORM）：看整个回答给一个分。对多步推理，还可以给**每一步**打分——过程奖励模型（PRM，Lightman 等 2023 的 PRM800K：人标 80 万个推理步骤的对错）。PRM 的信号更密、能定位错在哪一步，但标注贵一个数量级、且更容易被 hack（策略学会写"看起来对"的步骤）。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)讨论 R1 为什么放弃了 PRM。
 
 ## 七、公开配方对照
 
@@ -357,7 +357,7 @@ Table: 对抗 reward hacking 的对策与代价
 
 Table: 公开配方的奖励模型对照
 
-趋势：标量 Bradley-Terry RM 从**唯一**的奖励变成**之一**——可验证任务交给规则（第五篇），开放任务里越来越多用带推理的生成式 RM 或 rubric，且 RM 与策略的界限在模糊（Kimi K2 用策略自评）。不变的是第五章的问题：只要奖励是人类偏好的代理，就有 Goodhart；变的是把代理的范围压得越来越小。
+趋势：标量 Bradley-Terry RM 从**唯一**的奖励变成**之一**——可验证任务交给规则（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)），开放任务里越来越多用带推理的生成式 RM 或 rubric，且 RM 与策略的界限在模糊（Kimi K2 用策略自评）。不变的是第五章的问题：只要奖励是人类偏好的代理，就有 Goodhart；变的是把代理的范围压得越来越小。
 
 ## 八、动手：训一个小 RM 要看的几件事
 
@@ -385,7 +385,7 @@ loss 就是第三章第 2 节的 $$-\log \sigma(r_w - r_l)$$；数据是消息�
 3. 对同一个回答加一句客套话、改成列表之后 $$r$$ 涨多少；
 4. 用 BoN（$$N$$ = 1 / 4 / 16）从 SFT 模型采样、用 RM 选最好，看被选中回答的平均长度怎么随 $$N$$ 变。
 
-四件事都不需要 RL，都能在训 RL 之前告诉你这个 RM 会把策略推向哪里。第三篇的 GRPO 与第四篇的 DPO 会接着用这个 RM 与这份数据。
+四件事都不需要 RL，都能在训 RL 之前告诉你这个 RM 会把策略推向哪里。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的 GRPO 与[《离线 RL》](/offline-rl-dpo-and-its-family.html)的 DPO 会接着用这个 RM 与这份数据。
 
 ## 九、本文小结
 
@@ -408,7 +408,7 @@ Table: 奖励模型的规则与数字小结
 
 RM 造好了，下一篇用它改策略：采样、打分、更新——PPO 的四个模型与 GRPO 的三个。
 
-配套资料：本篇没有配套实验；第八章的 `RewardTrainer` 骨架与清单可以直接在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上跑。
+配套资料：本篇没有配套实验；第八章的 `RewardTrainer` 骨架与清单可以直接在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 里[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的环境上跑。
 
 ## 十、自测
 

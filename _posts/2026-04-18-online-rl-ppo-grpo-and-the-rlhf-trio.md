@@ -99,11 +99,11 @@ Table: 本文的章节安排
 
 ### 1. 期望奖励与 KL 惩罚
 
-目标的第一项让策略生成 RM 喜欢的回答。如果只有这一项，第二篇第五章的 Goodhart 会立刻发生：策略找到 RM 的捷径（长、列表、自信），奖励飙升，回答退化，且输出分布坍缩——所有 prompt 都生成同一种"高分模板"。第二项是对这件事的约束：策略在每个 prompt 上的输出分布不得离参考策略（通常是 SFT 模型）太远。
+目标的第一项让策略生成 RM 喜欢的回答。如果只有这一项，[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)第五章的 Goodhart 会立刻发生：策略找到 RM 的捷径（长、列表、自信），奖励飙升，回答退化，且输出分布坍缩——所有 prompt 都生成同一种"高分模板"。第二项是对这件事的约束：策略在每个 prompt 上的输出分布不得离参考策略（通常是 SFT 模型）太远。
 
 KL 项的三个作用，按重要性：
 
-1. **限制 RM 被探索的范围**——第二篇的过优化曲线以 KL 为横轴，KL 惩罚就是在管理那条曲线上的位置；
+1. **限制 RM 被探索的范围**——[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的过优化曲线以 KL 为横轴，KL 惩罚就是在管理那条曲线上的位置；
 2. **保持多样性**——KL 对"把概率集中到少数序列"的惩罚随集中程度增长；
 3. **防止遗忘**——参考策略携带着 SFT 与预训练学到的一切，不离它太远就不会全丢。
 
@@ -111,9 +111,9 @@ KL 项的三个作用，按重要性：
 
 ### 2. β 的量级
 
-$$\beta$$ 是奖励与 KL 的汇率：$$\beta = 0.1$$ 表示"离参考策略 1 nat 的 KL 抵 0.1 分奖励"。它的合理值取决于奖励的尺度（第二篇：RM 的分差尺度由数据决定），所以公开配方里的数字要连同它们的 RM 一起看：InstructGPT 0.02，Llama 2 0.01，DeepSeekMath 的 GRPO 0.04，DeepSeek-R1 用 GRPO 默认，Tülu 3 的 RLVR 0.05，DAPO 干脆 **去掉 KL 项**（可验证奖励下 Goodhart 没有入口，KL 只剩限制探索的副作用）。规律是：奖励越不可 hack（规则奖励），$$\beta$$ 越小甚至为零；奖励越是学出来的代理，$$\beta$$ 越大。
+$$\beta$$ 是奖励与 KL 的汇率：$$\beta = 0.1$$ 表示"离参考策略 1 nat 的 KL 抵 0.1 分奖励"。它的合理值取决于奖励的尺度（[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)：RM 的分差尺度由数据决定），所以公开配方里的数字要连同它们的 RM 一起看：InstructGPT 0.02，Llama 2 0.01，DeepSeekMath 的 GRPO 0.04，DeepSeek-R1 用 GRPO 默认，Tülu 3 的 RLVR 0.05，DAPO 干脆 **去掉 KL 项**（可验证奖励下 Goodhart 没有入口，KL 只剩限制探索的副作用）。规律是：奖励越不可 hack（规则奖励），$$\beta$$ 越小甚至为零；奖励越是学出来的代理，$$\beta$$ 越大。
 
-$$\beta$$ 也可以自适应：InstructGPT 沿用 Ziegler 等 2019 的做法，设一个目标 KL，实测超过就放大 $$\beta$$、不足就缩小。这把"选 $$\beta$$"变成了"选 KL 预算"——后者更容易从第二篇的过优化曲线里读出来。
+$$\beta$$ 也可以自适应：InstructGPT 沿用 Ziegler 等 2019 的做法，设一个目标 KL，实测超过就放大 $$\beta$$、不足就缩小。这把"选 $$\beta$$"变成了"选 KL 预算"——后者更容易从[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的过优化曲线里读出来。
 
 ### 3. 三种 KL 估计量
 
@@ -270,11 +270,11 @@ $$\min$$ 选中"裁剪后"那一列时，这一项对参数是常数（裁剪值
 
 Huang 等 2024 复现 InstructGPT 时列出了几十个影响结果的细节，其中几个决定成败：
 
-- **奖励白化**：RM 的分数按 batch 减均值除标准差，让 $$\beta$$ 与 $$\epsilon$$ 的含义不随 RM 的尺度变（第二篇：奖励尺度由数据决定）；
+- **奖励白化**：RM 的分数按 batch 减均值除标准差，让 $$\beta$$ 与 $$\epsilon$$ 的含义不随 RM 的尺度变（[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)：奖励尺度由数据决定）；
 - **优势白化**：GAE 之后再对整个 batch 的 $$A_t$$ 白化，这是 PPO 在所有领域的默认；
 - **EOS 处理**：没有生成 EOS 就被截断的回答给一个固定的负奖励（否则策略学会"永不结束"来避免被 RM 打分）；
 - **价值模型的初始化与预热**：从 RM 初始化，且在策略更新前先只训价值几步——一个随机的 $$V$$ 给出的优势是噪声；
-- **只在回答 token 上算 loss**：prompt 部分的 $$\log \pi$$ 不进目标（第一篇的 mask 在这里同样存在）；
+- **只在回答 token 上算 loss**：prompt 部分的 $$\log \pi$$ 不进目标（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的 mask 在这里同样存在）；
 - **温度与采样**：rollout 用温度 1.0（或略低）采样而非贪心——策略梯度需要探索；采样温度与 $$\log \pi$$ 的计算必须一致。
 
 这些细节说明了 PPO 的一个性质：**它有效但脆弱**——十几个超参与实现选择互相耦合，换一个 RM 或模型规模常要重调。这是 GRPO 一族出现的动机之一。
@@ -323,7 +323,7 @@ $$
 \mathcal{L}_{GRPO} = \frac{1}{G} \sum_{i=1}^{G} \frac{1}{|y_i|} \sum_{t=1}^{|y_i|} \Big[ \min\big(\rho_{i,t} \hat A_i,\ \text{clip}(\rho_{i,t}, 1 - \epsilon, 1 + \epsilon) \hat A_i\big) - \beta\, k_3\big(\pi_\theta, \pi_{ref}\big)_{i,t} \Big]
 $$
 
-它做了三件事：**去掉价值模型**（baseline 来自采样而非学习）、**按 prompt 归一化**（第二篇说过奖励只在同一 prompt 下可比，组内归一化正好只比同 prompt 的）、**KL 从奖励移到 loss**。代价：每个 prompt 生成 $$G$$ 条（DeepSeekMath 用 64，R1 与多数复现用 8–16），rollout 的 token 数是 PPO 的 $$G$$ 倍——但 PPO 为了同样的 batch 大小也要生成同样多的序列，差别在于 GRPO 把它们集中在更少的 prompt 上。
+它做了三件事：**去掉价值模型**（baseline 来自采样而非学习）、**按 prompt 归一化**（[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)说过奖励只在同一 prompt 下可比，组内归一化正好只比同 prompt 的）、**KL 从奖励移到 loss**。代价：每个 prompt 生成 $$G$$ 条（DeepSeekMath 用 64，R1 与多数复现用 8–16），rollout 的 token 数是 PPO 的 $$G$$ 倍——但 PPO 为了同样的 batch 大小也要生成同样多的序列，差别在于 GRPO 把它们集中在更少的 prompt 上。
 
 组内归一化有一个副作用：当一组 $$G$$ 条回答奖励全相同（全对或全错，规则奖励下常见），std 为零、优势全为零，这个 prompt 对这一步没有贡献——DAPO 的动态采样（第 4 节）就是针对它。
 
@@ -396,7 +396,7 @@ Table: GRPO 各变体改了目标函数的哪一项
 
 ### 1. 一步生成多少 token
 
-GRPO 一步：$$B$$ 个 prompt × $$G$$ 条回答 × 平均长度 $$\bar L$$。对话 RLHF 的典型配置 $$B = 512$$、$$G = 8$$、$$\bar L = 1000$$：**410 万个回答 token**，加上 prompt（每条回答都带一份 prompt 的 KV，prompt 平均 300 token 就再加 120 万）。推理模型（第五篇）$$\bar L$$ 到 8K–32K，一步几千万 token。
+GRPO 一步：$$B$$ 个 prompt × $$G$$ 条回答 × 平均长度 $$\bar L$$。对话 RLHF 的典型配置 $$B = 512$$、$$G = 8$$、$$\bar L = 1000$$：**410 万个回答 token**，加上 prompt（每条回答都带一份 prompt 的 KV，prompt 平均 300 token 就再加 120 万）。推理模型（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)）$$\bar L$$ 到 8K–32K，一步几千万 token。
 
 ### 2. FLOPs 的拆分
 
@@ -429,7 +429,7 @@ FLOPs 相同，时间不同。训练的前向反向是大矩阵乘，MFU 40%；�
 
 严格 on-policy 要求生成用的权重就是当前要更新的权重：每步训练后，新权重要**送进推理引擎**再生成下一批。8B 是 16 GB，NVLink 内几秒，跨机器几十秒；405B 是 810 GB。同步频率就是训练步频，每步都同步。
 
-放松这个要求可以省时间：**异步 / off-policy**——生成用 $$k$$ 步之前的权重，训练与生成并行。代价是样本"过期"，重要性比 $$\rho$$ 离 1 更远、clip 裁掉更多、梯度有偏。$$k = 1$$（生成滞后一步）在多数报告里几乎无损，是 2025 年后大规模 RL 的默认；第六篇的 Agent 训练里轨迹耗时方差极大，异步成为必需。三件套对照表里"在线 / 离线"那一列其实是一个连续谱：$$k = 0$$ 严格在线，$$k = \infty$$ 就是第四篇的离线方法。
+放松这个要求可以省时间：**异步 / off-policy**——生成用 $$k$$ 步之前的权重，训练与生成并行。代价是样本"过期"，重要性比 $$\rho$$ 离 1 更远、clip 裁掉更多、梯度有偏。$$k = 1$$（生成滞后一步）在多数报告里几乎无损，是 2025 年后大规模 RL 的默认；[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)里轨迹耗时方差极大，异步成为必需。三件套对照表里"在线 / 离线"那一列其实是一个连续谱：$$k = 0$$ 严格在线，$$k = \infty$$ 就是[《离线 RL》](/offline-rl-dpo-and-its-family.html)的那一族。
 
 ### 5. 一次训练的总账
 
@@ -451,7 +451,7 @@ DeepSeekMath 的 GRPO：$$B = 1024$$、$$G = 64$$、$$\bar L$$ 约 1000、7B 模
 
 Table: 三件套对照表（第一版）
 
-第四篇加上离线的一族之后，"从当前策略采样"一列会出现"否"与"半"。
+[《离线 RL》](/offline-rl-dpo-and-its-family.html)加上离线的一族之后，"从当前策略采样"一列会出现"否"与"半"。
 
 ## 八、公开配方
 
@@ -460,11 +460,11 @@ Table: 三件套对照表（第一版）
 | InstructGPT（2022） | PPO | 策略 175B、RM 6B、$$\beta = 0.02$$（自适应）、$$\gamma = 1$$、$$\lambda = 0.95$$、每批 4 个 epoch | 混入预训练梯度（PPO-ptx）抵消 alignment tax |
 | Llama 2（2023） | 拒绝采样 4 轮 → PPO 1 轮 | $$\beta = 0.01$$、奖励白化、两个 RM 按规则组合 | RLHF-v5 才用 PPO；前几轮全是拒绝采样 + SFT |
 | DeepSeekMath（2024） | GRPO | $$G = 64$$、$$\beta = 0.04$$、lr $$10^{-6}$$、batch 1024 | GRPO 首发；奖励来自一个在 DeepSeekMath-Base 7B 上训练的 RM（报告 4.2），不是规则匹配——规则奖励是后来 R1-Zero 的做法 |
-| DeepSeek-R1（2025） | GRPO | 规则奖励（准确 + 格式）+ 语言一致性 | 第五篇展开 |
+| DeepSeek-R1（2025） | GRPO | 规则奖励（准确 + 格式）+ 语言一致性 | [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)展开 |
 | Tülu 3（2024） | PPO（RLVR） | $$\beta = 0.05$$、价值从 RM 初始化 | 可验证奖励下仍用 PPO，报告价值模型有帮助 |
 | DAPO（2025） | GRPO 改 | 32B、$$G = 16$$、$$\epsilon$$ 0.2 / 0.28、无 KL、token 级 loss | AIME 50 分；完整开源配方与代码 |
 | Qwen3（2025） | GSPO | 序列级比值 | MoE 上稳定 |
-| Kimi K2（2025） | 策略优化变体 + 自评奖励 | 大规模 Agent 环境 | 第六篇 |
+| Kimi K2（2025） | 策略优化变体 + 自评奖励 | 大规模 Agent 环境 | [《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html) |
 
 Table: 公开在线 RL 配方
 
@@ -477,10 +477,10 @@ Table: 公开在线 RL 配方
 ```python title="trl 的 GRPOTrainer 骨架"
 from trl import GRPOTrainer, GRPOConfig
 
-def rm_reward(prompts, completions, **kw):          # 第二篇的 RM：返回每条回答一个分
+def rm_reward(prompts, completions, **kw):          # 《偏好数据与奖励模型》的 RM：返回每条回答一个分
     return [score(p, c) for p, c in zip(prompts, completions)]
 
-def length_penalty(completions, completion_ids, **kw):   # 第二篇第五章的长度控制
+def length_penalty(completions, completion_ids, **kw):   # 《偏好数据与奖励模型》第五章的长度控制
     # 对话式数据里 completions 是消息列表（len 恒为 1），字符串时 len 是字符数：
     # 两者都不是 token 数，要用 trainer 传入的 completion_ids 计真实长度
     return [-0.001 * len(ids) for ids in completion_ids]
@@ -498,10 +498,10 @@ trainer = GRPOTrainer(model=SFT_MODEL, reward_funcs=[rm_reward, length_penalty],
 trainer.train()
 ```
 
-多个奖励函数按权重相加；`beta=0` 时不加载参考模型，显存少一份权重。训起来之后该盯的曲线，按第二篇与本篇的顺序：
+多个奖励函数按权重相加；`beta=0` 时不加载参考模型，显存少一份权重。训起来之后该盯的曲线，按[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)与本篇的顺序：
 
 1. **奖励均值**——涨是应该的，但它是代理奖励；
-2. **KL**（对参考）——第二篇的过优化横轴；配合第二篇的 BoN 尺子，KL 到 2–3 nats 时该用 held-out judge 或人评核对；
+2. **KL**（对参考）——[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的过优化横轴；配合它的 BoN 尺子，KL 到 2–3 nats 时该用 held-out judge 或人评核对；
 3. **回答长度**——随步数单调涨且奖励涨主要来自它 = 长度 hacking；
 4. **clip 比例**（被裁的 token 占比）——持续 > 20–30% 说明每步走太远（lr 太大或 $$k$$ 太多）；
 5. **熵**——快速降到接近 0 是输出趋同的信号（DAPO 的 clip-higher 针对它）；
@@ -530,7 +530,7 @@ Table: 在线 RL 的公式与数字小结
 
 这一篇的方法全部从当前策略采样。下一篇不采样：从一份固定的偏好数据直接推出 loss——DPO 及其一族。
 
-配套资料：本篇没有配套实验；第九章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上配一张 16–24 GB 的 GPU 运行。
+配套资料：本篇没有配套实验；第九章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 里[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的环境上配一张 16–24 GB 的 GPU 运行。
 
 ## 十一、自测
 

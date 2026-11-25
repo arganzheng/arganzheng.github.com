@@ -127,9 +127,9 @@ Table: 四个 token 上教师与学生在温度 2 下的软分布
 
 ### 2. 序列级：在教师的输出上 SFT
 
-Kim & Rush 2016 提出的序列级蒸馏：让教师对 prompt 生成回答，学生在（prompt，教师回答）上做标准的交叉熵训练。它就是第一篇的 SFT，数据由教师产生——R1-Distill 的 80 万条、s1 的 1000 条、OpenThoughts 的百万条推理轨迹，全是这个形态。
+Kim & Rush 2016 提出的序列级蒸馏：让教师对 prompt 生成回答，学生在（prompt，教师回答）上做标准的交叉熵训练。它就是[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)那一套，数据由教师产生——R1-Distill 的 80 万条、s1 的 1000 条、OpenThoughts 的百万条推理轨迹，全是这个形态。
 
-它学到的是教师的**输出模式**：怎么组织一段推理、什么时候回头检查、用什么格式收尾。它漏掉的是教师的不确定性：教师在某个位置认为"也可以换个方法"的 30% 概率，在采样出的那一条序列里不存在。序列级蒸馏与人写的 SFT 数据相比的优势是**量与一致性**——教师可以生成百万条、风格统一、可以按验证器过滤（R1 只保留答案正确的）；劣势是教师的错误与偏见照单全收（第一篇第二章的两个副作用）。
+它学到的是教师的**输出模式**：怎么组织一段推理、什么时候回头检查、用什么格式收尾。它漏掉的是教师的不确定性：教师在某个位置认为"也可以换个方法"的 30% 概率，在采样出的那一条序列里不存在。序列级蒸馏与人写的 SFT 数据相比的优势是**量与一致性**——教师可以生成百万条、风格统一、可以按验证器过滤（R1 只保留答案正确的）；劣势是教师的错误与偏见照单全收（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)第二章的两个副作用）。
 
 训练时先让教师对同一个 prompt 生成一条或多条回答，再用验证器、规则或人工筛掉不合格样本。学生把留下的回答当作标准答案，对每个位置预测教师写下的那个 token，损失就是普通交叉熵。学生看不到教师当时考虑过的其他 token，所以暗知识会丢掉；但一条完整、正确的推理轨迹已经能教会学生解题步骤、格式和收尾方式。R1-Distill 是最常见的例子：它把筛过的 R1 输出直接当 SFT 数据。
 
@@ -149,7 +149,7 @@ Kim & Rush 2016 提出的序列级蒸馏：让教师对 prompt 生成回答，�
 |---|---|---|
 | 序列来自数据 | 普通 SFT | logits 级蒸馏 |
 | 序列来自教师 | 序列级蒸馏（R1-Distill） | 序列级 + logits 级（两者常一起用） |
-| 序列来自学生 | （拒绝采样 + SFT，第四篇） | on-policy 蒸馏（GKD） |
+| 序列来自学生 | （拒绝采样 + SFT，[《离线 RL》](/offline-rl-dpo-and-its-family.html)） | on-policy 蒸馏（GKD） |
 
 Table: 三种蒸馏与 SFT 按「序列来自谁、标签硬还是软」排开
 
@@ -234,13 +234,13 @@ $$D$$ 可以是前向 KL、反向 KL 或 JSD。关键在期望的下标：**序�
 
 把 $$D$$ 取反向 KL，逐 token 展开，GKD 的目标是 $$\mathbb{E}_{y \sim q_S}[\sum_t \log q_S(y_t) - \log p_T(y_t)]$$。它有两项：$$-\mathbb{E}_{q_S}[\log p_T]$$ 是"教师不认可的地方罚"，$$\mathbb{E}_{q_S}[\log q_S] = -H(q_S)$$ 是**学生自己的熵**。两项都在，最优解才是 $$q_S = p_T$$。一个常见的简化是把第二项扔掉、说成"最小化反向 KL 等于最大化教师对数概率"——那是另一个目标，它的最优解是学生把全部概率押在教师的 argmax 上（离散例：教师 (0.8, 0.2)，学生 (0.8, 0.2) 时 KL ≈ 0、$$\mathbb{E}\log p_T = -0.50$$；学生 (0.999, 0.001) 时 KL 涨到 0.22，$$\mathbb{E}\log p_T$$ 却"更好"地升到 −0.22）。熵项就是防坍缩的那一项。
 
-与第三篇的对照要放对位置：**采样像 RL**——序列来自学生自己，所以修的是暴露偏差；**梯度不像 RL**——GKD 论文（4.1 节）明确不对采样过程反传，只在采样出的序列上对每个位置的 token 级散度求梯度（sampling 视为 stop-gradient），而 RL 的 policy gradient 恰恰要对"采到这条序列的概率"求导。所以它不需要价值网络、不需要组内归一化、方差远小于 RL；代价是它不是序列级散度的无偏梯度，而是一个逐 token 的替代目标。MiniLLM 走的是另一条路——真正把 $$\log p_T$$ 当序列级奖励做 policy gradient，并加上方差修正。
+与[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的对照要放对位置：**采样像 RL**——序列来自学生自己，所以修的是暴露偏差；**梯度不像 RL**——GKD 论文（4.1 节）明确不对采样过程反传，只在采样出的序列上对每个位置的 token 级散度求梯度（sampling 视为 stop-gradient），而 RL 的 policy gradient 恰恰要对"采到这条序列的概率"求导。所以它不需要价值网络、不需要组内归一化、方差远小于 RL；代价是它不是序列级散度的无偏梯度，而是一个逐 token 的替代目标。MiniLLM 走的是另一条路——真正把 $$\log p_T$$ 当序列级奖励做 policy gradient，并加上方差修正。
 
 这解释了 on-policy 蒸馏的两个性质：它像 RL 一样修暴露偏差（在学生自己的分布上训练），但比 RL 便宜、稳定得多——每 token 都有信号、来自一个固定的教师而不是一个会被 hack 的 RM，也不需要 $$G$$ 条采样去估 baseline。
 
 ### 4. 2025 年的实践
 
-Qwen3 的小模型（0.6B–14B）用两阶段蒸馏：先**off-policy**（在大模型生成的思考 / 非思考数据上 SFT，教格式与模式），再**on-policy**（学生采样、向大模型的 logits 对齐，提性能）。报告称这比在小模型上直接 RL 好且只用十分之一的 GPU 小时。Thinking Machines 2025 年的技术博客在 8B 学生上系统比较了 SFT 蒸馏、RL 与 on-policy 蒸馏：达到同样的推理分数，on-policy 蒸馏的算力约为 RL 的十分之一，且能在 SFT 蒸馏到达的平台上继续提升；他们也用它做"能力恢复"——一个在新领域微调后遗忘了对话能力的模型，用微调前的自己当教师做 on-policy 蒸馏，几乎完全恢复（第一篇遗忘的第五种对策）。
+Qwen3 的小模型（0.6B–14B）用两阶段蒸馏：先**off-policy**（在大模型生成的思考 / 非思考数据上 SFT，教格式与模式），再**on-policy**（学生采样、向大模型的 logits 对齐，提性能）。报告称这比在小模型上直接 RL 好且只用十分之一的 GPU 小时。Thinking Machines 2025 年的技术博客在 8B 学生上系统比较了 SFT 蒸馏、RL 与 on-policy 蒸馏：达到同样的推理分数，on-policy 蒸馏的算力约为 RL 的十分之一，且能在 SFT 蒸馏到达的平台上继续提升；他们也用它做"能力恢复"——一个在新领域微调后遗忘了对话能力的模型，用微调前的自己当教师做 on-policy 蒸馏，几乎完全恢复（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)里遗忘的第五种对策）。
 
 on-policy 蒸馏成为小模型后训练的默认，是因为它把序列级蒸馏（便宜、学模式）与 RL（on-policy、修偏差）的优点合在一起，而成本接近前者。
 
@@ -263,7 +263,7 @@ logits 级与 on-policy 蒸馏都要在**同一个位置**比较教师与学生�
 
 ### 1. 序列级：教师推理一遍
 
-R1-Distill 的量级：80 万条，推理样本平均几千 token，合计约 40 亿 token。教师是 R1（671B MoE，激活 37B），生成 FLOPs 约 $$2 \times 37\text{B} \times 4 \times 10^9 = 3 \times 10^{20}$$，decode 按 30% 有效算力约 **300 H100 小时**；拒绝采样要多采几倍（只留正确的），乘上 $$K$$。学生 SFT：Qwen2.5-32B、40 亿 token、2 epoch，$$6 \times 32\text{B} \times 8 \times 10^9 = 1.5 \times 10^{21}$$，约 **1000 GPU 小时**。合计一两千 GPU 小时。对照第五篇：同一个 32B 基座做推理 RL 是 $$10^{22}$$–$$10^{23}$$ FLOPs、几万 GPU 小时。**蒸馏便宜一到两个数量级，且效果更好**——这是 R1 那个对照实验的成本面。
+R1-Distill 的量级：80 万条，推理样本平均几千 token，合计约 40 亿 token。教师是 R1（671B MoE，激活 37B），生成 FLOPs 约 $$2 \times 37\text{B} \times 4 \times 10^9 = 3 \times 10^{20}$$，decode 按 30% 有效算力约 **300 H100 小时**；拒绝采样要多采几倍（只留正确的），乘上 $$K$$。学生 SFT：Qwen2.5-32B、40 亿 token、2 epoch，$$6 \times 32\text{B} \times 8 \times 10^9 = 1.5 \times 10^{21}$$，约 **1000 GPU 小时**。合计一两千 GPU 小时。对照[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)：同一个 32B 基座做推理 RL 是 $$10^{22}$$–$$10^{23}$$ FLOPs、几万 GPU 小时。**蒸馏便宜一到两个数量级，且效果更好**——这是 R1 那个对照实验的成本面。
 
 ### 2. logits 级：V 个数的传输
 
@@ -271,7 +271,7 @@ R1-Distill 的量级：80 万条，推理样本平均几千 token，合计约 40
 
 ### 3. on-policy：每步教师前向
 
-每步：学生采样（$$2N_S$$ 每 token，decode）、教师在学生序列上前向（$$2N_T$$ 每 token，prefill，MFU 高）、学生训练（$$6N_S$$）。教师前向是主项：$$N_T = 32\text{B}$$、$$N_S = 1.5\text{B}$$ 时 $$2N_T = 64$$ GFLOPs 对 $$6N_S = 9$$ GFLOPs，教师占 85%。但与第三篇的 RL 比：不需要 $$G$$ 条采样（信号稠密，一条就够）、不需要 RM 与参考的前向、每个 token 都有信号所以步数少得多。Qwen3 与 Thinking Machines 报告的"十分之一"就是这些项合起来的结果。
+每步：学生采样（$$2N_S$$ 每 token，decode）、教师在学生序列上前向（$$2N_T$$ 每 token，prefill，MFU 高）、学生训练（$$6N_S$$）。教师前向是主项：$$N_T = 32\text{B}$$、$$N_S = 1.5\text{B}$$ 时 $$2N_T = 64$$ GFLOPs 对 $$6N_S = 9$$ GFLOPs，教师占 85%。但与[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的 RL 比：不需要 $$G$$ 条采样（信号稠密，一条就够）、不需要 RM 与参考的前向、每个 token 都有信号所以步数少得多。Qwen3 与 Thinking Machines 报告的"十分之一"就是这些项合起来的结果。
 
 ### 4. 一张表
 
@@ -311,7 +311,7 @@ Gemma 2（2024）在**预训练**阶段就用蒸馏：2B 与 9B 模型不用硬�
 
 ### 3. 蒸馏之后再 RL
 
-R1 论文说蒸馏出的模型如果再做 RL 会进一步提升，但没做。后续工作（多个开源复现）确认：**先蒸馏、再 RL** 优于任何单独一种——蒸馏给了 RL 一个已经会推理的起点（第五篇：RL 放大已有模式），RL 在其上把 pass@1 再提几个点、并修正蒸馏数据里教师的一些错误习惯。这是 Qwen3 小模型的路线，也是第五篇"冷启动 SFT → RL"的一般形式：蒸馏就是最好的冷启动。
+R1 论文说蒸馏出的模型如果再做 RL 会进一步提升，但没做。后续工作（多个开源复现）确认：**先蒸馏、再 RL** 优于任何单独一种——蒸馏给了 RL 一个已经会推理的起点（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)：RL 放大已有模式），RL 在其上把 pass@1 再提几个点、并修正蒸馏数据里教师的一些错误习惯。这是 Qwen3 小模型的路线，也是[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)里"冷启动 SFT → RL"的一般形式：蒸馏就是最好的冷启动。
 
 ### 4. 分布坍缩
 
@@ -356,7 +356,7 @@ trainer.train()
 
 `(lmbda, beta) = (0, 0)` 是标准的前向 KL logits 级蒸馏；`(1, 1)` 是 MiniLLM 式的 on-policy 反向 KL；`(0.5, 0.5)` 是 GKD 论文的默认。教师与学生要同一 tokenizer——两个 Qwen2.5 满足。0.5B 学生、1.5B 教师在一张 16 GB 的卡上能跑。
 
-同一份 prompt 跑三组：序列级（先让 1.5B 生成回答，再对 0.5B 做普通 SFT——第一篇的脚本）、`(0, 0)`、`(1, 1)`，比三样东西：GSM8K 子集的准确率（学到多少）、输出的 distinct-n 或自 BLEU（多样性——反向 KL 在学生容量不足时倾向更低，但不是定理：容量够时两种 KL 的最优解都是教师分布，多样性相同）、以及学生在教师**从未见过的一类 prompt** 上的表现（泛化窄的程度）。第三章 mode-covering / mode-seeking 的差别在第二项上最容易看到。
+同一份 prompt 跑三组：序列级（先让 1.5B 生成回答，再对 0.5B 做普通 SFT——[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的脚本）、`(0, 0)`、`(1, 1)`，比三样东西：GSM8K 子集的准确率（学到多少）、输出的 distinct-n 或自 BLEU（多样性——反向 KL 在学生容量不足时倾向更低，但不是定理：容量够时两种 KL 的最优解都是教师分布，多样性相同）、以及学生在教师**从未见过的一类 prompt** 上的表现（泛化窄的程度）。第三章 mode-covering / mode-seeking 的差别在第二项上最容易看到。
 
 ## 十一、本文小结
 
@@ -379,7 +379,7 @@ Table: 知识蒸馏的公式与规则小结
 
 七篇讲完了让模型变好的每一种方法。最后一篇讲怎么证明它真的变好了。
 
-配套资料：本篇没有配套实验；第十章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 第一篇的环境上配一张 16 GB 的 GPU 运行。
+配套资料：本篇没有配套实验；第十章的骨架可在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training) 里[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的环境上配一张 16 GB 的 GPU 运行。
 
 ## 十二、自测
 

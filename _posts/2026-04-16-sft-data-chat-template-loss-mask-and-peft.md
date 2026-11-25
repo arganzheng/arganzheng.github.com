@@ -65,7 +65,7 @@ Table: 本文的章节安排
 
 Table: SFT 数据的三种来源
 
-2024 年后的旗舰配方三者都用，且第三种的"更强模型"越来越多是**自己的上一版**：Llama 3 的 SFT 数据主要来自<span class="inline-tip" data-tip="rejection sampling：对同一个 prompt 让当前模型生成 K 个回答，用奖励模型或验证器打分，只留分数最高的一个，其余丢掉（被拒绝）。留下来的回答当作 SFT 的目标。">拒绝采样</span>，加上针对代码、数学、多语言、长上下文、工具调用的合成数据，六轮迭代；DeepSeek-R1 的第三阶段用 RL 后的模型生成 60 万条推理样本再 SFT。**SFT 数据的生产者从人变成了模型 + 筛选器**，第二篇的奖励模型与第四篇的拒绝采样在这里已经出场。
+2024 年后的旗舰配方三者都用，且第三种的"更强模型"越来越多是**自己的上一版**：Llama 3 的 SFT 数据主要来自<span class="inline-tip" data-tip="rejection sampling：对同一个 prompt 让当前模型生成 K 个回答，用奖励模型或验证器打分，只留分数最高的一个，其余丢掉（被拒绝）。留下来的回答当作 SFT 的目标。">拒绝采样</span>，加上针对代码、数学、多语言、长上下文、工具调用的合成数据，六轮迭代；DeepSeek-R1 的第三阶段用 RL 后的模型生成 60 万条推理样本再 SFT。**SFT 数据的生产者从人变成了模型 + 筛选器**，[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)的拒绝采样在这里已经出场。
 
 ### 2. prompt 与回答各怎么造
 
@@ -96,7 +96,7 @@ flowchart LR
 
 **prompt 侧**决定覆盖面：真实用户 prompt（WildChat、LMSYS-Chat 这类公开集，或自己产品的日志）最贴近使用分布但长尾脏、且要脱敏；人写 prompt 用来定向补短板（某种语言、某类工具、安全边界）；合成 prompt 用来放量。Magpie 的方法值得一说：只把模板渲染到 `<|im_start|>user\n` 就让对齐后的模型续写，模型会"以为"自己在生成用户的话，于是免费得到与该模型训练分布同分布的 prompt——这是自举里最便宜的一招。
 
-**回答侧**决定质量上限。黄色的那条路——**当前模型采样 $$K$$ 条、用奖励模型或验证器选最好**——是 2024 年后的主路：它不依赖外部强模型、回答的风格与模型自己一致（避免学 GPT-4 的口癖）、且随着模型变强数据自动变好。它的名字是拒绝采样（rejection sampling），第四篇把它作为最简单的"离线 RL"讲。
+**回答侧**决定质量上限。黄色的那条路——**当前模型采样 $$K$$ 条、用奖励模型或验证器选最好**——是 2024 年后的主路：它不依赖外部强模型、回答的风格与模型自己一致（避免学 GPT-4 的口癖）、且随着模型变强数据自动变好。它的名字是拒绝采样（rejection sampling），[《离线 RL》](/offline-rl-dpo-and-its-family.html)把它当成最简单的一种讲。
 
 **过滤**是两侧共用的一步：规则（长度、语言、重复、拒答模板）、LLM 打分（让一个强模型按 1–5 给"有帮助 / 正确 / 安全"打分，只留高分——与 《[预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)》的数据打分同一思路）、去重（prompt 的 MinHash）、以及**对评测集去污染**——Tülu 3 对全部 SFT 来源与一组 benchmark 做 8-gram 重叠检查，发现若干公开 SFT 集含有测试题，去掉了它们。SFT 数据比预训练小几个量级，去污染的成本可以忽略，不做是没有理由的。
 
@@ -118,11 +118,11 @@ LIMA 从自己的结果出发，提出了「表面对齐假说」（Superficial 
 - LIMA 的基座是 65B，大模型从少量数据里泛化更好；1–8B 的小模型需要更多数据才能学会同样的格式。
 - 数据的**多样性**比数量重要：Tülu 3 的消融显示去掉任何一个领域的数据，该领域的分数就掉，其他领域几乎不变——数据是按能力"投票"的。
 
-质量过滤是两者的共同点：AlpaGasus 用 GPT-4 给 Alpaca 的 52K 条打分，只留 9K 条高分，效果反超全量；InstructGPT 的 SFT 验证 loss 在 1 个 epoch 后就过拟合，但奖励模型分数与人类偏好继续提升到 16 个 epoch——**SFT 的验证 loss 不是好的停止信号**，这一点在第六章与第八篇会再讨论。
+质量过滤是两者的共同点：AlpaGasus 用 GPT-4 给 Alpaca 的 52K 条打分，只留 9K 条高分，效果反超全量；InstructGPT 的 SFT 验证 loss 在 1 个 epoch 后就过拟合，但奖励模型分数与人类偏好继续提升到 16 个 epoch——**SFT 的验证 loss 不是好的停止信号**，这一点在第六章与[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)会再讨论。
 
 ### 4. 蒸馏数据的两个副作用
 
-从更强模型蒸馏的回答带着那个模型的**风格**：GPT-4 生成的 Alpaca 类数据让一代开源模型都学会了"As an AI language model"与列表化的长回答。风格本身不是错，问题是它与评测纠缠——LLM-as-judge 偏好长回答与列表（第八篇），于是蒸馏 GPT-4 的模型在 AlpacaEval 上分高，在人评上未必。第二个副作用是**正确性**：强模型也会错，蒸馏数据里的错误答案被当成标准答案学进去；数学与代码数据因此几乎都加验证器过滤（答案对、测试过），这是第五篇"可验证奖励"在 SFT 阶段的雏形。
+从更强模型蒸馏的回答带着那个模型的**风格**：GPT-4 生成的 Alpaca 类数据让一代开源模型都学会了"As an AI language model"与列表化的长回答。风格本身不是错，问题是它与评测纠缠——LLM-as-judge 偏好长回答与列表（见[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)），于是蒸馏 GPT-4 的模型在 AlpacaEval 上分高，在人评上未必。第二个副作用是**正确性**：强模型也会错，蒸馏数据里的错误答案被当成标准答案学进去；数学与代码数据因此几乎都加验证器过滤（答案对、测试过），这是[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)在 SFT 阶段的雏形。
 
 ### 5. 多轮与配比
 
@@ -179,7 +179,7 @@ Table: Qwen、Llama 3 与 Gemma 的聊天模板对照
 
 ### 4. 模板的其他内容
 
-真实的模板比上面长得多：默认 system prompt（Qwen2.5 在没有 system 消息时自动插入一条）、工具 schema 的渲染（第六篇：把函数签名的 JSON 塞进 system 段，把工具调用渲染成 `<tool_call>` 块、工具返回渲染成 `tool` 角色）、思考模式的 `<think>` 标记（Qwen3 在非思考模式下渲染一对空的 `<think>\n\n</think>`，让模型学到"没有思考内容"也是一种合法格式）、日期等变量（Llama 3.1 的 `Cutting Knowledge Date`）。每一项都是训练分布的一部分——推理时改了 system prompt 的默认文案，模型的行为就会漂。模板随模型发布、写在 `tokenizer_config.json` 里，是模型权重之外最重要的一份"配置"。
+真实的模板比上面长得多：默认 system prompt（Qwen2.5 在没有 system 消息时自动插入一条）、工具 schema 的渲染（[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)：把函数签名的 JSON 塞进 system 段，把工具调用渲染成 `<tool_call>` 块、工具返回渲染成 `tool` 角色）、思考模式的 `<think>` 标记（Qwen3 在非思考模式下渲染一对空的 `<think>\n\n</think>`，让模型学到"没有思考内容"也是一种合法格式）、日期等变量（Llama 3.1 的 `Cutting Knowledge Date`）。每一项都是训练分布的一部分——推理时改了 system prompt 的默认文案，模型的行为就会漂。模板随模型发布、写在 `tokenizer_config.json` 里，是模型权重之外最重要的一份"配置"。
 
 ## 四、目标：loss mask、packing 与归约
 
@@ -206,7 +206,7 @@ Table: mask 实验：只算回复与不 mask 的 loss 对照
 
 ### 2. 多轮
 
-多轮对话里 mask 有两种：只算最后一轮回复，或算每一轮的 assistant 回复（用户轮次全部 mask）。后者让一条 N 轮对话贡献 N 份监督信号，是主流做法；`trl` 用 `assistant_only_loss=True`（需要模板带 `{% raw %}{% generation %}{% endraw %}` 标记，渲染时同时产出一个"哪些字符属于 assistant"的掩码）实现。没有这个标记时，常见的替代是渲染两次（到第 $$k$$ 轮末尾、到第 $$k$$ 轮 assistant 开头）取差集——脆弱且慢，能用标记就用标记。同一个机制在第六篇的 Agent 训练里变成"mask 掉工具返回的内容"，那里没有争议：模型绝不该学会生成环境的输出。
+多轮对话里 mask 有两种：只算最后一轮回复，或算每一轮的 assistant 回复（用户轮次全部 mask）。后者让一条 N 轮对话贡献 N 份监督信号，是主流做法；`trl` 用 `assistant_only_loss=True`（需要模板带 `{% raw %}{% generation %}{% endraw %}` 标记，渲染时同时产出一个"哪些字符属于 assistant"的掩码）实现。没有这个标记时，常见的替代是渲染两次（到第 $$k$$ 轮末尾、到第 $$k$$ 轮 assistant 开头）取差集——脆弱且慢，能用标记就用标记。同一个机制在[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)里变成"mask 掉工具返回的内容"，那里没有争议：模型绝不该学会生成环境的输出。
 
 ### 3. packing 与 padding 的账
 
@@ -392,7 +392,7 @@ Table: 公开 SFT 配方对照
 
 ### 3. 推理 SFT 的"少即是多"
 
-2025 年 LIMA 的故事在推理模型上重演了一次。s1（Muennighoff 等 2025）用 **1000 条**精选的数学题加 Gemini 生成的长思维链，在 Qwen2.5-32B 上 SFT，AIME 与 MATH 上接近 o1-preview；LIMO 用 817 条得到类似结果。条件与 LIMA 相同：基座强（Qwen2.5-32B 的预训练里已有大量数学与推理数据）、数据精选（难度、多样性、思维链质量三重筛选）、评测的是"能不能把已有能力以长思维链的形式拿出来"。它再次说明 SFT 教的是**形式**——这里的形式是"先想很久再答"——而形式是低秩的、少量数据就够；第五篇会讲当形式不够、需要 RL 才能提升的边界在哪。
+2025 年 LIMA 的故事在推理模型上重演了一次。s1（Muennighoff 等 2025）用 **1000 条**精选的数学题加 Gemini 生成的长思维链，在 Qwen2.5-32B 上 SFT，AIME 与 MATH 上接近 o1-preview；LIMO 用 817 条得到类似结果。条件与 LIMA 相同：基座强（Qwen2.5-32B 的预训练里已有大量数学与推理数据）、数据精选（难度、多样性、思维链质量三重筛选）、评测的是"能不能把已有能力以长思维链的形式拿出来"。它再次说明 SFT 教的是**形式**——这里的形式是"先想很久再答"——而形式是低秩的、少量数据就够；[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)会讲当形式不够、需要 RL 才能提升的边界在哪。
 
 ### 4. 让模型会写思维链，后训练要做什么
 
