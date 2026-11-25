@@ -287,7 +287,7 @@ def _getitem(self, key, **kwargs):
 1. `len(tok)`、`tok.vocab_size`、`model.config.vocab_size` 对 Qwen2.5-0.5B 分别是 151665、151643、151936。三个数各是什么？训练时给 tokenizer 加了 10 个新特殊 token，哪个数会变、模型要不要动？
 
    <details markdown="1"><summary>答案</summary>
-   `vocab_size` 是 BPE 词表（`tokenizer.json` 的 `model.vocab`）；`len(tok)` 再加 `added_tokens`（22 个绕过 BPE 的特殊 token）；`config.vocab_size` 是 embedding / lm_head 的行数，比前者大是为了对齐到 64 的倍数、留余量。加 10 个 token 后 `len(tok)` 变 151675，仍小于 151936，embedding 不用 resize（余量够）；若超出才要 `model.resize_token_embeddings(len(tok))`。
+   `vocab_size` 是 BPE 词表（`tokenizer.json` 的 `model.vocab`）；`len(tok)` 再加 `added_tokens`（22 个绕过 BPE 的特殊 token）；`config.vocab_size` 是 embedding / lm_head 的行数，比前者大是为了对齐到 128 的倍数、留余量。加 10 个 token 后 `len(tok)` 变 151675，仍小于 151936，embedding 不用 resize（余量够）；若超出才要 `model.resize_token_embeddings(len(tok))`。
    </details>
 
 2. 为什么 `"12345"` 在 Qwen2.5 / Llama 3 里是 5 个 token，而 `"hello"` 是 1 个？这由哪一段决定？
