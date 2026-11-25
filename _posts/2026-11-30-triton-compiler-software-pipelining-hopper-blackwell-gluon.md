@@ -7,7 +7,7 @@ tags: [Compiler, MLIR, Triton, GPU, CUDA, AI-Infra]
 catalog: true
 ---
 
-到上一篇为止，matmul kernel 的 layout 已经定好，但循环还是朴素的：每次迭代先等 A、B 从 global memory 到达，再喂 Tensor Core，再发下一次 load。GPU 的访存延迟几百个时钟，Tensor Core 一条 `mma` 十几个时钟——朴素循环里 Tensor Core 绝大部分时间在等。GPU Kernel 系列第三、七篇从用户视角讲过解法：**软件流水**——第 i 次迭代算的时候，第 i+1、i+2 次的数据已经在路上。那两篇给的是 `num_stages` 这个旋钮和"编译器会做"的承诺。这一篇打开编译器，看它怎么做：把一个 `scf.for` 变成带 prologue、多缓冲、异步拷贝、显式等待的循环，要经过哪几个决定，每个决定在哪个 pass 里。
+到上一篇为止，matmul kernel 的 layout 已经定好，但循环还是朴素的：每次迭代先等 A、B 从 global memory 到达，再喂 Tensor Core，再发下一次 load。GPU 的访存延迟几百个时钟，Tensor Core 一条 `mma` 十几个时钟——朴素循环里 Tensor Core 绝大部分时间在等。《GPU Kernel 工程》的《访存合并与 elementwise kernel》《Triton——块级编程与编译器的边界》从用户视角讲过解法：**软件流水**——第 i 次迭代算的时候，第 i+1、i+2 次的数据已经在路上。那两篇给的是 `num_stages` 这个旋钮和"编译器会做"的承诺。这一篇打开编译器，看它怎么做：把一个 `scf.for` 变成带 prologue、多缓冲、异步拷贝、显式等待的循环，要经过哪几个决定，每个决定在哪个 pass 里。
 
 然后是硬件把"异步"接过去的部分。Ampere 的 `cp.async` 让 load 异步；Hopper 加了 TMA（一条指令搬一个 tile）、`wgmma`（异步的、操作数在 shared memory 里的 Tensor Core 指令）、mbarrier（硬件计数的同步对象）；Blackwell 再加 `tcgen05`（单线程发起的 MMA）和 Tensor Memory（累加器不再占寄存器）。每一代都把更多的"编排"交给硬件，编译器要生成的 IR 形状也随之改变。**warp specialization** 是这条路的自然终点：不同的 warp 做不同的事——有的只发 load，有的只发 MMA——生产者 / 消费者用 mbarrier 握手。
 
@@ -117,7 +117,7 @@ if (canUseAsyncCp || isTMALoad(op)) {
 
 1. ① **缓冲数 = stage 差**：load 在 stage 0、`dot` 在 stage 2，中间隔两个迭代，任意时刻有两批数据在飞，要两个缓冲。`createAlloc` 建 `!ttg.memdesc<2x128x32xbf16, #shared, #smem, mutable>`——多出来的第一维就是缓冲下标；`memdesc_index %a[%idx]` 取一片。下标 `insertIdx` / `extractIdx` 作为 iter_args 每轮 `+1 mod numBuffers`（IR 里那串 `addi / cmpi sge / select` 就是它）。
 2. ② Hopper 的 `wgmma` 是异步的，`dot` 发出后操作数所在的缓冲还在被读，下一轮的 load 不能覆盖它——多要一个缓冲（§四.3）。
-3. ③ 不能用 `cp.async` 的 load（例如 mask 有 `other` 值、或每线程不到 4 字节）只能"在寄存器里流水"——提前 load 到寄存器持有几个迭代——寄存器压力暴涨，编译器发 remark 警告。这是第六篇 AxisInfo 的又一个下游：**对齐不够 → 不能 `cp.async` → 不能有效流水**。
+3. ③ 不能用 `cp.async` 的 load（例如 mask 有 `other` 值、或每线程不到 4 字节）只能"在寄存器里流水"——提前 load 到寄存器持有几个迭代——寄存器压力暴涨，编译器发 remark 警告。这是[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html) AxisInfo 的又一个下游：**对齐不够 → 不能 `cp.async` → 不能有效流水**。
 
 然后 `createAsyncCopy`：`tt.load` 替换成 `ttg.async_copy_global_to_local %ptrs, %buf mask %m {contiguity = 8}`（`contiguity` 来自 AxisInfo，决定 `cp.async` 的 cp-size 4 / 8 / 16 字节）+ `async_commit_group`（把本轮发出的拷贝打成一组）+ 在使用处 `async_wait {num = N}`（**允许 N 组还在飞**，即等待更早的组完成）+ `local_load`（从 shared memory 读进 `#dot_op` 寄存器）。TMA 的 load（`isTMALoad`）走另一条：`async_tma_copy_global_to_local` + mbarrier（§四.2）。
 
@@ -184,7 +184,7 @@ ttg.local_dealloc %a
 1. ① **2 个缓冲**：`num_stages = 3` → latency 2 → `stageDiff = 2`。不是 3——`num_stages` 数的是 stage（load 的 stage 0、中间 1、`dot` 的 stage 2），缓冲数是 load 与 `dot` 的 stage 差。
 2. ③ **prologue 里 2 次 load**（每次 A、B 各一组）：迭代 0 与迭代 1 的，分别进缓冲 0 和 1；每次都带一个"这次迭代存在吗"的 mask（② 与 `%acc_39`），K 太小时 load 被谓词掉而不是越界。
 3. ④ ⑦ **`async_wait {num = 2}` 等的是最老的一批**：`num` 是"允许还在飞的 commit group 数"；每次迭代 A、B 各 1 组，允许 2 组在飞 = 允许最近一个迭代的 load 未完成 = 等待再之前那个迭代的到达。循环体里等的是"本次迭代要用的数据"，它在两个迭代前发出。
-4. ⑨ load 发在 `dot` 之后、`dot` 用的缓冲是刚刚 `wait` 到的那个，新 load 写的是上一轮 `dot` 用完的那个——**stage 高的先执行**（§二.3 的 cluster 顺序）保证了缓冲的读写不冲突，不需要额外 barrier（`async_wait` 之后 `LowerLoops` 插的 `local_load` 与下一轮 `async_copy` 之间的 WAR 由第十篇的 `Membar` 分析保证）。
+4. ⑨ load 发在 `dot` 之后、`dot` 用的缓冲是刚刚 `wait` 到的那个，新 load 写的是上一轮 `dot` 用完的那个——**stage 高的先执行**（§二.3 的 cluster 顺序）保证了缓冲的读写不冲突，不需要额外 barrier（`async_wait` 之后 `LowerLoops` 插的 `local_load` 与下一轮 `async_copy` 之间的 WAR 由[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `Membar` 分析保证）。
 5. ⑤ ⑧ ⑩ ⑪ `Prefetch` 的痕迹：K = 32 拆成两个 16，每轮两条 `dot`，第 0 个子块在上一轮末尾就 `local_load` 好了（作为 iter_arg `%a_82` 传进来）。
 6. ⑥ 15 个 iter_args：累加器 1 + 指针 2 + 缓冲下标 2 + `async` token 4 + 缓冲视图 2 + wait token 2 + 预取操作数 2。
 
@@ -218,7 +218,7 @@ scf.for ... {
 
 ### 2. `#nvmma_shared`
 
-`wgmma` 要求操作数按硬件规定的布局放在 shared memory 里：128 / 64 / 32 字节 swizzle 之一，由 tile 的行字节数决定——A 的 `[128, 32]` bf16 一行 64 字节 → `swizzlingByteWidth = 64`；B 的 `[32, 128]` 一行 256 字节 → 用 128。这是 TMA 也认的布局，所以 TMA 搬进来的 tile 可以直接喂 `wgmma`。指令通过一个 64 位**矩阵描述符**（地址、leading / stride 字节数、swizzle 模式）找到数据，第十篇的 lowering 会算这个描述符。
+`wgmma` 要求操作数按硬件规定的布局放在 shared memory 里：128 / 64 / 32 字节 swizzle 之一，由 tile 的行字节数决定——A 的 `[128, 32]` bf16 一行 64 字节 → `swizzlingByteWidth = 64`；B 的 `[32, 128]` 一行 256 字节 → 用 128。这是 TMA 也认的布局，所以 TMA 搬进来的 tile 可以直接喂 `wgmma`。指令通过一个 64 位**矩阵描述符**（地址、leading / stride 字节数、swizzle 模式）找到数据，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 lowering 会算这个描述符。
 
 ### 3. 3 个缓冲
 
@@ -352,6 +352,10 @@ ttng.wait_barrier %acc_2, %c0_i32                               // ④ 默认区
 - 两个分区之间是经典的**生产者 / 消费者环形缓冲**：3 个缓冲、每个缓冲两个 mbarrier（"满"由 TMA 到达、MMA 等待；"空"由 MMA 完成到达、TMA 等待），phase 位区分轮次。分区是 `IsolatedFromAbove` 的——它们的 `num_warps` 与外部不同，layout 的含义（`warpsPerCTA`）也不同，所以所有用到的值必须显式作为参数传入（那一长串 `%b_14, %a_15, …`）。
 - `requestedRegisters = [24, 24]`：两个分区各自只需要 24 个寄存器——它们不持有累加器、不做算术。lowering 时用 `setmaxnreg` 指令**把寄存器从分区 warp 让给默认区**（默认区做 epilogue 需要多）。`metadata["num_warps"] = 8`：4 + 1 + 2 = 7，按 warp group 对齐到 8，kernel 启动时的 block 大小是 256 线程。
 
+> [!NOTE] Java 经验参照：这是编译器自动做出来的生产者 / 消费者
+> 把一个 for 循环拆成「一组只取数、一组只算」，中间用固定容量的缓冲握手——这就是 `ArrayBlockingQueue(3)` 接起来的生产者 / 消费者，连计数都对得上：3 个缓冲对应队列容量 3，「满」「空」两个 mbarrier 对应 `notFull` / `notEmpty` 两个条件变量，phase 位对应轮次。写 Java 的人都知道容量定小了生产者空等、定大了占内存，这里 `num_stages` 调的是同一个旋钮。
+> 不同有三处，每一处都更极端。线程不是你开的，是编译器从一个循环里切出来的；队列容量在编译期定死，没有运行时扩容这一说；握手不走锁与 park / unpark，是硬件 mbarrier，代价低到可以每次迭代做两回。还有一条 Java 里不存在的约束：分区是 `IsolatedFromAbove` 的，外面的值必须显式当参数传进去——因为各分区的 warp 数不同，同一个 layout 在里外的含义都不一样。
+
 ### 3. 自动划分怎么做
 
 `lib/Dialect/TritonGPU/Transforms/WarpSpecialization/`：`ScheduleLoops` 给 op 分 stage 的同时，warp specialization 用同一套 `CoarseSchedule` 给 op 分 **partition**（`loop.partition` 属性）：TMA load 一个分区、MMA 一个分区、其余留在默认区；`PartitionLoops` 把循环按分区切成几个独立的 `scf.for`；`LoadMMASpecialization` 在分区之间插 mbarrier 与 `arrive / wait`；`OptimizePartitionWarps` 决定每个分区几个 warp（`relayoutWarps`：把分区体当成一个独立的 `tt.func` 跑一遍 layout 推断，看最少几个 warp 能装下）与寄存器数；`RewritePartitionDependencies` 把跨分区的值变成 shared memory 传递。整个机制只对 `tl.range(..., warp_specialize=True)` 标记的循环启用（`tt.warp_specialize` 属性），且目前只在 Blackwell 上稳定——上一节的 Hopper 报错就是证据。
@@ -429,9 +433,9 @@ flowchart LR
     class t2,t3,t4 skip
 ```
 
-`third_party/nvidia/backend/compiler.py` 的 `make_ttgir` 开头：`if knobs.compilation.enable_experimental_consan or is_gluon: … return` 分支——Gluon 的 TTGIR 只过几个不改变 layout 的 pass（`ttgpuir.add_inliner`、`add_canonicalizer`、`add_resolve_auto_encodings`、`add_allocate_warp_groups` 等），**第七、八、九篇讲的全部自动 pass 一个不跑**。用户写的 layout 就是最终的 layout，用户放的 barrier 就是最终的 barrier。换来的是：写错 layout 编译器只报类型错误不会替你修，忘了 wait 就是数据竞争。
+`third_party/nvidia/backend/compiler.py` 的 `make_ttgir` 开头：`if knobs.compilation.enable_experimental_consan or is_gluon: … return` 分支——Gluon 的 TTGIR 只过几个不改变 layout 的 pass（`ttgpuir.add_inliner`、`add_canonicalizer`、`add_resolve_auto_encodings`、`add_allocate_warp_groups` 等），**前面三篇（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)、[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)、本篇）讲的全部自动 pass 一个不跑**。用户写的 layout 就是最终的 layout，用户放的 barrier 就是最终的 barrier。换来的是：写错 layout 编译器只报类型错误不会替你修，忘了 wait 就是数据竞争。
 
-Gluon 的意义超出"专家模式"：它是**编译器边界的制度化**。Triton 的设计承诺是"用户定 tile，编译器定 layout"（第一篇 §八.2）；十年的经验说这个承诺在规则 kernel 上兑现得很好、在前沿硬件的前沿 kernel 上兑现不了。Gluon 把边界画在了 TTGIR 这一层：往上（Python 前端、类型系统、运行时、缓存）和往下（TTGIR → LLVM → PTX 的 lowering，第十篇）都复用，中间那段启发式的 layout 与调度决策由用户接管。新硬件特性（Blackwell 的 `tcgen05`、TMEM、Rubin）现在往往**先在 Gluon 里暴露**，等编译器的自动路径成熟再进 `tl`。
+Gluon 的意义超出"专家模式"：它是**编译器边界的制度化**。Triton 的设计承诺是"用户定 tile，编译器定 layout"（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八.2）；十年的经验说这个承诺在规则 kernel 上兑现得很好、在前沿硬件的前沿 kernel 上兑现不了。Gluon 把边界画在了 TTGIR 这一层：往上（Python 前端、类型系统、运行时、缓存）和往下（TTGIR → LLVM → PTX 的 lowering，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）都复用，中间那段启发式的 layout 与调度决策由用户接管。新硬件特性（Blackwell 的 `tcgen05`、TMEM、Rubin）现在往往**先在 Gluon 里暴露**，等编译器的自动路径成熟再进 `tl`。
 
 ## 八、本文小结
 
@@ -471,7 +475,7 @@ Gluon 的意义超出"专家模式"：它是**编译器边界的制度化**。Tr
 5. Gluon 跳过了 `RemoveLayoutConversions`。用户写 `x = a_smem.load(layout_A)`、`y = b_smem.load(layout_B)`、`z = x + y`，`layout_A ≠ layout_B`。会发生什么？用户该怎么写？
 
    <details markdown="1"><summary>答案</summary>
-   前端 `semantic` 层在做 `x + y` 时检查两个操作数的 layout，不一致直接报编译错误（Gluon 不隐式插 `convert_layout`——那正是它要避免的自动决定）。用户要显式 `y = gl.convert_layout(y, layout_A)`（生成 `ttg.convert_layout`，代价按第七篇的判定），或者一开始就用同一个 layout load。`gl.AutoLayout` 是唯一的例外：标为 auto 的张量由 `ResolveAutoEncodings` pass 从使用者反推 layout——这是 Gluon 保留的极少量自动推断，用于减少样板。
+   前端 `semantic` 层在做 `x + y` 时检查两个操作数的 layout，不一致直接报编译错误（Gluon 不隐式插 `convert_layout`——那正是它要避免的自动决定）。用户要显式 `y = gl.convert_layout(y, layout_A)`（生成 `ttg.convert_layout`，代价按[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)的判定），或者一开始就用同一个 layout load。`gl.AutoLayout` 是唯一的例外：标为 auto 的张量由 `ResolveAutoEncodings` pass 从使用者反推 layout——这是 Gluon 保留的极少量自动推断，用于减少样板。
    </details>
 
 ## 下一篇
