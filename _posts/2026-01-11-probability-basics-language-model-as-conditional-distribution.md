@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-09-17
 ---
 
-前三篇讲的是模型**怎么算**——一堆矩阵乘法。这一篇讲模型**是什么**。答案只有一句话：**语言模型是一个条件分布 $$p(x_t \mid x_{<t})$$**——给定前面的文字，输出下一个 token 的概率。这句话里每个词都需要概率的语言来定义；而一旦定义清楚，训练目标（第五篇）、采样方式、KV cache 为什么能增量、attention 为什么除以 $$\sqrt{d_k}$$，都是它的直接推论。
+前三篇讲的是模型**怎么算**——一堆矩阵乘法。这一篇讲模型**是什么**。答案只有一句话：**语言模型是一个条件分布 $$p(x_t \mid x_{<t})$$**——给定前面的文字，输出下一个 token 的概率。这句话里每个词都需要概率的语言来定义；而一旦定义清楚，训练目标（[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）、采样方式、KV cache 为什么能增量、attention 为什么除以 $$\sqrt{d_k}$$，都是它的直接推论。
 
 本篇从零建立这套语言。全篇的核心问题是：
 
@@ -107,7 +107,7 @@ $$
 
 ### 2. 独立性
 
-如果知道 $$B$$ 不改变 $$A$$ 的分布——$$p(a \mid b) = p(a)$$，等价地 $$p(a, b) = p(a)\,p(b)$$——就说 $$A, B$$ **独立**。上面的例子不独立（0.8 ≠ 0.3）。独立性在第五章（独立和的方差相加）和第八篇（评测的每道题视为独立试验）里用。
+如果知道 $$B$$ 不改变 $$A$$ 的分布——$$p(a \mid b) = p(a)$$，等价地 $$p(a, b) = p(a)\,p(b)$$——就说 $$A, B$$ **独立**。上面的例子不独立（0.8 ≠ 0.3）。独立性在第五章（独立和的方差相加）和[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)（评测的每道题视为独立试验）里用。
 
 ### 3. 贝叶斯公式
 
@@ -121,7 +121,7 @@ $$
 
 它在后面三处出现：
 
-- **最大后验估计**（MAP）：第五篇的最大似然是最大化 $$p(\text{数据} \mid \theta)$$，MAP 是最大化 $$p(\theta \mid \text{数据}) \propto p(\text{数据} \mid \theta)\,p(\theta)$$——多乘一个先验；取对数后先验变成一个加在 loss 上的正则化项。第二篇的 weight decay 就等价于高斯先验。
+- **最大后验估计**（MAP）：[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)的最大似然是最大化 $$p(\text{数据} \mid \theta)$$，MAP 是最大化 $$p(\theta \mid \text{数据}) \propto p(\text{数据} \mid \theta)\,p(\theta)$$——多乘一个先验；取对数后先验变成一个加在 loss 上的正则化项。[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)的 weight decay 就等价于高斯先验。
 - **朴素贝叶斯分类器**（L2 系列）：$$p(\text{类别} \mid \text{文本}) \propto p(\text{文本} \mid \text{类别})\,p(\text{类别})$$，假设词之间独立。
 - **扩散模型的反向过程**（L7）：前向是给图加噪 $$p(x_t \mid x_{t-1})$$，生成要的是反向 $$p(x_{t-1} \mid x_t)$$，贝叶斯公式把两者联系起来。
 
@@ -135,7 +135,7 @@ $$
 p(x_1, x_2, \dots, x_T) = p(x_1)\, p(x_2 \mid x_1)\, p(x_3 \mid x_1, x_2) \cdots p(x_T \mid x_1, \dots, x_{T-1}) = \prod_{t=1}^{T} p(x_t \mid x_{<t})
 $$
 
-$$x_{<t}$$ 是 $$x_1, \dots, x_{t-1}$$ 的简写。这叫概率的**链式法则**（与第七篇微积分的链式法则同名、无关）。它是恒等式，不含任何假设：**任何**序列的概率都可以写成"第一个 token 的概率 × 给定第一个之后第二个的概率 × …"。
+$$x_{<t}$$ 是 $$x_1, \dots, x_{t-1}$$ 的简写。这叫概率的**链式法则**（与[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)里微积分的链式法则同名、无关）。它是恒等式，不含任何假设：**任何**序列的概率都可以写成"第一个 token 的概率 × 给定第一个之后第二个的概率 × …"。
 
 ```text title="三个 token 的联合概率按链式法则展开"
 p("我 爱 北京") = p("我") × p("爱" | "我") × p("北京" | "我 爱")
@@ -149,18 +149,18 @@ p("我 爱 北京") = p("我") × p("爱" | "我") × p("北京" | "我 爱")
 
 这就是"语言模型是一个条件分布"的全部含义。它决定了后面四件事：
 
-- **训练目标是 next-token prediction**（第五篇）：让训练集里每个真实的下一个 token 在模型分布里的概率尽量大。
+- **训练目标是 next-token prediction**（[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）：让训练集里每个真实的下一个 token 在模型分布里的概率尽量大。
 - **推理是逐个 token 生成**：从 $$p_\theta(\cdot \mid \text{prompt})$$ 里抽一个 token，接到后面，再算下一个分布，再抽……每一步只依赖前文。
 - **KV cache 能增量追加**：算 $$p(x_{t+1} \mid x_{\le t})$$ 时前文 $$x_{\le t}$$ 与上一步的 $$x_{<t}$$ 只多了一个 token。"条件分布"本身只保证前文不变；要让前面 token 的中间结果（key、value）**不用重算**，还需要架构上的一条性质——因果 attention 里第 $$i$$ 个位置的 key / value 只依赖 $$x_{\le i}$$，后面来了新 token 也不改它。Transformer decoder 满足这一条，所以缓存有效；一个双向编码器就不满足（新 token 会改前面所有位置的表示）。画出来是这样：
 
   ![KV cache 为什么可以只追加：第 3 步前三个 token 的 k、v 已在缓存里；第 4 步来了新 token 只新算 k₄、v₄，旧的一个数都不变；新 token 的 q₄ 去和全部四个 k 算分](/img/in-post/probability-basics-kv-cache-causal-append.svg)
 
   这条性质决定了推理成本的形状：decode 每一步只算一个新 token 的 K、V（一次小矩阵乘），而不是把整句话重算一遍——上下文越长，省得越多。《[现代 LLM 结构（04）：Attention 变体与 KV cache](/attention-variants-and-kv-cache.html)》算这笔账。
-- **评测依赖采样设置**：同一个模型、不同的抽样方式（温度、top-p，第五篇）是**不同的分布**，比较模型时要固定它们。
+- **评测依赖采样设置**：同一个模型、不同的抽样方式（温度、top-p，[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）是**不同的分布**，比较模型时要固定它们。
 
 ### 3. "条件分布"里的条件是什么
 
-在预训练里，条件是前文。在 SFT 里，条件是"用户的问题"，模型只对"回答"部分建模（第五篇的 loss mask）。在多模态里，条件里多了一张图的编码。在 RL 里，模型被叫成"策略" $$\pi_\theta(y \mid x)$$——换了名字，还是同一个条件分布：给定 prompt $$x$$，回答 $$y$$ 的概率。读后训练论文时把 $$\pi$$ 读成 $$p$$，一切都对得上。
+在预训练里，条件是前文。在 SFT 里，条件是"用户的问题"，模型只对"回答"部分建模（[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)的 loss mask）。在多模态里，条件里多了一张图的编码。在 RL 里，模型被叫成"策略" $$\pi_\theta(y \mid x)$$——换了名字，还是同一个条件分布：给定 prompt $$x$$，回答 $$y$$ 的概率。读后训练论文时把 $$\pi$$ 读成 $$p$$，一切都对得上。
 
 ## 五、期望与方差
 
@@ -174,7 +174,7 @@ $$
 
 掷骰子的期望是 $$(1 + 2 + \dots + 6)/6 = 3.5$$。函数的期望 $$\mathbb{E}[f(X)] = \sum_x f(x)\,p(x)$$。
 
-期望的**线性性**：$$\mathbb{E}[aX + bY] = a\,\mathbb{E}[X] + b\,\mathbb{E}[Y]$$，**不管 $$X, Y$$ 是否独立**都成立。这是所有"对期望求导"、"减 baseline 不改变期望"（第七篇）的基础。
+期望的**线性性**：$$\mathbb{E}[aX + bY] = a\,\mathbb{E}[X] + b\,\mathbb{E}[Y]$$，**不管 $$X, Y$$ 是否独立**都成立。这是所有"对期望求导"、"减 baseline 不改变期望"（[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)）的基础。
 
 ### 2. 方差
 
@@ -193,7 +193,7 @@ $$
 
 ### 3. 从样本估计
 
-实践中期望与方差都从样本估：$$n$$ 个样本的平均 $$\bar x = \frac{1}{n}\sum_i x_i$$ 估期望；样本方差 $$\frac{1}{n-1}\sum_i (x_i - \bar x)^2$$ 估方差。**样本平均本身也是随机的**，它的方差是 $$\sigma^2 / n$$（独立和的方差相加、再除 $$n^2$$），标准差 $$\sigma/\sqrt{n}$$——样本越多估得越准，但只按 $$\sqrt{n}$$ 变好：想把误差减半要四倍样本。这是第八篇置信区间的核心。
+实践中期望与方差都从样本估：$$n$$ 个样本的平均 $$\bar x = \frac{1}{n}\sum_i x_i$$ 估期望；样本方差 $$\frac{1}{n-1}\sum_i (x_i - \bar x)^2$$ 估方差。**样本平均本身也是随机的**，它的方差是 $$\sigma^2 / n$$（独立和的方差相加、再除 $$n^2$$），标准差 $$\sigma/\sqrt{n}$$——样本越多估得越准，但只按 $$\sqrt{n}$$ 变好：想把误差减半要四倍样本。这是[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)里置信区间的核心。
 
 ## 六、常见分布
 
@@ -217,7 +217,7 @@ $$
 \mathcal{N}(x; \mu, \sigma^2) = \frac{1}{\sqrt{2\pi\sigma^2}} \exp\!\left(-\frac{(x - \mu)^2}{2\sigma^2}\right)
 $$
 
-是一条以 $$\mu$$ 为中心的钟形曲线，$$\sigma$$ 越小越尖。$$\mu = 0, \sigma = 1$$ 叫标准正态。大约 68% 的概率在 $$\mu \pm \sigma$$ 内，95% 在 $$\mu \pm 1.96\sigma$$ 内——后面这个数字第八篇反复用。
+是一条以 $$\mu$$ 为中心的钟形曲线，$$\sigma$$ 越小越尖。$$\mu = 0, \sigma = 1$$ 叫标准正态。大约 68% 的概率在 $$\mu \pm \sigma$$ 内，95% 在 $$\mu \pm 1.96\sigma$$ 内——后面这个数字[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)反复用。
 
 **中心极限定理**：大量独立随机变量的和（或平均），不管每个的分布是什么，都近似高斯。这是为什么高斯到处出现——评测的正确率（很多道题对错之和）、一层网络的输出（很多项之和）、梯度噪声（很多样本梯度之和）都近似高斯。
 
@@ -233,9 +233,9 @@ $$X \sim \mathcal{N}(\mu_1, \sigma_1^2)$$，$$Y \sim \mathcal{N}(\mu_2, \sigma_2
 
 ### 2. 为什么 attention 除以 $$\sqrt{d_k}$$
 
-先说它在哪：Transformer 的 attention 写作 $$\text{softmax}(QK^T / \sqrt{d_k})\,V$$，名字叫 **scaled dot-product attention**——"点积"是 $$QK^T$$（第二篇：每个 query 与每个 key 的内积），"scaled" 就是除以 $$\sqrt{d_k}$$ 这一步。第二篇只说了一句"为了让 softmax 不过饱和"，这里用方差把它算出来。
+先说它在哪：Transformer 的 attention 写作 $$\text{softmax}(QK^T / \sqrt{d_k})\,V$$，名字叫 **scaled dot-product attention**——"点积"是 $$QK^T$$（[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)：每个 query 与每个 key 的内积），"scaled" 就是除以 $$\sqrt{d_k}$$ 这一步。那一篇只说了一句"为了让 softmax 不过饱和"，这里用方差把它算出来。
 
-attention 的 score 是 $$q^T k = \sum_{i=1}^{d_k} q_i k_i$$，$$d_k$$ 项之和。假设 $$q_i, k_i$$ 各自独立、均值 0、方差 1，则每一项 $$q_i k_i$$ 均值 0、方差 $$\mathbb{E}[q_i^2 k_i^2] = \mathbb{E}[q_i^2]\,\mathbb{E}[k_i^2] = 1$$，$$d_k$$ 项相加**方差是 $$d_k$$**，标准差 $$\sqrt{d_k}$$。$$d_k = 128$$ 时 score 的标准差约 11——过 softmax（第五篇）后概率几乎全压在最大的那一项上，其余接近零，梯度也接近零，训不动。除以 $$\sqrt{d_k}$$ 把 score 的方差拉回 1，softmax 才能工作在"有区分度但不饱和"的区间。
+attention 的 score 是 $$q^T k = \sum_{i=1}^{d_k} q_i k_i$$，$$d_k$$ 项之和。假设 $$q_i, k_i$$ 各自独立、均值 0、方差 1，则每一项 $$q_i k_i$$ 均值 0、方差 $$\mathbb{E}[q_i^2 k_i^2] = \mathbb{E}[q_i^2]\,\mathbb{E}[k_i^2] = 1$$，$$d_k$$ 项相加**方差是 $$d_k$$**，标准差 $$\sqrt{d_k}$$。$$d_k = 128$$ 时 score 的标准差约 11——过 softmax（[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）后概率几乎全压在最大的那一项上，其余接近零，梯度也接近零，训不动。除以 $$\sqrt{d_k}$$ 把 score 的方差拉回 1，softmax 才能工作在"有区分度但不饱和"的区间。
 
 用数字感受一下：$$d_k = 4$$ 时 score 的标准差是 2，两个 token 的 score 差个 2、3 分很正常，softmax 后概率大约是 0.9 : 0.1，有区分度也有余地；$$d_k = 128$$ 时标准差 11，随便两个 token 的 score 就能差出 10 分以上，softmax 后是 0.99995 : 0.00005——几乎是一个 token 独占，其他全被忽略，而且这种极端概率对输入的微小变化几乎没有响应（梯度 ≈ 0）。除以 $$\sqrt{128} \approx 11.3$$ 之后，128 维的 score 又回到标准差 1，和 $$d_k = 1$$ 时一样温和。
 

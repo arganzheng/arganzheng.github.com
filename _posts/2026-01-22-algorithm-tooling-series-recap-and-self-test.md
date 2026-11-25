@@ -204,18 +204,18 @@ Table: 贯穿六篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 预处理慢就开多线程 | GIL 让同一时刻只有一个线程执行字节码，CPU 密集的 8 线程 1.0× | 用进程池，调 `chunksize`；线程只对等待有用 | [第一篇](/python-in-use-for-algorithm-engineers.html) |
-| 语料多大就要多大内存 | 读成 `list` 才是 5 倍文件大小；生成器一次只放一条 | 生成器流水线，峰值与文件大小无关（19 MB → 12 MB） | [第一篇](/python-in-use-for-algorithm-engineers.html) |
-| `model.forward(x)` 与 `model(x)` 等价 | `__call__` 里先跑 forward hooks 再调 `forward` | 永远写 `model(x)` | [第一篇](/python-in-use-for-algorithm-engineers.html) |
-| 形状错了会报错 | 广播太宽容：`(3,) + (3, 1)` 成 `(3, 3)`，沿错轴的 softmax 形状照样对 | 关键处 `assert` 形状，尤其 loss 前的 logits 与 labels | [第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
-| 手写算子"看起来差不多"就对了 | 标准是误差在浮点精度量级 | float32 约 $$10^{-6}$$、float64 约 $$10^{-12}$$；30 行 attention 对到 $$2.65 \times 10^{-7}$$ | [第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
-| 总分高 2 个点就是更好 | 80 道题的 ±10.9 分辨不出 5 个点；单 seed 与另一方法交叉 | 带 `ci95` 读表；多 seed 均值加阴影带，不重叠才算差别 | [第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
-| 两次 `backward` 之间不 `zero_grad` 是 bug | Autograd 的语义是累加 | 有意为之就是梯度累积，用小 batch 模拟大 batch | [第三篇](/pytorch-in-use-five-objects-and-a-training-loop.html) |
-| 评测时不加 `no_grad` 只是慢一点 | 每步的中间量被保存等待一个不会来的 `backward` | 显存持续增长直到 OOM，推理评测必加 | [第三篇](/pytorch-in-use-five-objects-and-a-training-loop.html) |
-| `autocast` 把参数变成 bf16、显存减半 | 参数存储精度不变，主权重与两个矩仍是 fp32 | 减半的是矩阵乘的中间结果；训练状态仍是 16 字节 / 参数 | [第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
-| 加了 LoRA 还 OOM 是 LoRA 没生效 | LoRA 只减梯度与状态那 14 字节 / 参数；激活与参数量无关 | 看激活：开 gradient checkpointing、减 batch、缩短序列 | [第四篇](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
-| loss 降下来 SFT 就成了 | 0.5B 上 20 步 5.3 → 1.7，答案对了却不会停 | 结束符要进 loss 且见够多次；看生成输出 | [第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
-| decode 慢是 GPU 算不过来 | 强度 1 远低于 ridge 295，算力时间接近 0 | 时间全在搬 16 GB 权重；batch 大、量化、高带宽才有用 | [第六篇](/gpu-intuition-and-experiment-management.html) |
+| 预处理慢就开多线程 | GIL 让同一时刻只有一个线程执行字节码，CPU 密集的 8 线程 1.0× | 用进程池，调 `chunksize`；线程只对等待有用 | [《Python 使用层》](/python-in-use-for-algorithm-engineers.html) |
+| 语料多大就要多大内存 | 读成 `list` 才是 5 倍文件大小；生成器一次只放一条 | 生成器流水线，峰值与文件大小无关（19 MB → 12 MB） | [《Python 使用层》](/python-in-use-for-algorithm-engineers.html) |
+| `model.forward(x)` 与 `model(x)` 等价 | `__call__` 里先跑 forward hooks 再调 `forward` | 永远写 `model(x)` | [《Python 使用层》](/python-in-use-for-algorithm-engineers.html) |
+| 形状错了会报错 | 广播太宽容：`(3,) + (3, 1)` 成 `(3, 3)`，沿错轴的 softmax 形状照样对 | 关键处 `assert` 形状，尤其 loss 前的 logits 与 labels | [《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
+| 手写算子"看起来差不多"就对了 | 标准是误差在浮点精度量级 | float32 约 $$10^{-6}$$、float64 约 $$10^{-12}$$；30 行 attention 对到 $$2.65 \times 10^{-7}$$ | [《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
+| 总分高 2 个点就是更好 | 80 道题的 ±10.9 分辨不出 5 个点；单 seed 与另一方法交叉 | 带 `ci95` 读表；多 seed 均值加阴影带，不重叠才算差别 | [《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html) |
+| 两次 `backward` 之间不 `zero_grad` 是 bug | Autograd 的语义是累加 | 有意为之就是梯度累积，用小 batch 模拟大 batch | [《PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html) |
+| 评测时不加 `no_grad` 只是慢一点 | 每步的中间量被保存等待一个不会来的 `backward` | 显存持续增长直到 OOM，推理评测必加 | [《PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html) |
+| `autocast` 把参数变成 bf16、显存减半 | 参数存储精度不变，主权重与两个矩仍是 fp32 | 减半的是矩阵乘的中间结果；训练状态仍是 16 字节 / 参数 | [《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
+| 加了 LoRA 还 OOM 是 LoRA 没生效 | LoRA 只减梯度与状态那 14 字节 / 参数；激活与参数量无关 | 看激活：开 gradient checkpointing、减 batch、缩短序列 | [《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
+| loss 降下来 SFT 就成了 | 0.5B 上 20 步 5.3 → 1.7，答案对了却不会停 | 结束符要进 loss 且见够多次；看生成输出 | [《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
+| decode 慢是 GPU 算不过来 | 强度 1 远低于 ridge 295，算力时间接近 0 | 时间全在搬 16 GB 权重；batch 大、量化、高带宽才有用 | [《GPU 直觉与实验管理》](/gpu-intuition-and-experiment-management.html) |
 
 Table: 常见误区与正确说法
 

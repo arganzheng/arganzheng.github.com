@@ -91,7 +91,7 @@ $$
 
 **梯度与被求导的参数形状相同**：$$\theta$$ 是 $$4096 \times 4096$$ 的矩阵，$$\nabla_\theta L$$ 也是 $$4096 \times 4096$$ 的矩阵，第 $$(i, j)$$ 个元素是 $$L$$ 对 $$\theta_{ij}$$ 的偏导。这是读任何梯度公式时的形状检查。
 
-几何含义：梯度**指向 $$L$$ 增长最快的方向**，长度是那个方向上的斜率。$$\theta$$ 沿任意方向 $$v$$ 走一小步，$$L$$ 的变化约为 $$\nabla_\theta L \cdot v$$（内积，第二篇）；要让 $$L$$ 下降最快，就沿 $$-\nabla_\theta L$$ 走——这是第六章梯度下降的全部理由。
+几何含义：梯度**指向 $$L$$ 增长最快的方向**，长度是那个方向上的斜率。$$\theta$$ 沿任意方向 $$v$$ 走一小步，$$L$$ 的变化约为 $$\nabla_\theta L \cdot v$$（内积，[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)）；要让 $$L$$ 下降最快，就沿 $$-\nabla_\theta L$$ 走——这是第六章梯度下降的全部理由。
 
 一个例子：$$L(\theta_1, \theta_2) = \theta_1^2 + 3\theta_2^2$$——一个椭圆形的碗，$$\theta_2$$ 方向更陡。$$\nabla L = (2\theta_1, 6\theta_2)$$；在 $$(1, 1)$$ 处是 $$(2, 6)$$，往 $$(-2, -6)$$ 方向走 $$L$$ 降得最快。把这个碗画成**等高线**（$$L$$ 相等的点连成的曲线，像地图上的海拔线），再在每个点画出梯度的箭头：
 
@@ -149,13 +149,13 @@ $$
 \frac{\partial L}{\partial \theta_j} = \sum_{i=1}^{m} \frac{\partial L}{\partial g_i} \cdot \frac{\partial g_i}{\partial \theta_j}
 $$
 
-这个"对 $$i$$ 求和"正好是一次矩阵乘法（第一篇：矩阵乘的每个元素是一行乘一列、沿内维求和）：
+这个"对 $$i$$ 求和"正好是一次矩阵乘法（[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)：矩阵乘的每个元素是一行乘一列、沿内维求和）：
 
 $$
 \underbrace{\frac{\partial L}{\partial \theta}}_{[1, n]} = \underbrace{\frac{\partial L}{\partial g}}_{[1, m]} \cdot \underbrace{\frac{\partial g}{\partial \theta}}_{[m, n]}
 $$
 
-用第一篇的形状规则检查：$$[1, m] \times [m, n] = [1, n]$$，与 $$\theta$$ 同形——第二章说过梯度总与被求导的参数同形。回到例子：$$L = g_1 + 2g_2$$，$$\partial L / \partial g = (1, 2)$$；在 $$\theta = (2, 3)$$ 处
+用[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的形状规则检查：$$[1, m] \times [m, n] = [1, n]$$，与 $$\theta$$ 同形——第二章说过梯度总与被求导的参数同形。回到例子：$$L = g_1 + 2g_2$$，$$\partial L / \partial g = (1, 2)$$；在 $$\theta = (2, 3)$$ 处
 
 $$
 \frac{\partial L}{\partial \theta} = (1, 2) \begin{pmatrix} 3 & 2 \\ 1 & 1 \end{pmatrix} = (1 \cdot 3 + 2 \cdot 1,\; 1 \cdot 2 + 2 \cdot 1) = (5, 4)
@@ -227,7 +227,7 @@ for l in range(k):
 
 ### 1. 设定
 
-logits $$z \in \mathbb{R}^V$$，$$p = \text{softmax}(z)$$，真实标签 one-hot $$y$$（真实 token 那一位是 1），loss $$L = -\sum_j y_j \log p_j$$（第五篇）。求 $$\frac{\partial L}{\partial z}$$——loss 对 logits 的梯度，反向传播进入模型的第一步。
+logits $$z \in \mathbb{R}^V$$，$$p = \text{softmax}(z)$$，真实标签 one-hot $$y$$（真实 token 那一位是 1），loss $$L = -\sum_j y_j \log p_j$$（[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)）。求 $$\frac{\partial L}{\partial z}$$——loss 对 logits 的梯度，反向传播进入模型的第一步。
 
 ### 2. 两步推导
 
@@ -414,7 +414,7 @@ Table: 三种学习率从 (2, 1) 出发走 12 步的结果
 
 ### 2. 随机梯度
 
-真实的 $$L$$ 是全部训练数据上的平均，算一次要过全部数据（几万亿 token），不现实。**随机梯度下降**（SGD）用一个 **batch**（比如几百万 token）估计梯度。估计有噪声：batch 越大噪声越小，方差与 batch 大小 $$B$$ 成反比（第四篇：样本均值的方差是 $$\sigma^2 / n$$）。上图右边是给梯度加上噪声后的轨迹：噪声小时（大 batch）几乎沿着光滑的路线下山，噪声大时（小 batch）在碗底附近来回乱撞、停不下来。噪声不全是坏事（帮助跳出鞍点、有正则效果），但它决定了学习率的上限：噪声大时步子不能迈太大。这是"batch 变大、学习率要跟着调"这类 scaling 规则的来源，L4 预训练系列的配方篇会碰到。
+真实的 $$L$$ 是全部训练数据上的平均，算一次要过全部数据（几万亿 token），不现实。**随机梯度下降**（SGD）用一个 **batch**（比如几百万 token）估计梯度。估计有噪声：batch 越大噪声越小，方差与 batch 大小 $$B$$ 成反比（[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)：样本均值的方差是 $$\sigma^2 / n$$）。上图右边是给梯度加上噪声后的轨迹：噪声小时（大 batch）几乎沿着光滑的路线下山，噪声大时（小 batch）在碗底附近来回乱撞、停不下来。噪声不全是坏事（帮助跳出鞍点、有正则效果），但它决定了学习率的上限：噪声大时步子不能迈太大。这是"batch 变大、学习率要跟着调"这类 scaling 规则的来源，L4 预训练系列的配方篇会碰到。
 
 ### 3. 学习率、warmup 与调度
 
@@ -431,7 +431,7 @@ Table: 学习率过大与过小的现象及应对
 
 ### 4. 凸与非凸
 
-**凸函数**（碗形，任意两点连线在函数上方）没有"假的"局部极小——任何局部极小都是全局极小（但不一定唯一：常函数处处是极小；也不一定存在：$$e^x$$ 凸却没有极小值）。梯度下降在凸且平滑的函数上、步长合适时收敛到全局极小；步长太大照样发散——$$L = x^2$$、$$\eta = 2$$ 从 $$x = 1$$ 出发得到 $$-3, 9, -27, 81, \ldots$$。神经网络的 loss **非凸**：有很多局部极小，还有**鞍点**——梯度为零但不是极小（某些方向往下走 $$L$$ 会降；Hessian 有负特征值，第三篇第七章）。实践发现高维空间里鞍点远多于坏的局部极小，而随机梯度的噪声通常足以逃离鞍点（是经验与部分理论结果，不是保证）——所以不必对非凸过度担心，但要理解"收敛到哪"依赖初始化与学习率，同一个模型换个种子结果会略有不同（第八篇：报多个种子的均值与标准差）。
+**凸函数**（碗形，任意两点连线在函数上方）没有"假的"局部极小——任何局部极小都是全局极小（但不一定唯一：常函数处处是极小；也不一定存在：$$e^x$$ 凸却没有极小值）。梯度下降在凸且平滑的函数上、步长合适时收敛到全局极小；步长太大照样发散——$$L = x^2$$、$$\eta = 2$$ 从 $$x = 1$$ 出发得到 $$-3, 9, -27, 81, \ldots$$。神经网络的 loss **非凸**：有很多局部极小，还有**鞍点**——梯度为零但不是极小（某些方向往下走 $$L$$ 会降；Hessian 有负特征值，[《正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)第七章）。实践发现高维空间里鞍点远多于坏的局部极小，而随机梯度的噪声通常足以逃离鞍点（是经验与部分理论结果，不是保证）——所以不必对非凸过度担心，但要理解"收敛到哪"依赖初始化与学习率，同一个模型换个种子结果会略有不同（[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：报多个种子的均值与标准差）。
 
 ## 七、拉格朗日乘子
 
@@ -466,7 +466,7 @@ $$
 
 Table: 最小 RL 实验的设定
 
-一条回答的 $$\log\pi_\theta(y)$$ 是它 63 个 token 的 $$\log$$ 概率之和——第五篇的链式法则；$$\nabla\log\pi_\theta(y)$$ 由 `autograd` 沿整个 Transformer 反传——第三章的链式法则。核心循环只有十几行（`07_rl_on_nanogpt.py`）：
+一条回答的 $$\log\pi_\theta(y)$$ 是它 63 个 token 的 $$\log$$ 概率之和——[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)的链式法则；$$\nabla\log\pi_\theta(y)$$ 由 `autograd` 沿整个 Transformer 反传——第三章的链式法则。核心循环只有十几行（`07_rl_on_nanogpt.py`）：
 
 ```python title='GRPO 核心循环：采样、奖励、KL 惩罚、组内标准化'
 seqs = model.generate(prompt, T)                   # 采 G 条回答            [G, 1+T]

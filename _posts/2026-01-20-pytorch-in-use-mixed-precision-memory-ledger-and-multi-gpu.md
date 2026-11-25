@@ -170,7 +170,7 @@ Llama-3-8B，$$B = 1$$、$$T = 4096$$：
 
 Table: Llama-3-8B（B = 1、T = 4096）的激活账
 
-第二行是粗估（attention 的输入、$$q, k, v$$、attention 输出、MLP 输入、gate 与 up 的 14336 维中间量、激活函数的输入……每一项都是 $$B \times T \times (\text{d 或 } d_{ff})$$ 个 bf16），精确的公式与每一项的来源在 Infra 08 系列第一篇。量级是要记住的：**长序列、大 batch 下，激活是显存的大头，可以比参数与优化器状态加起来还大。**
+第二行是粗估（attention 的输入、$$q, k, v$$、attention 输出、MLP 输入、gate 与 up 的 14336 维中间量、激活函数的输入……每一项都是 $$B \times T \times (\text{d 或 } d_{ff})$$ 个 bf16），精确的公式与每一项的来源在《大规模训练工程》的[《训练任务的状态解剖》](/training-state-anatomy-memory-and-mfu.html)。量级是要记住的：**长序列、大 batch 下，激活是显存的大头，可以比参数与优化器状态加起来还大。**
 
 ### 3. gradient checkpointing
 
@@ -193,12 +193,12 @@ model.gradient_checkpointing_enable()          # Hugging Face 模型一行开启
 | 加了优化器、第一步 `backward` 后 OOM | 梯度 + 优化器状态（14 字节 / 可训练参数） | LoRA 减可训练参数<br/>FSDP 切状态<br/>8-bit 优化器 |
 | 参数没变、batch 没变、序列变长了就 OOM | 激活 | gradient checkpointing<br/>减 batch<br/>缩短序列 |
 | 加了 LoRA 还是 OOM | 不是参数的问题——看激活 | 同上 |
-| 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（第六篇） | 加 `no_grad`；减并发 |
+| 评测 / 生成时 OOM | 忘了 `no_grad`；或 KV cache（[《GPU 直觉与实验管理》](/gpu-intuition-and-experiment-management.html)） | 加 `no_grad`；减并发 |
 | 显存"够"却 OOM，报错里 reserved 远大于 allocated | 碎片 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`；`empty_cache` |
 
 Table: OOM 归因：现象、落点与对策
 
-这张表加上第三章的账，能解释绝大多数 OOM。第六篇把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
+这张表加上第三章的账，能解释绝大多数 OOM。[《GPU 直觉与实验管理》](/gpu-intuition-and-experiment-management.html)把"显存的四块"（权重、梯度与状态、激活、KV cache）放到推理场景里再讲一遍。
 
 ## 六、多卡启用即可
 

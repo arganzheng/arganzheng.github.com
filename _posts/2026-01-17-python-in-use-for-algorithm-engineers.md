@@ -73,7 +73,7 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 
 ### 3. 出问题先怀疑环境
 
-`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE 里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（第六篇"能复现"的一部分）。环境、打包与交付的完整做法在[《项目工程化与生产交付》](/python-engineering-and-production-delivery.html)。
+`import torch` 报 `ModuleNotFoundError`、`torch.cuda.is_available()` 是 `False`、两台机器结果不一样——三件事的第一嫌疑都是环境：终端里的 `python` 与 IDE 里的不是同一个、装了 CPU 版的 torch、依赖版本没锁。`pip freeze > requirements.lock` 把实验时的版本存进 run 目录（[《GPU 直觉与实验管理》](/gpu-intuition-and-experiment-management.html)"能复现"的一部分）。环境、打包与交付的完整做法在[《项目工程化与生产交付》](/python-engineering-and-production-delivery.html)。
 
 ## 三、流式过一遍语料
 
@@ -151,7 +151,7 @@ for r in clean(iter_jsonl(path)):                                # 读 → 过�
 
 ### 3. 与 `datasets` 的关系
 
-本系列第五篇[《Hugging Face 生态：六个库与一次 LoRA SFT 的组装》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)第三章会用到的 `datasets` 库，把这一套做成了链式调用：
+本系列[《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)第三章会用到的 `datasets` 库，把这一套做成了链式调用：
 
 ```python title='datasets 的 streaming / filter / map 是同一套惰性流水线'
 ds = load_dataset("json", data_files="train.jsonl", streaming=True)   # 返回 IterableDataset，不读文件
@@ -370,13 +370,13 @@ AssertionError: shape mismatch: x row has 2 features, w expects 3
 
 | 错误类型 | 报错长什么样 | 第一反应 |
 |---|---|---|
-| 形状 | `mat1 and mat2 shapes cannot be multiplied (32x768 and 1024x768)` | 在出错前一行 `print(x.shape, w.shape)`；第二篇的形状规则 |
+| 形状 | `mat1 and mat2 shapes cannot be multiplied (32x768 and 1024x768)` | 在出错前一行 `print(x.shape, w.shape)`；[《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html)的形状规则 |
 | 设备 | `Expected all tensors to be on the same device, but found cuda:0 and cpu` | 某个张量忘了 `.to(device)`——常见于手建的 mask 或 label |
-| 类型 | `expected scalar type Float but found BFloat16` | `autocast` 之外把 bf16 与 fp32 混算了；第四篇 |
+| 类型 | `expected scalar type Float but found BFloat16` | `autocast` 之外把 bf16 与 fp32 混算了；[《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html) |
 
 Table: 三类最常见的错误与第一反应
 
-形状错误在 PyTorch 里**经常不报错**——广播把 `[B, T]` 和 `[T, 1]` 加在一起也能算出一个结果（第二篇"能跑但错"）。在形状会变的地方写一句 `assert x.shape == (B, T, d), x.shape`，错了当场停在这一行，而不是在几百步之后的 loss 曲线上。要看某一行时的变量值，在那一行前写 `breakpoint()`，运行到那里会进入 pdb：`p x.shape` 打印、`n` 下一行、`c` 继续。测试与调试的系统做法在[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
+形状错误在 PyTorch 里**经常不报错**——广播把 `[B, T]` 和 `[T, 1]` 加在一起也能算出一个结果（[《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html)"能跑但错"）。在形状会变的地方写一句 `assert x.shape == (B, T, d), x.shape`，错了当场停在这一行，而不是在几百步之后的 loss 曲线上。要看某一行时的变量值，在那一行前写 `breakpoint()`，运行到那里会进入 pdb：`p x.shape` 打印、`n` 下一行、`c` 继续。测试与调试的系统做法在[《单元测试、问题定位与调试实践》](/python-unit-testing-troubleshooting-and-debugging.html)。
 
 ## 八、越过哪条线进 Infra 01
 

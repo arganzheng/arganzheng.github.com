@@ -101,7 +101,7 @@ $$
 
 ### 2. RoPE 一行推导
 
-位置编码要解决的问题：attention 的 score $$q^T k$$（第二篇）不知道两个 token 相隔多远，需要把位置信息放进去。RoPE 的做法是：**第 $$m$$ 个位置的 query 旋转 $$m\theta$$，第 $$n$$ 个位置的 key 旋转 $$n\theta$$**，然后照常算内积：
+位置编码要解决的问题：attention 的 score $$q^T k$$（[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)）不知道两个 token 相隔多远，需要把位置信息放进去。RoPE 的做法是：**第 $$m$$ 个位置的 query 旋转 $$m\theta$$，第 $$n$$ 个位置的 key 旋转 $$n\theta$$**，然后照常算内积：
 
 $$
 (R_{m\theta}\, q)^T (R_{n\theta}\, k) = q^T R_{m\theta}^T R_{n\theta}\, k = q^T R_{-m\theta} R_{n\theta}\, k = q^T R_{(n - m)\theta}\, k

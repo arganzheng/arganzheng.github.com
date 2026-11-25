@@ -47,7 +47,7 @@ x.dtype      # float32：每个元素 4 字节
 x.nbytes     # 32 × 128 × 4096 × 4 = 67,108,864 字节 = 64 MiB
 ```
 
-看到一个数组先看这三样。`nbytes` 是第四篇显存账的起点：同样的形状，`float32` 4 字节、`bfloat16` 2 字节、`int8` 1 字节。
+看到一个数组先看这三样。`nbytes` 是[《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)里显存账的起点：同样的形状，`float32` 4 字节、`bfloat16` 2 字节、`int8` 1 字节。
 
 ### 2. 索引与切片
 
@@ -182,7 +182,7 @@ S = Q @ K.transpose(0, 1, 3, 2)              # ④ [B, h, T, d_h] × [B, h, d_h,
 图 1 用 $$T = 3$$、$$d = 4$$、$$h = 2$$ 画出这四步。两个改形状的操作性质不同：
 
 1. **`reshape` 不移动数据**，只改变"怎么读这块内存"。`(B, T, d)` 与 `(B, T, h, d_h)` 是同一块内存的两种解释：图 1 的 ② 只是把 ① 每行的 4 个格子画成两组，一个字节都没动，所以零成本。
-2. **`transpose` 也不移动数据，但让内存不再连续**。图 1 的 ③ 里 head 0 的三行在内存里分别来自 ① 的三行开头，中间隔着 head 1 的格子——按 ③ 的顺序读，地址不再是一个接一个的。在 NumPy 里这透明；在 PyTorch 里 `transpose` 之后再 `view` 会报错，要先 `.contiguous()`（真的复制一份成连续的）或用 `reshape`（自动判断要不要复制）。stride 与内存布局的细节属于 Infra 03 系列第二篇，这里知道"transpose 之后不连续"即可。
+2. **`transpose` 也不移动数据，但让内存不再连续**。图 1 的 ③ 里 head 0 的三行在内存里分别来自 ① 的三行开头，中间隔着 head 1 的格子——按 ③ 的顺序读，地址不再是一个接一个的。在 NumPy 里这透明；在 PyTorch 里 `transpose` 之后再 `view` 会报错，要先 `.contiguous()`（真的复制一份成连续的）或用 `reshape`（自动判断要不要复制）。stride 与内存布局的细节属于《PyTorch 深度实践》的[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)，这里知道"transpose 之后不连续"即可。
 
 第 ④ 行是 `@` 的多维用法：`K.transpose(0, 1, 3, 2)` 把 K 的最后两维交换成 `[d_h, T]`，然后 `[T, d_h] @ [d_h, T]` 得到每个头的 `[T, T]` 分数表，前面的 `B, h` 两维是"有 $$B \times h$$ 份"。
 
@@ -354,7 +354,7 @@ Table: 按类别看提升与 95% 置信区间
 
 ### 5. Polars：同一套操作的新实现
 
-**Polars** 是 Pandas 的新一代替代品：Rust 实现、多线程、默认惰性执行（先记下要做什么、最后一起优化执行，与第一篇的生成器流水线是同一个思路），在千万行以上快一个数量级。它的接口不兼容 Pandas，但概念完全一样——筛行、选列、分组聚合、按键对齐。上面的三个操作用 Polars 写：
+**Polars** 是 Pandas 的新一代替代品：Rust 实现、多线程、默认惰性执行（先记下要做什么、最后一起优化执行，与[《Python 使用层》](/python-in-use-for-algorithm-engineers.html)的生成器流水线是同一个思路），在千万行以上快一个数量级。它的接口不兼容 Pandas，但概念完全一样——筛行、选列、分组聚合、按键对齐。上面的三个操作用 Polars 写：
 
 ```python title='同样三个操作用 Polars 写'
 import polars as pl

@@ -124,7 +124,7 @@ KL 的两条性质：**非负**（$$D_{\mathrm{KL}} \ge 0$$，用错分布只会
 
 ### 4. loss 的下限
 
-等式 $$H(p, q) = H(p) + D_{\mathrm{KL}}$$ 还说明一件事：**训练 loss 不可能低于数据本身的熵 $$H(p)$$**。自然语言有不可约的随机性（"今天天气"后面可以接很多词），再大的模型、再多的数据也降不下去。scaling law 里的常数项 $$E$$（Chinchilla 拟合为 1.69 nat，第八篇）就是对这个下限的估计——loss 曲线趋向的那条渐近线。
+等式 $$H(p, q) = H(p) + D_{\mathrm{KL}}$$ 还说明一件事：**训练 loss 不可能低于数据本身的熵 $$H(p)$$**。自然语言有不可约的随机性（"今天天气"后面可以接很多词），再大的模型、再多的数据也降不下去。scaling law 里的常数项 $$E$$（Chinchilla 拟合为 1.69 nat，[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)）就是对这个下限的估计——loss 曲线趋向的那条渐近线。
 
 ## 四、KL 的方向
 
@@ -156,7 +156,7 @@ $$
 \max_\pi\; \mathbb{E}_{y \sim \pi(\cdot \mid x)}\big[r(x, y)\big] - \beta\, D_{\mathrm{KL}}\big(\pi(\cdot \mid x) \,\Vert\, \pi_{\text{ref}}(\cdot \mid x)\big)
 $$
 
-$$\pi$$ 是正在训的策略（第四篇说过，就是条件分布 $$p(y \mid x)$$），$$\pi_{\text{ref}}$$ 是参考模型，$$\beta$$ 是拉力系数。KL 的第一个参数是 $$\pi$$——期望在 $$\pi$$ 上取，是 **reverse** 方向。这个方向的含义：策略可以**放弃**参考模型的一部分模式（那些地方 $$\pi$$ 小、$$\pi_{\text{ref}}$$ 大，惩罚不大），但**不能去**参考模型认为不可能的地方（$$\pi$$ 大、$$\pi_{\text{ref}}$$ 接近零，惩罚巨大）。
+$$\pi$$ 是正在训的策略（[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)说过，就是条件分布 $$p(y \mid x)$$），$$\pi_{\text{ref}}$$ 是参考模型，$$\beta$$ 是拉力系数。KL 的第一个参数是 $$\pi$$——期望在 $$\pi$$ 上取，是 **reverse** 方向。这个方向的含义：策略可以**放弃**参考模型的一部分模式（那些地方 $$\pi$$ 小、$$\pi_{\text{ref}}$$ 大，惩罚不大），但**不能去**参考模型认为不可能的地方（$$\pi$$ 大、$$\pi_{\text{ref}}$$ 接近零，惩罚巨大）。
 
 于是策略倾向于在参考模型的高概率区域里挑奖励高的那部分——这是"对齐常常降低多样性"的机制之一。但要说准：它**不是** reverse KL 的定义行为，多样性降不降取决于奖励长什么样。一个两值的反例：$$\pi_{\text{ref}} = (0.9, 0.1)$$，奖励 $$r = (0, \ln 9)$$，$$\beta = 1$$，下一章的闭式解给 $$\pi^* = (0.5, 0.5)$$——熵从 0.325 **升到** 0.693，策略比参考更多样。真实 RLHF 里多样性下降，是因为奖励模型偏好某一类回答（长、稳、有礼），是奖励的形状加上 mode-seeking 的倾向，两者缺一不可。$$\beta$$ 越大越保守（更贴近参考模型），越小越激进（更追奖励、更容易 reward hacking）。
 
@@ -196,7 +196,7 @@ $$
 
 其中 $$Z(x) = \sum_y \pi_{\text{ref}}(y \mid x) \exp(r(x, y)/\beta)$$ 是让概率和为 1 的归一化常数。读它：**最优策略 = 参考模型 × 按奖励指数加权**。奖励高的回答被放大，$$\beta$$ 小时放大得猛，$$\beta$$ 大时几乎不动。
 
-推导只用拉格朗日乘子（第七篇第七章会讲这个工具）与 $$\log$$ 的性质，几行可以完成，建议自己推一次：把目标写成 $$\sum_y \pi(y)[r(y) - \beta\log\pi(y) + \beta\log\pi_{\text{ref}}(y)]$$，加约束 $$\sum_y \pi(y) = 1$$，对 $$\pi(y)$$ 求导令为零。
+推导只用拉格朗日乘子（[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)第七章会讲这个工具）与 $$\log$$ 的性质，几行可以完成，建议自己推一次：把目标写成 $$\sum_y \pi(y)[r(y) - \beta\log\pi(y) + \beta\log\pi_{\text{ref}}(y)]$$，加约束 $$\sum_y \pi(y) = 1$$，对 $$\pi(y)$$ 求导令为零。
 
 ### 2. 反解奖励
 

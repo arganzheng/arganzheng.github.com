@@ -179,18 +179,18 @@ Table: 贯穿全系列的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 词表越大每 token 越贵，所以小词表省钱 | 只看了 token 一端；同一段文字的 token 数随词表变大而减少 | 按每字符算：128K 词表比 32K 每字符便宜 15% | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| 两个模型的 per-token loss 可以直接比 | tokenizer 不同时 token 粒度不同 | 换算成 bits/byte 再比 | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| 词表大小相近，效率就相近 | 效率取决于词表用什么语料训出来 | 中文在 cl100k 与 DeepSeek-V3 下差 2.1 倍 | [第二篇](/tokenizer-vocabulary-and-token-efficiency.html) |
-| Chinchilla 说 $$D/N = 20$$ 最优，过训练是浪费 | Chinchilla 只最小化训练算力下的 loss | 把推理算进去，最优点移向小模型、多数据 | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
-| 算力翻 10 倍 loss 就明显下降 | 可约 loss 只 ×0.66，减半要 ×49 | 收益是幂律的，指数 0.178 | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
-| 数据不够就重复，效果一样 | 有效数据随 epoch 递减 | 4 epoch 值 93%、16 epoch 只值 66% | [第三篇](/scaling-laws-and-compute-optimal-training.html) |
-| 去重越彻底越好 | 跨快照全局去重把被多次转载的好内容删成长尾 | 按快照内去重；重复是控制分布 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 用大模型给全量数据打分 | 8B 给 15T 打分是训练算力的 1/3 | 大模型标几十万篇，小分类器跑全量 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 数据管线的瓶颈是训练时的读吞吐 | 训练读带宽只需 9–46 MB/s | 贵在最上游的抽取；加载器难在掩码、确定性、配比切换 | [第四篇](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
-| 学习率是调出来的经验值 | 公开配方全部落在随宽度下降的同一条线上 | $$\mu$$P $$\propto 1/d$$、$$0.31 C^{-0.125}$$ | [第五篇](/pretraining-recipe-and-training-stability.html) |
-| batch 越大越好，反正有卡 | 临界 batch 随训练增大，早期大 batch 浪费样本 | ramp：4M → 8M → 16M；硬件下界是副本数 × 序列长 | [第五篇](/pretraining-recipe-and-training-stability.html) |
-| loss spike 是脏数据造成的 | 三个机制里两个是模型内部数值问题 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | [第五篇](/pretraining-recipe-and-training-stability.html) |
+| 词表越大每 token 越贵，所以小词表省钱 | 只看了 token 一端；同一段文字的 token 数随词表变大而减少 | 按每字符算：128K 词表比 32K 每字符便宜 15% | [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 两个模型的 per-token loss 可以直接比 | tokenizer 不同时 token 粒度不同 | 换算成 bits/byte 再比 | [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 词表大小相近，效率就相近 | 效率取决于词表用什么语料训出来 | 中文在 cl100k 与 DeepSeek-V3 下差 2.1 倍 | [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
+| Chinchilla 说 $$D/N = 20$$ 最优，过训练是浪费 | Chinchilla 只最小化训练算力下的 loss | 把推理算进去，最优点移向小模型、多数据 | [《Scaling law》](/scaling-laws-and-compute-optimal-training.html) |
+| 算力翻 10 倍 loss 就明显下降 | 可约 loss 只 ×0.66，减半要 ×49 | 收益是幂律的，指数 0.178 | [《Scaling law》](/scaling-laws-and-compute-optimal-training.html) |
+| 数据不够就重复，效果一样 | 有效数据随 epoch 递减 | 4 epoch 值 93%、16 epoch 只值 66% | [《Scaling law》](/scaling-laws-and-compute-optimal-training.html) |
+| 去重越彻底越好 | 跨快照全局去重把被多次转载的好内容删成长尾 | 按快照内去重；重复是控制分布 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 用大模型给全量数据打分 | 8B 给 15T 打分是训练算力的 1/3 | 大模型标几十万篇，小分类器跑全量 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 数据管线的瓶颈是训练时的读吞吐 | 训练读带宽只需 9–46 MB/s | 贵在最上游的抽取；加载器难在掩码、确定性、配比切换 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 学习率是调出来的经验值 | 公开配方全部落在随宽度下降的同一条线上 | $$\mu$$P $$\propto 1/d$$、$$0.31 C^{-0.125}$$ | [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
+| batch 越大越好，反正有卡 | 临界 batch 随训练增大，早期大 batch 浪费样本 | ramp：4M → 8M → 16M；硬件下界是副本数 × 序列长 | [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
+| loss spike 是脏数据造成的 | 三个机制里两个是模型内部数值问题 | attention logit（QK-norm）、$$\log Z$$（z-loss）、单步过大（裁剪） | [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
 
 Table: 常见误区与正确说法
 

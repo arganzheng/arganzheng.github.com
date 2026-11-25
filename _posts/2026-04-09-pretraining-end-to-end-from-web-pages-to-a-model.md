@@ -42,16 +42,16 @@ flowchart TB
     class S,TR,E m
 ```
 
-| 步 | 输入 → 输出 | 本文实跑的数字 | 为什么要这一步 | 展开它的篇 |
+| 步 | 输入 → 输出 | 本文实跑的数字 | 为什么要这一步 | 展开它的文章 |
 |---|---|---|---|---|
-| 1 原料 | Common Crawl WET → 文档 | 68,834 篇，486 MB 文本，46% 英文 | 网页是唯一够大的免费语料 | 第四篇 |
-| 2 过滤 | 文档 → 英文、像正文的文档 | 剩 11,295 篇（16%） | 导航栏、SEO 垃圾、表格页训不出语言 | 第四篇 |
-| 3 去重 | 文档 → 不重复的文档 | 删 480 篇 | 重复让模型背书、浪费算力 | 第四篇 |
-| 4 tokenizer | 文本 → 词表 | 4096 个 token，3.46 字符/token | 模型只认整数；词表决定 token 效率 | 第二篇 |
-| 5 打包 | 文档 → 定长 token 序列 | 10.9M token，42,503 条 256 长的序列 | GPU 要吃形状一致的批 | 第四篇 |
-| 6 选尺寸 | 算力预算 → N 与 D | 三个预算下最优 N = 0.15M → 0.24M → 0.33M，随预算右移 | 太小学不动、太大喂不饱 | 第三篇 |
-| 7 训练 | token + 配方 → 权重 | 4 层 × 192 宽（2.6M），1,992 步，12 分钟 | 配方里每个数都有依据 | 第五篇 |
-| 8 评 | 权重 → 数字与样本 | val loss 4.63，1.88 bits/byte（GPT-2 small：1.06） | 跨 tokenizer 只能比 bits/byte | 第三、五篇 |
+| 1 原料 | Common Crawl WET → 文档 | 68,834 篇，486 MB 文本，46% 英文 | 网页是唯一够大的免费语料 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 2 过滤 | 文档 → 英文、像正文的文档 | 剩 11,295 篇（16%） | 导航栏、SEO 垃圾、表格页训不出语言 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 3 去重 | 文档 → 不重复的文档 | 删 480 篇 | 重复让模型背书、浪费算力 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 4 tokenizer | 文本 → 词表 | 4096 个 token，3.46 字符/token | 模型只认整数；词表决定 token 效率 | [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 5 打包 | 文档 → 定长 token 序列 | 10.9M token，42,503 条 256 长的序列 | GPU 要吃形状一致的批 | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 6 选尺寸 | 算力预算 → N 与 D | 三个预算下最优 N = 0.15M → 0.24M → 0.33M，随预算右移 | 太小学不动、太大喂不饱 | [《Scaling law》](/scaling-laws-and-compute-optimal-training.html) |
+| 7 训练 | token + 配方 → 权重 | 4 层 × 192 宽（2.6M），1,992 步，12 分钟 | 配方里每个数都有依据 | [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
+| 8 评 | 权重 → 数字与样本 | val loss 4.63，1.88 bits/byte（GPT-2 small：1.06） | 跨 tokenizer 只能比 bits/byte | [《Scaling law》](/scaling-laws-and-compute-optimal-training.html)、[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
 
 Table: 八步流水线：每步的输入输出、本文实跑的规模与它在系列里展开的位置
 
@@ -66,7 +66,7 @@ Table: 八步流水线：每步的输入输出、本文实跑的规模与它在�
 - FineWeb：整个数据集都由 Common Crawl 的快照构建（[Penedo 等 2024](https://arxiv.org/abs/2406.17557)）；
 - DCLM：它的 DCLM-Pool 也全部来自 Common Crawl（[Li 等 2024](https://arxiv.org/abs/2406.11794)）。
 
-它提供三种格式：**WARC**（原始 HTTP 响应，含完整 HTML）、**WAT**（元数据）、**WET**（从 HTML 里抽出来的纯文本）。本文用 WET——正文抽取这一步 Common Crawl 已经做了，虽然做得粗（第四篇会讲为什么 FineWeb 宁愿从 WARC 重新抽）。一个月的抓取被切成 9 万个文件，每个文件约 100 MB 压缩、3 万个网页。取两个（`step1_raw.py`）。
+它提供三种格式：**WARC**（原始 HTTP 响应，含完整 HTML）、**WAT**（元数据）、**WET**（从 HTML 里抽出来的纯文本）。本文用 WET——正文抽取这一步 Common Crawl 已经做了，虽然做得粗（[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)会讲为什么 FineWeb 宁愿从 WARC 重新抽）。一个月的抓取被切成 9 万个文件，每个文件约 100 MB 压缩、3 万个网页。取两个（`step1_raw.py`）。
 
 ### 2. 打开看看
 
@@ -95,7 +95,7 @@ Table: 随机抽的三篇网页正文（⏎ 是换行）
 
 三个观察，决定了后面三步要做什么：
 
-- **大部分不是英文**：Common Crawl 标出的英文只有 46%。训一个英文模型，第一步是挑出英文——这不是歧视其他语言，而是模型容量有限，语料混在一起每种语言都学不好（Llama 3 的 15T 里 8% 是非英文，是**有意**配的比例，第四篇）。
+- **大部分不是英文**：Common Crawl 标出的英文只有 46%。训一个英文模型，第一步是挑出英文——这不是歧视其他语言，而是模型容量有限，语料混在一起每种语言都学不好（Llama 3 的 15T 里 8% 是非英文，是**有意**配的比例，见[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)）。
 - **大部分不是"文章"**：导航栏（Home / About / Contact）、商品列表、论坛的登录提示、SEO 关键词堆砌。这些文本在语法上是英文，但没有"下一个词是什么"可学——模型从"Home Products Contact Login"里学不到任何东西。
 - **有很多重复**：同一个网站的不同页面共享页眉页脚，同一篇文章被转载多次，论坛的每一页都有同样的模板文字。
 
@@ -133,7 +133,7 @@ Table: 四道筛子各自的进出数与删掉的例子
 
 最终剩 11,295 篇、3,950 万字符（39.5 MB）——**原始网页的 16%、原始字符的 8%**。两个数字值得记住：一半以上的字符是导航栏、页脚、按钮（C4 行级规则删的 50%）；语言这一道删得最多（70%），但那不是"垃圾"，只是不是要的语言。
 
-**为什么过滤这么狠还是对的**：模型的每一步梯度都在学"这种文本的下一个 token 是什么"。喂它导航栏，它学会预测导航栏；喂它关键词堆砌，它学会堆砌。数据里垃圾的比例就是模型输出里垃圾的比例——过滤不是节省算力（虽然也节省），是决定模型学什么。FineWeb 论文用同一个模型在过滤前后的数据上各训一遍、比下游评测，证明每一道规则都有正收益；第四篇有那些数字。
+**为什么过滤这么狠还是对的**：模型的每一步梯度都在学"这种文本的下一个 token 是什么"。喂它导航栏，它学会预测导航栏；喂它关键词堆砌，它学会堆砌。数据里垃圾的比例就是模型输出里垃圾的比例——过滤不是节省算力（虽然也节省），是决定模型学什么。FineWeb 论文用同一个模型在过滤前后的数据上各训一遍、比下游评测，证明每一道规则都有正收益；[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)有那些数字。
 
 ## 四、去重：一样的内容留一份
 
@@ -165,7 +165,7 @@ Table: 去重的两步与找到的重复
 
 三个近重复的例子都很典型：**模板文字**（cookie 提示）、**同站不同页**（只换了标题）、**动态页面**（同一段解释配不同的数据）。它们过了四道过滤——每一篇单看都是像样的英文正文——只有放在一起比较才能发现。这就是去重不能省的原因：过滤看的是"这篇像不像正文"，去重看的是"这篇是不是已经有了"。
 
-最终语料 **10,815 篇、3,845 万字符（38 MB）**。从 486 MB 的原始网页到这里，留下了 8%。Llama 3 的漏斗是 240T token → 15T，也是约 6%——比例惊人地一致，虽然规模差六个数量级（第四篇）。
+最终语料 **10,815 篇、3,845 万字符（38 MB）**。从 486 MB 的原始网页到这里，留下了 8%。Llama 3 的漏斗是 240T token → 15T，也是约 6%——比例惊人地一致，虽然规模差六个数量级（[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)）。
 
 ## 五、tokenizer：模型只认整数
 
@@ -173,11 +173,11 @@ Table: 去重的两步与找到的重复
 
 模型的输入是整数序列，不是字符串。最简单的办法是每个字符一个整数——《Transformer 原理与实现》的《手搓 GPT（下）》的莎士比亚模型就是这么做的，65 个字符。但一句英文按字符切要几百个整数，模型每一步只能看 256 个整数就意味着只能看 256 个字符，一段话都装不下；而且模型要从字符开始学"t-h-e 是一个词"，浪费容量。反过来按单词切，词表要几十万、生僻词和拼写错误都成了"未知"。
 
-**BPE**（byte-pair encoding）走中间路线：从 256 个字节开始，反复把语料里**最常一起出现的相邻两个 token 合并成一个新 token**，合并到词表够大为止。常见词（`the`、`and`）几步就合成了一个 token，生僻词拆成几段，任何字符串都能表示（最差退回字节）。词表大小是定的：4096——对 38 MB 语料够用，第二篇讨论为什么 Llama 3 用 128K。
+**BPE**（byte-pair encoding）走中间路线：从 256 个字节开始，反复把语料里**最常一起出现的相邻两个 token 合并成一个新 token**，合并到词表够大为止。常见词（`the`、`and`）几步就合成了一个 token，生僻词拆成几段，任何字符串都能表示（最差退回字节）。词表大小是定的：4096——对 38 MB 语料够用，[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)讨论为什么 Llama 3 用 128K。
 
 ### 2. 训出来是什么样
 
-`step4_tokenizer.py` 用 Hugging Face `tokenizers` 在 38 MB 语料上训 byte-level BPE，词表 4096，**2 秒**（从零实现的 BPE 在第二篇）。
+`step4_tokenizer.py` 用 Hugging Face `tokenizers` 在 38 MB 语料上训 byte-level BPE，词表 4096，**2 秒**（从零实现的 BPE 在[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)）。
 
 最早学到的合并全是英文最高频的碎片（`Ġt`、`Ġa`、`in`、`he`、`Ġthe`——`Ġ` 表示前面有空格）；最长的词表项是 `opportunities`、`International` 这类长而常见的词。一段样本的切分：
 
@@ -190,7 +190,7 @@ de | f | ␣to | ken | ize | ( | text | ) | :  ⏎  ␣ | ␣ | ␣ | ␣return 
 
 215 个字符切成 103 个 token，2.09 字符/token。常见词一个 token（`requires`、`registered`、`commercial`），不常见的拆开（`Penn|sy|l|v|an|ia`），代码里的 `def` 被拆成 `de|f`——语料里几乎没有代码。
 
-中文部分的每个字被切成 3 个 token（3 个字节）——这个 tokenizer 是在英文网页上训的，词表里没有任何中文合并。**词表是训练语料的化石**：一个 tokenizer 对哪种语言、哪种代码省 token，完全取决于它见过什么。这是第二篇"多语言的价格差"一节的来源。
+中文部分的每个字被切成 3 个 token（3 个字节）——这个 tokenizer 是在英文网页上训的，词表里没有任何中文合并。**词表是训练语料的化石**：一个 tokenizer 对哪种语言、哪种代码省 token，完全取决于它见过什么。这是[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)"多语言的价格差"一节的来源。
 
 ### 3. 词表大小换压缩率
 
@@ -203,7 +203,7 @@ de | f | ␣to | ken | ize | ( | text | ) | :  ⏎  ␣ | ␣ | ␣ | ␣return 
 
 Table: 词表大小与压缩率（同一批 750 万字符的文本）
 
-词表每翻一倍，每个 token 多代表约 0.4–0.5 个字符，**边际收益递减**；而词表带来的成本（embedding 参数 $$2Vd$$、输出层 softmax 的开销）是线性的。所以词表大小是一个最优化问题——第二篇算这笔账。
+词表每翻一倍，每个 token 多代表约 0.4–0.5 个字符，**边际收益递减**；而词表带来的成本（embedding 参数 $$2Vd$$、输出层 softmax 的开销）是线性的。所以词表大小是一个最优化问题——[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)算这笔账。
 
 ## 六、打包：把文档变成定长的训练样本
 
@@ -243,7 +243,7 @@ Table: 打包后的数字
 
 ![左：文档 token 数分布，22% 不到 256；右：一条 256 token 的序列里有几个文档边界——四分之一的序列跨了文档](/img/in-post/pretrain-e2e-5-pack.svg)
 
-代价：一条序列常常跨过文档边界，模型在预测下一篇文档的开头时能"看到"上一篇无关的内容。Llama 3 用**文档掩码**让 attention 不跨过 `<|endoftext|>`，DeepSeek-V3 不管它——第五篇讨论这个取舍。这里也不管它（与 nanoGPT 一致）。
+代价：一条序列常常跨过文档边界，模型在预测下一篇文档的开头时能"看到"上一篇无关的内容。Llama 3 用**文档掩码**让 attention 不跨过 `<|endoftext|>`，DeepSeek-V3 不管它——[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)讨论这个取舍。这里也不管它（与 nanoGPT 一致）。
 
 那一条长文档被切开之后呢？文档均值 1,027 个 token，平均被切成约 4 条序列。**每条序列是一个独立的训练样本**，它们之间没有先后关系：`step5_pack.py` 把文档按 98/2 分到 train.bin 与 val.bin 之后首尾相接，训练时 `trainer.py` 的 `data.batch()` 每次在整条 token 流里**随机取一个起点、截 256 个 token**当作一条样本——不是按预先切好的 42,503 条不重叠块顺序喂的（那 42,503 只是用来统计的数字）。所以一篇长文档的第 2 段永远不会把第 1 段当上下文看到，模型也学不到超过 256 token 的依赖——这正是上下文长度这个数字在限制的东西。真实的预训练把窗口开得长得多（Llama 3 是 8K，后来中期训练再扩到 128K，见《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》），文档切碎的代价在窗口越大时越小。
 
@@ -280,12 +280,12 @@ Table: 迷你 iso-FLOP：每格是 val loss（括号里是这个尺寸在这个�
 怎么读这张图：
 
 - **每条曲线都有最低点，而且预算越大最低点越靠右**：$$10^{13}$$ 下最优是 0.15M，$$3 \times 10^{13}$$ 下 0.24M，$$10^{14}$$ 下 0.33M。这就是 Chinchilla 的核心结论"$$N_{\text{opt}}$$ 随 $$C$$ 增长"在玩具规模上的样子。最低点右边的上坡很陡：同样 $$10^{14}$$ FLOPs，6 层 × 256 宽的模型只训了 0.3 个 epoch，loss 6.0，比最优点差 1.1——**大模型没喂饱**。最低点左边的上坡很缓、甚至看不到（$$10^{13}$$ 下最小的模型就是最优）：**小模型多训一会儿损失不大**，这一点后面会用到。
-- **最优点的 $$D/N$$ 是 72、89、155，不是 Chinchilla 的 20**。两个原因。一是尺度：Chinchilla 的 $$D/N \approx 20$$ 是在 70M 到 16B 参数上拟合的，幂律在极小模型上会弯——这个模型比它最小的还小 200 倍，embedding 占了参数的一半以上却几乎不贡献"智力"，按总参数算的 $$N$$ 高估了模型能力，$$D/N$$ 自然偏大。二是**数据不够**：$$10^{14}$$ 那一行，最小的模型把 10.9M token 看了 10 遍，第二小的 6.5 遍——重复的数据不如新数据（第三篇：4 个 epoch 内几乎无损，之后递减），这拖累了小模型、把最优点往右推。真实实验里每个尺寸都用新数据，这里没有这么多。
+- **最优点的 $$D/N$$ 是 72、89、155，不是 Chinchilla 的 20**。两个原因。一是尺度：Chinchilla 的 $$D/N \approx 20$$ 是在 70M 到 16B 参数上拟合的，幂律在极小模型上会弯——这个模型比它最小的还小 200 倍，embedding 占了参数的一半以上却几乎不贡献"智力"，按总参数算的 $$N$$ 高估了模型能力，$$D/N$$ 自然偏大。二是**数据不够**：$$10^{14}$$ 那一行，最小的模型把 10.9M token 看了 10 遍，第二小的 6.5 遍——重复的数据不如新数据（[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)：4 个 epoch 内几乎无损，之后递减），这拖累了小模型、把最优点往右推。真实实验里每个尺寸都用新数据，这里没有这么多。
 - **迷你实验能告诉什么、不能告诉什么**。能：曲线的形状（U 形、右移）、$$N$$ 与 $$C$$ 的大致关系（三个最优点连起来，$$N_{\text{opt}} \propto C^{0.34}$$——Chinchilla 是 0.5，Kaplan 是 0.73，这组实验的指数低是因为数据重复在惩罚大预算下的小模型）。不能：把最优点直接外推到 GPT 的规模——常数、指数、甚至最优 $$D/N$$ 都随规模变（数学系列的《统计推断与拟合》讲拟合的不确定性）。这也是为什么 Llama 3 用了几百次小模型实验、跨了四个数量级来外推 405B，而不是像这组实验这样三个预算。
 
-**这张图给正式训练的决定**：愿意花 10 分钟，约 $$5 \times 10^{14}$$ FLOPs。按三个最优点的趋势外推，这个预算下最优 $$N \approx 0.6$$M、$$D \approx 140$$M token——但只有 10.9M token，140M 意味着 13 个 epoch，数据早就重复到没有新信息了。所以**数据才是硬约束**：先定 $$D$$ = 3 个 epoch（32.6M token，在"4 个以内几乎无损"的范围里），再选模型——数据固定时，大一点的模型还能多学一点（曲线左边的坡很缓），在同样 3 epoch 下对比了 2 层 × 128 宽与 4 层 × 192 宽，val loss 4.788 对 4.625，大的赢 0.16。取 4 层 × 192 宽。这个"数据受限时怎么选"的问题，Muennighoff 等 2023 有完整的答案，第三篇讲。
+**这张图给正式训练的决定**：愿意花 10 分钟，约 $$5 \times 10^{14}$$ FLOPs。按三个最优点的趋势外推，这个预算下最优 $$N \approx 0.6$$M、$$D \approx 140$$M token——但只有 10.9M token，140M 意味着 13 个 epoch，数据早就重复到没有新信息了。所以**数据才是硬约束**：先定 $$D$$ = 3 个 epoch（32.6M token，在"4 个以内几乎无损"的范围里），再选模型——数据固定时，大一点的模型还能多学一点（曲线左边的坡很缓），在同样 3 epoch 下对比了 2 层 × 128 宽与 4 层 × 192 宽，val loss 4.788 对 4.625，大的赢 0.16。取 4 层 × 192 宽。这个"数据受限时怎么选"的问题，Muennighoff 等 2023 有完整的答案，[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)讲。
 
-真实的 Chinchilla 实验是这张图的放大版：9 个预算、每个预算十几个尺寸、共 400 多次训练，$$N$$ 跨三个数量级，得出"最优 $$D/N \approx 20$$"与"$$N_{\text{opt}} \propto C^{0.5}$$"。第三篇讲它的三种方法、之后"过训练"的转向、以及怎么从小模型外推大模型。
+真实的 Chinchilla 实验是这张图的放大版：9 个预算、每个预算十几个尺寸、共 400 多次训练，$$N$$ 跨三个数量级，得出"最优 $$D/N \approx 20$$"与"$$N_{\text{opt}} \propto C^{0.5}$$"。[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)讲它的三种方法、之后"过训练"的转向、以及怎么从小模型外推大模型。
 
 ## 八、配方与训练
 
@@ -294,19 +294,19 @@ Table: 迷你 iso-FLOP：每格是 val loss（括号里是这个尺寸在这个�
 | 项 | 取值 | 为什么 |
 |---|---|---|
 | 模型 | 4 层 × 192 宽 × 3 头，上下文 256，词表 4096；$$N$$ = 2.61M（其中 embedding 0.84M，非 embedding 1.77M） | 第七章：数据固定 3 epoch 时，比 2 × 128 好 0.16 |
-| 数据 | 10.9M token × 3 epoch = 32.6M token | 4 epoch 以内重复几乎无损（第三篇） |
-| batch | 64 × 256 = 16K token/步，共 1,992 步 | 与 iso-FLOP 扫描一致；小模型的"临界 batch"小，再大浪费样本（第五篇） |
+| 数据 | 10.9M token × 3 epoch = 32.6M token | 4 epoch 以内重复几乎无损（[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)） |
+| batch | 64 × 256 = 16K token/步，共 1,992 步 | 与 iso-FLOP 扫描一致；小模型的"临界 batch"小，再大浪费样本（[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)） |
 | 优化器 | AdamW，$$\beta = (0.9, 0.95)$$，weight decay 0.1，梯度裁剪 1.0 | GPT-3 以来几乎所有公开配方的默认值 |
-| 峰值学习率 | $$1.15 \times 10^{-3} = 10^{-3} \times \sqrt{256 / 192}$$ | 随宽度降（Llama 3 从 7B 的 $$3 \times 10^{-4}$$ 降到 405B 的 $$8 \times 10^{-5}$$，第五篇讲 $$\mu$$P 为什么是这个方向） |
+| 峰值学习率 | $$1.15 \times 10^{-3} = 10^{-3} \times \sqrt{256 / 192}$$ | 随宽度降（Llama 3 从 7B 的 $$3 \times 10^{-4}$$ 降到 405B 的 $$8 \times 10^{-5}$$，[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)讲 $$\mu$$P 为什么是这个方向） |
 | warmup | 59 步（3%）线性升到峰值 | 大模型通常 < 1%；小模型步数少，比例大一点无妨 |
-| 调度 | cosine 衰减到峰值的 10% | 2023 年前的标准形状；WSD 是新的选项（第五篇） |
-| 精度 | FP32（MPS 上小模型无所谓） | 真实训练是 BF16 + FP32 主权重，DeepSeek-V3 是 FP8——每降一档，稳定性开关就多一个（第五篇） |
+| 调度 | cosine 衰减到峰值的 10% | 2023 年前的标准形状；WSD 是新的选项（[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)） |
+| 精度 | FP32（MPS 上小模型无所谓） | 真实训练是 BF16 + FP32 主权重，DeepSeek-V3 是 FP8——每降一档，稳定性开关就多一个（[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)） |
 | 算力 | $$6ND = 6 \times 2.61\text{M} \times 32.6\text{M} \approx 5 \times 10^{14}$$ FLOPs | Llama 3 405B 是 $$3.8 \times 10^{25}$$，差 11 个数量级 |
 | 时间 | MPS 上 11.5 分钟，55K token/s | |
 
 Table: 本文的训练配方，每一项的取值与理由
 
-这些数不是拍脑袋的：$$\beta_2 = 0.95$$、weight decay 0.1、裁剪 1.0 是几乎所有公开配方的默认值；峰值 lr 按模型宽度取（模型越宽 lr 越小）；warmup 与 cosine 是 2023 年前的标准形状。它们和《Transformer 原理与实现》的《手搓 GPT（下）》里 nanoGPT 训莎士比亚用的那组几乎一样——因为那组就是抄 GPT-3 的。**每一个都有它防的事故**：没有 warmup 第一步就可能走飞，没有裁剪一个坏 batch 能把参数打乱，lr 不衰减最后收不住——第五篇逐个讲，并在小模型上把每种事故复现一遍。
+这些数不是拍脑袋的：$$\beta_2 = 0.95$$、weight decay 0.1、裁剪 1.0 是几乎所有公开配方的默认值；峰值 lr 按模型宽度取（模型越宽 lr 越小）；warmup 与 cosine 是 2023 年前的标准形状。它们和《Transformer 原理与实现》的《手搓 GPT（下）》里 nanoGPT 训莎士比亚用的那组几乎一样——因为那组就是抄 GPT-3 的。**每一个都有它防的事故**：没有 warmup 第一步就可能走飞，没有裁剪一个坏 batch 能把参数打乱，lr 不衰减最后收不住——[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)逐个讲，并在小模型上把每种事故复现一遍。
 
 ### 2. 七条曲线
 
@@ -340,7 +340,7 @@ Table: 本文的训练配方，每一项的取值与理由
 | 学习率 | 59 步升到 1.15e-3，然后 cosine 降到 1.15e-4；loss 在 1,200 步后的缓慢下降有一半是 lr 变小带来的 | warmup 线性升、cosine 降到峰值的 10% | 不看它就不知道 loss 的平台是 lr 太小还是学完了 |
 | 梯度范数 | 平时 0.4–0.8，**step 833 冲到 6.99**（阈值 1.0 的 7 倍）——一次小 spike，裁剪把它压回 1.0，val loss 没有受影响；step 343 与 1862 各有一次 2 左右的小尖峰 | 训练初期大、之后稳定；被裁剪到 1.0 的比例是稳定性的温度计 | 持续 > 裁剪阈值、或突然飙升几十倍：坏 batch / 即将 spike |
 | 参数范数 | 从 50 单调涨到 82.7，后期变平——weight decay 0.1 与 lr 衰减一起把它稳住了 | weight decay 在把它往下拉、梯度在把它往上推，两者平衡 | 单调飙升：wd 太小或 lr 太大 |
-| attention logit 最大值 | 从 0.4 涨到 77.6，600–900 步涨得最快，spike 那一步反而掉到 23.6；77 还在安全范围，但它一直在涨——训练再长十倍就该开 QK-norm 了 | $$\max \lvert q \cdot k \rvert / \sqrt d$$，几十以内正常 | 涨到几百上千：softmax 饱和成 one-hot、这一头梯度归零——第五篇的第一个不稳定机制，QK-norm 防它 |
+| attention logit 最大值 | 从 0.4 涨到 77.6，600–900 步涨得最快，spike 那一步反而掉到 23.6；77 还在安全范围，但它一直在涨——训练再长十倍就该开 QK-norm 了 | $$\max \lvert q \cdot k \rvert / \sqrt d$$，几十以内正常 | 涨到几百上千：softmax 饱和成 one-hot、这一头梯度归零——[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)的第一个不稳定机制，QK-norm 防它 |
 | 吞吐 | 前 280 秒只有 35K token/s，之后跳到 56K——那段时间机器上另一个进程在抢资源。真实训练里这条曲线掉一半就要查是谁 | 每秒处理多少 token；乘上 $$6N$$ 就是实际 FLOP/s，除以硬件峰值是 MFU | 掉一半：数据加载卡住、显存交换、别的进程抢卡 |
 | train − val | 在 ±0.3 之间抖，均值略负（train 每步只用一个 batch 估，噪声大；val 用 8 个 batch）；3 个 epoch 没有过拟合迹象——如果训 10 个 epoch，这条线会持续往下走 | 训练集与验证集的差距 | 差距持续拉大：过拟合（多 epoch 时会看到） |
 
@@ -360,7 +360,7 @@ GPT-2 small（124M，WebText 40 GB 训的）：3.362 nats/token（PPL 28.8，它
 ```
 
 - **val loss 4.51 nats/token**（训练日志里的 4.63 是随机抽 batch 估的，这里按整篇文档算，略有出入）：从 8.32 降下来的。困惑度 $$e^{4.51} = 91$$——模型在每个位置"像是在 91 个等可能的 token 里猜"，训练前是 4096 个。
-- **bits/byte 1.88**：loss 除以 $$\ln 2$$ 再乘上 token 数 / 字节数：$$4.514 / 0.693 \times 37{,}739 / 130{,}810 = 1.88$$。**这是唯一能跨 tokenizer 比较的数**：同一批文本切成 37.7K 个 token，GPT-2 切成 28.6K 个，每个 token 承担的信息量不同，nats/token 与困惑度都不可比（第二篇）。
+- **bits/byte 1.88**：loss 除以 $$\ln 2$$ 再乘上 token 数 / 字节数：$$4.514 / 0.693 \times 37{,}739 / 130{,}810 = 1.88$$。**这是唯一能跨 tokenizer 比较的数**：同一批文本切成 37.7K 个 token，GPT-2 切成 28.6K 个，每个 token 承担的信息量不同，nats/token 与困惑度都不可比（[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)）。
 - **GPT-2 small 在同一批文本上 1.06 bits/byte**。它有 1.24 亿参数（它的 48 倍）、训了 40 GB 文本（千倍）。每个字节多花 0.82 bit——差距大，但方向对："乱猜"是 $$\log_2 4096 / 3.46 = 3.47$$ bits/byte，走到 1.88，走了三分之二的路。剩下的三分之一要靠更多的数据与参数，不靠别的。
 
 ### 2. 它会写什么
@@ -403,11 +403,11 @@ GPT-2 small（124M，WebText 40 GB 训的）：3.362 nats/token（PPL 28.8，它
 |---|---|---|---|
 | 原料 | 2 个 WET 文件，68,834 网页 | 全部 Common Crawl 快照，约 240T token 的原始文本 | 从 WARC 重新抽正文（比 WET 干净）；PB 级存储与吞吐 |
 | 过滤 | 4 道规则，单进程几秒 | 规则 + 模型打分（用 Llama 2 给每篇文档打"教育价值"分）| 几万 CPU 核跑几天；每条规则的阈值用小模型消融定 |
-| 去重 | MinHash，1.1 万 篇 | URL 级、文档级 MinHash、行级三层去重 | 分布式 LSH；决定"去重到什么程度"（第四篇：FineWeb 发现跨快照去重反而更差） |
+| 去重 | MinHash，1.1 万 篇 | URL 级、文档级 MinHash、行级三层去重 | 分布式 LSH；决定"去重到什么程度"（[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)：FineWeb 发现跨快照去重反而更差） |
 | tokenizer | BPE 4096，一秒 | BPE 128K | 多语言配比决定每种语言的"价格"；数字怎么切 |
 | 打包 | 256 token 一段 | 8K → 128K 一段，文档掩码 | 长文档采样、attention 的变长 kernel |
 | 选尺寸 | 8 个尺寸 × 3 个预算 = 24 次训练，一个多小时 | 几百次小模型训练拟 scaling law，外推到 405B | 拟合的不确定性（数学系列的《统计推断与拟合》）；推理成本纳入后的"过训练" |
-| 训练 | 1 台 MacBook，12 分钟 | 16,384 张 H100，54 天 | 4D 并行、每 4 分钟一次 checkpoint、平均 3 小时一次硬件故障、spike 回滚——第五篇与大规模训练系列 |
+| 训练 | 1 台 MacBook，12 分钟 | 16,384 张 H100，54 天 | 4D 并行、每 4 分钟一次 checkpoint、平均 3 小时一次硬件故障、spike 回滚——[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)与《大规模训练工程》系列 |
 | 评 | val loss、bits/byte、几条样本 | 几十个 benchmark、多种子、置信区间 | 污染检测；评测本身的噪声（数学系列的《统计推断与拟合》） |
 
 Table: 同一条流水线在两个规模上
@@ -446,7 +446,7 @@ Table: 同一条流水线在两个规模上
 
    <details markdown="1"><summary>答案</summary>
 
-   token 数与字符/token 成反比：少了 $$1 - 3.46 / 4.27 \approx 19\%$$。embedding 从 $$4096 \times 256 = 1.05$$M 涨到 $$16384 \times 256 = 4.2$$M，多了 3.1M——比本文整个模型的非 embedding 参数还多。小模型配大词表不划算，这是第二篇"最优词表随模型变大"的直觉。
+   token 数与字符/token 成反比：少了 $$1 - 3.46 / 4.27 \approx 19\%$$。embedding 从 $$4096 \times 256 = 1.05$$M 涨到 $$16384 \times 256 = 4.2$$M，多了 3.1M——比本文整个模型的非 embedding 参数还多。小模型配大词表不划算，这是[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)"最优词表随模型变大"的直觉。
 
    </details>
 
@@ -462,7 +462,7 @@ Table: 同一条流水线在两个规模上
 
    <details markdown="1"><summary>答案</summary>
 
-   要。400 意味着 softmax 已经饱和成 one-hot，那一头的梯度接近 0，loss 变差通常在几百步之后；这是 spike 的前兆之一。对策是 QK-norm（对 q、k 各做一次归一化）或降 lr——第五篇。
+   要。400 意味着 softmax 已经饱和成 one-hot，那一头的梯度接近 0，loss 变差通常在几百步之后；这是 spike 的前兆之一。对策是 QK-norm（对 q、k 各做一次归一化）或降 lr——见[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)。
 
    </details>
 

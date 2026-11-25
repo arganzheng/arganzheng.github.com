@@ -96,7 +96,7 @@ x.requires_grad   # 要不要对它求导：参数 True，数据 False
 ```
 
 1. **`device`**：数据在 CPU 内存还是 GPU 显存。两个 Tensor 运算必须在同一个 device 上，`RuntimeError: Expected all tensors to be on the same device` 是最常见的报错之一；`x.to("cuda")`、`model.to("cuda")` 搬过去。
-2. **`dtype`**：ndarray 也有，但 NumPy 没有 `bfloat16` / `float16` 这些为训练设计的低精度类型，也没有 `int8` 量化推理的整套算子。训练用 `float32` 或 `bfloat16`，推理还可能 `int8`；`x.float()`、`x.to(torch.bfloat16)` 转换。第四篇讲 dtype 与显存、混合精度的关系。
+2. **`dtype`**：ndarray 也有，但 NumPy 没有 `bfloat16` / `float16` 这些为训练设计的低精度类型，也没有 `int8` 量化推理的整套算子。训练用 `float32` 或 `bfloat16`，推理还可能 `int8`；`x.float()`、`x.to(torch.bfloat16)` 转换。[《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)讲 dtype 与显存、混合精度的关系。
 3. **`requires_grad`**：Autograd 只跟踪它为 True 的 Tensor 及其下游。模型参数默认 True，输入数据默认 False。
 
 ### 2. 原地操作
@@ -189,7 +189,7 @@ $$
 \frac{\partial L}{\partial w} = \frac{\partial L}{\partial v} \cdot \frac{\partial v}{\partial u} \cdot \frac{\partial u}{\partial w} = 10 \times 1 \times 2 = 20
 $$
 
-图 3 虚线上的数字就是这三次相乘：从 loss 出发带着 1，过 `PowBackward` 乘 10，过 `SubBackward` 乘 1，过 `MulBackward` 乘 2，到 `w` 时是 20，`AccumulateGrad` 把它加进 `w.grad`。第二次 `backward` 报错是因为默认反向后释放图以省显存——每次前向建一张新图，这就是"动态图"的含义。Autograd 引擎怎么实现、每个算子的 backward 函数在哪，属于 Infra 03 系列第三篇。
+图 3 虚线上的数字就是这三次相乘：从 loss 出发带着 1，过 `PowBackward` 乘 10，过 `SubBackward` 乘 1，过 `MulBackward` 乘 2，到 `w` 时是 20，`AccumulateGrad` 把它加进 `w.grad`。第二次 `backward` 报错是因为默认反向后释放图以省显存——每次前向建一张新图，这就是"动态图"的含义。Autograd 引擎怎么实现、每个算子的 backward 函数在哪，属于《PyTorch 深度实践》的[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)。
 
 ## 四、nn.Module
 
@@ -208,11 +208,11 @@ class MLP(nn.Module):
 ```
 
 1. `__init__` 里赋给 `self` 的 `nn.Module` 或 `nn.Parameter` 会被**自动注册**——这就是 `super().__init__()` 必须调的原因，注册机制在父类里。
-2. `forward` 只写前向，调用时写 `mlp(x)` 而不是 `mlp.forward(x)`（前者会触发 hook 等机制，第一篇第五章）。
+2. `forward` 只写前向，调用时写 `mlp(x)` 而不是 `mlp.forward(x)`（前者会触发 hook 等机制，[《Python 使用层》](/python-in-use-for-algorithm-engineers.html)第五章）。
 
 ### 2. 注册机制与 `ModuleList`
 
-"自动注册"是怎么发生的：`nn.Module` 重写了 `__setattr__`（第一篇讲的协议方法之一）。执行 `self.up = nn.Linear(...)` 时，Python 调 `Module.__setattr__(self, "up", value)`，它检查 `value` 的类型——是 `nn.Module` 就记进 `self._modules["up"]`，是 `nn.Parameter` 就记进 `self._parameters`，其他类型才当普通属性存。`parameters()`、`state_dict()`、`.to("cuda")` 都是沿 `_modules` 递归下去收集的。
+"自动注册"是怎么发生的：`nn.Module` 重写了 `__setattr__`（[《Python 使用层》](/python-in-use-for-algorithm-engineers.html)讲的协议方法之一）。执行 `self.up = nn.Linear(...)` 时，Python 调 `Module.__setattr__(self, "up", value)`，它检查 `value` 的类型——是 `nn.Module` 就记进 `self._modules["up"]`，是 `nn.Parameter` 就记进 `self._parameters`，其他类型才当普通属性存。`parameters()`、`state_dict()`、`.to("cuda")` 都是沿 `_modules` 递归下去收集的。
 
 这解释了一个常见的坑：`self.layers = [nn.Linear(8, 8) for _ in range(3)]`——赋进来的 `value` 是一个 Python `list`，不是 `nn.Module`，`__setattr__` 把它当普通属性存下，里面三个 `Linear` 没有一个被注册。`model.parameters()` 里没有它们，优化器不会更新它们，`state_dict()` 里也没有它们，`.to("cuda")` 也搬不动它们。`nn.ModuleList` 就是一个"自己是 `nn.Module` 的 list"：`self.layers = nn.ModuleList([...])` 让注册机制看到一个 Module，再由它把里面的每一层注册成 `layers.0`、`layers.1`、`layers.2`。字典用 `nn.ModuleDict`，顺序执行的一串用 `nn.Sequential`。
 
@@ -249,7 +249,7 @@ blocks.1.ln1.weight        ...
 
 1. **键的名字来自注册**：`blocks.0.mlp.2.weight` 就是 `self.blocks[0].mlp[2].weight` 这条属性路径，`ModuleList` / `Sequential` 里的位置变成数字。加载一个 checkpoint 报 `Missing key(s)` / `Unexpected key(s)`，是两边的模块树不一样——名字对不上。
 2. **里面有参数，也有 buffer**：`register_buffer` 注册的东西（BatchNorm 的 running mean、RoPE 的 cos/sin 表）不参与求导但属于模型状态，也在 `state_dict` 里；纯 Python 属性（`self.heads = 4`）不在。
-3. **里面没有结构**：它只是"名字 → 数值"，不记录 `forward` 怎么写、层怎么连。所以加载前要先用同样的代码 `TinyGPT(cfg)` 建出一个空模型，再 `load_state_dict`——这也是为什么 Hugging Face 的模型目录里 `config.json`（结构）和 `*.safetensors`（`state_dict`）是分开的两个文件（第五篇）。
+3. **里面没有结构**：它只是"名字 → 数值"，不记录 `forward` 怎么写、层怎么连。所以加载前要先用同样的代码 `TinyGPT(cfg)` 建出一个空模型，再 `load_state_dict`——这也是为什么 Hugging Face 的模型目录里 `config.json`（结构）和 `*.safetensors`（`state_dict`）是分开的两个文件（[《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)）。
 4. **checkpoint 就是它**：`torch.save(model.state_dict(), "ckpt.pt")` 存的就是这个字典（pickle 格式）；`safetensors` 是同一个字典的另一种磁盘格式，去掉了 pickle 的任意代码执行风险、支持只读某几个键。训练中断续跑还要存 `opt.state_dict()`（AdamW 的两个矩）和 `sched.state_dict()`。
 
 ### 4. 本文要训的模型
@@ -332,9 +332,9 @@ flowchart TB
     class S,G1,G2,G3,G4,C data
 ```
 
-`DataLoader` 的一步。四个参数各对应图里一个环节：`shuffle=True` 决定 Sampler 给出的顺序；`batch_size` 决定每次取多少个下标；`collate_fn` 把 `batch_size` 个 `__getitem__` 的返回值拼成一个 batch 的 Tensor（默认实现只会 `torch.stack` 同形状的 Tensor，变长序列要自己写 pad）；`num_workers` 个子进程各自跑"取 + collate"，把做好的 batch 放进队列，主进程只管取。子进程各自是一个 Python 进程、不共享内存——这是第一篇第六章"多进程"的用法，也是 `num_workers=0` 时训练循环常被取数卡住的原因。
+`DataLoader` 的一步。四个参数各对应图里一个环节：`shuffle=True` 决定 Sampler 给出的顺序；`batch_size` 决定每次取多少个下标；`collate_fn` 把 `batch_size` 个 `__getitem__` 的返回值拼成一个 batch 的 Tensor（默认实现只会 `torch.stack` 同形状的 Tensor，变长序列要自己写 pad）；`num_workers` 个子进程各自跑"取 + collate"，把做好的 batch 放进队列，主进程只管取。子进程各自是一个 Python 进程、不共享内存——这是[《Python 使用层》](/python-in-use-for-algorithm-engineers.html)第六章"多进程"的用法，也是 `num_workers=0` 时训练循环常被取数卡住的原因。
 
-本文第六章的语料是一个长字符串，随机切 128 个字符的窗口，用一个 `get_batch` 函数就够了，没有用 `Dataset` + `DataLoader`（下面会给出它的代码）。真实项目里用后者：`datasets` 库（第五篇）返回的对象可以直接喂 `DataLoader`。
+本文第六章的语料是一个长字符串，随机切 128 个字符的窗口，用一个 `get_batch` 函数就够了，没有用 `Dataset` + `DataLoader`（下面会给出它的代码）。真实项目里用后者：`datasets` 库（[《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)）返回的对象可以直接喂 `DataLoader`。
 
 ### 2. Optimizer 与调度器
 
@@ -437,7 +437,7 @@ print(f"验证 loss {val_loss:.3f}  (PPL {math.exp(val_loss):.1f})")
 - [`LambdaLR(opt, ...)`](#sched)：调度器拿到优化器，每步按 warmup + cosine 改它的学习率（第五章第 2 节）。
 - [`get_batch(train, cfg, gen)`](#batch)：取一个 batch，`x` 是 `[32, 128]` 的字符 id，`y` 是每个位置的下一个字符。真实项目里这一行是 `for step, batch in enumerate(loader)`（第五章第 1 节）。
 - [`.to(DEV, non_blocking=True)`](#to-dev)：数据搬到 GPU，`non_blocking=True` 让拷贝与前一步的计算重叠（第二章）。
-- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，第四篇讲；数值格式在 《[现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)》。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
+- [`torch.autocast(..., bfloat16)`](#autocast)：这段里的矩阵乘在 bf16 上跑、reduction 留 fp32——混合精度，[《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)讲；数值格式在 《[现代 LLM 结构（10）：浮点格式、数值稳定性与混合精度](/floating-point-formats-and-mixed-precision.html)》。`enabled=DEV == "cuda"` 是因为 CPU 没有 bf16 硬件路径，开了慢 30 倍（第 6 节）。
 - [`model(x)`](#forward)：前向，走 `__call__` → `forward`（第四章），得到 `[B, T, V]` 的 logits。
 - [`cross_entropy(logits.view(-1, V).float(), y.view(-1))`](#loss)：三个细节。`view(-1, V)` 把 `[B, T, V]` 展平成 `[B·T, V]`，因为 `cross_entropy` 要二维输入（上一篇的 reshape）；`.float()` 让 softmax + log 在 fp32 上算，避免 bf16 下溢出和精度损失（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》：softmax 的数值）；SFT 时还要加 `ignore_index=-100`——labels 里**你自己标成** −100 的位置不算 loss，这就是 **SFT 的 loss mask**（《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》「四、三步推出 loss」）。注意 `ignore_index` 只是"跳过值为 −100 的位置"，它不知道哪些是 prompt、哪些是 padding：把 prompt 与 padding 写成 −100 是数据处理（collator / 模板）那一步的事，这一行只负责跳过。还有 labels 与 logits 的**错位**：位置 $$t$$ 的 logits 预测的是 $$x_{t+1}$$，所以要么 labels 整体左移一位（HF 的 `labels=input_ids` 是模型内部帮你 shift），要么自己 `logits[:, :-1]` 对 `labels[:, 1:]`——上面的玩具循环里 `x`、`y` 已经是错开一位取的。`cross_entropy` 算的就是 《[算法工程师的数学（05）：从最大似然到交叉熵——第一个要会推的 loss](/from-maximum-likelihood-to-cross-entropy.html)》的每 token 负对数似然：内部做 log-softmax，取真实 label 那一位取负，对所有非 −100 的位置平均。
 - [`loss.backward()`](#backward)：反向传播，梯度累加到每个参数的 `.grad`（第三章第二件事；《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》链式法则）。
@@ -483,11 +483,11 @@ step  999  loss 2.022  lr 3.00e-05  grad_norm 0.31   53.6s
 
 ### 6. 一个 CPU 上的陷阱
 
-[`autocast` 那一行](#autocast)的 `enabled=DEV == "cuda"` 不是可有可无的：在 CPU 上开着 bf16 autocast 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。第四篇讲它在 GPU 上为什么快、省多少显存。
+[`autocast` 那一行](#autocast)的 `enabled=DEV == "cuda"` 不是可有可无的：在 CPU 上开着 bf16 autocast 训，一步 1.4 秒；关掉是 0.05 秒——**慢 30 倍**。原因是 CPU 没有 bf16 的硬件路径，PyTorch 用软件模拟。混合精度的收益完全来自硬件（GPU 的 Tensor Core），没有硬件时它只是开销。[《PyTorch 使用层（下）》](/pytorch-in-use-mixed-precision-memory-ledger-and-multi-gpu.html)讲它在 GPU 上为什么快、省多少显存。
 
 ### 7. 与 `Trainer` 的关系
 
-`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的代码：`compute_loss` 是[前向](#forward) + [算 loss](#loss)两行，`training_step` 是[反向](#backward)、[裁剪](#clip)、[更新与清零](#update)三行，`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和预期不一样的事"，然后去读它的源码（第五篇给入口）。
+`transformers.Trainer`、`trl.SFTTrainer` 做的是同样的事，对应到上面的代码：`compute_loss` 是[前向](#forward) + [算 loss](#loss)两行，`training_step` 是[反向](#backward)、[裁剪](#clip)、[更新与清零](#update)三行，`autocast` 由 `TrainingArguments(bf16=True)` 打开，学习率曲线由 `lr_scheduler_type` 与 `warmup_steps` 决定，外面再包上日志、评估、checkpoint 与分布式。它们的行为不符合预期时——loss 不降、显存爆、学习率不对——回到这二十行想"它在第几行做了和预期不一样的事"，然后去读它的源码（[《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)给入口）。
 
 ## 七、本文小结
 

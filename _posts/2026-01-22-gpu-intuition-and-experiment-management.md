@@ -65,7 +65,7 @@ $$
 
 ![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
 
-一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；Infra 06 系列第一篇从硬件侧讲同一件事。算法工程师需要的是用它判断：**一处结构改动把瓶颈往哪边推了**。
+一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；《GPU Kernel 工程》的[《GPU 为什么这样设计》](/gpu-architecture-and-roofline.html)从硬件侧讲同一件事。算法工程师需要的是用它判断：**一处结构改动把瓶颈往哪边推了**。
 
 ## 三、decode 与 prefill
 
@@ -136,7 +136,7 @@ Table: 显存的四块：大小由什么决定
 
 - **kernel** 是 GPU 上执行的一个函数——一次矩阵乘、一次 softmax、一次逐元素加。PyTorch 的每个算子对应一个或几个 kernel。
 - **kernel launch 有固定开销**（几微秒）。一个大矩阵乘几毫秒，launch 开销可忽略；一个 $$[32, 128]$$ 的逐元素加几微秒，launch 开销与计算本身相当。所以**小算子多了 GPU 会空转**——这是 `torch.compile` 做算子融合、CUDA Graph 把一串 launch 录下来一次重放（它不融合算子，只省 launch 开销）的动机，也是小模型、小 batch 时 GPU 利用率低的原因。
-- **stream** 是 kernel 的执行队列。CPU 把 kernel 扔进队列就继续往下走（异步），GPU 在后面慢慢执行。所以 **`time.time()` 测出来的不是 GPU 时间**——要 `torch.cuda.synchronize()` 等 GPU 做完再计时，或者用 profiler。`loss.item()` 会隐式同步（第三篇），这也是它拖慢训练的原因。
+- **stream** 是 kernel 的执行队列。CPU 把 kernel 扔进队列就继续往下走（异步），GPU 在后面慢慢执行。所以 **`time.time()` 测出来的不是 GPU 时间**——要 `torch.cuda.synchronize()` 等 GPU 做完再计时，或者用 profiler。`loss.item()` 会隐式同步（[《PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html)），这也是它拖慢训练的原因。
 
 ### 2. 读一张 profiler 表
 
@@ -146,7 +146,7 @@ with torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.C
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 ```
 
-输出每个算子的时间、调用次数、显存变化。在 CPU 上对第三篇的小 Transformer 跑一步（没有 GPU 就看 CPU 时间，读法相同）：
+输出每个算子的时间、调用次数、显存变化。在 CPU 上对[《PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html)的小 Transformer 跑一步（没有 GPU 就看 CPU 时间，读法相同）：
 
 ```text title='小 Transformer 一步的 profiler 表：aten::mm 占 25%'
 模型 0.84 M 参数, batch 32 × seq 128; 一步 44 ms（CPU）
@@ -183,7 +183,7 @@ aten::native_layer_norm_backward                    2.85%      1.519ms          
 | 数据版本 | 数据文件的 hash 或 `datasets` 的 revision | 数据变了就是另一个实验 |
 | 环境 | `pip freeze` / 锁文件、CUDA 与驱动版本、容器镜像、GPU 型号与卡数 | 随 run 记录 |
 | 随机性 | `seed` 参数 + `torch.manual_seed` 等 | 多 seed 报均值与方差；知道有些 kernel 本身不确定 |
-| 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做第二篇那种错误分析的粒度 |
+| 产物 | checkpoint、评测输出、生成样本 | 命名含 run id；评测输出保存到能做[《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html)那种错误分析的粒度 |
 
 Table: 实验管理的需求、工具与最小做法
 
