@@ -386,7 +386,7 @@ Table: 掌握程度的判据
 
 ## 六、Infra 地图的收束与下一步
 
-本系列是[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十二个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)《layout 系统与 Linear Layout》（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
+本系列是[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十三个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)的《Triton——块级编程与编译器的边界》画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)的《编译执行与图优化》（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
 
 读完它之后，面对一个 Triton kernel 的性能或正确性问题，追问可以一直到底：
 
@@ -409,7 +409,7 @@ Table: 读完系列后可以追问到底的问题
 - 想在 MLIR 生态里横向迁移：IREE、torch-mlir、StableHLO 用的是同一套基础设施（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)与[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)），差别只在方言与 pass。
 - 想做 GPU 上的极致性能而不想等编译器：Gluon（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §七）或 CUTLASS，两者在设计空间轴上是邻居。
 
-Infra 地图的十三个系列到此完成。
+Infra 地图的十四个系列到此完成。
 
 ### 延伸阅读
 

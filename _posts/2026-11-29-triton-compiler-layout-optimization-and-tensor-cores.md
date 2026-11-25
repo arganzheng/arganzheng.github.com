@@ -294,7 +294,7 @@ tt.store %c_ptrs_62, %0, %mask_68 : tensor<128x128x!tt.ptr<bf16>, #blocked1>
 
 两个锚之间只有 `truncf` 一个逐元素 op。前向传播：从 `dot` 传下来 `#mma`，从 `store` 传上来 `#blocked1`（store 的操作数），`%c` 收到两个 layout；冲突消解——`%c` 的定义 op 是 `truncf`，不是访存 op，规则偏向 `#mma`；于是 `truncf` 留在 `#mma`，`store` 的操作数处插 `#mma → #blocked1` 的转换。后向重物化：转换的源是 `truncf(acc)`，`acc` 来自 `dot`——`canBeRemat` 对 `DotOpInterface` 返回 false，切片在这里断掉，无法重物化。三种 hoist 只有第一种适用（`truncf` 已经在转换之前）。**所以它留下了**：两端都是硬件决定的 layout，而这两个硬件决定——Tensor Core 的输出 fragment 与合并访存的线程排布——就是不一样的。
 
-它的代价：`[128, 128]` bf16 = 32 KB 经 shared memory 往返（`ttg.shared = 32768` 正是它——`metadata["shared"]` 里的 32768 字节全部是这一次转换的 scratch，流水线的两个缓冲区 `2 × 128 × 32 × 2 + 2 × 32 × 128 × 2 = 32 KB` 与它复用同一段地址，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `AllocateSharedMemory` 会讲复用），两个 barrier。相对整个 kernel（K = 512 时循环 16 次、每次 2 × 8 KB 的 load 加 32 条 `mma`）它是几个百分点的开销，是 《GPU Kernel 工程》里说的"那 10%"中可以指名的一块。
+它的代价：`[128, 128]` bf16 = 32 KB 经 shared memory 往返（`ttg.shared = 32768` 正是它——`metadata["shared"]` 里的 32768 字节全部是这一次转换的 scratch，流水线的两个缓冲区 `2 × 128 × 32 × 2 + 2 × 32 × 128 × 2 = 32 KB` 与它复用同一段地址，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `AllocateSharedMemory` 会讲复用），两个 barrier。相对整个 kernel（K = 512 时循环 16 次、每次 2 × 8 KB 的 load 加 32 条 `mma`）它是几个百分点的开销，是《GPU Kernel 工程》里说的"那 10%"中可以指名的一块。
 
 ### 2. 能不能不转？
 
