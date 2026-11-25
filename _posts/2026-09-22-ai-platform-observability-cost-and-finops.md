@@ -29,7 +29,7 @@ updated: 2026-11-14
 引擎对可观测层的要求，和它对资源层的要求一样具体：
 
 - **训练框架**要求平台知道"这个任务此刻在算还是在等"。它自己知道 step 时间、loss、MFU、每个 rank 的前向 / 反向 / 通信时间，但这些数字只在它的日志与 TensorBoard 里；平台需要它们以指标形式暴露（每 rank 一份、带 rank 与 job 标签），才能回答"这 32 张卡里哪一张在拖后腿"。反过来，训练框架不知道自己所在的卡温度多高、有没有 XID、NVLink 有没有重传——这些只有 DCGM 知道。**两边的数据要在同一个时间轴上对齐**，否则 straggler 的根因永远查不到硬件层。
-- **推理引擎**要求平台按它的指标而不是 CPU 利用率做决策。vLLM 暴露的 `vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT / TPOT 直方图是扩缩容与路由的输入（第六、七篇），也是 SLO 的定义域。它还要求平台把 token 数记账：`vllm:prompt_tokens_total` 与 `vllm:generation_tokens_total` 按模型累计，但**按租户**的计数只能在网关做——引擎不知道请求属于谁。
+- **推理引擎**要求平台按它的指标而不是 CPU 利用率做决策。vLLM 暴露的 `vllm:num_requests_waiting`、`vllm:kv_cache_usage_perc`、TTFT / TPOT 直方图是扩缩容与路由的输入（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)、[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)），也是 SLO 的定义域。它还要求平台把 token 数记账：`vllm:prompt_tokens_total` 与 `vllm:generation_tokens_total` 按模型累计，但**按租户**的计数只能在网关做——引擎不知道请求属于谁。
 - **两类引擎共同要求**：一张卡的硬件指标能归到一个 Pod、一个队列、一个团队。没有这条映射，利用率只能按节点看，账单只能按集群算。
 
 不满足会发生什么：
@@ -44,7 +44,7 @@ Kubernetes 自带的可观测面对 GPU 几乎是空白：
 
 - **kubelet 与 cAdvisor 不采 GPU 指标**。cAdvisor 的 `container_cpu_usage_seconds_total`、`container_memory_working_set_bytes` 对 GPU 容器同样有效，但没有任何 GPU 对应物；kube-state-metrics 的 `kube_pod_container_resource_requests{resource="nvidia_com_gpu"}` 只知道**请求了几张**，不知道用了多少。
 - **扩展资源是不透明的整数**。`nvidia.com/gpu: 2` 在 API 里就是数字 2，哪两张卡、什么型号、MIG 还是整卡、在 K8s 对象里看不到；只有 kubelet 的 pod-resources API（`k8s.io/kubelet/pkg/apis/podresources/v1` 的 `List`）能把 Pod / 容器与设备 ID 对上，而它是一个节点本地的 Unix socket，不是集群级 API。
-- **HPA 与 Metrics Server 只认 CPU 和内存**。自定义指标要经过 Prometheus Adapter 或 KEDA（第六篇）。
+- **HPA 与 Metrics Server 只认 CPU 和内存**。自定义指标要经过 Prometheus Adapter 或 KEDA（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）。
 - **没有成本概念**。K8s 不知道一个节点每小时多少钱，更不知道一张卡多少钱；Pod 的 `requests` 是调度输入，不是账单输入。
 - **没有跨请求的追踪**。一个推理请求经过网关、Endpoint Picker、引擎三跳，K8s 层面没有任何东西把它们关联起来。
 
@@ -83,7 +83,36 @@ flowchart TB
 
 四层的边界是**谁能采**：硬件层只有 DCGM 能采（它读驱动），容器层只有 kubelet 与 kube-state-metrics 能采（它们读 K8s 对象），引擎层只有引擎自己能采（队列长度、KV cache 在进程内），请求层只有网关能采（租户身份在 HTTP 头里）。任何一层都替代不了另一层，四层指标要在 Prometheus 里靠 `pod` / `namespace` 这组公共标签 join 起来——这是 DCGM Exporter 的 `--kubernetes` 映射为什么是整条链的关键一环。
 
-### 4. 本文的章节安排
+### 4. 哪些数只有当时才有
+
+这一篇和前七篇有个区别：前面七层留下的是**对象**，可以 `kubectl get` 出来慢慢看；这一层处理的是**数**，而数有保质期。下面这张表按"事后还能不能补"排，它决定了可观测体系的建设顺序。
+
+| 信号 | 从哪采 | 频率与保留 | 事后还能不能补 |
+|---|---|---|---|
+| `SM_ACTIVE`、`FB_USED` 等硬件指标 | DCGM Exporter | 默认 30 秒一个点 | 不能——没抓到的那一刻不会再来 |
+| 分摊维度（`team`、`project`、队列名） | kube-state-metrics 与 DCGM 的 PodMapper | 随 Pod 存在期间 | 不能——Pod 删了而 label 没进指标，这段 GPU 小时就归不了队 |
+| 排队时长（`kueue_admission_wait_time_seconds`） | Kueue 控制器 | 直方图 | 不能 |
+| 引擎指标（TTFT、KV 使用率、抢占数） | 引擎的 `/metrics` | 抓取间隔；**Pod 重启后计数器归零** | 不能 |
+| 每个租户的 token 数 | 网关与 EPP | 每请求 | 流式中途断开的那些，记的是断开前已生成的数 |
+| 被限流拒掉的请求 | 只在网关的访问日志里（没到 EPP） | 日志 | 不能——没开访问日志就等于没发生 |
+| trace | OpenTelemetry Collector，采样 1%–5% | trace 存储 | 不能——所以慢请求要用 tail-based 全采 |
+| NCCL 与 Xid 日志 | 节点与容器日志 | 日志系统 | 容器删掉之前没收走就没了 |
+| 按团队的 GPU 小时 | 成本引擎按上面几行算 | 长期存储，**同比对账要至少 13 个月** | 能——只要原始信号当时收下来了 |
+| 账单 | 结算 | 永久 | 能 |
+
+Table: 这一层的信号，按事后能不能补排
+
+四条读法：
+
+**1、整张表只有最后两行是事后能算的，其余全是"当时不记就没有"。**所以这一层的建设顺序不是先做看板——是先确认这些短命的数有没有被收下来，再谈怎么画。看板随时能补，数据补不回来。
+
+**2、分摊维度是最容易悄悄丢的一行。**label 不在 `podLabelAllowlistRegex` 里、Pod 已经删了、租户数超过 1000 被折叠成 `other`——每一种都让一笔 GPU 小时归不了队，而**看板上完全看不出来**：总数还是对的，只是多了一个没人认领的 `other`。要发现它，得主动对账"各团队之和"与"集群总量"。
+
+**3、开篇那 50 个百分点的差距，每一段的证据来自寿命完全不同的信号。**排队来自控制面的直方图，通信等待来自硬件指标加日志，低峰空转来自引擎进程的指标，开发环境长期占用来自容器层的分配记录。缺任何一类，那一段就只能猜——这也是第二章要把四层指标串成一条线的原因。
+
+**4、成本是这一层唯一把"寿命"写进需求的东西。**同比对账要 13 个月，而告警只需要几个小时的窗口。两个需求差三个数量级，这正是联邦与长期存储那套架构的理由——不是因为数据量大，而是**两种寿命要求没法用同一套存储满足**：告警要近、要快、可以丢；成本要全、要久、可以慢。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -152,7 +181,7 @@ DCGM Exporter 以 DaemonSet 跑在每个 GPU 节点上，通过 DCGM host engine
 
 每条指标的标签由 `internal/pkg/rendermetrics/render_metrics.go` 的实体组分支决定。GPU 实体（`FE_GPU`）固定带 `gpu`（索引）、`UUID`、`pci_bus_id`、`device`（`nvidia0` 一类）、`modelName`、`hostname`；MIG 实例额外带 `GPU_I_PROFILE` 与 `GPU_I_ID`。**Kubernetes 归属标签**由 `--kubernetes`（`DCGM_EXPORTER_KUBERNETES`，Helm 的 DaemonSet 模板固定设为 `true`）开启：`internal/pkg/transformation/kubernetes.go` 的 `PodMapper` 通过挂载在 `/var/lib/kubelet/pod-resources` 的 socket（values 的 `kubeletPath`）调用 kubelet pod-resources API 的 `PodResourcesListerClient.List`，拿到每个 Pod 每个容器分到的设备 ID 列表，再按 `--kubernetes-gpu-id-type`（`uid` 或 `device-name`）与 DCGM 看到的 GPU 对上，给指标加上 `pod`、`namespace`、`container` 三个属性（`internal/pkg/transformation/const.go` 的 `podAttribute` 等；`--use-old-namespace` 时是 `pod_name` / `pod_namespace` / `container_name`）。kubelet 侧这份记录来自 device manager 的分配状态（`kubernetes pkg/kubelet/cm/devicemanager/manager.go` 的 `ManagerImpl.GetDevices(podUID, containerName)`）。
 
-再往上一层是 **Pod label**：`--kubernetes-enable-pod-labels`（Helm `kubernetes.enablePodLabels: true`，会一并创建读 Pod 的 ClusterRole）让 PodMapper 用 kube client 读 Pod 对象的 labels，经 `utils.SanitizeLabelName` 把 `.` `/` `-` 换成 `_` 后直接作为指标标签（`team` → `team`，`app.kubernetes.io/name` → `app_kubernetes_io_name`）；只有与保留名冲突时（如 Pod 上有一个叫 `gpu` 的 label）才加 `pod_label_` 前缀（`availablePodLabelName`）。`kubernetes.podLabelAllowlistRegex` 限定哪些 label 进指标——不限定的话每个 Pod 的全部 label 都变成时序标签，第四章会算这笔基数账。`--kubernetes-enable-pod-uid` 加 `pod_uid`；`kubernetesDRA.enabled` 让它同时识别 DRA 分配的设备（`dra.go`，标签 `dra_claim_name` 等），对应第二篇的 `ResourceClaim` 路线。
+再往上一层是 **Pod label**：`--kubernetes-enable-pod-labels`（Helm `kubernetes.enablePodLabels: true`，会一并创建读 Pod 的 ClusterRole）让 PodMapper 用 kube client 读 Pod 对象的 labels，经 `utils.SanitizeLabelName` 把 `.` `/` `-` 换成 `_` 后直接作为指标标签（`team` → `team`，`app.kubernetes.io/name` → `app_kubernetes_io_name`）；只有与保留名冲突时（如 Pod 上有一个叫 `gpu` 的 label）才加 `pod_label_` 前缀（`availablePodLabelName`）。`kubernetes.podLabelAllowlistRegex` 限定哪些 label 进指标——不限定的话每个 Pod 的全部 label 都变成时序标签，第四章会算这笔基数账。`--kubernetes-enable-pod-uid` 加 `pod_uid`；`kubernetesDRA.enabled` 让它同时识别 DRA 分配的设备（`dra.go`，标签 `dra_claim_name` 等），对应[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)的 `ResourceClaim` 路线。
 
 把上面两段合起来，PodMapper 做的是一个三路 join——设备指标、设备到 Pod 的分配记录、Pod 的 label 分别来自三个只有各自才知道的地方：
 
@@ -184,6 +213,12 @@ flowchart TB
 
 `DCGM_FI_DEV_GPU_UTIL` 的帮助文本是"GPU utilization (in %)"，它的定义（以 NVIDIA 文档为准）是**过去采样周期内有至少一个 kernel 在 GPU 上执行的时间比例**。一个只用一个 SM 跑 kernel 的进程和一个用满 132 个 SM 的进程，在这个指标上都是 100%；一个在 NCCL all_reduce 上自旋等对端的 rank，也是 100%。它回答的是"GPU 是否空闲"，不是"GPU 用了多少"。对推理服务尤其误导：decode 阶段 kernel 连续发射但每个 kernel 只做很小的矩阵乘，`GPU_UTIL` 接近 100% 而 Tensor core 活跃度可能不到 20%。
 
+> [!NOTE] Java 经验参照：CPU 跑满就是在干活
+>
+> `top` 里 CPU 95%，意思很明确：这台机器的算力基本被用掉了，要么优化要么加机器。`DCGM_FI_DEV_GPU_UTIL` 长得像它，语义却差一层——它量的是"有没有 kernel 在跑"，不是"跑得有多满"。换算成 Java 的说法：这相当于把**线程处于 RUNNABLE 的时间比例**当成 CPU 利用率。一个线程在自旋等锁，它是 RUNNABLE；一个 rank 在 `all_reduce` 上自旋等对端，`GPU_UTIL` 也是 100%。
+>
+> 真正对应 `top` 那个语义的是 `DCGM_FI_PROF_SM_ACTIVE`（有多少 SM 在工作）与 `PIPE_TENSOR_ACTIVE`（Tensor core 的活跃度）。开篇那组 78% 与 35% 的差距，一半就来自把前者当成了后者。
+
 `DCGM_FI_PROF_*` 系列来自硬件性能计数器（DCGM 的 profiling 模块，Ampere 及之前的卡依赖额外的 proprietary 包，见 dcgm-exporter README），是按周期统计的比例：
 
 | 字段 | 含义 |
@@ -206,7 +241,7 @@ Table: DCGM_FI_PROF_* 字段的含义
 
 ### 4. 容器与 Pod 层
 
-容器层不采 GPU 的运行数据，但它是分配率的来源与所有分摊维度的来源。kube-state-metrics 把 Pod 的 `resources.requests` 展开为 `kube_pod_container_resource_requests{namespace,pod,container,node,resource,unit}`，`nvidia.com/gpu` 被规范化为 `resource="nvidia_com_gpu"`（斜杠与点换成下划线，这是 kube-state-metrics 的通行做法，OpenCost 的查询 `queryFmtGPUsRequested` 也这么写）；节点侧是 `kube_node_status_allocatable{resource="nvidia_com_gpu"}` 与 `kube_node_status_capacity`。MIG 的 `mixed` 策略（第四篇）会让资源名变成 `nvidia_com_mig_1g_5gb` 一类，分配率要按 MIG 实例数而不是物理卡数算，或者换用第三章基于 DCGM 的算法。HAMi 的 `nvidia.com/gpumem` / `gpucores` 则要按显存或算力份额折算，本篇的 PromQL 只处理整卡与 MIG 两种。
+容器层不采 GPU 的运行数据，但它是分配率的来源与所有分摊维度的来源。kube-state-metrics 把 Pod 的 `resources.requests` 展开为 `kube_pod_container_resource_requests{namespace,pod,container,node,resource,unit}`，`nvidia.com/gpu` 被规范化为 `resource="nvidia_com_gpu"`（斜杠与点换成下划线，这是 kube-state-metrics 的通行做法，OpenCost 的查询 `queryFmtGPUsRequested` 也这么写）；节点侧是 `kube_node_status_allocatable{resource="nvidia_com_gpu"}` 与 `kube_node_status_capacity`。MIG 的 `mixed` 策略（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)）会让资源名变成 `nvidia_com_mig_1g_5gb` 一类，分配率要按 MIG 实例数而不是物理卡数算，或者换用第三章基于 DCGM 的算法。HAMi 的 `nvidia.com/gpumem` / `gpucores` 则要按显存或算力份额折算，本篇的 PromQL 只处理整卡与 MIG 两种。
 
 Kueue 的控制器指标（`pkg/metrics/metrics.go`，Subsystem 为 `kueue`）是排队成本的来源。`kueue_pending_workloads{cluster_queue,status}` 的 `status` 有 `active`（在准入队列里）与 `inadmissible`（尝试过准入失败、等集群条件变化再试）两个值；`kueue_admission_wait_time_seconds{cluster_queue,priority_class}` 是从创建或重新入队到准入的直方图；`kueue_cluster_queue_resource_usage{cohort,cluster_queue,flavor,resource}` 与 `kueue_cluster_queue_nominal_quota` 之比就是**队列级的配额使用率**——第九章"哪个队列长期闲置"看的是它；`kueue_cluster_queue_resource_reservation` 与 `kueue_cluster_queue_resource_pending`（后者是尚未分配到 flavor 的待处理请求量）区分了"已预留"与"在排队"。这些指标全部带 `cluster_queue` 标签，是把成本按队列分摊的第二条维度（第一条是 Pod label）。
 
@@ -216,7 +251,7 @@ vLLM 的指标在 `vllm/v1/metrics/loggers.py` 的 `PrometheusStatLogger` 里定
 
 | 组 | 指标 | 类型 / 说明 |
 |---|---|---|
-| 状态 | `vllm:num_requests_running` · `vllm:num_requests_waiting` | Gauge；扩缩容（第六篇）与路由（第七篇）的输入 |
+| 状态 | `vllm:num_requests_running` · `vllm:num_requests_waiting` | Gauge；扩缩容（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）与路由（[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)）的输入 |
 | | `vllm:num_requests_waiting_by_reason{reason}` | Gauge；`capacity`（等调度容量）还是 `deferred`（LoRA 预算、KV 传输等暂时性约束），两者之和等于 `num_requests_waiting` |
 | | `vllm:kv_cache_usage_perc` | Gauge，0–1；"KV-cache usage. 1 means 100 percent usage." |
 | | `vllm:engine_sleep_state{sleep_state}` | Gauge；缩容到"睡眠"而非零的形态 |
@@ -236,9 +271,9 @@ Table: vllm:* 指标分组
 
 ### 6. 请求层：EPP 与网关
 
-请求层的指标出自 Endpoint Picker。llm-d-router v0.10.0 的 `pkg/epp/metrics/llm_d_router_metrics.go` 以 `llm_d_epp` 为 Subsystem 定义了一组带租户维度的指标：`llm_d_epp_request_total`、`llm_d_epp_request_error_total`、`llm_d_epp_request_duration_seconds`、`llm_d_epp_request_input_tokens`、`llm_d_epp_request_output_tokens`、`llm_d_epp_request_cached_tokens`、`llm_d_epp_request_ttft_seconds`、`llm_d_epp_request_streaming_tpot_seconds`、`llm_d_epp_request_streaming_itl_seconds`，标签为 `model_name`、`target_model_name`、`fairness_id`、`priority`（部分加 `streaming`）。`fairness_id` 来自请求头 `x-llm-d-inference-fairness-id`（`pkg/epp/metadata/consts.go` 的 `FlowFairnessIDKey`，旧名 `x-gateway-inference-fairness-id`），是第七篇多租户里的租户标识——**按租户计 token 的数据源就是 `llm_d_epp_request_input_tokens_sum` 与 `llm_d_epp_request_output_tokens_sum` 按 `fairness_id` 求和**。池级视图是 `llm_d_epp_average_kv_cache_utilization`、`llm_d_epp_average_queue_size`、`llm_d_epp_average_running_requests`、`llm_d_epp_ready_endpoints`，它们是 EPP 从各副本的 `vllm:*` 拉来再聚合的，是引擎层指标在请求层的投影。
+请求层的指标出自 Endpoint Picker。llm-d-router v0.10.0 的 `pkg/epp/metrics/llm_d_router_metrics.go` 以 `llm_d_epp` 为 Subsystem 定义了一组带租户维度的指标：`llm_d_epp_request_total`、`llm_d_epp_request_error_total`、`llm_d_epp_request_duration_seconds`、`llm_d_epp_request_input_tokens`、`llm_d_epp_request_output_tokens`、`llm_d_epp_request_cached_tokens`、`llm_d_epp_request_ttft_seconds`、`llm_d_epp_request_streaming_tpot_seconds`、`llm_d_epp_request_streaming_itl_seconds`，标签为 `model_name`、`target_model_name`、`fairness_id`、`priority`（部分加 `streaming`）。`fairness_id` 来自请求头 `x-llm-d-inference-fairness-id`（`pkg/epp/metadata/consts.go` 的 `FlowFairnessIDKey`，旧名 `x-gateway-inference-fairness-id`），是[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)多租户里的租户标识——**按租户计 token 的数据源就是 `llm_d_epp_request_input_tokens_sum` 与 `llm_d_epp_request_output_tokens_sum` 按 `fairness_id` 求和**。池级视图是 `llm_d_epp_average_kv_cache_utilization`、`llm_d_epp_average_queue_size`、`llm_d_epp_average_running_requests`、`llm_d_epp_ready_endpoints`，它们是 EPP 从各副本的 `vllm:*` 拉来再聚合的，是引擎层指标在请求层的投影。
 
-网关（Envoy / Istio / kgateway）自身的访问日志与 `envoy_cluster_upstream_rq_*` 一类指标补充了 EPP 看不到的部分：被限流拒绝的请求（第七篇的配额）不会到 EPP，只在网关有记录；流式响应中途断开的请求，EPP 记录的 `output_tokens` 是断开前已生成的数。**租户账单以网关侧为准、引擎侧为对账**：两边的 token 总数差不应超过几个百分点，差得多说明有请求绕过网关直连了引擎——这本身就是一个要告警的事。
+网关（Envoy / Istio / kgateway）自身的访问日志与 `envoy_cluster_upstream_rq_*` 一类指标补充了 EPP 看不到的部分：被限流拒绝的请求（[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)的配额）不会到 EPP，只在网关有记录；流式响应中途断开的请求，EPP 记录的 `output_tokens` 是断开前已生成的数。**租户账单以网关侧为准、引擎侧为对账**：两边的 token 总数差不应超过几个百分点，差得多说明有请求绕过网关直连了引擎——这本身就是一个要告警的事。
 
 ## 三、三个数字：分配率、使用率、有效利用率
 
@@ -293,10 +328,10 @@ platform:gpu_sm_active:avg_all       = avg(DCGM_FI_PROF_SM_ACTIVE)              
 
 三个数在一天里的形状比它们的均值更有信息：
 
-- **A 高而平、E 有明显日夜周期**：推理服务按峰值常驻，低峰空转——第六篇的扩缩容与缩零，或第四篇的切分把低峰的卡让出来。
-- **A 有阶梯、每个阶梯的前几分钟 E 为零**：训练任务启动期（拉镜像、加载 checkpoint、rendezvous）——第二篇的镜像体积与第五篇的 checkpoint 读吞吐。
-- **A 长期 100%、`kueue_pending_workloads` 不为零、E 在 40% 附近**：卡是满的但算得不满，配额把任务挡在外面而里面的任务在等通信——第三篇的配额与第五篇的网络，两边都有事做。
-- **某些 namespace 的 A 全天不变、E 接近零**：开发环境与 notebook 占着卡——第四篇的时间片，或第三篇的配额与超时回收。
+- **A 高而平、E 有明显日夜周期**：推理服务按峰值常驻，低峰空转——[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的扩缩容与缩零，或[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)的切分把低峰的卡让出来。
+- **A 有阶梯、每个阶梯的前几分钟 E 为零**：训练任务启动期（拉镜像、加载 checkpoint、rendezvous）——[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)的镜像体积与[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的 checkpoint 读吞吐。
+- **A 长期 100%、`kueue_pending_workloads` 不为零、E 在 40% 附近**：卡是满的但算得不满，配额把任务挡在外面而里面的任务在等通信——[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的配额与[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的网络，两边都有事做。
+- **某些 namespace 的 A 全天不变、E 接近零**：开发环境与 notebook 占着卡——[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)的时间片，或[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的配额与超时回收。
 - **U 在某个 job 上显著低于同类 job**：straggler 或数据管线——第五章。
 
 三个数字是**诊断的入口而不是结论**：每一种形状指向一个章节，进了那一章才有具体的机制可调。
@@ -315,6 +350,12 @@ Prometheus 的 ServiceMonitor（dcgm-exporter Helm 的 `serviceMonitor.enabled`�
 
 - **Pod label 全量进 DCGM 指标**。Pod 上常有十几个 label（`app`、`pod-template-hash`、`controller-revision-hash`、`batch.kubernetes.io/job-name`……），其中 `pod-template-hash` 与 `job-name` 每次部署都变。不设 `podLabelAllowlistRegex`，每张卡每次调度到新 Pod 就产生一组新时序，旧的变成"陈旧但仍在索引里"的时序。**只放分摊需要的 label**（`team`、`project`、`kueue.x-k8s.io/queue-name`），`pod` 本身已经是唯一标识，不需要更多。
 - **请求级标签**。给 `llm_d_epp_request_total` 加 `request_id`、`user_id` 或完整的 `model` 字符串，每个请求一条时序，时序库在小时级内被撑爆。llm-d-router v0.10.0 的 `pkg/epp/metrics/cardinality.go` 对此有内建的保护：`maxModelLabelValues` 与 `maxFairnessLabelValues` 都是 1000，超过上限的 `model_name` / `fairness_id` 值统一折叠为 `other`（`overflowValue`），`boundFairnessID` / `boundModels` 在每次记录时调用。这意味着**租户数超过 1000 时账单里会出现一个 `other`**——做多租户计费的平台要么把租户 ID 映射到更粗的计费单元，要么把按租户计费移到日志管线（第 4 节）。
+
+> [!NOTE] Java 经验参照：指标加个 label 几乎是免费的
+>
+> Micrometer 里给一个计数器多挂一个 tag，成本通常忽略不计：tag 的取值是有限的几个枚举，多一维就多几条时序。这一层的 label 取值不是枚举，是**每次部署、每次调度都在变的字符串**：`pod-template-hash`、`batch.kubernetes.io/job-name` 每次发布一换，每张卡每换一个 Pod 就是一组新时序；`model_name` 和 `fairness_id` 的取值是租户数。
+>
+> 所以这里加 label 之前要先问一句"它一个月会出现多少个不同的值"。超过上限还有一个后果是别处没有的：**指标库不会崩，账单会出错**——超限的值被折叠成 `other`，总数仍然对得上，只是多出一笔没人认领的成本。
 - **每 rank 的训练指标**。1024 个 rank × 每 rank 十几个指标是可以接受的（一两万条），但如果再乘上 `step` 作为标签就不行——step 是值不是标签，这是 Prometheus 与 TensorBoard 的分工边界。
 
 一个经验的阈值：单个 Prometheus 的活跃时序控制在几百万以内；每加一个标签之前，先算它的取值个数。
@@ -329,7 +370,7 @@ trace 的采样率要低（1%–5%）——每个请求一个 span 树的存储�
 
 两类故障只在日志里出现，指标是它们的滞后信号。
 
-**XID** 是驱动报告的 GPU 错误码，权威来源是内核日志（`dmesg` / `journalctl -k` 里的 `NVRM: Xid (PCI:…): 79, …`）。DCGM 的 `DCGM_FI_DEV_XID_ERRORS` 只报最近一个码，作为告警触发足够（`> 0` 即 page），作为复盘不够。做法是节点上一个日志采集器（Fluent Bit、Vector、OTel Collector 的 filelog receiver）对 `NVRM: Xid` 做正则匹配，产出一条带 `node`、`pci_bus_id`、`xid` 的事件；再由 Alertmanager 或一个小控制器执行**隔离动作**——给节点打 `cordon`、在 Kueue 的 `ResourceFlavor` 上通过 taint 把它摘出资源池（第三篇），让正在跑的 gang 任务按第五篇的容错路径重启到别的节点。XID 的不同码含义不同（以 NVIDIA 文档为准），常见的 79（GPU 掉线）、48 / 63 / 64（显存错误）、13 / 31 / 43（应用侧非法访问，多为软件 bug）要在告警规则里分级：前两类 page 并隔离，第三类只 record。
+**XID** 是驱动报告的 GPU 错误码，权威来源是内核日志（`dmesg` / `journalctl -k` 里的 `NVRM: Xid (PCI:…): 79, …`）。DCGM 的 `DCGM_FI_DEV_XID_ERRORS` 只报最近一个码，作为告警触发足够（`> 0` 即 page），作为复盘不够。做法是节点上一个日志采集器（Fluent Bit、Vector、OTel Collector 的 filelog receiver）对 `NVRM: Xid` 做正则匹配，产出一条带 `node`、`pci_bus_id`、`xid` 的事件；再由 Alertmanager 或一个小控制器执行**隔离动作**——给节点打 `cordon`、在 Kueue 的 `ResourceFlavor` 上通过 taint 把它摘出资源池（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)），让正在跑的 gang 任务按[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的容错路径重启到别的节点。XID 的不同码含义不同（以 NVIDIA 文档为准），常见的 79（GPU 掉线）、48 / 63 / 64（显存错误）、13 / 31 / 43（应用侧非法访问，多为软件 bug）要在告警规则里分级：前两类 page 并隔离，第三类只 record。
 
 **NCCL** 的错误在训练进程的 stderr 里：`NCCL WARN` 后接 `Cuda failure` / `unhandled system error` / `Socket ... connect failed`，以及 PyTorch watchdog 的 `Watchdog caught collective operation timeout`。它们在指标上表现为 `train_last_step_timestamp_seconds` 停止前进（hang）或任务重启计数增加，但日志里的那行才说明**哪个 rank、哪条链路**。采集方式同上，正则匹配 `NCCL WARN` 与 `Watchdog caught`，标签带 `job`、`pod`（即 rank 的位置），告警按 job 聚合抑制——一次 hang 会让全部 rank 同时报超时，不要发 256 条。
 
@@ -343,9 +384,9 @@ trace 的采样率要低（1%–5%）——每个请求一个 span 树的存储�
 
 | 形态 | 含义 | 对应 |
 |---|---|---|
-| 全体在启动后 N 分钟才亮 | 拉镜像 · 加载 checkpoint · rendezvous | 第二篇镜像体积；第五篇存储读吞吐 |
-| 全体周期性同时变暗数十秒 | checkpoint 写入（同步保存） | 第五篇的异步 checkpoint |
-| 一两行持续比其他行暗 | straggler：该 rank 慢，其余在等它 | 第五篇网络（该节点链路）；硬件层降频 / XID |
+| 全体在启动后 N 分钟才亮 | 拉镜像 · 加载 checkpoint · rendezvous | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)镜像体积；[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)存储读吞吐 |
+| 全体周期性同时变暗数十秒 | checkpoint 写入（同步保存） | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的异步 checkpoint |
+| 一两行持续比其他行暗 | straggler：该 rank 慢，其余在等它 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)网络（该节点链路）；硬件层降频 / XID |
 | 全体亮度均匀但只有 40% | 通信 / 计算比高，或 kernel 小 | 引擎内部（并行策略 / 批大小），平台层只能提供 RDMA |
 
 Table: 任务级 GPU 时间线的几种形态
@@ -354,19 +395,19 @@ Table: 任务级 GPU 时间线的几种形态
 
 ### 2. 每 rank 的 step 时间
 
-同步训练里每一步的时间由最慢的 rank 决定，所以要看的不是平均 step 时间而是**各 rank step 时间的分布**：`histogram_quantile(0.95, …)` 与 p50 的比值超过 1.2 就有 rank 在拖。训练进程按第二章第 5 节的约定暴露 `train_step_seconds{job,rank}`，`topk(3, train_step_seconds{job="x"})` 直接给出嫌疑 rank；再用 `rank → pod → hostname / gpu` 的映射（DCGM 的 `pod` 标签反查）落到具体的卡，看它的 `DCGM_FI_DEV_SM_CLOCK`（降频）、`DCGM_FI_DEV_PCIE_REPLAY_COUNTER`（PCIe 重放）、`DCGM_FI_DEV_XID_ERRORS`。straggler 的平台侧根因通常就是这三个之一，或者是该节点的 RDMA 网卡（第五篇的 IB 计数器，不在 DCGM 里）。
+同步训练里每一步的时间由最慢的 rank 决定，所以要看的不是平均 step 时间而是**各 rank step 时间的分布**：`histogram_quantile(0.95, …)` 与 p50 的比值超过 1.2 就有 rank 在拖。训练进程按第二章第 5 节的约定暴露 `train_step_seconds{job,rank}`，`topk(3, train_step_seconds{job="x"})` 直接给出嫌疑 rank；再用 `rank → pod → hostname / gpu` 的映射（DCGM 的 `pod` 标签反查）落到具体的卡，看它的 `DCGM_FI_DEV_SM_CLOCK`（降频）、`DCGM_FI_DEV_PCIE_REPLAY_COUNTER`（PCIe 重放）、`DCGM_FI_DEV_XID_ERRORS`。straggler 的平台侧根因通常就是这三个之一，或者是该节点的 RDMA 网卡（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的 IB 计数器，不在 DCGM 里）。
 
 平台不解释 step 时间为什么是 4.8 秒而不是 4.5 秒——那是引擎内部；平台负责的是"为什么 rank 517 是 6 秒而其他是 4.8 秒"。
 
 ### 3. checkpoint 耗时与通信 / 计算比
 
-`train_ckpt_seconds{job,phase="save"}` 每次保存记一个值，与第五篇的算术对照：70B 模型约 1 TB 的状态、要求 1 分钟写完，对应约 17 GB/s 的聚合写带宽；如果实测是 4 分钟，要么存储带宽不够，要么没做分布式 / 异步保存。它在 GPU 时间线上就是"全体周期性变暗"的那些竖条，宽度乘以频率乘以卡数就是 checkpoint 的 GPU 小时成本（第七章）。
+`train_ckpt_seconds{job,phase="save"}` 每次保存记一个值，与[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的算术对照：70B 模型约 1 TB 的状态、要求 1 分钟写完，对应约 17 GB/s 的聚合写带宽；如果实测是 4 分钟，要么存储带宽不够，要么没做分布式 / 异步保存。它在 GPU 时间线上就是"全体周期性变暗"的那些竖条，宽度乘以频率乘以卡数就是 checkpoint 的 GPU 小时成本（第七章）。
 
 通信 / 计算比平台层没有直接指标——NCCL kernel 与计算 kernel 都算 `SM_ACTIVE`。间接的办法有两个：`DCGM_FI_PROF_PIPE_TENSOR_ACTIVE` 与 `SM_ACTIVE` 的比值（通信 kernel 不用 Tensor core，比值越低通信占比越高）；`DCGM_FI_DEV_NVLINK_BANDWIDTH_TOTAL` 与 `DCGM_FI_PROF_PCIE_TX_BYTES` 的流量形状（通信阶段有流量、计算阶段没有）。精确的分解要靠训练框架的 timer 输出——那是引擎侧的事，平台只要求它把"通信等待时间占比"作为一个指标暴露出来（约定名 `train_comm_wait_ratio{job}`），然后在第十章的分解表里用它。
 
 ### 4. 引擎作为黑盒的边界
 
-平台对训练任务的可观测到此为止：硬件层全采、Pod 层全采、引擎层只采**约定的最小指标集**。不去解析训练框架的日志格式、不去读 TensorBoard 的事件文件、不去猜并行策略。原因是训练框架多、版本变化快、每个团队的脚本都不同；平台若依赖它们的内部格式，每次框架升级都要跟着改。约定一个指标接口（名字、标签、语义）并写进任务提交的规范里，是平台与引擎之间正确的边界——这也是第一篇"引擎的需求清单"反过来的那一面：平台对引擎的需求清单。
+平台对训练任务的可观测到此为止：硬件层全采、Pod 层全采、引擎层只采**约定的最小指标集**。不去解析训练框架的日志格式、不去读 TensorBoard 的事件文件、不去猜并行策略。原因是训练框架多、版本变化快、每个团队的脚本都不同；平台若依赖它们的内部格式，每次框架升级都要跟着改。约定一个指标接口（名字、标签、语义）并写进任务提交的规范里，是平台与引擎之间正确的边界——这也是[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)"引擎的需求清单"反过来的那一面：平台对引擎的需求清单。
 
 ## 六、推理服务的 SLO 与容量
 
@@ -380,14 +421,14 @@ Table: 任务级 GPU 时间线的几种形态
 
 一个副本的负载—延迟曲线有一个拐点：在拐点之前加请求，TTFT 与 TPOT 几乎不变、吞吐线性上升；过了拐点，`vllm:num_requests_waiting` 开始非零、`vllm:kv_cache_usage_perc` 接近 1、TTFT 陡增。**饱和点就是拐点处的并发数或 token/s**，它是这个模型、这种硬件、这组引擎参数下的常数，用压测测一次，之后用来做两件事：
 
-- **扩缩容阈值**（第六篇）：让 KEDA 按 `vllm:num_requests_waiting > 0 持续 N 秒`或 `kv_cache_usage_perc > 0.8` 扩容，阈值取饱和点的 70%–80%，留出扩容所需的几分钟；
+- **扩缩容阈值**（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）：让 KEDA 按 `vllm:num_requests_waiting > 0 持续 N 秒`或 `kv_cache_usage_perc > 0.8` 扩容，阈值取饱和点的 70%–80%，留出扩容所需的几分钟；
 - **容量规划**：需要的副本数 = 峰值 goodput 需求 / 单副本饱和点 goodput，向上取整再加冗余。
 
 饱和点随三件事变：量化（FP8 的 KV cache 更小、饱和点更高）、PD 分离（prefill 与 decode 各自的饱和点独立，第八章）、prefix cache 命中率（`vllm:prefix_cache_hits_total / queries_total` 高时 prefill 负担轻）。任何一项变了都要重测。
 
 ### 3. 从 SLO 反推容量
 
-把上面两节合起来就是容量规划的算术。以第六篇核心问题的 70B / TP=4 服务为例（数字是假设）：单副本饱和点 goodput 为 40 请求/s（在 TTFT ≤ 1 s、TPOT ≤ 50 ms 下），晚高峰需求 200 请求/s → 5 副本 → 20 张卡；平时需求 60 请求/s → 2 副本 → 8 张卡。差额 12 张卡 × 每天 6 小时低峰 = 72 GPU 小时/天，这就是缩容能省的钱（第七章第 4 节）；而每次扩容要 8 分钟，8 分钟内新增流量会越线——所以要提前触发，提前的代价是这 8 分钟的 12 张卡。SLO、饱和点、扩容时间、单价四个数决定了扩缩容参数，没有一个是拍脑袋的。
+把上面两节合起来就是容量规划的算术。以[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)核心问题的 70B / TP=4 服务为例（数字是假设）：单副本饱和点 goodput 为 40 请求/s（在 TTFT ≤ 1 s、TPOT ≤ 50 ms 下），晚高峰需求 200 请求/s → 5 副本 → 20 张卡；平时需求 60 请求/s → 2 副本 → 8 张卡。差额 12 张卡 × 每天 6 小时低峰 = 72 GPU 小时/天，这就是缩容能省的钱（第七章第 4 节）；而每次扩容要 8 分钟，8 分钟内新增流量会越线——所以要提前触发，提前的代价是这 8 分钟的 12 张卡。SLO、饱和点、扩容时间、单价四个数决定了扩缩容参数，没有一个是拍脑袋的。
 
 ## 七、成本模型
 
@@ -446,7 +487,7 @@ OpenCost v1.121.2 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 - **分配**：`applyGPUsAllocated` 用 kube-state-metrics 的 `kube_pod_container_resource_requests{resource="nvidia_com_gpu"}`（`modules/prometheus-source/pkg/prom/metricsquerier.go` 的 `queryFmtGPUsRequested`）或 OpenCost 自己导出的 `container_gpu_allocation`（`queryFmtGPUsAllocated`），`GPUHours = 请求数 × 小时`——注释写明"GPUHours reflects the full reserved GPU allocation (request × hours)"，即按分配不按使用；
 - **定价**：`applyNodeCostPerGPUHr` 读 `node_gpu_hourly_cost{node,instance_type,provider_id}`（OpenCost 自己从云厂商定价 API 或 `configs/*.json` 的自定义价生成，`default.json` 里 `"GPU": "0.95"`），然后 `GPUCost = GPUHours × CostPerGPUHr`；
 - **使用**：`applyGPUUsageAvg` / `applyGPUUsageMax` 从 `DCGM_FI_PROF_GR_ENGINE_ACTIVE{container!=""}` 按 `container, pod, namespace, pod_uid` 聚合（`queryFmtGPUsUsageAvg`），填进 `GPUUsageAverage`；它依赖 DCGM Exporter 开了 `--kubernetes` 映射，结果按 `namespace` / `pod` 对到分配（`newResultPodKey`），`pod_uid` 只是聚合维度之一，`--kubernetes-enable-pod-uid` 不开也能对上（v1.121.2 的内置 collector 数据源还会在 DCGM 样本缺 `pod_uid` 时按 `namespace` / `pod` 从集群缓存回填，`modules/collector-source/pkg/scrape/dcgm.go` 的 `podUIDEnricher`）；
-- **共享**：`applyGPUUsageShared` 识别 `nvidia_com_gpu_shared` 资源名（GFD `renameByDefault=true` 时时间片副本的名字，第四篇）置 `IsGPUShared`；节点侧 `costmodel.go` 读 `nvidia.com/gpu.count` 标签与 `nvidia.com/gpu.shared` 容量区分物理卡数与副本数；
+- **共享**：`applyGPUUsageShared` 识别 `nvidia_com_gpu_shared` 资源名（GFD `renameByDefault=true` 时时间片副本的名字，[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)）置 `IsGPUShared`；节点侧 `costmodel.go` 读 `nvidia.com/gpu.count` 标签与 `nvidia.com/gpu.shared` 容量区分物理卡数与副本数；
 - **闲置**：`costmodel.go` 里 `gpuIdleCost = assetTotal.TotalGPUCost() − allocTotal.TotalGPUCost()`，即节点上 GPU 的总成本减去分配出去的，就是"没给出去"的那部分（`1 − A`）；分配出去但没算的那部分（`A(1 − U)`）不在 OpenCost 的闲置定义里，要用 `GPUUsageAverage` 自己算。
 
 查询接口是 `/allocation/compute`（`pkg/costmodel/router.go`），参数 `window`、`aggregate`（支持 `namespace`、`label:team` 这样的形式，`core/pkg/opencost/allocationprops.go`）、`includeIdle`、`shareIdle`、`idleByNode`。它的**边界**有五条：
@@ -464,8 +505,8 @@ OpenCost v1.121.2 的分配模型（`core/pkg/opencost/allocation.go` 的 `Alloc
 账单上不会单列、但三个数字里能算出来的成本：
 
 - **闲置成本**：`Σ 单价 × 分配时长 × (1 − SM_ACTIVE)`，按团队算。它是 `A − E` 那 50 个点的货币化，第十章分解它。
-- **排队成本**：任务等资源的时间不占 GPU，但占人的时间与项目进度。度量是 `kueue_admission_wait_time_seconds` 的和乘以任务请求的卡数——"如果配额够，这些 GPU 小时本来可以在这段时间里产出"。它与闲置成本是同一枚硬币的两面：闲置在 A 团队的卡，就是 B 团队在排的队。两者同时高，说明配额（第三篇）切得不对或 cohort 借用没开。
-- **冷启动成本**：推理副本从调度到就绪的时间里卡已分配但没服务；训练任务启动期同理。`(就绪时间 − 调度时间) × 卡数 × 单价 × 次数`。缩容到零省的是常驻成本，付的是每次冷启动——两者的比值决定该不该缩零（第六篇）。
+- **排队成本**：任务等资源的时间不占 GPU，但占人的时间与项目进度。度量是 `kueue_admission_wait_time_seconds` 的和乘以任务请求的卡数——"如果配额够，这些 GPU 小时本来可以在这段时间里产出"。它与闲置成本是同一枚硬币的两面：闲置在 A 团队的卡，就是 B 团队在排的队。两者同时高，说明配额（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)）切得不对或 cohort 借用没开。
+- **冷启动成本**：推理副本从调度到就绪的时间里卡已分配但没服务；训练任务启动期同理。`(就绪时间 − 调度时间) × 卡数 × 单价 × 次数`。缩容到零省的是常驻成本，付的是每次冷启动——两者的比值决定该不该缩零（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）。
 
 把"按分配计费"与"闲置作展示列"放到总纲那个 64 卡集群的一个月账上，`allocate.py`（第十二章）输出的形状大致如下。**全部数字为假设**：单价取第八章的 2.5 美元/卡时，A = 85%、E = 35% 与第十章一致，四个团队的构成是编出来凑这两个数的：
 
@@ -499,8 +540,8 @@ $$P_{\text{GPU}}$$ 是每卡每小时单价，$$N_{\text{GPU}}$$ 是一个副本
 
 ### 2. 三个杠杆
 
-- **量化**：FP8 / INT8 权重让同一张卡的权重占用减半、KV cache 空间增加、decode 的带宽需求下降，$$T$$ 上升（幅度以引擎实测为准，通常在 1.3–2 倍之间）；代价是精度评测与两个版本的灰度（第七篇）。$$C_{1M}$$ 按 $$T$$ 的倍数下降。
-- **PD 分离**：prefill 与 decode 放在不同的 Pod 组（第六篇的 `DisaggregatedSet` 形态），各自按自己的饱和点扩缩。它不一定降低单副本的 $$T$$，但**把 goodput 提上去**——decode 不再被突发的长 prefill 打断，TPOT 稳定，同样的卡数能承诺更严的 SLO；也让两侧可以用不同的卡型（prefill 用算力强的、decode 用带宽大的），改变 $$P_{\text{GPU}}$$ 的构成。
+- **量化**：FP8 / INT8 权重让同一张卡的权重占用减半、KV cache 空间增加、decode 的带宽需求下降，$$T$$ 上升（幅度以引擎实测为准，通常在 1.3–2 倍之间）；代价是精度评测与两个版本的灰度（[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)）。$$C_{1M}$$ 按 $$T$$ 的倍数下降。
+- **PD 分离**：prefill 与 decode 放在不同的 Pod 组（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的 `DisaggregatedSet` 形态），各自按自己的饱和点扩缩。它不一定降低单副本的 $$T$$，但**把 goodput 提上去**——decode 不再被突发的长 prefill 打断，TPOT 稳定，同样的卡数能承诺更严的 SLO；也让两侧可以用不同的卡型（prefill 用算力强的、decode 用带宽大的），改变 $$P_{\text{GPU}}$$ 的构成。
 - **批大小**：并发上限（vLLM 的 `--max-num-seqs`、`--max-num-batched-tokens`，以 v0.28.0 文档为准）越大 $$T$$ 越高，但 TPOT 随之上升；在 SLO 内取最大批就是第六章的饱和点。`vllm:iteration_tokens_total` 直方图显示实际每步的 token 数，与配置的上限比就知道批有没有填满——填不满是负载不够（$$U$$ 的问题），不是引擎的问题。
 
 ### 3. 与 API 定价的量级对比
@@ -515,12 +556,12 @@ FinOps 的"回路"指成本数据改变前七篇的参数，而不是只出一�
 
 | 观察（第三、七章的数字） | 动作 | 改的是哪篇的机制 |
 |---|---|---|
-| 某 ClusterQueue 的 `resource_usage / nominal_quota` 长期 < 30%，且其他队列 `pending_workloads` 持续非零 | 缩它的 `nominalQuota`<br/>开 cohort 借用<br/>或把 `borrowingLimit` 放开 | 第三篇：ClusterQueue 配额与 cohort |
-| 某推理服务 `FB_USED` 长期 < 30 GB、`SM_ACTIVE` < 25% | 迁到 MIG 3g.40gb 或 HAMi 按显存切；整卡让给训练 | 第四篇：切分与隔离 |
-| 某服务 E 有明显日夜周期、低峰 U < 15% | KEDA 阈值下调、`minReplicaCount` 降到 1 或 0；缩零前算冷启动成本 | 第六篇：扩缩容与冷启动 |
-| 某 namespace 全天 A 不变、E ≈ 0 | 开发环境改时间片；notebook 加空闲超时回收 | 第四篇时间片；第三篇配额与超时 |
-| 训练 job 的 checkpoint 竖条宽度 × 频率 > 5% 时间 | 异步 checkpoint<br/>存储带宽扩容<br/>间隔拉长 | 第五篇：checkpoint I/O |
-| 某租户 token 占比高但 SLO 达成率低 | 提高该租户的 priority 或独立 InferencePool | 第七篇：租户优先级与配额 |
+| 某 ClusterQueue 的 `resource_usage / nominal_quota` 长期 < 30%，且其他队列 `pending_workloads` 持续非零 | 缩它的 `nominalQuota`<br/>开 cohort 借用<br/>或把 `borrowingLimit` 放开 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：ClusterQueue 配额与 cohort |
+| 某推理服务 `FB_USED` 长期 < 30 GB、`SM_ACTIVE` < 25% | 迁到 MIG 3g.40gb 或 HAMi 按显存切；整卡让给训练 | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)：切分与隔离 |
+| 某服务 E 有明显日夜周期、低峰 U < 15% | KEDA 阈值下调、`minReplicaCount` 降到 1 或 0；缩零前算冷启动成本 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)：扩缩容与冷启动 |
+| 某 namespace 全天 A 不变、E ≈ 0 | 开发环境改时间片；notebook 加空闲超时回收 | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)时间片；[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)配额与超时 |
+| 训练 job 的 checkpoint 竖条宽度 × 频率 > 5% 时间 | 异步 checkpoint<br/>存储带宽扩容<br/>间隔拉长 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：checkpoint I/O |
+| 某租户 token 占比高但 SLO 达成率低 | 提高该租户的 priority 或独立 InferencePool | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)：租户优先级与配额 |
 
 Table: 成本回流到配置的观察与动作
 
@@ -533,9 +574,9 @@ flowchart TB
     M --> R["<b>recording rules</b><br/>A / U / E · 按团队 / 队列 · TTFT p95 · token 速率"]
     R --> BILL["<b>月初：账单 + 分解表</b><br/>allocate.py / OpenCost：GPU 小时 × 单价<br/>按团队 / 模型 / 租户；50 个点去了哪里"]
     BILL --> REVIEW["<b>月初：与各团队对账</b><br/>闲置列 · 排队成本 · 每百万 token 成本"]
-    REVIEW --> KQ["<b>改配额（第三篇）</b><br/>ClusterQueue nominalQuota · cohort 借用"]
-    REVIEW --> KS["<b>改切分（第四篇）</b><br/>MIG profile · HAMi 份额 · 时间片"]
-    REVIEW --> KA["<b>改扩缩容（第六篇）</b><br/>KEDA 阈值 · minReplica · 缩零"]
+    REVIEW --> KQ["<b>改配额（《AI 任务调度》）</b><br/>ClusterQueue nominalQuota · cohort 借用"]
+    REVIEW --> KS["<b>改切分（《GPU 共享与切分》）</b><br/>MIG profile · HAMi 份额 · 时间片"]
+    REVIEW --> KA["<b>改扩缩容（《Serving 平台》）</b><br/>KEDA 阈值 · minReplica · 缩零"]
     REVIEW --> KP["<b>改采购</b><br/>A 的 p95 → 预留；峰值 − p95 → 按需"]
     KQ --> APPLY["月中：PR 合并生效"]
     KS --> APPLY
@@ -551,7 +592,7 @@ flowchart TB
 
 采购或预留的决策来自历史负载曲线的三个统计量：**A 的 p95**（多少卡在 95% 的时间里是分配出去的——这是"基础容量"，适合预留 / 自建）、**A 的峰值与 p95 的差**（突发部分，适合按需）、**`kueue_pending_workloads` 的积分**（被压抑的需求——容量不够时排队会把真实需求藏起来，规划时要把它加回去）。
 
-训练与推理的错峰是 GPU 平台特有的机会：推理的低峰（夜间）正是训练可以借卡的时段。Kueue 的 cohort 借用与抢占（第三篇）能把推理队列夜间释放的配额借给训练队列，前提是训练任务能被抢占并从 checkpoint 恢复（第五篇），且推理的扩缩容真的在夜间缩了副本（第六篇）。做到这一步，E 的日夜周期会被填平，A 与 E 的差距缩小——这是本系列八篇机制全部到位后才能出现的形状。
+训练与推理的错峰是 GPU 平台特有的机会：推理的低峰（夜间）正是训练可以借卡的时段。Kueue 的 cohort 借用与抢占（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)）能把推理队列夜间释放的配额借给训练队列，前提是训练任务能被抢占并从 checkpoint 恢复（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)），且推理的扩缩容真的在夜间缩了副本（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）。做到这一步，E 的日夜周期会被填平，A 与 E 的差距缩小——这是本系列八篇机制全部到位后才能出现的形状。
 
 ## 十、核心问题：50 个百分点去了哪里
 
@@ -560,21 +601,29 @@ flowchart TB
 | 去向 | 典型占比 | 怎么测（Prometheus） | 对应篇 / 机制 |
 |---|---|---|---|
 | **A − E = 50 个点（分配了但没算）** |  |  |  |
-| 推理低峰空转 | ~15 | 推理 namespace 的 (A − E) 在夜间 / 周末的积分；`vllm:num_requests_running` 接近 0 而 Pod 仍 Running | 第六篇：KEDA 阈值 · minReplica · 缩零；第四篇：低峰改切分 |
-| 开发环境与 notebook 长期占用 | ~10 | dev namespace 的 A 全天恒定、`SM_ACTIVE` < 5%；`FB_USED` 只有 CUDA context 的几 GB | 第四篇：时间片；第三篇：配额 + 空闲超时 |
-| 训练的通信与数据等待 | ~10 | 训练 job 的 `TENSOR_ACTIVE / SM_ACTIVE` 比值低<br/>`train_comm_wait_ratio`<br/>NVLINK / PCIE 流量呈周期性 | 第五篇：RDMA 是否生效 · NCCL 走了哪条路；引擎内部的并行策略（本系列边界外） |
-| 排队占位（部分调度的 gang） | ~5 | 没有 gang 时：job 的部分 Pod Running 而其余 Pending，Running 的 `SM_ACTIVE` = 0；有 Kueue 时应为 0，否则查 AdmissionCheck 与 Pod 启动失败 | 第三篇：gang scheduling · Kueue 准入 |
-| checkpoint 写入停顿 | ~3 | `train_ckpt_seconds` × 频率 × 卡数；GPU 时间线上的周期性竖条 | 第五篇：异步 DCP · 存储写带宽 |
-| 启动与冷启动 | ~2 | Pod 从 Scheduled 到 Ready 的时间 × 卡数（`kube_pod_status_ready` 与 scheduled 时间差）；推理副本扩容期间 `vllm:*` 尚无数据 | 第二篇：镜像体积 · 预热<br/>第五篇：权重加载<br/>第六篇：扩容时间分解 |
+| 推理低峰空转 | ~15 | 推理 namespace 的 (A − E) 在夜间 / 周末的积分；`vllm:num_requests_running` 接近 0 而 Pod 仍 Running | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)：KEDA 阈值 · minReplica · 缩零；[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)：低峰改切分 |
+| 开发环境与 notebook 长期占用 | ~10 | dev namespace 的 A 全天恒定、`SM_ACTIVE` < 5%；`FB_USED` 只有 CUDA context 的几 GB | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)：时间片；[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：配额 + 空闲超时 |
+| 训练的通信与数据等待 | ~10 | 训练 job 的 `TENSOR_ACTIVE / SM_ACTIVE` 比值低<br/>`train_comm_wait_ratio`<br/>NVLINK / PCIE 流量呈周期性 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：RDMA 是否生效 · NCCL 走了哪条路；引擎内部的并行策略（本系列边界外） |
+| 排队占位（部分调度的 gang） | ~5 | 没有 gang 时：job 的部分 Pod Running 而其余 Pending，Running 的 `SM_ACTIVE` = 0；有 Kueue 时应为 0，否则查 AdmissionCheck 与 Pod 启动失败 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：gang scheduling · Kueue 准入 |
+| checkpoint 写入停顿 | ~3 | `train_ckpt_seconds` × 频率 × 卡数；GPU 时间线上的周期性竖条 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：异步 DCP · 存储写带宽 |
+| 启动与冷启动 | ~2 | Pod 从 Scheduled 到 Ready 的时间 × 卡数（`kube_pod_status_ready` 与 scheduled 时间差）；推理副本扩容期间 `vllm:*` 尚无数据 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)：镜像体积 · 预热<br/>[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：权重加载<br/>[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)：扩容时间分解 |
 | 测量上限（不可回收） | ~5 | memory-bound 的 decode 与小 batch 下 `SM_ACTIVE` 本来到不了 100%；`DRAM_ACTIVE` 高而 `SM_ACTIVE` 低 | 不属于任何一篇：换 `DRAM_ACTIVE` 看 decode，这部分不是浪费 |
 | **1 − A = 15 个点（没分配出去）** |  |  |  |
-| 碎片 | ~6 | 节点上 allocatable − requests 的余量之和，且这些余量凑不出任何 pending 任务的需求 | 第三篇：binpack · 拓扑感知 · 队列的 flavor 划分 |
-| 隔离的坏节点 | ~3 | cordoned / tainted 节点上的 GPU 数；XID 告警后未恢复的节点 | 第二篇：驱动 · 第五章第 4 节的隔离动作 |
-| 预留与配额过紧 | ~6 | `kueue_cluster_queue_nominal_quota − resource_usage` 的和大于 0 且 pending 非零 | 第三篇：配额与 cohort 借用 |
+| 碎片 | ~6 | 节点上 allocatable − requests 的余量之和，且这些余量凑不出任何 pending 任务的需求 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：binpack · 拓扑感知 · 队列的 flavor 划分 |
+| 隔离的坏节点 | ~3 | cordoned / tainted 节点上的 GPU 数；XID 告警后未恢复的节点 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)：驱动 · 第五章第 4 节的隔离动作 |
+| 预留与配额过紧 | ~6 | `kueue_cluster_queue_nominal_quota − resource_usage` 的和大于 0 且 pending 非零 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：配额与 cohort 借用 |
 
 Table: 50 个百分点的去向与测法
 
-四个观察。第一，**推理低峰与开发环境合起来占了一半**，它们是最容易回收的——参数级的改动（KEDA 阈值、时间片、空闲超时），不需要改架构。第二，**训练的通信等待是平台与引擎共同的责任**：平台保证 RDMA 生效、拓扑对齐（第三、五篇），剩下的比例由并行策略决定，平台看板上要把这两部分分开（RDMA 没生效时 `NVLINK_BANDWIDTH_TOTAL` 低而 PCIe 流量高，是平台的问题；RDMA 生效仍等待，是引擎的问题）。第三，**有 5 个点不是浪费**——用 `SM_ACTIVE` 做统一尺度的代价是它低估 memory-bound 负载，decode 服务要用 `DRAM_ACTIVE` 复核；把"不可回收"的部分明确标出来，团队才不会追一个到不了的目标。第四，**`1 − A` 那 15 个点里有 6 个是配额设置**，不是硬件——配额过紧的队列在账单上表现为"闲置"，在 Kueue 上表现为别的队列在排队，这两个信号要放在同一张看板上才会被同时看到。
+四个观察。
+
+**1、推理低峰与开发环境合起来占了一半。**它们也是最容易回收的——参数级的改动（KEDA 阈值、时间片、空闲超时），不需要改架构。
+
+**2、训练的通信等待是平台与引擎共同的责任。**平台保证 RDMA 生效、拓扑对齐（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)、[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)），剩下的比例由并行策略决定，平台看板上要把这两部分分开：RDMA 没生效时 `NVLINK_BANDWIDTH_TOTAL` 低而 PCIe 流量高，是平台的问题；RDMA 生效仍然在等，是引擎的问题。
+
+**3、有 5 个点不是浪费。**用 `SM_ACTIVE` 做统一尺度的代价是它低估 memory-bound 负载，decode 服务要用 `DRAM_ACTIVE` 复核。把"不可回收"的部分明确标出来，团队才不会追一个到不了的目标。
+
+**4、`1 − A` 那 15 个点里有 6 个是配额设置，不是硬件。**配额过紧的队列在账单上表现为"闲置"，在 Kueue 上表现为别的队列在排队——这两个信号要放在同一张看板上，才会被同时看到。
 
 分解完之后，每一项都成了前面某一篇的一个待办。这就是可观测层的作用：它自己不省一张卡，但它决定了前七篇的哪个开关该动。
 
@@ -586,7 +635,7 @@ Table: 50 个百分点的去向与测法
 
 **基数与保留**。第四章的三条基数陷阱每一条都有真实的事故记录。分摊维度越细、保留越长，存储越贵；13 个月的原始 DCGM 时序在几百节点的集群上是 TB 级，必须靠 recording rules 降采样后再长期保留，而降采样后就查不到当时某张卡的抖动了。**告警用原始、账单用聚合**，两边的数字要能对上，对不上时以原始为准。
 
-**归因的误差**。DCGM 的 `pod` 标签来自 kubelet 的 pod-resources API，一张卡在两个 Pod 之间切换的那几十秒里可能归错；时间片与 HAMi 共卡时（第四篇）一张卡的 `SM_ACTIVE` 归到多个 Pod，DCGM Exporter 4.x 开 `--kubernetes-virtual-gpus` 时用 `vgpu` 属性区分副本，并只对 `GPU_UTIL` 与 `FB_USED` 按进程拆分（`process_metrics.go` 的 `isPerProcessMetric`），`SM_ACTIVE` 等 `PROF_*` 字段**没有按进程拆分的能力**——共卡的使用率只能按份额平摊或按 `FB_USED` 比例估。MIG 实例有独立的 `GPU_I_ID`，归因是准确的；这也是 MIG 在多租户计费上比软件切分更受欢迎的原因之一。EPP 的 `fairness_id` 超过 1000 个折叠为 `other`。OpenCost 用 `GR_ENGINE_ACTIVE`，与本篇的 `SM_ACTIVE` 数值不同。
+**归因的误差**。DCGM 的 `pod` 标签来自 kubelet 的 pod-resources API，一张卡在两个 Pod 之间切换的那几十秒里可能归错；时间片与 HAMi 共卡时（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)）一张卡的 `SM_ACTIVE` 归到多个 Pod，DCGM Exporter 4.x 开 `--kubernetes-virtual-gpus` 时用 `vgpu` 属性区分副本，并只对 `GPU_UTIL` 与 `FB_USED` 按进程拆分（`process_metrics.go` 的 `isPerProcessMetric`），`SM_ACTIVE` 等 `PROF_*` 字段**没有按进程拆分的能力**——共卡的使用率只能按份额平摊或按 `FB_USED` 比例估。MIG 实例有独立的 `GPU_I_ID`，归因是准确的；这也是 MIG 在多租户计费上比软件切分更受欢迎的原因之一。EPP 的 `fairness_id` 超过 1000 个折叠为 `other`。OpenCost 用 `GR_ENGINE_ACTIVE`，与本篇的 `SM_ACTIVE` 数值不同。
 
 **成本模型的假设**。单价是输入不是输出——自建集群的折旧口径、电费、机房、网络分摊都是财务的约定，换一种口径每百万 token 成本可以差一倍；"按分配计费"是一个政策选择，它让闲置有主，但也让被平台调度到坏节点上等了两小时的任务替平台买单——这类情况要靠 `GPUCostAdjustment` 一类的人工冲销。每百万 token 成本里的 $$T$$ 依赖压测条件（输入 / 输出长度分布），真实流量与压测分布不同时它就不准。
 
@@ -715,7 +764,7 @@ customMetrics: |
   DCGM_FI_PROF_PCIE_RX_BYTES, gauge, The rate of data received over the PCIe bus in bytes per second.
 ```
 
-装完后 `curl` 任一 DCGM Pod 的 `:9400/metrics`，应当看到 `DCGM_FI_PROF_SM_ACTIVE{gpu="0",UUID="GPU-…",…,pod="…",namespace="…",container="…",team="…"}`——`team` 只在 Pod 打了这个 label 时出现，没有 GPU Pod 的卡上不带 `pod` 标签（PromQL 里等价于 `pod=""`）。GPU Operator 管理的 DCGM Exporter 用 `ClusterPolicy.spec.dcgmExporter` 的对应字段（第二篇），机制相同。
+装完后 `curl` 任一 DCGM Pod 的 `:9400/metrics`，应当看到 `DCGM_FI_PROF_SM_ACTIVE{gpu="0",UUID="GPU-…",…,pod="…",namespace="…",container="…",team="…"}`——`team` 只在 Pod 打了这个 label 时出现，没有 GPU Pod 的卡上不带 `pod` 标签（PromQL 里等价于 `pod=""`）。GPU Operator 管理的 DCGM Exporter 用 `ClusterPolicy.spec.dcgmExporter` 的对应字段（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)），机制相同。
 
 **`obs/prometheus-rules.yaml`**——三个数字的 recording rules 与三条告警（`monitoring.coreos.com/v1` 的 `PrometheusRule`，Prometheus Operator 通行 CRD）：
 
@@ -863,7 +912,7 @@ spec:
 ```
 {% endraw %}
 
-看板上先看第一块：三条线之间的两段空隙就是第十章要分解的东西。把前几篇部署的训练任务（第三篇的 DDP）与推理服务（第六、七篇的 vLLM + 网关）跑起来，第一块会出现明显的形状——训练任务启动的几分钟里 A 上升而 E 不动，推理服务在压测停止后 A 不变而 E 落到接近零。
+看板上先看第一块：三条线之间的两段空隙就是第十章要分解的东西。把前几篇部署的训练任务（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的 DDP）与推理服务（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)、[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) 里的 vLLM 加网关）跑起来，第一块会出现明显的形状——训练任务启动的几分钟里 A 上升而 E 不动，推理服务在压测停止后 A 不变而 E 落到接近零。
 
 **`cost/allocate.py`**——从 Prometheus 拉一个时间窗内按 label 的分配时序与 token 计数，配一张单价表，输出每团队的 GPU 小时、成本、闲置比例，以及每模型 / 每租户的每百万 token 成本。它做的是 OpenCost 分配模型的一个子集（按分配计费、按 label 聚合），加上 OpenCost 没有的三样：`SM_ACTIVE` 作为使用率、队列维度、token 维度。
 
@@ -1026,7 +1075,14 @@ if __name__ == "__main__":
 ```
 {% endraw %}
 
-脚本的四步对应第七、八章的模型：按 `UUID + pod` 积分得到每段分配的 GPU 小时（按分配计费）；按卡型与 MIG profile 取单价；用 `SM_ACTIVE` 的积分算每团队的"忙的 GPU 小时"与闲置比例；用 `vllm:generation_tokens_total` 的增量算每模型的每百万 token 成本，再用 EPP 的 `fairness_id` 把模型成本按 token 占比分到租户。跑在前几篇的集群上，结果的形状（不给假测量，读者代入自己的数字）应当是：训练团队 GPU 小时多、U 在 40%–60%；推理服务 U 随负载变化大，压测时段每百万 token 成本比空闲时段低一个数量级；`unlabeled` 一行如果不为零，说明有 GPU Pod 没打 `team` label——这是准入策略（ValidatingAdmissionPolicy 或网关的 webhook）该拦下的。
+脚本的四步对应第七、八章的模型：
+
+1. 按 `UUID + pod` 积分，得到每段分配的 GPU 小时（按分配计费）；
+2. 按卡型与 MIG profile 取单价；
+3. 用 `SM_ACTIVE` 的积分算每团队"忙的 GPU 小时"与闲置比例；
+4. 用 `vllm:generation_tokens_total` 的增量算每模型的每百万 token 成本，再用 EPP 的 `fairness_id` 把模型成本按 token 占比分到租户。
+
+跑在前几篇的集群上，结果的形状（不给假测量，读者代入自己的数字）应当是：训练团队 GPU 小时多、U 在 40%–60%；推理服务 U 随负载变化大，压测时段每百万 token 成本比空闲时段低一个数量级；`unlabeled` 一行如果不为零，说明有 GPU Pod 没打 `team` label——这是准入策略（ValidatingAdmissionPolicy 或网关的 webhook）该拦下的。
 
 到这里，`mini-platform/` 的八个增量合在一起（随文给出、由读者自行保存成对应文件，不是一个已发布的软件包）：
 
@@ -1068,7 +1124,7 @@ if __name__ == "__main__":
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇的扩缩容：缩容阈值与 `minReplicas` 定得太保守、或没有配缩容；改：KV < 30% 持续 15 分钟缩到 2 副本，或用定时 scaler 按日夜曲线设 minReplicas，或 PD 分离让 decode 池单独缩。
+   [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的扩缩容：缩容阈值与 `minReplicas` 定得太保守、或没有配缩容；改：KV < 30% 持续 15 分钟缩到 2 副本，或用定时 scaler 按日夜曲线设 minReplicas，或 PD 分离让 decode 池单独缩。
 
    </details>
 
@@ -1081,4 +1137,4 @@ if __name__ == "__main__":
    </details>
 
 [^q0]: 分两层拆。**分配率 85% → 100% 的 15 个点**（卡没分出去）：排队等 gang——32 卡任务凑不齐时空闲的碎片卡（Kueue / Volcano 的 pending 时间与 `ClusterQueue` 的 usage）；MIG 几何浪费的 slice；节点维护、故障隔离的卡；开发环境「预留但没起 Pod」的配额。**分配率里的 `SM_ACTIVE` 35% → 85% 的 50 个点**（卡分出去了但没干活），按 pod label 把 DCGM 的 `SM_ACTIVE` / `SM_OCCUPANCY` 归到任务类型：训练任务的通信等待与气泡（MFU 40% 意味着 SM 忙 40–50%，其余是 all-reduce 等待、PP 气泡、数据加载——`SM_ACTIVE` 长期 40–50% 是训练的正常值，不是浪费）；推理服务的低峰空转（副本数按高峰配、夜间 KV 占用 10% 但卡一直分着）；decode 本身 memory-bound（`SM_ACTIVE` 高但 `SM_OCCUPANCY` 低，正常）；开发环境 / notebook 的长期占用（分配率 100%、`SM_ACTIVE` 接近 0，最典型的浪费）。账怎么算：dcgm-exporter 开 `enablePodLabels`，OpenCost 按 pod_uid 聚合 GPU 时间乘单价，分到 namespace / team；训练按任务、推理按模型 / 租户（经网关的 token 计量对齐）、开发按人。详见[第三章](#三三个数字分配率使用率有效利用率)、[第七章](#七成本模型)、[第十章](#十核心问题50-个百分点去了哪里)。
-[^q1]: 排队等 gang → 第三篇（调度：借用、抢占、拓扑）；MIG 几何浪费与开发环境长期占用 → 第四篇（GPU 共享：HAMi / 时间片池 + 空闲回收）；训练的通信等待与气泡 → 07 系列（MFU 拆解），平台侧只负责把 `SM_ACTIVE` 归到任务；推理低峰空转 → 第六篇（缩容阈值与 minReplicas、PD 分离）；成本归因与激励 → 本篇（[第七](#七成本模型)至[九章](#九finops-回路与容量规划)）。分配率与 `SM_ACTIVE` 两条线各画一张：前者是调度问题、后者是负载问题；每类浪费对应一个机制与一个 owner。FinOps 三步：可见（每张卡每小时归到谁）→ 归因（浪费属于哪类）→ 激励（按分配计费让人释放、按 `SM_ACTIVE` 报告让人优化）。
+[^q1]: 排队等 gang → [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)（借用、抢占、拓扑）；MIG 几何浪费与开发环境长期占用 → [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)（HAMi / 时间片池 + 空闲回收）；训练的通信等待与气泡 → [《大规模训练工程（04）：千卡配置与 MFU 调优》](/thousand-gpu-configuration-and-mfu-tuning.html)，平台侧只负责把 `SM_ACTIVE` 归到任务；推理低峰空转 → [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)（缩容阈值与 minReplicas、PD 分离）；成本归因与激励 → 本篇（[第七](#七成本模型)至[九章](#九finops-回路与容量规划)）。分配率与 `SM_ACTIVE` 两条线各画一张：前者是调度问题、后者是负载问题；每类浪费对应一个机制与一个 owner。FinOps 三步：可见（每张卡每小时归到谁）→ 归因（浪费属于哪类）→ 激励（按分配计费让人释放、按 `SM_ACTIVE` 报告让人优化）。
