@@ -19,7 +19,7 @@ Triton 编译器的 C++ 部分——`lib/` 目录下五万多行——没有一�
 
 本文按**从数据结构到声明再到实例**组织：先说 MLIR 为什么存在（第二章），然后自下而上讲它的核心数据结构（第三章）、方言这个组织单位（第四章）、用 ODS 声明一个 op 并看它生成什么（第五章）、Trait 与 Interface 这个"pass 与 op 之间的契约"（第六章）、Region 与结构化控制流（第七章）、Type 与 Attribute 怎样承载 layout（第八章），最后拿 Triton 的 `tt.load`、`tt.dot`、`tt.reduce`、`#ttg.blocked` 的定义逐行对照（第九章）。
 
-贯穿的例子仍是第一篇的 `sum` 函数，这次写成 MLIR：
+贯穿的例子仍是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)的 `sum` 函数，这次写成 MLIR：
 
 ```mlir title="sum 函数的 MLIR 版本"
 func.func @sum(%a: memref<?xi32>, %n: index) -> i32 {
@@ -54,7 +54,7 @@ Table: 本文的章节安排
 
 ## 二、MLIR 为什么存在
 
-第一篇 §八.2 已经点到：LLVM 只有一层中端 IR，每个需要更高抽象的前端都自己造一层——Swift 的 SIL、Rust 的 MIR、Julia 的 SSA IR、TensorFlow 的 GraphDef 与 XLA 的 HLO、TVM 的 Relay 与 TIR、Glow 的两层 IR。每一层都重新实现同样的东西：文本打印与解析、验证器、pass manager、模式重写、位置信息、多线程。Chris Lattner 在 2019 年提出 MLIR（Multi-Level Intermediate Representation）时的观察是：**这些项目的"IR 基础设施"是相同的，不同的只是"IR 的内容"**。
+[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八.2 已经点到：LLVM 只有一层中端 IR，每个需要更高抽象的前端都自己造一层——Swift 的 SIL、Rust 的 MIR、Julia 的 SSA IR、TensorFlow 的 GraphDef 与 XLA 的 HLO、TVM 的 Relay 与 TIR、Glow 的两层 IR。每一层都重新实现同样的东西：文本打印与解析、验证器、pass manager、模式重写、位置信息、多线程。Chris Lattner 在 2019 年提出 MLIR（Multi-Level Intermediate Representation）时的观察是：**这些项目的"IR 基础设施"是相同的，不同的只是"IR 的内容"**。
 
 MLIR 把两者分开：
 
@@ -132,7 +132,7 @@ mlir-opt --mlir-print-op-generic sum.mlir
 1. `"builtin.module"()` 是最外层的 Op，零操作数、零结果、一个 Region；`"func.func"()` 同样零操作数零结果，函数名和类型是它的**属性**（`sym_name`、`function_type`），函数体是它的 Region。**函数不是一种特殊的容器，是一个带属性和 Region 的普通 Op**。
 2. `^bb0(%arg0: memref<?xi32>, %arg1: index):` 是 Region 里第一个 Block 的标签和**参数**。函数的参数不是 Op 的操作数，是函数体 Region 入口 Block 的参数——外面看不到它们，里面靠它们拿到输入。
 3. `"scf.for"(%0, %arg1, %1, %2)`：四个操作数是下界、上界、步长、**iter_args 的初值**；一个结果 `%4` 是循环结束时携带值的终值；一个 Region，其 Block 的参数 `%arg2`（归纳变量）、`%arg3`（本轮的 `acc`）。**循环携带的值在 Region 内是 Block 参数，在 Region 外是 Op 的操作数（初值）与结果（终值）**——这是 MLIR 表达循环的方式，第七章展开。
-4. `<{overflowFlags = #arith.overflow<none>}>`：尖括号里是**固有属性**（inherent attribute，Op 语义的一部分，ODS 里声明的），`#arith.overflow<none>` 是一个 `arith` 方言定义的属性值。花括号 `{…}` 里的是**可丢弃属性**（discardable attribute）——任何人可以往任何 op 上挂，op 自己不认识，pass 可以随手删；Triton 的 `tt.divisibility` 提示就是这一类（第六篇）。
+4. `<{overflowFlags = #arith.overflow<none>}>`：尖括号里是**固有属性**（inherent attribute，Op 语义的一部分，ODS 里声明的），`#arith.overflow<none>` 是一个 `arith` 方言定义的属性值。花括号 `{…}` 里的是**可丢弃属性**（discardable attribute）——任何人可以往任何 op 上挂，op 自己不认识，pass 可以随手删；Triton 的 `tt.divisibility` 提示就是这一类（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）。
 5. `: (i32, i32) -> i32` 每个 op 后面的函数类型列出操作数类型与结果类型——通用形式不推断任何类型，全部写出来。
 6. `"scf.yield"(%7)` 是 Block 的**终结 op**（terminator）：每个 Block 最后一个 op 必须是 terminator，它决定控制流去哪——`scf.yield` 把值交回父 op，`cf.br` 跳到别的 Block，`func.return` 返回。
 7. 位置信息（`loc(...)`）默认不打印，加 `--mlir-print-debuginfo` 才出现；每个 Op 都有一个。
@@ -141,7 +141,7 @@ mlir-opt --mlir-print-op-generic sum.mlir
 
 ### 3. Value 的两种来源
 
-`Value` 只有两种：某个 Op 的结果（`OpResult`），或某个 Block 的参数（`BlockArgument`）。没有第三种——没有"变量"，没有"内存位置"（memref 是一个值，它指向的内存不是 IR 里的 Value）。这就是 SSA：每个 Value 恰好被定义一次（作为结果或参数），`getDefiningOp()` 对 OpResult 返回它的 Op、对 BlockArgument 返回空。use-def 链存在 Value 里：`value.getUses()`、`value.getUsers()`、`value.replaceAllUsesWith(other)`——Triton 前端的 `iv_placeholder.replace_all_uses_with(iv)`（第五篇）就是最后这个方法的 Python 绑定。
+`Value` 只有两种：某个 Op 的结果（`OpResult`），或某个 Block 的参数（`BlockArgument`）。没有第三种——没有"变量"，没有"内存位置"（memref 是一个值，它指向的内存不是 IR 里的 Value）。这就是 SSA：每个 Value 恰好被定义一次（作为结果或参数），`getDefiningOp()` 对 OpResult 返回它的 Op、对 BlockArgument 返回空。use-def 链存在 Value 里：`value.getUses()`、`value.getUsers()`、`value.replaceAllUsesWith(other)`——Triton 前端的 `iv_placeholder.replace_all_uses_with(iv)`（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)）就是最后这个方法的 Python 绑定。
 
 ### 4. Location
 
@@ -151,7 +151,7 @@ mlir-opt --mlir-print-op-generic sum.mlir
 
 ### 1. 定义
 
-Dialect 是一个命名空间加三组东西：Op、Type、Attribute。`arith.addi` 属于 `arith` 方言，`!tt.ptr<bf16>` 是 `tt` 方言的类型，`#ttg.blocked<…>` 是 `ttg` 方言的属性。前缀就是方言名。一个 `MLIRContext` 里注册了哪些方言，决定它能解析和验证哪些 op——Triton 的 `ir.load_dialects(context)` 与 `backend.load_dialects(context)`（第五篇 `compile()` 里）就是在做注册。
+Dialect 是一个命名空间加三组东西：Op、Type、Attribute。`arith.addi` 属于 `arith` 方言，`!tt.ptr<bf16>` 是 `tt` 方言的类型，`#ttg.blocked<…>` 是 `ttg` 方言的属性。前缀就是方言名。一个 `MLIRContext` 里注册了哪些方言，决定它能解析和验证哪些 op——Triton 的 `ir.load_dialects(context)` 与 `backend.load_dialects(context)`（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) `compile()` 里）就是在做注册。
 
 一个方言还可以声明：
 
@@ -174,7 +174,7 @@ MLIR 自带几十个方言，Triton 用到的：
 | `ub` | `poison` | 前端的归纳变量占位 |
 | `gpu` | GPU 抽象：`thread_id`、`block_id`、`barrier`、`shuffle`、`launch` | Triton 用它的少量 op 与类型（如 `gpu.barrier`），`ttg` 方言依赖它 |
 | `nvvm` | NVIDIA 特有：`nvvm.read.ptx.sreg.tid.x`、`nvvm.barrier0`、`nvvm.shfl.sync`、`nvvm.mma.sync`、`nvvm.cp.async.*`、`nvvm.wgmma.*` | `TritonGPUToLLVM` 的目标之一；`nvvm → llvm` 是 `make_llir` 的一步 |
-| `llvm` | LLVM IR 的 MLIR 镜像：`llvm.func`、`llvm.getelementptr`、`llvm.load`、`llvm.inline_asm`、`!llvm.struct<…>`、`!llvm.ptr<3>` | `TritonGPUToLLVM` 的主要目标；`translateModuleToLLVMIR` 把它变成真正的 LLVM IR（第二篇 §九） |
+| `llvm` | LLVM IR 的 MLIR 镜像：`llvm.func`、`llvm.getelementptr`、`llvm.load`、`llvm.inline_asm`、`!llvm.struct<…>`、`!llvm.ptr<3>` | `TritonGPUToLLVM` 的主要目标；`translateModuleToLLVMIR` 把它变成真正的 LLVM IR（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html) §九） |
 | `linalg`、`tensor`、`memref`、`vector`、`affine` | 张量 / 缓冲区 / 向量层的通用方言 | Triton **不用**——它有自己的张量语义（块级 + layout），这是 Triton 与 IREE / torch-mlir 路线的分叉点；本文例子用 `memref` 只是为了演示 |
 
 Table: Triton 用到的 MLIR 标准方言
@@ -222,6 +222,10 @@ def Toy_AddPtrOp : Toy_Op<"addptr", [Pure, SameOperandsAndResultShape,
 }
 ```
 
+> [!NOTE] Java 经验参照：又一个「写声明、生成代码」的构建步骤
+> 这套东西 Java 工程师做过：Lombok 的 `@Data`、MapStruct 的 `@Mapper`、Dagger 的 `@Component`，都是在构建期由注解处理器生成一堆 `.java`，编译进同一个产物；IDE 要装插件才跳得过去，构建没跑就满屏红。ODS 是同一件事换了一种写法——声明不写在注解里，而写在一门单独的语言（TableGen）里，由 `mlir-tblgen` 生成 `.h.inc` / `.cpp.inc` 文本包含进 C++。
+> 两处不同值得留意。一是**生成的代码是要读的**：Lombok 生成的 getter 没什么好看的，而一个 op 的 `verify()`、访问器、汇编格式解析器只存在于 `.inc` 里——读 Triton 源码时找不到某个方法的定义，第一反应应该是去构建目录里找 `.inc`，而不是以为自己看漏了。二是**声明本身是全集**：ODS 里一行 `Pure`，决定的是 CSE、DCE、LICM 会不会动这个 op；注解处理器很少有这种跨全局的影响力。
+
 生成：
 
 ```bash title="用 mlir-tblgen 生成声明与定义"
@@ -243,7 +247,7 @@ mlir-tblgen -gen-op-defs  -I /opt/homebrew/opt/llvm/include toy/ToyOps.td > toy/
 | ④ `hasFolder = 1` | 只生成声明 `OpFoldResult fold(FoldAdaptor)`；**实现要手写**在 `Ops.cpp` 里 |
 | `hasVerifier = 1` / `hasCanonicalizer = 1` | 同上：声明 `verify()` / `getCanonicalizationPatterns()`，手写实现 |
 | 若干 `build(...)` 重载 | `OpBuilder::create<AddPtrOp>(loc, resultType, ptr, offset)` 用的构造函数 |
-| `Adaptor` / `GenericAdaptor<RangeT>` | 一个"只有操作数与属性、没有 Operation"的视图——Dialect Conversion 用它把**已转换的**操作数传给 pattern（第四篇） |
+| `Adaptor` / `GenericAdaptor<RangeT>` | 一个"只有操作数与属性、没有 Operation"的视图——Dialect Conversion 用它把**已转换的**操作数传给 pattern（[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)） |
 
 Table: ODS 字段与生成物
 
@@ -333,10 +337,14 @@ pass 面对的是任意方言的任意 op。它不能为每种 op 写特例，�
 | `SingleBlock` / `SingleBlockImplicitTerminator<YieldOp>` | trait | Region 只有一个 Block；末尾隐含 yield | `scf.for`、`tt.reduce` |
 | `IsolatedFromAbove` | trait | Region 内不能引用 Region 外的 Value | `func.func`、`builtin.module`：函数体不能用外面的值——所以 pass manager 可以并行处理各函数 |
 | `LoopLikeOpInterface` | interface | `getLoopInductionVars()`、`getRegionIterArgs()`、`getYieldedValues()`、`getLoopBody()`、`moveOutOfLoop(op)`、`isDefinedOutsideOfLoop(value)` | LICM、循环流水化、`LoopAwareCSE` |
-| `RegionBranchOpInterface` | interface | 控制流怎样进出各 Region：哪个 Region 先执行、哪些操作数传给哪个 Region 的参数、Region 结束后去哪 | 数据流分析框架（AxisInfo 靠它知道 `scf.for` 的 yield 值流回 block 参数，第六篇）、`scf → cf` 转换 |
+| `RegionBranchOpInterface` | interface | 控制流怎样进出各 Region：哪个 Region 先执行、哪些操作数传给哪个 Region 的参数、Region 结束后去哪 | 数据流分析框架（AxisInfo 靠它知道 `scf.for` 的 yield 值流回 block 参数，[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)）、`scf → cf` 转换 |
 | `DotOpInterface`（Triton） | interface | `tt.dot` 与 `tt.dot_scaled` 共有的 `verifyDims` 等 | `AccelerateMatmul` 统一处理两种 dot |
 
 Table: Triton 用到的 trait 与 interface
+
+> [!NOTE] Java 经验参照：Trait 像标记接口，Interface 就是接口——但能事后加
+> 这一栏对应得很整齐：`IsTerminator`、`Commutative` 这类 trait 相当于 `Serializable`、`RandomAccess` 这种标记接口——不带方法，只声明「我满足某个不变量」，由别人的代码据此改变行为；`MemoryEffectsOpInterface`、`LoopLikeOpInterface` 则是货真价实的接口，pass 调 `dyn_cast` 拿到接口视图再调方法。pass 依赖接口而不是具体 op，就是面向接口编程那一条，只是这里的收益更大：一个 LICM 能搬动任何方言的循环，包括它写出来时还不存在的方言。
+> 不成立的地方是扩展方向。Java 里一个类实现了哪些接口，在类定义处就写死了，第三方想加只能包一层适配器；MLIR 允许**事后**给别人的 op 挂上接口实现（external model，在方言注册时注入），所以 Triton 能给上游 `scf` 的 op 补自己需要的接口，不必 fork MLIR。
 
 ### 2. LICM 的例子
 
@@ -366,7 +374,7 @@ scf.for %arg5 = %c0 to %arg2 step %c1 {
 
 1. **`LoopLikeOpInterface`**：`scf.for` 实现它，所以 LICM 知道这是一个循环、循环体是哪个 Region、哪些值是归纳变量与 iter_args（这些值定义在循环内，依赖它们的 op 不能外提）。**不需要像 LLVM 那样从 CFG 上找回边和自然循环**——循环是 IR 里的一等对象。
 2. **`isDefinedOutsideOfLoop(value)`**：判断 `%x`、`%y` 是循环外的值，`%i`（Block 参数）不是。
-3. **`MemoryEffectsOpInterface`**：`arith.muli` 是 `Pure`——无内存效应；`memref.load` 报告"读 `%q`"，循环里的 `memref.store` 报告"写 `%p`"。MLIR 的 LICM（`mlir/Transforms/Utils/LoopInvariantCodeMotionUtils.cpp`）只外提**无副作用**的 op，一个有读效应的 load 即使地址不变也不外提——它不做别名分析，不知道 `%p` 与 `%q` 会不会是同一块内存。这是"保守正确"（第一篇 §五.4）。
+3. **`MemoryEffectsOpInterface`**：`arith.muli` 是 `Pure`——无内存效应；`memref.load` 报告"读 `%q`"，循环里的 `memref.store` 报告"写 `%p`"。MLIR 的 LICM（`mlir/Transforms/Utils/LoopInvariantCodeMotionUtils.cpp`）只外提**无副作用**的 op，一个有读效应的 load 即使地址不变也不外提——它不做别名分析，不知道 `%p` 与 `%q` 会不会是同一块内存。这是"保守正确"（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §五.4）。
 4. **`ConditionallySpeculatable`**：`muli` 是 `AlwaysSpeculatable`（提前执行没有危害）；`arith.divsi` 不是（除零），即使操作数不变也不能外提到循环外——循环可能零次迭代，外提就凭空制造了一次除法。
 
 Triton 的 `TritonLICM`（`lib/Dialect/Triton/Transforms/LoopInvariantCodeMotion.cpp`）在通用版之上多做一件事：把地址不变的 `tt.load` 也外提——它知道 Triton 的语义里 load 与 store 默认不别名（程序员负责），并要求证明循环至少执行一次（否则外提的 load 可能读到非法地址）。它用的接口相同，只是放松了第 3 条。
@@ -406,17 +414,17 @@ func.func @sum(%arg0: memref<?xi32>, %arg1: index) -> i32 {
 }
 ```
 
-与第一篇 `mem2reg` 之后的 LLVM IR 逐行对应：`^bb1` 是 `for.cond`，它的两个参数 `%0`、`%1` 就是 `%i.0 = phi [0, entry], [%inc, for.inc]` 和 `%s.0 = phi [...]`。差别只在**信息放在哪**：φ 把"从哪个前驱来取哪个值"写在目标块开头的 φ 指令里；Block 参数把它写在每个前驱的跳转指令上（① ③ 的实参列表）。
+与[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) `mem2reg` 之后的 LLVM IR 逐行对应：`^bb1` 是 `for.cond`，它的两个参数 `%0`、`%1` 就是 `%i.0 = phi [0, entry], [%inc, for.inc]` 和 `%s.0 = phi [...]`。差别只在**信息放在哪**：φ 把"从哪个前驱来取哪个值"写在目标块开头的 φ 指令里；Block 参数把它写在每个前驱的跳转指令上（① ③ 的实参列表）。
 
 为什么 MLIR 选后者（核心问题第二问）：
 
 1. **φ 是"假指令"**：它必须排在块的最前面、多个 φ 之间是并行赋值语义（不能按顺序解释）、它的操作数引用的是前驱块而不是普通的值——每个处理指令的 pass 都要为 φ 写特例。Block 参数不是指令，它是 Block 的属性，普通 op 的遍历根本看不见它，只有处理 terminator 的代码需要关心。
-2. **与函数参数、Region 参数统一**：`func.func` 的入口 Block 参数是函数参数，`scf.for` 的 Region 参数是归纳变量和 iter_args，`cf.br` 的目标 Block 参数是 φ——**三者是同一个机制** `BlockArgument`。第五篇的前端用同一段代码（`_find_carries` + `set_value`）处理 `for` 的携带值和 `if` 的汇合值，正因如此。
-3. **结构化控制流下根本不需要汇合点的显式表示**：`scf.for` 的 iter_args 在 Region 边界上进出，"汇合"由 `RegionBranchOpInterface` 描述（初值与 yield 值都流向 Block 参数），数据流分析框架据此工作（第六篇 AxisInfo 的循环处理）。到了 `scf → cf` 之后才需要 Block 参数在 CFG 上扮演 φ，而那一步是机械的。
+2. **与函数参数、Region 参数统一**：`func.func` 的入口 Block 参数是函数参数，`scf.for` 的 Region 参数是归纳变量和 iter_args，`cf.br` 的目标 Block 参数是 φ——**三者是同一个机制** `BlockArgument`。[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)的前端用同一段代码（`_find_carries` + `set_value`）处理 `for` 的携带值和 `if` 的汇合值，正因如此。
+3. **结构化控制流下根本不需要汇合点的显式表示**：`scf.for` 的 iter_args 在 Region 边界上进出，"汇合"由 `RegionBranchOpInterface` 描述（初值与 yield 值都流向 Block 参数），数据流分析框架据此工作（[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html)里的循环处理）。到了 `scf → cf` 之后才需要 Block 参数在 CFG 上扮演 φ，而那一步是机械的。
 
 ### 3. Triton 为什么把 `scf` 保留到最后
 
-`make_llir` 的前几个 pass 里才有 `add_scf_to_cf`。在此之前，所有 TTGIR 级的循环变换——流水化（`Pipeline`）、`LoopAwareCSE`、`TritonLICM`、`FuseNestedLoops`、`OptimizeAccumulatorInit`——都作用在 `scf.for` 上，用 `LoopLikeOpInterface` 拿归纳变量、iter_args、yield 值，用 Region 的边界确定循环体。如果早早下降到 `cf`，每个 pass 都得先从 CFG 重新识别循环（第一篇 §八.1 说的"丢掉的信息要重新发现"）。`scf → cf` 放在 lowering 到 LLVM 方言之前，是因为 LLVM 方言只有 `llvm.br` / `llvm.cond_br`，没有结构化循环。
+`make_llir` 的前几个 pass 里才有 `add_scf_to_cf`。在此之前，所有 TTGIR 级的循环变换——流水化（`Pipeline`）、`LoopAwareCSE`、`TritonLICM`、`FuseNestedLoops`、`OptimizeAccumulatorInit`——都作用在 `scf.for` 上，用 `LoopLikeOpInterface` 拿归纳变量、iter_args、yield 值，用 Region 的边界确定循环体。如果早早下降到 `cf`，每个 pass 都得先从 CFG 重新识别循环（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八.1 说的"丢掉的信息要重新发现"）。`scf → cf` 放在 lowering 到 LLVM 方言之前，是因为 LLVM 方言只有 `llvm.br` / `llvm.cond_br`，没有结构化循环。
 
 ## 八、Type 与 Attribute：layout 的载体
 
@@ -424,7 +432,7 @@ func.func @sum(%arg0: memref<?xi32>, %arg1: index) -> i32 {
 
 `Type` 与 `Attribute` 都是 **MLIRContext 里唯一化（uniqued）的不可变对象**：`i32` 在整个上下文里只有一个实例，`tensor<128x32xbf16>` 也只有一个；比较两个类型是否相同就是比较指针。创建（`IntegerType::get(ctx, 32)`、`RankedTensorType::get(shape, elemTy, encoding)`）要么找到已有的返回，要么新建并登记。
 
-后果：**类型不能就地修改**。要把一个 `tensor<128x32xbf16, #blocked1>` 的值变成 `#blocked2` 的，不能改类型，只能创建新 op（`ttg.convert_layout`）产生一个新类型的新值，然后 `replaceAllUsesWith`。Triton 的所有 layout 变换 pass（第七、八篇）都是这个形状：算出目标 layout → 建新 op → 替换使用 → 删旧 op。
+后果：**类型不能就地修改**。要把一个 `tensor<128x32xbf16, #blocked1>` 的值变成 `#blocked2` 的，不能改类型，只能创建新 op（`ttg.convert_layout`）产生一个新类型的新值，然后 `replaceAllUsesWith`。Triton 的所有 layout 变换 pass（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)与[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）都是这个形状：算出目标 layout → 建新 op → 替换使用 → 删旧 op。
 
 ### 2. `RankedTensorType` 的 encoding 槽位
 
@@ -435,7 +443,7 @@ tensor<128x32xbf16>                                         // TTIR：encoding �
 tensor<128x32xbf16, #ttg.blocked<{sizePerThread = [1, 8], threadsPerWarp = [4, 8], warpsPerCTA = [4, 1], order = [1, 0]}>>   // TTGIR
 ```
 
-这是 Triton 的关键设计决定（第一篇 §八.2）用 MLIR 机制实现的方式：**layout 是类型的一部分**，所以每个 op 的每个操作数和结果都带着它，任何 pass 都能看到、verifier 能检查一致性（`SameOperandsAndResultEncoding` trait：操作数与结果 layout 相同）、`convert_layout` 是唯一能改变它的 op。
+这是 Triton 的关键设计决定（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §八.2）用 MLIR 机制实现的方式：**layout 是类型的一部分**，所以每个 op 的每个操作数和结果都带着它，任何 pass 都能看到、verifier 能检查一致性（`SameOperandsAndResultEncoding` trait：操作数与结果 layout 相同）、`convert_layout` 是唯一能改变它的 op。
 
 ### 3. 用 ODS 定义属性
 
@@ -457,7 +465,7 @@ def BlockedEncodingAttr : DistributedEncoding<"BlockedEncoding", "blocked_encodi
 }
 ```
 
-`AttrDef` 与 `OpDef` 同一套机制：`parameters` 生成 `getSizePerThread()` 等访问器和 `get(ctx, …)` 构造函数（带唯一化），`mnemonic` 决定文本里 `#ttg.blocked<…>` 的写法，`genVerifyDecl` 要求手写 `verify()`（检查四个数组长度相同、`order` 是一个置换等）。`DistributedEncoding` 是 Triton 定义的属性基类，带 `LayoutEncodingTrait` 与 `DistributedEncodingTrait` 两个**属性接口**——第七篇会看到，所有 layout 相关的 pass 通过这些接口（`toLinearLayout()` 等）而不是具体类来工作。
+`AttrDef` 与 `OpDef` 同一套机制：`parameters` 生成 `getSizePerThread()` 等访问器和 `get(ctx, …)` 构造函数（带唯一化），`mnemonic` 决定文本里 `#ttg.blocked<…>` 的写法，`genVerifyDecl` 要求手写 `verify()`（检查四个数组长度相同、`order` 是一个置换等）。`DistributedEncoding` 是 Triton 定义的属性基类，带 `LayoutEncodingTrait` 与 `DistributedEncodingTrait` 两个**属性接口**——[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)会看到，所有 layout 相关的 pass 通过这些接口（`toLinearLayout()` 等）而不是具体类来工作。
 
 属性同样是唯一化的：两个参数完全相同的 `#blocked` 是同一个对象，比较是指针比较。Triton 在文本里给它们起别名（`#blocked = #ttg.blocked<…>` 写在文件头，正文用 `#blocked`）是 `OpAsmDialectInterface` 的功能，只影响打印。
 
@@ -532,7 +540,7 @@ def TT_DotOp : TT_Op<"dot", [Pure,
 }
 ```
 
-`Pure`：矩阵乘没有副作用，两个相同操作数的 `dot` 会被 CSE 合并、无人使用的会被删。`inputPrecision` 属性（`tf32` / `tf32x3` / `ieee`…）是 `F32DotTC` pass 的输入。`TypesMatchWith d == c`：结果类型等于累加器类型——**包括 layout**，这是为什么 `AccelerateMatmul` 改累加器 layout 时结果 layout 跟着变（第八篇）。
+`Pure`：矩阵乘没有副作用，两个相同操作数的 `dot` 会被 CSE 合并、无人使用的会被删。`inputPrecision` 属性（`tf32` / `tf32x3` / `ieee`…）是 `F32DotTC` pass 的输入。`TypesMatchWith d == c`：结果类型等于累加器类型——**包括 layout**，这是为什么 `AccelerateMatmul` 改累加器 layout 时结果 layout 跟着变（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)）。
 
 ```text title="TT_ReduceOp 的定义"
 def TT_ReduceOp: TT_Op<"reduce", [Pure, SameOperandsShape, SameOperandsEncoding, SingleBlock,
@@ -545,7 +553,7 @@ def TT_ReduceOp: TT_Op<"reduce", [Pure, SameOperandsShape, SameOperandsEncoding,
 }
 ```
 
-`Variadic` 操作数与结果（多输入规约，如 argmax 的 value 与 index）、一个 `SizedRegion<1>`（组合函数的 IR）、`SingleBlock`。结果类型由 `InferTypeOpInterface` 推出：去掉 `axis` 那一维，**layout 变成 `#ttg.slice<{dim = axis, parent = 输入 layout}>`**（第七篇）——这就是 `#slice` layout 存在的原因：规约的结果 layout 由输入 layout 通过一个纯函数决定，用一个参数化属性表达比枚举所有情况简单。
+`Variadic` 操作数与结果（多输入规约，如 argmax 的 value 与 index）、一个 `SizedRegion<1>`（组合函数的 IR）、`SingleBlock`。结果类型由 `InferTypeOpInterface` 推出：去掉 `axis` 那一维，**layout 变成 `#ttg.slice<{dim = axis, parent = 输入 layout}>`**（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)）——这就是 `#slice` layout 存在的原因：规约的结果 layout 由输入 layout 通过一个纯函数决定，用一个参数化属性表达比枚举所有情况简单。
 
 ### 3. `TritonGPU_Dialect`
 
@@ -566,7 +574,7 @@ def TritonGPU_Dialect : Dialect {
 }
 ```
 
-`hasOperationAttrVerify` 验证 `ttg.num-warps`、`ttg.threads-per-warp`、`ttg.num-ctas`、`ttg.target` 这些挂在 `builtin.module` 上的可丢弃属性——TTGIR 文件头的 `module attributes {"ttg.num-warps" = 4 : i32, "ttg.target" = "cuda:80", …}` 就是它们；`getNumCTAs(mod)`、`getThreadsPerWarp(mod)` 是各 pass 读这些属性的入口。`toLinearLayout` 挂在方言上，是第七篇 Linear Layout 的总入口：任何 layout 属性 + shape → 一个线性映射。
+`hasOperationAttrVerify` 验证 `ttg.num-warps`、`ttg.threads-per-warp`、`ttg.num-ctas`、`ttg.target` 这些挂在 `builtin.module` 上的可丢弃属性——TTGIR 文件头的 `module attributes {"ttg.num-warps" = 4 : i32, "ttg.target" = "cuda:80", …}` 就是它们；`getNumCTAs(mod)`、`getThreadsPerWarp(mod)` 是各 pass 读这些属性的入口。`toLinearLayout` 挂在方言上，是[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)里 Linear Layout 的总入口：任何 layout 属性 + shape → 一个线性映射。
 
 ## 十、本文小结
 
@@ -602,7 +610,7 @@ def TritonGPU_Dialect : Dialect {
 4. `tensor<128x32xbf16, #blocked1>` 与 `tensor<128x32xbf16, #blocked2>` 是同一个 `Type` 对象吗？一个 pass 想把某个 `tt.load` 的结果从前者改成后者，最少要建几个新 op、调几次 `replaceAllUsesWith`？
 
    <details markdown="1"><summary>答案</summary>
-   不是——encoding 是类型的参数，不同 encoding 是不同的唯一化对象，指针不同。最少两种做法：(a) 保留 load，在它之后插一个 `ttg.convert_layout`（1 个新 op），把原结果的所有使用替换成 convert 的结果（1 次 RAUW，但要先排除 convert 自己对原值的使用）；(b) 重建 load：新建一个结果类型为 `#blocked2` 的 `tt.load`，其 ptr / mask / other 操作数也必须是 `#blocked2`（`SameLoadStoreOperandsAndResultEncoding`），所以要为它们各插一个 `convert_layout`（最多 3 个）再建 load（共最多 4 个新 op），然后 1 次 RAUW 替换旧 load 的结果、删旧 load。Coalesce（第七篇）做的是 (b)：它要改的正是 load 自己的 layout，而不是在后面加转换。
+   不是——encoding 是类型的参数，不同 encoding 是不同的唯一化对象，指针不同。最少两种做法：(a) 保留 load，在它之后插一个 `ttg.convert_layout`（1 个新 op），把原结果的所有使用替换成 convert 的结果（1 次 RAUW，但要先排除 convert 自己对原值的使用）；(b) 重建 load：新建一个结果类型为 `#blocked2` 的 `tt.load`，其 ptr / mask / other 操作数也必须是 `#blocked2`（`SameLoadStoreOperandsAndResultEncoding`），所以要为它们各插一个 `convert_layout`（最多 3 个）再建 load（共最多 4 个新 op），然后 1 次 RAUW 替换旧 load 的结果、删旧 load。Coalesce（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html)）做的是 (b)：它要改的正是 load 自己的 layout，而不是在后面加转换。
    </details>
 
 5. Triton 的 `tt.func` 而不用 MLIR 的 `func.func`，代价是要自己实现 `FunctionOpInterface`、`CallableOpInterface`、`SymbolOpInterface`。列出两个非要这么做的理由，并说明 MLIR 的 inliner 为什么仍然能内联 `tt.call`。
