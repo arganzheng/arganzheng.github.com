@@ -137,7 +137,35 @@ flowchart LR
 
 Table: PyTorch v2.14.0 与 vLLM v0.28.0：同一环节两种做法
 
-### 4. 本文的章节安排
+### 4. 交出去的东西，合入之后还在不在
+
+这一篇要你交出十来样东西，它们不是一类：只有三样会进仓库，其余都停在 GitHub 上或者当场作废。但恰恰是那些不进仓库的东西决定了前三样能不能进去——这就是本篇所有规则的形状。下表按「合入之后还在不在」排：
+
+| 你交出的东西 | 它替 reviewer 回答什么 | 合入之后 | 谁会再读它 |
+|---|---|---|---|
+| 本地 lint 与测试的输出 | 让 CI 的第一道门能过 | 不提交，下一次 rebase 就作废 | 没有人 |
+| CI 的红绿 | 有没有把别的东西弄坏 | 到下一次 push 为止；vLLM 的新 commit 不自动重跑 | ^^ |
+| `ciflow/*` 标签（PyTorch） | 手动拉起某一组任务，外部贡献者打不了，要写权限 | 合入即失效 | ^^ |
+| `ready` 标签（vLLM） | 让 CI 能跑、让 maintainer 能合 | ^^ | ^^ |
+| CLA / DCO 签名 | 法律上能不能收这段代码 | CLA 签一次管以后所有 PR<br/>DCO 是每个 commit 一行，漏一个要 rebase 重写历史 | 机器人 |
+| benchmark 数字 | 值不值得改 | 留在 PR 描述里 | 几乎没有人——不会有人替你重跑 |
+| PR 描述（Summary / Purpose / Test Plan） | 为什么改、怎么验证的 | 留在 PR 页；PyTorch 另有一份拷贝进 commit 正文 | 顺着 commit 里的链接回来的人 |
+| review 对话 | 这个人可信吗、意见有没有被处理 | 留在 PR 页 | 想学这个项目在守什么的人 |
+| `release notes:` / `topic: not user facing` 标签 | 这次改动要不要写进发布说明 | 留在 PR 上，发布时用它生成 release note | 发布流程 |
+| diff | 改了什么、是不是只改了这一件 | 进仓库 | 下一个读这段代码的人 |
+| 测试 | 怎么证明它对、以后怎么防回归 | ^^ | 每一次 CI，以及想知道这个函数该有什么行为的人 |
+| commit message | — | ^^ | 读历史的人第一眼看到的就是它 |
+
+Table: 这一篇交出的东西，按合入之后还在不在排
+
+四条可以直接改变写 PR 时力气分配的结论：
+
+1. **十几道门交出的东西分两类：进仓库的三样（diff、测试、commit message）和不进仓库的其余**。不进仓库的那些不是次要的——正是它们决定了前三样能不能进去。但它们的价值在合入那一刻结清，而前三样要留几年。所以描述和 CI 状态写清楚就够，测试和 commit message 值得多花半小时。
+2. **不进仓库的东西里只有一样有下游用途**：`release notes:` 标签。它在合入时是硬条件（缺了 `@pytorchbot merge` 会拒），发布时又被用来生成 release note。其余（`ciflow/*`、`ready`、CI 红绿、本地 lint 输出）在合入那一刻全部作废。所以漏标签被拒不是形式主义，是漏了下一道工序的输入。
+3. **这张表和第十三章那张十分钟表是正反面**：那张按「reviewer 第几分钟问什么」排，这张按「他问完之后这东西还留不留」排。两张表合起来就是提交前的自检：每一行都有东西吗，长寿的那几行写准了吗。
+4. **CLA 与 DCO 的差别本质上就是寿命这一格**：CLA 签一次、之后所有 PR 都有效；DCO 是每个 commit 正文里一行，漏一个 commit 就要 rebase 重写历史。所以 vLLM 侧的正确做法不是记得敲 `-s`，而是让 `pre-commit` 的 `signoff-commit` 钩子替你补上。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -448,6 +476,12 @@ Table: lintrunner 与 pre-commit 两套工具链对照
 
 最后一行是 vLLM 新贡献者最容易被绊倒的地方，下面第七章展开。
 
+> [!NOTE] Java 经验参照：spotless / checkstyle 与这两套工具链
+>
+> 位置和用法你都熟：`spotless:apply` 对应 `spin fixlint` 或 `pre-commit run --all-files`，`checkstyle` 的规则文件对应 `.lintrunner.toml` 与 `.pre-commit-config.yaml`，而「本地先跑一遍、CI 再跑一遍同样的规则」这条纪律是一样的。连 Git 钩子的做法也一样——`pre-commit install` 之后每次 commit 自动跑，相当于 Maven 项目里挂在 `validate` 阶段的 spotless check。
+>
+> 两处对不上。一是覆盖面：Java 侧的格式化器通常只管 Java 源码，这里的 61 个 linter 横跨 Python、C++、CUDA、YAML、Markdown 和拼写检查，所以「我只改了一个 `.cu` 文件」并不意味着只会触发一个 linter。二是更要紧的一条：**「CI 没报 lint 错」在这里不等于「lint 过了」**。Java 项目的 `mvn verify` 在任何 PR 上都会跑，而 vLLM 的 `pre-commit.yml` 对新贡献者默认不跑——要有 `verified` / `ready` / `ready-run-all-tests` 标签，或者作者已经有 ≥4 个合入的 PR。第一次提 PR 看到一片灰色，不是「全过了」，是「什么都没跑」。
+
 ## 六、PR 描述与签名
 
 ### 1. 描述是 reviewer 的第一屏
@@ -537,6 +571,12 @@ Table: vLLM 的 PR 标题前缀
 Table: CLA 与 DCO 两种签名机制的操作差别
 
 vLLM 的 "DCO and Signed-off-by" 一节原文："Commits must include a `Signed-off-by:` header which certifies agreement with the terms of the DCO. Using `-s` with `git commit` will automatically add this header."，并给了 PyCharm 与 VSCode（`git.alwaysSignOff`）的自动签名设置。`Signed-off-by` 的名字和邮箱必须与 commit 的作者一致，否则 DCO check 仍会失败——这是用公司邮箱配置 git 但用个人账号推送的人常踩的坑。
+
+> [!NOTE] Java 经验参照：Apache 的 ICLA 与这里的两种签名
+>
+> 给 Kafka、Flink、Spark 提过 patch 的话，这一格你办过：Apache 的 ICLA 签一次交给基金会，之后对所有 Apache 项目都有效，没签就不能合。PyTorch 的 CLA 是同一个模型——EasyCLA 机器人在第一个 PR 上引导你签，公司员工要公司先签，签完之后历史 commit 一个都不用动。
+>
+> 对不上的是 vLLM 用的 DCO：它根本不是「签一次」。DCO 没有要交给谁的协议，它是**每个 commit 正文里的一行** `Signed-off-by:`，少一个 commit 就整条 PR 的 check 红，补救办法是 `git rebase --exec 'git commit --amend --no-edit -s'` 重写历史——这件事在 Apache 那套流程里不存在，所以第一次按 ICLA 的习惯来的人会在这里卡住，而且往往是在已经攒了十几个 commit 之后。配套的两个坑也要记住：`Signed-off-by` 的名字邮箱必须和 commit 作者一致（公司邮箱配 git、个人账号推送就会红），以及正确的做法是把它交给工具——`pre-commit` 的 `signoff-commit` 钩子或者编辑器的 `git.alwaysSignOff`，而不是靠每次记得敲 `-s`。
 
 ## 七、CI 矩阵：什么会跑、什么不会
 
@@ -986,7 +1026,7 @@ Table: 三类拒绝与正确反应
 - **被关闭但没有解释**：两个项目都有 stale 机制（vLLM `.github/workflows/stale.yml`；mergify 的多数规则带 `label != stale` 条件）。如果是 stale 关闭而不是人关闭，留言说明你仍在跟进并请求 reopen，通常会被接受；
 - **被要求先开 issue**：PyTorch 的 `fix_issue.md` 模板注释 "PRs without a linked issue may be automatically closed"，`CONTRIBUTING.md` "AI-Assisted Development" 一节 "you should never send a PR that doesn't have a corresponding issue with the 'actionable' label"。这不是拒绝，是流程：开 issue，等 `actionable`（截至 2026-09 查询该标签存在），再重开 PR 并 `Fixes #`；
 - **被打 `rfc-required`**（vLLM 文档所述）：改动超过 500 行架构代码。写 RFC issue（`.github/ISSUE_TEMPLATE/750-RFC.yml`），把 PR 转 draft 等讨论；
-- **同一件事别人先合了**：关闭自己的，在对方 PR 下留言补充你发现的边界情况（如果有）。这是第二篇"查重"没做好的代价，不要在第三篇里补救。
+- **同一件事别人先合了**：关闭自己的，在对方 PR 下留言补充你发现的边界情况（如果有）。这是在[《找到切入点》](/finding-your-entry-point-in-open-source.html)里查重没做好的代价，不要留到这一步才补救。
 
 ### 3. 放弃也是一种结果
 
@@ -1081,7 +1121,7 @@ Table: reviewer 十分钟里的问题、由 PR 的哪部分回答、两个项目
 
 ## 十四、贡献日志：PR 草稿与往返记录
 
-本篇在贡献日志里新增的一页是"PR 草稿与往返记录"。它在 PR 开出之前就开始写，在合入（或放弃）之后才结束。它的价值有两个：开 PR 前逼自己把第十三章那张表填满；PR 过程中把每一轮 review 意见和回应留下痕迹，第四篇复盘时用。
+本篇在贡献日志里新增的一页是"PR 草稿与往返记录"。它在 PR 开出之前就开始写，在合入（或放弃）之后才结束。它的价值有两个：开 PR 前逼自己把第十三章那张表填满；PR 过程中把每一轮 review 意见和回应留下痕迹，[《两个真实 PR 的完整走读》](/two-real-prs-pytorch-and-vllm.html)复盘时用。
 
 ### 1. 模板
 
