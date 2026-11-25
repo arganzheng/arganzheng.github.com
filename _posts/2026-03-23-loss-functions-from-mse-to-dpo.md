@@ -70,6 +70,8 @@ Table: 损失函数的来龙去脉
 | 十 | 小结 |
 | 十一 | 自测 |
 
+Table: 本文的章节安排
+
 ## 二、回归：MSE、MAE 与 Huber
 
 **问题**：回归要一个"预测离真值多远"的数。$$e = \hat y - y$$，取它的平方还是绝对值？这不是数学洁癖——选哪个等于假设噪声服从什么分布。
@@ -227,6 +229,8 @@ $$L_{DPO} = -\log \sigma\!\left(\beta\big[\log \tfrac{\pi_\theta(y_w|x)}{\pi_{re
 | softmax + CE | 2.939 | 0.185 | 1.66 | 94.50% |
 | sigmoid + MSE | 1.500 | 0.092 | 0.53 | 91.40% |
 
+Table: 同一网络只换 loss：收敛速度、梯度范数与测试准确率
+
 MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习率相同就走得更慢。
 
 ![左：训练 loss；右：梯度范数——MSE 一开始就低一个量级](/img/in-post/dl-loss-mse-vs-ce-training.svg)
@@ -240,6 +244,8 @@ MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习
 | CE | 86.75% | 7.4% | 少数类几乎被多数类淹没 |
 | focal γ=2 | 87.71% | 21.6% | 难样本梯度权重上来了 |
 
+Table: 类别不平衡下 CE 与 focal 的总体准确率与少数类召回
+
 ![逐类召回率：CE 与 focal 在其余 9 类上接近，少数类 9 上 focal 明显更高](/img/in-post/dl-loss-focal-imbalance.svg)
 
 ### 3. label smoothing 的校准
@@ -250,6 +256,8 @@ MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习
 |---|---|---|---|
 | one-hot | 94.42% | 93.6% | 0.96% |
 | 平滑 ε=0.1 | 94.43% | 81.4% | 13.00% |
+
+Table: one-hot 与 label smoothing 的准确率、置信度与校准误差
 
 ![可靠性图：越贴对角线越准；平滑后的曲线整体跑到对角线上方（准确率高于置信度）——这个实验里它把本来校准良好的模型变成了"不自信"](/img/in-post/dl-loss-calibration.svg)
 
@@ -266,23 +274,59 @@ MSE 的"loss 更小"是假象——它的梯度从第一步就小 3 倍，学习
 ## 十一、自测
 
 1. 为什么分类不用 MSE？对 $$y=1$$、$$z=-6$$ 的具体梯度差多少倍？
+
+   <details markdown="1"><summary>答案</summary>
+
+   MSE 对 logit 的梯度多乘一个 $$\sigma'(z) \le 0.25$$，$$z=-6$$ 时只有 CE 的 $$1/405$$（$$\sigma'(-6)\approx0.0025$$），饱和区基本不动。
+
+   </details>
+
 2. label smoothing $$\epsilon=0.1$$、10 分类，错误类的目标概率是多少？它把 logit 差推向无穷还是拉回有限值？
+
+   <details markdown="1"><summary>答案</summary>
+
+   错误类各 $$\epsilon/(C-1) = 0.1/9 \approx 0.0111$$；logit 差的最优点有限（$$g^* = \ln 81 \approx 4.394$$），不再无穷。
+
+   </details>
+
 3. focal loss 的 $$\gamma$$ 从 0 调到 5，$$p_t = 0.9$$ 与 $$p_t = 0.5$$ 两个样本的相对权重怎么变？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$(1-p_t)^\gamma$$ 项把 $$p_t=0.9$$ 相对 $$p_t=0.5$$ 的权重从 1 压到 $$0.1^\gamma/0.5^\gamma$$——$$\gamma=2$$ 时 0.04、$$\gamma=5$$ 时约 0.00032。
+
+   </details>
+
 4. 一个新的 200K 词表语言模型，第一步 loss 应该大约是多少？loss 是 4 说明什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   $$\ln 200000 \approx 12.21$$；4 远低于它，说明标签泄漏、初始化就是某个训练过的权重，或算错了。
+
+   </details>
+
 5. InfoNCE 的 batch 为什么越大越好？$$\tau$$ 变大时 softmax 是更锐还是更平？
-6. DPO 相比"训奖励模型 + PPO"省掉了什么，又放弃了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   InfoNCE 的分母是 batch 内全部样本，batch 大负例才多、才逼近真实分布；$$\tau$$ 大 softmax 更平、梯度更散。
+
+   </details>
+
+6. DPO 相比「训奖励模型 + PPO」省掉了什么，又放弃了什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   省掉了奖励模型 rollout 与 PPO 的在线采样；放弃了在线纠错能力与分布外置信度——离线偏好学到什么就是什么。
+
+   </details>
+
 7. GPT-2 的 $$V = 50257$$，第一步 loss 大约是多少？凭哪条公式不用跑模型就能报这个数？
 
-<details><summary>参考答案</summary>
+   <details markdown="1"><summary>答案</summary>
 
-1. MSE 对 logit 的梯度多乘一个 $$\sigma'(z) \le 0.25$$，$$z=-6$$ 时只有 CE 的 $$1/405$$（$$\sigma'(-6)\approx0.0025$$），饱和区基本不动。
-2. 错误类各 $$\epsilon/(C-1) = 0.1/9 \approx 0.0111$$；logit 差的最优点有限（$$g^* = \ln 81 \approx 4.394$$），不再无穷。
-3. $$(1-p_t)^\gamma$$ 项把 $$p_t=0.9$$ 相对 $$p_t=0.5$$ 的权重从 1 压到 $$0.1^\gamma/0.5^\gamma$$——$$\gamma=2$$ 时 0.04、$$\gamma=5$$ 时约 0.00032。
-4. $$\ln 200000 \approx 12.21$$；4 远低于它，说明标签泄漏、初始化就是某个训练过的权重，或算错了。
-5. InfoNCE 的分母是 batch 内全部样本，batch 大负例才多、才逼近真实分布；$$\tau$$ 大 softmax 更平、梯度更散。
-6. 省掉了奖励模型 rollout 与 PPO 的在线采样；放弃了在线纠错能力与分布外置信度——离线偏好学到什么就是什么。
-7. $$\ln 50257 \approx 10.82$$：随机初始化输出接近均匀，每个位置贡献 $$-\log(1/V) = \ln V$$，实测 10.826 与公式吻合。
+   $$\ln 50257 \approx 10.82$$：随机初始化输出接近均匀，每个位置贡献 $$-\log(1/V) = \ln V$$，实测 10.826 与公式吻合。
 
-</details>
+   </details>
 
 [^q0]: 分工：怎么推导（数学篇）、怎么写代码（面试篇）、为什么选它（本篇）。三篇不重复——推导见《[算法工程师的数学（05）：从最大似然到交叉熵](/from-maximum-likelihood-to-cross-entropy.html)》，实现见《[面试手撕代码（17）：手撕损失函数与训练算法](/coding-interview-losses-and-training-algorithms.html)》。

@@ -136,38 +136,188 @@ Table: 常见误区与正确说法
 ### A. 判断与计算（10 题）
 
 1. `config.json` 里 `"model_type": "llama"`、`"architectures": ["MistralForCausalLM"]`，`AutoModelForCausalLM.from_pretrained` 给出哪个类？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `LlamaForCausalLM`——`AutoModelForCausalLM` 查的是 `model_type` 这个字符串键，`architectures` 不参与这次查表。
+
+   </details>
+
 2. 70B bf16 模型、safetensors 分 30 片，`from_pretrained(device_map="auto")` 的 CPU 峰值内存约多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   约等于权重大小，`device_map="auto"` 下更少：meta 骨架 + 逐分片 mmap，不会 30 片同时驻留。
+
+   </details>
+
 3. `attn_implementation="eager"` 与 `"sdpa"` 在 bf16 下同一输入的 `argmax` 不一致，是 bug 吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   不是：bf16 只有 8 位尾数，两种实现求和顺序不同，top-2 logits 本来就贴近时 argmax 可能翻转；要逐位比对请用 fp32。
+
+   </details>
+
 4. `labels` 长 $$T = 512$$，前 200 位是 `-100`，`ForCausalLMLoss` 对多少个位置平均？
+
+   <details markdown="1"><summary>答案</summary>
+
+   312 个：shift 后目标是 `labels[1:]` 共 511 位，其中前 199 位是 `-100`，$$511 - 199 = 312$$；`-100` 的位不进分母。
+
+   </details>
+
 5. Qwen2.5-0.5B 上 `model.generate(**inputs)` 不传任何长度参数，会生成多少个新 token？
+
+   <details markdown="1"><summary>答案</summary>
+
+   2048：仓库 `generation_config.json` 的 `max_new_tokens=2048`；配套脚本 5 个 token 的 prompt 输出总长 2053。
+
+   </details>
+
 6. `do_sample=True, top_k=0, top_p=1.0, temperature=1.0`，processor 串里有几个 warper？
+
+   <details markdown="1"><summary>答案</summary>
+
+   零个：`top_k=0`、`top_p=1.0`、`temperature=1.0` 都是「不装配」的默认值。
+
+   </details>
+
 7. `"2024"` 在 Qwen2.5 的 tokenizer 里是几个 token？由五段中的哪一段决定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   4 个：GPT-2 正则在 `pre_tokenizer` 把数字单个切开。
+
+   </details>
+
 8. `ds.map(fn, num_proc=8)` 跑完后把 `num_proc` 改成 4 再跑，命中缓存吗？
+
+   <details markdown="1"><summary>答案</summary>
+
+   命中：`num_proc` 不进 fingerprint，结果文件由分片合并而来；改 `fn` 才失效。
+
+   </details>
+
 9. Qwen2.5-0.5B（hidden 896、24 层）上 `r=16, target_modules="all-linear"`，`lora_B` 初始化后第一步前向的输出与基座相比差多少？
+
+   <details markdown="1"><summary>答案</summary>
+
+   零：`lora_B` 全零，$$B A x = 0$$，第一步前向与基座逐位相同。
+
+   </details>
+
 10. GRPO `num_generations=8`，一组 reward 为 `[1,1,1,1,0,0,0,0]`，`scale_rewards="group"`，第一条的 `advantage` 是多少？
 
-**答案要点。**（1）`LlamaForCausalLM`——只看 `model_type`。（2）约等于权重大小，`device_map="auto"` 下更少：meta 骨架 + 逐分片 mmap，不会 30 片同时驻留。（3）不是：bf16 8 位尾数，两种实现求和顺序不同，logits 差到 1.0 时 argmax 可能翻转；要比对请用 fp32。（4）312 个：shift 后目标是 `labels[1:]` 共 511 位，其中前 199 位是 `-100`，$$511 - 199 = 312$$；`-100` 的位不进分母。（5）2048：仓库 `generation_config.json` 的 `max_new_tokens=2048`；配套脚本 5 个 token 的 prompt 输出总长 2053。（6）零个：`top_k=0`、`top_p=1.0`、`temperature=1.0` 都是「不装配」的默认值。（7）4 个：GPT-2 正则在 `pre_tokenizer` 把数字单个切开。（8）命中：`num_proc` 不进 fingerprint，结果文件由分片合并而来；改 `fn` 才失效。（9）零：`lora_B` 全零，$$B A x = 0$$，第一步前向与基座逐位相同。（10）约 0.94：`mean = 0.5`，`nanstd` 是无偏标准差 $$\sqrt{8 \cdot 0.25 / 7} \approx 0.535$$，`advantage = (1 - 0.5) / (0.535 + 10^{-4}) \approx 0.935$$；后四条为 $$-0.935$$，一组之和为零。
+    <details markdown="1"><summary>答案</summary>
+
+    约 0.94：`mean = 0.5`，`nanstd` 是无偏标准差 $$\sqrt{8 \times 0.25 / 7} \approx 0.535$$，于是 $$(1 - 0.5) / (0.535 + 10^{-4}) \approx 0.935$$；后四条为 $$-0.935$$，一组之和为零。
+
+    </details>
 
 ### B. 跨篇综合（5 题）
 
 1. 用 Qwen2.5 做 `SFTTrainer(assistant_only_loss=True)` 报错。从 tokenizer 到 Trainer 追一遍错在哪个文件，两条修法各有什么代价？
+
+   <details markdown="1"><summary>答案</summary>
+
+   第三篇：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；第四篇的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。
+
+   </details>
+
 2. 手写 decode 循环忘了传 `past_key_values`、只喂新 token，输出乱了。从第一篇的 `forward` 与第二篇的 `prepare_inputs_for_generation` 说明两处错。
+
+   <details markdown="1"><summary>答案</summary>
+
+   第一处：没有 cache 时 `forward` 把这一个 token 当作位置 0 的完整序列，RoPE 位置错、attention 看不到历史；第二处：`prepare_inputs_for_generation` 只切最后一个 token 的前提是 `past_key_values` 里有之前所有层的 K/V——要么全序列重算，要么带 cache。
+
+   </details>
+
 3. DPO 用 peft 训练时没有 `ref_model`。参考 log p 从哪来？涉及第四篇的哪个上下文与第一篇的哪一层？
+
+   <details markdown="1"><summary>答案</summary>
+
+   `DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——第一篇里被 `setattr` 换掉的那些 `nn.Linear`。
+
+   </details>
+
 4. 一次 `SFTTrainer.train()` 中 `-100` 出现在哪三处、由哪三个库的哪三个函数写入或消费？
+
+   <details markdown="1"><summary>答案</summary>
+
+   trl `build_labels`（mask 为 0 的位）、trl `DataCollatorForLanguageModeling`（pad 位、`padding_free` 段首）、transformers `ForCausalLMLoss`（`ignore_index=-100` 消费）；来源之一是 tokenizers 的 assistant mask。
+
+   </details>
+
 5. 换一个新模型架构到 transformers（假设已合入），`generate`、`get_peft_model`、`SFTTrainer` 分别需要它提供什么，才能不改一行代码直接用？
 
-**答案要点。**（1）第三篇：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；第四篇的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。（2）第一处：没有 cache 时 `forward` 把这一个 token 当作位置 0 的完整序列，RoPE 位置错、attention 看不到历史；第二处：`prepare_inputs_for_generation` 只切最后一个 token 的前提是 `past_key_values` 里有之前所有层的 K/V——要么全序列重算，要么带 cache。（3）`DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——第一篇里被 `setattr` 换掉的那些 `nn.Linear`。（4）trl `build_labels`（mask 为 0 的位）、trl `DataCollatorForLanguageModeling`（pad 位、`padding_free` 段首）、transformers `ForCausalLMLoss`（`ignore_index=-100` 消费）；来源之一是 tokenizers 的 assistant mask。（5）`generate`：`GenerationMixin` 与 `forward` 接受 `past_key_values` / `use_cache`、返回 `logits`；`get_peft_model`：模块是 `nn.Linear`（或有对应 LoRA 层的类型）且命名可被 `target_modules` 匹配；`SFTTrainer`：`forward(labels=...)` 返回 `loss`（即走 `loss_function`），tokenizer 有 `chat_template`。
+   <details markdown="1"><summary>答案</summary>
+
+   `generate`：`GenerationMixin` 与 `forward` 接受 `past_key_values` / `use_cache`、返回 `logits`；`get_peft_model`：模块是 `nn.Linear`（或有对应 LoRA 层的类型）且命名可被 `target_modules` 匹配；`SFTTrainer`：`forward(labels=...)` 返回 `loss`（即走 `loss_function`），tokenizer 有 `chat_template`。
+
+   </details>
 
 ### C. 面试题（6 题）
 
 1. `from_pretrained` 为什么快、内存为什么省？说出 meta device 与 safetensors mmap 各解决什么。
+
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：meta device 让骨架只有形状、不分配权重内存；mmap 让 `safe_open` 的切片句柄在赋值时按页读盘，峰值等于权重本身，290 个张量秒级加载。
+   **追问方向**：`device_map="auto"` 把分片摊到多卡时峰值内存变成多少；`dtype` 不传会发生什么；pickle 格式的 `.bin` 为什么做不到同一件事。
+   **好答案与一般答案的区别**：一般答案说「safetensors 更快更安全」；好答案能指出省的是哪一份内存——骨架在 meta 上不占，权重按页映射进来，所以峰值是一份权重而不是两份。
+
+   </details>
+
 2. `generate` 里 `temperature`、`top_k`、`top_p` 各怎么实现？为什么顺序固定？
+
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：`TemperatureLogitsWarper` 是 `scores / temperature`；`TopK` 用 `topk` 找第 $$k$$ 大值，小于它的置 $$-\infty$$；`TopP` 排序、`softmax`、`cumsum`，超过 $$p$$ 的置 $$-\infty$$——各十行；顺序由 `_get_logits_processor` 里 `append` 的顺序决定，让 top-p 在 temperature 之后算才是「对调温后的分布截断」。
+   **追问方向**：`repetition_penalty` 是 processor 还是 warper，装在哪一段；`do_sample=False` 时这三个参数还会不会装配；两个顺序颠倒后同一组参数的输出分布差在哪。
+   **好答案与一般答案的区别**：一般答案描述三个参数的效果；好答案把它们还原成一串 `LogitsProcessor`——每个十行、按 `append` 顺序作用在同一个 `scores` 上，于是「顺序」本身是语义的一部分。
+
+   </details>
+
 3. `tokenizer.json` 的五段各做什么？Llama 与 Qwen 在哪一段不同？
+
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：normalizer 规范化 Unicode；pre_tokenizer 切词 + 字节映射；model 做 BPE 合并；post_processor 加特殊 token；decoder 还原字节——Llama 的 `post_processor` 是 `TemplateProcessing` 加 `<s>`，Qwen 是 `ByteLevel` 不加。
+   **追问方向**：词表大小相同但 `pre_tokenizer` 不同会带来什么差别；`"2024"` 为什么被切成 4 个 token；`add_special_tokens=False` 关掉的是哪一段。
+   **好答案与一般答案的区别**：一般答案只说「BPE 分词」；好答案能拿一个具体字符串在五段里走一遍，并说清两个模型的差别落在 `post_processor` 而不是词表。
+
+   </details>
+
 4. `datasets.map` 的缓存键是怎么算的？什么情况下会意外失效或意外命中？
+
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：`update_fingerprint(old, "map", args)`，函数用 `dill` 序列化进哈希；改函数任何字节码、闭包变量、默认参数都失效；改 `num_proc` 或函数外的东西不失效；lambda 引用了可变全局变量时可能意外命中。
+   **追问方向**：改 `batched` / `batch_size` 算不算改 args；`load_from_cache_file=False` 与直接删缓存目录的区别；同一个数据集两条不同的 map 链会不会撞到同一个 fingerprint。
+   **好答案与一般答案的区别**：一般答案说「它有缓存」；好答案能说出键的构成，并由此推出两条可操作的结论——改函数必失效、改并行度不失效，所以调参时别指望改 `num_proc` 能重算。
+
+   </details>
+
 5. LoRA 在源码层面是怎么「挂上去」的？训练时省的是什么、不省的是什么？
+
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：`inject_adapter` 匹配 `target_modules`，`_create_and_replace` 新建 `lora.Linear(base_layer)`，`setattr` 换掉父模块属性；`forward` 多一行 $$\frac{\alpha}{r} B A x$$；省优化器状态与权重梯度，不省激活与 $$\partial L / \partial x$$。
+   **追问方向**：`merge_adapter` 与 `disable_adapter` 各改了 forward 的哪一步；为什么激活省不掉；`all-linear` 匹配到 `lm_head` 会发生什么。
+   **好答案与一般答案的区别**：一般答案说「加两个低秩矩阵」；好答案能说出 `inject_adapter` → `_create_and_replace` → `setattr` 这条替换路径，并把省掉的（优化器状态、权重梯度）与省不掉的（激活、对输入的梯度）分开——这正是显存账只降一半的原因。
+
+   </details>
+
 6. `dpo_loss` 与 GRPO 的 `_compute_loss` 各是哪几行？`loss_type` 在两处分别控制什么？
 
-**答案要点。**（1）meta device：建骨架不分配权重内存；mmap：`safe_open` 的切片句柄赋值时按页读盘，峰值等于权重本身，且 290 个张量秒级加载。（2）`TemperatureLogitsWarper` 是 `scores / temperature`；`TopK` 用 `topk` 找第 $$k$$ 大值，小于它的置 $$-\infty$$；`TopP` 排序、`softmax`、`cumsum`，超过 $$p$$ 的置 $$-\infty$$——各十行；顺序由 `_get_logits_processor` 里 `append` 的顺序决定，让 top-p 在 temperature 之后算才是「对调温后的分布截断」。（3）normalizer 规范化 Unicode；pre_tokenizer 切词 + 字节映射；model 做 BPE 合并；post_processor 加特殊 token；decoder 还原字节——Llama 的 `post_processor` 是 `TemplateProcessing` 加 `<s>`，Qwen 是 `ByteLevel` 不加。（4）`update_fingerprint(old, "map", args)`，函数用 `dill` 序列化进哈希；改函数任何字节码、闭包变量、默认参数都失效；改 `num_proc` 或函数外的东西不失效；lambda 引用了可变全局变量时可能意外命中。（5）`inject_adapter` 匹配 `target_modules`，`_create_and_replace` 新建 `lora.Linear(base_layer)`，`setattr` 换掉父模块属性；`forward` 多一行 $$\frac{\alpha}{r} B A x$$；省优化器状态与权重梯度，不省激活与 $$\partial L / \partial x$$。（6）`dpo_loss`：`logits = (logπ_c − logπref_c) − (logπ_r − logπref_r)`，`sigmoid` 分支 `-logsigmoid(β·logits)`，`loss_type` 选公式变体（ipo、hinge…）；GRPO：`coef_1 = exp(logπ − logπ_old)`，`coef_2 = clamp`，`-min(coef_1·A, coef_2·A)`，`+ β·KL`，`loss_type` 选归一方式（grpo 按条、bnpo 按 token、dr_grpo 除常数、dapo）。
+   <details markdown="1"><summary>答案</summary>
+
+   **答案要点**：`dpo_loss`：`logits = (logπ_c − logπref_c) − (logπ_r − logπref_r)`，`sigmoid` 分支 `-logsigmoid(β·logits)`，`loss_type` 选公式变体（ipo、hinge…）；GRPO：`coef_1 = exp(logπ − logπ_old)`，`coef_2 = clamp`，`-min(coef_1·A, coef_2·A)`，`+ β·KL`，`loss_type` 选归一方式（grpo 按条、bnpo 按 token、dr_grpo 除常数、dapo）。
+   **追问方向**：`beta` 在两处各是什么角色；`scale_rewards` 的取值改的是 advantage 的哪一部分；DPO 为什么不需要显式的 KL 项。
+   **好答案与一般答案的区别**：一般答案背两个公式；好答案能指出同名的 `loss_type` 在两处不是一回事——DPO 换的是损失函数的形状，GRPO 换的是对 token 求平均的分母。
+
+   </details>
 
 ### D. 掌握判据
 
