@@ -22,16 +22,16 @@ catalog: true
 | SFT | 没有奖励——目标是标注好的回答 | 没有参考，只有策略 | 不要 | 《[后训练（01）：SFT：指令数据、chat template、loss mask 与参数高效微调](/sft-data-chat-template-loss-mask-and-peft.html)》 |
 | RM（奖励模型） | 它就是造奖励的：人标的偏好对，Bradley-Terry | —（它不是策略方法） | — | 《[后训练（02）：偏好数据与奖励模型：Bradley-Terry、pairwise loss 与 reward hacking](/preference-data-and-reward-models.html)》 |
 | PPO | 奖励模型在线打分 | 对参考模型加 KL 惩罚 | 要（估计 baseline） | 《[后训练（03）：在线 RL：PPO、GRPO 与 RLHF 三件套](/online-rl-ppo-grpo-and-the-rlhf-trio.html)》 |
-| GRPO | 奖励模型或规则验证器在线打分 | 对参考模型加 KL 惩罚 | 不要——组内 $$G$$ 个回答的均值做 baseline | 同上（第三篇）；规则奖励见《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》 |
+| GRPO | 奖励模型或规则验证器在线打分 | 对参考模型加 KL 惩罚 | 不要——组内 $$G$$ 个回答的均值做 baseline | 同上（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)）；规则奖励见[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html) |
 | DPO | 不显式建模——奖励被策略与参考的对数比替代（隐式奖励） | 闭式折叠进 loss（$$\beta$$ 项） | 不要 | 《[后训练（04）：离线 RL：从 RLHF 目标推出 DPO 及其变体](/offline-rl-dpo-and-its-family.html)》 |
-| KTO | 单样本的「好 / 坏」标签（前景理论的效用函数） | 保留参考（估计 KL） | 不要 | 同上（第四篇） |
-| ORPO | SFT loss 上加一个 odds ratio 项 | 去掉参考模型 | 不要 | 同上（第四篇） |
+| KTO | 单样本的「好 / 坏」标签（前景理论的效用函数） | 保留参考（估计 KL） | 不要 | 同上（[《离线 RL》](/offline-rl-dpo-and-its-family.html)） |
+| ORPO | SFT loss 上加一个 odds ratio 项 | 去掉参考模型 | 不要 | 同上（[《离线 RL》](/offline-rl-dpo-and-its-family.html)） |
 | RLVR | 规则验证器：答案匹配、代码测试、格式检查 | 对参考模型加 KL 惩罚（GRPO 形态） | 不要 | 《[后训练（05）：推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute](/reasoning-models-and-verifiable-rewards.html)》 |
 | 蒸馏 | 教师模型的分布（logits 级 / 序列级 / on-policy） | 无参考——猫是教师本身 | 不要 | 《[后训练（07）：蒸馏：logits 级、序列级与 on-policy](/knowledge-distillation-for-llms.html)》 |
 
 Table: 后训练方法按「奖励、参考、价值模型」三件套排开
 
-每一篇用同样的三步处理它的方法——**推导**（目标函数从哪来、每一项在做什么）、**算账**（一次训练要几个模型在显存里、生成多少 token、标多少数据、花多少 GPU 小时）、**动手**（给出用 `trl` 在一个 0.5B–1.5B 的开源小模型上跑通的骨架与该看的曲线；第一篇附完整实验与作者机器上的数字）——最后指出这一步在 Llama 3、DeepSeek-R1、Qwen3、Tülu 3 这些公开配方里的形态。
+每一篇用同样的三步处理它的方法——**推导**（目标函数从哪来、每一项在做什么）、**算账**（一次训练要几个模型在显存里、生成多少 token、标多少数据、花多少 GPU 小时）、**动手**（给出用 `trl` 在一个 0.5B–1.5B 的开源小模型上跑通的骨架与该看的曲线；[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)附完整实验与作者机器上的数字）——最后指出这一步在 Llama 3、DeepSeek-R1、Qwen3、Tülu 3 这些公开配方里的形态。
 
 举一个例子说明这个系列的取法。"DPO 不需要奖励模型"是每篇介绍都有的一句话；本系列要把它变成三件可验证的事：
 
@@ -80,7 +80,7 @@ Table: 后训练流水线的五段与对应篇目
 
 ### 名字太多，骨架只有一个
 
-PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO、cDPO；RLHF、RLAIF、RLVR。每个名字对应一篇论文、一组实验、一个"比前者好"的表。不把它们放回同一个骨架，就只能记；放回去之后，每个名字是骨架上一处改动——去掉价值模型、把奖励折进 loss、把成对比较换成单样本、把 KL 项去掉、把 token 级重要性比换成序列级。本系列的第三、四篇各有一张表，把这一族按"改了三件套的哪一件"排开。
+PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO、cDPO；RLHF、RLAIF、RLVR。每个名字对应一篇论文、一组实验、一个"比前者好"的表。不把它们放回同一个骨架，就只能记；放回去之后，每个名字是骨架上一处改动——去掉价值模型、把奖励折进 loss、把成对比较换成单样本、把 KL 项去掉、把 token 级重要性比换成序列级。本系列的[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)各有一张表，把这一族按"改了三件套的哪一件"排开。
 
 ### 每一步都能算账，而账很少被算
 
@@ -104,15 +104,15 @@ PPO、GRPO、RLOO、REINFORCE++、DAPO、GSPO；DPO、IPO、KTO、ORPO、SimPO�
 
 ### 已经在做 SFT / DPO，但对 RL 与推理模型生疏的工程师
 
-你的流水线停在 SFT + DPO，想加 GRPO 或 RLVR，但 PPO 的四个模型、GAE、KL 系数、rollout 引擎这些词让你迟疑。第三、五篇是为此准备的：从策略梯度推到 PPO，再看 GRPO 去掉了什么、RLVR 换掉了什么，以及一次训练的显存与 token 账。
+你的流水线停在 SFT + DPO，想加 GRPO 或 RLVR，但 PPO 的四个模型、GAE、KL 系数、rollout 引擎这些词让你迟疑。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)是为此准备的：从策略梯度推到 PPO，再看 GRPO 去掉了什么、RLVR 换掉了什么，以及一次训练的显存与 token 账。
 
 ### 需要评测与选型、而不是训练的工程师
 
-你要在几个模型之间选一个，或者判断一次训练有没有变好。第八篇单独讲评测：每个 benchmark 测什么、LLM-as-judge 的三种偏差、Arena 的统计方法、污染怎么查、什么时候必须自建评测集。它可以独立阅读。
+你要在几个模型之间选一个，或者判断一次训练有没有变好。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)单独讲评测：每个 benchmark 测什么、LLM-as-judge 的三种偏差、Arena 的统计方法、污染怎么查、什么时候必须自建评测集。它可以独立阅读。
 
 ### Infra 工程师，想知道 RL 后训练在系统上要什么
 
-rollout 引擎与训练器共置、权重同步、生成与训练的算力配比——这些 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)讨论的负载，其算法需求在第三、五篇：为什么 RL 训练的大头是推理、为什么 GRPO 让 batch 里的序列长度方差极大、为什么 on-policy 与 off-policy 对权重同步的要求不同。
+rollout 引擎与训练器共置、权重同步、生成与训练的算力配比——这些 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)讨论的负载，其算法需求在[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)：为什么 RL 训练的大头是推理、为什么 GRPO 让 batch 里的序列长度方差极大、为什么 on-policy 与 off-policy 对权重同步的要求不同。
 
 
 ## 系列的整体主线
@@ -128,7 +128,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 7. 第七篇：蒸馏 —— 奖励换成教师分布；logits 级、序列级、on-policy；R1 → 小模型
 8. 第八篇：评测 —— 每一步"变好了"怎么证明；benchmark、judge、Arena、污染、自建
 
-第一篇没有奖励也没有参考，只有策略与标注好的目标序列。第二篇造出奖励。第三、四篇是**同一个目标的两种解法**——在线与离线：第三篇在线地采样 - 打分 - 更新，第四篇离线地从固定的偏好对直接推出 loss。第五篇把奖励从"学出来的模型"换成"规则验证器"，这是 2025 年推理模型的转折点。第六篇把 RLVR 从单轮推到多轮：模型的动作里出现真实的工具调用与环境反馈，奖励延后到整条轨迹结束，这是 2025–26 年 Agent 能力的来源。第七篇把奖励换成教师模型的分布，把大模型的能力搬进小模型。第八篇是贯穿全流程的度量——每一篇的实验都用它来判断"变好了没有"。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)没有奖励也没有参考，只有策略与标注好的目标序列。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)造出奖励。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)是**同一个目标的两种解法**——在线与离线：[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)在线地采样 - 打分 - 更新，[《离线 RL》](/offline-rl-dpo-and-its-family.html)离线地从固定的偏好对直接推出 loss。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把奖励从"学出来的模型"换成"规则验证器"，这是 2025 年推理模型的转折点。[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把 RLVR 从单轮推到多轮：模型的动作里出现真实的工具调用与环境反馈，奖励延后到整条轨迹结束，这是 2025–26 年 Agent 能力的来源。[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师模型的分布，把大模型的能力搬进小模型。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)是贯穿全流程的度量——每一篇的实验都用它来判断"变好了没有"。
 
 三条交织的线索：
 
@@ -148,7 +148,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 这一篇会覆盖：
 
 - 指令数据的三种来源：人工编写（InstructGPT 的 13K、LIMA 的 1K）、self-instruct 一类的自举、从更强模型蒸馏（ShareGPT、Alpaca、UltraChat）；数量与质量的取舍——LIMA 的"1000 条够了"与 Tülu 3 的 93.9 万条各在什么条件下成立；
-- 多轮对话的格式与 chat template：角色标记、特殊 token（第九篇留下的 256 个位）、system prompt；模板不一致是 SFT 最常见的静默错误；
+- 多轮对话的格式与 chat template：角色标记、特殊 token（《预训练》的[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)讲到的 Llama 3 预留的 256 个位）、system prompt；模板不一致是 SFT 最常见的静默错误；
 - loss mask：只对回复部分算 loss，prompt 部分不算；为什么算 prompt 会伤害模型；多轮时只算最后一轮还是每一轮；
 - packing 与它的 attention 掩码问题（《[预训练（05）：训练配方与稳定性：学习率、batch、调度与 loss spike](/pretraining-recipe-and-training-stability.html)》的跨文档 attention 在这里再出现一次）；
 - 全量微调的账：8B 模型 16 字节/参数的训练状态 128 GB（《[预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)》），lr $$10^{-5}$$ 量级、2–3 个 epoch、cosine；
@@ -173,9 +173,9 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - Bradley-Terry 模型：$$P(y_w \succ y_l) = \sigma(r(y_w) - r(y_l))$$，它就是逻辑回归；pairwise loss $$-\log \sigma(r_w - r_l)$$ 的梯度与它对"差距"的处理；margin 项；
 - 奖励模型的结构：基座模型去掉 lm_head 换一个标量头，从 SFT 模型初始化；用多大的模型做 RM（InstructGPT 用 6B 给 175B 打分；Llama 3 用与策略同规格）；
 - RM 的过拟合：偏好数据只有几万对，RM 训 1 个 epoch 就开始过拟合；准确率通常停在 65–75%，与人际一致率同量级——但一致率不是上限，是标签噪声的线索；
-- reward hacking：策略找到 RM 的漏洞——长度偏好（RM 偏爱长回答，策略越训越长）、格式偏好（列表、加粗）、自信语气；对策：长度惩罚、RM 集成、定期用新样本重训 RM、KL 约束（第三篇）；
-- 生成式 RM 与 LLM-as-judge 作为奖励：让模型先写评语再打分，比标量头更可解释也更贵（第八篇的偏差在这里同样存在）；
-- 过程奖励模型（PRM）与结果奖励模型（ORM）的区别，留到第五篇展开。
+- reward hacking：策略找到 RM 的漏洞——长度偏好（RM 偏爱长回答，策略越训越长）、格式偏好（列表、加粗）、自信语气；对策：长度惩罚、RM 集成、定期用新样本重训 RM、KL 约束（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)）；
+- 生成式 RM 与 LLM-as-judge 作为奖励：让模型先写评语再打分，比标量头更可解释也更贵（[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的偏差在这里同样存在）；
+- 过程奖励模型（PRM）与结果奖励模型（ORM）的区别，留到[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)展开。
 
 核心问题是：
 
@@ -203,7 +203,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 > **PPO 为什么要四个模型？GRPO 去掉价值模型之后，用什么代替它、代价是什么？一次 GRPO 训练的算力里推理与反向各占多少？**
 
-动手（建议）：用 `trl` 的 `GRPOTrainer` 在 Qwen2.5-0.5B-Instruct 上用第二篇的 RM 做一轮在线 RL；记录奖励、KL、平均回答长度随步数的曲线；对比 $$\beta$$ 取 0.01 与 0.1、$$G$$ 取 4 与 16 的差别；统计生成 token 数与训练 token 数之比。
+动手（建议）：用 `trl` 的 `GRPOTrainer` 在 Qwen2.5-0.5B-Instruct 上用[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 RM 做一轮在线 RL；记录奖励、KL、平均回答长度随步数的曲线；对比 $$\beta$$ 取 0.01 与 0.1、$$G$$ 取 4 与 16 的差别；统计生成 token 数与训练 token 数之比。
 
 ### 4. 离线 RL：从 RLHF 目标推出 DPO 及其变体
 
@@ -226,7 +226,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 > **DPO 真的"不需要奖励模型"吗？它的隐式奖励在哪里会失效？同一份偏好数据，DPO 与 PPO 训出的模型差在什么地方？**
 
-动手（建议）：用第二篇的偏好数据在同一个 SFT 模型上分别跑 DPO 与第三篇的 GRPO；画 chosen / rejected 对数概率随步数的曲线（观察两者同时下降的现象）；用第二篇的 RM 与第八篇的 judge 评两者的输出；对比 $$\beta$$ 0.05 / 0.1 / 0.5。
+动手（建议）：用[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的偏好数据在同一个 SFT 模型上分别跑 DPO 与[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的 GRPO；画 chosen / rejected 对数概率随步数的曲线（观察两者同时下降的现象）；用[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 RM 与[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的 judge 评两者的输出；对比 $$\beta$$ 0.05 / 0.1 / 0.5。
 
 ### 5. 推理模型与可验证奖励：R1 的配方、PRM 与 test-time compute
 
@@ -240,7 +240,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - 长思维链的成本：回答从几百 token 到几万 token，rollout 的 token 数与 KV cache 随之增长一到两个数量级；batch 内长度方差极大对推理引擎与训练效率的影响；长度控制——长度惩罚、预算强制、Qwen3 的思考预算；
 - 过程奖励与结果奖励：ORM 只看最终答案，PRM 给每一步打分（Lightman 等 2023 的 PRM800K）；PRM 的标注成本与自动化（蒙特卡洛估计每步的正确概率）；R1 为什么没用 PRM（reward hacking 与标注成本）；
 - test-time compute：同一模型多采样取多数（self-consistency）、用 PRM 选最优（best-of-N）、搜索（MCTS 一类）；推理算力换准确率的曲线与它的边际；o1 与 R1 把这条曲线内化到模型里——训练让模型自己决定想多久；
-- 推理模型的蒸馏预告：R1 用 80 万条样本 SFT 出 1.5B–70B 的推理模型，不做 RL——小模型上直接 RL 不如蒸馏（第七篇展开）；
+- 推理模型的蒸馏预告：R1 用 80 万条样本 SFT 出 1.5B–70B 的推理模型，不做 RL——小模型上直接 RL 不如蒸馏（[《蒸馏》](/knowledge-distillation-for-llms.html)展开）；
 - 公开配方对照：R1、Qwen3（思考 / 非思考模式融合的四阶段）、Kimi K2 的可验证奖励与自评奖励、gpt-oss 的推理等级。
 
 核心问题是：
@@ -251,18 +251,18 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 ### 6. Agent 与工具调用的 RL：多轮环境、轨迹数据与延后的奖励
 
-第六篇把第五篇的可验证奖励从单轮推到多轮：模型不再一次生成到底，而是生成一段 → 调用工具 → 读到环境返回 → 再生成，奖励要等整条轨迹结束才知道。它是 RLVR 的直接延伸，也是 2025 年后 Agent 能力（写代码改仓库、搜索并综合、操作终端与浏览器）的训练来源。
+第六篇把[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)的可验证奖励从单轮推到多轮：模型不再一次生成到底，而是生成一段 → 调用工具 → 读到环境返回 → 再生成，奖励要等整条轨迹结束才知道。它是 RLVR 的直接延伸，也是 2025 年后 Agent 能力（写代码改仓库、搜索并综合、操作终端与浏览器）的训练来源。
 
 这一篇会覆盖：
 
-- 问题设定：把多轮工具调用写成 MDP——状态是到目前为止的全部对话（含工具输出），动作是模型生成的一段 token（思考 + 工具调用或最终回答），环境是工具与沙箱，奖励通常只在最后一步；与第三篇"单步 bandit"的区别就在这一个"多步"；
+- 问题设定：把多轮工具调用写成 MDP——状态是到目前为止的全部对话（含工具输出），动作是模型生成的一段 token（思考 + 工具调用或最终回答），环境是工具与沙箱，奖励通常只在最后一步；与[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)"单步 bandit"的区别就在这一个"多步"；
 - 工具调用的格式：函数 schema（JSON）、chat template 里的 tool 角色与特殊 token、并行调用、ReAct 式的思考 - 行动 - 观察交替；格式本身要先靠 SFT 学会，RL 只在会用工具的模型上才有起点；
 - 轨迹数据的三种来源：人工示范（贵且少）、更强模型生成再按结果过滤（拒绝采样在多轮上的形态）、大规模合成环境（Kimi K2 用模拟的工具与用户批量造轨迹）；为什么 Agent SFT 数据比对话 SFT 数据难得多——每条都要真实跑过环境；
-- 奖励的设计：结果奖励（测试通过、答案匹配、任务完成的判定）为主；过程奖励与 rubric judge 作为 shaping 的风险（第二篇的 hacking 在多轮上更容易）；对无效调用、超时、超步数的惩罚；
-- 训练目标：GRPO / PPO 在轨迹级上的写法——loss 只算模型生成的 token，**工具输出与用户轮次全部 mask 掉**（第一篇 loss mask 的多轮版本）；轨迹级优势与 turn 级信用分配的取舍；KL 与 clip 在长轨迹上的行为；
+- 奖励的设计：结果奖励（测试通过、答案匹配、任务完成的判定）为主；过程奖励与 rubric judge 作为 shaping 的风险（[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 hacking 在多轮上更容易）；对无效调用、超时、超步数的惩罚；
+- 训练目标：GRPO / PPO 在轨迹级上的写法——loss 只算模型生成的 token，**工具输出与用户轮次全部 mask 掉**（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) loss mask 的多轮版本）；轨迹级优势与 turn 级信用分配的取舍；KL 与 clip 在长轨迹上的行为；
 - 系统与成本：rollout 要与环境交互，每一步有 IO 与沙箱启动的延迟，同一 batch 的轨迹长度与耗时方差极大——**异步 rollout** 与 off-policy 修正成为必需（Infra 地图选修那一节在这里被逼出来）；一次训练的成本要加上环境步数与沙箱数，代码任务里环境比模型贵是常态；
 - 公开配方：SWE-RL（用 GitHub PR 的相似度做奖励训代码修复）、Search-R1 与 ReTool（搜索 / 代码解释器作为工具的 RLVR）、Kimi K2 的 Agent 数据合成与 RL、Qwen3 的 Agent 阶段、o3 / gpt-oss 把工具调用放进思维链；
-- 评测的预告：τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测哪一类 Agent 能力，第八篇展开。
+- 评测的预告：τ-bench、BFCL、SWE-bench Verified、GAIA、Terminal-Bench 各测哪一类 Agent 能力，[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)展开。
 
 核心问题是：
 
@@ -288,7 +288,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 > **同一个教师，logits 级、序列级、on-policy 三种蒸馏各让学生学到什么、漏掉什么？R1 为什么给小模型选择蒸馏而不是 RL？**
 
-动手（建议）：以 Qwen2.5-1.5B-Instruct（或第五篇训出的推理模型）为教师、0.5B 为学生，分别做序列级蒸馏（教师生成 → 学生 SFT）与 logits 级蒸馏（top-k 软标签的 KL）；对比 GSM8K 准确率与输出多样性；用 `trl` 的 `GKDTrainer` 跑一轮 on-policy 蒸馏对照。
+动手（建议）：以 Qwen2.5-1.5B-Instruct（或[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)训出的推理模型）为教师、0.5B 为学生，分别做序列级蒸馏（教师生成 → 学生 SFT）与 logits 级蒸馏（top-k 软标签的 KL）；对比 GSM8K 准确率与输出多样性；用 `trl` 的 `GKDTrainer` 跑一轮 on-policy 蒸馏对照。
 
 ### 8. 评测：benchmark、LLM-as-judge、Arena 与污染
 
@@ -299,7 +299,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 - 主流 benchmark 各测什么、多大、怎么算分：知识（MMLU 的 57 科 14K 题、MMLU-Pro、GPQA 的研究生级 448 题）、数学（GSM8K 1319 题、MATH 5000 题与 MATH-500、AIME 每年 30 题）、代码（HumanEval 164 题、LiveCodeBench、SWE-bench 的 2294 个真实 issue 与 Verified 500）、指令遵循（IFEval 的 541 条可验证约束）、对话（MT-Bench 80 题两轮、AlpacaEval）、Agent（τ-bench 的多轮客服任务、BFCL 的函数调用、GAIA、Terminal-Bench——它们评的是整条轨迹的结果，方差与成本都比单轮高一个量级）；每个 benchmark 的饱和程度与它还能区分什么；
 - 评测协议的细节如何改变分数：few-shot 数、CoT 与否、采样温度、答案抽取的正则、pass@k 的 $$k$$——同一模型在不同协议下相差十几个点是常态；`lm-evaluation-harness` 一类工具的作用是固定协议；
 - LLM-as-judge：用强模型给回答打分或成对比较；三种系统性偏差——位置偏差（偏爱先出现的）、长度偏差（偏爱长的）、自我偏好（偏爱同家族模型的文风）——与对策（交换顺序、长度控制的 win rate、多 judge）；judge 一致率与准确率的区别；
-- 人类偏好 Arena：匿名成对比较 + Bradley-Terry 打分（第二篇的模型在这里用来给模型排名）；它测的是"人喜欢"而非"正确"，风格与长度的影响；style control；
+- 人类偏好 Arena：匿名成对比较 + Bradley-Terry 打分（[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的模型在这里用来给模型排名）；它测的是"人喜欢"而非"正确"，风格与长度的影响；style control；
 - 污染：benchmark 题目在训练集里（《[预训练（04）：预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)》的 8-gram 检测是训练侧的对策）；评测侧的检测——用改写过的题、比较训练集出现前后发布的题目、canary 字符串；被污染的分数是无意义的；
 - 能力分解与错误分析：总分不告诉你改什么；按题型 / 长度 / 领域切分，看错误的类型（没理解、算错、格式错、拒答）；
 - 自建评测集：什么时候必须（业务任务、私有领域、防污染）、怎么建（从真实流量采样、标注协议、大小与置信区间）、怎么维护；
@@ -309,7 +309,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 > **一个模型的 MMLU 涨了 2 个点，怎么判断这是能力提升、协议变化、还是污染？用 GPT-4 当 judge 得到的 80% 胜率，去掉长度偏差之后还剩多少？**
 
-动手（建议）：用 `lm-evaluation-harness` 在同一模型上跑 GSM8K 的三种协议（0-shot / 8-shot / CoT）看分差；用 1.5B 模型当 judge 对第四篇的 DPO 与 GRPO 输出做成对比较，交换顺序测位置偏差，按长度分桶测长度偏差；对 100 道 GSM8K 题算置信区间。
+动手（建议）：用 `lm-evaluation-harness` 在同一模型上跑 GSM8K 的三种协议（0-shot / 8-shot / CoT）看分差；用 1.5B 模型当 judge 对[《离线 RL》](/offline-rl-dpo-and-its-family.html)的 DPO 与 GRPO 输出做成对比较，交换顺序测位置偏差，按长度分桶测长度偏差；对 100 道 GSM8K 题算置信区间。
 
 ### 9. 系列总结与通关自测
 
@@ -321,18 +321,18 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 
 | 步骤 | 做什么 | 输入 / 产物 | 对应篇目 |
 |---|---|---|---|
-| SFT | Qwen2.5-0.5B + 指令数据子集 | → 对话模型；loss mask、packing、LoRA 的对照 | 第一篇 |
-| RM | UltraFeedback 子集 | → 0.5B 奖励模型；过拟合曲线、长度偏好 | 第二篇 |
-| GRPO | 第一篇的模型 + 第二篇的 RM | → 在线 RL；奖励 / KL / 长度曲线 | 第三篇 |
-| DPO | 同一份偏好数据 | → DPO；与 GRPO 的输出对照 | 第四篇 |
-| RLVR | Qwen2.5-1.5B-Instruct + GSM8K 答案匹配 | → 推理模型；长度与准确率曲线，best-of-N | 第五篇 |
-| Agent RL | Qwen2.5-1.5B-Instruct + Python 计算器工具 | → 多轮 GRPO<br/>工具输出 mask 的对照<br/>轨迹长度分布 | 第六篇 |
-| 蒸馏 | 第五篇的模型为教师 | → 0.5B 学生；三种蒸馏对照 | 第七篇 |
-| 评测 | lm-evaluation-harness 的协议对照 | → judge 的偏差测量；置信区间 | 第八篇 |
+| SFT | Qwen2.5-0.5B + 指令数据子集 | → 对话模型；loss mask、packing、LoRA 的对照 | [《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) |
+| RM | UltraFeedback 子集 | → 0.5B 奖励模型；过拟合曲线、长度偏好 | [《偏好数据与奖励模型》](/preference-data-and-reward-models.html) |
+| GRPO | [《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的模型 + [《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 RM | → 在线 RL；奖励 / KL / 长度曲线 | [《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
+| DPO | 同一份偏好数据 | → DPO；与 GRPO 的输出对照 | [《离线 RL》](/offline-rl-dpo-and-its-family.html) |
+| RLVR | Qwen2.5-1.5B-Instruct + GSM8K 答案匹配 | → 推理模型；长度与准确率曲线，best-of-N | [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html) |
+| Agent RL | Qwen2.5-1.5B-Instruct + Python 计算器工具 | → 多轮 GRPO<br/>工具输出 mask 的对照<br/>轨迹长度分布 | [《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html) |
+| 蒸馏 | [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)的模型为教师 | → 0.5B 学生；三种蒸馏对照 | [《蒸馏》](/knowledge-distillation-for-llms.html) |
+| 评测 | lm-evaluation-harness 的协议对照 | → judge 的偏差测量；置信区间 | [《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html) |
 
 Table: 贯穿全系列的单卡后训练流水线
 
-第一篇的实验完整可跑，脚本与作者机器上的输出在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training)；第二到八篇给出的是**动手骨架**——`trl` 对应 trainer 的最小配置、自定义的奖励函数 / rollout / 数据格式那几十行，以及训起来之后该看的几条曲线——文中不引用未跑过的数字，公开配方的数字均注明来源。第二、四、八篇在 CPU 或极小配置上可以跑通（分钟到小时级），第三、五、六、七篇的 RL 与蒸馏需要一张 16–24 GB 的 GPU。所有动手的目的是**看曲线的形状与输出的变化**，不是刷分——0.5B 模型的绝对分数没有意义。
+第一篇的实验完整可跑，脚本与作者机器上的输出在 [ai-learning-labs/post-training](https://github.com/arganzheng/ai-learning-labs/tree/main/post-training)；第二到八篇给出的是**动手骨架**——`trl` 对应 trainer 的最小配置、自定义的奖励函数 / rollout / 数据格式那几十行，以及训起来之后该看的几条曲线——文中不引用未跑过的数字，公开配方的数字均注明来源。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)、[《离线 RL》](/offline-rl-dpo-and-its-family.html)与[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)在 CPU 或极小配置上可以跑通（分钟到小时级），[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)、[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)、[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)与[《蒸馏》](/knowledge-distillation-for-llms.html)的 RL 与蒸馏需要一张 16–24 GB 的 GPU。所有动手的目的是**看曲线的形状与输出的变化**，不是刷分——0.5B 模型的绝对分数没有意义。
 
 与它平行的源码与资料阅读线：
 
@@ -350,12 +350,12 @@ Table: 贯穿全系列的单卡后训练流水线
 
 ### 前置要求
 
-- L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)：参数量与训练状态的账（第一、二、十篇）；LoRA 与 SFT 的实践不在这两个系列；
-- L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（第一篇）、AdamW 与学习率调度（第三篇）、过拟合与多 epoch（第四篇）；
+- L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)：参数量与训练状态的账（[《从 GPT-2 到 Llama》](/gpt2-to-llama-five-changes-and-parameter-count.html)、[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)、[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)）；LoRA 与 SFT 的实践不在这两个系列；
+- L3 的[《深度学习基础》](/deep-learning-foundations.html)：交叉熵与 softmax 的梯度（[《损失函数》](/loss-functions-from-mse-to-dpo.html)）、AdamW 与学习率调度（[《优化器》](/optimizers-from-sgd-to-adamw.html)）、过拟合与多 epoch（[《正则化与泛化》](/regularization-and-generalization.html)）；
 - L2 经典机器学习系列的逻辑回归、分类器的评估（准确率、置信区间）——奖励模型就是逻辑回归；
 - 会用 `transformers` 加载模型与 tokenizer、写一个训练循环；用过或看过 `trl` 的任意一个 trainer 更好。
 
-不要求：学过强化学习（第三篇从策略梯度讲起）；有多卡。
+不要求：学过强化学习（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)从策略梯度讲起）；有多卡。
 
 ### 版本与基线
 
@@ -383,14 +383,14 @@ Table: 贯穿全系列的单卡后训练流水线
 读完这套系列之后，面对一份后训练配方或一个后训练任务，读者应该能够回答：
 
 - 这一步的目标函数是什么，每一项在防什么？：→ 第一至七篇：每篇的推导
-- 它用了三件套的哪几个，奖励从哪来，参考怎么约束？：→ 第三、四篇的对照表
+- 它用了三件套的哪几个，奖励从哪来，参考怎么约束？：→ [《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)的对照表
 - 要几个模型在显存里，生成多少 token，标多少数据？：→ 每篇的成本表
-- 奖励模型 70% 的准确率够不够，策略会从哪钻空子？：→ 第二篇
-- PPO 与 GRPO、DPO 与 PPO，什么时候选哪个？：→ 第三、四篇
-- 为什么规则奖励能训出推理而 RM 不能？R1 的四阶段各在修什么？：→ 第五篇
-- 多轮工具调用的 RL 与单轮差在哪？瓶颈为什么在环境？：→ 第六篇
-- 小模型要能力，蒸馏还是 RL？哪种蒸馏？：→ 第七篇
-- 分数涨了 2 个点，是能力、协议还是污染？judge 的胜率可信吗？：→ 第八篇
+- 奖励模型 70% 的准确率够不够，策略会从哪钻空子？：→ [《偏好数据与奖励模型》](/preference-data-and-reward-models.html)
+- PPO 与 GRPO、DPO 与 PPO，什么时候选哪个？：→ [《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)
+- 为什么规则奖励能训出推理而 RM 不能？R1 的四阶段各在修什么？：→ [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)
+- 多轮工具调用的 RL 与单轮差在哪？瓶颈为什么在环境？：→ [《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)
+- 小模型要能力，蒸馏还是 RL？哪种蒸馏？：→ [《蒸馏》](/knowledge-distillation-for-llms.html)
+- 分数涨了 2 个点，是能力、协议还是污染？judge 的胜率可信吗？：→ [《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)
 
 最终目标是三种能力：
 
@@ -401,4 +401,4 @@ Table: 贯穿全系列的单卡后训练流水线
 这一层是当前算法工程师的日常。方法的名字还会继续增加，但三件套的骨架、成本的算法与评测的纪律不会变。
 
 [^q0]: 按「策略、奖励、参考」三件套走五步：**SFT**（指令数据 + chat template + 只对回复算 loss 的交叉熵——目标函数就是条件语言建模的最大似然）教会格式与对话；**奖励模型**（Bradley-Terry：$$-\log\sigma(r_w-r_l)$$，把「人觉得更好」变成标量）；**偏好对齐**——在线 RL（PPO / GRPO：最大化奖励减 $$\beta$$ KL 到参考模型，KL 防跑太远）或离线 DPO（把 RLHF 闭式解代入 BT，奖励模型被两个策略的对数比替代）教会拒绝与偏好；**可验证奖励的 RL**（RLVR：奖励来自答案校验 / 单元测试而不是人标，GRPO 组内相对优势）训出一步步推导数学题的能力；**蒸馏**把它压进小模型。知道是真的变好而不是讨好评测：用去污染的能力 benchmark + 偏好胜率 + judge 与人工一致率校准 + 长度 / 格式偏差检查 + 对 reward hacking 的专门探针（奖励涨而人评不涨就是在钻空子）。
-[^q1]: **loss mask 算不算 prompt**：算进去让模型学会复述 / 生成提问（浪费容量、回复质量略降），只算回复把全部梯度用在要学的行为上——默认只算回复。**packing 掩不掩跨样本**：不掩时第二条样本的 token 会 attend 到第一条，学到串话的噪声；掩（按样本分段的 attention mask / position id 重置）才等价于不 packing。**LoRA 秩 8 vs 64**：8 已能学会格式与风格，64 多学一些知识型差异但遗忘也更多，验证 loss 差别通常在百分之几（第一篇 Qwen2.5-0.5B 实测）。**1 vs 5 epoch**：1 epoch 验证 loss 最低附近，5 epoch 训练 loss 继续降、验证 loss 回升、回答开始背训练集。训完之前判断遗忘：训练中同时监控一份**普通文本 / 预训练分布的 held-out loss** 与几个通用 benchmark 子集，它们上升的速度就是遗忘的速度；LoRA、更低 lr、混入少量预训练数据回放都会压低它。
+[^q1]: **loss mask 算不算 prompt**：算进去让模型学会复述 / 生成提问（浪费容量、回复质量略降），只算回复把全部梯度用在要学的行为上——默认只算回复。**packing 掩不掩跨样本**：不掩时第二条样本的 token 会 attend 到第一条，学到串话的噪声；掩（按样本分段的 attention mask / position id 重置）才等价于不 packing。**LoRA 秩 8 vs 64**：8 已能学会格式与风格，64 多学一些知识型差异但遗忘也更多，验证 loss 差别通常在百分之几（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) Qwen2.5-0.5B 实测）。**1 vs 5 epoch**：1 epoch 验证 loss 最低附近，5 epoch 训练 loss 继续降、验证 loss 回升、回答开始背训练集。训完之前判断遗忘：训练中同时监控一份**普通文本 / 预训练分布的 held-out loss** 与几个通用 benchmark 子集，它们上升的速度就是遗忘的速度；LoRA、更低 lr、混入少量预训练数据回放都会压低它。

@@ -9,9 +9,9 @@ date: 2026-04-23 20:00:00
 updated: 2026-11-23
 ---
 
-八篇正文回答了一个问题：**一个只会续写的基座模型，经过哪几步变成能回答、能拒绝、能一步步推导、能调工具的模型——每一步的目标函数是什么、要几个模型在显存里、生成多少 token、怎么证明它真的变好了**。第一篇用 SFT 教格式，第二篇把人的判断造成一个可微的奖励，第三、四篇是用奖励改策略的在线与离线两种解法，第五篇把奖励换成验证器，第六篇把验证器推到多轮环境，第七篇把奖励换成教师的分布，第八篇是贯穿全程的度量。八篇合起来是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。
+八篇正文回答了一个问题：**一个只会续写的基座模型，经过哪几步变成能回答、能拒绝、能一步步推导、能调工具的模型——每一步的目标函数是什么、要几个模型在显存里、生成多少 token、怎么证明它真的变好了**。[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)教格式，[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)把人的判断造成一个可微的奖励，[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)是用奖励改策略的在线与离线两种解法，[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把奖励换成验证器，[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把验证器推到多轮环境，[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师的分布，[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)是贯穿全程的度量。八篇合起来是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。
 
-本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。第八篇末尾的"系列总结"那一节的内容（三件套的最终一张表、三条线索的终点）并入了本文第三章。
+本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)末尾的"系列总结"那一节的内容（三件套的最终一张表、三条线索的终点）并入了本文第三章。
 
 > **读完这八篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -146,7 +146,7 @@ Table: 本文的章节安排
 
 **核心问题**：多轮工具调用的 RL 与单轮 RLVR 差在哪一行公式、哪一处 mask、哪一段系统？为什么 Agent 训练的瓶颈常常不是模型而是环境？
 
-**结论**：把多轮写成 MDP——状态是全部历史（含工具输出），动作是一段生成，转移是环境执行，奖励在轨迹末尾。**一行公式**：$$\log \pi_\theta(\tau) = \sum_t \log \pi_\theta(a_t \mid s_t)$$，环境转移不含 $$\theta$$，第三篇的一切原样成立。**一处 mask**：工具返回、模拟用户、prompt 全部 mask = 0，不 mask 时模型学会编造工具输出（Search-R1 的消融）。**一段系统**：rollout 变成几千个沙箱各自运行、耗时从秒到几十分钟的循环，同步等最慢的那条让 GPU 空转，异步 rollout 与按轮的 off-policy 修正成为必需。格式要先靠 SFT 学会，RL 只负责提高任务成功率；奖励是可验证的环境状态（测试、状态比较、答案匹配），部分分与 rubric 作 shaping 但权重远低于最终成功；多轮 hacking 多一个维度——策略会改变验证本身。
+**结论**：把多轮写成 MDP——状态是全部历史（含工具输出），动作是一段生成，转移是环境执行，奖励在轨迹末尾。**一行公式**：$$\log \pi_\theta(\tau) = \sum_t \log \pi_\theta(a_t \mid s_t)$$，环境转移不含 $$\theta$$，[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)的一切原样成立。**一处 mask**：工具返回、模拟用户、prompt 全部 mask = 0，不 mask 时模型学会编造工具输出（Search-R1 的消融）。**一段系统**：rollout 变成几千个沙箱各自运行、耗时从秒到几十分钟的循环，同步等最慢的那条让 GPU 空转，异步 rollout 与按轮的 off-policy 修正成为必需。格式要先靠 SFT 学会，RL 只负责提高任务成功率；奖励是可验证的环境状态（测试、状态比较、答案匹配），部分分与 rubric 作 shaping 但权重远低于最终成功；多轮 hacking 多一个维度——策略会改变验证本身。
 
 **必记**：
 
@@ -194,29 +194,29 @@ Table: 本文的章节安排
 
 ### 1. 奖励从哪来：三件套的一格换了四次手
 
-第一篇没有奖励也没有参考，只有策略与标注好的目标序列——奖励隐含在数据里。第二篇造出显式的奖励：人（或 AI）的成对偏好经 Bradley-Terry 变成一个标量函数，参考随之出场，因为学出来的奖励是代理、代理要用 KL 锚住。第四篇把奖励折进策略——$$\beta \log(\pi_\theta / \pi_{ref})$$ 既是 RM 又是最优策略，参考从"算 KL 的模型"变成 loss 里的分母。第五、六篇把奖励换成验证器与环境状态，奖励不再是代理，参考的作用退到只防格式崩坏，$$\beta$$ 到 0。第七篇把奖励换成教师的逐 token 对数概率，稠密、精确、来自一个不会被 hack 的固定模型，参考也不再需要。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)没有奖励也没有参考，只有策略与标注好的目标序列——奖励隐含在数据里。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)造出显式的奖励：人（或 AI）的成对偏好经 Bradley-Terry 变成一个标量函数，参考随之出场，因为学出来的奖励是代理、代理要用 KL 锚住。[《离线 RL》](/offline-rl-dpo-and-its-family.html)把奖励折进策略——$$\beta \log(\pi_\theta / \pi_{ref})$$ 既是 RM 又是最优策略，参考从"算 KL 的模型"变成 loss 里的分母。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)与[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把奖励换成验证器与环境状态，奖励不再是代理，参考的作用退到只防格式崩坏，$$\beta$$ 到 0。[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师的逐 token 对数概率，稠密、精确、来自一个不会被 hack 的固定模型，参考也不再需要。
 
-这条线上的每一步都改变了成本结构与失效方式：奖励越是学出来的代理，就越需要参考、越有 KL 预算、越容易被钻空子；奖励越可验证，就越能撤掉参考、走得越远、但只在有标准答案的地方存在。第八篇的 judge 是这条线的镜像——它是一个没被训练的 RM，偏差方向与 RM 的 hacking 完全一致。第八篇末尾那张"三件套的最终一张表"就是这条线的终点：SFT 1 个模型、RM 1、PPO / GRPO 4 / 3、DPO 2 → 1、RLVR 与 Agent RL 2–3（加环境）、蒸馏 2。
+这条线上的每一步都改变了成本结构与失效方式：奖励越是学出来的代理，就越需要参考、越有 KL 预算、越容易被钻空子；奖励越可验证，就越能撤掉参考、走得越远、但只在有标准答案的地方存在。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的 judge 是这条线的镜像——它是一个没被训练的 RM，偏差方向与 RM 的 hacking 完全一致。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)末尾那张"三件套的最终一张表"就是这条线的终点：SFT 1 个模型、RM 1、PPO / GRPO 4 / 3、DPO 2 → 1、RLVR 与 Agent RL 2–3（加环境）、蒸馏 2。
 
 ### 2. KL 预算与 Goodhart
 
-第二篇给出规律：金奖励随 $$d = \sqrt{\text{KL}}$$ 先升后降，$$\beta$$ 系数随 RM 变大、数据变多而减小，best-of-N 的 $$\log N - (N-1)/N$$ 是免费的 KL 尺。第三篇把它变成操作：$$\beta$$ 是奖励与 KL 的汇率，InstructGPT 0.02 到 Tülu 3 0.05，可自适应到一个目标 KL；三种估计量里 $$k_1$$ 进奖励、$$k_3$$ 进 loss；训练时 KL 到 2–3 nats 就该用 held-out judge 核对。第四篇发现 DPO 逃不掉：过优化曲线与 PPO 形状相同，只是 hacking 的对象换成数据没覆盖的地方，KL 要用 $$\mathbb{E}[\hat r] / \beta$$ 自己估。
+[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)给出规律：金奖励随 $$d = \sqrt{\text{KL}}$$ 先升后降，$$\beta$$ 系数随 RM 变大、数据变多而减小，best-of-N 的 $$\log N - (N-1)/N$$ 是免费的 KL 尺。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)把它变成操作：$$\beta$$ 是奖励与 KL 的汇率，InstructGPT 0.02 到 Tülu 3 0.05，可自适应到一个目标 KL；三种估计量里 $$k_1$$ 进奖励、$$k_3$$ 进 loss；训练时 KL 到 2–3 nats 就该用 held-out judge 核对。[《离线 RL》](/offline-rl-dpo-and-its-family.html)发现 DPO 逃不掉：过优化曲线与 PPO 形状相同，只是 hacking 的对象换成数据没覆盖的地方，KL 要用 $$\mathbb{E}[\hat r] / \beta$$ 自己估。
 
-第五、六篇是这条线的反面：规则奖励下 Goodhart 没有入口，DAPO 干脆去掉 KL，Agent RL 里 KL ≈ 0——但验证器自己的漏洞（多个 `\boxed{}`、改测试文件）成了新的入口，"预算"变成了"堵漏"。第八篇把同一件事搬到评测：代理奖励涨、真实质量掉的检测要一个与奖励不同的度量，这是自建评测集的四个必要理由之一。
+[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)与[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)是这条线的反面：规则奖励下 Goodhart 没有入口，DAPO 干脆去掉 KL，Agent RL 里 KL ≈ 0——但验证器自己的漏洞（多个 `\boxed{}`、改测试文件）成了新的入口，"预算"变成了"堵漏"。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)把同一件事搬到评测：代理奖励涨、真实质量掉的检测要一个与奖励不同的度量，这是自建评测集的四个必要理由之一。
 
 ### 3. 只算自己生成的 token
 
-第一篇的 loss mask——prompt 位置 label 设 −100，多轮只算每轮 assistant——看起来是一个工程开关，其后每一篇都在用它。第二篇 RM 的输入要按同一模板渲染；第三篇 PPO 只在回答 token 上算 $$\log \pi$$；第四篇 Llama 3 在 DPO loss 里 mask 掉特殊 token，因为模板 token 在 chosen 与 rejected 里都出现、对数比差是纯噪声；第六篇是它的极端形态：工具返回与模拟用户的 token 在上下文里却不是策略的输出，不 mask 就学会编造工具结果，且轨迹里八成 token 是环境的。第八篇的错误分类表里"幻觉工具输出"一行指回第六篇的 mask。同一个机制、同一份代码路径（`assistant_only_loss`），从 SFT 到 Agent RL 没有变过。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的 loss mask——prompt 位置 label 设 −100，多轮只算每轮 assistant——看起来是一个工程开关，其后每一篇都在用它。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html) RM 的输入要按同一模板渲染；[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) PPO 只在回答 token 上算 $$\log \pi$$；[《离线 RL》](/offline-rl-dpo-and-its-family.html) Llama 3 在 DPO loss 里 mask 掉特殊 token，因为模板 token 在 chosen 与 rejected 里都出现、对数比差是纯噪声；[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)是它的极端形态：工具返回与模拟用户的 token 在上下文里却不是策略的输出，不 mask 就学会编造工具结果，且轨迹里八成 token 是环境的。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的错误分类表里"幻觉工具输出"一行指回[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)的 mask。同一个机制、同一份代码路径（`assistant_only_loss`），从 SFT 到 Agent RL 没有变过。
 
 ### 4. on-policy 与探索
 
-第二篇提出：偏好数据从要训的策略采样（on-policy）RM 才准，Llama 2 / 3 每轮 RL 后重标重训，Tülu 3 的消融 on-policy > off-policy。第三篇定义了严格在线（生成用的就是要更新的权重，每步同步）与它的放松（生成滞后一步几乎无损）。第四篇把它上升为结论：让偏好优化有效的两个要素是 on-policy 采样与负梯度，具体 loss 差别不大；离线 DPO 的上限由数据与策略的距离决定，PPO 的上限略高正是因为能探索到参考下低概率的正确回答。
+[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)提出：偏好数据从要训的策略采样（on-policy）RM 才准，Llama 2 / 3 每轮 RL 后重标重训，Tülu 3 的消融 on-policy > off-policy。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)定义了严格在线（生成用的就是要更新的权重，每步同步）与它的放松（生成滞后一步几乎无损）。[《离线 RL》](/offline-rl-dpo-and-its-family.html)把它上升为结论：让偏好优化有效的两个要素是 on-policy 采样与负梯度，具体 loss 差别不大；离线 DPO 的上限由数据与策略的距离决定，PPO 的上限略高正是因为能探索到参考下低概率的正确回答。
 
-第五篇把探索推到极致：规则奖励 + 大 $$G$$ + 弱 KL + 几千步，策略自己找到长推理；pass@k 显示 RL 主要在放大基座已有的模式。第六篇里 on-policy 与异步不可兼得，按轮记录 $$\log \pi_{old}$$、限制落后步数是折中。第七篇的 on-policy 蒸馏是同一思想在蒸馏上的形态：学生自己采样、教师在学生会去的地方纠正，修暴露偏差——它同时是 R1 那个对照实验的解释：小模型靠探索碰不到正确解，所以先蒸馏再 RL。
+[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把探索推到极致：规则奖励 + 大 $$G$$ + 弱 KL + 几千步，策略自己找到长推理；pass@k 显示 RL 主要在放大基座已有的模式。[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)里 on-policy 与异步不可兼得，按轮记录 $$\log \pi_{old}$$、限制落后步数是折中。[《蒸馏》](/knowledge-distillation-for-llms.html)的 on-policy 蒸馏是同一思想在蒸馏上的形态：学生自己采样、教师在学生会去的地方纠正，修暴露偏差——它同时是 R1 那个对照实验的解释：小模型靠探索碰不到正确解，所以先蒸馏再 RL。
 
 ### 5. 成本结构：算力便宜、数据贵，然后是推理引擎与环境
 
-第一篇算出 SFT 8B × 2B token 只要 67 GPU 小时，成本几乎全在数据，且数据成本正从人时变成推理 FLOPs（$$K = 8$$ 的拒绝采样与训练同量级）。第二篇 RM 训 7 GPU 小时但用贵——RL 每步 400 万 token 的打分。第三篇 GRPO 一轮几百到上千 GPU 小时，比 SFT 贵一个数量级、比预训练便宜三个，贵的不是 FLOPs 而是训练循环里的推理引擎、三四个模型同时在显存、每步同步。第四篇 DPO 回到 9 GPU 小时，因为不采样。第五篇 rollout 放大 8–64 倍，总算力 $$10^{22}$$–$$10^{23}$$；第六篇成本主体变成环境的 CPU·小时与沙箱集群；第七篇蒸馏比 RL 便宜一到两个数量级、on-policy ≈ 1/10；第八篇 judge 几十美元对人评几千美元。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)算出 SFT 8B × 2B token 只要 67 GPU 小时，成本几乎全在数据，且数据成本正从人时变成推理 FLOPs（$$K = 8$$ 的拒绝采样与训练同量级）。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html) RM 训 7 GPU 小时但用贵——RL 每步 400 万 token 的打分。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) GRPO 一轮几百到上千 GPU 小时，比 SFT 贵一个数量级、比预训练便宜三个，贵的不是 FLOPs 而是训练循环里的推理引擎、三四个模型同时在显存、每步同步。[《离线 RL》](/offline-rl-dpo-and-its-family.html) DPO 回到 9 GPU 小时，因为不采样。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html) rollout 放大 8–64 倍，总算力 $$10^{22}$$–$$10^{23}$$；[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)成本主体变成环境的 CPU·小时与沙箱集群；[《蒸馏》](/knowledge-distillation-for-llms.html)比 RL 便宜一到两个数量级、on-policy ≈ 1/10；[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html) judge 几十美元对人评几千美元。
 
 八篇合起来的成本线：SFT 一个模型 → RM 一个 → PPO 四个 / GRPO 三个 → DPO 两个（参考可离线）→ RLVR 的 rollout token → Agent RL 的环境步数与沙箱 → 蒸馏的教师推理 → 评测的 judge 调用。每一步动手前都能估出来。
 
@@ -263,7 +263,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   按第一篇 0.5B 上的账同比例放大：$$r = 64$$ 全部线性层 7.12% 可训练参数，训练状态 1.38 GiB → 8B 规格约 22 GiB（$$r = 16$$ 是 17 GiB）；全量 120–128 GB，省到约六分之一。差别主要在冻结权重只存 BF16 2 字节、不存梯度与 Adam 状态。
+   按[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) 0.5B 上的账同比例放大：$$r = 64$$ 全部线性层 7.12% 可训练参数，训练状态 1.38 GiB → 8B 规格约 22 GiB（$$r = 16$$ 是 17 GiB）；全量 120–128 GB，省到约六分之一。差别主要在冻结权重只存 BF16 2 字节、不存梯度与 Adam 状态。
 
    </details>
 
@@ -279,7 +279,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$D = 2 \times 10^9$$，$$C = 6 \times 7 \times 10^{10} \times 2 \times 10^9 = 8.4 \times 10^{20}$$；第一篇 8B 同样 $$D$$ 是 $$9.6 \times 10^{19}$$ → 67 GPU 小时，按比例约 590 GPU 小时。仍是数据成本的零头：50 万条由人写按每条 10 分钟是 8 万多人时。
+   $$D = 2 \times 10^9$$，$$C = 6 \times 7 \times 10^{10} \times 2 \times 10^9 = 8.4 \times 10^{20}$$；[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) 8B 同样 $$D$$ 是 $$9.6 \times 10^{19}$$ → 67 GPU 小时，按比例约 590 GPU 小时。仍是数据成本的零头：50 万条由人写按每条 10 分钟是 8 万多人时。
 
    </details>
 
@@ -287,7 +287,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\log K - (K-1)/K$$：$$K = 10$$ 是 $$2.30 - 0.90 = 1.40$$ nats，$$K = 30$$ 是 $$3.40 - 0.97 = 2.43$$ nats（第四篇给的约 2.4）。拒绝采样 + SFT 就是把 BoN 分布蒸进策略，这个数字是"走了多远"。
+   $$\log K - (K-1)/K$$：$$K = 10$$ 是 $$2.30 - 0.90 = 1.40$$ nats，$$K = 30$$ 是 $$3.40 - 0.97 = 2.43$$ nats（[《离线 RL》](/offline-rl-dpo-and-its-family.html)给的约 2.4）。拒绝采样 + SFT 就是把 BoN 分布蒸进策略，这个数字是"走了多远"。
 
    </details>
 
@@ -311,7 +311,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$8192 \times 8192 \times 128\ \text{KiB} = 8$$ TiB——第五篇表里 4K 是 4 TiB、16K 是 16 TiB，线性。一台 8 卡机放不下，必须分波生成，一步由几十波串行组成。
+   $$8192 \times 8192 \times 128\ \text{KiB} = 8$$ TiB——[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)表里 4K 是 4 TiB、16K 是 16 TiB，线性。一台 8 卡机放不下，必须分波生成，一步由几十波串行组成。
 
    </details>
 
@@ -327,7 +327,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$10 \times 400 + 9 \times 3000 = 31\text{K}$$；模型生成 4000 token，约 13%；反向要过全部 31K，每个有效 token 约 7.75 倍——比第六篇 20 轮例子的 5 倍更差，因为工具返回更长。对策是工具返回截断与前缀缓存。
+   $$10 \times 400 + 9 \times 3000 = 31\text{K}$$；模型生成 4000 token，约 13%；反向要过全部 31K，每个有效 token 约 7.75 倍——比[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html) 20 轮例子的 5 倍更差，因为工具返回更长。对策是工具返回截断与前缀缓存。
 
    </details>
 
@@ -345,7 +345,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：相关 > 0.3 就要长度控制（奖励减 $$\lambda \cdot$$ 长度或长度分桶归一化），先用 BoN 扫描 $$N$$ = 1–64 预演长度随 KL 的增长。第三篇：$$\beta$$ 取 RM 奖励的 0.01–0.05 量级，盯回答长度与 KL——长度单调涨且奖励涨主要来自它就是 hacking，KL 到 2–3 nats 用 held-out judge 核对。第五篇：规则奖励对长度中立、验证器正确时难 hack，$$\beta$$ 可到 0，长度增长是被选出来的；但要用 `dr_grpo` 去掉长度归一化偏差，并堵验证器漏洞（只取最后一个 `\boxed{}`）。
+   [《偏好数据与奖励模型》](/preference-data-and-reward-models.html)：相关 > 0.3 就要长度控制（奖励减 $$\lambda \cdot$$ 长度或长度分桶归一化），先用 BoN 扫描 $$N$$ = 1–64 预演长度随 KL 的增长。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)：$$\beta$$ 取 RM 奖励的 0.01–0.05 量级，盯回答长度与 KL——长度单调涨且奖励涨主要来自它就是 hacking，KL 到 2–3 nats 用 held-out judge 核对。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)：规则奖励对长度中立、验证器正确时难 hack，$$\beta$$ 可到 0，长度增长是被选出来的；但要用 `dr_grpo` 去掉长度归一化偏差，并堵验证器漏洞（只取最后一个 `\boxed{}`）。
 
    </details>
 
@@ -353,7 +353,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：两条都降是似然同降，概率流向数据外，加 RPO 的 chosen NLL 项（Llama 3 取 0.2）或去掉过于相似的对；长度涨 30% 以上要换长度归一化的变体（SimPO、Tülu 3 的长度归一化 DPO）——第二篇说过偏好数据里 chosen 本来就更长，隐式奖励是整条对数比之和，变长是拉开差距最容易的方向。第八篇：75% 胜率要先做长度控制的 win rate（回归掉长度差）与交换顺序，很多模型会掉 5–15 个点，剩下的才是评委真的觉得好。
+   [《离线 RL》](/offline-rl-dpo-and-its-family.html)：两条都降是似然同降，概率流向数据外，加 RPO 的 chosen NLL 项（Llama 3 取 0.2）或去掉过于相似的对；长度涨 30% 以上要换长度归一化的变体（SimPO、Tülu 3 的长度归一化 DPO）——[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)说过偏好数据里 chosen 本来就更长，隐式奖励是整条对数比之和，变长是拉开差距最容易的方向。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)：75% 胜率要先做长度控制的 win rate（回归掉长度差）与交换顺序，很多模型会掉 5–15 个点，剩下的才是评委真的觉得好。
 
    </details>
 
@@ -361,7 +361,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇的对照：32B 基座直接 RL 约 47 对蒸馏 72.6，RL 靠探索、小模型碰不到正确解；第七篇的账：教师生成 80 万条约 300 H100 小时 + 学生 SFT 约 1000 GPU 小时，对 RL 的几万，便宜一到两个数量级；容量上限 7B 约 55%（同一份数据 1.5B 29%、32B 72.6%）。先蒸馏再 RL 优于任何单独一种——蒸馏是最好的冷启动（第五篇 R1 阶段 1 的一般形式），RL 再提几个点；若 tokenizer 相同可加 on-policy 蒸馏，≈ RL 的 1/10 算力。评测按第八篇：AIME 30 题 ±18 个点，报 $$n$$ = 64 的 pass@1 与新题复测。
+   [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)的对照：32B 基座直接 RL 约 47 对蒸馏 72.6，RL 靠探索、小模型碰不到正确解；[《蒸馏》](/knowledge-distillation-for-llms.html)的账：教师生成 80 万条约 300 H100 小时 + 学生 SFT 约 1000 GPU 小时，对 RL 的几万，便宜一到两个数量级；容量上限 7B 约 55%（同一份数据 1.5B 29%、32B 72.6%）。先蒸馏再 RL 优于任何单独一种——蒸馏是最好的冷启动（[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html) R1 阶段 1 的一般形式），RL 再提几个点；若 tokenizer 相同可加 on-policy 蒸馏，≈ RL 的 1/10 算力。评测按[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)：AIME 30 题 ±18 个点，报 $$n$$ = 64 的 pass@1 与新题复测。
 
    </details>
 
@@ -369,7 +369,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：这是多轮 hacking——奖励来自可被动作影响的环境状态，防御是把验证放在策略碰不到的地方（只读挂载测试目录、隐藏测试、验证前恢复测试文件），并把破坏性操作直接判零；同时检查工具输出有没有 mask（不 mask 会编造测试输出）。第八篇：500 题上 ±4.4 个点，15 个点本身显著，但成功轨迹里有多少靠改测试要按错误分类切开；Agent 评测要多次运行报 pass^$$k$$，读一百条轨迹是 benchmark 报不出来的那部分。第二篇的 Goodhart 在这里以"策略改变验证本身"的形态出现。
+   [《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)：这是多轮 hacking——奖励来自可被动作影响的环境状态，防御是把验证放在策略碰不到的地方（只读挂载测试目录、隐藏测试、验证前恢复测试文件），并把破坏性操作直接判零；同时检查工具输出有没有 mask（不 mask 会编造测试输出）。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)：500 题上 ±4.4 个点，15 个点本身显著，但成功轨迹里有多少靠改测试要按错误分类切开；Agent 评测要多次运行报 pass^$$k$$，读一百条轨迹是 benchmark 报不出来的那部分。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 Goodhart 在这里以"策略改变验证本身"的形态出现。
 
    </details>
 
@@ -377,7 +377,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   Llama 3：拒绝采样用第二篇的 RM（每轮重标重训、与策略同规格、去掉 margin）选最佳，$$K$$ = 10–30 相当于 1.4–2.4 nats（第四篇）；SFT 是第一篇（lr 1e-5，checkpoint 平均抗遗忘）；DPO + NLL 0.2、$$\beta$$ 0.1、mask 特殊 token、参考每轮换最新——第四篇的迭代 DPO，半在线。R1：阶段 1 冷启动 SFT（第一篇的"少即是多"，几千条）；阶段 2 GRPO + 规则奖励 + 语言一致性（第三、五篇，$$\beta$$ 极小）；阶段 3 拒绝采样 80 万条回基座重 SFT——第四篇的拒绝采样 + SFT，也就是第七篇的序列级蒸馏，R1-Distill 直接用它；阶段 4 混合奖励（规则 + RM），KL 只对 RM 那一半需要。两条配方共同点：SFT 数据都由模型 + 筛选器产生，第八篇的评测决定每轮改什么。
+   Llama 3：拒绝采样用[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)的 RM（每轮重标重训、与策略同规格、去掉 margin）选最佳，$$K$$ = 10–30 相当于 1.4–2.4 nats（[《离线 RL》](/offline-rl-dpo-and-its-family.html)）；SFT 是[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)（lr 1e-5，checkpoint 平均抗遗忘）；DPO + NLL 0.2、$$\beta$$ 0.1、mask 特殊 token、参考每轮换最新——[《离线 RL》](/offline-rl-dpo-and-its-family.html)的迭代 DPO，半在线。R1：阶段 1 冷启动 SFT（[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的"少即是多"，几千条）；阶段 2 GRPO + 规则奖励 + 语言一致性（[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)，$$\beta$$ 极小）；阶段 3 拒绝采样 80 万条回基座重 SFT——[《离线 RL》](/offline-rl-dpo-and-its-family.html)的拒绝采样 + SFT，也就是[《蒸馏》](/knowledge-distillation-for-llms.html)的序列级蒸馏，R1-Distill 直接用它；阶段 4 混合奖励（规则 + RM），KL 只对 RM 那一半需要。两条配方共同点：SFT 数据都由模型 + 筛选器产生，[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的评测决定每轮改什么。
 
    </details>
 
@@ -469,13 +469,13 @@ Table: 掌握程度的判据
 
 八篇讲的是"从一个训好的基座出发，怎么把它变成对话、推理、Agent 模型并证明它变好了"。以下内容与它紧邻，但不在范围内：
 
-- **预训练与模型的成本账**：tokenizer、scaling law、参数量与训练状态、$$6ND$$、数据工程、训练配方与稳定性，在 L4 的[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)第一、二、十篇与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；交叉熵与 softmax 的梯度、AdamW 与调度、过拟合与多 epoch 在 L3 的[《深度学习基础》](/deep-learning-foundations.html)。本系列从一个训好的基座开始。
-- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)。本系列第三、五、六篇只讲算法对系统的要求与成本量级。
-- **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6，见[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)。本系列第五篇的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
-- **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7，见[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第三篇。方法与本系列相同，数据与评测不同。
-- **实验方法论**（可证伪的假设、小规模外推、控制随机性与复现）在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)——第八篇的统计只是它的一角。
+- **预训练与模型的成本账**：tokenizer、scaling law、参数量与训练状态、$$6ND$$、数据工程、训练配方与稳定性，在 L4《现代 LLM 结构》的[《从 GPT-2 到 Llama》](/gpt2-to-llama-five-changes-and-parameter-count.html)、[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)、[《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)，以及[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)；交叉熵与 softmax 的梯度、AdamW 与调度、过拟合与多 epoch 在 L3 的[《深度学习基础》](/deep-learning-foundations.html)。本系列从一个训好的基座开始。
+- **RL 训练系统的实现**：rollout 引擎与训练器的共置、权重同步、显存切换、算力配比的工程（verl、OpenRLHF、slime 的内部）。属于 Infra 地图 10 [《RL 后训练基础设施》](/rl-post-training-infrastructure.html)。本系列的[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)、[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)与[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)只讲算法对系统的要求与成本量级。
+- **推理侧的算法优化**：解码策略、投机解码、量化、KV 压缩。属于 L6，见[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)的 test-time compute 只讲"用推理算力换准确率"的曲线，不讲怎么让推理更快。
+- **多模态后训练**：视觉指令微调、多模态偏好数据。属于 L7，见《多模态：从视觉编码器到扩散模型》的[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)。方法与本系列相同，数据与评测不同。
+- **实验方法论**（可证伪的假设、小规模外推、控制随机性与复现）在算法地图的横切导读[《算法工程师的实验方法论》](/experimental-methodology-for-ai-algorithm-engineers.html)——[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的统计只是它的一角。
 - **安全与对齐的规范性问题**：什么算有害、拒答的边界、红队方法论。本系列只讲把任何一种偏好训进模型的技术，不讨论偏好本身应该是什么。
-- **Agent 框架与产品层**：编排框架、记忆、多 Agent 协作、prompt 设计。第六篇只讲怎么用 RL 把工具调用训进模型；在模型之上怎么搭 Agent 属于应用地图。
+- **Agent 框架与产品层**：编排框架、记忆、多 Agent 协作、prompt 设计。[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)只讲怎么用 RL 把工具调用训进模型；在模型之上怎么搭 Agent 属于应用地图。
 - **强化学习理论**：MDP、贝尔曼方程、收敛性证明。本系列只推到策略梯度与 PPO 的目标函数，把 LLM 当作"只有最后一步有奖励的单步 bandit"处理。
 - 本系列在整张地图上的位置（L5，L4 的模型结构之上、L6 的推理优化之前）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
