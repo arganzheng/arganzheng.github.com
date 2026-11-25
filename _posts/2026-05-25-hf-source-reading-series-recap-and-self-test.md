@@ -304,7 +304,7 @@ Table: 常见误区与正确说法
    <details markdown="1"><summary>答案</summary>
 
    **答案要点**：`inject_adapter` 匹配 `target_modules`，`_create_and_replace` 新建 `lora.Linear(base_layer)`，`setattr` 换掉父模块属性；`forward` 多一行 $$\frac{\alpha}{r} B A x$$；省优化器状态与权重梯度，不省激活与 $$\partial L / \partial x$$。
-   **追问方向**：`merge_adapter` 与 `disable_adapter` 各改了 forward 的哪一步；为什么激活省不掉；`all-linear` 匹配到 `lm_head` 会发生什么。
+   **追问方向**：`merge_adapter` 与 `disable_adapter` 各改了 forward 的哪一步；为什么激活省不掉；`all-linear` 为什么把 `lm_head` 排除在外。
    **好答案与一般答案的区别**：一般答案说「加两个低秩矩阵」；好答案能说出 `inject_adapter` → `_create_and_replace` → `setattr` 这条替换路径，并把省掉的（优化器状态、权重梯度）与省不掉的（激活、对输入的梯度）分开——这正是显存账只降一半的原因。
 
    </details>
