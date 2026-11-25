@@ -88,7 +88,35 @@ Table: 选题的四类失败方式
 
 Table: 选题各环节的 PyTorch 与 vLLM 对照（标签规模（2026-09-07）…）
 
-### 4. 本文的章节安排
+### 4. 每一条信号能用多久
+
+本章列出的信号不是一个量级的东西：有的几个月不变，有的当天就作废。选题时这件事决定了顺序——长效的信号用来挑题，短效的信号必须等到临动手前再查一次。下表按有效期从短到长排：
+
+| 信号 | 在哪看 | 有效多久 | 过期的样子 |
+|---|---|---|---|
+| 同一个 issue 下的 open PR 数 | `gh pr list --state open --search "<n> in:body"` | 当天 | 最新 15 个 `actionable` issue 几乎都在 24 小时内有了 PR，多的有 5 个 |
+| CI 看板上的一条失败 | vLLM 的 CI Failures Dashboard、PyTorch 的 HUD | 当天到几天 | 别人修了，或者 bot 开的 `DISABLED test_xxx` issue 被关掉 |
+| maintainer 最后一条评论的态度 | issue 页 | 当天读到的那条 | 三个月前的一句「欢迎 PR」在打分表里已经是减分项 |
+| 查重结论「没人在做同一件事」 | 三条 `gh` 命令 | 几天 | [《两个真实 PR 的完整走读》](/two-real-prs-pytorch-and-vllm.html)里 #48724 的「不重复」声明在 08-18 之后就不成立了 |
+| RFC 的 Feedback Period | `750-RFC.yml` 的字段 | 通常至少一周 | 没过就动手，等于跳过了讨论 |
+| `stale` 的倒计时 | vLLM 的 `stale` 标签 | 90 天，再 30 天自动关闭 | 到期关闭；`unstale` / `keep-open` 可以摘掉 |
+| roadmap 或 tracker issue 里未勾选的一项 | tracker issue | 一个发布周期（PyTorch 约两个月、vLLM 约两周） | 版本发布后重排 |
+| `actionable` 标签 | PyTorch 标签 | 几个月——它是打标那位 maintainer 的 review 承诺 | 标签被摘掉，或 issue 被重新分类回 `needs design` |
+| `help wanted` 加分步骤正文 | vLLM issue | ^^ | ^^ |
+| 标签体系本身（682 个 / 63 个、前缀分层） | `gh label list` | 按季度 | 新前缀出现、旧标签废弃 |
+| 文档里写着的规则（`rfc-required`、`action-required`） | 项目文档 | 按文档版本——可能从来没生效过 | 这两个标签截至 2026-09 都写在文档里，却不在仓库的标签列表中 |
+| 「不欢迎什么」的政策（`AGENTS.md`、`AI_POLICY.md`） | 仓库根目录 | 按年 | 2026 年刚变过一轮，就是这两个文件出现的那次 |
+
+Table: 选题信号按有效期排
+
+四处可以直接用的结论：
+
+1. **加分项几乎都是长效的，减分项几乎都是当天的**。对比第八章那张打分表就能看出来：`actionable`、`help wanted`、成体系的批次按月算，而「已有 open PR」「maintainer 三个月前就不说话了」「CI 这条失败已经被修」全是当天的事实。所以选题这件事可以慢慢挑，**查重必须留到临动手前再做一次**。
+2. **最短的那一条恰好最容易被当成已经办完的事**：查重结论。它的有效期只有几天，而一个 PR 从动手到推上去往往不止几天——所以查重不是动手前的一次仪式，是每次 push 之前都该重做的检查。
+3. **有一类信号可能从来没生效过**：文档里写的规则。`rfc-required` 与 `action-required` 都写在文档里，却不在实际的标签列表中。遇到这种不同步，以仓库里实际存在的东西为准（标签、模板、CI 配置），文档表达的只是意图。
+4. 这张表解释了贡献日志第二页为什么每一行都要带**查询日期**：切入点清单里的「无 open PR」「maintainer 说欢迎」如果不记日期，一周之后你自己也判断不出哪几行还算数。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -275,6 +303,12 @@ flowchart TB
 在 `actionable` 之前直接发 PR 是最常见的越级：按 wiki 的原文，这样的 PR "will be closed"。
 
 对贡献者最有用的一句是 `actionable` 的第二个条件：**打标的 maintainer 已经承诺会 review**。这就是为什么 `actionable` 是"预测一周后不会被关"的最强信号——它不只是"可以做"，而是"有人等着收"。
+
+> [!NOTE] Java 经验参照：JIRA 的状态流转与 component
+>
+> 这一套你在 JIRA 里见过：`module:` 前缀对应 component 字段，`needs reproduction` → `needs research` → `needs design` → `actionable` 对应一条 workflow，`high priority` / `small` / `large` 对应 priority 与估点。读法也一样——先按 component 过滤到自己熟的那一块，再按状态过滤到「可以动手」的那一档。
+>
+> 两处关键的不对上。第一，**JIRA 的状态流转是强制的**：状态之间只有配置好的 transition，按钮按不下去就是走不过去，所以一个 issue 的状态是系统事实；GitHub 标签没有这层，任何有 triage 权限的人都可以随手加减，`actionable` 不是一个状态，而是**某一位 maintainer 的承诺**——这正是它成为最强信号的原因，也是它可能被默默摘掉的原因。第二，JIRA 里 assignee 就是认领机制，看一眼就知道有没有人在做；PyTorch 没有认领机制（assignee 由 maintainer 设置，外部贡献者设不了），所以「assignee 为空」在这里完全不等于「没人在做」——判断依据只有第八章那三条查重命令。
 
 但 `actionable` 池子是被激烈争抢的。第九章会给出实查：最新 15 个 `actionable` issue 里，几乎每一个都在 24 小时内有了 PR，多的有 5 个。所以光看标签不够，还要看第八章的查重。
 
@@ -576,6 +610,12 @@ PyTorch 的回归还有第二条路：**release 周期内的 cherry-pick**。`RE
 - **数字**：前后对比，同一台机器同一脚本；至少三次取中位数
 - **范围**：只在某个 shape / dtype / 并发下出现，还是普遍
 
+> [!NOTE] Java 经验参照：JMH 的纪律与这里的差别
+>
+> 写过 JMH 的话，这五样里有三样是老规矩：固定版本对、固定脚本、多次取中位数——`@Warmup` / `@Measurement` / `@Fork` 防的就是「跑一次就报数」。这套纪律直接能用。
+>
+> 对不上的是变量和可复现性。JMH 要控制的主要变量是 JIT 预热、GC 和 dead-code elimination，都在进程里；这里要控制的是 GPU 型号、驱动与 CUDA 版本、shape、dtype、并发——所以 vLLM 的模板干脆要求贴 `collect_env.py` 的输出，一份没写清卡型号和 shape 的数字在这里等于没有数字。更重要的差别是：JMH 的结论别人在自己机器上重跑就能验证，而 reviewer 大概率没有你这块卡，**这份数字不会被任何人重跑**。它的可信度只能来自方法和命令写全——这也是[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)里 benchmark 六要素要把「方法与命令」单列一项的原因。
+
 有了这五样，报告就是可以直接 `git bisect` 的。如果你还有时间，bisect 出引入回归的 PR 并在报告里 ping 作者——这时候修复往往由原作者一两天内完成，你的贡献是报告本身。
 
 ## 六、文档、类型与"不欢迎单个 typo"
@@ -613,7 +653,7 @@ PyTorch `CONTRIBUTING.md` 的 "AI-Assisted Development" 一节第 1 条：
 
 Table: 成体系做文档与类型缺口的几种形态
 
-关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、怎么找全的**"。找全的方法就是第一篇讲的 `rg`：
+关键是 PR 描述里能说出"**这是一个什么范围、为什么这个范围、怎么找全的**"。找全的方法就是[《读懂一个百万行的代码库》](/reading-a-million-line-codebase.html)讲的 `rg`：
 
 ```bash title="用 rg 找全一批同类缺口"
 # 在 pytorch 检出根目录：找所有 optimizer 文档里用了 SGD 做示例的地方
@@ -964,7 +1004,14 @@ Table: 本篇涉及的文件位置
 
    <details markdown="1"><summary>答案</summary>
 
-   标签是否 actionable / help wanted；maintainer 最后一条评论的态度与时间；是否已有 open PR 链接到它；改动规模是否触发 RFC 门槛；需要的硬件自己有没有；项目的 stale 与 open PR 上限政策。
+   六项，按从快到慢的顺序：
+
+   1. 标签是否 `actionable` / `help wanted`；
+   2. maintainer 最后一条评论的态度与时间；
+   3. 是否已有 open PR 链接到它；
+   4. 改动规模是否触发 RFC 门槛；
+   5. 需要的硬件自己有没有；
+   6. 项目的 `stale` 与 open PR 上限政策。
 
    </details>
 
