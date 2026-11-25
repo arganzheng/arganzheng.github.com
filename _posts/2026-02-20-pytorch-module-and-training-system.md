@@ -439,10 +439,10 @@ flowchart TB
     D --> I
 
     classDef visible fill:#e8f5e9,stroke:#2e7d32;
-    classDef hidden fill:#eeeeee,stroke:#757575;
+    classDef plain fill:#eeeeee,stroke:#757575;
     classDef q fill:#fff8e1,stroke:#f9a825;
     class P,M,B,V visible;
-    class D,I hidden;
+    class D,I plain;
     class Q1,Q2,Q3 q;
 ```
 
