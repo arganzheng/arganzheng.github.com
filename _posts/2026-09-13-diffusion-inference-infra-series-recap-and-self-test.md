@@ -303,25 +303,25 @@ Table: 贯穿九篇的概念及其关系
 
 九篇各有一张"谁持有、活多久"的表。把它们按**寿命**并成一张，能看见几条单篇里看不见的东西。
 
-| 对象 | 哪一篇 | 谁持有 | 活多久 | 它为什么存在 |
+| 对象 | 哪一篇讲 | 谁持有 | 活多久 | 它为什么存在 |
 |---|---|---|---|---|
-| 一层的激活（Q / K / V、MLP 中间） | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 一次前向的临时张量 | **一次前向** | 没有理由留：下一步的输入全变了 |
-| attention 的分数矩阵 | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[四](/video-diffusion-long-sequence-attention-and-sparsity.html) | **不存在** | — | FlashAttention 不物化它；物化了视频 DiT 就不可能推理 |
-| 跨步缓存的残差与累积量 | [三](/timestep-redundancy-caching-and-step-skipping.html) | 模型外的 hook | **到下一次全算** | 为了跳步——机制造出来的，有损 |
-| stale K / V 与 patch 缓冲 | [五](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 每个流水线段 | **一步** | 为了让流水线不等——机制造出来的，有损 |
-| 在线 profiling 的 head 分类与置换索引 | [四](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | **一步** | 自适应稀疏的代价 |
-| latent | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 去噪循环 | 整次生成，每步就地更新 | 每步真正在动的只有它 |
-| 文本 embedding | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 条件张量；缓存后跨请求 | 整次生成 | 唯一天然、无损的跨步复用 |
-| cross-attention 的文本 K / V | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | attention 层 | 整次生成 | 只有 cross-attn 模型有，MMDiT 没有 |
-| 静态稀疏掩码 | [四](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | 整次生成 | 由形状决定，可按形状预生成 |
-| 请求参数与估出来的时长 | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 调度器里的请求对象 | 整个请求 | 一个数同时做排序键、准入判据、计费依据 |
-| latent 与步号（抢占时要存的全部） | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 实例 | 整次生成 | 0.5 MB 就能从那一步续上 |
-| DiT 权重 | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | worker 进程 | **跨请求常驻** | 每步完整读一遍 |
-| 文本编码器与 VAE 权重 | [二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 实例，或独立 stage | 跨请求常驻，但可以让出 | 三段不必同时在卡上 |
-| 编译产物与 CUDA graph | [二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)、[八](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | worker，按形状 | 跨请求常驻 | 换形状作废 |
-| LoRA / ControlNet | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 权重加载器 | 按请求切换或常驻 | 路由粘性之一 |
-| 自回归视频会话的 K / V | [六](/few-step-and-autoregressive-video-generation-systems.html) | 会话对象 | **整个会话，跨请求** | 扩散推理唯一的大块跨请求状态 |
-| 基线图与配置指纹 | [九](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | 对象存储 | 长期 | 质量评测唯一的可比对象 |
+| 一层的激活（Q / K / V、MLP 中间） | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 一次前向的临时张量 | **一次前向** | 没有理由留：下一步的输入全变了 |
+| attention 的分数矩阵 | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[视频](/video-diffusion-long-sequence-attention-and-sparsity.html) | **不存在** | — | FlashAttention 不物化它；物化了视频 DiT 就不可能推理 |
+| 跨步缓存的残差与累积量 | [跨步冗余](/timestep-redundancy-caching-and-step-skipping.html) | 模型外的 hook | **到下一次全算** | 为了跳步——机制造出来的，有损 |
+| stale K / V 与 patch 缓冲 | [多卡并行](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 每个流水线段 | **一步** | 为了让流水线不等——机制造出来的，有损 |
+| 在线 profiling 的 head 分类与置换索引 | [视频](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | **一步** | 自适应稀疏的代价 |
+| latent | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 去噪循环 | 整次生成，每步就地更新 | 每步真正在动的只有它 |
+| 文本 embedding | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 条件张量；缓存后跨请求 | 整次生成 | 唯一天然、无损的跨步复用 |
+| cross-attention 的文本 K / V | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | attention 层 | 整次生成 | 只有 cross-attn 模型有，MMDiT 没有 |
+| 静态稀疏掩码 | [视频](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | 整次生成 | 由形状决定，可按形状预生成 |
+| 请求参数与估出来的时长 | [serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 调度器里的请求对象 | 整个请求 | 一个数同时做排序键、准入判据、计费依据 |
+| latent 与步号（抢占时要存的全部） | [serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 实例 | 整次生成 | 0.5 MB 就能从那一步续上 |
+| DiT 权重 | [负载画像](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | worker 进程 | **跨请求常驻** | 每步完整读一遍 |
+| 文本编码器与 VAE 权重 | [单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 实例，或独立 stage | 跨请求常驻，但可以让出 | 三段不必同时在卡上 |
+| 编译产物与 CUDA graph | [单卡执行](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)、[三个引擎](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | worker，按形状 | 跨请求常驻 | 换形状作废 |
+| LoRA / ControlNet | [serving 形态](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 权重加载器 | 按请求切换或常驻 | 路由粘性之一 |
+| 自回归视频会话的 K / V | [少步与自回归](/few-step-and-autoregressive-video-generation-systems.html) | 会话对象 | **整个会话，跨请求** | 扩散推理唯一的大块跨请求状态 |
+| 基线图与配置指纹 | [配置与排障](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | 对象存储 | 长期 | 质量评测唯一的可比对象 |
 
 Table: 全系列十七样对象，按寿命排
 
