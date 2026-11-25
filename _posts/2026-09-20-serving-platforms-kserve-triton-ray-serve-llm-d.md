@@ -12,7 +12,15 @@ updated: 2026-11-14
 
 这个故事里的每一个环节都是 Serving 平台要解决的问题：一个副本是几个 Pod、副本的就绪要等多久、用什么指标判断"满了"、多久之前触发扩容、扩多少、空闲时缩到几个。前五篇的资源层把 GPU、网络、存储组织成了可调度的池子，从本篇起进入交付层——把一个能跑的引擎进程包装成一个有形态、能扩缩、能升级的**服务**。
 
-这一层的开源组件很多，定位各不相同：LeaderWorkerSet 只解决"多 Pod 一副本"这一件事；KServe 是一个完整的 Serving 平台，用 `InferenceService` 服务传统模型、用 `LLMInferenceService` 服务 LLM；Triton 是一个通用推理服务器，可以把 vLLM 当作后端；Ray Serve 用 Python 代码描述服务拓扑；llm-d 是 vLLM 社区与 K8s 社区共同推动的 LLM Serving 栈，它的组件被 KServe 嵌入。本篇的任务是把它们放到同一张图上，说清每一个解决什么、怎么配、代价是什么，最后回到扩缩容这个最实际的问题。
+这一层的开源组件很多，定位各不相同：
+
+- **LeaderWorkerSet** 只解决"多 Pod 一副本"这一件事；
+- **KServe** 是一个完整的 Serving 平台，用 `InferenceService` 服务传统模型、用 `LLMInferenceService` 服务 LLM；
+- **Triton** 是一个通用推理服务器，可以把 vLLM 当作后端；
+- **Ray Serve** 用 Python 代码描述服务拓扑；
+- **llm-d** 是 vLLM 社区与 K8s 社区共同推动的 LLM Serving 栈，它的组件被 KServe 嵌入。
+
+本篇的任务是把它们放到同一张图上，说清每一个解决什么、怎么配、代价是什么，最后回到扩缩容这个最实际的问题。
 
 本篇要回答总纲提出的核心问题：
 
@@ -40,14 +48,21 @@ updated: 2026-11-14
 - Deployment 与 StatefulSet 的单位都是 Pod，没有"N 个 Pod 是一个副本"的概念；StatefulSet 有稳定的名字但没有组的语义，`replicas: 4` 是 4 个 Pod 而不是 2 组 × 2。
 - HPA 默认只认 `metrics.k8s.io` 的 CPU 与内存；接引擎指标要经过 `custom.metrics.k8s.io` / `external.metrics.k8s.io` 的适配器，且 HPA 缩到 0 有前提：`HPAScaleToZero` 在 v1.37 才升为 beta、默认开启，`minReplicas: 0` 还要求至少一个 Object 或 External 指标；缩到 0 之后第一个请求到来时没有副本，Service 也不替它排队缓冲。
 - Pod 的 `readinessProbe` 只有成功与失败，没有"权重加载到 60%"这样的进度；`startupProbe` 能给出足够长的宽限，但平台不知道一个副本还要多久。
-- Service 的 kube-proxy 负载均衡是无状态轮询，不知道哪个副本 KV cache 已满——这是第七篇网关的问题，本篇只在"平台生成什么对象"处带过。
+- Service 的 kube-proxy 负载均衡是无状态轮询，不知道哪个副本 KV cache 已满——这是[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)网关的问题，本篇只在"平台生成什么对象"处带过。
 - 模型权重不是镜像的一部分。K8s 没有"把 140 GB 的文件放到 Pod 起来之前"的原生机制，只有 initContainer、PVC 与 image volume 这些积木。
 
 ### 3. 平台的机制
 
 ![平台机制：交付层](/img/in-post/serving-platforms-delivery-layer.svg)
 
-四个层次：**副本形态**回答"一个副本是几个 Pod、怎么起、怎么重启、怎么滚动"；**Serving 控制面**回答"用户声明什么、控制器生成什么"；**扩缩容**回答"看什么指标、何时加减副本"；**权重加载**回答"140 GB 从哪来、多久到显存"。四个层次相对独立——可以只用 LWS + KEDA 不用 KServe，也可以用 KServe 但把扩缩容交给它内置的 KEDA 集成。
+四个层次：
+
+1. **副本形态**：一个副本是几个 Pod、怎么起、怎么重启、怎么滚动；
+2. **Serving 控制面**：用户声明什么、控制器生成什么；
+3. **扩缩容**：看什么指标、何时加减副本；
+4. **权重加载**：140 GB 从哪来、多久到显存。
+
+四个层次相对独立——可以只用 LWS + KEDA 不用 KServe，也可以用 KServe 但把扩缩容交给它内置的 KEDA 集成。
 
 把本篇涉及的组件按这四个层次（外加"请求怎么进来"与"批处理/多模型"两列）逐个定位，可以看到它们的重叠与空白——没有一个组件覆盖全部，而 KServe `LLMInferenceService` 与 llm-d 恰好是同一套架构的两种包装：
 
@@ -62,7 +77,36 @@ updated: 2026-11-14
 
 Table: Serving 平台组件按层次的定位
 
-### 4. 本文的章节安排
+### 4. 一个副本从部署到接流量，各处出现了什么
+
+交付层的[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)要先把"副本"这个词拆开。一个推理副本不是一个 Pod，也不只是"显存里的一份权重"——它是下面这十样东西同时就位的状态，而它们的寿命决定了扩缩容能做到多快。
+
+| 对象 | 谁创建 | 住在哪里 | 活多久 |
+|---|---|---|---|
+| `LLMInferenceService` / `InferenceService` | 用户 | etcd | 服务的一生——它是声明，不是副本 |
+| LeaderWorkerSet 生成的一组 Pod（leader 加 worker） | LWS 控制器 | etcd | **一个副本的一生，而这个"副本"跨多个 Pod** |
+| 节点上的镜像层与权重缓存 | 一次拉取 | 节点磁盘 | 到被 GC 或淘汰；它在不在，决定下一次扩容这两段是 0 还是三五分钟 |
+| 显存里的权重 | 引擎加载 | 显存 | Pod 的一生 |
+| CUDA graph 与编译产物 | 引擎预热时捕获 | 进程内存与显存 | Pod 的一生；把 compile cache 挂到卷上才能跨 Pod 复用 |
+| KV cache 的 block 池 | profile run 定下块数后一次划定 | 显存 | Pod 的一生；重启即清空 |
+| readiness / startupProbe 的判定 | kubelet | Pod 的 status | 每次探测一次；大模型要按半小时量级配 `startupProbe`，否则权重还没读完容器就被杀 |
+| `replicas` 这个数 | KEDA → HPA | etcd | 到下一次同步，约 15 秒 |
+| 扩缩容所依据的指标采样 | Prometheus 抓取 | 时序库 | 一个抓取间隔，15–30 秒 |
+| 在途请求 | 客户端 | 副本进程的内存 | 一个请求；流式可达分钟级，drain 时要等它 |
+
+Table: 一个推理副本就位时，各处出现的东西
+
+四条读法：
+
+**1、"一个副本"在这一层不是一个 Pod。**LeaderWorkerSet 下它是一组 Pod，PD 分离下它是两组角色不同的 Pod。于是所有按 Pod 设计的 K8s 动作——滚动升级、驱逐、HPA 改 `replicas`——都要换成"按组"做。这就是 LeaderWorkerSet 和 `DisaggregatedSet` 存在的全部理由：给"副本"这个单位找一个对象。
+
+**2、冷启动就是四样 Pod 档的东西要重建。**节点上的权重副本（没缓存的话）、显存里的权重、编译产物、空的 KV block 池——加起来正是那 5–10 分钟。能跨 Pod 保住的只有两样：节点磁盘上的缓存，和挂到卷上的 compile cache。所以**"缩短冷启动"翻译过来就是：把尽量多的东西从 Pod 档搬到节点档**。第七章那些手段（预拉镜像、`LocalModelCache`、持久化编译缓存）全是这一件事的不同做法。
+
+**3、最短的两行决定了扩缩容的质量上限。**扩容的提前量不能小于"信号链路约 1 分钟加上冷启动 5–10 分钟"，缩容的 grace period 不能小于最长的在途请求。两头都远大于 K8s 的默认值，这也是为什么这一章讲的不是"怎么配 HPA"，而是"怎么比需求早十分钟知道"。
+
+**4、唯一一个丢了不报错、只变慢的是缓存。**KV block 池清空之后服务照样正确，只是 TTFT 变长、吞吐下降。它在指标上看得见，在告警上通常看不见——一次滚动升级之后"没坏但是慢了"，多半就是这一行。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 |
 |---|---|
@@ -100,6 +144,12 @@ Table: 四种部署形态与 K8s 对象
 ### 3. 就绪的定义
 
 四种形态共用同一个就绪判据：引擎的 HTTP 端点返回 200。vLLM 的 `/health` 在引擎初始化完成后返回；KServe 的 `kserve-vllmserver` runtime（`config/runtimes/kserve-vllmserver.yaml`）用 `/v1/models` 做探针，注释说明它"只在模型注册后返回 200"，并给了 `startupProbe` 60 × 30 s 的宽限——大模型加载要以半小时为上限来配探针，否则 kubelet 会在权重还没读完时杀掉容器，进入一个永远起不来的循环。多 Pod 副本只探 leader（API server 只在 leader 上），worker 的健康由 LWS 的组重启策略兜底。
+
+> [!NOTE] Java 经验参照：起不来就让它重启
+>
+> 探针配短、失败就重启，在后端是对的：一个起不来的实例越早重启越好，反正启动只要几秒，重启一百次也不贵。推理副本把这条经验的前提拿掉了——启动要几分钟到半小时，其中大头是读一百多 GB 权重。默认探针会在权重读到一半时判失败、杀掉容器，而重启后**又要从头读一遍**，于是进入一个越重启越慢、永远起不来的循环，日志里还什么错都没有。
+>
+> 所以这一层第一个要改的参数不是副本数，是 `startupProbe` 的宽限（KServe 的 vLLM runtime 给的是 60 × 30 s）。顺带一提这也解释了为什么"重启一下试试"在这一层常常是坏建议。
 
 ## 三、LeaderWorkerSet：多 Pod 一副本
 
@@ -178,7 +228,7 @@ Pod 上注入的标签与环境变量（同文件常量）：
 - **`rolloutStrategy`**：`type` 目前只有 `RollingUpdate`；`rollingUpdateConfiguration` 有 `partition`（从该序号起的 group 才更新，注释明说用于 canary 与 xPyD 的交互式发布）、`maxUnavailable`（默认 1）、`maxSurge`（默认 0）。滚动的单位是 **group**：注释写的是"replicas 一个一个更新，前一个（leader + workers）就绪后下一个才开始"。这正是引擎需要的"按副本组滚动"。
 - **`startupPolicy`**：`LeaderCreated`（默认，leader 创建后立刻建 worker）或 `LeaderReady`（leader 就绪后再建 worker）。vLLM 的 mp 多节点模式 worker 要连 leader 的 `--master-addr`，用默认值即可——进程会重试；如果 leader 要先起一个 Ray head 再让 worker 加入，`LeaderReady` 更稳。
 - **`networkConfig.subdomainPolicy`**：`Shared`（默认，所有 group 共用一个 headless Service，主机名形如 `my-lws-0.my-lws`、`my-lws-0-1.my-lws`）或 `UniquePerReplica`（每个 group 一个 headless Service，`my-lws-0-1.my-lws-0`）。后者在 group 很多时避免一个 Service 后面挂几百个 endpoint。
-- **注解 `leaderworkerset.sigs.k8s.io/exclusive-topology`**：值是一个节点标签键，控制器为同一 group 注入 pod affinity / anti-affinity，使一个 group 独占一个拓扑域（一台机器、一个机柜）——第三篇拓扑感知的推理版。
+- **注解 `leaderworkerset.sigs.k8s.io/exclusive-topology`**：值是一个节点标签键，控制器为同一 group 注入 pod affinity / anti-affinity，使一个 group 独占一个拓扑域（一台机器、一个机柜）——[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)拓扑感知的推理版。
 
 状态侧 `LeaderWorkerSetStatus` 有 `replicas`、`readyReplicas`、`updatedReplicas` 与 `hpaPodSelector`，最后一个是本篇扩缩容的接口，见第 5 节。
 
@@ -238,7 +288,7 @@ spec:
           resources:
             limits:
               nvidia.com/gpu: "8"
-              rdma/rdma_shared_device_a: 1        # 第五篇：PP 跨机走 RDMA
+              rdma/rdma_shared_device_a: 1        # 《网络与存储》：PP 跨机走 RDMA
           securityContext:
             capabilities:
               add: ["IPC_LOCK"]
@@ -248,7 +298,7 @@ spec:
         volumes:
         - name: models
           persistentVolumeClaim:
-            claimName: llama-405b-weights           # ReadOnlyMany，第五篇的并行文件系统
+            claimName: llama-405b-weights           # ReadOnlyMany，《网络与存储》的并行文件系统
         - name: dshm
           emptyDir: { medium: Memory, sizeLimit: 32Gi }
     workerTemplate:
@@ -489,7 +539,7 @@ vllm serve /mnt/models
 ```
 {% endraw %}
 
-模板变量由 `ReplaceVariables`（同文件）代入。`config-llm-scheduler.yaml` 里 EPP 的镜像是 `ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0`，参数 `--pool-name` / `--pool-namespace` 指向控制器创建的 InferencePool——**这就是 llm-d 被嵌入 KServe 的方式**：KServe 不自己实现调度器，它生成 llm-d Router 的 EPP Deployment、GIE 的 `InferencePool`（`inference.networking.k8s.io`）与 Gateway API 的 `HTTPRoute`，把 Gateway → EPP → Pod 这条链接起来。第七篇会从网关的角度再看这条链。
+模板变量由 `ReplaceVariables`（同文件）代入。`config-llm-scheduler.yaml` 里 EPP 的镜像是 `ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0`，参数 `--pool-name` / `--pool-namespace` 指向控制器创建的 InferencePool——**这就是 llm-d 被嵌入 KServe 的方式**：KServe 不自己实现调度器，它生成 llm-d Router 的 EPP Deployment、GIE 的 `InferencePool`（`inference.networking.k8s.io`）与 Gateway API 的 `HTTPRoute`，把 Gateway → EPP → Pod 这条链接起来。[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)会从网关的角度再看这条链。
 
 多节点走 `workload_multi_node.go`：`expectedMainMultiNodeLWS` / `expectedPrefillMultiNodeLWS` 生成 `LeaderWorkerSet`，`reconcileMultiNodeWorkload` 用 `PreserveLWSReplicas` 选项保留外部扩缩容器改过的副本数。也就是说，LLMInferenceService 多节点形态的底层仍是第三章的 LWS。
 
@@ -541,7 +591,7 @@ flowchart TB
 
 - **`pvc://<claim>[/path]`**：`CommonStorageInitialization` 把 PVC URI 单独分出来，"直接作为卷挂载，不需要 init 容器"，卷名 `kserve-pvc-source`，挂到 `/mnt/models`（默认只读，注解可改）。这是最快的路径——权重已在并行文件系统上，就绪时间只剩读到显存。
 - **`s3://`、`gs://`、`hf://`、`https://`**：注入名为 `storage-initializer` 的 initContainer（镜像 `kserve/storage-initializer`），下载到 emptyDir 卷 `kserve-provision-location`，主容器再从 `/mnt/models` 读。下载由 `ClusterStorageContainer`（`pkg/apis/serving/v1alpha1/storage_container_types.go`）按 URI 前缀匹配容器镜像与凭据，`predictor.storageContainerName` 可指定。代价是每个副本都要完整下一遍，140 GB 在对象存储上的下载时间直接计入扩容时间。
-- **`oci://`**：模型打成 OCI 镜像。`InjectModelcar` 有两种模式：默认的 **modelcar** 是一个 sidecar 容器，与主容器共享进程命名空间，主容器通过 `/proc/<pid>/root` 的符号链接读它的文件系统；`oci+native://` 走 K8s 的 `ImageVolumeSource`（image volume），把镜像直接作为卷挂载。两者都把权重分发交给镜像仓库与节点的镜像缓存——第五篇"权重分发三方案"里的镜像内嵌方案在这里落地。
+- **`oci://`**：模型打成 OCI 镜像。`InjectModelcar` 有两种模式：默认的 **modelcar** 是一个 sidecar 容器，与主容器共享进程命名空间，主容器通过 `/proc/<pid>/root` 的符号链接读它的文件系统；`oci+native://` 走 K8s 的 `ImageVolumeSource`（image volume），把镜像直接作为卷挂载。两者都把权重分发交给镜像仓库与节点的镜像缓存——[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)"权重分发三方案"里的镜像内嵌方案在这里落地。
 
 `LLMInferenceServiceSpec.storageInitializer.enabled: false` 关掉注入，用于权重已经由别的机制放好的场景。KServe 还有一组 `LocalModelCache` / `LocalModelNodeGroup` / `LocalModelNode` CRD（`pkg/apis/serving/v1alpha1/local_model_cache_types.go`，`sourceModelUri`、`modelSize`、`nodeGroups`），把模型预先拉到一组节点的本地盘上，Pod 调度到这些节点时直接用——这是把"拉权重"从扩容路径上移走的平台级做法。
 
@@ -705,7 +755,7 @@ Table: llm-d 的 well-lit paths
 
 ### 1. 为什么 CPU 利用率没有意义
 
-vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记、向 GPU 提交 kernel 并等待。GPU 满载时 CPU 可能只有百分之十几；GPU 空转时 CPU 也差不多——CPU 与负载几乎解耦。内存同理：KV cache 在显存里，host 内存基本不随并发变化。`nvidia.com/gpu` 是整数资源，K8s 没有"GPU 利用率"这个指标；DCGM 的 `DCGM_FI_DEV_GPU_UTIL` 只表示"有 kernel 在跑"，一个请求就能让它到 100%（第八篇）。
+vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记、向 GPU 提交 kernel 并等待。GPU 满载时 CPU 可能只有百分之十几；GPU 空转时 CPU 也差不多——CPU 与负载几乎解耦。内存同理：KV cache 在显存里，host 内存基本不随并发变化。`nvidia.com/gpu` 是整数资源，K8s 没有"GPU 利用率"这个指标；DCGM 的 `DCGM_FI_DEV_GPU_UTIL` 只表示"有 kernel 在跑"，一个请求就能让它到 100%（[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)）。
 
 真正的负载在引擎内部，vLLM v0.28.0 在 `vllm/v1/metrics/loggers.py` 里注册（标签是 `model_name` 与 `engine`）：
 
@@ -722,6 +772,12 @@ vLLM 进程的 CPU 做三件事：HTTP 与 tokenizer、调度器每步的簿记�
 - **vllm:num_preemptions**：因 KV 不足被抢占的请求数
 
 选哪个作为扩缩容信号，要看它是**领先**还是**滞后**：`num_requests_waiting` 只在副本已经满了之后才非零，是滞后指标——适合做"必须扩"的兜底；`num_requests_running` 与 `kv_cache_usage_perc` 随负载线性上升，可以在饱和之前触发，是领先指标；TTFT 直方图是用户体验本身，但它是结果而不是原因，并且直方图分位数在低流量时噪声很大。llm-d 的 EPP 在 Router 侧也导出汇总指标 `llm_d_epp_flow_control_queue_size`（Flow Control 队列里等待后端容量的请求数）与 `llm_d_epp_request_running`（`docs/architecture/advanced/autoscaling/hpa-epp.md`），好处是不依赖每个 Pod 的 `/metrics` 被抓取。
+
+> [!NOTE] Java 经验参照：扩容看 CPU 利用率
+>
+> 后端服务的扩缩容信号几乎总是 CPU：它是瓶颈，而且在进程外就能量到，不需要应用配合。推理副本两条都不成立。CPU 基本是空的——活都在 GPU 上；GPU 的"利用率"也不行——decode 阶段 kernel 连续发射，`DCGM_FI_DEV_GPU_UTIL` 贴着 100%，但离饱和还很远。真正能说明"该扩了"的数只在引擎进程内部：等待队列长度、KV 使用率、抢占次数。
+>
+> 换成 Java 的说法：相当于不看机器 CPU，改去读 `ThreadPoolExecutor.getQueue().size()` 然后据此加机器。区别在于这个数要先从引擎的 `/metrics` 出来、进 Prometheus、过 KEDA、再到 HPA，每一跳都有延迟——这条链路总共约 1 分钟，正是上面第 6 节里"提前量"要算进去的那一截。
 
 ### 2. HPA 自定义指标 vs KEDA
 
@@ -876,9 +932,9 @@ prefill 与 decode 的饱和信号不同：prefill 是算力受限，合适的�
 
 | 阶段 | 做什么 | 决定因素 | 典型量级 | 怎么缩短 |
 |---|---|---|---|---|
-| 调度 | 找到一台有 4 张空闲卡的节点并绑定 | 是否有空闲节点；否则要等 cluster autoscaler 加节点 | 有空闲节点：秒级；云上加节点：3–10 分钟 | 预留缓冲节点<br/>节点池 warm pool<br/>第三篇的队列优先级 |
-| 拉镜像 | vLLM 镜像 10 GB 量级 | 节点是否已缓存；镜像仓库带宽 | 已缓存：0；未缓存 100–200 MB/s：1–2 分钟 | 节点预拉（DaemonSet）、镜像瘦身（第二篇）、P2P 分发 |
-| 拉权重 | 140 GB 到本地盘或直接读 | 存储路径：对象存储 / 并行文件系统 / 节点 NVMe 缓存 / 镜像 | 对象存储 1 GB/s：2–3 分钟<br/>并行文件系统 5 GB/s：30 秒<br/>本地缓存：≈0 | `pvc://` 直挂、`LocalModelCache`、`oci://`、第五篇的分发方案 |
+| 调度 | 找到一台有 4 张空闲卡的节点并绑定 | 是否有空闲节点；否则要等 cluster autoscaler 加节点 | 有空闲节点：秒级；云上加节点：3–10 分钟 | 预留缓冲节点<br/>节点池 warm pool<br/>[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的队列优先级 |
+| 拉镜像 | vLLM 镜像 10 GB 量级 | 节点是否已缓存；镜像仓库带宽 | 已缓存：0；未缓存 100–200 MB/s：1–2 分钟 | 节点预拉（DaemonSet）、镜像瘦身（[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)）、P2P 分发 |
+| 拉权重 | 140 GB 到本地盘或直接读 | 存储路径：对象存储 / 并行文件系统 / 节点 NVMe 缓存 / 镜像 | 对象存储 1 GB/s：2–3 分钟<br/>并行文件系统 5 GB/s：30 秒<br/>本地缓存：≈0 | `pvc://` 直挂、`LocalModelCache`、`oci://`、[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的分发方案 |
 | 加载到显存 | safetensors 读取、反序列化、<span class="inline-tip" data-tip="host to device，主机内存拷到显存">H2D</span> 拷贝 | 磁盘/文件系统读带宽、PCIe、CPU 解码 | 1–3 分钟 | 直接从并行文件系统 mmap；更快的 load format |
 | 预热 | CUDA graph 捕获、`torch.compile`、profile run 决定 KV block 数 | 模型、`--max-num-seqs`、编译缓存 | 1–3 分钟 | 持久化 compile cache（llm-d 的 recipe 挂 `/.cache` 卷）；`--enforce-eager` 换吞吐 |
 
@@ -942,7 +998,7 @@ Table: 三种扩缩容策略的卡时账（每天一个 3.5 小时的高峰）
 
 （▲ 表示扩容决策、▼ 表示缩容开始；`N` 是**就绪**副本数，决策与就绪之间隔 9 分钟。）
 
-三项合计每天约 5 卡时的额外开销，对比反应式的 56 卡时与常驻的 328 卡时。剩下的不确定性在预测本身：高峰提前、周末形态不同、营销活动——这些由第八篇的容量规划回路去修正 cron 的时间与 `desiredReplicas`。
+三项合计每天约 5 卡时的额外开销，对比反应式的 56 卡时与常驻的 328 卡时。剩下的不确定性在预测本身：高峰提前、周末形态不同、营销活动——这些由[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)的容量规划回路去修正 cron 的时间与 `desiredReplicas`。
 
 ### 5. 结论
 
@@ -955,7 +1011,7 @@ Table: 三种扩缩容策略的卡时账（每天一个 3.5 小时的高峰）
 
 Table: 扩缩容结论：指标、阈值、提前多久
 
-这个推演里最不该被跳过的一步是**测出 C 与 r**：C 来自对单副本的压测（第八篇的 goodput 与饱和点），r 来自历史流量曲线。没有这两个数，任何阈值都是猜的。
+这个推演里最不该被跳过的一步是**测出 C 与 r**：C 来自对单副本的压测（[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)的 goodput 与饱和点），r 来自历史流量曲线。没有这两个数，任何阈值都是猜的。
 
 ## 九、代价与边界
 
@@ -963,8 +1019,8 @@ Table: 扩缩容结论：指标、阈值、提前多久
 
 | 引擎需求 | K8s 的空缺 | 平台机制 | 代价 |
 |---|---|---|---|
-| 多 Pod 作为一个副本，同起同停、稳定名字 | Deployment / StatefulSet 单位是 Pod | `LeaderWorkerSet`：group、`size`、`RecreateGroupOnPodRestart`、headless DNS、`LWS_LEADER_ADDRESS` | 一个 Pod 挂整组重建（几分钟）<br/>group 级 gang 需要配合第三篇的调度器<br/>leader 单点承载 API |
-| prefill / decode 两组副本、独立生命周期 | 无角色概念 | `DisaggregatedSet` roles + slices + `DisaggregatedSetRoleScaler`；`LLMInferenceService.prefill` | xPyD 比例受 KV 传输约束<br/>两组各自的 8 分钟就绪<br/>需要 RDMA（第五篇） |
+| 多 Pod 作为一个副本，同起同停、稳定名字 | Deployment / StatefulSet 单位是 Pod | `LeaderWorkerSet`：group、`size`、`RecreateGroupOnPodRestart`、headless DNS、`LWS_LEADER_ADDRESS` | 一个 Pod 挂整组重建（几分钟）<br/>group 级 gang 需要配合[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的调度器<br/>leader 单点承载 API |
+| prefill / decode 两组副本、独立生命周期 | 无角色概念 | `DisaggregatedSet` roles + slices + `DisaggregatedSetRoleScaler`；`LLMInferenceService.prefill` | xPyD 比例受 KV 传输约束<br/>两组各自的 8 分钟就绪<br/>需要 RDMA（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)） |
 | 声明式的"一个模型服务"，含路由与调度器 | 只有 Deployment + Service | KServe `InferenceService` / `LLMInferenceService` + well-known config；生成 LWS、InferencePool、EPP、HTTPRoute | 控制器与模板隐藏细节，排障要读生成物<br/>API 仍是 alpha（v1alpha1 → v1alpha2），升级有迁移成本<br/>依赖 Gateway API 与 GIE |
 | 多模型、DAG、异构后端一个进程服务 | 无 | Triton model repository、`config.pbtxt`、dynamic batching、ensemble、vLLM backend | 张量协议对 LLM 不自然<br/>vLLM 作为 backend 少一层原生能力（多节点、指标）<br/>ensemble 内阶段不能独立扩缩 |
 | Python 逻辑重、多阶段、进程间传大对象 | 无 | Ray Serve deployment 图 + `RayService`（`serveConfigV2`、`rayClusterConfig`、`upgradeStrategy`） | 多一个 Ray 控制面（head、GCS、autoscaler）<br/>升级是整集群切换<br/>三层扩缩容延迟叠加 |
@@ -977,7 +1033,7 @@ Table: 引擎需求、K8s 空缺、平台机制与代价
 ### 2. 什么时候不该用这些
 
 - **一个 7B 模型、一个团队、一台机器**：Deployment + Service + 一个手写的 HPA（或者不扩缩）就够了。KServe、llm-d、Ray 的每一层抽象都是为"多模型、多团队、多形态"付的成本。
-- **不能接受任何排队、也没有可预测的曲线**：反应式扩缩容无解，只能按峰值常驻（并用第四篇的切分把空闲容量借给别的负载），或者接受第八章算出的过配。
+- **不能接受任何排队、也没有可预测的曲线**：反应式扩缩容无解，只能按峰值常驻（并用[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)的切分把空闲容量借给别的负载），或者接受第八章算出的过配。
 - **模型小到冷启动 30 秒以内**：不需要本篇大部分的复杂度，缩零是合理的；反过来，70B 以上不要缩零。
 - **Triton 只为了跑一个 vLLM**：多一层协议翻译和一个 Python backend，没有收益。
 - **llm-d 的原生方式 vs KServe**：团队要调 EPP 插件链、试不同引擎参数，用 llm-d 原生的 Helm values + Kustomize；要给十几个团队一个自助的 CRD，用 KServe。两者同时上是重复的。
@@ -1166,6 +1222,6 @@ if __name__ == "__main__":
 
 ## 下一篇
 
-副本有了形态、会扩会缩之后，请求进入平台的第一站还没解决：Service 的轮询会把请求送到 KV cache 已满的副本上，同一前缀的请求分散到不同副本浪费 prefix cache，多个租户共用一组副本时没有配额与优先级。下一篇进入第七篇 [模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)：Gateway API Inference Extension 的 `InferencePool` 与来自 llm-d-router 的 Endpoint Picker、OpenAI 协议归一、按 token 的配额与计费、版本灰度与 LoRA 路由，以及"配额到底指什么"这个核心问题。
+副本有了形态、会扩会缩之后，请求进入平台的第一站还没解决：Service 的轮询会把请求送到 KV cache 已满的副本上，同一前缀的请求分散到不同副本浪费 prefix cache，多个租户共用一组副本时没有配额与优先级。下一篇进入[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) [模型网关与多租户：路由、配额与灰度](/model-gateway-multi-tenancy-and-quota.html)：Gateway API Inference Extension 的 `InferencePool` 与来自 llm-d-router 的 Endpoint Picker、OpenAI 协议归一、按 token 的配额与计费、版本灰度与 LoRA 路由，以及"配额到底指什么"这个核心问题。
 
 [^q0]: **指标**：不选 GPU 利用率（decode 时常年 90% 以上却不代表满载），选引擎内部的领先指标：`vllm:num_requests_waiting`（排队数，最灵敏）、`vllm:kv_cache_usage_perc`（容量的直接度量）、TTFT / ITL 的 P95（SLO 本身）；经 Prometheus 由 KEDA 或 HPA 的 external metrics 驱动 LeaderWorkerSet（TP=4 多 Pod 一副本用 LWS，`scale` 子资源只看 leader）或 KServe 的 `LLMInferenceService`（[第三章](#三leaderworkerset多-pod-一副本)、[第四章](#四kserveinferenceservice-与-llminferenceservice)、[第七章](#七扩缩容)）。**阈值**：按容量倒推——一个副本在 SLO 内能承载的并发（KV 池 / 每请求平均 KV）是 100%，KV 占用到 70–80% 或 waiting > 0 持续 30 秒就扩，缩容用更长的 `stabilizationWindow`，否则在 8 分钟的就绪延迟里来回抖动。**提前多久**：8 分钟就绪意味着纯反应式一定迟到——晚高峰可预测，用定时（KEDA cron scaler）在高峰前 10–15 分钟把 minReplicas 从 2 抬到 6，指标驱动只负责预测之外的部分；再把 8 分钟本身压短：权重用 `pvc://` 直挂或 `oci://` modelcar、`LocalModelCache` 预热到节点本地盘。**不浪费 16 张卡**：高峰过后按缩容阈值回到 2 副本；日夜负载差很大时考虑 PD 分离两个 role 各自扩缩、或让低峰的卡给训练 / 批处理任务。详见[第七章](#七扩缩容)、[第八章](#八核心问题的数值推演)。
