@@ -408,6 +408,7 @@ Table: 读完系列后可以追问到底的问题
 - 想给新硬件接后端：B.4 的清单，`third_party/amd` 是范例；先让 lit 全绿再谈性能。
 - 想在 MLIR 生态里横向迁移：IREE、torch-mlir、StableHLO 用的是同一套基础设施（[《MLIR（上）》](/mlir-ir-structure-dialects-and-ods.html)与[《MLIR（下）》](/mlir-passes-pattern-rewriting-and-dialect-conversion.html)），差别只在方言与 pass。
 - 想做 GPU 上的极致性能而不想等编译器：Gluon（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) §七）或 CUTLASS，两者在设计空间轴上是邻居。
+- 本系列在整张地图上的位置（选修，在 L2 之下、[《GPU Kernel 工程》](/gpu-kernel-engineering.html)与[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)之后）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)；三张地图如何拼在一起见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
 Infra 地图的十四个系列到此完成。
 

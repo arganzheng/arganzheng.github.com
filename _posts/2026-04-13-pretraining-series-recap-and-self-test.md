@@ -413,6 +413,7 @@ Table: 掌握程度的判据
 - **深度学习基础的推导**：反向传播、初始化与归一化、优化器、正则化的公式。第五篇直接使用它们的结论，推导在[《深度学习基础：从反向传播到残差》](/deep-learning-foundations.html)。
 - **分布式训练的实现**：TP / PP / EP / 序列并行如何切分与同步、checkpoint 如何写、故障如何恢复。本系列只算它们的**量**（GPU 小时、写带宽、回滚代价），实现在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)。
 - **数据管线的工程实现**：本系列算 CPU 小时与带宽，不讲 Spark / Ray / datatrove 的用法。
+- 本系列在整张地图上的位置（L4，与[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)同层，在它之后）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)。
 

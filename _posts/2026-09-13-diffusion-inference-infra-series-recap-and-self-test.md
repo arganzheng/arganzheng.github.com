@@ -574,6 +574,7 @@ Table: 掌握程度的判据
 - **集合通信的实现**：all-to-all、P2P、all-gather 的算法与调优。本系列只用它们的语义与带宽。
 - **扩散模型的后训练与 RL**：Diffusion-DPO、奖励微调、Flow-GRPO 的系统。它们的 rollout 就是本系列讲的推理，训练侧属于 RL 后训练基础设施系列的形态。
 - **训练侧的并行**：DiT 的 FSDP + SP 训练。[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)只在对照处提及。
+- 本系列在整张地图上的位置（L4，与[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)、[《RL 后训练基础设施》](/rl-post-training-infrastructure.html)同层，是推理主线的另一半）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)。
 
 回到总纲：[《扩散模型推理基础设施：图像与视频生成的 serving》](/diffusion-model-inference-infrastructure.html)。
 

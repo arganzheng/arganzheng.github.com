@@ -477,6 +477,7 @@ Table: 掌握程度的判据
 - **安全与对齐的规范性问题**：什么算有害、拒答的边界、红队方法论。本系列只讲把任何一种偏好训进模型的技术，不讨论偏好本身应该是什么。
 - **Agent 框架与产品层**：编排框架、记忆、多 Agent 协作、prompt 设计。第六篇只讲怎么用 RL 把工具调用训进模型；在模型之上怎么搭 Agent 属于应用地图。
 - **强化学习理论**：MDP、贝尔曼方程、收敛性证明。本系列只推到策略梯度与 PPO 的目标函数，把 LLM 当作"只有最后一步有奖励的单步 bandit"处理。
+- 本系列在整张地图上的位置（L5，L4 的模型结构之上、L6 的推理优化之前）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)。
 
