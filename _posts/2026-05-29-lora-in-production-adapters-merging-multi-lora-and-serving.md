@@ -85,7 +85,7 @@ model = PeftModel.from_pretrained(base, "out/ckpt/r16_all")
 merged = model.merge_and_unload()
 ```
 
-`peft` 里 `get_delta_weight` 算 `weight_B @ weight_A * scaling`，`merge` 做 `base_layer.weight.data += delta_weight`，`unmerge` 减回去（[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)第四节有这几个函数）。合并后模型里没有任何 `lora` 模块，参数量回到 494M，结构与原始 `Qwen2ForCausalLM` 完全相同——这就是它可以直接交给 vLLM、llama.cpp、TensorRT-LLM 的原因。
+`peft` 里 `get_delta_weight` 算 `weight_B @ weight_A * scaling`，`merge` 做 `base_layer.weight.data += delta_weight`，`unmerge` 减回去（[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)第四节有这几个函数）。合并后模型里没有任何 `lora` 模块，参数量回到 494M，结构与原始 `Qwen2ForCausalLM` 完全相同——这就是它可以直接交给 vLLM、llama.cpp、TensorRT-LLM 的原因。
 
 ```text title="03_deploy.py merge 的输出"
 加载后验证回复 loss 2.3943；与 base 的 logits 最大差 18.816（adapter 确实生效了）
@@ -216,7 +216,7 @@ $$
 \text{槽位显存} = \texttt{max\_loras} \times \sum_{\text{挂 LoRA 的矩阵}} \texttt{max\_lora\_rank} \times (d_{in} + d_{out}) \times 2\ \text{字节}
 $$
 
-8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列第九篇](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
+8B、全部线性层、`max_loras=8`、`max_lora_rank=64`：$$8 \times 167.8\text{M} \times 2 = 2.7$$ GB，从 KV cache 的预算里扣。$$N$$ 大于 `max_loras` 的 adapter 在 CPU 内存里排队换入换出。请求形状、kernel 与调度的细节在 [vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)，本文只算这笔账。
 
 什么时候仍该合并：只服务一个 adapter；或延迟极敏感、batch 很小（多出的瘦 GEMM 占比最大——8B 上 decode $$B = 1$$ 每层除了原来的 7 个 GEMV（general matrix–vector multiply，矩阵乘向量） 多出 14 个极小的 GEMV，$$A$$、$$B$$ 各 $$r \times d$$，$$W_Q$$ 上 $$16 \times 4096 \times 2$$ B = 128 KB，字节数可忽略，但 32 层 × 14 = 448 次额外 kernel 启动，每次几微秒，加起来与 4.8 ms 的 decode 下界同量级：小 kernel 的固定开销比它的 FLOPs 和字节都贵）；或推理框架不支持 LoRA（大多数边缘部署格式）。
 

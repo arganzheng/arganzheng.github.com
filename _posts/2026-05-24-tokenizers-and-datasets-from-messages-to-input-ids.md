@@ -75,7 +75,7 @@ Table: 本文的章节安排
 
 Table: tokenizer.json 的五段与 Qwen2.5 的配置
 
-[L4 预训练系列第一篇](/tokenizer-vocabulary-and-token-efficiency.html)讲了 BPE 的算法与词表设计；这里补代码层面的两点。
+[L4 预训练系列的《分词与词表：BPE、词表大小与 token 效率》](/tokenizer-vocabulary-and-token-efficiency.html)讲了 BPE 的算法与词表设计；这里补代码层面的两点。
 
 ### 2. `Ġ` 与字节级
 
@@ -122,7 +122,7 @@ padding_side: right
 
 ### 1. 一段 Jinja
 
-`tokenizer_config.json` 里的 `chat_template` 是一段 2427 字符的 Jinja 模板（工具箱第五篇提过）。`apply_chat_template(messages, tokenize=True)` 分两步：`render_jinja_template`（`utils/chat_template_utils.py`）把 `messages` 渲染成一个字符串，然后 `self(rendered, ...)` 走第三章的路。渲染结果：
+`tokenizer_config.json` 里的 `chat_template` 是一段 2427 字符的 Jinja 模板（工具箱的《Hugging Face 生态》提过）。`apply_chat_template(messages, tokenize=True)` 分两步：`render_jinja_template`（`utils/chat_template_utils.py`）把 `messages` 渲染成一个字符串，然后 `self(rendered, ...)` 走第三章的路。渲染结果：
 
 ```text title="apply_chat_template 渲染出的字符串"
 <|im_start|>system\nYou are terse.<|im_end|>\n<|im_start|>user\nHi<|im_end|>\n<|im_start|>assistant\nHello!<|im_end|>\n
@@ -199,7 +199,7 @@ def _getitem(self, key, **kwargs):
     return format_table(pa_subtable, key, formatter=formatter, ...)         # Arrow → Python / torch / numpy
 ```
 
-`ds[0]` 走这三行：`query_table` 用 Arrow 的 `slice` / `take` 切出一行的子表（仍是 Arrow，不拷贝），`formatter` 负责转换——默认 `PythonFormatter` 转成 dict of Python 对象，`with_format("torch")` 换成 `TorchFormatter`（配套脚本：`n_tok` 变成 `Tensor`）。`ds["prompt"]` 返回一个惰性的 `Column`。所以 `Dataset` 就是"一张 Arrow 表 + 一个取出时的转换器"，`DataLoader(ds, collate_fn=...)` 里 `__getitem__` 被 worker 子进程调用，每次从 mmap 的文件页里取一条——工具箱第三篇画的 DataLoader 流程图里"worker 子进程 `getitem`"那一步在这里。
+`ds[0]` 走这三行：`query_table` 用 Arrow 的 `slice` / `take` 切出一行的子表（仍是 Arrow，不拷贝），`formatter` 负责转换——默认 `PythonFormatter` 转成 dict of Python 对象，`with_format("torch")` 换成 `TorchFormatter`（配套脚本：`n_tok` 变成 `Tensor`）。`ds["prompt"]` 返回一个惰性的 `Column`。所以 `Dataset` 就是"一张 Arrow 表 + 一个取出时的转换器"，`DataLoader(ds, collate_fn=...)` 里 `__getitem__` 被 worker 子进程调用，每次从 mmap 的文件页里取一条——工具箱的《PyTorch 使用层（上）》画的 DataLoader 流程图里"worker 子进程 `getitem`"那一步在这里。
 
 ### 2. streaming
 

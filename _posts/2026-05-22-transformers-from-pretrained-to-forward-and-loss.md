@@ -11,7 +11,7 @@ updated: 2026-09-30
 
 > **更新 @2026-09-30**：本文对着 **transformers 5.17.0**（2026-09-09 发布）的源码读，配套脚本在 `ai-learning-labs/hf-source-reading/`，模型用本地缓存的 Qwen2.5-0.5B。文中的文件路径、类名、函数名以该版本为准，不引用行号；transformers 的目录结构改得很快，读别的版本时请以本地源码对照——找入口的方法不变。
 
-[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA / FlashAttention 之间切换而模型代码一个字不改。
+[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，第一行就是 `AutoModelForCausalLM.from_pretrained(name)`。那一篇把它当黑盒：进去一个 Hub 名字，出来一个 `nn.Module`。这一篇把黑盒打开：这个函数怎么根据 `config.json` 里的一个字段挑出 `Qwen2ForCausalLM` 这个类、怎么在不占内存的情况下先搭出骨架再把 `safetensors` 里的 290 个张量填进去、`forward` 从 `input_ids` 到 `loss` 经过哪几个文件、attention 那一行为什么能在 eager / SDPA / FlashAttention 之间切换而模型代码一个字不改。
 
 读完这一篇，《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》画的那张结构图上的每个方框，你都能在 `modeling_llama.py` 里指出是哪个类的哪几行；也能回答工程里最常见的三个问题：为什么加载 8B 模型时内存不会先冲到 32 GB、为什么 `attn_implementation="sdpa"` 与 `"eager"` 的结果差到 $$10^{-4}$$、`labels` 传进去之后 loss 是怎么算的。
 
@@ -109,7 +109,7 @@ model_type qwen2 -> Qwen2ForCausalLM | config class Qwen2Config
 
 ### 1. 三个文件的解析
 
-`PreTrainedModel.from_pretrained`（`modeling_utils.py`，一个几百行的函数）先做文件解析：`_get_resolved_checkpoint_files` 按优先级找 `model.safetensors`，找不到再找 `model.safetensors.index.json`（分片：index 的 `weight_map` 字段是"参数名 → 在哪个分片文件"），都没有才退回 `pytorch_model.bin`。0.5B 是单文件 988 MB；8B 是四个分片加一个 index。工具箱第五篇画过 safetensors 的字节布局（8 字节头长 + JSON 头 + 数据区），这里用到的正是那个设计——JSON 头里有每个张量的 dtype、shape、字节偏移，**不读数据区就知道全部形状**。
+`PreTrainedModel.from_pretrained`（`modeling_utils.py`，一个几百行的函数）先做文件解析：`_get_resolved_checkpoint_files` 按优先级找 `model.safetensors`，找不到再找 `model.safetensors.index.json`（分片：index 的 `weight_map` 字段是"参数名 → 在哪个分片文件"），都没有才退回 `pytorch_model.bin`。0.5B 是单文件 988 MB；8B 是四个分片加一个 index。工具箱的《Hugging Face 生态》画过 safetensors 的字节布局（8 字节头长 + JSON 头 + 数据区），这里用到的正是那个设计——JSON 头里有每个张量的 dtype、shape、字节偏移，**不读数据区就知道全部形状**。
 
 ### 2. 先搭骨架，不分配内存
 
@@ -123,7 +123,7 @@ with ContextManagers(model_init_context):
     model = cls(config, *model_args, **model_kwargs)
 ```
 
-`get_init_context` 返回的上下文里有 `torch.device("meta")`。在 meta 设备下调用 `Qwen2ForCausalLM(config)`，所有 `nn.Linear`、`nn.Embedding` 的 `__init__` 照常执行，但张量**只有形状和 dtype，没有存储**——494M 参数的模型此刻占 0 字节。这是为什么加载 8B 模型时进程内存不会先冲到 32 GB 再降下来：骨架不占内存，权重直接从文件填到目标设备。L1 工具箱第四篇算的"权重 16 GB"是加载完成后的数字，加载过程没有额外的峰值。
+`get_init_context` 返回的上下文里有 `torch.device("meta")`。在 meta 设备下调用 `Qwen2ForCausalLM(config)`，所有 `nn.Linear`、`nn.Embedding` 的 `__init__` 照常执行，但张量**只有形状和 dtype，没有存储**——494M 参数的模型此刻占 0 字节。这是为什么加载 8B 模型时进程内存不会先冲到 32 GB 再降下来：骨架不占内存，权重直接从文件填到目标设备。L1 工具箱的《PyTorch 使用层（下）》算的"权重 16 GB"是加载完成后的数字，加载过程没有额外的峰值。
 
 ### 3. `safe_open`、`get_slice` 与按名字填
 
@@ -136,7 +136,7 @@ for k in file_pointer.keys():
 
 `get_slice` 返回的还不是张量，是一个"切片句柄"——真正的读盘发生在 `core_model_loading.convert_and_load_state_dict_in_model` 把它赋给模型参数的那一刻，而且是 mmap：操作系统按页把文件映射进来，读到哪页才加载哪页。所以 290 个张量的加载在配套脚本里显示为 `Loading weights: 100% 290/290 [00:00<00:00, 7030 it/s]`——快到看不见，因为大部分字节还没真的读。
 
-"按名字填"是 `state_dict` 的语义：文件里的键 `model.layers.0.self_attn.q_proj.weight` 对应模型里 `model.layers[0].self_attn.q_proj.weight` 这个属性路径（工具箱第三篇讲 `state_dict` 时说过键名从属性路径来）。两边对不上的键分三类，`from_pretrained` 结束后都在 `loading_info` 里：
+"按名字填"是 `state_dict` 的语义：文件里的键 `model.layers.0.self_attn.q_proj.weight` 对应模型里 `model.layers[0].self_attn.q_proj.weight` 这个属性路径（工具箱的《PyTorch 使用层（上）》讲 `state_dict` 时说过键名从属性路径来）。两边对不上的键分三类，`from_pretrained` 结束后都在 `loading_info` 里：
 
 | 类别 | 含义 | 典型原因 |
 |---|---|---|
@@ -224,7 +224,7 @@ def forward(self, x):
     return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 ```
 
-SwiGLU：$$W_{down}\,(\text{SiLU}(W_{gate} x) \odot W_{up} x)$$。`act_fn = ACT2FN[config.hidden_act]`，`config.json` 里 `"hidden_act": "silu"`。三个矩阵 $$896 \times 4864$$ 就是工具箱第五篇那张参数表里一层 13M 参数的来源。
+SwiGLU：$$W_{down}\,(\text{SiLU}(W_{gate} x) \odot W_{up} x)$$。`act_fn = ACT2FN[config.hidden_act]`，`config.json` 里 `"hidden_act": "silu"`。三个矩阵 $$896 \times 4864$$ 就是工具箱的《Hugging Face 生态》那张参数表里一层 13M 参数的来源。
 
 ### 5. DecoderLayer：pre-norm 的两条残差
 
@@ -239,7 +239,7 @@ hidden_states = self.mlp(hidden_states)
 hidden_states = residual + hidden_states
 ```
 
-与《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP **之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱第四篇的账）。
+与《Transformer 原理与实现》的《Transformer 长什么样》[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第八章第 1 节 nanoGPT 的两行 `x = x + attn(ln_1(x)); x = x + mlp(ln_2(x))` 完全一样，只是写开了。`post_attention_layernorm` 这个名字容易误读——它是 MLP **之前**的 norm（"attention 之后"），仍是 pre-norm。类继承 `GradientCheckpointingLayer`：它重写了 `__call__`，`model.gradient_checkpointing_enable()` 之后每层的前向被 `torch.utils.checkpoint` 包住，反向时重算激活换显存（L1 工具箱《PyTorch 使用层（下）》的账）。
 
 ## 五、attention 那一行
 
@@ -263,7 +263,7 @@ attn_output = attn_output.reshape(*input_shape, -1).contiguous()
 attn_output = self.o_proj(attn_output)
 ```
 
-前四行是[工具箱第二篇](/numpy-pandas-matplotlib-for-algorithm-engineers.html)第四章画的 reshape / transpose：把 `[B, T, d]` 拆成 `[B, T, h, d_h]` 再把 head 维挪到前面。`view(hidden_shape)` 里的 `-1` 让同一段代码既能处理 q（14 个头）也能处理 k、v（2 个头）——GQA 在这里只是 `k_proj` 的输出维更窄。然后 RoPE、写 cache、**调一个函数指针**、拼回 `[B, T, d]`、过 `o_proj`。
+前四行是[工具箱的《数据科学三剑客》](/numpy-pandas-matplotlib-for-algorithm-engineers.html)第四章画的 reshape / transpose：把 `[B, T, d]` 拆成 `[B, T, h, d_h]` 再把 head 维挪到前面。`view(hidden_shape)` 里的 `-1` 让同一段代码既能处理 q（14 个头）也能处理 k、v（2 个头）——GQA 在这里只是 `k_proj` 的输出维更窄。然后 RoPE、写 cache、**调一个函数指针**、拼回 `[B, T, d]`、过 `o_proj`。
 
 ### 2. 注册表：模型代码不改，实现随便换
 
@@ -299,9 +299,9 @@ attn_output = torch.matmul(attn_weights, value_states)
 attn_output = attn_output.transpose(1, 2).contiguous()           # [B, T, h, d_h]
 ```
 
-这就是《Transformer 原理与实现》第一篇[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章手算的六步，一步一行，加上 GQA 的 `repeat_kv`（把 2 个 kv 头 `expand` 成 14 份——`expand` 不拷贝内存，`reshape` 之后才拷贝）和 fp32 的 softmax。`sdpa_attention_forward`（`integrations/sdpa_attention.py`）把中间四行换成一次 `torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=..., is_causal=..., scale=scaling, enable_gqa=True)`：PyTorch 内部选 FlashAttention / memory-efficient / math 三种 kernel 之一，**不物化 $$T \times T$$ 的权重矩阵**（所以 `attn_weights` 返回 `None`，`output_attentions=True` 在 sdpa 下拿不到注意力图，要切回 eager）。`enable_gqa=True` 让 kernel 自己处理头数不等，连 `repeat_kv` 都省了。
+这就是《Transformer 原理与实现》的《Transformer 长什么样》[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)第七章手算的六步，一步一行，加上 GQA 的 `repeat_kv`（把 2 个 kv 头 `expand` 成 14 份——`expand` 不拷贝内存，`reshape` 之后才拷贝）和 fp32 的 softmax。`sdpa_attention_forward`（`integrations/sdpa_attention.py`）把中间四行换成一次 `torch.nn.functional.scaled_dot_product_attention(query, key, value, attn_mask=..., is_causal=..., scale=scaling, enable_gqa=True)`：PyTorch 内部选 FlashAttention / memory-efficient / math 三种 kernel 之一，**不物化 $$T \times T$$ 的权重矩阵**（所以 `attn_weights` 返回 `None`，`output_attentions=True` 在 sdpa 下拿不到注意力图，要切回 eager）。`enable_gqa=True` 让 kernel 自己处理头数不等，连 `repeat_kv` 都省了。
 
-两者数学上相同，数值上不同：配套脚本在 fp32 下比较同一输入的 logits，最大差 $$1.7 \times 10^{-4}$$，argmax 全部一致；在 bf16 下差到 1.0——不是错误，是 bf16 只有 8 位尾数、两种实现的求和顺序不同（[现代 LLM 结构第十篇](/floating-point-formats-and-mixed-precision.html)）。评测时对比两个 attention 实现的输出，必须在 fp32 下做。
+两者数学上相同，数值上不同：配套脚本在 fp32 下比较同一输入的 logits，最大差 $$1.7 \times 10^{-4}$$，argmax 全部一致；在 bf16 下差到 1.0——不是错误，是 bf16 只有 8 位尾数、两种实现的求和顺序不同（[现代 LLM 结构的《浮点格式、数值稳定性与混合精度》](/floating-point-formats-and-mixed-precision.html)）。评测时对比两个 attention 实现的输出，必须在 fp32 下做。
 
 ### 4. mask 在哪里造
 
@@ -379,11 +379,11 @@ def ForCausalLMLoss(logits, labels, vocab_size, num_items_in_batch=None, ignore_
 
 三件事：
 
-1. **升 fp32**：logits 在 bf16 下过 softmax 会丢精度（L1 工具箱第三篇"多出来的四样"之二）。
+1. **升 fp32**：logits 在 bf16 下过 softmax 会丢精度（L1 工具箱的《PyTorch 使用层（上）》"多出来的四样"之二）。
 2. **shift**：位置 $$t$$ 的 logits 预测 $$t+1$$ 的 token。实现是在 labels 末尾垫一个 `-100` 再整体左移一位——比 `logits[:, :-1]` 少一次拷贝。配套脚本验证：`labels = input_ids` 时模型的 `loss` 与手算 `cross_entropy(logits[0, :-1], input_ids[0, 1:])` 相等到最后一位，`3.9506`。
 3. **`ignore_index=-100`**：labels 里的 `-100` 不计入——SFT 的 loss mask（第四篇 trl 造 labels 时把 prompt 位置全填 `-100`）就靠它。
 
-`fixed_cross_entropy` 里的 `num_items_in_batch` 是 4.46 之后修的一个著名 bug：梯度累积时每个小 batch 各自 `mean`，token 多的 batch 与 token 少的 batch 权重一样，等价于每个 token 的权重不同。修法是 Trainer 先数出整个大 batch 的有效 token 数传进来，loss 改成 `sum / num_items_in_batch`——L1 工具箱第三篇讲梯度累积时提醒的"要除以累积步数"，Trainer 用这种方式做对了。
+`fixed_cross_entropy` 里的 `num_items_in_batch` 是 4.46 之后修的一个著名 bug：梯度累积时每个小 batch 各自 `mean`，token 多的 batch 与 token 少的 batch 权重一样，等价于每个 token 的权重不同。修法是 Trainer 先数出整个大 batch 的有效 token 数传进来，loss 改成 `sum / num_items_in_batch`——L1 工具箱的《PyTorch 使用层（上）》讲梯度累积时提醒的"要除以累积步数"，Trainer 用这种方式做对了。
 
 ## 八、modular：518 个模型怎么维护
 

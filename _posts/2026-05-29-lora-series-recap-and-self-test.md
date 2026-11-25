@@ -193,8 +193,8 @@ Table: 常见误区
 三篇讲的是 LoRA 本身：低秩假设与梯度、每个旋钮取多少、adapter 文件怎么上线。偏好数据与 RL、peft 的源码实现、multi-LoRA 的 kernel 与调度、量化算法本身不在范围内，各有去处：
 
 - 继续后训练：[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第二篇起的偏好数据、DPO、GRPO，本系列第三篇的 `disable_adapter()` 会在那里再出现。
-- 读实现：[HF 源码第四篇](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
-- 服务侧：[vLLM 系列第九篇](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
+- 读实现：[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
+- 服务侧：[vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
 - 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ（Activation-aware Weight Quantization，按激活大小保护重要通道的权重量化方法） / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
 - 本系列在整张地图上的位置（L5 专题，在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)之后，是它的 SFT 一篇的放大）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 

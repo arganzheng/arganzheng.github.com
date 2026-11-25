@@ -11,11 +11,11 @@ updated: 2026-10-18
 
 ## 内容简介
 
-《读 Hugging Face 源码》是一组共四篇的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 两层的**深入篇**。[工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，并在末尾列了六个读源码的入口。本系列沿这六个入口，把源码读一遍。
+《读 Hugging Face 源码》是一组共四篇的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L4–L5 两层的**深入篇**。[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装了一次 LoRA SFT，并在末尾列了六个读源码的入口。本系列沿这六个入口，把源码读一遍。
 
 它回答的问题是：
 
-> **`AutoModelForCausalLM.from_pretrained`、`model.generate`、`tok.apply_chat_template`、`load_dataset(...).map`、`get_peft_model`、`SFTTrainer` / `DPOTrainer` / `GRPOTrainer`——工具箱第五篇那六行代码的每一行，执行时经过了哪些文件的哪些函数？L0 的公式与 L4 / L5 的结构图，各对应源码里的哪几行？[^q0]**
+> **`AutoModelForCausalLM.from_pretrained`、`model.generate`、`tok.apply_chat_template`、`load_dataset(...).map`、`get_peft_model`、`SFTTrainer` / `DPOTrainer` / `GRPOTrainer`——工具箱的《Hugging Face 生态》那六行代码的每一行，执行时经过了哪些文件的哪些函数？L0 的公式与 L4 / L5 的结构图，各对应源码里的哪几行？[^q0]**
 
 Hugging Face 的五个库加起来几十万行，本系列不通读，只沿**一次 LoRA SFT 会走到的调用链**读：模型怎么加载、一次前向怎么走到 loss、`generate` 的循环长什么样、文本怎么变成 `input_ids`、数据怎么从 Arrow 文件到一个 batch、LoRA 怎么挂到 `nn.Linear` 上、SFT 的 `-100` 在哪一步填、DPO 与 GRPO 的公式各是哪十几行。每一篇的写法相同：先用一张调用链图给出骨架，再逐段贴源码——只贴那一段真正在做事的几行，其余用文件名 + 函数名指路——最后把它与本地图前面各层的公式或结构图对上。
 
@@ -46,7 +46,7 @@ Table: 系列四段与各篇覆盖的源码
 
 ### 六行代码，四个黑盒
 
-工具箱第五篇的六行里，`from_pretrained` 进去一个 Hub 名字、出来一个 `nn.Module`；`get_peft_model` 进去一个模型、出来一个只有 1.8% 参数可训的模型；`SFTTrainer(...).train()` 进去一个 `Dataset`、出来一个训好的模型；`generate` 进去一段 prompt、出来一段文本。会用它们不需要知道里面是什么；但调不出、报错、结果与预期差 $$10^{-4}$$ 或差 1.0 的时候，每一个问题的答案都在某个具体的文件里。
+工具箱《Hugging Face 生态》的六行里，`from_pretrained` 进去一个 Hub 名字、出来一个 `nn.Module`；`get_peft_model` 进去一个模型、出来一个只有 1.8% 参数可训的模型；`SFTTrainer(...).train()` 进去一个 `Dataset`、出来一个训好的模型；`generate` 进去一段 prompt、出来一段文本。会用它们不需要知道里面是什么；但调不出、报错、结果与预期差 $$10^{-4}$$ 或差 1.0 的时候，每一个问题的答案都在某个具体的文件里。
 
 ### 代码比论文准，比教程全
 
@@ -109,7 +109,7 @@ flowchart LR
 
 ## 贯穿全系列的源码阅读线
 
-每一篇都从工具箱第五篇的一行代码进入，读到它与本地图前面各层的对应处为止：
+每一篇都从工具箱《Hugging Face 生态》的一行代码进入，读到它与本地图前面各层的对应处为止：
 
 | 六行里的哪一行 | 入口文件 | 读到哪里为止 | 对应的前置篇 | 篇 |
 |---|---|---|---|---|
@@ -129,8 +129,8 @@ Table: 六行代码各自的入口、终点与对应的前置篇
 
 | 需要 | 到什么程度 | 在哪里学 |
 |---|---|---|
-| 工具箱第五篇的六行代码 | 跑过一次，知道 `config.json` / `tokenizer.json` / `safetensors` 各是什么 | [工具箱第五篇](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
-| `nn.Module`、`state_dict`、`DataLoader` | 知道键名从属性路径来、`collate_fn` 做什么 | [工具箱第三篇](/pytorch-in-use-five-objects-and-a-training-loop.html) |
+| 工具箱《Hugging Face 生态》的六行代码 | 跑过一次，知道 `config.json` / `tokenizer.json` / `safetensors` 各是什么 | [工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
+| `nn.Module`、`state_dict`、`DataLoader` | 知道键名从属性路径来、`collate_fn` 做什么 | [工具箱的《PyTorch 使用层（上）》](/pytorch-in-use-five-objects-and-a-training-loop.html) |
 | Transformer 的结构 | 能画出一个 decoder block，知道 RoPE、GQA、KV cache 各在哪 | 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》 |
 | SFT / DPO / GRPO 的目标函数 | 认得 $$-\log\sigma(\beta\Delta)$$ 与 $$(R - \text{mean}) / \text{std}$$ | [后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第一、三、四篇 |
 
@@ -148,7 +148,7 @@ transformers 5.17.0、tokenizers 0.23.2、datasets 5.0.1、peft 0.21.0、trl 1.1
 |---|---|---|
 | 01 | [transformers 模型侧：from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss](/transformers-from-pretrained-to-forward-and-loss.html) | 《[Transformer 原理与实现（01）：Transformer 长什么样——从一句话到下一个 token](/transformer-architecture-from-a-sentence-to-the-next-token.html)》 |
 | 02 | [generate：一次采样的完整调用链](/transformers-generate-call-chain.html) | 01 |
-| 03 | [tokenizers 与 datasets：从 messages 到 input_ids，从 Arrow 文件到 collate_fn](/tokenizers-and-datasets-from-messages-to-input-ids.html) | 工具箱第五篇 |
+| 03 | [tokenizers 与 datasets：从 messages 到 input_ids，从 Arrow 文件到 collate_fn](/tokenizers-and-datasets-from-messages-to-input-ids.html) | 工具箱的《Hugging Face 生态》 |
 | 04 | [peft 与 trl：LoRA 怎么挂上去，SFT / DPO / GRPO 的 loss 各在哪一行](/peft-and-trl-lora-sft-dpo-grpo-in-source.html) | 01–03、后训练系列 |
 | 05 | [系列总结与通关自测](/hf-source-reading-series-recap-and-self-test.html) | 01–04 |
 
@@ -156,7 +156,7 @@ Table: 章节目录
 
 ## 最终目标
 
-读完四篇，对工具箱第五篇的六行代码，你应该能：
+读完四篇，对工具箱《Hugging Face 生态》的六行代码，你应该能：
 
 1. 说出 `from_pretrained` 的六步，并解释为什么 8B 模型的加载峰值内存等于权重大小；
 2. 在 `modeling_llama.py` 里指出 L4 结构图上每个方框对应的类，并说出 attention 实现是怎么切换的；
