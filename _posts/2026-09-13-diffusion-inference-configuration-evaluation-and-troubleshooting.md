@@ -10,7 +10,7 @@ updated: 2026-11-14
 
 前八篇给出了机制与它们在账上的位置。最后一篇把它们变成两件日常工作：**上线前**——给定模型、分辨率、步数、GPU 与 SLO，按什么顺序推出配置，怎样证明每一项优化的性能收益是真的、质量代价是可接受的；**上线后**——看什么指标，p99 抬升、图片出伪影、半夜 OOM 各先查什么。
 
-扩散推理的评测有一个 LLM serving 没有的维度：**多数优化是有损的**（第二篇的 FP8 / INT4 / 8-bit attention、第三篇的跨步缓存、第四篇的稀疏 attention、第六篇的少步），而"损了多少"没有困惑度那样的单一数字——要对基线图算 PSNR / LPIPS、要在 prompt 集上算 ImageReward / GenEval、要人看。所以配置推导的每一步都带着一个质量预算，评测方法是配置方法的一半。
+扩散推理的评测有一个 LLM serving 没有的维度：**多数优化是有损的**（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)的 FP8 / INT4 / 8-bit attention、[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的跨步缓存、[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的稀疏 attention、[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)的少步），而"损了多少"没有困惑度那样的单一数字——要对基线图算 PSNR / LPIPS、要在 prompt 集上算 ImageReward / GenEval、要人看。所以配置推导的每一步都带着一个质量预算，评测方法是配置方法的一半。
 
 本篇要回答的核心问题是：
 
@@ -53,27 +53,27 @@ flowchart TB
 ```mermaid
 %% 图：配置的推导顺序：算账 → 无损单卡 → 有损 I → 有损 II → 延迟仍不达 SLO 则多卡
 flowchart TB
-    S0["输入：模型 · 分辨率 / 帧数 · 步数 · CFG · GPU 型号与数量 · 延迟 SLO · 吞吐目标 · 质量预算"] --> S1["① 算账（第一篇）
+    S0["输入：模型 · 分辨率 / 帧数 · 步数 · CFG · GPU 型号与数量 · 延迟 SLO · 吞吐目标 · 质量预算"] --> S1["① 算账（《负载画像》）
 diffusion_ledger.py：三段 FLOPs / 显存 / 时间
 → 单卡放不放得下？单卡延迟离 SLO 多远？"]
-    S1 --> S2["② 无损单卡（第二篇）
+    S1 --> S2["② 无损单卡（《单卡执行》）
 offload / VAE tiling → FA3 → compile 或 BCG → 预定义分辨率 warmup
 基线：固定 seed 的 20 张图"]
-    S2 --> S3["③ 有损 I（第二篇）
+    S2 --> S3["③ 有损 I（《单卡执行》）
 FP8 线性层 · SageAttention
 门限 PSNR > 35 dB"]
-    S3 --> S4["④ 有损 II（第三、四篇）
+    S3 --> S4["④ 有损 II（《跨步冗余》《视频：长序列 attention》）
 跨步缓存阈值扫描 · 稀疏 attention（视频）
 门限按产品，PSNR 30 dB 上下 · 人工 A/B"]
     S4 --> S5{"延迟达到 SLO？"}
-    S5 -- "否" --> S6["⑤ 多卡（第五篇）
+    S5 -- "否" --> S6["⑤ 多卡（《多卡并行》）
 NVLink：USP（+ CFG 并行）
 PCIe / 以太网：+ PipeFusion
 装不下：TP / FSDP"]
-    S5 -- "否，且可换模型" --> S7["⑥ 少步（第六篇）
+    S5 -- "否，且可换模型" --> S7["⑥ 少步（《少步与自回归》）
 schnell / Turbo / DMD 蒸馏版
 重做 ②③（缓存与 PipeFusion 失效）"]
-    S5 -- "是" --> S8["⑦ serving（第七篇）
+    S5 -- "是" --> S8["⑦ serving（《serving 形态》）
 分池 · 实例数 = QPS × GPU·秒 · 三段是否分离 · job API"]
     S6 --> S8
     S7 --> S8
@@ -177,6 +177,12 @@ Table: 评测规则、原因与做法
 
 `nvidia-smi` 的 GPU-Util 是"有 kernel 在跑的时间比例"，eager 下几百个小 kernel 也能把它打到 95%——**它不度量 MFU**。看 MFU 要用账：每步 FLOPs / (每步秒 × 峰值)。FLUX eager 的 GPU-Util 接近 100%，MFU 却是 $$2.08\text{ P} / (6.71\text{ s} \times 989\text{ T}) = 0.31$$；compile 后 GPU-Util 差不多，MFU 是 $$2.08 / (4.30 \times 0.989) = 0.49$$。面板上的 MFU 就按这个式子由每步 ms 与账上的每步 FLOPs 算出来，不需要硬件计数器。同样，SP 多卡下每卡 GPU-Util 高不代表没有在等 all-to-all——NCCL kernel 也算"在跑"。诊断用 profiler 里的 kernel 分类（GEMM / attention / NCCL / 其他）与 GPU idle gap。
 
+> [!NOTE] Java 经验参照：CPU 跑满就是在干活
+>
+> `top` 里 CPU 100%，至少说明处理器在执行指令——可能在做无用功（忙等、GC 风暴），但它确实在算，再加任务也排不进去了。
+>
+> GPU-Util 100% 不是这个意思。它只表示采样周期里至少有一个 kernel 驻留，不表示算力被用上了：eager 下一步有几十个小 kernel 依次排队，每个都只占一小部分 SM，利用率照样 100%，而 MFU 只有 0.31。更麻烦的是没有任何现成工具会直接告诉你 MFU——它要用[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的账自己除出来：理论 FLOPs 除以（实测每步时间 × 峰值算力）。所以这边的"忙不忙"不看利用率，看 MFU 与每步 ms；利用率只配用来确认进程还活着。
+
 ### 3. 报告的最小格式
 
 ```text title="报告的最小格式"
@@ -207,7 +213,7 @@ FID 比较两组图的 Inception 特征分布，对**单张图的细节变化**�
 
 ### 4. 阈值扫描曲线
 
-每个有损选项都有一个连续参数（缓存阈值、稀疏度、量化位宽 / rank），评测的产出是一条"加速比—质量"曲线（第三篇第五章的形状）与在质量预算处的工作点。曲线要**按模型 × 形状 × 步数**各测：同一阈值在 50 步与 20 步下命中率不同、在 512² 与 2048² 下伪影不同。工作点存进配置（SGLang 的 `--batching-config` 式的按形状规则、vLLM-Omni 的 `--cache-backend` + `--cache-config`），面板上抽检（第七章）。
+每个有损选项都有一个连续参数（缓存阈值、稀疏度、量化位宽 / rank），评测的产出是一条"加速比—质量"曲线（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)第五章的形状）与在质量预算处的工作点。曲线要**按模型 × 形状 × 步数**各测：同一阈值在 50 步与 20 步下命中率不同、在 512² 与 2048² 下伪影不同。工作点存进配置（SGLang 的 `--batching-config` 式的按形状规则、vLLM-Omni 的 `--cache-backend` + `--cache-config`），面板上抽检（第七章）。
 
 ## 五、确定性
 
@@ -228,20 +234,26 @@ Table: 确定性漂移的来源与对策
 
 结论：**同一部署内确定、跨部署不保证**。基线图要与部署配置一起存；每次改配置（并行度、编译、版本）重建基线再做 A/B，否则会把配置漂移当成优化的质量损失。
 
+> [!NOTE] Java 经验参照：同样的输入同样的输出
+>
+> 单测的底座是 `assertEquals`：同样的输入必然给出同样的输出，所以期望值可以写死在代码里。浮点让人稍微让步一点，但 `assertEquals(expected, actual, 1e-9)` 这样的 delta 就够了，差异在 1 ulp 级。
+>
+> 这里的差异不是 1 ulp 级的，而且来源是结构性的：融合改了运算顺序、并行度改了 reduce 顺序、动态量化的 scale 随 batch 组成变。几步放大下来，输出是一张"像但不等于"的图（SSIM 0.98 级）。所以回归测试的期望值不能是一个数或一张图，而是**一组固定 prompt × seed 的基线图加一条 PSNR 门限**，并且要和产生它的那套配置一起存——换句话说，这里的 `assertEquals` 带着一个必须显式声明的环境参数。上面那张表里"换 $$p$$ 后重建基线"说的就是这件事。
+
 ## 六、常见故障
 
 | # | 信号 | 最可能的原因 | 先查 | 修 |
 |---|---|---|---|---|
-| 1 | **VAE 解码 OOM**：DiT 28 步跑完、最后一刻 OOM；高分辨率 / 长视频才出 | 解码器全分辩率 fp32 特征图（第一篇：2048² 8 GiB、视频百 GiB）；DiT 释放前解码 | 报错栈在 `vae.decode`；峰值显存曲线的最后一个尖峰 | VAE tiling / 时间分块<br/>DiT 权重先 offload 再解码<br/>Parallel VAE<br/>限制最大分辨率 |
+| 1 | **VAE 解码 OOM**：DiT 28 步跑完、最后一刻 OOM；高分辨率 / 长视频才出 | 解码器全分辩率 fp32 特征图（[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)：2048² 8 GiB、视频百 GiB）；DiT 释放前解码 | 报错栈在 `vae.decode`；峰值显存曲线的最后一个尖峰 | VAE tiling / 时间分块<br/>DiT 权重先 offload 再解码<br/>Parallel VAE<br/>限制最大分辨率 |
 | 2 | **FP8 后 NaN / 全黑图 / 色偏** | 激活离群值让 per-tensor scale 饱和<br/>某些层（首末层、adaLN）不该量化<br/>VAE 被一起量化了 | 逐层开关 FP8 二分；检查 VAE 精度 | 敏感层留 bf16<br/>per-token / per-block scale<br/>VAE 保持 fp32 |
 | 3 | **缓存伪影**：细节模糊、文字粘连、颜色偏移；关掉缓存正常 | 阈值过高<br/>末尾步保护不足<br/>蒸馏模型开了缓存 | 命中步的位置分布（末尾命中太多）；模型是否少步 | 降阈值<br/>`B_n` 尾块全算<br/>蒸馏模型禁用 |
-| 4 | **CFG 模型开缓存后饱和 / 发灰** | 条件 / 无条件分支共用缓存状态 | 单独跑 CFG 关闭对比 | 按 CFG 上下文分状态（第三篇） |
+| 4 | **CFG 模型开缓存后饱和 / 发灰** | 条件 / 无条件分支共用缓存状态 | 单独跑 CFG 关闭对比 | 按 CFG 上下文分状态（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)） |
 | 5 | **视频闪烁** | 稀疏 attention 的静态窗口截掉运动<br/>缓存在帧间决策不一致<br/>3D VAE 时间分块接缝 | 逐帧 PSNR 曲线的周期性凹陷（分块接缝周期 = chunk 长度）vs 随机凹陷（缓存 / 稀疏） | 换在线稀疏（SVG）或降稀疏度<br/>VAE 分块加重叠<br/>缓存整段一致决策 |
 | 6 | **p99 抬升、p50 不变**：开 compile 后出现 | 重编译风暴——用户请求了未 warmup 的分辨率 / 帧数 / prompt 长度组合 | 日志里 recompile 次数；请求形状的分布 | 限制服务形状 + `--warmup-resolutions` 全列<br/>或 `dynamic=True`<br/>按形状分池 |
 | 7 | **SP 启动报错或 hang** | SP 度不整除 head 数（Ulysses）或 $$N$$（padding 路径 bug）<br/>跨步缓存各卡决策不一致<br/>某 rank 走了不同分支 | `nccl` 超时的 rank；各 rank 的缓存决策日志 | 合法的度数<br/>决策 all-reduce<br/>`NCCL_DEBUG=INFO` 定位缺席的 collective |
 | 8 | **LoRA 未生效 / 效果过强** | 权重名映射失败静默跳过<br/>scale 传错（0 或 2）<br/>量化路径不支持 LoRA（GGUF） | 加载日志的 "unexpected / missing keys"；请求里的 scale | 修映射<br/>SVDQuant 用 Nunchaku 的 LoRA 路径<br/>GGUF 与 LoRA 互斥（SGLang 会在启动时拒绝） |
 | 9 | **长 prompt 被截断**：后半段描述不生效 | T5 / CLIP 的 token 上限（77 / 256 / 512） | tokenizer 的截断警告 | 用 T5 / LLM 编码器的模型；prompt 改写压缩 |
-| 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（第七篇）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）<br/>换少步模型<br/>不要调 batch |
+| 10 | **吞吐随并发不增、GPU-Util 100%** | 正常：compute-bound 下 batch 不提吞吐（[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)）——不是故障 | 单请求 MFU 已 > 0.5 | 加实例（DP）<br/>换少步模型<br/>不要调 batch |
 | 11 | **回退到 diffusers 后端**（`--backend auto` 下）：性能远低于文档 | 原生 pipeline 注册失败 / 模型路径不匹配 / 读不到 `model_index.json`<br/>路径名带 `-4bit` / `-awq` / `-gptq` 的量化模型（原生引擎只支持 BF16 / FP16） | 启动日志 "Falling back to diffusers backend" | 修注册 / 路径；或接受回退性能 |
 | 12 | **BCG 捕获后结果不同 / 偶发错图 / 没提速** | 未捕获形状走 eager（正常）<br/>捕获签名 miss<br/>与 compile / Cache-DiT 同时开（BCG 优先，另两项不生效）<br/>模型不在 BCG 支持列表（如 FLUX），BCG 被自动关掉 | 日志 "[Diffusion BCG] captured" / "signature MISSED" / "[Diffusion BCG] disabled for" | 列全形状；关掉互斥项 |
 
@@ -249,7 +261,35 @@ Table: 扩散推理的常见故障
 
 ## 七、可观测
 
-### 1. 面板
+### 1. 哪些数只有当时才有
+
+下一节那张面板表回答"看什么"，这一节回答一个更要紧的问题：**哪些数不当场采就永远拿不到了**。上面十二条故障里，查不下去的那几条无一例外是因为当时没采。
+
+| 信号 | 谁产生 | 在哪一层 | 事后补得上吗 | 不采的后果 |
+|---|---|---|---|---|
+| 1. 每步 ms（按形状分位） | DiT 实例 | 实例 | 补不上 | 性能回归只能看端到端，分不清是重编译、排队还是执行变慢 |
+| 2. 三段各自的 ms | 实例 | 实例 | 补不上 | 分不清慢在 DiT 还是 VAE |
+| 3. 重编译次数与日志行 | `torch.compile` | 实例日志 | **可以**，只要没被轮转掉 | 故障 6 查不下去 |
+| 4. 缓存命中步的位置直方图 | 缓存 hook | 实例 | 补不上：一次生成之内的状态，生成结束即消失 | 故障 3「末尾命中太多」看不见 |
+| 5. 请求的形状分布 | API 层 | 任务表 | **可以**，参数本来就存着 | — |
+| 6. 队列深度与估算等待 | 调度器 | 调度器 | 补不上 | 扩容信号缺失 |
+| 7. 每卡峰值显存与碎片 | worker | 实例 | 补不上 | OOM 之后只剩一个报错栈 |
+| 8. 各 rank 每步时间差 | 每个 rank | 实例 | 补不上 | straggler 与降频的卡定位不了 |
+| 9. 这次生成的配置指纹（并行度、编译开关、阈值、镜像版本） | 部署 | 任务表 | **可以**，前提是当时写进去了 | 跨部署比图时，把配置漂移当成优化的质量损失 |
+| 10. seed 与完整请求参数 | API 层 | 任务表 | **可以** | 复现不了 |
+| 11. 质量抽检的 PSNR | 定时任务 | 离线 | 半补得上：可以重跑，但重跑的是"现在"不是"当时" | 质量回归完全看不见 |
+| 12. 基线图本身 | 上线前生成 | 对象存储 | 补不上：基线必须和当时的配置一起存 | PSNR 没有可比对象，整套质量评测失效 |
+
+Table: 十二个信号与它们能不能事后补
+
+四条读法：
+
+1. **能事后补的只有四行**（第 3、5、9、10 行），而且它们之所以补得上，是因为**本来就为了别的理由被存下来了**——参数要幂等、配置要审计、日志要排错。其余八行都是一次性的：每步时间、显存峰值、命中位置、rank 间时间差，生成一结束就没了。
+2. **第 11、12 行是这类服务独有的，也是最容易漏掉的。**性能面板永远不会告诉你质量掉了：一次版本升级、一次换卡、一次阈值回滚，都能改变输出而不改变任何一个延迟指标。质量抽检是唯一会在这种时候报警的东西。
+3. **第 9 行是[第五章](#五确定性)"同一部署内确定、跨部署不保证"的运维形式。**基线图和配置指纹必须成对存；只存图不存配置，下次重建基线时就会把并行度或编译开关的漂移当成某项优化的质量损失。
+4. **第 4、8 行是"只有当时才有"的两个典型，而它们恰好是两类最难查的故障的第一手证据**——缓存伪影和 SP hang。所以下一节那三次故障注入演练，真正要验证的不是"告警会不会响"，而是**这两行当时确实被采到了**。
+
+### 2. 面板
 
 | 面板 | 指标 | 为什么 |
 |---|---|---|
@@ -264,7 +304,7 @@ Table: 扩散推理的常见故障
 
 Table: 监控面板与指标
 
-### 2. 告警
+### 3. 告警
 
 - 每步 ms 相对基线 +20%（同形状）；
 - 缓存命中率相对基线 ±30%；
@@ -274,7 +314,7 @@ Table: 监控面板与指标
 - 重编译次数 > 0（服务形状被突破）；
 - rank 间每步时间差 > 10%。
 
-### 3. 故障注入
+### 4. 故障注入
 
 上线前对练手服务做三次：（1）把缓存阈值调到质量门限之外，看质量抽检是否报警；（2）发一批非预定义分辨率，看重编译告警与 p99；（3）关掉 VAE tiling 发 2048²，看显存告警与 OOM 处理（请求失败而不是实例崩）。三次都能在面板上十分钟内定位，值班手册才算写完。
 
