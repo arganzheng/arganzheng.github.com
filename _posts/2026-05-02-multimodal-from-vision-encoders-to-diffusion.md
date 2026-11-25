@@ -33,7 +33,7 @@ Table: 系列九篇的主题、所属线与回答的问题
 **PDF、Word、Excel、PPT 算哪种模态？** 都不算。它们是容器格式，里面装的是文本、表格和图片，模型看到的是解析之后的内容。接入方式有两种：
 
 1. **先解析成文本，再交给纯文本 LLM**：数字原生的文件用规则抽取（PDF 的文字层、docx 的段落、xlsx 的单元格）或[布局模型](# "tip: 检测页面上的标题、正文、表格、图片区域及阅读顺序的模型，输出结构化的 Markdown / HTML")转成 Markdown 和 HTML 表格；Excel 这类结构化数据也常转成 CSV，或者让模型写代码去读。这条路不经过视觉编码器，也不属于本系列。
-2. **把每一页渲染成图片，交给 VLM**：扫描件、手写、公式、图表混排的页面，抽取文本会丢掉信息，就把页面当作一张图，走本系列理解线的视觉编码器与 connector。难点在分辨率：一页 A4 缩到 336 像素宽，每个字只剩 3 像素，所以文档任务（DocVQA、OCRBench）最依赖第二篇《VLM 的结构（下）》讲的动态分辨率；Qwen2.5-VL 这类模型还把"页面 → 结构化文本"作为训练任务之一（第三篇《VLM 的训练》的数据配比）。
+2. **把每一页渲染成图片，交给 VLM**：扫描件、手写、公式、图表混排的页面，抽取文本会丢掉信息，就把页面当作一张图，走本系列理解线的视觉编码器与 connector。难点在分辨率：一页 A4 缩到 336 像素宽，每个字只剩 3 像素，所以文档任务（DocVQA、OCRBench）最依赖[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)讲的动态分辨率；Qwen2.5-VL 这类模型还把"页面 → 结构化文本"作为训练任务之一（[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)的数据配比）。
 
 产品里的"上传 PDF"通常两条路同时走：抽出每页的文字，同时附上这一页的图片（Claude、GPT 的 PDF 输入都是这样处理的）。解析的工程细节（三种解析方式怎么选、表格与阅读顺序的静默失败、分块）属于应用侧的检索问题，见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
 
@@ -62,7 +62,7 @@ VLM 的 LLM 部分与文本模型完全一样，后训练方法（SFT、DPO、RL
 
 ### 两条线在交汇
 
-自回归图像生成（把图像 token 化后用 LLM 的方式生成）与统一模型（一个 Transformer 既理解图片又生成图片）是 2024–2025 年的活跃方向：Chameleon、Emu3、Janus、Transfusion、BAGEL、以及 GPT-4o 的原生图像生成。它们要回答的问题是"理解与生成能不能共享同一套表示"，而这个问题的答案决定了多模态模型的下一个形态。系列的第九篇把两条线合起来讨论。
+自回归图像生成（把图像 token 化后用 LLM 的方式生成）与统一模型（一个 Transformer 既理解图片又生成图片）是 2024–2025 年的活跃方向：Chameleon、Emu3、Janus、Transfusion、BAGEL、以及 GPT-4o 的原生图像生成。它们要回答的问题是"理解与生成能不能共享同一套表示"，而这个问题的答案决定了多模态模型的下一个形态。系列最后一篇[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)把两条线合起来讨论。
 
 ### 现有材料的断层
 
@@ -73,7 +73,7 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ### 读完 L4、L5，准备做多模态的算法学习者
 
-主要读者。按顺序读；理解线（一到五）与生成线（六到八）可以只走一条，第九篇需要两条都读过。
+主要读者。按顺序读；理解线（一到五）与生成线（六到八）可以只走一条，[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)需要两条都读过。
 
 ### 已经在做 VLM、但对编码器与训练阶段的选择缺乏系统认识的工程师
 
@@ -81,11 +81,11 @@ VLM 的材料多是各家的技术报告（各说各的选择，没有横向比�
 
 ### 做文生图 / 视频生成的工程师
 
-第六到八篇：从 DDPM 到 flow matching 的推导链、CFG 的含义、DiT 与 latent 空间、SD3 / FLUX 的配方、采样加速、视频的时空 patch。第九篇的自回归生成作为对照。
+第六到八篇：从 DDPM 到 flow matching 的推导链、CFG 的含义、DiT 与 latent 空间、SD3 / FLUX 的配方、采样加速、视频的时空 patch。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的自回归生成作为对照。
 
 ### Infra 工程师
 
-[现代 LLM 结构的《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列第二篇讲这些成本背后的设计动机，第八篇讲扩散模型完全不同的成本结构（无自回归 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
+[现代 LLM 结构的《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)已经算过多模态的成本；本系列的[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)讲这些成本背后的设计动机，[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)讲扩散模型完全不同的成本结构（无自回归 KV、compute-bound、多步）——它决定了扩散模型的服务系统与 LLM 的服务系统为什么长得不一样。
 
 
 ## 系列的整体主线
@@ -145,8 +145,8 @@ VQ · AR 图像生成
 
 贯穿九篇的三条线索：
 
-- **推导线**：InfoNCE 与对比学习为什么学出语义（第一篇）；connector 的信息瓶颈（第二篇）；codec 的 RVQ（第四篇）；ELBO → 去噪目标（第六篇）；score matching 与 flow matching 的统一、CFG 的贝叶斯推导（第七篇）；VQ-VAE 的离散瓶颈（第九篇）。
-- **成本线**：编码器的 FLOPs 与 token 数（回指 [《现代 LLM 结构》的多模态成本篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；训练阶段各自的算力；语音 token 与全双工的持续成本（第五篇）；扩散模型每张图的 FLOPs 与 LLM 的对比（第八篇）；AR 图像生成的 token 数与 KV。
+- **推导线**：InfoNCE 与对比学习为什么学出语义（[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)）；connector 的信息瓶颈（[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)）；codec 的 RVQ（[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)）；ELBO → 去噪目标（[《扩散模型（上）》](/diffusion-models-ddpm-score-matching-and-flow-matching.html)）；score matching 与 flow matching 的统一、CFG 的贝叶斯推导（[《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html)）；VQ-VAE 的离散瓶颈（[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)）。
+- **成本线**：编码器的 FLOPs 与 token 数（回指 [《现代 LLM 结构》的多模态成本篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)）；训练阶段各自的算力；语音 token 与全双工的持续成本（[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)）；扩散模型每张图的 FLOPs 与 LLM 的对比（[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)）；AR 图像生成的 token 数与 KV。
 - **配方线**：LLaVA → Qwen2.5-VL → InternVL 3 的演化；Whisper → Qwen2.5-Omni；SD 1.x → SDXL → SD3 → FLUX；Chameleon → Janus → BAGEL。每一处设计选择在公开报告里的对照。
 
 
@@ -253,10 +253,16 @@ Table: 各篇的 toy 实验脚本与跑通什么
 ### 前置要求
 
 - 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》：ViT 的结构与 patch embedding。
-- [现代 LLM 结构系列](/llm-architecture-evolution-roadmap-from-gpt2.html)第 01、04、09 篇：Transformer 结构、KV cache、多模态成本。
-- [L5](/post-training-from-sft-to-verifiable-rewards.html)第一、二、四篇：SFT、偏好数据、DPO——第三篇的多模态对齐直接用它们。
-- [L2 经典机器学习](/classical-machine-learning-in-the-llm-era.html)：K-Means（第四、九篇的码本就是它）、PCA（第八篇的 toy VAE）、逻辑回归与 softmax（第一篇的对比损失）。
-- 概率的基本概念（高斯分布、条件概率、期望）：第六、七篇会在用到的地方原地解释，[L0 数学系列](/math-for-ai-algorithm-engineers.html)是更系统的补充。
+- [《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)的三篇：
+  - [《从 GPT-2 到 Llama》](/gpt2-to-llama-five-changes-and-parameter-count.html)：Transformer 结构；
+  - [《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)：KV cache；
+  - [《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)：多模态成本。
+- [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)、[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)（DPO）——本系列[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)的多模态对齐直接用它们。
+- [《LLM 时代的经典机器学习》](/classical-machine-learning-in-the-llm-era.html)的三样：
+  - [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)的 K-Means：本系列[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)与[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的码本就是它；
+  - [《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)的 PCA：[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)的 toy VAE；
+  - [《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)的逻辑回归与 softmax：[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)的对比损失。
+- 概率的基本概念（高斯分布、条件概率、期望）：[《扩散模型（上）》](/diffusion-models-ddpm-score-matching-and-flow-matching.html)与[《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html)会在用到的地方原地解释，[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)是更系统的补充。
 
 ### 版本与基线
 
@@ -287,16 +293,16 @@ Table: 各篇的 toy 实验脚本与跑通什么
 
 | 追问 | 答案来自 |
 |---|---|
-| 编码器选 CLIP、SigLIP 还是 InternViT？它看不到什么？ | 第一篇 |
-| 一张图占多少 token 是合适的？用 MLP 还是压缩？固定分辨率还是动态？ | 第二篇 · [《现代 LLM 结构》的多模态成本篇](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
-| 训练分几个阶段、每阶段冻结谁、用什么数据？怎么防止文本能力退化？ | 第三篇 |
-| 模型描述了图里没有的东西，问题在数据、编码器还是解码？ | 第三篇 |
-| 语音要不要离散化？codec 的比特率与码本层数怎么选？ | 第四篇 |
-| 语音助手要不要让 LLM 直接说？全双工的时延瓶颈在哪？ | 第五篇 |
-| 这个扩散模型的调度、预测目标、采样步数是什么意思？ | 第六篇 |
-| 它用的是 $$\epsilon$$ 预测还是 flow matching？guidance 该设多少？ | 第七篇 |
-| 生成一张图的成本与一次 LLM 推理怎么比？步数怎么从 50 降到 4？ | 第八篇 |
-| 要一个既能看图又能画图的模型，选纯 token、双编码器还是 AR + 扩散？ | 第九篇 |
+| 编码器选 CLIP、SigLIP 还是 InternViT？它看不到什么？ | [《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html) |
+| 一张图占多少 token 是合适的？用 MLP 还是压缩？固定分辨率还是动态？ | [《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) · [《现代 LLM 结构》的多模态成本篇](/multimodal-vision-encoder-cost-and-image-token-kv.html) |
+| 训练分几个阶段、每阶段冻结谁、用什么数据？怎么防止文本能力退化？ | [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) |
+| 模型描述了图里没有的东西，问题在数据、编码器还是解码？ | [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) |
+| 语音要不要离散化？codec 的比特率与码本层数怎么选？ | [《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html) |
+| 语音助手要不要让 LLM 直接说？全双工的时延瓶颈在哪？ | [《语音（下）》](/speech-understanding-generation-and-full-duplex.html) |
+| 这个扩散模型的调度、预测目标、采样步数是什么意思？ | [《扩散模型（上）》](/diffusion-models-ddpm-score-matching-and-flow-matching.html) |
+| 它用的是 $$\epsilon$$ 预测还是 flow matching？guidance 该设多少？ | [《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html) |
+| 生成一张图的成本与一次 LLM 推理怎么比？步数怎么从 50 降到 4？ | [《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html) |
+| 要一个既能看图又能画图的模型，选纯 token、双编码器还是 AR + 扩散？ | [《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html) |
 
 Table: 读完多模态系列后应能回答的追问
 

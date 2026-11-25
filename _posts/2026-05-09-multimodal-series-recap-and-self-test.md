@@ -11,7 +11,7 @@ date: 2026-05-09 20:00:00
 
 九篇正文回答了两个问题：**图片、视频、语音怎么进入一个语言模型，以及图像与视频的生成为什么是另一套数学**。前五篇是理解线——编码器学到什么、几百个向量怎么进 LLM、训练分几个阶段、声音怎么变成 token、怎么听与说；第六到八篇是生成线——去噪为什么等于学分布、三种视角为什么是同一件事、怎么把这套数学变成 SD / FLUX；第九篇是交汇——图像能不能像文本一样 token 化后自回归地生成，理解与生成能不能用一个模型。
 
-本文不讲新内容，做三件事：把九篇压成一张表与九段回顾，把贯穿九篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"九篇能不能连起来用"。第九篇末尾的"系列总结"一节的内容也并入这里。
+本文不讲新内容，做三件事：把九篇压成一张表与九段回顾，把贯穿九篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"九篇能不能连起来用"。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)末尾的"系列总结"一节的内容也并入这里。
 
 > **读完这九篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -219,33 +219,33 @@ Table: 本文的章节安排
 
 ### 1. 目标函数决定表示保留什么
 
-第一篇建立的原理贯穿全系列：一个表示保留的信息，是训练目标要求它回答的问题所需要的信息，多一点都没有。对比目标只问"这张图配哪条文本"，于是计数、位置、绑定被丢掉；caption 目标要求特征支撑每个词，AIMv2 要求预测每个 patch，SigLIP 2 把三种目标叠加，各补一类盲点。第二篇的 connector 是同一原理的下一站：Q-Former 的 32 个 query 学的是"平均而言什么重要"，与内容无关，所以装不下细节；MLP 什么都不选，把选择权留给 LLM 的 attention。第三篇把它接到失效模式上——编码器没保留的信息 LLM 只能靠语言先验补，补的就是幻觉，所以解冻编码器、提高分辨率能降幻觉。
+[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)建立的原理贯穿全系列：一个表示保留的信息，是训练目标要求它回答的问题所需要的信息，多一点都没有。对比目标只问"这张图配哪条文本"，于是计数、位置、绑定被丢掉；caption 目标要求特征支撑每个词，AIMv2 要求预测每个 patch，SigLIP 2 把三种目标叠加，各补一类盲点。[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)的 connector 是同一原理的下一站：Q-Former 的 32 个 query 学的是"平均而言什么重要"，与内容无关，所以装不下细节；MLP 什么都不选，把选择权留给 LLM 的 attention。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)把它接到失效模式上——编码器没保留的信息 LLM 只能靠语言先验补，补的就是幻觉，所以解冻编码器、提高分辨率能降幻觉。
 
-第四篇在音频上重演：语义 token（HuBERT 聚类）只保留音素内容、丢音色，声学 token 保留一切但序列长而"内容"埋在细节里，Mimi 把第一码本蒸馏成语义 token 让一个 codec 两者兼得。第八篇的 VAE 是生成侧的同一个问题：4 通道 latent 重建不出小文字与手指，扩散模型也就生成不出，SD3 增到 16 通道；REPA 发现让 DiT 的中间表示对齐 DINOv2 特征训练快 17 倍——latent 的语义结构影响学习效率。第九篇把它推到极致：tokenizer 的重建客户要细节、生成客户要可预测，Janus 的论点"理解要高层语义、生成要低层细节、一个编码器难两全"正是同一张力；语义化 tokenizer（VILA-U、TokenFlow、UniTok）与 BAGEL 的 MoT 是两种调和。
+[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)在音频上重演：语义 token（HuBERT 聚类）只保留音素内容、丢音色，声学 token 保留一切但序列长而"内容"埋在细节里，Mimi 把第一码本蒸馏成语义 token 让一个 codec 两者兼得。[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)的 VAE 是生成侧的同一个问题：4 通道 latent 重建不出小文字与手指，扩散模型也就生成不出，SD3 增到 16 通道；REPA 发现让 DiT 的中间表示对齐 DINOv2 特征训练快 17 倍——latent 的语义结构影响学习效率。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)把它推到极致：tokenizer 的重建客户要细节、生成客户要可预测，Janus 的论点"理解要高层语义、生成要低层细节、一个编码器难两全"正是同一张力；语义化 tokenizer（VILA-U、TokenFlow、UniTok）与 BAGEL 的 MoT 是两种调和。
 
 ### 2. 一段信号值多少 token
 
-成本线的中心量是 token 数。第一篇给出编码器一端：$$(336 / 14)^2 = 576$$、$$(384 / 14)^2 \approx 729$$（27.4 取 27，实际 processor 会裁到 378），分辨率翻三倍 token 翻九倍，而分辨率恰是 OCR 任务的第一决定因素。第二篇把它变成一张"每 token 多少像素"的表——196、784、3136——并给出甜点：$$28 \times 28$$ 对文字够、对自然图片冗余，所以 2×2 merge 几乎无损而 4×4 池化在 OCR 上掉；视频是帧数 × 每帧 token，1 分钟 2 fps 就是 30K；M-RoPE 让一张 $$32 \times 32$$ token 的图只消耗 32 个位置。第三篇提醒配比要按 token 数而非样本数算——文档 2K、caption 图 256——阶段 2 的成本因此由 token 数主导。
+成本线的中心量是 token 数。[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)给出编码器一端：$$(336 / 14)^2 = 576$$、$$(384 / 14)^2 \approx 729$$（27.4 取 27，实际 processor 会裁到 378），分辨率翻三倍 token 翻九倍，而分辨率恰是 OCR 任务的第一决定因素。[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)把它变成一张"每 token 多少像素"的表——196、784、3136——并给出甜点：$$28 \times 28$$ 对文字够、对自然图片冗余，所以 2×2 merge 几乎无损而 4×4 池化在 OCR 上掉；视频是帧数 × 每帧 token，1 分钟 2 fps 就是 30K；M-RoPE 让一张 $$32 \times 32$$ token 的图只消耗 32 个位置。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)提醒配比要按 token 数而非样本数算——文档 2K、caption 图 256——阶段 2 的成本因此由 token 数主导。
 
-第五篇的账更大：一分钟语音在 25 Hz 是 1500 token、在 EnCodec 声学 token 下 3.6 万，一小时会议 9 万个连续特征 token 超过多数上下文，所以语音比图片更需要低帧率（Mimi 12.5 Hz）与流式。第八篇把 token 数与步数相乘：一张 $$1024^2$$ 图是 4096 个 latent token × 28–50 步 × CFG 两次，5 s 视频是 115K token 且 attention 的 $$N^2$$ 项占八成。第九篇则是 token 数 × 串行：栅格 AR 的 4096 token 就是 4096 步 decode，VAR 用 680 个 token、10 步换回并行。同一个 token 数，在 prefill、扩散、AR decode 三种形态下的代价差几个量级——这是下一条线。
+[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)的账更大：一分钟语音在 25 Hz 是 1500 token、在 EnCodec 声学 token 下 3.6 万，一小时会议 9 万个连续特征 token 超过多数上下文，所以语音比图片更需要低帧率（Mimi 12.5 Hz）与流式。[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)把 token 数与步数相乘：一张 $$1024^2$$ 图是 4096 个 latent token × 28–50 步 × CFG 两次，5 s 视频是 115K token 且 attention 的 $$N^2$$ 项占八成。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)则是 token 数 × 串行：栅格 AR 的 4096 token 就是 4096 步 decode，VAR 用 680 个 token、10 步换回并行。同一个 token 数，在 prefill、扩散、AR decode 三种形态下的代价差几个量级——这是下一条线。
 
 ### 3. 离散与连续：两种生成形态、两种成本形态
 
-理解侧几乎全用连续特征（第一到三篇），因为不需要生成。第四、五篇第一次引入离散 token：要让 LLM 用自己的那套栈说话，最省事的是把波形变成短的离散序列（不是唯一可行，F5-TTS 的连续 mel 路线是反例），RVQ 的层次结构决定了 VALL-E 的 AR + NAR、Moshi 的多流。第六到八篇走连续路线：扩散在连续空间（像素或 latent）上学分数，采样是解 ODE 的多步并行前向——每步是一个 4096 token 的大 batch GEMM，compute-bound、MFU 50% 以上、没有 KV cache；LLM 的 decode 每步 1 个 token、memory-bound、MFU 约 1%。同样 FLOPs 相差 200 倍，墙钟时间却相近，两套服务系统由此分道。
+理解侧几乎全用连续特征（第一到三篇），因为不需要生成。[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)与[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)第一次引入离散 token：要让 LLM 用自己的那套栈说话，最省事的是把波形变成短的离散序列（不是唯一可行，F5-TTS 的连续 mel 路线是反例），RVQ 的层次结构决定了 VALL-E 的 AR + NAR、Moshi 的多流。第六到八篇走连续路线：扩散在连续空间（像素或 latent）上学分数，采样是解 ODE 的多步并行前向——每步是一个 4096 token 的大 batch GEMM，compute-bound、MFU 50% 以上、没有 KV cache；LLM 的 decode 每步 1 个 token、memory-bound、MFU 约 1%。同样 FLOPs 相差 200 倍，墙钟时间却相近，两套服务系统由此分道。
 
-第九篇把两种形态放到同一张桌上：栅格 AR 继承了 LLM decode 的 memory-bound 串行——4096 步、100 秒；MaskGIT 与 VAR 用并行 mask 与尺度顺序把 AR 拉回 compute-bound 的多步并行，与扩散同形态；MAR 让 AR 决定顺序、扩散头建模每个连续 token——AR 在 token 间、扩散在 token 内；Transfusion 与 BAGEL 让文本走 next-token、图像走扩散 loss，同一组权重。VAR 的多尺度残差 VQ 与第四、五篇的 RVQ 是同一个思想在两个轴上的实现：一个在同一位置逐级量化残差，一个在空间尺度上逐级量化残差，都天然由粗到细、第一级承载主体。CFG 也在两个空间各有一版：噪声空间 $$w = 7.5$$、logits 空间 $$w \approx 2$$，同一个贝叶斯分解、不同的外推尺度。
+[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)把两种形态放到同一张桌上：栅格 AR 继承了 LLM decode 的 memory-bound 串行——4096 步、100 秒；MaskGIT 与 VAR 用并行 mask 与尺度顺序把 AR 拉回 compute-bound 的多步并行，与扩散同形态；MAR 让 AR 决定顺序、扩散头建模每个连续 token——AR 在 token 间、扩散在 token 内；Transfusion 与 BAGEL 让文本走 next-token、图像走扩散 loss，同一组权重。VAR 的多尺度残差 VQ 与[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)、[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)的 RVQ 是同一个思想在两个轴上的实现：一个在同一位置逐级量化残差，一个在空间尺度上逐级量化残差，都天然由粗到细、第一级承载主体。CFG 也在两个空间各有一版：噪声空间 $$w = 7.5$$、logits 空间 $$w \approx 2$$，同一个贝叶斯分解、不同的外推尺度。
 
 ### 4. 新旧参数、模态竞争与分阶段
 
-第三篇的核心机制——随机初始化的 connector 与预训练好的 LLM 不能用同一个 lr、同一个阶段训——在系列里反复出现。第一篇：CLIP 的最后一层为对比目标过度全局化，VLM 取倒数第二层；Qwen2-VL 在前两个阶段训练 ViT（第三阶段冻结）让编码器被 LLM 的目标"改造"，Gemma 3 把图像放进 LLM 预训练——联合训练让编码器的初始目标函数没那么重要。第三篇给出 lr 分组的数字（编码器 $$2 \times 10^{-6}$$ 到 $$2 \times 10^{-5}$$，比 connector 小 1–2 个量级）与文本混入 10–50% 防退化；Llama 3.2 Vision 用 cross-attention 结构从根上避开——文本路径一个参数没动。
+[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)的核心机制——随机初始化的 connector 与预训练好的 LLM 不能用同一个 lr、同一个阶段训——在系列里反复出现。[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)：CLIP 的最后一层为对比目标过度全局化，VLM 取倒数第二层；Qwen2-VL 在前两个阶段训练 ViT（第三阶段冻结）让编码器被 LLM 的目标"改造"，Gemma 3 把图像放进 LLM 预训练——联合训练让编码器的初始目标函数没那么重要。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)给出 lr 分组的数字（编码器 $$2 \times 10^{-6}$$ 到 $$2 \times 10^{-5}$$，比 connector 小 1–2 个量级）与文本混入 10–50% 防退化；Llama 3.2 Vision 用 cross-attention 结构从根上避开——文本路径一个参数没动。
 
-第五篇把问题命名为**模态竞争**：LLM 直接生成语音 token 时文本知识明显弱于底座，Moshi 用内心独白（先文本再语音）、Qwen2.5-Omni 用 Thinker-Talker（Thinker 只出文本与隐状态，Talker 独立地说）分离两种输出。第九篇的统一模型是同一问题的终极版：Chameleon 把图像 token 与文本放进一个词表从头训，logits 漂移到需要 QK-norm、z-loss、降 lr 才稳住，且理解妥协；Janus 解耦两侧编码器；BAGEL 的 MoT 共享 attention、分开 FFN——"共享上下文、保留模态特化的参数"。从 connector 的两阶段到 MoT，答案的形状一致：让不同来源、不同分布的部件在共享的地方交换信息，在各自的地方保留自己的表示。
+[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)把问题命名为**模态竞争**：LLM 直接生成语音 token 时文本知识明显弱于底座，Moshi 用内心独白（先文本再语音）、Qwen2.5-Omni 用 Thinker-Talker（Thinker 只出文本与隐状态，Talker 独立地说）分离两种输出。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的统一模型是同一问题的终极版：Chameleon 把图像 token 与文本放进一个词表从头训，logits 漂移到需要 QK-norm、z-loss、降 lr 才稳住，且理解妥协；Janus 解耦两侧编码器；BAGEL 的 MoT 共享 attention、分开 FFN——"共享上下文、保留模态特化的参数"。从 connector 的两阶段到 MoT，答案的形状一致：让不同来源、不同分布的部件在共享的地方交换信息，在各自的地方保留自己的表示。
 
 ### 5. 数据质量与 scaling：两个共同的杠杆
 
-第一篇：DFN 用小 CLIP 从 12.8B 对里过滤出 2B 高质量对，训出的模型比在全部 12.8B 上训的好——数据过滤比数据量重要。第三篇：recaption 是 2024 年最重要的数据技术，ShareGPT4V 100K → 1.2M，Molmo 用 712K 条人类语音描述避开"用 VLM 生成数据训 VLM"的循环，InternVL 2.5 报告过滤后训练更稳、幻觉更少。第八篇：DALL-E 3 的技术报告几乎只讲 recaption（95% 合成 caption + 推理时 prompt 扩写），SD3 用 CoGVLM 做 50%，美学过滤与微条件是便宜有效的数据补偿，Imagen 发现换 T5 文本编码器比放大扩散模型更有效——三篇的结论相同：数据质量的杠杆大于结构。
+[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)：DFN 用小 CLIP 从 12.8B 对里过滤出 2B 高质量对，训出的模型比在全部 12.8B 上训的好——数据过滤比数据量重要。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)：recaption 是 2024 年最重要的数据技术，ShareGPT4V 100K → 1.2M，Molmo 用 712K 条人类语音描述避开"用 VLM 生成数据训 VLM"的循环，InternVL 2.5 报告过滤后训练更稳、幻觉更少。[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)：DALL-E 3 的技术报告几乎只讲 recaption（95% 合成 caption + 推理时 prompt 扩写），SD3 用 CoGVLM 做 50%，美学过滤与微条件是便宜有效的数据补偿，Imagen 发现换 T5 文本编码器比放大扩散模型更有效——三篇的结论相同：数据质量的杠杆大于结构。
 
-scaling 是另一个共同点，且它决定了结构的胜负。第八篇 DiT 取代 U-Net 的根本原因是 FID 随 GFLOPs 平滑下降、与分配无关，SD3 从 0.8B 到 8B 未饱和；第九篇 LlamaGen 与 VAR 报告 AR 图像生成的 scaling law（$$R^2 \approx 0.998$$），这是 AR 路线的核心卖点；BAGEL 报告能力随算力的涌现顺序——理解与基本生成 → 编辑 → 需要推理的编辑；第一篇的编码器则是反例：分辨率 > 参数量，300M–700M 在联合训练下不是瓶颈——不是所有部件都值得放大。
+scaling 是另一个共同点，且它决定了结构的胜负。[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html) DiT 取代 U-Net 的根本原因是 FID 随 GFLOPs 平滑下降、与分配无关，SD3 从 0.8B 到 8B 未饱和；[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html) LlamaGen 与 VAR 报告 AR 图像生成的 scaling law（$$R^2 \approx 0.998$$），这是 AR 路线的核心卖点；BAGEL 报告能力随算力的涌现顺序——理解与基本生成 → 编辑 → 需要推理的编辑；[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)的编码器则是反例：分辨率 > 参数量，300M–700M 在联合训练下不是瓶颈——不是所有部件都值得放大。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -274,7 +274,7 @@ Table: 贯穿九篇的概念及其关系
 | 多模态微调不影响文本能力 | 只用多模态数据训会让 MMLU 掉几个点、代码与数学掉更多 | 混入 10–50% 文本数据并回归 MMLU / GSM8K；退化 > 2–3 点要查 | [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) |
 | 全双工的低时延靠更快的硬件 | 四段里帧长与语义决策不是算力；半双工 1–3 s 主要耗在 VAD 与三个模型的首 token 叠加 | 全双工把串联变成一个模型的一步，代价是持续运行、每路半张卡 | [《语音（下）》](/speech-understanding-generation-and-full-duplex.html) |
 | flow matching 是不同于扩散的新方法 | 三者学的是同一个分数的线性参数化，损失只差噪声水平的权重 | 全部是加权 ELBO；直线路径让步数少、调度直观 | [《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html) |
-| guidance scale 越大越好、可跨模型比较 | $$w$$ 是逐噪声层对 $$p_t(c \mid x)$$ 的 $$w$$ 次幂锐化（终点非幂分布），大了过饱和、多样性坍缩；且与模型、调度、是否蒸馏耦合 | SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance | [第六、七篇](/diffusion-models-ddpm-score-matching-and-flow-matching.html) |
+| guidance scale 越大越好、可跨模型比较 | $$w$$ 是逐噪声层对 $$p_t(c \mid x)$$ 的 $$w$$ 次幂锐化（终点非幂分布），大了过饱和、多样性坍缩；且与模型、调度、是否蒸馏耦合 | SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance | [《扩散模型（上）》](/diffusion-models-ddpm-score-matching-and-flow-matching.html)、[《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html) |
 | 扩散模型的推理优化照搬 LLM | 扩散无自回归 KV cache、compute-bound、每步形状相同（文本 cross-attn K/V 可缓存） | 加速靠步数蒸馏与求解器，服务按步数 / 分辨率组 batch | [《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html) |
 | AR 图像生成已被扩散淘汰 | VAR FID 1.73 优于 DiT-XL/2 2.27，且 AR 是统一模型的基础 | ImageNet 上平手或领先，文生图上仍落后一档；最优形式可能是混合 | [《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html) |
 
@@ -312,7 +312,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   token 数 $$1.6 \times 10^{10}$$，$$6 \times 7.4\text{B} \times 1.6 \times 10^{10} \approx 7.1 \times 10^{20}$$ FLOPs；第三篇 10M 样本约 32 小时，翻倍约 64 小时。Qwen2-VL 的 1.4T token 是这个规模的近 90 倍——那是一次小型预训练。
+   token 数 $$1.6 \times 10^{10}$$，$$6 \times 7.4\text{B} \times 1.6 \times 10^{10} \approx 7.1 \times 10^{20}$$ FLOPs；[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) 10M 样本约 32 小时，翻倍约 64 小时。Qwen2-VL 的 1.4T token 是这个规模的近 90 倍——那是一次小型预训练。
 
    </details>
 
@@ -370,7 +370,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：1536 个 token，$$2 \times 7\text{B} \times 1536 \approx 21.5$$ TFLOPs（与 576 token 约 8 TFLOPs 成比例）；第八篇：SD 1.5 一张图 80 TFLOPs，约 3.7 倍。两者都是大 batch 的并行前向、compute-bound；差别在 VLM 随后的 decode 每步 1 个 token、memory-bound，而扩散没有这一段——所以 VLM 的服务像 LLM，扩散的服务不像。
+   [《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)：1536 个 token，$$2 \times 7\text{B} \times 1536 \approx 21.5$$ TFLOPs（与 576 token 约 8 TFLOPs 成比例）；[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)：SD 1.5 一张图 80 TFLOPs，约 3.7 倍。两者都是大 batch 的并行前向、compute-bound；差别在 VLM 随后的 decode 每步 1 个 token、memory-bound，而扩散没有这一段——所以 VLM 的服务像 LLM，扩散的服务不像。
 
    </details>
 
@@ -378,23 +378,23 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：对比编码器对 4 以上的计数接近随机——目标函数不需要区分 3 与 4；排查：换更高分辨率或拼接 DINOv2 看是否改善。第二篇：16× 池化或固定 query 的 resampler 丢掉空间结构；排查：改 2×2 merge 或原生动态分辨率。第三篇：数据共现与合成指令的幻觉让模型"补全"统计上合理的数量，且长描述后半段惯性更强；排查：POPE 共现子集、VCD 对比解码是否显著改善（说明是先验主导）、加负样本与 grounding 数据。
+   [《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)：对比编码器对 4 以上的计数接近随机——目标函数不需要区分 3 与 4；排查：换更高分辨率或拼接 DINOv2 看是否改善。[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)：16× 池化或固定 query 的 resampler 丢掉空间结构；排查：改 2×2 merge 或原生动态分辨率。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)：数据共现与合成指令的幻觉让模型"补全"统计上合理的数量，且长描述后半段惯性更强；排查：POPE 共现子集、VCD 对比解码是否显著改善（说明是先验主导）、加负样本与 grounding 数据。
 
    </details>
 
-3. 第四篇的 RVQ 与第九篇的 VAR 多尺度残差 VQ 是同一个思想吗？各自的层次结构如何决定了生成的形态？
+3. [《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)的 RVQ 与[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的 VAR 多尺度残差 VQ 是同一个思想吗？各自的层次结构如何决定了生成的形态？
 
    <details markdown="1"><summary>答案</summary>
 
-   是：都是逐级量化残差、共享或分级码本、由粗到细、第一级承载主体。第四篇的残差在同一时间位置上递进——第一码本承载内容，后面 7 个是细节且彼此依赖弱，所以 VALL-E 用 AR 生成第一码本、NAR 并行填其余；第九篇的残差在空间尺度上递进——第 $$k$$ 尺度量化前 $$k - 1$$ 尺度重建后的残差，所以 VAR 以尺度为 AR 单位、尺度内并行，10 步生成 680 个 token。
+   是：都是逐级量化残差、共享或分级码本、由粗到细、第一级承载主体。[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)的残差在同一时间位置上递进——第一码本承载内容，后面 7 个是细节且彼此依赖弱，所以 VALL-E 用 AR 生成第一码本、NAR 并行填其余；[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的残差在空间尺度上递进——第 $$k$$ 尺度量化前 $$k - 1$$ 尺度重建后的残差，所以 VAR 以尺度为 AR 单位、尺度内并行，10 步生成 680 个 token。
 
    </details>
 
-4. Qwen2.5-Omni 的 Thinker-Talker、Moshi 的内心独白、Janus 的双编码器、BAGEL 的 MoT——它们在解决同一个问题吗？与第三篇"先冻结 LLM 训 connector"有什么关系？
+4. Qwen2.5-Omni 的 Thinker-Talker、Moshi 的内心独白、Janus 的双编码器、BAGEL 的 MoT——它们在解决同一个问题吗？与[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)"先冻结 LLM 训 connector"有什么关系？
 
    <details markdown="1"><summary>答案</summary>
 
-   同一个问题：不同分布的模态 / 参数放在一起训会互相拖累。第三篇：随机 connector 的噪声梯度让 LLM 忽略视觉 token、损伤文本能力，所以分阶段、分 lr。第五篇：LLM 直接生成语音 token 伤文本知识（模态竞争），Thinker 只出文本与隐状态、Talker 独立说，内心独白先文本再语音。第九篇：Chameleon 一个词表全放让 logits 漂移、理解妥协；Janus 解耦理解与生成的编码器；BAGEL 共享 attention、分开 FFN。答案的形状一致——在共享的地方交换信息，在各自的地方保留表示。
+   同一个问题：不同分布的模态 / 参数放在一起训会互相拖累。[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)：随机 connector 的噪声梯度让 LLM 忽略视觉 token、损伤文本能力，所以分阶段、分 lr。[《语音（下）》](/speech-understanding-generation-and-full-duplex.html)：LLM 直接生成语音 token 伤文本知识（模态竞争），Thinker 只出文本与隐状态、Talker 独立说，内心独白先文本再语音。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)：Chameleon 一个词表全放让 logits 漂移、理解妥协；Janus 解耦理解与生成的编码器；BAGEL 共享 attention、分开 FFN。答案的形状一致——在共享的地方交换信息，在各自的地方保留表示。
 
    </details>
 
@@ -402,7 +402,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：$$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$，在噪声空间外推，逐层 $$\propto p_t(x) p_t(c \mid x)^w$$，每步两次前向。第九篇：同一贝叶斯分解搬到 logits 上 $$\tilde\ell = \ell_\emptyset + w(\ell_c - \ell_\emptyset)$$，外推尺度不同所以 $$w$$ 小得多，但无 CFG 的 FID 是有 CFG 的 3–5 倍。第八篇：FLUX.1-dev 做了 guidance 蒸馏——学生直接输出 $$\tilde\epsilon$$、$$w$$ 作为条件输入——去掉两倍成本，代价是 guidance 烤进模型、对负 prompt 的响应变了。
+   [《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html)：$$\tilde\epsilon = \epsilon_\emptyset + w(\epsilon_c - \epsilon_\emptyset)$$，在噪声空间外推，逐层 $$\propto p_t(x) p_t(c \mid x)^w$$，每步两次前向。[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)：同一贝叶斯分解搬到 logits 上 $$\tilde\ell = \ell_\emptyset + w(\ell_c - \ell_\emptyset)$$，外推尺度不同所以 $$w$$ 小得多，但无 CFG 的 FID 是有 CFG 的 3–5 倍。[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)：FLUX.1-dev 做了 guidance 蒸馏——学生直接输出 $$\tilde\epsilon$$、$$w$$ 作为条件输入——去掉两倍成本，代价是 guidance 烤进模型、对负 prompt 的响应变了。
 
    </details>
 
@@ -462,7 +462,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 张力来自目标：理解要高层语义（SigLIP 类特征），生成要低层细节（VQ token / VAE latent）——第一篇的"目标函数决定保留什么"在两侧要求相反；(2) 纯 token（Chameleon、Emu3）最统一但理解妥协、训练不稳定（需 QK-norm、z-loss）；(3) 双编码器（Janus-Pro）两侧不妥协、GenEval 0.80，但"看到的"与"画的"不共享；(4) 混合（Transfusion、BAGEL）生成最好——图像走扩散 loss、文本走 AR，BAGEL 的 MoT 共享 attention、分开 FFN，并报告编辑能力随规模涌现；GPT-4o 原生图像生成从行为看也是混合；(5) 选择看目标：要生成质量与编辑选混合，要工程最简选双编码器；成本是 LLM 预训练量级。
+   **答案要点**：(1) 张力来自目标：理解要高层语义（SigLIP 类特征），生成要低层细节（VQ token / VAE latent）——[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)的"目标函数决定保留什么"在两侧要求相反；(2) 纯 token（Chameleon、Emu3）最统一但理解妥协、训练不稳定（需 QK-norm、z-loss）；(3) 双编码器（Janus-Pro）两侧不妥协、GenEval 0.80，但"看到的"与"画的"不共享；(4) 混合（Transfusion、BAGEL）生成最好——图像走扩散 loss、文本走 AR，BAGEL 的 MoT 共享 attention、分开 FFN，并报告编辑能力随规模涌现；GPT-4o 原生图像生成从行为看也是混合；(5) 选择看目标：要生成质量与编辑选混合，要工程最简选双编码器；成本是 LLM 预训练量级。
    **追问方向**：语义化 tokenizer（UniTok、TokenFlow）能否消除张力；MetaQuery 式"冻结 VLM 驱动扩散"够不够；混合模型推理时图像部分怎么多步。
    **好答案与一般答案的区别**：一般答案比较三个模型的分数；好答案从表示的张力出发解释三条路线各牺牲了什么，并知道答案随规模在变。
 
@@ -496,12 +496,12 @@ Table: 掌握程度的判据
 
 - **成本的账**（encoder FLOPs、image token 的 KV、connector 的 token 数、视频与音频的 token 数、训练侧显存）在[《现代 LLM 结构（09）：多模态》](/multimodal-vision-encoder-cost-and-image-token-kv.html)——本系列引用它的结论，不重算。
 - **CNN 与 ViT 的基础**（patch embedding、残差）在 《[深度学习基础（08）：CNN——从 LeNet 到 ResNet，再到 ViT](/cnn-from-lenet-to-resnet-and-vit.html)》。
-- **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——第三篇只讲它们在多模态上的特殊之处，第八篇的 Diffusion-DPO 直接用它们的形式。
-- **概率与变分下界的数学**在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——第六、七篇的推导需要高斯的性质、KL 与 ELBO。
+- **后训练方法本身**（SFT、DPO、RL）在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)——本系列的[《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html)只讲它们在多模态上的特殊之处，[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)的 Diffusion-DPO 直接用它们的形式。
+- **概率与变分下界的数学**在[《算法工程师的数学》](/math-for-ai-algorithm-engineers.html)——[《扩散模型（上）》](/diffusion-models-ddpm-score-matching-and-flow-matching.html)与[《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html)的推导需要高斯的性质、KL 与 ELBO。
 - **视频理解的时序建模、3D 与机器人的具身多模态、音乐生成**不展开——各自是独立的方向。
 - **扩散模型的服务系统**（批处理、多 GPU 的步并行、compute-bound 的 serving）属于 [Infra 地图](/ai-infra-learning-roadmap.html)。
 - **应用层**（多模态 RAG、Agent 的截图操作）属于[应用地图](/ai-application-engineer-learning-roadmap.html)。
-- **PDF、Word、Excel、PPT 这类文件**不是一种模态，而是装着文本、表格和图片的容器。数字原生的文件解析成文本交给纯文本 LLM；扫描件和图表密集的页面渲染成图片交给 VLM，这一步依赖第二篇《VLM 的结构（下）》的动态分辨率。解析方式的选择、表格与阅读顺序的失败、分块与检索在[应用地图](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
+- **PDF、Word、Excel、PPT 这类文件**不是一种模态，而是装着文本、表格和图片的容器。数字原生的文件解析成文本交给纯文本 LLM；扫描件和图表密集的页面渲染成图片交给 VLM，这一步依赖[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)的动态分辨率。解析方式的选择、表格与阅读顺序的失败、分块与检索在[应用地图](/ai-application-engineer-learning-roadmap.html)的 L3「检索与知识接入」。
 - 本系列在整张地图上的位置（L7）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 多模态的下一个形态大概率是统一的、原生的：多模态不再是 LLM 训好之后对齐上去的，而是从预训练第一天就在（Gemma 3、Kimi-VL、BAGEL、GPT-4o 已经这样做了）；理解与生成共享上下文；语音与视觉共享时间轴。那时九篇会合并成一个问题——一个 Transformer 怎么用一套表示处理世界的所有信号——但每一篇讲的部件与账仍在那里。
