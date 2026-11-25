@@ -226,24 +226,24 @@ Table: 贯穿十篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| benchmark 涨了 5 个点就是能力提升 | 题目可能在预训练语料里（污染），或团队在它上面反复调参使它变成了验证集 | 没有干净的测试集，评测数字就没有含义；n-gram 查原文、换一份没参与过决策的题重测 | [第一篇](/what-is-learning-splits-generalization-and-bias-variance.html) |
-| self-consistency 或多个 judge 平均能修正系统性的错 | 集成只降方差，偏差不变 | bagging 把方差 0.094 降到 0.007、偏差不变；系统偏差只能设计消掉 | [第一篇](/what-is-learning-splits-generalization-and-bias-variance.html)、[第六篇](/ensembles-random-forest-and-gradient-boosting.html) |
-| 学习率越小越安全 | 上限由最大曲率定（$$2/\lambda_{\max}$$），太小在沟底爬不动 | 先标准化让碗变圆（条件数 540 万 → 1），再选接近上限的学习率 | [第二篇](/linear-regression-least-squares-ridge-and-lasso.html) |
-| weight decay 是深度学习特有的技巧 | 它就是 Ridge 的梯度下降形态 | $$w \leftarrow (1 - 2\eta\lambda)w - \eta g$$，与 Ridge 闭式解差 $$10^{-13}$$ | [第二篇](/linear-regression-least-squares-ridge-and-lasso.html) |
-| 奖励模型准确率 78% 太低，该训得更久 | 标签有噪声，准确率贴着标签正确率就是学会了；判断过拟合看训练 / 验证 gap | 上限是标签与真值的一致率（不可观测），人际一致率 70–80% 比它低、不是天花板；噪声 4.0 时准确率 71% 而 $$w$$ 相关 0.995 | [第三篇](/linear-and-logistic-regression-the-skeleton-of-reward-models.html) |
-| KNN 可以直接用在原始的高维特征上 | 维度灾难：1000 维时最近与最远只差 10% | 先学出低维 embedding 再做近邻；这就是检索的前提 | [第四篇](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) |
-| attention 是 Transformer 发明的全新机制 | 相似度 → 归一化 → 加权值是 1964 年的核回归 | RBF 核回归与点积 attention 公式对到 $$10^{-15}$$；新的是 $$Q, K, V$$ 学出来 | [第五篇](/svm-and-kernel-methods.html) |
-| 数据质量用 LLM 打分最准，所以应该用 LLM | 8B 给 15T token 打分是训练算力的 1/3 | 两级做法：大模型标几十万段、小分类器过全部；不是效果更好，是只有它跑得起 | [第六篇](/ensembles-random-forest-and-gradient-boosting.html) |
-| 梯度提升在所有数据上最好 | 5000 样本上随机森林 0.919、SVM 0.918、梯度提升 0.913 | 线性模型是 baseline，树的集成是表格数据的默认，按数据形状、规模与预测端成本选 | [第四篇](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)、[第六篇](/ensembles-random-forest-and-gradient-boosting.html) |
-| K-Means 两次结果不同说明有 bug | 收敛到局部最优是算法的性质 | 随机初始化最差 16541 vs 最优 7281；用 k-means++ 与 `n_init` | [第七篇](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
-| 聚类结果不"正确"就没用 | 数据工程里聚类是探索工具，目的是让人能看 | $$k$$ 取 50 还是 200 对"看看有什么"影响不大；每簇抽几条读 | [第七篇](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
-| 两段文本余弦相似度 0.85 说明很像 | embedding 各向异性让所有对余弦都在 0.7 以上（实测均值 0.79） | 先 PCA 看第一主成分占比；减均值后再比 | [第八篇](/dimensionality-reduction-pca-svd-tsne-and-umap.html) |
-| LoRA 的低秩假设是因为权重矩阵本身低秩 | 真实 $$W$$ 90% 能量要 299/896 维，不低秩 | 低秩假设是关于微调改动 $$\Delta W$$ 的 | [第八篇](/dimensionality-reduction-pca-svd-tsne-and-umap.html) |
-| "Jaccard > 0.7 算重复"是经验值 | 它是 $$b = 14, r = 8$$ 的 S 曲线过 50% 的位置 | $$s_{50} = (1 - 0.5^{1/14})^{1/8} \approx 0.685$$；想改阈值就改 $$(b, r)$$ | [第九篇](/deduplication-minhash-and-lsh-probabilities.html) |
-| 过滤器准确率 95% 说明很好 | 正例 3% 时全判负也有 95.6% | 不平衡时看精确率 / 召回率 / AUC | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
-| AUC 高的模型给出的概率也可信 | AUC 只看排序，不看概率的绝对值 | 过度自信的模型 AUC 不变、ECE 0.069；Platt / isotonic 校准 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
-| judge 一致率超过人与人的一致率就够了 | 一致率未扣随机基线，且系统偏差不在里面 | 算 κ（永远选 A 可以 92% 一致、κ = 0）；对换顺序量位置偏差 | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
-| 20 个 benchmark 领先 12 个就是全面领先 | 两个完全相同的模型随机期望领先 10 个、标准差 2.2 | 12 在一个标准差以内；Bonferroni、看平均分的置信区间、或预先指定主 benchmark | [第十篇](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| benchmark 涨了 5 个点就是能力提升 | 题目可能在预训练语料里（污染），或团队在它上面反复调参使它变成了验证集 | 没有干净的测试集，评测数字就没有含义；n-gram 查原文、换一份没参与过决策的题重测 | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) |
+| self-consistency 或多个 judge 平均能修正系统性的错 | 集成只降方差，偏差不变 | bagging 把方差 0.094 降到 0.007、偏差不变；系统偏差只能设计消掉 | [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)、[《集成》](/ensembles-random-forest-and-gradient-boosting.html) |
+| 学习率越小越安全 | 上限由最大曲率定（$$2/\lambda_{\max}$$），太小在沟底爬不动 | 先标准化让碗变圆（条件数 540 万 → 1），再选接近上限的学习率 | [《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html) |
+| weight decay 是深度学习特有的技巧 | 它就是 Ridge 的梯度下降形态 | $$w \leftarrow (1 - 2\eta\lambda)w - \eta g$$，与 Ridge 闭式解差 $$10^{-13}$$ | [《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html) |
+| 奖励模型准确率 78% 太低，该训得更久 | 标签有噪声，准确率贴着标签正确率就是学会了；判断过拟合看训练 / 验证 gap | 上限是标签与真值的一致率（不可观测），人际一致率 70–80% 比它低、不是天花板；噪声 4.0 时准确率 71% 而 $$w$$ 相关 0.995 | [《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html) |
+| KNN 可以直接用在原始的高维特征上 | 维度灾难：1000 维时最近与最远只差 10% | 先学出低维 embedding 再做近邻；这就是检索的前提 | [《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) |
+| attention 是 Transformer 发明的全新机制 | 相似度 → 归一化 → 加权值是 1964 年的核回归 | RBF 核回归与点积 attention 公式对到 $$10^{-15}$$；新的是 $$Q, K, V$$ 学出来 | [《SVM 与核方法》](/svm-and-kernel-methods.html) |
+| 数据质量用 LLM 打分最准，所以应该用 LLM | 8B 给 15T token 打分是训练算力的 1/3 | 两级做法：大模型标几十万段、小分类器过全部；不是效果更好，是只有它跑得起 | [《集成》](/ensembles-random-forest-and-gradient-boosting.html) |
+| 梯度提升在所有数据上最好 | 5000 样本上随机森林 0.919、SVM 0.918、梯度提升 0.913 | 线性模型是 baseline，树的集成是表格数据的默认，按数据形状、规模与预测端成本选 | [《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)、[《集成》](/ensembles-random-forest-and-gradient-boosting.html) |
+| K-Means 两次结果不同说明有 bug | 收敛到局部最优是算法的性质 | 随机初始化最差 16541 vs 最优 7281；用 k-means++ 与 `n_init` | [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
+| 聚类结果不"正确"就没用 | 数据工程里聚类是探索工具，目的是让人能看 | $$k$$ 取 50 还是 200 对"看看有什么"影响不大；每簇抽几条读 | [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) |
+| 两段文本余弦相似度 0.85 说明很像 | embedding 各向异性让所有对余弦都在 0.7 以上（实测均值 0.79） | 先 PCA 看第一主成分占比；减均值后再比 | [《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html) |
+| LoRA 的低秩假设是因为权重矩阵本身低秩 | 真实 $$W$$ 90% 能量要 299/896 维，不低秩 | 低秩假设是关于微调改动 $$\Delta W$$ 的 | [《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html) |
+| "Jaccard > 0.7 算重复"是经验值 | 它是 $$b = 14, r = 8$$ 的 S 曲线过 50% 的位置 | $$s_{50} = (1 - 0.5^{1/14})^{1/8} \approx 0.685$$；想改阈值就改 $$(b, r)$$ | [《去重》](/deduplication-minhash-and-lsh-probabilities.html) |
+| 过滤器准确率 95% 说明很好 | 正例 3% 时全判负也有 95.6% | 不平衡时看精确率 / 召回率 / AUC | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| AUC 高的模型给出的概率也可信 | AUC 只看排序，不看概率的绝对值 | 过度自信的模型 AUC 不变、ECE 0.069；Platt / isotonic 校准 | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| judge 一致率超过人与人的一致率就够了 | 一致率未扣随机基线，且系统偏差不在里面 | 算 κ（永远选 A 可以 92% 一致、κ = 0）；对换顺序量位置偏差 | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
+| 20 个 benchmark 领先 12 个就是全面领先 | 两个完全相同的模型随机期望领先 10 个、标准差 2.2 | 12 在一个标准差以内；Bonferroni、看平均分的置信区间、或预先指定主 benchmark | [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html) |
 
 Table: 常见误区与正确说法
 

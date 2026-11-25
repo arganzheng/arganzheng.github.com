@@ -240,18 +240,18 @@ Table: 贯穿八篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| SFT 能给模型注入知识 | 分布差异集中在少数格式 token 上；格式是低秩的、知识是高秩的 | SFT 教形式，知识来自预训练；要注入知识用全量与大量数据 | [第一篇](/sft-data-chat-template-loss-mask-and-peft.html) |
-| SFT 的验证 loss 上升就该停 | InstructGPT 验证 loss 1 epoch 过拟合、人评涨到 16 epoch | 看下游指标与一份无关文本的 loss，不看 SFT 验证 loss | [第一篇](/sft-data-chat-template-loss-mask-and-peft.html) |
-| RM 准确率再高就是过拟合 / 人的一致率是上限 | 一致率是两个都会错的人互比的结果，不是标签错误率 | 独立 80% 正确的两人一致率 68%，RM 仍可 80%；看训练 / 验证 gap、按难度分桶 | [第二篇](/preference-data-and-reward-models.html) |
-| RM 的问题是"不够准" | 随机错误被 RL 的平均平掉，留下的是系统偏差 | RM 的问题是"偏在哪"，训 RL 前用长度相关、BoN 扫描、对抗探针暴露 | [第二篇](/preference-data-and-reward-models.html) |
-| RL 训练奖励涨就是变好 | 代理奖励单调涨，金奖励先升后降 | 有 KL 预算，按 KL 与 held-out judge 决定停 | [第二篇](/preference-data-and-reward-models.html)、[第三篇](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
-| RL 后训练的成本在 FLOPs | 训练占一半 FLOPs，但生成是 memory-bound 的 decode 且有长尾 | 墙钟 50–80% 在生成，问题是训练循环里的推理引擎 | [第三篇](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
-| DPO 不需要奖励模型 | 奖励被参数化为 $$\beta \log(\pi_\theta / \pi_{ref})$$ | DPO 训的就是一个与策略共享参数的 RM，只在数据分布上受约束 | [第四篇](/offline-rl-dpo-and-its-family.html) |
-| DPO 变体之间差别很大 | 标准 benchmark 上互有胜负 | 换一份更 on-policy 的数据收益大于换方法 | [第四篇](/offline-rl-dpo-and-its-family.html) |
-| RL 教会了模型推理 | pass@k 大 $$k$$ 端基座追上 RL 模型 | RL 主要放大基座已有模式；基座决定天花板大部分 | [第五篇](/reasoning-models-and-verifiable-rewards.html) |
-| 小模型要推理能力就直接 RL | 32B 上蒸馏 72.6 对 RL 47，且贵一到两个数量级 | 先蒸馏（序列级冷启动、on-policy 对齐）再可选 RL | [第五篇](/reasoning-models-and-verifiable-rewards.html)、[第七篇](/knowledge-distillation-for-llms.html) |
-| Agent RL 的瓶颈是模型 | 一步 4000 条轨迹环境 320 CPU·小时对模型 7 GPU·小时 | 瓶颈是沙箱集群与环境时间；异步是为了让 GPU 别闲着 | [第六篇](/agentic-rl-tool-use-environments-and-trajectories.html) |
-| 分数涨了 2 个点就是进步 | 协议差 5–15 点、1000 题噪声 ±3、污染子集高 10–30 点 | 三关：协议相同、超出置信区间、新题复测保持 | [第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html) |
+| SFT 能给模型注入知识 | 分布差异集中在少数格式 token 上；格式是低秩的、知识是高秩的 | SFT 教形式，知识来自预训练；要注入知识用全量与大量数据 | [《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) |
+| SFT 的验证 loss 上升就该停 | InstructGPT 验证 loss 1 epoch 过拟合、人评涨到 16 epoch | 看下游指标与一份无关文本的 loss，不看 SFT 验证 loss | [《SFT》](/sft-data-chat-template-loss-mask-and-peft.html) |
+| RM 准确率再高就是过拟合 / 人的一致率是上限 | 一致率是两个都会错的人互比的结果，不是标签错误率 | 独立 80% 正确的两人一致率 68%，RM 仍可 80%；看训练 / 验证 gap、按难度分桶 | [《偏好数据与奖励模型》](/preference-data-and-reward-models.html) |
+| RM 的问题是"不够准" | 随机错误被 RL 的平均平掉，留下的是系统偏差 | RM 的问题是"偏在哪"，训 RL 前用长度相关、BoN 扫描、对抗探针暴露 | [《偏好数据与奖励模型》](/preference-data-and-reward-models.html) |
+| RL 训练奖励涨就是变好 | 代理奖励单调涨，金奖励先升后降 | 有 KL 预算，按 KL 与 held-out judge 决定停 | [《偏好数据与奖励模型》](/preference-data-and-reward-models.html)、[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
+| RL 后训练的成本在 FLOPs | 训练占一半 FLOPs，但生成是 memory-bound 的 decode 且有长尾 | 墙钟 50–80% 在生成，问题是训练循环里的推理引擎 | [《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) |
+| DPO 不需要奖励模型 | 奖励被参数化为 $$\beta \log(\pi_\theta / \pi_{ref})$$ | DPO 训的就是一个与策略共享参数的 RM，只在数据分布上受约束 | [《离线 RL》](/offline-rl-dpo-and-its-family.html) |
+| DPO 变体之间差别很大 | 标准 benchmark 上互有胜负 | 换一份更 on-policy 的数据收益大于换方法 | [《离线 RL》](/offline-rl-dpo-and-its-family.html) |
+| RL 教会了模型推理 | pass@k 大 $$k$$ 端基座追上 RL 模型 | RL 主要放大基座已有模式；基座决定天花板大部分 | [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html) |
+| 小模型要推理能力就直接 RL | 32B 上蒸馏 72.6 对 RL 47，且贵一到两个数量级 | 先蒸馏（序列级冷启动、on-policy 对齐）再可选 RL | [《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)、[《蒸馏》](/knowledge-distillation-for-llms.html) |
+| Agent RL 的瓶颈是模型 | 一步 4000 条轨迹环境 320 CPU·小时对模型 7 GPU·小时 | 瓶颈是沙箱集群与环境时间；异步是为了让 GPU 别闲着 | [《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html) |
+| 分数涨了 2 个点就是进步 | 协议差 5–15 点、1000 题噪声 ±3、污染子集高 10–30 点 | 三关：协议相同、超出置信区间、新题复测保持 | [《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html) |
 
 Table: 常见误区与正确说法
 
