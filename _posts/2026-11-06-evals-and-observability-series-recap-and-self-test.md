@@ -9,7 +9,7 @@ date: 2026-11-06 20:00:00
 updated: 2026-11-23
 ---
 
-七篇正文回答了一个问题：**怎么知道改了之后更好了，出了事怎么追到那一步**。第一篇建评测集，第二篇讲评分与 judge 的校准，第三篇给指标矩阵，第四篇讲门禁、静默升级与在线评测，第五篇讲 trace 与 OpenTelemetry 的约定，第六篇讲可追溯的五项实践，第七篇讲运行时 guardrails 与物理世界的仿真。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层：**评测是测试，可观测是日志，可追溯是调试**——其他六层的每一次改进都靠这一层变成工程而不是猜测。
+七篇正文回答了一个问题：**怎么知道改了之后更好了，出了事怎么追到那一步**。前四篇管"更好了没有"：从[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)起步，经过评分与 judge 的校准、指标矩阵，到[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的门禁、静默升级与在线评测；后三篇管"追到那一步"：trace 与 OpenTelemetry 的约定、可追溯的五项实践、运行时 guardrails 与物理世界的仿真。七篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层：**评测是测试，可观测是日志，可追溯是调试**——其他六层的每一次改进都靠这一层变成工程而不是猜测。
 
 本文不讲新内容：总表、逐篇回顾、贯穿的线、误区、三段式自测。
 
@@ -105,7 +105,15 @@ Table: 本文的章节安排
 
 ### 1. 评测是测试
 
-没有评测集的改动是猜测。第一篇建它、第三篇定评什么、第四篇把它接进发布、第六篇让它随 bad case 长、第七篇的事故回灌它。评测集是这一层的中心资产，与代码同等对待（版本、hold-out、六元组绑定）。
+没有评测集的改动是猜测。评测集贯穿五篇：
+
+- [《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)：建它
+- [《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)：定评什么
+- [《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)：把它接进发布
+- [《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)：让它随 bad case 长
+- [《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)：事故回灌它
+
+评测集是这一层的中心资产，与代码同等对待（版本、hold-out、六元组绑定）。
 
 ```mermaid
 %% 图：评测集是七篇的中心资产——第一篇从真实流量按类型采样建它，第三篇决定每格评什么，第二篇决定用规则 / judge / 人怎么评，第四篇把它接进门禁与探针，第五篇的 trace 是它的采样源，第六篇的 bad case 队列每周喂它、录制回放用它回归，第七篇的事故与仿真长尾回灌它
@@ -128,7 +136,12 @@ flowchart LR
 
 ### 2. 仪器先被测量
 
-judge 的 kappa、四类偏差、校准偏移（第二篇）；用户模拟器的行为分布（第三篇）；离线指标对在线结果的预测力（第四篇）；仿真对真实的 sim-to-real 差距（第七篇）——每一个"用来测量的东西"自身都要先被测量，否则结论建在假设上。
+每一个"用来测量的东西"自身都要先被测量，否则结论建在假设上：
+
+- judge 的 kappa、四类偏差、校准偏移（[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)）
+- 用户模拟器的行为分布（[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)）
+- 离线指标对在线结果的预测力（[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）
+- 仿真对真实的 sim-to-real 差距（[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）
 
 ```mermaid
 %% 图：仪器先被测量——每一个用来测别的东西的仪器都有自己的校准环：judge 对人（kappa · 四类偏差 · 校准偏移），用户模拟器对真实用户（轮数 · 放弃率 · 措辞分布），离线指标对在线结果（季度相关性），仿真对真实世界（sim-to-real：回放与仿真的输出差异）；没校准的仪器给出的结论建在假设上
@@ -151,7 +164,7 @@ flowchart LR
 
 ### 3. 不可复现就录下来
 
-模型不可复现 → 每步的完整输入输出进 trace（第五篇）→ 录制回放做回归、决策点日志做定位、反馈带 trace id（第六篇）→ 物理世界的日志回放与影子模式是同一思想（第七篇）。
+模型不可复现 → 每步的完整输入输出进 trace（[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)）→ 录制回放做回归、决策点日志做定位、反馈带 trace id（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）→ 物理世界的日志回放与影子模式是同一思想（[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）。
 
 ```mermaid
 %% 图：不可复现就录下来：trace 支撑评测集采样、录制回放与反馈绑定，评分过门禁进生产，生产再产出 trace
@@ -300,19 +313,19 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 一个 RAG 客服系统：评测集 300 条合成问题 recall@5 = 0.94，judge（GPT-5.6，未校准）faithfulness 4.5 / 5，上线后点踩率 12%。用第一、二、四、六篇诊断并给出重建计划。
+1. 一个 RAG 客服系统：评测集 300 条合成问题 recall@5 = 0.94，judge（GPT-5.6，未校准）faithfulness 4.5 / 5，上线后点踩率 12%。用[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)、[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)、[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)与[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)诊断并给出重建计划。
 
    <details markdown="1"><summary>答案</summary>
-   诊断：（1）评测集是合成的——问法贴合文档、高估 recall，不代表真实分布；（2）judge 未校准——不知道 kappa 与偏差，4.5 可能是风格偏差与校准偏移；（3）离线与在线不相关——正是第四篇的四原因里的前两条。重建：从日志采 100 条真实查询（含点踩的），人标相关块与理想答案，分层；标 100 条校准集量 judge 的 kappa、四类偏差、敏感度 / 特异度，κ < 0.61 换 judge 或加去偏；接反馈绑定让点踩带 trace id 进队列、每周补评测集；建门禁与探针集；季度校验离线—在线相关性。
+   诊断：（1）评测集是合成的——问法贴合文档、高估 recall，不代表真实分布；（2）judge 未校准——不知道 kappa 与偏差，4.5 可能是风格偏差与校准偏移；（3）离线与在线不相关——正是[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的四原因里的前两条。重建：从日志采 100 条真实查询（含点踩的），人标相关块与理想答案，分层；标 100 条校准集量 judge 的 kappa、四类偏差、敏感度 / 特异度，κ < 0.61 换 judge 或加去偏；接反馈绑定让点踩带 trace id 进队列、每周补评测集；建门禁与探针集；季度校验离线—在线相关性。
    </details>
 
-2. 团队要把模型从 Sonnet 4.6 换到 Sonnet 5。用第四篇设计完整的发布路径，说明每一步看什么、忽略什么。
+2. 团队要把模型从 Sonnet 4.6 换到 Sonnet 5。用[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)设计完整的发布路径，说明每一步看什么、忽略什么。
 
    <details markdown="1"><summary>答案</summary>
    （1）新版本 + 六元组记录；（2）门禁：评测集 × k 分层指标（注意 tokenizer 变了 token 数涨 30%——成本阈值要重设并记录有意为之）、逐条 diff、格式与拒答两半、红队集；judge 是否与新模型同家族——加跨家族对照；（3）影子模式：新旧并跑真实流量一两天，比差异分布、成本、延迟；（4）灰度 1–5%、trace 绑版本，忽略头几分钟缓存冷启动，看采纳 / 重试 / 追问，等到样本量显著；（5）全量；探针集加入新模型指纹；（6）回滚预案：旧快照仍可用、会话状态可读（加密压缩 item 不能跨模型）。
    </details>
 
-3. 面板显示失败分类里"上下文腐化"一类两周内从 5% 升到 20%，没有本地部署。用第四、六篇排查到根因并说明每一步用什么数据。
+3. 面板显示失败分类里"上下文腐化"一类两周内从 5% 升到 20%，没有本地部署。用[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)与[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)排查到根因并说明每一步用什么数据。
 
    <details markdown="1"><summary>答案</summary>
    版本 diff：两周内无本地变更 → 指向供应商；探针集：看输出长度、token 数、格式率是否同期漂移——若平均输出长度涨了，会话更快填满上下文、压缩更频繁、目标更易丢；决策点日志：上下文操作事件里压缩触发次数与时机变化、预算余量曲线；trace：抽几条腐化的会话看压缩前后目标是否存活（L2 探针问题）。根因可能是供应商静默升级让输出变长；应对：钉快照或调压缩策略与复述，记为外部发布，探针集加输出长度告警。
@@ -420,7 +433,7 @@ Table: 掌握程度的判据
 
 - **模型能力的基准测试方法论**——MMLU 一类学术基准的设计属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html)；本系列只讲应用自己的评测集与公开基准的使用边界。
 - **可观测的通用基础设施**——OTel Collector、存储后端、采样器的运维属于平台工程；本系列只讲 GenAI 专属的 span 与约定。
-- **生产体系与安全的全貌**——网关、成本工程、延迟工程、安全的分层防御（注入、供应链、EchoLeak 一类事件）、治理与合规（审计、EU AI Act）、发布与数据飞轮，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第四篇的门禁与灰度、第七篇的 guardrails 与 fallback 在那里进入完整的生产体系，本系列只讲安全的评测（红队集）与运行时拦截的位置。
+- **生产体系与安全的全貌**——网关、成本工程、延迟工程、安全的分层防御（注入、供应链、EchoLeak 一类事件）、治理与合规（审计、EU AI Act）、发布与数据飞轮，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)里的门禁与灰度、[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)里的 guardrails 与 fallback 在那里进入完整的生产体系，本系列只讲安全的评测（红队集）与运行时拦截的位置。
 - **产品侧的呈现**——失败分类里"技术对产品错"那一类、拒答与不确定性的呈现、用户反馈的采集设计，见 [L7《产品与体验》](/ai-product-and-experience.html)。
 - **仿真器的实现**——渲染、物理引擎、传感器模型属于机器人 / 自动驾驶的专业领域；本系列只讲仿真在验证体系里的层次与它与数字 agent 评测的同构。
 - **前置**——[L1《模型作为组件》](/model-as-a-component.html)（非确定性、选型、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（prompt 版本与门禁的雏形）、[L3《检索与知识接入》](/retrieval-and-knowledge-access.html)（分开评）、[L4《工具、Agent 与 harness》](/tools-agents-and-harness.html)（轨迹评测、会话日志、四层）。

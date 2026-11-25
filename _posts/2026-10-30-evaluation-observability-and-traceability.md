@@ -17,7 +17,7 @@ catalog: true
 
 > **评测集从哪来、多大、怎么维护？规则、judge、人各评什么，judge 的偏差有多大、怎么校准？单步、RAG、agent 各评什么指标？改动怎么过门禁、供应商静默升级怎么发现、在线怎么评？trace 记什么、怎么对齐 OpenTelemetry？出了事怎么追到那一步？物理世界的系统怎么用仿真替代真实测试？[^q0]**
 
-七篇沿一条线走。**第一篇**建评测集：它是 AI 应用的单元测试——从真实流量采（高频、边界、失败过的）、几十条起、每条有可检验的期望、hold-out、版本化、与 prompt / 模型 / 工具集版本绑定；合成数据的位置与陷阱；标注的组织。**第二篇**讲评分：能用规则的不用模型（格式、schema、精确匹配、测试通过），需要判断的用 LLM-as-judge——但 judge 是一个**要先被测量的测量仪器**：2026 年的两项大规模研究给出的数字——精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点；judge 的排名在不同基准间移动多达 14 位；两个生产部署的 judge 同时表现出 >0.95 的重测信度与 >0.10 的位置偏差（"一致但有偏"）；**风格偏差**（偏爱 markdown 而非纯文本，0.10–0.76）是最大的一类，远超位置偏差（≤ 0.04）；冗长偏差因模型而异（有的偏长、Claude 偏短、GPT-4o 中性）；一个中档模型加对的去偏策略（Gemini 2.5 Flash + Combined Budget，κ = 0.549，每次评估约 0.001 美元）胜过前沿 judge 且便宜约 15 倍。校准的最小协议：与人工标注比 kappa（≥ 0.61 才算 substantial）、交换顺序、长度匹配、遮蔽来源、跨家族 judge、用敏感度 / 特异度反推真实通过率。人的位置：校准集、抽检、争议裁决。**第三篇**按对象讲评什么：单步任务（准确率、格式遵循率、拒答正确率、成本、延迟）、RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的分开评：recall@k、faithfulness、引用正确率）、agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的轨迹六维）、多轮对话（策略遵循、任务完成、轮数）、安全（注入抵抗、越权尝试）——一张矩阵；每题跑 $$k$$ 次看分布。**第四篇**讲回归与门禁：改动 = 发布，评测集 × $$k$$ 次、逐条 diff、阈值、灰度、回滚（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的流程在这里给出完整实现）；**供应商静默升级**的检测（固定探针集定时跑、分数漂移告警）；A/B 与在线评测（隐式反馈：采纳 / 修改 / 重试 / 放弃；显式：点踩；抽样 judge）；离线与在线的相关性校验。**第五篇**讲 trace：会话 → 任务 → 步骤三级树，每个 span 记什么（完整输入输出、usage、effort、工具参数与结果、沙箱与审批、卫士、压缩）；**OpenTelemetry GenAI 语义约定**的现状——2026 年迁入独立仓库 `semantic-conventions-genai`，`gen_ai.*` 的 span、事件、指标、属性全部仍是 Development 状态（没有 Stable），属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`，用 `OTEL_SEMCONV_STABILITY_OPT_IN` 钉版本），span 已从单次模型调用扩展到整个 agent 循环（`invoke_agent`、`execute_tool`、检索、记忆）；工具（Langfuse v3 围绕 OTel 重建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；敏感数据、采样、保留期。**第六篇**讲可追溯的实践：录制回放（改非模型部分不重跑模型）、决策点日志（让轨迹能画成状态图）、失败分类学（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用）、版本 diff（prompt / 模型 / 工具集 / 检索配置的变更与指标变化对齐）、反馈绑定（每条用户反馈带 trace id 进 bad case 队列）。**第七篇**讲运行时可靠性与物理世界：guardrails（输入 / 输出检查、置信度与拒答、在线 judge 拦截）、fallback（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性）、幻觉检测的实际手段；然后是物理世界的仿真——为什么自动驾驶与机器人不能"在生产里试"，仿真的层次（场景仿真、日志回放、传感器仿真、数字孪生、世界模型生成）、开环 vs 闭环、sim-to-real 差距、覆盖率与长尾、影子模式、HIL / SIL；以及 agent 的沙箱环境与它的同构关系。
+七篇沿一条线走。**[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)**：评测集是 AI 应用的单元测试——从真实流量采（高频、边界、失败过的）、几十条起、每条有可检验的期望、hold-out、版本化、与 prompt / 模型 / 工具集版本绑定；合成数据的位置与陷阱；标注的组织。**[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)**：能用规则的不用模型（格式、schema、精确匹配、测试通过），需要判断的用 LLM-as-judge——但 judge 是一个**要先被测量的测量仪器**：2026 年的两项大规模研究给出的数字——精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点；judge 的排名在不同基准间移动多达 14 位；两个生产部署的 judge 同时表现出 >0.95 的重测信度与 >0.10 的位置偏差（"一致但有偏"）；**风格偏差**（偏爱 markdown 而非纯文本，0.10–0.76）是最大的一类，远超位置偏差（≤ 0.04）；冗长偏差因模型而异（有的偏长、Claude 偏短、GPT-4o 中性）；一个中档模型加对的去偏策略（Gemini 2.5 Flash + Combined Budget，κ = 0.549，每次评估约 0.001 美元）胜过前沿 judge 且便宜约 15 倍。校准的最小协议：与人工标注比 kappa（≥ 0.61 才算 substantial）、交换顺序、长度匹配、遮蔽来源、跨家族 judge、用敏感度 / 特异度反推真实通过率。人的位置：校准集、抽检、争议裁决。**[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)**按对象分：单步任务（准确率、格式遵循率、拒答正确率、成本、延迟）、RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的分开评：recall@k、faithfulness、引用正确率）、agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的轨迹六维）、多轮对话（策略遵循、任务完成、轮数）、安全（注入抵抗、越权尝试）——一张矩阵；每题跑 $$k$$ 次看分布。**[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)**：改动 = 发布，评测集 × $$k$$ 次、逐条 diff、阈值、灰度、回滚（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的流程在这里给出完整实现）；**供应商静默升级**的检测（固定探针集定时跑、分数漂移告警）；A/B 与在线评测（隐式反馈：采纳 / 修改 / 重试 / 放弃；显式：点踩；抽样 judge）；离线与在线的相关性校验。**[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)**：会话 → 任务 → 步骤三级树，每个 span 记什么（完整输入输出、usage、effort、工具参数与结果、沙箱与审批、卫士、压缩）；**OpenTelemetry GenAI 语义约定**的现状——2026 年迁入独立仓库 `semantic-conventions-genai`，`gen_ai.*` 的 span、事件、指标、属性全部仍是 Development 状态（没有 Stable），属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`，用 `OTEL_SEMCONV_STABILITY_OPT_IN` 钉版本），span 已从单次模型调用扩展到整个 agent 循环（`invoke_agent`、`execute_tool`、检索、记忆）；工具（Langfuse v3 围绕 OTel 重建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；敏感数据、采样、保留期。**[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)**给出五项实践：录制回放（改非模型部分不重跑模型）、决策点日志（让轨迹能画成状态图）、失败分类学（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的十类推广到全部应用）、版本 diff（prompt / 模型 / 工具集 / 检索配置的变更与指标变化对齐）、反馈绑定（每条用户反馈带 trace id 进 bad case 队列）。**[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)**：先是 guardrails（输入 / 输出检查、置信度与拒答、在线 judge 拦截）、fallback（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性）、幻觉检测的实际手段；然后是物理世界的仿真——为什么自动驾驶与机器人不能"在生产里试"，仿真的层次（场景仿真、日志回放、传感器仿真、数字孪生、世界模型生成）、开环 vs 闭环、sim-to-real 差距、覆盖率与长尾、影子模式、HIL / SIL；以及 agent 的沙箱环境与它的同构关系。
 
 系列的组织原则：**评测是测试，可观测是日志，可追溯是调试**——三者对应传统软件工程里三件成熟的事，只是对象从确定性代码变成了概率性组件。每篇都说清"传统做法在哪里失效、要换成什么"。
 
@@ -58,19 +58,19 @@ OpenTelemetry 的 GenAI 语义约定让各家可观测工具共享一种 trace �
 
 ### 应用工程师
 
-全部七篇。第一、二、四篇是最小必读——没有它们，其他六层的改进都无法证明。
+全部七篇。[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)、[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)与[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)是最小必读——没有它们，其他六层的改进都无法证明。
 
 ### 平台 / 可观测工程师
 
-第五、六篇：trace 结构、OTel GenAI 约定的现状与选择、录制回放与决策点日志。
+[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)与[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)：trace 结构、OTel GenAI 约定的现状与选择、录制回放与决策点日志。
 
 ### 负责质量与发布的人
 
-第二、四篇：judge 能信多少、门禁怎么设、静默升级怎么发现。
+[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)与[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)：judge 能信多少、门禁怎么设、静默升级怎么发现。
 
 ### 做物理世界 AI 的工程师
 
-第七篇：仿真的层次与它与数字 agent 评测的同构。
+[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)：仿真的层次与它与数字 agent 评测的同构。
 
 
 ## 系列的整体主线
@@ -89,9 +89,9 @@ Table: 七篇的主题与传统对应
 
 三条贯穿的线：
 
-- **评测是测试。** 没有评测集的改动不是工程是猜测；评测集从真实流量来、随 bad case 长、与版本绑定。第一、三、四篇。
-- **测量仪器要先被测量。** judge 的 kappa、偏差、校准在用它之前量清楚；在线指标与离线指标的相关性也要量。第二、四篇。
-- **不可复现就录下来。** 模型不可复现（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》），所以每一步的输入输出都进 trace，回归靠回放，调试靠决策点日志。第五、六篇。
+- **评测是测试。** 没有评测集的改动不是工程是猜测；评测集从真实流量来、随 bad case 长、与版本绑定。[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)、[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)与[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)。
+- **测量仪器要先被测量。** judge 的 kappa、偏差、校准在用它之前量清楚；在线指标与离线指标的相关性也要量。[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)与[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)。
+- **不可复现就录下来。** 模型不可复现（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》），所以每一步的输入输出都进 trace，回归靠回放，调试靠决策点日志。[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)与[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)。
 
 
 ## 章节结构与分章导读
@@ -118,7 +118,7 @@ Table: 七篇的主题与传统对应
 
 > 核心问题：**改动怎么过门禁？供应商在你不动的时候换了模型怎么发现？在线怎么评、离线与在线的关系怎么校验？[^q4]**
 
-门禁（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的实现）：每个改动（prompt、模型、effort、schema、工具集、检索配置、harness 版本）触发评测集 × $$k$$ 次；指标不低于当前版本减噪声阈值；**逐条 diff**（由对变错的用例比总分更有信息）；成本与延迟不退化；judge 校准过才能作为门禁指标；标签发布（staging → canary → production）与回滚。**供应商静默升级**：同一模型名下的行为变化（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》、第五篇）——固定的探针集（几十条对措辞敏感的用例）每天跑、分数漂移告警、钉快照版本、订阅变更通知。**A/B 与在线评测**：按 prompt / 模型版本分流，trace 绑定版本；隐式反馈（采纳、修改后提交、重试、放弃、追问、转人工、引用点击）与显式反馈（点赞 / 点踩、评分）；在线 judge 抽样跑在真实流量上；**离线与在线的相关性**——评测集分数涨了在线指标没涨，说明评测集分布过时或指标选错，要定期校验。影子模式（新版本跑但不生效、只记录）作为高风险改动的中间步。
+门禁（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的实现）：每个改动（prompt、模型、effort、schema、工具集、检索配置、harness 版本）触发评测集 × $$k$$ 次；指标不低于当前版本减噪声阈值；**逐条 diff**（由对变错的用例比总分更有信息）；成本与延迟不退化；judge 校准过才能作为门禁指标；标签发布（staging → canary → production）与回滚。**供应商静默升级**：同一模型名下的行为变化（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》、《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)）——固定的探针集（几十条对措辞敏感的用例）每天跑、分数漂移告警、钉快照版本、订阅变更通知。**A/B 与在线评测**：按 prompt / 模型版本分流，trace 绑定版本；隐式反馈（采纳、修改后提交、重试、放弃、追问、转人工、引用点击）与显式反馈（点赞 / 点踩、评分）；在线 judge 抽样跑在真实流量上；**离线与在线的相关性**——评测集分数涨了在线指标没涨，说明评测集分布过时或指标选错，要定期校验。影子模式（新版本跑但不生效、只记录）作为高风险改动的中间步。
 
 ### 5. trace：span、OpenTelemetry GenAI 语义约定与工具选择
 
@@ -203,19 +203,19 @@ judge 的具体数字来自特定论文的特定设置（模型、基准、rubri
 
 | 追问 | 答案来自 |
 |---|---|
-| 评测集有吗？从哪来？多大？与版本绑了吗？ | 第一篇 |
-| 这个 judge 的 kappa 多少？位置与风格偏差量过吗？能做门禁吗？ | 第二篇 |
-| 这个应用形态该评哪些指标？跑了几次？ | 第三篇 |
-| 这次改动过门禁了吗？供应商换模型能发现吗？在线指标与离线一致吗？ | 第四篇 |
-| trace 记全了吗？按什么约定？敏感数据怎么处理？ | 第五篇 |
-| 出了事能追到那一步吗？用户的点踩去哪了？ | 第六篇 |
-| 运行时拦得住坏输出吗？如果是物理世界，仿真覆盖了闭环吗？ | 第七篇 |
+| 评测集有吗？从哪来？多大？与版本绑了吗？ | [《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html) |
+| 这个 judge 的 kappa 多少？位置与风格偏差量过吗？能做门禁吗？ | [《评分》](/scoring-rules-llm-as-a-judge-and-humans.html) |
+| 这个应用形态该评哪些指标？跑了几次？ | [《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html) |
+| 这次改动过门禁了吗？供应商换模型能发现吗？在线指标与离线一致吗？ | [《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html) |
+| trace 记全了吗？按什么约定？敏感数据怎么处理？ | [《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html) |
+| 出了事能追到那一步吗？用户的点踩去哪了？ | [《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html) |
+| 运行时拦得住坏输出吗？如果是物理世界，仿真覆盖了闭环吗？ | [《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html) |
 
 Table: 读完系列后应能回答的追问
 
 这就是 L5 要建立的能力：**让每一次改动都能被证明更好或更差，让每一次失败都能被追到那一步**——其他六层的所有工作，都靠这一层变成工程而不是猜测。
 
-[^q0]: 七篇各答一问。评测集：从真实流量采（高频、边界、失败过的），几十条起、几百条看趋势，每条有可检验的期望，hold-out、版本化、与 prompt / 模型 / 工具集版本绑定，每周从 bad case 补（第一篇）。评分：规则（格式、schema、匹配、测试通过）优先，需要判断的用 LLM-as-judge，人做校准集与抽检；judge 的偏差——风格 0.10–0.76 最大、位置 >0.10、冗长因模型 −0.12 到 +0.44、自我偏好——用人工校准集算 Cohen's kappa ≥ 0.61、交换顺序重评、长度匹配对照来校准（第二篇）。指标矩阵：单步看准确率 / 格式 / 拒答正确率，RAG 看 recall@k 与 faithfulness，agent 看结果 + 步数 / 成本 / 越权 / 鲁棒性，每题跑 $$k$$ 次报分布（第三篇）。门禁：每个改动跑评测集 × $$k$$、逐条 diff、不低于当前版本减噪声；静默升级靠每日探针集与钉快照；在线靠 A/B、隐式 / 显式反馈与离线 - 在线相关性校验（第四篇）。trace：会话 → 任务 → 步骤三级，每个模型 / 工具 / 检索 span 记完整输入输出与版本、usage；OTel GenAI 约定 2026 年仍全部 Development、可用但要锁版本（第五篇）。追责：录制回放、决策点日志、失败分类、版本 diff、反馈绑定 trace id（第六篇）。物理世界：场景仿真、日志回放、数字孪生、世界模型、闭环与影子模式替代真实测试（第七篇）。
+[^q0]: 七篇各答一问。评测集：从真实流量采（高频、边界、失败过的），几十条起、几百条看趋势，每条有可检验的期望，hold-out、版本化、与 prompt / 模型 / 工具集版本绑定，每周从 bad case 补（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)）。评分：规则（格式、schema、匹配、测试通过）优先，需要判断的用 LLM-as-judge，人做校准集与抽检；judge 的偏差——风格 0.10–0.76 最大、位置 >0.10、冗长因模型 −0.12 到 +0.44、自我偏好——用人工校准集算 Cohen's kappa ≥ 0.61、交换顺序重评、长度匹配对照来校准（[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)）。指标矩阵：单步看准确率 / 格式 / 拒答正确率，RAG 看 recall@k 与 faithfulness，agent 看结果 + 步数 / 成本 / 越权 / 鲁棒性，每题跑 $$k$$ 次报分布（[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)）。门禁：每个改动跑评测集 × $$k$$、逐条 diff、不低于当前版本减噪声；静默升级靠每日探针集与钉快照；在线靠 A/B、隐式 / 显式反馈与离线 - 在线相关性校验（[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）。trace：会话 → 任务 → 步骤三级，每个模型 / 工具 / 检索 span 记完整输入输出与版本、usage；OTel GenAI 约定 2026 年仍全部 Development、可用但要锁版本（[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)）。追责：录制回放、决策点日志、失败分类、版本 diff、反馈绑定 trace id（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）。物理世界：场景仿真、日志回放、数字孪生、世界模型、闭环与影子模式替代真实测试（[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）。
 [^q1]: 来源：真实流量采样——高频（平均质量）、边界（长输入、多轮、数字与专名、多语言）、失败过的（点踩、重试、放弃、转人工）；上线前用内部试用与客服工单代替。规模：几十条能区分改动好坏、几百条能看趋势、按类型分层，每条跑 $$k$$ 次。每条 = 输入（含上下文与状态：RAG 固定检索结果，agent 要环境快照）+ 期望（精确答案 / 可接受集合 / 评分标准 / 验收脚本）+ 元数据（类型、难度、来源、日期）。防过拟合：hold-out 子集不参与迭代；维护：每周从 bad case 补、版本化并与 prompt / 模型 / 工具集 / 检索配置版本绑定、清理过期用例。合成数据能用但只做冷启动与覆盖检查——问法不像真人，会高估 recall、低估歧义，不作决策依据。
 [^q2]: 规则评：格式、schema、精确 / 集合匹配、数值容差、测试通过、正则、引用存在性——确定、免费、优先；judge 评：相关性、忠实度、有用性、风格、rubric 打分、pairwise；人评：校准集标注、抽检、争议裁决、新失效模式发现。四类偏差的量级：位置 >0.10（两个生产 judge）、风格 0.10–0.76（最大）、冗长因模型而异（Llama / Gemini +0.24 到 +0.44，Claude Sonnet 4 −0.12，GPT-4o −0.04）、自我偏好（同家族）。校准协议：人工校准集几十到几百条 → 与人比 Cohen's kappa（≥ 0.61 算 substantial，不要用虚高 33–41 个百分点的精确匹配一致率）→ pairwise 交换顺序只留双向一致 → 长度匹配改写对照 → 遮蔽来源 + 跨家族 judge → 用敏感度 / 特异度反推真实通过率并报区间 → rubric 版本化。能做门禁的条件：kappa 过线、偏差已测且可接受、与在线指标相关。
 [^q3]: 单步任务：准确率 / F1、格式遵循率、schema 通过率、拒答正确率、成本、TTFT 与总时长；RAG：检索侧 recall@k / MRR / nDCG，生成侧 faithfulness / answer relevance / 引用正确率（固定检索评生成）；agent：结果、效率（步数 / token / 美元 / 墙钟）、过程正确性、安全（越权尝试）、鲁棒性、部分结果质量；多轮对话：任务完成、策略遵循（τ-bench 式）、轮数；安全：注入抵抗率、越权、敏感信息泄漏。过程指标与结果并列，是因为同样的结果可能靠越权或绕远路得到——过程决定能不能上线、能不能升自主级别。每题跑 $$k$$ 次看分布（pass@k、一致率、方差），单次结果在非确定性下没有意义；按类型分层报告而不是一个总分。
