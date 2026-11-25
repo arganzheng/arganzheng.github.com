@@ -94,7 +94,32 @@ USP：core/long_ctx_attention/"] --> XD7["diffusers 的 transformer 原样执行
 
 Table: 三个扩散引擎的定位对照
 
-### 2. 本文的章节安排
+### 2. 同一样东西，三家各放在哪个进程
+
+上面那张维度表是功能的对照，这张表是**状态的落点**：同一个请求用到的东西，在三家各住在哪个进程、活多久。三条路径图的差别几乎全在前两行和第 8 行上。
+
+| 对象 | SGLang Diffusion | vLLM-Omni | xDiT | 活多久 |
+|---|---|---|---|---|
+| 1. HTTP 请求对象 | `http_server` 进程 | API server 进程 | 无（脚本参数） | 一次请求 |
+| 2. 请求队列与准入 | **rank 0 的 worker 进程**里的 `Scheduler` | API 进程里 orchestrator 调起的 `DiffusionEngine` | 无 | 到被选中 |
+| 3. 模型权重 | 每个 worker 进程一份 | 每个 `DiffusionWorker` 一份 | 每个 rank 一份 | 实例的生命周期 |
+| 4. 并行组（`ProcessGroup`） | worker 启动时建 | `distributed/`，执行器建 | `runtime_state`，各 rank 自己建 | 实例的生命周期 |
+| 5. pipeline 对象 | `ComposedPipelineBase`（stage 列表） | 模型自带 pipeline + adapter | **包装过的** diffusers pipeline | 实例的生命周期 |
+| 6. 跨步缓存状态 | `TeaCacheMixin` 的成员 | hook 持有的 `CacheBackend` | `CacheState` | 一次生成 |
+| 7. 编译产物与 CUDA graph | worker，warmup 时建 | worker | rank | 实例的生命周期，按形状 |
+| 8. 三段之间传的 embedding 与 latent | 进程内 | **可跨进程、跨主机**（stage 分离） | 进程内 | 一次生成 |
+| 9. 结果 | ZMQ 回 `http_server` | 回 API server | rank 0 自己拿 | 一次请求 |
+
+Table: 同一个请求用到的九样东西在三个引擎里的落点
+
+四条读法：
+
+1. **分歧集中在第 1、2、8 行——控制面住在哪个进程。**SGLang 把 `Scheduler` 放进 rank 0 的 worker 进程（和它的 LLM 侧同构），vLLM-Omni 放在 API 进程的 orchestrator 里（它要编排跨模态的多个 stage），xDiT 干脆没有这两行。第 3 到 7 行三家几乎一样：**机制层已经收敛，分歧全在服务层。**
+2. **第 8 行是 vLLM-Omni 唯一结构性独有的一行。**三段之间传的东西可以跨进程甚至跨主机，所以它天然能把文本编码器和 VAE 放到别的卡上；另外两家这一行在进程内，要做三段分离得另开一套机制（SGLang 的 disaggregation）。
+3. **第 4 行三家同源。**`parallel_state` 与 `GroupCoordinator` 的写法都从 vLLM / Megatron 演化而来——这是"看懂一个就能看懂另一个"的原因，也是[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)里的并行组概念可以直接套用到三家的原因。
+4. **第 7 行属于实例而不属于请求**，这解释了三家为什么都要 warmup：不是为了预热什么缓存，是为了在第一个真实请求到来之前把这一行按形状建好。
+
+### 3. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -126,7 +151,7 @@ Table: diffusers 的四层接口与引擎的用法
 
 ### 2. 权重格式
 
-Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、`text_encoder/` 子目录 + `model_index.json`）是三个引擎的输入。SGLang 的 `runtime/loader/`（`weight_load_plan.py`、`component_loaders/`、`transformer_load_utils.py`）与 vLLM-Omni 的 `model_loader/`（`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`）都是"读 diffusers 格式、映射到自己的模块名"——与 RL 后训练基础设施系列第四篇的"HF 名 ↔ Megatron 名"是同一类工作。原生重写模型的代价之一就是要维护这层映射（SGLang 的 add-model 指南里大半篇幅在讲它）。
+Hugging Face Hub 上的 diffusers 格式 checkpoint（`transformer/`、`vae/`、`text_encoder/` 子目录 + `model_index.json`）是三个引擎的输入。SGLang 的 `runtime/loader/`（`weight_load_plan.py`、`component_loaders/`、`transformer_load_utils.py`）与 vLLM-Omni 的 `model_loader/`（`diffusers_loader.py`、`checkpoint_adapters/`、`host_weight_loader.py`）都是"读 diffusers 格式、映射到自己的模块名"——与[《RL 后训练基础设施》的《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html)里"HF 名 ↔ Megatron 名"是同一类工作。原生重写模型的代价之一就是要维护这层映射（SGLang 的 add-model 指南里大半篇幅在讲它）。
 
 ## 三、SGLang Diffusion 的一条路
 
@@ -197,7 +222,7 @@ DecodingStage 调 VAE（tiling 配置来自 `--vae-config.*` 一组参数），`
   - offload：`offloader/`（sequential / layerwise / distributed layerwise）
   - 因果模型：`diffusion_kv/`（KV manager、PagedAttention 适配）
 
-stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni：文本 + 图 → LLM → 语音）经过多个 stage，每个 stage 是一个独立的引擎（<span class="inline-tip" data-tip="autoregressive，自回归文本生成">AR</span> 的用 vLLM 本体，扩散的用 `DiffusionEngine`），stage 间用 OmniConnector 传张量、可以放在不同的 GPU 上独立扩缩。对纯扩散模型这套结构看起来"过重"（只有一个 stage，默认还 inline 在 API 进程里），但它让第七篇的三段分离几乎免费：把文本编码器或 VAE 做成另一个 stage 就是加一段 yaml。
+stage 是 vLLM-Omni 的核心抽象：一个全模态请求（比如 Qwen3-Omni：文本 + 图 → LLM → 语音）经过多个 stage，每个 stage 是一个独立的引擎（<span class="inline-tip" data-tip="autoregressive，自回归文本生成">AR</span> 的用 vLLM 本体，扩散的用 `DiffusionEngine`），stage 间用 OmniConnector 传张量、可以放在不同的 GPU 上独立扩缩。对纯扩散模型这套结构看起来"过重"（只有一个 stage，默认还 inline 在 API 进程里），但它让[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的三段分离几乎免费：把文本编码器或 VAE 做成另一个 stage 就是加一段 yaml。
 
 ### 2. 引擎
 
@@ -241,11 +266,17 @@ torchrun --nproc_per_node=8 my_flux.py --model FLUX.1-dev --ulysses_degree 4 --p
 
 没有服务层、没有调度器：一个进程组就是一个请求（或 DP 度数个请求）。要做服务，用 `xfuser/ray/` 的 Ray 示例或自己包一层。
 
+> [!NOTE] Java 经验参照：代理还是 fork 一份
+>
+> 要改一个第三方库的行为，Java 的首选是代理或装饰器（动态代理、CGLIB、字节码增强）：跟得上上游升级，维护成本低；万不得已才 fork 一份实现，那意味着往后每次上游更新都要自己跟。
+>
+> 这里的取舍一样，但多了一条 Java 里没有的理由：**代理改不了一个方法内部怎么算**。xDiT 替换 attention processor 就能把 USP 插进去，因为它要改的正好是一个可替换的组件；而换 kernel、改内存布局、融合算子、按自己的 `layers/` 重排执行顺序——这些只有重写模型才做得到。所以两条路分别对应两个目标：跟上 diffusers 的模型更新速度（xDiT 新模型几乎零成本），和拿到最后那 20% 的性能（两个 serving 引擎）。代价也清楚：重写的一方每加一个模型都要写一遍"diffusers 权重名到自己模块名"的映射，SGLang 的 add-model 指南里大半篇幅在讲它。
+
 ### 2. 包装而不是重写
 
 xDiT 的核心设计是**包装 diffusers**：模型定义、pipeline 流程、调度器都原样用，只在两处介入——（1）替换 attention processor：diffusers 的 `Attention` 模块允许注入 processor，xDiT 的 processor 在调 attention 之前做 USP 的 all-to-all（或 Ring）、在 PipeFusion 模式下用 stale K / V；（2）pipeline wrapper 重写去噪循环：CFG 并行的分支分派、PipeFusion 的 patch 流水线、Parallel VAE 的切分。`model_executor/layers/` 里另有 `usp.py`、`fp8_linear.py`、`mxfp4_linear.py`、`fused_qk_rope_*` 等可选替换层，`core/cache_manager/` 是 PipeFusion 的 stale 激活缓存，`model_executor/cache/` 接 TeaCache / FBCache。
 
-好处：新模型只要 diffusers 有 pipeline，写一个 wrapper 就能并行；代价：diffusers 的 eager 实现本身不快（第二篇：MFU 0.31），xDiT 的绝对性能依赖 `torch.compile`，且 diffusers 的接口变化会打断 wrapper（`compat.py` 的存在就是为此）。
+好处：新模型只要 diffusers 有 pipeline，写一个 wrapper 就能并行；代价：diffusers 的 eager 实现本身不快（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)：MFU 0.31），xDiT 的绝对性能依赖 `torch.compile`，且 diffusers 的接口变化会打断 wrapper（`compat.py` 的存在就是为此）。
 
 ## 六、逐机制对照
 
@@ -294,11 +325,17 @@ Table: 三个引擎的逐机制对照
 
 Table: 三个引擎的取向与出发点
 
+> [!NOTE] Java 经验参照：进程边界按业务划
+>
+> 拆服务的理由在后端是成文的：独立伸缩、故障隔离、团队边界、技术栈隔离。按这套标准看，"调度器和执行器放在同一个进程里"是明显的坏味道。
+>
+> 这里的第一条约束却不是业务：**一张卡只能有一个进程持有它的 CUDA context 和那份权重**，所以 worker 进程的个数是被 GPU 数量定死的，不是被业务边界定的。SGLang 把 `Scheduler` 放进 rank 0 的 worker 进程，正是因为它本来就要向其余 rank 广播，同进程最省一跳；vLLM-Omni 把编排放在 API 进程，是因为它要串起 LLM、扩散、语音好几种 stage，那个编排器和任何一张卡都没有绑定关系。换句话说，这里的进程图要先满足硬件约束，再谈业务分层——读源码时按"哪些东西必须和权重同进程"去切，比按"哪些是控制面哪些是数据面"去切更容易对上。
+
 ### 2. 三个共同点
 
 - **并行组的写法趋同**：三者的 `parallel_state.py` / `GroupCoordinator` 几乎可以互换——都是 vLLM 那套"按维度建 NCCL 组、rank 映射、collective 封装"的写法。序列并行的实现也趋同（Ulysses 的 all-to-all + FlashAttention、Ring 的 P2P 环），xDiT 的 USP 论文与实现是共同来源。
 - **缓存与 offload 都不改单个模型的代码**：vLLM-Omni 的缓存后端是 hook（`cache/teacache/hook.py`），xDiT 把 FLUX 的 block 列表换成带缓存的包装模块，SGLang 把 TeaCache 放进所有 DiT 共用的基类 `CachableDiT`——都是 diffusers `hooks/` 那种"在模型外面包一层"的思路。
-- **同构批**：有调度器的两个都是"形状兼容才合批"。默认都是整批开始整批结束；只有 vLLM-Omni 打开 `--step-execution` 时，`StepScheduler` 让兼容键相同的请求在步边界加入、各自走完就离开——这是受形状约束的 step 级连续批，目前只有实现了 `denoise_step` 的少数 pipeline（Qwen-Image、HunyuanImage-3 等，不含 FLUX）支持。形状必须相同是负载性质决定的（第七篇）。
+- **同构批**：有调度器的两个都是"形状兼容才合批"。默认都是整批开始整批结束；只有 vLLM-Omni 打开 `--step-execution` 时，`StepScheduler` 让兼容键相同的请求在步边界加入、各自走完就离开——这是受形状约束的 step 级连续批，目前只有实现了 `denoise_step` 的少数 pipeline（Qwen-Image、HunyuanImage-3 等，不含 FLUX）支持。形状必须相同是负载性质决定的（[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)）。
 
 ### 3. 该选哪个
 
@@ -352,7 +389,7 @@ Table: 三个引擎的一句话小结
 
    <details markdown="1">
    <summary>答案</summary>
-   （1）第七篇的三段分离：把文本编码器或 VAE 做成独立 stage 只是改 `deploy/` 的 yaml，stage 间用 OmniConnector 传 embedding / latent，可以放到不同 GPU / 主机独立扩缩；（2）全模态请求：LLM → DiT → TTS 串成一条流水线，每个 stage 用各自的引擎（AR 用 vLLM 本体，扩散用 DiffusionEngine）。纯单模型单卡时它确实只是开销。详见[第四章](#四vllm-omni-的一条路)、[第七章](#七分歧点)。
+   （1）[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)的三段分离：把文本编码器或 VAE 做成独立 stage 只是改 `deploy/` 的 yaml，stage 间用 OmniConnector 传 embedding / latent，可以放到不同 GPU / 主机独立扩缩；（2）全模态请求：LLM → DiT → TTS 串成一条流水线，每个 stage 用各自的引擎（AR 用 vLLM 本体，扩散用 DiffusionEngine）。纯单模型单卡时它确实只是开销。详见[第四章](#四vllm-omni-的一条路)、[第七章](#七分歧点)。
    </details>
 
 4. 三个引擎的序列并行实现为什么高度相似？相似的部分具体是哪几块？
@@ -366,7 +403,7 @@ Table: 三个引擎的一句话小结
 
    <details markdown="1">
    <summary>答案</summary>
-   以太网跨节点只有 PipeFusion 可行（第五篇）。xDiT 有 PipeFusion + Ulysses 的混合并行，但没有服务层（要自己包 API、队列、job）。SGLang Diffusion 有完整服务层与跨节点 SP（Ring），但没有 PipeFusion——跨节点 Ring 在以太网上每步 1.6 GB 不可行，只能节点内 8 卡 USP、两节点各自独立成实例（DP）。vLLM-Omni 有 PP（`pipeline_parallel.py`）与服务层，PP 是否达到 PipeFusion 的 patch 流水线效果要实测。实际最常见的选择：放弃跨节点切请求，两节点各 8 卡 USP 独立服务，吞吐反而更高（第五篇：DP 是吞吐最优）。详见[第七章](#七分歧点)。
+   以太网跨节点只有 PipeFusion 可行（[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)）。xDiT 有 PipeFusion + Ulysses 的混合并行，但没有服务层（要自己包 API、队列、job）。SGLang Diffusion 有完整服务层与跨节点 SP（Ring），但没有 PipeFusion——跨节点 Ring 在以太网上每步 1.6 GB 不可行，只能节点内 8 卡 USP、两节点各自独立成实例（DP）。vLLM-Omni 有 PP（`pipeline_parallel.py`）与服务层，PP 是否达到 PipeFusion 的 patch 流水线效果要实测。实际最常见的选择：放弃跨节点切请求，两节点各 8 卡 USP 独立服务，吞吐反而更高（《多卡并行》里的结论：DP 是吞吐最优）。详见[第七章](#七分歧点)。
    </details>
 
 [^q0]: SGLang Diffusion：`openai/image_api.py` 的 `/generations` 路由构造 `Req` → `AsyncSchedulerClient`（ZMQ）→ rank 0 的 `Scheduler`（合批准入、warmup，再广播给其它 rank）→ 各 rank 的 `GPUWorker` → `ComposedPipelineBase` 顺序执行 `TextEncodingStage` / `LatentPreparationStage` / `DenoisingStage`（每步经 CFG policy、缓存决策、`runtime/models` 的原生 DiT、`USPAttention`）/ `DecodingStage` → `OutputBatch` 回 HTTP → `save_outputs` 编码成文件 → b64 或经 `storage.py` 上传返回 URL。vLLM-Omni：OpenAI 层 → `AsyncOmni` → Orchestrator → `InlineStageDiffusionClient`（或 `StageDiffusionClient` → `StageDiffusionProc`）→ `DiffusionEngine`（`RequestScheduler` / `StepScheduler`）→ `MultiprocDiffusionExecutor` → `WorkerProc` / `DiffusionWorker` → `DiffusionModelRunner` → `models/flux/pipeline_flux.py` + `flux_transformer.py`（并行组、缓存 hook、offloader）→ `output_formatter` → OpenAI 层返回。xDiT：无 HTTP；`torchrun` 每个 rank 跑脚本 → `xFuserArgs` → `xDiTParallel` → `xFuserFluxPipeline` 包装 diffusers 的 `FluxPipeline`（`initialize_model_parallel`、把每个 `attn` 包成 `xFuserFluxAttentionWrapper`、processor 换成 `xFuserFluxAttnProcessor`、`prepare_run` warmup）→ 调用 → `save`。详见[第三章](#三sglang-diffusion-的一条路)、[第四章](#四vllm-omni-的一条路)、[第五章](#五xdit-的一条路)。
