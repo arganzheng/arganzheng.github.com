@@ -31,10 +31,10 @@ Qwen2.5-0.5B 上 `r=16` 挂七类线性层，可训练参数 8.8M（1.8%），`s
 
 | 段 | 主题 | 读的源码 | 篇 |
 |---|---|---|---|
-| 第一段 | 模型 | `from_pretrained` 的六步<br/>一个 `DecoderLayer` 的代码<br/>attention 注册表<br/>KV cache<br/>`ForCausalLMLoss` | 第一篇 |
-| 第二段 | 生成 | `GenerationConfig` 的三层优先级<br/>`LogitsProcessor` 一串<br/>`StoppingCriteria`<br/>`_sample` 的 `while` 循环 | 第二篇 |
-| 第三段 | 数据 | `tokenizer.json` 的五段<br/>chat template 与 assistant mask<br/>Arrow、`map`、fingerprint<br/>`collate_fn` | 第三篇 |
-| 第四段 | 微调与后训练 | `get_peft_model` 与 `lora.Linear`<br/>SFT 的 `labels` 与 packing<br/>`dpo_loss`<br/>GRPO 的优势、裁剪与归一 | 第四篇 |
+| 第一段 | 模型 | `from_pretrained` 的六步<br/>一个 `DecoderLayer` 的代码<br/>attention 注册表<br/>KV cache<br/>`ForCausalLMLoss` | [《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html) |
+| 第二段 | 生成 | `GenerationConfig` 的三层优先级<br/>`LogitsProcessor` 一串<br/>`StoppingCriteria`<br/>`_sample` 的 `while` 循环 | [《generate》](/transformers-generate-call-chain.html) |
+| 第三段 | 数据 | `tokenizer.json` 的五段<br/>chat template 与 assistant mask<br/>Arrow、`map`、fingerprint<br/>`collate_fn` | [《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html) |
+| 第四段 | 微调与后训练 | `get_peft_model` 与 `lora.Linear`<br/>SFT 的 `labels` 与 packing<br/>`dpo_loss`<br/>GRPO 的优势、裁剪与归一 | [《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html) |
 
 Table: 系列四段与各篇覆盖的源码
 
@@ -58,7 +58,7 @@ transformers 有 518 个模型目录，但 decoder-only 语言模型几乎全是
 
 ## 系列的整体主线
 
-四篇沿着一次 LoRA SFT 的数据流走：模型先加载起来（第一篇），它的两端是整数 `input_ids`——出的一端是 `generate`（第二篇），进的一端是 tokenizer 与 datasets（第三篇）——最后把 LoRA 挂上去、把三种 loss 算出来（第四篇）。
+四篇沿着一次 LoRA SFT 的数据流走：模型先加载起来（[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)），它的两端是整数 `input_ids`——出的一端是 `generate`（[《generate》](/transformers-generate-call-chain.html)），进的一端是 tokenizer 与 datasets（[《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html)）——最后把 LoRA 挂上去、把三种 loss 算出来（[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)）。
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
@@ -172,7 +172,7 @@ Table: 六行代码各自的入口、终点与对应的前置篇
 
 Table: 读本系列需要的前置
 
-第二篇只依赖第一篇；第三篇独立；第四篇用到前三篇（`ForCausalLMLoss`、`apply_chat_template`、`map`）。
+第二篇只依赖[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)；[《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html)独立；[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)用到前三篇（`ForCausalLMLoss`、`apply_chat_template`、`map`）。
 
 ### 版本与基线
 

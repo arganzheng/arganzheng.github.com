@@ -23,9 +23,9 @@ updated: 2026-09-30
 
 | 段 | 问题 | 内容 | 篇 |
 |---|---|---|---|
-| 第一段 | 为什么 | 低秩假设从哪来<br/>$$W + \frac{\alpha}{r} BA$$ 的前向、梯度与初始化<br/>参数 / 训练状态 / FLOPs / 激活四本账<br/>全量微调的 $$\Delta W$$ 到底低不低秩 | 第一篇 |
-| 第二段 | 怎么配 | $$r$$、`target_modules`、$$\alpha$$ 与 rsLoRA、lr 与 LoRA+、dropout<br/>PiSSA / DoRA / OLoRA / EVA / LoftQ<br/>QLoRA 的 NF4、双重量化与分页优化器<br/>十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表 | 第二篇 |
-| 第三段 | 怎么上线 | adapter 文件与底座匹配<br/>加载、合并与数值等价<br/>量化底座的失配<br/>多 adapter 的切换与合成<br/>multi-LoRA 服务的账<br/>`disable_adapter` 当参考模型<br/>新 token 学不会的坑 | 第三篇 |
+| 第一段 | 为什么 | 低秩假设从哪来<br/>$$W + \frac{\alpha}{r} BA$$ 的前向、梯度与初始化<br/>参数 / 训练状态 / FLOPs / 激活四本账<br/>全量微调的 $$\Delta W$$ 到底低不低秩 | [《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html) |
+| 第二段 | 怎么配 | $$r$$、`target_modules`、$$\alpha$$ 与 rsLoRA、lr 与 LoRA+、dropout<br/>PiSSA / DoRA / OLoRA / EVA / LoftQ<br/>QLoRA 的 NF4、双重量化与分页优化器<br/>十三种配置（全量 + 十二种 LoRA）的对照矩阵与一张选择表 | [《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html) |
+| 第三段 | 怎么上线 | adapter 文件与底座匹配<br/>加载、合并与数值等价<br/>量化底座的失配<br/>多 adapter 的切换与合成<br/>multi-LoRA 服务的账<br/>`disable_adapter` 当参考模型<br/>新 token 学不会的坑 | [《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html) |
 
 Table: 系列三段的范围
 
@@ -41,7 +41,7 @@ Table: 系列三段的范围
 
 ### 低秩假设是一个可以直接检验的经验假设
 
-「微调对权重的改动是低秩的」是 LoRA 的全部前提。它不是定理——Biderman 等 2024 的谱分析表明全量微调的 $$\Delta W$$ 其实是高秩的，Hu 等 2021 却在 GPT-3 上用 $$r = 1$$ 追平了全量。两件事怎么同时成立？本系列第一篇直接把 0.5B 模型全量微调 80 步得到的 168 个 $$\Delta W$$ 做 SVD：前 16 个奇异值占多少能量、截到秩 16 装回模型后效果剩多少。读完这一篇，「格式是低秩的、知识是高秩的」不再是一句转述。
+「微调对权重的改动是低秩的」是 LoRA 的全部前提。它不是定理——Biderman 等 2024 的谱分析表明全量微调的 $$\Delta W$$ 其实是高秩的，Hu 等 2021 却在 GPT-3 上用 $$r = 1$$ 追平了全量。两件事怎么同时成立？本系列的[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)直接把 0.5B 模型全量微调 80 步得到的 168 个 $$\Delta W$$ 做 SVD：前 16 个奇异值占多少能量、截到秩 16 装回模型后效果剩多少。读完这一篇，「格式是低秩的、知识是高秩的」不再是一句转述。
 
 ### 从训练到服务是一条完整的链
 
@@ -72,9 +72,9 @@ flowchart TB
 
 贯穿三篇的几条线，在系列总结里单独拎出来：
 
-- **一个公式**：$$W' = W + \frac{\alpha}{r} BA$$，$$A \in \mathbb{R}^{r \times d_{in}}$$ 随机、$$B \in \mathbb{R}^{d_{out} \times r}$$ 为零。第一篇推它的梯度，第二篇调它的每个符号，第三篇把它合并回 $$W$$ 或按请求切换 $$(A, B)$$。
+- **一个公式**：$$W' = W + \frac{\alpha}{r} BA$$，$$A \in \mathbb{R}^{r \times d_{in}}$$ 随机、$$B \in \mathbb{R}^{d_{out} \times r}$$ 为零。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)推它的梯度，[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)调它的每个符号，[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)把它合并回 $$W$$ 或按请求切换 $$(A, B)$$。
 - **四本账**：可训练参数 $$r(d_{in} + d_{out})$$、训练状态（冻结权重 2 B + 可训练 16 B）、前向多出的 FLOPs 与 kernel、激活值一分不省。每一篇都回到这四本账上算一次。
-- **一个假设**：$$\Delta W$$ 低秩。第一篇检验它，第二篇看它在哪些配置下成立得更好（`all-linear` 优于 attention-only、$$r$$ 的边际收益很快归零），第三篇看它失效时该做什么（全量、或 LoRA 加数据回放）。
+- **一个假设**：$$\Delta W$$ 低秩。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)检验它，[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)看它在哪些配置下成立得更好（`all-linear` 优于 attention-only、$$r$$ 的边际收益很快归零），[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)看它失效时该做什么（全量、或 LoRA 加数据回放）。
 - **一份数据、一组数字**：训练前验证回复 loss 2.4936；全量 80 步与 LoRA $$r = 16$$ 全部线性层 80 步各降到多少、忘掉多少——所有配置在这一组数字上对照。
 
 ## 章节结构与分章导读
@@ -129,7 +129,7 @@ Table: 三篇正文的配套实验
 
 Table: 读本系列需要的前置
 
-三篇可以独立读：第二篇的每个旋钮都先重述它在公式里的位置；第三篇的每个实验都先说明它用的 adapter 是怎么训出来的。想读 `lora.Linear` 的实现，去 [HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)；想读 multi-LoRA 的 kernel 与调度，去 [vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)——本系列只算账，不读那两处的源码。
+三篇可以独立读：[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的每个旋钮都先重述它在公式里的位置；[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)的每个实验都先说明它用的 adapter 是怎么训出来的。想读 `lora.Linear` 的实现，去 [HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)；想读 multi-LoRA 的 kernel 与调度，去 [vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)——本系列只算账，不读那两处的源码。
 
 ### 版本与基线
 
@@ -160,6 +160,6 @@ Table: 章节目录
 8. 说出 LoRA 在 DPO / GRPO 里怎么省掉参考模型、新加 token 为什么学不会、怎么修。
 
 [^q0]: 因为微调学到的**有用改动**是低秩的：全量微调的 $$\Delta W$$ 本身是高秩的（做 SVD，前 16 个奇异方向只占能量的两成到七成），但把它截到秩 16 装回模型，验证 loss 几乎不变（2.3959，不截是 2.3993）——所以用 $$BA$$（$$B$$ 全零初始化，训练开始时增量恰为零）就够。选参依据是对照实验：$$r$$ 取 16 左右（4 → 16 收益大，16 → 64 在小任务上没有收益、遗忘更多）；`lora_alpha` 定 scaling $$\alpha/r$$，$$\alpha$$ 固定时增大 $$r$$ 会让更新塌缩，rsLoRA 改用 $$\alpha/\sqrt r$$；`target_modules` 挂全部线性层比只挂 attention 好得多；lr 比全量高一个量级（$$10^{-4}$$ 级）。adapter 以 `adapter_config.json` + `adapter_model.safetensors` 存（8B 模型几十 MB），`merge_and_unload` 合并后 logits 差在浮点舍入量级，多 adapter 服务靠 vLLM 的 `max_loras × max_lora_rank` 在一个底座上按请求切换。低秩假设不成立的情形：要学大量新知识 / 新语言、新加特殊 token 的 embedding、或 $$\Delta W$$ 的奇异值衰减很慢时，回到全量微调（或 `modules_to_save` 全量训那几层）。
-[^q1]: $$4096\times4096$$ 有 16.8M 参数，$$r=16$$ 的 LoRA 只有 $$2\times4096\times16 = 131{,}072$$ 个——少 **128 倍**。训练一步的时间没有少这么多倍，是因为前向与反向对**输入激活**的梯度仍要穿过完整的冻结权重（$$W^\top\delta$$ 的 GEMM 一个不少），省掉的只是对权重的梯度 $$\delta x^\top$$ 与优化器状态——所以 FLOPs 只省约三分之一，kernel 数还变多，一步未必更快；显存省得多（无梯度与 Adam 状态：每参数从 16 字节降到权重的 2 字节）。全量微调学到的 $$\Delta W$$ 截到秩 16：第一篇的实验里 $$\Delta W$$ 的谱并不集中（前 16 个奇异值在 attention 的方阵上占四成到七成，在 MLP 上只占两成），但截到秩 16 装回去，验证回复 loss 是 2.3959，不截是 2.3993——$$\Delta W$$ 本身高秩，有用的部分低秩，这才是低秩假设的直接证据。
-[^q2]: Qwen2.5-0.5B、800 条指令、80 步的对照：$$r$$ 从 4 到 16 收益大，16 到 64 在这个小任务上没有收益、对普通文本 loss 的遗忘更明显；只挂 attention 比挂全部线性层明显差——FFN 占三分之二参数，不挂它学不到多少；lr 大十倍（$$10^{-3}$$）训练 loss 降得快但验证 loss 回升、遗忘陡增，$$10^{-5}$$ 则 80 步几乎没动；几个变体在这个小任务上都没有显出优势：rsLoRA 对 $$\alpha/r$$ 的修正要到学得多、$$r$$ 大时才显出来，PiSSA 比默认差（它动的是主方向，遗忘更大），DoRA 在 $$r = 16$$ 上与普通 LoRA 相同、每步慢 27%，LoRA+ 没有收益。该放弃 LoRA 用全量的时机：任务需要大量新知识或新语言、新加特殊 token、$$\Delta W$$ 奇异值衰减慢、或显存本来就放得下且追求最后一点效果。第二篇末尾给出「任务类型 × 资源 → 配置」的选择表。
+[^q1]: $$4096\times4096$$ 有 16.8M 参数，$$r=16$$ 的 LoRA 只有 $$2\times4096\times16 = 131{,}072$$ 个——少 **128 倍**。训练一步的时间没有少这么多倍，是因为前向与反向对**输入激活**的梯度仍要穿过完整的冻结权重（$$W^\top\delta$$ 的 GEMM 一个不少），省掉的只是对权重的梯度 $$\delta x^\top$$ 与优化器状态——所以 FLOPs 只省约三分之一，kernel 数还变多，一步未必更快；显存省得多（无梯度与 Adam 状态：每参数从 16 字节降到权重的 2 字节）。全量微调学到的 $$\Delta W$$ 截到秩 16：[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)的实验里 $$\Delta W$$ 的谱并不集中（前 16 个奇异值在 attention 的方阵上占四成到七成，在 MLP 上只占两成），但截到秩 16 装回去，验证回复 loss 是 2.3959，不截是 2.3993——$$\Delta W$$ 本身高秩，有用的部分低秩，这才是低秩假设的直接证据。
+[^q2]: Qwen2.5-0.5B、800 条指令、80 步的对照：$$r$$ 从 4 到 16 收益大，16 到 64 在这个小任务上没有收益、对普通文本 loss 的遗忘更明显；只挂 attention 比挂全部线性层明显差——FFN 占三分之二参数，不挂它学不到多少；lr 大十倍（$$10^{-3}$$）训练 loss 降得快但验证 loss 回升、遗忘陡增，$$10^{-5}$$ 则 80 步几乎没动；几个变体在这个小任务上都没有显出优势：rsLoRA 对 $$\alpha/r$$ 的修正要到学得多、$$r$$ 大时才显出来，PiSSA 比默认差（它动的是主方向，遗忘更大），DoRA 在 $$r = 16$$ 上与普通 LoRA 相同、每步慢 27%，LoRA+ 没有收益。该放弃 LoRA 用全量的时机：任务需要大量新知识或新语言、新加特殊 token、$$\Delta W$$ 奇异值衰减慢、或显存本来就放得下且追求最后一点效果。[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)末尾给出「任务类型 × 资源 → 配置」的选择表。
 [^q3]: 8B 模型、$$r=16$$ 挂全部线性层约 40M 参数，bf16 下 **约 80 MB**（Qwen2.5-0.5B 上 8.8M 参数、十几 MB）。合并（`merge_and_unload`，$$W + BA\cdot\text{scaling}$$）前后 logits 的最大差在浮点舍入量级（$$10^{-3}$$ 以内，bf16），输出 token 一致；合并后前向少一次瘦矩阵乘，略快。QLoRA 的 adapter 是对着 **NF4 量化后的底座**学的，装到 BF16 底座上会有一个系统性偏差（它学进了量化误差的补偿），loss 略变差，通常可接受但要重新评测；先合并再量化又是另一个数。50 个客户：50 个 adapter 各 80 MB = 4 GB 显存共享一个 16 GB 的底座，而 50 份合并模型是 50 × 16 GB = 800 GB——差两个数量级，这就是 multi-LoRA 服务（vLLM 的 `max_loras × max_lora_rank`）存在的理由。
