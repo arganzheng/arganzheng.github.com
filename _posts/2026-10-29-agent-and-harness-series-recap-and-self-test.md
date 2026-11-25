@@ -9,7 +9,7 @@ date: 2026-10-29 20:00:00
 updated: 2026-11-23
 ---
 
-九篇正文回答了一个问题：**模型怎么从回答变成做事，以及让这件事可靠需要什么**。第一篇解剖循环，第二篇讲工具的协议，第三篇讲运行时，第四篇讲长任务的上下文与子 agent，第五篇讲权限与沙箱，第六篇把 Codex、DeepSeek Harness、Claude Code、OpenHarness 放在一张表上，第七篇讲多 agent，第八篇讲记忆与人机分工，第九篇讲可靠性、评测与运营。九篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第四层：**harness**——模型之外的一切。
+九篇正文回答了一个问题：**模型怎么从回答变成做事，以及让这件事可靠需要什么**。从[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)起步，依次讲工具的协议、运行时、长任务的上下文与子 agent、权限与沙箱；[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)把 Codex、DeepSeek Harness、Claude Code、OpenHarness 放在一张表上；最后是多 agent、记忆与人机分工、可靠性评测与运营。九篇合起来是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第四层：**harness**——模型之外的一切。
 
 本文不讲新内容：一张总表与九段回顾，贯穿九篇的四条线，常见误区，三段式通关自测。
 
@@ -124,7 +124,7 @@ Table: 本文的章节安排
 
 ### 1. 循环之外的一切都是 harness
 
-模型只做两件事——决定下一步、读结果。第一篇立框，第二篇（协议）、第三篇（运行时）、第四篇（上下文）、第五篇（权限）、第七篇（协调）、第八篇（记忆与人）、第九篇（可靠性）填格。第六篇的十二维表就是这个框的一次实例化。
+模型只做两件事——决定下一步、读结果。[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)立框，其余七篇各填一格：协议、运行时、上下文、权限、协调、记忆与人、可靠性。[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)的十二维表就是这个框的一次实例化。
 
 ```mermaid
 %% 图：模型只做两件事，其余全是 harness——中间是模型：决定下一步、读结果；围着它的一圈是九篇各填的格：循环与卫士（一）、工具协议（二）、运行时与日志（三）、上下文管理（四）、权限与沙箱（五）、多 agent 协调（七）、记忆与人（八）、可靠性与运营（九）；第六篇用十二维表把这一圈实例化到四个 harness
@@ -145,11 +145,19 @@ flowchart TB
 
 ### 2. 权限范围是错误的上限
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的结论在第五篇展开成四层，在第二篇（MCP server 是权限主体、PTC 的审批粒度）、第四篇（子 agent 的权限继承与收紧）、第七篇（handoff 的上下文与权限）、第八篇（风险五级、本体的动作权限）、第九篇（越权尝试作为指标）反复出现。harness 的首要价值是压低上限，其次才是让模型更能干。
+《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的结论在[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)展开成四层，又在这几篇里反复出现：
+
+- [《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)：MCP server 是权限主体、PTC 的审批粒度
+- [《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)：子 agent 的权限继承与收紧
+- [《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)：handoff 的上下文与权限
+- [《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)：风险五级、本体的动作权限
+- [《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)：越权尝试作为指标
+
+harness 的首要价值是压低上限，其次才是让模型更能干。
 
 ### 3. 能自动验证到什么程度就能自主到什么程度
 
-第一篇的自动验证循环让 coding agent 走几十步；第八篇的六级每一级把一类验证从人交给系统；本体把验证前移到结构；第九篇的轨迹评测与在线 judge 是"无人在环但有退路"的退路。
+[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)的自动验证循环让 coding agent 走几十步；[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的六级每一级把一类验证从人交给系统；本体把验证前移到结构；[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)的轨迹评测与在线 judge 是"无人在环但有退路"的退路。
 
 ```mermaid
 %% 图：能自动验证到什么程度就能自主到什么程度：验证能力决定自主级别，权限范围决定错误上限，两者共同决定审批粒度
@@ -171,7 +179,16 @@ flowchart TB
 
 ### 4. 日志是一切的底座
 
-第三篇的事件溯源日志支撑：崩溃恢复、挂起唤醒、前端事件流（第三篇）、压缩与卸载的记录（第四篇）、审批与沙箱事件（第五篇）、子会话的追溯（第四、七篇）、记忆与目标（第八篇）、轨迹评测与录制回放与 trace（第九篇）。"模型可见 ⟺ 已记录"是一条不变量换来九件事的一致性。
+[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件溯源日志支撑：
+
+- 崩溃恢复、挂起唤醒、前端事件流（同一篇）
+- 压缩与卸载的记录（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）
+- 审批与沙箱事件（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）
+- 子会话的追溯（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)、[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)）
+- 记忆与目标（[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)）
+- 轨迹评测、录制回放与 trace（[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）
+
+"模型可见 ⟺ 已记录"是一条不变量换来九件事的一致性。
 
 ```mermaid
 %% 图：事件溯源的会话日志是九件事的底座——崩溃恢复、挂起唤醒、前端事件流（三）、压缩与卸载的记录（四）、审批与沙箱事件（五）、子会话追溯（四、七）、记忆与目标（八）、轨迹评测、录制回放、trace（九）都从同一条 append-only 日志派生；「模型可见 ⟺ 已记录」一条不变量换来它们的一致性
@@ -316,13 +333,13 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 一个团队要做"自动处理客户退款申请"的 agent：读申请与订单 → 查政策 → 判断 → 执行退款 → 通知客户。用第一、五、八篇设计它的循环、权限与自主级别。
+1. 一个团队要做"自动处理客户退款申请"的 agent：读申请与订单 → 查政策 → 判断 → 执行退款 → 通知客户。用[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)、[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)与[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)设计它的循环、权限与自主级别。
 
    <details markdown="1"><summary>答案</summary>
    循环：主体是工作流（五步固定），"查政策"一步嵌一个有步数上限的检索循环（L3）；四个卫士与部分结果出口。权限：读申请、订单、政策只读自动；"执行退款"是不可逆对外动作——执行策略 `prompt`，金额超过阈值二次确认或 `forbidden` 走人工；"通知客户"是对外发送——确认；工具是本体式的动作（`refund(order, amount)` 有校验：金额 ≤ 订单额、订单状态允许、发起人有权限）而不是裸支付 API；凭据不在 agent 可读处、退款 token 只能退款。自主级别：起步在 3 级（判断自动、退款确认），积累评测后对小额、政策明确的用规则批一类（4 级），大额永远确认；退款先生成提案再由人批量审阅（5 级的中间物）。
    </details>
 
-2. 一个 coding agent 在第 30 步删了一个不该删的目录。用第五篇的四层与第九篇的失败分类分析：哪层失守、属于哪类失败、事后要改什么。
+2. 一个 coding agent 在第 30 步删了一个不该删的目录。用[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)的四层与[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)的失败分类分析：哪层失守、属于哪类失败、事后要改什么。
 
    <details markdown="1"><summary>答案</summary>
    失败类：幻觉的动作（或绕过障碍）。四层排查：权限档——目录在 `workspace` 可写范围内（范围本身合理）；执行策略——`rm -rf` 类命令是否 `prompt`，若是 `allow` 则这层失守；沙箱——工作区内的删除沙箱不拦（沙箱管越界不管范围内破坏）；审批——若有 `prompt` 但人点了允许，是审批疲劳。事后：`rm -rf` 与批量删除设 `prompt` 并带 `justification`；Guardian 把"删除目录"列为高风险；把"绕过障碍"（因为构建失败而删目录重建）写进审查 prompt；工作区用 git 保证可回滚；trace 里查它为什么决定删（第 29 步看到了什么）。
@@ -402,7 +419,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：第九篇十二行——循环卫士与出口、工具描述与 MCP 授权与 tool search / PTC、日志与恢复与挂起与隔离、卸载清理压缩复述、权限四层与五环自检与审批分级、交付形态理由、多 agent 理由与树 trace、记忆与风险级与问人与中间物与自主级别、幂等与预算与部分结果与校验、轨迹评测集与录制回放、trace 与面板与在线 judge 与门禁、fallback 链与版本钉住。demo 通常只有循环的前半——没有卫士、没有日志、没有执行策略与沙箱、没有评测集、没有面板。
+   **答案要点**：[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)十二行——循环卫士与出口、工具描述与 MCP 授权与 tool search / PTC、日志与恢复与挂起与隔离、卸载清理压缩复述、权限四层与五环自检与审批分级、交付形态理由、多 agent 理由与树 trace、记忆与风险级与问人与中间物与自主级别、幂等与预算与部分结果与校验、轨迹评测集与录制回放、trace 与面板与在线 judge 与门禁、fallback 链与版本钉住。demo 通常只有循环的前半——没有卫士、没有日志、没有执行策略与沙箱、没有评测集、没有面板。
    **追问方向**：优先补哪几项（日志、执行策略、评测集）；怎么衡量补完了（面板十项有数）。
    **好答案与一般答案的区别**：一般答案说"要加监控和测试"；好答案按 harness 组件逐项列并指出 demo 缺的是结构性的几层。
 
@@ -446,10 +463,10 @@ Table: 掌握程度的判据
 
 - **agent 能力的训练**——工具调用数据、多轮环境、RL 属于[算法地图](/ai-algorithm-engineer-learning-roadmap.html) L5；RL 的 rollout 基础设施属于 [Infra 地图](/ai-infra-learning-roadmap.html) 10。
 - **检索**——agentic retrieval 的实现、三类检索、解析分块与检索评测属于 [L3《检索与知识接入》](/retrieval-and-knowledge-access.html)，它同时是本系列的前置（检索作为工具、本体）；本系列只把检索当作一类工具。
-- **评测方法论本身**——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI 语义约定、失败分类学、物理世界的仿真，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列第九篇用了轨迹评测、trace、录制回放与在线 judge，只讲 agent 专属的轨迹评测。
-- **prompt injection 的完整防御体系**——分层防御，连着网关、成本预算、发布与回滚、治理与审计，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列第五篇的"工具返回不可信"是它的输入，讲它只讲权限与沙箱设计的那一面。
+- **评测方法论本身**——评测集怎么建与运营、judge 怎么校准、trace 的结构与 OpenTelemetry GenAI 语义约定、失败分类学、物理世界的仿真，见 [L5《评测、可观测与可追溯》](/evaluation-observability-and-traceability.html)；本系列的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)用了轨迹评测、trace、录制回放与在线 judge，只讲 agent 专属的轨迹评测。
+- **prompt injection 的完整防御体系**——分层防御，连着网关、成本预算、发布与回滚、治理与审计，见 [L6《生产化与运营》](/production-and-operations-for-ai-applications.html)；本系列[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)里的"工具返回不可信"是它的输入，讲它只讲权限与沙箱设计的那一面。
 - **agent 的产品形态**——步骤怎么呈现给用户、审批的交互设计、后台 agent 的形态、信任的建立与校准，见 [L7《产品与体验》](/ai-product-and-experience.html)。
-- **物理世界的 agent**——自动驾驶的 harness 在地图里作为对照案例，本系列只在第八篇的人机分工里引用它的 SAE 分级。
+- **物理世界的 agent**——自动驾驶的 harness 在地图里作为对照案例，本系列只在[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的人机分工里引用它的 SAE 分级。
 - **前置**——[L1《模型作为组件》](/model-as-a-component.html)（工具调用协议、失效模式、推理状态、成本）、[L2《Prompt 与上下文工程》](/prompt-and-context-engineering.html)（预算、压缩、缓存），以及上面提到的 L3。
 - **地图定位**——本系列在整张地图上的位置（L4）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 

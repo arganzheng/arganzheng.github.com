@@ -11,13 +11,13 @@ catalog: true
 
 《工具、Agent 与 harness：模型怎么从回答变成做事》是一组共九篇的系列文章，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第四层（L4）的正文。前三层讲的模型只**回答**：它读上下文、给出文本。这一层讲它怎么**做事**——调用工具、执行命令、修改文件、操作业务对象——以及让这件事可靠所需要的一切：一个循环、一套协议、一个运行时、一组权限、一层沙箱、一个持久化的会话、几个子 agent、一份记忆、一个把人放在合适位置的机制。业内把模型之外的这一切叫 **harness**（马具）。
 
-2026 年是 harness 成为独立产品的一年。OpenAI 在 9 月 10 日把驱动 Codex 的 harness 作为 **Agents API** 公测——"OpenAI 托管并维护 harness，你选择 agent 的计算环境"，并强调 harness 建在开源的 Codex 代码库上（`codex-rs`，五十多万行 Rust）。DeepSeek 在 8 月 13 日发布 **DeepSeek Harness**（`dsh`）开发者预览，MIT 许可，口号是"一切都是插件"：模型、工具、技能、会话、沙箱、存储、循环、调度、UI 全部是可替换的 Cordis 插件。Anthropic 的 **Claude Code** 把自己的 harness 以 Agent SDK 的形式开放，权限系统、hooks、子 agent、技能都可编程。学术界与社区有 **OpenHarness** 一类开源实现。四个 harness 在同一批问题上给出了不同答案：循环放在哪、工具怎么注册、上下文怎么压、权限怎么判、沙箱用什么、会话怎么存、子 agent 怎么起——本系列第六篇把它们放在源码层面对照。
+2026 年是 harness 成为独立产品的一年。OpenAI 在 9 月 10 日把驱动 Codex 的 harness 作为 **Agents API** 公测——"OpenAI 托管并维护 harness，你选择 agent 的计算环境"，并强调 harness 建在开源的 Codex 代码库上（`codex-rs`，五十多万行 Rust）。DeepSeek 在 8 月 13 日发布 **DeepSeek Harness**（`dsh`）开发者预览，MIT 许可，口号是"一切都是插件"：模型、工具、技能、会话、沙箱、存储、循环、调度、UI 全部是可替换的 Cordis 插件。Anthropic 的 **Claude Code** 把自己的 harness 以 Agent SDK 的形式开放，权限系统、hooks、子 agent、技能都可编程。学术界与社区有 **OpenHarness** 一类开源实现。四个 harness 在同一批问题上给出了不同答案：循环放在哪、工具怎么注册、上下文怎么压、权限怎么判、沙箱用什么、会话怎么存、子 agent 怎么起——本系列的[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)逐项比较它们。
 
 它回答的问题是：
 
 > **一个 agent 循环的最小形态是什么，成熟的 harness 在它之上加了什么？工具调用的协议（MCP）2026 年长什么样，为什么出现了 tool search 与程序化工具调用？agent 运行时为什么是一种新的服务形态？权限与沙箱怎么设计才能让 PocketOS 那样的事不发生？Codex、DeepSeek Harness、Claude Code、OpenHarness 各自怎么解这些问题？多 agent 什么时候值得？人该站在环内、环上还是环外？[^q0]**
 
-九篇沿一条线走。**第一篇**解剖最小的 agent 循环——模型读上下文、返回工具调用、应用执行、结果写回、再来——用 Codex 的三层循环（`submission_loop` → turn loop → 工具编排器）与 DeepSeek Harness 的 `agent-loop`（领取 prompt → 在会话日志上开一个 turn → 组装 → 流式 → 分发工具 → 追加）做实例，说明终止条件、循环卫士（重复工具调用提醒、单次工具超时）为什么必要。**第二篇**讲工具调用的协议：MCP 的 2026-07-28 版（无状态核心、多轮往返请求、扩展框架——Tasks、Apps、Skills over MCP——授权加固、由 Linux 基金会下的 Agentic AI Foundation 治理）、工具描述、tool search（定义按需加载）与程序化工具调用（模型写一段程序调用多个工具、只返回结果——Anthropic 的 PTC、OpenAI GPT-5.6 的 Responses PTC、Cloudflare 的 Code Mode、DeepSeek Harness 的 Code 模式与 `ptc-runtime`、Codex 的 `code-mode` crate）。**第三篇**讲运行时——为什么 agent 是传统服务与模型 serving 之外的第三种服务形态：事件溯源的会话日志（DeepSeek Harness 的"模型可见 ⟺ 已记录"不变量、resume / fork / replay 在同一事件流上）、Codex 的 rollout 与 thread-store、LangGraph 的 checkpoint、Temporal 一类 durable execution、OpenAI Agents API 的托管运行时与九家沙箱合作方、挂起等人、事件流推前端。**第四篇**讲长任务的上下文管理与子 agent：《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的卸载 / 清理 / 压缩在运行时里的实现（Codex 的 `compact*` 模块、DeepSeek Harness 的 `compaction` 与 `spill` 包组）、plan / todo / goal 作为复述机制、子 agent 的三种形态（Claude Code 的 subagent 与 agent teams、Codex 的 `multi_agents`、DeepSeek Harness 能把 Claude Code 与 Codex 作为子 agent 拉起）。**第五篇**讲权限、沙箱与安全边界——本系列最重要的一篇：Codex 的权限档（`read_only` / `workspace` / `danger_full_access`）、审批策略、`execpolicy` 的 Starlark 前缀规则（allow / prompt / forbidden）、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌）；Claude Code 权限判定的六步顺序（hooks → deny → ask → 模式 → allow → 回调）与五种模式；DeepSeek Harness 的 `read-only` / `workspace-write` / `danger-full-access` 与审批策略插件；云沙箱；工具返回里的注入；PocketOS 事件的五环在这一层如何逐环被防住。**第六篇**是源码级对照——语言与架构、循环、工具注册、上下文、权限、沙箱、会话、子 agent、扩展模型、UI 面、模型耦合、基准模式——以及 Agents API（托管）、Agents SDK（库）、Harness（自托管产品）三种交付形态的取舍。**第七篇**讲多 agent：什么时候需要、orchestrator-workers / handoff / 层级三种模式、Claude Code agent teams 与 GPT-5.6 的 ultra 模式、A2A 协议、成本（Anthropic 的研究系统约 15 倍 token）与调试代价、"先用一个 agent 加更好的工具"。**第八篇**讲 memory 与 human-in-the-loop：记忆的写入与遗忘（Anthropic 的 memory tool、Claude Code 自动记忆 25 KB、Codex 的 `memories`）、人从环内退到环上、环外的路径与每一级需要的验证、审批粒度、`request_user_input` 与 MCP elicitation、本体驱动的业务 agent 作为业务侧的 harness。**第九篇**讲可靠性、评测与运营：失败分类学、幂等工具、预算、轨迹评测（SWE-bench Verified、Terminal-Bench 4.0、τ-bench）、trace、每任务成本、从 demo 到生产的清单。
+九篇沿一条线走。**[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)**：最小的循环是模型读上下文、返回工具调用、应用执行、结果写回、再来；用 Codex 的三层循环（`submission_loop` → turn loop → 工具编排器）与 DeepSeek Harness 的 `agent-loop`（领取 prompt → 在会话日志上开一个 turn → 组装 → 流式 → 分发工具 → 追加）做实例，说明终止条件、循环卫士（重复工具调用提醒、单次工具超时）为什么必要。**[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)**讲协议本身：MCP 的 2026-07-28 版（无状态核心、多轮往返请求、扩展框架——Tasks、Apps、Skills over MCP——授权加固、由 Linux 基金会下的 Agentic AI Foundation 治理）、工具描述、tool search（定义按需加载）与程序化工具调用（模型写一段程序调用多个工具、只返回结果——Anthropic 的 PTC、OpenAI GPT-5.6 的 Responses PTC、Cloudflare 的 Code Mode、DeepSeek Harness 的 Code 模式与 `ptc-runtime`、Codex 的 `code-mode` crate）。**[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)**回答为什么 agent 是传统服务与模型 serving 之外的第三种服务形态：事件溯源的会话日志（DeepSeek Harness 的"模型可见 ⟺ 已记录"不变量、resume / fork / replay 在同一事件流上）、Codex 的 rollout 与 thread-store、LangGraph 的 checkpoint、Temporal 一类 durable execution、OpenAI Agents API 的托管运行时与九家沙箱合作方、挂起等人、事件流推前端。**[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)**：《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的卸载 / 清理 / 压缩在运行时里的实现（Codex 的 `compact*` 模块、DeepSeek Harness 的 `compaction` 与 `spill` 包组）、plan / todo / goal 作为复述机制、子 agent 的三种形态（Claude Code 的 subagent 与 agent teams、Codex 的 `multi_agents`、DeepSeek Harness 能把 Claude Code 与 Codex 作为子 agent 拉起）。**[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)**是本系列最重要的一篇：Codex 的权限档（`read_only` / `workspace` / `danger_full_access`）、审批策略、`execpolicy` 的 Starlark 前缀规则（allow / prompt / forbidden）、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌）；Claude Code 权限判定的六步顺序（hooks → deny → ask → 模式 → allow → 回调）与五种模式；DeepSeek Harness 的 `read-only` / `workspace-write` / `danger-full-access` 与审批策略插件；云沙箱；工具返回里的注入；PocketOS 事件的五环在这一层如何逐环被防住。**[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)**在源码层面逐维比较语言与架构、循环、工具注册、上下文、权限、沙箱、会话、子 agent、扩展模型、UI 面、模型耦合、基准模式，以及 Agents API（托管）、Agents SDK（库）、Harness（自托管产品）三种交付形态的取舍。**[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)**：什么时候需要、orchestrator-workers / handoff / 层级三种模式、Claude Code agent teams 与 GPT-5.6 的 ultra 模式、A2A 协议、成本（Anthropic 的研究系统约 15 倍 token）与调试代价、"先用一个 agent 加更好的工具"。**[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)**：记忆的写入与遗忘（Anthropic 的 memory tool、Claude Code 自动记忆 25 KB、Codex 的 `memories`）、人从环内退到环上、环外的路径与每一级需要的验证、审批粒度、`request_user_input` 与 MCP elicitation、本体驱动的业务 agent 作为业务侧的 harness。**[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)**：失败分类学、幂等工具、预算、轨迹评测（SWE-bench Verified、Terminal-Bench 4.0、τ-bench）、trace、每任务成本、从 demo 到生产的清单。
 
 系列的组织原则：**harness 的每一个组件都是对 L1 某条失效模式的防线**。循环卫士防死循环，权限与沙箱防越界（PocketOS），会话日志防"任务跑到一半丢了"，压缩防上下文腐化，子 agent 防预算耗尽，人机分工防不可逆的错误。九篇的每一篇都标出它防的是哪一条、代价是什么。
 
@@ -38,7 +38,7 @@ catalog: true
 
 ### 事故暴露缺哪一格会怎样
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过的三个事件——Replit 的 agent 在代码冻结期删库、PocketOS 的 Cursor agent 用一个无关文件里权限过宽的 token 在 9 秒内删掉生产卷与备份、OpenAI 约 700 个测试中的 agent 入侵 Hugging Face——每一个都能在 harness 的组件表上找到缺的那一格：环境隔离、最小权限、确认门、可回滚、沙箱出口。本系列第五篇逐环讲这些格子怎么填。
+《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过的三个事件——Replit 的 agent 在代码冻结期删库、PocketOS 的 Cursor agent 用一个无关文件里权限过宽的 token 在 9 秒内删掉生产卷与备份、OpenAI 约 700 个测试中的 agent 入侵 Hugging Face——每一个都能在 harness 的组件表上找到缺的那一格：环境隔离、最小权限、确认门、可回滚、沙箱出口。本系列的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)逐环讲这些格子怎么填。
 
 ### 现有材料的断层
 
@@ -54,19 +54,19 @@ catalog: true
 
 ### 要做 agent 产品的应用工程师
 
-全部九篇。第一、五、九篇是最小必读。
+全部九篇。[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)、[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)与[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)是最小必读。
 
 ### 平台工程师，要为团队提供 agent 运行时
 
-第三、五、六篇：运行时形态、权限与沙箱、三种交付形态的取舍。
+[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)、[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)与[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)：运行时形态、权限与沙箱、三种交付形态的取舍。
 
 ### 想读懂 Codex / DeepSeek Harness / Claude Code 的开发者
 
-第六篇是入口，第一、四、五篇给每个子系统的展开。
+从[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)进入；循环、上下文、权限三个子系统分别在[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)、[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)与[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)展开。
 
 ### 业务侧的 AI 应用负责人
 
-第五、八篇：agent 能做什么错事、人该站在哪、本体驱动的业务 agent 怎样把验证前移。
+[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)与[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)：agent 能做什么错事、人该站在哪、本体驱动的业务 agent 怎样把验证前移。
 
 
 ## 系列的整体主线
@@ -87,9 +87,9 @@ Table: 八篇的主题与建立的东西
 
 三条贯穿的线：
 
-- **循环之外的一切都是 harness。** 模型只做两件事：决定下一步、读结果。校验、权限、执行、配对、截断、持久化、恢复、压缩、隔离、审批、评测——全是应用侧的。第一篇立这个框，后面八篇填。
-- **验证能自动化到什么程度，agent 就能自主到什么程度。** 代码有测试所以 coding agent 最先成熟；业务动作没有测试，所以要把验证前移到本体（第八篇）；不可逆动作永远要确认门（第五篇）。
-- **权限范围是错误的上限。** 模型的判断永远不是 100%，让错误不变成灾难的是权限、隔离、确认、可回滚（第五篇）；harness 的价值首先是把错误的上限压低，其次才是让模型更能干。
+- **循环之外的一切都是 harness。** 模型只做两件事：决定下一步、读结果。校验、权限、执行、配对、截断、持久化、恢复、压缩、隔离、审批、评测——全是应用侧的。[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)立这个框，后面八篇填。
+- **验证能自动化到什么程度，agent 就能自主到什么程度。** 代码有测试所以 coding agent 最先成熟；业务动作没有测试，所以要把验证前移到本体（[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)）；不可逆动作永远要确认门（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）。
+- **权限范围是错误的上限。** 模型的判断永远不是 100%，让错误不变成灾难的是权限、隔离、确认、可回滚（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）；harness 的价值首先是把错误的上限压低，其次才是让模型更能干。
 
 
 ## 章节结构与分章导读
@@ -110,7 +110,7 @@ Table: 八篇的主题与建立的东西
 
 > 核心问题：**为什么 agent 运行时是一种新的服务形态？事件溯源的会话日志解决什么？durable execution 是什么？托管运行时（Agents API）与自托管各换了什么？[^q3]**
 
-地图里那张三列表（传统服务 / 模型 serving / agent 运行时）在这里展开：一次调用分钟到小时、几十次模型调用与工具执行交替；每一步都要持久化，崩溃、重启、等人之后从断点续跑；控制流由模型决定、运行时只给边界；可能挂起几小时等审批；并发单位是会话。**事件溯源的会话日志**是这一形态的核心数据结构——DeepSeek Harness 把它作为不变量："任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件"，append-only 的 `SessionEvent` 日志是唯一事实来源，resume、fork、search、replay 在同一事件流上操作，Trajectory 视图按来源检视每一条；Codex 的 `rollout` 与 `thread-store`、`app-server` 之上的操作 / 事件队列是同一思想的 Rust 实现。**durable execution**：LangGraph 把 agent 建成带 checkpoint 的状态图、Temporal 一类工作流引擎把每步持久化、崩溃后从 checkpoint 继续——agent 运行时最接近的老概念。**托管运行时**：OpenAI Agents API（2026-09-10 公测，无额外费用、只收 token 与工具费）把会话状态、编排、上下文压缩、恢复放在 OpenAI 侧，你选沙箱（OpenAI 托管、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方），一次 API 调用创建能跑几天的 agent；它与 Agents SDK（库，控制权在你的进程里）是两种交付形态，第六篇比较。挂起与唤醒（等人、等外部事件）、事件流推前端、中断与取消、并发会话的隔离。
+地图里那张三列表（传统服务 / 模型 serving / agent 运行时）在这里展开：一次调用分钟到小时、几十次模型调用与工具执行交替；每一步都要持久化，崩溃、重启、等人之后从断点续跑；控制流由模型决定、运行时只给边界；可能挂起几小时等审批；并发单位是会话。**事件溯源的会话日志**是这一形态的核心数据结构——DeepSeek Harness 把它作为不变量："任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件"，append-only 的 `SessionEvent` 日志是唯一事实来源，resume、fork、search、replay 在同一事件流上操作，Trajectory 视图按来源检视每一条；Codex 的 `rollout` 与 `thread-store`、`app-server` 之上的操作 / 事件队列是同一思想的 Rust 实现。**durable execution**：LangGraph 把 agent 建成带 checkpoint 的状态图、Temporal 一类工作流引擎把每步持久化、崩溃后从 checkpoint 继续——agent 运行时最接近的老概念。**托管运行时**：OpenAI Agents API（2026-09-10 公测，无额外费用、只收 token 与工具费）把会话状态、编排、上下文压缩、恢复放在 OpenAI 侧，你选沙箱（OpenAI 托管、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方），一次 API 调用创建能跑几天的 agent；它与 Agents SDK（库，控制权在你的进程里）是两种交付形态，[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)比较。挂起与唤醒（等人、等外部事件）、事件流推前端、中断与取消、并发会话的隔离。
 
 ### 4. 长任务的上下文管理与子 agent
 
@@ -221,21 +221,21 @@ Table: 本系列的版本与事实基线
 
 | 追问 | 答案来自 |
 |---|---|
-| 这个任务需要循环吗，还是固定工作流就够？循环的卫士设在哪？ | 第一篇 |
-| 工具用 MCP 还是自定义？几十个工具时怎么办？中间结果怎么不进上下文？ | 第二篇 |
-| 任务中断后怎么续？会话存什么？托管还是自托管运行时？ | 第三篇 |
-| 跑到第 40 步上下文满了怎么办？什么该交给子 agent？ | 第四篇 |
-| 这个工具调用该自动执行、问人还是禁止？沙箱用什么？PocketOS 的五环防住了几环？ | 第五篇 |
-| Codex、DeepSeek Harness、Claude Code 各怎么解这些问题，该学谁？ | 第六篇 |
-| 需要多个 agent 吗？用哪种模式？代价多少？ | 第七篇 |
-| 记忆存什么、忘什么？人站在哪一级？业务动作没有测试怎么验证？ | 第八篇 |
-| 这个 agent 可靠吗？轨迹怎么评？上生产前还缺什么？ | 第九篇 |
+| 这个任务需要循环吗，还是固定工作流就够？循环的卫士设在哪？ | [《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html) |
+| 工具用 MCP 还是自定义？几十个工具时怎么办？中间结果怎么不进上下文？ | [《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html) |
+| 任务中断后怎么续？会话存什么？托管还是自托管运行时？ | [《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html) |
+| 跑到第 40 步上下文满了怎么办？什么该交给子 agent？ | [《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html) |
+| 这个工具调用该自动执行、问人还是禁止？沙箱用什么？PocketOS 的五环防住了几环？ | [《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html) |
+| Codex、DeepSeek Harness、Claude Code 各怎么解这些问题，该学谁？ | [《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html) |
+| 需要多个 agent 吗？用哪种模式？代价多少？ | [《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html) |
+| 记忆存什么、忘什么？人站在哪一级？业务动作没有测试怎么验证？ | [《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html) |
+| 这个 agent 可靠吗？轨迹怎么评？上生产前还缺什么？ | [《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html) |
 
 Table: 读完系列后应能回答的追问
 
 这就是 L4 要建立的能力：**把 agent 当作一个有运行时、有权限、有沙箱、有会话、有预算、有人在合适位置的系统来设计**，而不是一个会调工具的 prompt。
 
-[^q0]: 九篇各答一问。最小循环 40 行：组装上下文 → 调模型 → 有工具调用则执行并写回 → 否则结束，加步数 / token / 重复调用 / 超时四个卫士；成熟 harness 在其上加的是分层循环、工具编排器、事件溯源的会话日志、压缩与卸载、权限与沙箱、子 agent（第一篇）。MCP 2026-07-28 版：无状态核心、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP）、授权加固；tool search 与程序化工具调用出现是因为工具定义撑爆上下文、多工具串联浪费轮次（第二篇）。agent 运行时是新形态：一次调用分钟到小时、每步持久化、控制流由模型决定、可挂起等人，核心是 append-only 的会话日志与 durable execution（第三篇）。上下文管理的实现与子 agent 三形态（第四篇）。权限档、审批策略、执行策略、沙箱四层让 PocketOS 的五环逐环被防住（第五篇）。Codex / DeepSeek Harness / Claude Code / OpenHarness 十二维度对照（第六篇）。多 agent 只为上下文隔离、并行、专业化三件事，代价约 15 倍 token（第七篇）。人从环内到环上到环外靠按风险分级的审批与可验证性（第八篇）；失败分类、幂等工具、预算、轨迹评测（第九篇）。
+[^q0]: 九篇各答一问。最小循环 40 行：组装上下文 → 调模型 → 有工具调用则执行并写回 → 否则结束，加步数 / token / 重复调用 / 超时四个卫士；成熟 harness 在其上加的是分层循环、工具编排器、事件溯源的会话日志、压缩与卸载、权限与沙箱、子 agent（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）。MCP 2026-07-28 版：无状态核心、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP）、授权加固；tool search 与程序化工具调用出现是因为工具定义撑爆上下文、多工具串联浪费轮次（[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）。agent 运行时是新形态：一次调用分钟到小时、每步持久化、控制流由模型决定、可挂起等人，核心是 append-only 的会话日志与 durable execution（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）。上下文管理的实现与子 agent 三形态（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。权限档、审批策略、执行策略、沙箱四层让 PocketOS 的五环逐环被防住（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）。Codex / DeepSeek Harness / Claude Code / OpenHarness 十二维度对照（[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）。多 agent 只为上下文隔离、并行、专业化三件事，代价约 15 倍 token（[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)）。人从环内到环上到环外靠按风险分级的审批与可验证性（[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)）；失败分类、幂等工具、预算、轨迹评测（[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）。
 [^q1]: 最小形态 40 行：组装上下文 → 调模型 → 有工具调用就执行并把结果写回 → 否则结束。失控的地方：无终止（模型一直调工具）、重复调用同一工具、单次工具卡死、token 与成本无上限——对应四个卫士：步数上限、token 预算、重复调用检测、单次工具超时。Codex 三层：`submission_loop`（会话生命周期，接收 `Op`）→ turn loop（一次用户输入：组装 prompt、调 Responses API、处理输出项）→ 工具编排器（`tools/orchestrator.rs`：审批 → 选沙箱 → 首次尝试 → 失败时的升级路径），客户端与会话之间是 app-server JSON-RPC 之上的操作 / 事件队列。DeepSeek Harness 的 `agent-loop`：领取排队的 prompt → 在会话日志上开一个 turn → 经 `system-prompt` 组装前缀、从日志派生历史 → 流式调模型 → 经工具注册表分发 → 把每个模型可见的事实追加回日志再派生下一步；`guard` 包组提供重复工具调用提醒与单次工具超时两个卫士。
 [^q2]: 改了四处：**无状态核心**——取消 `initialize` 握手，版本与能力协商放进每个请求的 `_meta` 与 `MCP-Protocol-Version` 头，Streamable HTTP 去掉会话 id，为的是能在普通 HTTP 基础设施上横向扩展；**多轮往返请求**替代服务端发起的请求；**扩展框架**——反向 DNS 标识、独立版本：Tasks（长任务轮询与持久句柄）、MCP Apps（对话内渲染的 UI）、Skills over MCP、企业托管授权；**授权加固**——RFC 9207 的 `iss` 校验、RFC 8707 的 `resource` 参数绑定受众、动态客户端注册弃用改为客户端元数据文档（CIMD）；Sampling / Roots / Logging 进入十二个月弃用窗口。工具描述怎么写：说清何时用 / 何时不用、参数的含义与格式、返回什么、副作用与幂等性、失败时的表现，用模型能核对的措辞而不是营销语；并用评测集测模型是否选对工具。tool search 解决工具定义撑爆上下文（几百个工具的 schema 占几万 token）——定义按需加载、模型先搜再用；程序化工具调用（Anthropic PTC、OpenAI Responses PTC、Cloudflare Code Mode）解决多工具串联浪费轮次与上下文——模型写一段程序一次调用多个工具、只把结果回到上下文，中间数据不进模型。
 [^q3]: 新在五点：一次调用分钟到小时、几十次模型调用与工具执行交替；每一步要持久化，崩溃 / 重启 / 等人之后从断点续跑；控制流由模型决定、运行时只给边界；可能挂起几小时等审批；并发单位是会话而不是请求——传统服务与模型 serving 都没有这些。事件溯源的会话日志解决「唯一事实来源」：append-only 的 `SessionEvent` 日志，任何进入模型请求的东西都能从日志重建、每个新的模型可见输入对应一个事件（DeepSeek Harness 的不变量），resume / fork / search / replay 都在同一事件流上操作；Codex 的 `rollout` 与 `thread-store` 是同一思想的 Rust 实现。durable execution：把 agent 建成带 checkpoint 的状态图或工作流（LangGraph、Temporal 一类），每步持久化、崩溃后从 checkpoint 继续——是 agent 运行时最接近的老概念。托管运行时（Agents API）换掉了会话持久化、沙箱、扩缩容与部分权限模型的运维，代价是状态与轨迹在供应商侧、权限与沙箱策略受限、迁移成本高；自托管 harness 保留全部控制与数据，代价是自己做持久化、沙箱、恢复与安全边界。
