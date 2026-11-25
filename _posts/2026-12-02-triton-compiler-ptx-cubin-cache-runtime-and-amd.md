@@ -34,7 +34,7 @@ Table: 本文的章节安排
 
 ## 二、`compile()` 的骨架
 
-第五篇 §三讲过 `JITFunction.run` 怎样算出 `key` 并在未命中时调 `compile(ASTSource(...))`。`compile()` 本身（`compiler.py`）是一个与后端无关的循环：
+[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §三讲过 `JITFunction.run` 怎样算出 `key` 并在未命中时调 `compile(ASTSource(...))`。`compile()` 本身（`compiler.py`）是一个与后端无关的循环：
 
 ```python title="compile() 的骨架"
 def compile(src, target=None, options=None, _env_vars=None):
@@ -64,7 +64,7 @@ def compile(src, target=None, options=None, _env_vars=None):
 
 - ⑥ 阶段表是后端给的：NVIDIA 是 `ttir → ttgir → llir → ptx → cubin`，AMD 是 `ttir → ttgir → llir → amdgcn → hsaco`；Gluon 源从 `ttgir` 开始（没有 `ttir` 阶段）。`compile()` 不知道任何阶段的内容，只按顺序调。
 - ⑦ ⑧ **`metadata` 是一个跨阶段传递的可变字典**：每一级往里写自己算出的东西（`make_ttgir` 写 `shared`、`tmem_size`、`tensordesc_meta`，`make_llir` 写 `global_scratch_size`，`make_ptx` 写 `name`……），最后整个字典序列化成 `.json`。这就是第四章那 34 个字段的来历。
-- ② 源可以是**一个 IR 文件**：`triton.compile("kernel.ttgir")` 从 `ttgir` 之后的阶段继续（`first_stage += 1`：文件本身被视为该阶段的产物，不再对它跑该阶段的 pass）。这是第十三篇"改一个 TTGIR 再编回去"调试法的基础，也是 lit 测试之外验证后半段流水线的方法。
+- ② 源可以是**一个 IR 文件**：`triton.compile("kernel.ttgir")` 从 `ttgir` 之后的阶段继续（`first_stage += 1`：文件本身被视为该阶段的产物，不再对它跑该阶段的 pass）。这是[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)"改一个 TTGIR 再编回去"调试法的基础，也是 lit 测试之外验证后半段流水线的方法。
 - ⑨ 缓存组：一个 kernel 的所有产物（`.source`、`.ttir`、`.ttgir`、`.llir`、`.ptx`、`.cubin`、`.json`）先各自写成临时文件再重命名，最后写 `__grp__<name>.json`（列出组内所有文件的路径）——**组文件存在即整组完整**，多进程同时编译同一 kernel 时不会读到半成品。
 
 ## 三、缓存 key
@@ -89,10 +89,14 @@ Table: 缓存键的五个成分
 回答核心问题第一问。三种变化各落在哪个成分：
 
 - **不同的 `BLOCK_SIZE`**：`constexpr` 实参进 `src.hash()` 的 `constants` → 每个值一个目录。
-- **stride 为 1 与不为 1**：`stride == 1` 的整数参数被第五篇的特化机制提升为 `constexpr`（`equal_to_1`），其余整数按"是否 16 的倍数"分为两类（`tt.divisibility`），都进 `src.hash()` 的 `attrs` / `constants` → stride 为 1 一个目录、不为 1 但为 16 的倍数一个目录、既不为 1 也不是 16 的倍数第三个目录。指针参数按对齐（16 的倍数或否）同理。
+- **stride 为 1 与不为 1**：`stride == 1` 的整数参数被[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)的特化机制提升为 `constexpr`（`equal_to_1`），其余整数按"是否 16 的倍数"分为两类（`tt.divisibility`），都进 `src.hash()` 的 `attrs` / `constants` → stride 为 1 一个目录、不为 1 但为 16 的倍数一个目录、既不为 1 也不是 16 的倍数第三个目录。指针参数按对齐（16 的倍数或否）同理。
 - **A100 与 H100**：`backend.hash()` 的 `arch`（80 / 90）不同 → 各一个目录；且 TTGIR 起就完全不同（`#mma` 版本、`wgmma`），产物不可能共享。
 
 所以"三种变化"叠加是乘法：2 个 `BLOCK_SIZE` × 3 种 stride 特化 × 2 种架构 = 最多 12 个目录，每个目录一套完整产物。
+
+> [!NOTE] Java 经验参照：构建缓存的 key，和那个「改了代码没生效」的坑
+> 这五个成分合起来就是一个构建缓存的 key，Gradle 的增量构建用的是同一套思路：把任务的全部输入（源文件内容、依赖的哈希、编译参数、JDK 版本）算成一个指纹，指纹没变就 `UP-TO-DATE`，直接复用上次的产物。`src.hash()` 对应源文件、`backend_options.hash()` 对应编译参数、`backend.hash()` 对应工具链版本。连「哪些环境变量算输入」都要显式登记这一点都一样——不在名单上的变量改了也不会让缓存失效。
+> 眼熟的坑也一样：Java 这边是「改了代码还是旧行为」，一查发现 classpath 上有个旧 jar、或者 IDE 编到了另一个输出目录；这里是「改了 pass 还是旧 cubin」，一查发现 `.cpp` 没重新构建，或者 `libtriton.so` 装在了另一个 venv 里。两边的第一诊断动作也对应：那边 `-verbose:class` 看类从哪个 jar 加载，这边 `python -c "import triton; print(triton.__file__)"` 看用的是哪一份。
 
 ### 2. 目录名与内容
 
@@ -133,13 +137,13 @@ Table: 缓存目录里的文件
 | `compile()` 开头 | `hash`、`target {backend, arch, warp_size}`、`triton_version` | `CompiledKernel`；调试 |
 | `CUDAOptions`（用户 + 默认） | `num_warps`、`num_ctas`、`num_stages`、`warp_size`、`maxnreg`、`ptx_version`、`ptx_options`、`ir_override`、`enable_fp_fusion`、`enable_reflect_ftz`、`launch_cooperative_grid`、`launch_pdl`、`supported_fp8_dtypes`、`deprecated_fp8_dot_operand_dtypes`、`default_dot_input_precision`、`allowed_dot_input_precisions`、`max_num_imprecise_acc_default`、`extern_libs`、`debug`、`backend_name`、`sanitize_overflow`、`arch`（`sm80`）、`instrumentation_mode` | 各阶段读；launcher 读 `num_warps`（blockDim）、`num_ctas`、`launch_pdl`、`launch_cooperative_grid` |
 | `make_ttgir` | `tensordesc_meta`（每个 tensor descriptor 参数的 block shape 等，launcher 据此把 `TensorDescriptor` 编码成 `CUtensorMap`）、`shared`（`ttg.shared`）、`tmem_size`（Blackwell） | launcher：动态 shared memory 大小；`load_binary`：> 48 KB 时 opt-in |
-| `make_llir` | `global_scratch_size` / `global_scratch_align`、`profile_scratch_size` / `_align` | launcher：启动前分配 scratch 并作为两个额外参数传入（第十篇 §二.3） |
+| `make_llir` | `global_scratch_size` / `global_scratch_align`、`profile_scratch_size` / `_align` | launcher：启动前分配 scratch 并作为两个额外参数传入（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html) §二.3） |
 | `make_ptx` / `make_amdgcn` | `name`（从 PTX 的 `.entry` / LLVM 的 `define amdgpu_kernel` 正则抓出来） | `cuModuleGetFunction` |
 | 运行时（不在 json 里） | `n_regs`、`n_spills`、`n_max_threads` | 加载后由 `cuFuncGetAttribute` 查得（§六.1） |
 
 Table: 元数据字段按来源分类
 
-`CompiledKernel.metadata` 是这个 json 反序列化成的 namedtuple（`KernelMetadata`）；`packed_metadata` 是 launcher 需要的子集打包成元组（`num_warps, num_ctas, shared, ...`）。`asm` 字典按扩展名给出每级产物的文本（`k.asm["ttgir"]`）——第五篇起所有 IR dump 都是从这里拿的。
+`CompiledKernel.metadata` 是这个 json 反序列化成的 namedtuple（`KernelMetadata`）；`packed_metadata` 是 launcher 需要的子集打包成元组（`num_warps, num_ctas, shared, ...`）。`asm` 字典按扩展名给出每级产物的文本（`k.asm["ttgir"]`）——[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)起所有 IR dump 都是从这里拿的。
 
 ## 五、dump 与 override
 
@@ -153,7 +157,7 @@ Table: 元数据字段按来源分类
 
 Table: dump 与 override 的环境变量
 
-典型用法：`TRITON_KERNEL_DUMP=1` 跑一次拿到 `.ttgir`，手改（例如换一个 layout、删一个 `convert_layout`），拷到 override 目录，`TRITON_KERNEL_OVERRIDE=1` 再跑——**不改编译器就能试一个不同的编译决定**。第十三篇的二分法建立在它和 `triton.compile("x.ttgir")` 之上。`USE_IR_LOC=ttgir` 让后续 IR 的 `loc` 指向 dump 出来的 `.ttgir` 文件行号而不是 Python 行号，配合 `-lineinfo` 可以在 Nsight Compute 里把 SASS 对回 TTGIR。
+典型用法：`TRITON_KERNEL_DUMP=1` 跑一次拿到 `.ttgir`，手改（例如换一个 layout、删一个 `convert_layout`），拷到 override 目录，`TRITON_KERNEL_OVERRIDE=1` 再跑——**不改编译器就能试一个不同的编译决定**。[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)的二分法建立在它和 `triton.compile("x.ttgir")` 之上。`USE_IR_LOC=ttgir` 让后续 IR 的 `loc` 指向 dump 出来的 `.ttgir` 文件行号而不是 Python 行号，配合 `-lineinfo` 可以在 Nsight Compute 里把 SASS 对回 TTGIR。
 
 ## 六、加载与启动
 
@@ -197,13 +201,13 @@ static void _launch(...) {
 }
 ```
 
-几个值得记住的点：**block 大小永远是 `32 × num_warps`、一维**——Triton 的 program 就是一个 block，`tl.program_id` 就是 `blockIdx`；grid 的 x 维乘上 `num_ctas`（集群里每个 CTA 是一个 block）；`constexpr` 参数和被特化为 1 的参数**不传**（它们已经编进 cubin，签名里没有）——这就是为什么同一个 Python 函数的不同特化需要不同的 launcher；`tt.divisibility` 特化的参数正常传（它只是编译时的假设）。`global_scratch` / `profile_scratch` 在 `CudaLauncher.__call__` 里按元数据大小分配后追加到参数末尾（第十篇 §二.3 多出来的两个指针）。
+几个值得记住的点：**block 大小永远是 `32 × num_warps`、一维**——Triton 的 program 就是一个 block，`tl.program_id` 就是 `blockIdx`；grid 的 x 维乘上 `num_ctas`（集群里每个 CTA 是一个 block）；`constexpr` 参数和被特化为 1 的参数**不传**（它们已经编进 cubin，签名里没有）——这就是为什么同一个 Python 函数的不同特化需要不同的 launcher；`tt.divisibility` 特化的参数正常传（它只是编译时的假设）。`global_scratch` / `profile_scratch` 在 `CudaLauncher.__call__` 里按元数据大小分配后追加到参数末尾（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html) §二.3 多出来的两个指针）。
 
-Tensor descriptor 参数（第九篇的 TMA）在这里被展开：`TensorDescriptor` Python 对象 → launcher 用 `tensordesc_meta` 里的 block shape、调驱动的 `cuTensorMapEncodeTiled` 填一个 128 字节的 `CUtensorMap`，按值（`__grid_constant__`）传给 kernel——TTIR 签名里一个 `!tt.tensordesc` 参数在 LLVM 层是 1 个 128 字节的参数加上 shape / stride 的标量（第九篇 TTIR 里 `%arg0: !tt.tensordesc<128x32xbf16>, %arg1: i32, %arg2: i32, %arg3: i64, %arg4: i64` 五个参数对应一个描述符）。
+Tensor descriptor 参数（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)的 TMA）在这里被展开：`TensorDescriptor` Python 对象 → launcher 用 `tensordesc_meta` 里的 block shape、调驱动的 `cuTensorMapEncodeTiled` 填一个 128 字节的 `CUtensorMap`，按值（`__grid_constant__`）传给 kernel——TTIR 签名里一个 `!tt.tensordesc` 参数在 LLVM 层是 1 个 128 字节的参数加上 shape / stride 的标量（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html) TTIR 里 `%arg0: !tt.tensordesc<128x32xbf16>, %arg1: i32, %arg2: i32, %arg3: i64, %arg4: i64` 五个参数对应一个描述符）。
 
 ### 3. 全流程
 
-把第五篇 §三与本篇接起来，一次 `kernel[grid](x, y, out, n, BLOCK_SIZE=1024)` 调用：
+把[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html) §三与本篇接起来，一次 `kernel[grid](x, y, out, n, BLOCK_SIZE=1024)` 调用：
 
 ```mermaid
 %% 图：一次 kernel[grid](...) 调用的全流程：JITFunction.run 算特化 key → 缓存未命中则 compile → CompiledKernel 惰性加载 → CudaLauncher → cuLaunchKernelEx
@@ -273,7 +277,7 @@ stages["hsaco"]  = make_hsaco     # llvm-mc 汇编成 .o → lld 链接成 ELF�
 
 Table: AMD 后端 make_ttgir 的阶段与 pass
 
-Blackwell / Hopper 特有的 TMA、TMEM、warp specialization pass 没有；对应的 CDNA 概念（`buffer_load … lds`、TDM on gfx1250）有自己的 pass。**共用的部分是所有与 layout 推理相关的通用 pass——它们只依赖 `DistributedEncodingTrait` 与 Linear Layout，`#amd_mfma` 实现了同一组接口就能用**（第七篇 §八.3 的接口设计在这里兑现）。
+Blackwell / Hopper 特有的 TMA、TMEM、warp specialization pass 没有；对应的 CDNA 概念（`buffer_load … lds`、TDM on gfx1250）有自己的 pass。**共用的部分是所有与 layout 推理相关的通用 pass——它们只依赖 `DistributedEncodingTrait` 与 Linear Layout，`#amd_mfma` 实现了同一组接口就能用**（[《layout 系统与 Linear Layout》](/triton-compiler-layouts-and-linear-layout.html) §八.3 的接口设计在这里兑现）。
 
 ### 3. `make_llir` 到 `hsaco`：没有第二个编译器
 
@@ -290,7 +294,7 @@ define amdgpu_kernel void @matmul_kernel(ptr addrspace(1) inreg readonly capture
 attributes #0 = { "amdgpu-flat-work-group-size"="1,256" "amdgpu-agpr-alloc"="0" ... }
 ```
 
-`amdgpu_kernel` 调用约定、`inreg`（标量参数进 SGPR）、`amdgpu-flat-work-group-size = 1,256`（4 wave × 64）、`amdgpu-waves-per-eu`（第二篇 §七.5 的 `maxnreg` 在 AMD 上的对应：告诉编译器每个执行单元要驻留几个 wave，它据此限制 VGPR 数）。然后 `make_amdgcn` 调 LLVM 后端直出 ISA 汇编文本：
+`amdgpu_kernel` 调用约定、`inreg`（标量参数进 SGPR）、`amdgpu-flat-work-group-size = 1,256`（4 wave × 64）、`amdgpu-waves-per-eu`（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html) §七.5 的 `maxnreg` 在 AMD 上的对应：告诉编译器每个执行单元要驻留几个 wave，它据此限制 VGPR 数）。然后 `make_amdgcn` 调 LLVM 后端直出 ISA 汇编文本：
 
 ```text title="make_amdgcn 直出的 ISA 汇编"
 	v_mfma_f32_32x32x8_bf16 v[18:33], v[128:129], v[98:99], v[18:33]      ; 48 条
@@ -306,9 +310,9 @@ attributes #0 = { "amdgpu-flat-work-group-size"="1,256" "amdgpu-agpr-alloc"="0" 
 ; Occupancy: 3
 ```
 
-**第二篇核心问题的 AMD 版答案在编译器输出里直接写着**：144 个 VGPR、0 字节 spill（`ScratchSize`）、每 SIMD 驻留 3 个 wave（`Occupancy`）——不需要等加载，`make_amdgcn` 之后读 `k.asm["amdgcn"]` 的注释就知道（Triton 的 AMD 运行时为了接口一致仍在加载时用 `hipFuncGetAttribute` 查 `n_regs` / `n_spills`，但汇编文本里的数字在没有 GPU 的机器上就能拿到）。`make_hsaco` 用 `amd.assemble_amdgcn`（LLVM MC 层）把汇编变成目标文件、`amd.link_hsaco`（进程内 lld）链成 ELF；运行时 `hipModuleLoadData` 加载。没有 `ptxas`，没有闭源二进制，没有版本不同步的胶水；代价是 LLVM 的 AMDGPU 后端要独自承担指令调度、`s_waitcnt` 插入、寄存器分配的全部质量——这些在 NVIDIA 那边由 `ptxas` 多年的调优兜底。
+**[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)核心问题的 AMD 版答案在编译器输出里直接写着**：144 个 VGPR、0 字节 spill（`ScratchSize`）、每 SIMD 驻留 3 个 wave（`Occupancy`）——不需要等加载，`make_amdgcn` 之后读 `k.asm["amdgcn"]` 的注释就知道（Triton 的 AMD 运行时为了接口一致仍在加载时用 `hipFuncGetAttribute` 查 `n_regs` / `n_spills`，但汇编文本里的数字在没有 GPU 的机器上就能拿到）。`make_hsaco` 用 `amd.assemble_amdgcn`（LLVM MC 层）把汇编变成目标文件、`amd.link_hsaco`（进程内 lld）链成 ELF；运行时 `hipModuleLoadData` 加载。没有 `ptxas`，没有闭源二进制，没有版本不同步的胶水；代价是 LLVM 的 AMDGPU 后端要独自承担指令调度、`s_waitcnt` 插入、寄存器分配的全部质量——这些在 NVIDIA 那边由 `ptxas` 多年的调优兜底。
 
-`isTransposed = true` 与 `#amd_rotating_shared`、`#linear` 出现在 epilogue：AMD 的 `optimize_epilogue` 让 `[128, 128]` 累加器以转置的 MFMA layout 直接写回（每 lane 持有的 4 个连续元素沿 N 方向），避开 NVIDIA 路径那次 `#mma → #blocked` 的 shared memory 往返——第八篇 §五那个"消不掉的转换"在 AMD 上被换成了另一种 layout 选择。
+`isTransposed = true` 与 `#amd_rotating_shared`、`#linear` 出现在 epilogue：AMD 的 `optimize_epilogue` 让 `[128, 128]` 累加器以转置的 MFMA layout 直接写回（每 lane 持有的 4 个连续元素沿 N 方向），避开 NVIDIA 路径那次 `#mma → #blocked` 的 shared memory 往返——[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) §五那个"消不掉的转换"在 AMD 上被换成了另一种 layout 选择。
 
 ## 八、本文小结
 
@@ -337,13 +341,13 @@ attributes #0 = { "amdgpu-flat-work-group-size"="1,256" "amdgpu-agpr-alloc"="0" 
 3. 为什么 `constexpr` 参数不出现在 launcher 的 `params[]` 里，而 `tt.divisibility = 16` 的参数出现？如果把一个整数参数标成 `do_not_specialize`，对缓存目录数和 launcher 有什么影响？
 
    <details markdown="1"><summary>答案</summary>
-   `constexpr` 在前端就折叠进 IR（第五篇），生成的 kernel 签名里没有它，所以 cubin 不接受这个参数；`tt.divisibility` 只是挂在参数上的**假设**属性，参数本身仍是运行时值、仍在签名里，必须传。`do_not_specialize`：该参数不再按 16 的倍数 / 等于 1 分类，所有取值共享一种特化 → 目录数除以 3（若之前三类都出现过）；launcher 中该参数总是传（即使值为 1 也不再提升为 constexpr）；代价是 AxisInfo 对它的 divisibility 只能取 1，相关的 load 向量化变差。
+   `constexpr` 在前端就折叠进 IR（[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)），生成的 kernel 签名里没有它，所以 cubin 不接受这个参数；`tt.divisibility` 只是挂在参数上的**假设**属性，参数本身仍是运行时值、仍在签名里，必须传。`do_not_specialize`：该参数不再按 16 的倍数 / 等于 1 分类，所有取值共享一种特化 → 目录数除以 3（若之前三类都出现过）；launcher 中该参数总是传（即使值为 1 也不再提升为 constexpr）；代价是 AxisInfo 对它的 divisibility 只能取 1，相关的 load 向量化变差。
    </details>
 
 4. AMD 路径的 `make_amdgcn` 之后就知道 `NumVgprs` 与 `ScratchSize`，NVIDIA 要到加载后。这个差别对 autotune 有什么实际影响？
 
    <details markdown="1"><summary>答案</summary>
-   autotune 的 `prune_configs_by` / `early_config_prune` 可以用寄存器与 spill 信息淘汰配置。AMD 上这些信息在编译阶段就有——`k.asm["amdgcn"]` 里的 `; NumVgprs` / `; ScratchSize` / `; Occupancy` 注释与 `.amdhsa_next_free_vgpr` 指令——可以**不加载 kernel** 就剔除会 spill 的配置（Triton 自带的 `prune_configs_by` 目前仍用加载后的 `n_regs` / `n_spills`，但用户的 prune 函数可以直接解析汇编）；NVIDIA 上要 `_init_handles` 加载 cubin 后 `cuFuncGetAttribute` 才知道，需要 GPU 在场且多一次模块加载。此外 AMD 的数字对应最终机器码（LLVM 直出），NVIDIA 的 PTX 层看不到寄存器数（第二篇），只有 `ptxas -v` 的日志（`TRITON_DUMP_PTXAS_LOG`）或加载后属性可查。
+   autotune 的 `prune_configs_by` / `early_config_prune` 可以用寄存器与 spill 信息淘汰配置。AMD 上这些信息在编译阶段就有——`k.asm["amdgcn"]` 里的 `; NumVgprs` / `; ScratchSize` / `; Occupancy` 注释与 `.amdhsa_next_free_vgpr` 指令——可以**不加载 kernel** 就剔除会 spill 的配置（Triton 自带的 `prune_configs_by` 目前仍用加载后的 `n_regs` / `n_spills`，但用户的 prune 函数可以直接解析汇编）；NVIDIA 上要 `_init_handles` 加载 cubin 后 `cuFuncGetAttribute` 才知道，需要 GPU 在场且多一次模块加载。此外 AMD 的数字对应最终机器码（LLVM 直出），NVIDIA 的 PTX 层看不到寄存器数（[《LLVM》](/llvm-the-shared-backend-and-nvptx.html)），只有 `ptxas -v` 的日志（`TRITON_DUMP_PTXAS_LOG`）或加载后属性可查。
    </details>
 
 5. 同一个 matmul 在 gfx942 上 `num_stages = 2` 用了 16 KB LDS，`sm_80` 上 `num_stages = 3` 用 32 KB。把 AMD 的 `num_stages` 也设为 3，LDS 会变成多少？为什么 AMD 默认值更低？
@@ -356,6 +360,6 @@ attributes #0 = { "amdgpu-flat-work-group-size"="1,256" "amdgpu-agpr-alloc"="0" 
 
 Triton 走完了。下一篇换一条路：TVM。它的出发点与 Triton 相反——不是"用户定 tile、编译器定 layout"，而是 Halide 血统的"算法与调度分离"：用户（或搜索器）用调度原语显式写出完整的循环嵌套、每一层的存储位置、线程绑定；编译器负责把调度**忠实地**变成代码。看 TE 与 TensorIR 的调度原语、`sch.split / reorder / bind / cache_read / tensorize` 怎样一步步把一个 GEMM 变成 Tensor Core kernel，MetaSchedule 怎样在这个空间里搜索，Relax 图层与 MLC-LLM；然后把 Triton、TVM、XLA / StableHLO、IREE、Inductor、CUTLASS / CuTe 放进同一张设计空间表：谁决定什么、搜索空间多大、编译器可能做错的风险放在哪里。
 
-[^q0]: 缓存目录名是五成分 key（`triton_key`、`src.hash`、`backend.hash`、`options.hash`、登记的环境变量）SHA-256 的 base32。**不同的 `BLOCK_SIZE`**：constexpr 实参进 `src.hash()` 的 `constants`，每个值一个目录。**stride 为 1 与不为 1**：第五篇的特化——等于 1 的整数被提升为 constexpr（`equal_to_1`），其余按是否 16 的倍数挂 `tt.divisibility`，都进 `src.hash()`，所以 stride = 1、stride 为 16 的倍数、stride 为其他值是三个目录（若三种都出现）。**A100 与 H100**：`backend.hash()` 是 `f'{ptxas_version}-{arch}'`，`arch` 80 与 90 不同，各一个目录（产物也确实不同：`#mma` 版本、`wgmma`）。三种变化相乘：2 × 3 × 2 最多 12 个目录，每个目录一套完整产物（`.source` / `.ttir` / `.ttgir` / `.llir` / `.ptx` / `.cubin` / `.json` 与组文件）。`JITFunction.device_caches` 是它们在进程内的镜像。详见[第三章 §1、§2](#三缓存-key)。
+[^q0]: 缓存目录名是五成分 key（`triton_key`、`src.hash`、`backend.hash`、`options.hash`、登记的环境变量）SHA-256 的 base32。**不同的 `BLOCK_SIZE`**：constexpr 实参进 `src.hash()` 的 `constants`，每个值一个目录。**stride 为 1 与不为 1**：[《从 Python AST 到 TTIR》](/triton-compiler-frontend-python-ast-to-ttir.html)讲的特化——等于 1 的整数被提升为 constexpr（`equal_to_1`），其余按是否 16 的倍数挂 `tt.divisibility`，都进 `src.hash()`，所以 stride = 1、stride 为 16 的倍数、stride 为其他值是三个目录（若三种都出现）。**A100 与 H100**：`backend.hash()` 是 `f'{ptxas_version}-{arch}'`，`arch` 80 与 90 不同，各一个目录（产物也确实不同：`#mma` 版本、`wgmma`）。三种变化相乘：2 × 3 × 2 最多 12 个目录，每个目录一套完整产物（`.source` / `.ttir` / `.ttgir` / `.llir` / `.ptx` / `.cubin` / `.json` 与组文件）。`JITFunction.device_caches` 是它们在进程内的镜像。详见[第三章 §1、§2](#三缓存-key)。
 
 [^q1]: 因为 `triton_key()` 哈希的是版本号、Python 侧编译器代码（`triton/compiler/**`、`triton/backends/**`、`triton/language/**`、`runtime/cache.py`）与 `_C/libtriton.so` **整个二进制**——C++ pass 的改动只有在重新构建、`libtriton.so` 字节变化、且这份 `.so` 正是 Python import 到的那份之后才进 key；只改 `.cpp` 不重建（或装到了另一个 venv），旧缓存命中且改动根本没生效——`python -c "import triton; print(triton.__file__)"` 与 `.so` 的修改时间是第一件要查的事。让它失效：删 `~/.triton/cache`（或换 `TRITON_CACHE_DIR`）；`TRITON_ALWAYS_COMPILE=1` 忽略命中；改变一个在 `GetEnv.h` 的 `CACHE_INVALIDATING_ENV_VARS` 名单上的变量（如 `MLIR_ENABLE_TIMING=1`）——不在名单上的环境变量不进 key，`TRITON_PTXAS_PATH` 就不在（它经 `backend.hash()` 的 `ptxas_version` 间接生效）；或者正确地重新构建让 `libtriton.so` 变化。详见[第三章 §3](#三缓存-key)。
