@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 模型的两端——文本进去之前的 tokenizer、logits 出来之后的解码——是面试里"看起来简单、写起来处处是坑"的手撕题。BPE 的训练循环十几行，但"合并的优先级怎么定""编码时按什么顺序应用 merge"两个细节决定了写出来的东西对不对；top-p 采样的截断位置差一个元素就是另一个算法；beam search 里"完成的序列怎么处理""长度归一化"是必问；投机解码的接受-拒绝规则一行公式，但要能证明"最终分布等于目标分布"。这一篇把这五组东西从零写出来，每个都有数值验证。
 
-原理与取舍在算法地图里：分词见[预训练（01）](/tokenizer-vocabulary-and-token-efficiency.html)，解码策略见[高效推理（01）](/decoding-strategies-sampling-and-constrained-generation.html)，投机解码见[（02）](/speculative-decoding-drafters-acceptance-and-trees.html)。
+原理与取舍在算法地图里：分词见《预训练》的[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)，解码策略与投机解码见《高效推理》的[《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)与[《投机解码：草稿、接受率与树》](/speculative-decoding-drafters-acceptance-and-trees.html)。
 
 本篇要回答的核心问题是：
 
@@ -256,7 +256,7 @@ Table: 常见陷阱：现象与修法
 | 追问 | 要点 |
 |---|---|
 | BPE、WordPiece、Unigram 的区别？ | BPE 合并最频繁对<br/>WordPiece 合并让语言模型似然增益最大的对<br/>Unigram 从大词表往下删 |
-| 词表大小怎么选？ | 大：序列短、嵌入参数多、稀有 token 训不好<br/>小：序列长<br/>32K–128K 是当前范围，见[预训练（01）](/tokenizer-vocabulary-and-token-efficiency.html) |
+| 词表大小怎么选？ | 大：序列短、嵌入参数多、稀有 token 训不好<br/>小：序列长<br/>32K–128K 是当前范围，见《预训练》的[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
 | 字节级 BPE 的好处？ | 256 个基础符号覆盖一切、无 OOV；代价是非英语文本 token 数多 |
 | temperature 0 与 argmax？ | 等价；实现上要单独分支避免除零 |
 | top-p 与 top-k 能同时用吗？ | 能，先 k 后 p（HF 顺序）；也常只用其一 |

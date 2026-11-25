@@ -381,7 +381,7 @@ def ForCausalLMLoss(logits, labels, vocab_size, num_items_in_batch=None, ignore_
 
 1. **升 fp32**：logits 在 bf16 下过 softmax 会丢精度（L1 工具箱的《PyTorch 使用层（上）》"多出来的四样"之二）。
 2. **shift**：位置 $$t$$ 的 logits 预测 $$t+1$$ 的 token。实现是在 labels 末尾垫一个 `-100` 再整体左移一位——比 `logits[:, :-1]` 少一次拷贝。配套脚本验证：`labels = input_ids` 时模型的 `loss` 与手算 `cross_entropy(logits[0, :-1], input_ids[0, 1:])` 相等到最后一位，`3.9506`。
-3. **`ignore_index=-100`**：labels 里的 `-100` 不计入——SFT 的 loss mask（第四篇 trl 造 labels 时把 prompt 位置全填 `-100`）就靠它。
+3. **`ignore_index=-100`**：labels 里的 `-100` 不计入——SFT 的 loss mask（[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)里 trl 造 labels 时把 prompt 位置全填 `-100`）就靠它。
 
 `fixed_cross_entropy` 里的 `num_items_in_batch` 是 4.46 之后修的一个著名 bug：梯度累积时每个小 batch 各自 `mean`，token 多的 batch 与 token 少的 batch 权重一样，等价于每个 token 的权重不同。修法是 Trainer 先数出整个大 batch 的有效 token 数传进来，loss 改成 `sum / num_items_in_batch`——L1 工具箱的《PyTorch 使用层（上）》讲梯度累积时提醒的"要除以累积步数"，Trainer 用这种方式做对了。
 

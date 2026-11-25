@@ -294,19 +294,19 @@ Table: 全系列的十五类对象：谁持有、在哪一侧、活多久、哪�
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 训练 FLOP 占一半，所以 RL 的瓶颈在训练 | decode 是 memory-bound、MFU 个位数，时间不按 FLOP 分 | 时间上生成占四分之三，效率由 rollout 决定 | [第一篇](/rl-step-anatomy-rollout-reward-train.html) |
-| 加卡就能按比例缩短 rollout | 长尾取决于最长那条序列，不取决于卡数 | 64 → 128 卡墙钟只降 35%，长尾 196 s 一秒不少 | [第一篇](/rl-step-anatomy-rollout-reward-train.html) |
-| 全步 MFU 越高系统越好 | PPO 多出的价值模型 FLOP 是"好算的活"，MFU 升、墙钟也升 | 看墙钟，MFU 只是分母的注脚（13.3% → 18.1%，墙钟 +22%） | [第一篇](/rl-step-anatomy-rollout-reward-train.html) |
-| 分离比共置省时间 | 两池同步地轮流，任一时刻只有一个池在干活 | 同步分离 1501 s 比共置 810 s 更差；分离的价值只在重叠 | [第二篇](/rl-system-topologies-colocate-disaggregate-async.html) |
-| rollout : train 按 FLOP 配 | FLOP 上训练是生成的 3 倍，时间上生成是训练的 2 倍 | 按时间配，异步 2 : 1；且随回答变长而漂 | [第二篇](/rl-system-topologies-colocate-disaggregate-async.html) |
-| 共置的代价是显存切换的秒数 | 任何合理配置下切换 < 2% | 真实代价是 KV 池只有半张卡：0.5 让 8B 生成 602 → 745 s | [第三篇](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
-| sleep 之后 CUDA graph 要重捕获、KV 块表要重建 | `CuMemAllocator` 只摘物理页、虚拟地址不变 | 图、模型对象、块表都幸存；要补的是 `named_buffers`、fp8 KV scale、prefix cache | [第三篇](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
-| 权重同步慢是网络带宽不够 | 朴素路径让全模型经 rank 0 一张网卡并在它上面物化 | 235B 全量 246–266 s 大部分与网络无关；多源 / 增量才是解 | [第四篇](/weight-sync-from-training-shards-to-inference-shards.html) |
-| 增量同步省的是传输字节 | 0.5B 上也快 1.3 倍，字节比例解释不了 | 省的是"没有人持有完整模型"——全量 all-gather 与 rank 0 物化消失 | [第四篇](/weight-sync-from-training-shards-to-inference-shards.html) |
-| 异步的代价只是"样本过期一点" | staleness、训推不一致、缓冲淘汰三者机制不同、信号不同 | 在 reward 曲线上不可分，要事前记录三组信号 | [第五篇](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
-| drop 掉过期样本是中性的随机丢弃 | staleness 与回答长度正相关 | drop 系统性地丢长回答；用 wait 或部分 rollout | [第五篇](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
-| 开了前缀缓存，多轮的 prefill 就是线性的 | 命中要 KV 块还在显存；等环境的 30 秒里被逐出 | 默认配置下接近全重算（1400 s 对 160 s）；KV 卸载是出路 | [第六篇](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
-| reward 为 0 就是环境出错 | 0 是合法 reward | 服务应返回错误码；reward 要按源分组监控 | [第八篇](/rl-post-training-configuration-observability-and-troubleshooting.html) |
+| 训练 FLOP 占一半，所以 RL 的瓶颈在训练 | decode 是 memory-bound、MFU 个位数，时间不按 FLOP 分 | 时间上生成占四分之三，效率由 rollout 决定 | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) |
+| 加卡就能按比例缩短 rollout | 长尾取决于最长那条序列，不取决于卡数 | 64 → 128 卡墙钟只降 35%，长尾 196 s 一秒不少 | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) |
+| 全步 MFU 越高系统越好 | PPO 多出的价值模型 FLOP 是"好算的活"，MFU 升、墙钟也升 | 看墙钟，MFU 只是分母的注脚（13.3% → 18.1%，墙钟 +22%） | [《负载画像》](/rl-step-anatomy-rollout-reward-train.html) |
+| 分离比共置省时间 | 两池同步地轮流，任一时刻只有一个池在干活 | 同步分离 1501 s 比共置 810 s 更差；分离的价值只在重叠 | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html) |
+| rollout : train 按 FLOP 配 | FLOP 上训练是生成的 3 倍，时间上生成是训练的 2 倍 | 按时间配，异步 2 : 1；且随回答变长而漂 | [《系统形态》](/rl-system-topologies-colocate-disaggregate-async.html) |
+| 共置的代价是显存切换的秒数 | 任何合理配置下切换 < 2% | 真实代价是 KV 池只有半张卡：0.5 让 8B 生成 602 → 745 s | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| sleep 之后 CUDA graph 要重捕获、KV 块表要重建 | `CuMemAllocator` 只摘物理页、虚拟地址不变 | 图、模型对象、块表都幸存；要补的是 `named_buffers`、fp8 KV scale、prefix cache | [《共置》](/colocated-trainer-and-rollout-engine-memory-handoff.html) |
+| 权重同步慢是网络带宽不够 | 朴素路径让全模型经 rank 0 一张网卡并在它上面物化 | 235B 全量 246–266 s 大部分与网络无关；多源 / 增量才是解 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| 增量同步省的是传输字节 | 0.5B 上也快 1.3 倍，字节比例解释不了 | 省的是"没有人持有完整模型"——全量 all-gather 与 rank 0 物化消失 | [《权重同步》](/weight-sync-from-training-shards-to-inference-shards.html) |
+| 异步的代价只是"样本过期一点" | staleness、训推不一致、缓冲淘汰三者机制不同、信号不同 | 在 reward 曲线上不可分，要事前记录三组信号 | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
+| drop 掉过期样本是中性的随机丢弃 | staleness 与回答长度正相关 | drop 系统性地丢长回答；用 wait 或部分 rollout | [《异步与 off-policy》](/async-rl-staleness-partial-rollout-and-off-policy-correction.html) |
+| 开了前缀缓存，多轮的 prefill 就是线性的 | 命中要 KV 块还在显存；等环境的 30 秒里被逐出 | 默认配置下接近全重算（1400 s 对 160 s）；KV 卸载是出路 | [《Agentic rollout》](/agentic-rollout-multi-turn-tools-sandboxes-and-environment-services.html) |
+| reward 为 0 就是环境出错 | 0 是合法 reward | 服务应返回错误码；reward 要按源分组监控 | [《配置、可观测与排障》](/rl-post-training-configuration-observability-and-troubleshooting.html) |
 
 Table: 常见误区与正确说法
 

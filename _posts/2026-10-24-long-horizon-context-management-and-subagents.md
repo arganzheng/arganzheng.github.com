@@ -109,7 +109,7 @@ flowchart LR
         K1["微压缩旧工具返回"] --> K2["<b>83.5% 处 auto-compact</b><br/>结构化摘要替换历史"] --> K3["CLAUDE.md · 自动记忆从磁盘重注入"]
     end
     CX ~~~ DS ~~~ CC
-    N["共同点：多步可组合 · 结果进日志 · 在思考链边界触发（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）"]
+    N["共同点：多步可组合 · 结果进日志 · 在思考链边界触发（《API 契约（二）》）"]
     classDef cheap fill:#eefaf0,stroke:#4d9a5c,color:#222
     classDef sum fill:#fff7e0,stroke:#c98a00,color:#222
     classDef fb fill:#f0f0f0,stroke:#888,color:#222

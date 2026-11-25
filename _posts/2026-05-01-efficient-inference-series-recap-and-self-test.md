@@ -213,18 +213,18 @@ Table: 贯穿六篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 评测用 greedy 最公平 | 推理模型训练时在 $$T = 1$$ 下采样，greedy 路径未被训练，长输出下重复退化被放大 | 按模型卡（$$T = 0.6$$、top-p 0.95）多次采样报均值 | [第一篇](/decoding-strategies-sampling-and-constrained-generation.html) |
-| 低温已经把尾部去掉了 | 温度只改比值不置零；128K 词表尾部总质量可达 10%，$$T = 0.7$$ 也许只降到 0.02 | 截断（top-p / min-p）才把尾部置零；高温下 min-p 比 top-p 稳 | [第一篇](/decoding-strategies-sampling-and-constrained-generation.html) |
-| 草稿的 argmax 一致率就是接受率 | 接受率是 $$1 - \text{TV}$$，两个分布的重叠 | argmax 相同但形状不同 TV 可以很大；greedy 下才退化为 top-1 准确率 | [第二篇](/speculative-decoding-drafters-acceptance-and-trees.html) |
-| 树越大加速越多 | 验证 $$N_{tree}$$ 个节点要满足 $$B \cdot N_{tree} \lesssim \text{ridge}$$ | 树在 batch 1 上最有效<br/>batch 8 × 64 = 512 已过 ridge<br/>大 batch 缩树或关掉 | [第二篇](/speculative-decoding-drafters-acceptance-and-trees.html) |
-| INT4 的误差只是 INT8 的两倍 | 步长翻倍方差 ×4<br/>少 4 bit 方差 ×256<br/>一个 $$15\sigma$$ 权重让 $$\Delta \approx 2.1\sigma$$ | INT8 RTN 够用、INT4 RTN 不够，必须 GPTQ / AWQ 加 per-group | [第三篇](/post-training-quantization-gptq-awq-and-rotation.html) |
-| W4A16 让高吞吐服务也快 4 倍 | GEMM 仍是 BF16，dequant 在 compute-bound 区间是额外算力 | 高吞吐用 W8A8 / FP8（字节 ÷ 2、算力 × 2、近无损）或 W4A4（需旋转） | [第三篇](/post-training-quantization-gptq-awq-and-rotation.html) |
-| 困惑度 +0.1 就是无损 | 困惑度是平均，关键 token 的翻转被稀释 | Llama-3-8B W4：PPL +0.36 对应 GSM8K −3–6、needle −10 以上；看逐 token KL 的 P99 | [第四篇](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) |
-| QAT 要从头训 | 量化误差是细节，主要能力在全精度下学会即可 | 末段 QAT：最后 5–10% token 或 SFT 阶段，教师是全精度的自己 | [第四篇](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) |
-| key 与 value 用同一种量化粒度 | key 有固定通道离群、value 没有；key 误差被 softmax 指数放大 | key per-channel（沿 token 分组）、value per-token；2 bit 下选错崩掉 | [第五篇](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
-| 注意力低的 KV 可以安全驱逐 | needle 在被读到时就是"不重要"的；多跳的第二跳在问题之前不可知 | 驱逐只在问题已知（SnapKV）、只依赖近期（StreamingLLM）或输入冗余大时安全 | [第五篇](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
-| 50% 非结构化稀疏让推理快一倍 | Tensor Core 不识别零，稀疏 GEMM 在 50% 下比稠密慢 | 只有 2:4 被硬件兑现（1.3–1.8×），且 decode 字节只到 5/8 | [第六篇](/pruning-depth-scaling-and-small-model-recipes.html) |
-| 删层后 MMLU 不掉就是无损 | 多选只要正确选项 logit 最大；生成任务每步精确、格式遵循写在深层 | GSM8K 可从 50 掉到 10 以下；剪枝后必须蒸馏恢复并重做后训练 | [第六篇](/pruning-depth-scaling-and-small-model-recipes.html) |
+| 评测用 greedy 最公平 | 推理模型训练时在 $$T = 1$$ 下采样，greedy 路径未被训练，长输出下重复退化被放大 | 按模型卡（$$T = 0.6$$、top-p 0.95）多次采样报均值 | [《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html) |
+| 低温已经把尾部去掉了 | 温度只改比值不置零；128K 词表尾部总质量可达 10%，$$T = 0.7$$ 也许只降到 0.02 | 截断（top-p / min-p）才把尾部置零；高温下 min-p 比 top-p 稳 | [《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html) |
+| 草稿的 argmax 一致率就是接受率 | 接受率是 $$1 - \text{TV}$$，两个分布的重叠 | argmax 相同但形状不同 TV 可以很大；greedy 下才退化为 top-1 准确率 | [《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html) |
+| 树越大加速越多 | 验证 $$N_{tree}$$ 个节点要满足 $$B \cdot N_{tree} \lesssim \text{ridge}$$ | 树在 batch 1 上最有效<br/>batch 8 × 64 = 512 已过 ridge<br/>大 batch 缩树或关掉 | [《投机解码》](/speculative-decoding-drafters-acceptance-and-trees.html) |
+| INT4 的误差只是 INT8 的两倍 | 步长翻倍方差 ×4<br/>少 4 bit 方差 ×256<br/>一个 $$15\sigma$$ 权重让 $$\Delta \approx 2.1\sigma$$ | INT8 RTN 够用、INT4 RTN 不够，必须 GPTQ / AWQ 加 per-group | [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html) |
+| W4A16 让高吞吐服务也快 4 倍 | GEMM 仍是 BF16，dequant 在 compute-bound 区间是额外算力 | 高吞吐用 W8A8 / FP8（字节 ÷ 2、算力 × 2、近无损）或 W4A4（需旋转） | [《训练后量化》](/post-training-quantization-gptq-awq-and-rotation.html) |
+| 困惑度 +0.1 就是无损 | 困惑度是平均，关键 token 的翻转被稀释 | Llama-3-8B W4：PPL +0.36 对应 GSM8K −3–6、needle −10 以上；看逐 token KL 的 P99 | [《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) |
+| QAT 要从头训 | 量化误差是细节，主要能力在全精度下学会即可 | 末段 QAT：最后 5–10% token 或 SFT 阶段，教师是全精度的自己 | [《量化感知训练、低比特与量化模型的评测》](/quantization-aware-training-low-bit-and-evaluating-quantized-models.html) |
+| key 与 value 用同一种量化粒度 | key 有固定通道离群、value 没有；key 误差被 softmax 指数放大 | key per-channel（沿 token 分组）、value per-token；2 bit 下选错崩掉 | [《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
+| 注意力低的 KV 可以安全驱逐 | needle 在被读到时就是"不重要"的；多跳的第二跳在问题之前不可知 | 驱逐只在问题已知（SnapKV）、只依赖近期（StreamingLLM）或输入冗余大时安全 | [《KV cache 压缩》](/kv-cache-compression-quantization-eviction-and-sparse-attention.html) |
+| 50% 非结构化稀疏让推理快一倍 | Tensor Core 不识别零，稀疏 GEMM 在 50% 下比稠密慢 | 只有 2:4 被硬件兑现（1.3–1.8×），且 decode 字节只到 5/8 | [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html) |
+| 删层后 MMLU 不掉就是无损 | 多选只要正确选项 logit 最大；生成任务每步精确、格式遵循写在深层 | GSM8K 可从 50 掉到 10 以下；剪枝后必须蒸馏恢复并重做后训练 | [《剪枝、深度缩放与小模型配方》](/pruning-depth-scaling-and-small-model-recipes.html) |
 
 Table: 常见误区与正确说法
 

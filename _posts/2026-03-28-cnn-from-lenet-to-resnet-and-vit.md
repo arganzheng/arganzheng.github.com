@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-10-13
 ---
 
-第二至第七篇讲训练动力学，用的网络全是 MLP。这一篇和后两篇依次回看 Transformer 之前的三条结构史——卷积、Embedding 与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；离散 token 的表示连接词表与向量空间；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
+从[《损失函数》](/loss-functions-from-mse-to-dpo.html)到[《正则化与泛化》](/regularization-and-generalization.html)这六篇讲训练动力学，用的网络全是 MLP。这一篇和后两篇依次回看 Transformer 之前的三条结构史——卷积、Embedding 与循环——不是为了怀旧，而是因为 Transformer 的每个部件都有来历：残差连接、归一化、"堆同样的块"来自卷积这条线；离散 token 的表示连接词表与向量空间；attention 来自循环那条线。理解一个部件当初解决了什么问题，才知道它今天还在解决什么、什么时候可以拿掉。
 
 卷积网络的故事可以压缩成三句话：**卷积是一个被强约束的线性层**，约束带来的参数节省与归纳偏置让它在数据不多时远胜 MLP；**深度是为了感受野**（receptive field，一个输出位置能看到输入的范围），而深了就训不动，ResNet 用残差解决了它；**数据足够多时约束成了负担**，ViT 把图切成 patch、当成 token 送进标准 Transformer，只保留了卷积的一个影子——patch embedding 本身就是一个 stride 等于 kernel 的卷积。三句话各对应本篇的一个实验。全篇的核心问题是：
 
@@ -70,7 +70,7 @@ $$
 y_{o, i, j} = \sum_{c=1}^{C_{in}} \sum_{a=0}^{k_h - 1} \sum_{b=0}^{k_w - 1} k_{o, c, a, b}\, x_{c,\, i + a,\, j + b} + \beta_o
 $$
 
-**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层每个参数每样本用一次（2 FLOPs，[第三篇](/backpropagation-by-hand.html)），卷积层每个参数被用"输出位置数"次。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs（$$2 \times$$ 乘加），比值 320 FLOPs / 参数——即一个参数平均被用了 **160** 次（每次 2 FLOPs），是全连接的 160 倍。
+**参数量** $$= C_{out} \cdot C_{in} \cdot k_h \cdot k_w + C_{out}$$，与图像大小无关。**FLOPs** $$= 2 \cdot H_{out} \cdot W_{out} \cdot C_{out} \cdot C_{in} \cdot k_h \cdot k_w$$——每个输出位置做一次长度为 $$C_{in} k_h k_w$$ 的内积，与图像大小成正比。这是卷积与全连接层最大的算术区别：全连接层每个参数每样本用一次（2 FLOPs，[《反向传播》](/backpropagation-by-hand.html)），卷积层每个参数被用"输出位置数"次。ResNet-50 有 2560 万参数、每张图 82 亿 FLOPs（$$2 \times$$ 乘加），比值 320 FLOPs / 参数——即一个参数平均被用了 **160** 次（每次 2 FLOPs），是全连接的 160 倍。
 
 ### 2. 它就是一个稀疏矩阵
 
@@ -308,7 +308,7 @@ Table: 不同分辨率与 patch 大小下的 token 数
 
 ### 0. LeNet-5：6 万参数的 1998 年网络
 
-**问题与数据**：MNIST，与 《[LLM 时代的经典机器学习（05）：SVM 与核方法——最大间隔、核技巧与 attention 的远亲](/svm-and-kernel-methods.html)》（KNN 2.95%）、第六篇（RBF-SVM 1.43%）、本系列第三篇（两层 MLP 2.39%）同一份数据、同一个划分。1998 年 LeCun 等在这份数据上报了 LeNet-5 0.95% 的错误率，SVM 1.1%——卷积网络第一次在公开对比里领先。这一节把第四章那张图里的网络一层层写出来、训一遍、和前面三种方法对照。
+**问题与数据**：MNIST，与《LLM 时代的经典机器学习》的[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)（KNN 2.95%）、[《SVM 与核方法》](/svm-and-kernel-methods.html)（RBF-SVM 1.43%）、本系列[《反向传播》](/backpropagation-by-hand.html)（两层 MLP 2.39%）同一份数据、同一个划分。1998 年 LeCun 等在这份数据上报了 LeNet-5 0.95% 的错误率，SVM 1.1%——卷积网络第一次在公开对比里领先。这一节把第四章那张图里的网络一层层写出来、训一遍、和前面三种方法对照。
 
 **思路**：按原图的 C1-S2-C3-S4-C5-F6-OUT 七层照搬，只把 1998 年的三处改成今天的写法——tanh → ReLU、平均池化 → 最大池化、RBF 输出层 → softmax；结构、每层的通道数和核大小一个不改。
 
@@ -363,7 +363,7 @@ Table: LeNet-5 在 MNIST 上的训练
 | 方法 | 参数 | 测试错误率 | 出处 |
 |---|---:|---:|---|
 | KNN，$$k = 3$$ | 0（存 60,000 张） | 2.95% | 《[LLM 时代的经典机器学习（05）：SVM 与核方法——最大间隔、核技巧与 attention 的远亲](/svm-and-kernel-methods.html)》 |
-| 两层 MLP 784-256-10 | 203,530 | 2.39% | 本系列第三篇 |
+| 两层 MLP 784-256-10 | 203,530 | 2.39% | 本系列[《反向传播》](/backpropagation-by-hand.html) |
 | RBF-SVM | 16,122 个支持向量 | 1.43% | 《[LLM 时代的经典机器学习（06）：集成——随机森林、梯度提升与数据质量分类器的算力账](/ensembles-random-forest-and-gradient-boosting.html)》 |
 | LeNet-5（1998 原文） | 60K | 0.95% | LeCun 等 1998 |
 | **LeNet-5（本节复现，5 个 epoch）** | 61,706 | **0.82%** | |

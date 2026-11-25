@@ -188,7 +188,7 @@ flowchart LR
     D --> G2["<b>② 长尾</b><br/>80% 几小时做到，剩下 20% 是全部工作<br/>→ L5 bad case 队列"]
     D --> G3["<b>③ 集成</b><br/>工作流 · 权限 · 数据源 · 身份 · 审计<br/>→ L3 · L4 · L6"]
     D --> G4["<b>④ 信任</b><br/>用户不知道 AI 不擅长什么<br/>→ 第三篇"]
-    D --> G5["<b>⑤ 成本</b><br/>每任务成本 vs 价值 · 长尾占大头<br/>→ 《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》"]
+    D --> G5["<b>⑤ 成本</b><br/>每任务成本 vs 价值 · 长尾占大头<br/>→ 《成本工程》"]
     G1 & G2 & G3 & G4 & G5 --> P["<b>产品：几个月</b><br/>不是「再打磨一下」，是前六层的全部"]
     classDef d fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef g fill:#fff7e0,stroke:#c98a00,color:#222

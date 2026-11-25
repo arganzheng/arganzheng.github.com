@@ -11,13 +11,13 @@ updated: 2026-09-30
 
 ## 内容简介
 
-《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT 的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲数学骨架，[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
+《LoRA 专题》是一组共三篇正文加一篇总结的系列文章，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L5 后训练层的**专题篇**。LoRA（Low-Rank Adaptation，Hu 等 2021）是今天做 SFT 的默认方式：一张消费级显卡微调 8B 模型、一个底座服务上百个客户的定制版本、DPO / GRPO 里省掉一份参考模型，背后都是它。本站此前把 LoRA 拆在几处讲——《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》讲数学骨架，[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)用六行代码组装一次 LoRA SFT，《后训练》的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)第五章讲它在 SFT 里的地位，[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 `lora.Linear` 的实现，《现代 LLM 结构》系列曾有半篇算它的计算形态（那半篇的内容已并入本系列）——读者反馈是「每处都只讲了一角」。本系列把它讲全：一个从没用过 LoRA 的人读完，应当能独立决定**用不用、怎么配、怎么上线**，并说得出每个决定的依据。
 
 它回答的问题是：
 
 > **为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好？`r`、`lora_alpha`、`target_modules`、学习率各取多少、依据是什么？训完的 adapter 怎么存、怎么合并、怎么让一个底座同时服务几十个 adapter？什么时候低秩假设不成立、该回到全量微调？[^q0]**
 
-三篇正文都配同一组实验：Qwen2.5-0.5B 上，同一份 800 条指令数据、同样 80 步，把全量微调与十二种 LoRA 配置逐个训一遍，比验证集回复的 loss、比普通文本 loss 的变化（遗忘）、比每步耗时；再把全量微调学到的 $$\Delta W$$ 做 SVD，看它到底有多"低秩"。所有数字在一台 8 线程的 CPU 上跑出，与作者在 Apple Silicon 上跑[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)的基线一致（训练前验证回复 loss 2.4936、普通文本 loss 2.8748）。
+三篇正文都配同一组实验：Qwen2.5-0.5B 上，同一份 800 条指令数据、同样 80 步，把全量微调与十二种 LoRA 配置逐个训一遍，比验证集回复的 loss、比普通文本 loss 的变化（遗忘）、比每步耗时；再把全量微调学到的 $$\Delta W$$ 做 SVD，看它到底有多"低秩"。所有数字在一台 8 线程的 CPU 上跑出，与作者在 Apple Silicon 上跑《后训练》的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的基线一致（训练前验证回复 loss 2.4936、普通文本 loss 2.8748）。
 
 系列覆盖的范围是三段：
 
@@ -99,7 +99,7 @@ flowchart TB
 
 ### 4. 系列总结与通关自测
 
-[第四篇](/lora-series-recap-and-self-test.html)逐篇回答上面的分章问题，拎出贯穿三篇的四条线，列常见误区，再给一套判断计算 / 跨篇综合 / 面试题三段自测。
+[《系列总结与通关自测》](/lora-series-recap-and-self-test.html)逐篇回答上面的分章问题，拎出贯穿三篇的四条线，列常见误区，再给一套判断计算 / 跨篇综合 / 面试题三段自测。
 
 ## 贯穿全系列的实践线
 
@@ -123,7 +123,7 @@ Table: 三篇正文的配套实验
 |---|---|---|
 | 矩阵的秩与 SVD | 知道秩 $$r$$ 的矩阵能写成 $$r$$ 个外积之和、前 $$r$$ 个奇异值的截断是最优低秩近似 | 《[算法工程师的数学（03）：正交与旋转、特征值与 SVD——从 RoPE 到 LoRA](/orthogonal-rotation-svd-and-low-rank.html)》 |
 | 反向传播与 Adam | 能写出一个线性层的 $$\partial \mathcal{L} / \partial W$$、知道 Adam 每参数存两个矩 | 《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》、《[深度学习基础（03）：反向传播——手推一个两层网络](/backpropagation-by-hand.html)》、《[深度学习基础（06）：优化器——从 SGD 到 AdamW 与学习率调度](/optimizers-from-sgd-to-adamw.html)》 |
-| SFT 的数据格式 | 知道 chat template、loss mask、`completion_only_loss` 是什么 | [后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)第二至四章 |
+| SFT 的数据格式 | 知道 chat template、loss mask、`completion_only_loss` 是什么 | 《后训练》的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)第二至四章 |
 | `peft` / `trl` 的用法 | 跑过一次 `get_peft_model` + `SFTTrainer` | [工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html) |
 | 训练的算量与状态字节数 | 知道前向 $$2N$$、反向 $$4N$$，混合精度 + Adam 每参数 16 字节从哪来 | [《现代 LLM 结构》的《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)、《现代 LLM 结构》的《浮点格式、数值稳定性与混合精度》 |
 
@@ -133,7 +133,7 @@ Table: 读本系列需要的前置
 
 ### 版本与基线
 
-peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU）；模型 Qwen/Qwen2.5-0.5B（base，494M 参数，24 层，hidden 896，中间层 4864，KV 维 128），数据 HuggingFaceH4/no_robots 的 800 条单轮样本训练、100 条验证，遗忘用 wikitext-2 测试集的 60 段。训练配置与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)相同：batch 4 × 512、80 步、cosine、warmup 8 步、只对回复算 loss。
+peft 0.21.1、trl 1.14.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU）；模型 Qwen/Qwen2.5-0.5B（base，494M 参数，24 层，hidden 896，中间层 4864，KV 维 128），数据 HuggingFaceH4/no_robots 的 800 条单轮样本训练、100 条验证，遗忘用 wikitext-2 测试集的 60 段。训练配置与《后训练》的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)相同：batch 4 × 512、80 步、cosine、warmup 8 步、只对回复算 loss。
 
 ## 章节目录
 

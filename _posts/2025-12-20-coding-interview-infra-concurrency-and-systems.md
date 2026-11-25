@@ -10,7 +10,7 @@ updated: 2026-09-15
 
 AI-Infra 岗的手撕题和算法岗不同：不考 DP，考**系统**——一把锁保护什么、条件变量为什么要 `while`、线程池的异常怎么传回、内存池的空闲链表放在哪、矩阵乘为什么换个循环顺序快十倍、ring allreduce 每个 rank 发多少字节、paged KV cache 的引用计数和 copy-on-write、令牌桶怎样用一个时间戳懒补充。这些题的代码都不长，但每一道背后都有一个"为什么这样设计"的追问，答得出来才算过。这一篇 Python 与 C++ 各自负责擅长的部分：并发原语、模拟与协议用 Python 讲清逻辑，内存池、GEMM、线程安全容器用 C++ 落到底。
 
-系统层面的原理在 Infra 地图：并发见 [Python 在 AI-Infra（03）](/python-for-ai-infra.html)，内存与所有权见 [C++ 在 AI-Infra](/cpp-for-ai-infra.html)，allreduce 见[通信与互联](/communication-and-interconnect-for-ai-infra.html)，paged attention 见 [vLLM 系列](/deep-dive-into-vllm.html)。
+系统层面的原理在 Infra 地图：并发见[《Python 在 AI-Infra》](/python-for-ai-infra.html)，内存与所有权见 [C++ 在 AI-Infra](/cpp-for-ai-infra.html)，allreduce 见[通信与互联](/communication-and-interconnect-for-ai-infra.html)，paged attention 见 [vLLM 系列](/deep-dive-into-vllm.html)。
 
 本篇要回答的核心问题是：
 

@@ -8,7 +8,7 @@ catalog: true
 updated: 2026-10-10
 ---
 
-> **更新 @2026-09-30**：实验用 peft 0.21.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU），模型 Qwen2.5-0.5B，adapter 是[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训出的 `r16_all`（$$r = 16$$ 全部线性层）与 `r16_attn`（$$r = 16$$ 只挂 attention）。配套脚本 `ai-learning-labs/lora/03_deploy.py`（子实验 `files` / `merge` / `quant` / `multi` / `tokens`）。
+> **更新 @2026-09-30**：实验用 peft 0.21.1、transformers 5.17.0、bitsandbytes 0.50.2、PyTorch 2.14（CPU），模型 Qwen2.5-0.5B，adapter 是[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训出的 `r16_all`（$$r = 16$$ 全部线性层）与 `r16_attn`（$$r = 16$$ 只挂 attention）。配套脚本 `ai-learning-labs/lora/03_deploy.py`（子实验 `files` / `merge` / `quant` / `multi` / `tokens`）。
 
 前两篇回答了"为什么"与"怎么配"，训出来的东西是一个目录：`adapter_config.json` 加一个几十 MB 的 `adapter_model.safetensors`。本文回答从这个目录到线上服务之间的每一个问题：文件里有什么、装回去与训练结束时是否一致、合并前后差多少、换一个量化过的底座差多少、两个 adapter 能不能同时挂或加起来、一个底座服务几十个客户的显存怎么算、为什么 DPO 用了 LoRA 就不用再放参考模型、为什么新加的特殊 token 学不会。每个问题都有一个实验和一组数字。
 
@@ -74,7 +74,7 @@ base = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-0.5B", dtype=torch.flo
 model = PeftModel.from_pretrained(base, "out/ckpt/r16_all")
 ```
 
-装回去后在 100 条验证样本上的回复 loss 与第二篇训完当场算出的数一致（都是 2.3943）。这是应该的：adapter 存的就是那 336 个张量，前向公式没变。
+装回去后在 100 条验证样本上的回复 loss 与[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训完当场算出的数一致（都是 2.3943）。这是应该的：adapter 存的就是那 336 个张量，前向公式没变。
 
 ### 2.2 合并
 
@@ -115,7 +115,7 @@ adapter 是对着某个精度的 $$W$$ 学的。工程上常见的组合有四�
 
 Table: 训练与服务时底座精度的四种组合
 
-实测（第二篇的 r=16 全部线性层 adapter，FP32 上训的）：
+实测（[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的 r=16 全部线性层 adapter，FP32 上训的）：
 
 | 组合 | 验证回复 loss | 相对训练前同精度底座 |
 |---|---|---|
@@ -124,7 +124,7 @@ Table: 训练与服务时底座精度的四种组合
 | FP32 底座 + adapter（训练时的组合） | 2.3943 | −0.0993 |
 | NF4 底座 + 同一个 adapter | 2.4860 | −0.0920 |
 | 先合并再 NF4 量化 | 2.4854 | −0.0926 |
-| 对照：QLoRA 在 NF4 底座上训出的 adapter + NF4 底座（第二篇） | 2.4663 | −0.1117 |
+| 对照：QLoRA 在 NF4 底座上训出的 adapter + NF4 底座（[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)） | 2.4663 | −0.1117 |
 
 Table: 同一个 adapter 换底座精度、以及先合并再量化的效果（`03_deploy.py quant`；NF4 = bitsandbytes `load_in_4bit`、双重量化，CPU）
 
@@ -148,7 +148,7 @@ set_adapter('all' )  验证回复 loss 2.3943     # 第二篇的 r=16 全部线�
 set_adapter('attn')  验证回复 loss 2.4113     # 第二篇的 r=16 attention-only
 ```
 
-两个数与第二篇训完当场算的一致：切换 adapter 就是切换到那次训练的模型。
+两个数与[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)训完当场算的一致：切换 adapter 就是切换到那次训练的模型。
 
 ### 4.2 加权合成
 
@@ -175,7 +175,7 @@ Table: add_weighted_adapter 的合成方式
 
 Table: 两个同任务 adapter 的三种合成（`03_deploy.py multi`）
 
-三种合成都落在两个原 adapter 之间，没有一种好于最好的那个——同一任务的 adapter 合成拿到的是"平均"，不是"叠加"。`cat` 与 `svd` 几乎一样（2.4065 / 2.4063）：`svd` 截到 16 几乎没丢东西，说明 $$B_1 A_1 + B_2 A_2$$ 这个秩 32 的矩阵有效秩其实不到 16——又一次印证第一篇的低秩假设。
+三种合成都落在两个原 adapter 之间，没有一种好于最好的那个——同一任务的 adapter 合成拿到的是"平均"，不是"叠加"。`cat` 与 `svd` 几乎一样（2.4065 / 2.4063）：`svd` 截到 16 几乎没丢东西，说明 $$B_1 A_1 + B_2 A_2$$ 这个秩 32 的矩阵有效秩其实不到 16——又一次印证[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)。
 
 `linear` 与 `cat` 的差别值得记住：两个 adapter 的 $$\Delta W$$ 之和是 $$B_1 A_1 + B_2 A_2$$，`cat` 精确等于它；`linear` 算的是 $$(w_1 B_1 + w_2 B_2)(w_1 A_1 + w_2 A_2)$$，多了 $$B_1 A_2$$、$$B_2 A_1$$ 两个交叉项——两个 adapter 是各自独立训的，$$B_1$$ 与 $$A_2$$ 之间没有任何关系，交叉项是噪声。所以合成不同任务的 adapter 用 `cat` 或 `svd`，`linear` 只适合同一任务不同 checkpoint（它们的 $$A$$、$$B$$ 从同一个初始化出发，方向相近）。
 

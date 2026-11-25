@@ -27,7 +27,7 @@ updated: 2026-10-10
 
 Table: 实验设置
 
-基线是全量微调 lr $$10^{-5}$$：训练 loss 2.409 → 2.182，验证回复 loss **2.3924**，普通文本 loss +0.0213，6.7 s/步——与[后训练第一篇](/sft-data-chat-template-loss-mask-and-peft.html)在 Apple Silicon 上跑出的数字相同。LoRA 的默认配置（$$r = 16$$、全部线性层、$$\alpha = 32$$、lr $$10^{-4}$$）是所有对照的另一个锚点。
+基线是全量微调 lr $$10^{-5}$$：训练 loss 2.409 → 2.182，验证回复 loss **2.3924**，普通文本 loss +0.0213，6.7 s/步——与《后训练》的[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)在 Apple Silicon 上跑出的数字相同。LoRA 的默认配置（$$r = 16$$、全部线性层、$$\alpha = 32$$、lr $$10^{-4}$$）是所有对照的另一个锚点。
 
 80 步、800 条数据是一个刻意的小实验：它能分辨旋钮之间的差别，但绝对数字不代表"LoRA 能训到多好"。每一节末尾都标出哪些结论在大模型、长训练上会变。
 
@@ -69,7 +69,7 @@ Table: target_modules：只挂 attention 对全部线性层，与"参数同样�
 - 从 attention 到全部线性层参数多了 4 倍，验证 loss 改善 0.017（2.4113 → 2.3943）；把 $$r$$ 从 16 提到 64 同样是参数翻 4 倍，却没有改善。参数应该花在**挂哪里**，不是花在 $$r$$ 上。代价是遗忘从 +0.0018 到 +0.0107：只挂 attention 的模型改得最少。**MLP 层承载了大部分"知识"与非线性变换**，只改注意力等于只改"看哪里"不改"怎么算"。
 - `target_modules="all-linear"` 在 `peft` 里展开为模型中所有 `nn.Linear` **减去输出层 `lm_head`**——输出层挂 LoRA 会让 adapter 与词表大小相关（151936 × 16），且改输出分布的效果差。
 - 想再省：k_proj、v_proj 在 GQA 模型上只有 896 × 128，挂不挂对参数量几乎没影响，不必特意排除；真要省就去掉 gate/up/down 中的一个，但没有证据说明哪一个更不重要。
-- embedding 与 lm_head 不在 `all-linear` 里（embedding 不是 `nn.Linear`，lm_head 被排除）。加了新 token 时它们必须另外处理——[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第六节。
+- embedding 与 lm_head 不在 `all-linear` 里（embedding 不是 `nn.Linear`，lm_head 被排除）。加了新 token 时它们必须另外处理——[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第六节。
 
 ## 四、alpha 与 rsLoRA：缩放常数怎么随 r 变
 
@@ -143,7 +143,7 @@ Table: LoRA+（B 的 lr 是 A 的 4 倍）对普通 LoRA，其余配置相同（
 
 ## 六、初始化家族：PiSSA、OLoRA、EVA、LoftQ、CorDA
 
-[第一篇](/lora-low-rank-hypothesis-gradients-and-accounts.html)说了默认初始化 $$B = 0$$、$$A$$ 随机的理由：训练开始时 $$W' = W$$，而梯度不为零。它的缺点是 $$A$$ 的随机方向与 $$W$$ 无关，前几十步要先"找方向"。一族方法用 $$W$$ 或数据来选初始方向：
+[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)说了默认初始化 $$B = 0$$、$$A$$ 随机的理由：训练开始时 $$W' = W$$，而梯度不为零。它的缺点是 $$A$$ 的随机方向与 $$W$$ 无关，前几十步要先"找方向"。一族方法用 $$W$$ 或数据来选初始方向：
 
 | 方法 | $$A_0$$、$$B_0$$ 怎么来 | 怎么保持 $$W' = W$$ | 额外代价 | `init_lora_weights=` |
 |---|---|---|---|---|
@@ -157,7 +157,7 @@ Table: LoRA+（B 的 lr 是 A 的 4 倍）对普通 LoRA，其余配置相同（
 
 Table: LoRA 的初始化家族
 
-它们分两类：**改底座的**（PiSSA、OLoRA、CorDA：训的是 $$W_{res}$$ 上的 adapter，[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)1.3 节讲怎么把它转成对原始 $$W$$ 的普通 adapter）与**不改底座的**（EVA：只是选了更好的 $$A$$，adapter 与普通 LoRA 完全兼容）。本实验跑 PiSSA（$$r = 16$$，`pissa_niter_4`）：
+它们分两类：**改底座的**（PiSSA、OLoRA、CorDA：训的是 $$W_{res}$$ 上的 adapter，[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)1.3 节讲怎么把它转成对原始 $$W$$ 的普通 adapter）与**不改底座的**（EVA：只是选了更好的 $$A$$，adapter 与普通 LoRA 完全兼容）。本实验跑 PiSSA（$$r = 16$$，`pissa_niter_4`）：
 
 | 配置 | 可训练参数 | 训练 loss（10 步 → 80 步） | 验证回复 loss | 普通文本 loss 变化 | s/步 |
 |---|---|---|---|---|---|
@@ -176,7 +176,7 @@ $$
 W' = m \odot \frac{W + \frac{\alpha}{r} B A}{\lVert W + \frac{\alpha}{r} B A \rVert_c}
 $$
 
-代价：每个矩阵多 $$d_{out}$$ 个参数（可忽略，0.5B 上 8.8M → 9.1M）；**每步要算 $$W + BA$$ 的列范数**，这需要显式构造 $$d_{out} \times d_{in}$$ 的 $$BA$$——正是第一篇说 LoRA 刻意避免的事。所以 DoRA 一步比 LoRA 慢（本实验 CPU 上慢 27%；GPU 上大矩阵的范数计算相对更贵）。
+代价：每个矩阵多 $$d_{out}$$ 个参数（可忽略，0.5B 上 8.8M → 9.1M）；**每步要算 $$W + BA$$ 的列范数**，这需要显式构造 $$d_{out} \times d_{in}$$ 的 $$BA$$——正是[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)说 LoRA 刻意避免的事。所以 DoRA 一步比 LoRA 慢（本实验 CPU 上慢 27%；GPU 上大矩阵的范数计算相对更贵）。
 
 | 配置 | 可训练参数 | 训练 loss（10 步 → 80 步） | 验证回复 loss | 普通文本 loss 变化 | s/步 |
 |---|---|---|---|---|---|
@@ -189,7 +189,7 @@ Table: DoRA（use_dora=True）对普通 LoRA，其余配置相同（Qwen2.5-0.5B
 
 ## 八、QLoRA：把冻结权重量化到 4 bit
 
-第一篇的账：8B 模型 LoRA 训练状态 15.5 GiB，其中 15 GiB 是冻结的 BF16 权重。QLoRA（Dettmers 等 2023）把这一块量化到 4 bit，LoRA 部分不变，8B 的训练状态降到 5 GiB 左右，65B 可以在一张 48 GB 的卡上微调。它由三件事组成：
+[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)的账：8B 模型 LoRA 训练状态 15.5 GiB，其中 15 GiB 是冻结的 BF16 权重。QLoRA（Dettmers 等 2023）把这一块量化到 4 bit，LoRA 部分不变，8B 的训练状态降到 5 GiB 左右，65B 可以在一张 48 GB 的卡上微调。它由三件事组成：
 
 ### 8.1 NF4：按正态分布分位数取的 16 个格点
 
@@ -223,9 +223,9 @@ Table: DoRA（use_dora=True）对普通 LoRA，其余配置相同（Qwen2.5-0.5B
 
 Table: QLoRA NF4 与 FP32 LoRA 的同配置对照（变化均相对训练前的 FP32 底座 2.4936 / 2.8748）
 
-训练 loss 从第一步起就高 0.09（2.514 对 2.422）——那是 NF4 底座自己的量化误差，0.5B 这么小的模型被 4-bit 伤得不轻；80 步后 adapter 把差距缩到 0.07，验证回复 loss 2.4663 仍比 FP32 的 2.3943 差得多。表里的"+0.1415"是相对 FP32 底座算的，其中大部分是底座量化本身、不是 adapter 带来的遗忘：NF4 底座训练前的验证回复 loss 是 2.5780，比 FP32 高 0.084（第三篇第三节），QLoRA 的 adapter 在它上面拿到了 −0.112，比 FP32 LoRA 的 −0.099 还多一点。每步慢 6%（CPU 上反量化走的是 `kernels` 包的 CPU kernel；GPU 上论文报的是慢 30% 左右）。
+训练 loss 从第一步起就高 0.09（2.514 对 2.422）——那是 NF4 底座自己的量化误差，0.5B 这么小的模型被 4-bit 伤得不轻；80 步后 adapter 把差距缩到 0.07，验证回复 loss 2.4663 仍比 FP32 的 2.3943 差得多。表里的"+0.1415"是相对 FP32 底座算的，其中大部分是底座量化本身、不是 adapter 带来的遗忘：NF4 底座训练前的验证回复 loss 是 2.5780，比 FP32 高 0.084（[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第三节），QLoRA 的 adapter 在它上面拿到了 −0.112，比 FP32 LoRA 的 −0.099 还多一点。每步慢 6%（CPU 上反量化走的是 `kernels` 包的 CPU kernel；GPU 上论文报的是慢 30% 左右）。
 
-读法：QLoRA 的精度损失来自底座量化误差，adapter 一定程度上会补偿它（它是对着量化后的底座学的）；论文在 Vicuna 评测上 4-bit 追平 16-bit 全量。代价是每步慢、训练前要有 bitsandbytes 的 kernel（CPU 上要 `kernels` 包并联网取一次）。上线时的底座精度选择与失配问题在第三篇第三节。
+读法：QLoRA 的精度损失来自底座量化误差，adapter 一定程度上会补偿它（它是对着量化后的底座学的）；论文在 Vicuna 评测上 4-bit 追平 16-bit 全量。代价是每步慢、训练前要有 bitsandbytes 的 kernel（CPU 上要 `kernels` 包并联网取一次）。上线时的底座精度选择与失配问题在[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第三节。
 
 ## 九、全表与选择表
 
@@ -257,12 +257,12 @@ Table: 十三种配置并排（Qwen2.5-0.5B，no_robots 800 条，80 步 × batc
 |---|---|---|
 | 默认起点（指令 / 格式 / 风格 SFT，千到万条数据） | $$r = 16$$、`all-linear`、$$\alpha = 32$$、lr $$1 \sim 2 \times 10^{-4}$$、dropout 0–0.05 | 第二、三、五节：与全量差距最小、遗忘最少的性价比点 |
 | 数据多（10 万条以上）或领域远 | $$r = 64 \sim 128$$、`use_rslora=True` 或 $$\alpha = 2r$$、lr 不变 | 第二、四节：要学得多时容量要跟上，scaling 不能被 $$1 / r$$ 压掉 |
-| 注入知识、继续预训练、代码/数学大幅提升 | 全量；或 $$r \geq 256$$ + all-linear 并接受差距 | 第一篇第四、六节：改动本身高秩 |
+| 注入知识、继续预训练、代码/数学大幅提升 | 全量；或 $$r \geq 256$$ + all-linear 并接受差距 | [《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)第四、六节：改动本身高秩 |
 | 显存放不下 BF16 底座 | QLoRA（NF4 + 双重量化）+ 上面的 LoRA 配置；可加 LoftQ 初始化 | 第八节：只动冻结权重那本账 |
 | 必须很小的 $$r$$（几百个 adapter 同服） | $$r = 4 \sim 8$$ + `use_dora=True` | 第七节：小 $$r$$ 上 DoRA 收益最大 |
 | 只有几百条数据、怕过拟合 | $$r = 8$$、dropout 0.1、步数少、lr $$10^{-4}$$ | 第五节：LoRA 也会遗忘 |
 | 收敛慢、步数预算紧、数据多 | 先调 lr<br/>再试 EVA 初始化或 LoRA+ $$\lambda = 4 \sim 16$$<br/>PiSSA 要盯遗忘 | 第五、六节：小任务上它们不比调 lr 更有效 |
-| 加了新 token | 任何配置 + `trainable_token_indices` | 第三篇第六节 |
+| 加了新 token | 任何配置 + `trainable_token_indices` | [《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)第六节 |
 | 只服务一个模型、显存充足 | 全量微调 | LoRA 的收益都用不上 |
 
 Table: 任务与资源 → LoRA 配置
@@ -317,4 +317,4 @@ Table: 任务与资源 → LoRA 配置
 
 ## 下一篇
 
-配置定了、训完了，手里是一个几十 MB 的 adapter 目录。[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)回答它怎么存、怎么装回去、合并前后差多少、换量化底座差多少、多个 adapter 怎么切换与合成、一个底座服务几十个客户的账怎么算、DPO 为什么不用再放参考模型、新 token 为什么学不会。
+配置定了、训完了，手里是一个几十 MB 的 adapter 目录。[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)回答它怎么存、怎么装回去、合并前后差多少、换量化底座差多少、多个 adapter 怎么切换与合成、一个底座服务几十个客户的账怎么算、DPO 为什么不用再放参考模型、新 token 为什么学不会。

@@ -294,7 +294,7 @@ Table: L5 后训练各阶段的概念
 | 主题 | 概念 | 在哪一篇 |
 |---|---|---|
 | 解码策略 | greedy、beam search、temperature、top-k / top-p / min-p、重复惩罚、结构化输出（约束解码）；采样对评测结果的影响 | L6《解码策略、采样与约束生成》 |
-| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致<br/>期望接受长度<br/>草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | [现代 LLM 结构（08）](/speculative-decoding-draft-verify-and-payoff.html)给出数学与收益区间；L6《投机解码：草稿、接受率与树》讲草稿的训练与树 |
+| 投机解码 | 小模型起草、大模型验证、拒绝采样保证分布一致<br/>期望接受长度<br/>草稿来源：独立小模型、Medusa、EAGLE、MTP、n-gram | 《现代 LLM 结构》的[《投机解码》](/speculative-decoding-draft-verify-and-payoff.html)给出数学与收益区间；L6《投机解码：草稿、接受率与树》讲草稿的训练与树 |
 | 量化 | PTQ：GPTQ、AWQ、SmoothQuant、旋转（QuaRot / SpinQuant）、FP8、W4A16 vs W8A8<br/>QAT<br/>KV cache 量化<br/>格式与工具：GGUF（llama.cpp）、bitsandbytes、AutoGPTQ / AutoAWQ——它们是**格式与实现**，不是新算法 | 现代 LLM 结构《浮点格式、数值稳定性与混合精度》给出浮点格式与字节数<br/>L6《训练后量化：误差模型、GPTQ、AWQ 与旋转》《量化感知训练、低比特与量化模型的评测》讲误差模型、QAT 与评测<br/>kernel 实现属于 Infra 地图 06 |
 | 结构级压缩 | 剪枝与结构化稀疏（2:4）、层裁剪与深度缩放、MLA 一类 KV 压缩结构、KV eviction（H2O、StreamingLLM） | 《现代 LLM 结构》的《Attention 变体与 KV cache》给出 KV 的账；L6《KV cache 压缩：量化、驱逐与稀疏 attention》《剪枝、深度缩放与小模型配方》 |
 | 长上下文推理 | 位置外推方法的推理侧、稀疏 attention（NSA、MoBA）、上下文压缩 | 现代 LLM 结构《位置编码与外推》《长上下文的成本与结构手段》；L6《KV cache 压缩：量化、驱逐与稀疏 attention》 |

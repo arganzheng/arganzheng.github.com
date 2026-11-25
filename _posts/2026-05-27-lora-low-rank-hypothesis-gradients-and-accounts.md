@@ -119,7 +119,7 @@ $$
 
 初始化要满足两个条件：训练开始时 $$W' = W$$（不能一上来就把预训练模型改坏），又不能让梯度全为零（否则永远学不动）。$$B A$$ 只要有一个为零就满足第一条；两个都为零则 $$\partial \mathcal{L} / \partial B = s G (Ax)^\top = 0$$、$$\partial \mathcal{L} / \partial A = s B^\top G x^\top = 0$$，违反第二条。所以是**一个零、一个随机**。选 $$B = 0$$、$$A$$ 随机（`peft` 默认 Kaiming 均匀，`init_lora_weights="gaussian"` 是 $$\mathcal{N}(0, 1/r)$$）而不是反过来，有一个不那么显然的理由：$$A$$ 随机时 $$h = A x$$ 是输入的一个随机投影，第一步 $$B$$ 的梯度 $$s G h^\top$$ 立刻就是有信息的；若 $$A = 0$$、$$B$$ 随机，第一步 $$h = 0$$，只有 $$A$$ 动而 $$A$$ 的梯度 $$s B^\top G x^\top$$ 里的 $$B$$ 是无关的随机方向。第五节的实验把五种初始化各训 20 步比一比。
 
-PiSSA、OLoRA、EVA、LoftQ 这些"更聪明的初始化"都不满足 $$BA = 0$$，它们的做法是同时改 $$W$$ 让 $$W_{res} + BA = W$$ 仍成立——留到[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)。
+PiSSA、OLoRA、EVA、LoftQ 这些"更聪明的初始化"都不满足 $$BA = 0$$，它们的做法是同时改 $$W$$ 让 $$W_{res} + BA = W$$ 仍成立——留到[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)。
 
 ## 三、四本账：LoRA 省了什么、没省什么
 
@@ -163,7 +163,7 @@ Table: 不同 r 与目标矩阵下的可训练参数（Qwen2.5-0.5B 494M 参数�
 
 `get_peft_model(...).print_trainable_parameters()` 打出的 `trainable params: 8,798,208 || all params: 502,830,976 || trainable%: 1.7497` 就是第三行——分母里多出的 8.8M 是 `peft` 把 LoRA 参数也计入了总数。
 
-$$r$$ 与挂在哪些矩阵上是两个独立的旋钮，参数量对两者都是线性的：8B 上 $$r = 64$$ 只挂 attention 是 54.5M，$$r = 16$$ 挂全部七个是 41.9M，两者相近。LoRA 原论文的实验与后续经验都倾向于后者——**以小 $$r$$ 覆盖更多矩阵，比以大 $$r$$ 只覆盖 attention 更有效**：低秩假设对每个矩阵都成立，而覆盖 FFN 让适配能触及模型三分之二以上的参数所在。就成本而言两种选择没有区别，都是 0.5% 量级；第二篇的实验会把这两个旋钮分开扫。
+$$r$$ 与挂在哪些矩阵上是两个独立的旋钮，参数量对两者都是线性的：8B 上 $$r = 64$$ 只挂 attention 是 54.5M，$$r = 16$$ 挂全部七个是 41.9M，两者相近。LoRA 原论文的实验与后续经验都倾向于后者——**以小 $$r$$ 覆盖更多矩阵，比以大 $$r$$ 只覆盖 attention 更有效**：低秩假设对每个矩阵都成立，而覆盖 FFN 让适配能触及模型三分之二以上的参数所在。就成本而言两种选择没有区别，都是 0.5% 量级；[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的实验会把这两个旋钮分开扫。
 
 ### 3.2 训练状态：从 120 GiB 到 15.5 GiB
 
@@ -231,7 +231,7 @@ Table: 全量与 LoRA 一步训练的实测（FP32，CPU；`01_low_rank.py speed
 
 - **前向没有变快**（0.91 对 0.94 s）：LoRA 的前向多了 $$168 \times 2$$ 个瘦矩阵乘与 168 次加法，算子数几乎翻倍（5091 → 9963，矩阵乘 437 → 1445），只是它们都很小。
 - **省的是梯度与 Adam 状态**：1885 MB → 34 MB、3769 MB → 67 MB，正是 $$494M \times 4\ \text{B}$$ 对 $$8.8M \times 4\ \text{B}$$ 那两本账（3.1、3.2 节）。
-- **一步快了三分之一**（3.46 → 2.31 s），来自两处：反向不算 $$\partial \mathcal{L} / \partial W$$ 那 168 个 $$d_{out} \times d_{in}$$ 的外积（3.3 节），以及 Adam 更新从 494M 个参数变成 8.8M 个。序列拉长到 512 时（第二篇的对照矩阵）差距缩到 6.7 对 6.3 s/步——对输入的梯度要穿过每一个冻结的 $$W$$，这部分随序列长线性增长，LoRA 一分不省。
+- **一步快了三分之一**（3.46 → 2.31 s），来自两处：反向不算 $$\partial \mathcal{L} / \partial W$$ 那 168 个 $$d_{out} \times d_{in}$$ 的外积（3.3 节），以及 Adam 更新从 494M 个参数变成 8.8M 个。序列拉长到 512 时（[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的对照矩阵）差距缩到 6.7 对 6.3 s/步——对输入的梯度要穿过每一个冻结的 $$W$$，这部分随序列长线性增长，LoRA 一分不省。
 
 ## 四、检验低秩假设：全量微调的 ΔW 到底有多"低秩"
 
@@ -245,7 +245,7 @@ Hu 等 2021 报告 GPT-3 上 $$r = 1$$ 就能追平全量微调，且 $$r = 8$$ 
 
 ### 4.2 实验：80 步全量微调的 ΔW 的谱
 
-用第二篇那次全量微调（lr $$10^{-5}$$、80 步）的权重减去 base，得到 168 个线性层的 $$\Delta W$$，对每个做 SVD。挑第 0、12、23 层的三种矩阵看前 $$r$$ 个奇异值占的能量（$$\sum_{i \le r} \sigma_i^2 / \sum_i \sigma_i^2$$）：
+用[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)那次全量微调（lr $$10^{-5}$$、80 步）的权重减去 base，得到 168 个线性层的 $$\Delta W$$，对每个做 SVD。挑第 0、12、23 层的三种矩阵看前 $$r$$ 个奇异值占的能量（$$\sum_{i \le r} \sigma_i^2 / \sum_i \sigma_i^2$$）：
 
 | 矩阵 | 形状 | $$\lVert \Delta W \rVert / \lVert W \rVert$$ | 秩 1 | 秩 4 | 秩 16 | 秩 64 | 秩 256 |
 |---|---|---|---|---|---|---|---|
@@ -274,14 +274,14 @@ Table: 全量微调 80 步后 ΔW 的谱：前 r 个奇异值占的能量（`01_
 | 截到秩 64 | 2.3964 | 2.8861 |
 | 不截（168 个线性层的完整 $$\Delta W$$） | 2.3993 | 2.8917 |
 
-Table: ΔW 截到秩 r 后装回模型的效果（最后一行只装线性层的 ΔW，embedding / lm_head / norm 的改动没装，所以与第二篇全量模型的 2.3924 不同）
+Table: ΔW 截到秩 r 后装回模型的效果（最后一行只装线性层的 ΔW，embedding / lm_head / norm 的改动没装，所以与[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)全量模型的 2.3924 不同）
 
 读法：
 
 - **$$\Delta W$$ 本身不低秩**：秩 16 只占方阵 40–68%、MLP 矩阵 20–28% 的能量，要到秩 256 才覆盖九成以上——这是 Biderman 等 2024 的"高秩"。
 - **但有用的部分低秩**：秩 1 就拿到了全部收益的 95%（2.4936 → 2.4084，不截是 2.3993），秩 16 的 2.3959 已经**好于不截**。剩下的 80% 能量是对这个任务无用的成分——它带来的只有遗忘（普通文本 loss 从 2.8823 涨到 2.8917）。这是 Hu 等 2021 的"内在秩很低"。
 - 两者说的是同一个 $$\Delta W$$ 的不同部分。LoRA 赌的是：**只学那个低秩的、有用的部分**，把高秩的噪声与漂移直接扔掉——所以它"学得少也忘得少"不是巧合，是同一件事。
-- $$\lVert \Delta W \rVert / \lVert W \rVert$$ 只有 $$10^{-3}$$ 量级：80 步 SFT 对权重的改动非常小，这也是第三篇里 BF16 下合并要升到 FP32 再加的原因。
+- $$\lVert \Delta W \rVert / \lVert W \rVert$$ 只有 $$10^{-3}$$ 量级：80 步 SFT 对权重的改动非常小，这也是[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)里 BF16 下合并要升到 FP32 再加的原因。
 
 ## 五、初始化实验：五种 A、B 的起点
 
@@ -301,7 +301,7 @@ Table: 五种 A、B 初始化各训 20 步（`01_low_rank.py init`）
 
 - **有一个是零，训练前就等于 base**（前三列 +0.0000）；都随机则一开始就把模型改坏（loss 从 2.49 跳到 14.8），20 步也救不回来。
 - **都为 0 永远学不动**：$$\partial \mathcal{L} / \partial B = s G h^\top$$ 里 $$h = A x = 0$$，$$\partial \mathcal{L} / \partial A = s B^\top G x^\top$$ 里 $$B = 0$$，两个梯度恒为零，训完的 $$A$$、$$B$$ 仍是 0、验证 loss 一位小数都没变。日志里的训练 loss 在下降只是各步 batch 不同，不是在学——这是看训练曲线时要记住的一课。
-- **$$B = 0$$、$$A$$ 随机比反过来好**（2.4473 对 2.4813）：$$h = A x$$ 是输入的随机投影，第一步 $$B$$ 的梯度就有信息；反过来第一步 $$h = 0$$，只有 $$A$$ 动而它的梯度里乘着一个随机的 $$B$$。而且随机的 $$B$$ 比随机的 $$A$$ 大一个量级（168 个矩阵合起来的范数 318 对 29.9）：Kaiming 均匀的幅度是 $$1 / \sqrt{\text{fan\_in}}$$，$$B$$ 的 fan_in 是 $$r = 16$$，$$A$$ 的是 $$d_{in} = 896$$ 或 4864。同一个 lr 下 $$\Delta W = sBA$$ 的更新尺度完全不同——这就是第二篇 LoRA+ 讨论的 $$A$$、$$B$$ 不对称。
+- **$$B = 0$$、$$A$$ 随机比反过来好**（2.4473 对 2.4813）：$$h = A x$$ 是输入的随机投影，第一步 $$B$$ 的梯度就有信息；反过来第一步 $$h = 0$$，只有 $$A$$ 动而它的梯度里乘着一个随机的 $$B$$。而且随机的 $$B$$ 比随机的 $$A$$ 大一个量级（168 个矩阵合起来的范数 318 对 29.9）：Kaiming 均匀的幅度是 $$1 / \sqrt{\text{fan\_in}}$$，$$B$$ 的 fan_in 是 $$r = 16$$，$$A$$ 的是 $$d_{in} = 896$$ 或 4864。同一个 lr 下 $$\Delta W = sBA$$ 的更新尺度完全不同——这就是[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)里 LoRA+ 讨论的 $$A$$、$$B$$ 不对称。
 - `gaussian` 的 $$A$$ 范数是默认的 4 倍（124 对 29.9），20 步学到的略少（2.4595）。两者都能用，差别在前几步的有效学习率上；`peft` 默认就好。
 
 ## 六、什么时候低秩假设不成立
@@ -310,10 +310,10 @@ Table: 五种 A、B 初始化各训 20 步（`01_low_rank.py init`）
 
 - **格式、风格、指令跟随、领域口吻**：改动集中在少数方向上，$$r = 8 \sim 64$$ 够，LoRA 与全量接近且忘得更少——这是 SFT 的主要场景，也是 LoRA 成为默认的原因。
 - **注入大量新知识、继续预训练、代码与数学的大幅提升**：需要的改动本身是高秩的，LoRA 明显不如全量（Biderman 等 2024 的代码实验差 5–10 个点）。这时要么全量，要么 LoRA 把 $$r$$ 开到 256 以上并挂全部线性层、再接受它仍然学得少一些。
-- **新增 token、改词表**：LoRA 只挂线性层，embedding 与 lm_head 冻结，新 token 那一行永远不动——[第三篇](/lora-in-production-adapters-merging-multi-lora-and-serving.html)有实验与修法。
+- **新增 token、改词表**：LoRA 只挂线性层，embedding 与 lm_head 冻结，新 token 那一行永远不动——[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)有实验与修法。
 - **训练预算充足、只服务一个模型**：LoRA 省的显存与存储没有价值，全量微调是更简单的选择。
 
-判断的办法不是猜，是[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的对照实验：同数据同步数，全量与几种 $$r$$ 的 LoRA 并排比验证 loss 与遗忘。
+判断的办法不是猜，是[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的对照实验：同数据同步数，全量与几种 $$r$$ 的 LoRA 并排比验证 loss 与遗忘。
 
 ## 七、本文小结
 
@@ -363,4 +363,4 @@ Table: 五种 A、B 初始化各训 20 步（`01_low_rank.py init`）
 
 ## 下一篇
 
-低秩假设在 SFT 上成立，剩下的问题是公式里每个符号取多少：$$r$$、$$\alpha$$、挂哪些矩阵、学习率、初始化、要不要量化底座。[第二篇](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)把十二种配置在同一份数据上各训 80 步，每个旋钮给一组数字。
+低秩假设在 SFT 上成立，剩下的问题是公式里每个符号取多少：$$r$$、$$\alpha$$、挂哪些矩阵、学习率、初始化、要不要量化底座。[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)把十二种配置在同一份数据上各训 80 步，每个旋钮给一组数字。

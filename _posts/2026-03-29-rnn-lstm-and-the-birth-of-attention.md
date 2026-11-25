@@ -37,7 +37,7 @@ Table: 从 RNN 到 attention 的四个节点
 | 五 | seq2seq 与它的瓶颈 | encoder-decoder、固定向量、翻译质量随句长下降的实测（8 → 32 步） |
 | 六 | attention 的诞生 | Bahdanau 的公式、对齐矩阵、它与 softmax(QK^T)V 的对应 |
 | 七 | RNN 的两个致命缺点与 Transformer 的回答 | 串行 vs 并行（实测硬件利用率差 4.5 倍）、路径长度、`O(n²)` 的代价、RNN 的回声 |
-| 九 | 案例：字符级 LSTM 写莎士比亚 | 与 Transformer 系列第五篇的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66<br/>生成样例<br/>seq2seq + attention 的对齐矩阵热力图<br/>其余实验的代码与结果 |
+| 九 | 案例：字符级 LSTM 写莎士比亚 | 与《Transformer 原理与实现》的[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)的 nanoGPT 同一份语料、同一预算：val loss 1.71 vs 1.66<br/>生成样例<br/>seq2seq + attention 的对齐矩阵热力图<br/>其余实验的代码与结果 |
 | 九 | 本文小结 |  |
 | 十 | 自测 | 6 道题 |
 
@@ -91,7 +91,7 @@ Graves 2013 论文里的图 1 画的是同一件事的三层版本——每一�
 
 ![Graves 2013《Generating Sequences With Recurrent Neural Networks》图 1：深层循环网络沿时间展开，输入 x 在底、输出 y 在顶、三个隐藏层横向循环连接。图片版权归原作者，此处为教学评述引用](/img/in-post/dl-paper-graves-fig1.webp)
 
-把它沿时间展开，是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每一层复用同一组权重**。第四篇《[深度学习基础（04）：激活函数——从 sigmoid 到 SwiGLU](/activation-functions-from-sigmoid-to-swiglu.html)》解释了激活导数怎样进入每步 Jacobian；第五篇《[深度学习基础（05）：训练为什么不稳定——初始化、归一化与残差](/initialization-normalization-and-residual.html)》讲的 Jacobian 连乘，在这里沿时间反复乘同一个 $$W$$；第九篇《[深度学习基础（09）：Embedding 与表示学习——从查表到句向量](/embedding-and-representation-learning.html)》的 embedding 则把离散 token 变成 RNN 可接收的向量输入。
+把它沿时间展开，是一个深度为 $$T$$ 的网络，$$T$$ 常常是几百上千——比任何 CNN 都深，而且**每一层复用同一组权重**。[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)解释了激活导数怎样进入每步 Jacobian；[《训练为什么不稳定》](/initialization-normalization-and-residual.html)讲的 Jacobian 连乘，在这里沿时间反复乘同一个 $$W$$；[《Embedding 与表示学习》](/embedding-and-representation-learning.html)的 embedding 则把离散 token 变成 RNN 可接收的向量输入。
 
 ## 三、时间上的反向传播
 
@@ -344,7 +344,7 @@ RNN 的推理成本是 $$O(1)$$ / token、状态大小固定——这两点 Tran
 
 ### 0. 与 nanoGPT 同一份语料、同一预算
 
-**问题与数据**：Transformer 系列第五篇用 nanoGPT 在 1 MB 的莎士比亚剧本上训了一个字符级 GPT（4 层、128 维、0.80M 参数，batch 12 × 64 字符 × 2000 步，val loss 4.17 → 1.66）。这一节用**同一份语料、同样的 batch / 上下文 / 步数**训一个 2 层 LSTM（256 维，1.09M 参数），看 2013 年 Graves、2015 年 Karpathy char-rnn 那一代模型和小 Transformer 比在哪、差在哪。这是 RNN 最有名的应用之一——它让"神经网络能写出像人话的东西"第一次进入大众视野。
+**问题与数据**：《Transformer 原理与实现》的[《手搓 GPT（下）》](/nanogpt-train-py-and-training-a-model-that-writes.html)用 nanoGPT 在 1 MB 的莎士比亚剧本上训了一个字符级 GPT（4 层、128 维、0.80M 参数，batch 12 × 64 字符 × 2000 步，val loss 4.17 → 1.66）。这一节用**同一份语料、同样的 batch / 上下文 / 步数**训一个 2 层 LSTM（256 维，1.09M 参数），看 2013 年 Graves、2015 年 Karpathy char-rnn 那一代模型和小 Transformer 比在哪、差在哪。这是 RNN 最有名的应用之一——它让"神经网络能写出像人话的东西"第一次进入大众视野。
 
 **思路**：字符级语言模型——输入 64 个字符，每个位置预测下一个字符，loss 是交叉熵（每字符的 nats）。LSTM 一次读一个字符、状态 $$(h, c)$$ 各 256 维；nanoGPT 一次看全部 64 个。
 
@@ -439,7 +439,7 @@ for t in range(T, 0, -1):
 
 配套代码：[`deep-learning-foundations/06_rnn_attention.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/06_rnn_attention.py)（`bptt` / `memory` / `forget` / `seq2seq` / `timing` 五个子实验）、[`case_10_rnn_toys.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_10_rnn_toys.py)（`bptt-decay` / `lstm-gate` 两个玩具与本文插图）与 [`case_06_char_lstm_and_alignment.py`](https://github.com/arganzheng/ai-learning-labs/blob/main/deep-learning-foundations/case_06_char_lstm_and_alignment.py)（第八章案例，MPS 上半分钟）。
 
-本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；[Transformer 原理与实现（01）](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
+本篇的 Bahdanau attention 是 $$\text{softmax}(QK^T)V$$ 的前身；《Transformer 原理与实现》的[《Transformer 长什么样》](/transformer-architecture-from-a-sentence-to-the-next-token.html)从这里接过去：把它变成 self-attention、加上 mask、多头、FFN、残差与 LayerNorm，用 $$d = 4$$ 的例子手算一遍，再用 nanoGPT 写出来。
 
 ## 十、自测
 

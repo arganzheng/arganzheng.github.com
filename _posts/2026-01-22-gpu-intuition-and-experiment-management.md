@@ -65,7 +65,7 @@ $$
 
 ![H100 的 Roofline：斜线是带宽 × 强度，横线是 989 TFLOPS；decode 落在左边的 memory-bound 区，prefill 与训练落在右边](/img/in-post/gpu-intuition-roofline-h100.svg)
 
-一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。[现代 LLM 结构（02）](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；《GPU Kernel 工程》的[《GPU 为什么这样设计》](/gpu-architecture-and-roofline.html)从硬件侧讲同一件事。算法工程师需要的是用它判断：**一处结构改动把瓶颈往哪边推了**。
+一个操作的算术强度决定它落在横轴的哪个位置；落在斜线段上的是 memory-bound，往右挪（提高强度）性能线性上升；落到水平段上的是 compute-bound，再挪也不会更快。《现代 LLM 结构》的[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)把整个模型逐层放到这张图上；《GPU Kernel 工程》的[《GPU 为什么这样设计》](/gpu-architecture-and-roofline.html)从硬件侧讲同一件事。算法工程师需要的是用它判断：**一处结构改动把瓶颈往哪边推了**。
 
 ## 三、decode 与 prefill
 
@@ -116,7 +116,7 @@ prefill 把 prompt 的 4096 个 token 一起过模型。算力用第二章那条
 
 Table: 显存的四块：大小由什么决定
 
-前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)。
+前三块上一篇讲过。第四块 **KV cache** 是推理特有的：生成第 $$t$$ 个 token 时要看前面所有 token 的 key 与 value（《[算法工程师的数学（04）：概率入门——语言模型是一个条件分布](/probability-basics-language-model-as-conditional-distribution.html)》：条件不变、缓存有效），所以把它们存下来。每个 token、每层存 $$2 \times n_{kv} \times d_{head}$$ 个数；Llama-3-8B（$$n_{kv} = 8$$、$$d_{head} = 128$$、32 层、bf16）：每个 token $$2 \times 8 \times 128 \times 32 \times 2 = 131$$ KB，一个 8K 的上下文 1 GB，并发 64 个这样的请求 64 GB——**比权重还大**。这就是 GQA（Llama-3 用 8 个 kv 头而不是 32 个，KV cache 缩到 1/4）与 MLA（DeepSeek）的动机。精确公式在《现代 LLM 结构》的[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)。
 
 ### 2. OOM 归因
 

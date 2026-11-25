@@ -149,7 +149,7 @@ flowchart TB
     LAYOUT -->|"前缀稳定"| HIT["缓存命中率（第五篇）"]
     LAYOUT -->|"关键内容在两端"| ATT["注意力利用（第一篇位置效应）"]
     LAYOUT -->|"常驻层不在历史里"| SURV["压缩后存活（第四篇）"]
-    HIT -->|"读 0.1× · 跳过 prefill"| COST["成本与 TTFT（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）"]
+    HIT -->|"读 0.1× · 跳过 prefill"| COST["成本与 TTFT（《成本与延迟的账》）"]
     SIZE["每层的量（第四篇预算）"] -->|"超线"| PROC["卸载 → 清理 → 压缩"]
     PROC -->|"修改历史"| HIT
     PROC -->|"摘要替换历史"| SURV

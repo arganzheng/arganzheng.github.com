@@ -204,20 +204,20 @@ FLUX.1（Black Forest Labs 2024）在 MMDiT 双流块之后接了若干**单流�
 
 | 编码器 | 参数 | token 上限 | 学到什么 | 用在 |
 |---|---|---|---|---|
-| CLIP 文本塔（ViT-L/14） | 123M | 77 | 与图像对齐的全局语义；词袋倾向（[第一篇](/vision-encoders-clip-siglip-and-self-supervised-vit.html)第五章） | SD 1.x / 2.x |
+| CLIP 文本塔（ViT-L/14） | 123M | 77 | 与图像对齐的全局语义；词袋倾向（[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)第五章） | SD 1.x / 2.x |
 | OpenCLIP ViT-bigG 文本塔 | 695M | 77 | 同上，更大 | SDXL（与 CLIP-L 拼接） |
 | T5-XXL encoder | 4.7B | 512（实际用 77–256） | 纯语言理解：语法、组合、长描述、拼写 | Imagen、PixArt、SD3、FLUX |
 | LLM（Llama、Gemma） | 2–8B | 长 | 更强的语言理解与知识 | 2025 年的部分工作（Sana 用 Gemma-2、HunyuanVideo 用 MLLM） |
 
 Table: 文本编码器的三种选择
 
-CLIP 文本塔的问题是它为**匹配图像**训练，不为理解语言：对属性绑定、否定、计数、长 prompt 的后半段都弱（第一篇的词袋性），且 77 token 的上限让长描述被截断。Imagen 的关键发现：**换成 T5-XXL 比放大扩散模型本身更有效**——文本理解是文生图的瓶颈之一。SD3 用三个编码器（CLIP-L + bigG + T5）：CLIP 的池化向量提供全局条件（经 adaLN），T5 的序列提供细粒度的 token 条件（进 MMDiT 序列）；消融显示去掉 T5 在文字渲染与复杂 prompt 上明显下降，但对一般 prompt 影响小——所以 SD3 允许推理时不加载 T5 省显存。
+CLIP 文本塔的问题是它为**匹配图像**训练，不为理解语言：对属性绑定、否定、计数、长 prompt 的后半段都弱（[《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html)的词袋性），且 77 token 的上限让长描述被截断。Imagen 的关键发现：**换成 T5-XXL 比放大扩散模型本身更有效**——文本理解是文生图的瓶颈之一。SD3 用三个编码器（CLIP-L + bigG + T5）：CLIP 的池化向量提供全局条件（经 adaLN），T5 的序列提供细粒度的 token 条件（进 MMDiT 序列）；消融显示去掉 T5 在文字渲染与复杂 prompt 上明显下降，但对一般 prompt 影响小——所以 SD3 允许推理时不加载 T5 省显存。
 
 ### 2. recaption：数据侧的杠杆
 
 DALL-E 3 的技术报告（Betker 等 2023）几乎只讲了一件事：训练数据的 caption 质量。网上的 alt-text 短、噪、常与图无关（"IMG_2034.jpg"、SEO 关键词）。他们训了一个 captioner 为每张图生成详细描述（物体、属性、位置、背景、风格、文字），用 95% 合成 caption + 5% 原始的混合训练，prompt following 大幅提升。SD3 用 CoGVLM 做 50% recaption；PixArt 用 LLaVA；FLUX 未公开但同理。
 
-recaption 的作用机制：扩散模型学的是 $$p(x \mid c)$$，如果 $$c$$ 与 $$x$$ 的关系弱（alt-text），模型学到的条件很弱、多样性很大但不可控；密集 caption 让 $$c$$ 几乎决定 $$x$$ 的每个方面，模型学到强条件。副作用：训练 caption 的风格（长、详细）与用户 prompt 的风格（短）不匹配——DALL-E 3 用 GPT-4 在推理时把用户 prompt **扩写**成训练风格的详细描述（"prompt upsampling"），这是它 prompt following 好的另一半原因。这与 [第三篇](/vlm-training-recipe-data-stages-and-evaluation.html) VLM 训练里 recaption 的作用完全对应。
+recaption 的作用机制：扩散模型学的是 $$p(x \mid c)$$，如果 $$c$$ 与 $$x$$ 的关系弱（alt-text），模型学到的条件很弱、多样性很大但不可控；密集 caption 让 $$c$$ 几乎决定 $$x$$ 的每个方面，模型学到强条件。副作用：训练 caption 的风格（长、详细）与用户 prompt 的风格（短）不匹配——DALL-E 3 用 GPT-4 在推理时把用户 prompt **扩写**成训练风格的详细描述（"prompt upsampling"），这是它 prompt following 好的另一半原因。这与 [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) VLM 训练里 recaption 的作用完全对应。
 
 ## 五、配方细节
 
@@ -231,7 +231,7 @@ SDXL 把**原始图片的尺寸**与**裁剪坐标**作为额外条件（经正�
 
 ### 3. 数据过滤
 
-LAION-5B 经过：CLIP 图文相似度阈值（去掉不匹配的）、美学分（一个在人类美学评分上训的小模型，SD 用 > 5 的子集）、去水印、去 NSFW、分辨率下限、去重。SD 1.5 最终用了约 6 亿；SDXL 与之后的模型数据未公开，但普遍加了更严的过滤与 recaption。与 [预训练（04）](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的结论一致：数据质量的杠杆大于模型结构。
+LAION-5B 经过：CLIP 图文相似度阈值（去掉不匹配的）、美学分（一个在人类美学评分上训的小模型，SD 用 > 5 的子集）、去水印、去 NSFW、分辨率下限、去重。SD 1.5 最终用了约 6 亿；SDXL 与之后的模型数据未公开，但普遍加了更严的过滤与 recaption。与 《预训练》的[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的结论一致：数据质量的杠杆大于模型结构。
 
 ### 4. 分辨率平移与两阶段
 

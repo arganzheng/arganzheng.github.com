@@ -7,7 +7,7 @@ catalog: true
 updated: 2026-09-14
 ---
 
-> 本文是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)"横切：实验方法论"一层的导读。它不属于任何一层，对每一层都适用；放在 L5 之后，是因为它要用到的例子——scaling law 的外推（[预训练（03）](/scaling-laws-and-compute-optimal-training.html)）、评测的置信区间（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)）、loss spike 的归因（[预训练（05）](/pretraining-recipe-and-training-stability.html)）——到这里都已经讲过了。
+> 本文是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)"横切：实验方法论"一层的导读。它不属于任何一层，对每一层都适用；放在 L5 之后，是因为它要用到的例子——scaling law 的外推（《预训练》的[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)）、评测的置信区间（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)）、loss spike 的归因（《预训练》的[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)）——到这里都已经讲过了。
 
 一个算法工程师一年里做的事，绝大部分不是"提出新方法"，而是**回答一个个具体的问题**：这批数据加进去有没有用？lr 调高一倍是不是更好？这个 attention 变体值不值得付出 KV 的代价？换一个 tokenizer 会不会伤中文？每个问题都要用实验回答，而每个实验都花钱——一次 7B 的 SFT 消融几十 GPU 小时，一次预训练配方的对照几千。算力是有限的，问题是无限的，于是真正区分工程师水平的不是"会不会跑实验"，而是**用多少算力、多长时间，得出一个别人可以信、三个月后自己还能复现、放大十倍之后仍然成立的结论**。
 
@@ -92,8 +92,8 @@ Table: 一个实验假设的四个部分
 
 有三种情况可以偏离它：
 
-- **变量之间有已知的耦合**。lr 与 batch size 是最典型的一对：batch 翻倍时最优 lr 也要变（[预训练（05）](/pretraining-recipe-and-training-stability.html)的平方根律），只改 batch 不调 lr 得到的结论是"大 batch 差"，实际是"大 batch 配了错的 lr"。耦合变量要一起扫，或按已知的律联动。
-- **变量太多、只想筛出重要的**。十几个数据源的配比不能逐个消融；这时用**一次去掉一个**（leave-one-out）或随机组合 + 回归（RegMix 的思路，[预训练（04）](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)）比逐个加更省。
+- **变量之间有已知的耦合**。lr 与 batch size 是最典型的一对：batch 翻倍时最优 lr 也要变（《预训练》的[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)的平方根律），只改 batch 不调 lr 得到的结论是"大 batch 差"，实际是"大 batch 配了错的 lr"。耦合变量要一起扫，或按已知的律联动。
+- **变量太多、只想筛出重要的**。十几个数据源的配比不能逐个消融；这时用**一次去掉一个**（leave-one-out）或随机组合 + 回归（RegMix 的思路，《预训练》的[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)）比逐个加更省。
 - **验证一个"配方"而不是一个"因素"**。把一整套改动作为一个整体与 baseline 比，回答"这套配方好不好"；但这时不能声称其中任何一项单独有效。
 
 无论哪种情况，都要在跑之前写下用的是哪种设计。事后把"配方对照"解释成"逐项有效"，是论文里最常见的一类过度声称。
@@ -130,7 +130,7 @@ Table: 一个实验假设的四个部分
 
 Table: 结论按外推性分的三类
 
-第三类是最危险的：小模型上"lr = 3e-3 最好"，7B 上直接用会发散。处理方法有两种：一是用 μP 一类参数化让最优 lr 在宽度上不变（[预训练（05）](/pretraining-recipe-and-training-stability.html)），二是在三个规模上分别找最优值再拟合趋势（DeepSeek 的经验律）。两种都要求**在小规模上就按目标规模的方式做**——不是拿一个固定的小配方跑所有消融。
+第三类是最危险的：小模型上"lr = 3e-3 最好"，7B 上直接用会发散。处理方法有两种：一是用 μP 一类参数化让最优 lr 在宽度上不变（《预训练》的[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)），二是在三个规模上分别找最优值再拟合趋势（DeepSeek 的经验律）。两种都要求**在小规模上就按目标规模的方式做**——不是拿一个固定的小配方跑所有消融。
 
 第二类的常见错误是把幅度当结论："SwiGLU 在 125M 上让 loss 降了 0.05，所以 7B 上也降 0.05"。正确的说法是"SwiGLU 在三个规模上都有效、幅度随规模缩小、在 7B 上预期仍有效但幅度更小"。
 
@@ -146,7 +146,7 @@ Table: 结论按外推性分的三类
 
 ### 4. 数据量与训练时长的同步缩放
 
-小规模实验的第二个陷阱是**只缩模型不缩数据**——或者反过来。125M 模型训 100B token 是 800 倍的过训练，它的 loss 早已进入平台期，任何配方改动都显示不出差别；训 100M token 又严重欠训练，结果全是噪声。合理的做法是让小模型也处于与目标相同的 D/N 区间（[预训练（03）](/scaling-laws-and-compute-optimal-training.html)），或者至少在同一条"训练进度"上比较（同样的 token / 参数比）。
+小规模实验的第二个陷阱是**只缩模型不缩数据**——或者反过来。125M 模型训 100B token 是 800 倍的过训练，它的 loss 早已进入平台期，任何配方改动都显示不出差别；训 100M token 又严重欠训练，结果全是噪声。合理的做法是让小模型也处于与目标相同的 D/N 区间（《预训练》的[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)），或者至少在同一条"训练进度"上比较（同样的 token / 参数比）。
 
 学习率调度同理：cosine 调度的最终 loss 依赖总步数，所以两个实验的 lr 曲线要在各自的总长度上对齐，不能一个跑到调度末尾、一个在中途停下比。WSD 调度的一个实践优点正是这里——从同一条稳定段上分叉出多个衰减段，比较时对齐更容易。
 
@@ -225,7 +225,7 @@ Table: 按 seed 间标准差与效应量算需要的 seed 数
 
 ### 4. 差异多大算显著
 
-有了方差，判断显著与否的最简单规则是**差异 > 2σ**（双侧 5% 左右）。更规范的做法是配对检验——两个模型在同一批题上比，消掉题目难度的方差（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)第四章讲了 McNemar 与配对 bootstrap）。这里补一个常被忽略的点：**多重比较**。
+有了方差，判断显著与否的最简单规则是**差异 > 2σ**（双侧 5% 左右）。更规范的做法是配对检验——两个模型在同一批题上比，消掉题目难度的方差（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)第四章讲了 McNemar 与配对 bootstrap）。这里补一个常被忽略的点：**多重比较**。
 
 如果扫了 10 个配置、报告其中最好的一个"比 baseline 高 2σ"，这个结论几乎无效——10 个噪声样本里最大的一个超过 2σ 的概率约 40%。处理办法：把"选出最好"与"验证最好"分开——在一组实验里选出候选，用**另一组独立的 seed 或数据**验证它。这正是第三章里筛选阶段与验证阶段分开的统计理由。
 
@@ -233,7 +233,7 @@ Table: 按 seed 间标准差与效应量算需要的 seed 数
 
 ### 5. 评测侧的随机性
 
-生成式评测（temperature > 0）的随机性常被忘记。pass@1 用单次采样估计，一个 60% 的模型在 1319 题上单次采样的标准误是 1.35%；用 n 次采样的平均（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)的无偏 pass@k 估计）能把它降到 $$1.35\% / \sqrt{n}$$ 附近。推理模型上尤其重要——同一题目多次采样的正确率可以从 20% 到 80%，单次采样的 AIME 分数（只有 30 题）标准误超过 8 个点，任何小于 15 个点的差异都需要多次采样才能判断。
+生成式评测（temperature > 0）的随机性常被忘记。pass@1 用单次采样估计，一个 60% 的模型在 1319 题上单次采样的标准误是 1.35%；用 n 次采样的平均（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的无偏 pass@k 估计）能把它降到 $$1.35\% / \sqrt{n}$$ 附近。推理模型上尤其重要——同一题目多次采样的正确率可以从 20% 到 80%，单次采样的 AIME 分数（只有 30 题）标准误超过 8 个点，任何小于 15 个点的差异都需要多次采样才能判断。
 
 greedy 解码消除了这项随机性，但代价是它测的是"最可能的一条路径"，与实际部署时的采样行为不同，且在推理模型上常常表现更差（重复、死循环）。选哪种要在假设里写清楚，且两个模型必须用同一种。
 
@@ -270,7 +270,7 @@ W&B、MLflow、TensorBoard 这类工具解决的是"记什么、存哪、怎么�
 
 ### 3. 评测输出也要存
 
-存分数不够，要存**每道题的输出**。原因有三：事后的错误分析（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)第八章）需要原始输出；配对检验需要逐题的对错；评测脚本更新后（比如答案抽取的正则改了）可以在旧输出上重算，而不必重跑模型。一次 7B 模型在十个 benchmark 上的全部输出约几十 MB，成本可以忽略。
+存分数不够，要存**每道题的输出**。原因有三：事后的错误分析（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)第八章）需要原始输出；配对检验需要逐题的对错；评测脚本更新后（比如答案抽取的正则改了）可以在旧输出上重算，而不必重跑模型。一次 7B 模型在十个 benchmark 上的全部输出约几十 MB，成本可以忽略。
 
 ### 4. "三个月后能复现"的检验
 
@@ -304,7 +304,7 @@ Table: 读方法论文要回答的三个问题
 
 复现的顺序是固定的：**先在自己的环境里跑出论文的 baseline 数字**，误差在噪声内，然后才加方法。跳过这一步直接复现方法，得到 +0.5 时无法判断是方法不行、还是自己的 baseline 已经比论文的强（方法的收益被吃掉了）、还是评测协议不同。
 
-复现 baseline 本身常常就要花大半时间——协议的每个细节（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)第三章）都会改变分数。复现出来之后，得到的不只是一个数字，而是一个**校准过的评测环境**：以后所有自己的实验都在它上面比。
+复现 baseline 本身常常就要花大半时间——协议的每个细节（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)第三章）都会改变分数。复现出来之后，得到的不只是一个数字，而是一个**校准过的评测环境**：以后所有自己的实验都在它上面比。
 
 ### 3. 对报告数字的四种怀疑
 
@@ -312,7 +312,7 @@ Table: 读方法论文要回答的三个问题
 |---|---|---|
 | **协议差异** | 论文的 baseline 数字与该模型的官方报告不同 | 在同一协议下重跑两者 |
 | **挑选** | 报告了 7 个 benchmark，方法在 5 个上提升；或报告了最好的 seed / checkpoint | 看有没有报方差、有没有 held-out 的 benchmark；看 appendix 里有没有更多结果 |
-| **污染** | 在某些 benchmark 上涨幅异常大（+15）而在同类任务上不涨 | 用新题 / 改写题重测（[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)第七章） |
+| **污染** | 在某些 benchmark 上涨幅异常大（+15）而在同类任务上不涨 | 用新题 / 改写题重测（《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)第七章） |
 | **规模** | 只在一个规模上验证；或只在小模型上验证但声称普适 | 找第三章的三类判断；自己在两个规模上试 |
 
 Table: 对报告数字的四种怀疑
@@ -350,7 +350,7 @@ Table: 对报告数字的四种怀疑
 
 Table: 训练中四条必看的曲线
 
-四条里最常被忽略的是梯度范数——它比 loss 更早报警。[预训练（05）](/pretraining-recipe-and-training-stability.html)讲过 spike 的三种机制，其中两种（attention logits 增长、embedding 梯度稀疏）在 loss 上显现之前，梯度范数已经持续上升了几百步。
+四条里最常被忽略的是梯度范数——它比 loss 更早报警。《预训练》的[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)讲过 spike 的三种机制，其中两种（attention logits 增长、embedding 梯度稀疏）在 loss 上显现之前，梯度范数已经持续上升了几百步。
 
 再多看几条会更有把握：参数范数（weight decay 是否在起作用）、attention logits 的最大值（QK-norm 需不需要）、混合精度的 loss scale 或 FP8 的溢出计数（数值问题）、每步的 token 吞吐（数据加载是否成了瓶颈、有没有慢节点）。
 
@@ -429,8 +429,8 @@ lr 是最需要用曲线而不是最终指标判断的超参，因为 lr 的影�
 - **统计基础**：任何一本应用统计的前几章（估计、置信区间、假设检验、多重比较）。目标是理解第四章的每个数字从哪来，不需要更多。
 - **深度学习实验的经验总结**：Google 的 *Deep Learning Tuning Playbook*（Godbole 等）——关于超参调优、消融设计与"科学 vs 干扰 vs 固定"参数分类的实用指南，是本文第二、三章的直接参考。Karpathy 的 *A Recipe for Training Neural Networks*——关于看曲线与逐步增加复杂度。
 - **实验的可复现性**：Dodge 等 2020（*Fine-Tuning Pretrained Language Models: Weight Initializations, Data Orders, and Early Stopping*）量化了 seed 方差；Bouthillier 等 2021（*Accounting for Variance in Machine Learning Benchmarks*）系统地讨论了随机性的来源与多少 seed 够。
-- **scaling 实验的设计**：[预训练（03）](/scaling-laws-and-compute-optimal-training.html)第五章"用小模型预测大模型"与它引用的 Chinchilla、Porian 等的拟合方法论。
-- **评测的统计**：[后训练第八篇](/evaluating-llms-benchmarks-judges-and-contamination.html)第四章与 Miller 2024（*Adding Error Bars to Evals*）。
+- **scaling 实验的设计**：《预训练》的[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)第五章"用小模型预测大模型"与它引用的 Chinchilla、Porian 等的拟合方法论。
+- **评测的统计**：《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)第四章与 Miller 2024（*Adding Error Bars to Evals*）。
 - **技术报告的实验节**：Llama 3、DeepSeek-V3、OLMo 2 的技术报告里关于"怎么决定超参与配比"的部分，是公开的、规模最大的实验方法论案例。OLMo 系列的价值尤其在于它公开了全部中间 checkpoint 与数据，可以真的去复现。
 
 ### 2. 顺序

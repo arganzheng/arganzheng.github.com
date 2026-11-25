@@ -265,18 +265,18 @@ Table: 贯穿九篇的概念及其关系
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 编码器越大 VLM 越好 | MM1 消融里 ViT-H 比 ViT-L 不到 1 点，$$336^2$$ 比 $$224^2$$ 约 3 点 | 分辨率 > 编码器参数量 > 训练数据；300M–700M 不是瓶颈 | [第一篇](/vision-encoders-clip-siglip-and-self-supervised-vit.html) |
-| DINOv2 特征更好，直接拿来做 VLM 编码器 | 没有语言对齐，connector 要学的映射太大 | 与 CLIP 类拼接（Cambrian-1）或用 SigLIP 2 这类加了自监督目标的对比编码器 | [第一篇](/vision-encoders-clip-siglip-and-self-supervised-vit.html) |
-| Q-Former 把 576 压到 32 是免费的 | 32 个内容无关的 query 装不下细节、丢空间结构 | 4× 空间压缩（2×2 merge）几乎无损，更高压缩在 OCR 上掉 | [第二篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
-| cross-attention 注入不占上下文所以更优 | +20B 参数、单独训练、引擎特殊支持；NVLM-D 在 OCR 与推理上优于 NVLM-X | 序列注入是主流，cross-attention 换的是文本能力严格不变 | [第二篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
-| connector 类型决定 VLM 效果 | MM1：connector 类型的影响远小于分辨率与 token 数 | 不丢信息即可；效果由进 LLM 的 token 承载多少信息决定 | [第二篇](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
-| 幻觉是数据问题，清洗就能消除 | POPE 顽固的约 10% 来自编码器缺失与解码惯性 | 三源三治：数据 / 编码器 / 解码各有手段 | [第三篇](/vlm-training-recipe-data-stages-and-evaluation.html) |
-| 多模态微调不影响文本能力 | 只用多模态数据训会让 MMLU 掉几个点、代码与数学掉更多 | 混入 10–50% 文本数据并回归 MMLU / GSM8K；退化 > 2–3 点要查 | [第三篇](/vlm-training-recipe-data-stages-and-evaluation.html) |
-| 全双工的低时延靠更快的硬件 | 四段里帧长与语义决策不是算力；半双工 1–3 s 主要耗在 VAD 与三个模型的首 token 叠加 | 全双工把串联变成一个模型的一步，代价是持续运行、每路半张卡 | [第五篇](/speech-understanding-generation-and-full-duplex.html) |
-| flow matching 是不同于扩散的新方法 | 三者学的是同一个分数的线性参数化，损失只差噪声水平的权重 | 全部是加权 ELBO；直线路径让步数少、调度直观 | [第七篇](/score-matching-flow-matching-and-classifier-free-guidance.html) |
+| 编码器越大 VLM 越好 | MM1 消融里 ViT-H 比 ViT-L 不到 1 点，$$336^2$$ 比 $$224^2$$ 约 3 点 | 分辨率 > 编码器参数量 > 训练数据；300M–700M 不是瓶颈 | [《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html) |
+| DINOv2 特征更好，直接拿来做 VLM 编码器 | 没有语言对齐，connector 要学的映射太大 | 与 CLIP 类拼接（Cambrian-1）或用 SigLIP 2 这类加了自监督目标的对比编码器 | [《VLM 的结构（上）》](/vision-encoders-clip-siglip-and-self-supervised-vit.html) |
+| Q-Former 把 576 压到 32 是免费的 | 32 个内容无关的 query 装不下细节、丢空间结构 | 4× 空间压缩（2×2 merge）几乎无损，更高压缩在 OCR 上掉 | [《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
+| cross-attention 注入不占上下文所以更优 | +20B 参数、单独训练、引擎特殊支持；NVLM-D 在 OCR 与推理上优于 NVLM-X | 序列注入是主流，cross-attention 换的是文本能力严格不变 | [《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
+| connector 类型决定 VLM 效果 | MM1：connector 类型的影响远小于分辨率与 token 数 | 不丢信息即可；效果由进 LLM 的 token 承载多少信息决定 | [《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html) |
+| 幻觉是数据问题，清洗就能消除 | POPE 顽固的约 10% 来自编码器缺失与解码惯性 | 三源三治：数据 / 编码器 / 解码各有手段 | [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) |
+| 多模态微调不影响文本能力 | 只用多模态数据训会让 MMLU 掉几个点、代码与数学掉更多 | 混入 10–50% 文本数据并回归 MMLU / GSM8K；退化 > 2–3 点要查 | [《VLM 的训练》](/vlm-training-recipe-data-stages-and-evaluation.html) |
+| 全双工的低时延靠更快的硬件 | 四段里帧长与语义决策不是算力；半双工 1–3 s 主要耗在 VAD 与三个模型的首 token 叠加 | 全双工把串联变成一个模型的一步，代价是持续运行、每路半张卡 | [《语音（下）》](/speech-understanding-generation-and-full-duplex.html) |
+| flow matching 是不同于扩散的新方法 | 三者学的是同一个分数的线性参数化，损失只差噪声水平的权重 | 全部是加权 ELBO；直线路径让步数少、调度直观 | [《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html) |
 | guidance scale 越大越好、可跨模型比较 | $$w$$ 是逐噪声层对 $$p_t(c \mid x)$$ 的 $$w$$ 次幂锐化（终点非幂分布），大了过饱和、多样性坍缩；且与模型、调度、是否蒸馏耦合 | SD 1.x 7.5、SD3 3.5–7、FLUX.1-dev 3.5；配动态阈值 / rescale / 区间 guidance | [第六、七篇](/diffusion-models-ddpm-score-matching-and-flow-matching.html) |
-| 扩散模型的推理优化照搬 LLM | 扩散无自回归 KV cache、compute-bound、每步形状相同（文本 cross-attn K/V 可缓存） | 加速靠步数蒸馏与求解器，服务按步数 / 分辨率组 batch | [第八篇](/latent-diffusion-dit-and-text-to-image-recipes.html) |
-| AR 图像生成已被扩散淘汰 | VAR FID 1.73 优于 DiT-XL/2 2.27，且 AR 是统一模型的基础 | ImageNet 上平手或领先，文生图上仍落后一档；最优形式可能是混合 | [第九篇](/autoregressive-image-generation-and-unified-models.html) |
+| 扩散模型的推理优化照搬 LLM | 扩散无自回归 KV cache、compute-bound、每步形状相同（文本 cross-attn K/V 可缓存） | 加速靠步数蒸馏与求解器，服务按步数 / 分辨率组 batch | [《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html) |
+| AR 图像生成已被扩散淘汰 | VAR FID 1.73 优于 DiT-XL/2 2.27，且 AR 是统一模型的基础 | ImageNet 上平手或领先，文生图上仍落后一档；最优形式可能是混合 | [《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html) |
 
 Table: 常见误区与正确说法
 

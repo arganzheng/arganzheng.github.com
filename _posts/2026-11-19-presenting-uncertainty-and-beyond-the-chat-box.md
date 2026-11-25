@@ -128,7 +128,7 @@ flowchart TB
     L1["<b>第一层：一行摘要（默认）</b><br/>「已读取 3 个文件，正在修改 auth.py · 第 6 / 9 步 · 1 分 20 秒」"]
     L1 -->|"点开"| L2["<b>第二层：步骤列表</b><br/>① grep 'login' → 12 处 · 0.3 s<br/>② read auth.py → 4K · 0.1 s<br/>③ read session.py → 2K<br/>④ edit auth.py：+8 −3 行<br/>⑤ run pytest → 2 fail ✗<br/>⑥ edit auth.py（进行中）"]
     L2 -->|"再点开某一步"| L3["<b>第三层：完整内容</b><br/>完整参数 · 完整工具返回（或卸载定位符）· 审批记录 · 模型思考摘要"]
-    L2 -.->|"「这一步错了」→ 反馈带 trace id + 步骤 id"| FB["bad case 队列（《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》）"]
+    L2 -.->|"「这一步错了」→ 反馈带 trace id + 步骤 id"| FB["bad case 队列（《可追溯》）"]
     X["✗ 不分层：几十步全量滚屏 = 噪声，用户关掉"] -.-> L1
     classDef l fill:#fff7e0,stroke:#c98a00,color:#222
     classDef fb fill:#eefaf0,stroke:#4d9a5c,color:#222

@@ -245,7 +245,7 @@ Llama-3-8B 的隐藏维度 $$d = 4096$$（`config.json` 里的 `hidden_size`）�
 
 两个观察，后面每一层都会用到：
 
-- **一个 token 过一个 $$d \times d$$ 的矩阵，FLOPs 是 $$2d^2$$，恰好是这个矩阵参数量（$$d^2$$）的两倍。** 推而广之：一个 token 过整个模型的 FLOPs 约等于**参数量的两倍**，$$2N$$——前提是**每个参数都参与了这个 token 的计算**。稠密模型（Llama 这类）几乎如此，只有词嵌入例外：它是按编号查一行，不是矩阵乘（第六章的表里单列了它）；MoE 模型（如 DeepSeek-V3）每个 token 只经过被选中的少数专家，这时要用"激活参数量"代替 $$N$$，[现代 LLM 结构（06）](/moe-compute-and-communication.html)讲。这是"训练 FLOPs $$\approx 6ND$$"（$$D$$ 个 token，前向 $$2N$$、反向 $$4N$$；《[现代 LLM 结构（02）：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html#5-训练的-6nd-与激活重算的-8n)》「训练的 6ND 与激活重算的 8N」一节）的起点。
+- **一个 token 过一个 $$d \times d$$ 的矩阵，FLOPs 是 $$2d^2$$，恰好是这个矩阵参数量（$$d^2$$）的两倍。** 推而广之：一个 token 过整个模型的 FLOPs 约等于**参数量的两倍**，$$2N$$——前提是**每个参数都参与了这个 token 的计算**。稠密模型（Llama 这类）几乎如此，只有词嵌入例外：它是按编号查一行，不是矩阵乘（第六章的表里单列了它）；MoE 模型（如 DeepSeek-V3）每个 token 只经过被选中的少数专家，这时要用"激活参数量"代替 $$N$$，《现代 LLM 结构》的[《MoE 的路由、激活参数量与通信形态》](/moe-compute-and-communication.html)讲。这是"训练 FLOPs $$\approx 6ND$$"（$$D$$ 个 token，前向 $$2N$$、反向 $$4N$$；《[现代 LLM 结构（02）：前向的算量与访存量](/transformer-flops-bytes-and-roofline.html#5-训练的-6nd-与激活重算的-8n)》「训练的 6ND 与激活重算的 8N」一节）的起点。
 - **token 数 $$m$$ 是线性的。** 4096 个 token 就是 4096 倍——所以算力账里"处理了多少 token"是最重要的变量。
 
 ### 4. 结合律与成本

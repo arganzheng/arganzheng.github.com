@@ -23,7 +23,7 @@ catalog: true
 %%{init: {"flowchart": {"wrappingWidth": 300}}}%%
 %% 图：审计链：一条输出能追到模型快照、prompt 版本、检索文档与审批记录
 flowchart TB
-    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件日志）"]
+    Q["合规部门：上月这条回复依据什么给出的？"] --> O["输出 → trace_id → 会话 / 任务（《agent 运行时》的事件日志）"]
     O --> M["模型 id + 快照、prompt 版本"]
     O --> R["检索到的文档 id 与当时的权限"]
     O --> A["谁批准了这版 prompt 上线（发布记录）"]
@@ -233,7 +233,7 @@ Table: 变更审批矩阵
 %% 图：变更的轻 / 重两条流程——所有变更先过分类：普通 prompt 改动走轻流程（门禁通过 → 功能 owner 批 → 发布 → 记录）；涉及新权限、新数据流、新供应商、高风险用途的走重流程（门禁 + 安全 / 合规 / 法务按责任矩阵批 → 发布 → 记录）；两条都以「版本 · 批准人 · 评测结果」的记录收尾，审计问「谁批的」有答案
 flowchart TB
     P["变更提出"] --> C{"分类：涉及安全 / 合规 / 高风险？"}
-    C -->|"否：普通 prompt · 措辞 · 示例"| L1["门禁（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"] --> L2["功能 owner 批准"] --> L3["发布（第六篇）"]
+    C -->|"否：普通 prompt · 措辞 · 示例"| L1["门禁（《回归与门禁》）"] --> L2["功能 owner 批准"] --> L3["发布（第六篇）"]
     C -->|"是：新权限 · 新工具 / MCP · 新数据流 · 新供应商 · Annex III 用途"| H1["门禁 + 红队集"] --> H2["<b>按责任矩阵批：</b><br/>安全 / 合规（条款）/ 法务（高风险）/ 技术负责人"] --> H3["发布（灰度 · 回滚预案）"]
     L3 & H3 --> REC["记录：版本 · 批准人 · 评测结果 · 时间<br/>→ 审计链"]
     classDef n fill:#fff7e0,stroke:#c98a00,color:#222

@@ -227,7 +227,7 @@ def ddpm_loss(model, x0):
     return ((model(xt, t / T) - eps) ** 2).mean()                         # ④ 让网络从 (x_t, t) 猜出 ε：MSE
 ```
 
-`model` 是任何"输入与输出同形状、外加一个时间 $$t$$"的网络：图片用 U-Net 或 DiT（第八篇），本文的二维 toy 用一个四层 MLP（时间 $$t$$ 编码成 16 维的正弦余弦向量拼在输入上，与 Transformer 的位置编码同款）。12000 步、每步 512 个点，CPU 上 30 秒：
+`model` 是任何"输入与输出同形状、外加一个时间 $$t$$"的网络：图片用 U-Net 或 DiT（[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)），本文的二维 toy 用一个四层 MLP（时间 $$t$$ 编码成 16 维的正弦余弦向量拼在输入上，与 Transformer 的位置编码同款）。12000 步、每步 512 个点，CPU 上 30 秒：
 
 ```text title="toy DDPM 的训练 loss 与各 t 的预测误差"
 step  3000  loss 0.2205

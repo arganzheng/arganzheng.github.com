@@ -10,7 +10,7 @@ date: 2026-05-06 20:00:00 +0800
 
 [上篇](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)把声音变成了两种东西：连续的编码器特征（Whisper encoder 每 20 ms 一个向量）与离散的 codec token（RVQ，每帧几个整数）。这一篇讲怎么用它们：**理解**——让 LLM 听懂语音（编码器 + connector + LLM，VLM 的翻版）；**生成**——让模型说话（TTS 的三条路，以及 LLM 直接生成语音 token）；**全模态与全双工**——一个模型同时听、看、说，而且要像打电话一样随时能被打断、几百毫秒内接话。
 
-2024–2025 年的全模态模型（GPT-4o、Qwen2.5-Omni、Moshi）都建立在上篇的离散 token 之上，并进一步要求**实时**。实时的难点不在算得快，而在"边听边说"这个形态本身：模型每 80 毫秒就要决定一次"这一帧该说什么、还是继续听"。这一篇也是理解线到生成线的过渡：离散 token 与自回归生成，正是第九篇自回归图像生成的思路。
+2024–2025 年的全模态模型（GPT-4o、Qwen2.5-Omni、Moshi）都建立在上篇的离散 token 之上，并进一步要求**实时**。实时的难点不在算得快，而在"边听边说"这个形态本身：模型每 80 毫秒就要决定一次"这一帧该说什么、还是继续听"。这一篇也是理解线到生成线的过渡：离散 token 与自回归生成，正是[《自回归图像生成与统一模型》](/autoregressive-image-generation-and-unified-models.html)的思路。
 
 本篇要回答的核心问题是：
 
@@ -45,7 +45,7 @@ Table: 本文的章节安排
 
 ### 1. 编码器 + connector + LLM
 
-Qwen2-Audio（2024）的结构就是 VLM 的翻版（第二篇）：Whisper-large-v3 encoder（每 20 ms 一个 1280 维特征，即 50 Hz）→ 相邻两帧平均池化到 25 Hz（第二篇的 2×2 merge 在时间轴上的版本）→ 线性投影到 LLM 维度 → Qwen-7B。一分钟语音 = 1500 个 token 进 LLM。训练三阶段（预训练对齐、多任务 SFT、DPO），数据覆盖语音识别、翻译、音频描述、声音事件、音乐、语音对话；能力包括 ASR、翻译、音频问答、语音指令跟随（用户说话、模型文本回答）。SALMONN 用双编码器（Whisper 管语音 + BEATs 管一般音频）。这条路的优点与 VLM 相同：LLM 零改动、理解质量高（连续特征保留全部信息）。缺点：**不能说**——输出是文本，要说话需外接 TTS，时延叠加。
+Qwen2-Audio（2024）的结构就是 VLM 的翻版（[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)）：Whisper-large-v3 encoder（每 20 ms 一个 1280 维特征，即 50 Hz）→ 相邻两帧平均池化到 25 Hz（[《VLM 的结构（下）》](/vlm-architecture-connectors-injection-and-dynamic-resolution.html)的 2×2 merge 在时间轴上的版本）→ 线性投影到 LLM 维度 → Qwen-7B。一分钟语音 = 1500 个 token 进 LLM。训练三阶段（预训练对齐、多任务 SFT、DPO），数据覆盖语音识别、翻译、音频描述、声音事件、音乐、语音对话；能力包括 ASR、翻译、音频问答、语音指令跟随（用户说话、模型文本回答）。SALMONN 用双编码器（Whisper 管语音 + BEATs 管一般音频）。这条路的优点与 VLM 相同：LLM 零改动、理解质量高（连续特征保留全部信息）。缺点：**不能说**——输出是文本，要说话需外接 TTS，时延叠加。
 
 ### 2. 离散 token 路线
 
@@ -69,7 +69,7 @@ Table: TTS 的三条路
 
 **VALL-E** 的设计直接来自上篇 RVQ 的层次：第一个码本的 token 用自回归 Transformer 生成（以文本音素与 3 秒 prompt 的声学 token 为条件），这一步决定内容与大致韵律；其余 7 个码本用一个非自回归 Transformer 一次性生成（每个码本一层，以前面所有码本为条件）——细节的并行填充。它把 TTS 变成了"语言建模"，用 6 万小时数据训出的零样本克隆能力震动了领域。它的问题也是语言模型的问题：AR 采样的不稳定（重复、丢字、幻觉式的多说），VALL-E 2 用重复感知采样与分组建模缓解。
 
-**流匹配 TTS**（F5-TTS 2024）走第七、八篇要讲的扩散 / 流路线：把文本（字符序列 pad 到目标长度）与参考音频的 mel 拼起来，用 DiT 在噪声与目标 mel 之间学一个速度场，32 步 ODE 采样得到 mel，再用 vocoder（Vocos）变波形。不需要音素、不需要对齐器、不需要时长模型；非自回归所以没有 AR 的不稳定；速度快（RTF 0.15）。2024–2025 年开源 TTS 的主流转向这条路或两级路（CosyVoice 2 用 AR 语义 token + 流匹配声学）。
+**流匹配 TTS**（F5-TTS 2024）走[《扩散模型（下）》](/score-matching-flow-matching-and-classifier-free-guidance.html)与[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)要讲的扩散 / 流路线：把文本（字符序列 pad 到目标长度）与参考音频的 mel 拼起来，用 DiT 在噪声与目标 mel 之间学一个速度场，32 步 ODE 采样得到 mel，再用 vocoder（Vocos）变波形。不需要音素、不需要对齐器、不需要时长模型；非自回归所以没有 AR 的不稳定；速度快（RTF 0.15）。2024–2025 年开源 TTS 的主流转向这条路或两级路（CosyVoice 2 用 AR 语义 token + 流匹配声学）。
 
 ### 2. LLM 直接说：模态竞争
 

@@ -336,19 +336,19 @@ Table: 全系列十七样对象，按寿命排
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 一次前向的 FLOPs 按参数量算 | 双流块每个 token 只走一条流，adaLN 只处理一个条件向量 | 用 $$P_\text{tok}$$：FLUX 6.45B 而非 11.9B，用 $$P$$ 高估 85% | [第一篇](/diffusion-inference-workload-anatomy-and-cost-ledger.html) |
-| 扩散推理与 LLM 一样有 KV cache | 每步的 K/V 由本步的带噪输入算出、用完即弃，没有"历史 token" | 双向多步模型无 KV<br/>只有 cross-attn 的文本 K/V 可缓存<br/>自回归视频除外 | [第一篇](/diffusion-inference-workload-anatomy-and-cost-ledger.html) |
-| 权重量化减半，每步时间减半 | 单请求在算力屋顶上，字节不是瓶颈 | 收益来自 Tensor Core 峰值，只对线性层：FP8 1.3–1.5× | [第二篇](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
-| 逐层 offload 是免费的 | 收益取决于每层计算 / 搬运之比 | Wan 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） | [第二篇](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
-| SVDQuant 在 H100 上也能提速 | Hopper 没有 INT4 Tensor Core | 只在 Ada / Ampere / Blackwell 上有加速（4090 3×）；H100 只省显存 | [第二篇](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
-| 跨步缓存是无损的、蒸馏模型也能开 | 它是自适应的少步采样；4 步模型每步都在转折点 | 图像上限约 2×、PSNR 约 30 dB；schnell 上零命中或图坏 | [第三篇](/timestep-redundancy-caching-and-step-skipping.html) |
-| attention 稀疏 80% 端到端快 5× | 28% 的线性项不动 | Amdahl：$$a$$ 0.72、$$s$$ 3.5 → 2.06×，上限 3.57× | [第四篇](/video-diffusion-long-sequence-attention-and-sparsity.html) |
-| 稀疏 attention 就是把小分数置零 | $$N = 10^5$$ 上分数矩阵 425 GiB 不能物化 | 稀疏必须在 FlashAttention 的 128 块粒度跳整块，模式要与 layout 对齐 | [第四篇](/video-diffusion-long-sequence-attention-and-sparsity.html) |
-| 多卡默认用张量并行 | 通信 $$4\frac{p-1}{p}Nd$$ 在关键路径上，是 SP 的 $$p$$ 倍 | NVLink 用 USP、弱互联加 PipeFusion；TP 只在装不下时首选 | [第五篇](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) |
-| 用 SP 切请求能减少服务的卡数 | SP 只减延迟，GPU·秒不变、效率不到线性 | 卡数 = QPS × GPU·秒；只要吞吐就 DP | [第五篇](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)、[第七篇](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) |
-| 少步模型上前几篇的优化全部照搬 | 依赖相邻步相似与 CFG 的优化失效 | 缓存、PipeFusion、CFG 并行失效<br/>CUDA graph 变必需<br/>VAE 占比升到 15% | [第六篇](/few-step-and-autoregressive-video-generation-systems.html) |
-| 吞吐不随并发增长是引擎的 bug | compute-bound 下 batch 2 ≈ 2× 时间 | 正常现象；加实例或换少步模型，不要调 batch | [第七篇](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)、[第九篇](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
-| 评"开不开某项优化"用 FID | FID 对单图细节与模式坍缩不敏感、需几千张 | 对基线图 PSNR / SSIM / LPIPS + 偏好模型 + 人工 A/B | [第九篇](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
+| 一次前向的 FLOPs 按参数量算 | 双流块每个 token 只走一条流，adaLN 只处理一个条件向量 | 用 $$P_\text{tok}$$：FLUX 6.45B 而非 11.9B，用 $$P$$ 高估 85% | [《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html) |
+| 扩散推理与 LLM 一样有 KV cache | 每步的 K/V 由本步的带噪输入算出、用完即弃，没有"历史 token" | 双向多步模型无 KV<br/>只有 cross-attn 的文本 K/V 可缓存<br/>自回归视频除外 | [《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html) |
+| 权重量化减半，每步时间减半 | 单请求在算力屋顶上，字节不是瓶颈 | 收益来自 Tensor Core 峰值，只对线性层：FP8 1.3–1.5× | [《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
+| 逐层 offload 是免费的 | 收益取决于每层计算 / 搬运之比 | Wan 免费（0.7 s vs 27 ms）、FLUX 慢 6×（2.7 ms vs 16 ms） | [《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
+| SVDQuant 在 H100 上也能提速 | Hopper 没有 INT4 Tensor Core | 只在 Ada / Ampere / Blackwell 上有加速（4090 3×）；H100 只省显存 | [《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) |
+| 跨步缓存是无损的、蒸馏模型也能开 | 它是自适应的少步采样；4 步模型每步都在转折点 | 图像上限约 2×、PSNR 约 30 dB；schnell 上零命中或图坏 | [《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html) |
+| attention 稀疏 80% 端到端快 5× | 28% 的线性项不动 | Amdahl：$$a$$ 0.72、$$s$$ 3.5 → 2.06×，上限 3.57× | [《视频》](/video-diffusion-long-sequence-attention-and-sparsity.html) |
+| 稀疏 attention 就是把小分数置零 | $$N = 10^5$$ 上分数矩阵 425 GiB 不能物化 | 稀疏必须在 FlashAttention 的 128 块粒度跳整块，模式要与 layout 对齐 | [《视频》](/video-diffusion-long-sequence-attention-and-sparsity.html) |
+| 多卡默认用张量并行 | 通信 $$4\frac{p-1}{p}Nd$$ 在关键路径上，是 SP 的 $$p$$ 倍 | NVLink 用 USP、弱互联加 PipeFusion；TP 只在装不下时首选 | [《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) |
+| 用 SP 切请求能减少服务的卡数 | SP 只减延迟，GPU·秒不变、效率不到线性 | 卡数 = QPS × GPU·秒；只要吞吐就 DP | [《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)、[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) |
+| 少步模型上前几篇的优化全部照搬 | 依赖相邻步相似与 CFG 的优化失效 | 缓存、PipeFusion、CFG 并行失效<br/>CUDA graph 变必需<br/>VAE 占比升到 15% | [《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html) |
+| 吞吐不随并发增长是引擎的 bug | compute-bound 下 batch 2 ≈ 2× 时间 | 正常现象；加实例或换少步模型，不要调 batch | [《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)、[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
+| 评"开不开某项优化"用 FID | FID 对单图细节与模式坍缩不敏感、需几千张 | 对基线图 PSNR / SSIM / LPIPS + 偏好模型 + 人工 A/B | [《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) |
 
 Table: 常见误区与正确说法
 

@@ -126,7 +126,7 @@ flowchart TB
     class E,N1,N2,NF,H,Q,K,V,O,G,U,D box
 ```
 
-`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，见[现代 LLM 结构（04）](/attention-variants-and-kv-cache.html)）。
+`config.json` 里的数字在结构里的位置。`num_attention_heads: 14` 与 `num_key_value_heads: 2` 决定 k/v 的宽度：每个头 $$896 / 14 = 64$$ 维，K、V 只有 2 个头，所以是 $$2 \times 64 = 128$$（GQA，见《现代 LLM 结构》的[《Attention 变体与 KV cache》](/attention-variants-and-kv-cache.html)）。
 
 参数量就是把图里每个矩形的面积加起来（《[算法工程师的数学（01）：向量、矩阵与形状——一个 token 过一层要算多少](/vectors-matrices-shapes-and-flops.html)》"从结构算参数量"），Qwen2 的 q/k/v 带 bias：
 

@@ -105,8 +105,8 @@ flowchart LR
 flowchart LR
     W["prompt 版本 N（不可变）"]
     W --> T["<b>模板 + 分区结构 + 变量占位</b><br/>← 第二篇的六个部分"]
-    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← 《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》"]
-    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》"]
+    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← 《API 契约（二）》、《选型》"]
+    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · 《API 契约（一）》"]
     W --> C["<b>缓存断点的位置</b><br/>← 第五篇"]
     W --> N["变更说明：改了什么 · 为什么 · 评测结果"]
     T & M & S & C --> B["<b>一起决定行为：</b><br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]

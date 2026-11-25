@@ -365,13 +365,13 @@ Pre-Norm 有一个已知的副作用：残差流最后的方差随深度线性�
 
 | 工具 | 针对的问题 | 做法 | 出处 / 使用者 |
 |---|---|---|---|
-| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
-| 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
+| Warmup | 训练初期 Adam 的二阶矩估计不准、更新过大<br/>Post-Norm 初期梯度大 | 学习率从 0 线性升到峰值，几百到几千步 | 《《深度学习基础》的[《优化器》](/optimizers-from-sgd-to-adamw.html)》「六、学习率调度 · 1. Warmup 为什么必不可少」 |
+| 梯度裁剪 | 偶发的大梯度把参数打飞 | 全局梯度范数超过阈值（常用 1.0）就等比缩小 | 《《深度学习基础》的[《优化器》](/optimizers-from-sgd-to-adamw.html)》「七、梯度裁剪」 |
 | QK-norm | attention logits 随训练增长，softmax 饱和，梯度消失或 loss spike | 对 $$Q$$、$$K$$ 各做一次 LayerNorm / RMSNorm 再点积 | Dehghani 等 2023（ViT-22B）<br/>Gemma、Qwen3 等 |
 | z-loss | lm_head 的 logits 整体漂移，softmax 的归一化项 $$\log Z$$（$$Z=\sum_i e^{z_i}$$，$$z_i$$ 是 logits）失控 | loss 加 $$10^{-4} \cdot (\log Z)^2$$，把 $$\log Z$$ 拉向 0 | PaLM |
 | Embedding 缩放 | embedding 输出尺度与残差流不匹配 | embedding 乘 $$\sqrt{d}$$（Gemma）或用更大初始化 | 原始 Transformer 即有 |
 | $$\mu$$P | 最优学习率随宽度漂移，小模型调出的超参数在大模型上失效 | 按宽度缩放初始化与学习率，使不同宽度下特征更新量级一致 | Yang 等 2022<br/>被多个开源模型采用 |
-| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《[深度学习基础（06）](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
+| 更小的 $$\beta_2$$ | Adam 二阶矩对突变反应慢，梯度突增时更新过大 | $$\beta_2$$ 从 0.999 降到 0.95 | 《《深度学习基础》的[《优化器》](/optimizers-from-sgd-to-adamw.html)》「四、Adam · 3. β₂ 的记忆窗」<br/>几乎所有 LLM |
 
 Table: 大模型上的稳定性工具
 

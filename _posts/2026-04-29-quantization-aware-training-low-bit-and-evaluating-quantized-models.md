@@ -263,7 +263,7 @@ Table: 量化模型评测的任务组合
 
 ### 3. 协议一致性
 
-比较量化前后必须用**完全相同的协议**：同样的采样参数（第一篇——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
+比较量化前后必须用**完全相同的协议**：同样的采样参数（[《解码策略、采样与约束生成》](/decoding-strategies-sampling-and-constrained-generation.html)——温度对结果的影响可能大于量化的影响）、同样的 few-shot、同样的抽取方式、同样的引擎（不同引擎的 kernel 数值差异也在 KL 0.001 的量级，但对 argmax 翻转有影响）。且要**多次采样**：量化引起的 1–2 个点的差异，在单次采样的噪声范围内（《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》的方差表），需要 $$n \ge 4$$ 的采样均值或配对检验才能判断。
 
 一个常见的错误：量化模型用 vLLM 评、全精度模型用 transformers 评，两者的数值实现不同（attention kernel、RMSNorm 的精度），差异被归到量化头上。
 

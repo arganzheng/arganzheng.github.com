@@ -47,16 +47,16 @@ flowchart TB
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
-| [第一篇：深度模型演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html) | 深度模型如何从感知机走到 Transformer？ | 结构偏置逐步解决线性表达、梯度传播、视觉与序列建模问题<br/>能表示不等于能学会 | XOR：ADALINE 最小二乘 MSE 0.25<br/>MLP H=2 有 13/20 seeds 达到 100%，H=4 为 20/20 |
-| [第二篇：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本<br/>label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/405$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
-| [第三篇：反向传播](/backpropagation-by-hand.html) | 不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？ | 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian<br/>梯度与被求导的量同形<br/>每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向<br/>$$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存 | $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$<br/>$$6ND$$，激活重算 $$8ND$$<br/>实测比值 2.00<br/>激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB<br/>梯度检查 float64、相对误差 $$< 10^{-6}$$ |
-| [第四篇：激活函数](/activation-functions-from-sigmoid-to-swiglu.html) | 为什么网络需要非线性？sigmoid、ReLU、GELU 与 SwiGLU 的梯度和代价有什么不同？ | sigmoid 饱和使深层梯度连乘衰减<br/>ReLU 正半轴梯度为 1<br/>GELU / SiLU 平滑门控，SwiGLU 把门控用于 FFN | $$\sigma'(x)\le0.25$$，$$0.25^{10}\approx9.54\times10^{-7}$$<br/>20 层 MLP 三 seed 准确率：sigmoid 10.64%，tanh 90.48%，SiLU 92.88% |
-| [第五篇：初始化、归一化与残差](/initialization-normalization-and-residual.html) | 64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？ | 深网络的稳定性是连乘问题<br/>初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路<br/>三样必须同用，Pre-Norm 是当前摆法 | $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$<br/>$$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$<br/>残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性<br/>GPT-2 缩放 $$1/\sqrt{2L}$$<br/>Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96<br/>0.02 |
-| [第六篇：优化器](/optimizers-from-sgd-to-adamw.html) | Adam 的两个矩各做什么？AdamW 与 $$L_2$$ 为什么不一样？warmup 为什么不能省？batch 变大学习率怎么变？ | Adam 让每个参数步长 $$\approx \eta$$、与梯度大小无关，因此第一步是满步长 $$\eta \cdot \text{sign}(g)$$、必须 warmup<br/>$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放而 AdamW 不被<br/>线性 scaling 在临界 batch 内成立<br/>裁剪限制步长上界 | Momentum 有效学习率 $$\times 1/(1-\beta)$$<br/>$$\beta_2 = 0.95$$ 记 20 步<br/>8 字节 / 参数，Llama-3-8B 64 GB，16 字节里的 12<br/>$$\lVert W_1 \rVert$$ 22.6 → 2.3、95.6% → 86.2%<br/>warmup：4.59 对 1.26<br/>scaling 到 512 成立、2048 发散<br/>裁剪 1.0 |
-| [第七篇：正则化与泛化](/regularization-and-generalization.html) | 参数是样本几百倍的网络为什么不过拟合？什么数据规模、多少 epoch 后会？怎么提前看到？ | 先算参数 / 数据比定区间<br/>过参数化时优化器挑最小范数、平坦、先学简单的解——隐式正则化<br/>double descent 越过插值阈值再变好<br/>预训练在数据主导区间里不用 dropout、一个 epoch<br/>SFT 与奖励模型把模型放回过参数化区间 | $$N/D$$：预训练 0.0005、SFT 1600、RM 160、实验 407<br/>宽度 8 测试 loss 5.48、2048 最好 14.5%<br/>wd 把 0.55 压到 0.42，dropout 0.62<br/>重复 4 epoch 以内几乎无损<br/>2 万字符第 16 epoch 拐点、记忆率 10%，20 万第 8 epoch，200 万未到 |
-| [第八篇：CNN](/cnn-from-lenet-to-resnet-and-vit.html) | 卷积的局部连接与权重共享解决什么？ResNet 如何让网络加深，ViT 又为何能去掉卷积？ | 卷积把局部性和平移等变性写进结构<br/>残差让深度增加后仍可训练<br/>数据足够时，ViT 可以从 patch token 学习空间关系 | plain-56 loss 0.72，残差网络 0.13<br/>LeNet-5 61,706 参数、0.82% 错误率<br/>224×224 图像切成 196 个 patch token |
-| [第九篇：Embedding 与表示学习](/embedding-and-representation-learning.html) | 离散 token 怎样变成可学习向量？Word2Vec 如何组织几何结构，为什么还需要上下文表示？ | embedding 是按 token id 查表<br/>预测目标与上下文会塑造向量邻域，但静态词向量不随上下文变化 | GPT-2 small 输入表 38,597,376 参数、约占 31.0%<br/>text8 全量 17,005,207 词、词表 71,290，100 维 skip-gram |
-| [第十篇：RNN](/rnn-lstm-and-the-birth-of-attention.html) | RNN 为什么记不住 20 步外的东西？遗忘门与残差什么关系？attention 为解决什么被发明、为什么取代了 RNN？ | BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处<br/>LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是时间上的残差，遗忘门偏置要初始化为 1<br/>attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要 | $$J_k = \text{diag}(1 - h_k^2) W$$<br/>20 步外千分之四、60 步外 $$10^{-10}$$<br/>RNN 10 步失败<br/>$$0.5^{20} \approx 10^{-6}$$、$$\sigma(1) = 0.73$$<br/>倒序 16 token 整句 0% → 76%<br/>attention 算力 4.5 倍<br/>$$O(T^2 d)$$ 对 $$O(T d^2)$$ |
+| [《深度模型演进史》：深度模型演进史](/evolution-of-deep-models-from-perceptron-to-transformer.html) | 深度模型如何从感知机走到 Transformer？ | 结构偏置逐步解决线性表达、梯度传播、视觉与序列建模问题<br/>能表示不等于能学会 | XOR：ADALINE 最小二乘 MSE 0.25<br/>MLP H=2 有 13/20 seeds 达到 100%，H=4 为 20/20 |
+| [《损失函数》：损失函数](/loss-functions-from-mse-to-dpo.html) | 「好」怎样写成一个可求导的数？分类为什么不用 MSE？ | 训练只能优化一个可求导标量；loss = 概率假设取负对数<br/>MSE 对 logit 的梯度多乘一个 $$\sigma'$$，饱和区被杀死<br/>focal 按 $$(1-p_t)^\gamma$$ 降权简单样本<br/>label smoothing 给 logit 差有限最优点 | 初始 loss $$\approx \ln C$$（10 类 2.30，GPT-2 10.82）<br/>$$z=-6$$ 时 MSE 梯度是 CE 的 $$1/405$$<br/>focal 把 0.2% 少数类召回 7.4% → 21.6%<br/>CE 94.50% 对 MSE 91.40% |
+| [《反向传播》：反向传播](/backpropagation-by-hand.html) | 不用框架能不能手推并手写两层网络的反向传播？为什么训练 FLOPs 是 $$6ND$$、激活为什么要存？ | 反向传播 = 沿计算图反向拓扑序对每个算子算一次 VJP，从不构造 Jacobian<br/>梯度与被求导的量同形<br/>每个 Linear 反向做两个 GEMM，所以反向 = 2 × 前向<br/>$$\partial L / \partial W = X^T G$$ 需要本层输入，所以激活要存 | $$\partial L/\partial W = X^T G$$、$$\partial L/\partial X = G W^T$$、$$(P - Y)/m$$<br/>$$6ND$$，激活重算 $$8ND$$<br/>实测比值 2.00<br/>激活 552 KiB 对权重 795 KiB，batch × 32 → 17.3 MiB<br/>梯度检查 float64、相对误差 $$< 10^{-6}$$ |
+| [《激活函数》：激活函数](/activation-functions-from-sigmoid-to-swiglu.html) | 为什么网络需要非线性？sigmoid、ReLU、GELU 与 SwiGLU 的梯度和代价有什么不同？ | sigmoid 饱和使深层梯度连乘衰减<br/>ReLU 正半轴梯度为 1<br/>GELU / SiLU 平滑门控，SwiGLU 把门控用于 FFN | $$\sigma'(x)\le0.25$$，$$0.25^{10}\approx9.54\times10^{-7}$$<br/>20 层 MLP 三 seed 准确率：sigmoid 10.64%，tanh 90.48%，SiLU 92.88% |
+| [《训练为什么不稳定》：初始化、归一化与残差](/initialization-normalization-and-residual.html) | 64 层 MLP 不加技巧为什么训不动？三样东西各修哪一段？ | 深网络的稳定性是连乘问题<br/>初始化只管 $$t = 0$$，归一化切断前向的连乘但修不了反向，残差把 Jacobian 变成 $$I + J$$ 给梯度一条恒等通路<br/>三样必须同用，Pre-Norm 是当前摆法 | $$\text{Var}(y) = n_{in}\sigma_w^2 \text{Var}(x)$$，Kaiming $$2/n_{in}$$<br/>$$2^{-32}$$、$$0.9^{128} \approx 1.4 \times 10^{-6}$$<br/>残差流无归一化每层翻倍（$$2^{64}$$）、Pre-Norm 线性<br/>GPT-2 缩放 $$1/\sqrt{2L}$$<br/>Pre-Norm 梯度 0.12–0.15 对 Post-Norm 0.51–1.96<br/>0.02 |
+| [《优化器》：优化器](/optimizers-from-sgd-to-adamw.html) | Adam 的两个矩各做什么？AdamW 与 $$L_2$$ 为什么不一样？warmup 为什么不能省？batch 变大学习率怎么变？ | Adam 让每个参数步长 $$\approx \eta$$、与梯度大小无关，因此第一步是满步长 $$\eta \cdot \text{sign}(g)$$、必须 warmup<br/>$$L_2$$ 被 $$1/\sqrt{v}$$ 缩放而 AdamW 不被<br/>线性 scaling 在临界 batch 内成立<br/>裁剪限制步长上界 | Momentum 有效学习率 $$\times 1/(1-\beta)$$<br/>$$\beta_2 = 0.95$$ 记 20 步<br/>8 字节 / 参数，Llama-3-8B 64 GB，16 字节里的 12<br/>$$\lVert W_1 \rVert$$ 22.6 → 2.3、95.6% → 86.2%<br/>warmup：4.59 对 1.26<br/>scaling 到 512 成立、2048 发散<br/>裁剪 1.0 |
+| [《正则化与泛化》：正则化与泛化](/regularization-and-generalization.html) | 参数是样本几百倍的网络为什么不过拟合？什么数据规模、多少 epoch 后会？怎么提前看到？ | 先算参数 / 数据比定区间<br/>过参数化时优化器挑最小范数、平坦、先学简单的解——隐式正则化<br/>double descent 越过插值阈值再变好<br/>预训练在数据主导区间里不用 dropout、一个 epoch<br/>SFT 与奖励模型把模型放回过参数化区间 | $$N/D$$：预训练 0.0005、SFT 1600、RM 160、实验 407<br/>宽度 8 测试 loss 5.48、2048 最好 14.5%<br/>wd 把 0.55 压到 0.42，dropout 0.62<br/>重复 4 epoch 以内几乎无损<br/>2 万字符第 16 epoch 拐点、记忆率 10%，20 万第 8 epoch，200 万未到 |
+| [《CNN》：CNN](/cnn-from-lenet-to-resnet-and-vit.html) | 卷积的局部连接与权重共享解决什么？ResNet 如何让网络加深，ViT 又为何能去掉卷积？ | 卷积把局部性和平移等变性写进结构<br/>残差让深度增加后仍可训练<br/>数据足够时，ViT 可以从 patch token 学习空间关系 | plain-56 loss 0.72，残差网络 0.13<br/>LeNet-5 61,706 参数、0.82% 错误率<br/>224×224 图像切成 196 个 patch token |
+| [《Embedding 与表示学习》：Embedding 与表示学习](/embedding-and-representation-learning.html) | 离散 token 怎样变成可学习向量？Word2Vec 如何组织几何结构，为什么还需要上下文表示？ | embedding 是按 token id 查表<br/>预测目标与上下文会塑造向量邻域，但静态词向量不随上下文变化 | GPT-2 small 输入表 38,597,376 参数、约占 31.0%<br/>text8 全量 17,005,207 词、词表 71,290，100 维 skip-gram |
+| [《RNN》：RNN](/rnn-lstm-and-the-birth-of-attention.html) | RNN 为什么记不住 20 步外的东西？遗忘门与残差什么关系？attention 为解决什么被发明、为什么取代了 RNN？ | BPTT 是同一个 $$W$$ 的连乘，训练信号传不到远处<br/>LSTM 的 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是时间上的残差，遗忘门偏置要初始化为 1<br/>attention 为绕过 seq2seq 的固定向量瓶颈而生，然后人们发现循环可以不要 | $$J_k = \text{diag}(1 - h_k^2) W$$<br/>20 步外千分之四、60 步外 $$10^{-10}$$<br/>RNN 10 步失败<br/>$$0.5^{20} \approx 10^{-6}$$、$$\sigma(1) = 0.73$$<br/>倒序 16 token 整句 0% → 76%<br/>attention 算力 4.5 倍<br/>$$O(T^2 d)$$ 对 $$O(T d^2)$$ |
 
 Table: 十篇的核心问题、结论与必记公式
 
@@ -341,22 +341,22 @@ flowchart TB
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| 反向传播要算出每层的 Jacobian | 一个 20 万参数网络的一层 Jacobian 就有 13 GB | 只算 VJP $$J^T v$$，对 Linear 就是两个 GEMM | [第三篇](/backpropagation-by-hand.html) |
-| 激活显存与参数量成正比 | 每层保存的是该层输入 $$[m, \text{宽度}]$$ | 与 batch × 序列长 × 层数 × 宽度成正比，与参数量无关<br/>重算用 33% 算力换掉 | [第三篇](/backpropagation-by-hand.html) |
-| 初始化对了深网络就能训 | 初��化只管 $$t = 0$$<br/>训练后因子偏离、随机乘积分布变宽 | Kaiming 的 64 层 plain 网络梯度范数在层间 1.7 到 13，lr 0.05 三步 NaN | [第五篇](/initialization-normalization-and-residual.html) |
-| 加了 LayerNorm 就不需要残差 | 归一化切断前向连乘，反向仍是 64 个 Jacobian 的乘积 | 无残差加 LN 300 步 37%<br/>残差把梯度范数拉到各层均匀 | [第五篇](/initialization-normalization-and-residual.html) |
-| Post-Norm 效果好，LLM 应该用它 | 顶层梯度是底层 4 倍，需要 warmup、深了难训 | LLM 用 Pre-Norm 加 final norm<br/>lr 0.05 时 91.6% 对 8.8% | [第五篇](/initialization-normalization-and-residual.html) |
-| Adam + $$L_2$$ 就是 AdamW | $$\lambda\theta$$ 混进 $$g$$ 被 $$1/\sqrt{v}$$ 缩放，梯度小的参数被过度衰减 | 同一 $$\lambda = 0.1$$：$$\lVert W_1 \rVert$$ 2.33 对 23.59，准确率 86.2% 对 95.6% | [第六篇](/optimizers-from-sgd-to-adamw.html) |
-| warmup 是经验做法，小心点就能省 | 偏差修正后第一步是 $$\eta \cdot \text{sign}(g)$$ 满步长，$$v$$ 还没学到尺度 | $$\eta = 10^{-2}$$ 无 warmup loss 冲到 4.59（高于随机），有则 1.26 | [第六篇](/optimizers-from-sgd-to-adamw.html) |
-| batch 翻倍学习率翻倍永远成立 | 只在"$$k$$ 步内梯度基本不变"时成立，超过临界 batch 发散 | 实测 512 成立、2048 NaN<br/>Adam 下近似 $$\sqrt{B}$$ | [第六篇](/optimizers-from-sgd-to-adamw.html) |
-| 参数比样本多就会过拟合 | 参数量不是容量的度量，优化器挑平坦、低范数的解 | 参数是样本 407 倍的网络测试 loss 最好<br/>不要停在插值阈值 | [第七篇](/regularization-and-generalization.html) |
-| 加 dropout 总没坏处 | 减少有效容量、拖慢收敛，不改变过拟合的终点 | 300 epoch 后 dropout 0.5 反而最差（0.62）<br/>预训练不用 | [第七篇](/regularization-and-generalization.html) |
-| 验证准确率没掉就没过拟合 | 过拟合最常见的形态是测试 loss 涨而准确率不变 | 那是过度自信，校准变差<br/>看 loss 拐点与记忆探针 | [第七篇](/regularization-and-generalization.html) |
-| ResNet-50 是 4.1 GFLOPs | 4.1 数的是乘加次数（MACs） | 按一次乘加 = 2 FLOPs 是 8.2 GFLOPs<br/>25.6M 参数每个用 160 次（320 FLOPs / 参数） | [第八篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| ViT 完全不用卷积 | patch embedding 就是 kernel = stride = $$p$$ 的卷积 | 实测两种写法差 $$10^{-6}$$、参数同为 590,592<br/>卷积退到第一层 | [第八篇](/cnn-from-lenet-to-resnet-and-vit.html) |
-| RNN 记不住远处是隐状态太小 | 是训练信号传不到：20 步外梯度千分之四 | 64 维装得下 69 bit，但网络学不出编码<br/>LSTM 靠恒等通路把 10 步推到几十步 | [第十篇](/rnn-lstm-and-the-birth-of-attention.html) |
-| 激活函数只是为了增加网络深度 | 没有非线性时，任意多层 Linear 都可合成一层<br/>导数也会改变梯度连乘 | sigmoid 的导数上限是 0.25<br/>门控激活则改变 FFN 的计算结构 | [第四篇](/activation-functions-from-sigmoid-to-swiglu.html) |
-| Embedding 只是 token id 的固定查表 | 表的行是可训练参数，梯度更新被访问的行<br/>静态词向量不随上下文变化 | 区分词表查表、Word2Vec 的训练目标与 Transformer 的上下文表示 | [第九篇](/embedding-and-representation-learning.html) |
+| 反向传播要算出每层的 Jacobian | 一个 20 万参数网络的一层 Jacobian 就有 13 GB | 只算 VJP $$J^T v$$，对 Linear 就是两个 GEMM | [《反向传播》](/backpropagation-by-hand.html) |
+| 激活显存与参数量成正比 | 每层保存的是该层输入 $$[m, \text{宽度}]$$ | 与 batch × 序列长 × 层数 × 宽度成正比，与参数量无关<br/>重算用 33% 算力换掉 | [《反向传播》](/backpropagation-by-hand.html) |
+| 初始化对了深网络就能训 | 初��化只管 $$t = 0$$<br/>训练后因子偏离、随机乘积分布变宽 | Kaiming 的 64 层 plain 网络梯度范数在层间 1.7 到 13，lr 0.05 三步 NaN | [《训练为什么不稳定》](/initialization-normalization-and-residual.html) |
+| 加了 LayerNorm 就不需要残差 | 归一化切断前向连乘，反向仍是 64 个 Jacobian 的乘积 | 无残差加 LN 300 步 37%<br/>残差把梯度范数拉到各层均匀 | [《训练为什么不稳定》](/initialization-normalization-and-residual.html) |
+| Post-Norm 效果好，LLM 应该用它 | 顶层梯度是底层 4 倍，需要 warmup、深了难训 | LLM 用 Pre-Norm 加 final norm<br/>lr 0.05 时 91.6% 对 8.8% | [《训练为什么不稳定》](/initialization-normalization-and-residual.html) |
+| Adam + $$L_2$$ 就是 AdamW | $$\lambda\theta$$ 混进 $$g$$ 被 $$1/\sqrt{v}$$ 缩放，梯度小的参数被过度衰减 | 同一 $$\lambda = 0.1$$：$$\lVert W_1 \rVert$$ 2.33 对 23.59，准确率 86.2% 对 95.6% | [《优化器》](/optimizers-from-sgd-to-adamw.html) |
+| warmup 是经验做法，小心点就能省 | 偏差修正后第一步是 $$\eta \cdot \text{sign}(g)$$ 满步长，$$v$$ 还没学到尺度 | $$\eta = 10^{-2}$$ 无 warmup loss 冲到 4.59（高于随机），有则 1.26 | [《优化器》](/optimizers-from-sgd-to-adamw.html) |
+| batch 翻倍学习率翻倍永远成立 | 只在"$$k$$ 步内梯度基本不变"时成立，超过临界 batch 发散 | 实测 512 成立、2048 NaN<br/>Adam 下近似 $$\sqrt{B}$$ | [《优化器》](/optimizers-from-sgd-to-adamw.html) |
+| 参数比样本多就会过拟合 | 参数量不是容量的度量，优化器挑平坦、低范数的解 | 参数是样本 407 倍的网络测试 loss 最好<br/>不要停在插值阈值 | [《正则化与泛化》](/regularization-and-generalization.html) |
+| 加 dropout 总没坏处 | 减少有效容量、拖慢收敛，不改变过拟合的终点 | 300 epoch 后 dropout 0.5 反而最差（0.62）<br/>预训练不用 | [《正则化与泛化》](/regularization-and-generalization.html) |
+| 验证准确率没掉就没过拟合 | 过拟合最常见的形态是测试 loss 涨而准确率不变 | 那是过度自信，校准变差<br/>看 loss 拐点与记忆探针 | [《正则化与泛化》](/regularization-and-generalization.html) |
+| ResNet-50 是 4.1 GFLOPs | 4.1 数的是乘加次数（MACs） | 按一次乘加 = 2 FLOPs 是 8.2 GFLOPs<br/>25.6M 参数每个用 160 次（320 FLOPs / 参数） | [《CNN》](/cnn-from-lenet-to-resnet-and-vit.html) |
+| ViT 完全不用卷积 | patch embedding 就是 kernel = stride = $$p$$ 的卷积 | 实测两种写法差 $$10^{-6}$$、参数同为 590,592<br/>卷积退到第一层 | [《CNN》](/cnn-from-lenet-to-resnet-and-vit.html) |
+| RNN 记不住远处是隐状态太小 | 是训练信号传不到：20 步外梯度千分之四 | 64 维装得下 69 bit，但网络学不出编码<br/>LSTM 靠恒等通路把 10 步推到几十步 | [《RNN》](/rnn-lstm-and-the-birth-of-attention.html) |
+| 激活函数只是为了增加网络深度 | 没有非线性时，任意多层 Linear 都可合成一层<br/>导数也会改变梯度连乘 | sigmoid 的导数上限是 0.25<br/>门控激活则改变 FFN 的计算结构 | [《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html) |
+| Embedding 只是 token id 的固定查表 | 表的行是可训练参数，梯度更新被访问的行<br/>静态词向量不随上下文变化 | 区分词表查表、Word2Vec 的训练目标与 Transformer 的上下文表示 | [《Embedding 与表示学习》](/embedding-and-representation-learning.html) |
 
 Table: 常见误区与正确说法
 

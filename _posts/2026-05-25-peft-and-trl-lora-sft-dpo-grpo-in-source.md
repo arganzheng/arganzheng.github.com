@@ -179,7 +179,7 @@ def unmerge(self):
 
 ### 4. `state_dict` 里只有 adapter
 
-`PeftModel.save_pretrained` 存的是 `get_peft_model_state_dict`：只挑键里带 `lora_` 的参数（8.8M，bf16 下 17 MB），加一个 `adapter_config.json`。所以 Hub 上一个 LoRA 仓库只有几十 MB，`PeftModel.from_pretrained(base, "user/adapter")` 或 transformers 自带的 `model.load_adapter(...)`（第一篇 `from_pretrained` 收尾时那个 `_adapter_model_path` 分支）再把它挂回基座。基座权重不在里面——adapter 与基座的对应关系靠 `adapter_config.json` 里的 `base_model_name_or_path`，换了基座版本挂上去不报错但结果是错的。
+`PeftModel.save_pretrained` 存的是 `get_peft_model_state_dict`：只挑键里带 `lora_` 的参数（8.8M，bf16 下 17 MB），加一个 `adapter_config.json`。所以 Hub 上一个 LoRA 仓库只有几十 MB，`PeftModel.from_pretrained(base, "user/adapter")` 或 transformers 自带的 `model.load_adapter(...)`（[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)里 `from_pretrained` 收尾时那个 `_adapter_model_path` 分支）再把它挂回基座。基座权重不在里面——adapter 与基座的对应关系靠 `adapter_config.json` 里的 `base_model_name_or_path`，换了基座版本挂上去不报错但结果是错的。
 
 ## 四、trl：SFT 的数据契约
 
@@ -218,7 +218,7 @@ if "labels" not in column_names:
     dataset = dataset.map(build_labels, fn_kwargs={"mask_columns": mask_columns}, remove_columns=mask_columns, **map_kwargs)
 ```
 
-规则一句话：**某个位置的所有 mask 位都是 1，`labels` 才等于 `input_ids`，否则 `-100`**。这是一次 `datasets.map`（上一篇第六章，有缓存），发生在训练开始前，不在每步的 collator 里——1.x 之前的 trl 在 collator 里造 labels，现在提前到数据准备阶段，`labels` 成为数据集的一列，你可以在 `trainer.train_dataset[0]["labels"]` 里直接检查 mask 对不对（《后训练》SFT 篇建议的"打印 loss mask 比例"就该看这一列）。第一篇的 `ForCausalLMLoss` 再把 labels 左移一位——所以 **completion 的第一个 token 由 prompt 的最后一个位置预测**，它的 loss 是算的；prompt 内部的位置全不算。
+规则一句话：**某个位置的所有 mask 位都是 1，`labels` 才等于 `input_ids`，否则 `-100`**。这是一次 `datasets.map`（[《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html)第六章，有缓存），发生在训练开始前，不在每步的 collator 里——1.x 之前的 trl 在 collator 里造 labels，现在提前到数据准备阶段，`labels` 成为数据集的一列，你可以在 `trainer.train_dataset[0]["labels"]` 里直接检查 mask 对不对（《后训练》SFT 篇建议的"打印 loss mask 比例"就该看这一列）。[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)的 `ForCausalLMLoss` 再把 labels 左移一位——所以 **completion 的第一个 token 由 prompt 的最后一个位置预测**，它的 loss 是算的；prompt 内部的位置全不算。
 
 ### 3. packing
 
@@ -260,7 +260,7 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
     # 之后：从 outputs.logits 算 token 准确率与熵，记进 self._metrics
 ```
 
-`super().compute_loss` 是 transformers `Trainer` 的：把 `num_items_in_batch` 塞进 `inputs`，调 `model(**inputs)`，取 `outputs.loss`——也就是第一篇第七章的 `ForCausalLMLoss`。trl 自己不写交叉熵，只在外面加了两个可观测量：`mean_token_accuracy`（argmax 命中率，按 `labels != -100` 的位置）与 `entropy`（每 token 的分布熵）。`loss_type="dft"` 换成 Dynamic Fine-Tuning（按预测概率加权），`"chunked_nll"` 用 `_chunked_cross_entropy_loss` 分块算——不物化 `[B, T, V]` 的 fp32 logits（$$B \times T \times 151936 \times 4$$ 字节，长序列下常是显存峰值），`use_liger_kernel=True` 用 Liger 的融合 kernel 做同一件事。
+`super().compute_loss` 是 transformers `Trainer` 的：把 `num_items_in_batch` 塞进 `inputs`，调 `model(**inputs)`，取 `outputs.loss`——也就是[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)第七章的 `ForCausalLMLoss`。trl 自己不写交叉熵，只在外面加了两个可观测量：`mean_token_accuracy`（argmax 命中率，按 `labels != -100` 的位置）与 `entropy`（每 token 的分布熵）。`loss_type="dft"` 换成 Dynamic Fine-Tuning（按预测概率加权），`"chunked_nll"` 用 `_chunked_cross_entropy_loss` 分块算——不物化 `[B, T, V]` 的 fp32 logits（$$B \times T \times 151936 \times 4$$ 字节，长序列下常是显存峰值），`use_liger_kernel=True` 用 Liger 的融合 kernel 做同一件事。
 
 ## 六、trl：DPO
 
@@ -309,7 +309,7 @@ $$
 
 ### 1. 采样与打分
 
-`GRPOTrainer` 每步的 `_generate_and_score_completions`：对 batch 里每个 prompt 生成 `num_generations` 条（`G`）completion——`use_vllm=True` 时走 `vllm_mode="colocate"`（vLLM 引擎与训练进程共卡）或 `"server"`（独立 vLLM 服务，`trl vllm-serve`），否则用 transformers 的 `generate`（第二篇）；然后把每条交给 `reward_funcs`——一个列表，元素可以是 `nn.Module`（奖励模型，`AutoModelForSequenceClassification`）或普通 Python 函数（`def accuracy_reward(completions, **kwargs) -> list[float]`，可验证奖励就是这种），`reward_weights` 加权求和。[RL Infra 系列](/rl-post-training-infrastructure.html)讨论的"rollout 引擎与训练器怎么共享 GPU、权重怎么同步"，在 trl 里就是 `vllm_mode` 这个开关和它背后 `_move_model_to_vllm` 的权重推送。
+`GRPOTrainer` 每步的 `_generate_and_score_completions`：对 batch 里每个 prompt 生成 `num_generations` 条（`G`）completion——`use_vllm=True` 时走 `vllm_mode="colocate"`（vLLM 引擎与训练进程共卡）或 `"server"`（独立 vLLM 服务，`trl vllm-serve`），否则用 transformers 的 `generate`（[《generate》](/transformers-generate-call-chain.html)）；然后把每条交给 `reward_funcs`——一个列表，元素可以是 `nn.Module`（奖励模型，`AutoModelForSequenceClassification`）或普通 Python 函数（`def accuracy_reward(completions, **kwargs) -> list[float]`，可验证奖励就是这种），`reward_weights` 加权求和。[RL Infra 系列](/rl-post-training-infrastructure.html)讨论的"rollout 引擎与训练器怎么共享 GPU、权重怎么同步"，在 trl 里就是 `vllm_mode` 这个开关和它背后 `_move_model_to_vllm` 的权重推送。
 
 ### 2. 组内优势
 

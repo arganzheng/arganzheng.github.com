@@ -170,7 +170,7 @@ flowchart TB
     IDX -->|"决定怎么找"| R50["recall@50 / @5（第七篇）"]
     P -->|"权限进元数据"| PERM["检索时过滤 · 不该看到查询集"]
     IDX --> PERM
-    F["形态：流水线 / agentic（第五篇）"] -->|"决定检索次数与上下文增长"| COST["成本与延迟（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》 · 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）"]
+    F["形态：流水线 / agentic（第五篇）"] -->|"决定检索次数与上下文增长"| COST["成本与延迟（《成本与延迟的账》 · 《上下文预算与压缩》）"]
     R50 --> GEN["固定检索下的生成质量（第七篇）"]
     GEN --> E2E["端到端"]
     R50 --> E2E

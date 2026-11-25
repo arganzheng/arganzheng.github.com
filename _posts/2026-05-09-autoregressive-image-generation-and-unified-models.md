@@ -104,7 +104,7 @@ $$
 
 解码器 $$D$$ 从 $$z_q$$ 重建图。图就变成了 $$h \times w$$ 个整数（码字索引）——$$256^2$$ 的图、$$f = 16$$：$$16 \times 16 = 256$$ 个 token，每个 $$\log_2 K$$ bit。
 
-"码本 / 最近邻 / 查表"这些词在第四篇 RVQ 里已经出现过：**VQ 就是 K-Means**（《[LLM 时代的经典机器学习（11）：系列总结与通关自测](/classical-ml-series-recap-and-self-test.html)》）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
+"码本 / 最近邻 / 查表"这些词在[《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)的 RVQ 里已经出现过：**VQ 就是 K-Means**（《[LLM 时代的经典机器学习（11）：系列总结与通关自测](/classical-ml-series-recap-and-self-test.html)》）——码本是簇中心，量化是归到最近的中心。先不用神经网络，把它做到最小：编码器 = 把 $$8 \times 8$$ 的手写数字切成 16 个 $$2 \times 2$$ 的 patch（每个 4 个像素），码本 = 对全部 patch 做 K-Means（$$K = 32$$），量化 = 每个 patch 取最近簇中心的编号，解码器 = 查码本、拼回 $$8 \times 8$$：
 
 ```python title="K-Means 码本：最小的 VQ-VAE"
 km = KMeans(32).fit(ALL.reshape(-1, 4))                   # ① 训练码本 = 对 1797 × 16 个 2×2 patch 做 k-means
@@ -220,7 +220,7 @@ $$
 r_k = \text{VQ}\big(\text{downsample}_k(f - \sum_{i < k} \text{upsample}(\text{lookup}(r_i)))\big)
 $$
 
-即第 $$k$$ 个尺度量化的是**前 $$k - 1$$ 个尺度重建后的残差**（下采样到第 $$k$$ 尺度的分辨率）——与 [第四篇](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)音频 codec 的 RVQ 同一个思想，只是残差在空间尺度上递进而不是在同一位置上递进。所有尺度共享一个码本。解码把所有尺度的 lookup 上采样到 $$h \times w$$ 求和。
+即第 $$k$$ 个尺度量化的是**前 $$k - 1$$ 个尺度重建后的残差**（下采样到第 $$k$$ 尺度的分辨率）——与 [《语音（上）》](/speech-and-omni-models-audio-encoders-codecs-and-duplex.html)音频 codec 的 RVQ 同一个思想，只是残差在空间尺度上递进而不是在同一位置上递进。所有尺度共享一个码本。解码把所有尺度的 lookup 上采样到 $$h \times w$$ 求和。
 
 **生成**：AR 的单位是尺度——$$p(r_1, \ldots, r_K) = \prod_k p(r_k \mid r_{<k})$$，每一步以前面所有尺度为条件，**并行**预测第 $$k$$ 尺度的全部 token（$$k^2$$ 个）。Transformer 的输入是把 $$r_{<k}$$ 上采样到第 $$k$$ 尺度的分辨率的 embedding，block-wise 因果 mask（同一尺度内双向、跨尺度因果）。10 个尺度 = 10 步，总 token 数 $$\sum k^2 \approx 680$$（比栅格的 256 多，但只有 10 次前向）。
 

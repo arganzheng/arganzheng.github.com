@@ -26,7 +26,7 @@ flowchart TB
     F --> Q["<b>bad case 队列</b><br/>owner · SLA · 分类 · 去重"]
     Q --> E["<b>评测集</b><br/>每周补 · hold-out · 版本绑定"]
     E --> I["<b>改进</b><br/>prompt · 检索 · 工具描述 · 策略 · 路由"]
-    I --> G["<b>门禁 → 影子 → 灰度</b><br/>（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》 · 第六篇）"]
+    I --> G["<b>门禁 → 影子 → 灰度</b><br/>（《回归与门禁》 · 第六篇）"]
     G --> U
     E -->|"几千条真实（输入，理想输出）对"| FT["<b>微调小模型</b><br/>行为优化：编译规则、降成本、提一致性"]
     FT --> G

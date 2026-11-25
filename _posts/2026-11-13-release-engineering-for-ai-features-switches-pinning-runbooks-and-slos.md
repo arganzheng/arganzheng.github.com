@@ -24,7 +24,7 @@ catalog: true
 %% 图：改动 = 发布：版本 → 门禁 → 灰度 → 生产 / 回滚，钉快照与 kill switch
 flowchart TB
     C["<b>任何会改变模型行为的改动</b><br/>prompt · 模型快照 · effort · schema · 工具集 · 检索配置 · harness 版本"] -- "改动 = 发布" --> V["<b>不可变版本 + 标签</b><br/>staging / canary / production"]
-    V --> G["门禁：评测集（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）"]
+    V --> G["门禁：评测集（《回归与门禁》）"]
     G -- "过" --> CN["灰度：特性开关按租户 / 比例放量"]
     CN -- "在线指标正常" --> PR["production"]
     CN -- "回归" --> RB["一键回滚到上一个版本"]
