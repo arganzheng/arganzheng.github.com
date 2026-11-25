@@ -292,7 +292,7 @@ A 与 B 的差别在于把显存换成了 DP 通信：B 每卡多 13 GB 静态�
 
 这套过滤可以在 CPU 上枚举一遍：TP 取 {1, 2, 4, 8}、PP 取整除 L 的值、CP 取 {1, 2}、DP 补满 1024，按同一张显存公式过滤——`large-scale-training/07_config_toys.py config` 的输出：
 
-<details><summary>07_config_toys.py config：40 组枚举里 20 组过显存线</summary>
+<details markdown="1"><summary>07_config_toys.py config：40 组枚举里 20 组过显存线</summary>
 
 ```text
 ===== config =====

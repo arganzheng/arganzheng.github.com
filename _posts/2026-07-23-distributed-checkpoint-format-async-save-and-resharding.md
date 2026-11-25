@@ -489,7 +489,7 @@ DeepSpeed 的 ZeRO checkpoint 不满足上面的条件——它的 `zero_pp_rank
 
 `toys/08_ckpt_toys.py` 在 gloo 上起真实的多进程 `torch.distributed.checkpoint`：4 rank 存、3 rank 和 2 rank 加载，每个 rank 的本地块与误差：
 
-<details><summary>08_ckpt_toys.py：save / reshard 实测输出</summary>
+<details markdown="1"><summary>08_ckpt_toys.py：save / reshard 实测输出</summary>
 
 ```text
 == dcp.save → ckpt/（4 rank，每 rank 一个分片文件）

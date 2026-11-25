@@ -268,7 +268,7 @@ Table: Llama 3 数字代入的三个场景
 
 `toys/09_ft_toys.py` 的 `mtbf` 子命令把这张表复算一遍（单卡 5 万小时、三场景、两个规模）：
 
-<details><summary>09_ft_toys.py mtbf：三场景五项分解</summary>
+<details markdown="1"><summary>09_ft_toys.py mtbf：三场景五项分解</summary>
 
 ```text
 单卡 M_gpu = 50000 h（≈5.7 年）
