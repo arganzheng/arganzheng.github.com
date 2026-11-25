@@ -128,7 +128,7 @@ rollout 引擎与训练器共置、权重同步、生成与训练的算力配比
 7. 第七篇：蒸馏 —— 奖励换成教师分布；logits 级、序列级、on-policy；R1 → 小模型
 8. 第八篇：评测 —— 每一步"变好了"怎么证明；benchmark、judge、Arena、污染、自建
 
-[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)没有奖励也没有参考，只有策略与标注好的目标序列。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)造出奖励。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)是**同一个目标的两种解法**——在线与离线：[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)在线地采样 - 打分 - 更新，[《离线 RL》](/offline-rl-dpo-and-its-family.html)离线地从固定的偏好对直接推出 loss。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把奖励从"学出来的模型"换成"规则验证器"，这是 2025 年推理模型的转折点。[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把 RLVR 从单轮推到多轮：模型的动作里出现真实的工具调用与环境反馈，奖励延后到整条轨迹结束，这是 2025–26 年 Agent 能力的来源。[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师模型的分布，把大模型的能力搬进小模型。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)是贯穿全流程的度量——每一篇的实验都用它来判断"变好了没有"。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)没有奖励也没有参考，只有策略与标注好的目标序列。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)造出奖励。[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)是**同一个目标的两种解法**——前者在线地采样 - 打分 - 更新，后者离线地从固定的偏好对直接推出 loss。[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把奖励从"学出来的模型"换成"规则验证器"，这是 2025 年推理模型的转折点。[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把 RLVR 从单轮推到多轮：模型的动作里出现真实的工具调用与环境反馈，奖励延后到整条轨迹结束，这是 2025–26 年 Agent 能力的来源。[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师模型的分布，把大模型的能力搬进小模型。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)是贯穿全流程的度量——每一篇的实验都用它来判断"变好了没有"。
 
 三条交织的线索：
 

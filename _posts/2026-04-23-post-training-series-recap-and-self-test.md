@@ -11,7 +11,7 @@ updated: 2026-11-23
 
 八篇正文回答了一个问题：**一个只会续写的基座模型，经过哪几步变成能回答、能拒绝、能一步步推导、能调工具的模型——每一步的目标函数是什么、要几个模型在显存里、生成多少 token、怎么证明它真的变好了**。[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)教格式，[《偏好数据与奖励模型》](/preference-data-and-reward-models.html)把人的判断造成一个可微的奖励，[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html)与[《离线 RL》](/offline-rl-dpo-and-its-family.html)是用奖励改策略的在线与离线两种解法，[《推理模型与可验证奖励》](/reasoning-models-and-verifiable-rewards.html)把奖励换成验证器，[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)把验证器推到多轮环境，[《蒸馏》](/knowledge-distillation-for-llms.html)把奖励换成教师的分布，[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)是贯穿全程的度量。八篇合起来是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的第 L5 层。
 
-本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)末尾的"系列总结"那一节的内容（三件套的最终一张表、三条线索的终点）并入了本文第三章。
+本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"。
 
 > **读完这八篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -206,7 +206,7 @@ Table: 本文的章节安排
 
 ### 3. 只算自己生成的 token
 
-[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的 loss mask——prompt 位置 label 设 −100，多轮只算每轮 assistant——看起来是一个工程开关，其后每一篇都在用它。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html) RM 的输入要按同一模板渲染；[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) PPO 只在回答 token 上算 $$\log \pi$$；[《离线 RL》](/offline-rl-dpo-and-its-family.html) Llama 3 在 DPO loss 里 mask 掉特殊 token，因为模板 token 在 chosen 与 rejected 里都出现、对数比差是纯噪声；[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)是它的极端形态：工具返回与模拟用户的 token 在上下文里却不是策略的输出，不 mask 就学会编造工具结果，且轨迹里八成 token 是环境的。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的错误分类表里"幻觉工具输出"一行指回[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)的 mask。同一个机制、同一份代码路径（`assistant_only_loss`），从 SFT 到 Agent RL 没有变过。
+[《SFT》](/sft-data-chat-template-loss-mask-and-peft.html)的 loss mask——prompt 位置 label 设 −100，多轮只算每轮 assistant——看起来是一个工程开关，其后每一篇都在用它。[《偏好数据与奖励模型》](/preference-data-and-reward-models.html) RM 的输入要按同一模板渲染；[《在线 RL》](/online-rl-ppo-grpo-and-the-rlhf-trio.html) PPO 只在回答 token 上算 $$\log \pi$$；[《离线 RL》](/offline-rl-dpo-and-its-family.html) Llama 3 在 DPO loss 里 mask 掉特殊 token，因为模板 token 在 chosen 与 rejected 里都出现、对数比差是纯噪声；[《Agent 与工具调用的 RL》](/agentic-rl-tool-use-environments-and-trajectories.html)是它的极端形态：工具返回与模拟用户的 token 在上下文里却不是策略的输出，不 mask 就学会编造工具结果，且轨迹里八成 token 是环境的。[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html)的错误分类表里"幻觉工具输出"一行指回这一篇的 mask。同一个机制、同一份代码路径（`assistant_only_loss`），从 SFT 到 Agent RL 没有变过。
 
 ### 4. on-policy 与探索
 
