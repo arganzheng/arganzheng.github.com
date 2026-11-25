@@ -37,7 +37,7 @@ Table: 预训练开工前的五个问题与 scaling law 的回答
 ```mermaid
 %% 图：scaling law 在一个预训练项目里的位置：三件事、五个决定
 flowchart TB
-  A["<b>卡数 × 天数 × MFU</b><br/>→ 算力 $$C = 6ND$$"] --> B["① loss 是 $$N$$ 与 $$D$$ 的幂律<br/>$$L = E + A/N^{\alpha} + B/D^{\beta}$$"]
+  A["<b>卡数 × 天数 × MFU</b><br/>→ 算力 $$C = 6ND$$"] --> B["<b>① loss 是 $$N$$ 与 $$D$$ 的幂律</b><br/>$$L = E + A/N^{\alpha} + B/D^{\beta}$$"]
   B --> C["<b>② 只算训练：</b><br/>最优 $$D/N \approx 20$$"]
   B --> D["<b>③ 算上推理：</b><br/>$$N$$ 更小、$$D$$ 更大"]
   C --> E["决定 $$N$$ 与 $$D$$"]

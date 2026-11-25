@@ -85,7 +85,7 @@ python -m pip list | grep -i torch                # python -m：用"当前这个
 flowchart TB
     subgraph A["读法一：整个文件读成 list"]
         direction TB
-        F1["train.jsonl（19 MB）"] --> L["list：10 万个 dict 同时在内存<br/>峰值约 103 MB"] --> P1["然后才开始逐条处理"]
+        F1["train.jsonl（19 MB）"] --> L["<b>list：10 万个 dict 同时在内存</b><br/>峰值约 103 MB"] --> P1["然后才开始逐条处理"]
     end
     subgraph B["读法二：生成器（yield）"]
         direction TB

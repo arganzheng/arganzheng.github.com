@@ -41,7 +41,7 @@ Table: PyTorch 的五个对象与最小用法
 五个对象在一步训练里各站一个位置，数据沿着一个环流动——第六章的二十行代码就是把这个环写出来：
 
 ```mermaid
-%% 一步训练里五个对象的位置：绿色数据进来，黄色前向算 loss，蓝色梯度回去改参数
+%% 图：一步训练里五个对象的位置——绿色数据进来，黄色前向算 loss，蓝色梯度回去改参数
 %%{init: {"flowchart": {"wrappingWidth": 260}}}%%
 flowchart TB
     DS["`**Dataset**
@@ -108,7 +108,7 @@ x.requires_grad   # 要不要对它求导：参数 True，数据 False
 `loss.item()` 把一个单元素 Tensor 变成 Python 数字。它看起来只是取一个数，实际上是一次**同步**：
 
 ```mermaid
-%% .item() 为什么慢：CPU 异步发 kernel，GPU 排队算，.item() 等队列清空
+%% 图：.item() 为什么慢——CPU 异步发 kernel，GPU 排队算，.item() 等队列清空
 sequenceDiagram
     participant P as Python（CPU）
     participant G as GPU
@@ -147,7 +147,7 @@ loss.backward()                 # 报错：图已释放。要再算得重新前�
 前向时 Autograd 记下的图是这样的（矩形是 Tensor，圆角是记下的反向节点；实线是前向数据流，虚线是 `backward()` 走的路）：
 
 ```mermaid
-%% loss = (w·x − 1)² 的计算图：矩形是 Tensor，圆角是反向节点，虚线是 backward 走的路
+%% 图：loss = (w·x − 1)² 的计算图——矩形是 Tensor，圆角是反向节点，虚线是 backward 走的路
 flowchart TB
     W["w = 3（leaf，requires_grad=True）"]
     X["x = 2（不求导，不入图）"]
@@ -315,7 +315,7 @@ for batch in loader: ...
 `Dataset` 只定义"第 $$i$$ 条是什么"，其余全是 `DataLoader` 的事。一个 batch 从哪来：
 
 ```mermaid
-%% DataLoader 的一步：Sampler 出下标 → worker 子进程取样本并 collate → 队列 → 主进程
+%% 图：DataLoader 的一步——Sampler 出下标 → worker 子进程取样本并 collate → 队列 → 主进程
 flowchart TB
     S["<b>Sampler：打乱后的下标序列</b><br/>[17, 3, 42, …]，每次给出 batch_size 个"]
     subgraph W["worker 子进程 × num_workers（各自一个 Python 进程，不共享内存）"]
@@ -323,7 +323,7 @@ flowchart TB
         G2["ds[3]"]
         G3["ds[42]"]
         G4["…"]
-        C["collate_fn：list 的样本 → 一个 batch 的 Tensor<br/>（pad 到同长、堆成 [B, T]）"]
+        C["<b>collate_fn：list 的样本 → 一个 batch 的 Tensor</b><br/>（pad 到同长、堆成 [B, T]）"]
         G1 & G2 & G3 & G4 --> C
     end
     S --> W

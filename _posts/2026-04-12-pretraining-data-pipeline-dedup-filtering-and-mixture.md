@@ -25,7 +25,7 @@ updated: 2026-09-14
 ```mermaid
 %% 图：Common Crawl 到 DCLM / FineWeb 的两条分支与量级
 flowchart TB
-    CC["Common Crawl 原始网页（WARC）<br/>约 100 个快照 · 约 30+ PB 压缩"]
+    CC["<b>Common Crawl 原始网页（WARC）</b><br/>约 100 个快照 · 约 30+ PB 压缩"]
     CC -->|resiliparse 正文抽取| DP["<b>DCLM-Pool</b><br/>240T · 100%"]
     CC -->|trafilatura 正文抽取| FH["过滤 + 每快照 MinHash 去重"]
     DP --> DF["<b>启发式 + fastText 前 10%</b><br/>Bloom filter 去重"]

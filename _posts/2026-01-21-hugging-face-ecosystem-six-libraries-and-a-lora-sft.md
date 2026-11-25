@@ -102,7 +102,7 @@ Table: `config.json` 主要字段的含义（Qwen2.5-0.5B）
 这几个数决定了模型的全部结构——一个 decoder-only Transformer 就是下面这张图，`config.json` 的每个字段对应图里一个尺寸：
 
 ```mermaid
-%% config.json 里的数字在 decoder-only 结构里的位置（Qwen2.5-0.5B）
+%% 图：config.json 里的数字在 decoder-only 结构里的位置（Qwen2.5-0.5B）
 flowchart TB
     E["<b>Embedding：vocab × hidden</b><br/>151936 × 896"]
     subgraph L["× num_hidden_layers = 24 层，每层结构相同"]
