@@ -85,7 +85,7 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 | 数据工程 | 抓取、清洗、去重、质量过滤、配比，从几百 T 原始文本到十几 T 可训 token | ✓ 第四篇 |
 | 分词与词表 | 训 tokenizer、定词表大小，决定同样的文本变成多少 token | ✓ 第二篇 |
 | Scaling law 与预算分配 | 用一组小模型的实验决定"给定算力，参数和数据各多少"，以及数据配比、超参怎么随规模外推 | ✓ 第三篇（方法论）、第五篇（超参外推） |
-| 架构消融 | 在小规模上比 attention 变体、MoE 配置、位置编码、归一化等结构选择 | 结构本身在 L4《现代 LLM 结构》；消融方法在第三篇 |
+| 架构消融 | 在小规模上比 attention 变体、MoE 配置、位置编码、归一化等结构选择 | 结构本身在 L4《现代 LLM 结构》；消融方法在本系列的《Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据》 |
 | 训练配方 | 学习率、batch、调度、warmup、权重衰减、稳定性开关 | ✓ 第五篇 |
 | 主训练运行 | 几千到几万张卡跑几周到几个月：并行策略、checkpoint、容错、监控 | Infra 地图《大规模训练》系列 |
 | 训练中的评测与干预 | 隔一段就跑 benchmark、看 loss 曲线，出 spike 回滚、改配比 | ✓ 第五篇（spike 与回滚）；评测在 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》 |

@@ -86,7 +86,7 @@ Table: loss（nat）与困惑度的对应
 
 这两个换算要熟到不用计算器：看到 PPL 6 知道 loss 1.8，看到 loss 2.0 知道 PPL 7.4。
 
-注意困惑度依赖 tokenizer：同一段文本切成更多 token，每个 token 更好猜，PPL 更低但不代表模型更好。比较不同 tokenizer 的模型要用 bits per byte（按字节而不是按 token 归一），L4 预训练系列的第二篇讨论这个陷阱。
+注意困惑度依赖 tokenizer：同一段文本切成更多 token，每个 token 更好猜，PPL 更低但不代表模型更好。比较不同 tokenizer 的模型要用 bits per byte（按字节而不是按 token 归一），L4 预训练系列的《分词与词表：BPE、词表大小与 token 效率》讨论这个陷阱。
 
 ## 三、交叉熵 = 熵 + KL
 
@@ -260,7 +260,7 @@ $$
 \alpha = \sum_x \min\big(p(x), q(x)\big) = 1 - \mathrm{TV}(p, q)
 $$
 
-（两式相等：$$\sum \min(p, q) = \sum p - \sum (p - q)_+ = 1 - \frac{1}{2}\sum \lvert p - q \rvert$$。）两个分布越近接受率越高；而拒绝采样保证最终输出**严格服从** $$p$$——小模型只是加速，不改变大模型的分布。L6 高效推理系列第二篇从这一行推出加速比。
+（两式相等：$$\sum \min(p, q) = \sum p - \sum (p - q)_+ = 1 - \frac{1}{2}\sum \lvert p - q \rvert$$。）两个分布越近接受率越高；而拒绝采样保证最终输出**严格服从** $$p$$——小模型只是加速，不改变大模型的分布。L6 高效推理系列的《投机解码：草稿、接受率与树》从这一行推出加速比。
 
 ### 2. 互信息与对比学习
 
