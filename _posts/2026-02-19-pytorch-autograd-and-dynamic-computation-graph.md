@@ -157,6 +157,19 @@ y = W @ x
 print(y)  # tensor([-2., -2.], grad_fn=<MvBackward0>)
 ```
 
+> [!NOTE] MvBackward0 是什么
+> `Mv` 是 matrix-vector，矩阵乘向量。`@` 会按两边的维度数转给不同的算子（[`matmul` 源码](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/aten/src/ATen/native/LinearAlgebra.cpp#L2050-L2057)），`grad_fn` 的名字跟着算子走：
+>
+> | 写法 | 实际调用的算子 | `grad_fn` |
+> |---|---|---|
+> | 1 维 `@` 1 维 | `dot` | `DotBackward0` |
+> | 2 维 `@` 1 维（本例） | `mv` | `MvBackward0` |
+> | 2 维 `@` 2 维 | `mm` | `MmBackward0` |
+> | 3 维 `@` 3 维 | `bmm`，前后各有一步调整形状 | `UnsafeViewBackward0`，沿 `next_functions` 往前一个是 `BmmBackward0` |
+> | `nn.Linear`，输入 2 维、带 bias | `addmm`（[源码](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/aten/src/ATen/native/Linear.cpp#L112)） | `AddmmBackward0` |
+>
+> 名字的组成是"算子名 + `Backward` + 编号"。编号用来区分同名算子的不同重载，按它们在 `derivatives.yaml` 里出现的顺序从 0 排起（[生成代码](https://github.com/pytorch/pytorch/blob/37e9156f58a51d220ebb7a17b42acfa1b4121430/tools/autograd/load_derivatives.py#L730-L736)）。例如 `x.sum()` 是 `SumBackward0`，`x.sum(0)` 用的是带 `dim` 参数的重载，是 `SumBackward1`。`mv` 只有一个重载，所以是 0。
+
 把矩阵乘法按分量写开，就是两个普通的算式：
 
 ```text title='按分量写开的两个算式'
@@ -216,21 +229,28 @@ Table: 这一节用到的符号
 
 这一步的任务是：已知 `v`（`L` 对 `y` 的梯度），算出 **`L` 对 `x` 的梯度**。它和 `x` 同形，只有 3 个数。
 
-先算 `L` 对 `x[0]` 的梯度。`x[0]` 通过两条路影响 `L`，把两条路加起来（这就是上一节的链式法则，只是路变成了两条）：
+先算 `L` 对 `x[0]` 的梯度。`x[0]` 通过两条路影响 `L`：一条经过 `y[0]`，一条经过 `y[1]`。每条路各用一次上一节的链式法则，把两段导数相乘：
 
-```text title='x[0] 影响 L 的两条路'
-x[0] → y[0] → L：  10 × 1 = 10
-x[0] → y[1] → L：   1 × 4 =  4
-                    合计   14
+```text title='每条路上的链式法则'
+经过 y[0]：∂L/∂y[0] × ∂y[0]/∂x[0] = v[0] × J[0, 0]
+经过 y[1]：∂L/∂y[1] × ∂y[1]/∂x[0] = v[1] × J[1, 0]
 ```
 
-`x[1]`、`x[2]` 同理，得到 `10 × 2 + 1 × 5 = 25` 和 `10 × 3 + 1 × 6 = 36`。写成一般的式子：
+`L` 对 `x[0]` 的梯度是两条路相加。代入 `v = (10, 1)` 和 `J` 的第一列 `(1, 4)`：
+
+```text title='x[0] 影响 L 的两条路：代入数字'
+x[0] → y[0] → L：  v[0] × J[0, 0] = 10 × 1 = 10
+x[0] → y[1] → L：  v[1] × J[1, 0] =  1 × 4 =  4
+                           ∂L/∂x[0] = 合计   14
+```
+
+`x[1]`、`x[2]` 同理，把 `J` 的第一列换成第二、第三列，得到 `10 × 2 + 1 × 5 = 25` 和 `10 × 3 + 1 × 6 = 36`。把"每条路相乘、所有路相加"写成一个式子：
 
 ```text title='L 对 x[j] 的梯度：对所有输出 i 求和'
 ∂L/∂x[j] = Σᵢ ∂L/∂y[i] × ∂y[i]/∂x[j] = Σᵢ v[i] × J[i, j]
 ```
 
-右边就是"`v` 乘矩阵 `J`"的第 `j` 个分量：
+上面的每一条路就是这个求和式里的一项。右边就是"`v` 乘矩阵 `J`"的第 `j` 个分量：
 
 ![v 乘 Jacobian 的每一列，得到和 x 同形的 3 个数（14, 25, 36）；右侧对比 Jacobian 和这个乘积的大小](/img/in-post/pytorch-autograd-jacobian-vs-vjp.svg)
 
