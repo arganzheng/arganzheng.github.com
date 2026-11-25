@@ -9,7 +9,7 @@ date: 2026-09-22 20:00:00
 updated: 2026-11-23
 ---
 
-八篇正文回答了一个问题：**一个 GPU 集群如何被切分、调度和喂饱，一个训好的模型如何变成一个可运维的服务**。第一篇从一个 Pending 的 GPU Pod 出发列出引擎对平台的需求清单；第二到五篇是资源层——容器里的 GPU、一组 Pod 的调度、一张卡的切分、第二张网卡与 checkpoint 的带宽；第六到八篇是交付层——副本的形态与扩缩容、请求的路由与配额、从 DCGM 到账单的反馈回路。
+八篇正文回答了一个问题：**一个 GPU 集群如何被切分、调度和喂饱，一个训好的模型如何变成一个可运维的服务**。[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)从一个 Pending 的 GPU Pod 出发列出引擎对平台的需求清单；接下来四篇是资源层——[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)、[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)、[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)、[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)；最后三篇是交付层——[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)、[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)、[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)。
 
 本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"：面对一个 Pending、一次变慢、一份超支的账单，能不能沿着层次追问下去。
 
@@ -59,7 +59,7 @@ Table: 八篇的核心问题、结论与必记公式
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿八篇的五条线：引擎需求驱动机制、"不透明整数"与 device plugin 技巧、checkpoint、扩容时间、隔离 vs 利用率 |
+| 三 | 贯穿八篇的几条线：引擎需求驱动机制、"不透明整数"与 device plugin 技巧、checkpoint、扩容时间、隔离 vs 利用率，以及按寿命排的全系列对象总表 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -184,7 +184,7 @@ Table: 本文的章节安排
 
 **核心问题**：一个 64 卡集群上月账单 X 元，DCGM 显示平均分配率 85%、平均 `SM_ACTIVE` 35%。这 50 个百分点的差距分别来自哪里？每一项对应本系列哪一篇的机制？
 
-**结论**：指标分四层——硬件（DCGM）、容器 Pod（kube-state-metrics、Kueue）、引擎（`vllm:*`、训练约定集）、请求（EPP 的 `llm_d_epp_*`，按 `fairness_id`）——任何一层替代不了另一层，四层靠 `pod` / `namespace` join，DCGM 的 `--kubernetes` 映射（查 kubelet pod-resources）是链条的关键一环。`DCGM_FI_DEV_GPU_UTIL` 只表示"有至少一个 kernel 在跑"，一个 SM 与 132 个 SM、NCCL 自旋等待都是 100%；`SM_ACTIVE`（默认 CSV 里被注释）才接近负载，decode 要用 `DRAM_ACTIVE` 复核。三个数字：分配率 A、使用率 U、有效利用率 $$E \approx A \times U$$；`1 − A` 是没给出去的，`A − E` 是给出去没算的。成本 = 单价 × 分配时长，**按分配计费**——只有这样闲置才会出现在某个团队的账上；使用率作展示列施压。每百万 token 成本三个因子里平台只能动 U。FinOps 是回路：队列使用率 → 改配额（第三篇），`FB_USED` / `SM_ACTIVE` 双低 → 改切分（第四篇），日夜周期 → 改 KEDA（第六篇），按月闭环。文末把八篇归为一个最小平台、八张四栏表、一组数字，以及引擎线、机制线、取舍线三条线的终点。
+**结论**：指标分四层——硬件（DCGM）、容器 Pod（kube-state-metrics、Kueue）、引擎（`vllm:*`、训练约定集）、请求（EPP 的 `llm_d_epp_*`，按 `fairness_id`）——任何一层替代不了另一层，四层靠 `pod` / `namespace` join，DCGM 的 `--kubernetes` 映射（查 kubelet pod-resources）是链条的关键一环。`DCGM_FI_DEV_GPU_UTIL` 只表示"有至少一个 kernel 在跑"，一个 SM 与 132 个 SM、NCCL 自旋等待都是 100%；`SM_ACTIVE`（默认 CSV 里被注释）才接近负载，decode 要用 `DRAM_ACTIVE` 复核。三个数字：分配率 A、使用率 U、有效利用率 $$E \approx A \times U$$；`1 − A` 是没给出去的，`A − E` 是给出去没算的。成本 = 单价 × 分配时长，**按分配计费**——只有这样闲置才会出现在某个团队的账上；使用率作展示列施压。每百万 token 成本三个因子里平台只能动 U。FinOps 是回路：队列使用率 → 改配额（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)），`FB_USED` / `SM_ACTIVE` 双低 → 改切分（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)），日夜周期 → 改 KEDA（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)），按月闭环。文末把八篇归为一个最小平台、八张四栏表、一组数字，以及引擎线、机制线、取舍线三条线的终点。
 
 **必记**：
 
@@ -200,25 +200,25 @@ Table: 本文的章节安排
 
 ### 1. 引擎的需求推出平台的机制
 
-这是总纲的第一句话，也是八篇共同的骨架。第一篇把它写成两张表：`torchrun` 的 rendezvous 等不齐就超时 → 第三篇的 gang；NCCL 要直接打开 `/dev/infiniband` 并注册显存 → 第五篇的 Multus 与 RDMA device plugin；vLLM 的 KV cache 满了请求就排队、负载信号只在 `/metrics` 上 → 第六篇按 `num_requests_running` 扩缩、第七篇按 `kv_cache_usage_perc` 与前缀选副本、第八篇把 `vllm:*` 作为四层指标里引擎那一层；一个 7B 服务只用整卡的三分之一 → 第四篇的切分；每半小时写一次几百 GB → 第五篇按突发写带宽选存储。
+这是总纲的第一句话，也是八篇共同的骨架。[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)把它写成两张表：`torchrun` 的 rendezvous 等不齐就超时 → [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的 gang；NCCL 要直接打开 `/dev/infiniband` 并注册显存 → [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的 Multus 与 RDMA device plugin；vLLM 的 KV cache 满了请求就排队、负载信号只在 `/metrics` 上 → [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)按 `num_requests_running` 扩缩、[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)按 `kv_cache_usage_perc` 与前缀选副本、[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)把 `vllm:*` 作为四层指标里引擎那一层；一个 7B 服务只用整卡的三分之一 → [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)的切分；每半小时写一次几百 GB → 《网络与存储》按突发写带宽选存储。
 
-这条线在第七、八篇有了回头的方向：平台对引擎提出"暴露哪些指标"的需求。GIE 的 model server protocol 要求引擎给出 `TotalQueuedRequests`、`TotalRunningRequests`、`KVCacheUtilization` 三个 gauge 与 OpenAI 接口，满足它就能被 EPP 正确路由；第八篇要求训练框架暴露每 rank 的 step 时间、checkpoint 耗时等约定指标，否则 straggler 的根因查不到硬件层。第一篇说"每篇的引擎的需求一节也是引擎开发者的接口清单"，到第八篇这份清单闭合成双向的接口。
+这条线在交付层的后两篇有了回头的方向：平台对引擎提出"暴露哪些指标"的需求。GIE 的 model server protocol 要求引擎给出 `TotalQueuedRequests`、`TotalRunningRequests`、`KVCacheUtilization` 三个 gauge 与 OpenAI 接口，满足它就能被 EPP 正确路由；《可观测、成本与 FinOps》要求训练框架暴露每 rank 的 step 时间、checkpoint 耗时等约定指标，否则 straggler 的根因查不到硬件层。《引擎的需求清单与平台的整体架构》说"每篇的引擎的需求一节也是引擎开发者的接口清单"，到《可观测、成本与 FinOps》这份清单闭合成双向的接口。
 
 ### 2. "GPU 是不透明整数"：一个洞被填了四次
 
-两张需求表唯一共同的空缺，贯穿了资源层四篇与第八篇。第二篇给出它的零值形态：`allocatable` 里没有 `nvidia.com/gpu` 与等于 0 是同一回事；device plugin 填上一个整数，但只计数、无属性、不跨 Pod 共享，DRA 用 `ResourceSlice` 与 CEL 让这个整数重新有属性。第三篇的调度器仍只对这个整数做减法，`Fits()` 不知道 8 张卡要在同一台机器，拓扑要靠 HyperNode 或 TAS 的标签体系外加。第四篇把同一个洞变成技巧：所有共享方案在 K8s 侧都是 device plugin 把一张卡复制成 N 个逻辑设备，隔离强度由底座决定；HAMi 的 `gpumem` 是对"不能表达 20 GB"的正面回答。第五篇把技巧用到网卡上：`rdma/<name>` 也是一个 device plugin 上报的整数，同样没有 GPU 亲和，所以 `NCCL_NET_GDR_LEVEL` 会在 GPU 与网卡跨 PCIe root complex 时把 GDR 关掉。第八篇要把这个整数还原成"哪张卡在哪段时间归谁"：DCGM 的 `--kubernetes` 映射经 pod-resources API 把 UUID 对到 Pod，共卡时归因不准、MIG 的 `GPU_I_ID` 准确——切分方式（第四篇）直接决定账单（第八篇）的粒度。
+两张需求表唯一共同的空缺，贯穿了资源层四篇与[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)。[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)给出它的零值形态：`allocatable` 里没有 `nvidia.com/gpu` 与等于 0 是同一回事；device plugin 填上一个整数，但只计数、无属性、不跨 Pod 共享，DRA 用 `ResourceSlice` 与 CEL 让这个整数重新有属性。[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)的调度器仍只对这个整数做减法，`Fits()` 不知道 8 张卡要在同一台机器，拓扑要靠 HyperNode 或 TAS 的标签体系外加。[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)把同一个洞变成技巧：所有共享方案在 K8s 侧都是 device plugin 把一张卡复制成 N 个逻辑设备，隔离强度由底座决定；HAMi 的 `gpumem` 是对"不能表达 20 GB"的正面回答。[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)把技巧用到网卡上：`rdma/<name>` 也是一个 device plugin 上报的整数，同样没有 GPU 亲和，所以 `NCCL_NET_GDR_LEVEL` 会在 GPU 与网卡跨 PCIe root complex 时把 GDR 关掉。《可观测、成本与 FinOps》要把这个整数还原成"哪张卡在哪段时间归谁"：DCGM 的 `--kubernetes` 映射经 pod-resources API 把 UUID 对到 Pod，共卡时归因不准、MIG 的 `GPU_I_ID` 准确——切分方式（《GPU 共享与切分》）直接决定账单（《可观测、成本与 FinOps》）的粒度。
 
 ### 3. checkpoint：一个数字在四篇里的四种用法
 
-第一篇把它列为训练的四条资源需求之一：1 TB 级在 1 分钟内落盘，被打断的代价是上次 checkpoint 之后的进度。第三篇用它定抢占策略：代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$，抢占以整任务为单位，`terminationGracePeriodSeconds` 至少覆盖一次 checkpoint 写入，承诺不被抢的队列可以拉长间隔。第五篇把"一次写入要多久"算出来：14 字节/参数，70B ≈ 1 TB，同步 1 分钟写完要 16.7 GB/s，异步只要 0.56 GB/s 但每节点约 125 GB pinned 内存——第三篇的 grace period 该填多少秒，答案在这里；DCP 恢复时 rank 数可变，又是第三篇弹性与抢占的前提。第八篇把它变成看板上的一条竖条与账单上的 ~3 个点：竖条宽度 × 频率 > 5% 时间就是一个"改异步、扩带宽、拉长间隔"的 PR。四篇说的是同一件事的四面：需求、策略、算术、度量。
+[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)把它列为训练的四条资源需求之一：1 TB 级在 1 分钟内落盘，被打断的代价是上次 checkpoint 之后的进度。[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)用它定抢占策略：代价 $$N_{gpu} \times (T_{since\_ckpt} + T_{restart})$$，抢占以整任务为单位，`terminationGracePeriodSeconds` 至少覆盖一次 checkpoint 写入，承诺不被抢的队列可以拉长间隔。[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)把"一次写入要多久"算出来：14 字节/参数，70B ≈ 1 TB，同步 1 分钟写完要 16.7 GB/s，异步只要 0.56 GB/s 但每节点约 125 GB pinned 内存——《AI 任务调度》的 grace period 该填多少秒，答案在这里；DCP 恢复时 rank 数可变，又是《AI 任务调度》弹性与抢占的前提。[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)把它变成看板上的一条竖条与账单上的 ~3 个点：竖条宽度 × 频率 > 5% 时间就是一个"改异步、扩带宽、拉长间隔"的 PR。四篇说的是同一件事的四面：需求、策略、算术、度量。
 
 ### 4. "8 分钟"：扩容时间的分解与压缩
 
-第一篇给出量级：一个 70B 副本从决定扩容到能接流量 5–10 分钟，主项是权重加载，所以扩缩容必须提前、缩零很贵。第二篇负责其中一段：10 GB 镜像冷拉 2–3 分钟，几十个 Pod 同时拉时十分钟也不罕见，对策是统一基底、多阶段构建、预热、P2P。第五篇负责另一段：140 GB 权重从对象存储 1 GB/s 要两分多钟，本地 NVMe 缓存、权重进镜像、P2P 各有适用场景。第六篇把五段列成表并算出后果：调度 + 拉镜像 + 拉权重 + 加载到显存 + 预热 ≈ 8 分钟，再加约 1 分钟信号延迟，倒推出阈值 36、峰值过配到 10 副本、cron 提前 12 分钟；前三段是平台能优化的，后两段是引擎的。第八篇把它记成冷启动成本：(就绪 − 调度) × 卡数 × 单价 × 次数，在 50 个点里占约 2 个点，并把"缩零省的常驻成本"与"每次冷启动的代价"的比值作为该不该缩零的判据。
+[《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html)给出量级：一个 70B 副本从决定扩容到能接流量 5–10 分钟，主项是权重加载，所以扩缩容必须提前、缩零很贵。[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)负责其中一段：10 GB 镜像冷拉 2–3 分钟，几十个 Pod 同时拉时十分钟也不罕见，对策是统一基底、多阶段构建、预热、P2P。[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)负责另一段：140 GB 权重从对象存储 1 GB/s 要两分多钟，本地 NVMe 缓存、权重进镜像、P2P 各有适用场景。[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)把五段列成表并算出后果：调度 + 拉镜像 + 拉权重 + 加载到显存 + 预热 ≈ 8 分钟，再加约 1 分钟信号延迟，倒推出阈值 36、峰值过配到 10 副本、cron 提前 12 分钟；前三段是平台能优化的，后两段是引擎的。[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)把它记成冷启动成本：(就绪 − 调度) × 卡数 × 单价 × 次数，在 50 个点里占约 2 个点，并把"缩零省的常驻成本"与"每次冷启动的代价"的比值作为该不该缩零的判据。
 
 ### 5. 隔离 vs 利用率：同一个取舍出现在四层
 
-这是总纲取舍线的第一项。第三篇：gang 让集群更空——32 卡任务凑齐之前空出来的 20 张卡不能给别的大任务，`StrictFIFO` 与 `BestEffortFIFO` 是大任务饥饿与小任务插队的二选一；拓扑 `hard` 约束换可预期的带宽，代价是等几小时。第四篇是它最直接的形态：从时间片到 MIG 隔离越强、总利用率越低，`3g.20gb × 2` 浪费一个计算 slice 且只能放两个服务，HAMi 总吞吐更高但故障域整卡。第五篇：rdma-shared-dev-plugin 多 Pod 共享一个 HCA 无隔离，SR-IOV 一 VF 一 Pod 隔离强但 VF 数受固件限制。第七篇把它搬到网关层：两个租户共用 4 个副本时租户隔离在时间（排队顺序）上而不在空间上；要 B 的突发不影响 A 的 TTFT 就得拆成两个池，代价是 A 空闲时 B 用不上那 3 个副本。第八篇给了它一个统一的单位：每一段隔离付出的利用率都出现在 `1 − A`（MIG 几何浪费、碎片）或 `A − E`（低峰空转）里，并被换算成钱。
+这是总纲取舍线的第一项。[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：gang 让集群更空——32 卡任务凑齐之前空出来的 20 张卡不能给别的大任务，`StrictFIFO` 与 `BestEffortFIFO` 是大任务饥饿与小任务插队的二选一；拓扑 `hard` 约束换可预期的带宽，代价是等几小时。[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)是它最直接的形态：从时间片到 MIG 隔离越强、总利用率越低，`3g.20gb × 2` 浪费一个计算 slice 且只能放两个服务，HAMi 总吞吐更高但故障域整卡。[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：rdma-shared-dev-plugin 多 Pod 共享一个 HCA 无隔离，SR-IOV 一 VF 一 Pod 隔离强但 VF 数受固件限制。[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)把它搬到网关层：两个租户共用 4 个副本时租户隔离在时间（排队顺序）上而不在空间上；要 B 的突发不影响 A 的 TTFT 就得拆成两个池，代价是 A 空闲时 B 用不上那 3 个副本。[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)给了它一个统一的单位：每一段隔离付出的利用率都出现在 `1 − A`（MIG 几何浪费、碎片）或 `A − E`（低峰空转）里，并被换算成钱。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -232,22 +232,64 @@ Table: 本文的章节安排
 
 Table: 贯穿八篇的概念及其关系
 
+### 6. 全系列的对象总表：五档寿命
+
+八篇各自有一张"这一层多出什么对象、各活多久"的表。把它们并到一起按寿命排，会出现一条前面每一篇都碰到、但只有合起来才看得清的线。
+
+| 对象 | 住在哪里 | 活多久 | 哪一篇讲 |
+|---|---|---|---|
+| 账单行与按团队的 GPU 小时 | 长期存储 | 永久——同比对账要求至少 13 个月保留 | [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) |
+| 模型权重与数据集 | 对象存储 | 跨集群、跨重建，是一切的源 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| checkpoint | 并行文件系统或对象存储 | **比写它的作业活得长** | ^^ |
+| `ClusterQueue` / `ResourceFlavor` / `Cohort` / `PriorityClass` | etcd | 长期——是策略，不是状态 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) |
+| `Workload` / `PodGroup` | etcd | 作业期；suspended 时它是作业唯一的存在形式 | ^^ |
+| `InferencePool` / `HTTPRoute` / `LLMInferenceService` / NAD | etcd | 服务或网络定义的一生 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)、[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) |
+| NVIDIA 内核模块、OFED、`nvidia_peermem` | 宿主机内核 | 到节点重启或驱动升级 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| MIG 的 GI / CI 几何 | GPU 的硬件配置 | 到下一次重配——而重配要求卡上没有进程 | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
+| CDI spec（`/etc/cdi/nvidia.yaml`） | 宿主机文件 | 到下一次生成；**驱动变了它不会自己变** | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| `allocatable` 里的 `nvidia.com/gpu`、时间片副本数 | 节点对象 | 到 device plugin 下一次推送；进程期的配置 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)、[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
+| 节点上的镜像层与权重缓存 | 节点磁盘 | 到被 GC 或淘汰；决定下一次冷启动快不快 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)、[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
+| MPS control daemon、FUSE 客户端进程 | 节点上的常驻进程 | 到它重启；它挂了，用它的 Pod 一起受影响 | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)、[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| 容器里的 CUDA Runtime、框架、第二块网卡、`libvgpu.so` | 容器 | Pod 的一生 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)、[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)、[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| `ResourceClaim` 的分配、kubelet checkpoint 里的设备分配 | etcd 与 kubelet | Pod 的一生 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| 显存里的权重、CUDA graph、KV block 池 | 显存 | Pod 的一生——重启即清空 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
+| NCCL 选定的通信路径 | 进程内存 | 进程的一生；启动时探测一次，失败只降级不报错 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| EPP 的前缀索引、在途记账、排队的请求 | 进程内存，每副本各一份 | 进程的一生 | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) |
+| 异步 checkpoint 的 host 内存副本 | 主机内存 | 从 stage 到 upload 结束 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| Volcano 的 `Session` 与它做出的抢占决定 | 调度器内存 | 一个调度周期，默认 1 秒 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) |
+| `replicas` 与扩缩容依据的指标采样 | etcd 与时序库 | 15–30 秒 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
+| EPP 抓到的每副本指标 | EPP 内存 | 50 毫秒 | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) |
+| 这次选中的副本、配额预扣、DCGM 的一次采样 | 内存 / 一个 HTTP 头 | 一个请求，或一个采样间隔 | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)、[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) |
+
+Table: 八篇里的主要对象，按寿命从长到短
+
+四条只有合起来才看得见的结论：
+
+**1、寿命只有五档，档与档之间没有中间态。**永久（账单）、跨节点（etcd 里的对象与共享存储上的文件）、节点（内核模块、MIG 几何、CDI spec、节点上的进程与缓存）、Pod（容器里的东西、显存里的东西、进程内存里的东西）、请求与采样（路由决定、预扣、一次抓取）。一样东西要么属于某一档，要么需要一个外部存储把它搬到更长的档——没有"大概能活久一点"这种状态。
+
+**2、平台的多数故障是寿命错配。**这不是一句比喻，八篇里的例子逐条对得上：驱动升级是节点档的动作，它打断的是 Pod 档的训练作业；MIG 几何是硬件档的，改它要先驱逐卡上所有 Pod；CDI spec 是文件档的，驱动变了它不会跟着变（jit-cdi 把它改成每次创建容器时即时生成，等于把寿命缩到容器档，整类故障随之消失）；MPS 的 control daemon 是节点档的单点，服务的却是 Pod 档的客户端；EPP 的状态是进程档的，所以它加副本不加吞吐。**遇到一个解释不了的平台故障，第一个问题是"这两样东西在不在同一档"。**
+
+**3、只有三样东西比创建它的进程活得长：checkpoint、权重、账单。**它们各自解决一件事——让作业可以死、让副本可以重建、让集群可以被审计。反过来看，整个资源层的工作是在为前两样的读写路径服务（聚合写带宽、分片、异步、缓存、预热），整个交付层的工作是在为第三样的准确性服务（按 token 记账、分摊维度、label 基数）。
+
+**4、两条看起来不相干的优化路线，其实是同一个动作。**"缩短冷启动"就是把东西从 Pod 档搬到节点档（预拉镜像、`LocalModelCache`、持久化编译缓存）；"让组件能多副本"就是把状态从进程档搬到更长的档。后者也给出了什么时候搬不动的判据：[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) 的精确前缀索引能多副本，因为它订阅的是同一个事实流，各副本会收敛；近似索引不能，因为它是各自记的账，会分叉。
+
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确的说法 | 出处 |
 |---|---|---|---|
-| `Insufficient nvidia.com/gpu` 说明卡不够 | 调度器把"键不存在"与"等于 0"当同一回事 | 没有组件把 GPU 上报给 kubelet；装 device plugin | [第一篇](/ai-platform-engine-requirements-and-architecture.html) |
-| `nvidia-smi` 与 `torch.version.cuda` 的版本不一致就有问题 | 前者是驱动支持的上限，后者是 Toolkit 版本 | 新驱动跑旧 Toolkit 是规则一，无条件成立 | [第二篇](/gpu-in-containers-driver-cuda-device-plugin.html) |
-| 旧驱动跑新 CUDA 装个 cuda-compat 包就行 | forward compat 仅数据中心 GPU 与受支持驱动分支 | 同大版本内靠 minor version（12.x ≥ 525.60.13）；消费级卡跨大版本只能升驱动 | [第二篇](/gpu-in-containers-driver-cuda-device-plugin.html) |
-| Pod 起不来靠应用层重试解决 gang | 已起的 Pod 占着卡等同伴，重试只是反复占卡、释放、再占 | 要么全起要么都不起只能在调度 / 准入层做 | [第三篇](/ai-job-scheduling-gang-queue-topology.html) |
-| 配了 cohort 借用，借出去的卡自然会收回 | Kueue 默认 `reclaimWithinCohort: Never`，Volcano 默认 actions 不含 `reclaim` | 默认值下两者都借了不还；要显式配回收，Volcano 还要 `gangreclaim` 绕过 gang 保护 | [第三篇](/ai-job-scheduling-gang-queue-topology.html) |
-| MIG `3g.20gb × 2` 还能塞一个 `1g.5gb` | 两个 `3g.20gb` 已用尽 8 个显存 slice | 只能放两个服务；浪费的是 1 个计算 slice | [第四篇](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
-| HAMi 有显存配额，所以共卡服务互不影响 | 它拦截 `cudaMalloc`，不切带宽与 L2，故障域仍是整卡 | OOM 被限制在越界容器内，Xid 三个全挂；要故障隔离用 MIG | [第四篇](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
-| 多机训练慢但没报错，不是网络问题 | NCCL 找不到 RDMA 设备就静默回落 Socket | `NCCL_DEBUG=INFO` 看 `Using network IB/Socket` 与 `/GDRDMA` | [第五篇](/rdma-networking-storage-and-checkpoint-io.html) |
-| checkpoint 写不完只能买更快的存储 | 同步 1 分钟写完要 16.7 GB/s，异步只要 0.56 GB/s | 先改形态：分片 + `dcp.async_save`，代价是每节点约 125 GB pinned 内存 | [第五篇](/rdma-networking-storage-and-checkpoint-io.html) |
-| 推理服务的扩缩容阈值调准了就不会过配 | 为 9 分钟就绪预留的 headroom 在稳态高峰也被保留 | 反应式的结构性代价；可预测的高峰用 cron 提前，阈值抬到接近饱和 | [第六篇](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
-| 给 A 更高 priority 就是 3:1 的配额 | flow control 是严格优先 + 同级 round-robin，无加权公平 | 比例只能在外层 TPM / 并发桶上体现；饱和时 B 先撞 429 | [第七篇](/model-gateway-multi-tenancy-and-quota.html) |
-| DCGM 报 GPU 利用率 78%，集群用得不错 | `GPU_UTIL` 只表示有 kernel 在跑，NCCL 自旋也是 100% | 看 `SM_ACTIVE`<br/>三个数字 A、U、E 分开算<br/>按分配而非使用率计费 | [第八篇](/ai-platform-observability-cost-and-finops.html) |
+| `Insufficient nvidia.com/gpu` 说明卡不够 | 调度器把"键不存在"与"等于 0"当同一回事 | 没有组件把 GPU 上报给 kubelet；装 device plugin | [《引擎的需求清单与平台的整体架构》](/ai-platform-engine-requirements-and-architecture.html) |
+| `nvidia-smi` 与 `torch.version.cuda` 的版本不一致就有问题 | 前者是驱动支持的上限，后者是 Toolkit 版本 | 新驱动跑旧 Toolkit 是规则一，无条件成立 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| 旧驱动跑新 CUDA 装个 cuda-compat 包就行 | forward compat 仅数据中心 GPU 与受支持驱动分支 | 同大版本内靠 minor version（12.x ≥ 525.60.13）；消费级卡跨大版本只能升驱动 | [《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html) |
+| Pod 起不来靠应用层重试解决 gang | 已起的 Pod 占着卡等同伴，重试只是反复占卡、释放、再占 | 要么全起要么都不起只能在调度 / 准入层做 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) |
+| 配了 cohort 借用，借出去的卡自然会收回 | Kueue 默认 `reclaimWithinCohort: Never`，Volcano 默认 actions 不含 `reclaim` | 默认值下两者都借了不还；要显式配回收，Volcano 还要 `gangreclaim` 绕过 gang 保护 | [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html) |
+| MIG `3g.20gb × 2` 还能塞一个 `1g.5gb` | 两个 `3g.20gb` 已用尽 8 个显存 slice | 只能放两个服务；浪费的是 1 个计算 slice | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
+| HAMi 有显存配额，所以共卡服务互不影响 | 它拦截 `cudaMalloc`，不切带宽与 L2，故障域仍是整卡 | OOM 被限制在越界容器内，Xid 三个全挂；要故障隔离用 MIG | [《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html) |
+| 多机训练慢但没报错，不是网络问题 | NCCL 找不到 RDMA 设备就静默回落 Socket | `NCCL_DEBUG=INFO` 看 `Using network IB/Socket` 与 `/GDRDMA` | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| checkpoint 写不完只能买更快的存储 | 同步 1 分钟写完要 16.7 GB/s，异步只要 0.56 GB/s | 先改形态：分片 + `dcp.async_save`，代价是每节点约 125 GB pinned 内存 | [《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html) |
+| 推理服务的扩缩容阈值调准了就不会过配 | 为 9 分钟就绪预留的 headroom 在稳态高峰也被保留 | 反应式的结构性代价；可预测的高峰用 cron 提前，阈值抬到接近饱和 | [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html) |
+| 给 A 更高 priority 就是 3:1 的配额 | flow control 是严格优先 + 同级 round-robin，无加权公平 | 比例只能在外层 TPM / 并发桶上体现；饱和时 B 先撞 429 | [《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html) |
+| DCGM 报 GPU 利用率 78%，集群用得不错 | `GPU_UTIL` 只表示有 kernel 在跑，NCCL 自旋也是 100% | 看 `SM_ACTIVE`<br/>三个数字 A、U、E 分开算<br/>按分配而非使用率计费 | [《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html) |
 
 Table: 常见误区与正确说法
 
@@ -287,7 +329,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-5. 第六篇的服务改成常驻 3 副本，饱和点 64、爬升 6.25 并发/分钟、就绪 + 信号 9 分钟，`num_requests_running` 的每副本阈值取多少？峰值 350 并发时 HPA 会算出几个副本？
+5. [《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)的服务改成常驻 3 副本，饱和点 64、爬升 6.25 并发/分钟、就绪 + 信号 9 分钟，`num_requests_running` 的每副本阈值取多少？峰值 350 并发时 HPA 会算出几个副本？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -323,7 +365,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   96 × 8k / 4 = 192k > 160k，放不下，LRU 会淘汰、部分轮次未命中；至少 5 副本（≈ 154k/副本）才全部命中；未命中一轮 8k / 16k = 0.5 s，命中接近 0——这时该扩容（第六篇）而不是换路由策略。
+   96 × 8k / 4 = 192k > 160k，放不下，LRU 会淘汰、部分轮次未命中；至少 5 副本（≈ 154k/副本）才全部命中；未命中一轮 8k / 16k = 0.5 s，命中接近 0——这时该扩容（《Serving 平台》）而不是换路由策略。
 
    </details>
 
@@ -341,7 +383,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：Kueue 是配额级 gang，准入 ≠ 节点放得下——碎片、taint、非 Kueue 管理的 Pod 占了卡，长期解用 TAS 或 `waitForPodsReady`；第二篇：某些节点 device plugin 没上报（驱动容器与内核不匹配、Toolkit 模式与插件 `deviceListStrategy` 不一致），查节点 `allocatable`；第四篇：节点池切成了 MIG `mixed`，资源名是 `nvidia.com/mig-<profile>` 而不是 `nvidia.com/gpu`，或 HAMi 替换了官方插件——配额加法与资源名要一致，一个节点池一种策略。
+   [《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)：Kueue 是配额级 gang，准入 ≠ 节点放得下——碎片、taint、非 Kueue 管理的 Pod 占了卡，长期解用 TAS 或 `waitForPodsReady`；[《容器里的 GPU》](/gpu-in-containers-driver-cuda-device-plugin.html)：某些节点 device plugin 没上报（驱动容器与内核不匹配、Toolkit 模式与插件 `deviceListStrategy` 不一致），查节点 `allocatable`；[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)：节点池切成了 MIG `mixed`，资源名是 `nvidia.com/mig-<profile>` 而不是 `nvidia.com/gpu`，或 HAMi 替换了官方插件——配额加法与资源名要一致，一个节点池一种策略。
 
    </details>
 
@@ -349,7 +391,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：HAMi 隔离显存不隔离带宽与 L2、故障域整卡，有 SLA 的服务才值得迁 MIG（要数据中心卡且模型大小与 profile 匹配）；第八篇：共卡时 DCGM 不能按进程拆 `SM_ACTIVE`，只能按份额平摊或按 `FB_USED` 比例估，MIG 实例有独立 `GPU_I_ID` 归因准确——这是 MIG 在多租户计费上更受欢迎的原因；账单按 `gpumem` 份额而非按卡算；第三篇：切分后队列配额要按 profile 或显存 MB 设，`ResourceFlavor` 按节点池标签把共享池与独占池分开。
+   《GPU 共享与切分》：HAMi 隔离显存不隔离带宽与 L2、故障域整卡，有 SLA 的服务才值得迁 MIG（要数据中心卡且模型大小与 profile 匹配）；[《可观测、成本与 FinOps》](/ai-platform-observability-cost-and-finops.html)：共卡时 DCGM 不能按进程拆 `SM_ACTIVE`，只能按份额平摊或按 `FB_USED` 比例估，MIG 实例有独立 `GPU_I_ID` 归因准确——这是 MIG 在多租户计费上更受欢迎的原因；账单按 `gpumem` 份额而非按卡算；《AI 任务调度》：切分后队列配额要按 profile 或显存 MB 设，`ResourceFlavor` 按节点池标签把共享池与独占池分开。
 
    </details>
 
@@ -357,7 +399,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：grace period 要覆盖一次 checkpoint 写入 + 余量，否则被抢占的损失翻倍；第五篇：同步写 1 TB / 16.7 GB/s = 60 s，所以至少 60 s 加余量；异步只需等 D2H stage（每 rank 15.6 GB，秒级）就能退出，但 host 内存里的副本随节点一起消失——异步保护的是训练不停顿，不是抢占时的最新一份，grace period 仍要留到 upload 完成或接受回到上一份；第八篇：checkpoint 竖条宽度 × 频率 > 5% 时间就该改异步，`kueue_admission_wait_time_seconds` × 卡数是排队成本。
+   《AI 任务调度》：grace period 要覆盖一次 checkpoint 写入 + 余量，否则被抢占的损失翻倍；[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)：同步写 1 TB / 16.7 GB/s = 60 s，所以至少 60 s 加余量；异步只需等 D2H stage（每 rank 15.6 GB，秒级）就能退出，但 host 内存里的副本随节点一起消失——异步保护的是训练不停顿，不是抢占时的最新一份，grace period 仍要留到 upload 完成或接受回到上一份；《可观测、成本与 FinOps》：checkpoint 竖条宽度 × 频率 > 5% 时间就该改异步，`kueue_admission_wait_time_seconds` × 卡数是排队成本。
 
    </details>
 
@@ -365,15 +407,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：10 GB 镜像冷拉 2–3 分钟 → 节点预拉、多阶段构建瘦身、P2P，压到 0；第五篇：140 GB 权重从对象存储 1 GB/s 2–3 分钟 → 本地 NVMe 缓存或并行文件系统（5 GB/s 30 秒）；第六篇：`pvc://` 直挂、`LocalModelCache`、`oci://` modelcar 把拉权重拿掉，持久化 compile cache 缩短预热，llm-d 的 Fast Model Actuation 用 sleep / wake 做秒级 hot start；剩下加载到显存 1–3 分钟与 CUDA graph 捕获是引擎侧的；第八篇：冷启动成本 = (就绪 − 调度) × 卡数 × 单价 × 次数，压短它同时改变缩零的判据。
+   《容器里的 GPU》：10 GB 镜像冷拉 2–3 分钟 → 节点预拉、多阶段构建瘦身、P2P，压到 0；《网络与存储》：140 GB 权重从对象存储 1 GB/s 2–3 分钟 → 本地 NVMe 缓存或并行文件系统（5 GB/s 30 秒）；[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)：`pvc://` 直挂、`LocalModelCache`、`oci://` modelcar 把拉权重拿掉，持久化 compile cache 缩短预热，llm-d 的 Fast Model Actuation 用 sleep / wake 做秒级 hot start；剩下加载到显存 1–3 分钟与 CUDA graph 捕获是引擎侧的；《可观测、成本与 FinOps》：冷启动成本 = (就绪 − 调度) × 卡数 × 单价 × 次数，压短它同时改变缩零的判据。
 
    </details>
 
-5. 租户 B 抱怨 TTFT p95 超 SLO。怎么用第七、八篇的指标判断是 B 自己超配额、池整体饱和、还是路由问题？各改哪篇的旋钮？
+5. 租户 B 抱怨 TTFT p95 超 SLO。怎么用《模型网关与多租户》与《可观测、成本与 FinOps》的指标判断是 B 自己超配额、池整体饱和、还是路由问题？各改哪篇的旋钮？
 
    <details markdown="1"><summary>答案</summary>
 
-   第八篇：以 EPP 侧为准，`llm_d_epp_request_ttft_seconds{fairness_id="B"}` 是用户看到的延迟；第七篇：看 429 的 `x-llm-d-request-dropped-reason`——`rejected-saturated` 是池饱和、外层 TPM 429 是 B 超配额；池饱和时对比各副本 `vllm:kv_cache_usage_perc` 是否长期不齐——不齐是路由问题（`utilization-filter` 阈值、前缀亲和把太多会话压到一个副本），齐且都高是容量问题；容量问题改第六篇的饱和点与 KEDA 阈值或加副本，B 的优先级改 `InferenceObjective` 或拆独立 `InferencePool`（第七篇），B 超配额则是配额设计本身。
+   《可观测、成本与 FinOps》：以 EPP 侧为准，`llm_d_epp_request_ttft_seconds{fairness_id="B"}` 是用户看到的延迟；[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)：看 429 的 `x-llm-d-request-dropped-reason`——`rejected-saturated` 是池饱和、外层 TPM 429 是 B 超配额；池饱和时对比各副本 `vllm:kv_cache_usage_perc` 是否长期不齐——不齐是路由问题（`utilization-filter` 阈值、前缀亲和把太多会话压到一个副本），齐且都高是容量问题；容量问题改《Serving 平台》的饱和点与 KEDA 阈值或加副本，B 的优先级改 `InferenceObjective` 或拆独立 `InferencePool`（《模型网关与多租户》），B 超配额则是配额设计本身。
 
    </details>
 
@@ -403,7 +445,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先假设 NCCL 回落 Socket 或 GDR 没开——引擎自己降级不报错；(2) `NCCL_DEBUG=INFO` 看 `Using network IB` 还是 `Socket`、连接行有没有 `/GDRDMA`、有没有 `GPU Direct RDMA Disabled ... (distance N > 5)`；(3) 容器里 `ls /dev/infiniband`、`ibv_devinfo`、`ulimit -l`、`ib_write_bw --use_cuda` 两 Pod 间测裸带宽，再到 nccl-tests；(4) 三层归因：Pod 网络（Multus 注解、NAD 的 `resourceName`、`NCCL_SOCKET_IFNAME`）、device plugin（没请求 `rdma/<name>`、selectors、netns 模式、`IPC_LOCK`、peermem / DMA-BUF）、NCCL 环境变量（`NCCL_IB_HCA`、RoCE 的 `GID_INDEX`、`NET_GDR_LEVEL`）；(5) GPU 与网卡分配没有 PCIe 亲和是容器场景特有的坑，修分配而不是放宽 `GDR_LEVEL`；(6) 网络没问题再看拓扑（第三篇是否跨 spine）与 checkpoint 停顿（第五篇的竖条）。
+   **答案要点**：(1) 先假设 NCCL 回落 Socket 或 GDR 没开——引擎自己降级不报错；(2) `NCCL_DEBUG=INFO` 看 `Using network IB` 还是 `Socket`、连接行有没有 `/GDRDMA`、有没有 `GPU Direct RDMA Disabled ... (distance N > 5)`；(3) 容器里 `ls /dev/infiniband`、`ibv_devinfo`、`ulimit -l`、`ib_write_bw --use_cuda` 两 Pod 间测裸带宽，再到 nccl-tests；(4) 三层归因：Pod 网络（Multus 注解、NAD 的 `resourceName`、`NCCL_SOCKET_IFNAME`）、device plugin（没请求 `rdma/<name>`、selectors、netns 模式、`IPC_LOCK`、peermem / DMA-BUF）、NCCL 环境变量（`NCCL_IB_HCA`、RoCE 的 `GID_INDEX`、`NET_GDR_LEVEL`）；(5) GPU 与网卡分配没有 PCIe 亲和是容器场景特有的坑，修分配而不是放宽 `GDR_LEVEL`；(6) 网络没问题再看拓扑（[《AI 任务调度》](/ai-job-scheduling-gang-queue-topology.html)是否跨 spine）与 checkpoint 停顿（[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)的竖条）。
    **追问方向**：shared 与 SR-IOV plugin 怎么选；Network Operator 与 GPU Operator 的部署顺序；为什么 NetworkPolicy 管不到 RDMA 流量。
    **好答案与一般答案的区别**：一般答案说"检查网络配置"；好答案先从日志行判定回落到了哪一层，再按三层逐项对照，并知道每一项不满足时的具体症状。
 
@@ -433,7 +475,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 先纠正尺度：`GPU_UTIL` 把通信等待报成 100%，`SM_ACTIVE` 才接近负载，且它低估 memory-bound 的 decode；(2) 三个数字：$$E \approx A \times U$$，U ≈ 41%，`1 − A` 15 个点是没给出去的，`A − E` 50 个点是给出去没算的；(3) 分解并归篇：推理低峰 ~15（第六篇）、dev ~10（第四篇时间片 + 第三篇空闲回收）、通信等待 ~10（第五篇 RDMA 是否生效，其余是引擎的）、排队占位 ~5（第三篇）、checkpoint ~3（第五篇）、冷启动 ~2、测量上限 ~5 不可回收；碎片 ~6、坏节点 ~3、配额过紧 ~6；(4) 按分配计费让每一项有主，闲置作展示列，dev 的 4% U 对着 12,500 美元最有说服力；(5) 回路：月初账单与分解表 → 改配额 / 切分 / KEDA 参数 → 月末同一组 recording rules 复核；(6) 训练与推理错峰是 E 的日夜周期能否填平的关键。
+   **答案要点**：(1) 先纠正尺度：`GPU_UTIL` 把通信等待报成 100%，`SM_ACTIVE` 才接近负载，且它低估 memory-bound 的 decode；(2) 三个数字：$$E \approx A \times U$$，U ≈ 41%，`1 − A` 15 个点是没给出去的，`A − E` 50 个点是给出去没算的；(3) 分解并归篇：推理低峰 ~15（[《Serving 平台》](/serving-platforms-kserve-triton-ray-serve-llm-d.html)）、dev ~10（[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)时间片 + 《AI 任务调度》空闲回收）、通信等待 ~10（《网络与存储》 RDMA 是否生效，其余是引擎的）、排队占位 ~5（《AI 任务调度》）、checkpoint ~3（《网络与存储》）、冷启动 ~2、测量上限 ~5 不可回收；碎片 ~6、坏节点 ~3、配额过紧 ~6；(4) 按分配计费让每一项有主，闲置作展示列，dev 的 4% U 对着 12,500 美元最有说服力；(5) 回路：月初账单与分解表 → 改配额 / 切分 / KEDA 参数 → 月末同一组 recording rules 复核；(6) 训练与推理错峰是 E 的日夜周期能否填平的关键。
    **追问方向**：DCGM 的 Pod 映射怎么来、共卡时归因误差；OpenCost 缺什么；每百万 token 成本怎么算、为什么与 API 只比量级。
    **好答案与一般答案的区别**：一般答案报一个利用率；好答案把差距拆成可测量、可归篇、有 owner 的项，并把"不可回收"的部分明确标出来。
 
@@ -466,11 +508,11 @@ Table: 掌握程度的判据
 八篇讨论的是引擎之下的资源层与引擎之侧的交付层。以下方向与它紧邻，但不在范围内：
 
 - **引擎内部的机制**：训练框架的并行策略与状态切分、checkpoint 的格式，在[《大规模训练工程：从并行策略到容错恢复》](/large-scale-training-from-parallelism-to-fault-tolerance.html)；推理引擎的请求调度与 KV cache 管理、PD 分离在引擎内的实现，在[《大模型推理系统揭秘：从 vLLM 看 LLM Serving Infra 核心技术》](/deep-dive-into-vllm.html)。本系列把它们当作已知的需求来源——例如"TP 需要节点内高带宽"、"KV cache 满了请求会排队"——只讨论平台如何响应这些需求。
-- **通信与网络协议的内部**：NCCL 的算法与 channel、RDMA 的 verbs 编程、InfiniBand 与 RoCE 的协议差异，在[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。本系列第五篇只讨论如何让 RDMA 设备在容器里可用、如何验证 NCCL 走了正确的路径，不解释 NCCL 为什么选了这条路径。
-- **GPU 硬件与 kernel**：SM、显存层次、kernel 的性能分析，在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。第四篇讨论 MIG 时会用到"SM 与显存带宽被分区"这个事实，但不展开它对 kernel 性能的影响。
+- **通信与网络协议的内部**：NCCL 的算法与 channel、RDMA 的 verbs 编程、InfiniBand 与 RoCE 的协议差异，在[《通信与互联：从 NCCL 到 RDMA》](/communication-and-interconnect-for-ai-infra.html)。[《网络与存储》](/rdma-networking-storage-and-checkpoint-io.html)只讨论如何让 RDMA 设备在容器里可用、如何验证 NCCL 走了正确的路径，不解释 NCCL 为什么选了这条路径。
+- **GPU 硬件与 kernel**：SM、显存层次、kernel 的性能分析，在[《GPU Kernel 工程：从 CUDA 执行模型到 FlashAttention》](/gpu-kernel-engineering.html)。[《GPU 共享与切分》](/gpu-sharing-and-partitioning-mig-mps-hami.html)讨论 MIG 时会用到"SM 与显存带宽被分区"这个事实，但不展开它对 kernel 性能的影响。
 - **Kubernetes 本身**：Pod、Deployment、Service、CRD、Operator 模式、CNI、CSI 的一般原理。本系列假设读者已经掌握，只讲 AI 负载下的特殊之处。
-- **数据平台**：数据采集、清洗、湖仓、特征存储。第五篇只讨论训练数据读取和 checkpoint 写入对存储的要求，不讨论数据本身怎么来。
-- **实验管理与模型仓库**：实验跟踪、模型版本与血缘、评测流水线。它们是 MLOps 的一部分，但与 GPU 资源和服务交付关系较远，本系列只在第七篇的版本路由处提及模型仓库作为版本来源。
+- **数据平台**：数据采集、清洗、湖仓、特征存储。《网络与存储》只讨论训练数据读取和 checkpoint 写入对存储的要求，不讨论数据本身怎么来。
+- **实验管理与模型仓库**：实验跟踪、模型版本与血缘、评测流水线。它们是 MLOps 的一部分，但与 GPU 资源和服务交付关系较远，本系列只在[《模型网关与多租户》](/model-gateway-multi-tenancy-and-quota.html)的版本路由处提及模型仓库作为版本来源。
 - **应用层**：RAG、Agent 框架、prompt 管理。它们在网关之上，属于应用开发，见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)。
 - 本系列在整张路径上的位置（L5）见[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)；三张地图如何拼在一起见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
