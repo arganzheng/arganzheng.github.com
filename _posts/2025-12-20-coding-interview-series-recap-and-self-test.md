@@ -364,27 +364,81 @@ Table: 本文的章节安排
 
 ### 1. 识别信号 → 模式的决策
 
-每篇算法篇的第一章都是一张"题面里出现 → 想到"的表，总纲把它们合成一张图：数组 / 字符串上找子数组、子串、配对；链式 / 树形 / 图结构；求最值、可行性、方案数；设计一个支持若干操作的结构。第 01 篇与第 02 篇用同一个信号"子数组的和"做了第一次分流：全正数用窗口、含负数用前缀和 + 哈希、含负数求最短用前缀和 + 单调队列（第 03 篇 LC 862）。第 07 篇给出第二个决策入口——数据范围：$$n \le 20$$ 想回溯（第 09 篇）、$$n \le 10^5$$ 排除 $$O(n^2)$$、值域 $$10^9$$ 想值域二分。第 11 篇与第 09 篇之间是第三条分界："枚举所有方案"用回溯、"只问方案数 / 能否"用 DP——LC 39 与 377 / 518、LC 131 与 132、LC 139 与 140 各是一对。
+每篇算法篇的第一章都是一张"题面里出现 → 想到"的表，总纲把它们合成一张图：数组 / 字符串上找子数组、子串、配对；链式 / 树形 / 图结构；求最值、可行性、方案数；设计一个支持若干操作的结构。[《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)与[《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)用同一个信号"子数组的和"做了第一次分流：全正数用窗口、含负数用前缀和 + 哈希、含负数求最短用前缀和 + 单调队列（[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html) LC 862）。[《二分》](/coding-interview-binary-search.html)给出第二个决策入口——数据范围：$$n \le 20$$ 想回溯（[《回溯》](/coding-interview-backtracking.html)）、$$n \le 10^5$$ 排除 $$O(n^2)$$、值域 $$10^9$$ 想值域二分。[《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)与[《回溯》](/coding-interview-backtracking.html)之间是第三条分界："枚举所有方案"用回溯、"只问方案数 / 能否"用 DP——LC 39 与 377 / 518、LC 131 与 132、LC 139 与 140 各是一对。
 
-一道题落在两个分支上是常态，这正是追问的来源：接雨水既是第 02 篇的双指针也是第 03 篇的单调栈；第 K 大既是第 08 篇的堆也是快速选择；LC 287 在第 01 篇是原地哈希的变式、在第 04 篇是 Floyd 判环、在第 07 篇是值域二分；LC 85 在第 03 篇是逐行柱状图、在第 11 篇说明正方形的 `min` 技巧对矩形不成立；单词搜索在第 09 篇是棋盘回溯、到第 13 篇加上 Trie 一次 DFS 匹配所有单词。识别的目标不是给题贴一个标签，而是能说出两种解法各自的复杂度与适用场景。
+一道题落在两个分支上是常态，这正是追问的来源：
+
+- 接雨水：既是[《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)的双指针，也是[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)的单调栈
+- 第 K 大：既是[《堆、Top-K、区间与贪心》](/coding-interview-heap-topk-intervals-greedy.html)的堆，也是快速选择
+- LC 287：在[《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)是原地哈希的变式，在[《链表》](/coding-interview-linked-list.html)是 Floyd 判环，在[《二分》](/coding-interview-binary-search.html)是值域二分
+- LC 85：在[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)是逐行柱状图，在[《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)说明正方形的 `min` 技巧对矩形不成立
+- 单词搜索：在[《回溯》](/coding-interview-backtracking.html)是棋盘回溯，到[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)加上 Trie 一次 DFS 匹配所有单词
+
+识别的目标不是给题贴一个标签，而是能说出两种解法各自的复杂度与适用场景。
 
 ### 2. 不变量思维
 
-代码骨架都不到十行，能不能写对取决于有没有先说清"循环里什么始终成立"。第 02 篇的窗口不变量是"每个 `right` 处窗口都合法"（或"满足时才收左边"），成立的前提是合法性对长度单调；对撞指针的不变量是"被排除的一侧不可能更优"，接雨水靠 `left_max <= right_max` 这一条推出只看自己这侧。第 03 篇的单调栈不变量是"栈底到栈顶单调"，弹出这个动作因此有了含义——两侧边界同时确定；单调队列的不变量是"下标递增、值递减"，队首就是最值。第 04 篇的快慢指针靠"进环后每步距离缩短 1"保证相遇。第 06 篇的 Dijkstra 靠"弹出即定终值"，负权破坏它。第 07 篇把这条线推到最一般：二分只需要一个不变量——谓词在 `[lo, hi)` 上"假假假真真真"，`hi = mid` 与 `lo = mid + 1` 都保持它且严格缩小区间。
+代码骨架都不到十行，能不能写对取决于有没有先说清"循环里什么始终成立"。[《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)的窗口不变量是"每个 `right` 处窗口都合法"（或"满足时才收左边"），成立的前提是合法性对长度单调；对撞指针的不变量是"被排除的一侧不可能更优"，接雨水靠 `left_max <= right_max` 这一条推出只看自己这侧。[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)的单调栈不变量是"栈底到栈顶单调"，弹出这个动作因此有了含义——两侧边界同时确定；单调队列的不变量是"下标递增、值递减"，队首就是最值。[《链表》](/coding-interview-linked-list.html)的快慢指针靠"进环后每步距离缩短 1"保证相遇。[《图》](/coding-interview-graph-bfs-dfs-topological-union-find.html)的 Dijkstra 靠"弹出即定终值"，负权破坏它。[《二分》](/coding-interview-binary-search.html)把这条线推到最一般：二分只需要一个不变量——谓词在 `[lo, hi)` 上"假假假真真真"，`hi = mid` 与 `lo = mid + 1` 都保持它且严格缩小区间。
 
-第 08 篇的双堆不变量是 `small` 全部 $$\le$$ `large` 全部且大小差不超过 1，"先进 `small` 再倒"用两次固定操作维持它；第 11 篇的 `tails` 不变量是"严格递增、`tails[k]` 是长度 $$k + 1$$ 的最小末尾"，二分替换维持它；第 12 篇的背包不变量是"倒序时 `f[c - x]` 还是上一行"；第 13 篇的 LFU 不变量是 `min_freq` 桶非空、LRU 的双向链表两端有哨兵。到了 AI 篇这条线变成数值不变量：第 14 篇的 online softmax 维护 $$(m, \ell, \text{acc})$$ 与"当前基准是迄今最大值"，最大值变化时重缩放保持它；第 19 篇的 paged KV 不变量是"引用为 0 才回收、`ref > 1` 的块不原地写"，条件变量的 `while` 则是在"醒来时条件未必成立"的前提下重建不变量。写代码前把不变量说给面试官听，正是总纲四十分钟流程里第 5 步的内容。
+[《堆、Top-K、区间与贪心》](/coding-interview-heap-topk-intervals-greedy.html)的双堆不变量是 `small` 全部 $$\le$$ `large` 全部且大小差不超过 1，"先进 `small` 再倒"用两次固定操作维持它；[《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)的 `tails` 不变量是"严格递增、`tails[k]` 是长度 $$k + 1$$ 的最小末尾"，二分替换维持它；[《动态规划（二）》](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html)的背包不变量是"倒序时 `f[c - x]` 还是上一行"；[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)的 LFU 不变量是 `min_freq` 桶非空、LRU 的双向链表两端有哨兵。到了 AI 篇这条线变成数值不变量：[《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)的 online softmax 维护 $$(m, \ell, \text{acc})$$ 与"当前基准是迄今最大值"，最大值变化时重缩放保持它；[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)的 paged KV 不变量是"引用为 0 才回收、`ref > 1` 的块不原地写"，条件变量的 `while` 则是在"醒来时条件未必成立"的前提下重建不变量。写代码前把不变量说给面试官听，正是总纲四十分钟流程里第 5 步的内容。
 
 ### 3. Python 与 Java 反复出现的差异
 
-每篇算法篇末尾的"两种语言的坑"表加起来，同样几条反复出现。整数溢出：第 01 篇前缀和用 `long`，第 02 篇三数相加，第 07 篇 `mid = lo + (hi - lo) / 2` 与 `(long) m * m`，第 08 篇比较器不写 `x - y`，第 10 篇 atoi 在乘 10 之前判断，第 11 篇 `INF` 不用 `MAX_VALUE`，第 12 篇 `hold` 用 `MIN_VALUE / 2`——Python 无溢出但也因此可以"算完再截"（atoi）。负数取模：第 01 篇 Python `-1 % 3 == 2`、Java 要 `((x % k) + k) % k`；第 03 篇 Python `//` 向下取整、`int(a / b)` 才向零，Java `/` 本来就向零。递归深度：Python 默认 1000，第 04 篇长链递归反转、第 05 篇退化成链的树、第 06 篇 $$300 \times 300$$ 网格 DFS、第 11 篇 `lru_cache` 记忆化都会撞上，Java 一般够但 $$10^5$$ 级深链也溢出。
+每篇算法篇末尾的"两种语言的坑"表加起来，同样几条反复出现：
 
-容器与比较：第 03 篇不用 `java.util.Stack`；第 04 篇 Python 堆里放节点要带序号、Java 传比较器；第 01 与第 06 篇 `int[]` 不能做 `HashSet` 的 key；第 10 篇 Java 字符串比较用 `equals`；第 11 篇 Python 二维表不能 `[[0] * n] * m`；第 04 与第 12 篇 Python 多重赋值右侧先算完、Java 必须临时变量且顺序不能反；第 02 与第 10 篇两种语言的切片 / `substring` 都是拷贝。第 13 篇的有序表是 Python 的尴尬点，Java 直接 `TreeMap`。这些差异不是琐碎的语法，而是同一个算法在两种语言里"哪一行会错"——面试时主动说出来（"这里 Java 要用 long"）是编码质量维度的加分项。
+- **整数溢出**（Python 无溢出，但也因此可以"算完再截"，如 atoi）：
+  - [《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)：前缀和用 `long`
+  - [《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)：三数相加
+  - [《二分》](/coding-interview-binary-search.html)：`mid = lo + (hi - lo) / 2` 与 `(long) m * m`
+  - [《堆、Top-K、区间与贪心》](/coding-interview-heap-topk-intervals-greedy.html)：比较器不写 `x - y`
+  - [《字符串》](/coding-interview-strings.html)：atoi 在乘 10 之前判断
+  - [《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)：`INF` 不用 `MAX_VALUE`
+  - [《动态规划（二）》](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html)：`hold` 用 `MIN_VALUE / 2`
+- **负数取模与整除方向**：
+  - [《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)：Python `-1 % 3 == 2`、Java 要 `((x % k) + k) % k`
+  - [《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)：Python `//` 向下取整、`int(a / b)` 才向零，Java `/` 本来就向零
+- **递归深度**（Python 默认 1000，下面几处都会撞上；Java 一般够，但 $$10^5$$ 级深链也溢出）：
+  - [《链表》](/coding-interview-linked-list.html)：长链递归反转
+  - [《二叉树》](/coding-interview-binary-tree.html)：退化成链的树
+  - [《图》](/coding-interview-graph-bfs-dfs-topological-union-find.html)：$$300 \times 300$$ 网格 DFS
+  - [《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)：`lru_cache` 记忆化
+- **容器与比较**：
+  - [《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)：不用 `java.util.Stack`
+  - [《链表》](/coding-interview-linked-list.html)：Python 堆里放节点要带序号、Java 传比较器
+  - [《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)与[《图》](/coding-interview-graph-bfs-dfs-topological-union-find.html)：`int[]` 不能做 `HashSet` 的 key
+  - [《字符串》](/coding-interview-strings.html)：Java 字符串比较用 `equals`
+  - [《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)：Python 二维表不能 `[[0] * n] * m`
+  - [《链表》](/coding-interview-linked-list.html)与[《动态规划（二）》](/coding-interview-dynamic-programming-knapsack-interval-state-machine.html)：Python 多重赋值右侧先算完、Java 必须临时变量且顺序不能反
+  - [《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)与[《字符串》](/coding-interview-strings.html)：两种语言的切片 / `substring` 都是拷贝
+  - [《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)：有序表是 Python 的尴尬点，Java 直接 `TreeMap`
+
+这些差异不是琐碎的语法，而是同一个算法在两种语言里"哪一行会错"——面试时主动说出来（"这里 Java 要用 long"）是编码质量维度的加分项。
 
 ### 4. AI 手撕与 torch 对拍的方法论
 
-后六篇共用一条验证方法：NumPy 从零实现，用 `--check` 与 PyTorch 参考实现对拍到 $$10^{-10}$$ 量级（第 14 篇 softmax / sdpa / mha / gqa / 增量解码 / online softmax / RoPE 七组断言；第 15 篇 `layer_norm_backward` 对 autograd、`gpt_params` 对 `nn` 模块 `numel`、`Value` 对 `torch.tensor` 标量；第 17 篇 `AdamW` 同初值同梯度 10 步误差 $$10^{-12}$$；第 18 篇 `conv2d` 三组 stride / pad、`roc_auc` 对 $$O(n^2)$$ 定义式、`nms` 对 `torchvision.ops.nms`）。面试时不一定能跑对拍，但要能说出对拍的方法，这本身是加分项。
+后六篇共用一条验证方法：NumPy 从零实现，用 `--check` 与 PyTorch 参考实现对拍到 $$10^{-10}$$ 量级：
 
-这条线的第二层是"自检基准值"：第 14 篇不减最大值的 softmax 是 `[nan nan nan]`、增量解码与全序列 causal attention 差 $$10^{-15}$$、online softmax `block = 2` 差 $$10^{-16}$$；第 15 篇 GPT-2 small 按公式算出 124,439,808 与逐模块数出的一致、micrograd 在 $$a = 2, b = 3$$ 处 `a.grad = 7/3`；第 17 篇 DPO 初值 $$\ln 2$$、GAE 递推对显式级数；第 16 篇 beam = 1 等于贪心、蓄水池每元素频率 0.297–0.303、投机解码输出 `[0.205, 0.300, 0.495]`。第三层是 torch 语义陷阱，形状能过、结果全错：第 14 篇 `attn_mask` True 表示屏蔽、`in_proj_weight` 要转置、`transpose` 后 `.view()` 报错；第 15 篇 torch `var` 默认无偏、GELU 要指定 `approximate="tanh"`；第 17 篇 `F.kl_div` 参数顺序反、`label_smoothing` 与 `ignore_index` 要传对。第 15 篇给出这条线最便宜的自查——形状检查 `dx.shape == x.shape`、`dw.shape == w.shape`；第 19 篇把方法论推到系统题："分块一定快"要测了再说。
+- [《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)：softmax / sdpa / mha / gqa / 增量解码 / online softmax / RoPE 七组断言
+- [《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)：`layer_norm_backward` 对 autograd、`gpt_params` 对 `nn` 模块 `numel`、`Value` 对 `torch.tensor` 标量
+- [《手撕损失函数与训练算法》](/coding-interview-losses-and-training-algorithms.html)：`AdamW` 同初值同梯度 10 步误差 $$10^{-12}$$
+- [《手撕经典 ML 与评测指标》](/coding-interview-classical-ml-and-metrics.html)：`conv2d` 三组 stride / pad、`roc_auc` 对 $$O(n^2)$$ 定义式、`nms` 对 `torchvision.ops.nms`
+
+面试时不一定能跑对拍，但要能说出对拍的方法，这本身是加分项。
+
+这条线的第二层是"自检基准值"：
+
+- [《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)：不减最大值的 softmax 是 `[nan nan nan]`、增量解码与全序列 causal attention 差 $$10^{-15}$$、online softmax `block = 2` 差 $$10^{-16}$$
+- [《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)：GPT-2 small 按公式算出 124,439,808 与逐模块数出的一致、micrograd 在 $$a = 2, b = 3$$ 处 `a.grad = 7/3`
+- [《手撕损失函数与训练算法》](/coding-interview-losses-and-training-algorithms.html)：DPO 初值 $$\ln 2$$、GAE 递推对显式级数
+- [《手撕 tokenizer 与解码》](/coding-interview-tokenizer-and-decoding.html)：beam = 1 等于贪心、蓄水池每元素频率 0.297–0.303、投机解码输出 `[0.205, 0.300, 0.495]`
+
+第三层是 torch 语义陷阱，形状能过、结果全错：
+
+- [《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)：`attn_mask` True 表示屏蔽、`in_proj_weight` 要转置、`transpose` 后 `.view()` 报错
+- [《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)：torch `var` 默认无偏、GELU 要指定 `approximate="tanh"`
+- [《手撕损失函数与训练算法》](/coding-interview-losses-and-training-algorithms.html)：`F.kl_div` 参数顺序反、`label_smoothing` 与 `ignore_index` 要传对
+
+[《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)给出这条线最便宜的自查——形状检查 `dx.shape == x.shape`、`dw.shape == w.shape`；[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)把方法论推到系统题："分块一定快"要测了再说。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -431,7 +485,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   前缀和 + 哈希，$$O(n)$$ 时间 $$O(n)$$ 空间（第 01 篇 LC 325）。含负数不能用窗口。与 LC 560 的差别：哈希存"前缀和**首次出现**的下标"而不是次数，`ans = max(ans, i - first[pre - k])`，且**不覆盖**已有的键（保留最早的下标才最长）；初始 `first[0] = -1`。
+   前缀和 + 哈希，$$O(n)$$ 时间 $$O(n)$$ 空间（[《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html) LC 325）。含负数不能用窗口。与 LC 560 的差别：哈希存"前缀和**首次出现**的下标"而不是次数，`ans = max(ans, i - first[pre - k])`，且**不覆盖**已有的键（保留最早的下标才最长）；初始 `first[0] = -1`。
 
    </details>
 
@@ -448,7 +502,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   有：先存再查。$$i = 0$$、$$x = 3$$ 时先写入 `seen[3] = 0`，再查 `6 - 3 = 3` 命中自己，返回 `[0, 0]`；正确答案是 `[1, 2]`。第 01 篇模板 1 的顺序是"先查再存"，保证配对的是之前的元素，`target = 2x` 时不会自配对。
+   有：先存再查。$$i = 0$$、$$x = 3$$ 时先写入 `seen[3] = 0`，再查 `6 - 3 = 3` 命中自己，返回 `[0, 0]`；正确答案是 `[1, 2]`。[《数组、哈希与前缀和》](/coding-interview-arrays-hashing-prefix-sum.html)模板 1 的顺序是"先查再存"，保证配对的是之前的元素，`target = 2x` 时不会自配对。
 
    </details>
 
@@ -456,7 +510,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   `[5, 5, 1]`，错误（正确 `[5, 1, 1]`）。$$i = 2$$ 时窗口是 `[1, 1]`（下标 1、2），下标 0 已滑出，正确条件 `dq[0] <= i - k` 即 `0 <= 0` 会弹掉它；写成 `<` 时 `0 < 0` 不成立，队首仍是下标 0，输出 5。窗口 `[i - k + 1, i]` 的左端是 `i - k + 1`，下标 `<= i - k` 都过期（第 03 篇模板 2）。
+   `[5, 5, 1]`，错误（正确 `[5, 1, 1]`）。$$i = 2$$ 时窗口是 `[1, 1]`（下标 1、2），下标 0 已滑出，正确条件 `dq[0] <= i - k` 即 `0 <= 0` 会弹掉它；写成 `<` 时 `0 < 0` 不成立，队首仍是下标 0，输出 5。窗口 `[i - k + 1, i]` 的左端是 `i - k + 1`，下标 `<= i - k` 都过期（[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)模板 2）。
 
    </details>
 
@@ -464,7 +518,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   值域二分（第 07 篇）：排序后在 `[0, max - min]` 上 `first_true(lambda x: count_le(x) >= k)`；`count_le(x)` 用双指针数"差 $$\le x$$ 的数对个数"，$$O(n)$$（对每个右端点，左端点只往右走）。总 $$O(n \log n + n \log V)$$。信号是"值域 $$10^9$$、答案是一个整数、直接枚举数对 $$O(n^2) = 10^8$$ 太慢"。答案一定在某个真实的差值上，理由与 LC 378 相同。
+   值域二分（[《二分》](/coding-interview-binary-search.html)）：排序后在 `[0, max - min]` 上 `first_true(lambda x: count_le(x) >= k)`；`count_le(x)` 用双指针数"差 $$\le x$$ 的数对个数"，$$O(n)$$（对每个右端点，左端点只往右走）。总 $$O(n \log n + n \log V)$$。信号是"值域 $$10^9$$、答案是一个整数、直接枚举数对 $$O(n^2) = 10^8$$ 太慢"。答案一定在某个真实的差值上，理由与 LC 378 相同。
 
    </details>
 
@@ -472,11 +526,11 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   （a）叶子 $$12! = 479{,}001{,}600 \approx 4.8 \times 10^8$$，每个拷贝 $$O(n)$$，总约 $$5.7 \times 10^9$$——跑不完。（b）叶子 $$2^{22} = 4{,}194{,}304 \approx 4.2 \times 10^6$$，乘 $$n = 22$$ 约 $$9 \times 10^7$$——勉强可以。第 09 篇的复杂度表：排列 $$O(n \cdot n!)$$、子集 $$O(n \cdot 2^n)$$；总纲的规模表：$$n \le 20$$ 才该想指数级枚举。$$n = 12$$ 的排列题若只问个数或某种最优，应改 DP / 状压 DP。
+   （a）叶子 $$12! = 479{,}001{,}600 \approx 4.8 \times 10^8$$，每个拷贝 $$O(n)$$，总约 $$5.7 \times 10^9$$——跑不完。（b）叶子 $$2^{22} = 4{,}194{,}304 \approx 4.2 \times 10^6$$，乘 $$n = 22$$ 约 $$9 \times 10^7$$——勉强可以。[《回溯》](/coding-interview-backtracking.html)的复杂度表：排列 $$O(n \cdot n!)$$、子集 $$O(n \cdot 2^n)$$；总纲的规模表：$$n \le 20$$ 才该想指数级枚举。$$n = 12$$ 的排列题若只问个数或某种最优，应改 DP / 状压 DP。
 
    </details>
 
-6. GPT-2 medium：$$D = 1024$$、$$L = 24$$、$$V = 50257$$、$$T_{\max} = 1024$$、带 bias、tied。用第 15 篇的公式算每层参数与总参数。
+6. GPT-2 medium：$$D = 1024$$、$$L = 24$$、$$V = 50257$$、$$T_{\max} = 1024$$、带 bias、tied。用[《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)的公式算每层参数与总参数。
 
    <details markdown="1"><summary>答案</summary>
 
@@ -488,7 +542,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第 14 篇：投影 $$8TD^2 = 8 \times 4096 \times 1024^2 \approx 3.4 \times 10^{10}$$；attention $$4T^2D = 4 \times 4096^2 \times 1024 \approx 6.9 \times 10^{10}$$，是投影的 2 倍——因为 $$T = 4D$$，而临界点是 $$T = 2D$$。注意与第 15 篇的 $$T > 6D$$ 不矛盾：那是 attention 项对**整层**线性项（含 FFN 的 $$24D^2$$）的比较。
+   [《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)：投影 $$8TD^2 = 8 \times 4096 \times 1024^2 \approx 3.4 \times 10^{10}$$；attention $$4T^2D = 4 \times 4096^2 \times 1024 \approx 6.9 \times 10^{10}$$，是投影的 2 倍——因为 $$T = 4D$$，而临界点是 $$T = 2D$$。注意与[《手撕 Transformer block 与反向传播》](/coding-interview-transformer-block-and-backprop.html)的 $$T > 6D$$ 不矛盾：那是 attention 项对**整层**线性项（含 FFN 的 $$24D^2$$）的比较。
 
    </details>
 
@@ -496,7 +550,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$2 \times 40 \times 4 \times 128 \times 1 = 40{,}960$$ B = 40 KB / token；$$32768$$ token 是 $$1{,}342{,}177{,}280$$ B = 1.25 GB。公式来自第 14 篇 $$2 L H_{kv} d \cdot \text{bytes}$$；GQA 的 $$H_{kv}$$ 与量化的字节数是两个独立的缩小因子。
+   $$2 \times 40 \times 4 \times 128 \times 1 = 40{,}960$$ B = 40 KB / token；$$32768$$ token 是 $$1{,}342{,}177{,}280$$ B = 1.25 GB。公式来自[《手撕 attention 家族》](/coding-interview-attention-from-scratch.html) $$2 L H_{kv} d \cdot \text{bytes}$$；GQA 的 $$H_{kv}$$ 与量化的字节数是两个独立的缩小因子。
 
    </details>
 
@@ -504,7 +558,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   loss $$= -\min(rA, \text{clip}(r, 0.8, 1.2) \cdot A)$$。（a）$$rA = -0.7$$，clip 项 $$0.8 \times (-1) = -0.8$$，min 取 $$-0.8$$，loss $$= 0.8$$；取到的是 clip 项（常数），梯度 0——坏动作的概率已经压得够低，不再惩罚继续减小。（b）$$rA = -0.9$$，clip 项 $$-0.9$$，loss $$= 0.9$$，取原始项，梯度 $$-A = 1 > 0$$，推 $$r$$ 变小。第 17 篇的四种情况图里的下半部分。
+   loss $$= -\min(rA, \text{clip}(r, 0.8, 1.2) \cdot A)$$。（a）$$rA = -0.7$$，clip 项 $$0.8 \times (-1) = -0.8$$，min 取 $$-0.8$$，loss $$= 0.8$$；取到的是 clip 项（常数），梯度 0——坏动作的概率已经压得够低，不再惩罚继续减小。（b）$$rA = -0.9$$，clip 项 $$-0.9$$，loss $$= 0.9$$，取原始项，梯度 $$-A = 1 > 0$$，推 $$r$$ 变小。[《手撕损失函数与训练算法》](/coding-interview-losses-and-training-algorithms.html)的四种情况图里的下半部分。
 
    </details>
 
@@ -512,7 +566,7 @@ Table: 常见误区与正确的说法
 
     <details markdown="1"><summary>答案</summary>
 
-    每 rank 发送 $$2\frac{N - 1}{N}V = 2 \times \frac{7}{8} \times 1 = 1.75$$ GB；reduce-scatter 与 all-gather 各 7 步，共 14 个串行步。参数服务器的 server 入流量 $$N \cdot V = 8$$ GB。$$N$$ 再翻倍时每 rank 发送量趋近 2 GB 不再增长，但步数翻倍——所以第 19 篇说 NCCL 小消息用 tree、大消息用 ring。
+    每 rank 发送 $$2\frac{N - 1}{N}V = 2 \times \frac{7}{8} \times 1 = 1.75$$ GB；reduce-scatter 与 all-gather 各 7 步，共 14 个串行步。参数服务器的 server 入流量 $$N \cdot V = 8$$ GB。$$N$$ 再翻倍时每 rank 发送量趋近 2 GB 不再增长，但步数翻倍——所以[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)说 NCCL 小消息用 tree、大消息用 ring。
 
     </details>
 
@@ -522,7 +576,7 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第 07 篇的答案二分："最大的 $$x$$ 使得能放下 $$m$$ 个球且两两距离 $$\ge x$$"——$$x$$ 越大越难，谓词是"真真真假假假"，对 `not ok` 用 `first_true` 再减 1，范围 `[1, max - min + 1)`。第 08 篇的贪心判定与交换论证：排序后第一个球放最左，之后每个位置只要与上一个球距离 $$\ge x$$ 就放——"能放就放"得到的球数最多，任何放法的第 $$t$$ 个球都不早于贪心的第 $$t$$ 个球（与第 07 篇 LC 410 的证明同型）。复杂度 $$O(n \log n + n \log V)$$。
+   [《二分》](/coding-interview-binary-search.html)的答案二分："最大的 $$x$$ 使得能放下 $$m$$ 个球且两两距离 $$\ge x$$"——$$x$$ 越大越难，谓词是"真真真假假假"，对 `not ok` 用 `first_true` 再减 1，范围 `[1, max - min + 1)`。[《堆、Top-K、区间与贪心》](/coding-interview-heap-topk-intervals-greedy.html)的贪心判定与交换论证：排序后第一个球放最左，之后每个位置只要与上一个球距离 $$\ge x$$ 就放——"能放就放"得到的球数最多，任何放法的第 $$t$$ 个球都不早于贪心的第 $$t$$ 个球（与[《二分》](/coding-interview-binary-search.html) LC 410 的证明同型）。复杂度 $$O(n \log n + n \log V)$$。
 
    </details>
 
@@ -530,15 +584,15 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第 02 篇一维接雨水的结论"矮的一侧决定上限、可以先结算"推广到二维：水位由**四周边界中最矮的那个**决定。第 06 篇的 Dijkstra 结构：把所有边界格子按高度放进最小堆，每次弹出最矮的边界格 $$h$$，向内看它的未访问邻居——邻居比 $$h$$ 矮就接 $$h - \text{height}$$ 的水，然后以 $$\max(h, \text{height})$$ 作为新边界入堆；visited 在入堆时标记。每个格子入堆一次，$$O(mn \log(mn))$$。正确性与 Dijkstra 的"弹出即定终值"同源：弹出的是当前最矮的边界，它的水位不会再被更矮的边界改写。
+   [《双指针与滑动窗口》](/coding-interview-two-pointers-and-sliding-window.html)一维接雨水的结论"矮的一侧决定上限、可以先结算"推广到二维：水位由**四周边界中最矮的那个**决定。[《图》](/coding-interview-graph-bfs-dfs-topological-union-find.html)的 Dijkstra 结构：把所有边界格子按高度放进最小堆，每次弹出最矮的边界格 $$h$$，向内看它的未访问邻居——邻居比 $$h$$ 矮就接 $$h - \text{height}$$ 的水，然后以 $$\max(h, \text{height})$$ 作为新边界入堆；visited 在入堆时标记。每个格子入堆一次，$$O(mn \log(mn))$$。正确性与 Dijkstra 的"弹出即定终值"同源：弹出的是当前最矮的边界，它的水位不会再被更矮的边界改写。
 
    </details>
 
-3. 给一个数字串（如 `"228"`）和一本词典，返回词典里所有能用手机九键拼出的单词（T9 联想）。怎样组合第 09 篇与第 13 篇？
+3. 给一个数字串（如 `"228"`）和一本词典，返回词典里所有能用手机九键拼出的单词（T9 联想）。怎样组合[《回溯》](/coding-interview-backtracking.html)与[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)？
 
    <details markdown="1"><summary>答案</summary>
 
-   第 09 篇 LC 17 的多阶段笛卡尔积：每层一个数字、候选是它对应的 3–4 个字母，不剪枝是 $$O(4^n)$$。第 13 篇的 Trie：把词典建成 Trie，回溯时带着当前 Trie 节点走——该字母不是当前节点的孩子就整支剪掉；走完最后一个数字时 `node.end` 为真才收集。复杂度从 $$4^n$$ 变成受 Trie 大小限制的路径数，与第 13 篇 LC 212"沿 Trie 走一次 DFS 匹配所有单词"是同一个想法，只是候选从网格四邻换成了数字对应的字母。追问"要求前缀联想（输入未结束）"时收集子树里所有 `end`。
+   [《回溯》](/coding-interview-backtracking.html) LC 17 的多阶段笛卡尔积：每层一个数字、候选是它对应的 3–4 个字母，不剪枝是 $$O(4^n)$$。[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)的 Trie：把词典建成 Trie，回溯时带着当前 Trie 节点走——该字母不是当前节点的孩子就整支剪掉；走完最后一个数字时 `node.end` 为真才收集。复杂度从 $$4^n$$ 变成受 Trie 大小限制的路径数，与[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html) LC 212"沿 Trie 走一次 DFS 匹配所有单词"是同一个想法，只是候选从网格四邻换成了数字对应的字母。追问"要求前缀联想（输入未结束）"时收集子树里所有 `end`。
 
    </details>
 
@@ -546,15 +600,15 @@ Table: 常见误区与正确的说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第 11 篇五步法：`f[i]` = 到达 $$i$$ 的最大得分，最后一步从 $$j \in [i - k, i - 1]$$ 跳来，`f[i] = nums[i] + max(f[i-k..i-1])`，答案 `f[n-1]`——朴素 $$O(nk)$$，$$n = 10^5$$ 会超时。第 03 篇的单调队列把"窗口 $$[i - k, i - 1]$$ 上的最大值"降到均摊 $$O(1)$$：队列存下标、`f` 值递减，新的 `f[i]` 入队前弹掉队尾比它小的，队首下标 $$< i - k$$ 时弹掉，队首就是窗口最大。总 $$O(n)$$。第 03 篇题单里这道题的一句提示正是"DP + 单调队列优化窗口最大值"。
+   [《动态规划（一）》](/coding-interview-dynamic-programming-linear-and-grid.html)五步法：`f[i]` = 到达 $$i$$ 的最大得分，最后一步从 $$j \in [i - k, i - 1]$$ 跳来，`f[i] = nums[i] + max(f[i-k..i-1])`，答案 `f[n-1]`——朴素 $$O(nk)$$，$$n = 10^5$$ 会超时。[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)的单调队列把"窗口 $$[i - k, i - 1]$$ 上的最大值"降到均摊 $$O(1)$$：队列存下标、`f` 值递减，新的 `f[i]` 入队前弹掉队尾比它小的，队首下标 $$< i - k$$ 时弹掉，队首就是窗口最大。总 $$O(n)$$。[《栈、单调栈与单调队列》](/coding-interview-stack-monotonic-stack-and-queue.html)题单里这道题的一句提示正是"DP + 单调队列优化窗口最大值"。
 
    </details>
 
-5. Llama-3-8B（bf16，每 token KV 128 KB）服务一个 100 token 的 prompt、采 4 个回答各 20 token，`block_size = 16`。不共享时 KV 占多少显存？用第 19 篇的 paged + COW 占多少？
+5. Llama-3-8B（bf16，每 token KV 128 KB）服务一个 100 token 的 prompt、采 4 个回答各 20 token，`block_size = 16`。不共享时 KV 占多少显存？用[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)的 paged + COW 占多少？
 
    <details markdown="1"><summary>答案</summary>
 
-   第 14 篇：每 token 128 KB，一个 16 token 的块 2 MB。不共享：4 条序列各 120 token，$$4 \times 120 \times 128$$ KB = 60 MB。第 19 篇：prompt 100 token 占 7 块（6 满块 + 1 块 4 个 token），fork 三次后 4 条序列共享这 7 块、第 7 块 `ref = 4`。每条追加第一个 token 时检查最后一块：前三条看到 `ref > 1` 各 COW 一块，第四条看到 `ref == 1` 原地写；之后各自的第 7 块填到 16 个 token 再各申请 1 块放剩下 8 个。合计 $$6 + 4 \times 2 = 14$$ 块 = 28 MB，前缀 96 个 token 只存一份；代价是内部碎片——每条序列最后一块只用了一半。
+   [《手撕 attention 家族》](/coding-interview-attention-from-scratch.html)：每 token 128 KB，一个 16 token 的块 2 MB。不共享：4 条序列各 120 token，$$4 \times 120 \times 128$$ KB = 60 MB。[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)：prompt 100 token 占 7 块（6 满块 + 1 块 4 个 token），fork 三次后 4 条序列共享这 7 块、第 7 块 `ref = 4`。每条追加第一个 token 时检查最后一块：前三条看到 `ref > 1` 各 COW 一块，第四条看到 `ref == 1` 原地写；之后各自的第 7 块填到 16 个 token 再各申请 1 块放剩下 8 个。合计 $$6 + 4 \times 2 = 14$$ 块 = 28 MB，前缀 96 个 token 只存一份；代价是内部碎片——每条序列最后一块只用了一半。
 
    </details>
 
@@ -594,7 +648,7 @@ Table: 常见误区与正确的说法
            self._push_front(n)
    ```
 
-   **追问方向**：换成单向链表哪一步做不到 $$O(1)$$；`OrderedDict` / `LinkedHashMap` 底层是什么；线程安全怎么做、`get` 为什么也要锁（第 19 篇）；加过期时间；LFU 怎么改（第 13 篇频次桶 + `min_freq`）。
+   **追问方向**：换成单向链表哪一步做不到 $$O(1)$$；`OrderedDict` / `LinkedHashMap` 底层是什么；线程安全怎么做、`get` 为什么也要锁（[《Infra 岗手撕》](/coding-interview-infra-concurrency-and-systems.html)）；加过期时间；LFU 怎么改（[《设计题与数据结构实现》](/coding-interview-design-problems-lru-lfu-trie.html)频次桶 + `min_freq`）。
 
    **好答案与一般答案的区别**：一般答案能写出来但用 `if` 堆叠处理头尾；好答案先画结构图、用哨兵统一所有情况，并主动说出"节点存 key 是为了淘汰时删哈希"。
 
