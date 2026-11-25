@@ -407,7 +407,7 @@ Table: 应用地图七层的一句话
 - **视觉与交互设计的细节**——控件、动效、文案风格属于设计学科；本系列只讲呈现的原则与它们与工程机制的对应。
 - **商业模式**——AI 产品的定价与市场属于商业；本系列只讲每任务成本 vs 价值作为产品指标。
 - **组织与变革管理**——Klarna 一类回撤的组织教训（裁员与再雇）在本系列只作为边界判断的案例。
-- **模型与基础设施本身**——[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)讲这个组件本身怎么来的：预训练、后训练、RL、agent 能力的训练；[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)讲它怎么被 serving：推理引擎、GPU、分布式。
+- **模型与基础设施本身**——[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)讲这个组件本身怎么来的：预训练、后训练、RL、agent 能力的训练；[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)讲它怎么被 serving：推理引擎、GPU、分布式。
 - **地图定位**——本系列在整张地图上的位置（L7）见上面的表，三张地图的分工与全栈路径见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
 应用地图的七个系列到此完成。

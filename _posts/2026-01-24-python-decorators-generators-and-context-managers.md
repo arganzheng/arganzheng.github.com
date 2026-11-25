@@ -9,7 +9,7 @@ date: 2026-01-24 20:00:00 +0800
 updated: 2026-11-18
 ---
 
-装饰器、生成器、`with` 是 AI-Infra 代码里出现最多的三种写法——[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)开头那七行里的三行：
+装饰器、生成器、`with` 是 AI-Infra 代码里出现最多的三种写法——[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)开头那七行里的三行：
 
 - **@register("cuda")**：装饰器在模块导入时执行，注册表能否填上取决于谁导入了它
 - **for batch in loader**：生成器的暂停与恢复
@@ -26,7 +26,7 @@ updated: 2026-11-18
 | 写法 | 建立在什么之上 |
 | :--- | :--- |
 | 装饰器 | 闭包（[《作用域与闭包》](/python-scopes-and-closures.html)）+ 描述符（[《对象模型与协议》的「描述符协议：属性查找的可编程点」一节](/python-object-model-and-protocols.html#4-描述符协议属性查找的可编程点)） |
-| 生成器 | 帧（[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)）+ 迭代协议（[《对象模型与协议》的「迭代协议：可迭代对象与迭代器」一节](/python-object-model-and-protocols.html#3-迭代协议可迭代对象与迭代器)） |
+| 生成器 | 帧（[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)）+ 迭代协议（[《对象模型与协议》的「迭代协议：可迭代对象与迭代器」一节](/python-object-model-and-protocols.html#3-迭代协议可迭代对象与迭代器)） |
 | 上下文管理器 | 特殊方法 `__enter__` / `__exit__`；`contextlib` 的实现又建立在生成器之上 |
 
 Table: 三种写法各自依赖的机制
@@ -46,7 +46,7 @@ Table: 本文的章节安排
 
 ## 二、装饰器：用闭包和描述符改写调用路径
 
-`runner.py` 里的 `@registered("runner")` 让 `Runner` 在被定义的同时进入注册表。装饰器的全部机制在前面已经准备好了：函数是对象（[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)），闭包能记住参数（[《作用域与闭包》](/python-scopes-and-closures.html)），类属性上的函数是描述符（[《对象模型与协议》的「描述符协议：属性查找的可编程点」一节](/python-object-model-and-protocols.html#4-描述符协议属性查找的可编程点)）。这一章把它们组装起来。
+`runner.py` 里的 `@registered("runner")` 让 `Runner` 在被定义的同时进入注册表。装饰器的全部机制在前面已经准备好了：函数是对象（[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)），闭包能记住参数（[《作用域与闭包》](/python-scopes-and-closures.html)），类属性上的函数是描述符（[《对象模型与协议》的「描述符协议：属性查找的可编程点」一节](/python-object-model-and-protocols.html#4-描述符协议属性查找的可编程点)）。这一章把它们组装起来。
 
 ### 1. 基本机制
 
@@ -221,7 +221,7 @@ def async_log_call(func):
 
 ## 三、生成器与惰性执行
 
-[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)说普通函数调用创建一次执行，返回时退出活动调用栈。生成器则可以在 `yield` 处**挂起**，下次 `next()` 时从原地恢复。
+[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)说普通函数调用创建一次执行，返回时退出活动调用栈。生成器则可以在 `yield` 处**挂起**，下次 `next()` 时从原地恢复。
 
 先把两个词说白：**帧**就是一次执行的“活动记录”——这次执行的局部变量、以及执行到了哪一条指令；**挂起**是指函数走到 `yield` 处停下来，把值交给调用方，但这份活动记录保留，下次 `next()` 从暂停点继续，局部变量还是刚才的值。普通帧退出调用栈后，如果仍被 traceback 或调试器引用，也不一定立即释放；生成器的不同在于它保留了**可继续执行**的状态。`runner.py` 的 `Runner.stream` 用它实现流式输出。
 

@@ -609,7 +609,7 @@ flowchart TB
 
 `service` 里的函数调用 `download_model(...)` 时，在 `service` 模块的全局命名空间里查这个名字。`setattr("loader.download_model", …)` 只把 `loader` 里的名字改指向 fake，`service` 里的名字仍指向原函数，测试照样去下载真实模型。反过来，如果 `service.py` 写的是 `import loader`、调用 `loader.download_model(...)`，每次调用都现查 `loader` 模块的属性，这时替换 `loader.download_model` 才是对的。`unittest.mock.patch` 的目标字符串遵循同一条规则。
 
-> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)的「名称绑定」一章与[《模块与导入系统》](/python-modules-and-the-import-system.html)的「`sys.modules` 缓存」一章。
+> 理解 `monkeypatch` 的替换目标，需要了解 Python 的模块导入和名称绑定机制，参见[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)的「名称绑定」一章与[《模块与导入系统》](/python-modules-and-the-import-system.html)的「`sys.modules` 缓存」一章。
 
 > [!NOTE] 与 Java 对照：名称替换与 Spring @MockBean
 > Spring 的 `@MockBean` 在应用上下文中替换 bean；`patch` / `monkeypatch` 修改的是 Python 模块或对象上的名称绑定，不会自动遍历依赖注入容器。相似的是隔离依赖，差别在替换边界：必须找到被测代码实际查找的名字，并在测试结束后恢复。

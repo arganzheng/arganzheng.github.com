@@ -9,7 +9,7 @@ date: 2026-01-24 16:00:00 +0800
 updated: 2026-11-18
 ---
 
-前四篇讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)开头那七行里的三行：
+前四篇讲的是代码怎么跑：源码编译成 code object，调用创建帧，名称在帧里按 LEGB 解析，`import` 找到并执行模块，异常沿帧链传播。本篇讲**对象怎么工作**——[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)开头那七行里的三行：
 
 - **model(x)**：走的是 __call__，中间可能插入 hooks
 - **for batch in loader**：迭代协议
@@ -26,7 +26,7 @@ updated: 2026-11-18
 ### 1. 例子与依赖关系
 
 
-例子仍是[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)里的 `runner.py`——一个用了装饰器注册表、上下文管理器、`__call__` 与生成器的极简推理组件：
+例子仍是[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)里的 `runner.py`——一个用了装饰器注册表、上下文管理器、`__call__` 与生成器的极简推理组件：
 
 ```python title='runner.py：装饰器注册表、上下文管理器、__call__ 与生成器'
 # runner.py
@@ -150,7 +150,7 @@ print(type(Runner.__dict__["run"]))       # <class 'function'>       类里存�
 Runner = type("Runner", (object,), {"run": lambda self, batch: batch})
 ```
 
-两个事实值得记住：**类的 `__dict__` 里存的方法就是普通函数对象**（后面 §5 解释它如何变成"方法"）；**类由 `type` 创建**，所以替换 `type` 为自定义元类就能干预类的创建——`nn.Module` 没有用元类，但许多 ORM、配置框架和 `abc.ABC` 用了。元类的用法在[《反射、元编程与插件架构》](/python-reflection-metaprogramming-and-plugin-architecture.html)展开，这里只需知道它是 `class` 语句的第 2 步。
+两个事实值得记住：**类的 `__dict__` 里存的方法就是普通函数对象**（后面 §5 解释它如何变成"方法"）；**类由 `type` 创建**，所以替换 `type` 为自定义元类就能干预类的创建——`nn.Module` 没有用元类，但许多 ORM、配置框架和 `abc.ABC` 用了。元类的用法在[《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)展开，这里只需知道它是 `class` 语句的第 2 步。
 
 > [!NOTE] 与 Java 对照：类对象与实例
 > Java 的 `Runner.class` 得到 `Class<Runner>`，`new Runner(...)` 创建实例；Python 的 `Runner` 本身就是可调用的类对象，默认由 `type` 创建。两边都有类的运行时信息，但 Python 的类体是会执行的代码：里面的赋值、`def` 和装饰器会在执行类定义时产生对象，而不是每次创建实例时重做。

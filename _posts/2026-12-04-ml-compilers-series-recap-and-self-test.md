@@ -386,7 +386,7 @@ Table: 掌握程度的判据
 
 ## 六、Infra 地图的收束与下一步
 
-本系列是[《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十三个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)的《Triton——块级编程与编译器的边界》画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)的《编译执行与图优化》（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
+本系列是[《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)的**选修**——十三个主线系列之外唯一的一门，也是地图上最后写完的一门。它的位置在 L2 之下：[《GPU Kernel 工程》](/gpu-kernel-engineering.html)的《Triton——块级编程与编译器的边界》画的六层图是它的入口，[《PyTorch 深度实践》](/deep-dive-into-pytorch.html)的《编译执行与图优化》（Dynamo → AOTAutograd → Inductor）是它的另一个入口——Inductor 生成的 Triton kernel 从这里进入编译器。
 
 读完它之后，面对一个 Triton kernel 的性能或正确性问题，追问可以一直到底：
 

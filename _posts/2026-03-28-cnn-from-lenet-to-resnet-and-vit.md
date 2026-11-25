@@ -291,7 +291,7 @@ token 数 $$= (H / p) \times (W / p)$$，由分辨率与 patch 大小决定，�
 
 Table: 不同分辨率与 patch 大小下的 token 数
 
-这张表是 L7 多模态的入口：VLM 把 ViT 的输出 token 送进 LLM，一张图占多少上下文、多少 KV cache，从这里开始算——[现代 LLM 结构的《浮点格式、数值稳定性与混合精度》](/multimodal-vision-encoder-cost-and-image-token-kv.html)把这笔账算完了。attention 的算量随 token 数平方增长，所以高分辨率图像要么用更大的 patch、要么在 encoder 后合并 token（2×2 merge）、要么用窗口 attention——三种办法都在那一篇。
+这张表是 L7 多模态的入口：VLM 把 ViT 的输出 token 送进 LLM，一张图占多少上下文、多少 KV cache，从这里开始算——《现代 LLM 结构》的[多模态成本篇](/multimodal-vision-encoder-cost-and-image-token-kv.html)把这笔账算完了。attention 的算量随 token 数平方增长，所以高分辨率图像要么用更大的 patch、要么在 encoder 后合并 token（2×2 merge）、要么用窗口 attention——三种办法都在那一篇。
 
 ### 5. 卷积的残余
 

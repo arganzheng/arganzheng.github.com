@@ -142,7 +142,7 @@ Table: Python 系列七个部分的主题与解决的问题
 
 第一部分共六篇，沿着"一段代码的生命周期"这条线组织，每篇回答一个问题：
 
-1. [《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)：一段源码从文本变成正在运行的代码，中间经过哪几种对象，各在什么时候产生？
+1. [《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)：一段源码从文本变成正在运行的代码，中间经过哪几种对象，各在什么时候产生？
 2. [《作用域与闭包》](/python-scopes-and-closures.html)：函数体里写下一个名称，Python 去哪里找它；外层函数返回后，内层函数为什么还能用它的变量？
 3. [《模块与导入系统》](/python-modules-and-the-import-system.html)：`import` 一个名字时去哪里找、找到之后做了什么；为什么换一种启动方式就 `ImportError`？
 4. [《异常处理与失败传播》](/python-exceptions-and-failure-propagation.html)：异常抛出后沿什么路径传播，什么样的处理方式是安全的？

@@ -108,7 +108,7 @@ flowchart TB
 
 - 异常每离开一帧，先执行这一帧里活动的 `finally` 和 `__exit__`，再到调用者那一帧找 `except`。
 - `__exit__` 返回真值会抑制异常，传播就停在那一层；`top` 就收不到了。
-- traceback 从接住它的那一帧记到抛出的那一帧，与[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)里打印的顺序一致。
+- traceback 从接住它的那一帧记到抛出的那一帧，与[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)里打印的顺序一致。
 
 > [!NOTE] 与 Java 对照：else 与 finally
 > 两门语言的 `finally` 都用于离开 `try` 结构时执行清理。Python 还提供 `else` 子句，只在 `try` 正常结束时运行，Java 没有对应子句。

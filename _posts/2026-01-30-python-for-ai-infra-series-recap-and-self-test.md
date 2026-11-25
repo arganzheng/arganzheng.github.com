@@ -70,7 +70,7 @@ Table: 本文的章节安排
 
 ### 1. 执行模型
 
-原文：[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)
+原文：[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)
 
 **核心问题**：一段源码从文本变成正在运行的代码，中间经过哪几种对象，各在什么时候产生？
 
@@ -272,7 +272,7 @@ Table: 本文的章节安排
 
 **核心问题**：如何验证一段 AI-Infra Python 代码的行为真的符合预期，以及当异步时序、Mock、动态调用、内存增长或进程卡死出问题时，该用哪个工具从哪里下手？
 
-**结论**：AI-Infra 代码的正确性不能靠阅读判断——逻辑对但时序错、类型匹配但值不符、不报错但内存涨。测试侧：`pytest` 写参数化、异常与边界测试，fixture 按 scope 与 `yield` 管资源、`conftest.py` 共享；`Mock` 替同步、`AsyncMock` 替异步（用 `Mock` 替 `async def`，`await mock()` 报 `TypeError`），`patch` 支持 `autospec` 与嵌套、`monkeypatch` 在测试结束自动还原；`pytest-asyncio` 的 `asyncio_mode = "auto"` 让 `async def test_*` 自动跑，测超时把参数注入成 0.01 秒而不真等，测取消要断言 `finally` 执行过。`monkeypatch` 必须替换"被测模块中实际使用的名字"（`service.download_model`）而不是定义它的原始模块——这是[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)里名称绑定规则的直接后果。调试侧：`pdb` / `breakpoint()` 看现场；日志分调试期（临时 DEBUG 看路径）与生产期（`Logger` / `Handler` / `Formatter` / `Filter` 四个组件，logger 树与 `propagate`，库只建 logger 不配输出、应用在入口 `basicConfig(force=True)` 配一次，JSON 结构化输出到 stdout 不写文件，`contextvars` + `Filter` 自动注入 request ID，惰性格式化用 `%s` 不用 f-string，`QueueHandler` + `QueueListener` 把 I/O 移出协程）；`raise ... from exc` 保留异常链；`inspect.getmodule` / `getsourcefile` / `signature` / `iscoroutinefunction` 确认插件、装饰器与动态调用背后的真实对象；`tracemalloc` 快照对比定位 Python 分配；`faulthandler` 转储所有线程栈排查卡死；`cProfile` 看 Python 层热点但看不到 GPU 与其他线程。最后收敛成一张按症状选工具的决策树。
+**结论**：AI-Infra 代码的正确性不能靠阅读判断——逻辑对但时序错、类型匹配但值不符、不报错但内存涨。测试侧：`pytest` 写参数化、异常与边界测试，fixture 按 scope 与 `yield` 管资源、`conftest.py` 共享；`Mock` 替同步、`AsyncMock` 替异步（用 `Mock` 替 `async def`，`await mock()` 报 `TypeError`），`patch` 支持 `autospec` 与嵌套、`monkeypatch` 在测试结束自动还原；`pytest-asyncio` 的 `asyncio_mode = "auto"` 让 `async def test_*` 自动跑，测超时把参数注入成 0.01 秒而不真等，测取消要断言 `finally` 执行过。`monkeypatch` 必须替换"被测模块中实际使用的名字"（`service.download_model`）而不是定义它的原始模块——这是[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)里名称绑定规则的直接后果。调试侧：`pdb` / `breakpoint()` 看现场；日志分调试期（临时 DEBUG 看路径）与生产期（`Logger` / `Handler` / `Formatter` / `Filter` 四个组件，logger 树与 `propagate`，库只建 logger 不配输出、应用在入口 `basicConfig(force=True)` 配一次，JSON 结构化输出到 stdout 不写文件，`contextvars` + `Filter` 自动注入 request ID，惰性格式化用 `%s` 不用 f-string，`QueueHandler` + `QueueListener` 把 I/O 移出协程）；`raise ... from exc` 保留异常链；`inspect.getmodule` / `getsourcefile` / `signature` / `iscoroutinefunction` 确认插件、装饰器与动态调用背后的真实对象；`tracemalloc` 快照对比定位 Python 分配；`faulthandler` 转储所有线程栈排查卡死；`cProfile` 看 Python 层热点但看不到 GPU 与其他线程。最后收敛成一张按症状选工具的决策树。
 
 **必记**：
 
@@ -610,7 +610,7 @@ Table: 掌握程度的判据
 
 七个部分讲的是 Python 这门语言在 AI-Infra 中的用法，不是训练框架或推理系统的架构。张量计算如何执行、调度器如何组 batch、KV Cache 如何管理、多卡如何协同，本系列只借用它们的源码作为语言特性的例子，不展开原理。往外走有三个方向：
 
-- **系统层本身**——本系列是 [《AI Infra 学习地图》](/ai-infra-learning-roadmap.html)的 01，PyTorch 内部实现、推理引擎、通信与互联等后续系列在那张地图上按顺序排开。
+- **系统层本身**——本系列是 [《AI-Infra 工程师学习地图》](/ai-infra-learning-roadmap.html)的 01，PyTorch 内部实现、推理引擎、通信与互联等后续系列在那张地图上按顺序排开。
 - **算法侧的使用层**——[《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)只讲训练代码里用到的 Python 子集与 PyTorch 用法，把语言机制与运行时交给本系列；它和本系列是同一层的两面，算法方向的读者按需读。
 - **全局定位**——本系列同时是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html) L1 工具箱的深入篇，两张地图共享。
 

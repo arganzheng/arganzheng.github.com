@@ -9,7 +9,7 @@ date: 2026-01-24 10:00:00 +0800
 updated: 2026-11-18
 ---
 
-[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)说函数对象携带 `__globals__`，帧里存放局部变量。那么函数体里写下一个名称时，Python 在哪里找它？答案是**编译期就决定了**——这是理解闭包、`nonlocal` 和"循环里的 lambda 全都返回同一个值"的钥匙。
+[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)说函数对象携带 `__globals__`，帧里存放局部变量。那么函数体里写下一个名称时，Python 在哪里找它？答案是**编译期就决定了**——这是理解闭包、`nonlocal` 和"循环里的 lambda 全都返回同一个值"的钥匙。
 
 本篇只回答一个问题：
 

@@ -384,7 +384,7 @@ Table: 三类最常见的错误与第一反应
 
 | 本篇 | 你会用了 | 想知道机制去 |
 |---|---|---|
-| 三 | 生成器、迭代协议、`with open` | [《装饰器、生成器与上下文管理器》](/python-decorators-generators-and-context-managers.html)、[《对象模型与协议》](/python-object-model-and-protocols.html)、[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
+| 三 | 生成器、迭代协议、`with open` | [《装饰器、生成器与上下文管理器》](/python-decorators-generators-and-context-managers.html)、[《对象模型与协议》](/python-object-model-and-protocols.html)、[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)：生成器怎么暂停恢复、迭代协议、名字绑定 |
 | 四 | `dataclass`、类型标注 | [《类型表达与 typing 工具箱》](/python-type-expression-and-the-typing-toolbox.html)：类型系统、`Protocol`、pydantic 与数据契约 |
 | 六 | `Pool`、GIL、`chunksize` | [《并发、异步与任务协作》](/python-concurrency-asynchrony-and-task-collaboration.html)：GIL、线程 / 进程 / asyncio 的选择、`DataLoader` worker |
 | 五 | 装饰器、`__call__`、`__getitem__` | [《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)：描述符、元类、算子注册表怎么用装饰器实现 |

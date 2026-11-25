@@ -9,7 +9,7 @@ date: 2026-01-24 12:00:00 +0800
 updated: 2026-11-18
 ---
 
-函数要先存在才能被调用，而让它存在的动作是 `import`：找到文件、编译、执行顶层代码、把结果放进一个模块对象。[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)里那个 `runner.py` 的 `Runner` 之所以能出现在 `REGISTRY` 里，唯一的原因是 `runner.py` 被导入并执行过。AI-Infra 里一批经典故障也都出在这一步——"本地能跑、换台机器就 `ImportError`"、"明明写了注册装饰器、运行时却找不到后端"、"`python -m` 能跑、`python script.py` 不能"。
+函数要先存在才能被调用，而让它存在的动作是 `import`：找到文件、编译、执行顶层代码、把结果放进一个模块对象。[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)里那个 `runner.py` 的 `Runner` 之所以能出现在 `REGISTRY` 里，唯一的原因是 `runner.py` 被导入并执行过。AI-Infra 里一批经典故障也都出在这一步——"本地能跑、换台机器就 `ImportError`"、"明明写了注册装饰器、运行时却找不到后端"、"`python -m` 能跑、`python script.py` 不能"。
 
 本篇只回答一个问题：
 
@@ -100,7 +100,7 @@ print(list(json.__dict__)[:6])
 # ['__name__', '__doc__', '__package__', '__loader__', '__spec__', '__path__']
 ```
 
-前几个名字是导入系统写入的元数据（标准库的 `json` 是一个包，所以也有 `__path__`）。`json.dumps` 这样的属性访问，就是在这个字典里查键。[《执行模型》](/python-execution-model-code-objects-functions-and-frames.html)说函数对象的 `__globals__` 指向定义它的模块命名空间——指的正是这个 `__dict__`。
+前几个名字是导入系统写入的元数据（标准库的 `json` 是一个包，所以也有 `__path__`）。`json.dumps` 这样的属性访问，就是在这个字典里查键。[《代码如何被执行》](/python-execution-model-code-objects-functions-and-frames.html)说函数对象的 `__globals__` 指向定义它的模块命名空间——指的正是这个 `__dict__`。
 
 `mypackage/__init__.py` 是包被导入时执行的模块体。它有两个合理用途：把内部模块的公共对象提升到包级（`from .model import Model`），以及用 `__all__` 声明 `from mypackage import *` 的导出集合。`__all__` 只影响 `import *`、文档和静态分析工具，不是访问控制。
 
@@ -687,7 +687,7 @@ def load_backend(name):
     return module.create_backend()
 ```
 
-它走的是第三章的同一条流程，只是名字来自字符串。代价是依赖关系对静态工具不可见、拼写错误延迟到运行时、字符串来自不可信输入时会变成任意代码执行。按配置加载后端、`pkgutil.iter_modules` 扫描插件包、`importlib.metadata.entry_points` 发现第三方插件——这三种插件发现方式的对比与选型，在[《反射、元编程与插件架构》](/python-reflection-metaprogramming-and-plugin-architecture.html)中展开。
+它走的是第三章的同一条流程，只是名字来自字符串。代价是依赖关系对静态工具不可见、拼写错误延迟到运行时、字符串来自不可信输入时会变成任意代码执行。按配置加载后端、`pkgutil.iter_modules` 扫描插件包、`importlib.metadata.entry_points` 发现第三方插件——这三种插件发现方式的对比与选型，在[《Python 的动态机制及工程实践》](/python-reflection-metaprogramming-and-plugin-architecture.html)中展开。
 
 ## 十、导入语法与名称绑定
 

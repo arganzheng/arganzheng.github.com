@@ -1,7 +1,7 @@
 ---
 layout: post
 series: python-for-ai-infra
-title: Python 在 AI-Infra（11）：Python的动态机制及工程实践
+title: Python 在 AI-Infra（11）：Python 的动态机制及工程实践
 subtitle: Python Dynamic Mechanisms and Practice
 tags: [Python]
 catalog: true
@@ -1834,7 +1834,7 @@ adapter = TypeAdapter(ChatRequest)   # 启动阶段构造，内部会编译校�
 payload = adapter.validate_python(request)
 ```
 
-> 用类型标注驱动运行时校验的完整做法，见[《Python 类型系统与数据契约设计》](/python-type-expression-and-the-typing-toolbox.html)。
+> 用类型标注驱动运行时校验的完整做法，见[《类型系统（上）》](/python-type-expression-and-the-typing-toolbox.html)。
 
 ### 4. `getattr` 与映射表的选择
 
@@ -2189,7 +2189,7 @@ validate_backend(type(obj))              # 本文校验器接收插件类
 backend = cast(InferenceBackend, obj)    # 之后才向检查器做出承诺
 ```
 
-> 泛型、`Protocol`、`.pyi` 存根与 `cast()` 的完整机制，见[《Python 类型信息的分发与消费》](/python-type-information-distribution-and-consumption.html)。
+> 泛型、`Protocol`、`.pyi` 存根与 `cast()` 的完整机制，见[《类型系统（中）》](/python-type-information-distribution-and-consumption.html)。
 
 ### 4. 安全边界：动态能力不能突破信任边界
 
