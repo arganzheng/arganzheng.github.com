@@ -9,9 +9,9 @@ updated: 2026-11-23
 date: 2026-09-13 20:00:00
 ---
 
-九篇正文回答了一个问题：**图像与视频生成这种 compute-bound 的负载，推理系统该长什么样，为什么 vLLM 的那一套在它身上大半用不上**。第一篇算清一次生成三段的 FLOPs、字节与秒，第二篇在单卡上换 MFU，第三篇利用相邻步的冗余改有效步数，第四篇算视频的 $$N^2$$ 与稀疏化，第五篇用通信换墙钟，第六篇看步数被蒸馏掉之后系统怎样变、KV cache 怎样回来，第七篇把这些放进一个服务，第八篇走一遍三个引擎，第九篇变成配置、评测与排障。九篇合起来，是[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)那条推理主线的另一半。
+九篇正文回答了一个问题：**图像与视频生成这种 compute-bound 的负载，推理系统该长什么样，为什么 vLLM 的那一套在它身上大半用不上**。[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)算清一次生成三段的 FLOPs、字节与秒，[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)在单卡上换 MFU，[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)利用相邻步的冗余改有效步数，[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)算视频的 $$N^2$$ 与稀疏化，[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)用通信换墙钟，[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)看步数被蒸馏掉之后系统怎样变、KV cache 怎样回来，[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)把这些放进一个服务，[《三个引擎的对照》](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)走一遍三个引擎，[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)变成配置、评测与排障。九篇合起来，是[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)那条推理主线的另一半。
 
-本文不讲新内容，做三件事：把九篇压成一张表与九段回顾，把贯穿九篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"九篇能不能连起来用"。第九篇末尾的"系列总结"一节（九篇的账、与 LLM serving 的对照、三种能力）也并入本文。
+本文不讲新内容，做三件事：把九篇压成一张表与九段回顾，把贯穿九篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"九篇能不能连起来用"。《配置、评测与排障》末尾的"系列总结"一节（九篇的账、与 LLM serving 的对照、三种能力）也并入本文。
 
 > **读完这九篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -33,13 +33,13 @@ flowchart TB
 
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**先算清一次生成的三本账（FLOPs、字节、秒），再看每一类优化在账上的哪一项做交换**。一切从一个数字出发——一次 DiT 前向的算术强度是 3,100 FLOP/字节，LLM decode 是 2：前者单请求就在算力屋顶上，所以优化的是 FLOPs 与 MFU 而不是字节，多卡是为了切短一个请求的墙钟而不是装下权重，调度面对的是时长完全可预测的批任务而不是不可预测的流。九篇的每一篇把新引入的机制记回第一篇的那张账：
+系列的一句话主张是：**先算清一次生成的三本账（FLOPs、字节、秒），再看每一类优化在账上的哪一项做交换**。一切从一个数字出发——一次 DiT 前向的算术强度是 3,100 FLOP/字节，LLM decode 是 2：前者单请求就在算力屋顶上，所以优化的是 FLOPs 与 MFU 而不是字节，多卡是为了切短一个请求的墙钟而不是装下权重，调度面对的是时长完全可预测的批任务而不是不可预测的流。九篇的每一篇把新引入的机制记回《负载画像》的那张账：
 
 $$
 t = t_\text{txt} + g \cdot T_\text{eff} \cdot \frac{2 P_\text{tok} N + 4 L N^2 d \cdot s^{-1}}{\text{峰值} \cdot \eta \cdot p \cdot e(p)} + t_\text{VAE}, \qquad \text{卡数} = \text{QPS} \times \text{GPU·秒}
 $$
 
-$$\eta$$ 是第二篇，$$T_\text{eff}$$ 是第三篇与第六篇，$$s^{-1}$$ 是第四篇，$$p \cdot e(p)$$ 是第五篇，$$g$$ 是第六篇，卡数公式是第七篇。
+$$\eta$$ 是《单卡执行》，$$T_\text{eff}$$ 是《跨步冗余》与《少步与自回归》，$$s^{-1}$$ 是《视频：长序列 attention》，$$p \cdot e(p)$$ 是《多卡并行》，$$g$$ 是《少步与自回归》，卡数公式是《serving 形态》。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
@@ -60,7 +60,7 @@ Table: 九篇的核心问题、结论与必记公式
 | 章 | 内容 |
 |---|---|
 | 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿九篇的五条线：一张账、compute-bound、相邻步相似、attention 占比、有损与质量预算 |
+| 三 | 贯穿九篇的五条线：一张账、compute-bound、相邻步相似、attention 占比、有损与质量预算<br/>外加一张按寿命排的全系列对象总表 |
 | 四 | 常见误区表 |
 | 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
 | 六 | 下一步 |
@@ -170,7 +170,7 @@ Table: 本文的章节安排
 - 每 chunk 完成后再算一次 clean 版本的 K/V 写入缓存（每 chunk 5 次前向）；7 个 chunk 合计 0.96 PFLOPs，是双向 50 步 CFG 27.6 P 的 3.5%；窗口填满后每 chunk 恒定 198 T。窗口 $$W$$ 同时决定显存与每 chunk 的 attention 成本。
 - KV 量化只量化已完成的 chunk，当前与最近的留 bf16。
 
-**常见误解**："第一篇说 batch 没用，StreamDiffusion 又说 batch 提吞吐，矛盾"——前提不同：FLUX 1024² 的 GEMM 已填满 GPU，SD-Turbo 512² 没有；batch 的收益来自填满未饱和的 GPU。另一个："自回归视频的漂移靠加大窗口解决"——漂移来自以自己有误差的输出为条件，与窗口无关，靠训练方法推后。
+**常见误解**："[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)说 batch 没用，StreamDiffusion 又说 batch 提吞吐，矛盾"——前提不同：FLUX 1024² 的 GEMM 已填满 GPU，SD-Turbo 512² 没有；batch 的收益来自填满未饱和的 GPU。另一个："自回归视频的漂移靠加大窗口解决"——漂移来自以自己有误差的输出为条件，与窗口无关，靠训练方法推后。
 
 ### 7. 第七篇：serving 形态——请求、批、三段分离、附件、异步任务与成本
 
@@ -226,44 +226,44 @@ Table: 本文的章节安排
 
 ### 1. 一张账，九次记账
 
-第一篇建立的三本账（FLOPs、字节、秒）是全系列的坐标系，之后每一篇只做一件事：把新机制写成账上的一项修正。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)建立的三本账（FLOPs、字节、秒）是全系列的坐标系，之后每一篇只做一件事：把新机制写成账上的一项修正。
 
-- 第二篇改 $$\eta$$（0.31 → 0.5 以上）、Tensor Core 峰值与权重字节；
-- 第三篇把 $$T$$ 换成 $$T_\text{full} + T_\text{hit}\,\epsilon$$；
-- 第四篇给 attention 项乘一个 $$s^{-1}$$ 并用 Amdahl 算它的上限；
-- 第五篇把分母乘 $$p \cdot e(p)$$ 并给每步加一项通信时间；
-- 第六篇直接改 $$T$$ 与 $$g$$ 这两个乘数；
-- 第七篇在多请求上摊——卡数 = QPS × GPU·秒；
-- 第九篇把这条公式写成推导顺序。
+- [《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)改 $$\eta$$（0.31 → 0.5 以上）、Tensor Core 峰值与权重字节；
+- [《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)把 $$T$$ 换成 $$T_\text{full} + T_\text{hit}\,\epsilon$$；
+- [《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)给 attention 项乘一个 $$s^{-1}$$ 并用 Amdahl 算它的上限；
+- [《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)把分母乘 $$p \cdot e(p)$$ 并给每步加一项通信时间；
+- [《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)直接改 $$T$$ 与 $$g$$ 这两个乘数；
+- [《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)在多请求上摊——卡数 = QPS × GPU·秒；
+- [《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)把这条公式写成推导顺序。
 
-这条线的价值在于它给每个优化一个可比的位置：编译 1.56×、缓存 1.8×、稀疏 2×、4 卡 2.63×、蒸馏 7×——系统侧全部工作加起来与算法侧的一次蒸馏同量级，这是第六篇的判断，只有在同一张账上才看得出。它也给出了什么时候一项优化"无关"：稀疏 attention 对 FLUX 的 20% 只有 1.17×，FP8 对 Wan 的 28% 线性项从 17 分钟只到 15 分钟。
+这条线的价值在于它给每个优化一个可比的位置：编译 1.56×、缓存 1.8×、稀疏 2×、4 卡 2.63×、蒸馏 7×——系统侧全部工作加起来与算法侧的一次蒸馏同量级，这是《少步与自回归》的判断，只有在同一张账上才看得出。它也给出了什么时候一项优化"无关"：稀疏 attention 对 FLUX 的 20% 只有 1.17×，FP8 对 Wan 的 28% 线性项从 17 分钟只到 15 分钟。
 
 ### 2. compute-bound 决定一切，直到它不成立
 
-第一篇的一个数字——算术强度 3,100 对 2——是全系列每个"与 LLM 相反"的根。第二篇：量化的收益来自峰值不来自字节，权重减半不减时间。第五篇：多卡为延迟不为装下，切序列不切权重，吞吐永远 DP 最优。第七篇：batch 不提吞吐，卡数由单张 GPU·秒决定，时长可预测让调度像批处理系统。第九篇：GPU-Util 100% 不说明任何事。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的一个数字——算术强度 3,100 对 2——是全系列每个"与 LLM 相反"的根。[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)：量化的收益来自峰值不来自字节，权重减半不减时间。[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)：多卡为延迟不为装下，切序列不切权重，吞吐永远 DP 最优。[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)：batch 不提吞吐，卡数由单张 GPU·秒决定，时长可预测让调度像批处理系统。[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)：GPU-Util 100% 不说明任何事。
 
-第六篇给出了这条线的两个边界。一是 batch 在小模型 × 低分辨率 × 少步下重新有意义——不是 compute-bound 的结论错了，而是那个前提（一个请求的 GEMM 填满 GPU）不再成立，StreamDiffusion 的 stream batch 与 SGLang 的动态批处理都在这个区间。二是自回归视频：因果化之后"历史"出现了，KV cache、分页、流式、会话、不可预测时长全部回来，第一篇那张"08 的机制大半用不上"的表要重新画。第八篇把这一点解释成 SGLang 与 vLLM 恰好适合承载它的原因。
+[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)给出了这条线的两个边界。一是 batch 在小模型 × 低分辨率 × 少步下重新有意义——不是 compute-bound 的结论错了，而是那个前提（一个请求的 GEMM 填满 GPU）不再成立，StreamDiffusion 的 stream batch 与 SGLang 的动态批处理都在这个区间。二是自回归视频：因果化之后"历史"出现了，KV cache、分页、流式、会话、不可预测时长全部回来，《负载画像》那张"08 的机制大半用不上"的表要重新画。[《三个引擎的对照》](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)把这一点解释成 SGLang 与 vLLM 恰好适合承载它的原因。
 
 ### 3. 相邻步相似：一种冗余、四处利用、一处失效
 
-扩散采样沿平滑轨迹走，相邻步的输出在中段只差 5–10%。第三篇用它做跨步缓存；第五篇用它做 PipeFusion 与 DistriFusion——attention 需要的其他卡的 K/V 用上一步的 stale 值代替，让流水线不等、让 all-gather 不在关键路径上；第二篇用它的另一面——每步的误差被后续去噪吸收——解释扩散为什么容忍 8-bit attention，第四篇的稀疏 attention 同理；第七篇用"前几步在定构图、LoRA 影响的是风格与细节"做 bounded async loading。
+扩散采样沿平滑轨迹走，相邻步的输出在中段只差 5–10%。[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)用它做跨步缓存；[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)用它做 PipeFusion 与 DistriFusion——attention 需要的其他卡的 K/V 用上一步的 stale 值代替，让流水线不等、让 all-gather 不在关键路径上；[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)用它的另一面——每步的误差被后续去噪吸收——解释扩散为什么容忍 8-bit attention，[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的稀疏 attention 同理；[《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)用"前几步在定构图、LoRA 影响的是风格与细节"做 bounded async loading。
 
-第六篇是这条线的终点：步数蒸馏把"几十步里大半是保守余量"拿走，4 步的每一步都在转折点，相邻步相对差 50% 以上——跨步缓存零命中、PipeFusion 的 stale 误差大到不可用、CFG 并行随 guidance 蒸馏一起消失。第九篇因此有一条规则：蒸馏模型跳过缓存。判断一项优化在少步模型上是否失效，只要问它依赖的是不是这条性质。
+[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)是这条线的终点：步数蒸馏把"几十步里大半是保守余量"拿走，4 步的每一步都在转折点，相邻步相对差 50% 以上——跨步缓存零命中、PipeFusion 的 stale 误差大到不可用、CFG 并行随 guidance 蒸馏一起消失。[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)因此有一条规则：蒸馏模型跳过缓存。判断一项优化在少步模型上是否失效，只要问它依赖的是不是这条性质。
 
 ### 4. attention 占比 $$a$$ 决定优化重心
 
-第一篇的翻转——FLUX 20%、Wan 72%、HunyuanVideo 87%——把系列分成图像与视频两条路。第四篇给出翻转点 $$N \approx 6d$$ 与它对模型设计的含义（宽而浅更"GEMM 化"）。第二篇的同一组手段在两边的排序相反：图像上编译与量化是主项、FA3 只有 5–10%；视频上 attention 后端与 SageAttention 是主项、FP8 只作用于 28%。第三篇的缓存跳的是整步，与 $$a$$ 无关；第四篇的稀疏化只对视频有意义，其收益由 Amdahl 定律与 $$a$$ 一起决定。第五篇：视频上 SP 是必需（激活 14–49 GiB、单卡分钟级），图像上是延迟的可选项。第六篇的自回归 chunk 把 attention 从 $$N^2$$ 变成 $$N_q N_{kv}$$，让时长回到线性。第九篇的第一步就是用账算出 $$a$$，它决定第④步的重点是缓存还是稀疏。
+[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的翻转——FLUX 20%、Wan 72%、HunyuanVideo 87%——把系列分成图像与视频两条路。[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)给出翻转点 $$N \approx 6d$$ 与它对模型设计的含义（宽而浅更"GEMM 化"）。[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)的同一组手段在两边的排序相反：图像上编译与量化是主项、FA3 只有 5–10%；视频上 attention 后端与 SageAttention 是主项、FP8 只作用于 28%。[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)的缓存跳的是整步，与 $$a$$ 无关；[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的稀疏化只对视频有意义，其收益由 Amdahl 定律与 $$a$$ 一起决定。[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)：视频上 SP 是必需（激活 14–49 GiB、单卡分钟级），图像上是延迟的可选项。[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)的自回归 chunk 把 attention 从 $$N^2$$ 变成 $$N_q N_{kv}$$，让时长回到线性。[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)的第一步就是用账算出 $$a$$，它决定第④步的重点是缓存还是稀疏。
 
 ### 5. 有损优化与质量预算
 
-LLM 的量化用困惑度一个数字度量损失；扩散的有损优化——FP8 / INT4 / 8-bit attention（第二篇）、跨步缓存（第三篇）、稀疏 attention（第四篇）、少步蒸馏（第六篇）——每一项都有一个连续参数与一条"加速比—质量"曲线，评测方法是配置方法的一半。各篇的贡献：
+LLM 的量化用困惑度一个数字度量损失；扩散的有损优化——FP8 / INT4 / 8-bit attention（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)）、跨步缓存（[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)）、稀疏 attention（[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)）、少步蒸馏（[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)）——每一项都有一个连续参数与一条"加速比—质量"曲线，评测方法是配置方法的一半。各篇的贡献：
 
-- 第二篇给出门限（> 35 dB 不可见、30–35 细看可见，即每像素平均偏 4.5 到 8 个灰度级）与"文字与手指最先坏"；
-- 第三篇给出阈值曲线的形状（加速先快后饱和、质量先平后陡）与伪影的顺序；
-- 第四篇加上视频的时间一致性与运动幅度；
-- 第九篇把它们收成三层评测（对基线图、prompt 集、人工 A/B）、一条确定性规则（同一部署内确定、跨部署重建基线）与一个性能面板看不出的质量抽检。
+- 《单卡执行》给出门限（> 35 dB 不可见、30–35 细看可见，即每像素平均偏 4.5 到 8 个灰度级）与"文字与手指最先坏"；
+- 《跨步冗余》给出阈值曲线的形状（加速先快后饱和、质量先平后陡）与伪影的顺序；
+- 《视频：长序列 attention》加上视频的时间一致性与运动幅度；
+- [《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)把它们收成三层评测（对基线图、prompt 集、人工 A/B）、一条确定性规则（同一部署内确定、跨部署重建基线）与一个性能面板看不出的质量抽检。
 
-无损先于有损、有损按可见度排序，是第九篇推导顺序的第一原则。
+无损先于有损、有损按可见度排序，是《配置、评测与排障》推导顺序的第一原则。
 
 ```mermaid
 %% 图：扩散推理各概念的关系：单请求 compute-bound 与相邻步相似是两个根，少步蒸馏让跨步缓存与 PipeFusion 失效、让 KV cache 回归
@@ -298,6 +298,39 @@ flowchart TB
 | 三个引擎的对照表 | 二至七、八 | 各篇末尾一张；八按请求路径串成一篇 |
 
 Table: 贯穿九篇的概念及其关系
+
+### 6. 全系列的对象总表
+
+九篇各有一张"谁持有、活多久"的表。把它们按**寿命**并成一张，能看见几条单篇里看不见的东西。
+
+| 对象 | 哪一篇 | 谁持有 | 活多久 | 它为什么存在 |
+|---|---|---|---|---|
+| 一层的激活（Q / K / V、MLP 中间） | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 一次前向的临时张量 | **一次前向** | 没有理由留：下一步的输入全变了 |
+| attention 的分数矩阵 | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[四](/video-diffusion-long-sequence-attention-and-sparsity.html) | **不存在** | — | FlashAttention 不物化它；物化了视频 DiT 就不可能推理 |
+| 跨步缓存的残差与累积量 | [三](/timestep-redundancy-caching-and-step-skipping.html) | 模型外的 hook | **到下一次全算** | 为了跳步——机制造出来的，有损 |
+| stale K / V 与 patch 缓冲 | [五](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html) | 每个流水线段 | **一步** | 为了让流水线不等——机制造出来的，有损 |
+| 在线 profiling 的 head 分类与置换索引 | [四](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | **一步** | 自适应稀疏的代价 |
+| latent | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | 去噪循环 | 整次生成，每步就地更新 | 每步真正在动的只有它 |
+| 文本 embedding | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 条件张量；缓存后跨请求 | 整次生成 | 唯一天然、无损的跨步复用 |
+| cross-attention 的文本 K / V | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html) | attention 层 | 整次生成 | 只有 cross-attn 模型有，MMDiT 没有 |
+| 静态稀疏掩码 | [四](/video-diffusion-long-sequence-attention-and-sparsity.html) | attention 后端 | 整次生成 | 由形状决定，可按形状预生成 |
+| 请求参数与估出来的时长 | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 调度器里的请求对象 | 整个请求 | 一个数同时做排序键、准入判据、计费依据 |
+| latent 与步号（抢占时要存的全部） | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 实例 | 整次生成 | 0.5 MB 就能从那一步续上 |
+| DiT 权重 | [一](/diffusion-inference-workload-anatomy-and-cost-ledger.html)、[二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | worker 进程 | **跨请求常驻** | 每步完整读一遍 |
+| 文本编码器与 VAE 权重 | [二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html) | 实例，或独立 stage | 跨请求常驻，但可以让出 | 三段不必同时在卡上 |
+| 编译产物与 CUDA graph | [二](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)、[八](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html) | worker，按形状 | 跨请求常驻 | 换形状作废 |
+| LoRA / ControlNet | [七](/diffusion-serving-shapes-batching-disaggregation-and-cost.html) | 权重加载器 | 按请求切换或常驻 | 路由粘性之一 |
+| 自回归视频会话的 K / V | [六](/few-step-and-autoregressive-video-generation-systems.html) | 会话对象 | **整个会话，跨请求** | 扩散推理唯一的大块跨请求状态 |
+| 基线图与配置指纹 | [九](/diffusion-inference-configuration-evaluation-and-troubleshooting.html) | 对象存储 | 长期 | 质量评测唯一的可比对象 |
+
+Table: 全系列十七样对象，按寿命排
+
+四条只有合起来才看得见的结论：
+
+1. **寿命只有四档：一次前向、一步、整次生成、跨请求常驻。**而跨请求那一档里，除了权重和编译产物这些"属于实例"的东西，真正属于某个用户的只有一行——自回归视频会话的 K / V。这就是"扩散没有 KV cache"的全部含义，也是[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)成为整个系列转折点的原因：它把那一行加了进来，于是会话、滑动窗口、流式输出、硬粘性路由一起回来了。
+2. **真正跨步复用的只有三行，其中两行是机制造出来的。**文本 embedding 是模型自带的，免费且无损；缓存残差和 stale K / V 是[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)和[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)各自造出来的，都要拿图片质量去换。所以听到"扩散也能缓存"时，第一个问题是：说的是哪一行。
+3. **"由形状决定"的有三行**——静态稀疏掩码、编译产物、时长估算。它们共同支撑一条服务侧的硬规则：**请求的形状必须收敛到一组预定义值**。否则这三行同时失效，而它们失效的表现分别是重编译风暴、掩码重建开销、时长估不准——[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)故障表里看似不相干的三条，根子是同一个。
+4. **把"DiT 权重"和"latent"这两行并排看，就是全系列所有结论的来源**：每步完整读一遍 22.2 GiB 的权重，只为更新 0.5 MiB 的 latent。算术强度 3,100、batch 无益、只能从 FLOPs 与 MFU 下手、多卡切 token 而不切权重——都是这两行之比的推论。
 
 ## 四、常见误区
 
@@ -339,7 +372,7 @@ Table: 常见误区与正确说法
 
    </details>
 
-3. Wan2.1-14B 480×832×81 帧：$$N = 32{,}760$$。attention 占比约多少？与第四篇的交叉点 $$N \approx 6d$$ 对得上吗？
+3. Wan2.1-14B 480×832×81 帧：$$N = 32{,}760$$。attention 占比约多少？与[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)的交叉点 $$N \approx 6d$$ 对得上吗？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -383,7 +416,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   每 token $$2 \times 5120 \times 2 \text{ B} \times 40 = 819$$ KB。chunk 10,800 token → 8.8 GB；窗口 75,600 token → 62 GB——一张 80 GB 卡放不下权重加窗口。这是第六篇"480p 窗口 27 GB、720p 乘 2.3"的展开；14B 的实时流式要么降分辨率、缩窗口，要么 KV 量化到 INT4 / INT2。
+   每 token $$2 \times 5120 \times 2 \text{ B} \times 40 = 819$$ KB。chunk 10,800 token → 8.8 GB；窗口 75,600 token → 62 GB——一张 80 GB 卡放不下权重加窗口。这是[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)"480p 窗口 27 GB、720p 乘 2.3"的展开；14B 的实时流式要么降分辨率、缩窗口，要么 KV 量化到 INT4 / INT2。
 
    </details>
 
@@ -399,7 +432,7 @@ Table: 常见误区与正确说法
 
     <details markdown="1"><summary>答案</summary>
 
-    峰值随像素线性：$$2.0 \times (1536/1024)^2 = 4.5$$ GiB。tiling 成 9 个 512² tile，每块 0.5 GiB。4090 上 DiT 常驻 22.5 GiB 时余 1.5 GB，不分块的 4.5 GiB 一定 OOM（第二篇说 2048² 就溢）；要么 tiling、要么 DiT 权重先 offload 再解码——第九篇故障表第一条。
+    峰值随像素线性：$$2.0 \times (1536/1024)^2 = 4.5$$ GiB。tiling 成 9 个 512² tile，每块 0.5 GiB。4090 上 DiT 常驻 22.5 GiB 时余 1.5 GB，不分块的 4.5 GiB 一定 OOM（[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)说 2048² 就溢）；要么 tiling、要么 DiT 权重先 offload 再解码——[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)故障表第一条。
 
     </details>
 
@@ -409,7 +442,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：FA3（attention 1.7×）、compile + FP8（只作用于 28% 的线性项）、SageAttention（attention 再 2×）——改 $$\eta$$ 与峰值，24 → 9.8 min；第四篇：稀疏 80%（kernel 效率 70%）——改 attention 项的 $$s^{-1}$$，→ 6.6 min；第三篇：TeaCache 跳 40%——改 $$T_\text{eff}$$，→ 3.9 min；单卡合计约 6×。第五篇：8 卡 USP（效率 80%）——分母乘 $$p \cdot e(p)$$，→ 37 s，加 VAE 解码 7 s（第一篇的 VAE 时间）。第六篇若可换模型：FastWan 3 步无 CFG 再 1/33。
+   [《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)：FA3（attention 1.7×）、compile + FP8（只作用于 28% 的线性项）、SageAttention（attention 再 2×）——改 $$\eta$$ 与峰值，24 → 9.8 min；[《视频：长序列 attention》](/video-diffusion-long-sequence-attention-and-sparsity.html)：稀疏 80%（kernel 效率 70%）——改 attention 项的 $$s^{-1}$$，→ 6.6 min；[《跨步冗余》](/timestep-redundancy-caching-and-step-skipping.html)：TeaCache 跳 40%——改 $$T_\text{eff}$$，→ 3.9 min；单卡合计约 6×。[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)：8 卡 USP（效率 80%）——分母乘 $$p \cdot e(p)$$，→ 37 s，加 VAE 解码 7 s（[《负载画像》](/diffusion-inference-workload-anatomy-and-cost-ledger.html)的 VAE 时间）。[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)若可换模型：FastWan 3 步无 CFG 再 1/33。
 
    </details>
 
@@ -417,7 +450,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：三段 31.5 GiB 放不下，但 DiT 段 22.5 GiB 放得下。第二篇：模型级 offload + VAE tiling 跑起来，约 40 s（每次多搬 31 GiB）；compile → 33 s；SVDQuant INT4（Nunchaku，4090 有 INT4 Tensor Core）→ 6.5 GiB 常驻、三段不再搬运、约 12 s、PSNR 约 30 dB。第三篇：TeaCache 0.4 → 约 7 s。第六篇：换 schnell 4 步 + INT4 → 约 2 s，此时缓存失效、CUDA graph 重要、VAE 占比升。第九篇算例三就是这条路径。
+   《负载画像》：三段 31.5 GiB 放不下，但 DiT 段 22.5 GiB 放得下。《单卡执行》：模型级 offload + VAE tiling 跑起来，约 40 s（每次多搬 31 GiB）；compile → 33 s；SVDQuant INT4（Nunchaku，4090 有 INT4 Tensor Core）→ 6.5 GiB 常驻、三段不再搬运、约 12 s、PSNR 约 30 dB。《跨步冗余》：TeaCache 0.4 → 约 7 s。《少步与自回归》：换 schnell 4 步 + INT4 → 约 2 s，此时缓存失效、CUDA graph 重要、VAE 占比升。[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)算例三就是这条路径。
 
    </details>
 
@@ -425,23 +458,23 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：CFG 并行恒为 2，8 卡 = CFG 2 × Ulysses 4，组间每步只传 0.5 MB，组内 Ulysses 4 每层 4 次 all-to-all；要与 Ulysses 8（一个 batch 2 前向、GEMM 更大）实测比较。第三篇 × 第五篇：4 卡 SP 下各卡只持 $$N/4$$ 个 token，缓存决策必须全局一致（all-reduce 信号或 rank 0 广播），否则 hang 或错图。第三篇 × 第一篇：$$g$$ = 2 的两个分支残差不同，缓存状态必须两份，混用则饱和发灰。另：SGLang 的 CFG gating 与缓存正交可叠加，但误差叠加、质量预算一起算。
+   《多卡并行》：CFG 并行恒为 2，8 卡 = CFG 2 × Ulysses 4，组间每步只传 0.5 MB，组内 Ulysses 4 每层 4 次 all-to-all；要与 Ulysses 8（一个 batch 2 前向、GEMM 更大）实测比较。《跨步冗余》 × 《多卡并行》：4 卡 SP 下各卡只持 $$N/4$$ 个 token，缓存决策必须全局一致（all-reduce 信号或 rank 0 广播），否则 hang 或错图。《跨步冗余》 × 《负载画像》：$$g$$ = 2 的两个分支残差不同，缓存状态必须两份，混用则饱和发灰。另：SGLang 的 CFG gating 与缓存正交可叠加，但误差叠加、质量预算一起算。
 
    </details>
 
-4. 把一个 FLUX.1-dev 服务整体换成 FLUX.1-schnell，服务层要改哪些配置？用第一、二、五、六、七篇各一条回答。
+4. 把一个 FLUX.1-dev 服务整体换成 FLUX.1-schnell，服务层要改哪些配置？用《负载画像》《单卡执行》《多卡并行》《少步与自回归》《serving 形态》各一条回答。
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：卡数 = QPS × GPU·秒，0.8 s 对 1.65 s（dev 全优化），100 QPS 从 170 张到 80 张；批处理对 1024² 仍无意义。第六篇：关掉跨步缓存与 CFG 相关项（零命中或图坏），量化评测重做（少步对量化更敏感）。第二篇：CUDA graph 从可选变必需（SGLang v0.5.19 的 BCG 支持名单里还没有 FLUX，换模型前先查），warmup 列全形状。第一篇：VAE 102 ms 与文本编码器 22 ms 从 2.6% 到 15.6%，优化对象转向 VAE（bf16 / 融合 / TAESD 预览）与 prompt embedding 缓存。第五篇：多卡默认 DP，SP 只留给 2048²（单卡 4 步约 3.8 s）。
+   [《serving 形态》](/diffusion-serving-shapes-batching-disaggregation-and-cost.html)：卡数 = QPS × GPU·秒，0.8 s 对 1.65 s（dev 全优化），100 QPS 从 170 张到 80 张；批处理对 1024² 仍无意义。《少步与自回归》：关掉跨步缓存与 CFG 相关项（零命中或图坏），量化评测重做（少步对量化更敏感）。《单卡执行》：CUDA graph 从可选变必需（SGLang v0.5.19 的 BCG 支持名单里还没有 FLUX，换模型前先查），warmup 列全形状。《负载画像》：VAE 102 ms 与文本编码器 22 ms 从 2.6% 到 15.6%，优化对象转向 VAE（bf16 / 融合 / TAESD 预览）与 prompt embedding 缓存。《多卡并行》：多卡默认 DP，SP 只留给 2048²（单卡 4 步约 3.8 s）。
 
    </details>
 
-5. 双向视频服务与自回归流式视频服务，在请求形态、状态、调度、API 上各差在哪？分别对应第一、六、七、八篇的什么？
+5. 双向视频服务与自回归流式视频服务，在请求形态、状态、调度、API 上各差在哪？分别对应《负载画像》《少步与自回归》《serving 形态》《三个引擎的对照》里的什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：双向多步无 KV、每步整段前向、时长收到请求即确定；第六篇：自回归有 chunk 级 KV（0.86 GB / chunk、窗口 6 GB）、滑动窗口、每 chunk 完成即输出、时长由用户决定——不可预测；第七篇：双向是异步 job（`POST /v1/videos` + 轮询 + 对象存储，状态 = latent 0.5 MB 可 checkpoint），自回归是长连接会话（服务端持有 KV 与控制信号，抢占在 chunk 边界要换出 KV，多会话的当前 chunk 可拼 batch）；第八篇：SGLang 的 `realtime/` 会话与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 复用分页 KV 管理器——LLM 引擎恰好适合承载它。
+   《负载画像》：双向多步无 KV、每步整段前向、时长收到请求即确定；《少步与自回归》：自回归有 chunk 级 KV（0.86 GB / chunk、窗口 6 GB）、滑动窗口、每 chunk 完成即输出、时长由用户决定——不可预测；《serving 形态》：双向是异步 job（`POST /v1/videos` + 轮询 + 对象存储，状态 = latent 0.5 MB 可 checkpoint），自回归是长连接会话（服务端持有 KV 与控制信号，抢占在 chunk 边界要换出 KV，多会话的当前 chunk 可拼 batch）；[《三个引擎的对照》](/diffusion-engines-compared-sglang-diffusion-vllm-omni-xdit.html)：SGLang 的 `realtime/` 会话与 `layers/kvcache/`、vLLM-Omni 的 `diffusion_kv/` 复用分页 KV 管理器——LLM 引擎恰好适合承载它。
 
    </details>
 
@@ -522,7 +555,7 @@ Table: 常见误区与正确说法
 | 水平 | 表现 |
 |---|---|
 | 读过 | 能说出九篇各讲什么<br/>知道 $$2P_\text{tok}N + 4LN^2d$$、compute-bound、TeaCache、USP、PipeFusion、Self-Forcing 这些名词<br/>知道"扩散没有 KV cache" |
-| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个模型 × 形状 × GPU 能算出三段的 FLOPs / 显存 / 时间并判断 attention 占比、放不放得下、离 SLO 多远<br/>能按第九篇的八步推出配置 |
+| 掌握 | A 组能不翻书算出 8 题以上<br/>B 组能说出每题用了哪几篇的什么<br/>拿到一个模型 × 形状 × GPU 能算出三段的 FLOPs / 显存 / 时间并判断 attention 占比、放不放得下、离 SLO 多远<br/>能按[《配置、评测与排障》](/diffusion-inference-configuration-evaluation-and-troubleshooting.html)的八步推出配置 |
 | 能教人 | C 组每题能给出全部要点并预判追问<br/>能解释九篇里每个反直觉结论为什么成立（150× FLOPs 却 0.8× 时间、量化不减时间、SP 不减卡数、缓存在 4 步上零收益、"没有 KV cache"的负载又需要 KV cache）<br/>能在三个引擎里定位每个机制 |
 
 Table: 掌握程度的判据
@@ -533,14 +566,14 @@ Table: 掌握程度的判据
 
 九篇算的是扩散模型（含 flow matching 模型，系统上无区别）**推理**的账。以下方向与它紧邻，但不在范围内：
 
-- **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们是算法地图 L7 的[《多模态：从视觉编码器到扩散模型》](/multimodal-from-vision-encoders-to-diffusion.html)第五至七篇；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
-- **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧，第六篇的自回归视频是两条线重新交汇的地方。
-- **Transformer 一层的 FLOPs 与字节从哪来**：在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)；第 02 篇的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
-- **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)第 09 篇与 vLLM 系列讲多模态输入的第九篇；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
+- **扩散模型的数学、结构与训练**：DDPM / score matching / flow matching、DiT 与 MMDiT、VAE 的设计、文生图与视频的配方、步数蒸馏的方法。它们在算法地图 L7《多模态：从视觉编码器到扩散模型》讲扩散的三篇——[《扩散模型（上）：DDPM》](/diffusion-models-ddpm-score-matching-and-flow-matching.html)、[《扩散模型（下）：score matching、flow matching 与 classifier-free guidance》](/score-matching-flow-matching-and-classifier-free-guidance.html)、[《Latent diffusion、DiT 与文生图配方》](/latent-diffusion-dit-and-text-to-image-recipes.html)；本系列只使用"一步是一次对 $$N$$ 个 token 的前向、有没有 CFG、蒸馏到几步"这些结论。
+- **LLM 推理系统**：KV cache、连续批处理、PagedAttention、投机解码、PD 分离。它们在[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)；本系列在每个对应位置说明"扩散为什么不同"，不重讲 LLM 侧，[《少步与自回归》](/few-step-and-autoregressive-video-generation-systems.html)的自回归视频是两条线重新交汇的地方。
+- **Transformer 一层的 FLOPs 与字节从哪来**：在[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)；[《单卡执行》](/single-gpu-diffusion-execution-attention-compile-quantization-offload.html)的 $$2PN$$ 与 $$4N^2d$$ 直接用了它的结论。
+- **多模态理解模型**（把图片送进 LLM）的推理：vision encoder 的调度、image token 的 KV、请求形态。它们在[《现代 LLM 结构》的《多模态：vision encoder 的算量与 image token 的 KV 代价》](/multimodal-vision-encoder-cost-and-image-token-kv.html)与[《大模型推理系统揭秘》的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)；生成模型与它们除了"都有一个 vision 部件"之外没有共同的系统问题。
 - **kernel 的实现**：FlashAttention、SageAttention、block-sparse attention、量化 GEMM 的内部。它们在[《GPU Kernel 工程》](/gpu-kernel-engineering.html)；本系列只用它们的接口与加速比。
 - **集合通信的实现**：all-to-all、P2P、all-gather 的算法与调优。本系列只用它们的语义与带宽。
 - **扩散模型的后训练与 RL**：Diffusion-DPO、奖励微调、Flow-GRPO 的系统。它们的 rollout 就是本系列讲的推理，训练侧属于 RL 后训练基础设施系列的形态。
-- **训练侧的并行**：DiT 的 FSDP + SP 训练。第五篇只在对照处提及。
+- **训练侧的并行**：DiT 的 FSDP + SP 训练。[《多卡并行》](/multi-gpu-diffusion-parallelism-usp-cfg-pipefusion.html)只在对照处提及。
 
 回到总纲：[《扩散模型推理基础设施：图像与视频生成的 serving》](/diffusion-model-inference-infrastructure.html)。
 
