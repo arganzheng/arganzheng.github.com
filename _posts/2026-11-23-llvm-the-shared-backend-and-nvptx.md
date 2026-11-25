@@ -53,24 +53,24 @@ flowchart TB
 
 一个 `.ll` 文件就是一个 Module。Triton 一个 kernel 编译出一个 Module，里面一个 `define ptx_kernel void @matmul_kernel(...)` 加上若干 `declare` 的 intrinsic 和被内联剩下的辅助函数。
 
-Instruction、Argument、Constant、Function 都是 `Value` 的子类——**任何能出现在操作数位置的东西都是 Value**，这是 use-def 链能统一表示的原因（第一篇 §四.3）。每个 Value 有一个类型；每条 Instruction 记住自己的操作数（`Use` 列表）和使用者（`users()`）。
+Instruction、Argument、Constant、Function 都是 `Value` 的子类——**任何能出现在操作数位置的东西都是 Value**，这是 use-def 链能统一表示的原因（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §四.3）。每个 Value 有一个类型；每条 Instruction 记住自己的操作数（`Use` 列表）和使用者（`users()`）。
 
 ### 2. 类型
 
 | 类别 | 例子 | 说明 |
 |---|---|---|
 | 整数 | `i1`、`i8`、`i32`、`i64`、`i128` | 任意位宽，无符号 / 有符号由指令决定（`sdiv` / `udiv`、`icmp slt` / `ult`），不由类型决定 |
-| 浮点 | `half`、`bfloat`、`float`、`double` | `bfloat` 有原生类型，FP8 没有——FP8 在 IR 里是 `i8`，Triton 的 FP8 运算是位运算与内联 PTX（第十篇） |
+| 浮点 | `half`、`bfloat`、`float`、`double` | `bfloat` 有原生类型，FP8 没有——FP8 在 IR 里是 `i8`，Triton 的 FP8 运算是位运算与内联 PTX（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)） |
 | 指针 | `ptr`、`ptr addrspace(1)` | LLVM 15 之后指针**不带指向类型**（opaque pointer），只带地址空间；GPU 后端用地址空间区分 global / shared / local |
 | 向量 | `<4 x float>`、`<2 x i32>` | 固定长度 SIMD 向量；NVPTX 把 `<4 x float>` 的对齐 load 编成 `ld.global.v4` |
-| 聚合 | `{ float, float, i32 }`、`[256 x float]` | Triton 把一个线程持有的张量元素表示成 `!llvm.struct<(f32, f32, …)>`——一个 `[128, 32]` 的 bf16 张量在 4 个 warp 上每线程 32 个元素，就是一个 32 元的 struct（第十篇） |
+| 聚合 | `{ float, float, i32 }`、`[256 x float]` | Triton 把一个线程持有的张量元素表示成 `!llvm.struct<(f32, f32, …)>`——一个 `[128, 32]` 的 bf16 张量在 4 个 warp 上每线程 32 个元素，就是一个 32 元的 struct（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)） |
 | 函数 / 标签 / metadata | `void (ptr, i32)`、`label`、`metadata` | |
 
 Table: LLVM IR 的类型
 
 ### 3. 最重要的几条指令
 
-拿第一篇的 `sum` 函数（`mem2reg` 之后）当参照：
+拿[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html)的 `sum` 函数（`mem2reg` 之后）当参照：
 
 ```llvm title="sum 循环体的几条 LLVM 指令"
 for.body:
@@ -82,7 +82,7 @@ for.body:
   br label %for.inc
 ```
 
-1. ① `getelementptr`（GEP）：**类型化的地址计算**。`getelementptr inbounds i32, ptr %a, i64 %idxprom` 是 `%a + %idxprom * sizeof(i32)`，但 IR 里不出现 `* 4`——元素类型 `i32` 是指令的一部分，缩放由后端做。`inbounds` 是前端的承诺"结果不会越出对象边界"，优化器据此可以做更激进的别名和范围推理。Triton 的 `tt.addptr` 下降到 LLVM 时就变成 GEP（第十篇）。
+1. ① `getelementptr`（GEP）：**类型化的地址计算**。`getelementptr inbounds i32, ptr %a, i64 %idxprom` 是 `%a + %idxprom * sizeof(i32)`，但 IR 里不出现 `* 4`——元素类型 `i32` 是指令的一部分，缩放由后端做。`inbounds` 是前端的承诺"结果不会越出对象边界"，优化器据此可以做更激进的别名和范围推理。Triton 的 `tt.addptr` 下降到 LLVM 时就变成 GEP（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）。
 2. ② `load i32, ptr %arrayidx, align 4`：`align` 是**对齐承诺**，后端据此决定能不能用向量 / 宽 load（§五.4 会看到 `align 16` 与 `align 4` 生成完全不同的 PTX）。Triton 从 AxisInfo 算出对齐后写在这里。
 3. ③ `mul nsw`：`nsw` 是 flag（no signed wrap），`nuw`、`exact`、`fast`（浮点）同类。它们是**从源语言语义继承的假设**，让优化器能做在没有假设时非法的变换（例如 `nsw` 允许把 `x * 2 / 2` 化成 `x`）。
 
@@ -104,7 +104,7 @@ Table: attribute 与 metadata 的机制
 
 - **地址空间**：`ptr addrspace(N)`。语义由目标定义；NVPTX 用 1 表示 global、3 表示 shared、5 表示 local（§五.2）。`addrspacecast` 在它们之间转换。
 - **intrinsic**：以 `llvm.` 开头的"内建函数"，`declare` 之后像普通函数一样 `call`，后端把它们变成特定指令。通用的如 `llvm.fma.f32`、`llvm.assume`、`llvm.memcpy`；目标特有的如 `llvm.nvvm.read.ptx.sreg.tid.x`（读 `%tid.x`）、`llvm.nvvm.barrier0`（`bar.sync 0`）、`llvm.nvvm.shfl.sync.bfly.i32`、`llvm.nvvm.mma.*`。
-- **内联汇编**：`call i32 asm sideeffect "mov.u32 $0, %laneid;", "=r"()`——一段字符串直接传给汇编器，约束串 `"=r,r,r"` 说明操作数怎样绑到寄存器。后端不理解它的内容，只负责寄存器绑定与文本拼接。**Triton 的 `mma.sync`、`wgmma`、`cp.async`、`ldmatrix` 几乎全部是内联 PTX**（第十篇的 `PTXAsmFormat`），因为 LLVM 的 intrinsic 覆盖不全、更新不及时。
+- **内联汇编**：`call i32 asm sideeffect "mov.u32 $0, %laneid;", "=r"()`——一段字符串直接传给汇编器，约束串 `"=r,r,r"` 说明操作数怎样绑到寄存器。后端不理解它的内容，只负责寄存器绑定与文本拼接。**Triton 的 `mma.sync`、`wgmma`、`cp.async`、`ldmatrix` 几乎全部是内联 PTX**（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)的 `PTXAsmFormat`），因为 LLVM 的 intrinsic 覆盖不全、更新不及时。
 
 ## 三、中端：pass manager 与 `-O2` 流水线
 
@@ -143,9 +143,9 @@ globaldce,constmerge,cg-profile,rel-lookup-table-converter,function(annotation-r
 读法：
 
 - 最外层是 module pass 序列；`function<eager-inv>(...)` 是"对每个函数跑括号里的序列"的适配器；`cgscc(...)` 是"沿调用图的强连通分量自底向上"，内联器 `inline` 在里面——**先处理被调用者再处理调用者**，这样内联进来的代码已经是优化过的；`loop-mssa(...)` 和 `loop(...)` 是"对每个循环"，前者带 MemorySSA。
-- 结构就是第一篇 §六.7 说的"变换 → 清理"：几乎每个大 pass 后面跟着 `instcombine` 和 `simplifycfg`。
+- 结构就是[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §六.7 说的"变换 → 清理"：几乎每个大 pass 后面跟着 `instcombine` 和 `simplifycfg`。
 - 注意顺序：`inline` 在最前面的 cgscc 里；循环优化（`licm`、`indvars`、`loop-unroll-full`）在函数内的中段；向量化（`loop-vectorize`、`slp-vectorizer`）在最后一个 function 序列里——**向量化之前所有标量优化要做完**，向量化之后只剩清理。
-- `<...>` 里是每个 pass 的参数；`eager-inv` 表示 pass 之后立即失效 analysis（第一篇 §七.1）。
+- `<...>` 里是每个 pass 的参数；`eager-inv` 表示 pass 之后立即失效 analysis（[《编译器的骨架》](/compiler-skeleton-ir-ssa-and-passes.html) §七.1）。
 
 ### 2. `-print-after-all`
 
@@ -170,7 +170,7 @@ opt -O2 -print-after-all sum.O0.ll -disable-output 2>&1 | rg -c 'IR Dump After' 
 ; *** IR Dump After IPSCCPPass on sum ***
 ```
 
-`SROAPass`（Scalar Replacement of Aggregates）是 `-O2` 里实际做 `mem2reg` 工作的那个——它比 `mem2reg` 更强，还能拆开 struct 和数组的 `alloca`。Triton 在 LLVM 层的对应开关是环境变量 `LLVM_IR_ENABLE_DUMP=1`（`python/src/llvm.cc` 的 `optimize_module` 里 `setLLVMOption<bool>("print-after-all", true)`），第十三篇用。
+`SROAPass`（Scalar Replacement of Aggregates）是 `-O2` 里实际做 `mem2reg` 工作的那个——它比 `mem2reg` 更强，还能拆开 struct 和数组的 `alloca`。Triton 在 LLVM 层的对应开关是环境变量 `LLVM_IR_ENABLE_DUMP=1`（`python/src/llvm.cc` 的 `optimize_module` 里 `setLLVMOption<bool>("print-after-all", true)`），[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)用。
 
 ### 3. Triton 怎样调用中端
 
@@ -275,7 +275,7 @@ exit:
 
 这是 `c[i] = a[i] + b[i]` 的 CUDA kernel 在 LLVM IR 层的样子，也是 Triton 的 `add_kernel` 下降到 LLVM 之后去掉向量化与 mask 的骨架。
 
-1. ① GPU 的线程坐标是**特殊寄存器**（`%tid.x`、`%ctaid.x`），IR 里用 intrinsic 读。Triton 的 `tt.get_program_id` 下降为 `ctaid` 的读取，layout 展开时每个线程的 lane 号来自 `tid`（第十篇）。
+1. ① GPU 的线程坐标是**特殊寄存器**（`%tid.x`、`%ctaid.x`），IR 里用 intrinsic 读。Triton 的 `tt.get_program_id` 下降为 `ctaid` 的读取，layout 展开时每个线程的 lane 号来自 `tid`（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）。
 2. ② `ptx_kernel` 调用约定标记这是一个 kernel 入口（`.entry`）而不是设备函数（`.func`）。`ptr addrspace(1)` 是 global memory 指针。datalayout 里 `p3:32:32`、`p4`、`p5` 说 shared / const / local 指针是 32 位（Triton 的 `nvidia.set_short_ptr()` 就是打开这个），`p` 默认（generic 和 global）是 64 位。
 
 ### 2. 地址空间
@@ -287,7 +287,7 @@ exit:
 | 3 | shared | `ld.shared` / `st.shared`、`cp.async…shared` | `__shared__` | `#shared` layout 的缓冲区、`convert_layout` 的 scratch、reduce 的跨 warp 交换 |
 | 4 | const | `ld.const` | `__constant__` | kernel 参数（`ld.param`）在此类空间 |
 | 5 | local | `ld.local` / `st.local` | 局部数组、spill | **spill 去的地方**；Triton IR 不主动生成 |
-| 7 | shared::cluster | `ld.shared::cluster`、`mapa` | 线程块集群的分布式共享内存 | Hopper 多 CTA 路径（第九篇） |
+| 7 | shared::cluster | `ld.shared::cluster`、`mapa` | 线程块集群的分布式共享内存 | Hopper 多 CTA 路径（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)） |
 
 Table: NVPTX 的地址空间
 
@@ -384,7 +384,7 @@ $L__BB0_2:                              // %exit
 	st.global.b32 	[%rd11], %r15;
 ```
 
-**同样的 `<4 x float>` 向量类型，`align 16` 是一条 128 bit 指令，`align 4` 是四条 32 bit 指令**。NVPTX 后端只按 IR 上的对齐承诺决定能不能发向量访存——因为 `ld.global.v4` 要求地址 16 字节对齐，不对齐是非法地址错误。这条 `align` 从哪来？在 Triton 里，来自第六篇 AxisInfo 算出的 divisibility：`LoadStoreOpToLLVM` 把 `getVectorSize` 的结果同时写进向量类型和对齐（第十篇）。`tl.multiple_of` 提示错误时生成的就是版本 A 的指令配上不对齐的地址——运行时报 `misaligned address`。
+**同样的 `<4 x float>` 向量类型，`align 16` 是一条 128 bit 指令，`align 4` 是四条 32 bit 指令**。NVPTX 后端只按 IR 上的对齐承诺决定能不能发向量访存——因为 `ld.global.v4` 要求地址 16 字节对齐，不对齐是非法地址错误。这条 `align` 从哪来？在 Triton 里，来自[《AxisInfo》](/triton-compiler-ttir-analysis-axisinfo.html) AxisInfo 算出的 divisibility：`LoadStoreOpToLLVM` 把 `getVectorSize` 的结果同时写进向量类型和对齐（[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)）。`tl.multiple_of` 提示错误时生成的就是版本 A 的指令配上不对齐的地址——运行时报 `misaligned address`。
 
 ### 5. shared memory 与 barrier
 
@@ -412,7 +412,7 @@ PTX：
 ```
 {% endraw %}
 
-地址空间 3 的全局变量变成 `.shared` 声明（"demoted"：它只被一个 kernel 用，后端把它从模块级降成 kernel 内部的声明），`llvm.nvvm.barrier0` 变成 `bar.sync 0`。Triton 的做法略有不同：它不为每个缓冲区声明一个变量，而是声明**一个** `global_smem` 数组（大小由 `AllocateSharedMemory` 算出，第十篇），所有缓冲区是它上面的偏移。
+地址空间 3 的全局变量变成 `.shared` 声明（"demoted"：它只被一个 kernel 用，后端把它从模块级降成 kernel 内部的声明），`llvm.nvvm.barrier0` 变成 `bar.sync 0`。Triton 的做法略有不同：它不为每个缓冲区声明一个变量，而是声明**一个** `global_smem` 数组（大小由 `AllocateSharedMemory` 算出，[《TritonGPU 到 LLVM 的下降》](/triton-compiler-lowering-tritongpu-to-llvm.html)），所有缓冲区是它上面的偏移。
 
 ### 6. 内联汇编穿过后端
 
@@ -446,6 +446,10 @@ PTX（Parallel Thread Execution）不是任何一代 GPU 的机器码。它是 N
 | 与源码接近 | 基本块、标签、谓词分支都保留 | 可读，是调试 Triton 编译器时最常看的一层 |
 
 Table: PTX 作为虚拟 ISA 的特征
+
+> [!NOTE] Java 经验参照：PTX 与字节码，前向兼容用的是同一招
+> 这张表的第四行对 Java 工程师很眼熟：一份与具体机器无关、带版本号的中间形式，分发出去，由目标机上的那一层翻译成真正的机器码。class 文件的 major version 和 PTX 的 `.version` 是同一个位置的东西，JVM 和 `ptxas` 都按它判断「这条指令我认不认」。老 class 能在新 JVM 上跑，老 PTX 能在新架构上由驱动 JIT——两边都靠这一招活过了硬件与运行时的换代。
+> 不成立的地方有两处。一是地位：字节码是 Java **唯一**的分发形式，PTX 只是 fatbin 里的后备——SASS 通常已经提前编好打进去，PTX 只在遇到没编过的架构时才被驱动翻译。二是反馈：JVM 的 JIT 边跑边采 profile，还能去优化重编；驱动对 PTX 的编译是一次性的 AOT 翻译，没有 profile，也就没有「跑热了会更快」这回事。
 
 `-mattr=+ptx80` 决定 `.version 8.0`，`-mcpu=sm_80` 决定 `.target sm_80`。两者共同限制后端能用哪些指令：`wgmma` 需要 `+ptx80` 与 `sm_90a`，`tcgen05` 需要 `+ptx86` 与 `sm_100a`。Triton 的 `get_features` 把 `ptx_version` 上限设为 LLVM 认识的最高值（3.8.0 是 `+ptx90`），`sm_arch_from_capability` 给 sm_90 及以后加 `a` 后缀（`sm_90a`：架构特有指令）。
 
@@ -509,7 +513,7 @@ n_spills /= 4;    // 字节 → 32 位字
 
 ### 4. 寄存器与 occupancy
 
-A100 每 SM 65536 个 32 位寄存器，每线程最多 255 个。一个 `num_warps=4` 的 Triton kernel 有 128 线程；若 `ptxas` 给每线程分了 128 个寄存器，一个 block 用 16384 个，一个 SM 最多驻留 4 个 block；若分了 255 个，只能驻留 2 个。驻留少意味着访存延迟没有足够的 warp 来掩盖——这是 GPU Kernel 系列第一篇讲的 occupancy 账，决定它的数字在 `ptxas` 手里。
+A100 每 SM 65536 个 32 位寄存器，每线程最多 255 个。一个 `num_warps=4` 的 Triton kernel 有 128 线程；若 `ptxas` 给每线程分了 128 个寄存器，一个 block 用 16384 个，一个 SM 最多驻留 4 个 block；若分了 255 个，只能驻留 2 个。驻留少意味着访存延迟没有足够的 warp 来掩盖——这是《GPU Kernel 工程》的《GPU 为什么这样设计》讲的 occupancy 账，决定它的数字在 `ptxas` 手里。
 
 ### 5. Triton 侧的杠杆
 
@@ -520,11 +524,15 @@ Triton 不能直接指定"用多少寄存器"，但有几个间接手段：
 | `num_warps` | 每线程持有的元素数 = 张量元素数 / (32 × num_warps)；翻倍 num_warps 就把每线程的活跃值减半 | 最直接；代价是 warp 间同步与 shared memory 用量 |
 | `maxnreg` 编译选项 | 生成 PTX 的 `.maxnreg N` 指令，`ptxas` 必须遵守，超出就 spill | 用于强行保住 occupancy |
 | `num_stages` | 流水线多一个 stage 就多一组在飞的 load 目标寄存器（或 shared memory 缓冲） | 减 stage 可以减寄存器 |
-| layout 选择 | `RemoveLayoutConversions` 决定哪些值以哪种 layout 活跃，`#mma` 累加器 `[128, 128]` f32 在 4 warp 上是每线程 128 个寄存器 | 第八篇 |
+| layout 选择 | `RemoveLayoutConversions` 决定哪些值以哪种 layout 活跃，`#mma` 累加器 `[128, 128]` f32 在 4 warp 上是每线程 128 个寄存器 | [《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html) |
 | `tl.dot` 累加器精度 | f32 累加器是 f16 的两倍寄存器 | 算法侧决定 |
 | `knobs.nvidia.disable_ptxas_opt` | `--opt-level 0` | 只用于调试，性能极差 |
 
 Table: Triton 侧控制寄存器压力的杠杆
+
+> [!NOTE] Java 经验参照：能拧的旋钮都在编译器之前
+> JVM 这边也没有「给我分配 12 个寄存器」这种开关：C2 的寄存器分配不对外，能影响最终机器码的只有间接手段——把方法改小到内联阈值以内、避开 megamorphic 调用点、少建短命对象让逃逸分析能消掉它们；`-XX:MaxInlineSize` 这类参数改的也是编译器的决策条件，不是它的输出。上面这张表是同一种东西：`num_warps`、`num_stages`、tile 大小、layout 决定的是「同时活着的值有多少」，`ptxas` 拿到 PTX 时能做的只剩把它们塞进 255 个寄存器。
+> 不成立的地方：JVM 可以在运行时发现编译得不好而去优化、重编一次；Triton 的 cubin 编出来就定死了，想换一个决定只能换一组参数重新编译（或者直接手改 IR 再喂回去，这是编译器开发者才会用的做法）。
 
 ## 八、AMDGPU 对照
 
@@ -573,7 +581,7 @@ vadd:                                   ; @vadd
 3. ③ 分支用 exec mask（`s_and_saveexec`）显式表达 SIMT 的分歧；
 4. ④ 编译器直接打印出 `NumVgprs: 8`、`ScratchSize: 0`（无 spill）、`Occupancy: 8`——在 NVIDIA 路径上要等 `ptxas` 才知道的数字，这里 `llc` 一步给出。
 
-Triton 的 AMD 后端（`third_party/amd`）因此比 NVIDIA 后端少一个阶段：`make_llir` → `make_amdgcn`（LLVM 直出 ISA 汇编）→ `make_hsaco`（用 LLVM 的 `lld` 链接成可加载的对象），没有 `ptxas` 这一级黑盒，寄存器压力在 LLVM 的 `-print-after-all` 里就能看到。第十一篇对照两个后端的完整流水线。
+Triton 的 AMD 后端（`third_party/amd`）因此比 NVIDIA 后端少一个阶段：`make_llir` → `make_amdgcn`（LLVM 直出 ISA 汇编）→ `make_hsaco`（用 LLVM 的 `lld` 链接成可加载的对象），没有 `ptxas` 这一级黑盒，寄存器压力在 LLVM 的 `-print-after-all` 里就能看到。[《缓存、运行时与 AMD 对照》](/triton-compiler-ptx-cubin-cache-runtime-and-amd.html)对照两个后端的完整流水线。
 
 ## 九、LLVM 在 Triton 里的位置
 
@@ -612,7 +620,7 @@ flowchart TB
 
 几个值得记住的细节：
 
-- **`.llir` dump 是优化之后的 LLVM IR**：`metadata`、`asm["llir"]` 里看到的是 `optimize_module(O3)` 跑完的结果，不是 `TritonGPUToLLVM` 刚吐出来的样子。要看优化前的，用 `MLIR_ENABLE_DUMP=1` 看 MLIR LLVM 方言那一步（第十三篇）。
+- **`.llir` dump 是优化之后的 LLVM IR**：`metadata`、`asm["llir"]` 里看到的是 `optimize_module(O3)` 跑完的结果，不是 `TritonGPUToLLVM` 刚吐出来的样子。要看优化前的，用 `MLIR_ENABLE_DUMP=1` 看 MLIR LLVM 方言那一步（[《编译器开发者的工作台》](/ml-compiler-developer-workbench.html)）。
 - **libdevice**：`tl.exp`、`tl.sin` 这些数学函数不是 PTX 指令，是 NVIDIA 以 LLVM bitcode 形式提供的库函数（`libdevice.10.bc`，随 Triton 打包）；`link_extern_libs` 把它链进来，之后 `-O3` 会把这些函数内联。
 - **两个版本的 LLVM 概念**：Triton 用的 LLVM 是 `triton-lang/llvm-project` fork 上的一个特定 commit（`cmake/llvm-info.json` 的 `llvm_hash`，本文写作时是 `5f07f818`，比 Homebrew 的 23.1.1 略新——它是 LLVM main 分支上的一个点），Triton 每隔几周跟一次上游。原因是 Triton 需要 MLIR 与 NVPTX 后端的最新特性（新架构的指令、新的 PTX 版本），等发布版跟不上。`cmake/llvm-info.json` 里每个平台一个 sha256，构建时下载预编译包。
 - **`triton-llvm-opt`**：`bin/triton-llvm-opt.cpp` 是 Triton 自带的一个 `opt`，注册了 `BreakStructPhiNodesPass` 等 Triton 自己的 LLVM pass，用来单独测试它们。
@@ -650,13 +658,13 @@ flowchart TB
 3. 一个 Triton kernel 编出来 `n_spills = 48`。列出三个不改算法、能减少 spill 的 Triton 侧改动，并说明各自通过什么机制起作用。
 
    <details markdown="1"><summary>答案</summary>
-   (1) 增大 `num_warps`（如 4 → 8）：每线程持有的张量元素减半，活跃寄存器减半——最直接。(2) 减小 `num_stages`（如 4 → 3）：软件流水每多一个 stage 就多一组等待中的 load 目标（寄存器或 shared memory）与相应的地址寄存器。(3) 减小 tile（`BLOCK_M` / `BLOCK_N`）：累加器 `[BLOCK_M, BLOCK_N]` f32 是最大的寄存器消耗者，在 4 warp 上 `[128, 128]` 是每线程 128 个寄存器。另外：设 `maxnreg` 不减少 spill，反而可能增加（它限制寄存器数以保 occupancy）；改 layout 提示（如避免一次 `convert_layout` 让两份 layout 同时活跃）是第八篇的手段。
+   (1) 增大 `num_warps`（如 4 → 8）：每线程持有的张量元素减半，活跃寄存器减半——最直接。(2) 减小 `num_stages`（如 4 → 3）：软件流水每多一个 stage 就多一组等待中的 load 目标（寄存器或 shared memory）与相应的地址寄存器。(3) 减小 tile（`BLOCK_M` / `BLOCK_N`）：累加器 `[BLOCK_M, BLOCK_N]` f32 是最大的寄存器消耗者，在 4 warp 上 `[128, 128]` 是每线程 128 个寄存器。另外：设 `maxnreg` 不减少 spill，反而可能增加（它限制寄存器数以保 occupancy）；改 layout 提示（如避免一次 `convert_layout` 让两份 layout 同时活跃）是[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的手段。
    </details>
 
 4. 为什么 Triton 的 `mma.sync` 用内联汇编而不是 LLVM 的 `llvm.nvvm.mma.*` intrinsic？这个选择让 LLVM 失去了什么能力，Triton 在哪一层把它补回来？
 
    <details markdown="1"><summary>答案</summary>
-   intrinsic 覆盖不全（新指令、新 dtype 组合、`wgmma` 的各种形状和描述符形式往往先出现在 PTX 里，LLVM 的 intrinsic 定义滞后）且 Triton 需要精确控制指令文本与操作数绑定；内联汇编让 Triton 不依赖 LLVM 版本就能用新指令。失去的是 LLVM 对这些指令的语义理解：不能调度（`sideeffect` 禁止重排）、不知道延迟、不能与相邻指令合并或消除。Triton 在 TTGIR 层补回调度：`ReorderInstructions`、Pipeline 的 stage 分配、`Prefetch` 都是在 LLVM 看不见 `mma` 语义的前提下，由 Triton 自己在更高一层安排指令顺序（第九篇）。
+   intrinsic 覆盖不全（新指令、新 dtype 组合、`wgmma` 的各种形状和描述符形式往往先出现在 PTX 里，LLVM 的 intrinsic 定义滞后）且 Triton 需要精确控制指令文本与操作数绑定；内联汇编让 Triton 不依赖 LLVM 版本就能用新指令。失去的是 LLVM 对这些指令的语义理解：不能调度（`sideeffect` 禁止重排）、不知道延迟、不能与相邻指令合并或消除。Triton 在 TTGIR 层补回调度：`ReorderInstructions`、Pipeline 的 stage 分配、`Prefetch` 都是在 LLVM 看不见 `mma` 语义的前提下，由 Triton 自己在更高一层安排指令顺序（[《软件流水》](/triton-compiler-software-pipelining-hopper-blackwell-gluon.html)）。
    </details>
 
 5. 同一份 PTX 文本，用 `--gpu-name=sm_80` 和 `--gpu-name=sm_90a` 各编一次，寄存器用量可能不同吗？为什么 Triton 的编译缓存 key 里要包含 `ptxas` 的版本（`backend.hash()` 返回 `f'{ptxas_version}-{arch}'`）？
@@ -673,4 +681,4 @@ LLVM 有一层 IR、一套 pass 基础设施，服务于所有前端。MLIR 把�
 
 [^q1]: 在 Triton 流水线的最后一个阶段 `make_cubin`：`make_llir` 产出 LLVM IR（`-O3` 优化过，仍是 SSA），`make_ptx` 用 LLVM 的 `translate_to_asm` 产出 PTX（仍是虚拟寄存器），`make_cubin` 把 PTX 写进临时文件、以 `ptxas -lineinfo -v --regAllocOptLevel=2 --gpu-name=sm_XX` 起子进程，读回 cubin。所以 `.llir` 与 `.ptx` 两层 dump 里都看不到寄存器数量；`n_regs` / `n_spills` 甚至不是从 `ptxas` 的日志解析的，而是 kernel 加载时 `driver.c` 用 `cuFuncGetAttribute(CU_FUNC_ATTRIBUTE_NUM_REGS / LOCAL_SIZE_BYTES)` 查出来的。详见[第七章 §2、§3](#七ptxas第二个编译器)与[第九章](#九llvm-在-triton-里的位置)。
 
-[^q2]: 不能直接指定，能间接影响。直接手段只有一个：编译选项 `maxnreg` 生成 PTX 的 `.maxnreg N` 指令，`ptxas` 必须遵守（超出就 spill）——它是用来保 occupancy 的，不是减 spill 的。减少寄存器压力的手段都在 `ptxas` 之前的层：`num_warps` 翻倍让每线程持有的张量元素减半；`num_stages` 减一让在飞的 load 目标少一组；tile 变小让累加器（`[BLOCK_M, BLOCK_N]` f32 在 4 warp 上是每线程 `BLOCK_M × BLOCK_N / 128` 个寄存器）变小；layout 的选择（第八篇 `RemoveLayoutConversions`）决定有多少个值以多少种 layout 同时活跃。`ptxas` 拿到的 PTX 已经固定了活跃值的数量，它只决定怎么把它们塞进 255 个寄存器。详见[第七章 §4、§5](#七ptxas第二个编译器)。
+[^q2]: 不能直接指定，能间接影响。直接手段只有一个：编译选项 `maxnreg` 生成 PTX 的 `.maxnreg N` 指令，`ptxas` 必须遵守（超出就 spill）——它是用来保 occupancy 的，不是减 spill 的。减少寄存器压力的手段都在 `ptxas` 之前的层：`num_warps` 翻倍让每线程持有的张量元素减半；`num_stages` 减一让在飞的 load 目标少一组；tile 变小让累加器（`[BLOCK_M, BLOCK_N]` f32 在 4 warp 上是每线程 `BLOCK_M × BLOCK_N / 128` 个寄存器）变小；layout 的选择（[《layout 优化与 Tensor Core 路径》](/triton-compiler-layout-optimization-and-tensor-cores.html)的 `RemoveLayoutConversions`）决定有多少个值以多少种 layout 同时活跃。`ptxas` 拿到的 PTX 已经固定了活跃值的数量，它只决定怎么把它们塞进 255 个寄存器。详见[第七章 §4、§5](#七ptxas第二个编译器)。
