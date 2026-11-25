@@ -77,6 +77,42 @@ flowchart LR
 3. **`-100` 一个约定串起三个库**：tokenizers 的 assistant mask、trl 的 `build_labels`、transformers 的 `ForCausalLMLoss`。
 4. **一个上下文省一份模型**：peft 的 `disable_adapter()` 让 DPO 与 GRPO 不用再加载参考模型。
 
+
+五个库之间的依赖是单向的：上层只 import 下层，最底下一层不是 Python。读源码时追到这一层就停。
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：五个库的依赖分层与各自落到的内核
+flowchart TB
+    subgraph UP["训练与微调"]
+        direction LR
+        TRL["<b>trl</b><br/>SFTTrainer · DPOTrainer · GRPOTrainer"]
+        PEFT["<b>peft</b><br/>get_peft_model · lora.Linear"]
+    end
+    TF["<b>transformers</b><br/>from_pretrained · forward · generate · Trainer"]
+    subgraph DATA["数据"]
+        direction LR
+        TOK["<b>tokenizers</b><br/>Python 绑定 · PreTrainedTokenizerFast 的后端"]
+        DS["<b>datasets</b><br/>load_dataset · Dataset · map"]
+    end
+    subgraph CORE["内核（不是 Python）"]
+        direction LR
+        TORCH["PyTorch 的 ATen / CUDA kernel"]
+        RUST["Rust：tokenizers 流水线 · safetensors"]
+        ARROW["Arrow C++：pyarrow 的 memory_map"]
+    end
+    TRL --> TF
+    TRL --> DS
+    TRL -. "传 peft_config 时" .-> PEFT
+    PEFT --> TF
+    TF --> TOK
+    UP ~~~ TF
+    TF --> TORCH
+    TF -- "safe_open" --> RUST
+    TOK --> RUST
+    DS --> ARROW
+```
+
 ## 章节结构与分章导读
 
 ### 1. transformers 模型侧：from_pretrained 怎么把三个文件变成 nn.Module，forward 怎么走到 loss

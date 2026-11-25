@@ -175,6 +175,27 @@ Table: 加载时三类对不上的键
 
 Table: 结构图方框 → modeling_llama.py 里的类
 
+把 Qwen2.5-0.5B 的维度代进去（hidden 896、14 个 q 头、2 个 kv 头、head_dim 64、MLP 中间维 4864、词表 151936），一次前向里张量的形状这样变——24 层进出都是 `[B, T, 896]`，只有 attention 内部拆头、MLP 内部变宽：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：Qwen2.5-0.5B 一次前向的张量形状
+flowchart TB
+    I["input_ids #91;B, T#93;"] --> EM["<b>embed_tokens</b><br/>#91;B, T, 896#93;"]
+    EM --> L
+    subgraph L["LlamaDecoderLayer × 24"]
+        direction TB
+        N1["input_layernorm：#91;B, T, 896#93;"]
+        Q["<b>q / k / v_proj → view → transpose</b><br/>• q：#91;B, 14, T, 64#93;<br/>• k、v：#91;B, 2, T, 64#93;（RoPE 只作用于 q、k）"]
+        AT["<b>attention → o_proj</b><br/>• attention 输出 #91;B, T, 14, 64#93;<br/>• reshape + o_proj → #91;B, T, 896#93;，加残差"]
+        ML["<b>post_attention_layernorm → MLP</b><br/>• gate_proj、up_proj：#91;B, T, 4864#93;<br/>• down_proj：#91;B, T, 896#93;，加残差"]
+        N1 --> Q --> AT --> ML
+    end
+    L --> NO["norm：#91;B, T, 896#93;"]
+    NO --> H["<b>lm_head</b><br/>• logits #91;B, T, 151936#93;<br/>• logits_to_keep=1 时 #91;B, 1, 151936#93;"]
+    H --> LO["ForCausalLMLoss → 一个标量"]
+```
+
 ### 2. RMSNorm：三行
 
 ```python title="Qwen2RMSNorm.forward"
@@ -314,6 +335,37 @@ def causal_mask_function(batch_idx, head_idx, q_idx, kv_idx) -> bool:
 
 传了 `attention_mask`（padding）时与 `padding_mask_function` 用 `and_masks` 合成；然后按 `_attn_implementation` 查 `ALL_MASK_ATTENTION_FUNCTIONS`——eager 要一个加法用的 `[B, 1, T, T]` 浮点张量（0 与最小值），sdpa 要布尔张量或者干脆 `None`（没有 padding 时 `allow_is_causal_skip` 让它返回 `None`，交给 SDPA 的 `is_causal=True`，kernel 自己算三角，省掉整个 mask 张量），flash 只要每个序列的长度。**同一个布尔函数，三种物化方式**——这也是 5.x 的重构：4.x 每个模型自己写 `_update_causal_mask`。
 
+
+attention 函数与 mask 的形状由同一个键决定。换 `attn_implementation`，两边一起换，模型代码不动：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：_attn_implementation 同时决定 attention 函数与 mask 的物化方式
+flowchart TB
+    K["<b>config._attn_implementation</b><br/>• ALL_ATTENTION_FUNCTIONS 按它选 attention 函数<br/>• create_causal_mask 按它把 kv_idx #60;= q_idx 物化成 mask"]
+    subgraph EG["eager：不在表里，是 get_interface 的默认值"]
+        direction TB
+        E1["<b>eager_attention_forward</b><br/>• repeat_kv：2 个 kv 头扩成 14 个<br/>• 物化 T × T 权重，fp32 softmax"]
+        EM["<b>mask</b><br/>#91;B, 1, T, T#93; 浮点，0 与 dtype 最小值"]
+        E1 ~~~ EM
+    end
+    subgraph SD["sdpa：不传时选它"]
+        direction TB
+        S1["<b>sdpa_attention_forward</b><br/>• 一次 scaled_dot_product_attention<br/>• enable_gqa=True，不物化 T × T"]
+        SM["<b>mask</b><br/>布尔张量；没有 padding 时为 None，交给 is_causal=True"]
+        S1 ~~~ SM
+    end
+    subgraph FA["flash_attention_2：显式传"]
+        direction TB
+        F1["<b>flash_attention_forward</b>"]
+        FM["<b>mask</b><br/>只给每个序列的长度"]
+        F1 ~~~ FM
+    end
+    K --> EG
+    K --> SD
+    K --> FA
+```
+
 ## 六、KV cache
 
 ### 1. `DynamicCache` 与一个 `torch.cat`
@@ -339,6 +391,30 @@ position_ids = torch.arange(inputs_embeds.shape[1], device=...) + past_seen_toke
 ```
 
 decode 第 6 个 token 时 `position_ids = [5]`——RoPE 才知道它在第 5 位。这就是为什么手写 decode 循环时忘了传 `past_key_values` 会得到乱码：不是 attention 看不见历史（那是另一个错），而是每个新 token 都被当成第 0 位旋转。
+
+
+配套脚本那一次 prefill 加一次 decode，cache 与形状的变化是：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：prefill 5 个 token 与 decode 1 个 token 时 DynamicCache 和形状的变化
+flowchart TB
+    subgraph PF["prefill：input_ids #91;1, 5#93;，past_key_values 为空"]
+        direction TB
+        P1["past_seen_tokens = 0 → position_ids #91;0, 1, 2, 3, 4#93;"]
+        P2["每层 DynamicLayer.update：keys 由空变成 #91;1, 2, 5, 64#93;"]
+        P3["get_seq_length() = 5"]
+        P1 --> P2 --> P3
+    end
+    subgraph DC["decode：input_ids #91;1, 1#93;，传回同一个 past_key_values"]
+        direction TB
+        D1["past_seen_tokens = 5 → position_ids #91;5#93;"]
+        D2["q 只有 1 个位置；update 后 keys #91;1, 2, 6, 64#93;，attention 看全部 6 个"]
+        D3["get_seq_length() = 6，logits #91;1, 1, 151936#93;"]
+        D1 --> D2 --> D3
+    end
+    PF -- "cache 留在 past_key_values 里" --> DC
+```
 
 ### 3. 别的 cache
 

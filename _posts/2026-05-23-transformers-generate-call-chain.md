@@ -77,9 +77,43 @@ Table: 本文的章节安排
 
 `generation_config.update(**kwargs)` 返回它**不认识**的键，这些成为 `model_kwargs`，原样传给 `forward`——`attention_mask`、`pixel_values`、`inputs_embeds` 都是这样到模型里的。`_validate_model_kwargs` 会拿 `forward` 的签名检查，拼错的参数名（`temperture`）在这里报 `ValueError` 而不是被静默忽略——4.x 早期它是静默的，很多"为什么 temperature 没生效"的 issue 之后才加了校验。
 
+
+传给 `generate` 的一个 kwargs 只会走两条路之一：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：generate 的 kwargs 两条去向
+flowchart TB
+    KW["generate 收到的全部 kwargs<br/>max_new_tokens、temperature、attention_mask…"]
+    GC["self.generation_config<br/>from_pretrained 收尾时读的 generation_config.json"]
+    U{"generation_config.update(**kwargs)<br/>是 GenerationConfig 的字段吗？"}
+    KW --> U
+    GC --> U
+    U -- "是：覆盖同名字段" --> G["<b>本次调用的 GenerationConfig</b><br/>• 传了的字段用 kwargs<br/>• 没传的用仓库值，仓库也没有就用全局默认"]
+    U -- "不是：作为返回值交出来" --> MK["model_kwargs<br/>attention_mask、pixel_values、inputs_embeds…"]
+    MK --> V{"_validate_model_kwargs<br/>forward 的签名里有吗？"}
+    V -- "有" --> FW["原样传给 forward"]
+    V -- "没有，例如拼错的 temperture" --> ER["ValueError"]
+```
+
 ### 3. 模式
 
 `generation_config.get_generation_mode()`：`num_beams` 为 1 时，`do_sample=True` → `SAMPLE`，否则 `GREEDY_SEARCH`（`penalty_alpha` 与 `top_k` 同时设了 → `CONTRASTIVE_SEARCH`）；`num_beams > 1` → `BEAM_SEARCH` / `BEAM_SAMPLE` / `GROUP_BEAM_SEARCH`；传了 `assistant_model` → `ASSISTED_GENERATION`。5.x 里 greedy 与 sample 是同一个 `_sample` 函数（`do_sample` 只在选 token 那一行分叉），所以配套脚本打印 `mode GenerationMode.SAMPLE`，greedy 时也走同一段循环。
+
+
+```mermaid
+%% 图：get_generation_mode 按配置字段选解码模式
+flowchart TB
+    B{"num_beams > 1？"}
+    B -- "是" --> BM["BEAM_SEARCH / BEAM_SAMPLE / GROUP_BEAM_SEARCH<br/>→ _beam_search"]
+    B -- "否" --> A{"传了 assistant_model？"}
+    A -- "是" --> AS["ASSISTED_GENERATION<br/>→ _assisted_decoding"]
+    A -- "否" --> C{"do_sample？"}
+    C -- "True" --> S["SAMPLE → _sample，选 token 用 multinomial"]
+    C -- "False" --> D{"penalty_alpha 与 top_k 都设了？"}
+    D -- "是" --> CS["CONTRASTIVE_SEARCH<br/>5.x 已移到 Hub 的 custom_generate"]
+    D -- "否" --> G["GREEDY_SEARCH → 同一个 _sample，选 token 用 argmax"]
+```
 
 ## 三、变换 logits 的一串函数
 
@@ -152,6 +186,22 @@ class RepetitionPenaltyLogitsProcessor(LogitsProcessor):
 （5.17 的实现多了 3 维 `scores` 与 packed 序列的分支，二维路径就是这三行。）`penalty > 1` 时出现过的 token 分数一律下降；正负分要分开处理，因为"变小"对正数是除、对负数是乘——这是 CTRL 论文里的原始定义，也是它被批评"对 logit 的尺度敏感"的原因。
 
 配套脚本用 `output_scores=True` 把每一步 processor 之后的 `scores` 拿出来：第一步 151936 个分数里**只有 1 个是有限值**——`temperature=0.7` 之后第一名的概率已经超过 0.9，top-p 把其他全删了；`multinomial` 在这一步等于 argmax。采样与 greedy 的前两个 token 因此相同（`' mat.'`），之后才分叉。
+
+
+把这一步的 151936 个分数逐个处理器跟下去，有限值的个数是这样减到 1 的：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%% 图：配套脚本第一步的分数经过处理器串时剩下的有限值个数
+flowchart TB
+    R["<b>next_token_logits #91;1, 151936#93;</b><br/>151936 个有限值"]
+    P1["<b>RepetitionPenaltyLogitsProcessor(1.1)</b><br/>出现过的 token 分数变小，个数不变"]
+    P2["<b>TemperatureLogitsWarper(0.7)</b><br/>全部除以 0.7，第一名的概率超过 0.9"]
+    P3["<b>TopKLogitsWarper(50)</b><br/>比第 50 名小的全部置成负无穷，剩 50 个"]
+    P4["<b>TopPLogitsWarper(0.9)</b><br/>升序累计到 0.1 的全删，剩 1 个"]
+    S["<b>softmax → multinomial</b><br/>只能抽到这一个，等于 argmax"]
+    R --> P1 --> P2 --> P3 --> P4 --> S
+```
 
 ## 四、什么时候停
 

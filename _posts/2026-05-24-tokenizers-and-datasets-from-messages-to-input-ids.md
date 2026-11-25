@@ -107,6 +107,28 @@ BPE 的合并**只在正则切出的一段内部**发生——这是为什么 `c
 2. **`__call__` → `_batch_encode_plus`**：把字符串或字符串列表整理成 batch，设好截断 / 填充，一次 `self._tokenizer.encode_batch(...)` 进 Rust——Rust 内部用 rayon 多线程，这是它比纯 Python 快两个数量级的原因。返回的 `Encoding` 对象带 `ids`、`tokens`、`offsets`（每个 token 在原文的字符区间，配套脚本打印 `(0,3), (3,7)...`）、`attention_mask`、`special_tokens_mask`。
 3. **`BatchEncoding`**：一个 dict 子类，`return_tensors="pt"` 时把列表转成张量，`.to(device)` 一起搬，还保留 `word_ids()` / `char_to_token()` 这类对齐查询——NER、抽取式 QA 靠它们。
 
+
+三个数是层层包含的关系，画在 token id 轴上：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：Qwen2.5 的三个词表大小在 token id 轴上的位置
+flowchart TB
+    subgraph EMB["config.vocab_size = 151936：embedding 表的行数"]
+        direction TB
+        subgraph LEN["len(tok) = 151665：tokenizer 能产出的 id"]
+            direction TB
+            BPE["<b>id 0 – 151642</b><br/>BPE 词表，tok.vocab_size = 151643"]
+            ADD["<b>id 151643 – 151664</b><br/>22 个 added_tokens，从 #60;|endoftext|#62; 开始，绕过 BPE 直接匹配"]
+            BPE ~~~ ADD
+        end
+        PAD["<b>id 151665 – 151935</b><br/>271 行没有对应的 token，是对齐留的余量"]
+        LEN ~~~ PAD
+    end
+```
+
+所以加几个新的特殊 token 只是在 151665 之后继续编号，不超过 151936 就不用 `resize_token_embeddings`。
+
 ### 2. padding 与 `attention_mask`
 
 ```text title="padding=True 时的 input_ids 与 attention_mask"
@@ -184,9 +206,51 @@ ds2 = ds.map(lambda ex: {"n_tok": len(tok.apply_chat_template(ex["messages"], to
 
 `cache-a89dbbef0b763772.arrow` 里的十六进制是 **fingerprint**（`fingerprint.py`）：`update_fingerprint(old_fingerprint, transform, transform_args)` 把上一个 dataset 的 fingerprint、`"map"` 这个变换名、以及全部参数（包括你传的函数）一起哈希。函数怎么哈希？`dill` 把函数对象序列化（字节码 + 闭包里引用的对象 + 默认参数），再 hash 字节串——所以**同一个 lambda 写两遍能命中缓存**（配套脚本第二次相同的 `map` 只花 0.7 秒，是校验与打开文件的开销），改了函数体里任何一个字符或闭包引用的 tokenizer 就是新 fingerprint、新文件。哈希失败（函数引用了不可序列化的对象）时 datasets 会打警告并用随机 fingerprint——这就是"为什么 `map` 每次都重跑"最常见的原因，修法是 `new_fingerprint=` 手动指定，或把不可序列化的东西移出函数。`@fingerprint_transform(inplace=False)` 装饰器贴在 `map`、`filter`、`select`、`shuffle`、`sort`、`rename_column` 等每一个返回新 dataset 的方法上——**每个 `Dataset` 对象都有唯一的 fingerprint，它是这个对象的"内容地址"**。
 
+
+一次 `map` 是重跑还是读缓存，判断顺序是：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：map 用 fingerprint 决定重跑还是读缓存
+flowchart TB
+    IN["<b>ds.map(fn, ...) 的哈希输入</b><br/>• 上游 dataset 的 fingerprint<br/>• 变换名 map<br/>• 全部参数，fn 经 dill 序列化"]
+    H{"fn 能被 dill 序列化吗？"}
+    FP["update_fingerprint 得到新 fingerprint<br/>缓存文件名 cache-‹fingerprint›.arrow"]
+    RND["打警告，用随机 fingerprint：永远不命中"]
+    EX{"文件已存在且 load_from_cache_file？"}
+    HIT["Dataset.from_file 直接打开<br/>配套脚本 0.7 秒"]
+    RUN["_map_single：取批 → fn → ArrowWriter 写新文件<br/>配套脚本 9500 条 4.3 秒"]
+    IN --> H
+    H -- "能" --> FP --> EX
+    H -- "不能" --> RND --> RUN
+    EX -- "是" --> HIT
+    EX -- "否" --> RUN
+```
+
 ### 3. `select` / `shuffle` 不拷数据
 
 `ds.shuffle(seed=0)` 只生成一张 9500 行的**行号表**放进 `_indices`（配套脚本：`MemoryMappedTable`，也在磁盘上），`_data` 一个字节没动；`select`、`train_test_split`、`shard` 同理。取第 $$i$$ 条时先查 `_indices[i]` 得到真实行号再去 `_data` 取——多一次间接寻址，代价是随机访问 Arrow 表比顺序扫慢，`shuffle` 之后的 `map` 会明显变慢，`ds.flatten_indices()` 把间接层物化掉。
+
+
+`_indices` 是 `ds[i]` 与磁盘上第几行之间的一层间接：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：Dataset 的三个字段与 ds[i] 的取数路径
+flowchart TB
+    subgraph DSO["Dataset 对象"]
+        direction LR
+        D1["_data：MemoryMappedTable，.arrow 文件的 mmap"]
+        D2["_indices：行号表，shuffle / select 之后才有"]
+        D3["_format_type：python / torch / numpy"]
+    end
+    SH["ds.shuffle(seed=0)"] -- "返回新对象：只多一张 _indices，_data 不动" --> DSO
+    DSO -- "ds#91;i#93;" --> X{"_indices 存在？"}
+    X -- "否" --> R1["query_table 取 _data 的第 i 行（顺序读）"]
+    X -- "是" --> R2["先查 _indices#91;i#93; 得真实行号 j，再取 _data 的第 j 行（随机读）"]
+    R1 --> FM["formatter 按 _format_type：Arrow 子表 → dict 或 Tensor"]
+    R2 --> FM
+```
 
 ## 七、取一条、组一批
 

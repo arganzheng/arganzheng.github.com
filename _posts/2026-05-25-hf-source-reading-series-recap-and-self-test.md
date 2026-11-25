@@ -111,6 +111,39 @@ tokenizers 的 assistant mask（`{% raw %}{% generation %}{% endraw %}`）→ tr
 
 Table: 贯穿全系列的概念及其关系
 
+同样这些概念按时间排开：一次 LoRA SFT 从启动到存盘，有的只在训练前做一次，有的每一步都做：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 270}}}%%
+%% 图：一次 LoRA SFT 里各库出场的时刻
+flowchart LR
+    subgraph PRE["训练开始前，只做一次"]
+        direction TB
+        A1["<b>datasets</b>：load_dataset → .arrow 缓存，Dataset 是 mmap 视图"]
+        A2["<b>transformers</b>：from_pretrained → meta 骨架 → mmap 按名字填权重"]
+        A3["<b>peft</b>：get_peft_model → inject_adapter，168 个 nn.Linear 换成 lora.Linear"]
+        A4["<b>trl + tokenizers + datasets</b>：_prepare_dataset → apply_chat_template → map(build_labels)，-100 写进 labels 列"]
+        A1 --> A2 --> A3 --> A4
+    end
+    subgraph STEP["每个训练步"]
+        direction TB
+        B1["DataLoader worker：__getitem__ → query_table → formatter"]
+        B2["<b>collator</b><br/>DataCollatorForLanguageModeling<br/>pad，labels 补 -100"]
+        B3["model(**inputs)：每个 lora.Linear 多一项 lora_B(lora_A(x)) · scaling"]
+        B4["ForCausalLMLoss：shift，ignore_index=-100，num_items_in_batch"]
+        B5["反向 + optimizer.step：只更新 lora_A、lora_B"]
+        B1 --> B2 --> B3 --> B4 --> B5
+        B5 -- "下一步" --> B1
+    end
+    subgraph POST["训练结束后"]
+        direction TB
+        C1["save_pretrained：只存键里带 lora_ 的参数 + adapter_config.json"]
+        C2["推理：generate 的 _prefill + _sample 循环，或先 merge_and_unload"]
+        C1 --> C2
+    end
+    PRE --> STEP --> POST
+```
+
 ## 四、常见误区
 
 | 误区 | 为什么错 | 正确说法 |

@@ -112,6 +112,26 @@ self._mark_only_adapters_as_trainable(model)        # 除了名字带 "lora_" �
 
 `_check_target_module_exists` 对每个模块名做上一节的匹配；匹配上的交给 `LoraModel._create_and_replace`：按目标层类型（`nn.Linear` / `nn.Embedding` / `nn.Conv2d` / 量化的 `bnb.Linear4bit` 各有对应的 LoRA 层）新建一个 `lora.Linear(target, adapter_name, r, lora_alpha, ...)`，然后 `setattr(parent, target_name, new_module)`——用 Python 的属性赋值把 `self_attn.q_proj` 换掉，`Qwen2Attention.forward` 里 `self.q_proj(hidden_states)` 那一行代码不用改。24 层 × 7 个 = 168 个替换。最后 `_mark_only_adapters_as_trainable` 把基座全部冻结：配套脚本 `trainable 8,798,208 of 502,830,976 (1.75%)`——与《后训练》SFT 篇那张表的 8.8M 对上。
 
+
+替换完之后，`peft_model.base_model.model.model.layers[0].self_attn.q_proj` 这条路径上的每一级是：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：get_peft_model 之后从 PeftModel 到一个 q_proj 的对象路径
+flowchart TB
+    PM["<b>PeftModel</b><br/>get_peft_model 的返回值"]
+    LM["<b>LoraModel</b><br/>tuners/lora/model.py"]
+    QM["<b>Qwen2ForCausalLM</b><br/>原来那个对象，被原地修改"]
+    AT["Qwen2Attention：forward 一字未改，仍调 self.q_proj(x)"]
+    LL["<b>lora.Linear</b><br/>• base_layer：原 nn.Linear(896, 896)，冻结<br/>• lora_A#91;default#93;：Linear(896, 16)，kaiming<br/>• lora_B#91;default#93;：Linear(16, 896)，全零<br/>• scaling#91;default#93; = 32 / 16 = 2.0"]
+    LH["lm_head：仍是 nn.Linear，all-linear 把它排除"]
+    PM -- ".base_model" --> LM
+    LM -- ".model" --> QM
+    QM -- ".model.layers#91;0#93;.self_attn" --> AT
+    AT -- ".q_proj，已被 setattr 换掉" --> LL
+    QM -- ".lm_head" --> LH
+```
+
 ## 三、peft：换成什么
 
 > 本节读 `lora.Linear` 的实现。公式的推导与四本账、选参的对照实验、合并与多 adapter 的工程见[《LoRA 专题》](/lora-for-sft-from-low-rank-hypothesis-to-serving.html)。
@@ -278,6 +298,29 @@ def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=N
 
 《后训练》DPO 篇算显存账时说"LoRA 下参考模型免费"，来源就是第二条。
 
+
+把三种来源和策略模型的那次前向放在一起，一个 batch 走到 `dpo_loss` 的路是：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+%% 图：DPOTrainer 一个 batch 的策略 log p 与参考 log p 各从哪来
+flowchart TB
+    B["一个 batch：prompt、chosen、rejected"]
+    CF["concatenated_forward：chosen、rejected 拼成 2B 条前向一次 → logπ_c、logπ_r"]
+    P{"precompute_ref_log_probs？"}
+    PC["训练前已对全部数据算好、存成两列，直接读"]
+    M{"ref_model 为 None 且模型是 peft？"}
+    NR["null_ref_context → disable_adapter()<br/>同一个模型关掉 LoRA 再前向，零额外显存"]
+    RM["ref_model 前向一次<br/>显存多一份基座"]
+    L["dpo_loss：-logsigmoid(β · ((logπ_c − logπref_c) − (logπ_r − logπref_r)))"]
+    B --> CF --> L
+    B --> P
+    P -- "是" --> PC --> L
+    P -- "否" --> M
+    M -- "是" --> NR --> L
+    M -- "否" --> RM --> L
+```
+
 ### 3. `dpo_loss`
 
 ```python title="DPOTrainer.dpo_loss"
@@ -322,6 +365,23 @@ if self.scale_rewards != "none":
 ```
 
 `rewards.view(-1, G)` 把同一 prompt 的 $$G$$ 条排成一行，减行均值、除行标准差——《[算法工程师的数学（07）：导数、梯度与链式法则——softmax 的梯度与策略梯度](/derivatives-gradients-chain-rule-and-policy-gradient.html)》的 $$(R - \text{mean}) / \text{std}$$。`scale_rewards="batch"` 换成整个 batch 的标准差（<span class="inline-tip" data-tip="GRPO Done Right，去掉按长度、按组标准差归一的 GRPO 修正版">Dr. GRPO</span> 建议不除、`"none"`），`+1e-4` 防止一组全对或全错时除零——那种组的优势全为 0，对梯度没贡献，这就是 DAPO 的 dynamic sampling 要把它们过滤掉的原因。
+
+
+从采样到优势，张量的形状是这样变的（$$B$$ 个 prompt，每个采 $$G$$ 条）：
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 320}}}%%
+%% 图：GRPO 一步里 rewards 按组变成 advantages 的形状变化
+flowchart TB
+    P["B 个 prompt"]
+    GEN["<b>_generate_and_score_completions</b><br/>• 每个 prompt 采 G 条，vLLM 或 generate<br/>• 共 B·G 条 completion"]
+    RW["reward_funcs 按 reward_weights 加权 → rewards #91;B·G#93;"]
+    V["rewards.view(-1, G) → #91;B, G#93;：同一 prompt 的 G 条排成一行"]
+    MS["每行 nanmean、nanstd → repeat_interleave(G) → 回到 #91;B·G#93;"]
+    AD["advantages = (rewards − 组均值) / (组标准差 + 1e-4)<br/>一行全对或全错时这一行全为 0"]
+    LS["<b>_compute_loss</b><br/>• 每条的优势广播到它的每个 completion token<br/>• −min(coef_1·A, coef_2·A)，beta ≠ 0 时加 β·KL<br/>• 按 loss_type 用 mask 归一"]
+    P --> GEN --> RW --> V --> MS --> AD --> LS
+```
 
 ### 3. `_compute_loss`
 
