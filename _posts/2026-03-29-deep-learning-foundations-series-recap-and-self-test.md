@@ -9,7 +9,7 @@ date: 2026-03-29 20:00:00
 updated: 2026-11-23
 ---
 
-十篇正文回答了一个问题：**一个几十层甚至上百层的网络，为什么能训、什么时候不能训、训不动的时候该看哪个数字**。第一篇用三起两落的时间线串起阈值单元、感知机、反向传播、CNN、Embedding、RNN、attention 与 Transformer，也用 XOR 区分“能表示”与“能学会”；第二篇把「好」写成一个可求导的数，第三至第七篇是训练动力学——反向传播写出梯度，激活函数改变梯度，初始化 / 归一化 / 残差稳定深层，优化器定步长，正则化讨论泛化；后三篇分别讲视觉、表示与序列结构。十篇合起来，是 Transformer 组件的来历，也是读预训练技术报告中训练配方的公式出处。
+十篇正文回答了一个问题：**一个几十层甚至上百层的网络，为什么能训、什么时候不能训、训不动的时候该看哪个数字**。[《深度模型演进史》](/evolution-of-deep-models-from-perceptron-to-transformer.html)用三起两落的时间线串起阈值单元、感知机、反向传播、CNN、Embedding、RNN、attention 与 Transformer，也用 XOR 区分“能表示”与“能学会”；[《损失函数》](/loss-functions-from-mse-to-dpo.html)把「好」写成一个可求导的数，第三至第七篇是训练动力学——反向传播写出梯度，激活函数改变梯度，初始化 / 归一化 / 残差稳定深层，优化器定步长，正则化讨论泛化；后三篇分别讲视觉、表示与序列结构。十篇合起来，是 Transformer 组件的来历，也是读预训练技术报告中训练配方的公式出处。
 
 回看这段历史，可以记住三件事：单个线性边界无法表达 XOR；多层网络的表达能力要靠反向传播、初始化、数据与算力才能变成可训练系统；卷积、词向量、循环与 attention 是交叉发展的分支，并非一条必然的进步直线。演进史的复习题：①感知机与 ADALINE 的更新分别看什么误差？②万能逼近定理为什么不能保证训练成功？③AlexNet 的 top-5 结果与 Transformer 的 BLEU / 训练成本分别说明了什么？
 
@@ -43,7 +43,7 @@ flowchart TB
 
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**深网络训练里的每个现象都能推到公式、代到数字、用几十行代码复现，然后在 LLM 里认出它的形态**。主线是一条连乘链：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积，因子偏离 1 就指数放大或消失——第三篇写出这串乘积，第四篇展示激活导数如何改变它，第五篇用初始化 / 归一化 / 残差稳定深层，第六篇定步长，第七篇讨论泛化；第八、十篇在卷积与循环两条线上再看同一条链，第九篇补上离散 token 如何变成上下文表示。十篇用配套脚本与 NumPy 小框架，实验可在笔记本 CPU 上复现。
+系列的一句话主张是：**深网络训练里的每个现象都能推到公式、代到数字、用几十行代码复现，然后在 LLM 里认出它的形态**。主线是一条连乘链：前向的方差每层乘一个因子、反向的梯度是一串 Jacobian 的乘积，因子偏离 1 就指数放大或消失——[《反向传播》](/backpropagation-by-hand.html)写出这串乘积，[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)展示激活导数如何改变它，[《训练为什么不稳定》](/initialization-normalization-and-residual.html)用初始化 / 归一化 / 残差稳定深层，[《优化器》](/optimizers-from-sgd-to-adamw.html)定步长，[《正则化与泛化》](/regularization-and-generalization.html)讨论泛化；[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)与[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)在卷积与循环两条线上再看同一条链，[《Embedding 与表示学习》](/embedding-and-representation-learning.html)补上离散 token 如何变成上下文表示。十篇用配套脚本与 NumPy 小框架，实验可在笔记本 CPU 上复现。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
@@ -114,9 +114,9 @@ Table: 本文的章节安排
 
 **必记**：
 
-- XOR：感知机 100 轮不收敛；手工 OR+NAND 隐藏层把 $$(0,1)$$、$$(1,0)$$ 映到同一隐藏点 $$(1,1)$$，直线 $$h_1+h_2=1.5$$ 分开；第一篇的 XOR 案例里 H=2 的 MLP 只有 13/20 个种子学到 100%、H=4 全部 20/20——能表示 ≠ 能学会。
-- 深网络难训的直接证据跨篇看：sigmoid 下 10 层 MLP 首层梯度范数只有末层的 $$2.87\times10^{-6}$$（第四篇实测）；这解释了第二次寒冬与 2006 年逐层预训练。
-- 里程碑数字：LeNet-5 61,706 参数（第八篇复现 0.82%）、AlexNet 60M / 15.3%、ResNet 152 层 top-5 3.57%、Transformer 28.4 BLEU。
+- XOR：感知机 100 轮不收敛；手工 OR+NAND 隐藏层把 $$(0,1)$$、$$(1,0)$$ 映到同一隐藏点 $$(1,1)$$，直线 $$h_1+h_2=1.5$$ 分开；[《深度模型演进史》](/evolution-of-deep-models-from-perceptron-to-transformer.html)的 XOR 案例里 H=2 的 MLP 只有 13/20 个种子学到 100%、H=4 全部 20/20——能表示 ≠ 能学会。
+- 深网络难训的直接证据跨篇看：sigmoid 下 10 层 MLP 首层梯度范数只有末层的 $$2.87\times10^{-6}$$（[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)实测）；这解释了第二次寒冬与 2006 年逐层预训练。
+- 里程碑数字：LeNet-5 61,706 参数（[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)复现 0.82%）、AlexNet 60M / 15.3%、ResNet 152 层 top-5 3.57%、Transformer 28.4 BLEU。
 
 **常见误解**：「Minsky 一本书杀死了连接主义」——寒冬是能力边界、硬件数据条件与资助决策共同作用；「Transformer 是历史主线唯一终点」——CNN、Embedding、RNN 是并行分支，attention 最后把序列这条线换掉。
 
@@ -197,7 +197,7 @@ Table: 本文的章节安排
 - 累计衰减 $$\exp(-\lambda \sum_t \eta_t)$$：938 步 $$\eta\lambda = 10^{-4}$$ 只衰减到 0.91；LLM 里 $$\lambda \sum \eta_t$$ 是几十，实际是梯度推、衰减拉的平衡。norm 增益与 bias 不加 wd。
 - 调度：cosine 衰减到峰值的 10%、必须预知 $$T$$；WSD 恒定段可随时延长；衰减阶段才是 loss 大幅下降的阶段。峰值 $$\eta$$：预训练小模型 $$6 \times 10^{-4}$$ 到 $$10^{-3}$$，Llama-3-8B $$3 \times 10^{-4}$$、70B $$1.5 \times 10^{-4}$$，SFT $$10^{-5}$$ 级，RL $$10^{-6}$$ 级；一层输出变化 $$\approx \eta\sqrt{n_{in}}$$，$$\mu$$P 让隐层 $$\eta \propto 1/n_{in}$$。
 
-**常见误解**："weight decay 是正则化，LLM 用它防过拟合"——LLM 预训练根本不在会过拟合的区间里（第七篇），wd 在这里是控制参数范数与有效学习率的旋钮。另一个："Adam 已经归一化了步长，裁剪没用"——异常梯度进入 $$m$$ 要 10 步、进入 $$v$$ 要 20 步才衰减掉，实测 Adam 不裁剪时损伤小但可见。
+**常见误解**："weight decay 是正则化，LLM 用它防过拟合"——LLM 预训练根本不在会过拟合的区间里（[《正则化与泛化》](/regularization-and-generalization.html)），wd 在这里是控制参数范数与有效学习率的旋钮。另一个："Adam 已经归一化了步长，裁剪没用"——异常梯度进入 $$m$$ 要 10 步、进入 $$v$$ 要 20 步才衰减掉，实测 Adam 不裁剪时损伤小但可见。
 
 ### 6. 第七篇：正则化与泛化——为什么参数比样本多却不过拟合
 
@@ -220,7 +220,7 @@ Table: 本文的章节安排
 
 **核心问题**：一个 3×3 卷积核相当于多大的全连接矩阵？ResNet 的残差与 Transformer 的残差是同一个东西吗？ViT 为什么可以不用卷积？
 
-**结论**：卷积是一个被强约束的线性层。把输入拉直，卷积就是矩阵乘 $$y = Mx$$：$$3 \times 3$$ 核作用在 $$6 \times 6$$ 图上是一个 $$16 \times 36$$ 矩阵，576 个元素里 144 个非零、且只有 9 个不同的值——**局部性**让矩阵稀疏，**参数共享**让各行是同一个核的平移。参数量 $$C_{out} C_{in} k_h k_w$$ 与图像大小无关，FLOPs 是参数量乘输出位置数；ResNet-50 25.6M 参数、8.2 GFLOPs（文献里的 4.1 数的是 MACs），每个参数平均用 320 次，一个 $$56 \times 56 \times 64$$ 的卷积层等价全连接矩阵有 $$4 \times 10^{10}$$ 个元素——两条约束把参数压了六个量级，这是 2012–2016 年 CNN 能训、MLP 不能的算术原因。深度是为了感受野：stride 1 的 $$3 \times 3$$ 每层扩大 2，RF $$= 1 + 2L$$，看到整张 224 图要 112 层；stride 与池化把增量乘上去，"空间减半、通道翻倍"是默认节奏。深了就遇到第五篇的全部问题：VGG 止于 19 层，BN 修前向、残差修反向，ResNet 到 152 层。实测复现退化问题：plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72（优化失败，不是过拟合），残差网络 0.09 与 0.13；有 BN 的深 plain 网络梯度**向输入方向爆炸**——第 1 块是第 56 块的 2849 倍——BN 修了前向、把反向的问题换了个方向，残差把比值压到 3。ResNet 留下四样：残差、归一化到处用、pre-activation（Pre-Norm 的前身）、堆同样的块。数据够多时卷积的先验成为负担：ViT 在 ImageNet-1k 上不如 ResNet、在 JFT-300M 上反超；它把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$1.2 \times 10^{-6}$$）。
+**结论**：卷积是一个被强约束的线性层。把输入拉直，卷积就是矩阵乘 $$y = Mx$$：$$3 \times 3$$ 核作用在 $$6 \times 6$$ 图上是一个 $$16 \times 36$$ 矩阵，576 个元素里 144 个非零、且只有 9 个不同的值——**局部性**让矩阵稀疏，**参数共享**让各行是同一个核的平移。参数量 $$C_{out} C_{in} k_h k_w$$ 与图像大小无关，FLOPs 是参数量乘输出位置数；ResNet-50 25.6M 参数、8.2 GFLOPs（文献里的 4.1 数的是 MACs），每个参数平均用 320 次，一个 $$56 \times 56 \times 64$$ 的卷积层等价全连接矩阵有 $$4 \times 10^{10}$$ 个元素——两条约束把参数压了六个量级，这是 2012–2016 年 CNN 能训、MLP 不能的算术原因。深度是为了感受野：stride 1 的 $$3 \times 3$$ 每层扩大 2，RF $$= 1 + 2L$$，看到整张 224 图要 112 层；stride 与池化把增量乘上去，"空间减半、通道翻倍"是默认节奏。深了就遇到[《训练为什么不稳定》](/initialization-normalization-and-residual.html)的全部问题：VGG 止于 19 层，BN 修前向、残差修反向，ResNet 到 152 层。实测复现退化问题：plain 网络 20 → 56 层训练 loss 从 0.13 恶化到 0.72（优化失败，不是过拟合），残差网络 0.09 与 0.13；有 BN 的深 plain 网络梯度**向输入方向爆炸**——第 1 块是第 56 块的 2849 倍——BN 修了前向、把反向的问题换了个方向，残差把比值压到 3。ResNet 留下四样：残差、归一化到处用、pre-activation（Pre-Norm 的前身）、堆同样的块。数据够多时卷积的先验成为负担：ViT 在 ImageNet-1k 上不如 ResNet、在 JFT-300M 上反超；它把图切成 $$(H/p)(W/p)$$ 个 patch 线性投影成 token 送进标准 encoder，二维结构只靠位置编码——而 patch embedding 本身就是 kernel = stride = $$p$$ 的卷积（实测差 $$1.2 \times 10^{-6}$$）。
 
 **必记**：
 
@@ -251,7 +251,7 @@ Table: 本文的章节安排
 
 **核心问题**：RNN 为什么记不住 20 步之外的东西？LSTM 的遗忘门与残差连接是什么关系？attention 最初是为了解决什么问题被发明的，它又为什么最终取代了发明它的 RNN？
 
-**结论**：RNN 用一个固定维度的状态与一组共享参数处理变长序列，沿时间展开是深度为 $$T$$、**每层权重相同**的网络——第五篇的 Jacobian 连乘以最纯粹的形式出现，没有"不同层的偏差互相抵消"的运气。BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h_k^2) W$$ 的乘积：标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$，即使 $$W$$ 最大奇异值接近 3，tanh 的导数也把它拉回来。"记不住"的含义不是状态装不下，是训练信号传不到——记忆任务里 vanilla RNN 在 10 步就失败。梯度裁剪最初就是 Pascanu 等 2013 为 RNN 的爆炸发明的。LSTM 的细胞状态更新 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是加法式的，Jacobian $$\partial c_t / \partial c_{t-1} = \text{diag}(f_t) + \dots$$，只要 $$f_t \approx 1$$ 就是一条接近恒等的通路——与 ResNet 的 $$I + J$$ 同构，1997 年就有（"constant error carousel"）。恒等通路要在初始时刻打开：$$b_f = 0$$ 时 $$f_t \approx 0.5$$，20 步后 $$10^{-6}$$，LSTM 默认初始化也止于 10 步；$$b_f = 1$$ 时 $$\sigma(1) = 0.73$$，20 步与 40 步的任务在 500 步内学会——与 ResNet 靠结构、GPT-2 靠小初始化是同一个教训。seq2seq 把整句压进一个固定向量，倒序任务 16 个 token 整句准确率 0%；Bahdanau 让 decoder 每步对 encoder 全部隐状态算权重、加权求和，同一任务到 76%，对齐矩阵自己学出反对角线。换一套记号，$$s_{k-1}$$ 是 query、$$h_j^{enc}$$ 既是 key 也是 value，就是 $$\text{softmax}(QK^T/\sqrt{d_k})V$$；Transformer 换了打分函数与用法（self-attention），然后发现循环可以整个去掉。RNN 的两个致命缺点：串行（每步一个小矩阵乘向量填不满硬件，同一颗 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度；Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者。
+**结论**：RNN 用一个固定维度的状态与一组共享参数处理变长序列，沿时间展开是深度为 $$T$$、**每层权重相同**的网络——[《训练为什么不稳定》](/initialization-normalization-and-residual.html)的 Jacobian 连乘以最纯粹的形式出现，没有"不同层的偏差互相抵消"的运气。BPTT 的梯度是 $$T - t$$ 个 $$\text{diag}(1 - h_k^2) W$$ 的乘积：标准初始化下 20 步外衰减到千分之四、60 步外 $$10^{-10}$$，即使 $$W$$ 最大奇异值接近 3，tanh 的导数也把它拉回来。"记不住"的含义不是状态装不下，是训练信号传不到——记忆任务里 vanilla RNN 在 10 步就失败。梯度裁剪最初就是 Pascanu 等 2013 为 RNN 的爆炸发明的。LSTM 的细胞状态更新 $$c_t = f_t \odot c_{t-1} + i_t \odot \tilde c_t$$ 是加法式的，Jacobian $$\partial c_t / \partial c_{t-1} = \text{diag}(f_t) + \dots$$，只要 $$f_t \approx 1$$ 就是一条接近恒等的通路——与 ResNet 的 $$I + J$$ 同构，1997 年就有（"constant error carousel"）。恒等通路要在初始时刻打开：$$b_f = 0$$ 时 $$f_t \approx 0.5$$，20 步后 $$10^{-6}$$，LSTM 默认初始化也止于 10 步；$$b_f = 1$$ 时 $$\sigma(1) = 0.73$$，20 步与 40 步的任务在 500 步内学会——与 ResNet 靠结构、GPT-2 靠小初始化是同一个教训。seq2seq 把整句压进一个固定向量，倒序任务 16 个 token 整句准确率 0%；Bahdanau 让 decoder 每步对 encoder 全部隐状态算权重、加权求和，同一任务到 76%，对齐矩阵自己学出反对角线。换一套记号，$$s_{k-1}$$ 是 query、$$h_j^{enc}$$ 既是 key 也是 value，就是 $$\text{softmax}(QK^T/\sqrt{d_k})V$$；Transformer 换了打分函数与用法（self-attention），然后发现循环可以整个去掉。RNN 的两个致命缺点：串行（每步一个小矩阵乘向量填不满硬件，同一颗 CPU 上 attention 达到的算力是它的 4.5 倍）与 $$O(n)$$ 的路径长度；Transformer 用 $$O(n^2)$$ 的算量与 KV cache 换掉了两者。
 
 **必记**：
 
@@ -268,39 +268,39 @@ Table: 本文的章节安排
 
 ### 1. 连乘与恒等通路
 
-这是系列的主线。第三篇写出反向传播的形式——$$\nabla_{x_i} L = J_i^T \nabla_{x_{i+1}} L$$ 逐层套用，梯度就是一串 Jacobian 转置的乘积。第四篇把激活导数放进这个乘积：sigmoid 的导数上限 0.25，连续十层的上界已约 $$10^{-6}$$。第五篇再问乘积范数会怎样：各因子谱范数相乘，0.9 的 128 次方是 $$1.4 \times 10^{-6}$$，1.1 的 128 次方是 $$2 \times 10^5$$；初始化只能把 $$t = 0$$ 时每个因子的期望调到 1，归一化管前向不管反向，残差把因子从 $$J$$ 换成 $$I + J$$，展开后多出一条不经过任何 Jacobian 的恒等通路——这是唯一在训练全程持续起作用的修法。
+这是系列的主线。[《反向传播》](/backpropagation-by-hand.html)写出反向传播的形式——$$\nabla_{x_i} L = J_i^T \nabla_{x_{i+1}} L$$ 逐层套用，梯度就是一串 Jacobian 转置的乘积。[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)把激活导数放进这个乘积：sigmoid 的导数上限 0.25，连续十层的上界已约 $$10^{-6}$$。[《训练为什么不稳定》](/initialization-normalization-and-residual.html)再问乘积范数会怎样：各因子谱范数相乘，0.9 的 128 次方是 $$1.4 \times 10^{-6}$$，1.1 的 128 次方是 $$2 \times 10^5$$；初始化只能把 $$t = 0$$ 时每个因子的期望调到 1，归一化管前向不管反向，残差把因子从 $$J$$ 换成 $$I + J$$，展开后多出一条不经过任何 Jacobian 的恒等通路——这是唯一在训练全程持续起作用的修法。
 
-第八篇在卷积这条线上看它的历史形态：退化问题（56 层 plain 比 20 层训练误差更高）是这串连乘在 2015 年的样子，残差把"学恒等"变成"学零"；有 BN 的深 plain 网络梯度向输入方向**爆炸**（2849 倍）而不是消失——归一化改变了连乘的方向，没有消灭它。第十篇在循环这条线上看它最纯粹的形态：BPTT 是同一个 $$W$$ 乘 $$T - t$$ 次，20 步外千分之四；LSTM 的 $$c_t = f_t \odot c_{t-1} + \dots$$ 是时间上的 $$I + J$$，比 ResNet 早 18 年。第九篇从表示的角度补上另一块：Embedding 把离散 id 映射到可学习几何，静态向量则不随上下文变化。
+[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)在卷积这条线上看它的历史形态：退化问题（56 层 plain 比 20 层训练误差更高）是这串连乘在 2015 年的样子，残差把"学恒等"变成"学零"；有 BN 的深 plain 网络梯度向输入方向**爆炸**（2849 倍）而不是消失——归一化改变了连乘的方向，没有消灭它。[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)在循环这条线上看它最纯粹的形态：BPTT 是同一个 $$W$$ 乘 $$T - t$$ 次，20 步外千分之四；LSTM 的 $$c_t = f_t \odot c_{t-1} + \dots$$ 是时间上的 $$I + J$$，比 ResNet 早 18 年。[《Embedding 与表示学习》](/embedding-and-representation-learning.html)从表示的角度补上另一块：Embedding 把离散 id 映射到可学习几何，静态向量则不随上下文变化。
 
 三篇各给出同一条附加条件：**恒等通路要在初始时刻就是打开的**。ResNet 靠 $$x + f(x)$$ 的结构保证；GPT-2 靠残差分支乘 $$1/\sqrt{2L}$$ 让每块初始时接近恒等；LSTM 靠 $$b_f = 1$$ 让 $$f_t$$ 从 0.5 抬到 0.73——忘了这一条，20 步的任务从"500 步学会"变回"学不会"。
 
 ### 2. 尺度：方差、步长与有效学习率
 
-第五篇建立"尺度"这个变量：初始化决定前向方差（$$n_{in}\sigma_w^2$$），归一化把它固定住并带来尺度不变性——归一化层之前那个权重乘 2，输出不变，于是该权重的梯度与它的范数成反比，等价于一个随范数自动调节的有效学习率。同一章还留下一个悬念：LLM 的初始化标准差 0.02 不随宽度变，对 $$d = 4096$$ 恰好接近 Kaiming、对 768 偏小、8192 偏大，能用是因为归一化兜底，代价是最优学习率随宽度漂移。
+[《训练为什么不稳定》](/initialization-normalization-and-residual.html)建立"尺度"这个变量：初始化决定前向方差（$$n_{in}\sigma_w^2$$），归一化把它固定住并带来尺度不变性——归一化层之前那个权重乘 2，输出不变，于是该权重的梯度与它的范数成反比，等价于一个随范数自动调节的有效学习率。同一章还留下一个悬念：LLM 的初始化标准差 0.02 不随宽度变，对 $$d = 4096$$ 恰好接近 Kaiming、对 768 偏小、8192 偏大，能用是因为归一化兜底，代价是最优学习率随宽度漂移。
 
-第六篇接住这个悬念。Adam 让每个参数每步移动 $$\approx \eta$$，一层输出的变化量 $$\approx \eta\sqrt{n_{in}}$$，宽度翻 4 倍输出变化翻 2 倍——所以模型越宽学习率越小（Llama-3-8B $$3 \times 10^{-4}$$、70B $$1.5 \times 10^{-4}$$），$$\mu$$P 把它做成隐层 $$\eta \propto 1/n_{in}$$ 的规则；"0.02 不随宽度变"与"学习率要随宽度变"是同一个问题的两面。同一篇把 weight decay 也接到尺度上：AdamW 的累计衰减 $$\exp(-\lambda\sum\eta_t)$$ 在 LLM 里是 $$e^{-\text{几十}}$$，实际发生的是 Adam 随机游走把范数往外推（$$\sqrt{t}$$ 增长）、衰减往里拉的平衡，对有归一化跟随的权重，这个平衡范数就是有效学习率——所以 norm 的增益与 bias 不加 wd。
+[《优化器》](/optimizers-from-sgd-to-adamw.html)接住这个悬念。Adam 让每个参数每步移动 $$\approx \eta$$，一层输出的变化量 $$\approx \eta\sqrt{n_{in}}$$，宽度翻 4 倍输出变化翻 2 倍——所以模型越宽学习率越小（Llama-3-8B $$3 \times 10^{-4}$$、70B $$1.5 \times 10^{-4}$$），$$\mu$$P 把它做成隐层 $$\eta \propto 1/n_{in}$$ 的规则；"0.02 不随宽度变"与"学习率要随宽度变"是同一个问题的两面。同一篇把 weight decay 也接到尺度上：AdamW 的累计衰减 $$\exp(-\lambda\sum\eta_t)$$ 在 LLM 里是 $$e^{-\text{几十}}$$，实际发生的是 Adam 随机游走把范数往外推（$$\sqrt{t}$$ 增长）、衰减往里拉的平衡，对有归一化跟随的权重，这个平衡范数就是有效学习率——所以 norm 的增益与 bias 不加 wd。
 
-第七篇从另一头看同一个量：weight decay 作为高斯先验（$$\lambda = 1/\sigma^2$$）是经典的正则化含义，在 1000 样本的小实验里它确实把测试 loss 的上升从 0.55 压到 0.42；但在预训练的数据主导区间里过拟合不是风险，它保留下来的原因回到第六篇——控制范数与有效学习率。一个超参数、两种语义，哪一种成立取决于你在哪个区间。
+[《正则化与泛化》](/regularization-and-generalization.html)从另一头看同一个量：weight decay 作为高斯先验（$$\lambda = 1/\sigma^2$$）是经典的正则化含义，在 1000 样本的小实验里它确实把测试 loss 的上升从 0.55 压到 0.42；但在预训练的数据主导区间里过拟合不是风险，它保留下来的原因回到[《优化器》](/optimizers-from-sgd-to-adamw.html)——控制范数与有效学习率。一个超参数、两种语义，哪一种成立取决于你在哪个区间。
 
 ### 3. 噪声、参数 / 数据比与区间
 
-第六篇给出 SGD 噪声的尺度 $$\eta/\sqrt{B}$$：它限制学习率的上限（线性 scaling 到 512 成立、2048 发散）、决定临界 batch、也是学习率衰减阶段 loss 大幅下降的原因——学习率一降噪声就小。第七篇把同一个噪声变成正则化：噪声让参数在尖锐极小值待不住、在平坦极小值停下，这解释了大 batch 训出来的模型泛化略差、也解释了衰减为什么要留到最后（早期大噪声在挑盆地）。
+[《优化器》](/optimizers-from-sgd-to-adamw.html)给出 SGD 噪声的尺度 $$\eta/\sqrt{B}$$：它限制学习率的上限（线性 scaling 到 512 成立、2048 发散）、决定临界 batch、也是学习率衰减阶段 loss 大幅下降的原因——学习率一降噪声就小。[《正则化与泛化》](/regularization-and-generalization.html)把同一个噪声变成正则化：噪声让参数在尖锐极小值待不住、在平坦极小值停下，这解释了大 batch 训出来的模型泛化略差、也解释了衰减为什么要留到最后（早期大噪声在挑盆地）。
 
-第七篇再引入一个训练前就能算的数：参数 / 数据比。它把十篇里所有"要不要正则化"的问题分成两个区间——预训练 0.0005、每个 token 只见一次，欠拟合，dropout 只是浪费算力，多 epoch 到 4 以内几乎无损；SFT 1600、RM 160，能背下数据，2–3 个 epoch 后验证 loss 回升、记忆探针能测出逐字复现。第三篇的 $$6ND$$ 与第六篇的状态账在这里有了另一个用途：$$N$$ 与 $$D$$ 是同一对变量，训练 FLOPs、优化器显存、过拟合风险都由它们决定。
+[《正则化与泛化》](/regularization-and-generalization.html)再引入一个训练前就能算的数：参数 / 数据比。它把十篇里所有"要不要正则化"的问题分成两个区间——预训练 0.0005、每个 token 只见一次，欠拟合，dropout 只是浪费算力，多 epoch 到 4 以内几乎无损；SFT 1600、RM 160，能背下数据，2–3 个 epoch 后验证 loss 回升、记忆探针能测出逐字复现。[《反向传播》](/backpropagation-by-hand.html)的 $$6ND$$ 与[《优化器》](/optimizers-from-sgd-to-adamw.html)的状态账在这里有了另一个用途：$$N$$ 与 $$D$$ 是同一对变量，训练 FLOPs、优化器显存、过拟合风险都由它们决定。
 
-第八篇把"先验 vs 数据量"再推一层。第七篇说显式正则化是把模型拉向某种简单解的先验，卷积的局部性与参数共享则是**只允许**满足先验的解——最强的正则化，把等价全连接矩阵的参数压六个量级。先验的价值与数据量反相关：ViT 在 130 万张图上不如 ResNet、在 3 亿张上反超，是同一条规律的干净实验。第十篇 RNN 的时间参数共享与卷积的空间参数共享同类，而 attention 用"由内容决定的可学习路由"取代了固定结构——先验越少，需要的数据越多，这条线一直延伸到 Transformer。
+[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)把"先验 vs 数据量"再推一层。[《正则化与泛化》](/regularization-and-generalization.html)说显式正则化是把模型拉向某种简单解的先验，卷积的局部性与参数共享则是**只允许**满足先验的解——最强的正则化，把等价全连接矩阵的参数压六个量级。先验的价值与数据量反相关：ViT 在 130 万张图上不如 ResNet、在 3 亿张上反超，是同一条规律的干净实验。[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)里循环的时间参数共享与卷积的空间参数共享同类，而 attention 用"由内容决定的可学习路由"取代了固定结构——先验越少，需要的数据越多，这条线一直延伸到 Transformer。
 
 ### 4. 诊断：看哪条曲线、动哪个开关
 
-系列的第二个目标是诊断能力，每篇留下几条曲线与几个开关，合起来是一张排查表。第三篇是训练前的检查：梯度检查相对误差 $$< 10^{-6}$$、初始 loss 接近 $$\ln C$$、能否过拟合一个 16 样本的小 batch。第四篇记录各层梯度：sigmoid 首层约 $$10^{-10}$$、末层约 1，训练停在机会水平；也统计 ReLU 恒为零的死亡单元。第五篇再看结构层面的曲线：各层激活 RMS 随深度指数衰减或增长、各层梯度范数的层间差异，以及 $$\lVert \Delta W \rVert / \lVert W \rVert$$ 是否约 $$10^{-3}$$。
+系列的第二个目标是诊断能力，每篇留下几条曲线与几个开关，合起来是一张排查表。[《反向传播》](/backpropagation-by-hand.html)是训练前的检查：梯度检查相对误差 $$< 10^{-6}$$、初始 loss 接近 $$\ln C$$、能否过拟合一个 16 样本的小 batch。[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)记录各层梯度：sigmoid 首层约 $$10^{-10}$$、末层约 1，训练停在机会水平；也统计 ReLU 恒为零的死亡单元。[《训练为什么不稳定》](/initialization-normalization-and-residual.html)再看结构层面的曲线：各层激活 RMS 随深度指数衰减或增长、各层梯度范数的层间差异，以及 $$\lVert \Delta W \rVert / \lVert W \rVert$$ 是否约 $$10^{-3}$$。
 
-第六篇是优化层面：梯度范数曲线是第二重要的曲线，持续上升是 spike 前兆、周期性尖峰是数据里的周期异常、裁剪一直在介入说明 $$c$$ 太小或 $$\eta$$ 太大；loss 在前 100 步冲高到高于随机是 warmup 缺失；loss 在衰减开始处下折是正常的。第七篇是泛化层面：训练 / 验证 gap、held-out 拐点、测试 loss 涨而准确率不变（过度自信）、记忆探针、训练前的 $$N/D$$。第八篇补了一条反直觉的：训练 loss 随深度变差是优化失败不是过拟合；第十篇补了一条：记忆任务失败不是状态装不下，是梯度传不到。
+[《优化器》](/optimizers-from-sgd-to-adamw.html)是优化层面：梯度范数曲线是第二重要的曲线，持续上升是 spike 前兆、周期性尖峰是数据里的周期异常、裁剪一直在介入说明 $$c$$ 太小或 $$\eta$$ 太大；loss 在前 100 步冲高到高于随机是 warmup 缺失；loss 在衰减开始处下折是正常的。[《正则化与泛化》](/regularization-and-generalization.html)是泛化层面：训练 / 验证 gap、held-out 拐点、测试 loss 涨而准确率不变（过度自信）、记忆探针、训练前的 $$N/D$$。[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)补了一条反直觉的：训练 loss 随深度变差是优化失败不是过拟合；[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)补了一条：记忆任务失败不是状态装不下，是梯度传不到。
 
-总纲末尾那张表——loss 不降看第三、五、六篇，NaN 看第五篇，Pre-Norm 与 0.02 看第五篇，SFT 背答案看第七篇——就是这条线的索引。
+总纲末尾那张表——loss 不降看[《反向传播》](/backpropagation-by-hand.html)、[《训练为什么不稳定》](/initialization-normalization-and-residual.html)与[《优化器》](/optimizers-from-sgd-to-adamw.html)，NaN 看[《训练为什么不稳定》](/initialization-normalization-and-residual.html)，Pre-Norm 与 0.02 看[《训练为什么不稳定》](/initialization-normalization-and-residual.html)，SFT 背答案看[《正则化与泛化》](/regularization-and-generalization.html)——就是这条线的索引。
 
 ### 5. Transformer 部件的来历
 
-十篇每一篇都在最后指出它在 LLM 里的形态，合起来 Transformer 的每个部件都有了出处。第三篇：训练 FLOPs $$6ND$$ 与激活重算 $$8ND$$，FlashAttention 是激活重算的算子级版本。第四篇：sigmoid、ReLU、GELU、SiLU 与 SwiGLU 的梯度和门控，解释 GPT-2 的 `gelu_new` 与现代 FFN 的激活选择。第五篇：Pre-Norm、RMSNorm、残差、final norm、0.02、残差分支 $$1/\sqrt{2L}$$、QK-norm、z-loss、$$\mu$$P。第六篇：AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、裁剪 1.0、warmup、cosine 到 10% 或 WSD、峰值学习率随宽度减小、每参数 8 字节状态是 ZeRO / FSDP 切分的对象。第七篇：预训练不用 dropout、只训一个 epoch、重复到 4 个 epoch 以内、SFT 2–3 个 epoch。第八篇：残差、归一化到处用、pre-activation → Pre-Norm、堆同样的块、$$1 \times 1$$ 卷积 → 逐位置 FFN、patch embedding、一张图 196 / 576 / 5476 个 token。第九篇：GPT-2 small 的 token embedding 表有 38.6M 参数、约占 31.0%；静态词向量的查表方式与上下文表示的差别。第十篇：attention 本身、query / key / value 的对应、self-attention 去掉循环、$$O(n^2)$$ 与 KV cache、梯度裁剪的起源。
+十篇每一篇都在最后指出它在 LLM 里的形态，合起来 Transformer 的每个部件都有了出处。[《反向传播》](/backpropagation-by-hand.html)：训练 FLOPs $$6ND$$ 与激活重算 $$8ND$$，FlashAttention 是激活重算的算子级版本。[《激活函数》](/activation-functions-from-sigmoid-to-swiglu.html)：sigmoid、ReLU、GELU、SiLU 与 SwiGLU 的梯度和门控，解释 GPT-2 的 `gelu_new` 与现代 FFN 的激活选择。[《训练为什么不稳定》](/initialization-normalization-and-residual.html)：Pre-Norm、RMSNorm、残差、final norm、0.02、残差分支 $$1/\sqrt{2L}$$、QK-norm、z-loss、$$\mu$$P。[《优化器》](/optimizers-from-sgd-to-adamw.html)：AdamW $$\beta = (0.9, 0.95)$$、wd 0.1、裁剪 1.0、warmup、cosine 到 10% 或 WSD、峰值学习率随宽度减小、每参数 8 字节状态是 ZeRO / FSDP 切分的对象。[《正则化与泛化》](/regularization-and-generalization.html)：预训练不用 dropout、只训一个 epoch、重复到 4 个 epoch 以内、SFT 2–3 个 epoch。[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)：残差、归一化到处用、pre-activation → Pre-Norm、堆同样的块、$$1 \times 1$$ 卷积 → 逐位置 FFN、patch embedding、一张图 196 / 576 / 5476 个 token。[《Embedding 与表示学习》](/embedding-and-representation-learning.html)：GPT-2 small 的 token embedding 表有 38.6M 参数、约占 31.0%；静态词向量的查表方式与上下文表示的差别。[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)：attention 本身、query / key / value 的对应、self-attention 去掉循环、$$O(n^2)$$ 与 KV cache、梯度裁剪的起源。
 
 读到这里，[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)系列不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
 
@@ -384,7 +384,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\sqrt{2/1024} = 0.044$$；错用 $$1/n_{in}$$ 每层标准差乘 0.707，32 层后 $$2^{-16} \approx 1.5 \times 10^{-5}$$（64 层是 $$2^{-32}$$）；0.02 比 0.044 偏小——与第五篇表里 768 → 0.051 同一方向，靠归一化兜底。
+   $$\sqrt{2/1024} = 0.044$$；错用 $$1/n_{in}$$ 每层标准差乘 0.707，32 层后 $$2^{-16} \approx 1.5 \times 10^{-5}$$（64 层是 $$2^{-32}$$）；0.02 比 0.044 偏小——与[《训练为什么不稳定》](/initialization-normalization-and-residual.html)表里 768 → 0.051 同一方向，靠归一化兜底。
 
    </details>
 
@@ -408,11 +408,11 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$\exp(-\lambda\sum\eta_t) = \exp(-0.1 \times 10^{-3} \times 5000) = e^{-0.5} \approx 0.61$$（第六篇 938 步是 0.91）。Adam + $$L_2$$：$$\lambda\theta \approx 9 \times 10^{-3}$$ 比梯度大一个量级，归一化后更新 $$\approx \eta \cdot \text{sign}(\theta)$$，每步向零走 $$10^{-3}$$，约 90 步就把 0.09 量级的元素打到零。
+   $$\exp(-\lambda\sum\eta_t) = \exp(-0.1 \times 10^{-3} \times 5000) = e^{-0.5} \approx 0.61$$（[《优化器》](/optimizers-from-sgd-to-adamw.html) 938 步是 0.91）。Adam + $$L_2$$：$$\lambda\theta \approx 9 \times 10^{-3}$$ 比梯度大一个量级，归一化后更新 $$\approx \eta \cdot \text{sign}(\theta)$$，每步向零走 $$10^{-3}$$，约 90 步就把 0.09 量级的元素打到零。
 
    </details>
 
-7. 第六篇的线性 scaling 实验以 $$B = 32$$、$$\eta = 0.05$$ 为基准。$$B = 256$$ 时 SGD 学习率取多少、预计成立吗？$$B = 4096$$ 呢？换 Adam，$$B = 256$$ 的学习率该乘多少？
+7. [《优化器》](/optimizers-from-sgd-to-adamw.html)的线性 scaling 实验以 $$B = 32$$、$$\eta = 0.05$$ 为基准。$$B = 256$$ 时 SGD 学习率取多少、预计成立吗？$$B = 4096$$ 呢？换 Adam，$$B = 256$$ 的学习率该乘多少？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -424,7 +424,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$8 \times 10^9 / 10^8 = 80$$——第七篇 10 万对是 160，翻倍数据减半；仍在过参数化区间（大于 1 要准备早停，接近 100 要预期几个 epoch 内过拟合）。经验是 1 个 epoch 后验证准确率不再涨、2 个后开始降，5 个 epoch 会记住长度、格式等表面特征，被 RL 放大成 reward hacking。
+   $$8 \times 10^9 / 10^8 = 80$$——[《正则化与泛化》](/regularization-and-generalization.html) 10 万对是 160，翻倍数据减半；仍在过参数化区间（大于 1 要准备早停，接近 100 要预期几个 epoch 内过拟合）。经验是 1 个 epoch 后验证准确率不再涨、2 个后开始降，5 个 epoch 会记住长度、格式等表面特征，被 RL 放大成 reward hacking。
 
    </details>
 
@@ -440,7 +440,7 @@ Table: 常见误区与正确说法
 
     <details markdown="1"><summary>答案</summary>
 
-    $$\sigma(2) \approx 0.88$$，$$0.88^{20} \approx 8\%$$；$$b_f = 0$$ 时 $$0.5^{20} \approx 10^{-6}$$（通路关着），$$b_f = 1$$ 时 $$0.73^{20} \approx 0.2\%$$——第十篇里这已经足以让训练启动，20 与 40 步的任务 500 步学会。偏置越大通路越开，代价是遗忘更慢。
+    $$\sigma(2) \approx 0.88$$，$$0.88^{20} \approx 8\%$$；$$b_f = 0$$ 时 $$0.5^{20} \approx 10^{-6}$$（通路关着），$$b_f = 1$$ 时 $$0.73^{20} \approx 0.2\%$$——[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)里这已经足以让训练启动，20 与 40 步的任务 500 步学会。偏置越大通路越开，代价是遗忘更慢。
 
     </details>
 
@@ -462,11 +462,11 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. 第五篇的 64 层 Pre-Norm 网络在 SGD 下 lr 0.05 与 0.005 都正常；第六篇把它换成 Adam、峰值 $$10^{-2}$$、无 warmup，前 100 步 loss 冲到 4.59。结构没变，为什么会这样？用哪一个训练前的检查能一眼看出"被打到比随机还差"？
+1. [《训练为什么不稳定》](/initialization-normalization-and-residual.html)的 64 层 Pre-Norm 网络在 SGD 下 lr 0.05 与 0.005 都正常；[《优化器》](/optimizers-from-sgd-to-adamw.html)把它换成 Adam、峰值 $$10^{-2}$$、无 warmup，前 100 步 loss 冲到 4.59。结构没变，为什么会这样？用哪一个训练前的检查能一眼看出"被打到比随机还差"？
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：Pre-Norm 让各层梯度范数均匀（0.12–0.15），SGD 的步长与梯度成正比，小梯度自然小步。第六篇：Adam 的步长与梯度无关，偏差修正后第一步每个参数都走满 $$\eta \cdot \text{sign}(g)$$，$$v$$ 还没学到尺度，所有参数同时以最大步长乱跳，把第五篇建立的平衡打破；100 步 warmup 把峰值压到 1.26。第三篇：初始 loss 应接近 $$\ln 10 = 2.30$$，4.59 高于随机猜测说明网络被打坏了再爬回来。
+   [《训练为什么不稳定》](/initialization-normalization-and-residual.html)：Pre-Norm 让各层梯度范数均匀（0.12–0.15），SGD 的步长与梯度成正比，小梯度自然小步。[《优化器》](/optimizers-from-sgd-to-adamw.html)：Adam 的步长与梯度无关，偏差修正后第一步每个参数都走满 $$\eta \cdot \text{sign}(g)$$，$$v$$ 还没学到尺度，所有参数同时以最大步长乱跳，把[《训练为什么不稳定》](/initialization-normalization-and-residual.html)建立的平衡打破；100 步 warmup 把峰值压到 1.26。[《反向传播》](/backpropagation-by-hand.html)：初始 loss 应接近 $$\ln 10 = 2.30$$，4.59 高于随机猜测说明网络被打坏了再爬回来。
 
    </details>
 
@@ -474,31 +474,31 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：0.02 对 $$d = 4096$$ 接近 Kaiming 的 0.022，能作为常数是因为归一化兜底；RMSNorm 去掉均值与 $$\beta$$ 效果不变、参数省一半；Pre-Norm 保住恒等通路、能用大学习率，配 final norm。第六篇：$$\beta_2 = 0.95$$ 让 $$v$$ 20 步内跟上尺度变化，防 spike 被放大；wd 0.1 只在 AdamW 语义下有意义，作用是范数平衡点与有效学习率；裁剪 1.0 只在异常时介入，可以一直开着。第七篇：$$N/D = 0.0005$$，欠拟合区间，dropout 浪费算力，每个 token 只见一次不存在"背下来"。
+   [《训练为什么不稳定》](/initialization-normalization-and-residual.html)：0.02 对 $$d = 4096$$ 接近 Kaiming 的 0.022，能作为常数是因为归一化兜底；RMSNorm 去掉均值与 $$\beta$$ 效果不变、参数省一半；Pre-Norm 保住恒等通路、能用大学习率，配 final norm。[《优化器》](/optimizers-from-sgd-to-adamw.html)：$$\beta_2 = 0.95$$ 让 $$v$$ 20 步内跟上尺度变化，防 spike 被放大；wd 0.1 只在 AdamW 语义下有意义，作用是范数平衡点与有效学习率；裁剪 1.0 只在异常时介入，可以一直开着。[《正则化与泛化》](/regularization-and-generalization.html)：$$N/D = 0.0005$$，欠拟合区间，dropout 浪费算力，每个 token 只见一次不存在"背下来"。
 
    </details>
 
-3. 第五篇无归一化的深网络梯度随深度**消失**，第八篇有 BN 的 56 层 plain 网络梯度向输入方向**爆炸**（2849 倍），第十篇 RNN 的梯度随距离**衰减**（20 步千分之四）。三种失败是同一个机制吗？各自的修法为什么殊途同归？
+3. [《训练为什么不稳定》](/initialization-normalization-and-residual.html)里无归一化的深网络梯度随深度**消失**，[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)里有 BN 的 56 层 plain 网络梯度向输入方向**爆炸**（2849 倍），[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)里 RNN 的梯度随距离**衰减**（20 步千分之四）。三种失败是同一个机制吗？各自的修法为什么殊途同归？
 
    <details markdown="1"><summary>答案</summary>
 
-   同一个机制——Jacobian 连乘，因子偏离 1 就指数变化，方向由因子决定。第五篇：无归一化时因子由 $$W$$ 与激活决定，Kaiming 只修 $$t = 0$$；第八篇：BN 把前向方差归一，反向穿过每个 BN 被输入方差放大，Yang 等 2019 证明深 plain 网络里必然爆炸——归一化换了连乘的方向；第十篇：同一个 $$W$$ 乘 $$T - t$$ 次，tanh 导数再压一层，没有不同层互相抵消的运气。修法都是给乘积加一项恒等：ResNet 的 $$x + f(x)$$（梯度比压到 3）、LSTM 的 $$f_t \odot c_{t-1}$$（$$b_f = 1$$ 打开通路）、Transformer 的 Pre-Norm 残差。
+   同一个机制——Jacobian 连乘，因子偏离 1 就指数变化，方向由因子决定。[《训练为什么不稳定》](/initialization-normalization-and-residual.html)：无归一化时因子由 $$W$$ 与激活决定，Kaiming 只修 $$t = 0$$；[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)：BN 把前向方差归一，反向穿过每个 BN 被输入方差放大，Yang 等 2019 证明深 plain 网络里必然爆炸——归一化换了连乘的方向；[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)：同一个 $$W$$ 乘 $$T - t$$ 次，tanh 导数再压一层，没有不同层互相抵消的运气。修法都是给乘积加一项恒等：ResNet 的 $$x + f(x)$$（梯度比压到 3）、LSTM 的 $$f_t \odot c_{t-1}$$（$$b_f = 1$$ 打开通路）、Transformer 的 Pre-Norm 残差。
 
    </details>
 
-4. 一张 80 GB 的卡装不下 Llama-3-8B 的全参训练。用第三篇与第六篇把账算出来，并说出两个开关各省什么、各花什么。
+4. 一张 80 GB 的卡装不下 Llama-3-8B 的全参训练。用[《反向传播》](/backpropagation-by-hand.html)与[《优化器》](/optimizers-from-sgd-to-adamw.html)把账算出来，并说出两个开关各省什么、各花什么。
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：混合精度 + AdamW 每参数 16 字节（bf16 权重 2、梯度 2、fp32 主权重 4、$$m$$ 4、$$v$$ 4），$$8 \times 10^9 \times 16 = 128$$ GB，其中 12 字节 96 GB 是优化器的——单卡还没算激活就已超出。第三篇：激活与 batch × 序列长 × 层数 × 宽度成正比、与参数量无关，长序列下会远超权重。开关一（第六篇）：8-bit Adam 把 $$m$$、$$v$$ 从 8 字节压到 2，省 48 GB，或用 ZeRO / FSDP 把优化器状态切到多卡；开关二（第三篇）：gradient checkpointing 只存每块输入，激活从"所有中间量"降到"每块一个输入"，代价是多一次前向、$$6N \to 8N$$，约 33% 算力。
+   [《优化器》](/optimizers-from-sgd-to-adamw.html)：混合精度 + AdamW 每参数 16 字节（bf16 权重 2、梯度 2、fp32 主权重 4、$$m$$ 4、$$v$$ 4），$$8 \times 10^9 \times 16 = 128$$ GB，其中 12 字节 96 GB 是优化器的——单卡还没算激活就已超出。[《反向传播》](/backpropagation-by-hand.html)：激活与 batch × 序列长 × 层数 × 宽度成正比、与参数量无关，长序列下会远超权重。开关一（[《优化器》](/optimizers-from-sgd-to-adamw.html)）：8-bit Adam 把 $$m$$、$$v$$ 从 8 字节压到 2，省 48 GB，或用 ZeRO / FSDP 把优化器状态切到多卡；开关二（[《反向传播》](/backpropagation-by-hand.html)）：gradient checkpointing 只存每块输入，激活从"所有中间量"降到"每块一个输入"，代价是多一次前向、$$6N \to 8N$$，约 33% 算力。
 
    </details>
 
-5. 有人用 SFT 训一个 8B 模型：1 万条指令、5 个 epoch、学习率 $$3 \times 10^{-4}$$。用第六篇与第七篇预测会发生什么，给出该看的两条曲线和该改的三个数。
+5. 有人用 SFT 训一个 8B 模型：1 万条指令、5 个 epoch、学习率 $$3 \times 10^{-4}$$。用[《优化器》](/optimizers-from-sgd-to-adamw.html)与[《正则化与泛化》](/regularization-and-generalization.html)预测会发生什么，给出该看的两条曲线和该改的三个数。
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：$$N/D = 8 \times 10^9 / 5 \times 10^6 = 1600$$，过参数化区间；训练 loss 平滑下降、验证 loss 在第 2–3 个 epoch 后回升，模型对训练集的问题逐字复述、对改写的问题失去泛化——同第七篇 2 万字符那行（第 16 epoch 拐点、记忆率 10%）。第六篇：$$3 \times 10^{-4}$$ 是预训练量级，SFT 应是 $$10^{-5}$$ 到 $$2 \times 10^{-5}$$，大一个量级会把预训练学到的表示冲掉。看：held-out loss 的拐点、记忆探针（训练集 prompt 续写与原答案逐字比对）。改：epoch 降到 2–3、学习率降到 $$10^{-5}$$ 级、按拐点早停（或加数据把 $$N/D$$ 压下来）。
+   [《正则化与泛化》](/regularization-and-generalization.html)：$$N/D = 8 \times 10^9 / 5 \times 10^6 = 1600$$，过参数化区间；训练 loss 平滑下降、验证 loss 在第 2–3 个 epoch 后回升，模型对训练集的问题逐字复述、对改写的问题失去泛化——同[《正则化与泛化》](/regularization-and-generalization.html) 2 万字符那行（第 16 epoch 拐点、记忆率 10%）。[《优化器》](/optimizers-from-sgd-to-adamw.html)：$$3 \times 10^{-4}$$ 是预训练量级，SFT 应是 $$10^{-5}$$ 到 $$2 \times 10^{-5}$$，大一个量级会把预训练学到的表示冲掉。看：held-out loss 的拐点、记忆探针（训练集 prompt 续写与原答案逐字比对）。改：epoch 降到 2–3、学习率降到 $$10^{-5}$$ 级、按拐点早停（或加数据把 $$N/D$$ 压下来）。
 
    </details>
 
@@ -568,7 +568,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 训练前（第三篇）：梯度检查相对误差 $$< 10^{-6}$$；初始 loss 接近 $$\ln C$$，远大说明初始化太大、远小说明泄漏或 loss 算错；能否过拟合 16 个样本——不能说明梯度没传到；(2) loss 停在 $$\ln C$$ 不动或第一步 NaN（第五篇）：看各层激活 RMS——随深度指数衰减是初始化太小或漏了 ReLU 的因子 2，指数增长是残差没有归一化；看各层梯度范数——随深度衰减几个量级是没有残差，顶层远大于底层是 Post-Norm 缺 warmup；(3) 前几百步冲高（第六篇）：Adam 第一步满步长，加 warmup；$$\lVert \Delta W \rVert / \lVert W \rVert$$ 远大于 $$10^{-3}$$ 是学习率太大；(4) 中途 spike（第二、三篇）：梯度范数曲线持续上升是前兆，周期性尖峰是数据里周期出现的异常样本；裁剪 1.0、$$\beta_2 = 0.95$$、QK-norm、z-loss 各对一个来源；裁剪一直在介入说明 $$c$$ 太小或 $$\eta$$ 太大；(5) loss 在衰减开始处下折是正常的；(6) 训练 loss 随深度变差是优化失败不是过拟合（第八篇）。
+   **答案要点**：(1) 训练前（[《反向传播》](/backpropagation-by-hand.html)）：梯度检查相对误差 $$< 10^{-6}$$；初始 loss 接近 $$\ln C$$，远大说明初始化太大、远小说明泄漏或 loss 算错；能否过拟合 16 个样本——不能说明梯度没传到；(2) loss 停在 $$\ln C$$ 不动或第一步 NaN（[《训练为什么不稳定》](/initialization-normalization-and-residual.html)）：看各层激活 RMS——随深度指数衰减是初始化太小或漏了 ReLU 的因子 2，指数增长是残差没有归一化；看各层梯度范数——随深度衰减几个量级是没有残差，顶层远大于底层是 Post-Norm 缺 warmup；(3) 前几百步冲高（[《优化器》](/optimizers-from-sgd-to-adamw.html)）：Adam 第一步满步长，加 warmup；$$\lVert \Delta W \rVert / \lVert W \rVert$$ 远大于 $$10^{-3}$$ 是学习率太大；(4) 中途 spike（[《损失函数》](/loss-functions-from-mse-to-dpo.html)与[《反向传播》](/backpropagation-by-hand.html)）：梯度范数曲线持续上升是前兆，周期性尖峰是数据里周期出现的异常样本；裁剪 1.0、$$\beta_2 = 0.95$$、QK-norm、z-loss 各对一个来源；裁剪一直在介入说明 $$c$$ 太小或 $$\eta$$ 太大；(5) loss 在衰减开始处下折是正常的；(6) 训练 loss 随深度变差是优化失败不是过拟合（[《CNN》](/cnn-from-lenet-to-resnet-and-vit.html)）。
    **追问方向**：怎么区分数据问题与数值问题；bf16 溢出的表现；Post-Norm 加 100 步 warmup 能否追上 Pre-Norm。
    **好答案与一般答案的区别**：一般答案说"降学习率、加裁剪、检查数据"；好答案按训练前 → 结构 → 优化 → 中途的顺序，每一步给出一条曲线的健康形状与病态形状，并把开关对到具体的失稳来源。
 
@@ -650,7 +650,7 @@ Table: 掌握程度的判据
 
 十篇讲的是"训练一个深网络时会发生什么"。几个方向紧邻但不在范围内，以及它们在哪个系列里：
 
-- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。本系列第十篇止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
+- **Transformer 本身**：attention 的变体、位置编码、MoE、参数量与 FLOPs 的完整推导，在[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)。本系列的[《RNN》](/rnn-lstm-and-the-birth-of-attention.html)止于"attention 为什么被发明、为什么取代 RNN"，那个系列从这里接手，不再问"为什么这样设计"，而是问"这样设计每一步花多少钱"。
 - **预训练配方**：学习率、batch、warmup 的具体数值怎么随规模定，scaling law，数据配比。属于 L4，本系列只讲每个开关的原理与诊断。
 - **框架内部**：Autograd 引擎、Dispatcher、分布式通信、混合精度的实现，属于 Infra 地图的[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。本系列只到"框架在做什么"。
 - **数值格式**：bf16 / fp8 的位布局、混合精度为什么能工作，在《现代 LLM 结构》的《浮点格式、数值稳定性与混合精度》。

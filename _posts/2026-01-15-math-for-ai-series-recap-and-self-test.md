@@ -9,9 +9,9 @@ date: 2026-01-15 20:00:00
 updated: 2026-11-23
 ---
 
-八篇正文回答了一个问题：**拿到一篇 LLM 论文能不能读懂它的每一个公式，给一个建模假设能不能推出它的训练 loss，给一个评测结果能不能判断差异是真的还是噪声**。前三篇是线性代数（形状与成本、向量的比较、正交与低秩），第四、五篇是概率（语言模型是一个条件分布、从最大似然推出交叉熵），第六篇是信息论（熵、交叉熵、KL 到 DPO），第七篇是微积分与优化（链式法则、$$p - y$$、策略梯度），第八篇是统计推断（置信区间与 scaling law 的拟合）。八篇合起来，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L0 层——后面每一层的公式都建在这一小块数学上。
+八篇正文回答了一个问题：**拿到一篇 LLM 论文能不能读懂它的每一个公式，给一个建模假设能不能推出它的训练 loss，给一个评测结果能不能判断差异是真的还是噪声**。前三篇是线性代数（形状与成本、向量的比较、正交与低秩），[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)与[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)是概率（语言模型是一个条件分布、从最大似然推出交叉熵），[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)是信息论（熵、交叉熵、KL 到 DPO），[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)是微积分与优化（链式法则、$$p - y$$、策略梯度），[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)是统计推断（置信区间与 scaling law 的拟合）。八篇合起来，是[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L0 层——后面每一层的公式都建在这一小块数学上。
 
-本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"：一个符号在第一篇是形状、在第七篇是梯度、在第八篇是估计量，要能在三个身份之间自由切换。
+本文不讲新内容，做三件事：把八篇压成一张表与八段回顾，把贯穿八篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"八篇能不能连起来用"：一个符号在[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)是形状、在[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)是梯度、在[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)是估计量，要能在三个身份之间自由切换。
 
 > **读完这八篇，你应该能回答哪些问题？[^q0] 哪些数字与结论必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -171,7 +171,7 @@ Table: 本文的章节安排
 
 **核心问题**（[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)）：能不能用链式法则推一层的梯度？能不能对一个期望求导，得到策略梯度？
 
-**结论**：导数是斜率；梯度是所有偏导排成的向量，与参数同形（$$\theta$$ 是 $$4096 \times 4096$$ 的矩阵，梯度也是），指向增长最快的方向，沿 $$-\nabla L$$ 走降得最快。链式法则说复合函数的导数是局部导数的乘积，向量情形是 Jacobian 的矩阵乘法 $$[1, m] \times [m, n] = [1, n]$$（用第一篇的形状规则检查）；反向传播是从 loss 往输入逐层套用它，工程上直接算"上游梯度 × Jacobian"而不构造 Jacobian。最重要的一个局部导数两步推出：$$\partial\log p_j/\partial z_k = \delta_{jk} - p_k$$，对 one-hot 的 $$y$$ 加权求和得 $$\partial L/\partial z = p - y$$——梯度有界、预测越准越小、所有 logits 都收到梯度；换 $$y$$ 为 teacher 的软分布就是蒸馏的梯度。RL 的目标 $$J = \mathbb{E}_{y \sim \pi_\theta}[R(y)]$$ 里分布依赖参数，不能把梯度直接移进期望；用 $$\nabla\pi = \pi\nabla\log\pi$$ 把它变回期望，得策略梯度 $$\mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$——按奖励加权的最大似然。REINFORCE 方差大，减一个不依赖 $$y$$ 的 baseline 期望不变（$$\mathbb{E}[\nabla\log\pi] = \nabla\sum\pi = 0$$）、方差降低，$$R - b$$ 叫优势。PPO 用价值网络估 baseline 并裁剪比值、加 KL 惩罚；GRPO 同一 prompt 采 $$G$$ 条用组内均值当 baseline、组内标准差归一化，不需要价值网络。梯度下降 $$\theta \leftarrow \theta - \eta\nabla L$$；随机梯度的噪声方差 $$\propto 1/B$$，决定学习率上限；warmup 与衰减；非凸 loss 的鞍点靠随机性逃离。拉格朗日乘子 $$\mathcal{L} = f - \lambda(g - c)$$ 是第六篇闭式解与第八篇 Chinchilla 共用的工具。
+**结论**：导数是斜率；梯度是所有偏导排成的向量，与参数同形（$$\theta$$ 是 $$4096 \times 4096$$ 的矩阵，梯度也是），指向增长最快的方向，沿 $$-\nabla L$$ 走降得最快。链式法则说复合函数的导数是局部导数的乘积，向量情形是 Jacobian 的矩阵乘法 $$[1, m] \times [m, n] = [1, n]$$（用[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的形状规则检查）；反向传播是从 loss 往输入逐层套用它，工程上直接算"上游梯度 × Jacobian"而不构造 Jacobian。最重要的一个局部导数两步推出：$$\partial\log p_j/\partial z_k = \delta_{jk} - p_k$$，对 one-hot 的 $$y$$ 加权求和得 $$\partial L/\partial z = p - y$$——梯度有界、预测越准越小、所有 logits 都收到梯度；换 $$y$$ 为 teacher 的软分布就是蒸馏的梯度。RL 的目标 $$J = \mathbb{E}_{y \sim \pi_\theta}[R(y)]$$ 里分布依赖参数，不能把梯度直接移进期望；用 $$\nabla\pi = \pi\nabla\log\pi$$ 把它变回期望，得策略梯度 $$\mathbb{E}[R(y)\nabla\log\pi_\theta(y)]$$——按奖励加权的最大似然。REINFORCE 方差大，减一个不依赖 $$y$$ 的 baseline 期望不变（$$\mathbb{E}[\nabla\log\pi] = \nabla\sum\pi = 0$$）、方差降低，$$R - b$$ 叫优势。PPO 用价值网络估 baseline 并裁剪比值、加 KL 惩罚；GRPO 同一 prompt 采 $$G$$ 条用组内均值当 baseline、组内标准差归一化，不需要价值网络。梯度下降 $$\theta \leftarrow \theta - \eta\nabla L$$；随机梯度的噪声方差 $$\propto 1/B$$，决定学习率上限；warmup 与衰减；非凸 loss 的鞍点靠随机性逃离。拉格朗日乘子 $$\mathcal{L} = f - \lambda(g - c)$$ 是[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)闭式解与[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html) Chinchilla 共用的工具。
 
 **必记**：
 
@@ -205,35 +205,35 @@ Table: 本文的章节安排
 
 ### 1. 形状规则：从矩阵乘法到 Jacobian
 
-第一篇建立的 $$[m, k] \times [k, n] \to [m, n]$$ 在其后每一篇都以新身份出现。第二篇的内积是它的最小情形——$$[1, d] \times [d, 1]$$ 得一个标量——而 attention 的 $$QK^T$$ 是 $$[T, d_h] \times [d_h, T]$$ 得一张 $$T \times T$$ 的表，余弦检索归一化后是 $$[1, 1024] \times [1024, N]$$ 一次算完全库。第三篇的 SVD 形状图 $$[m, n] = [m, n] \cdot [n, n] \cdot [n, n]$$、截断后 $$[m, r] \cdot [r, r] \cdot [r, n]$$，以及 LoRA 的 $$x \to Ax \to B(Ax)$$，都是读形状；参数量 $$r(m + n)$$ 与结合律带来的两千倍成本差都从形状直接读出。
+[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)建立的 $$[m, k] \times [k, n] \to [m, n]$$ 在其后每一篇都以新身份出现。[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)的内积是它的最小情形——$$[1, d] \times [d, 1]$$ 得一个标量——而 attention 的 $$QK^T$$ 是 $$[T, d_h] \times [d_h, T]$$ 得一张 $$T \times T$$ 的表，余弦检索归一化后是 $$[1, 1024] \times [1024, N]$$ 一次算完全库。[《正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)的 SVD 形状图 $$[m, n] = [m, n] \cdot [n, n] \cdot [n, n]$$、截断后 $$[m, r] \cdot [r, r] \cdot [r, n]$$，以及 LoRA 的 $$x \to Ax \to B(Ax)$$，都是读形状；参数量 $$r(m + n)$$ 与结合律带来的两千倍成本差都从形状直接读出。
 
-第七篇把同一条规则用在导数上：梯度与参数同形，Jacobian 是 $$[\dim y, \dim x]$$，链式法则的向量形式 $$[1, m] \times [m, n] = [1, n]$$ 用形状规则检查；反向传播工程上从不构造 $$[4096, 4096]$$ 的 Jacobian，而是算"上游梯度 × Jacobian"这个乘积。读任何梯度公式，第一件事仍然是对形状。
+[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)把同一条规则用在导数上：梯度与参数同形，Jacobian 是 $$[\dim y, \dim x]$$，链式法则的向量形式 $$[1, m] \times [m, n] = [1, n]$$ 用形状规则检查；反向传播工程上从不构造 $$[4096, 4096]$$ 的 Jacobian，而是算"上游梯度 × Jacobian"这个乘积。读任何梯度公式，第一件事仍然是对形状。
 
-成本规则是形状规则的影子：第一篇的 $$2mnk$$ 给出一个 token 过模型 $$\approx 2N$$、训练 $$\approx 6ND$$，第八篇的 Chinchilla 约束 $$C = 6ND$$ 直接沿用它——scaling law 的整套约束极值建立在第一篇的两条规则上。
+成本规则是形状规则的影子：[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的 $$2mnk$$ 给出一个 token 过模型 $$\approx 2N$$、训练 $$\approx 6ND$$，[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)的 Chinchilla 约束 $$C = 6ND$$ 直接沿用它——scaling law 的整套约束极值建立在[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的两条规则上。
 
 ### 2. 独立和的方差相加：从初始化到置信区间
 
-第四篇的一条性质——独立变量之和方差相加、标准差只按 $$\sqrt{n}$$ 涨——在系列里出现了六次。第四篇自己用它推三件事：一层网络输出的方差是 $$d\sigma_W^2\sigma_x^2$$，所以初始化标准差取 $$1/\sqrt{d}$$ 量级（Llama 的 0.02 与 $$1/\sqrt{4096} = 0.0156$$ 同量级）；扩散 $$T$$ 步加噪等价一步；attention 的 $$q^T k$$ 是 $$d_k$$ 项之和，方差 $$d_k$$，$$d_k = 128$$ 时标准差约 11.3，不除 $$\sqrt{d_k}$$ softmax 就饱和。第二篇从另一侧说了同一件事：内积同时受长度影响，QK-norm 把长度去掉才稳定。
+[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)的一条性质——独立变量之和方差相加、标准差只按 $$\sqrt{n}$$ 涨——在系列里出现了六次。[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)自己用它推三件事：一层网络输出的方差是 $$d\sigma_W^2\sigma_x^2$$，所以初始化标准差取 $$1/\sqrt{d}$$ 量级（Llama 的 0.02 与 $$1/\sqrt{4096} = 0.0156$$ 同量级）；扩散 $$T$$ 步加噪等价一步；attention 的 $$q^T k$$ 是 $$d_k$$ 项之和，方差 $$d_k$$，$$d_k = 128$$ 时标准差约 11.3，不除 $$\sqrt{d_k}$$ softmax 就饱和。[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)从另一侧说了同一件事：内积同时受长度影响，QK-norm 把长度去掉才稳定。
 
-第七篇用它解释随机梯度：batch 均值的方差 $$\propto 1/B$$，噪声决定学习率的上限，这是"batch 变大学习率要跟着调"的来源。第八篇把它变成评测的工具：$$\hat p$$ 是 $$n$$ 个独立 0/1 的平均，$$\text{SE} = \sqrt{p(1 - p)/n}$$，题数翻四倍标准误减半；两个独立估计之差的方差相加，所以差值的 SE 是 $$\sqrt{\text{SE}_1^2 + \text{SE}_2^2}$$，HumanEval 的显著差异才要 8.7 个点。中心极限定理（第四篇）则保证这些和近似高斯，1.96 这个数字才可用。
+[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)用它解释随机梯度：batch 均值的方差 $$\propto 1/B$$，噪声决定学习率的上限，这是"batch 变大学习率要跟着调"的来源。[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)把它变成评测的工具：$$\hat p$$ 是 $$n$$ 个独立 0/1 的平均，$$\text{SE} = \sqrt{p(1 - p)/n}$$，题数翻四倍标准误减半；两个独立估计之差的方差相加，所以差值的 SE 是 $$\sqrt{\text{SE}_1^2 + \text{SE}_2^2}$$，HumanEval 的显著差异才要 8.7 个点。中心极限定理（[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)）则保证这些和近似高斯，1.96 这个数字才可用。
 
 ### 3. 同一个模板：把什么概率放进负对数
 
-第四篇定义了对象——语言模型是 $$p(x_t \mid x_{<t})$$，RL 里的策略 $$\pi(y \mid x)$$ 是同一个条件分布。第五篇从它出发三步推出 $$-\frac{1}{T}\sum_t\log p_\theta(x_t \mid x_{<t})$$，并指出这三行是后面所有 loss 的模板：SFT 换成只对回答求和，奖励模型换成 $$\sigma(r_w - r_l)$$，DPO 再换一次，分类换成真实类别的概率。读新 loss 先问"什么概率进了 $$-\log$$"。
+[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)定义了对象——语言模型是 $$p(x_t \mid x_{<t})$$，RL 里的策略 $$\pi(y \mid x)$$ 是同一个条件分布。[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)从它出发三步推出 $$-\frac{1}{T}\sum_t\log p_\theta(x_t \mid x_{<t})$$，并指出这三行是后面所有 loss 的模板：SFT 换成只对回答求和，奖励模型换成 $$\sigma(r_w - r_l)$$，DPO 再换一次，分类换成真实类别的概率。读新 loss 先问"什么概率进了 $$-\log$$"。
 
-第六篇给出模板的信息论解释与两次套用：one-hot 时交叉熵只剩 $$-\log q(x_t)$$，所以"最小化交叉熵"与"最大似然"是同一件事；Bradley-Terry 的 $$\sigma(r_w - r_l)$$ 放进 $$-\log$$ 是奖励模型的 loss（逻辑回归），闭式解反解出的 $$r$$ 代进去、$$Z(x)$$ 抵消是 DPO。第七篇对模板求导：softmax + 交叉熵的梯度 $$p - y$$，蒸馏只是把 $$y$$ 换成软分布；策略梯度 $$\mathbb{E}[R\nabla\log\pi]$$ 是"按奖励加权的最大似然"——$$\nabla\log\pi_\theta(y)$$ 正是把 $$y$$ 当训练数据时 MLE 的梯度。四篇合起来，预训练、SFT、奖励模型、DPO、REINFORCE、GRPO 的目标函数只是同一个 $$-\log p$$ 换了六次概率。
+[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)给出模板的信息论解释与两次套用：one-hot 时交叉熵只剩 $$-\log q(x_t)$$，所以"最小化交叉熵"与"最大似然"是同一件事；Bradley-Terry 的 $$\sigma(r_w - r_l)$$ 放进 $$-\log$$ 是奖励模型的 loss（逻辑回归），闭式解反解出的 $$r$$ 代进去、$$Z(x)$$ 抵消是 DPO。[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)对模板求导：softmax + 交叉熵的梯度 $$p - y$$，蒸馏只是把 $$y$$ 换成软分布；策略梯度 $$\mathbb{E}[R\nabla\log\pi]$$ 是"按奖励加权的最大似然"——$$\nabla\log\pi_\theta(y)$$ 正是把 $$y$$ 当训练数据时 MLE 的梯度。四篇合起来，预训练、SFT、奖励模型、DPO、REINFORCE、GRPO 的目标函数只是同一个 $$-\log p$$ 换了六次概率。
 
 ### 4. 拉格朗日乘子与"不偏离"的约束
 
-第七篇第七章给出工具：在 $$g(\theta) = c$$ 下极值化 $$f(\theta)$$，构造 $$\mathcal{L} = f - \lambda(g - c)$$，最优点 $$f$$ 的梯度与约束面的梯度平行。它在系列里解了两个约束极值。第六篇：在 $$\sum_y\pi(y) = 1$$ 下最大化 $$\mathbb{E}_\pi[r] - \beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$，得闭式解 $$\pi^* \propto \pi_{\text{ref}}e^{r/\beta}$$——最优策略 = 参考模型 × 按奖励指数加权，$$\beta$$ 小时放大得猛；这个解是 DPO 推导链的第一步。第八篇：在 $$6ND = C$$ 下最小化 $$L(N, D)$$，得 $$\alpha A/N^\alpha = \beta B/D^\beta$$——模型太小与数据太少的损失按 $$\alpha : \beta$$ 平衡，解出 $$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$。
+[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html#七拉格朗日乘子)的「拉格朗日乘子」一章给出工具：在 $$g(\theta) = c$$ 下极值化 $$f(\theta)$$，构造 $$\mathcal{L} = f - \lambda(g - c)$$，最优点 $$f$$ 的梯度与约束面的梯度平行。它在系列里解了两个约束极值。[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)：在 $$\sum_y\pi(y) = 1$$ 下最大化 $$\mathbb{E}_\pi[r] - \beta D_{\mathrm{KL}}(\pi \Vert \pi_{\text{ref}})$$，得闭式解 $$\pi^* \propto \pi_{\text{ref}}e^{r/\beta}$$——最优策略 = 参考模型 × 按奖励指数加权，$$\beta$$ 小时放大得猛；这个解是 DPO 推导链的第一步。[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：在 $$6ND = C$$ 下最小化 $$L(N, D)$$，得 $$\alpha A/N^\alpha = \beta B/D^\beta$$——模型太小与数据太少的损失按 $$\alpha : \beta$$ 平衡，解出 $$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$。
 
-"不偏离"这条约束本身也贯穿三篇。第六篇说 RLHF 的 KL 项是 reverse 方向，策略在参考模型的高概率区里收窄，$$\beta$$ 越大越贴近参考模型；第七篇的 PPO 把 $$\pi_\theta/\pi_{\text{old}}$$ 裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$ 并加 KL 惩罚，是同一个约束换成"每步不要走太远"；DPO 的 loss 里 $$\pi_{\text{ref}}$$ 之所以出现，就是因为闭式解带着它——去掉 $$\pi_{\text{ref}}$$，loss 退化成只比较策略自己给两个回答的对数概率，约束消失。
+"不偏离"这条约束本身也贯穿三篇。[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)说 RLHF 的 KL 项是 reverse 方向，策略在参考模型的高概率区里收窄，$$\beta$$ 越大越贴近参考模型；[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)的 PPO 把 $$\pi_\theta/\pi_{\text{old}}$$ 裁剪在 $$[1 - \epsilon, 1 + \epsilon]$$ 并加 KL 惩罚，是同一个约束换成"每步不要走太远"；DPO 的 loss 里 $$\pi_{\text{ref}}$$ 之所以出现，就是因为闭式解带着它——去掉 $$\pi_{\text{ref}}$$，loss 退化成只比较策略自己给两个回答的对数概率，约束消失。
 
 ### 5. loss 这个数字的一生
 
-系列里的数字线可以沿着一条训练曲线读。第五篇：训练第一步 loss 应在 $$\ln V$$——Llama-3 的 128256 词表给 11.8，远高是初始化太大、远低是泄漏。第六篇：$$\ln V$$ 就是均匀分布的熵，随机初始化的模型交叉熵等于它；训练中 loss 1.8 读作 PPL 6.05、2.6 bit/token，看到 PPL 6 要知道 loss 1.8。第六篇又给出下限：$$H(p, q) = H(p) + D_{\mathrm{KL}}$$，loss 降不到数据的熵以下，Chinchilla 的 $$E = 1.69$$ 是对这条渐近线的估计。
+系列里的数字线可以沿着一条训练曲线读。[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)：训练第一步 loss 应在 $$\ln V$$——Llama-3 的 128256 词表给 11.8，远高是初始化太大、远低是泄漏。[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)：$$\ln V$$ 就是均匀分布的熵，随机初始化的模型交叉熵等于它；训练中 loss 1.8 读作 PPL 6.05、2.6 bit/token，看到 PPL 6 要知道 loss 1.8。它又给出下限：$$H(p, q) = H(p) + D_{\mathrm{KL}}$$，loss 降不到数据的熵以下，Chinchilla 的 $$E = 1.69$$ 是对这条渐近线的估计。
 
-第八篇把这条曲线的终点算出来：$$L = E + A/N^\alpha + B/D^\beta$$，8B 配 160B token 是 2.16，配 15T 是 1.95，多花 94 倍数据换 0.21 nat，值不值取决于推理成本；70B 配 1.4T 是 1.94。第一篇的 $$6ND$$ 给出这条曲线每一段要付的算力。从 11.8 出发、经过 1.95、逼近 1.69——这一个数字把第一、五、六、八篇串在一起，而第五篇提醒：PPL 依赖 tokenizer，跨 tokenizer 比要换成 bits per byte。
+[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)把这条曲线的终点算出来：$$L = E + A/N^\alpha + B/D^\beta$$，8B 配 160B token 是 2.16，配 15T 是 1.95，多花 94 倍数据换 0.21 nat，值不值取决于推理成本；70B 配 1.4T 是 1.94。[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的 $$6ND$$ 给出这条曲线每一段要付的算力。从 11.8 出发、经过 1.95、逼近 1.69——这一个数字把这四篇串在一起，而[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)提醒：PPL 依赖 tokenizer，跨 tokenizer 比要换成 bits per byte。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -390,7 +390,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：$$C = 6ND$$；第八篇：$$D = 20N$$ 代入得 $$120N^2 = 10^{24}$$，$$N \approx 91$$B、$$D \approx 1.8$$T；第一篇：推理一个 token $$2N \approx 1.8 \times 10^{11}$$ FLOPs；第八篇：$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$，算力 ×10 则 $$N$$ ×2.8、$$D$$ ×3.5——注意这两个指数与前半用的固定 $$D/N = 20$$ 不是同一套口径：按 0.45 / 0.55 外推 $$D/N$$ 会随算力涨（×10 时从 20 变成约 25），$$D/N \approx 20$$ 是 Chinchilla 在实验规模上用另两种方法得到的经验比例（第八篇 §五.4 的"诚实注脚"）。答题时说明用了哪一套。
+   [《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)：$$C = 6ND$$；[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：$$D = 20N$$ 代入得 $$120N^2 = 10^{24}$$，$$N \approx 91$$B、$$D \approx 1.8$$T；[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)：推理一个 token $$2N \approx 1.8 \times 10^{11}$$ FLOPs；[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：$$N_{\text{opt}} \propto C^{0.45}$$、$$D_{\text{opt}} \propto C^{0.55}$$，算力 ×10 则 $$N$$ ×2.8、$$D$$ ×3.5——注意这两个指数与前半用的固定 $$D/N = 20$$ 不是同一套口径：按 0.45 / 0.55 外推 $$D/N$$ 会随算力涨（×10 时从 20 变成约 25），$$D/N \approx 20$$ 是 Chinchilla 在实验规模上用另两种方法得到的经验比例（[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html) §五.4 的"诚实注脚"）。答题时说明用了哪一套。
 
    </details>
 
@@ -398,7 +398,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第八篇：半宽 $$= 1.96\,\text{SE}$$，需要 $$\text{SE} = 1.53\%$$，$$n = 0.8 \times 0.2 / 0.0153^2 \approx 680$$ 题；第四篇：样本均值的标准差是 $$\sigma/\sqrt n$$，误差减半要四倍样本——6.1 → 3 略多于减半，所以约 4.2 倍、从 164 到约 680。
+   [《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：半宽 $$= 1.96\,\text{SE}$$，需要 $$\text{SE} = 1.53\%$$，$$n = 0.8 \times 0.2 / 0.0153^2 \approx 680$$ 题；[《概率入门》](/probability-basics-language-model-as-conditional-distribution.html)：样本均值的标准差是 $$\sigma/\sqrt n$$，误差减半要四倍样本——6.1 → 3 略多于减半，所以约 4.2 倍、从 164 到约 680。
 
    </details>
 
@@ -406,7 +406,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：初始 loss $$\ln 128256 = 11.8$$；第六篇：PPL $$= e^{1.95} \approx 7.0$$；第六篇 + 第八篇：loss 降不到数据的熵 $$E = 1.69$$ 以下，对应 PPL $$e^{1.69} \approx 5.4$$——这是渐近线，且该常数只有量级参考价值。
+   [《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)：初始 loss $$\ln 128256 = 11.8$$；[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)：PPL $$= e^{1.95} \approx 7.0$$；[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html) + [《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)：loss 降不到数据的熵 $$E = 1.69$$ 以下，对应 PPL $$e^{1.69} \approx 5.4$$——这是渐近线，且该常数只有量级参考价值。
 
    </details>
 
@@ -414,7 +414,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：$$\frac{d}{du}\log\sigma(u) = 1 - \sigma(u)$$，所以 $$\partial\mathcal{L}/\partial u = -(1 - \sigma(u)) = -\sigma(-u)$$，对参数的梯度是 $$-(1 - \sigma(u))\,\beta\,[\nabla\log\pi_\theta(y_w) - \nabla\log\pi_\theta(y_l)]$$；第六篇：$$u$$ 大意味着策略相对参考模型已经明显更偏好 $$y_w$$，此时 $$1 - \sigma(u) \to 0$$，这对样本几乎不再提供梯度——与第七篇 $$p - y$$"预测越准梯度越小"是同一件事。
+   [《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)：$$\frac{d}{du}\log\sigma(u) = 1 - \sigma(u)$$，所以 $$\partial\mathcal{L}/\partial u = -(1 - \sigma(u)) = -\sigma(-u)$$，对参数的梯度是 $$-(1 - \sigma(u))\,\beta\,[\nabla\log\pi_\theta(y_w) - \nabla\log\pi_\theta(y_l)]$$；[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)：$$u$$ 大意味着策略相对参考模型已经明显更偏好 $$y_w$$，此时 $$1 - \sigma(u) \to 0$$，这对样本几乎不再提供梯度——与[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)里 $$p - y$$"预测越准梯度越小"是同一件事。
 
    </details>
 
@@ -422,7 +422,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：41.9M 可训练参数，每参数 16 字节，约 0.67 GB（全量微调是 8.03B × 16 字节 = 128 GB；冻结的权重仍要放显存，所以总共是十几 GB）；第一篇：一个参数用一次乘一次加，LoRA 每 token 多 $$2 \times 41.9\text{M} \approx 84$$ MFLOPs，对 15 GFLOPs 的前向是 0.56%，且要按 $$Ax \to B(Ax)$$ 的顺序算。
+   [《正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)：41.9M 可训练参数，每参数 16 字节，约 0.67 GB（全量微调是 8.03B × 16 字节 = 128 GB；冻结的权重仍要放显存，所以总共是十几 GB）；[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)：一个参数用一次乘一次加，LoRA 每 token 多 $$2 \times 41.9\text{M} \approx 84$$ MFLOPs，对 15 GFLOPs 的前向是 0.56%，且要按 $$Ax \to B(Ax)$$ 的顺序算。
 
    </details>
 
@@ -516,11 +516,11 @@ Table: 掌握程度的判据
 
 - **不是数学教材**：每个概念只讲到后面用到的深度。SVD 讲到"任何矩阵可以分解成正交基与奇异值、截断即低秩近似"，不证明存在性；中心极限定理讲到"为什么可以用正态近似"，不证明。
 - **不在最小集里的**：测度论、泛函分析、随机过程、矩阵微分的完整体系、凸优化的对偶与内点法。用到时（比如扩散模型的 SDE 视角）在对应的层按需补一节。
-- **反向传播的完整推导、初始化与归一化、Momentum / Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在第七篇的 SGD 之上，设计动机要到训练神经网络时才看得见，在 L3 [《深度学习基础》](/deep-learning-foundations.html)。
-- **Transformer 的完整算账、scaling law 的实验设计**：第一篇的两条规则与第八篇的拟合在 L4 [《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
-- **SFT、奖励模型、DPO 一族、PPO / GRPO 的配方**：第五、六、七篇给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
-- **量化、投机解码、LoRA 的工程**：第二、三、六篇给了范数、低秩与总变差，L6 [《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)展开。
-- **代码**：前四篇与第六篇不配脚本，算例都是可以手算或用计算器算的数字，目的是建立"看到公式先代个数"的习惯；第五、七、八篇的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合）。系统的动手部分从 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)开始，把形状规则、广播、交叉熵在代码里练一遍。
+- **反向传播的完整推导、初始化与归一化、Momentum / Adam / AdamW、weight decay 与 $$L_2$$ 正则的区别、梯度裁剪**：建立在[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)的 SGD 之上，设计动机要到训练神经网络时才看得见，在 L3 [《深度学习基础》](/deep-learning-foundations.html)。
+- **Transformer 的完整算账、scaling law 的实验设计**：[《向量、矩阵与形状》](/vectors-matrices-shapes-and-flops.html)的两条规则与[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)的拟合在 L4 [《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)与[《预训练：从 tokenizer 到训练配方》](/pretraining-from-tokenizer-to-training-recipe.html)里被用来算整个模型与整次训练的账。
+- **SFT、奖励模型、DPO 一族、PPO / GRPO 的配方**：[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)、[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)与[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)给了它们的数学，L5 [《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)讲怎么用。
+- **量化、投机解码、LoRA 的工程**：[《内积、范数与余弦相似度》](/inner-product-norms-and-cosine-similarity.html)、[《正交与旋转、特征值与 SVD》](/orthogonal-rotation-svd-and-low-rank.html)与[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)分别给了范数、低秩与总变差，L6 [《高效推理与压缩》](/efficient-inference-and-compression-for-llms.html)展开。
+- **代码**：前四篇与[《熵、交叉熵与 KL》](/entropy-cross-entropy-and-kl-to-dpo.html)不配脚本，算例都是可以手算或用计算器算的数字，目的是建立"看到公式先代个数"的习惯；[《从最大似然到交叉熵》](/from-maximum-likelihood-to-cross-entropy.html)、[《导数、梯度与链式法则》](/derivatives-gradients-chain-rule-and-policy-gradient.html)与[《统计推断与拟合》](/statistical-inference-and-fitting-scaling-laws.html)的例子与实验在 [ai-learning-labs/math-for-ai](https://github.com/arganzheng/ai-learning-labs/tree/main/math-for-ai)（硬币似然、GPT-2 采样、玩具策略梯度、nanoGPT 上的最小 RL、多种子实跑、scaling law 拟合）。系统的动手部分从 L1 [《算法工程师的工具箱》](/tooling-for-ai-algorithm-engineers.html)开始，把形状规则、广播、交叉熵在代码里练一遍。
 - **地图定位**：三张地图的分工与本系列在其中的位置见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 回到总纲：[《算法工程师的数学：读公式不卡壳的最小集》](/math-for-ai-algorithm-engineers.html)。

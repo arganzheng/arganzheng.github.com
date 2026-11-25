@@ -9,7 +9,7 @@ date: 2026-05-25 20:00:00
 updated: 2026-11-23
 ---
 
-四篇正文回答了一个问题：**[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)那六行代码，执行时各经过哪些文件的哪些函数**。第一篇读模型的加载与一次前向，第二篇读 `generate` 的循环，第三篇读文本与数据两条流水线，第四篇读 LoRA 怎么挂上去与三种 loss 各在哪一行。本文把四篇压成一张「问题 → 文件 → 函数」的索引表，拎出贯穿五个库的四条设计线，再给一套自测。
+四篇正文回答了一个问题：**[工具箱的《Hugging Face 生态》](/hugging-face-ecosystem-six-libraries-and-a-lora-sft.html)那六行代码，执行时各经过哪些文件的哪些函数**。[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)读模型的加载与一次前向，[《generate》](/transformers-generate-call-chain.html)读 `generate` 的循环，[《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html)读文本与数据两条流水线，[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)读 LoRA 怎么挂上去与三种 loss 各在哪一行。本文把四篇压成一张「问题 → 文件 → 函数」的索引表，拎出贯穿五个库的四条设计线，再给一套自测。
 
 > **读完这四篇，你应该能回答哪些问题？[^q0] 哪些文件名、函数名与数字必须能脱口而出？[^q1] 怎么判断自己是"读过"还是"掌握"了？[^q2]**
 
@@ -254,11 +254,11 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；第四篇的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。
+   [《tokenizers 与 datasets》](/tokenizers-and-datasets-from-messages-to-input-ids.html)：`chat_template_utils.py` 检查模板里是否有 `{% raw %}{% generation %}{% endraw %}`，Qwen2.5 的模板没有，`return_assistant_tokens_mask` 报 `ValueError`；[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `_prepare_dataset` 传了这个参数。修法一：换一个带 `{% raw %}{% generation %}{% endraw %}` 的模板（要保证与原模板渲染结果一致，否则分布漂移）；修法二：改成 prompt-completion 格式走 `completion_mask`（多轮对话只能对最后一轮算 loss）。
 
    </details>
 
-2. 手写 decode 循环忘了传 `past_key_values`、只喂新 token，输出乱了。从第一篇的 `forward` 与第二篇的 `prepare_inputs_for_generation` 说明两处错。
+2. 手写 decode 循环忘了传 `past_key_values`、只喂新 token，输出乱了。从[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)的 `forward` 与[《generate》](/transformers-generate-call-chain.html)的 `prepare_inputs_for_generation` 说明两处错。
 
    <details markdown="1"><summary>答案</summary>
 
@@ -266,11 +266,11 @@ Table: 常见误区与正确说法
 
    </details>
 
-3. DPO 用 peft 训练时没有 `ref_model`。参考 log p 从哪来？涉及第四篇的哪个上下文与第一篇的哪一层？
+3. DPO 用 peft 训练时没有 `ref_model`。参考 log p 从哪来？涉及[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的哪个上下文与[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)的哪一层？
 
    <details markdown="1"><summary>答案</summary>
 
-   `DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——第一篇里被 `setattr` 换掉的那些 `nn.Linear`。
+   `DPOTrainer` 在 `ref_model is None and is_peft_model` 时用 `with self.model.disable_adapter():` 再前向一次；`disable_adapter` 让每个 `lora.Linear.forward` 走 `self.base_layer(x)` 分支——[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)里被 `setattr` 换掉的那些 `nn.Linear`。
 
    </details>
 
@@ -357,7 +357,7 @@ Table: 常见误区与正确说法
 | 程度 | 判据 |
 |---|---|
 | 读过 | 能说出四篇各读了哪几个文件 |
-| 理解 | A 组至少 8 题、B 组至少 4 题不看答案答对；能画出第一篇的六步与第二篇的四段 |
+| 理解 | A 组至少 8 题、B 组至少 4 题不看答案答对；能画出[《transformers 模型侧》](/transformers-from-pretrained-to-forward-and-loss.html)的六步与[《generate》](/transformers-generate-call-chain.html)的四段 |
 | 掌握 | 拿到一个没读过的 trl Trainer 或 transformers 新模型目录，30 分钟内找到它的 `compute_loss` / 注册表 / `forward` 里的注册调用，并说出与本系列哪一篇的骨架相同 |
 
 Table: 掌握程度的判据
@@ -372,7 +372,7 @@ Table: 掌握程度的判据
 - **trl 的其他 Trainer。**`PPOTrainer`（带 value head）、`RewardTrainer`、`KTOTrainer`、`OnlineDPOTrainer`，以及 GRPO 的 vLLM 采样后端（`use_vllm=True`，`vllm_client.py`）。
 - **datasets 的 streaming。**`IterableDataset` 与 `iterable_dataset.py`：不落 Arrow、边下边用，`shuffle` 变成缓冲区随机——预训练规模的数据只能这样读。
 - **推理侧。**第二篇的 `_sample` 是静态 batch、Python 循环、每层 `cat` 的 KV cache——[vLLM 源码系列](/deep-dive-into-vllm.html)读 continuous batching 与 PagedAttention 怎么把这三件事各换掉一个。
-- **训练侧。**第四篇的 `GRPOTrainer` 采样与训练在同一进程——[verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)读 rollout 与 actor 分到不同 worker 之后同一条 GRPO loss 长什么样。
+- **训练侧。**[《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `GRPOTrainer` 采样与训练在同一进程——[verl 源码导读](/verl-source-walkthrough-from-a-grpo-config-to-every-worker.html)读 rollout 与 actor 分到不同 worker 之后同一条 GRPO loss 长什么样。
 - 本系列在整张地图上的位置（L4–L5 的深入篇）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
 版本与文件名以总纲所述为准；这几个库的目录结构一年内会变，读的方法不变。

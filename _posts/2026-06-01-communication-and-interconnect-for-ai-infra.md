@@ -518,7 +518,7 @@ Table: 与实践线平行的源码阅读线
 ### 硬件与版本基线
 
 - 硬件：以 **8 卡 A100 / H100 加 NVSwitch 的服务器** 为节点内的默认分析对象（A100 NVLink 双向合计 600 GB/s，H100 900 GB/s；PCIe 4.0 / 5.0 x16），节点间以 **InfiniBand HDR 200 Gb/s 或 NDR 400 Gb/s、每 GPU 一张网卡** 为默认；RoCE v2 的差异随文标注；Blackwell（第五代 NVLink、NVL72）在涉及处标注。文中带宽数字为公开标称值，且明确区分"单向"与"双向合计"；实测会因固件、拓扑、功耗与配置有差异；
-- 软件：NCCL 2.28.9（源码路径以此为准，2.29 的目录调整随文标注）、nccl-tests 2.18.3、CUDA 12.x、PyTorch 2.12（环境变量名以此为准，2.4 之前的早期版本无 `TORCH_` 前缀）、vLLM v0.23.0（**更新 @2026-06-24**：v0.23.0 发布于 2026-06-14，仅第七、八篇引用其源码，本条随第七篇发布补记）、Megatron-LM core_v0.18.0（**更新 @2026-06-27**：发布于 2026-06-22，仅第八篇引用其 `megatron/core/transformer/moe/`，随第八篇补记）、DeepEP v1.2.1（**更新 @2026-06-27**：发布于 2025-09-15，仅第八篇引用；其依赖的 NVSHMEM 本地无源码，只按 DeepEP 源码与公开文档描述概念，随第八篇补记）、rdma-core 与 `libibverbs`、`nvidia-peermem` 或 DMA-BUF；
+- 软件：NCCL 2.28.9（源码路径以此为准，2.29 的目录调整随文标注）、nccl-tests 2.18.3、CUDA 12.x、PyTorch 2.12（环境变量名以此为准，2.4 之前的早期版本无 `TORCH_` 前缀）、vLLM v0.23.0（**更新 @2026-06-24**：v0.23.0 发布于 2026-06-14，仅[《推理侧的通信》](/inference-communication-custom-all-reduce-and-kv-transfer.html)与[《MoE 的通信》](/moe-communication-all-to-all-deepep-and-gpu-initiated.html)引用其源码，本条随前者发布补记）、Megatron-LM core_v0.18.0（**更新 @2026-06-27**：发布于 2026-06-22，仅《MoE 的通信》引用其 `megatron/core/transformer/moe/`，随该篇补记）、DeepEP v1.2.1（**更新 @2026-06-27**：发布于 2025-09-15，仅《MoE 的通信》引用；其依赖的 NVSHMEM 本地无源码，只按 DeepEP 源码与公开文档描述概念，随该篇补记）、rdma-core 与 `libibverbs`、`nvidia-peermem` 或 DMA-BUF；
 - 版本敏感处随文标注：NCCL 的算法集合（NVLS、PAT 的加入版本）与 `NCCL_ALGO` 的可选值、ProcessGroupNCCL 的 `TORCH_NCCL_*` 环境变量（早期版本无 `TORCH_` 前缀）、Flight Recorder 的接口、vLLM all_reduce 后端的选择顺序与 `--all2all-backend` 的可选值、NIXL 与 Mooncake 的接口、DeepEP 的 `Buffer` 接口与它设置的 `NVSHMEM_*` 环境变量、Megatron 的 `moe_token_dispatcher_type`。
 
 ### 关于替代硬件

@@ -9,7 +9,7 @@ date: 2026-03-09 20:00:00
 updated: 2026-11-23
 ---
 
-十篇正文回答了一个问题：**LLM 工作里的哪些问题其实是经典机器学习的老问题，它们的经典解法在 LLM 上还成立吗**。第一篇讲什么是学习与泛化；第二、三篇讲线性回归与逻辑回归并指出奖励模型就是后者；第四到六篇从三个基础分类器到 SVM 到树的集成，并算清数据过滤为什么用小模型；第七、八篇讲聚类与降维；第九篇把 MinHash 与 LSH 的概率算清楚；第十篇讲评估——一切结论是否成立的最后一道关。十篇合起来对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L2 层，也是总纲那张"重现表"的逐行展开。
+十篇正文回答了一个问题：**LLM 工作里的哪些问题其实是经典机器学习的老问题，它们的经典解法在 LLM 上还成立吗**。[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)讲泛化；[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)与[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)讲两种线性模型，并指出奖励模型就是逻辑回归；第四到六篇从三个基础分类器到 SVM 到树的集成，并算清数据过滤为什么用小模型；[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)与[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)处理没有标签的向量；[《去重》](/deduplication-minhash-and-lsh-probabilities.html)把 MinHash 与 LSH 的概率算清楚；[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)是一切结论是否成立的最后一道关。十篇合起来对应[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L2 层，也是总纲那张"重现表"的逐行展开。
 
 本文不讲新内容，做三件事：把十篇压成一张表与十段回顾，把贯穿十篇的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"十篇能不能连起来用"。
 
@@ -186,27 +186,27 @@ Table: 本文的章节安排
 
 ### 1. 测试集只能看一次：从 0.255 到 61%
 
-第一篇立下的规矩——参与过任何决策的数据都不再是测试集——在后面每一篇里换一个规模重现。原型是 20 个测试点上挑最好的多项式次数（中位乐观 0.015、均值 0.255）；按组切告诉你连"验证集"都可能是假的——近重复样本随机切时 CV 分数 0.060 vs 真实 0.10。第三篇的奖励模型把它推到极端：91.5% 已等于标注上限 91.3%，再往上就是拟合噪声。第六篇把同一件事搬到数据过滤：训练标签的样本不代表全部语料就是分布偏移。第十篇给出全部量化工具：5 折 vs 单次划分、标准误与 bootstrap、配对 vs 独立、20 个 benchmark 至少一个假显著 61%——在很多个数字里挑最好的那个，挑出来的数字就带了选择偏差。
+[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)立下的规矩——参与过任何决策的数据都不再是测试集——在后面每一篇里换一个规模重现。原型是 20 个测试点上挑最好的多项式次数（中位乐观 0.015、均值 0.255）；按组切告诉你连"验证集"都可能是假的——近重复样本随机切时 CV 分数 0.060 vs 真实 0.10。[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)的奖励模型把它推到极端：91.5% 已等于标注上限 91.3%，再往上就是拟合噪声。[《集成》](/ensembles-random-forest-and-gradient-boosting.html)把同一件事搬到数据过滤：训练标签的样本不代表全部语料就是分布偏移。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)给出全部量化工具：5 折 vs 单次划分、标准误与 bootstrap、配对 vs 独立、20 个 benchmark 至少一个假显著 61%——在很多个数字里挑最好的那个，挑出来的数字就带了选择偏差。
 
 ### 2. 偏差-方差与集成：降得掉的与降不掉的
 
-第一篇的分解与预测带（次数 1 偏差² 0.158、次数 15 方差 0.662）贯穿五篇。第四篇 KNN 的 $$k$$（1 → 方差大，150 → 偏差大）与决策树的深度是同一个旋钮的两种形态；第五篇 SVM 的 $$C$$ 与 RBF 的 $$\gamma$$ 也是；第六篇 bagging 把方差 0.094 压到 0.007、偏差不变，随机森林靠降低树间相关压得更多，梯度提升则反过来降偏差、用学习率与早停防过拟合。第十篇把它用到 judge 上：多个 judge 平均能降随机误差，位置、长度、自我偏好是系统偏差，平均不掉，只能设计消掉。
+[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)的分解与预测带（次数 1 偏差² 0.158、次数 15 方差 0.662）贯穿五篇。[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html) KNN 的 $$k$$（1 → 方差大，150 → 偏差大）与决策树的深度是同一个旋钮的两种形态；[《SVM 与核方法》](/svm-and-kernel-methods.html) SVM 的 $$C$$ 与 RBF 的 $$\gamma$$ 也是；[《集成》](/ensembles-random-forest-and-gradient-boosting.html) bagging 把方差 0.094 压到 0.007、偏差不变，随机森林靠降低树间相关压得更多，梯度提升则反过来降偏差、用学习率与早停防过拟合。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)把它用到 judge 上：多个 judge 平均能降随机误差，位置、长度、自我偏好是系统偏差，平均不掉，只能设计消掉。
 
 ### 3. 逻辑回归这条骨架：从分类头到奖励模型到校准
 
-第三篇的 $$\sigma(w^T x + b)$$ + 交叉熵是五篇的公共骨架。它是每一个神经网络分类头的原型，softmax 版是语言模型的输出层；以特征差的形式变成奖励模型；第五篇的线性 SVM 是它换了 hinge loss 的近亲，第六篇的 fastText 是它加词袋特征的形态、梯度提升分类用的负梯度 $$y - p$$ 也是它的梯度；第十篇里它输出概率所以有阈值、loss 是对数似然所以天然校准，Platt scaling 就是在分数上再套一个它。
+[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)的 $$\sigma(w^T x + b)$$ + 交叉熵是五篇的公共骨架。它是每一个神经网络分类头的原型，softmax 版是语言模型的输出层；以特征差的形式变成奖励模型；[《SVM 与核方法》](/svm-and-kernel-methods.html)的线性 SVM 是它换了 hinge loss 的近亲，[《集成》](/ensembles-random-forest-and-gradient-boosting.html)的 fastText 是它加词袋特征的形态、梯度提升分类用的负梯度 $$y - p$$ 也是它的梯度；[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)里它输出概率所以有阈值、loss 是对数似然所以天然校准，Platt scaling 就是在分数上再套一个它。
 
 ### 4. 梯度下降这条线：从一个碗到函数空间
 
-第二篇在二维碗上把梯度下降看清：学习率上限 $$2/\lambda_{\max}$$、条件数、标准化让碗变圆、SGD 的噪声与 batch。第三篇的逻辑回归没有闭式解只能 GD，梯度形式 $$(p - y)x$$ 不变；第五篇的 hinge 用次梯度；第六篇的梯度提升把参数从向量 $$w$$ 换成函数 $$F$$，每一步的更新量用一棵树表示——"拟合残差"就是"沿负梯度走一步"；第七篇 K-Means 的两步是坐标下降、也到局部最优。L3 的深度学习优化器是这条线的延续。
+[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)在二维碗上把梯度下降看清：学习率上限 $$2/\lambda_{\max}$$、条件数、标准化让碗变圆、SGD 的噪声与 batch。[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)的逻辑回归没有闭式解只能 GD，梯度形式 $$(p - y)x$$ 不变；[《SVM 与核方法》](/svm-and-kernel-methods.html)的 hinge 用次梯度；[《集成》](/ensembles-random-forest-and-gradient-boosting.html)的梯度提升把参数从向量 $$w$$ 换成函数 $$F$$，每一步的更新量用一棵树表示——"拟合残差"就是"沿负梯度走一步"；[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html) K-Means 的两步是坐标下降、也到局部最优。L3 的深度学习优化器是这条线的延续。
 
 ### 5. 相似度这条线：从欧氏距离到 attention
 
-第四篇 KNN 定义"最近"（欧氏、余弦、必须标准化），维度灾难说原始高维空间里距离无意义、要先有 embedding；第五篇的核函数是一个相似度，核回归的"相似度 → 归一化 → 加权值"就是 attention；第七篇用余弦（归一化后的欧氏）在句向量上聚类；第八篇发现 embedding 的各向异性让余弦失去含义、减均值才能比；第九篇的 Jaccard 是集合上的相似度，MinHash 把它变成可 hash 的签名，语义去重又回到余弦。RAG、few-shot 选例、去重召回、attention——全在这一条线上。
+[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)里，KNN 定义"最近"（欧氏、余弦、必须标准化），维度灾难说原始高维空间里距离无意义、要先有 embedding；[《SVM 与核方法》](/svm-and-kernel-methods.html)的核函数是一个相似度，核回归的"相似度 → 归一化 → 加权值"就是 attention；[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)用余弦（归一化后的欧氏）在句向量上聚类；[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)发现 embedding 的各向异性让余弦失去含义、减均值才能比；[《去重》](/deduplication-minhash-and-lsh-probabilities.html)的 Jaccard 是集合上的相似度，MinHash 把它变成可 hash 的签名，语义去重又回到余弦。RAG、few-shot 选例、去重召回、attention——全在这一条线上。
 
 ### 6. 用便宜的近似换掉跑不起的精确，再把代价算清
 
-第六篇的算力账是起点：8B 打分 = 训练算力的 1/3，所以两级做法，代价是分布偏移与误杀。第四篇暴力 KNN $$O(n)$$ → 近似最近邻 $$O(\log n)$$，代价是偶尔漏掉最近的；第五篇核 SVM $$O(n^2)$$ 在大数据上换成线性模型；第七篇聚类放弃"正确"；第八篇先 PCA 到 50 维再 t-SNE。第九篇算到最精确：$$10^9$$ 段两两比较 $$5 \times 10^{17}$$ 对不可能，MinHash 用 512 字节代替集合（代价 ±0.04），LSH 用分桶换掉两两比较（代价由 S 曲线精确给出，实测召回贴着它）。第十篇的对应是大模型不做交叉验证。方法论：先算精确做法的代价，再选近似，再用概率或消融给出近似的误差。
+[《集成》](/ensembles-random-forest-and-gradient-boosting.html)的算力账是起点：8B 打分 = 训练算力的 1/3，所以两级做法，代价是分布偏移与误杀。[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)暴力 KNN $$O(n)$$ → 近似最近邻 $$O(\log n)$$，代价是偶尔漏掉最近的；[《SVM 与核方法》](/svm-and-kernel-methods.html)核 SVM $$O(n^2)$$ 在大数据上换成线性模型；[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)放弃"正确"；[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)先 PCA 到 50 维再 t-SNE。[《去重》](/deduplication-minhash-and-lsh-probabilities.html)算到最精确：$$10^9$$ 段两两比较 $$5 \times 10^{17}$$ 对不可能，MinHash 用 512 字节代替集合（代价 ±0.04），LSH 用分桶换掉两两比较（代价由 S 曲线精确给出，实测召回贴着它）。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)的对应是大模型不做交叉验证。方法论：先算精确做法的代价，再选近似，再用概率或消融给出近似的误差。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -255,11 +255,11 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   不可能——噪声方差 0.09 是验证误差的下限（不可约误差）。看到低于下限的分数，先查验证集是否参与过决策（第一篇在测试集上挑配置的乐观偏差），或验证集里是否有训练样本的近重复（按组切）。
+   不可能——噪声方差 0.09 是验证误差的下限（不可约误差）。看到低于下限的分数，先查验证集是否参与过决策（[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)在测试集上挑配置的乐观偏差），或验证集里是否有训练样本的近重复（按组切）。
 
    </details>
 
-2. 用第一篇的分解数字：次数 1 偏差² 0.158、方差 0.025；次数 4 偏差² 0.003、方差 0.014；次数 15 偏差² 0.008、方差 0.662；噪声 0.09。三个容量的期望误差各是多少，哪个最合适？
+2. 用[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)的分解数字：次数 1 偏差² 0.158、方差 0.025；次数 4 偏差² 0.003、方差 0.014；次数 15 偏差² 0.008、方差 0.662；噪声 0.09。三个容量的期望误差各是多少，哪个最合适？
 
    <details markdown="1"><summary>答案</summary>
 
@@ -271,7 +271,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   上限 $$2 / 50 = 0.04$$；条件数 100；标准化特征让各方向曲率接近（第二篇里条件数 540 万 → 1）。
+   上限 $$2 / 50 = 0.04$$；条件数 100；标准化特征让各方向曲率接近（[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)里条件数 540 万 → 1）。
 
    </details>
 
@@ -279,7 +279,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   超过了标注一致性的上限——第三篇里模型准确率始终贴着上限走（噪声六档全是如此）。要么留出集与训练集有重叠、不再是干净的测试集，要么留出集恰好都是分差大的对；先查数据。
+   超过了标注一致性的上限——[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)里模型准确率始终贴着上限走（噪声六档全是如此）。要么留出集与训练集有重叠、不再是干净的测试集，要么留出集恰好都是分差大的对；先查数据。
 
    </details>
 
@@ -311,7 +311,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$900 / 100 = 9$$。各向异性——所有向量挤在一个窄锥里，余弦失去含义；减均值后再算（第八篇里同 / 异主题差距从 0.14 拉到 0.64）。
+   $$900 / 100 = 9$$。各向异性——所有向量挤在一个窄锥里，余弦失去含义；减均值后再算（[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)里同 / 异主题差距从 0.14 拉到 0.64）。
 
    </details>
 
@@ -337,7 +337,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第六篇：算力账——8B 给 15T 打分已是训练算力的 1/3，用两级做法（大模型标几十万段、fastText 或 GBDT 过全部），标注样本要覆盖代码与非英语否则分布偏移；特征重要性看哪些统计量在起作用。第十篇：阈值高则干净但少、低则多但脏，比较分类器本身用 AUC，决定阈值看精确率 / 召回率；"高质量"是少数类，准确率不能看。第一篇：评估用的留出集不能参与阈值的选择，且要按来源分组切。
+   [《集成》](/ensembles-random-forest-and-gradient-boosting.html)：算力账——8B 给 15T 打分已是训练算力的 1/3，用两级做法（大模型标几十万段、fastText 或 GBDT 过全部），标注样本要覆盖代码与非英语否则分布偏移；特征重要性看哪些统计量在起作用。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：阈值高则干净但少、低则多但脏，比较分类器本身用 AUC，决定阈值看精确率 / 召回率；"高质量"是少数类，准确率不能看。[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：评估用的留出集不能参与阈值的选择，且要按来源分组切。
 
    </details>
 
@@ -345,15 +345,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：奖励模型是逻辑回归作用在特征差上，78% 能不能再涨要看训练 / 验证 gap 与按分差分桶的曲线——人际一致率 70–80% 不是上限（两个独立 80% 正确的标注员互相一致只有 68%）；模型准确率贴着标签正确率时再训才是拟合噪声。第一篇：8B 特征提取器加几万对数据是容量大、数据少的极端，学到的是表面特征；RL 在它上面优化就是去它判断错的地方找漏洞——reward hacking。处理按经典解法：加大 KL 正则、限制步数并监控真实质量（早停）、多个奖励模型取最小或均值（集成）、用当前策略的输出重新标注。第十篇：检查奖励模型的校准——分差过 sigmoid 后应等于人类偏好比例。
+   [《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)：奖励模型是逻辑回归作用在特征差上，78% 能不能再涨要看训练 / 验证 gap 与按分差分桶的曲线——人际一致率 70–80% 不是上限（两个独立 80% 正确的标注员互相一致只有 68%）；模型准确率贴着标签正确率时再训才是拟合噪声。[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：8B 特征提取器加几万对数据是容量大、数据少的极端，学到的是表面特征；RL 在它上面优化就是去它判断错的地方找漏洞——reward hacking。处理按经典解法：加大 KL 正则、限制步数并监控真实质量（早停）、多个奖励模型取最小或均值（集成）、用当前策略的输出重新标注。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：检查奖励模型的校准——分差过 sigmoid 后应等于人类偏好比例。
 
    </details>
 
-3. 5 万条 SFT 数据，怀疑里面有大量同一模板生成的近重复、且主题分布失衡。用第四、七、八、九篇各做什么？
+3. 5 万条 SFT 数据，怀疑里面有大量同一模板生成的近重复、且主题分布失衡。用[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)、[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)、[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)与[《去重》](/deduplication-minhash-and-lsh-probabilities.html)各做什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第七篇：embedding 后 K-Means（$$k = 50$$ 或 200）、每簇抽几条人读，簇大小就是主题占比，模板文本常自成一簇，按簇采样保多样性。第八篇：先看 PCA 第一主成分占比——各向异性时减均值再聚类 / 检索。第九篇：对疑似模板簇做精细版去重——MinHash + LSH 按 S 曲线选 $$(b, r)$$，精确去重先做，意思相同措辞不同的用语义去重。第四篇：候选召回本质是 KNN，5 万条可以暴力算，大了用近似最近邻。
+   [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)：embedding 后 K-Means（$$k = 50$$ 或 200）、每簇抽几条人读，簇大小就是主题占比，模板文本常自成一簇，按簇采样保多样性。[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)：先看 PCA 第一主成分占比——各向异性时减均值再聚类 / 检索。[《去重》](/deduplication-minhash-and-lsh-probabilities.html)：对疑似模板簇做精细版去重——MinHash + LSH 按 S 曲线选 $$(b, r)$$，精确去重先做，意思相同措辞不同的用语义去重。[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)：候选召回本质是 KNN，5 万条可以暴力算，大了用近似最近邻。
 
    </details>
 
@@ -361,7 +361,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇：A 是否参与过决策（选 checkpoint、调 prompt）——是则它已是验证集；用 n-gram 重叠查污染（注意它抓不住改写）、困惑度对比、换私有测试集重测。第十篇：先看区间——A 有几道题（MMLU ±0.8、100 题 ±9）；同一套题用配对检验而不是独立比较；分歧题有几道决定了能分辨的最小差异；若同时报了多个 benchmark，做多重比较校正或看平均分的置信区间。第四篇：污染检测的另一种做法是找测试样本在训练数据里的最近邻。
+   [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：A 是否参与过决策（选 checkpoint、调 prompt）——是则它已是验证集；用 n-gram 重叠查污染（注意它抓不住改写）、困惑度对比、换私有测试集重测。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：先看区间——A 有几道题（MMLU ±0.8、100 题 ±9）；同一套题用配对检验而不是独立比较；分歧题有几道决定了能分辨的最小差异；若同时报了多个 benchmark，做多重比较校正或看平均分的置信区间。[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)：污染检测的另一种做法是找测试样本在训练数据里的最近邻。
 
    </details>
 
@@ -369,7 +369,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第一篇 / 第六篇：集成只降方差——78% 到 81% 是随机误差被平均掉的部分；长度偏好是系统偏差，5 个 judge 都有，平均消不掉。第十篇：先算 κ（人类偏好不平衡时一致率会骗人）；与人和人之间的一致率比——但人际一致率不是 judge 的上限（68% 对 80% 的反例），81% 高于它不说明到顶；三种系统偏差分别设计消掉——对换顺序（本文模拟里位置偏差 21 个点）、控制长度或报长度控制后的胜率、换家族交叉。第三篇：judge 与奖励模型一样，上限是标签与真值的一致率，不是标注员之间的一致率。
+   [《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html) / [《集成》](/ensembles-random-forest-and-gradient-boosting.html)：集成只降方差——78% 到 81% 是随机误差被平均掉的部分；长度偏好是系统偏差，5 个 judge 都有，平均消不掉。[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)：先算 κ（人类偏好不平衡时一致率会骗人）；与人和人之间的一致率比——但人际一致率不是 judge 的上限（68% 对 80% 的反例），81% 高于它不说明到顶；三种系统偏差分别设计消掉——对换顺序（本文模拟里位置偏差 21 个点）、控制长度或报长度控制后的胜率、换家族交叉。[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)：judge 与奖励模型一样，上限是标签与真值的一致率，不是标注员之间的一致率。
 
    </details>
 
@@ -377,7 +377,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   先去重再过滤再聚类，评估贯穿每一步；所有阈值、$$k$$、$$\alpha$$ 都在训练 / 验证数据上定，留出的几百段只在最后出现一次。(1) 去重（第九篇）：`09_minhash_lsh.py` 的流水线——精确 hash → 词级 n-gram MinHash（$$k = 128$$）→ LSH（$$b = 14, r = 8$$，阈值 0.685）→ 候选精确算 Jaccard；记住 $$J \ge 0.7$$ 的对只找到约 89%，保留策略用贪心而不是连通分量（第五章六段文本的例子），模板页另交给第七篇的簇去看。(2) 质量过滤（第六、三篇）：按第六篇的两级做法，人工或大模型标 2000 段好 / 坏，用 `case_03` 的 TF-IDF + 逻辑回归或第六篇的 GBDT 过全部；阈值按第十篇的 P / R 曲线在验证集上定而不是 0.5（两种错各多贵），特征重要性审计它在用什么（长度、标点、模板词都是泄漏的候选）。(3) 聚类 / 降维（第七、八篇）：把 `07_clustering.py` 的 78 句流程换成这 3 万段——句向量 → 先看第一主成分占比、减均值（第八篇各向异性）→ K-Means $$k = 50$$ → 每簇抽几条人读，找垃圾簇、按簇配比保多样性；t-SNE 只用来看，不用它算距离。(4) 评估（第十、一篇）：过滤器报 P / R / AUC 而不是准确率（好坏比例不平衡），校准在验证集上做并只在同分布下相信它；两版过滤规则比较用配对检验或配对 bootstrap；按来源网站做簇 bootstrap 给区间（同站的段落不独立，和第一篇按组切是同一件事）；聚类结果拿人标的小样本算 ARI。
+   先去重再过滤再聚类，评估贯穿每一步；所有阈值、$$k$$、$$\alpha$$ 都在训练 / 验证数据上定，留出的几百段只在最后出现一次。(1) [《去重》](/deduplication-minhash-and-lsh-probabilities.html)：`09_minhash_lsh.py` 的流水线——精确 hash → 词级 n-gram MinHash（$$k = 128$$）→ LSH（$$b = 14, r = 8$$，阈值 0.685）→ 候选精确算 Jaccard；记住 $$J \ge 0.7$$ 的对只找到约 89%，保留策略用贪心而不是连通分量（第五章六段文本的例子），模板页另交给[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)的簇去看。(2) 质量过滤（[《集成》](/ensembles-random-forest-and-gradient-boosting.html)与[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)）：按前者的两级做法，人工或大模型标 2000 段好 / 坏，用 `case_03` 的 TF-IDF + 逻辑回归或[《集成》](/ensembles-random-forest-and-gradient-boosting.html)的 GBDT 过全部；阈值按[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)的 P / R 曲线在验证集上定而不是 0.5（两种错各多贵），特征重要性审计它在用什么（长度、标点、模板词都是泄漏的候选）。(3) [《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)与[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)：把 `07_clustering.py` 的 78 句流程换成这 3 万段——句向量 → 先看第一主成分占比、减均值（[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)里的各向异性）→ K-Means $$k = 50$$ → 每簇抽几条人读，找垃圾簇、按簇配比保多样性；t-SNE 只用来看，不用它算距离。(4) [《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)与[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)：过滤器报 P / R / AUC 而不是准确率（好坏比例不平衡），校准在验证集上做并只在同分布下相信它；两版过滤规则比较用配对检验或配对 bootstrap；按来源网站做簇 bootstrap 给区间（同站的段落不独立，和[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)按组切是同一件事）；聚类结果拿人标的小样本算 ARI。
 
    </details>
 
@@ -407,7 +407,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 算力账：8B 逐段打分 $$2.4 \times 10^{23}$$ FLOP、占训练算力 33.3%，1 亿参数 0.42%，线性模型 0.004%；(2) 两级做法——FineWeb-Edu 用 Llama-3-70B 给 45 万段打分、小模型过全部，DCLM 用 fastText（词袋 + 线性分类器）；GBDT 吃几十个统计特征也常用，特征重要性看哪个在起作用；(3) 标注样本要代表全部语料，否则分布偏移；(4) 阈值是精确率 / 召回率的权衡，按有多少数据、模型多大定；(5) 比较分类器用 AUC；(6) 按语体分开报召回，找系统性误杀——聚类（第七篇）能帮忙发现被误杀的簇。
+   **答案要点**：(1) 算力账：8B 逐段打分 $$2.4 \times 10^{23}$$ FLOP、占训练算力 33.3%，1 亿参数 0.42%，线性模型 0.004%；(2) 两级做法——FineWeb-Edu 用 Llama-3-70B 给 45 万段打分、小模型过全部，DCLM 用 fastText（词袋 + 线性分类器）；GBDT 吃几十个统计特征也常用，特征重要性看哪个在起作用；(3) 标注样本要代表全部语料，否则分布偏移；(4) 阈值是精确率 / 召回率的权衡，按有多少数据、模型多大定；(5) 比较分类器用 AUC；(6) 按语体分开报召回，找系统性误杀——[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)的聚类能帮忙发现被误杀的簇。
    **追问方向**：高质量是少数类时为什么准确率不能看；分类器的概率要不要校准；线性 SVM 与逻辑回归在这里的差别。
    **好答案与一般答案的区别**：一般答案说"训个分类器切个分"；好答案先算算力再选模型，把阈值说成权衡，并主动提分布偏移与误杀。
 
@@ -484,11 +484,11 @@ Table: 掌握程度的判据
 - **后训练算法本身**（L5）：奖励模型怎么训、RLHF 怎么做、DPO 是什么。本系列只到"奖励模型是逻辑回归、会过拟合、上限是标注一致性"。
 - **预训练的数据工程**（L4）：怎么抓、怎么清洗、配比怎么定，在预训练系列的《预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账》。本系列只给它用到的分类器、聚类、去重三个工具。
 - **深度无监督学习**（L7）：自编码器、VAE、VQ-VAE，在多模态系列。
-- **本系列的前置**：[L0 数学](/math-for-ai-algorithm-engineers.html)（范数、SVD、贝叶斯公式、交叉熵、Bradley-Terry、梯度下降、置信区间）与 [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)（NumPy、Pandas、scikit-learn 的接口）。标准误、置信区间、p 值的定义在《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》，第十篇的配对检验与多重比较直接用了它。
+- **本系列的前置**：[L0 数学](/math-for-ai-algorithm-engineers.html)（范数、SVD、贝叶斯公式、交叉熵、Bradley-Terry、梯度下降、置信区间）与 [L1 工具箱](/tooling-for-ai-algorithm-engineers.html)（NumPy、Pandas、scikit-learn 的接口）。标准误、置信区间、p 值的定义在《[算法工程师的数学（08）：统计推断与拟合——评测的置信区间与 scaling law](/statistical-inference-and-fitting-scaling-laws.html)》，[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)里的配对检验与多重比较直接用了它。
 - **地图定位**：这些系列在[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)的 L3 至 L7 层各有总纲。
 
 回到总纲：[《LLM 时代还要学经典机器学习吗：只讲它在哪里重现》](/classical-machine-learning-in-the-llm-era.html)。
 
-[^q0]: 十组，见第一章总览表的"回答的问题"列：从 benchmark 涨了几个点是真的还是泄漏（第一篇），到 `weight_decay` 与 Ridge 的关系（第二篇）、奖励模型为什么到 80% 上不去（第三篇）、不训练的分类器为什么到处都是（第四篇）、attention 与核回归的关系（第五篇）、数据过滤为什么用小模型（第六篇）、语料里有什么主题（第七篇）、为什么任意两句余弦都在 0.7 以上（第八篇）、Jaccard 0.7 从哪来（第九篇）、20 个领先 12 个算不算（第十篇）。详见[第二章](#二逐篇回顾)。
+[^q0]: 十组，见第一章总览表的"回答的问题"列：从 benchmark 涨了几个点是真的还是泄漏（[《什么是学习》](/what-is-learning-splits-generalization-and-bias-variance.html)），到 `weight_decay` 与 Ridge 的关系（[《线性回归》](/linear-regression-least-squares-ridge-and-lasso.html)）、奖励模型为什么到 80% 上不去（[《逻辑回归与奖励模型》](/linear-and-logistic-regression-the-skeleton-of-reward-models.html)）、不训练的分类器为什么到处都是（[《三个基础分类器》](/a-family-of-classifiers-from-naive-bayes-to-gradient-boosting.html)）、attention 与核回归的关系（[《SVM 与核方法》](/svm-and-kernel-methods.html)）、数据过滤为什么用小模型（[《集成》](/ensembles-random-forest-and-gradient-boosting.html)）、语料里有什么主题（[《聚类》](/unsupervised-learning-kmeans-pca-and-embedding-clusters.html)）、为什么任意两句余弦都在 0.7 以上（[《降维》](/dimensionality-reduction-pca-svd-tsne-and-umap.html)）、Jaccard 0.7 从哪来（[《去重》](/deduplication-minhash-and-lsh-probabilities.html)）、20 个领先 12 个算不算（[《评估》](/evaluation-from-confusion-matrix-to-judge-agreement.html)）。详见[第二章](#二逐篇回顾)。
 [^q1]: 每篇 5–8 个，见第一章总览表的"必记"列与第二章各篇的"必记"。最核心的一组：次数 25 训练 0.040 / 验证 0.313、$$2/\lambda_{\max}$$、$$w \leftarrow (1 - 2\eta\lambda)w - \eta g$$、$$(p - y)x$$、$$P(A \succ B) = \sigma(w^T(x_A - x_B))$$ 与 91.5% vs 91.3%、Gini $$2p(1-p)$$、1000 维最近与最远差 10%、核回归 = attention、方差 0.094 → 0.007、8B 打分 = 1/3、inertia 7281 与最差 16541、29 维解释 95%、余弦均值 0.79、$$P = 1 - (1 - s^r)^b$$ 与 0.685、MMLU ±0.8、McNemar 3.13 vs 1.38、10 ± 2.2。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 6 题跨篇综合（至少 5 题）、C 组 8 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。

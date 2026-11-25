@@ -9,7 +9,7 @@ date: 2026-04-13 20:00:00
 updated: 2026-11-23
 ---
 
-五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。第一篇在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，第二篇算 tokenizer 与词表，第三篇算算力怎么分给参数与数据，第四篇算 15T token 从哪来、丢掉的是什么，第五篇算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那张成本表的训练侧。
+五篇正文回答了一个问题：**一个基座模型是怎么训出来的，每个训练决定花多少**。[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)在一台笔记本上把一次预训练从原始网页到模型完整跑一遍，[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)算 tokenizer 的账，[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)算算力怎么分给参数与数据，[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)算 15T token 从哪来、丢掉的是什么，[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)算超参表里每个数字的来历与训练为什么会崩。五篇合起来，是[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)那张成本表的训练侧。
 
 第二到第五篇每篇的第一章都是「先讲明白」——不算账、只用图和小实验把这一篇的对象讲给没接触过的读者（三种切法与 BPE 逐步图、幂律与 iso-FLOP、一篇网页清洗前后与配比曲线、学习率调坏了长什么样与一次真实的 spike）；账本从第二章起。本文不讲新内容，做三件事：把五篇压成一张表与五段回顾，把贯穿全系列的几条线拎出来，然后给一套三段式的通关自测——判断与计算、跨篇综合、面试题。各篇末尾的自测检验的是"这一篇读懂了没有"，这里检验的是"五篇能不能连起来用"。
 
@@ -35,7 +35,7 @@ flowchart TB
 
 ## 一、总览：系列回答的问题与主线
 
-系列的一句话主张是：**预训练的每个决定都能算账，算不出来的部分靠小模型消融外推**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——第一篇先把整条流水线实跑一遍，后四篇各算一笔账，用的是同一套方法（推导 → 代入真实模型 → 解释数字）、同两个对象（Llama 3 与 DeepSeek-V3）。
+系列的一句话主张是：**预训练的每个决定都能算账，算不出来的部分靠小模型消融外推**。词表大小换压缩率、参数换数据、过滤的严格程度换 token 量、学习率与 batch 换稳定性——[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)先把整条流水线实跑一遍，后四篇各算一笔账，用的是同一套方法（推导 → 代入真实模型 → 解释数字）、同两个对象（Llama 3 与 DeepSeek-V3）。
 
 | 篇 | 回答的问题 | 一句话结论 | 必记的数字 / 公式 |
 |---|---|---|---|
@@ -149,19 +149,19 @@ Table: 本文的章节安排
 
 ### 1. 按字符算账，不按 token
 
-第二篇建立的度量贯穿其后三篇。tokenizer 决定了一段文字要付多少 token，所以第三篇的 $$D$$、第四篇的 15T、第五篇的 batch 16M——每一个"token 数"背后都隐含一个词表。Llama 2 → 3 的 3.17 → 3.94 字符/token 意味着同样 15T token 的训练集，Llama 3 读了多 24% 的字符；跨 tokenizer 比 loss 必须换算成 bits/byte，这也是第三篇 scaling law 拟合"tokenizer 不一致"这条常见错误的来源。中文在不同词表下差 2.1 倍的 token 数，直接换成 2.1 倍的 KV、prefill FLOPs 与计费。
+[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)建立的度量贯穿其后三篇。tokenizer 决定了一段文字要付多少 token，所以[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的 $$D$$、[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的 15T、[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)的 batch 16M——每一个"token 数"背后都隐含一个词表。Llama 2 → 3 的 3.17 → 3.94 字符/token 意味着同样 15T token 的训练集，Llama 3 读了多 24% 的字符；跨 tokenizer 比 loss 必须换算成 bits/byte，这也是[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)里 scaling law 拟合"tokenizer 不一致"这条常见错误的来源。中文在不同词表下差 2.1 倍的 token 数，直接换成 2.1 倍的 KV、prefill FLOPs 与计费。
 
 ### 2. 算力怎么分：参数、数据与推理
 
-第三篇的核心是 $$6ND$$ 的分配问题，但它的三个变量分别被另外三篇约束。$$N$$ 里有第二篇的 $$2Vd$$ 词表参数（8B 的 13%）；$$D$$ 的上限是第四篇的漏斗——过训练要求 $$D/N$$ 上千，唯一 token 至少是目标的四分之一，所以数据管线必须供应得上；$$D$$ 与 $$N$$ 定下后，第五篇从 batch 与序列长算出总步数、每步时间、checkpoint 字节与写带宽。推理成本 $$2ND_{inf}$$ 是让最优点从 81B / 1.5T 移到 24B / 13.8T 的那一项，它在第三篇出现，在成本表系列的推理侧被逐项展开。
+[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的核心是 $$6ND$$ 的分配问题，但它的三个变量分别被另外三篇约束。$$N$$ 里有[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)的 $$2Vd$$ 词表参数（8B 的 13%）；$$D$$ 的上限是[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的漏斗——过训练要求 $$D/N$$ 上千，唯一 token 至少是目标的四分之一，所以数据管线必须供应得上；$$D$$ 与 $$N$$ 定下后，[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)从 batch 与序列长算出总步数、每步时间、checkpoint 字节与写带宽。推理成本 $$2ND_{inf}$$ 是让最优点从 81B / 1.5T 移到 24B / 13.8T 的那一项，它在[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)出现，在成本表系列的推理侧被逐项展开。
 
 ### 3. 重复、epoch 与有效数据
 
-同一个公式 $$D' = U + UR^*(1 - e^{-R/R^*})$$ 在第三篇（数据不够怎么办：4 epoch 值 93%、16 epoch 值 66%）与第四篇（配比换算成 epoch：25% × 15T ÷ 0.5T ≈ 7.5 epoch，8 epoch 有效约 80%）各出现一次，两处说的是同一件事的两面：第三篇从"总量不够"出发，第四篇从"某一类不够"出发。第四篇"跨快照全局去重反而更差"是它的反面——重复要控制分布而不是消灭；第五篇退火阶段换高质量数据与用退火评估一份新数据，是把 epoch 这个变量用在训练末段。
+同一个公式 $$D' = U + UR^*(1 - e^{-R/R^*})$$ 在[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)（数据不够怎么办：4 epoch 值 93%、16 epoch 值 66%）与[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)（配比换算成 epoch：25% × 15T ÷ 0.5T ≈ 7.5 epoch，8 epoch 有效约 80%）各出现一次，两处说的是同一件事的两面：[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)从"总量不够"出发，[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)从"某一类不够"出发。同一篇里"跨快照全局去重反而更差"是它的反面——重复要控制分布而不是消灭；[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)退火阶段换高质量数据与用退火评估一份新数据，是把 epoch 这个变量用在训练末段。
 
 ### 4. 消融外推：算不出来的靠小模型
 
-后四篇里所有无法从公式推出的决定——词表多大、常数是多少、哪个过滤阈值、哪种配比、哪组超参——都靠同一种方法：用小模型的消融外推。第三篇给出方法本身（两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误）；第四篇给出它的价格（1.8B × 350B token = 2700 H100 小时，差距 3–5 分，预算留 1–3%）；第五篇给出超参也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）与 $$\mu$$P 让超参跨宽度迁移。这条线是"预训练的每个决定都能算账"这一主张的另一半。
+后四篇里所有无法从公式推出的决定——词表多大、常数是多少、哪个过滤阈值、哪种配比、哪组超参——都靠同一种方法：用小模型的消融外推。[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)给出方法本身（两种扫法、Llama 3 用万分之一算力定 405B、从 loss 到 benchmark 的两步法、常见错误）；[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)给出它的价格（1.8B × 350B token = 2700 H100 小时，差距 3–5 分，预算留 1–3%）；[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)给出超参也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）与 $$\mu$$P 让超参跨宽度迁移。这条线是"预训练的每个决定都能算账"这一主张的另一半。
 
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
@@ -226,7 +226,7 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   $$6N \cdot 20N = 10^{24}$$，$$N = \sqrt{10^{24}/120} \approx 91$$B，$$D \approx 1.8$$T——与第三篇表中 $$5.76 \times 10^{23}$$ → 72B / 1.33T 同一条 $$N \propto C^{0.5}$$ 线。
+   $$6N \cdot 20N = 10^{24}$$，$$N = \sqrt{10^{24}/120} \approx 91$$B，$$D \approx 1.8$$T——与[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)表中 $$5.76 \times 10^{23}$$ → 72B / 1.33T 同一条 $$N \propto C^{0.5}$$ 线。
 
    </details>
 
@@ -280,27 +280,27 @@ Table: 常见误区与正确说法
 
 ### B. 跨篇综合（5 题）
 
-1. Llama 2 → Llama 3 词表 32K → 128K，如果两者都训 15T token，Llama 3 实际读了多少字符的数据？这对第三篇的 $$D$$ 意味着什么？
+1. Llama 2 → Llama 3 词表 32K → 128K，如果两者都训 15T token，Llama 3 实际读了多少字符的数据？这对[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的 $$D$$ 意味着什么？
 
    <details markdown="1"><summary>答案</summary>
 
-   第二篇：压缩率 3.17 → 3.94，多 24% 的字符；第三篇：scaling law 里的 $$D$$ 是 token 数，跨 tokenizer 比较时同一 $$D$$ 不是同样多的信息，拟合必须固定 tokenizer——这正是"tokenizer 不一致"这条常见错误。
+   [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)：压缩率 3.17 → 3.94，多 24% 的字符；[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)：scaling law 里的 $$D$$ 是 token 数，跨 tokenizer 比较时同一 $$D$$ 不是同样多的信息，拟合必须固定 tokenizer——这正是"tokenizer 不一致"这条常见错误。
 
    </details>
 
-2. 一个 7B 模型要服务 100T token，按第三篇应训多少数据？这些数据从第四篇的漏斗里够不够拿？
+2. 一个 7B 模型要服务 100T token，按[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)应训多少数据？这些数据从[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的漏斗里够不够拿？
 
    <details markdown="1"><summary>答案</summary>
 
-   先指出题设缺什么：固定了 $$N = 7$$B，推理量 $$D_{inf}$$ 就不再影响 $$D$$ 的最优值（第三篇的推理感知条件是在 $$N$$、$$D$$ 都可变时移动最优点），$$D$$ 要由**目标 loss 或总预算**决定，题目两者都没给。若沿第三篇的目标 $$L^* = 1.968$$：用配套脚本的常数，7B 在 $$D \to \infty$$ 时的下界是 $$E + A/N^\alpha \approx 1.999 > 1.968$$——这个目标 7B **无论训多少数据都达不到**，脚本会返回 None。所以正确回答是"换目标或换 $$N$$"：给一个 7B 能达到的 loss（比如 2.05）再反解 $$D$$，或按 100T 推理量做全生命周期成本最优（答案落在 20B 上下、$$D$$ 十几 T）。第四篇的部分照旧：通用网页过滤去重后 15T、模型打分后 1.3–5.4T，高质量子集要跑多个 epoch——用第三篇的 $$D'$$ 公式，4 epoch 以内几乎无损，配比表要按 epoch 数写。
+   先指出题设缺什么：固定了 $$N = 7$$B，推理量 $$D_{inf}$$ 就不再影响 $$D$$ 的最优值（[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的推理感知条件是在 $$N$$、$$D$$ 都可变时移动最优点），$$D$$ 要由**目标 loss 或总预算**决定，题目两者都没给。若沿[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的目标 $$L^* = 1.968$$：用配套脚本的常数，7B 在 $$D \to \infty$$ 时的下界是 $$E + A/N^\alpha \approx 1.999 > 1.968$$——这个目标 7B **无论训多少数据都达不到**，脚本会返回 None。所以正确回答是"换目标或换 $$N$$"：给一个 7B 能达到的 loss（比如 2.05）再反解 $$D$$，或按 100T 推理量做全生命周期成本最优（答案落在 20B 上下、$$D$$ 十几 T）。[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)的部分照旧：通用网页过滤去重后 15T、模型打分后 1.3–5.4T，高质量子集要跑多个 epoch——用[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的 $$D'$$ 公式，4 epoch 以内几乎无损，配比表要按 epoch 数写。
 
    </details>
 
-3. 数学推理占 25%、独立数据 0.5T，第四篇算出 7.5 epoch。这个 epoch 数在第五篇的调度里会怎么用？
+3. 数学推理占 25%、独立数据 0.5T，[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)算出 7.5 epoch。这个 epoch 数在[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)的调度里会怎么用？
 
    <details markdown="1"><summary>答案</summary>
 
-   第五篇：多阶段与退火——高质量数据在退火阶段加大权重、且退火可以用来评估一份新数据；DeepSeek-V3 的四段调度与 Llama 3 的退火都在末段换数据。7.5 epoch 意味着这部分数据在每个阶段都被反复看到，退火阶段的权重要与前面阶段合计算总 epoch。
+   [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)：多阶段与退火——高质量数据在退火阶段加大权重、且退火可以用来评估一份新数据；DeepSeek-V3 的四段调度与 Llama 3 的退火都在末段换数据。7.5 epoch 意味着这部分数据在每个阶段都被反复看到，退火阶段的权重要与前面阶段合计算总 epoch。
 
    </details>
 
@@ -308,15 +308,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   第三篇：$$D = C / 6N = 3.8 \times 10^{25} / (6 \times 4.05 \times 10^{11}) \approx 15.6$$T；第五篇：步数 = 15.6T / 16M ≈ 97 万步（ramp 阶段 batch 更小，实际更多）；spike 回退 100 步 + 跳 200–500 batch：按 2670 万 H100 小时 / 97 万步 ≈ 27 H100 小时/步，重算 100 步约 2.7 千 GPU 小时，跳过的 batch 不重算、是放弃 3–8B token 数据。
+   [《Scaling law》](/scaling-laws-and-compute-optimal-training.html)：$$D = C / 6N = 3.8 \times 10^{25} / (6 \times 4.05 \times 10^{11}) \approx 15.6$$T；[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)：步数 = 15.6T / 16M ≈ 97 万步（ramp 阶段 batch 更小，实际更多）；spike 回退 100 步 + 跳 200–500 batch：按 2670 万 H100 小时 / 97 万步 ≈ 27 H100 小时/步，重算 100 步约 2.7 千 GPU 小时，跳过的 batch 不重算、是放弃 3–8B token 数据。
 
    </details>
 
-5. 用 scaling law 定一个新模型的配置时，第四篇与第五篇各贡献了哪一条"常见错误"的解药？
+5. 用 scaling law 定一个新模型的配置时，[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)与[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)各贡献了哪一条"常见错误"的解药？
 
    <details markdown="1"><summary>答案</summary>
 
-   第四篇：数据消融要用足够大的规模（1.8B × 350B，2700 H100 小时），太小看不出质量差别，且 tokenizer 与数据配比在扫的各个尺寸间必须一致；第五篇：超参数也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）或用 $$\mu$$P 迁移，否则小模型的最优超参在大模型上不成立、外推失效；学习率调度要跑完整（cosine 中途不可比）。
+   [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)：数据消融要用足够大的规模（1.8B × 350B，2700 H100 小时），太小看不出质量差别，且 tokenizer 与数据配比在扫的各个尺寸间必须一致；[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)：超参数也要 scaling（$$\eta_{opt} \propto C^{-0.125}$$、$$B_{opt} \propto C^{0.33}$$）或用 $$\mu$$P 迁移，否则小模型的最优超参在大模型上不成立、外推失效；学习率调度要跑完整（cosine 中途不可比）。
 
    </details>
 

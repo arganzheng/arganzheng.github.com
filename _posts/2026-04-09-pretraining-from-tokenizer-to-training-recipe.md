@@ -10,7 +10,7 @@ catalog: true
 
 ## 内容简介
 
-《预训练：从 tokenizer 到训练配方》是一组共五篇正文加一篇总结的系列文章，面向要做或要读懂一次预训练的算法工程师，以及要为一次预训练做容量与 I/O 规划的训练基础设施工程师。第一篇先在一台笔记本上把一次预训练**从原始网页到能续写英文的模型**完整走一遍，让后面四篇的每个公式与数字都有落脚的地方。它是[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)那张成本表的**训练侧**：那十篇把 token 数、参数量、数据量当作给定的输入，算出模型每一步算多少、读多少、存多少；本系列讲这几个输入各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩。
+《预训练：从 tokenizer 到训练配方》是一组共五篇正文加一篇总结的系列文章，面向要做或要读懂一次预训练的算法工程师，以及要为一次预训练做容量与 I/O 规划的训练基础设施工程师。[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)先在一台笔记本上把一次预训练**从原始网页到能续写英文的模型**完整走一遍，让后面四篇的每个公式与数字都有落脚的地方。它是[《现代 LLM 结构：从 GPT-2 到今天的演进》](/llm-architecture-evolution-roadmap-from-gpt2.html)那张成本表的**训练侧**：那十篇把 token 数、参数量、数据量当作给定的输入，算出模型每一步算多少、读多少、存多少；本系列讲这几个输入各自是怎么定下来的——tokenizer 决定 token 数，scaling law 决定参数量与数据量的分配，数据管线决定有多少 token 可用、怎么配，训练配方决定用什么超参把它训出来、怎么不崩。
 
 它回答的问题是：
 
@@ -20,7 +20,7 @@ catalog: true
 
 系列覆盖的范围可以用一行概括——成本表的第六组变量：
 
-- **训练变量**：词表大小与压缩率 · $$N$$ 与 $$D$$ 的分配 · 数据的过滤与配比 · lr、batch、调度与稳定性开关 → 第二到五篇；第一篇把它们串成一条实跑的流水线
+- **训练变量**：词表大小与压缩率 · $$N$$ 与 $$D$$ 的分配 · 数据的过滤与配比 · lr、batch、调度与稳定性开关 → 第二到五篇；[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)把它们串成一条实跑的流水线
 
 读完之后，读者应该能把任何一份预训练技术报告放进这四组变量里，看出它站在哪个时代、与同行差在哪、每个决定花了多少。
 
@@ -37,7 +37,7 @@ $$6ND$$ 里的 $$N$$ 与 $$D$$、每个公式里的 token 数 $$s$$、`config.js
 
 ### 这几件事在现有材料里是几个领域
 
-tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 FineWeb / DCLM 的技术报告里、训练配方散落在各家的模型报告与几篇稳定性论文里。它们很少被放在同一张表上讨论，但在一次真实的预训练里它们是同一个预算表的四行。本系列把它们放回同一张成本表——而且先用第一篇的端到端实跑证明它们确实是**同一条流水线上的相邻几步**。
+tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 FineWeb / DCLM 的技术报告里、训练配方散落在各家的模型报告与几篇稳定性论文里。它们很少被放在同一张表上讨论，但在一次真实的预训练里它们是同一个预算表的四行。本系列把它们放回同一张成本表——而且先用[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)的端到端实跑证明它们确实是**同一条流水线上的相邻几步**。
 
 ### 算法与 Infra 在这里再次交汇
 
@@ -78,18 +78,18 @@ tokenizer 在 NLP 教材里、scaling law 在几篇论文里、数据工程在 F
 
 ### 一次预训练包括哪些工作
 
-业界一次完整的预训练大致是下面八项工作（各家报告的章节结构基本都能对上：Llama 3 报告第 3 节 "Pre-Training" 就是按数据、scaling law、架构、Infra、配方这个顺序写的）。本系列只覆盖其中带 ✓ 的部分（第一篇的端到端实跑把带 ✓ 的几项在小规模上各做了一遍），其余在别的系列：
+业界一次完整的预训练大致是下面八项工作（各家报告的章节结构基本都能对上：Llama 3 报告第 3 节 "Pre-Training" 就是按数据、scaling law、架构、Infra、配方这个顺序写的）。本系列只覆盖其中带 ✓ 的部分（[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)的端到端实跑把带 ✓ 的几项在小规模上各做了一遍），其余在别的系列：
 
 | 工作 | 做什么 | 在哪讲 |
 |---|---|---|
-| 数据工程 | 抓取、清洗、去重、质量过滤、配比，从几百 T 原始文本到十几 T 可训 token | ✓ 第四篇 |
-| 分词与词表 | 训 tokenizer、定词表大小，决定同样的文本变成多少 token | ✓ 第二篇 |
-| Scaling law 与预算分配 | 用一组小模型的实验决定"给定算力，参数和数据各多少"，以及数据配比、超参怎么随规模外推 | ✓ 第三篇（方法论）、第五篇（超参外推） |
+| 数据工程 | 抓取、清洗、去重、质量过滤、配比，从几百 T 原始文本到十几 T 可训 token | ✓ [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html) |
+| 分词与词表 | 训 tokenizer、定词表大小，决定同样的文本变成多少 token | ✓ [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html) |
+| Scaling law 与预算分配 | 用一组小模型的实验决定"给定算力，参数和数据各多少"，以及数据配比、超参怎么随规模外推 | ✓ [《Scaling law》](/scaling-laws-and-compute-optimal-training.html)（方法论）、[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)（超参外推） |
 | 架构消融 | 在小规模上比 attention 变体、MoE 配置、位置编码、归一化等结构选择 | 结构本身在 L4《现代 LLM 结构》；消融方法在本系列的《Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据》 |
-| 训练配方 | 学习率、batch、调度、warmup、权重衰减、稳定性开关 | ✓ 第五篇 |
+| 训练配方 | 学习率、batch、调度、warmup、权重衰减、稳定性开关 | ✓ [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html) |
 | 主训练运行 | 几千到几万张卡跑几周到几个月：并行策略、checkpoint、容错、监控 | Infra 地图《大规模训练》系列 |
-| 训练中的评测与干预 | 隔一段就跑 benchmark、看 loss 曲线，出 spike 回滚、改配比 | ✓ 第五篇（spike 与回滚）；评测在 《[后训练（08）：评测：benchmark、LLM-as-judge、Arena 与污染](/evaluating-llms-benchmarks-judges-and-contamination.html)》 |
-| 中期训练（mid-training）与退火 | 主训练末段换成高质量 / 数学 / 代码 / 长文本数据，学习率退火到很小；上下文从 8K 扩到 128K | 第四篇（退火数据）、第五篇（调度）；长上下文在 《[现代 LLM 结构（03）：位置编码与外推](/positional-encoding-and-long-context.html)》 |
+| 训练中的评测与干预 | 隔一段就跑 benchmark、看 loss 曲线，出 spike 回滚、改配比 | ✓ [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)（spike 与回滚）；评测在《后训练》的[《评测》](/evaluating-llms-benchmarks-judges-and-contamination.html) |
+| 中期训练（mid-training）与退火 | 主训练末段换成高质量 / 数学 / 代码 / 长文本数据，学习率退火到很小；上下文从 8K 扩到 128K | [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)（退火数据）、[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)（调度）；长上下文在《现代 LLM 结构》的[《位置编码与外推》](/positional-encoding-and-long-context.html) |
 
 Table: 一次预训练的八项工作与本系列的覆盖范围
 
@@ -111,11 +111,11 @@ flowchart TB
 
 预训练一次太贵，不能"训完再看"。业界靠的是三件事，都是本系列的内容：
 
-1. **先在小规模上把决定做完**（第三篇）：数据配比、架构选择、超参，都在 1/100 ～ 1/1000 算力的小模型上做消融，拟合 scaling law 外推到目标规模——Llama 3 报告说他们在训 405B 之前就预测了它在下游 benchmark 上的分数。这一步保证"大模型不会比小模型的外推更差"。
-2. **训练中持续评测**（第五篇）：loss 曲线只是第一信号，每隔几百 B token 就在一组 benchmark 上跑 checkpoint，和上一代同 token 数时的曲线对比；掉队就查数据、调配比、必要时回滚。
-3. **数据是主要的进步来源**（第四篇）：同架构、同算力下，Llama 2 → 3 的提升主要来自数据从 2T 到 15T 以及过滤、去重、配比的改进。所以"下一代更强"多数时候不是新算法，而是更多、更干净、配得更好的数据加上按 scaling law 放大的算力。
+1. **先在小规模上把决定做完**（[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)）：数据配比、架构选择、超参，都在 1/100 ～ 1/1000 算力的小模型上做消融，拟合 scaling law 外推到目标规模——Llama 3 报告说他们在训 405B 之前就预测了它在下游 benchmark 上的分数。这一步保证"大模型不会比小模型的外推更差"。
+2. **训练中持续评测**（[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)）：loss 曲线只是第一信号，每隔几百 B token 就在一组 benchmark 上跑 checkpoint，和上一代同 token 数时的曲线对比；掉队就查数据、调配比、必要时回滚。
+3. **数据是主要的进步来源**（[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)）：同架构、同算力下，Llama 2 → 3 的提升主要来自数据从 2T 到 15T 以及过滤、去重、配比的改进。所以"下一代更强"多数时候不是新算法，而是更多、更干净、配得更好的数据加上按 scaling law 放大的算力。
 
-新模型不是"训一次赌一把"，而是"小规模上已经验证过的配方，按 scaling law 放大"——这也是为什么 scaling law 是本系列的方法论核心，而不只是第三篇的一个公式。
+新模型不是"训一次赌一把"，而是"小规模上已经验证过的配方，按 scaling law 放大"——这也是为什么 scaling law 是本系列的方法论核心，而不只是[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)的一个公式。
 
 ## 章节结构与分章导读
 
@@ -131,7 +131,7 @@ flowchart TB
 
 ### 1. 分词与词表：BPE、词表大小与 token 效率
 
-第二篇在总览之后先用一章「先讲明白」把 tokenizer 讲给没接触过的读者：同一句话三种切法、BPE 合并的逐步图、四个真实 tokenizer 切同一段中英文与代码的并排对照、第一篇语料上自己训出来的"词表大小 → 压缩率"曲线；然后才从成本表里最后一个外生变量——token 数——从哪来讲起。tokenizer 同时决定成本表的两端：词表大小 $$V$$ 进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token。
+第二篇在总览之后先用一章「先讲明白」把 tokenizer 讲给没接触过的读者：同一句话三种切法、BPE 合并的逐步图、四个真实 tokenizer 切同一段中英文与代码的并排对照、[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)语料上自己训出来的"词表大小 → 压缩率"曲线；然后才从成本表里最后一个外生变量——token 数——从哪来讲起。tokenizer 同时决定成本表的两端：词表大小 $$V$$ 进参数量与 lm_head 的 FLOPs，压缩率决定一段文字要付多少个 token。
 
 这一篇会覆盖：
 
@@ -149,7 +149,7 @@ flowchart TB
 
 ### 2. Scaling law：从 Chinchilla 到"过训练"，算力怎么分给参数与数据
 
-第三篇回答 $$C = 6ND$$ 没有说的事：同样的算力怎么分给 $$N$$ 与 $$D$$。分法在 2020、2022、2024 各改了一次。总览之后的「先讲明白」一章不推公式：用 7 个字符级小模型讲"幂律"是什么意思、用第一篇的迷你 iso-FLOP 实验讲等算力曲线、嵌 Kaplan 与 Chinchilla 论文的原图讲三种方法怎么得出 $$D/N \approx 20$$、再用一段话讲清为什么 2024 年后大家反而"过训练"。
+第三篇回答 $$C = 6ND$$ 没有说的事：同样的算力怎么分给 $$N$$ 与 $$D$$。分法在 2020、2022、2024 各改了一次。总览之后的「先讲明白」一章不推公式：用 7 个字符级小模型讲"幂律"是什么意思、用[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)的迷你 iso-FLOP 实验讲等算力曲线、嵌 Kaplan 与 Chinchilla 论文的原图讲三种方法怎么得出 $$D/N \approx 20$$、再用一段话讲清为什么 2024 年后大家反而"过训练"。
 
 这一篇会覆盖：
 
@@ -166,7 +166,7 @@ flowchart TB
 
 ### 3. 预训练数据工程：从 Common Crawl 到 15T token，去重、过滤与配比的账
 
-第四篇讲预训练里唯一不在 GPU 上跑的大工程：从 240T token 的网页正文到 15T 训练集之间的几十个步骤，每步留下多少、花多少、为什么。总览之后的「先讲明白」一章用第一篇实跑的真实网页把每一步的"为什么"落到例子上：一篇屋顶公司的网页清洗前后 61 行剩 10 行、四道筛子各配一个被删的真实页面、FineWeb 论文里"全局去重反而更差"的消融曲线、以及网页 + 代码两个域配比 0–100% 各训一个小模型画出的两条方向相反的曲线。
+第四篇讲预训练里唯一不在 GPU 上跑的大工程：从 240T token 的网页正文到 15T 训练集之间的几十个步骤，每步留下多少、花多少、为什么。总览之后的「先讲明白」一章用[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)实跑的真实网页把每一步的"为什么"落到例子上：一篇屋顶公司的网页清洗前后 61 行剩 10 行、四道筛子各配一个被删的真实页面、FineWeb 论文里"全局去重反而更差"的消融曲线、以及网页 + 代码两个域配比 0–100% 各训一个小模型画出的两条方向相反的曲线。
 
 这一篇会覆盖：
 
@@ -184,13 +184,13 @@ flowchart TB
 
 ### 4. 训练配方与稳定性：学习率、batch、调度与 loss spike
 
-第五篇讲那张十几行的超参表：每个数字从哪来、改了会怎样、训练为什么会崩以及怎么让它不崩。总览之后的「先讲明白」一章把第一篇 MacBook 实训的配方和 Llama 3 405B 的放在同一张表上（形状一模一样），用四条实跑曲线看学习率太小 / 太大 / 没有 warmup 长什么样，把那次实训里真实发生的一次小 spike（梯度范数 7 倍、被裁剪挡住）放大解剖，再用三条曲线同步看 attention logit 涨到一万二时模型在经历什么、QK-norm 怎么把它钉在 22，最后用一张时间线讲 405B 训练的典型一天。它不重推深度学习基础的推导（方差传播、Adam、warmup），只把公开配方放到同一张表上比较，并把"不稳定"拆成三个可度量、可单独修的机制。
+第五篇讲那张十几行的超参表：每个数字从哪来、改了会怎样、训练为什么会崩以及怎么让它不崩。总览之后的「先讲明白」一章把[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html) MacBook 实训的配方和 Llama 3 405B 的放在同一张表上（形状一模一样），用四条实跑曲线看学习率太小 / 太大 / 没有 warmup 长什么样，把那次实训里真实发生的一次小 spike（梯度范数 7 倍、被裁剪挡住）放大解剖，再用三条曲线同步看 attention logit 涨到一万二时模型在经历什么、QK-norm 怎么把它钉在 22，最后用一张时间线讲 405B 训练的典型一天。它不重推深度学习基础的推导（方差传播、Adam、warmup），只把公开配方放到同一张表上比较，并把"不稳定"拆成三个可度量、可单独修的机制。
 
 这一篇会覆盖：
 
 - 目标函数：交叉熵的单位（nats、PPL、bits/byte）；MTP 的收益与它的 lm_head 成本；文档打包时掩不掩跨文档 attention（Llama 3 掩、DeepSeek 不掩）；
 - 优化器与超参：AdamW 的 $$\beta_2 = 0.95$$、解耦 weight decay 与它的排除项、$$\epsilon$$ 随规模；batch 由梯度噪声尺度决定并随训练增大（405B：4M → 8M → 16M）；峰值 lr 随宽度减小（7B 3e-4 → 405B 8e-5）、$$\mu$$P 与 DeepSeek 的经验律；warmup 占步数不到 1%；
-- 调度：cosine、WSD、DeepSeek-V3 的四段；为什么 cosine 中途的 loss 不可比（第三篇分歧的根源）；退火与换数据；
+- 调度：cosine、WSD、DeepSeek-V3 的四段；为什么 cosine 中途的 loss 不可比（[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)分歧的根源）；退火与换数据；
 - 稳定性：attention logit 增长（QK-norm、soft-cap、QK-Clip）、输出 logit 漂移（z-loss）、单步过大（裁剪、warmup、$$\beta_2$$）；六个开关与 2024–25 年的默认配置（OLMo 2、Gemma 3、Qwen3、Kimi K2）；spike 的处理流程与代价（405B 一次约 1 万 GPU 小时）；低精度如何放大每个开关的必要性；
 - 长上下文继续预训练（Llama 3 六步到 128K、DeepSeek-V3 两步）；该监控的几条曲线。
 
@@ -206,7 +206,7 @@ flowchart TB
 
 ## 贯穿全系列的实践线
 
-本系列接着成本表那十篇的 `llm_cost.py` 往下长：脚本在第八版结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出推理侧的成本表，本系列再加上训练侧的四列，第一篇的端到端实跑是它们的"活的目录"：
+本系列接着成本表那十篇的 `llm_cost.py` 往下长：脚本在第八版结束时可以为任何一个给出 `config.json` 的模型、任何一组硬件参数输出推理侧的成本表，本系列再加上训练侧的四列，[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)的端到端实跑是它们的"活的目录"：
 
 - **第一篇**：`pretrain_e2e/`——原料 → 过滤 → 去重 → tokenizer → 打包 → 选尺寸 → 训练 → 评，八步各一个脚本
 - **第二篇**：词表；2Vd 与 lm_head 占比；logits 显存；每字符成本
@@ -231,14 +231,14 @@ flowchart TB
 
 ### 前置要求
 
-- 读过[《现代 LLM 结构》](/llm-architecture-evolution-roadmap-from-gpt2.html)的第一、二篇，知道参数量公式与 $$6ND$$；
+- 读过《现代 LLM 结构》的[《从 GPT-2 到 Llama》](/gpt2-to-llama-five-changes-and-parameter-count.html)与[《前向的算量与访存量》](/transformer-flops-bytes-and-roofline.html)，知道参数量公式与 $$6ND$$；
 - 会读 Python 与 PyTorch 代码；
-- 知道交叉熵、Adam、学习率 warmup 是什么（第五篇会用到它们的结论，不重推）。
+- 知道交叉熵、Adam、学习率 warmup 是什么（[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)会用到它们的结论，不重推）。
 
 不要求：
 
 - 训练过大模型；
-- 有 GPU。全部实验在 CPU 上可以完成（第一篇的端到端训练在 Apple 芯片的 MPS 上约半小时，纯 CPU 更久但也能跑）。
+- 有 GPU。全部实验在 CPU 上可以完成（[《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)的端到端训练在 Apple 芯片的 MPS 上约半小时，纯 CPU 更久但也能跑）。
 
 ### 版本与模型基线
 
@@ -263,16 +263,16 @@ flowchart TB
 
 读完这套系列之后，拿到任何一份预训练技术报告，读者应该能够回答：
 
-- 一次预训练从头到尾有哪几步、每步扔掉什么留下什么？：→ 第一篇：八步流水线的实跑漏斗
-- 换一个 tokenizer 会怎样？：→ 第二篇：2Vd 与每字符成本
-- 给定算力，模型多大、数据多少？训完要服务多少？：→ 第三篇：Chinchilla 与推理感知的最优点
-- 15T token 从哪来、丢掉的是什么、够不够？：→ 第四篇：漏斗、MinHash、配比 → epoch
-- 超参表里的每个数字从哪来？训练为什么会崩？：→ 第五篇：μP、梯度噪声尺度、三个机制与六个开关
+- 一次预训练从头到尾有哪几步、每步扔掉什么留下什么？：→ [《一次预训练是怎么跑起来的》](/pretraining-end-to-end-from-web-pages-to-a-model.html)：八步流水线的实跑漏斗
+- 换一个 tokenizer 会怎样？：→ [《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)：2Vd 与每字符成本
+- 给定算力，模型多大、数据多少？训完要服务多少？：→ [《Scaling law》](/scaling-laws-and-compute-optimal-training.html)：Chinchilla 与推理感知的最优点
+- 15T token 从哪来、丢掉的是什么、够不够？：→ [《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)：漏斗、MinHash、配比 → epoch
+- 超参表里的每个数字从哪来？训练为什么会崩？：→ [《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)：μP、梯度噪声尺度、三个机制与六个开关
 
 最终目标是一种能力：**读报告的能力**——打开一份预训练技术报告，能把它的 tokenizer、$$D/N$$、数据配比与超参表放到本系列的表里，看出它站在哪个时代、与同行差在哪、每个决定花了多少；反过来，在自己定这些数字时，知道每个数字背后的账。
 
 [^q0]: 每个数字都是一笔账的解：**词表 128K**换压缩率——词表越大每个 token 越贵（embedding + lm_head 占比、logits 显存）但每句话 token 更少，Llama 3 从 32K 到 128K 每 token 贵 5.6%、英文 token 数少 15%、净省；**15T token** 由 scaling law 与推理成本共同决定——Chinchilla 最优是 $$D/N\approx20$$（8B → 160B），但为了部署便宜而「过训练」到 10 倍、换 0.05 nats 的 loss；数据从 Common Crawl 240T 经去重 / 过滤 / 配比留下 6%；**lr 8e-5 与 batch 16M** 来自小模型扫参随规模外推（lr 随 $$N$$ 下降、batch 随 loss 下降可增大）加稳定性开关（warmup、QK-norm、z-loss、梯度裁剪）。换一个数字会怎样，第二到五篇各给一条实跑曲线与 `llm_cost.py` 的一列。
-[^q1]: 每个 token 贵 5.6% 是因为 embedding 与 lm_head 从 $$2\times32K\times d$$ 变成 $$2\times128K\times d$$、lm_head 的 GEMM 与 logits 显存按 $$V$$ 增长；但更大的词表把同一段文本切成更少的 token——英文少约 15%、多语言与代码少得更多——而训练与推理成本都按 token 数计，token 数少 15% 远大于每 token 贵 5.6%，所以每字符成本反而下降，上下文窗口也相当于变长了。同一句中文在两个 128K 量级词表下 token 数差 2.1 倍，差在**训练 tokenizer 的语料配比与预分词规则**：中文占比高的语料会把常见汉字组合合并成一个 token，中文占比低的词表里一个汉字甚至要拆成 2–3 个 UTF-8 字节 token；预分词是否按标点 / 数字切、是否允许跨空格合并也改变合并结果。第二篇用 `tiktoken` / `tokenizers` 对五个真实 tokenizer 实测。
-[^q2]: 因为 Chinchilla 的「最优」只最小化**训练**算力下的 loss（固定 $$C=6ND$$ 时 $$D/N\approx20$$），没有算推理：模型一旦部署，每个生成 token 的成本正比于 $$N$$，总推理 token 数远大于训练 token 数时，用 10 倍数据训一个小 10 倍的模型，loss 只高 0.05 nats、推理成本却降一个量级，总账（训练 + 推理）更便宜——这是 2024 年「过训练」的理由。2022 年的「最优」指 Chinchilla：给定训练算力的 loss 最低点；2024 年的「最优」指推理感知最优（Sardana & Frankle 一类分析）：给定预期推理总量，训练 + 推理总成本最低的 $$(N, D)$$，它把 $$D/N$$ 推到 100–1000。第三篇用 7 个字符级小模型拟合 $$L(N)$$（外推 1.317、实测 1.342）并给出 Chinchilla 计算器与推理感知最优点。
-[^q3]: 被丢掉的 94% 依次是：URL 黑名单与语言识别筛掉的非目标语言 / 成人 / 垃圾站点；**去重**去掉的重复（URL 级、文档级 MinHash、行级——占比最大，FineWeb 的消融发现全局去重反而更差，改为按 snapshot 内去重）；**质量过滤**去掉的模板页、导航残渣、过短 / 过长、符号比例异常（Gopher / C4 规则）与模型打分低的页面（fastText / 小分类器学 LLM 标注的「教育价值」）；最后是**去污染**（与评测集重叠的文本）。判定依据就是这些规则与分类器的阈值，每道筛子在 FineWeb / DCLM 论文里都有留存率与小模型消融。15T 里 25% 的「数学与推理」不是从网页里筛出来的——来自代码仓库（GitHub / Stack）、数学网页与论文的专门管线、以及合成 / 改写数据，配比由小模型上的域配比扫描（第四篇网页 + 代码两条方向相反的曲线）决定。
-[^q4]: lr 与 batch 都由小模型扫参随规模外推：最优 lr 随 $$N$$ 幂律下降（405B 比 8B 低几倍）、与 batch 大致按平方根 / 线性规则联动；最优 batch（critical batch size）随 loss 下降而增大，所以 Llama 3 从 4M 逐步升到 16M，DeepSeek-V3 的 63M 对应它更大的数据量与 MoE 的激活参数量；两家 lr 差 3 倍主要是 MoE 与 dense 的激活参数不同加上各自的 µP / 扫参结果。DeepSeek-V3 在 FP8 下没有不可恢复的 spike，开的开关各防一件事：warmup + 阶梯 / cosine 调度（防开头 Adam 方差估计不准）、梯度裁剪 1.0（防单步大梯度）、QK-norm 或 attention logit 软限幅（防 attention logit 涨到上万、softmax 饱和——第五篇实测从 36 涨到 12592、QK-norm 钉在 22）、z-loss（防 $$\log Z$$ 漂移导致输出 logits 发散）、FP8 的细粒度分块缩放与高精度累加（防低精度溢出 / 下溢）、以及 checkpoint 回滚 + 跳过坏 batch 的运维开关。
+[^q1]: 每个 token 贵 5.6% 是因为 embedding 与 lm_head 从 $$2\times32K\times d$$ 变成 $$2\times128K\times d$$、lm_head 的 GEMM 与 logits 显存按 $$V$$ 增长；但更大的词表把同一段文本切成更少的 token——英文少约 15%、多语言与代码少得更多——而训练与推理成本都按 token 数计，token 数少 15% 远大于每 token 贵 5.6%，所以每字符成本反而下降，上下文窗口也相当于变长了。同一句中文在两个 128K 量级词表下 token 数差 2.1 倍，差在**训练 tokenizer 的语料配比与预分词规则**：中文占比高的语料会把常见汉字组合合并成一个 token，中文占比低的词表里一个汉字甚至要拆成 2–3 个 UTF-8 字节 token；预分词是否按标点 / 数字切、是否允许跨空格合并也改变合并结果。[《分词与词表》](/tokenizer-vocabulary-and-token-efficiency.html)用 `tiktoken` / `tokenizers` 对五个真实 tokenizer 实测。
+[^q2]: 因为 Chinchilla 的「最优」只最小化**训练**算力下的 loss（固定 $$C=6ND$$ 时 $$D/N\approx20$$），没有算推理：模型一旦部署，每个生成 token 的成本正比于 $$N$$，总推理 token 数远大于训练 token 数时，用 10 倍数据训一个小 10 倍的模型，loss 只高 0.05 nats、推理成本却降一个量级，总账（训练 + 推理）更便宜——这是 2024 年「过训练」的理由。2022 年的「最优」指 Chinchilla：给定训练算力的 loss 最低点；2024 年的「最优」指推理感知最优（Sardana & Frankle 一类分析）：给定预期推理总量，训练 + 推理总成本最低的 $$(N, D)$$，它把 $$D/N$$ 推到 100–1000。[《Scaling law》](/scaling-laws-and-compute-optimal-training.html)用 7 个字符级小模型拟合 $$L(N)$$（外推 1.317、实测 1.342）并给出 Chinchilla 计算器与推理感知最优点。
+[^q3]: 被丢掉的 94% 依次是：URL 黑名单与语言识别筛掉的非目标语言 / 成人 / 垃圾站点；**去重**去掉的重复（URL 级、文档级 MinHash、行级——占比最大，FineWeb 的消融发现全局去重反而更差，改为按 snapshot 内去重）；**质量过滤**去掉的模板页、导航残渣、过短 / 过长、符号比例异常（Gopher / C4 规则）与模型打分低的页面（fastText / 小分类器学 LLM 标注的「教育价值」）；最后是**去污染**（与评测集重叠的文本）。判定依据就是这些规则与分类器的阈值，每道筛子在 FineWeb / DCLM 论文里都有留存率与小模型消融。15T 里 25% 的「数学与推理」不是从网页里筛出来的——来自代码仓库（GitHub / Stack）、数学网页与论文的专门管线、以及合成 / 改写数据，配比由小模型上的域配比扫描（[《预训练数据工程》](/pretraining-data-pipeline-dedup-filtering-and-mixture.html)网页 + 代码两条方向相反的曲线）决定。
+[^q4]: lr 与 batch 都由小模型扫参随规模外推：最优 lr 随 $$N$$ 幂律下降（405B 比 8B 低几倍）、与 batch 大致按平方根 / 线性规则联动；最优 batch（critical batch size）随 loss 下降而增大，所以 Llama 3 从 4M 逐步升到 16M，DeepSeek-V3 的 63M 对应它更大的数据量与 MoE 的激活参数量；两家 lr 差 3 倍主要是 MoE 与 dense 的激活参数不同加上各自的 µP / 扫参结果。DeepSeek-V3 在 FP8 下没有不可恢复的 spike，开的开关各防一件事：warmup + 阶梯 / cosine 调度（防开头 Adam 方差估计不准）、梯度裁剪 1.0（防单步大梯度）、QK-norm 或 attention logit 软限幅（防 attention logit 涨到上万、softmax 饱和——[《训练配方与稳定性》](/pretraining-recipe-and-training-stability.html)实测从 36 涨到 12592、QK-norm 钉在 22）、z-loss（防 $$\log Z$$ 漂移导致输出 logits 发散）、FP8 的细粒度分块缩放与高精度累加（防低精度溢出 / 下溢）、以及 checkpoint 回滚 + 跳过坏 batch 的运维开关。

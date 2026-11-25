@@ -9,7 +9,7 @@ date: 2026-05-29 20:00:00
 updated: 2026-11-23
 ---
 
-三篇正文回答了一个问题：**为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好，每个旋钮该取多少，训完的东西怎么上线**。第一篇讲低秩假设、$$W + \frac{\alpha}{r}BA$$ 的梯度与四本账，并直接检验全量微调的 $$\Delta W$$ 有多低秩；第二篇把十三种配置在同一份数据上各训 80 步，每个旋钮给一组数字；第三篇从 adapter 文件走到 multi-LoRA 服务。本文把三篇压成一张速查表，拎出贯穿三篇的四条线，列常见误区，再给一套自测。
+三篇正文回答了一个问题：**为什么给一个几十亿参数的模型加两个瘦矩阵就能把它微调好，每个旋钮该取多少，训完的东西怎么上线**。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)推 $$W + \frac{\alpha}{r}BA$$ 的梯度、算四本账，并直接检验全量微调的 $$\Delta W$$ 有多低秩；[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)把十三种配置在同一份数据上各训 80 步，每个旋钮给一组数字；[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)从 adapter 文件走到 multi-LoRA 服务。本文把三篇压成一张速查表，拎出贯穿三篇的四条线，列常见误区，再给一套自测。
 
 ## 一、总览
 
@@ -59,7 +59,7 @@ Table: 三篇正文的速查表
 - **挂哪里比 $$r$$ 重要**：只挂 attention（2.2M）2.4113，挂全部线性层（8.8M）2.3943；同样参数翻 4 倍，$$r$$ 从 16 到 64 却没有收益。默认 `all-linear`。
 - **scaling 与 lr 是一个旋钮**：$$r = 64$$ 上 scaling 0.5 / 2 / 4（rsLoRA）的遗忘 +0.0087 / +0.0436 / +0.0727，scaling 4 的验证 loss 反而最差；lr 1e-5 只学到一半、1e-3 遗忘是全量的 4 倍。LoRA 的 lr 比全量大 10–20 倍，但"LoRA 忘得少"的前提是它学得也少。
 - **变体在小任务上不比默认好**：LoRA+（$$B$$ 的 lr × 4）2.3998、PiSSA 2.4152 且遗忘更大、DoRA 与 LoRA 相同（2.3942）但慢 27%；它们各有适用场合（长训练、收敛紧、极小 $$r$$），不是默认开关。
-- **QLoRA 只动冻结权重那本账**：NF4（16 个正态分位数格点）+ 双重量化 + 分页优化器，0.5B 的底座从 988 MB 到 430 MB；代价是每步的反量化与底座本身的量化误差，adapter 训出来要和它配对的精度一起看（第三篇）。
+- **QLoRA 只动冻结权重那本账**：NF4（16 个正态分位数格点）+ 双重量化 + 分页优化器，0.5B 的底座从 988 MB 到 430 MB；代价是每步的反量化与底座本身的量化误差，adapter 训出来要和它配对的精度一起看（[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)）。
 
 ### 03 工程：adapter 文件、合并、多 LoRA 服务与参考模型
 
@@ -74,19 +74,19 @@ Table: 三篇正文的速查表
 
 ### 1. 一个公式，三篇各用它的一部分
 
-$$W' = W + \frac{\alpha}{r}BA$$。第一篇推它的梯度：$$B$$ 与 $$A$$ 的梯度都是瘦的，$$W$$ 没有梯度，但对输入的梯度必须穿过 $$W$$。第二篇调它的每个符号：$$r$$ 是容量，$$\alpha/r$$ 是缩放，$$A$$、$$B$$ 的初始化决定起点，`target_modules` 决定公式套在哪些 $$W$$ 上，QLoRA 把 $$W$$ 换成 $$Q(W)$$，DoRA 在外面套一层幅度归一化。第三篇把它合并回 $$W$$（`merge`）、按请求切换 $$(A_i, B_i)$$（multi-LoRA）、或把 $$BA$$ 项关掉（`disable_adapter` 当参考模型）。
+$$W' = W + \frac{\alpha}{r}BA$$。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)推它的梯度：$$B$$ 与 $$A$$ 的梯度都是瘦的，$$W$$ 没有梯度，但对输入的梯度必须穿过 $$W$$。[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)调它的每个符号：$$r$$ 是容量，$$\alpha/r$$ 是缩放，$$A$$、$$B$$ 的初始化决定起点，`target_modules` 决定公式套在哪些 $$W$$ 上，QLoRA 把 $$W$$ 换成 $$Q(W)$$，DoRA 在外面套一层幅度归一化。[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)把它合并回 $$W$$（`merge`）、按请求切换 $$(A_i, B_i)$$（multi-LoRA）、或把 $$BA$$ 项关掉（`disable_adapter` 当参考模型）。
 
 ### 2. 四本账，每一篇都回来算一次
 
-可训练参数、训练状态、计算量、激活值。第一篇建账：LoRA 省第一本 50–200 倍、第二本 5–8 倍、第三本 1/3、第四本不省。第二篇里 $$r$$ 改第一本与第二本的一小部分，QLoRA 改第二本里冻结权重那 96%，DoRA 让第三本变贵。第三篇里 adapter 的大小就是第一本乘 2 字节，multi-LoRA 的槽位是第一本乘 `max_loras`，`modules_to_save` 让第一本涨 15 倍。
+可训练参数、训练状态、计算量、激活值。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)建账：LoRA 省第一本 50–200 倍、第二本 5–8 倍、第三本 1/3、第四本不省。[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)里 $$r$$ 改第一本与第二本的一小部分，QLoRA 改第二本里冻结权重那 96%，DoRA 让第三本变贵。[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)里 adapter 的大小就是第一本乘 2 字节，multi-LoRA 的槽位是第一本乘 `max_loras`，`modules_to_save` 让第一本涨 15 倍。
 
 ### 3. 一个假设，从检验到失效
 
-"$$\Delta W$$ 低秩"。第一篇直接检验：全量微调的 $$\Delta W$$ 本身高秩，但有用的部分低秩，截到秩 16 效果几乎不掉。第二篇看它在哪些配置下成立得更好：挂全部线性层（让低秩的改动落在正确的矩阵上）、$$r$$ 够但不必大。第三篇看它的边界之外：新 token 的 embedding 不在任何 $$W$$ 里，低秩假设对它无从谈起。它失效的场景——知识注入、继续预训练——三篇都指向同一个答案：全量。
+"$$\Delta W$$ 低秩"。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)直接检验：全量微调的 $$\Delta W$$ 本身高秩，但有用的部分低秩，截到秩 16 效果几乎不掉。[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)看它在哪些配置下成立得更好：挂全部线性层（让低秩的改动落在正确的矩阵上）、$$r$$ 够但不必大。[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)看它的边界之外：新 token 的 embedding 不在任何 $$W$$ 里，低秩假设对它无从谈起。它失效的场景——知识注入、继续预训练——三篇都指向同一个答案：全量。
 
 ### 4. 同一组数字
 
-训练前 2.4936 / 2.8748，全量 80 步 2.3924 / +0.0213。第一篇用它们做截秩实验的标尺，第二篇的十三行都对着它们比，第三篇加载、合并、换精度后每一步都回到同一个验证集上重算一次。一个数字能在三篇之间来回对上，是这组实验可复现的全部证据。
+训练前 2.4936 / 2.8748，全量 80 步 2.3924 / +0.0213。[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)用它们做截秩实验的标尺，[《选参》](/lora-hyperparameters-rank-targets-alpha-lr-and-variants.html)的十三行都对着它们比，[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)加载、合并、换精度后每一步都回到同一个验证集上重算一次。一个数字能在三篇之间来回对上，是这组实验可复现的全部证据。
 
 ## 四、常见误区
 
@@ -124,7 +124,7 @@ Table: 常见误区
    全量 $$16 \times 70 \times 10^9 = 1.12$$ TB。LoRA：冻结 140 GB + 可训练 $$0.28 \times 10^9 \times 14 = 3.9$$ GB ≈ 144 GB。QLoRA：冻结权重 4.127 bit → 36 GB，加 3.9 GB ≈ 40 GB，一张 48 GB 的卡放得下（不含激活值）。
    </details>
 
-3. 用第一篇的 $$2 \times 3$$ 例子（$$W$$、$$x = (2, 1, 1)$$、$$t = (3, 0)$$、$$s = 2$$），若 $$A = (0, 1, 1)$$、$$B = (0, 0)^\top$$，第一步 $$\partial \mathcal{L}/\partial B$$ 是多少？一步 SGD（lr 0.1）后 $$y$$ 是多少？
+3. 用[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)的 $$2 \times 3$$ 例子（$$W$$、$$x = (2, 1, 1)$$、$$t = (3, 0)$$、$$s = 2$$），若 $$A = (0, 1, 1)$$、$$B = (0, 0)^\top$$，第一步 $$\partial \mathcal{L}/\partial B$$ 是多少？一步 SGD（lr 0.1）后 $$y$$ 是多少？
 
    <details markdown="1"><summary>答案</summary>
    $$y = Wx = (4, 1)$$，$$G = (1, 1)$$，$$h = Ax = 0 + 1 + 1 = 2$$，$$\partial \mathcal{L}/\partial B = 2 \cdot (1, 1) \cdot 2 = (4, 4)$$。$$B \leftarrow (-0.4, -0.4)$$，$$y = (4, 1) + 2 \cdot (-0.4, -0.4) \cdot 2 = (2.4, -0.6)$$——一步就冲过了目标 $$(3, 0)$$，lr 对这个 $$h$$ 太大。
@@ -193,8 +193,8 @@ Table: 常见误区
 三篇讲的是 LoRA 本身：低秩假设与梯度、每个旋钮取多少、adapter 文件怎么上线。偏好数据与 RL、peft 的源码实现、multi-LoRA 的 kernel 与调度、量化算法本身不在范围内，各有去处：
 
 - 继续后训练：[后训练系列](/post-training-from-sft-to-verifiable-rewards.html)第二篇起的偏好数据、DPO、GRPO，本系列第三篇的 `disable_adapter()` 会在那里再出现。
-- 读实现：[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列第一、三篇的一个公式。
-- 服务侧：[vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列第三篇只算了账。
+- 读实现：[HF 源码的《peft 与 trl》](/peft-and-trl-lora-sft-dpo-grpo-in-source.html)的 `inject_adapter`、`lora.Linear.forward`、`merge`，每一行都对应本系列的[《低秩假设》](/lora-low-rank-hypothesis-gradients-and-accounts.html)与[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)的一个公式。
+- 服务侧：[vLLM 系列的《请求形态的扩展：multi-LoRA 与多模态》](/request-shapes-multi-lora-and-multimodal.html)的 multi-LoRA kernel 与调度，本系列的[《工程》](/lora-in-production-adapters-merging-multi-lora-and-serving.html)只算了账。
 - 量化：[高效推理系列](/efficient-inference-and-compression-for-llms.html)的量化篇讲 GPTQ（逐层用二阶信息补偿误差的训练后权重量化方法） / AWQ（Activation-aware Weight Quantization，按激活大小保护重要通道的权重量化方法） / FP8，本系列第二篇的 NF4 是其中面向训练的一种。
 - 本系列在整张地图上的位置（L5 专题，在[《后训练：从 SFT 到可验证奖励》](/post-training-from-sft-to-verifiable-rewards.html)之后，是它的 SFT 一篇的放大）见[《AI 算法工程师学习地图》](/ai-algorithm-engineer-learning-roadmap.html)。
 
