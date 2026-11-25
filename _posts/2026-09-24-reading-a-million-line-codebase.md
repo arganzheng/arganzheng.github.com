@@ -87,7 +87,33 @@ Table: 六个步骤
 
 Table: 同一步骤在 PyTorch 与 vLLM 里的辅助
 
-### 4. 本文的章节安排
+### 4. 六步查出的答案，各自多久会变
+
+六个步骤查出的东西不是一类：有的按年才变一次，有的每天都在变，有的只活一次构建。这件事决定了项目地图那一页该怎么记——按年的值得背下来，按版本的记那条命令，每天变的只记一个量级。下表按「多久会变」从短到长排：
+
+| 查出的答案 | 具体是什么 | 多久会变 | 变了怎么重新查 |
+|---|---|---|---|
+| 生成文件在哪 | `ATen/ops/logaddexp_native.h`、`torch/_C/_VariableFunctions.pyi` 在源码树里根本不存在 | 一次构建 | 回 `native_functions.yaml` 或 `.pyi.in` 读模板，比构建完再读产物快 |
+| 文件数与行数 | PyTorch 21588 个文件约 475 万行<br/>vLLM 6596 个文件约 202 万行 | 每天变，量级按年变 | 在检出上重新统计；记量级不记数字 |
+| 构建命令 | `pip install -e . -v --no-build-isolation`<br/>`VLLM_USE_PRECOMPILED=1 uv pip install -e .` | 按版本 | 两个项目的 `CONTRIBUTING.md` 与 `docs/contributing/incremental_build.md` |
+| 登记表到实现的那条链 | `native_functions.yaml` 的 `dispatch:` → `native/*.cpp` → `DEFINE_DISPATCH` 桩 → `cuda/` 下的 kernel | ^^ | 回登记表重追一次，不要把路径记成结论 |
+| 一个测试名对应的源码位置 | CI 报的 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128` 要去掉设备与 dtype 后缀才 grep 得到 | ^^ | `instantiate_device_type_tests` 的命名规则 |
+| 一个函数该有什么行为 | 它的测试 | 随这个函数的行为一起改 | `test/test_*.py`、`tests/<子系统>/` |
+| 目录分层 | `c10/` → `aten/` → `torch/csrc/` → `torch/`<br/>`csrc/` → `vllm/` | 按年——这是最稳的一格 | `CONTRIBUTING.md` 的 "Codebase structure" 一节 |
+| 发布节奏 | PyTorch 约两个月一个 minor、cut 到发布三到四周<br/>vLLM 约两周一版 | ^^ | 两个项目根目录的 `RELEASE.md` |
+| 这一行为什么是这样 | `git blame -w -C` 找到 commit，再顺 `Pull Request resolved:` 或 `gh pr view` 到当时的讨论 | 不会变——历史只追加 | 查一次就永久有效 |
+| 这个修复进了哪个版本 | `git tag --contains <sha>`，引言那个 issue 的答案是 v2.10.0 | ^^ | 要在完整克隆里跑，浅克隆列不出来 |
+
+Table: 六步查出的答案按保鲜期排
+
+四处值得记住的读法：
+
+1. **最稳的一格是历史**。git 历史只追加不修改，所以「这一行为什么是这样」查一次就永久有效——这是把 `git log` 当注释读的真正理由：它比代码里的注释更不容易过期，因为没人会去改一条已经推上去的 commit message。
+2. **唯一「只活一次构建」的是生成代码**，而它正是引言那位工程师卡住两小时的地方。clangd 报「找不到头文件」不是环境坏了，是还没付构建那一次的代价；但第一次追踪的正确做法恰恰是不构建——回 yaml 读登记表，四五条 `rg` 就能走完。
+3. **每天都在变的那两格（文件数、行数）其实最没用**。它们只在写报告或者说明规模时需要，记「两百万行量级」比记「6596 个文件」有用得多；反过来，看起来最像常识的数字往往是最容易过期的那一类。
+4. **两个项目在这张表上几乎一模一样，只差一格**：PyTorch 有源码级代码生成，vLLM 没有——它的「找不到定义」全部停在 `.so` 的注册层。所以这一格要记的东西不同：PyTorch 侧是 `native_functions.yaml`，vLLM 侧是 `csrc/libtorch_stable/torch_bindings.cpp`。
+
+### 5. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -187,7 +213,14 @@ rg -n -A6 '^- func: logaddexp' aten/src/ATen/native/native_functions.yaml
   tags: pointwise
 ```
 
-这十行说明四件事：`logaddexp` 是一个 structured kernel（`structured: True`），它的实现委托给 `logaddexp.out`（`structured_delegate`）；CPU、CUDA、MPS、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
+这十行说明四件事：
+
+1. `logaddexp` 是一个 structured kernel（`structured: True`）；
+2. 它的实现委托给 `logaddexp.out`（`structured_delegate`）；
+3. CPU、CUDA、MPS、XPU 四个后端共用一个 C++ 函数名 `logaddexp_out`（`dispatch:`）；
+4. 它同时是方法与函数（`variants`），所以 `x.logaddexp(y)` 与 `torch.logaddexp(x, y)` 都存在。
+
+每个字段的含义在 `aten/src/ATen/native/README.md` 里有解释。
 
 **第三步：找 `dispatch:` 指向的 C++ 函数。**
 
@@ -268,7 +301,13 @@ vllm/entrypoints/cli/
 └── types.py         # CLISubcommand 基类
 ```
 
-**第三步：`serve` 子命令做什么。** `vllm/entrypoints/cli/serve.py` 的 `ServeSubcommand.cmd()`：如果指定了 `--grpc` 走 `vllm.entrypoints.grpc_server.serve_grpc`；如果 `api_server_count > 1` 或启用了 Rust 前端，走 `run_multi_api_server(args)`；否则——最常见的单进程情况——`uvloop.run(run_server(args))`。`run_server` 从 `vllm.entrypoints.openai.api_server` 导入。
+**第三步：`serve` 子命令做什么。** `vllm/entrypoints/cli/serve.py` 的 `ServeSubcommand.cmd()` 分三条路：
+
+- 指定了 `--grpc`，走 `vllm.entrypoints.grpc_server.serve_grpc`；
+- `api_server_count > 1` 或启用了 Rust 前端，走 `run_multi_api_server(args)`；
+- 否则——最常见的单进程情况——`uvloop.run(run_server(args))`。
+
+`run_server` 从 `vllm.entrypoints.openai.api_server` 导入。
 
 **第四步：HTTP 服务与引擎的创建。** `vllm/entrypoints/openai/api_server.py` 是 OpenAI 兼容服务的主文件：`run_server()` → `run_server_worker()` 启动 uvicorn；`build_async_engine_client()` → `build_async_engine_client_from_engine_args()` 创建引擎客户端，后者的关键一行是：
 
@@ -308,7 +347,11 @@ flowchart TB
 
 ### 1. torchgen 生成什么
 
-PyTorch 有大量代码不在仓库里，而是构建时由 `torchgen/` 与 `tools/autograd/` 从 `native_functions.yaml` 和模板生成。贡献者看到的现象是：仓库里 `#include` 了不存在的头文件；`rg` 找不到一个明明能 `import` 的函数；IDE 的"跳转到定义"落到 `.pyi` 里的类型签名后断掉。
+PyTorch 有大量代码不在仓库里，而是构建时由 `torchgen/` 与 `tools/autograd/` 从 `native_functions.yaml` 和模板生成。贡献者看到的现象有三种：
+
+- 仓库里 `#include` 了不存在的头文件；
+- `rg` 找不到一个明明能 `import` 的函数；
+- IDE 的"跳转到定义"落到 `.pyi` 里的类型签名后断掉。
 
 生成物的位置（v2.14.0 的 `.gitignore` 与 `cmake/Codegen.cmake` 为准）：
 
@@ -336,6 +379,12 @@ Table: torchgen 生成物的位置
 **规则三：Python 侧的 `torch.<op>` 找不到定义是正常的，用 yaml 代替。** IDE 跳转到 `_VariableFunctions.pyi` 就停了，因为往下是 C++。这时候不要试图从 `.pyi` 继续跳，直接 `rg '^- func: <op>' aten/src/ATen/native/native_functions.yaml`。
 
 如果一定要在 C++ 侧用 clangd 跳转（比如想跟进 `TORCH_IMPL_FUNC` 宏展开后的函数、或者看 `RegisterCUDA.cpp` 里生成的分发代码），就必须构建一次——第五章。
+
+> [!NOTE] Java 经验参照：annotation processor 生成的代码
+>
+> 这一节的机制你见过：Lombok 的 `@Data`、MapStruct 的 mapper、protobuf 的 `*OuterClass`，源码里都没有，IDE 跳转到一半断掉，答案在 `target/generated-sources/` 下。`torchgen` 对 `ATen/ops/*.h` 和 `.pyi` 做的是同一件事，连「改模板不改产物」这条规则都一样——`.pyi` 在 `.gitignore` 里，相当于 Java 侧没人会把 `target/` 提交上去。
+>
+> 两处对不上。一是代价：`mvn compile` 跑一遍几秒到几十秒，生成物就全有了，所以 Java 侧遇到这种情况的标准动作是「先 build 一次」；PyTorch 的生成物要连着整个 C++ 后端一起编，第一次构建是几十分钟到几小时的量级，所以标准动作反过来——**先不构建**，回 yaml 读登记表，这一章三条规则讲的就是怎么不构建也能往下走。二是工具的提示方式：IDE 默认把 `generated-sources` 加进 source root，跳转虽然断在生成的类上，至少还能看到那个类；clangd 不会，它只给你一句「找不到头文件 `ATen/ops/logaddexp_native.h`」，而这个文件在仓库里确实不存在——引言那位工程师就是在这句话上以为仓库克隆坏了。
 
 ### 3. vLLM 的 `_C` 扩展
 
@@ -406,7 +455,7 @@ source venv/bin/activate
 
 原文对它的定位是 "to ease pure Python development of PyTorch ... This is like a development or editable install, but without needing the ability to compile any C++ code"。代价是它不生成 `compile_commands.json`，C++ 侧仍然没法用 clangd。
 
-v2.14.0 的 `CONTRIBUTING.md` 有一节 "Spin"，把 `spin` 作为开发命令的统一入口：`spin develop` 等价于 editable install，`spin clean` 清理构建产物，`spin lint` / `spin fixlint` 跑 lint，`spin regenerate-type-stubs` 单独重新生成 `.pyi`。第三篇会用到 lint 部分。
+v2.14.0 的 `CONTRIBUTING.md` 有一节 "Spin"，把 `spin` 作为开发命令的统一入口：`spin develop` 等价于 editable install，`spin clean` 清理构建产物，`spin lint` / `spin fixlint` 跑 lint，`spin regenerate-type-stubs` 单独重新生成 `.pyi`。[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)会用到 lint 部分。
 
 ### 3. vLLM 的构建命令
 
@@ -450,7 +499,7 @@ Table: 两个项目构建方式的对照
 
 ## 六、用测试当文档
 
-一个函数最准确的规格说明不是它的 docstring，是它的测试：测试写了哪些输入、期望哪些输出、跳过了哪些设备与 dtype，就是这个函数被承诺的行为边界。对贡献者，测试还有第二个用途——它是改动之后必须跑、必须补的东西，第三篇讲规范，本章只讲怎么找到与读懂。
+一个函数最准确的规格说明不是它的 docstring，是它的测试：测试写了哪些输入、期望哪些输出、跳过了哪些设备与 dtype，就是这个函数被承诺的行为边界。对贡献者，测试还有第二个用途——它是改动之后必须跑、必须补的东西，[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)讲规范，本章只讲怎么找到与读懂。
 
 ### 1. PyTorch：`test/` 的组织
 
@@ -516,6 +565,12 @@ BinaryUfuncInfo('logaddexp',
                 skips=(...)),
 ```
 
+> [!NOTE] Java 经验参照：参数化测试与 CI 里报出来的测试名
+>
+> `instantiate_device_type_tests` 就是 JUnit 5 的 `@ParameterizedTest` 加 `@MethodSource`：一份测试体、多组参数、生成多个独立的测试。OpInfo 再往上一层，相当于把参数源做成了全项目共享的注册表（`op_db`），新算子只要往注册表里加一条，`test_ops.py` 的通用测试就自动覆盖它——Java 侧用 `@ArgumentsSource` 加一个共享 provider 是类似的做法。
+>
+> 对不上的是参数的性质和它带来的坑。这里的参数是**设备和 dtype**，也就是说同一个断言在 CPU 上过、在 CUDA 上可能不过——引言那个 issue 就是这种 bug，Java 的参数化测试几乎不会遇到这类「换一块硬件结论就变」的情况。连带的后果是测试名：框架把设备和 dtype 拼进名字，CI 日志里出现的是 `TestBinaryUfuncsDeviceCUDA.test_logaddexp_cuda_complex128`，拿它去 `rg` 一个字都搜不到。Java 侧的 `displayName` 虽然也是拼出来的，但类名方法名照样能搜；这里必须先知道命名规则，去掉设备后缀与 dtype 后缀，才能回到源码里的 `TestBinaryUfuncsDevice.test_logaddexp`。
+
 `test/test_ops.py` 的 `TestCommon` 用 `@ops(op_db, ...)` 装饰器对 `op_db` 里每个 OpInfo 跑一组通用测试（正确性、梯度、meta、decomposition 等）。这意味着：**给一个算子加了新 dtype 支持，通常只需要改它的 OpInfo，通用测试会自动覆盖。** 反过来，读一个算子的 OpInfo 是最快知道"它在哪些 dtype 和设备上被承诺可用"的方式——`dtypesIfCUDA` 比 `dtypes` 多了 `torch.complex32`，说明 CUDA 上支持 chalf 而 CPU 不支持。
 
 ### 3. vLLM：`tests/` 的组织
@@ -542,7 +597,7 @@ Table: vLLM tests/ 子目录与子系统的对应
 
 找一个改动对应的测试目录的规则很简单：`vllm/v1/engine/` 的改动看 `tests/v1/engine/`，`csrc/` 的 kernel 看 `tests/kernels/`，`vllm/entrypoints/openai/` 看 `tests/entrypoints/openai/`。第七章那个 vLLM commit 改了 `vllm/entrypoints/cli/serve.py`、`vllm/v1/engine/core_client.py` 与 `vllm/v1/engine/utils.py`，配套测试新加在 `tests/v1/engine/test_startup_watch_processes.py`（同时调整了同目录的 `test_core_engine_actor_manager.py`）。
 
-vLLM 没有 PyTorch 那样厚的测试框架层，`tests/conftest.py` 与各子目录的 `conftest.py` 提供 fixture（模型加载、`VllmRunner`、`HfRunner` 等）。`AGENTS.md` 的 "Tests" 一节对新测试提了四个问题（模块做什么、I/O 契约、防的是什么失败、最便宜的层级）和几条原则（复用已有文件、一个测试一个行为、不在 `tests/` 里放一次性 kernel benchmark），第三篇展开。
+vLLM 没有 PyTorch 那样厚的测试框架层，`tests/conftest.py` 与各子目录的 `conftest.py` 提供 fixture（模型加载、`VllmRunner`、`HfRunner` 等）。`AGENTS.md` 的 "Tests" 一节对新测试提了四个问题（模块做什么、I/O 契约、防的是什么失败、最便宜的层级）和几条原则（复用已有文件、一个测试一个行为、不在 `tests/` 里放一次性 kernel benchmark），[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)展开。
 
 ## 七、读历史
 
@@ -644,7 +699,7 @@ fa722b9f01 2026-08-10 [Rust Frontend][gRPC] Add explicit data-parallel rank rout
 ab3b6d97aa 2026-07-04 [Frontend] Limit `SO_REUSEPORT` to multi-worker serving (#47529)
 ```
 
-标题带 `[Frontend]`、`[chore]` 这类前缀（第三篇讲 PR 标题规范），末尾 `(#43417)` 是 PR 号。看正文：
+标题带 `[Frontend]`、`[chore]` 这类前缀（[《做出一个能被合入的改动》](/landing-a-mergeable-change.html)讲 PR 标题规范），末尾 `(#43417)` 是 PR 号。看正文：
 
 ```bash title="查看 7b9f2dad89 的完整信息"
 git show -s --format='%H%n%an%n%cs%n%B' 7b9f2dad89
@@ -703,7 +758,7 @@ Table: PyTorch RELEASE.md 的 Release Cadence（v2.14.0，近几行）
 
 "Release Branch" 一节：major/minor 的 release branch cut 在发布前 1–2 天；构建由推 `vX.Y.Z-rc1` 这样的 RC tag 触发，最终 tag `vX.Y.Z` 不触发构建；"Cherry-Pick Criteria" 允许 regression fix、critical fix、对最近一版新功能的修复、文档、release 分支特定改动，并加粗 "No feature work allowed for cherry picks"。
 
-按文档，vLLM 合入 main 的改动最多等两周就在下一个 minor 版本里，branch cut 到发布只有一两天。实际的 v0.28.0 不是这样：`releases/v0.28.0` 分支以 08-17 合入 main 的 #52570 为基点，08-20 到 08-24 又收了 13 个 commit（多数带 `(cherry picked from commit …)`），08-26 发布——基点比发布早 9 天，cherry-pick 窗口约一周。所以对贡献者的含义是：想进某个版本，要在那个版本的分支基点之前合入，而基点只能事后从 tag 查（`git merge-base vX.Y.Z origin/main`），不能从文档推算；第四篇的 #47272 就是 08-20 合入 main、却不在 08-26 发布的 v0.28.0 里。
+按文档，vLLM 合入 main 的改动最多等两周就在下一个 minor 版本里，branch cut 到发布只有一两天。实际的 v0.28.0 不是这样：`releases/v0.28.0` 分支以 08-17 合入 main 的 #52570 为基点，08-20 到 08-24 又收了 13 个 commit（多数带 `(cherry picked from commit …)`），08-26 发布——基点比发布早 9 天，cherry-pick 窗口约一周。所以对贡献者的含义是：想进某个版本，要在那个版本的分支基点之前合入，而基点只能事后从 tag 查（`git merge-base vX.Y.Z origin/main`），不能从文档推算；[《两个真实 PR 的完整走读》](/two-real-prs-pytorch-and-vllm.html)的 #47272 就是 08-20 合入 main、却不在 08-26 发布的 v0.28.0 里。
 
 把两份 `RELEASE.md` 合成一张判断：一个改动合入 main 之后，进哪一版取决于两件事——合入时目标版本的 release branch 切了没有，以及它够不够 cherry-pick 的准则。
 
