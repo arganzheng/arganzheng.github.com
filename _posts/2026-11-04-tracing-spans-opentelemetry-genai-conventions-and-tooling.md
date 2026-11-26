@@ -131,12 +131,12 @@ Table: OpenTelemetry GenAI 语义约定的元素
 
 | 事实 | 含义 |
 |---|---|
-| 约定迁入独立仓库 `open-telemetry/semantic-conventions-genai`；核心仓库 v1.42.0（2026-06）弃用并移走全部 GenAI 内容，v1.43.0 不再含 | 权威来源变了；旧文档页是指向新家的指针 |
+| 约定迁入独立仓库 `open-telemetry/semantic-conventions-genai`；核心仓库 v1.42.0（2026-06）弃用并移走全部 GenAI 内容，之后的版本只保留标为 deprecated 的旧定义 | 权威来源变了；旧文档页是指向新家的指针 |
 | **所有 GenAI 专属的 span / 事件 / 指标 / 属性仍是 Development，没有一个 Stable**（共享的核心属性如 `error.type`、`server.address` 是 Stable） | 名字会变；不要把它当成已定型的接口 |
 | 属性改名：`gen_ai.system` → `gen_ai.provider.name`<br/>`invoke_agent` 拆成 client / internal 两种 span（v1.41.0）<br/>`execute_tool` 命名收紧 | 框架混发几代属性；后端要归一 |
-| `OTEL_SEMCONV_STABILITY_OPT_IN` 环境变量 | 让你选 span 说哪个版本的约定 |
+| `OTEL_SEMCONV_STABILITY_OPT_IN` 环境变量 | 在 v1.36.0 及更早的旧约定与最新实验版（`gen_ai_latest_experimental`）之间切换 |
 | span 从单次模型调用扩展到整个 agent 循环：`invoke_agent`、`execute_tool`、`plan`、检索、记忆家族 | OTel 在标准化 agent trace，不只是模型调用 |
-| Arize 的 OpenInference（OTel 对齐的另一套约定）把 span kind 分类与之对齐；Langfuse v3 围绕 OTel 重建 | "方言之争"基本结束，线格式共享 |
+| Arize 在接收端把 `gen_ai.*` span 按 `gen_ai.operation.name` 映射成 OpenInference（另一套基于 OTel 的约定）的 span kind；Langfuse Python SDK v3 基于 OTel 构建 | "方言之争"基本结束，线格式共享 |
 
 Table: GenAI 约定 2026 年的现状
 
@@ -156,7 +156,7 @@ Table: GenAI 约定 2026 年的现状
 flowchart TB
     APP["<b>应用打点</b><br/>gen_ai.provider.name = anthropic<br/>gen_ai.request.model = claude-sonnet-5<br/>gen_ai.usage.input_tokens · cache_read · reasoning<br/>app.prompt_version = v12 · app.toolset = v4"] --> COL["<b>OTel Collector</b><br/>归一：gen_ai.system → gen_ai.provider.name<br/>脱敏 · 尾采样 · 路由"]
     COL --> B1["Langfuse"]
-    COL --> B2["<b>Arize Phoenix</b><br/>（OpenInference 对齐）"]
+    COL --> B2["<b>Arize Phoenix</b><br/>（OpenInference）"]
     COL --> B3["Datadog / Honeycomb"]
     COL --> B4["自建：ClickHouse + 对象存储 + Grafana"]
     N["<b>约定全部还是 Development</b><br/>钉 OTEL_SEMCONV_STABILITY_OPT_IN<br/>改名当破坏性变更"] -.-> APP
@@ -176,7 +176,7 @@ flowchart TB
 
 | 工具 | 特点 | 适合 |
 |---|---|---|
-| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
+| Langfuse | 开源可自托管<br/>Python SDK v3 基于 OTel<br/>trace + prompt 管理（《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
 | LangSmith | LangChain 栈原生；trace、评测、数据集、playground | LangChain / LangGraph 用户 |
 | Arize Phoenix | 开源<br/>OpenInference 约定<br/>评测与 embedding 可视化 | 严谨的评测与可视化；自托管 |
 | Braintrust | trace 到评测的闭环（从 trace 一键建用例、跑评测、比版本） | 评测驱动的团队 |
@@ -314,7 +314,7 @@ invoke_agent refund-bot  3380 ms
 - 三级树：会话（版本六元组、权限档、总成本）→ 任务（输入输出、状态、反馈）→ span（模型调用：完整输入输出、五项 usage、effort、stop_reason、TTFT；工具：参数结果沙箱审批幂等 id；检索：查询候选排序块 id）+ 事件（压缩、卸载、卫士、审批、决策点）+ 子会话链接。
 - OTel GenAI 约定：
   - 内容：`{operation} {model}` 命名、`gen_ai.provider.name`、请求 / 响应 / 用量 / agent / 工具属性、内容事件、指标；
-  - 2026 年的现状：迁入独立仓库、全部 Development 无 Stable、属性改名（`system` → `provider.name`）、`invoke_agent` 拆分、span 扩展到 agent 循环、OpenInference 对齐、Langfuse v3 重建；
+  - 2026 年的现状：迁入独立仓库、全部 Development 无 Stable、属性改名（`system` → `provider.name`）、`invoke_agent` 拆分、span 扩展到 agent 循环、OpenInference 映射、Langfuse SDK v3 基于 OTel；
   - 用法：按约定打点、钉版本、改名当破坏性变更、后端归一、业务属性用 `app.*`。
 - 工具：Langfuse、LangSmith、Phoenix、Braintrust、Helicone、APM 模块，按评测闭环 / 自托管 / 成本 / 栈选；自建最小集；trace 是会话日志的可观测投影。
 - 敏感数据分级脱敏访问控制短保留不记凭据；元数据全量、内容按比例、bad case 全量；内容进对象存储。
@@ -353,6 +353,6 @@ invoke_agent refund-bot  3380 ms
 
 [^q0]: 三级树：会话 span 记用户 / 租户、版本六元组（prompt、模型快照、工具集、检索配置、harness、权限档）、时间、总成本；任务 / 轮次 span 记用户输入、最终输出、状态（完成 / 部分 / 失败 / 拒答）、成本、时长、用户反馈；模型调用 span 记完整输入（或 prompt 版本 + 历史事件 id 的可重建引用）、完整输出含思考块、usage 五项（输入 / 输出 / 缓存读 / 缓存写 / 推理）、模型 id 与快照、effort、temperature、stop_reason、TTFT 与总时长、错误与重试、供应商请求 id；工具 span 记名称、参数、结果或卸载引用、耗时、沙箱与拒绝、审批请求与决定、幂等 id、错误；检索 span 记改写前后查询、过滤含权限、两路候选与分数、RRF 与 rerank 后排序、进上下文的块 id、零结果；事件挂在 turn 上——压缩、卸载、卫士、审批、决策点；子会话 id 双向链接成森林。详见[第一章](#一总览)、[第二章](#二每种-span-记什么)。
 
-[^q1]: 内容：span 名 `{operation} {model}`、操作（chat / embeddings / execute_tool / invoke_agent / create_agent / 检索 / 记忆）、`gen_ai.provider.name` 作风味判别、请求响应用量属性（2026 年加缓存与推理 token）、agent 属性（id / name / version）、工具属性、内容事件（默认可关）、时长 / 用量 / TTFT / 流式指标。现状（2026-09）：约定迁入独立仓库 `semantic-conventions-genai`（核心 v1.42.0 于 2026-06 移走全部 GenAI 内容）；所有 GenAI 专属元素仍 Development、无一 Stable；属性改名 `gen_ai.system` → `gen_ai.provider.name`，`invoke_agent` 拆 client / internal，`execute_tool` 命名收紧；`OTEL_SEMCONV_STABILITY_OPT_IN` 选版本；span 扩展到整个 agent 循环；OpenInference 对齐、Langfuse v3 围绕 OTel 重建。用法：按约定打点、钉版本、改名当破坏性变更、框架混发几代时在后端归一、业务属性放 `app.*` 不塞 `gen_ai.*`。详见[第三章](#三opentelemetry-genai-语义约定)。
+[^q1]: 内容：span 名 `{operation} {model}`、操作（chat / embeddings / execute_tool / invoke_agent / create_agent / 检索 / 记忆）、`gen_ai.provider.name` 作风味判别、请求响应用量属性（2026 年加缓存与推理 token）、agent 属性（id / name / version）、工具属性、内容事件（默认可关）、时长 / 用量 / TTFT / 流式指标。现状（2026-09）：约定迁入独立仓库 `semantic-conventions-genai`（核心 v1.42.0 于 2026-06 移走全部 GenAI 内容）；所有 GenAI 专属元素仍 Development、无一 Stable；属性改名 `gen_ai.system` → `gen_ai.provider.name`，`invoke_agent` 拆 client / internal，`execute_tool` 命名收紧；`OTEL_SEMCONV_STABILITY_OPT_IN` 切换新旧约定；span 扩展到整个 agent 循环；OpenInference 映射、Langfuse Python SDK v3 基于 OTel 构建。用法：按约定打点、钉版本、改名当破坏性变更、框架混发几代时在后端归一、业务属性放 `app.*` 不塞 `gen_ai.*`。详见[第三章](#三opentelemetry-genai-语义约定)。
 
 [^q2]: 工具：Langfuse（开源自托管、OTel、trace + prompt 管理 + 评测）、LangSmith（LangChain 栈）、Arize Phoenix（开源、OpenInference）、Braintrust（trace 到评测闭环）、Helicone（网关式）、APM 的 LLM 模块；按评测闭环、自托管、成本（按 trace 量计费）、栈选，多从开源起步。自建最小集：OTel SDK → Collector → ClickHouse / 对象存储 → Grafana，加完整内容存储、采样查询、bad case 队列；理由是合规与规模成本。trace 是会话日志的可观测投影，一份数据两种视图。敏感数据：元数据与内容分级、采集侧脱敏 PII、内容访问控制、内容短保留元数据长保留、工具参数里的凭据打点前抹掉、支持用户删除。采样：元数据全量、内容 1–10%、bad case（负反馈、错误、卫士、越权、拒答）内容全量，尾采样优于头采样。成本：每会话几 MB 内容、十万会话几百 GB / 天——内容进对象存储存引用、元数据进列式库、按保留期分层。详见[第四章](#四工具与自建)、[第五章](#五敏感数据采样保留与成本)。

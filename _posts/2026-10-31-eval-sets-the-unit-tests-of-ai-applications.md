@@ -201,7 +201,7 @@ flowchart TB
     R["评测结果：0.87 ± 0.02（100 条 × 5 次）"]
     R --> V1["<b>评测集 v14</b><br/>（含 hold-out 划分）"]
     R --> V2["prompt v12"]
-    R --> V3["<b>模型快照</b><br/>claude-sonnet-5-20260630"]
+    R --> V3["<b>模型快照</b><br/>claude-sonnet-5"]
     R --> V4["<b>工具集 v4 · 检索配置 v3</b><br/>（分块策略变 → 标注块 id 失效）"]
     R --> V5["rubric v2"]
     R --> V6["judge：Opus 5 快照 + judge prompt v3"]

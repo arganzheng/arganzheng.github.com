@@ -11,7 +11,7 @@ catalog: true
 
 《评测、可观测与可追溯：怎么知道改了之后更好了》是一组共七篇的系列文章，是[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)第五层（L5）的正文。前四层反复说"在评测集上证明"、"用 judge 评"、"从 trace 里采"、"接评测门禁"——这一层讲这些东西本身：**评测集**怎么建、怎么运营；**评分**用规则、模型还是人，LLM-as-judge 的偏差有多大、怎么校准；单步、RAG、agent 各**评什么**；改动怎么过**门禁**、供应商静默升级怎么发现、在线怎么评；**trace** 记什么、怎么与 OpenTelemetry 的 GenAI 语义约定对齐；**可追溯**的几项实践——录制回放、决策点日志、失败分类、版本 diff、反馈绑定；以及**运行时**的可靠性（guardrails、fallback）与**物理世界**的仿真（自动驾驶、机器人怎样用仿真替代"在真实世界里试"）。
 
-为什么这一层是应用工程里最常被跳过、又最决定成败的一层：AI 应用的每一次改动——换一个词、换一个模型、改一个 schema、加一个工具——都可能让一部分用例由对变错，而模型的输出没有类型检查、没有编译错误、没有单元测试会红。LangChain 2026 年的《State of AI Agents》报告：57% 的组织有 agent 在生产，**质量是部署的最大障碍（32%，几乎是第二名的两倍）**；89% 的团队接了可观测，**只有 52% 接了评测**——"看得见"与"能判断好坏"之间的差距，就是事故的来源。评测是 AI 应用的测试体系，可观测是它的日志与监控，可追溯是"出了事能定位到哪一步"。三者缺一，其他六层的每一次改进都无法被证明。
+为什么这一层是应用工程里最常被跳过、又最决定成败的一层：AI 应用的每一次改动——换一个词、换一个模型、改一个 schema、加一个工具——都可能让一部分用例由对变错，而模型的输出没有类型检查、没有编译错误、没有单元测试会红。LangChain 2026 年的《State of AI Agents》报告：57% 的组织有 agent 在生产，**质量是部署的最大障碍（32%，第二名延迟为 20%）**；89% 的团队接了可观测，**只有 52% 接了评测**——"看得见"与"能判断好坏"之间的差距，就是事故的来源。评测是 AI 应用的测试体系，可观测是它的日志与监控，可追溯是"出了事能定位到哪一步"。三者缺一，其他六层的每一次改进都无法被证明。
 
 它回答的问题是：
 
@@ -23,7 +23,7 @@ catalog: true
 
 **[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)**：能用规则的不用模型（格式、schema、精确匹配、测试通过），需要判断的用 LLM-as-judge——但 judge 是一个**要先被测量的测量仪器**。2026 年的两项大规模研究给出的数字：
 
-- 精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点；
+- 精确匹配一致率相对 Cohen's kappa 虚高 33–41 个百分点（MT-Bench）；
 - judge 的排名在不同基准间移动多达 14 位；
 - 两个生产部署的 judge 同时表现出 >0.95 的重测信度与 >0.10 的位置偏差（"一致但有偏"）；
 - **风格偏差**（偏爱 markdown 而非纯文本，0.10–0.76）是最大的一类，远超位置偏差（≤ 0.04）；
@@ -45,7 +45,7 @@ catalog: true
 
 - 会话 → 任务 → 步骤三级树，每个 span 记什么（完整输入输出、usage、effort、工具参数与结果、沙箱与审批、卫士、压缩）；
 - **OpenTelemetry GenAI 语义约定**的现状——2026 年迁入独立仓库 `semantic-conventions-genai`，`gen_ai.*` 的 span、事件、指标、属性全部仍是 Development 状态（没有 Stable），属性名在版本间会变（`gen_ai.system` → `gen_ai.provider.name`，用 `OTEL_SEMCONV_STABILITY_OPT_IN` 钉版本），span 已从单次模型调用扩展到整个 agent 循环（`invoke_agent`、`execute_tool`、检索、记忆）；
-- 工具（Langfuse v3 围绕 OTel 重建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；
+- 工具（Langfuse Python SDK v3 基于 OTel 构建、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone）的选择与自建；
 - 敏感数据、采样、保留期。
 
 **[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)**给出五项实践：
@@ -153,7 +153,7 @@ Table: 七篇的主题与传统对应
 
 judge 的四类偏差与 2026 年的数字：**位置**（偏爱先出现或后出现的——两个生产 judge >0.10）、**风格**（偏爱 markdown 与结构化外观——0.10–0.76，最大的一类）、**冗长**（因模型而异：Llama / Gemini 偏长 +0.24 到 +0.44，Claude Sonnet 4 偏短 −0.12，GPT-4o 中性 −0.04）、**自我偏好**（偏爱同家族的输出）。报告方式的陷阱：
 
-- 精确匹配一致率相对 Cohen's kappa 普遍虚高 33–41 个百分点（未校正机遇一致）；
+- 精确匹配一致率相对 Cohen's kappa 虚高 33–41 个百分点（MT-Bench，未校正机遇一致）；
 - judge 排名跨基准移动多达 14 位（一个基准上好的 judge 换个任务未必好）；
 - 重测信度 >0.95 与位置偏差 >0.10 并存——"一致但有偏"。
 
@@ -216,7 +216,7 @@ judge 的四类偏差与 2026 年的数字：**位置**（偏爱先出现或后�
 - 压缩 / 卸载 / 卫士 / 审批作为事件；
 - 子会话 id 作为链接。
 
-**OpenTelemetry GenAI 语义约定**：`gen_ai.*` 属性、`{operation} {model}` 的 span 名、`gen_ai.provider.name`、usage 属性、事件里的消息内容；2026 年的现状——约定迁入独立仓库 `open-telemetry/semantic-conventions-genai`（核心仓库 v1.42.0 于 2026-06 弃用并移走全部 GenAI 内容），**所有 GenAI 专属的 span / 事件 / 指标 / 属性仍是 Development 状态、没有一个 Stable**，属性在版本间改名（`gen_ai.system` → `gen_ai.provider.name`），`OTEL_SEMCONV_STABILITY_OPT_IN` 让你选 span 说哪个版本；span 从单次模型调用扩展到 agent 循环（`invoke_agent` 拆成 client / internal、`execute_tool` 命名收紧、检索、记忆、`plan`），Arize 的 OpenInference 与之对齐。建议：按约定打点、钉版本、把改名当破坏性变更、框架混发几代属性时在后端归一。工具：Langfuse（v3 围绕 OTel 重建，含 prompt 管理与评测）、LangSmith（LangChain 栈）、Arize Phoenix（OpenInference，开源）、Braintrust（trace 到评测的闭环）、Helicone（网关式接入）——按"与评测的集成、自托管、成本、栈"选；自建的最小集。敏感数据与成本：
+**OpenTelemetry GenAI 语义约定**：`gen_ai.*` 属性、`{operation} {model}` 的 span 名、`gen_ai.provider.name`、usage 属性、事件里的消息内容；2026 年的现状——约定迁入独立仓库 `open-telemetry/semantic-conventions-genai`（核心仓库 v1.42.0 于 2026-06 弃用并移走全部 GenAI 内容），**所有 GenAI 专属的 span / 事件 / 指标 / 属性仍是 Development 状态、没有一个 Stable**，属性在版本间改名（`gen_ai.system` → `gen_ai.provider.name`），`OTEL_SEMCONV_STABILITY_OPT_IN` 在 v1.36.0 旧约定与最新实验版之间切换；span 从单次模型调用扩展到 agent 循环（`invoke_agent` 拆成 client / internal、`execute_tool` 命名收紧、检索、记忆、`plan`），Arize 在接收端把它映射为 OpenInference。建议：按约定打点、钉版本、把改名当破坏性变更、框架混发几代属性时在后端归一。工具：Langfuse（Python SDK v3 基于 OTel，含 prompt 管理与评测）、LangSmith（LangChain 栈）、Arize Phoenix（OpenInference，开源）、Braintrust（trace 到评测的闭环）、Helicone（网关式接入）——按"与评测的集成、自托管、成本、栈"选；自建的最小集。敏感数据与成本：
 
 - prompt 与输出里有用户数据——脱敏、分级、保留期、访问控制；
 - 采样（全量存元数据、按比例存内容、bad case 全量）；
@@ -286,7 +286,7 @@ Table: 各篇实践建议的内容
 | 来源 | 内容 |
 |---|---|
 | LangChain《State of AI Agents》2026 | 57% 生产、质量 32% 为最大障碍、89% 可观测 vs 52% 评测 |
-| LLM-as-judge 研究（2026） | 21 个 judge × 3 基准 × 54 万判定的系统评估（kappa 虚高 33–41 pp、排名移动 14 位、一致但有偏）；九种去偏策略 × 五 judge 的对比（风格偏差最大、冗长偏差异质、中档 + 去偏胜前沿且便宜 15 倍） |
+| LLM-as-judge 研究（2026） | 21 个 judge × 3 基准 × 54 万判定的系统评估（kappa 在 MT-Bench 上虚高 33–41 pp、排名移动 14 位、一致但有偏）；九种去偏策略 × 五 judge 的对比（风格偏差最大、冗长偏差异质、中档 + 去偏胜前沿且便宜 15 倍） |
 | OpenTelemetry | `semantic-conventions-genai` 独立仓库<br/>核心 v1.42.0（2026-06）移走 GenAI 内容<br/>全部 Development<br/>`gen_ai.provider.name`<br/>`OTEL_SEMCONV_STABILITY_OPT_IN` |
 | 工具 | Langfuse v3、LangSmith、Arize Phoenix / OpenInference、Braintrust、Helicone 的公开文档 |
 | 评测框架 | RAGAS、promptfoo、OpenAI Evals 的指标定义 |
@@ -332,7 +332,7 @@ Table: 读完系列后应能回答的追问
 
 [^q0]: 七篇各答一问。评测集：从真实流量采（高频、边界、失败过的），几十条起、几百条看趋势，每条有可检验的期望，hold-out、版本化、与 prompt / 模型 / 工具集版本绑定，每周从 bad case 补（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)）。评分：规则（格式、schema、匹配、测试通过）优先，需要判断的用 LLM-as-judge，人做校准集与抽检；judge 的偏差——风格 0.10–0.76 最大、位置 >0.10、冗长因模型 −0.12 到 +0.44、自我偏好——用人工校准集算 Cohen's kappa ≥ 0.61、交换顺序重评、长度匹配对照来校准（[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)）。指标矩阵：单步看准确率 / 格式 / 拒答正确率，RAG 看 recall@k 与 faithfulness，agent 看结果 + 步数 / 成本 / 越权 / 鲁棒性，每题跑 $$k$$ 次报分布（[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)）。门禁：每个改动跑评测集 × $$k$$、逐条 diff、不低于当前版本减噪声；静默升级靠每日探针集与钉快照；在线靠 A/B、隐式 / 显式反馈与离线 - 在线相关性校验（[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）。trace：会话 → 任务 → 步骤三级，每个模型 / 工具 / 检索 span 记完整输入输出与版本、usage；OTel GenAI 约定 2026 年仍全部 Development、可用但要锁版本（[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)）。追责：录制回放、决策点日志、失败分类、版本 diff、反馈绑定 trace id（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）。物理世界：场景仿真、日志回放、数字孪生、世界模型、闭环与影子模式替代真实测试（[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）。
 [^q1]: 来源：真实流量采样——高频（平均质量）、边界（长输入、多轮、数字与专名、多语言）、失败过的（点踩、重试、放弃、转人工）；上线前用内部试用与客服工单代替。规模：几十条能区分改动好坏、几百条能看趋势、按类型分层，每条跑 $$k$$ 次。每条 = 输入（含上下文与状态：RAG 固定检索结果，agent 要环境快照）+ 期望（精确答案 / 可接受集合 / 评分标准 / 验收脚本）+ 元数据（类型、难度、来源、日期）。防过拟合：hold-out 子集不参与迭代；维护：每周从 bad case 补、版本化并与 prompt / 模型 / 工具集 / 检索配置版本绑定、清理过期用例。合成数据能用但只做冷启动与覆盖检查——问法不像真人，会高估 recall、低估歧义，不作决策依据。
-[^q2]: 规则评：格式、schema、精确 / 集合匹配、数值容差、测试通过、正则、引用存在性——确定、免费、优先；judge 评：相关性、忠实度、有用性、风格、rubric 打分、pairwise；人评：校准集标注、抽检、争议裁决、新失效模式发现。四类偏差的量级：位置 >0.10（两个生产 judge）、风格 0.10–0.76（最大）、冗长因模型而异（Llama / Gemini +0.24 到 +0.44，Claude Sonnet 4 −0.12，GPT-4o −0.04）、自我偏好（同家族）。校准协议：人工校准集几十到几百条 → 与人比 Cohen's kappa（≥ 0.61 算 substantial，不要用虚高 33–41 个百分点的精确匹配一致率）→ pairwise 交换顺序只留双向一致 → 长度匹配改写对照 → 遮蔽来源 + 跨家族 judge → 用敏感度 / 特异度反推真实通过率并报区间 → rubric 版本化。能做门禁的条件：kappa 过线、偏差已测且可接受、与在线指标相关。
+[^q2]: 规则评：格式、schema、精确 / 集合匹配、数值容差、测试通过、正则、引用存在性——确定、免费、优先；judge 评：相关性、忠实度、有用性、风格、rubric 打分、pairwise；人评：校准集标注、抽检、争议裁决、新失效模式发现。四类偏差的量级：位置 >0.10（两个生产 judge）、风格 0.10–0.76（最大）、冗长因模型而异（Llama / Gemini +0.24 到 +0.44，Claude Sonnet 4 −0.12，GPT-4o −0.04）、自我偏好（同家族）。校准协议：人工校准集几十到几百条 → 与人比 Cohen's kappa（≥ 0.61 算 substantial，不要用在 MT-Bench 上虚高 33–41 个百分点的精确匹配一致率）→ pairwise 交换顺序只留双向一致 → 长度匹配改写对照 → 遮蔽来源 + 跨家族 judge → 用敏感度 / 特异度反推真实通过率并报区间 → rubric 版本化。能做门禁的条件：kappa 过线、偏差已测且可接受、与在线指标相关。
 [^q3]: 单步任务：准确率 / F1、格式遵循率、schema 通过率、拒答正确率、成本、TTFT 与总时长；RAG：检索侧 recall@k / MRR / nDCG，生成侧 faithfulness / answer relevance / 引用正确率（固定检索评生成）；agent：结果、效率（步数 / token / 美元 / 墙钟）、过程正确性、安全（越权尝试）、鲁棒性、部分结果质量；多轮对话：任务完成、策略遵循（τ-bench 式）、轮数；安全：注入抵抗率、越权、敏感信息泄漏。过程指标与结果并列，是因为同样的结果可能靠越权或绕远路得到——过程决定能不能上线、能不能升自主级别。每题跑 $$k$$ 次看分布（pass@k、一致率、方差），单次结果在非确定性下没有意义；按类型分层报告而不是一个总分。
 [^q4]: 门禁：任何改动（prompt、模型、effort、schema、工具集、检索配置、harness 版本）触发评测集 × $$k$$ 次，指标不低于当前版本减噪声阈值、逐条 diff 看由对变错的用例、成本与延迟不退化、judge 校准过才能作为门禁指标，再按 staging → canary → production 的标签发布与回滚。供应商静默升级：固定一组几十条对措辞敏感的探针集每天跑、分数漂移告警、钉快照版本、订阅变更通知。在线评测：按 prompt / 模型版本分流 A/B 并把 trace 绑定版本；隐式反馈（采纳、修改后提交、重试、放弃、追问、转人工、引用点击）与显式反馈（点赞 / 点踩）；在线 judge 抽样跑真实流量；高风险改动先走影子模式。离线与在线的校验：评测集分数涨而在线指标不涨 = 评测集分布过时或指标选错，要定期对账。
 [^q5]: 组织成会话 → 任务 / 轮次 → 步骤三级树：每个模型调用 span 记完整输入输出（或可重建的引用）、模型与 prompt 版本、usage（含缓存读写与推理 token）、effort、`stop_reason`、延迟分段；工具调用 span 记参数、结果、耗时、沙箱、审批；检索 span 记查询、候选、排序；压缩 / 卸载 / 卫士 / 审批作为事件；子会话 id 作为链接。OTel GenAI 约定：`gen_ai.*` 属性、`{operation} {model}` span 名；2026 年已迁入独立仓库，但所有 GenAI 专属的 span / 事件 / 指标仍是 Development、没有 Stable，属性跨版本改名——该用（与现有 APM 对接、不锁厂商），但要锁定约定版本并在自己的管道里做映射。工具选型看是否原生 OTel、能否存完整内容、评测与 trace 是否同一处（Langfuse、Arize、LangSmith、Braintrust 一类）。敏感数据：内容分级、脱敏在采集点、保留期按级别；成本：全量采 metadata、内容抽样或卸载到对象存储、长内容存引用。

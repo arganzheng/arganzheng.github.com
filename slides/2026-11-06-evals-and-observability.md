@@ -76,7 +76,7 @@ flowchart TB
 
 ## 02 · 评分：规则、LLM-as-judge 与人
 
-**能规则不 judge、能 judge 不人；judge 报 kappa——一致率虚高 33–41 pp**
+**能规则不 judge、能 judge 不人；judge 报 kappa——一致率虚高 33–41 pp（MT-Bench）**
 
 ```mermaid
 %%{init: {"flowchart": {"wrappingWidth": 190}}}%%
@@ -100,11 +100,11 @@ flowchart LR
 
 ## 要点
 
-**一致率虚高 33–41 pp——门禁报 kappa**
+**一致率虚高 33–41 pp（MT-Bench）——门禁报 kappa**
 
 | 量 | 数 |
 |---|---|
-| 一致率 → kappa | 虚高 33–41 pp；排名移 14 位 |
+| 一致率 → kappa | 虚高 33–41 pp（MT-Bench）；排名移 14 位 |
 | 重测一致 vs 位置偏差 | > 0.95 与 > 0.10 并存——稳定但有偏 |
 | 风格偏差 | 0.10–0.76 |
 | 中档模型 + 去偏 vs 前沿模型 | 胜，且便宜 **15×** |
