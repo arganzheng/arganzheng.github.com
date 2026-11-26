@@ -7,9 +7,13 @@ tags: [AI, LLM, AI-Application, API, Tool Calling]
 catalog: true
 ---
 
-第一篇讲了组件怎么坏。这一篇讲组件的接口——你和它之间的协议。2026 年，OpenAI、Anthropic、Google、DeepSeek 四家的模型 API 已经收敛成一套共同骨架：**一个消息列表进去，一个消息出来；消息可以携带工具调用与工具结果；输出可以被 schema 约束；响应可以流式返回；对话状态可以放在客户端也可以放在服务端**。学会这套骨架，换供应商只是改字段名；不学，每换一家都要重新踩一遍坑。
+[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲了组件怎么坏。这一篇讲组件的接口——你和它之间的协议。2026 年，OpenAI、Anthropic、Google、DeepSeek 四家的模型 API 已经收敛成一套共同骨架：**一个消息列表进去，一个消息出来；消息可以携带工具调用与工具结果；输出可以被 schema 约束；响应可以流式返回；对话状态可以放在客户端也可以放在服务端**。学会这套骨架，换供应商只是改字段名；不学，每换一家都要重新踩一遍坑。
 
-但文档不会告诉你三件事。第一，**工具调用是一个协议而不是一个功能**：模型返回的是"要调用 X"，执行、配对、把结果送回、决定何时停止，全在你这一侧，出错的地方也全在你这一侧。第二，**结构化输出的"严格模式"保证的是语法不是语义**：一个符合 schema 的 JSON 可以每个字段都是编造的。第三，**状态的默认值**：Responses API 默认把你的请求存 30 天，Chat Completions 对新账户也默认存，一个隐私敏感的应用从旧接口迁过去、什么都没改，就开始留存用户数据了。
+但文档不会告诉你三件事：
+
+1. **工具调用是一个协议而不是一个功能**：模型返回的是"要调用 X"，执行、配对、把结果送回、决定何时停止，全在你这一侧，出错的地方也全在你这一侧。
+2. **结构化输出的"严格模式"保证的是语法不是语义**：一个符合 schema 的 JSON 可以每个字段都是编造的。
+3. **状态的默认值**：Responses API 默认把你的请求存 30 天，Chat Completions 对新账户也默认存，一个隐私敏感的应用从旧接口迁过去、什么都没改，就开始留存用户数据了。
 
 本篇要回答的核心问题是：
 
@@ -37,7 +41,17 @@ Table: 四家 API 的对照
 
 ### 2. 本文的章节安排
 
-第二章讲消息与角色的骨架；第三章讲工具调用的协议——本文最重要的一章；第四章讲结构化输出的三个层次与它保证的边界；第五章讲流式的事件模型；第六章讲状态放在哪一侧与默认存储；第七章列 2026 年内四家契约的变更；第八章给出一个中间层的最小设计与实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、消息与角色：共同骨架](#二消息与角色共同骨架) | 消息与角色的骨架 |
+| [三、工具调用是一个协议](#三工具调用是一个协议) | 工具调用的协议——本文最重要的一章 |
+| [四、结构化输出：保证语法，不保证语义](#四结构化输出保证语法不保证语义) | 结构化输出的三个层次与它保证的边界 |
+| [五、流式：事件模型](#五流式事件模型) | 流式的事件模型 |
+| [六、状态：谁保存对话](#六状态谁保存对话) | 状态放在哪一侧与默认存储 |
+| [七、2026 年契约的变更清单](#七2026-年契约的变更清单) | 2026 年内四家契约的变更 |
+| [八、一个中间层的最小设计](#八一个中间层的最小设计) | 一个中间层的最小设计与实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、消息与角色：共同骨架
 
@@ -45,16 +59,16 @@ Table: 四家 API 的对照
 
 所有 API 都区分三类发言者：**开发者的指令**（OpenAI 叫 `instructions` / `developer`，Anthropic 叫顶层 `system`，Gemini 叫 `system_instruction`，Chat Completions 与 DeepSeek 叫 `system` 消息）、**用户**（`user`）、**模型**（OpenAI / Anthropic / DeepSeek 叫 `assistant`，Gemini 叫 `model`）。工具结果在 OpenAI 是独立的 `tool` 角色（Chat Completions）或 `function_call_output` item（Responses），在 Anthropic 是 user 消息里的 `tool_result` 块，在 Gemini 是 `functionResponse` part——**名字不同，语义相同**：一段由应用（而不是用户或模型）产生、要让模型读到的内容。
 
-一个常见误解是把"开发者指令"当成一种权限更高的通道。它在模型眼里只是上下文里的一段被标记为 system 的文本；模型被训练成更重视它，但这是概率上的"更重视"，不是访问控制（第一篇第四章）。prompt injection 能起作用，正是因为工具返回里的一句"忽略之前的指令"与 system 里的指令在同一个上下文里竞争。
+一个常见误解是把"开发者指令"当成一种权限更高的通道。它在模型眼里只是上下文里的一段被标记为 system 的文本；模型被训练成更重视它，但这是概率上的"更重视"，不是访问控制（见[《失效模式》的「指令遵循与 prompt 敏感」一节](/llm-failure-modes-nondeterminism-hallucination-and-context.html#四指令遵循与-prompt-敏感指令是数据不是控制流)）。prompt injection 能起作用，正是因为工具返回里的一句"忽略之前的指令"与 system 里的指令在同一个上下文里竞争。
 
 ### 2. 内容是块的列表
 
 早期 API 里一条消息就是一个字符串。现在一条消息的 content 是**块的列表**：文本块、图片块（URL 或 base64）、文件块（PDF）、音频块、以及模型输出侧的工具调用块、思考块。这个设计有两个含义：
 
-- **多模态输入是消息的一部分**，不是另一个 API。一张图在 content 里就是一个块，计费按供应商的换算（一张 1024² 的图通常折成几百到一千多 token，第四篇有账）。
+- **多模态输入是消息的一部分**，不是另一个 API。一张图在 content 里就是一个块，计费按供应商的换算（一张 1024² 的图通常折成几百到一千多 token，[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)有账）。
 - **一条消息可以同时含文本与多个工具调用**——并行工具调用在协议上就是一条 assistant 消息里有多个 `tool_use` / `function_call` 块。
 
-Anthropic 的 `system` 也是块列表，这是它的 `cache_control` 能精确放在某个块上的原因（第四篇）。
+Anthropic 的 `system` 也是块列表，这是它的 `cache_control` 能精确放在某个块上的原因（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。
 
 ```mermaid
 %% 图：一条消息的 content 是块的列表——输入侧可以混放文本、图片、文件块，输出侧一条 assistant 消息可以同时含文本、多个工具调用块和思考块；四家只是块的名字不同
@@ -65,7 +79,7 @@ flowchart LR
     end
     subgraph OUT["一条 assistant 消息"]
         direction TB
-        O1["<b>思考块</b><br/>thinking / reasoning（第三篇）"] ~~~ O2["<b>文本块</b><br/>「我先查两个系统」"] ~~~ O3["<b>工具调用块 #1</b><br/>tool_use / function_call：id · name · 参数"] ~~~ O4["工具调用块 #2<br/>并行调用 = 同一条消息里多个块"]
+        O1["<b>思考块</b><br/>thinking / reasoning（第三篇）"] ~~~ O2["<b>文本块</b><br/>「我先查两个系统」"] ~~~ O3["<b>工具调用块 #1</b><br/>tool_use / function_call：id · name · 参数"] ~~~ O4["<b>工具调用块 #2</b><br/>并行调用 = 同一条消息里多个块"]
     end
     IN --> M["模型"] --> OUT
     classDef in fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -76,7 +90,7 @@ flowchart LR
 
 ### 3. 谁负责把历史拼起来
 
-无状态 API（Messages、Chat Completions、`generateContent`）要求你每次把**全部历史**送过去：system、第一轮 user、第一轮 assistant（含它发出的工具调用）、工具结果、第二轮 user……历史的每一个块都要在。漏掉一个工具调用块而保留了它的结果，多数 API 会返回 400（结果找不到对应的调用）。这就是为什么"编辑历史"不是随意的操作——第三篇讲推理模型时这一点会更严格。
+无状态 API（Messages、Chat Completions、`generateContent`）要求你每次把**全部历史**送过去：system、第一轮 user、第一轮 assistant（含它发出的工具调用）、工具结果、第二轮 user……历史的每一个块都要在。漏掉一个工具调用块而保留了它的结果，多数 API 会返回 400（结果找不到对应的调用）。这就是为什么"编辑历史"不是随意的操作——[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲推理模型时这一点会更严格。
 
 有状态 API（Responses、Interactions）让你只送新内容并引用上一次的 id，服务端拼历史。方便，但引出第六章的存储与留存问题。
 
@@ -109,7 +123,7 @@ sequenceDiagram
 - **描述写"什么时候用、返回什么"**，不只写"做什么"。`search_orders`：只写"搜索订单"，模型会在该用 `get_order` 的时候也用它；写"按客户名或日期范围列出订单；已知订单号时用 get_order"，遵循率明显不同。
 - **参数用枚举与类型收窄**。`status: string` 会收到 "已完成"、"completed"、"done"；`status: enum["pending", "shipped", "completed"]` 在严格模式下只会收到三者之一。
 - **工具数量与选择准确率负相关**。几十个工具时模型会选错；OpenAI 的 Responses 与 Agents API 为此加了 tool search（按需加载定义），Anthropic 的 tool search 同理。L4 讲工具集的设计。
-- **工具定义占 token 且在缓存前缀里**。几十个工具的 schema 可以是几千 token，每次请求都算输入；把它放在稳定的前缀位置让它命中缓存（第四篇）。
+- **工具定义占 token 且在缓存前缀里**。几十个工具的 schema 可以是几千 token，每次请求都算输入；把它放在稳定的前缀位置让它命中缓存（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。
 
 ### 3. 参数是字符串还是对象
 
@@ -122,9 +136,12 @@ OpenAI（含 DeepSeek）的 `arguments` 是**JSON 字符串**——你要自己 
 ### 5. 结果送回：配对、截断与错误
 
 - **配对**：每个 tool_call 的 id 必须有且只有一个结果。并行调用返回了三个 id，你就要送回三条结果，顺序不重要但缺一不可。
-- **截断**：工具结果是上下文的一部分，一个返回 200KB 的 SQL 查询结果会吃掉预算、触发第一篇的上下文腐化，甚至直接超限。应用侧要截断或摘要，并在结果里说明"已截断，共 N 行"。
+- **截断**：工具结果是上下文的一部分，一个返回 200KB 的 SQL 查询结果会吃掉预算、触发[《失效模式》的「上下文长度」一节](/llm-failure-modes-nondeterminism-hallucination-and-context.html#五上下文长度标称与有效是两个数)讲的上下文腐化，甚至直接超限。应用侧要截断或摘要，并在结果里说明"已截断，共 N 行"。
 - **错误也是结果**：工具抛异常时把错误信息作为结果送回（Anthropic 有 `is_error` 标记），让模型决定重试、换参数或告诉用户——而不是让整个请求失败。这是 agent 循环能自我修复的前提。
 - **结果是不可信输入**：网页、文档、外部 API 返回的内容进入上下文后与你的指令平级（第二章第 1 节）。间接 prompt injection 从这里进来；L6 讲防御。
+
+> [!NOTE] 后端经验参照：工具结果之于未经过滤的请求参数
+> 把工具结果当不可信输入，和 Web 后端把请求参数当不可信输入是同一个判断：外部写进来的内容可能被当成指令执行，SQL 注入就是这样来的。对不上的是防御手段。SQL 注入有参数化查询，代码和数据走两个通道，数据写成什么样都不会被当成 SQL 执行；模型只有一个上下文，工具结果和 system 里的指令是同一串 token，没有等价于占位符的隔离，转义、过滤、加分隔符只能降低被利用的概率。所以防御要放在模型之外的层（L6）。
 
 ### 6. 服务端工具
 
@@ -162,9 +179,9 @@ flowchart TB
 
 ### 2. 它没保证什么
 
-- **语义**。`{"refund_eligible": true, "reason": "购买 90 天内"}` 符合 schema，但 90 天可能是编的。schema 约束的是形状，第一篇的幻觉一条不受影响。
+- **语义**。`{"refund_eligible": true, "reason": "购买 90 天内"}` 符合 schema，但 90 天可能是编的。schema 约束的是形状，[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的幻觉一条不受影响。
 - **拒答与空值**。模型判断不该回答时，在 strict 模式下仍必须产出合法 JSON——它会填空字符串、null 或一个看似合理的默认值。要在 schema 里给它一个显式的出口（`status: enum["ok", "cannot_answer"]`），否则拒答会被伪装成答案。
-- **推理质量**。2024 年的一项研究（*Let Me Speak Freely?*）发现，强制模型直接输出严格格式会降低某些推理任务的表现——模型没有"先想再答"的空间。常用的缓解是在 schema 里放一个 `reasoning` 字段排在结论字段之前（字段顺序在约束解码里是生成顺序），或者两阶段：先自由推理，再一次结构化抽取。推理模型（第三篇）在 thinking 阶段已经有了这个空间，问题缓解了很多。
+- **推理质量**。2024 年的一项研究（*Let Me Speak Freely?*）发现，强制模型直接输出严格格式会降低某些推理任务的表现——模型没有"先想再答"的空间。常用的缓解是在 schema 里放一个 `reasoning` 字段排在结论字段之前（字段顺序在约束解码里是生成顺序），或者两阶段：先自由推理，再一次结构化抽取。推理模型（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）在 thinking 阶段已经有了这个空间，问题缓解了很多。
 
 ### 3. 解析层仍然要有
 
@@ -195,7 +212,7 @@ Table: 四家流式接口的事件类型
 
 ### 3. 中断与超时
 
-流式连接会断：网络、供应商过载、你自己的网关超时。断了不能"从第 137 个 token 续上"——只能重发整个请求，接受再花一次钱（幂等与重试在第六篇）。超时要分层：连接超时、**首事件超时**（TTFT 异常长通常是排队或长 prefill，第四篇）、事件间超时（生成卡住）、总超时。只设一个总超时的客户端会在 TTFT 正常但生成很长的情况下误杀请求。
+流式连接会断：网络、供应商过载、你自己的网关超时。断了不能"从第 137 个 token 续上"——只能重发整个请求，接受再花一次钱（幂等与重试在[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）。超时要分层：连接超时、**首事件超时**（TTFT 异常长通常是排队或长 prefill，见[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）、事件间超时（生成卡住）、总超时。只设一个总超时的客户端会在 TTFT 正常但生成很长的情况下误杀请求。
 
 ```mermaid
 %% 图：一次流式响应的事件时间线与四层超时——连接超时管到连上、首事件超时管到第一个事件（TTFT）、事件间超时管生成卡住、总超时兜底；工具参数分片要等 done 事件再解析，用量只在末尾出现
@@ -220,9 +237,9 @@ flowchart TB
 
 ### 1. 两种模型
 
-**客户端状态**（Messages、Chat Completions、`generateContent`）：你保存历史，每次全部送过去。优点是完全可控、可移植、可审计；缺点是每轮都传全量（网络与 prefill 成本随轮数增长——缓存缓解了 prefill 成本，第四篇），以及你要自己做历史的截断与压缩。
+**客户端状态**（Messages、Chat Completions、`generateContent`）：你保存历史，每次全部送过去。优点是完全可控、可移植、可审计；缺点是每轮都传全量（网络与 prefill 成本随轮数增长——缓存缓解了 prefill 成本，见[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)），以及你要自己做历史的截断与压缩。
 
-**服务端状态**（Responses 的 `previous_response_id` 与 Conversations、Interactions 的 `previous_interaction_id`）：你只送新内容，服务端拼历史。优点是简单、推理模型的内部状态（第三篇）能被服务端保留；缺点在下面。
+**服务端状态**（Responses 的 `previous_response_id` 与 Conversations、Interactions 的 `previous_interaction_id`）：你只送新内容，服务端拼历史。优点是简单、推理模型的内部状态（[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）能被服务端保留；缺点在下面。
 
 ```mermaid
 %% 图：客户端状态与服务端状态——前者每轮送全部历史、你可控可移植；后者只送新内容加上一轮的 id，服务端拼历史并默认存储 30 天；两种模式下模型都读完整上下文，输入 token 照样计费
@@ -247,7 +264,14 @@ flowchart TB
 
 ### 2. 默认存储
 
-Responses API **默认 `store: true`**，响应保留 30 天；Conversation 对象里的 item **没有 TTL**，直到你删除；Chat Completions 对新账户也默认存储。Interactions API 同样默认存储。要不留存必须显式 `store: false`（OpenAI）或走 Zero Data Retention 的组织级配置。一个从 Chat Completions 迁到 Responses 的隐私敏感应用，如果只改了端点，就开始留存用户内容了——这是 Responses 迁移里最常见的合规事故，且服务端状态一旦关闭，`previous_response_id` 也不能用了（没有存储就没有可引用的上一轮），你得回到客户端状态。
+默认存储的不止一处：
+
+- Responses API **默认 `store: true`**，响应保留 30 天。
+- Conversation 对象里的 item **没有 TTL**，直到你删除。
+- Chat Completions 对新账户也默认存储。
+- Interactions API 同样默认存储。
+
+要不留存必须显式 `store: false`（OpenAI）或走 Zero Data Retention 的组织级配置。一个从 Chat Completions 迁到 Responses 的隐私敏感应用，如果只改了端点，就开始留存用户内容了——这是 Responses 迁移里最常见的合规事故，且服务端状态一旦关闭，`previous_response_id` 也不能用了（没有存储就没有可引用的上一轮），你得回到客户端状态。
 
 ### 3. 计费不因服务端状态而减少
 
@@ -259,7 +283,7 @@ Responses API **默认 `store: true`**，响应保留 30 天；Conversation 对�
 
 ## 七、2026 年契约的变更清单
 
-第一篇第七章从"供应商会换模型"的角度列过一次；这里按 API 契约本身列：
+[《失效模式》的「供应商侧的变更」一节](/llm-failure-modes-nondeterminism-hallucination-and-context.html#七供应商侧的变更模型名不变模型换了)从"供应商会换模型"的角度列过一次；这里按 API 契约本身列：
 
 | 时间 | 供应商 | 变更 | 类型 |
 |---|---|---|---|
@@ -286,12 +310,19 @@ Table: 2026 年 API 契约的变更清单
 | 归一化消息 | 一种内部的消息 / 块表示 ↔ 四家的格式 | 换供应商、做 fallback 只改适配器 |
 | 归一化工具协议 | 内部的 tool_call（id、name、args 对象）与 tool_result；适配"参数是字符串还是对象" | 第三章的配对与解析集中在一处 |
 | 归一化流式事件 | 内部事件：`text_delta`、`tool_call_delta`、`tool_call_done`、`usage`、`done` | 业务层不感知四家事件名 |
-| 归一化用量 | 四类 token（输入 / 缓存命中 / 缓存写入 / 输出）+ 思考 token | 第四篇的账要这些字段；框架常把它们合成一个数 |
-| 记录原始请求与响应 | 完整请求体、完整响应、模型名、参数、耗时 | 第一篇的失效定位与 L5 的 trace 都从这里来 |
+| 归一化用量 | 四类 token（输入 / 缓存命中 / 缓存写入 / 输出）+ 思考 token | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)要用这些字段；框架常把它们合成一个数 |
+| 记录原始请求与响应 | 完整请求体、完整响应、模型名、参数、耗时 | 定位[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的失效、L5 的 trace，都从这里来 |
 
 Table: 适配层的五个职责
 
-**不要做的事**：不要把四种 token 合成一个"tokens"；不要吞掉 `stop_reason` / `finish_reason`；不要在中间层做重试以外的"智能"（自动改 prompt、自动截断历史），那些属于上层且要可见。
+**不要做的事**：
+
+- 不要把四种 token 合成一个"tokens"。
+- 不要吞掉 `stop_reason` / `finish_reason`。
+- 不要在中间层做重试以外的"智能"（自动改 prompt、自动截断历史），那些属于上层且要可见。
+
+> [!NOTE] 后端经验参照：模型中间层之于 JDBC 驱动与防腐层
+> 业务代码只认内部的 Message / ToolCall / StreamEvent / Usage、每家供应商一个适配器，和 JDBC 让业务代码只认 Connection / ResultSet、每种数据库一个驱动是同一种隔离，在 DDD 里叫防腐层。对不上的有两处。第一，SQL 方言差的主要是语法，这里差的还有默认值：存不存状态、参数是字符串还是对象、缓存要不要显式声明，只翻译字段名不够，适配器要把 `store` 这类默认值显式设上。第二，换数据库驱动，同一条 SQL 的结果不变；换一家模型是换了一个行为不同的组件，所以换适配器之后要跑评测集（实践建议第 6 条）。
 
 ```mermaid
 %% 图：中间层的位置——业务代码只看到一种内部的消息、工具调用、流式事件和用量表示；四家适配器各一个文件，契约变更只改对应文件；原始请求与响应从这里记进 trace

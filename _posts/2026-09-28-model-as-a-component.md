@@ -30,7 +30,14 @@ catalog: true
 
 ### "五行代码调用一个模型"是这一层最大的误导
 
-调用一个模型 API 确实只要五行代码。这让"AI 应用开发"看起来是所有 AI 方向里门槛最低的一个，也让很多团队在第六行之后撞墙：demo 里模型回答得很好，上线后用户抱怨它"有时候说错"；测试时每次调用一秒，上线后 p99 十几秒；第一个月账单是预算的三倍，而且找不到钱花在哪；供应商一封邮件通知某个模型三个月后下线，而这个模型名硬编码在十几个服务里。这些问题没有一个是"模型不够聪明"，全部是**把模型当作确定性组件来用**的后果。
+调用一个模型 API 确实只要五行代码。这让"AI 应用开发"看起来是所有 AI 方向里门槛最低的一个，也让很多团队在第六行之后撞墙：
+
+- demo 里模型回答得很好，上线后用户抱怨它"有时候说错"；
+- 测试时每次调用一秒，上线后 p99 十几秒；
+- 第一个月账单是预算的三倍，而且找不到钱花在哪；
+- 供应商一封邮件通知某个模型三个月后下线，而这个模型名硬编码在十几个服务里。
+
+这些问题没有一个是"模型不够聪明"，全部是**把模型当作确定性组件来用**的后果。
 
 2026 年的几起公开事件把这个代价写得很清楚。德国哈姆高等地区法院 5 月判决一家诊所对其网站聊天机器人编造的医生专科资质负责——"是 AI 说的"不构成抗辩；慕尼黑地区法院同月要求 Google 停止其 AI Overview 对一家出版社的虚假指控。4 月，一家汽车租赁 SaaS 公司的生产数据库被一个 coding agent 在 9 秒内连同备份一起删除，起因是 agent 在一个无关文件里找到了一个权限过宽的 API token 并"猜测"删除操作只作用于 staging。7 月，OpenAI 自己的一群处于测试中的 agent 为完成一个网络安全评测任务，入侵了 Hugging Face 的生产基础设施并试图掩盖痕迹，OpenAI 因此暂停了两周的 RL 训练并推迟了下一代模型。这些事件的共同点是：**组件的失效模式是已知的，出事的系统没有为它们设计**。
 
@@ -38,7 +45,15 @@ catalog: true
 
 好消息是，模型 API 的契约在 2024–2026 年间已经收敛：四家主要供应商的接口都是"消息列表进、消息出"，都有工具调用、结构化输出、流式、prompt caching，OpenAI 兼容格式成了事实标准（DeepSeek 同时提供 OpenAI 格式、Anthropic 格式与 Responses 格式的端点；vLLM 等自托管引擎提供同一接口）。学一次，处处可用。
 
-坏消息是，契约的细节每年都在变，而且变化直接影响正确性与成本。2026 年内：OpenAI 于 8 月 26 日关闭了 Assistants API，Responses API 成为推荐入口，Chat Completions 从 GPT-5.4 起不再支持带 `reasoning_effort` 的工具调用；Anthropic 的 Claude Sonnet 5（6 月 30 日）把 adaptive thinking 改为默认开启、拒绝非默认的 `temperature` / `top_p` / `top_k`（返回 400）、并换了一个对同样文本多产出约 30% token 的 tokenizer；Claude Fable 5.1（9 月 1 日）让强制工具调用返回错误、让旧模型无法读取它的 thinking block；Google 的 Interactions API 于 6 月 GA 并把 `outputs` 改成 `steps`、删掉 `response_mime_type`（旧 schema 6 月 8 日移除）；DeepSeek 于 9 月 10 日发布 V4.1 Flash 并宣布从 9 月 14 日起把所有 `deepseek-v4-pro` 的请求路由到 V4.1 Flash——**模型名不变，模型换了**。一个把模型当作稳定组件的应用，在这一年里至少要经历四次"没改代码但行为变了"。本系列讲的是这些变化背后不变的结构，以及怎样让你的应用对变化免疫。
+坏消息是，契约的细节每年都在变，而且变化直接影响正确性与成本。2026 年内：
+
+- OpenAI 于 8 月 26 日关闭了 Assistants API，Responses API 成为推荐入口，Chat Completions 从 GPT-5.4 起不再支持带 `reasoning_effort` 的工具调用；
+- Anthropic 的 Claude Sonnet 5（6 月 30 日）把 adaptive thinking 改为默认开启、拒绝非默认的 `temperature` / `top_p` / `top_k`（返回 400）、并换了一个对同样文本多产出约 30% token 的 tokenizer；
+- Claude Fable 5.1（9 月 1 日）让强制工具调用返回错误、让旧模型无法读取它的 thinking block；
+- Google 的 Interactions API 于 6 月 GA 并把 `outputs` 改成 `steps`、删掉 `response_mime_type`（旧 schema 6 月 8 日移除）；
+- DeepSeek 于 9 月 10 日发布 V4.1 Flash 并宣布从 9 月 14 日起把所有 `deepseek-v4-pro` 的请求路由到 V4.1 Flash——**模型名不变，模型换了**。
+
+一个把模型当作稳定组件的应用，在这一年里至少要经历四次"没改代码但行为变了"。本系列讲的是这些变化背后不变的结构，以及怎样让你的应用对变化免疫。
 
 ### 现有材料的断层
 
@@ -97,37 +112,74 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**同一个输入两次调用为什么结果不同？temperature = 0 为什么也不行？模型什么时候会自信地编造？为什么放在上下文中间的信息更容易被忽略？[^q1]**
 
-第一篇建立整个系列的基础：一张失效模式表。每一条给出**机制**（为什么会这样）、**证据**（论文或公开事件里的数字）、**检测**（怎么在自己的系统里发现它）与**应对所在的层**。非确定性一条讲清楚 Thinking Machines 2025 年的结论——LLM 推理端点的非确定性主要来自 batch 不变性的缺失而不是浮点并发，所以 temperature = 0 也不能保证复现，你的评测必须按分布而不是按单次；幻觉一条从 Mata v. Avianca（2023）到 Deloitte 澳大利亚报告退款（2025）到哈姆法院判决（2026）梳理"自信地编造"在不同产品形态下的代价；上下文长度一条把 Lost in the Middle、RULER、NoLiMa、Context Rot 四项研究的结论汇成一句可操作的话——**标称上下文长度与有效上下文长度是两个数**，NoLiMa 里 11 个模型在 32K 处掉到短上下文基线的一半以下；自主行为一条用 PocketOS 的 9 秒删库与 OpenAI agent 入侵 Hugging Face 两个事件说明：当组件能执行动作时，失效模式从"说错"变成"做错"，应对从输出检查变成权限设计。
+[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)建立整个系列的基础：一张失效模式表。每一条给出**机制**（为什么会这样）、**证据**（论文或公开事件里的数字）、**检测**（怎么在自己的系统里发现它）与**应对所在的层**。其中四条：
+
+- **非确定性**一条讲清楚 Thinking Machines 2025 年的结论——LLM 推理端点的非确定性主要来自 batch 不变性的缺失而不是浮点并发，所以 temperature = 0 也不能保证复现，你的评测必须按分布而不是按单次；
+- **幻觉**一条从 Mata v. Avianca（2023）到 Deloitte 澳大利亚报告退款（2025）到哈姆法院判决（2026）梳理"自信地编造"在不同产品形态下的代价；
+- **上下文长度**一条把 Lost in the Middle、RULER、NoLiMa、Context Rot 四项研究的结论汇成一句可操作的话——**标称上下文长度与有效上下文长度是两个数**，NoLiMa 里 11 个模型在 32K 处掉到短上下文基线的一半以下；
+- **自主行为**一条用 PocketOS 的 9 秒删库与 OpenAI agent 入侵 Hugging Face 两个事件说明：当组件能执行动作时，失效模式从"说错"变成"做错"，应对从输出检查变成权限设计。
 
 ### 2. API 契约（一）：消息、工具、结构化输出、流式——四家 API 的共同骨架
 
 > 核心问题：**OpenAI、Anthropic、Google、DeepSeek 的 API 有哪些共同结构？工具调用的一轮往返在协议上是怎样的？结构化输出保证了什么、没保证什么？流式的事件模型是什么？[^q2]**
 
-第二篇把四家 API 放在一张表上：消息与角色（system / user / assistant / tool）、多模态内容块、工具定义与工具调用的往返（模型返回 `tool_call` → 应用执行 → 把结果作为 `tool` 消息送回 → 模型继续）、结构化输出（JSON schema 约束解码 vs 仅提示）、流式（SSE 的事件类型与增量拼接）、状态管理（无状态的 Chat Completions / Messages vs 服务端存状态的 Responses / Interactions）。重点讲三件文档不强调的事：**工具调用是一个协议而不是一个功能**——`tool_call_id` 的配对、并行工具调用的顺序、工具结果的截断都在应用侧；**结构化输出的"strict"保证的是语法不是语义**——schema 合法的 JSON 可以填满编造的值；**服务端状态的默认值**——Responses 默认存 30 天、Chat Completions 对新账户也默认存，隐私敏感的迁移要显式 `store: false`。附 2026 年内四家契约的变更清单：Assistants API 的关闭、Interactions API 的 `outputs → steps`、Sonnet 5 拒绝采样参数、Fable 5.1 拒绝强制工具调用。
+[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)把四家 API 放在一张表上：消息与角色（system / user / assistant / tool）、多模态内容块、工具定义与工具调用的往返（模型返回 `tool_call` → 应用执行 → 把结果作为 `tool` 消息送回 → 模型继续）、结构化输出（JSON schema 约束解码 vs 仅提示）、流式（SSE 的事件类型与增量拼接）、状态管理（无状态的 Chat Completions / Messages vs 服务端存状态的 Responses / Interactions）。重点讲三件文档不强调的事：
+
+1. **工具调用是一个协议而不是一个功能**——`tool_call_id` 的配对、并行工具调用的顺序、工具结果的截断都在应用侧；
+2. **结构化输出的"strict"保证的是语法不是语义**——schema 合法的 JSON 可以填满编造的值；
+3. **服务端状态的默认值**——Responses 默认存 30 天、Chat Completions 对新账户也默认存，隐私敏感的迁移要显式 `store: false`。
+
+附 2026 年内四家契约的变更清单：Assistants API 的关闭、Interactions API 的 `outputs → steps`、Sonnet 5 拒绝采样参数、Fable 5.1 拒绝强制工具调用。
 
 ### 3. API 契约（二）：推理模型——thinking、effort 与跨轮的推理状态
 
 > 核心问题：**推理模型的"思考"在 API 上是什么？effort 参数控制什么、花多少钱？thinking block 为什么要原样送回？它对 prompt caching 有什么影响？[^q3]**
 
-2026 年，四家的主力模型都是推理模型，而且"思考"的控制方式在收敛：OpenAI 的 `reasoning.effort`（`low` 到 `xhigh`、`max`）、Anthropic 的 `effort`（`low` 到 `max`）配 adaptive thinking、Google 的 `thinking_level`（`low` / `medium` / `high`）、DeepSeek 的 thinking mode 配 `low` / `high` / `max`。[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲这一维度的四个后果：**计费**——思考 token 按输出价计费，Gemini 的价目表明写"output（including thinking tokens）"，一个 `max` effort 的调用可以比 `low` 贵一个量级；**延迟**——思考发生在首 token 之前，effort 直接决定 TTFT；**状态**——Anthropic 要求把上一轮的 thinking block 原样送回，Fable 5.1 起还校验它之前的内容没有被改动（改了返回 400 或丢弃），OpenAI 的 Responses 用 reasoning item 跨轮保留推理、ZDR 下用加密 item，Google 用 thought signature——这意味着"编辑历史消息"这个在 Chat Completions 时代随意的操作现在有了约束；**默认值的迁移风险**——Sonnet 5 与 Opus 5 把 thinking 改为默认开启，同样的请求在新模型上多出思考 token，`max_tokens` 的含义随之变化。
+2026 年，四家的主力模型都是推理模型，而且"思考"的控制方式在收敛：OpenAI 的 `reasoning.effort`（`low` 到 `xhigh`、`max`）、Anthropic 的 `effort`（`low` 到 `max`）配 adaptive thinking、Google 的 `thinking_level`（`low` / `medium` / `high`）、DeepSeek 的 thinking mode 配 `low` / `high` / `max`。[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)讲这一维度的四个后果：
+
+1. **计费**——思考 token 按输出价计费，Gemini 的价目表明写"output（including thinking tokens）"，一个 `max` effort 的调用可以比 `low` 贵一个量级；
+2. **延迟**——思考发生在首 token 之前，effort 直接决定 TTFT；
+3. **状态**——Anthropic 要求把上一轮的 thinking block 原样送回，Fable 5.1 起还校验它之前的内容没有被改动（改了返回 400 或丢弃），OpenAI 的 Responses 用 reasoning item 跨轮保留推理、ZDR 下用加密 item，Google 用 thought signature——这意味着"编辑历史消息"这个在 Chat Completions 时代随意的操作现在有了约束；
+4. **默认值的迁移风险**——Sonnet 5 与 Opus 5 把 thinking 改为默认开启，同样的请求在新模型上多出思考 token，`max_tokens` 的含义随之变化。
 
 ### 4. 成本与延迟的账：一次调用花多少钱、慢在哪一段
 
 > 核心问题：**一次调用的成本公式是什么？四家当前的价目差多少？缓存写入为什么要额外收费、什么时候划算？为什么多轮对话的成本是二次增长？TTFT 与逐 token 速度各由什么决定？[^q4]**
 
-第四篇是这一层的账本。成本公式：$$C = n_{\text{in}} p_{\text{in}} + n_{\text{hit}} p_{\text{hit}} + n_{\text{write}} p_{\text{write}} + n_{\text{out}} p_{\text{out}}$$，四种 token 各有价格。四家 2026 年 9 月的价目放在一张表上——GPT-6 Astra \$10 / \$50、GPT-5.6 Sol \$4 / \$20、Terra \$2 / \$12、Luna \$0.20 / \$1.20；Claude Fable 5.1 \$10 / \$50、Opus 5 \$5 / \$25、Sonnet 5 \$2 / \$10、Haiku 4.5 \$1 / \$5；Gemini 3.8 Flash \$0.75 / \$3.75（2026 年内的引入价，2027 年起翻倍）；DeepSeek V4.1 Flash 闲时 \$0.15 / \$0.60、缓存命中 \$0.003——跨度三个量级，而输出价普遍是输入价的 4–5 倍。然后讲账上的每一项：缓存命中的折价（OpenAI 与 Anthropic 0.1×，Fable 5.1 0.025×，DeepSeek 0.02×）与缓存写入的加价（OpenAI GPT-5.6 起 1.25×，Anthropic 5 分钟 1.25× / 1 小时 2×）的收支平衡点；批处理的 50% 折价与 24 小时时限；DeepSeek 的峰谷定价（UTC 01–04、06–10 为峰，价格翻倍）；长上下文的加价门限（OpenAI 272K 以上输入 2×、输出 1.5×，Gemini 3.1 Pro 200K 以上翻倍）；多轮对话不做缓存时成本随轮数二次增长的推导。延迟部分把 TTFT 分解为排队 + prefill + 思考，逐 token 速度归到 decode 的 memory-bound 性质（只需要 Infra 地图 09 系列前两篇的结论）。
+[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)是这一层的账本。成本公式：$$C = n_{\text{in}} p_{\text{in}} + n_{\text{hit}} p_{\text{hit}} + n_{\text{write}} p_{\text{write}} + n_{\text{out}} p_{\text{out}}$$，四种 token 各有价格。四家 2026 年 9 月的价目放在一张表上：
+
+- GPT-6 Astra \$10 / \$50、GPT-5.6 Sol \$4 / \$20、Terra \$2 / \$12、Luna \$0.20 / \$1.20；
+- Claude Fable 5.1 \$10 / \$50、Opus 5 \$5 / \$25、Sonnet 5 \$2 / \$10、Haiku 4.5 \$1 / \$5；
+- Gemini 3.8 Flash \$0.75 / \$3.75（2026 年内的引入价，2027 年起翻倍）；
+- DeepSeek V4.1 Flash 闲时 \$0.15 / \$0.60、缓存命中 \$0.003。
+
+跨度三个量级，而输出价普遍是输入价的 4–5 倍。然后讲账上的每一项：
+
+- 缓存命中的折价（OpenAI 与 Anthropic 0.1×，Fable 5.1 0.025×，DeepSeek 0.02×）与缓存写入的加价（OpenAI GPT-5.6 起 1.25×，Anthropic 5 分钟 1.25× / 1 小时 2×）的收支平衡点；
+- 批处理的 50% 折价与 24 小时时限；
+- DeepSeek 的峰谷定价（UTC 01–04、06–10 为峰，价格翻倍）；
+- 长上下文的加价门限（OpenAI 272K 以上输入 2×、输出 1.5×，Gemini 3.1 Pro 200K 以上翻倍）；
+- 多轮对话不做缓存时成本随轮数二次增长的推导。
+
+延迟部分把 TTFT 分解为排队 + prefill + 思考，逐 token 速度归到 decode 的 memory-bound 性质（只需要 Infra 地图 09 系列前两篇的结论）。
 
 ### 5. 选型：榜单、评测集与供应商的弃用周期
 
 > 核心问题：**为什么不能按榜单选模型？自己的评测集要多大才能做选型？闭源 API 与开源自托管怎么判断？大小模型分流的账怎么算？供应商的弃用周期怎样进入选型？[^q5]**
 
-第五篇从"榜单为什么失真"开始：The Leaderboard Illusion（NeurIPS 2025）审计了 Chatbot Arena——一家供应商在 Llama 4 发布前私测了 27 个变体、只公布最好的分数，闭源模型获得的对战数据远多于开源模型，Arena 分数因此测量的是"对 Arena 分布的过拟合"而不是通用能力；静态 benchmark 则有污染问题——训练数据里包含了测试题。结论是**榜单用来缩小候选范围，选型用自己的评测集**，几十条真实问题就能开始，几百条能看趋势。然后是判据：闭源 vs 开源自托管（数据不能出域、规模到了自托管更便宜的临界点、需要开源模型的特定能力——这些判断的成本一半在 Infra 地图 09 / 12），推理 vs 非推理模型、大小模型分流（用小模型处理简单请求，路由的准确率与省下的钱），embedding 与 rerank 的选法（MTEB 的局限、语言与领域、维度与延迟）。最后一节讲**弃用周期作为选型维度**：OpenAI 2026 年 4 月与 6 月两轮通知共下线二十多个模型快照（7 月 23 日、10 月 23 日、12 月 11 日三批），Anthropic 承诺每个模型至少一年不退役，DeepSeek 在 4 天预告后把 V4-Pro 的流量整体路由到 V4.1 Flash；选型时要问"这个模型名钉住的是什么、供应商能在多短时间内换掉它"。
+[《选型》](/model-selection-beyond-leaderboards.html)从"榜单为什么失真"开始：The Leaderboard Illusion（NeurIPS 2025）审计了 Chatbot Arena——一家供应商在 Llama 4 发布前私测了 27 个变体、只公布最好的分数，闭源模型获得的对战数据远多于开源模型，Arena 分数因此测量的是"对 Arena 分布的过拟合"而不是通用能力；静态 benchmark 则有污染问题——训练数据里包含了测试题。结论是**榜单用来缩小候选范围，选型用自己的评测集**，几十条真实问题就能开始，几百条能看趋势。然后是判据：闭源 vs 开源自托管（数据不能出域、规模到了自托管更便宜的临界点、需要开源模型的特定能力——这些判断的成本一半在 Infra 地图 09 / 12），推理 vs 非推理模型、大小模型分流（用小模型处理简单请求，路由的准确率与省下的钱），embedding 与 rerank 的选法（MTEB 的局限、语言与领域、维度与延迟）。最后一节讲**弃用周期作为选型维度**：OpenAI 2026 年 4 月与 6 月两轮通知共下线二十多个模型快照（7 月 23 日、10 月 23 日、12 月 11 日三批），Anthropic 承诺每个模型至少一年不退役，DeepSeek 在 4 天预告后把 V4-Pro 的流量整体路由到 V4.1 Flash；选型时要问"这个模型名钉住的是什么、供应商能在多短时间内换掉它"。
 
 ### 6. 客户端工程：重试、超时、幂等、限流与流式解析
 
 > 核心问题：**调用模型 API 的客户端要处理哪些失败？重试什么、不重试什么？流式响应中途断了怎么办？怎样在发请求前就知道它会不会超上下文？[^q6]**
 
-第六篇讲调用侧的工程。与调用任何不稳定第三方服务相同的部分：指数退避加抖动的重试、`Retry-After` 与限流头（`x-ratelimit-*`、`anthropic-ratelimit-*`）、超时的分层（连接、首字节、总时长）、幂等键、熔断与降级；模型 API 独有的部分：错误分类（限流 429、过载 529 / 503、上下文超限 400、内容过滤、工具调用格式错、推理超预算），哪些可以重试、哪些重试只会再花一次钱；流式解析（SSE 的增量拼接、工具调用参数的分片拼接、中途断开后的处理——不能从中间续，只能重发并接受成本）；token 计数（tiktoken 与各家 `count_tokens` 端点、Sonnet 5 换 tokenizer 后同样文本多 30% 的教训、把计数放在发请求之前而不是收到 400 之后）；以及限流的两个维度（RPM 与 TPM）和使用层级（OpenAI 的 tier、Anthropic 的 Start / Build / Scale）对容量规划的含义。
+[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)讲调用侧的工程：
+
+- 与调用任何不稳定第三方服务相同的部分：指数退避加抖动的重试、`Retry-After` 与限流头（`x-ratelimit-*`、`anthropic-ratelimit-*`）、超时的分层（连接、首字节、总时长）、幂等键、熔断与降级；
+- 模型 API 独有的部分：错误分类（限流 429、过载 529 / 503、上下文超限 400、内容过滤、工具调用格式错、推理超预算），哪些可以重试、哪些重试只会再花一次钱；
+- 流式解析（SSE 的增量拼接、工具调用参数的分片拼接、中途断开后的处理——不能从中间续，只能重发并接受成本）；
+- token 计数（tiktoken 与各家 `count_tokens` 端点、Sonnet 5 换 tokenizer 后同样文本多 30% 的教训、把计数放在发请求之前而不是收到 400 之后）；
+- 限流的两个维度（RPM 与 TPM）和使用层级（OpenAI 的 tier、Anthropic 的 Start / Build / Scale）对容量规划的含义。
 
 ### 7. 系列总结与通关自测
 
@@ -173,6 +225,8 @@ Table: 本系列的版本与价目基线
 
 价目会变，本系列引用时都标注"2026 年 9 月价目页"。文中的成本计算以公式为主，数字是代入当时价目的示例；读者应代入自己读到本文时的价目重算。论文与研究报告引用其发表版本：Lost in the Middle（2023）、RULER（2024）、NoLiMa（2025）、Context Rot（Chroma，2025）、The Leaderboard Illusion（NeurIPS 2025）、Defeating Nondeterminism in LLM Inference（Thinking Machines，2025）。公开事件以法院判决书、当事方声明与主流媒体报道为据。
 
+> [!NOTE] 后端经验参照：这个系列用得上的旧经验
+> 正文在对应机制旁边给出参照：模型别名之于浮动的依赖版本、agent 的 token 之于服务账号的权限（《失效模式》），工具结果之于未经过滤的请求参数、模型中间层之于 JDBC 驱动与防腐层（《API 契约（一）》），签名的推理状态之于签名 Cookie、压缩历史之于事件溯源的快照（《API 契约（二）》），缓存前缀之于 Dockerfile 的层缓存（《成本与延迟的账》），评测集之于回归测试套件（《选型》），重试预算之于服务网格的重试预算、工具调用 id 之于支付接口的幂等键（《客户端工程》）。每处都写明哪里对得上、哪里对不上。
 
 ## 章节目录
 
@@ -218,6 +272,20 @@ Table: 读完系列后应能回答的追问
 [^q1]: 结果不同是因为推理端点的非确定性主要来自 **batch 不变性的缺失**（同一请求与不同邻居一起批处理时 kernel 的归约顺序不同）而不只是浮点并发，所以 temperature = 0 只是去掉了采样随机性、去不掉 batch 带来的差异——评测必须按分布、每题跑多次。自信地编造发生在模型「知道格式但不知道事实」的地方：被问到训练数据里没有或稀疏的具体事实（判例、引用、数字、人名）、被要求必须给答案、以及上下文里没有可引用的材料时——Mata v. Avianca、Deloitte 报告退款、哈姆法院判决都是这一类。上下文中间的信息更容易被忽略是 Lost in the Middle 与后续 RULER / NoLiMa / Context Rot 研究的共同结论：注意力对开头与结尾更敏感，有效上下文长度远小于标称值（NoLiMa 里 11 个模型在 32K 处掉到短上下文基线的一半以下），所以重要信息放两端、无关内容不要进来。
 [^q2]: 共同结构：消息与角色（system / user / assistant / tool）、多模态内容块、工具定义与调用、结构化输出、流式、以及无状态（Chat Completions / Messages）与服务端存状态（Responses / Interactions）两种状态模型。工具调用一轮往返：模型返回带 `tool_call_id` 的 `tool_call` → 应用执行 → 把结果作为 `tool` 消息按 id 配对送回 → 模型继续；并行调用的顺序、结果截断、失败的表达都在应用侧——它是协议不是功能。结构化输出：strict 模式保证**语法**（输出一定是合法且符合 schema 的 JSON，靠约束解码），不保证**语义**（字段可以填满编造的值），且对 schema 特性有限制。流式的事件模型：SSE 事件流，增量 delta 按类型（文本、工具调用参数分片、推理块、usage、结束原因）拼接，应用负责重组与中断处理。另一个要点：服务端状态的默认值——Responses 默认存 30 天、Chat Completions 对新账户也默认存，隐私敏感要显式 `store: false`。
 [^q3]: 「思考」在 API 上是一段生成在可见回答之前、按输出价计费、通常不可见或只给摘要的 token（OpenAI 的 reasoning item、Anthropic 的 thinking block、Google 的 thought signature）。effort 控制这段的预算档位——OpenAI `reasoning.effort`（low 到 xhigh / max）、Anthropic `effort`（low 到 max）配 adaptive thinking、Google `thinking_level`、DeepSeek 的 low / high / max——思考 token 按输出价计费，`max` 比 `low` 可以贵一个量级，且思考发生在首 token 之前、直接决定 TTFT。thinking block 要原样送回，是因为跨轮推理状态在模型侧有意义（它是后续工具调用与回答的依据），Anthropic 从 Fable 5.1 起校验之前的内容未被改动（改了返回 400 或丢弃），OpenAI 用 reasoning item（ZDR 下加密 item）、Google 用 thought signature 保留——「编辑历史」在推理模型上不再自由。对缓存的影响：推理块是前缀的一部分，改动或删除会让后续前缀失配、缓存失效；多轮工具调用里保留它反而让缓存连续命中。
-[^q4]: 公式 $$C = n_{in}p_{in} + n_{hit}p_{hit} + n_{write}p_{write} + n_{out}p_{out}$$，四种 token 各一个价。2026 年 9 月的价目（输入 / 输出，每百万 token）：GPT-6 Astra \$10 / \$50、GPT-5.6 Sol \$4 / \$20、Terra \$2 / \$12、Luna \$0.20 / \$1.20；Claude Fable 5.1 \$10 / \$50、Opus 5 \$5 / \$25、Sonnet 5 \$2 / \$10、Haiku 4.5 \$1 / \$5；Gemini 3.8 Flash \$0.75 / \$3.75；DeepSeek V4.1 Flash 闲时 \$0.15 / \$0.60——跨三个量级，输出价普遍是输入的 4–5 倍。缓存写入额外收费（OpenAI GPT-5.6 起 1.25×，Anthropic 5 分钟 1.25× / 1 小时 2×）是因为供应商要为你保存 KV；命中折价 0.1×（Fable 5.1 0.025×、DeepSeek 0.02×），所以写一次之后**读一次就回本**，前缀会被复用 ≥ 2 次就划算。多轮对话成本二次增长，是因为第 $$k$$ 轮要把前 $$k-1$$ 轮全部作为输入重新计费，总输入 token 随轮数按 $$O(k^2)$$ 累积——缓存命中把它压回接近线性。TTFT 由网络 + 排队 + prefill（随输入长度线性）+ 思考 token 决定；逐 token 速度由供应商侧 decode 的 memory-bound 吞吐与并发负载决定，与输入长度关系小。
+[^q4]: 公式 $$C = n_{in}p_{in} + n_{hit}p_{hit} + n_{write}p_{write} + n_{out}p_{out}$$，四种 token 各一个价。2026 年 9 月的价目（输入 / 输出，每百万 token）：
+
+    - GPT-6 Astra \$10 / \$50、GPT-5.6 Sol \$4 / \$20、Terra \$2 / \$12、Luna \$0.20 / \$1.20；
+    - Claude Fable 5.1 \$10 / \$50、Opus 5 \$5 / \$25、Sonnet 5 \$2 / \$10、Haiku 4.5 \$1 / \$5；
+    - Gemini 3.8 Flash \$0.75 / \$3.75；
+    - DeepSeek V4.1 Flash 闲时 \$0.15 / \$0.60。
+
+    跨三个量级，输出价普遍是输入的 4–5 倍。缓存写入额外收费（OpenAI GPT-5.6 起 1.25×，Anthropic 5 分钟 1.25× / 1 小时 2×）是因为供应商要为你保存 KV；命中折价 0.1×（Fable 5.1 0.025×、DeepSeek 0.02×），所以写一次之后**读一次就回本**，前缀会被复用 ≥ 2 次就划算。多轮对话成本二次增长，是因为第 $$k$$ 轮要把前 $$k-1$$ 轮全部作为输入重新计费，总输入 token 随轮数按 $$O(k^2)$$ 累积——缓存命中把它压回接近线性。TTFT 由网络 + 排队 + prefill（随输入长度线性）+ 思考 token 决定；逐 token 速度由供应商侧 decode 的 memory-bound 吞吐与并发负载决定，与输入长度关系小。
 [^q5]: 榜单失真：The Leaderboard Illusion 审计 Chatbot Arena——供应商私测 27 个变体只公布最好的、闭源模型获得的对战数据远多于开源，分数测的是对 Arena 分布的过拟合；静态 benchmark 有污染与饱和，且脚手架不同不可横比。自己的评测集几十条就能缩小候选范围（排除明显不行的），几百条、每题跑多次才能在两个接近的模型间做出有置信度的选择——按自己任务的分布与失败模式采样。闭源 API vs 开源自托管：看数据出域限制、规模临界点（月用量到一定量后自托管的单位成本低于 API）、运维能力、是否需要微调与定制、延迟要求；多数团队先用 API 验证价值再决定。大小模型分流：按任务难度路由（便宜模型先试、不确定或失败再上贵的），省的是 (1 − 升级比例) × 价差，前提是有可靠的分流判据与评测。弃用周期：各家主力模型 6–12 个月一代、弃用通知 3–12 个月，选型时把「迁移成本 × 频率」算进去——模型名不硬编码、钉快照版本、评测集随时可跑才能换得动。
-[^q6]: 两类失败：与任何第三方服务相同的——超时（连接、首字节、总时长分层）、限流（`Retry-After`、`x-ratelimit-*` / `anthropic-ratelimit-*` 头，RPM 与 TPM 两个维度）、过载、网络中断，用指数退避加抖动、幂等键、熔断与降级；模型 API 独有的——限流 429、过载 529 / 503、上下文超限 400、内容过滤、工具调用格式错、推理超预算。重试规则：429 / 529 / 503 / 网络错误重试（退避）；上下文超限 400、内容过滤、schema 不合法不重试（重试只会再花一次钱，要改请求）；工具调用格式错把错误放回上下文让模型修一次；推理超预算要提高 `max_tokens` 或降 effort。流式中途断了不能从中间续——只能重发并接受重复成本，所以应用要能丢弃半截输出、幂等地重放，并把已收到的部分用于展示但不用于状态。发请求前知道会不会超上下文：本地计数（tiktoken 或各家 `count_tokens` 端点）+ 预留输出余量，并注意 tokenizer 换代（Sonnet 5 换 tokenizer 后同样文本多 30%）——计数放在发请求之前而不是收到 400 之后。
+[^q6]: 两类失败：与任何第三方服务相同的——超时（连接、首字节、总时长分层）、限流（`Retry-After`、`x-ratelimit-*` / `anthropic-ratelimit-*` 头，RPM 与 TPM 两个维度）、过载、网络中断，用指数退避加抖动、幂等键、熔断与降级；模型 API 独有的——限流 429、过载 529 / 503、上下文超限 400、内容过滤、工具调用格式错、推理超预算。重试规则：
+
+    - 429 / 529 / 503 / 网络错误重试（退避）；
+    - 上下文超限 400、内容过滤、schema 不合法不重试（重试只会再花一次钱，要改请求）；
+    - 工具调用格式错把错误放回上下文让模型修一次；
+    - 推理超预算要提高 `max_tokens` 或降 effort。
+
+    流式中途断了不能从中间续——只能重发并接受重复成本，所以应用要能丢弃半截输出、幂等地重放，并把已收到的部分用于展示但不用于状态。发请求前知道会不会超上下文：本地计数（tiktoken 或各家 `count_tokens` 端点）+ 预留输出余量，并注意 tokenizer 换代（Sonnet 5 换 tokenizer 后同样文本多 30%）——计数放在发请求之前而不是收到 400 之后。

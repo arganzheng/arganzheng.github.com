@@ -324,12 +324,8 @@ flowchart TB
 ```
 
 <aside class="notes" markdown="1">
-原文 /client-side-engineering-for-model-apis.html。四层超时：连接 · 首事件 · 事件间 · 总；解析 = 拼接增量 · 工具参数等 done · 读 usage · 读 stop_reason。
+原文 /llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html。四层超时：连接 · 首事件 · 事件间 · 总；解析 = 拼接增量 · 工具参数等 done · 读 usage · 读 stop_reason。
 可重试：429 / 5xx / 超时；不可重试：400 / 401 / 配额；退避遵守 Retry-After。
-</aside>
-
-<aside class="notes" markdown="1">
-原文 /llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html。
 </aside>
 
 <!-- v -->
@@ -351,13 +347,13 @@ flowchart TB
 
 ## 五部分规格书
 
-| 部分 | 一句话 | 篇 |
+| 部分 | 一句话 | 出处 |
 |---|---|---|
-| 失效模式 | 七条性质，每条可检测 | 01 |
-| 契约 | 块列表进出；工具调用是协议；思考是只搬运的状态 | 02、03 |
-| 账 | 五项成本；读一次回本；TTFT 三段 | 04 |
-| 选型判据 | 自己的评测集；级联；弃用周期 | 05 |
-| 客户端纪律 | 四类错误、四层超时、预算、传播取消 | 06 |
+| 失效模式 | 七条性质，每条可检测 | [《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) |
+| 契约 | 块列表进出；工具调用是协议；思考是只搬运的状态 | [《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)、[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) |
+| 账 | 五项成本；读一次回本；TTFT 三段 | [《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) |
+| 选型判据 | 自己的评测集；级联；弃用周期 | [《选型》](/model-selection-beyond-leaderboards.html) |
+| 客户端纪律 | 四类错误、四层超时、预算、传播取消 | [《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html) |
 
 ---
 
@@ -387,6 +383,6 @@ flowchart TB
 
 ## 下一步
 
-- **同一路线**：《Prompt 与上下文工程》——契约之上，模型这一步该看到什么；《生产与运维》——客户端纪律的服务端一半
-- **往下**：《vLLM 源码》——API 另一端的引擎；《高效推理与压缩》——为什么输出价是输入的 4–6 倍
+- **同一路线**：[《Prompt 与上下文工程》](/prompt-and-context-engineering.html)——契约之上，模型这一步该看到什么；[《生产化与运营》](/production-and-operations-for-ai-applications.html)——客户端纪律的服务端一半
+- **往下**：[《大模型推理系统揭秘》](/deep-dive-into-vllm.html)——API 另一端的引擎；[《高效推理与压缩（算法侧）》](/efficient-inference-and-compression-for-llms.html)——为什么输出价是输入的 4–6 倍
 - 原文总纲：`/model-as-a-component.html`；通关自测在系列总结

@@ -25,7 +25,7 @@ $$
 C = n_{\text{in}} \, p_{\text{in}} + n_{\text{hit}} \, p_{\text{hit}} + n_{\text{write}} \, p_{\text{write}} + \left(n_{\text{out}} + n_{\text{think}}\right) p_{\text{out}}
 $$
 
-五个量：$$n_{\text{in}}$$ 是未缓存的输入 token，$$n_{\text{hit}}$$ 是命中缓存的输入 token，$$n_{\text{write}}$$ 是本次写入缓存的输入 token（只有 OpenAI GPT-5.6 起与 Anthropic 对写入加价；Gemini 与 DeepSeek 的写入按普通输入价），$$n_{\text{out}}$$ 是可见输出，$$n_{\text{think}}$$ 是思考 token（第三篇）。三者的关系：$$n_{\text{in}} + n_{\text{hit}} + n_{\text{write}}$$ 等于请求的总输入 token 数。长上下文加价是对整个请求乘一个系数（OpenAI 272K 以上、Gemini 3.1 Pro 200K 以上）。
+五个量：$$n_{\text{in}}$$ 是未缓存的输入 token，$$n_{\text{hit}}$$ 是命中缓存的输入 token，$$n_{\text{write}}$$ 是本次写入缓存的输入 token（只有 OpenAI GPT-5.6 起与 Anthropic 对写入加价；Gemini 与 DeepSeek 的写入按普通输入价），$$n_{\text{out}}$$ 是可见输出，$$n_{\text{think}}$$ 是思考 token（见[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。三者的关系：$$n_{\text{in}} + n_{\text{hit}} + n_{\text{write}}$$ 等于请求的总输入 token 数。长上下文加价是对整个请求乘一个系数（OpenAI 272K 以上、Gemini 3.1 Pro 200K 以上）。
 
 这个公式的每一项都能在响应的 `usage` 字段里找到对应的数：OpenAI 的 `input_tokens` / `input_tokens_details.cached_tokens` / `output_tokens` / `output_tokens_details.reasoning_tokens`，Anthropic 的 `input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens` / `output_tokens`，DeepSeek 的 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`。**用 usage 核对账单**是这一层的基本纪律。
 
@@ -52,13 +52,23 @@ Table: 四家的价目
 
 三个观察：
 
-- **跨度三个量级**。同样一百万输入 token，GPT-6 Astra 与 Fable 5.1 是 10 美元，DeepSeek 闲时是 0.15 美元，命中缓存是 0.003 美元。选型（第五篇）的第一问不是"哪个最好"，是"这个任务值多少钱"。
+- **跨度三个量级**。同样一百万输入 token，GPT-6 Astra 与 Fable 5.1 是 10 美元，DeepSeek 闲时是 0.15 美元，命中缓存是 0.003 美元。[《选型》](/model-selection-beyond-leaderboards.html)的第一问不是"哪个最好"，是"这个任务值多少钱"。
 - **输出价是输入价的 4–6 倍**。Sonnet 5 是 5 倍，GPT-5.6 Sol 是 5 倍，Gemini 3.8 Flash 是 5 倍，DeepSeek 是 4 倍，Astra 是 5 倍。思考 token 按输出价，所以推理模型让这个比例更致命。
 - **缓存读价是输入价的 1/10 到 1/50**。OpenAI 与 Anthropic 多数模型 0.1×，Fable 5.1 0.025×，DeepSeek 0.02×。Anthropic 说 Fable 5.1 降读价的动机是 agent 场景里"缓存命中的费用往往占比最高"——DeepSeek 发布 V4.1 时说了同一句话，并把 KV cache 的压缩（<span class="inline-tip" data-tip="high bandwidth memory，GPU 上的高带宽显存">HBM</span> 需求减到 1/4、SSD 减到 1/8）作为降价的技术原因。
 
 ### 3. 本文的章节安排
 
-第二章逐项讲账上的输入侧：缓存的机制、门限、TTL 与收支平衡；第三章讲输出侧与思考；第四章讲折价——批处理、Flex、峰谷——与加价——长上下文、Fast mode、区域；第五章推导多轮对话的二次增长与缓存的效果；第六章讲延迟的分解；第七章把两本账合成"每任务成本"与预算；第八章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、输入侧：缓存的账](#二输入侧缓存的账) | 账上的输入侧：缓存的机制、门限、TTL 与收支平衡 |
+| [三、输出侧：可见输出与思考](#三输出侧可见输出与思考) | 输出侧与思考 |
+| [四、折价与加价](#四折价与加价) | 折价——批处理、Flex、峰谷——与加价——长上下文、Fast mode、区域 |
+| [五、多轮对话：二次增长与缓存](#五多轮对话二次增长与缓存) | 推导多轮对话的二次增长与缓存的效果 |
+| [六、延迟的分解](#六延迟的分解) | 延迟的分解 |
+| [七、每任务成本与预算](#七每任务成本与预算) | 把两本账合成"每任务成本"与预算 |
+| [八、实践建议](#八实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、输入侧：缓存的账
 
@@ -83,6 +93,9 @@ flowchart TB
     class X1,X2,X3 bad
 ```
 
+> [!NOTE] 后端经验参照：缓存前缀之于 Dockerfile 的层缓存
+> 对得上的地方：两者都按顺序逐层比对，某一层变了，它后面的层全部重建；所以都要把稳定的东西放前面（依赖安装在前、源码在后 ↔ 工具定义与 system 在前、动态内容在后）。对不上的地方：层缓存存在你自己的机器上、没有分钟级的过期时间、命中不收费；prompt cache 在供应商那边，Anthropic 默认 5 分钟 TTL（命中才刷新）、OpenAI（GPT-5.6 起）与 Anthropic 对写入多收 1.25×、不足最小长度静默不缓存，命中与否只能事后从 `usage` 里看出来。
+
 ### 2. 四家的机制
 
 | | 声明方式 | 最小长度 | TTL | 写入价 | 读价 |
@@ -94,7 +107,7 @@ flowchart TB
 
 Table: 四家的 prompt cache 机制
 
-缓存的顺序是 `tools → system → messages`（Anthropic 明写，其余同理）：改工具定义会让 system 与消息全部失效，改 system 会让消息失效。这就是第二篇说"工具定义放在稳定的前缀位置"的原因。
+缓存的顺序是 `tools → system → messages`（Anthropic 明写，其余同理）：改工具定义会让 system 与消息全部失效，改 system 会让消息失效。这就是[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)说"工具定义放在稳定的前缀位置"的原因。
 
 ### 3. 写入为什么收费，什么时候划算
 
@@ -122,14 +135,14 @@ xychart-beta
 
 ### 4. 命中率是一个要监控的指标
 
-命中率 = $$n_{\text{hit}} / (n_{\text{in}} + n_{\text{hit}} + n_{\text{write}})$$。多轮对话与 agent 场景下正常值在 70–90%；掉到 30% 以下通常是三件事之一：前缀里混进了动态内容、历史被修改（第三篇第五章）、请求间隔超过 TTL。Anthropic 静默不缓存不足门限的块，OpenAI 也只在达到 1,024 token 后开始——一个 800 token 的 system prompt 永远不会被缓存，这不是 bug。
+命中率 = $$n_{\text{hit}} / (n_{\text{in}} + n_{\text{hit}} + n_{\text{write}})$$。多轮对话与 agent 场景下正常值在 70–90%；掉到 30% 以下通常是三件事之一：前缀里混进了动态内容、历史被修改（见[《API 契约（二）》的「对缓存与多轮成本的影响」一节](/reasoning-models-as-components-thinking-effort-and-state.html#五对缓存与多轮成本的影响)）、请求间隔超过 TTL。Anthropic 静默不缓存不足门限的块，OpenAI 也只在达到 1,024 token 后开始——一个 800 token 的 system prompt 永远不会被缓存，这不是 bug。
 
 ## 三、输出侧：可见输出与思考
 
 输出价是输入价的 4–6 倍，且不能缓存。控制输出成本只有三个手段：
 
-- **控制思考**：effort 选档（第三篇）。这是推理模型上最大的一项。
-- **控制回答长度**：在 prompt 里要求简洁、用结构化输出去掉寒暄、`max_tokens` 兜底（但截断有代价，第二篇）。
+- **控制思考**：effort 选档（见[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。这是推理模型上最大的一项。
+- **控制回答长度**：在 prompt 里要求简洁、用结构化输出去掉寒暄、`max_tokens` 兜底（但截断有代价，见[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)）。
 - **别让模型输出可以由代码产出的东西**：让它返回一个 id 而不是复述整条记录，返回 diff 而不是整个文件。
 
 一个反直觉的账：**一次 agent 任务里，输出侧的成本常常小于输入侧**。20 步的循环，每步输入是累积的历史（几万 token），输出是几千 token 的思考加几百 token 的调用——输入 token 总量是输出的 5–10 倍，但输入大半命中缓存打一折，两边最后差不多。所以两边都要看。
@@ -158,7 +171,7 @@ flowchart TB
 
 ### 1. 批处理：50%，24 小时
 
-四家都有批处理接口（OpenAI Batch、Anthropic Batch、Gemini Batch、DeepSeek 无独立批处理但有峰谷），价格 **50%**，代价是**异步**——提交一批请求，供应商在 24 小时内（通常几小时）返回结果。适合的场景：离线评测（第五篇的评测集跑分）、数据回填、每日报告生成、embedding 全量重算。不适合任何用户在等的场景。Anthropic 在 Opus 5 的批处理上还提供了 300K 的最大输出（beta），比在线的 128K 高。
+四家都有批处理接口（OpenAI Batch、Anthropic Batch、Gemini Batch、DeepSeek 无独立批处理但有峰谷），价格 **50%**，代价是**异步**——提交一批请求，供应商在 24 小时内（通常几小时）返回结果。适合的场景：离线评测（[《选型》](/model-selection-beyond-leaderboards.html)里的评测集跑分）、数据回填、每日报告生成、embedding 全量重算。不适合任何用户在等的场景。Anthropic 在 Opus 5 的批处理上还提供了 300K 的最大输出（beta），比在线的 128K 高。
 
 ### 2. Flex 与 Priority：用延迟换价格，或反过来
 
@@ -170,7 +183,7 @@ DeepSeek 自 2026 年 8 月起按时段计价：工作日 UTC 01:00–04:00 与 
 
 ### 4. 长上下文加价
 
-KV cache 随上下文线性增长、注意力计算随上下文平方增长（Infra 地图 05 系列的 KV 篇），供应商把这个成本写成阶梯价：OpenAI 对超过 272K 输入 token 的请求，输入与缓存价 2×、输出价 1.5×，**对整个请求生效**（不是超出部分）；Gemini 3.1 Pro 在 200K 以上输入价 2×、输出 1.5×。Anthropic 的 5 系列 1M 上下文是默认且唯一的档，没有阶梯。所以"把 300K 的资料塞进 GPT-6 Astra"不只是 300K × \$10，是 300K × \$20 加输出 × \$75；第一篇讲的有效上下文问题在这里有了价格。
+KV cache 随上下文线性增长、注意力计算随上下文平方增长（Infra 地图 05 系列的 KV 篇），供应商把这个成本写成阶梯价：OpenAI 对超过 272K 输入 token 的请求，输入与缓存价 2×、输出价 1.5×，**对整个请求生效**（不是超出部分）；Gemini 3.1 Pro 在 200K 以上输入价 2×、输出 1.5×。Anthropic 的 5 系列 1M 上下文是默认且唯一的档，没有阶梯。所以"把 300K 的资料塞进 GPT-6 Astra"不只是 300K × \$10，是 300K × \$20 加输出 × \$75；[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲的有效上下文问题在这里有了价格。
 
 ### 5. 区域与推理位置
 
@@ -221,11 +234,17 @@ xychart-beta
 
 ### 3. 前提
 
-这个 15% 依赖三个前提，破坏任何一个都退回二次增长：**历史只追加不修改**（第三篇第五章）；**请求间隔小于 TTL**（5 分钟内下一轮；用户离开十分钟再回来，第一次请求要重写整个前缀）；**前缀里没有动态内容**。多轮对话的成本优化，一半是缓存机制，一半是不要破坏它。
+这个 15% 依赖三个前提，破坏任何一个都退回二次增长：
+
+1. **历史只追加不修改**（见[《API 契约（二）》的「对缓存与多轮成本的影响」一节](/reasoning-models-as-components-thinking-effort-and-state.html#五对缓存与多轮成本的影响)）。
+2. **请求间隔小于 TTL**（5 分钟内下一轮；用户离开十分钟再回来，第一次请求要重写整个前缀）。
+3. **前缀里没有动态内容**。
+
+多轮对话的成本优化，一半是缓存机制，一半是不要破坏它。
 
 ### 4. 历史压缩是另一半
 
-缓存把系数压到 0.1，但第 $$k$$ 轮的输入长度仍是 $$S + (k-1) m$$——第一篇的有效上下文问题与本章的长上下文加价门限都在逼近。所以长对话还要做历史压缩：到某个长度把早期轮次摘要成一段（L2 上下文工程、L4 的 compaction）。压缩会让缓存失效一次（前缀变了），之后以更短的前缀重新累积。两者是配合关系：缓存管每轮的价，压缩管每轮的量。
+缓存把系数压到 0.1，但第 $$k$$ 轮的输入长度仍是 $$S + (k-1) m$$——[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲的有效上下文问题与本章的长上下文加价门限都在逼近。所以长对话还要做历史压缩：到某个长度把早期轮次摘要成一段（L2 上下文工程、L4 的 compaction）。压缩会让缓存失效一次（前缀变了），之后以更短的前缀重新累积。两者是配合关系：缓存管每轮的价，压缩管每轮的量。
 
 ## 六、延迟的分解
 
@@ -264,11 +283,11 @@ prefill 为什么是 compute-bound 而 decode 是 memory-bound，Infra 地图 09
 
 ### 3. 量级
 
-2026 年公开 API 的典型量级（因模型、负载而异，只作为判断异常的参照）：命中缓存的短请求 TTFT 几百毫秒；50K 未缓存输入的 prefill 秒级；`high` effort 的思考几秒到几十秒；TPOT 从小模型的十几毫秒到大模型的几十毫秒——也就是每秒 20–80 个 token。一个 800 token 的回答在 30 ms/token 下要 24 秒，用户不开流式会认为它卡死了。这是第二篇说"流式是默认"的原因。
+2026 年公开 API 的典型量级（因模型、负载而异，只作为判断异常的参照）：命中缓存的短请求 TTFT 几百毫秒；50K 未缓存输入的 prefill 秒级；`high` effort 的思考几秒到几十秒；TPOT 从小模型的十几毫秒到大模型的几十毫秒——也就是每秒 20–80 个 token。一个 800 token 的回答在 30 ms/token 下要 24 秒，用户不开流式会认为它卡死了。这是[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html#1-为什么流式是默认)说"流式是默认"的原因。
 
 ### 4. 尾延迟
 
-p50 与 p99 的差通常来自排队与重试，不来自模型。一个 p50 = 2 s、p99 = 20 s 的接口，p99 那些请求多半是被限流后退避重试的（第六篇），或者赶上了供应商的过载。延迟 SLO 要按分位数定，并把重试的时间算进去。
+p50 与 p99 的差通常来自排队与重试，不来自模型。一个 p50 = 2 s、p99 = 20 s 的接口，p99 那些请求多半是被限流后退避重试的（见[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)），或者赶上了供应商的过载。延迟 SLO 要按分位数定，并把重试的时间算进去。
 
 ## 七、每任务成本与预算
 
@@ -295,7 +314,7 @@ flowchart TB
     class B n
 ```
 
-一个便宜的模型不一定便宜：如果它需要更多步才完成任务、或者完成率低要人工兜底，每任务成本可能更高。OpenAI 为 GPT-6 Astra 的定价辩护时说的正是这个——"训练它用更少的 token、更少的重试完成任务"，所以"每任务价格"才是该比的。这个论点是否成立要用你的评测集验证（第五篇），但比较的单位是对的。
+一个便宜的模型不一定便宜：如果它需要更多步才完成任务、或者完成率低要人工兜底，每任务成本可能更高。OpenAI 为 GPT-6 Astra 的定价辩护时说的正是这个——"训练它用更少的 token、更少的重试完成任务"，所以"每任务价格"才是该比的。这个论点是否成立要用你的评测集验证（见[《选型》](/model-selection-beyond-leaderboards.html)），但比较的单位是对的。
 
 ### 2. 预算与告警
 
@@ -386,14 +405,19 @@ system 未命中、本次写入: $0.0813，其中输出侧 $0.060，占 74%
 
    <details markdown="1">
    <summary>答案</summary>
-   （1）缓存失效：有人在 system 前缀里加了动态内容或改了工具定义——看命中率是否骤降；（2）effort 变了：模型升级把 thinking 默认开启（如迁到 Sonnet 5）或有人调高了 effort——看思考 token 数；（3）供应商排队：负载高或过载——看状态页与 429 / 529 比例，以及是否只在特定时段。输出速度不变排除了 decode 侧与模型大小的变化。详见[第六章](#六延迟的分解)。
+
+   1. 缓存失效：有人在 system 前缀里加了动态内容或改了工具定义——看命中率是否骤降。
+   2. effort 变了：模型升级把 thinking 默认开启（如迁到 Sonnet 5）或有人调高了 effort——看思考 token 数。
+   3. 供应商排队：负载高或过载——看状态页与 429 / 529 比例，以及是否只在特定时段。
+
+   输出速度不变排除了 decode 侧与模型大小的变化。详见[第六章](#六延迟的分解)。
    </details>
 
 5. 把 300K token 的资料一次放进 GPT-6 Astra，输出 2,000 token（含思考）。成本多少？如果先检索出最相关的 20K 再放进去呢？
 
    <details markdown="1">
    <summary>答案</summary>
-   300K 超过 272K 门限，整个请求输入 2×、输出 1.5×：300,000 × 20 + 2,000 × 75 = 6,000,000 + 150,000 = \$6.15。20K：20,000 × 10 + 2,000 × 50 = 200,000 + 100,000 = \$0.30，约 1/20；同时避开了第一篇的有效上下文问题与 prefill 的秒级 TTFT。详见[第四章](#四折价与加价)。
+   300K 超过 272K 门限，整个请求输入 2×、输出 1.5×：300,000 × 20 + 2,000 × 75 = 6,000,000 + 150,000 = \$6.15。20K：20,000 × 10 + 2,000 × 50 = 200,000 + 100,000 = \$0.30，约 1/20；同时避开了[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲的有效上下文问题与 prefill 的秒级 TTFT。详见[第四章](#四折价与加价)。
    </details>
 
 [^q0]: $$C = n_{\text{in}} p_{\text{in}} + n_{\text{hit}} p_{\text{hit}} + n_{\text{write}} p_{\text{write}} + (n_{\text{out}} + n_{\text{think}}) p_{\text{out}}$$，五项都在 `usage` 里有字段；长上下文加价对整个请求乘系数。2026 年 9 月每百万 token：GPT-6 Astra \$10 / \$50（读 \$1、写 \$12.5），GPT-5.6 Sol \$4 / \$20、Terra \$2 / \$12、Luna \$0.20 / \$1.20；Claude Fable 5.1 \$10 / \$50（读 \$0.25）、Opus 5 \$5 / \$25、Sonnet 5 \$2 / \$10、Haiku 4.5 \$1 / \$5；Gemini 3.8 Flash \$0.75 / \$3.75（引入价，2027 年翻倍）、3.1 Pro \$2 / \$12（>200K 翻倍）；DeepSeek V4.1 Flash 闲时 \$0.15 / \$0.60、读 \$0.003、峰时 ×2。跨度三个量级，输出价是输入价的 4–6 倍，读价是输入价的 1/10–1/50。详见[第一章](#一总览)。

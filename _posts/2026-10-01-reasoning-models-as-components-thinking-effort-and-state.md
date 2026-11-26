@@ -7,9 +7,16 @@ tags: [AI, LLM, AI-Application, API, Reasoning]
 catalog: true
 ---
 
-到 2026 年，四家的主力模型都是推理模型：GPT-6 Astra 与 GPT-5.6 有 `reasoning.effort`，Claude 5 系列默认开启 adaptive thinking，Gemini 3.x 有 `thinking_level`，DeepSeek V4.1 Flash 默认 thinking mode。"推理模型"不再是一个选项，是默认。这给上一篇的契约加了一个维度：模型在给出可见输出之前会先生成一段**不可见或半可见的思考**，这段思考**要花钱**（按输出价计费）、**要花时间**（发生在首 token 之前）、**是状态**（下一轮要原样送回，否则模型"忘了自己刚才怎么想的"），并且它的多少由一个叫 effort 的参数控制。
+到 2026 年，四家的主力模型都是推理模型：GPT-6 Astra 与 GPT-5.6 有 `reasoning.effort`，Claude 5 系列默认开启 adaptive thinking，Gemini 3.x 有 `thinking_level`，DeepSeek V4.1 Flash 默认 thinking mode。"推理模型"不再是一个选项，是默认。这给[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)里的那套契约加了一个维度：模型在给出可见输出之前会先生成一段**不可见或半可见的思考**，这段思考**要花钱**（按输出价计费）、**要花时间**（发生在首 token 之前）、**是状态**（下一轮要原样送回，否则模型"忘了自己刚才怎么想的"），并且它的多少由一个叫 effort 的参数控制。
 
-这一维度带来四个后果，每个都能让一个从非推理模型迁过来的应用出问题：同样的请求账单翻倍（思考 token）；TTFT 从一秒变成十秒（思考在前）；编辑历史消息返回 400（thinking block 的校验）；在两个模型之间做 fallback 时对话历史不兼容（新模型的 thinking block 旧模型读不了）。本篇把这四个后果讲清楚。
+这一维度带来四个后果，每个都能让一个从非推理模型迁过来的应用出问题：
+
+1. 同样的请求账单翻倍（思考 token）。
+2. TTFT 从一秒变成十秒（思考在前）。
+3. 编辑历史消息返回 400（thinking block 的校验）。
+4. 在两个模型之间做 fallback 时对话历史不兼容（新模型的 thinking block 旧模型读不了）。
+
+本篇把这四个后果讲清楚。
 
 本篇要回答的核心问题是：
 
@@ -48,11 +55,24 @@ flowchart TB
     class EFF ctl
 ```
 
-三条箭头对应本文三个核心问题：effort 控制思考阶段的大小（第三章）；思考阶段的产物要作为状态回流（第四章）；思考阶段的 token 进账单、进 TTFT（第二、五章）。
+三条箭头对应本文三个核心问题：
+
+1. effort 控制思考阶段的大小（第三章）。
+2. 思考阶段的产物要作为状态回流（第四章）。
+3. 思考阶段的 token 进账单、进 TTFT（第二、五章）。
 
 ### 3. 本文的章节安排
 
-第二章讲思考在协议上是什么、怎么计费；第三章讲 effort 这个旋钮与怎样为一个任务选档；第四章讲跨轮的推理状态——四家的机制与它对"编辑历史"、"跨模型 fallback"的约束；第五章讲它对缓存与多轮成本的影响；第六章讲从非推理模型迁移时默认值带来的风险；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、思考在协议上是什么](#二思考在协议上是什么) | 思考在协议上是什么、怎么计费 |
+| [三、effort：一个旋钮，三条曲线](#三effort一个旋钮三条曲线) | effort 这个旋钮与怎样为一个任务选档 |
+| [四、跨轮的推理状态](#四跨轮的推理状态) | 跨轮的推理状态——四家的机制与它对"编辑历史"、"跨模型 fallback"的约束 |
+| [五、对缓存与多轮成本的影响](#五对缓存与多轮成本的影响) | 它对缓存与多轮成本的影响 |
+| [六、迁移时的默认值风险](#六迁移时的默认值风险) | 从非推理模型迁移时默认值带来的风险 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、思考在协议上是什么
 
@@ -68,7 +88,7 @@ flowchart TB
 
 ### 2. 计费
 
-四家都按**输出价**计思考 token。这是本篇最重要的账：输出价通常是输入价的 4–5 倍（第四篇），而一次高 effort 的调用，思考 token 可以是回答 token 的十倍以上。一个数字例子（2026 年 9 月价目）：
+四家都按**输出价**计思考 token。这是本篇最重要的账：输出价通常是输入价的 4–5 倍（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)），而一次高 effort 的调用，思考 token 可以是回答 token 的十倍以上。一个数字例子（2026 年 9 月价目）：
 
 | 请求 | 输入 | 思考 | 回答 | 单价（输入 / 输出，每百万） | 成本 |
 |---|---|---|---|---|---|
@@ -114,7 +134,7 @@ flowchart TB
 
 ### 3. 用量字段
 
-要把思考 token 单独记下来。OpenAI 在 `usage.output_tokens_details.reasoning_tokens`；Anthropic 把它算进 `output_tokens`（思考块的 token 数可以从返回的块估算）；Gemini 在 `usage_metadata.thoughts_token_count`；DeepSeek 在 `completion_tokens_details.reasoning_tokens`。上一篇中间层的"归一化用量"要把这第五类 token 加进去——否则你只看到"输出 token 涨了"，不知道是模型话多了还是想多了。
+要把思考 token 单独记下来。OpenAI 在 `usage.output_tokens_details.reasoning_tokens`；Anthropic 把它算进 `output_tokens`（思考块的 token 数可以从返回的块估算）；Gemini 在 `usage_metadata.thoughts_token_count`；DeepSeek 在 `completion_tokens_details.reasoning_tokens`。[《API 契约（一）》的「一个中间层的最小设计」一节](/llm-api-contract-messages-tools-structured-output-and-streaming.html#八一个中间层的最小设计)里的"归一化用量"要把这第五类 token 加进去——否则你只看到"输出 token 涨了"，不知道是模型话多了还是想多了。
 
 ## 三、effort：一个旋钮，三条曲线
 
@@ -138,7 +158,7 @@ OpenAI 的 GPT-6 Astra 也是 `low` 到 `max` 五档，另有 `reasoning.mode: p
 
 ### 2. 三条曲线
 
-选档的方法只有一个：在你自己的评测集上（第五篇）把每一档跑一遍，画三条曲线——**质量**（任务指标）、**成本**（每任务美元）、**延迟**（TTFT 与总时长）随 effort 的变化。典型形状：
+选档的方法只有一个：在你自己的评测集上（做法见[《选型》的「自己的评测集」一节](/model-selection-beyond-leaderboards.html#三自己的评测集)）把每一档跑一遍，画三条曲线——**质量**（任务指标）、**成本**（每任务美元）、**延迟**（TTFT 与总时长）随 effort 的变化。典型形状：
 
 - 质量曲线在某一档之后**饱和**：简单任务在 `low` 就饱和，复杂 agent 任务到 `xhigh` 还在涨。Anthropic 发布 Opus 5 时给出的正是这种"性能随 effort 变化"的图，并建议"从默认 `high` 开始，质量不掉就往下调省 token，最难的任务往上调"。
 - 成本曲线**单调上升**且在高档陡增——思考 token 随难度非线性增长。
@@ -188,6 +208,9 @@ Table: 四家推理状态的传递机制
 
 前三家的设计是同一个思想的三种实现：**思考是模型的内部状态，应用只负责搬运，不负责读写**。加密（OpenAI）、签名（Anthropic、Gemini）都是为了保证你搬运的是原件。DeepSeek 选择了无状态——简单，但每轮重新推理。
 
+> [!NOTE] 后端经验参照：签名的推理状态之于签名 Cookie
+> 服务端把状态签名或加密后交给客户端保管、客户端每次原样带回，是无状态服务里签名 Cookie / 加密会话的做法：客户端只搬运，改一个字节签名就验不过，加密的内容客户端读不了。对不上的有两处。第一，Cookie 的签名只覆盖它自己；Fable 5.1 还校验思考块**之前的历史**未变，相当于签名覆盖了整段对话，改更早一轮的工具结果也会让它失效（下一节）。第二，同一个服务的新旧版本读的是同一种 Cookie；这里旧模型读不了新模型的思考块，推理状态只能从旧模型带到新模型，反过来就丢了。
+
 ### 3. 编辑历史的约束
 
 在 Chat Completions 时代，应用随意编辑历史：删掉几轮省 token、把长工具结果换成摘要、合并两条消息。推理状态让这些操作有了约束：
@@ -214,15 +237,18 @@ flowchart TB
 ```
 - **旧模型读不了新模型的思考块**：Fable 5.1 的 thinking block 只有它自己或更新的模型能读；早期模型收到会被 API 丢弃。做跨模型 fallback（Fable 5.1 超时切到 Opus 5）时，携带 Fable 5.1 思考块的历史在 Opus 5 上会失去推理状态；反向（Opus 5 → Fable 5.1）可以。fallback 策略要考虑方向。
 
+> [!NOTE] 后端经验参照：压缩历史之于事件溯源的快照
+> 历史只追加、只在一条思考链结束后整段做摘要，和事件溯源的规矩一样：事件日志不改写，要缩短重放路径，就在一致的边界上打快照。对不上的是快照的性质。事件溯源的快照由事件确定地算出来，丢了可以从日志重放，结果一模一样；这里的摘要是模型写的、有损的，被丢弃的思考块也重放不回来——同样的输入再生成一次，思考内容不会相同，模型只能重新想一遍，并为此再付一次思考 token 的钱。
+
 ### 4. 服务端状态与 ZDR 的两难
 
-OpenAI 的 `previous_response_id` 让推理状态的搬运完全透明，但依赖服务端存储（上一篇第六章：默认 30 天）。合规要求 Zero Data Retention 的组织不能用它，要改成无状态模式：每次请求带完整历史，并用 `include` 要回加密的 reasoning item 随请求往返。请求体变大，但推理状态不丢。**两种模式的成本相同**（输入 token 都是全量计费），差别在谁传、谁存。
+OpenAI 的 `previous_response_id` 让推理状态的搬运完全透明，但依赖服务端存储（[《API 契约（一）》的「状态：谁保存对话」一节](/llm-api-contract-messages-tools-structured-output-and-streaming.html#六状态谁保存对话)：默认 30 天）。合规要求 Zero Data Retention 的组织不能用它，要改成无状态模式：每次请求带完整历史，并用 `include` 要回加密的 reasoning item 随请求往返。请求体变大，但推理状态不丢。**两种模式的成本相同**（输入 token 都是全量计费），差别在谁传、谁存。
 
 ## 五、对缓存与多轮成本的影响
 
 ### 1. 思考 token 不在缓存里
 
-prompt caching 缓存的是**输入前缀**（第四篇）。思考 token 是输出，每轮新生成、每轮全价。一个 20 步的 agent 任务，每步思考 3,000 token，光思考就是 60,000 个输出价 token——这部分不因任何缓存策略而减少，只能靠 effort 调低。
+prompt caching 缓存的是**输入前缀**（[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。思考 token 是输出，每轮新生成、每轮全价。一个 20 步的 agent 任务，每步思考 3,000 token，光思考就是 60,000 个输出价 token——这部分不因任何缓存策略而减少，只能靠 effort 调低。
 
 上一轮的思考块在下一轮变成了**输入**的一部分（Anthropic 原样送回、OpenAI 服务端拼接），这部分按输入价计费，并且能进缓存前缀。所以多轮 agent 的账是：每轮新思考按输出价、历史思考按输入价（缓存命中时打折）。
 
@@ -255,7 +281,13 @@ OpenAI 声称 Responses 在 agent 场景下比 Chat Completions 有更好的缓�
 
 从非推理模型或早期推理模型迁到 2026 年的模型，默认值的变化足以让应用出问题。按供应商列：
 
-**Anthropic**：Sonnet 5（2026-06-30）与 Opus 5（2026-07-24）把 adaptive thinking 改为**默认开启**——不带 `thinking` 字段的请求在 4.6 / 4.8 上不思考，在 5 上思考。后果：思考 token 出现在账单里；`max_tokens` 不够；TTFT 变长。同时，手动 `budget_tokens` 在 Sonnet 5 上返回 400（Sonnet 4.6 已弃用），Opus 5 上 `thinking: disabled` 只在 effort ≤ `high` 时被接受，`xhigh` / `max` 配 disabled 返回 400。Sonnet 5 还拒绝非默认的采样参数——推理模型的输出分布不再由你调 temperature。
+**Anthropic**：Sonnet 5（2026-06-30）与 Opus 5（2026-07-24）把 adaptive thinking 改为**默认开启**——不带 `thinking` 字段的请求在 4.6 / 4.8 上不思考，在 5 上思考。后果：
+
+- 思考 token 出现在账单里。
+- `max_tokens` 不够。
+- TTFT 变长。
+
+同时，手动 `budget_tokens` 在 Sonnet 5 上返回 400（Sonnet 4.6 已弃用），Opus 5 上 `thinking: disabled` 只在 effort ≤ `high` 时被接受，`xhigh` / `max` 配 disabled 返回 400。Sonnet 5 还拒绝非默认的采样参数——推理模型的输出分布不再由你调 temperature。
 
 **OpenAI**：Chat Completions 在 GPT-5.4 起不支持 `reasoning_effort` 非 `none` 的工具调用；用 Chat Completions 做 agent 的应用要迁到 Responses。`gpt-5-2025-08-07` 等快照 2026-12-11 关闭，推荐替代是 GPT-5.6 Sol / Terra / Luna——不同的默认 effort 与不同的价格。
 
@@ -263,7 +295,11 @@ OpenAI 声称 Responses 在 agent 场景下比 Chat Completions 有更好的缓�
 
 **DeepSeek**：V4.1 Flash 默认 thinking 开启；`deepseek-v4-pro` 自 9 月 14 日路由到 V4.1 Flash，调好的 effort 档在新模型上要重测。
 
-共同的教训：**迁移不是改模型名**。至少要做三件事——在评测集上重跑 effort 各档；检查 `max_tokens`；检查历史编辑逻辑是否触碰思考块。
+共同的教训：**迁移不是改模型名**。至少要做三件事：
+
+1. 在评测集上重跑 effort 各档。
+2. 检查 `max_tokens`。
+3. 检查历史编辑逻辑是否触碰思考块。
 
 ## 七、实践建议
 
