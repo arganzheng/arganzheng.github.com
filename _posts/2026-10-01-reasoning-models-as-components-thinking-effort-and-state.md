@@ -199,7 +199,7 @@ xychart-beta
 
 | 供应商 | 状态载体 | 应用要做什么 | 校验 |
 |---|---|---|---|
-| Anthropic | 上一轮 assistant 消息里的 `thinking` / `redacted_thinking` 块 | 原样送回，位置与内容不能动 | 块带签名<br/>Fable 5.1 起还校验**块之前的历史**未变：新账户（2026-08-31 后创建）下把它放到 system / tools / 更早 assistant 消息之后返回 400<br/>带 `thinking … 2026-08-01` 相关 beta 头时可选"拒绝"或"丢弃"（`mismatch_behavior`），被丢弃的块在 `input_transformations` 里报告 |
+| Anthropic | 上一轮 assistant 消息里的 `thinking` / `redacted_thinking` 块 | 原样送回，位置与内容不能动 | 块带签名<br/>Fable 5.1 起还校验**块之前的历史**未变：新账户（2026-08-31 后创建）下把它放到 system / tools / 更早 assistant 消息之后返回 400<br/>带 `thinking-binding-controls-2026-08-01` beta 头时可选"拒绝"或"丢弃"（`prefix_mismatch_behavior`），被丢弃的块在 `input_transformations` 里报告 |
 | OpenAI（Responses） | `reasoning` item | 服务端状态：用 `previous_response_id` 自动带上；无状态 / ZDR：用 `include` 要回加密的 reasoning 内容并随下一次请求送回 | 加密内容只有服务端能读 |
 | Google（Gemini 3） | thought signature | 在多轮 function calling 中随 `functionCall` 部分原样送回 | 缺失会降低后续轮的质量或报错 |
 | DeepSeek | 无 | **不要**送回 `reasoning_content`，送回返回 400 | — |
@@ -272,7 +272,7 @@ flowchart TB
 
 ### 3. Responses 与 Chat Completions 的缓存差别
 
-OpenAI 声称 Responses 在 agent 场景下比 Chat Completions 有更好的缓存利用（第三方引用的数字是 40–80% 的改善）。原因不神秘：服务端状态保证了历史逐字节一致（应用没有机会"顺手"改一下），reasoning item 也留在前缀里。用客户端状态的应用要靠自己保证这一点：历史只追加、不修改。
+OpenAI 声称 Responses 在 agent 场景下比 Chat Completions 有更好的缓存利用（其内部测试的数字是 40–80% 的改善）。原因不神秘：服务端状态保证了历史逐字节一致（应用没有机会"顺手"改一下），reasoning item 也留在前缀里。用客户端状态的应用要靠自己保证这一点：历史只追加、不修改。
 
 ## 六、迁移时的默认值风险
 
