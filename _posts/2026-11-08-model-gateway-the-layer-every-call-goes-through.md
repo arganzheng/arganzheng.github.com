@@ -78,11 +78,11 @@ Table: 本文的章节安排
 %% 图：逻辑模型名到供应商的路由表——应用只写 chat-default / reasoning-high / cheap-classifier；网关把它映射到具体快照并挂一条 fallback 链：同模型重试 → 同家族降档 → 跨供应商（只对无状态请求；会话中途带推理状态的请求声明「绑定供应商」不可跨）→ 返回错误让应用走非模型路径；换模型只改这张表
 flowchart TB
     APP["<b>应用请求</b><br/>model = chat-default<br/>标签：租户 · 功能 · prompt v12<br/>会话中途？绑定供应商"] --> GW["网关路由表"]
-    GW -->|"chat-default"| M1["claude-sonnet-5-20260630"]
-    GW -->|"reasoning-high"| M2["gpt-5.6-sol-2026-08-21 · effort high"]
+    GW -->|"chat-default"| M1["claude-sonnet-5"]
+    GW -->|"reasoning-high"| M2["gpt-5.6-sol · effort high"]
     GW -->|"cheap-classifier"| M3["gemini-3.5-flash-lite"]
     M1 -->|"① 429 / 5xx：同模型重试"| M1
-    M1 -->|"② 容量 / 超时：同家族降档"| F1["claude-haiku-4.5"]
+    M1 -->|"② 容量 / 超时：同家族降档"| F1["claude-haiku-4-5"]
     F1 -->|"③ 整家不可用 · 且请求无状态"| F2["gpt-5.6-terra"]
     F1 -.->|"③ 会话中途带推理状态：不可跨 → 返回错误"| X["应用侧：非模型路径"]
     C["熔断：30 s 内错误率 > 20% 打开<br/>半开探测后恢复"] -.-> M1
