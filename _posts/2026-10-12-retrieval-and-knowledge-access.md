@@ -38,7 +38,7 @@ coding agent 的架构分歧是最好的教材。Anthropic 在 2025 年 9 月的
 
 ### 解析与 embedding 的格局在一年内换了一遍
 
-2025 年一年之内 Mistral OCR、OlmoOCR、Docling 1.0、Marker 1.0、MinerU、PaddleOCR-VL、DeepSeek-OCR 2 相继发布，一个 0.9B 的开放模型在文档理解基准上超过前沿通用模型；embedding 侧 Qwen3-Embedding-8B 以 70.58 登顶 MMTEB，Gemini Embedding、Voyage-3-large、Cohere Embed v4（128K 上下文、多模态）各占一角，MTEB 自身被批评用二元相关性抹平了差异。这一层的"选型"与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)讲的模型选型同构：榜单缩范围，自己的查询集做决定，且**换 embedding 模型意味着全量重建索引**——选型的隐藏成本。
+2024 到 2026 年间 Mistral OCR、OlmoOCR、Docling 1.0、Marker 1.0、MinerU、PaddleOCR-VL、DeepSeek-OCR 2 相继发布，一个 0.9B 的开放模型在文档理解基准上超过前沿通用模型；embedding 侧 Qwen3-Embedding-8B 以 70.58 登顶 MMTEB，Gemini Embedding、Voyage-3-large、Cohere Embed v4（128K 上下文、多模态）各占一角，MTEB 自身被批评用二元相关性抹平了差异。这一层的"选型"与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)讲的模型选型同构：榜单缩范围，自己的查询集做决定，且**换 embedding 模型意味着全量重建索引**——选型的隐藏成本。
 
 ### 现有材料的断层
 

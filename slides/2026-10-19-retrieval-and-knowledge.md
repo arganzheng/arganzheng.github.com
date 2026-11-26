@@ -190,7 +190,7 @@ flowchart LR
 
 <aside class="notes" markdown="1">
 原文 /indexing-hybrid-search-and-reranking.html。
-补充要点：Qwen3-Embedding-8B MTEB 70.58。
+补充要点：Qwen3-Embedding-8B MMTEB 70.58。
 </aside>
 
 <!-- v -->

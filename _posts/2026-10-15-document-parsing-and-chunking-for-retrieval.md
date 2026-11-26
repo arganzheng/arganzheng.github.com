@@ -9,7 +9,7 @@ catalog: true
 
 向量库里存的是什么，取决于文档被解析成了什么、又被切成了什么。一份两栏 PDF 被逐行交错成流畅的胡话、一张财务表格被压成一段丢掉了行列、每一页的页眉被注入到每一个块里——这些错误产出的 markdown 看起来干净，embedding 照常算，检索照常返回，只是返回的东西不对。一个开源解析器基准的作者把它叫作"RAG 流水线里最大的静默失败来源"。本篇讲检索的上游：**解析**（把文件变成结构化文本）与**分块**（把文本切成检索的单位），以及块上要带什么**元数据**。
 
-2025 年这一层的格局换了一遍：Docling 1.0、Marker 1.0、MinerU、Mistral OCR、OlmoOCR、PaddleOCR-VL、DeepSeek-OCR 2 相继发布；一个 0.9B 参数的开放模型在文档理解基准 OmniDocBench 上拿到 96.34 分，高于 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59——读文档这件事，小而专的模型胜过前沿通用模型，且权重是 Apache 2.0。这改变了"直接调 OCR API"的默认。
+2024 到 2026 年这一层的格局换了一遍：Docling 1.0、Marker 1.0、MinerU、Mistral OCR、OlmoOCR、PaddleOCR-VL、DeepSeek-OCR 2 相继发布；一个 0.9B 参数的开放模型在文档理解基准 OmniDocBench 上拿到 96.34 分，高于 Gemini 3 Pro 的 92.91 与 GPT-5.2 的 86.59——读文档这件事，小而专的模型胜过前沿通用模型，且权重是 Apache 2.0。这改变了"直接调 OCR API"的默认。
 
 本篇要回答的核心问题是：
 
