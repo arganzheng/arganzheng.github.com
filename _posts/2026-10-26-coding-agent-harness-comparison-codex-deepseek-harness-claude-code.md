@@ -34,18 +34,18 @@ flowchart TB
 
 | 维度 | Codex | DeepSeek Harness | Claude Code | OpenHarness |
 |---|---|---|---|---|
-| **语言与架构** | Rust 工作区，几十个 `codex-*` crate；`core` 是重心（循环、配置、模型客户端、沙箱管理器） | TypeScript 单体仓库，几十个 `@deepseek-ai/dsh-*` 包<br/>Cordis 插件树<br/>profile → bundle → patch 三层配置 | TypeScript<br/>产品闭源<br/>Agent SDK（TS / Python）暴露同一基座 | Python（`pip install openharness-ai`）；`src/` 核心 + `ohmo` 个人 agent + React 终端前端 |
+| **语言与架构** | Rust 工作区，一百多个 `codex-*` crate；`core` 是重心（循环、配置、模型客户端、沙箱管理器） | TypeScript 单体仓库，近三百个 `@deepseek-ai/dsh-*` 包<br/>Cordis 插件树<br/>profile → bundle → patch 三层配置 | TypeScript<br/>产品闭源<br/>Agent SDK（TS / Python）暴露同一基座 | Python（`pip install openharness-ai`）；`src/` 核心 + `ohmo` 个人 agent + React 终端前端 |
 | **循环** | 三层：`submission_loop` → turn loop → `tools/orchestrator.rs`；操作 / 事件通道 | `core/agent-loop` 驱动，从 append-only 会话日志派生历史；循环本身是插件 | Agent SDK 的 `query()` 封装循环；hooks 在生命周期点介入 | 流式工具调用循环、API 重试退避、并行工具执行、token 与成本计数 |
 | **工具** | `tools/registry.rs` 注册 → `router.rs` 路由 → `parallel.rs` 并行<br/>处理器在 `tools/handlers/`（shell、`apply_patch`、`plan`、`tool_search`、`multi_agents`、MCP…）<br/>`codex-mcp` / `rmcp-client` | `core/tools` 作用域注册表 + 带守卫的执行管线；工具是插件（`fs`、`shell`、`web`、`browser-use`、`computer-use`、`lsp`、`mcp`…） | 内置工具（Read / Edit / Bash / Grep / Glob / LSP / Agent…）+ MCP + 技能；工具 schema 延迟加载 | 工具使用、技能、MCP；插件系统 |
 | **上下文** | `compact.rs` 本地 / `compact_remote_v2*` 服务端加密 / 预算 / 回退<br/>`get_context_remaining`<br/>截断规则"无 >10K token 的项" | `compaction` 五个包（自动 / 命令 / 修剪 / 图片卸载）+ `spill` 卸载 + `plan` / `todo` / `goal` | auto-compact 约 83.5%（预留 33K）<br/>微压缩<br/>CLAUDE.md 重注入<br/>子 agent 隔离 | 记忆系统；上下文管理 |
-| **权限与审批** | `PermissionProfile` 三档 + `AskForApproval` + `execpolicy`（Starlark 前缀规则）+ Guardian 模型审查 | 三档 + 审批策略插件（`dsh-base`）+ `guard` 卫士 | allow / deny / ask 规则 + 五种模式 + hooks + `canUseTool` 回调；六步判定 | 权限配置 |
+| **权限与审批** | `PermissionProfile` 三档 + `AskForApproval` + `execpolicy`（Starlark 前缀规则）+ Guardian 模型审查 | 三档 + 审批策略插件（`dsh-base`）+ `guard` 卫士 | allow / deny / ask 规则 + 六种模式 + hooks + `canUseTool` 回调；六步判定 | 权限配置 |
 | **沙箱** | 三平台原生：Seatbelt / bubblewrap + Landlock + seccomp / Windows 受限令牌；`network-proxy` | `sandbox` 接缝 + `sandbox-local` / `sandbox-policy` / `sandbox-windows-acl`；可换后端 | 工作目录与命令限制；云端由 Claude Code on the web / 云沙箱承担 | 依赖宿主（通常复用底层 CLI 的沙箱） |
 | **会话** | `rollout`（每步记录）+ `thread-store`；"从 rollout 恢复"是兼容面 | 事件溯源 JSONL 日志 + 检查点 + 投影<br/>"模型可见 ⟺ 已记录"<br/>resume / fork / replay 同一流 | 会话文件；`--resume` / `--continue` | 会话持久化 |
 | **子 agent** | `multi_agents` / `multi_agents_v2` 处理器；`agent-roles`、`agent-graph-store` | `subagent` 七种后端：spawn / fork / 驱动 / SDK / ACP / **Claude Code** / **Codex** | subagent（结果回主）与 agent teams（实验，互通） | 多 agent 协调 |
 | **扩展模型** | plugins（`plugin`、`core-plugins`）、hooks（`hooks` crate）、skills（`skills`）、MCP、`AGENTS.md` | **一切皆插件**（含循环、卫士、沙箱、审批）<br/>四种模式（Standard / Code / Minimal / Creator）是插件组合<br/>profile / bundle / `cordis.patch.yml` | hooks、skills、plugins、MCP、CLAUDE.md、`.claude/agents`、`settingSources` | 插件、skills（含 `.claude/skills` 与 `.agents`） |
-| **UI 面** | TUI（Ratatui）、`exec` 无头、`app-server`（JSON-RPC / WebSocket）供 IDE 与桌面端、`cloud-tasks` | `web`、`headless`、`sdk`（JSON-RPC）、`acp`（自动化）四个 profile；Python / TS SDK | CLI、IDE 集成、Agent SDK、Claude Code on the web、后台 agent | `oh` CLI、终端 Web 前端、ohmo 接 Feishu / Slack / Telegram / Discord |
+| **UI 面** | TUI（Ratatui）、`exec` 无头、`app-server`（JSON-RPC / WebSocket）供 IDE 与桌面端、`cloud-tasks` | `web`、`headless`、`sdk`（JSON-RPC）、`sdk-minimal`、`acp`（自动化）五个 profile；Python / TS SDK | CLI、IDE 集成、Agent SDK、Claude Code on the web、后台 agent | `oh` CLI、终端 Web 前端、ohmo 接 Feishu / Slack / Telegram / Discord |
 | **模型耦合** | Responses API（`codex-api`、`responses-api-proxy`）；另有 `ollama` / `lmstudio` / `model-provider` crate | 多供应商：官方 `deepseek-official` 适配器 + `llm-pi-ai` 接 pi-ai 的模型目录；Python SDK 可指向本地代理 | Claude 专用（API / Bedrock / Vertex / Foundry） | 多 API 格式（含 `--api-format copilot`）；ohmo 复用 Claude Code / Codex 订阅 |
-| **基准与研究** | 内部评测；开源便于审计 | **Minimal 模式**只留 shell 与文件编辑器，为在最小环境里公平比较模型；`BENCHMARK.md`、`benchmarks/` 性能门 | 公开 SWE-bench 等成绩 | 面向研究者：114 个单元 / 集成测试、E2E 脚本 |
+| **基准与研究** | 内部评测；开源便于审计 | **Minimal 模式**只留一个持久 shell，为在最小环境里公平比较模型；`BENCHMARK.md`、`benchmarks/` 性能门 | 公开 SWE-bench 等成绩 | 面向研究者：114 个单元 / 集成测试、E2E 脚本 |
 
 Table: 四个 harness 的十二维对照
 
@@ -109,7 +109,7 @@ flowchart LR
 
 ### 5. 权限与审批：策略语言 vs 规则 + 模式 vs 插件
 
-Codex 的 `execpolicy` 是四家里唯一的**专用策略语言**（Starlark、前缀匹配、三种决定、带测试）加 Guardian 模型审查——把"哪些命令危险"做成可版本化、可测试的工件，适合企业级的集中管理。Claude Code 的 allow / deny / ask 规则加五种模式加 hooks 加回调——**六步判定顺序**是四家里对"谁能覆盖谁"定义最精确的（deny 高于一切）。DeepSeek Harness 把审批策略做成插件——最灵活，但默认策略的强度取决于组合。OpenHarness 的权限配置相对简单。
+Codex 的 `execpolicy` 是四家里唯一的**专用策略语言**（Starlark、前缀匹配、三种决定、带测试）加 Guardian 模型审查——把"哪些命令危险"做成可版本化、可测试的工件，适合企业级的集中管理。Claude Code 的 allow / deny / ask 规则加六种模式加 hooks 加回调——**六步判定顺序**是四家里对"谁能覆盖谁"定义最精确的（deny 高于一切）。DeepSeek Harness 把审批策略做成插件——最灵活，但默认策略的强度取决于组合。OpenHarness 的权限配置相对简单。
 
 ### 6. 沙箱：原生三平台 vs 接缝 vs 依赖环境
 
@@ -160,15 +160,15 @@ Codex 把"从已有 rollout 恢复会话"列为与 app-server API、CLI 参数�
 
 ### 9. 扩展模型：四种模式
 
-DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)里的 PTC）、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
+DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)里的 PTC）、Minimal（只留一个持久 shell）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
 
 ```mermaid
-%% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留 shell 与文件编辑器，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
+%% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留一个持久 shell，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
 flowchart TB
     CORE["同一个核心：session · system-prompt · tools · agent · agent-loop · scope"]
     CORE --> M1["<b>Standard</b><br/>fs · shell · web · browser · lsp · mcp · subagent · guard…"]
     CORE --> M2["<b>Code</b><br/>工具经 Code Mode SDK 暴露<br/>+ ptc-runtime：模型写 TS 程序组合多步"]
-    CORE --> M3["<b>Minimal</b><br/>只留 shell + 文件编辑器<br/>在最小环境里公平比较模型"]
+    CORE --> M3["<b>Minimal</b><br/>只留一个持久 shell<br/>在最小环境里公平比较模型"]
     CORE --> M4["<b>Creator</b><br/>检视运行时 · 内存里测插件 · 组合新模式"]
     M1 -.->|"卸掉 guard/repeat-tool-reminder<br/>或换 sandbox 后端：改配置，不改源码"| M1
     classDef core fill:#eef6ff,stroke:#5b8fd6,color:#222
@@ -179,7 +179,7 @@ flowchart TB
 
 ### 10. UI 面：一个核心多个面
 
-四家都是"一个核心、多个面"：Codex 的 TUI / exec / app-server（JSON-RPC 让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / acp 四个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)讲的"任务在运行时里不在连接里"是这个设计的前提。
+四家都是"一个核心、多个面"：Codex 的 TUI / exec / app-server（JSON-RPC 让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / sdk-minimal / acp 五个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)讲的"任务在运行时里不在连接里"是这个设计的前提。
 
 ### 11. 模型耦合：一家 vs 多家
 
@@ -192,13 +192,13 @@ flowchart TB
 
 ### 12. 基准：Minimal 模式
 
-DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编辑器，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
+DeepSeek Harness 的 Minimal 模式值得单独说：只留一个持久 shell，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
 
 ## 三、三种交付形态
 
 | | 托管：OpenAI Agents API | 库：Agents SDK / Claude Agent SDK / LangGraph | 自托管 harness：DeepSeek Harness / Codex 自建 / OpenHarness |
 |---|---|---|---|
-| harness 在哪 | OpenAI 侧（同一 harness 驱动 Codex 与 ChatGPT for Work） | 你的进程里，SDK 给原语 | 你的基础设施上，完整产品级实现 |
+| harness 在哪 | OpenAI 侧（同一 harness 驱动 Codex） | 你的进程里，SDK 给原语 | 你的基础设施上，完整产品级实现 |
 | 你管什么 | 工具、知识、工作流、沙箱选择 | 一切（持久化、挂起、事件流、隔离要自己搭） | 运维、组合、定制插件 |
 | 沙箱 | OpenAI 托管或九家合作方或自有 | 自己 | 接缝 + 后端 |
 | 模型 | OpenAI | 一家（两家 SDK）或多家（LangGraph） | 多家 |
@@ -206,7 +206,7 @@ DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编�
 | 上线成本 | 一次 API 调用 | 中 | 高（运维 + 学习） |
 | 定制深度 | 工具与沙箱层 | 全部（自己写） | 全部（换插件） |
 | 费用 | 无额外费，只收 token / 工具 / 容器 | 无 | 基础设施 |
-| 早期数据 | 用户报告 4× 延迟降低、60% 每任务成本降低、86% 失败响应减少 | — | — |
+| 早期数据 | 用户报告 4× 延迟降低、60% 每案成本降低、86% 失败响应减少 | — | — |
 
 Table: 三种交付形态的对照
 
@@ -274,7 +274,7 @@ Table: 从每家 harness 学什么
 4. DeepSeek Harness 的 Minimal 模式解决《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)里的哪个问题？
 
    <details markdown="1"><summary>答案</summary>
-   "供应商自报分数条件不一——脚手架不同不可横比"。Minimal 模式只留 shell 与文件编辑器，把 harness 对模型表现的影响降到最小，让不同模型在同一最小环境里比较；它显式承认 harness 是基准里的一个变量并把它控制住。详见[第二章](#二逐维度的取舍)。
+   "供应商自报分数条件不一——脚手架不同不可横比"。Minimal 模式只留一个持久 shell，把 harness 对模型表现的影响降到最小，让不同模型在同一最小环境里比较；它显式承认 harness 是基准里的一个变量并把它控制住。详见[第二章](#二逐维度的取舍)。
    </details>
 
 5. 一个团队用 Agents API 做了原型，三个月后因为合规要日志留在自己数据中心。迁移到自托管 harness 时哪些东西能带走、哪些带不走？怎么在原型期就降低这个成本？

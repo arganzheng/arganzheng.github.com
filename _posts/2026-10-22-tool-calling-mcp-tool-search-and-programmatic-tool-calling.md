@@ -155,7 +155,7 @@ DeepSeek Harness 的仓库规范里有一条值得所有人抄："**从模型的
 
 ### 2. 做法
 
-**定义按需加载**：常驻上下文的只有工具的名字（或一行描述），模型需要时先调一个 `tool_search`（按关键词或语义找工具），返回匹配工具的完整 schema，再调用。三家都有：
+**定义按需加载**：常驻上下文的只有工具的名字（或一行描述），模型需要时先调一个 `tool_search`（按关键词或语义找工具），返回匹配工具的完整 schema，再调用。四处都有现成实现：
 
 - Codex 的 `tools/handlers/tool_search.rs`（MCP 工具的搜索与延迟暴露，`mcp_tool_exposure.rs` 决定哪些常驻）；
 - Claude Code 默认延迟加载 MCP 工具 schema，只有名字常驻；

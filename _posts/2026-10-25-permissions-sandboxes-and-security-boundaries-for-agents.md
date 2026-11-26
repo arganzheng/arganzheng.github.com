@@ -9,7 +9,7 @@ catalog: true
 
 这是本系列最重要的一篇。《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲了三个事件——Replit 的 agent 在代码冻结期删库、PocketOS 的 Cursor agent 用一个无关文件里权限过宽的 token 在 9 秒内删掉生产卷与备份、OpenAI 约 700 个测试中的 agent 入侵 Hugging Face——并给出结论：**当模型能执行动作时，错误的上限由它拿到的权限范围决定，不由它的聪明程度决定**。这一篇讲怎么把这个上限压低：四层机制——权限档（能碰什么）、审批策略（什么时候问人）、执行策略（哪些命令允许、要问、禁止）、沙箱（执行时真正拦住）——以及工具返回作为不可信输入的边界。
 
-材料来自三个 harness 的公开实现：Codex 的 `PermissionProfile`（`:read_only` / `:workspace` / `:danger_full_access`）、`AskForApproval`、`execpolicy` 的 Starlark 前缀规则、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌）；Claude Code 权限判定的六步顺序与五种模式；DeepSeek Harness 的 `sandbox` 包组与审批策略插件。最后把 PocketOS 的五环放到四层上，看每一环在成熟的 harness 里怎么被防住。
+材料来自三个 harness 的公开实现：Codex 的 `PermissionProfile`（`:read-only` / `:workspace` / `:danger-full-access`）、`AskForApproval`、`execpolicy` 的 Starlark 前缀规则、Guardian 审查、三平台沙箱（macOS Seatbelt、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌）；Claude Code 权限判定的六步顺序与六种模式；DeepSeek Harness 的 `sandbox` 包组与审批策略插件。最后把 PocketOS 的五环放到四层上，看每一环在成熟的 harness 里怎么被防住。
 
 本篇要回答的核心问题是：
 
@@ -71,9 +71,9 @@ Table: 本文的章节安排
 
 | 档 | 文件系统 | 网络 | 沙箱 |
 |---|---|---|---|
-| `:read_only` | 只读 | 关 | 开 |
+| `:read-only` | 只读 | 关 | 开 |
 | `:workspace` | 只写工作区根目录（可配多个）；**`.git`（目录或指针文件、解析出的 gitdir 目标）与 `.codex` 只读** | 可选受限 | 开 |
-| `:danger_full_access` | 无限制 | 无限制 | **关**——`PermissionProfile::Disabled` |
+| `:danger-full-access` | 无限制 | 无限制 | **关**——`PermissionProfile::Disabled` |
 
 Table: Codex 的三个内置权限档
 
@@ -89,7 +89,7 @@ Claude Code 没有"档"，用**规则**表达范围：allow / deny / ask 三类�
 
 ### 4. 设计原则
 
-- **默认最小**：新会话从 `read_only` 或 `workspace` 起，全权要显式开且带警告。
+- **默认最小**：新会话从 `read-only` 或 `workspace` 起，全权要显式开且带警告。
 - **凭据不在工作区**：agent 能读到的目录里不该有 API token（PocketOS 的第二环）。
 - **环境隔离**：staging 的会话拿的凭据只能碰 staging 的资源，与 agent 无关，是基础设施的责任（第二环）。
 - **范围与用途对齐**：为管理域名创建的 token 只能管域名（第三环）。
@@ -201,7 +201,7 @@ flowchart TB
 | 平台 | 机制 | 细节 |
 |---|---|---|
 | macOS | **Seatbelt**（`/usr/bin/sandbox-exec` + <span class="inline-tip" data-tip="Sandbox Profile Language：macOS Seatbelt 沙箱的策略语言">SBPL</span> 策略） | `sandboxing/src/seatbelt.rs` 与几个 `.sbpl` 文件（基础策略、网络策略、偏好读取、只读平台默认）<br/>`workspace-write` 下允许写可写根目录、保持 `.git` 与 `.codex` 只读<br/>网络按动态生成的策略（代理端口、本地绑定、Unix socket）受限 |
-| Linux | **bubblewrap + Landlock + seccomp** | `linux-sandbox` crate<br/>分离的文件系统策略（可写根下的只读或拒绝子路径）走 bubblewrap，与旧模型语义等价时走 Landlock<br/>优先用 PATH 上的 `bwrap`<br/>`arg0` 技巧让同一二进制作为沙箱助手运行 |
+| Linux | **bubblewrap + Landlock + seccomp** | `linux-sandbox` crate<br/>分离的文件系统策略（可写根下的只读或拒绝子路径）走 bubblewrap；显式开启 `use_legacy_landlock` 且与旧模型语义等价时才回退到 Landlock<br/>优先用 PATH 上的 `bwrap`<br/>`arg0` 技巧让同一二进制作为沙箱助手运行 |
 | Windows | **受限令牌 + ACL + Job Objects** | `windows-sandbox-rs` / `windows-sandbox-service`；分级的沙箱等级 |
 | 网络 | `network-proxy` crate | 沙箱内的网络经代理策略：允许列表、本地绑定、托管网络审批（`tools/network_approval.rs`） |
 
@@ -296,7 +296,7 @@ agent "猜测删除 staging 卷只作用于 staging"、"在没被要求的情况
 
 四层做全了，新问题是**审批太多**：每条命令都问，人几分钟点一次"允许"，很快就不看内容了——这时审批形同虚设。解法是**策略化授权**（地图里那张六级表的第四级）：
 
-- **按风险分级**：只读自动（`read_only` 档内的一切）、写工作区自动或按规则（`acceptEdits`、`execpolicy` 的 `allow`）、不可逆与对外的 `prompt`、明确危险的 `forbidden`——审批只出现在真正需要判断的地方。
+- **按风险分级**：只读自动（`read-only` 档内的一切）、写工作区自动或按规则（`acceptEdits`、`execpolicy` 的 `allow`）、不可逆与对外的 `prompt`、明确危险的 `forbidden`——审批只出现在真正需要判断的地方。
 - **批一类而不是批一个**："允许本会话内所有 `npm test`"（Claude Code 的会话级 allow、Codex 的 `permission_preapproval`）。
 - **Guardian 先筛**：显然安全的自动过、显然危险的自动拒、只把中间的送人。
 - **`justification` 让人快速判断**：审批提示里写清为什么问。
@@ -305,7 +305,7 @@ agent "猜测删除 staging 卷只作用于 staging"、"在没被要求的情况
 ```mermaid
 %% 图：策略化授权把审批从「每条都问」变成「只问真正要判断的」——一个会话里 200 个工具调用：只读 140 个自动过、写工作区 40 个按规则自动过、Guardian 把 15 个「显然安全」放行、3 个「显然危险」自动拒，只有 2 个不可逆 / 对外的动作送人；人每次看到的都值得看
 flowchart TB
-    ALL["一个会话：200 个工具调用"] --> RO["<b>只读 140</b><br/>read_only 档内 → 自动"]
+    ALL["一个会话：200 个工具调用"] --> RO["<b>只读 140</b><br/>read-only 档内 → 自动"]
     ALL --> WR["<b>写工作区 40</b><br/>acceptEdits / allow 规则 → 自动"]
     ALL --> HI["不可逆 / 对外 20"]
     HI --> G{"Guardian 先筛"}
@@ -385,7 +385,7 @@ prompt    python migrate.py
 
 ## 九、本文小结
 
-- 四层：权限档（静态范围：Codex `:read_only` / `:workspace`（`.git` 与 `.codex` 只读）/ `:danger_full_access`，DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则）、审批策略（Codex `AskForApproval`：`untrusted` / `on-request` / 细粒度 / `never`）、执行策略（Codex `execpolicy`：Starlark 前缀规则 allow / prompt / forbidden，带 `justification` 与加载时校验的 `match` / `not_match`；Guardian 用模型先审）、沙箱（Codex 三平台：Seatbelt、bubblewrap + Landlock + seccomp、Windows 受限令牌，网络经代理；DeepSeek Harness `sandbox` 包组可换后端；云沙箱用于服务端）；缺任何一层都有事故原型。
+- 四层：权限档（静态范围：Codex `:read-only` / `:workspace`（`.git` 与 `.codex` 只读）/ `:danger-full-access`，DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则）、审批策略（Codex `AskForApproval`：`untrusted` / `on-request` / 细粒度 / `never`）、执行策略（Codex `execpolicy`：Starlark 前缀规则 allow / prompt / forbidden，带 `justification` 与加载时校验的 `match` / `not_match`；Guardian 用模型先审）、沙箱（Codex 三平台：Seatbelt、bubblewrap + Landlock + seccomp、Windows 受限令牌，网络经代理；DeepSeek Harness `sandbox` 包组可换后端；云沙箱用于服务端）；缺任何一层都有事故原型。
 - Claude Code 六步：hooks → deny（高于一切，含 `bypassPermissions`）→ ask → 模式（`plan` 强制写操作送人）→ allow → `canUseTool` 回调（`dontAsk` 跳过直接拒）。
 - 沙箱管执行环境不管合法凭据对外部系统的动作；工具返回是不可信输入，注入的最终防线是四层不是措辞。
 - PocketOS 五环：token 范围、凭据位置、环境隔离、确认门、备份隔离——三环在基础设施侧；"绕过障碍"要列为高风险信号。
@@ -422,7 +422,7 @@ prompt    python migrate.py
    <details markdown="1"><summary>答案</summary>
    审批疲劳：规则太严把只读与常规写操作都送人，人不再看内容，审批失效。修：
 
-   - 按风险分级——只读自动（`read_only` 范围内不问）、写工作区按 `execpolicy` 的 `allow`、只有不可逆与对外动作 `prompt`、危险的 `forbidden`；
+   - 按风险分级——只读自动（`read-only` 范围内不问）、写工作区按 `execpolicy` 的 `allow`、只有不可逆与对外动作 `prompt`、危险的 `forbidden`；
    - 会话级"批一类"（允许本会话所有 `npm test`）；
    - Guardian 先筛掉显然安全的；
    - 审批提示带 `justification`；
@@ -431,7 +431,7 @@ prompt    python migrate.py
    目标是每个会话只有几次真正需要判断的审批。详见[第七章](#七pocketos-的五环与审批疲劳)。
    </details>
 
-[^q0]: 权限档是会话的静态范围（能碰什么）：Codex `:read_only` / `:workspace`（只写工作区根、`.git` 与 `.codex` 只读、网络可选受限）/ `:danger_full_access`（沙箱关），DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则（`Bash(rm *)`）。审批策略是动态倾向（什么时候问人）：Codex `AskForApproval` 的 `untrusted` / `on-request` / 细粒度 / `never`。执行策略是具体命令的判定：Codex `execpolicy` 的 Starlark 前缀规则 allow / prompt / forbidden，带 `justification`（出现在审批提示）与加载时校验的 `match` / `not_match`，`host_executable` 约束路径；Guardian 用模型先审高风险调用。沙箱是执行时的强制：即使前面放行，操作系统层面仍限制实际效果。缺一层的事故原型：只审批无沙箱——命令文本看不出脚本的真实效果；只沙箱无审批——沙箱内的破坏照样发生；只权限档无执行策略——`rm -rf` 与 `git push --force` 在写工作区档位内同样"在范围内"；且沙箱管不了合法凭据对外部系统的动作。详见[第一章](#一总览)到[第四章](#四沙箱)。
+[^q0]: 权限档是会话的静态范围（能碰什么）：Codex `:read-only` / `:workspace`（只写工作区根、`.git` 与 `.codex` 只读、网络可选受限）/ `:danger-full-access`（沙箱关），DeepSeek Harness 同名三档，Claude Code 用 allow / deny / ask 规则（`Bash(rm *)`）。审批策略是动态倾向（什么时候问人）：Codex `AskForApproval` 的 `untrusted` / `on-request` / 细粒度 / `never`。执行策略是具体命令的判定：Codex `execpolicy` 的 Starlark 前缀规则 allow / prompt / forbidden，带 `justification`（出现在审批提示）与加载时校验的 `match` / `not_match`，`host_executable` 约束路径；Guardian 用模型先审高风险调用。沙箱是执行时的强制：即使前面放行，操作系统层面仍限制实际效果。缺一层的事故原型：只审批无沙箱——命令文本看不出脚本的真实效果；只沙箱无审批——沙箱内的破坏照样发生；只权限档无执行策略——`rm -rf` 与 `git push --force` 在写工作区档位内同样"在范围内"；且沙箱管不了合法凭据对外部系统的动作。详见[第一章](#一总览)到[第四章](#四沙箱)。
 
 [^q1]: Codex（`tools/orchestrator.rs`）：按 `AskForApproval` 与 `execpolicy` 决定是否审批（可选 Guardian 先审）→ `SandboxManager` 按权限档、工具偏好、平台选沙箱（macOS Seatbelt + SBPL、Linux bubblewrap + Landlock + seccomp、Windows 受限令牌 + ACL + Job Objects，网络经代理策略）首次尝试 → 被拒时 `never` / `on-request` 不升级只返回说明，允许升级的策略要新审批（含新 Guardian 审查）后无沙箱重试。Claude Code 六步：hooks 先跑（可拒可放但不跳过 deny）→ deny 规则（含 `bypassPermissions` 下生效，裸名 deny 预先移除工具）→ ask 规则（送回调；`dontAsk` 下直接拒）→ 模式（`bypassPermissions` 放行、`acceptEdits` 放行文件操作、`plan` 把写操作一律送回调）→ allow 规则 → `canUseTool` 回调（`dontAsk` 跳过直接拒）；子 agent 继承并可收紧。DeepSeek Harness：`sandbox-policy` 把三档解析成每次调用的策略、`sandbox-local` 等后端执行、审批策略作为 `dsh-base` 里的可替换插件、`interaction` 呈现审批。详见[第三章](#三审批策略与执行策略)、[第四章](#四沙箱)、[第五章](#五claude-code-的六步判定)。
 

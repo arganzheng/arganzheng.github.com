@@ -176,7 +176,7 @@ subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）
 | `subagent-fork-in-process` | 进程内**继承历史**的子 agent（带着父会话的上下文分叉——事件溯源让 fork 成为复制前缀） |
 | `subagent-in-process-driver` | 进程内驱动 |
 | `subagent-dsh-sdk` | 通过 SDK 起一个进程外的 dsh |
-| `subagent-acp` | 通过 ACP（自动化协议）起外部 agent |
+| `subagent-acp` | 通过 ACP（Agent Client Protocol）起外部 agent |
 | **`subagent-claude-code`** | 把 **Claude Code** 作为子 agent 拉起 |
 | **`subagent-codex`** | 把 **Codex** 作为子 agent 拉起 |
 

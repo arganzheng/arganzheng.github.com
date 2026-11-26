@@ -274,10 +274,10 @@ flowchart TB
 
 | 层 | 例 |
 |---|---|
-| 权限档 | `:read_only` / `:workspace` / `:danger_full_access` |
+| 权限档 | `:read-only` / `:workspace` / `:danger-full-access` |
 | 审批策略 | allow / prompt / forbidden 带 `match` / `not_match`；策略化授权对抗审批疲劳 |
 | 执行策略 | 命令文本看不出脚本的真实效果——所以还要沙箱 |
-| 沙箱 | macOS Seatbelt / Linux Landlock + seccomp / Windows |
+| 沙箱 | macOS Seatbelt / Linux bubblewrap + Landlock + seccomp / Windows |
 
 
 ---
@@ -310,8 +310,8 @@ Codex 三平台原生沙箱；DeepSeek Harness 可读事件、沙箱是接缝；
 
 | | Codex | DeepSeek Harness | Claude Code | OpenHarness |
 |---|---|---|---|---|
-| 实现 | Rust 单核 | Python 轻量 | 闭源 + SDK | TS 一切皆插件 |
-| 状态 | 对象 | 日志驱动 | 对象 + 加密压缩 | 插件 |
+| 实现 | Rust 单核 | TS 一切皆插件 | 闭源 + SDK | Python 轻量 |
+| 状态 | 对象 + 加密压缩 | 日志驱动 | 对象 | 插件 |
 | 权限 | `execpolicy` Starlark | 规则 | 六步 deny 优先 | 插件 |
 | 沙箱 | 原生三平台 | 接缝 | 原生 | 接缝 |
 | 模型耦合 | 深 | 浅（能拉起别家） | 深 | 浅；Minimal 模式 |
@@ -433,11 +433,11 @@ flowchart TB
 
 ## 要点
 
-**同一基准三协议三个数——看六维不只完成率**
+**同一基准三版本三个数——看六维不只完成率**
 
 | 量 | 数 |
 |---|---|
-| Terminal-Bench | 90.6 / 30.0 / 31.2——同一基准三种协议三个数 |
+| Terminal-Bench | 90.6 / 30.0 / 31.2——同一基准三个版本三个数 |
 | demo 到生产 | 十二行清单 |
 | 改工具 | 录制回放，不重跑模型回归 |
 

@@ -171,7 +171,7 @@ Table: 三个 agent 基准
 
 ### 2. 局限
 
-- **脚手架不可横比**：同一模型换 harness 分数差很多——工具集、系统提示、压缩策略、允许的步数都影响结果。DeepSeek Harness 的 Minimal 模式（只留 shell 与文件编辑器）就是为了在比较模型时控制这个变量（[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）。读任何 agent 基准先看它用了什么 harness、多少步、有没有测试反馈。
+- **脚手架不可横比**：同一模型换 harness 分数差很多——工具集、系统提示、压缩策略、允许的步数都影响结果。DeepSeek Harness 的 Minimal 模式（只留一个持久 shell）就是为了在比较模型时控制这个变量（[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）。读任何 agent 基准先看它用了什么 harness、多少步、有没有测试反馈。
 - **污染与饱和**：与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)相同——题在网上、模型见过；分数到顶后换更难的版本，版本之间不可比。
 - **只测结果**：多数基准报完成率，不报步数、成本、越权——轨迹维度缺失。
 - **分布不是你的**：GitHub issue 与航空客服不是你的业务；用它们缩范围，用自己的评测集决定。

@@ -142,7 +142,7 @@ flowchart LR
 
 ## 三、Codex 的三层循环
 
-Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` 是重心——agent 循环状态机、配置、模型客户端、沙箱管理器都在里面。循环分三层：
+Codex CLI 的 `codex-rs` 是一个一百多个 crate 的 Rust 工作区，`core` 是重心——agent 循环状态机、配置、模型客户端、沙箱管理器都在里面。循环分三层：
 
 ### 1. `submission_loop`：会话的生命周期
 
@@ -198,7 +198,7 @@ flowchart TB
 
 ## 四、DeepSeek Harness 的日志驱动循环
 
-DeepSeek Harness（`dsh`）是 TypeScript 单体仓库，几十个 `@deepseek-ai/dsh-*` 包，全部是 Cordis 插件——包括循环本身。`packages/core` 是每个组合都要启动的六个包：
+DeepSeek Harness（`dsh`）是 TypeScript 单体仓库，近三百个 `@deepseek-ai/dsh-*` 包，全部是 Cordis 插件——包括循环本身。`packages/core` 是每个组合都要启动的六个包：
 
 | 包 | 拥有什么 |
 |---|---|
@@ -242,7 +242,7 @@ flowchart TB
     class INV n
 ```
 
-循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——见[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
+循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——见[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）、Minimal（只留一个持久 shell，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
 
 ## 五、工作流还是 agent
 

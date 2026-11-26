@@ -237,7 +237,7 @@ flowchart LR
 
 ### 1. 托管运行时：OpenAI Agents API
 
-2026-09-10 公测。OpenAI 的说法："有用的 agent 需要强大的 harness 管上下文、高效用工具、协调子 agent，还需要能让它们可靠运行几天的基础设施——有文件、能跑代码、能存中间结果的环境"，Agents API 把"驱动 Codex 与 ChatGPT for Work 的同一 harness 与基础设施"以 API 交付。分工是：**OpenAI 托管并维护 harness**（会话状态、编排、上下文压缩、恢复、tool search、程序化工具调用、并行子 agent），**你选计算环境**（OpenAI 托管沙箱、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方——覆盖全托管、VPC、不同的 CPU / GPU / 内存配置）；连 MCP server、自定义函数、内置工具；无额外费用，只收模型、工具、容器用量。一位早期用户说"把 harness 与沙箱分开后，失败的 agent 响应减少了 86%"；另一些报告 4 倍延迟降低、60% 每任务成本降低。
+2026-09-10 公测。OpenAI 的说法："有用的 agent 需要强大的 harness 管上下文、高效用工具、协调子 agent，还需要能让它们可靠运行几天的基础设施——有文件、能跑代码、能存中间结果的环境"，Agents API 把"驱动 Codex 的同一 harness 与基础设施"以 API 交付。分工是：**OpenAI 托管并维护 harness**（会话状态、编排、上下文压缩、恢复、tool search、程序化工具调用、并行子 agent），**你选计算环境**（OpenAI 托管沙箱、自己的基础设施、或 Blaxel / Cloudflare / Daytona / DigitalOcean / E2B / Modal / Oracle / Runloop / Vercel 九家合作方——覆盖全托管、VPC、不同的 CPU / GPU / 内存配置）；连 MCP server、自定义函数、内置工具；无额外费用，只收模型、工具、容器用量。一位早期用户说"把 harness 与沙箱分开后，失败的 agent 响应减少了 86%"；另一些报告 4 倍延迟降低、60% 每案成本降低。
 
 它换到：零运行时基础设施、供应商维护的 harness 迭代、上线一次 API 调用。它付出：**绑定 OpenAI 的模型**（harness 与模型是一体交付的）、会话日志在 OpenAI 侧（可观测与合规按它的能力）、harness 的行为不可替换（压缩策略、权限判定用它的）。
 
@@ -247,7 +247,7 @@ flowchart LR
 
 ### 3. 自托管 harness：DeepSeek Harness 一类
 
-一个完整的产品级 harness 的源码，在你的基础设施上跑：循环、会话日志、工具、沙箱、审批、压缩、子 agent、UI 全在，且每一个都是可替换的插件；多模型（官方适配器加 pi-ai 的模型目录）；四个 profile（web / headless / sdk / acp）对应四种面。换到：全部可控、可审计、多模型、不绑供应商。付出：自己运维、跟进它的"会有破坏兼容的变更"、需要有人读得懂它。
+一个完整的产品级 harness 的源码，在你的基础设施上跑：循环、会话日志、工具、沙箱、审批、压缩、子 agent、UI 全在，且每一个都是可替换的插件；多模型（官方适配器加 pi-ai 的模型目录）；五个 profile（web / headless / sdk / sdk-minimal / acp）对应四种面。换到：全部可控、可审计、多模型、不绑供应商。付出：自己运维、跟进它的"会有破坏兼容的变更"、需要有人读得懂它。
 
 ### 4. 怎么选
 

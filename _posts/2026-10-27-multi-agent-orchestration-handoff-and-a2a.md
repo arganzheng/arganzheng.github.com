@@ -175,7 +175,7 @@ Agent2Agent 是 Google 2025 年 4 月发布、6 月捐给 Linux 基金会（AWS�
 
 ### 3. 现状
 
-A2A 的采用远不如 MCP：跨组织的 agent 协作在 2026 年仍是少数场景，多数多 agent 系统在一个组织、一个 harness 内部，用 harness 自己的子 agent 机制（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）就够。DeepSeek Harness 的 `subagent-acp` 用的是 ACP（一种自动化协议）而不是 A2A，也说明协议层还没有收敛。建议：组织内部不需要 A2A；要与外部 agent 互操作时再看，并做好协议变化的准备。
+A2A 的采用远不如 MCP：跨组织的 agent 协作在 2026 年仍是少数场景，多数多 agent 系统在一个组织、一个 harness 内部，用 harness 自己的子 agent 机制（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）就够。DeepSeek Harness 的 `subagent-acp` 用的是 ACP（Agent Client Protocol）而不是 A2A，也说明协议层还没有收敛。建议：组织内部不需要 A2A；要与外部 agent 互操作时再看，并做好协议变化的准备。
 
 ## 六、成本与调试
 
