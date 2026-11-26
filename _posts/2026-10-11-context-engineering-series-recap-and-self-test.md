@@ -48,11 +48,11 @@ Table: 六篇的核心问题、结论与必记
 
 | 章 | 内容 |
 |---|---|
-| 二 | 逐篇回顾：核心问题、结论、必记、常见误解 |
-| 三 | 贯穿六篇的四条线：预算、顺序即成本、可恢复性、prompt 是代码 |
-| 四 | 常见误区表 |
-| 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
-| 六 | 下一步 |
+| [二、逐篇回顾](#二逐篇回顾) | 逐篇回顾：核心问题、结论、必记、常见误解 |
+| [三、贯穿全系列的几条线](#三贯穿全系列的几条线) | 贯穿六篇的四条线：预算、顺序即成本、可恢复性、prompt 是代码 |
+| [四、常见误区](#四常见误区) | 常见误区表 |
+| [五、通关自测](#五通关自测) | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
+| [六、下一步](#六下一步) | 下一步 |
 
 Table: 本文的章节安排
 
@@ -130,7 +130,7 @@ flowchart LR
     Q["这一段值不值得占这份注意力？"] --> P1["<b>第一篇：为什么有限</b><br/>n² · 位置效应 · Context Rot"]
     Q --> P2["<b>第二篇：system prompt 精炼</b><br/>最小规则集 · 删「一步步想」· few-shot 只留格式"]
     Q --> P3["<b>第三篇：schema 精炼</b><br/>限深度 · 稳定 · 枚举"]
-    Q --> P4["第四篇：每层配额 + 隔离 → 卸载 → 清理 → 压缩"]
+    Q --> P4["<b>第四篇：每层配额</b><br/>隔离 → 卸载 → 清理 → 压缩"]
     Q --> P6["<b>第六篇：渐进披露成标准</b><br/>SKILL.md 只常驻 description"]
     classDef q fill:#eef6ff,stroke:#5b8fd6,color:#222
     classDef p fill:#fff7e0,stroke:#c98a00,color:#222
@@ -191,7 +191,7 @@ flowchart LR
 
 ### 4. prompt 是代码
 
-[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的"模式 vs 措辞"（换模型只调措辞）、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)的 schema 稳定与顺序效应评测、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)的"命中率骤降接部署时间线"、[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的整个生命周期与 AGENTS.md / SKILL.md 在版本库里——都是同一件事：prompt 有版本、有测试、有发布、有回滚，模型升级是依赖升级。评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》建的）是这条线的探测器。
+[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的"模式 vs 措辞"（换模型只调措辞）、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)的 schema 稳定与顺序效应评测、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)的"命中率骤降接部署时间线"、[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的整个生命周期与 AGENTS.md / SKILL.md 在版本库里——都是同一件事：prompt 有版本、有测试、有发布、有回滚，模型升级是依赖升级。评测集（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)建的）是这条线的探测器。
 
 ### 5. 概念表
 
@@ -309,19 +309,40 @@ Table: 常见误区与正确说法
 1. 一个 RAG 客服助手的请求体按顺序是：当前时间（秒）→ system 规则 → 本轮检索结果 → 工具定义 → 历史 → 用户消息。列出它违反了本系列的哪些原则，给出正确顺序，并说明每处修改对命中率、注意力、压缩存活各有什么影响。
 
    <details markdown="1"><summary>答案</summary>
-   违反：时间戳在最前（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：全部失效）；检索在历史前（每轮不同让历史失效）；工具定义在 system 后（tools → system 的缓存顺序被打乱，且工具定义应是最稳定的一层）；system 里没有日期放在动态段。正确顺序：tools → system（静态规则）→ 半静态（画像 / few-shot）→ 历史（只追加）→ 动态段（日期到天、本轮检索、用户消息）。影响：命中率从接近 0 恢复到稳态 70–90%；注意力——检索结果与用户消息在末尾（位置效应最好），规则在开头；压缩存活——常驻层不在历史里不受压缩影响，检索结果作为动态段每轮替换本就不该存活。
+   违反之处：
+
+   - 时间戳在最前（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：全部失效）
+   - 检索在历史前（每轮不同让历史失效）
+   - 工具定义在 system 后（tools → system 的缓存顺序被打乱，且工具定义应是最稳定的一层）
+   - system 里没有日期放在动态段
+
+   正确顺序：tools → system（静态规则）→ 半静态（画像 / few-shot）→ 历史（只追加）→ 动态段（日期到天、本轮检索、用户消息）。
+
+   影响：
+
+   - 命中率从接近 0 恢复到稳态 70–90%
+   - 注意力——检索结果与用户消息在末尾（位置效应最好），规则在开头
+   - 压缩存活——常驻层不在历史里不受压缩影响，检索结果作为动态段每轮替换本就不该存活
    </details>
 
 2. 一个 coding agent 在第 35 步时上下文 170K（200K 窗口），其中文件读取结果 110K、历史 40K、常驻 20K。团队打算直接压缩。按[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)给出更好的方案与预期，并说明为什么压缩不能在这一步立即做。
 
    <details markdown="1"><summary>答案</summary>
-   先卸载与清理：110K 文件读取结果多数已被消费且可恢复（文件在磁盘），清掉旧的、保留调用记录与路径（Anthropic 的 `clear_tool_uses` 或 Deep Agents 的截断为指针），预期回到约 60–70K，不用压缩；对超过 20K 的单个返回今后卸载。若仍要压缩：只能在当前工具循环闭合（模型给出回答）之后做，否则丢失思考链状态（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）；压缩 prompt 要保留改过的文件列表、测试状态、用户约束；压缩后缓存全失效一次，紧接的一步全价。同时加复述（todo）让目标回末尾。
+   先卸载与清理：110K 文件读取结果多数已被消费且可恢复（文件在磁盘），清掉旧的、保留调用记录与路径（Anthropic 的 `clear_tool_uses` 或 Deep Agents 的截断为指针），预期回到约 60–70K，不用压缩；对超过 20K 的单个返回今后卸载。若仍要压缩：只能在当前工具循环闭合（模型给出回答）之后做，否则丢失思考链状态（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）；压缩 prompt 要保留改过的文件列表、测试状态、用户约束；压缩后缓存全失效一次，紧接的一步全价。同时加复述（todo）让目标回末尾。
    </details>
 
 3. 团队从 Claude Sonnet 4.6 迁到 Sonnet 5，只改了模型名。用[《prompt 设计》](/prompt-design-patterns-vs-wording.html)、[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)、[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)与[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)解释他们至少该做的五件事。
 
    <details markdown="1"><summary>答案</summary>
-   （1）[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：这是依赖升级——创建新 prompt 版本绑定新模型，跑评测门禁看逐条 diff；（2）[《prompt 设计》](/prompt-design-patterns-vs-wording.html)：读 "Prompting Claude Sonnet 5" 指南，措辞按新模型调（更主动、更少确认），删 CoT 指令；（3）[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)：thinking 默认开启，`max_tokens` 含思考，检查结构化输出的截断率与出口使用率；（4）[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：新 tokenizer 多 30% token，历史预算按 token 重算，缓存一次性全失效属预期，但命中率稳态应恢复；（5）[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：灰度 1% 看在线指标再全量，保留回滚标签。另：L1 提醒采样参数会 400。
+   至少该做的五件事：
+
+   1. [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：这是依赖升级——创建新 prompt 版本绑定新模型，跑评测门禁看逐条 diff
+   2. [《prompt 设计》](/prompt-design-patterns-vs-wording.html)：读 "Prompting Claude Sonnet 5" 指南，措辞按新模型调（更主动、更少确认），删 CoT 指令
+   3. [《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)：thinking 默认开启，`max_tokens` 含思考，检查结构化输出的截断率与出口使用率
+   4. [《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：新 tokenizer 多 30% token，历史预算按 token 重算，缓存一次性全失效属预期，但命中率稳态应恢复
+   5. [《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)：灰度 1% 看在线指标再全量，保留回滚标签
+
+   另：L1 提醒采样参数会 400。
    </details>
 
 4. 设计一份给"周报生成 agent"的 SKILL.md：说明 `description` 该写什么、正文按[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的模式包含哪几部分、哪些东西该放 `scripts/`、它与 AGENTS.md 的分工。
@@ -342,7 +363,13 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) prompt engineering 关注怎么写指令（主要是 system prompt）；context engineering 关注模型每一步看到的**全部 token 集合**的策划与维护——Anthropic 的定义；(2) 主体转移的原因：推理模型吸收了措辞技巧的收益（CoT 冗余、few-shot 减少），而 agent 的上下文每步增长、100 : 1 的输入输出比让预算、排列、压缩、缓存成为成本与质量的主要变量；(3) 七层模型与三列（变化频率 / 维护者 / 可压缩性）；(4) 具体机制已公开且带数字（Claude Code 83.5%、Deep Agents 20K、Codex 两级压缩、Manus 三条规则）。
+   **答案要点**：
+
+   1. prompt engineering 关注怎么写指令（主要是 system prompt）；context engineering 关注模型每一步看到的**全部 token 集合**的策划与维护——Anthropic 的定义
+   2. 主体转移的原因：推理模型吸收了措辞技巧的收益（CoT 冗余、few-shot 减少），而 agent 的上下文每步增长、100 : 1 的输入输出比让预算、排列、压缩、缓存成为成本与质量的主要变量
+   3. 七层模型与三列（变化频率 / 维护者 / 可压缩性）
+   4. 具体机制已公开且带数字（Claude Code 83.5%、Deep Agents 20K、Codex 两级压缩、Manus 三条规则）。
+
    **追问方向**：注意力预算的物理基础；prompt 敏感是否消失了（没有，只是边际收益变小）。
    **好答案与一般答案的区别**：一般答案说"context 更大更全面"；好答案给出七层、100 : 1 与 $$S + (k-1)(r+o)$$ 的算术、并指出措辞的边际收益下降与上下文管理成本上升是同时发生的两件事。
 
@@ -352,7 +379,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 诊断：打印第 30 步请求体，看约束在哪——多半在窗口中间（Lost in the Middle）且周围是几万 token 的工具返回；看是否已发生过压缩、摘要里有没有约束；(2) 解法一复述：让 agent 维护 todo / 约束文件每步重写到末尾，代价是每步几百 token；(3) 解法二预算：卸载与清理工具返回让约束不被淹没，代价是实现卸载与预览；(4) 解法三压缩 prompt：加"逐条列出用户约束"，用探针问题测存活率，代价是一次调用与缓存失效；(5) 三者可叠加，顺序是先卸载清理、再复述、压缩 prompt 兜底。
+   **答案要点**：
+
+   1. 诊断：打印第 30 步请求体，看约束在哪——多半在窗口中间（Lost in the Middle）且周围是几万 token 的工具返回；看是否已发生过压缩、摘要里有没有约束
+   2. 解法一复述：让 agent 维护 todo / 约束文件每步重写到末尾，代价是每步几百 token
+   3. 解法二预算：卸载与清理工具返回让约束不被淹没，代价是实现卸载与预览
+   4. 解法三压缩 prompt：加"逐条列出用户约束"，用探针问题测存活率，代价是一次调用与缓存失效
+   5. 三者可叠加，顺序是先卸载清理、再复述、压缩 prompt 兜底。
+
    **追问方向**：为什么不直接把约束放 system（用户每次说的不同、system 是开发者维护的层——可以放"用户约束"专区在半静态层）；怎么测有效。
    **好答案与一般答案的区别**：一般答案说"加进 system prompt"；好答案先定位到位置效应与预算，给出复述、卸载、压缩 prompt 三种机制与探针评测。
 
@@ -362,7 +396,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 条件：前缀逐字节相同、tools → system → messages、改动处起失效、最小长度、TTL；(2) 排列：tools（全部租户共享的工具集，屏蔽控制可用）→ 静态 system（共享规则）→ 断点 ②；租户专属规则与画像 → 断点 ③（同租户共享）；历史只追加 → 断点 ④；动态段：日期到天、本轮检索、用户消息；(3) 序列化确定性、无时间戳、不改历史、清理批量做；(4) TTL 按轮次间隔分布选，多实例传 `prompt_cache_key`；(5) 监控：命中率按租户 / 请求类型、未缓存 token 绝对量、节省美元 / 天、命中率骤降接部署时间线告警。
+   **答案要点**：
+
+   1. 条件：前缀逐字节相同、tools → system → messages、改动处起失效、最小长度、TTL
+   2. 排列：tools（全部租户共享的工具集，屏蔽控制可用）→ 静态 system（共享规则）→ 断点 ②；租户专属规则与画像 → 断点 ③（同租户共享）；历史只追加 → 断点 ④；动态段：日期到天、本轮检索、用户消息
+   3. 序列化确定性、无时间戳、不改历史、清理批量做
+   4. TTL 按轮次间隔分布选，多实例传 `prompt_cache_key`
+   5. 监控：命中率按租户 / 请求类型、未缓存 token 绝对量、节省美元 / 天、命中率骤降接部署时间线告警。
+
    **追问方向**：租户专属工具怎么办（全量保留 + 屏蔽，或按租户分组共享前缀）；压缩后的重建。
    **好答案与一般答案的区别**：一般答案说"把 system 放前面"；好答案给四层断点、租户层的位置、破坏前缀的清单与三个指标。
 
@@ -372,7 +413,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 保证：约束解码在采样前屏蔽不合法 token，输出必然符合 schema——字段齐、类型对、枚举在范围；(2) 不保证：值的真实性、拒答不被伪装、推理质量、业务约束、不被截断；(3) schema：推理 / 证据字段前置、显式出口（`cannot_classify` / null + 原因）、enum 替代自由字串、描述写清含义、深度 ≤ 3、稳定不动态生成、结果用输出 schema 动作用工具；(4) 解析层：`refusal` → `stop_reason` → 类型校验 → 业务校验 → 出口路由 → 带错误重试一次 → 降级；流式用 partial JSON 解析器；(5) 监控业务校验通过率、出口使用率、截断率、顺序效应。
+   **答案要点**：
+
+   1. 保证：约束解码在采样前屏蔽不合法 token，输出必然符合 schema——字段齐、类型对、枚举在范围
+   2. 不保证：值的真实性、拒答不被伪装、推理质量、业务约束、不被截断
+   3. schema：推理 / 证据字段前置、显式出口（`cannot_classify` / null + 原因）、enum 替代自由字串、描述写清含义、深度 ≤ 3、稳定不动态生成、结果用输出 schema 动作用工具
+   4. 解析层：`refusal` → `stop_reason` → 类型校验 → 业务校验 → 出口路由 → 带错误重试一次 → 降级；流式用 partial JSON 解析器
+   5. 监控业务校验通过率、出口使用率、截断率、顺序效应。
+
    **追问方向**：strict 为什么要求全 required（状态空间）；自托管选哪个后端（XGrammar 对递归与开销的平衡）。
    **好答案与一般答案的区别**：一般答案说"用 JSON mode 再校验"；好答案区分硬保证与其边界、给出字段顺序与出口两个设计要点、解析层的完整顺序。
 
@@ -382,7 +430,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 共同结构：压缩都不是第一步——前面有更便宜的（Claude Code 微压缩、Codex 会话记忆、Deep Agents 卸载 + 截断、Manus 可恢复压缩、Anthropic context editing）；常驻层有磁盘真身可重注入；(2) 触发：Claude Code 83.5%（预留 33K）、Codex 轮前 + 循环边界、Anthropic 默认 150K 可配、Deep Agents 20K 卸载 / 85% 截断；(3) 摘要形态：可读文本（Claude Code、Anthropic，可换 prompt、可审计、可跨供应商）vs 加密 blob（Codex，保留内部状态但只有 OpenAI 能解、绑定供应商）；(4) Manus 不以摘要为主：文件系统即上下文 + todo 复述 + 保留失败；(5) 压缩只在思考链结束处；压缩后缓存全失效。
+   **答案要点**：
+
+   1. 共同结构：压缩都不是第一步——前面有更便宜的（Claude Code 微压缩、Codex 会话记忆、Deep Agents 卸载 + 截断、Manus 可恢复压缩、Anthropic context editing）；常驻层有磁盘真身可重注入
+   2. 触发：Claude Code 83.5%（预留 33K）、Codex 轮前 + 循环边界、Anthropic 默认 150K 可配、Deep Agents 20K 卸载 / 85% 截断
+   3. 摘要形态：可读文本（Claude Code、Anthropic，可换 prompt、可审计、可跨供应商）vs 加密 blob（Codex，保留内部状态但只有 OpenAI 能解、绑定供应商）
+   4. Manus 不以摘要为主：文件系统即上下文 + todo 复述 + 保留失败
+   5. 压缩只在思考链结束处；压缩后缓存全失效。
+
    **追问方向**：多供应商 fallback 下该依赖哪种（自己可读的会话状态）；怎么评测压缩（探针问题）。
    **好答案与一般答案的区别**：一般答案说"都是摘要历史"；好答案给出两级结构、具体阈值、可读 vs 加密的取舍与它对供应商锁定的含义。
 
@@ -392,7 +447,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 分离模式与措辞：结构、分区、schema、工具集在版本库由工程维护；措辞在注册表（Langfuse 一类）由运营改；(2) 不可变版本 + 标签：运营改动生成新版本，不自动上线；(3) 评测门禁自动跑：新版本触发评测集 × $$k$$ 次，逐条 diff 与指标不过线则不能打 `staging`；(4) 灰度标签 `prod-canary` 1% 由工程或自动化控制，在线指标正常再移 `production`；回滚移标签；(5) trace 绑定版本，任何线上问题能归因到某个版本与作者；(6) 变更说明必填。
+   **答案要点**：
+
+   1. 分离模式与措辞：结构、分区、schema、工具集在版本库由工程维护；措辞在注册表（Langfuse 一类）由运营改
+   2. 不可变版本 + 标签：运营改动生成新版本，不自动上线
+   3. 评测门禁自动跑：新版本触发评测集 × $$k$$ 次，逐条 diff 与指标不过线则不能打 `staging`
+   4. 灰度标签 `prod-canary` 1% 由工程或自动化控制，在线指标正常再移 `production`；回滚移标签
+   5. trace 绑定版本，任何线上问题能归因到某个版本与作者
+   6. 变更说明必填。
+
    **追问方向**：运营改动让缓存前缀失效怎么办（预期，看第二轮）；措辞改动影响 schema 注入怎么处理（schema 归工程）。
    **好答案与一般答案的区别**：一般答案说"用 prompt 管理平台"；好答案把模式 / 措辞分权、门禁自动化、标签发布与 trace 归因四件事说全。
 
@@ -402,7 +465,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 有效长度远小于标称（NoLiMa、Context Rot），定位型问题在几十 K 处就退化；(2) 成本：全放每次传全量（缓存后 0.1×）、超过 272K / 200K 加价、prefill 拖 TTFT；(3) 决策四维：语料大小（≤ 几万 token 才考虑全放）、变化频率（每变一次缓存失效）、查询类型（全局综合 → 全放；定位 → 检索；多跳探索 → agentic）、缓存后成本；(4) 30K 手册两种方案成本相近差在质量，300K 只能检索；(5) 生产系统三者混合：核心要点全放、大语料检索、复杂任务 agentic；(6) 检索还给出引用（可信度）。
+   **答案要点**：
+
+   1. 有效长度远小于标称（NoLiMa、Context Rot），定位型问题在几十 K 处就退化
+   2. 成本：全放每次传全量（缓存后 0.1×）、超过 272K / 200K 加价、prefill 拖 TTFT
+   3. 决策四维：语料大小（≤ 几万 token 才考虑全放）、变化频率（每变一次缓存失效）、查询类型（全局综合 → 全放；定位 → 检索；多跳探索 → agentic）、缓存后成本
+   4. 30K 手册两种方案成本相近差在质量，300K 只能检索
+   5. 生产系统三者混合：核心要点全放、大语料检索、复杂任务 agentic
+   6. 检索还给出引用（可信度）。
+
    **追问方向**：全放时怎么放断点与更新；agentic retrieval 的上下文增长怎么控（卸载）。
    **好答案与一般答案的区别**：一般答案二选一；好答案给出四维决策表、一个算过的例子与混合方案。
 
@@ -446,6 +517,41 @@ Table: 掌握程度的判据
 
     详见[第一章](#一总览系列回答的问题与主线)。
 
-[^q1]: 数字：Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%、预留 33K；Manus 约 50 次工具调用、输入输出 100 : 1；$$S + (k-1)(r+o)$$、50 步填满 200K；SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`；AGENTS.md 2025-08、六万多项目；Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数；Gemini 存储费按小时；DeepSeek 64 粒度；Deep Agents 20K 卸载 / 85% 截断；Anthropic compaction 默认 150K；研究 agent 96% 文件读取；推理字段前置 2–5 个百分点；Anthropic schema 注入约 50–200 token；稳态命中率 70–90%、单轮 30–60%。结论：注意力预算有限、每段要辩护；模式不变措辞随模型；CoT 指令删、few-shot 只留格式；strict 保证形状不保证语义、出口必须有；隔离 → 卸载 → 清理 → 压缩；压缩只在思考链结束处；前缀稳定、只追加、显式断点、屏蔽不删除；prompt 是代码。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+[^q1]: 必记的数字：
 
-[^q2]: 用第五章 D 节的三级判据：读过——能说出七层、知道几条"不要"；掌握——能对具体应用做七层标注与预算、重排 system prompt 并配评测用例、设计 schema 与解析层、定三条线与压缩 prompt 并用探针测、放断点并排查命中率、画发布生命周期并写 AGENTS.md；能教人——能解释注意力预算与增长算术、对比五个系统的压缩策略、解释约束解码与 strict 限制的来源、推导排列的三重作用、对资料做全放 / 检索 / agentic 决策并算账。通关：A 组 8 题以上（误差 5% 内）、B 组 4 题以上完整推理链、C 组每题三个要点加一个追问。详见[第五章](#五通关自测)。
+    - Claude Code 自动记忆 ≤ 25 KB、auto-compact 约 83.5%、预留 33K
+    - Manus 约 50 次工具调用、输入输出 100 : 1
+    - $$S + (k-1)(r+o)$$、50 步填满 200K
+    - SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`
+    - AGENTS.md 2025-08、六万多项目
+    - Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时
+    - OpenAI 1,024、128 倍数
+    - Gemini 存储费按小时
+    - DeepSeek 64 粒度
+    - Deep Agents 20K 卸载 / 85% 截断
+    - Anthropic compaction 默认 150K
+    - 研究 agent 96% 文件读取
+    - 推理字段前置 2–5 个百分点
+    - Anthropic schema 注入约 50–200 token
+    - 稳态命中率 70–90%、单轮 30–60%
+
+    必记的结论：
+
+    - 注意力预算有限、每段要辩护
+    - 模式不变措辞随模型
+    - CoT 指令删、few-shot 只留格式
+    - strict 保证形状不保证语义、出口必须有
+    - 隔离 → 卸载 → 清理 → 压缩
+    - 压缩只在思考链结束处
+    - 前缀稳定、只追加、显式断点、屏蔽不删除
+    - prompt 是代码
+
+    详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
+
+[^q2]: 用第五章 D 节的三级判据：
+
+    - 读过——能说出七层、知道几条"不要"
+    - 掌握——能对具体应用做七层标注与预算、重排 system prompt 并配评测用例、设计 schema 与解析层、定三条线与压缩 prompt 并用探针测、放断点并排查命中率、画发布生命周期并写 AGENTS.md
+    - 能教人——能解释注意力预算与增长算术、对比五个系统的压缩策略、解释约束解码与 strict 限制的来源、推导排列的三重作用、对资料做全放 / 检索 / agentic 决策并算账
+
+    通关：A 组 8 题以上（误差 5% 内）、B 组 4 题以上完整推理链、C 组每题三个要点加一个追问。详见[第五章](#五通关自测)。

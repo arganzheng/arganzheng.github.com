@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Prompt Engineering, AGENTS.md, Agent Skills]
 catalog: true
 ---
 
-前五篇讲了上下文的每一层怎么写、怎么约束、怎么压、怎么排。这一篇讲怎么**管**：prompt 改一个词就是一次发布——它改变模型的行为，可能让评测集里三条用例由对变错，可能让缓存前缀全部失效；模型升级是一次依赖升级——同样的 prompt 在新模型上遵循率不同（第二篇）。把 prompt 当文案管的团队会在某个周五下午改一句话直接上线，周一从用户投诉里发现回归。把 prompt 当代码管的团队有版本、有测试、有灰度、有回滚。
+前五篇讲了上下文的每一层怎么写、怎么约束、怎么压、怎么排。这一篇讲怎么**管**：prompt 改一个词就是一次发布——它改变模型的行为，可能让评测集里三条用例由对变错，可能让缓存前缀全部失效；模型升级是一次依赖升级——同样的 prompt 在新模型上遵循率不同（[《prompt 设计》](/prompt-design-patterns-vs-wording.html)）。把 prompt 当文案管的团队会在某个周五下午改一句话直接上线，周一从用户投诉里发现回归。把 prompt 当代码管的团队有版本、有测试、有灰度、有回滚。
 
 本篇有三部分。**工件与流程**：prompt 放版本库还是注册表，怎么与模型版本绑定，改动要跑什么、怎么灰度、怎么回滚，A/B 怎么做。**两个跨工具的 prompt 标准**：AGENTS.md（2025 年 8 月发布的开放格式，六万多个开源项目采用，Linux 基金会下的 Agentic AI Foundation 管理）与 SKILL.md（Anthropic 2025 年 12 月开放的 Agent Skills 标准，四十多个客户端支持）——它们是"prompt 当代码管"在 coding agent 领域已经发生的事实。**上下文 vs 检索的决策**：小而稳定的资料全放进上下文配缓存、大语料走检索、复杂任务让 agent 自己查——按四个维度选，把话题交给 L3。
 
@@ -26,7 +26,7 @@ flowchart TB
     V --> T["<b>离线评测：评测集 × k 次</b><br/>格式遵循率 · 任务指标 · 成本 · 延迟"]
     T -->|"回归"| E
     T -->|"通过"| L1["打标签 staging"]
-    L1 --> G["灰度：标签 prod-canary → 1% 流量<br/>在线指标 · trace 绑定版本"]
+    L1 --> G["<b>灰度：标签 prod-canary → 1% 流量</b><br/>在线指标 · trace 绑定版本"]
     G -->|"回归"| RB["回滚：把 production 标签指回 N-1"]
     G -->|"通过"| L2["打标签 production → 100%"]
     L2 --> M["监控：遵循率 · 出口使用率 · 命中率 · 成本 / 任务"]
@@ -39,11 +39,20 @@ flowchart TB
     class T gate
 ```
 
-这张图与任何软件的发布流程同构，只有两处不同：**评测门禁是对分布的**（每条用例跑 $$k$$ 次，《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的非确定性），**模型升级会从右侧重新触发整个流程**（依赖变了，测试要重跑）。
+这张图与任何软件的发布流程同构，只有两处不同：**评测门禁是对分布的**（每条用例跑 $$k$$ 次，《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲的非确定性），**模型升级会从右侧重新触发整个流程**（依赖变了，测试要重跑）。
 
 ### 2. 本文的章节安排
 
-第二章工件：版本库 vs 注册表；第三章流程：绑定、门禁、灰度、回滚、A/B；第四章 AGENTS.md；第五章 SKILL.md；第六章上下文 vs 检索的决策；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、工件：版本库还是注册表](#二工件版本库还是注册表) | 工件：版本库 vs 注册表 |
+| [三、流程](#三流程) | 流程：绑定、门禁、灰度、回滚、A/B |
+| [四、AGENTS.md](#四agentsmd) | AGENTS.md |
+| [五、SKILL.md](#五skillmd) | SKILL.md |
+| [六、上下文 vs 检索](#六上下文-vs-检索) | 上下文 vs 检索的决策 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、工件：版本库还是注册表
 
@@ -86,7 +95,7 @@ flowchart LR
 
 ### 2. 混合
 
-多数团队最后是混合：**模板与结构在版本库**（分区、变量、schema——第二篇的"模式"），**措辞与参数在注册表**（可以由非工程师在评测门禁保护下调）。判据是变化频率与谁改：工程师改、随代码变的放仓库；运营调、每周变的放注册表。无论放哪，两条底线：**不可变版本**（能精确指回任何历史状态）与**trace 绑定版本**（每条请求记录它用的 prompt 版本与模型版本，L5）。
+多数团队最后是混合：**模板与结构在版本库**（分区、变量、schema——[《prompt 设计》](/prompt-design-patterns-vs-wording.html)里的"模式"），**措辞与参数在注册表**（可以由非工程师在评测门禁保护下调）。判据是变化频率与谁改：工程师改、随代码变的放仓库；运营调、每周变的放注册表。无论放哪，两条底线：**不可变版本**（能精确指回任何历史状态）与**trace 绑定版本**（每条请求记录它用的 prompt 版本与模型版本，L5）。
 
 ### 3. prompt 里有什么
 
@@ -94,8 +103,8 @@ flowchart LR
 
 - 模板（带变量占位）与分区结构；
 - 绑定的模型 id / 快照与参数（effort、`max_tokens`、temperature 若允许）；
-- 关联的 schema（第三篇）与工具集版本；
-- 缓存断点的位置（第五篇）；
+- 关联的 schema（[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）与工具集版本；
+- 缓存断点的位置（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）；
 - 变更说明：改了什么、为什么、评测结果。
 
 把这些放在一起版本化，是因为它们**一起决定行为**：同一段文本换 effort 是不同的行为，同一个 schema 换字段顺序是不同的行为。
@@ -105,8 +114,8 @@ flowchart LR
 flowchart LR
     W["prompt 版本 N（不可变）"]
     W --> T["<b>模板 + 分区结构 + 变量占位</b><br/>← 第二篇的六个部分"]
-    W --> M["绑定的模型 id / 快照 · effort · max_tokens<br/>← 《API 契约（二）》、《选型》"]
-    W --> S["关联的 schema（含字段顺序）· 工具集版本<br/>← 第三篇 · 《API 契约（一）》"]
+    W --> M["<b>绑定的模型 id / 快照 · effort · max_tokens</b><br/>← 《API 契约（二）》、《选型》"]
+    W --> S["<b>关联的 schema（含字段顺序）· 工具集版本</b><br/>← 第三篇 · 《API 契约（一）》"]
     W --> C["<b>缓存断点的位置</b><br/>← 第五篇"]
     W --> N["变更说明：改了什么 · 为什么 · 评测结果"]
     T & M & S & C --> B["<b>一起决定行为：</b><br/>同文本换 effort ≠ 同一版本；同 schema 换字段顺序 ≠ 同一版本"]
@@ -122,19 +131,22 @@ flowchart LR
 
 ### 1. 与模型版本绑定
 
-prompt 版本 N 是在模型 M 上评测通过的；M 变了，N 的评测结果作废。绑定的做法：版本对象里记模型 id（钉快照，《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》），模型升级时创建新版本 N+1（文本可以不变、绑定变）并重跑门禁。这让"模型升级"在流程里与"改 prompt"是同一件事——都是新版本、都过门禁。供应商的弃用通知（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》「八、供应商风险与弃用周期」）触发的正是这条路径。
+prompt 版本 N 是在模型 M 上评测通过的；M 变了，N 的评测结果作废。绑定的做法：版本对象里记模型 id（钉快照，《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)），模型升级时创建新版本 N+1（文本可以不变、绑定变）并重跑门禁。这让"模型升级"在流程里与"改 prompt"是同一件事——都是新版本、都过门禁。
+
+> [!NOTE] 后端经验参照：钉模型快照之于锁定依赖版本
+> 钉快照、升级时建新版本并重跑门禁，与 lockfile 锁依赖、升级走 CI 是同一套纪律。对不上的地方有两处：模型没有 semver 和逐项 changelog，"小版本"也可能改变行为，只能靠自己的评测集发现；门禁判的是分布（每条跑 $$k$$ 次、对比噪声阈值），不是单元测试那样的确定性通过 / 失败。供应商的弃用通知（[《选型》的「供应商风险与弃用周期」一节](/model-selection-beyond-leaderboards.html#八供应商风险与弃用周期)）触发的正是这条路径。
 
 ### 2. 评测门禁
 
-每个新版本在合并 / 打标签前跑评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》建的那一个，L5 讲方法）：
+每个新版本在合并 / 打标签前跑评测集（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)建的那一个，L5 讲方法）：
 
 | 指标 | 门禁 |
 |---|---|
 | 任务指标（准确率 / 完成率 / judge 分） | 不低于当前 production 版本减去噪声阈值（每条跑 $$k$$ 次的方差） |
-| 格式遵循率 / 出口使用率（第三篇） | 不退化 |
+| 格式遵循率 / 出口使用率（[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)） | 不退化 |
 | 每任务成本 | 不高于阈值（或有意为之并记录） |
 | TTFT / 总时长 | 不退化 |
-| 缓存命中率（第五篇） | 新版本上线后的第二轮起应恢复；第一轮全量写入是预期 |
+| 缓存命中率（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)） | 新版本上线后的第二轮起应恢复；第一轮全量写入是预期 |
 | 逐条 diff | 列出由对变错的用例（比总分更有信息量） |
 
 Table: prompt 新版本的评测门禁
@@ -143,7 +155,16 @@ promptfoo 一类工具把这一步做成 CI 任务：配置文件里列 prompt �
 
 ### 3. 灰度与回滚
 
-标签让灰度与回滚成为指针操作：`prod-canary` 指向新版本、路由 1% 流量；在线指标（采纳率、重试率、投诉、成本）正常再把 `production` 指过去；回归就把 `production` 指回旧版本——秒级，不用部署。灰度期间 trace 里的每条请求带版本，才能分组比较。
+标签让灰度与回滚成为指针操作：
+
+1. `prod-canary` 指向新版本、路由 1% 流量；
+2. 在线指标（采纳率、重试率、投诉、成本）正常再把 `production` 指过去；
+3. 回归就把 `production` 指回旧版本——秒级，不用部署。
+
+灰度期间 trace 里的每条请求带版本，才能分组比较。
+
+> [!NOTE] 后端经验参照：prompt 标签之于镜像 tag 与 feature flag
+> 不可变版本 + 可移动标签，对得上不可变镜像 digest + 可移动 tag：发布与回滚都是改指针，不重新构建；`prod-canary` / `prod-a` 分流也和 feature flag 的按比例放量一样。对不上的是回滚的范围：移回标签只换回 prompt 文本与绑定，若旧版本绑定的模型快照已被供应商弃用，就回不到当初评测通过的那个组合。
 
 一个 prompt 专属的注意：**新版本第一轮的缓存**是全量写入（前缀变了），TTFT 与成本在灰度的头几分钟会高——不要把它误判为回归。
 
@@ -155,11 +176,11 @@ promptfoo 一类工具把这一步做成 CI 任务：配置文件里列 prompt �
 
 ### 1. 是什么
 
-一个放在仓库根目录的 markdown 文件，给 coding agent 读的"项目说明"：怎么构建与测试、代码风格与硬规则、目录结构、哪些不能碰。2025 年 8 月作为开放格式发布，到 2026 年中被六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理（同一基金会管理 MCP）。它是第一篇七层里 ③ 长期记忆的"项目"部分，也是本篇"prompt 当代码管"最直接的实例——**它就在版本库里、随代码提交、有 diff、有审查**。
+一个放在仓库根目录的 markdown 文件，给 coding agent 读的"项目说明"：怎么构建与测试、代码风格与硬规则、目录结构、哪些不能碰。2025 年 8 月作为开放格式发布，到 2026 年中被六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理（同一基金会管理 MCP）。它是[《上下文的解剖》](/anatomy-of-the-context-window.html)七层里 ③ 长期记忆的"项目"部分，也是本篇"prompt 当代码管"最直接的实例——**它就在版本库里、随代码提交、有 diff、有审查**。
 
 ### 2. 怎么写
 
-它是一份 system prompt 的延伸，第二篇的规则全部适用：
+它是一份 system prompt 的延伸，[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的规则全部适用：
 
 - **命令优先**：构建、测试、lint、运行的精确命令——agent 最常用的信息；
 - **硬规则可检验**："不要修改 `migrations/` 下的文件"、"提交前必须通过 `make check`"；
@@ -173,7 +194,7 @@ promptfoo 一类工具把这一步做成 CI 任务：配置文件里列 prompt �
 - **路径与文件名不统一**：Claude Code 读 `CLAUDE.md`，到 2026 年中仍无原生的 AGENTS.md 自动加载（有 issue 在跟踪）；Codex、Cursor、Gemini CLI、Antigravity（2026-03 起）读 AGENTS.md；Cursor 另有 `.cursor/rules/*.mdc` 带 glob 作用域。跨工具的团队要么维护两份、要么用符号链接 / include。
 - **写成文档而不是指令**：AGENTS.md 是给 agent 的运行指令，不是给人的 README；一段"项目背景介绍"对 agent 几乎无用。
 - **过期**：命令改了、目录挪了、规则不再适用——它要与代码一起维护，代码审查时顺带看它。
-- **压缩后的命运**（第四篇）：根目录的会被重注入，子目录的会丢失直到再读匹配文件；关键规则放根目录。
+- **压缩后的命运**（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）：根目录的会被重注入，子目录的会丢失直到再读匹配文件；关键规则放根目录。
 
 ## 五、SKILL.md
 
@@ -183,7 +204,7 @@ Agent Skills 是 Anthropic 2025 年 10 月发布、12 月 18 日开放为标准�
 
 ### 2. 为什么它是上下文工程的实例
 
-SKILL.md 把第一篇的**渐进披露**做成了规范：常驻上下文的只有每个技能的 `name` 与 `description`（几十到几百 token），正文与脚本在模型判断"这个技能适用"之后才读进来。所以 `description` 的写法决定一切——它要包含用户会用到的关键词、说明适用与不适用的情形；正文则是一份任务专属的 system prompt（步骤、检查清单、脚本用法）。AGENTS.md 是"每天都要读的入职手册"，SKILL.md 是"需要时从架上取的运行手册"。
+SKILL.md 把[《上下文的解剖》](/anatomy-of-the-context-window.html)里的**渐进披露**做成了规范：常驻上下文的只有每个技能的 `name` 与 `description`（几十到几百 token），正文与脚本在模型判断"这个技能适用"之后才读进来。所以 `description` 的写法决定一切——它要包含用户会用到的关键词、说明适用与不适用的情形；正文则是一份任务专属的 system prompt（步骤、检查清单、脚本用法）。AGENTS.md 是"每天都要读的入职手册"，SKILL.md 是"需要时从架上取的运行手册"。
 
 ```mermaid
 %% 图：AGENTS.md 与 SKILL.md 在上下文里的位置——AGENTS.md 常驻（第一篇的 ③ 长期记忆，每轮都在）；SKILL.md 只有 name + description 常驻，正文与 scripts/ 在模型判断适用后才加载；两者都在版本库里随代码提交
@@ -195,8 +216,8 @@ flowchart LR
     end
     subgraph CTX["每轮的上下文"]
         direction TB
-        C1["③ 长期记忆：AGENTS.md 全文常驻<br/>（几百到几千 token）"]
-        C2["② 技能描述行：name + description<br/>（每个几十到几百 token）"]
+        C1["<b>③ 长期记忆：AGENTS.md 全文常驻</b><br/>（几百到几千 token）"]
+        C2["<b>② 技能描述行：name + description</b><br/>（每个几十到几百 token）"]
         C3["<b>按需加载：SKILL.md 正文</b><br/>模型判断「这个技能适用」之后才进来"]
     end
     AG --> C1
@@ -213,7 +234,7 @@ flowchart LR
 ### 3. 怎么写
 
 - `description` 写"什么时候用"比"做什么"重要——它是被检索的对象；
-- 正文按第二篇的模式写：任务边界、可检验的步骤、输出格式、失败时怎么办；
+- 正文按[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的模式写：任务边界、可检验的步骤、输出格式、失败时怎么办；
 - 脚本放 `scripts/`、让正文调用它，而不是把代码贴进正文——脚本是确定性的，prompt 不是；
 - 版本化：技能目录在仓库里，随代码提交；跨工具共享时放 `.agents/skills/`；
 - `allowed-tools`、`context: fork` 一类字段是各客户端的扩展，不在核心规范里，跨工具时不要依赖。
@@ -226,7 +247,7 @@ flowchart LR
 |---|---|---|---|
 | 全放上下文 | 把全部资料放进 system / 首条消息，配缓存断点 | 首次写入全量，之后读价 0.1×；每次请求仍传全量 | 小（几万 token 内）、稳定（不常变）、每次都可能用到任何部分 |
 | 流水线检索 | query → 检索 top-k → 放进动态段 → 生成 | 检索系统的成本 + 每次几千 token 输入 | 大语料（放不进或放进也用不好）、高并发问答、需要引用 |
-| agentic retrieval | 模型自己决定查什么、用哪类检索、查几轮 | 多次模型调用 + 工具调用；上下文随步增长（第四篇） | 复杂任务、问题需要多跳、语料结构化（代码、文件系统） |
+| agentic retrieval | 模型自己决定查什么、用哪类检索、查几轮 | 多次模型调用 + 工具调用；上下文随步增长（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)） | 复杂任务、问题需要多跳、语料结构化（代码、文件系统） |
 
 Table: 知识接入的三种形态
 
@@ -281,7 +302,7 @@ flowchart TB
 ## 七、实践建议
 
 1. **给 prompt 加版本**：先把 prompt 从代码里的字符串挪到独立文件（版本库）或注册表，每个版本记绑定的模型与参数；trace 里记版本。
-2. **接评测门禁**：把 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的评测集接到 CI（promptfoo 或自写脚本），每个 prompt 版本跑一次，输出逐条 diff。
+2. **接评测门禁**：把《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)建的评测集接到 CI（promptfoo 或自写脚本），每个 prompt 版本跑一次，输出逐条 diff。
 3. **用标签做发布**：`staging` → `prod-canary` → `production`，回滚是移标签。
 4. **给项目写 AGENTS.md**：命令、硬规则、结构；跨工具的团队同时提供 CLAUDE.md（符号链接或 include）。
 5. **把重复的任务流程写成 SKILL.md**：`description` 写清何时用，脚本进 `scripts/`，放 `.agents/skills/`。
@@ -301,17 +322,22 @@ flowchart TB
 
    <details markdown="1">
    <summary>答案</summary>
-   （1）不可变版本与绑定：prompt 独立成文件或注册表版本，记绑定的模型快照与参数；（2）评测门禁：每个版本在评测集上跑 $$k$$ 次，输出逐条 diff 与指标对比，作为合并 / 打标签的条件；（3）trace 绑定版本：每条请求记录用的 prompt 版本与模型版本，否则线上问题无法归因、灰度与 A/B 无法分组。详见[第二章](#二工件版本库还是注册表)、[第三章](#三流程)。
+
+   1. 不可变版本与绑定：prompt 独立成文件或注册表版本，记绑定的模型快照与参数；
+   2. 评测门禁：每个版本在评测集上跑 $$k$$ 次，输出逐条 diff 与指标对比，作为合并 / 打标签的条件；
+   3. trace 绑定版本：每条请求记录用的 prompt 版本与模型版本，否则线上问题无法归因、灰度与 A/B 无法分组。
+
+   详见[第二章](#二工件版本库还是注册表)、[第三章](#三流程)。
    </details>
 
 2. 灰度新 prompt 版本的前十分钟，TTFT 与每请求成本都比旧版本高 30%，任务指标持平。该回滚吗？
 
    <details markdown="1">
    <summary>答案</summary>
-   先不要。新版本的前缀变了，第一轮请求全部是缓存写入（1.25× 且无 prefill 跳过），TTFT 与成本在头几分钟偏高是预期行为；看灰度组第二轮起的命中率是否恢复到旧版本水平。若十分钟后仍高，再查新版本是否引入了动态内容破坏前缀（第五篇）。详见[第三章](#三流程)。
+   先不要。新版本的前缀变了，第一轮请求全部是缓存写入（1.25× 且无 prefill 跳过），TTFT 与成本在头几分钟偏高是预期行为；看灰度组第二轮起的命中率是否恢复到旧版本水平。若十分钟后仍高，再查新版本是否引入了动态内容破坏前缀（[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）。详见[第三章](#三流程)。
    </details>
 
-3. AGENTS.md 与 SKILL.md 各对应第一篇七层里的哪一层？为什么说 SKILL.md 是渐进披露的规范？
+3. AGENTS.md 与 SKILL.md 各对应[《上下文的解剖》](/anatomy-of-the-context-window.html)七层里的哪一层？为什么说 SKILL.md 是渐进披露的规范？
 
    <details markdown="1">
    <summary>答案</summary>
@@ -322,7 +348,7 @@ flowchart TB
 
    <details markdown="1">
    <summary>答案</summary>
-   两者成本相近：全放每次 40K × 读价（Sonnet 5 \$0.20 / 百万）= \$0.008，一天 \$24，每月更新一次缓存失效一次可忽略；检索每次约 3K × \$2 / 百万 = \$0.006 加检索系统。决定因素是质量：问题是定位型（"X 的标准"），40K 已接近有效长度的风险区且制度文档词汇与用户问法常不匹配（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的 NoLiMa 情形），检索加引用更可靠且能给出条目编号（L7 的可信度）；若问题多为跨章节综合则全放更好。倾向检索。详见[第六章](#六上下文-vs-检索)。
+   两者成本相近：全放每次 40K × 读价（Sonnet 5 \$0.20 / 百万）= \$0.008，一天 \$24，每月更新一次缓存失效一次可忽略；检索每次约 3K × \$2 / 百万 = \$0.006 加检索系统。决定因素是质量：问题是定位型（"X 的标准"），40K 已接近有效长度的风险区且制度文档词汇与用户问法常不匹配（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)里的 NoLiMa 情形），检索加引用更可靠且能给出条目编号（L7 的可信度）；若问题多为跨章节综合则全放更好。倾向检索。详见[第六章](#六上下文-vs-检索)。
    </details>
 
 5. 团队同时用 Claude Code 与 Codex，写了一份 AGENTS.md 但 Claude Code 没有读它。原因与做法？

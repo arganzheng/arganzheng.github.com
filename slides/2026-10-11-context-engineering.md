@@ -153,7 +153,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /context-budget-isolation-offload-cleanup-and-compression.html。隔离 = 子 agent 在自己的窗口做、只带摘要回来；卸载 = 内容写文件 / 存储、上下文只留引用 + 预览。
+原文 /context-budgeting-offloading-and-compaction.html。隔离 = 子 agent 在自己的窗口做、只带摘要回来；卸载 = 内容写文件 / 存储、上下文只留引用 + 预览。
 压缩后目标复述到末尾。
 大量读的内容隔离。
 </aside>

@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Structured Output, JSON Schema]
 catalog: true
 ---
 
-《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》把结构化输出分成三个层次——提示、JSON 模式、schema 约束——并给了一句结论：schema 约束保证语法不保证语义。这一篇把那一句展开成一篇：约束解码在推理引擎里是怎样实现的、为什么它能给出"不可能生成不合法 JSON"这样的硬保证、为什么 strict 模式对 schema 有限制；然后是应用侧的两件事——**schema 怎么设计**才既可靠又不损害模型的推理（字段顺序就是生成顺序，拒答要有出口，枚举替代自由字符串），**解析层怎么写**才能处理 schema 保证不了的那一半（业务校验、修复重试、流式部分 JSON、截断）。
+《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)把结构化输出分成三个层次——提示、JSON 模式、schema 约束——并给了一句结论：schema 约束保证语法不保证语义。这一篇把那一句展开成一篇：约束解码在推理引擎里是怎样实现的、为什么它能给出"不可能生成不合法 JSON"这样的硬保证、为什么 strict 模式对 schema 有限制；然后是应用侧的两件事——**schema 怎么设计**才既可靠又不损害模型的推理（字段顺序就是生成顺序，拒答要有出口，枚举替代自由字符串），**解析层怎么写**才能处理 schema 保证不了的那一半（业务校验、修复重试、流式部分 JSON、截断）。
 
 结构化输出是应用工程里少见的"硬"手段：它把一个概率行为（模型会不会按格式输出）变成一个确定性保证。理解它的机制能让你知道这个保证的边界在哪——边界之内可以放心去掉重试逻辑，边界之外一行校验都不能省。
 
@@ -31,7 +31,15 @@ Table: 结构化输出三个层次的保证边界
 
 ### 2. 本文的章节安排
 
-第二章约束解码的机制与 strict 模式的限制；第三章 schema 设计的七个模式；第四章解析层：校验、修复、流式、截断；第五章格式遵循率的评测；第六章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、约束解码](#二约束解码) | 约束解码的机制与 strict 模式的限制 |
+| [三、schema 设计的七个模式](#三schema-设计的七个模式) | schema 设计的七个模式 |
+| [四、解析层](#四解析层) | 解析层：校验、修复、流式、截断 |
+| [五、格式遵循率的评测](#五格式遵循率的评测) | 格式遵循率的评测 |
+| [六、实践建议](#六实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、约束解码
 
@@ -86,8 +94,8 @@ flowchart TB
 %% 图：strict 模式三条限制背后的自动机原因——可选字段让状态数按 2 的字段数次方增长，所以要求全部 required；additionalProperties: true 意味着任意键名、状态空间失控，所以必须显式 false；minLength / 复杂 pattern 要在自动机里数字符并与 JSON 转义规则复合，实现成本高
 flowchart LR
     L1["<b>限制①：所有字段 required</b><br/>可选用 type: [string, null]"] --- R1["原因：n 个可选字段 = 2ⁿ 条分支<br/>全部 required 压成一条线"]
-    L2["限制②：additionalProperties: false<br/>必须显式写"] --- R2["原因：允许任意键名 = 自动机要接受任意字符串作键<br/>状态空间失控"]
-    L3["限制③：minLength · 复杂 pattern<br/>不支持或有条件支持"] --- R3["原因：要在自动机里数字符<br/>还要与 JSON 字符串的转义规则复合"]
+    L2["<b>限制②：additionalProperties: false</b><br/>必须显式写"] --- R2["原因：允许任意键名 = 自动机要接受任意字符串作键<br/>状态空间失控"]
+    L3["<b>限制③：minLength · 复杂 pattern</b><br/>不支持或有条件支持"] --- R3["原因：要在自动机里数字符<br/>还要与 JSON 字符串的转义规则复合"]
     classDef lim fill:#fdecea,stroke:#c0392b,color:#222
     classDef why fill:#eef6ff,stroke:#5b8fd6,color:#222
     class L1,L2,L3 lim
@@ -96,7 +104,7 @@ flowchart LR
 
 ### 4. schema 也占 token
 
-Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约 50–200 token 的固定开销加上 schema 本身；它落在缓存前缀里（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。OpenAI 与 Gemini 也要把 schema 以某种形式让模型"看到"——模型需要知道字段的含义才能填对，自动机只管形状。所以 schema 的字段名与描述（`description`）本身是 prompt 的一部分，写法影响质量。
+Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约 50–200 token 的固定开销加上 schema 本身；它落在缓存前缀里（《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。OpenAI 与 Gemini 也要把 schema 以某种形式让模型"看到"——模型需要知道字段的含义才能填对，自动机只管形状。所以 schema 的字段名与描述（`description`）本身是 prompt 的一部分，写法影响质量。
 
 ## 三、schema 设计的七个模式
 
@@ -127,7 +135,7 @@ Anthropic 的实现把 schema 注入为一段额外的 system 文本，实测约
 }
 ```
 
-模型先写证据、再写推理、最后给分类——结论以前面的内容为条件。反过来（先 `category` 再 `reasoning`）会让"推理"变成对已给出结论的事后辩护。2024 年的研究 *Let Me Speak Freely?* 发现强制严格格式会降低某些推理任务的表现，原因之一正是模型没有"先想"的空间；推理模型（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）在 thinking 阶段有了这个空间，问题缓解了很多，但字段顺序仍然有效——它让可见输出里也有一条从证据到结论的链，可以被审计。
+模型先写证据、再写推理、最后给分类——结论以前面的内容为条件。反过来（先 `category` 再 `reasoning`）会让"推理"变成对已给出结论的事后辩护。2024 年的研究 *Let Me Speak Freely?* 发现强制严格格式会降低某些推理任务的表现，原因之一正是模型没有"先想"的空间；推理模型（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）在 thinking 阶段有了这个空间，问题缓解了很多，但字段顺序仍然有效——它让可见输出里也有一条从证据到结论的链，可以被审计。
 
 ```mermaid
 %% 图：字段顺序即生成顺序——evidence → reasoning → category 让结论以证据和推理为条件；反过来先 category 再 reasoning，推理变成对既定结论的事后辩护；实测「推理在前」通常高 2–5 个百分点，代价是每次多几十个输出 token
@@ -149,7 +157,7 @@ flowchart TB
 
 ### 2. 显式的拒答与不确定出口
 
-strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答的输入也会得到一个看似合理的答案——《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的例子：乱码输入被分到 A / B / C 之一。每个 schema 都要有出口：分类加 `cannot_classify`，抽取字段允许 `null` 并配 `missing_reason`，判断题加 `insufficient_information`。OpenAI 的结构化输出响应里还有一个独立的 `refusal` 字段——模型因安全原因拒绝时不会硬凑 JSON，解析层要先检查它。
+strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答的输入也会得到一个看似合理的答案——《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)的例子：乱码输入被分到 A / B / C 之一。每个 schema 都要有出口：分类加 `cannot_classify`，抽取字段允许 `null` 并配 `missing_reason`，判断题加 `insufficient_information`。OpenAI 的结构化输出响应里还有一个独立的 `refusal` 字段——模型因安全原因拒绝时不会硬凑 JSON，解析层要先检查它。
 
 ### 3. 枚举替代自由字符串
 
@@ -169,7 +177,7 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 
 ### 7. 用工具 schema 还是输出 schema
 
-结构化输出成熟前的替代做法是定义一个 `report_result` 工具并强制调用；现在两者语义不同：**输出 schema**用于"这一步的最终结果"，**工具 schema**用于"要调用某个动作"。混用的代价 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》讲过（Fable 5.1 起强制工具调用报错）；原则是结果用 `output_config.format` / `text.format`，动作用 tools。
+结构化输出成熟前的替代做法是定义一个 `report_result` 工具并强制调用；现在两者语义不同：**输出 schema**用于"这一步的最终结果"，**工具 schema**用于"要调用某个动作"。混用的代价《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)讲过（Fable 5.1 起强制工具调用报错）；原则是结果用 `output_config.format` / `text.format`，动作用 tools。
 
 ## 四、解析层
 
@@ -177,12 +185,15 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 
 供应商的 strict 模式保证 schema 形状，解析层仍然用 Pydantic / zod 一类再校一次——两个原因：你的类型系统与供应商支持的 schema 子集可能有细微差别（日期格式、数值范围）；以及**业务校验**：`refund_amount` 不能超过订单金额、`order_id` 必须存在、`date` 不能在未来。业务校验是 schema 保证不了的那一半，一行都不能省。
 
+> [!NOTE] 后端经验参照：strict schema 之于接口层的请求校验
+> 对得上的部分：和网关 / 控制器上的 JSON Schema 或 Bean Validation 一样，strict 模式只管形状（字段齐、类型对、枚举在范围），「订单存在、金额不超限」这类业务规则照样要在服务层查。对不上的部分：请求校验不合格是直接拒掉（400），约束解码则是在生成时把不合格的路堵死，模型被迫在合法值里挑一个——不会报错，错的是值本身，所以出口字段和业务校验替代不了。
+
 ### 2. 修复与重试
 
 校验失败的处理分两级：
 
 - **机械修复**：JSON 模式或提示层次下常见的 markdown 代码块包裹（去掉 ```` ```json ````）、尾随文字、单引号——解析前清理。strict 模式下不需要。
-- **带错误信息的重试**：业务校验失败时，把错误信息作为一条新消息放回上下文（"refund_amount 12000 超过订单金额 899，请修正"），重试**一次**。这是 instructor 一类库的核心循环（Pydantic 校验 → 错误 → 重试），每次重试是一次付费调用（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》），限一次；第二次仍失败走降级（人工、默认值、拒绝）。
+- **带错误信息的重试**：业务校验失败时，把错误信息作为一条新消息放回上下文（"refund_amount 12000 超过订单金额 899，请修正"），重试**一次**。这是 instructor 一类库的核心循环（Pydantic 校验 → 错误 → 重试），每次重试是一次付费调用（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)），限一次；第二次仍失败走降级（人工、默认值、拒绝）。
 
 ### 3. 流式部分 JSON
 
@@ -190,7 +201,7 @@ strict 模式下模型**必须**产出合法 JSON。没有出口，不该回答�
 
 ### 4. 截断
 
-`max_tokens` 不够时 JSON 在中间被切断，`stop_reason` / `finish_reason` 是 `max_tokens` / `length`——这在 strict 模式下**仍会发生**（自动机保证每一步合法，不保证能走到终态）。解析层先查 `stop_reason`；推理模型上 `max_tokens` 含思考 token（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》），要留够。截断的处理是提高 `max_tokens` 重试一次或缩小 schema。
+`max_tokens` 不够时 JSON 在中间被切断，`stop_reason` / `finish_reason` 是 `max_tokens` / `length`——这在 strict 模式下**仍会发生**（自动机保证每一步合法，不保证能走到终态）。解析层先查 `stop_reason`；推理模型上 `max_tokens` 含思考 token（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)），要留够。截断的处理是提高 `max_tokens` 重试一次或缩小 schema。
 
 ### 5. 拒答与空值
 
@@ -231,7 +242,7 @@ flowchart TB
 | 业务校验通过率 | 值在业务允许范围内 | 应用侧校验 |
 | 出口使用率 | `cannot_classify` / `null` 的比例 | 与人工标注的"应拒答"对比：过低是伪装成答案，过高是过度保守 |
 | 截断率 | `stop_reason == max_tokens` 的比例 | 从 usage / stop_reason 统计 |
-| 语义准确率 | 值对不对 | 评测集（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、L5） |
+| 语义准确率 | 值对不对 | 评测集（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)、L5） |
 | 顺序效应 | 推理字段前置 vs 后置的准确率差 | 同一评测集两种 schema 对比 |
 
 Table: 结构化输出仍要评的指标
