@@ -47,13 +47,30 @@ Table: 治理要回答的问题
 
 ### 2. 本文的章节安排
 
-第二章审计链；第三章数据保留与供应商；第四章 EU AI Act；第五章中国的内容标识；第六章供应商变更的治理；第七章责任矩阵与流程；第八章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、审计链](#二审计链) | 已有的机制、能回答的问题清单、与隐私的张力 |
+| [三、数据保留与供应商](#三数据保留与供应商) | 供应商侧、自己侧、用户权利 |
+| [四、EU AI Act](#四eu-ai-act) | 时间表、应用方（deployer）的义务、用途分类 |
+| [五、中国的内容标识](#五中国的内容标识) | 显式与隐式标识、义务主体、与 EU Article 50 的关系 |
+| [六、供应商变更的治理](#六供应商变更的治理) | 每次供应商变更是需要记录与评估的事件 |
+| [七、责任矩阵与流程](#七责任矩阵与流程) | 变更审批矩阵、轻 / 重两条流程 |
+| [八、实践建议](#八实践建议) | 七条落地做法 |
+
+Table: 本文的章节安排
 
 ## 二、审计链
 
 ### 1. 它已经在了——如果前几层做了
 
-《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源会话日志（"模型可见 ⟺ 已记录"）与 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》的 trace 与决策点日志，合起来就是审计链：每条输出能追到会话 → 任务 → 模型调用（版本、完整输入、输出）→ 检索到的文档 id → 工具调用与结果 → 审批（谁、何时、依据什么规则）→ prompt / 工具集 / 检索配置的版本。治理层要加的是三件事：**保留期**（审计要求可能比运营需求长——几年）、**不可篡改**（追加写、哈希链或 WORM 存储）、**访问控制与导出**（合规能查、能按用户导出、能证明完整性）。
+《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件溯源会话日志（"模型可见 ⟺ 已记录"）与《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)、[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)的 trace 与决策点日志，合起来就是审计链：每条输出能追到会话 → 任务 → 模型调用（版本、完整输入、输出）→ 检索到的文档 id → 工具调用与结果 → 审批（谁、何时、依据什么规则）→ prompt / 工具集 / 检索配置的版本。治理层要加的是三件事：
+
+1. **保留期**（审计要求可能比运营需求长——几年）
+2. **不可篡改**（追加写、哈希链或 WORM 存储）
+3. **访问控制与导出**（合规能查、能按用户导出、能证明完整性）
+
+> [!NOTE] 后端经验参照：审计链之于审计日志与分布式追踪
+> 对得上的部分直接沿用：用 trace_id 把一次请求经过的服务串起来，审计日志追加写、不可改、单独控制访问。对不上的是重放：后端服务的行为由代码版本决定，记下请求参数和代码版本就能重现结果；模型调用同样的输入不保证同样的输出，所以审计链要存完整输入、完整输出和模型快照，而不只是参数——存储量与隐私压力也因此大得多（见下面第 3 节）。
 
 ### 2. 能回答的问题清单
 
@@ -69,7 +86,7 @@ Table: 治理要回答的问题
 
 ### 3. 与隐私的张力
 
-审计要保留内容，隐私要最小化与删除——用**分级**解：元数据与决策点长期保留，内容按敏感度分级、脱敏后保留或短期保留，用户删除请求删内容保留脱敏的元数据（证明"处理过"而不保留"处理了什么"）；法律要求保留的例外单独管理。《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》的分级在这里被合规要求校准。
+审计要保留内容，隐私要最小化与删除——用**分级**解：元数据与决策点长期保留，内容按敏感度分级、脱敏后保留或短期保留，用户删除请求删内容保留脱敏的元数据（证明"处理过"而不保留"处理了什么"）；法律要求保留的例外单独管理。《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)的分级在这里被合规要求校准。
 
 ```mermaid
 %% 图：审计与隐私的张力用分级解——元数据与决策点（谁、何时、哪个版本、审批了什么）长期保留、追加写不可篡改、合规能查能导出；内容按敏感度分级：公开的保留、敏感的脱敏后保留或短期保留；用户删除请求删内容、保留脱敏的元数据（能证明「处理过」而不保留「处理了什么」）；法律要求保留的例外单独管
@@ -99,12 +116,12 @@ flowchart TB
 
 | 问题 | 要查清的 |
 |---|---|
-| 存多久 | OpenAI Responses 默认存 30 天（`store: true`）、ZDR 选项让不存；各家的默认与选项不同——《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》 |
+| 存多久 | OpenAI Responses 默认存 30 天（`store: true`）、ZDR 选项让不存；各家的默认与选项不同——《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) |
 | 用于训练吗 | 消费级产品与 API 的条款不同<br/>企业条款通常默认不训练<br/>**核对合同不是网页** |
 | 存在哪 | 数据驻留区域；子处理者列表 |
 | 谁能看 | 供应商的访问控制与滥用监控（有些会人工审查被标记的内容） |
-| 服务端状态 | 用 `previous_response_id`、服务端压缩（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的加密 item）、file search 的文件、Agents API 的会话——都是存在供应商侧的数据 |
-| PTC 与 ZDR | 中间结果不落存储（《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）——ZDR 组织可用的原因 |
+| 服务端状态 | 用 `previous_response_id`、服务端压缩（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的加密 item）、file search 的文件、Agents API 的会话——都是存在供应商侧的数据 |
+| PTC 与 ZDR | 中间结果不落存储（《工具、Agent 与 harness》的[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）——ZDR 组织可用的原因 |
 
 Table: 供应商侧要查清的数据留存问题
 
@@ -135,11 +152,11 @@ flowchart LR
 
 ### 2. 自己侧
 
-《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》的分级与保留期，按合规校准：会话内容、trace 内容、评测集里的真实用例（含用户数据——要脱敏或授权）、bad case 队列、飞轮的训练数据（第七篇）；每类有保留期、访问控制、删除流程；备份与副本同样处理。
+《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)的分级与保留期，按合规校准：会话内容、trace 内容、评测集里的真实用例（含用户数据——要脱敏或授权）、bad case 队列、飞轮的训练数据（[《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html)）；每类有保留期、访问控制、删除流程；备份与副本同样处理。
 
 ### 3. 用户权利
 
-查看（自己的对话）、导出、删除、退出（不用于改进）——第七篇飞轮要能按用户 / 租户关闭；删除要覆盖主存储、trace、评测集、备份（在保留期内标记）。
+查看（自己的对话）、导出、删除、退出（不用于改进）——[《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html)里的飞轮要能按用户 / 租户关闭；删除要覆盖主存储、trace、评测集、备份（在保留期内标记）。
 
 ## 四、EU AI Act
 
@@ -186,11 +203,11 @@ flowchart TB
 多数应用团队是 deployer 不是 provider（模型提供者）。deployer 的义务（概要，以法律解读为准）：
 
 - **透明**（Article 50，已生效）：让用户知道在与 AI 交互（除非显而易见）；AI 生成或操纵的图像 / 音频 / 视频（深度伪造）要标注；AI 生成的文本用于公共利益信息时要标注；机器可读标记的技术实现由 provider 负责但 deployer 要保留。
-- **高风险用途**（2027-12 起）：按提供者的说明使用、人工监督（有能力理解、监控、干预、停止——《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的六级在这里有法律含义）、记录保存（日志——第二章的审计链）、对受影响的人告知、基本权利影响评估（部分 deployer）、数据输入的相关性与代表性。
+- **高风险用途**（2027-12 起）：按提供者的说明使用、人工监督（有能力理解、监控、干预、停止——《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的六级在这里有法律含义）、记录保存（日志——第二章的审计链）、对受影响的人告知、基本权利影响评估（部分 deployer）、数据输入的相关性与代表性。
 - **AI 素养**：使用 AI 系统的员工有足够的理解。
 - **禁止性实践**：不做 Article 5 列的事（操纵、社会评分、某些生物识别、新增的私密影像 / CSAM）。
 
-工程上对应：审计链（记录保存）、人工监督的形态（六级、审批、kill switch——第六篇）、用途分类（这个功能是否落入 Annex III——招聘筛选、信贷评估的 AI 功能要按高风险准备）、透明与标识的实现（第五章）。
+工程上对应：审计链（记录保存）、人工监督的形态（六级、审批、kill switch——[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)）、用途分类（这个功能是否落入 Annex III——招聘筛选、信贷评估的 AI 功能要按高风险准备）、透明与标识的实现（第五章）。
 
 ### 3. 用途分类
 
@@ -207,7 +224,7 @@ flowchart TB
 
 ## 六、供应商变更的治理
 
-《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的弃用周期与 《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》的探针集，在治理里的位置：**每次供应商变更是一次需要记录与评估的事件**——模型更新（探针检测到的行为变化）、弃用通知、价格变化、条款变化（数据使用、保留）、API 变更。流程：订阅通知 → 登记 → 影响评估（评测、成本、合规）→ 决定（跟进 / 钉旧版 / 迁移）→ 记录。审计能问"你们知道 X 月供应商换了模型吗，评估了吗"——要能拿出记录。
+《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)的弃用周期与《评测、可观测与可追溯》的[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的探针集，在治理里的位置：**每次供应商变更是一次需要记录与评估的事件**——模型更新（探针检测到的行为变化）、弃用通知、价格变化、条款变化（数据使用、保留）、API 变更。流程：订阅通知 → 登记 → 影响评估（评测、成本、合规）→ 决定（跟进 / 钉旧版 / 迁移）→ 记录。审计能问"你们知道 X 月供应商换了模型吗，评估了吗"——要能拿出记录。
 
 ## 七、责任矩阵与流程
 
@@ -227,7 +244,7 @@ Table: 变更审批矩阵
 
 ### 2. 流程
 
-变更提出 → 分类（是否涉及安全 / 合规 / 高风险）→ 门禁（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）→ 相应批准 → 发布（第六篇）→ 记录（版本、批准人、评测结果）。多数变更（普通 prompt 改动）走轻流程；涉及新权限、新数据流、高风险用途的走重流程。流程写下来是审计的依据，也是让"谁批的"有答案。
+变更提出 → 分类（是否涉及安全 / 合规 / 高风险）→ 门禁（《评测、可观测与可追溯》的[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）→ 相应批准 → 发布（[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)）→ 记录（版本、批准人、评测结果）。多数变更（普通 prompt 改动）走轻流程；涉及新权限、新数据流、高风险用途的走重流程。流程写下来是审计的依据，也是让"谁批的"有答案。
 
 ```mermaid
 %% 图：变更的轻 / 重两条流程——所有变更先过分类：普通 prompt 改动走轻流程（门禁通过 → 功能 owner 批 → 发布 → 记录）；涉及新权限、新数据流、新供应商、高风险用途的走重流程（门禁 + 安全 / 合规 / 法务按责任矩阵批 → 发布 → 记录）；两条都以「版本 · 批准人 · 评测结果」的记录收尾，审计问「谁批的」有答案
@@ -275,7 +292,14 @@ flowchart TB
 2. 合同承诺"客户数据不用于训练、不出境"，团队用 OpenAI Responses 默认配置且开了 file search。有哪些风险点？
 
    <details markdown="1"><summary>答案</summary>
-   Responses 默认 `store: true` 存 30 天（服务端状态）；file search 的文件存在供应商侧；数据驻留区域要核对；是否训练要看**企业条款而不是网页默认**。做法：画数据流图、启用 ZDR（若可用）或 `store: false`、核对驻留区域与子处理者、file search 改自建检索（L3）或确认条款、把这些写进与客户的承诺一致性检查。详见[第三章](#三数据保留与供应商)。
+   风险点：
+
+   - Responses 默认 `store: true` 存 30 天（服务端状态）
+   - file search 的文件存在供应商侧
+   - 数据驻留区域要核对
+   - 是否训练要看**企业条款而不是网页默认**
+
+   做法：画数据流图、启用 ZDR（若可用）或 `store: false`、核对驻留区域与子处理者、file search 改自建检索（L3）或确认条款、把这些写进与客户的承诺一致性检查。详见[第三章](#三数据保留与供应商)。
    </details>
 
 3. 2026 年 8 月 Digital Omnibus 推迟了高风险义务，团队据此暂停了全部 AI Act 工作。哪里错了？
@@ -296,8 +320,8 @@ flowchart TB
    招聘与劳动管理在 Annex III，"辅助"不改变用途分类（以法律解读为准，但大概率高风险）。2027-12 前要：风险管理体系、数据治理（训练 / 评测数据的代表性与偏差）、技术文档、日志（审计链）、人工监督的形态（HR 能理解、干预、否决——L4 六级的 2–3 级）、准确性与鲁棒性评测（L5）、对候选人的告知、基本权利影响评估、注册。现在做用途分类记录并排计划。详见[第四章](#四eu-ai-act)、[第七章](#七责任矩阵与流程)。
    </details>
 
-[^q0]: 审计链要回答：谁（用户 / 服务）在何时让哪个模型（id 与快照）在什么上下文（prompt 版本全文、检索到的块与来源文档版本、工具集与检索配置与 harness 版本、effort）下生成了什么（完整输出）、依据什么（工具调用与结果、审批的请求 / justification / 决定者 / 时间、决策点日志）、是否经 fallback 或卫士、用户反馈与处理。它由 《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源会话日志（"模型可见 ⟺ 已记录"）与 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》的 trace 与决策点日志构成；治理层加保留期（可能几年）、不可篡改（追加写、哈希链 / WORM）、访问控制与按用户导出、完整性证明；与隐私的张力用分级解——元数据与决策点长期、内容按敏感度脱敏或短期、删除请求删内容留脱敏元数据。验证方法：写问题清单，随机抽上月输出逐项拿证据。详见[第二章](#二审计链)。
+[^q0]: 审计链要回答：谁（用户 / 服务）在何时让哪个模型（id 与快照）在什么上下文（prompt 版本全文、检索到的块与来源文档版本、工具集与检索配置与 harness 版本、effort）下生成了什么（完整输出）、依据什么（工具调用与结果、审批的请求 / justification / 决定者 / 时间、决策点日志）、是否经 fallback 或卫士、用户反馈与处理。它由《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件溯源会话日志（"模型可见 ⟺ 已记录"）与《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)、[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)的 trace 与决策点日志构成；治理层加保留期（可能几年）、不可篡改（追加写、哈希链 / WORM）、访问控制与按用户导出、完整性证明；与隐私的张力用分级解——元数据与决策点长期、内容按敏感度脱敏或短期、删除请求删内容留脱敏元数据。验证方法：写问题清单，随机抽上月输出逐项拿证据。详见[第二章](#二审计链)。
 
-[^q1]: 供应商侧查清并画成数据流图：存多久（OpenAI Responses 默认 `store: true` 30 天、ZDR 选项；各家不同）、是否用于训练（企业条款通常不训练——核对合同不是网页）、驻留区域与子处理者、谁能看（滥用监控可能人工审查）、服务端状态（`previous_response_id`、服务端压缩的加密 item、file search 文件、Agents API 会话都是存在供应商侧的数据）、PTC 让中间结果不落存储所以 ZDR 兼容；客户合同承诺要与数据流图一致。自己侧按 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》的分级与保留期并按合规校准：会话内容、trace、评测集里的真实用例（脱敏或授权）、bad case、飞轮训练数据，各有保留期、访问控制、删除流程且覆盖备份与副本。用户权利：查看、导出、删除（覆盖主存储、trace、评测集、备份标记）、退出改进（飞轮按用户 / 租户可关）。详见[第三章](#三数据保留与供应商)。
+[^q1]: 供应商侧查清并画成数据流图：存多久（OpenAI Responses 默认 `store: true` 30 天、ZDR 选项；各家不同）、是否用于训练（企业条款通常不训练——核对合同不是网页）、驻留区域与子处理者、谁能看（滥用监控可能人工审查）、服务端状态（`previous_response_id`、服务端压缩的加密 item、file search 文件、Agents API 会话都是存在供应商侧的数据）、PTC 让中间结果不落存储所以 ZDR 兼容；客户合同承诺要与数据流图一致。自己侧按《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)的分级与保留期并按合规校准：会话内容、trace、评测集里的真实用例（脱敏或授权）、bad case、飞轮训练数据，各有保留期、访问控制、删除流程且覆盖备份与副本。用户权利：查看、导出、删除（覆盖主存储、trace、评测集、备份标记）、退出改进（飞轮按用户 / 租户可关）。详见[第三章](#三数据保留与供应商)。
 
 [^q2]: EU AI Act 时间表（2026-09 状态）：禁止性实践 2025-02-02；GPAI 提供者义务 2025-08-02 适用、2026-08-02 起可罚（1,500 万欧元或 3%）；Article 50 透明与标识 2026-08-02 生效、已上市生成系统过渡到 2026-12-02；新增非自愿私密影像与 CSAM 禁令 2026-12-02；高风险 Annex III 推迟到 2027-12-02、Annex I 到 2028-08-02（Regulation (EU) 2026/1744，2026-07-27 生效，日期固定）——推迟的只是高风险。deployer 义务：透明告知与深度伪造 / 公共利益文本标注、按说明使用、人工监督（能理解监控干预停止）、记录保存、告知受影响者、基本权利影响评估（部分）、AI 素养、不做禁止性实践；每个功能做用途分类（是否 Annex III：招聘、信贷、教育、生物识别、关键基础设施、执法等）。中国《人工智能生成合成内容标识办法》2025-09-01：显式标识（可感知）+ 隐式标识（元数据），提供者 / 平台 / 用户义务；与 Article 50 一套实现（生成时写元数据 + 呈现时显式提示）两套格式。供应商变更是需订阅 → 登记 → 评估 → 决定 → 记录的事件。责任矩阵：prompt 变更（功能 owner 批）、新工具 / MCP（安全 + owner）、新模型 / 供应商（技术负责人 + 合规）、权限策略（安全）、高风险用途（法务 + 技术负责人）、保留策略（法务）、事故响应（安全负责人）；轻 / 重流程按是否涉及安全 / 合规 / 高风险。详见[第四章](#四eu-ai-act)到[第七章](#七责任矩阵与流程)。

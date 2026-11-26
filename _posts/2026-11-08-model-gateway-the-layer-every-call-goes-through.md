@@ -36,29 +36,43 @@ flowchart TB
 
 | 职责 | 解决的事故 | 关联的层 |
 |---|---|---|
-| 认证与密钥 | key 散落、泄露、轮换要改多处 | 第四篇密钥管理 |
-| 路由与 fallback | 供应商锁死、故障无退路 | 《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性 |
-| 限流与配额 | 一个功能打爆整体配额；账单失控 | 《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》令牌桶、第二篇预算 |
-| 缓存 | 重复请求重复花钱 | 《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》（供应商侧缓存是另一件事） |
-| 成本归因 | 不知道钱花在哪 | 第二篇 |
-| 日志与脱敏 | trace 散落、PII 进日志 | 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》 |
-| 供应商抽象 | 换模型改每处调用 | 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》（抽象有边界） |
+| 认证与密钥 | key 散落、泄露、轮换要改多处 | [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html)的密钥管理 |
+| 路由与 fallback | 供应商锁死、故障无退路 | 《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的方向性 |
+| 限流与配额 | 一个功能打爆整体配额；账单失控 | 《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)令牌桶、[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)的预算 |
+| 缓存 | 重复请求重复花钱 | 《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)（供应商侧缓存是另一件事） |
+| 成本归因 | 不知道钱花在哪 | [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) |
+| 日志与脱敏 | trace 散落、PII 进日志 | 《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html) |
+| 供应商抽象 | 换模型改每处调用 | 《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)（抽象有边界） |
 
 Table: 网关的七项职责
 
 ### 2. 本文的章节安排
 
-第二章逐项讲七项职责；第三章选项与定位；第四章自建；第五章网关的边界；第六章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、七项职责](#二七项职责) | 逐项讲七项职责 |
+| [三、选项与定位](#三选项与定位) | 选项与定位 |
+| [四、自建](#四自建) | 自建 |
+| [五、网关的边界](#五网关的边界) | 网关的边界 |
+| [六、实践建议](#六实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、七项职责
 
 ### 1. 认证与密钥
 
-应用拿**网关的凭据**（按服务 / 租户 / 功能发放，可随时吊销），供应商的 key **只在网关**。收益：轮换在一处；泄露一个应用凭据只影响它自己的配额；供应商 key 不会出现在应用日志与工作区（PocketOS 的第二环——《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）。网关的凭据本身要能表达范围（哪些模型、多大配额、哪些功能）。
+应用拿**网关的凭据**（按服务 / 租户 / 功能发放，可随时吊销），供应商的 key **只在网关**。收益：
+
+- 轮换在一处；
+- 泄露一个应用凭据只影响它自己的配额；
+- 供应商 key 不会出现在应用日志与工作区（PocketOS 的第二环——《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）。
+
+网关的凭据本身要能表达范围（哪些模型、多大配额、哪些功能）。
 
 ### 2. 路由与 fallback
 
-应用请求一个**逻辑模型名**（`chat-default`、`reasoning-high`、`cheap-classifier`），网关映射到具体供应商与快照——换模型改一处配置。fallback 链按 《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性：同模型重试 → 同家族降档 → 跨供应商（**推理状态、加密压缩 item、工具方言不能跟着切**——网关要知道哪些请求不可跨供应商，或让应用声明）→ 非模型路径（应用侧）。故障检测：错误率、超时、429 的滑动窗口；熔断与半开（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）。
+应用请求一个**逻辑模型名**（`chat-default`、`reasoning-high`、`cheap-classifier`），网关映射到具体供应商与快照——换模型改一处配置。fallback 链按《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的方向性：同模型重试 → 同家族降档 → 跨供应商（**推理状态、加密压缩 item、工具方言不能跟着切**——网关要知道哪些请求不可跨供应商，或让应用声明）→ 非模型路径（应用侧）。故障检测：错误率、超时、429 的滑动窗口；熔断与半开（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）。
 
 ```mermaid
 %% 图：逻辑模型名到供应商的路由表——应用只写 chat-default / reasoning-high / cheap-classifier；网关把它映射到具体快照并挂一条 fallback 链：同模型重试 → 同家族降档 → 跨供应商（只对无状态请求；会话中途带推理状态的请求声明「绑定供应商」不可跨）→ 返回错误让应用走非模型路径；换模型只改这张表
@@ -84,11 +98,14 @@ flowchart TB
 
 ### 3. 限流与配额
 
-三个维度：**RPM / TPM**（供应商给的总配额，网关按租户 / 功能分配，防止一个功能打爆整体——《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的令牌桶集中到这里）、**美元预算**（按租户 / 功能的日 / 月上限，接近告警、超过降级——第二篇）、**并发**（agent 的长会话占连接）。发前数 token（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）在网关做一次即可。
+三个维度：**RPM / TPM**（供应商给的总配额，网关按租户 / 功能分配，防止一个功能打爆整体——《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的令牌桶集中到这里）、**美元预算**（按租户 / 功能的日 / 月上限，接近告警、超过降级——[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)）、**并发**（agent 的长会话占连接）。发前数 token（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）在网关做一次即可。
+
+> [!NOTE] 后端经验参照：模型网关之于 API 网关
+> 认证、按调用方发凭据、路由、限流、统一日志，和 Kong / Envoy 一类 API 网关是同一套职责，已有的 API 网关也常是自建模型网关的底座。对不上的有三处：一次请求花多少要等响应回来才知道，限流只能按上限预扣、事后结算（[第六章](#六实践建议)的 `TokenBudget`）；网关不能改写请求体，否则毁掉供应商侧的 prompt caching；fallback 的目标不是等价副本，换一家供应商会丢掉推理状态、工具方言也不同。
 
 ### 4. 缓存
 
-两种要分清。**精确缓存**（同样的请求体返回同样的响应）：对幂等的、非确定性可接受的查询有效（分类、抽取同一文档），对对话与 agent 无效（每步不同）；TTL 要短、按租户隔离。**语义缓存**（相似的问题返回缓存的答案）：风险大——"相似"不等于"同答案"（"退货要多久"与"退款要多久"），只在 FAQ 类且能容忍的场景用，并让用户能刷新。**供应商侧的 prompt caching**（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）是第三件事：网关不做，但要**不破坏**它——网关不能改请求体的顺序、不能注入动态内容到前缀、要透传 `prompt_cache_key` 与断点标记。
+两种要分清。**精确缓存**（同样的请求体返回同样的响应）：对幂等的、非确定性可接受的查询有效（分类、抽取同一文档），对对话与 agent 无效（每步不同）；TTL 要短、按租户隔离。**语义缓存**（相似的问题返回缓存的答案）：风险大——"相似"不等于"同答案"（"退货要多久"与"退款要多久"），只在 FAQ 类且能容忍的场景用，并让用户能刷新。**供应商侧的 prompt caching**（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）是第三件事：网关不做，但要**不破坏**它——网关不能改请求体的顺序、不能注入动态内容到前缀、要透传 `prompt_cache_key` 与断点标记。
 
 ```mermaid
 %% 图：三种「缓存」要分清——精确缓存：请求体逐字节相同才返回缓存响应，对幂等查询有效、对对话无效；语义缓存：「退货要多久」与「退款要多久」向量相近却是两条不同政策，默认关、只在声明可缓存的 FAQ 上开；供应商侧 prompt caching 是第三件事，网关不做，但不能改前缀、要透传 prompt_cache_key 与断点标记
@@ -116,15 +133,15 @@ flowchart TB
 
 ### 5. 成本归因
 
-每次调用带**标签**：租户、功能、prompt 版本、模型、会话、环境；响应里的 usage（输入 / 输出 / 缓存读写 / 推理）按标签进账本；按 《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的价目算美元（价目表在网关维护一份）。这是第二篇全部工作的基础——没有归因就没有优化。
+每次调用带**标签**：租户、功能、prompt 版本、模型、会话、环境；响应里的 usage（输入 / 输出 / 缓存读写 / 推理）按标签进账本；按《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)的价目算美元（价目表在网关维护一份）。这是[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)全部工作的基础——没有归因就没有优化。
 
 ### 6. 日志与脱敏
 
-网关是 trace 的天然出口（《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》）：每次调用一个 span，含完整请求响应（或引用）、usage、延迟分段、路由决定、fallback 事件。**脱敏在这里做**：PII 识别与替换、凭据抹除——应用不必各自实现。采样与保留期按 《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》。
+网关是 trace 的天然出口（《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)）：每次调用一个 span，含完整请求响应（或引用）、usage、延迟分段、路由决定、fallback 事件。**脱敏在这里做**：PII 识别与替换、凭据抹除——应用不必各自实现。采样与保留期按《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)。
 
 ### 7. 供应商抽象
 
-统一的请求 / 响应形状让应用不关心供应商——但**抽象有边界**（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）：推理状态的搬运方式（thinking block / reasoning item / thought signature）、工具调用的方言、结构化输出的实现、缓存断点、流式事件的形状各家不同。网关能统一"普通对话 + 工具调用"的公分母，不能抹平推理与缓存的差异——这些要么由网关按供应商专属逻辑处理，要么由应用声明"这个请求绑定供应商"。过度抽象的网关会让你用不上供应商的新能力。
+统一的请求 / 响应形状让应用不关心供应商——但**抽象有边界**（《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)）：推理状态的搬运方式（thinking block / reasoning item / thought signature）、工具调用的方言、结构化输出的实现、缓存断点、流式事件的形状各家不同。网关能统一"普通对话 + 工具调用"的公分母，不能抹平推理与缓存的差异——这些要么由网关按供应商专属逻辑处理，要么由应用声明"这个请求绑定供应商"。过度抽象的网关会让你用不上供应商的新能力。
 
 ## 三、选项与定位
 
@@ -145,7 +162,10 @@ Table: 网关选项与定位
 
 ### 1. 理由
 
-流量不出域的合规要求；路由逻辑特殊（按租户的合同选供应商、按内容分类路由）；规模大到托管网关的费用可观；已有成熟的 API 网关基础设施（Envoy / Kong）可以扩展。
+- 流量不出域的合规要求；
+- 路由逻辑特殊（按租户的合同选供应商、按内容分类路由）；
+- 规模大到托管网关的费用可观；
+- 已有成熟的 API 网关基础设施（Envoy / Kong）可以扩展。
 
 ### 2. 最小集
 
@@ -177,14 +197,14 @@ flowchart LR
 ### 1. 不该做
 
 - **业务逻辑**：prompt 组装、检索、上下文管理属于应用层（L2、L3、L4）；网关不知道你的任务。
-- **改请求体**：不能重排消息、不能注入动态内容到前缀（毁缓存——《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）、不能改工具定义。
-- **替应用决定 fallback 的语义**：跨供应商切换后推理状态丢失、工具方言不同——应用要知道并处理（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；网关能做的是执行应用声明的策略。
+- **改请求体**：不能重排消息、不能注入动态内容到前缀（毁缓存——《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）、不能改工具定义。
+- **替应用决定 fallback 的语义**：跨供应商切换后推理状态丢失、工具方言不同——应用要知道并处理（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）；网关能做的是执行应用声明的策略。
 - **语义缓存作为默认**：只在明确声明可缓存的请求上做。
 - **单点无高可用**：网关挂了所有 AI 功能都挂；它要像任何核心基础设施一样有冗余。
 
 ### 2. 与 harness 的关系
 
-L4 讲的 agent 运行时（会话、工具、权限）在网关之上：运行时组装请求、经网关调模型；网关不参与工具执行与权限判定（那是 《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的四层，在运行时里）。托管的 Agents API（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》）把运行时放在供应商侧——此时网关只是它前面的一跳（或不存在）。
+L4 讲的 agent 运行时（会话、工具、权限）在网关之上：运行时组装请求、经网关调模型；网关不参与工具执行与权限判定（那是《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)的四层，在运行时里）。托管的 Agents API（《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）把运行时放在供应商侧——此时网关只是它前面的一跳（或不存在）。
 
 ```mermaid
 %% 图：网关在栈里的位置——上面是应用层（prompt 组装 · 检索 · 上下文管理）与 agent 运行时（会话 · 工具执行 · 权限四层），它们组装好请求经网关调模型；网关只管调用这一跳的七件事，不碰业务逻辑、不改请求体、不参与工具执行与权限判定；下面是供应商与自托管推理
@@ -258,7 +278,7 @@ t=2s 拒绝：需要 28000，只剩 20800
 
 1. **收口**：所有模型调用改走网关（逻辑模型名），供应商 key 从所有应用的环境变量里移除。
 2. **凭据分发**：每个服务 / 功能一个网关凭据，带模型白名单与配额。
-3. **归因标签**：每次调用带租户 / 功能 / prompt 版本 / 环境，usage 进账本——第二篇的起点。
+3. **归因标签**：每次调用带租户 / 功能 / prompt 版本 / 环境，usage 进账本——[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)的起点。
 4. **fallback 链声明**：每个逻辑模型名配 fallback 链，标注哪些请求不可跨供应商。
 5. **脱敏与 trace 在网关**：OTel 输出，PII 与凭据抹除。
 6. **不改请求体、不默认语义缓存、透传缓存标记**。
@@ -282,13 +302,13 @@ t=2s 拒绝：需要 28000，只剩 20800
 2. 网关为了统一日志格式，在每个请求的 system 开头注入了 `[request_id: …]`。会发生什么？
 
    <details markdown="1"><summary>答案</summary>
-   前缀每次不同，供应商侧的 prompt caching 全部失效（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》），输入成本涨十倍、TTFT 变长。网关不能改请求体前缀；request_id 放请求头或响应侧的 span 属性。详见[第五章](#五网关的边界)。
+   前缀每次不同，供应商侧的 prompt caching 全部失效（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)），输入成本涨十倍、TTFT 变长。网关不能改请求体前缀；request_id 放请求头或响应侧的 span 属性。详见[第五章](#五网关的边界)。
    </details>
 
 3. 网关配置了跨供应商 fallback，一个多轮推理任务在第 8 轮被切到另一家后质量骤降。原因？网关该怎么改？
 
    <details markdown="1"><summary>答案</summary>
-   推理状态（thinking block / reasoning item / 加密压缩 item）不能跨供应商搬运，切换后模型丢了推理上下文（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、第六篇）。网关应让应用声明"此会话绑定供应商"或"跨供应商仅在会话首轮"，会话中途只做同家族降档或重试，跨供应商只对无状态请求。详见[第二章](#二七项职责)、[第五章](#五网关的边界)。
+   推理状态（thinking block / reasoning item / 加密压缩 item）不能跨供应商搬运，切换后模型丢了推理上下文（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)、[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）。网关应让应用声明"此会话绑定供应商"或"跨供应商仅在会话首轮"，会话中途只做同家族降档或重试，跨供应商只对无状态请求。详见[第二章](#二七项职责)、[第五章](#五网关的边界)。
    </details>
 
 4. 合规要求"请求内容不出本公司网络"，但团队想用托管网关的路由能力。怎么设计？
@@ -300,7 +320,7 @@ t=2s 拒绝：需要 28000，只剩 20800
 5. 为什么归因标签要在网关而不是各应用自己记？
 
    <details markdown="1"><summary>答案</summary>
-   网关是唯一经过所有调用的点，能统一强制标签的存在与格式、统一用一份价目表算美元、统一进账本；各应用自记会漏、格式不一、价目表版本不同、无法跨应用聚合。归因是第二篇成本工程的基础，必须完整。详见[第二章](#二七项职责)。
+   网关是唯一经过所有调用的点，能统一强制标签的存在与格式、统一用一份价目表算美元、统一进账本；各应用自记会漏、格式不一、价目表版本不同、无法跨应用聚合。归因是[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)的基础，必须完整。详见[第二章](#二七项职责)。
    </details>
 
 [^q0]: 认证与密钥——应用拿网关凭据（按服务 / 租户 / 功能发放、可吊销、带范围），供应商 key 只在网关，解决 key 散落泄露与轮换要改多处；路由与 fallback——逻辑模型名映射到供应商与快照，fallback 链按方向性（重试 → 同家族降档 → 跨供应商仅对无状态请求 → 非模型路径），熔断与半开，解决供应商锁死与故障无退路；限流与配额——RPM / TPM / 美元 / 并发按租户与功能分配，解决一个功能打爆整体与账单失控；缓存——精确缓存对幂等查询、语义缓存慎用、不破坏供应商侧 prompt caching（不改前缀、透传标记）；成本归因——每次调用带租户 / 功能 / prompt 版本 / 模型 / 会话标签，usage 按价目表进账本，解决不知道钱花在哪；日志与脱敏——统一 trace 出口，PII 与凭据在此抹除；供应商抽象——统一公分母（对话 + 工具调用），推理状态、工具方言、缓存断点是边界。详见[第二章](#二七项职责)。

@@ -38,7 +38,7 @@ flowchart TB
 
 ![一次请求的延迟分解](/img/in-post/latency-engineering-request-breakdown.svg)
 
-从左到右是一次请求的先后，格子宽度不代表耗时。TTFT 这一格拆成网络、排队、prefill 三段。《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》里 TTFT 的三段是排队、prefill、思考，这里多算了到供应商的网络；用推理模型时，prefill 后面还有一段思考。
+从左到右是一次请求的先后，格子宽度不代表耗时。TTFT 这一格拆成网络、排队、prefill 三段。《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)里 TTFT 的三段是排队、prefill、思考，这里多算了到供应商的网络；用推理模型时，prefill 后面还有一段思考。
 
 | 段 | 决定因素 | 典型量级 | 手段 |
 |---|---|---|---|
@@ -54,21 +54,33 @@ Table: 延迟的分段与手段
 
 ### 2. 本文的章节安排
 
-第二章逐段的手段；第三章感知延迟与流式；第四章 p95 预算的分配与四层超时；第五章 agent 的多步延迟；第六章三者一起看；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、逐段的手段](#二逐段的手段) | 逐段的手段 |
+| [三、感知延迟与流式](#三感知延迟与流式) | 感知延迟与流式 |
+| [四、p95 预算与四层超时](#四p95-预算与四层超时) | p95 预算的分配与四层超时 |
+| [五、agent 的多步延迟](#五agent-的多步延迟) | agent 的多步延迟 |
+| [六、三者一起看](#六三者一起看) | 延迟、成本、质量三者一起看 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、逐段的手段
 
 ### 1. 应用侧准备
 
-**并行**：检索、用户画像加载、工具预查互不依赖的并行发；两路召回并行（《[检索与知识接入（04）：索引、混合检索与 rerank](/indexing-hybrid-search-and-reranking.html)》）。**rerank 的候选数**：从 50 降到 20 常省几百毫秒且精度几乎不变。**检索缓存**：同一会话内重复的检索结果缓存。**预取**：多轮对话里在用户打字时就按当前上下文预检索（命中率不高时是浪费——量）。**上下文组装**不该慢——慢通常是同步读多个存储，改并行或预加载。
+**并行**：检索、用户画像加载、工具预查互不依赖的并行发；两路召回并行（《检索与知识接入》的[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)）。**rerank 的候选数**：从 50 降到 20 常省几百毫秒且精度几乎不变。**检索缓存**：同一会话内重复的检索结果缓存。**预取**：多轮对话里在用户打字时就按当前上下文预检索（命中率不高时是浪费——量）。**上下文组装**不该慢——慢通常是同步读多个存储，改并行或预加载。
 
 ### 2. 网络与排队
 
-**区域路由**：供应商在多区域有端点时选就近的；网关部署在靠近用户或靠近供应商的位置（第一篇）。**避峰**：非实时任务走 Batch / Flex（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》、第二篇）让实时请求少排队；峰值时段的 fallback 到另一区域或供应商（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的方向性）。**优先级层级**：部分供应商有优先处理层级（加价换低排队）——对延迟敏感路径值得。
+**区域路由**：供应商在多区域有端点时选就近的；网关部署在靠近用户或靠近供应商的位置（[《模型网关》](/model-gateway-the-layer-every-call-goes-through.html)）。**避峰**：非实时任务走 Batch / Flex（《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)、[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)）让实时请求少排队；峰值时段的 fallback 到另一区域或供应商（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的方向性）。**优先级层级**：部分供应商有优先处理层级（加价换低排队）——对延迟敏感路径值得。
 
 ### 3. prefill
 
-**缓存命中是最大杠杆**：命中时 prefill 跳过前缀，TTFT 从秒级到几百毫秒（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）；事故里的时间戳在前缀让命中率为零。**瘦身**：《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》的 prompt 瘦身、《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的卸载与清理——agent 的每步都带几十 K 时 prefill 是主因。**新版本预热**：上线前用一批请求把新前缀写进缓存（第一轮全写 1.25× 的成本换用户不遇到冷启动）。
+**缓存命中是最大杠杆**：命中时 prefill 跳过前缀，TTFT 从秒级到几百毫秒（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）；事故里的时间戳在前缀让命中率为零。**瘦身**：《Prompt 与上下文工程》的[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的 prompt 瘦身、《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的卸载与清理——agent 的每步都带几十 K 时 prefill 是主因。**新版本预热**：上线前用一批请求把新前缀写进缓存（第一轮全写 1.25× 的成本换用户不遇到冷启动）。
+
+> [!NOTE] 后端经验参照：prompt caching 之于 CDN 与本地缓存
+> 对得上的是缓存的运营习惯：盯命中率、上线前预热、把动态内容挪出可缓存的部分（时间戳进前缀，就像把随机参数拼进 CDN 的 URL）。对不上的是键：prompt caching 按前缀逐字匹配，前面差一个字节，后面整段都不命中，没有按对象独立失效这回事；缓存活多久、写一次多贵由供应商定，应用侧不能主动刷新或清除。
 
 ```mermaid
 %% 图：一次对话式 RAG 请求的七段耗时（毫秒，p95）修前与修后——修前：检索 1,200（rerank 50 个候选）、排队 1,000（峰值）、prefill 2,500（60K 上下文、时间戳毁掉缓存）、输出 3,000（不流式）；修后：rerank 候选 20 并两路并行 400、避峰 300、去掉时间戳缓存命中 300、流式首字 1 秒后出现；TTFT 从 4.8 秒到 1 秒
@@ -85,11 +97,11 @@ xychart-beta
 
 ### 4. 输出
 
-**限长**：`max_tokens` 与 prompt 里的长度约束；结构化输出比自由文本短（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）；不要让模型"先解释思路"（推理模型的思考已经在内部——《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》）。**更小的模型**：每 token 时间与模型大小相关，级联让简单请求走快模型（第二篇）。**流式**：不减少总时长，但让用户在第一个 token 就看到东西——第三章。
+**限长**：`max_tokens` 与 prompt 里的长度约束；结构化输出比自由文本短（《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）；不要让模型"先解释思路"（推理模型的思考已经在内部——《Prompt 与上下文工程》的[《prompt 设计》](/prompt-design-patterns-vs-wording.html)）。**更小的模型**：每 token 时间与模型大小相关，级联让简单请求走快模型（[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)）。**流式**：不减少总时长，但让用户在第一个 token 就看到东西——第三章。
 
 ### 5. 后处理
 
-流式下的**增量解析**（部分 JSON 解析器——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）让结构化输出也能边到边渲染；校验在流结束时做；渲染不要等全部。
+流式下的**增量解析**（部分 JSON 解析器——《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）让结构化输出也能边到边渲染；校验在流结束时做；渲染不要等全部。
 
 ## 三、感知延迟与流式
 
@@ -99,13 +111,13 @@ xychart-beta
 
 ### 2. 流式的三层
 
-- **token 流**：模型输出逐 token 推到前端（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的流式事件）。
-- **步骤流**：agent 的每一步（调了什么工具、拿到什么）推到前端（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件流）——用户看到"正在搜索…找到 3 个文件…正在修改…"比等 30 秒看结果好得多。
+- **token 流**：模型输出逐 token 推到前端（《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)的流式事件）。
+- **步骤流**：agent 的每一步（调了什么工具、拿到什么）推到前端（《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件流）——用户看到"正在搜索…找到 3 个文件…正在修改…"比等 30 秒看结果好得多。
 - **进度与预估**：长任务给进度（完成 3 / 7 步）与预估——L7 讲呈现。
 
 ### 3. 流式的成本
 
-服务端要维持连接、前端要处理增量、结构化输出要增量解析、错误可能在流中间发生（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的六个坑）；但对任何面向用户的对话与 agent，流式是默认——不流式的场景只有后台批处理与非交互的 API。
+服务端要维持连接、前端要处理增量、结构化输出要增量解析、错误可能在流中间发生（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的六个坑）；但对任何面向用户的对话与 agent，流式是默认——不流式的场景只有后台批处理与非交互的 API。
 
 ### 4. 骨架与占位
 
@@ -157,7 +169,10 @@ Table: 对话式 RAG 的 p95 延迟预算分配
 
 ### 2. 四层超时
 
-《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》：连接、首字、字间、总时长各设超时，超时后的动作（重试、fallback、降级、部分结果）。超时值从预算来：首字超时 = TTFT 预算的 2–3 倍，字间超时防流卡死，总时长超时 = 用户容忍的上限。
+《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)：连接、首字、字间、总时长各设超时，超时后的动作（重试、fallback、降级、部分结果）。超时值从预算来：首字超时 = TTFT 预算的 2–3 倍，字间超时防流卡死，总时长超时 = 用户容忍的上限。
+
+> [!NOTE] 后端经验参照：四层超时之于 RPC 的连接、读与截止时间
+> 连接超时、字间超时、总时长超时分别对得上 HTTP 客户端的 connect timeout、read（空闲）timeout 和整条调用的 deadline，超时值从下游预算推出来的做法也一样。对不上的是首字超时和总时长：普通 RPC 的响应时间大致固定，模型调用先等 prefill 再逐 token 输出，总时长随输出长度线性增长，所以要单独给首字一层超时，总超时也不能按"几百毫秒"的 RPC 经验来设。
 
 ```mermaid
 %% 图：p95 预算怎么分到每段、每段的告警与超时怎么从预算推出来——总时长目标 10 秒、首字 1 秒；分到网关 50 ms、检索 400、排队 300、prefill 300；每段的 p95 超预算就告警到那一段（rerank 候选被改大 → 检索段；命中率掉 → prefill 段）；首字超时 = TTFT 预算 × 2–3 = 3 秒，字间超时 15 秒，总超时 = 用户容忍上限 30 秒
@@ -182,7 +197,7 @@ flowchart TB
 
 ### 3. 延迟的分布
 
-与成本同理（第二篇）：看 p50 / p95 / p99，长尾（缓存未命中、排队、fallback 路径）单独画像；发布的门禁里"延迟不退化"看 p95（《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》）。
+与成本同理（[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)）：看 p50 / p95 / p99，长尾（缓存未命中、排队、fallback 路径）单独画像；发布的门禁里"延迟不退化"看 p95（《评测、可观测与可追溯》的[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）。
 
 ## 五、agent 的多步延迟
 
@@ -192,11 +207,11 @@ flowchart TB
 
 | 杠杆 | 做法 | 效果 | 出处 |
 |---|---|---|---|
-| **减步数** | PTC 把多步数据处理变一轮<br/>更好的工具描述减少试错<br/>工作流替代不必要的循环 | 最大 | 《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》、第一篇 |
-| **并行** | 一步内多个独立工具调用并行；独立子任务交给并行子 agent | 墙钟大降，token 不降 | 《[工具、Agent 与 harness（04）：长任务的上下文管理与子 agent](/long-horizon-context-management-and-subagents.html)》、《[工具、Agent 与 harness（07）：多 agent——编排、handoff 与 A2A](/multi-agent-orchestration-handoff-and-a2a.html)》 |
-| **级联** | 简单任务走短路径（一次调用），复杂的才进循环 | 多数任务变快 | 《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》、《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》 |
-| **每步更快** | 缓存命中（agent 的前缀稳定——《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）、卸载让每步 prefill 小、effort 按步选 | 每步降 30–70% | L2、《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》 |
-| **后台异步** | 长任务不让用户等，交付可审阅的中间物 | 感知延迟归零 | 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》 |
+| **减步数** | PTC 把多步数据处理变一轮<br/>更好的工具描述减少试错<br/>工作流替代不必要的循环 | 最大 | 《工具、Agent 与 harness》的[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)、[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html) |
+| **并行** | 一步内多个独立工具调用并行；独立子任务交给并行子 agent | 墙钟大降，token 不降 | 《工具、Agent 与 harness》的[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)、[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html) |
+| **级联** | 简单任务走短路径（一次调用），复杂的才进循环 | 多数任务变快 | 《检索与知识接入》的[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)、《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html) |
+| **每步更快** | 缓存命中（agent 的前缀稳定——《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）、卸载让每步 prefill 小、effort 按步选 | 每步降 30–70% | L2、《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html) |
+| **后台异步** | 长任务不让用户等，交付可审阅的中间物 | 感知延迟归零 | 《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html) |
 | **步骤流** | 每步推事件 | 感知 | 本篇第三章 |
 
 Table: 压 agent 延迟的杠杆
@@ -215,11 +230,11 @@ xychart-beta
 
 ### 2. 工具的延迟
 
-工具是 agent 每步的一部分：慢的工具（编译、大查询、外部 API）要有超时与异步形态（提交后轮询——MCP Tasks 扩展，《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》）；agent 在等慢工具时可以并行做别的（模型决定，或运行时调度）。
+工具是 agent 每步的一部分：慢的工具（编译、大查询、外部 API）要有超时与异步形态（提交后轮询——MCP Tasks 扩展，《工具、Agent 与 harness》的[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）；agent 在等慢工具时可以并行做别的（模型决定，或运行时调度）。
 
 ### 3. 压缩的延迟
 
-压缩是一次额外的模型调用（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》），在长任务中间出现一次几秒的停顿；在思考链边界做、用小模型做摘要、预留时间——或用会话记忆式的便宜压缩（《[工具、Agent 与 harness（04）：长任务的上下文管理与子 agent](/long-horizon-context-management-and-subagents.html)》）。
+压缩是一次额外的模型调用（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)），在长任务中间出现一次几秒的停顿；在思考链边界做、用小模型做摘要、预留时间——或用会话记忆式的便宜压缩（《工具、Agent 与 harness》的[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。
 
 ## 六、三者一起看
 
@@ -239,7 +254,7 @@ xychart-beta
 
 Table: 延迟、成本与质量的取舍
 
-缓存、瘦身、并行、流式是"免费的"（三者不冲突）；模型与 effort 的选择是三者的取舍——在评测集上量质量、在账本上量成本、在 trace 上量延迟，三个数字一起报（《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》的原则）。
+缓存、瘦身、并行、流式是"免费的"（三者不冲突）；模型与 effort 的选择是三者的取舍——在评测集上量质量、在账本上量成本、在 trace 上量延迟，三个数字一起报（《评测、可观测与可追溯》的[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)的原则）。
 
 ### 2. 面板
 
@@ -268,25 +283,34 @@ TTFT p50 / p95、总时长 p50 / p95、按段的 p95、缓存命中率、排队�
 1. 事故里的 RAG 问答 p95 9 秒，按分解各段的药是什么？预期能到多少？
 
    <details markdown="1"><summary>答案</summary>
-   检索 1.2 s → rerank 候选 50 降到 20、两路并行：约 0.4 s；prefill 2.5 s → 去掉前缀时间戳让缓存命中、卸载不必要的历史：约 0.3 s；排队 1 s → 避峰或优先级层级 / 区域 fallback：约 0.3 s；输出 3 s → 流式（用户 1 s 开始读）+ 限长 300 token。TTFT 从约 5 s 到约 1 s，总时长仍 5–6 s 但感知从"卡 5 秒"变为"1 秒出字"。详见[第二章](#二逐段的手段)、[第三章](#三感知延迟与流式)。
+   - 检索 1.2 s → rerank 候选 50 降到 20、两路并行：约 0.4 s
+   - prefill 2.5 s → 去掉前缀时间戳让缓存命中、卸载不必要的历史：约 0.3 s
+   - 排队 1 s → 避峰或优先级层级 / 区域 fallback：约 0.3 s
+   - 输出 3 s → 流式（用户 1 s 开始读）+ 限长 300 token
+
+   TTFT 从约 5 s 到约 1 s，总时长仍 5–6 s 但感知从"卡 5 秒"变为"1 秒出字"。详见[第二章](#二逐段的手段)、[第三章](#三感知延迟与流式)。
    </details>
 
 2. 为什么说缓存命中是 prefill 段最大的杠杆？命中率从 0 到 80% 对 TTFT 意味着什么？
 
    <details markdown="1"><summary>答案</summary>
-   命中时供应商跳过前缀的 prefill 计算，60K 上下文的几秒 prefill 变成几百毫秒（只算未缓存的尾部）；80% 的请求 TTFT 降一个量级，p95 大幅下降（剩下 20% 未命中是长尾）。前提是 《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》的排列纪律与新版本预热。详见[第二章](#二逐段的手段)。
+   命中时供应商跳过前缀的 prefill 计算，60K 上下文的几秒 prefill 变成几百毫秒（只算未缓存的尾部）；80% 的请求 TTFT 降一个量级，p95 大幅下降（剩下 20% 未命中是长尾）。前提是《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)的排列纪律与新版本预热。详见[第二章](#二逐段的手段)。
    </details>
 
 3. 一个 25 步的 coding agent 任务要 2 分钟。按第五章的杠杆顺序给出三个最有效的动作。
 
    <details markdown="1"><summary>答案</summary>
-   （1）减步数：看轨迹里的试错（工具描述不清导致的重试、重复搜索），改描述；多步数据处理用 PTC 合并；（2）并行：独立的文件读取与测试运行并行，独立子任务交给并行子 agent；（3）每步更快：前缀稳定让缓存命中、卸载大工具返回让每步 prefill 小、非关键步 effort 降档。加步骤流让用户看到进展，或改为后台异步交付 PR。详见[第五章](#五agent-的多步延迟)。
+   1. 减步数：看轨迹里的试错（工具描述不清导致的重试、重复搜索），改描述；多步数据处理用 PTC 合并。
+   2. 并行：独立的文件读取与测试运行并行，独立子任务交给并行子 agent。
+   3. 每步更快：前缀稳定让缓存命中、卸载大工具返回让每步 prefill 小、非关键步 effort 降档。
+
+   加步骤流让用户看到进展，或改为后台异步交付 PR。详见[第五章](#五agent-的多步延迟)。
    </details>
 
 4. 团队把 `max_tokens` 从 1,000 砍到 200 让输出段变快，用户投诉回答被截断。哪里错了？
 
    <details markdown="1"><summary>答案</summary>
-   限长要配合 prompt 里的长度约束（让模型在 200 内说完）与结构化输出（短而完整），而不是硬截断；结构化输出下截断还会让 JSON 坏掉（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）。正确：prompt 约束长度 + 结构化 + `max_tokens` 留余量 + 流式让长回答也早开始出字；`stop_reason` 为长度时要处理。详见[第二章](#二逐段的手段)。
+   限长要配合 prompt 里的长度约束（让模型在 200 内说完）与结构化输出（短而完整），而不是硬截断；结构化输出下截断还会让 JSON 坏掉（《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）。正确：prompt 约束长度 + 结构化 + `max_tokens` 留余量 + 流式让长回答也早开始出字；`stop_reason` 为长度时要处理。详见[第二章](#二逐段的手段)。
    </details>
 
 5. 优先级层级加价 30% 换排队时间从 1 秒到 0.1 秒。什么路径值得、什么不值得？

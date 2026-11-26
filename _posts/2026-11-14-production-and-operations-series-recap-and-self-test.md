@@ -62,45 +62,124 @@ Table: 本文的章节安排
 
 ### 1. 第一篇：网关
 
-**结论**：七项职责与各自预防的事故；缓存三分（精确可用、语义慎用、不破坏供应商侧 prompt caching）；抽象的边界（推理状态、工具方言、缓存断点）；选项定位与七判据；自建理由与最小集、薄自建 + LiteLLM 的混合；五不做与高可用。
+**结论**：
 
-**常见误解**：语义缓存默认开；网关注入前缀；跨供应商 fallback 不区分有状态会话。
+- 七项职责与各自预防的事故
+- 缓存三分（精确可用、语义慎用、不破坏供应商侧 prompt caching）
+- 抽象的边界（推理状态、工具方言、缓存断点）
+- 选项定位与七判据
+- 自建理由与最小集、薄自建 + LiteLLM 的混合
+- 五不做与高可用
+
+**常见误解**：
+
+- 语义缓存默认开
+- 网关注入前缀
+- 跨供应商 fallback 不区分有状态会话
 
 ### 2. 第二篇：成本
 
-**结论**：结构（五项 + 工具 + judge + 检索；长尾、跳变、输入侧）；归因标签与账本与三视图，评测成本单列；预算三档与六级梯子与每小时异常归因；九种手段的量级与代价、先免费再要评测最后微调；按任务分布与长尾画像与成本门禁；单位经济学（价值 / 成本、毛利两条线、三决策、定价覆盖 p95）；FinOps 五周期。
+**结论**：
 
-**常见误解**：砍评测省钱；按 p50 定价；级联掉分就放弃。
+- 结构（五项 + 工具 + judge + 检索；长尾、跳变、输入侧）
+- 归因标签与账本与三视图，评测成本单列
+- 预算三档与六级梯子与每小时异常归因
+- 九种手段的量级与代价、先免费再要评测最后微调
+- 按任务分布与长尾画像与成本门禁
+- 单位经济学（价值 / 成本、毛利两条线、三决策、定价覆盖 p95）
+- FinOps 五周期
+
+**常见误解**：
+
+- 砍评测省钱
+- 按 p50 定价
+- 级联掉分就放弃
 
 ### 3. 第三篇：延迟
 
-**结论**：七段分解表；逐段手段（并行预取、rerank 候选、区域、避峰与层级、缓存命中与预热、瘦身卸载、限长结构化流式、增量解析）；感知 vs 绝对与流式三层与骨架；p95 分段预算与四层超时与分布；agent 五杠杆顺序与工具异步与压缩延迟；取舍表与面板。
+**结论**：
 
-**常见误解**：换模型解决延迟；硬砍 `max_tokens`；所有路径都买优先级层级。
+- 七段分解表
+- 逐段手段（并行预取、rerank 候选、区域、避峰与层级、缓存命中与预热、瘦身卸载、限长结构化流式、增量解析）
+- 感知 vs 绝对与流式三层与骨架
+- p95 分段预算与四层超时与分布
+- agent 五杠杆顺序与工具异步与压缩延迟
+- 取舍表与面板
+
+**常见误解**：
+
+- 换模型解决延迟
+- 硬砍 `max_tokens`
+- 所有路径都买优先级层级
 
 ### 4. 第四篇：安全
 
-**结论**：OWASP 对应表；EchoLeak 七环与四层拦截、GitHub MCP 的跨资源、Cursor 三 CVE 的同模式、描述投毒的架构性；五层防御（来源分区 → 四层 → 输出处理 → 数据流控制 → 监控红队）；MCP 供应链六风险；密钥七条；红队六类用例与季度人工。
+**结论**：
 
-**常见误解**：分类器能防注入；工作区可写 = 配置可写；系统提示里放 key。
+- OWASP 对应表
+- EchoLeak 七环与四层拦截、GitHub MCP 的跨资源、Cursor 三 CVE 的同模式、描述投毒的架构性
+- 五层防御（来源分区 → 四层 → 输出处理 → 数据流控制 → 监控红队）
+- MCP 供应链六风险
+- 密钥七条
+- 红队六类用例与季度人工
+
+**常见误解**：
+
+- 分类器能防注入
+- 工作区可写 = 配置可写
+- 系统提示里放 key
 
 ### 5. 第五篇：治理
 
-**结论**：七类治理问题与答案来源；审计链的构成与三加项与隐私张力的分级解；供应商侧六问与数据流图核合同，自己侧分级，用户四权利；AI Act 时间表（推迟的只是高风险、日期固定）、deployer 义务、用途分类；中国标识办法与一套实现；供应商变更登记；责任矩阵与轻重流程。
+**结论**：
 
-**常见误解**：看到延期停项目；网页条款当合同；"辅助"就不是高风险。
+- 七类治理问题与答案来源
+- 审计链的构成与三加项与隐私张力的分级解
+- 供应商侧六问与数据流图核合同，自己侧分级，用户四权利
+- AI Act 时间表（推迟的只是高风险、日期固定）、deployer 义务、用途分类
+- 中国标识办法与一套实现
+- 供应商变更登记
+- 责任矩阵与轻重流程
+
+**常见误解**：
+
+- 看到延期停项目
+- 网页条款当合同
+- "辅助"就不是高风险
 
 ### 6. 第六篇：发布
 
-**结论**：十类算发布与版本化；开关三态与层次与 kill switch；钉一切表与版本矩阵；依赖变更是别人替你做的发布（探针、通知、登记、日历）；回滚前确认清单与前向修复；五本 runbook 各七段；四类 SLO 与错误预算、告警分级、值班与演练。
+**结论**：
 
-**常见误解**：小改动不用评；kill switch 出事再做；错误预算耗尽照常发。
+- 十类算发布与版本化
+- 开关三态与层次与 kill switch
+- 钉一切表与版本矩阵
+- 依赖变更是别人替你做的发布（探针、通知、登记、日历）
+- 回滚前确认清单与前向修复
+- 五本 runbook 各七段
+- 四类 SLO 与错误预算、告警分级、值班与演练
+
+**常见误解**：
+
+- 小改动不用评
+- kill switch 出事再做
+- 错误预算耗尽照常发
 
 ### 7. 第七篇：飞轮与物理
 
-**结论**：六环与卡点与三判据；微调末端、数据筛选、微调模型是新依赖；四道门与按租户开关与合成替代；物理世界六阶段与准入、安全案例、OTA 分批 / 回滚约束 / 车队 A/B / 监控 / 远程禁用；同构表十行与"高风险 agent 更像 OTA"。
+**结论**：
 
-**常见误解**：bad case 直接训；所有租户数据都能用；OTA 一次全量。
+- 六环与卡点与三判据
+- 微调末端、数据筛选、微调模型是新依赖
+- 四道门与按租户开关与合成替代
+- 物理世界六阶段与准入、安全案例、OTA 分批 / 回滚约束 / 车队 A/B / 监控 / 远程禁用
+- 同构表十行与"高风险 agent 更像 OTA"
+
+**常见误解**：
+
+- bad case 直接训
+- 所有租户数据都能用
+- OTA 一次全量
 
 ## 三、贯穿全系列的几条线
 
@@ -160,7 +239,7 @@ flowchart LR
 
 ### 3. 改动 = 发布，依赖也会变
 
-[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)的十类、[《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)的供应商变更治理、《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》的探针——供应商的模型更新、弃用、条款变化、MCP server 更新都是别人替你做的发布，要探针、通知、登记、评估、日历。
+[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)的十类、[《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)的供应商变更治理、《评测、可观测与可追溯》的[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的探针——供应商的模型更新、弃用、条款变化、MCP server 更新都是别人替你做的发布，要探针、通知、登记、评估、日历。
 
 ```mermaid
 %% 图：生产与运营七篇的关系：网关是入口，成本、延迟、安全、治理都汇到发布，飞轮回流到发布，供应商与 MCP 变更也是发布
@@ -187,28 +266,28 @@ flowchart TB
 
 | 概念 | 出处 | 一句话 |
 |---|---|---|
-| 七项职责 | 1 | 密钥、路由 / fallback、限流 / 配额、缓存、归因、日志 / 脱敏、抽象 |
-| 抽象的边界 | 1 | 推理状态、工具方言、缓存断点不能抹平 |
-| 归因三视图 | 2 | 按功能 / 租户 / 版本 |
-| 降级梯子 | 2 | 六级，从降模型到非模型路径 |
-| 单位经济学 | 2 | 每任务成本 vs 价值<br/>< 3 重做<br/>定价覆盖 p95 |
-| 七段分解 | 3 | 网关、准备、网络、排队、prefill、输出、后处理 |
-| 感知 ≠ 绝对 | 3 | TTFT 与总时长分开；流式三层 |
-| 五层防御 | 4 | 来源分区 → 四层 → 输出处理 → 数据流 → 监控红队 |
-| 读 → 写不该写的文件 | 4 | Cursor 三 CVE 的模式；agent 自身配置不可写 |
-| MCP server 是权限主体 | 4 | 可信来源、钉哈希、再批准、独立凭据 |
-| 审计链 | 5 | 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出 |
-| 数据流图 | 5 | 哪些数据到哪个供应商、存多久、什么条款；核合同 |
-| 推迟的只是高风险 | 5 | AI Act：GPAI、Article 50、禁令按原日期 |
-| 一套标识两格式 | 5 | 元数据 + 显式提示，覆盖 EU 与中国 |
-| 改动 = 发布 | 6 | 十类全部版本化过门禁可回滚 |
-| kill switch | 6 | 秒级、上线前存在并演练 |
-| 别人替你做的发布 | 6 | 供应商与 MCP 变更 |
-| 五本 runbook | 6 | 宕机、成本、注入、越权、质量 |
-| 四类 SLO | 6 | 可用性、延迟、质量、成本 + 错误预算 |
-| 飞轮三判据 | 7 | 周新用例、月发布、分布变化 |
-| 四道门 | 7 | 授权、隔离、脱敏、删除 |
-| 安全案例 | 7 | 结构化论证 + 证据；高风险 agent 借它 |
+| 七项职责 | [《模型网关》](/model-gateway-the-layer-every-call-goes-through.html) | 密钥、路由 / fallback、限流 / 配额、缓存、归因、日志 / 脱敏、抽象 |
+| 抽象的边界 | [《模型网关》](/model-gateway-the-layer-every-call-goes-through.html) | 推理状态、工具方言、缓存断点不能抹平 |
+| 归因三视图 | [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) | 按功能 / 租户 / 版本 |
+| 降级梯子 | [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) | 六级，从降模型到非模型路径 |
+| 单位经济学 | [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) | 每任务成本 vs 价值<br/>< 3 重做<br/>定价覆盖 p95 |
+| 七段分解 | [《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html) | 网关、准备、网络、排队、prefill、输出、后处理 |
+| 感知 ≠ 绝对 | [《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html) | TTFT 与总时长分开；流式三层 |
+| 五层防御 | [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) | 来源分区 → 四层 → 输出处理 → 数据流 → 监控红队 |
+| 读 → 写不该写的文件 | [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) | Cursor 三 CVE 的模式；agent 自身配置不可写 |
+| MCP server 是权限主体 | [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) | 可信来源、钉哈希、再批准、独立凭据 |
+| 审计链 | [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | 会话日志 + trace + 决策点 + 保留 / 不可篡改 / 导出 |
+| 数据流图 | [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | 哪些数据到哪个供应商、存多久、什么条款；核合同 |
+| 推迟的只是高风险 | [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | AI Act：GPAI、Article 50、禁令按原日期 |
+| 一套标识两格式 | [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) | 元数据 + 显式提示，覆盖 EU 与中国 |
+| 改动 = 发布 | [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 十类全部版本化过门禁可回滚 |
+| kill switch | [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 秒级、上线前存在并演练 |
+| 别人替你做的发布 | [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 供应商与 MCP 变更 |
+| 五本 runbook | [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 宕机、成本、注入、越权、质量 |
+| 四类 SLO | [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) | 可用性、延迟、质量、成本 + 错误预算 |
+| 飞轮三判据 | [《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html) | 周新用例、月发布、分布变化 |
+| 四道门 | [《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html) | 授权、隔离、脱敏、删除 |
+| 安全案例 | [《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html) | 结构化论证 + 证据；高风险 agent 借它 |
 
 Table: 贯穿八篇的概念表
 
@@ -216,25 +295,25 @@ Table: 贯穿八篇的概念表
 
 | 误区 | 为什么错 | 出处 |
 |---|---|---|
-| "每个服务自己拿 key 调模型" | 散落泄露、无归因、无 fallback | 1 |
-| "网关做语义缓存省钱" | 相似不等于同答案；默认关 | 1 |
-| "网关注入 request_id 到 system" | 毁缓存前缀 | 1 |
-| "月底看账单" | 长尾与跳变；每小时异常归因 | 2 |
-| "评测太贵先砍" | 质量的成本单列；一次事故更贵 | 2 |
-| "按平均用户定价" | 重度用户 5–10×；覆盖 p95 | 2 |
-| "慢就换快模型" | 七段各有药 | 3 |
-| "硬砍 max_tokens" | 截断；配 prompt 约束与结构化 | 3 |
-| "加注入分类器就安全了" | EchoLeak 绕过了；五层 | 4 |
-| "工作区可写没问题" | 配置 / MCP 清单 / 沙箱策略要 deny | 4 |
-| "MCP server 装了就完" | 权限主体：钉哈希、再批准、独立凭据 | 4 |
-| "有 trace 就有审计链" | 要完整内容、保留期、不可篡改、导出 | 5 |
-| "AI Act 延期了停项目" | 推迟的只是高风险 | 5 |
-| "供应商网页说不训练" | 核合同 | 5 |
-| "小改动直接上" | 改动 = 发布 | 6 |
-| "浮动别名方便" | 静默升级 | 6 |
-| "出事再做 kill switch" | 上线前存在并演练 | 6 |
-| "bad case 直接微调" | 学进错误；筛过的好例子 | 7 |
-| "OTA 一次全量" | 分批、准入、停止条件 | 7 |
+| "每个服务自己拿 key 调模型" | 散落泄露、无归因、无 fallback| [《模型网关》](/model-gateway-the-layer-every-call-goes-through.html) |
+| "网关做语义缓存省钱" | 相似不等于同答案；默认关| [《模型网关》](/model-gateway-the-layer-every-call-goes-through.html) |
+| "网关注入 request_id 到 system" | 毁缓存前缀| [《模型网关》](/model-gateway-the-layer-every-call-goes-through.html) |
+| "月底看账单" | 长尾与跳变；每小时异常归因| [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) |
+| "评测太贵先砍" | 质量的成本单列；一次事故更贵| [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) |
+| "按平均用户定价" | 重度用户 5–10×；覆盖 p95| [《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) |
+| "慢就换快模型" | 七段各有药| [《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html) |
+| "硬砍 max_tokens" | 截断；配 prompt 约束与结构化| [《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html) |
+| "加注入分类器就安全了" | EchoLeak 绕过了；五层| [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) |
+| "工作区可写没问题" | 配置 / MCP 清单 / 沙箱策略要 deny| [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) |
+| "MCP server 装了就完" | 权限主体：钉哈希、再批准、独立凭据| [《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html) |
+| "有 trace 就有审计链" | 要完整内容、保留期、不可篡改、导出| [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) |
+| "AI Act 延期了停项目" | 推迟的只是高风险| [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) |
+| "供应商网页说不训练" | 核合同| [《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html) |
+| "小改动直接上" | 改动 = 发布| [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) |
+| "浮动别名方便" | 静默升级| [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) |
+| "出事再做 kill switch" | 上线前存在并演练| [《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html) |
+| "bad case 直接微调" | 学进错误；筛过的好例子| [《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html) |
+| "OTA 一次全量" | 分批、准入、停止条件| [《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html) |
 
 Table: 常见误区与正确说法
 
@@ -307,19 +386,42 @@ Table: 常见误区与正确说法
 1. 一个多租户 SaaS 的 AI 客服上线三个月：账单涨 4×、p95 8 秒、一个客户投诉数据出现在另一租户的回答里、合规问审计链拿不出。用七篇各给一个动作，排优先级。
 
    <details markdown="1"><summary>答案</summary>
-   优先级：（1）安全（4）：跨租户泄漏——立即 kill switch 涉事功能、审计影响范围、查检索的权限过滤（L3）与数据流控制，补红队用例；（2）治理（5）：验证审计链清单，补完整内容与保留，画数据流图核合同，通知客户；（3）网关（1）：收口 key、加租户 / 功能归因标签；（4）成本（2）：归因找烧钱的功能与租户，设预算与梯子，做缓存排列与级联；（5）延迟（3）：分段找最大段（多半是缓存未命中与 rerank），流式；（6）发布（6）：十类版本化、kill switch、runbook；（7）飞轮（7）：反馈带 trace id、队列 owner、按租户授权开关。
+   优先级：
+
+   1. 安全（4）：跨租户泄漏——立即 kill switch 涉事功能、审计影响范围、查检索的权限过滤（L3）与数据流控制，补红队用例
+   2. 治理（5）：验证审计链清单，补完整内容与保留，画数据流图核合同，通知客户
+   3. 网关（1）：收口 key、加租户 / 功能归因标签
+   4. 成本（2）：归因找烧钱的功能与租户，设预算与梯子，做缓存排列与级联
+   5. 延迟（3）：分段找最大段（多半是缓存未命中与 rerank），流式
+   6. 发布（6）：十类版本化、kill switch、runbook
+   7. 飞轮（7）：反馈带 trace id、队列 owner、按租户授权开关
+
    </details>
 
 2. 用[《安全》](/security-prompt-injection-supply-chain-and-data-exfiltration.html)的五层为一个"读用户邮件并起草回复"的 agent 设计防御，说明 EchoLeak 的七环各在哪层被拦。
 
    <details markdown="1"><summary>答案</summary>
-   ① 输入侧：邮件内容进上下文时标为不可信数据并分区，分类器辅助（拦 ②③ 的概率）；② 权限与沙箱：按任务最小权限——起草回复的会话只能读该线程与必要的联系人，不能读任意内部文件（拦 ④）；工具只有"起草"没有"发送"，发送需人批（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的中间物）；③ 输出处理：草稿渲染前脱敏所有形态链接与图片、不自动加载、CSP 最小化（拦 ⑤⑥⑦）；④ 数据流控制：读过敏感附件的会话生成的草稿里不能有外链（拦 ④→⑥）；⑤ 监控与红队：陌生域名外链告警，EchoLeak 模式进红队集与门禁。
+
+   1. 输入侧：邮件内容进上下文时标为不可信数据并分区，分类器辅助（拦 ②③ 的概率）
+   2. 权限与沙箱：按任务最小权限——起草回复的会话只能读该线程与必要的联系人，不能读任意内部文件（拦 ④）；工具只有"起草"没有"发送"，发送需人批（《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的中间物）
+   3. 输出处理：草稿渲染前脱敏所有形态链接与图片、不自动加载、CSP 最小化（拦 ⑤⑥⑦）
+   4. 数据流控制：读过敏感附件的会话生成的草稿里不能有外链（拦 ④→⑥）
+   5. 监控与红队：陌生域名外链告警，EchoLeak 模式进红队集与门禁
+
    </details>
 
 3. 供应商宣布 60 天后弃用你在用的模型，同时条款更新为默认可用于改进。用[《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)与[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)列出全部要做的事与顺序。
 
    <details markdown="1"><summary>答案</summary>
-   （1）登记两项供应商变更（弃用、条款）；（2）条款：核对企业合同是否受影响，若受影响启用 ZDR / 退出选项或更新数据流图与客户承诺，法务批；（3）弃用：新模型进评测（分层、成本、tokenizer 与 API 差异），过门禁；（4）新版本 → 影子 → 灰度 → 全量，更新 fallback 链与路由表；（5）版本矩阵：钉旧模型的租户单独迁移；（6）弃用日前确认无租户在旧模型，上日历；（7）记录全部（谁批、评测结果）供审计。
+
+   1. 登记两项供应商变更（弃用、条款）
+   2. 条款：核对企业合同是否受影响，若受影响启用 ZDR / 退出选项或更新数据流图与客户承诺，法务批
+   3. 弃用：新模型进评测（分层、成本、tokenizer 与 API 差异），过门禁
+   4. 新版本 → 影子 → 灰度 → 全量，更新 fallback 链与路由表
+   5. 版本矩阵：钉旧模型的租户单独迁移
+   6. 弃用日前确认无租户在旧模型，上日历
+   7. 记录全部（谁批、评测结果）供审计
+
    </details>
 
 4. 一个高风险用途（招聘筛选）的 agent 要上线。把[《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)的义务、[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)的发布体系、[《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html)的"更像 OTA"合成一份上线方案。
@@ -331,7 +433,7 @@ Table: 常见误区与正确说法
 5. 把本系列七篇与前五层对应：每篇主要用了前面哪些层的机制，把什么变成了运营。
 
    <details markdown="1"><summary>答案</summary>
-   网关（1）：《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》的重试 / 限流 / fallback 方向性 → 集中到一层；《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存 → 不破坏。成本（2）：《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》公式与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》级联、L2 缓存与瘦身、L4 卫士 → 归因、预算、梯子、单位经济学。延迟（3）：《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》 TTFT 与同系列[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的超时、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存、《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 PTC 与同系列[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)的并行 → 分段预算与面板。安全（4）：《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》四层、《[Prompt 与上下文工程（02）：prompt 设计——稳定的模式与不稳定的措辞](/prompt-design-patterns-vs-wording.html)》分区、《[检索与知识接入（04）：索引、混合检索与 rerank](/indexing-hybrid-search-and-reranking.html)》权限过滤 → 五层与供应链与密钥。治理（5）：《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》会话日志、《[评测、可观测与可追溯（05）：trace——span、OpenTelemetry GenAI 语义约定与工具选择](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》 trace 与决策点 → 审计链；《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》 `store` → 保留策略。发布（6）：《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》版本、《[评测、可观测与可追溯（04）：回归与门禁——CI、供应商静默升级、A/B 与在线评测](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)》门禁与探针 → 开关、钉版本、runbook、SLO。飞轮（7）：《[评测、可观测与可追溯（01）：评测集——AI 应用的单元测试](/eval-sets-the-unit-tests-of-ai-applications.html)》、《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》评测集与反馈绑定、《[检索与知识接入（01）：进上下文还是进权重——知识类型决定接入方式](/knowledge-in-context-or-in-weights.html)》微调顺序、《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》仿真 → 飞轮与 OTA。
+   网关（1）：《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的重试 / 限流 / fallback 方向性 → 集中到一层；《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)缓存 → 不破坏。成本（2）：《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)公式与同系列[《选型》](/model-selection-beyond-leaderboards.html)级联、L2 缓存与瘦身、L4 卫士 → 归因、预算、梯子、单位经济学。延迟（3）：《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) TTFT 与同系列[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)的超时、《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)缓存、《工具、Agent 与 harness》的[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html) PTC 与同系列[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)的并行 → 分段预算与面板。安全（4）：《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)四层、《Prompt 与上下文工程》的[《prompt 设计》](/prompt-design-patterns-vs-wording.html)分区、《检索与知识接入》的[《索引、混合检索与 rerank》](/indexing-hybrid-search-and-reranking.html)权限过滤 → 五层与供应链与密钥。治理（5）：《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)会话日志、《评测、可观测与可追溯》的[《trace》](/tracing-spans-opentelemetry-genai-conventions-and-tooling.html)、[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html) trace 与决策点 → 审计链；《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html) `store` → 保留策略。发布（6）：《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)版本、《评测、可观测与可追溯》的[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)门禁与探针 → 开关、钉版本、runbook、SLO。飞轮（7）：《评测、可观测与可追溯》的[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)、[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)评测集与反馈绑定、《检索与知识接入》的[《进上下文还是进权重》](/knowledge-in-context-or-in-weights.html)微调顺序、《评测、可观测与可追溯》的[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)仿真 → 飞轮与 OTA。
    </details>
 
 ### C. 面试题（7 题）
@@ -340,7 +442,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 七项职责与各自预防的事故（key 散落、锁死、打爆配额、无归因、PII 进日志）；(2) 选项定位与判据；(3) 边界：不做业务逻辑、不改请求体（毁缓存）、不替应用决定跨供应商 fallback（推理状态）、不默认语义缓存、必须高可用；(4) 抽象的边界是推理状态、工具方言、缓存断点；(5) 混合：薄自建 + LiteLLM。
+   **答案要点**：
+
+   1. 七项职责与各自预防的事故（key 散落、锁死、打爆配额、无归因、PII 进日志）
+   2. 选项定位与判据
+   3. 边界：不做业务逻辑、不改请求体（毁缓存）、不替应用决定跨供应商 fallback（推理状态）、不默认语义缓存、必须高可用
+   4. 抽象的边界是推理状态、工具方言、缓存断点
+   5. 混合：薄自建 + LiteLLM
+
    **追问方向**：语义缓存的风险；有状态会话的 fallback。
    **好答案与一般答案的区别**：一般答案说"统一入口"；好答案列七项、说出五不做与抽象边界。
 
@@ -350,7 +459,16 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 结构：五项 + 工具 + judge + 检索；长尾、跳变、输入侧；(2) 归因标签与账本三视图，评测成本单列；(3) 预算三档与六级梯子，每小时异常归因；(4) 九种手段与量级，先免费（缓存排列、瘦身、Batch、卫士）再要评测（级联、路由、effort、压缩）最后微调；(5) 按任务 p50 / p95 与长尾画像；(6) 单位经济学三决策与定价覆盖 p95；(7) FinOps 节奏。
+   **答案要点**：
+
+   1. 结构：五项 + 工具 + judge + 检索；长尾、跳变、输入侧
+   2. 归因标签与账本三视图，评测成本单列
+   3. 预算三档与六级梯子，每小时异常归因
+   4. 九种手段与量级，先免费（缓存排列、瘦身、Batch、卫士）再要评测（级联、路由、effort、压缩）最后微调
+   5. 按任务 p50 / p95 与长尾画像
+   6. 单位经济学三决策与定价覆盖 p95
+   7. FinOps 节奏
+
    **追问方向**：级联掉分怎么办；为什么不砍评测。
    **好答案与一般答案的区别**：一般答案说"用便宜模型、加缓存"；好答案先归因再手段、有量级与代价、有单位经济学。
 
@@ -370,7 +488,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 审计链 = 会话日志（模型可见 ⟺ 已记录）+ trace（完整输入输出、版本六元组）+ 决策点日志（为什么）+ 审批记录；治理层加保留期、不可篡改、访问与导出；(2) "谁批的"= 版本记录 + 责任矩阵；(3) "数据存哪"= 数据流图（供应商侧存多久 / 是否训练 / 驻留 / 服务端状态；自己侧分级保留），核合同不是网页；(4) 验证方法：抽上月输出逐项拿证据；(5) 与隐私的张力用分级解。
+   **答案要点**：
+
+   1. 审计链 = 会话日志（模型可见 ⟺ 已记录）+ trace（完整输入输出、版本六元组）+ 决策点日志（为什么）+ 审批记录；治理层加保留期、不可篡改、访问与导出
+   2. "谁批的"= 版本记录 + 责任矩阵
+   3. "数据存哪"= 数据流图（供应商侧存多久 / 是否训练 / 驻留 / 服务端状态；自己侧分级保留），核合同不是网页
+   4. 验证方法：抽上月输出逐项拿证据
+   5. 与隐私的张力用分级解
+
    **追问方向**：Responses 默认 30 天与 ZDR；用户删除请求怎么覆盖评测集。
    **好答案与一般答案的区别**：一般答案说"有日志"；好答案说出审计链的构成、三加项、数据流图与核合同。
 
@@ -380,7 +505,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 时间表：禁止性 2025-02、GPAI 2025-08 适用 2026-08 可罚（1,500 万 € / 3%）、Article 50 透明与标识 2026-08（过渡 2026-12）、新禁令 2026-12、高风险 Annex III 2027-12 / Annex I 2028-08（Digital Omnibus 推迟，日期固定）；(2) 推迟的只是高风险，其余在跑；(3) 多数团队是 deployer：透明告知、标识、按说明使用、人工监督、记录保存、AI 素养；(4) 每个功能做用途分类，Annex III 的现在准备；(5) 中国标识办法 2025-09 与一套实现；(6) 不是法律意见，工程上建审计链、标识、用途分类记录。
+   **答案要点**：
+
+   1. 时间表：禁止性 2025-02、GPAI 2025-08 适用 2026-08 可罚（1,500 万 € / 3%）、Article 50 透明与标识 2026-08（过渡 2026-12）、新禁令 2026-12、高风险 Annex III 2027-12 / Annex I 2028-08（Digital Omnibus 推迟，日期固定）
+   2. 推迟的只是高风险，其余在跑
+   3. 多数团队是 deployer：透明告知、标识、按说明使用、人工监督、记录保存、AI 素养
+   4. 每个功能做用途分类，Annex III 的现在准备
+   5. 中国标识办法 2025-09 与一套实现
+   6. 不是法律意见，工程上建审计链、标识、用途分类记录
+
    **追问方向**：招聘筛选算高风险吗；标识怎么实现。
    **好答案与一般答案的区别**：一般答案说"要合规"；好答案给时间表、区分 provider / deployer、指出推迟的边界。
 
@@ -390,7 +523,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 不同：改动的种类多（十类，含 prompt、模型、工具描述、judge）；依赖会在你不动时变（供应商、MCP）；质量与成本是新的 SLO 维度；回滚有会话状态与快照可用性的约束；(2) 体系：版本化（六元组 + 批准人）→ 门禁 → 影子 → 灰度（开关按比例）→ 全量 → 四类 SLO 监控 → runbook → 回滚 / kill switch；(3) 钉一切与版本矩阵；(4) 依赖变更进同一流程（探针、通知、登记、日历）；(5) 五本 runbook；(6) kill switch 上线前存在并演练，值班与错误预算。
+   **答案要点**：
+
+   1. 不同：改动的种类多（十类，含 prompt、模型、工具描述、judge）；依赖会在你不动时变（供应商、MCP）；质量与成本是新的 SLO 维度；回滚有会话状态与快照可用性的约束
+   2. 体系：版本化（六元组 + 批准人）→ 门禁 → 影子 → 灰度（开关按比例）→ 全量 → 四类 SLO 监控 → runbook → 回滚 / kill switch
+   3. 钉一切与版本矩阵
+   4. 依赖变更进同一流程（探针、通知、登记、日历）
+   5. 五本 runbook
+   6. kill switch 上线前存在并演练，值班与错误预算
+
    **追问方向**：为什么改 judge 也算发布；回滚前确认什么。
    **好答案与一般答案的区别**：一般答案说"灰度发布"；好答案说出十类、依赖变更、质量与成本 SLO、五本 runbook。
 
@@ -400,7 +541,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 六环与卡点：反馈无 trace id、队列无 owner、评测集不长、改错层、跳门禁、在线指标没接；三判据；(2) 微调在末端做行为优化，数据要筛，微调模型是新依赖；(3) 四道门与按租户开关；(4) 物理世界：分阶段准入（影子 → 内部 → 有限 → 分批 → 全量）、安全案例、OTA 分批与停止条件、回滚约束、接管率与新场景比例进飞轮；(5) 启发：高风险（不可逆）agent 的发布应更像 OTA——分阶段准入与安全案例式论证；数字团队借覆盖率度量与准入纪律，物理团队借 bad case 队列运营。
+   **答案要点**：
+
+   1. 六环与卡点：反馈无 trace id、队列无 owner、评测集不长、改错层、跳门禁、在线指标没接；三判据
+   2. 微调在末端做行为优化，数据要筛，微调模型是新依赖
+   3. 四道门与按租户开关
+   4. 物理世界：分阶段准入（影子 → 内部 → 有限 → 分批 → 全量）、安全案例、OTA 分批与停止条件、回滚约束、接管率与新场景比例进飞轮
+   5. 启发：高风险（不可逆）agent 的发布应更像 OTA——分阶段准入与安全案例式论证；数字团队借覆盖率度量与准入纪律，物理团队借 bad case 队列运营
+
    **追问方向**：bad case 为什么不能直接训；OTA 回滚的约束。
    **好答案与一般答案的区别**：一般答案说"收集反馈迭代"；好答案给六环三判据、微调的位置与数据筛选、同构表与借鉴方向。
 
@@ -432,7 +580,6 @@ Table: 掌握程度的判据
 - **地图定位**——本系列在整张地图上的位置（L6）见[《AI 应用工程师学习地图》](/ai-application-engineer-learning-roadmap.html)，三张地图的分工见[《AI 全栈学习地图》](/ai-fullstack-learning-roadmap.html)。
 
 回到总纲：[《生产化与运营：让 AI 应用可靠、可控、可持续地跑》](/production-and-operations-for-ai-applications.html)。
-
 
 [^q0]: 面对一个上线或已上线的应用：调用都经网关了吗、key 在哪、归因标签有吗、fallback 链声明了吗（1）；每任务成本 p50 / p95 多少、哪个功能烧钱、预算与梯子设了吗、价值 / 成本多少（2）；p95 在哪一段、缓存命中率多少、流式接了吗、agent 步数压了吗（3）；OWASP 十条各对哪层、EchoLeak 七环在自己这哪环拦、agent 配置可写吗、MCP 清单审过吗、key 在 prompt / 工作区 / 日志里吗（4）；审计链能回答七类问题吗、数据流图与合同一致吗、用途分类做了吗、标识做了吗、供应商变更登记了吗（5）；十类都版本化了吗、kill switch 有并演练了吗、版本钉了吗、五本 runbook 写了吗、四类 SLO 定了吗（6）；飞轮三判据满足吗、租户能关"用于改进"吗、微调数据筛了吗、物理系统分阶段与安全案例有吗（7）。详见[第一章](#一总览系列回答的问题与主线)。
 
