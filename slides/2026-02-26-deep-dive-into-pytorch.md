@@ -176,7 +176,7 @@ flowchart LR
 
 ## 05 · Dispatcher：开发态填表、运行态查表
 
-**一次 `add` 两次经过 Dispatcher：包装 Key 做完事再次分发**
+**一次 `add` 两次经过 Dispatcher：功能 Key 做完事再次分发**
 
 ![一次 add 调用两次经过 Dispatcher：先命中 AutogradCUDA 包装，去掉 Autograd 后再分发到 CUDA kernel](/img/in-post/pytorch-dispatcher-add-two-dispatches.svg){: style="max-height: 380px}
 
@@ -206,6 +206,16 @@ flowchart TB
 
 <aside class="notes" markdown="1">
 原文 /pytorch-dispatcher-and-operator-system.html。五种实现模式；Autograd 只是优先级更高的一个 Key（呼应《PyTorch 整体介绍》）。
+</aside>
+
+<!-- v -->
+
+### Operator Table 在内存里：哈希表找算子，定长数组找 Key
+
+![Operator Table 的物理结构：Dispatcher 里一张按算子名查的哈希表，每个 OperatorEntry 里一个按 DispatchKey 下标的定长数组](/img/in-post/pytorch-dispatcher-operator-table-layout.svg){: style="max-height: 500px"}
+
+<aside class="notes" markdown="1">
+原文 /pytorch-dispatcher-and-operator-system.html 第三章。按算子名查哈希表只在 at::add 第一次调用时做一次，句柄缓存；之后每次调用只读 dispatchTable_[最高优先级 Key 的下标]。ADInplaceOrView 在 add 上是 fallthrough，合并 KeySet 时被掩码去掉。功能 Key（functionality key）的实现做完自己的事再分发，后端 Key（backend key）的实现计算数值。
 </aside>
 
 <!-- v -->

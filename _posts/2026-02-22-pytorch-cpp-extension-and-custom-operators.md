@@ -1105,7 +1105,7 @@ y = torch.ops.myops.scale_shift(x, 2.0, 1.0)
 y.sum().backward()      # 失败：没有人告诉 Autograd 反向规则
 ```
 
-[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过 Autograd 需要每个算子提供 backward；[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲过 Autograd 是一个包装 Key。同样，`torch.compile` 需要在不运行真实 Kernel 的情况下推断输出 shape，这需要 Meta / Fake 实现。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过 Autograd 需要每个算子提供 backward；[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲过 Autograd 是一个功能 Key。同样，`torch.compile` 需要在不运行真实 Kernel 的情况下推断输出 shape，这需要 Meta / Fake 实现。
 
 按第三章的“混用”组合，这两项在 Python 侧完成。
 
@@ -1174,13 +1174,13 @@ TORCH_LIBRARY_IMPL(myops, Autograd, m) {
 
 这里取 CUDA 输入、`x.requires_grad=True` 且梯度模式开启的情况。时间轴只表示先后，不表示耗时比例。
 
-1. Python 调用 `torch.ops.myops.scale_shift(x, 2.0, 1.0)`。普通 CUDA Tensor 的 KeySet 含 `AutogradCUDA` 和 `CUDA` 等 Key；此处省略无关包装 Key，先命中 Autograd 槽位 `scale_shift_autograd`。
+1. Python 调用 `torch.ops.myops.scale_shift(x, 2.0, 1.0)`。普通 CUDA Tensor 的 KeySet 含 `AutogradCUDA` 和 `CUDA` 等 Key；此处省略无关功能 Key，先命中 Autograd 槽位 `scale_shift_autograd`。
 2. `ScaleShiftFunction::apply` 进入 `forward`，`ctx` 保存 `alpha`。`AutoDispatchBelowADInplaceOrView` 在当前线程排除 Autograd 与 ADInplaceOrView Key，再通过 typed handle 调用 `scale_shift_op().call(x, alpha, beta)`。
 3. Dispatcher 再次查表，命中 CUDA 槽位 `scale_shift_cuda`，不再进入 Autograd，因此不会递归。这里不是说剩余 KeySet 字面上只有一个 `CUDA`。
 4. `scale_shift_cuda` 在当前 stream 上提交 CUDA Kernel，返回 `out`；Dispatcher 把它交回 Autograd 包装。CPU 不等待 GPU 完成，图中 GPU 色块延伸过返回点只表示可能的重叠。
 5. `apply` 为 `out` 挂上指向 backward 的 `grad_fn`，再经 Dispatcher 返回 Python 的 `y`，此时 `requires_grad=True`。
 
-`AutoDispatchBelowADInplaceOrView` 就是[《Dispatcher 与算子系统》第七章「运行态（2）：分发」](/pytorch-dispatcher-and-operator-system.html#七运行态2分发)讲的“包装 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
+`AutoDispatchBelowADInplaceOrView` 就是[《Dispatcher 与算子系统》第七章「运行态（2）：分发」](/pytorch-dispatcher-and-operator-system.html#七运行态2分发)讲的“功能 Key 执行后去掉自身 Key 再次分发”：forward 内部再次调用算子时不能再进入 Autograd Key，否则无限递归。图中第二次 `op.call` 之所以能落到 CUDA kernel，正是因为查表前 KeySet 已经被剔除了 Autograd。
 
 ### 4. 注册 Meta / Fake 实现
 
@@ -1209,7 +1209,7 @@ def _fake(x, alpha, beta):
 
 Table: 完成后的 Operator Table
 
-把这张表按运行态展开，可以分成真实 Tensor 的后端执行和 Fake / Meta 的元数据推断两条路径。下面省略与本文无关的包装 Key：
+把这张表按运行态展开，可以分成真实 Tensor 的后端执行和 Fake / Meta 的元数据推断两条路径。下面省略与本文无关的功能 Key：
 
 ```mermaid
 %% 图：完成后的 Operator Table：真实 Tensor 的 Autograd 与后端分发、Fake / Meta 的元数据推断

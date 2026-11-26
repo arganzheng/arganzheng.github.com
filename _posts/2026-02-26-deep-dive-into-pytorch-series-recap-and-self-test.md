@@ -44,7 +44,7 @@ flowchart TB
 | [《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html) | Tensor 到底是什么？ | 数据、形状、布局、类型、设备与生命周期的组合；view 只改元数据，`contiguous` / `.to()` / `clone` 才复制 | `offset = storage_offset + Σ i_k × stride_k`<br/>`[2,3,4]` 连续 strides `(12, 4, 1)`<br/>fp16 最大 65504、bf16 尾数 7 位<br/>`expand` 的 stride 为 0<br/>`allocated` 与 `reserved` 不是一个东西 |
 | [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) | PyTorch 如何把链式法则变成一次沿图的反向遍历？ | 前向就地建图，每个 `Node.apply` 算一次 VJP，梯度 `+=` 到叶子的 `.grad`；保存一个输出等于保存整张图 | 每节点算 VJP 不物化 Jacobian（`[B, 4096]` 层每样本 $$4096^2$$ 个数）<br/>`.grad` 是累加<br/>version counter 抓 in-place<br/>`gradcheck` 用 float64 |
 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) | 模型结构、参数状态、数据管线和训练循环如何组织成可保存、可迁移的系统？ | `__setattr__` 的注册机制决定框架能否发现对象；一切状态都在 `state_dict` 里 | Adam 训练每参数 16 B（4 + 4 + 4 + 4），7B → 112 GB<br/>GradScaler 初始 65536、溢出 ÷2、连续 2000 步 ×2<br/>`prefetch_factor` 默认 2<br/>worker 是进程 |
-| [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) | 谁决定 `x + y` 调用哪个 Kernel？ | 开发态填表（定义 → 注册 → 实现）、运行态查表（入口 → 分发 → 执行），交汇于 Operator Table；包装 Key 做完事再次分发 | DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级<br/>一次 `add` 两次经过 Dispatcher<br/>五种实现模式<br/>AutocastCUDA → AutogradCUDA → CUDA |
+| [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) | 谁决定 `x + y` 调用哪个 Kernel？ | 开发态填表（定义 → 注册 → 实现）、运行态查表（入口 → 分发 → 执行），交汇于 Operator Table；功能 Key 做完事再次分发 | DispatchKeySet = 各输入 OR + TLS include − exclude，取最高优先级<br/>一次 `add` 两次经过 Dispatcher<br/>五种实现模式<br/>AutocastCUDA → AutogradCUDA → CUDA |
 | [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) | 自己写一个算子，怎么接入算子系统？ | 三步、两种接入、四个阶段；实现层必须处理 device、dtype、stride、生命周期四件事 | `blocks = (n + 255) / 256`<br/>warp 32 线程、取数按 32 B 扇区，stride 2 访问带宽利用 50%，最坏多搬 8 倍<br/>`gradcheck` 必须 float64<br/>ABI：`_GLIBCXX_USE_CXX11_ABI` 一致 |
 | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) | `torch.compile` 到底做了什么？ | 前端 Dynamo 捕获、中端 AOTAutograd 变换、后端 Inductor 生成，共享 FX Graph；运行时靠 Guard 决定复用 | `f` 热路径：3 次分发 → 0 次、3 次 launch → 2 次<br/>Guard `size[0] == 128` → `s0 > 64`<br/>缓存条目上限 8<br/>`backend="eager"` / `"aot_eager"` / `"inductor"` |
 | [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html) | 如何判断一个程序慢，以及定位它为什么慢？ | CPU 与 GPU 是两条异步时间线<br/>五类瓶颈 + 显存四类<br/>优化是把瓶颈从一类推到另一类 | CPU 每算子固定成本 10～30 µs<br/>$$T \ge \max(\text{字节}/\text{带宽}, \text{FLOPs}/\text{算力})$$<br/>A100 ridge point FP32 ≈ 10、BF16 ≈ 156 FLOP/Byte<br/>融合 5N → 2N 访存<br/>案例 166 → 2207 samples/s（13 倍） |
@@ -134,7 +134,7 @@ Table: 本文的章节安排
 
 **核心问题**：写下 `z = x + y` 时，谁决定这个操作对应哪个算子、位于哪个设备、是否需要 Autograd、最终调用哪个 Kernel？
 
-**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；包装 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`requires_grad` 与 `no_grad()` 都不改 KeySet——普通 Tensor 的 KeySet 总含 Autograd Key，`no_grad()` 只翻转 GradMode 标志让包装层不记录；`inference_mode()` 才把 Autograd Key 加入 TLS excluded、真正跳过那一跳。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)的 shape / stride / dtype，不是所有算子的必经之路。
+**结论**：算子系统有两个时间轴。开发态三步：定义 Schema（`native_functions.yaml` 或 `torch.library`，含 overload 名、mutability 与 alias 标注）→ 注册实现到 DispatchKey（`dispatch` 字段或 `TORCH_LIBRARY_IMPL`）→ 编写实现；Codegen 横向生成 Binding、`at::` 入口、注册代码与 Autograd 函数。运行态三步：入口（`torch.add` → Binding → `at::add`）→ 分发 → 执行。两者交汇于 Operator Table——每个算子一个 `OperatorEntry`，按 DispatchKey 存实现。分发是位运算：各输入的 KeySet 做 OR，加上 TLS 的 include、减去 exclude，取最高优先级 Key 查表；功能 Key（Autograd、Autocast、Functionalize、Python）优先级高于后端 Key，做完自己的事后把自己排除再次分发，所以一次 `add` 两次经过 Dispatcher；`requires_grad` 与 `no_grad()` 都不改 KeySet——普通 Tensor 的 KeySet 总含 Autograd Key，`no_grad()` 只翻转 GradMode 标志让包装层不记录；`inference_mode()` 才把 Autograd Key 加入 TLS excluded、真正跳过那一跳。实现内部有五种模式：TensorIterator 路径（逐元素 / 归约，Kernel 只写 `a + alpha * b`）、直接 Kernel、厂商库（cuBLAS / cuDNN）、Composite（组合其他 `at::` 算子并重新进入 Dispatcher）、Meta（只推断元数据）。TensorIterator 消费[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)的 shape / stride / dtype，不是所有算子的必经之路。
 
 **必记**：
 
@@ -237,7 +237,7 @@ Table: 本文的章节安排
 
 ### 2. Autograd 是一个 DispatchKey
 
-[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的包装 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它的注册是否合法，`gradcheck` 用有限差分检查数值。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。[《分布式 PyTorch》](/pytorch-distributed-training.html)的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在《自动求导与动态计算图》的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
+[《PyTorch 整体介绍》](/pytorch-overall-introduction.html)的一句话"Autograd 是一个 DispatchKey"在后面五篇里反复兑现。[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)从用户视角看它：每个算子在前向时记录 `grad_fn`、用 `SavedVariable` 保存反向所需的值。[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)从运行态看它：Autograd 是 Operator Table 上优先级高于后端 Key 的功能 Key，`VariableType` 里的包装 Kernel 由 Codegen 从 `derivatives.yaml` 生成，做完记录后 `AutoDispatchBelowAutograd` 把自己排除、再次分发到 CUDA——一次 `add` 两次经过 Dispatcher；Autocast、Functionalize、Python 子类拦截都是同一条链上的 Key。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)要求自定义算子自己往这个槽位填东西：`register_autograd` 或 Autograd Key 上的 `torch::autograd::Function`，`opcheck` 检查它的注册是否合法，`gradcheck` 用有限差分检查数值。[《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html)的 AOTAutograd 是把这层"提前做"：用 FakeTensor 追踪 autograd 得到整张反向图，运行时只剩一个 `CompiledFunctionBackward` 节点——编译改变了节点内部的执行方式，没有改变 Autograd 图的拓扑与 Optimizer 看到的接口。[《分布式 PyTorch》](/pytorch-distributed-training.html)的 DDP `Reducer` 与 FSDP 的反向 hook 都挂在《自动求导与动态计算图》的 autograd hook 上，梯度就绪的那一刻就是通信开始的时刻。[《PyTorch 的工程体系》](/pytorch-engineering-system.html)则用 `gradcheck` 作为五种 oracle 之一守住每个反向节点。
 
 ### 3. 固定成本与"少而大"
 
@@ -254,7 +254,7 @@ Table: 本文的章节安排
 | 概念 | 出现的篇 | 关系 |
 |---|---|---|
 | stride / contiguous / dtype | 二、五、六、八 | 二定义<br/>五由 TensorIterator 消费<br/>六决定 `contiguous()` 还是 TensorIterator、决定访存合并<br/>八决定 memory-bound Kernel 的实际带宽与 bf16 的收益 |
-| Autograd 作为 Key、`grad_fn`、`derivatives.yaml` | 一、三、五、六、七、九、十 | 一点名<br/>三讲机制<br/>五讲包装 Key 再分发<br/>六自定义算子自己填<br/>七 AOTAutograd 提前做成一个节点<br/>九 DDP / FSDP 的 hook 挂在上面<br/>十 `gradcheck` 守住 |
+| Autograd 作为 Key、`grad_fn`、`derivatives.yaml` | 一、三、五、六、七、九、十 | 一点名<br/>三讲机制<br/>五讲功能 Key 再分发<br/>六自定义算子自己填<br/>七 AOTAutograd 提前做成一个节点<br/>九 DDP / FSDP 的 hook 挂在上面<br/>十 `gradcheck` 守住 |
 | 每算子固定成本、launch、α + β | 五、七、八、九、十 | 五给来源<br/>八量化为 10～30 µs<br/>七融合与 CUDA Graphs 是处方<br/>九通信的小消息问题同一结构<br/>十用指令数守门 |
 | 16 B/参数 | 四、八、九 | 四第一次算出<br/>八分静态与激活、混合精度不变<br/>九作为所有分布式显存账的基准 |
 | Schema / Operator Table / OpInfo / BC-FC | 五、六、七、十 | 五定义契约<br/>六自定义算子补齐并 `opcheck`<br/>七编译器靠 Fake 实现推 shape<br/>十用 `op_db` 与 Schema 快照守门 |
@@ -274,7 +274,7 @@ Table: 贯穿十篇的概念及其关系
 | 把 `loss` 存进 list 只是保存一个数 | `loss` 通过 `grad_fn` 持有整张图与所有激活 | 用 `loss.item()` 或 `.detach()`；泄漏几乎总是持有了带 `grad_fn` 的 Tensor | [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html) |
 | `model.eval()` 关闭了梯度 | 它只切换 Module 行为（dropout、BN） | 评估要 `eval()` + `inference_mode()` 一起用 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) |
 | `self.layers = [nn.Linear(...) ...]` 会被 Module 管理 | list 不是 Module，`__setattr__` 不登记 | 用 `nn.ModuleList` / `nn.Sequential`，否则不进优化器、不进 `state_dict`、不迁移 | [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html) |
-| Dispatcher 是按 device 的 if/else | Key 由元数据与 TLS 合成，包装 Key 再次分发 | 多维、可多次的运行时分发系统；一次 `add` 两次经过 Dispatcher | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) |
+| Dispatcher 是按 device 的 if/else | Key 由元数据与 TLS 合成，功能 Key 再次分发 | 多维、可多次的运行时分发系统；一次 `add` 两次经过 Dispatcher | [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html) |
 | 自定义 Kernel 处理连续 float32 就够了 | dtype、device、stride、空 Tensor、生命周期、backward 都要处理 | `AT_DISPATCH` 展开 dtype、`CUDAGuard` 切设备、`contiguous()` 或 TensorIterator、`register_fake` | [《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html) |
 | `torch.compile` 把 Python 翻译成 CUDA | 它只捕获可分析的 Tensor 计算，把不能确定的部分变成 Guard | 能确定的固化进代码，不能确定的变成运行时检查；捕获不了就 graph break 退回 Eager | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
 | 换 batch size 变慢是编译器 bug | 静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译 | `dynamic=True` / `mark_dynamic` 让 shape 成为符号；缓存条目上限 8 | [《编译执行与图优化》](/pytorch-compilation-and-graph-optimization.html) |
@@ -418,9 +418,9 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) Python API → Codegen 生成的绑定解析参数、匹配 overload（`add.Tensor`）→ `at::add` 进入 Dispatcher；(2) Dispatcher 从 Operator Table 取 Schema 校验，合成 DispatchKeySet（各输入 OR + TLS include − exclude），取最高优先级 Key；(3) Autograd 是包装 Key：记录 `AddBackward0`、保存反向所需值，排除自己再次分发；(4) 后端 Key 命中 `at::native::add`，TensorIterator 处理广播 / dtype 提升 / stride，launch Kernel 后 CPU 立即返回；(5) 结果 `TensorImpl` 与 `StorageImpl` 在 `c10` 构造，挂上 `grad_fn`。
+   **答案要点**：(1) Python API → Codegen 生成的绑定解析参数、匹配 overload（`add.Tensor`）→ `at::add` 进入 Dispatcher；(2) Dispatcher 从 Operator Table 取 Schema 校验，合成 DispatchKeySet（各输入 OR + TLS include − exclude），取最高优先级 Key；(3) Autograd 是功能 Key：记录 `AddBackward0`、保存反向所需值，排除自己再次分发；(4) 后端 Key 命中 `at::native::add`，TensorIterator 处理广播 / dtype 提升 / stride，launch Kernel 后 CPU 立即返回；(5) 结果 `TensorImpl` 与 `StorageImpl` 在 `c10` 构造，挂上 `grad_fn`。
    **追问方向**：`no_grad` 下 KeySet 差在哪；`torch/csrc` 与 ATen 之间为什么往返一次；`torch.compile` 后这条路径怎么变。
-   **好答案与一般答案的区别**：一般答案说"查表找到 CUDA Kernel"；好答案讲出两轮查表、包装 Key 再分发、以及 CPU 提交后异步返回。
+   **好答案与一般答案的区别**：一般答案说"查表找到 CUDA Kernel"；好答案讲出两轮查表、功能 Key 再分发、以及 CPU 提交后异步返回。
 
    </details>
 
@@ -505,6 +505,6 @@ Table: 掌握程度的判据
 
 回到总纲：[《PyTorch 深度实践：从 Tensor 到深度学习运行时》](/deep-dive-into-pytorch.html)。
 
-[^q0]: 总纲那串追问的每一个：Tensor 如何表示输入（元数据 + 共享 Storage，view 不复制）；Module 如何组织模型（`__setattr__` 注册，一切状态在 `state_dict`）；Autograd 如何建图（前向就地建 `grad_fn`，每节点算 VJP，`.grad` 累加）；Dispatcher 如何选算子（DispatchKeySet 查 Operator Table，包装 Key 再分发）；自定义算子如何接入（三步、两种接入、四个阶段，`opcheck`）；Compiler 如何变换（Dynamo → AOTAutograd → Inductor，Guard 决定复用）；Profiler 如何告诉你瓶颈在哪（两条时间线、五类瓶颈、显存四类）；多卡如何协同（五类状态各做复制或分片的决定）；Tests、Build 和 CI 如何保证演进（七关、五种 oracle、OpInfo、BC/FC）。详见[第二章](#二逐篇回顾)。
+[^q0]: 总纲那串追问的每一个：Tensor 如何表示输入（元数据 + 共享 Storage，view 不复制）；Module 如何组织模型（`__setattr__` 注册，一切状态在 `state_dict`）；Autograd 如何建图（前向就地建 `grad_fn`，每节点算 VJP，`.grad` 累加）；Dispatcher 如何选算子（DispatchKeySet 查 Operator Table，功能 Key 再分发）；自定义算子如何接入（三步、两种接入、四个阶段，`opcheck`）；Compiler 如何变换（Dynamo → AOTAutograd → Inductor，Guard 决定复用）；Profiler 如何告诉你瓶颈在哪（两条时间线、五类瓶颈、显存四类）；多卡如何协同（五类状态各做复制或分片的决定）；Tests、Build 和 CI 如何保证演进（七关、五种 oracle、OpInfo、BC/FC）。详见[第二章](#二逐篇回顾)。
 [^q1]: 源码四层 `torch/` → `torch/csrc/` → `aten/` → `c10/`；`[2,3,4]` 连续 strides `(12, 4, 1)`；fp16 最大 65504、bf16 尾数 7 位；Adam 训练 16 B/参数、7B → 112 GB、混合精度不变；一次 `add` 两次经过 Dispatcher；warp 32 线程、32 B 扇区、跨步 2 带宽 50%；`f` 热路径 6 次分发 → 1、缓存条目上限 8；每算子 CPU 固定成本 10～30 µs；A100 ridge point ≈ 10 / 156 FLOP/Byte、bf16 算力 16 倍；融合 5N → 2N；案例 166 → 2207 samples/s；ring all_reduce 每 rank $$2(N-1)/N \cdot n$$；DDP 2P、FSDP 3P、显存 16P → 16P/N；TP 每层 4 次 all_reduce、度 ≤ 8；PP 气泡 $$(K-1)/(M+K-1)$$；NVLink 与 IB 带宽差近一个数量级；2000+ 算子 × 约 15 种 dtype → 几十万测试；小版本每三到四个月、弃用保留通常两个小版本。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 [^q2]: 用第五章的三段自测：A 组 10 题判断与计算（至少 8 题）、B 组 5 题跨篇综合（至少 4 题）、C 组 7 道面试题（每题说出一半以上要点）；D 组的表给出"读过 / 掌握 / 能教人"三级的表现。详见[第五章](#五通关自测)。
