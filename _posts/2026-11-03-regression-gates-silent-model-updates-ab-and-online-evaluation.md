@@ -115,9 +115,6 @@ promptfoo、Braintrust、Langfuse 的评测运行、或自写脚本：配置列�
 - **订阅变更通知**：供应商的 changelog、弃用邮件、状态页；《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)的弃用周期表。
 - **生产指标的突变**：格式失败率、平均输出长度、成本 / 请求突然变化，且时间线上没有你的部署——[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里的版本 diff 对齐会显示"没有对应的变更"。
 
-> [!NOTE] 后端经验参照：钉快照之于锁定依赖版本
-> 浮动别名就像依赖写成 `latest` 或 `^1.2`：上游一发版，你的构建就在没有提交的情况下变了；带日期的快照 id 相当于 lockfile 里钉死的版本。对不上的地方有两处：锁住的依赖包可以一直用，模型快照会按供应商的弃用周期下线，钉住只是把升级变成你排期的事；而且供应商可能在同一个快照名下改路由或默认参数，所以钉了快照还得每天跑探针集。
-
 ### 3. 应对
 
 探针告警后：全量评测确认影响范围；若退化，切到钉住的旧快照（如果还在）或 fallback（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）；把这次变更作为一次"外部发布"记录；通知供应商。这是为什么评测集要**定期重跑**而不只在改动时跑（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)）。
@@ -250,7 +247,6 @@ def gate(baseline: dict[str, bool], candidate: dict[str, bool], max_regressions:
     verdict = "通过" if passed else f"不通过，弄坏的用例超过 {max_regressions} 条，逐条看 diff 再决定"
     print("  门禁：" + verdict)
     return passed
-
 
 # 旧版本 20 条里错 3 条，新版本错 2 条
 baseline = {f"case-{i:02d}": i not in (3, 7, 12) for i in range(1, 21)}

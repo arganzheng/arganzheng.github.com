@@ -186,7 +186,7 @@ Table: 本系列的版本与事实基线
 各家的阈值与默认值会变，文中引用时标注来源与日期；读者应以自己读到本文时的文档为准。价格沿用《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)里的 2026 年 9 月价目。
 
 > [!NOTE] 后端经验参照：这个系列用得上的旧经验
-> 文中在对应机制旁边给出参照：[《上下文的解剖》](/anatomy-of-the-context-window.html)里渐进披露之于懒加载、上下文之于缓存而磁盘之于真相源；[《prompt 设计》](/prompt-design-patterns-vs-wording.html)里分区标记之于 SQL 参数化查询；[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)里 strict schema 之于接口层的请求校验；[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)里卸载之于消息队列的 Claim Check、压缩之于事件溯源的快照；[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)里断点分层之于 Dockerfile 的层缓存；[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)里钉模型快照之于锁定依赖版本、prompt 标签之于镜像 tag 与 feature flag。每处都写明哪里对得上、哪里对不上。
+> 文中在对应机制旁边给出参照：[《上下文的解剖》](/anatomy-of-the-context-window.html)里渐进披露之于懒加载、上下文之于缓存而磁盘之于真相源；[《prompt 设计》](/prompt-design-patterns-vs-wording.html)里分区标记之于 SQL 参数化查询；[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)里 strict schema 之于接口层的请求校验；[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)里卸载之于消息队列的 Claim Check、压缩之于事件溯源的快照；[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)里断点分层之于 Dockerfile 的层缓存；[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)里 prompt 标签之于镜像 tag 与 feature flag。每处都写明哪里对得上、哪里对不上。
 
 
 ## 章节目录

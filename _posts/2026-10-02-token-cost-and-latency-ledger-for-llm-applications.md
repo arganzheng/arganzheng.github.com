@@ -93,9 +93,6 @@ flowchart TB
     class X1,X2,X3 bad
 ```
 
-> [!NOTE] 后端经验参照：缓存前缀之于 Dockerfile 的层缓存
-> 对得上的地方：两者都按顺序逐层比对，某一层变了，它后面的层全部重建；所以都要把稳定的东西放前面（依赖安装在前、源码在后 ↔ 工具定义与 system 在前、动态内容在后）。对不上的地方：层缓存存在你自己的机器上、没有分钟级的过期时间、命中不收费；prompt cache 在供应商那边，Anthropic 默认 5 分钟 TTL（命中才刷新）、OpenAI（GPT-5.6 起）与 Anthropic 对写入多收 1.25×、不足最小长度静默不缓存，命中与否只能事后从 `usage` 里看出来。
-
 ### 2. 四家的机制
 
 | | 声明方式 | 最小长度 | TTL | 写入价 | 读价 |
@@ -332,7 +329,6 @@ PRICES = {
     "claude-opus-5": {"input": 5.00, "cache_read": 0.50, "cache_write": 6.25, "output": 25.00},
 }
 
-
 def cost(usage: dict, model: str) -> float:
     """一次调用的美元成本。usage 的五个字段对应成本公式的五项。"""
     p = PRICES[model]
@@ -344,7 +340,6 @@ def cost(usage: dict, model: str) -> float:
         + (usage.get("output", 0) + usage.get("thinking", 0)) * p["output"]
     )
     return micro_usd / 1_000_000
-
 
 hit = {"cache_read": 3000, "input_uncached": 500, "thinking": 2000, "output": 400}
 miss = {"cache_write": 3000, "input_uncached": 500, "thinking": 2000, "output": 400}

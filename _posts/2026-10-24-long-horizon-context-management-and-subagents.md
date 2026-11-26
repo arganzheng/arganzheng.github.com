@@ -31,7 +31,6 @@ flowchart TB
 
 ```
 
-
 | L2 的策略 | Codex | DeepSeek Harness | Claude Code |
 |---|---|---|---|
 | 卸载（大结果出上下文留引用） | 工具返回的截断与 `view_image` 一类按需读取 | **`spill` 包组**：存储服务 + 本地后端 + 结果策略，返回带取回指引的定位符 | 子 agent 隔离大量读取；工具返回截断 |
@@ -79,9 +78,6 @@ flowchart TB
     class B ext
     class LOC ok
 ```
-
-> [!NOTE] 后端经验参照：spill 之于消息队列的 claim check
-> 大消息体先写对象存储、消息里只传一个引用，消费方按需去取——这是消息系统的 claim check 模式，spill 的定位符就是那张取件单，存储后端也同样可以换。对不上的地方：claim check 的消费方是程序，拿到引用一定会去取全文；这里的消费方是模型，它只看定位符和几行预览就要判断取不取、取哪一段，所以定位符本身要写成模型能读懂的取回指引。
 
 ### 2. Codex 的截断
 

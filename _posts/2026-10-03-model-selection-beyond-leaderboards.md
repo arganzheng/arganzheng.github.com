@@ -187,9 +187,6 @@ xychart-beta
 
 用同一组用例既调 prompt 又选模型，几轮之后 prompt 就"记住"了这些用例。留一部分用例只用于最终比较，不用于迭代；定期从新的 bad case 补充。评测集是资产，也要防止它退化——L5 的横切纪律。
 
-> [!NOTE] 后端经验参照：评测集之于回归测试套件
-> 对得上的地方：一组固定用例，每次换模型、改 prompt、调 effort 都整套重跑；线上 bad case 补进来，像把修过的 bug 写成回归测试。对不上的地方：模型输出不确定，结果是带方差的通过率，要每条跑多次、看差距是否超过方差，不是全绿或有红；自由文本还要靠 judge 打分，judge 本身要校准；用同一组用例反复调 prompt 会让 prompt「记住」它们，所以要留一份只用于最终比较的用例，单元测试没有这层顾虑。
-
 ## 四、闭源 API 还是开源自托管
 
 ### 4.1 2026 年的开源前沿
@@ -369,7 +366,6 @@ flowchart TB
 ```python title="compare：同一批用例上两个模型的配对比较"
 import math
 
-
 def compare(a: list[int], b: list[int]) -> None:
     """a、b 是两个模型在同一批用例上的通过情况（1 通过，0 失败），逐条配对比较。"""
     n = len(a)
@@ -382,7 +378,6 @@ def compare(a: list[int], b: list[int]) -> None:
     verdict = "区间不含 0，差别可信" if lo > 0 or hi < 0 else "区间含 0，还分不出高下"
     print(f"n={n}  A {sum(a) / n:.0%}  B {sum(b) / n:.0%}  只 A 过 {only_a}  只 B 过 {only_b}"
           f"  差 {diff:+.1%}  95% 区间 [{lo:+.1%}, {hi:+.1%}]  {verdict}")
-
 
 # 100 条：A 过 80、B 过 85，其中 6 条只有 A 过、11 条只有 B 过
 a = [1] * 74 + [1] * 6 + [0] * 11 + [0] * 9

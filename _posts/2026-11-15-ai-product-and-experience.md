@@ -225,7 +225,7 @@ Table: 本系列的版本与事实基线
 具体百分比来自特定研究与报道，引用时标注；结论（边界、外推的错误、人在编辑是常态）比数字稳定。
 
 > [!NOTE] 后端经验参照：这个系列用得上的旧经验
-> 文中在对应机制旁边给出参照：只压测 happy path 之于 demo 的精选输入（[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)），异步任务队列之于后台 agent、持续部署之于自动化（[《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)），走过场的代码审查之于自动化偏见（[《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)），错误响应之于拒答、告警疲劳之于审批疲劳（[《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)），日志的 request id 之于指标事件的 trace id、金丝雀发布之于 AI 产品的 A/B（[《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)）。每处都写明哪里对得上、哪里对不上。
+> 文中在对应机制旁边给出参照：只压测 happy path 之于 demo 的精选输入（[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)），异步任务队列之于后台 agent、持续部署之于自动化（[《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)），走过场的代码审查之于自动化偏见（[《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)），错误响应之于拒答（[《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)），日志的 request id 之于指标事件的 trace id、金丝雀发布之于 AI 产品的 A/B（[《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html)）。每处都写明哪里对得上、哪里对不上。
 
 
 ## 章节目录
