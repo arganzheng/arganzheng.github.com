@@ -227,7 +227,7 @@ lib.define("scale(Tensor x, float alpha) -> Tensor")
 
 Table: Tensor 加法的三种形式：functional、in-place、out
 
-这里有两个容易混在一起的词：
+**说明**：「三种形式」和 `variants:` 字段是两回事。
 
 - **三种形式**是三条不同的 Schema，在 Operator Table 里是三行，各自注册实现。
 - **`variants:` 字段**写在每一条声明内部，说的是这一条 Schema 生成哪些 Python 入口：`function` 生成 `torch.add(x, y)`，`method` 生成 `x.add(y)`。上面 `add.Tensor` 写了两个，所以两种写法都有；`add_.Tensor` 只写 `method`，所以只有 `x.add_(y)`，没有 `torch.add_`；`add.out` 没写这个字段，默认是 `function`。
@@ -253,14 +253,14 @@ Schema 中的 alias 标注（如 `Tensor(a!)`）是 Autograd 版本检查、编�
   other: maybe_multiply(grad, alpha)
 ```
 
-这三行逐行读：
+**说明**：
 
 1. `name:` 不是又定义了一遍算子，而是把 Schema 原样抄一遍当作索引，说明「下面的公式属于 `add.Tensor`」。所以它看起来和 `native_functions.yaml` 里那一行一样。
 2. 之后每一行的格式是 `输入名: 表达式`。左边是前向的一个输入，右边是一段 C++ 表达式，算的是**损失对这个输入的梯度**。表达式里的 `grad` 是约定好的名字，表示损失对**输出**的梯度，由反向传播从后面的节点传过来。
 3. `add` 的前向是 `out = self + alpha * other`。`out` 对 `self` 的导数是 1，所以 `self` 的梯度就是 `grad` 本身，写作 `self: grad`。
 4. `out` 对 `other` 的导数是 `alpha`，所以 `other` 的梯度是 `grad * alpha`。`maybe_multiply(grad, alpha)` 就是这个乘法，只是 `alpha` 等于 1 时直接返回 `grad`，省掉一次乘法（`torch/csrc/autograd/FunctionsManual.cpp`）。
 
-代入数字：取 `alpha=2`，后面传来的 `grad` 是 `[1, 1, 1]`。
+**例子**：取 `alpha=2`，后面传来的 `grad` 是 `[1, 1, 1]`。
 
 ```python title='add 的反向公式代入数字：alpha=2'
 x = torch.tensor([1., 2., 3.], requires_grad=True)
@@ -356,15 +356,15 @@ Table: Operator Table 的逻辑视图：一个算子一行，一个 DispatchKey 
 
 上面是**逻辑视图**。在内存里，「行」和「列」是两种不同的数据结构：
 
-1. **找行用哈希表。** Dispatcher 单例里有一张 `operatorLookupTable_`，键是算子名，值是指向 `OperatorEntry` 的句柄。每个算子（含 overload）一个 `OperatorEntry`。
+1. **找行用哈希表。** Dispatcher 单例里有一张 `operatorLookupTable_`，键是算子名，值是一个 `OperatorHandle`。每个算子（含 overload）有一个 `OperatorEntry`，`OperatorHandle` 是指向它的句柄，本身不含数据，可以随意拷贝和缓存。入口函数 `at::add` 手里拿的、交给 Dispatcher 的就是这个句柄。
 2. **找列用定长数组。** 每个 `OperatorEntry` 里有一个 `dispatchTable_` 数组，长度固定为 `num_runtime_entries`，每个 DispatchKey 对应一个固定的下标，槽位里是一个 `KernelFunction`（对实现函数指针的封装）。
 
 ![Operator Table 的物理结构：Dispatcher 里一张按算子名查的哈希表，每个 OperatorEntry 里一个按 DispatchKey 下标的定长数组](/img/in-post/pytorch-dispatcher-operator-table-layout.svg)
 
-两步查找的开销不一样：
+**两步查找的开销**：
 
-1. 按算子名查哈希表这一步，`at::add` 只在第一次被调用时做一次，查到的句柄缓存在一个静态变量里。
-2. 之后每次调用只做第二步：从 DispatchKeySet 算出最高优先级 Key 的下标，读 `dispatchTable_[下标]`。这是一次位运算加一次数组访问。
+1. 按算子名查哈希表这一步，`at::add` 只在第一次被调用时做一次，查到的 `OperatorHandle` 缓存在一个静态变量里。
+2. 之后每次调用只做第二步：顺着 `OperatorHandle` 找到 `OperatorEntry`，从 DispatchKeySet 算出最高优先级 Key 的下标，读 `dispatchTable_[下标]`。这是一次位运算加一次数组访问。
 
 对应到源码（`aten/src/ATen/core/dispatch/OperatorEntry.h`，节选）：
 
@@ -387,7 +387,7 @@ class OperatorEntry {
 };
 ```
 
-`OperatorEntry` 里其实有两份登记，分工不同：
+`OperatorEntry` 里有两份登记：
 
 - **`kernels_` 是开发态的账本。** 它是一张哈希表，键是 DispatchKey，值是一个实现列表。`TORCH_LIBRARY_IMPL` 每注册一个实现，就往对应 Key 的列表头部插一条，所以后注册的覆盖先注册的，反注册时又能恢复成前一个。
 - **`dispatchTable_` 是运行态的快表。** 每次 `kernels_` 变化后由 `updateDispatchTable_` 重算：给每个槽位选定该用的那一个实现，依次看这个 Key 自己注册的、别名 Key（如 `CompositeImplicitAutograd`）展开过来的、fallback。
@@ -420,7 +420,7 @@ Table: 实现入口函数的三种来源
 
 这里要澄清“Native Functions”的双重身份：**声明**在 `native_functions.yaml`（第二章，定义），**函数主体**在 `aten/src/ATen/native/`（本章，实现）。二者由第三章的注册代码连接。
 
-前两种来源各看一个 v2.10.0 里的真实例子。
+下面是前两种来源在 v2.10.0 里的真实代码。
 
 **1、Native Function：`dot` 是一个手写的完整函数。** `native_functions.yaml` 里 `dot` 的 `dispatch` 写着 `CPU: dot`，对应的函数就是 `at::native::dot`，参数和返回值与 Schema `dot(Tensor self, Tensor tensor) -> Tensor` 一一对应：
 
@@ -444,7 +444,7 @@ Tensor dot(const Tensor& self, const Tensor& other) {
 }  // namespace at::native
 ```
 
-函数体做了四件事：
+**说明**：
 
 1. `dot_check` 校验两个输入都是一维、长度相同、dtype 相同。
 2. `AT_DISPATCH_…` 宏按 `self` 的 dtype 展开成一个 `switch`，每个分支里把 `scalar_t` 定义成对应的 C++ 类型（`float`、`double` 等），再执行后面的 lambda。
@@ -586,7 +586,7 @@ flowchart LR
 |---|---|
 | 注册代码 | 开发者手写 `TORCH_LIBRARY_IMPL` / `lib.impl`（[第三章](#3-自定义算子的注册torch_library_impl)） |
 | Python 入口 | 不用生成：`torch.ops.myops.scale` 在第一次访问时按算子名从 Operator Table 里查出来 |
-| C++ 入口 `at::xxx` | 没有；C++ 里按名字向 Dispatcher 取句柄再调用 |
+| C++ 入口 `at::xxx` | 没有；C++ 里按名字向 Dispatcher 取 `OperatorHandle` 再调用 |
 | Autograd 包装与反向函数 | 开发者自己提供反向（[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)） |
 
 Table: 自定义算子没有 Codegen 时，各部分从哪里来
@@ -697,8 +697,6 @@ Table: no_grad 与 inference_mode 关掉求导的不同做法
 
 如果每次都先调到一个什么也不做的函数再分发一次，就白走一跳。所以 Dispatcher 为每个算子预先算好一个「非 fallthrough 的 Key」掩码，合并时 AND 一下，这些 Key 就不会被选中。换成 `x.add_(y)`，ADInplaceOrView 上有真正的实现，就不会被掩掉。
 
-下表把例子在三种状态下的每一步结果列出来：
-
 | 来源 | 情形 | KeySet / TLS |
 |---|---|---|
 | 输入 | `x`：CUDA Tensor，`requires_grad=True` | `{AutogradCUDA, ADInplaceOrView, CUDA}` |
@@ -711,8 +709,6 @@ Table: no_grad 与 inference_mode 关掉求导的不同做法
 | ^^ | `inference_mode` | 去掉 ADInplaceOrView 后 `{CUDA}` → 直接 CUDA |
 
 Table: no_grad 与 inference_mode 下 DispatchKeySet 的合并结果
-
-同一个过程画成图：
 
 ```mermaid
 %% 图：合并 DispatchKeySet：各输入 KeySet 做 OR，叠加 TLS 的 include、减去 exclude，再掩掉 fallthrough Key
