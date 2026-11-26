@@ -230,7 +230,7 @@ flowchart LR
 
 ```mermaid
 %% 图：契约的每一项在账上的位置：effort 决定思考 token 进成本与 TTFT，前缀顺序决定缓存命中率，上下文长度与轮数决定 prefill 成本
-flowchart TB
+flowchart LR
     E["effort 档（第三篇）"] -->|"决定"| TH["思考 token 数"]
     TH -->|"× 输出价"| COST["每次调用成本（第四篇）"]
     TH -->|"× TPOT"| TTFT["TTFT"]

@@ -189,21 +189,21 @@ Table: 本文的章节安排
 
 ```mermaid
 %% 图：四个指标各有预算、监控、预案——成本：美元预算 · 账本与归因面板 · 六级降级梯子；延迟：p95 预算分段 · 按段告警 · 四层超时与 fallback；质量：错误预算 · 在线 judge / 格式失败 / 点踩率 · 回滚与探针；安全：红队通过率 · 异常动作检测 · 注入 / 越权 runbook 与 kill switch；任何改动同时看四个
-flowchart LR
+flowchart TB
     subgraph COST["成本（二）"]
-        direction TB
+        direction LR
         C1["预算：日 / 月美元上限"] ~~~ C2["监控：账本 · 归因三视图 · p95 每任务"] ~~~ C3["预案：六级降级梯子"]
     end
     subgraph LAT["延迟（三）"]
-        direction TB
+        direction LR
         L1["预算：p95 分到七段"] ~~~ L2["监控：按段 p95 · 命中率 · 排队"] ~~~ L3["预案：四层超时 · fallback · 流式"]
     end
     subgraph QUAL["质量（L5 · 六）"]
-        direction TB
+        direction LR
         Q1["预算：质量 SLO 的错误预算"] ~~~ Q2["监控：在线 judge · 格式失败 · 点踩率 · 探针"] ~~~ Q3["预案：回滚 · 钉旧快照 · 门禁冻结"]
     end
     subgraph SEC["安全（四）"]
-        direction TB
+        direction LR
         S1["预算：红队集通过率"] ~~~ S2["监控：异常动作 · 沙箱拒绝 · 外联"] ~~~ S3["预案：注入 / 越权 runbook · kill switch · 撤凭据"]
     end
     COST ~~~ LAT ~~~ QUAL ~~~ SEC

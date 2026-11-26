@@ -114,19 +114,19 @@ flowchart TB
 
 ```mermaid
 %% 图：工具与技能定义的渐进披露
-flowchart LR
+flowchart TB
     subgraph RES["常驻层 ②：每轮都传、在缓存前缀里"]
-        direction TB
+        direction LR
         R1["<b>工具名 + 一行描述 × 30</b><br/>≈ 1K token"]
         R2["<b>技能 description × n</b><br/>每个 ≤ 1,024 字符"]
     end
     subgraph EXT["上下文之外：磁盘 / 注册表"]
-        direction TB
+        direction LR
         E1["<b>30 个完整的参数 schema</b><br/>≈ 9K token"]
         E2["<b>SKILL.md 正文 + 脚本</b><br/>几千到几万 token"]
     end
     subgraph LOAD["按需进入上下文：不在稳定缓存前缀里"]
-        direction TB
+        direction LR
         L1["<b>选中工具的参数 schema</b><br/>+300 token"]
         L2["选中技能的 SKILL.md 正文"]
     end

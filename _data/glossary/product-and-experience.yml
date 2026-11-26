@@ -4,8 +4,3 @@
   zh: 检索增强生成
   say: "/ræɡ/「rag」"
   desc: 检索增强生成：先检索资料，再让模型据此回答
-- term: TTFT
-  full: time to first token
-  zh: 首 token 时延
-  say: 逐字母 T-T-F-T
-  desc: 从发出请求到第一个 token 出来的时间
