@@ -7,7 +7,15 @@ tags: [AI, LLM, AI-Application, Evaluation, Metrics]
 catalog: true
 ---
 
-评测集有了、评分方法有了，第三个问题是**评什么**。一个分类器评准确率就够；一个 RAG 要分开评检索与生成（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》）；一个 agent 要看结果之外的过程（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）；一个多轮客服要看策略遵循与轮数；所有应用都要把成本与延迟和质量一起报。这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
+评测集有了、评分方法有了，第三个问题是**评什么**。不同形态要评的东西不同：
+
+- 一个分类器评准确率就够；
+- 一个 RAG 要分开评检索与生成（《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)）；
+- 一个 agent 要看结果之外的过程（《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）；
+- 一个多轮客服要看策略遵循与轮数；
+- 所有应用都要把成本与延迟和质量一起报。
+
+这一篇把散在前四层的指标收成一张矩阵，补上多轮对话与安全两块，并讲三条横切的原则：按分布看、按类型分层、成本延迟并列。
 
 本篇要回答的核心问题是：
 
@@ -32,9 +40,9 @@ flowchart LR
 
 | 形态 | 结果 | 过程 / 形式 | 成本与延迟 | 安全 | 主要出处 |
 |---|---|---|---|---|---|
-| 单步（分类 / 抽取 / 生成） | 准确率 / F1 / 精确匹配；judge 分（rubric） | 格式遵循率、schema 通过率、拒答正确率、出口使用率 | 每次 token 与美元、TTFT、总时长 | 敏感信息、注入抵抗 | 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》 |
-| RAG | faithfulness、answer relevance、引用正确率 | recall@k / MRR / nDCG（检索侧）、context precision、零结果率 | 每次问答成本（含 rerank）、检索延迟 | "不该看到"零结果率 | 《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》 |
-| agent | 任务完成率（自动验收优先） | 步数、token、美元、墙钟<br/>工具选择正确率、弯路与重复<br/>部分结果质量 | 每任务成本 p50 / p95 | 越权尝试、沙箱拒绝、绕过障碍提议、注入下的行为 | 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》 |
+| 单步（分类 / 抽取 / 生成） | 准确率 / F1 / 精确匹配；judge 分（rubric） | 格式遵循率、schema 通过率、拒答正确率、出口使用率 | 每次 token 与美元、TTFT、总时长 | 敏感信息、注入抵抗 | 《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)、《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html) |
+| RAG | faithfulness、answer relevance、引用正确率 | recall@k / MRR / nDCG（检索侧）、context precision、零结果率 | 每次问答成本（含 rerank）、检索延迟 | "不该看到"零结果率 | 《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html) |
+| agent | 任务完成率（自动验收优先） | 步数、token、美元、墙钟<br/>工具选择正确率、弯路与重复<br/>部分结果质量 | 每任务成本 p50 / p95 | 越权尝试、沙箱拒绝、绕过障碍提议、注入下的行为 | 《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html) |
 | 多轮对话 | 任务完成、用户目标达成 | 策略遵循率、轮数、澄清提问的恰当性、状态保持（不忘前文） | 每会话成本 | 越界请求的处理 | 本篇 |
 | 代码生成 | 测试通过率（pass@k）、编译率 | 改动范围（diff 大小）、是否引入无关改动 | 成本 | 危险命令 | L4 |
 | 全部 | — | 一致率（k 次里相同结论的比例）、方差 | 永远与质量一起报 | 红队集通过率 | 本篇横切 |
@@ -43,17 +51,27 @@ Table: 各形态的指标矩阵
 
 ### 2. 本文的章节安排
 
-第二章单步；第三章 RAG 与 agent 的要点回顾；第四章多轮对话；第五章安全与红队；第六章三条横切原则；第七章公开基准的位置；第八章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、单步任务](#二单步任务) | 单步 |
+| [三、RAG 与 agent](#三rag-与-agent) | RAG 与 agent 的要点回顾 |
+| [四、多轮对话](#四多轮对话) | 多轮对话 |
+| [五、安全与红队](#五安全与红队) | 安全与红队 |
+| [六、三条横切原则](#六三条横切原则) | 三条横切原则 |
+| [七、公开基准的位置](#七公开基准的位置) | 公开基准的位置 |
+| [八、实践建议](#八实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、单步任务
 
 ### 1. 结果
 
-分类：准确率、按类的精确率 / 召回 / F1、混淆矩阵（哪两类混）。抽取：字段级精确匹配 / 容差匹配、字段级 F1（多值字段）。生成（摘要、改写、回复）：rubric 打分（judge，校准过——第二篇）、与参考的重叠（ROUGE 一类，只作弱信号）、人工抽检。
+分类：准确率、按类的精确率 / 召回 / F1、混淆矩阵（哪两类混）。抽取：字段级精确匹配 / 容差匹配、字段级 F1（多值字段）。生成（摘要、改写、回复）：rubric 打分（judge，校准过——[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)）、与参考的重叠（ROUGE 一类，只作弱信号）、人工抽检。
 
 ### 2. 形式
 
-**格式遵循率**（输出能否被解析）、**schema 通过率**（strict 下应为 100%，不是则查截断——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）、**拒答正确率**分两半：该拒的拒了（召回）、不该拒的没拒（精确）——两者常此消彼长，都要报；**出口使用率**（`cannot_classify` 一类出口用了多少、其中多少是真的该用）。
+**格式遵循率**（输出能否被解析）、**schema 通过率**（strict 下应为 100%，不是则查截断——《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）、**拒答正确率**分两半：该拒的拒了（召回）、不该拒的没拒（精确）——两者常此消彼长，都要报；**出口使用率**（`cannot_classify` 一类出口用了多少、其中多少是真的该用）。
 
 ### 3. 为什么形式指标单列
 
@@ -81,13 +99,29 @@ flowchart TB
 
 ## 三、RAG 与 agent
 
-### 1. RAG（《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的回顾）
+### 1. RAG（《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)的回顾）
 
-分开评：检索侧（查询，相关块）→ recall@50 / recall@5 分层、MRR、nDCG（分级标注）；生成侧（查询，固定块，理想答案）→ faithfulness（断言被块支持的比例）、answer relevance、引用正确率、拒答正确率（块里没答案时说不知道）；端到端与固定检索的差是检索损失；三个数字定位退化在哪段。运营侧：零结果率、拒答率、新鲜度。
+分开评：
 
-### 2. agent（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》的回顾）
+- 检索侧（查询，相关块）→ recall@50 / recall@5 分层、MRR、nDCG（分级标注）；
+- 生成侧（查询，固定块，理想答案）→ faithfulness（断言被块支持的比例）、answer relevance、引用正确率、拒答正确率（块里没答案时说不知道）；
+- 端到端与固定检索的差是检索损失；
+- 三个数字定位退化在哪段。
 
-六维：结果（自动验收：测试、断言、状态检查）、效率（步数 / token / 美元 / 墙钟与基线比）、过程正确性（工具选择、参数、弯路、重复）、安全（越权尝试、沙箱拒绝、绕过障碍）、鲁棒性（评测集里故意放工具错误、注入、缺信息，看行为是问人 / 降级 / 硬闯）、部分结果质量。评测集每条含环境快照；录制回放做非模型改动的回归。
+运营侧：零结果率、拒答率、新鲜度。
+
+### 2. agent（《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)的回顾）
+
+六维：
+
+1. 结果（自动验收：测试、断言、状态检查）。
+2. 效率（步数 / token / 美元 / 墙钟与基线比）。
+3. 过程正确性（工具选择、参数、弯路、重复）。
+4. 安全（越权尝试、沙箱拒绝、绕过障碍）。
+5. 鲁棒性（评测集里故意放工具错误、注入、缺信息，看行为是问人 / 降级 / 硬闯）。
+6. 部分结果质量。
+
+评测集每条含环境快照；录制回放做非模型改动的回归。
 
 ### 3. 过程为什么与结果并列
 
@@ -137,7 +171,13 @@ Table: 多轮对话的指标
 
 ### 3. 用户模拟器
 
-多轮评测要有"另一方"。三种：**脚本**（固定的用户轮次——便宜、可复现、但不响应系统的话）、**模拟器**（一个模型扮演用户，有目标与人设，响应系统——τ-bench 的做法；能测闭环，但模拟器本身有偏差与不稳定，且它的"耐心"与真人不同）、**真人**（最贵，抽检用）。模拟器要像 judge 一样被校准：它的行为分布与真实用户比对（轮数、放弃率、措辞）。
+多轮评测要有"另一方"。三种：
+
+1. **脚本**（固定的用户轮次——便宜、可复现、但不响应系统的话）。
+2. **模拟器**（一个模型扮演用户，有目标与人设，响应系统——τ-bench 的做法；能测闭环，但模拟器本身有偏差与不稳定，且它的"耐心"与真人不同）。
+3. **真人**（最贵，抽检用）。
+
+模拟器要像 judge 一样被校准：它的行为分布与真实用户比对（轮数、放弃率、措辞）。
 
 ```mermaid
 %% 图：多轮评测的闭环——用例给出用户目标、人设、初始状态与策略约束；模拟器（一个模型扮演用户）与被测系统来回对话，每轮系统的工具调用改变状态；结束时检查最终状态是否达成目标、过程是否遵循策略（先验证身份再改地址）、探针问前文信息看状态保持；模拟器的轮数 / 放弃率 / 措辞分布要与真实用户校准
@@ -199,13 +239,16 @@ xychart-beta
 
 红线 pass@k，蓝线 pass^k。同一个模型，一个数字说 99.999%，另一个说 59%——差别只在你问的是「至少一次对」还是「每次都对」。
 
+> [!NOTE] 后端经验参照：pass^k 之于 flaky 测试
+> 一个单次通过率 90% 的 flaky 测试，连续 5 次 CI 全绿的概率也是 $$0.9^5 pprox 0.59$$；"重跑到绿为止"看的是 pass@k，用户遇到的是 pass^k。对不上的是处理方式：flaky 测试是要修到 100% 的缺陷，模型的非确定性去不掉，只能量出这个比率、给它设阈值、再用约束解码等手段把它往上推。
+
 ### 2. 按类型分层
 
 总分掩盖此消彼长。按用例类型（高频 / 边界 / 失败过的 / 红队）、业务场景、难度分层报告；门禁按层设阈值；退化最大的层优先看逐条 diff。
 
 ### 3. 成本与延迟并列
 
-质量涨 2 分、成本涨 3 倍不一定是进步（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
+质量涨 2 分、成本涨 3 倍不一定是进步（《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）。每次评测同时报：每次 / 每任务的 token 与美元（含缓存读写、推理 token、rerank、judge）、TTFT、总时长的 p50 / p95。一张"质量 vs 成本"的散点图比两个数字有用。
 
 ```mermaid
 %% 图：质量 vs 成本的散点（示意）——五个候选配置：A 便宜但质量低，B 质量高但每任务 0.06 美元，C 与 D 在质量相近处成本差三倍，E 质量最高成本也最高；门禁线画在质量 88 处，线以上最便宜的是 C；两个数字分开报时 D 会因为「质量 91」被选中
@@ -222,7 +265,7 @@ xychart-beta
 
 ## 七、公开基准的位置
 
-《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》与 《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》讲过：基准（MMLU、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR 一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
+《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)与《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)讲过：基准（MMLU、SWE-bench Verified、Terminal-Bench、τ-bench、RAG 的 BEIR 一类）受污染、饱和、脚手架、分布四个局限，只用来**缩范围**（新模型值不值得进你的评测）、不用来决策；报告基准时说明版本与 harness。它们在矩阵里的位置是"结果"列的外部参照，不替代任何一格。
 
 ## 八、实践建议
 
@@ -263,7 +306,7 @@ xychart-beta
 4. pass@5 = 0.95 与 pass^5 = 0.60 各是什么意思？生产系统该看哪个？
 
    <details markdown="1"><summary>答案</summary>
-   pass@5：五次里至少一次成功的用例比例——演示与"能不能做到"看它。pass^5：五次全部成功的比例——生产每次都要对，看它。0.95 与 0.60 的差距说明一致率低（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的非确定性），生产可靠性以 0.60 为准，要提高一致性（约束解码、更明确的 prompt、降 temperature）而不是庆祝 0.95。详见[第六章](#六三条横切原则)。
+   pass@5：五次里至少一次成功的用例比例——演示与"能不能做到"看它。pass^5：五次全部成功的比例——生产每次都要对，看它。0.95 与 0.60 的差距说明一致率低（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的非确定性），生产可靠性以 0.60 为准，要提高一致性（约束解码、更明确的 prompt、降 temperature）而不是庆祝 0.95。详见[第六章](#六三条横切原则)。
    </details>
 
 5. 为什么用户模拟器要像 judge 一样校准？校准什么？

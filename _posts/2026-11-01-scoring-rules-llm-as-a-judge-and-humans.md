@@ -47,13 +47,22 @@ Table: 三层评分的对照
 
 ### 2. 本文的章节安排
 
-第二章规则；第三章 judge 的四类偏差与报告陷阱；第四章校准协议；第五章 judge 的设计（rubric、pairwise vs pointwise、去偏、选型）；第六章人的位置；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、规则](#二规则) | 规则 |
+| [三、judge 的偏差](#三judge-的偏差) | judge 的四类偏差与报告陷阱 |
+| [四、校准协议](#四校准协议) | 校准协议 |
+| [五、judge 的设计](#五judge-的设计) | rubric、pairwise vs pointwise、去偏、选型 |
+| [六、人的位置](#六人的位置) | 人的位置 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、规则
 
 ### 1. 能用规则的比想象多
 
-结构化输出（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）让大量判定变成规则：字段齐不齐、枚举对不对、数值在容差内、日期格式、引用的条目 id 是否存在于检索结果里、拒答出口是否被正确使用（该拒的用了、不该拒的没用）、代码是否编译 / 测试是否通过、agent 是否越权（沙箱事件计数）、步数与成本是否在预算内。把期望设计成可规则判定的形态，是评测集（第一篇）与输出 schema（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）联合设计的结果。
+结构化输出（《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）让大量判定变成规则：字段齐不齐、枚举对不对、数值在容差内、日期格式、引用的条目 id 是否存在于检索结果里、拒答出口是否被正确使用（该拒的用了、不该拒的没用）、代码是否编译 / 测试是否通过、agent 是否越权（沙箱事件计数）、步数与成本是否在预算内。把期望设计成可规则判定的形态，是评测集与输出 schema 联合设计的结果（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)、《结构化输出》）。
 
 ### 2. 规则的边界
 
@@ -113,6 +122,9 @@ xychart-beta
 
 红柱是与人的精确匹配一致率，蓝柱是 Cohen's kappa（× 100）。一个什么都不看的 judge 也有 80% 的一致率。实际 judge 的 88% 要先扣掉机遇一致 $$p_e$$：人判「好」的比例是 0.8，设 judge 判「好」的比例是 0.9，两者碰巧一致的概率是 $$p_e = 0.8 \times 0.9 + 0.2 \times 0.1 = 0.74$$，于是 $$\kappa = (0.88 - 0.74) / (1 - 0.74) \approx 0.54$$——够不上做门禁的 0.61。
 
+> [!NOTE] 后端经验参照：judge 的敏感度与特异度之于告警规则的漏报与误报
+> 算术是同一套：一条从不触发的告警在故障很少的系统里"准确率"也很高，所以评告警看漏报率与误报率，评 judge 看 kappa、敏感度与特异度，不看总一致率。对不上的是真值从哪来：告警的真值是事后的事故记录，judge 的真值要先请人标一份校准集；而且 judge 还有位置、风格、冗长、自我偏好这类告警规则没有的偏差，要逐项测。
+
 ## 四、校准协议
 
 ### 1. 最小协议
@@ -121,7 +133,7 @@ xychart-beta
 
 | 步 | 做什么 | 通过线 |
 |---|---|---|
-| 1 校准集 | 人工标注几十到几百条（第一篇的标注组织），覆盖各类型与好坏分布 | 双标注者 kappa ≥ 0.6（否则先修指南） |
+| 1 校准集 | 人工标注几十到几百条（[《评测集》的「标注的组织」一节](/eval-sets-the-unit-tests-of-ai-applications.html#七标注的组织)），覆盖各类型与好坏分布 | 双标注者 kappa ≥ 0.6（否则先修指南） |
 | 2 一致性 | judge 评校准集，与人比 **Cohen's kappa**，报区间 | ≥ 0.61（substantial）；< 0.4 不能用 |
 | 3 位置 | pairwise 时每对交换顺序再评，只保留双向一致的判定 | 翻转率的区间上界低于你要区分的最小差距 |
 | 4 长度 | 对决定性的对做长度匹配的改写再评 | 胜率变化的 McNemar 区间含零 |
@@ -192,7 +204,7 @@ judge 的模型升级、rubric 改动、任务分布变化（新类型的用例�
 
 ### 1. rubric
 
-judge 的 prompt 是一份 rubric：判什么、每个分数级的定义、明确要忽略的（格式、长度、礼貌用语）、给出理由再给分（推理前置——《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）、输出结构化（分数 + 理由 + 引用的证据）。rubric 短而具体优于长而全（长的会漂移）。rubric 是 prompt，按 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》版本化。
+judge 的 prompt 是一份 rubric：判什么、每个分数级的定义、明确要忽略的（格式、长度、礼貌用语）、给出理由再给分（推理前置——《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）、输出结构化（分数 + 理由 + 引用的证据）。rubric 短而具体优于长而全（长的会漂移）。rubric 是 prompt，按《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)版本化。
 
 ### 2. pointwise 还是 pairwise
 
@@ -213,7 +225,7 @@ Table: pointwise 与 pairwise 的对照
 
 ### 4. 选 judge
 
-结论与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》同构：**去偏策略比 judge 的大小重要**——Gemini 2.5 Flash + 组合去偏（κ = 0.549，≈ 0.001 美元）胜过 Claude Sonnet 4 同策略（≈ 0.015 美元），便宜 15 倍。选法：两三个候选在你的校准集上跑第四章的协议，选 kappa 高、偏差小、便宜的；避免与被评模型同家族（或至少加跨家族对照）；judge 的模型版本钉住（它也会静默变——第四篇）。
+结论与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)同构：**去偏策略比 judge 的大小重要**——Gemini 2.5 Flash + 组合去偏（κ = 0.549，≈ 0.001 美元）胜过 Claude Sonnet 4 同策略（≈ 0.015 美元），便宜 15 倍。选法：两三个候选在你的校准集上跑第四章的协议，选 kappa 高、偏差小、便宜的；避免与被评模型同家族（或至少加跨家族对照）；judge 的模型版本钉住（它也会静默变——[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)）。
 
 ```mermaid
 %% 图：去偏策略比 judge 的大小重要——Gemini 2.5 Flash 加组合去偏（交换顺序 · 长度匹配 · 忽略格式 · 遮蔽来源 · 先理由后分）κ = 0.549、每次约 0.001 美元；Claude Sonnet 4 同策略约 0.015 美元、κ 更低；中档模型 + 去偏比前沿模型便宜 15 倍且更准
@@ -236,11 +248,15 @@ xychart-beta
 
 ### 1. 三件事
 
-**校准集标注**（judge 的标准）、**抽检**（批量 judge 结果里抽 5–10% 人核，一致率进面板）、**争议裁决**（judge 不确定、jury 分歧、用户投诉的用例）。另加一件：**发现新失效模式**——人看轨迹时会注意到 rubric 没覆盖的问题，那是评测集与 rubric 演进的来源。
+1. **校准集标注**（judge 的标准）。
+2. **抽检**（批量 judge 结果里抽 5–10% 人核，一致率进面板）。
+3. **争议裁决**（judge 不确定、jury 分歧、用户投诉的用例）。
+
+另加一件：**发现新失效模式**——人看轨迹时会注意到 rubric 没覆盖的问题，那是评测集与 rubric 演进的来源。
 
 ### 2. 人也要量
 
-两个标注者的 kappa 低于 0.6 说明任务定义模糊——这时 judge 不稳不是 judge 的错。先修标注指南（第一篇），再谈 judge。
+两个标注者的 kappa 低于 0.6 说明任务定义模糊——这时 judge 不稳不是 judge 的错。先修标注指南（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)），再谈 judge。
 
 ### 3. 成本与组织
 
@@ -287,7 +303,11 @@ cohen_kappa(76, 4, 4, 16)      # 一致率 92%，两边判好的比例相同
 
 - 三层：规则（确定免费优先）→ judge（需要判断处，先校准）→ 人（校准、抽检、裁决、发现）。
 - judge 四类偏差：位置（>0.10 在部分生产 judge）、风格（0.10–0.76，最大且最少研究）、冗长（异质：有偏长有偏短有中性）、自我偏好；另有校准偏移与 rubric 漂移。
-- 报告陷阱：精确匹配一致率相对 kappa 虚高 33–41 pp——报 kappa；重测 >0.95 与位置偏差 >0.10 并存——一致不是正确；排名跨基准移动 14 位——在自己的任务上校准；pairwise 对干扰翻转 35% vs pointwise 9%。
+- 报告陷阱：
+  - 精确匹配一致率相对 kappa 虚高 33–41 pp——报 kappa；
+  - 重测 >0.95 与位置偏差 >0.10 并存——一致不是正确；
+  - 排名跨基准移动 14 位——在自己的任务上校准；
+  - pairwise 对干扰翻转 35% vs pointwise 9%。
 - 校准八步：校准集（双标 κ ≥ 0.6）→ kappa ≥ 0.61 → 交换顺序 → 长度匹配 → 格式对照 → 遮蔽来源 + 跨家族 → 敏感度 / 特异度反推 $$p = (p_{obs} - (1-t)) / (s - (1-t))$$ → rubric 固定与抽检。
 - 设计：rubric 短具体、先理由后分、忽略格式、版本化；门禁 pointwise、对比 pairwise；去偏组合显著；中档 + 去偏胜前沿且便宜 15 倍；钉 judge 版本。
 - 人：三件事加发现新失效；人之间也要量 kappa；专家用在 rubric、校准、裁决。

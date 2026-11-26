@@ -53,33 +53,41 @@ flowchart TB
 
 ### 2. 本文的章节安排
 
-第二章每种 span 记什么；第三章 OpenTelemetry GenAI 约定的内容与现状；第四章工具与自建；第五章敏感数据、采样、保留与成本；第六章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、每种 span 记什么](#二每种-span-记什么) | 每种 span 记什么 |
+| [三、OpenTelemetry GenAI 语义约定](#三opentelemetry-genai-语义约定) | OpenTelemetry GenAI 约定的内容与现状 |
+| [四、工具与自建](#四工具与自建) | 工具与自建 |
+| [五、敏感数据、采样、保留与成本](#五敏感数据采样保留与成本) | 敏感数据、采样、保留与成本 |
+| [六、实践建议](#六实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、每种 span 记什么
 
 ### 1. 模型调用
 
-最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT 与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（第六篇）。
+最重要的 span。记**完整的输入**（系统提示、工具定义、历史、当前输入——或一个能重建它的引用：prompt 版本 + 历史事件 id，避免每条 trace 重复存几十 KB）、**完整输出**（文本、工具调用、思考块——《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)的推理状态要原样保留才能重放）、`usage`（输入 / 输出 / 缓存读 / 缓存写 / 推理 token——《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)的五项成本）、模型 id 与快照、effort、temperature、`stop_reason`、TTFT 与总时长、错误类型与重试次数、请求 id（供应商侧的，报障用）。没有完整输入输出的 trace 无法做录制回放与 bad case 复现（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）。
 
 ### 2. 工具调用
 
-名称、参数、结果（大结果卸载后存引用与摘要——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）、耗时、沙箱类型与拒绝、审批请求与决定（谁、何时）、幂等 id、错误。工具 span 是 《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》安全事件的来源（越权尝试、沙箱拒绝计数）。
+名称、参数、结果（大结果卸载后存引用与摘要——《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）、耗时、沙箱类型与拒绝、审批请求与决定（谁、何时）、幂等 id、错误。工具 span 是《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)安全事件的来源（越权尝试、沙箱拒绝计数）。
 
 ### 3. 检索
 
-查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF（reciprocal rank fusion，按排名倒数合并两路检索结果） 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》的三个数字要从这里算。
+查询（改写前后）、过滤条件（含权限）、两路候选与分数、RRF（reciprocal rank fusion，按排名倒数合并两路检索结果） 后排序、rerank 后排序、最终进上下文的块 id、零结果标记——《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)的三个数字要从这里算。
 
 ### 4. 事件
 
-压缩（触发原因、压缩前后 token、摘要或 blob 引用）、卸载（什么被卸载到哪）、卫士触发（哪个、动作）、审批（请求、`justification`、决定）、决策点（选了哪个工具与为什么、终止原因、权限判定、预算余量——第六篇）。事件挂在 turn span 上，带时间戳。
+压缩（触发原因、压缩前后 token、摘要或 blob 引用）、卸载（什么被卸载到哪）、卫士触发（哪个、动作）、审批（请求、`justification`、决定）、决策点（选了哪个工具与为什么、终止原因、权限判定、预算余量——[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）。事件挂在 turn span 上，带时间戳。
 
 ### 5. 会话与任务
 
-会话级记**版本六元组**（评测的六元组在生产里的对应：prompt、模型快照、工具集、检索配置、harness 版本、权限档）——没有它们，第六篇的版本 diff 与第四篇的 A/B 归因都做不了。任务级记最终状态与用户反馈（第六篇的反馈绑定落在这里）。
+会话级记**版本六元组**（评测的六元组在生产里的对应：prompt、模型快照、工具集、检索配置、harness 版本、权限档）——没有它们，[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里的版本 diff 与[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)里的 A/B 归因都做不了。任务级记最终状态与用户反馈（《可追溯》里的反馈绑定落在这里）。
 
 ### 6. 子 agent
 
-子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，《[工具、Agent 与 harness（07）：多 agent——编排、handoff 与 <span class="inline-tip" data-tip="Agent2Agent：Google 提出的 agent 之间互相调用的开放协议">A2A</span>](/multi-agent-orchestration-handoff-and-a2a.html)》的树状追溯靠这两个引用。
+子会话是独立的树，父会话的事件里记子会话 id，子会话记父 id——trace 成为森林，《工具、Agent 与 harness》的[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)的树状追溯靠这两个引用。
 
 ```mermaid
 %% 图：一条模型调用 span 的完整属性与它们各服务于谁——完整输入输出（或可重建的引用）服务录制回放与 bad case 复现；五项 usage 服务成本分析；模型快照与 effort 服务版本 diff 与 A/B 归因；stop_reason 与 TTFT 服务截断率与延迟排查；请求 id 服务向供应商报障；缺任何一项就有一件事做不了
@@ -140,6 +148,9 @@ Table: GenAI 约定 2026 年的现状
 - **后端归一**：框架发几代属性时在 Collector 或后端做映射（`gen_ai.system` → `gen_ai.provider.name`）。
 - **业务属性用自己的命名空间**（`app.*`）：prompt 版本、工具集版本、权限档、评测集 id 这些约定里没有的东西，别塞进 `gen_ai.*`。
 
+> [!NOTE] 后端经验参照：GenAI 语义约定之于 HTTP 与数据库的语义约定
+> 用法一样：给 HTTP、数据库调用打点时按 OTel 的 http、db 约定命名，换 APM 后端面板照样能用；GenAI span 也按约定命名，业务字段放自己的命名空间。对不上的有两处：HTTP 与数据库约定的核心属性已经 Stable，GenAI 约定全部还是 Development，改名要当破坏性变更处理；一条模型调用 span 带几十 KB 的输入输出、可能含个人信息，内容要和元数据分开采样、脱敏和保留，HTTP span 通常不带请求体。
+
 ```mermaid
 %% 图：按 OTel GenAI 约定打点的价值——应用用 gen_ai.* 命名（gen_ai.provider.name · gen_ai.request.model · gen_ai.usage.*），业务属性放 app.*（prompt 版本、工具集版本、权限档）；经 Collector 做几代属性名的归一（gen_ai.system → gen_ai.provider.name），任何理解约定的后端（Langfuse · Phoenix · Datadog · 自建 ClickHouse + Grafana）都能读同一份 trace；换后端零成本
 flowchart TB
@@ -165,7 +176,7 @@ flowchart TB
 
 | 工具 | 特点 | 适合 |
 |---|---|---|
-| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
+| Langfuse | 开源可自托管<br/>v3 围绕 OTel 重建<br/>trace + prompt 管理（《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）+ 评测运行 + 数据集 | 想要 trace、prompt、评测在一处；自托管需求 |
 | LangSmith | LangChain 栈原生；trace、评测、数据集、playground | LangChain / LangGraph 用户 |
 | Arize Phoenix | 开源<br/>OpenInference 约定<br/>评测与 embedding 可视化 | 严谨的评测与可视化；自托管 |
 | Braintrust | trace 到评测的闭环（从 trace 一键建用例、跑评测、比版本） | 评测驱动的团队 |
@@ -178,11 +189,11 @@ Table: 可观测工具候选
 
 ### 2. 自建的最小集
 
-OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对象存储 + 索引）→ 查询与面板（Grafana）。加：完整输入输出的存储（对象存储 + 引用）、评测集采样的查询、bad case 队列（第六篇）。自建的理由通常是数据合规与规模成本；代价是评测闭环要自己拼。
+OTel SDK 打点（按 `gen_ai.*`）→ Collector → 存储（ClickHouse / 对象存储 + 索引）→ 查询与面板（Grafana）。加：完整输入输出的存储（对象存储 + 引用）、评测集采样的查询、bad case 队列（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)）。自建的理由通常是数据合规与规模成本；代价是评测闭环要自己拼。
 
 ### 3. 与会话日志的关系
 
-《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源会话日志已经含了 trace 的大部分内容——它是运行时的状态；trace 是它的**可观测投影**。两者可以一份数据两种视图（从日志导出 span），不要维护两套。
+《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件溯源会话日志已经含了 trace 的大部分内容——它是运行时的状态；trace 是它的**可观测投影**。两者可以一份数据两种视图（从日志导出 span），不要维护两套。
 
 ```mermaid
 %% 图：会话日志与 trace 是一份数据的两种视图——运行时写 append-only 的事件日志（它是状态：恢复、重放、分叉靠它）；一个导出器把日志事件映射成 OTel span 与事件（模型调用事件 → gen_ai chat span，工具事件 → execute_tool span，压缩 / 审批 / 卫士 → span 事件），送进可观测后端做面板、告警、评测采样；不要让 agent 循环各写一份
@@ -301,13 +312,16 @@ invoke_agent refund-bot  3380 ms
 ## 七、本文小结
 
 - 三级树：会话（版本六元组、权限档、总成本）→ 任务（输入输出、状态、反馈）→ span（模型调用：完整输入输出、五项 usage、effort、stop_reason、TTFT；工具：参数结果沙箱审批幂等 id；检索：查询候选排序块 id）+ 事件（压缩、卸载、卫士、审批、决策点）+ 子会话链接。
-- OTel GenAI 约定：`{operation} {model}` 命名、`gen_ai.provider.name`、请求 / 响应 / 用量 / agent / 工具属性、内容事件、指标；2026 年迁入独立仓库、全部 Development 无 Stable、属性改名（`system` → `provider.name`）、`invoke_agent` 拆分、span 扩展到 agent 循环、OpenInference 对齐、Langfuse v3 重建；用法是按约定打点、钉版本、改名当破坏性变更、后端归一、业务属性用 `app.*`。
+- OTel GenAI 约定：
+  - 内容：`{operation} {model}` 命名、`gen_ai.provider.name`、请求 / 响应 / 用量 / agent / 工具属性、内容事件、指标；
+  - 2026 年的现状：迁入独立仓库、全部 Development 无 Stable、属性改名（`system` → `provider.name`）、`invoke_agent` 拆分、span 扩展到 agent 循环、OpenInference 对齐、Langfuse v3 重建；
+  - 用法：按约定打点、钉版本、改名当破坏性变更、后端归一、业务属性用 `app.*`。
 - 工具：Langfuse、LangSmith、Phoenix、Braintrust、Helicone、APM 模块，按评测闭环 / 自托管 / 成本 / 栈选；自建最小集；trace 是会话日志的可观测投影。
 - 敏感数据分级脱敏访问控制短保留不记凭据；元数据全量、内容按比例、bad case 全量；内容进对象存储。
 
 ## 八、自测
 
-1. 一条模型调用 span 只记了输入输出的前 500 字符与总 token 数。第六篇的哪些事做不了？
+1. 一条模型调用 span 只记了输入输出的前 500 字符与总 token 数。[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里讲的哪些事做不了？
 
    <details markdown="1"><summary>答案</summary>
    录制回放（要完整输出含思考块）、bad case 复现（要完整输入）、缓存与成本分析（要缓存读写与推理 token 分项）、非确定性定位（要完整请求体）。记完整内容或可重建的引用（prompt 版本 + 历史事件 id）。详见[第二章](#二每种-span-记什么)。
@@ -334,7 +348,7 @@ invoke_agent refund-bot  3380 ms
 5. 为什么说 trace 是会话日志的"可观测投影"？维护两套会怎样？
 
    <details markdown="1"><summary>答案</summary>
-   《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的事件溯源日志已含每步的输入输出、工具、审批、压缩——它是运行时的状态与事实来源；trace 需要的就是这些内容按 OTel 形状组织，可以从日志导出 span。两套会不一致（日志里有的 trace 里没有、时间戳与 id 对不上）、双倍存储、bad case 在两处找。一份数据两种视图。详见[第四章](#四工具与自建)。
+   《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的事件溯源日志已含每步的输入输出、工具、审批、压缩——它是运行时的状态与事实来源；trace 需要的就是这些内容按 OTel 形状组织，可以从日志导出 span。两套会不一致（日志里有的 trace 里没有、时间戳与 id 对不上）、双倍存储、bad case 在两处找。一份数据两种视图。详见[第四章](#四工具与自建)。
    </details>
 
 [^q0]: 三级树：会话 span 记用户 / 租户、版本六元组（prompt、模型快照、工具集、检索配置、harness、权限档）、时间、总成本；任务 / 轮次 span 记用户输入、最终输出、状态（完成 / 部分 / 失败 / 拒答）、成本、时长、用户反馈；模型调用 span 记完整输入（或 prompt 版本 + 历史事件 id 的可重建引用）、完整输出含思考块、usage 五项（输入 / 输出 / 缓存读 / 缓存写 / 推理）、模型 id 与快照、effort、temperature、stop_reason、TTFT 与总时长、错误与重试、供应商请求 id；工具 span 记名称、参数、结果或卸载引用、耗时、沙箱与拒绝、审批请求与决定、幂等 id、错误；检索 span 记改写前后查询、过滤含权限、两路候选与分数、RRF 与 rerank 后排序、进上下文的块 id、零结果；事件挂在 turn 上——压缩、卸载、卫士、审批、决策点；子会话 id 双向链接成森林。详见[第一章](#一总览)、[第二章](#二每种-span-记什么)。

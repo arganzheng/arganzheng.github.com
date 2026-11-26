@@ -7,9 +7,14 @@ tags: [AI, LLM, AI-Application, Evaluation, CI, A/B Testing]
 catalog: true
 ---
 
-评测集、评分、指标三样齐了，这一篇讲怎么把它们接进**发布流程**：每次改动（prompt、模型、effort、schema、工具集、检索配置、harness 版本）过一道门禁；供应商在你不动的时候换了模型怎么发现；线上怎么做 A/B 与在线评测；离线分数与在线指标不一致时信谁。
+评测集、评分、指标三样齐了，这一篇讲怎么把它们接进**发布流程**：
 
-《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》画了 prompt 的生命周期图（编辑 → 版本 → 门禁 → 灰度 → 生产 → 监控 → 模型升级重跑），这一篇给它完整的实现：门禁的判据、逐条 diff、噪声阈值、探针集、影子模式、A/B 的分流与归因、隐式反馈的种类、离线—在线相关性的校验。
+- 每次改动（prompt、模型、effort、schema、工具集、检索配置、harness 版本）过一道门禁；
+- 供应商在你不动的时候换了模型怎么发现；
+- 线上怎么做 A/B 与在线评测；
+- 离线分数与在线指标不一致时信谁。
+
+《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)画了 prompt 的生命周期图（编辑 → 版本 → 门禁 → 灰度 → 生产 → 监控 → 模型升级重跑），这一篇给它完整的实现：门禁的判据、逐条 diff、噪声阈值、探针集、影子模式、A/B 的分流与归因、隐式反馈的种类、离线—在线相关性的校验。
 
 本篇要回答的核心问题是：
 
@@ -41,7 +46,16 @@ flowchart TB
 
 ### 2. 本文的章节安排
 
-第二章门禁；第三章供应商静默升级的检测；第四章影子模式与灰度；第五章 A/B 与在线评测；第六章离线与在线的关系；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、门禁](#二门禁) | 门禁 |
+| [三、供应商静默升级](#三供应商静默升级) | 供应商静默升级的检测 |
+| [四、影子模式与灰度](#四影子模式与灰度) | 影子模式与灰度 |
+| [五、A/B 与在线评测](#五ab-与在线评测) | A/B 与在线评测 |
+| [六、离线与在线](#六离线与在线) | 离线与在线的关系 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、门禁
 
@@ -58,8 +72,8 @@ flowchart TB
 | 形式 | 格式遵循率、schema 通过率、拒答两半不退化 |
 | 成本与延迟 | 每次 / 每任务成本、TTFT、总时长 p50 / p95 不超阈值（或有意为之并记录） |
 | 安全 | 红队集通过率不降 |
-| hold-out | 门禁以 hold-out 为准，开发集只参考（第一篇） |
-| judge 校准 | 用作门禁指标的 judge 已过第二篇的协议；judge 版本钉住 |
+| hold-out | 门禁以 hold-out 为准，开发集只参考（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)） |
+| judge 校准 | 用作门禁指标的 judge 已过[《评分》](/scoring-rules-llm-as-a-judge-and-humans.html)里的校准协议；judge 版本钉住 |
 
 Table: 回归门禁的判据
 
@@ -82,28 +96,31 @@ xychart-beta
 
 ### 4. CI 的形态
 
-promptfoo、Braintrust、Langfuse 的评测运行、或自写脚本：配置列出评测集版本、prompt 版本、模型、judge、阈值；命令输出分层指标、逐条 diff、成本；阈值不过 CI 失败。运行时间：100 条 × 5 次 × 几秒 = 几分钟到十几分钟（可并行）；成本几美元。agent 评测慢（每条几分钟）——用录制回放处理非模型改动（第六篇），只在改 prompt / 模型时全量重跑。
+promptfoo、Braintrust、Langfuse 的评测运行、或自写脚本：配置列出评测集版本、prompt 版本、模型、judge、阈值；命令输出分层指标、逐条 diff、成本；阈值不过 CI 失败。运行时间：100 条 × 5 次 × 几秒 = 几分钟到十几分钟（可并行）；成本几美元。agent 评测慢（每条几分钟）——用录制回放处理非模型改动（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)），只在改 prompt / 模型时全量重跑。
 
 ### 5. 记录
 
-每次门禁的结果是一条记录：六元组（评测集 × prompt × 模型快照 × 工具集 × 检索配置 × judge / rubric）+ 分层指标 + 成本 + 逐条 diff 的链接。它是第六篇"版本 diff"的数据源。
+每次门禁的结果是一条记录：六元组（评测集 × prompt × 模型快照 × 工具集 × 检索配置 × judge / rubric）+ 分层指标 + 成本 + 逐条 diff 的链接。它是[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里"版本 diff"的数据源。
 
 ## 三、供应商静默升级
 
 ### 1. 问题
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》与第五篇：同一模型名下的行为会变——供应商更新了快照、改了默认参数、换了 tokenizer、路由到不同的后端（DeepSeek 把 V4-Pro 路由到 V4.1 Flash 的例子）。你没改任何东西，评测分数变了、成本变了、格式遵循率变了。
+《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)、[《选型》](/model-selection-beyond-leaderboards.html)：同一模型名下的行为会变——供应商更新了快照、改了默认参数、换了 tokenizer、路由到不同的后端（DeepSeek 把 V4-Pro 路由到 V4.1 Flash 的例子）。你没改任何东西，评测分数变了、成本变了、格式遵循率变了。
 
 ### 2. 检测
 
 - **钉快照**：用带日期的模型 id（`-2026-06-12` 一类）而不是浮动别名；浮动别名的变更不会通知你。
 - **探针集每日跑**：几十条对措辞与格式敏感的用例（不是全量评测集）每天定时跑，记分数、格式遵循率、平均输出长度、token 数、TTFT；任一漂出区间告警。它是"模型指纹"。
-- **订阅变更通知**：供应商的 changelog、弃用邮件、状态页；《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》的弃用周期表。
-- **生产指标的突变**：格式失败率、平均输出长度、成本 / 请求突然变化，且时间线上没有你的部署——第六篇的版本 diff 对齐会显示"没有对应的变更"。
+- **订阅变更通知**：供应商的 changelog、弃用邮件、状态页；《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)的弃用周期表。
+- **生产指标的突变**：格式失败率、平均输出长度、成本 / 请求突然变化，且时间线上没有你的部署——[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里的版本 diff 对齐会显示"没有对应的变更"。
+
+> [!NOTE] 后端经验参照：钉快照之于锁定依赖版本
+> 浮动别名就像依赖写成 `latest` 或 `^1.2`：上游一发版，你的构建就在没有提交的情况下变了；带日期的快照 id 相当于 lockfile 里钉死的版本。对不上的地方有两处：锁住的依赖包可以一直用，模型快照会按供应商的弃用周期下线，钉住只是把升级变成你排期的事；而且供应商可能在同一个快照名下改路由或默认参数，所以钉了快照还得每天跑探针集。
 
 ### 3. 应对
 
-探针告警后：全量评测确认影响范围；若退化，切到钉住的旧快照（如果还在）或 fallback（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；把这次变更作为一次"外部发布"记录；通知供应商。这是为什么评测集要**定期重跑**而不只在改动时跑（第一篇）。
+探针告警后：全量评测确认影响范围；若退化，切到钉住的旧快照（如果还在）或 fallback（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）；把这次变更作为一次"外部发布"记录；通知供应商。这是为什么评测集要**定期重跑**而不只在改动时跑（[《评测集》](/eval-sets-the-unit-tests-of-ai-applications.html)）。
 
 ```mermaid
 %% 图：探针集是模型指纹——几十条对措辞与格式敏感的用例每天定时跑，记分数、格式遵循率、平均输出长度、token 数、TTFT；某天格式遵循率从 99% 掉到 91%、平均输出长度从 210 涨到 290 token，而部署时间线上没有任何变更——这就是供应商静默升级的样子
@@ -122,15 +139,18 @@ xychart-beta
 
 ### 1. 影子模式
 
-高风险改动（换模型、换 harness 版本、改权限策略）在灰度之前多一步：新版本与旧版本**并行处理同一批真实请求**，新版本的输出只记录不返回给用户；比较两者的差异（judge 或规则）、成本、延迟。真实分布下的对比，零用户风险。代价是双倍的推理成本（只在影子期间）。物理世界的影子模式（第七篇）是同一思想。
+高风险改动（换模型、换 harness 版本、改权限策略）在灰度之前多一步：新版本与旧版本**并行处理同一批真实请求**，新版本的输出只记录不返回给用户；比较两者的差异（judge 或规则）、成本、延迟。真实分布下的对比，零用户风险。代价是双倍的推理成本（只在影子期间）。物理世界的影子模式（[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）是同一思想。
+
+> [!NOTE] 后端经验参照：影子模式与灰度之于流量镜像与金丝雀发布
+> 结构一样：影子模式就是流量镜像（新版本收一份复制的真实请求，响应丢掉），灰度就是金丝雀发布（按标签切 1–5% 流量，出问题把标签指回去）。对不上的是怎么比：同一版本对同一请求两次输出也不同，新旧响应不能逐字节 diff，要用规则或 judge 判差异；新前缀的缓存冷启动会让灰度头几分钟的 TTFT 和成本偏高，这是预期，不是退化。
 
 ### 2. 灰度
 
-标签发布（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》）：`prod-canary` 指向新版本、路由 1–5% 流量、trace 绑定版本；看在线指标与隐式反馈（第五章）一到几天；正常则移 `production`，退化则移回。灰度期的两个陷阱：**缓存冷启动**（新前缀第一轮全写，TTFT 与成本高是预期——《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）与**样本量**（1% 流量的差异要几天才显著）。
+标签发布（《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)）：`prod-canary` 指向新版本、路由 1–5% 流量、trace 绑定版本；看在线指标与隐式反馈（第五章）一到几天；正常则移 `production`，退化则移回。灰度期的两个陷阱：**缓存冷启动**（新前缀第一轮全写，TTFT 与成本高是预期——《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）与**样本量**（1% 流量的差异要几天才显著）。
 
 ### 3. 回滚
 
-标签指回旧版本，秒级；但要确认旧版本依赖的东西还在（模型快照未下线、工具集兼容、会话状态可读——加密的压缩 item 换模型后不可用，《[工具、Agent 与 harness（06）：源码级对照——Codex、DeepSeek Harness、Claude Code 与 OpenHarness](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)》）。
+标签指回旧版本，秒级；但要确认旧版本依赖的东西还在（模型快照未下线、工具集兼容、会话状态可读——加密的压缩 item 换模型后不可用，《工具、Agent 与 harness》的[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）。
 
 ```mermaid
 %% 图：一次高风险改动的发布路径——离线门禁过了 → 影子模式：新旧版本并行处理同一批真实请求、新版本只记录不返回、比较差异与成本（零用户风险，双倍推理成本）→ 灰度：prod-canary 标签指新版本、1–5% 流量、trace 绑版本、看在线指标一到几天（忽略头几分钟的缓存冷启动）→ 全量；任一阶段退化就把标签移回旧版本，回滚前确认旧快照还在
@@ -171,7 +191,7 @@ flowchart TB
 
 Table: 在线信号的分类
 
-每个信号带 trace id 落库（第六篇的反馈绑定）。
+每个信号带 trace id 落库（[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)里的反馈绑定）。
 
 ### 3. 在线 judge
 
