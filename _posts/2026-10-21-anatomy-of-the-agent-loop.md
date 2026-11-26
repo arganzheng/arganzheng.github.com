@@ -46,44 +46,62 @@ loop(task):
         if no resp.tool_calls: return resp.text     # 终止条件 A：模型说完了
         for call in resp.tool_calls:                # 可并行
             if is_repeat(call, ctx): warn(ctx)       # 卫士 ②：重复调用
-            if not permitted(call): result = deny(call)   # 权限（第五篇）
-            else: result = run(call, timeout=T)     # 卫士 ③：单次超时；沙箱（第五篇）
+            if not permitted(call): result = deny(call)   # 权限（《权限、沙箱与安全边界》）
+            else: result = run(call, timeout=T)     # 卫士 ③：单次超时；沙箱（《权限、沙箱与安全边界》）
             ctx.append(tool_result(call.id, result))       # 配对（《模型作为组件》的《API 契约（一）》）
-        if tokens(ctx) > BUDGET: compact(ctx)       # 卫士 ④：预算；压缩（第四篇）
+        if tokens(ctx) > BUDGET: compact(ctx)       # 卫士 ④：预算；压缩（《长任务的上下文管理与子 agent》）
     return partial(ctx)                             # 终止条件 B：预算耗尽，交付部分结果
 ```
 
-四个卫士与两个终止条件是最小循环与"能上生产的循环"之间的第一道差别。没有它们，一个找不到答案的 agent 会无限换词重试（《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》），一个卡住的工具会让整个会话挂死，一个长任务会在第 50 步撞上下文上限（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》）。
+四个卫士与两个终止条件是最小循环与"能上生产的循环"之间的第一道差别。没有它们，一个找不到答案的 agent 会无限换词重试（《检索与知识接入》的[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)），一个卡住的工具会让整个会话挂死，一个长任务会在第 50 步撞上下文上限（《Prompt 与上下文工程》的[《上下文的解剖》](/anatomy-of-the-context-window.html)）。
 
 ### 2. 本文的章节安排
 
-第二章讲循环的每一段与它的失控点；第三章讲 Codex 的三层循环；第四章讲 DeepSeek Harness 的日志驱动循环；第五章讲工作流 vs agent 的选择；第六章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、循环的每一段](#二循环的每一段) | 循环的每一段与它的失控点 |
+| [三、Codex 的三层循环](#三codex-的三层循环) | Codex 的三层循环 |
+| [四、DeepSeek Harness 的日志驱动循环](#四deepseek-harness-的日志驱动循环) | DeepSeek Harness 的日志驱动循环 |
+| [五、工作流还是 agent](#五工作流还是-agent) | 工作流 vs agent 的选择 |
+| [六、实践建议](#六实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、循环的每一段
 
 ### 1. 组装上下文
 
-L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加**（历史不修改，否则缓存与推理状态都坏——《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）、**工具返回的截断与卸载**（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）、**当前目标的复述**（第四篇）。失控点：动态内容混进前缀让每一步都是缓存写入；工具返回不截断让上下文在十几步内爆掉。
+L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加**（历史不修改，否则缓存与推理状态都坏——《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)、《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）、**工具返回的截断与卸载**（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）、**当前目标的复述**（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。失控点：动态内容混进前缀让每一步都是缓存写入；工具返回不截断让上下文在十几步内爆掉。
 
 ### 2. 调模型
 
-一次 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的调用：流式、带工具定义、带 effort（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。失控点：没有超时（一次调用挂住整个循环）；重试策略不区分错误类型（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）；每步都用最高 effort（成本与 TTFT，《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》的按步选档）。
+一次《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)的调用：流式、带工具定义、带 effort（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。失控点：
+
+- 没有超时（一次调用挂住整个循环）；
+- 重试策略不区分错误类型（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）；
+- 每步都用最高 effort（成本与 TTFT，《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)的按步选档）。
 
 ### 3. 解析输出
 
-模型返回文本、工具调用、或两者。**工具调用是模型的"决定"，不是执行**——这是 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》的协议：`call_id`、`name`、`arguments`。失控点：参数不是合法 JSON（strict 工具 schema 解决）、调用了不存在的工具（把错误作为结果送回让它改）、同一步返回了互相矛盾的多个调用。
+模型返回文本、工具调用、或两者。**工具调用是模型的"决定"，不是执行**——这是《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)的协议：`call_id`、`name`、`arguments`。失控点：参数不是合法 JSON（strict 工具 schema 解决）、调用了不存在的工具（把错误作为结果送回让它改）、同一步返回了互相矛盾的多个调用。
 
 ### 4. 权限与执行
 
-每个调用先过权限（能不能做、要不要问人——第五篇），再在沙箱里执行（第五篇），并行的调用并行执行（Codex 的 `tools/parallel.rs`），每个有独立超时。失控点集中在这里，PocketOS 的五环全在这一段（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》）。
+每个调用先过权限（能不能做、要不要问人），再在沙箱里执行（两步都见[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)），并行的调用并行执行（Codex 的 `tools/parallel.rs`），每个有独立超时。失控点集中在这里，PocketOS 的五环全在这一段（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）。
 
 ### 5. 写回
 
-每个 `call_id` 对应一条结果，缺一个就 400；错误也是结果（`is_error`）；大结果卸载留引用。失控点：漏配对；结果里带了注入文字（工具返回是不可信输入——《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》、L6）。
+每个 `call_id` 对应一条结果，缺一个就 400；错误也是结果（`is_error`）；大结果卸载留引用。失控点：漏配对；结果里带了注入文字（工具返回是不可信输入——《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)、L6）。
 
 ### 6. 终止
 
-三种出口：模型给出最终回答（正常）；预算耗尽（步数、token、美元、时间任一）——交付部分结果并说明；卫士触发（重复调用超过阈值、连续失败）——降级给人。**没有第二、三种出口的循环不能上生产**。
+三种出口：
+
+1. 模型给出最终回答（正常）；
+2. 预算耗尽（步数、token、美元、时间任一）——交付部分结果并说明；
+3. 卫士触发（重复调用超过阈值、连续失败）——降级给人。
+
+**没有第二、三种出口的循环不能上生产**。
 
 ### 7. 卫士
 
@@ -94,7 +112,7 @@ L2 的七层在这里被拼成一次请求。循环特有的部分：**只追加
 | 重复调用 | 与最近 k 步完全相同的工具 + 参数 | 提醒模型换方法或结束 | DeepSeek Harness `guard/repeat-tool-reminder`（咨询式：提醒而不强制） |
 | 单次工具超时 | 工具运行 > T | 杀掉、把超时作为结果送回 | DeepSeek Harness `guard` 的单次工具超时策略；Codex 的 exec 超时 |
 | 连续失败 | 连续 k 次工具错误 | 降级 | 应用侧 |
-| 无进展 | 上下文增长但目标状态不变 | 提醒或降级 | 复述机制辅助判断（第四篇） |
+| 无进展 | 上下文增长但目标状态不变 | 提醒或降级 | 复述机制辅助判断（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)） |
 
 Table: 循环的卫士及其生产实现
 
@@ -128,17 +146,17 @@ Codex CLI 的 `codex-rs` 是一个几十个 crate 的 Rust 工作区，`core` �
 
 ### 1. `submission_loop`：会话的生命周期
 
-最外层的无限循环，从提交通道接收 `Op`（用户输入、审批决定、中断、关闭……）并分发。它活到会话结束（`Op::Shutdown`）。客户端面（TUI、`exec` 无头模式、`app-server` 的 JSON-RPC / WebSocket 服务）与运行循环的会话之间是一对**操作 / 事件通道**：客户端发操作、会话推事件（`SessionConfigured`、`ExecApprovalRequest`、流式增量……）。这个设计让同一个核心服务多种 UI——第六篇会讲它与 DeepSeek Harness 的 profile 机制的对应。
+最外层的无限循环，从提交通道接收 `Op`（用户输入、审批决定、中断、关闭……）并分发。它活到会话结束（`Op::Shutdown`）。客户端面（TUI、`exec` 无头模式、`app-server` 的 JSON-RPC / WebSocket 服务）与运行循环的会话之间是一对**操作 / 事件通道**：客户端发操作、会话推事件（`SessionConfigured`、`ExecApprovalRequest`、流式增量……）。这个设计让同一个核心服务多种 UI——[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)会讲它与 DeepSeek Harness 的 profile 机制的对应。
 
 ### 2. turn loop：一次用户输入触发
 
-收到 `Op::UserInput` 后：组装 prompt（系统指令、`AGENTS.md`——`core/src/agents_md.rs`、工具定义、对话历史），调 Responses API（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》：Codex 只对接 Responses，reasoning item 跨轮保留），处理返回的输出项——文本推给客户端，工具调用交给第三层，直到模型不再返回工具调用。压缩在这一层的边界触发（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》讲过：轮前检查 + 长工具链的循环边界，`core/src/compact.rs` 一族）。
+收到 `Op::UserInput` 后：组装 prompt（系统指令、`AGENTS.md`——`core/src/agents_md.rs`、工具定义、对话历史），调 Responses API（《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)：Codex 只对接 Responses，reasoning item 跨轮保留），处理返回的输出项——文本推给客户端，工具调用交给第三层，直到模型不再返回工具调用。压缩在这一层的边界触发（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)讲过：轮前检查 + 长工具链的循环边界，`core/src/compact.rs` 一族）。
 
 ### 3. 工具编排器
 
 `core/src/tools/orchestrator.rs` 是每个工具调用的路径，源码里的注释把顺序写得很清楚：
 
-1. **审批**：按 `AskForApproval` 策略（`untrusted`——未信任项目里的命令除非有显式规则允许否则都要审批；`on-request`——默认，模型决定何时问；细粒度控制；`never`）与 `execpolicy` 规则（第五篇）决定是否向会话请求审批，请求经事件通道到 UI，等用户；可选的 Guardian 审查——一个模型审另一个模型的高风险调用。
+1. **审批**：按 `AskForApproval` 策略（`untrusted`——未信任项目里的命令除非有显式规则允许否则都要审批；`on-request`——默认，模型决定何时问；细粒度控制；`never`）与 `execpolicy` 规则（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）决定是否向会话请求审批，请求经事件通道到 UI，等用户；可选的 Guardian 审查——一个模型审另一个模型的高风险调用。
 2. **首次尝试，在选定的沙箱下**：`SandboxManager` 按权限档、工具的沙箱偏好、平台、是否有托管网络选初始沙箱（Seatbelt / bubblewrap + Landlock / Windows）。
 3. **成功则返回**；**被沙箱拒绝**则看策略：`never` 与 `on-request` 下不会去掉沙箱重试，只返回一条保留原始输出的简洁拒绝说明；允许升级的策略下请求（新的）审批后**第二次尝试**不带沙箱——"严格自动审查的审批只覆盖沙箱内的尝试，去掉沙箱重试需要新的 Guardian 审查"。
 
@@ -195,7 +213,10 @@ Table: DeepSeek Harness core 各包的职责
 
 一个 turn 的路径（架构文档的原话改述）：`agent-loop` 的驱动**领取**一个排队的 prompt → 在会话日志上**开一个 turn** → 经 `system-prompt` 组装请求前缀、**从日志派生**历史 → 经 LLM 接缝流式调模型 → 经工具注册表分发工具调用 → **把每个模型可见的事实追加回日志**，下一步再从日志派生。
 
-与 Codex 的差别在于**状态在哪**：Codex 的会话对象持有历史，日志（rollout）是它的持久化；DeepSeek Harness 反过来——日志是状态，历史是从日志**派生**的视图。这带来一条它写进仓库规范的不变量："**模型可见 ⟺ 已记录**：任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件。"第三篇讲这条不变量对 resume / fork / replay 意味着什么。
+与 Codex 的差别在于**状态在哪**：Codex 的会话对象持有历史，日志（rollout）是它的持久化；DeepSeek Harness 反过来——日志是状态，历史是从日志**派生**的视图。这带来一条它写进仓库规范的不变量："**模型可见 ⟺ 已记录**：任何进入模型请求的东西都必须能从会话日志重建；一个新的模型可见输入需要一个会话事件。"[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)讲这条不变量对 resume / fork / replay 意味着什么。
+
+> [!NOTE] 后端经验参照：日志驱动循环之于事件溯源
+> DeepSeek Harness 的做法就是后端熟悉的事件溯源（event sourcing）：append-only 的事件日志是唯一事实来源，「历史」是从日志算出来的投影，resume / fork 相当于从某个位置重建状态。对不上的地方：后端的投影函数是确定的，同一份日志总能算出同一状态；agent 日志里记的是模型的输出，重建时只能复用已记录的结果，不能重调模型再指望得到同样的事件——所以「模型可见的输入必须先成为事件」比普通事件溯源的要求更严。
 
 ```mermaid
 %% 图：状态在哪——Codex 的会话对象持有历史，rollout 日志是它的持久化；DeepSeek Harness 反过来：append-only 的会话日志是唯一事实来源，历史是每一步从日志派生的视图，「模型可见 ⟺ 已记录」——任何进入模型请求的东西都必须能从日志重建
@@ -221,7 +242,7 @@ flowchart TB
     class INV n
 ```
 
-循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——第二篇）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
+循环之外的"一切皆插件"：模型适配器、工具、沙箱、审批策略、压缩、子 agent、UI 都是可从配置替换的插件；`guard` 包组的两个卫士也是——不想要重复调用提醒可以卸掉。四种**模式**是不同的插件组合：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露，模型写一个 TypeScript 程序组合多步——见[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）、Minimal（只留 shell 与文件编辑器，用于在最小环境里公平比较模型）、Creator（检视运行时、在内存里测插件、组合新模式）。
 
 ## 五、工作流还是 agent
 
@@ -331,7 +352,7 @@ if __name__ == "__main__":
 2. **读一遍生产循环**：Codex 的 `core/src/tools/orchestrator.rs`（审批 → 沙箱 → 重试的顺序）或 DeepSeek Harness `packages/core/agent-loop` 的 README（领取 → 开 turn → 派生 → 流式 → 分发 → 追加）。
 3. **给每个终止条件写测试**：模型正常结束、步数耗尽、预算耗尽、重复调用触发、连续失败——每个都要能触发并交付部分结果。
 4. **先问要不要循环**：把你的任务用第五章的三个问题过一遍，能写成工作流的部分不要用 agent。
-5. **卫士的阈值上配置**，并在 trace 里记每次触发——它们的触发频率是 agent 健康度的指标（第九篇）。
+5. **卫士的阈值上配置**，并在 trace 里记每次触发——它们的触发频率是 agent 健康度的指标（[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）。
 
 ## 七、本文小结
 
@@ -346,7 +367,11 @@ if __name__ == "__main__":
 1. 一个循环只有"模型不再返回工具调用"这一个出口。列出三种它会永远跑下去或挂死的情形，各对应哪个卫士。
 
    <details markdown="1"><summary>答案</summary>
-   （1）找不到答案时不断换词重试同类搜索——重复调用检测 / 步数上限；（2）一个工具（如等待网络的命令）永不返回——单次工具超时；（3）每步都有新的工具返回、上下文与费用无限增长——token / 美元预算。缺任何一个都不能上生产。详见[第二章](#二循环的每一段)。
+   1. 找不到答案时不断换词重试同类搜索——重复调用检测 / 步数上限；
+   2. 一个工具（如等待网络的命令）永不返回——单次工具超时；
+   3. 每步都有新的工具返回、上下文与费用无限增长——token / 美元预算。
+
+   缺任何一个都不能上生产。详见[第二章](#二循环的每一段)。
    </details>
 
 2. Codex 的工具编排器在沙箱拒绝一个命令后，什么情况下会去掉沙箱重试？什么情况下不会？为什么"严格自动审查的审批只覆盖沙箱内的尝试"？
@@ -358,13 +383,13 @@ if __name__ == "__main__":
 3. "模型可见 ⟺ 已记录"这条不变量在 DeepSeek Harness 里意味着历史是怎么来的？它与 Codex 的状态模型有什么差别？
 
    <details markdown="1"><summary>答案</summary>
-   历史不是一个被持有的对象，而是每一步从 append-only 会话日志派生的视图；任何要进模型请求的新输入都必须先成为一个会话事件。Codex 的会话对象持有历史、日志是它的持久化；DeepSeek Harness 把日志当作状态本身。后者让 resume / fork / replay 天然一致（第三篇）。详见[第四章](#四deepseek-harness-的日志驱动循环)。
+   历史不是一个被持有的对象，而是每一步从 append-only 会话日志派生的视图；任何要进模型请求的新输入都必须先成为一个会话事件。Codex 的会话对象持有历史、日志是它的持久化；DeepSeek Harness 把日志当作状态本身。后者让 resume / fork / replay 天然一致（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）。详见[第四章](#四deepseek-harness-的日志驱动循环)。
    </details>
 
 4. 一个"审核报销单"的任务：读单据 → 抽字段 → 查政策 → 判断 → 写结论。该用工作流还是 agent？哪一步可能需要循环？
 
    <details markdown="1"><summary>答案</summary>
-   主体是工作流——五步事先知道、每步输入输出清楚、失败可在代码里处理（抽取失败转人工）。可能需要循环的只有"查政策"：单据情形复杂时要多轮检索与追问（《[检索与知识接入（05）：从流水线到 agentic retrieval](/from-rag-pipelines-to-agentic-retrieval.html)》的 agentic retrieval），在这一步嵌一个有步数上限的小循环，其余保持固定。详见[第五章](#五工作流还是-agent)。
+   主体是工作流——五步事先知道、每步输入输出清楚、失败可在代码里处理（抽取失败转人工）。可能需要循环的只有"查政策"：单据情形复杂时要多轮检索与追问（《检索与知识接入》的[《从流水线到 agentic retrieval》](/from-rag-pipelines-to-agentic-retrieval.html)的 agentic retrieval），在这一步嵌一个有步数上限的小循环，其余保持固定。详见[第五章](#五工作流还是-agent)。
    </details>
 
 5. DeepSeek Harness 的重复调用提醒是"咨询式"的——提醒模型而不强制终止。这样设计的理由是什么？什么情况下你会改成强制？

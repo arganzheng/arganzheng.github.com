@@ -51,7 +51,14 @@ Table: 四个 harness 的十二维对照
 
 ### 2. 本文的章节安排
 
-第二章逐维度讲取舍；第三章三种交付形态；第四章从每家学什么；第五章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、逐维度的取舍](#二逐维度的取舍) | 逐维度讲取舍 |
+| [三、三种交付形态](#三三种交付形态) | 三种交付形态 |
+| [四、从每家学什么](#四从每家学什么) | 从每家学什么 |
+| [五、实践建议](#五实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、逐维度的取舍
 
@@ -90,15 +97,15 @@ flowchart LR
 
 ### 2. 循环：状态在对象还是在日志
 
-第一篇讲过：Codex 的会话对象持有历史、rollout 是持久化；DeepSeek Harness 的日志是状态、历史是派生。前者是多数系统的自然写法，后者让 resume / fork / replay 天然一致、让"模型可见 ⟺ 已记录"可以成为不变量，代价是每一步都要经过日志（性能门与 `benchmarks/` 就是为此）。Claude Code 与 OpenHarness 把循环封装在 SDK / 库里，用 hooks 开口。
+[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)讲过：Codex 的会话对象持有历史、rollout 是持久化；DeepSeek Harness 的日志是状态、历史是派生。前者是多数系统的自然写法，后者让 resume / fork / replay 天然一致、让"模型可见 ⟺ 已记录"可以成为不变量，代价是每一步都要经过日志（性能门与 `benchmarks/` 就是为此）。Claude Code 与 OpenHarness 把循环封装在 SDK / 库里，用 hooks 开口。
 
 ### 3. 工具：注册 → 路由 → 并行 → 处理器
 
-两个开源 harness 的工具层结构几乎同构：一个注册表、一个路由 / 分发、并行执行、每个工具一个处理器 / 插件。差别在**注册的作用域**（DeepSeek Harness 的 `scope` 原语让工具按 agent 作用域注册——子 agent 可以有不同的工具集）与**MCP 的位置**（Codex 用独立的 `codex-mcp` / `rmcp-client` crate 并让 `mcp_connection_manager` 集中处理工具与调用的变更；DeepSeek Harness 的 `mcp` 是一个包组）。Claude Code 的 MCP 工具 schema 默认延迟加载（第二篇的 tool search）。
+两个开源 harness 的工具层结构几乎同构：一个注册表、一个路由 / 分发、并行执行、每个工具一个处理器 / 插件。差别在**注册的作用域**（DeepSeek Harness 的 `scope` 原语让工具按 agent 作用域注册——子 agent 可以有不同的工具集）与**MCP 的位置**（Codex 用独立的 `codex-mcp` / `rmcp-client` crate 并让 `mcp_connection_manager` 集中处理工具与调用的变更；DeepSeek Harness 的 `mcp` 是一个包组）。Claude Code 的 MCP 工具 schema 默认延迟加载（[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)里的 tool search）。
 
 ### 4. 上下文：加密 blob vs 可读事件
 
-《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》与本系列第四篇讲过：Codex 的服务端压缩返回只有 OpenAI 能解的加密 item——保留模型内部状态、损失可能更小、但不可读不可审计且绑供应商；DeepSeek Harness 的压缩摘要是可读的会话事件——可审计、可换 prompt、可跨供应商，但只保留摘要写出的东西。这是"模型耦合"维度在上下文层的投影。两家都有"压缩前的便宜一步"（会话记忆 / 修剪器）与卸载（截断规则 / `spill`）。
+《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)与[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)讲过：Codex 的服务端压缩返回只有 OpenAI 能解的加密 item——保留模型内部状态、损失可能更小、但不可读不可审计且绑供应商；DeepSeek Harness 的压缩摘要是可读的会话事件——可审计、可换 prompt、可跨供应商，但只保留摘要写出的东西。这是"模型耦合"维度在上下文层的投影。两家都有"压缩前的便宜一步"（会话记忆 / 修剪器）与卸载（截断规则 / `spill`）。
 
 ### 5. 权限与审批：策略语言 vs 规则 + 模式 vs 插件
 
@@ -140,13 +147,20 @@ flowchart TB
 
 Codex 把"从已有 rollout 恢复会话"列为与 app-server API、CLI 参数并列的外部兼容面——日志格式是契约。DeepSeek Harness 走得更远：日志格式有版本号，不认识的事件类型拒绝加载（除标 `ignorable`），迁移只能新增版本不能改旧的——把会话日志当作长期数据资产管理。
 
+> [!NOTE] 后端经验参照：会话日志格式之于 schema 演进
+> 日志带版本号、迁移只新增版本不改旧的，和数据库迁移脚本只追加、Protobuf 字段号只增不改是同一套纪律：写出去的数据比代码活得久。对不上的地方：Protobuf 默认跳过不认识的字段接着读；DeepSeek Harness 反过来，不认识的事件类型默认拒绝加载，只有标了 `ignorable` 的才跳过——漏读一个事件，重建出的模型输入就少了一块，宁可报错也不静默。
+
 ### 8. 子 agent：内建 vs 七种后端
 
-Codex 的 `multi_agents`（含 v2）与 `agent-roles` 是内建的子 agent 机制；Claude Code 区分 subagent（结果回主、便宜）与 agent teams（互通、贵、实验）；DeepSeek Harness 把"委派"做成接缝加七种后端——其中 `subagent-claude-code` 与 `subagent-codex` 让它能把另外两家作为子 agent 拉起（第四篇）。互操作的基础是三家共享的 MCP、SKILL.md、AGENTS.md / CLAUDE.md，与可脚本化的入口。
+- Codex 的 `multi_agents`（含 v2）与 `agent-roles` 是内建的子 agent 机制；
+- Claude Code 区分 subagent（结果回主、便宜）与 agent teams（互通、贵、实验）；
+- DeepSeek Harness 把"委派"做成接缝加七种后端——其中 `subagent-claude-code` 与 `subagent-codex` 让它能把另外两家作为子 agent 拉起（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。
+
+互操作的基础是三家共享的 MCP、SKILL.md、AGENTS.md / CLAUDE.md，与可脚本化的入口。
 
 ### 9. 扩展模型：四种模式
 
-DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——第二篇的 PTC）、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
+DeepSeek Harness 的四种模式是"一切皆插件"最好的展示：Standard（全部工具）、Code（工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步——[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)里的 PTC）、Minimal（只留 shell 与文件编辑器）、Creator（检视运行时、内存里测插件、组合新模式）。同一个核心，四种 agent。Codex 与 Claude Code 的扩展点是 plugins / hooks / skills / MCP——加东西容易、换核心行为难。
 
 ```mermaid
 %% 图：DeepSeek Harness 的四种模式是同一组插件的四种组合——Standard 装全部工具；Code 把工具经 Code Mode SDK 暴露、模型写 TypeScript 程序组合多步（PTC）；Minimal 只留 shell 与文件编辑器，为公平比较模型；Creator 能检视运行时、在内存里测插件、组合出新模式；卸掉 guard 卫士或换沙箱后端都不改源码
@@ -165,15 +179,20 @@ flowchart TB
 
 ### 10. UI 面：一个核心多个面
 
-四家都是"一个核心、多个面"：Codex 的 TUI / exec / app-server（JSON-RPC 让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / acp 四个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。第三篇讲的"任务在运行时里不在连接里"是这个设计的前提。
+四家都是"一个核心、多个面"：Codex 的 TUI / exec / app-server（JSON-RPC 让 IDE 与桌面端复用同一会话）、DeepSeek Harness 的 web / headless / sdk / acp 四个 profile、Claude Code 的 CLI / IDE / SDK / web、OpenHarness 的 CLI / Web 前端 / 即时通讯。[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)讲的"任务在运行时里不在连接里"是这个设计的前提。
 
 ### 11. 模型耦合：一家 vs 多家
 
-Codex 对接 Responses API（reasoning item 跨轮、服务端压缩、PTC 都依赖它），另有 Ollama / LM Studio 等本地供应商 crate；Claude Code 是 Claude 专用；DeepSeek Harness 多供应商（官方适配器加 pi-ai 目录里的任何模型）；OpenHarness 多 API 格式。耦合深的一侧换到与模型能力（推理状态、服务端压缩）的紧密集成，松的一侧换到不锁定与多模型评测。
+- Codex 对接 Responses API（reasoning item 跨轮、服务端压缩、PTC 都依赖它），另有 Ollama / LM Studio 等本地供应商 crate；
+- Claude Code 是 Claude 专用；
+- DeepSeek Harness 多供应商（官方适配器加 pi-ai 目录里的任何模型）；
+- OpenHarness 多 API 格式。
+
+耦合深的一侧换到与模型能力（推理状态、服务端压缩）的紧密集成，松的一侧换到不锁定与多模型评测。
 
 ### 12. 基准：Minimal 模式
 
-DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编辑器，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
+DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编辑器，"为在最小环境里对模型做基准"——它承认 harness 会影响模型的表现，所以比较模型时要把 harness 降到最小。《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)讲的"供应商自报分数条件不一"里的"脚手架"变量，在这里被显式控制。
 
 ## 三、三种交付形态
 
@@ -191,7 +210,13 @@ DeepSeek Harness 的 Minimal 模式值得单独说：只留 shell 与文件编�
 
 Table: 三种交付形态的对照
 
-选法（第三篇第五章）：快速上线且接受 OpenAI 模型 → 托管；需要深度控制且已有运行时基础 → 库；多模型、合规要求、平台团队 → 自托管。**混合是常态**：用托管做原型验证价值、日志格式自己定，再决定要不要迁到自托管；或自托管 harness 做运行时中心、把子任务委派给托管的 Codex（第四篇的跨 harness 子 agent）。
+选法（[《agent 运行时》的「三种交付形态」一节](/agent-runtime-sessions-persistence-and-durable-execution.html#五三种交付形态)）：
+
+- 快速上线且接受 OpenAI 模型 → 托管；
+- 需要深度控制且已有运行时基础 → 库；
+- 多模型、合规要求、平台团队 → 自托管。
+
+**混合是常态**：用托管做原型验证价值、日志格式自己定，再决定要不要迁到自托管；或自托管 harness 做运行时中心、把子任务委派给托管的 Codex（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)里的跨 harness 子 agent）。
 
 ## 四、从每家学什么
 
@@ -205,7 +230,7 @@ Table: 三种交付形态的对照
 | DeepSeek Harness | **`spill` / `guard` / `subagent` 作为独立包组** | 卸载、卫士、委派各是一个可换的接缝，而不是循环里的 if |
 | Claude Code | **六步判定顺序与"deny 高于一切"** | 可编程（hooks、回调）与硬边界（deny）的精确分层 |
 | Claude Code | **subagent vs agent teams 的诚实取舍表** | 什么时候要贵的那种，文档说清了 |
-| Claude Code | **`settingSources`、CLAUDE.md、`.claude/agents`、skills 的文件系统约定** | 把配置放在仓库里、随代码版本化——《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》 |
+| Claude Code | **`settingSources`、CLAUDE.md、`.claude/agents`、skills 的文件系统约定** | 把配置放在仓库里、随代码版本化——《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) |
 | OpenHarness | **轻量与复用** | 不是每个团队都需要五十万行；复用底层 CLI 的订阅与沙箱、把精力放在个人 agent 的交互（即时通讯）上，是一种务实路线 |
 | 全部 | **一个核心多个面**、**MCP + SKILL.md + AGENTS.md 的共享层**、**压缩前的便宜一步** | 四家独立收敛到的东西，大概率是对的 |
 
@@ -246,7 +271,7 @@ Table: 从每家 harness 学什么
    Codex 的 `execpolicy`：Starlark 策略文件可放版本库、`match` / `not_match` 是加载时校验的测试、`justification` 进审批提示、CLI 可离线评估一条命令的判定——四个要求都满足。Claude Code 的规则可审计但没有内置测试；DeepSeek Harness 可用插件实现同样的东西但要自己写。详见[第二章](#二逐维度的取舍)、[第四章](#四从每家学什么)。
    </details>
 
-4. DeepSeek Harness 的 Minimal 模式解决 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》里的哪个问题？
+4. DeepSeek Harness 的 Minimal 模式解决《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)里的哪个问题？
 
    <details markdown="1"><summary>答案</summary>
    "供应商自报分数条件不一——脚手架不同不可横比"。Minimal 模式只留 shell 与文件编辑器，把 harness 对模型表现的影响降到最小，让不同模型在同一最小环境里比较；它显式承认 harness 是基准里的一个变量并把它控制住。详见[第二章](#二逐维度的取舍)。

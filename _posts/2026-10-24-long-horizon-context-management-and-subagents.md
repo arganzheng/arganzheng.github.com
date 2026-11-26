@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Agent, Harness, Context Engineering, Subagent]
 catalog: true
 ---
 
-《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》讲了长任务上下文管理的**策略**：隔离 → 卸载 → 清理 → 压缩，代价递增；复述对抗漂移。这一篇看**实现**——这些策略在 harness 的运行时里是什么样的代码与配置：Codex 的 `compact*` 模块族、DeepSeek Harness 的 `compaction` 与 `spill` 包组、`plan` / `todo` / `goal` 三个包、Claude Code 的 auto-compact 与子 agent。然后讲隔离手段里最重要的一种——**子 agent**——的三种形态与它们的取舍：Claude Code 的 subagent 与 agent teams、Codex 的 `multi_agents`、DeepSeek Harness 的七种子 agent 后端——其中包括把 Claude Code 与 Codex 作为子 agent 拉起。
+《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)讲了长任务上下文管理的**策略**：隔离 → 卸载 → 清理 → 压缩，代价递增；复述对抗漂移。这一篇看**实现**——这些策略在 harness 的运行时里是什么样的代码与配置：Codex 的 `compact*` 模块族、DeepSeek Harness 的 `compaction` 与 `spill` 包组、`plan` / `todo` / `goal` 三个包、Claude Code 的 auto-compact 与子 agent。然后讲隔离手段里最重要的一种——**子 agent**——的三种形态与它们的取舍：Claude Code 的 subagent 与 agent teams、Codex 的 `multi_agents`、DeepSeek Harness 的七种子 agent 后端——其中包括把 Claude Code 与 Codex 作为子 agent 拉起。
 
 一个反复出现的数字值得先记住：Anthropic 的多 agent 研究系统报告 agent 用的 token 约是聊天的 4 倍、多 agent 系统约是聊天的 15 倍。子 agent 是隔离上下文最有效的手段，也是成本放大最快的手段——两面要一起看。
 
@@ -35,7 +35,7 @@ flowchart TB
 | L2 的策略 | Codex | DeepSeek Harness | Claude Code |
 |---|---|---|---|
 | 卸载（大结果出上下文留引用） | 工具返回的截断与 `view_image` 一类按需读取 | **`spill` 包组**：存储服务 + 本地后端 + 结果策略，返回带取回指引的定位符 | 子 agent 隔离大量读取；工具返回截断 |
-| 清理（删已消费的工具返回） | 会话记忆压缩优先于摘要（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》） | `compaction-tool-result-pruner`：压缩前先修剪超大工具输出 | 微压缩旧工具返回 |
+| 清理（删已消费的工具返回） | 会话记忆压缩优先于摘要（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)） | `compaction-tool-result-pruner`：压缩前先修剪超大工具输出 | 微压缩旧工具返回 |
 | 压缩（摘要替换历史） | `compact.rs`、`compact_remote_v2*.rs`（服务端加密）、`compact_token_budget.rs`、`compact_model_fallback.rs` | `compaction` 包组：`compaction-basic` 自动 + `/compact` 命令 + `compaction-image-offload` | auto-compact 约 83.5% |
 | 复述（目标回末尾） | `plan` 工具处理器、`get_context_remaining` 让模型看剩余预算 | `plan`（记录式规划）、`todo`（`todo_write` 工具）、`goal`（会话目标） | todo 工具、CLAUDE.md 重注入 |
 | 隔离（子 agent） | `multi_agents` / `multi_agents_v2` 处理器、`agent-roles` crate | `subagent` 包组七种后端 | subagent / agent teams |
@@ -44,13 +44,22 @@ Table: L2 的上下文策略在三个 harness 里的实现
 
 ### 2. 本文的章节安排
 
-第二章卸载与清理的实现；第三章压缩的实现；第四章复述；第五章子 agent 的三种形态；第六章子 agent 的成本与取舍；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、卸载与清理](#二卸载与清理) | 卸载与清理的实现 |
+| [三、压缩](#三压缩) | 压缩的实现 |
+| [四、复述](#四复述) | 复述 |
+| [五、子 agent 的三种形态](#五子-agent-的三种形态) | 子 agent 的三种形态 |
+| [六、子 agent 的成本与取舍](#六子-agent-的成本与取舍) | 子 agent 的成本与取舍 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、卸载与清理
 
 ### 1. DeepSeek Harness 的 `spill`
 
-`spill/` 是一个独立包组——"把全文存到模型上下文之外，返回一个带取回指引的定位符"——分三个包：存储服务（`spill`）、本地文件系统后端（`spill-local`）、结果策略（决定什么时候溢出）。它是 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》"卸载"原则的一等实现：工具返回超过阈值不进上下文，模型看到的是"内容已存为 `spill://…`，共 N 行，前几行如下，用 `read` 取回"。作为独立包组的意义是**可替换**：把本地后端换成对象存储、把策略换成按工具类型的阈值，不动循环。
+`spill/` 是一个独立包组——"把全文存到模型上下文之外，返回一个带取回指引的定位符"——分三个包：存储服务（`spill`）、本地文件系统后端（`spill-local`）、结果策略（决定什么时候溢出）。它是《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)"卸载"原则的一等实现：工具返回超过阈值不进上下文，模型看到的是"内容已存为 `spill://…`，共 N 行，前几行如下，用 `read` 取回"。作为独立包组的意义是**可替换**：把本地后端换成对象存储、把策略换成按工具类型的阈值，不动循环。
 
 ```mermaid
 %% 图：DeepSeek Harness 的 spill 包组——工具返回先过结果策略（超阈值？按工具类型？），超了就交给存储服务写到本地文件系统后端（可换成对象存储），上下文里只进一个定位符「spill://…，共 N 行，前几行如下，用 read 取回」；策略、存储、后端三个包各自可替换，循环不动
@@ -71,19 +80,22 @@ flowchart TB
     class LOC ok
 ```
 
+> [!NOTE] 后端经验参照：spill 之于消息队列的 claim check
+> 大消息体先写对象存储、消息里只传一个引用，消费方按需去取——这是消息系统的 claim check 模式，spill 的定位符就是那张取件单，存储后端也同样可以换。对不上的地方：claim check 的消费方是程序，拿到引用一定会去取全文；这里的消费方是模型，它只看定位符和几行预览就要判断取不取、取哪一段，所以定位符本身要写成模型能读懂的取回指引。
+
 ### 2. Codex 的截断
 
 Codex 没有单独的 spill 概念，工具返回在处理器里按上限截断（shell 输出的行数与字节上限），大内容（文件、图片）用专门的工具按需读取（`view_image`、文件读取工具的范围参数）。仓库规范里对"模型可见上下文"有硬规则："不能有无界的项——注入模型上下文的一切都要有有界大小与硬上限；**没有大于 10K token 的项**；能超过 1K token 的新单项按 P0 审查。"这是"卸载"作为代码审查规则的形态。
 
 ### 3. 清理
 
-DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超大的工具输出——"这样要压缩的东西更少"，正是 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》"先清理再压缩"的顺序。Codex 的会话记忆压缩（用已结构化的任务状态替代摘要、多数情况不调模型）是另一种"压缩前的便宜一步"。Claude Code 的微压缩同理。
+DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超大的工具输出——"这样要压缩的东西更少"，正是《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)"先清理再压缩"的顺序。Codex 的会话记忆压缩（用已结构化的任务状态替代摘要、多数情况不调模型）是另一种"压缩前的便宜一步"。Claude Code 的微压缩同理。
 
 ## 三、压缩
 
 ### 1. Codex 的模块族
 
-`core/src` 下的 `compact.rs`（本地压缩：用模型生成摘要）、`compact_remote_history.rs` 与 `compact_remote_v2*.rs`（服务端压缩：调 Responses 的 compact 端点拿加密 item——《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》；v2 有单独的尝试逻辑与图片预算）、`compact_token_budget.rs`（触发阈值与预算计算）、`compact_model_fallback.rs`（压缩用的模型不可用时的回退）。触发点在 turn loop 的边界（第一篇），压缩结果作为一条 rollout 记录进日志（第三篇）。
+`core/src` 下的 `compact.rs`（本地压缩：用模型生成摘要）、`compact_remote_history.rs` 与 `compact_remote_v2*.rs`（服务端压缩：调 Responses 的 compact 端点拿加密 item——《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)；v2 有单独的尝试逻辑与图片预算）、`compact_token_budget.rs`（触发阈值与预算计算）、`compact_model_fallback.rs`（压缩用的模型不可用时的回退）。触发点在 turn loop 的边界（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)），压缩结果作为一条 rollout 记录进日志（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）。
 
 ### 2. DeepSeek Harness 的 `compaction` 包组
 
@@ -91,7 +103,7 @@ DeepSeek Harness 的 `compaction-tool-result-pruner` 在压缩之前先修剪超
 
 ### 3. 共同点
 
-两家都把压缩做成**多个可组合的步骤**（修剪 / 会话记忆 → 摘要 → 回退），都把结果**写进日志**，都在**思考链结束的边界**触发（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。差别在摘要形态（Codex 服务端加密 vs DeepSeek Harness 可读事件）与可替换性（Codex 的模块是代码、DeepSeek Harness 的是插件）——第六篇对照。
+两家都把压缩做成**多个可组合的步骤**（修剪 / 会话记忆 → 摘要 → 回退），都把结果**写进日志**，都在**思考链结束的边界**触发（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。差别在摘要形态（Codex 服务端加密 vs DeepSeek Harness 可读事件）与可替换性（Codex 的模块是代码、DeepSeek Harness 的是插件）——[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)对照。
 
 ```mermaid
 %% 图：三个 harness 的压缩链都是「便宜的一步 → 摘要 → 回退」——Codex：会话记忆压缩（结构化任务状态，多数不调模型）→ compact.rs 本地摘要或 compact_remote_v2 服务端加密 item → compact_model_fallback；DeepSeek Harness：tool-result-pruner 修剪 → compaction-basic 自动摘要 / 命令 → 可读事件进日志；Claude Code：微压缩旧工具返回 → 83.5% 处 auto-compact → CLAUDE.md 重注入；都在思考链边界触发、结果都写进日志
@@ -102,7 +114,7 @@ flowchart LR
     end
     subgraph DS["DeepSeek Harness"]
         direction TB
-        D1["compaction-tool-result-pruner<br/>先修剪超大工具输出"] --> D2["compaction-basic 自动 / command-compact<br/>可读摘要事件进日志，有独立 token 上限"] --> D3["<b>compaction-image-offload</b><br/>图片换占位符"]
+        D1["<b>compaction-tool-result-pruner</b><br/>先修剪超大工具输出"] --> D2["<b>compaction-basic 自动 / command-compact</b><br/>可读摘要事件进日志，有独立 token 上限"] --> D3["<b>compaction-image-offload</b><br/>图片换占位符"]
     end
     subgraph CC["Claude Code"]
         direction TB
@@ -124,7 +136,7 @@ flowchart LR
 
 ### 1. 三个包
 
-DeepSeek Harness 把 Manus 的 todo.md（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）做成三个一等功能：`plan/`（"记录式规划"——计划作为事件进日志）、`todo/`（`todo_write` 工具——模型维护任务列表）、`goal/`（"会话目标"——整个会话的目标，与 `schedule` 的定时跟进配合）。它们的共同作用是**把目标与进度作为结构化事件保持在模型可见的近端**，对抗 《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》讲的漂移；同时是压缩的现成材料（摘要里直接带任务状态）。
+DeepSeek Harness 把 Manus 的 todo.md（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）做成三个一等功能：`plan/`（"记录式规划"——计划作为事件进日志）、`todo/`（`todo_write` 工具——模型维护任务列表）、`goal/`（"会话目标"——整个会话的目标，与 `schedule` 的定时跟进配合）。它们的共同作用是**把目标与进度作为结构化事件保持在模型可见的近端**，对抗《Prompt 与上下文工程》的[《上下文的解剖》](/anatomy-of-the-context-window.html)讲的漂移；同时是压缩的现成材料（摘要里直接带任务状态）。
 
 ### 2. Codex 的 `plan` 与 `get_context_remaining`
 
@@ -132,13 +144,13 @@ DeepSeek Harness 把 Manus 的 todo.md（《[Prompt 与上下文工程（04）�
 
 ### 3. Claude Code
 
-todo 工具与压缩后从磁盘重注入的 CLAUDE.md（《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》）：项目级的常驻目标靠重注入，任务级的进度靠 todo。
+todo 工具与压缩后从磁盘重注入的 CLAUDE.md（《Prompt 与上下文工程》的[《上下文的解剖》](/anatomy-of-the-context-window.html)）：项目级的常驻目标靠重注入，任务级的进度靠 todo。
 
 ## 五、子 agent 的三种形态
 
 ### 1. 为什么
 
-三个理由：**上下文隔离**（探索性搜索读几十个文件，主窗口只要摘要——《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》的 Claude Code 时间线）、**并行**（几个独立子任务同时跑）、**专业化**（不同的系统提示、工具集、权限、甚至模型）。没有这三个理由之一就不要用——第六章讲代价。
+三个理由：**上下文隔离**（探索性搜索读几十个文件，主窗口只要摘要——《Prompt 与上下文工程》的[《上下文的解剖》](/anatomy-of-the-context-window.html)的 Claude Code 时间线）、**并行**（几个独立子任务同时跑）、**专业化**（不同的系统提示、工具集、权限、甚至模型）。没有这三个理由之一就不要用——第六章讲代价。
 
 ### 2. Claude Code：subagent 与 agent teams
 
@@ -152,11 +164,11 @@ todo 工具与压缩后从磁盘重注入的 CLAUDE.md（《[Prompt 与上下文
 
 Table: Claude Code 的 subagent 与 agent teams
 
-subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）、文件（`.claude/agents/*.md`，前置元数据 `description` / `tools` / `model` / `permissionMode`）、内置（`general-purpose`、`Explore`、`Plan`）；主 agent 按每个 subagent 的 `description` 决定是否派发——又是"描述是 prompt"。subagent 继承父会话的权限，多数内置的用受限工具集。agent teams 默认关闭（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`），文档明写"在会话恢复、任务协调、关闭行为上有已知限制"——第七篇讲多 agent 时再回来。
+subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）、文件（`.claude/agents/*.md`，前置元数据 `description` / `tools` / `model` / `permissionMode`）、内置（`general-purpose`、`Explore`、`Plan`）；主 agent 按每个 subagent 的 `description` 决定是否派发——又是"描述是 prompt"。subagent 继承父会话的权限，多数内置的用受限工具集。agent teams 默认关闭（`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`），文档明写"在会话恢复、任务协调、关闭行为上有已知限制"——[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)再回来讲。
 
 ### 3. Codex：`multi_agents`
 
-`tools/handlers/multi_agents*.rs`（含 v2）是 Codex 的子 agent 工具处理器，`agent-roles` crate 定义角色，`agent-graph-store` 存 agent 之间的关系图；GPT-5.6 的 ultra 模式与 Responses 的 multi-agent beta（"一次请求内运行并发子 agent 并综合"）是它在 API 层的对应（《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》）。
+`tools/handlers/multi_agents*.rs`（含 v2）是 Codex 的子 agent 工具处理器，`agent-roles` crate 定义角色，`agent-graph-store` 存 agent 之间的关系图；GPT-5.6 的 ultra 模式与 Responses 的 multi-agent beta（"一次请求内运行并发子 agent 并综合"）是它在 API 层的对应（《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)）。
 
 ### 4. DeepSeek Harness：七种后端
 
@@ -174,7 +186,7 @@ subagent 的定义有三种方式：程序化（Agent SDK 的 `agents` 参数）
 
 Table: DeepSeek Harness 的七种 subagent 后端
 
-最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP、共享 SKILL.md、共享 AGENTS.md（《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
+最后两个值得停一下：一个 harness 可以把另外两家的 harness 作为自己的子 agent——委派一个子任务给 Claude Code 或 Codex，拿回结果。`hooks/` 包组还有 Claude Code / Codex 的 hooks 桥接。这说明 2026 年 harness 之间的**互操作已经是事实**：它们共享 MCP、共享 SKILL.md、共享 AGENTS.md（《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)），现在还能互相调用。"该用哪个 harness"的问题正在变成"该怎么组合"。
 
 ```mermaid
 %% 图：子 agent 的三种形态与 DeepSeek Harness 的七种后端——spawn 从零开始隔离的上下文（适合独立探索），fork 复制父会话的事件前缀继承历史（适合接着当前状态并行做一件事，事件溯源让它只是复制前缀），进程外经 SDK / ACP 起外部 agent，甚至把 Claude Code 或 Codex 拉起当子 agent；主 agent 拿回的只有摘要
@@ -231,7 +243,7 @@ Table: 委派子 agent 在不同情形下是否值得
 
 ### 3. 调试
 
-子 agent 让 trace 变成一棵树（会话 → 子会话 → 步骤——第九篇、L5），失败可能发生在子 agent 里而主 agent 只看到"任务失败"或一个误导性的摘要。每个子 agent 的完整轨迹要能从日志追到（DeepSeek Harness 的"发现每个创建的子 agent"是 `subagent` 接缝的一部分）。
+子 agent 让 trace 变成一棵树（会话 → 子会话 → 步骤——[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)、L5），失败可能发生在子 agent 里而主 agent 只看到"任务失败"或一个误导性的摘要。每个子 agent 的完整轨迹要能从日志追到（DeepSeek Harness 的"发现每个创建的子 agent"是 `subagent` 接缝的一部分）。
 
 ## 七、实践建议
 
@@ -260,7 +272,7 @@ Table: 委派子 agent 在不同情形下是否值得
 2. 为什么 `compaction-tool-result-pruner` 要在压缩**之前**运行？这对应 L2 的哪条原则？
 
    <details markdown="1"><summary>答案</summary>
-   先修剪超大的、已被消费的工具输出，要压缩的历史就少，摘要调用更便宜、损失更小；且修剪是可恢复的（内容可再取）而摘要是有损的。对应 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》"代价递增：清理在压缩之前"。详见[第二章](#二卸载与清理)、[第三章](#三压缩)。
+   先修剪超大的、已被消费的工具输出，要压缩的历史就少，摘要调用更便宜、损失更小；且修剪是可恢复的（内容可再取）而摘要是有损的。对应《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)"代价递增：清理在压缩之前"。详见[第二章](#二卸载与清理)、[第三章](#三压缩)。
    </details>
 
 3. Codex 的 `get_context_remaining` 工具把什么变成了模型的输入？预期效果是什么？

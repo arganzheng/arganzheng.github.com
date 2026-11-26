@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Agent, Multi-Agent, A2A]
 catalog: true
 ---
 
-"多 agent"是 2025–2026 年被过度使用的词。多数被叫作多 agent 的系统，要么是一个 agent 加几个子 agent（第四篇），要么是一条工作流里几个模型调用（第一篇）；真正需要多个**对等的、有自己上下文与目标的** agent 协作的场景比想象中少。这一篇先说什么时候不需要，再讲三种真正的模式——orchestrator-workers、handoff、层级——各自的代表实现（Anthropic 的多 agent 研究系统、OpenAI Agents SDK 的 handoff、Claude Code 的 agent teams、GPT-5.6 的 ultra 模式）、跨厂商 agent 之间的协议 A2A，以及成本（Anthropic 的数字：约 15 倍于聊天的 token）与调试代价。
+"多 agent"是 2025–2026 年被过度使用的词。多数被叫作多 agent 的系统，要么是一个 agent 加几个子 agent（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)），要么是一条工作流里几个模型调用（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）；真正需要多个**对等的、有自己上下文与目标的** agent 协作的场景比想象中少。这一篇先说什么时候不需要，再讲三种真正的模式——orchestrator-workers、handoff、层级——各自的代表实现（Anthropic 的多 agent 研究系统、OpenAI Agents SDK 的 handoff、Claude Code 的 agent teams、GPT-5.6 的 ultra 模式）、跨厂商 agent 之间的协议 A2A，以及成本（Anthropic 的数字：约 15 倍于聊天的 token）与调试代价。
 
 一条纪律贯穿全篇：**先用一个 agent 加更好的工具**。多 agent 是在单 agent 的工具、上下文、权限都做好之后，为了隔离、并行、专业化三个明确理由才引入的。
 
@@ -21,9 +21,9 @@ catalog: true
 
 | 理由 | 单 agent 的问题 | 多 agent 的解 | 替代方案（先试） |
 |---|---|---|---|
-| 上下文隔离 | 探索性工作把主窗口填满噪声 | 子 agent 在自己的窗口做，只回摘要 | 卸载与清理（第四篇） |
+| 上下文隔离 | 探索性工作把主窗口填满噪声 | 子 agent 在自己的窗口做，只回摘要 | 卸载与清理（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)） |
 | 并行 | 几个独立子任务串行太慢 | 同时跑几个 agent | 并行工具调用（一步内多个调用） |
-| 专业化 | 一个 agent 的系统提示、工具集、权限要同时满足互相冲突的需求 | 每个角色一个 agent（只读审查者、有写权限的执行者、有网络的研究者） | 按阶段屏蔽工具（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》） |
+| 专业化 | 一个 agent 的系统提示、工具集、权限要同时满足互相冲突的需求 | 每个角色一个 agent（只读审查者、有写权限的执行者、有网络的研究者） | 按阶段屏蔽工具（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)） |
 
 Table: 多 agent 的三个理由
 
@@ -60,13 +60,25 @@ flowchart TB
 
 ### 3. 本文的章节安排
 
-第二章 orchestrator-workers；第三章 handoff；第四章层级与 agent teams；第五章 A2A；第六章成本与调试；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、orchestrator-workers](#二orchestrator-workers) | orchestrator-workers |
+| [三、handoff](#三handoff) | handoff |
+| [四、层级与 agent teams](#四层级与-agent-teams) | 层级与 agent teams |
+| [五、A2A](#五a2a) | A2A |
+| [六、成本与调试](#六成本与调试) | 成本与调试 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、orchestrator-workers
 
 ### 1. 模式
 
-一个主 agent 读任务、**分解**成子任务、**派发**给多个 worker（并行）、收集结果、**综合**成最终输出。worker 之间不通信；主 agent 是唯一的协调者。这是第四篇的子 agent 在"多个并行"时的形态，也是多 agent 里最常用、最可控的一种。
+一个主 agent 读任务、**分解**成子任务、**派发**给多个 worker（并行）、收集结果、**综合**成最终输出。worker 之间不通信；主 agent 是唯一的协调者。这是[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)里的子 agent 在"多个并行"时的形态，也是多 agent 里最常用、最可控的一种。
+
+> [!NOTE] 后端经验参照：orchestrator-workers 之于 scatter-gather
+> 拆分请求、并行发给多个下游、等齐结果再合并，就是后端的 scatter-gather（或 fork-join）：worker 之间不通信，协调全在发起方，超时与部分失败也在发起方处理。对不上的地方：后端的拆分规则写在代码里，下游返回的结果可以直接合并；这里由模型决定怎么拆、拆几份，worker 的结果可能是幻觉，合并前要求证据、逐条校验，不能像合并 RPC 结果那样直接拼起来。
 
 ### 2. 代表：Anthropic 的多 agent 研究系统
 
@@ -114,7 +126,7 @@ Agents SDK 把 handoff 做成一等原语：一个 agent 的可用 handoff 列�
 
 ### 3. 与 orchestrator-workers 的区别
 
-handoff 是**串行的专业化**——一个接一个，为的是每个阶段有更聚焦的 agent；orchestrator-workers 是**并行的分解**——同时做，为的是隔离与速度。客服分流用 handoff，多方向研究用 orchestrator-workers。handoff 的一个陷阱：上下文怎么传——全部传（B 看到 A 的所有历史，隐私与预算问题）还是摘要传（B 缺信息）——要按场景设计，与第四篇的派发指令同一问题。
+handoff 是**串行的专业化**——一个接一个，为的是每个阶段有更聚焦的 agent；orchestrator-workers 是**并行的分解**——同时做，为的是隔离与速度。客服分流用 handoff，多方向研究用 orchestrator-workers。handoff 的一个陷阱：上下文怎么传——全部传（B 看到 A 的所有历史，隐私与预算问题）还是摘要传（B 缺信息）——要按场景设计，与[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)里的派发指令是同一个问题。
 
 ![客服 handoff 的一次对话：用户、分流 agent、退款 agent、人工四行共用一条时间轴](/img/in-post/multi-agent-orchestration-handoff-timeline.svg)
 
@@ -137,7 +149,7 @@ orchestrator-workers 的递归：worker 自己也是 orchestrator，再往下派
 
 ### 2. Claude Code 的 agent teams
 
-第四篇的表：subagent 结果只回主 agent、主 agent 管一切、token 较低；agent teams 每个队友是独立实例、**互相直接通信**、**共享任务列表自协调**、token 较高、适合"需要讨论与协作的复杂工作"。它是四家里唯一把"对等 agent 互相通信"做成产品功能的，并且诚实地标为实验（默认关闭，文档写明会话恢复、任务协调、关闭行为有已知限制；v2.1.178 起免设置步骤）。它回答的是 orchestrator-workers 回答不了的情形：子任务之间**有依赖**、需要在过程中交换信息（一个改接口、一个改调用方，两边要对齐）。代价是协调的复杂度与成本——文档的建议是多数情况用 subagent。
+[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)里的表：subagent 结果只回主 agent、主 agent 管一切、token 较低；agent teams 每个队友是独立实例、**互相直接通信**、**共享任务列表自协调**、token 较高、适合"需要讨论与协作的复杂工作"。它是四家里唯一把"对等 agent 互相通信"做成产品功能的，并且诚实地标为实验（默认关闭，文档写明会话恢复、任务协调、关闭行为有已知限制；v2.1.178 起免设置步骤）。它回答的是 orchestrator-workers 回答不了的情形：子任务之间**有依赖**、需要在过程中交换信息（一个改接口、一个改调用方，两边要对齐）。代价是协调的复杂度与成本——文档的建议是多数情况用 subagent。
 
 ### 3. 什么时候用哪种
 
@@ -163,17 +175,29 @@ Agent2Agent 是 Google 2025 年 4 月发布、6 月捐给 Linux 基金会（AWS�
 
 ### 3. 现状
 
-A2A 的采用远不如 MCP：跨组织的 agent 协作在 2026 年仍是少数场景，多数多 agent 系统在一个组织、一个 harness 内部，用 harness 自己的子 agent 机制（第四篇）就够。DeepSeek Harness 的 `subagent-acp` 用的是 ACP（一种自动化协议）而不是 A2A，也说明协议层还没有收敛。建议：组织内部不需要 A2A；要与外部 agent 互操作时再看，并做好协议变化的准备。
+A2A 的采用远不如 MCP：跨组织的 agent 协作在 2026 年仍是少数场景，多数多 agent 系统在一个组织、一个 harness 内部，用 harness 自己的子 agent 机制（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）就够。DeepSeek Harness 的 `subagent-acp` 用的是 ACP（一种自动化协议）而不是 A2A，也说明协议层还没有收敛。建议：组织内部不需要 A2A；要与外部 agent 互操作时再看，并做好协议变化的准备。
 
 ## 六、成本与调试
 
 ### 1. 15 倍从哪来
 
-每个 agent 有自己的系统提示、工具定义、读取的内容——都是输入 token；并行的 agent 各自的历史不同，**无法共享缓存前缀**（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》：只有相同前缀才命中；多个 agent 共享同一 system 与工具定义的那一段可以命中，其余不行）；主 agent 要读全部摘要；失败的子任务要重做。Anthropic 的 15 倍是研究场景的数字，其他场景量级相近。**按任务看成本分布**（《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》）在多 agent 下是必需的：p95 可能是 p50 的十倍。
+15 倍来自这几处：
+
+- 每个 agent 有自己的系统提示、工具定义、读取的内容——都是输入 token；
+- 并行的 agent 各自的历史不同，**无法共享缓存前缀**（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)：只有相同前缀才命中；多个 agent 共享同一 system 与工具定义的那一段可以命中，其余不行）；
+- 主 agent 要读全部摘要；
+- 失败的子任务要重做。
+
+Anthropic 的 15 倍是研究场景的数字，其他场景量级相近。**按任务看成本分布**（《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)）在多 agent 下是必需的：p95 可能是 p50 的十倍。
 
 ### 2. 失败传播
 
-一个 worker 幻觉出一个结论，主 agent 综合时把它当事实；一个 handoff 目标拒绝了任务，控制权卡在中间；一个队友在 agent teams 里等另一个永远不来的消息。多 agent 的失败模式是**组合的**：单 agent 的每一条失效（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》）乘以 agent 数，再加协调本身的失效。应对：每个 agent 有自己的预算与卫士（第一篇）；主 agent 对 worker 的结果做校验而不是直接信（要求 worker 返回证据与引用）；协调层有超时与死锁检测；整体有步数与美元上限。
+一个 worker 幻觉出一个结论，主 agent 综合时把它当事实；一个 handoff 目标拒绝了任务，控制权卡在中间；一个队友在 agent teams 里等另一个永远不来的消息。多 agent 的失败模式是**组合的**：单 agent 的每一条失效（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）乘以 agent 数，再加协调本身的失效。应对：
+
+- 每个 agent 有自己的预算与卫士（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）；
+- 主 agent 对 worker 的结果做校验而不是直接信（要求 worker 返回证据与引用）；
+- 协调层有超时与死锁检测；
+- 整体有步数与美元上限。
 
 ```mermaid
 %% 图：多 agent 的失败是组合的——worker B 幻觉出一个结论、主 agent 综合时当事实（要求 worker 返回证据与引用来防）；handoff 目标拒绝任务、控制权卡在中间（协调层超时）；agent teams 里队友 C 等 D 永远不来的消息（死锁检测）；单 agent 的每条失效乘以 agent 数，再加协调本身的失效
@@ -205,11 +229,11 @@ flowchart TB
 
 ### 3. 调试
 
-trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → 步骤。要能从主 agent 的一个错误结论追到是哪个 worker 的哪一步产生的——每个子会话的完整轨迹进日志（第三篇），跨会话的引用（子会话 id）进主会话的事件。L5 讲轨迹评测与可视化；这里的要求是**日志结构支持树**。DeepSeek Harness 的 `subagent` 接缝里"发现每个创建的子 agent"、Codex 的 `agent-graph-store` 都是为此。
+trace 从一条链变成一棵树（甚至图）：主会话 → 子会话 → 步骤。要能从主 agent 的一个错误结论追到是哪个 worker 的哪一步产生的——每个子会话的完整轨迹进日志（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)），跨会话的引用（子会话 id）进主会话的事件。L5 讲轨迹评测与可视化；这里的要求是**日志结构支持树**。DeepSeek Harness 的 `subagent` 接缝里"发现每个创建的子 agent"、Codex 的 `agent-graph-store` 都是为此。
 
 ### 4. 评测
 
-多 agent 系统的评测比单 agent 更贵：每次评测跑分是 15 倍的 token；轨迹更长更难标注。做法：先在单 agent 上评测每个角色的能力（worker 单独能不能完成子任务），再评测协调（分解是否合理、综合是否忠实），最后端到端——三层分开，与 《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》"检索与生成分开评"同一思路。
+多 agent 系统的评测比单 agent 更贵：每次评测跑分是 15 倍的 token；轨迹更长更难标注。做法：先在单 agent 上评测每个角色的能力（worker 单独能不能完成子任务），再评测协调（分解是否合理、综合是否忠实），最后端到端——三层分开，与《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)"检索与生成分开评"同一思路。
 
 ```mermaid
 %% 图：多 agent 的三层评测——先单独评每个角色（worker 给定子任务能不能完成，便宜、可复用单 agent 评测集），再评协调（lead 的分解是否合理、综合是否忠实于 worker 的返回），最后端到端；一次退化先看哪一层掉了，与 L3「检索与生成分开评」同一思路
@@ -260,7 +284,7 @@ flowchart TB
 3. 为什么并行的多个 agent 无法共享大部分缓存？哪一部分能共享？
 
    <details markdown="1"><summary>答案</summary>
-   缓存只命中逐字节相同的前缀（《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》）；并行 agent 的历史各不相同，从各自第一条任务消息起就分叉。能共享的是分叉之前的部分——相同的系统提示与工具定义（如果它们真的相同且放在最前）。这是多 agent token 放大的原因之一。详见[第六章](#六成本与调试)。
+   缓存只命中逐字节相同的前缀（《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)）；并行 agent 的历史各不相同，从各自第一条任务消息起就分叉。能共享的是分叉之前的部分——相同的系统提示与工具定义（如果它们真的相同且放在最前）。这是多 agent token 放大的原因之一。详见[第六章](#六成本与调试)。
    </details>
 
 4. MCP 与 A2A 的一句话分工是什么？举一个两者同时出现的例子。

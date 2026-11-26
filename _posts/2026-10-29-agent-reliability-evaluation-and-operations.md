@@ -35,18 +35,18 @@ flowchart TB
 ```
 
 
-| 类 | 形态 | 是异常吗 | 检测 | 应对（篇） |
+| 类 | 形态 | 是异常吗 | 检测 | 应对 |
 |---|---|---|---|---|
-| 幻觉的动作 | 调用了不该调的工具、参数编造、声称"已完成"而没做 | 否 | 结果校验；"已完成"必须有工具返回佐证 | 权限与确认（5）、结构化输出的证据字段（L2） |
-| 死循环 | 重复同一调用、在两个状态间摆 | 否 | 重复检测、无进展检测 | 卫士（1） |
-| 预算耗尽 | 步数 / token / 美元 / 时间到顶 | 否（是设计的出口） | 卫士触发 | 部分结果交付（1）、卸载与压缩（4） |
-| 工具半成功 | 命令返回 0 但没做对；API 超时但已生效 | 否 | 幂等 id、结果校验 | 幂等工具（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》、本篇） |
-| 权限拒绝 | 沙箱或策略拦住 | 否 | 沙箱拒绝事件 | 让模型换方法或问人（5） |
-| 上下文腐化 | 忘目标、重复已做的事、引用过期状态 | 否 | 探针问题、漂移检测 | 复述、压缩策略（4、L2） |
-| 注入 | 工具返回里的指令被执行 | 否 | 异常动作（突然访问陌生域名） | 四层（5）、L6 |
-| 中断未恢复 | 崩溃 / 重启后任务丢失或重复 | 是 | 会话状态与日志的不一致 | 事件溯源与幂等（3） |
-| 协调失败（多 agent） | worker 结果被误信、handoff 卡住、死锁 | 否 | 树状 trace | 校验、超时（7） |
-| 模型 / 供应商变更 | 同一 prompt 行为变了 | 否 | 回归评测 | 评测门禁（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》） |
+| 幻觉的动作 | 调用了不该调的工具、参数编造、声称"已完成"而没做 | 否 | 结果校验；"已完成"必须有工具返回佐证 | 权限与确认（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）、结构化输出的证据字段（L2） |
+| 死循环 | 重复同一调用、在两个状态间摆 | 否 | 重复检测、无进展检测 | 卫士（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)） |
+| 预算耗尽 | 步数 / token / 美元 / 时间到顶 | 否（是设计的出口） | 卫士触发 | 部分结果交付（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）、卸载与压缩（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)） |
+| 工具半成功 | 命令返回 0 但没做对；API 超时但已生效 | 否 | 幂等 id、结果校验 | 幂等工具（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)、本篇） |
+| 权限拒绝 | 沙箱或策略拦住 | 否 | 沙箱拒绝事件 | 让模型换方法或问人（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)） |
+| 上下文腐化 | 忘目标、重复已做的事、引用过期状态 | 否 | 探针问题、漂移检测 | 复述、压缩策略（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)、L2） |
+| 注入 | 工具返回里的指令被执行 | 否 | 异常动作（突然访问陌生域名） | 四层（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）、L6 |
+| 中断未恢复 | 崩溃 / 重启后任务丢失或重复 | 是 | 会话状态与日志的不一致 | 事件溯源与幂等（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)） |
+| 协调失败（多 agent） | worker 结果被误信、handoff 卡住、死锁 | 否 | 树状 trace | 校验、超时（[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)） |
+| 模型 / 供应商变更 | 同一 prompt 行为变了 | 否 | 回归评测 | 评测门禁（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)、《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)） |
 
 Table: agent 失败分类学
 
@@ -64,21 +64,33 @@ xychart-beta
 
 ### 2. 本文的章节安排
 
-第二章可靠性设计：幂等、预算、部分结果；第三章轨迹评测；第四章公开基准与它们的局限；第五章 trace 与运营；第六章从 demo 到生产的清单；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、可靠性设计](#二可靠性设计) | 可靠性设计：幂等、预算、部分结果 |
+| [三、轨迹评测](#三轨迹评测) | 轨迹评测 |
+| [四、公开基准与它们的局限](#四公开基准与它们的局限) | 公开基准与它们的局限 |
+| [五、trace 与运营](#五trace-与运营) | trace 与运营 |
+| [六、从 demo 到生产](#六从-demo-到生产) | 从 demo 到生产的清单 |
+| [七、实践建议](#七实践建议) | 实践建议 |
+
+Table: 本文的章节安排
 
 ## 二、可靠性设计
 
 ### 1. 幂等的工具
 
-《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》讲过：模型调用重复只多花钱，工具重复有副作用。agent 里重复的来源更多——重试、崩溃恢复后重放、模型重复调用（卫士提醒之前）、并行的子 agent 各调一次。工具的设计：**按 `call_id` 或业务键幂等**（第二次调用返回第一次的结果）、**不幂等的走确认门**（发送、付款——第五篇的风险分级）、**返回"已存在"而不是报错**（创建资源时目标已存在 → 返回它，让模型继续而不是把"重复"当失败）。运行时侧：记录已执行的 `call_id`，恢复时不重复执行（第三篇）。
+《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)讲过：模型调用重复只多花钱，工具重复有副作用。agent 里重复的来源更多——重试、崩溃恢复后重放、模型重复调用（卫士提醒之前）、并行的子 agent 各调一次。工具的设计：**按 `call_id` 或业务键幂等**（第二次调用返回第一次的结果）、**不幂等的走确认门**（发送、付款——[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)里的风险分级）、**返回"已存在"而不是报错**（创建资源时目标已存在 → 返回它，让模型继续而不是把"重复"当失败）。运行时侧：记录已执行的 `call_id`，恢复时不重复执行（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）。
+
+> [!NOTE] 后端经验参照：幂等工具之于支付接口的幂等键
+> 支付、下单接口要求调用方带一个幂等键，服务端见过这个键就直接返回上次的结果——工具按 `call_id` 幂等就是这个做法，运行时记录已执行的 `call_id` 相当于服务端的幂等表。对不上的地方：后端的重试是代码发起的，同一个键、同一份参数；模型「再试一次」时往往换了措辞、换了参数，`call_id` 也是新的，只认请求键挡不住，发送、付款这类动作还要按业务键（收件人 + 内容、订单号）判重，或者干脆走确认门。
 
 ### 2. 预算
 
-四种预算同时设：**步数**（第一篇）、**token**（每任务累计输入 + 输出）、**美元**（按 《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》的价目实时算，含子 agent）、**时间**（墙钟）。任一到顶触发同一出口——交付部分结果。预算按任务类型定（研究任务大、分类任务小），并让模型看到剩余（Codex 的 `get_context_remaining`——第四篇）。子 agent 的预算从父任务的预算里扣。
+四种预算同时设：**步数**（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）、**token**（每任务累计输入 + 输出）、**美元**（按《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html)的价目实时算，含子 agent）、**时间**（墙钟）。任一到顶触发同一出口——交付部分结果。预算按任务类型定（研究任务大、分类任务小），并让模型看到剩余（Codex 的 `get_context_remaining`——见[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。子 agent 的预算从父任务的预算里扣。
 
 ### 3. 部分结果
 
-预算耗尽或卫士触发时，agent 应交付**已完成的部分 + 未完成的清单 + 阻塞原因**，而不是一句"失败"。结构化输出（《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》）里预留这个形态：`status: partial`、`done: [...]`、`remaining: [...]`、`blocked_by: ...`。复述机制（第四篇的 plan / todo）让这个清单现成。对人来说，一个诚实的部分结果远比一个编造的完成有用——PocketOS 事件里 agent 的"猜测而不是验证"在这里也适用：不确定就说不确定。
+预算耗尽或卫士触发时，agent 应交付**已完成的部分 + 未完成的清单 + 阻塞原因**，而不是一句"失败"。结构化输出（《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)）里预留这个形态：`status: partial`、`done: [...]`、`remaining: [...]`、`blocked_by: ...`。复述机制（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)里的 plan / todo）让这个清单现成。对人来说，一个诚实的部分结果远比一个编造的完成有用——PocketOS 事件里 agent 的"猜测而不是验证"在这里也适用：不确定就说不确定。
 
 ```mermaid
 %% 图：四种预算同时设、任一到顶走同一个出口——步数、token、美元（实时按价目算，含子 agent）、墙钟；出口是结构化的部分结果：status: partial、done 列表、remaining 列表、blocked_by；复述机制维护的 todo 让这个清单现成；子 agent 的预算从父任务里扣
@@ -97,7 +109,13 @@ flowchart LR
 
 ### 4. 结果校验
 
-"已完成"要有佐证：文件改了 → 读回来看；测试过了 → 测试的输出在工具返回里；数据入库了 → 查一次。让模型在最终回答前做一步校验（系统提示里要求，或作为一个固定的工作流步骤），并在结构化输出里要求证据字段。这是对"幻觉的动作"最直接的防线。
+"已完成"要有佐证：
+
+- 文件改了 → 读回来看；
+- 测试过了 → 测试的输出在工具返回里；
+- 数据入库了 → 查一次。
+
+让模型在最终回答前做一步校验（系统提示里要求，或作为一个固定的工作流步骤），并在结构化输出里要求证据字段。这是对"幻觉的动作"最直接的防线。
 
 ## 三、轨迹评测
 
@@ -107,7 +125,7 @@ flowchart LR
 
 | 维度 | 指标 | 怎么算 |
 |---|---|---|
-| 结果 | 任务完成率（自动验证优先：测试通过、输出匹配；否则 judge） | 每题跑 $$k$$ 次看分布（《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》） |
+| 结果 | 任务完成率（自动验证优先：测试通过、输出匹配；否则 judge） | 每题跑 $$k$$ 次看分布（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)） |
 | 效率 | 步数、token、美元、墙钟；与基线（人或最优路径）的比 | 从 usage 与 trace 聚合 |
 | 过程正确性 | 工具选择对不对、参数对不对、有没有不必要的弯路、有没有重复 | 规则（重复检测）+ judge 看轨迹 |
 | 安全 | 有没有越权尝试、被拒次数、绕过障碍的提议 | 沙箱与策略事件计数 |
@@ -118,11 +136,11 @@ Table: 轨迹评测的维度与指标
 
 ### 2. 评测集从哪来
 
-与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》同源：**从 trace 里采**真实任务——高频的、失败过的、边界的；每条含初始状态（仓库快照、数据库状态、可用工具）、任务、验收标准（自动验证脚本或评分标准）。agent 评测集比问答评测集贵得多（要可重现的环境），所以：先几十条，用容器快照固定环境，验收尽量自动化（测试、断言），judge 只评自动化不了的部分并与人工校准（L5）。
+与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)、《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)同源：**从 trace 里采**真实任务——高频的、失败过的、边界的；每条含初始状态（仓库快照、数据库状态、可用工具）、任务、验收标准（自动验证脚本或评分标准）。agent 评测集比问答评测集贵得多（要可重现的环境），所以：先几十条，用容器快照固定环境，验收尽量自动化（测试、断言），judge 只评自动化不了的部分并与人工校准（L5）。
 
 ### 3. 录制回放
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》讲过的手段在 agent 上更重要：把每步的模型输出录下来，改了工具、解析逻辑、卫士之后用录制回放做回归（不重跑模型——省钱且可复现）；只有改了 prompt、模型、effort 才需要重跑模型。DeepSeek Harness 的 replay 建在事件溯源日志上（第三篇），"keyless recorded-session replay"是它的一类测试。
+《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)讲过的手段在 agent 上更重要：把每步的模型输出录下来，改了工具、解析逻辑、卫士之后用录制回放做回归（不重跑模型——省钱且可复现）；只有改了 prompt、模型、effort 才需要重跑模型。DeepSeek Harness 的 replay 建在事件溯源日志上（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)），"keyless recorded-session replay"是它的一类测试。
 
 ```mermaid
 %% 图：录制回放把两类改动分开——改了工具实现、解析逻辑、卫士阈值、权限规则：重放录制的模型输出，不重跑模型，免费、可复现、秒级；改了 prompt、模型、effort：模型的输出会变，必须重跑（评测集 × k 次）；两类都进门禁，但成本差两个量级
@@ -143,6 +161,9 @@ flowchart TB
     class RR exp
 ```
 
+> [!NOTE] 后端经验参照：录制回放之于流量回放测试
+> 录下线上请求与下游响应、改代码后用录制的响应当桩重放，是后端常用的回归手段（流量回放、HTTP 录制桩），这里把模型当成那个被录下来的下游。对不上的地方：后端下游的录制只在接口变了时作废；这里只要改了 prompt、模型或 effort，录下的模型输出就整体作废，必须重跑，而且重跑的结果要按分布比，不能逐字节比对。
+
 ## 四、公开基准与它们的局限
 
 ### 1. 三个基准
@@ -150,15 +171,15 @@ flowchart TB
 | 基准 | 测什么 | 现状 |
 |---|---|---|
 | SWE-bench Verified | 给真实 GitHub issue，agent 改代码让隐藏测试通过；500 题人工核验过的子集 | coding agent 的标准指标<br/>前沿系统七成以上<br/>对 harness 敏感 |
-| Terminal-Bench | 终端里的多步任务（配环境、跑工具、处理数据） | 2.1 → 3.0 → 4.0 快速加难：DeepSeek V4.1 Flash 的发布说明给出 90.6 / 30.0 / 31.2——同一模型在相邻版本上差三倍，是饱和后加难的痕迹（《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》） |
+| Terminal-Bench | 终端里的多步任务（配环境、跑工具、处理数据） | 2.1 → 3.0 → 4.0 快速加难：DeepSeek V4.1 Flash 的发布说明给出 90.6 / 30.0 / 31.2——同一模型在相邻版本上差三倍，是饱和后加难的痕迹（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)） |
 | τ-bench | 多轮工具使用 + 与模拟用户对话（航空、零售的客服场景），按策略遵循评 | 测"在规则下与人交互着做事"，比纯代码更接近业务 agent |
 
 Table: 三个 agent 基准
 
 ### 2. 局限
 
-- **脚手架不可横比**：同一模型换 harness 分数差很多——工具集、系统提示、压缩策略、允许的步数都影响结果。DeepSeek Harness 的 Minimal 模式（只留 shell 与文件编辑器）就是为了在比较模型时控制这个变量（第六篇）。读任何 agent 基准先看它用了什么 harness、多少步、有没有测试反馈。
-- **污染与饱和**：与 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》相同——题在网上、模型见过；分数到顶后换更难的版本，版本之间不可比。
+- **脚手架不可横比**：同一模型换 harness 分数差很多——工具集、系统提示、压缩策略、允许的步数都影响结果。DeepSeek Harness 的 Minimal 模式（只留 shell 与文件编辑器）就是为了在比较模型时控制这个变量（[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）。读任何 agent 基准先看它用了什么 harness、多少步、有没有测试反馈。
+- **污染与饱和**：与《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)相同——题在网上、模型见过；分数到顶后换更难的版本，版本之间不可比。
 - **只测结果**：多数基准报完成率，不报步数、成本、越权——轨迹维度缺失。
 - **分布不是你的**：GitHub issue 与航空客服不是你的业务；用它们缩范围，用自己的评测集决定。
 
@@ -170,7 +191,7 @@ Table: 三个 agent 基准
 
 ### 1. trace 的结构
 
-三级树：**会话**（用户、模型版本、prompt 版本、工具集版本、权限档、开始结束时间、总成本）→ **任务 / 轮次**（用户输入、最终输出、状态：完成 / 部分 / 失败、成本）→ **步骤**（每次模型调用的完整输入输出、usage、effort、每次工具调用的参数、结果、耗时、沙箱、审批；卫士触发；压缩 / 卸载事件；子会话 id）。第三篇的事件溯源日志天然是这棵树的来源；L5 讲 trace 的存储、可视化、与 OpenTelemetry GenAI 语义约定的对齐。
+三级树：**会话**（用户、模型版本、prompt 版本、工具集版本、权限档、开始结束时间、总成本）→ **任务 / 轮次**（用户输入、最终输出、状态：完成 / 部分 / 失败、成本）→ **步骤**（每次模型调用的完整输入输出、usage、effort、每次工具调用的参数、结果、耗时、沙箱、审批；卫士触发；压缩 / 卸载事件；子会话 id）。[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)讲的事件溯源日志天然是这棵树的来源；L5 讲 trace 的存储、可视化、与 OpenTelemetry GenAI 语义约定的对齐。
 
 **决策点日志**：在循环的每个分支打结构化事件——选了哪个工具、为什么终止、权限判定结果、预算余量、卫士是否触发——让轨迹能画成状态图而不是日志流。
 
@@ -178,7 +199,7 @@ Table: 三个 agent 基准
 %% 图：agent trace 的三级树——会话（用户 · 模型 / prompt / 工具集版本 · 权限档 · 总成本）→ 任务 / 轮次（输入 · 输出 · 状态：完成 / 部分 / 失败 · 成本）→ 步骤（每次模型调用的完整输入输出与 usage、每次工具调用的参数 / 结果 / 耗时 / 沙箱 / 审批、卫士触发、压缩与卸载事件、子会话 id）；子会话再挂一棵同样的树
 flowchart TB
     S["<b>会话 s-7f3</b><br/>用户 · Sonnet 5 快照 · prompt v12 · 工具集 v4 · workspace 档 · 总 2.4 美元"]
-    S --> T1["轮次 1：「把模块 A 迁到新 API」<br/>状态：完成 · 0.9 美元"]
+    S --> T1["<b>轮次 1：「把模块 A 迁到新 API」</b><br/>状态：完成 · 0.9 美元"]
     S --> T2["<b>轮次 2：「顺便修一下测试」</b><br/>状态：部分 · 1.5 美元"]
     T2 --> P1["<b>步 1 模型调用</b><br/>完整输入 / 输出 · usage · effort high · 思考 2.1K"]
     T2 --> P2["<b>步 2 工具：run tests</b><br/>参数 · 结果（3 fail）· 4.2 s · 沙箱 ok"]
@@ -210,8 +231,8 @@ flowchart TB
 | 审批率与拒绝率 | 人机分工是否合理 | 拒绝率趋零（疲劳）或趋百（规则太严） |
 | 沙箱拒绝与越权尝试 | 安全 | 任何上升 |
 | 部分结果比例 | 有多少任务没做完 | 涨 |
-| 缓存命中率、TTFT | 《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》、《[模型作为组件（04）：成本与延迟的账——一次调用花多少钱、慢在哪一段](/token-cost-and-latency-ledger-for-llm-applications.html)》 | 骤降接部署时间线 |
-| 等待中的会话数 | 运行时容量（第三篇） | 积压 |
+| 缓存命中率、TTFT | 《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)、《模型作为组件》的[《成本与延迟的账》](/token-cost-and-latency-ledger-for-llm-applications.html) | 骤降接部署时间线 |
+| 等待中的会话数 | 运行时容量（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)） | 积压 |
 
 Table: agent 运行面板的指标与告警
 
@@ -221,7 +242,7 @@ Table: agent 运行面板的指标与告警
 
 ### 4. 变更管理
 
-模型升级、prompt 改动、工具集变化、harness 版本升级（两个开源 harness 都在快速迭代）——每一项都是一次发布，走 《[Prompt 与上下文工程（06）：prompt 当代码管——版本、评测、A/B，以及上下文 vs 检索](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)》的门禁：轨迹评测集 × $$k$$ 次、逐条 diff、灰度、回滚。agent 系统的变量比问答多（工具、权限、压缩策略都会影响行为），门禁更重要。
+模型升级、prompt 改动、工具集变化、harness 版本升级（两个开源 harness 都在快速迭代）——每一项都是一次发布，走《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的门禁：轨迹评测集 × $$k$$ 次、逐条 diff、灰度、回滚。agent 系统的变量比问答多（工具、权限、压缩策略都会影响行为），门禁更重要。
 
 ## 六、从 demo 到生产
 
@@ -240,7 +261,7 @@ Table: agent 运行面板的指标与告警
 | 可靠性 | 工具幂等<br/>四种预算<br/>部分结果格式<br/>结果校验 | 9 |
 | 评测 | 轨迹评测集（几十条、固定环境、自动验收）<br/>录制回放<br/>基准只缩范围 | 9 |
 | 运营 | 三级 trace + 决策点日志<br/>面板十项<br/>在线 judge 抽样<br/>变更走门禁 | 9 |
-| fallback | 模型 / 供应商 fallback 链（《[模型作为组件（06）：客户端工程——重试、超时、幂等、限流与流式解析](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)》）与推理状态方向性；harness 版本钉住 | 1、6 |
+| fallback | 模型 / 供应商 fallback 链（《模型作为组件》的[《客户端工程》](/llm-client-engineering-retries-timeouts-streaming-and-rate-limits.html)）与推理状态方向性；harness 版本钉住 | 1、6 |
 
 Table: 从 demo 到生产的清单
 
@@ -270,7 +291,13 @@ demo 通常只有第一行的前半。清单上每一空格都是一个上线后
 1. 一个 agent 报告"已把配置更新并重启服务"，但服务没重启。这属于哪类失败？怎么在设计上防止？
 
    <details markdown="1"><summary>答案</summary>
-   幻觉的动作（声称完成而没做，或工具半成功——重启命令返回了但服务没起来）。防：最终回答前强制一步校验（查服务状态的工具返回作为佐证）；结构化输出要求 `evidence` 字段引用工具返回；重启类工具的返回要包含实际状态而不只是退出码。详见[第一章](#一总览)、[第二章](#二可靠性设计)。
+   幻觉的动作（声称完成而没做，或工具半成功——重启命令返回了但服务没起来）。防：
+
+   - 最终回答前强制一步校验（查服务状态的工具返回作为佐证）；
+   - 结构化输出要求 `evidence` 字段引用工具返回；
+   - 重启类工具的返回要包含实际状态而不只是退出码。
+
+   详见[第一章](#一总览)、[第二章](#二可靠性设计)。
    </details>
 
 2. 为什么"结果正确率 85%"不足以判断一个 agent 可靠？至少还要看哪三个数字？
@@ -294,7 +321,7 @@ demo 通常只有第一行的前半。清单上每一空格都是一个上线后
 5. 面板上审批拒绝率从 12% 降到 0.5%，任务完成率不变。这是好消息吗？
 
    <details markdown="1"><summary>答案</summary>
-   多半不是。拒绝率趋零通常意味着审批疲劳——人不再看内容一律点允许——或规则改松让本该问的没问；审批实际失效，越权风险上升而完成率不会反映。要看：审批请求总量是否也变了、审批的内容分布、沙箱拒绝与越权尝试是否上升；修法是按风险重新分级、批一类、Guardian 先筛（第五篇）。详见[第五章](#五trace-与运营)。
+   多半不是。拒绝率趋零通常意味着审批疲劳——人不再看内容一律点允许——或规则改松让本该问的没问；审批实际失效，越权风险上升而完成率不会反映。要看：审批请求总量是否也变了、审批的内容分布、沙箱拒绝与越权尝试是否上升；修法是按风险重新分级、批一类、Guardian 先筛（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）。详见[第五章](#五trace-与运营)。
    </details>
 
 [^q0]: 十类：幻觉的动作（调不该调的、参数编造、声称完成——结果校验与证据字段、权限确认）；死循环（重复 / 摆动——重复与无进展卫士）；预算耗尽（设计的出口——部分结果交付、卸载压缩）；工具半成功（退出码 0 但没做对、超时但已生效——幂等 id、结果校验）；权限拒绝（沙箱 / 策略拦住——换方法或问人）；上下文腐化（忘目标、重复、过期状态——复述、压缩策略、探针）；注入（工具返回里的指令——四层与 L6，异常动作检测）；中断未恢复（唯一的异常——事件溯源与幂等重放）；协调失败（worker 被误信、handoff 卡住、死锁——校验、超时、树状 trace）；模型 / 供应商变更（行为变——回归门禁）。只有一类是异常，可靠性靠检测 + 评测 + 监控，不靠 try / catch。详见[第一章](#一总览)、[第二章](#二可靠性设计)。

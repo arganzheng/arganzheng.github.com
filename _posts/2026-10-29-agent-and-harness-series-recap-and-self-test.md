@@ -70,55 +70,91 @@ Table: 本文的章节安排
 
 **结论**：40 行循环加步数、预算、重复调用、单次超时四个卫士与两个额外出口（预算耗尽交付部分结果、卫士触发降级）。Codex：`submission_loop`（会话生命周期、操作 / 事件通道）→ turn loop（组装、调 Responses、边界处压缩）→ `tools/orchestrator.rs`（审批 → 选沙箱首试 → 被拒时 `never` / `on-request` 不升级、否则新审批后无沙箱重试）。DeepSeek Harness：`agent-loop` 领取 → 开 turn → 从 append-only 日志派生 → 流式 → 分发 → 追加；日志是状态；一切皆插件含卫士；四种模式。能写成工作流的不用 agent，多数系统是工作流里嵌一段循环。
 
-**常见误解**：一个出口够；重复调用一定要强制终止；所有多步任务都是 agent。
+**常见误解**：
+
+- 一个出口够；
+- 重复调用一定要强制终止；
+- 所有多步任务都是 agent。
 
 ### 2. 第二篇：工具与 MCP
 
 **结论**：工具四个来源模型眼里相同。MCP 2026-07-28：无状态核心（去 `initialize` 与会话 id、协商进每请求）、多轮往返请求、扩展框架（Tasks、Apps、Skills over MCP、企业授权）、授权加固（`iss`、`resource`、DCR → CIMD）、弃用政策；AAIF 治理。描述从模型视角写、政策放系统提示、结果也是契约。tool search 换预算与选择准确率、付按需定义不可缓存。PTC（Anthropic、OpenAI GPT-5.6 ZDR 兼容、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`、Codex `code-mode`）让中间结果不进上下文，付沙箱、可观测、编码能力、审批粒度。
 
-**常见误解**：MCP 是 RPC 协议加会话；tool search 一定提高命中率；PTC 可以做默认。
+**常见误解**：
+
+- MCP 是 RPC 协议加会话；
+- tool search 一定提高命中率；
+- PTC 可以做默认。
 
 ### 3. 第三篇：运行时
 
 **结论**：第三种服务形态的九行对比表；事件溯源日志解决持久化、任意步重放、分叉——"模型可见 ⟺ 已记录"、resume / fork / replay 同一流、格式有版本；Codex `rollout` / `thread-store` 是兼容面。durable execution 把确定性重放换成重放记录的输出；LangGraph checkpoint / `interrupt`、Temporal activity / signal、或自实现最小集。挂起释放 worker、等待会话数是容量；事件流从日志推前端；中断在步骤边界；按会话隔离。三种交付：Agents API（托管、九家沙箱、无额外费、绑 OpenAI、日志在供应商）、SDK、自托管。
 
-**常见误解**：Web 框架能直接跑 agent；服务端状态省钱；托管运行时能换模型。
+**常见误解**：
+
+- Web 框架能直接跑 agent；
+- 服务端状态省钱；
+- 托管运行时能换模型。
 
 ### 4. 第四篇：上下文与子 agent
 
 **结论**：策略到实现的对照表；`spill`（存储 + 后端 + 策略）与 Codex "无 >10K token 的项"；修剪器在压缩前；`compact*` 模块族与 `compaction` 五包都多步可组合、写日志、思考链边界触发；plan / todo / goal 与 `get_context_remaining`。子 agent：Claude Code subagent（回主、便宜）vs agent teams（互通、贵、实验）；Codex `multi_agents`；DeepSeek Harness 七种后端含 Claude Code / Codex——互操作是事实。只为隔离、并行、专业化用；约 15 倍；效果取决于派发指令与返回摘要。
 
-**常见误解**：子 agent 的 token 不算钱；串行任务也拆子 agent；harness 之间互斥。
+**常见误解**：
+
+- 子 agent 的 token 不算钱；
+- 串行任务也拆子 agent；
+- harness 之间互斥。
 
 ### 5. 第五篇：权限与沙箱
 
 **结论**：四层——权限档（静态范围）、审批策略（倾向）、执行策略（具体判定：`execpolicy` allow / prompt / forbidden 带测试；Guardian）、沙箱（强制：Seatbelt / bubblewrap + Landlock / 受限令牌；接缝可换；云沙箱）；缺一层各有事故原型；沙箱管不了合法凭据对外部系统的动作。Claude Code 六步：hooks → deny（高于一切）→ ask → 模式（`plan` 强制写送人）→ allow → 回调。工具返回是不可信输入，注入的最终防线是四层。PocketOS 五环三环在基础设施；"绕过障碍"是高风险信号。审批疲劳用分级、批一类、Guardian 先筛、`justification`、监控审批率与拒绝率。
 
-**常见误解**：审批够了不需要沙箱；hook 的 allow 能绕过 deny；agent 安全全在 agent 里。
+**常见误解**：
+
+- 审批够了不需要沙箱；
+- hook 的 allow 能绕过 deny；
+- agent 安全全在 agent 里。
 
 ### 6. 第六篇：源码对照
 
 **结论**：十二维表与逐维取舍；三种交付形态的表；从每家学什么——Codex 的 `execpolicy`、三平台沙箱与不自动升级、10K 规则；DeepSeek Harness 的"模型可见 ⟺ 已记录"、一切皆插件与 Minimal、独立接缝；Claude Code 的六步与 deny、subagent vs teams 表、文件系统约定；OpenHarness 的轻量复用；四家收敛的一核多面、压缩前便宜一步、共享层。
 
-**常见误解**：有"最好的 harness"；加密压缩没有代价；交付形态是三选一。
+**常见误解**：
+
+- 有"最好的 harness"；
+- 加密压缩没有代价；
+- 交付形态是三选一。
 
 ### 7. 第七篇：多 agent
 
 **结论**：三个理由与更便宜的替代；orchestrator-workers（Anthropic 研究系统的经验、15 倍）、handoff（Agents SDK、上下文传法）、层级（ultra、限深度）、agent teams（有依赖时）；A2A 管 agent、MCP 管工具，组织内不需要 A2A；成本来源、组合的失败、树状 trace、三层评测。
 
-**常见误解**：多 agent 更聪明；并行 agent 能共享缓存；A2A 现在就要用。
+**常见误解**：
+
+- 多 agent 更聪明；
+- 并行 agent 能共享缓存；
+- A2A 现在就要用。
 
 ### 8. 第八篇：记忆与人
 
 **结论**：记忆三层，跨会话记忆是检索——写的判据、模型 vs 运行时驱动、进半静态层设上限、遗忘四策略、带来源；四个实现的表。六级每级换的验证；判据"能自动验证到什么程度就能自主到什么程度"；SAE 分级同构。风险五级与问人的挂起点（`request_user_input`、elicitation）。后台 agent 交付可审阅中间物、面板、自动降级。本体把验证前移到结构，让业务 agent 从 2 级到 4–5 级；小本体起步。
 
-**常见误解**：记忆越多越好；直接发送 = 6 级；业务 agent 只能停在逐个确认。
+**常见误解**：
+
+- 记忆越多越好；
+- 直接发送 = 6 级；
+- 业务 agent 只能停在逐个确认。
 
 ### 9. 第九篇：可靠性与评测
 
 **结论**：十类失败一类异常；幂等（`call_id` / 业务键、"已存在"不算失败）、四种预算同一出口、部分结果格式、"已完成"要佐证；轨迹评测六维、评测集从 trace 采固定环境、录制回放；基准四局限只缩范围；三级 trace + 决策点日志、面板十项、在线 judge、变更门禁；demo 到生产十二行。
 
-**常见误解**：完成率够了；改工具要重跑模型；拒绝率降低是好事。
+**常见误解**：
+
+- 完成率够了；
+- 改工具要重跑模型；
+- 拒绝率降低是好事。
 
 ## 三、贯穿全系列的几条线
 
@@ -145,7 +181,7 @@ flowchart TB
 
 ### 2. 权限范围是错误的上限
 
-《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》的结论在[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)展开成四层，又在这几篇里反复出现：
+《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)的结论在[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)展开成四层，又在这几篇里反复出现：
 
 - [《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)：MCP server 是权限主体、PTC 的审批粒度
 - [《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)：子 agent 的权限继承与收紧
@@ -360,7 +396,15 @@ Table: 常见误区与正确说法
 5. 把本系列九篇对应到 L1 的七条失效模式与 L2、L3 的关键结论：每篇主要防哪条、用了前面哪些层的东西。
 
    <details markdown="1"><summary>答案</summary>
-   1 防非确定性的死循环（卫士），用 L1 工具协议；2 防指令遵循（用错工具）与上下文（定义占预算），用 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》、《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》缓存；3 防"任务丢了"与供应商锁定，用 《[模型作为组件（03）：API 契约（二）——推理模型：thinking、effort 与跨轮的推理状态](/reasoning-models-as-components-thinking-effort-and-state.html)》推理状态（重放不重跑）；4 防上下文标称 ≠ 有效与预算耗尽，是 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的实现，子 agent 用 《[Prompt 与上下文工程（01）：上下文的解剖——一次请求里模型看到的一切](/anatomy-of-the-context-window.html)》隔离；5 防越界，是 《[模型作为组件（01）：失效模式——非确定性、幻觉、上下文与越界，把「模型会出错」拆成七条可检测的性质](/llm-failure-modes-nondeterminism-hallucination-and-context.html)》 PocketOS 的答案，工具返回不可信来自 《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》；6 综合；7 防预算耗尽（15 倍），缓存不共享来自 《[Prompt 与上下文工程（05）：prompt caching 与上下文的排列](/prompt-caching-and-context-layout.html)》；8 防不可逆错误（人）与知识截止（记忆是 L3 的检索，本体是 《[检索与知识接入（06）：结构化知识——SQL、本体与 GraphRAG](/structured-knowledge-sql-ontology-and-graphrag.html)》）；9 验证全部，评测集方法来自 《[模型作为组件（05）：选型——榜单的失真、自己的评测集与供应商的弃用周期](/model-selection-beyond-leaderboards.html)》、《[检索与知识接入（07）：检索评测与运营](/retrieval-evaluation-and-operations.html)》。
+   1. [《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)：防非确定性的死循环（卫士），用 L1 工具协议；
+   2. [《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)：防指令遵循（用错工具）与上下文（定义占预算），用《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)、《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)缓存；
+   3. [《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)：防"任务丢了"与供应商锁定，用《模型作为组件》的[《API 契约（二）》](/reasoning-models-as-components-thinking-effort-and-state.html)推理状态（重放不重跑）；
+   4. [《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)：防上下文标称 ≠ 有效与预算耗尽，是《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的实现，子 agent 用《Prompt 与上下文工程》的[《上下文的解剖》](/anatomy-of-the-context-window.html)隔离；
+   5. [《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)：防越界，是《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html) PocketOS 的答案，工具返回不可信来自《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)；
+   6. [《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)：综合；
+   7. [《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)：防预算耗尽（15 倍），缓存不共享来自《Prompt 与上下文工程》的[《prompt caching 与上下文的排列》](/prompt-caching-and-context-layout.html)；
+   8. [《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)：防不可逆错误（人）与知识截止（记忆是 L3 的检索，本体是《检索与知识接入》的[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)）；
+   9. [《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)：验证全部，评测集方法来自《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)、《检索与知识接入》的[《检索评测与运营》](/retrieval-evaluation-and-operations.html)。
    </details>
 
 ### C. 面试题（8 题）
@@ -369,7 +413,13 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 模型之外的一切：循环、工具协议、运行时与会话日志、上下文管理、权限与沙箱、子 agent、记忆、人机分工、评测；模型只决定下一步与读结果；(2) 同一模型、不同 harness，agent 能力差一个量级——DeepSeek 与 OpenAI 都以此为发布理由；(3) 2026 年的三个事件：Agents API（9 月 10 日，托管 Codex 的 harness）、DeepSeek Harness（8 月 13 日，一切皆插件）、Claude Agent SDK；(4) 事故（Replit、PocketOS、OpenAI–HF）说明缺哪一格会怎样；(5) 三种交付形态。
+   **答案要点**：
+
+   1. 模型之外的一切：循环、工具协议、运行时与会话日志、上下文管理、权限与沙箱、子 agent、记忆、人机分工、评测；模型只决定下一步与读结果；
+   2. 同一模型、不同 harness，agent 能力差一个量级——DeepSeek 与 OpenAI 都以此为发布理由；
+   3. 2026 年的三个事件：Agents API（9 月 10 日，托管 Codex 的 harness）、DeepSeek Harness（8 月 13 日，一切皆插件）、Claude Agent SDK；
+   4. 事故（Replit、PocketOS、OpenAI–HF）说明缺哪一格会怎样；
+   5. 三种交付形态。
    **追问方向**：harness 与框架（LangChain）的区别（运行时、权限、沙箱、日志的完整性）；从每家学什么。
    **好答案与一般答案的区别**：一般答案说"agent 框架"；好答案列出组件、说出"权限范围是错误上限"与"验证决定自主"两条原则、举出三个 harness 的具体机制。
 
@@ -379,7 +429,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 四层：权限档（Codex 三档 / Claude Code 规则）、审批策略（`AskForApproval`）、执行策略（`execpolicy` Starlark 前缀规则 allow / prompt / forbidden 带 `match` / `not_match`；Guardian 模型先审）、沙箱（Seatbelt / bubblewrap + Landlock / 受限令牌；接缝可换；云沙箱）；(2) 缺一层的事故原型；(3) Claude Code 六步与 deny 高于一切；(4) 沙箱管不了合法凭据对外部系统的动作——token 范围与环境隔离是基础设施的事；(5) 工具返回不可信；(6) 审批疲劳用策略化授权；(7) 选择：默认 `workspace`、执行策略覆盖删除 / 强推 / 对外写、沙箱不自动升级、PocketOS 五环自检。
+   **答案要点**：
+
+   1. 四层：权限档（Codex 三档 / Claude Code 规则）、审批策略（`AskForApproval`）、执行策略（`execpolicy` Starlark 前缀规则 allow / prompt / forbidden 带 `match` / `not_match`；Guardian 模型先审）、沙箱（Seatbelt / bubblewrap + Landlock / 受限令牌；接缝可换；云沙箱）；
+   2. 缺一层的事故原型；
+   3. Claude Code 六步与 deny 高于一切；
+   4. 沙箱管不了合法凭据对外部系统的动作——token 范围与环境隔离是基础设施的事；
+   5. 工具返回不可信；
+   6. 审批疲劳用策略化授权；
+   7. 选择：默认 `workspace`、执行策略覆盖删除 / 强推 / 对外写、沙箱不自动升级、PocketOS 五环自检。
    **追问方向**：PTC 下的审批粒度；子 agent 的权限继承。
    **好答案与一般答案的区别**：一般答案说"要有审批"；好答案分四层、给三家的具体机制、说出沙箱的边界与基础设施侧的责任。
 
@@ -389,7 +447,12 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) agent 状态复杂、每步要持久化、要能回答"第 17 步看到了什么"、要能分叉；持有可变对象做不到，append-only 事件 + 派生状态做到；(2) DeepSeek Harness 的不变量"模型可见 ⟺ 已记录"，resume / fork / search / replay 同一流，格式有版本；Codex 的 rollout 是兼容面；(3) 支撑：崩溃恢复（幂等重放）、挂起唤醒（释放 worker）、前端事件流（断开不影响任务）、压缩与卸载记录、审批与沙箱审计、子会话追溯、录制回放与轨迹评测、trace；(4) 与 durable execution 的关系：重放记录的模型输出而不重跑。
+   **答案要点**：
+
+   1. agent 状态复杂、每步要持久化、要能回答"第 17 步看到了什么"、要能分叉；持有可变对象做不到，append-only 事件 + 派生状态做到；
+   2. DeepSeek Harness 的不变量"模型可见 ⟺ 已记录"，resume / fork / search / replay 同一流，格式有版本；Codex 的 rollout 是兼容面；
+   3. 支撑：崩溃恢复（幂等重放）、挂起唤醒（释放 worker）、前端事件流（断开不影响任务）、压缩与卸载记录、审批与沙箱审计、子会话追溯、录制回放与轨迹评测、trace；
+   4. 与 durable execution 的关系：重放记录的模型输出而不重跑。
    **追问方向**：日志的成本与脱敏；加密压缩 item 在日志里的可迁移性。
    **好答案与一般答案的区别**：一般答案说"要存历史"；好答案说出不变量、派生状态、九件被支撑的事与"重放不重跑"。
 
@@ -399,7 +462,16 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) Rust 单核工作区 vs TypeScript 一切皆插件（Cordis，profile / bundle / patch）；(2) 状态在对象 + rollout vs 日志即状态；(3) 压缩加密 blob（保留内部状态、绑 OpenAI）vs 可读事件（可审计可迁移）；(4) `execpolicy` + Guardian vs 审批策略插件；(5) 三平台原生沙箱 vs 接缝 + 后端；(6) Responses 耦合 vs 多供应商；(7) 内建子 agent vs 七种后端含另两家；(8) 目标不同：产品底座（性能、单二进制、沙箱投入重、`core` 膨胀靠纪律）vs 研究平台（极致可替换、Minimal 模式、学习曲线与预稳定成本）。
+   **答案要点**：
+
+   1. Rust 单核工作区 vs TypeScript 一切皆插件（Cordis，profile / bundle / patch）；
+   2. 状态在对象 + rollout vs 日志即状态；
+   3. 压缩加密 blob（保留内部状态、绑 OpenAI）vs 可读事件（可审计可迁移）；
+   4. `execpolicy` + Guardian vs 审批策略插件；
+   5. 三平台原生沙箱 vs 接缝 + 后端；
+   6. Responses 耦合 vs 多供应商；
+   7. 内建子 agent vs 七种后端含另两家；
+   8. 目标不同：产品底座（性能、单二进制、沙箱投入重、`core` 膨胀靠纪律）vs 研究平台（极致可替换、Minimal 模式、学习曲线与预稳定成本）。
    **追问方向**：从各家学什么；什么时候选哪个。
    **好答案与一般答案的区别**：一般答案比较语言；好答案在八个维度各说出取舍并落到项目目标。
 
@@ -409,7 +481,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 三个理由与替代方案；研究任务满足隔离 + 并行；(2) orchestrator-workers：lead 先规划分解、每个方向一个 subagent（只读工具、独立预算、派发指令含目标 / 格式 / 来源 / 边界）、返回带引用的摘要、lead 综合并校验引用；(3) 成本约 15 倍聊天（各自提示与工具、缓存不共享、主读全部摘要），按任务看 p50 / p95；(4) 失败：worker 幻觉被误信——要证据；协调超时；(5) trace 是树；三层评测；(6) 不需要 A2A（组织内）。
+   **答案要点**：
+
+   1. 三个理由与替代方案；研究任务满足隔离 + 并行；
+   2. orchestrator-workers：lead 先规划分解、每个方向一个 subagent（只读工具、独立预算、派发指令含目标 / 格式 / 来源 / 边界）、返回带引用的摘要、lead 综合并校验引用；
+   3. 成本约 15 倍聊天（各自提示与工具、缓存不共享、主读全部摘要），按任务看 p50 / p95；
+   4. 失败：worker 幻觉被误信——要证据；协调超时；
+   5. trace 是树；三层评测；
+   6. 不需要 A2A（组织内）。
    **追问方向**：什么时候用 agent teams（子任务有依赖）；怎么降成本（共享前缀、限制方向数）。
    **好答案与一般答案的区别**：一般答案画一个"多个 agent 协作"的图；好答案给出模式选择理由、派发指令要素、15 倍的来源与三层评测。
 
@@ -429,7 +508,13 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 多步数据处理下中间结果逐轮进上下文、占预算、模型"手算"有幻觉；(2) 模型写程序在沙箱里调多个工具、只回结果——Anthropic PTC、OpenAI GPT-5.6（ZDR 兼容因为中间结果不落存储）、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`（只返回打印输出与返回值）、Codex `code-mode`；(3) 换到预算、确定性、延迟、隐私；(4) 付出沙箱、可观测（展开程序内调用）、编码能力（作为模式不作默认）、审批粒度（高风险工具禁止或挂起）；(5) 适用：批量与多步数据处理。
+   **答案要点**：
+
+   1. 多步数据处理下中间结果逐轮进上下文、占预算、模型"手算"有幻觉；
+   2. 模型写程序在沙箱里调多个工具、只回结果——Anthropic PTC、OpenAI GPT-5.6（ZDR 兼容因为中间结果不落存储）、Cloudflare Code Mode、DeepSeek Harness Code 模式 / `ptc-runtime`（只返回打印输出与返回值）、Codex `code-mode`；
+   3. 换到预算、确定性、延迟、隐私；
+   4. 付出沙箱、可观测（展开程序内调用）、编码能力（作为模式不作默认）、审批粒度（高风险工具禁止或挂起）；
+   5. 适用：批量与多步数据处理。
    **追问方向**：与 tool search 的关系（一个减定义、一个减结果）；PTC 里的权限怎么覆盖。
    **好答案与一般答案的区别**：一般答案说"让模型写代码调 API"；好答案说出它在预算上的位置、四家实现、ZDR 的因果与四个代价。
 
@@ -439,7 +524,13 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 判据：能自动验证到什么程度就能自主到什么程度，加动作的可逆性；(2) 六级与每级需要的验证；(3) 场景例（工单分类与回复草稿）：分类只读且可校验 → 自动；回复对外 → 草稿由人审（5 级的中间物）；有明确规则的常见类型积累评测后批一类（4 级）；涉及退款等不可逆动作永远确认；(4) 面板与自动降级作为退路；(5) 业务动作用本体式动作让验证前移。
+   **答案要点**：
+
+   1. 判据：能自动验证到什么程度就能自主到什么程度，加动作的可逆性；
+   2. 六级与每级需要的验证；
+   3. 场景例（工单分类与回复草稿）：分类只读且可校验 → 自动；回复对外 → 草稿由人审（5 级的中间物）；有明确规则的常见类型积累评测后批一类（4 级）；涉及退款等不可逆动作永远确认；
+   4. 面板与自动降级作为退路；
+   5. 业务动作用本体式动作让验证前移。
    **追问方向**：怎么知道可以升级（评测集稳定、审批拒绝率、在线 judge）；什么信号要降级。
    **好答案与一般答案的区别**：一般答案说"重要的要人审"；好答案用验证与可逆两个轴定级、给升级与降级的具体信号。
 
@@ -473,7 +564,7 @@ Table: 掌握程度的判据
 回到总纲：[《工具、Agent 与 harness：模型怎么从回答变成做事》](/tools-agents-and-harness.html)。
 
 
-[^q0]: 面对一个要让模型做事的场景：要不要循环、卫士设在哪、两个生产循环各几层（1）；工具用 MCP 还是自定义、2026-07-28 版要改什么、几十个工具怎么办、中间结果怎么不进上下文（2）；任务中断怎么续、日志存什么、托管还是自托管（3）；第 40 步满了怎么办、什么交给子 agent、哪种子 agent（4）；这个调用自动 / 问人 / 禁止、沙箱用什么、五环防住了几环、审批疲劳怎么解（5）；四个 harness 各怎么解、学谁（6）；需要多 agent 吗、哪种模式、代价（7）；记忆存什么忘什么、人站在第几级、业务动作怎么验证（8）；可靠吗、轨迹怎么评、上生产还缺什么（9）。详见[第一章](#一总览系列回答的问题与主线)。
+[^q0]: 面对一个要让模型做事的场景：要不要循环、卫士设在哪、两个生产循环各几层（[《最小 agent 循环的解剖》](/anatomy-of-the-agent-loop.html)）；工具用 MCP 还是自定义、2026-07-28 版要改什么、几十个工具怎么办、中间结果怎么不进上下文（[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)）；任务中断怎么续、日志存什么、托管还是自托管（[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）；第 40 步满了怎么办、什么交给子 agent、哪种子 agent（[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）；这个调用自动 / 问人 / 禁止、沙箱用什么、五环防住了几环、审批疲劳怎么解（[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）；四个 harness 各怎么解、学谁（[《源码级对照》](/coding-agent-harness-comparison-codex-deepseek-harness-claude-code.html)）；需要多 agent 吗、哪种模式、代价（[《多 agent》](/multi-agent-orchestration-handoff-and-a2a.html)）；记忆存什么忘什么、人站在第几级、业务动作怎么验证（[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)）；可靠吗、轨迹怎么评、上生产还缺什么（[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）。详见[第一章](#一总览系列回答的问题与主线)。
 
 [^q1]: 数字：四个卫士、两个出口；Codex 三层与编排器顺序；MCP 2026-07-28（去 `initialize`、DCR → CIMD、`resource`、Tasks / Apps）、AAIF、十亿下载；Agents API 2026-09-10、九家沙箱、无额外费、86% / 4× / 60%；DeepSeek Harness 2026-08-13 v0.1 MIT、四种模式、七种子 agent 后端；Claude Code 六步、83.5%、25 KB、agent teams v2.1.178；Codex `:read_only` / `:workspace` / `:danger_full_access`、`execpolicy` allow / prompt / forbidden、"无 >10K token 的项"；多 agent 15 倍；六级；风险五级；十类失败一类异常；轨迹六维；Terminal-Bench 90.6 / 30.0 / 31.2；十二行清单。结论：循环之外一切是 harness；权限范围是错误上限；验证决定自主；日志是底座（"模型可见 ⟺ 已记录"）；先用一个 agent 加更好的工具；MCP 管工具 A2A 管 agent；本体是业务侧 harness；基准只缩范围。详见[第一章](#一总览系列回答的问题与主线)、[第三章](#三贯穿全系列的几条线)。
 
