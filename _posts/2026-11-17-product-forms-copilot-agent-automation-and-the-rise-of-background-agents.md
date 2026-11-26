@@ -7,9 +7,9 @@ tags: [AI, LLM, AI-Application, Product, Agent, Copilot]
 catalog: true
 ---
 
-同一个能力可以做成不同的形态：一个代码模型可以是 Tab 补全（人写、AI 提示下一行）、对话框（人问、AI 答、人复制粘贴）、编辑器内的 agent（AI 改多个文件、人看 diff 接受）、后台 agent（人提任务、走开、回来审 PR）。2021 年只有第一种，2026 年四种并存，且 coding 领域的重心已经移到最后一种。形态决定了**人在哪一步看结果**——这是第一篇"组件会出错"前提下最重要的产品决策。
+同一个能力可以做成不同的形态：一个代码模型可以是 Tab 补全（人写、AI 提示下一行）、对话框（人问、AI 答、人复制粘贴）、编辑器内的 agent（AI 改多个文件、人看 diff 接受）、后台 agent（人提任务、走开、回来审 PR）。2021 年只有第一种，2026 年四种并存，且 coding 领域的重心已经移到最后一种。形态决定了**人在哪一步看结果**——这是"组件会出错"（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）前提下最重要的产品决策。
 
-这一篇讲 copilot → agent → 自动化的梯子与它和 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级人机分工的对应，2024–2026 年形态演进的四步与后台 agent 成为主流的四个原因，按任务选形态的决策表，以及同一产品里多形态并存。
+这一篇讲 copilot → agent → 自动化的梯子与它和《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)六级人机分工的对应，2024–2026 年形态演进的四步与后台 agent 成为主流的四个原因，按任务选形态的决策表，以及同一产品里多形态并存。
 
 本篇要回答的核心问题是：
 
@@ -40,29 +40,41 @@ flowchart TB
 
 Table: 产品形态的梯子
 
-往上每一级把一类验证从人交给系统（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的判据）；能到哪一级取决于任务的可验证性与可撤销性（第一篇的两个维度），不取决于模型多强。
+往上每一级把一类验证从人交给系统（《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的判据）；能到哪一级取决于任务的可验证性与可撤销性（[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)的两个维度），不取决于模型多强。
 
 ### 2. 本文的章节安排
 
-第二章三种形态各自的设计要点；第三章 2021–2026 的演进；第四章后台 agent 为什么成了主流；第五章决策表；第六章多形态并存；第七章实践建议。
+| 章 | 内容 |
+|---|---|
+| [二、三种形态](#二三种形态) | 三种形态各自的设计要点 |
+| [三、演进：2021–2026](#三演进20212026) | 2021–2026 的演进 |
+| [四、后台 agent 为什么成了主流](#四后台-agent-为什么成了主流) | 异步交付、PR 落点、模型与 harness、成本、不只是 coding |
+| [五、决策表](#五决策表) | 按任务特征选形态 |
+| [六、多形态并存](#六多形态并存) | 同一产品四种形态、切换点、渐进的自主性 |
+| [七、实践建议](#七实践建议) | 六条做法 |
+
+Table: 本文的章节安排
 
 ## 二、三种形态
 
 ### 1. copilot
 
-人在做事，AI 在旁边给建议：补全、内联改写、对话里的答案让人复制、草稿让人编辑。设计要点：**建议要便宜地拒绝**（不接受就消失，不打断）、**建议的粒度匹配任务**（一行 / 一段 / 一个函数——太大难核对、太小没价值）、**不抢焦点**（用户在写代码，AI 不该弹窗）、**接受后可撤销**。它的边界：每条建议都要人看，所以省的是"想与打字"的时间，不是"看"的时间；任务多步时人要自己串起来。第三篇的采纳率三成、多数被再编辑，是 copilot 的正常状态。
+人在做事，AI 在旁边给建议：补全、内联改写、对话里的答案让人复制、草稿让人编辑。设计要点：**建议要便宜地拒绝**（不接受就消失，不打断）、**建议的粒度匹配任务**（一行 / 一段 / 一个函数——太大难核对、太小没价值）、**不抢焦点**（用户在写代码，AI 不该弹窗）、**接受后可撤销**。它的边界：每条建议都要人看，所以省的是"想与打字"的时间，不是"看"的时间；任务多步时人要自己串起来。采纳率三成、多数被再编辑（[《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)），是 copilot 的正常状态。
 
 ### 2. agent（同步）
 
-AI 接一个任务、执行多步（读、改、跑、修）、人在关键步审批、结束看结果。设计要点：**步骤流可见**（用户看到它在做什么——第四篇）、**审批有理由与影响范围**（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）、**结果以 diff 呈现**（人能部分接受）、**能中断与纠正**（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》的中断在步骤边界）、**任务边界清楚**（agent 知道做到哪算完）。它的边界：人要在场等（同步），所以任务要在几分钟内；步数多了审批疲劳（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》的策略化授权）。
+AI 接一个任务、执行多步（读、改、跑、修）、人在关键步审批、结束看结果。设计要点：**步骤流可见**（用户看到它在做什么——[《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html)）、**审批有理由与影响范围**（《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）、**结果以 diff 呈现**（人能部分接受）、**能中断与纠正**（《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)的中断在步骤边界）、**任务边界清楚**（agent 知道做到哪算完）。它的边界：人要在场等（同步），所以任务要在几分钟内；步数多了审批疲劳（《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)的策略化授权）。
 
 ### 3. agent（后台）
 
-人提任务、走开、AI 独立跑完、交付一个可审阅的中间物（PR、草稿、报告、提案）、人回来审阅、接受 / 修改 / 拒绝。设计要点：**交付物是天然的审阅落点**（PR 有 diff、评论、CI；草稿有编辑器；提案有审批流）、**任务描述要够（agent 不能中途问太多人——问了人不在）**、**进度与完成通知**、**多任务并行的面板**（用户同时开几个）、**失败要清楚交付**（部分结果 + 阻塞原因——《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》）、**成本可见**（一个任务花了多少）。它的边界：任务要能独立完成或能在缺信息时合理假设并说明；交付物要能被审阅（一个 5,000 行的 PR 没人审）。
+人提任务、走开、AI 独立跑完、交付一个可审阅的中间物（PR、草稿、报告、提案）、人回来审阅、接受 / 修改 / 拒绝。设计要点：**交付物是天然的审阅落点**（PR 有 diff、评论、CI；草稿有编辑器；提案有审批流）、**任务描述要够（agent 不能中途问太多人——问了人不在）**、**进度与完成通知**、**多任务并行的面板**（用户同时开几个）、**失败要清楚交付**（部分结果 + 阻塞原因——《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)）、**成本可见**（一个任务花了多少）。它的边界：任务要能独立完成或能在缺信息时合理假设并说明；交付物要能被审阅（一个 5,000 行的 PR 没人审）。
 
 ### 4. 自动化
 
-AI 执行并直接生效，人看面板、抽检、处理告警。设计要点：**只在可自动验证 + 可回滚的任务上**（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》第六级的前提）、**面板与告警**（《[工具、Agent 与 harness（09）：可靠性、评测与运营 agent](/agent-reliability-evaluation-and-operations.html)》、《[生产化与运营（06）：发布工程——开关、钉版本、runbook 与 SLO](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)》的 SLO）、**自动降级回环内**的退路、**审计链**（《[生产化与运营（05）：治理与合规——审计、保留、AI Act 与内容标识](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)》）。它的边界：不可逆、不能自动验证的任务永远不到这一级——"直接发给客户的报告"不是自动化的候选（《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》自测 3）。
+AI 执行并直接生效，人看面板、抽检、处理告警。设计要点：**只在可自动验证 + 可回滚的任务上**（《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)第六级的前提）、**面板与告警**（《工具、Agent 与 harness》的[《可靠性、评测与运营 agent》](/agent-reliability-evaluation-and-operations.html)、《生产化与运营》的[《发布工程》](/release-engineering-for-ai-features-switches-pinning-runbooks-and-slos.html)的 SLO）、**自动降级回环内**的退路、**审计链**（《生产化与运营》的[《治理与合规》](/governance-and-compliance-audit-retention-ai-act-and-labeling.html)）。它的边界：不可逆、不能自动验证的任务永远不到这一级——"直接发给客户的报告"不是自动化的候选（《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)自测 3）。
+
+> [!NOTE] 后端经验参照：自动化之于持续部署
+> 「可自动验证 + 可回滚 + 异常自动降级」就是持续部署的三件套：CI 全绿自动合并、出问题自动回滚、指标异常停止发布。对不上的地方：CD 的门禁是确定的测试，一次全绿就可信；AI 自动化的「验证」多是抽检与在线指标，要按任务类型攒够稳定的数据才能升到这一级，且模型或数据一变就要重新证明。
 
 ```mermaid
 %% 图：同一个「修一个 bug」任务在四种形态下人在哪、看什么——copilot：人写每一行，AI 逐行建议，人接受 / 修改 / 拒绝；同步 agent：AI 读改跑修几十步，人在关键步审批、结束看 diff；后台 agent：人提任务走开，AI 交付一个 PR，人回来审 diff、CI、评论；自动化：AI 直接合并，人看面板与告警，异常自动降级
@@ -98,12 +110,19 @@ flowchart TB
 |---|---|---|---|
 | 2021–2023 | 补全（copilot） | GitHub Copilot | 代码模型能续写；建议可便宜拒绝 |
 | 2023–2024 | 对话（copilot） | ChatGPT 形态进各种产品 | 指令遵循的模型；对话框是最低成本的集成 |
-| 2024–2025 | 编辑器内 agent（同步） | Cursor Composer、Claude Code、Codex CLI、Windsurf | 工具调用协议成熟（《[模型作为组件（02）：API 契约（一）——消息、工具调用、结构化输出与流式，四家 API 的共同骨架](/llm-api-contract-messages-tools-structured-output-and-streaming.html)》）、模型能跑几十步、diff 审阅 |
-| 2025–2026 | **后台 agent** | Codex cloud、Claude Code on the web、Cursor 后台 agent、Devin、Agents API 的"跑几天的 agent" | 运行时（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》：持久化、挂起、沙箱）、上下文管理（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》）、PR 作为交付物、成本可接受 |
+| 2024–2025 | 编辑器内 agent（同步） | Cursor Composer、Claude Code、Codex CLI、Windsurf | 工具调用协议成熟（《模型作为组件》的[《API 契约（一）》](/llm-api-contract-messages-tools-structured-output-and-streaming.html)）、模型能跑几十步、diff 审阅 |
+| 2025–2026 | **后台 agent** | Codex cloud、Claude Code on the web、Cursor 后台 agent、Devin、Agents API 的"跑几天的 agent" | 运行时（《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)：持久化、挂起、沙箱）、上下文管理（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）、PR 作为交付物、成本可接受 |
 
 Table: 产品形态的演进：2021–2026
 
-每一步的推动力是**模型能力 + 一个 harness 机制**：补全需要续写；对话需要指令遵循；同步 agent 需要工具调用与 diff；后台 agent 需要运行时与上下文管理。形态的演进是 L1–L4 的能力在产品侧的投影。
+每一步的推动力是**模型能力 + 一个 harness 机制**：
+
+- 补全需要续写；
+- 对话需要指令遵循；
+- 同步 agent 需要工具调用与 diff；
+- 后台 agent 需要运行时与上下文管理。
+
+形态的演进是 L1–L4 的能力在产品侧的投影。
 
 ```mermaid
 %% 图：2021–2026 形态的演进，每一步 = 模型能力 + 一个 harness 机制——补全需要代码模型能续写 + 建议可便宜拒绝；对话需要指令遵循 + 对话框这个最低成本集成；编辑器内同步 agent 需要工具调用协议成熟 + 能跑几十步 + diff 审阅；后台 agent 需要运行时（持久化 · 挂起 · 沙箱）+ 上下文管理 + PR 作为交付物 + 成本可接受
@@ -125,23 +144,26 @@ flowchart LR
 
 ### 1. 异步交付把等待变成并行
 
-同步 agent 的用户在看着它跑——30 步 2 分钟，用户 2 分钟什么都不能做；后台 agent 的用户提了任务就去做别的，回来审——《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》的"感知延迟归零"。用户可以同时开五个任务，吞吐是同步的五倍。
+同步 agent 的用户在看着它跑——30 步 2 分钟，用户 2 分钟什么都不能做；后台 agent 的用户提了任务就去做别的，回来审——《生产化与运营》的[《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html)的"感知延迟归零"。用户可以同时开五个任务，吞吐是同步的五倍。
+
+> [!NOTE] 后端经验参照：后台 agent 之于异步任务队列
+> 同步 agent 像阻塞的 RPC，调用方一直等到返回；后台 agent 像提交 job：拿到任务号就走，完成时回调通知，一个人能同时挂几个 job。对不上的地方：job 的结果由程序消费，后台 agent 的结果要人审阅，所以必须落在 PR / 草稿这样的审阅点上；参数不全时 RPC 会直接报错，agent 却会自己做假设跑下去，假设要写进交付物。
 
 ### 2. PR 是天然的审阅落点
 
-《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》讲的"可审阅的中间物"：PR 有 diff、有评论、有 CI 状态、有合并按钮——软件行业花了十五年把它做成了人审阅代码变更的最佳界面，后台 agent 直接用。草稿（邮件、文档）、提案（业务动作）是其他领域的对应物。没有这个落点的任务（"直接改生产配置"）做不成后台 agent。
+《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)讲的"可审阅的中间物"：PR 有 diff、有评论、有 CI 状态、有合并按钮——软件行业花了十五年把它做成了人审阅代码变更的最佳界面，后台 agent 直接用。草稿（邮件、文档）、提案（业务动作）是其他领域的对应物。没有这个落点的任务（"直接改生产配置"）做不成后台 agent。
 
 ### 3. 模型与 harness 到了能独立跑的水平
 
-2025–2026 年的模型能在 SWE-bench Verified 上七成以上、能跑几十步不迷失（《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》的压缩与复述）、运行时能持久化与恢复（《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》）、沙箱能隔离（《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》）——独立跑完一个任务从"偶尔"变成"多数"。
+2025–2026 年的模型能在 SWE-bench Verified 上七成以上、能跑几十步不迷失（《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)的压缩与复述）、运行时能持久化与恢复（《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)）、沙箱能隔离（《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)）——独立跑完一个任务从"偶尔"变成"多数"。
 
 ### 4. 成本随价值可接受
 
-一个后台 coding 任务几美元，替代的是几十分钟到几小时的工程师时间（《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》的单位经济学 17 倍例）。同步 agent 也一样贵，但后台让用户愿意把更大的任务交出去——价值更高。
+一个后台 coding 任务几美元，替代的是几十分钟到几小时的工程师时间（《生产化与运营》的[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)的单位经济学 17 倍例）。同步 agent 也一样贵，但后台让用户愿意把更大的任务交出去——价值更高。
 
 ### 5. 不只是 coding
 
-任何有天然审阅落点的任务都在往后台走：写报告（草稿）、做研究（带引用的综述）、处理工单（回复草稿 + 建议的动作）、业务操作（本体的提案——《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》、《[检索与知识接入（06）：结构化知识——SQL、本体与 GraphRAG](/structured-knowledge-sql-ontology-and-graphrag.html)》）。Klarna 的混合模式（AI 第一响应、人处理例外）是客服版本的"AI 交付草稿、人审阅例外"。
+任何有天然审阅落点的任务都在往后台走：写报告（草稿）、做研究（带引用的综述）、处理工单（回复草稿 + 建议的动作）、业务操作（本体的提案——《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)、《检索与知识接入》的[《结构化知识》](/structured-knowledge-sql-ontology-and-graphrag.html)）。Klarna 的混合模式（AI 第一响应、人处理例外）是客服版本的"AI 交付草稿、人审阅例外"。
 
 ## 五、决策表
 
@@ -152,7 +174,7 @@ flowchart LR
 | 多步、有明确验收、几分钟内、人在场 | agent 同步 | 人看步骤与 diff，关键步审批 |
 | 多步、有明确验收、有审阅落点、可等 | **agent 后台** | 异步、并行、PR / 草稿审阅 |
 | 可自动验证 + 可回滚 + 错误代价低 + 高量 | 自动化 | 人看面板 |
-| 边界外（第一篇） | copilot 给材料不给结论，或不做 | 不能让 AI 主导 |
+| 边界外（[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)） | copilot 给材料不给结论，或不做 | 不能让 AI 主导 |
 | 不可逆对外动作 | 到后台 agent 为止（交付提案，人批准才生效） | 六级的前提 |
 
 Table: 按任务特征选形态的决策表
@@ -185,15 +207,15 @@ flowchart TB
 
 ### 1. 同一产品四种形态
 
-Cursor：Tab 补全（copilot）、对话（copilot）、Composer / Agent（同步 agent）、后台 agent——用户按任务切换。Claude Code：终端同步 agent、web 后台 agent、subagent 与 agent teams（《[工具、Agent 与 harness（04）：长任务的上下文管理与子 agent](/long-horizon-context-management-and-subagents.html)》）。客服：AI 直接答简单的（自动化，边界内）、AI 草拟人发（copilot / 后台）、复杂的直接转人（不做）。
+Cursor：Tab 补全（copilot）、对话（copilot）、Composer / Agent（同步 agent）、后台 agent——用户按任务切换。Claude Code：终端同步 agent、web 后台 agent、subagent 与 agent teams（《工具、Agent 与 harness》的[《长任务的上下文管理与子 agent》](/long-horizon-context-management-and-subagents.html)）。客服：AI 直接答简单的（自动化，边界内）、AI 草拟人发（copilot / 后台）、复杂的直接转人（不做）。
 
 ### 2. 切换点
 
-产品设计的核心决策是**在哪里从一种形态切到另一种**：补全到对话（用户开始问问题）、对话到 agent（用户说"帮我改"）、同步到后台（任务超过几分钟或用户说"去做吧"）、agent 到自动化（评测集与在线指标证明某类任务稳定——《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》的升级信号）。切换要让用户可控、可见（"这个任务我在后台跑，完成通知你"）。
+产品设计的核心决策是**在哪里从一种形态切到另一种**：补全到对话（用户开始问问题）、对话到 agent（用户说"帮我改"）、同步到后台（任务超过几分钟或用户说"去做吧"）、agent 到自动化（评测集与在线指标证明某类任务稳定——《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)的升级信号）。切换要让用户可控、可见（"这个任务我在后台跑，完成通知你"）。
 
 ### 3. 渐进的自主性
 
-新用户先 copilot、建立信任后开 agent、稳定后开自动化——个人层面的六级爬梯（第三篇）。产品要支持这条路径：默认保守、按用户与任务类型逐步放开、每一级有退回的路。
+新用户先 copilot、建立信任后开 agent、稳定后开自动化——个人层面的六级爬梯（[《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html)）。产品要支持这条路径：默认保守、按用户与任务类型逐步放开、每一级有退回的路。
 
 ```mermaid
 %% 图：一个产品里的四种形态与切换点——Tab 补全 → 用户开始问问题 → 对话 → 用户说「帮我改」→ 同步 agent → 任务超过几分钟或用户说「去做吧」→ 后台 agent → 评测集与在线指标证明某类任务稳定 → 自动化；每次切换用户可控可见，每一级有退回的路；新用户从左边起步，建立信任后逐级放开

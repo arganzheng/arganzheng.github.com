@@ -40,17 +40,17 @@ flowchart TB
 | [第四篇：呈现](/presenting-uncertainty-and-beyond-the-chat-box.html) | 怎么让用户看到能力与不确定？ | 三原则（诚实、可核对、可行动）<br/>引用到段落、置信度用行为不用数字、拒答三部分<br/>步骤分层、审批三要素、diff 部分接受<br/>对话框五局限<br/>七种非对话形态与选法 | "为什么是对话框"；无依据不呈现为事实 |
 | [第五篇：指标](/ai-product-metrics-and-feeding-back-into-the-system.html) | 怎么知道有用？ | 矩阵十类<br/>北极星一场景一个 + 护栏<br/>反指标<br/>自报高于实测一倍以上、两个都报<br/>定性看绕过<br/>回流三条<br/>A/B 五特殊 | 处理时间不是客服北极星；消息数是反指标 |
 
-Table: 六篇的核心问题、结论与必记
+Table: 五篇的核心问题、结论与必记
 
 ### 1. 本文的章节安排
 
 | 章 | 内容 |
 |---|---|
-| 二 | 逐篇回顾 |
-| 三 | 贯穿五篇的两条线 |
-| 四 | 常见误区表 |
-| 五 | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
-| 六 | 应用地图的收束与下一步 |
+| [二、逐篇回顾](#二逐篇回顾) | 逐篇回顾 |
+| [三、贯穿全系列的几条线](#三贯穿全系列的几条线) | 贯穿五篇的两条线 |
+| [四、常见误区](#四常见误区) | 常见误区表 |
+| [五、通关自测](#五通关自测) | 通关自测：A 判断与计算 10 题、B 跨篇综合 5 题、C 面试题 7 题、D 掌握判据 |
+| [六、应用地图的收束与下一步](#六应用地图的收束与下一步) | 应用地图的收束与下一步 |
 
 Table: 本文的章节安排
 
@@ -58,33 +58,92 @@ Table: 本文的章节安排
 
 ### 1. 第一篇：场景
 
-**结论**：四维度里可验证与可撤销决定人在哪、价值与频率决定值不值；锯齿状边界——按任务不按领域、边界外用 AI 更差、会动、要量；回撤三案例（Klarna、IBM、Duolingo）共同错误是把边界内的数字外推到全部，正确形态（AI 第一响应、人处理例外、永远能找到人）本可以是起点；成功案例的共同点是输出能快速核对或撤销；鸿沟五来源（分布、长尾、集成、信任、成本）；决策拆任务 → 四维度 → 量边界 → 三分 → 审外推 → 可逆。
+**结论**：
 
-**常见误解**：demo 正确率代表产品；按领域判断 AI 能不能做；不可逆的组织决定建在可变的边界判断上。
+- 四维度里可验证与可撤销决定人在哪、价值与频率决定值不值；
+- 锯齿状边界——按任务不按领域、边界外用 AI 更差、会动、要量；
+- 回撤三案例（Klarna、IBM、Duolingo）共同错误是把边界内的数字外推到全部，正确形态（AI 第一响应、人处理例外、永远能找到人）本可以是起点；
+- 成功案例的共同点是输出能快速核对或撤销；
+- 鸿沟五来源（分布、长尾、集成、信任、成本）；
+- 决策拆任务 → 四维度 → 量边界 → 三分 → 审外推 → 可逆。
+
+**常见误解**：
+
+- demo 正确率代表产品；
+- 按领域判断 AI 能不能做；
+- 不可逆的组织决定建在可变的边界判断上。
 
 ### 2. 第二篇：形态
 
-**结论**：四形态与六级的对应、各自设计要点与边界；演进四步（补全 → 对话 → 编辑器内 agent → 后台 agent），每步是模型能力 + harness 机制；后台成主流：异步并行、PR 落点、能独立跑、成本随价值；不只 coding；决策表四判据；Cursor 四形态并存，切换点是核心设计，渐进放开，不可逆止于提案。
+**结论**：
 
-**常见误解**：对话框是默认；同步 agent 与后台 agent 只是 UI 差别；自动化是形态的终点而不是前提的结果。
+- 四形态与六级的对应、各自设计要点与边界；
+- 演进四步（补全 → 对话 → 编辑器内 agent → 后台 agent），每步是模型能力 + harness 机制；
+- 后台成主流：异步并行、PR 落点、能独立跑、成本随价值；
+- 不只 coding；
+- 决策表四判据；
+- Cursor 四形态并存，切换点是核心设计，渐进放开，不可逆止于提案。
+
+**常见误解**：
+
+- 对话框是默认；
+- 同步 agent 与后台 agent 只是 UI 差别；
+- 自动化是形态的终点而不是前提的结果。
 
 ### 3. 第三篇：信任
 
-**结论**：过度信任（自动化偏见、信号是核对率趋零而有错、代价最高在不可逆与专业判断）与不足（第一次在边界外、藏得深、不可核对）；目标校准；Copilot 三成 + 再编辑是常态、危险数字三个、按任务看象限；八手段（依据、不确定、可撤销、可核对呈现、结构性核对、期望管理、渐进自主、推信号）；让不信任的开始用五法；动态（升级重校、习惯让核对下降所以高风险结构性保持、事故后透明）。
+**结论**：
 
-**常见误解**：接受率越高越好；信任要最大化；核对靠用户自觉。
+- 过度信任（自动化偏见、信号是核对率趋零而有错、代价最高在不可逆与专业判断）与不足（第一次在边界外、藏得深、不可核对）；
+- 目标校准；
+- Copilot 三成 + 再编辑是常态、危险数字三个、按任务看象限；
+- 八手段（依据、不确定、可撤销、可核对呈现、结构性核对、期望管理、渐进自主、推信号）；
+- 让不信任的开始用五法；
+- 动态（升级重校、习惯让核对下降所以高风险结构性保持、事故后透明）。
+
+**常见误解**：
+
+- 接受率越高越好；
+- 信任要最大化；
+- 核对靠用户自觉。
 
 ### 4. 第四篇：呈现
 
-**结论**：三原则与机制对应表；引用到段落且正确率是产品指标、无依据不呈现为事实；置信度行为梯子不用数字；拒答三部分是正常路径；首字前骨架、步骤分层（Trajectory）、进度预估、审批三要素 + 批一类 + 超时即拒、diff 部分接受；对话框五局限；七种非对话形态；选形态七问；先问"为什么是对话框"。
+**结论**：
 
-**常见误解**：显示置信度百分比；拒答是错误页；展开全部步骤是透明。
+- 三原则与机制对应表；
+- 引用到段落且正确率是产品指标、无依据不呈现为事实；
+- 置信度行为梯子不用数字；
+- 拒答三部分是正常路径；
+- 首字前骨架、步骤分层（Trajectory）、进度预估、审批三要素 + 批一类 + 超时即拒、diff 部分接受；
+- 对话框五局限；
+- 七种非对话形态；
+- 选形态七问；
+- 先问"为什么是对话框"。
+
+**常见误解**：
+
+- 显示置信度百分比；
+- 拒答是错误页；
+- 展开全部步骤是透明。
 
 ### 5. 第五篇：指标
 
-**结论**：矩阵十类与陷阱；北极星按场景一个（一次解决率、合并 PR × 通过、发出的草稿、任务完成、接受的交付物）加护栏；反指标六项；自报 vs 实测的差距与方法、两个都报；定性三种（怎么用、怎么绕过、何时关）；回流三条带 trace id、修好告诉用户；A/B 五特殊。
+**结论**：
 
-**常见误解**：消息数涨是好事；自报节省做 ROI；首周 A/B 全量。
+- 矩阵十类与陷阱；
+- 北极星按场景一个（一次解决率、合并 PR × 通过、发出的草稿、任务完成、接受的交付物）加护栏；
+- 反指标六项；
+- 自报 vs 实测的差距与方法、两个都报；
+- 定性三种（怎么用、怎么绕过、何时关）；
+- 回流三条带 trace id、修好告诉用户；
+- A/B 五特殊。
+
+**常见误解**：
+
+- 消息数涨是好事；
+- 自报节省做 ROI；
+- 首周 A/B 全量。
 
 ## 三、贯穿全系列的几条线
 
@@ -177,29 +236,29 @@ flowchart TB
 | 自报 vs 实测 | 5 | 差一倍以上，两个都报 |
 | 绕过 | 5 | 最有信息的行为 |
 
-Table: 贯穿六篇的概念表
+Table: 贯穿五篇的概念表
 
 ## 四、常见误区
 
 | 误区 | 为什么错 | 出处 |
 |---|---|---|
-| "demo 96% 就能替代人" | 分布、长尾、外推；边界按任务 | 1 |
-| "AI 在客服上做了 700 人的工作" | 来自简单查询，20–30% 例外漏回成本 | 1 |
-| "边界外顺手也让 AI 试试" | 比不用更差 19 pp | 1 |
-| "先裁员再看" | 不可逆决定建在可变判断上 | 1 |
-| "做成对话框最快" | 五局限；先问为什么 | 2、4 |
-| "后台 agent 只是把同步的放后台" | 需要落点、独立完成、进度通知、部分结果 | 2 |
-| "直接发给客户 = 自动化成功" | 不可逆 + 不可验证不到六级 | 2 |
-| "接受率 97% 太棒了" | 有错时是过度信任 | 3 |
-| "三成接受率说明 AI 不行" | 人在编辑是常态 | 3 |
-| "用户会自己核对" | 自动化偏见；高风险结构性核对 | 3 |
-| "显示置信度 87%" | 不可解读且不可靠；用行为 | 4 |
-| "无法回答" | 拒答要三部分 | 4 |
-| "展开全部步骤最透明" | 噪声；分层 | 4 |
-| "允许 / 拒绝两个按钮" | 训练点允许；三要素 | 4 |
-| "消息数涨 40%" | 反指标；查重试 | 5 |
-| "用户说省 5 小时" | 自报高于实测一倍以上 | 5 |
-| "首周 A/B 涨了全量" | 学习效应、留存、护栏 | 5 |
+| "demo 96% 就能替代人" | 分布、长尾、外推；边界按任务 | [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html) |
+| "AI 在客服上做了 700 人的工作" | 来自简单查询，20–30% 例外漏回成本 | [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html) |
+| "边界外顺手也让 AI 试试" | 比不用更差 19 pp | [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html) |
+| "先裁员再看" | 不可逆决定建在可变判断上 | [《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html) |
+| "做成对话框最快" | 五局限；先问为什么 | [《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html)、[《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html) |
+| "后台 agent 只是把同步的放后台" | 需要落点、独立完成、进度通知、部分结果 | [《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html) |
+| "直接发给客户 = 自动化成功" | 不可逆 + 不可验证不到六级 | [《形态》](/product-forms-copilot-agent-automation-and-the-rise-of-background-agents.html) |
+| "接受率 97% 太棒了" | 有错时是过度信任 | [《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html) |
+| "三成接受率说明 AI 不行" | 人在编辑是常态 | [《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html) |
+| "用户会自己核对" | 自动化偏见；高风险结构性核对 | [《人机分工与信任校准》](/human-ai-division-of-labor-and-trust-calibration.html) |
+| "显示置信度 87%" | 不可解读且不可靠；用行为 | [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html) |
+| "无法回答" | 拒答要三部分 | [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html) |
+| "展开全部步骤最透明" | 噪声；分层 | [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html) |
+| "允许 / 拒绝两个按钮" | 训练点允许；三要素 | [《不确定性的呈现与非对话形态》](/presenting-uncertainty-and-beyond-the-chat-box.html) |
+| "消息数涨 40%" | 反指标；查重试 | [《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html) |
+| "用户说省 5 小时" | 自报高于实测一倍以上 | [《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html) |
+| "首周 A/B 涨了全量" | 学习效应、留存、护栏 | [《产品指标与回流》](/ai-product-metrics-and-feeding-back-into-the-system.html) |
 
 Table: 常见误区与正确说法
 
@@ -296,7 +355,7 @@ Table: 常见误区与正确说法
 5. 把本系列五篇与前六层对应：每篇把前面哪些机制翻译成了产品决策。
 
    <details markdown="1"><summary>答案</summary>
-   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》单位经济学 → 价值维度。形态（2）：《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》六级 → 形态梯子；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》运行时与 《[Prompt 与上下文工程（04）：上下文预算与压缩——给每一部分定配额，超了怎么办](/context-budgeting-offloading-and-compaction.html)》上下文管理 → 后台 agent 成立的条件；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》中间物 → 审阅落点。信任（3）：L3 引用正确率与 《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》记忆来源 → 显示依据；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》确认门与审批 → 结构性核对；《[工具、Agent 与 harness（08）：memory 与 human-in-the-loop](/agent-memory-and-human-in-the-loop.html)》问人 → 推信号。呈现（4）：《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》出口 → 拒答与行为梯子；《[工具、Agent 与 harness（05）：权限、沙箱与安全边界](/permissions-sandboxes-and-security-boundaries-for-agents.html)》 `justification` → 审批三要素；《[工具、Agent 与 harness（03）：agent 运行时——会话、持久化与 durable execution](/agent-runtime-sessions-persistence-and-durable-execution.html)》事件流与 L5 决策点 → 步骤分层；《[Prompt 与上下文工程（03）：结构化输出——约束解码、schema 设计与失败修复](/structured-output-constrained-decoding-and-schema-design.html)》结构化输出与 《[工具、Agent 与 harness（02）：工具调用与 MCP——协议、tool search 与程序化工具调用](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html)》 MCP Apps → 生成式 UI；《[生产化与运营（03）：延迟工程——从 TTFT 到 agent 的多步](/latency-engineering-from-ttft-to-multi-step-agents.html)》感知延迟 → 流式与骨架。指标（5）：《[评测、可观测与可追溯（03）：评什么——单步、RAG、agent 与多轮的指标矩阵](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)》会话单位与同系列[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的在线信号 → 矩阵；《[评测、可观测与可追溯（06）：可追溯——录制回放、决策点日志、失败分类与反馈绑定](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)》反馈绑定与 《[生产化与运营（07）：数据飞轮与物理世界的上线](/data-flywheel-and-deploying-to-the-physical-world.html)》飞轮 → 回流；《[生产化与运营（02）：成本工程——从账单到每任务成本](/cost-engineering-from-the-bill-to-cost-per-task.html)》 → 成本 vs 价值。
+   场景（1）：L1 失效模式与选型评测集 → 四维度与量边界；《生产化与运营》的[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html)单位经济学 → 价值维度。形态（2）：《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)六级 → 形态梯子；《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)运行时与《Prompt 与上下文工程》的[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)上下文管理 → 后台 agent 成立的条件；《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)中间物 → 审阅落点。信任（3）：L3 引用正确率与《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)记忆来源 → 显示依据；《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html)确认门与审批 → 结构性核对；《工具、Agent 与 harness》的[《memory 与 human-in-the-loop》](/agent-memory-and-human-in-the-loop.html)问人 → 推信号。呈现（4）：《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)出口 → 拒答与行为梯子；《工具、Agent 与 harness》的[《权限、沙箱与安全边界》](/permissions-sandboxes-and-security-boundaries-for-agents.html) `justification` → 审批三要素；《工具、Agent 与 harness》的[《agent 运行时》](/agent-runtime-sessions-persistence-and-durable-execution.html)事件流与 L5 决策点 → 步骤分层；《Prompt 与上下文工程》的[《结构化输出》](/structured-output-constrained-decoding-and-schema-design.html)与《工具、Agent 与 harness》的[《工具调用与 MCP》](/tool-calling-mcp-tool-search-and-programmatic-tool-calling.html) MCP Apps → 生成式 UI；《生产化与运营》的[《延迟工程》](/latency-engineering-from-ttft-to-multi-step-agents.html)感知延迟 → 流式与骨架。指标（5）：《评测、可观测与可追溯》的[《评什么》](/what-to-evaluate-metrics-for-single-step-rag-agent-and-multi-turn.html)会话单位与同系列[《回归与门禁》](/regression-gates-silent-model-updates-ab-and-online-evaluation.html)的在线信号 → 矩阵；《评测、可观测与可追溯》的[《可追溯》](/traceability-record-replay-decision-logs-failure-taxonomy-and-feedback.html)反馈绑定与《生产化与运营》的[《数据飞轮与物理世界的上线》](/data-flywheel-and-deploying-to-the-physical-world.html)飞轮 → 回流；《生产化与运营》的[《成本工程》](/cost-engineering-from-the-bill-to-cost-per-task.html) → 成本 vs 价值。
    </details>
 
 ### C. 面试题（7 题）
@@ -305,7 +364,16 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 拆到任务粒度；(2) 四维度：价值、可验证、容错、频率——可验证与可撤销决定人在哪，价值与频率决定值不值；(3) 锯齿状边界（758 人实验：边界内 +25% / +40%，边界外 +19 pp 错误）按任务不按领域、用评测集量；(4) 三分：边界内做、边界上人机协作、边界外只给材料；(5) 审外推——Klarna 的 700 人来自简单查询；(6) 决策可逆；(7) 鸿沟五来源估计划。
+   **答案要点**：
+
+   1. 拆到任务粒度；
+   2. 四维度：价值、可验证、容错、频率——可验证与可撤销决定人在哪，价值与频率决定值不值；
+   3. 锯齿状边界（758 人实验：边界内 +25% / +40%，边界外 +19 pp 错误）按任务不按领域、用评测集量；
+   4. 三分：边界内做、边界上人机协作、边界外只给材料；
+   5. 审外推——Klarna 的 700 人来自简单查询；
+   6. 决策可逆；
+   7. 鸿沟五来源估计划。
+
    **追问方向**：怎么量边界（L5 评测集）；成功案例的共同点（可核对可撤销）。
    **好答案与一般答案的区别**：一般答案说"看有没有价值"；好答案给四维度、边界的实验数字、外推的错误与三分决策。
 
@@ -315,7 +383,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 梯子与六级对应，能到哪级取决于可验证与可撤销；(2) 判据四个：验证、撤销、落点、可等；(3) 演进四步各靠一个 harness 机制；(4) 后台成主流四原因：异步并行、PR 落点、能独立跑（运行时、上下文管理、SWE-bench 七成）、成本随价值；(5) 不只 coding——有落点的任务都在往后台走；(6) 多形态并存与切换点；不可逆止于提案。
+   **答案要点**：
+
+   1. 梯子与六级对应，能到哪级取决于可验证与可撤销；
+   2. 判据四个：验证、撤销、落点、可等；
+   3. 演进四步各靠一个 harness 机制；
+   4. 后台成主流四原因：异步并行、PR 落点、能独立跑（运行时、上下文管理、SWE-bench 七成）、成本随价值；
+   5. 不只 coding——有落点的任务都在往后台走；
+   6. 多形态并存与切换点；不可逆止于提案。
+
    **追问方向**：没有落点怎么办（造一个或停在同步）；渐进放开的信号。
    **好答案与一般答案的区别**：一般答案说"复杂任务用 agent"；好答案给判据、六级对应、后台的四原因与落点概念。
 
@@ -325,7 +401,16 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 目标是信任与能力一致，不是最大化——两侧都是失败；(2) 过度信任：自动化偏见，信号是接受率趋 100% 而有错、核对率趋零；Air Canada、虚构判例、PocketOS；(3) 信任不足：第一次在边界外、藏得深、不可核对，信号是采纳低、留存陡、全部重写；(4) Copilot 三成 + 再编辑是常态；(5) 按任务看接受 × 错误 × 核对象限；(6) 八手段；高风险结构性核对；(7) 动态：升级重校、事故后透明。
+   **答案要点**：
+
+   1. 目标是信任与能力一致，不是最大化——两侧都是失败；
+   2. 过度信任：自动化偏见，信号是接受率趋 100% 而有错、核对率趋零；Air Canada、虚构判例、PocketOS；
+   3. 信任不足：第一次在边界外、藏得深、不可核对，信号是采纳低、留存陡、全部重写；
+   4. Copilot 三成 + 再编辑是常态；
+   5. 按任务看接受 × 错误 × 核对象限；
+   6. 八手段；高风险结构性核对；
+   7. 动态：升级重校、事故后透明。
+
    **追问方向**：怎么让不信任的开始用；核对率下降何时是问题。
    **好答案与一般答案的区别**：一般答案说"要让用户信任"；好答案说校准、两侧信号、象限与结构性核对。
 
@@ -335,7 +420,15 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 三原则：诚实、可核对、可行动；(2) 引用到段落、正确率是产品指标、无依据不呈现为事实；(3) 置信度用行为梯子（直接给 / 候选 / 澄清 / 拒答）与语言——数字不可解读且模型自评不可靠（《[评测、可观测与可追溯（07）：运行时可靠性与物理世界的仿真](/runtime-reliability-and-simulation-for-the-physical-world.html)》）；(4) 拒答三部分；(5) 步骤分层、审批三要素、diff 部分接受；(6) 呈现是前六层机制的翻译（出口、justification、决策点、结构化输出）。
+   **答案要点**：
+
+   1. 三原则：诚实、可核对、可行动；
+   2. 引用到段落、正确率是产品指标、无依据不呈现为事实；
+   3. 置信度用行为梯子（直接给 / 候选 / 澄清 / 拒答）与语言——数字不可解读且模型自评不可靠（《评测、可观测与可追溯》的[《运行时可靠性与物理世界的仿真》](/runtime-reliability-and-simulation-for-the-physical-world.html)）；
+   4. 拒答三部分；
+   5. 步骤分层、审批三要素、diff 部分接受；
+   6. 呈现是前六层机制的翻译（出口、justification、决策点、结构化输出）。
+
    **追问方向**：步骤全展开为什么是噪声；审批只有两个按钮会怎样。
    **好答案与一般答案的区别**：一般答案说"标注 AI 生成、给置信度"；好答案给行为梯子、拒答三部分、与工程机制的对应。
 
@@ -345,7 +438,14 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 对话框是最便宜的集成不是最好的；五局限——用户要会问、打断工作流、输出压成文本、来回成本、不适合长任务；(2) 七种非对话形态：内联、按钮化、环境感知、生成式 UI（MCP Apps）、语音实时、后台交付、环境自动；(3) 选形态七问：用户在哪、任务多长、输出形状、要不要来回、参数已知否、手眼空否、要不要人看；(4) 多数产品是组合（Cursor 四形态）；(5) 纪律：先问"为什么是对话框"。
+   **答案要点**：
+
+   1. 对话框是最便宜的集成不是最好的；五局限——用户要会问、打断工作流、输出压成文本、来回成本、不适合长任务；
+   2. 七种非对话形态：内联、按钮化、环境感知、生成式 UI（MCP Apps）、语音实时、后台交付、环境自动；
+   3. 选形态七问：用户在哪、任务多长、输出形状、要不要来回、参数已知否、手眼空否、要不要人看；
+   4. 多数产品是组合（Cursor 四形态）；
+   5. 纪律：先问"为什么是对话框"。
+
    **追问方向**：生成式 UI 的工程基础（结构化输出）；对话框适合什么。
    **好答案与一般答案的区别**：一般答案说"对话很自然"；好答案列局限、七形态、判据。
 
@@ -355,7 +455,16 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) 矩阵十类；(2) 北极星一场景一个（一次解决率、合并 PR × 通过、发出的草稿、接受的交付物）加护栏（质量、信任、成本、安全、升级、留存）；(3) 反指标：消息数、用量、生成占比、时长、曝光、单独自报——诊断可用目标不可；(4) 自报高于实测一倍以上，实测用控制组 / 计时 / 代理 / 修改量，两个都报；(5) 信任象限；(6) 定性看绕过；(7) 回流三条带 trace id；A/B 五特殊。
+   **答案要点**：
+
+   1. 矩阵十类；
+   2. 北极星一场景一个（一次解决率、合并 PR × 通过、发出的草稿、接受的交付物）加护栏（质量、信任、成本、安全、升级、留存）；
+   3. 反指标：消息数、用量、生成占比、时长、曝光、单独自报——诊断可用目标不可；
+   4. 自报高于实测一倍以上，实测用控制组 / 计时 / 代理 / 修改量，两个都报；
+   5. 信任象限；
+   6. 定性看绕过；
+   7. 回流三条带 trace id；A/B 五特殊。
+
    **追问方向**：处理时间为什么不是客服北极星；首周 A/B 为什么不能全量。
    **好答案与一般答案的区别**：一般答案说"看采纳率和满意度"；好答案给北极星 + 护栏、反指标、自报 vs 实测、回流。
 
@@ -365,7 +474,13 @@ Table: 常见误区与正确说法
 
    <details markdown="1"><summary>答案</summary>
 
-   **答案要点**：(1) Copilot 四维度全好：可验证（编译测试）、可撤销（git）、高频、价值累积；人在编辑器里就在边界上；接受率三成 + 再编辑是设计好的循环；五年从补全到 agent 每步靠一个 harness 机制；(2) Klarna：数字真但外推到边界外任务，形态是整体替代而非按任务分工，北极星错（处理时间），不可逆决定建在可变判断上；2026 的混合模式是正确形态本可作起点；(3) 结构：边界（按任务量）+ 形态（人在边界上）+ 校准（可核对可撤销）+ 指标（价值不是用量）+ 可逆；(4) 哈佛 / BCG 的锯齿状边界是两个故事的共同解释。
+   **答案要点**：
+
+   1. Copilot 四维度全好：可验证（编译测试）、可撤销（git）、高频、价值累积；人在编辑器里就在边界上；接受率三成 + 再编辑是设计好的循环；五年从补全到 agent 每步靠一个 harness 机制；
+   2. Klarna：数字真但外推到边界外任务，形态是整体替代而非按任务分工，北极星错（处理时间），不可逆决定建在可变判断上；2026 的混合模式是正确形态本可作起点；
+   3. 结构：边界（按任务量）+ 形态（人在边界上）+ 校准（可核对可撤销）+ 指标（价值不是用量）+ 可逆；
+   4. 哈佛 / BCG 的锯齿状边界是两个故事的共同解释。
+
    **追问方向**：Gartner 三成岗位补回的含义；其他领域的"PR 落点"是什么。
    **好答案与一般答案的区别**：一般答案说"一个成功一个失败"；好答案用同一组维度解释两者，并给出可迁移的结构。
 
