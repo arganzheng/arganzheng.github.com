@@ -335,6 +335,6 @@ flowchart TB
 
 ## 下一步
 
-- **同一路线**：《Prompt 与上下文工程》的《prompt 当代码管》——上下文 vs 检索；《工具、Agent 与 harness》——agentic retrieval 的那个循环；《评测与可观测》——judge 一致率从哪来
-- **算法侧**：《经典机器学习》的《三个基础分类器》《去重》——KNN 就是检索、MinHash 去重
+- **同一路线**：《Prompt 与上下文工程》的《prompt 当代码管》——上下文 vs 检索；《工具、Agent 与 harness》——agentic retrieval 的那个循环；《评测、可观测与可追溯》——judge 一致率从哪来
+- **算法侧**：《LLM 时代的经典机器学习》的《三个基础分类器》、《去重》——KNN 就是检索、MinHash 去重
 - 原文总纲：`/retrieval-and-knowledge-access.html`；通关自测在系列总结
