@@ -62,12 +62,12 @@ flowchart TB
 
 | 章 | 内容 |
 |---|---|
-| [二、orchestrator-workers](#二orchestrator-workers) | orchestrator-workers |
-| [三、handoff](#三handoff) | handoff |
-| [四、层级与 agent teams](#四层级与-agent-teams) | 层级与 agent teams |
-| [五、A2A](#五a2a) | A2A |
-| [六、成本与调试](#六成本与调试) | 成本与调试 |
-| [七、实践建议](#七实践建议) | 实践建议 |
+| [二、orchestrator-workers](#二orchestrator-workers) | 模式、代表：Anthropic 的多 agent 研究系统、什么时候用 |
+| [三、handoff](#三handoff) | 模式、代表：OpenAI Agents SDK、与 orchestrator-workers 的区别 |
+| [四、层级与 agent teams](#四层级与-agent-teams) | 层级、Claude Code 的 agent teams、什么时候用哪种 |
+| [五、A2A](#五a2a) | 是什么、与 MCP 的分工、现状 |
+| [六、成本与调试](#六成本与调试) | 15 倍从哪来、失败传播、调试、评测 |
+| [七、实践建议](#七实践建议) | 8 条做法：先写下三个理由中的哪一个成立、从 orchestrator-workers 起步、handoff 只用于阶段性专业化等 |
 
 Table: 本文的章节安排
 

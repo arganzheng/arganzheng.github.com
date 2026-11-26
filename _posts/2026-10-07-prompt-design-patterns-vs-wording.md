@@ -53,10 +53,10 @@ flowchart TB
 |---|---|
 | [二、稳定的模式：system prompt 的六个部分](#二稳定的模式system-prompt-的六个部分) | 稳定的模式——一份 system prompt 该有的六个部分 |
 | [三、经典技巧在推理模型上的命运](#三经典技巧在推理模型上的命运) | 逐条审视经典技巧在推理模型上的命运 |
-| [四、三份公开的 system prompt](#四三份公开的-system-prompt) | 读三份公开的 system prompt |
+| [四、三份公开的 system prompt](#四三份公开的-system-prompt) | Anthropic 发布的 claude.ai system prompt、Claude Code 的 system prompt、OpenAI 的 GPT-5 prompting guide |
 | [五、措辞层面仍然有效的规则](#五措辞层面仍然有效的规则) | 措辞层面仍然有效的规则 |
 | [六、边界：prompt 设计解决不了的事](#六边界prompt-设计解决不了的事) | prompt 设计的边界（injection、模型能力） |
-| [七、实践建议](#七实践建议) | 实践建议 |
+| [七、实践建议](#七实践建议) | 7 条做法：给 system prompt 做一次分区审计、删 CoT 指令、每条规则配一个评测用例等 |
 
 Table: 本文的章节安排
 

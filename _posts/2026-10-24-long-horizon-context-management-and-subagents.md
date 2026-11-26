@@ -45,12 +45,12 @@ Table: L2 的上下文策略在三个 harness 里的实现
 
 | 章 | 内容 |
 |---|---|
-| [二、卸载与清理](#二卸载与清理) | 卸载与清理的实现 |
-| [三、压缩](#三压缩) | 压缩的实现 |
-| [四、复述](#四复述) | 复述 |
-| [五、子 agent 的三种形态](#五子-agent-的三种形态) | 子 agent 的三种形态 |
-| [六、子 agent 的成本与取舍](#六子-agent-的成本与取舍) | 子 agent 的成本与取舍 |
-| [七、实践建议](#七实践建议) | 实践建议 |
+| [二、卸载与清理](#二卸载与清理) | DeepSeek Harness 的 `spill`、Codex 的截断、清理 |
+| [三、压缩](#三压缩) | Codex 的模块族、DeepSeek Harness 的 `compaction` 包组、共同点 |
+| [四、复述](#四复述) | 三个包、Codex 的 `plan` 与 `get_context_remaining`、Claude Code |
+| [五、子 agent 的三种形态](#五子-agent-的三种形态) | 为什么、Claude Code：subagent 与 agent teams、Codex：`multi_agents`、DeepSeek Harness：七种后端、子 agent 的上下文设计 |
+| [六、子 agent 的成本与取舍](#六子-agent-的成本与取舍) | 15 倍、什么时候值得、调试 |
+| [七、实践建议](#七实践建议) | 6 条做法：给运行时接 L2 的三条线、让模型看到预算、把目标做成事件等 |
 
 Table: 本文的章节安排
 

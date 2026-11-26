@@ -81,11 +81,11 @@ flowchart TB
 
 | 章 | 内容 |
 |---|---|
-| [二、流水线的改进](#二流水线的改进) | 流水线的改进手段 |
+| [二、流水线的改进](#二流水线的改进) | query 改写、HyDE：先写假想答案、多查询与拆分、按元数据路由、自检与有限重试 |
 | [三、agentic retrieval](#三agentic-retrieval) | agentic retrieval 的形态与它对系统的要求 |
 | [四、供应商内置的 file search](#四供应商内置的-file-search) | 供应商内置的 file search |
-| [五、决策](#五决策) | 决策 |
-| [六、实践建议](#六实践建议) | 实践建议 |
+| [五、决策](#五决策) | 三问、与《Prompt 与上下文工程》的[《prompt 当代码管》](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html)的决策表接上 |
+| [六、实践建议](#六实践建议) | 6 条做法：先把流水线做好、加自检一轮、把三类检索做成工具等 |
 
 Table: 本文的章节安排
 

@@ -53,13 +53,13 @@ flowchart TB
 
 | 章 | 内容 |
 |---|---|
-| [二、权限档](#二权限档) | 权限档 |
-| [三、审批策略与执行策略](#三审批策略与执行策略) | 审批策略与执行策略 |
+| [二、权限档](#二权限档) | Codex：`PermissionProfile`、DeepSeek Harness：三档同构、Claude Code：规则而不是档、设计原则 |
+| [三、审批策略与执行策略](#三审批策略与执行策略) | Codex：`AskForApproval`、Codex：`execpolicy`、Codex：Guardian、DeepSeek Harness：审批策略插件 |
 | [四、沙箱](#四沙箱) | 沙箱的三平台实现 |
 | [五、Claude Code 的六步判定](#五claude-code-的六步判定) | Claude Code 的六步判定 |
 | [六、工具返回是不可信输入](#六工具返回是不可信输入) | 工具返回作为不可信输入 |
 | [七、PocketOS 的五环与审批疲劳](#七pocketos-的五环与审批疲劳) | PocketOS 五环的防线与审批疲劳 |
-| [八、实践建议](#八实践建议) | 实践建议 |
+| [八、实践建议](#八实践建议) | 7 条做法：写权限档、写执行策略、把执行放进沙箱等 |
 
 Table: 本文的章节安排
 
