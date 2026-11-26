@@ -188,7 +188,7 @@ flowchart LR
 ![按变化频率排四层、断点放在每层末尾；system 开头一个时间戳或中途删一个工具，就让后面全部失效](/img/in-post/prompt-caching-prefix-layout-and-invalidation.svg){: style="max-height: 300px"}
 
 <aside class="notes" markdown="1">
-原文 /prompt-caching-and-context-layout.html。Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数、`prompt_cache_key`；Gemini 存储费按小时；DeepSeek 64 粒度；稳态 70–90%、单轮 30–60%。
+原文 /prompt-caching-and-context-layout.html。Anthropic 4 断点 / 20 块回看 / 按模型 512 起 / 5 分钟或 1 小时；OpenAI 1,024、128 倍数、`prompt_cache_key`；Gemini 存储费按小时；DeepSeek 64 粒度；稳态 70–90%、单轮 30–60%。
 </aside>
 
 <!-- v -->
@@ -238,7 +238,7 @@ flowchart LR
 | AGENTS.md | 2025-08 起，六万多项目，Agentic AI Foundation |
 | SKILL.md | `name` ≤ 64、`description` ≤ 1,024；四十多客户端；`.agents/skills/` |
 | 30K 手册 | 全放与检索成本相近——定位型问题检索更可靠且可引用 |
-| 工具 | Langfuse 版本 + 标签；OpenAI Prompts 对象（Assistants 关闭后） |
+| 工具 | Langfuse 版本 + 标签；OpenAI Prompts 对象（Assistants 关闭后；2026-06 宣布弃用） |
 
 
 <!-- v -->

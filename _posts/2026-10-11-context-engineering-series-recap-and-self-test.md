@@ -39,7 +39,7 @@ flowchart TB
 | [第二篇：prompt 设计](/prompt-design-patterns-vs-wording.html) | 哪些是稳定的模式、哪些是随模型变的措辞？ | 模式（身份与边界、可检验规则、分区、工具政策、格式与出口、知识与时间）不变，措辞随模型调；推理模型上 CoT 指令冗余、大量 few-shot 有害、夸奖无增量、矛盾指令浪费思考 | claude.ai 公开 system prompt 的五部分<br/>Claude Code 把动态环境放末尾、CLAUDE.md 独立一层<br/>GPT-5 guide 的 eagerness 与 tool preamble<br/>Manus "don't get few-shotted" |
 | [第三篇：结构化输出](/structured-output-constrained-decoding-and-schema-design.html) | 约束解码怎么实现、schema 怎么设计？ | 自动机屏蔽不合法 token 是数学保证<br/>strict 限制来自状态空间<br/>字段顺序即生成顺序，推理字段前置<br/>显式拒答出口<br/>解析层二次校验 + 带错误重试一次 | Outlines（正则 → FSM）/ XGrammar（CFG → 下推自动机）<br/>Anthropic schema 注入约 50–200 token<br/>推理前置提 2–5 个百分点<br/>strict 下截断仍会发生 |
 | [第四篇：预算与压缩](/context-budgeting-offloading-and-compaction.html) | 超了先做什么？ | 隔离 → 卸载 → 清理 → 压缩，代价递增<br/>压缩有损、只在思考链结束处做、缓存全失效<br/>复述对抗漂移<br/>评测用探针问题前后对比 | Deep Agents 20K 卸载 / 85% 截断<br/>Claude Code 83.5%、CLAUDE.md 重注入、路径规则丢失<br/>Codex 会话记忆优先、`/responses/compact` 加密 blob、轮前与循环边界触发<br/>Anthropic compaction 默认 150K<br/>研究 agent 96% 是文件读取<br/>用户约束最易丢 |
-| [第五篇：缓存与排列](/prompt-caching-and-context-layout.html) | 怎样让缓存命中？ | 前缀逐字节相同、tools → system → messages、改动处起失效<br/>四层四个断点<br/>十种破坏前缀的操作<br/>屏蔽工具不删除、不删失败、不整理历史<br/>命中率 + 未缓存绝对量 + 节省美元 | Anthropic 4 断点 / 20 块回看 / 1,024 起静默不缓存 / 5 分钟或 1 小时<br/>OpenAI 1,024、128 倍数、`prompt_cache_key`<br/>Gemini 存储费按小时<br/>DeepSeek 64 粒度<br/>稳态 70–90%、单轮 30–60%<br/>Manus 三条规则 |
+| [第五篇：缓存与排列](/prompt-caching-and-context-layout.html) | 怎样让缓存命中？ | 前缀逐字节相同、tools → system → messages、改动处起失效<br/>四层四个断点<br/>十种破坏前缀的操作<br/>屏蔽工具不删除、不删失败、不整理历史<br/>命中率 + 未缓存绝对量 + 节省美元 | Anthropic 4 断点 / 20 块回看 / 按模型 512 起静默不缓存 / 5 分钟或 1 小时<br/>OpenAI 1,024、128 倍数、`prompt_cache_key`<br/>Gemini 存储费按小时<br/>DeepSeek 64 粒度<br/>稳态 70–90%、单轮 30–60%<br/>Manus 三条规则 |
 | [第六篇：prompt 当代码管](/prompts-as-code-versioning-evals-and-context-vs-retrieval.html) | 怎么管、怎么选上下文 vs 检索？ | 不可变版本 + 绑定模型 + 评测门禁 + 标签发布 + trace 绑定<br/>AGENTS.md 常驻、SKILL.md 按需<br/>全放 / 流水线检索 / agentic 按四维选 | Langfuse 版本 + 标签<br/>OpenAI Prompts 对象（Assistants 关闭后）<br/>AGENTS.md 2025-08、六万多项目、Agentic AI Foundation<br/>SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`<br/>30K 手册全放与检索成本相近 |
 
 Table: 六篇的核心问题、结论与必记
@@ -104,7 +104,7 @@ Table: 本文的章节安排
 
 **结论**：一条规则（前缀逐字节相同、tools → system → messages、改动处起失效）的推论：四层四个断点（工具 / 静态 system / 半静态 / 最后一条历史），动态段最后；四家机制差异（显式 vs 自动、存储费、粒度）；十种破坏操作与 Manus 三条规则；屏蔽工具不删除、不删失败、不整理历史、长 TTL 看轮次间隔；命中率与未缓存绝对量、节省美元一起看，排查表按症状定位。
 
-**必记**：排列图；1,024 起静默不缓存；20 块回看；`prompt_cache_key`；稳态 70–90%；diff 两次请求体找第一个不同字节。
+**必记**：排列图；按模型 512 起静默不缓存；20 块回看；`prompt_cache_key`；稳态 70–90%；diff 两次请求体找第一个不同字节。
 
 **常见误解**：按阶段增删 tools；system 开头放时间；渐进披露一定提高命中率。
 
@@ -268,10 +268,10 @@ Table: 常见误区与正确说法
    错。strict 要求所有字段在 `required` 里；可选用 `"type": ["string", "null"]`——字段总在、值可为 null。
    </details>
 
-5. 计算：Anthropic 上 system + tools 共 950 token，放了断点。`cache_creation_input_tokens` 是多少？
+5. 计算：Anthropic 的 Sonnet 5 上 system + tools 共 950 token，放了断点。`cache_creation_input_tokens` 是多少？
 
    <details markdown="1"><summary>答案</summary>
-   0。不足该模型最小可缓存长度（1,024 起），静默不缓存；没有报错。
+   0。不足该模型最小可缓存长度（1,024），静默不缓存；没有报错。
    </details>
 
 6. 判断：Deep Agents 对超过 20,000 token 的工具返回做摘要。
@@ -524,7 +524,7 @@ Table: 掌握程度的判据
     - $$S + (k-1)(r+o)$$、50 步填满 200K
     - SKILL.md `name` ≤ 64 / `description` ≤ 1,024、四十多客户端、`.agents/skills/`
     - AGENTS.md 2025-08、六万多项目
-    - Anthropic 4 断点 / 20 块回看 / 1,024 起 / 5 分钟或 1 小时
+    - Anthropic 4 断点 / 20 块回看 / 按模型 512 起 / 5 分钟或 1 小时
     - OpenAI 1,024、128 倍数
     - Gemini 存储费按小时
     - DeepSeek 64 粒度

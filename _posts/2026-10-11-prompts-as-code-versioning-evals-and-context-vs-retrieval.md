@@ -72,14 +72,14 @@ Table: prompt 放版本库与放注册表的对照
 
 **Langfuse 的模型**是这一类工具的代表：每次修改生成一个不可变版本，标签是指向版本的可移动指针——`production` 是默认（不指定标签时 SDK 取它）、`latest` 自动指向最新、自定义标签用于环境（`staging`）、租户（`tenant-a`）、实验（`prod-a` / `prod-b`）；"部署"就是把 `production` 标签移到某个版本，"回滚"就是移回去。promptfoo 一类评测工具可以直接引用 `langfuse://prompt-name@production` 跑评测集。
 
-**OpenAI 的 Prompts 对象**是 Assistants API 关闭（2026-08-26）后的替代：Assistants 曾把"指令 + 工具声明 + 模型"打成一个 API 对象；Prompts 保留了这个"配置束"的概念但**只能在控制台创建与版本化**，应用代码用 prompt id（与可选的版本号）引用，Responses 请求传 `prompt: {id, version, variables}`。迁移指南建议把 id 或导出的规格放进源码——这是把注册表与版本库混用的官方写法。
+**OpenAI 的 Prompts 对象**是 Assistants API 关闭（2026-08-26）后的替代（自身已于 2026-06-03 宣布弃用、11-30 关闭）：Assistants 曾把"指令 + 工具声明 + 模型"打成一个 API 对象；Prompts 保留了这个"配置束"的概念但**只能在控制台创建与版本化**，应用代码用 prompt id（与可选的版本号）引用，Responses 请求传 `prompt: {id, version, variables}`。迁移指南建议把 id 或导出的规格放进源码——这是把注册表与版本库混用的官方写法。
 
 ```mermaid
 %% 图：注册表里的版本与标签——每次修改生成一个不可变版本 v1、v2、v3…；标签是可移动的指针：production 指 v3、staging 指 v4、latest 自动跟最新、prod-a / prod-b 做 A/B；发布 = 把 production 移到 v4，回滚 = 移回 v3，都是秒级、不用部署
 flowchart LR
     subgraph V["不可变版本（只增不改）"]
         direction LR
-        V1["v1"] --> V2["v2"] --> V3["<b>v3</b><br/>绑 Sonnet 5 · effort high · schema s2"] --> V4["<b>v4</b><br/>同文本，换绑 Sonnet 5.1"] --> V5["v5"]
+        V1["v1"] --> V2["v2"] --> V3["<b>v3</b><br/>绑 Sonnet 5 · effort high · schema s2"] --> V4["<b>v4</b><br/>同文本，换绑新快照"] --> V5["v5"]
     end
     P["production（默认）"] --> V3
     S["staging"] --> V4
@@ -173,7 +173,7 @@ promptfoo 一类工具把这一步做成 CI 任务：配置文件里列 prompt �
 
 ### 1. 是什么
 
-一个放在仓库根目录的 markdown 文件，给 coding agent 读的"项目说明"：怎么构建与测试、代码风格与硬规则、目录结构、哪些不能碰。2025 年 8 月作为开放格式发布，到 2026 年中被六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理（同一基金会管理 MCP）。它是[《上下文的解剖》](/anatomy-of-the-context-window.html)七层里 ③ 长期记忆的"项目"部分，也是本篇"prompt 当代码管"最直接的实例——**它就在版本库里、随代码提交、有 diff、有审查**。
+一个放在仓库根目录的 markdown 文件，给 coding agent 读的"项目说明"：怎么构建与测试、代码风格与硬规则、目录结构、哪些不能碰。2025 年 8 月作为开放格式发布，到 2026 年中被六万多个开源项目采用，2025 年 12 月起由 Linux 基金会下的 Agentic AI Foundation 管理（同一基金会管理 MCP）。它是[《上下文的解剖》](/anatomy-of-the-context-window.html)七层里 ③ 长期记忆的"项目"部分，也是本篇"prompt 当代码管"最直接的实例——**它就在版本库里、随代码提交、有 diff、有审查**。
 
 ### 2. 怎么写
 
@@ -188,7 +188,7 @@ promptfoo 一类工具把这一步做成 CI 任务：配置文件里列 prompt �
 
 ### 3. 陷阱
 
-- **路径与文件名不统一**：Claude Code 读 `CLAUDE.md`，到 2026 年中仍无原生的 AGENTS.md 自动加载（有 issue 在跟踪）；Codex、Cursor、Gemini CLI、Antigravity（2026-03 起）读 AGENTS.md；Cursor 另有 `.cursor/rules/*.mdc` 带 glob 作用域。跨工具的团队要么维护两份、要么用符号链接 / include。
+- **路径与文件名不统一**：Claude Code 读 `CLAUDE.md`，自 v2.1.277（2026-09-18）起只在没有 CLAUDE.md 时改读 AGENTS.md；Codex、Cursor、Gemini CLI、Antigravity（2026-03 起）读 AGENTS.md；Cursor 另有 `.cursor/rules/*.mdc` 带 glob 作用域。跨工具的团队要么维护两份、要么用符号链接 / include。
 - **写成文档而不是指令**：AGENTS.md 是给 agent 的运行指令，不是给人的 README；一段"项目背景介绍"对 agent 几乎无用。
 - **过期**：命令改了、目录挪了、规则不再适用——它要与代码一起维护，代码审查时顺带看它。
 - **压缩后的命运**（[《上下文预算与压缩》](/context-budgeting-offloading-and-compaction.html)）：根目录的会被重注入，子目录的会丢失直到再读匹配文件；关键规则放根目录。
@@ -234,7 +234,7 @@ flowchart LR
 - 正文按[《prompt 设计》](/prompt-design-patterns-vs-wording.html)的模式写：任务边界、可检验的步骤、输出格式、失败时怎么办；
 - 脚本放 `scripts/`、让正文调用它，而不是把代码贴进正文——脚本是确定性的，prompt 不是；
 - 版本化：技能目录在仓库里，随代码提交；跨工具共享时放 `.agents/skills/`；
-- `allowed-tools`、`context: fork` 一类字段是各客户端的扩展，不在核心规范里，跨工具时不要依赖。
+- `context: fork` 一类字段是各客户端的扩展，不在核心规范里；`allowed-tools` 在规范里也只是实验性字段；跨工具时不要依赖。
 
 ## 六、上下文 vs 检索
 
@@ -308,7 +308,7 @@ flowchart TB
 ## 八、本文小结
 
 - prompt 是代码：不可变版本、绑定模型与参数、评测门禁（对分布）、标签发布、灰度、回滚、A/B、trace 绑定版本；模型升级是依赖升级，从门禁重跑。
-- 工件放版本库（随代码、可审查）或注册表（Langfuse 的版本 + 标签、OpenAI 的 Prompts 对象——Assistants API 关闭后只能在控制台创建、代码用 id 引用）；多数团队混合：结构在仓库、措辞在注册表。
+- 工件放版本库（随代码、可审查）或注册表（Langfuse 的版本 + 标签、OpenAI 的 Prompts 对象——Assistants API 关闭后只能在控制台创建、2026-06-03 已宣布弃用、代码用 id 引用）；多数团队混合：结构在仓库、措辞在注册表。
 - AGENTS.md（2025-08 开放格式，六万多项目，Agentic AI Foundation 管理）是项目常驻指令：命令优先、硬规则可检验、精炼、分层；陷阱是文件名不统一（Claude Code 读 CLAUDE.md）、写成文档、过期、压缩后子目录的丢失。
 - SKILL.md（Agent Skills，2025-12 开放，`name` ≤ 64、`description` ≤ 1,024，四十多个客户端，`.agents/skills/`）是渐进披露的规范：常驻只有描述，正文按需加载；`description` 写何时用，脚本进 `scripts/`。
 - 上下文 vs 检索：全放（小、稳定、需全局视野，配缓存）、流水线检索（大语料、定位型、高并发）、agentic（复杂多跳）；按语料大小、变化频率、查询类型、缓存后成本四维选；30K 手册两种方案成本相近、差在质量，300K 只能检索。
@@ -352,11 +352,11 @@ flowchart TB
 
    <details markdown="1">
    <summary>答案</summary>
-   Claude Code 原生读 `CLAUDE.md`，到 2026 年中仍无 AGENTS.md 的自动加载；Codex 读 AGENTS.md。做法：维护一份内容，用符号链接（`CLAUDE.md → AGENTS.md`）或在 CLAUDE.md 里 include；技能用 `.agents/skills/` 这个中立目录（两者都读）。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。
+   Claude Code 原生读 `CLAUDE.md`，自 v2.1.277（2026-09-18）起只在没有 CLAUDE.md 时才读 AGENTS.md；Codex 读 AGENTS.md。做法：维护一份内容，用符号链接（`CLAUDE.md → AGENTS.md`）或在 CLAUDE.md 里 include；技能用 `.agents/skills/` 这个中立目录（Codex 读；Claude Code 只读 `.claude/skills/`，用符号链接）。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。
    </details>
 
-[^q0]: 版本库（随代码部署、可审查、diff 可见）或注册表（Langfuse 的不可变版本 + 可移动标签 `production` / `staging` / `prod-a`，改 prompt 不用重新部署；OpenAI 的 Prompts 对象在 Assistants API 2026-08-26 关闭后只能在控制台创建、代码用 id 引用），多数混合：结构在仓库、措辞在注册表。绑定：每个版本记模型快照与参数（effort、`max_tokens`、schema、工具集），模型升级 = 新版本重跑门禁。改一个词要跑：评测集 × $$k$$ 次的任务指标（不低于 production 减噪声阈值）、格式遵循率与出口使用率、每任务成本、TTFT、逐条由对变错的 diff；通过后打 `staging` → `prod-canary` 1% → `production`，回滚是移标签；trace 绑定版本；新版本第一轮的缓存全量写入是预期不是回归。详见[第二章](#二工件版本库还是注册表)、[第三章](#三流程)。
+[^q0]: 版本库（随代码部署、可审查、diff 可见）或注册表（Langfuse 的不可变版本 + 可移动标签 `production` / `staging` / `prod-a`，改 prompt 不用重新部署；OpenAI 的 Prompts 对象在 Assistants API 2026-08-26 关闭后只能在控制台创建（2026-06-03 已宣布弃用）、代码用 id 引用），多数混合：结构在仓库、措辞在注册表。绑定：每个版本记模型快照与参数（effort、`max_tokens`、schema、工具集），模型升级 = 新版本重跑门禁。改一个词要跑：评测集 × $$k$$ 次的任务指标（不低于 production 减噪声阈值）、格式遵循率与出口使用率、每任务成本、TTFT、逐条由对变错的 diff；通过后打 `staging` → `prod-canary` 1% → `production`，回滚是移标签；trace 绑定版本；新版本第一轮的缓存全量写入是预期不是回归。详见[第二章](#二工件版本库还是注册表)、[第三章](#三流程)。
 
-[^q1]: AGENTS.md：仓库根目录给 coding agent 的项目指令，2025-08 开放格式、六万多开源项目采用、2025-11 起由 Linux 基金会下的 Agentic AI Foundation 管理；写命令（构建 / 测试 / lint）、可检验的硬规则、目录结构与约定，不写模型已知的通用知识，保持精炼、可分层；陷阱：Claude Code 读 CLAUDE.md 不原生读 AGENTS.md（用符号链接 / include）、Cursor 另有 `.mdc`、写成文档而非指令、过期、压缩后子目录的丢失。SKILL.md：Agent Skills 标准（Anthropic 2025-10 发布、12-18 开放，agentskills.io），目录含 `SKILL.md` + 可选 `scripts/` `references/` `assets/`，必填 `name`（≤ 64，与目录同名）与 `description`（≤ 1,024，写做什么与何时用），四十多个客户端支持，`.agents/skills/` 是中立目录；它是渐进披露的规范——常驻只有描述、正文按需加载；`allowed-tools` 等是客户端扩展。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。
+[^q1]: AGENTS.md：仓库根目录给 coding agent 的项目指令，2025-08 开放格式、六万多开源项目采用、2025-12 起由 Linux 基金会下的 Agentic AI Foundation 管理；写命令（构建 / 测试 / lint）、可检验的硬规则、目录结构与约定，不写模型已知的通用知识，保持精炼、可分层；陷阱：Claude Code 有 CLAUDE.md 时不读 AGENTS.md（用符号链接 / include）、Cursor 另有 `.mdc`、写成文档而非指令、过期、压缩后子目录的丢失。SKILL.md：Agent Skills 标准（Anthropic 2025-10 发布、12-18 开放，agentskills.io），目录含 `SKILL.md` + 可选 `scripts/` `references/` `assets/`，必填 `name`（≤ 64，与目录同名）与 `description`（≤ 1,024，写做什么与何时用），四十多个客户端支持，`.agents/skills/` 是中立目录；它是渐进披露的规范——常驻只有描述、正文按需加载；`context: fork` 等是客户端扩展。详见[第四章](#四agentsmd)、[第五章](#五skillmd)。
 
 [^q2]: 三种形态按四个维度选。全放上下文：语料 ≤ 几万 token（有效长度内、低于加价门限）、变化频率低、问题需要全局视野，配缓存后每次成本约 0.1× 全量。流水线检索：大语料、定位型问题、高并发、需要引用。agentic retrieval：复杂多跳或探索型任务、结构化语料（代码、文件系统），成本随步数不定且要做卸载。例：30K 手册每天一万次，全放（30K × \$0.20 / 百万 ≈ \$0.006）与检索（3K × \$2 / 百万 ≈ \$0.006）成本相近，差在质量——全放适合综合、检索适合定位且不受有效长度影响；300K 只能检索。生产系统通常三者混合；决策的第一步是问资料属于哪一种，再读 L3。详见[第六章](#六上下文-vs-检索)。

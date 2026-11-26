@@ -136,7 +136,7 @@ Table: 六篇的主题与建立的东西
 
 > 核心问题：**prompt 放版本库还是注册表？怎么与模型版本绑定？改一个词要跑什么？AGENTS.md 与 SKILL.md 是什么、怎么写？什么时候全放上下文、什么时候检索？[^q6]**
 
-工件：prompt 在版本库里（与代码同步发布、代码审查、diff 可见）还是在注册表里（Langfuse 的不可变版本加可移动标签——`production` / `staging` / `prod-a`，运行时按标签取，改 prompt 不用重新部署；OpenAI 在 Assistants API 关闭后把 Assistants 的"指令 + 工具"束改成只能在控制台创建的 Prompts 对象并建议把 id 放进源码）；两种做法的取舍与混合。流程：每个 prompt 版本绑定模型版本与参数（effort、`max_tokens`）；改动即发布——跑评测集（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)的评测集，L5 的方法）、看格式遵循率与任务指标、灰度、可回滚；A/B 用标签随机分流并把 trace 绑到版本。两个跨工具的 prompt 工件：**AGENTS.md**（2025 年 8 月发布的开放格式，六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理——项目的常驻指令：结构、命令、硬规则）与 **SKILL.md**（Anthropic 2025 年 10 月发布、12 月开放为标准，`name` ≤ 64 字符、`description` ≤ 1,024 字符，四十多个客户端支持，`.agents/skills/` 成为中立目录——按需加载的技能，只有描述常驻、正文用到时才进上下文，这正是第四章"渐进披露"的实例）；它们的写法与陷阱（Claude Code 读 CLAUDE.md 不原生读 AGENTS.md、路径不统一）。最后的决策表：**全放上下文**（小而稳定的资料 + 缓存）、**流水线检索**（大语料、高并发问答）、**agentic retrieval**（复杂任务、模型自己决定查什么）——按语料大小、变化频率、查询类型、缓存后的成本四个维度选，交给 L3。
+工件：prompt 在版本库里（与代码同步发布、代码审查、diff 可见）还是在注册表里（Langfuse 的不可变版本加可移动标签——`production` / `staging` / `prod-a`，运行时按标签取，改 prompt 不用重新部署；OpenAI 在 Assistants API 关闭后把 Assistants 的"指令 + 工具"束改成只能在控制台创建的 Prompts 对象并建议把 id 放进源码，Prompts 对象本身于 2026-06-03 宣布弃用）；两种做法的取舍与混合。流程：每个 prompt 版本绑定模型版本与参数（effort、`max_tokens`）；改动即发布——跑评测集（《模型作为组件》的[《选型》](/model-selection-beyond-leaderboards.html)的评测集，L5 的方法）、看格式遵循率与任务指标、灰度、可回滚；A/B 用标签随机分流并把 trace 绑到版本。两个跨工具的 prompt 工件：**AGENTS.md**（2025 年 8 月发布的开放格式，六万多个开源项目采用，2025 年 11 月起由 Linux 基金会下的 Agentic AI Foundation 管理——项目的常驻指令：结构、命令、硬规则）与 **SKILL.md**（Anthropic 2025 年 10 月发布、12 月开放为标准，`name` ≤ 64 字符、`description` ≤ 1,024 字符，四十多个客户端支持，`.agents/skills/` 成为中立目录——按需加载的技能，只有描述常驻、正文用到时才进上下文，这正是第四章"渐进披露"的实例）；它们的写法与陷阱（Claude Code 读 CLAUDE.md 不原生读 AGENTS.md、路径不统一）。最后的决策表：**全放上下文**（小而稳定的资料 + 缓存）、**流水线检索**（大语料、高并发问答）、**agentic retrieval**（复杂任务、模型自己决定查什么）——按语料大小、变化频率、查询类型、缓存后的成本四个维度选，交给 L3。
 
 ### 7. 系列总结与通关自测
 
@@ -178,7 +178,7 @@ Table: 各篇实践建议的内容
 | Manus | 《Context Engineering for AI Agents: Lessons from Building Manus》（2025-07） |
 | LangChain Deep Agents | 公开的卸载与截断阈值 |
 | DeepSeek Harness | v0.1 developer preview（2026-08-13）的 SDK 文档中的压缩配置 |
-| AGENTS.md | 开放格式（2025-08）与 Agentic AI Foundation（2025-11） |
+| AGENTS.md | 开放格式（2025-08）与 Agentic AI Foundation（2025-12） |
 | 研究 | Lost in the Middle、Context Rot、NoLiMa（L1 已引）<br/>*Let Me Speak Freely?*（2024）<br/>Outlines / XGrammar / llguidance 的论文与实现 |
 
 Table: 本系列的版本与事实基线
