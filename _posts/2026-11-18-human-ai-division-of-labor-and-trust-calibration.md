@@ -7,7 +7,7 @@ tags: [AI, LLM, AI-Application, Product, Trust, Human-in-the-Loop]
 catalog: true
 ---
 
-两种失败。**过度信任**：Air Canada 的乘客信了聊天机器人编造的退票政策（法院判赔）；律师把模型虚构的判例提交给法庭；PocketOS 的开发者没看 agent 要执行什么就让它跑（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）——人不再核对，把错误当真，这叫自动化偏见，也是[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)里"边界外用 AI 更差 19 个百分点"的机制。**信任不足**：功能做出来没人用，或用户每条都重做——价值归零。两种都是**信任与实际能力不一致**。产品的目标不是让用户尽量信任，是让信任**校准**到与能力一致：AI 擅长的地方放手，不擅长的地方核对。
+两种失败。**过度信任**：Air Canada 的乘客信了聊天机器人编造的退票政策（审裁庭判赔）；律师把模型虚构的判例提交给法庭；PocketOS 的开发者没看 agent 要执行什么就让它跑（《模型作为组件》的[《失效模式》](/llm-failure-modes-nondeterminism-hallucination-and-context.html)）——人不再核对，把错误当真，这叫自动化偏见，也是[《场景选择》](/choosing-ai-scenarios-the-jagged-frontier-and-the-demo-to-product-gap.html)里"边界外用 AI 更差 19 个百分点"的机制。**信任不足**：功能做出来没人用，或用户每条都重做——价值归零。两种都是**信任与实际能力不一致**。产品的目标不是让用户尽量信任，是让信任**校准**到与能力一致：AI 擅长的地方放手，不擅长的地方核对。
 
 这一篇讲两种失败怎么发生、采纳与修改的公开数据说明什么（Copilot 的建议接受率长期约三成、被接受的多数被再编辑——"人在编辑"是常态不是失败）、校准信任的八种手段、让不信任的用户开始用的方法、以及模型升级后信任要重新校准。
 
