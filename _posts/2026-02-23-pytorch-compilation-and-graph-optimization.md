@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（07）：编译执行与图优化"
 subtitle: "Compilation and Graph Optimization in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-17
+updated: 2026-11-27
 ---
 
 前两篇讨论的是**单个算子**：[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)解释一次 `torch.add` 调用如何经过入口、分发、执行；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
@@ -42,7 +42,7 @@ flowchart TB
         GD{"已有条目的 Guard<br/>假设成立?"}
         TRIG["触发编译器"]
         DONE["写入新条目：产物 + Guard"]
-        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call()"]
+        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call() → Kernel"]
         CALL --> GD
         GD -- "成立" --> RUN
         GD -- "都不成立" --> TRIG
@@ -67,10 +67,12 @@ flowchart TB
 ```
 
 - **Guard**：捕获时记下的一组假设（输入的 shape、dtype、device，用到的 Python 对象等），和编译产物一起存成 `f` 的一个缓存条目，挂在函数的 code 对象上；每次调用先检查它。
-- **编译产物**：改写后的字节码，加上它调用的 Kernel 与调度函数 `call()`。一个函数可以有多份，各配一组 Guard。
+- **编译产物**：分两层。一个函数可以有多份，各配一组 Guard。
+  - 外层是改写后的 **Python 字节码**，不是机器码。它替换 `f` 原来的函数体，仍由 CPython 解释执行：调用编译好的图，捕获不了的部分保留原来的 Python。
+  - 字节码调用后端生成的调度函数 `call()`，`call()` 再启动 Kernel。Kernel 才是**机器码**：融合之后的 Kernel（对 `f` 是 `add` 和 `relu` 合成的一个）由 Triton / C++ 编译器编出来；矩阵乘这类不参与融合的算子直接调厂商库。
 - **TorchDynamo**：前端。已有条目的 Guard 都不成立时才运行：在 CPython 字节码层符号求值，把 Tensor 计算记成图；捕获不了的地方切一个 Graph Break，交还 Python。
 - **FX Graph**：三段之间传递的中间表示，是内存里的 `torch.fx.Graph` 对象。每过一段结构不变，节点里的算子词汇从 torch 级降到 ATen 级。
-- **AOTAutograd**：中端，IR 进、IR 出：提前得到反向图，把 in-place 操作改写成纯函数，把算子分解到更小的集合。
+- **AOTAutograd**：中端，IR 进、IR 出。AOT 是 Ahead-Of-Time（提前）的缩写：反向图不等到 `backward()` 时才动态构建，而是在编译时提前得到。它做三件事：提前得到反向图，把 in-place 操作改写成纯函数，把算子分解到更小的集合。
 - **TorchInductor**：后端。决定哪些算子融合成一个 Kernel、Buffer 怎么复用，生成 Triton（GPU）或 C++（CPU）源码，再交给目标编译器；生成结果在磁盘上有缓存。
 - **Dynamic Shape**：让一份产物覆盖一族 shape 的机制，三段都参与：前端把维度标成符号，中端在符号上推断，后端生成不把尺寸写死的代码。
 
@@ -123,7 +125,7 @@ Table: 教科书式编译器的三段
 | 阶段 | 组件 | 输入 | 输出 | 回答的问题 |
 |---|---|---|---|---|
 | 前端 | TorchDynamo | Python 字节码 | FX Graph（torch 级）+ Guard | 程序里哪部分是可编译的 Tensor 计算？ |
-| 中端 | AOTAutograd | torch 级 FX Graph | ATen 级前向图 + 反向图 | 反向怎么提前得到？抽象层级怎么降低？副作用怎么消除？ |
+| 中端 | AOTAutograd | torch 级 FX Graph | 前向图 + 反向图（都是 ATen 级 FX Graph） | 反向怎么提前得到？抽象层级怎么降低？副作用怎么消除？ |
 | 后端 | TorchInductor | ATen 级 FX Graph | Triton / C++ 源码 | 哪些算子合并成一个 Kernel？内存怎么分配？ |
 | 目标编译器 | Triton 编译器 / C++ 编译器 | 源码 | 机器码 | 真正的 GPU / CPU 指令 |
 
@@ -153,11 +155,23 @@ FX Graph 的设计非常克制：它只规定"程序是一串对 Tensor 的操�
 三段式描述的是编译器**运行一次**做什么。但 `torch.compile` 的编译不是一个发生在固定时刻的静态步骤。先区分三个事件：
 
 ```python title="包装、首次调用、命中缓存、重编译：三个事件"
+x1 = torch.randn(128, 32)
+x2 = torch.randn(128, 32)          # 与 x1 同 shape
+x3 = torch.randn(32, 32)           # batch 从 128 变成 32
+
 compiled_f = torch.compile(f)      # 事件 A：包装。什么都不发生，不是"编译"
 y = compiled_f(x1, weight, bias)   # 事件 B：调用。第一次 → 运行编译器流水线，然后执行
 y = compiled_f(x2, weight, bias)   # 事件 B：调用。假设仍成立 → 直接执行，流水线不运行
 y = compiled_f(x3, weight, bias)   # 事件 B：调用。假设被打破 → 再次运行流水线，然后执行
 ```
+
+**说明**：「假设」是编译时从那一次调用的输入里记下的条件，也就是总览里的 Guard。
+
+- 第一次调用时 `x1.shape[0]` 是 128，`if x.shape[0] > 64` 在编译时就被算成 `True`，产物里只有 `relu` 这一支。所以这份产物带着一条假设：`x.shape[0] == 128`。
+- `x2` 的 shape 与 `x1` 相同，假设成立，直接执行。
+- `x3` 的 batch 是 32，假设不成立：按原程序它该走 `tanh`，已有产物算的却是 `relu`，不能用，只能重新编译一份。
+
+dtype、device 变了，或者函数里读到的 Python 全局变量被改了，也会打破假设（[第六章 §2](#2-guard编译产物的有效条件)）。
 
 `torch.compile(f)` 只是把 `f` 换成一个带控制逻辑的外壳。**编译器流水线在某次调用内部、按需运行**：第一次调用时，或之前的假设被打破时。绝大多数调用不触发编译，直接执行已有产物。
 
@@ -206,7 +220,7 @@ Table: 三个内置 backend 对应的流水线截断位置
 
 因此 AOTAutograd 在 PyTorch 的代码组织里被算在"backend"一侧，但在编译器结构里它是中端。本文用**前端 / 中端 / 后端**指编译器阶段，用代码格式的 `backend` 指 `torch.compile` 的参数。
 
-**"FX"**。它在 PyTorch 文档里指两件相关但不同的事：
+**"FX"**。FX 是工具包的名字（模块 `torch.fx`），官方文档和论文都没有把它展开成全称，当专有名词读即可。它在 PyTorch 文档里指两件相关但不同的事：
 
 | 含义 | 出现时间 | 是什么 |
 |---|---|---|
@@ -215,7 +229,7 @@ Table: 三个内置 backend 对应的流水线截断位置
 
 Table: FX 的两种含义
 
-混淆它们会导致一个常见误解："`torch.compile` 就是先 `symbolic_trace` 再优化"。不是。`symbolic_trace` 无法处理依赖 Tensor 的 Python 控制流——比如 `f` 里的那个 `if`——Dynamo 正是为了解决这个问题才在字节码层重新实现了捕获。第二章用 `symbolic_trace` 演示数据结构（因为它最简单），第三章展示它在 `f` 上如何失败、Dynamo 如何成功。
+混淆它们会导致一个常见误解："`torch.compile` 就是先 `symbolic_trace` 再优化"。但其实并不是。`symbolic_trace` 无法处理依赖 Tensor 的 Python 控制流——比如 `f` 里的那个 `if`——Dynamo 正是为了解决这个问题才在字节码层重新实现了捕获。第二章用 `symbolic_trace` 演示数据结构（因为它最简单），第三章展示它在 `f` 上如何失败、Dynamo 如何成功。
 
 ### 6. 本文的章节安排
 
@@ -290,15 +304,53 @@ graph():
     return relu
 ```
 
+```mermaid
+%% 图：f_body 的 FX Graph：每个方框是一个 Node，箭头是 args 里对前面节点的引用
+flowchart TB
+    X["<b>x</b><br/>placeholder"]
+    W["<b>weight</b><br/>placeholder"]
+    B["<b>bias</b><br/>placeholder"]
+    MM["<b>matmul</b><br/>• op：call_function<br/>• target：operator.matmul<br/>• args：(x, weight)"]
+    ADD["<b>add</b><br/>• op：call_function<br/>• target：operator.add<br/>• args：(matmul, bias)"]
+    RELU["<b>relu</b><br/>• op：call_function<br/>• target：torch.relu<br/>• args：(add,)"]
+    OUT["<b>output</b><br/>return relu"]
+    X --> MM
+    W --> MM
+    MM --> ADD
+    B --> ADD
+    ADD --> RELU --> OUT
+    classDef ph fill:#e3f2fd,stroke:#1565c0;
+    classDef fn fill:#fff3e0,stroke:#ef6c00;
+    classDef out fill:#e3f2e1,stroke:#2e7d32;
+    class X,W,B ph;
+    class MM,ADD,RELU fn;
+    class OUT out;
+```
+
+文本里的一行是图里的一个方框；`args` 里的 `%x`、`%matmul` 是图里的箭头；`num_users=1` 是这个节点的出边数。
+
 `gm.code` 是这张图生成回来的 Python：
 
-```python title="gm.code：从图生成回来的 Python"
+```python title="追踪前的 f_body 与 gm.code 生成回来的 forward"
+# 追踪前：手写的原函数
+def f_body(x, weight, bias):
+    return torch.relu(x @ weight + bias)
+
+# 追踪后：gm.code，从图生成回来
 def forward(self, x, weight, bias):
     matmul = x @ weight;  x = weight = None
     add = matmul + bias;  matmul = bias = None
     relu = torch.relu(add);  add = None
     return relu
 ```
+
+**说明**：两段代码算的是同一件事，写法有三处不同。
+
+1. 多了 `self`。`GraphModule` 是一个 `nn.Module`，生成的是它的 `forward` 方法。
+2. 一行嵌套表达式被拆成三行。图里每个节点生成一行，结果赋给与节点同名的变量（`matmul`、`add`、`relu`）。
+3. 每行末尾多了 `x = weight = None` 这样的赋值。一个值最后一次被用到之后，生成的代码立刻把变量置空，让中间 Tensor 尽早释放。
+
+和文章开头的 `f` 相比，这里没有 `if` 和 `tanh`。它们是写 `f_body` 时手工去掉的，不是追踪器去掉的；第三章会看到，Dynamo 对带分支的 `f` 捕获出的也是这三步。
 
 三个 `placeholder`、三个 `call_function`、一个 `output`。这就是 FX Graph 的全部形态：一串节点，每个节点记录做什么、输入是谁。
 
@@ -315,6 +367,23 @@ gm.recompile()       # 重新生成 forward 的 Python 代码
 ```
 
 编译栈内部大量工作就是这类 pass：算子分解、死代码消除、常量折叠、模式匹配融合。它们的共同形态是**遍历节点、匹配模式、替换子图**。
+
+开头的函数 `f` 在编译栈里经历的改写如下，各行在后面的章节展开：
+
+| 改写 | 发生在哪一段 | 改的是什么 | 对 `f` 做了什么 |
+|---|---|---|---|
+| 词汇下降与分解 | 中端 AOTAutograd | FX Graph | `operator.matmul` → `aten.mm`<br/>`operator.add` → `aten.add.Tensor`<br/>`torch.relu` → `aten.relu`（[第四章 §4](#4-词汇下降与函数化)） |
+| 函数化 | 中端 AOTAutograd | FX Graph | `f` 没有 in-place 操作，无事可做 |
+| 展开反向、切分 | 中端 AOTAutograd | FX Graph | 一张前向图变成前向、反向两张（[第四章 §2](#2-做法用-faketensor-跑一遍前向加反向)） |
+| 图级模式匹配、常量折叠 | 后端 Inductor（`torch/_inductor/fx_passes/`） | FX Graph | `f` 里没有命中的模式。典型的命中例子是把卷积和紧跟的 BatchNorm 折成一个卷积 |
+| Kernel 融合 | 后端 Inductor 的 Scheduler | Inductor IR，不是 FX Graph | `add` 和 `relu` 合成一个 Kernel（[第五章 §3](#3-融合决策)） |
+
+Table: 函数 f 在编译栈里经历的改写
+
+**说明**：「融合」有两种，只有第一种是改图。
+
+1. 图级的模式融合改的是 FX Graph：把匹配到的几个节点换成一个节点，做法和上面 `relu` → `gelu` 的 pass 相同。
+2. 把 `add` 和 `relu` 合成一个 Kernel 不改 FX Graph。Inductor 先把 FX 节点降成自己的循环级 IR，Scheduler 在这层 IR 上决定哪几个节点归为一组，每组生成一个 Kernel 的 Triton / C++ 源码，再由目标编译器编成机器码。顺序是：先定分组，再按分组生成源码，最后编译。
 
 ### 4. 一种结构，多套词汇
 
@@ -384,7 +453,7 @@ Dynamo 通过 CPython 的帧求值钩子（PEP 523）介入：在解释器执行
 
 Table: Dynamo 逐条解释 f 的字节码：模拟栈的变化与产出的 FX 节点
 
-若条件换成 `x.sum() > 0`：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向 → graph break：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值（第六章 §1）。
+若条件换成 `x.sum() > 0`：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向 → graph break：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值，两个分支各自在第一次走到时再编译成一张图（[第六章 §1 的例子](#1-graph-break捕获的边界)）。
 
 FakeTensor 是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
 
@@ -812,6 +881,41 @@ Dynamo 遇到无法符号化求值的代码时，不报错，而是**在此处�
 
 改写后的字节码依次调用图 1、原始 Python 片段、图 2。用户看不到任何差别，程序正常运行，只是编译收益被切碎了：每张子图单独优化，跨越断点的算子无法融合，每个断点处还有一次 Python 与编译代码之间的切换。
 
+**例子**：把 `f` 的分支条件从 shape 换成 Tensor 的值。
+
+```python title="f_val：分支条件依赖 Tensor 的值"
+def f_val(x, weight, bias):
+    y = x @ weight + bias
+    if x.sum() > 0:
+        return torch.relu(y)
+    return torch.tanh(y)
+```
+
+Dynamo 把它切成三张图，一次调用执行其中两张：
+
+```mermaid
+%% 图：f_val 在 if 处 graph break：if 之前一张图，两个分支各一张，分支的图在第一次走到时才编译
+flowchart TB
+    G1["<b>图 1：if 之前</b><br/>• y = x @ weight + bias<br/>• cond = x.sum() > 0<br/>• 第一次调用时编译"]
+    PY{"Python 对真实的 cond 求值<br/>决定跳转方向"}
+    G2["<b>图 2：relu 分支</b><br/>• 续接函数 A(y)<br/>• return torch.relu(y)<br/>• 第一次走到这一支时编译"]
+    G3["<b>图 3：tanh 分支</b><br/>• 续接函数 B(y)<br/>• return torch.tanh(y)<br/>• 第一次走到这一支时编译"]
+    G1 --> PY
+    PY -- "True" --> G2
+    PY -- "False" --> G3
+    classDef g fill:#e3f2fd,stroke:#1565c0;
+    classDef py fill:#fff3e0,stroke:#ef6c00;
+    class G1,G2,G3 g;
+    class PY py;
+```
+
+1. 图 1 是 `if` 之前的全部 Tensor 计算，条件 `x.sum() > 0` 也在里面：它的结果是一个 Tensor，可以放进图。图 1 输出 `y` 和这个条件。
+2. 改写后的字节码拿到条件的真实值，由 Python 执行跳转。
+3. 两个分支各被包成一个续接函数（resume function，名字以 `torch_dynamo_resume_in_f_val` 开头），`y` 作为参数传进去。续接函数是普通的 Python 函数，第一次被调用时才被 Dynamo 捕获、编译。一直走 `relu` 这一支，就只有图 1 和图 2；哪次走到 `tanh`，才编译图 3。
+4. 所以不是「`if` 前后两张图」，也不是「两个分支各一张完整的图」，而是 `if` 之前一张、每个分支一张。`add` 在图 1，`relu` 在图 2，两者不能融合。
+
+对应的源码是 `torch/_dynamo/symbolic_convert.py` 的 `generic_jump`：先把已捕获的节点编译成子图，再为「跳」和「不跳」两个目标各生成一个续接函数的调用。原来的 `f` 不会这样断开：它的条件只依赖 shape，编译时就能算出来，整个函数是一张图，另一个分支靠 Guard 失效后重新编译得到。
+
 > [!NOTE] Java 经验参照：Graph Break 没有精确对应物
 > HotSpot 里，一个方法编译不了（过大，或编译器放弃）时，整个方法留给解释器；编译后的方法走到没有覆盖的路径时，经 uncommon trap 去优化，从那一点起回到解释器。Graph break 两者都不是：它在编译时就把函数从内部切开，断点两侧各编成一张图，中间那段交给 CPython 执行，每次调用都按这个顺序走。它是编译产物的固定形态，不是运行时的临时回退。
 
@@ -1141,7 +1245,7 @@ flowchart TB
         GD{"已有条目的 Guard<br/>假设成立?"}
         TRIG["触发编译器"]
         DONE["写入新条目：产物 + Guard"]
-        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call()"]
+        RUN["<b>执行编译产物</b><br/>改写后的字节码 → call() → Kernel"]
         CALL --> GD
         GD -- "成立" --> RUN
         GD -- "都不成立" --> TRIG

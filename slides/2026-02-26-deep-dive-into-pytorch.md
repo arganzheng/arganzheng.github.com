@@ -292,7 +292,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。
+原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。AOT 是 Ahead-Of-Time：反向图在编译时提前得到。编译产物分两层：外层是改写后的 Python 字节码，仍由 CPython 执行；它调用 call()，call() 启动的 Kernel 才是机器码。FX Graph × 2 指前向图和反向图，都是 ATen 级 FX Graph。add + relu 的 Kernel 融合发生在 Inductor 的 Scheduler，改的是 Inductor IR，不是 FX Graph。
 </aside>
 
 <!-- v -->
@@ -311,6 +311,7 @@ flowchart LR
 ### 常见误区
 
 - 「换 batch size 变慢是编译器 bug」——静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；`dynamic=True` / `mark_dynamic`
+- 「`if x.sum() > 0` 把函数切成前后两张图」——是 `if` 之前一张、两个分支各一张；分支的图第一次走到才编译
 
 <!-- v -->
 

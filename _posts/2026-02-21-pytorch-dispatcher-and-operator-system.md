@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（05）：Dispatcher 与算子系统"
 subtitle: "The Dispatcher and Operator System in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-26
+updated: 2026-11-27
 ---
 
 [《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)讨论了 `nn.Module` 与训练系统：Module 如何组织子模块、Parameter 和 Buffer，Optimizer 如何更新参数，DataLoader 如何把数据送入训练循环。
@@ -670,6 +670,8 @@ z = x + y
 
 Table: 一个普通 CUDA Tensor 的 KeySet 里三个 Key 的来源与作用
 
+ADInplaceOrView 里的 AD 是 automatic differentiation（自动微分）的缩写，也就是 Autograd。整个名字的意思是「Autograd 为 in-place 算子或 view 算子做的准备工作」。
+
 可以用 `torch._C._dispatch_keys(x)` 打印一个 Tensor 的 KeySet。
 
 **2、`requires_grad` 不在 KeySet 里。** `y` 不需要梯度，但它的 KeySet 和 `x` 完全一样，也带着 AutogradCUDA。上表里后两个 Key 是无条件加的，不看 `requires_grad`。`requires_grad` 存在 Tensor 的 `AutogradMeta` 里，是 Autograd 包装被调用之后才去读的字段。所以 CPU 上的 `torch.zeros(3)` 的 KeySet 同样是 `{AutogradCPU, ADInplaceOrView, CPU}`。
@@ -776,6 +778,40 @@ flowchart TB
 
 两条返回箭头都沿调用栈经过 Dispatcher 原路返回，图里直接画到接收方。
 
+第 2 步创建的 `AddBackward0` 到第 5 步才挂到结果上，中间它是 Autograd 包装函数里的一个**局部变量**。第二次分发在 C++ 里只是包装函数内部的一次普通函数调用，调用返回后，局部变量还在原处：
+
+```cpp title="Codegen 为 add.Tensor 生成的 Autograd 包装（简化）"
+at::Tensor add_Tensor(c10::DispatchKeySet ks, const at::Tensor& self,
+                      const at::Tensor& other, const at::Scalar& alpha) {
+  // !ref wrap-local
+  std::shared_ptr<AddBackward0> grad_fn;
+  if (compute_requires_grad(self, other)) {
+    // !ref wrap-new +2
+    grad_fn = std::shared_ptr<AddBackward0>(new AddBackward0(), deleteNode);
+    grad_fn->set_next_edges(collect_next_edges(self, other));
+    grad_fn->alpha = alpha;
+  }
+  at::Tensor result;
+  {
+    at::AutoDispatchBelowADInplaceOrView guard;
+    // !ref wrap-redispatch
+    result = at::redispatch::add(ks & c10::after_autograd_keyset, self, other, alpha);
+  }
+  if (grad_fn) {
+    // !ref wrap-history
+    set_history(result, grad_fn);
+  }
+  return result;
+}
+```
+
+- [`grad_fn`](#wrap-local) 是函数的局部变量，存在这次调用的栈帧里。
+- [第 2 步](#wrap-new)：有输入需要梯度时才创建 `AddBackward0`，把它连到输入的 `grad_fn` 上，并存下反向公式要用的 `alpha`。
+- [第 3、4 步](#wrap-redispatch)：第二次分发是一次嵌套的函数调用，CUDA 实现算完后返回到这一行，`grad_fn` 没有经过 Dispatcher，也没有传给后端实现。
+- [第 5 步](#wrap-history)：`set_history` 把 `grad_fn` 挂到 `result` 上，也就是 Python 里看到的 `z.grad_fn`。
+
+函数返回后局部变量消失，`AddBackward0` 由结果 Tensor `z` 持有，`z` 还在它就在。`backward()` 时 Autograd 引擎从 `z.grad_fn` 找到它。真实的生成代码还有参数检查，并多存两个输入的 dtype（复数梯度要用），这里省去了。
+
 这就是“Autograd Kernel 与设备 Kernel 是什么关系”的答案：Autograd 是注册在功能 Key 上的一层实现，通过**再次分发**串联到后端实现。Functionalize、Python Dispatch、Vmap 都是同样的机制。
 
 在 `torch.no_grad()` 中，Autograd 包装层**仍然被命中**——它读到 GradMode 关闭，跳过记录 `grad_fn` 那一步，直接再分发到 CUDA；省的是建图的工作，不是分发的那一跳。要连这一跳也省掉，用 `torch.inference_mode()`：它把 Autograd Key 加入 TLS 的 excluded 集合，剩下的 ADInplaceOrView 在 `add` 上是 fallthrough，DispatchKeySet 直接是 `{CUDA}`。
@@ -783,6 +819,20 @@ flowchart TB
 ### 5. Dispatcher 不是简单的 if/else
 
 概念上它是一张表的查找，但真实系统还要处理多个 Key 的合并与优先级、功能 Key 的再次分发、fallback、boxed/unboxed 调用约定、Python 级自定义分发。它是一个**多维、可多次的运行时分发系统**。
+
+其中 boxed / unboxed 调用约定说的是 Dispatcher 调用一个实现时参数怎么传：
+
+| 调用约定 | 参数怎么传 | 实现函数的签名 | 谁在用 |
+|---|---|---|---|
+| unboxed（不装箱） | 按 C++ 原本的类型直接传 | 每个算子各不相同，例如 `Tensor(const Tensor&, const Tensor&, const Scalar&)` | `at::add` 这样的 C++ 入口<br/>绝大多数后端实现 |
+| boxed（装箱） | 每个参数包成一个 `IValue`，依次压进一个栈（`std::vector<IValue>`），返回值也放回栈上 | 所有算子都一样：`void(const OperatorHandle&, DispatchKeySet, Stack*)` | TorchScript 解释器<br/>对所有算子生效的 fallback，例如把调用转给 Python 的 `pythonFallback` |
+
+Table: unboxed 与 boxed 两种调用约定
+
+`IValue` 是一个能装下 Tensor、整数、浮点数、列表等任意参数类型的统一容器。boxed 的用处是「一个函数处理所有算子」：fallback 不知道自己会被哪个算子调用，只能用统一的签名接收参数。一个实现只需按其中一种约定写，另一种由 `aten/src/ATen/core/boxing/` 里的模板自动生成适配代码。
+
+> [!NOTE] Java 经验参照：装箱
+> 名字和 Java 的装箱是同一个意思。Java 把 `int` 包成 `Integer`，才能放进 `List<Object>` 这类统一的容器，或者经反射的 `Method.invoke(Object... args)` 传递；这里把 `Tensor`、`double`、`int64_t` 包成 `IValue`，才能用同一个函数签名调用任意算子。boxed 调用相当于反射调用，unboxed 调用相当于直接调用方法；代价也相同，多一次包装和拆开。
 
 > [!NOTE] Java 经验参照：重载与虚方法分发
 > Java 的重载在编译期按参数的静态类型决定，虚方法调用按**一个**接收者对象的运行时类型选实现，一次调用选一次。Dispatcher 的 key 来自**全部** Tensor 参数的 KeySet 加线程局部状态，而且一次调用可以查多次表（功能 Key → 后端 Key）。所以同一行 `x + y`，输入换成 Meta Tensor 或者外面套一层 `inference_mode`，走的实现就不同，代码一个字不用改。`add.Tensor` 与 `add.Scalar` 之间的 overload 选择发生在更早的 Python 绑定里，那一步对应 Java 的重载决议，只是在运行时按实参类型做。

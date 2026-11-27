@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（06）：C++ 扩展与自定义算子"
 subtitle: "C++ Extensions and Custom Operators in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-17
+updated: 2026-11-27
 ---
 
 [《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)把算子系统拆成两个维度：开发者在构建时**定义 → 注册 → 实现**，用户在运行时**入口 → 分发 → 执行**，两者通过 Operator Table 交汇。那一篇站在使用者的角度观察原生算子 `add`。
@@ -177,6 +177,23 @@ myops::scale_shift_(Tensor(a!) x, float alpha, float beta) -> Tensor(a!)
 ### 2. 第二步：注册——把实现挂到 DispatchKey
 
 定义只是声明“有这样一个算子”。注册是告诉 Dispatcher：**在哪个 DispatchKey 下，用哪个函数实现它**。
+
+**注册的写法**
+
+一次注册有三个要素：算子名、DispatchKey、实现函数。C++ 侧用 `TORCH_LIBRARY_IMPL` 宏加 `m.impl`，Python 侧用 `Library.impl`：
+
+```cpp title='C++ 侧注册：TORCH_LIBRARY_IMPL 与 m.impl'
+TORCH_LIBRARY_IMPL(myops, CPU, m) {            // 命名空间 myops，DispatchKey 是 CPU
+  m.impl("scale_shift", scale_shift_cpu);      // 算子名 → 实现函数
+}
+```
+
+```python title='Python 侧注册：Library.impl'
+lib = torch.library.Library("myops", "IMPL")
+lib.impl("scale_shift", scale_shift_cuda_impl, "CUDA")   # 算子名、实现函数、DispatchKey
+```
+
+每执行一次，就往 Operator Table 里 `myops::scale_shift` 这一行填一个槽位。原生算子用的是同一个宏，只是由 Codegen 生成，例如 `TORCH_LIBRARY_IMPL(aten, CPU, m) { m.impl("add.Tensor", ...); }`。两套 API 的完整用法在[第三章](#三两种接入方式torchlibrary-与-torch_library)。
 
 **自定义算子常用的 DispatchKey**
 
@@ -1112,18 +1129,35 @@ y.sum().backward()      # 失败：没有人告诉 Autograd 反向规则
 ### 2. 注册 Autograd：Python 侧
 
 ```python title='Python 侧注册 Autograd：setup_context 与 backward'
+# !ref ag-setup
 def _setup_context(ctx, inputs, output):
     x, alpha, beta = inputs
-    ctx.alpha = alpha                # 只保存标量，不保存 Tensor
+    # !ref ag-save
+    ctx.alpha = alpha
 
+# !ref ag-backward
 def _backward(ctx, grad_out):
-    grad_x = grad_out * ctx.alpha    # d(alpha*x+beta)/dx = alpha
-    return grad_x, None, None        # 与 Schema 参数 (x, alpha, beta) 一一对应；非 Tensor 参数返回 None
+    # !ref ag-grad
+    grad_x = grad_out * ctx.alpha
+    # !ref ag-return
+    return grad_x, None, None
 
+# !ref ag-register +2
 torch.library.register_autograd(
     "myops::scale_shift", _backward, setup_context=_setup_context
 )
 ```
+
+**说明**：注册的是两个函数，一个在前向时运行，一个在反向时运行，两者靠 `ctx` 传数据。
+
+- [`_setup_context`](#ag-setup) 在**前向**时运行，算子每被调用一次，它跟着运行一次。`inputs` 是这次调用的全部实参 `(x, alpha, beta)`，`output` 是算出的结果。它的任务是把反向要用的东西存到 `ctx` 上。
+- [`ctx.alpha = alpha`](#ag-save)：`alpha * x + beta` 对 `x` 的导数是 `alpha`，反向只需要这一个数。标量直接挂成 `ctx` 的属性；要存的如果是 Tensor，改用 `ctx.save_for_backward(x)`。
+- [`_backward`](#ag-backward) 在**反向**时运行。`grad_out` 是损失对输出的梯度，`ctx` 就是前向时存过东西的那个对象。
+- [`grad_x`](#ag-grad) 按链式法则算：损失对 `x` 的梯度 = 损失对输出的梯度 × 输出对 `x` 的导数 `alpha`。
+- [返回值](#ag-return)按 Schema 的参数顺序 `(x, alpha, beta)` 一个参数一项。`alpha`、`beta` 是 `float`，没有梯度，填 `None`。
+- [`register_autograd`](#ag-register) 把这两个函数登记到 `myops::scale_shift` 的 Autograd 槽位。
+
+**例子**：`x = [1, 2, 3]`、`alpha = 2`、`beta = 1`，前向得到 `y = [3, 5, 7]`。执行 `y.sum().backward()` 时，`grad_out = [1, 1, 1]`，`_backward` 返回 `grad_x = [2, 2, 2]`，这就是 `x.grad`。
 
 它等价于[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)里的 `autograd.Function`，但注册到了 Operator Table 的 Autograd Key，因此对 `torch.ops.myops.scale_shift` 的所有调用自动生效。`_backward` 返回值的个数和位置必须与 Schema 参数一一对应。
 
@@ -1135,8 +1169,7 @@ torch.library.register_autograd(
 #include <torch/autograd.h>
 #include <ATen/core/dispatch/Dispatcher.h>
 
-// TORCH_LIBRARY 不会为自定义算子生成 torch::ops::myops::scale_shift 这样的 C++ 函数
-// （那是 Codegen 只给原生算子做的事），所以从 Operator Table 里按名字取一个 typed handle：
+// !ref cpp-ag-handle +5
 static const auto& scale_shift_op() {
   static auto op = c10::Dispatcher::singleton()
       .findSchemaOrThrow("myops::scale_shift", "")
@@ -1144,31 +1177,49 @@ static const auto& scale_shift_op() {
   return op;
 }
 
+// !ref cpp-ag-class
 class ScaleShiftFunction : public torch::autograd::Function<ScaleShiftFunction> {
  public:
   static at::Tensor forward(torch::autograd::AutogradContext* ctx,
                             const at::Tensor& x, double alpha, double beta) {
+    // !ref cpp-ag-save
     ctx->saved_data["alpha"] = alpha;
-    at::AutoDispatchBelowADInplaceOrView guard;   // 去掉 Autograd Key，再次分发到后端
+    // !ref cpp-ag-guard
+    at::AutoDispatchBelowADInplaceOrView guard;
+    // !ref cpp-ag-call
     return scale_shift_op().call(x, alpha, beta);
   }
   static torch::autograd::tensor_list backward(torch::autograd::AutogradContext* ctx,
                                                torch::autograd::tensor_list grads) {
+    // !ref cpp-ag-backward +1
     double alpha = ctx->saved_data["alpha"].toDouble();
     return {grads[0] * alpha, at::Tensor(), at::Tensor()};
   }
 };
 
 at::Tensor scale_shift_autograd(const at::Tensor& x, double alpha, double beta) {
+  // !ref cpp-ag-apply
   return ScaleShiftFunction::apply(x, alpha, beta);
 }
 
+// !ref cpp-ag-impl +2
 TORCH_LIBRARY_IMPL(myops, Autograd, m) {
   m.impl("scale_shift", scale_shift_autograd);
 }
 ```
 
-这段代码最值得看清的是 `forward` 里那次“再入 Dispatcher”的调用路径——同一个算子被 Dispatcher 分发了两次，第二次的 KeySet 少了 Autograd：
+**说明**：把鼠标停在下面的链接上，对应的代码行会高亮。
+
+- [`scale_shift_op()`](#cpp-ag-handle)：`TORCH_LIBRARY` 不会为自定义算子生成 `torch::ops::myops::scale_shift` 这样的 C++ 函数，那是 Codegen 只给原生算子做的事。所以按名字从 Operator Table 里取出这个算子的句柄，`.typed<...>()` 给句柄加上 C++ 签名，之后才能用普通参数调用它。`static` 保证只查一次。
+- [`ScaleShiftFunction`](#cpp-ag-class) 继承 `torch::autograd::Function`，按约定提供两个静态函数 `forward` 和 `backward`。
+- [`ctx->saved_data`](#cpp-ag-save) 是一个按名字存取的表，这一行相当于 Python 侧的 `ctx.alpha = alpha`。
+- [`AutoDispatchBelowADInplaceOrView`](#cpp-ag-guard)：在它的作用域内，当前线程的分发排除 Autograd 和 ADInplaceOrView 两类 Key。
+- [`scale_shift_op().call(...)`](#cpp-ag-call) 再次调用同一个算子。上一行已经排除了 Autograd，这次分发落到 CPU / CUDA 的实现，不会回到本函数。
+- [`backward`](#cpp-ag-backward) 取回 `alpha`，`grads[0]` 是损失对输出的梯度。返回的列表按 `forward` 的参数顺序一个参数一项，`alpha`、`beta` 没有梯度，填空的 `at::Tensor()`。
+- [`ScaleShiftFunction::apply`](#cpp-ag-apply)：注册到 Autograd 槽位的函数只做这一件事。`apply` 先调 `forward`，再给结果挂上指向 `backward` 的 `grad_fn`。
+- [`TORCH_LIBRARY_IMPL(myops, Autograd, m)`](#cpp-ag-impl) 把 `scale_shift_autograd` 填进 `myops::scale_shift` 的 Autograd 槽位。
+
+`forward` 里那次调用让同一个算子被 Dispatcher 分发了两次，第二次的 KeySet 少了 Autograd：
 
 ![Autograd 包装再入 Dispatcher 与 CUDA 异步提交的时间顺序](/img/in-post/pytorch-cpp-extension-autograd-redispatch.svg)
 
