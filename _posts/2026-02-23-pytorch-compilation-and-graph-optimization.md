@@ -453,7 +453,7 @@ Dynamo 通过 CPython 的帧求值钩子（PEP 523）介入：在解释器执行
 
 Table: Dynamo 逐条解释 f 的字节码：模拟栈的变化与产出的 FX 节点
 
-表里 `f` 的条件 `x.shape[0] > 64` 读的是 Tensor 的 **shape**。另有一类条件读的是 Tensor 里的**数值**，比如 `if x.sum() > 0`（第六章的函数 `f_val`）。两者走到 `COMPARE_OP` 时结果不同：
+表里 `f` 的条件 `x.shape[0] > 64` 读的是 Tensor 的 **shape**，`COMPARE_OP` 在编译时就得到 `True`，所以能一路追踪下去。假设把条件换成 `if x.sum() > 0`（第六章的函数 `f_val`），读的是 Tensor 里的**数值**：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向，Dynamo 在这里 graph break。两种条件逐步对比：
 
 | | `if x.shape[0] > 64` | `if x.sum() > 0` |
 |---|---|---|
@@ -639,7 +639,7 @@ Dynamo 的图只有前向，并且是 torch 级的；`if` 已经被特化掉，�
 
 ### 1. 问题：反向图从哪里来
 
-[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过，Eager 的反向图是**运行时动态构建**的：前向每执行一个算子，Autograd 就挂一个 `grad_fn` 节点，`backward()` 时沿着这些节点回溯。
+[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讲过，Eager 的反向图是**运行时动态构建**的：**前向每执行一个算子，Autograd 就挂一个 `grad_fn` 节点，`backward()` 时沿着这些节点回溯。**
 
 这对编译器是个障碍。编译器希望前向和反向都是提前已知的整图，才能对两者都做融合和内存规划。但 Dynamo 捕获的只是前向的 Python 语义，反向还不存在。
 
@@ -658,6 +658,7 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 把这一节的追踪和下一节的切分连起来，对 `f` 而言就是下图：joint graph 里前向节点和反向节点同在一张图上，切分器在两者之间找一条"割线"，割线穿过的中间值就是需要从前向传给反向的 saved tensors。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 %% 图：AOTAutograd 的 joint graph：前向与反向节点在同一张图上，切分器的割线决定哪些中间值成为 saved tensors
 flowchart TB
     IN["<b>Dynamo 的 torch 级前向图</b><br/>matmul → add → relu"]
@@ -688,6 +689,18 @@ flowchart TB
 ```
 
 绿色节点的输出（或输入）被保存下来成为前向图的额外输出、反向图的额外输入；橙色节点的输出不保存——对 `f` 来说反向根本不需要它，而在更长的 pointwise 链里，这类值即使被需要也倾向于重算。
+
+上图是过程。joint graph 本身是一个数据结构，`f` 的 joint graph 有哪些节点、哪些边、割线画在哪里，如下图：
+
+![f 的 joint graph：节点、边与割线](/img/in-post/pytorch-compilation-and-graph-optimization-joint-graph.svg)
+
+**说明**：
+
+1. joint graph 是一张普通的 FX Graph。每个方框是一个 `Node`，方框里第一行是节点名，第二行是它调用的算子；箭头从产生值的节点指向使用这个值的节点。灰色方框是 `placeholder`，即图的输入。
+2. 切分就是在这张图上画一条割线，把节点分成两组：左边的节点进前向图，右边的节点进反向图。
+3. 穿过割线的边有三条：`primals_1` → `t_1`、`primals_2` → `t`、`relu` → `threshold_backward`。这三条边上的值就是 saved tensors：在前向图里它们是额外的输出，在反向图里它们是额外的输入。
+4. `add` 的输出只被 `relu` 使用，没有边穿到右边，所以不保存。
+5. 右边三个带 `grad_` 的节点是反向图的输出，依次是 `x`、`weight`、`bias` 的梯度。
 
 ### 3. 切分：什么该保存，什么该重算
 
@@ -723,28 +736,62 @@ def forward(self, primals_1, primals_2, primals_3):
     return (relu, primals_1, primals_2, relu)   # 输出 + 为反向保存的值
 ```
 
+`return` 的 4 个值里，第 0 个是 `f` 的输出，后 3 个是为反向保存的值。这 3 个值不留在图里，也不放进全局变量：运行时包装把返回的元组切开，第 0 个交给调用方，后 3 个用 `ctx.save_for_backward(...)` 存进这一次调用产生的 `grad_fn` 节点。`backward()` 走到这个节点时，再把它们取出来，作为反向图的前三个参数（[§6 的图](#6-输出如何接回-eager)）。
+
 反向图（简化）：
 
 ```python title="AOTAutograd 的反向图（简化）"
+# !ref bw-sig
 def forward(self, primals_1, primals_2, relu, tangents_1):
-    threshold_backward = torch.ops.aten.threshold_backward.default(tangents_1, relu, 0)
+    # !ref bw-thb +1
+    threshold_backward = torch.ops.aten.threshold_backward.default(
+        tangents_1, relu, 0)
+    # !ref bw-gx +1
     t = torch.ops.aten.t.default(primals_2)
-    mm_1 = torch.ops.aten.mm.default(threshold_backward, t)       # grad_x
+    mm_1 = torch.ops.aten.mm.default(threshold_backward, t)
+    # !ref bw-gw +1
     t_1 = torch.ops.aten.t.default(primals_1)
-    mm_2 = torch.ops.aten.mm.default(t_1, threshold_backward)     # grad_weight
+    mm_2 = torch.ops.aten.mm.default(t_1, threshold_backward)
+    # !ref bw-gb
     sum_1 = torch.ops.aten.sum.dim_IntList(threshold_backward, [0])
-    return (mm_1, mm_2, sum_1)                                    # grad_bias
+    # !ref bw-ret
+    return (mm_1, mm_2, sum_1)
 ```
 
-三点观察：
+**说明**：
 
-- 节点词汇已是 `torch.ops.aten.*`，与[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 Schema 一一对应；
-- 反向图就是[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)手推的链式法则：`relu` 的反向是按掩码传梯度，矩阵乘的反向是与转置相乘，广播加法的反向是求和；
-- 前向多返回了 `relu` 和两个输入，它们是切分器决定保存的值。
+1. [函数名也叫 `forward`](#bw-sig)。两张图都是 `GraphModule`，而 `GraphModule` 是 `nn.Module`；FX 为每个 `GraphModule` 生成的方法一律叫 `forward`，意思是“调用这个模块时执行的代码”，不是“前向传播”。区分两张图要看日志里的标题（`Forward graph` / `Backward graph`）。四个参数里，前三个是前向保存下来的值，`tangents_1` 是上游传来的、对输出 `relu` 的梯度，shape 是 `(128, 64)`。
+2. [`threshold_backward`](#bw-thb) 是 `relu` 的反向：`relu` 大于 0 的位置，梯度原样通过；其余位置置 0。结果的 shape 仍是 `(128, 64)`。
+3. [`t` 和 `mm_1`](#bw-gx) 算 `x` 的梯度：上一步的结果乘以 `weight` 的转置，`(128, 64) @ (64, 32)` 得到 `(128, 32)`。
+4. [`t_1` 和 `mm_2`](#bw-gw) 算 `weight` 的梯度：`x` 的转置乘以第 2 步的结果，`(32, 128) @ (128, 64)` 得到 `(32, 64)`。
+5. [`sum_1`](#bw-gb) 算 `bias` 的梯度：前向里 `bias` 被广播到 128 行，反向就沿第 0 维把 128 行加起来，得到 `(64,)`。
+6. [`return`](#bw-ret) 按 `x`、`weight`、`bias` 的顺序返回三个梯度。
+
+这六步就是[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)手推的链式法则。两张图的节点都已是 `torch.ops.aten.*`，与[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)的 Schema 一一对应。
 
 ### 6. 输出如何接回 Eager
 
-两张图编译后，AOTAutograd 把它们包进一个 `torch.autograd.Function`（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讨论过的自定义 Function）：前向调用编译后的前向图，反向调用编译后的反向图。
+到这里，前向图和反向图都还只是 FX Graph，是 IR，不能直接执行。两张图的来历相同：都是从同一次 FakeTensor 追踪得到的 joint graph 上切下来的。追踪只产出图，**编译指的是下一步：把图交给后端（默认是 Inductor）生成可以执行的代码**。这一步两张图各做一次，时间不同：
+
+| | 什么时候交给后端编译 |
+|---|---|
+| 前向图 | 追踪和切分完成后立即编译 |
+| 反向图 | 默认推迟到第一次 `backward()` 走到这里时才编译；保存的值里带符号 shape（Dynamic Shape）时，和前向图一起编译 |
+
+Table: 前向图与反向图各在什么时候编译
+
+依据是 `torch/_functorch/_aot_autograd/graph_compile.py` 的 `_aot_stage2b_bw_compile`。
+
+AOTAutograd 把编译产物包进一个 `torch.autograd.Function`（[《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)讨论过的自定义 Function）：前向调用编译后的前向图，并把保存的值存进节点；反向取出保存的值，调用编译后的反向图。
+
+![编译区域在 Eager 反向图里是一个 grad_fn 节点](/img/in-post/pytorch-compilation-and-graph-optimization-grad-fn-node.svg)
+
+**说明**：
+
+1. 编译后的前向图返回 4 个值。第 0 个成为 `y`，交给调用方；后 3 个由 `ctx.save_for_backward(...)` 存进节点的 `saved_tensors`。
+2. `y.grad_fn` 指向的 `CompiledFunctionBackward` 是每次前向调用新建的一个节点，这一次调用保存的值只属于它。
+3. `backward()` 沿 `SumBackward0` 走到这个节点，节点取出 `saved_tensors`，连同上游传来的梯度一起传给编译后的反向图，得到三个梯度。
+4. 三个梯度沿 `next_functions` 的三条边交给 `x`、`weight`、`bias` 各自的 `AccumulateGrad`，累加到 `.grad`。
 
 于是从 Eager Autograd 引擎的角度看，**整个编译区域是一个 `grad_fn` 节点**。用户调用 `loss.backward()` 时，引擎回溯到这个节点，调用它的反向——里面是编译好的 Kernel。编译区域外的算子仍由 Eager Autograd 正常处理。这就是编译与 Eager 能混合工作的机制。
 
@@ -752,24 +799,53 @@ def forward(self, primals_1, primals_2, relu, tangents_1):
 
 ### 1. 输入与输出
 
-Inductor 是编译器意义上的后端：IR 进，目标代码出。它也是 `torch.compile` 默认 `backend="inductor"` 的最后一段。它接收 ATen 级的 FX Graph（前向图和反向图各处理一次），输出**一个 Python 源文件**，内含：
+Inductor 是编译器意义上的后端：IR 进，目标代码出。它也是 `torch.compile` 默认 `backend="inductor"` 的最后一段。它接收 ATen 级的 FX Graph（前向图和反向图各处理一次），每张图输出**一个 Python 源文件**，内含：
 
-- 若干 Triton Kernel（GPU）或 C++ 函数（CPU）
-- 一个 call(args) 函数：按顺序分配内存、调用 Kernel、释放内存、返回结果
+- 若干 Kernel 的源码，目标语言按 Tensor 所在的 device 选（见下表）；
+- 一个 `call(args)` 函数：按顺序分配内存、调用 Kernel、释放内存、返回结果。
 
-这个文件可以直接读。这是 Inductor 与许多编译器不同的地方：它的产物是人可读的源码，而不是二进制。
+Kernel 的源码不另存文件，而是作为字符串写在这个 Python 文件里。Triton Kernel 是传给 `async_compile.triton(...)` 的字符串，C++ 函数是传给 `async_compile.cpp_pybinding(...)` 的字符串。文件被加载时，这两个函数再调用 Triton 编译器或系统的 C++ 编译器，把字符串编成可以执行的 Kernel。所以 CPU 上生成的也是一个 Python 文件，C++ 代码在它里面。
+
+| device | 默认生成的 Kernel | 能不能换 |
+|---|---|---|
+| CUDA | Triton | 配置项 `torch._inductor.config.cuda_backend`，默认 `triton`，另有实验性的 `halide`、`pallas` |
+| CPU | C++，用 OpenMP 做多线程、SIMD 做向量化 | 配置项 `cpu_backend`，默认 `cpp`，另有实验性的 `triton`、`halide`、`pallas` |
+| Intel GPU（`xpu`） | Triton | 只有 `triton` |
+| Apple GPU（`mps`） | Metal | |
+
+Table: Inductor 在各种 device 上默认生成的 Kernel
+
+所以 “GPU 用 Triton、CPU 用 C++” 是默认配置，不是固定搭配。依据是 `torch/_inductor/codegen/common.py` 的 `init_backend_registration` 和 `torch/_inductor/config.py`。
+
+这个文件可以直接读。这是 Inductor 与许多编译器不同的地方：**它的产物是人可读的源码，而不是二进制**。从源码到二进制的那一步，交给下游的 Triton 编译器或 C++ 编译器（§5）。
 
 ### 2. 内部步骤
 
-1. ATen 级 FX Graph（进一步分解，降低到 Inductor IR）
-2. Inductor IR      每个算子表示为“给定索引，如何计算该位置的值”的函数（调度（Scheduling））
-3. 融合决策         哪些节点合并成一个 Kernel（内存规划）
-4. Buffer 生命周期  何时分配、何时释放、能否复用（代码生成）
-5. Triton / C++ 源码 + call() 调度代码
+| 步骤 | 做什么 | 得到什么 |
+|---|---|---|
+| 1. 分解与 lowering | 把 ATen 节点进一步分解，再逐个换成 Inductor IR 的节点 | Inductor IR |
+| 2. 调度（Scheduling） | 决定哪些 IR 节点合并成一个 Kernel | 融合后的节点序列 |
+| 3. 内存规划 | 决定每个 buffer 何时分配、何时释放、能否复用 | 每个 buffer 的生命周期 |
+| 4. 代码生成 | 为每个节点生成 Kernel 源码，再生成 `call()` | Triton / C++ 源码加 `call()` |
 
-把每一步在 `f` 的前向图上落实，就是下图：三个 ATen 节点进去，一个 cuBLAS 调用加一个 Triton Kernel 出来。
+Table: Inductor 的四个内部步骤
+
+Inductor IR 是 Inductor 自己的中间表示，定义在 `torch/_inductor/ir.py`，和 FX Graph 是两套数据结构。FX Graph 的节点记的是“调用哪个算子”。Inductor IR 的节点记的是“输出的每个元素怎么算”，是**循环级的**：一个逐元素算子不是“对 Tensor 做 add”，而是“对索引 `i`，输出 `a[i] + b[i]`”。`f` 用到其中三种节点：
+
+| IR 节点 | 记的是什么 | `f` 里的例子 |
+|---|---|---|
+| `Pointwise` | 一个函数：给定输出的索引，算出该位置的值 | `add`、`relu` |
+| `Reduction` | 同上，外加一个归约方式（求和、取最大值等） | 反向图里的 `sum` |
+| `ExternKernel` | 不展开成循环，记下要调用的外部函数 | `mm` |
+
+Table: f 用到的三种 Inductor IR 节点
+
+这种表示让融合成为函数的复合：`relu(add(a, b))` 在索引 `i` 上就是 `max(a[i] + b[i], 0)`，是一个循环体。
+
+四个步骤在 `f` 的前向图上的结果如下图：三个 ATen 节点进去，一个 cuBLAS 调用加一个 Triton Kernel 出来。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 460}}}%%
 %% 图：Inductor 的内部步骤：ATen 节点 lowering 到循环级 IR，Scheduler 把相邻 pointwise 融合成一个 kernel
 flowchart TB
     IN["<b>ATen 级 FX Graph</b><br/>aten.mm → aten.add → aten.relu"]
@@ -781,11 +857,11 @@ flowchart TB
         PW2["<b>relu：Pointwise</b><br/>i → max(add(i), 0)"]
         EK --> PW1 --> PW2
     end
-    IR --> SCH["<b>Scheduler 融合决策</b><br/>相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>reduction 可吸收其前面的 pointwise 作为输入<br/>ExternKernel 是黑盒，不参与融合"]
-    SCH --> MEM["<b>内存规划</b><br/>buf0 (mm 输出) 在 fused kernel 读完后不再被引用<br/>→ relu 输出原地写回：buf1 = buf0"]
-    MEM --> CG["<b>codegen</b><br/>GPU：Triton kernel 源码 + Python call() wrapper<br/>CPU：C++ + OpenMP / SIMD"]
-    CG --> CC["<b>编译缓存</b><br/>FX Graph 缓存（源码）→ Triton 缓存（cubin）<br/>命中则跳过生成与编译"]
-    CC --> OUT["产物：extern mm + triton_poi_fused_add_relu_0<br/>2 次 launch，0 个新增中间 Tensor"]
+    IR --> SCH["<b>Scheduler 融合决策</b><br/>• 相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>• reduction 可以吸收它前面的 pointwise<br/>• ExternKernel 是黑盒，不参与融合"]
+    SCH --> MEM["<b>内存规划</b><br/>• mm 的输出 buf0 被融合 Kernel 读完后不再被引用<br/>• relu 的输出原地写回：buf1 = buf0"]
+    MEM --> CG["<b>代码生成</b><br/>• CUDA：Triton Kernel 源码<br/>• CPU：C++ 源码，OpenMP 加 SIMD<br/>• 两者都配一个 Python 的 call()"]
+    CG --> CC["<b>编译缓存</b><br/>• FX Graph 缓存：存生成的源码<br/>• Triton 缓存：存编译出的 cubin<br/>• 命中则跳过生成与编译"]
+    CC --> OUT["<b>产物</b><br/>• extern mm<br/>• triton_poi_fused_add_relu_0<br/>• 2 次 launch，没有新增的中间 Tensor"]
     classDef ext fill:#eceff1,stroke:#546e7a;
     classDef pw fill:#e3f2fd,stroke:#1565c0;
     classDef stage fill:#fffde7,stroke:#f9a825;
@@ -794,7 +870,18 @@ flowchart TB
     class LOW,SCH,MEM,CG,CC stage;
 ```
 
-Inductor IR 的核心表示方式是**循环级的**：一个逐元素算子不是“对 Tensor 做 add”，而是“对索引 `i`，输出 `a[i] + b[i]`”。这种表示让融合成为简单的函数组合：`relu(add(a, b))` 在索引 `i` 上就是 `max(a[i] + b[i], 0)`，天然是一个循环体。
+上图是步骤。第 2、3 步改动的是数据：IR 节点的个数和它们占用的 buffer。融合前后各有哪些节点、哪些 buffer，融合 Kernel 怎样读写这块内存，如下图：
+
+![融合前后的 IR 节点与 buffer，以及融合 Kernel 怎样按下标读写](/img/in-post/pytorch-compilation-and-graph-optimization-fusion-buffers.svg)
+
+**说明**：
+
+1. 融合前，三个 IR 节点各有一个输出 buffer。每个 buffer 是 `(128, 64)` 的 float32，共 8192 个元素、32 KB；后一个节点读前一个节点的 buffer。
+2. 融合：`add` 和 `relu` 都是“给定下标，算出一个元素”的函数，把 `add` 的函数代入 `relu` 的函数，得到一个循环体 `max(buf0[i] + bias[i % 64], 0)`。两个节点合成一个 `FusedSchedulerNode`，`add` 的输出不再是 buffer，只是循环体里的一个临时值。
+3. 内存规划：`mm` 的输出只被融合节点读，而且每个下标都是先读后写同一个位置，所以融合节点的输出直接写回 `mm` 的那块内存。三个 buffer 变成一次分配。生成代码里这块内存先叫 `buf0`、后叫 `buf1`，Kernel 的参数名是 `in_out_ptr0`（§4）。
+4. 下半是一个元素的读写过程。`buf0` 在内存里是按行存放的一维数组，第 `r` 行第 `c` 列的下标是 `r × 64 + c`。`bias` 只有 64 个元素，前向里被广播到每一行，所以下标 `i` 的元素要加的是 `bias[i % 64]`。
+
+依据是 `torch/_inductor/scheduler.py` 的 `Scheduler.fuse_nodes`（融合）、`BaseSchedulerNode.decide_inplace_update`（原地写回），以及 `torch/_inductor/codegen/wrapper.py` 的 `memory_plan_reuse`（buffer 复用）。
 
 ### 3. 融合决策
 
@@ -824,7 +911,7 @@ Table: Eager 与 Inductor 对同一段代码的 Kernel 序列
 TORCH_LOGS="output_code" python demo.py
 ```
 
-前向的融合 Kernel（简化，Triton）：
+Inductor 为每张图生成一个 Python 文件，Kernel 源码和 `call()` 都在这个文件里。前向图的文件里，融合 Kernel 那一段字符串的内容如下（简化，Triton）：
 
 ```python title="Inductor 生成的融合 Kernel（Triton，简化）"
 @triton.jit
@@ -842,7 +929,7 @@ def triton_poi_fused_add_relu_0(in_out_ptr0, in_ptr0, xnumel, XBLOCK: tl.constex
     tl.store(in_out_ptr0 + (x2), tmp4, xmask)         # 原地写回
 ```
 
-调度代码：
+同一个文件里的调度代码：
 
 ```python title="Inductor 生成的调度代码 call()"
 def call(args):
@@ -856,9 +943,22 @@ def call(args):
     return (buf1, primals_1, primals_2, buf1)
 ```
 
+这个文件不是[图「Dynamo 的三样产物存放在哪里」](#3-产出三样东西)里的 ③，也不存放在 `CacheEntry` 里。③ 是 Dynamo 改写的 `f` 的字节码，它和 `call()` 之间还隔着两层：
+
+| 层 | 由谁生成 | 是什么 | 存放在哪里 |
+|---|---|---|---|
+| 1 | Dynamo | ③ 新的 code object，里面只有一次对 `__compiled_fn_…` 的调用 | `CacheEntry.code` |
+| 2 | Dynamo | `__compiled_fn_…`：backend 返回的可调用对象 | `f` 的全局变量表 |
+| 3 | AOTAutograd | 运行时包装，核心是一个 `torch.autograd.Function`：前向调用前向图的 `call()`，反向调用反向图的 `call()` | 被第 2 层调用 |
+| 4 | Inductor | 一个 Python 模块：Kernel 源码加 `call()`。前向图、反向图各一个 | Inductor 缓存目录下的 `.py` 文件，加载成模块 |
+
+Table: 从改写的字节码到 call() 的四层对象
+
+一次调用自上而下经过这四层，只有第 4 层的 Kernel 是机器码。
+
 Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction，`per` 是 persistent reduction），`fused_add_relu` 是被融合的算子，`0` 是序号。
 
-几个值得对照前几篇的细节：
+这里有几个值得对照前几篇的细节：
 
 - **广播变成了索引算术**。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲 `bias` 广播到 `(128, 64)` 在 Eager 里靠 stride 为 0 的 view，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲 TensorIterator 负责按 stride 遍历。这里两者都不存在了：`x0 = xindex % 64` 直接在生成代码里算出 `bias` 的读取位置。编译器把运行时的元数据解释**固化成了编译期的代码**。
 - **Triton 部分没有 Dispatcher**。`call()` 里的 Triton Kernel 是直接 launch，不经过 Operator Table。`extern_kernels.mm` 则不然：它就是 `torch.mm`（`torch/_inductor/kernel/mm.py`：`aten_mm = ExternKernelChoice(torch.mm, "at::mm_out", op_overload=aten.mm.out)`），照常走一次 Dispatcher 到 cuBLAS——只是这一次没有 Autograd 包装（反向已由 AOTAutograd 单独编译），也没有 Python 层的参数解析。所以编译省掉的是**逐元素算子**的分发与 Python 开销，不是把 Dispatcher 整个绕开。
@@ -878,7 +978,7 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 
 ### 5. Triton 是什么，为什么选它
 
-Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 CUDA C++ 的差别在抽象层级：CUDA 以**线程**为单位编程，开发者管理线程索引、共享内存、同步；Triton 以**块**（block）为单位，开发者描述一个块处理哪些元素，编译器负责线程映射、内存合并访问、指令调度。
+Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 CUDA C++ 的差别在抽象层级：**CUDA 以线程为单位编程，开发者管理线程索引、共享内存、同步；Triton 以块（block）为单位，开发者描述一个块处理哪些元素，编译器负责线程映射、内存合并访问、指令调度。**
 
 以一个长度 1024 的向量、`BLOCK = 256` 为例，两种模型的分工差别如下：
 
@@ -907,7 +1007,7 @@ Inductor 选择 Triton 生成 GPU 代码的原因：
 - 生成块级代码比生成正确高效的线程级 CUDA 简单得多；
 - Triton 源码是 Python，可读、可调试、可手动修改后对照；
 - Triton 自带自动调优（autotune），Inductor 的 `mode="max-autotune"` 会为矩阵乘等生成多个候选配置并测速；
-- 不需要 nvcc，编译链路可控。
+- 不需要 [nvcc](# "tip: NVIDIA 的 CUDA C++ 编译器，随 CUDA Toolkit 安装。手写的 CUDA Kernel 要用它编译成 GPU 代码")，编译链路可控。
 
 所以 GPU 路径上是两个编译器串联：Inductor 不生成机器码，它生成 Triton 源码；Triton 编译器（内部基于 MLIR 和 LLVM 这两个通用编译器基础设施）再把源码编成 NVIDIA GPU 的汇编 PTX。定位问题时按这条分界找：生成的源码不对，是 Inductor 的问题；源码对但 Kernel 慢，可能是 Triton 编译或调优的问题。
 
@@ -1189,9 +1289,9 @@ flowchart TB
     E --> F1[ATen 级前向图<br/>mm → add → relu]
     E --> F2[ATen 级反向图<br/>threshold_backward → mm × 2 → sum]
     F1 --> H1[Inductor → 前向 output_code<br/>extern mm + fused add_relu]
-    F2 --> H2[Inductor → 反向 output_code<br/>fused kernel + extern mm × 2]
+    F2 --> H2["反向图先保存<br/>第一次 backward() 时才交给 Inductor"]
     H1 --> T[Triton 编译 → cubin]
-    H2 --> T
+    H2 --> W
     T --> W[包进 autograd.Function<br/>写入缓存条目：字节码 + Guard]
     W --> R[执行前向 call<br/>返回 y]
 ```
@@ -1219,7 +1319,7 @@ Dynamo、AOTAutograd、Inductor 都不再参与。相比 Eager 的三次分发�
 y.sum().backward()
 ```
 
-`y.sum()` 在编译区域外，由 Eager Autograd 处理。`backward()` 沿 `grad_fn` 回溯：`SumBackward0` 是普通 Eager 节点；下一个是 `CompiledFunctionBackward`，它调用编译后的反向 `call()`，内部是一个融合 Kernel 加两次 cuBLAS。再往前是 `x`、`weight`、`bias` 的叶子节点，梯度累加到 `.grad`。
+`y.sum()` 在编译区域外，由 Eager Autograd 处理。`backward()` 沿 `grad_fn` 回溯：`SumBackward0` 是普通 Eager 节点；下一个是 `CompiledFunctionBackward`。第一次走到这里时，反向图才交给 Inductor 编译（第四章 §6），之后的 `backward()` 直接复用；它调用编译后的反向 `call()`，内部是一个融合 Kernel 加两次 cuBLAS。再往前是 `x`、`weight`、`bias` 的叶子节点，梯度累加到 `.grad`。
 
 [《自动求导与动态计算图》](/pytorch-autograd-and-dynamic-computation-graph.html)的 Autograd 引擎、[《nn.Module 与训练系统》](/pytorch-module-and-training-system.html)的参数与 Optimizer、本篇的编译产物，在这一步汇合：**编译改变的是节点内部的执行方式，没有改变 Autograd 图的拓扑和 Optimizer 看到的接口**。
 

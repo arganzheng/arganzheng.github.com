@@ -2559,6 +2559,23 @@ How it is built (`_plugins/moments.rb`):
   section by section and ask "would a reader understand this faster from a
   picture?"; if yes, add one. Each diagram must carry an explanation the text
   cannot easily give — no decorative figures.
+  - **Mechanisms get a data-structure figure, not only a flowchart** (author,
+    2026-11-28, Discussion #372 on PyTorch 07: 「对于底层原理的概念，不能只是画
+    流程图（算法），还得画数据结构图（内存），程序 = 算法 + 数据结构」). When a
+    section explains how something works underneath (a cache, a graph
+    transform, fusion, memory reuse, a runtime hook), draw both: the steps
+    (Mermaid flowchart) *and* the objects the steps read and write — which
+    objects exist, their fields, who points to whom, what sits in which
+    buffer, before / after the step (hand SVG: records with field rows,
+    arrays with index cells, graphs with real node names, a cut line, a
+    highlighted cell). Use the real class / field / node names of the pinned
+    source, and follow the figure with a short 「**说明**：」 list. Examples in
+    PyTorch 07: `…-dynamo-outputs.svg` (code object → ExtraState →
+    CacheEntry), `…-joint-graph.svg` (nodes, edges, cut), `…-grad-fn-node.svg`
+    (where saved tensors live), `…-fusion-buffers.svg` (IR nodes and buffers
+    before / after fusion, one element's read / write). Generators:
+    `~/Desktop/blog-compare/_tools/svg-gen/` (`_svglib.py` is the shared
+    helper).
   - **The test is gain, not coverage.** Before drawing, ask what the diagram
     shows that the surrounding text/list/table does not: a mapping (index ↔
     storage), a concurrency relation (two streams, who waits for whom), a

@@ -292,7 +292,17 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。AOT 是 Ahead-Of-Time：反向图在编译时提前得到。编译产物分两层：外层是改写后的 Python 字节码，仍由 CPython 执行；它调用 call()，call() 启动的 Kernel 才是机器码。FX Graph × 2 指前向图和反向图，都是 ATen 级 FX Graph。add + relu 的 Kernel 融合发生在 Inductor 的 Scheduler，改的是 Inductor IR，不是 FX Graph。Guard 和改写后的字节码成对存成一条 CacheEntry，挂在原 code object 上；f.__code__ 不变，每次调用时钩子检查 Guard，命中就用新 code object 另建一帧执行。
+原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。AOT 是 Ahead-Of-Time：反向图在编译时提前得到。编译产物分两层：外层是改写后的 Python 字节码，仍由 CPython 执行；它调用 call()，call() 启动的 Kernel 才是机器码。FX Graph × 2 指前向图和反向图，都是 ATen 级 FX Graph。add + relu 的 Kernel 融合发生在 Inductor 的 Scheduler，改的是 Inductor IR，不是 FX Graph。Guard 和改写后的字节码成对存成一条 CacheEntry，挂在原 code object 上；f.__code__ 不变，每次调用时钩子检查 Guard，命中就用新 code object 另建一帧执行。前向图多返回的保存值由 ctx.save_for_backward 存进这次调用的 CompiledFunctionBackward 节点；反向图默认到第一次 backward() 才交给 Inductor 编译。Inductor 每张图生成一个 Python 文件，Kernel 源码以字符串写在里面；CUDA 默认生成 Triton，CPU 默认生成 C++，都可以用配置项换。
+</aside>
+
+<!-- v -->
+
+### 融合改的是数据：3 个 buffer 变成 1 次分配
+
+![融合前后的 IR 节点与 buffer，以及融合 Kernel 怎样按下标读写](/img/in-post/pytorch-compilation-and-graph-optimization-fusion-buffers.svg){: style="max-height: 540px"}
+
+<aside class="notes" markdown="1">
+add 和 relu 都是按下标算一个元素的函数，复合成一个循环体 max(buf0[i] + bias[i % 64], 0)，add 的输出只在寄存器里。mm 的输出只被融合节点读，且每个下标先读后写同一位置，所以直接写回 mm 的那块内存：三个 buffer 变成一次分配。bias 只有 64 个元素，下标 i 读 bias[i % 64]。
 </aside>
 
 <!-- v -->
