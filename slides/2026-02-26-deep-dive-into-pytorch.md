@@ -292,7 +292,7 @@ flowchart LR
 ```
 
 <aside class="notes" markdown="1">
-原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。AOT 是 Ahead-Of-Time：反向图在编译时提前得到。编译产物分两层：外层是改写后的 Python 字节码，仍由 CPython 执行；它调用 call()，call() 启动的 Kernel 才是机器码。FX Graph × 2 指前向图和反向图，都是 ATen 级 FX Graph。add + relu 的 Kernel 融合发生在 Inductor 的 Scheduler，改的是 Inductor IR，不是 FX Graph。
+原文 /pytorch-compilation-and-graph-optimization.html。backend="eager" / "aot_eager" / "inductor" 三档定位问题在哪一段。AOT 是 Ahead-Of-Time：反向图在编译时提前得到。编译产物分两层：外层是改写后的 Python 字节码，仍由 CPython 执行；它调用 call()，call() 启动的 Kernel 才是机器码。FX Graph × 2 指前向图和反向图，都是 ATen 级 FX Graph。add + relu 的 Kernel 融合发生在 Inductor 的 Scheduler，改的是 Inductor IR，不是 FX Graph。Guard 和改写后的字节码成对存成一条 CacheEntry，挂在原 code object 上；f.__code__ 不变，每次调用时钩子检查 Guard，命中就用新 code object 另建一帧执行。
 </aside>
 
 <!-- v -->

@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（07）：编译执行与图优化"
 subtitle: "Compilation and Graph Optimization in PyTorch"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-27
+updated: 2026-11-28
 ---
 
 前两篇讨论的是**单个算子**：[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)解释一次 `torch.add` 调用如何经过入口、分发、执行；[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)把一个自定义算子接入了同样的路径。无论原生还是自定义，每个算子都是独立走完这条路的。
@@ -413,7 +413,7 @@ Table: 同一个 Graph 承载的三种词汇层级
 
 第二章已经看到 `symbolic_trace(f)` 在 `if x.shape[0] > 64` 处报错。根本原因是 `Proxy` 只能记录对它自身的操作，不知道自己代表的 Tensor 有什么值、什么 shape；一旦 Python 需要从它身上得到一个具体答案（`bool`、`int`、索引），追踪就中断了。
 
-无论分支条件依赖的是 Tensor 的 **shape**（`x.shape[0] > 64`）还是**值**（`x.sum() > 0`），`symbolic_trace` 都会报同一个错。而真实模型里到处都是这类代码：根据序列长度选择分支、根据配置决定是否走某一层、在循环中依赖 Tensor 形状。此外 `symbolic_trace` 是全有或全无的——遇到无法追踪的代码只能报错，不能“把能编译的部分编译，剩下的保持 Eager”。
+无论分支条件依赖的是 Tensor 的 **shape**（`x.shape[0] > 64`）还是**值**（`x.sum() > 0`），`symbolic_trace` 都会报同一个错。而真实模型里到处都是这类代码：根据序列长度选择分支、根据配置决定是否走某一层、在循环中依赖 Tensor 形状。此外 `symbolic_trace` 是全有或全无的——遇到无法追踪的代码只能报错，不能**“把能编译的部分编译，剩下的保持 Eager”**。
 
 Dynamo 的设计目标正好相反：**尽最大努力捕获，捕获不了的地方交还 Python**。要做到这一点，它必须工作在比 Python 函数调用更底层的位置。
 
@@ -453,9 +453,59 @@ Dynamo 通过 CPython 的帧求值钩子（PEP 523）介入：在解释器执行
 
 Table: Dynamo 逐条解释 f 的字节码：模拟栈的变化与产出的 FX 节点
 
-若条件换成 `x.sum() > 0`：`COMPARE_OP` 的结果是 `T(...)` 而不是 `True` / `False`，`POP_JUMP_IF_FALSE` 无法决定跳转方向 → graph break：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值，两个分支各自在第一次走到时再编译成一张图（[第六章 §1 的例子](#1-graph-break捕获的边界)）。
+表里 `f` 的条件 `x.shape[0] > 64` 读的是 Tensor 的 **shape**。另有一类条件读的是 Tensor 里的**数值**，比如 `if x.sum() > 0`（第六章的函数 `f_val`）。两者走到 `COMPARE_OP` 时结果不同：
 
-FakeTensor 是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里 Meta Tensor 的扩展：只有 shape、stride、dtype 和一个“假装的”device，不持有数据。Dynamo 用它跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
+| | `if x.shape[0] > 64` | `if x.sum() > 0` |
+|---|---|---|
+| 条件读的是 | shape，属于元数据 | Tensor 里的数值 |
+| 编译时知不知道 | 知道：FakeTensor 带着 shape，`x.shape[0]` 是 Python 整数 `128` | 不知道：FakeTensor 不持有数据，`x.sum()` 是 `T(...)` |
+| `COMPARE_OP` 的结果 | `128 > 64`，得到 Python 的 `True` | `T(...) > 0`，得到的还是 `T(...)` |
+| `POP_JUMP_IF_FALSE` | 方向已定，继续追踪 `relu` 分支 | 方向未知，graph break |
+
+Table: 两种分支条件走到 COMPARE_OP 时的区别
+
+**说明**：
+
+1. 两个都是 `if`，区别在条件的结果编译时有没有。`x.sum() > 0` 在 Eager 里算出来的也不是 `True` / `False`，而是一个只含一个 bool 的 Tensor；`if` 对它调用 `bool()`，从 Tensor 里读出那个数，才得到 Python 的真假。编译时 Tensor 里没有数据，这一步读不出来。
+2. `x.shape[0] > 64` 走到 `else` 分支不属于这种情况。batch 是 32 时 `COMPARE_OP` 得到 Python 的 `False`，跳转方向同样已定，Dynamo 继续追踪 `tanh` 分支，得到另一张完整的图，没有 graph break（本章 §5）。
+3. graph break 之后：到此为止的节点先编译成一张图，`if` 交还 Python 在运行时求值，两个分支各自在第一次走到时再编译成一张图（[第六章 §1 的例子](#1-graph-break捕获的边界)）。
+
+FakeTensor 是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里 Meta Tensor 的扩展。两者都只有 shape、stride、dtype，不持有数据。Meta Tensor 不是一个单独的类，它是 device 为 `meta` 的普通 `Tensor`；FakeTensor 是 `Tensor` 的 Python 子类，内部包着一个 Meta Tensor，另外多了几个字段：
+
+```mermaid
+%% 图：Meta Tensor 与 FakeTensor 的类关系
+classDiagram
+    direction LR
+    class Tensor {
+        shape、stride、dtype
+        device
+        Storage（数据）
+    }
+    class FakeTensor {
+        fake_device
+        fake_mode
+        constant
+        device 属性返回 fake_device
+    }
+    class FakeTensorMode {
+        shape_env
+        拦截每一次算子调用
+    }
+    Tensor <|-- FakeTensor : Python 子类
+    FakeTensor --> FakeTensorMode : fake_mode
+    note for Tensor "Meta Tensor：device 为 meta、没有数据的 Tensor"
+```
+
+| 多出来的东西 | 字段 | 用处 |
+|---|---|---|
+| 假装的 device | `FakeTensor.fake_device` | Meta Tensor 的 device 一律是 `meta`，看不出原来在 CPU 还是 CUDA。FakeTensor 记下真实 Tensor 的 device，`x.device` 返回的是它，所以程序里按 device 写的分支照常走，两个输入 device 不一致时照常报错 |
+| 所属的模式 | `FakeTensor.fake_mode`，指向一个 `FakeTensorMode` | 模式拦截每一次算子调用：用 Meta Kernel 算出输出的 shape、dtype，按输入的 device 定出输出的 `fake_device`，再把结果包成新的 FakeTensor |
+| 符号 shape | `FakeTensorMode.shape_env` | shape 的某一维可以是符号 `s0` 而不是整数，Dynamic Shape 靠它（第六章 §3） |
+| 常量的真实值 | `FakeTensor.constant` | 只有一个元素、编译时就知道值的 Tensor（如 `torch.tensor(3)`）保留真实值，编译时可以直接读出来 |
+
+Table: FakeTensor 比 Meta Tensor 多出来的东西
+
+Dynamo 用 FakeTensor 跑一遍程序，得到每个中间结果的元数据，但不做任何真实计算。这也是[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)强调自定义算子必须注册 Fake 实现的原因：没有它，Dynamo 走到这个算子就无法继续推断。
 
 > [!NOTE] Java 经验参照：Truffle 的部分求值
 > 熟悉 GraalVM Truffle 的读者可以把这一步看作一种部分求值（partial evaluation）：把一部分输入当作已知量，能算的在编译期算掉，算不了的留作残余代码。Dynamo 把 Python 值当已知量在模拟栈上折叠，Tensor 操作作为残余进入 FX Graph。特化的对象不同：Truffle 特化的是语言解释器（被解释的程序当常量），Dynamo 特化的是用户函数本身。两边都要记下“当作已知量”的前提，在前提不成立时让产物失效；Dynamo 这边记下的就是 Guard。
@@ -470,12 +520,50 @@ FakeTensor 是[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operato
 
 第三项常被忽略，但它是 Dynamo 与其他方案的根本区别：它**修改的是 Python 函数的执行方式**，而不是要求用户把模型导出成另一种格式。原函数仍然是 Python 函数，只是帧被替换了。
 
+![Dynamo 的三样产物存放在哪里](/img/in-post/pytorch-compilation-and-graph-optimization-dynamo-outputs.svg)
+
+**说明**：
+
+1. ② 和 ③ 成对存放。一次编译得到一条 `CacheEntry`，它的 `guard_manager` 是 ②，`code` 是 ③。条目挂在 `f` 的 code object 上（CPython 给每个 code object 留了 extra 槽位），不在函数对象上。
+2. ① 不直接存放。FX Graph 交给 backend，编译出一个可调用对象，以 `__compiled_fn_` 开头的名字放进 `f` 的全局变量表；③ 按这个名字取出它并调用。
+3. `f.__code__` 自始至终是原来的字节码。被替换的是每次调用时的**帧**，过程如下图。
+
+```mermaid
+%% 图：调用 f 时原帧怎样被替换
+flowchart TB
+    CALL["<b>调用 f(x, weight, bias)</b><br/>• CPython 为 f 建好一帧：原字节码 + 三个实参<br/>• 执行之前，帧求值钩子先拿到这一帧"]
+    CALL --> LOOK["<b>查缓存</b><br/>• 从原 code object 的 extra 槽位取出 cache_entry_list<br/>• 用这一帧的实参逐条检查 Guard"]
+    LOOK --> HIT{"有一条的 Guard 全部成立？"}
+    HIT -->|"有"| RUN["<b>换帧执行</b><br/>• 用这一条的 code 新建一帧<br/>• 把原帧的实参拷进新帧<br/>• 执行新帧，原帧的字节码不再执行"]
+    HIT -->|"没有"| COMP["<b>编译</b><br/>• Dynamo 符号求值原帧的字节码<br/>• 得到 FX Graph、Guard、新 code object<br/>• 追加一条 CacheEntry"]
+    COMP --> RUN
+    RUN --> RET["新帧的返回值交还调用方"]
+```
+
+第一次调用时链表是空的，走“没有”一支。之后同 shape 的调用走“有”一支，开销只剩检查 Guard。源码位置：`torch/csrc/dynamo/eval_frame_cpp.cpp`（查缓存与回调）、`torch/csrc/dynamo/eval_frame.c` 的 `dynamo_eval_custom_code`（新建一帧执行）、`torch/csrc/dynamo/cache_entry.h` 的 `CacheEntry`。
+
 > [!NOTE] Java 经验参照：编译单元
 > HotSpot 以方法为单位编译（加上内联进来的被调方法，以及热循环的栈上替换入口）：方法的字节码变成机器码，语义单元不变。Dynamo 沿着这一次调用实际走过的路径追踪字节码，只把其中的 Tensor 操作抽成图；列表操作、字典查找、字符串格式化这些 Python 逻辑，要么在符号求值时折叠掉，要么留在改写后的字节码里继续由 CPython 执行。编译产物与残余的 Python 代码交织在同一个函数里，这种做法更接近追踪式 JIT，而不是 HotSpot 的方法级 JIT。
 
 ### 4. 看一眼 Dynamo 的图：只有被走到的分支
 
-第一章说过，`backend` 参数决定 Dynamo 捕获完图之后交给谁。它除了接受 `"inductor"`、`"eager"`、`"aot_eager"` 这些内置名字，也接受任意一个函数：接收捕获到的 `GraphModule` 和示例输入，返回一个可调用对象。传一个只打印不优化的函数，就能直接观察 Dynamo 的图：
+第一章说过，`backend` 参数决定 Dynamo 捕获完图之后交给谁。它除了接受 `"inductor"`、`"eager"`、`"aot_eager"` 这些内置名字，也接受任意一个函数：接收捕获到的 `GraphModule` 和示例输入，返回一个可调用对象。传一个只打印不优化的函数，就能直接观察 Dynamo 的图。
+
+> [!NOTE] Java 经验参照：重载
+> 这里没有用重载。Python 不按参数类型在多个同名函数里选一个，`torch.compile` 只有一个实现，`backend` 参数的类型标注是“字符串或可调用对象”：
+>
+> ```python
+> def compile(model=None, *, fullgraph=False, dynamic=None,
+>             backend: str | Callable = "inductor",
+>             mode=None, options=None, disable=False): ...
+> ```
+>
+> 函数体在运行时判断 `backend` 的类型：
+>
+> - 是字符串：按名字找到对应的函数。`"inductor"` 有专门的包装类，其余名字到 backend 注册表里查（`torch/_dynamo/backends/registry.py` 的 `lookup_backend`）。
+> - 本来就是函数：直接使用。
+>
+> 所以内置名字只是注册表里已有函数的代号，`torch.compiler.list_backends()` 列出它们。Java 里要做同样的事，会写 `compile(String backend)` 和 `compile(BackendFn backend)` 两个重载，由编译器按实参的静态类型选；Python 写成一个函数加一次 `isinstance` 判断。源码里 `compile` 上面有两条 `@overload` 声明，那是给类型检查器看的，区分的是 `model` 传与不传时的返回类型，运行时不起作用。
 
 ```python title="print_backend：只打印不优化的自定义 backend"
 def print_backend(gm: torch.fx.GraphModule, example_inputs):
@@ -573,22 +661,22 @@ AOTAutograd 的名字就是它的做法：**Ahead-Of-Time** 地运行一遍 Auto
 %% 图：AOTAutograd 的 joint graph：前向与反向节点在同一张图上，切分器的割线决定哪些中间值成为 saved tensors
 flowchart TB
     IN["<b>Dynamo 的 torch 级前向图</b><br/>matmul → add → relu"]
-    IN --> TR["FakeTensor 执行前向，Autograd 照常记录 grad_fn<br/>对输出调用反向，引擎回溯的每一步也被追踪成节点"]
+    IN --> TR["<b>用 FakeTensor 追踪</b><br/>• 执行前向，Autograd 照常记录 grad_fn<br/>• 对输出调用反向，引擎回溯的每一步也被追踪成节点"]
     TR --> JG
     subgraph JG["joint graph：前向 + 反向在同一张 FX Graph 里"]
         direction TB
-        MM["<b>aten.mm(x, weight)</b><br/>输入 x、weight 反向要用 → 保存"]
-        ADD["<b>aten.add(mm, bias)</b><br/>反向不需要，体积大、重算便宜 → 不保存"]
-        RL["<b>aten.relu(add)</b><br/>threshold_backward 需要 → 保存"]
+        MM["<b>aten.mm(x, weight)</b><br/>• 输入 x、weight 反向要用<br/>• 保存"]
+        ADD["<b>aten.add(mm, bias)</b><br/>• 反向不需要<br/>• 体积大、重算便宜<br/>• 不保存"]
+        RL["<b>aten.relu(add)</b><br/>• threshold_backward 需要<br/>• 保存"]
         THB["aten.threshold_backward(tangent, relu, 0)"]
-        GR["<b>三个梯度</b><br/>aten.mm(grad, weight.t) → grad_x<br/>aten.mm(x.t, grad) → grad_weight<br/>aten.sum(grad, 0) → grad_bias"]
+        GR["<b>三个梯度</b><br/>• aten.mm(grad, weight.t) → grad_x<br/>• aten.mm(x.t, grad) → grad_weight<br/>• aten.sum(grad, 0) → grad_bias"]
         MM --> ADD --> RL --> THB --> GR
     end
-    JG --> CUT["<b>min-cut 分区</b><br/>在前向节点与反向节点之间找一条割线<br/>目标：割线穿过的张量总体积最小<br/>体积小、重算贵 → 保存<br/>体积大、重算便宜 → 留给反向重算"]
-    CUT --> FW["<b>前向图</b><br/>输出 relu<br/>额外输出 saved tensors:<br/>relu、x、weight"]
-    CUT --> BW["<b>反向图</b><br/>输入 saved tensors + tangent<br/>输出三个梯度"]
+    JG --> CUT["<b>min-cut 分区</b><br/>• 在前向节点与反向节点之间找一条割线<br/>• 目标：割线穿过的张量总体积最小<br/>• 体积小、重算贵 → 保存<br/>• 体积大、重算便宜 → 留给反向重算"]
+    CUT --> FW["<b>前向图</b><br/>• 输出：relu<br/>• 额外输出 saved tensors：relu、x、weight"]
+    CUT --> BW["<b>反向图</b><br/>• 输入：saved tensors + tangent<br/>• 输出：三个梯度"]
     FW -.->|"saved tensors"| BW
-    BW --> TRADE["<b>权衡</b><br/>多保存：显存高、反向快<br/>少保存：显存低、反向多算一段前向<br/>（《性能优化与调试》里 Activation Checkpointing 的自动化版本）"]
+    BW --> TRADE["<b>权衡</b><br/>• 多保存：显存高、反向快<br/>• 少保存：显存低、反向多算一段前向<br/>• 即《性能优化与调试》里 Activation Checkpointing 的自动化版本"]
     classDef saved fill:#e3f2e1,stroke:#2e7d32;
     classDef recomp fill:#fff3e0,stroke:#ef6c00;
     classDef bwd fill:#e8eaf6,stroke:#3949ab;
