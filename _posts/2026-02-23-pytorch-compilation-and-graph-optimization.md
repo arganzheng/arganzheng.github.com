@@ -1221,7 +1221,19 @@ flowchart TB
 
 注意第二次编译时 Guard 从 `== 128` 变成了 `> 64`：Dynamo 在符号维度上追踪分支条件时，记录的是**让当前分支成立的约束**，而不是具体值。分支条件本身变成了 Guard。最终这个函数积累了三份编译产物：最初的静态 `relu` 版，以及动态的 `relu`、`tanh` 两版。后两版由 `s0 > 64` 这条分支 Guard 区分；完整 Guard 还包含其他元数据和 shape 约束。这保留了原始 Python 程序里那个 `if` 的语义，只是判断从 Python 解释器移到了 Guard 检查。
 
-也可以显式控制：`torch.compile(f, dynamic=True)` 让所有维度一开始就是符号；`torch._dynamo.mark_dynamic(x, 0)` 标记特定维度；`mark_static` 反之。
+**走哪一种策略由 `torch.compile` 的 `dynamic` 参数决定**：
+
+| `dynamic=` | 第一次编译 | shape 变了以后 |
+|---|---|---|
+| `None`（默认） | 所有维度都是常量 | 重编译一次，把变了的维度标成符号；之后这一族 shape 都复用 |
+| `True` | 一开始就尽量把维度当作符号 | 多数情况不用重编译；有些算子或优化仍会把某一维特化成常量 |
+| `False` | 所有维度都是常量 | 每个新 shape 都重编译一次；条目到 8 条后退回 Eager |
+
+Table: dynamic 参数的三种取值
+
+只想让某一维是符号，用 `torch._dynamo.mark_dynamic(x, 0)`；`mark_static` 反之。`TORCH_LOGS=dynamic` 可以看到哪一维被特化成了常量。
+
+所以“换一个 batch size 就慢一次”有两种情形。默认配置下只慢一次，那是把这一维改成符号的重编译。每次都慢，说明这一维一直是常量：要么设了 `dynamic=False`，要么它被某个算子特化了。
 
 代价是生成的代码不能再把 shape 当常量：Kernel 的 `xnumel` 变成运行时参数，索引算术里出现 `s0`，某些依赖具体值的优化（如按 shape 选择最优 tile 大小）不再可用。因此默认从静态开始，只在观察到变化后才动态化。
 
@@ -1574,11 +1586,17 @@ Table: 本篇涉及的源码位置
 
    </details>
 
-3. `torch.compile` 后第一次调用慢几十秒、之后每次换一个 batch size 又慢一次——原因是什么？怎么办？
+3. 默认配置下，`torch.compile` 后第一次调用慢几十秒；第二次换了 batch size，又慢一次；第三次再换，不慢了。三次各发生了什么？如果每次换 batch size 都慢，原因是什么，怎么办？
 
    <details markdown="1"><summary>答案</summary>
 
-   静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；用 `dynamic=True` 或 `mark_dynamic` 让 shape 成为符号（SymInt），一张图覆盖多种大小，代价是少一些特化优化。
+   1. 第一次：冷编译。按当时的 shape 静态编译，batch 大小是常量，Guard 是 `size()[0] == 128`。
+   2. 第二次：这条 Guard 失败，重编译。这一次自动把变了的那一维标成符号 `s0`（SymInt），Guard 变成关于 `s0` 的约束。
+   3. 第三次：新的 batch 大小满足这条约束，直接复用，不再编译。
+   4. 每次都慢：说明这一维一直是常量，每个新 shape 都是一次 Guard 失败加一次重编译。常见原因是设了 `dynamic=False`，或这一维被某个算子特化成了常量（用 `TORCH_LOGS=dynamic` 查）。
+   5. 想连第二次的重编译也省掉：用 `dynamic=True`，或用 `mark_dynamic(x, 0)` 只标这一维。代价是 shape 不再是常量，少一些特化优化。
+
+   详见[第六章「Dynamic Shape：不为每个 shape 重编」](#3-dynamic-shape不为每个-shape-重编)。
 
    </details>
 
@@ -1586,7 +1604,16 @@ Table: 本篇涉及的源码位置
 
    <details markdown="1"><summary>答案</summary>
 
-   省 HBM 访存与 kernel launch：Eager 是三个 kernel、每个把整个 Tensor 读一遍写一遍；Inductor 生成一个 Triton kernel，每个元素读一次、算完写一次——memory-bound 算子的时间由字节数决定，融合直接砍掉 2/3。
+   省的是中间结果在显存里的往返和 Kernel launch。这个式子里的三个算子都是逐元素的：`* 2` 是每个元素乘以 2，不是矩阵乘法（矩阵乘法写作 `@`）。所以三个都是 Pointwise 节点，融合成一个 Triton Kernel。设 `x` 有 N 个元素，`b` 与 `x` 同 shape：
+
+   | | Kernel | 访存 |
+   |---|---|---|
+   | Eager | `relu`、`mul`、`add` 三个 | `relu` 读 N 写 N，`mul` 读 N 写 N，`add` 读 2N 写 N，共 7N |
+   | Inductor | 一个融合 Kernel | 读 `x` 和 `b` 共 2N，写 N，共 3N |
+
+   访存从 7N 降到 3N，launch 从 3 次降到 1 次。逐元素算子的时间由搬运的字节数决定，所以耗时大致按这个比例下降。
+
+   如果中间换成矩阵乘法（`x.relu() @ w + b`），就融合不成一个 Kernel：`mm` 是 ExternKernel，默认交给 cuBLAS，不参与融合，前面的 `relu` 和后面的 `add` 被它隔开，各自成为一个 Kernel，一共三个（[第五章「融合决策」](#3-融合决策)）。
 
    </details>
 
