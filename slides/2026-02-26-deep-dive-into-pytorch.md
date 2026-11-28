@@ -307,13 +307,23 @@ add 和 relu 都是按下标算一个元素的函数，复合成一个循环体 
 
 <!-- v -->
 
+### 融合 Kernel 不查 Operator Table：入口比一次 Guard
+
+![按设备选实现：Eager 查 Operator Table，编译后比 Guard 选缓存条目](/img/in-post/pytorch-compilation-and-graph-optimization-dispatch-vs-guard.svg){: style="max-height: 540px"}
+
+<aside class="notes" markdown="1">
+融合 Kernel 没有 Schema，Operator Table 里没有它的行。按 device、dtype 选实现在编译时做完：Inductor 按 Tensor 的 device 选 Triton 或 C++。运行时 Guard 在入口比较每个 Tensor 的 DispatchKeySet、dtype、device 编号、requires_grad、shape；换成 CPU Tensor 则 Guard 不通过，重新编译出 CPU 版，作为第二个缓存条目。extern_kernels.mm 就是 torch.mm，仍走一次 Dispatcher；没有 lowering 的算子（如 aten.sort）也照常走。
+</aside>
+
+<!-- v -->
+
 ## 要点
 
-**热路径 3 分发 → 0、3 launch → 2**
+**热路径：3 个算子分发 → 1 个、3 launch → 2**
 
 | 要点 | 细节 |
 |---|---|
-| 热路径：3 次分发 → 0 次、3 次 launch → 2 次 | Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8 |
+| 热路径：3 个算子分发 → 只剩 mm 一个、3 次 launch → 2 次 | Guard `size[0] == 128` → `s0 > 64`；缓存条目上限 8 |
 
 <!-- v -->
 
@@ -321,6 +331,7 @@ add 和 relu 都是按下标算一个元素的函数，复合成一个循环体 
 ### 常见误区
 
 - 「换 batch size 变慢是编译器 bug」——默认只慢一次：重编译把这一维改成符号；每次都慢是 `dynamic=False` 或被特化
+- 「编译后完全不经过 Dispatcher」——融合 Kernel 不经过；`extern_kernels.mm` 和没有 lowering 的算子照常分发
 - 「`if x.sum() > 0` 把函数切成前后两张图」——是 `if` 之前一张、两个分支各一张；分支的图第一次走到才编译
 
 <!-- v -->

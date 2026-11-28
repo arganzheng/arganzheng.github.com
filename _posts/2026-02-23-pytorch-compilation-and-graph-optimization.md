@@ -817,7 +817,7 @@ Table: Inductor 在各种 device 上默认生成的 Kernel
 
 所以 “GPU 用 Triton、CPU 用 C++” 是默认配置，不是固定搭配。依据是 `torch/_inductor/codegen/common.py` 的 `init_backend_registration` 和 `torch/_inductor/config.py`。
 
-这个文件可以直接读。这是 Inductor 与许多编译器不同的地方：**它的产物是人可读的源码，而不是二进制**。从源码到二进制的那一步，交给下游的 Triton 编译器或 C++ 编译器（§5）。
+这个文件可以直接读。这是 Inductor 与许多编译器不同的地方：**它的产物是人可读的源码，而不是二进制**。从源码到二进制的那一步，交给下游的 Triton 编译器或 C++ 编译器（§6）。
 
 ### 2. 内部步骤
 
@@ -961,7 +961,7 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 这里有几个值得对照前几篇的细节：
 
 - **广播变成了索引算术**。[《Tensor 与内存布局》](/pytorch-tensor-and-memory-layout.html)讲 `bias` 广播到 `(128, 64)` 在 Eager 里靠 stride 为 0 的 view，[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)讲 TensorIterator 负责按 stride 遍历。这里两者都不存在了：`x0 = xindex % 64` 直接在生成代码里算出 `bias` 的读取位置。编译器把运行时的元数据解释**固化成了编译期的代码**。
-- **Triton 部分没有 Dispatcher**。`call()` 里的 Triton Kernel 是直接 launch，不经过 Operator Table。`extern_kernels.mm` 则不然：它就是 `torch.mm`（`torch/_inductor/kernel/mm.py`：`aten_mm = ExternKernelChoice(torch.mm, "at::mm_out", op_overload=aten.mm.out)`），照常走一次 Dispatcher 到 cuBLAS——只是这一次没有 Autograd 包装（反向已由 AOTAutograd 单独编译），也没有 Python 层的参数解析。所以编译省掉的是**逐元素算子**的分发与 Python 开销，不是把 Dispatcher 整个绕开。
+- **融合 Kernel 不经过 Dispatcher**。`call()` 里的 Triton Kernel 是直接 launch，不查 Operator Table；`extern_kernels.mm` 就是 `torch.mm`，照常走一次 Dispatcher 到 cuBLAS。所以编译省掉的是**逐元素算子**的分发与 Python 开销，不是把 Dispatcher 整个绕开。按设备选实现这件事改由谁做，见 §5。
 - **内存复用是静态决定的**。`buf1 = buf0` 不是运行时分配器的决定，而是编译器看到 `mm` 的输出在 `add` 之后不再被引用，直接原地写。
 - **shape 被烧进了代码**。`128`、`64`、`8192` 都是常量。这是 Guard 存在的原因之一：输入 shape 一变，这份代码就不再正确。
 
@@ -974,9 +974,51 @@ Kernel 名字编码了它的来源：`poi` 是 pointwise（`red` 是 reduction�
 3. 融合 Kernel 对每个元素先用 `tl.load` 读取 mm 的输出，再算 `add` 得到寄存器里的 `tmp2`，接着算 `relu`，用 `tl.store` 原地写回。该元素的 mm 输出在读取后不再需要。
 4. `return` 返回 `buf1` 引用，不等待 GPU 计算完成。Eager 的 `t1`、`y`、`out` 需要三次分配；这里 `buf0` 只分配一次，`buf1` 只是别名。
 
-图里的横轴只表示依赖顺序，不表示耗时；融合 Kernel 内按单个元素展开，不表示线程块之间有同步。`add` 的输出没有对应的显存，只在寄存器中短暂存在。这正是融合收益的来源（§6）。
+图里的横轴只表示依赖顺序，不表示耗时；融合 Kernel 内按单个元素展开，不表示线程块之间有同步。`add` 的输出没有对应的显存，只在寄存器中短暂存在。这正是融合收益的来源（§7）。
 
-### 5. Triton 是什么，为什么选它
+### 5. 融合 Kernel 走不走 Dispatcher
+
+不走。`triton_poi_fused_add_relu_0` 不是一个算子：它没有 Schema，没有向 Dispatcher 注册，Operator Table 里没有它的行，也就没有人去填。它只是 Inductor 生成的那个 Python 模块里的一个对象，`call()` 调用它，就是一次普通的 Python 调用，里面直接 launch 编译好的 Kernel。
+
+[《Dispatcher 与算子系统》](/pytorch-dispatcher-and-operator-system.html)里，Dispatcher 在每次算子调用时按 Tensor 的 DispatchKeySet 选实现。编译之后，这些选择在编译时做完，运行时只在入口核对一次：
+
+| Dispatcher 在 Eager 里做的事 | 编译后由谁做 | 什么时候做 |
+|---|---|---|
+| 按 device 选实现 | Inductor 按图里 Tensor 的 device 选代码生成后端：`cuda` 生成 Triton，`cpu` 生成 C++（§1 的表） | 编译时，一次 |
+| 按 dtype 选实现 | dtype 在捕获时已经确定，直接写进生成的 Kernel 和 `call()`（上面代码里的 `torch.float32`） | 编译时，一次 |
+| 套 Autograd 包装，记录反向节点 | AOTAutograd 已经把反向图单独编译好，整个产物在 Autograd 里只有一个节点（第四章 §6） | 编译时，一次 |
+| 保证选出的实现与这次的输入相符 | Guard：对每个 Tensor 输入比较 DispatchKeySet、dtype、device 编号、`requires_grad` 和 shape | 每次调用，在入口做一次 |
+
+Table: Dispatcher 在 Eager 里做的事，编译后由谁做
+
+Guard 里比较的 DispatchKeySet，就是 Eager 下 Dispatcher 用来查表的那个 DispatchKeySet。一个产物是按 CUDA Tensor 编译的，传进来一个 CPU Tensor，这一条 Guard 就不通过，这次调用不会进入 CUDA 版的产物。Dynamo 重新编译，得到 CPU 版的产物，作为 `f` 的第二个缓存条目（第六章 §2）。
+
+所以 Operator Table 在编译后的对应物是 `f` 的缓存条目链表：Eager 是每个算子按 DispatchKeySet 查一次表，编译后是整个函数按 Guard 选一个条目。两者存放的东西如下图：
+
+![按设备选实现：Eager 查 Operator Table，编译后比 Guard 选缓存条目](/img/in-post/pytorch-compilation-and-graph-optimization-dispatch-vs-guard.svg)
+
+**说明**：
+
+1. 上半是 Eager。Operator Table 每个算子一行、每个 DispatchKey 一列，由各后端的注册代码在 `import torch` 时填好。`f` 的一次前向有三个算子，每个算子各查一次，取 `[CUDA]` 那一列的 Kernel。
+2. 下半是编译后。`f` 的缓存条目不是事先填好的：某一种输入第一次出现时，Dynamo 编译出一个条目追加进去。条目里有一组 Guard 和一份产物，哪个设备的 Kernel 已经写死在产物的 `call()` 里。
+3. `call()` 里有两类调用。融合 Kernel（Triton 的 `triton_poi_fused_add_relu_0`、C++ 的 `cpp_fused_add_relu_0`）不查表，直接执行。`extern_kernels.mm` 仍然查表：它就是 `torch.mm`，按 Tensor 的 DispatchKeySet 分发到 cuBLAS 或 CPU 的 BLAS。
+
+`call()` 里的调用是否经过 Dispatcher，按种类分：
+
+| `call()` 里的调用 | 例子 | 是否经过 Dispatcher |
+|---|---|---|
+| 融合 Kernel | `triton_poi_fused_add_relu_0`、`cpp_fused_add_relu_0` | 不经过，直接执行 |
+| Extern Kernel | `extern_kernels.mm`，即 `torch.mm` | 经过，一次。此时梯度模式是关闭的，经过 Autograd 那一层时不记录反向节点 |
+| Inductor 没有 lowering 的算子 | `aten.sort`：生成的代码里就是对 `torch.ops.aten.sort` 的调用 | 经过，与 Eager 相同 |
+| 分配 buffer | `empty_strided_cuda` | 不经过，直接调用 C++ 的分配函数 |
+
+Table: call() 里的四类调用是否经过 Dispatcher
+
+Dispatcher 在编译期仍然要用。AOTAutograd 追踪时每个算子照常经过 Dispatcher，函数化、分解、Autograd 的记录都是靠它完成的（第四章）。省掉的是热路径上逐元素算子的那些查表。
+
+依据是 `torch/csrc/dynamo/guards.cpp` 的 `TensorCheck`（Guard 对 Tensor 比较的字段）、`torch/_inductor/codegen/common.py` 的 `device_codegens` 与 `register_backend_for_device`（device 到代码生成后端的注册表）、`torch/_inductor/scheduler.py` 的 `Scheduler.get_backend`（按节点的 device 取后端）、`torch/_inductor/lowering.py` 的 `make_fallback`（没有 lowering 的算子）。
+
+### 6. Triton 是什么，为什么选它
 
 Triton 是一种用 Python 语法编写 GPU Kernel 的语言和编译器。与 CUDA C++ 的差别在抽象层级：**CUDA 以线程为单位编程，开发者管理线程索引、共享内存、同步；Triton 以块（block）为单位，开发者描述一个块处理哪些元素，编译器负责线程映射、内存合并访问、指令调度。**
 
@@ -1016,7 +1058,7 @@ Inductor 选择 Triton 生成 GPU 代码的原因：
 
 Triton 不是 Inductor 的唯一目标。CPU 路径生成 C++，用 OpenMP 做多线程并行、用 SIMD 内建函数做向量化。[《C++ 扩展与自定义算子》](/pytorch-cpp-extension-and-custom-operators.html)讨论的手写 CUDA Kernel 和 Triton Kernel 是两种不同的“自定义算子实现方式”，前者控制力更强，后者开发效率更高。
 
-### 6. 融合的收益从哪里来
+### 7. 融合的收益从哪里来
 
 逐元素算子是**访存受限**的：计算一个 `a + b` 只需一次加法，但要读两个数、写一个数。GPU 的算力远高于显存带宽，这类 Kernel 的时间几乎完全由数据搬运量决定。
 
@@ -1034,7 +1076,7 @@ Table: 融合前后的访存与 launch 次数
 > [!NOTE] Java 经验参照：融合、内联与标量替换
 > 融合在作用上像 JIT 的内联：去掉算子（方法）之间的边界，让编译器把相邻的操作放在一起优化。`add` 的结果只在寄存器里存在、不再占一块显存，则像逃逸分析之后的标量替换省掉一次对象分配。收益的来源不同：内联省的是调用开销，并为后续优化打开空间；pointwise 融合省的主要是中间结果在显存里的一次写和一次读，对访存受限的 Kernel，这是耗时的主要部分。
 
-### 7. Inductor 不做什么
+### 8. Inductor 不做什么
 
 - 默认不把 `add`/`relu` 融合进 cuBLAS 的 `mm`——库调用是黑盒。`max-autotune` 模式下 Inductor 可以用 Triton 模板生成自己的矩阵乘并把后续 pointwise 作为收尾计算（epilogue）融合进矩阵乘的输出阶段，但这是可选路径。
 - 不改变数值语义（浮点结合顺序的差异除外）。融合后的结果与 Eager 应当在浮点误差范围内一致。
@@ -1400,7 +1442,7 @@ flowchart TB
 | | Eager | `torch.compile`（热路径） |
 |---|---|---|
 | Python 层调用 | 3 次进入 C++ | 1 次（进入改写后的字节码） |
-| Dispatcher 分发 | 3 次 × 2（Autograd 包装 + 再次分发） | 1 次（`extern_kernels.mm` 仍是 `torch.mm`，走 Dispatcher 到 cuBLAS；Triton Kernel 直接 launch） |
+| Dispatcher 分发 | 3 个算子，每个 2 次（Autograd 包装 + 再次分发） | 1 个算子（`extern_kernels.mm` 仍是 `torch.mm`，走 Dispatcher 到 cuBLAS）；融合 Kernel 不经过 Dispatcher，直接 launch |
 | 前向 Kernel launch | 3 | 2 |
 | 中间 Tensor 分配 | 2 | 0（原地复用） |
 | Autograd 节点 | 3 个（`MmBackward0`、`AddBackward0`、`ReluBackward0`） | 1 个（`CompiledFunctionBackward`） |

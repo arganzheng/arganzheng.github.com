@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（10）：PyTorch 的工程体系——一次改动
 subtitle: "The Engineering System of PyTorch: How a Change Travels Safely from Commit to Production"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-17
+updated: 2026-11-28
 ---
 
 前九篇讲的是 PyTorch **是什么、怎么运行**：Tensor 怎么存、Autograd 怎么记、算子怎么分发、Kernel 怎么写、编译器怎么融合、性能怎么测、多卡怎么通信。每一篇都在描述一个已经存在、并且正确运行的系统。
@@ -369,19 +369,19 @@ Table: torch.testing.assert_close 各 dtype 的默认容差
 %%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：gradcheck 的内部：数值 Jacobian 与实现无关，解析 Jacobian 完全依赖被测的反向实现，逐元素比较
 flowchart TB
-    IN["<b>被测函数 y = f(x)</b><br/>x 为 float64 且 requires_grad=True"]
+    IN["<b>被测函数 $$y = f(x)$$</b><br/>$$x$$ 为 float64 且 requires_grad=True"]
     subgraph num["数值 Jacobian：与实现无关的真值"]
         N1["<b>对每个输入元素 $$x_i$$：</b><br/>• 把 $$x_i$$ 改成 $$x_i$$ + eps 和 $$x_i$$ − eps<br/>• 各跑一次前向（共 2 × 输入元素数 次）"]
-        N2["J_num#91;:, i#93; = (f(x+eps) − f(x−eps)) / 2eps<br/>• eps 默认 1e-6<br/>• float32 的差分淹没在舍入里，所以必须 float64"]
+        N2["$$J_{\text{num}}$$ 的第 $$i$$ 列 = $$\dfrac{f(x_i + \text{eps}) - f(x_i - \text{eps})}{2\,\text{eps}}$$<br/>• eps 默认 1e-6<br/>• float32 的差分淹没在舍入里，所以必须 float64"]
         N1 --> N2
     end
     subgraph ana["解析 Jacobian：被测的反向实现"]
         A1["<b>对每个输出元素 $$y_j$$：</b><br/>• grad_output = one-hot 向量 $$e_j$$<br/>• 调用一次 backward（共 输出元素数 次）"]
-        A2["J_ana#91;j, :#93; = $$\partial y_j / \partial x$$<br/>来自 derivatives.yaml 或自定义 backward"]
+        A2["$$J_{\text{ana}}$$ 的第 $$j$$ 行 = $$\partial y_j / \partial x$$<br/>来自 derivatives.yaml 或自定义 backward"]
         A1 --> A2
     end
-    CMP["<b>逐元素比较</b><br/>allclose(J_num, J_ana, atol=1e-5, rtol=1e-3)"]
-    FAST["<b>快模式 fast_mode=True</b><br/>• 取随机向量 u、v<br/>• 左边只算 $$v^\top J u$$ 的数值值<br/>• 右边只算一次 $$v^\top J$$ 再点乘 u<br/>• O(1) 次前向 + O(1) 次反向"]
+    CMP["<b>逐元素比较 $$J_{\text{num}}$$ 与 $$J_{\text{ana}}$$</b><br/>allclose，atol=1e-5、rtol=1e-3"]
+    FAST["<b>快模式 fast_mode=True</b><br/>• 取随机向量 $$u$$、$$v$$<br/>• 左边只算 $$v^\top J u$$ 的数值值<br/>• 右边只算一次 $$v^\top J$$ 再点乘 $$u$$<br/>• O(1) 次前向 + O(1) 次反向"]
     IN --> N1
     IN --> A1
     N2 --> CMP
@@ -396,16 +396,16 @@ flowchart TB
     class FAST note;
 ```
 
-| | 怎么算 | 代表什么 |
+| Jacobian | 怎么算 | 代表什么 |
 |---|---|---|
-| 数值 Jacobian | 对每个输入元素 xᵢ 加减 eps，重新算前向，(f(x+eps) − f(x−eps)) / 2eps | 与实现无关的真值 |
-| 解析 Jacobian | 对每个输出元素 yⱼ，用 one-hot 的 grad_output 调用 backward，得到 ∂yⱼ/∂x | 被测的反向实现 |
+| 数值 Jacobian $$J_{\text{num}}$$ | 对每个输入元素 $$x_i$$ 加减 eps，各重新算一次前向，第 $$i$$ 列是 $$\dfrac{f(x_i + \text{eps}) - f(x_i - \text{eps})}{2\,\text{eps}}$$ | 与实现无关的真值 |
+| 解析 Jacobian $$J_{\text{ana}}$$ | 对每个输出元素 $$y_j$$，用 one-hot 的 grad_output 调用一次 backward，第 $$j$$ 行是 $$\partial y_j / \partial x$$ | 被测的反向实现 |
 
 Table: gradcheck 比较的两个 Jacobian
 
 两者逐元素在 `atol=1e-5, rtol=1e-3` 内一致则通过。为什么必须 float64：eps 默认 1e-6，float32 只有 7 位有效数字，`f(x+eps) - f(x-eps)` 的差本身就在舍入误差里；float64 有 16 位，差分才有意义。
 
-**慢模式**的代价是 O(输入元素数) 次前向 + O(输出元素数) 次反向，大 Tensor 不可行。**快模式**（`fast_mode=True`）用随机向量投影：取随机 u、v，比较 `uᵀ J v` 的数值与解析结果——只需 O(1) 次前向和反向。理论上可能漏掉恰好与 u、v 正交的错误，实践中概率可忽略。PyTorch 自己的测试默认用快模式。
+**慢模式**的代价是 O(输入元素数) 次前向 + O(输出元素数) 次反向，大 Tensor 不可行。**快模式**（`fast_mode=True`）用随机向量投影：取随机向量 $$u$$、$$v$$，比较 $$v^\top J u$$ 的数值与解析结果——只需 O(1) 次前向和反向。理论上可能漏掉恰好与 $$u$$、$$v$$ 正交的错误，实践中概率可忽略。PyTorch 自己的测试默认用快模式。
 
 `gradcheck` 还检查几件容易忽略的事：
 
