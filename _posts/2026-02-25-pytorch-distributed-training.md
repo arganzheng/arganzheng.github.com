@@ -5,7 +5,7 @@ title: "PyTorch 深度实践（09）：分布式 PyTorch"
 subtitle: "Distributed Training in PyTorch: Collectives, DDP, FSDP, TP, PP, CP and EP"
 tags: [PyTorch, AI, AI-Infra]
 catalog: true
-updated: 2026-11-17
+updated: 2026-11-28
 ---
 
 本系列前面各篇都在一张卡上。[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)末尾算过一笔账：Adam 训练下每个参数的静态显存是 16 字节，7B 参数的模型仅参数、梯度和优化器状态就要 112 GB，激活值还没算。一张 80 GB 的卡放不下。即使放得下，那一篇案例里的 38M 参数小模型在单卡上跑到 2207 samples/s 之后，GPU 已经饱和——再要快，只能加卡。
@@ -27,22 +27,22 @@ DDP、ZeRO 的三个阶段、FSDP、张量并行、流水线并行、上下文�
 先把全文的机制连成一条链：进程怎样起来，五类状态由哪种策略复制或分片，通信最后落到哪里。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：分布式训练的机制总览：从 torchrun 起进程到并行策略、集合通信与链路
 flowchart TB
-    LAUNCH["<b>torchrun</b><br/>每台机器起 nproc_per_node 个进程<br/>设 RANK / LOCAL_RANK / WORLD_SIZE（第十章）"]
-    RANKS["<b>N 个 rank 进程（SPMD）</b><br/>同一份脚本，各绑一张 GPU<br/>各自持有五类状态的副本或分片（第二章）"]
-    MESH["<b>进程组与 DeviceMesh</b><br/>init_process_group 建默认组<br/>DeviceMesh 按 dp / tp 等维度切出子组（第二、九章）"]
+    LAUNCH["<b>torchrun（第十章）</b><br/>• 每台机器起 nproc_per_node 个进程<br/>• 设 RANK / LOCAL_RANK / WORLD_SIZE"]
+    RANKS["<b>N 个 rank 进程（第二章）</b><br/>• 同一份脚本起 N 次（SPMD），各绑一张 GPU<br/>• 各自持有五类状态的副本或分片"]
+    MESH["<b>进程组与 DeviceMesh（第二、九章）</b><br/>• init_process_group 建默认组<br/>• DeviceMesh 按 dp / tp 等维度切出子组"]
     subgraph STRAT["并行策略：对五类状态各选复制或分片"]
         direction TB
-        DDP["<b>DDP</b><br/>数据分片，其余复制<br/>Reducer 按桶 all_reduce 梯度（第三章）"]
-        FSDP["<b>FSDP2：fully_shard</b><br/>参数、梯度、优化器状态分片<br/>all_gather → 计算 → reduce_scatter（第四章）"]
-        ACT["<b>TP / PP / CP / EP</b><br/>切层内、层间、序列、expert<br/>通信的是激活值（第五至八章）"]
+        DDP["<b>DDP（第三章）</b><br/>• 数据分片，其余复制<br/>• Reducer 按桶 all_reduce 梯度"]
+        FSDP["<b>FSDP2：fully_shard（第四章）</b><br/>• 参数、梯度、优化器状态分片<br/>• 每层：all_gather → 计算 → reduce_scatter"]
+        ACT["<b>TP / PP / CP / EP（第五至八章）</b><br/>• 切层内、层间、序列、expert<br/>• 计算也切开，通信的是激活值"]
         DDP ~~~ FSDP ~~~ ACT
     end
-    PG["<b>ProcessGroupNCCL</b><br/>集合通信原语变成 NCCL Kernel<br/>在通信 Stream 上执行，返回 Work 句柄（第二章）"]
-    WIRE["<b>链路：NVLink / InfiniBand</b><br/>带宽决定通信能否藏进计算<br/>也决定哪个维度放节点内（第九、十章）"]
-    OPS["<b>运行时</b><br/>DistributedSampler 切数据<br/>DCP 存分片 checkpoint，Flight Recorder 查 hang（第十章）"]
+    PG["<b>ProcessGroupNCCL（第二章）</b><br/>• 集合通信原语变成 NCCL 的通信 Kernel<br/>• 在通信 Stream 上执行，返回 Work 句柄"]
+    WIRE["<b>链路：NVLink / InfiniBand（第九、十章）</b><br/>• 带宽决定通信能否藏进计算<br/>• 也决定哪个维度放节点内"]
+    OPS["<b>运行时（第十章）</b><br/>• DistributedSampler 切数据<br/>• DCP 存分片 checkpoint<br/>• Flight Recorder 查 hang"]
     LAUNCH --> RANKS --> MESH --> STRAT
     STRAT -- "每个决定对应一种原语和一个时机" --> PG
     PG --> WIRE
@@ -54,9 +54,9 @@ flowchart TB
 ```
 
 - **torchrun**：启动器。在每台机器上起 `nproc_per_node` 个进程，用环境变量告诉每个进程它的 rank；进程失败时整体重启。
-- **rank 进程**：SPMD 的执行单位。N 个进程跑同一份脚本，没有 master；训练的五类状态（数据、参数、梯度、优化器状态、激活值）就存在这些进程各自的 GPU 上。
+- **rank 进程**：同一份脚本被启动 N 次，得到 N 个进程，每个进程有一个编号（rank），各绑一张 GPU。这种执行模型叫 SPMD（Single Program, Multiple Data）：Single 说的是程序只有一份，进程有 N 个。进程之间没有主从，谁也不调度谁；训练的五类状态（数据、参数、梯度、优化器状态、激活值）就存在这些进程各自的 GPU 上。
 - **进程组与 DeviceMesh**：集合通信的参与者名单。默认组含全部 rank，`DeviceMesh` 把 rank 排成多维网格，每一维是一组子进程组，供 FSDP2、TP、CP 使用。
-- **并行策略**：对每类状态做「复制还是分片」的决定。DDP 只分片数据；FSDP2 再分片参数、梯度和优化器状态；TP / PP / CP / EP 切开计算本身，分片的是激活值和层。
+- **并行策略**：对每类状态做「复制还是分片」的决定。DDP 只分片数据；FSDP2 再分片参数、梯度和优化器状态，计算时把一层的参数凑齐；TP / PP / CP / EP 连计算本身也切开，各 rank 之间传的是激活值（[「分片之后：计算切不切」](#3-分片之后计算切不切)一节）。
 - **ProcessGroupNCCL**：通信后端。策略发出的 `all_reduce`、`all_gather`、`reduce_scatter` 等在这里变成 GPU 上的 NCCL Kernel，跑在独立的通信 Stream 上，调用方拿到 `Work` 句柄。
 - **链路**：节点内 NVLink、节点间 InfiniBand，带宽差一个量级；通信量除以带宽与计算时间的比较，决定一种配置能否接近线性扩展。
 - **运行时**：`DistributedSampler` 让各 rank 看到互不重叠的数据，DCP 保存分片状态及其布局，Flight Recorder 记录每次集合通信，用于排查 hang。
@@ -77,7 +77,7 @@ flowchart TB
 | 状态 | 大小 | 复制的含义 | 分片的含义 |
 |---|---|---|---|
 | 数据（一个 batch） | ∝ batch | 每卡算同样的数据，无意义 | 每卡算不同的 1/N，这是"并行"的来源 |
-| 参数 | P | 每卡一份完整模型 | 每卡持有 1/N，用到时临时聚合 |
+| 参数 | P | 每卡一份完整模型 | 每卡持有 1/N；用时凑齐（FSDP），或不凑齐、连计算一起切开（TP / PP / EP） |
 | 梯度 | P | 每卡各算一份，必须同步 | 每卡只保留自己负责的 1/N |
 | 优化器状态 | 2P（Adam 的 m、v） | 每卡各自更新，结果相同 | 每卡只更新自己负责的 1/N 参数 |
 | 激活值 | ∝ batch × 序列长度 × hidden × 层数 | 每卡持有自己那份数据的激活 | 按序列或按 hidden 维切开 |
@@ -89,16 +89,50 @@ Table: 五类训练状态的复制与分片含义
 | 决定 | 显存 | 通信 |
 |---|---|---|
 | 复制 | N 份 | 需要让 N 份保持一致 → 同步（all-reduce） |
-| 分片 | 1/N | 用到时要凑齐完整的一份 → 聚合（all-gather）、用完再分发（reduce-scatter） |
+| 分片 | 1/N | 两种用法，见下一节：<br/>先凑齐再算 → 聚合（all-gather）、用完再分发（reduce-scatter）<br/>计算也切开 → 不聚合，rank 之间传部分结果（激活值） |
 
 Table: 复制与分片各自的显存与通信含义
 
 > [!NOTE] Java 经验参照：副本与分库分表
-> 这两种选择和后端存储的两种扩展方式是同一个结构：加副本，每个节点一份完整数据，写入要同步到所有副本，扩的是吞吐而不是容量；分库分表，每个节点只有 1/N，扩的是容量，代价是跨分片查询要先把数据聚到一起。不同之处在于同步的频率：训练里每个 step 都要同步或聚合一次，而且是全体参与的集合通信，没有「异步复制、最终一致」这一档。
+> 这两种选择和后端存储的两种扩展方式是同一个结构：加副本，每个节点一份完整数据，写入要同步到所有副本，扩的是吞吐而不是容量；分库分表，每个节点只有 1/N，扩的是容量，代价是跨分片查询：要么先把数据聚到一处再算，要么每个分片各自算完、只汇总结果（scatter-gather）。下一节的两种用法就是这两种查询方式。不同之处在于同步的频率：训练里每个 step 都要同步或聚合一次，而且是全体参与的集合通信，没有「异步复制、最终一致」这一档。
 
 于是每个"复制还是分片"的决定，都同时决定了三件事：**这类状态占多少显存、需要哪种通信原语、通信发生在 step 的哪个时刻**。这就是本文的主线。
 
-### 3. 符号约定
+### 3. 分片之后：计算切不切
+
+「复制还是分片」说的是状态**存**在哪。状态分片之后还有第二个问题：用它做计算时，**计算本身切不切**。两种做法：
+
+| | 先凑齐再算 | 计算也切开 |
+|---|---|---|
+| 代表 | ZeRO-3 / FSDP | TP、PP、CP、EP |
+| 计算时的分片 | 用前 all_gather 成完整的一份，用完释放 | 一直是分片，不凑齐 |
+| 每个 rank 执行的计算 | 完整的一层，和单卡时一样 | 一层的一部分（TP）<br/>一部分层（PP）<br/>序列的一段（CP）<br/>一部分 expert（EP） |
+| 一条样本的一次前向 | 在一个 rank 上算完 | 要多个 rank 合作才算完 |
+| rank 之间传什么 | 参数、梯度 | 激活值：各 rank 算出的部分结果 |
+| 单层必须放进一张卡 | 是 | 否 |
+| 通常的叫法 | 数据并行 | 模型并行 |
+
+Table: 分片状态的两种用法：先凑齐再算与计算也切开
+
+FSDP 的名字是 Fully Sharded **Data Parallel**：它分片的是状态的存储，计算没有切，所以和 DDP 一样属于数据并行。TP / PP / CP / EP 才是把一次前向拆到多张卡上。
+
+**例子**：一个 Linear 层 y = xW，W 是 2 行 4 列，N = 2。
+
+![同一个 Linear 层 y = xW：FSDP 先凑齐再算，TP 列并行把计算也切开](/img/in-post/pytorch-distributed-training-gather-vs-split.svg)
+
+**说明**：
+
+1. **FSDP**：两个 rank 各存 W 的一行。算这一层之前做一次 all_gather，两边都有了完整的 W；rank 0 用自己的输入 x_a = [1, 1] 算出 [6, 8, 10, 12]，rank 1 用自己的输入 x_b = [1, 0] 算出 [1, 2, 3, 4]。两个输出各自完整，互不相干。算完后各自丢掉收来的那一行。
+2. **TP 列并行**：两个 rank 各存 W 的两列，不做 all_gather。两边拿同一个输入 x = [1, 1]，rank 0 算出 [6, 8]，rank 1 算出 [10, 12]，各是输出的一半，拼起来才是 [6, 8, 10, 12]。完整的 W 从头到尾没有在任何一张卡上出现过。
+
+这个区别决定了两类策略各自解决什么问题：
+
+- 先凑齐再算，省的是**静态显存**（参数、梯度、优化器状态），代价是每层多一次参数的 all_gather；单层的完整参数和它的激活值仍然要放进一张卡。
+- 计算也切开，才能处理**单层就放不下**或**一条序列的激活值就放不下**的情况；代价是通信落在前向的关键路径上，下一步计算要等它。
+
+CP 的参数是复制的，分片的是激活值（序列），但一条序列的前向同样要多个 rank 合作，所以归在右边一列。
+
+### 4. 符号约定
 
 后文的显存和通信量计算反复用到以下符号，集中声明一次：
 
@@ -114,7 +148,7 @@ Table: 复制与分片各自的显存与通信含义
 
 一个 Transformer 层的激活值大约是 B × S × H 的若干倍（不做 checkpointing 时约 34 倍，第十一章会用到），所以"激活值"在公式里都写成 ∝ B·S·H。
 
-### 4. 三层结构
+### 5. 三层结构
 
 从底向上，分布式训练由三层组成：
 
@@ -124,7 +158,7 @@ Table: 复制与分片各自的显存与通信含义
 
 并行策略是集合通信原语的组合方式；理解原语的语义和成本之后，每种策略的显存和通信量都能自己推出来。运行时那层是让策略在真实集群上跑起来、跑得快、出了问题能查的工程部分。
 
-### 5. 本文的章节安排
+### 6. 本文的章节安排
 
 | 章 | 主题 | 内容 |
 |---|---|---|
@@ -148,20 +182,36 @@ Table: 本文的章节安排
 
 ### 1. SPMD 执行模型
 
-PyTorch 分布式训练采用 **SPMD**（Single Program, Multiple Data）模型：**同一份 Python 脚本被启动 N 次，成为 N 个独立进程，每个进程绑定一张 GPU**。没有 master 进程调度 worker，没有中心节点持有全局状态；每个进程执行相同的代码，只是处理的数据不同、持有的状态分片不同。
+PyTorch 分布式训练采用 **SPMD**（Single Program, Multiple Data，一份程序、多份数据）模型：**同一份 Python 脚本被启动 N 次，成为 N 个独立进程，每个进程绑定一张 GPU**。没有 master 进程调度 worker，没有中心节点持有全局状态；每个进程执行相同的代码，只是处理的数据不同、持有的状态分片不同。
 
 几个基本概念：
 
-- **World Size**：进程总数
-- **Rank**：进程的全局编号 0 ~ World Size-1，唯一标识一个进程
-- **Local Rank**：进程在本机内的编号，通常直接用作 GPU 编号：torch.cuda.set_device(local_rank)
-- **Node**：一台机器；多机训练时 World Size = 节点数 × 每节点 GPU 数
+| 概念 | 含义 | 取值 | 谁给的 |
+|---|---|---|---|
+| Node | 一台机器 | | |
+| World Size | 进程总数 | 节点数 × 每节点进程数 | `torchrun` 设环境变量 `WORLD_SIZE` |
+| Rank | 进程的全局编号，唯一标识一个进程 | 整数，0 ~ World Size − 1 | `torchrun` 设环境变量 `RANK` |
+| Local Rank | 进程在**本机内**的编号 | 整数，0 ~ 每节点进程数 − 1 | `torchrun` 设环境变量 `LOCAL_RANK` |
+
+Table: SPMD 的四个基本概念
+
+Rank 用来在集合通信里指明「谁」，Local Rank 用来选**本机的哪张 GPU**。两者要分开，是因为多机时 Rank 不能当 GPU 编号用。以 2 台机器、每台 4 张卡为例：
+
+| 机器 | `RANK` | `LOCAL_RANK` | 绑定的 GPU |
+|---|---|---|---|
+| node 0 | 0、1、2、3 | 0、1、2、3 | `cuda:0` ~ `cuda:3` |
+| node 1 | 4、5、6、7 | 0、1、2、3 | `cuda:0` ~ `cuda:3` |
+
+Table: 2 机 × 4 卡时每个进程的 RANK 与 LOCAL_RANK
+
+node 1 上 Rank 为 5 的进程，本机只有 `cuda:0` ~ `cuda:3`，没有 `cuda:5`；它的 Local Rank 是 1，所以绑 `cuda:1`。单机时两个编号相等。`init_process_group` 不读 `LOCAL_RANK`，绑卡是脚本自己做的，见下面第 5、6 行。
 
 一个最小的分布式脚本：
 
 ```python title="一个最小的分布式脚本"
 import os, torch, torch.distributed as dist
 
+# !ref spmd-init
 dist.init_process_group(backend="nccl")             # 从环境变量读取 RANK / WORLD_SIZE / MASTER_ADDR / MASTER_PORT
 rank, world = dist.get_rank(), dist.get_world_size()
 local_rank = int(os.environ["LOCAL_RANK"])
@@ -175,6 +225,13 @@ dist.destroy_process_group()
 ```
 
 用 `torchrun --nproc_per_node=8 script.py` 启动，就会有 8 个进程运行这段代码。启动机制第十章 §1 细讲。
+
+[`init_process_group`](#spmd-init) 读的 `MASTER_ADDR` / `MASTER_PORT` 名字里有 master，但它不是调度 worker 的主进程。这个地址上跑的是一个 **TCPStore**：一个键值存储服务，开在 rank 0 所在的机器上，各 rank 作为客户端连上去。它的用途只有一个：让互不认识的进程**找到彼此**（rendezvous）。
+
+- 各 rank 启动后都连到这个地址，确认 World Size 个进程到齐。
+- 建立 NCCL 连接时，一个 rank 生成 `ncclUniqueId` 写进 TCPStore，其余 rank 读出来，据此加入同一个 NCCL communicator。
+
+连接建好之后，梯度、参数、激活值都在 GPU 之间直接传，不经过 TCPStore；它也不分配任务、不持有模型状态。所以「没有 master」指的是训练过程没有主从，启动时仍然需要一个大家都知道的地址。
 
 SPMD 的关键后果是：**代码中每一处集合通信，都必须被所有参与的进程以相同的顺序调用**。如果 rank 0 走了 `if` 分支多调用了一次 `all_reduce`，而其他 rank 没有，rank 0 会永远等待——这是分布式训练中最常见的 hang 成因，第十章 §6 讨论。
 
@@ -354,7 +411,27 @@ NCCL 还按消息大小选择**协议**：`LL`（8 字节数据 + 标志位一�
 
 ### 5. 通信也是异步的
 
-[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)建立的异步模型在这里延伸：**NCCL 的集合通信也是 GPU 上的 Kernel**，在 Profiler 里以 `ncclDevKernel_AllReduce_...` 之类的名字出现，运行在 PyTorch 为通信专门创建的 CUDA Stream 上，与计算 Stream 并行。
+**Kernel** 在本系列里指 CUDA Kernel：一个由 CPU 提交、在 GPU 上执行的函数。它不是 ATen 算子：算子是 CPU 侧的函数，`torch.matmul` 这样一次算子调用，最后一步才是向 GPU 提交一个或几个 Kernel（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里的 Kernel launch）。多卡训练的进程里，Kernel 按来源分成两类：
+
+| | 计算 Kernel | 通信 Kernel |
+|---|---|---|
+| 谁提交 | ATen 算子：矩阵乘、逐元素运算、归一化等 | NCCL：`dist.all_reduce` 等集合通信被调用时 |
+| 做什么 | 读写本卡显存里的 Tensor，算出结果 | 把本卡 Tensor 的数据送给其他 rank，接收对方送来的数据<br/>归约类原语边收边做加法 |
+| 排在哪条 Stream | 计算 Stream | PyTorch 为通信另建的 Stream |
+| Profiler 里的名字 | 各算子自己的 Kernel 名 | `ncclDevKernel_` 开头 |
+
+Table: 计算 Kernel 与通信 Kernel
+
+所以 [《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)建立的异步模型在这里延伸：**NCCL 的集合通信也是 GPU 上的 Kernel**，运行在 PyTorch 为通信专门创建的 CUDA Stream 上，与计算 Stream 并行。
+
+通信 Kernel 和集合通信原语不是一一对应。以 NCCL 2.28.9 为例（`src/device/generate.py`）：
+
+- **归约类**（all_reduce、reduce_scatter）：按原语、归约运算、数据类型、算法各生成一个，名字如 `ncclDevKernel_AllReduce_Sum_f32_RING_LL`，即对 fp32 求和的 all_reduce。
+- **不归约的**（all_gather、broadcast）：只搬数据，名字里没有运算和类型，如 `ncclDevKernel_AllGather_RING_LL`。
+- **send / recv**：共用 `ncclDevKernel_SendRecv`。`all_to_all` 在 NCCL 里没有自己的原语，PyTorch 用一组 `ncclSend` / `ncclRecv` 实现，Profiler 里看到的也是这个 Kernel。
+- **其余组合**：走通用的 `ncclDevKernel_Generic`。
+
+名字末尾的算法和协议（`RING_LL`）表示这个 Kernel 为哪种组合做了特化，实际走哪种算法由 NCCL 按拓扑和消息大小选（上一节）。
 
 ```python title="async_op=True：通信在后台进行"
 work = dist.all_reduce(t, async_op=True)     # 立即返回 Work 句柄，通信在后台进行
@@ -425,6 +502,7 @@ DDP 的核心组件是 C++ 实现的 **Reducer**。它在构造时给每个参�
 如果每个参数算完就单独 all_reduce，会有几百到几千次小消息，被第二章 §4 的 α 项吃掉。Reducer 把参数分成**桶（Bucket）**，默认每桶 25 MB（`bucket_cap_mb`），一个桶内所有参数的梯度都就位后，对整个桶发起一次异步 all_reduce。从"参数 → hook → 桶 → all_reduce"的结构看：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：Reducer 把 all_reduce 藏进反向：梯度 hook 通知 Reducer，桶满即对整个桶发起一次异步 all_reduce
 flowchart TB
     subgraph grads["反向传播：梯度按 layer 4 → 1 的顺序陆续就位"]
@@ -441,8 +519,8 @@ flowchart TB
     G3 -- "hook 通知 Reducer" --> B0
     G2 -- "hook 通知 Reducer" --> B1
     G1 -- "hook 通知 Reducer" --> B1
-    B0 -- "桶内参数全部就位" --> AR0["通信 Stream：异步 all_reduce(bucket 0)<br/>与 layer 2、1 的反向计算重叠"]
-    B1 -- "桶内参数全部就位" --> AR1["通信 Stream：异步 all_reduce(bucket 1)<br/>最后一个桶，无法重叠"]
+    B0 -- "桶内参数全部就位" --> AR0["<b>异步 all_reduce(bucket 0)</b><br/>• 在通信 Stream 上执行<br/>• 与 layer 2、1 的反向计算重叠"]
+    B1 -- "桶内参数全部就位" --> AR1["<b>异步 all_reduce(bucket 1)</b><br/>• 在通信 Stream 上执行<br/>• 最后一个桶，无法重叠"]
     AR0 --> W["backward() 返回前等待所有桶完成<br/>归约结果就在桶内存里（gradient_as_bucket_view）"]
     AR1 --> W
     classDef comm fill:#fde68a,stroke:#b45309;
@@ -845,19 +923,20 @@ TP 下层的输入/输出激活是复制的。LayerNorm、Dropout、残差相加
 把一个 Transformer 子层（以 MLP 为例）从进到出画出来，哪段激活是序列分片、哪段是 hidden 分片、哪里发生通信：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：Sequence Parallel 的一个子层：TP 区域外激活按序列维分片，f 处 all_gather、g 处 reduce_scatter
 flowchart TB
     S0["<b>LayerNorm / Dropout / 残差</b><br/>激活按序列维分片：每 rank 持有 S/N 个 token"]
     F["<b>f：all_gather（序列维）</b><br/>凑齐全部 S 个 token → 复制的输入"]
     subgraph tp["TP 区域（激活按 hidden 维 / head 维分片）"]
-        COL["Column parallel（fc1 / wq wk wv）<br/>输出 #91;S, 4H/N#93;"]
+        COL["<b>Column parallel（fc1 / wq wk wv）</b><br/>输出 #91;S, 4H/N#93;"]
         LOCAL["<b>gelu / attention</b><br/>本地计算，激活仍分片"]
         ROW["<b>Row parallel（fc2 / wo）</b><br/>输出 #91;S, H#93; 部分和"]
         COL --> LOCAL --> ROW
     end
     G["<b>g：reduce_scatter（序列维）</b><br/>归约 + 分片：每 rank 只拿 S/N 个 token 的完整和"]
     S1["<b>下一段 LayerNorm / 残差</b><br/>激活按序列维分片"]
-    REMARK["原来 g 处的一次 all_reduce = reduce_scatter + all_gather<br/>拆成两半后通信量不变，但 TP 区域外的激活按 TP 度切成 1/N<br/>反向：g 的反向是 all_gather，f 的反向是 reduce_scatter"]
+    REMARK["<b>与不用 SP 时对照</b><br/>• 原来 g 处的一次 all_reduce = reduce_scatter + all_gather<br/>• 拆成两半后通信量不变，TP 区域外的激活按 TP 度切成 1/N<br/>• 反向：g 的反向是 all_gather，f 的反向是 reduce_scatter"]
     S0 --> F --> COL
     ROW --> G --> S1
     S1 ~~~ REMARK
@@ -1080,16 +1159,17 @@ MoE（Mixture of Experts）模型的 MLP 由 E 个 expert 组成，每个 token 
 从 rank 0 的一批 token 出发，看它们在 EP 组里走了一圈的路径（rank 1 的 token 走的是对称的路径）：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：EP 中一批 token 的路径：router 选 expert，两次 all_to_all 分别做 dispatch 与 combine，都在关键路径上
 flowchart TB
     T0["<b>Rank 0 的 token</b><br/>hidden #91;B·S, H#93;"]
     R0["<b>router（本地）</b><br/>每个 token 选 top-k 个 expert 及权重"]
-    A2A1["<b>第一次 all_to_all：dispatch</b><br/>把 token 的 hidden 发到所选 expert 所在的 rank<br/>每 token 发出 k 份 → 通信量 k·B·S·H"]
+    A2A1["<b>第一次 all_to_all：dispatch</b><br/>• 把 token 的 hidden 发到所选 expert 所在的 rank<br/>• 每 token 发出 k 份，通信量 k·B·S·H"]
     E0["<b>Rank 0 本地 expert 0 ~ E/N-1</b><br/>grouped GEMM，每个 expert 一个小矩阵乘"]
-    E1["Rank 1 本地 expert E/N ~ 2E/N-1<br/>grouped GEMM"]
-    A2A2["<b>第二次 all_to_all：combine</b><br/>expert 输出按 token 归属送回原 rank<br/>每 token 收回 k 份 → 通信量 k·B·S·H"]
+    E1["<b>Rank 1 本地 expert E/N ~ 2E/N-1</b><br/>grouped GEMM"]
+    A2A2["<b>第二次 all_to_all：combine</b><br/>• expert 输出按 token 归属送回原 rank<br/>• 每 token 收回 k 份，通信量 k·B·S·H"]
     C0["<b>Rank 0 combine</b><br/>按 router 权重加权求和，恢复 token 原顺序"]
-    BOTTLE["两次 all_to_all 都在关键路径上：<br/>expert 计算要等 dispatch 到齐，combine 要等所有 expert 算完<br/>这就是 EP 的通信瓶颈——偏好 NVLink，跨节点靠分块流水重叠"]
+    BOTTLE["<b>瓶颈：两次 all_to_all 都在关键路径上</b><br/>• expert 计算要等 dispatch 到齐<br/>• combine 要等所有 expert 算完<br/>• 偏好 NVLink，跨节点靠分块流水重叠"]
     T0 --> R0 --> A2A1
     A2A1 --> E0
     A2A1 --> E1
@@ -1180,12 +1260,13 @@ flowchart TB
 后三步决定**切状态**的维度和跨节点的方式，剩下的卡全部给数据并行：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：并行策略决策顺序（后三步）：模型状态放不下则 FSDP 或 HSDP / PP，剩余的卡给数据并行
 flowchart TB
     Q4{"整个模型状态（16P）放不下？"}
     Q5{"跨节点带宽能藏住<br/>FSDP 的 3P 通信？"}
     FSDP["<b>FSDP</b><br/>节点内为主，带宽够时可跨节点"]
-    HSDP["HSDP：节点内分片 + 节点间复制<br/>或 PP：按层切、跨节点 send/recv，M ≥ 4K"]
+    HSDP["<b>HSDP 或 PP</b><br/>• HSDP：节点内分片 + 节点间复制<br/>• PP：按层切、跨节点 send/recv，M ≥ 4K"]
     DP["<b>剩余的卡 → 数据并行维</b><br/>最外层，跨节点，扩吞吐"]
     Q4 -- "是" --> Q5
     Q4 -- "否" --> DP
@@ -1217,21 +1298,21 @@ fully_shard(model, mesh=mesh["dp"])
 
 把第三至八章的所有策略放进一张表。P 为参数量，N 为该并行维度的度，通信量以状态大小为单位：
 
-| 策略 | 数据 | 参数 | 梯度 | 优化器状态 | 激活 | 通信原语 | 通信时机 | 每 rank 静态显存 | 通信量 / step |
-|---|---|---|---|---|---|---|---|---|---|
-| DDP | 分片 | 复制 | 复制→归约 | 复制 | 各自 | all_reduce | 反向中，按桶 | 16P | 2P |
-| ZeRO-1 | 分片 | 复制 | 复制→归约 | 分片 | 各自 | reduce_scatter + all_gather | 反向末、更新后 | 4P + 12P/N | 2P |
-| ZeRO-2 / FSDP `reshard_after_forward=False` | 分片 | 复制（前向后保留） | 分片 | 分片 | 各自 | all_gather + reduce_scatter | 前向前、反向后 | 2P + 14P/N | 2P |
-| ZeRO-3 / FSDP | 分片 | 分片 | 分片 | 分片 | 各自 | all_gather ×2 + reduce_scatter | 每层前向前、反向前后 | 16P/N | 3P |
-| HSDP | 分片 | 节点内分片、节点间复制 | 同上 + 节点间归约 | 节点内分片 | 各自 | 节点内 AG/RS，节点间 AR（对分片） | 同上 | 16P/N_shard | 3P 节点内 + 2P/N_shard 节点间 |
-| TP (+SP) | 复制 | 层内分片 | 层内分片 | 层内分片 | 中间分片；边界复制（SP：序列分片） | all_reduce（SP：RS + AG） | 每层前向 2 次、反向 2 次，关键路径 | 16P/N | 8·B·S·H·L |
-| PP | micro-batch | 按层分片 | 按层分片 | 按层分片 | 按层分片 | send/recv | stage 边界 | 16P/N | 4·B·S·H·(K−1)，最小 |
-| CP | 序列分段 | 复制 | 复制→归约 | 复制 | 序列分片 | send/recv（ring）或 all_to_all | 每层 attention 内，可重叠 | 16P（与 FSDP 共用维度时 16P/N） | ≈ 4·B·S·H·L（K、V） |
-| EP | 分片 | expert 分片、稠密部分复制 | expert 在 EP 内无冗余 | 同参数 | token 路由到 expert | all_to_all ×2 | 每个 MoE 层，关键路径 | expert 部分 /N | 4·k·B·S·H·L_moe |
+| 策略 | 计算 | 数据 | 参数 | 梯度 | 优化器状态 | 激活 | 通信原语 | 通信时机 | 每 rank 静态显存 | 通信量 / step |
+|---|---|---|---|---|---|---|---|---|---|---|
+| DDP | 不切 | 分片 | 复制 | 复制→归约 | 复制 | 各自 | all_reduce | 反向中，按桶 | 16P | 2P |
+| ZeRO-1 | 不切 | 分片 | 复制 | 复制→归约 | 分片 | 各自 | reduce_scatter + all_gather | 反向末、更新后 | 4P + 12P/N | 2P |
+| ZeRO-2 / FSDP `reshard_after_forward=False` | 不切 | 分片 | 复制（前向后保留） | 分片 | 分片 | 各自 | all_gather + reduce_scatter | 前向前、反向后 | 2P + 14P/N | 2P |
+| ZeRO-3 / FSDP | 不切，用前凑齐 | 分片 | 分片 | 分片 | 分片 | 各自 | all_gather ×2 + reduce_scatter | 每层前向前、反向前后 | 16P/N | 3P |
+| HSDP | 不切，用前凑齐 | 分片 | 节点内分片、节点间复制 | 同上 + 节点间归约 | 节点内分片 | 各自 | 节点内 AG/RS，节点间 AR（对分片） | 同上 | 16P/N_shard | 3P 节点内 + 2P/N_shard 节点间 |
+| TP (+SP) | 切层内 | 复制 | 层内分片 | 层内分片 | 层内分片 | 中间分片；边界复制（SP：序列分片） | all_reduce（SP：RS + AG） | 每层前向 2 次、反向 2 次，关键路径 | 16P/N | 8·B·S·H·L |
+| PP | 切层间 | micro-batch | 按层分片 | 按层分片 | 按层分片 | 按层分片 | send/recv | stage 边界 | 16P/N | 4·B·S·H·(K−1)，最小 |
+| CP | 切序列 | 序列分段 | 复制 | 复制→归约 | 复制 | 序列分片 | send/recv（ring）或 all_to_all | 每层 attention 内，可重叠 | 16P（与 FSDP 共用维度时 16P/N） | ≈ 4·B·S·H·L（K、V） |
+| EP | 切 expert | 分片 | expert 分片、稠密部分复制 | expert 在 EP 内无冗余 | 同参数 | token 路由到 expert | all_to_all ×2 | 每个 MoE 层，关键路径 | expert 部分 /N | 4·k·B·S·H·L_moe |
 
 Table: 各并行策略的统一表
 
-读这张表的方式：**先看"参数"列决定了显存能否放下，再看"通信原语"和"通信时机"列决定通信能否被计算隐藏**。任何新策略，只要填出它的行，性能特征就清楚了。
+读这张表的方式：**先看"计算"列分清是数据并行（不切）还是模型并行（切），再看"参数"列决定了显存能否放下，最后看"通信原语"和"通信时机"列决定通信能否被计算隐藏**。任何新策略，只要填出它的行，性能特征就清楚了。
 
 ## 十、运行时与工程
 
@@ -1384,18 +1465,19 @@ NCCL 自带 `nccl-tests`（`all_reduce_perf` 等）可以在不跑模型的情�
 排查顺序可以画成一棵决策树，从"是不是所有 rank 都卡住了"开始问：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 480}}}%%
 %% 图：训练 hang 的排查决策树：从「所有 rank 都卡住吗」开始，到 py-spy 看栈、检查集合通信一致性与网络
 flowchart TB
     S["训练静止不动（hang）"]
     Q1{"所有 rank 都卡住？"}
-    ONE["部分 rank 没卡：看它们在干什么<br/>提前 return / 异常被吞 / 已进入下一个 epoch 或退出"]
+    ONE["<b>部分 rank 没卡：看它们在干什么</b><br/>• 提前 return<br/>• 异常被吞<br/>• 已进入下一个 epoch 或退出"]
     Q2{"py-spy dump 各 rank 的栈：<br/>都停在同一处集合通信？"}
     Q3{"集合通信的调用次数 / 顺序 / shape<br/>各 rank 是否一致？"}
-    FIX1["<b>找不一致的来源：</b><br/>if 分支、只在 rank 0 的 logging 里做通信、<br/>DDP 未使用参数（find_unused_parameters）"]
+    FIX1["<b>找不一致的来源</b><br/>• if 分支<br/>• 只在 rank 0 的 logging 里做通信<br/>• DDP 未使用参数（find_unused_parameters）"]
     Q4{"各 rank 数据量相等？"}
-    FIX2["<b>某 rank 多跑一步 backward：</b><br/>DistributedSampler 补齐 / drop_last / Join"]
-    NET["<b>网络或 NCCL 环境：</b><br/>NCCL_DEBUG=INFO 看 ring 是否建立、走的是否 IB<br/>nvidia-smi 看卡是否掉了，nccl-tests 测裸带宽"]
-    FR["工具：TORCH_DISTRIBUTED_DEBUG=DETAIL 逐次校验<br/>Flight Recorder（TORCH_NCCL_TRACE_BUFFER_SIZE +<br/>TORCH_NCCL_DUMP_ON_TIMEOUT）+ torchfrtrace 直接指出谁缺席"]
+    FIX2["<b>某 rank 多跑一步 backward</b><br/>• DistributedSampler 补齐<br/>• drop_last<br/>• Join"]
+    NET["<b>网络或 NCCL 环境</b><br/>• NCCL_DEBUG=INFO 看 ring 是否建立、走的是否 IB<br/>• nvidia-smi 看卡是否掉了<br/>• nccl-tests 测裸带宽"]
+    FR["<b>工具</b><br/>• TORCH_DISTRIBUTED_DEBUG=DETAIL 逐次校验<br/>• Flight Recorder：设 TORCH_NCCL_TRACE_BUFFER_SIZE<br/>• 超时自动转储：设 TORCH_NCCL_DUMP_ON_TIMEOUT<br/>• torchfrtrace 直接指出谁缺席"]
     S --> Q1
     Q1 -- "否" --> ONE
     Q1 -- "是" --> Q2
@@ -1547,7 +1629,8 @@ Table: 多卡优化报告：每项改动的吞吐、显存与通信
 ### 1. 一条主线
 
 - **五类状态**：数据 · 参数 · 梯度 · 优化器状态 · 激活值；
-- **两种选择**：复制（显存 N 份，需同步）vs 分片（显存 1/N，需聚合与分发）；
+- **两种选择**：复制（显存 N 份，需同步）vs 分片（显存 1/N）；
+- **分片的两种用法**：先凑齐再算（FSDP，数据并行，通信的是参数和梯度）vs 计算也切开（TP / PP / CP / EP，模型并行，通信的是激活值）；
 - **三个后果**：显存占用 · 通信原语 · 通信时机；
 - **一个恒等式**：all_reduce = reduce_scatter + all_gather。
 

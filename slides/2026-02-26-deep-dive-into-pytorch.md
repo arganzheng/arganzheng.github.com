@@ -397,16 +397,29 @@ flowchart LR
 
 **五类状态各选复制还是分片——ring all_reduce 每 rank 收发 → 2n**
 
-| 策略 | 每 rank 静态显存 | 每步通信 | 范围 |
-|---|---|---|---|
-| DDP | \(16P\) | \(2P\)（梯度 all_reduce，按桶与反向重叠） | 任意 |
-| FSDP | **\(16P/N\)** | \(3P\)（all_gather 参数 ×2 + reduce_scatter 梯度） | 任意 |
-| TP | 参数 / N | 每层 4 次 all_reduce | 节点内 |
-| PP | 参数 / K | 层间激活 | 气泡 $$(K-1)/(M+K-1)$$ |
+| 策略 | 计算 | 每 rank 静态显存 | 每步通信 | 范围 |
+|---|---|---|---|---|
+| DDP | 不切 | \(16P\) | \(2P\)（梯度 all_reduce，按桶与反向重叠） | 任意 |
+| FSDP | 不切，用前凑齐 | **\(16P/N\)** | \(3P\)（all_gather 参数 ×2 + reduce_scatter 梯度） | 任意 |
+| TP | 切层内 | 参数 / N | 每层 4 次 all_reduce | 节点内 |
+| PP | 切层间 | 参数 / K | 层间激活 | 气泡 $$(K-1)/(M+K-1)$$ |
 
 <aside class="notes" markdown="1">
 原文 /pytorch-distributed-training.html。DDP Reducer 的桶按注册顺序逆序划分、每桶约 25 MB；compute stream 与 NCCL stream 两条 stream 重叠。
 结论原文：参数、梯度、优化器状态、激活、数据——各选**复制还是分片**，每个决定对应一种集合通信原语与一个时机；ring all_reduce 每 rank 收发 $$2(N-1)/N \cdot n \to 2n$$。
+「计算」列：DDP、FSDP 是数据并行，每个 rank 算完整的一层；TP、PP 是模型并行，一条样本的前向要多个 rank 合作。SPMD 的 Single 指程序一份，进程有 N 个；MASTER_ADDR 指向启动时互相发现用的 TCPStore，不是调度进程。NCCL 的集合通信在 GPU 上是通信 Kernel（ncclDevKernel_ 开头），和算子提交的计算 Kernel 排在不同的 Stream 上。
+</aside>
+
+<!-- v -->
+
+### 分片的两种用法：先凑齐再算，还是计算也切开
+
+![同一个 Linear 层 y = xW：FSDP 先凑齐再算，TP 列并行把计算也切开](/img/in-post/pytorch-distributed-training-gather-vs-split.svg){: style="max-height: 440px"}
+
+FSDP 分片的是存储，仍是**数据并行**；TP / PP / CP / EP 切开计算，是**模型并行**
+
+<aside class="notes" markdown="1">
+原文 /pytorch-distributed-training.html 的「分片之后：计算切不切」一节。W 是 2 行 4 列，N = 2。FSDP：两个 rank 各存一行，all_gather 后各用自己的输入算出完整输出。TP 列并行：各存两列，不凑齐，同一个输入各算出输出的一半，拼接后才完整。前者省静态显存，单层仍要放进一张卡；后者能处理单层放不下，代价是通信在前向的关键路径上。
 </aside>
 
 <!-- v -->
@@ -415,6 +428,7 @@ flowchart LR
 ### 常见误区
 
 - 「FSDP 比 DDP 省显存也省通信」——通信 3P 对 2P 多 50%；省的是 16P → 16P/N
+- 「参数分片了就是模型并行」——FSDP 计算前把一层凑齐，仍是数据并行；计算也切开的才是
 - 「加卡就该线性加速」——带宽项通信量不随 N 减少，per-rank 计算随 N 缩小；藏不住就换策略
 
 ---
