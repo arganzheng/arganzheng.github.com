@@ -857,7 +857,7 @@ flowchart TB
         PW2["<b>relu：Pointwise</b><br/>i → max(add(i), 0)"]
         EK --> PW1 --> PW2
     end
-    IR --> SCH["<b>Scheduler 融合决策</b><br/>• 相邻 pointwise 合并为一个循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>• reduction 可以吸收它前面的 pointwise<br/>• ExternKernel 是黑盒，不参与融合"]
+    IR --> SCH["<b>Scheduler 融合决策</b><br/>• 相邻 pointwise 合并为一个循环体<br/>• 循环体：max(buf0#91;i#93; + bias#91;i % 64#93;, 0)<br/>• reduction 可以吸收它前面的 pointwise<br/>• ExternKernel 是黑盒，不参与融合"]
     SCH --> MEM["<b>内存规划</b><br/>• mm 的输出 buf0 被融合 Kernel 读完后不再被引用<br/>• relu 的输出原地写回：buf1 = buf0"]
     MEM --> CG["<b>代码生成</b><br/>• CUDA：Triton Kernel 源码<br/>• CPU：C++ 源码，OpenMP 加 SIMD<br/>• 两者都配一个 Python 的 call()"]
     CG --> CC["<b>编译缓存</b><br/>• FX Graph 缓存：存生成的源码<br/>• Triton 缓存：存编译出的 cubin<br/>• 命中则跳过生成与编译"]
