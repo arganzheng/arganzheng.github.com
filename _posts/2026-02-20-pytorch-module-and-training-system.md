@@ -40,20 +40,20 @@ PyTorch 用 `nn.Module` 把这些对象组织起来，再通过 Optimizer、Data
 一次训练迭代里，batch 从数据管线出来，穿过 Module 树算出 loss，梯度写回 Parameter，Optimizer 再原地更新它们；模型和 Optimizer 的状态随时可以导出成 `state_dict`，合起来就是 checkpoint。下图把本文涉及的对象按「谁持有谁、数据往哪走」连在一起：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一次训练迭代穿过的对象：数据管线、Module 树、Optimizer 与 checkpoint
 flowchart TB
-    DL["<b>Dataset / Sampler / DataLoader</b><br/>worker 进程取样本、collate 成 batch<br/>pin_memory 后搬到 GPU（第八、九章）"]
+    DL["<b>Dataset / Sampler / DataLoader（第八、九章）</b><br/>• worker 进程取样本、collate 成 batch<br/>• pin_memory 后搬到 GPU"]
     subgraph MOD["nn.Module 树（第二章）"]
-        REG["<b>三张登记表</b><br/>_modules：子 Module<br/>_parameters：Parameter<br/>_buffers：Buffer（第三、四章）"]
-        MODE["<b>training 标志</b><br/>train() / eval() 递归切换（第六章）"]
+        REG["<b>三张登记表（第三、四章）</b><br/>• _modules：子 Module<br/>• _parameters：Parameter<br/>• _buffers：Buffer"]
+        MODE["<b>training 标志（第六章）</b><br/>train() / eval() 递归切换"]
         REG ~~~ MODE
     end
-    FWD["<b>model(inputs)</b><br/>Module 调用协议：hook 与 forward()<br/>可包在 autocast 里（第十、十一、十二章）"]
-    GRAD["<b>loss.backward()</b><br/>梯度写进每个 Parameter 的 .grad（第十章）"]
-    OPT["<b>Optimizer</b><br/>param_groups：持有 Parameter 的引用<br/>state：动量等逐参数统计量（第七章）"]
-    SD["<b>state_dict</b><br/>属性路径 → Tensor 的有序字典（第五章）"]
-    CK["<b>checkpoint</b><br/>模型、Optimizer、scheduler、scaler 的 state_dict<br/>加训练进度（第十三章）"]
+    FWD["<b>model(inputs)（第十、十一、十二章）</b><br/>• Module 调用协议：hook 与 forward()<br/>• 可包在 autocast 里"]
+    GRAD["<b>loss.backward()（第十章）</b><br/>梯度写进每个 Parameter 的 .grad"]
+    OPT["<b>Optimizer（第七章）</b><br/>• param_groups：持有 Parameter 的引用<br/>• state：动量等逐参数统计量"]
+    SD["<b>state_dict（第五章）</b><br/>属性路径 → Tensor 的有序字典"]
+    CK["<b>checkpoint（第十三章）</b><br/>• 模型、Optimizer、scheduler、scaler 的 state_dict<br/>• 加训练进度"]
 
     DL -- "inputs、targets" --> FWD
     MOD -- "forward 读取 Parameter 与 Buffer" --> FWD
@@ -413,6 +413,7 @@ Module 的属性设置逻辑会识别右侧对象是不是：
 把 Buffer 也算进来，`__setattr__()` 的完整决策路径如下——绿色分支的对象会进入 Module 的内部字典，从而被框架“看见”；灰色分支的对象只是 Python 对象属性：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：__setattr__ 的决策路径：Parameter、Module、已登记的 Buffer 进入内部字典，其余只是普通属性
 flowchart TB
     S["self.name = value"]
@@ -423,8 +424,8 @@ flowchart TB
     M["_modules#91;name#93; = value<br/>子模块"]
     B["_buffers#91;name#93; = value<br/>模型状态 Buffer"]
     D["__dict__#91;name#93; = value<br/>普通属性"]
-    V["<b>框架可见：</b><br/>parameters() / state_dict() / .to() / train()"]
-    I["<b>框架不可见：</b><br/>不进 parameters()、state_dict()<br/>.to(device) 不会迁移"]
+    V["<b>框架可见</b><br/>• parameters()<br/>• state_dict()<br/>• .to()<br/>• train()"]
+    I["<b>框架不可见</b><br/>• 不进 parameters()、state_dict()<br/>• .to(device) 不会迁移"]
 
     S --> Q1
     Q1 -->|"是"| P
@@ -1126,12 +1127,13 @@ def collate_fn(batch):
 把这条链路展开到进程 / 线程层面，就能看到 `num_workers`、`prefetch_factor`、`pin_memory` 三个参数各自作用在哪一段，以及瓶颈最终在哪里表现出来：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：DataLoader 的进程 / 线程链路：num_workers、prefetch_factor、pin_memory 各作用在哪一段
 flowchart TB
     subgraph main["DataLoader 主进程"]
         SM["<b>Sampler</b><br/>产生本 batch 的索引列表"]
         IQ["<b>index_queue</b><br/>把索引分发给 worker"]
-        RQ["结果队列（worker_result_queue）<br/>深度 = num_workers × prefetch_factor"]
+        RQ["<b>结果队列（worker_result_queue）</b><br/>深度 = num_workers × prefetch_factor"]
         PIN["<b>pin_memory 线程</b><br/>把 batch 复制到 pinned memory"]
         IT["for inputs, targets in loader:<br/>训练循环取走 batch"]
     end
@@ -1599,15 +1601,16 @@ start_epoch = checkpoint["epoch"] + 1
 一个完整的 save / resume 流程如下。save 时是“收集所有会影响后续训练轨迹的状态”，resume 时则有严格的先后顺序——模型对象必须先由代码构造出来，`optimizer` 又必须在 `model.to(device)` 之后才能 `load_state_dict`，否则 Optimizer state 会留在 CPU 上、与参数设备不一致：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：save 时收集的全部状态：模型、优化器、scheduler、scaler、进度、RNG 与 Sampler 位置
 flowchart TB
     subgraph trainer["训练器持有的状态（save 时收集）"]
         S1["<b>model.state_dict()</b><br/>参数 + 持久化 Buffer"]
-        S2["<b>optimizer.state_dict()</b><br/>exp_avg / exp_avg_sq<br/>step / param_groups"]
+        S2["<b>optimizer.state_dict()</b><br/>• exp_avg / exp_avg_sq<br/>• step / param_groups"]
         S3["<b>scheduler.state_dict()</b><br/>last_epoch、base_lrs"]
         S4["<b>scaler.state_dict()</b><br/>当前 scale、growth_tracker"]
         S5["<b>epoch + global_step</b><br/>训练进度"]
-        S6["<b>RNG 状态</b><br/>random / numpy / torch / cuda"]
+        S6["<b>RNG 状态</b><br/>• random<br/>• numpy<br/>• torch<br/>• cuda"]
         S7["<b>DataLoader / Sampler 位置</b><br/>epoch 内已消费的 batch 数"]
         S1 ~~~ S2
         S3 ~~~ S4
@@ -1628,6 +1631,7 @@ flowchart TB
 resume 是 save 的逆过程，但顺序不能乱：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
 %% 图：resume 的六步顺序：先构造对象，load 权重，to(device)，再 load 优化器状态
 flowchart TB
     R0["torch.load(path, map_location='cpu')<br/>weights_only=True 默认，只含 Tensor / 基本容器"]

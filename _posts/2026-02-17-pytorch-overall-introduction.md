@@ -45,17 +45,17 @@ z = torch.add(x, y)
 以开头那一行 `z = torch.add(x, y)` 为例，下图把本文要讲的组件画在一条调用链上：实线是 Eager 模式下每个算子调用都要走的路径，虚线是 `torch.compile` 提供的另一条路径；每个框的最后一行是它在源码仓库里的位置。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 420}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一行 torch.add(x, y) 穿过的 PyTorch 组件与源码位置
 flowchart TB
-    USER["<b>用户代码与编程抽象（第二、五章）</b><br/>Tensor、nn.Module、Autograd 接口、Optimizer<br/>源码：torch/"]
-    BIND["<b>Python Binding（第六章）</b><br/>torch._C 扩展模块：参数解析、重载匹配、取出 C++ Tensor 句柄<br/>源码：torch/csrc/"]
-    DISP["<b>Dispatcher 与算子表（第六章）</b><br/>按 DispatchKeySet 在 aten::add.Tensor 的条目里选处理者<br/>源码：aten/src/ATen/core/dispatch/"]
-    AG["<b>Autograd 包装 Kernel（第六章）</b><br/>准备反向节点，Redispatch，返回后给输出挂 grad_fn<br/>源码：torch/csrc/autograd/"]
-    KERN["<b>后端 Kernel（第五、六章）</b><br/>CPU / CUDA / Meta 各注册一份实现<br/>源码：aten/src/ATen/native/"]
-    BASE["<b>Tensor 的实体与设备支撑（第七章）</b><br/>TensorImpl、StorageImpl、Allocator、Stream<br/>源码：c10/"]
-    HW["<b>底层库与硬件（第五章）</b><br/>cuBLAS / cuDNN、CUDA Runtime、GPU"]
-    COMP["<b>编译栈（第三、八章）</b><br/>TorchDynamo → FX Graph → AOTAutograd → TorchInductor<br/>源码：torch/_dynamo/ 等"]
+    USER["<b>用户代码与编程抽象（第二、五章）</b><br/>• Tensor、nn.Module、Autograd 接口、Optimizer<br/>• 源码：torch/"]
+    BIND["<b>Python Binding（第六章）</b><br/>• torch._C 扩展模块：参数解析、重载匹配、取出 C++ Tensor 句柄<br/>• 源码：torch/csrc/"]
+    DISP["<b>Dispatcher 与算子表（第六章）</b><br/>• 按 DispatchKeySet 在 aten::add.Tensor 的条目里选处理者<br/>• 源码：aten/src/ATen/core/dispatch/"]
+    AG["<b>Autograd 包装 Kernel（第六章）</b><br/>• 准备反向节点，Redispatch，返回后给输出挂 grad_fn<br/>• 源码：torch/csrc/autograd/"]
+    KERN["<b>后端 Kernel（第五、六章）</b><br/>• CPU / CUDA / Meta 各注册一份实现<br/>• 源码：aten/src/ATen/native/"]
+    BASE["<b>Tensor 的实体与设备支撑（第七章）</b><br/>• TensorImpl、StorageImpl、Allocator、Stream<br/>• 源码：c10/"]
+    HW["<b>底层库与硬件（第五章）</b><br/>• cuBLAS / cuDNN<br/>• CUDA Runtime<br/>• GPU"]
+    COMP["<b>编译栈（第三、八章）</b><br/>• TorchDynamo → FX Graph → AOTAutograd → TorchInductor<br/>• 源码：torch/_dynamo/ 等"]
 
     USER -- "Eager：每个算子调用走一遍" --> BIND
     BIND -- "调用 ATen C++ API" --> DISP
@@ -532,19 +532,20 @@ PyTorch 2.0 于 2023 年 3 月 15 日发布，其主要方向是在保持 Eager 
 - 不绘制调用箭头，以避免将逻辑分层误解为执行流水线。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 flowchart TB
     subgraph MAP["PyTorch 五层逻辑职责地图"]
         direction TB
 
-        L1["<b>① 编程接口与应用表达</b><br/>Tensor、Autograd 接口、nn.Module<br/>Optimizer、DataLoader、状态管理"]
+        L1["<b>① 编程接口与应用表达</b><br/>• Tensor、Autograd 接口、nn.Module<br/>• Optimizer、DataLoader、状态管理"]
 
-        L2["<b>② 图表示与编译</b><br/>TorchDynamo、FX、AOTAutograd、TorchInductor<br/>程序捕获、图变换、优化与代码生成"]
+        L2["<b>② 图表示与编译</b><br/>• TorchDynamo、FX、AOTAutograd、TorchInductor<br/>• 程序捕获、图变换、优化与代码生成"]
 
-        L3["<b>③ 算子与分发运行时</b><br/>Operator Schema、Dispatcher、ATen<br/>算子契约、实现注册与运行时分发"]
+        L3["<b>③ 算子与分发运行时</b><br/>• Operator Schema、Dispatcher、ATen<br/>• 算子契约、实现注册与运行时分发"]
 
-        L4["<b>④ 设备与通信支撑</b><br/>设备管理、内存分配、Stream 与 Event<br/>同步机制、进程组与通信后端"]
+        L4["<b>④ 设备与通信支撑</b><br/>• 设备管理、内存分配、Stream 与 Event<br/>• 同步机制、进程组与通信后端"]
 
-        L5["<b>⑤ 计算内核与底层库</b><br/>原生 CPU 与 CUDA 内核、编译生成内核<br/>cuBLAS、cuDNN 等计算库"]
+        L5["<b>⑤ 计算内核与底层库</b><br/>• 原生 CPU 与 CUDA 内核、编译生成内核<br/>• cuBLAS、cuDNN 等计算库"]
 
         L1 ~~~ L2
         L2 ~~~ L3
@@ -552,7 +553,7 @@ flowchart TB
         L4 ~~~ L5
     end
 
-    ENV["<b>外部运行基础</b><br/>操作系统、驱动、CPU、GPU 与互连"]
+    ENV["<b>外部运行基础</b><br/>• 操作系统<br/>• 驱动<br/>• CPU<br/>• GPU 与互连"]
 
     L5 ~~~ ENV
 ```
@@ -771,11 +772,12 @@ Table: PyTorch 架构的逻辑层次总结
 **发起调用 → 跨越语言边界 → 进入算子接口 → 分发与梯度处理 → 后端计算 → 返回结果。**
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 flowchart TB
     subgraph UP["统一的上层：与设备无关的调用接口"]
         direction TB
-        A["<b>Python API</b><br/>torch.add / x + y / x.add(y)"]
-        B["<b>Python Binding</b><br/>参数解析 · 重载匹配 · Tensor 句柄转换"]
+        A["<b>Python API</b><br/>• torch.add<br/>• x + y<br/>• x.add(y)"]
+        B["<b>Python Binding</b><br/>• 参数解析<br/>• 重载匹配<br/>• Tensor 句柄转换"]
         C["<b>ATen 算子接口</b><br/>aten::add.Tensor"]
         S["<b>Operator Schema</b><br/>参数、返回类型与默认值等调用契约"]
 
@@ -1003,13 +1005,14 @@ CUDA 计算通常是异步提交的。Python 得到 `z` 时，加法 Kernel 可�
 前两张地图按职责划分，不对应源码目录。真正打开 `pytorch/` 仓库，看到的是另一种分层——按**库**划分，自上而下四层，每一层只依赖它下面的层：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：源码目录的四层：torch/ → torch/csrc/ → aten/ → c10/，每层只依赖它下面的层
 flowchart TB
     L1["<b>torch/</b><br/><br/>Python 层"]
     L2["<b>torch/csrc/</b><br/><br/>C++ 绑定与运行时引擎"]
     L3["<b>aten/src/ATen/</b><br/><br/>Tensor 算子库"]
     L4["<b>c10/</b><br/><br/>核心基础库"]
-    L5["<b>系统库与硬件</b><br/><br/>CUDA Runtime · cuBLAS / cuDNN / oneDNN · NCCL"]
+    L5["<b>系统库与硬件</b><br/>• CUDA Runtime<br/>• cuBLAS / cuDNN / oneDNN<br/>• NCCL"]
 
     L1 -- "torch._C 扩展模块（pybind11 / Python C API）" --> L2
     L2 -- "ATen C++ API：at::add(...) 进入 Dispatcher" --> L3
@@ -1165,6 +1168,7 @@ Eager Mode 鼓励动态 Python，但编译器更喜欢稳定、可推断的程�
 `torch.compile()` 的工程价值就在于尝试在两者之间建立桥梁。但这座桥不是无条件成立的，graph break、动态 shape 和运行时 guard 都是需要理解的边界。下图是这座桥的骨架：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：torch.compile 的骨架：Dynamo 捕获成 FX Graph，捕获不了的地方 graph break，下次调用先查 guard
 flowchart TB
     EAGER["<b>Eager Python 代码</b><br/>model(x)"]
@@ -1173,7 +1177,7 @@ flowchart TB
     BRK["<b>不可捕获处 → graph break</b><br/>该段回落到 Eager 逐算子执行"]
     NEXT["下次调用：先检查 guard"]
     HIT["<b>guard 通过</b><br/>直接运行已编译代码"]
-    MISS["guard 失效（shape、类型、分支变了）<br/>重新捕获并编译"]
+    MISS["<b>guard 失效</b><br/>• shape、类型、分支变了<br/>• 重新捕获并编译"]
 
     EAGER --> DYN
     DYN --> FX

@@ -18,7 +18,7 @@ updated: 2026-11-17
 先把整个系列放在一张图上——箭头是**推导或前置上的依赖**（箭头尾端的结论被箭头头端当作前提），不是阅读顺序：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 170}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：PyTorch 系列全景：Tensor → Autograd → Module → Dispatcher → 扩展 / 编译 → 性能 → 分布式 → 工程体系
 flowchart TB
     P1["01 整体介绍：三层运行时链路"] --> T2["<b>02 Tensor 与内存布局</b><br/>Storage · shape · stride"]

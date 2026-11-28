@@ -27,13 +27,13 @@ z = x + y
 全文讲的是一张表的两头：开发态把实现填进去，运行态按 Tensor 和上下文从里面查出来。下图是这条链，括号里是展开它的章节。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 340}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：算子系统总览：开发态经 torchgen 把实现填进 OperatorEntry，运行态用 DispatchKeySet 从同一张表里查出 KernelFunction
 flowchart TB
     subgraph DEV["开发态：构建时与库加载时"]
         direction TB
         DECL["<b>声明（第二章）</b><br/>• native_functions.yaml：Schema、variants、dispatch<br/>• derivatives.yaml：反向公式"]
-        TG["<b>torchgen 代码生成（第五章）</b><br/>Python 绑定、at::add、注册代码、Autograd 包装"]
+        TG["<b>torchgen 代码生成（第五章）</b><br/>• Python 绑定<br/>• at::add<br/>• 注册代码<br/>• Autograd 包装"]
         IMPL["<b>手写实现（第四章）</b><br/>aten/src/ATen/native/ 下的 at::native::add 等"]
         REG["<b>注册（第三章）</b><br/>• TORCH_LIBRARY_IMPL 里的 m.impl<br/>• 共享库加载时执行"]
         DECL --> TG --> REG
@@ -492,6 +492,7 @@ Table: 实现内部的五种模式
 选哪一种写法，基本由这个函数要完成的计算形态决定：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：算子实现的五种模式：按计算形态在 Meta、Composite、厂商库、TensorIterator、直接 Kernel 之间选
 flowchart TB
     Q0["一个实现函数的函数体该怎么写？"] --> Q1{"只需要推断 shape / dtype，<br/>不算数值？"}
@@ -499,7 +500,7 @@ flowchart TB
     Q1 -->|"否"| Q2{"能用已有 at:: 算子<br/>组合出语义？"}
     Q2 -->|"是"| COMP["<b>Composite 路径</b><br/>• 注册到 CompositeImplicit / ExplicitAutograd<br/>• 子算子重新进入 Dispatcher"]
     Q2 -->|"否"| Q3{"矩阵乘 / 卷积等<br/>有成熟厂商库？"}
-    Q3 -->|"是"| LIB["<b>厂商库路径</b><br/>cuBLAS / cuDNN / MKL / oneDNN"]
+    Q3 -->|"是"| LIB["<b>厂商库路径</b><br/>• cuBLAS<br/>• cuDNN<br/>• MKL<br/>• oneDNN"]
     Q3 -->|"否"| Q4{"逐元素 / 广播 / 归约<br/>这类规则遍历？"}
     Q4 -->|"是"| TI["<b>TensorIterator 路径</b><br/>Kernel 只写 a + alpha * b"]
     Q4 -->|"否，需要专用并行结构"| DK["<b>直接 Kernel 路径</b><br/>自己写 launch 与索引逻辑"]
@@ -561,9 +562,10 @@ PyTorch 有上千个算子、每个语义有多种形式、多个后端。如果
 ### 2. Codegen 读什么、生成什么
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：原生算子的 Codegen：蓝色是开发者手写的，橙色是 torchgen 生成的
 flowchart LR
-    Y1["<b>native_functions.yaml</b><br/>手写"] --> CG["Codegen<br/>torchgen"]
+    Y1["<b>native_functions.yaml</b><br/>手写"] --> CG["<b>Codegen</b><br/>torchgen"]
     Y2["<b>derivatives.yaml</b><br/>手写"] --> CG
     CG --> PB["<b>Python Binding</b><br/>torch.add / Tensor.add"]
     CG --> API["<b>ATen C++ API</b><br/>at::add"]
@@ -713,6 +715,7 @@ Table: no_grad 与 inference_mode 关掉求导的不同做法
 Table: no_grad 与 inference_mode 下 DispatchKeySet 的合并结果
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
 %% 图：合并 DispatchKeySet：各输入 KeySet 做 OR，叠加 TLS 的 include、减去 exclude，再掩掉 fallthrough Key
 flowchart TB
     TX["<b>输入 x</b><br/>• CUDA Tensor，requires_grad=True<br/>• KeySet = #123;AutogradCUDA, ADInplaceOrView, CUDA#125;"]

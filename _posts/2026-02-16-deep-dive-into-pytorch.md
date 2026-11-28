@@ -24,19 +24,19 @@ optimizer.step()
 这四行在 PyTorch 内部经过下面这些部件，每个部件由一篇文章展开：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一次训练 step 在 PyTorch 内部经过的部件，以及各篇展开的位置
 flowchart TB
-    USER["<b>用户代码</b><br/>model(inputs)、loss.backward()、optimizer.step()"]
-    MOD["<b>nn.Module 与训练循环</b><br/>模块树、Parameter、state_dict、Optimizer、DataLoader<br/>《nn.Module 与训练系统》"]
-    TEN["<b>Tensor</b><br/>元数据：shape、stride、dtype、device<br/>Storage：一段设备内存<br/>《Tensor 与内存布局》"]
-    OP["forward 里的每一次算子调用<br/>例如 torch.add(x, y)"]
-    DISP["<b>Dispatcher</b><br/>按输入 Tensor 的 DispatchKeySet 查这个算子的 kernel 表<br/>《Dispatcher 与算子系统》"]
-    AUTO["<b>Autograd</b><br/>前向时记录 grad_fn<br/>backward 时引擎沿图反向执行<br/>《自动求导与动态计算图》"]
-    KER["<b>后端 kernel</b><br/>CPU / CUDA 实现，自定义算子注册到同一张表<br/>《C++ 扩展与自定义算子》"]
+    USER["<b>用户代码</b><br/>• model(inputs)<br/>• loss.backward()<br/>• optimizer.step()"]
+    MOD["<b>nn.Module 与训练循环</b><br/>• 模块树、Parameter、state_dict、Optimizer、DataLoader<br/>• 见《nn.Module 与训练系统》"]
+    TEN["<b>Tensor</b><br/>• 元数据：shape、stride、dtype、device<br/>• Storage：一段设备内存<br/>• 见《Tensor 与内存布局》"]
+    OP["<b>forward 里的每一次算子调用</b><br/>例如 torch.add(x, y)"]
+    DISP["<b>Dispatcher</b><br/>• 按输入 Tensor 的 DispatchKeySet 查这个算子的 kernel 表<br/>• 见《Dispatcher 与算子系统》"]
+    AUTO["<b>Autograd</b><br/>• 前向时记录 grad_fn<br/>• backward 时引擎沿图反向执行<br/>• 见《自动求导与动态计算图》"]
+    KER["<b>后端 kernel</b><br/>• CPU / CUDA 实现，自定义算子注册到同一张表<br/>• 见《C++ 扩展与自定义算子》"]
     HW["CPU / GPU"]
-    COMP["<b>torch.compile</b><br/>把一段逐算子执行换成编译生成的代码<br/>《编译执行与图优化》"]
-    DIST["<b>分布式运行时</b><br/>多个进程各跑同一份训练代码，用集合通信同步<br/>《分布式 PyTorch》"]
+    COMP["<b>torch.compile</b><br/>• 把一段逐算子执行换成编译生成的代码<br/>• 见《编译执行与图优化》"]
+    DIST["<b>分布式运行时</b><br/>• 多个进程各跑同一份训练代码，用集合通信同步<br/>• 见《分布式 PyTorch》"]
 
     USER --> MOD
     MOD --> OP

@@ -25,20 +25,20 @@ PyTorch 有两千多个算子、每个算子有十几种 dtype、两个以上后
 以"给某个 CUDA Kernel 换一种更快的实现"为例，这次改动从源码到用户的训练作业，依次变成下面几样东西，每变一次过一道关：
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 380}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一次改动从源码到用户训练作业经过的产物与关卡
 flowchart TB
     subgraph DEV["维护者一侧：前六关"]
         direction TB
         SRC["<b>源码改动</b><br/>aten/ 下的 .cpp / .cu，或 native_functions.yaml"]
-        SO["<b>① 本地构建产物（第二章）</b><br/>torchgen 生成代码 → Ninja 编译链接<br/>libtorch_cpu.so、libtorch_cuda.so、libtorch_python.so"]
-        TEST["<b>② 测试实例（第三章）</b><br/>op_db 里的 OpInfo × 测试模板 × 设备 × dtype<br/>五种 oracle 提供标准答案"]
+        SO["<b>① 本地构建产物（第二章）</b><br/>• torchgen 生成代码 → Ninja 编译链接<br/>• libtorch_cpu.so、libtorch_cuda.so、libtorch_python.so"]
+        TEST["<b>② 测试实例（第三章）</b><br/>• op_db 里的 OpInfo × 测试模板 × 设备 × dtype<br/>• 五种 oracle 提供标准答案"]
         BENCH["<b>③ 性能数字（第四章）</b><br/>微基准与指令数、TorchBench 与编译器看板"]
-        MAIN["<b>④ 主干上的提交（第五章）</b><br/>pull 层 CI 全绿、按 merge_rules.yaml 审批后由机器人合入<br/>合入后 trunk / periodic 层继续跑，红了回滚"]
-        WHEEL["<b>⑤ 发布制品（第六章）</b><br/>nightly → release 分支 → RC → 正式版<br/>Python × 加速后端 × 平台的 wheel 矩阵"]
+        MAIN["<b>④ 主干上的提交（第五章）</b><br/>• pull 层 CI 全绿、按 merge_rules.yaml 审批后由机器人合入<br/>• 合入后 trunk / periodic 层继续跑，红了回滚"]
+        WHEEL["<b>⑤ 发布制品（第六章）</b><br/>• nightly → release 分支 → RC → 正式版<br/>• Python × 加速后端 × 平台的 wheel 矩阵"]
         SRC --> SO --> TEST --> BENCH --> MAIN --> WHEEL
     end
-    CONTRACT["<b>⑥ 五个接口面的兼容承诺（第七章）</b><br/>Python API、算子 Schema、C++ API、序列化格式、平台"]
+    CONTRACT["<b>⑥ 五个接口面的兼容承诺（第七章）</b><br/>• Python API<br/>• 算子 Schema<br/>• C++ API<br/>• 序列化格式<br/>• 平台"]
     subgraph USR["使用者一侧：第七关"]
         direction TB
         IMG["<b>⑦ 版本化的镜像（第八章）</b><br/>驱动 × CUDA × PyTorch × C++ 扩展 × 上层框架"]
@@ -366,21 +366,22 @@ Table: torch.testing.assert_close 各 dtype 的默认容差
 `torch.autograd.gradcheck(fn, inputs)` 的核心是比较两个 Jacobian——左边一列完全不碰被测的反向代码，右边一列完全依赖它：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：gradcheck 的内部：数值 Jacobian 与实现无关，解析 Jacobian 完全依赖被测的反向实现，逐元素比较
 flowchart TB
-    IN["被测函数 y = f(x)<br/>x 为 float64 且 requires_grad=True"]
+    IN["<b>被测函数 y = f(x)</b><br/>x 为 float64 且 requires_grad=True"]
     subgraph num["数值 Jacobian：与实现无关的真值"]
-        N1["<b>对每个输入元素 $$x_i$$：</b><br/>把 $$x_i$$ 改成 $$x_i$$ + eps 和 $$x_i$$ − eps<br/>各跑一次前向（共 2 × 输入元素数 次）"]
-        N2["J_num#91;:, i#93; = (f(x+eps) − f(x−eps)) / 2eps<br/>eps 默认 1e-6，float32 的差分淹没在舍入里<br/>所以必须 float64"]
+        N1["<b>对每个输入元素 $$x_i$$：</b><br/>• 把 $$x_i$$ 改成 $$x_i$$ + eps 和 $$x_i$$ − eps<br/>• 各跑一次前向（共 2 × 输入元素数 次）"]
+        N2["J_num#91;:, i#93; = (f(x+eps) − f(x−eps)) / 2eps<br/>• eps 默认 1e-6<br/>• float32 的差分淹没在舍入里，所以必须 float64"]
         N1 --> N2
     end
     subgraph ana["解析 Jacobian：被测的反向实现"]
-        A1["<b>对每个输出元素 $$y_j$$：</b><br/>grad_output = one-hot 向量 $$e_j$$<br/>调用一次 backward（共 输出元素数 次）"]
+        A1["<b>对每个输出元素 $$y_j$$：</b><br/>• grad_output = one-hot 向量 $$e_j$$<br/>• 调用一次 backward（共 输出元素数 次）"]
         A2["J_ana#91;j, :#93; = $$\partial y_j / \partial x$$<br/>来自 derivatives.yaml 或自定义 backward"]
         A1 --> A2
     end
     CMP["<b>逐元素比较</b><br/>allclose(J_num, J_ana, atol=1e-5, rtol=1e-3)"]
-    FAST["快模式 fast_mode=True：取随机向量 u、v<br/>左边只算 $$v^\top J u$$ 的数值值，右边只算一次 $$v^\top J$$ 再点乘 u<br/>O(1) 次前向 + O(1) 次反向"]
+    FAST["<b>快模式 fast_mode=True</b><br/>• 取随机向量 u、v<br/>• 左边只算 $$v^\top J u$$ 的数值值<br/>• 右边只算一次 $$v^\top J$$ 再点乘 u<br/>• O(1) 次前向 + O(1) 次反向"]
     IN --> N1
     IN --> A1
     N2 --> CMP
@@ -541,16 +542,17 @@ python benchmarks/dynamo/huggingface.py --accuracy --inference --bfloat16 --back
 把几层和合入、回滚（§3）放在一张图里，能看到验证是分两段的：合入**前**只有 `pull` 层挡着，合入**后**更慢更全的层在主干上继续跑，红了就回滚：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：CI 分层与合入、回滚：合入前只有 pull 层拦截，合入后 trunk / periodic / inductor 在主干上继续跑，红了就回滚
 flowchart TB
     PR["PR 提交 / 更新"]
-    TD["<b>Target Determination</b><br/>按改动文件给测试文件排序<br/>历史上被它弄红过的排前面，再分片到多机"]
+    TD["<b>Target Determination</b><br/>• 按改动文件给测试文件排序<br/>• 历史上被它弄红过的排前面，再分片到多机"]
     PULL["<b>pull 层：每个 PR</b><br/>几个 Linux 构建 + 测试子集，约两小时"]
     FIX["回到 PR 修复"]
     REVIEW["<b>审批</b><br/>merge_rules.yaml 按路径指定批准人"]
     BOT["<b>@pytorchbot merge</b><br/>机器人等所需 CI 全绿后合入主干"]
-    TRUNK["trunk 层：合入后（或 PR 加 ciflow/trunk 标签）<br/>macOS、Windows、多 GPU、更慢的测试"]
-    PERIODIC["<b>periodic 层：每晚</b><br/>慢测试、ROCm、多机分布式、Debug 构建"]
+    TRUNK["<b>trunk 层：合入后</b><br/>• 或 PR 加 ciflow/trunk 标签<br/>• macOS、Windows、多 GPU、更慢的测试"]
+    PERIODIC["<b>periodic 层：每晚</b><br/>• 慢测试<br/>• ROCm<br/>• 多机分布式<br/>• Debug 构建"]
     IND["<b>inductor 专项</b><br/>编译器正确性 + 性能基准，部分每 PR、部分每晚"]
     REVERT["<b>@pytorchbot revert -m 原因</b><br/>先恢复主干再讨论"]
     NIGHTLY["主干保持绿色 → 每晚构建 nightly"]
@@ -809,9 +811,10 @@ class _BatchNorm(nn.Module):
 保存与加载两侧的版本号怎样对上、旧 checkpoint 在哪一步被"升级"：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
 %% 图：state_dict 的版本升级：保存时写入 _metadata 的 version，加载时 _load_from_state_dict 按版本补字段
 flowchart TB
-    SAVE["<b>保存时（旧版本代码）</b><br/>_BatchNorm._version = 1<br/>state_dict 只有 weight / bias / running_mean / running_var"]
+    SAVE["<b>保存时（旧版本代码）</b><br/>• _BatchNorm._version = 1<br/>• state_dict 只有 weight / bias / running_mean / running_var"]
     META["state_dict._metadata#91;'bn'#93;#91;'version'#93; = 1<br/>随 data.pkl 一起写进 model.pt"]
     LOAD["<b>加载时（新版本代码）</b><br/>_BatchNorm._version = 2，期望多一个 num_batches_tracked"]
     HOOK["load_state_dict 逐模块调用 _load_from_state_dict<br/>传入 local_metadata = _metadata#91;prefix#93;"]
@@ -883,11 +886,12 @@ python -W error::FutureWarning -W error::DeprecationWarning -m pytest tests/
 画成流程：每一步都有明确的输出物，通过才进下一步，失败则回到旧镜像 tag——回退的成本在每一层都一样低，这是分层的前提：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：升级 playbook 的八步：每步有明确输出物，通过才进下一步，失败则换回旧镜像 tag
 flowchart TB
     S1["<b>1. 读发布说明</b><br/>输出：BC 变更与弃用清单、平台窗口核对结果"]
     S2["<b>2. 重编译 C++ / CUDA 扩展</b><br/>输出：针对新版本的扩展制品，扩展自测全过"]
-    S3["3. 在隔离环境安装 + CPU 单元测试<br/>输出：-W error::FutureWarning 下测试全绿"]
+    S3["<b>3. 在隔离环境安装 + CPU 单元测试</b><br/>输出：-W error::FutureWarning 下测试全绿"]
     S4["<b>4. 单卡功能测试</b><br/>输出：小模型几十步 loss 曲线，与旧版本容差内一致"]
     S5["<b>5. checkpoint 兼容</b><br/>输出：旧 checkpoint 在新版本加载并续训成功"]
     S6["<b>6. 多卡与 compile</b><br/>输出：DDP / FSDP / torch.compile 各一轮，编译时间与 graph break 对比"]
@@ -930,14 +934,15 @@ flowchart TB
 五者是一条单向的约束链：上游限定下游能取的值，而升级频率恰好反过来——越靠上游越慢：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：兼容矩阵的单向约束链：驱动 → CUDA → PyTorch → C++ 扩展 → 上层框架，越靠上游升级越慢
 flowchart TB
-    DRV["<b>NVIDIA 驱动</b><br/>集群级、随节点镜像走，升级最慢<br/>决定了 CUDA 版本的上限"]
+    DRV["<b>NVIDIA 驱动</b><br/>• 集群级、随节点镜像走，升级最慢<br/>• 决定了 CUDA 版本的上限"]
     CUDA["<b>CUDA 运行时</b><br/>由 torch wheel 的 +cuXXX 与 nvidia-* PyPI 包决定"]
     PT["<b>PyTorch 小版本</b><br/>torch==2.x.y+cuXXX"]
-    EXT["<b>C++ 扩展（ABI 绑定）</b><br/>FlashAttention、Apex、自定义算子 ..."]
-    FW["<b>上层框架</b><br/>Lightning / DeepSpeed / Megatron / vLLM"]
-    NOTE["约束方向：自上而下，上游限定下游<br/>升级频率：自上而下，从慢到快<br/>规划升级：从驱动开始倒推"]
+    EXT["<b>C++ 扩展（ABI 绑定）</b><br/>• FlashAttention<br/>• Apex<br/>• 自定义算子 ..."]
+    FW["<b>上层框架</b><br/>• Lightning<br/>• DeepSpeed<br/>• Megatron<br/>• vLLM"]
+    NOTE["<b>三条规律</b><br/>• 约束方向：自上而下，上游限定下游<br/>• 升级频率：自上而下，从慢到快<br/>• 规划升级：从驱动开始倒推"]
 
     DRV -->|"驱动版本 ≥ 运行时要求的最低版本"| CUDA
     CUDA -->|"一个 wheel 只为一个 CUDA 版本编译"| PT

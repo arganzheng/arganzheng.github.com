@@ -34,16 +34,16 @@ updated: 2026-11-17
 先看全篇涉及的对象怎样连在一起：Python 里的一个 Tensor 往下是哪几层，哪些操作只在上层多建一个对象，哪些操作要在下层多分配一块数据。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 260}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一个 Tensor 的组成与两类操作：Python 句柄、TensorImpl 元数据、StorageImpl 与设备内存
 flowchart TB
     PY["<b>Python 的 torch.Tensor 对象</b><br/>名字 x、y 各绑定一个，本身只是句柄"]
-    TA["<b>TensorImpl（x）</b><br/>sizes、strides、storage_offset（第三、四章）<br/>dtype（第八章）、device（第九章）<br/>Autograd 元数据与版本计数（第十章）"]
+    TA["<b>TensorImpl（x）</b><br/>• sizes、strides、storage_offset（第三、四章）<br/>• dtype（第八章）、device（第九章）<br/>• Autograd 元数据与版本计数（第十章）"]
     TV["<b>TensorImpl（y = x.t()）</b><br/>自己的一套 sizes、strides、storage_offset"]
-    ST["<b>StorageImpl（第七章）</b><br/>数据指针、字节数、Allocator<br/>x 与 y 共同持有"]
+    ST["<b>StorageImpl（第七章）</b><br/>• 数据指针、字节数、Allocator<br/>• x 与 y 共同持有"]
     MEM["<b>设备内存（第九、十二章）</b><br/>CPU 内存，或缓存分配器管理的显存"]
-    OPV["<b>只改元数据的操作</b><br/>view、transpose、permute、切片、expand<br/>（第三、五、十一章）"]
-    OPC["<b>产生新数据的操作</b><br/>clone、不连续时的 contiguous、<br/>改 dtype 或 device 的 .to()<br/>（第六、八、九章）"]
+    OPV["<b>只改元数据的操作（第三、五、十一章）</b><br/>• view<br/>• transpose<br/>• permute<br/>• 切片<br/>• expand"]
+    OPC["<b>产生新数据的操作（第六、八、九章）</b><br/>• clone<br/>• 不连续时的 contiguous<br/>• 改 dtype 或 device 的 .to()"]
 
     PY --> TA
     PY --> TV
@@ -211,13 +211,14 @@ flowchart LR
 以 `x = torch.arange(6).reshape(2, 3)` 和它的转置 `y = x.t()` 为例，两个 Python 变量背后各有一个 `TensorImpl`，各自记着自己的 shape 和 stride，但两者的 `storage_` 指向同一个 `StorageImpl`，6 个 int64 只存了一份：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：x 与 y = x.t() 背后的 C++ 对象：两个 TensorImpl 共用一个 StorageImpl
 flowchart TB
     X["<b>x</b><br/>Python 的 torch.Tensor"]
     Y["<b>y = x.t()</b><br/>Python 的 torch.Tensor"]
-    TX["<b>c10::TensorImpl</b><br/>sizes = (2, 3)<br/>strides = (3, 1)<br/>storage_offset = 0<br/>dtype = int64，device = cpu<br/>autograd_meta_ = 空"]
-    TY["<b>c10::TensorImpl</b><br/>sizes = (3, 2)<br/>strides = (1, 3)<br/>storage_offset = 0<br/>dtype = int64，device = cpu<br/>autograd_meta_ = 空"]
-    S["<b>c10::StorageImpl</b><br/>data_ptr_：数据区首地址<br/>size_bytes_ = 48（6 × 8 字节）<br/>allocator_：CPU 分配器"]
+    TX["<b>c10::TensorImpl</b><br/>• sizes = (2, 3)<br/>• strides = (3, 1)<br/>• storage_offset = 0<br/>• dtype = int64，device = cpu<br/>• autograd_meta_ = 空"]
+    TY["<b>c10::TensorImpl</b><br/>• sizes = (3, 2)<br/>• strides = (1, 3)<br/>• storage_offset = 0<br/>• dtype = int64，device = cpu<br/>• autograd_meta_ = 空"]
+    S["<b>c10::StorageImpl</b><br/>• data_ptr_：数据区首地址<br/>• size_bytes_ = 48（6 × 8 字节）<br/>• allocator_：CPU 分配器"]
     D["<b>数据区</b><br/>0　1　2　3　4　5"]
 
     X --> TX
@@ -945,16 +946,17 @@ x = x.to(device="cuda", dtype=torch.float16)
 把这条路径按 `pin_memory` 和 `non_blocking` 两个开关展开，可以看清哪一步是真正的同步点、哪一步可以和计算重叠：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：CPU 到 GPU 的数据搬运：pin_memory 与 non_blocking 决定 H2D 拷贝是同步点还是异步 DMA
 flowchart TB
     DISK["磁盘 / 数据集文件"]
     PAGE["<b>CPU pageable 内存</b><br/>DataLoader worker 进程读取、预处理"]
-    PIN["CPU pinned 内存（页锁定，不会被换出）<br/>pin_memory=True 时由 DataLoader 主进程拷入"]
-    H2D_SYNC["<b>H2D 拷贝：（近乎）同步</b><br/>来源是 pageable 内存，或 non_blocking=False<br/>pageable：先搬进驱动的 pinned 中转区，CPU 等这一步；<br/>non_blocking=False：CPU 等整个拷贝 —— 同步点"]
-    H2D_ASYNC["<b>H2D 拷贝：异步 DMA</b><br/>pinned 来源 + non_blocking=True<br/>CPU 立即返回，拷贝排入当前 CUDA stream<br/>（要与计算重叠还需另一条 stream，见《性能优化与调试》）"]
+    PIN["<b>CPU pinned 内存</b><br/>• 页锁定，不会被换出<br/>• pin_memory=True 时由 DataLoader 主进程拷入"]
+    H2D_SYNC["<b>H2D 拷贝：（近乎）同步</b><br/>• 来源是 pageable 内存，或 non_blocking=False<br/>• pageable：先搬进驱动的 pinned 中转区，CPU 等这一步<br/>• non_blocking=False：CPU 等整个拷贝，是同步点"]
+    H2D_ASYNC["<b>H2D 拷贝：异步 DMA</b><br/>• pinned 来源 + non_blocking=True<br/>• CPU 立即返回，拷贝排入当前 CUDA stream<br/>• 要与计算重叠还需另一条 stream，见《性能优化与调试》"]
     GPU["GPU 显存中的 batch Tensor"]
-    KERNEL["<b>Kernel 执行</b><br/>同一 stream 上按序排队，自动等拷贝完成<br/>CPU 不需要等待"]
-    IMPLICIT["隐式同步点：.item()、print(tensor)、.cpu()<br/>会让 CPU 等待 stream 上全部工作完成，<br/>把异步拷贝的收益吃掉"]
+    KERNEL["<b>Kernel 执行</b><br/>• 同一 stream 上按序排队，自动等拷贝完成<br/>• CPU 不需要等待"]
+    IMPLICIT["<b>隐式同步点</b><br/>• .item()、print(tensor)、.cpu()<br/>• 会让 CPU 等待 stream 上全部工作完成<br/>• 把异步拷贝的收益吃掉"]
 
     DISK --> PAGE
     PAGE -->|"pin_memory=True<br/>(主机内再拷一次)"| PIN
@@ -1273,6 +1275,7 @@ shape 相乘相等，不代表两个 Tensor 可以逐元素广播。
 把这几类放进同一块 GPU 显存里看，并标出 `memory_allocated()` 与 `memory_reserved()` 各自覆盖的范围：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：GPU 显存的分层：memory_allocated() 是活跃 Tensor 占用的部分，memory_reserved() 还包括分配器缓存的块
 flowchart TB
     subgraph RESERVED["memory_reserved()：Caching Allocator 向 CUDA 申请并持有的显存"]
@@ -1285,9 +1288,9 @@ flowchart TB
             ACT["<b>前向保存的激活</b><br/>Autograd 为 backward 保留，随 batch / 序列长度增长"]
             WS["<b>Kernel 临时 workspace</b><br/>cuBLAS / cuDNN 的中间缓冲，用完即还给分配器"]
         end
-        CACHE["已释放、仍被缓存的块（reserved 但未 allocated）<br/>del / 出作用域后 allocated 下降，reserved 不降<br/>供后续分配直接复用，empty_cache() 才归还 CUDA"]
+        CACHE["<b>已释放、仍被缓存的块</b><br/>• reserved 但未 allocated<br/>• del / 出作用域后 allocated 下降，reserved 不降<br/>• 供后续分配直接复用，empty_cache() 才归还 CUDA"]
     end
-    OUTSIDE["不在 reserved 之内：CUDA context、cuBLAS handle、NCCL 缓冲<br/>nvidia-smi 能看到，torch.cuda.memory_* 看不到"]
+    OUTSIDE["<b>不在 reserved 之内</b><br/>• CUDA context、cuBLAS handle、NCCL 缓冲<br/>• nvidia-smi 能看到，torch.cuda.memory_* 看不到"]
 
     PARAM ~~~ GRAD ~~~ OPT ~~~ ACT ~~~ WS
     ALLOCATED ~~~ CACHE

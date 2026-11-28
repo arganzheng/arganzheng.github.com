@@ -21,19 +21,19 @@ updated: 2026-11-27
 写一个自定义算子需要同时回答三个问题，本文的前三章分别回答它们，之后再用一个四阶段项目把答案落到代码上。先看全文要走完的一条链：一段 C++ / CUDA 源码怎样变成 Operator Table 里的一行，一次 `torch.ops.myops.scale_shift(...)` 调用又怎样从这一行里取到实现。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一个自定义算子从源码到被调用：构建、加载时注册、Operator Table、运行时分发
 flowchart TB
-    SRC["<b>扩展源码</b><br/>scale_shift.cpp、scale_shift_cuda.cu<br/>实现函数 + TORCH_LIBRARY 宏（第四、六、七章）"]
-    SO["<b>共享库 .so</b><br/>链接 libtorch、libc10，绑定 PyTorch 版本与 ABI（第四、十章）"]
-    INIT["<b>加载时的静态初始化</b><br/>m.def 写入 Schema，m.impl 写入函数指针（第三章）"]
-    PYREG["<b>Python 侧 torch.library</b><br/>register_autograd、register_fake（第三、八章）"]
-    OT[("<b>Operator Table 中的一行</b><br/>myops::scale_shift：Schema + CPU / CUDA / Autograd / Meta（Fake）槽位（第二章）")]
+    SRC["<b>扩展源码（第四、六、七章）</b><br/>• scale_shift.cpp、scale_shift_cuda.cu<br/>• 实现函数 + TORCH_LIBRARY 宏"]
+    SO["<b>共享库 .so（第四、十章）</b><br/>链接 libtorch、libc10，绑定 PyTorch 版本与 ABI"]
+    INIT["<b>加载时的静态初始化（第三章）</b><br/>m.def 写入 Schema，m.impl 写入函数指针"]
+    PYREG["<b>Python 侧 torch.library（第三、八章）</b><br/>register_autograd、register_fake"]
+    OT[("<b>Operator Table 中的一行（第二章）</b><br/>myops::scale_shift：Schema + CPU / CUDA / Autograd / Meta（Fake）槽位")]
     CALLER["<b>用户调用</b><br/>torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
     DISP["<b>Dispatcher</b><br/>按 DispatchKeySet 在这一行里取槽位"]
-    AG["<b>Autograd 包装</b><br/>保存 ctx，去掉 Autograd Key 再分发（第八章）"]
-    KER["<b>后端实现</b><br/>scale_shift_cpu 或 scale_shift_cuda（第六、七章）"]
-    FAKE["<b>Fake 实现</b><br/>只给出输出的 shape / dtype / device / stride（第八章）"]
+    AG["<b>Autograd 包装（第八章）</b><br/>保存 ctx，去掉 Autograd Key 再分发"]
+    KER["<b>后端实现（第六、七章）</b><br/>scale_shift_cpu 或 scale_shift_cuda"]
+    FAKE["<b>Fake 实现（第八章）</b><br/>只给出输出的 shape / dtype / device / stride"]
     SRC -->|"cpp_extension 调用 g++ / nvcc"| SO
     SO -->|"import 或 load_library"| INIT
     INIT -->|"建一行，填 CPU / CUDA 槽位"| OT
@@ -1263,6 +1263,7 @@ Table: 完成后的 Operator Table
 把这张表按运行态展开，可以分成真实 Tensor 的后端执行和 Fake / Meta 的元数据推断两条路径。下面省略与本文无关的功能 Key：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：完成后的 Operator Table：真实 Tensor 的 Autograd 与后端分发、Fake / Meta 的元数据推断
 flowchart TB
     IN["torch.ops.myops.scale_shift(x, 2.0, 1.0)"]
@@ -1275,7 +1276,7 @@ flowchart TB
     CUDAS["<b>CUDA 槽位</b><br/>scale_shift_cuda"]
     METAS["<b>Fake / Meta 实现 _fake</b><br/>只描述 shape / dtype / device / stride"]
     OUT["<b>返回 out</b><br/>梯度模式开启且输入需要梯度时挂 grad_fn"]
-    OUT2["FakeTensor / torch.compile 图捕获<br/>不运行真实 Kernel"]
+    OUT2["<b>FakeTensor / torch.compile 图捕获</b><br/>不运行真实 Kernel"]
     IN --> MODE
     MODE -->|真实 Tensor| KS
     MODE -->|FakeTensor 或 Meta Tensor| METAS
@@ -1473,15 +1474,16 @@ Table: 自定义算子与原生算子各环节的对应
 把这七条按顺序串起来，就是一张核对流程图——前四步完成 Schema、后端、Autograd 和 Fake / Meta 注册，后三步是把它交给别人之前必须过的关。Schema 是算子的契约，不是 DispatchKey 槽位：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 620}}}%%
 %% 图：一个算子完成的七条标准：定义与注册、校验、Benchmark、构建与 ABI 检查
 flowchart TB
-    S1["<b>1. Schema 定义</b><br/>myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>声明 mutates_args / alias"]
+    S1["<b>1. Schema 定义</b><br/>• myops::scale_shift(Tensor x, float alpha, float beta) → Tensor<br/>• 声明 mutates_args / alias"]
     S2["<b>2. 后端实现并注册</b><br/>CPU / CUDA / Meta 槽位"]
     S3["<b>3. Autograd 注册</b><br/>register_autograd 或 Autograd Key"]
     S4["<b>4. Fake / abstract impl</b><br/>register_fake，供 FakeTensor 与 torch.compile"]
     S5["<b>5. 校验</b><br/>opcheck + gradcheck（float64）"]
     S6["<b>6. Benchmark 对比 native</b><br/>2.0 * x + 1.0 两个 Kernel vs 一个融合 Kernel"]
-    S7["<b>7. 构建 / ABI 检查</b><br/>_GLIBCXX_USE_CXX11_ABI 一致<br/>torch 版本 pin，TORCH_CUDA_ARCH_LIST 覆盖目标 GPU"]
+    S7["<b>7. 构建 / ABI 检查</b><br/>• _GLIBCXX_USE_CXX11_ABI 一致<br/>• torch 版本 pin，TORCH_CUDA_ARCH_LIST 覆盖目标 GPU"]
     R["重新评估是否值得维护一份 C++/CUDA 代码"]
     S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7
     S5 -->|失败，回头修实现或 Fake| S2

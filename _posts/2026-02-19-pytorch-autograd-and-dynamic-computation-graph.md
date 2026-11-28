@@ -47,17 +47,17 @@ optimizer.step()
 一个训练 step 里，Autograd 涉及的对象连成一个环：forward 一边算数值一边建反向节点，`loss.backward()` 让引擎沿这些节点走回参数，梯度落在参数的 `.grad` 上，Optimizer 读它更新参数，下一个 step 再建一张新图。
 
 ```mermaid
-%%{init: {"flowchart": {"wrappingWidth": 360}}}%%
+%%{init: {"flowchart": {"wrappingWidth": 540}}}%%
 %% 图：一个训练 step 里 Autograd 的对象与流转
 flowchart TB
-    LEAF["<b>需要梯度的 leaf Tensor（模型参数）</b><br/>requires_grad=True，grad_fn 为 None（第四章）"]
-    OP["<b>forward 的算子执行</b><br/>x * x、relu、sum，立即算出数值（第三章）"]
-    OUT["<b>non-leaf Tensor，直到 loss</b><br/>grad_fn 指向创建它的反向节点（第四章）"]
-    NODE["<b>反向节点 Node</b><br/>MulBackward0、SumBackward0 等<br/>知道这一步的 VJP 怎么算（第二章）"]
-    SAVED["<b>SavedVariable</b><br/>反向要用的 forward 输入或输出（第六章）"]
-    ENGINE["<b>Engine</b><br/>从 loss.grad_fn 出发，逆序执行各节点（第五章）"]
-    ACC["<b>AccumulateGrad</b><br/>每个需要梯度的 leaf 对应一个，是图的终点（第四章）"]
-    GRAD["<b>leaf 的 .grad</b><br/>各路梯度累加在这里（第五章）"]
+    LEAF["<b>需要梯度的 leaf Tensor（模型参数）（第四章）</b><br/>requires_grad=True，grad_fn 为 None"]
+    OP["<b>forward 的算子执行（第三章）</b><br/>x * x、relu、sum，立即算出数值"]
+    OUT["<b>non-leaf Tensor，直到 loss（第四章）</b><br/>grad_fn 指向创建它的反向节点"]
+    NODE["<b>反向节点 Node（第二章）</b><br/>• MulBackward0、SumBackward0 等<br/>• 知道这一步的 VJP 怎么算"]
+    SAVED["<b>SavedVariable（第六章）</b><br/>反向要用的 forward 输入或输出"]
+    ENGINE["<b>Engine（第五章）</b><br/>从 loss.grad_fn 出发，逆序执行各节点"]
+    ACC["<b>AccumulateGrad（第四章）</b><br/>每个需要梯度的 leaf 对应一个，是图的终点"]
+    GRAD["<b>leaf 的 .grad（第五章）</b><br/>各路梯度累加在这里"]
     OPT["<b>Optimizer</b><br/>step 读 .grad 更新参数，zero_grad 清空"]
 
     LEAF --> OP --> OUT
@@ -696,13 +696,14 @@ print(y.grad_fn)  # <MulBackward0 object at 0x...>
 `x.grad_fn` 是 `None`，不代表 `x` 在反向图里没有节点。梯度最终要写进 `x.grad`，做这件事的是一个专门的节点 **`AccumulateGrad`**：每个需要梯度的 leaf 对应一个，用到这个 leaf 的算子节点通过 `next_functions` 指向它。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：y = x * 3 的反向图：MulBackward0 的 next_functions 指向 x 的 AccumulateGrad，AccumulateGrad 把梯度累加进 x.grad；常数 3 对应 None
 flowchart LR
-    y["<b>y</b>（non-leaf）<br/>requires_grad=True"]
+    y["<b>y（non-leaf）</b><br/>requires_grad=True"]
     mul(["<b>MulBackward0</b>"])
     acc(["<b>AccumulateGrad</b><br/>variable 指向 x"])
     none["None<br/>常数 3 不需要梯度"]
-    x["<b>x</b>（leaf）<br/>requires_grad=True<br/>grad_fn 为 None"]
+    x["<b>x（leaf）</b><br/>• requires_grad=True<br/>• grad_fn 为 None"]
     g["x.grad"]
 
     y -. "y.grad_fn" .-> mul
