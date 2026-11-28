@@ -320,7 +320,7 @@ add 和 relu 都是按下标算一个元素的函数，复合成一个循环体 
 
 ### 常见误区
 
-- 「换 batch size 变慢是编译器 bug」——静态 shape 下每个新 shape 是一次 Guard 失败 + 重编译；`dynamic=True` / `mark_dynamic`
+- 「换 batch size 变慢是编译器 bug」——默认只慢一次：重编译把这一维改成符号；每次都慢是 `dynamic=False` 或被特化
 - 「`if x.sum() > 0` 把函数切成前后两张图」——是 `if` 之前一张、两个分支各一张；分支的图第一次走到才编译
 
 <!-- v -->
