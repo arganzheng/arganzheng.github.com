@@ -1611,6 +1611,8 @@ Table: 本篇涉及的源码位置
    | Eager | `relu`、`mul`、`add` 三个 | `relu` 读 N 写 N，`mul` 读 N 写 N，`add` 读 2N 写 N，共 7N |
    | Inductor | 一个融合 Kernel | 读 `x` 和 `b` 共 2N，写 N，共 3N |
 
+   Table: 三个逐元素算子融合前后的 Kernel 数与访存
+
    访存从 7N 降到 3N，launch 从 3 次降到 1 次。逐元素算子的时间由搬运的字节数决定，所以耗时大致按这个比例下降。
 
    如果中间换成矩阵乘法（`x.relu() @ w + b`），就融合不成一个 Kernel：`mm` 是 ExternKernel，默认交给 cuBLAS，不参与融合，前面的 `relu` 和后面的 `add` 被它隔开，各自成为一个 Kernel，一共三个（[第五章「融合决策」](#3-融合决策)）。
