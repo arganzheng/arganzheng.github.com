@@ -102,7 +102,7 @@ Table: 复制与分片各自的显存与通信含义
 
 「复制还是分片」说的是状态**存**在哪。状态分片之后还有第二个问题：用它做计算时，**计算本身切不切**。两种做法：
 
-| | 先凑齐再算 | 计算也切开 |
+| 对比项 | 先凑齐再算 | 计算也切开 |
 |---|---|---|
 | 代表 | ZeRO-3 / FSDP | TP、PP、CP、EP |
 | 计算时的分片 | 用前 all_gather 成完整的一份，用完释放 | 一直是分片，不凑齐 |
@@ -413,7 +413,7 @@ NCCL 还按消息大小选择**协议**：`LL`（8 字节数据 + 标志位一�
 
 **Kernel** 在本系列里指 CUDA Kernel：一个由 CPU 提交、在 GPU 上执行的函数。它不是 ATen 算子：算子是 CPU 侧的函数，`torch.matmul` 这样一次算子调用，最后一步才是向 GPU 提交一个或几个 Kernel（[《性能优化与调试》](/pytorch-performance-optimization-and-debugging.html)里的 Kernel launch）。多卡训练的进程里，Kernel 按来源分成两类：
 
-| | 计算 Kernel | 通信 Kernel |
+| 对比项 | 计算 Kernel | 通信 Kernel |
 |---|---|---|
 | 谁提交 | ATen 算子：矩阵乘、逐元素运算、归一化等 | NCCL：`dist.all_reduce` 等集合通信被调用时 |
 | 做什么 | 读写本卡显存里的 Tensor，算出结果 | 把本卡 Tensor 的数据送给其他 rank，接收对方送来的数据<br/>归约类原语边收边做加法 |
