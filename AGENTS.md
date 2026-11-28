@@ -2748,6 +2748,26 @@ How it is built (`_plugins/moments.rb`):
     also as `classDef` names (`classDef graph …` killed a diagram in 2026-09);
     always quote labels and write literal `[`/`]`/`{`/`}` as `#91;`/`#93;`/
     `#123;`/`#125;`; one message per line in `sequenceDiagram`, no `;` inside.
+  - **A flowchart box is title + unordered list, by default** (author,
+    2026-11-28, Discussion #372 / PyTorch 07: 「好多的 mermaid 图改成 title +
+    无序列表会更好看一些。扫一下，把这个规则记下来」). Whenever a post is
+    touched, read *every* Mermaid flowchart in it, not only the one the
+    comment points at, and convert the boxes that are one of:
+    1. a title followed by two or more plain centred lines → `• ` items;
+    2. one body line that joins several things with 「 · 」「、」「/」「；」
+       「+」 or a bracket aside (`融合 · 内存规划 · 代码生成`,
+       `size[0] == 128 / dtype / device`) → one `• ` item each;
+    3. two or more lines with no title at all → add `<b>标题</b>` (what the
+       box is) and list the rest.
+    Leave alone: a title with a single short body line (stays centred), a
+    single-line box, `{}` decision diamonds, edge labels, and a line that is
+    one chain or expression (`mm → add → relu`, `i → max(add(i), 0)`) — a
+    chain is one item, never split at the arrows. Content does not change in
+    such a pass. Then give the diagram
+    `%%{init: {"flowchart": {"wrappingWidth": 440}}}%%` (or whatever keeps
+    every item on one line) and look at the rendered figure: an item that
+    wraps is shortened or split into two items. Series-deck diagrams are
+    exempt: on a 1280×720 slide a list makes the diagram too tall.
   - **Every new multi-line flowchart box gets a title line**:
     `A["<b>标题</b><br/>内容"]` — a short noun phrase (what the box is), the
     detail on the following lines; formulas as `$$…$$`. See *Node titles*

@@ -49,13 +49,13 @@ flowchart TB
         DONE --> RUN
     end
     subgraph CP["编译器：被触发时运行一次（第三 ~ 五章）"]
-        DY["<b>前端 TorchDynamo（第三章）</b><br/>符号求值字节码，捕获 Tensor 计算<br/>Graph Break 决定边界"]
+        DY["<b>前端 TorchDynamo（第三章）</b><br/>• 符号求值字节码<br/>• 捕获 Tensor 计算<br/>• Graph Break 决定边界"]
         FX1[("<b>FX Graph（第二章）</b><br/>torch 级，只有前向")]
-        AOT["<b>中端 AOTAutograd（第四章）</b><br/>反向展开 · 函数化 · 分解"]
-        FX2[("<b>FX Graph × 2</b><br/>ATen 级，前向图 + 反向图")]
-        IND["<b>后端 TorchInductor（第五章）</b><br/>融合 · 内存规划 · 代码生成"]
-        CODE["Triton / C++ 源码<br/>→ 目标编译器 → 机器码"]
-        DS["Dynamic Shape<br/>贯穿三段（第六章）"]
+        AOT["<b>中端 AOTAutograd（第四章）</b><br/>• 反向展开<br/>• 函数化<br/>• 分解"]
+        FX2[("<b>FX Graph × 2</b><br/>• ATen 级<br/>• 前向图、反向图各一张")]
+        IND["<b>后端 TorchInductor（第五章）</b><br/>• 融合<br/>• 内存规划<br/>• 代码生成"]
+        CODE["<b>生成的代码</b><br/>• Triton / C++ 源码<br/>• 交给目标编译器<br/>• 得到机器码"]
+        DS["<b>Dynamic Shape（第六章）</b><br/>贯穿三段"]
         DY --> FX1 --> AOT --> FX2 --> IND
         IND -- "磁盘缓存命中则跳过生成与编译" --> CODE
         DS -.- DY
@@ -1204,13 +1204,14 @@ Guard 是编译栈的**正确性基础**：Inductor 之所以能把 `128`、`64`
 把这条演化链画成状态机：节点是函数当前积累的编译产物，边是每次调用带来的转移；黄色边表示流水线真正运行，绿色边表示直接复用。注意每次重编译后 Guard 的形态都在变。
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：Dynamic Shape 的状态机：每次调用带来的转移，Guard 从 == 128 变成 s0 > 64 再变成 s0 ≤ 64
 flowchart TB
     S0["没有任何产物"]
-    S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["<b>产物 A：relu 版</b><br/>128 / 64 / 8192 烧成常量<br/>Guard: size#91;0#93; == 128"]
-    SA -->|"② x: #91;256, 32#93;<br/>size#91;0#93; == 128 失败 → 自动动态化重编译<br/>第 0 维标为符号 s0，if s0 > 64 用 256 定为 True"| SB["<b>产物 A + B</b><br/>B：relu 版，xnumel 为运行时参数<br/>Guard: s0 > 64（分支条件本身，而非 == 256）"]
+    S0 -->|"① x: #91;128, 32#93;<br/>无条目可查 → 静态编译"| SA["<b>产物 A：relu 版</b><br/>• 128 / 64 / 8192 烧成常量<br/>• Guard：size#91;0#93; == 128"]
+    SA -->|"② x: #91;256, 32#93;<br/>size#91;0#93; == 128 失败 → 自动动态化重编译<br/>第 0 维标为符号 s0，if s0 > 64 用 256 定为 True"| SB["<b>产物 A + B</b><br/>• B：relu 版，xnumel 为运行时参数<br/>• Guard：s0 > 64<br/>• 这是分支条件本身，不是 == 256"]
     SB -->|"③ x: #91;512, 32#93;<br/>s0 > 64 通过 → 复用 B，流水线不运行"| SB
-    SB -->|"④ x: #91;32, 32#93;<br/>s0 > 64 失败 → 重编译，走 tanh 分支"| SC["<b>产物 A + B + C</b><br/>C：tanh 版，Guard: s0 ≤ 64"]
+    SB -->|"④ x: #91;32, 32#93;<br/>s0 > 64 失败 → 重编译，走 tanh 分支"| SC["<b>产物 A + B + C</b><br/>• C：tanh 版<br/>• Guard：s0 ≤ 64"]
     SC -->|"此后每次调用只查 Guard<br/>s0 > 64 → B，s0 ≤ 64 → C"| SC
     classDef st fill:#e8eaf6,stroke:#3949ab;
     class S0,SA,SB,SC st;
@@ -1279,21 +1280,22 @@ y = compiled_f(x, weight, bias)       # x: [128, 32]
 ```
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：第一次调用的冷编译：帧钩子截获字节码，Dynamo → AOTAutograd → Inductor → Triton，真实数据只在最后一步被读取
 flowchart TB
     A[调用 compiled_f] --> B[帧钩子截获 f 的字节码]
-    B --> C[Dynamo 符号求值<br/>FakeTensor 推断元数据]
-    C --> D[torch 级 FX Graph<br/>matmul → add → relu<br/>if 已特化掉]
-    C --> G["<b>Guard 列表</b><br/>size#91;0#93; == 128 / dtype / device / …"]
-    D --> E[AOTAutograd<br/>Fake 执行前向 + 反向]
-    E --> F1[ATen 级前向图<br/>mm → add → relu]
-    E --> F2[ATen 级反向图<br/>threshold_backward → mm × 2 → sum]
-    F1 --> H1[Inductor → 前向 output_code<br/>extern mm + fused add_relu]
-    F2 --> H2["反向图先保存<br/>第一次 backward() 时才交给 Inductor"]
+    B --> C["<b>Dynamo 符号求值</b><br/>FakeTensor 推断元数据"]
+    C --> D["<b>torch 级 FX Graph</b><br/>• matmul → add → relu<br/>• if 已特化掉"]
+    C --> G["<b>Guard 列表</b><br/>• size#91;0#93; == 128<br/>• dtype、device 等"]
+    D --> E["<b>AOTAutograd</b><br/>用 FakeTensor 执行前向加反向"]
+    E --> F1["<b>ATen 级前向图</b><br/>mm → add → relu"]
+    E --> F2["<b>ATen 级反向图</b><br/>threshold_backward → mm × 2 → sum"]
+    F1 --> H1["<b>Inductor 生成前向代码</b><br/>• extern mm<br/>• 融合 Kernel add_relu"]
+    F2 --> H2["<b>反向图先保存</b><br/>第一次 backward() 时才交给 Inductor"]
     H1 --> T[Triton 编译 → cubin]
     H2 --> W
-    T --> W[包进 autograd.Function<br/>写入缓存条目：字节码 + Guard]
-    W --> R[执行前向 call<br/>返回 y]
+    T --> W["<b>包进 autograd.Function</b><br/>写入缓存条目：字节码 + Guard"]
+    W --> R["<b>执行前向 call()</b><br/>返回 y"]
 ```
 
 整个过程中，`x`、`weight`、`bias` 的真实数据只在最后一步被读取。之前的所有阶段都在 FakeTensor 上进行。
@@ -1358,14 +1360,15 @@ y = compiled_f(x4, weight, bias)      # x4: [32, 32]
 与 §1 冷编译那张图对照，这一次的入口逻辑是"逐条查 Guard、都不命中才进流水线"：
 
 ```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
 %% 图：第四次调用走到另一条分支：逐条查 Guard 都不命中，才进流水线追加第三份编译产物
 flowchart TB
-    IN["调用 compiled_f(x4, weight, bias)，x4: #91;32, 32#93;<br/>帧钩子取出 f 的缓存条目列表（此时 2 条），逐条查 Guard"]
-    IN --> E1["条目 1：type(x) is Tensor · dtype · device · size#91;0#93; == 128"]
+    IN["<b>调用 compiled_f(x4, weight, bias)</b><br/>• x4 的 shape 是 #91;32, 32#93;<br/>• 帧钩子取出 f 的缓存条目列表，此时有 2 条<br/>• 逐条查 Guard"]
+    IN --> E1["<b>条目 1 的 Guard</b><br/>• type(x) is Tensor<br/>• dtype、device<br/>• size#91;0#93; == 128"]
     E1 -->|"通过"| P1["<b>运行产物 1</b><br/>relu 版，静态 128"]
-    E1 -->|"32 ≠ 128，失败"| E2["条目 2：同样的元数据检查 · s0 > 64"]
+    E1 -->|"32 ≠ 128，失败"| E2["<b>条目 2 的 Guard</b><br/>• 同样的元数据检查<br/>• s0 > 64"]
     E2 -->|"通过"| P2["<b>运行产物 2</b><br/>relu 版，符号 s0"]
-    E2 -->|"32 > 64 为假，失败"| RC["<b>都不命中 → 触发编译器</b><br/>Dynamo：追踪到 tanh 分支，Guard s0 ≤ 64<br/>AOTAutograd：反向变为 1 - tanh²<br/>Inductor：triton_poi_fused_add_tanh_0<br/>追加为条目 3（上限 8，超限退回 Eager）"]
+    E2 -->|"32 > 64 为假，失败"| RC["<b>都不命中，触发编译器</b><br/>• Dynamo：追踪到 tanh 分支，Guard s0 ≤ 64<br/>• AOTAutograd：反向变为 1 - tanh²<br/>• Inductor：triton_poi_fused_add_tanh_0<br/>• 追加为条目 3；上限 8 条，超限退回 Eager"]
     RC --> P3["<b>运行产物 3</b><br/>tanh 版"]
     E2 -.->|"之后 batch ≤ 64 的调用：<br/>条目 3 的 Guard s0 ≤ 64 通过"| P3
     classDef hit fill:#e3f2e1,stroke:#2e7d32;
@@ -1440,13 +1443,13 @@ flowchart TB
         DONE --> RUN
     end
     subgraph CP["编译器：被触发时运行一次（第三 ~ 五章）"]
-        DY["<b>前端 TorchDynamo（第三章）</b><br/>符号求值字节码，捕获 Tensor 计算<br/>Graph Break 决定边界"]
+        DY["<b>前端 TorchDynamo（第三章）</b><br/>• 符号求值字节码<br/>• 捕获 Tensor 计算<br/>• Graph Break 决定边界"]
         FX1[("<b>FX Graph（第二章）</b><br/>torch 级，只有前向")]
-        AOT["<b>中端 AOTAutograd（第四章）</b><br/>反向展开 · 函数化 · 分解"]
-        FX2[("<b>FX Graph × 2</b><br/>ATen 级，前向图 + 反向图")]
-        IND["<b>后端 TorchInductor（第五章）</b><br/>融合 · 内存规划 · 代码生成"]
-        CODE["Triton / C++ 源码<br/>→ 目标编译器 → 机器码"]
-        DS["Dynamic Shape<br/>贯穿三段（第六章）"]
+        AOT["<b>中端 AOTAutograd（第四章）</b><br/>• 反向展开<br/>• 函数化<br/>• 分解"]
+        FX2[("<b>FX Graph × 2</b><br/>• ATen 级<br/>• 前向图、反向图各一张")]
+        IND["<b>后端 TorchInductor（第五章）</b><br/>• 融合<br/>• 内存规划<br/>• 代码生成"]
+        CODE["<b>生成的代码</b><br/>• Triton / C++ 源码<br/>• 交给目标编译器<br/>• 得到机器码"]
+        DS["<b>Dynamic Shape（第六章）</b><br/>贯穿三段"]
         DY --> FX1 --> AOT --> FX2 --> IND
         IND -- "磁盘缓存命中则跳过生成与编译" --> CODE
         DS -.- DY
