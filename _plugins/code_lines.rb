@@ -61,7 +61,11 @@ module CodeLines
   # but spans).
   def self.wrap(inner, known = {}, directives = true)
     return nil if inner =~ %r{<(?!/?span\b)[a-zA-Z!/]}
-    body = inner.sub(/\n\z/, '')
+    # the block's final newline is not a line of its own — also when Rouge
+    # put it inside the last token (a Python `# comment` swallows its newline,
+    # so the block ends `…comment\n</span>`; that used to add an empty,
+    # numbered last line)
+    body = inner.sub(%r{\n((?:</span>)*)\z}, '\\1')
     open = []          # rouge spans open at the current position
     line_open = []     # … at the start of the current line (reopened after a directive is dropped)
     out = +''
